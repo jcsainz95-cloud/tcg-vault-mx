@@ -2,7 +2,63 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-01 (rev **v1.51.1**).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-01 (rev **v1.51.2**).
+>
+> **Changelog v1.51.2 — PISO DE NETO PARA EMITIR, Y EL BOUNTY NACE CON META 2 (2026-09-01, arquitecto; PASE
+> CORRECTIVO FINAL sobre v1.51.1. `PROJECT.md` §P 6ª ronda — D34/D35, cierre de las preguntas 25 y 26.
+> ARCHITECTURE §4.39 enmendada por segunda vez, §11 (**M-46 SIN DDL NUEVO**)):**
+> ⚠️ **Ni v1.51 ni v1.51.1 han salido a producción: esto CORRIGE el contrato antes de implementarlo.** **Nada se
+> borra; lo superado queda tachado y explicado.** **Cero endpoints nuevos, cero columnas nuevas.**
+>
+> **A. D34 — NO SE PUEDE EMITIR UNA OFERTA CUYO NETO QUEDE POR DEBAJO DE MX$200.**
+> - **⚠️ BREAKING sobre v1.51.1 (papel): `422 OFFER_NET_NOT_POSITIVE` SE RENOMBRA a `422 OFFER_NET_BELOW_MINIMUM`.**
+>   El nombre viejo describía la regla vieja (*«> 0»*). **Un código que miente es peor que uno feo** — misma doctrina
+>   que obligó a renombrar `details.rule` en v1.51.1. **El nombre viejo deja de existir** (verificable *por lo
+>   negativo*): no coexisten.
+> - **La condición sube de `netCents <= 0` a `netCents < buylistMinimumOfferNetCents`** (default **MX$200**). El
+>   `details` gana **`minimumNetCents`**, **`requiredGrossCents`** y **`grossShortfallCents`**: *el faltante lo calcula
+>   el servidor y se expresa en **BRUTO***, que es la palanca del operador. Misma disciplina que `BUYLIST_MINIMUM_NOT_MET`.
+> - **El SITIO del bloqueo NO se mueve:** sigue en **`POST /admin/buylist/:id/offer`**, **no** en M10 y **no** en la
+>   aceptación. `PROJECT.md` §P.10 lo ratifica: *«M10 no ve el recorte que hizo el operador»*.
+> - **Se evalúa ANTES del tope del operador** ⇒ **nada inofertable entra a la cola de autorización**, y
+>   **`POST …/offer/authorize` NO lo reevalúa** (autoriza *lo guardado*, criterio 143).
+> - **NUEVO dial `buylistMinimumOfferNetCents` = 20000** (§M10). **Los diales del ciclo pasan de OCHO a NUEVE**
+>   —alta limpia, **no sale ninguno**—. **Rango `≥ 1`; el `0` NO es legal**: con `0` la guarda nunca dispara y reabre
+>   la oferta de MX$0. Con `1` la regla degenera **exactamente** en la de v1.51.1.
+> - **`GET …/decision-table` gana `totals.minimumOfferNetCents`, `totals.requiredGrossCents` y
+>   `totals.netBelowMinimum`.** El aviso de la mesa deja de ser *«net ≤ 0»* y pasa a ser *«net < piso»*. **El front no
+>   recalcula el umbral: lo recibe.**
+> - **⚠️ LA VALIDACIÓN CRUZADA DE M10 GANA UN TERCER TÉRMINO** (tercera reformulación):
+>   **`buylistShippingFeeCents + buylistMinimumOfferNetCents ≤ buylistMinimumRequestCents`** (18000 + 20000 ≤ 50000).
+>   Impide una combinación de diales que haría que **la solicitud mínima que prometemos comprar no se pudiera ni
+>   ofertar**. **Sustituye** a la de v1.51.1 (la implica), sigue **BLOQUEANTE**, ahora en **TRES sentidos** y sobre el
+>   **estado resultante**. ⚠️ **`details.rule` cambia de nombre otra vez** →
+>   **`buylist_fee_plus_min_net_le_min_request`**.
+> - **⚠️ FRONTERA MONEY-SAFE: el piso gobierna la EMISIÓN, JAMÁS el pago.** `payoutNetCents` **no tiene piso** más que
+>   el cero: un rechazo parcial que deje $40 (o $0) **se paga igual** (criterios 140/152). **Ninguna ruta** puede usar
+>   este dial para retener un SPEI.
+> - **⚠️ El ejemplo numérico del criterio 158(c) de `PROJECT.md` cambia de resultado** (bruto $200 ⇒ neto $20 **ahora
+>   se bloquea**). **La regla general sigue viva**: el mínimo de **compra** ($500) sigue **sin** re-aplicarse a la
+>   oferta — un cherry-pick a **$400** de bruto sale sin problema. Señalado, no resuelto aquí: ARCHITECTURE §4.39(o.17).
+>
+> **B. D35 — EL OBJETIVO DEL BOUNTY NACE EN 2, Y LOS VIEJOS SE RELLENAN.**
+> - **`PUT /admin/pricing/variant-controls/:cardId/:finish`:** con `bounty.enabled = true` y **`targetQty` OMITIDO**,
+>   el objetivo pasa a **2** por defecto (si la fila no tenía uno; si lo tenía, **se conserva** — *omitido no se toca*).
+> - **`422 BOUNTY_TARGET_REQUIRED` SE QUEDA y CONSERVA SU NOMBRE** (contraste deliberado con el punto A): sigue
+>   disparando con **`null` explícito**, `0`, negativo o no entero. **`null` LIMPIA en este endpoint**, y dejar sin
+>   meta un bounty vivo es el agujero que D32 cerró. *Un default es para «no lo dije», no para «dije que ninguno».*
+> - **Los bounties vivos sin meta SE RELLENAN con 2** (backfill idempotente en el despliegue de M-46), **no se
+>   desactivan**. **Sin DDL** (la columna sigue `Int?`) y **sin panel de bounties** (proyecto aparte).
+> - **La lectura no cambia:** un bounty vivo con `targetQty = null` sigue cayendo al **tope general**
+>   (`rule: "variant_cap"` con `bountyActive: true`). Tras el backfill **no debería existir ninguna fila así**, y la
+>   rama **no se retira**: la columna sigue siendo nullable ⇒ el `null` sigue siendo representable.
+> - **`GET /buylist/bounties` (público): sin cambio de shape.** `targetQty`/`remainingQty` **conservan el `| null`**
+>   como *fail-safe*, no ya como «caso legacy esperado».
+>
+> **C. Sin cambios.** SEC-A1 (el body de `offer-response` sigue siendo `{ decision }` y ningún monto viaja del
+> cliente), la máquina de estados y sus **cuatro** terminales, los **cuatro** correos, las **siete** reglas del
+> barrido, el mínimo (MX$500), la tarifa (MX$180), los topes AML/KYC y el umbral de INE sobre el **BRUTO**, el SPEI
+> por el **NETO**, la curva, NM-only, y toda superficie pública de catálogo, checkout, órdenes y disputas.
 >
 > **Changelog v1.51.1 — UNA SOLA BANDA, BOUNTY CON META, Y LA SOLICITUD QUE CADUCA (2026-09-01, arquitecto; PASE
 > CORRECTIVO sobre v1.51. `PROJECT.md` §P — D31/D32/D33 + cierre de la pregunta (o.1). ARCHITECTURE §4.39 enmendada,
@@ -23,11 +79,15 @@
 > - **⚠️ NUEVO `422 OFFER_NET_NOT_POSITIVE` en `POST /admin/buylist/:id/offer`.** Con dos bandas, una oferta chica caía
 >   en la banda del vendedor (`fee = 0`) y **el neto era el bruto**; con una sola, un cherry-pick por debajo de la
 >   tarifa **anuncia un depósito de MX$0**. Es la misma *«oferta rota»* que el criterio 127 prohíbe, por otra puerta:
->   se bloquea **donde se decide el número**. (Un neto positivo pero pequeño **no** se bloquea.)
+>   se bloquea **donde se decide el número**. ~~(Un neto positivo pero pequeño **no** se bloquea.)~~
+>   *(⛔ **ENMENDADO por v1.51.2 / D34:** el código se llama **`OFFER_NET_BELOW_MINIMUM`** y el umbral es **MX$200**,
+>   no `> 0`. **El sitio del bloqueo no cambia.** «Un neto pequeño no se bloquea» **queda DEROGADO**.)*
 > - **La validación cruzada de M10 se REFORMULA** (pierde su referente, no su propiedad):
 >   **`buylistShippingFeeCents < buylistMinimumRequestCents`** (18000 < 50000). Sigue **BLOQUEANTE**, en **los dos
 >   sentidos**, y **evaluada sobre el estado resultante**. ⚠️ **`details.rule` cambia** a
 >   `"buylist_shipping_fee_lt_minimum"`: el nombre viejo apuntaba a una clave que ya no existe.
+>   *(⛔ **RE-ENMENDADO por v1.51.2 / D34:** gana un **tercer término** —
+>   `tarifa + piso ≤ mínimo` — y la `rule` pasa a `buylist_fee_plus_min_net_le_min_request`. **Tres** sentidos.)*
 > - **La guía es universal ⇒ `shipDeadlineAt` se ancla SIEMPRE en `guideSentAt`.** Una `aceptada` **sin guía no corre
 >   reloj y no expira** (correcto: la etiqueta depende de nosotros), **pero tiene que verse**: `GET /admin/buylist`
 >   gana **`awaitingGuide=true`**.
@@ -35,6 +95,8 @@
 > **B. D32 — el objetivo del bounty es OBLIGATORIO.**
 > - **NUEVO `422 BOUNTY_TARGET_REQUIRED`** en `PUT /admin/pricing/variant-controls/:cardId/:finish` cuando
 >   `bounty.enabled = true` sin `targetQty ≥ 1`. **Hermano exacto** del `422 BOUNTY_PRICE_REQUIRED` que ya existe.
+>   *(⚠️ **ENMENDADO por v1.51.2 / D35:** la **omisión** deja de ser una entrada del error — pasa a **default 2**. El
+>   código **se queda, con su nombre**, para `null` explícito / `0` / negativo / no entero.)*
 > - **Sin DDL y SIN panel de bounties** (el humano lo dejó como **proyecto aparte**). La columna sigue `Int?` por las
 >   filas legacy.
 > - **Lectura:** un bounty vivo **legacy** con `targetQty = null` **cae al TOPE GENERAL** en la mesa de decisión
@@ -51,7 +113,8 @@
 >   del correo de expiración, porque ese **afirma un hecho falso** en este caso (que hubo oferta y que el vendedor
 >   incumplió un plazo).
 > - **NUEVO dial `buylistOfferIssueDeadlineBusinessDays` = 7** (§M10). **Siguen siendo OCHO diales**: sale el umbral,
->   entra este. **NO se le comunica al vendedor por adelantado ⇒ NO se congela** (es un SLA nuestro, no un plazo suyo).
+>   entra este. *(⛔ **v1.51.2/D34: son NUEVE** — entra el piso de neto, y esta vez **no sale ninguno**.)*
+>   **NO se le comunica al vendedor por adelantado ⇒ NO se congela** (es un SLA nuestro, no un plazo suyo).
 > - **⚠️ `POST …/offer/authorize` se endurece:** una oferta `pending_authorization` vive con `status='cotizada'` y por
 >   tanto **caduca con ella**. El barrido **anula la oferta en la misma transacción** y el `authorize` exige además
 >   **`status='cotizada' ∧ closedAt IS NULL`**. Sin esto, el súper-admin **resucitaría una solicitud terminal mandando
@@ -153,9 +216,12 @@
 >   reclasificación de lo ya capturado es **a mano desde M1**, auditada; **ninguna migración adivina**).
 >
 > **E. M10 (§M10) — OCHO diales nuevos y UNA validación cruzada BLOQUEANTE.**
+> *(⛔ **v1.51.2 / D34: son NUEVE diales** —entra `buylistMinimumOfferNetCents`— y la validación cruzada pasa a tener
+> **tres términos**. El resto de este punto sigue vigente.)*
 > - Los ocho de `PROJECT.md` §P.10, todos editables **sin redeploy**, **auditados** y **congelados por solicitud**
 >   (criterio 157). **El noveno (umbral de recorte material, D28) NO EXISTE y no se implementa** — buscarlo en M10
->   debe dar **nada** (criterio 127).
+>   debe dar **nada** (criterio 127). *(⚠️ v1.51.2 matiza «congelados por solicitud»: **solo tres de los nueve se
+>   congelan de verdad**; los demás son gates evaluados una vez. Ver la nota de **clases** en §M10.)*
 > - **`buylistShippingFeeCents` (MX$180) ≠ `shippingFeeCents` (MX$175, retiro).** Son **dos diales distintos**;
 >   mover uno **no** mueve el otro (criterio 127, última línea).
 > - **BLOQUEANTE, en los dos sentidos:** ~~`buylistShippingFeeCents < buylistShippingThresholdCents`~~ ⇒
@@ -165,6 +231,10 @@
 >   *(⛔ **REFORMULADA en v1.51.1 / D31:** el umbral **ya no existe**. El invariante vigente es
 >   **`buylistShippingFeeCents < buylistMinimumRequestCents`** (`180/500`), con `details.rule` renombrada a
 >   `buylist_shipping_fee_lt_minimum`. **Bloqueante, dos sentidos y estado resultante siguen igual.**)*
+>   *(⛔ **RE-REFORMULADA en v1.51.2 / D34:** con el piso de neto entra un **tercer término**. Vigente:
+>   **`buylistShippingFeeCents + buylistMinimumOfferNetCents ≤ buylistMinimumRequestCents`** (`180 + 200 ≤ 500`),
+>   `details.rule` = **`buylist_fee_plus_min_net_le_min_request`**, y son **TRES sentidos**. La regla de v1.51.1
+>   **queda contenida** en esta, así que **no se conservan las dos**. Y **son NUEVE diales, no ocho**.)*
 >
 > **F. Reglas de dinero — normativas, transversales a todos los endpoints de arriba.**
 > - **Bruto** = Σ `offeredPriceCents` de las líneas `buy`, **congelado al ofertar**. **Envío** = tarifa **congelada**
@@ -4775,6 +4845,12 @@ Res `200` (`PublicBountiesResponse`): `{ data: PublicBountyDTO[] }`
 - **⚠️ v1.51.1 (D32):** `targetQty`/`remainingQty` **conservan el tipo `| null`** para tolerar **filas legacy**, pero
   **en todo bounty creado desde v1.51.1 nunca son `null`**: el objetivo pasó a ser **obligatorio** al configurarlo
   (`422 BOUNTY_TARGET_REQUIRED`, §M2). **Sin cambio de shape ni de conducta pública.**
+- **⚠️ v1.51.2 (D35): SIGUE SIN CAMBIAR EL SHAPE, pero cambia el ESTATUS del `null`.** Tras el **backfill** de M-46
+  (todo bounty vivo sin meta pasa a **2**), un `targetQty: null` **deja de ser un caso legacy esperado y pasa a ser un
+  *fail-safe***: no debería ocurrir nunca. **El `| null` se queda igualmente** —la columna sigue siendo nullable, así
+  que el valor sigue siendo representable— y **el front debe seguir tolerándolo sin romperse** (pintar la tarjeta sin
+  el contador, nunca un `NaN` ni un «quedan null»). *Retirar el `| null` del tipo convertiría un dato improbable en un
+  crash.* **El default de 2 no se comunica al cliente**: la vitrina muestra el objetivo **real** de cada bounty.
 - Err `429 RATE_LIMITED`.
 
 ### POST /api/v1/buylist/requests — `customer`
@@ -4852,8 +4928,11 @@ Err:
   > ciclo existe para evitar. ⚠️ **El mínimo se juzga sobre el total cotizado BRUTO** —el descuento **no** se resta
   > antes de compararlo con `buylistMinimumRequestCents`—: son dos cosas distintas y mezclarlas rechazaría solicitudes
   > legítimas de exactamente $500.
-  > **Validación cruzada relacionada (§M10):** `buylistShippingFeeCents < buylistMinimumRequestCents` es **bloqueante**
-  > precisamente para que la solicitud más chica que el sistema acepta **nunca** deposite MX$0.
+  > **Validación cruzada relacionada (§M10):** ~~`buylistShippingFeeCents < buylistMinimumRequestCents`~~ ⇒
+  > **`buylistShippingFeeCents + buylistMinimumOfferNetCents ≤ buylistMinimumRequestCents`** *(v1.51.2 / D34)* es
+  > **bloqueante** precisamente para que la solicitud más chica que el sistema acepta **nunca** deposite MX$0 **y, desde
+  > D34, para que además siempre se pueda OFERTAR**: prometer *«desde $500 te compramos»* sobre una cifra que el
+  > sistema no podría ofertar sería una promesa rota por configuración.
 - **`422 PHONE_REQUIRED` (v1.51, D11, criterio 128(c))** — el usuario **no tiene celular** en su cuenta.
   `details: { field: "phone" }`. **Sin celular, no hay solicitud.**
   > Cubre el hueco real: `User.phone` es **nullable** en el schema (`schema.prisma:352`) aunque el **registro local**
@@ -5996,8 +6075,41 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
     > filas legacy; en un bounty creado desde v1.51.1 **nunca** son `null`.
     > **NO se diseña panel de bounties** — el humano lo dejó como **proyecto aparte**. La exigencia vive **solo** aquí,
     > que es donde hoy se configuran.
-    > **Censo, no backfill (M-46):** la migración **lista** los bounties vivos con objetivo `null` para que el dueño los
-    > complete desde M2; **no los rellena**. Mientras tanto la lectura ya los frena.
+    > ~~**Censo, no backfill (M-46):** la migración **lista** los bounties vivos con objetivo `null` para que el dueño
+    > los complete desde M2; **no los rellena**. Mientras tanto la lectura ya los frena.~~ ⛔ **SUPERSEDED por D35.**
+  - **⚠️ v1.51.2 (D35) — EL OBJETIVO POR DEFECTO ES 2, Y LOS VIEJOS SE RELLENAN.** El humano fijó el número que D32
+    dejó pendiente (*«hasta tener 2 en inventario»*). **`targetQty` sigue siendo editable por bounty.** Con
+    `bounty.enabled = true`:
+
+    | `bounty.targetQty` | Resultado | Por qué |
+    |---|---|---|
+    | **omitido**, fila **sin** objetivo previo | **2** (default) | *«no lo dije»* ⇒ el producto tiene una respuesta |
+    | **omitido**, fila **con** objetivo previo | **se conserva el existente** | regla vigente del endpoint: *campos omitidos NO se tocan* |
+    | entero **≥ 1** | ese valor | editable por bounty — sin cambio |
+    | **`null` explícito** | **`422 BOUNTY_TARGET_REQUIRED`** | `null` **LIMPIA** en este endpoint, y dejar sin meta un bounty vivo es el agujero que D32 cerró |
+    | `0`, negativo o no entero | **`422 BOUNTY_TARGET_REQUIRED`** | sin cambio respecto a D32 |
+
+    > **⚠️ El código CONSERVA SU NOMBRE, y el contraste con `OFFER_NET_BELOW_MINIMUM` es deliberado.**
+    > `BOUNTY_TARGET_REQUIRED` sigue disparando **exactamente cuando la petición dejaría un bounty vivo sin objetivo
+    > válido**, así que **el nombre sigue describiendo su condición**; lo que cambió no es la regla, sino que **la
+    > omisión dejó de ser una de sus entradas**. *(En cambio `OFFER_NET_NOT_POSITIVE` **era** la regla vieja en su
+    > nombre, y por eso hubo que renombrarlo. Se renombra lo que miente, no lo que envejece.)*
+    > **Un default es para «no lo dije», no para «dije que ninguno»:** convertir un `null` explícito en un `2` sería
+    > contestar una pregunta distinta de la que hizo el cliente de la API, y **en la única dirección que reabre el
+    > agujero**.
+    > **BACKFILL, no censo (M-46):** los bounties **vivos** (`bountyEnabled ∧ bountyCompletedAt IS NULL`) con
+    > `bountyTargetQty = null` **se rellenan con 2** en el despliegue, **idempotente** (`… AND bountyTargetQty IS
+    > NULL`), **sin DDL** y **sin desactivar ninguno**. *La objeción de v1.51.1 —«inventar la meta es inventar
+    > intención de negocio»— no se ignoró: **se satisfizo**, porque el humano ES la intención de negocio y la fijó.*
+    > **La LECTURA no cambia y la rama del `null` NO se retira:** la columna sigue siendo `Int?`, así que el `null`
+    > sigue siendo **representable** (restore, fixture, bug futuro) y **el lector tiene que tener una respuesta** — la
+    > money-safe es caer al **tope general**. Tras el backfill **no debería existir ninguna fila así**: es un
+    > *fail-safe*, no una rama esperada.
+    > **Residuo operativo señalado (ARCHITECTURE §4.39o.15):** una fila legacy que ya tenga `bountyAcquiredQty ≥ 2`
+    > queda **viva y por encima de su nueva meta** hasta el siguiente pago (el auto-apagado vive en la transacción del
+    > SPEI y **no es retroactivo**); la mesa **ya frena** desde el primer render y la vitrina puede mostrar
+    > `remainingQty: 0`. **No se auto-apaga nada durante la migración** —apagar un bounty vivo es decisión de negocio,
+    > no efecto de un `UPDATE`—; el paso reporta esas filas para triage manual desde M2.
   - **v2.0 (P-48) — el bounty se revalida contra la CURVA, y ahora en TRES momentos (§N.6, criterios 90/91):**
     - **`422 BOUNTY_BELOW_RULE` cambia de comparación:** se compara contra la **cotización de la curva** vigente y
       **rechaza también el EMPATE** (`priceCents ≤ curveQuoteCents`, antes solo `<`). Detalle del error:
@@ -7557,13 +7669,31 @@ Notas de seguridad: **host fijo** de pokemontcg.io (sin SSRF); `POKEMONTCG_IO_AP
 > camino es una razón perfectamente buena para no comprar la novena — y hoy esa información no está en la pantalla
 > donde se decide.»* (§P.2)
 
-Res `200`: `{ sellRequestId, status, seller: AdminSellerRef, quotedTotalCents, lines: BuylistDecisionLineDTO[], totals: { buyableGrossCents, shippingFeeCents, netCents }, operatorCapCents, requiresAuthorization: boolean }` (§11).
+Res `200`: `{ sellRequestId, status, seller: AdminSellerRef, quotedTotalCents, lines: BuylistDecisionLineDTO[], totals: BuylistDecisionTotalsDTO, operatorCapCents, requiresAuthorization: boolean }` (§DTOs).
 > **⚠️ v1.51.1 (D31):** `totals` **pierde `shippingPaidByUs`** — hay **una sola banda**, así que el campo solo podía
 > valer `true`. `shippingFeeCents` es **siempre** la tarifa vigente y `netCents = max(0, buyableGrossCents − fee)`.
-> ⚠️ **Un `netCents <= 0` aquí es un AVISO, no un bloqueo** —la mesa previsualiza y no compromete nada—, pero
-> **`POST …/offer` lo rechaza** con `422 OFFER_NET_NOT_POSITIVE`. **La UI debe destacarlo en la mesa** para que el
-> operador lo vea **antes** de intentar emitir; que la única señal fuera el error de la emisión sería exactamente la
-> fricción que la mesa existe para evitar.
+>
+> ### ⚠️ v1.51.2 (D34) — `totals` GANA TRES CAMPOS, y el aviso cambia de umbral
+> ```
+> minimumOfferNetCents = buylistMinimumOfferNetCents                      // dial 9, MX$200 por defecto
+> requiredGrossCents   = minimumOfferNetCents + shippingFeeCents          // DERIVADO — $380 con los defaults
+> netBelowMinimum      = netCents < minimumOfferNetCents                  // DERIVADO — el aviso, ya resuelto
+> ```
+> - ~~Un `netCents <= 0` aquí es un aviso~~ ⛔ **SUPERSEDED.** El aviso ahora es **`netBelowMinimum = true`**, es decir
+>   **`netCents < minimumOfferNetCents`**, no `≤ 0`.
+> - **Sigue siendo AVISO, no bloqueo** —la mesa **previsualiza** y no compromete nada—, pero **`POST …/offer` lo
+>   rechaza** con **`422 OFFER_NET_BELOW_MINIMUM`**. **La UI debe destacarlo en la mesa** para que el operador lo vea
+>   **antes** de intentar emitir; que la única señal fuera el error de la emisión sería exactamente la fricción que la
+>   mesa existe para evitar.
+> - **⚠️ El front NO recalcula el umbral ni el faltante: los recibe.** El dial es editable sin redeploy, así que una
+>   constante `20000` en el frontend **quedaría desincronizada en silencio la primera vez que alguien mueva el dial** —
+>   y en una pantalla de dinero eso se traduce en un aviso que aparece cuando no toca (o, peor, que no aparece). Misma
+>   norma que ya rige `operatorCapCents`/`requiresAuthorization`: **el servidor manda el número Y el veredicto.**
+> - **`requiredGrossCents` viaja aunque sea derivado**, por la misma razón que `requiresAuthorization`: permite pintar
+>   *«te faltan $X de bruto»* sin que la UI haga aritmética de dinero. **No es un décimo dial** — se calcula, no se
+>   configura (ARCHITECTURE §4.39l).
+> - **Con `positionUnavailable`, estos tres campos SIGUEN SIENDO VÁLIDOS**: dependen solo de montos, no del conteo de
+>   inventario. Un fallo del puerto de posición **no** debe apagar el aviso del piso.
 
 - **`totals` es una PREVISUALIZACIÓN, no un compromiso.** Se calcula con la curva y los diales **de este instante** y
   **cambia** si el admin cambia de decisión. **Lo vinculante se congela al emitir la oferta**, no aquí.
@@ -7618,6 +7748,12 @@ Res `200`: `{ sellRequestId, status, seller: AdminSellerRef, quotedTotalCents, l
     `bountyActive: true`—, que es exactamente el caso legacy legible en pantalla (criterio 144). *Prohibirlo solo al
     escribir habría dejado el agujero vivo justo donde ya existe: en los datos de producción.* **No contradice
     D29(a)**, que habla de un bounty **bien formado** —el único que desde D32 se puede crear.
+  - **⚠️ v1.51.2 (D35) — esa rama pasa a ser *fail-safe*, y NO se retira.** Con el **default 2** (alta) y el
+    **backfill a 2** (filas vivas existentes), **ningún bounty vivo debería llegar aquí con `targetQty = null`**. La
+    rama **se conserva** porque la columna sigue siendo `Int?` ⇒ el `null` **sigue siendo representable**, y un lector
+    de dinero sin respuesta para un valor representable es un lector que decide por omisión. **Tres mecanismos
+    independientes cubren pasado (backfill), futuro (default) y accidente (esta rama).** *Que la UI la vea o no ya no
+    es la prueba de que funciona; la prueba es que si la ve, frena.*
 - **`derivedPriceCents`** sale de **`decideBuyLine`** con la **curva vigente AHORA**, no de la cotización: *el monto
   no se hereda ciegamente* (§P.2). Una línea sin dato de mercado trae `derivedPriceCents: null` + `pendingReason` y
   **no se oferta con una cifra inventada** — **nunca MX$0 ni cifra de respaldo** (§N.2).
@@ -7658,18 +7794,55 @@ Req: `{ lines: [{ itemId: string, decision: "buy" | "skip", overridePriceCents?:
   ```
   **Siempre mandamos guía y siempre se descuenta**, en toda compra desde el mínimo de MX$500. `offerNetCents` **es la
   cifra vinculante frente al vendedor**, y **es la única que se deposita** (ya no hay `depositField` que consultar).
-- **⚠️ NUEVO `422 OFFER_NET_NOT_POSITIVE` (v1.51.1, ARCHITECTURE §4.39o.12) — la oferta NO puede anunciar MX$0.**
-  `offerNetCents <= 0` ⇒ rechazo, con `details: { grossCents, shippingFeeCents, netCents }`.
-  > **Por qué es nuevo y por qué va aquí.** Con **dos** bandas, una oferta pequeña caía en la banda del vendedor
-  > (`fee = 0`) y **el neto era el bruto**: positivo por construcción. Con **una** banda, un cherry-pick por debajo de
-  > la tarifa produce **neto MX$0** (cotizados $520 ⇒ se compra una línea de $150 ⇒ `150 − 180` ⇒ **$0**). El
-  > invariante «el neto nunca es negativo» **no lo cubre** ($0 no es negativo) y la validación cruzada de M10 **tampoco**
-  > (los diales no ven el recorte). Es **la misma «oferta rota» del criterio 127**, alcanzada por otra puerta, y se
-  > cierra **donde se decide el número**. **Salidas del operador:** comprar más líneas, subir con override (con motivo),
-  > o rechazar la solicitud.
-  > **NO se bloquea un neto positivo pero pequeño** (MX$5): es legal, **se ve antes de aceptar** y la decisión es del
-  > vendedor. Bloquearlo exigiría un **mínimo de oferta** que `PROJECT.md` no tiene — el criterio 158(c) dice
-  > justamente que **el mínimo NO se re-aplica a la oferta**.
+- **⚠️ PISO DE NETO PARA EMITIR — `422 OFFER_NET_BELOW_MINIMUM` (v1.51.2 / D34; ARCHITECTURE §4.39h paso 6, §4.39o.12).**
+  ~~`422 OFFER_NET_NOT_POSITIVE` cuando `offerNetCents <= 0`, con `details: { grossCents, shippingFeeCents, netCents }`.~~
+  ⛔ **SUPERSEDED (nombre y umbral).** Vigente:
+  ```
+  offerNetCents < buylistMinimumOfferNetCents   ⇒   422 OFFER_NET_BELOW_MINIMUM        // dial 9, MX$200
+  details: { grossCents, shippingFeeCents, netCents,
+             minimumNetCents, requiredGrossCents, grossShortfallCents }
+  requiredGrossCents  = minimumNetCents + shippingFeeCents         //  20000 + 18000 = 38000
+  grossShortfallCents = requiredGrossCents − grossCents            //  > 0 siempre que el error dispare
+  ```
+  > **Por qué existe y por qué va aquí (v1.51.1, y NO cambia).** Con **dos** bandas, una oferta pequeña caía en la
+  > banda del vendedor (`fee = 0`) y **el neto era el bruto**: positivo por construcción. Con **una** banda, un
+  > cherry-pick por debajo de la tarifa produce **neto MX$0** (cotizados $520 ⇒ se compra una línea de $150 ⇒
+  > `150 − 180` ⇒ **$0**). El invariante «el neto nunca es negativo» **no lo cubre** ($0 no es negativo) y la
+  > validación cruzada de M10 **tampoco** (los diales no ven el recorte). Es **la misma «oferta rota» del criterio
+  > 127**, alcanzada por otra puerta, y se cierra **donde se decide el número**.
+  >
+  > **⚠️ Qué cambió en v1.51.2 y qué NO.** **NO cambia el sitio** (sigue esta emisión) ni el razonamiento. **Cambia el
+  > número** (`> 0` ⇒ `≥ MX$200`) y, por tanto, **el nombre del código**: `OFFER_NET_NOT_POSITIVE` describía la regla
+  > vieja. **Un código que miente es peor que uno feo.** ~~«NO se bloquea un neto positivo pero pequeño (MX$5)…
+  > bloquearlo exigiría un mínimo de oferta que `PROJECT.md` no tiene»~~ ⛔ **DEROGADO: `PROJECT.md` ahora lo tiene**
+  > (D34, cierre de la pregunta 25).
+  > **La aritmética del número, para QA y para el copy:** operar una solicitud cuesta ~$217 (etiqueta $180 + tiempo);
+  > al 40% de referencia hace falta un bruto de ~$362 para pagarse sola (~$182 de neto). **$200 exige ~$380 de bruto.**
+  >
+  > **Salidas del operador, y el error se las dice con cifras:** **comprar más líneas**, **subir con override** (con
+  > motivo) o **no ofertar**. `grossShortfallCents` se expresa en **BRUTO a propósito**: la palanca del operador es el
+  > bruto, y *«te faltan $330 de bruto»* es accionable donde *«el neto es bajo»* no lo es. Misma disciplina que el
+  > `shortfallCents` de `BUYLIST_MINIMUM_NOT_MET` (criterio 132: *un «no» seco manda a la gente a otro lado*).
+  >
+  > **⚠️ ORDEN DE EVALUACIÓN — el piso va ANTES del tope del operador.** Si fuera al revés, una oferta por debajo del
+  > piso pero por encima del tope **entraría a la cola de autorización** y el súper-admin se toparía con el `422` al
+  > autorizar: una fila muerta en una cola que existe para trabajarse. **Nada inofertable llega a la cola.** Secuencia
+  > normativa: precondición → `OFFER_LINES_MISMATCH` → precio por línea (`OFFER_LINE_NOT_PRICEABLE` /
+  > `OVERRIDE_REASON_REQUIRED`) → cálculo de bruto/envío/neto → **`OFFER_NET_BELOW_MINIMUM`** → tope (`200`|`202`).
+  >
+  > **⚠️ FRONTERA MONEY-SAFE: esto gobierna la EMISIÓN, JAMÁS el pago.** `payoutNetCents` **no tiene piso** más que el
+  > cero. Una oferta emitida legalmente cuyo bruto aprobado se desplome tras la verificación **se paga con lo que
+  > quede, sea $40 o $0** (criterios 140/152). Usar este dial para retener un SPEI sería **retener dinero ya
+  > prometido** — el reverso exacto de lo que este ciclo protege.
+  >
+  > **Tampoco gobierna la ACEPTACIÓN.** El body de `offer-response` sigue siendo `{ decision }` (SEC-A1) y **nada se
+  > revalida** contra el dial vigente: la oferta comunicada es la que vale (criterio 157).
+  >
+  > **⚠️ El mínimo de COMPRA sigue sin re-aplicarse a la oferta** (criterio 158(c)): son **dos números, dos bases y dos
+  > momentos** — $500 sobre el **bruto cotizado** al **crear**; $200 sobre el **neto ofertado** al **emitir**. Un
+  > cherry-pick a **$400 de bruto** (neto $220) **sale sin bloqueo** aunque esté por debajo de los $500. *Lo que sí
+  > cambia es el **ejemplo** del criterio 158(c) (bruto $200 ⇒ neto $20), que ahora se bloquea* — señalado en
+  > ARCHITECTURE §4.39(o.17), enrutado al product-owner.
 - **⚠️ TOPE DEL OPERADOR — DOS DESENLACES, DOS CÓDIGOS DE ÉXITO DISTINTOS (D13/D24, criterios 143/147):**
 
   | Actor | Bruto | Respuesta | Efecto |
@@ -7696,12 +7869,15 @@ Req: `{ lines: [{ itemId: string, decision: "buy" | "skip", overridePriceCents?:
   aceptación, **el neto dejaría de ser vinculante** y volveríamos al problema del *«$1,480 que llegan como $1,350»*.
 - **El correo de oferta NO compra etiqueta (D21):** solo **anuncia** que el envío corre por nuestra cuenta y que **la
   guía le llega al aceptar**. *Solo se gasta etiqueta en quien ya dijo que sí.*
-- **El mínimo de compra NO se re-aplica aquí** (criterio 158(c)): cotizados $600 y cherry-pick a $200 ⇒ **la oferta
-  sale igual, sin bloqueo**.
+- **El mínimo de compra NO se re-aplica aquí** (criterio 158(c)): ~~cotizados $600 y cherry-pick a $200 ⇒ **la oferta
+  sale igual, sin bloqueo**~~ ⚠️ **EJEMPLO CORREGIDO (v1.51.2/D34):** cotizados $600 y cherry-pick a **$400** de bruto
+  ⇒ **la oferta sale igual, sin bloqueo** (neto $220 ≥ $200), **aunque $400 esté por debajo del mínimo de $500**. *El
+  ejemplo viejo ($200 de bruto ⇒ neto $20) **ahora lo frena el piso de D34**, no el mínimo de compra.* **Los $500
+  siguen gateando solo la creación de la solicitud.**
 
 Res `200` | `202`: `{ sellRequestId, status, offerState, offerSentAt: string | null, offerGrossCents, offerShippingFeeCents, offerNetCents, offerAcceptDeadlineAt: string | null, requiresAuthorization: boolean, items: SellItemDTO[] }`
-*(v1.51.1: **sin** `offerShippingPaidByUs`).*
-Err: `403`, `404 NOT_FOUND`, `409 OFFER_NOT_ALLOWED`, `409 OFFER_ALREADY_SENT`, `422 OFFER_LINES_MISMATCH`, `422 OFFER_LINE_NOT_PRICEABLE`, `422 OVERRIDE_REASON_REQUIRED`, **`422 OFFER_NET_NOT_POSITIVE`** (v1.51.1), `400 VALIDATION_ERROR`.
+*(v1.51.1: **sin** `offerShippingPaidByUs`. v1.51.2: **sin cambio de shape** — el piso no añade campos a la respuesta de éxito; su número vive en el `details` del error y en `decision-table`.)*
+Err: `403`, `404 NOT_FOUND`, `409 OFFER_NOT_ALLOWED`, `409 OFFER_ALREADY_SENT`, `422 OFFER_LINES_MISMATCH`, `422 OFFER_LINE_NOT_PRICEABLE`, `422 OVERRIDE_REASON_REQUIRED`, **`422 OFFER_NET_BELOW_MINIMUM`** (v1.51.2; ~~`422 OFFER_NET_NOT_POSITIVE`~~ de v1.51.1 **NO existe**), `400 VALIDATION_ERROR`.
 
 ##### `POST /api/v1/admin/buylist/:id/offer/authorize` — **`super_admin`** (D24, criterio 143/147)
 Req: body vacío `{}`.
@@ -7729,8 +7905,23 @@ Req: body vacío `{}`.
 > anularla, el segundo sigue cerrando la puerta**. En dinero saliente, una sola guarda es una guarda que se pierde.
 > **`409 OFFER_NOT_PENDING_AUTHORIZATION` gana `details.status`**, para que la cola pueda decir *«esta caducó mientras
 > esperaba tu autorización»* en vez de un «conflicto» mudo.
+>
+> ### ⚠️ v1.51.2 (D34) — EL PISO DE NETO **NO** SE REEVALÚA AQUÍ
+> **`422 OFFER_NET_BELOW_MINIMUM` NO puede salir de este endpoint**, y es deliberado:
+> - **Este endpoint autoriza LO GUARDADO** (criterio 143). No recalcula bruto, ni envío, ni neto: los montos ya se
+>   fijaron al preparar. **Reevaluar el piso sería comparar un monto congelado contra un dial vivo** — exactamente el
+>   anti-patrón que el criterio 157 prohíbe en todas las demás congelaciones.
+> - **La oferta ya pasó el piso al prepararse** (se evalúa antes del tope, ver `POST …/offer`), así que **nada
+>   inofertable llegó a esta cola**. Si el dial subió entre preparar y autorizar, **eso no invalida trabajo ya hecho**:
+>   sería una política interna nuestra tumbando una decisión interna nuestra, sin que el vendedor haya hecho nada.
+> - **Es lo que `PROJECT.md` §P.10 pide con «se congela por solicitud»**, y se consigue **sin columna**: el piso es un
+>   *gate* evaluado **una sola vez** y **nunca releído**. Su valor vigente al emitir queda en `AuditLog
+>   buylist.offer.send` — la pregunta *«¿por qué se permitió esta oferta?»* es de auditoría, no de cálculo.
+>   Ver ARCHITECTURE §4.39(h) y §4.39(o.16).
+> - **Si el operador quiere aplicar el piso nuevo, la vía es la de siempre:** `offer/cancel` + preparar otra. **No hay
+>   segunda edición en el `authorize`.**
 Res `200`: mismo shape que `POST …/offer`.
-Err: `403 FORBIDDEN` (operador — **registrado**), `404 NOT_FOUND`, **`409 OFFER_NOT_PENDING_AUTHORIZATION`** (`details: { offerState, status }` — v1.51.1 añade `status`).
+Err: `403 FORBIDDEN` (operador — **registrado**), `404 NOT_FOUND`, **`409 OFFER_NOT_PENDING_AUTHORIZATION`** (`details: { offerState, status }` — v1.51.1 añade `status`). **NO** `422 OFFER_NET_BELOW_MINIMUM` (v1.51.2, arriba).
 
 ##### `POST /api/v1/admin/buylist/:id/offer/cancel` (criterio 145)
 Req: `{ reason?: string }` (0–500, interno, **NO PII**, va al `AuditLog`; **no** se expone al cliente).
@@ -8085,9 +8276,10 @@ Err `403`, `400 VALIDATION_ERROR`.
   del proveedor y escribimos filas? — decisión de **coste** y de calidad de dato). Colapsarlos obligaría a elegir entre
   «no puedo probar el ingest sin publicar» y «no puedo publicar sin encender el gasto». Con dos, el operador puede
   **rodar el ingest en observación con la vitrina apagada**, que es la secuencia de encendido que pide §4.38(h).
-- **v1.51 (M-46) — OCHO diales nuevos del CICLO DE ADQUISICIÓN DEL BUYLIST** (`PROJECT.md` §P.10, criterio 127).
-  Se exponen en el `GET` y se editan por este `PUT` (mismo patrón que el resto de `ConfigSetting`): **sin redeploy**,
-  **auditados** (M10) y **aplican a solicitudes NUEVAS** — las vivas llevan su valor **congelado** (criterio 157).
+- **v1.51 (M-46) — ~~OCHO~~ NUEVE diales nuevos del CICLO DE ADQUISICIÓN DEL BUYLIST** (`PROJECT.md` §P.10, criterio
+  127; ⚠️ **v1.51.2 / D34: eran ocho**). Se exponen en el `GET` y se editan por este `PUT` (mismo patrón que el resto
+  de `ConfigSetting`): **sin redeploy**, **auditados** (M10) y **aplican a solicitudes NUEVAS** — las vivas llevan su
+  valor **congelado** (criterio 157) *cuando hay algo que congelar; ver la nota de **clases** al final de la tabla*.
 
   | Dial (DTO) | `SettingKey` | Default | Qué gobierna | Validación |
   |---|---|---|---|---|
@@ -8100,6 +8292,7 @@ Err `403`, `400 VALIDATION_ERROR`.
   | `buylistVariantPositionCap` | `buylist_variant_position_cap` | **10** | dispara **«no comprar»** en cartas **sin bounty**; **NUNCA bloquea** (§P.2) | entero ≥ 1 |
   | `buylistShippingFeeCents` | `buylist_shipping_fee_cents` | **18000** (MX$180) | el **envío que se descuenta** y que el correo anuncia; **se congela al ofertar** (D25) | entero ≥ 0 · **cruzada** ↓ |
   | `buylistShipmentConfirmAlertBusinessDays` | `buylist_shipment_confirm_alert_business_days` | **5** | alerta de «ya lo mandé» sin confirmar (§P.13, P17). **NO expira nada** | entero ≥ 1 |
+  | **`buylistMinimumOfferNetCents`** | **`buylist_minimum_offer_net_cents`** | **20000** (MX$200) | **NUEVO (v1.51.2 / D34): NETO mínimo para poder EMITIR una oferta.** Por debajo ⇒ **`422 OFFER_NET_BELOW_MINIMUM`** en `POST …/offer` (§M5-ciclo). **NO gatea el pago ni la aceptación** | **entero ≥ 1** *(el `0` **NO** es legal)* · **cruzada** ↓ |
 
   - **⚠️ ERAN NUEVE Y SON OCHO.** El **«umbral de recorte material» (20%, D28)** quedó **SIN OBJETO** con D30 —al no
     haber pregunta al vendedor **no hay umbral que calibrar**— y **NO SE IMPLEMENTA**. Verificable **por lo negativo**
@@ -8110,10 +8303,39 @@ Err `403`, `400 VALIDATION_ERROR`.
     doctrina que a D28**: no se siembra, no se apaga, no queda en 0 — **deja de existir**, y es verificable **por lo
     negativo**. *Un dial que se queda en la tabla «por si acaso» es una banda que alguien va a reactivar sin querer, y
     esa banda mueve dinero* (un monto en el correo en vez de tres).
-  - **La secuencia de plazos del ciclo se lee sola:** **emitir (7)** → **aceptar (2)** → **enviar (3)**, todos en
+  - **⚠️ v1.51.2 — AHORA SON NUEVE, Y ES UN ALTA LIMPIA (no una sustitución).** A diferencia de v1.51.1, aquí **no
+    sale ninguno**: entra `buylistMinimumOfferNetCents` (D34, cierre de la pregunta 25 de `PROJECT.md`) y el conteo
+    sube **8 → 9**. **Historial completo, para que nadie recuente mal:** nueve (3ª ronda) → **ocho** (D30 retira el
+    recorte material) → **ocho** (D31 saca el umbral de guía, D33 mete el plazo de emisión) → **NUEVE** (D34).
+  - **⚠️ EL `0` NO ES UN VALOR LEGAL DEL DIAL NUEVO.** Con el piso en `0` la guarda `net < 0` **nunca dispara** y
+    **vuelve a ser emitible la oferta que anuncia MX$0** — el agujero que v1.51.1 cerró. Con el piso en **1 centavo**
+    la regla degenera **exactamente** en la de v1.51.1 (`net < 1` ⇔ `net ≤ 0`): **la guarda vieja no se perdió, se
+    convirtió en el suelo del dial**, y por eso el suelo no puede bajar más. *Ponerlo en 0 sería el «apagar un dial en
+    vez de retirarlo» que este contrato prohíbe en tres sitios.*
+  - **La secuencia de PLAZOS del ciclo se lee sola:** **emitir (7)** → **aceptar (2)** → **enviar (3)**, todos en
     **días hábiles**. Se nombran por **quién debe actuar**: el primero es **nuestro**, los otros dos del vendedor. Por
-    eso el nuevo se llama `…OfferIssueDeadline…` y no «caducidad»: la caducidad es **el efecto**; el plazo es **la
-    obligación**.
+    eso el de D33 se llama `…OfferIssueDeadline…` y no «caducidad»: la caducidad es **el efecto**; el plazo es **la
+    obligación**. ⚠️ **El dial de D34 NO entra en esta secuencia: no es un plazo, es un monto.**
+  - **⚠️ v1.51.2 — y la secuencia de MONTOS también se lee sola, que es la que faltaba escribir:**
+    ```
+    MX$500  mínimo de COTIZAR   (sobre el BRUTO cotizado, al CREAR la solicitud)
+    MX$180  lo que se DESCUENTA (siempre; congelado al ofertar)
+    MX$200  mínimo de COBRAR    (sobre el NETO, al EMITIR la oferta)
+    ─────
+    MX$380  bruto mínimo OFERTABLE = piso + tarifa    ⚠️ DERIVADO — NO es un décimo dial
+    ```
+    **`requiredGrossCents` se calcula, no se configura**, y por eso viaja en `decision-table` y en el `details` del
+    error en vez de tener su propia clave. *Dos fuentes para el mismo número es la primera versión del bug.*
+  - **⚠️ CLASES DE DIAL — cuáles se CONGELAN y cuáles no (criterio 157).** No todos se congelan, y suponerlo produce
+    columnas que nadie lee:
+    - **Se CONGELAN por solicitud** (se **comunican** al vendedor y **se releen** después):
+      `buylistOfferAcceptDeadlineBusinessDays`, `buylistShipDeadlineBusinessDays`, `buylistShippingFeeCents`.
+    - **Son GATES o política interna** (se evalúan **una vez** y **no se releen** ⇒ **nada que congelar, ninguna
+      columna**): `buylistMinimumRequestCents`, `buylistOfferIssueDeadlineBusinessDays`, `buylistOperatorOfferCapCents`,
+      `buylistVariantPositionCap`, `buylistShipmentConfirmAlertBusinessDays` y **`buylistMinimumOfferNetCents`**.
+      Para el último, `PROJECT.md` §P.10 dice *«se congela por solicitud»*: **la propiedad observable se cumple sin
+      persistir nada** —`POST …/offer/authorize` **no lo reevalúa**— y su traza vive en `AuditLog`. Ver ARCHITECTURE
+      §4.39(h) y §4.39(o.16).
   - **⚠️ `buylistShippingFeeCents` (MX$180) y `shippingFeeCents` (MX$175) son DOS DIALES DISTINTOS.** Se parecen y
     **no son el mismo número**: el de **retiro** (§D) es lo que **le cobramos al comprador** por mandarle su carta; el
     del **buylist** es lo que **nos descontamos** por traer la del vendedor. **Mover uno NO mueve el otro** (criterio
@@ -8128,42 +8350,75 @@ Err `403`, `400 VALIDATION_ERROR`.
     sembrados. ⚠️ **La disciplina de dos artefactos de ARCHITECTURE §11.0 NO aplica** (rige el cambio de un seed
     **existente**). **Devops no necesita un paso de despliegue extra para estos ocho.**
 
-- **⚠️ VALIDACIÓN CRUZADA ENTRE DIALES, BLOQUEANTE (criterio 127) — REFORMULADA en v1.51.1 por D31.**
-  *(Es su **segunda** reformulación: la primera fue de D30. Se documenta el historial porque el `details.rule` cambia
-  de nombre y QA necesita saber cuál espera.)*
+- **⚠️ VALIDACIÓN CRUZADA ENTRE DIALES, BLOQUEANTE (criterio 127) — RE-REFORMULADA en v1.51.2 por D34.**
+  *(Es su **tercera** reformulación: las previas fueron de D30 y D31. Se documenta el historial porque el
+  `details.rule` cambia de nombre **otra vez** y QA necesita saber cuál espera.)*
   ```
-  ⛔ v1.51 (SUPERSEDED):  buylistShippingFeeCents  <  buylistShippingThresholdCents
-  ✅ v1.51.1 (VIGENTE):   buylistShippingFeeCents  <  buylistMinimumRequestCents     (ESTRICTAMENTE menor: 18000 < 50000)
+  ⛔ v1.51   (SUPERSEDED):  buylistShippingFeeCents                                <  buylistShippingThresholdCents
+  ⛔ v1.51.1 (SUPERSEDED):  buylistShippingFeeCents                                <  buylistMinimumRequestCents
+  ✅ v1.51.2 (VIGENTE):     buylistShippingFeeCents + buylistMinimumOfferNetCents  ≤  buylistMinimumRequestCents
+                            //  18000 + 20000 = 38000  ≤  50000     ⇒  guarda (defaults)
   ```
-  - **Por qué cambia el referente y NO la propiedad:** el umbral de guía **dejó de existir** (D31), así que había dos
-    salidas —tirar la validación o **re-anclarla en la relación que sigue siendo cierta**—. La superviviente es
-    **tarifa < mínimo de compra** (**$180 < $500**), y **conserva exactamente la propiedad money-safe**: como el mínimo
-    es **INCLUSIVO**, **la solicitud más chica que el sistema acepta crear vale exactamente el mínimo**; si la tarifa
-    lo igualara o lo superara, **esa solicitud, aprobada entera y al precio cotizado, depositaría MX$0** — un trato que
-    **no le paga nada a alguien que cumplió perfecto**. *Eso no es un piso de seguridad: es una **oferta rota**.*
-  - **⚠️ LO QUE ESTA VALIDACIÓN YA NO GARANTIZA, dicho en voz alta (para que QA no lo asuma).** El mínimo se juzga
+  **En una frase: *el bruto mínimo OFERTABLE nunca puede superar el mínimo de COMPRA*** — o sea, **nunca prometemos
+  comprar desde una cifra que el sistema después no podría ofertar**.
+  - **⚠️ POR QUÉ GANA UN TÉRMINO (v1.51.2).** La versión de v1.51.1 impedía que *«la solicitud más chica que el sistema
+    acepta crear, aprobada entera y al precio cotizado, depositara MX$0»*. Con el piso de D34 aparece un fallo **peor y
+    hasta ahora imposible**: que esa misma solicitud **no se pueda ni EMITIR**. Ocurre cuando `tarifa + piso > mínimo`,
+    y **los tres diales pueden ser legales por separado**: con `tarifa=$200`, `piso=$350`, `mínimo=$500` la regla vieja
+    pasa ($200 < $500) y sin embargo un vendedor que cotiza **exactamente $500** —la cifra que le prometimos— crea su
+    solicitud, espera **7 días hábiles** y recibe un *«no procederemos»* **que no decidió ninguna persona**: lo decidió
+    una combinación de diales. *Un trato que no le paga nada a quien cumplió perfecto era una **oferta rota**; un trato
+    que ni siquiera se puede formular es una **promesa rota**.*
+  - **⚠️ ESTO NO MUEVE EL PISO A M10.** El bloqueo del piso **vive en la emisión** porque *«M10 no ve el recorte que
+    hizo el operador»* (`PROJECT.md` §P.10) — **cierto y respetado**. Esta validación **no mira ninguna oferta**: es
+    **aritmética entre tres diales**. **Dos guardas, dos bases, cero solapamiento.**
+  - **⚠️ SUSTITUYE A LA DE v1.51.1, NO SE APILA.** Con `piso ≥ 1`, `tarifa + piso ≤ mínimo` **implica**
+    `tarifa < mínimo`. Conservar las dos dejaría una regla **que no puede disparar nunca** — y una regla que no dispara
+    es la que el primer refactor borra *«porque no hace nada»*. **La vieja queda contenida en la nueva** (ver el último
+    borde de la tabla).
+  - **Por qué `≤` y no `<`:** con `tarifa + piso = mínimo`, la solicitud mínima aprobada entera produce un neto
+    **exactamente igual al piso**, y la guarda de emisión es `net < piso` ⇒ **la oferta sale**. Rechazar la igualdad
+    prohibiría una configuración que funciona.
+  - **Por qué cambió el referente en v1.51.1 y NO la propiedad:** el umbral de guía **dejó de existir** (D31), así que
+    había dos salidas —tirar la validación o **re-anclarla en la relación que sigue siendo cierta**—. La superviviente
+    era **tarifa < mínimo de compra** (**$180 < $500**), y **conservaba exactamente la propiedad money-safe**: como el
+    mínimo es **INCLUSIVO**, **la solicitud más chica que el sistema acepta crear vale exactamente el mínimo**; si la
+    tarifa lo igualara o lo superara, **esa solicitud, aprobada entera y al precio cotizado, depositaría MX$0**.
+  - **⚠️ LO QUE ESTA VALIDACIÓN SIGUE SIN GARANTIZAR, dicho en voz alta (para que QA no lo asuma).** El mínimo se juzga
     **al crear la solicitud** sobre el **total cotizado** y **NO se re-aplica a la oferta** (criterio 158(c)), así que
-    **el bruto ofertado puede quedar por debajo de la tarifa** tras un cherry-pick. **Ese caso no lo cubre ningún
-    dial** —los diales no ven el recorte— y por eso se cubre en la emisión con **`422 OFFER_NET_NOT_POSITIVE`**
-    (§M5-ciclo). **Las dos guardas son complementarias, no redundantes:** esta protege del **dial mal puesto**;
-    aquella, de la **oferta mal armada**.
+    **el bruto ofertado puede quedar por debajo de `requiredGrossCents`** tras un cherry-pick. **Ese caso no lo cubre
+    ningún dial** —los diales no ven el recorte— y por eso se cubre en la emisión con
+    **`422 OFFER_NET_BELOW_MINIMUM`** (§M5-ciclo). **Las dos guardas son complementarias, no redundantes:** esta
+    protege del **dial mal puesto**; aquella, de la **oferta mal armada**.
   - **Es BLOQUEANTE, NO una advertencia** — M10 debe **IMPEDIR** la combinación, no solo señalarla.
-  - **Aplica en LOS DOS SENTIDOS:** subir la tarifa por encima del umbral **y** bajar el umbral por debajo de la
-    tarifa se rechazan **igual**.
-  - **⚠️ SE EVALÚA SOBRE EL ESTADO RESULTANTE, NO SOBRE EL BODY.** `PUT /admin/settings` es **parcial**: hay que
-    validar **`{...vigente, ...body}`**. Validar solo las claves que vienen **permite romper el invariante mandando
-    UNA de las dos** — que es exactamente el agujero que esta validación existe para tapar.
+  - **Aplica en LOS TRES SENTIDOS** *(eran dos; con tres términos son tres)*: **subir la tarifa**, **subir el piso** o
+    **bajar el mínimo de compra** se rechazan **igual**.
+  - **⚠️ SE EVALÚA SOBRE EL ESTADO RESULTANTE, NO SOBRE EL BODY — y con TRES claves esto importa más.**
+    `PUT /admin/settings` es **parcial**: hay que validar **`{...vigente, ...body}`**. Validar solo las claves que
+    vienen **permite romper el invariante mandando UNA de las TRES** — el agujero que esta validación existe para
+    tapar, ahora con una puerta más.
   - Error: **`422 VALIDATION_ERROR`** con
     ~~`details: { rule: "buylist_shipping_fee_lt_threshold", shippingFeeCents, shippingThresholdCents }`~~ ⇒
-    **`details: { rule: "buylist_shipping_fee_lt_minimum", shippingFeeCents, minimumRequestCents }`** (v1.51.1) y un
-    mensaje que **dice POR QUÉ** (no un «valor inválido» seco).
-    ⚠️ **La `rule` CAMBIA DE NOMBRE a propósito:** la vieja apunta a una clave **que ya no existe**, y un
-    `details.rule` que miente es peor que uno ausente. **QA debe asertar el nombre nuevo.**
-  - **Bordes verificables (criterio 127), reanclados:** `tarifa=18000 / mínimo=50000` ⇒ **guarda** · `49999/50000` ⇒
-    **guarda** · `50000/50000` (igual) ⇒ **NO guarda** · `60000/50000` (mayor) ⇒ **NO guarda**.
-  - **SUPUESTO vigente (pregunta abierta 24 de `PROJECT.md`):** **estrictamente menor, sin colchón** — el mínimo
-    defendible. Si el humano prefiere margen (p. ej. `tarifa ≤ mínimo / 2`), **es un número que fija él** y solo
-    cambia la constante de esta validación.
+    ~~`details: { rule: "buylist_shipping_fee_lt_minimum", shippingFeeCents, minimumRequestCents }`~~ ⇒
+    **`details: { rule: "buylist_fee_plus_min_net_le_min_request", shippingFeeCents, minimumOfferNetCents,
+    minimumRequestCents }`** (v1.51.2) y un mensaje que **dice POR QUÉ** (no un «valor inválido» seco).
+    ⚠️ **La `rule` CAMBIA DE NOMBRE POR SEGUNDA VEZ, a propósito:** la anterior describe una relación de **dos**
+    términos que ya no es la regla, y un `details.rule` que miente es peor que uno ausente. **QA debe asertar el
+    nombre nuevo.**
+  - **Bordes verificables (criterio 127), RE-DERIVADOS** — `(tarifa, piso, mínimo)`:
+
+    | Caso | Suma vs mínimo | ¿Guarda? | Qué demuestra |
+    |---|---|---|---|
+    | `18000, 20000, 50000` | 38000 ≤ 50000 | **sí** | los **defaults**, con $120 de holgura |
+    | `18000, 32000, 50000` | 50000 ≤ 50000 | **sí** | **la igualdad es legal**: el neto mínimo cae **justo** en el piso |
+    | `18000, 32001, 50000` | 50001 > 50000 | **NO** | un centavo más y la solicitud mínima **deja de ser ofertable** |
+    | `20000, 35000, 50000` | 55000 > 50000 | **NO** | **tres diales legales por separado**, combinación ilegal |
+    | `50000, 20000, 50000` | 70000 > 50000 | **NO** | cubre el borde viejo `tarifa = mínimo` |
+    | `60000, 20000, 50000` | 80000 > 50000 | **NO** | cubre el borde viejo `tarifa > mínimo` |
+    | `49999, 1, 50000` | 50000 ≤ 50000 | **sí** | ⚠️ **con el piso en su valor mínimo legal, la regla nueva reproduce EXACTAMENTE la vieja** (`49999/50000` guardaba). *La prueba de que no se perdió nada.* |
+  - **SUPUESTO vigente:** **sin colchón adicional** — la pregunta 24 quedó **cerrada por D31**. D34 **añade holgura de
+    hecho** ($120 entre $380 y $500) pero **no la exige**: si el humano prefiere margen explícito (p. ej.
+    `tarifa + piso ≤ mínimo × 0.8`), **es un número que fija él** y solo cambia la constante de esta validación.
 
 - `PUT /api/v1/admin/settings` — Req parcial con las keys a actualizar; **sin redeploy**. Registra `AuditLog`. Err `422 VALIDATION_ERROR`.
 - `GET /api/v1/admin/audit-log` — **bitácora global** `?actorUserId=&action=&entityType=&from=&to=&page=` → `{ data: AuditLogDTO[] }`.
@@ -8415,6 +8670,24 @@ BuylistDecisionLineDTO = {
                 thresholdQty: number | null,
                 bountyActive: boolean } | null
 }
+
+// ⚠️ v1.51.2 (D34) — los `totals` de la mesa, escritos como DTO para que backend y frontend no los reinventen.
+// PREVISUALIZACIÓN, no compromiso: se calcula con la curva y los diales de ESTE instante.
+// `minimumOfferNetCents` viaja porque el dial es editable sin redeploy: una constante 20000 en el front quedaría
+// desincronizada EN SILENCIO la primera vez que alguien lo mueva. `requiredGrossCents` y `netBelowMinimum` son
+// DERIVADOS y viajan por la misma razón que `requiresAuthorization`: el servidor manda el número Y el veredicto,
+// y la UI no hace aritmética de dinero.
+BuylistDecisionTotalsDTO = {
+  buyableGrossCents: number,          // Σ de las líneas marcadas `buy` en esta previsualización
+  shippingFeeCents: number,           // tarifa VIGENTE (D31: siempre; se congela al EMITIR, no aquí)
+  netCents: number,                   // max(0, buyableGrossCents − shippingFeeCents)
+  minimumOfferNetCents: number,       // dial 9 vigente (MX$200 por defecto)
+  requiredGrossCents: number,         // DERIVADO = minimumOfferNetCents + shippingFeeCents  ($380)
+  netBelowMinimum: boolean            // DERIVADO = netCents < minimumOfferNetCents  ⇒ AVISO en la mesa
+}
+// ⚠️ `netBelowMinimum` es AVISO, no bloqueo: la mesa no compromete nada. Quien bloquea es `POST …/offer` con
+// `422 OFFER_NET_BELOW_MINIMUM`. La UI DEBE destacarlo aquí para que el operador lo vea ANTES de intentar emitir.
+// ⚠️ Estos campos son válidos aun con `positionUnavailable`: dependen de montos, no del conteo de inventario.
 
 // ⚠️ v1.51 — filas de las CUATRO colas nuevas. Todas ADMIN-ONLY, todas paginadas `{ data, page, pageSize, total }`.
 // v1.51.1 (D33): `caducityAt` = DERIVADO server-side (`addBusinessDays(createdAt, buylistOfferIssueDeadlineBusinessDays)`),
