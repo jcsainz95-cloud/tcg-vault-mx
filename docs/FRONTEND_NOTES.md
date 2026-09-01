@@ -10085,6 +10085,54 @@ original de `main`**, byte a byte (verificado contra `478a826~1`).
 algo que el sistema no cumple. Las tres eran mejores como marketing y peores como descripción del
 producto. Ninguna la habría cazado un test: no hay candado que compare el copy con `PROJECT.md`.
 
+### 41.9-bis Segunda ronda de QA — el precio mostrado NO es el de mercado, en ninguna de las dos direcciones
+
+QA rechazó **otra vez**, con tres bloqueantes, y los tres son **la misma falla**: el copy afirmaba que el
+número que se enseña **es** el valor de mercado. En este producto no lo es en ningún sentido:
+
+| Dirección | Regla | Fuente verificada |
+|---|---|---|
+| Venta | `redondeo↑(max(piso, mercado × markup))`, markup **1.60× → 1.15×** | `PROJECT.md:1200`, `:1209`; `backend/src/common/money.ts` (`computeSalePriceFromCurve`) |
+| Compra | **30 % → 50 %** del mercado | `PROJECT.md:1201`, `:1210` |
+
+Mercado $50 ⇒ **venta $70**. Mercado $100 ⇒ **compra $40**. El «precio de mercado» no se cobra ni se paga
+nunca; es una **referencia**.
+
+- **(B1) `heroSubtitle`** decía «al precio real del mercado» / «at real market prices». Falso por
+  construcción. **Se quita el claim entero**, no se matiza: el precio nunca fue el argumento del hero, la
+  custodia sí. Vuelve a «con condición garantizada» / «condition guaranteed».
+- **(B2) `sellBody`** — **una preposición volvió falsa la frase.** Yo había cambiado «cotizamos **con** el
+  valor de mercado» por «**al** valor de mercado». «Cotizar **al** valor X» dice que X es lo que recibes, y
+  se paga 30-50 % de eso. Restaurado a **«con … como referencia»** / «using … as the reference». Lo que lo
+  hace grave: el cotizador de **esa misma página** solo enseña «Te pagamos $X», así que la contradicción
+  era visible en la pantalla siguiente.
+- **(B3) `how.step1Body`** decía «su precio de mercado», contra una decisión **LOCKED** (§N.7 / decisión 2 /
+  criterio 92): `PROJECT.md:1320-1321` fija que **tejas y listados no muestran mercado «y no van a
+  mostrarlo»** — solo la ficha. Verificado en el código: `FeaturedCarousel.tsx:141-151` pinta
+  **únicamente** `salePriceCents`. Era falso **en la misma pantalla donde se leía**.
+
+**Fuera de los bloqueantes, dos más de la misma familia:**
+
+- **`how.step3Body` vendía consignación**, que está **fuera de alcance** (`PROJECT.md:2076`,
+  «Consignación / marketplace C2C»). Comprobado en el producto: la bóveda solo tiene **`Retirar`** —no
+  existe ninguna acción de venta en `VaultView`—, y §E exige que el vendedor **envíe** la carta. «O las
+  vendes desde la bóveda, sin moverlas» prometía una función que no existe y que nadie va a construir.
+  Ahora: `Un solo envío para todo lo que acumulaste, cuando tú lo pidas.`
+- **`setsWanted` (EN)**: `Sets on the hunt` se lee como que **los sets** cazan. → `Sets to hunt`. El ES
+  (`Sets en cacería`) lo aprobó el humano y **no se toca**.
+
+**Auditoría, no confianza en la lista.** Tras aplicar, se barrió **todo** el bloque `home.*` en los dos
+idiomas por `mercado|precio|pagam|valor|vend` (ES) y `market|price|pay|value|sell|worth` (EN) buscando
+cualquier otra afirmación de precio. **Ninguna más es falsa**: las de pago (`quoter.*`, `bounties.*`)
+dicen «lo que te pagamos», que es exactamente lo que el cotizador enseña; `featuredSet.*` y `trustPrice`
+son **claves muertas** (no se renderizan).
+
+**Por qué esto pasó tres gates.** Los tres bloqueantes sobrevivieron a `test`, `typecheck` y `lint` y a una
+ronda de corrección. Ningún candado compara el copy con `PROJECT.md` ni con el componente que lo pinta, y
+**no puede haberlo** sin inventar un acoplamiento peor que el problema. La verificación de un cambio de
+copy es **leer la fuente**, y la fuente no es el brief que pide el cambio: los tres errores venían del
+brief, y el brief es justo lo que no se puede usar como referencia para validarlos.
+
 ### 41.10 «Asegurado» no era un sinónimo: era una póliza que no existe
 
 Hallazgo escalado al humano durante el pase, sobre una bandera abierta en `PROJECT.md:2969-2971`

@@ -72,7 +72,7 @@
   "home": {
     "heroKicker": "Cartas Pokémon · México",
     "heroTitle": "Caza la carta. Nosotros la guardamos.",
-    "heroSubtitle": "Cartas autenticadas al precio real del mercado. Viven resguardadas en tu bóveda y salen en un solo envío, cuando tú digas.",
+    "heroSubtitle": "Cartas autenticadas, con condición garantizada. Viven resguardadas en tu bóveda y salen en un solo envío, cuando tú digas.",
     "ctaShop": "Explorar el catálogo",
     "ctaSealed": "Ver producto sellado",
     "ctaBuylist": "Vender mis cartas",
@@ -136,14 +136,14 @@
       "title": "Cómo funciona la bóveda",
       "tag": "Custodia en bóveda",
       "step1Title": "Compras con las cuentas claras",
-      "step1Body": "Cada carta muestra su condición verificada y su precio de mercado. Antes de pagar ves el desglose completo: IVA, procesamiento y envío.",
+      "step1Body": "Cada carta muestra su condición verificada y su precio final. En el checkout ves el desglose completo antes de pagar.",
       "step2Title": "Se quedan en tu bóveda",
       "step2Body": "Guardadas bajo resguardo, con el valor de tu colección actualizado carta por carta.",
       "step3Title": "Pides el envío cuando quieras",
-      "step3Body": "Un solo envío para todo lo que acumulaste. O las vendes desde la bóveda, sin moverlas."
+      "step3Body": "Un solo envío para todo lo que acumulaste, cuando tú lo pidas."
     },
     "sellTitle": "Convierte tus repetidas en dinero",
-    "sellBody": "Cotizamos tu lista al valor de mercado del día. Tú envías, nosotros autenticamos y te transferimos.",
+    "sellBody": "Cotizamos tu lista con el valor de mercado del día como referencia. Tú envías, nosotros autenticamos y te transferimos.",
     "sellCta": "Cotizar mi lista gratis",
     "featuredSet": {
       "label": "Valor de mercado · Set destacado",

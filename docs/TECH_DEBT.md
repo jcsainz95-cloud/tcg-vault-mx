@@ -4943,7 +4943,7 @@
 - **Disparador:** el próximo pase de copy que toque `home.featuredTitle`, o cualquier propuesta de meter
   léxico de marca (cacería/bounty/HUNT) en ese valor.
 
-#### DT-Fz · `home.how.step1Body` enumera las líneas del resumen de checkout y se acopla a un componente que no controla (Baja, frontend)
+#### DT-Fz · ~~`home.how.step1Body` enumera las líneas del resumen de checkout~~ → **RESUELTA de raíz** (2026-09-01, misma rama)
 - **Dueño:** frontend. **Severidad:** Baja. **Estado: abierta, aceptada.** Anotada a petición del techlead en el veredicto del pase §41.
 - **Hoy es CIERTO, y eso es justo lo que la hace fácil de pasar por alto.** `home.how.step1Body` dice «ves el desglose completo: **IVA, procesamiento y envío**» (EN: «VAT, processing and shipping»), y el resumen de checkout tiene hoy exactamente esas líneas: `checkout.subtotal`, `checkout.processingFee`, `checkout.iva`, `checkout.shipping`, `checkout.total` (verificado sobre `messages/es.json`).
 - **Deuda:** el home **espeja la composición de un componente que no controla**. La enumeración es una afirmación sobre el checkout escrita en la home, y **nada la ata**: no hay test que compare ambas superficies, ni podría haberlo sin inventar un acoplamiento nuevo. El día que el resumen gane o pierda una línea —un descuento, una cuota aduanal, o que la comisión del procesador se absorba en el precio en vez de trasladarse— **el home vuelve a ser falso en silencio**.
@@ -4952,3 +4952,19 @@
 - **Impacto si no se paga:** una afirmación falsa en el home, invisible para el gate, hasta que alguien la lea con el checkout delante.
 - **Coste estimado:** trivial con la salida (a). **No bloqueante.**
 - **Disparador:** cualquier cambio en la composición del resumen de checkout (altas/bajas de línea en `checkout.*`), o el próximo pase de copy que toque `home.how.step1Body`. Ref: `FRONTEND_NOTES.md` §41.9(a), `PROJECT.md:346`, `:348`, `:401`, `:766`.
+
+> **RESUELTA en la misma rama, y no por haberla pagado: la enumeración era además FALSA.** La segunda
+> ronda de QA (§41.9-bis) tumbó `home.how.step1Body` por otro motivo —afirmaba «su precio de mercado»
+> contra una decisión LOCKED— y al reescribirla se comprobó que la enumeración «IVA, procesamiento y
+> **envío**» tampoco cuadraba: `AmountBreakdown.tsx:64-70` pinta la línea de envío **solo** cuando viene
+> `shippingFeeCents`, que es el caso `direct_ship` (invitado). En **compras a bóveda el envío NO se
+> cobra ahí** — y esta es precisamente la sección «Cómo funciona la bóveda».
+>
+> El valor nuevo adopta la **salida (a)** de esta ficha —redactar **sin enumerar**—:
+> «En el checkout ves el desglose completo antes de pagar.» / «At checkout you see the full breakdown
+> before you pay.» El acoplamiento a la composición de `checkout.*` **desaparece**: la frase es cierta
+> para cualquier juego de líneas presente o futuro.
+>
+> **Cierra sin deuda residual.** Nota para quien lea la ficha original: el diagnóstico decía «hoy es
+> cierto, el riesgo es futuro». Era **optimista** — ya era falso al escribirlo, para el caso de bóveda.
+> Una ficha de acoplamiento no sustituye a verificar el valor contra el componente.

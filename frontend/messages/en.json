@@ -72,11 +72,11 @@
   "home": {
     "heroKicker": "Pokémon cards · Mexico",
     "heroTitle": "Hunt the card. We keep it safe.",
-    "heroSubtitle": "Authenticated cards at real market prices. They live safe in your vault and ship in one go, whenever you say.",
+    "heroSubtitle": "Authenticated cards, condition guaranteed. They live safe in your vault and ship in one go, whenever you say.",
     "ctaShop": "Explore the catalog",
     "ctaSealed": "Browse sealed product",
     "ctaBuylist": "Sell my cards",
-    "setsWanted": "Sets on the hunt",
+    "setsWanted": "Sets to hunt",
     "trustAuth": "Every card is authenticated on intake",
     "trustCustody": "Vault storage: one shipment, whenever you say",
     "trustPrice": "Transparent market value in MXN",
@@ -136,14 +136,14 @@
       "title": "How the vault works",
       "tag": "Vault custody",
       "step1Title": "You buy with the numbers up front",
-      "step1Body": "Every card shows its verified condition and market price. Before you pay, you see the full breakdown: VAT, processing and shipping.",
+      "step1Body": "Every card shows its verified condition and its final price. At checkout you see the full breakdown before you pay.",
       "step2Title": "They stay in your vault",
       "step2Body": "Kept safe, with your collection's value updated card by card.",
       "step3Title": "Request shipping whenever you want",
-      "step3Body": "One shipment for everything you've stacked up. Or sell from the vault without moving a card."
+      "step3Body": "One shipment for everything you've stacked up, whenever you ask."
     },
     "sellTitle": "Turn your doubles into cash",
-    "sellBody": "We quote your list at the day's market value. You ship, we authenticate and transfer.",
+    "sellBody": "We quote your list using the day's market value as the reference. You ship, we authenticate and transfer.",
     "sellCta": "Quote my list free",
     "featuredSet": {
       "label": "Market value · Featured set",
