@@ -42,18 +42,72 @@ import { useBuylistSteps } from '@/lib/pipelines';
  */
 // Pestañas OPERATIVAS (etapas vivas): siguen su fetch client-side sobre la página actual. Las
 // pestañas TRANSVERSALES «Cerradas» (v1.25) y «Rechazadas» (v1.18) son server-side paginadas.
-type M5OpTab = 'por_recibir' | 'verificando' | 'por_pagar';
+type M5OpTab = 'por_recibir' | 'ciclo' | 'verificando' | 'por_pagar';
 type M5TabAll = M5OpTab | 'cerradas' | 'rechazadas';
-const M5_OP_TABS: { key: M5OpTab; statuses: SellRequestStatus[] }[] = [
-  { key: 'por_recibir', statuses: ['cotizada'] },
-  { key: 'verificando', statuses: ['recibida', 'verificacion'] },
-  { key: 'por_pagar', statuses: ['aprobada'] },
-];
+
+/**
+ * ⚠️ **ASIGNACIÓN TOTAL estado → pestaña. Es el candado de esta pantalla, no una tabla de
+ * conveniencia.**
+ *
+ * El filtro de las pestañas operativas es `filtered.filter(r => activeStatuses.includes(r.status))`:
+ * **un status que no esté en ninguna pestaña no sale en ninguna vista y nadie lo ve nunca.** No
+ * falla, no avisa, no rompe un test — simplemente desaparece del back-office. Eso ya pasó: al
+ * crecer el enum en cuatro valores (M-46), `ofertada`, `aceptada`, `en_transito` y `expirada`
+ * quedaron sin casa mientras las listas de abajo seguían siendo las de tres pestañas.
+ *
+ * `Record<SellRequestStatus, M5TabAll>` convierte esa desaparición silenciosa en un **error de
+ * compilación**: añadir un valor al enum del contrato deja de compilar esta pantalla hasta que
+ * alguien decida en qué pestaña vive. Las listas de abajo se DERIVAN de aquí; no se escriben
+ * dos veces.
+ *
+ * ⚠️ Esto NO es una copia del set terminal: es dónde se PINTA cada estado (decisión de UI). Qué
+ * solicitudes admiten acciones lo dice el servidor con `isTerminal` — ver `canRejectRequest`.
+ */
+const M5_STATUS_TAB: Record<SellRequestStatus, M5TabAll> = {
+  cotizada: 'por_recibir',
+  // v1.51 (M-46): el tramo del ciclo de adquisición. Los tres son estados de MONITOREO desde
+  // esta cola (la oferta está fuera, el vendedor aceptó, o el paquete viaja); las colas con
+  // acción propia —por autorizar, por confirmar envío, guías por cancelar— son vistas aparte
+  // del contrato (DESIGN_SYSTEM §23.8) y todavía no están montadas.
+  // ⚠️ `aceptada` NO se agrupa bajo ningún rótulo que diga «en camino»: aceptar no mueve nada
+  // (criterio 156) y el único estado que significa «un paquete viaja» es `en_transito`.
+  ofertada: 'ciclo',
+  aceptada: 'ciclo',
+  en_transito: 'ciclo',
+  recibida: 'verificando',
+  verificacion: 'verificando',
+  aprobada: 'por_pagar',
+  // Los CUATRO terminales viven en «Cerradas». `expirada` es el cuarto (criterio 113): sin esta
+  // línea una solicitud expirada no aparecía en ninguna pestaña de M5.
+  pagada: 'cerradas',
+  rechazada: 'cerradas',
+  abandonada: 'cerradas',
+  expirada: 'cerradas',
+};
+
+/** Estados asignados a una pestaña dada, DERIVADOS del mapa total (nunca escritos a mano). */
+function statusesForTab(tab: M5TabAll): SellRequestStatus[] {
+  return (Object.keys(M5_STATUS_TAB) as SellRequestStatus[]).filter(
+    (status) => M5_STATUS_TAB[status] === tab,
+  );
+}
+
+// Orden de las pestañas OPERATIVAS en la barra (sigue el pipeline). Sus estados salen del mapa.
+const M5_OP_TAB_ORDER: M5OpTab[] = ['por_recibir', 'ciclo', 'verificando', 'por_pagar'];
+const M5_OP_TABS: { key: M5OpTab; statuses: SellRequestStatus[] }[] = M5_OP_TAB_ORDER.map(
+  (key) => ({ key, statuses: statusesForTab(key) }),
+);
 /**
  * Estados terminales que agrupa la pestaña «Cerradas» (v1.25-buylist-orders-pagination). Se pide
- * server-side como `status=pagada,rechazada,abandonada` (CSV) en UNA llamada paginada.
+ * server-side como `status=…` (CSV) en UNA llamada paginada.
+ *
+ * ⚠️ **Es una consulta, no una definición.** El set terminal canónico vive en el backend
+ * (`common/sell-request-states.ts`); aquí solo se enumeran los estados que esta pestaña pide.
+ * El contrato v1.51 ofrece `live=false`, que filtra los terminales **por exclusión server-side**
+ * y haría innecesaria hasta esta enumeración — pero el backend todavía no implementa el
+ * parámetro, así que se sigue mandando el CSV. Ver `docs/FRONTEND_NOTES.md`.
  */
-const M5_CLOSED_STATUSES: SellRequestStatus[] = ['pagada', 'rechazada', 'abandonada'];
+const M5_CLOSED_STATUSES: SellRequestStatus[] = statusesForTab('cerradas');
 const M5_CLOSED_STATUS_CSV = M5_CLOSED_STATUSES.join(',');
 const M5_PAGE_SIZE = 25;
 
@@ -101,13 +155,6 @@ function pesosToCents(value: string): number | null {
 
 /** Estados terminales de item: ya no admiten decisión. */
 const ITEM_TERMINAL = new Set(['pagada', 'convertida_inventario']);
-
-/**
- * Estados terminales de la SOLICITUD (pestaña «Cerradas» = M5_CLOSED_STATUSES): ya no admiten
- * el cierre explícito «Rechazar solicitud» (contrato §M5 · v1.24: idempotente si ya `rechazada`,
- * 409 si `pagada`/`abandonada`). La UI simplemente no ofrece el botón sobre estos.
- */
-const REQUEST_TERMINAL = new Set<SellRequestStatus>(['pagada', 'rechazada', 'abandonada']);
 
 export function M5View() {
   const t = useTranslations('admin.m5');
@@ -653,7 +700,13 @@ export function M5View() {
                       <div className="flex flex-wrap items-center justify-between gap-3">
                         <div className="flex flex-wrap items-center gap-2">
                           <span className="tabular text-sm font-medium">{req.id}</span>
-                          <StatusBadge domain="sellRequest" value={req.status} />
+                          {/* §23.1d: `expirada` se pinta por su MOTIVO, no por su estado — una
+                              `no_offer` es culpa NUESTRA y no puede salir en rojo acusatorio. */}
+                          <StatusBadge
+                            domain="sellRequest"
+                            value={req.status}
+                            reason={req.expiredReason}
+                          />
                           <Link
                             href={{ pathname: '/admin/m6', query: { user: req.userId } }}
                             title={req.userId}
@@ -774,16 +827,27 @@ export function M5View() {
           // «Rechazar solicitud» (v1.24): cierre explícito del hueco de estado (bug P-4). El
           // endpoint SÓLO cierra si TODOS los ítems ya están `rechazada`; para no ofrecer un
           // botón que siempre daría 422, se muestra exactamente en esa precondición y nunca
-          // sobre una solicitud ya terminal (`pagada`/`rechazada`/`abandonada`).
+          // sobre una solicitud ya terminal.
           const allItemsRejected =
             req.items.length > 0 && req.items.every((it) => it.itemStatus === 'rechazada');
-          const canRejectRequest = !REQUEST_TERMINAL.has(req.status) && allItemsRejected;
+          // ⚠️ `isTerminal` lo DERIVA EL SERVIDOR (contrato §M5 · v1.51, ARCHITECTURE §4.39c
+          // sitio 9). Aquí vivía `REQUEST_TERMINAL`, la QUINTA copia del set terminal y la única
+          // fuera del backend: escrita a mano con TRES estados, se quedó corta cuando el enum
+          // creció a CUATRO, y sobre una solicitud `expirada` ofrecía un botón que el servidor
+          // contesta con 409. Se borró y NO se sustituyó por otra constante de frontend: la copia
+          // se cura eliminando la NECESIDAD de la copia, no moviéndola de archivo.
+          //
+          // `=== false` y no `!req.isTerminal` a propósito: si el campo faltara (backend anterior
+          // a v1.51), fallar hacia «no ofrecer la acción» deja al operador sin un botón; fallar al
+          // revés le ofrece un cierre que el servidor rechaza. Fail-closed, como todo lo que toca
+          // el cierre de una solicitud.
+          const canRejectRequest = req.isTerminal === false && allItemsRejected;
           return (
             <div key={req.id} className="flex flex-col gap-4 rounded-lg border border-border bg-surface p-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="tabular text-sm font-medium">{req.id}</span>
-                  <StatusBadge domain="sellRequest" value={req.status} />
+                  <StatusBadge domain="sellRequest" value={req.status} reason={req.expiredReason} />
                   {/* Vendedor legible (v1.18: seller.name + seller.email del server); el UUID
                       queda en el tooltip. Sigue enlazando a su ficha 360° en M6 (?user=<id>). */}
                   <Link
@@ -838,7 +902,8 @@ export function M5View() {
                   </Button>
                 )}
                 {/* Cierre explícito «Rechazar solicitud» (v1.24 · POST .../reject): sólo cuando
-                    TODOS los ítems ya están rechazados y la solicitud NO es terminal. Resuelve la
+                    TODOS los ítems ya están rechazados y la solicitud NO es terminal —según el
+                    `isTerminal` del SERVIDOR (v1.51), no según una lista local. Resuelve la
                     solicitud atorada en «Verificando» del caso reportado por el PO (bug P-4). */}
                 {canRejectRequest && (
                   <Button

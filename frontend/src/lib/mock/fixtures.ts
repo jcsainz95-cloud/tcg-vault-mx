@@ -18,6 +18,7 @@ import type {
   OrderSummaryDTO,
   OrderDetailDTO,
   SellRequestDTO,
+  SellRequestStatus,
   DashboardDTO,
   InventoryItemDTO,
   InventoryMovementDTO,
@@ -932,7 +933,43 @@ export const mockOrderDetail: OrderDetailDTO = {
   stripePaymentIntentId: 'pi_mock_123',
 };
 
-export const mockSellRequests: SellRequestDTO[] = [
+/**
+ * ⚠️ **Fila mock, NO el DTO.** `isTerminal` es **server-derived** (contrato §6/§11, v1.51): no
+ * puede vivir en la fixture porque las ramas mock MUTAN el `status` en memoria (`respondSellRequest`,
+ * `paySpeiBuylist`, …) y un booleano guardado se quedaría mintiendo en cuanto la solicitud cambiara
+ * de estado. Lo pone la PROYECCIÓN del servidor falso, igual que el backend real.
+ */
+export type MockSellRequestRow = Omit<SellRequestDTO, 'isTerminal'>;
+
+/**
+ * ⚠️ **La ÚNICA derivación del set terminal que existe en el frontend, y vive en el SERVIDOR
+ * FALSO — no en una pantalla.**
+ *
+ * Espeja `backend/src/common/sell-request-states.ts` (`SELL_REQUEST_TERMINAL_STATES`, los CUATRO
+ * de `PROJECT.md` §P.1 / criterio 113). No es la quinta copia que ARCHITECTURE §4.39c mandó
+ * borrar: aquella la consultaba una VISTA para decidir qué botones ofrecer teniendo el dato del
+ * servidor a mano. Ésta existe porque en modo mock **no hay servidor que lo derive**, y su único
+ * consumidor son las proyecciones de abajo. **Ninguna pantalla la importa; si alguna lo hace,
+ * la copia volvió.**
+ */
+const MOCK_TERMINAL_SELL_REQUEST_STATUSES: ReadonlySet<SellRequestStatus> = new Set([
+  'pagada',
+  'rechazada',
+  'abandonada',
+  'expirada',
+]);
+
+/** Proyección del servidor falso: añade lo que el backend real deriva (§4.39c sitio 9). */
+export function mockSellRequestDTO(row: MockSellRequestRow): SellRequestDTO {
+  return { ...row, isTerminal: MOCK_TERMINAL_SELL_REQUEST_STATUSES.has(row.status) };
+}
+
+/** Ídem para la proyección ADMIN (`GET /admin/buylist`, `AdminBuylistDTO`). */
+export function mockAdminBuylistDTO(row: MockAdminBuylistRow): AdminBuylistDTO {
+  return { ...row, isTerminal: MOCK_TERMINAL_SELL_REQUEST_STATUSES.has(row.status) };
+}
+
+export const mockSellRequests: MockSellRequestRow[] = [
   {
     sellRequestId: 'sr-3001',
     status: 'verificacion',
@@ -2188,7 +2225,10 @@ export function mockBulkPublish(req: BulkPublishRequest): BulkPublishResponse {
   return { summary: { requested: req.items.length, published, failedLines }, results };
 }
 
-export const mockAdminBuylist: AdminBuylistDTO[] = [
+/** ⚠️ Fila mock: sin `isTerminal` (server-derived). Ver `mockAdminBuylistDTO`. */
+export type MockAdminBuylistRow = Omit<AdminBuylistDTO, 'isTerminal'>;
+
+export const mockAdminBuylist: MockAdminBuylistRow[] = [
   {
     id: 'sr-3001',
     userId: 'u-777',

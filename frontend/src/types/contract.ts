@@ -88,14 +88,40 @@ export type ShipmentStatus =
  * `cancelado` libera el item ⇒ shipmentState=null. Ver contrato §3 / Enums.
  */
 export type ShipmentActiveStage = 'solicitado' | 'picking' | 'guia' | 'enviado';
+/**
+ * Estados de la SOLICITUD de venta (contrato §Enums, línea canónica). CLASE E: espeja
+ * `schema.prisma`; el orden es el del pipeline feliz.
+ *
+ * ⚠️ v1.51 (M-46, criterio 113) — CUATRO valores nuevos: `ofertada`, `aceptada`, `en_transito`,
+ * `expirada`. Pipeline: `cotizada → ofertada → aceptada → en_transito → recibida → verificacion
+ * → aprobada → pagada`.
+ *
+ * **Los TERMINALES son CUATRO (`pagada | rechazada | abandonada | expirada`) y el frontend NO
+ * los codifica.** El servidor manda `isTerminal` derivado server-side en las dos proyecciones
+ * (cliente y admin) precisamente para que aquí no exista una quinta copia del set
+ * (ARCHITECTURE §4.39c sitio 9). Si necesitas «¿esta solicitud ya cerró?», usa `isTerminal`.
+ */
 export type SellRequestStatus =
   | 'cotizada'
+  | 'ofertada'
+  | 'aceptada'
+  | 'en_transito'
   | 'recibida'
   | 'verificacion'
   | 'aprobada'
   | 'pagada'
   | 'rechazada'
-  | 'abandonada';
+  | 'abandonada'
+  | 'expirada';
+/**
+ * POR QUÉ expiró una solicitud (contrato §Enums, v1.51.1 · D33). Es un ATRIBUTO del terminal,
+ * NO un quinto estado: los terminales siguen siendo cuatro. `null` en toda fila que no esté
+ * `expirada`. Viaja en la proyección de CLIENTE y en la de ADMIN.
+ *
+ * ⚠️ DESIGN_SYSTEM §23.1d: `expirada` es el ÚNICO enum del sistema que se pinta por su MOTIVO
+ * y no por su valor — `not_shipped` acusa al vendedor, `no_offer` nos acusa a nosotros.
+ */
+export type SellRequestExpiryReason = 'no_offer' | 'not_shipped';
 export type SellItemStatus =
   | 'cotizada'
   | 'precio_pendiente'
@@ -895,6 +921,18 @@ export interface SellItemDTO {
 export interface SellRequestDTO {
   sellRequestId: string;
   status: SellRequestStatus;
+  /**
+   * v1.51 (M-46, ARCHITECTURE §4.39c sitio 9) — **DERIVADO SERVER-SIDE** de los CUATRO
+   * terminales (`pagada|rechazada|abandonada|expirada`). Viaja en la LISTA y en el DETALLE
+   * de la proyección de cliente.
+   *
+   * ⚠️ **Obligatorio a propósito.** Si fuera opcional, cada consumidor escribiría un
+   * `?? <adivinanza local>` y volvería la copia del set que este campo vino a borrar.
+   * El frontend NO recodifica el set: pregunta aquí.
+   */
+  isTerminal: boolean;
+  /** v1.51.1 (D33): por qué expiró; `null`/ausente si no está `expirada`. Ver §23.1d. */
+  expiredReason?: SellRequestExpiryReason | null;
   quotedTotalCents: number;
   ineRequired: boolean;
   items: SellItemDTO[];
@@ -1739,6 +1777,15 @@ export interface AdminBuylistDTO {
   // tolerancia a filas sin join; la UI cae a `userId` cuando falta.
   seller?: AdminSellerRef;
   status: SellRequestStatus;
+  /**
+   * v1.51 (M-46, contrato §M5 · GET /admin/buylist) — **DERIVADO SERVER-SIDE** de los CUATRO
+   * terminales. Existe literalmente para BORRAR `REQUEST_TERMINAL` de `M5View.tsx`
+   * (ARCHITECTURE §4.39c sitio 9, la quinta de cinco copias y la única fuera del backend).
+   * **El frontend no lo sustituye por otra constante propia: el servidor le dice.**
+   */
+  isTerminal: boolean;
+  /** v1.51.1 (D33): por qué expiró; `null`/ausente si no está `expirada`. Ver §23.1d. */
+  expiredReason?: SellRequestExpiryReason | null;
   quotedTotalCents: number;
   // Total recomputado por el backend EXCLUYENDO ítems rechazados (invariante v1.18).
   // SEC-A1: la UI solo lo muestra, nunca lo calcula.

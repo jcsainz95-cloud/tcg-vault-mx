@@ -1388,7 +1388,9 @@ export async function getSellRequests(): Promise<SellRequestDTO[]> {
     const res = await apiRequest<{ data: SellRequestDTO[] }>('/buylist/requests');
     return res.data;
   }
-  return delay(fx.mockSellRequests);
+  // MOCK: el servidor falso proyecta `isTerminal` (server-derived, §4.39c sitio 9) igual que
+  // el backend real: la fixture guarda la FILA, nunca el campo derivado.
+  return delay(fx.mockSellRequests.map(fx.mockSellRequestDTO));
 }
 
 export interface CreateSellRequestInput {
@@ -1498,14 +1500,16 @@ export async function createSellRequest(input: CreateSellRequestInput): Promise<
       },
     });
   }
-  return delay({
-    sellRequestId: `sr-${Math.floor(Math.random() * 9000 + 1000)}`,
-    status: 'cotizada',
-    quotedTotalCents,
-    ineRequired: !!input.ineUploadKeys,
-    items,
-    createdAt: new Date().toISOString(),
-  });
+  return delay(
+    fx.mockSellRequestDTO({
+      sellRequestId: `sr-${Math.floor(Math.random() * 9000 + 1000)}`,
+      status: 'cotizada',
+      quotedTotalCents,
+      ineRequired: !!input.ineUploadKeys,
+      items,
+      createdAt: new Date().toISOString(),
+    }),
+  );
 }
 
 /**
@@ -2728,7 +2732,9 @@ export async function getAdminBuylist(
     });
   }
   // MOCK: espeja los filtros server-side v1.25 en memoria.
-  let data = fx.mockAdminBuylist.map((r) => ({ ...r, seller: r.seller ?? mockSellerFor(r.userId) }));
+  let data = fx.mockAdminBuylist.map((r) =>
+    fx.mockAdminBuylistDTO({ ...r, seller: r.seller ?? mockSellerFor(r.userId) }),
+  );
   if (filters.status) {
     const set = new Set(filters.status.split(',').map((s) => s.trim()).filter(Boolean));
     data = data.filter((r) => set.has(r.status));
@@ -2756,12 +2762,15 @@ export async function getAdminBuylist(
 
 // ---- Admin M5 · acciones de buylist (contrato §M5) ----
 // MOCK: helpers en memoria para reflejar las transiciones en fixtures.
-function mockFindBuylistRequest(id: string): AdminBuylistDTO {
+// ⚠️ Devuelven la FILA mutable en memoria, no el DTO: `isTerminal` lo pone la proyección
+// (`fx.mockAdminBuylistDTO`) en el momento de responder, para que nunca contradiga al `status`
+// que estas mismas ramas acaban de mover.
+function mockFindBuylistRequest(id: string): fx.MockAdminBuylistRow {
   const req = fx.mockAdminBuylist.find((r) => r.id === id);
   if (!req) throw new ApiClientError(404, { code: 'NOT_FOUND', message: 'Sell request not found' });
   return req;
 }
-function mockFindBuylistItem(itemId: string): { req: AdminBuylistDTO; item: SellItemDTO } {
+function mockFindBuylistItem(itemId: string): { req: fx.MockAdminBuylistRow; item: SellItemDTO } {
   for (const req of fx.mockAdminBuylist) {
     const item = req.items.find((it) => it.id === itemId);
     if (item) return { req, item };
@@ -2779,7 +2788,7 @@ export async function receiveBuylistRequest(id: string): Promise<AdminBuylistDTO
   for (const it of req.items) {
     if (it.itemStatus === 'cotizada' || it.itemStatus === 'precio_pendiente') it.itemStatus = 'recibida';
   }
-  return delay({ ...req });
+  return delay(fx.mockAdminBuylistDTO({ ...req }));
 }
 
 /** Inicia/registra la verificación → `verificacion` (contrato POST /admin/buylist/:id/verify). */
@@ -2790,7 +2799,7 @@ export async function verifyBuylistRequest(id: string): Promise<AdminBuylistDTO>
   const req = mockFindBuylistRequest(id);
   req.status = 'verificacion';
   for (const it of req.items) if (it.itemStatus === 'recibida') it.itemStatus = 'verificacion';
-  return delay({ ...req });
+  return delay(fx.mockAdminBuylistDTO({ ...req }));
 }
 
 /**
@@ -2823,7 +2832,7 @@ export async function rejectBuylistRequest(
   }
   const req = mockFindBuylistRequest(id);
   // Idempotencia: ya rechazada → no-op (200 con el estado actual).
-  if (req.status === 'rechazada') return delay({ ...req });
+  if (req.status === 'rechazada') return delay(fx.mockAdminBuylistDTO({ ...req }));
   // No pisar otros estados terminales (contrato: 409 CONFLICT).
   if (req.status === 'pagada' || req.status === 'abandonada') {
     throw new ApiClientError(409, {
@@ -2842,7 +2851,7 @@ export async function rejectBuylistRequest(
     });
   }
   req.status = 'rechazada';
-  return delay({ ...req });
+  return delay(fx.mockAdminBuylistDTO({ ...req }));
 }
 
 /** Plazos del ítem rechazado en la rama MOCK (espeja las constantes 7d/30d del backend). */
@@ -3013,7 +3022,7 @@ export async function paySpeiBuylist(id: string, speiReference: string): Promise
   }
   req.status = 'pagada';
   for (const it of req.items) if (it.itemStatus === 'aprobada') it.itemStatus = 'pagada';
-  return delay({ ...req });
+  return delay(fx.mockAdminBuylistDTO({ ...req }));
 }
 
 /**
@@ -3788,7 +3797,12 @@ export async function getAdminUserBuylist(
       query: { userId, page: params.page, pageSize: params.pageSize },
     });
   }
-  return delay(paginate(fx.mockAdminBuylist.filter((b) => b.userId === userId), params));
+  return delay(
+    paginate(
+      fx.mockAdminBuylist.filter((b) => b.userId === userId).map(fx.mockAdminBuylistDTO),
+      params,
+    ),
+  );
 }
 
 /** Envíos del usuario (contrato §M4 · GET /admin/shipments?userId=, NUEVO v1.7). Paginado. */

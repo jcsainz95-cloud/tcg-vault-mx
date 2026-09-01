@@ -91,7 +91,15 @@ export function MyRequestsSection({ ready, isAuthenticated }: MyRequestsSectionP
                     <div className="flex flex-wrap items-center justify-between gap-3">
                       <span className="flex items-center gap-3">
                         <span className="tabular font-mono text-[13px] text-text">{r.sellRequestId}</span>
-                        <StatusBadge domain="sellRequest" value={r.status} />
+                        {/* §23.1d — `expirada` se pinta por su MOTIVO. Aquí importa más que en
+                            ningún otro lado: es la pantalla del VENDEDOR, y pintar un
+                            `no_offer` («no procedimos con la oferta») con el rojo de
+                            `not_shipped` le imputaría un incumplimiento que nunca cometió. */}
+                        <StatusBadge
+                          domain="sellRequest"
+                          value={r.status}
+                          reason={r.expiredReason}
+                        />
                       </span>
                       <span className="tabular text-sm font-medium text-text">
                         {formatMoneyCents(r.quotedTotalCents, locale)}
@@ -99,10 +107,15 @@ export function MyRequestsSection({ ready, isAuthenticated }: MyRequestsSectionP
                     </div>
 
                     <div className="mt-5">
+                      {/* Rama de error = desenlace terminal que NO es el feliz. `isTerminal` lo
+                          dice el SERVIDOR (contrato §6 · v1.51): antes había aquí una lista de dos
+                          literales que, con `expirada` en el enum, dejaba de reconocer un cierre
+                          real. Lo único que queda escrito es el único terminal FELIZ, que es un
+                          literal suelto y no un subconjunto que haya que mantener. */}
                       <PipelineStepper
                         steps={buylistSteps}
                         current={r.status}
-                        errored={r.status === 'rechazada' || r.status === 'abandonada'}
+                        errored={r.isTerminal && r.status !== 'pagada'}
                       />
                     </div>
 

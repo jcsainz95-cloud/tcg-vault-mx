@@ -5,6 +5,10 @@ import { BuylistView } from './BuylistView';
 import * as api from '@/lib/api';
 import { setStoredUser } from '@/lib/session';
 import type { KycInfoDTO, UserDTO, CardDTO, BuylistQuoteItemDTO } from '@/types/contract';
+// ⚠️ El spy HACE DE SERVIDOR: `isTerminal` es **server-derived** (contrato §6 · v1.51). Se
+// proyecta con la MISMA función que el mock en vez de escribir el booleano a mano, para no
+// reintroducir en las pruebas la copia local del set terminal.
+import { mockSellRequestDTO as srv } from '@/lib/mock/fixtures';
 
 // El gating de venta usa Link de next-intl (login/registro); se mockea el router
 // de Next para aislar la vista (mismo patrón que StorefrontHeader.test).
@@ -677,7 +681,7 @@ describe('BuylistView · Mis solicitudes', () => {
       availableFinishes: ['normal'],
     };
     vi.spyOn(api, 'getSellRequests').mockResolvedValue([
-      {
+      srv({
         sellRequestId: 'sr-pend-1',
         status: 'cotizada',
         quotedTotalCents: 0,
@@ -694,7 +698,7 @@ describe('BuylistView · Mis solicitudes', () => {
           },
         ],
         createdAt: '2026-08-17T10:00:00Z',
-      },
+      }),
     ]);
     renderWithProviders(<BuylistView />, 'es');
 
@@ -728,7 +732,7 @@ describe('BuylistView · responder ajuste (F5)', () => {
 
   function withAdjustedRequest() {
     vi.spyOn(api, 'getSellRequests').mockResolvedValue([
-      {
+      srv({
         sellRequestId: 'sr-adj-1',
         status: 'verificacion',
         quotedTotalCents: 60000,
@@ -747,7 +751,7 @@ describe('BuylistView · responder ajuste (F5)', () => {
             itemStatus: 'ajustada',
           },
         ],
-      },
+      }),
     ]);
   }
 
@@ -766,7 +770,7 @@ describe('BuylistView · responder ajuste (F5)', () => {
   it('el bloque NO aparece cuando ningún ítem está `ajustada`', async () => {
     asVerifiedCustomer();
     vi.spyOn(api, 'getSellRequests').mockResolvedValue([
-      {
+      srv({
         sellRequestId: 'sr-plain-1',
         status: 'verificacion',
         quotedTotalCents: 50000,
@@ -784,7 +788,7 @@ describe('BuylistView · responder ajuste (F5)', () => {
             itemStatus: 'verificacion',
           },
         ],
-      },
+      }),
     ]);
     renderWithProviders(<BuylistView />, 'es');
 
@@ -1294,5 +1298,104 @@ describe('BuylistView · cotizador sin cifras de envío (D43) + faltante del mí
     expect(screen.queryByTestId('buylist-minimum-shortfall')).not.toBeInTheDocument();
     // Ni un número inventado: el bloque de dinero sigue con UN solo monto.
     expect(screen.getByTestId('sell-cart-money').textContent?.match(/MX\$/g) ?? []).toHaveLength(1);
+  });
+});
+
+/**
+ * v1.51 (M-46) · el portal del vendedor tenía su propia derivación del desenlace:
+ * `errored={r.status === 'rechazada' || r.status === 'abandonada'}` — dos literales que, con
+ * `expirada` en el enum, dejaban de reconocer un cierre real. Ahora sale de `isTerminal`
+ * (server-derived) menos el único terminal FELIZ.
+ *
+ * Y §23.1d: `expirada` se pinta por su MOTIVO. Aquí es donde más importa, porque es la pantalla
+ * del propio vendedor: un `no_offer` (no ofertamos NOSOTROS) pintado como `not_shipped` le
+ * imputaría un incumplimiento que nunca cometió.
+ */
+describe('BuylistView · «Mis solicitudes» y los estados nuevos (v1.51 · M-46)', () => {
+  const card: CardDTO = {
+    id: 'c-exp',
+    externalId: 'c-exp',
+    name: 'Charizard',
+    number: '4',
+    rarity: 'Rare Holo',
+    supertype: 'Pokémon',
+    subtypes: [],
+    setId: 'base1',
+    setName: 'Base Set',
+    imageSmallUrl: '',
+    imageLargeUrl: '',
+    availableFinishes: ['holofoil'],
+  };
+
+  function withExpired(expiredReason: 'no_offer' | 'not_shipped') {
+    asVerifiedCustomer();
+    vi.spyOn(api, 'getSellRequests').mockResolvedValue([
+      srv({
+        sellRequestId: 'sr-exp-1',
+        status: 'expirada',
+        expiredReason,
+        quotedTotalCents: 60000,
+        ineRequired: false,
+        createdAt: '2026-08-15T10:00:00Z',
+        items: [
+          {
+            id: 'sri-exp-1',
+            card,
+            productType: 'raw',
+            rawCondition: 'NM',
+            finish: 'holofoil',
+            rarity: 'Rare Holo',
+            quotedPriceCents: 60000,
+            itemStatus: 'cotizada',
+          },
+        ],
+      }),
+    ]);
+  }
+
+  it('una `expirada` por `no_offer` dice «No procedió» y NO acusa al vendedor', async () => {
+    withExpired('no_offer');
+    renderWithProviders(<BuylistView />, 'es');
+
+    expect(await screen.findByText('sr-exp-1')).toBeInTheDocument();
+    const badge = screen.getByText('No procedió');
+    expect(badge).toBeInTheDocument();
+    expect(badge.className).toContain('text-muted');
+    // Ni el rótulo genérico ni la versión acusatoria.
+    expect(screen.queryByText('Expirada')).not.toBeInTheDocument();
+    expect(screen.queryByText('Sin envío')).not.toBeInTheDocument();
+  });
+
+  it('una `expirada` por `not_shipped` sí dice «Sin envío» (los dos motivos NO se colapsan)', async () => {
+    withExpired('not_shipped');
+    renderWithProviders(<BuylistView />, 'es');
+
+    expect(await screen.findByText('sr-exp-1')).toBeInTheDocument();
+    expect(screen.getByText('Sin envío')).toBeInTheDocument();
+    expect(screen.queryByText('No procedió')).not.toBeInTheDocument();
+  });
+
+  it('el pipeline del vendedor tiene los OCHO pasos del contrato, no los cinco viejos', async () => {
+    asVerifiedCustomer();
+    vi.spyOn(api, 'getSellRequests').mockResolvedValue([
+      srv({
+        sellRequestId: 'sr-tr-1',
+        status: 'en_transito',
+        quotedTotalCents: 60000,
+        ineRequired: false,
+        createdAt: '2026-08-15T10:00:00Z',
+        items: [],
+      }),
+    ]);
+    renderWithProviders(<BuylistView />, 'es');
+    await screen.findByText('sr-tr-1');
+
+    // `en_transito` ES un paso alcanzable: antes caía fuera de la lista de cinco y el stepper
+    // no marcaba NINGÚN paso como actual (`currentIdx === -1`).
+    const current = document.querySelector('li[aria-current="step"]');
+    expect(current).not.toBeNull();
+    expect(current!.textContent).toContain('En tránsito');
+    // El stepper (el `<ol>` que contiene ese paso; la página tiene otras listas) es de OCHO.
+    expect(current!.parentElement!.children).toHaveLength(8);
   });
 });

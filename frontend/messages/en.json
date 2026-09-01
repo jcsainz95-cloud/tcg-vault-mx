@@ -1243,6 +1243,7 @@
       "cherryPick": "Card-by-card decision",
       "tabs": {
         "por_recibir": "To receive",
+        "ciclo": "Offer cycle",
         "verificando": "Verifying",
         "por_pagar": "To pay",
         "cerradas": "Closed",
@@ -2445,12 +2446,20 @@
     },
     "sellRequest": {
       "cotizada": "Quoted",
+      "ofertada": "Offer sent",
+      "aceptada": "Accepted",
+      "en_transito": "In transit",
       "recibida": "Received",
       "verificacion": "In verification",
       "aprobada": "Approved",
       "pagada": "Paid",
       "rechazada": "Rejected",
       "abandonada": "Abandoned"
+    },
+    "sellRequestExpiry": {
+      "not_shipped": "Not shipped",
+      "no_offer": "Not pursued",
+      "unknown": "Expired"
     },
     "sellItem": {
       "cotizada": "Quoted",

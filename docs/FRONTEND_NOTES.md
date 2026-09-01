@@ -8130,3 +8130,185 @@ Ambos se actualizaron a la realidad normativa nueva (no se relajaron: se ampliar
    §23.14; si el PO los matiza, es un cambio de catálogo de una línea por clave.
 4. **Arquitecto — sin petición de contrato.** Este pase es 100 % copy y montaje: **ningún endpoint,
    ningún campo, ningún mock**. No quedó ningún `// MOCK: pendiente de contrato` abierto.
+
+---
+
+## v1.51 · §4.39c sitio 9 — la quinta copia del set terminal: se borra consumiendo `isTerminal` (2026-09-01, rama `claude/buylist-inventory-workflow-hdnls3`)
+
+> Ejecuta **ARCHITECTURE §4.39(c) sitio 9** («`M5View.tsx` borra su literal. **No lo sustituye por
+> otra constante de frontend: el backend le dice**») y **API_CONTRACT §M5/§11 v1.51**. Toca además
+> lo que el mismo crecimiento del enum dejó **invisible**: DESIGN_SYSTEM §23.1a/§23.1d y §23.2a.
+
+### 1. El hallazgo, y por qué tenía DOS daños y no uno
+
+`M5View.tsx:110` mantenía `REQUEST_TERMINAL = new Set<SellRequestStatus>(['pagada','rechazada',
+'abandonada'])` — la **quinta de cinco copias** del set terminal y la única fuera del backend. El
+enum creció a **cuatro** terminales (criterio 113) y la copia se quedó en tres. Los dos daños son
+distintos y ninguno falla en compilación:
+
+| # | Daño | Cómo se manifestaba |
+|---|---|---|
+| 1 | **La acción imposible** | `canRejectRequest` (`:780`) daba `true` sobre una `expirada` ⇒ la pantalla ofrecía «Rechazar solicitud» y el servidor contestaba **409** |
+| 2 | **La desaparición silenciosa** | `visible = filtered.filter(r => activeStatuses.includes(r.status))`. `ofertada`, `aceptada` y `en_transito` **no estaban en ninguna pestaña**, y `expirada` tampoco: **no salían en ninguna vista de M5** — sin error, sin aviso, sin test rojo |
+
+El daño 2 es el peor de los dos porque es **latente**: hoy nada escribe esos estados, así que la
+pantalla se ve bien. Deja de verse bien el día que el ciclo se encienda, que es exactamente cuando
+nadie estará mirando esto.
+
+### 2. `isTerminal`: sí se consiguió consumir, y en las DOS proyecciones
+
+El backend ya lo emite server-derived en las tres proyecciones (verificado en
+`buylist.service.ts:123`, `:1280`, `:1526`). El frontend **no tenía ni una sola lectura del campo**.
+
+- **`M5View.tsx`** — `REQUEST_TERMINAL` **borrado**. `canRejectRequest = req.isTerminal === false &&
+  allItemsRejected`.
+  **`=== false` y no `!req.isTerminal`, a propósito:** si el campo faltara (backend anterior a
+  v1.51), fallar hacia «no ofrecer la acción» le quita al operador un botón; fallar al revés le
+  ofrece un cierre que el servidor rechaza. **Fail-closed**, como todo lo que toca el cierre de una
+  solicitud. Hay test dedicado para esa dirección.
+- **`MyRequestsSection.tsx:105`** — era `errored={r.status === 'rechazada' || r.status ===
+  'abandonada'}`: **otra derivación local**, esta vez del set «terminal NO feliz». Pasa a
+  `r.isTerminal && r.status !== 'pagada'`. Lo único que queda escrito es el **único terminal
+  feliz**, que es un literal suelto y no un subconjunto que haya que mantener.
+- **`SellRequestDTO.isTerminal` y `AdminBuylistDTO.isTerminal` son OBLIGATORIOS**, no opcionales.
+  Si fueran opcionales, cada consumidor escribiría un `?? <adivinanza local>` y **la copia volvería
+  disfrazada de default**. Hay candado de tipo que lo fija.
+
+### 3. Dónde quedaron los cuatro estados nuevos en M5 — y el candado que impide la próxima desaparición
+
+El arreglo **no** fue añadir cuatro literales más a tres listas. El filtro por pestañas se derivó de
+una **asignación TOTAL** `Record<SellRequestStatus, M5TabAll>`:
+
+| Estado nuevo | Pestaña | Por qué |
+|---|---|---|
+| `ofertada` | **`ciclo`** (NUEVA — «Ciclo de oferta» / «Offer cycle») | oferta vinculante afuera, el reloj es del vendedor |
+| `aceptada` | **`ciclo`** | dijo que sí; **nada viaja todavía** (§23.1b, criterio 156) |
+| `en_transito` | **`ciclo`** | un paquete viaja de verdad |
+| `expirada` | **`cerradas`** | es el **cuarto terminal** (criterio 113); entra al CSV `status=pagada,rechazada,abandonada,expirada` |
+
+`Record<SellRequestStatus, …>` convierte la desaparición silenciosa en **error de compilación**:
+añadir un valor al enum del contrato deja de compilar M5 hasta que alguien decida dónde vive.
+`M5_OP_TABS` y `M5_CLOSED_STATUSES` se **derivan** de ese mapa; no se escriben dos veces.
+
+**Por qué UNA pestaña y no tres.** Los tres son estados de **monitoreo** desde esta cola. Las colas
+con acción propia del ciclo (por autorizar, por confirmar envío, guías por cancelar, vendedores
+vivos) son **vistas aparte** con endpoints propios (§23.8) y todavía no están montadas. Y `aceptada`
+**no** se agrupó bajo ningún rótulo que diga «en camino»: aceptar no mueve nada, y llamarlo así
+repetiría el error conceptual que el criterio 156 existe para evitar.
+
+### 4. Las otras derivaciones locales del mismo tipo, y qué se hizo con cada una
+
+| Sitio | Qué codificaba | Resolución |
+|---|---|---|
+| `M5View.tsx:110` `REQUEST_TERMINAL` | set terminal (3 de 4) | **BORRADO** — se consume `isTerminal` |
+| `MyRequestsSection.tsx:105` `errored` | terminal-no-feliz (2 literales) | **DERIVADO** de `isTerminal` |
+| `pipelines.ts` `useBuylistSteps` | pipeline de **CINCO** pasos | **OCHO** (§23.2a). Con cinco, una solicitud `ofertada`/`aceptada`/`en_transito` caía en `currentIdx === -1` y **el stepper no marcaba ningún paso**: el estado desaparecía también de ahí |
+| `status-map.ts` `sellRequest` | **siete** de once estados | los cuatro nuevos, con los tonos de §2.4/§23.1a |
+| `contract.ts` `SellRequestStatus` | **siete** valores | los **once** del contrato §Enums |
+| `M5_CLOSED_STATUSES` | CSV terminal escrito a mano | derivado del mapa total |
+
+**`expirada` se pinta por su MOTIVO, no por su estado (§23.1d).** Es la única excepción de mapeo del
+sistema y es obligatoria: `not_shipped` acusa al vendedor y `no_offer` **nos acusa a nosotros**.
+`getBadgeSpec(domain, value, reason)` busca primero la fila refinada y cae al **fallback neutro**
+—nunca al acusatorio— cuando el motivo falta. Rótulos bajo `status.sellRequestExpiry.{not_shipped,
+no_offer,unknown}` (las **tres** claves de §23.12, no bajo `status.sellRequest.*`).
+
+### 5. El mock es el SERVIDOR falso, y ahí vive la única derivación que queda
+
+`isTerminal` es server-derived, así que **no puede vivir en una fixture**: las ramas mock **mutan**
+el `status` en memoria (`respondSellRequest`, `paySpeiBuylist`, `rejectBuylistRequest`…) y un
+booleano guardado se quedaría mintiendo en cuanto la solicitud cambiara de estado. Las fixtures
+guardan **filas** (`MockSellRequestRow`, `MockAdminBuylistRow`) y las proyecciones
+`mockSellRequestDTO` / `mockAdminBuylistDTO` ponen el campo al responder, igual que el backend real.
+
+Eso deja **una** derivación del set terminal en el frontend, en `src/lib/mock/fixtures.ts`, espejo
+de `backend/src/common/sell-request-states.ts`. **No es la copia que §4.39c mandó borrar:** aquélla
+la consultaba una VISTA para decidir botones **teniendo el dato del servidor a mano**; ésta existe
+porque en modo mock **no hay servidor que lo derive**. Ninguna pantalla la importa, y el candado de
+§6 falla si alguna lo hace.
+
+### 6. El candado (`src/types/sell-request-status.test.ts`)
+
+Mismo patrón que `sealed-subtype.test.ts` (T-1, §22). Cuatro propiedades:
+
+1. **Tipo:** la unión del front cubre **exactamente** los once valores del contrato §Enums, en las
+   dos direcciones (falla en `tsc`, no solo en runtime).
+2. **Tipo:** `isTerminal` es **obligatorio** en los dos DTOs — si se volviera opcional, su tipo
+   pasaría a `boolean | undefined` y las asignaciones no compilarían bajo `strict`.
+3. Los once resuelven a badge propio con rótulo en **ambos** catálogos; diez bajo
+   `status.sellRequest.*` y `expirada` bajo `status.sellRequestExpiry.*`.
+4. **Nadie declara una lista LITERAL de estados fuera de `contract.ts`** (patrón
+   `new Set<SellRequestStatus>([…])` / `: SellRequestStatus[] = […]`). Las listas **derivadas** no
+   matchean: derivar es legítimo, transcribir a mano es la deuda. Única excepción, **nombrada en el
+   test en vez de escondida**: `src/lib/mock/` (el servidor falso).
+   **Verificado que falla:** reintroduciendo el `REQUEST_TERMINAL` original, el test rojo nombra el
+   archivo culpable.
+
+### 7. i18n (paridad ES/EN verificada por test)
+
+Claves **nuevas**, las mismas de DESIGN_SYSTEM §23.12:
+`status.sellRequest.{ofertada,aceptada,en_transito}` ·
+`status.sellRequestExpiry.{not_shipped,no_offer,unknown}` · `admin.m5.tabs.ciclo`.
+`status.sellRequest` queda con los **diez** que lista §23.12 (sin `expirada`, que rotula por motivo).
+
+### 8. Verificación (resultado literal)
+
+| Comprobación | Resultado |
+|---|---|
+| `npm test` | `Test Files 93 passed (93)` · `Tests 822 passed (822)` (base: 92/803) |
+| `npm run typecheck` | limpio (sin salida) |
+| `npm run lint` | `✔ No ESLint warnings or errors` |
+| Flakes conocidos (`M2View`, `PhotoUploader`) | **no se dispararon** en las dos corridas completas |
+
+### 9. Lo que NO se tocó, y por qué (para que nadie lo dé por hecho)
+
+1. **§23.2b-e — el rediseño de `PipelineStepper`.** Se implementó **solo el mapa** (§23.2a: cinco
+   pasos → ocho). El **truncado en terminal** con la versalita del motivo colgando, los tres
+   breakpoints, la vertical con timestamps del portal y las claves
+   `buylist.stepper.{1..8}.label` / `buylist.stepper.closed.*` son rediseño del componente y
+   pertenecen al pase del ciclo. Hoy una solicitud terminal simplemente no marca paso actual, que
+   es el **comportamiento previo** (no una regresión nueva).
+2. **§23.8 — las cuatro colas nuevas de M5** (`offers/pending-authorization`,
+   `pending-shipment-confirmation`, `guides/pending-cancellation`, `live-sellers`) y la **mesa de
+   decisión** (§23.6). Son endpoints que el backend aún no expone.
+3. **El rótulo `admin.m5.tabs.por_recibir` («Por recibir»).** §23.1a ratifica que `cotizada`
+   **cambió de sentido** en v2.3: ya no es «llegó y algún día se verá», es **«te debemos una
+   respuesta»**. El rótulo quedó describiendo lo que ya no significa. **No lo renombré**: es copy,
+   y el pase que lo cambie debería cambiarlo con el resto del vocabulario del ciclo. Ver §10-2.
+4. **`ITEM_TERMINAL` (`M5View.tsx`) y `RESOLVED` (`M8View.tsx`).** Son subconjuntos de
+   `SellItemStatus` y `DisputeStatus`, **dos enums que v1.51 NO toca** (el contrato lo dice con
+   todas sus letras para `SellItemStatus`). Misma clase de deuda, **cero radio de este cambio**.
+   Se dejan y se señalan.
+
+### 10. Señalado a otros roles (no resuelto aquí)
+
+1. **Arquitecto — `live?` está en el contrato pero el backend no lo implementa.** §M5 v1.51 define
+   `live=true|false`, que filtra los terminales **por exclusión server-side** y volvería innecesario
+   incluso el CSV que M5 manda hoy (`grep live` en `backend/src/modules/buylist/` no devuelve nada).
+   Mientras tanto la pestaña «Cerradas» sigue mandando `status=` CSV, que **enumera** los cuatro
+   terminales. **Es correcto pero no es la forma final**, y está anotado en el código. En cuanto el
+   parámetro exista, esa enumeración se retira.
+2. **Arquitecto — `canPay` es una sexta copia, y ésta NO tiene contraparte server-derived.**
+   `M5View.tsx` deriva `canPay = isSuperAdmin && (status === 'aprobada' || status ===
+   'verificacion')`. Ese par es exactamente `SELL_REQUEST_PAYABLE_STATES` (ARCHITECTURE §4.39c
+   **sitio 8**), y el frontend lo transcribe a mano igual que transcribía el terminal. **A
+   diferencia de `isTerminal`, el contrato no expone ningún booleano equivalente**, así que no
+   había forma de curarlo sin inventarme un campo. Toca dinero saliente. **No lo cambié**: si
+   quiere el mismo remedio, es un campo derivado en `AdminBuylistDTO` (p. ej. `isPayable`), y esa
+   decisión es del arquitecto.
+3. **Arquitecto — ambigüedad menor de alcance en §6.** El bloque de notas de `isTerminal` dice *«la
+   proyección de CLIENTE»* y cuelga de **dos** encabezados (`GET /buylist/requests` **lista** y
+   `…/:id` **detalle**), mientras que las adiciones vecinas sí distinguen (`pickupAddress` y
+   `lastOfferCancelledAt` dicen explícitamente «el DETALLE»). Lo leí como **las dos**, que es como
+   lo implementó el backend (`listMine` lo emite). **Lo señalo en vez de resolverlo en silencio**:
+   si la intención era solo el detalle, `MyRequestsSection` —que consume la **lista**— se quedaría
+   sin el campo.
+4. **ux-ui — falta rótulo de pestaña para el tramo del ciclo en M5.** §23.8 especifica las cuatro
+   **colas** nuevas, pero no las **pestañas de etapa** de la cola existente. Puse
+   `admin.m5.tabs.ciclo` = «Ciclo de oferta» / «Offer cycle» (el nombre que el propio contrato le
+   da al tramo) porque **algún rótulo hacía falta para que los tres estados no desaparecieran**.
+   Es una clave de una línea por catálogo si ux-ui prefiere otro. Junto con ella, el rótulo
+   «Por recibir» de §9-3.
+5. **Arquitecto — sin petición de contrato.** Todo lo consumido en este pase existe:
+   `isTerminal` y `expiredReason` en las dos proyecciones. **Cero mocks pendientes de contrato**;
+   no quedó ningún `// MOCK: pendiente de contrato` abierto.

@@ -7,6 +7,11 @@ import { M5View } from './M5View';
 import * as api from '@/lib/api';
 import { ApiClientError } from '@/lib/api-client';
 import type { CardDTO } from '@/types/contract';
+// ⚠️ En estas pruebas el spy HACE DE SERVIDOR, y `isTerminal` es **server-derived** (v1.51).
+// Se proyecta con la MISMA función que usa el mock en vez de escribir el booleano a mano en
+// cada fixture: escribirlo a mano sería devolver al frontend la copia del set terminal que
+// este cambio vino a borrar, disfrazada de dato de prueba.
+import { mockAdminBuylistDTO as srv } from '@/lib/mock/fixtures';
 
 // Reveal CLABE / pago SPEI exigen super_admin (patrón useRole): se fija para ejercer el flujo.
 vi.mock('@/lib/role', () => ({
@@ -46,7 +51,7 @@ describe('M5View · Buylist admin end-to-end', () => {
   it('el botón Verificar dispara POST /verify y muestra la confirmación', async () => {
     const spy = vi
       .spyOn(api, 'verifyBuylistRequest')
-      .mockResolvedValue({ id: 'sr-3002', userId: 'u-778', status: 'verificacion', quotedTotalCents: 1200, createdAt: '', items: [] });
+      .mockResolvedValue(srv({ id: 'sr-3002', userId: 'u-778', status: 'verificacion', quotedTotalCents: 1200, createdAt: '', items: [] }));
     renderWithProviders(<M5View />, 'es');
     // sr-3002 está en `recibida` → muestra "Iniciar verificación".
     fireEvent.click(await screen.findByRole('button', { name: 'Iniciar verificación' }));
@@ -180,14 +185,16 @@ describe('M5View · Buylist admin end-to-end', () => {
   });
 
   it('Pagar por SPEI pide la referencia, llama al endpoint y confirma', async () => {
-    const spy = vi.spyOn(api, 'paySpeiBuylist').mockResolvedValue({
-      id: 'sr-3001',
-      userId: 'u-777',
-      status: 'pagada',
-      quotedTotalCents: 50200,
-      createdAt: '',
-      items: [],
-    });
+    const spy = vi.spyOn(api, 'paySpeiBuylist').mockResolvedValue(
+      srv({
+        id: 'sr-3001',
+        userId: 'u-777',
+        status: 'pagada',
+        quotedTotalCents: 50200,
+        createdAt: '',
+        items: [],
+      }),
+    );
     renderWithProviders(<M5View />, 'es');
     const payButtons = await screen.findAllByRole('button', { name: 'Pagar por SPEI' });
     // sr-3001 (verificacion) es pagable; sr-3002 (recibida) no.
@@ -370,7 +377,7 @@ describe('M5View · cierre explícito «Rechazar solicitud» (v1.24)', () => {
   it('la solicitud atorada (verificacion, todos los ítems rechazados) muestra el botón y dispara el cierre', async () => {
     vi.spyOn(api, 'getAdminBuylist').mockResolvedValue({
       data: [
-        {
+        srv({
           id: 'sr-stuck',
           userId: 'u-900',
           seller: { id: 'u-900', name: 'Ana Ríos', email: 'ana.rios@example.mx' },
@@ -378,20 +385,22 @@ describe('M5View · cierre explícito «Rechazar solicitud» (v1.24)', () => {
           quotedTotalCents: 45000,
           createdAt: '2026-08-12T00:00:00.000Z',
           items: [rejectedItem('sri-a'), rejectedItem('sri-b')],
-        },
+        }),
       ],
       page: 1,
       pageSize: 25,
       total: 1,
     });
-    const spy = vi.spyOn(api, 'rejectBuylistRequest').mockResolvedValue({
-      id: 'sr-stuck',
-      userId: 'u-900',
-      status: 'rechazada',
-      quotedTotalCents: 45000,
-      createdAt: '2026-08-12T00:00:00.000Z',
-      items: [rejectedItem('sri-a'), rejectedItem('sri-b')],
-    });
+    const spy = vi.spyOn(api, 'rejectBuylistRequest').mockResolvedValue(
+      srv({
+        id: 'sr-stuck',
+        userId: 'u-900',
+        status: 'rechazada',
+        quotedTotalCents: 45000,
+        createdAt: '2026-08-12T00:00:00.000Z',
+        items: [rejectedItem('sri-a'), rejectedItem('sri-b')],
+      }),
+    );
     renderWithProviders(<M5View />, 'es');
 
     // El botón a nivel solicitud aparece (etapa por defecto = Verificando).
@@ -409,7 +418,7 @@ describe('M5View · cierre explícito «Rechazar solicitud» (v1.24)', () => {
   it('NO ofrece el botón si queda algún ítem sin rechazar (evita el 422 seguro)', async () => {
     vi.spyOn(api, 'getAdminBuylist').mockResolvedValue({
       data: [
-        {
+        srv({
           id: 'sr-mixed',
           userId: 'u-901',
           status: 'verificacion',
@@ -419,7 +428,7 @@ describe('M5View · cierre explícito «Rechazar solicitud» (v1.24)', () => {
             rejectedItem('sri-c'),
             { id: 'sri-d', card, productType: 'raw', finish: 'normal', itemStatus: 'aprobada', approvedPriceCents: 30000 },
           ],
-        },
+        }),
       ],
       page: 1,
       pageSize: 25,
@@ -433,14 +442,14 @@ describe('M5View · cierre explícito «Rechazar solicitud» (v1.24)', () => {
   it('el 422 REQUEST_HAS_NON_REJECTED_ITEMS se muestra DENTRO del modal con copy i18n', async () => {
     vi.spyOn(api, 'getAdminBuylist').mockResolvedValue({
       data: [
-        {
+        srv({
           id: 'sr-stuck',
           userId: 'u-900',
           status: 'verificacion',
           quotedTotalCents: 45000,
           createdAt: '2026-08-12T00:00:00.000Z',
           items: [rejectedItem('sri-a')],
-        },
+        }),
       ],
       page: 1,
       pageSize: 25,
@@ -495,7 +504,8 @@ describe('M5View · modal de rechazo (bug de foco al escribir)', () => {
  */
 describe('M5View · pestaña «Cerradas» server-side (v1.25)', () => {
   const card: CardDTO = { id: 'c', externalId: 'c', name: 'Blastoise', number: '2', rarity: 'Rare Holo', supertype: 'Pokémon', subtypes: [], setId: 'base1', setName: 'Base Set', imageSmallUrl: '', imageLargeUrl: '', availableFinishes: ['normal'] };
-  const closedReq = (id: string, status: 'pagada' | 'rechazada' | 'abandonada') => ({
+  const closedReq = (id: string, status: 'pagada' | 'rechazada' | 'abandonada' | 'expirada') =>
+    srv({
     id,
     userId: 'u-777',
     seller: { id: 'u-777', name: 'Diana Olvera', email: 'diana.olvera@example.mx' },
@@ -512,7 +522,7 @@ describe('M5View · pestaña «Cerradas» server-side (v1.25)', () => {
         quotedPriceCents: 50200,
       },
     ],
-  });
+    });
 
   it('al abrir «Cerradas» dispara la query server-side con status CSV y pageSize 25', async () => {
     const spy = vi.spyOn(api, 'getAdminBuylist').mockResolvedValue({
@@ -527,7 +537,14 @@ describe('M5View · pestaña «Cerradas» server-side (v1.25)', () => {
 
     await waitFor(() =>
       expect(spy).toHaveBeenCalledWith(
-        expect.objectContaining({ status: 'pagada,rechazada,abandonada', page: 1, pageSize: 25 }),
+        // ⚠️ v1.51: los terminales pasaron de TRES a CUATRO (criterio 113). `expirada` entra al
+        // CSV porque entró al mapa de pestañas; sin ella, una solicitud expirada no aparecía en
+        // ninguna pestaña de M5 y nadie la veía nunca.
+        expect.objectContaining({
+          status: 'pagada,rechazada,abandonada,expirada',
+          page: 1,
+          pageSize: 25,
+        }),
       ),
     );
     expect(await screen.findByText('sr-c1')).toBeInTheDocument();
@@ -581,7 +598,7 @@ describe('M5View · pestaña «Cerradas» server-side (v1.25)', () => {
   // resumen read-only escondía «Convertir a inventario», atorando una carta `aprobada` que
   // el backend SÍ deja convertir. Ahora el botón se ofrece por-ítem según el `itemStatus`.
   it('«Cerradas»: un ítem aprobado NO convertido ofrece «Convertir a inventario» y lo dispara', async () => {
-    const paidWithApprovedItem = {
+    const paidWithApprovedItem = srv({
       id: 'sr-c9',
       userId: 'u-777',
       seller: { id: 'u-777', name: 'Diana Olvera', email: 'diana.olvera@example.mx' },
@@ -601,7 +618,7 @@ describe('M5View · pestaña «Cerradas» server-side (v1.25)', () => {
           approvedPriceCents: 50200,
         },
       ],
-    };
+    });
     vi.spyOn(api, 'getAdminBuylist').mockResolvedValue({
       data: [paidWithApprovedItem],
       page: 1,
@@ -653,5 +670,167 @@ describe('M5View · pestaña «Cerradas» server-side (v1.25)', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Siguiente' }));
 
     await waitFor(() => expect(spy).toHaveBeenCalledWith(expect.objectContaining({ page: 2 })));
+  });
+});
+
+/**
+ * v1.51 (M-46) · los CUATRO estados nuevos del enum, y las dos maneras en que M5 podía mentir
+ * sobre ellos.
+ *
+ * 1. **La acción imposible.** `canRejectRequest` salía de `REQUEST_TERMINAL`, un `Set` escrito a
+ *    mano con TRES estados. Con `expirada` en el enum (el CUARTO terminal, criterio 113) la
+ *    pantalla ofrecía «Rechazar solicitud» sobre una solicitud cerrada y el servidor contestaba
+ *    **409**. Se borró el `Set`: ahora se lee `isTerminal`, DERIVADO SERVER-SIDE.
+ * 2. **La desaparición silenciosa.** El filtro es
+ *    `filtered.filter(r => activeStatuses.includes(r.status))`: un status sin pestaña **no sale
+ *    en ninguna vista**, y eso no falla ni avisa. `ofertada`, `aceptada` y `en_transito` no
+ *    tenían pestaña.
+ */
+describe('M5View · los cuatro estados nuevos (v1.51 · M-46)', () => {
+  const card: CardDTO = { id: 'c', externalId: 'c', name: 'Blastoise', number: '2', rarity: 'Rare Holo', supertype: 'Pokémon', subtypes: [], setId: 'base1', setName: 'Base Set', imageSmallUrl: '', imageLargeUrl: '', availableFinishes: ['normal'] };
+  const rejectedItem = (id: string) => ({
+    id,
+    card,
+    productType: 'raw' as const,
+    finish: 'normal' as const,
+    itemStatus: 'rechazada' as const,
+    rejectionReason: 'no es NM: esquina doblada',
+    rejectedAt: '2026-08-18T00:00:00.000Z',
+  });
+
+  it('una solicitud `expirada` con TODOS los ítems rechazados NO ofrece «Rechazar solicitud»', async () => {
+    // Es exactamente la fila que el `Set` viejo daba por NO terminal: cumple la precondición de
+    // «todos los ítems rechazados», así que lo único que puede retirar el botón es `isTerminal`.
+    vi.spyOn(api, 'getAdminBuylist').mockResolvedValue({
+      data: [
+        srv({
+          id: 'sr-exp',
+          userId: 'u-902',
+          status: 'expirada',
+          quotedTotalCents: 45000,
+          createdAt: '2026-08-12T00:00:00.000Z',
+          items: [rejectedItem('sri-e')],
+        }),
+      ],
+      page: 1,
+      pageSize: 25,
+      total: 1,
+    });
+    renderWithProviders(<M5View />, 'es');
+    // `expirada` es terminal ⇒ vive en «Cerradas», que es server-side: no sale en las operativas.
+    await screen.findByRole('tab', { name: /Cerradas/ });
+    expect(screen.queryByRole('button', { name: 'Rechazar solicitud' })).not.toBeInTheDocument();
+  });
+
+  it('el botón sí aparece sobre una solicitud VIVA equivalente (el contraste que prueba el guard)', async () => {
+    vi.spyOn(api, 'getAdminBuylist').mockResolvedValue({
+      data: [
+        srv({
+          id: 'sr-viva',
+          userId: 'u-902',
+          status: 'verificacion',
+          quotedTotalCents: 45000,
+          createdAt: '2026-08-12T00:00:00.000Z',
+          items: [rejectedItem('sri-v')],
+        }),
+      ],
+      page: 1,
+      pageSize: 25,
+      total: 1,
+    });
+    renderWithProviders(<M5View />, 'es');
+    expect(await screen.findByRole('button', { name: 'Rechazar solicitud' })).toBeInTheDocument();
+  });
+
+  it('sin `isTerminal` (backend previo a v1.51) el cierre NO se ofrece: fail-closed', async () => {
+    // Un campo ausente no puede leerse como «sigue viva»: ofrecería un botón que da 409. Se
+    // fuerza el shape viejo a propósito — es la única manera de probar la dirección del fallo.
+    const legacyRow = {
+      id: 'sr-legacy',
+      userId: 'u-903',
+      status: 'verificacion' as const,
+      quotedTotalCents: 45000,
+      createdAt: '2026-08-12T00:00:00.000Z',
+      items: [rejectedItem('sri-l')],
+    } as unknown as Awaited<ReturnType<typeof api.getAdminBuylist>>['data'][number];
+    vi.spyOn(api, 'getAdminBuylist').mockResolvedValue({
+      data: [legacyRow],
+      page: 1,
+      pageSize: 25,
+      total: 1,
+    });
+    renderWithProviders(<M5View />, 'es');
+    await screen.findByText('sr-legacy');
+    expect(screen.queryByRole('button', { name: 'Rechazar solicitud' })).not.toBeInTheDocument();
+  });
+
+  it('`ofertada`, `aceptada` y `en_transito` son VISIBLES: tienen pestaña propia y badge con rótulo', async () => {
+    const cycleRow = (id: string, status: 'ofertada' | 'aceptada' | 'en_transito') =>
+      srv({
+        id,
+        userId: 'u-904',
+        status,
+        quotedTotalCents: 50000,
+        createdAt: '2026-08-20T00:00:00.000Z',
+        items: [],
+      });
+    vi.spyOn(api, 'getAdminBuylist').mockResolvedValue({
+      data: [
+        cycleRow('sr-of', 'ofertada'),
+        cycleRow('sr-ac', 'aceptada'),
+        cycleRow('sr-tr', 'en_transito'),
+      ],
+      page: 1,
+      pageSize: 25,
+      total: 3,
+    });
+    renderWithProviders(<M5View />, 'es');
+
+    // Las tres filas se pintan (la pestaña del ciclo es la primera NO vacía ⇒ etapa por defecto),
+    // cada una con su versalita (§23.1a) — no con la clave i18n cruda ni en blanco.
+    expect(await screen.findByText('sr-of')).toBeInTheDocument();
+    expect(screen.getByText('sr-ac')).toBeInTheDocument();
+    expect(screen.getByText('sr-tr')).toBeInTheDocument();
+
+    // Y la pestaña existe y cuenta las TRES.
+    const tab = screen.getByRole('tab', { name: /Ciclo de oferta/ });
+    expect(within(tab).getByText('3')).toBeInTheDocument();
+
+    // Cada rótulo sale en DOS superficies: el BADGE de su fila (mono, versalitas) y el paso
+    // homónimo del stepper de cada solicitud — el pipeline pasó de CINCO pasos a OCHO (§23.2a).
+    // Con la lista vieja de cinco, estos tres estados caían en `currentIdx === -1` y el stepper
+    // no marcaba ningún paso: el estado desaparecía también de ahí.
+    for (const label of ['Ofertada', 'Aceptada', 'En tránsito']) {
+      const nodes = screen.getAllByText(label);
+      expect(nodes.some((n) => n.className.includes('font-mono')), `badge de ${label}`).toBe(true);
+      expect(nodes.some((n) => !n.className.includes('font-mono')), `paso de ${label}`).toBe(true);
+    }
+    // El stepper marca el paso actual de cada fila (`aria-current="step"`), uno por solicitud.
+    expect(document.querySelectorAll('li[aria-current="step"]')).toHaveLength(3);
+  });
+
+  it('«Cerradas» pinta una `expirada` con el copy de su MOTIVO, no con el del estado (§23.1d)', async () => {
+    vi.spyOn(api, 'getAdminBuylist').mockResolvedValue({
+      data: [
+        srv({
+          id: 'sr-exp2',
+          userId: 'u-905',
+          status: 'expirada',
+          expiredReason: 'no_offer',
+          quotedTotalCents: 50000,
+          createdAt: '2026-08-20T00:00:00.000Z',
+          items: [],
+        }),
+      ],
+      page: 1,
+      pageSize: 25,
+      total: 1,
+    });
+    renderWithProviders(<M5View />, 'es');
+    fireEvent.click(await screen.findByRole('tab', { name: /Cerradas/ }));
+    await screen.findByText('sr-exp2');
+    // «No procedió» (la causa es NUESTRA), no «Expirada» ni el rojo de `rechazada`.
+    expect(screen.getByText('No procedió')).toBeInTheDocument();
+    expect(screen.queryByText('Expirada')).not.toBeInTheDocument();
   });
 });
