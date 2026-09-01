@@ -2,7 +2,59 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-01 (rev **v1.51.14**).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-01 (rev **v1.51.15**).
+>
+> **Changelog v1.51.15 — EL PORTAL DEL VENDEDOR: seis huecos del contrato, todos míos (2026-09-01, arquitecto;
+> **CERO DDL** — un path corregido, tres campos nuevos, dos declarados y un tipo partido. ARCHITECTURE §4.39n.1
+> corregida; §9 **BL-21 enmendada** + **BL-23**):**
+> ⚠️ **Seis hallazgos del frontend al construir el portal. En los seis señaló en vez de inventar** — incluido
+> declarar su tipo **más estrecho que el contrato a sabiendas**, que es la conducta correcta ante un tipo que mezcla
+> audiencias.
+>
+> **A. ⚠️⚠️ EL PATH DEL CTA — CORREGIDO, Y EL ERROR ERA MÍO: `{origen}/{locale}/buylist/requests/{sellRequestId}`.**
+> v1.51.13 fijó `/{locale}/buylist/{id}`, frontend construyó la pantalla en `/buylist/requests/{id}` y backend
+> implementó **mi** forma ⇒ **el enlace seguía roto, ahora por divergencia**. **Manda la del frontend:** `/buylist`
+> **no es una colección, es una SECCIÓN** que ya renderiza pantalla propia; un `[id]` colgado de ella afirmaría que
+> *todo* lo que hay bajo `/buylist` es una solicitud. **Ajusta backend** (una línea).
+> - ⚠️ **Y corrijo una frase mía que se puede leer al revés:** BL-21 decía *«path con forma de API ⇒ 404»*. **Espejar
+>   la ruta del recurso es BUENO**; lo roto era **la falta del `{locale}`** y **que no existía pantalla detrás**. *Sin
+>   esto, alguien quitaría `requests/` para cumplir una regla que nunca escribí.*
+> - **`APP_PUBLIC_URL` NO se unifica con `APP_BASE_URL`** — ése era el punto de v1.51.13: la segunda es la
+>   **allow-list de CORS** y **su orden no significa nada**; unificarlas ataría el origen de todos los correos a un
+>   reordenamiento legítimo.
+>
+> **B. `offer.terms` gana `rule` — y elimina la ÚNICA copia de copy que el pase tuvo que crear.** §23.5b exige en el
+> portal la prosa del descuento **con los montos interpolados**, y esa prosa **solo existía dentro de la plantilla del
+> correo** ⇒ el front la **duplicó** en su i18n. Las otras dos claves de `terms` ya viajan **verbatim del servidor**
+> precisamente para que *el vendedor lea en pantalla el mismo texto que aceptó en el correo*; ésta se salía del patrón
+> **por falta de campo, no por diseño**. ⚠️ **Y sin el campo, el front interpolaría él los tres montos de una oferta
+> VINCULANTE** — que es justo lo que §23.5a existe para impedir.
+>
+> **C. `rejectedReason` (DERIVADO, cero DDL) — `rechazada` tenía TRES productores y ninguno era distinguible.**
+> Decirle *«se te venció el plazo»* a quien **pulsó rechazar** es acusarlo de una pasividad que no tuvo — el argumento
+> de **D33** un nivel más abajo. **Se deriva sin columna nueva** porque las causas son mutuamente excluyentes **por
+> construcción** (un rechazo solo es legal **antes** del plazo; el barrido solo actúa **después**). **Lo deriva el
+> servidor:** que el front comparase `closedAt` con `offerAcceptDeadlineAt` sería la reconstrucción en cliente que
+> `isTerminal`/`isPayable` vinieron a borrar.
+>
+> **D. `SellItemDTO` se PARTE por audiencia (`SellItemDTO` / `AdminSellItemDTO`).** El portal consume ese tipo y
+> traía **cinco campos admin-only** — dos de ellos ya prohibidos por escrito en §6. **Forma inversa de BL-20:** allí
+> un campo admin-only viajaba de más; **aquí el tipo compartido invita a que viaje**. *Un tipo que mezcla audiencias
+> convierte «no lo emitas» en una regla que hay que recordar; partirlo lo vuelve imposible de escribir por accidente.*
+> **Los shapes de red no cambian.**
+>
+> **E. `guideSentAt` viaja al cliente — y NO era derivable, que es lo que lo hace obligatorio.** §23.5e depende de él,
+> y ⚠️ **`carrier != null` NO implica guía viva**: al corregir la dirección tras la guía (§4.39t) se **limpian**
+> `guideSentAt`/`shipDeadlineAt` y se **conservan** `carrier`/`trackingNumber` (son lo que hay que cancelar).
+> Derivarlo del carrier **pintaría instrucciones de envío para una etiqueta anulada**.
+>
+> **F. `paidAt` y `speiReference` se DECLARAN (ya viajaban).** El portal pintaba `pagada` sin fecha de SPEI y el front
+> **no se la inventó**. El código ya los emite; **el contrato no los declaraba** — BL-20 al revés. `speiReference` es
+> **la referencia del propio depósito del vendedor**. ⚠️ **`paidBy` sigue excluido.**
+>
+> **G. Sin cambios.** Ni endpoints, ni diales, ni DDL. *(Aparte: backend ya tiene el encargo de emitir
+> `offerDecision`, `offeredPriceCents` y `condition` en la línea de cliente — §11 ya los declara y **no necesitan
+> contrato**.)*
 >
 > **Changelog v1.51.14 — UNA FILA MALA NO TUMBA UNA COLA: degradación POR FILA de los días hábiles (2026-09-01,
 > arquitecto; **CERO DDL, CERO endpoints**; un campo pasa a nullable y otro se añade opcional. ARCHITECTURE §4.39k
@@ -5845,6 +5897,30 @@ Err:
 >   `rechazada`, `abandonada`, `expirada`). **El frontend NO vuelve a codificar ese set** (ver §M5, `M5View.tsx:110`).
 >   **Viaja en la LISTA y en el DETALLE** (ver la tabla de arriba). ⚠️ **No confundir con `isPayable`** (v1.51.8),
 >   que es **admin-only** y **jamás** llega al cliente.
+>
+> > ### ⚠️⚠️ v1.51.15 — DOS ADICIONES A LA PROYECCIÓN DE CLIENTE (hallazgos del frontend al construir el portal)
+> > **1. `rejectedReason: SellRequestRejectionReason | null` — DERIVADO server-side, NO se persiste. CERO DDL.**
+> > `rechazada` tiene **TRES productores** (§4.39a) y la pantalla **no podía distinguirlos**, así que el frontend usó
+> > una frase neutra *a propósito* — **decirle «se te venció el plazo» a quien PULSÓ RECHAZAR es acusarlo de una
+> > pasividad que no tuvo**. Es el argumento de **D33** y del prefijo `expiry.*` un nivel más abajo, y **la misma
+> > prueba que aplico siempre lo resuelve al revés que allí: aquí las causas SÍ son hechos distintos para el
+> > destinatario**, así que sí merecen valores distintos.
+> > | Valor | Qué ocurrió | Cómo se deriva (**sin columna nueva**) |
+> > |---|---|---|
+> > | `declined_by_seller` | **él rechazó la oferta** | `offerSentAt != null ∧ closedAt <= offerAcceptDeadlineAt` — un rechazo solo es legal **antes** del plazo (`409 OFFER_EXPIRED` después) |
+> > | `accept_deadline_passed` | no contestó y el barrido cerró | `offerSentAt != null ∧ closedAt > offerAcceptDeadlineAt` — el barrido **solo puede** actuar pasado el plazo |
+> > | `all_items_rejected` | ninguna carta pasó la verificación | **todos** los ítems en `itemStatus='rechazada'` |
+> > | `null` | fila **pre-M-46** (sin `offerSentAt`) | no hay dato honesto que dar |
+> > **Las dos primeras son mutuamente excluyentes POR CONSTRUCCIÓN**, no por convención — por eso el discriminador no
+> > necesita DDL. **Y lo deriva el SERVIDOR**: si el front comparara `closedAt` contra `offerAcceptDeadlineAt`,
+> > sería exactamente la reconstrucción en el cliente que `isTerminal`/`isPayable` vinieron a borrar.
+> >
+> > **2. `paidAt: string | null` — DECLARADO, no añadido.** El portal pintaba `pagada` **sin fecha del SPEI** y el
+> > frontend **no se la inventó** (correcto). ⚠️ **El campo YA VIAJA** —la proyección de cliente es la de admin menos
+> > los internos, y `paidAt` no es interno— **pero este contrato no lo declaraba**: la misma forma que BL-20 al revés
+> > (*el código emite más de lo que el tipo promete*), y por eso el front no podía apoyarse en él. **Se declara.**
+> > `speiReference` **también viaja y también se declara**: es **la referencia del propio depósito del vendedor**, el
+> > dato con el que reclama en su banco. ⚠️ **`paidBy` sigue EXCLUIDO** (identidad del operador que ejecutó el SPEI).
 > - **`offer: SellOfferPublicDTO | null`** (§11) — presente **solo** cuando la oferta está **emitida**
 >   (`offerState = 'sent'`); `null` en cualquier otro caso. Lleva los **tres montos**, **cuál se deposita**, el plazo
 >   con **fecha y hora**, el desglose **línea por línea** con su **condición NM**, y —cuando existe— la **guía**.
@@ -10319,10 +10395,21 @@ PendingPriceEntryDTO += { reason?: PendingPriceReason | null }
 // ⚠️ LO QUE **NO** VIAJA AL CLIENTE en este bloque: `offerDerivedPriceCents` y `offerOverrideReason` (deliberación
 //   interna — el vendedor ve EL NÚMERO QUE LE OFERTAMOS, no cómo se fabricó). Las líneas `skip` **SÍ** se le muestran,
 //   con `offeredPriceCents: null`: el criterio 118 exige que el desglose diga QUÉ NO COMPRAMOS.
+// ⚠️⚠️ v1.51.15 — EL BLOQUE DE OFERTA SE PARTE POR AUDIENCIA. Lo levantó frontend: consume `SellItemDTO` en el
+// PORTAL DEL VENDEDOR y el tipo traía CINCO campos ADMIN-ONLY, así que declaró el suyo MÁS ESTRECHO que el contrato
+// **a sabiendas y diciéndolo** (correcto). Es la forma INVERSA de BL-20: allí un campo admin-only viajaba de más;
+// aquí **el tipo compartido invita a que viaje**. Un tipo que mezcla dos audiencias convierte «no lo emitas» en una
+// regla que hay que RECORDAR; partirlo lo vuelve imposible de escribir por accidente — misma doctrina que la lista
+// de exclusión de `isPayable`. Los shapes de red NO cambian: se documenta lo que ya debía ser.
+//   CLIENTE (portal del vendedor) — los TRES que el criterio 118 exige para que el desglose sea legible:
 SellItemDTO      += { offerDecision?: BuyDecision | null, offeredPriceCents?: number | null,
-                      offerDerivedPriceCents?: number | null, offerOverrideReason?: string | null,
+                      condition?: string | null }
+//   ADMIN-ONLY — NUNCA en un DTO de cliente. `offerDerivedPriceCents` y `offerOverrideReason` ya lo tenían prohibido
+//   en §6 por escrito (deliberación interna: el vendedor ve EL NÚMERO QUE LE OFERTAMOS, no cómo se fabricó); los
+//   otros tres son INSTRUMENTACIÓN de §N.8, del mismo régimen y por el mismo motivo.
+AdminSellItemDTO  = SellItemDTO & { offerDerivedPriceCents?: number | null, offerOverrideReason?: string | null,
                       offerPriceBasis?: PriceBasis | null, offerMarketMxnCents?: number | null,
-                      offerMarketBracket?: MarketBracket | null, condition?: string | null }
+                      offerMarketBracket?: MarketBracket | null }
 
 // ⚠️ v1.51 — LA OFERTA COMO LA VE EL VENDEDOR. Presente en `GET /buylist/requests/:id` y en la respuesta de
 // `offer-response` SOLO cuando `offerState='sent'`; `null` en cualquier otro caso (§6). NUNCA lleva `offerState`.
@@ -10350,14 +10437,25 @@ SellItemDTO      += { offerDecision?: BuyDecision | null, offeredPriceCents?: nu
 // bloque destacado de qué pasa con la carta que no llegue NM (no se compra, no se paga, se devuelve: 7 días a su
 // costo, abandono a 30) + que **el rechazo de una línea NO cancela la compra de las demás** y **no se reprecia
 // ninguna** (criterio 161(b)). La REDACCIÓN es de ux-ui (DESIGN_SYSTEM.md); el RENDER es del backend.
+// ⚠️ v1.51.15 — DOS ADICIONES, las dos por hallazgos del frontend al construir el portal:
+//   * `terms.rule` (NUEVO) — la PROSA DEL DESCUENTO con los montos YA INTERPOLADOS, renderizada por el SERVIDOR con
+//     el mismo texto y el mismo locale que el correo. Sin ella el front tuvo que DUPLICAR ese copy en su i18n — la
+//     única copia que ese pase se vio obligado a crear — y, peor, tendría que interpolar él los tres montos de una
+//     oferta VINCULANTE. Las otras dos claves de `terms` ya viajan verbatim justamente para que el vendedor lea en
+//     pantalla lo que aceptó en el correo (§23.5a/b); ésta se salía del patrón por falta de campo, no por diseño.
+//   * `guideSentAt` (NUEVO) — ⚠️ NO es derivable de `carrier != null`: al corregir la dirección tras la guía
+//     (§4.39t) se LIMPIAN `guideSentAt`/`shipDeadlineAt` y se CONSERVAN `carrier`/`trackingNumber` (son lo que hay
+//     que cancelar). Derivar «hay guía viva» del carrier pintaría instrucciones de envío para una etiqueta ANULADA.
+//     Es el único marcador veraz, y §23.5e depende de él.
 SellOfferPublicDTO = { sentAt: string, grossCents: number, shippingFeeCents: number, netCents: number,
                        // v1.51.1: SIN `shippingPaidByUs` y SIN `depositField` (D31 — una sola banda)
                        acceptDeadlineAt: string,
                        acceptedAt: string | null,
+                       guideSentAt: string | null,
                        shipDeadlineAt: string | null,
                        sellerShippedDeclaredAt: string | null,
                        carrier: string | null, trackingNumber: string | null,
-                       terms: { perLineConditionLabel: string, consequence: string },
+                       terms: { perLineConditionLabel: string, consequence: string, rule: string },
                        lines: SellItemDTO[] }
 
 // ⚠️ v1.51 — UNA FILA DE LA MESA DE DECISIÓN (`GET /admin/buylist/:id/decision-table`). ADMIN-ONLY, íntegro.
