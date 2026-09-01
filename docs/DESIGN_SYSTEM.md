@@ -295,6 +295,20 @@
 > fecha**. De ahí sale una regla que este documento adopta: *el copy de un flujo que se apaga se retira
 > cuando **termina su última instancia viva**, no cuando el flujo deja de crearse.* **Cero cambios de
 > diseño visual, cero tokens, cero redacción nueva.**
+>
+> **Corrección v2.3.4 (2026-09-01 — falso positivo levantado por frontend al implementar §23.14).**
+> **Se recalibra la regla de QA 2 de §23.14.6**, que marcaba **`buylist.quote.shippingNote`** —la cadena
+> **normativa** de §23.3d, citada literal en el mock-up de §23.3c— porque buscaba `te pagamos` / `we pay
+> you` exigiendo **«cero coincidencias»** sobre `buylist.quote.*`. El patrón no era el problema: **la
+> forma de la regla sí**. El criterio real es más fino —*rótulo que promete depósito **sobre una suma***— y
+> `shippingNote` **no es un rótulo ni cuelga de una suma**: es prosa, y «lo que te pagamos» es **el
+> referente del descuento**, sin el cual la frase no dice de dónde se descuenta. La regla pasa a
+> **(2a)** aserción positiva —el rótulo del total resuelve a `buylist.quote.money.cardsValue` y a ninguna
+> otra clave— **(2b)** `grep` acotado a **claves de rótulo de monto** y **(2c)** lista de **supervivientes
+> esperados**, que es el patrón que la regla 1 **ya usaba bien** con `grading.*`. Se añade la convención
+> a la cabecera de §23.14.6. **Cero cambios de copy, de diseño y de claves**: solo cambia cómo se verifica.
+> *Motivo por el que se corrige algo cosmético: una regla que da falsos positivos se deja de correr, y esta
+> protege la distinción **rótulo vs. prosa / suma vs. tarifa unitaria** que costó dos rondas fijar.*
 
 ---
 
@@ -7466,11 +7480,58 @@ tres tiempos *«tú X, nosotros Y y Z»* el primer tiempo se lee como **su parte
 
 #### 23.14.6 Verificación (QA visual · barato y `grep`-able)
 
+> **Convención de las reglas de esta sección (v2.3.4, tras un falso positivo real).** Una regla `grep`
+> **nunca se escribe como «cero coincidencias» sobre un catálogo entero**. Se escribe de una de estas dos
+> formas, y las dos son a prueba de falsos positivos:
+> **(i) aserción positiva** —*«este rótulo resuelve a esta clave y a ninguna otra»*— que además atrapa
+> variantes que nadie previó; o **(ii) patrón acotado por el ROL de la clave** (rótulo de monto, asunto de
+> correo…) **+ la lista de supervivientes esperados**, como hace la regla 1 con `grading.*`.
+> **Motivo:** *una regla que da falsos positivos se deja de correr*, y una regla que no se corre no protege
+> nada. Si un `grep` marca una cadena que este documento declara normativa, **el defecto es del `grep`**.
+
 1. **`grep` de la afirmación prohibida** en `messages/{es,en}.json`: `cubres`, `tú cubres`, `por tu cuenta`,
    `a tu costo`, `you cover`, `at your cost`, `on you`. **Toda coincidencia superviviente debe estar en**
    `nmOnlyBody`, `safeShipping.intro`, `grading.*` o el eje del comprador. **Cualquier otra es el bug.**
-2. **`grep` de la promesa de depósito sobre una suma:** `Te pagamos`, `We pay you`, `Recibes`, `You get`,
-   `Ganarías`. **Cero coincidencias** en `home.quoter.*` y `buylist.quote.*` en los dos idiomas.
+2. **La promesa de depósito sobre una suma — ⚠ REGLA RECALIBRADA (v2.3.4).**
+   > **La versión anterior de esta regla estaba mal y hay que decir por qué.** Pedía *«`grep` de `Te
+   > pagamos` / `We pay you` ⇒ **cero coincidencias** en `buylist.quote.*`»*, y eso marca
+   > **`buylist.quote.shippingNote`**, que dice «se descuenta siempre de **lo que te pagamos**» / "deducted
+   > from **what we pay you**" **en los dos idiomas**. Es decir: **marcaba la cadena normativa que §23.3d
+   > acababa de bendecir**, y que este documento **cita literal en su propio mock-up** de §23.3c. También
+   > marcaba `buylist.subtitle` ES («te pagamos por SPEI»), que es prosa.
+   > **El defecto no es el patrón sino la FORMA de la regla:** usaba un **absoluto** («cero coincidencias»)
+   > donde el criterio real es **fino** —*rótulo que promete depósito **sobre una suma***—, y
+   > `shippingNote` **no es un rótulo y no cuelga de una suma**: es prosa explicativa, y «lo que te
+   > pagamos» es justo **el referente del descuento** (movimiento 2 de §23.3d). *La regla de QA se acota al
+   > copy; **el copy nunca se retuerce para satisfacer un `grep`**.*
+   > **Y la forma correcta ya estaba escrita una regla más arriba:** la 1 **nombra a sus supervivientes
+   > esperados** (`nmOnlyBody`, `grading.*`…) en vez de exigir cero — por eso la 1 **sí** aguanta que
+   > `grading.*` diga «on you». Esta se reescribe con ese mismo patrón, más una aserción positiva.
+
+   **2a — Aserción POSITIVA (whitelist; es la que no puede dar falsos positivos, y la que de verdad
+   protege la regla).** En las **tres** superficies de cotizador —teaser del home, carrito/panel fijo y
+   resumen del paso de crear—, el **rótulo hermano de la cifra total** resuelve a
+   **`buylist.quote.money.cardsValue` y a ninguna otra clave**. Es una lista blanca de **una** entrada: si
+   mañana aparece un rótulo nuevo sobre una suma, **falla por construcción**, sin depender de que alguien
+   haya previsto el verbo que use.
+   **2b — El `grep` negativo, ACOTADO A CLAVES DE RÓTULO** (nunca sobre el catálogo entero): buscar
+   `pagamos`, `recibes`, `ganas`, `depositamos`, `we pay`, `you get`, `you'd receive`, `payout`
+   **solo en las claves que se pintan como rótulo de un monto** — es decir, `buylist.quote.money.*` y la
+   clave del rótulo del total del teaser. **Ahí sí: cero coincidencias.**
+   **2c — Supervivientes ESPERADOS fuera de ese ámbito** (si el `grep` se corre ancho, estas tres salen y
+   **son correctas**; marcarlas es señal de que el `grep` está mal acotado, igual que con
+   `withdrawals.shippingFee` en §23.14.5):
+
+   | Coincidencia legítima | Por qué se queda |
+   |---|---|
+   | **`buylist.quote.shippingNote`** (ES «lo que te pagamos» · EN "what we pay you") | **Normativa e intocable** (§23.3d). Es **prosa**, no rótulo, y la frase **necesita** ese referente: sin él, «su costo se descuenta» no dice **de dónde** se descuenta |
+   | `home.bounties.wePay` · `buylist.bounties.wePay` | **Precio por carta**, no una suma (§23.3c-bis) |
+   | `buylist.subtitle` ES («te pagamos por SPEI») | **Prosa del `h1`**, no rótulo de monto. *(Si PO acepta la mejora opcional de §23.14.4d, desaparece sola; si no, **se queda y es correcta**.)* |
+
+   > **Por qué se gasta tinta en esto:** *una regla de QA que da falsos positivos se deja de correr*, y en
+   > cuanto se deja de correr **muere la distinción que protege** — que aquí es exactamente la que costó
+   > dos rondas fijar: **rótulo vs. prosa, suma vs. tarifa unitaria**. Una regla que grita al ver la cadena
+   > que el sistema acaba de bendecir **entrena a ignorarla**.
 3. **Paridad estricta:** `home.quoter.wePay` y `buylist.trustShipping` **no existen en NINGUNO de los dos
    catálogos**. Una clave viva en un solo idioma es el modo típico en que un texto retirado revive.
 4. **Guía de empaque, los dos montajes** (modal `columns=2` y sección inline `columns=4`), en ES y EN:
