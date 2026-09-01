@@ -22,15 +22,30 @@ import { cn } from '@/lib/cn';
  * ⛔ **Nunca se expresa en términos de envío** («te faltan $120 para cubrir el envío»): eso
  * reintroduciría la cifra retirada y además mentiría sobre qué es el mínimo — el mínimo **no es**
  * el envío. Va en tinta, no en muted (§23.11 regla 1: el muted no porta cifras de §23).
+ *
+ * **⚠ v2.3.8 (§23.3f-bis) — el CONSEJO cambia cuando hay líneas sin precio; la CIFRA no.**
+ * Con el carrito lleno de `precio_pendiente` el consejo era *«Agrega otra carta»* mientras el
+ * vendedor miraba **un carrito lleno**: aritméticamente impecable y, como instrucción, **una
+ * cinta de correr** — puede agregar mil cartas más del mismo set y **seguir en cero**. Ahora se
+ * pide **una carta que ya tenga precio**; el «ya» dice que las otras también lo tendrán y evita
+ * partir el carrito en cartas buenas y cartas malas.
+ *
+ * ⛔ **Prohibido fundir el faltante con la explicación** («te faltan $500 **porque** tus cartas
+ * no tienen precio»): mezclar dos hechos en una cifra hace que **la cifra deje de ser
+ * verificable**. Son dos trabajos y dos frases — el **por qué** vive arriba, en
+ * `pendingLine.note` (§23.3h), y **no se repite aquí**.
  */
 export function BuylistMinimumShortfall({
   shortfallCents,
   minimumCents,
+  hasPendingLines = false,
   id,
   className,
 }: {
   shortfallCents: number;
   minimumCents: number;
+  /** ¿Hay al menos una línea en `precio_pendiente`? Solo cambia el CONSEJO, nunca el monto. */
+  hasPendingLines?: boolean;
   id?: string;
   className?: string;
 }) {
@@ -46,7 +61,7 @@ export function BuylistMinimumShortfall({
         {t('quote.minimum.shortfall', { amount: formatMoneyCents(shortfallCents, locale) })}
       </span>{' '}
       {t('quote.minimum.minimumIs', { amount: formatMoneyCents(minimumCents, locale) })}{' '}
-      {t('quote.minimum.addAnother')}
+      {t(hasPendingLines ? 'quote.minimum.addPricedCard' : 'quote.minimum.addAnother')}
     </p>
   );
 }

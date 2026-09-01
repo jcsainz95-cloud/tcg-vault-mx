@@ -149,13 +149,24 @@ export function useHomeQuoter(): HomeQuoterState {
  * - `BuylistShippingNote` va en el CUERPO del panel y FUERA de `withTrust`: esa banda no se
  *   pinta en móvil (`withTrust={false}`), y una regla de dinero que solo existe en escritorio
  *   no es una regla. Se renderiza siempre, con y sin líneas (§23.3k: no depende de datos).
+ *
+ * **⚠ `surface` — el panel se monta DOS VECES por diseño, y hasta v2.3.8 las dos copias eran
+ * indistinguibles** (§23.14.7-7). El home pinta este panel en la **columna del hero**
+ * (`hidden lg:flex`) y como **sección móvil** (`lg:hidden`): a cada ancho **una está oculta por
+ * diseño**, que es lo correcto. Pero con el mismo identificador, **una comprobación no puede
+ * saber cuál está mirando** — y eso no es teórico: una prueba cogió «la primera», dio con la
+ * copia de escritorio a 390px y **se documentó como defecto de pantalla lo que era un defecto de
+ * medición**. `surface` es obligatorio a propósito: un tercer montaje **tiene que declararse**.
  */
 export function HomeQuoterPanel({
   state,
+  surface,
   withTrust = true,
   className,
 }: {
   state: HomeQuoterState;
+  /** Cuál de los dos montajes del diseño es éste. Obligatorio: sin él, no es distinguible. */
+  surface: 'hero' | 'mobile';
   withTrust?: boolean;
   className?: string;
 }) {
@@ -169,7 +180,11 @@ export function HomeQuoterPanel({
   } = state;
 
   return (
-    <div className={cn('flex w-full flex-col', className)}>
+    <div
+      data-testid={`home-quoter-${surface}`}
+      data-quoter-surface={surface}
+      className={cn('flex w-full flex-col', className)}
+    >
       <div className="flex items-center justify-between border-b border-border px-5 py-3.5 lg:px-6">
         <span className="eyebrow">{t('quoter.label')}</span>
         <span className="eyebrow">MXN · {tc('withoutIva')}</span>
@@ -316,7 +331,7 @@ export function HomeQuoterPanel({
             embudo. Fuera de los dos brazos del ternario ⇒ se pinta con cero líneas y con líneas
             por igual, sin esqueleto y sin moverse; y fuera de `withTrust` ⇒ también en móvil.
             Sin cifras (D43): la tarifa solo aparece con número en la oferta y en `offer.terms`. */}
-        <BuylistShippingNote className="mt-3" />
+        <BuylistShippingNote surface={`home-${surface}`} className="mt-3" />
 
         <EditorialLink href="/buylist" className="mt-6 inline-block">
           {t('quoter.continue')}

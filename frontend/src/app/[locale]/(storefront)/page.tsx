@@ -128,8 +128,11 @@ export default function HomePage() {
           )}
         </div>
 
+        {/* §23.3g fila 0 · §23.14.7-7: los DOS montajes del panel se declaran, y por eso son
+            distinguibles. A cada ancho se ve exactamente uno — la copia contraria está oculta
+            POR DISEÑO, no por defecto. */}
         <div className="hidden lg:flex">
-          <HomeQuoterPanel state={quoter} />
+          <HomeQuoterPanel state={quoter} surface="hero" />
         </div>
       </div>
 
@@ -137,7 +140,7 @@ export default function HomePage() {
 
       {/* Cotizador como sección propia en móvil (artboard 390px). */}
       <div className="border-t border-border lg:hidden">
-        <HomeQuoterPanel state={quoter} withTrust={false} />
+        <HomeQuoterPanel state={quoter} surface="mobile" withTrust={false} />
       </div>
 
       <SealedShelf />

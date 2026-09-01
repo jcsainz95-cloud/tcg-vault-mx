@@ -27,6 +27,10 @@ import { Modal } from '@/components/ui/Modal';
 import { SafeShippingGuide } from '@/components/domain/SafeShippingGuide';
 import { BuylistKycForm } from '@/components/domain/BuylistKycForm';
 import { BuylistShippingNote } from '@/components/domain/BuylistShippingNote';
+import {
+  BuylistPendingLineLabel,
+  BuylistPendingLinesNote,
+} from '@/components/domain/BuylistPendingLinesNote';
 import { useSellRequirements } from '@/hooks/useSellRequirements';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { RarityLabel } from '@/components/domain/RarityLabel';
@@ -104,7 +108,8 @@ function FinishEstimate({
   if (!result) return null;
   if (!result.ok) return <span className="text-accent">{t('gridQuoteError')}</span>;
   if (result.quote.status === 'precio_pendiente') {
-    return <span className="text-accent">{t('linePending')}</span>;
+    // §23.3h: versalita `SIN PRECIO`, sin monto y nunca `MX$ 0.00`.
+    return <BuylistPendingLineLabel />;
   }
   return (
     <span className="tabular text-text">
@@ -177,6 +182,44 @@ export function BuylistView() {
   // sheet (FAB + drawer). Un solo render (JS-driven, no CSS duplicado) evita DOM/foco duplicado. En
   // jsdom `matchMedia` devuelve `matches:false` → los tests corren la variante MÓVIL por defecto.
   const isDesktopCart = useMediaQuery('(min-width: 1024px)');
+
+  /**
+   * **§23.3g-bis (v2.3.8) — EXACTAMENTE UNA nota de servicio del envío visible por pantalla.**
+   *
+   * La tabla de §23.3g dice **dónde puede** ir la nota; le faltaba decir **cuántas se ven a la
+   * vez**. A 1280px `/buylist` acabó mostrando **dos párrafos idénticos de cuatro líneas**
+   * —cabecera y panel fijo del carrito— porque cada instancia se autorizó en una sección
+   * distinta y **nadie miró las dos juntas**.
+   *
+   * **Por qué dos copias idénticas SÍ son un defecto**, aunque el texto sea correcto: dos
+   * párrafos iguales a 600px de distancia y con el mismo peso visual son **la firma de un error
+   * de render**. El vendedor no concluye «esto es importante», concluye «esta página está rota»
+   * — y repetir no refuerza, es la misma ceguera por la que §23.3c rechazó el banner.
+   *
+   * **El desempate sale de POR QUÉ existe cada instancia: gana la más cercana a la decisión.**
+   * La cabecera existe **únicamente** para cubrir el caso en que el carrito no se ve (móvil,
+   * drawer cerrado); donde el carrito sí se ve, su razón de ser desaparece y **no se monta**.
+   *
+   * | Situación | Quién pinta |
+   * |---|---|
+   * | Panel fijo lateral (escritorio) | el **bloque de dinero** |
+   * | Drawer abierto (móvil) | el **bloque de dinero** del drawer |
+   * | Drawer cerrado (móvil) | la **cabecera** |
+   * | Paso de crear abierto | **el suyo** (`BuylistKycForm`) |
+   *
+   * ⚠️ **La decisión vive AQUÍ y en un solo sitio**, porque es la única capa que ve la pantalla
+   * entera. Repartirla entre los componentes es exactamente cómo se llegó a las dos copias.
+   *
+   * ⚠️ **Esto NO contradice §23.3c** («no aparece, no desaparece, no se mueve»): esa prohibición
+   * es sobre el **estado del carrito** —vacío/lleno, bajo/sobre el mínimo—, no sobre el
+   * **layout**. La invariante nueva es **más fuerte y más fácil de comprobar**: *siempre
+   * exactamente una*, en vez de *al menos una*.
+   */
+  const shippingNoteHost: 'header' | 'cart' | 'createStep' = requestOpen
+    ? 'createStep'
+    : isDesktopCart || drawerOpen
+      ? 'cart'
+      : 'header';
 
   // P-43 · carta seleccionada para el pop-up de detalle del GRID PLANO (graded/sealed). El grid del
   // cotizador raw (binder Master Set) maneja su propio modal por teja (QuoterTile).
@@ -464,7 +507,9 @@ export function BuylistView() {
               montos—. Motivo decisivo: en móvil el carrito es un drawer cerrado, así que sin
               esta instancia se puede recorrer /buylist entera sin leerla nunca. Sustituye al
               retirado `trustShipping`, que la decía en gris de 13px al pie (§23.14.2b). */}
-          <BuylistShippingNote className="mt-4 max-w-[640px]" />
+          {shippingNoteHost === 'header' && (
+            <BuylistShippingNote surface="buylist-header" className="mt-4 max-w-[640px]" />
+          )}
           {/* R3: link editorial canónico (§20.0) — era la variante divergida a mano. */}
           <EditorialLink onClick={() => setGuideOpen(true)} className="mt-5">
             {t('shippingGuideLink')}
@@ -797,6 +842,7 @@ export function BuylistView() {
                 onRemoveLine={removeLine}
                 onToggleLineDetail={toggleLineDetail}
                 onClearCart={clearCart}
+                showShippingNote={shippingNoteHost === 'cart'}
                 onSubmit={() => {
                   setCreatedId(null);
                   setRequestOpen(true);
@@ -833,6 +879,7 @@ export function BuylistView() {
             onRemoveLine={removeLine}
             onToggleLineDetail={toggleLineDetail}
             onClearCart={clearCart}
+            showShippingNote={shippingNoteHost === 'cart'}
             onSubmit={() => {
               setCreatedId(null);
               // Un solo focus trap activo (§18.4b): abrir el modal de solicitud
@@ -935,7 +982,7 @@ export function BuylistView() {
                       </span>
                       <span className="tabular shrink-0">
                         {pending ? (
-                          <span className="font-mono text-[11px] text-accent">{t('linePending')}</span>
+                          <BuylistPendingLineLabel />
                         ) : (
                           formatMoneyCents(unitCents * l.quantity, locale)
                         )}
@@ -947,18 +994,16 @@ export function BuylistView() {
               <div className="flex items-baseline justify-between gap-3 pt-3">
                 <span className="text-[13px] font-medium text-text">{t('quote.money.cardsValue')}</span>
                 {totalEstimatedCents === 0 && pendingCardCount > 0 ? (
-                  <span className="font-mono text-[13px] text-accent">{t('linePending')}</span>
+                  <BuylistPendingLineLabel className="text-[13px]" />
                 ) : (
                   <span className="tabular text-[18px] font-medium text-text">
                     {formatMoneyCents(totalEstimatedCents, locale)}
                   </span>
                 )}
               </div>
-              {pendingCardCount > 0 && (
-                <p className="mt-2 font-mono text-[11px] leading-[1.6] text-muted">
-                  {t('totalPendingNote', { count: pendingCardCount })}
-                </p>
-              )}
+              {/* §23.3h: el paso de crear también es un bloque de dinero, así que explica su
+                  propia aritmética — mismo texto, misma vez, con el conteo interpolado. */}
+              <BuylistPendingLinesNote count={pendingCardCount} className="mt-2" />
               {/* Vigencia del estimado (copy editable de confianza). */}
               <p className="mt-3 font-mono text-[11px] leading-[1.6] text-muted">{t('trustValidity')}</p>
             </div>
@@ -969,6 +1014,8 @@ export function BuylistView() {
               // llamada por montaje) y el `422` del servidor manda sobre él si difieren.
               minimumRequestCents={minimumRequestCents}
               totalEstimatedCents={totalEstimatedCents}
+              // §23.3f-bis: el consejo del faltante cambia con líneas sin precio (la cifra no).
+              pendingCardCount={pendingCardCount}
               // Heads-up de topes/CLABE derivado de GET /users/me/kyc; el backend re-decide (SEC-A1).
               ineExpected={sellReq.ineExpected}
               clabeMasked={sellReq.clabeMasked}

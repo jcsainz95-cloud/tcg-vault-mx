@@ -12,6 +12,10 @@ import { FinishMark } from '@/components/domain/FinishMark';
 import { SellRequirementsPanel } from '@/components/domain/SellRequirementsPanel';
 import { BuylistShippingNote } from '@/components/domain/BuylistShippingNote';
 import { BuylistMinimumShortfall } from '@/components/domain/BuylistMinimumShortfall';
+import {
+  BuylistPendingLineLabel,
+  BuylistPendingLinesNote,
+} from '@/components/domain/BuylistPendingLinesNote';
 import type { CartLine } from './useSellCart';
 import { MAX_LINE_QUANTITY } from './useSellCart';
 import { minimumShortfallCents } from './useQuotePolicy';
@@ -60,6 +64,17 @@ export interface SellCartContentsProps {
   onClearCart: () => void;
   /** CTA «Enviar solicitud»: el dueño cierra el drawer y abre el modal de solicitud (§18.4b). */
   onSubmit: () => void;
+  /**
+   * ¿Le toca a ESTE bloque pintar la nota de servicio del envío? (§23.3g-bis, v2.3.8).
+   *
+   * ⚠️ **La decisión NO se toma aquí y es deliberado:** la regla es *«exactamente una nota
+   * visible por pantalla»*, y eso solo se puede decidir donde se conoce **el layout completo** —
+   * si el carrito es panel fijo, si el drawer está abierto, si el modal de crear está encima—.
+   * Un componente que decidiera por su cuenta volvería a producir el caso de v2.3.7: dos párrafos
+   * idénticos a 600px de distancia, que el vendedor no lee como énfasis sino como *«esta página
+   * está rota»*. `BuylistView` es el único que ve la pantalla entera; aquí solo se obedece.
+   */
+  showShippingNote?: boolean;
 }
 
 /**
@@ -81,6 +96,7 @@ export function SellCartContents({
   onToggleLineDetail,
   onClearCart,
   onSubmit,
+  showShippingNote = true,
 }: SellCartContentsProps) {
   const t = useTranslations('buylist');
   const tFinish = useTranslations('finish');
@@ -127,7 +143,7 @@ export function SellCartContents({
           <p className="mt-5 text-[13px] leading-[1.7] text-muted">{t('cartEmpty')}</p>
           {/* §23.9: el cotizador vacío TAMBIÉN explica el trato del envío. Que se lea antes de
               agregar nada es el punto: cambiar de opinión todavía no cuesta nada. */}
-          <BuylistShippingNote className="mt-4" />
+          {showShippingNote && <BuylistShippingNote surface="cart-money" className="mt-4" />}
         </>
       ) : (
         <>
@@ -143,18 +159,15 @@ export function SellCartContents({
                       {l.card.name}
                     </p>
                     <span className="tabular shrink-0 text-sm font-medium text-text">
-                      {/* Honesto: una línea pendiente NO muestra MX$0.00. */}
-                      {pending ? (
-                        <span className="font-mono text-[11px] text-accent">{t('linePending')}</span>
-                      ) : (
-                        formatMoneyCents(unitCents * l.quantity, locale)
-                      )}
+                      {/* Honesto: una línea pendiente NO muestra MX$0.00 — cero es un precio y
+                          aquí no hay precio (§23.3h). La versalita ocupa el sitio de la cifra. */}
+                      {pending ? <BuylistPendingLineLabel /> : formatMoneyCents(unitCents * l.quantity, locale)}
                     </span>
                   </div>
                   <p className="mt-1 flex flex-wrap items-baseline gap-x-1.5 font-mono text-[10px] text-muted">
                     <span className="text-muted">{t('cartItemEstimate')}:</span>
                     {pending ? (
-                      <span className="text-accent">{t('linePending')}</span>
+                      <BuylistPendingLineLabel className="text-[10px]" />
                     ) : (
                       <span className="tabular">{formatMoneyCents(unitCents, locale)}</span>
                     )}
@@ -260,9 +273,11 @@ export function SellCartContents({
               <span className="font-mono text-[11px] font-medium uppercase tracking-eyebrow text-text">
                 {t('quote.money.cardsValue')}
               </span>
-              {/* Si TODO el carrito está pendiente, el total no es MX$0.00: es pendiente. */}
+              {/* Si TODO el carrito está pendiente, el total NO es MX$0.00: es la versalita
+                  (§23.3h) — «un total de cero que significa todavía no lo he calculado no es un
+                  cero». El porqué se explica debajo, en `BuylistPendingLinesNote`. */}
               {totalEstimatedCents === 0 && pendingCardCount > 0 ? (
-                <span className="font-mono text-[13px] text-accent">{t('linePending')}</span>
+                <BuylistPendingLineLabel className="text-[13px]" />
               ) : (
                 <span className="tabular font-mono text-[26px] font-medium leading-none text-text">
                   {formatMoneyCents(totalEstimatedCents, locale)}
@@ -277,25 +292,27 @@ export function SellCartContents({
                 id="sell-cart-minimum"
                 shortfallCents={shortfallCents}
                 minimumCents={minimumRequestCents}
+                // §23.3f-bis: con líneas sin precio, «Agrega otra carta» es una cinta de correr.
+                hasPendingLines={pendingCardCount > 0}
                 className="mt-3"
               />
             )}
 
+            {/* §23.3h: la explicación del total va DENTRO del bloque de dinero y UNA sola vez,
+                con el conteo interpolado. Antes vivía fuera, en mono muted de 11px, diciendo algo
+                distinto («cuando las recibimos») — bajo el ciclo de oferta esas cartas se cotizan
+                a mano AL OFERTAR, no al recibirlas. */}
+            <BuylistPendingLinesNote count={pendingCardCount} className="mt-3" />
+
             {/* La nota de servicio: aire, no regla ni caja (§23.3c). Misma frase por encima y por
                 debajo del mínimo — al no llevar cifras no depende de ningún estado. */}
-            <BuylistShippingNote className="mt-3" />
+            {showShippingNote && <BuylistShippingNote surface="cart-money" className="mt-3" />}
 
             {/* El cruce del mínimo se anuncia una sola vez; la nota NUNCA entra en la live region. */}
             <p aria-live="polite" className="sr-only">
               {minimumAnnounce}
             </p>
           </div>
-          {pendingCardCount > 0 && (
-            <p className="mb-3 font-mono text-[11px] leading-[1.6] text-muted">
-              {t('totalPendingNote', { count: pendingCardCount })}
-            </p>
-          )}
-
           {/* El total es un ESTIMADO — y v2.3.2 corrigió POR QUÉ (§23.14.4a). El texto viejo
               decía que «el monto final lo confirma la plataforma cuando recibimos y verificamos
               tus cartas»: eso implica REPRECIADO, y bajo D2/D9 el precio ofertado es vinculante

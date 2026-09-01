@@ -23,11 +23,31 @@ import { cn } from '@/lib/cn';
  * - **No es región `aria-live`**: es texto permanente; repetirlo en cada cambio del carrito
  *   sería ruido para quien navega con lector de pantalla. Se lee una vez, en su orden del DOM.
  * - **No se trunca**: sin `line-clamp`, sin «ver más». Si no cupiera, se corrige el contenedor.
+ *
+ * **⚠ `surface` — quién la está montando, y no es cosmético (§23.14.7-7, v2.3.8).**
+ * El diseño manda **varios montajes** de esta misma nota (teaser del home ×2 por breakpoint,
+ * cabecera de `/buylist`, bloque de dinero del carrito, paso de crear) y todos comparten
+ * `data-testid`. Mientras no se distingan, **cualquier comprobación tiene que adivinar cuál
+ * mira** — y eso ya produjo un diagnóstico falso: una prueba cogió `.first()`, dio con la copia
+ * de escritorio (oculta a 390px **por diseño**) y se documentó como defecto de pantalla un
+ * defecto de medición. `data-note-surface` no cambia un píxel: hace **nombrable** cada instancia.
+ * **§23.3g-bis decide CUÁNTAS se ven (exactamente una); `surface` decide CUÁL se está mirando.**
  */
-export function BuylistShippingNote({ className }: { className?: string }) {
+export function BuylistShippingNote({
+  className,
+  surface,
+}: {
+  className?: string;
+  /** Identifica el montaje: `home-hero`, `home-mobile`, `buylist-header`, `cart-money`, … */
+  surface?: string;
+}) {
   const t = useTranslations('buylist');
   return (
-    <p data-testid="buylist-shipping-note" className={cn('text-sm leading-[1.7] text-text', className)}>
+    <p
+      data-testid="buylist-shipping-note"
+      data-note-surface={surface}
+      className={cn('text-sm leading-[1.7] text-text', className)}
+    >
       {t('quote.shippingNote')}
     </p>
   );

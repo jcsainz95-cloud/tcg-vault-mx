@@ -401,21 +401,139 @@ test.describe('buylist · raw = binder Master Set (mode="quoter") + drawer del c
    * podía recorrer la página entera —hero, bounties, binder, políticas, guía— sin leer nunca
    * quién pone el envío. Este test recorre justamente ese camino.
    */
-  test('en 390px, con el carrito CERRADO, la regla del envío se lee en la cabecera', async ({ page }) => {
+  /**
+   * §23.14.6-7 (v2.3.8) — **EXACTAMENTE UNA nota visible por pantalla: ni cero, ni dos.**
+   *
+   * La invariante nueva es más fuerte y más simple de comprobar que la vieja (*al menos una*), y
+   * se asevera sobre **nodos VISIBLES**, no presentes: a 1280px el home tiene dos en el DOM y
+   * solo una a la vista — medir presencia fue exactamente lo que produjo un diagnóstico falso.
+   * El desempate: **gana la instancia más cercana a la decisión**.
+   */
+  for (const [label, width, height, host] of [
+    ['390px · drawer CERRADO', 390, 844, 'buylist-header'],
+    ['1280px · panel fijo', 1280, 900, 'cart-money'],
+  ] as const) {
+    test(`§23.3g-bis · ${label} ⇒ una sola nota, la de «${host}»`, async ({ page }) => {
+      await page.setViewportSize({ width, height });
+      await page.goto('/es/buylist');
+
+      const visible = page.getByTestId('buylist-shipping-note').filter({ visible: true });
+      await expect(visible).toHaveCount(1);
+      await expect(visible).toHaveAttribute('data-note-surface', host);
+      await expect(visible).toHaveText(t('es', 'buylist.quote.shippingNote'));
+      // D43 intacta: la regla se dice en palabras; la tarifa solo lleva número en la oferta.
+      expect(await visible.innerText()).not.toMatch(/MX\$|%|≈/);
+
+      // §23.14.2b: el eco retirado de `trustShipping` ya no está en el pie.
+      await expect(
+        page.getByText('Si una carta se rechaza por no estar en NM, la devolución corre por tu cuenta (7 días).'),
+      ).toHaveCount(0);
+    });
+  }
+
+  test('§23.3g-bis · 390px con el DRAWER ABIERTO ⇒ la nota es la del bloque de dinero', async ({
+    page,
+  }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto('/es/buylist');
+    await openCart(page);
 
-    // Sin tocar el FAB: en móvil solo existe la instancia de la cabecera.
-    const note = page.getByTestId('buylist-shipping-note');
+    const visible = page.getByTestId('buylist-shipping-note').filter({ visible: true });
+    await expect(visible).toHaveCount(1);
+    await expect(visible).toHaveAttribute('data-note-surface', 'cart-money');
+  });
+
+  /**
+   * §23.14.6-6 — el TEASER del home. Los dos montajes del panel son **por diseño** y a cada ancho
+   * hay uno oculto; lo que se comprueba es **la instancia visible**, nunca «la primera».
+   * *(Este es el caso exacto que confundió al test y acabó documentado como defecto de pantalla.)*
+   */
+  for (const [label, width, surface] of [
+    ['390px', 390, 'home-mobile'],
+    ['1280px', 1280, 'home-hero'],
+  ] as const) {
+    test(`§23.14.6-6 · home ${label}: la nota visible es la del montaje «${surface}»`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto('/es');
+      const visible = page.getByTestId('buylist-shipping-note').filter({ visible: true });
+      await expect(visible).toHaveCount(1);
+      await expect(visible).toHaveAttribute('data-note-surface', surface);
+      // Y el panel al que pertenece también es nombrable, que es la petición de §23.14.7-7.
+      await expect(
+        page.getByTestId(`home-quoter-${surface === 'home-hero' ? 'hero' : 'mobile'}`),
+      ).toBeVisible();
+    });
+  }
+});
+
+/**
+ * §23.14.6-8 (v2.3.8) — **el carrito explica su propia aritmética.**
+ *
+ * > Este describe existe por una razón muy concreta: **un test E2E de este mismo fichero** agregó
+ * > cartas de un set sin precios de referencia, vio el total en cero y **concluyó que el cotizador
+ * > no sumaba**. No sumaba *porque no debía* — pero **nada en pantalla lo decía**. Si alguien que
+ * > conoce el sistema saca esa conclusión, un vendedor con 999 cartas la saca seguro; y el
+ * > vendedor no abre un issue: cierra la pestaña.
+ *
+ * Es R7 aplicada al total: si un conteo ausente no es un número, **un total de cero que significa
+ * «todavía no lo he calculado» no es un cero**.
+ */
+test.describe('buylist · el total sin precios se EXPLICA (§23.3h / §23.3f-bis)', () => {
+  test('carrito de puros pendientes: versalita en vez de MX$0.00, explicación UNA vez y consejo útil', async ({
+    page,
+  }) => {
+    mockOnly('«Zapdos» con referencia PENDIENTE es un estado fabricado por el fixture');
+    await page.goto('/es/buylist');
+    await addFromBinder(page, 'Zapdos', 'Holofoil');
+    await openCart(page);
+
+    const money = cartPanel(page).getByTestId('sell-cart-money');
+
+    // (8.4) el total NO es un cero que se ve confiable: es la versalita `SIN PRECIO`.
+    await expect(money.getByTestId('buylist-pending-label').first()).toBeVisible();
+    await expect(money.getByText('MX$0.00')).toHaveCount(0);
+
+    // (8.1) la explicación aparece UNA sola vez, dentro del bloque de dinero, con el conteo.
+    const note = page.getByTestId('buylist-pending-note').filter({ visible: true });
     await expect(note).toHaveCount(1);
-    await expect(note).toHaveText(t('es', 'buylist.quote.shippingNote'));
-    // D43 intacta: la regla se dice en palabras; la tarifa solo lleva número en la oferta.
-    expect(await note.innerText()).not.toMatch(/MX\$|%|≈/);
+    await expect(money.getByTestId('buylist-pending-note')).toBeVisible();
+    await expect(note).toContainText('1 carta todavía no tiene precio');
 
-    // §23.14.2b: el eco retirado de `trustShipping` ya no está en el pie.
-    await expect(
-      page.getByText('Si una carta se rechaza por no estar en NM, la devolución corre por tu cuenta (7 días).'),
-    ).toHaveCount(0);
+    // (8.2) …y dice QUÉ PASA con esas cartas. Sin esta frase «no suman» se lee como «no las
+    // queremos» y la reacción racional del vendedor es BORRARLAS — el peor desenlace posible.
+    await expect(note).toContainText('Las cotizamos a mano y te las incluimos en la oferta.');
+
+    // (8.3) el consejo del faltante deja de ser una cinta de correr.
+    const shortfall = cartPanel(page).getByTestId('buylist-minimum-shortfall');
+    if (await shortfall.count()) {
+      await expect(shortfall).toContainText(t('es', 'buylist.quote.minimum.addPricedCard'));
+      await expect(shortfall).not.toContainText(t('es', 'buylist.quote.minimum.addAnother'));
+      // ⛔ Prohibido fundir el faltante con la explicación: la cifra tiene que seguir siendo
+      // verificable por sí sola.
+      expect(await shortfall.innerText()).not.toMatch(/no tienen? precio|porque/i);
+    }
+
+    // (8.5) el conteo de cartas NO introduce un monto: los únicos `MX$` del bloque son los del
+    // faltante (faltante + mínimo, §23.3f).
+    const inBlock = ((await money.innerText()).match(/MX\$/g) ?? []).length;
+    const inShortfall = (await shortfall.count())
+      ? ((await shortfall.innerText()).match(/MX\$/g) ?? []).length
+      : 0;
+    expect(inBlock - inShortfall).toBe(0);
+  });
+
+  test('la explicación NO se repite por ítem, ni con la cantidad al máximo', async ({ page }) => {
+    mockOnly('«Zapdos» con referencia PENDIENTE es un estado fabricado por el fixture');
+    await page.goto('/es/buylist');
+    await addFromBinder(page, 'Zapdos', 'Holofoil');
+    await openCart(page);
+
+    await cartPanel(page).getByRole('spinbutton').first().fill('999');
+    const note = page.getByTestId('buylist-pending-note').filter({ visible: true });
+    await expect(note).toHaveCount(1);
+    await expect(note).toContainText('999 cartas todavía no tienen precio');
   });
 });
 

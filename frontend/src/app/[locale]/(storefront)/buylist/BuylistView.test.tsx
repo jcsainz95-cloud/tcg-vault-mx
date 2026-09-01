@@ -173,9 +173,12 @@ describe('BuylistView · raw = binder Master Set (mode="quoter", v1.21)', () => 
     await addCard('Zapdos', 'Holofoil');
     openCart();
 
-    // En el carrito la línea queda pendiente (no MX$0.00) y el total lo explica.
-    expect(screen.getAllByText('Precio pendiente').length).toBeGreaterThan(0);
-    expect(screen.getByText(/El total no incluye 1 carta\(s\) con precio pendiente/)).toBeInTheDocument();
+    // §23.3h (v2.3.8): en el COTIZADOR la línea sin precio se rotula con la versalita
+    // `SIN PRECIO` —no con el rótulo largo— y el total lo explica UNA vez, con el conteo.
+    expect(screen.getAllByTestId('buylist-pending-label').length).toBeGreaterThan(0);
+    expect(screen.getByTestId('buylist-pending-note')).toHaveTextContent(
+      '1 carta todavía no tiene precio, así que no suma al total',
+    );
     expect(screen.queryByText('MX$0.00')).not.toBeInTheDocument();
   });
 
@@ -1181,6 +1184,9 @@ describe('BuylistView · cotizador sin cifras de envío (D43) + faltante del mí
     renderWithProviders(<BuylistView />, 'es');
     const notes = screen.getAllByTestId('buylist-shipping-note');
     expect(notes).toHaveLength(1); // el drawer está cerrado: esta es la de la cabecera
+    // §23.14.7-7: la instancia se NOMBRA. «La primera que aparezca» es exactamente la
+    // medición que documentó un defecto inexistente en el sistema de diseño.
+    expect(notes[0]).toHaveAttribute('data-note-surface', 'buylist-header');
     expect(notes[0]).toHaveTextContent(NOTE_ES);
   });
 
@@ -1213,13 +1219,13 @@ describe('BuylistView · cotizador sin cifras de envío (D43) + faltante del mí
     renderWithProviders(<BuylistView />, 'es');
     openCart();
     expect(screen.getByText('Tu carrito está vacío. Elige una carta del catálogo para agregarla.')).toBeInTheDocument();
-    // Con el drawer abierto son DOS instancias (cabecera + carrito). §23.14.2 lo declara
-    // repetición ACEPTADA: es el mismo string carácter por carácter. Dos redacciones
-    // distintas de la misma regla sería el defecto — nunca la repetición.
+    // §23.3g-bis (v2.3.8) — EXACTAMENTE UNA, y con el drawer abierto le toca al bloque de
+    // dinero. Antes eran DOS (cabecera + carrito) y se declaraba «repetición aceptada»: dos
+    // párrafos idénticos a 600px no refuerzan, son la firma de un error de render.
     const notes = screen.getAllByTestId('buylist-shipping-note');
-    expect(notes).toHaveLength(2);
-    for (const note of notes) expect(note).toHaveTextContent(NOTE_ES);
-    expect(new Set(notes.map((n) => n.textContent)).size).toBe(1);
+    expect(notes).toHaveLength(1);
+    expect(notes[0]).toHaveAttribute('data-note-surface', 'cart-money');
+    expect(notes[0]).toHaveTextContent(NOTE_ES);
   });
 
   it('la nota sigue ahí aunque la política del cotizador FALLE (no se esqueletiza, no se condiciona)', async () => {
@@ -1227,8 +1233,8 @@ describe('BuylistView · cotizador sin cifras de envío (D43) + faltante del mí
     renderWithProviders(<BuylistView />, 'es');
     openCart();
     const notes = screen.getAllByTestId('buylist-shipping-note');
-    expect(notes).toHaveLength(2);
-    for (const note of notes) expect(note).toHaveTextContent(NOTE_ES);
+    expect(notes).toHaveLength(1);
+    expect(notes[0]).toHaveTextContent(NOTE_ES);
   });
 
   it('el bloque de dinero lleva UN SOLO monto: ni línea de envío, ni resta, ni neto, ni «≈»', async () => {
@@ -1265,6 +1271,112 @@ describe('BuylistView · cotizador sin cifras de envío (D43) + faltante del mí
     expect(cta).toBeDisabled();
     // §15.9: apagado pero no mudo — apunta al texto que explica y da el remedio.
     expect(cta.getAttribute('aria-describedby')).toContain('sell-cart-minimum');
+  });
+
+  /**
+   * §23.14.6-7.3 — **ESCRITORIO: la cabecera NO monta la nota.** El carrito es un panel fijo
+   * siempre a la vista, así que la única razón de ser de la instancia de la cabecera —cubrir el
+   * caso en que el carrito no se ve— desaparece. Este es el caso exacto que a 1280px daba DOS.
+   *
+   * `useMediaQuery` lee `matchMedia`; jsdom lo tiene poly-rellenado con `matches:false` (móvil),
+   * así que el escritorio se simula devolviendo `true` para el query del panel fijo.
+   */
+  it('§23.3g-bis · en ESCRITORIO la nota la pinta el bloque de dinero y la cabecera no se monta', async () => {
+    asVerifiedCustomer();
+    // ⚠️ `vi.spyOn`, NO una asignación directa: `window` es COMPARTIDO por todos los tests del
+    // fichero, así que reescribir `matchMedia` a mano dejaría el resto de la suite en modo
+    // escritorio (sin FAB) y los rojos aparecerían en tests que no tocan nada de esto. El
+    // `vi.restoreAllMocks()` del `beforeEach` deshace el espía; una asignación no se deshace.
+    vi.spyOn(window, 'matchMedia').mockImplementation(
+      (query: string) =>
+        ({
+          matches: query.includes('1024'),
+          media: query,
+          onchange: null,
+          addEventListener: () => {},
+          removeEventListener: () => {},
+          addListener: () => {},
+          removeListener: () => {},
+          dispatchEvent: () => false,
+        }) as unknown as MediaQueryList,
+    );
+
+    renderWithProviders(<BuylistView />, 'es');
+    // El panel fijo no necesita abrirse: ya está en pantalla (y no hay FAB que pulsar).
+    await waitFor(() => {
+      const notes = screen.getAllByTestId('buylist-shipping-note');
+      expect(notes).toHaveLength(1);
+      expect(notes[0]).toHaveAttribute('data-note-surface', 'cart-money');
+    });
+    expect(screen.queryByTestId('sell-cart-fab')).not.toBeInTheDocument();
+  });
+
+  /**
+   * §23.14.6-8 — **el carrito explica su propia aritmética.** Este es, literalmente, el caso que
+   * hizo que un test E2E concluyera que el cotizador no sumaba: cartas sin precio de referencia,
+   * total en cero, y **nada en pantalla que lo explicara**.
+   */
+  it('§23.3h · con TODAS las líneas sin precio el total NO es MX$0.00 y la pantalla dice por qué', async () => {
+    asVerifiedCustomer();
+    renderWithProviders(<BuylistView />, 'es');
+    await addCard('Zapdos', 'Holofoil');
+    openCart();
+
+    const money = screen.getByTestId('sell-cart-money');
+    // (8.4) el total es la VERSALITA, no un cero que se ve confiable.
+    expect(within(money).getByTestId('buylist-pending-label')).toBeInTheDocument();
+    expect(within(money).queryByText('MX$0.00')).not.toBeInTheDocument();
+    // (8.1) la explicación aparece UNA sola vez, con el conteo, dentro del bloque de dinero.
+    const notes = screen.getAllByTestId('buylist-pending-note');
+    expect(notes).toHaveLength(1);
+    expect(money).toContainElement(notes[0]);
+    expect(notes[0]).toHaveTextContent('1 carta todavía no tiene precio, así que no suma al total');
+    // (8.2) …y dice QUÉ PASA con esas cartas. Sin esta frase el vendedor las borra, que es el
+    // peor desenlace posible de esta pantalla.
+    expect(notes[0]).toHaveTextContent('Las cotizamos a mano y te las incluimos en la oferta.');
+    // (8.5) el conteo de cartas NO introduce un monto: los únicos `MX$` del bloque son los del
+    // faltante (faltante + mínimo, §23.3f). Descontados esos, el bloque no tiene ninguna cifra —
+    // porque ninguna sería cierta.
+    const shortfall = within(money).getByTestId('buylist-minimum-shortfall');
+    const inBlock = ((money.textContent ?? '').match(/MX\$/g) ?? []).length;
+    const inShortfall = ((shortfall.textContent ?? '').match(/MX\$/g) ?? []).length;
+    expect(inBlock - inShortfall).toBe(0);
+  });
+
+  it('§23.3h · la explicación se pinta UNA vez aunque haya MUCHAS cartas sin precio', async () => {
+    asVerifiedCustomer();
+    renderWithProviders(<BuylistView />, 'es');
+    await addCard('Zapdos', 'Holofoil');
+    openCart();
+    const qty = screen.getByLabelText('Cantidad de Zapdos') as HTMLInputElement;
+    fireEvent.change(qty, { target: { value: '999' } });
+
+    // El plural del conteo entra; la explicación NO se repite por ítem (ese era el defecto:
+    // repetirla N veces hunde lo único que hay que leer).
+    const notes = await screen.findAllByTestId('buylist-pending-note');
+    expect(notes).toHaveLength(1);
+    expect(notes[0]).toHaveTextContent('999 cartas todavía no tienen precio, así que no suman al total');
+  });
+
+  /**
+   * §23.14.6-8.3 — el CONSEJO cambia; la CIFRA no. «Agrega otra carta» con el carrito lleno de
+   * pendientes es una cinta de correr: puede agregar mil más del mismo set y seguir en cero.
+   */
+  it('§23.3f-bis · con líneas sin precio el consejo es «una carta que ya tenga precio»', async () => {
+    asVerifiedCustomer();
+    vi.spyOn(api, 'getBuylistQuotePolicy').mockResolvedValue({ minimumRequestCents: 5_000_000 });
+    renderWithProviders(<BuylistView />, 'es');
+    await addCard('Charizard'); // con precio: hay faltante que pintar
+    await addCard('Zapdos', 'Holofoil'); // sin precio: cambia el consejo
+    openCart();
+
+    const shortfall = await screen.findByTestId('buylist-minimum-shortfall');
+    expect(shortfall).toHaveTextContent('Agrega una carta que ya tenga precio.');
+    expect(shortfall).not.toHaveTextContent('Agrega otra carta.');
+    // ⛔ Prohibido fundir el faltante con la explicación: la cifra tiene que seguir siendo
+    // verificable por sí sola. El porqué vive arriba, en su propia frase.
+    expect(shortfall).toHaveTextContent('Te faltan MX$25,750.00');
+    expect(shortfall.textContent).not.toMatch(/no tiene[n]? precio|porque/i);
   });
 
   it('al CRUZAR el mínimo el faltante desaparece y se anuncia SIN mencionar envío ni neto', async () => {

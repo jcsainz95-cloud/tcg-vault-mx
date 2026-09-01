@@ -67,6 +67,12 @@ export interface BuylistKycFormProps {
   minimumRequestCents?: number;
   /** Total cotizado del carrito, para el faltante PREVENTIVO (el autoritativo lo da el 422). */
   totalEstimatedCents?: number;
+  /**
+   * Cuántas cartas del carrito están en `precio_pendiente`. **Solo cambia el CONSEJO del
+   * faltante** (§23.3f-bis): con líneas sin precio, «Agrega otra carta» es una instrucción que
+   * no puede funcionar. **No toca la cifra**, que sigue siendo la del servidor.
+   */
+  pendingCardCount?: number;
 }
 
 const CLABE_RE = /^\d{18}$/;
@@ -81,6 +87,7 @@ const CLABE_RE = /^\d{18}$/;
  */
 export function BuylistKycForm({
   items,
+  pendingCardCount = 0,
   onCreated,
   ineExpected,
   clabeMasked,
@@ -322,13 +329,14 @@ export function BuylistKycForm({
           id="kyc-minimum-reason"
           shortfallCents={shortfall.shortfallCents}
           minimumCents={shortfall.minimumCents}
+          hasPendingLines={pendingCardCount > 0}
         />
       )}
 
       {/* §23.3g (superficie 2): la MISMA frase del cotizador, carácter por carácter —no una
           versión resumida— y la condición NM, justo antes del botón que compromete las cartas. */}
       <div className="flex flex-col gap-2">
-        <BuylistShippingNote />
+        <BuylistShippingNote surface="create-step" />
         <p className="text-sm leading-[1.7] text-muted">
           <span className="font-medium text-text">{t('nmOnlyTitle')}.</span> {t('nmOnlyBody')}
         </p>

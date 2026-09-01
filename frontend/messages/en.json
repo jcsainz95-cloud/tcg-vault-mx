@@ -737,10 +737,15 @@
         "cardsValue": "Value of your cards"
       },
       "shippingNote": "We provide the shipping label and its cost is always deducted from what we pay you: you pay nothing out of pocket. The exact amount is in the offer, before you accept.",
+      "pendingLine": {
+        "label": "No price",
+        "note": "{count, plural, one {# card has no price yet, so it doesn't count toward the total} other {# cards have no price yet, so they don't count toward the total}}. We quote those by hand and include them in your offer."
+      },
       "minimum": {
         "shortfall": "You're {amount} short",
         "minimumIs": "of the {amount} minimum.",
         "addAnother": "Add another card.",
+        "addPricedCard": "Add a card that already has a price.",
         "reachedAnnounce": "You've reached the {amount} minimum."
       }
     },
@@ -765,7 +770,6 @@
     "clearCart": "Clear the list",
     "cartFooterNote": "Payment is made after we receive and verify your cards.",
     "linePending": "Price pending",
-    "totalPendingNote": "The total doesn't include {count} card(s) with pending price: we quote those manually when we receive them.",
     "requestPendingNote": "The total shown doesn't include cards with pending price.",
     "estimateNote": "The total is an ESTIMATE: prices move and we may not buy every line. The firm amount comes to you in the offer.",
     "sendRequestCta": "Submit request ({count})",

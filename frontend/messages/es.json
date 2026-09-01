@@ -737,10 +737,15 @@
         "cardsValue": "Valor de tus cartas"
       },
       "shippingNote": "Nosotros ponemos la guía de envío y su costo se descuenta siempre de lo que te pagamos: tú no pagas nada de tu bolsillo. El monto exacto va en la oferta, antes de que aceptes.",
+      "pendingLine": {
+        "label": "Sin precio",
+        "note": "{count, plural, one {# carta todavía no tiene precio, así que no suma al total} other {# cartas todavía no tienen precio, así que no suman al total}}. Las cotizamos a mano y te las incluimos en la oferta."
+      },
       "minimum": {
         "shortfall": "Te faltan {amount}",
         "minimumIs": "para el mínimo de {amount}.",
         "addAnother": "Agrega otra carta.",
+        "addPricedCard": "Agrega una carta que ya tenga precio.",
         "reachedAnnounce": "Ya alcanzaste el mínimo de {amount}."
       }
     },
@@ -765,7 +770,6 @@
     "clearCart": "Vaciar la lista",
     "cartFooterNote": "El pago se realiza después de recibir y verificar tus cartas.",
     "linePending": "Precio pendiente",
-    "totalPendingNote": "El total no incluye {count} carta(s) con precio pendiente: esas las cotizamos a mano cuando las recibimos.",
     "requestPendingNote": "El total mostrado no incluye las cartas con precio pendiente.",
     "estimateNote": "El total es un ESTIMADO: los precios se mueven y puede que no compremos todas las líneas. Lo firme te lo mandamos en la oferta.",
     "sendRequestCta": "Enviar solicitud ({count})",

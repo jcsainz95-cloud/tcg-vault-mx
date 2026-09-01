@@ -8986,3 +8986,142 @@ mando. *Llevaba ahí desde que existe el FAB, tapado porque nadie aseveraba el e
   `@real vender` de punta a punta. **La suite E2E completa no tiene ningún fallo.**
 - **Cero cambios de producto en este pase**: solo `e2e/buylist.spec.ts`. Ni un componente, ni una
   clave i18n, ni un archivo de `src/`.
+
+---
+
+## v2.3.8 · §23.14.7-7 — una nota, un total que se explica, y dos montajes con nombre (2026-09-01, rama `claude/buylist-inventory-workflow-hdnls3`)
+
+> Ejecuta las tres partes del alcance que ux-ui confirmó (`181cdf3`): **(a)** `pendingLine.{label,note}`
+> con la `note` reescrita, **(b)** `minimum.addPricedCard`, **(c)** la nota del envío **condicionada al
+> layout**. Más la **petición de testabilidad**, que es la causa raíz de todo el episodio.
+> **Cero componentes visuales nuevos**: `BuylistShippingNote` no cambia un píxel; cambia **dónde** se monta.
+
+### 1. (c) EXACTAMENTE UNA nota de envío por pantalla (§23.3g-bis)
+
+**La decisión vive en UN solo sitio** —`BuylistView`, la única capa que ve la pantalla entera— y se
+llama `shippingNoteHost`:
+
+```
+requestOpen                      ⇒ 'createStep'   // el paso de crear pinta la suya
+isDesktopCart || drawerOpen      ⇒ 'cart'         // el bloque de dinero está a la vista
+resto                            ⇒ 'header'       // móvil, drawer cerrado
+```
+
+- **El desempate no es arbitrario: gana la más cercana a la decisión.** La cabecera existe
+  **únicamente** para cubrir el caso en que el carrito no se ve; donde el carrito sí se ve, su razón
+  de ser desaparece y **no se monta**.
+- **Repartir la decisión entre los componentes es exactamente cómo se llegó a las dos copias**, así
+  que `SellCartContents` recibe `showShippingNote` y **obedece**: no decide. El comentario del prop lo
+  dice, para que nadie «arregle» el acoplamiento devolviéndole la decisión.
+- **No contradice §23.3c** («no aparece, no desaparece, no se mueve»): esa prohibición es sobre el
+  **estado del carrito** —vacío/lleno, bajo/sobre el mínimo—, no sobre el **layout**. La invariante
+  nueva es **más fuerte y más barata de comprobar**: *siempre exactamente una*, en vez de *al menos
+  una*.
+- **Por qué dos copias idénticas sí eran un defecto**, aunque el texto fuera correcto: dos párrafos
+  iguales a 600px con el mismo peso visual son **la firma de un error de render**. El vendedor no
+  concluye «esto es importante», concluye «esta página está rota».
+
+### 2. (a) El total que explica su propia aritmética (§23.3h)
+
+**`BuylistPendingLinesNote`** (nuevo archivo, **no** un componente visual nuevo: es un `<p>` con una
+clave) se pinta **UNA vez, dentro del bloque de dinero**, con el conteo interpolado, en **tinta
+`text-sm`**. **`BuylistPendingLineLabel`** sustituye el rótulo largo por la versalita **`SIN PRECIO`**
+(`accent`) en las superficies del **cotizador**.
+
+| Antes | Ahora |
+|---|---|
+| `linePending` («Precio pendiente») en la casilla del grid, en la línea del carrito y en el total | **`quote.pendingLine.label`** (`SIN PRECIO`), versalita mono `accent` |
+| `totalPendingNote` **fuera** del bloque de dinero, en **mono 11px muted** | **`quote.pendingLine.note`** **dentro** del bloque, en **tinta `text-sm`**, con `{count}` |
+
+- **`buylist.totalPendingNote` se RETIRA de los dos catálogos.** Decía *«esas las cotizamos a mano
+  **cuando las recibimos**»*, y bajo el ciclo de oferta eso es **falso**: se cotizan a mano **al
+  ofertar**, antes de que el vendedor mande nada. Dejarla viva junto a la nota nueva habría sido
+  **dos redacciones del mismo hecho** — el defecto exacto que §23.14 lleva todo el ciclo cazando.
+  *(La decisión de retirar esa clave concreta es mía: §23.3h manda el texto y el sitio, no nombra la
+  clave que queda huérfana.)*
+- **`buylist.linePending` SIGUE VIVA**, y no es un olvido: la usa **«Mis solicitudes»**, que **no es
+  el cotizador**. Ahí la línea ya no es una cotización viva, es el registro de una solicitud enviada.
+- **La segunda frase de la nota no es relleno.** Sin *«Las cotizamos a mano y te las incluimos en la
+  oferta»*, «no suman» se lee como «no las queremos» y **la reacción racional del vendedor es
+  borrarlas** — perdiendo justo las cartas que más trabajo nos costó catalogar.
+- **Con TODAS las líneas sin precio el total no es `MX$ 0.00`**: es la versalita. *Un total de cero
+  que significa «todavía no lo he calculado» no es un cero* — R7 aplicada al agregado.
+- **El bloque sigue teniendo exactamente un monto**: un conteo de cartas **no es un monto**, y la nota
+  no lleva ninguno.
+
+### 3. (b) El consejo del faltante (§23.3f-bis)
+
+`BuylistMinimumShortfall` gana **`hasPendingLines`** y **solo cambia el consejo**:
+`minimum.addAnother` ⇒ **`minimum.addPricedCard`**. La **cifra no se toca**: sigue siendo la del
+servidor.
+
+⛔ **No se funde el faltante con la explicación** («te faltan MX$500 **porque** tus cartas no tienen
+precio»): mezclar dos hechos en una cifra hace que **la cifra deje de ser verificable**. Dos frases,
+dos trabajos — el **por qué** vive arriba (§23.3h) y **no se repite** aquí. Hay un test que lo
+comprueba por lo negativo (el faltante no contiene «porque» ni «no tiene precio»).
+
+### 4. La petición de testabilidad — el arreglo de LA CAUSA
+
+El arreglo del test (`filter({ visible: true })`) fue correcto **para el test**. Esto es el arreglo
+del defecto que lo hizo posible:
+
+- **`HomeQuoterPanel` gana `surface: 'hero' | 'mobile'`, y es OBLIGATORIO.** Un tercer montaje
+  **tiene que declararse**; no se puede añadir en silencio. Emite
+  `data-testid="home-quoter-{surface}"` + `data-quoter-surface`.
+- **`BuylistShippingNote` gana `surface?`** → `data-note-surface`. Instancias hoy: `home-hero`,
+  `home-mobile`, `buylist-header`, `cart-money`, `create-step`.
+- **Qué compra esto, dicho con precisión:** `data-testid` responde *«¿es esto una nota de envío?»*;
+  `data-note-surface` responde *«¿CUÁL de las notas es?»*. **§23.3g-bis decide cuántas se ven;
+  `surface` decide cuál se está mirando.** Sin lo segundo, cualquier comprobación futura vuelve a
+  adivinar — y adivinar fue lo que puso un defecto inexistente en la fuente de verdad del diseño.
+
+### 5. i18n (paridad ES/EN verificada por test)
+
+**Altas:** `buylist.quote.pendingLine.{label,note}` · `buylist.quote.minimum.addPricedCard`.
+**Bajas:** `buylist.totalPendingNote` (ausente en los dos catálogos).
+
+- **`pendingLine.note` y `minimum.addPricedCard` van carácter por carácter como los fija §23.3h /
+  §23.3f-bis**, incluida la forma ICU con `{count, plural, …}`.
+- **⚠ El EN de `pendingLine.label` es MÍO y queda a ratificación de ux-ui.** §23.3h y §23.11 fijan la
+  versalita **`SIN PRECIO`** pero **no dan su par en inglés** (a diferencia de `SIN ENVÍO`/`NOT
+  SHIPPED`, que §23.12 sí empareja). Elegí **«No price»** por longitud: la versalita convive en la
+  misma celda que un monto y **EN no puede ser más largo que ES** ahí (`Sin precio` = 10,
+  `No price` = 8). Si ux-ui prefiere «No price yet», cabe igual.
+
+### 6. Verificación (resultado literal)
+
+| Comprobación | Resultado |
+|---|---|
+| `npm test` | **`Test Files 95 passed (95)` · `Tests 875 passed (875)`** |
+| `npm run typecheck` | **limpio (sin salida)** |
+| `npm run lint` | **`✔ No ESLint warnings or errors`** |
+| **Suite E2E COMPLETA** (mock, `E2E_DEV_SERVER=1 E2E_MOCK_PORT=3111`) | **`116 passed · 3 skipped · 0 failed`** (8.1 min) |
+
+- **Flake conocido, caracterizado:** en **2 de 5** corridas completas de `npm test` salió
+  `1 failed | 874 passed`, y en la corrida que lo identificó el fichero era **`M2View.test.tsx`** —
+  uno de los dos flakes ya declarados. **Pasa aislado (65/65)**, igual que `PhotoUploader` (5/5), y
+  las otras **3 corridas** dieron **875/875**. **Ninguna de las dos áreas la toca este pase.**
+- **Los 3 saltados de E2E** son los `@real` de `grading-estimate.spec.ts`: piden stack real.
+
+**Cobertura nueva.** Unitaria (+4 en `BuylistView.test.tsx`, 67 en total): escritorio ⇒ la nota es la
+del carrito y **la cabecera no se monta**; carrito de puros pendientes ⇒ versalita en vez de
+`MX$ 0.00` + explicación **una vez** + «qué pasa con esas cartas» + **ningún monto extra**; la
+explicación **no se repite** con `qty = 999`; y el consejo `addPricedCard` **sin fundirse** con el
+faltante. Los tres tests que codificaban la conducta vieja (*«son DOS instancias, repetición
+aceptada»*) **se reescribieron a la invariante nueva** y ahora afirman **la instancia** por
+`data-note-surface`, no «la primera».
+E2E (+7 en `e2e/buylist.spec.ts`, 22 en el fichero): §23.3g-bis a **390px con drawer cerrado**,
+**390px con drawer abierto** y **1280px**; §23.14.6-6 en el **home** a los dos anchos, afirmando el
+**montaje** por su identificador nuevo; y el describe nuevo de §23.3h/§23.3f-bis con el **caso exacto
+que confundió al test** (8.1–8.5).
+
+⚠️ **Un detalle del arnés que costó un rojo y queda escrito:** el test de escritorio simula el
+viewport con **`vi.spyOn(window, 'matchMedia')`**, no con una asignación directa. `window` es
+**compartido por todos los tests del fichero**: reescribirlo a mano dejaba al resto de la suite en
+modo escritorio (sin FAB) y los rojos aparecían en tests que no tocan nada de esto. El
+`vi.restoreAllMocks()` del `beforeEach` deshace el espía; una asignación no se deshace.
+
+### 7. A ux-ui (una sola cosa, y es pequeña)
+
+**Ratificar el EN de la versalita `SIN PRECIO`** (hoy «No price»). Es la única cadena de este pase que
+no venía fijada por §23: todas las demás se implementaron carácter por carácter.

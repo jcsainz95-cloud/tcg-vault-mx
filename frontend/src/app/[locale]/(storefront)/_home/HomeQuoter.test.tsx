@@ -36,7 +36,7 @@ function card(id: string, name: string, number: string): CardDTO {
 /** Arnés: el estado del cotizador está izado; se monta el panel con ese estado. */
 function Harness() {
   const state = useHomeQuoter();
-  return <HomeQuoterPanel state={state} />;
+  return <HomeQuoterPanel state={state} surface="hero" />;
 }
 
 beforeEach(() => {
