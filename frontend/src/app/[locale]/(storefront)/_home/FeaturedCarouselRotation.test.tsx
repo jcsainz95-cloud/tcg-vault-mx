@@ -856,13 +856,33 @@ describe('§23.2 · rota la VENTANA, nunca el ROL (R1) — lo que protege el LCP
   });
 });
 
+// §23.9 — el nombre accesible de la región NO habla de rotación, ni de carrusel, ni de grading:
+// solo nombra la sección. La regex vive en una CONSTANTE COMPARTIDA a propósito, porque el caso de
+// control de más abajo la reusa: una aserción negativa que nadie prueba en positivo puede estar
+// muerta y seguir verde. Aquí lo estuvo — la `e` de `grade` era el homoglifo cirílico U+0435
+// (heredado de `main`), así que ese brazo exigía `grad` + U+0435 y NINGÚN copy latino podía
+// dispararlo. Duplicar el literal en el control no habría servido de nada: se comparte el objeto.
+const NOMBRE_ACCESIBLE_PROHIBIDO = /rotaci|carrus|grade|PSA/i;
+
 describe('§23.9 · anuncio a lectores de pantalla (patrón APG)', () => {
   it('la sección se anuncia como carrusel sin cambiar su aria-label (§22.6b-e sigue vigente)', async () => {
     await mountCarousel();
     const section = getSection();
     expect(section).toHaveAttribute('aria-roledescription', 'carrusel');
     expect(section).toHaveAttribute('aria-label', 'Piezas destacadas');
-    expect(section.getAttribute('aria-label')).not.toMatch(/rotaci|carrus|gradе|PSA/i);
+    expect(section.getAttribute('aria-label')).not.toMatch(NOMBRE_ACCESIBLE_PROHIBIDO);
+  });
+
+  // CONTROL de la aserción negativa de arriba. Cada cadena existe para disparar UN brazo de la
+  // regex; si un brazo vuelve a quedar inerte (homoglifo, dedazo, alguien que lo "simplifica"),
+  // este caso se pone rojo y lo dice, en vez de aprobar en silencio como pasó con `grade`.
+  it.each([
+    'Cartas gradeadas',
+    'Piezas destacadas — rotación automática',
+    'Carrusel de destacadas',
+    'Gradeadas PSA',
+  ])('el candado del aria-label SÍ rechaza «%s» (control de la aserción negativa)', (nombre) => {
+    expect(nombre).toMatch(NOMBRE_ACCESIBLE_PROHIBIDO);
   });
 
   it('la pista es un tope de tabulación CON NOMBRE y conmuta aria-live con el temporizador', async () => {
