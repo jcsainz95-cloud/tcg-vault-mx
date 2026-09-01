@@ -343,6 +343,31 @@
 > **Regla adoptada:** *toda afirmación de cobertura se escribe contra el **enum del contrato**, nunca
 > contra el número de claves i18n ni de filas de una tabla de color; y si el número y la enumeración
 > discrepan, **manda la enumeración**.* **Cero cambios de copy, de claves y de diseño.**
+>
+> **Corrección v2.3.7 (2026-09-01 — el PORTAL DEL VENDEDOR existe; §23.5g y §23.5h nuevas).**
+> La pantalla a la que apunta el correo de oferta **era un 404** y ya no lo es. §23.5 cubría **la oferta
+> viva y los cierres**, pero **no** el rechazo confirmado, la oferta incompleta, el 404 neutro ni la puerta
+> de sesión: el frontend los construyó, **declaró** las claves que tuvo que nombrar y escribió el EN.
+> **Se ratifica el espacio `buylist.offer.*` completo** (inventariado por fin en §23.12) **con tres
+> correcciones**: **(C1)** `offer.deadline` decía que la oferta *«se cancela sola»* y **«cancelar» es
+> desde v2.3.3 el verbo del correo 5** —lo que hacemos NOSOTROS—; una oferta que muere por silencio
+> **vence**. **(C2)** el diálogo de rechazar gana **el neto y la condición**: R2 no admite excepción y es
+> el último instante en que el vendedor puede saber qué suelta — con una lista de prohibiciones para que
+> informar no se convierta en presionar. **(C3)** el diálogo de aceptar **se reenmarca** (*«La condición es
+> la misma para cada carta: {condition}»*) para que **el singular del servidor se pueda CITAR** en vez de
+> reescribirse: *cuando un texto del servidor no encaja en el marco de la UI, **se cambia el marco, no se
+> duplica el texto**.* Se ratifican el **aviso de oferta incompleta** (R2 hasta el final: sin montos, sin
+> plazo, sin acciones), el **404 neutro** atado a la doctrina de §15.7 —con la precisión que lo hace
+> seguro: **la puerta de sesión se resuelve por la SESIÓN, nunca por una consulta**, o es un oráculo— y la
+> **frase neutra de `rechazada`**, con el reparto `rejectedNow`/`noLongerActive` que solo usa la neutra
+> donde la ignorancia es real.
+> **§23.5h decide la prosa duplicada: se PERMITE como puente y NO es bloqueante**, porque omitirla sería
+> una **regresión de producto** (§23.5b: el portal es el único sitio donde la resta se relee) y duplicarla
+> es una **deuda de mantenimiento** — con tres condiciones: **el correo es la fuente**, **verbatim
+> verificado** y **la clave se borra** cuando el servidor mande la prosa. Se afina además la verificación
+> del teaser del home: **«presente» no era el requisito, «visible» sí** (la nota está en el DOM pero
+> `hidden` a 390px). **Tres peticiones al arquitecto en §23.13.9**, y una es de dinero: **una oferta
+> inmostrable puede consumirle el plazo al vendedor** y vencerle por un fallo nuestro.
 
 ---
 
@@ -6637,9 +6662,30 @@ destacado → el plazo con fecha y hora → **dos acciones**.
 | **Aceptar la oferta** | `primary` (tinta, relleno), ancho completo en móvil | Es la acción esperada |
 | **Rechazar la oferta** | `secondary` (regla + texto), **nunca `destructive`** | Rechazar es **legítimo**. Pintarlo en rojo lo convierte en un error del usuario y presiona a aceptar. El rojo del sistema es de **atención**, no de castigo |
 
-- **Confirmación al aceptar** (§7.6, es dinero): repite **el neto** y **la condición** en una frase —
-  *«Aceptas que te compremos 2 cartas por MX$ 840.00, siempre que lleguen en Near Mint»*— y el botón dice el
+- **Confirmación al aceptar** (§7.6, es dinero): repite **el neto** y **la condición**, y el botón dice el
   verbo con el monto: **«Aceptar y recibir mi guía»**. Sin cuenta atrás, sin urgencia artificial.
+
+  > **⚠ v2.3.7 — la frase se REENMARCA para que la condición se pueda CITAR en vez de reescribir.**
+  > Aquí decía *«…2 cartas por MX$ 840.00, **siempre que lleguen** en Near Mint»* —plural—, pero el
+  > servidor manda `offer.perLineCondition` **en singular** («siempre que **llegue** en Near Mint»), porque
+  > es **la condición de una línea** (§23.12). El frontend detectó el desajuste y **citó verbatim** en vez
+  > de fabricar una segunda redacción. **Esa decisión se ratifica y es la correcta**: *la condición es
+  > exactamente lo que el vendedor acepta (D30); tener DOS redacciones de ella —una en el correo y otra en
+  > el diálogo— es el defecto que R2 existe para impedir, y una discordancia gramatical es un coste
+  > cosmético al lado de eso.*
+  > **Pero no hay que pagar ni el coste cosmético:** el problema era **mi marco**, que forzaba el plural.
+  > Se cambia el marco para que **el singular del servidor encaje bien**:
+  >
+  > | | ES | EN |
+  > |---|---|---|
+  > | ~~Antes~~ | ~~«Aceptas que te compremos 2 cartas por MX$ 840.00, siempre que lleguen en Near Mint»~~ | ~~"…provided they arrive Near Mint"~~ |
+  > | **Ahora** | «Aceptas que te compremos {count, plural, one {# carta} other {# cartas}} por {netAmount}. **La condición es la misma para cada carta: {condition}.**» | "You accept that we buy {count, plural, one {# card} other {# cards}} from you for {netAmount}. **The condition is the same for every card: {condition}.**" |
+  >
+  > Con «cada carta» / "every card" el singular citado **lee correcto con cualquier conteo**, y la cita
+  > sigue siendo **una sola fuente**. El mismo marco se usa en el diálogo de rechazar (§23.5g-c), en
+  > pasado: *«La condición **era** la misma para cada carta»*.
+  > **Regla general que se lleva de aquí:** *cuando un texto del servidor no encaje en el marco de la UI,
+  > **se cambia el marco, no se duplica el texto**.*
   *(**Revisado con la lente de D43 y NO cambia:** el diálogo se abre **a 200px del bloque de los tres
   montos**, y R1 autoriza expresamente al **neto** a viajar solo. Meterle la resta convertiría el último
   clic en una re-lectura del trato — y el sitio para leer el trato es la pantalla, no el diálogo que la
@@ -6675,10 +6721,164 @@ resumen genérico:
 | Desenlace | Qué se muestra | ⚠ |
 |---|---|---|
 | `pagada` | los tres montos, la fecha del SPEI y el desglose de aprobadas/rechazadas | — |
-| `rechazada` | «La oferta venció el {fecha}» + CTA cotizar de nuevo | — |
+| `rechazada` | **⚠ CORREGIDO v2.3.7:** ~~«La oferta venció el {fecha}»~~ ⇒ **«Esta oferta ya no está vigente.»** + CTA cotizar de nuevo | **`rechazada` tiene DOS causas y el DTO no las distingue**: el vendedor **pulsó rechazar**, o el barrido cerró por silencio. Decirle «venció» a quien **decidió** le niega su propio acto — es el mismo error que separó el correo 5 del 3. Ver §23.5g(e) |
 | `expirada`+`not_shipped` | «Se venció el plazo para enviar» + CTA cotizar de nuevo | — |
 | `expirada`+`no_offer` | «No procedimos con la oferta» + CTA cotizar de nuevo | **⚠ Se OCULTA el total cotizado y toda cifra.** Una lista de cartas con «MX$ 1,200» al lado de «no procedimos» se lee como una deuda. Se listan las cartas **sin montos** |
 | `abandonada` | el estado y a quién escribir | — |
+
+---
+
+### 23.5g Los estados del portal que §23 NO cubría (v2.3.7)
+
+> **Contexto.** El portal era un **404** hasta este pase — la pantalla a la que apunta el correo de oferta
+> no existía. §23.5 especificó **la oferta viva y los cierres**, pero **no** el rechazo confirmado, la
+> oferta incompleta, el 404 ni la puerta de sesión. El frontend los construyó y **declaró** las claves que
+> tuvo que nombrar. **Aquí se ratifican, con tres correcciones.**
+
+**(a) ✅ Se ratifica el espacio de claves `buylist.offer.*` y su EN.** El inventario completo está en
+§23.12. Revisado contra R1, R2, R4 y D43: **ningún asunto ni titular lleva el bruto**, la condición viaja
+con todo monto, **la UI no calcula nada** y no hay ninguna cifra de envío fuera de la oferta. `grossLabel`,
+`shippingLabel` y `netLabel` coinciden con los del correo; `shippingLabel` («Envío que ponemos nosotros»)
+es la **excepción autorizada** de §23.4.7 — renglón corto **porque la resta está a la vista**.
+
+**(b) ⚠ CORRECCIÓN 1 — `offer.deadline` dice «se cancela sola», y «cancelar» ya significa otra cosa.**
+Tras v2.3.3, **«cancelar» es el verbo del correo 5: lo que hacemos NOSOTROS**. Una oferta que muere por
+silencio **vence** (correo 3a, titular «Tu oferta venció»). Que la misma palabra nombre *«nosotros la
+retiramos»* y *«se te acabó el plazo»* reintroduce, en la pantalla, la fusión que acabamos de deshacer en
+los correos.
+
+| | ES | EN |
+|---|---|---|
+| ~~Antes~~ | ~~«…Si no respondes antes de esa hora, la oferta **se cancela sola**.»~~ | ~~"…the offer **cancels itself**."~~ |
+| **Ahora** | «Tienes hasta el {deadline} (hora del centro de México). Si no respondes antes de esa hora, **la oferta vence** y ya no podremos comprarte a este precio.» | "You have until {deadline} (Mexico City time). If you don't respond before then, **the offer expires** and we won't be able to buy at this price anymore." |
+
+**(c) ⚠ CORRECCIÓN 2 — el diálogo de RECHAZAR necesita el neto y la condición, y R2 no admite excepción.**
+El frontend escribió un cuerpo sin montos. Es defendible —evita presionar— pero **choca con R2 por el lado
+contrario**: en cuanto el diálogo nombre el neto, la condición es obligatoria; y **el neto tiene que estar**,
+porque este es el último instante en que el vendedor puede saber **qué está soltando**. La línea entre
+*informar* y *presionar* no está en decir el número: **está en el tono**.
+
+| Clave | ES | EN |
+|---|---|---|
+| `confirmRejectTitle` | Confirma que rechazas | Confirm that you decline |
+| **`confirmRejectBody`** | **Vas a rechazar la oferta de {netAmount} por {count, plural, one {# carta} other {# cartas}}. La condición era la misma para cada carta: {condition}. Es definitivo: no podemos reactivarla y, si cambias de opinión, tendrías que cotizar de nuevo.** | **You are about to decline the offer of {netAmount} for {count, plural, one {# card} other {# cards}}. The condition was the same for every card: {condition}. This is final: we cannot reactivate it and, if you change your mind, you would have to request a new quote.** |
+| `confirmRejectCta` | Rechazar la oferta | Decline the offer |
+
+**Prohibido en este diálogo** —y la lista es el motivo por el que se escribe aquí—: **«¿Estás seguro?»**,
+cualquier cuenta atrás, **cualquier reencuadre del beneficio** («estás dejando ir…», «piénsalo»), el botón
+de rechazar en `destructive` (§23.5c: rechazar **es legítimo**) y **un segundo CTA de aceptar dentro del
+diálogo**. La salida es **«Cancelar»** —volver atrás—, nunca un embudo de aceptación. *Un diálogo de
+confirmación que argumenta ya no confirma: negocia.*
+
+**(d) La oferta INCOMPLETA — el único estado donde la pantalla se niega a pintar.** Cuando la oferta llega
+sin términos o con líneas sin decisión, **no se pinta ni un monto, ni el plazo, ni las acciones**: solo el
+aviso. Es **R2 llevada hasta el final** —si no podemos mostrar la condición completa, no mostramos el
+dinero— y por eso **ese texto es lo único que el vendedor ve**. **Se ratifica el copy del frontend**, que
+acierta en lo difícil: **no culpa a nadie, dice qué NO vamos a hacer y por qué, y da dos salidas**.
+
+| Clave | ES | EN |
+|---|---|---|
+| `incompleteTitle` | No podemos mostrarte la oferta completa | We can't show you the full offer |
+| `incompleteBody` | Nos falta parte del desglose de esta oferta, así que no la mostramos a medias ni te dejamos aceptarla. Revisa el correo que te mandamos o escríbenos a {email}. | Part of this offer's breakdown is missing, so we won't show it half-way and we won't let you accept it. Check the email we sent you or write to us at {email}. |
+
+- **Mandar al correo es correcto y no es una excusa:** el correo **es el documento vinculante** (§23.4) y
+  lleva el desglose completo. Es la única superficie que **sigue siendo verdad** cuando la proyección falla.
+- **Prohibido**: pintar el neto «aunque sea», un `AmountBreakdown` a medias, el plazo, el botón de aceptar
+  en `disabled` (§15.9: un botón apagado y mudo es peor que ausente) y **cualquier código de error**.
+- **⚠ Riesgo que el copy NO puede resolver y que se enruta al arquitecto (§23.5g-f):** si el reloj del
+  vendedor sigue corriendo mientras la oferta es inmostrable, **le vence un plazo por un fallo nuestro** —
+  justo lo que §P.13 prohíbe. **El texto no promete nada sobre el plazo** (correcto), pero el problema es
+  real y es de contrato.
+
+**(e) El 404 neutro y la puerta de sesión — se ratifican, y se atan a la doctrina que ya existe.**
+Esto es **§15.7 aplicado al buylist**: *una sola pantalla para todos los fallos*. Token inexistente,
+solicitud de otro, solicitud borrada, 401/403/404/410 ⇒ **el mismo texto, el mismo layout**. El frontend
+**no ramifica por código de estado**, que es lo correcto: cualquier diferencia visible convierte la pantalla
+en un **oráculo** de qué solicitudes existen.
+
+| Clave | ES | EN |
+|---|---|---|
+| `notFoundTitle` | No encontramos esta solicitud | We couldn't find this request |
+| `notFoundBody` | Revisa el enlace del correo, o entra con la cuenta con la que creaste la solicitud. | Check the link in your email, or sign in with the account you used to create the request. |
+| `loginTitle` | Entra con tu cuenta para ver tu oferta | Sign in to see your offer |
+| `loginBody` | Entrarás con tu cuenta: esta oferta no se acepta desde un enlace del correo. | You will sign in with your account: this offer is not accepted from an email link. |
+
+> **⚠ Precisión que decide si esto es seguro o es un oráculo: la puerta de sesión se resuelve por la SESIÓN,
+> nunca por una consulta.** Si `loginTitle` se pintara **después** de comprobar que la solicitud existe, la
+> pantalla diría *«existe, identifícate»* frente a *«no existe»* — y eso **es** el oráculo, con otro
+> vestido. **Sin sesión ⇒ puerta de sesión, siempre, sin mirar el id.** Con sesión y sin acceso ⇒ el 404
+> neutro. **Prohibido** además: repetir el folio en pantalla, nombrar a otra cuenta, y que el texto cambie
+> entre «no existe» y «no es tuya».
+
+**(f) La frase neutra de `rechazada` — ratificada, y con el reparto que la hace correcta.**
+El DTO no dice **quién** cerró: si el vendedor pulsó rechazar o si el barrido cerró por silencio. §23.5f
+decía «La oferta venció el {fecha}» **para las dos**, y a quien **decidió** eso le niega su propio acto.
+
+| Clave | Cuándo | ES | EN |
+|---|---|---|---|
+| `rejectedNow` | **justo después** de la acción — aquí **sí sabemos** que rechazó, porque acabamos de hacerlo | Rechazaste la oferta. | You declined the offer. |
+| `noLongerActive` | **en una visita posterior** — aquí **no sabemos** por qué se cerró | Esta oferta ya no está vigente. | This offer is no longer active. |
+
+- **El reparto es la parte buena de la solución**, y es del frontend: la frase neutra solo se usa donde la
+  ignorancia es real. **No se degrada la información que sí tenemos.**
+- **No lleva fecha**, y no le hace falta: el **cierre del stepper** ya pinta versalita + fecha (§23.2d).
+  Repetirla obligaría a redactar una causa que no conocemos.
+- **Es una solución puente, no el destino.** Con el discriminador en el contrato, `rechazada` vuelve a
+  hablar claro y **cada causa recupera su frase**. **Petición al arquitecto en §23.13.9.**
+
+**(g) Detalles menores ratificados, para que nadie los «corrija» después:**
+
+| Clave | Veredicto |
+|---|---|
+| `acceptedNow` («Te mandamos la guía por correo») | **Correcto.** Es **secuencia logística**, no afirmación de coste ⇒ **no** le aplica la regla de §23.14.3, igual que a `buylist.created`. Y además la resta está en pantalla, a un scroll |
+| `reject` = «Rechazar» ES / "Decline" EN | **Correcto**, y la asimetría es deliberada: ES ya usa «Declinar» para **la acción del admin** (§23.8) y **ningún usuario ve las dos superficies**. "Decline" es más suave que "Reject", que sonaría a juzgar sus cartas |
+| `preOfferTitle` + `preOfferBody` | **Ajuste menor:** hoy repiten «Todavía no mandes nada» en los dos. **Título:** «Todavía no mandes nada» · **Cuerpo:** «Te escribimos con nuestra oferta.» Leídos juntos dan la frase de §23.5d **exacta**, sin eco |
+| `cancelledBanner` | **Ratificado** — es §23.13.3 implementada, y el texto coincide con el que pedí. **Sin monto de la oferta cancelada**, como se pidió |
+| `closedNoOffer` | **Ratificado**, con el recordatorio de §23.5f: en ese desenlace **se ocultan el total cotizado y toda cifra**. Las cartas se listan **sin montos** |
+
+---
+
+### 23.5h ⚠ La prosa duplicada — decisión: SE PERMITE como puente, con tres condiciones
+
+> **Es la pregunta correcta y la respuesta no es obvia**, así que va con su razonamiento. El frontend
+> **copió `offer.ruleParagraph`** —la prosa del descuento con `{shippingAmount}` y `{netAmount}`— al
+> catálogo i18n, porque **solo existía dentro de la plantilla del correo** y §23.5b **obliga** al portal a
+> llevarla. Lo declaró como *«la única copia de copy que este pase se vio obligado a crear»*.
+
+**Veredicto: NO es bloqueante. Se permite, y por qué la alternativa era peor.**
+
+Las opciones reales eran tres, y dos son inaceptables:
+
+| Opción | Consecuencia |
+|---|---|
+| **Portal sin la prosa**, solo el `AmountBreakdown` | **Viola §23.5b explícitamente.** Bajo D43 el portal es **el único sitio donde el vendedor puede releer la resta**: el correo la estrena y el recordatorio no la repite. Sin prosa, quien borró el correo **se queda sin ningún lugar donde ver de dónde salió el neto** |
+| **Bloquear el portal** hasta que el servidor mande la prosa | El portal era **un 404** al que apunta el correo de oferta. Bloquear = **seguir mandando ofertas vinculantes a una página que no existe** |
+| **Duplicar el string** *(elegida)* | Riesgo de **deriva** entre dos catálogos. Es un coste de **mantenimiento**, no una regresión para el vendedor |
+
+**La distinción que decide:** *omitir la prosa sería una **regresión de producto**; duplicarla es una
+**deuda de mantenimiento**.* No son la misma clase de problema, y este documento no cambia lo primero por
+lo segundo. **Y la duplicación es visible y está declarada** — que es exactamente lo contrario del patrón
+que este ciclo lleva persiguiendo, donde el daño venía de textos **que nadie sabía que existían**.
+
+**Las tres condiciones, y son obligatorias mientras dure el puente:**
+
+1. **La plantilla del correo es la FUENTE; el i18n es el ESPEJO.** Si divergen, **manda el correo** — es el
+   documento vinculante (§23.4). Toda edición de esa prosa **se hace primero en la plantilla** y después se
+   copia. **Prohibido «mejorar» la copia del portal por su cuenta**: dos redacciones de la misma regla de
+   dinero es el defecto, no la solución.
+2. **Verbatim, carácter por carácter, en ES y EN**, incluidos los dos placeholders. La comprobación (f) de
+   §23.13.8 —*«correo vs portal coinciden carácter por carácter»*— **se amplía a la prosa del descuento**,
+   que hasta hoy solo cubría montos, plazo y condición. **Es el único guardarraíl real que hay hoy**, y se
+   dice sin adornos: *el guardián de esta copia es una revisión, no un test.*
+3. **Cuando el servidor mande la prosa, la clave i18n SE BORRA — no se deja de reserva.** Un *fallback*
+   superviviente es exactamente cómo un texto viejo vuelve a producción (la lección de `expiry.*` y de las
+   tres claves retiradas de §23.12). **Cero coexistencia.**
+
+**Y el límite del permiso, para que no se generalice:** esto vale **para esta prosa y por este motivo** —
+una regla de dinero que el diseño **obliga** a mostrar en dos medios y que hoy **solo un medio produce**.
+**No autoriza a duplicar copy en general**, y menos a duplicar **la condición** o **la consecuencia**: esas
+el portal las pinta **verbatim del servidor**, que es lo que el frontend ya hizo bien y **es la razón por
+la que el vendedor lee en pantalla el mismo texto que aceptó en el correo**.
 
 ---
 
@@ -7203,6 +7403,29 @@ Convención §9.2. **Todo lo de §23 existe en los dos idiomas** (el proyecto ti
   > `POST …/offer/cancel`, `offerCancelReason`—. Una clave de correo que nombra **el mismo evento que el
   > schema** no se puede desincronizar por descuido, que es justo lo que le pasó a la anterior.
 
+**Portal del vendedor (`buylist.offer.*`) — ⚠ NUEVAS en el documento (v2.3.7, §23.5g).**
+Existían en el catálogo desde el pase del portal pero **§23.12 no las inventariaba**; se ratifican aquí.
+**El espacio de claves y el EN quedan aprobados**, con **tres correcciones** y **un ajuste menor**:
+
+- **Oferta viva:** `offer.{eyebrow,headline,conditionIntro,buyGroup,skipGroup,skipLabel,consequenceTitle,grossLabel,shippingLabel,netLabel,ruleParagraph,deadline,cardsTitle}`
+- **Acciones y confirmaciones:** `offer.{accept,reject,confirmAcceptTitle,confirmAcceptBody,confirmAcceptCta,confirmRejectTitle,confirmRejectBody,confirmRejectCta}`
+- **Resultados y cierres:** `offer.{acceptedNow,rejectedNow,acceptedOn,noLongerActive,quoteAgainCta,closedNotShipped,closedNoOffer,closedAbandoned,closedPaid,cancelledBanner}`
+- **Antes de la oferta:** `offer.{preOfferTitle,preOfferBody}`
+- **Estados de excepción:** `offer.{incompleteTitle,incompleteBody,notFoundTitle,notFoundBody,loginTitle,loginBody}`
+- **Navegación:** `offer.{viewRequestCta,backToBuylist}`
+
+| ⚠ | Clave | Qué cambia |
+|---|---|---|
+| **C1** | `offer.deadline` | ~~«la oferta **se cancela** sola»~~ ⇒ **«la oferta vence»**. Tras v2.3.3 «cancelar» es **el verbo del correo 5** (lo que hacemos nosotros); una oferta que muere por silencio **vence** (§23.5g-b) |
+| **C2** | `offer.confirmRejectBody` | Gana **`{netAmount}`, `{count}` y `{condition}`**. R2 no admite excepción: si el diálogo nombra el neto, la condición va con él — y el neto **tiene que estar** (§23.5g-c) |
+| **C3** | `offer.confirmAcceptBody` | Se **reenmarca** para poder **citar** el singular del servidor: *«…por {netAmount}. La condición es la misma para cada carta: {condition}.»* (§23.5c) |
+| **m** | `offer.preOfferBody` | Deja de repetir el título: **cuerpo = «Te escribimos con nuestra oferta.»** (§23.5g-g) |
+
+> **⚠ `offer.ruleParagraph` es una COPIA DECLARADA de `buylist.mail.offer.ruleParagraph`, no una clave
+> nueva.** Mismo texto, mismos dos placeholders, en ES y EN. **La plantilla del correo es la fuente; el
+> i18n es el espejo**, y cuando el servidor mande la prosa **esta clave se borra, no se deja de reserva**.
+> Decisión completa, con sus tres condiciones y el motivo por el que **no es bloqueante**, en **§23.5h**.
+
 **Mesa de decisión (`admin.buylist.desk.*`)**
 - `position.{title,ofTotal,groupInHouse,groupNotYet,stock,verifying,inTransit,committed,rule.bounty,rule.cap,aria}`
 - `position.unavailable.{tag,text,noSuggestion,banner,retry}` — `SIN CONTEO`.
@@ -7292,6 +7515,26 @@ clave; tres no se tocan.**
    …/pickup-address` exige `guideSentAt IS NULL`. §23.5e pinta *«Ya imprimimos la guía con esta
    dirección»* **sin botón**, que es honesto pero deja al vendedor sin salida en la app. Si se quiere una,
    sería un canal de contacto (no una edición). **No bloquea el diseño**; se registra.
+9. **⚠ Arquitecto — TRES peticiones del portal (v2.3.7), y la segunda puede cobrarle un plazo al vendedor.**
+   **(a) Que el servidor mande la prosa del descuento.** Hoy `offer.ruleParagraph` **solo existe en la
+   plantilla del correo**, y §23.5b **obliga** al portal a mostrarla (bajo D43 es el único sitio donde la
+   resta se puede releer). El frontend tuvo que **duplicarla** en i18n. **Permitido como puente** con tres
+   condiciones (§23.5h), pero **la solución correcta es que viaje resuelta en el DTO**, como ya viajan la
+   condición y la consecuencia — que el portal **sí** pinta verbatim. Con eso, la copia **se borra**.
+   **(b) ⚠ Un discriminador para `rechazada`.** El DTO no dice si cerró **el vendedor** (pulsó rechazar) o
+   **el barrido** (silencio). Son **hechos distintos** —exactamente la distinción que obligó a separar el
+   correo 5 del 3— y sin el dato la pantalla **solo puede decir una frase neutra** (§23.5g-e). No es un
+   fallo del frontend: es **información que no llega**. Con un `closedBy` (o equivalente), cada causa
+   recupera su frase y **dejamos de decirle «venció» a quien decidió**.
+   **(c) ⚠ La oferta INCOMPLETA puede quemarle el plazo al vendedor — y esto sí es de dinero.** Si la
+   oferta llega sin términos o con líneas sin decisión, el portal **se niega a pintarla** y el vendedor
+   **no puede aceptar** (§23.5g-d, R2 hasta el final). **Pero el reloj de aceptación sigue corriendo.**
+   Resultado posible: la oferta **vence por un fallo NUESTRO de proyección**, y al vendedor le llega el
+   correo 3a diciéndole que **no respondió**. Es literalmente lo que §P.13 prohíbe —*un plazo del vendedor
+   solo puede vencer por algo que dependa del vendedor*— y es la misma injusticia que motivó D38.
+   **El copy no puede taparlo**: una pantalla que prometiera «no te preocupes por el plazo» estaría
+   mintiendo si el barrido no lo respeta. **Petición:** que una oferta inmostrable **no consuma plazo**, o
+   que se detecte y se re-emita. **Lo señalo, no lo asumo.**
 5. **Arquitecto — el bucle cancelar/re-emitir necesita ser visible aunque no se tape.** `PROJECT.md` §P.3.1
    deja el candado en manos del arquitecto. Desde UX: **cada cancelación manda un correo**, así que el
    vendedor no queda en silencio, pero **sí puede quedar en un limbo indefinido**. **Petición mínima:** que
@@ -7747,10 +7990,19 @@ tres tiempos *«tú X, nosotros Y y Z»* el primer tiempo se lee como **su parte
    Mint**; los pasos 1 y 2 siguen diciendo **funda/sleeve** y **top loader** (AC 34).
 5. **La palabra «guía» en `/buylist`:** el enlace, el título del modal y el `h2` inline dicen **«Cómo
    empacar tus cartas»**. La palabra «guía» **solo** aparece donde significa **la etiqueta**.
-6. **Teaser del home, las DOS instancias**: en `lg` (columna del hero, `withTrust` implícito) **y** en
-   390px (sección propia, `withTrust={false}`) la nota **está presente**, con **cero cartas** y con cartas,
-   en ES y EN; el total se rotula **«Valor de tus cartas»**. **Si la nota solo aparece en escritorio, es el
-   bug** (§23.14.2a).
+6. **Teaser del home, las DOS instancias** — ⚠ **REGLA AFINADA (v2.3.7): «presente» NO es el requisito;
+   el requisito es VISIBLE.** En `lg` (columna del hero) **y** en 390px (sección propia,
+   `withTrust={false}`), con **cero cartas** y con cartas, en ES y EN, el total se rotula **«Valor de tus
+   cartas»** y la nota **se lee en pantalla**.
+   > **Por qué se afina:** el frontend encontró que a 390px la nota **está en el DOM pero `hidden`**. Con
+   > la regla escrita como *«está presente»*, una comprobación que consultara el DOM **habría pasado en
+   > verde** sobre una pantalla donde el vendedor **no lee nada** — y §23.14.2a existe precisamente porque
+   > *«una regla de dinero que solo existe en escritorio no es una regla»*. **Un nodo oculto no comunica.**
+   > La comprobación se hace **sobre visibilidad efectiva** (no `display:none`, no `hidden`, no ancestro
+   > colapsado, no `sr-only`) **en el viewport de 390px**, no sobre la existencia del nodo.
+   > *Es la misma familia de defecto que el «diez» de §23.14.6-3bis: **la regla medía lo que no era**.*
+   **Si la nota solo se ve en escritorio, es el bug** (§23.14.2a). *(Enrutado a frontend; el diseño no
+   cambia — lo que cambia es cómo se verifica.)*
 7. **`/buylist` en 390px sin abrir el drawer:** la nota **se lee en la cabecera**. Recorrer la página entera
    con el carrito cerrado y confirmar que la regla del envío aparece **al menos una vez**.
 8. **D43 sigue intacta tras este pase:** repetir la prueba **(l.1)** y **(l.6)** de §23.13.8 sobre las
