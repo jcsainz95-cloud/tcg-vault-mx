@@ -3800,23 +3800,36 @@ backend/arquitecto al implementar, sin decisión de producto adicional).
     respondes, es la (a)**: es lo coherente con lo que acabas de decidir y lo único que no abre una superficie
     nueva. ¿Confirmas la (a) o quieres la (b)?
 25. **¿El envío de MX$175 lleva SEGURO de verdad, y hasta qué monto?** *(NUEVA, 2026-09-01 — **no es de §O**;
-    vive en esta lista porque es la **lista viva** de preguntas abiertas. **La responde el dueño**, con el dato
-    de la **paquetería** —es un hecho contractual con el transportista, no una decisión de producto—; **el PO no
-    la asume**)*: la decisión **63** cerró que **la custodia no tiene seguro** y retiró la palabra de 5 cadenas.
-    Queda **una sexta superficie que dice lo mismo y no se tocó**: el checkout cobra el envío con la etiqueta
-    **«Envío (asegurado)» / «Shipping fee (insured)»** dentro de la tarifa fija de **MX$175**, y este documento
-    la respalda desde §D («**MX$175** por paquete (**con seguro**)»). **No se resolvió por analogía a propósito**:
-    el seguro de envío lo daría la **paquetería**, que es **otra fuente** que la bóveda, y **podría ser cierto**.
-    Lo que hace falta: **(a)** ¿la tarifa contratada **incluye** cobertura del paquete?, **(b)** **hasta qué
-    monto declarado** (las cartas caras que este catálogo vende pueden rebasar por mucho el tope estándar de una
-    guía), **(c)** ¿cubre **pérdida**, **daño**, o solo pérdida? **Si la respuesta a (a) es no —o el tope es
-    tan bajo que la palabra engaña—, esa cadena tiene exactamente el mismo problema que las cinco anteriores**
-    y hay que retirarle el «asegurado»/«insured» (queda «Envío» / «Shipping fee»), **corregir §D** y **sacar
-    esa cadena de la exclusión (a)(1) del criterio 120** —donde hoy está listada como uso legítimo **sujeto a
-    esta respuesta**—. **Mientras
-    no respondas, la cadena se queda como está**: no la cambio por mi cuenta porque, a diferencia de la
-    custodia, **aquí no tengo un hecho que la contradiga**. **Ruta si sale «no»**: es copy de checkout ⇒
-    **frontend** (stream «Órdenes y dinero»), con el mismo patrón ES/EN de la corrección del home.
+    vive en esta lista porque es la **lista viva** de preguntas abiertas. **Enrutada a PO por el techlead** en la
+    revisión del pase de copy del home, como **ítem propio** y no como nota al pie)*
+
+    - **ESTADO: ABIERTA — PENDIENTE DE RESPUESTA DEL DUEÑO.** No tiene supuesto por defecto y **el PO no la
+      asume**. Mientras no haya respuesta, **la cadena se queda exactamente como está**: a diferencia de la
+      custodia, **aquí no hay un hecho que la contradiga**.
+    - **QUIÉN RESPONDE: el dueño**, con el **dato contractual de la paquetería**. Es un **hecho verificable con
+      el transportista**, no una decisión de producto ni de diseño — por eso ningún otro rol puede cerrarla.
+    - **QUÉ SE PREGUNTA**: **(a)** ¿la tarifa contratada **incluye** cobertura del paquete? **(b)** ¿**hasta qué
+      monto declarado**? (las cartas caras de este catálogo pueden rebasar por mucho el tope estándar de una
+      guía). **(c)** ¿cubre **pérdida**, **daño**, o solo pérdida?
+    - **CONTEXTO — por qué no se corrigió con las otras cinco**: la decisión **63** cerró que **la custodia no
+      tiene seguro** y retiró la palabra de **5 cadenas**. Esta es la **sexta superficie que dice lo mismo**:
+      el checkout cobra `shipments.shippingFee` con la etiqueta **«Envío (asegurado)» / «Shipping fee
+      (insured)»** dentro de la tarifa fija de **MX$175**, respaldada por §D («**MX$175** por paquete (**con
+      seguro**)»). **Es la misma clase de afirmación**; la **única** razón de no corregirla a la vez es que aquí
+      **sí puede existir una póliza real** —la del transportista, que es **otra fuente** que la bóveda— y
+      **nadie lo ha comprobado**.
+    - **QUÉ SE HACE CON CADA RESPUESTA** *(las dos ramas, para que quien reciba la respuesta no tenga que
+      volver a preguntar)*:
+      - **«SÍ cubre»** ⇒ la cadena **se queda tal cual**, y **se documenta el tope**: monto máximo cubierto y
+        qué cubre (pérdida/daño) quedan escritos en **§D** junto a la tarifa, y la **exclusión (a)(1) del
+        criterio 120** deja de estar «sujeta a respuesta» y pasa a **exclusión firme con su dato**. **Si el tope
+        es más bajo que el valor típico de un envío**, hay que decidir aparte si la etiqueta debe **acotarse**
+        (p. ej. nombrar el límite) — eso **vuelve al PO**, no se resuelve aquí.
+      - **«NO cubre»** —o el tope es tan bajo que la palabra engaña— ⇒ la cadena **tiene exactamente el mismo
+        problema que las cinco anteriores**: (1) se le retira el «asegurado»/«insured» y queda **«Envío» /
+        «Shipping fee»**; (2) se **corrige §D**; (3) **sale de la exclusión (a)(1) del criterio 120** y **entra**
+        al alcance de ese criterio. **Ruta de la corrección**: es **copy de checkout** ⇒ rol **frontend**,
+        stream **«Órdenes y dinero»**, con el mismo patrón ES/EN de la corrección del home.
 ## Decisiones (v2.0, P-48) — precio puro por valor de mercado (LOCKED)
 > Decisiones del humano **ya tomadas** en conversación (2026-08-24), a partir del hallazgo de cartas
 > publicadas a **MX$1.31 / MX$3.71** con un supuesto piso de **MX$15**. Tras ver la causa raíz, el humano
