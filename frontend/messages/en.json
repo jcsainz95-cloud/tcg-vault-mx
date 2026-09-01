@@ -78,7 +78,7 @@
     "ctaBuylist": "Sell my cards",
     "setsWanted": "Sets to hunt",
     "trustAuth": "Every card is authenticated on intake",
-    "trustCustody": "Vault storage: one shipment, whenever you say",
+    "trustCustody": "Vault storage: one shipment for everything",
     "trustPrice": "Transparent market value in MXN",
     "trustPayout": "We pay by bank transfer after we receive and verify",
     "yourVault": "Your vault",
@@ -136,11 +136,11 @@
       "title": "How the vault works",
       "tag": "Vault custody",
       "step1Title": "You buy with the numbers up front",
-      "step1Body": "Every card shows its verified condition and its final price. At checkout you see the full breakdown before you pay.",
+      "step1Body": "Every card shows its verified condition and its sale price. At checkout you see the full breakdown before you pay.",
       "step2Title": "They stay in your vault",
       "step2Body": "Kept safe, with your collection's value updated card by card.",
       "step3Title": "Request shipping whenever you want",
-      "step3Body": "One shipment for everything you've stacked up, whenever you ask."
+      "step3Body": "Everything you've stacked up ships together, in a single shipment."
     },
     "sellTitle": "Turn your doubles into cash",
     "sellBody": "We quote your list using the day's market value as the reference. You ship, we authenticate and transfer.",

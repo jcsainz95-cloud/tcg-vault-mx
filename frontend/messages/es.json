@@ -78,7 +78,7 @@
     "ctaBuylist": "Vender mis cartas",
     "setsWanted": "Sets en cacería",
     "trustAuth": "Cada carta se autentica al ingresar",
-    "trustCustody": "Bóveda bajo resguardo: un solo envío, cuando tú digas",
+    "trustCustody": "Bóveda bajo resguardo: un solo envío para todo",
     "trustPrice": "Valor de mercado transparente en MXN",
     "trustPayout": "Te pagamos por transferencia tras recibir y verificar",
     "yourVault": "Tu bóveda",
@@ -136,11 +136,11 @@
       "title": "Cómo funciona la bóveda",
       "tag": "Custodia en bóveda",
       "step1Title": "Compras con las cuentas claras",
-      "step1Body": "Cada carta muestra su condición verificada y su precio final. En el checkout ves el desglose completo antes de pagar.",
+      "step1Body": "Cada carta muestra su condición verificada y su precio de venta. En el checkout ves el desglose completo antes de pagar.",
       "step2Title": "Se quedan en tu bóveda",
       "step2Body": "Guardadas bajo resguardo, con el valor de tu colección actualizado carta por carta.",
       "step3Title": "Pides el envío cuando quieras",
-      "step3Body": "Un solo envío para todo lo que acumulaste, cuando tú lo pidas."
+      "step3Body": "Todo lo que acumulaste sale junto, en un solo envío."
     },
     "sellTitle": "Convierte tus repetidas en dinero",
     "sellBody": "Cotizamos tu lista con el valor de mercado del día como referencia. Tú envías, nosotros autenticamos y te transferimos.",

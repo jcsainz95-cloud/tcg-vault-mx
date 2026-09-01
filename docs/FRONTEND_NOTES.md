@@ -10133,6 +10133,42 @@ ronda de corrección. Ningún candado compara el copy con `PROJECT.md` ni con el
 copy es **leer la fuente**, y la fuente no es el brief que pide el cambio: los tres errores venían del
 brief, y el brief es justo lo que no se puede usar como referencia para validarlos.
 
+**Y la regla que faltaba explícita: el brief de un rol NO es fuente de verdad para otro.** La regla de
+conflicto de `CLAUDE.md` ordena `PROJECT.md` > contrato > código. La instrucción de un compañero —por
+detallada que venga, y aunque traiga el valor exacto a teclear— **no está en esa cadena**. Los tres
+bloqueantes salieron del brief y sobrevivieron dos gates precisamente porque cada revisión posterior lo
+dio por bueno: un texto entre comillas parece un dato verificado y no lo es. Un valor de copy solo se
+puede validar contra `PROJECT.md` y contra el componente que lo pinta; si el brief y la fuente discrepan,
+manda la fuente y se devuelve el hallazgo a quien lo redactó.
+
+### 41.9-ter Tercera ronda — dos residuos que yo mismo levanté
+
+Ninguno era falso; los dos eran **sobrepromesa o ruido**, y los levanté al reportar en vez de aplicarlos
+en silencio.
+
+- **`how.step1Body`: «su precio final» → «su precio de venta»** (EN: `final price` → `sale price`). Los
+  precios se muestran **sin IVA** (`PROJECT.md:346`), así que «final» se podía leer como «no hay más
+  cargos» — la misma familia de sobrepromesa que «Lo que ves es lo que pagas», más pequeña. El criterio
+  con el que se decidió, y que vale más que el caso: **el copy no debería necesitar que la línea de al
+  lado lo rescate**. Que la frase siguiente desactivara la lectura mala no era razón para dejarla.
+- **La muletilla «cuando tú digas/quieras/pidas» estaba cuatro veces** en el home: `heroSubtitle`,
+  `trustCustody`, `how.step3Title` y `how.step3Body` — el paso 3 **se repetía a sí mismo**, título y
+  cuerpo. Se queda donde pega y se dice de otra forma en el resto: `how.step3Body` →
+  `Todo lo que acumulaste sale junto, en un solo envío.`, `trustCustody` →
+  `Bóveda bajo resguardo: un solo envío para todo`.
+
+**Verificado que la reescritura no cuela un claim nuevo** (es una reformulación, no una promesa distinta):
+`PROJECT.md:400` da el retiro de una o varias piezas **sin mínimo**, y `:401` fija la tarifa **por
+paquete**, que es lo que sostiene «un solo envío para todo». La restricción real —solo se retiran piezas
+**liquidadas y sin envío activo** (`vault.onlySettled`)— es **preexistente** y afectaba igual a la
+redacción anterior; no la introduce este cambio.
+
+> **Residuo declarado, no resuelto:** el objetivo era dejar la frase **solo en el hero**, y quedan **dos**
+> apariciones — `heroSubtitle` y `how.step3Title` («Pides el envío cuando quieras»). `step3Title` no
+> entraba en el cambio pedido y **no se tocó**: es el titular del paso cuyo asunto *es* el envío a
+> petición, y vaciarlo lo dejaría sin tema. Queda dicho para que nadie lea «solo en el hero» como un
+> hecho verificado: son dos, y la segunda es deliberada.
+
 ### 41.10 «Asegurado» no era un sinónimo: era una póliza que no existe
 
 Hallazgo escalado al humano durante el pase, sobre una bandera abierta en `PROJECT.md:2969-2971`
