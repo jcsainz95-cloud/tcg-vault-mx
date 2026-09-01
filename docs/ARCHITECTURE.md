@@ -11522,7 +11522,7 @@ verificable con inventario**.
 > topes AML/KYC, el flujo de **ajuste** (`ajustada`) que sigue vivo para otros caminos, y el **precio de venta** (D10:
 > lo fija la curva; este ciclo no captura precios de venta).
 > **Diseño en papel.** Lo implementan **backend** (schema, servicios, jobs, correos) y **frontend** (M5, M1, portal del
-> vendedor). Contrato observable en `API_CONTRACT.md` ~~**v1.51**~~ **v1.51.17**. Migración **M-46** (§11).
+> vendedor). Contrato observable en `API_CONTRACT.md` ~~**v1.51**~~ **v1.51.18**. Migración **M-46** (§11).
 > **Regla de conflicto aplicada:** donde este documento y `PROJECT.md` §P difieran, **manda PROJECT**. Las tensiones y
 > los huecos que encontré **están señalados en (o)**, no resueltos en silencio.
 >
@@ -13667,6 +13667,96 @@ El resto del `PATCH` **no cambia** — en particular `listPriceCents`, que es el
 `convert-to-inventory` **no** acepta `listPriceCents`), no retira una perilla de M1 que ya existía.
 **Dueño: backend.** Desviación **INV-P1** en §9.
 
+#### ⚠️⚠️ (m.5) v1.51.18 — EL SEAM DE PUBLICACIÓN: **un puerto de DISPARO, no de escritura**
+
+*(Escalada de backend al cerrar la fase 8. **No cortó (a) y (c) por tamaño**: los dos necesitan **el mismo seam que no
+existe** —disparar trabajo de `inventory` desde fuera—, y hacerlos por separado **inventaría dos caminos hacia
+adentro, con el segundo escrito copiando al primero**. Propuso **un solo puerto de un método**. **Ratificado**, con
+una precisión que cambia lo que el puerto ES.)*
+
+**Por qué el precedente NO se aplica solo, que es exactamente por qué escaló.** `INVENTORY_POSITION_PORT` se declaró
+**«de solo lectura»**, y su propio docblock razona que importar `InventoryModule` *«traería un grafo de servicios de
+ESCRITURA a un módulo que **no debe poder escribir inventario**»* (`inventory-position.port.ts:11-13`). **Un puerto de
+publicación es de escritura**: es una **instancia nueva** de esa doctrina, no una aplicación de ella. Backend hizo
+bien en no resolverlo solo.
+
+**DICTAMEN — un solo `INVENTORY_PUBLISH_PORT`, un solo método. Y la precisión que lo hace legítimo:**
+
+> **NO es un puerto de escritura: es un puerto de DISPARO.** El llamador dice ***«estas piezas pudieron cambiar:
+> reevalúalas»***, **nunca «publícalas»**. **El puerto no acepta estado destino, ni precio, ni `status`.** La decisión
+> y la escritura ocurren **enteras dentro de `inventory`**, detrás de su pipeline de siempre
+> (`assertPublishableGuards` + `resolvePublishSalePrice` + `claimListed`).
+
+- **Eso preserva el dictamen de §4.39f en vez de romperlo.** Lo que cruza la frontera es una **notificación**, no una
+  **autoridad**: un llamador con un bug —o malicioso— **no puede publicar una pieza impublicable**, porque las guardas
+  están del otro lado. *No se exporta la capacidad de escribir inventario; se exporta la capacidad de pedir que
+  `inventory` haga su trabajo.*
+- **Un método, no dos, y por la razón que dio backend:** los dos disparadores hacen **la misma pregunta** —*«¿esto ya
+  se puede publicar?»*—; lo que difiere es **la causa**, no la petición. Dos métodos serían **dos caminos hacia
+  adentro**, y el segundo nacería copiando al primero.
+- **Forma:** **en lote** (ids de pieza), **idempotente** y **sin efecto sobre lo no publicable** — llamarlo de más es
+  un no-op. Devuelve **qué pasó por pieza**, para que el llamador pueda registrar sin re-derivar.
+- **Post-commit y best-effort**, como `MAIL_PORT` y por el mismo motivo: **la conversión NO puede fallar porque la
+  publicación falle**. Bloquear el pago al vendedor porque no pudimos poner una carta a la venta invierte las
+  prioridades (mismo argumento que hace opcional la ubicación, (m.3)).
+- **⚠️ Y aquí el best-effort SÍ es aceptable, a diferencia del puerto de posición — pero solo por una razón, y hay
+  que escribirla porque es la que lo sostiene:** un disparo perdido **no deja la pieza invisible**, la deja **en
+  `pending-publish`**, que es una cola que un operador trabaja. **La cola ES la red.** ⇒ **NORMA: `pending-publish` no
+  se puede retirar ni estrechar sin sustituir la red.** *El día que alguien «optimice» esa cola, este puerto pasa a
+  ser fail-silent sobre inventario pagado y no vendible — que es exactamente INV-P1.*
+- **Consumidores: DOS, y solo dos.** `buylist` (disparador **a**, al convertir) y `pricing` (disparador **c**, cuando
+  el precio se vuelve resoluble). **El disparador (b) —fijar/mover ubicación— NO usa el puerto: es una operación de
+  `inventory` sobre sí mismo**, y meterla por el puerto sería darle la vuelta al módulo para llamarse a su propia
+  puerta.
+- **Lo declara y provee `inventory`** (dueño del dato), igual que el de posición. **Dos puertos, dos direcciones, una
+  regla:** *el que sabe hacer el trabajo lo expone; el que lo necesita lo pide.*
+
+**Por qué no un evento ni un job, dicho para que no se reabra:** un **job** de barrido tiene la latencia equivocada
+—*«la pieza comprada no se detiene hasta quedar a la venta»*, y una pieza sin publicar es dinero parado— y un **bus de
+eventos** metería consistencia eventual en un camino adyacente al dinero **a cambio de nada**: el acoplamiento que
+evitaría es justo el que el puerto ya evita. **La combinación push+pull ya existe sin construir nada**: el puerto es
+el *push*, y **`pending-publish` es el *pull***.
+
+#### (m.6) v1.51.18 — LA ESCALA DE `pending-publish`: deuda aceptada, con disparador **y con el arreglo prohibido**
+
+*(Segunda escalada de backend.)* La cola **barre el mismo superconjunto que `publish-all`** porque **«precio no
+resoluble» no es expresable en SQL**, y la alternativa era **reimplementar la precedencia de precios en una
+consulta** — la copia que este ciclo lleva quince revisiones borrando, y encima **sobre dinero**. **Backend eligió
+bien.** Crece con el inventario, y el **`total` honesto exige el barrido entero** (ver (m.7)).
+
+- **Se acepta como deuda**, no como defecto: es una pantalla de back-office, paginada y gateada por rol; **no es
+  camino de dinero ni superficie pública**.
+- **Disparador de revisión:** cuando el conjunto candidato haga que el endpoint deje de ser usable en la práctica
+  (el operador lo nota antes que cualquier métrica). **Dueño: backend**, a petición del techlead, en `TECH_DEBT.md`.
+- **⚠️ Y el arreglo PROHIBIDO, que es la parte que hay que dejar escrita:** *no* se resuelve **traduciendo la
+  precedencia de precios a SQL**. Eso pondría **una segunda definición del precio de venta** en una consulta, donde
+  nadie la mira y donde no la cubre ningún test de precios. **La única dirección aceptable es MATERIALIZAR el
+  resultado** —persistir «este ítem tiene precio resoluble», escrito **por el mismo código que resuelve el precio**—
+  para que la consulta **filtre por un hecho ya calculado en vez de recalcularlo**. *Se persiste la salida de la
+  regla, nunca una copia de la regla.*
+
+#### (m.7) v1.51.18 — DOS DECISIONES DE BACKEND, RATIFICADAS Y ELEVADAS A NORMA
+
+**1. ✅ UNA PANTALLA NO ESCRIBE.** Backend **partió el resolvedor de precio en función pura + efecto**; sin eso, la
+cola habría sido **un `GET` que abre y cierra entradas de la cola de precio de M2 porque alguien mira la pantalla**.
+Tiene test que falla si alguien vuelve a meter el resolvedor con efectos.
+> **NORMA: ningún `GET` escribe** — ni cola, ni estado, ni bitácora de negocio. Es **la versión de lectura** de
+> *«se degrada lo que se MUESTRA, nunca lo que se COMPROMETE»* (§4.39k.1): si mostrar algo exige un efecto, **se
+> extrae la parte pura y el efecto se queda en el camino de escritura**. *El contenido de una cola no puede depender
+> de quién abrió qué pantalla.*
+> ⚠️ **Excepción viva, ya registrada, y la única:** `publicQuote` escala pendientes desde un endpoint público
+> (**BE-16** en `TECH_DEBT.md`, aceptada por seguridad). **Se nombra aquí para que la norma no se lea como
+> universalmente cumplida** — y para que esa entrada no se pierda ahora que existe una regla que la contradice.
+
+**2. ✅ EL `total` CUENTA LO QUE `data` PAGINA.** *«Una cola que dijera 200 cuando hay 900 sería peor que no tener
+cola»* — es §P.8 aplicado a un conteo, la misma lógica que prohíbe el `0` de `positionUnavailable`.
+> **NORMA general (no solo para esta cola): `total` cuenta EXACTAMENTE el conjunto que `data` pagina.** Un `total`
+> que cuenta un superconjunto **rompe la paginación en silencio** —páginas vacías al final— y **miente sobre el
+> tamaño del trabajo pendiente**, que es lo único que una cola existe para decir.
+> ⚠️ **Desviación que esto destapa en mi propio contrato:** `GET /admin/buylist/pending-shipment-confirmation` con
+> **`?onlyAlerts=true`** filtra `data` **después** de derivar la alerta pero cuenta `total` **sobre la cola sin
+> filtrar**. Registrada como **BL-26**.
+
 ---
 
 #### (n) Correos — ~~**CUATRO obligatorios**~~ **CINCO obligatorios** (v1.51.1: tres → cuatro; **v1.51.4: cuatro → CINCO**), y ni uno más
@@ -14309,7 +14399,8 @@ serializarlo o llevarlo en **una sola sesión**:
 | `backend/src/jobs/` | barrido reescrito | ver la nota de §2 sobre `jobs/` |
 | `frontend/src/lib/` | `isTerminal` viene del server; se **borra** el literal de `M5View.tsx` | quinta copia del set terminal |
 | `backend/src/common/error-codes.ts` | **5 códigos nuevos** *(v1.51.3)*: `PICKUP_ADDRESS_REQUIRED` · `PICKUP_ADDRESS_NOT_FOUND` · `PICKUP_ADDRESS_MISSING` · `PICKUP_ADDRESS_LOCKED` · `DECLINE_NOT_ALLOWED` **+ 1** *(v1.51.4)*: `GUIDE_CANCELLATION_PENDING` | enum de errores pisado por dos streams |
-| `docs/API_CONTRACT.md` | ~~v1.51.3~~ … ~~v1.51.15~~ ~~v1.51.16~~ **v1.51.17** | — (mío) |
+| `docs/API_CONTRACT.md` | ~~v1.51.3~~ … ~~v1.51.16~~ ~~v1.51.17~~ **v1.51.18** | — (mío) |
+| `backend/src/modules/inventory/inventory-publish.port.ts` | **NUEVO** (`INVENTORY_PUBLISH_PORT`, §4.39m.5) | **segundo** camino hacia adentro de `inventory` si se hace por duplicado |
 | `frontend/src/lib/` · `M5View.tsx` | `canPay` pierde su literal de estados (**BL-17**); el rol se queda | **sexta** copia de un subconjunto del enum, y ésta gobierna el **botón de pagar** |
 
 **Nota de secuencia para backend:** la **desviación BL-2** de (b.2) —el `respond` sin guarda— **no depende de M-46** y
@@ -15085,6 +15176,8 @@ Riesgos técnicos:
   | **BL-17** 🔧 **RESUELTA EN RAMA A MEDIAS — y la mitad pendiente es CORRECTA, no un olvido** *(v1.51.8 — **DINERO SALIENTE**; **SEXTA copia** de un subconjunto de estados)* | `M5View.tsx:820-821` — `canPay = isSuperAdmin && (status === 'aprobada' \|\| status === 'verificacion')` es **`SELL_REQUEST_PAYABLE_STATES` transcrito a mano en el cliente**, y **gobierna el botón de pagar por SPEI**. ⚠️ **Además es INCOMPLETA:** la precondición del servidor son **dos** términos (`… ∧ verifiedAt IS NOT NULL`, `buylist.service.ts:2664`/`:2704`) y el cliente **solo replica el primero** ⇒ **la UI puede habilitar el pago donde el servidor responde `422`**. **No se rompe al crecer el enum** —no es un radio de enum, es un predicado de dinero duplicado a través del cable— pero es la **tercera** copia de la regla que el sitio 8 acaba de consolidar *por ser dinero*, y en otro lenguaje y otro release | **backend** (emite) ✅ · **frontend** (consume) 🔧 | 🔧 **Backend: hecho en rama** — `AdminBuylistDTO.isPayable` (`buylist.service.ts:1572`) derivado de **`isPayableSellRequest`**, el mismo cuerpo que el pre-check (`:2726`) y el `where` de la guarda (`:2767`) de `paySpei`: **tres lectores, una regla**. 🔧 **Frontend: en curso** — `M5View` borra la mitad de ESTADO y conserva **solo** la de ROL (`isSuperAdmin && req.isPayable === true`). ⚠️ **La partición NO es un cierre incompleto: es la norma que este documento fijó** — **BACKEND PRIMERO** (al revés de BL-11), porque si el frontend borrara su literal antes, `isPayable` llegaría `undefined` y **el botón moriría para todos**. *El desfase es el diseño, no el retraso.* **El frontend hizo bien en no inventarse el campo** |
   | **BL-19** ⏳ **NO ES UN DEFECTO** *(v1.51.9 — se registra para que el próximo barrido no vuelva a decidirlo; **no lleva marca de abierta/cerrada porque nunca hubo nada que corregir**)* | **`awaitingGuide?` y `offerReissueAlert?`** están declarados en §M5 y **ausentes del código**. ⚠️ **Misma FORMA que BL-18 y CAUSA distinta:** sus insumos (`aceptada`, `guideSentAt`, `acceptedAt`, `offerReissueCount > 0`) **solo los puebla el ciclo de oferta** ⇒ **hoy filtrarían vacío siempre**, y su ausencia **no obliga al cliente a nada**. `live?` era lo contrario: filtraba por `status` —que toda fila tiene— y su falta **forzaba al cliente a enumerar los cuatro terminales**. *Un filtro que hoy no puede tener filas no es deuda: es diseño que aún no toca* | backend | **Con el pase de los endpoints de oferta**, en el mismo commit que puebla sus columnas. **NO se retiran del contrato** (habría que reescribirlos palabra por palabra; este documento es el **diseño** del ciclo, no el inventario de lo desplegado). Marcados **⏳ CICLO DE OFERTA** en §M5. **Barrido completo: no hay un cuarto de la categoría implementable-hoy** — las únicas eran `seller.phone` (BL-15), `isPayable` (BL-17) y `live?` (BL-18) |
   | **BL-18** 🔧 **RESUELTA EN RAMA** *(v1.51.8 — **el contrato declara un parámetro que el código no implementa**; hermana de BL-15)* | `GET /admin/buylist` declara **`live?: boolean`** (§M5, v1.51/D12) y **el backend no lo implementa**: `admin-buylist.controller.ts:36-53` no tiene ese `@Query`, y `grep live` en `modules/buylist/` no devuelve nada relacionado. Mientras tanto la pestaña «Cerradas» manda un **CSV que ENUMERA los cuatro terminales** (`M5View.tsx:110-111`) — **la forma exacta que este pase retiró de todos los demás sitios**. ⚠️ El frontend lo mitigó con un `Record` **total** sobre el enum (deja de compilar si entra un estado), **pero esa red depende de que alguien actualice `contract.ts` a mano**: un terminal nuevo en el backend **no** rompe su build por sí solo | backend | 🔧 **Resuelta en rama: implementada, no retirada.** `@Query('live')` con parsing **tri-estado** (`'true'`/`'false'` filtran; cualquier otra cosa no filtra y **no falla** — precedente `guest`/`needsManual`), **por exclusión** sobre `SELL_REQUEST_TERMINAL_STATES` e **intersectando** con `status` en vez de reasignarlo (*asignar dos veces dejaría ganar al último y el filtro del usuario desaparecería en silencio*). Contradicción ⇒ vacío, no error. **Sin `live`, el `where` queda byte a byte como estaba.** Parsing normado en contrato v1.51.9 |
+  | **BL-25** ⛔ **ABIERTA** *(v1.51.18 — **seam que no existe**; escalada de **backend**, que **no cortó los dos disparadores por tamaño** sino porque ambos lo necesitan)* | Los disparadores **(a) al convertir** (en `buylist`) y **(c) precio resoluble** (en `pricing`) de §4.39m.2 necesitan **disparar trabajo de `inventory` desde fuera del módulo**, y **ese camino no existe**. ⚠️ **El precedente NO aplica solo:** `INVENTORY_POSITION_PORT` se declaró **«de solo lectura»** y su docblock razona que importar `InventoryModule` traería *«un grafo de servicios de ESCRITURA a un módulo que no debe poder escribir inventario»* (`inventory-position.port.ts:11-13`) — **un puerto de publicación es de escritura**, así que es **instancia nueva de la doctrina, no aplicación de ella**. Hacer (a) y (c) por separado **inventaría dos caminos hacia adentro, con el segundo copiando al primero** | backend | **Cierre = §4.39(m.5): UN `INVENTORY_PUBLISH_PORT`, UN método.** ⚠️ **Es un puerto de DISPARO, no de escritura:** el llamador dice *«reevalúa estas piezas»*, **jamás «publícalas»** — sin estado destino, sin precio, sin `status`; la decisión y la escritura viven **enteras dentro de `inventory`**, tras sus guardas. *Cruza una notificación, no una autoridad*, y por eso **preserva §4.39f en vez de romperlo**. En lote, **idempotente**, no-op sobre lo impublicable, **post-commit best-effort** (la conversión **no** puede fallar porque falle la publicación). **Best-effort es aceptable SOLO porque `pending-publish` es la red** ⇒ **esa cola no se retira ni se estrecha sin sustituirla**. **Dos consumidores: `buylist` y `pricing`. El disparador (b) NO lo usa** (es `inventory` sobre sí mismo) |
+  | **BL-26** ⛔ **ABIERTA** *(v1.51.18 — **un `total` que miente**; defecto mío, destapado al ratificar la decisión de backend sobre el `total` de `pending-publish`)* | `GET /admin/buylist/pending-shipment-confirmation` con **`?onlyAlerts=true`** filtra `data` **después** de derivar la alerta —correcto: `alert` no es columna— pero cuenta **`total` sobre la cola SIN filtrar**. ⇒ el cliente pagina un conjunto que no existe: **páginas vacías al final** y un número que **miente sobre el tamaño del trabajo pendiente**, que es lo único que una cola existe para decir. Mismo espíritu que el `0` prohibido de `positionUnavailable` | backend | **Cierre = §4.39(m.7.2): `total` cuenta EXACTAMENTE el conjunto que `data` pagina.** Con `onlyAlerts=true`, el `total` es el de las filas **en alerta**. ⚠️ **No se resuelve moviendo el filtro al `where`** —`alert` es derivado y depende de `business-days`, que **lanza** (§4.39k.1)—: se cuenta **sobre el conjunto ya derivado**, igual que se pagina |
   | **BL-24** ⛔ **ABIERTA** *(v1.51.16 — **DINERO y JUSTICIA**: el vendedor paga por un defecto NUESTRO; lo levantó **ux-ui** y **no lo tapó con copy**)* | El portal aplica **R2 sin excepción** —una oferta incompleta (sin `terms`, o con líneas sin `offerDecision`) **no se pinta a medias**, lo cual es correcto—, pero entonces **el vendedor no tiene forma de aceptar** y **el barrido sigue contando sus 2 días hábiles**, hasta mandarle el correo 3 diciéndole que **no respondió**. **Falló nuestra proyección y la factura le llega a él**: lo que **§P.13** prohíbe y la injusticia que motivó **D38** — aquí sin mediar siquiera una corrección nuestra, solo un defecto. ⚠️ **El copy no puede arreglarlo:** una pantalla que prometiera *«no te preocupes por el plazo»* **mentiría si el barrido no lo respeta** | backend | **Cierre = §4.39(h.1): guarda de proyección al EMITIR**, paso **7-bis**, último antes del commit. La emisión **construye la MISMA proyección que sirve `GET /buylist/requests/:id`** y asevera que está completa; si no ⇒ **`500 OFFER_PROJECTION_INCOMPLETE`** y **no se emite, no se persiste, NO sale correo, no se congela plazo**. ⚠️ **La guarda ES la proyección** (no una checklist paralela) ⇒ no puede divergir y **todo campo futuro del portal entra solo**. **`500` y no `422`**: el operador no hizo nada mal ni puede arreglarlo — es **backstop**, y si dispara **se arregla el bug**. ⚠️ **Propiedad que lo hace justo:** al fallar, `offerSentAt` no se sella ⇒ queda `cotizada` ⇒ la mira la **regla 7 (NUESTRO plazo)**, no la 1 ⇒ el vendedor recibiría el **correo 4 («no procederemos»), que es verdad**, no el 3 («no respondiste»), **que sería mentira** |
   | **BL-23** ⛔ **ABIERTA** *(v1.51.15 — **seis huecos del CONTRATO** en el portal del vendedor, todos míos; los levantó **frontend** al construirlo y **en los seis señaló en vez de inventar**)* | **(1)** el **path del CTA** que fijé (`/{locale}/buylist/{id}`) **no es donde vive la pantalla** (`/buylist/requests/{id}`) ⇒ **el enlace del correo sigue roto, ahora por divergencia**: backend implementó mi forma. **(2)** `offer.terms` **no tiene la prosa del descuento con montos**, que §23.5b exige en el portal y que solo existía en la plantilla del correo ⇒ el front **tuvo que duplicar copy** (la única copia que ese pase creó) **y tendría que interpolar él tres montos de una oferta vinculante**. **(3)** `rechazada` **no discrimina cuál de sus TRES productores** la cerró ⇒ la pantalla no puede hablar sin arriesgarse a **acusar de pasividad a quien pulsó rechazar**. **(4)** `SellItemDTO` **mezcla dos audiencias** (5 campos admin-only, 2 ya prohibidos por escrito en §6) ⇒ el front declaró su tipo **más estrecho a sabiendas**; es **BL-20 al revés**: el tipo *invita* a la fuga. **(5)** `guideSentAt` **no viaja al cliente** y §23.5e depende de él — ⚠️ **y no es derivable de `carrier != null`**: §4.39t **conserva** carrier/tracking y **limpia** `guideSentAt`, así que derivarlo pintaría instrucciones para **una etiqueta anulada**. **(6)** `pagada` **sin fecha de SPEI**: el código **ya emite** `paidAt`/`speiReference`, el contrato **no los declaraba** | **arquitecto** (contrato ✅ hecho en v1.51.15) → **backend** (emitir) · **frontend** (consumir) | **Cerrado en el CONTRATO (v1.51.15); falta el código.** backend: ajustar el **path** a `/{locale}/buylist/requests/{id}` (una línea), emitir **`terms.rule`** (misma plantilla y locale que el correo), **`rejectedReason`** (**derivado, CERO DDL** — las causas son excluyentes **por construcción**), **`guideSentAt`**, y declarar **`paidAt`/`speiReference`** (**`paidBy` sigue excluido**). frontend: **borrar la copia de copy** que `terms.rule` deja sin objeto y adoptar `AdminSellItemDTO`/`SellItemDTO` |
   | **BL-22** ⛔ **ABIERTA** *(v1.51.14 — **una fila mala tumba una COLA entera**; lo levantó **backend** al implementar la guía y **no lo resolvió**, con razón)* | `adminPendingShipmentConfirmation` llama a **`businessDaysSince` por fila** (`buylist.service.ts:3225`) **sin capturar**. `business-days` **lanza por doctrina** fuera de la cobertura de `MX_HOLIDAYS` (2026–2030) ⇒ **una sola fila fuera de rango devuelve `500` en toda la cola**. ⚠️ **El modo de fallo no es el de un plazo:** lo que desaparece es **una cola de trabajo**, y un `500` de back-office se lee como *«no hay nada pendiente»* o *«hoy está rota»* — **nadie va a buscar una fila con una fecha rara**. Es el fallo que §4.39c(c.11) llama *el que no se ve*. **Hoy no se puede disparar** (`sellerShippedDeclaredAt` solo lo escribe `declare-shipped`, con `now()`); **se dispara solo el 1-ene-2031** | backend | **Cierre = §4.39(k.1):** captura **por fila**, `businessDaysWaiting: null` + flag de indisponibilidad, **la cola se pinta**, y **`alert: true`** (*donde el flag solo hace visible, se falla hacia visible*; `false` la sacaría de `?onlyAlerts=true`, la única vista donde se encontraría). ⚠️ **Las ESCRITURAS no degradan**: `addBusinessDays` al congelar `offerAcceptDeadlineAt`/`shipDeadlineAt` **debe seguir propagando** — *se degrada lo que se muestra, nunca lo que se compromete*. **Aplica también a `offerIssueDeadlineAt` y `caducityAt`**, aún sin implementar: **nacen con la regla** |

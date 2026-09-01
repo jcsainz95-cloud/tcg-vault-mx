@@ -2,7 +2,50 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-01 (rev **v1.51.17**).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-01 (rev **v1.51.18**).
+>
+> **Changelog v1.51.18 — EL SEAM DE PUBLICACIÓN, Y DOS NORMAS DE COLAS (2026-09-01, arquitecto; **CERO DDL, CERO
+> endpoints, CERO campos**. ARCHITECTURE §4.39m gana **(m.5)(m.6)(m.7)**; §9 gana **BL-25** y **BL-26**):**
+> ⚠️ **Escalada de backend al cerrar la fase 8, más dos decisiones suyas que subo a norma.** No cortó los
+> disparadores **(a) al convertir** y **(c) precio resoluble** por tamaño: **los dos necesitan el mismo seam que no
+> existe**, y hacerlos por separado habría inventado **dos caminos hacia adentro de `inventory`**.
+>
+> **A. `INVENTORY_PUBLISH_PORT` — un puerto, un método. Y es de DISPARO, no de escritura.** *(Interno; **no cruza
+> este contrato**. Se registra aquí porque gobierna cuándo una pieza pasa a estar a la venta.)* El llamador dice
+> ***«reevalúa estas piezas»*, jamás *«publícalas»***: sin estado destino, sin precio, sin `status`. La decisión y la
+> escritura viven **enteras dentro de `inventory`**, tras sus guardas. *Cruza una **notificación**, no una
+> **autoridad**.* ⚠️ **Backend escaló bien: el precedente no aplicaba solo** — el puerto de posición es **de solo
+> lectura** por doctrina explícita, y uno de publicación es de escritura: **instancia nueva, no aplicación**.
+>
+> **B. ⚠️ `GET /admin/inventory/pending-publish` ES LA RED DEL DISPARO ⇒ no se retira ni se estrecha sin sustituirla.**
+> El puerto es **best-effort** (la conversión **no** puede fallar porque falle la publicación), y eso solo es
+> aceptable porque **un disparo perdido deja la pieza EN ESA COLA**, no invisible. *El día que alguien «optimice» la
+> cola, el disparo pasa a ser fail-silent sobre inventario pagado y no vendible — que es exactamente **INV-P1**.*
+>
+> **C. ✅ NORMA — NINGÚN `GET` ESCRIBE.** Backend partió el resolvedor de precio en **función pura + efecto**; sin
+> eso, la cola habría sido **un `GET` que abre y cierra entradas de la cola de precio de M2 porque alguien mira la
+> pantalla**. Es la **versión de lectura** de *«se degrada lo que se muestra, nunca lo que se compromete»*: *el
+> contenido de una cola no puede depender de quién abrió qué pantalla.* ⚠️ **Excepción viva y única, ya registrada:**
+> `publicQuote` escala pendientes (**BE-16**, aceptada por seguridad) — **se nombra para que la norma no se lea como
+> universalmente cumplida.**
+>
+> **D. ✅ NORMA — `total` CUENTA EXACTAMENTE EL CONJUNTO QUE `data` PAGINA.** *«Una cola que dijera 200 cuando hay 900
+> sería peor que no tener cola»*: es §P.8 aplicado a un conteo, la misma lógica que prohíbe el `0` de
+> `positionUnavailable`. Un `total` de superconjunto **rompe la paginación en silencio** y **miente sobre el tamaño
+> del trabajo pendiente**, que es lo único que una cola existe para decir.
+> ⚠️ **Y destapa un defecto MÍO:** `GET /admin/buylist/pending-shipment-confirmation` con **`?onlyAlerts=true`**
+> filtra `data` tras derivar la alerta pero **cuenta `total` sin filtrar** ⇒ **BL-26**. **No se arregla moviendo el
+> filtro al `where`** (`alert` es derivado y depende de `business-days`, que **lanza**): se **cuenta sobre el conjunto
+> ya derivado**, igual que se pagina.
+>
+> **E. Escala de `pending-publish`: deuda aceptada, con el arreglo PROHIBIDO escrito.** Barre el superconjunto porque
+> *«precio no resoluble» no es expresable en SQL*, y la alternativa era **reimplementar la precedencia de precios en
+> una consulta** — la copia que este ciclo lleva quince revisiones borrando, **sobre dinero**. **No se resuelve
+> traduciendo la regla a SQL:** la única dirección aceptable es **materializar el resultado** (persistir «tiene precio
+> resoluble», escrito por el mismo código que resuelve el precio). *Se persiste la salida de la regla, nunca una copia
+> de la regla.*
+>
+> **F. Sin cambios.** Ni endpoints, ni campos, ni diales, ni DDL.
 >
 > **Changelog v1.51.17 — ORDEN DE EVALUACIÓN, UN NIT Y UNA RATIFICACIÓN (2026-09-01, arquitecto; **CERO DDL, CERO
 > campos, CERO endpoints**. ARCHITECTURE §4.39a y §4.39n.1 enmendadas):**
@@ -9879,6 +9922,11 @@ Query: `?onlyAlerts=&page=&pageSize=`. Res `200`: `{ data: PendingShipmentConfir
 > Enumera las `aceptada` con **`sellerShippedDeclaredAt != null`** y **sin** `shipmentConfirmedAt`. Cada fila trae
 > **`alert: boolean`** = han pasado más de `buylistShipmentConfirmAlertBusinessDays` (default **5 días hábiles**)
 > desde la declaración. **Es DERIVADO server-side, no se persiste** (basta el timestamp + el dial).
+> **⚠️ v1.51.18 (BL-26) — `total` CUENTA EL CONJUNTO QUE `data` PAGINA.** Con **`?onlyAlerts=true`**, `total` es el de
+> las filas **en alerta**, no el de la cola completa. Hoy cuenta el superconjunto ⇒ **páginas vacías al final** y un
+> número que **miente sobre el trabajo pendiente**. ⚠️ **No se arregla moviendo el filtro al `where`**: `alert` es
+> **derivado** y depende de `business-days`, que **lanza** (v1.51.14) — **se cuenta sobre el conjunto ya derivado**,
+> igual que se pagina.
 > **⚠️ v1.51.14 (BL-22) — si los días hábiles NO se pueden calcular** (fecha fuera de la cobertura del calendario, que
 > **lanza por doctrina**), **la fila se degrada y la COLA SE PINTA**: `businessDaysWaiting: null` +
 > `businessDaysUnavailable: true` + **`alert: true`**. **Prohibido que una fila devuelva `500` en el listado.** El
