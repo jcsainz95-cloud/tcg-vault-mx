@@ -8817,3 +8817,172 @@ no los emite**):
   que en ES imprime **`$1,020.00`** mientras toda la app imprime **`MX$1,020.00`** (§9.3). El
   **número es idéntico**; es solo el símbolo. Lo señalo porque en una pantalla de dinero la
   identidad literal con el correo es la propiedad que se está comprando.
+
+---
+
+## v1.51 · Pase correctivo del arnés: «el test comprueba PRESENCIA, el usuario necesita VISIBILIDAD» (2026-09-01, rama `claude/buylist-inventory-workflow-hdnls3`)
+
+> Cierra los dos E2E preexistentes que dejé señalados en el pase anterior. **Ninguno de los dos era
+> un defecto de producto** — y el primero lo reporté mal, así que lo primero es corregir mi propio
+> parte.
+
+### 1. ⚠️ CORRECCIÓN DE MI REPORTE ANTERIOR — la nota del envío SÍ se ve a 390px
+
+Escribí que la nota de servicio del envío *«existe en el DOM pero está `hidden` a 390px»* y lo
+califiqué de **defecto vivo en superficie de dinero**. **Era una lectura incompleta: conté el
+elemento que el test elegía, no los que hay.** Medido con el navegador de verdad:
+
+| Ancho | `buylist-shipping-note` en `/es` | Veredicto |
+|---|---|---|
+| **390 px** | **2 en el DOM · 1 VISIBLE** | ✅ el vendedor la lee |
+| **1280 px** | **2 en el DOM · 1 VISIBLE** | ✅ el vendedor la lee |
+
+**La causa:** el home monta el panel del cotizador **dos veces** —`<div className="hidden lg:flex">`
+para escritorio y `<div className="lg:hidden">` para móvil— y `BuylistShippingNote` va dentro de
+los dos, con el **mismo `data-testid`**. El test hacía `.first()`, que resuelve **siempre** a la
+copia de escritorio; a 390px esa copia está en `display:none`. **El test medía el arnés, no el
+teaser**, y §23.14.2a **está cumplida**: la regla del envío existe en móvil, que es justo lo que
+esa decisión vino a garantizar.
+
+**El arreglo no es `.last()`** —sería igual de frágil, solo que al revés—. La aserción honesta para
+una regla de dinero no es «existe en el DOM», es **«hay exactamente UNA visible en este ancho»**:
+
+```ts
+const note = page.getByTestId('buylist-shipping-note').filter({ visible: true });
+await expect(note).toHaveCount(1);
+```
+
+Eso caza los **dos** fallos que importan: **0 visibles** (la regla desapareció de un ancho, el
+defecto que §23.14.2a previene) y **2 visibles** (el duplicado que confundiría al vendedor).
+`toBeInTheDocument()` y `.first()` no distinguen ninguno de los dos.
+
+### 2. El barrido que pidió el orquestador: ¿hay más «presente pero oculto»?
+
+Se instrumentó una sonda con navegador real que, en `/es`, `/es/buylist`, `/es/catalog`,
+`/es/sellado`, `/es/compra` y `/es/login`, cuenta para **cada `data-testid`** cuántos hay y
+cuántos están **visibles**, a 390 y 1280:
+
+| Superficie | testid | 390 (total/visibles) | 1280 (total/visibles) | Lectura |
+|---|---|---|---|---|
+| `/es` | `buylist-shipping-note` | 2 / **1** | 2 / **1** | correcto (gemelos responsive) |
+| `/es` | `finish-band` | 2 / 2 | 2 / 2 | correcto |
+| `/es/buylist` | `buylist-shipping-note` | 1 / 1 | **2 / 2** | ver abajo |
+| `/es/buylist` | `sell-cart-fab` | 1 / 1 | 0 / 0 | correcto (FAB solo en móvil) |
+| `/es/catalog`, `/es/sellado`, `/es/compra`, `/es/login` | — | sin testids | sin testids | — |
+
+**No hay ningún otro caso de «presente pero oculto».** El único elemento con gemelo responsive es
+la nota, y en cada ancho se ve exactamente una.
+
+**Hallazgo lateral (no lo arreglo, es de copy):** en `/es/buylist` a **1280px hay DOS notas
+visibles a la vez** —la de la cabecera (§23.14.2b) y la del bloque de dinero del carrito fijo
+(§23.3g)—. Las dos superficies están autorizadas por separado y el texto es cierto, pero verlo
+duplicado en la misma pantalla es una decisión de **ux-ui**, no mía. Queda señalado.
+
+**Límite estructural que conviene dejar escrito:** la visibilidad responsive **no se puede
+verificar en unitarios**. En jsdom no hay hoja de estilos de Tailwind ni media queries, así que
+`toBeVisible()` allí no sabe nada de `hidden lg:flex`. **`toBeInTheDocument()` en un unitario no
+está mal usado: es que no es la herramienta.** La única red que puede cazar esta clase de defecto
+es el E2E, y ahora la caza.
+
+### 3. El otro E2E: no era el mínimo, ni el cotizador — era qué carta agregaba el helper
+
+`@real vender` moría en *«el carrito no alcanzó el mínimo ni con la cantidad máxima»*. Medido set
+por set con el navegador:
+
+| Set (orden del dropdown) | filas graded | **con precio** | más barata |
+|---|---|---|---|
+| Surging Sparks (2024) | 8 | **0** | — |
+| Twilight Masquerade (2024) | 2 | **0** | — |
+| Scarlet & Violet (2023) | 0 | 0 | — |
+| Celebrations (2021) | 40 | **0** | — |
+| Sword & Shield (2020) | 0 | 0 | — |
+| **Base Set (1999)** | 12 | **10** | **MX$ 37.36** |
+
+**Dos defectos del helper encadenados:**
+
+1. `addFirstSellableCard` cogía **`option[1]`**, «el primer set real». El dropdown viene ordenado
+   por **año descendente**, así que `option[1]` es **el set más nuevo** — y los sets nuevos son
+   precisamente los que **no tienen referencia de precio en graded**.
+2. Su bucle de «la más barata» asignaba `MAX_SAFE_INTEGER` a una fila sin precio pero **la aceptaba
+   igual** en la primera vuelta (`!best || cents < best.cents`). Con cero filas con precio,
+   agregaba una carta en **`precio_pendiente`**.
+
+A partir de ahí el rojo era inevitable **y engañoso**: una línea `precio_pendiente` **no suma al
+total por diseño** (§23.3h — el front no inventa un precio y no pinta `MX$ 0.00`), así que
+`ensureMinimumReached` subía la cantidad hasta 999 y el total seguía en cero. **999 × 0 = 0.**
+
+**El cotizador suma bien:** `totalEstimatedCents = Σ quotedPriceCents × quantity`
+(`useSellCart.ts:146`), y con la carta de MX$37.36 el mínimo de MX$500 se cruza en `qty = 14`.
+**No hay hallazgo money-safe que enrutar al dueño**: lo que el test tomó por «no suma» era
+`132(a)` funcionando —CTA apagado, faltante exacto en pantalla— sobre un carrito cuyo total
+legítimamente vale cero.
+
+**Arreglos (todos en el arnés, que es mío):**
+- `addFirstSellableCard` **recorre los sets** hasta encontrar uno con filas que **muestren un
+  monto**, y elige la más barata **de entre las que tienen precio**. Devuelve `false` si ningún set
+  tiene ninguna ⇒ el test **se salta con motivo** («falta el dato») en vez de morir once pasos más
+  adelante. Para no pagar una espera fija por set, distingue *«este set no tiene precios»* de *«el
+  batch todavía no llegó»* esperando a una fila **resuelta** (con monto **o** con el rótulo de
+  precio pendiente).
+- `ensureMinimumReached` **nombra la causa** en su mensaje de fallo, incluyendo el contenido del
+  bloque de dinero: *«si el total dice precio pendiente, la línea NO suma por diseño (§23.3h) y
+  subir la cantidad no puede cruzar el mínimo: revisa qué carta agregó el helper, no el
+  cotizador»*. La próxima vez el rojo se diagnostica solo.
+- El smoke se marca `test.slow()`: descubrir recorriendo N sets cuesta más que coger el primero a
+  ciegas, y **ese es el precio de no hardcodear nada**. Se paga con presupuesto, no con un helper
+  frágil. (Tras optimizar la detección de «set resuelto»: **46 s → 30 s**.)
+
+### 4. Dos defectos MÁS de la misma familia, que solo salieron al desbloquear el camino
+
+El primero apareció en cuanto el test pasó del bloque del mínimo; el segundo, solo bajo la suite
+completa en paralelo. **Los tres comparten patrón: leer el DOM del instante en vez de esperar al
+estado asentado.**
+
+| Helper | Qué hacía | Por qué fallaba |
+|---|---|---|
+| `choosePickupAddress` | `select.count()` y, si daba 0, tecleaba el alta inline | La libreta llega por red (`GET /users/me/addresses`) y **`count()` no auto-espera**: con la petición en vuelo devolvía 0, se iba por la rama de «no hay libreta» y tecleaba en un formulario **que nunca existió**. El rojo salía como *«no encuentro Calle y número»* |
+| `openCart` | `fab.count()` y luego `fab.click()` | Qué superficie monta el carrito la decide una **medición del viewport en cliente**: durante la hidratación el primer render puede pintar el FAB y sustituirlo por el panel fijo. Playwright encontraba el botón **ya desprendido** (*«element was detached from the DOM, retrying»*) y agotaba el tiempo esperando a un elemento que había dejado de existir |
+
+- `choosePickupAddress` ahora **espera a que el campo se decida** (`select.or(line1)`) antes de
+  ramificar. Las dos ramas son excluyentes por construcción.
+- `openCart` ahora persigue **el estado final** —el carrito visible— en vez de una secuencia de
+  clics: espera a que la superficie se decida, pulsa el FAB **solo si sigue ahí**, y **el fallo de
+  ese clic no es un fallo del test** (si el FAB desapareció es porque el panel fijo tomó su lugar).
+
+**Y un tercero que la aserción nueva de `openCart` destapó:** `cartPanel` seleccionaba
+`[aria-label^="Carrito de venta"]`, prefijo que **también casa con el FAB**
+(`buylist.cartFab.ariaWithCount` = «Carrito de venta, 1 carta(s)»). Con el drawer abierto resolvía
+a **dos elementos** — strict-mode violation, o peor: una aserción sobre «el carrito» mirando **el
+botón que lo abre**. Ahora es `…:not(button)`: el carrito es un `dialog`/`aside`, el FAB es el
+mando. *Llevaba ahí desde que existe el FAB, tapado porque nadie aseveraba el estado final.*
+
+### 5. A ux-ui (no lo arreglo yo)
+
+1. **Dos notas de envío visibles a la vez en `/es/buylist` a 1280px** (cabecera + bloque de dinero
+   del carrito fijo). Ambas superficies están autorizadas por separado (§23.14.2b y §23.3g); que
+   convivan en la misma pantalla no lo decide frontend.
+2. **El faltante del mínimo no explica por qué una carta no cuenta.** Con el carrito lleno de
+   líneas en `precio_pendiente` la pantalla dice *«TE FALTAN MX$500.00 para el mínimo de MX$500.00.
+   **Agrega otra carta**»* mientras el vendedor mira 999 cartas en el carrito. Es
+   **aritméticamente correcto** —esas líneas no suman— pero el bloque **nunca conecta las dos
+   ideas**. §23.3h ya tiene el puente escrito: `buylist.quote.pendingLine.{label,note}`
+   (`SIN PRECIO` + «no suma a tu total»), **que sigue sin implementarse** (hoy vive
+   `buylist.linePending`, «Precio pendiente», solo en la fila). Si ux-ui confirma el alcance, lo
+   implemento en el siguiente pase.
+
+### 6. Verificación (resultado literal)
+
+| Comprobación | Resultado |
+|---|---|
+| `npm test` | **`Test Files 95 passed (95)` · `Tests 871 passed (871)`** |
+| `npm run typecheck` | **limpio (sin salida)** |
+| `npm run lint` | **`✔ No ESLint warnings or errors`** |
+| **Suite E2E COMPLETA** (mock, `E2E_DEV_SERVER=1 E2E_MOCK_PORT=3111`) | **`110 passed · 3 skipped · 0 failed`** (7.9 min) |
+| `e2e/buylist.spec.ts` + `e2e/buylist-offer.spec.ts` aislados | **`22 passed`** |
+
+- **Los 3 saltados** son los `@real` de `grading-estimate.spec.ts` (captura manual del estimado,
+  resumen de la lista de revisión y retiro de la cifra): **piden el stack real**, no fixtures.
+- **Los dos E2E que dejé en rojo en el pase anterior están en verde**, y con ellos el flujo
+  `@real vender` de punta a punta. **La suite E2E completa no tiene ningún fallo.**
+- **Cero cambios de producto en este pase**: solo `e2e/buylist.spec.ts`. Ni un componente, ni una
+  clave i18n, ni un archivo de `src/`.

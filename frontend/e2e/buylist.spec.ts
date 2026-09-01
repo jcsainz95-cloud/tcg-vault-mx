@@ -72,7 +72,14 @@ async function addFromBinder(page: Page, name: string, finish = 'Normal') {
 function cartPanel(page: Page) {
   // El aria-label lleva el conteo («Carrito de venta (2)»), así que se ancla por prefijo.
   const prefix = t('es', 'buylist.cartDrawer.ariaLabel', { count: 0 }).replace(/\s*\(0\)\s*$/, '');
-  return page.locator(`[aria-label^="${prefix}"]`);
+  /*
+   * ⚠️ `:not(button)` NO es cosmético: el **FAB** se rotula «Carrito de venta, 1 carta(s)»
+   * (`buylist.cartFab.ariaWithCount`), que empieza por el MISMO prefijo que el panel. Con el
+   * drawer abierto el selector resolvía a DOS elementos —el diálogo y el botón que lo abre— y
+   * cualquier aserción sobre «el carrito» reventaba por strict mode… o, peor, pasaba mirando el
+   * botón en vez del panel. El carrito es un `dialog`/`aside`; el FAB es el mando que lo abre.
+   */
+  return page.locator(`[aria-label^="${prefix}"]:not(button)`);
 }
 
 /**
@@ -83,12 +90,27 @@ function cartPanel(page: Page) {
  * **no existe** — el carrito es la columna lateral. De ahí el timeout de ocho specs.
  */
 async function openCart(page: Page) {
+  const panel = cartPanel(page);
   const fab = page.getByTestId('sell-cart-fab');
-  if ((await fab.count()) > 0) {
-    await fab.click();
-    return;
+  /*
+   * ⚠️ **Se persigue el ESTADO FINAL —el carrito visible—, no una secuencia de clics.**
+   * Qué superficie monta el carrito (FAB + drawer en móvil, `<aside>` fijo en escritorio) lo
+   * decide una medición del viewport en cliente, así que **durante la hidratación el primer
+   * render puede pintar el FAB y sustituirlo por el panel medio segundo después**. La versión
+   * anterior leía `fab.count()` en ese instante y clicaba: Playwright encontraba el elemento ya
+   * **desprendido del DOM** («element was detached from the DOM, retrying») y agotaba el
+   * tiempo esperando a un botón que había dejado de existir.
+   *
+   * Se espera a que la superficie se decida, se pulsa el FAB **solo si sigue ahí**, y el fallo
+   * de ese clic **no es un fallo del test**: si el FAB desapareció es porque el panel fijo tomó
+   * su lugar, y el carrito ya está a la vista. Lo que se asevera al final es lo único que los
+   * llamadores necesitan.
+   */
+  await expect(panel.or(fab).first()).toBeVisible();
+  if (await fab.isVisible().catch(() => false)) {
+    await fab.click({ timeout: 5_000 }).catch(() => {});
   }
-  await expect(cartPanel(page)).toBeVisible();
+  await expect(panel).toBeVisible();
 }
 
 /**
@@ -105,7 +127,20 @@ async function ensureMinimumReached(page: Page) {
     if ((await shortfall.count()) === 0) return;
     await qty.fill(String(n));
   }
-  await expect(shortfall, 'el carrito no alcanzó el mínimo ni con la cantidad máxima').toHaveCount(0);
+  /*
+   * ⚠️ El mensaje de fallo NOMBRA LA CAUSA, porque la versión anterior («no alcanzó el mínimo»)
+   * se leía como un defecto del cotizador y no lo era: una línea en `precio_pendiente` **no suma
+   * al total por diseño** (§23.3h — el front no inventa un precio y no pinta `MX$0.00`), así que
+   * `cantidad × 0 = 0` **por muchas veces que se suba la cantidad**. Cuando eso pasa el defecto
+   * está en QUÉ CARTA agregó el helper, nunca en la aritmética.
+   */
+  const money = (await panel.getByTestId('sell-cart-money').innerText()).replace(/\s+/g, ' ');
+  await expect(
+    shortfall,
+    `el carrito no alcanzó el mínimo ni con la cantidad máxima. Bloque de dinero: «${money}». ` +
+      'Si el total dice «precio pendiente», la línea NO suma por diseño (§23.3h) y subir la ' +
+      'cantidad no puede cruzar el mínimo: revisa qué carta agregó el helper, no el cotizador.',
+  ).toHaveCount(0);
 }
 
 /**
@@ -115,11 +150,22 @@ async function ensureMinimumReached(page: Page) {
  */
 async function choosePickupAddress(scope: Locator) {
   const select = scope.getByLabel(t('es', 'buylist.request.address.label'));
+  const line1 = scope.getByLabel(t('es', 'addresses.line1'));
+  /*
+   * ⚠️ **Se espera a que el campo SE DECIDA antes de ramificar.** La libreta llega por red
+   * (`GET /users/me/addresses`) y `count()` **no auto-espera**: lee el DOM del instante. Con la
+   * petición en vuelo devolvía 0, el helper se iba por la rama de «no hay libreta» y tecleaba en
+   * un formulario inline que **nunca existió** — el `Select` aparecía medio segundo después. El
+   * rojo salía como «no encuentro Calle y número», que no tiene nada que ver con la causa.
+   * Las dos ramas son excluyentes por construcción (con direcciones ⇒ `Select`; sin ninguna ⇒
+   * alta inline), así que basta con esperar a que asome cualquiera de las dos.
+   */
+  await expect(select.or(line1).first()).toBeVisible();
   if ((await select.count()) > 0) {
     await expect(select).not.toHaveValue('');
     return;
   }
-  await scope.getByLabel(t('es', 'addresses.line1')).fill('Av. Reforma 222');
+  await line1.fill('Av. Reforma 222');
   await scope.getByLabel(t('es', 'addresses.city')).fill('Ciudad de México');
   await scope.getByLabel(t('es', 'addresses.state')).fill('CDMX');
   await scope.getByLabel(t('es', 'addresses.postalCode')).fill('06600');
@@ -129,57 +175,96 @@ async function choosePickupAddress(scope: Locator) {
 }
 
 /**
- * Descubre y agrega la PRIMERA carta cotizable sin hardcodear nombre/id, vía el grid plano
- * GRADED (env-agnóstico: el binder raw necesita nombres de set del seed; el grid graded
- * solo necesita que exista al menos un set con cartas cotizables): tipo de producto →
- * graded, primer set real del dropdown (GET /buylist/sets → mock o backend real) y clic
- * en la primera fila del grid (Playwright espera a que el batch de estimados la habilite).
+ * Descubre y agrega la carta GRADED **más barata que de verdad tiene precio**, sin hardcodear
+ * nombre, set ni monto.
+ *
+ * ⚠️ **Por qué recorre TODOS los sets en vez de coger el primero — y por qué esto fallaba.**
+ * La versión anterior seleccionaba `option[1]`, «el primer set real» del dropdown. El dropdown
+ * viene ordenado por AÑO DESCENDENTE, así que `option[1]` es **el set más nuevo**… que es
+ * exactamente el que **no tiene referencia de precio en graded**: todas sus filas salen en
+ * `precio_pendiente`. Y el bucle de «la más barata» le asignaba `MAX_SAFE_INTEGER` a una fila sin
+ * precio pero **la aceptaba igual** en la primera vuelta (`!best || …`), así que agregaba una
+ * carta **sin precio**.
+ *
+ * A partir de ahí el fallo era inevitable y engañoso: una línea en `precio_pendiente` **no suma
+ * al total por diseño** (§23.3h), de modo que `ensureMinimumReached` subía la cantidad hasta 999
+ * y el total seguía en cero — y el rojo parecía decir «el cotizador no suma» cuando el cotizador
+ * estaba haciendo justo lo correcto (no inventar un precio que el backend todavía no tiene).
+ * **Medido:** en el set más nuevo hay 8 filas y **0 con precio**; el único set con precios reales
+ * tiene 10, la más barata a MX$37.36 — con la que el mínimo se cruza subiendo la cantidad a 14.
+ *
+ * Devuelve `false` si NINGÚN set tiene una carta graded con precio: eso es **falta de dato**, no
+ * un defecto del producto, y el test lo dice en vez de morir once pasos más adelante.
  */
-async function addFirstSellableCard(page: Page) {
+async function addFirstSellableCard(page: Page): Promise<boolean> {
   await selectGraded(page);
   const setSelect = page.getByLabel(t('es', 'buylist.filterBySet'));
-  // option[0] es el placeholder "Todos los sets"; option[1] es el primer set real.
-  const firstSet = await setSelect.locator('option').nth(1).getAttribute('value');
-  if (firstSet) await setSelect.selectOption(firstSet);
-  // Primera fila HABILITADA: una carta puede no cotizar en graded (p. ej. fixtures
-  // holofoil-only → FINISH_NOT_AVAILABLE por-ítem) y su fila queda deshabilitada sin
-  // tumbar el grid — se descubre la primera cotizable, no la primera a secas.
-  //
+  // El dropdown se llena por red (GET /buylist/sets): sin esta espera se lee un `<select>` con
+  // solo el placeholder y el helper «descubre» que no hay sets.
+  await expect
+    .poll(() => setSelect.locator('option').count(), { timeout: 30_000 })
+    .toBeGreaterThan(1);
+  const setValues: string[] = await setSelect
+    .locator('option')
+    .evaluateAll((opts) => opts.map((o) => (o as HTMLOptionElement).value).filter(Boolean));
+
   // ⚠️ Acotado a los botones de AGREGAR por su nombre accesible. Un `getByRole('button',
   // { disabled: false })` a secas también casaba con el «Ver detalle de …» de cada fila (P-43),
-  // que está siempre habilitado: el helper abría el pop-up de detalle y NO agregaba nada, y el
-  // fallo aparecía después, al buscar el total en un carrito vacío.
+  // que está siempre habilitado: el helper abría el pop-up de detalle y NO agregaba nada.
   const addPrefix = t('es', 'buylist.addFinishAria', { name: '\u0000', finish: '\u0000' }).split(
     '\u0000',
   )[0];
   const list = page.getByRole('list', { name: t('es', 'buylist.searchResults') });
-  const rows = list.getByRole('listitem');
   const addBtn = (row: Locator) =>
     row.getByRole('button', { name: new RegExp(`^${addPrefix}`), disabled: false });
 
-  // ⚠️ Enumerar filas NO auto-espera: `count()`/`innerText()` leen el DOM del instante. El código
-  // anterior clicaba `.first()`, que sí auto-espera, y eso TAPABA la ausencia de espera. Se espera
-  // explícitamente a que el batch de estimados habilite al menos una fila antes de recorrerlas.
-  await expect(addBtn(list).first()).toBeVisible({ timeout: 30_000 });
+  // Una fila ya RESUELTA muestra su monto **o** el rótulo de precio pendiente. Esperar a
+  // «cualquiera de las dos» es lo que distingue «este set no tiene precios» de «el batch de
+  // estimados todavía no llegó» — sin esa distinción habría que dormir un tiempo fijo por set, y
+  // el recorrido de N sets se comería el presupuesto del test.
+  const settledRow = list
+    .getByRole('listitem')
+    .filter({ hasText: new RegExp(`${MONEY_RE.source}|${t('es', 'buylist.linePending')}`) });
 
-  // Se elige la fila cotizable MÁS BARATA, no la primera. Motivo money: contra el stack real la
-  // curva de compra cotiza de verdad, y una carta cara empuja la solicitud por encima del TOPE AML
-  // — la UI entonces exige INE (anverso y reverso) antes de confirmar, que es el guardarraíl
-  // AML-1 haciendo su trabajo. El smoke quiere recorrer VENDER de punta a punta, no pelearse con
-  // un control de lavado de dinero; la más barata lo deja del lado correcto del tope sin
-  // hardcodear ningún monto (sigue siendo descubrimiento puro).
-  const count = await rows.count();
-  let best: { row: Locator; cents: number } | null = null;
-  for (let i = 0; i < count; i += 1) {
-    const row = rows.nth(i);
-    if ((await addBtn(row).count()) === 0) continue;
-    const text = (await row.innerText()).replace(/\s+/g, ' ');
-    const m = text.match(/MX\$([\d,]+)\.(\d{2})/);
-    const cents = m ? Number(m[1].replace(/,/g, '')) * 100 + Number(m[2]) : Number.MAX_SAFE_INTEGER;
-    if (!best || cents < best.cents) best = { row, cents };
+  for (const value of setValues) {
+    await setSelect.selectOption(value);
+    const settled = await settledRow
+      .first()
+      .waitFor({ state: 'visible', timeout: 8_000 })
+      .then(() => true, () => false);
+    if (!settled) continue; // set sin filas cotizables: al siguiente, sin fallar
+
+    // Solo interesan las filas que MUESTRAN UN MONTO. Aquí `count()` ya es seguro: el grid está
+    // resuelto. Un set sin precios de graded es normal, no un error.
+    const priced = list.getByRole('listitem').filter({ hasText: MONEY_RE });
+    if ((await priced.count()) === 0) continue;
+
+    // Se elige la MÁS BARATA, no la primera. Motivo money: contra el stack real la curva de compra
+    // cotiza de verdad, y una carta cara empuja la solicitud por encima del TOPE AML — la UI
+    // entonces exige INE antes de confirmar, que es el guardarraíl AML-1 haciendo su trabajo. El
+    // smoke quiere recorrer VENDER de punta a punta, no pelearse con un control de lavado de
+    // dinero; la más barata lo deja del lado correcto del tope sin hardcodear ningún monto.
+    const texts = await priced.allInnerTexts();
+    const ranked = texts
+      .map((raw, index) => {
+        const m = raw.replace(/\s+/g, ' ').match(/MX\$([\d,]+)\.(\d{2})/);
+        return m
+          ? { index, cents: Number(m[1].replace(/,/g, '')) * 100 + Number(m[2]) }
+          : null;
+      })
+      .filter((x): x is { index: number; cents: number } => x !== null)
+      .sort((a, b) => a.cents - b.cents);
+
+    for (const { index } of ranked) {
+      const btn = addBtn(priced.nth(index));
+      // Una carta puede tener precio y aun así no ser agregable (p. ej. FINISH_NOT_AVAILABLE
+      // por-ítem deja la fila deshabilitada sin tumbar el grid): se prueba la siguiente.
+      if ((await btn.count()) === 0) continue;
+      await btn.first().click();
+      return true;
+    }
   }
-  if (!best) throw new Error('No hay ninguna fila cotizable en el grid');
-  await addBtn(best.row).first().click();
+  return false;
 }
 
 test.describe('buylist · raw = binder Master Set (mode="quoter") + drawer del carrito', () => {
@@ -475,12 +560,19 @@ test.describe('buylist · solicitud con KYC/INE (AC 14; contrato §6/§8)', () =
    * Viewport alto para que el CTA del modal quede en pantalla (el modal no scrollea internamente).
    */
   test('@real vender: crea la solicitud de venta y muestra confirmación', async ({ page }) => {
+    // Descubrir la carta recorriendo TODOS los sets cuesta más que coger el primero a ciegas —
+    // ese es el precio de no hardcodear nada, y se paga con presupuesto, no con un helper frágil.
+    test.slow();
     await page.setViewportSize({ width: 1280, height: 2000 });
     await loginAs(page, 'customer');
     await page.goto('/es/buylist');
 
     // El clic en la fila del grid agrega DIRECTO al carrito (auto-espera al estimado).
-    await addFirstSellableCard(page);
+    // Falta de DATO, no defecto de producto: si ningún set tiene una carta graded con precio de
+    // referencia, este smoke no tiene qué vender y lo dice — en vez de fallar once pasos después
+    // en el bloque del mínimo, que fue exactamente cómo se disfrazó el defecto anterior.
+    const added = await addFirstSellableCard(page);
+    test.skip(!added, 'ningún set tiene una carta GRADED con precio de referencia que agregar');
 
     // Estructura: el carrito (drawer, P-16) suma un total ESTIMADO (no un monto de fixture).
     await openCart(page);
@@ -545,9 +637,23 @@ test.describe('home · teaser del cotizador: el rótulo y la regla del envío (�
       await page.setViewportSize({ width, height });
       await page.goto('/es');
 
-      // Copy estático (§23.3k): se pinta sin haber cotizado nada y sin esperar a ningún dato.
-      const note = page.getByTestId('buylist-shipping-note').first();
-      await expect(note).toBeVisible();
+      /*
+       * ⚠️ **SE ASERTA VISIBILIDAD, NO PRESENCIA — y la distinción tiene historia.**
+       * El home monta el panel del cotizador DOS VECES: una para escritorio
+       * (`<div className="hidden lg:flex">`) y otra para móvil (`<div className="lg:hidden">`),
+       * así que `buylist-shipping-note` existe **dos veces en el DOM** y **solo una está
+       * visible** en cada ancho. La versión anterior de este test hacía `.first()`, que a
+       * 390px resuelve SIEMPRE a la copia de escritorio —la que está en `display:none`— y
+       * fallaba **sobre un producto correcto**: medía el arnés, no el teaser.
+       *
+       * La aserción honesta para una regla de dinero no es «existe en el DOM», es **«hay
+       * exactamente UNA visible en este ancho»**: caza el fallo que §23.14.2a vino a impedir
+       * (que la nota solo exista en escritorio ⇒ 0 visibles a 390px) y también el duplicado
+       * visible que confundiría al vendedor (2 visibles). `toBeInTheDocument()` / `.first()`
+       * no distinguen ninguno de los dos.
+       */
+      const note = page.getByTestId('buylist-shipping-note').filter({ visible: true });
+      await expect(note).toHaveCount(1);
       await expect(note).toHaveText(t('es', 'buylist.quote.shippingNote'));
       // D43 intacta: en el cotizador el envío se dice EN PALABRAS.
       expect(await note.innerText()).not.toMatch(/MX\$|%|≈/);
