@@ -792,14 +792,14 @@
       "shippingLabel": "Envío que ponemos nosotros",
       "netLabel": "Se te depositan",
       "ruleParagraph": "Nosotros ponemos la guía de envío. Su costo, {shippingAmount}, es una tarifa fija y siempre se descuenta de lo que te pagamos: tú no pagas nada de tu bolsillo. La cifra que se te deposita es {netAmount}.",
-      "deadline": "Tienes hasta el {deadline} (hora del centro de México). Si no respondes antes de esa hora, la oferta se cancela sola.",
+      "deadline": "Tienes hasta el {deadline} (hora del centro de México). Si no respondes antes de esa hora, la oferta vence y ya no podremos comprarte a este precio.",
       "accept": "Aceptar la oferta",
       "reject": "Rechazar la oferta",
       "confirmAcceptTitle": "Confirma que aceptas",
-      "confirmAcceptBody": "Aceptas que te compremos {count, plural, one {# carta} other {# cartas}} por {netAmount}, {condition}.",
+      "confirmAcceptBody": "Aceptas que te compremos {count, plural, one {# carta} other {# cartas}} por {netAmount}. La condición es la misma para cada carta: {condition}.",
       "confirmAcceptCta": "Aceptar y recibir mi guía",
       "confirmRejectTitle": "Confirma que rechazas",
-      "confirmRejectBody": "Vas a rechazar esta oferta. Es definitivo: no podemos reactivarla y, si cambias de opinión, tendrías que cotizar de nuevo.",
+      "confirmRejectBody": "Vas a rechazar la oferta de {netAmount} por {count, plural, one {# carta} other {# cartas}}. La condición era la misma para cada carta: {condition}. Es definitivo: no podemos reactivarla y, si cambias de opinión, tendrías que cotizar de nuevo.",
       "confirmRejectCta": "Rechazar la oferta",
       "acceptedNow": "Aceptaste la oferta. Te mandamos la guía por correo.",
       "rejectedNow": "Rechazaste la oferta.",
@@ -807,7 +807,7 @@
       "noLongerActive": "Esta oferta ya no está vigente.",
       "quoteAgainCta": "Cotizar de nuevo",
       "preOfferTitle": "Todavía no mandes nada",
-      "preOfferBody": "Todavía no mandes nada. Te escribimos con nuestra oferta.",
+      "preOfferBody": "Te escribimos con nuestra oferta.",
       "cancelledBanner": "Te mandamos una oferta y la cancelamos el {date}; estamos revisando tu solicitud otra vez.",
       "cardsTitle": "Tus cartas",
       "closedNotShipped": "Se venció el plazo para enviar tus cartas.",
@@ -1375,6 +1375,90 @@
         "alreadyConverted": "Este ítem ya estaba convertido a inventario.",
         "paid": "Pago SPEI registrado; la solicitud quedó pagada.",
         "requestRejected": "Solicitud rechazada; quedó cerrada."
+      },
+      "desk": {
+        "title": "Mesa de decisión",
+        "open": "Abrir la mesa de decisión",
+        "close": "Cerrar la mesa",
+        "quoted": "Cotizado",
+        "weOffer": "Ofertamos",
+        "noPrice": "Sin precio",
+        "noPriceReason": {
+          "no_market": "El mercado no dio precio para esta variante.",
+          "premium_at_floor": "La variante premium quedó en el piso: no hay precio derivable.",
+          "identity_drift": "Esta variante ya no existe en el catálogo, así que no se consultó el mercado."
+        },
+        "buyLine": "Comprar {name}",
+        "selectAll": "Marcar todas",
+        "clearAll": "Quitar todas",
+        "position": {
+          "title": "Posición {total}/{threshold}",
+          "aria": "Posición {total} de {threshold}: {stock} en inventario, {verifying} en verificación, {inTransit} en camino, {committed} comprometidas. Regla: {rule}.",
+          "groupInHouse": "En nuestras manos",
+          "groupNotYet": "Todavía no",
+          "stock": "En inventario",
+          "verifying": "Verificando",
+          "inTransit": "En camino",
+          "committed": "Comprometido",
+          "rule": {
+            "bounty": "Bounty",
+            "cap": "Tope"
+          },
+          "unavailable": {
+            "tag": "Sin conteo",
+            "text": "No pudimos contar el inventario de esta carta.",
+            "noSuggestion": "Sin sugerencia — falta el conteo.",
+            "banner": "No pudimos contar el inventario de {count} de {total} cartas. Puedes ofertar igual, pero lo harás sin ver cuántas copias tenemos.",
+            "retry": "Reintentar el conteo"
+          }
+        },
+        "suggestion": {
+          "label": "Sugerencia",
+          "buy": "comprar",
+          "doNotBuy": "no comprar",
+          "reasonCap": "la posición llegó al tope de {threshold} piezas por variante.",
+          "reasonCapOk": "{total} de {threshold}.",
+          "reasonBounty": "ya tienes {total} y el bounty buscaba {threshold}.",
+          "reasonBountyOk": "{total} de {threshold} del bounty.",
+          "legacyBountyNote": "Este bounty no tiene objetivo; se está midiendo con el tope.",
+          "none": "Sin sugerencia."
+        },
+        "override": {
+          "action": "Ajustar el precio",
+          "cancel": "Usar el precio de la curva",
+          "amountLabel": "Precio ofertado para {name}",
+          "reasonLabel": "Motivo del ajuste",
+          "reasonHint": "Obligatorio cuando el monto difiere del de la curva (3 a 500 caracteres).",
+          "derived": "Derivado por la curva: {amount}",
+          "noDerived": "La curva no dio precio: esta línea solo entra con un precio a mano."
+        },
+        "totals": {
+          "lines": "{selected} de {total} líneas",
+          "gross": "Bruto",
+          "shipping": "Envío",
+          "net": "Se deposita",
+          "preview": "Previsualización · se congela al emitir",
+          "previewNote": "Estas cifras se calculan con la curva y los diales de ahora. Lo vinculante se congela al emitir.",
+          "emit": "Emitir oferta",
+          "emitForApproval": "Enviar a autorización",
+          "authNote": "El correo no sale hasta que el súper-admin la autorice.",
+          "belowMinimum": "No se puede emitir: el depósito quedaría en {netAmount} y el mínimo es {minimumAmount}. Agrega {shortfallAmount} de bruto, o no ofertes.",
+          "noLines": "No se puede emitir: no hay ninguna línea marcada para comprar."
+        },
+        "pickupAddressMissing": {
+          "text": "Falta la dirección de origen del vendedor.",
+          "remedy": "Llámalo (tienes su teléfono en la cola) para que la capture desde su cuenta."
+        },
+        "confirm": {
+          "title": "Confirma la oferta",
+          "body": "Vas a ofertar {count, plural, one {# carta} other {# cartas}} por un bruto de {grossAmount}. Se descuenta el envío de {shippingAmount} y se depositan {netAmount}.",
+          "deadlineNote": "El vendedor tendrá 2 días hábiles para responder; el plazo se congela al emitir.",
+          "cta": "Emitir la oferta y mandar el correo",
+          "ctaForApproval": "Mandar a autorización"
+        },
+        "sent": "Oferta emitida: el correo salió y el vendedor ya tiene {netAmount} sobre la mesa.",
+        "pendingAuthorization": "Preparada y esperando autorización del súper-admin. El correo NO se ha mandado y la solicitud sigue igual para el vendedor.",
+        "readOnly": "La oferta ya salió: la mesa es de solo lectura."
       }
     },
     "m8": {

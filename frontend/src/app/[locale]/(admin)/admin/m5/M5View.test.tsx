@@ -40,9 +40,27 @@ beforeEach(() => {
   vi.restoreAllMocks();
 });
 
+/**
+ * Selecciona una PESTAÑA DE ETAPA por su rótulo.
+ *
+ * ⚠️ **Por qué existe ahora y no antes.** La pestaña activa por defecto es *la primera con
+ * solicitudes* (`firstNonEmpty`), así que estos tests estaban leyendo «Verificando» **por
+ * accidente**: era la primera no vacía porque el servidor falso **no tenía ninguna solicitud
+ * `cotizada`**. Al sembrar una —la que necesita la mesa de decisión— el default se movió a «Por
+ * ofertar» y quince tests se cayeron a la vez **sin que el producto cambiara**.
+ *
+ * La lección es del arnés: *un test que no dice en qué pestaña está, está midiendo el orden de
+ * los datos.* Ahora cada uno declara su etapa, y sembrar una fila nueva no puede volver a
+ * tumbarlos.
+ */
+async function openStage(label: string) {
+  fireEvent.click(await screen.findByRole('tab', { name: new RegExp(`^${label}`) }));
+}
+
 describe('M5View · Buylist admin end-to-end', () => {
   it('renderiza la cola con solicitudes, acabado por ítem y botones de decisión', async () => {
     renderWithProviders(<M5View />, 'es');
+    await openStage('Verificando');
     expect(await screen.findByText('sr-3001')).toBeInTheDocument();
     expect(screen.getByText('sr-3002')).toBeInTheDocument();
     // v1.6-finish: el acabado del ítem es visible (sri-1 = holofoil).
@@ -55,6 +73,7 @@ describe('M5View · Buylist admin end-to-end', () => {
       .spyOn(api, 'verifyBuylistRequest')
       .mockResolvedValue(srv({ id: 'sr-3002', userId: 'u-778', status: 'verificacion', quotedTotalCents: 1200, createdAt: '', items: [] }));
     renderWithProviders(<M5View />, 'es');
+    await openStage('Verificando');
     // sr-3002 está en `recibida` → muestra "Iniciar verificación".
     fireEvent.click(await screen.findByRole('button', { name: 'Iniciar verificación' }));
 
@@ -71,6 +90,7 @@ describe('M5View · Buylist admin end-to-end', () => {
       itemStatus: 'aprobada',
     });
     renderWithProviders(<M5View />, 'es');
+    await openStage('Verificando');
     const approveButtons = await screen.findAllByRole('button', { name: 'Aprobar' });
     fireEvent.click(approveButtons[0]);
 
@@ -88,6 +108,7 @@ describe('M5View · Buylist admin end-to-end', () => {
       }),
     );
     renderWithProviders(<M5View />, 'es');
+    await openStage('Verificando');
     const adjustButtons = await screen.findAllByRole('button', { name: 'Ajustar' });
     fireEvent.click(adjustButtons[0]);
 
@@ -116,6 +137,7 @@ describe('M5View · Buylist admin end-to-end', () => {
       rejectionReason: 'no es NM: esquina doblada',
     });
     renderWithProviders(<M5View />, 'es');
+    await openStage('Verificando');
     const rejectButtons = await screen.findAllByRole('button', { name: 'Rechazar' });
     fireEvent.click(rejectButtons[0]);
 
@@ -151,6 +173,7 @@ describe('M5View · Buylist admin end-to-end', () => {
       }),
     );
     renderWithProviders(<M5View />, 'es');
+    await openStage('Verificando');
     const rejectButtons = await screen.findAllByRole('button', { name: 'Rechazar' });
     fireEvent.click(rejectButtons[0]);
     const dialog = await screen.findByRole('dialog', { name: 'Rechazar ítem' });
@@ -176,6 +199,7 @@ describe('M5View · Buylist admin end-to-end', () => {
       .spyOn(api, 'revealBuylistClabe')
       .mockResolvedValue({ sellRequestId: 'sr-3001', clabe: '002010077777777771' });
     renderWithProviders(<M5View />, 'es');
+    await openStage('Verificando');
     const revealButtons = await screen.findAllByRole('button', { name: 'Revelar CLABE' });
     fireEvent.click(revealButtons[0]);
 
@@ -198,6 +222,7 @@ describe('M5View · Buylist admin end-to-end', () => {
       }),
     );
     renderWithProviders(<M5View />, 'es');
+    await openStage('Verificando');
     const payButtons = await screen.findAllByRole('button', { name: 'Pagar por SPEI' });
     // sr-3001 (`verificacion` CON `verifiedAt`) es pagable; sr-3002 (`recibida`) no. Los dos
     // términos los decide el servidor y llegan en `isPayable`; la vista no los replica.
@@ -219,6 +244,7 @@ describe('M5View · Buylist admin end-to-end', () => {
 
   it('las pestañas filtran por etapa: "Verificando" muestra sr-3001/sr-3002 y "Por pagar" muestra sr-3003', async () => {
     renderWithProviders(<M5View />, 'es');
+    await openStage('Verificando');
     // Etapa por defecto (primera con solicitudes) = Verificando (sr-3001 verificacion, sr-3002 recibida).
     expect(await screen.findByText('sr-3001')).toBeInTheDocument();
     expect(screen.getByText('sr-3002')).toBeInTheDocument();
@@ -243,6 +269,7 @@ describe('M5View · Buylist admin end-to-end', () => {
 
   it('el buscador filtra por folio/usuario', async () => {
     renderWithProviders(<M5View />, 'es');
+    await openStage('Verificando');
     await screen.findByText('sr-3001');
     // Buscar el usuario de sr-3003 (u-779) salta a esa solicitud aunque esté en otra etapa.
     fireEvent.change(screen.getByLabelText('Buscar solicitud'), { target: { value: 'u-779' } });
@@ -255,6 +282,7 @@ describe('M5View · Buylist admin end-to-end', () => {
 
   it('el vendedor se muestra con nombre + correo (UUID en tooltip) y enlaza a M6 (?user=)', async () => {
     renderWithProviders(<M5View />, 'es');
+    await openStage('Verificando');
     // v1.18: identidad primaria = seller.name + seller.email; el UUID pasa a `title`.
     const link = await screen.findByRole('link', { name: /Ver ficha del vendedor Diana Olvera/ });
     expect(link.textContent).toContain('Diana Olvera');
@@ -266,6 +294,7 @@ describe('M5View · Buylist admin end-to-end', () => {
 
   it('muestra la fecha de creación de cada solicitud (formato del admin)', async () => {
     renderWithProviders(<M5View />, 'es');
+    await openStage('Verificando');
     // sr-3001 createdAt=2026-08-12 → formatDate es-MX "12 ago 2026".
     await screen.findByText('sr-3001');
     expect(screen.getByText(/12 ago 2026/)).toBeInTheDocument();
@@ -273,6 +302,7 @@ describe('M5View · Buylist admin end-to-end', () => {
 
   it('muestra el total aprobado DEL SERVER (approvedTotalCents, sin sumar en la UI)', async () => {
     renderWithProviders(<M5View />, 'es');
+    await openStage('Verificando');
     await screen.findByText('sr-3001');
     fireEvent.click(screen.getByRole('tab', { name: /Por pagar/ }));
     // sr-3003: approvedTotalCents=28000 (fixture) → MX$280.00 etiquetado como total aprobado.
@@ -319,6 +349,7 @@ describe('M5View · Buylist admin end-to-end', () => {
       total: 2,
     });
     renderWithProviders(<M5View />, 'es');
+    await openStage('Verificando');
     await screen.findByText('sr-3001');
     fireEvent.click(screen.getByRole('tab', { name: /Piezas rechazadas/ }));
 
@@ -348,6 +379,7 @@ describe('M5View · Buylist admin end-to-end', () => {
       }),
     );
     renderWithProviders(<M5View />, 'es');
+    await openStage('Por pagar');
     const payButtons = await screen.findAllByRole('button', { name: 'Pagar por SPEI' });
     fireEvent.click(payButtons.find((b) => !(b as HTMLButtonElement).disabled)!);
     const dialog = await screen.findByRole('dialog', { name: 'Registrar pago SPEI' });
@@ -487,6 +519,7 @@ describe('M5View · modal de rechazo (bug de foco al escribir)', () => {
   it('escribir varios caracteres seguidos NO pierde el foco del campo', async () => {
     const user = userEvent.setup();
     renderWithProviders(<M5View />, 'es');
+    await openStage('Verificando');
     const rejectButtons = await screen.findAllByRole('button', { name: 'Rechazar' });
     fireEvent.click(rejectButtons[0]);
 

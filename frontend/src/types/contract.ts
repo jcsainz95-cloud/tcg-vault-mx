@@ -1901,6 +1901,148 @@ export interface AdminSellerRef {
   email: string;
 }
 
+/**
+ * **UNA FILA DE LA MESA DE DECISIÓN** (contrato §M5 · `GET /admin/buylist/:id/decision-table`).
+ * **ADMIN-ONLY, íntegro** — nada de esto viaja jamás al vendedor.
+ *
+ * Es la pantalla que pidió el humano: *«el admin no debería decidir una compra sin saber cuánto de
+ * eso ya tiene. Ocho copias en la caja y tres más en camino es una razón perfectamente buena para no
+ * comprar la novena — y hoy esa información no está en la pantalla donde se decide.»*
+ */
+export interface BuylistDecisionLineDTO {
+  itemId: string;
+  card: CardDTO;
+  productType: ProductType;
+  finish: Finish;
+  /** D7: la identidad REAL de la pieza; entra en la llave del conteo. */
+  cardProductId: number | null;
+  /** (a) lo que se le cotizó al vendedor. */
+  quotedPriceCents: number | null;
+  /** Lo que produce la CURVA VIGENTE AHORA — **no** se hereda de la cotización. */
+  derivedPriceCents: number | null;
+  priceBasis: PriceBasis;
+  /**
+   * ⚠️ **El par `(derivedPriceCents, pendingReason)` tiene TRES combinaciones legales**, y la
+   * lectura ingenua «sin precio ⇒ hay motivo» es **falsa**:
+   * - `(número, null)` ⇒ precio derivado normalmente.
+   * - `(null, no_market | premium_at_floor)` ⇒ **el mercado se consultó** y no dio precio.
+   * - `(null, null)` ⇒ **DERIVA DE IDENTIDAD**: el `finish` snapshoteado ya no está en
+   *   `availableFinishes`, o el `cardProductId` no resuelve. **El mercado ni se consultó.**
+   *
+   * El discriminador **es el par**; no hay campo nuevo y no se añade `identity_drift` al enum.
+   */
+  pendingReason: PendingPriceReason | null;
+  /**
+   * **LOS CUATRO SUMANDOS.** `position` = *«lo que YA tengo o YA debo, SIN CONTAR esta
+   * solicitud»*: los tres de **promesa** (`verifying`/`inTransit`/`committed`) excluyen la
+   * solicitud en pantalla; `stock` **no** se excluye —una pieza en bóveda es un **hecho**, no una
+   * promesa—. Sin esa exclusión, la mesa de una solicitud ya `ofertada` contaría sus propias
+   * líneas y el operador decidiría contra una posición inflada por él mismo.
+   *
+   * ⚠️ **`null` NO significa cero**: significa que no se pudo contar (ver `positionUnavailable`).
+   */
+  position: {
+    stock: number;
+    verifying: number;
+    inTransit: number;
+    committed: number;
+    total: number;
+  } | null;
+  /**
+   * ⚠️ **`true` ⇒ NO se pinta `0`: se pinta «sin conteo».** Un cero que en realidad significa «no
+   * pude contar» **se ve confiable** y empuja a comprar de más — y aquí el daño es capital mal
+   * puesto. La tira entera desaparece y en su lugar va una frase (§23.7).
+   */
+  positionUnavailable?: boolean;
+  /**
+   * ⚠️ **LA SUGERENCIA NUNCA BLOQUEA** (D6): el servidor **no** valida la oferta contra ella, y la
+   * UI tampoco. El admin compra una línea con `do_not_buy` y descarta una con `buy`, **sin
+   * fricción, sin permiso extra y sin confirmación adicional**. Se escribe para que nadie lo
+   * «endurezca» por parecer prudente: endurecerlo **contradice PROJECT.md**.
+   *
+   * `verdict: "none"` ⇒ **no se infiere veredicto** (pasa, entre otros, con el conteo caído).
+   */
+  suggestion: {
+    verdict: 'buy' | 'do_not_buy' | 'none';
+    rule: 'bounty_target' | 'variant_cap' | null;
+    thresholdQty: number | null;
+    bountyActive: boolean;
+  } | null;
+}
+
+/**
+ * Totales de la mesa (contrato §M5). ⚠️ **Es una PREVISUALIZACIÓN, no un compromiso**: se calcula
+ * con la curva y los diales **de este instante**. Lo vinculante se congela **al emitir**.
+ *
+ * ⚠️ **El front recalcula la SUMA al desmarcar; el UMBRAL y el VEREDICTO los manda el servidor.**
+ * `minimumOfferNetCents` es un dial editable sin redeploy: una constante en el frontend quedaría
+ * desincronizada **en silencio** la primera vez que alguien lo mueva — y en una pantalla de dinero
+ * eso es un aviso que aparece cuando no toca, o que no aparece cuando sí.
+ */
+export interface BuylistDecisionTotalsDTO {
+  /** Σ de las líneas marcadas `buy` en esta previsualización (= la selección POR DEFECTO). */
+  buyableGrossCents: number;
+  /** Tarifa VIGENTE (D31: siempre; se congela al EMITIR, no aquí). */
+  shippingFeeCents: number;
+  netCents: number;
+  minimumOfferNetCents: number;
+  /** DERIVADO por el servidor = `minimumOfferNetCents + shippingFeeCents`. */
+  requiredGrossCents: number;
+  /** DERIVADO por el servidor. **Aviso en la mesa**; quien bloquea es `POST …/offer`. */
+  netBelowMinimum: boolean;
+}
+
+export interface BuylistDecisionTableDTO {
+  sellRequestId: string;
+  status: SellRequestStatus;
+  seller?: AdminSellerRef;
+  quotedTotalCents: number;
+  lines: BuylistDecisionLineDTO[];
+  totals: BuylistDecisionTotalsDTO;
+  /** Tope del operador vigente. El front **no** lo compara: usa `requiresAuthorization`. */
+  operatorCapCents: number;
+  /**
+   * `true` ⇒ la oferta **no saldrá sola**: queda esperando al súper-admin. **Aviso, no bloqueo**
+   * (el operador SÍ puede prepararla). Cambia **el verbo del botón**, no su disponibilidad.
+   */
+  requiresAuthorization: boolean;
+  /**
+   * v1.51.3 (D36) — derivado server-side. **Aviso, no bloqueo** en la mesa; quien bloquea es
+   * `POST …/offer` con `422 PICKUP_ADDRESS_MISSING`. Existe para que el operador lo vea **antes**
+   * de armar el cherry-pick entero y llevarse el `422` al final por un motivo que no tiene nada
+   * que ver con las líneas. **Es un booleano y no la dirección**: la mesa decide compras, no
+   * muestra datos personales.
+   */
+  pickupAddressMissing: boolean;
+}
+
+/** Una línea del body de `POST /admin/buylist/:id/offer`. */
+export interface BuylistOfferLineInput {
+  itemId: string;
+  decision: BuyDecision;
+  overridePriceCents?: number;
+  overrideReason?: string;
+}
+
+/**
+ * Respuesta de `POST /admin/buylist/:id/offer`.
+ * ⚠️ **El CÓDIGO lo determina el RESULTADO**: `200` cuando la oferta **salió** y `202` cuando quedó
+ * `pending_authorization`. Los dos son éxito con el **mismo shape**; lo que cambia es **si el
+ * correo salió**. `offerState` lo dice sin ambigüedad, y es lo que la UI debe leer.
+ */
+export interface BuylistOfferResultDTO {
+  sellRequestId: string;
+  status: SellRequestStatus;
+  offerState: 'pending_authorization' | 'sent' | 'cancelled' | null;
+  offerSentAt: string | null;
+  offerGrossCents: number;
+  offerShippingFeeCents: number;
+  offerNetCents: number;
+  offerAcceptDeadlineAt: string | null;
+  requiresAuthorization: boolean;
+  items: SellItemDTO[];
+}
+
 export interface AdminBuylistDTO {
   id: string;
   userId: string;

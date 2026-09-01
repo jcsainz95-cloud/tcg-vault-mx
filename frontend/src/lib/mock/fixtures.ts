@@ -19,6 +19,11 @@ import type {
   OrderDetailDTO,
   SellRequestDTO,
   SellRequestDetailDTO,
+  SellItemDTO,
+  BuylistDecisionLineDTO,
+  BuylistDecisionTableDTO,
+  BuylistOfferLineInput,
+  BuylistOfferResultDTO,
   SellOfferPublicDTO,
   PickupAddressSnapshotDTO,
   SellRequestStatus,
@@ -2416,6 +2421,31 @@ export type MockAdminBuylistRow = Omit<AdminBuylistDTO, 'isTerminal' | 'isPayabl
 };
 
 export const mockAdminBuylist: MockAdminBuylistRow[] = [
+  /**
+   * ⚠️ **Una solicitud `cotizada` — «POR OFERTAR».** Sin ella el servidor falso no tenía ninguna
+   * fila en el estado donde vive **la mesa de decisión**, así que el ciclo entero era
+   * indemostrable en modo mock (y sin cobertura E2E).
+   *
+   * Sus TRES líneas están elegidas para cubrir los tres casos que la mesa existe para no
+   * confundir, y que son exactamente los que `MOCK_POSITIONS` siembra:
+   *  - **Charizard** → posición completa (5/1/1/2 = 9 de 10): la tira con sus cuatro sumandos.
+   *  - **Pikachu**   → **un CERO REAL** (0/0/0/0): retícula y titular presentes.
+   *  - **Eevee**     → **`positionUnavailable`**: no hay retícula, hay una frase. *Un cero que
+   *    significa «no pude contar» se ve confiable y empuja a comprar de más.*
+   */
+  {
+    id: 'sr-3004',
+    userId: 'u-777',
+    status: 'cotizada',
+    quotedTotalCents: 138000,
+    createdAt: '2026-08-30T14:00:00Z',
+    seller: { id: 'u-777', name: 'Ash Ketchum', email: 'ash@example.com' },
+    items: [
+      { id: 'sri-desk-1', card: cardById('c-charizard'), productType: 'raw', rawCondition: 'NM', finish: 'holofoil', rarity: 'Rare Holo', priceBasis: 'market', marketBracket: 'r25_80', quotedPriceCents: 90000, itemStatus: 'cotizada' },
+      { id: 'sri-desk-2', card: cardById('c-pikachu'), productType: 'raw', rawCondition: 'NM', finish: 'normal', rarity: 'Common', priceBasis: 'market', marketBracket: 'r25_80', quotedPriceCents: 45000, itemStatus: 'cotizada' },
+      { id: 'sri-desk-3', card: cardById('c-eevee'), productType: 'raw', rawCondition: 'NM', finish: 'reverse_holo', rarity: 'Reverse Holo', priceBasis: 'market', marketBracket: 'r25_80', quotedPriceCents: 3000, itemStatus: 'cotizada' },
+    ],
+  },
   {
     id: 'sr-3001',
     userId: 'u-777',
@@ -4507,5 +4537,180 @@ export function generateSealedValueHistory(range: SetValueRange): SetValueHistor
       pricedCardCount: 1,
     })),
     change: base.change,
+  };
+}
+
+// ---------------------------------------------------------------------------------------------
+// MOCK · LA MESA DE DECISIÓN (contrato §M5 · GET /admin/buylist/:id/decision-table)
+// ---------------------------------------------------------------------------------------------
+
+/** Diales vigentes que el servidor falso reparte. Espejan `SettingKey` del backend. */
+const MOCK_SHIPPING_FEE_CENTS = 18000;
+const MOCK_MINIMUM_OFFER_NET_CENTS = 20000;
+const MOCK_OPERATOR_CAP_CENTS = 150000;
+const MOCK_VARIANT_POSITION_CAP = 10;
+
+/**
+ * Posiciones sembradas por carta. La tercera fila es **deliberada**: `null` significa
+ * **«no se pudo contar»**, NO cero — es el caso de §23.7, el que la pantalla existe para no
+ * confundir con un cero real. La segunda es **un cero REAL** (`stock: 0` con la tira completa),
+ * que es exactamente el contraste que demuestra que el diseño funciona.
+ */
+const MOCK_POSITIONS: Record<
+  string,
+  { stock: number; verifying: number; inTransit: number; committed: number } | null
+> = {
+  'c-charizard': { stock: 5, verifying: 1, inTransit: 1, committed: 2 },
+  'c-pikachu': { stock: 0, verifying: 0, inTransit: 0, committed: 0 },
+  'c-eevee': null,
+};
+
+function mockDecisionLine(item: SellItemDTO): BuylistDecisionLineDTO {
+  const raw = MOCK_POSITIONS[item.card.id];
+  const unavailable = raw === null;
+  const position = raw
+    ? { ...raw, total: raw.stock + raw.verifying + raw.inTransit + raw.committed }
+    : null;
+  // La curva VIGENTE: el mock la simula sobre el cotizado, que es lo que el backend NO hereda.
+  const pending = item.itemStatus === 'precio_pendiente' || item.quotedPriceCents == null;
+  const derived = pending ? null : Math.round((item.quotedPriceCents ?? 0) * 0.93);
+  return {
+    itemId: item.id,
+    card: item.card,
+    productType: item.productType,
+    finish: item.finish,
+    cardProductId: item.productId ?? null,
+    quotedPriceCents: item.quotedPriceCents ?? null,
+    derivedPriceCents: derived,
+    priceBasis: pending ? 'pending' : 'market',
+    // El PAR discrimina: sin precio y con motivo ⇒ el mercado se consultó y no dio nada.
+    pendingReason: pending ? 'no_market' : null,
+    position,
+    ...(unavailable ? { positionUnavailable: true } : {}),
+    // ⚠️ Sin conteo NO se infiere veredicto: `none`, y la UI pinta «sin sugerencia».
+    suggestion: unavailable
+      ? { verdict: 'none', rule: null, thresholdQty: null, bountyActive: false }
+      : {
+          verdict:
+            (position?.total ?? 0) >= MOCK_VARIANT_POSITION_CAP ? 'do_not_buy' : 'buy',
+          rule: 'variant_cap',
+          thresholdQty: MOCK_VARIANT_POSITION_CAP,
+          bountyActive: false,
+        },
+  };
+}
+
+/**
+ * Proyección del servidor falso de la mesa. ⚠️ `buyableGrossCents` es **la selección POR DEFECTO**
+ * —Σ de las líneas con `derivedPriceCents != null`—, no una selección recibida: este endpoint es un
+ * `GET` sin cuerpo. Una línea sin precio derivable **aporta 0 y nace desmarcada**.
+ */
+export function mockDecisionTable(id: string): BuylistDecisionTableDTO {
+  const row = mockAdminBuylist.find((r) => r.id === id);
+  if (!row) throw new ApiFixtureNotFound('Sell request not found');
+  const lines = row.items.map(mockDecisionLine);
+  const buyableGrossCents = lines.reduce((sum, l) => sum + (l.derivedPriceCents ?? 0), 0);
+  const netCents = Math.max(0, buyableGrossCents - MOCK_SHIPPING_FEE_CENTS);
+  return {
+    sellRequestId: row.id,
+    status: row.status,
+    seller: row.seller,
+    quotedTotalCents: row.quotedTotalCents,
+    lines,
+    totals: {
+      buyableGrossCents,
+      shippingFeeCents: MOCK_SHIPPING_FEE_CENTS,
+      netCents,
+      minimumOfferNetCents: MOCK_MINIMUM_OFFER_NET_CENTS,
+      requiredGrossCents: MOCK_MINIMUM_OFFER_NET_CENTS + MOCK_SHIPPING_FEE_CENTS,
+      netBelowMinimum: netCents < MOCK_MINIMUM_OFFER_NET_CENTS,
+    },
+    operatorCapCents: MOCK_OPERATOR_CAP_CENTS,
+    requiresAuthorization: buyableGrossCents > MOCK_OPERATOR_CAP_CENTS,
+    pickupAddressMissing: false,
+  };
+}
+
+/**
+ * MOCK de `POST /admin/buylist/:id/offer`. Replica **la secuencia normativa** del contrato en su
+ * orden —`OFFER_LINES_MISMATCH` → precio por línea → piso de neto → tope—, porque **el orden es la
+ * norma**: si el tope fuera antes que el piso, una oferta inofertable entraría a la cola de
+ * autorización y el súper-admin se toparía con el `422` al autorizarla.
+ */
+export function mockEmitOffer(
+  id: string,
+  lines: BuylistOfferLineInput[],
+): BuylistOfferResultDTO {
+  const row = mockAdminBuylist.find((r) => r.id === id);
+  if (!row) throw new ApiFixtureNotFound('Sell request not found');
+  const table = mockDecisionTable(id);
+
+  const known = new Set(table.lines.map((l) => l.itemId));
+  const sent = new Set(lines.map((l) => l.itemId));
+  const missingItemIds = [...known].filter((x) => !sent.has(x));
+  const unknownItemIds = [...sent].filter((x) => !known.has(x));
+  if (missingItemIds.length || unknownItemIds.length) {
+    throw new ApiFixtureError(422, 'OFFER_LINES_MISMATCH', 'lines must cover exactly the request items', {
+      missingItemIds,
+      unknownItemIds,
+    });
+  }
+
+  let grossCents = 0;
+  const notPriceable: string[] = [];
+  const needReason: string[] = [];
+  for (const line of lines) {
+    if (line.decision === 'skip') continue;
+    const table_line = table.lines.find((l) => l.itemId === line.itemId)!;
+    const derived = table_line.derivedPriceCents;
+    const amount = line.overridePriceCents ?? derived;
+    if (amount == null) {
+      notPriceable.push(line.itemId);
+      continue;
+    }
+    // ⚠️ Mandar EXACTAMENTE el derivado NO es override: no pide motivo (v1.51.12).
+    if (amount !== derived && !(line.overrideReason ?? '').trim()) needReason.push(line.itemId);
+    grossCents += amount;
+  }
+  if (notPriceable.length) {
+    throw new ApiFixtureError(422, 'OFFER_LINE_NOT_PRICEABLE', 'a buy line has no resolvable amount', {
+      itemIds: notPriceable,
+    });
+  }
+  if (needReason.length) {
+    throw new ApiFixtureError(422, 'OVERRIDE_REASON_REQUIRED', 'override requires a reason', {
+      itemIds: needReason,
+    });
+  }
+
+  const shippingFeeCents = MOCK_SHIPPING_FEE_CENTS;
+  const netCents = Math.max(0, grossCents - shippingFeeCents);
+  // El piso va ANTES del tope: nada inofertable llega a la cola de autorización.
+  if (netCents < MOCK_MINIMUM_OFFER_NET_CENTS) {
+    const requiredGrossCents = MOCK_MINIMUM_OFFER_NET_CENTS + shippingFeeCents;
+    throw new ApiFixtureError(422, 'OFFER_NET_BELOW_MINIMUM', 'offer net is below the minimum', {
+      grossCents,
+      shippingFeeCents,
+      netCents,
+      minimumNetCents: MOCK_MINIMUM_OFFER_NET_CENTS,
+      requiredGrossCents,
+      grossShortfallCents: requiredGrossCents - grossCents,
+    });
+  }
+
+  // El tope es INCLUSIVO: exactamente el tope sale sola.
+  const needsAuth = grossCents > MOCK_OPERATOR_CAP_CENTS;
+  row.status = needsAuth ? 'cotizada' : 'ofertada';
+  return {
+    sellRequestId: id,
+    status: row.status,
+    offerState: needsAuth ? 'pending_authorization' : 'sent',
+    offerSentAt: needsAuth ? null : new Date().toISOString(),
+    offerGrossCents: grossCents,
+    offerShippingFeeCents: shippingFeeCents,
+    offerNetCents: netCents,
+    offerAcceptDeadlineAt: needsAuth ? null : MOCK_OFFER_DEADLINE,
+    requiresAuthorization: needsAuth,
+    items: row.items,
   };
 }

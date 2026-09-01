@@ -24,6 +24,7 @@ import { formatMoneyCents, formatDate } from '@/lib/format';
 import { Badge } from '@/components/ui/Badge';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { PipelineStepper } from '@/components/ui/PipelineStepper';
+import { BuylistDecisionDesk } from './BuylistDecisionDesk';
 import { Button } from '@/components/ui/Button';
 import { Banner } from '@/components/ui/Banner';
 import { Input } from '@/components/ui/Input';
@@ -187,6 +188,7 @@ const ITEM_TERMINAL = new Set(['pagada', 'convertida_inventario']);
 
 export function M5View() {
   const t = useTranslations('admin.m5');
+  const tDesk = useTranslations('admin.m5.desk');
   const tm = useTranslations('admin');
   const tc = useTranslations('common');
   const te = useTranslations('error');
@@ -205,6 +207,12 @@ export function M5View() {
 
   // CLABE revelada: SOLO estado local efímero de esta vista (nunca query-cache/estado
   // global) y solo bajo demanda — cada reveal queda auditado server-side (contrato §M5).
+  /**
+   * Qué solicitud tiene la MESA DE DECISIÓN abierta (§23.6). Una a la vez: la mesa es densa
+   * —cinco cifras por línea sobre solicitudes de hasta 40— y dos abiertas a la vez convierten
+   * la cola en el «tablero de aeropuerto» que §23.6 existe para evitar.
+   */
+  const [deskFor, setDeskFor] = useState<string | null>(null);
   const [revealed, setRevealed] = useState<{ requestId: string; clabe: string } | null>(null);
 
   function refresh() {
@@ -929,6 +937,19 @@ export function M5View() {
 
               {/* Acciones a nivel solicitud: recepción física, verificación y cierre explícito */}
               <div className="flex flex-wrap gap-2">
+                {/* §23.6 · la MESA DE DECISIÓN es la acción principal de una `cotizada`: es
+                    donde se decide QUÉ comprar y a cuánto, viendo cuántas copias ya tenemos y
+                    cuántas vienen en camino. Va antes que «Recibir» porque bajo el ciclo de
+                    oferta una `cotizada` ya no salta a `recibida`: pasa por `ofertada`. */}
+                {req.status === 'cotizada' && (
+                  <Button
+                    size="sm"
+                    variant={deskFor === req.id ? 'ghost' : 'primary'}
+                    onClick={() => setDeskFor(deskFor === req.id ? null : req.id)}
+                  >
+                    {deskFor === req.id ? tDesk('close') : tDesk('open')}
+                  </Button>
+                )}
                 {req.status === 'cotizada' && (
                   <Button
                     size="sm"
@@ -963,6 +984,10 @@ export function M5View() {
                   </Button>
                 )}
               </div>
+
+              {deskFor === req.id && (
+                <BuylistDecisionDesk sellRequestId={req.id} onClose={() => setDeskFor(null)} />
+              )}
 
               <div className="flex flex-col divide-y divide-border">
                 {req.items.map((it) => {

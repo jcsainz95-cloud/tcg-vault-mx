@@ -184,9 +184,11 @@ describe('Portal del vendedor — LA OFERTA (§23.5)', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: 'Aceptar la oferta' }));
     const dialog = await screen.findByRole('dialog');
+    // §23.5g(c): el marco cita la condición del servidor EN SINGULAR sin forzar un plural
+    // propio — «la misma para cada carta» hace que la cita lea bien con cualquier conteo.
     expect(
       within(dialog).getByText(
-        /Aceptas que te compremos 1 carta por MX\$840\.00, siempre que llegue en Near Mint/,
+        /Aceptas que te compremos 1 carta por MX\$840\.00\. La condición es la misma para cada carta: siempre que llegue en Near Mint\./,
       ),
     ).toBeInTheDocument();
     fireEvent.click(within(dialog).getByRole('button', { name: 'Aceptar y recibir mi guía' }));
@@ -194,6 +196,29 @@ describe('Portal del vendedor — LA OFERTA (§23.5)', () => {
     await waitFor(() => expect(respondSpy).toHaveBeenCalledWith('sr-1', 'accept'));
     // El resultado sustituye al bloque de acciones (§23.5c).
     expect(await screen.findByText(/Aceptaste la oferta/)).toBeInTheDocument();
+  });
+
+  /**
+   * §23.5g(c) — el diálogo de RECHAZAR lleva **el neto y la condición**. Es el último instante en
+   * que el vendedor puede saber QUÉ ESTÁ SOLTANDO, y en cuanto se nombra el neto, R2 obliga a la
+   * condición. Lo que NO puede llevar es presión: nada de «¿estás seguro?», cuenta atrás,
+   * reencuadre del beneficio ni un segundo botón de aceptar dentro del diálogo.
+   */
+  it('el diálogo de rechazar dice el neto y la condición, y no argumenta', async () => {
+    asSeller();
+    vi.spyOn(api, 'getSellRequest').mockResolvedValue(detail());
+    renderWithProviders(<SellRequestDetailView sellRequestId="sr-1" />);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Rechazar la oferta' }));
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog).toHaveTextContent('Vas a rechazar la oferta de MX$840.00 por 1 carta.');
+    expect(dialog).toHaveTextContent(
+      'La condición era la misma para cada carta: siempre que llegue en Near Mint.',
+    );
+    const text = dialog.textContent ?? '';
+    expect(text).not.toMatch(/¿Estás seguro|piénsalo|estás dejando/i);
+    // Y ninguna salida que empuje a aceptar: se sale por «Cancelar», nunca por un segundo CTA.
+    expect(within(dialog).queryByRole('button', { name: /Aceptar/ })).not.toBeInTheDocument();
   });
 
   it('rechazar es SECUNDARIO, nunca destructivo, y también pasa por confirmación', async () => {
@@ -274,7 +299,8 @@ describe('Portal del vendedor — los BORDES', () => {
     );
     renderWithProviders(<SellRequestDetailView sellRequestId="sr-1" />);
 
-    expect(await screen.findByText(/Todavía no mandes nada\./)).toBeInTheDocument();
+    expect(await screen.findByText('Todavía no mandes nada')).toBeInTheDocument();
+    expect(screen.getByText('Te escribimos con nuestra oferta.')).toBeInTheDocument();
     expect(screen.getByTestId('buylist-shipping-note')).toBeInTheDocument();
     expect(screen.queryByTestId('offer-amounts')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Aceptar la oferta' })).not.toBeInTheDocument();
@@ -286,7 +312,8 @@ describe('Portal del vendedor — los BORDES', () => {
     vi.spyOn(api, 'getSellRequest').mockResolvedValue(withoutOffer as SellRequestDetailDTO);
     renderWithProviders(<SellRequestDetailView sellRequestId="sr-1" />);
 
-    expect(await screen.findByText(/Todavía no mandes nada\./)).toBeInTheDocument();
+    expect(await screen.findByText('Todavía no mandes nada')).toBeInTheDocument();
+    expect(screen.getByText('Te escribimos con nuestra oferta.')).toBeInTheDocument();
     expect(screen.queryByTestId('offer-amounts')).not.toBeInTheDocument();
   });
 

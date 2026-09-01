@@ -9125,3 +9125,194 @@ modo escritorio (sin FAB) y los rojos aparecían en tests que no tocan nada de e
 
 **Ratificar el EN de la versalita `SIN PRECIO`** (hoy «No price»). Es la única cadena de este pase que
 no venía fijada por §23: todas las demás se implementaron carácter por carácter.
+
+---
+
+## v1.51.19 · §23.6/§23.7 — LA MESA DE DECISIÓN, y las dos correcciones de §23.5g (2026-09-01, rama `claude/buylist-inventory-workflow-hdnls3`)
+
+> **Pase acotado a propósito.** El backend del ciclo está completo y **nada tenía interfaz**. De los
+> cuatro frentes de admin, este pase entrega **la mesa de decisión y la emisión de la oferta** —que
+> es *la petición original del humano*— y **declara los otros dos** (guía/confirmación y las cuatro
+> colas) para un segundo pase. Prefiero dos pases verdes a uno grande y dudoso.
+
+### 0. Primero: las dos correcciones de §23.5g que ya estaban ratificadas
+
+Se aplicaron **carácter por carácter**; son copy normativo sobre pantalla que yo mismo escribí:
+
+| Clave | Qué cambia y por qué |
+|---|---|
+| `offer.deadline` | ~~«la oferta **se cancela sola**»~~ ⇒ **«la oferta vence y ya no podremos comprarte a este precio»**. Tras v2.3.3 **«cancelar» es el verbo del correo 5 — lo que hacemos NOSOTROS**; una oferta que muere por silencio **vence**. La misma palabra para *«la retiramos»* y *«se te acabó el plazo»* reintroducía en la pantalla la fusión que los correos acababan de deshacer |
+| `confirmAcceptBody` | El marco se reencuadra a **«La condición es la misma para cada carta: {condition}»**. Yo había citado la condición del servidor **en singular** dentro de un marco plural; §23.5g cambia **el marco**, no el texto — *cuando un texto del servidor no encaja en el marco de la UI, se cambia el marco, no se duplica el texto* |
+| `confirmRejectBody` | Ahora **lleva el neto y la condición**. Mi versión los omitía «para no presionar»; **choca con R2 por el lado contrario**: es el último instante en que el vendedor puede saber **qué está soltando**. *La línea entre informar y presionar no está en decir el número: está en el tono* — y hay un test que verifica por lo negativo que el diálogo **no argumenta** (sin «¿estás seguro?», sin reencuadre del beneficio, sin un segundo CTA de aceptar) |
+| `preOfferTitle`/`preOfferBody` | Dejan de repetir la misma frase: leídos juntos dan la de §23.5d **exacta, sin eco** |
+
+*(Nota menor de higiene: `messages/en.json` tenía **11 `’` escapados** —artefacto de mi propia
+inserción anterior— frente a **195 líneas** con UTF-8 literal. Quedan normalizados a literal, que es
+la convención real del fichero. **Cero cambios de valor.**)*
+
+### 1. La mesa de decisión (§23.6) — cinco cifras leídas en dos tiempos
+
+`GET /admin/buylist/:id/decision-table` · `src/app/[locale]/(admin)/admin/m5/BuylistDecisionDesk.tsx`.
+Se abre **desde la fila `cotizada` de M5**, una a la vez.
+
+**La posición, en dos tiempos.** Primero **una** fracción —`POSICIÓN 9/10`— con la versalita de qué
+regla manda; después **los cuatro sumandos**, siempre los cuatro y siempre en el mismo orden. Se
+llama **POSICIÓN y no «inventario»** porque contesta *«¿de cuántas copias ya soy responsable?»*, e
+incluye dinero comprometido: llamarla «tengo» sería mentir.
+
+**Los cuatro mecanismos que impiden que el ojo sume «en camino» + «comprometido» (R6)** —que es el
+valor de la pantalla, no un detalle—:
+
+1. **Regla vertical de 1px** entre `VERIFICANDO` y `EN CAMINO`: la frontera *está en la casa /
+   todavía no está*.
+2. **Encabezados de grupo reales** (`<th colSpan={2} scope="colgroup">`): el lector de pantalla
+   anuncia **el grupo antes de la cifra**.
+3. **Gradiente de confianza por PESO, no por contraste**: 500 / 400, y **las cuatro cifras en
+   `--color-text`**. Un número que decide una compra es información esencial y §10 prohíbe el muted
+   para eso.
+4. **Por ausencia**: ni subtotal, ni `+`, ni «(3 por llegar)», ni barra apilada. Hay un test que lo
+   mide **por lo que no está**, incluido que la suma `1+2` no aparezca como cifra en ninguna celda.
+
+**«En camino» que se pinta es `position.inTransit` y nada más.** No suman una `aceptada`, ni una con
+guía emitida sin confirmar, ni un «ya lo mandé» del vendedor. *Contar promesas como inventario es
+exactamente el error que esta pantalla existe para evitar.*
+
+### 2. El conteo que no se pudo hacer (§23.7) — `null` NO es cero
+
+Con `positionUnavailable`, **desaparece la tira entera, incluido el titular** —ni siquiera el
+denominador: un `—/10` invita a leerlo como `0/10`— y en su lugar va **una frase**, en **tinta**.
+
+**La distinción con un cero real no es un matiz de glifo: es presencia de estructura numérica frente
+a ausencia total de ella.** `EN INVENTARIO 0` con su retícula y su `POSICIÓN 0/10` es **un dato**;
+esto es **una oración**. Los dos casos están sembrados en el servidor falso —Pikachu es el cero real,
+Eevee el sin-conteo— y los dos tienen test: *se reconoce a un metro y sobrevive a una captura en
+gris*.
+
+El test de prohibiciones se mide **sobre los NODOS, no sobre la cadena**: el em dash de *«Sin
+sugerencia — falta el conteo»* es **puntuación de prosa**; lo prohibido es un `—` **ocupando el sitio
+de un valor** (ahí ya significa «precio pendiente», §16.3a, y además se lee como cero). La regla
+comprobable es: **ningún nodo cuyo texto completo sea un marcador de hueco**, y ningún `0`.
+
+Y el aviso de pantalla (§23.7d) **no bloquea nada**: se puede ofertar sin conteo — *lo que falta es
+el consejo, no el permiso*.
+
+### 3. La sugerencia informa; el sistema no decide (D6)
+
+- **Frase en prosa, no semáforo.** Una pastilla verde/roja se lee como **permiso**; una frase, como
+  **opinión**. Esa diferencia **es** D6.
+- **Asimétrica:** `do_not_buy` pinta «no comprar» en `accent` peso 500; `buy` va **todo muted**. Un
+  consejo que dice «adelante» no necesita interrumpir; uno que dice «para», sí.
+- **Mismo alto en los tres veredictos**: si la fila saltara al cambiar el veredicto, el operador
+  aprendería a temerle.
+- **Explica con cifras** qué regla se disparó y contra qué número —incluido el caso legacy del bounty
+  vivo **sin objetivo**, que se mide con el tope y **lo dice**.
+
+**Y las dos pruebas que protegen D6 de una «mejora» futura**, porque es lo que un revisor prudente
+endurecería sin querer:
+- **`do_not_buy` NO apaga «Emitir»** — ni con confirmación extra. El servidor no la valida;
+  endurecerlo **contradice PROJECT.md**.
+- **El default de la casilla IGNORA la sugerencia.** Toda línea con precio nace **marcada**, también
+  las desaconsejadas. Si el default la siguiera, «no comprar» sería un **bloqueo blando**: la inercia
+  haría el trabajo que D6 le prohíbe al sistema. `defaultSelection` **no mira `suggestion` ni una
+  vez**, y hay un test que lo fija.
+
+### 4. Emitir — dos desenlaces, y el botón no puede mentir sobre cuál
+
+- **`lines` cubre EXACTAMENTE los ítems**: lo no marcado viaja como **`skip`**, nunca se omite. Una
+  línea olvidada saldría del correo **sin que nadie hubiera decidido nada sobre ella**.
+- **Override con motivo obligatorio ⇔ el monto DIFIERE del derivado.** Mandar **exactamente** el
+  derivado **no es un override**: no pide motivo y el campo ni aparece (v1.51.12). **Igualdad entera
+  exacta sobre centavos, sin banda de tolerancia** — un centavo ya es override. Hay test para los dos
+  lados. Y **la cifra que se pisó se sigue viendo** bajo el input.
+- **El verbo del botón lo decide `requiresAuthorization` DEL SERVIDOR.** *Un botón que dice «Emitir»
+  y en realidad encola miente sobre lo que va a pasar.*
+- ⚠️ **`requiresAuthorization` NO se recalcula, ni siquiera contra `operatorCapCents`**, y esa
+  decisión merece leerse: depende del **rol del actor**, que esta pantalla no conoce —un súper-admin
+  oferta sin tope—. Derivarlo aquí le diría a un súper-admin *«enviar a autorización»* sobre una
+  oferta que **sí va a salir con su correo**: el botón mintiendo **en la dirección peligrosa**. Se
+  usa el booleano del servidor, y **el desenlace real lo dice `offerState`** en la respuesta, que es
+  lo que se lee (**nunca el código HTTP**, que es dinámico `200`/`202`).
+- **Tras responder, el resultado se dice sin ambigüedad**: `sent` ⇒ *«el correo salió y el vendedor
+  ya tiene X sobre la mesa»*; `pending_authorization` ⇒ *«el correo **NO** se ha mandado y la
+  solicitud sigue igual para el vendedor»*. **Una oferta pendiente no existe para él.**
+- **Emitida ⇒ la mesa es de solo lectura**: el override vive **solo antes** del correo (D2).
+
+**Qué apaga «Emitir» y qué no** (`emitBlocker`, con test para cada rama): apagan
+`pickupAddressMissing`, cero líneas, línea marcada sin monto, override sin motivo y `netBelowMinimum`
+—los cinco los rechazaría el servidor, y dejar el botón vivo sería **prometer una acción que va a
+fallar**—. **No apagan** `do_not_buy` ni `positionUnavailable`. Y **nunca apagado y mudo**: el motivo
+va por `aria-describedby`, con el mínimo, el faltante **en BRUTO** (la única palanca que el operador
+puede mover) y el remedio.
+
+**La frontera de qué se calcula aquí**, que es la regla que el orquestador subrayó: la UI **recalcula
+la suma al desmarcar** —el servidor mandó la del default y no puede saber qué quitó el operador— pero
+**el umbral, la tarifa y los veredictos los manda el servidor**. `minimumOfferNetCents`,
+`shippingFeeCents` y `requiredGrossCents` son **diales editables sin redeploy**: una constante aquí
+quedaría desincronizada **en silencio**, y en una pantalla de dinero eso es un aviso que aparece
+cuando no toca — o que **no aparece cuando sí**. El piso se compara con **`<`**, nunca `≤`: el borde
+es **inclusivo** y hay un test parametrizado en `37999 / 38000 / 38001`.
+
+### 5. Archivos y i18n
+
+- **Nuevos:** `m5/decision-desk.ts` (lógica pura, 23 tests), `m5/BuylistDecisionDesk.tsx` (17 tests).
+- **Tocados:** `types/contract.ts` (5 DTOs), `lib/api.ts` (`getBuylistDecisionTable`,
+  `emitBuylistOffer`), `lib/mock/fixtures.ts` (servidor falso + **una solicitud `cotizada`**),
+  `m5/M5View.tsx` (el botón que abre la mesa), `messages/*` (**64 claves** bajo `admin.m5.desk.*`).
+- **⚠️ Divergencia de namespace declarada:** §23.12 nombra las claves `admin.buylist.desk.*`, pero
+  **ese namespace no existe en este catálogo** — M5 vive bajo `admin.m5.*`. Se usó
+  **`admin.m5.desk.*`**. Es un cambio de prefijo, no de contenido; si ux-ui prefiere el del
+  documento, es un renombre mecánico.
+- **El servidor falso siembra los TRES casos de posición a propósito** (posición completa, cero real,
+  sin conteo): sin una solicitud `cotizada` el ciclo era **indemostrable en modo mock** y quedaba sin
+  cobertura E2E.
+
+### 6. Un efecto colateral del arnés que vale la pena contar
+
+Sembrar esa solicitud `cotizada` **tumbó 16 tests de `M5View` de golpe, sin que el producto
+cambiara**: la pestaña activa por defecto es *la primera con solicitudes*, y esos tests estaban
+leyendo «Verificando» **por accidente** —era la primera no vacía porque no existía ninguna
+`cotizada`—. Se añadió `openStage(label)` y **cada test declara ahora su etapa**.
+
+*La lección es la misma que lleva tres pases apareciendo: **un test que no dice en qué pestaña está,
+está midiendo el orden de los datos**.* Sembrar una fila nueva ya no puede volver a tumbarlos.
+
+### 7. Verificación (resultado literal)
+
+| Comprobación | Resultado |
+|---|---|
+| `npm test` | **`Test Files 97 passed (97)` · `Tests 916 passed (916)`** |
+| `npm run typecheck` | **limpio (sin salida)** |
+| `npm run lint` | **`✔ No ESLint warnings or errors`** |
+| **Suite E2E COMPLETA** (mock, `E2E_DEV_SERVER=1 E2E_MOCK_PORT=3111`) | **`119 passed · 3 skipped · 0 failed`** (6.5 min) |
+
+Cobertura nueva: **23** unitarios de `decision-desk.ts` (default que ignora la sugerencia, borde de
+la igualdad al centavo, motivo 3–500, el piso inclusivo parametrizado, `max(0,…)` que **no** enmascara
+el aviso, y `emitBlocker` rama por rama **incluidas las dos que NO bloquean**), **17** de
+`BuylistDecisionDesk` (los dos tiempos, los grupos como `<th>` reales, R6 por ausencia, sin-conteo vs
+cero real, sugerencia asimétrica, bounty legacy, default marcado, totales al desmarcar con el motivo
+del bloqueo, override en sus dos bordes, payload con `skip`, los dos desenlaces de la emisión,
+dirección ausente, 422 como alerta, solo-lectura y **paridad EN**), **+1** en el portal (el diálogo de
+rechazar dice el neto y la condición **y no argumenta**) y **3** E2E de la mesa en `admin.spec.ts`.
+
+### 8. Lo que este pase NO entrega (declarado, no silenciado)
+
+1. **Guía y confirmación de envío** (`POST …/guide`, `POST …/shipment-confirm`). ⚠️ Y el matiz que
+   importa cuando se implemente: **capturar la guía NO mueve el estado**; **solo confirmar** mueve a
+   `en_transito`. Y el **«ya lo mandé» del vendedor no mueve nada**: detiene **su** reloj.
+2. **Las cuatro colas** (pendientes de autorización, por confirmar envío, guías por cancelar) y **la
+   cola de listas para publicar** en M1. §23.8 las especifica; no se ha escrito una línea de ellas.
+3. **`POST …/decline`** («declinar ahora») y `POST …/offer/cancel`, con su confirmación de
+   consecuencia.
+4. **Las densidades de §23.6d** (compacta ≥lg y el colapso a card en <md): la mesa se implementó en
+   **densidad cómoda**, que §23.6d declara *«la única en `< lg`»* y el default en todos los anchos.
+   Es un refinamiento de retícula, no una regla de dinero.
+
+### 9. A ux-ui
+
+1. **Namespace de las claves de la mesa**: §23.12 dice `admin.buylist.desk.*`; el catálogo real usa
+   `admin.m5.*`, así que quedaron en **`admin.m5.desk.*`**. Renombre mecánico si prefieren el otro.
+2. **§23.6 no da el copy literal de la mesa** —da la anatomía, los rótulos en versalita y las cuatro
+   frases de ejemplo de la sugerencia—, así que **la redacción exacta de las 64 claves es mía**
+   (ES y EN), incluidas las de override, las de la barra de totales y las dos frases de desenlace de
+   la emisión. Queda a ratificación.
+3. **§23.6d (dos densidades) no se implementó**; ver §8.4.

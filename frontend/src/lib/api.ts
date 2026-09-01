@@ -33,6 +33,9 @@ import type {
   BuylistQuotePolicyDTO,
   SellRequestDTO,
   SellRequestDetailDTO,
+  BuylistDecisionTableDTO,
+  BuylistOfferLineInput,
+  BuylistOfferResultDTO,
   SellOfferResponseDTO,
   ShipmentDTO,
   ShipmentQuoteResponse,
@@ -2882,6 +2885,68 @@ function mockFindBuylistItem(itemId: string): { req: fx.MockAdminBuylistRow; ite
     if (item) return { req, item };
   }
   throw new ApiClientError(404, { code: 'NOT_FOUND', message: 'Sell request item not found' });
+}
+
+/**
+ * **LA MESA DE DECISIÓN** (contrato §M5 · `GET /admin/buylist/:id/decision-table`, `vault_operator+`).
+ *
+ * Es la petición original del humano: *«el admin no debería decidir una compra sin saber cuánto de
+ * eso ya tiene»*. Trae, por línea, qué pidió vender, cuánto se le cotizó, **el precio de la curva
+ * VIGENTE AHORA**, los **cuatro sumandos** de la posición y una sugerencia legible; y, arriba, los
+ * totales de la previsualización con **los veredictos ya resueltos por el servidor**
+ * (`netBelowMinimum`, `requiresAuthorization`, `pickupAddressMissing`).
+ *
+ * ⚠️ **Nada de esto se recalcula en el cliente.** Los diales se editan sin redeploy: una constante
+ * aquí quedaría desincronizada **en silencio**, y en una pantalla de dinero eso es un aviso que
+ * aparece cuando no toca o que no aparece cuando sí.
+ */
+export async function getBuylistDecisionTable(id: string): Promise<BuylistDecisionTableDTO> {
+  if (!config.useMocks) {
+    return apiRequest<BuylistDecisionTableDTO>(`/admin/buylist/${id}/decision-table`);
+  }
+  try {
+    return delay(fx.mockDecisionTable(id));
+  } catch (e) {
+    throw translateFixtureError(e);
+  }
+}
+
+/**
+ * **EMITIR (o PREPARAR) LA OFERTA** (contrato §M5 · `POST /admin/buylist/:id/offer`).
+ *
+ * ⚠️ **DOS DESENLACES DE ÉXITO, y la UI tiene que distinguirlos:** con el bruto **dentro** del tope
+ * del operador (o siendo súper-admin) la oferta **SALE** —`offerState='sent'`, `status='ofertada'`,
+ * **el correo se manda**—; **por encima** del tope queda **`pending_authorization`**, **`status`
+ * sigue `cotizada`** y **el correo NO se manda**. Una oferta pendiente **no existe para el
+ * vendedor**: la pantalla no puede sugerir lo contrario.
+ *
+ * ⚠️ **El código HTTP es dinámico** (`200` vs `202`) y **no se lee**: se lee `offerState`, que dice
+ * el mismo hecho sin depender del transporte.
+ *
+ * ⚠️ **`lines` debe cubrir EXACTAMENTE los ítems** (ni faltar ni sobrar) ⇒ si no,
+ * `422 OFFER_LINES_MISMATCH`. Sin eso, una línea olvidada saldría del correo **sin que nadie
+ * hubiera decidido nada sobre ella**.
+ *
+ * ⚠️ **`overrideReason` es obligatorio ⇔ el monto DIFIERE del derivado** (delta ≠ 0, aunque sea un
+ * centavo). Mandar **exactamente** el derivado **no es un override** y no pide motivo — el borde de
+ * la igualdad está ratificado en el contrato (v1.51.12). *Lo auditable es la desviación, no la
+ * pulsación.*
+ */
+export async function emitBuylistOffer(
+  id: string,
+  lines: BuylistOfferLineInput[],
+): Promise<BuylistOfferResultDTO> {
+  if (!config.useMocks) {
+    return apiRequest<BuylistOfferResultDTO>(`/admin/buylist/${id}/offer`, {
+      method: 'POST',
+      body: { lines },
+    });
+  }
+  try {
+    return delay(fx.mockEmitOffer(id, lines));
+  } catch (e) {
+    throw translateFixtureError(e);
+  }
 }
 
 /** Marca recepción física de la solicitud → `recibida` (contrato POST /admin/buylist/:id/receive). */

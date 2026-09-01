@@ -81,6 +81,108 @@ test.describe('admin · M1 inventario', () => {
   });
 });
 
+/**
+ * Selecciona una PESTAÑA DE ETAPA de M5 y espera a que su contenido esté en pantalla.
+ *
+ * ⚠️ **Por qué hace falta declararla.** La pestaña activa por defecto es *la primera con
+ * solicitudes*, así que un test que no la elige está midiendo **el orden de los datos del seed**,
+ * no la pantalla. Estos dos casos leían «Verificando» por accidente —era la primera no vacía— y se
+ * cayeron en cuanto el servidor falso ganó una solicitud `cotizada` para la mesa de decisión, **sin
+ * que el producto cambiara ni una línea**.
+ */
+async function openM5Stage(page: import('@playwright/test').Page, label: string) {
+  await expect(page.getByRole('heading', { name: t('es', 'admin.m5.title') })).toBeVisible();
+  await page.getByRole('tab', { name: new RegExp(`^${label}`) }).click();
+}
+
+/**
+ * **LA MESA DE DECISIÓN** (§23.6/§23.7) — la petición original del humano: *«el admin no debería
+ * decidir una compra sin saber cuánto de eso ya tiene»*.
+ *
+ * El smoke mide **lo que la pantalla existe para no confundir**: que los cuatro sumandos van
+ * separados, que «sin conteo» **no se parece a un cero**, y que la sugerencia **no bloquea**.
+ */
+test.describe('admin · M5 mesa de decisión (§23.6)', () => {
+  /** Abre la mesa de la primera solicitud `cotizada`. `false` si no hay ninguna en cola. */
+  async function openDesk(page: import('@playwright/test').Page): Promise<boolean> {
+    await page.goto('/es/admin/m5');
+    await expect(page.getByRole('heading', { name: t('es', 'admin.m5.title') })).toBeVisible();
+    const open = page.getByRole('button', { name: t('es', 'admin.m5.desk.open') }).first();
+    /*
+     * ⚠️ Se espera a que la cola RESUELVA antes de preguntar. `count()` no auto-espera: con
+     * `GET /admin/buylist` en vuelo devuelve 0 y el test se saltaría solo — un falso verde
+     * silencioso sobre la pantalla que el humano pidió primero. La cola está resuelta cuando hay
+     * una solicitud con mesa **o** cuando dice explícitamente que la pestaña está vacía.
+     */
+    await expect(open.or(page.getByText(t('es', 'admin.m5.emptyTab'))).first()).toBeVisible();
+    if ((await open.count()) === 0) return false;
+    await open.click();
+    await expect(page.getByTestId('decision-desk')).toBeVisible();
+    return true;
+  }
+
+  test('la posición se lee en dos tiempos y los cuatro sumandos van SEPARADOS', async ({ page }) => {
+    needsSeed('ninguna solicitud `cotizada` en cola: no hay mesa que abrir');
+    await loginAs(page, 'admin');
+    test.skip(!(await openDesk(page)), 'sin solicitudes cotizadas en este entorno');
+
+    const strip = page.getByTestId('position-strip').first();
+    await expect(strip).toBeVisible();
+    // Los grupos son encabezados REALES: el lector anuncia el grupo antes de la cifra, que es
+    // justo la distinción que R6 protege.
+    await expect(strip.getByText(t('es', 'admin.m5.desk.position.groupInHouse'))).toBeVisible();
+    await expect(strip.getByText(t('es', 'admin.m5.desk.position.groupNotYet'))).toBeVisible();
+    for (const key of ['stock', 'verifying', 'inTransit', 'committed']) {
+      await expect(strip.getByText(t('es', `admin.m5.desk.position.${key}`))).toBeVisible();
+    }
+    // ⛔ R6: ni un `+`, ni un subtotal que junte «en camino» con «comprometido».
+    expect(await strip.innerText()).not.toMatch(/\+|subtotal|por llegar/i);
+  });
+
+  /**
+   * §23.7 — el caso que la pantalla existe para no confundir: `positionUnavailable` significa
+   * **«no pude contar»**, y un cero ahí *se ve confiable* y empuja a comprar de más.
+   */
+  test('un conteo que no se pudo hacer no se parece a un cero, y NO bloquea la emisión', async ({
+    page,
+  }) => {
+    mockOnly('la fila «sin conteo» es un estado fabricado por el fixture');
+    await loginAs(page, 'admin');
+    test.skip(!(await openDesk(page)), 'sin solicitudes cotizadas en este entorno');
+
+    const box = page.getByTestId('position-unavailable').first();
+    await expect(box).toBeVisible();
+    await expect(box).toContainText(t('es', 'admin.m5.desk.position.unavailable.tag'));
+    await expect(box).toContainText(t('es', 'admin.m5.desk.position.unavailable.noSuggestion'));
+    // No ocupa columna: ocupa una oración. Esa fila NO tiene retícula de cifras.
+    await expect(box.getByRole('table')).toHaveCount(0);
+    // Aviso de pantalla, y el botón sigue vivo: falta el CONSEJO, no el permiso.
+    await expect(page.getByText(/No pudimos contar el inventario de \d+ de \d+ cartas/)).toBeVisible();
+  });
+
+  test('la sugerencia informa y NO bloquea: se puede emitir con líneas desaconsejadas', async ({
+    page,
+  }) => {
+    needsSeed('ninguna solicitud `cotizada` en cola: no hay mesa que abrir');
+    await loginAs(page, 'admin');
+    test.skip(!(await openDesk(page)), 'sin solicitudes cotizadas en este entorno');
+
+    // Las líneas con precio nacen MARCADAS aunque la sugerencia diga «no comprar» (D6: si el
+    // default siguiera a la sugerencia, sería un bloqueo blando).
+    const boxes = page.getByTestId('decision-desk').getByRole('checkbox');
+    await expect(boxes.first()).toBeVisible();
+    const emit = page
+      .getByRole('button', { name: t('es', 'admin.m5.desk.totals.emit') })
+      .or(page.getByRole('button', { name: t('es', 'admin.m5.desk.totals.emitForApproval') }));
+    await expect(emit.first()).toBeEnabled();
+
+    // Y al quitarlas todas, el botón se apaga PERO NUNCA MUDO: dice el motivo.
+    await page.getByRole('button', { name: t('es', 'admin.m5.desk.clearAll') }).click();
+    await expect(emit.first()).toBeDisabled();
+    await expect(page.getByText(t('es', 'admin.m5.desk.totals.noLines'))).toBeVisible();
+  });
+});
+
 test.describe('admin · M5 buylist (cherry-pick)', () => {
   test('permite decisión carta por carta y respeta dinero saliente', async ({ page }) => {
     // Las acciones cherry-pick solo existen si hay AL MENOS una solicitud con items en cola.
@@ -88,7 +190,8 @@ test.describe('admin · M5 buylist (cherry-pick)', () => {
     needsSeed('ninguna solicitud de buylist en cola (GET /admin/buylist → total 0)');
     await loginAs(page, 'admin');
     await page.goto('/es/admin/m5');
-    await expect(page.getByRole('heading', { name: t('es', 'admin.m5.title') })).toBeVisible();
+    // El cherry-pick por ítem vive en las solicitudes que YA están en la casa.
+    await openM5Stage(page, t('es', 'admin.m5.tabs.verificando'));
 
     // Acciones cherry-pick por item.
     await expect(page.getByRole('button', { name: t('es', 'admin.m5.approve') }).first()).toBeVisible();
@@ -103,6 +206,7 @@ test.describe('admin · M5 buylist (cherry-pick)', () => {
     needsSeed('ninguna solicitud de buylist en cola: no hay botón «Rechazar» que abrir');
     await loginAs(page, 'admin');
     await page.goto('/es/admin/m5');
+    await openM5Stage(page, t('es', 'admin.m5.tabs.verificando'));
     await page.getByRole('button', { name: t('es', 'admin.m5.reject') }).first().click();
 
     // El mini-diálogo pide el motivo; sin él, confirmar está deshabilitado.

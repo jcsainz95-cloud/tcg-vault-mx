@@ -500,17 +500,18 @@ function Detail({
               monto. Sin cuenta atrás, sin urgencia artificial. La resta NO se repite aquí: el
               diálogo se abre a un palmo del bloque de los tres montos, y meterle la resta
               convertiría el último clic en una re-lectura del trato. */}
-          {confirming === 'reject' ? (
-            <p className="leading-[1.7]">{t('confirmRejectBody')}</p>
-          ) : (
-            <p className="leading-[1.7]">
-              {t('confirmAcceptBody', {
-                count: readiness.buy.length,
-                netAmount,
-                condition: readiness.condition,
-              })}
-            </p>
-          )}
+          {/* §23.5g(c): el diálogo de RECHAZAR también lleva el neto y la condición. Es el
+              último instante en que el vendedor puede saber QUÉ ESTÁ SOLTANDO, y en cuanto se
+              nombra el neto R2 obliga a la condición. La línea entre informar y presionar no
+              está en decir el número: está en el tono — sin «¿estás seguro?», sin cuenta atrás,
+              sin reencuadre del beneficio y sin un segundo CTA de aceptar aquí dentro. */}
+          <p className="leading-[1.7]">
+            {t(confirming === 'reject' ? 'confirmRejectBody' : 'confirmAcceptBody', {
+              count: readiness.buy.length,
+              netAmount,
+              condition: readiness.condition,
+            })}
+          </p>
         </Modal>
       )}
     </div>
