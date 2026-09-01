@@ -2,7 +2,44 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-01 (rev **v1.51.11**).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-01 (rev **v1.51.12**).
+>
+> **Changelog v1.51.12 — EL BORDE DE LA IGUALDAD EN EL OVERRIDE, Y EL `202` QUE ES DINÁMICO (2026-09-01, arquitecto;
+> **CERO DDL, CERO endpoints, CERO campos — el código ya es correcto**. ARCHITECTURE §4.39e enmendada):**
+> ⚠️ **Ratificación de una decisión que backend tomó al implementar la oferta y DECLARÓ.** La regla del contrato
+> estaba escrita como una **desigualdad** y por tanto **solo cubría un lado del borde**; el otro vivía en el código y
+> en un test. **Van siete de siete elevadas en vez de resueltas en silencio.**
+>
+> **A. ✅ RATIFICADO — mandar EXACTAMENTE el precio derivado NO es un override.**
+> - **NORMA:** `overridePriceCents == offerDerivedPriceCents` ⇒ **no se exige motivo**, **no se escribe
+>   `offerOverrideReason`** y **`offerPriceBasis` conserva el de `decideBuyLine` — NUNCA `override`**. *(Esa tercera
+>   mitad es la que da coherencia: un `priceBasis:"override"` con delta cero y sin motivo afirmaría en la
+>   instrumentación de §N.8 un override que no ocurrió.)*
+> - **Lo auditable es la DESVIACIÓN, no la pulsación.** *«¿Quién tocó esta oferta?»* **ya está contestado y siempre**
+>   por `offerPreparedBy`/`offerAuthorizedBy`; el motivo contesta *«¿por qué difiere de la curva?»* y **con delta cero
+>   no hay pregunta**. Lo que quedaría sin registro **no es un acto de dinero**: es **qué campo del formulario tuvo el
+>   foco** — telemetría, no auditoría.
+> - **El criterio 148(b) ya lo había decidido:** los dos números se persisten para que **la fila sea la superficie de
+>   auditoría** del override, sin abrir la bitácora. *Iguales ⇒ nadie movió el precio*, y eso es **verdad**
+>   independientemente de lo que se tecleara.
+> - **Exigirlo corrompería el registro que pretende proteger:** el único motivo posible sería vacío, y la columna
+>   pasaría a mezclar *«por qué me desvié»* con *«por qué NO me desvié»* — **diluyendo la señal justo cuando se mina**.
+> - **⚠️ Y la igualdad es lo que hace DETECTABLE una carrera real:** el derivado se **recomputa al ofertar**, así que
+>   si la curva se movió entre la mesa y la emisión, el «no-op» **se vuelve override** y salta el `422`
+>   correctamente. Bajo la lectura contraria, *«reenvié el mismo número»* y *«el mercado se movió bajo mis pies»*
+>   pedirían lo mismo y **serían indistinguibles**.
+> - **⚠️ LO QUE NO SE RATIFICA:** la comparación es **igualdad ENTERA EXACTA sobre centavos** — **no existe ni
+>   existirá banda de tolerancia**: un delta de **un centavo** es un override y exige motivo. Y esto **no** dice que
+>   los overrides pequeños, ni los que no mueven el total, se libren del motivo. **Solo cubre el delta cero.**
+>
+> **B. ⚠️ `POST …/offer`: el código de estado es DINÁMICO — lo determina el RESULTADO, no la ruta.**
+> `200` = la oferta **salió**; `202` = quedó **`pending_authorization`**. Mismo shape; lo que cambia es **si el correo
+> salió**. **Prohibido fijarlo con un código estático:** un `202` fijo diría *«pendiente»* sobre una oferta **ya
+> vinculante**, y un `200` fijo afirmaría que salió algo que **el vendedor nunca recibió**. *Aquí el estatus es parte
+> de la semántica de dinero, no decoración de la ruta.* Se escribe porque es el detalle que alguien «simplifica» al
+> ver un `@Res` y cambiarlo por un decorador.
+>
+> **C. Sin cambios.** Nada más se toca: ni campos, ni endpoints, ni diales, ni DDL.
 >
 > **Changelog v1.51.11 — DÓNDE VIAJA `isPayable`, Y POR QUÉ LA SÉPTIMA COPIA *NO* SE CURA (2026-09-01, arquitecto;
 > **CERO DDL, CERO campos nuevos**. ARCHITECTURE §4.39c gana **(c.11)** y los sitios **11/12**; §9 gana **BL-20**):**
@@ -9032,6 +9069,40 @@ Req: `{ lines: [{ itemId: string, decision: "buy" | "skip", overridePriceCents?:
   - **`overrideReason` es OBLIGATORIO ⇔ `overridePriceCents ≠ offerDerivedPriceCents`** (3–500 chars) ⇒ si falta,
     **`422 OVERRIDE_REASON_REQUIRED`** (`details.itemIds`). ***Sin motivo, no hay override.*** Es lo que convierte un
     número a mano en una **decisión revisable** en vez de una cifra huérfana.
+    > ### ⚠️ v1.51.12 — EL BORDE DE LA IGUALDAD: mandar EXACTAMENTE el derivado **NO es un override**. RATIFICADO.
+    > *(Lo levantó backend al implementar la oferta y **no lo resolvió por su cuenta** — van siete de siete. La regla
+    > estaba escrita como una desigualdad y **solo cubría un lado**; aquí se cierra el otro, explícitamente, para que
+    > nadie la «corrija» después.)*
+    > **NORMA:** `overridePriceCents == offerDerivedPriceCents` ⇒ **no hay override**: **no se exige motivo**, **no se
+    > escribe `offerOverrideReason`** y **`offerPriceBasis` conserva el basis que devolvió `decideBuyLine`** —
+    > **NUNCA `override`**. *(Lo tercero es la mitad que hace coherente a las otras dos: un `priceBasis:"override"`
+    > con delta cero y sin motivo afirmaría en la instrumentación de §N.8 un override que no ocurrió.)*
+    > **Las tres razones, en orden de peso:**
+    > 1. **Lo auditable es la DESVIACIÓN, no la pulsación.** *«¿Quién tocó esta oferta?»* **ya está contestado, y
+    >    siempre**: `offerPreparedBy`/`offerPreparedAt` y `offerAuthorizedBy` se sellan en toda oferta, con o sin
+    >    override. Lo que `offerOverrideReason` añade es *«¿por qué este número difiere del de la curva?»*, y **con
+    >    diferencia cero no hay pregunta que contestar**. Lo que quedaría sin registrar no es un acto de dinero: es
+    >    **qué campo del formulario tuvo el foco**, que es telemetría, no auditoría.
+    > 2. **El criterio 148(b) ya decidió esto por construcción.** Se persisten **los dos** números precisamente para
+    >    que el delta sea legible **sin abrir la bitácora**: la fila **es** la superficie de auditoría del override.
+    >    `offeredPriceCents == offerDerivedPriceCents` es una respuesta completa y verdadera — **nadie movió el
+    >    precio** —, y lo es **independientemente de lo que se tecleara**.
+    > 3. **Exigirlo corrompería el registro que pretende proteger.** El motivo de una igualdad solo puede ser vacío
+    >    (*«igual que la curva»*). Toda la columna contesta *«¿por qué te desviaste?»*; esas entradas contestarían
+    >    *«¿por qué NO te desviaste?»* — **otra pregunta en el mismo campo**. Es exactamente así como una columna deja
+    >    de ser explotable, y **diluye la señal «alguien pisó un precio» justo cuando se está minando**.
+    > **⚠️ Y hay un cuarto argumento que solo se ve desde la implementación: la igualdad es lo que hace DETECTABLE una
+    > carrera real.** El derivado se **recomputa al ofertar** con la curva viva, así que un operador que copie el
+    > número que vio en la mesa puede encontrarse con que **la curva se movió en medio**: su «no-op» pasa a ser un
+    > override de verdad y recibe `422 OVERRIDE_REASON_REQUIRED` — **correctamente**. Bajo la lectura contraria los dos
+    > casos pedirían motivo y **serían indistinguibles**: *«reenvié el mismo número»* y *«el mercado se movió bajo mis
+    > pies»* colapsarían en el mismo error.
+    > **⚠️ LO QUE NO SE RATIFICA, y hay que decirlo o alguien lo estirará:**
+    > - **La comparación es igualdad ENTERA EXACTA sobre centavos. No existe ni existirá banda de tolerancia.**
+    >   Cualquier delta distinto de cero —**incluido UN centavo**— es un override y **exige motivo**. *«Casi igual» no
+    >   es una categoría de este contrato.*
+    > - Esto **no** dice que «los overrides pequeños no necesitan motivo», ni que «un override que no mueve el total
+    >   no necesita motivo». **Solo cubre el delta exactamente cero.**
   - **El override NO es puerta trasera al tope** (criterio 148(c)): el tope se juzga sobre el **bruto RESULTANTE**,
     overrides incluidos.
   - **El override es lo único que puede rescatar una línea en «precio pendiente»**; la otra salida legítima es
@@ -9151,6 +9222,17 @@ Req: `{ lines: [{ itemId: string, decision: "buy" | "skip", overridePriceCents?:
   siguen gateando solo la creación de la solicitud.**
 
 Res `200` | `202`: `{ sellRequestId, status, offerState, offerSentAt: string | null, offerGrossCents, offerShippingFeeCents, offerNetCents, offerAcceptDeadlineAt: string | null, requiresAuthorization: boolean, items: SellItemDTO[] }`
+> **⚠️ v1.51.12 — EL CÓDIGO DE ESTA RUTA ES DINÁMICO: lo determina EL RESULTADO, no la ruta.** `200` cuando la oferta
+> **salió** (súper-admin, u operador dentro de su tope) y `202` cuando quedó **`pending_authorization`**. Los dos son
+> respuestas de éxito con **el mismo shape**; lo que cambia es **si el correo salió**.
+> **NORMA: está PROHIBIDO fijarlo con un código estático a nivel de handler.** Un `202` fijo mentiría en la mitad de
+> las llamadas —diría *«aceptado, pendiente»* sobre una oferta **ya emitida y vinculante**— y un `200` fijo mentiría
+> en la otra mitad, afirmando que salió algo que **no se le mandó al vendedor**. *En un endpoint donde el código
+> distingue «el vendedor ya tiene una oferta vinculante» de «esto todavía no existe para él», el estatus **es** parte
+> de la semántica de dinero, no decoración de la ruta.*
+> **Se escribe aquí porque es justo el detalle que alguien «simplifica»** al ver un handler con `@Res` y sustituirlo
+> por un decorador estático. **El `202` es un estado real** (`offerState='pending_authorization'`, `status` sigue
+> `cotizada`, **ningún correo**), no un matiz de transporte.
 *(v1.51.1: **sin** `offerShippingPaidByUs`. v1.51.2: **sin cambio de shape** — el piso no añade campos a la respuesta de éxito; su número vive en el `details` del error y en `decision-table`.)*
 Err: `403`, `404 NOT_FOUND`, `409 OFFER_NOT_ALLOWED`, `409 OFFER_ALREADY_SENT`, **`422 PICKUP_ADDRESS_MISSING`** (v1.51.3), `422 OFFER_LINES_MISMATCH`, `422 OFFER_LINE_NOT_PRICEABLE`, `422 OVERRIDE_REASON_REQUIRED`, **`422 OFFER_NET_BELOW_MINIMUM`** (v1.51.2; ~~`422 OFFER_NET_NOT_POSITIVE`~~ de v1.51.1 **NO existe**), `400 VALIDATION_ERROR`.
 

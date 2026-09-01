@@ -11522,7 +11522,7 @@ verificable con inventario**.
 > topes AML/KYC, el flujo de **ajuste** (`ajustada`) que sigue vivo para otros caminos, y el **precio de venta** (D10:
 > lo fija la curva; este ciclo no captura precios de venta).
 > **Diseño en papel.** Lo implementan **backend** (schema, servicios, jobs, correos) y **frontend** (M5, M1, portal del
-> vendedor). Contrato observable en `API_CONTRACT.md` ~~**v1.51**~~ **v1.51.11**. Migración **M-46** (§11).
+> vendedor). Contrato observable en `API_CONTRACT.md` ~~**v1.51**~~ **v1.51.12**. Migración **M-46** (§11).
 > **Regla de conflicto aplicada:** donde este documento y `PROJECT.md` §P difieran, **manda PROJECT**. Las tensiones y
 > los huecos que encontré **están señalados en (o)**, no resueltos en silencio.
 >
@@ -12136,6 +12136,21 @@ reimplementación de la secuencia curva/override/bounty/pendiente. Concreciones:
   persistir **los dos** números —`offerDerivedPriceCents` (lo que dijo la curva) y `offeredPriceCents` (lo que se
   ofertó)— para que el criterio 148(b) sea verificable sin leer la bitácora. Meter el override dentro del seam
   destruiría el número derivado.
+  > **⚠️ v1.51.12 — EL BORDE DE LA IGUALDAD, ratificado (lo levantó backend al implementar y no lo cerró solo).**
+  > **`offeredPriceCents == offerDerivedPriceCents` ⇒ NO es un override:** sin motivo, sin `offerOverrideReason` y
+  > **con el `priceBasis` que devolvió `decideBuyLine`, jamás `override`**.
+  > - **Lo auditable es la desviación, no la pulsación.** *«¿Quién tocó esta oferta?»* lo contestan **siempre**
+  >   `offerPreparedBy`/`offerAuthorizedBy`; el motivo contesta *«¿por qué difiere de la curva?»*, y con delta cero
+  >   **no hay pregunta**. Lo que quedaría sin registro no es un acto de dinero, es **qué campo tuvo el foco**.
+  > - **El criterio 148(b) ya lo decidió:** los dos números se persisten para que **la fila sea la superficie de
+  >   auditoría**. `iguales ⇒ nadie movió el precio` es una respuesta completa **y verdadera**.
+  > - **Exigir motivo lo empeoraría:** el único motivo posible sería vacío, y la columna pasaría a mezclar *«por qué
+  >   me desvié»* con *«por qué no me desvié»* — **diluyendo la señal justo cuando se mina**.
+  > - **Y la igualdad es lo que hace detectable una carrera real:** como el derivado se **recomputa al ofertar**, si
+  >   la curva se movió entre la mesa y la emisión, el «no-op» **se convierte en override** y salta el `422`. Bajo la
+  >   lectura contraria, *«reenvié el mismo número»* y *«el mercado se movió»* serían indistinguibles.
+  > - ⚠️ **Igualdad ENTERA EXACTA sobre centavos: no hay ni habrá banda de tolerancia.** Un delta de **un centavo**
+  >   es un override y exige motivo. *«Casi igual» no es una categoría de este diseño.*
 - **`priceBasis` del override es `override`** (enum existente, sin valores nuevos). Una línea rescatada desde
   `precio_pendiente` por override también queda `override`.
 - **Línea sin dato de mercado:** `decideBuyLine` devuelve `quotedPriceCents = null` + `pendingReason`. Esa línea **no
@@ -14100,7 +14115,7 @@ serializarlo o llevarlo en **una sola sesión**:
 | `backend/src/jobs/` | barrido reescrito | ver la nota de §2 sobre `jobs/` |
 | `frontend/src/lib/` | `isTerminal` viene del server; se **borra** el literal de `M5View.tsx` | quinta copia del set terminal |
 | `backend/src/common/error-codes.ts` | **5 códigos nuevos** *(v1.51.3)*: `PICKUP_ADDRESS_REQUIRED` · `PICKUP_ADDRESS_NOT_FOUND` · `PICKUP_ADDRESS_MISSING` · `PICKUP_ADDRESS_LOCKED` · `DECLINE_NOT_ALLOWED` **+ 1** *(v1.51.4)*: `GUIDE_CANCELLATION_PENDING` | enum de errores pisado por dos streams |
-| `docs/API_CONTRACT.md` | ~~v1.51.3~~ … ~~v1.51.9~~ ~~v1.51.10~~ **v1.51.11** | — (mío) |
+| `docs/API_CONTRACT.md` | ~~v1.51.3~~ … ~~v1.51.10~~ ~~v1.51.11~~ **v1.51.12** | — (mío) |
 | `frontend/src/lib/` · `M5View.tsx` | `canPay` pierde su literal de estados (**BL-17**); el rol se queda | **sexta** copia de un subconjunto del enum, y ésta gobierna el **botón de pagar** |
 
 **Nota de secuencia para backend:** la **desviación BL-2** de (b.2) —el `respond` sin guarda— **no depende de M-46** y
