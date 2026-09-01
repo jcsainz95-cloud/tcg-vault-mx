@@ -9870,11 +9870,46 @@ con él dos candados de `FeaturedCarouselRotation.test.tsx` que lo fijan en duro
 - `getByRole('region', { name: … })` (ES) y su gemelo en EN,
 - la aserción de §23.9 `expect(section).toHaveAttribute('aria-label', …)`.
 
-Se actualizaron los tres literales. Lo que **no** se tocó es lo que esos candados protegen de verdad:
-`aria-roledescription` sigue siendo `carrusel`/`carousel`, y la aserción
-`expect(section.getAttribute('aria-label')).not.toMatch(/rotaci|carrus|gradе|PSA/i)` sigue viva y verde —
-el nuevo nombre tampoco menciona la rotación (§22.6b-e intacto). Es decir: cambió la **cadena esperada**,
-no la **norma verificada**.
+Se actualizaron los tres literales. `aria-roledescription` sigue siendo `carrusel`/`carousel`.
+
+**Corrección (hallazgo bloqueante del techlead, cerrado en este mismo pase).** La primera redacción de
+esta sección afirmaba que la aserción
+`expect(section.getAttribute('aria-label')).not.toMatch(/rotaci|carrus|grad?|PSA/i)` «sigue viva y verde»
+y que «cambió la cadena esperada, no la norma verificada». **Para tres de los cuatro brazos era cierto;
+para el cuarto era falso.** La `e` de `grade` era el **homoglifo cirílico U+0435 CYRILLIC SMALL LETTER
+IE**, no la `e` ASCII: ese brazo exigía la secuencia `grad` + U+0435, que **ningún copy latino puede
+producir jamás**. El guard contra «gradeadas/graded» en el nombre accesible de la región llevaba tiempo
+sin poder fallar, y como los otros tres brazos sí funcionaban, el test estaba verde y el lint callado.
+
+El homoglifo **es preexistente: venía de `main`, no lo introdujo este pase** (verificado con
+`git show HEAD~1`). Lo que sí introdujo este pase fue *escribir en el registro durable que la aserción
+verificaba algo que no verificaba*, que es la parte que de verdad hacía daño: una nota que certifica una
+cobertura inexistente es peor que no tener nota.
+
+Arreglado aquí: `e` ASCII restaurada, la regex extraída a la constante compartida
+`NOMBRE_ACCESIBLE_PROHIBIDO`, y **un caso de control que la prueba en positivo** (`it.each` con
+`'Cartas gradeadas'`, `'… rotación automática'`, `'Carrusel de destacadas'`, `'Gradeadas PSA'`: una
+cadena por brazo). El control **reusa el mismo objeto regex** a propósito — duplicar el literal habría
+reproducido el defecto en vez de cazarlo.
+
+**Verificado rompiéndolo:** reintroducir el homoglifo pone en rojo el control con el mensaje
+`AssertionError: expected 'Cartas gradeadas' to match /rotaci|carrus|grad<U+0435>|PSA/i`. Antes de este
+pase, esa misma mutación daba **verde**.
+
+**Lección, y es la que importa:** una aserción **negativa** (`not.toMatch`, `not.toContain`,
+`toEqual([])`) no demuestra nada por sí sola — pasa igual si el sujeto está limpio que si el candado está
+roto. Toda aserción negativa que proteja algo real necesita un control que la dispare. En este archivo
+ahora lo tiene; en el resto del repo, no necesariamente.
+
+**Barrido asociado:** escaneado todo `frontend/` (`.ts`, `.tsx`, `.json`, `.css`) en busca de cirílico y
+griego disfrazados de latín. Único cirílico era este; las 11 coincidencias restantes son `Σ` (GREEK
+CAPITAL LETTER SIGMA) usada legítimamente como notación de sumatoria en comentarios de `contract.ts`,
+`fixtures.ts` y `MasterSet.test.tsx`. **Ningún otro homoglifo vivo en el frontend.**
+
+**Residuo conocido, decisión del techlead:** la restauración literal pedida deja el brazo como `grade`,
+que caza «gradeadas» y «graded» pero **no «grading»**. Si el guard debe cubrir también «grading», el
+brazo tiene que ser `grad`. No lo amplié por cuenta propia: ensanchar un candado es un cambio de norma,
+no una corrección de dedazo, y este pase es de copy.
 
 Vale la pena dejarlo escrito porque es la trampa del pase: «solo cambio textos» dejó de ser cierto en el
 momento en que un texto de marketing es a la vez el nombre accesible de un `role="region"`. Un cambio de
@@ -9894,36 +9929,141 @@ y este pase es su primera cobranza real.
 
 ### 41.6 Comentarios de código con copy viejo — no corregidos, señalados
 
-Quedan referencias al copy anterior en **comentarios** de archivos de producto:
-`FeaturedCarousel.tsx:157` y `:601` («Piezas destacadas del catálogo»), y `page.tsx:35` y `:37`
-(«Sets buscados», «Continuar mi cotización»). Son prosa, no render. **No se editaron a propósito**: el
-encargo acotaba el pase a cadenas y `ux-ui` trabajaba `DESIGN_SYSTEM.md` en paralelo sobre estos mismos
-componentes; meter mano en sus archivos por un comentario es invitar a un conflicto de merge por cero
-beneficio funcional. Queda anotado aquí como **deuda cosmética menor**, no bloqueante, para el próximo
-pase que toque esos archivos por un motivo real.
+Quedan **cinco** referencias al copy anterior en **comentarios** de archivos de producto:
+
+| Archivo | Línea | Copy viejo citado |
+|---|---|---|
+| `_home/FeaturedCarousel.tsx` | 157 | «Piezas destacadas del catálogo» |
+| `_home/FeaturedCarousel.tsx` | 601 | «Piezas destacadas del catálogo» |
+| `_home/HomeQuoter.tsx` | 22 | «Continuar mi cotización» |
+| `(storefront)/page.tsx` | 35 | «Sets buscados» |
+| `(storefront)/page.tsx` | 37 | «Continuar mi cotización» |
+
+Son prosa, no render. **No se editaron a propósito** porque el encargo acotaba el pase a cadenas de
+copy y ninguna de estas líneas cambia lo que ve el usuario.
+
+*(Corrección del techlead: la primera redacción daba además una segunda razón —«`ux-ui` trabajaba sobre
+estos mismos componentes», con riesgo de conflicto de merge— que es **falsa**. Por la tabla de propiedad
+de `CLAUDE.md`, `ux-ui` escribe en `docs/DESIGN_SYSTEM.md` y **no puede escribir en `frontend/`**: el
+riesgo de conflicto en `frontend/src/` era **cero**. Se retira, porque dejarla escrita le enseñaría una
+regla de propiedad equivocada al próximo que lea esta nota. El primer motivo se sostiene solo. También se
+completó el inventario: eran cinco sitios, no cuatro — faltaba `HomeQuoter.tsx:22`.)*
+
+Queda anotado como **deuda cosmética menor**, no bloqueante, para el próximo pase que toque esos archivos
+por un motivo real.
 
 ### 41.7 Verificación
 
-Suite completa, no un subconjunto:
+Suite completa, no un subconjunto (cifras finales, tras las tres rondas de corrección):
 
 | Comando | Resultado |
 |---|---|
-| `npm run test` | ✔ **102 archivos / 944 casos, todos verdes** (~92 s) |
+| `npm run test` | ✔ **102 archivos / 948 casos, todos verdes** (~96 s) |
 | `npm run typecheck` | ✔ `tsc --noEmit` sin errores |
 | `npm run lint` | ✔ `No ESLint warnings or errors` |
 
-**Delta de casos: 0.** Un pase de copy no debe añadir ni quitar pruebas; si lo hiciera, no sería un pase de
-copy. Los 944 son los mismos 944 de antes, con ocho literales esperados distintos en dos archivos.
+**Delta de casos: +4**, y los cuatro son el caso de control de §41.4 (`it.each` de un `it` con cuatro
+cadenas). El pase de copy en sí aporta **0**: un cambio de textos no debe añadir ni quitar pruebas. Los
+944 originales siguen siendo los mismos 944.
 
-`i18n-parity.test.ts` verde confirma lo importante: paridad ES/EN intacta, cero apariciones de la marca
-retirada «TCG Vault», y ningún candado semántico del catálogo (créditos, grados, disclaimer del gancho)
-movido por el camino.
+`i18n-parity.test.ts` verde confirma lo importante: paridad ES/EN intacta (**2 287 claves, conjuntos
+idénticos**), cero apariciones de la marca retirada «TCG Vault», y ningún candado semántico del catálogo
+(créditos, grados, disclaimer del gancho) movido por el camino.
+
+**Inestabilidad observada, ajena a este pase.** En una de las corridas completas cayó
+`M2View.test.tsx > «money-safe: si TCGCSV no fue alcanzable del todo …»`. **En aislado el archivo pasa
+65/65**, y la corrida completa siguiente pasó 948/948. Es **GR-D4**, ya registrada en `TECH_DEBT.md` como
+inestable en suite completa; es un test de **admin M2** que no toca ninguna clave del home. No se
+investigó más aquí porque no pertenece a este pase, pero queda dicho que se vio.
 
 ### 41.8 Alcance
 
 Escrituras: `frontend/messages/es.json`, `frontend/messages/en.json`,
 `frontend/src/app/[locale]/(storefront)/page.test.tsx`,
-`frontend/src/app/[locale]/(storefront)/_home/FeaturedCarouselRotation.test.tsx` y este archivo.
+`frontend/src/app/[locale]/(storefront)/_home/FeaturedCarouselRotation.test.tsx`, este archivo y
+`docs/TECH_DEBT.md` (a petición explícita del techlead, que es su dueño de petición).
 Cero cambios de contrato, cero endpoints nuevos, cero mocks nuevos, cero tokens nuevos, cero componentes
-tocados. `backend/` intacto. **`docs/DESIGN_SYSTEM.md` NO se tocó** (es de ux-ui, que trabajaba en él en
-paralelo durante este pase) ni tampoco `docs/API_CONTRACT.md`.
+tocados. `backend/` intacto. **`docs/DESIGN_SYSTEM.md` NO se tocó** (es de ux-ui) ni tampoco
+`docs/API_CONTRACT.md`.
+
+**Una clave fuera del home:** `vault.trustBanner` (§41.10). Sale del encargo original —que era
+«copy de marketing del home»— y se tocó a propósito, porque repetía **palabra por palabra** la misma
+afirmación falsa que se estaba corrigiendo en el home. Corregir cuatro superficies y dejar la quinta
+habría dejado la contradicción **dentro del producto**, que es peor que no haber tocado ninguna. Sigue
+siendo `frontend/`, así que no cruza ninguna frontera de propiedad.
+
+### 41.9 Ronda de corrección de QA — tres afirmaciones que el producto desmiente
+
+QA rechazó la primera versión del copy. Los tres hallazgos son de **veracidad**, no de tono, y ninguno se
+discutió: si el texto y el producto discrepan, el texto está mal.
+
+**(a) BLOQUEANTE — «Lo que ves es lo que pagas» / «What you see is what you pay» era falso.**
+`PROJECT.md:346` fija que los precios de catálogo/ficha se muestran **sin IVA**, y `:348`, `:401` y `:766`
+que al total se le suman **IVA 16 %**, **costo de procesamiento** y **MX$175 de envío** (verificado línea
+por línea antes de reescribir, no asumido). Prometer equivalencia de precio en el home y desmentirla en el
+checkout es exactamente la sorpresa que el título «Compras sin sorpresas» decía evitar. Lo bueno es que el
+desglose **es** el argumento: se dice, no se esconde.
+- `how.step1Title` → `Compras con las cuentas claras` / `You buy with the numbers up front`
+- `how.step1Body` → `… Antes de pagar ves el desglose completo: IVA, procesamiento y envío.` /
+  `… Before you pay, you see the full breakdown: VAT, processing and shipping.`
+
+**(b) `trustPayout` prometía un plazo inexistente.** «Te transferimos **en cuanto** verificamos» promete
+inmediatez, y **no hay SLA de pago**: el SPEI lo opera el admin a mano (`:431`), el pipeline pasa por
+`aprobada` donde el dueño decide **carta por carta** y puede rechazar por NM-only (`:424-428`, `:435`), y
+sobre MX$3 000 el pago está **bloqueado por KYC** (`:439-443`). Encima había perdido la palabra
+**recepción**, que `:433-435` exige comunicar («el pago se realiza DESPUÉS de que recibimos y
+verificamos»). Nuevo valor: `Te pagamos por transferencia tras recibir y verificar` /
+`We pay by bank transfer after we receive and verify`.
+
+**(c) `gradingGems.lead` había perdido su anclaje.** Mi redacción («valen mucho más en el mercado»)
+soltaba el anclaje a **valor de mercado** y sonaba a predicción sobre **esas** copias — justo lo que
+`catalog.gradingNote.p3` desmiente. En EN era más marcado. ES vuelve a anclar
+(`Cartas sin gradear cuyo valor de mercado, ya gradeadas, es muy superior.`) y **EN se revierte al valor
+original de `main`**, byte a byte (verificado contra `478a826~1`).
+
+**Lección del pase:** el riesgo de un cambio de copy no es el tono, es que una frase más pegadora afirme
+algo que el sistema no cumple. Las tres eran mejores como marketing y peores como descripción del
+producto. Ninguna la habría cazado un test: no hay candado que compare el copy con `PROJECT.md`.
+
+### 41.10 «Asegurado» no era un sinónimo: era una póliza que no existe
+
+Hallazgo escalado al humano durante el pase, sobre una bandera abierta en `PROJECT.md:2969-2971`
+(«definir si hay seguro formal»). **Respuesta del humano: no hay póliza contratada** — *«No hay seguro
+sino que están en lugar seguro»*. La bóveda es un lugar físicamente seguro; **no existe cobertura
+aseguradora del inventario en custodia**.
+
+«Asegurado» no es sinónimo de «resguardado»: **nombra una póliza**. Afirmarlo sobre **bienes de terceros**
+sin tenerla es la promesa que se vuelve cara el día que se pierde un paquete, y estaba escrita en cinco
+sitios. Corregidas:
+
+| Clave | ES | EN |
+|---|---|---|
+| `home.heroSubtitle` | «Viven **resguardadas** en tu bóveda…» | «They live **safe** in your vault…» |
+| `home.trustCustody` | `Bóveda bajo resguardo: un solo envío, cuando tú digas` | `Vault storage: one shipment, whenever you say` |
+| `home.how.tag` | `Custodia en bóveda` | `Vault custody` |
+| `home.how.step2Body` | `Guardadas bajo resguardo, …` | `Kept safe, …` |
+| `vault.trustBanner` | «autenticadas y **resguardadas** en bóveda» | «authenticated and **kept safe** in custody» |
+
+**Auditoría exhaustiva, no lista a ojo.** Se barrieron ambos catálogos completos por `asegurad|seguro`
+(ES) e `insur` (EN) sobre las 2 287 claves, y se reauditó después de editar: **cero afirmaciones de seguro
+sobre la custodia** sobreviven en `home.*` ni en `vault.*`. Ese barrido es lo que da derecho a decir que
+son cinco y no «las que se vieron».
+
+**Lo que NO se tocó, porque es otra afirmación y es legítima** — asegurar un *paquete* con la paquetería
+no es asegurar un *inventario en custodia*:
+
+| Clave | Por qué se queda |
+|---|---|
+| `shipments.shippingFee` («Envío (con seguro)» / «Shipping fee (insured)») | Habla del **envío**, no de la custodia. **Ver pregunta abierta abajo.** |
+| `safeShipping.step4Title` / `step4Body`, `buylist.trustShipping`, `buylist.shippingGuideLink` | Instrucciones al **vendedor** del buylist para que asegure **su** envío hacia nosotros. |
+| `admin.m2.gradedEstimates.tiers.hint` («retorno asegurado») | Costeo de PSA en back-office, no promesa al cliente. |
+| `catalog.gradingNote.p5` | Copy **legal** de grading, congelado. |
+| `admin.m6.resetShareNote` («canal seguro»), `admin.m6.deleteQuestion` («¿Seguro que…?») | «Seguro» en otra acepción; falsos positivos del barrido. |
+
+> **PREGUNTA ABIERTA para product-owner — no la resuelvo yo.** `shipments.shippingFee` afirma que el envío
+> va **con seguro** / **insured**. **No está verificado** que la paquetería lo cubra dentro de la tarifa de
+> **MX$175** (`PROJECT.md:401`). Es la **misma clase de afirmación** que la que se acaba de retirar de la
+> custodia —una cobertura declarada en el copy— solo que sobre el envío, así que no puede quedarse sin
+> comprobar solo porque el barrido la clasificara como «legítima»: es legítima **si la póliza existe**.
+> Si no la hay, esa cadena necesita el mismo tratamiento. **Dueño de la respuesta: product-owner**
+> (es negocio/contrato con la paquetería, no copy).

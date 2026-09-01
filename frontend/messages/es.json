@@ -72,15 +72,15 @@
   "home": {
     "heroKicker": "Cartas Pokémon · México",
     "heroTitle": "Caza la carta. Nosotros la guardamos.",
-    "heroSubtitle": "Cartas autenticadas al precio real del mercado. Viven aseguradas en tu bóveda y salen en un solo envío, cuando tú digas.",
+    "heroSubtitle": "Cartas autenticadas al precio real del mercado. Viven resguardadas en tu bóveda y salen en un solo envío, cuando tú digas.",
     "ctaShop": "Explorar el catálogo",
     "ctaSealed": "Ver producto sellado",
     "ctaBuylist": "Vender mis cartas",
     "setsWanted": "Sets en cacería",
     "trustAuth": "Cada carta se autentica al ingresar",
-    "trustCustody": "Bóveda asegurada: un solo envío, cuando tú digas",
+    "trustCustody": "Bóveda bajo resguardo: un solo envío, cuando tú digas",
     "trustPrice": "Valor de mercado transparente en MXN",
-    "trustPayout": "Te transferimos en cuanto verificamos tus cartas",
+    "trustPayout": "Te pagamos por transferencia tras recibir y verificar",
     "yourVault": "Tu bóveda",
     "vaultLink": "Ver mi bóveda",
     "vaultLabel": "Bóveda",
@@ -134,11 +134,11 @@
     },
     "how": {
       "title": "Cómo funciona la bóveda",
-      "tag": "Custodia asegurada",
-      "step1Title": "Compras sin sorpresas",
-      "step1Body": "Cada carta muestra su condición verificada y su precio de mercado. Lo que ves es lo que pagas.",
+      "tag": "Custodia en bóveda",
+      "step1Title": "Compras con las cuentas claras",
+      "step1Body": "Cada carta muestra su condición verificada y su precio de mercado. Antes de pagar ves el desglose completo: IVA, procesamiento y envío.",
       "step2Title": "Se quedan en tu bóveda",
-      "step2Body": "Guardadas y aseguradas, con el valor de tu colección actualizado carta por carta.",
+      "step2Body": "Guardadas bajo resguardo, con el valor de tu colección actualizado carta por carta.",
       "step3Title": "Pides el envío cuando quieras",
       "step3Body": "Un solo envío para todo lo que acumulaste. O las vendes desde la bóveda, sin moverlas."
     },
@@ -154,7 +154,7 @@
     "gradingGems": {
       "title": "Joyas para gradear",
       "kicker": "ILUSTRATIVO · NO EVALUAMOS LA PIEZA",
-      "lead": "Cartas sin gradear que, ya gradeadas, valen mucho más en el mercado."
+      "lead": "Cartas sin gradear cuyo valor de mercado, ya gradeadas, es muy superior."
     }
   },
   "catalog": {
@@ -431,7 +431,7 @@
     "emptyTitle": "Aún no tienes cartas en tu bóveda",
     "emptyBody": "Explora la sección de Compra y empieza tu colección.",
     "emptyCta": "Ir a Compra",
-    "trustBanner": "Tus cartas están autenticadas y aseguradas en bóveda. Solo se envían cuando tú lo pides.",
+    "trustBanner": "Tus cartas están autenticadas y resguardadas en bóveda. Solo se envían cuando tú lo pides.",
     "withdraw": "Retirar",
     "withdrawSelected": "Retirar seleccionadas",
     "onlySettled": "Solo las piezas liquidadas y sin envío activo se pueden retirar.",

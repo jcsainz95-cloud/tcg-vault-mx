@@ -72,15 +72,15 @@
   "home": {
     "heroKicker": "Pokémon cards · Mexico",
     "heroTitle": "Hunt the card. We keep it safe.",
-    "heroSubtitle": "Authenticated cards at real market prices. They live insured in your vault and ship in one go, whenever you say.",
+    "heroSubtitle": "Authenticated cards at real market prices. They live safe in your vault and ship in one go, whenever you say.",
     "ctaShop": "Explore the catalog",
     "ctaSealed": "Browse sealed product",
     "ctaBuylist": "Sell my cards",
     "setsWanted": "Sets on the hunt",
     "trustAuth": "Every card is authenticated on intake",
-    "trustCustody": "Insured vault: one shipment, whenever you say",
+    "trustCustody": "Vault storage: one shipment, whenever you say",
     "trustPrice": "Transparent market value in MXN",
-    "trustPayout": "We transfer as soon as we verify your cards",
+    "trustPayout": "We pay by bank transfer after we receive and verify",
     "yourVault": "Your vault",
     "vaultLink": "Open my vault",
     "vaultLabel": "Vault",
@@ -134,11 +134,11 @@
     },
     "how": {
       "title": "How the vault works",
-      "tag": "Insured custody",
-      "step1Title": "You buy with no surprises",
-      "step1Body": "Every card shows its verified condition and market price. What you see is what you pay.",
+      "tag": "Vault custody",
+      "step1Title": "You buy with the numbers up front",
+      "step1Body": "Every card shows its verified condition and market price. Before you pay, you see the full breakdown: VAT, processing and shipping.",
       "step2Title": "They stay in your vault",
-      "step2Body": "Stored and insured, with your collection's value updated card by card.",
+      "step2Body": "Kept safe, with your collection's value updated card by card.",
       "step3Title": "Request shipping whenever you want",
       "step3Body": "One shipment for everything you've stacked up. Or sell from the vault without moving a card."
     },
@@ -154,7 +154,7 @@
     "gradingGems": {
       "title": "Gems worth grading",
       "kicker": "ILLUSTRATIVE · WE DO NOT ASSESS THE COPY",
-      "lead": "Ungraded cards that are worth far more once graded."
+      "lead": "Ungraded cards whose market value, once graded, is far higher."
     }
   },
   "catalog": {
@@ -431,7 +431,7 @@
     "emptyTitle": "You have no cards in your vault yet",
     "emptyBody": "Browse the Shop and start your collection.",
     "emptyCta": "Go to Shop",
-    "trustBanner": "Your cards are authenticated and insured in custody. They ship only when you ask.",
+    "trustBanner": "Your cards are authenticated and kept safe in custody. They ship only when you ask.",
     "withdraw": "Withdraw",
     "withdrawSelected": "Withdraw selected",
     "onlySettled": "Only settled pieces with no active shipment can be withdrawn.",

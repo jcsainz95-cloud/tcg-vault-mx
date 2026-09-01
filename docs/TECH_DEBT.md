@@ -4879,3 +4879,46 @@
 - **Lo que NO es:** no es un hueco de implementación (el freno funciona y está medido: la mutación pone el E2E en rojo, `460 → 960`), ni algo que se arregle escribiendo otro test unitario con la API que jsdom no tiene.
 - **Salidas posibles:** **(a)** un *stub* de `IntersectionObserver` en `vitest.setup.ts` que permita disparar entradas a mano — cubre la lógica del componente, no el observador real, y hay que decirlo en el test; **(b)** marcar el spec del carrusel como **obligatorio** en el gate de CI (devops), de modo que saltárselo sea una decisión explícita y no un descuido; **(c)** las dos.
 - **Disparador para cerrarla:** que se proponga cualquier gate que no incluya `e2e/featured-rotation.spec.ts`, o que ese spec se marque `skip`/`fixme` por cualquier motivo. Ref: `docs/FRONTEND_NOTES.md` §40, cabecera de `frontend/e2e/featured-rotation.spec.ts`.
+
+### Cierre del pase de copy del home (§41) — rama `claude/ecommerce-home-copy-optimization-dd3d2w`, 2026-09-01 (dueño: **frontend**, no bloqueante)
+
+> Deuda anotada **a petición del techlead** en su veredicto sobre el pase de copy. Ambos ítems son de
+> **acoplamiento**, no de defecto: nada está roto hoy. Los textos son los que redactó el techlead.
+> **Ninguno se implementa en este pase** — el alcance seguía siendo el copy.
+>
+> El hallazgo **bloqueante** de ese mismo veredicto (el homoglifo cirílico U+0435 que dejaba muerto un
+> brazo del guard de `aria-label`) **NO figura aquí: se corrigió en la rama**, con caso de control y
+> verificado por mutación. Ver `FRONTEND_NOTES.md` §41.4.
+
+#### DT-Fx · Tests unitarios del storefront acoplados a literales de copy en español (Baja, frontend)
+- **Dueño:** frontend. **Severidad:** Baja. **Estado: abierta, aceptada.**
+- **Deuda:** `page.test.tsx` y `FeaturedCarouselRotation.test.tsx` localizan nodos **tecleando la frase de
+  marketing** (8 literales tuvieron que reescribirse en el pase de copy §41, rama
+  `claude/ecommerce-home-copy-optimization-dd3d2w`). Los E2E de Playwright **no rompieron** porque
+  resuelven las claves con `t(locale, 'home.…')` (`e2e/utils/i18n.ts`), que es lo que
+  `DESIGN_SYSTEM.md` §9 pide. `src/test/render.tsx` ya importa `messages/{es,en}.json`, así que los
+  unitarios pueden leer `es.home.<clave>` **sin infraestructura nueva**.
+- **Alcance de la deuda:** solo los literales que sirven para **localizar** el nodo. **Se conservan como
+  literal a propósito** las aserciones que son **sobre el texto**: el candado de `aria-label` de §23.9 y
+  cualquier deslinde legal (`home.gradingGems.kicker`, `catalog.gradingNote.*`), donde leer la clave haría
+  el test **tautológico**.
+- **Impacto si no se paga:** cada pase de copy del home cuesta una ronda de tests rojos y arrastra el
+  riesgo de que la corrección **debilite la aserción** para volver al verde.
+- **Coste estimado:** bajo (2 archivos, sin helper nuevo). **No bloqueante.**
+- **Disparador:** el próximo pase que cambie copy del home, o cualquier corrección de un test rojo de esta
+  familia que proponga relajar la aserción en vez de actualizar el literal.
+
+#### DT-Fy · `home.featuredTitle` es a la vez titular de marketing y nombre accesible de un landmark (Baja, frontend + ux-ui)
+- **Dueño:** frontend (el desacople), **ux-ui** (la norma: §1 es suya). **Severidad:** Baja.
+  **Estado: abierta, aceptada.**
+- **Deuda:** `FeaturedCarousel.tsx:600` usa `ariaLabel={t('featuredTitle')}` para el `role="region"` del
+  carrusel, y la misma clave es el H2 (que alterna con `featuredTitleShort` en móvil, así que el nombre
+  del landmark y el título visible **no coinciden por debajo de `lg`**). `DESIGN_SYSTEM.md` §1 (v2.9)
+  admite la metáfora de marca en **titulares de marketing** y la prohíbe en **mensajes de accesibilidad**:
+  esta clave cae en **los dos lados a la vez**.
+- **Impacto:** hoy el valor es neutro («Piezas destacadas»); el riesgo es que un futuro pase de copy meta
+  voz de marca en el **árbol de accesibilidad** sin que ningún gate lo note.
+- **Dirección:** clave propia y estable para el `aria-label` de la región, desacoplada del titular.
+  **No bloqueante.**
+- **Disparador:** el próximo pase de copy que toque `home.featuredTitle`, o cualquier propuesta de meter
+  léxico de marca (cacería/bounty/HUNT) en ese valor.
