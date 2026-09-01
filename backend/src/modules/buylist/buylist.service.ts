@@ -1,4 +1,4 @@
-import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
+import { Inject, Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
 import {
   Card,
   Finish,
@@ -6,13 +6,14 @@ import {
   Prisma,
   ProductType,
   RawCondition,
+  Role,
   SellItemStatus,
   SellRequestStatus,
   VariantPriceOverride,
 } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/business.exception';
-import { PricingService } from '../pricing/pricing.service';
+import { cardProductRefKey, PricingService } from '../pricing/pricing.service';
 import { toCardDTO } from '../catalog/catalog.service';
 import { SettingsService } from '../settings/settings.service';
 import { SettingKey } from '../settings/settings.constants';
@@ -40,12 +41,26 @@ import {
 // v1.51 (M-46, §4.39c) — la fuente ÚNICA de los subconjuntos de `SellRequestStatus`.
 import {
   isTerminalSellRequestStatus,
+  SELL_REQUEST_COMMITTED_STATES,
+  SELL_REQUEST_IN_TRANSIT_STATES,
   SELL_REQUEST_PAYABLE_STATES,
+  SELL_REQUEST_VERIFYING_STATES,
 } from '../../common/sell-request-states';
 // v1.51 (M-46, §4.39c sitios 2+3) — el acumulado mensual de compromiso, en un solo cuerpo.
 import { monthCommittedGrossCents } from '../../common/buylist-aml';
 // P-30 H2 (§4.39e) — la llave canónica de variante. NO se interpola a mano.
-import { variantKey } from '../../common/variant-key';
+// M-46 (§4.39g) — `variantPositionKey` = la canónica + la identidad de producto (D7). La usan las
+// CUATRO fuentes de la posición de la mesa de decisión.
+import { variantKey, variantPositionKey } from '../../common/variant-key';
+// v1.51 (M-46, §4.39f) — el ÚNICO dato que `buylist` lee de `inventory`, por PUERTO inyectado: los
+// dos módulos viven en streams distintos y tienen que poder mergear por separado.
+// ⚠️ Este puerto NO es best-effort como `MAIL_PORT`: su ausencia/fallo ⇒ `positionUnavailable`,
+// JAMÁS un `0` (§4.39f).
+import {
+  INVENTORY_POSITION_PORT,
+  InventoryPositionPort,
+  VariantPositionRef,
+} from '../inventory/inventory-position.port';
 
 /**
  * v2.0 (§4.36.6) — caps de la vitrina pública de bounties. `SHOWCASE` es el del contrato (50, sin
@@ -259,8 +274,44 @@ interface BuyLineDecision {
   priceBasis: PriceBasis;
 }
 
+/**
+ * v1.51 (M-46, §4.39e) — lo que el caller EN LOTE le ahorra a `decideBuyLine`: los dos lookups que
+ * ese cuerpo haría por línea. Es un objeto (no dos parámetros sueltos) **a propósito**: su presencia
+ * es la señal de «vengo del lote», y así `reference: { status: 'pending' }` —una referencia leída que
+ * no existe— no se puede confundir con «no me la pasaron».
+ */
+interface BuyLinePrefetch {
+  /** `CardProduct` ya resuelto (solo rama `productId`); `null` = no existe ⇒ `PRODUCT_NOT_FOUND`. */
+  cardProduct: { id: string; cardId: string; finishes: Finish[] } | null;
+  /** Referencia de mercado YA leída de la variante CORRECTA (set_base o producto separado). */
+  reference: { status: string; referenceMxnCents?: number | null };
+}
+
+/**
+ * v1.51 (M-46, §4.39g) — el desglose de la posición de UNA variante, llaveado por
+ * `variantPositionKey`. **Los cuatro sumandos son campos propios y `total` es su suma**: el tipo
+ * mismo impide colapsarlos en una cifra.
+ */
+type PositionMap = Map<
+  string,
+  { stock: number; verifying: number; inTransit: number; committed: number; total: number }
+>;
+
+/** v1.51 (M-46) — una línea de la mesa con su llave canónica y su llave de posición ya resueltas. */
+interface DecisionLine {
+  it: {
+    cardId: string;
+    card: Card;
+    productType: ProductType;
+    rawCondition: RawCondition | null;
+    finish: Finish | null;
+  };
+  variant: { finish: Finish };
+  cardProductId: number | null;
+}
+
 @Injectable()
-export class BuylistService {
+export class BuylistService implements OnModuleInit {
   private readonly logger = new Logger(BuylistService.name);
 
   constructor(
@@ -274,7 +325,28 @@ export class BuylistService {
     // tests unitarios legacy que construyen el servicio a mano no truenen; el envío es best-effort
     // (sin puerto ⇒ se loggea y sigue, misma semántica que un fallo de envío).
     @Optional() @Inject(MAIL_PORT) private readonly mail?: MailPort,
+    // v1.51 (M-46, §4.39f): puerto de POSICIÓN de inventario (solo lectura, en lote). `@Optional`
+    // por el MISMO motivo que `MAIL_PORT` —que los tests unitarios legacy que construyen el servicio
+    // a mano no truenen— y por NINGÚN otro: ⚠️ este puerto **NO es best-effort**. Su ausencia en
+    // runtime es un DEFECTO DE ARRANQUE (se grita en `onModuleInit`) y su fallo se traduce en
+    // `position: null` + `positionUnavailable: true`, **jamás en un 0**.
+    @Optional() @Inject(INVENTORY_POSITION_PORT) private readonly inventoryPosition?: InventoryPositionPort,
   ) {}
+
+  /**
+   * v1.51 (M-46, §4.39f) — el puerto de posición **no es best-effort**: si no está cableado, la mesa
+   * de decisión no puede contar y el operador compra a ciegas. Se grita en el log de IZADO (no en
+   * cada request) para que el defecto se vea al arrancar y no se descubra en una compra.
+   */
+  onModuleInit(): void {
+    if (!this.inventoryPosition) {
+      this.logger.error(
+        'INVENTORY_POSITION_PORT NO está provisto: la mesa de decisión responderá ' +
+          'positionUnavailable en todas las líneas. Es un defecto de arranque (ARCHITECTURE §4.39f), ' +
+          'no un modo degradado aceptable.',
+      );
+    }
+  }
 
   /**
    * v1.6-finish: valida que el `finish` pedido esté entre los acabados disponibles de la carta
@@ -317,6 +389,30 @@ export class BuylistService {
       );
     }
     return { id: cp.id, finishes: (cp.finishes ?? []) as Finish[] };
+  }
+
+  /**
+   * v1.51 (M-46, §4.39e) — MISMAS dos guardas que `resolveCardProductForCard`, sobre una fila que el
+   * LOTE ya trajo. Se repiten en vez de darse por buenas porque son las que impiden la **fusión
+   * silenciosa de identidades**: un `productId` que no existe o que cuelga de OTRA carta no se
+   * reinterpreta como la carta de set — se rechaza, igual que en la vía single.
+   */
+  private assertPrefetchedCardProduct(
+    cardId: string,
+    productId: number,
+    cp: { id: string; cardId: string; finishes: Finish[] } | null,
+  ): { id: string; finishes: Finish[] } {
+    if (!cp) {
+      throw BusinessException.validation('PRODUCT_NOT_FOUND', 'Product not found', { productId });
+    }
+    if (cp.cardId !== cardId) {
+      throw BusinessException.validation(
+        'PRODUCT_CARD_MISMATCH',
+        'Product does not belong to the given card',
+        { productId, cardId },
+      );
+    }
+    return { id: cp.id, finishes: cp.finishes };
   }
 
   /**
@@ -512,8 +608,16 @@ export class BuylistService {
     curve: PricingCurve;
     override?: VariantPriceOverride | null;
     productId?: number;
+    /**
+     * v1.51 (M-46, §4.39e) — **LOTE.** Los DOS lookups que este cuerpo haría POR LÍNEA (resolver el
+     * `CardProduct` y leer su referencia de mercado), ya resueltos por el caller en UNA query para
+     * las N líneas. **No cambia ni una decisión de dinero**: es exactamente el mismo dato, leído
+     * antes — la secuencia curva/override/bounty/pendiente sigue viviendo aquí y solo aquí.
+     * Ausente (`undefined`) ⇒ este cuerpo resuelve por sí mismo, comportamiento previo INTACTO.
+     */
+    prefetched?: BuyLinePrefetch;
   }): Promise<BuyLineDecision> {
-    const { card, productType, rawCondition, finish, curve, productId } = input;
+    const { card, productType, rawCondition, finish, curve, productId, prefetched } = input;
     const gradeKey = this.pricing.gradeKeyFor({ productType, rawCondition });
 
     let f: Finish;
@@ -525,9 +629,15 @@ export class BuylistService {
       // cardProductId (precio propio del producto). El override M-30 (clave sin cardProductId) NO aplica
       // aquí: mapea a la variante set_base, no a este producto — aplicarlo sería fusión de precios
       // (money-safe: se IGNORA). La rareza NO cambia de fuente (sale de la carta).
-      const cp = await this.resolveCardProductForCard(card.id, productId);
+      // M-46: en lote, el `CardProduct` y su referencia llegan YA resueltos (mismas validaciones, mismos
+      // errores: el lote los aplicó al resolver).
+      const cp = prefetched
+        ? this.assertPrefetchedCardProduct(card.id, productId, prefetched.cardProduct)
+        : await this.resolveCardProductForCard(card.id, productId);
       f = this.assertFinishForProduct(cp.finishes, finish);
-      const ref = await this.pricing.getReferenceByCardProduct(cp.id, productType, gradeKey, f);
+      const ref = prefetched
+        ? prefetched.reference
+        : await this.pricing.getReferenceByCardProduct(cp.id, productType, gradeKey, f);
       referenceMxnCents =
         ref.status === 'priced' && ref.referenceMxnCents != null ? ref.referenceMxnCents : null;
       effectiveOverride = null;
@@ -536,7 +646,9 @@ export class BuylistService {
       // SEC-A1: el acabado se valida contra los acabados REALES de la carta antes de cotizar.
       f = this.assertFinishAvailable(card, finish);
       // v1.6-finish: la referencia es la del ACABADO cotizado.
-      const ref = await this.pricing.getReference(card.id, productType, gradeKey, f);
+      const ref = prefetched
+        ? prefetched.reference
+        : await this.pricing.getReference(card.id, productType, gradeKey, f);
       referenceMxnCents =
         ref.status === 'priced' && ref.referenceMxnCents != null ? ref.referenceMxnCents : null;
     }
@@ -1411,6 +1523,442 @@ export class BuylistService {
       // v1.18-buylist-rejects: items como SellItemDTO (incluye campos de rechazo + plazos derivados).
       items: (req.items ?? []).map((i) => this.itemDTO(i)),
       clabeMasked: maskClabe(this.pii.decryptOptional(req.clabeSnapshotEnc)),
+    };
+  }
+
+  /**
+   * v1.51 (M-46, D6 · API_CONTRACT §M5 · ARCHITECTURE §4.39f/g · criterios 115/116/117/144/153) —
+   * **`GET /admin/buylist/:id/decision-table`: LA MESA DE DECISIÓN.**
+   *
+   * > *«El admin no debería decidir una compra sin saber cuánto de eso ya tiene. Ocho copias en la
+   * > caja y tres más en camino es una razón perfectamente buena para no comprar la novena — y hoy esa
+   * > información no está en la pantalla donde se decide.»* (`PROJECT.md` §P.2)
+   *
+   * Por línea: qué pidió vender y **cuánto se le cotizó**, el **precio derivado por la curva VIGENTE
+   * AHORA** (no se hereda de la cotización: entre cotizar y ofertar el mercado se movió), la
+   * **posición con sus CUATRO sumandos** y una **sugerencia** que dice **qué regla se disparó**.
+   *
+   * ### Las cuatro reglas que no se negocian
+   * 1. **⚠️ Puerto de posición caído ⇒ `position: null` + `positionUnavailable: true`. JAMÁS `0`.**
+   *    Este puerto **NO es best-effort como `MAIL_PORT`** (§4.39f). Un `0` es una mentira accionable:
+   *    dice «no tenemos ninguna, compra» cuando la verdad es «no sé», y el operador compraría contra
+   *    un dato inventado. Con el puerto caído `suggestion.verdict = 'none'` y el front pinta
+   *    «SIN CONTEO» (DESIGN_SYSTEM §23.7).
+   * 2. **Los cuatro sumandos NUNCA se colapsan en una cifra.** `stock + verifying + inTransit +
+   *    committed` viajan por separado **porque tienen confianza distinta**: el stock es físico, lo
+   *    comprometido es una promesa. Esa distinción es exactamente lo que pidió `PROJECT.md` §P.2.
+   * 3. **«En camino» que se pinta = `position.inTransit` y nada más** (criterio 116). Una solicitud
+   *    `aceptada` **no** suma: *es una promesa, no un paquete*. Solo cuenta lo que el operador ya
+   *    confirmó como enviado (D20) — ni la guía emitida, ni el «ya lo mandé» del vendedor.
+   * 4. **La sugerencia NUNCA bloquea** (D6) y **dice qué regla la disparó** (criterios 115/144/153).
+   *    El backend **no** valida la oferta contra ella: el admin compra una línea con `do_not_buy` y
+   *    descarta una con `buy`, sin fricción ni permiso extra. Está escrito aquí para que nadie lo
+   *    «endurezca» por parecer prudente: endurecerlo **contradice `PROJECT.md`**.
+   *
+   * ### Money-safe y sin N+1
+   * Es una pantalla de back-office que se abre **por cada solicitud**, así que el coste se paga en
+   * cada apertura: todas las lecturas van **en lote** y su número **no crece con el número de
+   * líneas** (curva, overrides, referencias set_base, productos separados y sus referencias, la
+   * posición on-hand y los tres sumandos de `SellRequestItem`).
+   *
+   * **NO se audita** (§4.39, tabla de auditoría): *la mesa decide qué comprar, no cómo nos hemos
+   * portado*. Es una lectura; lo que se audita es la **emisión** de la oferta.
+   *
+   * **Nada de aquí se filtra al vendedor** (API_CONTRACT §6): posición, sugerencia, «en camino» y el
+   * tope del operador son cifras internas. `GET /buylist/requests/:id` no las gana.
+   */
+  async adminDecisionTable(id: string, actor: { id: string; role: Role }) {
+    // (1) LA SOLICITUD — una query con sus líneas, su carta (con el set, que `CardDTO` necesita para
+    // el rótulo de identidad de la línea) y el vendedor.
+    const req = await this.prisma.sellRequest.findUnique({
+      where: { id },
+      include: {
+        items: { include: { card: { include: { set: true } } } },
+        user: { select: { id: true, name: true, email: true } },
+      },
+    });
+    if (!req) throw BusinessException.notFound();
+    const items = req.items ?? [];
+
+    // (2) LAS LLAVES — se construyen UNA vez por línea y las consumen las CUATRO fuentes de la
+    // posición + los dos mapas de dinero. `variantKey()` / `variantPositionKey()`, NUNCA una
+    // interpolación a mano: si una fuente llaveara distinto, las cifras se desalinearían EN SILENCIO
+    // (que es la peor forma de fallar en dinero) y el operador compraría mal.
+    const lines = items.map((it) => {
+      const gradeKey = this.pricing.gradeKeyFor({
+        productType: it.productType,
+        rawCondition: it.rawCondition,
+      });
+      const finish = (it.finish ?? 'normal') as Finish;
+      const variant = { cardId: it.cardId, productType: it.productType, gradeKey, finish };
+      return {
+        it,
+        variant,
+        cardProductId: it.cardProductId ?? null,
+        positionKey: variantPositionKey({ ...variant, cardProductId: it.cardProductId ?? null }),
+      };
+    });
+
+    // (3) DINERO EN LOTE — la curva UNA vez, los overrides en un batch, y las referencias en DOS
+    // batches disjuntos: el de set_base (que excluye deck_exclusive/promo) y el de producto separado
+    // (que es justamente lo que aquél no puede servir, §4.27f).
+    const curve = await this.pricing.loadPricingCurve();
+    const overrides = await this.pricing.getVariantOverridesBatch(lines.map((l) => l.variant));
+    const baseRefs = await this.pricing.getReferencesBatch(
+      lines.filter((l) => l.cardProductId == null).map((l) => l.variant),
+    );
+    const products = await this.pricing.findCardProductsByTcgIds(
+      lines.filter((l) => l.cardProductId != null).map((l) => l.cardProductId as number),
+    );
+    const productRefs = await this.pricing.getReferencesByCardProductBatch(
+      lines
+        .filter((l) => l.cardProductId != null)
+        .map((l) => {
+          const cp = products.get(l.cardProductId as number);
+          return cp
+            ? {
+                cardProductId: cp.id,
+                productType: l.variant.productType,
+                gradeKey: l.variant.gradeKey,
+                finish: l.variant.finish,
+              }
+            : null;
+        })
+        .filter((x): x is NonNullable<typeof x> => x != null),
+    );
+
+    // (4) LA POSICIÓN — cuatro sumandos, cuatro fuentes, UNA llave.
+    const position = await this.positionFor(
+      lines.map((l) => ({ ...l.variant, cardProductId: l.cardProductId })),
+    );
+
+    // (5) LOS DIALES vigentes. Se leen AHORA porque la mesa es una PREVISUALIZACIÓN: lo vinculante se
+    // congela al EMITIR, no aquí.
+    const [shippingFeeCents, minimumOfferNetCents, operatorCapCents, variantPositionCap] =
+      await Promise.all([
+        this.settings.getNumber(SettingKey.BUYLIST_SHIPPING_FEE_CENTS),
+        this.settings.getNumber(SettingKey.BUYLIST_MINIMUM_OFFER_NET_CENTS),
+        this.settings.getNumber(SettingKey.BUYLIST_OPERATOR_OFFER_CAP_CENTS),
+        this.settings.getNumber(SettingKey.BUYLIST_VARIANT_POSITION_CAP),
+      ]);
+
+    const dtoLines = [];
+    let buyableGrossCents = 0;
+    for (const l of lines) {
+      const { it } = l;
+      // El override M-30 se llavea SIN `cardProductId`, así que mapea a la variante de SET_BASE. En
+      // una línea de producto separado se IGNORA —igual que en el precio (§4.29b)—: aplicarlo sería
+      // fusionar dos identidades, que es el error que §P.8 llama «peor que no mostrar nada».
+      const override =
+        l.cardProductId == null ? (overrides.get(variantKey(l.variant)) ?? null) : null;
+
+      const decision = await this.derivedLine(l, curve, override, baseRefs, products, productRefs);
+      const derivedPriceCents = decision?.quotedPriceCents ?? null;
+      if (derivedPriceCents != null) buyableGrossCents += derivedPriceCents;
+
+      dtoLines.push({
+        itemId: it.id,
+        card: toCardDTO(it.card),
+        productType: it.productType,
+        finish: (it.finish ?? 'normal') as Finish,
+        // D7: la identidad REAL de la pieza viaja, y es la que entró a la llave del conteo.
+        cardProductId: l.cardProductId,
+        // (a) lo que se le cotizó — el snapshot congelado al crear la solicitud.
+        quotedPriceCents: it.quotedPriceCents ?? null,
+        // El derivado por la curva VIGENTE. `null` ⇒ el front pinta `SIN PRECIO`, JAMÁS `MX$ 0.00`.
+        derivedPriceCents,
+        priceBasis: decision?.priceBasis ?? ('pending' as PriceBasis),
+        pendingReason: decision?.pendingReason ?? null,
+        ...this.positionAndSuggestion(
+          position,
+          l.positionKey,
+          override,
+          decision,
+          variantPositionCap,
+        ),
+      });
+    }
+
+    // (6) TOTALES — PREVISUALIZACIÓN de la selección POR DEFECTO (DESIGN_SYSTEM §23.6g: toda línea
+    // con precio resoluble nace marcada como «comprar»; la que no tiene precio nace desmarcada,
+    // porque no se puede ofertar sin monto). El operador quita líneas y la UI recalcula la suma; el
+    // UMBRAL y el VEREDICTO los sigue mandando el servidor (los diales se editan sin redeploy, así
+    // que una constante en el front quedaría desincronizada en silencio).
+    const netCents = Math.max(0, buyableGrossCents - shippingFeeCents);
+    return {
+      sellRequestId: req.id,
+      status: req.status,
+      seller: this.sellerRef(req.user),
+      quotedTotalCents: req.quotedTotalCents,
+      lines: dtoLines,
+      totals: {
+        buyableGrossCents,
+        shippingFeeCents,
+        netCents,
+        minimumOfferNetCents,
+        requiredGrossCents: minimumOfferNetCents + shippingFeeCents,
+        netBelowMinimum: netCents < minimumOfferNetCents,
+      },
+      operatorCapCents,
+      // AVISO, no bloqueo (D24): el operador PUEDE preparar la oferta; lo que no puede es que salga
+      // sola. El súper-admin oferta sin tope.
+      requiresAuthorization:
+        actor.role === Role.vault_operator && buyableGrossCents > operatorCapCents,
+      // v1.51.3 (D36) — AVISO, no bloqueo: quien bloquea es `POST …/offer` con
+      // `422 PICKUP_ADDRESS_MISSING`. Es un BOOLEANO y no la dirección: la mesa es una pantalla de
+      // decisión de compra, no de datos personales (la dirección vive en el detalle).
+      pickupAddressMissing: req.pickupAddressSnapshot == null,
+    };
+  }
+
+  /**
+   * v1.51 (M-46, §4.39e) — el precio DERIVADO de una línea, por el **seam único** `decideBuyLine`
+   * con la curva vigente y los lotes ya leídos. Prohibida una cuarta reimplementación de la
+   * secuencia curva/override/bounty/pendiente.
+   *
+   * **`null` = la línea no tiene precio derivable por un problema de IDENTIDAD**, no de mercado: el
+   * acabado snapshoteado ya no está en `availableFinishes` de la carta (deriva del catálogo), o el
+   * `cardProductId` no resuelve. La mesa **no revienta con un 422 por eso** —el contrato solo declara
+   * `403`/`404` y esta pantalla es diagnóstica—, pero **tampoco inventa un `pendingReason`**: los dos
+   * valores de ese enum (`no_market`/`premium_at_floor`) afirman algo sobre el MERCADO, y aquí el
+   * mercado no llegó a consultarse. Se devuelve `derivedPriceCents: null` con `pendingReason: null`:
+   * el front pinta `SIN PRECIO` y la línea sigue siendo rescatable con override al ofertar.
+   * *La respuesta correcta a un dato que falta es decir que falta, no elegirle un motivo.*
+   */
+  private async derivedLine(
+    l: DecisionLine,
+    curve: PricingCurve,
+    override: VariantPriceOverride | null,
+    baseRefs: Map<string, { status: string; referenceMxnCents?: number | null }>,
+    products: Map<number, { id: string; cardId: string; finishes: string[] }>,
+    productRefs: Map<string, { status: string; referenceMxnCents?: number | null }>,
+  ): Promise<BuyLineDecision | null> {
+    const { it } = l;
+    const cp = l.cardProductId != null ? (products.get(l.cardProductId) ?? null) : null;
+    const gradeKey = this.pricing.gradeKeyFor({
+      productType: it.productType,
+      rawCondition: it.rawCondition,
+    });
+    const reference =
+      l.cardProductId == null
+        ? (baseRefs.get(
+            variantKey({
+              cardId: it.cardId,
+              productType: it.productType,
+              gradeKey,
+              finish: l.variant.finish,
+            }),
+          ) ?? { status: 'pending' })
+        : (cp
+            ? productRefs.get(
+                cardProductRefKey({
+                  cardProductId: cp.id,
+                  productType: it.productType,
+                  gradeKey,
+                  finish: l.variant.finish,
+                }),
+              )
+            : null) ?? { status: 'pending' };
+    try {
+      return await this.decideBuyLine({
+        card: it.card,
+        productType: it.productType,
+        rawCondition: it.rawCondition ?? undefined,
+        finish: (it.finish ?? undefined) as Finish | undefined,
+        curve,
+        override,
+        productId: l.cardProductId ?? undefined,
+        prefetched: {
+          cardProduct: cp ? { id: cp.id, cardId: cp.cardId, finishes: cp.finishes as Finish[] } : null,
+          reference,
+        },
+      });
+    } catch (e) {
+      // Los MISMOS códigos por-ítem que `batchQuote` degrada sin tumbar el lote (§4.29c). Cualquier
+      // otro error (infra) se propaga: un fallo de BD no puede disfrazarse de «línea sin precio».
+      if (
+        e instanceof BusinessException &&
+        (e.code === 'FINISH_NOT_AVAILABLE' ||
+          e.code === 'PRODUCT_NOT_FOUND' ||
+          e.code === 'PRODUCT_CARD_MISMATCH')
+      ) {
+        this.logger.warn(
+          `decision-table: línea ${it.cardId} sin precio derivable (${e.code}); se emite SIN monto y sin motivo de mercado`,
+        );
+        return null;
+      }
+      throw e;
+    }
+  }
+
+  /**
+   * v1.51 (M-46, §4.39g) — **LA POSICIÓN: cuatro sumandos, cuatro fuentes, UNA llave.**
+   *
+   * | Sumando | Predicado | ¿Entra en `total`? | ¿Se pinta como «en camino»? |
+   * |---|---|---|---|
+   * | `stock` | `InventoryItem` de PLATAFORMA, on-hand, misma variante **con `cardProductId`** | sí | no |
+   * | `verifying` | línea `buy` cuya solicitud está `recibida`\|`verificacion` | sí | no |
+   * | `inTransit` | línea `buy` cuya solicitud está **`en_transito`** | sí | **SÍ — la ÚNICA** |
+   * | `committed` | línea `buy` cuya solicitud está `ofertada`\|`aceptada` | sí | no |
+   *
+   * `total` contesta *«¿de cuántas copias ya soy responsable?»* — una línea ya ofertada es **dinero
+   * comprometido** (D2: la oferta es vinculante). `inTransit` contesta *«¿qué viaja de verdad?»*.
+   *
+   * **Solo el `stock` cruza la frontera de streams** (vía `INVENTORY_POSITION_PORT`); los otros tres
+   * salen de `SellRequestItem`, que `buylist` ya posee. Ese es el seam mínimo posible.
+   *
+   * `null` ⇒ **no se pudo contar**: el puerto falta (defecto de arranque) o falló. **JAMÁS se
+   * degrada a ceros.**
+   */
+  private async positionFor(refs: VariantPositionRef[]): Promise<PositionMap | null> {
+    // (a) STOCK — el único sumando que cruza de `inventory`. Sin puerto o con puerto que truena, la
+    // posición ENTERA queda no disponible: un desglose con tres sumandos ciertos y un cuarto
+    // inventado sumaría a un total falso, y el total es lo que decide la sugerencia.
+    let onHand: Map<string, number>;
+    if (!this.inventoryPosition) {
+      // El @Optional existe solo para los tests unitarios que construyen el servicio a mano; en
+      // runtime esto es un DEFECTO DE ARRANQUE (§4.39f) y ya se gritó en `onModuleInit`.
+      return null;
+    }
+    try {
+      const counts = await this.inventoryPosition.onHandCountsFor(refs);
+      if (!(counts instanceof Map)) return null;
+      onHand = counts;
+    } catch (e) {
+      this.logger.error(
+        `INVENTORY_POSITION_PORT falló al contar ${refs.length} variantes: ${(e as Error).message}. ` +
+          'La mesa devuelve positionUnavailable — NUNCA 0 (§4.39f).',
+      );
+      return null;
+    }
+
+    // (b) LOS TRES SUMANDOS DE `SellRequestItem` — UNA query para las tres clases de estado. Se acota
+    // por `cardId` (que es lo que el índice sirve) y por `offerDecision='buy'`: una línea `skip` no
+    // es una compra, así que no compromete nada.
+    if (refs.length === 0) return new Map();
+    const rows = await this.prisma.sellRequestItem.findMany({
+      where: {
+        cardId: { in: [...new Set(refs.map((r) => r.cardId))] },
+        offerDecision: 'buy',
+        sellRequest: {
+          status: {
+            in: [
+              ...SELL_REQUEST_VERIFYING_STATES,
+              ...SELL_REQUEST_IN_TRANSIT_STATES,
+              ...SELL_REQUEST_COMMITTED_STATES,
+            ],
+          },
+        },
+      },
+      select: {
+        cardId: true,
+        productType: true,
+        rawCondition: true,
+        finish: true,
+        cardProductId: true,
+        sellRequest: { select: { status: true } },
+      },
+    });
+
+    const out: PositionMap = new Map();
+    for (const r of refs) {
+      const key = variantPositionKey(r);
+      if (out.has(key)) continue;
+      // Clave PRESENTE en el Map del puerto ⇒ ese número. Clave AUSENTE ⇒ `0`, y es un CERO
+      // LEGÍTIMO («no hay ninguna»): el cero PROHIBIDO —«no pude contar»— ya salió por arriba como
+      // `null`, y los dos no se pueden confundir porque no llegan por el mismo camino.
+      out.set(key, {
+        stock: onHand.get(key) ?? 0,
+        verifying: 0,
+        inTransit: 0,
+        committed: 0,
+        total: 0,
+      });
+    }
+    for (const row of rows) {
+      const key = variantPositionKey({
+        cardId: row.cardId,
+        productType: row.productType,
+        // MISMA función canónica que llavea el resto de las fuentes.
+        gradeKey: this.pricing.gradeKeyFor({
+          productType: row.productType,
+          rawCondition: row.rawCondition,
+        }),
+        finish: row.finish,
+        cardProductId: row.cardProductId ?? null,
+      });
+      const bucket = out.get(key);
+      if (!bucket) continue; // variante que no está en esta solicitud.
+      const status = row.sellRequest.status;
+      const en = (set: readonly SellRequestStatus[]) => set.includes(status);
+      if (en(SELL_REQUEST_VERIFYING_STATES)) bucket.verifying += 1;
+      else if (en(SELL_REQUEST_IN_TRANSIT_STATES)) bucket.inTransit += 1;
+      // `ofertada`|`aceptada`: la palabra ya está dada, pero NO es un paquete (criterio 116).
+      else bucket.committed += 1;
+    }
+    for (const b of out.values()) b.total = b.stock + b.verifying + b.inTransit + b.committed;
+    return out;
+  }
+
+  /**
+   * v1.51 (M-46, §4.39g, criterios 144/153) — la posición y la **sugerencia** de UNA línea.
+   *
+   * **Precedencia, no un «o»:**
+   * ```
+   * bounty VIVO ∧ targetQty ≠ null  ⇒ manda el BOUNTY: do_not_buy ⇔ total ≥ bountyTargetQty
+   * bounty VIVO ∧ targetQty = null  ⇒ manda el TOPE GENERAL  (fila LEGACY mal formada)
+   * sin bounty                      ⇒ manda el TOPE GENERAL: do_not_buy ⇔ total ≥ variantPositionCap
+   * ```
+   *
+   * **Un bounty vivo con `targetQty = null` NO es «sin límite»: cae al TOPE GENERAL**, y la respuesta
+   * lo DECLARA (`rule: 'variant_cap'` **con** `bountyActive: true`) para que el caso legacy sea
+   * legible en pantalla sin que nadie tenga que deducirlo. Tras el backfill de D35 no debería existir
+   * ninguna fila así; la rama **no se retira** porque la columna sigue siendo `Int?` ⇒ el `null`
+   * sigue siendo representable, y *un lector de dinero sin respuesta para un valor representable es
+   * un lector que decide por omisión*. La respuesta money-safe es frenar.
+   *
+   * **Sin conteo no hay consejo:** `positionUnavailable` ⇒ `verdict: 'none'` con `rule: null`. Nunca
+   * se infiere un veredicto sobre un total que no se pudo calcular.
+   */
+  private positionAndSuggestion(
+    position: PositionMap | null,
+    positionKey: string,
+    override: VariantPriceOverride | null,
+    decision: BuyLineDecision | null,
+    variantPositionCap: number,
+  ) {
+    // «Bounty VIVO» = habilitado, no completado y EFECTIVO contra la curva vigente (§4.36.6): un
+    // bounty por debajo de la tarifa de la curva dejó de ser bounty, y no puede gobernar el consejo.
+    const bountyActive =
+      override?.bountyEnabled === true &&
+      override.bountyCompletedAt == null &&
+      isBountyEffective(override.bountyPriceCents ?? null, decision?.quote.curveQuoteCents ?? null);
+
+    const bucket = position?.get(positionKey) ?? null;
+    if (position == null || bucket == null) {
+      // ⚠️ `position: null`, NO ceros. Un cero que significa «no pude contar» se ve confiable y
+      // empuja a comprar de más (§P.8). El front pinta «SIN CONTEO» y no infiere nada.
+      return {
+        position: null,
+        positionUnavailable: true,
+        suggestion: { verdict: 'none' as const, rule: null, thresholdQty: null, bountyActive },
+      };
+    }
+
+    const useBounty = bountyActive && override?.bountyTargetQty != null;
+    const thresholdQty = useBounty ? (override?.bountyTargetQty as number) : variantPositionCap;
+    return {
+      // Los CUATRO sumandos + el total, SIEMPRE por separado: tienen confianza distinta y esa
+      // distinción ES el valor de la pantalla. El único sitio donde se suman es `total`.
+      position: { ...bucket },
+      suggestion: {
+        // ⚠️ INFORMATIVO. El backend NO valida la oferta contra esto (D6).
+        verdict: bucket.total >= thresholdQty ? ('do_not_buy' as const) : ('buy' as const),
+        rule: useBounty ? ('bounty_target' as const) : ('variant_cap' as const),
+        thresholdQty,
+        // `variant_cap` CON `bountyActive: true` es exactamente el caso legacy (criterio 144).
+        bountyActive,
+      },
     };
   }
 

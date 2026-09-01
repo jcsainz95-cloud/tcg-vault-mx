@@ -12,6 +12,7 @@ import {
   SELL_REQUEST_VERIFYING_STATES,
 } from '../src/common/sell-request-states';
 import { SELL_REQUEST_TERMINAL_STATES as REEXPORTED } from '../src/modules/buylist/buylist-reject.constants';
+import { variantKey, variantPositionKey } from '../src/common/variant-key';
 
 /**
  * v1.51 (M-46, ARCHITECTURE §4.39c) — **EL RADIO DEL ENUM: los NUEVE sitios, cerrados.**
@@ -278,11 +279,43 @@ describe('§4.39e — P-30 H2: `buylist` deja de interpolar la llave canónica a
     expect(ofensores).toEqual([]);
   });
 
-  it('`buylist.service.ts` usa `variantKey()` en sus CUATRO sitios de agrupación', () => {
+  it('`buylist.service.ts` usa `variantKey()` en TODOS sus sitios de agrupación', () => {
     const buylist = CODE.find((f) => f.path === 'modules/buylist/buylist.service.ts');
     expect(buylist?.text).toMatch(/from '\.\.\/\.\.\/common\/variant-key'/);
     // ⚠️ El contrato (§4.39e) enumeraba DOS interpolaciones; en el código vivo eran CUATRO. Se
-    // migran las cuatro: cerrar dos de cuatro habría dejado la clase abierta.
-    expect((buylist?.text.match(/variantKey\(/g) ?? []).length).toBe(4);
+    // migraron las cuatro: cerrar dos de cuatro habría dejado la clase abierta.
+    // v1.51 (M-46, §4.39g): la MESA DE DECISIÓN añade DOS consumidores más de la misma llave —el
+    // lookup del override por línea y el de la referencia de set_base—, así que el censo pasa de 4 a
+    // 6. Es un censo, no un tope: lo que NO puede subir nunca es el número de interpolaciones a mano
+    // (el test de arriba, que es el que de verdad protege el invariante). Si esta cifra sube porque
+    // alguien añadió un consumidor que USA el helper, se actualiza; si sube el otro, se corrige el
+    // código.
+    expect((buylist?.text.match(/variantKey\(/g) ?? []).length).toBe(6);
+  });
+
+  it('la POSICIÓN se llavea con `variantPositionKey()` — la canónica MÁS la identidad de producto', () => {
+    // §4.39g: las CUATRO fuentes de la posición (inventario on-hand, verificando, en tránsito y
+    // comprometido) usan ESTA función. Un conteo que mezcle una promo con su versión del set base
+    // «es peor que no mostrar nada, porque el operador lo creería» (§P.8 / D7).
+    const buylist = CODE.find((f) => f.path === 'modules/buylist/buylist.service.ts');
+    expect(buylist?.text).toMatch(/variantPositionKey\(/);
+    // Derivada, NO paralela: se construye SOBRE `variantKey()`, así que no puede divergir de ella.
+    expect(variantPositionKey({ ...POSITION_PARTS, cardProductId: null })).toBe(
+      `${variantKey(POSITION_PARTS)}|base`,
+    );
+    expect(variantPositionKey({ ...POSITION_PARTS, cardProductId: 42 })).toBe(
+      `${variantKey(POSITION_PARTS)}|42`,
+    );
+    // El caso base es EXPLÍCITO (`base`), no una cadena vacía que se confunda con un id ausente.
+    expect(variantPositionKey({ ...POSITION_PARTS, cardProductId: null })).not.toBe(
+      `${variantKey(POSITION_PARTS)}|`,
+    );
   });
 });
+
+const POSITION_PARTS = {
+  cardId: 'c1',
+  productType: 'raw',
+  gradeKey: 'raw:NM',
+  finish: 'holofoil',
+} as const;

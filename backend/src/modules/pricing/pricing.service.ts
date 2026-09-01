@@ -373,6 +373,23 @@ export function isBetterRef(a: RefRow, b: RefRow): boolean {
 }
 
 /** Reduce un conjunto de candidatas a la MEJOR según `isBetterRef` (desempate determinista). */
+/**
+ * v1.51 (M-46, §4.39e) — clave del `Map` de `getReferencesByCardProductBatch`. El eje aquí es el
+ * **UUID interno de `CardProduct`** (no el `cardId`), así que NO es `variantKey()` y no debe
+ * disfrazarse de ella: son dos espacios de claves distintos y confundirlos sería fusionar el precio
+ * de una promo con el de la carta de set. Vive PEGADA a su productor (misma doctrina que
+ * `variantKey`): productor y consumidor comparten UNA fuente, así que el `.get()` no puede fallar
+ * por un cambio de orden o de separador.
+ */
+export function cardProductRefKey(p: {
+  cardProductId: string;
+  productType: ProductType;
+  gradeKey: string;
+  finish: Finish;
+}): string {
+  return `${p.cardProductId}|${p.productType}|${p.gradeKey}|${p.finish}`;
+}
+
 export function pickBestRef<T extends RefRow>(rows: T[]): T | null {
   let best: T | null = null;
   for (const r of rows) if (best == null || isBetterRef(r, best)) best = r;
@@ -778,6 +795,21 @@ export class PricingService {
   }
 
   /**
+   * v1.51 (M-46, §4.39e/f) — hermana EN LOTE de `findCardProductByTcgId`: **UNA** query para N
+   * productos. Existe porque la mesa de decisión y la emisión de la oferta resuelven las N líneas de
+   * una solicitud de golpe; con la versión single serían N `findUnique` en una pantalla que se abre
+   * por cada solicitud. Misma lectura pura: devuelve lo que hay, y el caller decide
+   * `PRODUCT_NOT_FOUND` / `PRODUCT_CARD_MISMATCH`.
+   */
+  async findCardProductsByTcgIds(tcgplayerProductIds: number[]): Promise<Map<number, CardProduct>> {
+    const ids = [...new Set(tcgplayerProductIds)];
+    if (ids.length === 0) return new Map();
+    // PROJECTION-EXEMPT: misma lectura interna de resolución que `findCardProductByTcgId`.
+    const rows = await this.prisma.cardProduct.findMany({ where: { tcgplayerProductId: { in: ids } } });
+    return new Map(rows.map((r) => [r.tcgplayerProductId, r]));
+  }
+
+  /**
    * v1.30 (M-32, §4.29b) — Referencia de mercado de un producto SEPARADO: `PriceReference` filtrada por
    * ESE `cardProductId` (UUID interno de M-31), no por (cardId, finish) del set_base. Su precio propio
    * (source `tcgcsv_singles` primario, override/PPT si aplica). Sin fila ⇒ `pending` («—», nunca 0,
@@ -869,6 +901,63 @@ export class PricingService {
     const bestByKey = new Map<string, (typeof rows)[number]>();
     for (const r of rows) {
       const k = keyOf(r);
+      if (!wanted.has(k)) continue;
+      const cur = bestByKey.get(k);
+      if (cur == null || isBetterRef(r, cur)) bestByKey.set(k, r);
+    }
+    for (const [k, r] of bestByKey) {
+      map.set(k, {
+        status: 'priced',
+        referenceMxnCents: this.liveMxnCents(r, fx),
+        source: r.source as PriceSourceStr,
+        capturedDate: r.capturedDate.toISOString().slice(0, 10),
+      });
+    }
+    return map;
+  }
+
+  /**
+   * v1.51 (M-46, §4.39e) — hermana EN LOTE de `getReferenceByCardProduct`: la referencia de los N
+   * **productos SEPARADOS** (deck_exclusive/promo) de una solicitud en **UNA** query.
+   *
+   * Es el eje que `getReferencesBatch` **no** cubre y no puede cubrir: aquél aplica
+   * `BASE_CARD_REF_WHERE`, que EXCLUYE justamente estas filas (§4.27f — el precio de un producto
+   * separado no es el de la carta de set). Sin esta hermana, una solicitud de promos volvería a hacer
+   * un `getReferenceByCardProduct` por línea.
+   *
+   * Misma regla de valuación y mismo desempate determinista que el resto del eje
+   * (`isBetterRef` + `liveMxnCents` con la FX izada UNA vez). Clave del `Map`:
+   * `cardProductRefKey` — producida e indexada aquí, y consumida con la MISMA función.
+   */
+  async getReferencesByCardProductBatch(
+    items: { cardProductId: string; productType: ProductType; gradeKey: string; finish: Finish }[],
+  ): Promise<Map<string, PriceInfo>> {
+    const map = new Map<string, PriceInfo>();
+    if (items.length === 0) return map;
+    const wanted = new Set(items.map(cardProductRefKey));
+    const rows = await this.prisma.priceReference.findMany({
+      where: {
+        cardProductId: { in: [...new Set(items.map((i) => i.cardProductId))] },
+        productType: { in: [...new Set(items.map((i) => i.productType))] },
+        gradeKey: { in: [...new Set(items.map((i) => i.gradeKey))] },
+        finish: { in: [...new Set(items.map((i) => i.finish))] },
+        // M-43 (§4.38l.4.4A): ruta de dinero ⇒ SOLO filas de mercado. Un estimado que se colara aquí
+        // pondría precio a la oferta de una promo.
+        ...MONEY_REF_WHERE,
+      },
+      orderBy: { capturedDate: 'desc' },
+      select: PRICE_REF_SELECT,
+    });
+    const fx = await this.fxSnapshotSafe();
+    const bestByKey = new Map<string, (typeof rows)[number]>();
+    for (const r of rows) {
+      if (r.cardProductId == null) continue; // defensivo: el `where` ya lo impide.
+      const k = cardProductRefKey({
+        cardProductId: r.cardProductId,
+        productType: r.productType,
+        gradeKey: r.gradeKey,
+        finish: r.finish,
+      });
       if (!wanted.has(k)) continue;
       const cur = bestByKey.get(k);
       if (cur == null || isBetterRef(r, cur)) bestByKey.set(k, r);

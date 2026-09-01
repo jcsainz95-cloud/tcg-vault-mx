@@ -70,6 +70,24 @@ export class AdminBuylistController {
   }
 
   /**
+   * v1.51 (M-46, D6 · API_CONTRACT §M5 · criterios 115/116/117/144/153) — **la MESA DE DECISIÓN**.
+   * Por línea: qué pidió vender, cuánto se cotizó, el precio derivado por la **curva vigente**, la
+   * **posición con sus cuatro sumandos** y una **sugerencia que NUNCA bloquea** y que dice qué regla
+   * disparó. Roles heredados de la clase (`vault_operator`/`super_admin`) ⇒ `403` fuera de ellos.
+   *
+   * **`requiresAuthorization` depende del ACTOR** (D24: el tope es del operador, no de la solicitud),
+   * por eso el usuario baja al servicio.
+   *
+   * ⚠️ **NO se audita** (ARCHITECTURE §4.39, tabla de auditoría): *«la mesa decide qué comprar, no
+   * cómo nos hemos portado»*. Es una LECTURA; lo que se audita es la **emisión** de la oferta. Sin
+   * `@MoneyOut`: no sale dinero, se previsualiza.
+   */
+  @Get(':id/decision-table')
+  decisionTable(@Param('id') id: string, @CurrentUser() user: { id: string; role: Role }) {
+    return this.buylist.adminDecisionTable(id, user);
+  }
+
+  /**
    * Reveal on-demand de la CLABE COMPLETA (18 dígitos) para copiarla a la banca al hacer
    * el SPEI. SOLO `super_admin` (@MoneyOut) y AUDITADO en AuditLog (quién/cuándo/qué
    * solicitud). Es el ÚNICO endpoint que devuelve la CLABE en claro; el resto enmascara.
