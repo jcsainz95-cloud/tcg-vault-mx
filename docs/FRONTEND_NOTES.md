@@ -9812,3 +9812,434 @@ cambios de conducta** (la única línea de producto tocada es un comentario). Es
 este archivo y `docs/TECH_DEBT.md` (a petición explícita del techlead, que es su dueño de petición).
 `backend/` intacto. **`docs/DESIGN_SYSTEM.md` NO se tocó**: §23 es de ux-ui, que trabajaba en él en
 paralelo durante este pase.
+
+---
+
+## §41 · Copy del home reescrito con la voz de marca HUNT — solo cadenas, cero render (2026-09-01, rama `claude/ecommerce-home-copy-optimization-dd3d2w`)
+
+Pase **exclusivamente de copy**. No se tocó ni un componente, estilo, ruta, hook ni llamada a la API: el
+árbol que pinta el home es **byte a byte el mismo** que antes del pase. Lo único que cambia es el **valor**
+de un conjunto de claves i18n del bloque `home.*` y de `common.tagline`, en ES y EN.
+
+### 41.1 Qué se buscaba
+
+El home hablaba como un catálogo genérico («Compra cartas Pokémon con precio real…», «Ver el catálogo»,
+«Sets buscados»). La marca es **TCG HUNT**, y el léxico de caza (cazar/cacería/bounty) ya vivía en el
+producto solo a medias: «Top Bounties» estaba, pero el resto del home no lo acompañaba. Este pase alinea el
+copy con esa voz **sin romper la sobriedad editorial del sistema de diseño** (§1: claro, directo,
+tranquilizador; nada infantil; sin emojis; sin signos de admiración).
+
+Decisión del humano, no del frontend. Aquí solo queda registrada la implementación.
+
+### 41.2 Regla que gobernó el pase: se cambian VALORES, nunca el juego de claves
+
+`src/lib/i18n-parity.test.ts` exige que ES y EN tengan **el mismo conjunto de rutas de clave**. Añadir o
+borrar una clave en un solo idioma es un rojo inmediato, y borrarla en los dos rompe en silencio a
+cualquier consumidor. Por eso el pase se aplicó con un editor **consciente de la ruta** que reescribe solo
+la porción de valor de las líneas objetivo y luego **verifica estructuralmente** que:
+
+- la lista de rutas de clave (y su orden) es idéntica antes y después, y
+- el conjunto de valores que difieren es **exactamente** el conjunto pedido — ni uno más.
+
+Se conservan intactas las **claves muertas** del bloque (`home.ctaBuylist`, `home.trustAuth`,
+`home.trustPrice`, `home.vaultLabel`, `home.featuredSet.*`). Están sin consumidor hoy, pero borrarlas es
+un cambio de superficie i18n que no le toca a un pase de copy; si deben morir, es una limpieza aparte y
+deliberada, con la paridad ES/EN movida a la vez.
+
+### 41.3 Qué NO se tocó, y por qué
+
+Copy **legal** o **fuente de verdad**, deliberadamente fuera del alcance:
+
+| Clave(s) | Razón |
+|---|---|
+| `catalog.gradingNote.*`, `catalog.gradingBadge.*` | Deslinde legal del gancho de grading. |
+| `home.gradingGems.kicker` (`ILUSTRATIVO · NO EVALUAMOS LA PIEZA`) | Deslinde legal (§22.6). Reescribirlo por «tono» es publicar otra afirmación jurídica. |
+| `common.brand.*` (`TCG HUNT`, `tcghunt.mx`) | Fuente de verdad de la marca (§28), con candado propio en `brand.test.ts` y en la paridad. |
+| `nav.*`, pie, `stock.*`, `price.pending*`, `finish.*`, aria-labels de control, estados del carrusel | Fuera del home o portadores de estado/accesibilidad, no de marketing. |
+
+`home.gradingGems.lead` **sí** se reescribió: es la frase descriptiva de la vitrina, no el descargo. El
+descargo es el `kicker`, y sigue palabra por palabra como estaba.
+
+### 41.4 El efecto colateral que este pase sí tenía: `home.featuredTitle` es también un `aria-label`
+
+`featuredTitle` no es solo el H2 de la vitrina. `FeaturedCarousel.tsx` lo usa además como
+**`ariaLabel` de la región** del carrusel (`ariaLabel={t('featuredTitle')}`). Cambiar el título de «Piezas
+destacadas del catálogo» a «Piezas destacadas» mueve, por tanto, **el nombre accesible de la región**, y
+con él dos candados de `FeaturedCarouselRotation.test.tsx` que lo fijan en duro:
+
+- `getByRole('region', { name: … })` (ES) y su gemelo en EN,
+- la aserción de §23.9 `expect(section).toHaveAttribute('aria-label', …)`.
+
+Se actualizaron los tres literales. `aria-roledescription` sigue siendo `carrusel`/`carousel`.
+
+**Corrección (hallazgo bloqueante del techlead, cerrado en este mismo pase).** La primera redacción de
+esta sección afirmaba que la aserción
+`expect(section.getAttribute('aria-label')).not.toMatch(/rotaci|carrus|grad?|PSA/i)` «sigue viva y verde»
+y que «cambió la cadena esperada, no la norma verificada». **Para tres de los cuatro brazos era cierto;
+para el cuarto era falso.** La `e` de `grade` era el **homoglifo cirílico U+0435 CYRILLIC SMALL LETTER
+IE**, no la `e` ASCII: ese brazo exigía la secuencia `grad` + U+0435, que **ningún copy latino puede
+producir jamás**. El guard contra «gradeadas/graded» en el nombre accesible de la región llevaba tiempo
+sin poder fallar, y como los otros tres brazos sí funcionaban, el test estaba verde y el lint callado.
+
+El homoglifo **es preexistente: venía de `main`, no lo introdujo este pase** (verificado con
+`git show HEAD~1`). Lo que sí introdujo este pase fue *escribir en el registro durable que la aserción
+verificaba algo que no verificaba*, que es la parte que de verdad hacía daño: una nota que certifica una
+cobertura inexistente es peor que no tener nota.
+
+Arreglado aquí: `e` ASCII restaurada, la regex extraída a la constante compartida
+`NOMBRE_ACCESIBLE_PROHIBIDO`, y **un caso de control que la prueba en positivo** (`it.each` con
+`'Cartas gradeadas'`, `'… rotación automática'`, `'Carrusel de destacadas'`, `'Gradeadas PSA'`: una
+cadena por brazo). El control **reusa el mismo objeto regex** a propósito — duplicar el literal habría
+reproducido el defecto en vez de cazarlo.
+
+**Verificado rompiéndolo:** reintroducir el homoglifo pone en rojo el control con el mensaje
+`AssertionError: expected 'Cartas gradeadas' to match /rotaci|carrus|grad<U+0435>|PSA/i`. Antes de este
+pase, esa misma mutación daba **verde**.
+
+**Lección, y es la que importa:** una aserción **negativa** (`not.toMatch`, `not.toContain`,
+`toEqual([])`) no demuestra nada por sí sola — pasa igual si el sujeto está limpio que si el candado está
+roto. Toda aserción negativa que proteja algo real necesita un control que la dispare. En este archivo
+ahora lo tiene; en el resto del repo, no necesariamente.
+
+**Barrido asociado:** escaneado todo `frontend/` (`.ts`, `.tsx`, `.json`, `.css`) en busca de cirílico y
+griego disfrazados de latín. Único cirílico era este; las 11 coincidencias restantes son `Σ` (GREEK
+CAPITAL LETTER SIGMA) usada legítimamente como notación de sumatoria en comentarios de `contract.ts`,
+`fixtures.ts` y `MasterSet.test.tsx`. **Ningún otro homoglifo vivo en el frontend.**
+
+**Alcance del brazo: `grad`, y cubre la familia completa. Sin residuo pendiente.** La restauración
+literal del homoglifo dejaba el brazo como `grade`, que caza «gradeadas» y «graded» pero **no «grading»**
+ni «grados» — justo las formas que usaría un copy nuevo. Lo dejé señalado sin ampliarlo, porque ensanchar
+un candado es un cambio de **norma** y no una corrección de dedazo. **El techlead resolvió ampliarlo**, y
+el argumento cierra el asunto: la norma ya estaba escrita **antes** que la regex —la primera línea del
+comentario del bloque dice que el nombre accesible no habla «ni de grading», y §22.6b-e es sobre el gancho
+de grading entero—, así que el brazo siempre estuvo escrito para la **familia**; el homoglifo solo tapó
+que no la cubría.
+
+**Norma vigente:** `NOMBRE_ACCESIBLE_PROHIBIDO` cubre
+`grade` · `graded` · `grading` · `gradeadas` · `gradeo` · `grados`. Riesgo de falso positivo **benigno,
+no nulo** (corrección del techlead: «nulo» estaba sobrevendido). `upgrade` y `gradual` contienen `grad`,
+y «Upgrade your collection» es inglés de marketing perfectamente plausible en un H2. Lo que hace el
+residuo inofensivo no es que la cadena no exista, es que **`DESIGN_SYSTEM.md` §1 (v2.9) ya veta la voz de
+marca en mensajes de accesibilidad**: cualquier cadena capaz de disparar el brazo está prohibida en ese
+hueco por otra vía. Sobre los cuatro valores reales de hoy (`Piezas destacadas`, `Destacadas`,
+`Featured pieces`, `Featured`) no casa ninguno.
+
+**El control se amplió con la norma, y ahí hubo una trampa que casi cuela.** Añadir casos que la regex
+nueva acepta no prueba nada si la **vieja** también los aceptaba: serían decorativos, el mismo defecto
+que este apartado existe para matar. Los dos casos nuevos están elegidos para **discriminar**:
+
+| Caso de control | `/grad/` | `/grade/` | ¿Discrimina? |
+|---|---|---|---|
+| `Gancho de grading` | ✔ | ✘ | **sí** |
+| `Grados y certificados` | ✔ | ✘ | **sí** |
+| ~~`Gradeo de piezas`~~ | ✔ | ✔ | **no — descartado** |
+
+El primer candidato para el segundo hueco fue «Gradeo de piezas», y **es inservible**: «grade**o**»
+contiene `grade` como subcadena, así que pasa igual con el brazo estrecho.
+
+**T1 (techlead) — el mismo error, en la dirección contraria, y se me coló.** Al escribir ese criterio
+anoté «no colar `PSA` en la cadena del brazo de grading»… y dejé en la lista `'Gradeadas PSA'` como
+control del brazo `PSA`. Contiene `grad`: **casa por el brazo de grading y nunca llega a probar `PSA`**.
+Consecuencia medida: se podía **borrar el brazo `PSA` entero, o meterle una `А` cirílica U+0410, y los
+seis controles seguían verdes**. Era el agujero que este apartado existe para cerrar, reintroducido al
+cerrarlo. Y arrastraba dos afirmaciones falsas: el comentario del `it.each` decía «cada cadena existe para
+disparar UN brazo» y esta nota decía «una cadena por brazo» — para `PSA`, ninguna de las dos era cierta.
+Sustituido por `'Certificadas PSA'` (casa `PSA` y ningún otro brazo).
+
+**Lo que cambió de fondo, y es la lección del hallazgo.** Dos veces seguidas el criterio correcto estaba
+**escrito en un comentario** y aun así se violó al aplicarlo. Un comentario no verifica nada. Así que el
+criterio pasó a ser **código**:
+
+- Los brazos se declaran sueltos (`BRAZOS_PROHIBIDOS = ['rotaci', 'carrus', 'grad', 'PSA']`) y la regex se
+  **compone** de ellos. Con la regex como literal opaco, «qué brazo prueba esta cadena» no es una pregunta
+  que un test pueda hacer — y por eso el agujero era invisible.
+- Cada control es un par `[cadena, brazo]`, y el test exige que la cadena case con **su** brazo y con
+  **ninguno de los otros**. Esa es la regla general que pediste, ejecutable en vez de comentada.
+- Un test de **cobertura** exige que todo brazo tenga al menos un control. Añadir un brazo sin su cadena
+  ahora es rojo, no un descuido silencioso.
+
+**Verificado rompiéndolo, cuatro mutaciones:**
+
+| Mutación | Resultado |
+|---|---|
+| estrechar `grad` → `grade` | **3 rojos** — `Gancho de grading`, `Grados y certificados` y `Cartas gradeadas` (este último por casar con un brazo ajeno) |
+| homoglifo U+0435 en `grad` | **3 rojos** — los tres controles del brazo de grading |
+| **borrar el brazo `PSA`** | **2 rojos** — `Certificadas PSA` **+ el test de cobertura**, que nombra el brazo que falta |
+| **`PSA` → `PАS` (А cirílica U+0410)** | **1 rojo** — `Certificadas PSA` |
+
+Antes de T1, las dos últimas filas daban **verde**. El candado ya no solo detecta que alguien lo mate o lo
+estreche: detecta que alguien lo **vacíe por un brazo**.
+
+Vale la pena dejarlo escrito porque es la trampa del pase: «solo cambio textos» dejó de ser cierto en el
+momento en que un texto de marketing es a la vez el nombre accesible de un `role="region"`. Un cambio de
+copy en `featuredTitle` es siempre también un cambio de accesibilidad, y quien lo toque después debe
+mirar `FeaturedCarousel.tsx:600` antes de asumir que no.
+
+### 41.5 Tests de render que fijaban copy en duro
+
+`page.test.tsx` fija literales en español para comprobar que el home pinta lo que debe. Se actualizaron
+**ocho** (no los seis previstos: el brief no contaba `quoter.empty` ni `quoter.continue`, que también
+cambiaron de valor): `heroTitle`, `ctaShop`, `quoter.title`, `quoter.empty`, `setsWanted`,
+`featuredTitle`, `sellCta`, `quoter.continue`.
+
+Los **E2E de Playwright no se tocaron y no rompen**: leen las claves con el helper `t(locale, 'home.…')`
+en vez de teclear la frase, así que siguen a la traducción sola. Es la razón por la que ese helper existe,
+y este pase es su primera cobranza real.
+
+### 41.6 Comentarios de código con copy viejo — no corregidos, señalados
+
+Quedan **cinco** referencias al copy anterior en **comentarios** de archivos de producto:
+
+| Archivo | Línea | Copy viejo citado |
+|---|---|---|
+| `_home/FeaturedCarousel.tsx` | 157 | «Piezas destacadas del catálogo» |
+| `_home/FeaturedCarousel.tsx` | 601 | «Piezas destacadas del catálogo» |
+| `_home/HomeQuoter.tsx` | 22 | «Continuar mi cotización» |
+| `(storefront)/page.tsx` | 35 | «Sets buscados» |
+| `(storefront)/page.tsx` | 37 | «Continuar mi cotización» |
+
+Son prosa, no render. **No se editaron a propósito** porque el encargo acotaba el pase a cadenas de
+copy y ninguna de estas líneas cambia lo que ve el usuario.
+
+*(Corrección del techlead: la primera redacción daba además una segunda razón —«`ux-ui` trabajaba sobre
+estos mismos componentes», con riesgo de conflicto de merge— que es **falsa**. Por la tabla de propiedad
+de `CLAUDE.md`, `ux-ui` escribe en `docs/DESIGN_SYSTEM.md` y **no puede escribir en `frontend/`**: el
+riesgo de conflicto en `frontend/src/` era **cero**. Se retira, porque dejarla escrita le enseñaría una
+regla de propiedad equivocada al próximo que lea esta nota. El primer motivo se sostiene solo. También se
+completó el inventario: eran cinco sitios, no cuatro — faltaba `HomeQuoter.tsx:22`.)*
+
+Queda anotado como **deuda cosmética menor**, no bloqueante, para el próximo pase que toque esos archivos
+por un motivo real.
+
+### 41.7 Verificación
+
+Suite completa, no un subconjunto (cifras finales, tras las tres rondas de corrección):
+
+| Comando | Resultado |
+|---|---|
+| `npm run test` | ✔ **102 archivos / 951 casos, todos verdes** (~94 s) |
+| `npm run typecheck` | ✔ `tsc --noEmit` sin errores |
+| `npm run lint` | ✔ `No ESLint warnings or errors` |
+
+**Delta de casos: +7**, y los siete son el control de §41.4: un `it.each` con **seis** cadenas (una por
+brazo, con tres para el brazo `grad` porque cubren la ampliación) **más** el test de **cobertura de
+brazos** que entró con T1. El pase de copy en sí aporta **0**: un cambio de textos no debe añadir ni
+quitar pruebas. Los 944 originales siguen siendo los mismos 944.
+
+`i18n-parity.test.ts` verde confirma lo importante: paridad ES/EN intacta (**2 287 claves, conjuntos
+idénticos**), cero apariciones de la marca retirada «TCG Vault», y ningún candado semántico del catálogo
+(créditos, grados, disclaimer del gancho) movido por el camino.
+
+**Inestabilidad observada, ajena a este pase.** En una de las corridas completas cayó
+`M2View.test.tsx > «money-safe: si TCGCSV no fue alcanzable del todo …»`. **En aislado el archivo pasa
+65/65**, y la corrida completa siguiente pasó 948/948. Es **GR-D4**, ya registrada en `TECH_DEBT.md` como
+inestable en suite completa; es un test de **admin M2** que no toca ninguna clave del home. No se
+investigó más aquí porque no pertenece a este pase, pero queda dicho que se vio.
+
+### 41.8 Alcance
+
+Escrituras: `frontend/messages/es.json`, `frontend/messages/en.json`,
+`frontend/src/app/[locale]/(storefront)/page.test.tsx`,
+`frontend/src/app/[locale]/(storefront)/_home/FeaturedCarouselRotation.test.tsx`, este archivo y
+`docs/TECH_DEBT.md` (a petición explícita del techlead, que es su dueño de petición).
+Cero cambios de contrato, cero endpoints nuevos, cero mocks nuevos, cero tokens nuevos, cero componentes
+tocados. `backend/` intacto. **`docs/DESIGN_SYSTEM.md` NO se tocó** (es de ux-ui) ni tampoco
+`docs/API_CONTRACT.md`.
+
+**Una clave fuera del home:** `vault.trustBanner` (§41.10). Sale del encargo original —que era
+«copy de marketing del home»— y se tocó a propósito, porque repetía **palabra por palabra** la misma
+afirmación falsa que se estaba corrigiendo en el home. Corregir cuatro superficies y dejar la quinta
+habría dejado la contradicción **dentro del producto**, que es peor que no haber tocado ninguna. Sigue
+siendo `frontend/`, así que no cruza ninguna frontera de propiedad.
+
+### 41.9 Ronda de corrección de QA — tres afirmaciones que el producto desmiente
+
+QA rechazó la primera versión del copy. Los tres hallazgos son de **veracidad**, no de tono, y ninguno se
+discutió: si el texto y el producto discrepan, el texto está mal.
+
+**(a) BLOQUEANTE — «Lo que ves es lo que pagas» / «What you see is what you pay» era falso.**
+`PROJECT.md:346` fija que los precios de catálogo/ficha se muestran **sin IVA**, y `:348`, `:401` y `:766`
+que al total se le suman **IVA 16 %**, **costo de procesamiento** y **MX$175 de envío** (verificado línea
+por línea antes de reescribir, no asumido). Prometer equivalencia de precio en el home y desmentirla en el
+checkout es exactamente la sorpresa que el título «Compras sin sorpresas» decía evitar. Lo bueno es que el
+desglose **es** el argumento: se dice, no se esconde.
+- `how.step1Title` → `Compras con las cuentas claras` / `You buy with the numbers up front`
+- `how.step1Body` → `… Antes de pagar ves el desglose completo: IVA, procesamiento y envío.` /
+  `… Before you pay, you see the full breakdown: VAT, processing and shipping.`
+
+**(b) `trustPayout` prometía un plazo inexistente.** «Te transferimos **en cuanto** verificamos» promete
+inmediatez, y **no hay SLA de pago**: el SPEI lo opera el admin a mano (`:431`), el pipeline pasa por
+`aprobada` donde el dueño decide **carta por carta** y puede rechazar por NM-only (`:424-428`, `:435`), y
+sobre MX$3 000 el pago está **bloqueado por KYC** (`:439-443`). Encima había perdido la palabra
+**recepción**, que `:433-435` exige comunicar («el pago se realiza DESPUÉS de que recibimos y
+verificamos»). Nuevo valor: `Te pagamos por transferencia tras recibir y verificar` /
+`We pay by bank transfer after we receive and verify`.
+
+**(c) `gradingGems.lead` había perdido su anclaje.** Mi redacción («valen mucho más en el mercado»)
+soltaba el anclaje a **valor de mercado** y sonaba a predicción sobre **esas** copias — justo lo que
+`catalog.gradingNote.p3` desmiente. En EN era más marcado. ES vuelve a anclar
+(`Cartas sin gradear cuyo valor de mercado, ya gradeadas, es muy superior.`) y **EN se revierte al valor
+original de `main`**, byte a byte (verificado contra `478a826~1`).
+
+**Lección del pase:** el riesgo de un cambio de copy no es el tono, es que una frase más pegadora afirme
+algo que el sistema no cumple. Las tres eran mejores como marketing y peores como descripción del
+producto. Ninguna la habría cazado un test: no hay candado que compare el copy con `PROJECT.md`.
+
+### 41.9-bis Segunda ronda de QA — el precio mostrado NO es el de mercado, en ninguna de las dos direcciones
+
+QA rechazó **otra vez**, con tres bloqueantes, y los tres son **la misma falla**: el copy afirmaba que el
+número que se enseña **es** el valor de mercado. En este producto no lo es en ningún sentido:
+
+| Dirección | Regla | Fuente verificada |
+|---|---|---|
+| Venta | `redondeo↑(max(piso, mercado × markup))`, markup **1.60× → 1.15×** | `PROJECT.md:1200`, `:1209`; `backend/src/common/money.ts` (`computeSalePriceFromCurve`) |
+| Compra | **30 % → 50 %** del mercado | `PROJECT.md:1201`, `:1210` |
+
+Mercado $50 ⇒ **venta $70**. Mercado $100 ⇒ **compra $40**. El «precio de mercado» no se cobra ni se paga
+nunca; es una **referencia**.
+
+- **(B1) `heroSubtitle`** decía «al precio real del mercado» / «at real market prices». Falso por
+  construcción. **Se quita el claim entero**, no se matiza: el precio nunca fue el argumento del hero, la
+  custodia sí. Vuelve a «con condición garantizada» / «condition guaranteed».
+- **(B2) `sellBody`** — **una preposición volvió falsa la frase.** Yo había cambiado «cotizamos **con** el
+  valor de mercado» por «**al** valor de mercado». «Cotizar **al** valor X» dice que X es lo que recibes, y
+  se paga 30-50 % de eso. Restaurado a **«con … como referencia»** / «using … as the reference». Lo que lo
+  hace grave: el cotizador de **esa misma página** solo enseña «Te pagamos $X», así que la contradicción
+  era visible en la pantalla siguiente.
+- **(B3) `how.step1Body`** decía «su precio de mercado», contra una decisión **LOCKED** (§N.7 / decisión 2 /
+  criterio 92): `PROJECT.md:1320-1321` fija que **tejas y listados no muestran mercado «y no van a
+  mostrarlo»** — solo la ficha. Verificado en el código: `FeaturedCarousel.tsx:141-151` pinta
+  **únicamente** `salePriceCents`. Era falso **en la misma pantalla donde se leía**.
+
+**Fuera de los bloqueantes, dos más de la misma familia:**
+
+- **`how.step3Body` vendía consignación**, que está **fuera de alcance** (`PROJECT.md:2076`,
+  «Consignación / marketplace C2C»). Comprobado en el producto: la bóveda solo tiene **`Retirar`** —no
+  existe ninguna acción de venta en `VaultView`—, y §E exige que el vendedor **envíe** la carta. «O las
+  vendes desde la bóveda, sin moverlas» prometía una función que no existe y que nadie va a construir.
+  Ahora: `Un solo envío para todo lo que acumulaste, cuando tú lo pidas.`
+- **`setsWanted` (EN)**: `Sets on the hunt` se lee como que **los sets** cazan. → `Sets to hunt`. El ES
+  (`Sets en cacería`) lo aprobó el humano y **no se toca**.
+
+**Auditoría, no confianza en la lista.** Tras aplicar, se barrió **todo** el bloque `home.*` en los dos
+idiomas por `mercado|precio|pagam|valor|vend` (ES) y `market|price|pay|value|sell|worth` (EN) buscando
+cualquier otra afirmación de precio. **Ninguna más es falsa**: las de pago (`quoter.*`, `bounties.*`)
+dicen «lo que te pagamos», que es exactamente lo que el cotizador enseña; `featuredSet.*` y `trustPrice`
+son **claves muertas** (no se renderizan).
+
+**Por qué esto pasó tres gates.** Los tres bloqueantes sobrevivieron a `test`, `typecheck` y `lint` y a una
+ronda de corrección. Ningún candado compara el copy con `PROJECT.md` ni con el componente que lo pinta, y
+**no puede haberlo** sin inventar un acoplamiento peor que el problema. La verificación de un cambio de
+copy es **leer la fuente**, y la fuente no es el brief que pide el cambio: los tres errores venían del
+brief, y el brief es justo lo que no se puede usar como referencia para validarlos.
+
+**Y la regla que faltaba explícita: el brief de un rol NO es fuente de verdad para otro.** La regla de
+conflicto de `CLAUDE.md` ordena `PROJECT.md` > contrato > código. La instrucción de un compañero —por
+detallada que venga, y aunque traiga el valor exacto a teclear— **no está en esa cadena**. Los tres
+bloqueantes salieron del brief y sobrevivieron dos gates precisamente porque cada revisión posterior lo
+dio por bueno: un texto entre comillas parece un dato verificado y no lo es. Un valor de copy solo se
+puede validar contra `PROJECT.md` y contra el componente que lo pinta; si el brief y la fuente discrepan,
+manda la fuente y se devuelve el hallazgo a quien lo redactó.
+
+### 41.9-ter Tercera ronda — dos residuos que yo mismo levanté
+
+Ninguno era falso; los dos eran **sobrepromesa o ruido**, y los levanté al reportar en vez de aplicarlos
+en silencio.
+
+- **`how.step1Body`: «su precio final» → «su precio de venta»** (EN: `final price` → `sale price`). Los
+  precios se muestran **sin IVA** (`PROJECT.md:346`), así que «final» se podía leer como «no hay más
+  cargos» — la misma familia de sobrepromesa que «Lo que ves es lo que pagas», más pequeña. El criterio
+  con el que se decidió, y que vale más que el caso: **el copy no debería necesitar que la línea de al
+  lado lo rescate**. Que la frase siguiente desactivara la lectura mala no era razón para dejarla.
+- **La muletilla «cuando tú digas/quieras/pidas» estaba cuatro veces** en el home: `heroSubtitle`,
+  `trustCustody`, `how.step3Title` y `how.step3Body` — el paso 3 **se repetía a sí mismo**, título y
+  cuerpo. Se queda donde pega y se dice de otra forma en el resto: `how.step3Body` →
+  `Todo lo que acumulaste sale junto, en un solo envío.`, `trustCustody` →
+  `Bóveda bajo resguardo: un solo envío para todo`.
+
+**Verificado que la reescritura no cuela un claim nuevo** (es una reformulación, no una promesa distinta):
+`PROJECT.md:400` da el retiro de una o varias piezas **sin mínimo**, y `:401` fija la tarifa **por
+paquete**, que es lo que sostiene «un solo envío para todo». La restricción real —solo se retiran piezas
+**liquidadas y sin envío activo** (`vault.onlySettled`)— es **preexistente** y afectaba igual a la
+redacción anterior; no la introduce este cambio.
+
+> **Residuo declarado, no resuelto:** el objetivo era dejar la frase **solo en el hero**, y quedan **dos**
+> apariciones — `heroSubtitle` y `how.step3Title` («Pides el envío cuando quieras»). `step3Title` no
+> entraba en el cambio pedido y **no se tocó**: es el titular del paso cuyo asunto *es* el envío a
+> petición, y vaciarlo lo dejaría sin tema. Queda dicho para que nadie lea «solo en el hero» como un
+> hecho verificado: son dos, y la segunda es deliberada.
+
+### 41.11 Se borran `home.trustAuth` y `home.trustPrice`: el bloqueante B1 estaba embotellado en una clave muerta
+
+`home.trustPrice` decía «Valor de mercado transparente en MXN» / «Transparent market value in MXN» — es
+**la misma afirmación que §41.9-bis acaba de retirar del hero y del paso 1** por falsa (el precio mostrado
+es `mercado × markup`, 1.15×–1.60×). Nadie la pintaba, así que no engañaba a nadie **hoy**.
+
+Ese «hoy» es todo el problema. El día que alguien reponga la banda de confianza completa, **B1 vuelve
+solo**, y por un camino que ningún gate puede ver: una clave que ya estaba ahí, que nadie escribió en ese
+diff, y que por tanto nadie revisa. Es la **misma forma que el homoglifo de §41.4** — algo latente que no
+falla hasta que alguien lo toca, y que entonces falla en silencio.
+
+**Elegido: borrarlas** (ES y EN), frente a la alternativa de corregir el texto de `trustPrice`. Una cadena
+muerta *correcta* sigue siendo una cadena que nadie verifica, y la decisión se apoya en evidencia, no en
+preferencia:
+
+- `git log -S"trustAuth" -- frontend/src` no devuelve **ningún** commit: estas claves **nunca se
+  renderizaron en toda la historia del repo**. No son claves que perdieron su consumidor — nacieron sin él.
+- `DESIGN_SYSTEM.md` **no tiene sección de banda de confianza** que las exija (comprobado; ux-ui no
+  depende de ellas).
+- La banda real (`HomeQuoter.tsx:304-311`) tiene **dos** renglones y solo dos: `trustCustody` y
+  `trustPayout`.
+- El texto queda en el historial de git si alguna vez hace falta.
+
+**Alcance deliberadamente corto.** Se borran **solo esas dos**. Las otras huérfanas del home
+(`home.ctaBuylist`, `home.vaultLabel`, `home.featuredSet.*`) **se quedan**: no cargan ninguna afirmación
+falsa —`featuredSet.*` dice «referencia de mercado», que es justamente el término correcto—, así que no
+había razón para adelantar su baja fuera del acuerdo pendiente con ux-ui. La ficha **MK-D2** de
+`TECH_DEBT.md`, que las cubría a las cinco, queda actualizada: baja **parcial**, el resto sigue abierto.
+
+Paridad ES/EN tras el borrado: **2 285 claves, conjuntos idénticos** (eran 2 287). Se van de los dos
+locales o de ninguno — `i18n-parity` no admite otra cosa, y es el candado que lo garantiza.
+
+### 41.10 «Asegurado» no era un sinónimo: era una póliza que no existe
+
+Hallazgo escalado al humano durante el pase, sobre una bandera abierta en `PROJECT.md:2969-2971`
+(«definir si hay seguro formal»). **Respuesta del humano: no hay póliza contratada** — *«No hay seguro
+sino que están en lugar seguro»*. La bóveda es un lugar físicamente seguro; **no existe cobertura
+aseguradora del inventario en custodia**.
+
+«Asegurado» no es sinónimo de «resguardado»: **nombra una póliza**. Afirmarlo sobre **bienes de terceros**
+sin tenerla es la promesa que se vuelve cara el día que se pierde un paquete, y estaba escrita en cinco
+sitios. Corregidas:
+
+| Clave | ES | EN |
+|---|---|---|
+| `home.heroSubtitle` | «Viven **resguardadas** en tu bóveda…» | «They live **safe** in your vault…» |
+| `home.trustCustody` | `Bóveda bajo resguardo: un solo envío, cuando tú digas` | `Vault storage: one shipment, whenever you say` |
+| `home.how.tag` | `Custodia en bóveda` | `Vault custody` |
+| `home.how.step2Body` | `Guardadas bajo resguardo, …` | `Kept safe, …` |
+| `vault.trustBanner` | «autenticadas y **resguardadas** en bóveda» | «authenticated and **kept safe** in custody» |
+
+**Auditoría exhaustiva, no lista a ojo.** Se barrieron ambos catálogos completos por `asegurad|seguro`
+(ES) e `insur` (EN) sobre las 2 287 claves, y se reauditó después de editar: **cero afirmaciones de seguro
+sobre la custodia** sobreviven en `home.*` ni en `vault.*`. Ese barrido es lo que da derecho a decir que
+son cinco y no «las que se vieron».
+
+**Lo que NO se tocó, porque es otra afirmación y es legítima** — asegurar un *paquete* con la paquetería
+no es asegurar un *inventario en custodia*:
+
+| Clave | Por qué se queda |
+|---|---|
+| `shipments.shippingFee` («Envío (con seguro)» / «Shipping fee (insured)») | Habla del **envío**, no de la custodia. **Ver pregunta abierta abajo.** |
+| `safeShipping.step4Title` / `step4Body`, `buylist.trustShipping`, `buylist.shippingGuideLink` | Instrucciones al **vendedor** del buylist para que asegure **su** envío hacia nosotros. |
+| `admin.m2.gradedEstimates.tiers.hint` («retorno asegurado») | Costeo de PSA en back-office, no promesa al cliente. |
+| `catalog.gradingNote.p5` | Copy **legal** de grading, congelado. |
+| `admin.m6.resetShareNote` («canal seguro»), `admin.m6.deleteQuestion` («¿Seguro que…?») | «Seguro» en otra acepción; falsos positivos del barrido. |
+
+> **PREGUNTA ABIERTA para product-owner — no la resuelvo yo.** `shipments.shippingFee` afirma que el envío
+> va **con seguro** / **insured**. **No está verificado** que la paquetería lo cubra dentro de la tarifa de
+> **MX$175** (`PROJECT.md:401`). Es la **misma clase de afirmación** que la que se acaba de retirar de la
+> custodia —una cobertura declarada en el copy— solo que sobre el envío, así que no puede quedarse sin
+> comprobar solo porque el barrido la clasificara como «legítima»: es legítima **si la póliza existe**.
+> Si no la hay, esa cadena necesita el mismo tratamiento. **Dueño de la respuesta: product-owner**
+> (es negocio/contrato con la paquetería, no copy).

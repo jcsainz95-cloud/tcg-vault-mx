@@ -200,7 +200,7 @@ function getTrack() {
 }
 
 function getSection() {
-  return screen.getByRole('region', { name: 'Piezas destacadas del catálogo' });
+  return screen.getByRole('region', { name: 'Piezas destacadas' });
 }
 
 function statusLine() {
@@ -856,13 +856,79 @@ describe('§23.2 · rota la VENTANA, nunca el ROL (R1) — lo que protege el LCP
   });
 });
 
+// §23.9 — el nombre accesible de la región NO habla de rotación, ni de carrusel, ni de grading:
+// solo nombra la sección. La regex vive en una CONSTANTE COMPARTIDA a propósito, porque el caso de
+// control de más abajo la reusa: una aserción negativa que nadie prueba en positivo puede estar
+// muerta y seguir verde. Aquí lo estuvo — la `e` de `grade` era el homoglifo cirílico U+0435
+// (heredado de `main`), así que ese brazo exigía `grad` + U+0435 y NINGÚN copy latino podía
+// dispararlo. Duplicar el literal en el control no habría servido de nada: se comparte el objeto.
+//
+// El brazo del gancho es `grad`, NO `grade`: la norma que enuncia la primera línea de este comentario
+// —y §22.6b-e, que es sobre el gancho de grading entero— cubre la FAMILIA completa
+// (`grade`/`graded`/`grading`/`gradeadas`/`gradeo`). `grade` dejaba fuera «grading» y «gradeo», que son
+// justo las formas que usaría un copy nuevo. El brazo siempre estuvo escrito para la familia; el
+// homoglifo solo tapó que no la cubría. Residuo de falso positivo: `upgrade`/`gradual` contienen
+// `grad`, pero son BENIGNOS aquí porque `DESIGN_SYSTEM.md` §1 (v2.9) ya veta la voz de marca en
+// mensajes de accesibilidad — cualquier cadena capaz de dispararlo está prohibida en este hueco por
+// otra vía.
+//
+// Los brazos se declaran POR SEPARADO y la regex se compone de ellos: es lo que permite al control de
+// abajo probar cada brazo por su nombre y exigir que ninguno se quede sin cobertura. Con la regex
+// escrita como un literal opaco eso no se puede verificar, y fue así como el brazo `PSA` llegó a estar
+// sin probar mientras los seis controles daban verde.
+const BRAZOS_PROHIBIDOS = ['rotaci', 'carrus', 'grad', 'PSA'] as const;
+const NOMBRE_ACCESIBLE_PROHIBIDO = new RegExp(BRAZOS_PROHIBIDOS.join('|'), 'i');
+
+// Cada control es [cadena, brazo que debe disparar]. La cadena tiene que casar con SU brazo y con
+// NINGÚN otro: si casara por otro, su brazo podría estar muerto y el control seguiría verde. Esa es
+// la regla general, y abajo se verifica como código en vez de confiarse a este comentario.
+//
+// Dos criterios que invalidan un candidato, los dos aprendidos rompiéndose:
+//   · «Gradeo de piezas» NO sirve para el brazo `grad` ampliado: contiene `grade`, así que pasaría
+//     igual con el brazo estrechado y no probaría la ampliación.
+//   · «Gradeadas PSA» NO sirve para el brazo `PSA`: contiene `grad`, casa por ese brazo y deja el de
+//     `PSA` sin probar. Es el mismo error que el anterior, en la dirección contraria.
+const CONTROLES_DEL_CANDADO = [
+  ['Cartas gradeadas', 'grad'],
+  ['Piezas destacadas — rotación automática', 'rotaci'],
+  ['Carrusel de destacadas', 'carrus'],
+  ['Certificadas PSA', 'PSA'],
+  ['Gancho de grading', 'grad'],
+  ['Grados y certificados', 'grad'],
+] as const;
+
 describe('§23.9 · anuncio a lectores de pantalla (patrón APG)', () => {
   it('la sección se anuncia como carrusel sin cambiar su aria-label (§22.6b-e sigue vigente)', async () => {
     await mountCarousel();
     const section = getSection();
     expect(section).toHaveAttribute('aria-roledescription', 'carrusel');
-    expect(section).toHaveAttribute('aria-label', 'Piezas destacadas del catálogo');
-    expect(section.getAttribute('aria-label')).not.toMatch(/rotaci|carrus|gradе|PSA/i);
+    expect(section).toHaveAttribute('aria-label', 'Piezas destacadas');
+    expect(section.getAttribute('aria-label')).not.toMatch(NOMBRE_ACCESIBLE_PROHIBIDO);
+  });
+
+  // CONTROL de la aserción negativa de arriba. Si un brazo queda inerte (homoglifo, dedazo, alguien
+  // que lo "simplifica"), esto se pone rojo y lo dice, en vez de aprobar en silencio como pasó con
+  // `grade`. Cada cadena prueba su brazo EN SOLITARIO — ver el criterio junto a CONTROLES_DEL_CANDADO.
+  it.each(CONTROLES_DEL_CANDADO)(
+    'el candado del aria-label SÍ rechaza «%s», y lo hace por su brazo «%s»',
+    (nombre, brazo) => {
+      expect(nombre).toMatch(NOMBRE_ACCESIBLE_PROHIBIDO);
+      // Casa con SU brazo…
+      expect(nombre).toMatch(new RegExp(brazo, 'i'));
+      // …y con ninguno de los demás. Sin esto, una cadena puede casar por un brazo vecino y dejar el
+      // suyo sin probar: es literalmente lo que hacía «Gradeadas PSA» con el brazo `PSA`.
+      for (const otro of BRAZOS_PROHIBIDOS.filter((b) => b !== brazo)) {
+        expect(nombre).not.toMatch(new RegExp(otro, 'i'));
+      }
+    },
+  );
+
+  // COBERTURA: ningún brazo puede quedarse sin control. Añadir un brazo a BRAZOS_PROHIBIDOS sin darle
+  // su cadena pone esto en rojo, que es la única forma de que el agujero de `PSA` no vuelva a abrirse
+  // por descuido en vez de por decisión.
+  it('todo brazo de la regex tiene al menos un control que lo prueba en solitario', () => {
+    const probados = new Set(CONTROLES_DEL_CANDADO.map(([, brazo]) => brazo));
+    expect([...probados].sort()).toEqual([...BRAZOS_PROHIBIDOS].sort());
   });
 
   it('la pista es un tope de tabulación CON NOMBRE y conmuta aria-live con el temporizador', async () => {
@@ -940,7 +1006,7 @@ describe('§23.12 · i18n', () => {
     await act(async () => {
       window.dispatchEvent(new Event('resize'));
     });
-    expect(screen.getByRole('region', { name: 'Featured from the catalog' })).toHaveAttribute(
+    expect(screen.getByRole('region', { name: 'Featured pieces' })).toHaveAttribute(
       'aria-roledescription',
       'carousel',
     );

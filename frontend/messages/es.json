@@ -1,7 +1,7 @@
 {
   "common": {
     "appName": "TCG HUNT",
-    "tagline": "Marketplace de cartas Pokémon con bóveda",
+    "tagline": "Compra y vende cartas Pokémon en México, con bóveda",
     "brand": {
       "name": "TCG HUNT",
       "domain": "tcghunt.mx",
@@ -71,37 +71,35 @@
   },
   "home": {
     "heroKicker": "Cartas Pokémon · México",
-    "heroTitle": "Compra cartas Pokémon con precio real y guárdalas en la bóveda",
-    "heroSubtitle": "Autenticadas, con condición garantizada. Acumula tu colección y pide el envío cuando quieras.",
-    "ctaShop": "Ver el catálogo",
-    "ctaSealed": "Producto sellado",
+    "heroTitle": "Caza la carta. Nosotros la guardamos.",
+    "heroSubtitle": "Cartas autenticadas, con condición garantizada. Viven resguardadas en tu bóveda y salen en un solo envío, cuando tú digas.",
+    "ctaShop": "Explorar el catálogo",
+    "ctaSealed": "Ver producto sellado",
     "ctaBuylist": "Vender mis cartas",
-    "setsWanted": "Sets buscados",
-    "trustAuth": "Cada carta se autentica al ingresar",
-    "trustCustody": "Bóveda asegurada, sin envíos innecesarios",
-    "trustPrice": "Valor de mercado transparente en MXN",
-    "trustPayout": "Pago por transferencia tras verificar",
+    "setsWanted": "Sets en cacería",
+    "trustCustody": "Bóveda bajo resguardo: un solo envío para todo",
+    "trustPayout": "Te pagamos por transferencia tras recibir y verificar",
     "yourVault": "Tu bóveda",
     "vaultLink": "Ver mi bóveda",
     "vaultLabel": "Bóveda",
     "buylistLabel": "Buylist",
     "quoter": {
       "label": "Cotizador",
-      "title": "¿Cuánto vale lo que tienes?",
-      "subtitle": "Busca tus cartas, arma la lista y mira lo que pagamos hoy. Cotizar es gratis.",
+      "title": "¿Cuánto vale tu carpeta?",
+      "subtitle": "Arma tu lista y mira lo que te pagamos hoy. Gratis, sin cuenta y sin compromiso.",
       "searchLabel": "Busca una carta para cotizar",
       "searchPlaceholder": "Busca una carta…",
       "add": "Añadir",
-      "empty": "Aún no agregas cartas. Busca una para ver lo que pagamos hoy.",
+      "empty": "Busca tu primera carta y te decimos lo que pagamos por ella.",
       "pending": "Pendiente",
       "pendingNote": "{count, plural, one {# carta se cotiza al recibirla} other {# cartas se cotizan al recibirlas}}",
       "quoteError": "No se pudo cotizar",
       "wePay": "Te pagamos",
       "remove": "Quitar {name}",
-      "continue": "Continuar mi cotización",
+      "continue": "Vender estas cartas",
       "viewMore": "Ver más en el cotizador"
     },
-    "featuredTitle": "Piezas destacadas del catálogo",
+    "featuredTitle": "Piezas destacadas",
     "featuredTitleShort": "Destacadas",
     "viewAllCatalog": "Ver todo el catálogo",
     "carouselPrev": "Anterior",
@@ -121,30 +119,30 @@
     "graded": {
       "title": "Cartas gradeadas",
       "companies": "PSA · CGC",
-      "subtitle": "Slab sellado, grado y número de certificado verificados contra el registro de la casa gradeadora.",
+      "subtitle": "Slab sellado. Grado y certificado verificables en el registro de PSA o CGC.",
       "viewAll": "Ver todas las gradeadas",
       "cert": "Cert {num}"
     },
     "bounties": {
       "title": "Top Bounties",
       "viewAll": "Ver la buylist completa",
-      "subtitle": "Estas son las cartas que mejor pagamos ahora mismo.",
+      "subtitle": "Las cartas que mejor pagamos ahora mismo. Si tienes una, tráela.",
       "wePay": "Pagamos",
       "badge": "Bounty"
     },
     "how": {
       "title": "Cómo funciona la bóveda",
-      "tag": "Custodia asegurada",
-      "step1Title": "Compras al precio del día",
-      "step1Body": "Cada carta lleva su condición verificada y su precio de mercado, sin sorpresas al pagar.",
-      "step2Title": "Se quedan en la bóveda",
-      "step2Body": "Guardadas y aseguradas. Ves el valor de tu colección actualizado, carta por carta.",
+      "tag": "Custodia en bóveda",
+      "step1Title": "Compras con las cuentas claras",
+      "step1Body": "Cada carta muestra su condición verificada y su precio de venta. En el checkout ves el desglose completo antes de pagar.",
+      "step2Title": "Se quedan en tu bóveda",
+      "step2Body": "Guardadas bajo resguardo, con el valor de tu colección actualizado carta por carta.",
       "step3Title": "Pides el envío cuando quieras",
-      "step3Body": "Un solo envío para todo lo acumulado, o vendes desde la bóveda sin moverla."
+      "step3Body": "Todo lo que acumulaste sale junto, en un solo envío."
     },
-    "sellTitle": "Vender mis cartas",
-    "sellBody": "Cotizamos tu lista con el valor de mercado del día. Tú envías, nosotros autenticamos y pagamos.",
-    "sellCta": "Cotizar mi lista",
+    "sellTitle": "Convierte tus repetidas en dinero",
+    "sellBody": "Cotizamos tu lista con el valor de mercado del día como referencia. Tú envías, nosotros autenticamos y te transferimos.",
+    "sellCta": "Cotizar mi lista gratis",
     "featuredSet": {
       "label": "Valor de mercado · Set destacado",
       "collectingTitle": "Recopilando historial",
@@ -154,7 +152,7 @@
     "gradingGems": {
       "title": "Joyas para gradear",
       "kicker": "ILUSTRATIVO · NO EVALUAMOS LA PIEZA",
-      "lead": "Cartas sin gradear cuyo valor de mercado ya gradeadas es muy superior."
+      "lead": "Cartas sin gradear cuyo valor de mercado, ya gradeadas, es muy superior."
     }
   },
   "catalog": {
@@ -431,7 +429,7 @@
     "emptyTitle": "Aún no tienes cartas en tu bóveda",
     "emptyBody": "Explora la sección de Compra y empieza tu colección.",
     "emptyCta": "Ir a Compra",
-    "trustBanner": "Tus cartas están autenticadas y aseguradas en bóveda. Solo se envían cuando tú lo pides.",
+    "trustBanner": "Tus cartas están autenticadas y resguardadas en bóveda. Solo se envían cuando tú lo pides.",
     "withdraw": "Retirar",
     "withdrawSelected": "Retirar seleccionadas",
     "onlySettled": "Solo las piezas liquidadas y sin envío activo se pueden retirar.",

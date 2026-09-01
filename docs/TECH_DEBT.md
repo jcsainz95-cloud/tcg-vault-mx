@@ -4130,7 +4130,7 @@
   para este stream: consolidar una teja canónica ahí (o retirar `ListingCard` si se decide que la
   teja vive por vista) — la decisión de dónde vive pasa por techlead/orquestador.
 
-#### MK-D2 · Huérfanos `FeaturedSetGlance` + claves `home.trustAuth/trustPrice/ctaBuylist/vaultLabel/featuredSet.*` (Baja, frontend + ux-ui)
+#### MK-D2 · Huérfanos `FeaturedSetGlance` + claves `home.ctaBuylist/vaultLabel/featuredSet.*` (Baja, frontend + ux-ui) — **`trustAuth`/`trustPrice` YA BORRADAS**
 - **Dónde:** `frontend/src/components/domain/PortfolioTrendChart.tsx` (`FeaturedSetGlance`, retirado
   de la home por el makeover; solo lo referencia su test) y claves i18n `home.trustAuth`,
   `home.trustPrice`, `home.ctaBuylist`, `home.vaultLabel`, `home.featuredSet.*` (ES+EN) sin consumidor
@@ -4139,6 +4139,30 @@
   `components/domain/` — su baja no puede ejecutarla este stream unilateralmente.
 - **Disparador:** decidir la **baja con ux-ui** (¿regresa el glance en alguna vista o se retira
   §7.18?); al retirarlo, borrar componente + test + claves en el stream que tenga la zona compartida.
+
+> **Baja PARCIAL ejecutada (2026-09-01, pase §41, rama `claude/ecommerce-home-copy-optimization-dd3d2w`).**
+> `home.trustAuth` y `home.trustPrice` **borradas de ES y EN**. Salen de esta ficha; el resto
+> (`FeaturedSetGlance`, `home.ctaBuylist`, `home.vaultLabel`, `home.featuredSet.*`) **sigue abierto sin
+> cambios**.
+>
+> **Por qué estas dos y no las otras:** `trustPrice` decía «Valor de mercado transparente en MXN» /
+> «Transparent market value in MXN». Es **exactamente la afirmación de precio que §41.9-bis acaba de
+> retirar del hero y del paso 1** por falsa: el precio mostrado es `mercado × markup` (1.15×–1.60×), no el
+> de mercado. Muerta no engaña a nadie; el problema es que **repone el bloqueante sola** el día que
+> alguien rehaga la banda de confianza, y por un camino que ningún gate ve —una clave preexistente que
+> nadie escribió en ese diff—. Misma forma que el homoglifo de §41.4: latente hasta que alguien la toca.
+> `ctaBuylist`, `vaultLabel` y `featuredSet.*` **no cargan ninguna afirmación falsa** (`featuredSet.*`
+> dice «referencia de mercado», que es el término correcto), así que no había razón para adelantar su
+> baja fuera del acuerdo con ux-ui.
+>
+> **Evidencia de que la baja era segura:** `git log -S"trustAuth" -- frontend/src` no devuelve **ningún**
+> commit — las dos claves **nunca se renderizaron**, en toda la historia del repo. `DESIGN_SYSTEM.md` no
+> tiene sección de banda de confianza que las exija, y la banda real (`HomeQuoter.tsx:304-311`) pinta
+> **dos** renglones: `trustCustody` y `trustPayout`. No es una clave que se quedó sin consumidor: nació
+> sin él. El historial de git conserva el texto si alguna vez hace falta.
+>
+> Paridad ES/EN verificada tras el borrado: **2 285 claves, conjuntos idénticos** (eran 2 287). Se van de
+> los dos locales o de ninguno.
 
 #### MK-D4 · Chips de filtro del catálogo con etiquetas sin traducir (`productType`, acabado) (Baja, frontend)
 - **Dónde:** `catalog/CatalogView.tsx` → `buildChips`: el chip de `productType` pinta el valor crudo
@@ -4824,7 +4848,7 @@
 
 ### Última pasada de M-46 (§22.14 + los dos candados burlados) — rama `claude/psa-graded-card-value-gmhv5u`, 2026-08-31 (dueño: **frontend**, no bloqueante)
 
-#### GR-D4 · `M2View.test.tsx:722` es INESTABLE en suite completa (Media→Baja, frontend — **fuera del stream que la anotó**)
+#### GR-D4 · El `findAllByRole` del botón «Refrescar variantes y precios» es INESTABLE en suite completa (Media→Baja, frontend — **fuera del stream que la anotó**)
 - **Dueño:** frontend. **Severidad:** Baja (test, no producto). **Estado: abierta, ticket propio.**
 - **Qué pasa:** el test `M2 · jerarquía por-fila (§19.4) › I y G son botones directos…` falla de
   forma intermitente en la **suite completa** —QA lo vio caer **1 de 2 corridas**, en el
@@ -4840,6 +4864,26 @@
   flake se convierte en un cambio sin revisar. Va como ticket propio de frontend.
 - **Disparador para cerrarla:** reproducir el rojo con `--repeat` o `--sequence.shuffle` sobre la
   suite completa, confirmar (o descartar) la hipótesis del timeout y arreglar el test en su rama.
+
+> **Addendum (2026-09-01, pase §41) — segundo avistamiento, y el alcance de la ficha se GENERALIZA.**
+> En una corrida completa del pase de copy cayó
+> `M2 · «Refrescar variantes + precios (solo TCGCSV)» por set (P-13) › money-safe: si TCGCSV no fue
+> alcanzable del todo (tcgcsvReachable=false) avisa resultado parcial` (**`M2View.test.tsx:794`**). El
+> archivo pasó **65/65 aislado** y las corridas completas siguientes dieron verde.
+>
+> **Es un `it` DISTINTO del que nombraba esta ficha**, y en otro `describe`: lo registrado era
+> `:718`/`:722` («jerarquía por-fila §19.4»). La hipótesis del timeout **sí transfiere**, porque los dos
+> usan el **mismo** `findAllByRole` del botón «Refrescar variantes y precios de {set} usando solo
+> TCGCSV» — ese selector aparece **7 veces** en el archivo, **4 de ellas dentro de un `find*ByRole`**.
+>
+> Por eso el alcance deja de ser «el test de `:722`» y pasa a ser **«el `findAllByRole` del botón
+> Refrescar, compartido por ≥3 tests del archivo»** (de ahí el título nuevo). **Dos avistamientos sobre
+> el mismo selector en dos tests distintos refuerzan la hipótesis** y descartan que sea una peculiaridad
+> de un `it` concreto. Quien la investigue debe atacar el **selector compartido**, no perseguir una sola
+> línea — que es justo lo que la ficha anterior le habría hecho hacer.
+>
+> Sigue **sin arreglarse aquí y por la misma razón**: el pase §41 no toca `M2View.tsx` ni
+> `M2View.test.tsx`, y están fuera de su stream.
 
 ### Cierre del pase de la rotación del carrusel (§23) — rama `claude/tcg-hunt-orchestrator-28p7z1`, 2026-08-31 (dueño: **frontend**, no bloqueante)
 
@@ -4879,3 +4923,72 @@
 - **Lo que NO es:** no es un hueco de implementación (el freno funciona y está medido: la mutación pone el E2E en rojo, `460 → 960`), ni algo que se arregle escribiendo otro test unitario con la API que jsdom no tiene.
 - **Salidas posibles:** **(a)** un *stub* de `IntersectionObserver` en `vitest.setup.ts` que permita disparar entradas a mano — cubre la lógica del componente, no el observador real, y hay que decirlo en el test; **(b)** marcar el spec del carrusel como **obligatorio** en el gate de CI (devops), de modo que saltárselo sea una decisión explícita y no un descuido; **(c)** las dos.
 - **Disparador para cerrarla:** que se proponga cualquier gate que no incluya `e2e/featured-rotation.spec.ts`, o que ese spec se marque `skip`/`fixme` por cualquier motivo. Ref: `docs/FRONTEND_NOTES.md` §40, cabecera de `frontend/e2e/featured-rotation.spec.ts`.
+
+### Cierre del pase de copy del home (§41) — rama `claude/ecommerce-home-copy-optimization-dd3d2w`, 2026-09-01 (dueño: **frontend**, no bloqueante)
+
+> Deuda anotada **a petición del techlead** en su veredicto sobre el pase de copy. Ambos ítems son de
+> **acoplamiento**, no de defecto: nada está roto hoy. Los textos son los que redactó el techlead.
+> **Ninguno se implementa en este pase** — el alcance seguía siendo el copy.
+>
+> El hallazgo **bloqueante** de ese mismo veredicto (el homoglifo cirílico U+0435 que dejaba muerto un
+> brazo del guard de `aria-label`) **NO figura aquí: se corrigió en la rama**, con caso de control y
+> verificado por mutación. Ver `FRONTEND_NOTES.md` §41.4.
+
+#### DT-Fx · Tests unitarios del storefront acoplados a literales de copy en español (Baja, frontend)
+- **Dueño:** frontend. **Severidad:** Baja. **Estado: abierta, aceptada.**
+- **Deuda:** `page.test.tsx` y `FeaturedCarouselRotation.test.tsx` localizan nodos **tecleando la frase de
+  marketing** (8 literales tuvieron que reescribirse en el pase de copy §41, rama
+  `claude/ecommerce-home-copy-optimization-dd3d2w`). Los E2E de Playwright **no rompieron** porque
+  resuelven las claves con `t(locale, 'home.…')` (`e2e/utils/i18n.ts`), que es lo que
+  `DESIGN_SYSTEM.md` §9 pide. `src/test/render.tsx` ya importa `messages/{es,en}.json`, así que los
+  unitarios pueden leer `es.home.<clave>` **sin infraestructura nueva**.
+- **Alcance de la deuda:** solo los literales que sirven para **localizar** el nodo. **Se conservan como
+  literal a propósito** las aserciones que son **sobre el texto**: el candado de `aria-label` de §23.9 y
+  cualquier deslinde legal (`home.gradingGems.kicker`, `catalog.gradingNote.*`), donde leer la clave haría
+  el test **tautológico**.
+- **Impacto si no se paga:** cada pase de copy del home cuesta una ronda de tests rojos y arrastra el
+  riesgo de que la corrección **debilite la aserción** para volver al verde.
+- **Coste estimado:** bajo (2 archivos, sin helper nuevo). **No bloqueante.**
+- **Disparador:** el próximo pase que cambie copy del home, o cualquier corrección de un test rojo de esta
+  familia que proponga relajar la aserción en vez de actualizar el literal.
+
+#### DT-Fy · `home.featuredTitle` es a la vez titular de marketing y nombre accesible de un landmark (Baja, frontend + ux-ui)
+- **Dueño:** frontend (el desacople), **ux-ui** (la norma: §1 es suya). **Severidad:** Baja.
+  **Estado: abierta, aceptada.**
+- **Deuda:** `FeaturedCarousel.tsx:600` usa `ariaLabel={t('featuredTitle')}` para el `role="region"` del
+  carrusel, y la misma clave es el H2 (que alterna con `featuredTitleShort` en móvil, así que el nombre
+  del landmark y el título visible **no coinciden por debajo de `lg`**). `DESIGN_SYSTEM.md` §1 (v2.9)
+  admite la metáfora de marca en **titulares de marketing** y la prohíbe en **mensajes de accesibilidad**:
+  esta clave cae en **los dos lados a la vez**.
+- **Impacto:** hoy el valor es neutro («Piezas destacadas»); el riesgo es que un futuro pase de copy meta
+  voz de marca en el **árbol de accesibilidad** sin que ningún gate lo note.
+- **Dirección:** clave propia y estable para el `aria-label` de la región, desacoplada del titular.
+  **No bloqueante.**
+- **Disparador:** el próximo pase de copy que toque `home.featuredTitle`, o cualquier propuesta de meter
+  léxico de marca (cacería/bounty/HUNT) en ese valor.
+
+#### DT-Fz · ~~`home.how.step1Body` enumera las líneas del resumen de checkout~~ → **RESUELTA de raíz** (2026-09-01, misma rama)
+- **Dueño:** frontend. **Severidad:** Baja. **Estado: abierta, aceptada.** Anotada a petición del techlead en el veredicto del pase §41.
+- **Hoy es CIERTO, y eso es justo lo que la hace fácil de pasar por alto.** `home.how.step1Body` dice «ves el desglose completo: **IVA, procesamiento y envío**» (EN: «VAT, processing and shipping»), y el resumen de checkout tiene hoy exactamente esas líneas: `checkout.subtotal`, `checkout.processingFee`, `checkout.iva`, `checkout.shipping`, `checkout.total` (verificado sobre `messages/es.json`).
+- **Deuda:** el home **espeja la composición de un componente que no controla**. La enumeración es una afirmación sobre el checkout escrita en la home, y **nada la ata**: no hay test que compare ambas superficies, ni podría haberlo sin inventar un acoplamiento nuevo. El día que el resumen gane o pierda una línea —un descuento, una cuota aduanal, o que la comisión del procesador se absorba en el precio en vez de trasladarse— **el home vuelve a ser falso en silencio**.
+- **Por qué importa más de lo que parece:** es la **recurrencia, por una vía nueva, de la falla que QA acaba de rechazar** en este mismo pase (§41.9a: «Lo que ves es lo que pagas» prometía una equivalencia que el desglose desmentía). Se corrigió una frase falsa sustituyéndola por una frase cierta **pero frágil**. No es un defecto hoy; es el mismo defecto esperando otro cambio de checkout.
+- **Salidas (excluyentes):** **(a)** redactar **sin enumerar** — «ves el desglose completo antes de pagar» / «you see the full breakdown before you pay»: rompe el acoplamiento a **coste cero**, sin perder el argumento (el desglose sigue siendo el gancho), y es la salida barata; **o (b)** conservar la enumeración porque concreta mejor, y entonces **anclar el disparador a `checkout.*`**: quien toque las líneas del resumen tiene que revisar esta clave.
+- **Impacto si no se paga:** una afirmación falsa en el home, invisible para el gate, hasta que alguien la lea con el checkout delante.
+- **Coste estimado:** trivial con la salida (a). **No bloqueante.**
+- **Disparador:** cualquier cambio en la composición del resumen de checkout (altas/bajas de línea en `checkout.*`), o el próximo pase de copy que toque `home.how.step1Body`. Ref: `FRONTEND_NOTES.md` §41.9(a), `PROJECT.md:346`, `:348`, `:401`, `:766`.
+
+> **RESUELTA en la misma rama, y no por haberla pagado: la enumeración era además FALSA.** La segunda
+> ronda de QA (§41.9-bis) tumbó `home.how.step1Body` por otro motivo —afirmaba «su precio de mercado»
+> contra una decisión LOCKED— y al reescribirla se comprobó que la enumeración «IVA, procesamiento y
+> **envío**» tampoco cuadraba: `AmountBreakdown.tsx:64-70` pinta la línea de envío **solo** cuando viene
+> `shippingFeeCents`, que es el caso `direct_ship` (invitado). En **compras a bóveda el envío NO se
+> cobra ahí** — y esta es precisamente la sección «Cómo funciona la bóveda».
+>
+> El valor nuevo adopta la **salida (a)** de esta ficha —redactar **sin enumerar**—:
+> «En el checkout ves el desglose completo antes de pagar.» / «At checkout you see the full breakdown
+> before you pay.» El acoplamiento a la composición de `checkout.*` **desaparece**: la frase es cierta
+> para cualquier juego de líneas presente o futuro.
+>
+> **Cierra sin deuda residual.** Nota para quien lea la ficha original: el diagnóstico decía «hoy es
+> cierto, el riesgo es futuro». Era **optimista** — ya era falso al escribirlo, para el caso de bóveda.
+> Una ficha de acoplamiento no sustituye a verificar el valor contra el componente.
