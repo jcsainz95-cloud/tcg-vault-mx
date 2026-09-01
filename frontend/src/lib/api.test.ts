@@ -429,7 +429,7 @@ describe('api (rama mock) · WS-F Pass 2 (F4/F5/F6)', () => {
     expect(new Date(res.returnDeadlineAt!).getTime()).toBe(t0 + 7 * DAY);
     expect(new Date(res.abandonDeadlineAt!).getTime()).toBe(t0 + 30 * DAY);
 
-    // La pestaña «Rechazadas» (transversal) lo lista con seller + reason + plazos.
+    // La pestaña «Piezas rechazadas» (transversal) lo lista con seller + reason + plazos.
     const page = await getAdminRejectedBuylistItems();
     const row = page.data.find((r) => r.id === 'sri-9')!;
     expect(row).toBeTruthy();

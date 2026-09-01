@@ -37,13 +37,41 @@ import { useBuylistSteps } from '@/lib/pipelines';
 /**
  * Pestañas por ETAPA de la solicitud (G3): en vez de una pila plana con las 7 acciones
  * siempre visibles, se agrupa por `status` para que el operador vea solo la cola de su
- * etapa. Cada solicitud aparece en la pestaña de su `status`. La pestaña «Rechazadas»
+ * etapa. Cada solicitud aparece en la pestaña de su `status`. La pestaña «Piezas rechazadas»
  * (v1.18) es TRANSVERSAL: no filtra solicitudes, consume su propio endpoint paginado.
  */
 // Pestañas OPERATIVAS (etapas vivas): siguen su fetch client-side sobre la página actual. Las
-// pestañas TRANSVERSALES «Cerradas» (v1.25) y «Rechazadas» (v1.18) son server-side paginadas.
-type M5OpTab = 'por_recibir' | 'ciclo' | 'verificando' | 'por_pagar';
-type M5TabAll = M5OpTab | 'cerradas' | 'rechazadas';
+// pestañas TRANSVERSALES «Cerradas» (v1.25) y «Piezas rechazadas» (v1.18) son server-side paginadas.
+/**
+ * ⚠️ **EL EJE DE LOS RÓTULOS (DESIGN_SYSTEM §23.8a): la pestaña dice DE QUIÉN ES EL PENDIENTE.**
+ *
+ * M5 es una **cola de trabajo**, así que sus pestañas contestan **«¿qué me toca?»**, no «¿en qué
+ * estado está el registro?». De ahí salen las dos formas, y **no hay una tercera**:
+ *
+ *  · **El pendiente es NUESTRO** ⇒ **«Por + verbo»**, que nombra la acción (`por_ofertar`,
+ *    `por_pagar`). Normalmente hay además **un reloj corriendo en contra nuestra**.
+ *  · **El pendiente NO es nuestro** ⇒ se nombra **de quién depende**, nunca la acción
+ *    (`con_vendedor`). Ahí solo se **mira**.
+ *
+ * Los identificadores de abajo son **los mismos** que las claves i18n a propósito: un
+ * discriminante que diga `por_recibir` mientras el rótulo dice «Por ofertar» reintroduce **en el
+ * código** el desfase que se acaba de quitar del texto, y este mapa es justo lo que alguien lee
+ * para decidir dónde vive el próximo estado nuevo.
+ *
+ * ⚠️ `verificando` es un gerundio y no un «Por X»: **se queda así** (§23.8ad). Describe bien el
+ * trabajo real —*«está en casa y hay que revisarlo»*— y §23.6 ya usa «EN NUESTRAS MANOS» para ese
+ * mismo tramo. Un barrido que cambia de más hace daño nuevo.
+ */
+type M5OpTab = 'por_ofertar' | 'con_vendedor' | 'verificando' | 'por_pagar';
+/**
+ * `piezas_rechazadas` (no `rechazadas`): esa pestaña **no contiene solicitudes**, contiene
+ * **ítems** que no llegaron en NM (`GET /admin/buylist/rejected-items`). Pero `rechazada` es
+ * **también** un estado de solicitud —el del vendedor que no respondió la oferta— y ése vive en
+ * «Cerradas». Con el nombre a secas, quien buscaba *«las solicitudes que rechacé»* pulsaba aquí y
+ * encontraba cartas: misnavegación garantizada, no hipotética (§23.8ac). **«Piezas»** y no
+ * «cartas» porque cubre raw, **sellado y gradeadas**.
+ */
+type M5TabAll = M5OpTab | 'cerradas' | 'piezas_rechazadas';
 
 /**
  * ⚠️ **ASIGNACIÓN TOTAL estado → pestaña. Es el candado de esta pantalla, no una tabla de
@@ -62,23 +90,36 @@ type M5TabAll = M5OpTab | 'cerradas' | 'rechazadas';
  *
  * ⚠️ Esto NO es una copia del set terminal: es dónde se PINTA cada estado (decisión de UI). Qué
  * solicitudes admiten acciones lo dice el servidor con `isTerminal` — ver `canRejectRequest`.
+ *
+ * ⚠️ Se EXPORTA solo para la comprobación normativa de §23.14.6-3bis (partición total); ninguna
+ * otra pantalla lo consume.
  */
-const M5_STATUS_TAB: Record<SellRequestStatus, M5TabAll> = {
-  cotizada: 'por_recibir',
-  // v1.51 (M-46): el tramo del ciclo de adquisición. Los tres son estados de MONITOREO desde
-  // esta cola (la oferta está fuera, el vendedor aceptó, o el paquete viaja); las colas con
-  // acción propia —por autorizar, por confirmar envío, guías por cancelar— son vistas aparte
-  // del contrato (DESIGN_SYSTEM §23.8) y todavía no están montadas.
-  // ⚠️ `aceptada` NO se agrupa bajo ningún rótulo que diga «en camino»: aceptar no mueve nada
-  // (criterio 156) y el único estado que significa «un paquete viaja» es `en_transito`.
-  ofertada: 'ciclo',
-  aceptada: 'ciclo',
-  en_transito: 'ciclo',
+export const M5_STATUS_TAB: Record<SellRequestStatus, M5TabAll> = {
+  // El pendiente es NUESTRO, y con el reloj de caducidad de 7 días hábiles (D33) corriendo en
+  // contra: al vencer, la solicitud caduca sola y al vendedor le llega un «no procederemos» que
+  // NADIE decidió. Por eso NO se llama «Por recibir»: ese rótulo describía el modelo viejo —el
+  // vendedor mandaba el paquete primero— e inducía a ESPERAR, que es literalmente la conducta
+  // que hace que ese correo salga. Aquí no hay nada que recibir (§23.1a, §23.8aa).
+  cotizada: 'por_ofertar',
+  // v1.51 (M-46): el tramo en que el pendiente NO es nuestro. Los tres son MONITOREO desde esta
+  // cola (su respuesta, su decisión de enviar, su paquete); las colas con acción propia —por
+  // autorizar, por confirmar envío, guías por cancelar— son vistas aparte (§23.8).
+  // ⚠️ `aceptada` NUNCA bajo un rótulo que diga «en camino»: aceptar no mueve nada (criterio 156)
+  // y el único estado que significa «un paquete viaja» es `en_transito`. «Con el vendedor» no se
+  // puede leer como «hay cartas llegando», que era el riesgo real.
+  // ⚠️ Concesión consciente (§23.8ab): en `en_transito` el paquete lo tiene la PAQUETERÍA, no el
+  // vendedor. Se acepta porque el fallo caro es el contrario —creer que hay cartas en casa cuando
+  // no las hay— y porque la fila desambigua sola: la pestaña agrupa, el BADGE precisa.
+  ofertada: 'con_vendedor',
+  aceptada: 'con_vendedor',
+  en_transito: 'con_vendedor',
   recibida: 'verificando',
   verificacion: 'verificando',
   aprobada: 'por_pagar',
   // Los CUATRO terminales viven en «Cerradas». `expirada` es el cuarto (criterio 113): sin esta
   // línea una solicitud expirada no aparecía en ninguna pestaña de M5.
+  // ⚠️ Aquí es donde vive la solicitud `rechazada` — NO en «Piezas rechazadas» (§23.8ac). El
+  // MOTIVO lo pinta la fila con su badge (`RECHAZADA`/`SIN ENVÍO`/`NO PROCEDIÓ`), no la pestaña.
   pagada: 'cerradas',
   rechazada: 'cerradas',
   abandonada: 'cerradas',
@@ -93,7 +134,7 @@ function statusesForTab(tab: M5TabAll): SellRequestStatus[] {
 }
 
 // Orden de las pestañas OPERATIVAS en la barra (sigue el pipeline). Sus estados salen del mapa.
-const M5_OP_TAB_ORDER: M5OpTab[] = ['por_recibir', 'ciclo', 'verificando', 'por_pagar'];
+export const M5_OP_TAB_ORDER: M5OpTab[] = ['por_ofertar', 'con_vendedor', 'verificando', 'por_pagar'];
 const M5_OP_TABS: { key: M5OpTab; statuses: SellRequestStatus[] }[] = M5_OP_TAB_ORDER.map(
   (key) => ({ key, statuses: statusesForTab(key) }),
 );
@@ -233,7 +274,7 @@ export function M5View() {
       if (vars.decision === 'adjust') closeAdjust();
       if (vars.decision === 'reject') {
         closeReject();
-        // La carta rechazada aparece en la pestaña transversal «Rechazadas».
+        // La carta rechazada aparece en la pestaña transversal «Piezas rechazadas».
         void qc.invalidateQueries({ queryKey: ['admin-buylist-rejected'] });
       }
       ok(
@@ -387,7 +428,7 @@ export function M5View() {
   const visible = filtered.filter((r) => activeStatuses.includes(r.status));
 
   // --- Pestaña «Cerradas» (v1.25-buylist-orders-pagination · GET /admin/buylist server-side) ---
-  // Query dedicada y paginada (mismo patrón que «Rechazadas»): pide `status` CSV + filtros
+  // Query dedicada y paginada (mismo patrón que «Piezas rechazadas»): pide `status` CSV + filtros
   // (fecha/monto) + `q` (del buscador global). Solo se pide al abrir la pestaña.
   const [closedPage, setClosedPage] = useState(1);
   const [closedFrom, setClosedFrom] = useState('');
@@ -436,13 +477,13 @@ export function M5View() {
     setClosedPage(1);
   }
 
-  // --- Pestaña «Rechazadas» (contrato §M5 · GET /admin/buylist/rejected-items) ---
+  // --- Pestaña «Piezas rechazadas» (contrato §M5 · GET /admin/buylist/rejected-items) ---
   // Query aparte (transversal a solicitudes), paginada server-side; solo se pide al abrirla.
   const [rejectedPage, setRejectedPage] = useState(1);
   const rejectedQuery = useQuery({
     queryKey: ['admin-buylist-rejected', rejectedPage],
     queryFn: () => getAdminRejectedBuylistItems({ page: rejectedPage }),
-    enabled: activeTab === 'rechazadas',
+    enabled: activeTab === 'piezas_rechazadas',
   });
   const rejectedTotalPages =
     rejectedQuery.data && rejectedQuery.data.pageSize > 0
@@ -471,7 +512,7 @@ export function M5View() {
       </div>
 
       {/* Pestañas por etapa: cada operativa muestra el conteo de solicitudes en esa etapa.
-          «Cerradas» (v1.25) y «Rechazadas» (v1.18) son transversales, server-side paginadas; su
+          «Cerradas» (v1.25) y «Piezas rechazadas» (v1.18) son transversales, server-side paginadas; su
           conteo es el `total` del query dedicado (solo tras cargar). */}
       <div role="tablist" aria-label={t('title')} className="flex flex-wrap gap-1 border-b border-border">
         {M5_OP_TABS.map((tb) => (
@@ -508,21 +549,21 @@ export function M5View() {
         <button
           role="tab"
           type="button"
-          aria-selected={activeTab === 'rechazadas'}
-          onClick={() => setTab('rechazadas')}
+          aria-selected={activeTab === 'piezas_rechazadas'}
+          onClick={() => setTab('piezas_rechazadas')}
           className={cn(
             '-mb-px flex items-center gap-2 px-3 py-2 text-sm font-medium focus-visible:shadow-focus focus-visible:outline-none',
-            activeTab === 'rechazadas' ? 'border-b-2 border-primary text-text' : 'text-muted hover:text-text',
+            activeTab === 'piezas_rechazadas' ? 'border-b-2 border-primary text-text' : 'text-muted hover:text-text',
           )}
         >
-          {t('tabs.rechazadas')}
+          {t('tabs.piezas_rechazadas')}
           {rejectedQuery.data && (
             <span className="tabular text-xs text-muted">{rejectedQuery.data.total}</span>
           )}
         </button>
       </div>
 
-      {activeTab === 'rechazadas' ? (
+      {activeTab === 'piezas_rechazadas' ? (
         <QueryState
           isLoading={rejectedQuery.isLoading}
           isError={rejectedQuery.isError}

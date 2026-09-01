@@ -1795,7 +1795,7 @@ export interface AdminBuylistDTO {
 }
 
 // v1.18-buylist-rejects (contrato §M5/§11): fila de GET /admin/buylist/rejected-items
-// (pestaña «Rechazadas», transversal a solicitudes). `reason` = rejectionReason. La
+// (pestaña «Piezas rechazadas», transversal a solicitudes). `reason` = rejectionReason. La
 // "fase" (devolución / abandono / vencida) la deriva el FRONT de now vs las fechas.
 export interface RejectedSellItemDTO {
   id: string;

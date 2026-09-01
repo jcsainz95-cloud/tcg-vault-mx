@@ -3,7 +3,9 @@ import type { ReactNode } from 'react';
 import { screen, fireEvent, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithProviders } from '@/test/render';
-import { M5View } from './M5View';
+import { M5View, M5_STATUS_TAB, M5_OP_TAB_ORDER } from './M5View';
+import es from '../../../../../../messages/es.json';
+import en from '../../../../../../messages/en.json';
 import * as api from '@/lib/api';
 import { ApiClientError } from '@/lib/api-client';
 import type { CardDTO } from '@/types/contract';
@@ -277,7 +279,7 @@ describe('M5View · Buylist admin end-to-end', () => {
     expect(screen.getByText(/Total aprobado/).textContent).toContain('280.00');
   });
 
-  it('pestaña Rechazadas: lista transversal con plazos, fases y SIN convertir a inventario', async () => {
+  it('pestaña Piezas rechazadas: lista transversal con plazos, fases y SIN convertir a inventario', async () => {
     const DAY = 24 * 3600 * 1000;
     const card: CardDTO = { id: 'c', externalId: 'c', name: 'Umbreon VMAX', number: '215', rarity: 'Rare Rainbow', supertype: 'Pokémon', subtypes: [], setId: 'swsh7', setName: 'Evolving Skies', imageSmallUrl: '', imageLargeUrl: '', availableFinishes: ['normal'] };
     const spy = vi.spyOn(api, 'getAdminRejectedBuylistItems').mockResolvedValue({
@@ -317,7 +319,7 @@ describe('M5View · Buylist admin end-to-end', () => {
     });
     renderWithProviders(<M5View />, 'es');
     await screen.findByText('sr-3001');
-    fireEvent.click(screen.getByRole('tab', { name: /Rechazadas/ }));
+    fireEvent.click(screen.getByRole('tab', { name: /Piezas rechazadas/ }));
 
     await waitFor(() => expect(spy).toHaveBeenCalledWith({ page: 1 }));
     // Carta (nombre/set/acabado), vendedor y motivo visibles.
@@ -793,7 +795,7 @@ describe('M5View · los cuatro estados nuevos (v1.51 · M-46)', () => {
     expect(screen.getByText('sr-tr')).toBeInTheDocument();
 
     // Y la pestaña existe y cuenta las TRES.
-    const tab = screen.getByRole('tab', { name: /Ciclo de oferta/ });
+    const tab = screen.getByRole('tab', { name: /Con el vendedor/ });
     expect(within(tab).getByText('3')).toBeInTheDocument();
 
     // Cada rótulo sale en DOS superficies: el BADGE de su fila (mono, versalitas) y el paso
@@ -832,5 +834,88 @@ describe('M5View · los cuatro estados nuevos (v1.51 · M-46)', () => {
     // «No procedió» (la causa es NUESTRA), no «Expirada» ni el rojo de `rechazada`.
     expect(screen.getByText('No procedió')).toBeInTheDocument();
     expect(screen.queryByText('Expirada')).not.toBeInTheDocument();
+  });
+});
+
+/**
+ * §23.14.6-3bis (v2.3.5) — la comprobación normativa de las pestañas de M5, escrita como
+ * **ASERCIÓN POSITIVA** y no como `grep`.
+ *
+ * El motivo de la forma: *un estado sin pestaña **no falla, no avisa y desaparece del
+ * back-office***. Un `grep` de cadenas prohibidas no lo caza —no hay cadena que buscar—, así que
+ * lo que se afirma es la **partición TOTAL** del enum. Las dos lecturas baratas de §23.8a
+ * (§23.8aa y §23.8ac) sí son cadenas, y van detrás.
+ */
+describe('M5View · §23.8a — la partición es TOTAL y los rótulos dicen de quién es el pendiente', () => {
+  it('los ONCE estados del contrato tienen pestaña, y caen donde manda el mapa normativo', () => {
+    // ⚠️ Se escribe el reparto ESPERADO, no se recorre el mapa: recorrerlo se afirmaría a sí
+    // mismo. Ésta es la tabla de §23.8a transcrita a mano, que es el punto de la comprobación.
+    expect(M5_STATUS_TAB).toEqual({
+      cotizada: 'por_ofertar',
+      ofertada: 'con_vendedor',
+      aceptada: 'con_vendedor',
+      en_transito: 'con_vendedor',
+      recibida: 'verificando',
+      verificacion: 'verificando',
+      aprobada: 'por_pagar',
+      pagada: 'cerradas',
+      rechazada: 'cerradas',
+      abandonada: 'cerradas',
+      expirada: 'cerradas',
+    });
+    // Partición: total (los once) y sin solapes (un estado, una pestaña).
+    expect(Object.keys(M5_STATUS_TAB)).toHaveLength(11);
+  });
+
+  it('`aceptada` NO comparte pestaña con nada que se lea «en camino» (criterio 156)', () => {
+    // La restricción que §23.8ab deja viva con el rótulo nuevo. `aceptada` y `en_transito`
+    // comparten pestaña, y por eso el rótulo NO puede hablar de tránsito: los distingue el badge.
+    expect(M5_STATUS_TAB.aceptada).toBe(M5_STATUS_TAB.en_transito);
+    for (const locale of [es, en]) {
+      const label = locale.admin.m5.tabs[M5_STATUS_TAB.aceptada as 'con_vendedor'];
+      expect(label.toLowerCase()).not.toMatch(/camino|tr[áa]nsito|transit|way|shipping/);
+    }
+  });
+
+  it('ninguna pestaña dice «recibir»/«receive»: en esa cola no hay nada que recibir (§23.8aa)', () => {
+    for (const locale of [es, en]) {
+      for (const label of Object.values(locale.admin.m5.tabs)) {
+        expect(label.toLowerCase(), `rótulo que induce a esperar: ${label}`).not.toMatch(
+          /recib|receiv/,
+        );
+      }
+    }
+  });
+
+  it('ninguna pestaña se llama «Rechazadas»/"Rejected" A SECAS (colisión con el estado, §23.8ac)', () => {
+    // A secas colisiona con el ESTADO `rechazada` de solicitud, que vive en «Cerradas». Con el
+    // objeto nombrado («Piezas rechazadas» / "Rejected items") deja de haber misnavegación.
+    expect(es.admin.m5.tabs.piezas_rechazadas).toBe('Piezas rechazadas');
+    expect(en.admin.m5.tabs.piezas_rechazadas).toBe('Rejected items');
+    for (const locale of [es, en]) {
+      for (const label of Object.values(locale.admin.m5.tabs)) {
+        expect(['Rechazadas', 'Rejected']).not.toContain(label);
+      }
+    }
+  });
+
+  it('las TRES claves viejas no existen en NINGUNO de los dos catálogos (paridad estricta)', () => {
+    // «Una clave viva en un solo idioma es el modo típico en que un texto retirado revive.»
+    for (const locale of [es, en]) {
+      for (const vieja of ['por_recibir', 'ciclo', 'rechazadas']) {
+        expect(Object.keys(locale.admin.m5.tabs)).not.toContain(vieja);
+      }
+    }
+  });
+
+  it('el orden de la barra sigue el pipeline y los identificadores SON las claves i18n', () => {
+    expect(M5_OP_TAB_ORDER).toEqual(['por_ofertar', 'con_vendedor', 'verificando', 'por_pagar']);
+    // El desfase que §23.8a vino a quitar del texto no puede volver por el código: si alguien
+    // renombra el rótulo sin renombrar el discriminante, esto se pone rojo.
+    const tabs = new Set(Object.values(M5_STATUS_TAB));
+    for (const key of tabs) {
+      expect(Object.keys(es.admin.m5.tabs), `sin clave i18n: ${key}`).toContain(key);
+      expect(Object.keys(en.admin.m5.tabs), `sin clave i18n: ${key}`).toContain(key);
+    }
   });
 });

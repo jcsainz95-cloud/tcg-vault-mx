@@ -114,10 +114,10 @@ test.describe('admin · M5 buylist (cherry-pick)', () => {
     await expect(confirm).toBeEnabled();
   });
 
-  test('v1.18: la pestaña Rechazadas existe y NO ofrece convertir a inventario', async ({ page }) => {
+  test('v1.18: la pestaña Piezas rechazadas existe y NO ofrece convertir a inventario', async ({ page }) => {
     await loginAs(page, 'admin');
     await page.goto('/es/admin/m5');
-    await page.getByRole('tab', { name: t('es', 'admin.m5.tabs.rechazadas') }).click();
+    await page.getByRole('tab', { name: t('es', 'admin.m5.tabs.piezas_rechazadas') }).click();
     // Pestaña transversal informativa: sin acción de conversión (PROJECT criterio 16).
     await expect(page.getByRole('button', { name: t('es', 'admin.m5.convert') })).toHaveCount(0);
   });

@@ -8312,3 +8312,96 @@ Claves **nuevas**, las mismas de DESIGN_SYSTEM §23.12:
 5. **Arquitecto — sin petición de contrato.** Todo lo consumido en este pase existe:
    `isTerminal` y `expiredReason` en las dos proyecciones. **Cero mocks pendientes de contrato**;
    no quedó ningún `// MOCK: pendiente de contrato` abierto.
+
+---
+
+## v2.3.5 · §23.8a — en M5 el rótulo dice DE QUIÉN ES EL PENDIENTE (2026-09-01, rama `claude/buylist-inventory-workflow-hdnls3`)
+
+> Ejecuta **DESIGN_SYSTEM §23.8a** (nueva, commit `daee187`) + §23.12 v2.3.5 + la verificación
+> §23.14.6-3bis. **Cero cambios de conducta**: tres rótulos, tres claves y el **eje** que los
+> genera. La estructura del pase anterior (`2f796b5`) **queda ratificada y normada**.
+
+### 1. El eje, que es lo que había que implementar (no las tres cadenas)
+
+§23.8a le da a M5 el criterio que le faltaba: es una **cola de trabajo**, así que sus pestañas
+contestan **«¿qué me toca?»**, no «¿en qué estado está el registro?». Dos formas, y no hay tercera:
+
+| Pendiente | Forma del rótulo | Pestañas |
+|---|---|---|
+| **NUESTRO** (y casi siempre con un reloj en contra) | **«Por + verbo»** — nombra la acción | `por_ofertar`, `por_pagar` |
+| **NO nuestro** | nombra **de quién depende**, nunca la acción | `con_vendedor` |
+
+El eje vive **en el código**, no solo en el catálogo: está escrito en el TSDoc de `M5OpTab`, que es
+lo primero que lee quien tenga que colocar el próximo estado del enum. Con el eje, los seis rótulos
+se derivan solos.
+
+### 2. Los tres rótulos y las tres claves
+
+| Clave | Antes | Ahora |
+|---|---|---|
+| ~~`por_recibir`~~ ⇒ **`por_ofertar`** | «Por recibir» / "To receive" | **«Por ofertar» / "To offer"** |
+| ~~`ciclo`~~ ⇒ **`con_vendedor`** | «Ciclo de oferta» / "Offer cycle" | **«Con el vendedor» / "With the seller"** |
+| ~~`rechazadas`~~ ⇒ **`piezas_rechazadas`** | «Rechazadas» / "Rejected" | **«Piezas rechazadas» / "Rejected items"** |
+
+**Las tres viejas se borraron de los DOS catálogos** (paridad estricta, cero coexistencia:
+verificado por test). «Verificando», «Por pagar» y «Cerradas» **no se tocaron** — está dicho
+explícitamente en §23.8ad y un barrido que cambia de más hace daño nuevo.
+
+**El renombre de `piezas_rechazadas` tenía una consecuencia fuera de `src/`:** `e2e/admin.spec.ts`
+resuelve el rótulo **por la clave** (`t('es','admin.m5.tabs.rechazadas')`). Sin actualizarlo, el
+spec habría fallado al hacer clic en una pestaña inexistente — es decir, el renombre habría roto
+la suite E2E que corre QA, no la de unitarios. Actualizado.
+
+### 3. Acepté la recomendación: los identificadores acompañan al renombre
+
+`M5OpTab` y `M5_STATUS_TAB` son código y la decisión era mía; **los renombré**. La razón es la
+misma que justifica renombrar la clave y no solo el texto: ese mapa es exactamente lo que alguien
+lee para decidir dónde vive el próximo estado, y un `por_recibir` ahí dentro seguiría diciendo
+*«esto es la cola de paquetes»* mucho después de que la pestaña dijera otra cosa. **Dejarlo habría
+reintroducido en el código el desfase que se acababa de quitar del texto** — con el agravante de
+que el código no lo revisa ux-ui.
+
+Los identificadores **son** las claves i18n, y hay test que lo fija: si alguien renombra el rótulo
+sin renombrar el discriminante, se pone rojo.
+
+### 4. La comprobación de §23.14.6-3bis, como aserción positiva
+
+En `M5View.test.tsx`, seis casos. La forma importa: *un estado sin pestaña **no falla, no avisa y
+desaparece del back-office***, así que no hay cadena que buscar — se afirma la **partición**.
+
+1. **Partición TOTAL**: el reparto se compara contra la tabla de §23.8a **transcrita a mano**. No
+   se recorre `M5_STATUS_TAB` para comprobarlo (se afirmaría a sí mismo). **Verificado que falla:**
+   moviendo `en_transito` a otra pestaña, el diff sale en el test.
+2. **`aceptada` no comparte pestaña con nada que se lea «en camino»** — la restricción de criterio
+   156 que §23.8ab deja viva con el rótulo nuevo, ahora asertada sobre el rótulo real en ES y EN.
+3. **Ninguna pestaña dice «recibir»/«receive»**. **Verificado que falla** restaurando «Por recibir».
+4. **Ninguna se llama «Rechazadas»/"Rejected" a secas** (la colisión con el estado `rechazada`).
+5. **Las tres claves viejas no existen en ninguno de los dos catálogos.**
+6. **Los identificadores del mapa son claves i18n existentes** en ambos idiomas.
+
+### 5. Verificación (resultado literal)
+
+| Comprobación | Resultado |
+|---|---|
+| `npm test` | `Test Files 93 passed (93)` · `Tests 828 passed (828)` (base: 93/822) |
+| `npm run typecheck` | limpio (sin salida) |
+| `npm run lint` | `✔ No ESLint warnings or errors` |
+| Flakes conocidos (`M2View`, `PhotoUploader`) | **no se dispararon** |
+
+### 6. Señalado a otros roles (no resuelto aquí)
+
+1. **ux-ui — §23.14.6-3bis dice «los DIEZ valores de `SellRequestStatus`»; son ONCE.** Lo implementé
+   sobre **once**, porque el contrato manda (`API_CONTRACT.md` §Enums:
+   `cotizada | ofertada | aceptada | en_transito | recibida | verificacion | aprobada | pagada |
+   rechazada | abandonada | expirada`) y porque **la propia frase de §23.8a suma once**: 1
+   (`cotizada`) + 3 (el tramo) + 2 (`recibida`/`verificacion`) + 1 (`aprobada`) + 4 (terminales).
+   El mapa normativo de §23.8a también reparte los once. **Es una errata de conteo, no una
+   discrepancia de fondo**, y la señalo en vez de resolverla en silencio porque el número aparece
+   en una regla de verificación: un test escrito contra «diez» dejaría un estado sin comprobar.
+   **Sospecha del origen:** §23.12 lista **diez** claves bajo `status.sellRequest.*` — correcto
+   ahí, porque `expirada` rotula por su MOTIVO (`status.sellRequestExpiry.*`, §23.1d) y no tiene
+   clave en ese espacio. Diez **rótulos de estado**, once **estados**.
+2. **Arquitecto — sin petición de contrato.** Este pase es rótulos, claves e identificadores:
+   **ningún endpoint, ningún campo, ningún mock**. Siguen abiertas las dos peticiones del pase
+   anterior (`live?` sin implementar en backend, y `canPay` como sexta copia sin contraparte
+   server-derived).

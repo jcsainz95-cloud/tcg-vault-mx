@@ -2916,7 +2916,7 @@ export async function decideBuylistItem(
 }
 
 /**
- * Pestaña «Rechazadas» de M5 (contrato §M5 · GET /admin/buylist/rejected-items,
+ * Pestaña «Piezas rechazadas» de M5 (contrato §M5 · GET /admin/buylist/rejected-items,
  * v1.18-buylist-rejects). Listado paginado TRANSVERSAL (todas las solicitudes) de ítems
  * `itemStatus="rechazada"`, orden `rejectedAt` desc (legacy sin fecha al final); el
  * server deriva los plazos (+7d/+30d) y la UI solo deriva la FASE de now vs las fechas.

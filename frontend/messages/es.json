@@ -1242,12 +1242,12 @@
       "paySpei": "Pagar por SPEI",
       "cherryPick": "Decisión carta por carta",
       "tabs": {
-        "por_recibir": "Por recibir",
-        "ciclo": "Ciclo de oferta",
+        "por_ofertar": "Por ofertar",
+        "con_vendedor": "Con el vendedor",
         "verificando": "Verificando",
         "por_pagar": "Por pagar",
         "cerradas": "Cerradas",
-        "rechazadas": "Rechazadas"
+        "piezas_rechazadas": "Piezas rechazadas"
       },
       "searchLabel": "Buscar solicitud",
       "emptyTab": "No hay solicitudes en esta etapa.",

@@ -1242,12 +1242,12 @@
       "paySpei": "Pay via SPEI",
       "cherryPick": "Card-by-card decision",
       "tabs": {
-        "por_recibir": "To receive",
-        "ciclo": "Offer cycle",
+        "por_ofertar": "To offer",
+        "con_vendedor": "With the seller",
         "verificando": "Verifying",
         "por_pagar": "To pay",
         "cerradas": "Closed",
-        "rechazadas": "Rejected"
+        "piezas_rechazadas": "Rejected items"
       },
       "searchLabel": "Search request",
       "emptyTab": "No requests in this stage.",
