@@ -84,13 +84,22 @@ export function rejectDeadlines(rejectedAt: Date | null | undefined): {
  * Que el cliente comparara esas dos fechas sería **exactamente la reconstrucción en el cliente** que
  * `isTerminal` e `isPayable` vinieron a borrar.
  *
- * ### ⚠️ EL ORDEN DE EVALUACIÓN NO ES LIBRE — `all_items_rejected` VA PRIMERO
- * La tabla del contrato enumera **valores**, no un orden, y el orden importa: una solicitud que
- * llegó a verificación **fue ofertada, aceptada y enviada**, así que su `closedAt` cae muy **después**
- * del plazo de aceptación. Evaluar las fechas primero le diría *«no respondiste»* a un vendedor que
- * respondió, mandó el paquete y **lo que pasó es que ninguna carta pasó la verificación** — la
- * mentira exacta que este campo existe para borrar. *Las dos reglas de fecha son excluyentes entre
- * sí; ésta es de otro eje y las domina.*
+ * ### ⚠️ LA PRECONDICIÓN, NO SOLO EL ORDEN (v1.51.17)
+ * `all_items_rejected` va **primero**: una solicitud que llegó a verificación **fue ofertada,
+ * aceptada y enviada**, así que su `closedAt` cae muy **después** del plazo de aceptación. Evaluar
+ * las fechas primero le diría *«no respondiste»* a un vendedor que respondió, mandó el paquete y
+ * cuyo problema fue que **ninguna carta pasó la verificación**.
+ *
+ * Pero el orden **no basta como garantía**, y el arquitecto lo fijó mejor de lo que yo lo tenía: **las
+ * reglas de fecha exigen `acceptedAt IS NULL`.** *Un orden es una convención que alguien reordena; una
+ * precondición es un hecho de la máquina.* Hoy las dos formas son **equivalentes en todo caso
+ * alcanzable**, pero si mañana existiera un productor de `rechazada` **posterior a la aceptación** que
+ * **no** rechace todos los ítems, la versión que solo confía en el orden **caería a las fechas y
+ * volvería a mentir**; con la precondición devuelve `null` — y `null` ya está normado como la
+ * respuesta honesta: **más vale no decir la causa que decir la equivocada.**
+ *
+ * *Las dos reglas de fecha son excluyentes entre sí; `all_items_rejected` es de otro eje y las
+ * domina; y `acceptedAt` es la frontera que impide que las de fecha se apliquen fuera de su mundo.*
  */
 export type SellRequestRejectionReason =
   | 'declined_by_seller'
@@ -103,6 +112,8 @@ export function deriveRejectedReason(
     closedAt?: Date | null;
     offerSentAt?: Date | null;
     offerAcceptDeadlineAt?: Date | null;
+    /** v1.51.17 — la PRECONDICIÓN de las reglas de fecha. Ver el bloque de arriba. */
+    acceptedAt?: Date | null;
   },
   items: { itemStatus: string }[] | null | undefined,
 ): SellRequestRejectionReason | null {
@@ -111,8 +122,12 @@ export function deriveRejectedReason(
   // (1) Ninguna carta pasó la verificación. Va PRIMERO — ver el bloque de arriba.
   const list = items ?? [];
   if (list.length > 0 && list.every((i) => i.itemStatus === 'rechazada')) return 'all_items_rejected';
-  // (2)/(3) Las dos causas del ciclo de oferta. Sin oferta enviada **no hay dato honesto que dar**
-  // (fila pre-M-46, o el `decline` del ajuste legacy, que exige `offerSentAt: null`).
+  // (2)/(3) Las dos causas del ciclo de OFERTA. Su mundo es el de una oferta **sin aceptar**:
+  //  - `acceptedAt != null` ⇒ la solicitud pasó de la oferta, así que ni «rechazó» ni «no contestó»
+  //    describen lo que ocurrió. **`null` es la respuesta honesta** (v1.51.17).
+  //  - Sin oferta enviada tampoco hay dato honesto (fila pre-M-46, o el `decline` del ajuste legacy,
+  //    que exige `offerSentAt: null`).
+  if (r.acceptedAt != null) return null;
   if (r.offerSentAt == null || r.closedAt == null || r.offerAcceptDeadlineAt == null) return null;
   return r.closedAt.getTime() <= r.offerAcceptDeadlineAt.getTime()
     ? 'declined_by_seller'

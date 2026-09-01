@@ -24,6 +24,15 @@ function buildPricing() {
     settlePendingForVariant: jest.fn(async () => undefined),
     escalatePending: jest.fn().mockResolvedValue(undefined),
     getReference: jest.fn(),
+    // v1.51 (fase 8): el PATCH que publica corre AHORA el pipeline completo, que iza el contexto
+    // de precio en lote igual que los caminos de lote.
+    loadSealedSpreads: jest.fn(async () => ({
+      spreadPctBySubtype: {},
+      fallbackPct: 0,
+      sourceOn: false,
+    })),
+    getReferencesBatch: jest.fn(async () => new Map()),
+    getVariantOverridesBatch: jest.fn(async () => new Map()),
   } as unknown as PricingService;
 }
 const settings = { getNumber: jest.fn() } as unknown as SettingsService;
@@ -111,17 +120,32 @@ function buildUpdatePrisma(item: any) {
     inventoryItem: {
       findUnique: jest.fn().mockResolvedValue(item),
       update: jest.fn(async ({ data }: any) => ({ ...item, ...data })),
+      // ⚠️ v1.51 (fase 8, §4.39m.4): publicar por el PATCH pasa AHORA por `claimListed`, que es un
+      // `updateMany` con la allowlist de status en el `where` (anti-double-sell). El doble tiene que
+      // reflejarlo: un `update` plano ya no es el camino de publicación.
+      updateMany: jest.fn(async () => ({ count: 1 })),
     },
   };
   return prisma;
 }
 
 describe('InventoryService.updateItem — gradeada (certNumber)', () => {
+  // ⚠️ v1.51 (fase 8) — el fixture gana `ownerType` y `listPriceCents`. **No es maquillaje para que
+  // pase el test:** el PATCH que publica corre ahora el pipeline completo, y ese pipeline exige
+  // inventario de PLATAFORMA y **precio resoluble**. Una pieza sin ninguna de las dos ya no se
+  // publica por esta puerta — que es exactamente el bypass que se cerró. El `listPriceCents` es el
+  // override manual por pieza de M1, que D10 **no retira**.
   const gradedInStock = {
     id: 'inv-10',
+    cardId: 'c1',
+    card: { id: 'c1', rarity: null, rarityCanonical: null },
     productType: 'graded',
+    finish: 'normal',
+    ownerType: 'platform',
     status: 'in_stock',
     certNumber: null,
+    listPriceCents: 500000,
+    sealedProductId: null,
     locationId: 'loc-1',
   };
 
@@ -152,7 +176,8 @@ describe('InventoryService.updateItem — gradeada (certNumber)', () => {
     const svc = new InventoryService(prisma as PrismaService, buildPricing(), settings);
     const res: any = await svc.updateItem('inv-10', { status: 'listed' } as UpdateItemDto);
     expect(res.status).toBe('listed');
-    expect(prisma.inventoryItem.update).toHaveBeenCalled();
+    // La transición la hace `claimListed` (updateMany atómico), no el `update` plano de antes.
+    expect(prisma.inventoryItem.updateMany).toHaveBeenCalled();
   });
 
   it('PATCH que publica una gradeada aportando el certNumber en el mismo dto → OK', async () => {
@@ -163,7 +188,9 @@ describe('InventoryService.updateItem — gradeada (certNumber)', () => {
       certNumber: 'PSA-99999999',
     } as UpdateItemDto);
     expect(res.status).toBe('listed');
+    // El certNumber del MISMO dto se persiste y la publicación es atómica.
     expect(prisma.inventoryItem.update).toHaveBeenCalled();
+    expect(prisma.inventoryItem.updateMany).toHaveBeenCalled();
   });
 
   it('PATCH a una gradeada NO publicada (in_stock) sin cert → OK (la invariante solo aplica al publicar)', async () => {
@@ -177,14 +204,20 @@ describe('InventoryService.updateItem — gradeada (certNumber)', () => {
   it('PATCH a una raw publicada sin cert → OK (la invariante solo aplica a gradeadas)', async () => {
     const prisma = buildUpdatePrisma({
       id: 'inv-20',
+      cardId: 'c1',
+      card: { id: 'c1', rarity: null, rarityCanonical: null },
       productType: 'raw',
+      finish: 'normal',
+      ownerType: 'platform',
       status: 'in_stock',
       certNumber: null,
+      listPriceCents: 500000,
+      sealedProductId: null,
       locationId: 'loc-1',
     });
     const svc = new InventoryService(prisma as PrismaService, buildPricing(), settings);
     const res: any = await svc.updateItem('inv-20', { status: 'listed' } as UpdateItemDto);
     expect(res.status).toBe('listed');
-    expect(prisma.inventoryItem.update).toHaveBeenCalled();
+    expect(prisma.inventoryItem.updateMany).toHaveBeenCalled();
   });
 });

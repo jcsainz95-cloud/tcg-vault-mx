@@ -487,6 +487,41 @@ describe('⚠️ BL-23(3) — `rejectedReason`: derivado, cero DDL', () => {
     ).toBe('accept_deadline_passed');
   });
 
+  it('⚠️ v1.51.17 — con `acceptedAt` las reglas de FECHA no aplican: `null` honesto', () => {
+    // *Un orden es una convención que alguien reordena; una precondición es un hecho de la máquina.*
+    // Un productor futuro de `rechazada` POSTERIOR a la aceptación que no rechace todos los ítems
+    // caería a las fechas y diría «no respondiste» a quien aceptó. Con la precondición, `null`.
+    expect(
+      deriveRejectedReason(
+        {
+          status: 'rechazada',
+          offerSentAt: new Date('2026-09-08T00:00:00Z'),
+          offerAcceptDeadlineAt: deadline,
+          acceptedAt: new Date('2026-09-09T00:00:00Z'),
+          closedAt: new Date('2026-09-30T00:00:00Z'),
+        },
+        [{ itemStatus: 'rechazada' }, { itemStatus: 'aprobada' }],
+      ),
+    ).toBeNull();
+  });
+
+  it('⚠️ pero `all_items_rejected` SIGUE mandando aunque haya `acceptedAt` — es su caso normal', () => {
+    // El camino real de esta causa **pasa por la aceptación**: se ofertó, aceptó, envió y ninguna
+    // carta pasó. Si la precondición se le aplicara a ella, se perdería la única causa verdadera.
+    expect(
+      deriveRejectedReason(
+        {
+          status: 'rechazada',
+          offerSentAt: new Date('2026-09-08T00:00:00Z'),
+          offerAcceptDeadlineAt: deadline,
+          acceptedAt: new Date('2026-09-09T00:00:00Z'),
+          closedAt: new Date('2026-09-30T00:00:00Z'),
+        },
+        [{ itemStatus: 'rechazada' }],
+      ),
+    ).toBe('all_items_rejected');
+  });
+
   it('fila pre-M-46 (sin `offerSentAt`) ⇒ `null`: no hay dato honesto que dar', () => {
     expect(
       deriveRejectedReason(

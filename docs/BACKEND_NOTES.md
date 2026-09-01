@@ -4,6 +4,144 @@
 > El contrato (`docs/API_CONTRACT.md`) manda sobre el código. Stack: NestJS + Prisma + PostgreSQL,
 > Redis/BullMQ (jobs), JWT + argon2, S3/MinIO (presigned URLs), Stripe.
 
+## 0.24 v1.51 fase 8 — **Publicar: la cola «listas para publicar» y el bypass del `PATCH`** (2026-09-01)
+
+> Implementa **API_CONTRACT §M1 / §11 `PendingPublishRowDTO`** sobre **ARCHITECTURE §4.39m.1/m.2/m.4**
+> (D10, criterio 125). **CERO DDL, CERO diales.** Un endpoint nuevo, un bypass cerrado y **uno de los
+> tres disparadores**. Cierra la desviación **INV-P1**.
+>
+> Contesta la pregunta del humano —*«cómo la subimos a inventario, porque ahí ya tenemos para
+> publicar»*—: hasta hoy el ciclo **moría al convertir**.
+
+### 0.24.1 ⚠️ Corté, y el corte tiene una razón de diseño (no de cansancio)
+
+**Entra:** la cola, el bypass del `PATCH` y el **disparador (b)** (al fijar/mover ubicación).
+**Queda fuera:** los disparadores **(a) al convertir** y **(c) cuando el precio se vuelve resoluble**.
+
+No los corté por tamaño: **los dos necesitan EL MISMO seam que todavía no existe** — una forma de que
+un módulo de FUERA (`buylist` al convertir, `pricing` al resolver un precio) dispare el pipeline de
+publicación de `inventory`. Hacerlos por separado inventaría **dos** caminos hacia adentro de
+`inventory`, y el segundo se escribiría copiando al primero. Van juntos, en un pase que diseñe ese
+seam una vez. Ver 0.24.6.
+
+⚠️ **Lo que el corte NO deja pendiente, y es lo que preguntaba el humano:** la **doble invisibilidad**
+ya está cerrada. Una pieza convertida **sin dato de mercado aparece en la cola desde el instante en
+que se crea**, porque `pending-publish` **calcula la resolubilidad del precio ella misma** en vez de
+leer la cola de M2. *No hace falta que alguien intente publicarla para que se vea.*
+
+### 0.24.2 `GET /admin/inventory/pending-publish`
+
+Predicado (§4.39m.1): `ownerType='platform' ∧ status='in_stock' ∧ (locationId IS NULL ∨ precio NO
+resoluble)`. Cada fila dice **qué le falta** y, con `'price'`, trae el `pendingPriceEntryId` de la
+entrada `open` de M2 **si ya existe** (deep-link; `null` si no — no se inventa un id).
+
+**⚠️ Barre, no pagina en SQL, y conviene saber por qué.** *«Precio no resoluble»* **no es expresable
+en SQL**: depende de la curva vigente, de las referencias de mercado y de los overrides de variante.
+Las dos opciones eran barrer o **reimplementar la precedencia de precios en una consulta** — la copia
+que este proyecto lleva quince revisiones borrando, y encima sobre dinero. Se barre el superconjunto
+**que sí es SQL** (`platform ∧ in_stock`, el mismo que ya barre `publish-all`) **por chunks de 100**,
+con referencias y overrides en lote por chunk; del barrido **solo sobreviven `id` + estado**, y las
+filas completas (con el `set` para `toCardDTO`) se leen **solo para la página**. Lo que crece es el
+escaneo, no la memoria.
+
+**⚠️ `total` es el conteo REAL de la cola, no el del superconjunto.** *Una cola que dijera 200 cuando
+hay 900 sería peor que no tener cola.* Punto de escala señalado en 0.24.7.
+
+### 0.24.3 ⚠️ Un cuerpo, dos lectores: `derivePublishSalePrice` (sin efectos) / `resolvePublishSalePrice` (con)
+
+`resolvePublishSalePrice` **escribe**: escala a la cola de M2 cuando no resuelve y la cierra cuando sí
+(salida simétrica §4.36.5c). La cola **no puede** llamarlo: sería **un `GET` que abre y cierra
+entradas de la cola de precio pendiente por el hecho de que alguien mire la pantalla** — un efecto
+invisible sobre dinero, y sobre la cola de otro módulo. Y reimplementar la precedencia en la cola
+daría **dos verdades sobre el mismo dinero**.
+
+Así que se partió: **la precedencia vive en `derivePublishSalePrice` (pura); el efecto vive una capa
+más arriba.** Hay test que falla si alguien vuelve a meter el resolvedor con efectos en la cola.
+
+⚠️ **El refactor NO ensancha el alcance del cierre.** La clave de variante viaja **también en el
+éxito**, para que escalada y cierre usen la MISMA (recalcularla en el llamador reabriría la puerta a
+que no coincidan). Pero el cierre sigue ocurriendo **solo en raw/graded con precio DERIVADO**, igual
+que antes: un precio **manual** no dice nada sobre el mercado de la variante —cerrar por él apagaría
+un aviso que sigue siendo cierto— y el sellado nunca cerró por esta vía.
+
+### 0.24.4 ⚠️⚠️ El bypass del `PATCH /admin/inventory/items/:id` — **BREAKING chico, cerrado**
+
+Era un `update` plano: validaba el `certNumber` de una gradeada **y nada más**. Aceptaba marcar
+`listed` una pieza **sin precio resoluble** ⇒ el storefront **la descartaba en silencio** y **no
+entraba a ninguna cola**: invisible para el comprador y para el operador **a la vez**. Y se saltaba la
+guarda **anti-double-sell** que los dos caminos de lote sí corren.
+
+Ahora: si el PATCH **resulta** en `listed` y el previo **no** era `listed`, corre el pipeline completo
+(`assertPublishableGuards` + `resolvePublishSalePrice` + `claimListed`) con los códigos del lote
+(`422 ITEM_NOT_PUBLISHABLE`, `422 PRICE_PENDING` + `pendingPriceEntryId`).
+
+- **Las guardas corren sobre el estado RESULTANTE, en memoria y ANTES de escribir nada**: una gradeada
+  que aporta su `certNumber` en ESTE mismo PATCH debe poder publicarse, y una que falle **no puede
+  dejar a medias** el resto de los campos. Hay test de esto último.
+- **`listPriceCents` no se toca**: es el override manual por pieza de M1 y **precede al ciclo**. D10
+  prohíbe capturar precio de venta *dentro del ciclo de buylist*; no retira una perilla de M1.
+- **Un PATCH que no publica sigue siendo un `update` plano** — no se le añadió ceremonia.
+
+### 0.24.5 Disparador (b) y por qué la auto-publicación **sí** es best-effort
+
+`moveItem` intenta publicar tras fijar la ubicación. *«Las escrituras no degradan»* (v1.51.14)
+gobierna **lo que se compromete**; aquí el hecho comprometido —la carta está en esa caja— **ya está
+escrito**, y esto es un intento oportunista encima cuyo fallo más común (**no hay precio de mercado**)
+**es el caso normal, no una avería**. Si tumbara el `move`, el operador **no podría ni guardar la
+ubicación** de una carta sin precio — justo la que más falta hace localizar.
+
+⚠️ **Y el fallo no es silencioso**, que es lo que lo hace aceptable: `resolvePublishSalePrice` escala a
+la cola de M2 y la pieza **sigue en `pending-publish`**. *Se degrada el intento, nunca la visibilidad.*
+
+**El PISO NO GANA** (decisión LOCKED §4.36.0) y **no se tocó**: sin `PriceReference` no se publica, se
+escala. Lo que cambia con la fase 8 no es esa regla — es que la pieza **deja de ser invisible mientras
+espera**.
+
+### 0.24.6 Tests
+
+`test/inventory.pending-publish.spec.ts` (**31**). Suite completa: **221 suites / 2976 tests**, verde.
+Actualicé `inventory.graded-cert.spec.ts`: sus fixtures publicaban piezas **sin `ownerType` y sin
+precio**, que es exactamente lo que el bypass permitía. **No es maquillaje**: el doble tuvo que
+aprender que publicar pasa por `claimListed` (`updateMany` con allowlist), no por un `update` plano.
+
+**Mutación (5 corridas):** (1) la cola vuelve a usar el resolvedor con efectos ⇒ 1 fallo; (2) se
+reabre el bypass ⇒ 9 fallos; (3) la auto-publicación deja de ser best-effort ⇒ **SOBREVIVIÓ**;
+(4) `total` = superconjunto ⇒ 5 fallos; (5) el estado deja de mirar la ubicación ⇒ 6 fallos.
+
+⚠️ **La 3 otra vez, y el caso que discrimina no era el obvio.** Mi test de *«sin precio el move no
+falla»* **no toca el `catch`**: esa rama devuelve `ok:false`, no lanza. Lo que sí lanza es
+`assertPublishableGuards` en inventario **que no es de plataforma** —y **las piezas de custodia se
+mueven de caja todos los días**: sin el `catch`, la bóveda **no podría reubicar la carta de un
+cliente**— y `claimListed` cuando pierde la carrera contra un checkout. Añadí los dos; ahora la
+mutación muere. *Van tres.*
+
+### 0.24.7 ⚠️ Escaladas al arquitecto (2)
+
+1. **El seam de los disparadores (a) y (c) — necesita dictamen antes de escribirlo.** Los dos
+   disparadores que faltan viven **fuera** de `inventory` (`buylist.convertToInventory` y el barrido
+   de precios / override de M2) y los dos necesitan **disparar una ESCRITURA de `inventory`**. El
+   precedente que existe —`INVENTORY_POSITION_PORT` (§4.39f)— fue declarado explícitamente como *«un
+   token de SOLO LECTURA»*, y su docblock razona que volver global `InventoryModule` *«publicaría el
+   grafo entero de servicios de ESCRITURA»*. **Un puerto de publicación es un puerto de escritura**:
+   es una instancia nueva de esa doctrina y prefiero que la fije el arquitecto antes de crear el
+   segundo camino hacia adentro de `inventory`. *(Mi propuesta, si sirve: un único
+   `INVENTORY_PUBLISH_PORT` de un solo método, `attemptPublish(inventoryItemId) → PendingPublishState`,
+   que sirva a los DOS disparadores — para que no acaben siendo dos.)*
+2. **Escala de `pending-publish`.** El endpoint barre `platform ∧ in_stock` completo en cada llamada
+   porque la resolubilidad del precio no es SQL (0.24.2). Es el mismo barrido que ya hace
+   `publish-all`, y es un endpoint de back-office, no una ruta caliente — pero **crece con el
+   inventario**, y el `total` honesto exige el barrido entero. Lo dejo dicho por si el arquitecto
+   quiere fijar un disparador de revisión (p. ej. el mismo umbral de ~5k piezas de §4.38).
+
+### 0.24.8 Lo que NO entró
+
+- **Disparador (a)** — `convert-to-inventory` sigue **sin `locationId?` opcional** y **sin devolver
+  `pendingPublish`** (§M1 los declara). El deep-link desde M5 a la cola **todavía no funciona**.
+- **Disparador (c)** — el precio que se vuelve resoluble no publica solo; hoy drena por `move`, por el
+  `PATCH` o por `publish-all`.
+- **`workQueue.pendingPublish`** del dashboard (§11) — vive en el módulo **`admin`**, que es **otro
+  work stream** en el mapa de módulos. No lo toqué.
+
 ## 0.23 v1.51.15/16 — **La línea de la oferta para el vendedor, BL-23 y BL-24 (la guarda de emisión)** (2026-09-01)
 
 > Implementa **API_CONTRACT §11 / §6 / §M5** (v1.51.15 y v1.51.16) sobre **ARCHITECTURE §4.39h paso

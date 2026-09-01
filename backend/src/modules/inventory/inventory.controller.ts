@@ -35,7 +35,7 @@ import {
   SealedSyncRequestDto,
   UpdateItemDto,
 } from './dto/inventory.dto';
-import { Finish, ProductType, SealedGroupKind } from '@prisma/client';
+import { AcquisitionType, Finish, ProductType, SealedGroupKind } from '@prisma/client';
 
 /**
  * v1.28 (P-17, §M1): valores válidos de los filtros aditivos de `GET /admin/inventory/items`.
@@ -43,6 +43,10 @@ import { Finish, ProductType, SealedGroupKind } from '@prisma/client';
  */
 const FINISH_FILTER_VALUES: readonly string[] = Object.values(Finish);
 const PRODUCT_TYPE_FILTER_VALUES: readonly string[] = Object.values(ProductType);
+
+/** v1.51 (fase 8, §M1): filtros de `GET /admin/inventory/pending-publish`. */
+const ACQUISITION_TYPE_FILTER_VALUES: readonly string[] = Object.values(AcquisitionType);
+const PENDING_PUBLISH_MISSING_VALUES: readonly string[] = ['location', 'price'];
 
 /**
  * M1 — Inventario y bóveda. vault_operator + super_admin. API_CONTRACT §M1.
@@ -471,6 +475,48 @@ export class InventoryController {
       finish: finish as Finish | undefined,
       productType: productType as ProductType | undefined,
       page: Math.max(1, parseInt(page, 10) || 1),
+      pageSize: Math.min(100, Math.max(1, parseInt(pageSize, 10) || 20)),
+    });
+  }
+
+  /**
+   * ⚠️ v1.51 (fase 8, D10, criterio 125 · §M1) — **`GET /admin/inventory/pending-publish`: la cola de
+   * «listas para publicar».** *Comprar bien y dejar la carta en una caja sin precio es comprar mal.*
+   *
+   * **Es una LECTURA y no se audita**: no cambia nada y no revela dato sensible alguno — misma
+   * doctrina que la mesa de decisión (§4.39f). Auditar cada vistazo a una cola de trabajo llenaría la
+   * bitácora de ruido y **enterraría los actos que sí importan**.
+   */
+  @Get('inventory/pending-publish')
+  pendingPublish(
+    @Query('missing') missing?: string,
+    @Query('acquisitionType') acquisitionType?: string,
+    @Query('setId') setId?: string,
+    @Query('page') page = '1',
+    @Query('pageSize') pageSize = '20',
+  ) {
+    // Filtros validados contra sus enums → 400 VALIDATION_ERROR (mismo patrón que `GET
+    // /admin/inventory/items`). Un filtro inválido que se ignorara en silencio devolvería una cola
+    // MÁS GRANDE de la que el operador pidió, y él la leería como si fuera la filtrada.
+    if (missing != null && !PENDING_PUBLISH_MISSING_VALUES.includes(missing)) {
+      throw BusinessException.badRequest('VALIDATION_ERROR', `invalid missing '${missing}'`, {
+        missing,
+        allowed: PENDING_PUBLISH_MISSING_VALUES,
+      });
+    }
+    if (acquisitionType != null && !ACQUISITION_TYPE_FILTER_VALUES.includes(acquisitionType)) {
+      throw BusinessException.badRequest(
+        'VALIDATION_ERROR',
+        `invalid acquisitionType '${acquisitionType}'`,
+        { acquisitionType, allowed: ACQUISITION_TYPE_FILTER_VALUES },
+      );
+    }
+    return this.inventory.pendingPublish({
+      missing: missing as 'location' | 'price' | undefined,
+      acquisitionType: acquisitionType as AcquisitionType | undefined,
+      setId,
+      page: Math.max(1, parseInt(page, 10) || 1),
+      // `pageSize` ≤ 100 (contrato §M1), como el resto de los listados de back-office.
       pageSize: Math.min(100, Math.max(1, parseInt(pageSize, 10) || 20)),
     });
   }
