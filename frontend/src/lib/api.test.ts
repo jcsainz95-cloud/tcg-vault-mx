@@ -27,6 +27,8 @@ import {
   createDispute,
   getDisputes,
   getSellRequests,
+  getSellRequest,
+  respondToSellOffer,
   decideBuylistItem,
   getAdminRejectedBuylistItems,
 } from './api';
@@ -700,4 +702,102 @@ describe('api · buylist quote-policy (D43) y las puertas de POST /buylist/reque
       },
     });
   });
+});
+
+/**
+ * v1.51 (M-46) — el DETALLE del vendedor y la RESPUESTA A LA OFERTA. Contrato §6.
+ * Se prueban las dos ramas: la real (URL, método y **forma exacta del body**) y la mock
+ * (que hace de servidor falso y replica la tabla de transición, incluidos sus dos `409`).
+ */
+describe('api · el ciclo de la oferta del buylist (contrato §6, v1.51)', () => {
+  const originalUseMocks = config.useMocks;
+  afterEach(() => {
+    config.useMocks = originalUseMocks;
+    setToken(null);
+    vi.unstubAllGlobals();
+  });
+
+  it('rama REAL: offer-response manda EXACTAMENTE { decision } — ningún monto viaja (SEC-A1)', async () => {
+    config.useMocks = false;
+    setToken('access-token');
+    const fetchMock = vi.fn().mockResolvedValue({
+      status: 200,
+      ok: true,
+      json: async () => ({ sellRequestId: 'sr-1', status: 'aceptada', isTerminal: false, offer: {} }),
+    } as unknown as Response);
+    vi.stubGlobal('fetch', fetchMock);
+
+    await respondToSellOffer('sr-1', 'accept');
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(String(url)).toContain('/buylist/requests/sr-1/offer-response');
+    expect(init.method).toBe('POST');
+    // La defensa es la FORMA del DTO: no hay campo de monto que manipular.
+    expect(JSON.parse(init.body as string)).toEqual({ decision: 'accept' });
+  });
+
+  it('rama REAL: el detalle pega a GET /buylist/requests/:id', async () => {
+    config.useMocks = false;
+    setToken('access-token');
+    const fetchMock = vi.fn().mockResolvedValue({
+      status: 200,
+      ok: true,
+      json: async () => ({ sellRequestId: 'sr-1', status: 'cotizada', isTerminal: false, items: [], offer: null }),
+    } as unknown as Response);
+    vi.stubGlobal('fetch', fetchMock);
+
+    const res = await getSellRequest('sr-1');
+    expect(String(fetchMock.mock.calls[0][0])).toContain('/buylist/requests/sr-1');
+    expect(res.offer).toBeNull();
+  });
+
+  it('mock: el detalle trae la oferta con los tres montos y el desglose por línea', async () => {
+    const res = await getSellRequest('sr-3003');
+    expect(res.offer).not.toBeNull();
+    expect(res.offer!.grossCents).toBe(102000);
+    expect(res.offer!.shippingFeeCents).toBe(18000);
+    expect(res.offer!.netCents).toBe(84000);
+    expect(res.offer!.terms.perLineConditionLabel).toBeTruthy();
+    // Criterio 118: las líneas `skip` SÍ se muestran, y sin monto.
+    const skipped = res.offer!.lines.filter((l) => l.offerDecision === 'skip');
+    expect(skipped).toHaveLength(1);
+    expect(skipped[0].offeredPriceCents).toBeNull();
+  });
+
+  it('mock: la LISTA no reparte la oferta (v1.51.8: `offer` es solo del DETALLE)', async () => {
+    const list = await getSellRequests();
+    const row = list.find((r) => r.sellRequestId === 'sr-3003')!;
+    expect(row).toBeDefined();
+    expect('offer' in row).toBe(false);
+    // …pero `isTerminal` sí viaja en las dos proyecciones.
+    expect(row.isTerminal).toBe(false);
+  });
+
+  it('mock: 404 en una solicitud que no existe (el contrato no usa 403 aquí)', async () => {
+    await expect(getSellRequest('sr-inexistente')).rejects.toMatchObject({ status: 404 });
+  });
+
+  it('mock: `accept` mueve a `aceptada` — NUNCA a `aprobada` (no habilita el pago)', async () => {
+    // La rama mock MUTA la fila en memoria (igual que el backend muta la suya). Se restaura al
+    // salir para no dejar el servidor falso en un estado que dependa del orden de las pruebas.
+    const row = fx.mockSellRequests.find((r) => r.sellRequestId === 'sr-3003')!;
+    const snapshot = { status: row.status, offerAcceptedAt: row.offerAcceptedAt };
+    try {
+      await runAcceptScenario();
+    } finally {
+      row.status = snapshot.status;
+      row.offerAcceptedAt = snapshot.offerAcceptedAt;
+    }
+  });
+
+  async function runAcceptScenario() {
+    const res = await respondToSellOffer('sr-3003', 'accept');
+    expect(res.status).toBe('aceptada');
+    expect(res.acceptedAt).toBeTruthy();
+    expect(res.isTerminal).toBe(false);
+    // Segunda llamada: ya no hay oferta pendiente que responder.
+    await expect(respondToSellOffer('sr-3003', 'accept')).rejects.toMatchObject({
+      status: 409,
+      code: 'OFFER_NOT_PENDING',
+    });
+  }
 });

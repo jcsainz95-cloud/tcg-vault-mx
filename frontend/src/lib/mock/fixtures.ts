@@ -18,6 +18,9 @@ import type {
   OrderSummaryDTO,
   OrderDetailDTO,
   SellRequestDTO,
+  SellRequestDetailDTO,
+  SellOfferPublicDTO,
+  PickupAddressSnapshotDTO,
   SellRequestStatus,
   DashboardDTO,
   InventoryItemDTO,
@@ -939,7 +942,24 @@ export const mockOrderDetail: OrderDetailDTO = {
  * `paySpeiBuylist`, …) y un booleano guardado se quedaría mintiendo en cuanto la solicitud cambiara
  * de estado. Lo pone la PROYECCIÓN del servidor falso, igual que el backend real.
  */
-export type MockSellRequestRow = Omit<SellRequestDTO, 'isTerminal'>;
+export type MockSellRequestRow = Omit<SellRequestDTO, 'isTerminal'> & {
+  /**
+   * ⚠️ **Columnas CONGELADAS de la oferta — viven en la FILA, no en el DTO.** Espejan
+   * `SellRequest.offerState / offerSentAt / offerGrossCents / offerShippingFeeCents /
+   * offerNetCents / offerAcceptDeadlineAt / acceptedAt` del backend. El cliente NUNCA ve
+   * `offerState` (le filtraría el orden de magnitud de nuestro tope interno): lo consume
+   * `mockSellOffer` para decidir si hay oferta, exactamente como `offerPublicDTO` en el backend.
+   */
+  offerState?: 'pending_authorization' | 'sent' | 'cancelled' | null;
+  offerSentAt?: string | null;
+  offerGrossCents?: number | null;
+  offerShippingFeeCents?: number | null;
+  offerNetCents?: number | null;
+  offerAcceptDeadlineAt?: string | null;
+  offerAcceptedAt?: string | null;
+  /** v1.51.3 (D36/D37): snapshot de la dirección de ORIGEN. */
+  pickupAddress?: PickupAddressSnapshotDTO | null;
+};
 
 /**
  * ⚠️ **La ÚNICA derivación del set terminal que existe en el frontend, y vive en el SERVIDOR
@@ -959,10 +979,102 @@ const MOCK_TERMINAL_SELL_REQUEST_STATUSES: ReadonlySet<SellRequestStatus> = new 
   'expirada',
 ]);
 
-/** Proyección del servidor falso: añade lo que el backend real deriva (§4.39c sitio 9). */
+/**
+ * Proyección del servidor falso para la **LISTA** (`GET /buylist/requests`): añade lo que el
+ * backend real deriva (§4.39c sitio 9) y **descarta las columnas de la oferta**.
+ *
+ * ⚠️ El descarte es la parte importante: el contrato (v1.51.8) dice que `offer` y los campos de
+ * estado de la oferta viajan **solo en el DETALLE**. Si el servidor falso los repartiera en la
+ * lista, el frontend podría llegar a depender de algo que el backend real no manda.
+ */
 export function mockSellRequestDTO(row: MockSellRequestRow): SellRequestDTO {
-  return { ...row, isTerminal: MOCK_TERMINAL_SELL_REQUEST_STATUSES.has(row.status) };
+  const {
+    offerState: _offerState,
+    offerSentAt: _offerSentAt,
+    offerGrossCents: _offerGrossCents,
+    offerShippingFeeCents: _offerShippingFeeCents,
+    offerNetCents: _offerNetCents,
+    offerAcceptDeadlineAt: _offerAcceptDeadlineAt,
+    offerAcceptedAt: _offerAcceptedAt,
+    pickupAddress: _pickupAddress,
+    ...dto
+  } = row;
+  return { ...dto, isTerminal: MOCK_TERMINAL_SELL_REQUEST_STATUSES.has(row.status) };
 }
+
+/**
+ * MOCK del `terms` que **renderiza el backend** con las MISMAS plantillas del correo
+ * (`offerTermsCopy` en `backend/src/modules/buylist/buylist-mail.templates.ts`). Está aquí
+ * —del lado del servidor falso— y **no** en el catálogo i18n del front a propósito: el contrato
+ * manda estos dos strings como DATO precisamente para que la pantalla y el correo no puedan
+ * decir cosas distintas (§23.5a). Una copia en `messages/*.json` sería la segunda plantilla que
+ * rompe la identidad en el primer cambio de copy.
+ */
+function mockOfferTerms(locale: 'es' | 'en'): SellOfferPublicDTO['terms'] {
+  return locale === 'en'
+    ? {
+        perLineConditionLabel: 'only if it arrives Near Mint',
+        consequence:
+          "If a card doesn't arrive Near Mint we don't buy it, we don't pay for it and we send it back: you have 7 days to arrange the return, at your cost, and after 30 days it is considered abandoned. Rejecting one card does NOT cancel the purchase of the others and does NOT change any price: the ones that do arrive Near Mint are paid at the price in this offer.",
+      }
+    : {
+        perLineConditionLabel: 'siempre que llegue en Near Mint',
+        consequence:
+          'Si una carta no llega en Near Mint no se compra, no se paga y te la devolvemos: tienes 7 días para gestionar la devolución, a tu costo, y a los 30 días se considera abandonada. Rechazar una carta NO cancela la compra de las demás y NO cambia el precio de ninguna: las que sí lleguen en Near Mint se pagan al precio de esta oferta.',
+      };
+}
+
+/**
+ * Proyección del servidor falso de `SellOfferPublicDTO` — espejo de `offerPublicDTO`.
+ * **`null` salvo con `offerState === 'sent'`**: una oferta que espera autorización *no existe*
+ * para el vendedor (D13/D24) y una cancelada se limpió. Nunca lleva `offerState`.
+ */
+export function mockSellOffer(
+  row: MockSellRequestRow,
+  locale: 'es' | 'en' = 'es',
+): SellOfferPublicDTO | null {
+  if (row.offerState !== 'sent' || !row.offerSentAt || !row.offerAcceptDeadlineAt) return null;
+  return {
+    sentAt: row.offerSentAt,
+    grossCents: row.offerGrossCents ?? 0,
+    shippingFeeCents: row.offerShippingFeeCents ?? 0,
+    netCents: row.offerNetCents ?? 0,
+    acceptDeadlineAt: row.offerAcceptDeadlineAt,
+    acceptedAt: row.offerAcceptedAt ?? null,
+    shipDeadlineAt: null,
+    sellerShippedDeclaredAt: null,
+    carrier: null,
+    trackingNumber: null,
+    terms: mockOfferTerms(locale),
+    lines: row.items,
+  };
+}
+
+/**
+ * Proyección del servidor falso para el **DETALLE** (`GET /buylist/requests/:id`).
+ * `locale` hace de `User.locale` del dueño, que es de donde el backend real saca el idioma de
+ * `offer.terms`.
+ */
+export function mockSellRequestDetailDTO(
+  row: MockSellRequestRow,
+  locale: 'es' | 'en' = 'es',
+): SellRequestDetailDTO {
+  return {
+    ...mockSellRequestDTO(row),
+    offer: mockSellOffer(row, locale),
+    pickupAddress: row.pickupAddress ?? null,
+    lastOfferCancelledAt: null,
+  };
+}
+
+/**
+ * ⚠️ **El plazo lo calcula el SERVIDOR FALSO, nunca la pantalla.** R4 (§23.0) prohíbe que el
+ * cliente derive plazos; aquí estamos del lado del servidor, que es donde el backend real los
+ * congela en días hábiles al emitir la oferta. Se calcula al cargar el módulo (no en una
+ * constante de fecha fija) para que la fixture no nazca vencida y `OFFER_EXPIRED` solo aparezca
+ * cuando de verdad corresponde.
+ */
+const MOCK_OFFER_DEADLINE = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString();
 
 /**
  * Estados **pagables** — espejo de `SELL_REQUEST_PAYABLE_STATES` del backend. Igual que el set
@@ -1026,6 +1138,41 @@ export const mockSellRequests: MockSellRequestRow[] = [
     createdAt: '2026-08-13T14:00:00Z',
     items: [
       { id: 'sri-adj-1', card: cardById('c-charizard'), productType: 'raw', rawCondition: 'NM', finish: 'holofoil', rarity: 'Rare Holo', priceBasis: 'market', marketBracket: 'r25_80', quotedPriceCents: 60000, approvedPriceCents: 45000, itemStatus: 'ajustada' },
+    ],
+  },
+  /**
+   * v1.51 (M-46) — solicitud con la **OFERTA EMITIDA**, para ejercer el portal del vendedor
+   * (§23.5): DOS líneas `buy` con su precio congelado y UNA `skip` **sin monto** (criterio 118:
+   * el desglose tiene que decir qué NO compramos; `MX$ 0.00` está prohibido ahí).
+   * Los tres montos son los del ejemplo normativo de §23.4.2: 1020 − 180 = 840.
+   */
+  {
+    sellRequestId: 'sr-3003',
+    status: 'ofertada',
+    quotedTotalCents: 105000,
+    ineRequired: false,
+    createdAt: '2026-08-28T14:00:00Z',
+    offerState: 'sent',
+    offerSentAt: '2026-08-30T18:00:00Z',
+    offerGrossCents: 102000,
+    offerShippingFeeCents: 18000,
+    offerNetCents: 84000,
+    offerAcceptDeadlineAt: MOCK_OFFER_DEADLINE,
+    offerAcceptedAt: null,
+    pickupAddress: {
+      line1: 'Av. Central 123',
+      neighborhood: 'Centro',
+      city: 'Ciudad de México',
+      state: 'CDMX',
+      postalCode: '06000',
+      country: 'MX',
+      phone: '5555555555',
+      capturedAt: '2026-08-28T14:00:00Z',
+    },
+    items: [
+      { id: 'sri-off-1', card: cardById('c-charizard'), productType: 'raw', rawCondition: 'NM', finish: 'holofoil', rarity: 'Rare Holo', priceBasis: 'market', marketBracket: 'r25_80', quotedPriceCents: 84000, itemStatus: 'cotizada', offerDecision: 'buy', offeredPriceCents: 84000 },
+      { id: 'sri-off-2', card: cardById('c-pikachu'), productType: 'raw', rawCondition: 'NM', finish: 'normal', rarity: 'Common', priceBasis: 'market', marketBracket: 'r25_80', quotedPriceCents: 18000, itemStatus: 'cotizada', offerDecision: 'buy', offeredPriceCents: 18000 },
+      { id: 'sri-off-3', card: cardById('c-eevee'), productType: 'raw', rawCondition: 'NM', finish: 'reverse_holo', rarity: 'Reverse Holo', priceBasis: 'market', marketBracket: 'r25_80', quotedPriceCents: 3000, itemStatus: 'cotizada', offerDecision: 'skip', offeredPriceCents: null },
     ],
   },
 ];

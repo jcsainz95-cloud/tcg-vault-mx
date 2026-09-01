@@ -209,6 +209,17 @@ export function MyRequestsSection({ ready, isAuthenticated }: MyRequestsSectionP
                         {t('requestPendingNote')}
                       </p>
                     )}
+
+                    {/* El PORTAL de la solicitud (§23.5) es el destino del CTA del correo de la
+                        oferta, pero no puede ser SOLO eso: quien borró el correo, o entra desde
+                        la app, tiene que poder llegar a su oferta —y a los tres montos— sin
+                        depender de una bandeja de entrada. */}
+                    <Link
+                      href={`/buylist/requests/${r.sellRequestId}`}
+                      className="mt-4 inline-block border-b border-accent pb-1.5 text-xs font-medium text-accent hover:border-text hover:text-text"
+                    >
+                      {t('offer.viewRequestCta')}
+                    </Link>
                   </div>
                 );
               })

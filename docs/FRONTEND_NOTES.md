@@ -8534,3 +8534,286 @@ contestaba `422`— y está cubierto por test para que nadie lo lea como un olvi
    **en una superficie de dinero**. O lo emiten las cuatro, o el contrato acota dónde viaja.
 3. **`ITEM_TERMINAL` (`M5View`) y `RESOLVED` (`M8View`)** siguen como estaban: subconjuntos de
    `SellItemStatus` y `DisputeStatus`, **dos enums que v1.51 no toca**. Misma clase, cero radio.
+
+---
+
+## v1.51 · §23.5 — el portal del vendedor: la pantalla a la que el correo de la oferta no llevaba (2026-09-01, rama `claude/buylist-inventory-workflow-hdnls3`)
+
+> **El hueco, dicho como lo encontró devops:** el correo 1 está escrito, es **vinculante**, y su
+> botón apuntaba a un 404. `POST /buylist/requests/:id/offer-response` existe y el bloque `offer`
+> de `GET /buylist/requests/:id` existe, pero **no había pantalla**: el portal vivía en
+> `/[locale]/buylist` (`MyRequestsSection`), que no lee ningún parámetro de URL, y
+> `/buylist/requests/:id` era ruta de la **API**, no de vista. La variable del enlace se quedó
+> vacía a propósito (con ella vacía la plantilla degrada a instrucción de texto, que es mejor que
+> un botón muerto). Este pase construye la pantalla y **enciende el enlace**.
+
+### 1. La ruta — y el path exacto que el correo debe apuntar
+
+```
+frontend/src/app/[locale]/(storefront)/buylist/requests/[id]/page.tsx
+  URL:  /{locale}/buylist/requests/{sellRequestId}     ej. /es/buylist/requests/BL-000123
+```
+
+- **El `{locale}` no es decorativo:** `routing` corre con `localePrefix: 'always'`, así que
+  `/buylist/requests/:id` **sin prefijo no resuelve** — es exactamente el 404 que devops encontró.
+- El path elegido es **el mínimo delta** sobre lo que backend ya genera
+  (`${APP_PUBLIC_URL}/buylist/requests/:id`, `buylist.service.ts:2190`): **añadirle el prefijo de
+  idioma**, que es lo que hace el resto de los correos del proyecto (`buildFrontendLink` en
+  `auth.service.ts:63` → `${origin}/${locale}/${path}`, con `APP_BASE_URL`).
+- **Queda una decisión para el arquitecto** (no la tomo yo, ver §8): hoy conviven **dos variables
+  de base** —`APP_PUBLIC_URL` (solo la usa el correo de buylist) y `APP_BASE_URL` (todo lo demás)—
+  y el `locale` del enlace debería ser el `User.locale`, que es el mismo con el que el backend
+  renderiza el correo **y** `offer.terms`. Si el arquitecto fija otro path, mover la carpeta es el
+  cambio completo.
+- **No hay choque con la ruta de la API:** el front habla con el backend por
+  `NEXT_PUBLIC_API_BASE_URL` (otro origen y otro prefijo). La coincidencia de nombre es
+  deliberada: el vendedor y el operador hablan del mismo objeto.
+- **El portal no depende del correo.** `MyRequestsSection` gana un enlace «Ver esta solicitud» por
+  fila (`buylist.offer.viewRequestCta`): quien borró el correo tiene que poder llegar a su oferta
+  —y a los tres montos— sin depender de una bandeja de entrada.
+
+### 2. Cómo se ve la oferta (§23.5b, espejo de §23.4.2)
+
+En este orden, que **es la decisión**: condición → desglose → montos → plazo → acciones.
+
+| Bloque | Qué pinta | Norma |
+|---|---|---|
+| Cabecera | eyebrow «Oferta de compra» + folio + `StatusBadge` (con `expiredReason`) | §23.1d |
+| Recorrido | `PipelineStepper` **vertical con fecha y hora** | §23.2b |
+| Intro | «Esta oferta es condicional y así funciona…» | R2 |
+| **COMPRAMOS (n)** | nombre · set/número/acabado · **condición y monto EN EL MISMO RENGLÓN** | §23.4.2-1 |
+| **NO COMPRAMOS (n)** | nombre, **sin monto** y sin explicar por qué | criterio 118 |
+| Consecuencia | bloque **sobre pozo** (`bg-surface-2`), único de la pantalla, texto **verbatim** de `offer.terms.consequence` | §23.4.2-2 |
+| **Los tres montos** | bruto · `−` envío · **regla de TINTA** · **neto a 22px** + la prosa que repite envío y neto | §23.4.2-4/5, D43 |
+| Plazo | fecha, hora, día de la semana, «hora del centro de México» | criterio 154 |
+| Acciones | **Aceptar** `primary` · **Rechazar** `secondary`, **nunca** `destructive` | §23.5c |
+
+- **La UI no calcula NADA.** No hay `gross − shipping` en ningún archivo de este pase: los tres
+  montos llegan congelados y se pintan como llegan. Si un día no cuadran a la vista, el bug es del
+  servidor y **hay que poder verlo**, no taparlo con una resta local que siempre cuadra.
+- **La condición NM y el bloque de consecuencia NO existen en `messages/*.json`.** Son `offer.terms`,
+  que **renderiza el backend con las plantillas del correo**. Una copia en el catálogo del front
+  sería la segunda plantilla que se separa en el primer cambio de copy — y aquí «separarse»
+  significa que el correo y la pantalla le dicen al vendedor **dos tratos distintos**.
+- **La condición por línea usa `line.condition` y cae a `terms.perLineConditionLabel`** si no viene.
+  Nunca hay copy propio de por medio.
+- **Todo-o-nada, demostrado por lo que NO está:** lista de solo lectura, cero `checkbox`, cero
+  «quitar esta carta», cero contraoferta; y el body del endpoint es `{ decision }` **y nada más**
+  (probado: `api.test.ts` afirma el JSON exacto — SEC-A1 es la FORMA del DTO, no una validación).
+- **Confirmación al aceptar** (§7.6, es dinero): repite **el neto y la condición** en una frase y el
+  botón dice el verbo con el monto («Aceptar y recibir mi guía»). **La resta no se repite ahí**: el
+  diálogo se abre a un palmo del bloque de los tres montos.
+- **`aria-live="polite"` envuelve a las acciones desde el primer render** (§23.10). Una región que
+  aparece *junto con* su contenido no se anuncia en varios lectores: la región existe siempre y lo
+  que cambia es lo de dentro (botones → desenlace). `assertive` queda para el error de dinero
+  (`Banner role="alert"`).
+- **`409 OFFER_EXPIRED` / `OFFER_NOT_PENDING` → banner PERSISTENTE**, no toast (§23.5c).
+- **Nada de la mesa de decisión llega a esta pantalla**, y no por disciplina: `SellItemDTO` en
+  `types/contract.ts` **no declara** `offerDerivedPriceCents`, `offerOverrideReason`,
+  `offerPriceBasis`, `offerMarketMxnCents` ni `offerMarketBracket`. El contrato los marca
+  ADMIN-ONLY y ese tipo lo consume el portal del vendedor: **un campo que no está en el tipo no se
+  pinta por accidente**. Cuando M5 los necesite, entran en un DTO admin. Hay un test que barre el
+  DOM buscando «en camino», «comprometido», «sugerencia», «no comprar» y «tope».
+
+### 3. Las decisiones defensivas — y hacia dónde falla cada una
+
+Cinco, todas en la misma dirección: **si no se puede enseñar el trato entero, no se ofrece firmarlo;
+y si no se puede saber quién hizo qué, no se acusa a nadie.**
+
+1. **El reloj del navegador NO apaga los botones.** El único gate de las acciones es
+   `status === 'ofertada'` + oferta completa. Comparar `acceptDeadlineAt > now` en el cliente parece
+   prudente y es **el peor de los dos errores**: con el reloj adelantado o una zona mal configurada
+   le impediríamos aceptar **una oferta viva y vinculante** —se pierde la venta, sin remedio
+   self-service—. Si el plazo sí venció, el servidor responde `409`, **nada se mueve** y la pantalla
+   lo dice con la fecha real. *La pantalla informa; la puerta decide.*
+2. **Oferta incompleta ⇒ ni montos, ni plazo, ni acciones** (`offer-readiness.ts`). Se bloquea si
+   falta `terms.perLineConditionLabel`/`consequence` (**R2 no tiene excepción**: un monto ofertado
+   sin su condición al lado promete un trato **mejor** del que le estamos haciendo) o si alguna
+   línea no trae `offerDecision`, o trae `buy` sin precio (criterio 118: el paquete tendría
+   contenido desconocido). Una línea `buy` sin precio **no se rescata con `MX$ 0.00`** — cero es un
+   precio. Enseñar «al menos el neto» era la tentación y es justo lo que R2 prohíbe.
+   ⚠️ **Lo que ese módulo NO hace, a propósito:** no valida que la suma de las líneas cuadre con
+   `grossCents`. R4 dice que ninguna cifra del ciclo se calcula en el cliente, y una aritmética
+   escondida bloquearía una oferta **real** por cualquier diferencia legítima que el servidor
+   conozca y el front no.
+3. **`offer` ausente se lee igual que `null`.** El contrato lo declara siempre presente en el
+   detalle, pero el tipo lo marca opcional: durante el despliegue incremental un backend anterior
+   responde sin él, y ausente ⇒ **estado previo a la oferta** (§23.5d), que no promete dinero, no
+   enseña guía y no ofrece aceptar. Lo contrario —asumir oferta— sería pintar un contrato
+   vinculante a partir de datos que no llegaron.
+4. **`rechazada` en frío se dice con una frase NEUTRA.** §23.5f la rotula «La oferta venció el
+   {fecha}», pero **el DTO no dice quién la cerró**: el vendedor a mano, o el barrido por no
+   responder. Decir «venció» a quien la rechazó es falso; decir «la rechazaste» a quien no contestó,
+   también. Mientras lo sabemos de primera mano (acaba de pulsar en esta sesión) se dice con
+   precisión; en frío se usa *«Esta oferta ya no está vigente»*, cierta en los dos casos. Misma
+   doctrina que el fallback de §23.1d. **Ver la petición 3 de §8.**
+5. **`expirada + no_offer`: segundo cinturón sobre el dinero.** El servidor ya proyecta los montos a
+   `null` (v1.51.4), y la pantalla **además** no los pinta. Si un backend anterior los sigue
+   mandando, «MX$ 1,200» junto a «no procedimos» no aparece igual. Las cartas **sí** se siguen
+   listando: no se le borra su solicitud, se le quita una cifra que ya no significa nada.
+
+**Estados obligatorios (§23.9/§8.1):** carga (skeleton **sin hueco de dinero** — mientras la
+petición está en vuelo *no sabemos si hay oferta*, y reservar el hueco prometería una cifra que en
+la mitad de los casos nunca llega), error (banner + reintentar), **404 neutro** (el contrato usa
+`404` y no `403` para no confirmar que la solicitud ajena existe: el copy tampoco lo confirma) y
+**sin sesión** → invitación a entrar con `?next=`, sin consultar el endpoint (un `401` pintaría un
+banner de error donde toca una invitación) y repitiendo la frase del correo: *«esta oferta no se
+acepta desde un enlace del correo»*.
+
+### 4. Qué se tocó fuera de la ruta nueva
+
+| Archivo | Cambio | Por qué |
+|---|---|---|
+| `src/types/contract.ts` | `SellOfferPublicDTO`, `SellRequestDetailDTO`, `SellOfferResponseDTO`, `PickupAddressSnapshotDTO`, `BuyDecision`; `SellItemDTO +=` los **tres** campos de cliente | El detalle y la lista son *shapes distintos* (v1.51.8): tipos separados ⇒ ningún listado puede leer un `offer` que el servidor no manda, y lo dice el compilador |
+| `src/lib/api.ts` | `getSellRequest(id)` y `respondToSellOffer(id, decision)` (+ ramas mock) | — |
+| `src/lib/format.ts` | **`formatDateTimeMx`** | Zona **fija** `America/Mexico_City` y `dateStyle:'full' + timeStyle:'short'`, **idénticos** a `formatDateTime` del correo: un vendedor de vacaciones en Madrid tiene que leer la misma hora que su correo sobre la misma fecha límite |
+| `src/components/ui/PipelineStepper.tsx` | `orientation="vertical"` + `timestamps` (**aditivos**, default = conducta previa) | §23.2b: en el portal el recorrido es siempre vertical — *el vendedor lee el historial de su venta, no un pipeline* |
+| `src/lib/mock/fixtures.ts` | fila `sr-3003` **con la oferta emitida**, `mockSellOffer`, `mockSellRequestDetailDTO`, `mockOfferTerms` | El servidor falso proyecta **como el real**: `offer` solo con `offerState='sent'`, `terms` en el `locale` del dueño, y **la lista NO reparte `offer`** |
+| `MyRequestsSection.tsx` | enlace al portal por fila | El portal no puede ser accesible solo desde el correo |
+
+**Un paso sin sello de tiempo no pinta nada** en el stepper vertical: hoy la proyección de cliente
+solo sella `createdAt`, `offer.sentAt` y `offer.acceptedAt`. Rellenar los demás con la fecha más
+cercana sería **inventar el historial de una venta**.
+
+### 5. i18n — claves nuevas y de quién es el copy
+
+Namespace **`buylist.offer.*` (41 claves)** + `error.OFFER_EXPIRED` / `error.OFFER_NOT_PENDING`.
+**Paridad ES/EN completa** (test de paridad en verde) y **cero claves retiradas**.
+
+- **§23.12 no inventaría las claves del PORTAL** — lista las de los correos (`buylist.mail.*`), las
+  del stepper, `status.*` y `buylist.request.address.*`, pero **no las de esta pantalla**. El
+  **texto ES sí es normativo** (está en §23.5 y §23.4.2) y se usa palabra por palabra; **el EN lo
+  traduje yo** y **los nombres de clave son míos**. Ambas cosas quedan **a ratificación de ux-ui**
+  (§8, petición 1).
+- **Copy que redacté por no existir en §23:** `confirmRejectTitle/Body/Cta` (§23.5c especifica la
+  confirmación de **aceptar**, no la de **rechazar** — y rechazar también es irreversible: terminal
+  es terminal, criterio 145), `incompleteTitle/Body`, `notFoundTitle/Body`, `noLongerActive`,
+  `closedPaid` y `viewRequestCta`.
+- **`ruleParagraph` es un duplicado inevitable HOY**, y conviene que se sepa: §23.5b obliga a que el
+  portal lleve *«la misma frase en prosa del correo»* con el envío y el neto nombrados, pero esa
+  frase la renderiza el backend dentro del correo y **no viaja en `offer.terms`**. Así que hay **dos
+  copias del mismo párrafo** (`buylist.mail.offer.ruleParagraph` en backend, `buylist.offer.ruleParagraph`
+  aquí) que pueden desincronizarse — exactamente el defecto que `terms` existe para impedir.
+  **Petición 4 de §8.**
+- **La frase de confirmación cita la condición VERBATIM**, con su singular: *«Aceptas que te
+  compremos 2 cartas por MX$ 840.00, siempre que **llegue** en Near Mint»*. §23.5c la escribe en
+  plural (*«lleguen»*), pero el servidor manda la variante por línea y **preferí la cita textual a
+  una redacción propia**: un plural nuestro es una segunda plantilla de la condición. **Petición 2
+  de §8.**
+
+### 6. Lo que este pase NO implementa (declarado, no silenciado)
+
+1. **«Cambiar» la dirección de origen (§23.5e).** La dirección **sí se muestra** (es su dato y es lo
+   que vamos a imprimir), pero el enlace a `PATCH …/pickup-address` no entra: arrastra el selector
+   de libreta completo y es otro alcance. Tampoco se pinta *«Ya imprimimos la guía con esta
+   dirección»* porque **`guideSentAt` no viaja en la proyección de cliente** — ver petición 5.
+2. **`POST …/declare-shipped` («ya lo mandé») y la guía/tránsito.** Es el tramo **posterior** a la
+   aceptación (§23.5f, criterio 156). Se respeta la mitad prohibitiva del criterio 114: antes de la
+   oferta no hay guía, ni nuestra dirección, ni vía para declarar envío.
+3. **El CIERRE truncado del stepper (§23.2d)** —colgar la versalita del motivo del último paso
+   alcanzado— sigue pendiente (ya estaba declarado en `lib/pipelines.ts`). Lo que sí está garantizado
+   es la prohibición que importa: **ningún paso se pinta como fallido ni se tacha** — en `no_offer`
+   el vendedor no falló nada.
+4. **`pagada`: la fecha del SPEI** (§23.5f pide los tres montos + la fecha del SPEI + el desglose de
+   aprobadas/rechazadas). Los tres montos y las líneas están; **la fecha del SPEI no viaja** en la
+   proyección de cliente y **no se inventa**. Petición 6.
+
+### 7. Verificación (resultado literal)
+
+| Comprobación | Resultado |
+|---|---|
+| `npm test` | **`Test Files 95 passed (95)` · `Tests 871 passed (871)`** |
+| `npm run typecheck` | **limpio (sin salida)** |
+| `npm run lint` | **`✔ No ESLint warnings or errors`** |
+| `npx next build` (en `NEXT_DIST_DIR=.next-verify`, borrado después) | verde; la ruta aparece como **`ƒ /[locale]/buylist/requests/[id]`** |
+| E2E nuevo `e2e/buylist-offer.spec.ts` (mock, `E2E_DEV_SERVER=1`) | **`6 passed`** |
+
+- **Flake observado (NO de este pase, y no es el par conocido):** en **una** de las tres corridas
+  completas de `npm test` salió `1 failed | 870 passed`. Las corridas **anterior y posterior**
+  dieron 871/871, y los dos ficheros con flake conocido —`PhotoUploader.test.tsx` (5/5) y
+  `M2View.test.tsx` (65/65)— **pasan aislados**, igual que el bloque tocado por este pase
+  (`buylist/`, `api`, `format`, paridad i18n, `components/ui`: **178/178**).
+- **⚠️ DOS E2E de `e2e/buylist.spec.ts` fallan, y son PREEXISTENTES — verificado con `git stash`**
+  (fallan igual con el árbol limpio, sin una línea de este pase):
+  1. `@real vender: crea la solicitud…` → *«el carrito no alcanzó el mínimo ni con la cantidad
+     máxima»*: la primera carta cotizable del grid GRADED no llega a MX$500 ni con `qty=999`.
+  2. `en móvil 390px el teaser dice la regla del envío…` → `buylist-shipping-note` **existe en el
+     DOM pero está `hidden`** a 390px en el teaser del **home**. Bajo D43 esa nota es *lo único*
+     que el vendedor lee sobre el envío antes de la oferta, y §23.14.2a la puso ahí **precisamente
+     para que también se viera en móvil**. **Es un defecto vivo de superficie de dinero** y lo
+     tomo como pendiente propio del siguiente pase (no de éste: no toqué `HomeQuoter`).
+
+Cobertura nueva: **8** casos de `offer-readiness.test.ts` (las tres puertas + que **no** valida
+aritmética), **21** de `SellRequestDetailView.test.tsx` (tres montos, condición por línea, `skip` sin
+monto, plazo con hora, sin casillas, aceptar, rechazar, `409` persistente, **plazo aparentemente
+vencido sigue ofreciendo responder**, cero fugas de la mesa, sin oferta, `offer` ausente, ya
+aceptada, rechazada en frío, términos incompletos, líneas sin clasificar, 404, sin sesión,
+`no_offer` sin cifras, `expirada` sin motivo, oferta cancelada, **paridad EN en pantalla**), **6** de
+`api.test.ts` (body exacto `{ decision }`, URL del detalle, oferta mock con `skip` sin monto, la
+lista **sin** `offer`, 404, `accept → aceptada` + `409` en la segunda llamada) y **3** de
+`format.test.ts` (zona fija, día de la semana, entrada inválida ⇒ `''`).
+
+### 8. Peticiones a otros roles (no resueltas aquí)
+
+**Al arquitecto:**
+
+1. **El path del CTA del correo — decisión suya, la pantalla ya existe.** Propuesto y construido:
+   **`/{locale}/buylist/requests/{sellRequestId}`** con `locale = User.locale`. Falta que el
+   contrato/ARCHITECTURE fije (a) el prefijo de idioma —hoy `portalRequestUrl` no lo pone y es la
+   causa del 404— y (b) si `APP_PUBLIC_URL` se unifica con `APP_BASE_URL`, que es la base que usan
+   todos los demás correos. **No toqué backend.** Si se fija otro path, mover la carpeta es todo.
+2. **`offer.terms` necesita una tercera cadena: la regla del descuento en prosa.** §23.5b obliga al
+   portal a repetir *«Su costo, {shipping}, es una tarifa fija… La cifra que se te deposita es
+   {net}»*, pero esa frase solo existe dentro de la plantilla del correo. Hoy la duplico en
+   `buylist.offer.ruleParagraph`. **Petición concreta:** `terms.rule` (renderizada por el backend,
+   con los dos montos ya interpolados), igual que `perLineConditionLabel` y `consequence`. Es
+   **aditivo** y borra la única copia de copy que este pase se vio obligado a crear.
+3. **`rechazada` no tiene discriminador de PRODUCTOR.** La cierran dos hechos opuestos —el vendedor
+   rechaza, o el barrido la cierra por silencio— y el DTO de cliente no los distingue, así que en
+   frío el portal solo puede decir una frase neutra. §23.5f asume el segundo caso y **le diría
+   «venció» a quien pulsó “rechazar”**. Bastaría algo como `rejectedBy: 'seller' | 'timeout'` (o
+   reusar el par `acceptedAt`/`closedAt` con una regla escrita). Mismo espíritu que `expiredReason`
+   en D33, y por la misma razón: *no acusar a nadie de un desenlace que no eligió*.
+4. **`SellItemDTO` mezcla dos audiencias.** El contrato añade a un solo DTO campos de cliente
+   (`offerDecision`, `offeredPriceCents`, `condition`) y campos **ADMIN-ONLY**
+   (`offerDerivedPriceCents`, `offerOverrideReason`, `offerPriceBasis`, `offerMarketMxnCents`,
+   `offerMarketBracket`). En el front **no declaré los cinco admin-only** para que el portal no
+   pueda pintarlos ni por autocompletado, pero eso deja el tipo del front **más estrecho que el
+   contrato**, a sabiendas. Vale la pena que el contrato **nombre las dos proyecciones** como ya
+   hizo con la lista y el detalle en v1.51.8.
+5. **`guideSentAt` no viaja al cliente** y §23.5e depende de él: es lo que decide si el vendedor
+   todavía puede corregir su dirección («Cambiar») o si ya solo cabe *«Ya imprimimos la guía con
+   esta dirección»*. La línea es `guideSentAt`, **no `status`** (lo dice la precondición de
+   `PATCH …/pickup-address`), así que el front no puede derivarlo sin recodificar una regla del
+   servidor. Petición: exponerlo (o un booleano equivalente) en el detalle de cliente.
+6. **`pagada` sin fecha de SPEI.** §23.5f la pide en pantalla; la proyección de cliente no la trae.
+   Hoy no se pinta —no se inventa una fecha de un pago—, y queda el hueco declarado.
+
+**A ux-ui:**
+
+1. **Ratificar el copy del portal.** El ES sale de §23.5/§23.4.2 palabra por palabra, pero **§23.12
+   no inventaría las claves de esta pantalla**: los nombres bajo `buylist.offer.*` y **todo el EN**
+   son míos. Y hay copy que §23 no cubre y tuve que redactar: la **confirmación de rechazar**, el
+   aviso de **oferta incompleta**, el **404 neutro**, la frase neutra de **`rechazada` en frío** y
+   el enlace **«Ver esta solicitud»**.
+2. **El plural de la condición en la confirmación.** §23.5c escribe *«siempre que **lleguen** en
+   Near Mint»*, pero el servidor manda la variante **por línea** (singular) y la cito verbatim para
+   no fabricar una segunda plantilla de la condición. O el backend manda también la variante plural
+   (junto con la petición 2 al arquitecto), o §23.5c se ajusta al singular. **No lo decido yo.**
+3. **§23.2d sigue sin implementarse** (el cierre truncado del stepper con la versalita del motivo).
+   Está declarado desde el pase anterior; lo repito porque **esta pantalla es donde más se nota**:
+   es la que el vendedor abre cuando su solicitud ya cerró.
+
+**A backend** (no es cambio de contrato — el contrato ya los especifica; es que la proyección **aún
+no los emite**):
+
+- **`itemDTO` no emite `offerDecision`, `offeredPriceCents` ni `condition`**
+  (`buylist.service.ts:1283`), que el contrato §11 declara para la proyección de cliente. **Sin
+  ellos el portal no puede ofrecer aceptar** —y no lo hace: pinta el aviso de «oferta incompleta»,
+  que es el lado seguro—. Los tres son lo único que falta para que la pantalla encienda entera; los
+  *mocks* ya los emiten según contrato, así que en modo fixtures el flujo está completo y
+  demostrable hoy.
+- **Detalle menor del espejo (§23.5a):** el correo formatea con `Intl` sin normalizar el símbolo, así
+  que en ES imprime **`$1,020.00`** mientras toda la app imprime **`MX$1,020.00`** (§9.3). El
+  **número es idéntico**; es solo el símbolo. Lo señalo porque en una pantalla de dinero la
+  identidad literal con el correo es la propiedad que se está comprando.

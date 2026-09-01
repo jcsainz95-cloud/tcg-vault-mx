@@ -916,6 +916,92 @@ export interface SellItemDTO {
   rejectionReason?: string | null;
   returnDeadlineAt?: string | null;
   abandonDeadlineAt?: string | null;
+  // ---- v1.51 (M-46, contrato §11 `SellItemDTO +=`) · LA LÍNEA DE LA OFERTA ----
+  // Poblados desde que la oferta se emite. Los TRES que siguen son los ÚNICOS de ese bloque
+  // que el contrato deja viajar al CLIENTE; ver la nota de abajo sobre los que faltan.
+  /** `buy` = la compramos; `skip` = NO la compramos (se lista igual, criterio 118). */
+  offerDecision?: BuyDecision | null;
+  /**
+   * ⚠️ **El precio OFERTADO, congelado** (D2/D9): no se mueve jamás. `null` en las líneas
+   * `skip` — y **jamás `0`**: cero es un precio y en una línea que no compramos no hay precio
+   * (§23.4.2, decisión 3). La UI pinta «No entra en esta oferta», nunca `MX$ 0.00`.
+   */
+  offeredPriceCents?: number | null;
+  /**
+   * La CONDICIÓN NM de esta línea, **ya renderizada por el backend** en el `locale` del dueño
+   * y **es el mismo string que usó el correo** (criterio 161(d), §23.5a: pantalla y correo
+   * dicen lo mismo palabra por palabra). El front lo pinta VERBATIM y **no tiene copia
+   * propia**: dos plantillas distintas rompen la identidad en el primer cambio de copy.
+   * Solo existe en la proyección de CLIENTE.
+   */
+  condition?: string | null;
+  // ⚠️ **LO QUE DELIBERADAMENTE NO SE DECLARA AQUÍ.** El contrato §11 lista además
+  // `offerDerivedPriceCents`, `offerOverrideReason`, `offerPriceBasis`, `offerMarketMxnCents`
+  // y `offerMarketBracket`, y los marca **ADMIN-ONLY** (deliberación interna + cifras de la
+  // mesa de decisión). Este mismo `SellItemDTO` es el que consume el PORTAL DEL VENDEDOR, así
+  // que declararlos aquí sería dejar a mano —con autocompletado— justo los campos que el
+  // contrato prohíbe enseñarle. **Un campo que no está en el tipo no se pinta por accidente.**
+  // Cuando la mesa de decisión (M5) los necesite, entran en su DTO admin, que es el sitio donde
+  // el compilador puede seguir distinguiendo las dos audiencias.
+}
+
+/** Contrato §Enums (v1.51): el cherry-pick AL OFERTAR. */
+export type BuyDecision = 'buy' | 'skip';
+
+/**
+ * Snapshot de la dirección de ORIGEN congelado al crear la solicitud (contrato §11, v1.51.3 ·
+ * D36/D37). Es **el dato del propio vendedor** y lo que vamos a IMPRIMIR en la guía; por eso se
+ * le muestra desde el principio (§23.5e). PII: nunca en listados ni en correos.
+ */
+export interface PickupAddressSnapshotDTO {
+  line1: string;
+  line2?: string;
+  neighborhood?: string;
+  city: string;
+  state: string;
+  postalCode: string;
+  country: 'MX';
+  /** Teléfono DEL DOMICILIO (va en la etiqueta), no `User.phone`. */
+  phone: string;
+  capturedAt: string;
+}
+
+/**
+ * **LA OFERTA COMO LA VE EL VENDEDOR** (contrato §11 `SellOfferPublicDTO`, v1.51/v1.51.1).
+ *
+ * Presente **solo** cuando la oferta está emitida (`offerState='sent'`); `null` en cualquier
+ * otro caso. **NUNCA lleva `offerState`** (una `pending_authorization` le filtraría al vendedor
+ * la existencia y el orden de magnitud de nuestro tope interno) ni ninguna cifra de la mesa.
+ *
+ * **Los TRES montos, sin letras chiquitas** (D16, criterios 133/134): `grossCents` = valor de
+ * las cartas; `shippingFeeCents` = el envío que ponemos y descontamos (D31: SIEMPRE la tarifa
+ * congelada, ya no existe el caso `0`); `netCents` = **lo que se deposita**, y es **la cifra
+ * vinculante**. ⚠️ **La UI no calcula ninguno de los tres, ni la resta** (R4 de §23.0): los
+ * pinta como llegan. D31 retiró `shippingPaidByUs` y `depositField` — con una sola banda solo
+ * podían valer una cosa, así que **la UI no ramifica**: lo que se deposita es siempre el neto.
+ *
+ * **Plazos:** ISO datetime **ya resuelto** en días hábiles (`America/Mexico_City`). ⚠️ **El
+ * front NO recalcula plazos** (criterio 154): dos implementaciones de «día hábil» hacen que la
+ * pantalla y el correo digan fechas distintas.
+ */
+export interface SellOfferPublicDTO {
+  sentAt: string;
+  grossCents: number;
+  shippingFeeCents: number;
+  netCents: number;
+  acceptDeadlineAt: string;
+  acceptedAt: string | null;
+  shipDeadlineAt: string | null;
+  sellerShippedDeclaredAt: string | null;
+  carrier: string | null;
+  trackingNumber: string | null;
+  /**
+   * El texto legal **renderizado por el backend** (mismas plantillas que el correo).
+   * `perLineConditionLabel` es la frase corta que va pegada a cada monto (R2) y `consequence`
+   * el bloque de qué pasa con la carta que no llegue NM. **El front no tiene copia propia.**
+   */
+  terms: { perLineConditionLabel: string; consequence: string };
+  lines: SellItemDTO[];
 }
 
 export interface SellRequestDTO {
@@ -937,6 +1023,51 @@ export interface SellRequestDTO {
   ineRequired: boolean;
   items: SellItemDTO[];
   createdAt?: string;
+}
+
+/**
+ * **DETALLE** de la proyección de cliente (`GET /buylist/requests/:id`).
+ *
+ * ⚠️ Es un tipo aparte **por mandato del contrato** (v1.51.8): la lista y el detalle son
+ * *shapes distintos* y el contrato lo resuelve **campo por campo**, no en bloque. `offer` es un
+ * DTO anidado y pesado (tres montos + desglose línea por línea + guía) y **no viaja en la
+ * lista**; `isTerminal` sí viaja en las dos. Separar los tipos hace que ninguna pantalla de
+ * listado pueda leer un `offer` que el servidor no manda — y que el compilador lo diga.
+ */
+export interface SellRequestDetailDTO extends SellRequestDTO {
+  /**
+   * `null` salvo con la oferta EMITIDA. ⚠️ **Opcional a propósito**, aunque el contrato lo
+   * declare siempre presente: durante el despliegue incremental del ciclo un backend anterior
+   * responde el detalle sin el campo, y el fallo tiene que caer del lado seguro. Ausente se
+   * lee **igual que `null`** ⇒ la pantalla muestra el estado PREVIO a la oferta (§23.5d), que
+   * no promete dinero, no ofrece guía y no ofrece aceptar. Lo contrario —asumir que hay
+   * oferta— sería pintar un contrato vinculante a partir de datos que no llegaron.
+   */
+  offer?: SellOfferPublicDTO | null;
+  /**
+   * v1.51.3 (D36/D37): la dirección de ORIGEN congelada. Se le muestra al vendedor **desde el
+   * principio** (es SU dato y es lo que vamos a imprimir). `null` en filas legacy.
+   * ⚠️ No confundir con NUESTRA dirección, que sigue oculta hasta la aceptación (criterio 114).
+   */
+  pickupAddress?: PickupAddressSnapshotDTO | null;
+  /**
+   * v1.51.4 (D42): **cuándo** cancelamos la última oferta que el vendedor SÍ vio; `null` en
+   * cualquier otro caso. Viaja **el cuándo y nada más** (ni motivo, ni montos, ni cuántas
+   * veces). Existe para que el portal no contradiga al correo 5.
+   */
+  lastOfferCancelledAt?: string | null;
+}
+
+/**
+ * Respuesta de `POST /buylist/requests/:id/offer-response` (contrato §6, v1.51).
+ * `acceptedAt` solo en la rama `accept`.
+ */
+export interface SellOfferResponseDTO {
+  sellRequestId: string;
+  status: 'aceptada' | 'rechazada';
+  acceptedAt?: string;
+  isTerminal: boolean;
+  offer: SellOfferPublicDTO;
 }
 
 // ---- Admin (contrato §10-11) ----

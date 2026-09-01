@@ -9,7 +9,7 @@ import {
   getToken,
   clearClientSession,
 } from './api-client';
-import { setStoredUser, patchStoredUser } from './session';
+import { setStoredUser, patchStoredUser, getStoredUser } from './session';
 import * as fx from './mock/fixtures';
 import type {
   Paginated,
@@ -32,6 +32,8 @@ import type {
   BuylistBatchQuoteResponse,
   BuylistQuotePolicyDTO,
   SellRequestDTO,
+  SellRequestDetailDTO,
+  SellOfferResponseDTO,
   ShipmentDTO,
   ShipmentQuoteResponse,
   ShipmentStatus,
@@ -1391,6 +1393,90 @@ export async function getSellRequests(): Promise<SellRequestDTO[]> {
   // MOCK: el servidor falso proyecta `isTerminal` (server-derived, §4.39c sitio 9) igual que
   // el backend real: la fixture guarda la FILA, nunca el campo derivado.
   return delay(fx.mockSellRequests.map(fx.mockSellRequestDTO));
+}
+
+/**
+ * **DETALLE de una solicitud propia** (contrato §6 · `GET /buylist/requests/:id`, `customer`).
+ *
+ * Es la fuente del PORTAL DEL VENDEDOR (§23.5): trae `offer` (la oferta como la ve él, `null`
+ * mientras no esté emitida), `pickupAddress`, `expiredReason`, `lastOfferCancelledAt` e
+ * `isTerminal`. **Exige sesión del dueño**: una solicitud ajena responde `404` (no `403`, para
+ * no confirmar que existe), así que la pantalla trata el 404 como «no encontrada» sin más.
+ */
+export async function getSellRequest(id: string): Promise<SellRequestDetailDTO> {
+  if (!config.useMocks) return apiRequest<SellRequestDetailDTO>(`/buylist/requests/${id}`);
+  // MOCK: el servidor falso proyecta lo que el backend real deriva (`isTerminal`) y adjunta la
+  // oferta SOLO cuando la fila la tiene emitida — igual que `offerPublicDTO`. El `locale` que
+  // alimenta `offer.terms` sale del usuario en sesión, que es el `User.locale` que lee el
+  // backend real: los términos son DATO renderizado por el servidor, no copy del front.
+  const req = fx.mockSellRequests.find((r) => r.sellRequestId === id);
+  if (!req) throw new ApiClientError(404, { code: 'NOT_FOUND', message: 'Sell request not found' });
+  const ownerLocale = getStoredUser()?.locale === 'en' ? 'en' : 'es';
+  return delay(fx.mockSellRequestDetailDTO(req, ownerLocale));
+}
+
+/**
+ * **RESPUESTA A LA OFERTA** (contrato §6 · `POST /buylist/requests/:id/offer-response`,
+ * `customer`). Body `{ decision: 'accept' | 'reject' }` — **y nada más**.
+ *
+ * ⚠️ **SEC-A1: el monto NO viaja del cliente al servidor** (criterio 120). Aceptar es aceptar
+ * *la oferta que está guardada*, no mandar un número: **la defensa es la forma del DTO**, no una
+ * validación. Si alguna vez alguien añade aquí un campo de monto «para confirmar», habrá abierto
+ * la puerta que este endpoint existe para tener cerrada.
+ *
+ * ⚠️ **TODO-O-NADA** (D1, criterio 118): no hay parámetro de líneas ni contraoferta. El vendedor
+ * ve el desglose completo y acepta o rechaza **el paquete entero**.
+ *
+ * ⚠️ **NO es `respondSellRequest`.** Aquél responde a un AJUSTE de precio de una carta que ya
+ * tenemos; éste responde a un CONTRATO DE COMPRA antes de gastar un peso en envío. Son dos actos
+ * de negocio distintos y el contrato los mantiene en dos endpoints distintos a propósito.
+ *
+ * Errores: `409 OFFER_EXPIRED` (venció el plazo), `409 OFFER_NOT_PENDING` (cualquier otro
+ * estado), `404 NOT_FOUND` (inexistente o de otro dueño), `400 VALIDATION_ERROR`.
+ */
+export async function respondToSellOffer(
+  id: string,
+  decision: 'accept' | 'reject',
+): Promise<SellOfferResponseDTO> {
+  if (!config.useMocks) {
+    return apiRequest<SellOfferResponseDTO>(`/buylist/requests/${id}/offer-response`, {
+      method: 'POST',
+      body: { decision },
+    });
+  }
+  // MOCK: replica la TABLA DE TRANSICIÓN del contrato §6, incluidos sus dos `409`. La rama del
+  // plazo vencido la decide el SERVIDOR FALSO (no la pantalla): es exactamente el reparto de
+  // responsabilidades del backend real.
+  const req = fx.mockSellRequests.find((r) => r.sellRequestId === id);
+  if (!req) throw new ApiClientError(404, { code: 'NOT_FOUND', message: 'Sell request not found' });
+  const offer = fx.mockSellOffer(req, getStoredUser()?.locale === 'en' ? 'en' : 'es');
+  if (req.status !== 'ofertada' || !offer) {
+    throw new ApiClientError(409, {
+      code: 'OFFER_NOT_PENDING',
+      message: 'There is no pending offer for this request',
+      details: { status: req.status },
+    });
+  }
+  if (new Date(offer.acceptDeadlineAt).getTime() <= Date.now()) {
+    throw new ApiClientError(409, {
+      code: 'OFFER_EXPIRED',
+      message: 'The offer deadline has passed',
+      details: { offerAcceptDeadlineAt: offer.acceptDeadlineAt },
+    });
+  }
+  const acceptedAt = new Date().toISOString();
+  req.status = decision === 'accept' ? 'aceptada' : 'rechazada';
+  if (decision === 'accept') req.offerAcceptedAt = acceptedAt;
+  const detail = fx.mockSellRequestDetailDTO(req, getStoredUser()?.locale === 'en' ? 'en' : 'es');
+  return delay({
+    sellRequestId: req.sellRequestId,
+    status: req.status as 'aceptada' | 'rechazada',
+    ...(decision === 'accept' ? { acceptedAt } : {}),
+    isTerminal: detail.isTerminal,
+    // El contrato devuelve la oferta ÍNTEGRA también al rechazar: el vendedor tiene derecho al
+    // registro de lo que se le ofreció.
+    offer: detail.offer ?? offer,
+  });
 }
 
 export interface CreateSellRequestInput {
