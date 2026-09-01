@@ -11522,7 +11522,7 @@ verificable con inventario**.
 > topes AML/KYC, el flujo de **ajuste** (`ajustada`) que sigue vivo para otros caminos, y el **precio de venta** (D10:
 > lo fija la curva; este ciclo no captura precios de venta).
 > **Diseño en papel.** Lo implementan **backend** (schema, servicios, jobs, correos) y **frontend** (M5, M1, portal del
-> vendedor). Contrato observable en `API_CONTRACT.md` ~~**v1.51**~~ **v1.51.6**. Migración **M-46** (§11).
+> vendedor). Contrato observable en `API_CONTRACT.md` ~~**v1.51**~~ **v1.51.7**. Migración **M-46** (§11).
 > **Regla de conflicto aplicada:** donde este documento y `PROJECT.md` §P difieran, **manda PROJECT**. Las tensiones y
 > los huecos que encontré **están señalados en (o)**, no resueltos en silencio.
 >
@@ -12269,6 +12269,19 @@ si NO  (sin bounty, O bounty con bountyTargetQty = null):
 
 ---
 
+### ⚠️ v1.51.7 — EL SUSTRAENDO QUE FALTABA: `offerShippingFeeCents ?? 0` (§4.39i **4-ter**, NUEVO)
+
+*Backend lo implementó al hacer v1.51.5, **lo declaró** y pidió ratificación: «la fórmula del contrato no cubre el
+`null` y es el caso de todas las filas existentes». **Tenía razón y queda ratificado.*** Es **el mismo defecto que
+4-bis, un nivel más abajo**: allí el invariante decía *qué medir* y no *con qué columna*; aquí decía *qué restar* y no
+*qué pasa cuando no hay nada que restar*. **El documento tenía una fórmula de dinero que daba `NaN` sobre el 100% de
+los datos reales** — y un `NaN` que atraviesa un cálculo de dinero **no revienta en ninguna parte**: se persiste y
+contamina la caja de M7. **Cero DDL, cero endpoints, cero diales; el código ya es correcto.** Norma completa,
+incluidos los **tres** estados de la columna (`NULL` ≠ `0` ≠ `> 0`) y por qué el `0` **no** significa «envío gratis»,
+en **§4.39(i) 4-ter**.
+
+---
+
 ### ⚠️ v1.51.6 — CINCO PRECISIONES DE LA MESA, LEVANTADAS POR EL BACKEND QUE LA CONSTRUYÓ
 
 *Las cinco las señaló en vez de zanjarlas, y en las cinco tenía razón en preguntar. **Cuatro se RATIFICAN** (el código
@@ -12647,7 +12660,7 @@ dos plantillas distintas es una promesa que se rompe en el primer cambio de copy
 | **Neto anunciado** | `max(0, offerGrossCents − offerShippingFeeCents)` | `SellRequest.offerNetCents` (congelado) |
 | **Bruto aprobado** | `Σ offeredPriceCents` de las líneas `buy` que terminaron `aprobada`\|`convertida_inventario` | `SellRequest.approvedTotalCents` (recomputado). ⚠️ **`null` mientras NINGÚN ítem tenga `approvedPriceCents`** |
 | **Bruto consumado** *(v1.51.5)* | **`approvedTotalCents ?? offerGrossCents ?? quotedTotalCents ?? 0`** — ver **4-bis** | derivado; **no** se persiste. Es la base de los tres sitios de dinero de abajo |
-| **NETO A PAGAR** | ~~`max(0, approvedTotalCents − offerShippingFeeCents)`~~ ⇒ **`max(0, brutoConsumado − offerShippingFeeCents)`** *(v1.51.5: el primer término se define aunque el aprobado sea `null`)* | `SellRequest.payoutNetCents` (sellado al pagar) |
+| **NETO A PAGAR** | ~~`max(0, approvedTotalCents − offerShippingFeeCents)`~~ ⇒ **`max(0, brutoConsumado − (offerShippingFeeCents ?? 0))`** *(v1.51.5: el minuendo se define aunque el aprobado sea `null`; **v1.51.7: el SUSTRAENDO también** — era `null` en el 100% de las filas reales y la resta daba `NaN`. Ver **4-ter**)* | `SellRequest.payoutNetCents` (sellado al pagar) |
 
 **Los SIETE invariantes, en orden de importancia:**
 *(eran seis; **v1.51.1 añade el 7** —la contabilidad del envío, cierre de (o.1)—. Los seis primeros **no cambian**, y
@@ -12705,7 +12718,7 @@ el 6 **conserva su número** porque se cita como «§4.39i.6» desde §11.)*
    > |---|---|---|---|
    > | a | `monthCommittedGrossPaidCentsTx` — el acumulado del mes (sitio 4 de (c)) | `approvedTotalCents ?? quotedTotalCents` | `brutoConsumado` **de cada fila** |
    > | b | El término de **la solicitud en curso** dentro de la guarda del tope de `pay-spei` (`payoutCents`) | `approvedTotalCents ?? quotedTotalCents` | `brutoConsumado(req)` |
-   > | c | **`payoutNetCents = max(0, brutoConsumado(req) − offerShippingFeeCents)`**, sellado en la misma transacción que `pagada` | `max(0, approvedTotalCents − …)` — **indefinido si es `null`** | `brutoConsumado(req)` |
+   > | c | **`payoutNetCents = max(0, brutoConsumado(req) − (offerShippingFeeCents ?? 0))`**, sellado en la misma transacción que `pagada` | `max(0, approvedTotalCents − …)` — **indefinido si es `null`** | `brutoConsumado(req)` **menos la tarifa CONGELADA, y `0` si no la hay** — ver **4-ter** |
    >
    > - **(a) y (b) tienen que usar el MISMO cuerpo o el tope es incoherente:** son los dos lados de la misma
    >   desigualdad (`acumulado + enCurso > cap`). Medir cada lado con una cascada distinta es comparar dos cosas.
@@ -12737,6 +12750,72 @@ el 6 **conserva su número** porque se cita como «§4.39i.6» desde §11.)*
    > `quotedTotalCents` — **conducta idéntica a la de hoy, cero regresión**; (4) oferta con **override al alza** que
    > deja `offerGrossCents > quotedTotalCents`, pagada sin decisiones ⇒ el acumulado sube por el **ofertado**, y el
    > tope mensual la frena donde debe.
+
+   > **⚠️⚠️ 4-ter (v1.51.7, NORMATIVO, DINERO) — QUÉ SE RESTA CUANDO NO HAY NADA QUE RESTAR: `offerShippingFeeCents
+   > ?? 0`. Ratificación de una decisión que backend tomó y declaró.**
+   >
+   > **El defecto era mío y es exactamente el de 4-bis, un nivel más abajo.** 4-bis normó **con qué columna** se mide
+   > el bruto y dejó el sustraendo escrito como `− offerShippingFeeCents` **sin decir qué pasa cuando es `null`**.
+   > Y `offerShippingFeeCents` es una columna de M-46 **sin backfill**: es `null` en **toda fila pre-M-46**, o sea
+   > **en el 100% de las que existen hoy**. Una resta con `null` en TypeScript da **`NaN`**, y un `NaN` **no revienta
+   > en ninguna parte**: se persiste, viaja a M7 y contamina la caja. *El documento tenía una fórmula de dinero
+   > indefinida sobre todos los datos reales.* Backend implementó `?? 0`, **lo dijo en voz alta y pidió ratificación
+   > en vez de resolverlo callado. Ratificado.**
+   >
+   > **NORMA:**
+   > ```
+   > payoutNetCents = max(0, brutoConsumado(sr) − (sr.offerShippingFeeCents ?? 0))
+   > ```
+   >
+   > **Por qué `0` y no el dial vigente — y la alternativa no era neutral, era la incorrecta:**
+   > - **Restar el dial vigente le cobraría al vendedor un envío que NUNCA se le anunció.** Es la negación directa de
+   >   **D25/criterio 157**: lo vinculante es la tarifa **congelada al ofertar**, no la que esté vigente después. En
+   >   una fila pre-M-46 no se congeló ninguna **porque no se le descontó ninguna**.
+   > - **Y sería NO DETERMINISTA.** El dial se edita **sin redeploy**: dos filas legacy idénticas pagadas en días
+   >   distintos netearían **distinto**, y la misma fila cambiaría de importe según cuándo se liquide. *Un pago cuyo
+   >   monto depende de la fecha en que alguien apriete el botón no es un pago, es un sorteo.*
+   > - **`?? 0` no es una política nueva: es CERO REGRESIÓN.** Antes de M-46 el buylist pagaba sin descuento de envío
+   >   alguno. El fallback reproduce **exactamente** la conducta histórica sobre las filas históricas, y **no se
+   >   dispara nunca en el ciclo**: con D31 hay una sola banda y `offerShippingFeeCents` se congela **siempre** al
+   >   ofertar. *El único caso en que el fallback actúa es aquel en que «no se anunció envío» es literalmente cierto.*
+   >
+   > **⚠️ QUÉ SIGNIFICA ESE `0`, y qué NO — la parte que hay que dejar escrita o alguien la lee al revés.**
+   > **`0` aquí es la ausencia coaccionada a un número para poder restar. NO es «el envío fue gratis».** Son cosas
+   > distintas y confundirlas contradice D31 (*«la guía va siempre y siempre se descuenta»*): un lector que deduzca
+   > *«hubo envío y costó 0»* concluiría que **la banda sin cobro sigue viva** y la resucitaría — el mismo modo de
+   > fallo por el que D31 **retiró `offerShippingPaidByUs`** (*un booleano de un solo valor invita a que alguien lo
+   > ponga en `false`*).
+   >
+   > **⚠️ Y hay un tercer estado que sí es representable, así que los tres se enumeran (verificado contra el
+   > validador del dial 7, `settings.constants.ts:719-720`: admite `>= 0`, a diferencia del dial 9, que prohíbe el
+   > `0` explícitamente):**
+   > | `offerShippingFeeCents` | Significa | Se resta |
+   > |---|---|---|
+   > | **`NULL`** | **no hubo ciclo de oferta** ⇒ **nunca se le anunció un descuento** | `0` (por esta norma) |
+   > | **`0`** *(almacenado)* | **sí hubo oferta**, y la tarifa vigente **entonces** era `0` | `0` (el valor real) |
+   > | **`> 0`** | el caso normal: la tarifa congelada al ofertar (MX$180 por defecto) | ese número |
+   >
+   > - **Los dos primeros producen la misma aritmética y NO son el mismo hecho.** La distinción **sobrevive en el
+   >   dato** (`IS NULL` vs `= 0`) y **se pierde en el resultado**. **Norma:** *quien necesite saber si se anunció un
+   >   envío lee la COLUMNA, nunca el resultado de la resta.* Ningún reporte, correo ni pantalla puede derivar «el
+   >   envío fue gratis» de un `payoutNetCents == brutoConsumado`.
+   > - **El `0` almacenado NO resucita la banda retirada.** D31 retiró **la banda** —un booleano sobre *quién paga*—,
+   >   no la posibilidad de que el **importe** sea cero. Un mes promocional con tarifa 0 es una decisión de negocio
+   >   legítima, y el diseño «congelada por oferta» la maneja bien: quien aceptó con `0` recibe su bruto íntegro,
+   >   pase lo que pase con el dial después. **Por eso el validador del dial 7 se queda en `>= 0` y no lo endurezco:**
+   >   nadie lo pidió, y subirlo a `>= 1` mataría ese caso legítimo.
+   >
+   > **⚠️ El mismo `null` existe en M7 (§4.39i.7) y allí NO se resuelve con un coalesce — se resuelve con la PUERTA.**
+   > `costo = guideActualCostCents ?? offerShippingFeeCents` e `ingreso = offerShippingFeeCents` también verían `null`
+   > en una fila legacy, pero **el periodo se ancla en `guideSentAt`**, que en esas filas es `null` ⇒ **nunca entran
+   > al reporte**. **Norma: esa puerta es lo que las excluye; no se le añade un `?? 0`.** Meterlo haría **entrar**
+   > filas sin guía al desglose con ceros y **ensuciaría los conteos `actual`/`tariff`** que §4.39i.7 existe para
+   > poder auditar — un dato inventado donde hoy hay una ausencia limpia.
+   >
+   > **Verificable por QA:** fila **pre-M-46** aprobada en MX$1,000 y pagada ⇒ **`payoutNetCents = 100000`**
+   > (sin descuento), **y no `NaN`, ni `100000 − dialVigente`**. Fila del **ciclo** con `offerShippingFeeCents =
+   > 18000` ⇒ `payoutNetCents = brutoConsumado − 18000`. Y **mover el dial 7 entre la oferta y el pago NO cambia
+   > ninguno de los dos importes.**
 5. **El costo de inventario es el BRUTO de esa línea (criterio 135).** `convertToInventory` fija
    `acquisitionCostCents = SellRequestItem.offeredPriceCents` (con fallback a `approvedPriceCents ?? quotedPriceCents`
    para filas pre-M-46). **El envío NO entra al costo de la pieza**: dos piezas idénticas compradas al mismo bruto
@@ -13893,7 +13972,7 @@ serializarlo o llevarlo en **una sola sesión**:
 | `backend/src/jobs/` | barrido reescrito | ver la nota de §2 sobre `jobs/` |
 | `frontend/src/lib/` | `isTerminal` viene del server; se **borra** el literal de `M5View.tsx` | quinta copia del set terminal |
 | `backend/src/common/error-codes.ts` | **5 códigos nuevos** *(v1.51.3)*: `PICKUP_ADDRESS_REQUIRED` · `PICKUP_ADDRESS_NOT_FOUND` · `PICKUP_ADDRESS_MISSING` · `PICKUP_ADDRESS_LOCKED` · `DECLINE_NOT_ALLOWED` **+ 1** *(v1.51.4)*: `GUIDE_CANCELLATION_PENDING` | enum de errores pisado por dos streams |
-| `docs/API_CONTRACT.md` | ~~v1.51.3~~ ~~v1.51.4~~ ~~v1.51.5~~ **v1.51.6** | — (mío) |
+| `docs/API_CONTRACT.md` | ~~v1.51.3~~ ~~v1.51.4~~ ~~v1.51.5~~ ~~v1.51.6~~ **v1.51.7** | — (mío) |
 
 **Nota de secuencia para backend:** la **desviación BL-2** de (b.2) —el `respond` sin guarda— **no depende de M-46** y
 es explotable **hoy**. Puede y debe ir **primero**, en su propio commit, antes que el resto del ciclo.
@@ -15865,7 +15944,7 @@ cambios de tipo**. Segura con la app corriendo. Spec completa en **§4.39**; con
 | M-46 | `SellRequest.offerAuthorizedBy` / `offerAuthorizedAt` | `String?` / `DateTime?` | Add column ×2 | criterio 147: **quién autorizó**, por separado. |
 | M-46 | `SellRequest.offerSentAt` | `DateTime?` | Add column | **D2: desde aquí el precio es vinculante.** Es además el **discriminador** «esta solicitud va por el ciclo de oferta» (§4.39i.6). |
 | M-46 | `SellRequest.offerGrossCents` | `Int?` | Add column | **BRUTO congelado.** Base de los topes AML/KYC y del umbral de INE (criterio 136/155). ⚠️ **v1.51.5: es el término CENTRAL de `brutoConsumado`** (§4.39i.4-bis) — el que faltaba en el acumulado de compromiso consumado. Su ausencia hacía que una solicitud **ofertada** pagada sin decisión por-ítem acumulara por la **cotización**. |
-| M-46 | `SellRequest.offerShippingFeeCents` | `Int?` | Add column | Tarifa **congelada al ofertar** (D25). ~~`0` en la banda del vendedor.~~ ⚠️ **v1.51.1/D31: SIEMPRE la tarifa vigente; no hay banda con `0`.** **Distinta** de `shipping_fee_cents` (retiro, MX$175). Es además el **ingreso de envío** del buylist en M7 (§4.39i.7). |
+| M-46 | `SellRequest.offerShippingFeeCents` | `Int?` | Add column | Tarifa **congelada al ofertar** (D25). ~~`0` en la banda del vendedor.~~ ⚠️ **v1.51.1/D31: SIEMPRE la tarifa vigente; no hay banda con `0`.** **Distinta** de `shipping_fee_cents` (retiro, MX$175). Es además el **ingreso de envío** del buylist en M7 (§4.39i.7). ⚠️ **v1.51.7 — `NULL` ≠ `0` y los dos son representables:** `NULL` = **no hubo ciclo de oferta** (toda fila pre-M-46, **sin backfill**) ⇒ *nunca se anunció un descuento*; `0` almacenado = **sí hubo oferta** con tarifa vigente `0` (el dial 7 admite `>= 0`). En `payoutNetCents` **los dos restan `0`**, y esa igualdad aritmética **no autoriza a leer «el envío fue gratis»**: quien necesite el hecho lee **la columna**, no el resultado (§4.39i.4-ter). |
 | ~~M-46~~ | ~~`SellRequest.offerShippingPaidByUs`~~ | ~~`Boolean?`~~ | ⛔ **RETIRADA (v1.51.1 / D31)** | ~~Banda congelada (D18b)…~~ **NO SE CREA.** Con **una sola banda** no hay `0` que desambiguar y el campo solo podría valer `true`; un booleano de un solo valor **invita a que alguien lo ponga en `false` y resucite la banda**. Misma doctrina que el dial D28: *no se apaga, deja de existir*. **`offerShippingFeeCents` sí se queda** (es el monto). §4.39(o.9) |
 | M-46 | `SellRequest.offerNetCents` | `Int?` | Add column | **NETO ANUNCIADO** = `max(0, bruto − envío)`. Es la cifra vinculante frente al vendedor (D16). |
 | M-46 | `SellRequest.offerAcceptDeadlineAt` | `DateTime?` | Add column | Plazo **congelado** (criterio 157). ⚠️ **NO se recicla `deadlineAt`** (ancla el ajuste de verificación, que sigue vivo). |
@@ -15886,7 +15965,7 @@ cambios de tipo**. Segura con la app corriendo. Spec completa en **§4.39**; con
 | M-46 | `SellRequest.sellerShippedDeclaredAt` | `DateTime?` | Add column | **«Ya lo mandé» (§P.13).** Lo fija el **cliente**. **DETIENE el reloj y NO mueve el estado ni el conteo de «en camino»** (criterios 138/156). |
 | M-46 | `SellRequest.shipmentConfirmedAt` / `shipmentConfirmedBy` | `DateTime?` / `String?` | Add column ×2 | D20: **solo esto** mueve a `en_transito` y **solo esto** suma a «en camino» (criterio 116). |
 | M-46 | `SellRequest.guideCancellationPendingAt` / `guideCancellationDoneAt` / `guideCancellationDoneBy` | `DateTime?` ×2 / `String?` | Add column ×3 | D22/criterio 139: la tarea **no desaparece sola** hasta que alguien la marca. |
-| M-46 | `SellRequest.payoutNetCents` | `Int?` | Add column | **Lo que salió por SPEI** = `max(0, ` ~~`brutoAprobado`~~ **`brutoConsumado`** ` − envío)` *(v1.51.5: el primer término queda **definido** aunque `approvedTotalCents` sea `null` — §4.39i.4-bis)*, sellado en la **misma transacción** que `pagada`. **Es la fuente de la caja de M7** (criterio 155), distinta del acumulado de compromiso (brutos). |
+| M-46 | `SellRequest.payoutNetCents` | `Int?` | Add column | **Lo que salió por SPEI** = `max(0, ` ~~`brutoAprobado`~~ **`brutoConsumado`** ` − (offerShippingFeeCents ?? 0))` *(v1.51.5: el **minuendo** queda definido aunque `approvedTotalCents` sea `null` — §4.39i.4-bis. **v1.51.7: el SUSTRAENDO también** — `offerShippingFeeCents` es `null` en toda fila pre-M-46 y la resta daba **`NaN`** sobre el 100% de los datos reales — §4.39i.4-ter)*, sellado en la **misma transacción** que `pagada`. **Es la fuente de la caja de M7** (criterio 155), distinta del acumulado de compromiso (brutos). |
 | M-46 | `enum BuyDecision` (**NUEVO**) | `buy \| skip` | **DDL aditivo (enum)** | Cherry-pick **al ofertar** (§P.2). |
 | M-46 | `SellRequestItem.offerDecision` | `BuyDecision?` | Add column | `null` = línea previa al ciclo. Entra al `where` del reporte de brackets (§4.39c, sitio 6): una línea `skip` **no es** una operación de compra. |
 | M-46 | `SellRequestItem.offeredPriceCents` | `Int?` | Add column | **FUENTE ÚNICA DEL COSTO DE ADQUISICIÓN.** Congelado al ofertar; **no se mueve jamás** (D2/D9). `convertToInventory` lo copia a `acquisitionCostCents` (ya implementado, `buylist.service.ts:1921-1922`). ⚠️ **v1.51.5 — ACOPLAMIENTO:** hoy **nada la escribe** (los endpoints de oferta no existen) ⇒ la cascada del costo es un **no-op**. **El pase que implemente `POST …/offer` la escribe en la MISMA transacción que congela la oferta, para TODA línea `offerDecision='buy'`.** Sin eso, la conversión capitaliza el precio **COTIZADO** de una pieza comprada a otro precio, **en silencio**. Invariante exigible: `offerDecision='buy' ⇒ offeredPriceCents IS NOT NULL` (§4.39i.5). |
