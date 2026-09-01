@@ -2,7 +2,48 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-01 (rev **v1.51.18**).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-01 (rev **v1.51.19**).
+>
+> **Changelog v1.51.19 — EL TERCER DISPARADOR: NI SQL NI DDL (2026-09-01, arquitecto; **CERO DDL, CERO endpoints,
+> CERO campos** — todo interno. ARCHITECTURE §4.39m gana **(m.8)** y enmienda **(m.5)/(m.6)**; §9 gana **BL-27**):**
+> ⚠️ **Escalada de backend, y es MI PROPIA PROHIBICIÓN de v1.51.18 mordiendo por otro camino. No lo escribió, que
+> era lo correcto.**
+>
+> **A. EL HALLAZGO, verificado en el schema.** Disparar desde `pricing` exige ir de una **clave de variante** a **las
+> piezas de esa variante**, y **`gradeKey` NO es columna de `InventoryItem`**: es columna de los modelos de **precio**
+> y en inventario **se deriva de cuatro columnas**. Un `where` que lo reconstruyera sería **una segunda definición de
+> la clave de variante dentro de una consulta**, sobre dinero — ***una copia de la regla, no la salida de la regla***.
+>
+> **B. DICTAMEN — ni SQL ni DDL: se resuelve EN MEMORIA, dentro de `inventory`.** Se consulta por las partes
+> **columnares** (`cardId`, `productType`, `finish`, `status`, `ownerType` — servidas por un índice que ya existe) y
+> se **filtra el `gradeKey` derivado en memoria**, con la función de su dueño. **Ninguna regla entra al SQL ni cruza
+> la frontera.**
+>
+> **C. ⚠️ Y REFINA la norma de v1.51.18 en vez de contradecirla — la distinción que faltaba:**
+> **se MATERIALIZA solo cuando el camino en memoria exigiría cargar un conjunto NO ACOTADO.** Allí el candidato era
+> **todo el inventario**; aquí está **acotado por la entrada** (las piezas de unas cartas y acabados concretos).
+> *Materializar aquí sería añadir estado derivado —capaz de desincronizarse— para un problema que no existe.* **Sin
+> esta frase, «ante la duda, materializa» acabaría poniendo una columna `gradeKey` en inventario que puede mentir.**
+>
+> **D. UN CUERPO, DOS ENTRADAS — matizo mi propio «un método, no dos».** Lo escribí **sin saber que el disparador (c)
+> no puede nombrar piezas**. El puerto gana una entrada **por variante** que **resuelve a ids y desemboca en el mismo
+> cuerpo**: **un adaptador, no una copia**. Lo que yo protegía —*dos implementaciones del intento de publicación*—
+> sigue sin ocurrir.
+>
+> **E. La pregunta operativa SE DISUELVE porque el puerto es LOTE.** El barrido pasa **el conjunto que realmente
+> cambió en UNA llamada**, no N: el fan-out **no era una opción del diseño**. El troceado es **del job** (doctrina ya
+> existente: robusto, idempotente, reanudable) y **un trozo perdido cae en `pending-publish`**, la red.
+> **⚠️ El consumidor NO puede ser `PricingService`** (cerraría `Pricing → PORT → Inventory → Pricing`): es una **hoja**
+> — el job y el handler del override. **Prohibido `forwardRef`**: uniría los dos módulos de dinero por la frontera que
+> §4.39f existe para mantener abierta.
+>
+> **F. Nota de proceso con efecto en el GATE DE SEGURIDAD (BL-27).** `prettier` reformateó **445 líneas no tocadas**
+> porque **`lint` no lo corre** y el árbol deriva. **Norma: un diff no mezcla reformateo con lógica** —si hay que
+> reformatear, va en **su propio commit sin un solo cambio de comportamiento**—. *El gate de seguridad y el techlead
+> revisan por diff: una línea de dinero escondida entre 445 de reformateo no se ve.* **El mecanismo lo elige devops.**
+>
+> **G. Sin cambios.** Ni endpoints, ni campos, ni diales, ni DDL. **El puerto sigue siendo interno y no cruza este
+> contrato.**
 >
 > **Changelog v1.51.18 — EL SEAM DE PUBLICACIÓN, Y DOS NORMAS DE COLAS (2026-09-01, arquitecto; **CERO DDL, CERO
 > endpoints, CERO campos**. ARCHITECTURE §4.39m gana **(m.5)(m.6)(m.7)**; §9 gana **BL-25** y **BL-26**):**

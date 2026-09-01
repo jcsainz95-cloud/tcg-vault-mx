@@ -11522,7 +11522,7 @@ verificable con inventario**.
 > topes AML/KYC, el flujo de **ajuste** (`ajustada`) que sigue vivo para otros caminos, y el **precio de venta** (D10:
 > lo fija la curva; este ciclo no captura precios de venta).
 > **Diseño en papel.** Lo implementan **backend** (schema, servicios, jobs, correos) y **frontend** (M5, M1, portal del
-> vendedor). Contrato observable en `API_CONTRACT.md` ~~**v1.51**~~ **v1.51.18**. Migración **M-46** (§11).
+> vendedor). Contrato observable en `API_CONTRACT.md` ~~**v1.51**~~ **v1.51.19**. Migración **M-46** (§11).
 > **Regla de conflicto aplicada:** donde este documento y `PROJECT.md` §P difieran, **manda PROJECT**. Las tensiones y
 > los huecos que encontré **están señalados en (o)**, no resueltos en silencio.
 >
@@ -13694,6 +13694,11 @@ bien en no resolverlo solo.
 - **Un método, no dos, y por la razón que dio backend:** los dos disparadores hacen **la misma pregunta** —*«¿esto ya
   se puede publicar?»*—; lo que difiere es **la causa**, no la petición. Dos métodos serían **dos caminos hacia
   adentro**, y el segundo nacería copiando al primero.
+  > **⚠️ MATIZADO en v1.51.19 (ver (m.8)): UN CUERPO, DOS ENTRADAS.** Escribí «un método» **sin saber que el
+  > disparador (c) NO PUEDE nombrar piezas** —solo conoce una **clave de variante**—. El puerto gana una segunda
+  > entrada **por variante**, que **resuelve a ids y desemboca en el MISMO cuerpo**. **No es una copia: es un
+  > adaptador delante del cuerpo único**, y lo que yo protegía —*dos implementaciones del intento de publicación*—
+  > **sigue sin ocurrir**.
 - **Forma:** **en lote** (ids de pieza), **idempotente** y **sin efecto sobre lo no publicable** — llamarlo de más es
   un no-op. Devuelve **qué pasó por pieza**, para que el llamador pueda registrar sin re-derivar.
 - **Post-commit y best-effort**, como `MAIL_PORT` y por el mismo motivo: **la conversión NO puede fallar porque la
@@ -13710,6 +13715,16 @@ bien en no resolverlo solo.
   puerta.
 - **Lo declara y provee `inventory`** (dueño del dato), igual que el de posición. **Dos puertos, dos direcciones, una
   regla:** *el que sabe hacer el trabajo lo expone; el que lo necesita lo pide.*
+- **⚠️ v1.51.19 — DOS TRAMPAS DEL CABLEADO, encontradas por backend al implementarlo. Se anotan porque la segunda
+  vez que alguien monte un puerto va a tropezar con las mismas:**
+  1. **Nest NO re-exporta tokens ajenos.** La salida «fácil» —re-exportar `InventoryModule` entero— **habría
+     publicado globalmente su grafo de ESCRITURA**, que es *literalmente* lo que §4.39f prohíbe. **El token se
+     exporta explícitamente; el módulo NO se hace global.** *La comodidad del cableado es exactamente por donde se
+     cuela la violación de la frontera.*
+  2. **Al nacer el puerto, el disparador (b) —ubicación— quedaba con una COPIA del pipeline.** Backend la borró y
+     dejó **test de que ese disparador no se inyecta el token**. Es *«sería darle la vuelta al módulo para llamar a
+     su propia puerta»* **cableado como prueba**, y es la forma correcta de fijar esa frase: **un invariante que un
+     test sostiene deja de depender de que alguien recuerde la doctrina.**
 
 **Por qué no un evento ni un job, dicho para que no se reabra:** un **job** de barrido tiene la latencia equivocada
 —*«la pieza comprada no se detiene hasta quedar a la venta»*, y una pieza sin publicar es dinero parado— y un **bus de
@@ -13734,6 +13749,56 @@ bien.** Crece con el inventario, y el **`total` honesto exige el barrido entero*
   resultado** —persistir «este ítem tiene precio resoluble», escrito **por el mismo código que resuelve el precio**—
   para que la consulta **filtre por un hecho ya calculado en vez de recalcularlo**. *Se persiste la salida de la
   regla, nunca una copia de la regla.*
+
+#### ⚠️⚠️ (m.8) v1.51.19 — EL TERCER DISPARADOR: **la resolución vive DENTRO de `inventory`, y NO hace falta DDL**
+
+*(Escalada de backend al implementar (m.5), y **es mi propia prohibición de (m.6) mordiendo por otro camino**. **No
+lo escribió**, que era lo correcto.)*
+
+**El hallazgo, verificado en el schema:** para disparar desde `pricing` hay que ir de una **clave de variante** a
+**las piezas de esa variante**, y **`gradeKey` NO es columna de `InventoryItem`**. Es columna de los modelos de
+**precio** (`VariantPriceOverride:875`, `PriceReference:897`, `PendingPriceEntry:960`) y en inventario **se deriva**
+de cuatro columnas (`productType`, `rawCondition`, `gradingCompany`, `gradeValue`) vía `buildGradeKey`. Un `where`
+que lo reconstruyera sería **una segunda definición de la clave de variante dentro de una consulta**, sobre el mismo
+dinero: en los términos de (m.6), ***una copia de la regla, no la salida de la regla***.
+
+**DICTAMEN: ni SQL ni DDL — la resolución se hace EN MEMORIA, dentro de `inventory`, con la función de su dueño.**
+```
+1. SELECT por las partes COLUMNARES:  cardId ∈ (…) ∧ productType ∧ finish ∧ status='in_stock' ∧ ownerType='platform'
+   → lo sirve @@index([cardId, finish, status]) (M-21). `cardProductId` también es columna (M-46).
+2. FILTRAR en memoria:  gradeKeyFor(pieza) === gradeKey buscado
+3. Los ids resultantes entran al MISMO cuerpo de (m.5).
+```
+- **Ninguna regla cruza la frontera ni entra al SQL.** La derivación la aplica **quien la posee**, del lado de
+  `inventory`, y el llamador sigue sin poder expresar nada más que *«reevalúa»*.
+- **⚠️ Y esto REFINA (m.6) en vez de contradecirla — la distinción que faltaba y que hay que escribir:**
+  > **Se MATERIALIZA solo cuando el camino en memoria exigiría cargar un conjunto NO ACOTADO.** En (m.6) el conjunto
+  > candidato es **todo el inventario** (la cola barre el superconjunto) ⇒ materializar. **Aquí el conjunto está
+  > ACOTADO POR LA ENTRADA** —las piezas de unas cartas y acabados concretos, que son un puñado— ⇒ **se filtra en
+  > memoria**. *Materializar aquí sería añadir estado derivado —y por tanto capaz de desincronizarse— para resolver
+  > un problema que no existe.*
+  **Sin esta frase, alguien leería (m.6) como «ante la duda, materializa» y acabaríamos con una columna `gradeKey`
+  en `InventoryItem` que puede mentir.**
+
+**LOS DOS PRODUCTORES, que backend señaló sin elegir — y la pregunta operativa SE DISUELVE porque el puerto es LOTE:**
+| Productor | Forma | Cómo dispara |
+|---|---|---|
+| `POST /admin/pricing/override` | **acto puntual**, una variante | **una** llamada con **un** ref. Inmediato, el operador está delante |
+| **barrido de precios** | ingesta que resuelve **miles** de variantes | **UNA llamada con el conjunto que el barrido REALMENTE cambió** — ⚠️ **NO N llamadas** |
+- **No hay «disparar pieza a pieza tras un barrido» que decidir: el puerto nació en lote** (m.5), así que el barrido
+  **pasa su conjunto de una vez**. El fan-out que preocupaba **no es una opción del diseño**, es justo lo que este
+  repo lleva evitando desde §4.16b.
+- **El troceado es del JOB, no del puerto**, y se rige por la doctrina de jobs que ya existe (§4.15c: **robusto,
+  idempotente, reanudable**). **Un trozo perdido cae en `pending-publish`** — la red de (m.5).
+- **Solo el conjunto REALMENTE cambiado**, nunca «todas las variantes que el barrido tocó»: repreciar algo que no se
+  movió no vuelve publicable a nadie, y multiplicaría el trabajo por el tamaño del catálogo.
+
+**⚠️ EL CICLO — el consumidor NO puede ser `PricingService`.** Backend encontró que `InventoryService → PricingService`
+ya existe, así que un `PricingService` que consumiera el puerto cerraría **`Pricing → PORT → Inventory → Pricing`**,
+soluble solo con `forwardRef`. **Norma: el consumidor es una HOJA del grafo** —el **job** del barrido y el
+**controller/handler** del override—, **nunca `PricingService`**. **Prohibido `forwardRef` para esto:** un ciclo que
+se «arregla» con `forwardRef` sigue siendo un ciclo, y aquí además **uniría los dos módulos de dinero** justo por la
+frontera que §4.39f existe para mantener abierta.
 
 #### (m.7) v1.51.18 — DOS DECISIONES DE BACKEND, RATIFICADAS Y ELEVADAS A NORMA
 
@@ -14399,7 +14464,7 @@ serializarlo o llevarlo en **una sola sesión**:
 | `backend/src/jobs/` | barrido reescrito | ver la nota de §2 sobre `jobs/` |
 | `frontend/src/lib/` | `isTerminal` viene del server; se **borra** el literal de `M5View.tsx` | quinta copia del set terminal |
 | `backend/src/common/error-codes.ts` | **5 códigos nuevos** *(v1.51.3)*: `PICKUP_ADDRESS_REQUIRED` · `PICKUP_ADDRESS_NOT_FOUND` · `PICKUP_ADDRESS_MISSING` · `PICKUP_ADDRESS_LOCKED` · `DECLINE_NOT_ALLOWED` **+ 1** *(v1.51.4)*: `GUIDE_CANCELLATION_PENDING` | enum de errores pisado por dos streams |
-| `docs/API_CONTRACT.md` | ~~v1.51.3~~ … ~~v1.51.16~~ ~~v1.51.17~~ **v1.51.18** | — (mío) |
+| `docs/API_CONTRACT.md` | ~~v1.51.3~~ … ~~v1.51.17~~ ~~v1.51.18~~ **v1.51.19** | — (mío) |
 | `backend/src/modules/inventory/inventory-publish.port.ts` | **NUEVO** (`INVENTORY_PUBLISH_PORT`, §4.39m.5) | **segundo** camino hacia adentro de `inventory` si se hace por duplicado |
 | `frontend/src/lib/` · `M5View.tsx` | `canPay` pierde su literal de estados (**BL-17**); el rol se queda | **sexta** copia de un subconjunto del enum, y ésta gobierna el **botón de pagar** |
 
@@ -15176,6 +15241,7 @@ Riesgos técnicos:
   | **BL-17** 🔧 **RESUELTA EN RAMA A MEDIAS — y la mitad pendiente es CORRECTA, no un olvido** *(v1.51.8 — **DINERO SALIENTE**; **SEXTA copia** de un subconjunto de estados)* | `M5View.tsx:820-821` — `canPay = isSuperAdmin && (status === 'aprobada' \|\| status === 'verificacion')` es **`SELL_REQUEST_PAYABLE_STATES` transcrito a mano en el cliente**, y **gobierna el botón de pagar por SPEI**. ⚠️ **Además es INCOMPLETA:** la precondición del servidor son **dos** términos (`… ∧ verifiedAt IS NOT NULL`, `buylist.service.ts:2664`/`:2704`) y el cliente **solo replica el primero** ⇒ **la UI puede habilitar el pago donde el servidor responde `422`**. **No se rompe al crecer el enum** —no es un radio de enum, es un predicado de dinero duplicado a través del cable— pero es la **tercera** copia de la regla que el sitio 8 acaba de consolidar *por ser dinero*, y en otro lenguaje y otro release | **backend** (emite) ✅ · **frontend** (consume) 🔧 | 🔧 **Backend: hecho en rama** — `AdminBuylistDTO.isPayable` (`buylist.service.ts:1572`) derivado de **`isPayableSellRequest`**, el mismo cuerpo que el pre-check (`:2726`) y el `where` de la guarda (`:2767`) de `paySpei`: **tres lectores, una regla**. 🔧 **Frontend: en curso** — `M5View` borra la mitad de ESTADO y conserva **solo** la de ROL (`isSuperAdmin && req.isPayable === true`). ⚠️ **La partición NO es un cierre incompleto: es la norma que este documento fijó** — **BACKEND PRIMERO** (al revés de BL-11), porque si el frontend borrara su literal antes, `isPayable` llegaría `undefined` y **el botón moriría para todos**. *El desfase es el diseño, no el retraso.* **El frontend hizo bien en no inventarse el campo** |
   | **BL-19** ⏳ **NO ES UN DEFECTO** *(v1.51.9 — se registra para que el próximo barrido no vuelva a decidirlo; **no lleva marca de abierta/cerrada porque nunca hubo nada que corregir**)* | **`awaitingGuide?` y `offerReissueAlert?`** están declarados en §M5 y **ausentes del código**. ⚠️ **Misma FORMA que BL-18 y CAUSA distinta:** sus insumos (`aceptada`, `guideSentAt`, `acceptedAt`, `offerReissueCount > 0`) **solo los puebla el ciclo de oferta** ⇒ **hoy filtrarían vacío siempre**, y su ausencia **no obliga al cliente a nada**. `live?` era lo contrario: filtraba por `status` —que toda fila tiene— y su falta **forzaba al cliente a enumerar los cuatro terminales**. *Un filtro que hoy no puede tener filas no es deuda: es diseño que aún no toca* | backend | **Con el pase de los endpoints de oferta**, en el mismo commit que puebla sus columnas. **NO se retiran del contrato** (habría que reescribirlos palabra por palabra; este documento es el **diseño** del ciclo, no el inventario de lo desplegado). Marcados **⏳ CICLO DE OFERTA** en §M5. **Barrido completo: no hay un cuarto de la categoría implementable-hoy** — las únicas eran `seller.phone` (BL-15), `isPayable` (BL-17) y `live?` (BL-18) |
   | **BL-18** 🔧 **RESUELTA EN RAMA** *(v1.51.8 — **el contrato declara un parámetro que el código no implementa**; hermana de BL-15)* | `GET /admin/buylist` declara **`live?: boolean`** (§M5, v1.51/D12) y **el backend no lo implementa**: `admin-buylist.controller.ts:36-53` no tiene ese `@Query`, y `grep live` en `modules/buylist/` no devuelve nada relacionado. Mientras tanto la pestaña «Cerradas» manda un **CSV que ENUMERA los cuatro terminales** (`M5View.tsx:110-111`) — **la forma exacta que este pase retiró de todos los demás sitios**. ⚠️ El frontend lo mitigó con un `Record` **total** sobre el enum (deja de compilar si entra un estado), **pero esa red depende de que alguien actualice `contract.ts` a mano**: un terminal nuevo en el backend **no** rompe su build por sí solo | backend | 🔧 **Resuelta en rama: implementada, no retirada.** `@Query('live')` con parsing **tri-estado** (`'true'`/`'false'` filtran; cualquier otra cosa no filtra y **no falla** — precedente `guest`/`needsManual`), **por exclusión** sobre `SELL_REQUEST_TERMINAL_STATES` e **intersectando** con `status` en vez de reasignarlo (*asignar dos veces dejaría ganar al último y el filtro del usuario desaparecería en silencio*). Contradicción ⇒ vacío, no error. **Sin `live`, el `where` queda byte a byte como estaba.** Parsing normado en contrato v1.51.9 |
+  | **BL-27** ⛔ **ABIERTA** *(v1.51.19 — **higiene de diff**, y muerde justo en la fase de seguridad; lo levantó **backend** como nota de proceso)* | Al aplicar BL-26, `prettier` **reformateó 445 líneas que nadie había tocado**; backend lo **revirtió y reaplicó a mano** (diff final **68/33**). Causa: **`npm run lint` NO corre prettier**, así que el árbol **deriva** y cualquier corrida ad-hoc reformatea código ajeno. ⚠️ **Por qué no es cosmético:** un diff que mezcla reformateo con lógica **es irrevisable**, y **el gate de seguridad y el techlead revisan por diff** — una línea de dinero escondida entre 445 de reformateo **no se ve**. *Convierte una revisión de seguridad en imposible justo cuando más falta hace* | **devops** (herramienta) · backend (disciplina) | **Norma (arquitecto): un diff NO mezcla reformateo con lógica.** Si hay que reformatear, **va en su propio commit, sin un solo cambio de comportamiento**. **El mecanismo lo elige devops** —cablear el formateador en `lint`/CI para que el árbol esté siempre formateado y una corrida sea **no-op**, o retirarlo del flujo ad-hoc—: las dos cierran el hueco, y **la elección es de su ruta**, no mía |
   | **BL-25** ⛔ **ABIERTA** *(v1.51.18 — **seam que no existe**; escalada de **backend**, que **no cortó los dos disparadores por tamaño** sino porque ambos lo necesitan)* | Los disparadores **(a) al convertir** (en `buylist`) y **(c) precio resoluble** (en `pricing`) de §4.39m.2 necesitan **disparar trabajo de `inventory` desde fuera del módulo**, y **ese camino no existe**. ⚠️ **El precedente NO aplica solo:** `INVENTORY_POSITION_PORT` se declaró **«de solo lectura»** y su docblock razona que importar `InventoryModule` traería *«un grafo de servicios de ESCRITURA a un módulo que no debe poder escribir inventario»* (`inventory-position.port.ts:11-13`) — **un puerto de publicación es de escritura**, así que es **instancia nueva de la doctrina, no aplicación de ella**. Hacer (a) y (c) por separado **inventaría dos caminos hacia adentro, con el segundo copiando al primero** | backend | **Cierre = §4.39(m.5): UN `INVENTORY_PUBLISH_PORT`, UN método.** ⚠️ **Es un puerto de DISPARO, no de escritura:** el llamador dice *«reevalúa estas piezas»*, **jamás «publícalas»** — sin estado destino, sin precio, sin `status`; la decisión y la escritura viven **enteras dentro de `inventory`**, tras sus guardas. *Cruza una notificación, no una autoridad*, y por eso **preserva §4.39f en vez de romperlo**. En lote, **idempotente**, no-op sobre lo impublicable, **post-commit best-effort** (la conversión **no** puede fallar porque falle la publicación). **Best-effort es aceptable SOLO porque `pending-publish` es la red** ⇒ **esa cola no se retira ni se estrecha sin sustituirla**. **Dos consumidores: `buylist` y `pricing`. El disparador (b) NO lo usa** (es `inventory` sobre sí mismo) |
   | **BL-26** ⛔ **ABIERTA** *(v1.51.18 — **un `total` que miente**; defecto mío, destapado al ratificar la decisión de backend sobre el `total` de `pending-publish`)* | `GET /admin/buylist/pending-shipment-confirmation` con **`?onlyAlerts=true`** filtra `data` **después** de derivar la alerta —correcto: `alert` no es columna— pero cuenta **`total` sobre la cola SIN filtrar**. ⇒ el cliente pagina un conjunto que no existe: **páginas vacías al final** y un número que **miente sobre el tamaño del trabajo pendiente**, que es lo único que una cola existe para decir. Mismo espíritu que el `0` prohibido de `positionUnavailable` | backend | **Cierre = §4.39(m.7.2): `total` cuenta EXACTAMENTE el conjunto que `data` pagina.** Con `onlyAlerts=true`, el `total` es el de las filas **en alerta**. ⚠️ **No se resuelve moviendo el filtro al `where`** —`alert` es derivado y depende de `business-days`, que **lanza** (§4.39k.1)—: se cuenta **sobre el conjunto ya derivado**, igual que se pagina |
   | **BL-24** ⛔ **ABIERTA** *(v1.51.16 — **DINERO y JUSTICIA**: el vendedor paga por un defecto NUESTRO; lo levantó **ux-ui** y **no lo tapó con copy**)* | El portal aplica **R2 sin excepción** —una oferta incompleta (sin `terms`, o con líneas sin `offerDecision`) **no se pinta a medias**, lo cual es correcto—, pero entonces **el vendedor no tiene forma de aceptar** y **el barrido sigue contando sus 2 días hábiles**, hasta mandarle el correo 3 diciéndole que **no respondió**. **Falló nuestra proyección y la factura le llega a él**: lo que **§P.13** prohíbe y la injusticia que motivó **D38** — aquí sin mediar siquiera una corrección nuestra, solo un defecto. ⚠️ **El copy no puede arreglarlo:** una pantalla que prometiera *«no te preocupes por el plazo»* **mentiría si el barrido no lo respeta** | backend | **Cierre = §4.39(h.1): guarda de proyección al EMITIR**, paso **7-bis**, último antes del commit. La emisión **construye la MISMA proyección que sirve `GET /buylist/requests/:id`** y asevera que está completa; si no ⇒ **`500 OFFER_PROJECTION_INCOMPLETE`** y **no se emite, no se persiste, NO sale correo, no se congela plazo**. ⚠️ **La guarda ES la proyección** (no una checklist paralela) ⇒ no puede divergir y **todo campo futuro del portal entra solo**. **`500` y no `422`**: el operador no hizo nada mal ni puede arreglarlo — es **backstop**, y si dispara **se arregla el bug**. ⚠️ **Propiedad que lo hace justo:** al fallar, `offerSentAt` no se sella ⇒ queda `cotizada` ⇒ la mira la **regla 7 (NUESTRO plazo)**, no la 1 ⇒ el vendedor recibiría el **correo 4 («no procederemos»), que es verdad**, no el 3 («no respondiste»), **que sería mentira** |
