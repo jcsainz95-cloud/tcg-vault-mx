@@ -2,7 +2,93 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-01 (rev **v1.51.3**).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-01 (rev **v1.51.4**).
+>
+> **Changelog v1.51.4 — LOS DOS NÚMEROS PÚBLICOS DEL COTIZADOR (hueco BLOQUEANTE), EL PORTAL QUE DEJA DE ESTAR MUDO,
+> EL QUINTO CORREO Y LA DIRECCIÓN CORREGIBLE TRAS LA GUÍA (2026-09-01, arquitecto; PASE DE FRICCIONES DE PANTALLA
+> sobre v1.51.3, a partir de `DESIGN_SYSTEM.md` §23.13. ARCHITECTURE §4.39 enmendada por cuarta vez, **§4.39(r)(s)(t)(u)
+> NUEVAS**, §9 (**BL-13**), §11 (**⚠️ M-46 con UNA columna más**)):**
+> ⚠️ **v1.51.x sigue sin salir a producción** (salvo `POST /buylist/requests`, ya vivo desde v1.51.3 y **sin cambios en
+> este pase**). **Nada se borra; lo superado queda tachado.**
+>
+> **A. ⚠️⚠️ D43 — EL COTIZADOR PÚBLICO NO MENCIONA MONTOS DE ENVÍO. CERO SUPERFICIE NUEVA, CERO DIALES PUBLICADOS.**
+> - **El hueco que levantó ux-ui era REAL:** D31 obliga a comunicar el descuento **en el cotizador**, que es
+>   **PÚBLICO**, y `buylistShippingFeeCents` / `buylistMinimumRequestCents` **solo se leen desde `GET /admin/settings`
+>   (`super_admin`)**, con el hardcodeo **prohibido** (diales editables sin redeploy).
+> - **✅ La respuesta del humano NO es publicarlos: es QUITAR EL REQUISITO.** El cotizador dice **una frase
+>   cualitativa** —*«nosotros nos encargamos de la guía de envío y su costo se descuenta del pago»*— **sin tarifa, sin
+>   resta, sin neto estimado y sin faltante con cifra**. **La resta con montos vive SOLO en la oferta**, que es
+>   **autenticada** y se arma **server-side con la tarifa congelada** (`offerShippingFeeCents`, D25).
+> - **⛔ SE RETIRA `GET /api/v1/buylist/quote-policy`: NO EXISTE Y NO SE IMPLEMENTA.** Este mismo documento llegó a
+>   especificarlo en un borrador de v1.51.4; queda **tachado, no borrado**, para que nadie lo reconstruya. **Si aparece
+>   en el código, es un defecto** — verificable **por lo negativo**, como los diales retirados. **También se retira
+>   `BuylistQuotePolicyDTO` (§11).**
+> - **Con él caen:** la superficie pública, la caché, el throttle a dimensionar, **la exposición de cualquier dial** y
+>   **la autorización que este contrato había dado al frontend para restar en cliente — REVOCADA**: en el cotizador
+>   **no hay ninguna cifra de envío que pintar, así que tampoco ninguna que inventar**.
+> - **⚠️ Y cae el riesgo que había que normar:** confundir la resta **indicativa** del cotizador con el neto
+>   **congelado** de la oferta. **Ya no hay dos restas.** *Restarle un envío exacto a un número que de todas formas va
+>   a cambiar es **precisión falsa**: sugiere un neto que nadie se comprometió a pagar.*
+> - **⚠️ EL CRITERIO 132 SIGUE CUMPLIDO, y en el sitio correcto:** el *«te faltan $120»* lo da el **`422
+>   BUYLIST_MINIMUM_NOT_MET`** de `POST /buylist/requests`, con **`details.shortfallCents` calculado por el servidor**
+>   — que es exactamente lo que el criterio 132(b) exige (*la validación vive en el servidor porque el cotizador se
+>   puede saltar*). **Ningún requisito queda incumplido.**
+> - **D31 sigue vigente en lo esencial y con sus TRES superficies:** cotizador **cualitativo** · correo de oferta con
+>   **los tres montos** · `offer.terms` en prosa. **La cotización por línea y el total del carrito NO cambian.**
+> - ⚠️ **`DESIGN_SYSTEM.md` §23.3 queda obsoleto** (aritmética en el carrito). **Ruta de ux-ui, no del arquitecto.**
+>
+> **B. D42 — `GET /buylist/requests/:id` gana `lastOfferCancelledAt: string | null`. CERO DDL.**
+> - Tras cancelar, el portal se quedaba **mudo** y **contradecía al correo**. Ahora dice *qué pasó y cuándo*.
+> - Presente **solo** con `closedAt IS NULL ∧ status='cotizada' ∧ offerSentAt IS NOT NULL ∧ offerCancelledAt IS NOT
+>   NULL`. **⚠️ El término `offerSentAt IS NOT NULL` es el que impide contarle una oferta `pending_authorization` que
+>   NUNCA supo que existía.**
+> - **Minimización:** **NO** viajan el motivo interno, **NO** los montos cancelados, **NO** cuántas veces.
+>
+> **C. ⚠️ CIERRE `no_offer`: los MONTOS dejan de viajar al cliente. Es REGLA DE PROYECCIÓN, no pintado.**
+> - Con `status='expirada' ∧ expiredReason='no_offer'`, la proyección de **cliente** emite **`quotedTotalCents: null`**
+>   y **`quotedPriceCents: null` en todas las líneas**; **las cartas se siguen listando**.
+> - **Por qué en el servidor:** el **correo 4 ya tiene prohibido** cualquier monto, y §23.5a exige que la pantalla diga
+>   lo mismo que el correo. Si el DTO los manda, **el espejo lo sostiene solo la disciplina del front**.
+> - **Solo ese desenlace.** En `rechazada` y `not_shipped` **sí hubo oferta** y el registro es del vendedor.
+> - **La proyección ADMIN no cambia** (M7/M9 y los filtros `minCents`/`maxCents` la necesitan).
+>
+> **D. ⚠️ SON CINCO CORREOS: la CANCELACIÓN sale del correo 3.**
+> - El correo 3 tenía **tres productores** y el tercero deja la solicitud **`cotizada` y VIVA** ⇒ un *«se venció tu
+>   plazo»* ahí **culpa al vendedor de un acto nuestro**. **Es el argumento exacto con el que D33 creó el correo 4.**
+> - **`expiredReason` NO puede discriminar, y se demuestra: es `null` en DOS de los tres casos.** El discriminador es
+>   **el productor**, explícito en el call-site (`BuylistMailKind`, **interno de backend, NO cruza el contrato**).
+> - **⚠️ HALLAZGO: cancelar una `pending_authorization` NO MANDA NINGÚN CORREO** — mandarlo **filtraría la existencia
+>   de una oferta que el vendedor nunca supo que existía**, que es justo lo que `offerState` es admin-only para
+>   impedir. **Toda regla escrita «para los CUATRO correos» aplica ÍNTEGRA a los CINCO.**
+>
+> **E. ⚠️ NUEVO `PATCH /api/v1/admin/buylist/:id/pickup-address` (`vault_operator`+). BL-13.**
+> - **El remedio que v1.51.3 documentó para corregir la dirección tras la guía NO ERA EJECUTABLE**: la cola «cancelar
+>   guía no usada» solo se abre si la solicitud **expira o se cancela**, y una `aceptada` **no se cancela**. La única
+>   salida real era **dejar vencer el plazo de envío** ⇒ correo 3b *«no mandaste el paquete»*: **un typo nuestro
+>   acusando al vendedor.**
+> - Body **`{ addressId }` de la libreta del PROPIO VENDEDOR** (SEC-A1: **ni el cliente ni el admin escriben un
+>   domicilio**). Guarda: `closedAt IS NULL ∧ shipmentConfirmedAt IS NULL ∧ sellerShippedDeclaredAt IS NULL`.
+> - Con guía impresa: **abre la tarea de guía muerta** (para que el costo llegue al P&L), **limpia `guideSentAt` y
+>   `shipDeadlineAt`** —la solicitud vuelve a `awaitingGuide`, donde **no corre reloj**— y **conserva
+>   `carrier`/`trackingNumber`**, que es **lo que hay que cancelar**.
+> - **`POST …/guide` gana `409 GUIDE_CANCELLATION_PENDING`** y precisa su congelación: **congela `shipDeadlineAt`
+>   cuando está en `null`; no lo mueve si ya existe**. ⚠️ **Sin ese matiz, una guía re-capturada dejaría la solicitud
+>   SIN PLAZO PARA SIEMPRE.**
+> - **El vendedor sigue SIN self-service tras la guía** (§23.5e intacto): matar una etiqueta pagada y comprar otra
+>   debe tener **nombre, fecha y bitácora**.
+>
+> **F. LA ALERTA DEL BUCLE (la que §4.39o.19 prometió en vez de un tope).**
+> - `AdminBuylistDTO` gana **`offerReissueCount: number`** y **`offerReissueAlert: boolean`** (derivado);
+>   `GET /admin/buylist` gana **`?offerReissueAlert=`**. **Admin-only, jamás al cliente.**
+> - **⚠️ DDL: `SellRequest.offerReissueCount Int @default(0)`** (`NOT NULL` con default ⇒ **sin backfill**), escrita por
+>   **la misma rama** que repone el reloj. **Y DIAL 10: `buylistOfferReissueAlertCount` = 2. Eran nueve; son DIEZ.**
+> - **La validación cruzada de M10 NO cambia: sigue siendo la de TRES términos** (el dial 10 es un conteo, no un monto).
+> - **No bloquea, no expira, no mueve nada** — igual que la alerta de «por confirmar envío».
+>
+> **G. Sin cambios.** SEC-A1 íntegro, `POST /buylist/requests` (y su `addressId` obligatorio, **BL-11 sigue vigente:
+> FRONTEND PRIMERO**), los **cuatro** terminales, las **SIETE** reglas del barrido, `expiredReason` con **DOS** valores,
+> el mínimo (MX$500), la tarifa (MX$180), el piso (MX$200), los **tres bordes inclusivos**, AML/KYC e INE sobre el
+> **BRUTO**, `payoutNetCents` sin piso, la curva y NM-only.
 >
 > **Changelog v1.51.3 — LA DIRECCIÓN DEL VENDEDOR (hueco BLOQUEANTE), EL RELOJ QUE REINICIA Y «DECLINAR AHORA»
 > (2026-09-01, arquitecto; PASE CORRECTIVO FINAL sobre v1.51.2. `PROJECT.md` §P 7ª ronda — D36/D37/D38/D39 + la
@@ -4760,6 +4846,86 @@ Res `200`: `{ data: [{ id, name, series, releaseDate, year }] }` (datos en ingl�
   `releaseDate`) por **`name` asc**; los sets **sin `releaseDate`** (`null`) van **AL FINAL**, entre ellos por
   `name` asc. Sin cambio de shape. (Antes decía "por año desc", ambiguo dentro del mismo año.)
 
+### ⛔ ~~GET /api/v1/buylist/quote-policy~~ — **RETIRADO POR D43. NO EXISTE, NO SE IMPLEMENTA** (v1.51.4)
+
+> **⚠️⚠️ ESTA RUTA NO EXISTE.** Un borrador de v1.51.4 llegó a especificarla (endpoint público cacheable que devolvía
+> `buylistShippingFeeCents` y `buylistMinimumRequestCents`). **El humano decidió lo contrario (D43): el cotizador
+> público NO menciona montos de envío**, así que **no hace falta ninguna superficie pública de diales**.
+> **Se deja tachada, no borrada**, para que nadie la reconstruya leyendo un borrador — y **si aparece en el código, es
+> un defecto**, verificable *por lo negativo* como los diales retirados (§M10). **`BuylistQuotePolicyDTO` también
+> queda retirado** (§11). ARCHITECTURE **§4.39(r)**.
+>
+> **Qué hace en su lugar el cotizador (D43, NORMATIVO):** pinta **una frase cualitativa** —*«nosotros nos encargamos
+> de la guía de envío y su costo se descuenta del pago»* (redacción de ux-ui)— **sin tarifa, sin resta, sin neto
+> estimado, sin faltante con cifra y sin porcentaje**. *Es un string, no un cálculo: **no puede desincronizarse de
+> ningún dial**, que es la propiedad que el endpoint perseguía con caché y disciplina.*
+>
+> **Dónde vive la resta con montos:** **solo en la oferta**, autenticada y armada **server-side con la tarifa
+> congelada** (`SellOfferPublicDTO`, `offerShippingFeeCents`, D25) — **ahí el acceso a los diales no es un problema**.
+> **D31 conserva sus TRES superficies:** cotizador **cualitativo** · correo de oferta con **los tres montos** ·
+> `offer.terms` en prosa.
+>
+> **⚠️ Y el criterio 132 sigue cumplido, en el sitio correcto:** el *«te faltan $120»* lo da el
+> **`422 BUYLIST_MINIMUM_NOT_MET`** de `POST /buylist/requests`, con **`details.shortfallCents` calculado por el
+> servidor** — que es literalmente lo que exige el criterio 132(b) (*la validación vive en el servidor porque el
+> cotizador se puede saltar*). **El front RENDERIZA ese número; no lo calcula y no lo conoce antes.**
+>
+> **Lo que NO cambia:** `POST /buylist/quote` y `/quote/batch` siguen igual — **se retira la resta del envío, no el
+> cotizador**. **La cotización por línea y el total del carrito no se tocan.**
+>
+> **⚠️ Nota a ux-ui (su ruta, no la mía): `DESIGN_SYSTEM.md` §23.3 queda obsoleto** en su parte aritmética (bloque de
+> la resta, `RECIBIRÍAS ≈`, faltante con cifra). *La «degradación honesta» de §23.3h —la frase sin cifra— **pasa de
+> plan B a ser el diseño**.*
+
+<details><summary>⛔ Diseño retirado (D41) — se conserva SOLO como registro. NO implementar.</summary>
+
+> **La regla de exposición SÍ sobrevive como doctrina, con resultado CERO.** Se publica un dial **si y solo si (a)** la
+> pantalla pública lo necesita para **NO MENTIR sobre el dinero del visitante** **y (b)** conocerlo **NO le da ventaja
+> a nadie contra un control nuestro**. **D43 responde a (a) por otra vía —la pantalla dice la verdad EN PALABRAS—, así
+> que los DIEZ diales fallan (a) y no se publica ninguno.** *Publicar diales «porque son inofensivos» es superficie de
+> más: cada dial publicado es un control cuyo umbral queda documentado para quien quiera esquivarlo.*
+>
+> | Dial | ¿Público? | Por qué |
+> |---|---|---|
+> | `buylistMinimumRequestCents` (3) | ~~SÍ~~ ⛔ **NO (D43)** | Pasaba (a) por el *«te faltan $120»* del drawer; **D43 retira ese requisito de la pantalla pública** y el faltante lo da el `422` de `POST /buylist/requests` |
+> | `buylistShippingFeeCents` (7) | ~~SÍ~~ ⛔ **NO (D43)** | Pasaba (a) porque *era la resta entera*; **D43 quita la resta del cotizador**. La tarifa se comunica con cifra en el **correo de oferta** y en `offer.terms` |
+> | Plazos 1, 2 y 4 | **NO** | La pantalla no habla de plazos. **Y los diales 1 y 2 se CONGELAN por solicitud** (criterio 157) ⇒ el dial vigente puede diferir del que un vendedor tiene **por escrito**: dos fechas para el mismo trato. El 4 es un **SLA nuestro que a propósito no se comunica** |
+> | `buylistOperatorOfferCapCents` (5) | **NO** ⚠️ | Dice **a partir de qué monto interviene una persona**: publicado, cualquiera arma su solicitud para quedar **justo por debajo** de la revisión humana |
+> | `buylistVariantPositionCap` (6) | **NO** ⚠️ | Dice **cuándo dejamos de comprar** una variante. Política de inventario |
+> | `buylistShipmentConfirmAlertBusinessDays` (8) | **NO** | Reloj de **nuestra** cola interna |
+> | `buylistMinimumOfferNetCents` (9) | **NO** *(la exclusión menos obvia)* | Se evalúa sobre el **neto OFERTADO** —después del cherry-pick—, o sea sobre algo que **el visitante no controla ni conoce**; se aplica **al EMITIR**, no al cotizar; y con `tarifa + piso ≤ mínimo` **garantizado por la validación cruzada** (§M10), **ninguna solicitud creada legalmente choca con él por su total cotizado**. Publicarlo pintaría un umbral que **nunca gobierna lo que el visitante mira** |
+> | `buylistOfferReissueAlertCount` (10) | **NO** | Mide **nuestra** conducta (§M5-ciclo) |
+> | **`buylistCapPerRequestCents`, `buylistCapPerMonthCents`, `ineThresholdCents`** | **NO — VETO DURO** ⚠️⚠️ | **Publicar el umbral de INE y los topes AML es publicar el manual de cómo estructurar por debajo de ellos.** Es un control de cumplimiento que **pierde eficacia al ser conocido**. **Ningún cambio futuro los mueve aquí sin decisión explícita del humano y revisión de `seguridad`** |
+> | Todo lo demás de `GET /admin/settings` | **NO** | Ni siquiera es del buylist |
+>
+> **Resultado final (D43): 0 de 10 diales del ciclo, y 0 de todo lo demás. NINGÚN dial se publica.**
+> ⚠️ **`seguridad` debe leer esta tabla como lista CERRADA con resultado CERO**, y tratar cualquier ruta pública que
+> devuelva un `ConfigSetting` como un **defecto**, no como una mejora. **Veto duro permanente** sobre
+> `buylistCapPerRequestCents`, `buylistCapPerMonthCents` e **`ineThresholdCents`**: publicar el umbral de INE y los
+> topes AML **es publicar el manual de cómo estructurar por debajo de ellos** — un control de cumplimiento **pierde
+> eficacia al ser conocido**.
+
+</details>
+
+**⚠️ NORMAS QUE SOBREVIVEN AL RETIRO — dónde NO se meten estos números si alguien reabre el tema:**
+- **⛔ NO en `POST /buylist/quote/batch`, y éste es el peligroso:** el batch cotiza **la rejilla que se está mirando,
+  NO el carrito** (§4.16b), así que cualquier bloque de totales calculado ahí sería **el total de la página de
+  resultados** — *una cifra de dinero correcta que describe otra cosa; la peor clase de bug, porque cuadra.*
+- **⛔ NO en `POST /buylist/quote`:** repetiría la misma política **N veces por render**, anidando una **regla del
+  negocio** dentro de la cotización de **una carta**. Y un `POST` **no se cachea**.
+- **⛔ NO en `GET /buylist/bounties`:** es una **vitrina** con cap y orden propios, que puede quedar **vacía**. *La
+  copia de dinero del cotizador no puede depender de que haya bounties.*
+- **⛔ NUNCA un `GET /config` público genérico:** *un cajón llamado «config pública» invita a echarle la siguiente
+  bandera, y así es como el umbral de INE acaba publicado «porque ya había un endpoint».*
+
+**⚠️ REVOCADO — lo que un borrador de v1.51.4 había autorizado al frontend:**
+- ⛔ **NO** hay `neto ≈ total − tarifa`, **NO** hay `faltante = mínimo − total`, **NO** hay bloque de resta, **NO** hay
+  neto estimado y **NO** hay porcentaje en el cotizador. **R4 de `DESIGN_SYSTEM.md` §23 vuelve a regir sin
+  excepciones.**
+- ⛔ **Sigue prohibido y ahora sin matices:** constantes `18000`/`50000` en el front, un `.env` con esos valores, un
+  default «por si acaso» y cualquier lectura de dial en superficie pública. **En el cotizador no hay ninguna cifra de
+  envío que pintar, así que tampoco hay ninguna que inventar.**
+
 ### POST /api/v1/buylist/quote — `public`  (v1.3.1: por RAREZA · v1.6-finish: por ACABADO · v1.12: READ-ONLY)
 Cotizador público (stateless). Muestra el mensaje de "pago tras recepción y verificación" (copy en frontend).
 > **v1.12-catalog-pricing:** el quote es **read-only** — **no** escribe en la cola de precio pendiente aunque el
@@ -4892,6 +5058,17 @@ global es `200`. `index` = posición 0-based en `items[]` (llave de correlación
 Err (nivel request, no por-ítem): `400 VALIDATION_ERROR` (items vacío / > 50 / ítem malformado), `429 RATE_LIMITED`.
 Nota: el batch es **anónimo/público** como el quote por-carta; la creación de la solicitud (con topes/KYC/CLABE)
 sigue siendo el paso autenticado `POST /buylist/requests`.
+
+> **⚠️ v1.51.4 (D43) — NI ESTE ENDPOINT NI `POST /buylist/quote` LLEVAN LA TARIFA NI EL MÍNIMO, y ahora tampoco los
+> lleva NINGÚN otro sitio público: el cotizador dice el envío EN PALABRAS, sin cifras.** Razones, por si alguien
+> intenta «ahorrarse una llamada» o reabrir el tema:
+> - **El batch cotiza LA REJILLA QUE SE ESTÁ MIRANDO, no el carrito** (§4.16b). Un bloque de totales calculado aquí
+>   sería **el total de la página de resultados**, no el del carrito: **una cifra de dinero correcta que describe otra
+>   cosa** — la peor clase de bug, porque cuadra.
+> - **El quote por-carta repetiría los mismos dos números N veces por render**, anidando una **política del negocio**
+>   dentro de la cotización de **una carta**: dos cosas de vida distinta en el mismo payload.
+> - **Un `POST` no se cachea.** El dato que **menos cambia** del sistema viajaría en el que **más se llama**.
+> **Ninguno de los dos gana campos en v1.51.4**, y **`GET /buylist/quote-policy` NO EXISTE** (retirado por D43, arriba).
 
 ### GET /api/v1/buylist/bounties — `public`  (v1.28 — NUEVO · «Top Bounties» de la página Vender · READ-ONLY)
 Bounties **activos** (`bountyEnabled=true` con `bountyPriceCents>0`), para la sección "Top Bounties" **arriba** de
@@ -5119,6 +5296,63 @@ Err:
 > - **NO gana `pickupAddressId`** (no existe tal campo, ni en el DTO ni en el schema) ni ningún dato de la libreta
 >   viva: lo que viaja es **el snapshot**, que puede diferir de la libreta si el vendedor la editó después. **Es la
 >   propiedad, no un defecto.**
+> **⚠️ v1.51.4 (D42) — UNA ADICIÓN MÁS: `lastOfferCancelledAt`. CERO DDL.**
+> **El defecto que cierra:** `offer/cancel` **limpia** los campos congelados y `offer` vuelve a `null`. El vendedor
+> **que acaba de recibir el correo de cancelación** entraba al portal y **no veía rastro** ni de la oferta ni de la
+> cancelación: **la pantalla contradecía al correo**, que es justo lo que §23.5a prohíbe.
+> - **`lastOfferCancelledAt: string | null`** (ISO). **Regla de proyección NORMATIVA — no es `offerCancelledAt` tal
+>   cual:**
+>   ```
+>   lastOfferCancelledAt = offerCancelledAt  ⇔  closedAt         IS NULL      // la solicitud sigue VIVA
+>                                            ∧  status           = 'cotizada' // volvió a la fila
+>                                            ∧  offerSentAt      IS NOT NULL  // ⚠️ hubo una oferta que él VIO
+>                                            ∧  offerCancelledAt IS NOT NULL
+>                                          ;  null en cualquier otro caso
+>   ```
+> - **⚠️ El término que hace todo el trabajo es `offerSentAt IS NOT NULL`.** `offerCancelledAt` **también** se sella al
+>   cancelar una **`pending_authorization`** y cuando el barrido anula la oferta al caducar. Sin ese término el portal
+>   diría *«te mandamos una oferta y la cancelamos»* **sobre una oferta que NUNCA EXISTIÓ para él** — la misma fuga que
+>   `offerState` es admin-only para impedir. **Funciona porque `offerSentAt` NO se limpia al cancelar** (decisión
+>   deliberada de ARCHITECTURE §4.39i.6, que lo usa como discriminador del ciclo).
+> - **No hay columna nueva.** Una `lastOfferCancelledAt` en el schema sería **duplicado exacto** de `offerCancelledAt`
+>   en la rama `sent` — el mismo error que D39 rechazó con `declinedAt` vs `closedAt`. **El nombre del campo del DTO ≠
+>   el de la columna, y está bien:** el DTO nombra **lo que el vendedor lee**; la columna nombra **el hecho**.
+> - **Habilita exactamente una frase** (§23.5, redacción de ux-ui): *«Te mandamos una oferta y la cancelamos el
+>   {fecha}; estamos revisando tu solicitud otra vez.»* **El badge no cambia:** sigue `COTIZADA`, que desde §23.1
+>   significa *«te debemos una respuesta»* — coherente con el hecho y con el **correo 5**.
+> - **⚠️ MINIMIZACIÓN — viaja EL CUÁNDO Y NADA MÁS:** ⛔ **`offerCancelReason`** (motivo interno; el correo 5 tiene
+>   prohibido explicar, y el portal no puede decir más que el correo) · ⛔ **los montos de la oferta cancelada** (se
+>   limpiaron de la fila y **no se resucitan**: una cifra junto a *«la cancelamos»* se lee como una promesa retirada) ·
+>   ⛔ **`offerReissueCount` / cuántas veces** (mide **nuestra** conducta y vive en la cola de admin; él ya recibió **un
+>   correo por vuelta**, ésa es la divulgación honesta) · ⛔ **`offerState`** (admin-only, sin cambios).
+> - **Superficie: SOLO el DETALLE.** **No** va en `GET /buylist/requests` (lista): ahí se muestran **estados**, y
+>   `COTIZADA` **es cierto**. La contradicción que D42 cierra ocurre en la pantalla que **espeja el correo**, y es donde
+>   se corrige.
+>
+> ### ⚠️ v1.51.4 — CIERRE `no_offer`: LOS MONTOS DEJAN DE VIAJAR AL CLIENTE. Es PROYECCIÓN, no decisión de pintado.
+> **El defecto (§23.5f):** *«MX$ 1,200» junto a «no procedimos» se lee como **una deuda**.*
+> **Por qué la regla va en el servidor y no en el front:** el **correo 4 ya tiene prohibido cualquier monto** —incluido
+> el total cotizado, *«porque nombrar MX$1,200 junto a no procederemos se lee como te íbamos a pagar esto y no lo
+> hicimos»*— y §23.5a exige que **la pantalla diga exactamente lo mismo que el correo**. Si el DTO los sigue mandando,
+> **el espejo se sostiene solo con la disciplina del frontend**, en una pantalla de dinero, para todo consumidor
+> presente y futuro del endpoint. **La regla se pone donde no se puede olvidar.**
+> ```
+> status = 'expirada' ∧ expiredReason = 'no_offer'   ⇒   quotedTotalCents             = null
+>                                                        SellItemDTO.quotedPriceCents = null   (TODAS las líneas)
+> ```
+> - **Las líneas SE SIGUEN LISTANDO.** El vendedor tiene derecho a ver **qué** pidió vender; lo que desaparece es **el
+>   dinero**. *No se le borra su solicitud: se le quita una cifra que ya no significa nada.*
+> - **⚠️ Alcance EXACTO: solo `no_offer`.** En **`rechazada`** y en **`expirada` + `not_shipped`** **sí hubo una oferta
+>   vinculante**, el vendedor tiene derecho al registro de lo que se le ofreció y **`offer` sigue viajando íntegro**.
+>   **La diferencia no es el estado: es que en `no_offer` NUNCA HUBO OFERTA**, y la única cifra que quedaba era una
+>   **cotización que jamás fue vinculante**. *Después de declinar, esa cifra ya no es informativa: es solo engañosa.*
+> - **Aplica igual con `declinedBy` poblado o `null`** (barrido o «declinar ahora»): para el vendedor es **el mismo
+>   hecho** (D39) ⇒ **la misma proyección**.
+> - **La proyección ADMIN no cambia ni una letra:** `AdminBuylistDTO.quotedTotalCents` sigue siendo el snapshot
+>   histórico (lo necesitan M7, M9 y los filtros `minCents`/`maxCents` de §M5). **El dato no se pierde; deja de salir
+>   por una puerta donde solo puede hacer daño.**
+> - **Alcance de superficie:** aplica a `GET /buylist/requests/:id` **y** a `GET /buylist/requests` (lista propia) —
+>   **las dos son proyección de cliente**, y dejar la cifra en la lista reproduciría el daño una pantalla antes.
 
 ### PATCH /api/v1/buylist/requests/:id/pickup-address — `customer`  (v1.51.3 — NUEVO · **corregir la dirección de origen**)
 Re-congela el **snapshot** de la dirección de origen **mientras no haya papel impreso**. `PROJECT.md` §P (D36/D37),
@@ -5142,9 +5376,16 @@ Req: **`{ addressId: string }`** — **de la propia libreta del usuario**. El se
 > - **⚠️ La línea es `guideSentAt`, NO `status`.** El estado no dice si hay papel; **`guideSentAt` sí** — «capturar es
 >   entregar» (§M5-ciclo, `POST …/guide`). Una **`aceptada` SIN guía** todavía se corrige (y es el caso que más
 >   importa: el vendedor acaba de aceptar y está revisando sus datos); una **`aceptada` CON guía**, no.
-> - **Después de la guía el remedio es HUMANO:** abrir **«cancelar guía no usada»** (D22), corregir y re-emitir. *No
->   existe editar una dirección impresa; existe tirar la etiqueta y comprar otra* — y el costo de esa etiqueta entra
->   al P&L por `guide/cancellation-done`, que es donde tiene que doler.
+> - ~~**Después de la guía el remedio es HUMANO:** abrir **«cancelar guía no usada»** (D22), corregir y re-emitir.~~
+>   ⛔ **SUPERSEDED (v1.51.4 — BL-13): ESE REMEDIO NO ERA EJECUTABLE.** Esa cola **solo se abre** cuando una solicitud
+>   con guía **expira o se cancela**, y **una `aceptada` no se cancela** (`409 OFFER_NOT_CANCELLABLE`) ⇒ con la guía
+>   impresa y la dirección mal, **la única salida real era dejar vencer el plazo de envío** ⇒ **correo de «no mandaste
+>   el paquete»**: *un typo NUESTRO acusando al vendedor*, la misma injusticia que D38 quitó, por otra puerta.
+>   ✅ **Vigente:** el remedio **sí pasa por una persona, pero ahora tiene endpoint** —
+>   **`PATCH /api/v1/admin/buylist/:id/pickup-address`** (§M5-ciclo), que re-congela el snapshot, **abre** la tarea de
+>   guía muerta (para que el costo entre al P&L, que es donde tiene que doler) y devuelve la solicitud a
+>   `awaitingGuide`. **La regla de fondo no cambia:** *no existe editar una dirección impresa; existe tirar la
+>   etiqueta y comprar otra.* **El cliente sigue sin self-service** tras la guía (§23.5e intacto).
 > - **También es la puerta de rescate de las filas LEGACY** (`cotizada` anteriores a M-46, snapshot `null`): sin este
 >   endpoint **una legacy no se podría ofertar nunca** (`422 PICKUP_ADDRESS_MISSING`). El operador la ve en el detalle
 >   y llama al vendedor (`seller.phone`, D12) para que la capture. Desviación **BL-12** (ARCHITECTURE §9).
@@ -7705,6 +7946,29 @@ Notas de seguridad: **host fijo** de pokemontcg.io (sin SSRF); `POKEMONTCG_IO_AP
       cambia es **desde dónde cuenta** cuando la solicitud volvió a la fila tras cancelar una oferta enviada. **La
       misma corrección aplica a `caducityAt`** de la cola de autorización — *si una se quedara en `createdAt`,
       tendríamos dos fechas de muerte para la misma fila.*
+  - **⚠️ v1.51.4 — DOS adiciones al DTO, UN filtro y UNA columna nueva de schema (fricción 6 de §23.13; la alerta que
+    ARCHITECTURE §4.39o.19 prometió **en vez de** un tope):**
+    - **`offerReissueCount: number` (NUEVO, admin-only)** en `AdminBuylistDTO` — **cuántas veces se ha cancelado una
+      oferta ENVIADA** de esta solicitud. **Persistido** (`SellRequest.offerReissueCount Int @default(0)`, M-46) y
+      escrito por **el mismo `if`** que repone `offerIssueClockStartedAt`, en la misma transacción ⇒ **invariante que
+      QA debe asertar: `offerReissueCount > 0 ⇔ offerIssueClockStartedAt IS NOT NULL`**. **No cuenta** la cancelación
+      de una `pending_authorization` (esa oferta no existió para el vendedor) **ni** la anulación del barrido (eso es
+      un cierre, no una re-emisión).
+    - **`offerReissueAlert: boolean` (NUEVO, DERIVADO server-side, no se persiste)** =
+      `offerReissueCount >= buylistOfferReissueAlertCount` (**dial 10**, default **2**). **El servidor manda el número
+      Y el veredicto** — misma norma que `alert`, `requiresAuthorization` y `netBelowMinimum`: **la UI no compara
+      contra una constante propia**, porque el umbral es editable sin redeploy.
+    - **`offerReissueAlert?: boolean` (query, NUEVO):** `offerReissueAlert=true` filtra las filas en alerta.
+      Combinable con el resto (se intersectan), igual que `awaitingGuide`. **Sin este filtro la alerta sería
+      decorativa:** obligaría a paginar la cola entera para encontrar las tres filas que importan (lección de **P-5**).
+    - **⚠️ NO BLOQUEA NADA.** No expira, no cancela, no mueve estados, no cambia el rol requerido, no aparece en ningún
+      correo y **no gatea `POST …/offer`** — exactamente como la alerta de «por confirmar envío» (criterio 156).
+      **Sigue sin haber tope de re-emisiones ni plazo absoluto**, y por la misma razón que los descartó §4.39(o.19):
+      **los dos dispararían sobre el VENDEDOR.** *Si alguien le cuelga una consecuencia automática, habrá
+      reintroducido el tope — y con él la factura sobre quien no la causó.*
+    - **⚠️ JAMÁS en un DTO de cliente.** Mide **nuestra** conducta. Al vendedor ya se le dijo **una vez por vuelta**
+      (correo 5); ésa es la divulgación honesta. Tampoco va en `decision-table` (la mesa decide **qué comprar**, no
+      cómo nos hemos portado) ni en la cola de autorización pendiente (población distinta).
   - **⚠️ v1.51.3 — UNA adición más (D39), aditiva:**
     - **`declinedBy: string | null` (NUEVO, admin-only)** en `AdminBuylistDTO`. `null` ⇒ **la cerró el barrido**
       (regla 7); poblado ⇒ **la declinó una persona** (`POST …/decline`). **Es el ÚNICO discriminador entre
@@ -7725,10 +7989,14 @@ Notas de seguridad: **host fijo** de pokemontcg.io (sin SSRF); `POKEMONTCG_IO_AP
   > - **Régimen PII:** dato **operativo de back-office**, mismo régimen que `seller.email` y `seller.phone` (§M5,
   >   criterio 130): **sin enmascarado y sin reveal auditado**, disponible para `vault_operator`+. **No es la CLABE** y
   >   **el régimen de la CLABE no cambia ni se le parece** (`super_admin`, money-out, auditado por llamada).
-  >   **Prohibido en toda superficie pública y en los CUATRO correos.**
+  >   **Prohibido en toda superficie pública y en los ~~CUATRO~~ CINCO correos** *(v1.51.4)*.
   > - **`null` ⇒ fila LEGACY** (creada antes de M-46). **No se puede ofertar** (`422 PICKUP_ADDRESS_MISSING`): se le
   >   pide al vendedor por teléfono que la capture, o se **declina** (`POST …/decline`). ⚠️ **Nunca se rellena leyendo
   >   la libreta viva.**
+  > - **⚠️ v1.51.4 — y si ya hay guía impresa con la dirección MAL, existe `PATCH /admin/buylist/:id/pickup-address`**
+  >   (§M5-ciclo): re-congela el snapshot, **abre la tarea de guía muerta** y devuelve la solicitud a `awaitingGuide`.
+  >   **Sigue sin haber self-service para el cliente después del papel** — matar una etiqueta pagada y comprar otra
+  >   debe tener **nombre, fecha y bitácora**.
   > - **El teléfono que va en la etiqueta es `pickupAddress.phone`** (el del domicilio), **no `seller.phone`** (el
   >   nuestro, para llamarle). Se parecen y no son el mismo dato.
   - **`seller` (v1.18-buylist-rejects, NUEVO):** el detalle gana el mismo **`seller: AdminSellerRef`** que el listado. Los `items` (`SellItemDTO`, §11) incluyen los campos de rechazo (`rejectionReason`, `rejectedAt`, `returnDeadlineAt`, `abandonDeadlineAt`) cuando aplique.
@@ -8230,8 +8498,40 @@ Req: `{ reason?: string }` (0–500, interno, **NO PII**, va al `AuditLog`; **no
 >   reinició»*. Una columna de un solo propósito hace la regla **imposible de disparar desde la rama equivocada**.
 > - **Consecuencia de producto, aceptada:** una solicitud puede vivir **7 + 2 + 7 = hasta 16 días hábiles** antes de
 >   un desenlace. **El vendedor no queda a ciegas en ningún tramo.**
+>
+> ### ⚠️ v1.51.4 — DOS EFECTOS MÁS, Y LOS TRES CUELGAN DEL **MISMO** `if`
+> ```
+> si offerState == 'sent'                  ⇒  offerIssueClockStartedAt = now()     // D38 (v1.51.3)
+>                                             offerReissueCount        += 1        // v1.51.4 — la alerta del bucle
+>                                             ► CORREO 5  «cancelamos la oferta»   // v1.51.4 — YA NO es el correo 3
+> si offerState == 'pending_authorization' ⇒  NO se toca el reloj
+>                                             NO se incrementa el conteo
+>                                             ► NINGÚN CORREO                      // ⚠️ v1.51.4
+> ```
+> - **⚠️ EL CORREO SALE DEL 3 Y PASA A SER EL 5. SON CINCO CORREOS.** El correo 3 afirma *«hubo una oferta y **tu**
+>   plazo venció»*, y aquí **no venció nada**: **cancelamos nosotros** y la solicitud vuelve a `cotizada` **viva**, con
+>   los 7 días hábiles íntegros. Mandarle el 3 **le imputa un incumplimiento por un acto nuestro** — **exactamente el
+>   argumento con el que D33 creó el correo 4**, aplicado un nivel más abajo. Y con un agravante propio: el CTA del
+>   correo 3 (*«cotizar de nuevo»*) lo mandaría a **duplicar una solicitud abierta**. **El correo 5 dice: la cancelamos
+>   nosotros, no es nada de tu parte, tu solicitud sigue viva. CTA: ver mi solicitud.** Prohibido en él: la palabra
+>   «venció», cualquier plazo del vendedor, **cualquier monto** (los de la oferta cancelada **se limpiaron y no se
+>   resucitan**) y el motivo interno. ARCHITECTURE §4.39(n), copy en §23.4.4-3c.
+> - **⚠️ `expiredReason` NO discrimina las variantes del correo 3, y se demuestra: es `null` en DOS de los tres
+>   productores** (la regla 1 deja `rechazada`; esta cancelación deja `cotizada`). **La plantilla la elige el
+>   PRODUCTOR en el call-site** (`BuylistMailKind`, **interno de backend, NO cruza este contrato**). **Un
+>   `switch (status)` que elija plantilla es un defecto.**
+> - **⚠️ CANCELAR UNA `pending_authorization` NO MANDA NINGÚN CORREO.** Esa oferta **no existió para el vendedor**;
+>   escribirle **le filtraría que preparamos algo por encima del tope del operador** — la existencia y el orden de
+>   magnitud de un control interno, que es justo lo que `offerState` es admin-only para impedir. **Y hace VERIFICABLE
+>   la propiedad de D38:** *el reinicio no puede ocurrir sin que al vendedor le llegue un correo* — **una sola
+>   condición gobierna reloj, conteo y correo, así que no pueden desincronizarse.**
+> - **`offerReissueCount`** (M-46, `Int @default(0)`) alimenta **`offerReissueAlert`** en la cola de M5 (§M5,
+>   `GET /admin/buylist`). **Invariante verificable por QA: `offerReissueCount > 0 ⇔ offerIssueClockStartedAt IS NOT
+>   NULL`.** **No bloquea nada** — sigue **sin haber tope de re-emisiones** (ARCHITECTURE §4.39o.19/§4.39u).
 Res `200`: la `SellRequest` actualizada. Err: `403`, `404`, **`409 OFFER_NOT_CANCELLABLE`** (no hay oferta viva, o la
 solicitud ya avanzó más allá de `ofertada` — una `aceptada` **no** se cancela por esta vía).
+> **⚠️ Y por eso existe `PATCH /admin/buylist/:id/pickup-address`** (abajo): la `aceptada` con la dirección mal impresa
+> **no tenía salida** por aquí, y la que quedaba terminaba en un correo que acusa al vendedor (**BL-13**).
 
 ##### `POST /api/v1/admin/buylist/:id/decline` — **«DECLINAR AHORA»** (v1.51.3 — NUEVO, D39)
 Cierra de inmediato una solicitud que **no vamos a ofertar**, sin esperar el barrido. `vault_operator` / `super_admin`
@@ -8306,6 +8606,77 @@ Orden **`offerPreparedAt` asc** (lo más viejo primero: es una cola de trabajo, 
 > abiertos:** un operador puede preparar una oferta el día 6 y perderla el día 7 — es correcto, porque **el vendedor no
 > tiene por qué esperar por nuestra cola interna**, y el remedio es que la fecha esté **a la vista**.
 
+##### `PATCH /api/v1/admin/buylist/:id/pickup-address` — **corregir la dirección DESPUÉS de la guía** (v1.51.4 — NUEVO, **BL-13**)
+`vault_operator` / `super_admin` (**no es dinero saliente** ⇒ sin `MoneyOutGuard`), **auditado**
+(`buylist.pickup_address.admin_update`, ⚠️ **SIN PII en `before`/`after`**: solo el `addressId` anterior y el nuevo —
+misma norma que la ruta de cliente). **CERO DDL.** ARCHITECTURE **§4.39(t)**.
+
+Req: **`{ addressId: string }`** — **de la libreta del PROPIO VENDEDOR**. El servidor **resuelve y re-congela**
+`pickupAddressSnapshot`; **no** acepta campos de domicilio sueltos.
+
+> **⚠️ POR QUÉ EXISTE: el remedio que v1.51.3 documentó NO ERA EJECUTABLE, y el que quedaba acusa al vendedor.**
+> Se traza y no cierra: la cola **«cancelar guía no usada»** solo se abre si la solicitud con guía **expira o se
+> cancela** (criterio 139); **`offer/cancel` rechaza una `aceptada`** (`409 OFFER_NOT_CANCELLABLE`); y **`PATCH
+> /buylist/requests/:id/pickup-address` (cliente) está cerrado** por `guideSentAt IS NULL`. **⇒ La única salida hoy es
+> dejar vencer el plazo de envío** ⇒ `expirada`+`not_shipped` ⇒ **el correo de *«aceptaste y el paquete no salió»***.
+> **Un typo NUESTRO en la etiqueta terminaba acusando al vendedor** — la misma injusticia que D38 quitó, por otra
+> puerta. *No es una comodidad ausente: era un desenlace incorrecto.*
+>
+> **⚠️ SEC-A1 aplicado a un dato que no es dinero: NI EL CLIENTE NI EL ADMIN ESCRIBEN UN DOMICILIO.** Los dos **eligen
+> una fila** de la libreta del vendedor. Si el vendedor **no tiene la dirección buena en su libreta, la añade ÉL**
+> (`POST /users/me/addresses`) y el operador la selecciona — tiene **`seller.phone`** (D12) para guiarlo por teléfono.
+> **Esto no es fricción: es la única forma de que el domicilio siga siendo del vendedor.** ⛔ **Prohibido que el
+> operador la teclee, la copie de un pedido o la derive del KYC** (misma prohibición que ARCHITECTURE §4.39q.6, ahora
+> también para el admin). *La defensa es la forma del DTO: no hay campo de dirección que manipular.*
+>
+> **Precondición NORMATIVA, evaluada en el `updateMany` con patrón `count===1`:**
+> ```
+> legal ⇔ la solicitud existe
+>       ∧ closedAt                IS NULL     // no se toca una terminal
+>       ∧ shipmentConfirmedAt     IS NULL     // el paquete ya viaja: corregir el papel no lo desvía
+>       ∧ sellerShippedDeclaredAt IS NULL     // ⚠️ él dice que YA lo depositó ⇒ la etiqueta está USADA
+> ```
+> Fuera de eso ⇒ **`409 PICKUP_ADDRESS_LOCKED`** (`details: { status, guideSentAt, sellerShippedDeclaredAt }`).
+> - **⚠️ El caso `sellerShippedDeclaredAt != null` se rechaza a propósito, y hay que decirlo en voz alta:** si el
+>   vendedor **ya depositó** el paquete, el papel **no está impreso: está en manos de una paquetería**. Cambiar la fila
+>   no mueve la caja, y dejarlo pasar **crearía la ilusión de que sí**. **Ahí el remedio es humano de verdad** (llamar
+>   a la paquetería) y **el sistema no debe fingir que tiene un botón para eso.**
+> - **A diferencia de la ruta de cliente, `guideSentAt` NO es precondición** — **es justo la ventana que esta ruta
+>   existe para cubrir**.
+>
+> **Efectos, en UNA transacción:**
+> ```
+> (1) pickupAddressSnapshot = snapshot(addressId)                 // SIEMPRE
+> (2) si guideSentAt IS NOT NULL:                                 // había papel impreso
+>       guideCancellationPendingAt = now()
+>       guideCancellationDoneAt    = null      // reabre la tarea si ya se había cerrado una vez
+>       guideSentAt                = null
+>       shipDeadlineAt             = null
+>       // ⚠️ shipmentCarrier y shipmentTrackingNumber NO se limpian: son lo que hay que CANCELAR
+> ```
+> - **(2) devuelve la solicitud a un estado QUE YA EXISTE Y YA SE VIGILA:** `aceptada` **sin guía** **no corre reloj**
+>   (la regla 2 no ve la fila con `shipDeadlineAt IS NULL` ⇒ **no puede expirar por nuestro error**) y **ya tiene cola
+>   propia**: `GET /admin/buylist?awaitingGuide=true`. **Cero estados nuevos, cero colas nuevas, cero diales nuevos.**
+>   *La corrección no inventa un camino: devuelve la solicitud al punto exacto del que nunca debió salir.*
+> - **Abre la tarea de guía muerta porque es la ÚNICA puerta por la que el costo de una etiqueta tirada entra al P&L**
+>   (`guide/cancellation-done`, D22 — *«dinero tirado que nadie ve»*). Una corrección que no la abriera dejaría una
+>   etiqueta pagada **fuera de M7**.
+> - **No limpia `carrier`/`trackingNumber`** porque `PendingGuideCancellationRowDTO` **los muestra para que el operador
+>   sepa qué guía cancelar**: borrarlos vaciaría la fila de lo que la hace trabajable.
+> - **`status` NO cambia** (sigue `aceptada`, o `cotizada`/`ofertada` si se usó antes de la guía). **No manda ningún
+>   correo**: siguen siendo **CINCO** (ARCHITECTURE §4.39n).
+> - **⚠️ LÍMITE ACEPTADO Y DECLARADO:** con **dos** correcciones sobre la misma solicitud, el segundo
+>   `guide/cancellation-done` **pisa** `guideActualCostCents` del primero ⇒ **el P&L pierde una etiqueta**. Se acepta
+>   con el criterio de ARCHITECTURE §4.39(o.14): **este número no le paga a nadie** (jamás entra en `payoutNetCents`),
+>   el daño es de **reporte** y exige equivocarse **dos veces con la misma solicitud**. ⛔ **Prohibido el atajo de
+>   acumular (`+=`) en esa columna:** convertiría *«el costo de la etiqueta»* en *«la suma de los costos»* **sin
+>   cambiarle el nombre**. La cura correcta sería una tabla hija `GuideLabel` y **no se hace aquí** (§4.39o.23).
+
+Res `200`: `{ sellRequestId, status, pickupAddress: PickupAddressSnapshotDTO, guideSentAt: null | string, shipDeadlineAt: null | string, guideCancellationPendingAt: string | null }`.
+Err: `403 FORBIDDEN` (cliente), `404 NOT_FOUND`, **`422 PICKUP_ADDRESS_NOT_FOUND`** (el `addressId` no existe **o no es
+del vendedor de esta solicitud** — misma respuesta para los dos casos), **`409 PICKUP_ADDRESS_LOCKED`**,
+`400 VALIDATION_ERROR`.
+
 ##### `POST /api/v1/admin/buylist/:id/guide` — capturar la guía (D19/D21/D22, criterios 122/137)
 Req: `{ carrier: string, trackingNumber: string }` (ambos 1–100 chars, trim).
 > **⚠️ NO HAY INTEGRACIÓN CON PAQUETERÍA, y es alcance cerrado (D19).** Sin compra automática, sin cotización de
@@ -8334,8 +8705,29 @@ Req: `{ carrier: string, trackingNumber: string }` (ambos 1–100 chars, trim).
 > para **conciliar** al recibir.
 > **Re-captura:** llamar de nuevo **actualiza** `carrier`/`trackingNumber` (corregir un typo debe ser posible) pero
 > **NO re-congela `shipDeadlineAt`** — mover la fecha ya comunicada rompería el criterio 157.
+>
+> ### ⚠️ v1.51.4 — UNA GUARDA NUEVA Y UN MATIZ DE CONGELACIÓN (los dos por **BL-13** / §4.39t)
+> **(1) `409 GUIDE_CANCELLATION_PENDING`** (`details: { carrier, trackingNumber, guideCancellationPendingAt }`) cuando
+> hay una cancelación **pendiente**: `guideCancellationPendingAt IS NOT NULL ∧ guideCancellationDoneAt IS NULL`.
+> **Por qué:** tras una corrección de dirección (`PATCH /admin/buylist/:id/pickup-address`), capturar la etiqueta nueva
+> **pisaría el número de la vieja** y la cola pediría cancelar **una guía que ya es la buena**. **Serializa lo que la
+> operación ya exige: una etiqueta viva por solicitud** — se mata la anterior (`guide/cancellation-done`, que además
+> es donde su costo entra al P&L) y **después** se compra la siguiente. *Dos etiquetas vivas para un paquete es cómo se
+> paga dos veces y se pierde una caja.*
+>
+> **(2) MATIZ NORMATIVO — se congela `shipDeadlineAt` CUANDO ESTÁ EN `null`; NO se mueve si ya existe.**
+> ```
+> shipDeadlineAt IS NULL      ⇒  congelar = guideSentAt + buylistShipDeadlineBusinessDays   // primera guía, o tras corrección
+> shipDeadlineAt IS NOT NULL  ⇒  NO se toca                                                 // criterio 157, sin cambios
+> ```
+> **No es un cambio de regla: es la regla vigente, dicha con precisión.** La frase *«re-capturar NO re-congela»*
+> protegía una fecha **ya comunicada** y **sigue intacta**. ⚠️ **Sin este matiz, la guía re-capturada tras una
+> corrección dejaría `shipDeadlineAt` en `null` PARA SIEMPRE** ⇒ una solicitud que **nunca puede expirar** y que
+> **`awaitingGuide` ya no ve** (porque `guideSentAt` volvió a estar poblado): invisible para el reloj **y** para la
+> cola. *Un plazo que no arranca es tan defectuoso como uno que arranca mal.*
 Res `200`: `{ sellRequestId, status, shipmentCarrier, shipmentTrackingNumber, guideSentAt, shipDeadlineAt }`.
-Err: `403`, `404`, `409 GUIDE_NOT_ALLOWED` (`details.status`), `400 VALIDATION_ERROR`.
+Err: `403`, `404`, `409 GUIDE_NOT_ALLOWED` (`details.status`), **`409 GUIDE_CANCELLATION_PENDING`** (v1.51.4),
+`400 VALIDATION_ERROR`.
 
 ##### `POST /api/v1/admin/buylist/:id/confirm-shipment` — **lo ÚNICO que mueve a `en_transito`** (D20, criterio 122/138)
 Req *(v1.51.1: el body deja de estar vacío)*: **`{ guideActualCostCents?: number }`** — entero ≥ 0, **OPCIONAL**.
@@ -8379,6 +8771,14 @@ Query: `?page=&pageSize=`. Res `200`: `{ data: PendingGuideCancellationRowDTO[],
 > Enumera las solicitudes con `guideCancellationPendingAt != null` ∧ `guideCancellationDoneAt IS NULL`, **con el
 > número de guía a la vista**. Se abre cuando una solicitud **con guía emitida** **expira** o **se cancela**.
 > *Una etiqueta comprada y olvidada es **dinero tirado que nadie ve**.*
+> **⚠️ v1.51.4 — TERCER PRODUCTOR: la CORRECCIÓN DE DIRECCIÓN sobre una solicitud VIVA** (`PATCH
+> /admin/buylist/:id/pickup-address` con `guideSentAt != null`, §M5-ciclo). Es el **único** productor que **no** viene
+> de un cierre: la solicitud **sigue `aceptada`** y vuelve a `awaitingGuide`. **Por eso la cola gana filas de
+> solicitudes VIVAS y `closedStatus` puede ser un estado NO terminal** — el operador cancela la etiqueta muerta, marca
+> `guide/cancellation-done` (con su costo, que es donde entra al P&L) y **entonces** captura la guía nueva
+> (`POST …/guide` devuelve **`409 GUIDE_CANCELLATION_PENDING`** mientras la tarea siga abierta). ⚠️ **Y la reapertura
+> pone `guideCancellationDoneAt = null`**: sin eso, una segunda corrección sobre la misma solicitud **no volvería a
+> aparecer en la cola** (el predicado exige `doneAt IS NULL`) y **la etiqueta se perdería del P&L en silencio**.
 > **⚠️ NO DESAPARECE SOLA** (criterio 139): sale de la cola únicamente por
 > **`POST /api/v1/admin/buylist/:id/guide/cancellation-done`** (body **`{ note?: string, guideActualCostCents?: number }`**
 > — v1.51.1 añade el costo), que sella `guideCancellationDoneAt` / `guideCancellationDoneBy` y queda auditado.
@@ -8633,8 +9033,9 @@ Err `403`, `400 VALIDATION_ERROR`.
   del proveedor y escribimos filas? — decisión de **coste** y de calidad de dato). Colapsarlos obligaría a elegir entre
   «no puedo probar el ingest sin publicar» y «no puedo publicar sin encender el gasto». Con dos, el operador puede
   **rodar el ingest en observación con la vitrina apagada**, que es la secuencia de encendido que pide §4.38(h).
-- **v1.51 (M-46) — ~~OCHO~~ NUEVE diales nuevos del CICLO DE ADQUISICIÓN DEL BUYLIST** (`PROJECT.md` §P.10, criterio
-  127; ⚠️ **v1.51.2 / D34: eran ocho**). Se exponen en el `GET` y se editan por este `PUT` (mismo patrón que el resto
+- **v1.51 (M-46) — ~~OCHO~~ ~~NUEVE~~ **DIEZ** diales nuevos del CICLO DE ADQUISICIÓN DEL BUYLIST** (`PROJECT.md` §P.10,
+  criterio 127; ⚠️ **v1.51.2 / D34: eran ocho** · ⚠️ **v1.51.4: eran nueve**). Se exponen en el `GET` y se editan por
+  este `PUT` (mismo patrón que el resto
   de `ConfigSetting`): **sin redeploy**, **auditados** (M10) y **aplican a solicitudes NUEVAS** — las vivas llevan su
   valor **congelado** (criterio 157) *cuando hay algo que congelar; ver la nota de **clases** al final de la tabla*.
 
@@ -8650,6 +9051,7 @@ Err `403`, `400 VALIDATION_ERROR`.
   | `buylistShippingFeeCents` | `buylist_shipping_fee_cents` | **18000** (MX$180) | el **envío que se descuenta** y que el correo anuncia; **se congela al ofertar** (D25) | entero ≥ 0 · **cruzada** ↓ |
   | `buylistShipmentConfirmAlertBusinessDays` | `buylist_shipment_confirm_alert_business_days` | **5** | alerta de «ya lo mandé» sin confirmar (§P.13, P17). **NO expira nada** | entero ≥ 1 |
   | **`buylistMinimumOfferNetCents`** | **`buylist_minimum_offer_net_cents`** | **20000** (MX$200, ⚠️ **INCLUSIVO**) | **NUEVO (v1.51.2 / D34): NETO mínimo para poder EMITIR una oferta.** **Estrictamente por debajo** ⇒ **`422 OFFER_NET_BELOW_MINIMUM`** en `POST …/offer` (§M5-ciclo); **un neto igual al piso SE EMITE** (v1.51.3/D40). **NO gatea el pago ni la aceptación** | **entero ≥ 1** *(el `0` **NO** es legal)* · **cruzada** ↓ |
+  | **`buylistOfferReissueAlertCount`** | **`buylist_offer_reissue_alert_count`** | **2** | **NUEVO (v1.51.4): a partir de cuántas cancelaciones de oferta ENVIADA la cola de M5 marca la fila en ALERTA** (`AdminBuylistDTO.offerReissueAlert`, §M5). Es la alerta que ARCHITECTURE §4.39(o.19) prometió **en vez de** un tope. **NO bloquea, NO expira, NO mueve ningún estado y NO aparece en ningún correo** | entero ≥ 1 · ⚠️ **NO entra en la validación cruzada** |
 
   - **⚠️ ERAN NUEVE Y SON OCHO.** El **«umbral de recorte material» (20%, D28)** quedó **SIN OBJETO** con D30 —al no
     haber pregunta al vendedor **no hay umbral que calibrar**— y **NO SE IMPLEMENTA**. Verificable **por lo negativo**
@@ -8663,7 +9065,21 @@ Err `403`, `400 VALIDATION_ERROR`.
   - **⚠️ v1.51.2 — AHORA SON NUEVE, Y ES UN ALTA LIMPIA (no una sustitución).** A diferencia de v1.51.1, aquí **no
     sale ninguno**: entra `buylistMinimumOfferNetCents` (D34, cierre de la pregunta 25 de `PROJECT.md`) y el conteo
     sube **8 → 9**. **Historial completo, para que nadie recuente mal:** nueve (3ª ronda) → **ocho** (D30 retira el
-    recorte material) → **ocho** (D31 saca el umbral de guía, D33 mete el plazo de emisión) → **NUEVE** (D34).
+    recorte material) → **ocho** (D31 saca el umbral de guía, D33 mete el plazo de emisión) → **NUEVE** (D34)
+    → ⚠️ **DIEZ (v1.51.4: entra `buylistOfferReissueAlertCount`; tampoco sale ninguno)**.
+  - **⚠️ v1.51.4 — EL DÉCIMO NO ES UN MONTO NI UN PLAZO: ES UN CONTEO, y eso decide dos cosas.**
+    **(1) NO entra en la validación cruzada** (que sigue siendo la de **TRES** términos, abajo): **no comparte unidad
+    con ninguno de los otros** —cuenta actos, no centavos— así que **no hay identidad aritmética que preservar**.
+    *Meterlo «por simetría» sería inventar una relación entre un número de veces y un monto.*
+    **(2) Su borde es INCLUSIVO (`count >= dial` ⇒ alerta) pero NO es uno de los tres bordes de D40, y la dirección es
+    la CONTRARIA:** los tres bordes de dinero son inclusivos **a favor de la persona** (*el número exacto pasa*); éste
+    lo es **a favor de la visibilidad** (*el número exacto YA se ve*). **Escrito para que nadie los «armonice»**: con
+    `dial = 2`, la **segunda** cancelación **enciende** la alerta.
+    **Por qué el default es 2, y por qué es dial y no constante:** *reponer el reloj una vez es corregir un error
+    —justo lo que D38 vino a permitir sin castigar al vendedor—; hacerlo **dos** veces sobre la misma persona ya es una
+    **conducta**, y una conducta se mira.* Es **dial** porque §4.39(o.19) dijo que **N lo fija el humano**, y un número
+    que el humano mueve **no puede exigir un redeploy**. **Una alerta de más cuesta un vistazo; una de menos cuesta un
+    vendedor.**
   - **⚠️ EL `0` NO ES UN VALOR LEGAL DEL DIAL NUEVO.** Con el piso en `0` la guarda `net < 0` **nunca dispara** y
     **vuelve a ser emitible la oferta que anuncia MX$0** — el agujero que v1.51.1 cerró. Con el piso en **1 centavo**
     la regla degenera **exactamente** en la de v1.51.1 (`net < 1` ⇔ `net ≤ 0`): **la guarda vieja no se perdió, se
@@ -8700,7 +9116,11 @@ Err `403`, `400 VALIDATION_ERROR`.
       `buylistOfferAcceptDeadlineBusinessDays`, `buylistShipDeadlineBusinessDays`, `buylistShippingFeeCents`.
     - **Son GATES o política interna** (se evalúan **una vez** y **no se releen** ⇒ **nada que congelar, ninguna
       columna**): `buylistMinimumRequestCents`, `buylistOfferIssueDeadlineBusinessDays`, `buylistOperatorOfferCapCents`,
-      `buylistVariantPositionCap`, `buylistShipmentConfirmAlertBusinessDays` y **`buylistMinimumOfferNetCents`**.
+      `buylistVariantPositionCap`, `buylistShipmentConfirmAlertBusinessDays`, **`buylistMinimumOfferNetCents`** y
+      **`buylistOfferReissueAlertCount`** *(v1.51.4)*. ⚠️ **El décimo no es excepción aunque su alerta se lea contra
+      una columna:** lo que se persiste es el **conteo** (`offerReissueCount`, un **hecho**), no el **umbral** (el
+      dial, una **política**). *El hecho se guarda; la política se relee* — mover el dial **reevalúa la alerta de todas
+      las filas vivas**, que es lo correcto para un control interno.
       Para el último, `PROJECT.md` §P.10 dice *«se congela por solicitud»*: **la propiedad observable se cumple sin
       persistir nada** —`POST …/offer/authorize` **no lo reevalúa**— y su traza vive en `AuditLog`. Ver ARCHITECTURE
       §4.39(h) y §4.39(o.16).
@@ -9136,6 +9556,19 @@ PendingPublishRowDTO = { inventoryItemId: string, folio: string, card: CardDTO, 
 //   cosecha masiva de PII — misma decisión, mismo argumento que `AdminOrderSummaryDTO`, que ya excluye
 //   `shippingAddressSnapshot` del listado (S49-M2). La dirección va en el DETALLE (`GET /admin/buylist/:id`), que es
 //   donde se compra la etiqueta. Tampoco va en ninguna de las cuatro colas del ciclo.
+// ⚠️ v1.51.4 — DOS adiciones (fricción 6 de DESIGN_SYSTEM §23.13; la alerta que ARCHITECTURE §4.39o.19 prometió EN
+//   VEZ DE un tope, porque un tope dispararía sobre el VENDEDOR):
+//   * `offerReissueCount: number` — PERSISTIDO (`SellRequest.offerReissueCount Int @default(0)`, M-46). Cuántas veces
+//     se canceló una oferta ENVIADA. Lo escribe EL MISMO `if` que repone `offerIssueClockStartedAt`, en la misma
+//     transacción ⇒ INVARIANTE que QA debe asertar: `offerReissueCount > 0 ⇔ offerIssueClockStartedAt IS NOT NULL`.
+//     NO cuenta la cancelación de una `pending_authorization` (esa oferta no existió para el vendedor) ni la anulación
+//     del barrido (es un cierre, no una re-emisión).
+//   * `offerReissueAlert: boolean` — DERIVADO, no se persiste = `offerReissueCount >= buylistOfferReissueAlertCount`
+//     (dial 10, default 2). El servidor manda el NÚMERO y el VEREDICTO; la UI no compara contra una constante propia,
+//     porque el umbral es editable sin redeploy (misma norma que `alert`, `requiresAuthorization`, `netBelowMinimum`).
+//   ⚠️ NO BLOQUEA NADA: no expira, no cancela, no mueve estados, no gatea `POST …/offer` y no aparece en ningún correo.
+//   ⚠️ ADMIN-ONLY, jamás en un DTO de cliente: mide NUESTRA conducta, y al vendedor ya se le dijo una vez por vuelta
+//     (correo 5). Tampoco va en `decision-table` (la mesa decide qué comprar, no cómo nos hemos portado).
 AdminBuylistDTO  += { isTerminal: boolean, offerState: SellOfferState | null,
                       offerSentAt: string | null, offerGrossCents: number | null,
                       offerShippingFeeCents: number | null,
@@ -9148,6 +9581,8 @@ AdminBuylistDTO  += { isTerminal: boolean, offerState: SellOfferState | null,
                       guideActualCostCents: number | null,
                       expiredReason: SellRequestExpiryReason | null,
                       declinedBy: string | null,                  // v1.51.3 (D39) — null ⇒ lo cerró el barrido
+                      offerReissueCount: number,                  // v1.51.4 — persistido, default 0
+                      offerReissueAlert: boolean,                 // v1.51.4 — DERIVADO contra el dial 10
                       payoutNetCents: number | null }
 // v1.18-buylist-rejects: identidad del vendedor en M5 (GET /admin/buylist, /admin/buylist/:id, rejected-items).
 // PII: correo = dato de contacto operativo de back-office (roles vault_operator/super_admin); NO es la CLABE →
@@ -9232,6 +9667,26 @@ AddressDTO = { id: string, line1: string, line2?: string, neighborhood?: string,
                state: string, postalCode: string, country: "MX", phone: string,
                isDefault: boolean, createdAt: string }
 
+// ⛔⛔ v1.51.4 (D43) — `BuylistQuotePolicyDTO` **RETIRADO ANTES DE EXISTIR. NO SE IMPLEMENTA.**
+// Un borrador de v1.51.4 lo definió como respuesta de `GET /buylist/quote-policy` (dos diales públicos, cacheables)
+// para que el cotizador pudiera pintar la resta del envío. **El humano decidió lo contrario (D43): el cotizador
+// público NO menciona montos de envío** — dice UNA FRASE CUALITATIVA («nosotros nos encargamos de la guía de envío y
+// su costo se descuenta del pago»), sin tarifa, sin resta, sin neto estimado y sin faltante con cifra.
+// ⇒ **NO hay endpoint, NO hay DTO, NO hay caché y NO se publica NINGÚN dial.** Si aparece en el código, es un DEFECTO.
+// ~~BuylistQuotePolicyDTO = { minimumRequestCents: number, shippingFeeCents: number }~~   ⛔ NO EXISTE
+//
+// LO QUE SOBREVIVE DEL RAZONAMIENTO, y por eso esto queda tachado en vez de borrado:
+//   * La resta con montos vive SOLO en `SellOfferPublicDTO` — autenticada y con la tarifa CONGELADA (D25). Con D43
+//     hay UNA sola resta en todo el producto, así que **ya no hay «indicativa vs vinculante» que distinguir**.
+//   * El faltante del mínimo lo da `422 BUYLIST_MINIMUM_NOT_MET` con `details.shortfallCents` calculado por el
+//     SERVIDOR (criterio 132(b)). El front lo RENDERIZA; no lo calcula y no lo conoce antes.
+//   * ⛔⛔ VETO DURO PERMANENTE sobre `buylistCapPerRequestCents`, `buylistCapPerMonthCents` e `ineThresholdCents`:
+//     publicar el umbral de INE y los topes AML es publicar EL MANUAL DE CÓMO ESTRUCTURAR POR DEBAJO. Un control de
+//     cumplimiento pierde eficacia al ser conocido. Y hoy la lista de diales públicos es CERO, no dos.
+//   * Regla de exposición (doctrina viva, ARCHITECTURE §4.39r.2): se publica un dial si y solo si (a) la pantalla
+//     pública lo necesita para NO MENTIR sobre el dinero y (b) conocerlo NO da ventaja contra un control nuestro.
+//     **D43 satisface (a) EN PALABRAS ⇒ los DIEZ diales fallan (a) ⇒ no se publica ninguno.**
+
 // ⚠️ v1.51.3 (D36/D37) — LA DIRECCIÓN DE ORIGEN DEL BUYLIST, CONGELADA. Es la que va IMPRESA en la etiqueta.
 // Vive en `SellRequest.pickupAddressSnapshot` (M-46) y se copia de la libreta `Address` del propio vendedor al CREAR
 // la solicitud (`POST /buylist/requests` con `addressId`). SE SNAPSHOTEA Y NO SE REFERENCIA — precedente exacto:
@@ -9247,7 +9702,8 @@ AddressDTO = { id: string, line1: string, line2?: string, neighborhood?: string,
 // ⚠️ `phone` es el TELÉFONO DEL DOMICILIO (va en la etiqueta, para la paquetería). NO es `User.phone`/`seller.phone`,
 //   que es NUESTRO dato de contacto operativo (D11/D12). Se parecen y no son el mismo dato.
 // ⚠️ PII: viaja en el DETALLE de cliente (es SU dato) y en el DETALLE admin (donde se compra la etiqueta).
-//   ⛔ NUNCA en un listado, ⛔ NUNCA en las cuatro colas del ciclo, ⛔ NUNCA en ninguno de los CUATRO correos,
+//   ⛔ NUNCA en un listado, ⛔ NUNCA en las cuatro colas del ciclo, ⛔ NUNCA en ninguno de los ~~CUATRO~~ CINCO correos
+//   (v1.51.4: la cancelación pasó a ser el correo 5; TODA regla escrita «para los CUATRO» aplica ÍNTEGRA a los CINCO),
 //   ⛔ NUNCA en superficie pública. `country` es siempre "MX": lo garantiza la libreta (422 ADDRESS_NOT_MX, §5),
 //   así que el snapshot NO revalida país — una sola puerta para esa regla.
 PickupAddressSnapshotDTO = { line1: string, line2?: string, neighborhood?: string, city: string,
@@ -9409,9 +9865,16 @@ AdminCreatedUserDTO = { user: { id, email, name, role: Role, locale: Locale, sta
     **(3)** `PATCH …/pickup-address` **funciona antes** de la guía y devuelve **`409 PICKUP_ADDRESS_LOCKED` después**;
     **(4)** una solicitud **sin** snapshot **no se puede ofertar** (`422 PICKUP_ADDRESS_MISSING`) y **el backend no la
     rellena solo**. **Y una negativa que también se verifica:** la dirección **no aparece** en `GET /admin/buylist`,
-    ni en las cuatro colas, ni en ninguno de los cuatro correos, ni en superficie pública. **No hay
+    ni en las cuatro colas, ni en ninguno de los ~~cuatro~~ **cinco** correos, ni en superficie pública. **No hay
     `pickupAddressId`** en ningún DTO ni en el schema — si aparece, alguien hizo el join y la propiedad (2) ya está
     rota. ARCHITECTURE §4.39(q).
+    **⚠️ v1.51.4 — la afirmación (3) gana su contrapartida, y sin ella la propiedad estaba INCOMPLETA (BL-13):**
+    **(3-bis)** después de la guía **existe remedio, y es de ADMIN**: `PATCH /admin/buylist/:id/pickup-address`
+    re-congela el snapshot, **abre la tarea de guía muerta** y devuelve la solicitud a `awaitingGuide`; y **`POST
+    …/guide` responde `409 GUIDE_CANCELLATION_PENDING`** mientras esa tarea siga abierta. **Se rechaza igualmente**
+    (`409 PICKUP_ADDRESS_LOCKED`) si el vendedor ya declaró el envío o el operador ya lo confirmó: *ahí el papel no
+    está impreso, está en manos de una paquetería, y el sistema no debe fingir que tiene un botón para eso.*
+    ARCHITECTURE §4.39(t).
   - **EL BARRIDO (`buylist-sweep`) — ~~seis~~ SIETE reglas (v1.51.1), una RE-ANCLADA (ARCHITECTURE §4.39j):**
     (1) `ofertada` con plazo vencido ⇒ **`rechazada`** + correo;
     (2) `aceptada` con plazo de envío vencido **y sin «ya lo mandé»** ⇒ **`expirada`** + correo + **tarea «cancelar
@@ -9474,14 +9937,30 @@ AdminCreatedUserDTO = { user: { id, email, name, role: Role, locale: Locale, sta
     redactar una variante de «lo decidimos hoy» frente a «se venció el plazo»:** al vendedor no le corresponde saber
     si le contestamos rápido o dejamos correr el reloj —eso es **evaluación NUESTRA** y vive en `declinedBy`—, y
     además insinuar que *«lo revisamos y decidimos»* rozaría la prohibición de **explicar por qué no ofertamos**, que
-    sigue vigente palabra por palabra. *Un correo por hecho, no un correo por camino.* **Siguen siendo CUATRO.**
-    **⚠️ PROHIBIDO en los CUATRO correos** (misma norma de minimización que §4.18c): **CLABE** (ni enmascarada), datos
-    de terceros, montos o estado de **otras** solicitudes, y **cualquier cifra interna de la mesa** (posición,
-    sugerencia, tope del operador) — el vendedor no ve nuestros controles. **⚠️ v1.51.3: prohibida también la
-    DIRECCIÓN del vendedor** en cualquiera de los cuatro: **nada la necesita**, y meter un domicilio en un canal
+    sigue vigente palabra por palabra. *Un correo por hecho, no un correo por camino.* ~~**Siguen siendo CUATRO.**~~
+    **⚠️ v1.51.4 — SON CINCO: LA CANCELACIÓN DE UNA OFERTA ENVIADA SALE DEL CORREO 3 Y PASA A SER EL CORREO 5.**
+    Es **el mismo argumento** que hizo propio al correo 4, un nivel más abajo: el correo 3 afirma *«hubo una oferta y
+    **tu** plazo venció»* y en la cancelación **no venció nada** —**cancelamos nosotros** y la solicitud vuelve a
+    `cotizada` **VIVA**, con los 7 días hábiles íntegros (D38)—, así que mandárselo **le imputa un incumplimiento por
+    un acto NUESTRO**; y su CTA (*«cotizar de nuevo»*) lo mandaría a **duplicar una solicitud abierta**.
+    **⚠️ `expiredReason` NO puede discriminar y se demuestra: es `null` en DOS de los tres productores del viejo
+    correo 3** (la regla 1 deja `rechazada`; la cancelación deja `cotizada`). **La plantilla la elige EL PRODUCTOR en
+    el call-site** (`BuylistMailKind`, **interno de backend, NO cruza este contrato**); **un `switch (status)` que
+    elija plantilla es un defecto.** **⚠️ Y cancelar una `pending_authorization` NO manda NINGÚN correo:** esa oferta
+    **no existió para el vendedor** y escribirle **le filtraría un control interno** — además de hacer verificable la
+    propiedad de D38 (*el reinicio no ocurre sin correo*). ARCHITECTURE §4.39(n).
+    **⚠️ PROHIBIDO en los ~~CUATRO~~ CINCO correos** (misma norma de minimización que §4.18c): **CLABE** (ni
+    enmascarada), datos de terceros, montos o estado de **otras** solicitudes, y **cualquier cifra interna de la mesa**
+    (posición, sugerencia, tope del operador) — el vendedor no ve nuestros controles. **⚠️ v1.51.3: prohibida también
+    la DIRECCIÓN del vendedor** en cualquiera de ellos: **nada la necesita**, y meter un domicilio en un canal
     inseguro por comodidad es exposición regalada. **En el 4, prohibido además**: culpar al
     vendedor, insinuar que incumplió un plazo, y **explicar por qué no ofertamos** (carga de trabajo, precio,
-    inventario) — *no procederemos* es la información que le corresponde.
+    inventario) — *no procederemos* es la información que le corresponde. **En el 5, prohibido además**: la palabra
+    «venció», **cualquier plazo del vendedor**, **cualquier monto** (los de la oferta cancelada se limpiaron de la fila
+    y **no se resucitan**), el **motivo interno** (`offerCancelReason` es de la bitácora) y el **CTA de cotizar de
+    nuevo** — la solicitud **no está cerrada**.
+    ⚠️ **Regla general para no editar cada ocurrencia: TODA norma escrita en este contrato «para los CUATRO correos»
+    aplica ÍNTEGRA a los CINCO.** *La regla nunca dependió del número.*
   - **LA OFERTA ES CONDICIONAL Y LA CONDICIÓN VA AL FRENTE, POR LÍNEA (D30, criterio 161).** El correo de una oferta
     de 3 líneas muestra la condición **en las 3**, no en un pie de página; dice **una vez y destacado** qué pasa con
     la que no cumpla; dice que **el rechazo de una línea NO cancela la compra de las demás** y que **no se reprecia
