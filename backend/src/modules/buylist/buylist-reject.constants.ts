@@ -26,6 +26,21 @@ export const BUYLIST_REJECT_ABANDON_WINDOW_DAYS = 30;
  */
 export const SELL_REQUEST_TERMINAL_STATES = ['pagada', 'rechazada', 'abandonada'] as const;
 
+/**
+ * v1.51 · BL-2 (API_CONTRACT §6, ARCHITECTURE §4.39(b.2)) — los ÚNICOS estados de `SellRequest` en
+ * los que un ajuste de precio está VIVO y por tanto se puede responder (`POST
+ * /buylist/requests/:id/respond`). Es, por definición del contrato, **el mismo set que el barrido de
+ * 7d reconoce** al caducar un ajuste sin respuesta: si el barrido puede rechazar la solicitud por no
+ * contestar, el vendedor tiene que poder contestarla — y sólo en esos estados.
+ *
+ * Fuente ÚNICA del `where` del `updateMany` que hace de guarda atómica en `BuylistService.respond`.
+ *
+ * NOTA (deuda menor, misma que las dos constantes de arriba): `src/jobs/buylist-sweep.service.ts:25`
+ * repite este literal inline. NO se reapunta desde aquí porque `src/jobs/` es zona de otro stream;
+ * cuando ese archivo se toque debe importar esta constante para dejar la familia con fuente única.
+ */
+export const SELL_REQUEST_LIVE_ADJUSTMENT_STATES = ['verificacion', 'aprobada'] as const;
+
 const DAY_MS = 24 * 3600 * 1000;
 
 /**

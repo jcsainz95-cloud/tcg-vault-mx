@@ -32,7 +32,11 @@ import {
 } from '../../common/pricing-curve';
 import { MAIL_PORT, MailPort } from '../mail/mail.port';
 import { sellItemRejectedTemplate } from './buylist-mail.templates';
-import { rejectDeadlines, SELL_REQUEST_TERMINAL_STATES } from './buylist-reject.constants';
+import {
+  rejectDeadlines,
+  SELL_REQUEST_LIVE_ADJUSTMENT_STATES,
+  SELL_REQUEST_TERMINAL_STATES,
+} from './buylist-reject.constants';
 
 /**
  * v2.0 (§4.36.6) — caps de la vitrina pública de bounties. `SHOWCASE` es el del contrato (50, sin
@@ -1063,33 +1067,109 @@ export class BuylistService {
     };
   }
 
-  /** Responde a un ajuste del admin (accept/decline). API_CONTRACT §6. */
+  /**
+   * Responde a un ajuste del admin (accept/decline). API_CONTRACT §6.
+   *
+   * ### v1.51 · BL-2 — GUARDA DE ESTADO. Esto es DINERO SALIENTE, no cosmética.
+   * Hasta v1.50 este método hacía `findUnique` **sólo para autorizar propiedad** y NUNCA leía
+   * `req.status`: `accept` fijaba `status:'aprobada'` **incondicionalmente**. Consecuencia real y
+   * explotable: el dueño de una solicitud `pagada` / `rechazada` / `abandonada` podía re-postear
+   * `accept` y **revivirla a `aprobada`** — que junto con `verifiedAt` es exactamente el estado
+   * pagable de `paySpei`. O sea: un cliente devolvía a la cola de «listas para pagar SPEI» una
+   * solicitud ya cerrada, o ya pagada una vez. `decline` tenía el hueco simétrico: reescribía una
+   * `pagada` a `rechazada`, borrando el rastro del pago.
+   *
+   * Precondición NORMATIVA (API_CONTRACT §6 v1.51, ARCHITECTURE §4.39(b.2)) — para AMBAS ramas:
+   * ```
+   * legal ⇔ closedAt IS NULL
+   *       ∧ adjustmentSentAt IS NOT NULL          // hay un ajuste VIVO que responder
+   *       ∧ status ∈ { verificacion, aprobada }   // los únicos que el barrido de 7d reconoce
+   *       ∧ offerSentAt IS NULL                   // (M-46: la columna AÚN NO EXISTE, ver abajo)
+   * ```
+   * **La guarda vive en el `where` del `updateMany` y se verifica con `count === 1`**, no en un `if`
+   * de aplicación: un read-then-write sufre TOCTOU y dos `accept` concurrentes pasarían los dos.
+   * Mismo patrón atómico que `paySpei` y `rejectRequest`.
+   *
+   * Fuera de la precondición → **`409 NO_LIVE_ADJUSTMENT`** (`details.status`). Cubre `pagada`
+   * (**el dinero ya salió**), `rechazada`, `abandonada`, y el **re-`accept`** sobre un ajuste ya
+   * consumido (`adjustmentSentAt = null`, que la propia rama `accept` deja al transicionar).
+   * **La idempotencia aquí NO es «200 con el estado actual»** (a diferencia de `itemDecision(reject)`):
+   * este verbo mueve dinero, y un `200` silencioso en la segunda llamada esconde justo lo que hay que
+   * ver.
+   *
+   * ### PENDIENTE M-46 — `offerSentAt` NO existe todavía en el schema
+   * La cuarta condición del contrato (`offerSentAt IS NULL`; si no ⇒
+   * **`409 ADJUST_NOT_ALLOWED_IN_OFFER_CYCLE`**) NO se puede cablear hoy sin inventar la columna, que
+   * llega con M-46 (ciclo de oferta). Las otras tres cierran el agujero explotable HOY, que es lo que
+   * BL-2 exige y por lo que va en su propio commit. Cuando M-46 aterrice, el cableado son dos puntos
+   * marcados abajo con `TODO(M-46)`. Registrado en docs/BACKEND_NOTES.md.
+   */
   async respond(userId: string, id: string, decision: 'accept' | 'decline') {
     const req = await this.prisma.sellRequest.findUnique({ where: { id } });
+    // Anti-IDOR: solicitud ajena o inexistente ⇒ MISMA respuesta 404 (no se confirma existencia).
     if (!req || req.userId !== userId) throw BusinessException.notFound();
-    if (decision === 'decline') {
-      // SEC-D2: transición a estado TERMINAL → sella closedAt (ancla la retención de INE al cierre real).
-      // S49-M1: la fila resultante se PROYECTA — `closedAt` se acaba de escribir aquí mismo y es
-      // interno, y la fila cruda arrastraría `clabeSnapshotEnc` hasta el cuerpo de la respuesta.
-      return toCustomerSellRequestDTO(
-        await this.prisma.sellRequest.update({
+
+    // Efecto por rama, escrito EN el mismo `updateMany` que hace de guarda — la transición y su
+    // precondición son una sola operación del motor, no dos pasos que una carrera pueda separar.
+    //  - `decline` es TERMINAL → sella `closedAt` (SEC-D2, ancla la retención de INE al cierre real).
+    //  - `accept` CONSUME el ajuste (`adjustmentSentAt: null`), que es lo que hace que un segundo
+    //    `accept` caiga en la 409 en vez de re-aprobar.
+    const data: Prisma.SellRequestUpdateManyMutationInput =
+      decision === 'decline'
+        ? { status: 'rechazada', closedAt: new Date() }
+        : { adjustmentSentAt: null, status: 'aprobada', approvedAt: new Date() };
+
+    // Guarda + movimiento de ítems + relectura en UN SOLO boundary atómico, para que «solicitud
+    // transicionada» e «ítems transicionados» no puedan divergir tras un commit (mismo criterio que
+    // §4.18g). NO se pide Serializable a propósito: aquí no hay lectura-y-luego-decido que proteger
+    // (a diferencia del tope mensual de `paySpei`), la exclusión mutua la da entera el `where` del
+    // `updateMany`; subir el aislamiento sólo añadiría fallos de serialización espurios.
+    const row = await this.prisma.$transaction(async (tx) => {
+      const guard = await tx.sellRequest.updateMany({
+        where: {
+          id,
+          // `userId` va TAMBIÉN aquí, no sólo en el 404 de arriba: la autorización no puede quedarse
+          // colgada de una lectura previa que una carrera pueda invalidar.
+          userId,
+          closedAt: null,
+          adjustmentSentAt: { not: null },
+          status: { in: [...SELL_REQUEST_LIVE_ADJUSTMENT_STATES] },
+          // TODO(M-46): añadir `offerSentAt: null` en cuanto la columna exista (ciclo de oferta).
+        },
+        data,
+      });
+      if (guard.count !== 1) {
+        // Se re-lee DENTRO de la tx para que `details.status` sea el estado REAL contra el que se
+        // chocó: el `req` de arriba ya puede estar viejo si otra llamada ganó la carrera.
+        const current = await tx.sellRequest.findUnique({
           where: { id },
-          data: { status: 'rechazada', closedAt: new Date() },
-        }),
-      );
-    }
-    // accept: mueve items 'ajustada' a 'aprobada' y limpia el plazo de 7d.
-    await this.prisma.sellRequestItem.updateMany({
-      where: { sellRequestId: id, itemStatus: 'ajustada' },
-      data: { itemStatus: 'aprobada' },
+          select: { status: true },
+        });
+        // TODO(M-46): si `current.offerSentAt != null` ⇒ 409 ADJUST_NOT_ALLOWED_IN_OFFER_CYCLE
+        // (criterio 150 por lo negativo) en vez de esta 409.
+        throw BusinessException.conflict(
+          'NO_LIVE_ADJUSTMENT',
+          'No live price adjustment to respond to on this sell request',
+          { status: current?.status },
+        );
+      }
+      if (decision === 'accept') {
+        // accept: los ítems ajustados pasan a aprobados. Va DESPUÉS de la guarda a propósito — una
+        // respuesta ilegítima no debe mover ni un ítem.
+        await tx.sellRequestItem.updateMany({
+          where: { sellRequestId: id, itemStatus: 'ajustada' },
+          data: { itemStatus: 'aprobada' },
+        });
+      }
+      // PROJECTION-EXEMPT: fila cruda DENTRO de la tx; el caller la proyecta con
+      // `toCustomerSellRequestDTO` antes de devolverla (abajo). `updateMany` no devuelve filas, así
+      // que la relectura es la única forma de responder el estado ya transicionado.
+      return tx.sellRequest.findUnique({ where: { id } });
     });
-    // S49-M1: misma proyección de cliente que la rama `decline` (esta ruta la llama el VENDEDOR).
-    return toCustomerSellRequestDTO(
-      await this.prisma.sellRequest.update({
-        where: { id },
-        data: { adjustmentSentAt: null, status: 'aprobada', approvedAt: new Date() },
-      }),
-    );
+    if (!row) throw BusinessException.notFound();
+    // S49-M1: se PROYECTA — la fila cruda arrastra `clabeSnapshotEnc` y `closedAt` (interno, y en la
+    // rama `decline` se acaba de escribir aquí mismo) hasta el cuerpo de la respuesta al VENDEDOR.
+    return toCustomerSellRequestDTO(row);
   }
 
   // ---------------- Admin M5 ----------------

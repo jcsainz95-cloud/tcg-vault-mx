@@ -208,6 +208,20 @@ export const ErrorCode = {
   // cascada (eso es cherry-pick por-ítem); sólo sella una solicitud ya sin ítems vivos. 422.
   // `details.nonRejectedItemStatuses: SellItemStatus[]` (los status vivos). API_CONTRACT §0/§M5.
   REQUEST_HAS_NON_REJECTED_ITEMS: 'REQUEST_HAS_NON_REJECTED_ITEMS',
+  // v1.51 · BL-2 (API_CONTRACT §6, ARCHITECTURE §4.39(b.2)) — POST /buylist/requests/:id/respond
+  // (accept|decline) sobre una solicitud SIN ajuste vivo que responder. Precondición:
+  // `closedAt IS NULL ∧ adjustmentSentAt IS NOT NULL ∧ status ∈ {verificacion, aprobada}`.
+  // Cubre `pagada` (EL DINERO YA SALIÓ), `rechazada`, `abandonada` y el re-`accept` sobre un ajuste
+  // ya consumido. NO es idempotente en 200: este verbo mueve dinero y un 200 silencioso en la
+  // segunda llamada esconde justo lo que hay que ver. `details.status`. 409.
+  NO_LIVE_ADJUSTMENT: 'NO_LIVE_ADJUSTMENT',
+  // v1.51 · criterio 150 por lo negativo — el flujo `ajustada` NO existe en el ciclo de OFERTA:
+  // `respond` y `itemDecision(adjust)` quedan prohibidos si `offerSentAt IS NOT NULL`.
+  // `details.status`. 409.
+  // ⚠️ TODAVÍA NO SE EMITE: la columna `SellRequest.offerSentAt` llega con M-46. El código está
+  // registrado aquí (el contrato ya lo publica) y sus dos puntos de emisión están marcados con
+  // `TODO(M-46)` en `buylist.service.ts` (`respond`). Ver docs/BACKEND_NOTES.md.
+  ADJUST_NOT_ALLOWED_IN_OFFER_CYCLE: 'ADJUST_NOT_ALLOWED_IN_OFFER_CYCLE',
 
   // Guest checkout (v1.21) — API_CONTRACT §0 / §4-G. Todos ADITIVOS: ningún código previo cambia.
   // El invitado eligió destino bóveda. NO es un error de UI: es la señal del UPSELL (criterio 48),

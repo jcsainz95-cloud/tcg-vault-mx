@@ -4,6 +4,123 @@
 > El contrato (`docs/API_CONTRACT.md`) manda sobre el código. Stack: NestJS + Prisma + PostgreSQL,
 > Redis/BullMQ (jobs), JWT + argon2, S3/MinIO (presigned URLs), Stripe.
 
+## 0.13 v1.51 — **BL-2: `respond` gana la guarda de estado** (dinero saliente, agujero VIVO en `main`) (2026-09-01)
+
+> Implementa **API_CONTRACT §6 v1.51** (`POST /buylist/requests/:id/respond`) y **ARCHITECTURE
+> §4.39(b.2)**. Cierra la desviación **BL-2** de ARCHITECTURE §9. **Va SOLA, en su propio commit:** no
+> depende de M-46 ni del resto del ciclo de adquisición — era explotable con el código de `main`.
+
+### 0.13.1 Qué estaba roto
+
+`BuylistService.respond()` hacía `findUnique` **sólo para autorizar propiedad** y **nunca leía
+`req.status`**. `accept` fijaba `status:'aprobada'` + `approvedAt` **incondicionalmente**; `decline`
+fijaba `status:'rechazada'` + `closedAt` igual de incondicionalmente. Consecuencia real: **el dueño de
+una solicitud `pagada`, `rechazada` o `abandonada` podía re-postear `accept` y revivirla a
+`aprobada`** — que junto con `verifiedAt` es exactamente el estado pagable de `paySpei`. Una solicitud
+ya cerrada (o ya pagada una vez) volvía sola a la cola de «listas para pagar SPEI». `decline` tenía el
+hueco simétrico: reescribía una `pagada` a `rechazada`, borrando el rastro del pago y re-sellando el
+`closedAt` que ancla la retención de INE (SEC-D2).
+
+### 0.13.2 Qué se implementó
+
+La precondición del contrato, **entera menos la cuarta condición** (ver 0.13.3), y **en el `where` del
+`updateMany`**, verificada con `count === 1`:
+
+```
+closedAt IS NULL ∧ adjustmentSentAt IS NOT NULL ∧ status ∈ {verificacion, aprobada}
+```
+
+- **La guarda es del motor, no de la aplicación.** No es un `if` sobre la lectura previa: eso es
+  read-then-write y sufre TOCTOU (dos `accept` concurrentes pasarían los dos). Mismo patrón atómico que
+  `paySpei` y `rejectRequest`.
+- **`userId` va TAMBIÉN en el `where`**, además del `404` anti-IDOR de arriba: la autorización no queda
+  colgada de una lectura que una carrera pueda invalidar. El `404` (solicitud ajena o inexistente,
+  misma respuesta) **no cambia**.
+- Fuera de la precondición ⇒ **`409 NO_LIVE_ADJUSTMENT`** con **`details.status`** (el estado **releído
+  dentro de la transacción**, no el de la lectura inicial, que ya puede estar viejo).
+- **La idempotencia aquí NO es «200 con el estado actual»** (a diferencia de `itemDecision(reject)`):
+  el re-`accept` sobre un ajuste ya consumido (`adjustmentSentAt = null`, que la propia rama `accept`
+  deja) cae en la misma `409`. Es exigencia expresa del contrato: el verbo mueve dinero y un `200`
+  silencioso esconde justo lo que hay que ver.
+- **Transacción, isolation por defecto.** Guarda + movimiento de ítems (`ajustada → aprobada`) +
+  relectura van en un solo boundary para que «solicitud transicionada» e «ítems transicionados» no
+  diverjan tras un commit (criterio de §4.18g). **NO se pide `Serializable` a propósito:** aquí no hay
+  lectura-y-luego-decido que proteger (a diferencia del tope mensual de `paySpei`); la exclusión mutua
+  la da entera el `where`, y subir el aislamiento sólo añadiría fallos de serialización espurios.
+- El movimiento de ítems corre **después** de la guarda: una respuesta ilegítima no mueve ni un ítem.
+- **`updateMany` no devuelve filas** ⇒ hay una relectura antes de proyectar. La proyección de cliente
+  (`toCustomerSellRequestDTO`) y el resto del comportamiento **no cambian** (S49-M1 intacto: ni
+  `clabeSnapshotEnc`, ni `closedAt`, ni `paidBy`).
+
+**Constante nueva:** `SELL_REQUEST_LIVE_ADJUSTMENT_STATES = ['verificacion','aprobada']` en
+`buylist-reject.constants.ts`, fuente única del set. Es —por definición del contrato— el mismo set que
+el barrido de 7d reconoce: si el barrido puede rechazar por no contestar, el vendedor tiene que poder
+contestar, y sólo ahí.
+
+**Códigos de error registrados** en `common/error-codes.ts`: `NO_LIVE_ADJUSTMENT` y
+`ADJUST_NOT_ALLOWED_IN_OFFER_CYCLE` (este segundo **aún no se emite**, ver abajo).
+
+### 0.13.3 ⚠️ PENDIENTE PARA CUANDO ATERRICE M-46 — lo que NO se pudo cablear
+
+La **cuarta** condición del contrato, **`offerSentAt IS NULL`** (y su
+**`409 ADJUST_NOT_ALLOWED_IN_OFFER_CYCLE`**), **no está implementada**: la columna
+**`SellRequest.offerSentAt` no existe todavía en el schema** — llega con **M-46** (ciclo de oferta). No
+se inventó la columna. Las otras tres condiciones cierran el agujero explotable hoy, que es lo que BL-2
+exige.
+
+**Cableado exacto que falta (dos puntos, ambos marcados con `TODO(M-46)` en
+`backend/src/modules/buylist/buylist.service.ts`, método `respond`):**
+
+1. Añadir **`offerSentAt: null`** al `where` del `updateMany` de la guarda.
+2. En el brazo de fallo (`count !== 1`), incluir `offerSentAt` en el `select` de la relectura y, si
+   `current.offerSentAt != null`, lanzar **`409 ADJUST_NOT_ALLOWED_IN_OFFER_CYCLE`**
+   (`details.status`) en vez de `NO_LIVE_ADJUSTMENT`. Es el criterio 150 por lo negativo.
+
+**Ventana de exposición mientras tanto:** ninguna en `main` hoy — sin ciclo de oferta no existen
+solicitudes con `offerSentAt`, así que la condición ausente no deja pasar nada. **Se vuelve exigible en
+el mismo pase que cree la columna**, y por eso queda anotado aquí y en el código.
+
+### 0.13.4 Tests
+
+**Nuevo:** `backend/test/buylist.respond-guard.spec.ts` — **17 tests**. Prisma mockeado a mano, sin BD,
+con factories locales (patrón `buylist.reject.spec.ts`). El mock **evalúa el `where`** en vez de
+devolver `{count:1}` a ciegas: con un mock complaciente estos tests pasarían aunque la guarda no
+existiera. Cubre `accept` y `decline` sobre `pagada`/`rechazada`/`abandonada` (409 + fila intacta +
+cero ítems movidos), `cotizada`/`recibida`, re-`accept` y re-`decline`, el **flujo legítimo** (efecto
+idéntico al de v1.50), un test **estructural** de que la guarda vive en el `where` (cae si alguien la
+mueve a un `if`), el `404` anti-IDOR y **concurrencia** (dos `accept` simultáneos ⇒ una sola
+transición; `accept` + `decline` simultáneos ⇒ un solo desenlace, nunca una mezcla).
+
+Verificado contra la implementación vieja: **16 de los 17 fallan** con el código de `HEAD` (el que pasa
+es el anti-IDOR, que ya era correcto y queda como guarda de regresión).
+
+**Tests ajenos ajustados (sólo plumbing de mocks, ninguna aserción de negocio debilitada):**
+- `backend/test/no-raw-entity-response.spec.ts` — el mock de Prisma ahora modela el ciclo
+  «`updateMany` condicional → relectura» y las dos filas de `respond` pasan a tener **ajuste vivo**
+  (antes una tenía `closedAt` seteado y la otra `status:'ajustada'`, que ni siquiera es un
+  `SellRequestStatus`). La aserción S49-M1 sale **reforzada**: el `closedAt` que no debe filtrarse es
+  ahora uno **recién escrito por el propio decline**.
+- `backend/test/buylist.ronda-c.spec.ts` — `respond(decline)` ya no transiciona con `update`; el test
+  afirma sobre el `data` del `updateMany` (mismo invariante: `rechazada` + `closedAt`).
+
+**Resultado de `cd backend && npm test`: 204 suites / 2527 tests, TODO VERDE.** `npm run typecheck`
+limpio; `npm run lint` 0 errores (2 warnings preexistentes en `inventory.service.ts` y
+`sealed-product.service.ts`, archivos no tocados).
+
+### 0.13.5 Para otros roles
+
+- **Frontend:** `POST /buylist/requests/:id/respond` puede devolver **`409 NO_LIVE_ADJUSTMENT`** con
+  `details.status`. La pantalla de respuesta al ajuste necesita ese caso (típicamente: la solicitud se
+  cerró o el plazo de 7d ya la rechazó mientras el vendedor tenía la pestaña abierta). **No hay
+  reintento útil**: el ajuste ya no existe.
+- **QA:** el flujo legítimo (ajuste vivo ⇒ accept/decline) **no cambia** en absoluto. Lo nuevo es que
+  todo lo demás devuelve 409 en vez de 200. Caso de humo del dinero: pagar una solicitud vía SPEI y
+  después re-postear `accept` ⇒ debe ser 409 y la solicitud debe seguir `pagada`.
+- **Arquitecto:** sin discrepancias con el contrato. La única parte no implementada es la que depende
+  de una columna que el propio contrato marca como M-46 (ver 0.13.3).
+
+---
+
 ## 0.12 v1.50.3-g — **M-44 / M-44b: bajar la naturaleza deja de ser una operación** (cierre de SEC-M43-1) (2026-08-29)
 
 > Implementa **ARCHITECTURE §4.38(l.4.10)** (las cinco precisiones) y **§4.38(l.4.13)** (SEC-M43-3/4/5),

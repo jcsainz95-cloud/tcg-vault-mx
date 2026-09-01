@@ -63,15 +63,23 @@ function sellRequestRow(over: Record<string, unknown> = {}) {
 }
 
 function buildBuylist(row: Record<string, unknown>) {
+  // v1.51 · BL-2: `respond` transiciona con un `updateMany` CONDICIONAL (guarda atómica `count===1`)
+  // y RELEE la fila para proyectarla, porque `updateMany` no devuelve filas. El mock modela ese
+  // ciclo —la relectura entrega la fila cruda con lo último escrito encima—, que es justo el punto
+  // donde el snapshot cifrado y el `closedAt` recién sellado se escaparían si no hubiera proyección.
+  let written: Record<string, unknown> = {};
   const prisma: any = {
     kycProfile: { findUnique: jest.fn().mockResolvedValue(null) },
     sellRequest: {
       // El mock devuelve la fila CRUDA a propósito: si el servicio la reenviara tal cual, el
       // secreto saldría. Es exactamente el fallo que se está fijando.
-      findUnique: jest.fn().mockResolvedValue(row),
+      findUnique: jest.fn(async () => ({ ...row, ...written })),
       findMany: jest.fn().mockResolvedValue([]),
       update: jest.fn(async (args: any) => ({ ...row, ...args.data })),
-      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      updateMany: jest.fn(async (args: any) => {
+        written = { ...written, ...(args?.data ?? {}) };
+        return { count: 1 };
+      }),
     },
     sellRequestItem: {
       updateMany: jest.fn().mockResolvedValue({ count: 0 }),
@@ -99,7 +107,15 @@ function expectNoClabeSnapshot(res: unknown) {
 
 describe('S49-M1 · buylist — `clabeSnapshotEnc` no sale por NINGUNA ruta salvo reveal-clabe', () => {
   it('POST /buylist/requests/:id/respond {decline} — al CLIENTE, sin snapshot y sin closedAt', async () => {
-    const { svc } = buildBuylist(sellRequestRow());
+    // v1.51 · BL-2: `respond` sólo procede con un AJUSTE VIVO (adjustmentSentAt != null, sin cerrar,
+    // status ∈ {verificacion, aprobada}). La fila parte SIN `closedAt`: lo sella este mismo decline.
+    const { svc } = buildBuylist(
+      sellRequestRow({
+        status: 'verificacion',
+        adjustmentSentAt: new Date('2026-08-02T00:00:00Z'),
+        closedAt: null,
+      }),
+    );
     const res: any = await svc.respond('u1', 'sr-1', 'decline');
     expectNoClabeSnapshot(res);
     expect(res.status).toBe('rechazada');
@@ -111,7 +127,13 @@ describe('S49-M1 · buylist — `clabeSnapshotEnc` no sale por NINGUNA ruta salv
   });
 
   it('POST /buylist/requests/:id/respond {accept} — al CLIENTE, sin snapshot ni closedAt', async () => {
-    const { svc } = buildBuylist(sellRequestRow({ status: 'ajustada' }));
+    const { svc } = buildBuylist(
+      sellRequestRow({
+        status: 'verificacion',
+        adjustmentSentAt: new Date('2026-08-02T00:00:00Z'),
+        closedAt: null,
+      }),
+    );
     const res: any = await svc.respond('u1', 'sr-1', 'accept');
     expectNoClabeSnapshot(res);
     expect(res.status).toBe('aprobada');

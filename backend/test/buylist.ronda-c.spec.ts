@@ -133,17 +133,29 @@ describe('itemDecision — RB-6 approvedTotalCents + RB-3 cap por-KYC', () => {
 describe('closedAt — SEC-D2 sella el cierre en transiciones terminales', () => {
   it('respond(decline) → rechazada con closedAt', async () => {
     const updates: any[] = [];
+    // v1.51 · BL-2: la transición de `respond` ya NO es un `update` a pelo — va en el `updateMany`
+    // CONDICIONAL que hace de guarda atómica (`count===1`), dentro de una transacción. `closedAt` se
+    // sella ahí, en el mismo `data`.
+    const row = {
+      id: 'sr-1',
+      userId: 'u1',
+      status: 'verificacion',
+      adjustmentSentAt: new Date('2026-08-02T00:00:00Z'),
+      closedAt: null,
+    };
     const prisma: any = {
       // v2.1.6 (AML-1, §4.36.6a): `paySpei` re-verifica el tope MENSUAL contra el dinero que SALE.
       // Sin KYC override y sin pagos previos del mes, el control es no-op y el pago procede.
       kycProfile: { findUnique: jest.fn().mockResolvedValue(null) },
       sellRequest: {
-        findUnique: jest.fn().mockResolvedValue({ id: 'sr-1', userId: 'u1', status: 'aprobada' }),
-        update: jest.fn(async (args: any) => {
+        findUnique: jest.fn(async () => ({ ...row })),
+        updateMany: jest.fn(async (args: any) => {
           updates.push(args);
-          return { id: 'sr-1', ...args.data };
+          return { count: 1 };
         }),
       },
+      sellRequestItem: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
+      $transaction: jest.fn(async (cb: any, _opts?: any) => cb(prisma)),
     };
     const svc = new BuylistService(
       prisma as PrismaService,
