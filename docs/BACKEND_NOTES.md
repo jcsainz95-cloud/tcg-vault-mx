@@ -7,11 +7,15 @@
 ## 0.14 v1.51 — **M-46: los CIMIENTOS del ciclo de adquisición** (schema, diez diales, días hábiles, el radio del enum) (2026-09-01)
 
 > Implementa **ARCHITECTURE §11 (M-46)** + **§4.39(c)(d)(e)(k)(l)** y **API_CONTRACT v1.51.4 §M10**.
-> ⚠️ **Esto NO es el ciclo: es la base sobre la que va.** No hay un solo endpoint del ciclo en este
+> ⚠️ **Esto NO es el ciclo: es la base sobre la que va.** No hay un solo endpoint **del ciclo** en este
 > pase — ni ofertar, ni aceptar, ni guía, ni barrido, ni correos, ni la mesa de decisión. Lo que hay es
 > **la migración, los diales, el helper de días hábiles, el set único de estados y la columna de
 > identidad de producto**, que es lo que todos los pases siguientes van a necesitar y que **no se puede
 > paralelizar** porque toca zona compartida.
+> **Con UNA excepción, y no es del ciclo:** `GET /buylist/quote-policy` (§0.14.7). Es la superficie
+> pública que sostiene el **criterio 132(a)** —que el cotizador diga *cuánto falta* **antes** de
+> enviar—, existía desde v1.51.4 en el contrato y el frontend ya la llamaba. **Se implementó a
+> petición del orquestador**, no por iniciativa propia: el hueco se señaló y se esperó la decisión.
 
 ### 0.14.1 Qué quedó en la migración `20260901120000_m46_buylist_acquisition_cycle`
 
@@ -204,12 +208,57 @@ fuentes nuevas** que se agrupan por esa misma familia de llaves — una que la c
 desalinea las cifras de la mesa **en silencio** y el operador compra mal. `variantKey()` **no se tocó**
 (cambiarla produce misses de override/referencia = dinero mal).
 
-### 0.14.7 Lo que este pase deja para el siguiente (declarado, no olvidado)
+### 0.14.7 `GET /api/v1/buylist/quote-policy` — la única cifra de dinero que el cotizador público conoce
 
-Ningún endpoint del ciclo; el barrido sigue con sus **plazos viejos** (7/30 inline en
-`jobs/buylist-sweep.service.ts`) y **sin las siete reglas**; `variantPositionKey` (§4.39g) no se añadió
-—es de la mesa de decisión—; y la desviación **BL-9** (re-anclar `abandonada` a `receivedAt`) no se
-tocó: es un **cambio de comportamiento** que va con el barrido, no con los cimientos.
+**Contrato:** API_CONTRACT §6 y §11 (v1.51.4, **D43**) · ARCHITECTURE §4.39(r) · **criterio 132(a)**.
+`public`, **READ-ONLY estricto**, sin query params, sin body, throttle **60/min por IP** (el mismo que
+`/quote` y `/bounties`), **`Cache-Control: public, max-age=300`**.
+
+```
+BuylistQuotePolicyDTO = { minimumRequestCents: number }      // UN entero. Y nada más.
+```
+
+**Por qué existe:** el criterio 132 son **DOS frentes**. El **(b)** —el `422 BUYLIST_MINIMUM_NOT_MET`—
+**no cubre el (a)**: si el botón no procede **no se manda nada al servidor** y el `422` **nunca se
+dispara**, así que no puede alimentar esa pantalla. Y hardcodear el mínimo lo prohíbe **R4** de
+`DESIGN_SYSTEM.md` §23 y lo desmiente el propio criterio, que pide *«con el número correcto»*.
+
+**⚠️ Lo que NO devuelve es el punto entero del diseño.** `buylistShippingFeeCents` **no viaja**: no es
+que el front «no deba pintarlo», es que **no lo recibe**. *Un valor que no llega al navegador no se
+puede pintar por accidente* ⇒ **D43 deja de depender de la disciplina del frontend y pasa a ser una
+propiedad del contrato.** La lista de exclusiones es **CERRADA** (§4.39r.2) y está transcrita en el
+docblock del método: los tres plazos, el tope del operador, el cap de posición, la alerta de confirmación,
+el piso de neto, la alerta de re-emisión, y **veto duro permanente** sobre los topes AML y
+`ineThresholdCents` — *publicar el umbral de INE es publicar el manual de cómo estructurar por debajo,
+y un control de cumplimiento pierde eficacia al ser conocido*. **Resultado: 1 de 10 diales.**
+⚠️ **`seguridad` debe tratar cualquier dial adicional en esta ruta como un DEFECTO, no como una mejora.**
+
+**Dos decisiones de implementación que conviene conocer:**
+- **No hay caché en memoria.** El contrato la **permite** («su TTL no puede superar el `max-age`
+  publicado») pero **no la exige**. Se omitió: la lectura es un `findUnique` por clave única, y un TTL
+  propio **sumaría una segunda ventana de rancidez** encima de los 300 s — justo en el número que
+  **gatea un botón**. *Si el humano mueve el dial, el único retraso debe ser el que está publicado.*
+- **El valor sale del dial en cada llamada**, con el mismo `getNumber` que usa cualquier otro consumidor.
+  Hay test que **mueve el dial y verifica que la respuesta cambia** — uno que solo comprobara `50000`
+  pasaría igual con el número hardcodeado.
+
+**Las dos superficies del mínimo no se pisan:** la del cotizador es **preventiva** (el front resta, con
+el mínimo del servidor: evita el viaje); el `422` es **AUTORITATIVO** (decide, con
+`details.shortfallCents`). Si difieren —caché, o dial movido entre medias— **manda el `422`**. *La
+pantalla informa; la puerta decide.* **En ningún caso se crea una solicitud incorrecta.**
+
+**Tests:** `backend/test/buylist.quote-policy.spec.ts` (15). Los dos que importan: **el DTO tiene
+exactamente UNA clave** (un test que solo asertara `minimumRequestCents` pasaría el día que alguien
+añada la tarifa) y **el valor sale del dial vigente**. Las exclusiones se comprueban **por clave y por
+valor**: renombrar la clave no sería una defensa.
+
+### 0.14.8 Lo que este pase deja para el siguiente (declarado, no olvidado)
+
+Ningún endpoint **del ciclo** (`quote-policy` no lo es: es la política pública del cotizador); el
+barrido sigue con sus **plazos viejos** (7/30 inline en `jobs/buylist-sweep.service.ts`) y **sin las
+siete reglas**; `variantPositionKey` (§4.39g) no se añadió —es de la mesa de decisión—; y la desviación
+**BL-9** (re-anclar `abandonada` a `receivedAt`) no se tocó: es un **cambio de comportamiento** que va
+con el barrido, no con los cimientos.
 
 ---
 

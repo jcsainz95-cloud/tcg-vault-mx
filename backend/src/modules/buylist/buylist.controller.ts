@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, Param, Post } from '@nestjs/common';
+import { Body, Controller, Get, Header, HttpCode, Param, Post } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { Role } from '@prisma/client';
 import { Public } from '../../common/decorators/public.decorator';
@@ -51,6 +51,45 @@ export class BuylistController {
   @Get('bounties')
   bounties() {
     return this.buylist.publicBounties();
+  }
+
+  /**
+   * v1.51.4 (D43, §6 / ARCHITECTURE §4.39r) — **la política pública del cotizador: UN entero.**
+   *
+   * `public`, **READ-ONLY estricto** (misma doctrina que `/quote` y `/bounties`: no persiste, no
+   * escala pendientes, no mueve dinero), sin query params y sin body. **Mismo throttle público**
+   * (60/min por IP) que los otros dos anónimos de este controller.
+   *
+   * **`Cache-Control: public, max-age=300` es OBLIGATORIO por contrato**, no una optimización: el
+   * mínimo **gatea un botón**, así que cuando el humano mueve el dial el storefront debe reflejarlo
+   * *en lo que dura un café*. No es `no-store` porque es **un entero sin PII, idéntico para todos y
+   * pedido en cada visita** — cacheable también en CDN, **sin `Vary` por sesión** y **sin variante
+   * autenticada**. La rancidez está aceptada a ojos abiertos en las dos direcciones y **ninguna es
+   * money-unsafe**: si el mínimo SUBE, el vendedor manda y recibe el `422` con el número correcto
+   * (un viaje de más, con mensaje accionable); si BAJA, el botón queda apagado hasta 5 min a alguien
+   * que ya califica (solo retrasa). **En ningún caso se crea una solicitud incorrecta**: la puerta
+   * revalida siempre (criterio 132(b)).
+   *
+   * ⚠️ **Es un `GET` PROPIO y no un campo dentro de un `POST`, y las tres alternativas se
+   * rechazaron por escrito (§4.39r.3):** en `POST /buylist/quote` el mismo número se repetiría **N
+   * veces por render de la rejilla** y **un `POST` no se cachea**; en `quote/batch` sería peor —ese
+   * endpoint cotiza **la rejilla que se está mirando, NO el carrito**, así que un total calculado
+   * ahí sería *«una cifra de dinero correcta que describe otra cosa: la peor clase de bug, porque
+   * cuadra»*—; y `GET /buylist/bounties` es una **vitrina** que puede quedar **vacía**, y la copia de
+   * dinero del cotizador no puede depender de que haya bounties.
+   *
+   * ⚠️ **El nombre importa: JAMÁS `GET /config`.** `quote-policy` nombra **la categoría** (*las
+   * reglas que gobiernan la cotización pública*), no su contenido. *Un cajón llamado «config
+   * pública» invita a echarle la siguiente bandera, y así es como el umbral de INE acaba publicado
+   * «porque ya había un endpoint».* El guardarraíl real es la **lista cerrada** de exclusiones del
+   * servicio.
+   */
+  @Public()
+  @Throttle({ default: { ttl: 60_000, limit: 60 } })
+  @Get('quote-policy')
+  @Header('Cache-Control', 'public, max-age=300')
+  quotePolicy() {
+    return this.buylist.quotePolicy();
   }
 
   // v1.5: vender (crear SellRequest) es acción sensible → requiere emailVerified. El cotizador

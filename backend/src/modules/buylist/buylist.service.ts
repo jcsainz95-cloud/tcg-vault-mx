@@ -595,6 +595,71 @@ export class BuylistService {
   // Ahora hay UN SOLO lector de la curva en todo el backend: `PricingService.loadPricingCurve()`.
 
   /**
+   * v1.51.4 (D43, API_CONTRACT §6 / ARCHITECTURE §4.39r) — **`GET /buylist/quote-policy`: LA ÚNICA
+   * CIFRA DE DINERO QUE EL COTIZADOR PÚBLICO CONOCE.**
+   *
+   * READ-ONLY ESTRICTO (doctrina v1.12 de endpoints anónimos: **no persiste, no escala pendientes, no
+   * mueve dinero**). Sin query params, sin body, sin variante autenticada.
+   *
+   * ### Por qué existe — el criterio 132 son DOS frentes y el `422` solo cubre uno
+   * El criterio **132(a)** exige que *«desde el cotizador, el botón **no procede** y la pantalla dice
+   * **cuánto falta** («te faltan $120», **con el número correcto**)»*. El **132(b)** —el
+   * `422 BUYLIST_MINIMUM_NOT_MET` de `POST /buylist/requests`— **no lo cubre**: si el botón no
+   * procede **no se manda nada al servidor** y el `422` **nunca se dispara**, así que no puede
+   * alimentar esa pantalla. Y **hardcodear el mínimo está prohibido** (R4 de `DESIGN_SYSTEM.md` §23:
+   * *una constante en el front se desincroniza en silencio la primera vez que alguien mueve el
+   * dial*) **y lo desmiente el propio criterio**, que pide *«con el número correcto»*.
+   * ⇒ Hace falta **superficie pública**, y de **un solo dato**.
+   *
+   * ### ⚠️ LO QUE ESTE MÉTODO NO DEVUELVE, Y ES EL PUNTO ENTERO DEL DISEÑO
+   * **`buylistShippingFeeCents` NO viaja.** No es que el front «no deba pintarlo»: **no lo recibe**.
+   * Bajo D43 el cotizador dice el envío **en palabras** —*«nosotros nos encargamos de la guía de envío
+   * y su costo se descuenta del pago»*—, así que **ninguna pantalla pública lo consume**. *Un valor
+   * que no llega al navegador no se puede pintar por accidente* ⇒ **D43 deja de depender de la
+   * disciplina del frontend y pasa a ser una propiedad del contrato.** La tarifa se comunica **con
+   * cifra** en el correo de oferta y en `offer.terms`, con `offerShippingFeeCents` **congelado**.
+   *
+   * **La lista de exclusiones es CERRADA (§4.39r.2) y `seguridad` debe tratar cualquier dial
+   * adicional en esta ruta como un DEFECTO, no como una mejora.** Resultado: **1 de 10 diales**.
+   * - ⛔ Los **tres plazos** (1/2/4): la pantalla no habla de plazos, y los diales 1 y 2 **se
+   *   congelan por solicitud** (criterio 157) ⇒ el dial vigente puede diferir del que un vendedor
+   *   tiene **por escrito**; el 4 es un **SLA nuestro** que a propósito no se comunica.
+   * - ⛔ `buylistOperatorOfferCapCents` (5): dice **a partir de qué monto interviene una persona** ⇒
+   *   invita a armar la solicitud **justo por debajo** de la revisión humana.
+   * - ⛔ `buylistVariantPositionCap` (6): dice **cuándo dejamos de comprar** una variante.
+   * - ⛔ `buylistShipmentConfirmAlertBusinessDays` (8): reloj de **nuestra** cola interna.
+   * - ⛔ `buylistMinimumOfferNetCents` (9): se evalúa sobre el **neto OFERTADO** (post cherry-pick),
+   *   **al emitir**, sobre algo que **el visitante no controla ni conoce**.
+   * - ⛔ `buylistOfferReissueAlertCount` (10): mide **nuestra** conducta.
+   * - ⛔⛔ **VETO DURO PERMANENTE — topes AML (`buylistCapPerRequestCents`/`PerMonthCents`) y
+   *   `ineThresholdCents`:** publicar el umbral de INE y los topes AML **es publicar el manual de
+   *   cómo estructurar por debajo de ellos**; un control de cumplimiento **pierde eficacia al ser
+   *   conocido**. Ningún cambio futuro los mueve aquí **sin decisión explícita del humano y revisión
+   *   de `seguridad`**.
+   * - ⛔ `binding:false` / `isIndicative` / `disclaimer`: **booleano de un solo valor** — justo lo que
+   *   D31 retiró de `SellOfferPublicDTO`. ⛔ `currency`: todo monto es entero en centavos MXN (§0).
+   *   ⛔ `shortfallCents`: **depende del carrito, que es estado del cliente**; el faltante
+   *   **autoritativo** lo da el `422`.
+   *
+   * ### El valor sale del DIAL, nunca de una constante
+   * Se lee `buylist_minimum_request_cents` (M10) en cada llamada, con el mismo `getNumber` que usa
+   * cualquier otro consumidor de diales. **No hay caché en memoria**: el contrato la permite pero no
+   * la exige, la lectura es un `findUnique` por clave única, y un TTL propio **sumaría una segunda
+   * ventana de rancidez** encima de los 300 s del `Cache-Control` — justo en el número que gatea un
+   * botón. *Si el humano mueve el dial, el único retraso debe ser el que está publicado.*
+   *
+   * ### Las dos superficies del mínimo NO se pisan (§4.39r.4)
+   * **132(a)** es **preventivo** (el front resta, con el mínimo del servidor: evita el viaje);
+   * **132(b)** es **AUTORITATIVO** (el `422`, con `details.shortfallCents`: decide). Si difieren
+   * —caché, o dial movido entre medias— **manda el `422`**. *La pantalla informa; la puerta decide.*
+   */
+  async quotePolicy(): Promise<{ minimumRequestCents: number }> {
+    return {
+      minimumRequestCents: await this.settings.getNumber(SettingKey.BUYLIST_MINIMUM_REQUEST_CENTS),
+    };
+  }
+
+  /**
    * v1.28 (P-22, §4.26e / API_CONTRACT §6) — GET /buylist/bounties: vitrina pública «Top
    * Bounties» de la página Vender. READ-ONLY ESTRICTO (doctrina v1.12 de endpoints anónimos: no
    * persiste, no escala pendientes, no mueve dinero). Solo bounties ACTIVOS
