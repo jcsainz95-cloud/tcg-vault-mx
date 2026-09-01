@@ -60,7 +60,31 @@ describe('HomePage · makeover 1a (hero + cotizador + estantes)', () => {
     );
   });
 
-  it('cotiza contra el server al añadir una carta: aparece la línea y el total «Te pagamos»', async () => {
+  /**
+   * §23.3g fila 0 · §23.14.6-6 — la regla del envío en el teaser, en LAS DOS instancias.
+   *
+   * El panel del home se pinta dos veces: columna del hero (`withTrust` implícito) y sección
+   * propia de móvil (`withTrust={false}`). La nota va en el CUERPO del panel, no en la banda
+   * de confianza, justamente para que exista en las dos: una regla de dinero que solo aparece
+   * en escritorio no es una regla, y móvil es donde vende la mayoría.
+   */
+  it('la nota del envío se pinta en LAS DOS instancias del teaser (también en la de móvil, sin banda de confianza)', () => {
+    renderWithProviders(<HomePage />, 'es');
+
+    // Con CERO cartas: es copy estático (§23.3k), no espera a ningún dato ni al carrito.
+    const notes = screen.getAllByTestId('buylist-shipping-note');
+    expect(notes).toHaveLength(2);
+    // Misma frase, carácter por carácter, en ambas: dos redacciones sería el defecto.
+    for (const note of notes) {
+      expect(note).toHaveTextContent(
+        'Nosotros ponemos la guía de envío y su costo se descuenta siempre de lo que te pagamos: tú no pagas nada de tu bolsillo. El monto exacto va en la oferta, antes de que aceptes.',
+      );
+    }
+    // D43: la nota dice el envío EN PALABRAS. Ninguna cifra de envío en el teaser.
+    expect(notes[0].textContent).not.toMatch(/MX\$|\d|%/);
+  });
+
+  it('cotiza contra el server al añadir una carta: aparece la línea y el total «Valor de tus cartas»', async () => {
     renderWithProviders(<HomePage />, 'es');
 
     // Escribe en el buscador del cotizador (primera instancia). El valor debounced
@@ -75,10 +99,19 @@ describe('HomePage · makeover 1a (hero + cotizador + estantes)', () => {
     // La línea se agrega y el total llega DEL SERVER (SEC-A1): con monto cotizado o
     // la línea queda en "Pendiente" — jamás un $0 inventado. El total se pinta en
     // ambas instancias del panel (estado compartido).
-    await waitFor(() => expect(screen.getAllByText('Te pagamos').length).toBe(2), {
+    //
+    // §23.14.2a: el rótulo es «Valor de tus cartas» (`buylist.quote.money.cardsValue`, la MISMA
+    // clave del carrito), no «Te pagamos». Sobre un bruto del que se descuenta el envío, un
+    // rótulo que promete depósito es una contradicción viva — y el vendedor se queda con el
+    // número grande. Un segundo string con el mismo significado tampoco: por eso se reusa.
+    await waitFor(() => expect(screen.getAllByText('Valor de tus cartas').length).toBe(2), {
       timeout: 3000,
     });
+    expect(screen.queryByText('Te pagamos')).not.toBeInTheDocument();
     const totals = screen.getAllByText(/MX\$|—/);
     expect(totals.length).toBeGreaterThan(0);
+
+    // Y la nota sigue ahí CON líneas: no aparece, no desaparece y no se mueve (§23.3k).
+    expect(screen.getAllByTestId('buylist-shipping-note')).toHaveLength(2);
   });
 });

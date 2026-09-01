@@ -1167,19 +1167,64 @@ describe('BuylistView · cotizador sin cifras de envío (D43) + faltante del mí
   const NOTE_ES =
     'Nosotros ponemos la guía de envío y su costo se descuenta siempre de lo que te pagamos: tú no pagas nada de tu bolsillo. El monto exacto va en la oferta, antes de que aceptes.';
 
+  /**
+   * §23.3g fila 1-bis (v2.3.2) — LA CABECERA. En móvil el carrito es un drawer CERRADO, así
+   * que sin esta instancia un vendedor puede recorrer /buylist entera —hero, bounties, binder,
+   * políticas, guía de empaque— sin leer nunca quién pone el envío. El render de prueba es
+   * móvil (sin `matchMedia` de escritorio), así que esto es exactamente el caso de 390px.
+   */
+  it('SIN abrir el carrito, la regla del envío ya se lee en la CABECERA (§23.3g fila 1-bis)', () => {
+    renderWithProviders(<BuylistView />, 'es');
+    const notes = screen.getAllByTestId('buylist-shipping-note');
+    expect(notes).toHaveLength(1); // el drawer está cerrado: esta es la de la cabecera
+    expect(notes[0]).toHaveTextContent(NOTE_ES);
+  });
+
+  /**
+   * §23.14.2b — el remanente de `trustShipping` se RETIRÓ. Decía «si una carta se rechaza por
+   * no estar en NM, la devolución corre por tu cuenta (7 días)»: un eco degradado de
+   * `nmOnlyBody`, que está arriba y lo dice con más detalle. Su hueco original (quién pone el
+   * envío) no podía llenarse ahí — ese bloque es `text-muted` de 13px y §23.3c prohíbe contar
+   * la regla de D16 en letra chica. El bloque de confianza baja a DOS párrafos.
+   */
+  it('el bloque de confianza del pie queda en DOS párrafos: sin el eco retirado de `trustShipping`', () => {
+    renderWithProviders(<BuylistView />, 'es');
+    expect(
+      screen.queryByText('Si una carta se rechaza por no estar en NM, la devolución corre por tu cuenta (7 días).'),
+    ).not.toBeInTheDocument();
+    // Lo que sí sigue: el pago tras verificar (cierto bajo D2/D9) y la vigencia reescrita.
+    expect(
+      screen.getAllByText('El pago se realiza después de recibir y verificar tus cartas.').length,
+    ).toBeGreaterThan(0);
+    // §23.14.4b: se promete que el PRECIO no se mueve, nunca que el total no cambie.
+    const validity = screen.getByText(/El precio vinculante es el de la oferta/);
+    expect(validity).toHaveTextContent('ese precio ya no se mueve cuando recibimos tus cartas');
+    expect(validity.textContent).not.toMatch(/precios vigentes al verificar/);
+    // La condición NM sigue a la vista, en su sitio y con su detalle.
+    expect(screen.getByText(/se devuelve si deseas \(a tu costo, 7 días\)/)).toBeInTheDocument();
+  });
+
   it('la nota de servicio se pinta con el carrito VACÍO (copy estático: no espera a ningún dato)', () => {
     // Sin sesión y sin cotizar nada: el trato se explica antes de que agregar cueste algo.
     renderWithProviders(<BuylistView />, 'es');
     openCart();
     expect(screen.getByText('Tu carrito está vacío. Elige una carta del catálogo para agregarla.')).toBeInTheDocument();
-    expect(screen.getByTestId('buylist-shipping-note')).toHaveTextContent(NOTE_ES);
+    // Con el drawer abierto son DOS instancias (cabecera + carrito). §23.14.2 lo declara
+    // repetición ACEPTADA: es el mismo string carácter por carácter. Dos redacciones
+    // distintas de la misma regla sería el defecto — nunca la repetición.
+    const notes = screen.getAllByTestId('buylist-shipping-note');
+    expect(notes).toHaveLength(2);
+    for (const note of notes) expect(note).toHaveTextContent(NOTE_ES);
+    expect(new Set(notes.map((n) => n.textContent)).size).toBe(1);
   });
 
   it('la nota sigue ahí aunque la política del cotizador FALLE (no se esqueletiza, no se condiciona)', async () => {
     vi.spyOn(api, 'getBuylistQuotePolicy').mockRejectedValue(new Error('network'));
     renderWithProviders(<BuylistView />, 'es');
     openCart();
-    expect(screen.getByTestId('buylist-shipping-note')).toHaveTextContent(NOTE_ES);
+    const notes = screen.getAllByTestId('buylist-shipping-note');
+    expect(notes).toHaveLength(2);
+    for (const note of notes) expect(note).toHaveTextContent(NOTE_ES);
   });
 
   it('el bloque de dinero lleva UN SOLO monto: ni línea de envío, ni resta, ni neto, ni «≈»', async () => {

@@ -279,17 +279,58 @@ test.describe('buylist · raw = binder Master Set (mode="quoter") + drawer del c
     await expect(page.locator('#main').getByRole('alert')).toHaveCount(0);
   });
 
-  test('guía de envío seguro menciona sleeve y top loader', async ({ page }) => {
+  test('guía de EMPAQUE: sleeve y top loader (AC 34) + el paso 4 dice que la etiqueta la ponemos nosotros', async ({
+    page,
+  }) => {
     await page.goto('/es/buylist');
+    // §23.14.6-5: el enlace ya no dice «guía» — en esta página «guía» significa LA ETIQUETA.
     await page.getByRole('button', { name: t('es', 'buylist.shippingGuideLink') }).click();
 
     // El diálogo de la guía debe mencionar explícitamente sleeve y top loader (AC 34).
     const dialog = page.getByRole('dialog');
     await expect(dialog.getByText(t('es', 'safeShipping.step1Title')).first()).toBeVisible(); // Sleeve
     await expect(dialog.getByText(t('es', 'safeShipping.step2Title')).first()).toBeVisible(); // Top loader
+    // AC 34 también en el MODAL: el bloque NM-only de la página queda tapado por el diálogo,
+    // así que la política viaja en el `intro` (§7.13).
+    await expect(dialog.getByText(/Near Mint/)).toBeVisible();
+
+    // §23.14.6-4 · D16/D31 — el paso que costaba dinero. El texto viejo mandaba ASEGURAR una
+    // etiqueta que nosotros ponemos: quien lo obedecía pagaba dos veces.
+    await expect(dialog.getByText(t('es', 'safeShipping.step4Title'))).toBeVisible();
+    await expect(dialog.getByText(t('es', 'safeShipping.step4Body'))).toBeVisible();
+    // La resta viaja en la MISMA cadena que el ofrecimiento (§23.14.3): este modal no tiene
+    // ningún bloque de dinero al lado del cual leerla.
+    expect(await dialog.innerText()).toMatch(/se descuenta de tu pago/);
+    // Y en ninguna forma le pide al vendedor comprar o asegurar el envío hacia nosotros.
+    expect(await dialog.innerText()).not.toMatch(/[Aa]segura por|[Gg]uía con seguro/);
+
     await expect(
       dialog.getByRole('button', { name: t('es', 'safeShipping.understood') }),
     ).toBeVisible();
+  });
+
+  /**
+   * §23.3g fila 1-bis · §23.14.6-7 — /buylist en 390px SIN abrir el drawer.
+   *
+   * En móvil el carrito es un drawer cerrado: sin la instancia de la cabecera, un vendedor
+   * podía recorrer la página entera —hero, bounties, binder, políticas, guía— sin leer nunca
+   * quién pone el envío. Este test recorre justamente ese camino.
+   */
+  test('en 390px, con el carrito CERRADO, la regla del envío se lee en la cabecera', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto('/es/buylist');
+
+    // Sin tocar el FAB: en móvil solo existe la instancia de la cabecera.
+    const note = page.getByTestId('buylist-shipping-note');
+    await expect(note).toHaveCount(1);
+    await expect(note).toHaveText(t('es', 'buylist.quote.shippingNote'));
+    // D43 intacta: la regla se dice en palabras; la tarifa solo lleva número en la oferta.
+    expect(await note.innerText()).not.toMatch(/MX\$|%|≈/);
+
+    // §23.14.2b: el eco retirado de `trustShipping` ya no está en el pie.
+    await expect(
+      page.getByText('Si una carta se rechaza por no estar en NM, la devolución corre por tu cuenta (7 días).'),
+    ).toHaveCount(0);
   });
 });
 
@@ -485,4 +526,35 @@ test.describe('buylist · solicitud con KYC/INE (AC 14; contrato §6/§8)', () =
       await expect(created).toBeVisible();
     }
   });
+});
+
+/**
+ * §23.3g fila 0 · §23.14.6-6 — EL TEASER DEL HOME es cotizador, y D31 exige la regla ahí.
+ *
+ * El panel se pinta dos veces con estado compartido: columna del hero (`lg`) y sección propia
+ * de móvil (`withTrust={false}`). La nota va en el CUERPO del panel, no en la banda de
+ * confianza, precisamente porque esa banda no existe en móvil — y una regla de dinero que
+ * solo aparece en escritorio no es una regla. Estos dos tests cubren un ancho cada uno.
+ */
+test.describe('home · teaser del cotizador: el rótulo y la regla del envío (§23.3g fila 0)', () => {
+  for (const [label, width, height] of [
+    ['escritorio', 1280, 900],
+    ['móvil 390px', 390, 844],
+  ] as const) {
+    test(`en ${label} el teaser dice la regla del envío, sin cifras y con cero cartas`, async ({ page }) => {
+      await page.setViewportSize({ width, height });
+      await page.goto('/es');
+
+      // Copy estático (§23.3k): se pinta sin haber cotizado nada y sin esperar a ningún dato.
+      const note = page.getByTestId('buylist-shipping-note').first();
+      await expect(note).toBeVisible();
+      await expect(note).toHaveText(t('es', 'buylist.quote.shippingNote'));
+      // D43 intacta: en el cotizador el envío se dice EN PALABRAS.
+      expect(await note.innerText()).not.toMatch(/MX\$|%|≈/);
+
+      // §23.14.2a: el rótulo retirado no revive. Sobre un bruto del que se descuenta el envío,
+      // «Te pagamos» promete un depósito — y el vendedor se queda con el número grande.
+      await expect(page.getByText('Te pagamos', { exact: true })).toHaveCount(0);
+    });
+  }
 });

@@ -26,6 +26,7 @@ import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
 import { SafeShippingGuide } from '@/components/domain/SafeShippingGuide';
 import { BuylistKycForm } from '@/components/domain/BuylistKycForm';
+import { BuylistShippingNote } from '@/components/domain/BuylistShippingNote';
 import { useSellRequirements } from '@/hooks/useSellRequirements';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { RarityLabel } from '@/components/domain/RarityLabel';
@@ -452,10 +453,18 @@ export function BuylistView() {
         <div className="gutter border-b border-border pb-7 pt-10 lg:pt-[46px]">
           <h1 className="font-serif text-[30px] leading-[1.1] text-text lg:text-[40px]">{t('title')}</h1>
           <p className="mt-3 max-w-[560px] text-[15px] leading-[1.65] text-muted">{t('subtitle')}</p>
-          {/* PAY_AFTER_RECEIPT (PROJECT AC 33, DESIGN §7.5), visible desde el inicio. */}
+          {/* PAY_AFTER_RECEIPT (PROJECT AC 33, DESIGN §7.5), visible desde el inicio. Sigue
+              siendo cierto bajo D2/D9: el pago ocurre tras verificar; lo que no ocurre es
+              repreciar (§23.14.5). */}
           <p className="rule-note mt-5 max-w-[640px] text-[13px] leading-[1.7] text-muted">
             {t('payAfterReceipt')}
           </p>
+          {/* §23.3g fila 1-bis (v2.3.2): la regla del envío en la CABECERA, en tinta `text-sm`
+              —ni `muted` ni `rule-note` ni caja: D31 la quiere al mismo nivel visual que los
+              montos—. Motivo decisivo: en móvil el carrito es un drawer cerrado, así que sin
+              esta instancia se puede recorrer /buylist entera sin leerla nunca. Sustituye al
+              retirado `trustShipping`, que la decía en gris de 13px al pie (§23.14.2b). */}
+          <BuylistShippingNote className="mt-4 max-w-[640px]" />
           {/* R3: link editorial canónico (§20.0) — era la variante divergida a mano. */}
           <EditorialLink onClick={() => setGuideOpen(true)} className="mt-5">
             {t('shippingGuideLink')}
@@ -835,15 +844,17 @@ export function BuylistView() {
         </SellCartDrawer>
         )}
 
-        {/* Política NM-only (PROJECT §E/H, AC 3d) + copy de confianza (EDITABLE): quién paga
-            el envío, tiempos de verificación/pago SPEI y vigencia (ver FRONTEND_NOTES). */}
+        {/* Política NM-only (PROJECT §E/H, AC 3d) + copy de confianza. El bloque baja a DOS
+            párrafos: `trustShipping` se retiró (§23.14.2b) por ser un eco degradado de
+            `nmOnlyBody` —que está justo arriba y lo dice con más detalle—, y su hueco original
+            (quién pone el envío) no podía llenarse aquí: este bloque es `text-muted` de 13px y
+            §23.3c prohíbe contar la regla de D16 en letra chica. Subió a la cabecera. */}
         <section className="gutter border-t border-border pb-10 pt-8">
           <p className="rule-note max-w-[640px] text-[13px] leading-[1.7] text-muted">
             <span className="font-medium text-text">{t('nmOnlyTitle')}.</span> {t('nmOnlyBody')}
           </p>
           <div className="mt-6 max-w-[640px] text-[13px] leading-[1.7] text-muted">
-            <p>{t('trustShipping')}</p>
-            <p className="mt-2">{t('trustPayment')}</p>
+            <p>{t('trustPayment')}</p>
             <p className="mt-2">{t('trustValidity')}</p>
           </div>
 
@@ -855,6 +866,12 @@ export function BuylistView() {
           </div>
         </section>
 
+        {/* Aviso de solicitud creada (§23.14.4c). El texto viejo —«te avisaremos cuando
+            recibamos tu carta»— se leía como permiso para ENVIAR y se saltaba el ciclo entero
+            (oferta → aceptación → etiqueta); PROJECT es tajante: lo que llega por cuenta propia
+            NO está comprado. El nuevo dice explícitamente que no mande nada todavía. Sin plazos
+            (ese reloj es nuestro, §23.4.3) y sin la resta: es una secuencia, no una afirmación
+            de coste, y §23.14.3 muerde sobre las afirmaciones de coste, no sobre la logística. */}
         {createdId && (
           <p className="gutter rule-note py-5 text-sm text-text" role="status">
             {t('created')}

@@ -7981,3 +7981,152 @@ y `choosePickupAddress` (preselección, o alta inline contra un stack sin libret
 4. **Arquitecto — sin petición de contrato.** `GET /buylist/quote-policy` y el `addressId` de
    `POST /buylist/requests` alcanzaron para todo lo de este pase; no hizo falta ningún campo nuevo ni
    ningún dato mock sin contrato.
+
+---
+
+## v2.3.2 · §23.14 — el pase de copy: retirar la línea que le costaba dinero al vendedor (2026-09-01, rama `claude/buylist-inventory-workflow-hdnls3`)
+
+> Ejecuta **DESIGN_SYSTEM §23.14** (commit `195261e`), incluida su nota 4 a frontend (§23.14.7-4).
+> **Cero componentes nuevos. Cero claves nuevas.** Se **retiran dos** y se **reutilizan dos** que ya
+> existían. El pase anterior (§ v1.51.5, arriba) reportó tres de estas contradicciones y **no las
+> tocó** porque el copy es de ux-ui; §23.14 las resolvió y encontró cuatro más.
+
+### 1. Lo que estaba en juego, en una línea
+
+`safeShipping.step4Body` decía *«Asegura por el valor cotizado…»* mientras que bajo **D16/D31 la
+guía la ponemos nosotros y su costo se descuenta del pago**. Un vendedor que **obedecía ese paso
+compraba y aseguraba una etiqueta que ya venía incluida: pagaba dos veces.** Era la única línea del
+producto que le costaba **dinero real** a quien la seguía. Todo lo demás de este pase es del mismo
+tipo —texto escrito antes de una decisión que cambió **quién paga**— pero solo esa cobraba.
+
+### 2. Las siete cadenas, y qué se hizo con cada una
+
+| Clave | Antes (resumen) | Ahora | Superficie |
+|---|---|---|---|
+| `safeShipping.step4Title` | «Guía con seguro» | «La guía la ponemos nosotros» | modal + sección inline |
+| `safeShipping.step4Body` | «Asegura por el valor cotizado y anota tu número de solicitud.» | quién pone la etiqueta + **que se descuenta** + las tres prohibiciones | idem |
+| `safeShipping.intro` | hablaba de **disputas** (remedio del *comprador*) | la política **NM-only**, que además cierra el hueco de **AC 34 en el modal** | idem |
+| `safeShipping.title` · `buylist.shippingGuideLink` | «Guía de envío seguro» | «Cómo empacar tus cartas» | enlace del hero, título del modal, `h2` inline |
+| `safeShipping.step3Body` | — | hereda «una hoja con tu número de solicitud» del paso 4 viejo | idem |
+| `buylist.estimateNote` | «el monto final lo confirma la plataforma **cuando recibimos y verificamos**» | «los precios se mueven y puede que no compremos todas las líneas; lo firme va en la oferta» | bloque de dinero del carrito |
+| `buylist.trustValidity` | «el monto final se confirma con los **precios vigentes al verificar**» | «el **precio** vinculante es el de la oferta, y **ese precio ya no se mueve**» | pie de `/buylist` + resumen de crear |
+| `buylist.created` | «te avisaremos **cuando recibamos tu carta**» | «**no mandes tus cartas todavía**: primero aceptas la oferta y después te llega la guía» | aviso `role="status"` |
+
+**Las dos retiradas** (de **los dos** catálogos — una clave viva en un solo idioma es el modo típico
+en que un texto retirado revive, y `i18n-parity.test.ts` lo caza):
+
+- **`home.quoter.wePay`** («Te pagamos»): rotulaba con una **promesa de depósito** un bruto del que
+  se descuenta el envío. El total del teaser pasa a **`buylist.quote.money.cardsValue`**, la **misma
+  clave** del carrito y del resumen de crear. *No se creó `home.quoter.cardsValue`*: un segundo
+  string con el mismo significado es el mecanismo exacto por el que este rótulo se desincronizó.
+- **`buylist.trustShipping`**: el remanente que dejé en el pase anterior era un **recorte**, no texto
+  escrito a propósito — un eco degradado de `nmOnlyBody`, que está dos párrafos arriba y lo dice con
+  más detalle. El bloque de confianza del pie baja a **dos párrafos** (`trustPayment`, `trustValidity`)
+  y no pierde información.
+
+### 3. Dónde quedó la nota del envío (las dos superficies nuevas de §23.3g)
+
+`BuylistShippingNote` ya existía; lo nuevo es **dónde se monta**.
+
+| Fila | Sitio exacto | Detalle que no es cosmético |
+|---|---|---|
+| **0 · teaser del home** (`HomeQuoterPanel`) | cuerpo del panel, **después** del bloque de dinero (o del estado vacío) y **antes** de «Continuar mi cotización» | Va **fuera de los dos brazos del ternario** ⇒ se pinta con cero líneas y con líneas. Y **fuera de `withTrust`**: esa banda es `false` en la sección de 390px, y **una regla de dinero que solo existe en escritorio no es una regla** |
+| **1-bis · cabecera de `/buylist`** (`BuylistView`) | justo debajo de `payAfterReceipt`, antes del enlace de la guía | **Tinta `text-sm`**, sin `muted`, sin `rule-note`, sin caja (§23.3c: al mismo nivel visual que los montos). Motivo decisivo: **en móvil el carrito es un drawer cerrado**, así que sin esta instancia se recorre `/buylist` entera sin leer la regla |
+
+**Repetición aceptada:** en escritorio `/buylist` muestra la nota **dos veces** (cabecera + panel
+fijo del carrito). Es **el mismo string, carácter por carácter** — el test lo afirma con un `Set` de
+`textContent` de tamaño 1. Una regla de dinero repetida es redundancia; **dos redacciones distintas
+de la misma regla** sería el defecto.
+
+### 4. Lo que NO se tocó, y por qué (para que nadie lo «arregle» después)
+
+- **`safeShipping.step1*` / `step2*` / `understood`** — **AC 34 exige** las palabras *funda/sleeve* y
+  *top loader*. Reescribirlos «por consistencia» rompe un criterio de aceptación. Hay test.
+- **`payAfterReceipt` · `cartFooterNote` · `trustPayment`** — **siguen siendo ciertas**. El pago sí
+  ocurre tras verificar; lo que no ocurre es **repreciar**. *Cuándo se paga* ≠ *cuándo se fija el
+  monto*: esa distinción es justo lo que arreglan `estimateNote` y `trustValidity`.
+- **`home.bounties.wePay` / `buylist.bounties.wePay`** — es un **precio POR CARTA**, no una suma. La
+  regla nueva es que pierden el verbo de pago **los rótulos de sumas**, no las tarifas.
+- **`withdrawals.*` · `checkout.*` · `shipmentStage.*`** — **el envío del COMPRADOR**, que sí paga el
+  suyo. Otro eje de dinero; D16 no lo toca. `withdrawals.shippingFee` es legítima.
+- **`grading.*`** — otro dominio (§22) y otra decisión.
+- **`buylist.adjust.*`** — ux-ui lo señaló como **posible pantalla muerta** (D30 disuelve la
+  re-confirmación; D9 mata el repreciado) y **está pendiente de dictamen del arquitecto**. Sin ese
+  dictamen no se retira: borrar UI viva por inferencia es peor que dejar copy dudoso un ciclo más.
+- **`buylist.subtitle` · `home.sellBody`** — §23.14.4d los marca **mejora opcional, no
+  contradicción**, y la decisión es del **PO**.
+
+### 5. Archivos tocados
+
+| Archivo | Qué |
+|---|---|
+| `frontend/messages/{es,en}.json` | 10 cadenas reescritas · 2 claves retiradas (paridad estricta) |
+| `frontend/src/components/domain/SafeShippingGuide.tsx` | **solo documentación**: el copy vive en el catálogo. Se escriben los invariantes (AC 34, la resta del paso 4, sin cifras, sin `line-clamp`) |
+| `frontend/src/app/[locale]/(storefront)/_home/HomeQuoter.tsx` | rótulo → clave compartida; `BuylistShippingNote` en el cuerpo, fuera de `withTrust` |
+| `frontend/src/app/[locale]/(storefront)/buylist/BuylistView.tsx` | `BuylistShippingNote` bajo `payAfterReceipt`; `<p>{t('trustShipping')}</p>` borrado |
+| `frontend/src/app/[locale]/(storefront)/buylist/SellCartContents.tsx` | solo comentario (el de `estimateNote` documentaba la promesa retirada) |
+| `frontend/src/components/domain/SafeShippingGuide.test.tsx` | **nuevo** · 11 casos, ES y EN |
+| `.../page.test.tsx` · `.../BuylistView.test.tsx` · `e2e/buylist.spec.ts` | cobertura de las superficies nuevas |
+
+**Ningún componente nuevo. Ninguna clave nueva. `backend/` intacto.**
+
+### 6. Cobertura añadida
+
+- **`SafeShippingGuide.test.tsx` (nuevo, 11 casos ES+EN):** el paso 4 dice quién pone la etiqueta y
+  **que se descuenta**; **nunca** aparece «asegura/insure» como instrucción al vendedor; D43 (sin
+  monto, sin rango, sin «gratis»); **AC 34** (funda/sleeve, top loader, `intro` con Near Mint); el
+  número de solicitud sobrevive en el paso 3; sin `line-clamp` ni altura fija.
+- **`BuylistView.test.tsx`:** la regla se lee en la **cabecera con el carrito cerrado** (1 instancia);
+  con el drawer abierto son **2 instancias con el mismo texto**; el bloque de confianza queda en dos
+  párrafos **sin** el eco retirado, con `trustValidity` afirmando que **el precio** no se mueve.
+- **`page.test.tsx`:** la nota en **las dos** instancias del teaser (incluida la de móvil sin banda de
+  confianza), con cero cartas y con cartas; el total rotulado «Valor de tus cartas» y «Te pagamos»
+  **ausente del documento**.
+- **`e2e/buylist.spec.ts`:** el modal de empaque afirma el paso 4 y la resta y **no** dice «asegura
+  por»; `/buylist` a **390px con el carrito cerrado** lee la regla en la cabecera; el **teaser del
+  home** en 1280 y en 390 (dos viewports, un test cada uno).
+
+### 7. Verificación (resultado literal)
+
+| Comprobación | Resultado |
+|---|---|
+| `npm test` | `Test Files 92 passed (92)` · `Tests 803 passed (803)` |
+| `npm run typecheck` | limpio (sin salida) |
+| `npm run lint` | `✔ No ESLint warnings or errors` |
+| Flakes conocidos (`M2View`, `PhotoUploader`) | **no se dispararon** en esta corrida completa |
+
+Los tres fallos intermedios que sí hubo eran **consecuencia correcta del cambio**, no roturas:
+`page.test.tsx` afirmaba el rótulo «Te pagamos» retirado, y dos casos de `BuylistView.test.tsx`
+usaban `getByTestId('buylist-shipping-note')` cuando ahora hay **dos** instancias en `/buylist`.
+Ambos se actualizaron a la realidad normativa nueva (no se relajaron: se ampliaron).
+
+### 8. §23.14.6 — el resultado de los `grep` normativos
+
+1. **Afirmación prohibida** (`por tu cuenta` / `a tu costo` / `at your cost` / `on you`): cuatro
+   supervivientes, **todas legítimas** — `grading.microNotice`, `grading.p5`, `buylist.nmOnlyBody` y
+   `safeShipping.intro`. Ninguna otra.
+2. **Paridad de las retiradas:** `home.quoter.wePay` y `buylist.trustShipping` **no existen en
+   ninguno de los dos catálogos**, y ningún componente las referencia (las tres apariciones que
+   quedan del identificador son **comentarios** que explican la retirada).
+3. **Promesa de depósito sobre una suma** en `home.quoter.*` / `buylist.quote.*`: cero rótulos. Ver
+   la nota 2 de §9 sobre la calibración de este `grep`.
+
+### 9. Señalado a otros roles (no resuelto aquí)
+
+1. **Arquitecto — `buylist.adjust.*` sigue esperando dictamen.** §23.14.7-2 pide confirmar si el
+   estado `ajustada` sigue vivo. El catálogo mantiene un modal completo
+   (`adjust.{title,body,newTotal,accept,decline,error}`) cuyo cuerpo dice *«Tras la verificación
+   ajustamos el precio de una o más cartas»* — **la misma contradicción con D9 que este pase acaba de
+   cerrar en `estimateNote` y `trustValidity`, pero con UI detrás**. Retirar la pantalla es mío; **decidir
+   si el flujo existe es del arquitecto**. Lo dejo intacto y visible, no lo borro por inferencia.
+2. **ux-ui — el `grep` 2 de §23.14.6 está mal calibrado** (nota menor, sin efecto en lo entregado).
+   Tal como está escrito, `Te pagamos` / `We pay you` sobre `buylist.quote.*` marca
+   **`buylist.quote.shippingNote`**, que contiene *«se descuenta siempre de lo que **te pagamos**»* —
+   y esa cadena es **normativa e intocada** (§23.3d, citada carácter por carácter en el mock-up de
+   §23.3g). El criterio real es *«rótulo que promete depósito **sobre una suma**»*, no la frase suelta.
+   Es el mismo tipo de falso positivo que §23.14.5 ya anticipa para `withdrawals.shippingFee`.
+3. **PO — tres textos de este pase son los «sensibles» que §23.14.7-1 pide ratificar**
+   (`safeShipping.step4Body`, `estimateNote`, `buylist.created`). Están implementados **tal cual**
+   §23.14; si el PO los matiza, es un cambio de catálogo de una línea por clave.
+4. **Arquitecto — sin petición de contrato.** Este pase es 100 % copy y montaje: **ningún endpoint,
+   ningún campo, ningún mock**. No quedó ningún `// MOCK: pendiente de contrato` abierto.

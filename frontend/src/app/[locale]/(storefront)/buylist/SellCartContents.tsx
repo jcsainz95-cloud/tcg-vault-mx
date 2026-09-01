@@ -296,7 +296,14 @@ export function SellCartContents({
             </p>
           )}
 
-          {/* SEC-A1: el total es un ESTIMADO; el backend confirma el monto al recibir.
+          {/* El total es un ESTIMADO — y v2.3.2 corrigió POR QUÉ (§23.14.4a). El texto viejo
+              decía que «el monto final lo confirma la plataforma cuando recibimos y verificamos
+              tus cartas»: eso implica REPRECIADO, y bajo D2/D9 el precio ofertado es vinculante
+              desde que sale el correo y verificar solo tiene dos desenlaces (llega en NM y se
+              paga lo ofertado, o no llega en NM y se rechaza). Ahora dice lo que sí es cierto:
+              los precios se mueven y puede que no compremos todas las líneas.
+              ⚠ No cierra con «antes de que aceptes» a propósito: `shippingNote`, en este mismo
+              bloque, ya termina así, y dos frases con la misma cola se leen como plantilla.
               Nota al margen con regla roja (artboard 2b), no un renglón mono suelto. */}
           <p className="rule-note text-[13px] leading-[1.6] text-muted">{t('estimateNote')}</p>
 
