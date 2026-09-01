@@ -79,7 +79,11 @@ function buildList(rows: ReturnType<typeof row>[]) {
   const svc = new BuylistService(
     prisma as PrismaService,
     {} as PricingService,
-    {} as SettingsService,
+    {
+      // v1.51.14 · BL-22: `adminList` deriva `offerIssueDeadlineAt` y para eso lee el dial de
+      // emisión. Un `{}` aquí ya no basta.
+      getNumber: jest.fn(async () => 7),
+    } as unknown as SettingsService,
     {} as UsersService,
     pii,
   );
@@ -208,7 +212,11 @@ describe('⚠️ BL-17 · `isPayable` es ADMIN-ONLY y ACTOR-INDEPENDIENTE', () =
     const svc = new BuylistService(
       prisma as PrismaService,
       {} as PricingService,
-      {} as SettingsService,
+      {
+      // v1.51.14 · BL-22: `adminList` deriva `offerIssueDeadlineAt` y para eso lee el dial de
+      // emisión. Un `{}` aquí ya no basta.
+      getNumber: jest.fn(async () => 7),
+    } as unknown as SettingsService,
       {} as UsersService,
       pii,
     );

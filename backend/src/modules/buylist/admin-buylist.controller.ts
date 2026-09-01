@@ -319,6 +319,32 @@ export class AdminBuylistController {
    * NUESTRO. `alert` es derivado; **no expira, no cancela, no mueve nada.**
    * Ruta literal declarada ANTES de `@Get(':id')` para que el parámetro no la capture.
    */
+  /**
+   * v1.51 (D24, criterios 143/147) — **cola de ofertas por autorizar** (`super_admin` la trabaja; la
+   * lectura la comparte el back-office).
+   *
+   * ⚠️ **Estas filas se mueren solas:** la `cotizada` que sostiene la oferta caduca a los 7 días
+   * hábiles y el barrido **anula la oferta**, así que autorizar después devuelve `409`. Por eso
+   * `caducityAt` viaja en la fila. Ruta literal ANTES de `@Get(':id')`.
+   */
+  @Get('offers/pending-authorization')
+  pendingOfferAuthorization(@Query('page') page = '1', @Query('pageSize') pageSize = '20') {
+    const f = parseAdminListFilters({ page, pageSize });
+    return this.buylist.adminPendingOfferAuthorization(f.page, f.pageSize);
+  }
+
+  /**
+   * v1.51 (D12, criterios 129/130) — **«la lista de gente a la que le debemos una respuesta»**:
+   * vendedores con solicitudes **vivas**, cuántas, la más antigua y su **teléfono**, para poder
+   * llamar sin abrir la ficha. «Viva» = todo lo que **NO** es terminal, **por exclusión**.
+   * ⚠️ El teléfono es back-office por rol y **prohibido en toda superficie pública**.
+   */
+  @Get('live-sellers')
+  liveSellers(@Query('page') page = '1', @Query('pageSize') pageSize = '20') {
+    const f = parseAdminListFilters({ page, pageSize });
+    return this.buylist.adminLiveSellers(f.page, f.pageSize);
+  }
+
   @Get('pending-shipment-confirmation')
   pendingShipmentConfirmation(
     @Query('page') page = '1',

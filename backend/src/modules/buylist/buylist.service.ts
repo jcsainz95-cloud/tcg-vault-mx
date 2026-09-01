@@ -42,11 +42,11 @@ import {
   sellOfferCancelledTemplate,
   sellOfferTemplate,
   sellRequestNotPursuedTemplate,
+  buylistPortalUrl,
 } from './buylist-mail.templates';
 // v1.51 (D14, criterio 154): los plazos del ciclo son DÍAS HÁBILES `America/Mexico_City`. El front
 // NO los recalcula: dos implementaciones de «día hábil» dicen fechas distintas.
 import { addBusinessDays, businessDaysSince } from '../../common/business-days';
-import { envOr } from '../mail/mail-env.util';
 import {
   rejectDeadlines,
   SELL_REQUEST_LIVE_ADJUSTMENT_STATES,
@@ -58,6 +58,7 @@ import {
   isTerminalSellRequestStatus,
   SELL_REQUEST_COMMITTED_STATES,
   SELL_REQUEST_IN_TRANSIT_STATES,
+  SELL_REQUEST_LIVE_STATES,
   SELL_REQUEST_PAYABLE_STATES,
   SELL_REQUEST_VERIFYING_STATES,
 } from '../../common/sell-request-states';
@@ -1600,6 +1601,10 @@ export class BuylistService implements OnModuleInit {
       }),
       this.prisma.sellRequest.count({ where }),
     ]);
+    // El dial se iza UNA vez por request (no por fila): es el mismo para todas.
+    const offerIssueDays = await this.settings.getNumber(
+      SettingKey.BUYLIST_OFFER_ISSUE_DEADLINE_BUSINESS_DAYS,
+    );
     const data = rows.map((r) => ({
       id: r.id,
       userId: r.userId,
@@ -1622,6 +1627,14 @@ export class BuylistService implements OnModuleInit {
       // **Jamás en un DTO de cliente** (a diferencia de `isTerminal`, que viaja en las dos): al
       // vendedor le anticiparía un depósito que aún puede no ocurrir.
       isPayable: isPayableSellRequest(r),
+      // v1.51.3 (D33/D38) — **DERIVADO, `null` salvo en `cotizada`.** No se persiste porque **NO se
+      // le comunica al vendedor**: es un SLA NUESTRO, y el criterio 157 congela lo que ya
+      // prometimos, no lo que no dijimos. *Una cola cuyas filas se mueren sin avisar es una cola que
+      // se trabaja a ciegas.*
+      // ⚠️ v1.51.14 · BL-22: **el `null` de esta clave es ambiguo por diseño** (`null` = «no es
+      // `cotizada`»), así que la indisponibilidad de calendario **necesita bandera propia**: sin
+      // ella, un fallo del calendario se leería como «esta fila no caduca».
+      ...this.offerIssueDeadlineFields(r, offerIssueDays),
       quotedTotalCents: r.quotedTotalCents,
       approvedTotalCents: r.approvedTotalCents ?? undefined,
       createdAt: r.createdAt,
@@ -2189,10 +2202,7 @@ export class BuylistService implements OnModuleInit {
    * URL del portal para el CTA de los correos. Vacía ⇒ la plantilla degrada el botón a una
    * instrucción de texto. *Un botón muerto es peor que una frase.*
    */
-  private portalRequestUrl(sellRequestId: string): string | undefined {
-    const base = envOr(process.env.APP_PUBLIC_URL, '');
-    return base ? `${base.replace(/\/+$/, '')}/buylist/requests/${sellRequestId}` : undefined;
-  }
+
 
   /**
    * **`POST /admin/buylist/:id/offer` — EMITIR (o PREPARAR) la oferta** (D1/D2/D13/D24/D26,
@@ -2891,7 +2901,7 @@ export class BuylistService implements OnModuleInit {
           netCents: req.offerNetCents ?? 0,
           acceptDeadlineAt: req.offerAcceptDeadlineAt as Date,
           pickupAddressLine: pickupAddressLine(req.pickupAddressSnapshot),
-          portalUrl: this.portalRequestUrl(req.id),
+          portalUrl: buylistPortalUrl(req.id, user.locale),
         },
         user.name ?? '',
         user.locale,
@@ -2917,7 +2927,7 @@ export class BuylistService implements OnModuleInit {
         return;
       }
       const msg = sellOfferCancelledTemplate(
-        { folio: req.id, offerSentAt: req.offerSentAt, portalUrl: this.portalRequestUrl(req.id) },
+        { folio: req.id, offerSentAt: req.offerSentAt, portalUrl: buylistPortalUrl(req.id, user.locale) },
         user.name ?? '',
         user.locale,
       );
@@ -3224,7 +3234,12 @@ export class BuylistService implements OnModuleInit {
     ]);
     const data = rows
       .map((r) => {
-        const businessDaysWaiting = businessDaysSince(r.sellerShippedDeclaredAt as Date);
+        // ⚠️ v1.51.14 · BL-22: se captura POR FILA. Antes, una sola fila fuera de la cobertura del
+        // calendario devolvía `500` en TODA la cola.
+        const waiting = this.safeDerive(
+          () => businessDaysSince(r.sellerShippedDeclaredAt as Date),
+          `días esperando de ${r.id}`,
+        );
         return {
           sellRequestId: r.id,
           seller: this.sellerRef(r.user),
@@ -3232,14 +3247,168 @@ export class BuylistService implements OnModuleInit {
           shipDeadlineAt: r.shipDeadlineAt,
           carrier: r.shipmentCarrier,
           trackingNumber: r.shipmentTrackingNumber,
-          businessDaysWaiting,
-          alert: businessDaysWaiting > alertDays,
+          businessDaysWaiting: waiting.value,
+          ...(waiting.failed ? { businessDaysUnavailable: true as const } : {}),
+          // ⚠️ **`alert` falla hacia `true`, no hacia `false`.** *«Llevo demasiado esperando»* y *«no
+          // puedo saber cuánto llevo»* piden **la misma acción humana**: que alguien mire. Y un
+          // `false` sacaría la fila del filtro `?onlyAlerts=true`, que es la única vista donde se
+          // encontraría — **la fila más rara sería la más escondida**.
+          // (Contraste con la mesa, que falla hacia `"none"`: allí el veredicto **aconseja un acto**
+          // y uno inventado frenaría o empujaría una compra. *Donde el flag solo hace VISIBLE, se
+          // falla hacia visible; donde condiciona un acto, hacia «no sé».*)
+          alert: waiting.failed || (waiting.value as number) > alertDays,
         };
       })
       // El filtro de alertas se aplica DESPUÉS de derivarlas: `alert` no es columna, así que no hay
       // `where` que lo exprese. El `total` es el de la cola completa (es lo que el contrato pagina).
       .filter((r) => (onlyAlerts ? r.alert : true));
     return { data, page, pageSize, total };
+  }
+
+
+  /**
+   * **`GET /admin/buylist/offers/pending-authorization`** — la cola del súper-admin (D24, criterio
+   * 143/147).
+   *
+   * ⚠️ **Estas filas SE MUEREN SOLAS.** Una oferta `pending_authorization` vive con
+   * `status='cotizada'`, y esa `cotizada` **caduca a los 7 días hábiles como cualquier otra** (regla
+   * 7): al vencer, el barrido **anula la oferta en la misma transacción**, así que autorizar después
+   * devuelve `409`. Por eso `caducityAt` **no es decoración**: *una cola ordenada por antigüedad sin
+   * la fecha en que cada fila muere es una cola que se trabaja a ciegas.*
+   *
+   * `excessCents` viaja calculado: es *«cuánto se pasó del tope»*, y **la UI no hace aritmética de
+   * dinero** (misma norma que `requiresAuthorization` y `grossShortfallCents`).
+   *
+   * ⚠️ **v1.51.14 · BL-22 — `caducityAt` NACE con la degradación por fila puesta**, en vez de
+   * escribir el mismo defecto una tercera vez.
+   */
+  async adminPendingOfferAuthorization(page: number, pageSize: number) {
+    const [operatorCapCents, offerIssueDays] = await Promise.all([
+      this.settings.getNumber(SettingKey.BUYLIST_OPERATOR_OFFER_CAP_CENTS),
+      this.settings.getNumber(SettingKey.BUYLIST_OFFER_ISSUE_DEADLINE_BUSINESS_DAYS),
+    ]);
+    const where: Prisma.SellRequestWhereInput = {
+      offerState: 'pending_authorization',
+      // Los DOS candados del `authorize`, también aquí: una fila que ya caducó no se trabaja.
+      status: 'cotizada',
+      closedAt: null,
+    };
+    const [rows, total] = await Promise.all([
+      this.prisma.sellRequest.findMany({
+        where,
+        // Cola de trabajo: lo más viejo primero.
+        orderBy: { offerPreparedAt: 'asc' },
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+        include: {
+          user: { select: { id: true, name: true, email: true } },
+          items: { select: { offerDecision: true } },
+        },
+      }),
+      this.prisma.sellRequest.count({ where }),
+    ]);
+    return {
+      data: rows.map((r) => {
+        const caducity = this.caducityOf(r, offerIssueDays);
+        return {
+          sellRequestId: r.id,
+          seller: this.sellerRef(r.user),
+          preparedBy: r.offerPreparedBy,
+          offerPreparedAt: r.offerPreparedAt,
+          offerGrossCents: r.offerGrossCents,
+          operatorCapCents,
+          // Derivado: la UI no resta dinero.
+          excessCents: Math.max(0, (r.offerGrossCents ?? 0) - operatorCapCents),
+          lineCount: r.items.length,
+          buyLineCount: r.items.filter((i) => i.offerDecision === 'buy').length,
+          caducityAt: caducity.value,
+          ...(caducity.failed ? { caducityUnavailable: true as const } : {}),
+        };
+      }),
+      page,
+      pageSize,
+      total,
+    };
+  }
+
+  /**
+   * **`GET /admin/buylist/live-sellers`** — *«la lista de gente a la que le debemos una respuesta»*
+   * (D12, criterios 129/130).
+   *
+   * **«Viva» = TODO lo que NO es terminal, POR EXCLUSIÓN** (criterio 129): así un estado nuevo del
+   * enum entra a la cola **solo**, sin que nadie tenga que acordarse de actualizar una lista. Es la
+   * única de las dos direcciones en la que olvidarse **falla hacia el lado seguro** (aparece de más
+   * en una cola de trabajo, en vez de desaparecer de ella).
+   *
+   * **En UNA query agrupada** (P-5: prohibido que el front lo derive paginando).
+   *
+   * ⚠️ **El teléfono viaja EN LA FILA** para poder llamar sin abrir la ficha. Mismo régimen PII que
+   * el correo (§4.18d): dato de contacto operativo de back-office **por rol**, **sin enmascarado y
+   * sin reveal auditado** — y **PROHIBIDO en toda superficie pública** (criterio 130). `null` en
+   * cuentas de Google y en cuentas viejas.
+   */
+  async adminLiveSellers(page: number, pageSize: number) {
+    // UNA query agrupada: cuántas vivas por vendedor. El orden por defecto («la más antigua
+    // primero») se resuelve sobre el agregado.
+    const grouped = await this.prisma.sellRequest.groupBy({
+      by: ['userId'],
+      where: { status: { in: [...SELL_REQUEST_LIVE_STATES] }, closedAt: null },
+      _count: { _all: true },
+      _min: { createdAt: true },
+      orderBy: { _min: { createdAt: 'asc' } },
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+    });
+    const total = (
+      await this.prisma.sellRequest.groupBy({
+        by: ['userId'],
+        where: { status: { in: [...SELL_REQUEST_LIVE_STATES] }, closedAt: null },
+        _count: { _all: true },
+      })
+    ).length;
+    if (grouped.length === 0) return { data: [], page, pageSize, total };
+
+    const userIds = grouped.map((g) => g.userId);
+    const [users, latest] = await Promise.all([
+      this.prisma.user.findMany({
+        where: { id: { in: userIds } },
+        // Lista blanca: `phone` entra a propósito (D12) y nada más de la ficha del usuario.
+        select: { id: true, name: true, email: true, phone: true },
+      }),
+      // El último estado por vendedor, en UNA lectura acotada a estos vendedores.
+      this.prisma.sellRequest.findMany({
+        where: {
+          userId: { in: userIds },
+          status: { in: [...SELL_REQUEST_LIVE_STATES] },
+          closedAt: null,
+        },
+        orderBy: { createdAt: 'desc' },
+        select: { userId: true, status: true, createdAt: true },
+      }),
+    ]);
+    const byUser = new Map(users.map((u) => [u.id, u]));
+    const latestByUser = new Map<string, SellRequestStatus>();
+    for (const r of latest) if (!latestByUser.has(r.userId)) latestByUser.set(r.userId, r.status);
+    return {
+      data: grouped.map((g) => {
+        const u = byUser.get(g.userId);
+        return {
+          seller: {
+            id: g.userId,
+            name: u?.name ?? '',
+            email: u?.email ?? '',
+            // D12: sin enmascarar. Es back-office por rol, no la CLABE.
+            phone: u?.phone ?? null,
+          },
+          liveCount: g._count._all,
+          oldestCreatedAt: g._min.createdAt,
+          latestStatus: latestByUser.get(g.userId) ?? null,
+        };
+      }),
+      page,
+      pageSize,
+      total,
+    };
   }
 
   /**
@@ -3422,7 +3591,7 @@ export class BuylistService implements OnModuleInit {
         return;
       }
       const msg = sellRequestNotPursuedTemplate(
-        { folio: id, portalUrl: this.portalRequestUrl(id) },
+        { folio: id, portalUrl: buylistPortalUrl(id, user.locale) },
         user.name ?? '',
         user.locale,
       );
@@ -3535,6 +3704,79 @@ export class BuylistService implements OnModuleInit {
    */
   private notTerminalWhere(): Prisma.SellRequestWhereInput {
     return { status: { notIn: [...SELL_REQUEST_TERMINAL_STATES] } };
+  }
+
+  /**
+   * v1.51.14 · **BL-22** (§4.39k.1) — **una fila mala no tumba una cola.**
+   *
+   * `business-days` **lanza** cuando la tabla de festivos no cubre el rango, **y sigue lanzando**: lo
+   * que se norma aquí es **el LLAMADOR**. En una superficie de **LISTADO** el error se captura **por
+   * fila**, el derivado sale **`null`** con un **flag explícito**, y **la colección se devuelve
+   * completa** — *un error de cobertura nunca llega a la respuesta HTTP*.
+   *
+   * **No es política nueva: une dos que ya existían.** (1) *«el caller captura»* era doctrina, pero
+   * escrita solo para el barrido; (2) la forma por-fila es la de la mesa (`position: null` +
+   * `positionUnavailable: true`).
+   *
+   * **Por qué importa tanto:** sin esto, **una sola fila** con una fecha fuera de cobertura devolvía
+   * `500` **en toda la cola**, y lo que desaparecía no era un cálculo sino **una cola de trabajo
+   * entera**. Un `500` de back-office se lee como *«no hay nada pendiente»* o *«hoy está rota»*, y en
+   * ninguno de los dos casos alguien va a buscar una fila con una fecha rara: es literalmente *el
+   * fallo que no se ve*.
+   *
+   * ### ⚠️ LAS ESCRITURAS NO USAN ESTO, Y ES LA OTRA MITAD DE LA NORMA
+   * Al **congelar** un plazo (`offerAcceptDeadlineAt` al ofertar, `shipDeadlineAt` al capturar la
+   * guía) el error **debe propagarse y la petición debe fallar**: *si no podemos calcular la fecha
+   * límite, no emitimos la oferta.* **Se degrada lo que se MUESTRA, nunca lo que se COMPROMETE.**
+   * Aplicar este `try/catch` ahí «por consistencia» congelaría un plazo equivocado.
+   */
+  private safeDerive<T>(compute: () => T, context: string): { value: T | null; failed: boolean } {
+    try {
+      return { value: compute(), failed: false };
+    } catch (e) {
+      this.logger.error(
+        `derivada de días hábiles no disponible (${context}): ${(e as Error).message}. ` +
+          'La fila se marca; la cola se pinta (§4.39k.1).',
+      );
+      return { value: null, failed: true };
+    }
+  }
+
+  /**
+   * v1.51.3 (D38) — la fecha en que una `cotizada` **muere sola** (regla 7 del barrido).
+   * `addBusinessDays(offerIssueClockStartedAt ?? createdAt, dial)`.
+   *
+   * ⚠️ **La MISMA fórmula en los dos sitios que la muestran** (`AdminBuylistDTO.offerIssueDeadlineAt`
+   * y `PendingOfferAuthorizationRowDTO.caducityAt`): *una fecha derivada de dos maneras distintas es
+   * dos fechas*. Y se ancla en `offerIssueClockStartedAt`, no en `createdAt`, porque cancelar una
+   * oferta enviada **repone los siete días íntegros**: una cola que siguiera mostrando la fecha vieja
+   * **pintaría como perdidas justo las filas que acabamos de re-encolar por un error nuestro**.
+   */
+  /**
+   * v1.51.3 (D33) + v1.51.14 (BL-22) — `offerIssueDeadlineAt` y su bandera, para una fila de la cola
+   * de M5. **Solo una `cotizada` caduca**; en cualquier otro estado no hay fecha que mostrar y
+   * tampoco hay nada que degradar.
+   */
+  private offerIssueDeadlineFields(
+    r: { status: SellRequestStatus; createdAt: Date; offerIssueClockStartedAt: Date | null },
+    days: number,
+  ): { offerIssueDeadlineAt: Date | null; offerIssueDeadlineUnavailable?: true } {
+    if (r.status !== 'cotizada') return { offerIssueDeadlineAt: null };
+    const d = this.caducityOf(r, days);
+    return {
+      offerIssueDeadlineAt: d.value,
+      ...(d.failed ? { offerIssueDeadlineUnavailable: true as const } : {}),
+    };
+  }
+
+  private caducityOf(
+    r: { createdAt: Date; offerIssueClockStartedAt: Date | null },
+    days: number,
+  ): { value: Date | null; failed: boolean } {
+    return this.safeDerive(
+      () => addBusinessDays(r.offerIssueClockStartedAt ?? r.createdAt, days),
+      'caducidad de emisión',
+    );
   }
 
   /**

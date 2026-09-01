@@ -24,7 +24,11 @@ function buildService(prisma: any): BuylistService {
   return new BuylistService(
     prisma as unknown as PrismaService,
     {} as PricingService,
-    {} as SettingsService,
+    {
+      // v1.51.14 · BL-22: `adminList` deriva `offerIssueDeadlineAt` y para eso lee el dial de
+      // emisión. Un `{}` aquí ya no basta.
+      getNumber: jest.fn(async () => 7),
+    } as unknown as SettingsService,
     {} as UsersService,
     pii,
   );

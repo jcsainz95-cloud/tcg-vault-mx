@@ -654,3 +654,55 @@ export function sellRequestNotPursuedTemplate(
     text: `${en ? 'Hi' : 'Hola'} ${name}:\n\n${params.folio}\n\n${title}\n\n${body1}\n\n${body2}\n\n${body3}\n\n${BRAND}`,
   };
 }
+
+/**
+ * v1.51.13 · **BL-21** (ARCHITECTURE §4.39n.1) — **la URL del CTA de los correos del ciclo, en UN
+ * solo sitio.**
+ *
+ * ```
+ * {origen público}/{locale}/buylist/{sellRequestId}
+ * ```
+ *
+ * ### Por qué vive AQUÍ y no en cada servicio
+ * El `{locale}` **no es un adorno ni un default: es EL MISMO valor con el que se renderizó el cuerpo**
+ * — sale del mismo `normalizeLocale` que usan las plantillas, tres líneas más arriba. *Un correo
+ * tiene UN idioma, y el cuerpo y el botón lo comparten.* Construirlos por vías distintas es
+ * exactamente cómo se manda **un correo en inglés cuyo botón abre una pantalla en español**, y sería
+ * en el correo donde el vendedor **acepta una oferta vinculante**.
+ *
+ * ### Las tres cosas que estaban mal antes (y las tres eran independientes)
+ * 1. **Sin prefijo de idioma.** El frontend corre con `localePrefix: 'always'` ⇒ `/buylist/...`
+ *    redirige a `/es/...` y el vendedor que eligió inglés **aterriza en español**.
+ * 2. **Path con forma de API**, no de pantalla (`/buylist/requests/:id` es la ruta del endpoint; el
+ *    portal vive en `/[locale]/buylist`) ⇒ **404**.
+ * 3. **Era el ÚNICO enlace de correo del proyecto fuera del molde.** Los otros dos (`auth.service` y
+ *    `guest-order-mail.service`) son idénticos entre sí y ambos llevan locale: no fue un olvido
+ *    puntual, fue **un enlace escrito fuera de un patrón que ya existía**.
+ *
+ * ### Segmento, no query param
+ * El seguimiento de invitado usa `?token=` **porque el token es un SECRETO de URL**. Aquí el
+ * `sellRequestId` **no es secreto** (el portal está autenticado y el vendedor ya ve ese id), así que
+ * *la razón que obligó al query param allí no existe aquí* y manda la regla normal: **un recurso se
+ * direcciona con un segmento**.
+ *
+ * ### ⚠️ El origen es UN ORIGEN, NO UNA LISTA — y no es el de CORS
+ * Sale de la variable **dedicada** `APP_PUBLIC_URL`, cuyo único trabajo es *«la URL pública del
+ * frontend»*: un esquema+host(+puerto), **sin path y sin barra final** (se normaliza aquí).
+ * **PROHIBIDO rellenarla copiando la allow-list de CORS**, que en producción va separada por comas:
+ * produciría `https://a,https://b/es/buylist/...` — **un href roto en un correo de dinero**.
+ * *(Los otros dos enlaces del proyecto derivan su origen de `APP_BASE_URL.split(',')[0]`, o sea del
+ * primer elemento de esa allow-list. Funciona, pero **el orden de una lista de CORS no significa
+ * nada**: reordenarla movería en silencio el origen de todos los correos. Por eso éste sale de la
+ * variable dedicada. Footgun heredado, registrado en BL-21; no se migra aquí.)*
+ *
+ * ### Sin origen configurado ⇒ `undefined`, y el correo SALE IGUAL
+ * Las plantillas degradan a **instrucción de texto**. **El correo nunca se bloquea por no poder
+ * construir el CTA** —la oferta es vinculante y el vendedor tiene que enterarse— y **jamás se emite
+ * un href relativo, parcial o a medias**: o el enlace es completo y correcto, o no hay enlace.
+ */
+export function buylistPortalUrl(sellRequestId: string, locale?: string | null): string | undefined {
+  const origin = envOr(process.env.APP_PUBLIC_URL, '').trim().replace(/\/+$/, '');
+  if (!origin) return undefined;
+  // ⚠️ EL MISMO normalizador que eligió el idioma del cuerpo, no una cascada paralela.
+  return `${origin}/${normalizeLocale(locale)}/buylist/${encodeURIComponent(sellRequestId)}`;
+}

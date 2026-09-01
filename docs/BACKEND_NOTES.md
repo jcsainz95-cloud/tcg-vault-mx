@@ -4,6 +4,127 @@
 > El contrato (`docs/API_CONTRACT.md`) manda sobre el código. Stack: NestJS + Prisma + PostgreSQL,
 > Redis/BullMQ (jobs), JWT + argon2, S3/MinIO (presigned URLs), Stripe.
 
+## 0.21 v1.51.13/14 — **BL-21 (la cadena del CTA) y BL-22 (una fila mala no tumba una cola)** + las dos colas que faltaban (2026-09-01)
+
+> Implementa **ARCHITECTURE §4.39n.1** (BL-21), **§4.39k.1** (BL-22) y **API_CONTRACT §M5**
+> (`GET …/offers/pending-authorization`, `GET …/live-sellers`).
+>
+> ### Corté otra vez, y por aquí
+> **Queda fuera `PATCH /admin/buylist/:id/pickup-address`** (BL-13). Es la pieza que yo mismo señalé
+> como *«arrastra su propia guarda»*: `409 PICKUP_ADDRESS_LOCKED` con **tres** condiciones, un
+> `422 PICKUP_ADDRESS_NOT_FOUND`, y la interacción con la guía muerta —**reabre** la tarea poniendo
+> `guideCancellationDoneAt = null`, sin la cual una segunda corrección **pierde una etiqueta del P&L
+> en silencio**—. Es una superficie de prueba propia. **Las dos colas SÍ entran** porque `caducityAt`
+> **nace con la regla** de BL-22: implementarla ahora es exactamente lo que evita escribir el defecto
+> una tercera vez.
+
+### 0.21.1 BL-21 — la URL del CTA, en un solo sitio
+
+**Forma canónica: `{origen}/{locale}/buylist/{sellRequestId}`**, en `buylistPortalUrl()`
+(`buylist-mail.templates.ts`). Los **cinco** call-sites —los tres del servicio y los tres del
+barrido— pasan por ella.
+
+**Vive en el archivo de plantillas y no en cada servicio**, y esa es la parte que importa: el
+`{locale}` sale del **mismo `normalizeLocale`** que eligió el idioma del cuerpo, tres líneas más
+arriba. *Un correo tiene UN idioma, y el cuerpo y el botón lo comparten.* Construirlos por vías
+distintas es exactamente cómo se manda **un correo en inglés cuyo botón abre una pantalla en
+español** — y sería en el correo donde el vendedor **acepta una oferta vinculante**.
+
+**Las tres cosas que estaban mal, y eran independientes:**
+
+| # | Defecto | Consecuencia |
+|---|---|---|
+| 1 | sin prefijo de idioma (el front corre con `localePrefix: 'always'`) | el vendedor que eligió inglés **aterriza en español** |
+| 2 | path con forma de **API**, no de pantalla | **404** |
+| 3 | **era el único enlace de correo del proyecto fuera del molde** | no fue un olvido puntual: **se escribió fuera de un patrón que ya existía** |
+
+**Segmento, no query param:** el enlace de invitado usa `?token=` **porque el token es un secreto de
+URL**; aquí el `sellRequestId` **no lo es** (el portal está autenticado y el vendedor ya ve ese id),
+así que *la razón que obligó al query param allí no existe* y manda la regla normal.
+
+**El origen es un origen, no una lista.** Sale de `APP_PUBLIC_URL` (variable **dedicada**), se
+normaliza la barra final, y **no** de la allow-list de CORS —que en producción va separada por comas y
+produciría `https://a,https://b/es/buylist/...`: un href roto en un correo de dinero—. *(Los otros dos
+enlaces del proyecto derivan su origen de `APP_BASE_URL.split(',')[0]`. Funciona, pero **el orden de
+una lista de CORS no significa nada**: reordenarla movería en silencio el origen de todos los correos.
+Footgun heredado, registrado en BL-21; **no se migra aquí**.)*
+
+**Sin origen ⇒ `undefined`, y el correo SALE IGUAL** con instrucción de texto. Ratificado: el envío
+**nunca se bloquea por el CTA** y **jamás se emite un href a medias**.
+
+### 0.21.2 BL-22 — la fila se degrada, la cola se pinta
+
+`safeDerive()` captura **por fila**: el derivado sale `null` con **flag explícito** y la colección se
+devuelve **completa**. **`business-days` sigue lanzando** — lo que se norma es **el llamador**.
+
+Sin esto, **una sola fila** con una fecha fuera de cobertura devolvía `500` **en toda la cola**, y lo
+que desaparecía no era un cálculo sino **una cola de trabajo entera**. Un `500` de back-office se lee
+como *«no hay nada pendiente»* o *«hoy está rota»*, y en ninguno de los dos casos alguien va a buscar
+una fila con una fecha rara: es *el fallo que no se ve*.
+
+**Las tres superficies, las tres con la captura puesta:**
+
+| Superficie | Derivado | Bandera |
+|---|---|---|
+| `GET …/pending-shipment-confirmation` | `businessDaysWaiting` | `businessDaysUnavailable` |
+| `AdminBuylistDTO.offerIssueDeadlineAt` (cola de M5) | caducidad de emisión | `offerIssueDeadlineUnavailable` |
+| `PendingOfferAuthorizationRowDTO.caducityAt` | la misma fórmula | `caducityUnavailable` |
+
+⚠️ **`alert` falla hacia `true`.** *«Llevo demasiado esperando»* y *«no puedo saber cuánto llevo»*
+piden **la misma acción humana**; y un `false` **sacaría la fila del filtro `?onlyAlerts=true`**, la
+única vista donde alguien la encontraría — **la fila más rara sería la más escondida**. Contraste con
+la mesa, que falla hacia `"none"`: allí el veredicto **aconseja un acto**. *Donde el flag solo hace
+visible, se falla hacia visible; donde condiciona un acto, hacia «no sé».*
+
+⚠️ **Por qué `offerIssueDeadlineAt` necesita bandera aunque ya sea nullable:** su `null` **ya
+significa** «no es `cotizada`». Sin bandera propia, un fallo de calendario se leería como *«esta fila
+no caduca»* — el mismo cero-que-miente de la mesa, con otra forma.
+
+**⚠️ Y la otra mitad, que es la que evita el sobre-arreglo: LAS ESCRITURAS NO DEGRADAN.** Al congelar
+`offerAcceptDeadlineAt` (al ofertar/autorizar) o `shipDeadlineAt` (al capturar la guía), el error
+**se propaga y la petición falla**: *si no podemos calcular la fecha límite, no emitimos la oferta.*
+**Se degrada lo que se MUESTRA, nunca lo que se COMPROMETE.** Hay dos tests que lo fijan con el reloj
+en 2019, y **la mutación que aplica el `try/catch` ahí «por consistencia» los rompe**.
+
+**La misma fórmula en los dos sitios que la muestran** (`caducityOf`): *una fecha derivada de dos
+maneras distintas es dos fechas*. Y anclada en `offerIssueClockStartedAt ?? createdAt`, porque cancelar
+una oferta repone los siete días: una cola con la fecha vieja **pintaría como perdidas justo las filas
+que acabamos de re-encolar por un error nuestro**.
+
+### 0.21.3 Las dos colas
+
+- **`GET /admin/buylist/offers/pending-authorization`** — con `caducityAt` **naciendo con la
+  degradación puesta**. Sus filas **se mueren solas** (la `cotizada` que sostiene la oferta caduca y
+  el barrido anula la oferta ⇒ autorizar después da `409`), así que la fecha no es decoración:
+  *una cola ordenada por antigüedad sin la fecha en que cada fila muere se trabaja a ciegas*.
+  `excessCents` viaja **calculado**: la UI no hace aritmética de dinero.
+- **`GET /admin/buylist/live-sellers`** (D12) — *«la lista de gente a la que le debemos una
+  respuesta»*. **«Viva» = todo lo que NO es terminal, POR EXCLUSIÓN** (criterio 129): un estado nuevo
+  del enum entra **solo**. En **una query agrupada** (P-5). **El teléfono viaja en la fila** para
+  poder llamar sin abrir la ficha — mismo régimen PII que el correo: back-office por rol, sin
+  enmascarado, y **prohibido en toda superficie pública**.
+
+### 0.21.4 Tests
+
+`test/buylist.bl21-bl22.spec.ts` (**NUEVO, 18**) + cuatro fixtures actualizados (`adminList` ahora lee
+un dial, así que un `{} as SettingsService` ya no basta).
+
+**Prueba de mutación, tres a la vez:** (1) el CTA pierde el locale —el defecto original—, (2) `alert`
+falla hacia `false`, (3) la escritura degrada «por consistencia» ⇒ **7 tests fallan**. Revertidas. La
+tercera importa especialmente: es el **sobre-arreglo** que la norma prohíbe explícitamente, y sin test
+propio nadie lo distinguiría de una mejora.
+
+`npm test` **217 suites / 2862 tests en verde** · `npm run typecheck` limpio · `npm run lint` con las
+**2 warnings preexistentes**.
+
+### 0.21.5 Lo que queda del ciclo
+
+`PATCH /admin/buylist/:id/pickup-address` (**BL-13**) y el filtro `awaitingGuide` de la cola de M5.
+**BL-15** (`seller.phone` en `GET /admin/buylist`) sigue abierta y **no entra aquí**: `live-sellers` ya
+lleva el teléfono, pero la cola principal no — son dos superficies distintas.
+
+---
+
 ## 0.20 v1.51 — **El barrido de SIETE reglas, los correos 2/3/4 y «declinar ahora»** (2026-09-01)
 
 > Implementa **ARCHITECTURE §4.39j** (las siete reglas), **§4.39n** (correos 2, 3 y 4) y

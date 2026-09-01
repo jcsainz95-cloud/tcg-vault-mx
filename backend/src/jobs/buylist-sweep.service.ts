@@ -4,11 +4,11 @@ import { PrismaService } from '../prisma/prisma.service';
 import { SettingsService } from '../modules/settings/settings.service';
 import { SettingKey } from '../modules/settings/settings.constants';
 import { MAIL_PORT, MailPort } from '../modules/mail/mail.port';
-import { envOr } from '../modules/mail/mail-env.util';
 import {
   sellOfferReminderTemplate,
   sellRequestExpiredTemplate,
   sellRequestNotPursuedTemplate,
+  buylistPortalUrl,
   OfferReminderKind,
   SellExpiredKind,
 } from '../modules/buylist/buylist-mail.templates';
@@ -113,7 +113,7 @@ export class BuylistSweepJobService {
       n += 1;
       await this.sendMail(req.id, req.user, () =>
         sellRequestExpiredTemplate(
-          { kind: 'no_response' as SellExpiredKind, folio: req.id, closedAt: now, portalUrl: this.portalUrl(req.id) },
+          { kind: 'no_response' as SellExpiredKind, folio: req.id, closedAt: now, portalUrl: buylistPortalUrl(req.id, req.user?.locale) },
           req.user?.name ?? '',
           req.user?.locale,
         ),
@@ -152,7 +152,7 @@ export class BuylistSweepJobService {
       n += 1;
       await this.sendMail(req.id, req.user, () =>
         sellRequestExpiredTemplate(
-          { kind: 'not_shipped' as SellExpiredKind, folio: req.id, closedAt: now, portalUrl: this.portalUrl(req.id) },
+          { kind: 'not_shipped' as SellExpiredKind, folio: req.id, closedAt: now, portalUrl: buylistPortalUrl(req.id, req.user?.locale) },
           req.user?.name ?? '',
           req.user?.locale,
         ),
@@ -224,7 +224,7 @@ export class BuylistSweepJobService {
             deadlineAt: deadline,
             carrier: req.shipmentCarrier,
             trackingNumber: req.shipmentTrackingNumber,
-            portalUrl: this.portalUrl(req.id),
+            portalUrl: buylistPortalUrl(req.id, req.user?.locale),
           },
           req.user?.name ?? '',
           req.user?.locale,
@@ -393,7 +393,7 @@ export class BuylistSweepJobService {
       n += 1;
       await this.sendMail(req.id, req.user, () =>
         sellRequestNotPursuedTemplate(
-          { folio: req.id, portalUrl: this.portalUrl(req.id) },
+          { folio: req.id, portalUrl: buylistPortalUrl(req.id, req.user?.locale) },
           req.user?.name ?? '',
           req.user?.locale,
         ),
@@ -430,12 +430,6 @@ export class BuylistSweepJobService {
       },
     });
     return res.count === 1;
-  }
-
-  /** URL del portal para el CTA; vacía ⇒ la plantilla degrada a texto (nunca un botón muerto). */
-  private portalUrl(id: string): string | undefined {
-    const base = envOr(process.env.APP_PUBLIC_URL, '');
-    return base ? `${base.replace(/\/+$/, '')}/buylist/requests/${id}` : undefined;
   }
 
   /**
