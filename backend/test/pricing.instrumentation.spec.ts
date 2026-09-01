@@ -127,7 +127,7 @@ describe('E6 — instrumentación de COMPRA: se congela con `quotedPriceCents` (
       },
       kycProfile: { findUnique: jest.fn(async () => null), upsert: jest.fn() },
       sellRequest: {
-        aggregate: jest.fn(async () => ({ _sum: { quotedTotalCents: 0 } })),
+        findMany: jest.fn(async () => []), // M-46 §4.39c: acumulado mensual = findMany+reduce (COALESCE de 2 columnas)
         create: jest.fn(async ({ data }: { data: { status: string; quotedTotalCents: number; items: { create: Record<string, unknown>[] } } }) => {
           created.push(...data.items.create);
           return {

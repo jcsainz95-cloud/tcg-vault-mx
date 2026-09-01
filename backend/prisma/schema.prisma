@@ -160,14 +160,55 @@ enum ShipmentStatus {
   cancelado
 }
 
+// v1.51 (M-46, §4.39a / PROJECT §P.1, criterio 113) — CUATRO valores nuevos: `ofertada`, `aceptada`,
+// `en_transito`, `expirada`. Pipeline feliz:
+//   cotizada → ofertada → aceptada → en_transito → recibida → verificacion → aprobada → pagada
+// TERMINALES = CUATRO (eran tres): `pagada | rechazada | abandonada | expirada`.
+// ⚠️ El set terminal NO se deriva de aquí (es CLASE R: lo fija PROJECT §P.1, no el schema): vive
+// literal en `src/common/sell-request-states.ts`, y «viva» se deriva de él POR COMPLEMENTO
+// (criterio 129), de modo que un estado nuevo entre SOLO a la cola del back-office.
+// ⚠️ RADIO DEL CAMBIO: nueve listas de literales codificaban subconjuntos de este enum y NINGUNA
+// falla en compilación (van dentro de `in`/`notIn`/`includes`). Reapuntadas en M-46 — §4.39(c).
 enum SellRequestStatus {
   cotizada
+  ofertada
+  aceptada
+  en_transito
   recibida
   verificacion
   aprobada
   pagada
   rechazada
   abandonada
+  expirada
+}
+
+// v1.51 (M-46, §4.39a) — SEGUNDO EJE del ciclo de adquisición, ORTOGONAL a `SellRequestStatus`. NO es
+// un quinto estado de la solicitud: PROJECT §P.1 fija CUATRO estados nuevos, y una oferta que espera
+// la autorización del súper-admin (D13/D24) tiene que dejar la solicitud viéndose `cotizada` porque
+// EL CLIENTE NO DEBE ENTERARSE DE QUE EXISTE (le filtraría el orden de magnitud de nuestro tope).
+// ⚠️ ADMIN-ONLY: nunca viaja en un DTO de cliente, y NO gatea el pipeline físico (eso es `status`).
+// ⚠️ `cancelled` NO significa «se puede re-ofertar»: quien decide eso es `status`.
+enum SellOfferState {
+  pending_authorization
+  sent
+  cancelled
+}
+
+// v1.51.1 (M-46, D33, §4.39a) — POR QUÉ expiró una solicitud. Es un ATRIBUTO del terminal, NO un
+// quinto estado (los terminales siguen siendo CUATRO, criterio 113 intacto). Se PERSISTE y no se
+// deriva: `offerSentAt` sobrevive a una cancelación, así que no distingue las dos causas y mandaría
+// el correo equivocado en un caso real.
+enum SellRequestExpiryReason {
+  no_offer
+  not_shipped
+}
+
+// v1.51 (M-46, §P.2) — cherry-pick AL OFERTAR, por línea (`SellRequestItem.offerDecision`). Una línea
+// `skip` NO es una operación de compra: se excluye del reporte de brackets del eje de compra (§N.8).
+enum BuyDecision {
+  buy
+  skip
 }
 
 enum SellItemStatus {
@@ -695,6 +736,21 @@ model InventoryItem {
   // Dos conversiones concurrentes del mismo SellRequestItem colisionan aquí (P2002) y
   // solo una crea InventoryItem; la otra se trata como "ya convertido".
   sourceSellRequestItemId String?          @unique
+  // v1.51 (M-46, D7, §4.39d) — IDENTIDAD DE PRODUCTO de la pieza física. Es el `tcgplayerProductId`
+  // (mismo eje que `SellRequestItem.cardProductId` de M-32 y `PriceReference.cardProductId` de
+  // M-31), NO el UUID interno de `CardProduct`. `null` = pieza de set_base (retrocompatible: es el
+  // estado de todas las filas previas a M-46).
+  //
+  // POR QUÉ EXISTE: sin ella §P.8 no se sostiene y con ella se cae D6 — los conteos de la mesa de
+  // decisión mezclarían una promo con la versión del set base («tengo 8» cuando son 5 de una y 3 de
+  // otra que valen distinto), y «una sugerencia basada en un conteo que mezcla identidades es peor
+  // que no dar sugerencia, porque el operador la creería».
+  //
+  // SE POBLA: (a) `convertToInventory` copia `SellRequestItem.cardProductId`; (b) el alta manual de
+  // M1; (c) la corrección a mano de `PATCH /admin/inventory/items/:id` (criterio 160). El BACKFILL de
+  // M-46 la copia SOLO por la FK `@unique` `sourceSellRequestItemId` — copiar por llave única NO es
+  // adivinar por heurística, y por eso no viola el criterio 160.
+  cardProductId           Int?
   // v1.19-sealed-tcgcsv (M-23): mapeo CURADO del item SELLADO al producto de TCGplayer/TCGCSV
   // (ARCHITECTURE §4.19c). Se fijan JUNTOS (ambos null = no mapeado; ambos poblados = mapeado);
   // solo aplican a productType='sealed' — regla de APLICACIÓN, no constraint de BD. El groupId
@@ -1117,10 +1173,110 @@ model SellRequest {
   // INTERNO de cumplimiento: NO se expone en DTOs de cliente. Nullable (filas legacy usan fallback).
   closedAt           DateTime?
 
+  // ======================= v1.51 (M-46, §4.39) — CICLO DE ADQUISICIÓN =======================
+  // Todas ADITIVAS: nullable, o `NOT NULL` con default. Cero `DROP`, cero cambios de tipo. Seguras
+  // con la app corriendo. Semántica completa en ARCHITECTURE §4.39; la lista canónica, en §11 (M-46).
+  // ⚠️ NINGÚN monto de aquí viene del DTO del cliente (SEC-A1): los congela el servidor al ofertar.
+
+  // --- La oferta: quién la preparó, quién la autorizó, cuándo se emitió (criterio 147, D13/D24) ---
+  offerState        SellOfferState?
+  offerPreparedBy   String?
+  offerPreparedAt   DateTime?
+  offerAuthorizedBy String?
+  offerAuthorizedAt DateTime?
+  // D2: desde aquí el precio es VINCULANTE. Es además el discriminador «esta solicitud va por el
+  // ciclo de oferta» (§4.39i.6), y por eso NO se limpia al cancelar.
+  offerSentAt       DateTime?
+
+  // --- Los tres montos CONGELADOS al ofertar (§4.39i) ---
+  // BRUTO congelado: base de los topes AML/KYC y del umbral de INE (criterios 136/155).
+  offerGrossCents       Int?
+  // Tarifa de envío congelada al ofertar (D25). ⚠️ SIEMPRE la vigente: con D31 hay UNA sola banda y
+  // no existe el `0`. DISTINTA de `shipping_fee_cents` (retiro al comprador, MX$175).
+  offerShippingFeeCents Int?
+  // NETO ANUNCIADO = max(0, bruto − envío). Es la cifra vinculante frente al vendedor (D16).
+  offerNetCents         Int?
+
+  // --- Plazos congelados y recordatorios (criterios 157/159) ---
+  // ⚠️ NO se recicla `deadlineAt` (ancla el ajuste de verificación, que sigue vivo).
+  offerAcceptDeadlineAt     DateTime?
+  offerAcceptReminderSentAt DateTime?
+  // El «sí» del vendedor. v1.51.1/D31: ya NO ancla ningún plazo (`shipDeadlineAt` se congela SIEMPRE
+  // al entregar la guía); se conserva porque es el HECHO de la aceptación y ordena `awaitingGuide`.
+  acceptedAt                DateTime?
+
+  // --- Cierre por caducidad (D33/D39) ---
+  // `null` en toda fila que no esté `expirada`. Sellada por el barrido en la MISMA transacción.
+  expiredReason SellRequestExpiryReason?
+  // D39: quién declinó A MANO. `null` ⇒ la cerró el barrido. ÚNICO discriminador entre «decidimos» y
+  // «dejamos vencer» — por eso `expiredReason` NO gana un tercer valor (ese enum viaja al cliente).
+  // NO lleva `declinedAt` (duplicaría `closedAt`) ni columna de motivo (va a `AuditLog`). Admin-only.
+  declinedBy    String?
+
+  // --- Cancelación de la oferta (criterio 145: no se edita, se cancela y se emite otra) ---
+  // ⚠️ `offerCancelledAt` se sella en LAS DOS ramas (`sent` y `pending_authorization`) y también
+  // cuando el barrido anula la oferta al caducar ⇒ NO es el ancla del reloj de emisión.
+  offerCancelledAt         DateTime?
+  offerCancelReason        String?
+  // D38 — el ancla RE-ANCLABLE del plazo de emisión (regla 7):
+  // `businessDaysSince(offerIssueClockStartedAt ?? createdAt)`. `null` = nunca se reinició.
+  // ⚠️ SOLO la escribe la cancelación de una oferta `sent`; jamás la de una `pending_authorization`
+  // ni la anulación del barrido — así el bucle SILENCIOSO queda cerrado POR CONSTRUCCIÓN.
+  offerIssueClockStartedAt DateTime?
+  // v1.51.4 (§4.39u) — cuántas veces se canceló una oferta ENVIADA. La escribe el MISMO `if` que
+  // repone `offerIssueClockStartedAt`, en la misma transacción ⇒ invariante verificable:
+  // `offerReissueCount > 0 ⇔ offerIssueClockStartedAt IS NOT NULL`.
+  // `NOT NULL` con default ⇒ CERO BACKFILL (y `0` es la verdad: ninguna oferta se ha cancelado).
+  // La ALERTA (`count >= dial 10`) es DERIVADA y NO se persiste. Admin-only.
+  offerReissueCount        Int       @default(0)
+
+  // --- El domicilio de ORIGEN, congelado (D36/D37, §4.39q) ---
+  // SNAPSHOT copiado de la libreta `Address` del propio vendedor al CREAR la solicitud.
+  // ⚠️ NO es FK y NO se acompaña de `pickupAddressId`: alguien haría el join e imprimiría la
+  // dirección VIVA, que es justo el bug que el snapshot existe para impedir. Mismo criterio que
+  // `ShipmentRequest.addressSnapshot` y `Order.shippingAddressSnapshot` (ninguno lleva FK).
+  // `null` = fila LEGACY (pre-M-46) ⇒ no se puede ofertar (`422 PICKUP_ADDRESS_MISSING`, BL-12).
+  // PII: detalle sí, listados no, correos nunca.
+  pickupAddressSnapshot Json?
+
+  // --- La guía y el tránsito (D19/D20/D22, criterios 122/123/139) ---
+  shipmentCarrier            String?
+  shipmentTrackingNumber     String?
+  // UN solo timestamp de guía: capturar ES entregar (§4.39j). Ancla del plazo de envío SIEMPRE.
+  guideSentAt                DateTime?
+  // Plazo congelado al entregar la guía. ⚠️ `null` mientras no haya guía ⇒ la regla 2 del barrido no
+  // la ve ⇒ NO expira (correcto por §P.13: la etiqueta depende de NOSOTROS).
+  shipDeadlineAt             DateTime?
+  shipReminderSentAt         DateTime?
+  // «Ya lo mandé» (§P.13). Lo fija el CLIENTE: DETIENE el reloj y NO mueve el estado ni el conteo de
+  // «en camino» (criterios 138/156).
+  sellerShippedDeclaredAt    DateTime?
+  // D20: SOLO esto mueve a `en_transito` y SOLO esto suma a «en camino» (criterio 116).
+  shipmentConfirmedAt        DateTime?
+  shipmentConfirmedBy        String?
+  // D22/criterio 139: la tarea de cancelar una guía no usada NO desaparece sola.
+  guideCancellationPendingAt DateTime?
+  guideCancellationDoneAt    DateTime?
+  guideCancellationDoneBy    String?
+  // Cierre de (o.1): costo REAL de la etiqueta, captura OPCIONAL. `null` ⇒ M7 usa la tarifa congelada
+  // y lo DECLARA. ⚠️ NO entra JAMÁS en `payoutNetCents`: al vendedor se le descuenta la tarifa que
+  // aceptó (D25).
+  guideActualCostCents       Int?
+
+  // --- La caja (criterio 155) ---
+  // Lo que SALIÓ por SPEI = max(0, brutoAprobado − envío), sellado en la MISMA transacción que
+  // `pagada`. Es la fuente de la caja de M7, distinta del acumulado de COMPROMISO (brutos).
+  payoutNetCents Int?
+
   items SellRequestItem[]
 
   @@index([userId])
   @@index([status])
+  // M-46 — sirven las CUATRO colas y las reglas del barrido sin barrer la tabla (§4.39j).
+  @@index([offerState])
+  @@index([status, offerAcceptDeadlineAt])
+  @@index([status, shipDeadlineAt])
+  @@index([guideCancellationPendingAt])
 }
 
 model SellRequestItem {
@@ -1139,7 +1295,13 @@ model SellRequestItem {
   // `separateProducts`) cuando la LÍNEA es un producto SEPARADO (deck_exclusive/promo). Es el mismo
   // eje que M-31 metió en `PriceReference.cardProductId`; entra a la clave LÓGICA de la línea, de modo
   // que dos ítems con el mismo (cardId, finish) pero distinto productId son DISTINTOS (no se funden).
-  // Se PROPAGA al InventoryItem al convertir (M5): la pieza queda ligada a ESE producto, no al set_base.
+  // ⚠️ CORREGIDO en v1.51 (M-46, §4.39d) — esta frase era FALSA desde v1.30 y lo fue durante N
+  // versiones: decía «se PROPAGA al InventoryItem al convertir (M5)» cuando `InventoryItem` NO tenía
+  // esa columna y `convertToInventory` no la propagaba ni podía. M-46 crea la columna
+  // (`InventoryItem.cardProductId`) y la propagación, y con eso la frase pasa a ser cierta. Léase:
+  // «se propaga a `InventoryItem.cardProductId` (columna propia, M-46) al convertir en M5: la pieza
+  // queda ligada a ESE producto, no al set_base». Deuda documental registrada en `docs/TECH_DEBT.md`
+  // (INV-D7), cierre = M-46.
   // `null` = línea de set_base (retrocompatible; filas < M-32 quedan en null). Análogo a como M-19 añadió
   // `finish`. Es el productId TCGplayer (Int), NO el UUID interno CardProduct.id.
   cardProductId      Int?
@@ -1174,9 +1336,33 @@ model SellRequestItem {
   rejectedAt         DateTime?
   rejectionReason    String?
 
+  // ======================= v1.51 (M-46, §4.39) — LA OFERTA, POR LÍNEA =======================
+  // ⚠️ SEC-A1: ninguno de estos montos viene del DTO del cliente. Los congela el servidor al ofertar.
+  // Cherry-pick AL OFERTAR (§P.2). `null` = línea previa al ciclo. Entra al `where` del reporte de
+  // brackets (§4.39c sitio 6): una línea `skip` NO es una operación de compra.
+  offerDecision          BuyDecision?
+  // FUENTE ÚNICA DEL COSTO DE ADQUISICIÓN. Congelado al ofertar; no se mueve JAMÁS (D2/D9).
+  // `convertToInventory` lo copia a `acquisitionCostCents`.
+  offeredPriceCents      Int?
+  // Lo que produjo `decideBuyLine` con la curva vigente AL OFERTAR. Se persiste SIEMPRE en una línea
+  // `buy`, para que el delta del override sea visible sin leer la bitácora (criterio 148(b)).
+  // `null` si la línea estaba en `precio_pendiente`.
+  offerDerivedPriceCents Int?
+  // OBLIGATORIO ⇔ `offeredPriceCents ≠ offerDerivedPriceCents` (3–500). Sin motivo no hay override
+  // (criterio 148(a)).
+  offerOverrideReason    String?
+  // Enum EXISTENTE, sin valores nuevos. Override (y rescate de `precio_pendiente`) ⇒ `override`.
+  offerPriceBasis        PriceBasis?
+  // Instrumentación §N.8 del momento de OFERTAR. NO se reusa la del quote: son dos decisiones en dos
+  // instantes, y la del quote ya está congelada.
+  offerMarketMxnCents    Int?
+  offerMarketBracket     MarketBracket?
+
   @@index([sellRequestId])
   // M-22: sirve GET /admin/buylist/rejected-items (filtro transversal itemStatus='rechazada').
   @@index([itemStatus])
+  // M-46: sirve los tres sumandos de posición que salen de `SellRequestItem` (§4.39g).
+  @@index([offerDecision])
 }
 
 // ============================= DISPUTES =============================

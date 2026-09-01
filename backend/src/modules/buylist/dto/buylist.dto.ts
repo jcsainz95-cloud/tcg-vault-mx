@@ -95,8 +95,13 @@ export class RequestItemDto {
   // v1.6-finish: acabado del item (default normal), validado contra card.availableFinishes.
   @IsOptional() @IsIn(FINISHES) finish?: Finish;
   // v1.30 (§4.29): productId OPCIONAL/ADITIVO. Presente ⇒ la línea es ESE CardProduct separado — se
-  // snapshotea en SellRequestItem.cardProductId (== productId TCGplayer) y al convertir a inventario la
-  // pieza queda ligada a ese producto. Dos ítems con mismo (cardId, finish) y distinto productId son
+  // snapshotea en SellRequestItem.cardProductId (== productId TCGplayer).
+  // ⚠️ CORREGIDO en v1.51 (M-46, §4.39d): este comentario decía «y al convertir a inventario la pieza
+  // queda ligada a ese producto», y era **FALSO desde v1.30** — `InventoryItem` NO tenía columna
+  // `cardProductId` y `convertToInventory` no la propagaba ni podía. **M-46 crea la columna y la
+  // propagación**, así que ahora sí: al convertir, la pieza queda ligada a **ESE** producto vía
+  // `InventoryItem.cardProductId`. Deuda documental registrada en `docs/TECH_DEBT.md` (INV-D7).
+  // Dos ítems con mismo (cardId, finish) y distinto productId son
   // líneas físicas DISTINTAS. productId inexistente → 422 PRODUCT_NOT_FOUND; que no cuelga → 422
   // PRODUCT_CARD_MISMATCH. Entero positivo.
   @IsOptional() @IsInt() @Min(1) productId?: number;

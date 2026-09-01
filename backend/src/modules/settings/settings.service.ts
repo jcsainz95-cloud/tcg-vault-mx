@@ -9,6 +9,7 @@ import {
   SETTING_VALIDATORS,
   SettingKey,
   SettingKeyType,
+  validateBuylistCrossDials,
 } from './settings.constants';
 
 /** Cuánto de un valor se imprime en el inventario de arranque (un dial puede ser una tabla). */
@@ -284,6 +285,9 @@ export class SettingsService implements OnModuleInit {
       });
     }
 
+    // v1.51 (M-46, §4.39l / criterio 127) — VALIDACIÓN CRUZADA BLOQUEANTE ENTRE TRES DIALES.
+    await this.assertBuylistCrossDials(validated);
+
     // TODO O NADA DE VERDAD: los upserts y la bitácora, en una sola transacción.
     return this.prisma.$transaction(async (tx) => {
       const applied: Record<string, unknown> = {};
@@ -304,6 +308,75 @@ export class SettingsService implements OnModuleInit {
 
   async getRaw(key: SettingKeyType): Promise<unknown> {
     return this.get(key);
+  }
+
+  /**
+   * v1.51 (M-46, §4.39l / API_CONTRACT §M10, criterio 127) — **la validación CRUZADA de TRES
+   * términos, evaluada sobre el ESTADO RESULTANTE.**
+   *
+   * ```
+   * buylistShippingFeeCents + buylistMinimumOfferNetCents  <=  buylistMinimumRequestCents
+   * ```
+   *
+   * ### ⚠️ Por qué NO puede vivir en `SETTING_VALIDATORS`
+   * Aquel mapa es **un validador por clave**, y un validador por clave **solo ve su propio valor**.
+   * Esta regla relaciona **tres** claves, así que necesita el único punto del sistema que conoce el
+   * resultado completo: este método.
+   *
+   * ### ⚠️ SE EVALÚA SOBRE `{...vigente, ...body}`, NO SOBRE EL BODY — y con TRES claves importa MÁS
+   * `PUT /admin/settings` es **PARCIAL**. Validar solo lo que viene permitiría **romper el invariante
+   * mandando UNA de las TRES** (subir la tarifa a secas, o bajar el mínimo a secas) — exactamente el
+   * agujero que esta validación existe para tapar, ahora con una puerta más. Por eso se leen los
+   * valores **vigentes** de las tres claves y se superponen las que trae el `body`.
+   *
+   * ### Es BLOQUEANTE y aplica en LOS TRES SENTIDOS
+   * Subir la tarifa, **subir el piso** o **bajar el mínimo de compra** se rechazan **igual**. *Eran
+   * dos sentidos; con tres términos son tres.*
+   *
+   * ### Corto circuito deliberado
+   * Si el `body` no toca **ninguna** de las tres claves, no se lee nada: un `PUT` de `ivaPct` no
+   * paga tres queries por una regla que no puede haber roto. (El estado vigente ya cumplía el
+   * invariante: es la postcondición de todo `PUT` anterior.)
+   */
+  private async assertBuylistCrossDials(
+    validated: { settingKey: SettingKeyType; value: unknown }[],
+  ): Promise<void> {
+    const CROSS_KEYS = [
+      SettingKey.BUYLIST_SHIPPING_FEE_CENTS,
+      SettingKey.BUYLIST_MINIMUM_OFFER_NET_CENTS,
+      SettingKey.BUYLIST_MINIMUM_REQUEST_CENTS,
+    ] as const;
+    const incoming = new Map<SettingKeyType, unknown>();
+    for (const { settingKey, value } of validated) {
+      if ((CROSS_KEYS as readonly SettingKeyType[]).includes(settingKey)) {
+        incoming.set(settingKey, value);
+      }
+    }
+    if (incoming.size === 0) return;
+
+    // ESTADO RESULTANTE = lo VIGENTE (fila de BD, o el default si la fila no existe) pisado por lo
+    // que trae este `PUT`. `getRawMany` devuelve SOLO las filas existentes, así que la ausencia se
+    // resuelve al default — que es exactamente cómo lo leerá después cualquier consumidor.
+    const rows = await this.getRawMany(CROSS_KEYS);
+    const resolve = (key: SettingKeyType): number =>
+      Number(incoming.has(key) ? incoming.get(key) : (rows.get(key) ?? SETTING_DEFAULTS[key]));
+
+    const problem = validateBuylistCrossDials({
+      shippingFeeCents: resolve(SettingKey.BUYLIST_SHIPPING_FEE_CENTS),
+      minimumOfferNetCents: resolve(SettingKey.BUYLIST_MINIMUM_OFFER_NET_CENTS),
+      minimumRequestCents: resolve(SettingKey.BUYLIST_MINIMUM_REQUEST_CENTS),
+    });
+    if (!problem) return;
+
+    // ⚠️ El `details.rule` es el NUEVO (`buylist_fee_plus_min_net_le_min_request`). Los dos nombres
+    // anteriores describen relaciones de DOS términos que ya no son la regla, y un `details.rule`
+    // que miente es peor que uno ausente. El mensaje dice POR QUÉ, no un «valor inválido» seco.
+    throw BusinessException.validation('VALIDATION_ERROR', problem.message, {
+      rule: problem.rule,
+      shippingFeeCents: problem.shippingFeeCents,
+      minimumOfferNetCents: problem.minimumOfferNetCents,
+      minimumRequestCents: problem.minimumRequestCents,
+    });
   }
 }
 

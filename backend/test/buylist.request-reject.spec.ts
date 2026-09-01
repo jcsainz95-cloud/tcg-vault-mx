@@ -6,6 +6,7 @@ import { SettingsService } from '../src/modules/settings/settings.service';
 import { UsersService } from '../src/modules/users/users.service';
 import { PiiCryptoService } from '../src/common/crypto/pii-crypto.service';
 import { MailPort } from '../src/modules/mail/mail.port';
+import { SELL_REQUEST_TERMINAL_STATES } from '../src/common/sell-request-states';
 
 const pii = new PiiCryptoService(new ConfigService({}));
 
@@ -97,7 +98,10 @@ describe('itemDecision(reject) — auto-transición de la SOLICITUD (regla f)', 
     });
     // Transición atómica con guarda «no pisar terminal» + closedAt sellado (Date).
     expect(prisma.sellRequest.updateMany).toHaveBeenCalledWith({
-      where: { id: 'sr-1', status: { notIn: ['pagada', 'rechazada', 'abandonada'] } },
+      // v1.51 (M-46, §4.39c sitio 7): el set terminal es el COMPARTIDO, no un literal del test.
+      // Eran tres; con `expirada` son CUATRO. Escribirlo a mano aquí reproduciría en el test la
+      // misma copia que la migración vino a borrar del código.
+      where: { id: 'sr-1', status: { notIn: [...SELL_REQUEST_TERMINAL_STATES] } },
       data: { status: 'rechazada', closedAt: expect.any(Date) },
     });
   });
@@ -194,7 +198,10 @@ describe('rejectRequest — cierre explícito (regla g)', () => {
     const res = await svc.rejectRequest('sr-1');
     expect(res.transitioned).toBe(true);
     expect(prisma.sellRequest.updateMany).toHaveBeenCalledWith({
-      where: { id: 'sr-1', status: { notIn: ['pagada', 'rechazada', 'abandonada'] } },
+      // v1.51 (M-46, §4.39c sitio 7): el set terminal es el COMPARTIDO, no un literal del test.
+      // Eran tres; con `expirada` son CUATRO. Escribirlo a mano aquí reproduciría en el test la
+      // misma copia que la migración vino a borrar del código.
+      where: { id: 'sr-1', status: { notIn: [...SELL_REQUEST_TERMINAL_STATES] } },
       data: { status: 'rechazada', closedAt: expect.any(Date) },
     });
   });

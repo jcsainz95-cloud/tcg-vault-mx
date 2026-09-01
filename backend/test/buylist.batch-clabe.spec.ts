@@ -87,7 +87,7 @@ describe('createRequest — CLABE opcional + fallback server-side (§4.16a)', ()
         upsert: jest.fn().mockResolvedValue(undefined),
       },
       sellRequest: {
-        aggregate: jest.fn().mockResolvedValue({ _sum: { quotedTotalCents: 0 } }),
+        findMany: jest.fn(async () => []), // M-46 §4.39c: acumulado mensual = findMany+reduce (COALESCE de 2 columnas)
         create: jest.fn(async ({ data }: any) => ({
           id: 'sr',
           status: data.status,
@@ -413,7 +413,7 @@ describe('UsersService.getKyc — clabeOnFile refleja el estado real (§4.16c)',
   function usersSvc(kyc: any): UsersService {
     const prisma: any = {
       kycProfile: { findUnique: jest.fn().mockResolvedValue(kyc) },
-      sellRequest: { aggregate: jest.fn().mockResolvedValue({ _sum: { quotedTotalCents: 0 } }) },
+      sellRequest: { findMany: jest.fn(async () => []) }, // M-46 §4.39c
     };
     const settings = {
       getNumber: jest.fn().mockResolvedValue(300_000),

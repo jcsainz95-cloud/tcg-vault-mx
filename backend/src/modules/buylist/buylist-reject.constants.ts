@@ -6,25 +6,30 @@
  * Los plazos NO se persisten: se derivan al proyectar (fuente única = rejectedAt). Sin transición
  * automática del ítem al vencer (informativos para back-office y vendedor).
  *
- * NOTA (deuda menor, ver resumen del pase): `buylist-sweep.service.ts` aún tiene sus 7/30 inline
- * (zona `src/jobs/` en uso por otro stream en este pase); cuando ese archivo se toque, debe importar
- * estas constantes para que la familia quede con fuente única.
+ * NOTA (deuda menor, v1.51/M-46): `buylist-sweep.service.ts` aún tiene sus 7/30 inline. Es la ÚNICA
+ * de las tres notas de deuda de este archivo que M-46 **no** cobra: el barrido es del ciclo (§4.39j)
+ * y se reapunta cuando ese archivo se reescriba con sus siete reglas. Las otras dos —el set terminal
+ * y el `CLOSED` de `ine-retention`— **ya se cobraron**, ver abajo.
  */
 export const BUYLIST_REJECT_RETURN_WINDOW_DAYS = 7;
 export const BUYLIST_REJECT_ABANDON_WINDOW_DAYS = 30;
 
 /**
- * v1.24-buylist-request-reject (§4.18f/g) — estados TERMINALES de una `SellRequest`: una vez en uno
- * de ellos la solicitud ya no procesa (dinero salió / se cerró). Fuente ÚNICA del set usado por el
- * guard «no pisar terminal» de la auto-transición (`maybeAutoRejectRequest`) y del cierre explícito
- * (`rejectRequest`), evitando duplicar el literal inline en cada `updateMany`/guarda 409.
+ * v1.51 (M-46, §4.39c **SITIO 7**) — **`SELL_REQUEST_TERMINAL_STATES` SE MUDÓ a
+ * `src/common/sell-request-states.ts` y aquí solo queda la RE-EXPORTACIÓN de compatibilidad.**
  *
- * NOTA (deuda menor, ver resumen del pase): `src/jobs/ine-retention.service.ts` define su propio
- * `CLOSED` con este MISMO set; vive en `src/jobs/` (zona en uso por otro stream en este pase), así
- * que NO se reapunta aquí para no arriesgar regresión cross-stream. Cuando ese archivo se toque,
- * debe importar esta constante para dejar la familia con fuente única.
+ * Vivía aquí desde v1.24, y con `expirada` en el enum su lista de **tres** valores dejaba de ser el
+ * set terminal: el guard «no pisar terminal» **no vería** una solicitud `expirada` ⇒ **se podría
+ * reescribir un terminal**. El set es **CLASE R** (lo declara `PROJECT.md` §P.1: *«los terminales
+ * son CUATRO»*), así que su sitio es la zona compartida, no un archivo de un módulo.
+ *
+ * La deuda que pedía exactamente esto —las notas de `:9-11` y `:22-25` de este archivo— llevaba
+ * **147 commits** sin cobrarse. **Se cobra en M-46**, junto con las otras cuatro copias.
+ *
+ * ⚠️ **La re-exportación NO es una segunda fuente**: es el MISMO símbolo. Existe para no romper
+ * imports vivos; **el código nuevo importa de `common/sell-request-states`**.
  */
-export const SELL_REQUEST_TERMINAL_STATES = ['pagada', 'rechazada', 'abandonada'] as const;
+export { SELL_REQUEST_TERMINAL_STATES } from '../../common/sell-request-states';
 
 /**
  * v1.51 · BL-2 (API_CONTRACT §6, ARCHITECTURE §4.39(b.2)) — los ÚNICOS estados de `SellRequest` en
@@ -35,9 +40,9 @@ export const SELL_REQUEST_TERMINAL_STATES = ['pagada', 'rechazada', 'abandonada'
  *
  * Fuente ÚNICA del `where` del `updateMany` que hace de guarda atómica en `BuylistService.respond`.
  *
- * NOTA (deuda menor, misma que las dos constantes de arriba): `src/jobs/buylist-sweep.service.ts:25`
- * repite este literal inline. NO se reapunta desde aquí porque `src/jobs/` es zona de otro stream;
- * cuando ese archivo se toque debe importar esta constante para dejar la familia con fuente única.
+ * NOTA (deuda menor, v1.51/M-46): `src/jobs/buylist-sweep.service.ts` repite este literal inline.
+ * Se reapunta cuando el barrido se reescriba con las siete reglas del ciclo (§4.39j); NO entra en
+ * este pase, que solo cierra el radio del ENUM DE ESTADOS (§4.39c) y no los plazos del barrido.
  */
 export const SELL_REQUEST_LIVE_ADJUSTMENT_STATES = ['verificacion', 'aprobada'] as const;
 

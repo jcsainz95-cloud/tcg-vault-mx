@@ -126,6 +126,72 @@ export const SettingKey = {
   // Formato pokemontcg.io `yyyy/MM/dd`. ConfigSetting de primera clase: expuesto en el DTO de
   // M10 (`catalogSyncFromDate`), legible y editable por GET/PUT /admin/settings.
   CATALOG_SYNC_FROM_DATE: 'catalog_sync_from_date',
+  // ===== v1.51 (M-46, §4.39l / API_CONTRACT §M10) — LOS DIEZ DIALES DEL CICLO DE ADQUISICIÓN =====
+  // `PROJECT.md` §P.10 es el ORIGEN ÚNICO de estos números. Todos viven en `ConfigSetting`, se editan
+  // SIN REDEPLOY, quedan AUDITADOS y aplican a solicitudes NUEVAS. Los DIEZ se exponen en el DTO de
+  // M10 y se editan por `PUT /admin/settings` (a diferencia de los spreads y del gancho de grading,
+  // que tienen recursos M2 propios).
+  //
+  // ⚠️ CONTEO, para que nadie recuente mal: nueve (3ª ronda) → OCHO (D30 retira el «recorte
+  // material») → OCHO (D31 saca el umbral de guía, D33 mete el plazo de emisión) → NUEVE (D34 añade
+  // el piso de neto) → DIEZ (v1.51.4 añade la alerta de re-emisión).
+  //
+  // ⚠️ DOS DIALES RETIRADOS QUE **NO EXISTEN** — verificable POR LO NEGATIVO (criterio 127):
+  //   · `buylist_material_haircut_pct` («recorte material», 20%, D28): D30 lo dejó SIN OBJETO.
+  //   · `buylist_shipping_threshold_cents` («umbral de guía», D31): con UNA sola banda no hay umbral.
+  //   Ninguno se siembra, ninguno se apaga y ninguno queda en 0: **dejan de existir**. Buscarlos en
+  //   M10 debe dar NADA, y ninguna conducta del sistema debe depender de ellos. *Un dial que se queda
+  //   «por si acaso» es una banda que alguien va a reactivar sin querer, y esa banda mueve dinero.*
+  //
+  // ⚠️ DOS CLASES DE DIAL (criterio 157), y confundirlas produce columnas que nadie lee:
+  //   · Se CONGELAN por solicitud (se COMUNICAN al vendedor y se releerían después): **1, 2 y 7**.
+  //   · Son GATES o política interna (se evalúan UNA vez, no se releen, NADA que congelar y NINGUNA
+  //     columna): **3, 4, 5, 6, 8, 9 y 10**.
+  //     El **10** no es excepción aunque su alerta se lea contra una columna: lo que se persiste es el
+  //     CONTEO (`offerReissueCount`, un HECHO), no el UMBRAL (el dial, una POLÍTICA). *El hecho se
+  //     guarda; la política se relee* ⇒ mover el dial reevalúa la alerta de todas las filas vivas.
+  //
+  // Dial 1 — plazo del VENDEDOR para aceptar. Sin respuesta ⇒ `rechazada` (§P.3). Se CONGELA.
+  BUYLIST_OFFER_ACCEPT_DEADLINE_BUSINESS_DAYS: 'buylist_offer_accept_deadline_business_days',
+  // Dial 2 — plazo del VENDEDOR para enviar tras recibir la guía. Sin envío ⇒ `expirada` (§P.4).
+  // Se CONGELA (al entregar la guía, no al aceptar — D31).
+  BUYLIST_SHIP_DEADLINE_BUSINESS_DAYS: 'buylist_ship_deadline_business_days',
+  // Dial 3 — mínimo de COMPRA sobre el BRUTO cotizado, al CREAR la solicitud (§P.12). Borde
+  // INCLUSIVO a favor del VENDEDOR (criterio 158(a)): `quotedTotalCents >= mínimo` CREA. Entra a la
+  // validación CRUZADA de abajo. ⚠️ Es el ÚNICO de los diez con superficie PÚBLICA
+  // (`GET /buylist/quote-policy`, D43): lo exige el criterio 132(a) («cuánto falta, con el número
+  // correcto»), que el 422 server-side NO cubre porque si el botón no procede no se manda nada.
+  BUYLIST_MINIMUM_REQUEST_CENTS: 'buylist_minimum_request_cents',
+  // Dial 4 — plazo NUESTRO para emitir la oferta (D33). Al vencer, la solicitud CADUCA
+  // (`expirada`/`no_offer`) CON CORREO. ⚠️ D38: se cuenta desde `offerIssueClockStartedAt ??
+  // createdAt` — cancelar una oferta ENVIADA lo repone ENTERO. De los tres plazos, SOLO el nuestro se
+  // repone: los del vendedor ya están por escrito y moverlos sería moverle una fecha prometida.
+  BUYLIST_OFFER_ISSUE_DEADLINE_BUSINESS_DAYS: 'buylist_offer_issue_deadline_business_days',
+  // Dial 5 — tope del OPERADOR sobre el BRUTO (§P.2, criterio 147). Borde INCLUSIVO a favor del
+  // OPERADOR: `offerGrossCents <= tope` sale SOLA. Por encima, la autoriza el súper-admin.
+  BUYLIST_OPERATOR_OFFER_CAP_CENTS: 'buylist_operator_offer_cap_cents',
+  // Dial 6 — posición por variante que dispara «no comprar» en cartas SIN bounty (§P.2).
+  // ⚠️ NUNCA BLOQUEA: es una sugerencia de la mesa de decisión, no una guarda.
+  BUYLIST_VARIANT_POSITION_CAP: 'buylist_variant_position_cap',
+  // Dial 7 — el ENVÍO que se descuenta y que el correo anuncia; se CONGELA al ofertar (D25).
+  // ⚠️ DISTINTO de `shipping_fee_cents` (MX$175, RETIRO al comprador). Se parecen y NO son el mismo
+  // número: uno es lo que le COBRAMOS al comprador por mandarle su carta; éste es lo que NOS
+  // DESCONTAMOS por traer la del vendedor. Mover uno NO mueve el otro (criterio 127, última línea);
+  // unificarlos «porque se parecen» rompería dos flujos a la vez. Entra a la validación CRUZADA.
+  BUYLIST_SHIPPING_FEE_CENTS: 'buylist_shipping_fee_cents',
+  // Dial 8 — alerta de «ya lo mandé» sin confirmar (§P.13). NO expira nada.
+  BUYLIST_SHIPMENT_CONFIRM_ALERT_BUSINESS_DAYS: 'buylist_shipment_confirm_alert_business_days',
+  // Dial 9 — NETO mínimo para poder EMITIR una oferta (D34). Estrictamente por debajo ⇒
+  // `422 OFFER_NET_BELOW_MINIMUM`; el neto IGUAL al piso SE EMITE (D40). NO gatea el pago ni la
+  // aceptación. Entra a la validación CRUZADA. ⚠️ El `0` NO es legal — ver `validateBuylistMinimumOfferNetCents`.
+  BUYLIST_MINIMUM_OFFER_NET_CENTS: 'buylist_minimum_offer_net_cents',
+  // Dial 10 — a partir de cuántas cancelaciones de oferta ENVIADA la cola de M5 marca ALERTA
+  // (v1.51.4, §4.39u). Es la alerta que (o.19) prometió EN VEZ de un tope: NO bloquea, NO expira, NO
+  // mueve ningún estado y NO aparece en ningún correo.
+  // ⚠️ NO entra en la validación cruzada, y no es un descuido: cuenta ACTOS, no centavos, así que no
+  // hay identidad aritmética que preservar. *Meterlo «por simetría» sería inventar una relación entre
+  // un número de veces y un monto.*
+  BUYLIST_OFFER_REISSUE_ALERT_COUNT: 'buylist_offer_reissue_alert_count',
 } as const;
 
 export type SettingKeyType = (typeof SettingKey)[keyof typeof SettingKey];
@@ -226,6 +292,39 @@ export const SETTING_DEFAULTS: Record<SettingKeyType, unknown> = {
   [SettingKey.GRADED_ESTIMATE_INGEST_MAX_CARDS_PER_RUN]:
     DEFAULT_GRADED_ESTIMATE_INGEST_MAX_CARDS_PER_RUN,
   [SettingKey.GRADED_ESTIMATE_INGEST_ENABLED]: 'off',
+  // ===== v1.51 (M-46, §4.39l) — seeds de los DIEZ diales del ciclo de adquisición =====
+  // ⚠️ §11.0 NO APLICA y se dice para que devops no monte un paso de despliegue que no hace falta:
+  // la disciplina de dos artefactos rige el cambio de un seed EXISTENTE. Estas diez son claves
+  // NUEVAS, así que el `upsert` con `update:{}` de `seed.ts` SÍ las crea en entornos ya sembrados.
+  //
+  // ⚠️ LA SECUENCIA DE PLAZOS SE LEE SOLA, y por eso el dial 4 se llama así:
+  //     emitir (7)  →  aceptar (2)  →  enviar (3),   todos en DÍAS HÁBILES.
+  //   Se nombran por QUIÉN DEBE ACTUAR: el primero es NUESTRO, los otros dos del vendedor.
+  //
+  // ⚠️ Y LA SECUENCIA DE MONTOS TAMBIÉN:
+  //     MX$500  mínimo de COTIZAR   (dial 3, sobre el BRUTO cotizado, al CREAR la solicitud)
+  //     MX$180  lo que se DESCUENTA (dial 7, siempre, congelado al ofertar)
+  //     MX$200  mínimo de COBRAR    (dial 9, sobre el NETO, al EMITIR la oferta)
+  //     ─────
+  //     MX$380  bruto mínimo OFERTABLE = dial 9 + dial 7   ⚠️ DERIVADO, NO ES UN DÉCIMO DIAL.
+  //   `requiredGrossCents` SE CALCULA, no se configura: dos fuentes para el mismo número es la
+  //   primera versión del bug (el día que alguien mueva la tarifa sin moverlo, el sistema bloquearía
+  //   ofertas por una aritmética que ya no cuadra — el mismo error que costó cerrar `stripe_fee_iva_pct`).
+  [SettingKey.BUYLIST_OFFER_ACCEPT_DEADLINE_BUSINESS_DAYS]: 2,
+  [SettingKey.BUYLIST_SHIP_DEADLINE_BUSINESS_DAYS]: 3,
+  [SettingKey.BUYLIST_MINIMUM_REQUEST_CENTS]: 50000, // MX$500, borde INCLUSIVO (criterio 158(a))
+  [SettingKey.BUYLIST_OFFER_ISSUE_DEADLINE_BUSINESS_DAYS]: 7,
+  [SettingKey.BUYLIST_OPERATOR_OFFER_CAP_CENTS]: 150000, // MX$1,500, borde INCLUSIVO (criterio 147)
+  [SettingKey.BUYLIST_VARIANT_POSITION_CAP]: 10,
+  [SettingKey.BUYLIST_SHIPPING_FEE_CENTS]: 18000, // MX$180 — ⚠️ NO es `shipping_fee_cents` (MX$175)
+  [SettingKey.BUYLIST_SHIPMENT_CONFIRM_ALERT_BUSINESS_DAYS]: 5,
+  [SettingKey.BUYLIST_MINIMUM_OFFER_NET_CENTS]: 20000, // MX$200, borde INCLUSIVO (D34/D40)
+  // Por qué el default es 2: *reponer el reloj UNA vez es corregir un error —justo lo que D38 vino a
+  // permitir sin castigar al vendedor—; hacerlo DOS veces sobre la misma persona ya es una CONDUCTA,
+  // y una conducta se mira.* Es dial y no constante porque (o.19) dejó que N lo fije el humano, y un
+  // número que el humano mueve no puede exigir un redeploy. *Una alerta de más cuesta un vistazo;
+  // una de menos cuesta un vendedor.*
+  [SettingKey.BUYLIST_OFFER_REISSUE_ALERT_COUNT]: 2,
 };
 
 const PROVIDER_VALUES = ['pokemontcg_io', 'pokemonpricetracker', 'poketrace', 'manual'];
@@ -413,6 +512,123 @@ export function validateGradedEstimateFreshnessDays(v: unknown): string | null {
 }
 
 /**
+ * ============================ v1.51 (M-46, §4.39l) — LOS DIEZ DIALES DEL CICLO ============================
+ * Validadores de los diez, y la **validación CRUZADA BLOQUEANTE** entre tres de ellos.
+ */
+
+/** Plazos del ciclo (diales 1, 2, 4) y umbrales de alerta/posición (6, 8, 10): **entero ≥ 1**. */
+export function validatePositiveIntDial(unit: string): (v: unknown) => string | null {
+  return (v) => (isInt(v) && v >= 1 ? null : `must be an integer >= 1 (${unit})`);
+}
+
+/**
+ * **Dial 9 — `buylist_minimum_offer_net_cents`: el `0` NO es un valor legal, y NO es pedantería.**
+ *
+ * Con el piso en `0` la guarda de emisión `net < 0` **nunca dispara** y vuelve a ser emitible **la
+ * oferta que anuncia MX$0** — el agujero exacto que (o.12) cerró. Con el piso en su **valor mínimo
+ * legal (1 centavo)** la regla degenera **EXACTAMENTE** en la de v1.51.1 (`net < 1` ⇔ `net <= 0`):
+ * **la guarda vieja no se perdió, se convirtió en el suelo del dial**, y por eso el suelo no puede
+ * bajar más. *Poner este dial en 0 sería el «apagar un dial en vez de retirarlo» que la arquitectura
+ * prohíbe en tres sitios distintos.*
+ */
+export function validateBuylistMinimumOfferNetCents(v: unknown): string | null {
+  return isInt(v) && v >= 1
+    ? null
+    : 'must be an integer >= 1 (cents). 0 is NOT legal: with the floor at 0 the `net < floor` guard ' +
+        'never fires and an offer announcing MX$0 becomes issuable again';
+}
+
+/**
+ * **Nombre de la regla cruzada, en el `details` del 422.** ⚠️ **CAMBIA POR SEGUNDA VEZ**
+ * (`…_lt_threshold` → `…_lt_minimum` → **`…_fee_plus_min_net_le_min_request`**): los nombres
+ * anteriores describen relaciones de **dos** términos que **ya no son la regla**, y *un
+ * `details.rule` que miente es peor que uno ausente*.
+ */
+export const BUYLIST_CROSS_DIAL_RULE = 'buylist_fee_plus_min_net_le_min_request';
+
+/** Los tres diales que participan en la validación cruzada. El **10 NO está**, y es a propósito. */
+export interface BuylistCrossDialValues {
+  shippingFeeCents: number;
+  minimumOfferNetCents: number;
+  minimumRequestCents: number;
+}
+
+export interface BuylistCrossDialProblem {
+  rule: typeof BUYLIST_CROSS_DIAL_RULE;
+  message: string;
+  shippingFeeCents: number;
+  minimumOfferNetCents: number;
+  minimumRequestCents: number;
+}
+
+/**
+ * **VALIDACIÓN CRUZADA BLOQUEANTE ENTRE TRES DIALES (criterio 127) — tercera reformulación (D34).**
+ *
+ * ```
+ * ⛔ v1.51   (SUPERSEDED):  buylistShippingFeeCents                               <  buylistShippingThresholdCents
+ * ⛔ v1.51.1 (SUPERSEDED):  buylistShippingFeeCents                               <  buylistMinimumRequestCents
+ * ✅ v1.51.2 (VIGENTE):     buylistShippingFeeCents + buylistMinimumOfferNetCents <= buylistMinimumRequestCents
+ *                           //  18000 + 20000 = 38000  <=  50000   ⇒  guarda (defaults, $120 de holgura)
+ * ```
+ *
+ * **En una frase: _el bruto mínimo OFERTABLE nunca puede superar el mínimo de COMPRA_.** O sea:
+ * **nunca prometemos comprar desde una cifra que el sistema después no podría ofertar.**
+ *
+ * ### Por qué gana un término (y la propiedad sube un escalón en la misma dirección)
+ * La versión de v1.51.1 impedía que «la solicitud más chica que el sistema acepta crear, aprobada
+ * entera y al precio cotizado, depositara **MX$0**». Con el piso de D34 aparece un fallo **peor y
+ * hasta ahora imposible**: que esa misma solicitud **no se pueda ni EMITIR**. Ocurre exactamente
+ * cuando `tarifa + piso > mínimo`, y **los tres diales pueden ser legales por separado**: con
+ * `tarifa=$200, piso=$350, mínimo=$500` la regla vieja pasa ($200 < $500) y sin embargo un vendedor
+ * que cotiza **exactamente $500** —la cifra que le prometimos— crea su solicitud, espera **7 días
+ * hábiles** y recibe un *«no procederemos»* **que no decidió ninguna persona**: lo decidió una
+ * combinación de diales. *Un trato que no le paga nada a quien cumplió perfecto era una **oferta
+ * rota**; un trato que ni siquiera se puede formular es una **promesa rota**.*
+ *
+ * ### SUSTITUYE a la de v1.51.1, no se apila
+ * Con `piso >= 1`, `tarifa + piso <= mínimo` **implica** `tarifa < mínimo`. Conservar las dos dejaría
+ * una regla **que no puede disparar nunca**, y una regla que no dispara es la que el primer refactor
+ * borra *«porque no hace nada»*. **La vieja queda CONTENIDA en la nueva**, y el borde
+ * `(49999, 1, 50000)` lo demuestra.
+ *
+ * ### Por qué `<=` y no `<`
+ * Con `tarifa + piso = mínimo`, la solicitud mínima aprobada entera produce un neto **exactamente
+ * igual al piso**, y la guarda de emisión es `net < piso` ⇒ **la oferta SALE**. Rechazar la igualdad
+ * prohibiría una configuración que funciona.
+ *
+ * ### Lo que esta validación SIGUE SIN garantizar, dicho en voz alta
+ * El mínimo se juzga **al crear la solicitud** sobre el **total cotizado** y **NO se re-aplica a la
+ * oferta** (criterio 158(c)): el **bruto ofertado** puede quedar por debajo de `requiredGrossCents`
+ * tras un cherry-pick. **Ese caso NO lo cubre ningún dial** —los diales no ven el recorte— y por eso
+ * se cubre **donde sí se ve: en la emisión** (`422 OFFER_NET_BELOW_MINIMUM`). **Dos guardas, dos
+ * bases, cero solapamiento:** M10 protege del **dial mal puesto**; la emisión, de la **oferta mal
+ * armada**.
+ *
+ * ⚠️ **Es BLOQUEANTE, no una advertencia**, y aplica **en los TRES sentidos**: subir la tarifa,
+ * subir el piso o bajar el mínimo de compra se rechazan **igual**.
+ */
+export function validateBuylistCrossDials(
+  v: BuylistCrossDialValues,
+): BuylistCrossDialProblem | null {
+  const { shippingFeeCents, minimumOfferNetCents, minimumRequestCents } = v;
+  if (shippingFeeCents + minimumOfferNetCents <= minimumRequestCents) return null;
+  return {
+    rule: BUYLIST_CROSS_DIAL_RULE,
+    message:
+      `buylistShippingFeeCents (${shippingFeeCents}) + buylistMinimumOfferNetCents ` +
+      `(${minimumOfferNetCents}) = ${shippingFeeCents + minimumOfferNetCents} exceeds ` +
+      `buylistMinimumRequestCents (${minimumRequestCents}). The minimum OFFERABLE gross must never ` +
+      'be above the minimum PURCHASE amount: otherwise the smallest request the system accepts to ' +
+      'create could not even be offered, and a seller who quoted exactly the amount we promised ' +
+      'would wait the full issue deadline only to be told "we will not proceed" — a decision no ' +
+      'person made. Lower the shipping fee or the net floor, or raise the purchase minimum.',
+    shippingFeeCents,
+    minimumOfferNetCents,
+    minimumRequestCents,
+  };
+}
+
+/**
  * Validadores por dial (fix correctness #2). Cada uno devuelve un mensaje de error o
  * `null` si es válido. Rangos coherentes con la matemática de `money.ts` para que un
  * dial mal escrito NO rompa el checkout (NaN / división por cero / negativos).
@@ -485,6 +701,27 @@ export const SETTING_VALIDATORS: Record<SettingKeyType, (v: unknown) => string |
   [SettingKey.GRADED_ESTIMATE_INGEST_ENABLED]: (v) =>
     typeof v === 'string' && FEATURE_FLAG_VALUES.includes(v) ? null : `must be one of ${FEATURE_FLAG_VALUES.join('|')}`,
   [SettingKey.INE_RETENTION_DAYS]: (v) => (isInt(v) && v >= 0 ? null : 'must be an integer >= 0 (days)'),
+  // ===== v1.51 (M-46, §4.39l) — los DIEZ diales del ciclo de adquisición =====
+  // ⚠️ Estos validadores son POR DIAL. La relación ENTRE tres de ellos (`tarifa + piso <= mínimo`) NO
+  // se puede expresar aquí —un validador por clave solo ve su propio valor— y por eso vive en
+  // `SettingsService.update`, que es el único punto que conoce el ESTADO RESULTANTE. Ver
+  // `validateBuylistCrossDials`.
+  [SettingKey.BUYLIST_OFFER_ACCEPT_DEADLINE_BUSINESS_DAYS]: validatePositiveIntDial('business days'),
+  [SettingKey.BUYLIST_SHIP_DEADLINE_BUSINESS_DAYS]: validatePositiveIntDial('business days'),
+  // Dial 3: `>= 0` (un mínimo de 0 significa «sin mínimo», que es una política legítima). Su cota
+  // superior efectiva la impone la validación CRUZADA, no este validador.
+  [SettingKey.BUYLIST_MINIMUM_REQUEST_CENTS]: (v) =>
+    isInt(v) && v >= 0 ? null : 'must be an integer >= 0 (cents)',
+  [SettingKey.BUYLIST_OFFER_ISSUE_DEADLINE_BUSINESS_DAYS]: validatePositiveIntDial('business days'),
+  [SettingKey.BUYLIST_OPERATOR_OFFER_CAP_CENTS]: (v) =>
+    isInt(v) && v >= 0 ? null : 'must be an integer >= 0 (cents)',
+  [SettingKey.BUYLIST_VARIANT_POSITION_CAP]: validatePositiveIntDial('pieces'),
+  [SettingKey.BUYLIST_SHIPPING_FEE_CENTS]: (v) =>
+    isInt(v) && v >= 0 ? null : 'must be an integer >= 0 (cents)',
+  [SettingKey.BUYLIST_SHIPMENT_CONFIRM_ALERT_BUSINESS_DAYS]: validatePositiveIntDial('business days'),
+  // ⚠️ Dial 9: `>= 1`. El `0` NO es legal — ver el docblock del validador.
+  [SettingKey.BUYLIST_MINIMUM_OFFER_NET_CENTS]: validateBuylistMinimumOfferNetCents,
+  [SettingKey.BUYLIST_OFFER_REISSUE_ALERT_COUNT]: validatePositiveIntDial('cancellations'),
   // Fecha `yyyy/MM/dd` (formato pokemontcg.io) para la frontera del sync de catálogo.
   [SettingKey.CATALOG_SYNC_FROM_DATE]: (v) =>
     typeof v === 'string' && /^\d{4}\/\d{2}\/\d{2}$/.test(v) ? null : 'must be a date string yyyy/MM/dd',
@@ -526,4 +763,18 @@ export const SETTING_DTO_MAP: Record<string, SettingKeyType> = {
   // v1.1: frontera por defecto del sync de catálogo M2 (API_CONTRACT §M10).
   // ConfigSetting de primera clase: legible por GET y editable por PUT (validador yyyy/MM/dd).
   catalogSyncFromDate: SettingKey.CATALOG_SYNC_FROM_DATE,
+  // v1.51 (M-46, §M10): los DIEZ diales del ciclo de adquisición del buylist. Se exponen en el GET y
+  // se editan por este PUT (mismo patrón que el resto de `ConfigSetting`): sin redeploy y auditados.
+  // ⚠️ NO se expone ninguno de los DOS retirados (`buylistShippingThresholdCents` de D31 y el
+  // «recorte material» de D28): no existen, y buscarlos en M10 debe dar NADA.
+  buylistOfferAcceptDeadlineBusinessDays: SettingKey.BUYLIST_OFFER_ACCEPT_DEADLINE_BUSINESS_DAYS,
+  buylistShipDeadlineBusinessDays: SettingKey.BUYLIST_SHIP_DEADLINE_BUSINESS_DAYS,
+  buylistMinimumRequestCents: SettingKey.BUYLIST_MINIMUM_REQUEST_CENTS,
+  buylistOfferIssueDeadlineBusinessDays: SettingKey.BUYLIST_OFFER_ISSUE_DEADLINE_BUSINESS_DAYS,
+  buylistOperatorOfferCapCents: SettingKey.BUYLIST_OPERATOR_OFFER_CAP_CENTS,
+  buylistVariantPositionCap: SettingKey.BUYLIST_VARIANT_POSITION_CAP,
+  buylistShippingFeeCents: SettingKey.BUYLIST_SHIPPING_FEE_CENTS,
+  buylistShipmentConfirmAlertBusinessDays: SettingKey.BUYLIST_SHIPMENT_CONFIRM_ALERT_BUSINESS_DAYS,
+  buylistMinimumOfferNetCents: SettingKey.BUYLIST_MINIMUM_OFFER_NET_CENTS,
+  buylistOfferReissueAlertCount: SettingKey.BUYLIST_OFFER_REISSUE_ALERT_COUNT,
 };

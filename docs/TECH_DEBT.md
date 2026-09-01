@@ -13,6 +13,24 @@
 > validación de diales M10, y acotado por periodo de reportes) **ya están corregidos** con tests; no
 > figuran como deuda.
 
+### INV-D7 · Tres comentarios afirmaban una propagación de `cardProductId` que NUNCA existió — **CERRADA por M-46** (v1.51, 2026-09-01)
+- **Dueño:** backend. **Severidad:** Media (era **documentación que mentía**, no un bug de ejecución). **Estado: CERRADA en el mismo pase que la registra.**
+- **Por qué se registra si ya está cerrada:** ARCHITECTURE **§4.39(d) punto 4** lo exige literalmente (*«Backend registra la corrección en `docs/TECH_DEBT.md` … entrada nueva por "documentación que afirmaba una propagación inexistente durante N versiones", con el cierre = M-46»*), y porque **§11 (M-32) se contradecía a sí misma** diciendo que materializar la columna *«sería una sub-decisión aditiva a anotar en `TECH_DEBT.md`, no la exige el contrato»* — **y no había ninguna entrada**. Un registro que se abre y se cierra el mismo día sigue siendo la prueba de que la contradicción existió y de cómo se resolvió; borrarla dejaría el mismo hueco que la creó.
+- **La deuda, verificada en el código antes de tocarlo:** `InventoryItem` **no tenía** columna `cardProductId`, y `BuylistService.convertToInventory` **no la propagaba y no podía** (el `create` fijaba `cardId/productType/rawCondition/finish/…` y ahí se acababa). Sin embargo **tres sitios** afirmaban lo contrario desde **v1.30** (M-32):
+  | Sitio | Qué afirmaba | Realidad |
+  |---|---|---|
+  | `backend/prisma/schema.prisma` (`SellRequestItem.cardProductId`) | *«Se PROPAGA al InventoryItem al convertir (M5): la pieza queda ligada a ESE producto, no al set_base»* | **falso** |
+  | `backend/src/modules/buylist/dto/buylist.dto.ts` (`RequestItemDto.productId`) | *«al convertir a inventario la pieza queda ligada a ese producto»* | **falso** |
+  | `docs/ARCHITECTURE.md` §4.29d | *«se propaga al `InventoryItem` al convertir en M5»* | **falso** (lo corrigió el arquitecto en §4.39d) |
+- **Impacto real mientras estuvo abierta:** ninguno **observable** —nada leía una columna inexistente—, y ése es exactamente el problema: **una afirmación falsa que no rompe nada es la que sobrevive N versiones**. El daño era **latente y de dinero**: §P.8 se apoya en conteos por identidad de producto, y sin la columna la mesa de decisión habría mezclado una promo con la versión del set base — *«tengo 8» cuando son 5 de una y 3 de otra que valen distinto*. `PROJECT.md` §P.8 lo dice con todas sus letras: *«una sugerencia de compra basada en un conteo que mezcla identidades es peor que no dar sugerencia, porque el operador la creería»*.
+- **Cierre (M-46, D7 — decisión del humano: se cura AHORA, no es deuda):**
+  1. **Columna:** `InventoryItem.cardProductId Int?` (el `tcgplayerProductId`, mismo eje que M-31/M-32; `null` = set_base).
+  2. **Propagación:** `convertToInventory` copia `item.cardProductId` al `create`.
+  3. **Backfill determinista** por la FK `@unique` `sourceSellRequestItemId`, idempotente. **No infiere: copia** (ver §4.39d.3 y `docs/BACKEND_NOTES.md`).
+  4. **Los tres comentarios corregidos** (los dos de `backend/` en este pase; el de ARCHITECTURE lo corrigió el arquitecto).
+- **Guard que impide la reincidencia:** `backend/test/inventory.card-product-id.spec.ts` — asevera la propagación, que el backfill joinea por la llave única y **que la frase falsa no vuelve** al schema ni al DTO.
+- **Lección transferible (esto es lo que queda vivo de la entrada):** *un comentario que describe una conducta de otro módulo no tiene quién lo verifique.* Los tres sobrevivieron porque **describían el futuro** («se propaga») en presente. Cuando un comentario afirme una conducta cross-módulo, o hay un test que la sostiene, o el comentario dice explícitamente que **todavía no ocurre**.
+
 ### M43-D1 · `reconcilePublishedPrices` sigue siendo `raw`-only: un slab sin referencia no entra a la cola (M-43, 2026-08-29)
 - **Dueño:** backend. **Severidad:** Media-baja (aceptada, **no bloqueante**). Residual **declarado por el arquitecto** en ARCHITECTURE §4.38(l.4.9), fuera del alcance de M-43 por decisión del orquestador.
 - **Deuda:** el barrido de reconciliación (`reconcilePublishedPrices`) lleva `productType:'raw'` en su `where` (candado 1 de §4.38l.4.6). Con M-43, un slab cuya única fila de `graded:PSA:N` sea un estimado —o al que se le borre su referencia de mercado— **deja de venderse** (`priceBasis:'pending'`, `fetchSellable` lo descarta, `GET /catalog/listings/:id` ⇒ 404) **pero NO aparece en `PendingPriceEntry`**, así que no entra a la cola de triaje de §M2 y el dueño no tiene dónde verlo.

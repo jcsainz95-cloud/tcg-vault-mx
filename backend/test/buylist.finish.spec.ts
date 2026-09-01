@@ -165,7 +165,7 @@ describe('BuylistService.createRequest — snapshot del acabado + del priceBasis
       },
       kycProfile: { findUnique: jest.fn().mockResolvedValue(null), upsert: jest.fn() },
       sellRequest: {
-        aggregate: jest.fn().mockResolvedValue({ _sum: { quotedTotalCents: 0 } }),
+        findMany: jest.fn(async () => []), // M-46 §4.39c: acumulado mensual = findMany+reduce (COALESCE de 2 columnas)
         create: jest.fn(async ({ data }: any) => ({
           id: 'sr-1',
           status: data.status,
@@ -298,7 +298,7 @@ describe('BLOQUEO 2 — quote y createRequest cotizan por el MISMO cuerpo (§4.3
       },
       kycProfile: { findUnique: jest.fn(async () => null), upsert: jest.fn() },
       sellRequest: {
-        aggregate: jest.fn(async () => ({ _sum: { quotedTotalCents: 0 } })),
+        findMany: jest.fn(async () => []), // M-46 §4.39c: acumulado mensual = findMany+reduce (COALESCE de 2 columnas)
         create: jest.fn(async ({ data }: any) => ({
           id: 'sr-1',
           status: data.status,
@@ -384,7 +384,7 @@ describe('BLOQUEO 2 — quote y createRequest cotizan por el MISMO cuerpo (§4.3
       card: { findUnique: jest.fn(async () => card), findMany: jest.fn(async () => [card]) },
       kycProfile: { findUnique: jest.fn(async () => null), upsert: jest.fn() },
       sellRequest: {
-        aggregate: jest.fn(async () => ({ _sum: { quotedTotalCents: 0 } })),
+        findMany: jest.fn(async () => []), // M-46 §4.39c: acumulado mensual = findMany+reduce (COALESCE de 2 columnas)
         create: jest.fn(async ({ data }: any) => ({
           id: 'sr-1', status: data.status, quotedTotalCents: data.quotedTotalCents,
           items: data.items.create.map((it: any, i: number) => ({

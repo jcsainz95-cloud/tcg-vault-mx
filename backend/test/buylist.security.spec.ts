@@ -79,7 +79,7 @@ describe('BuylistService.createRequest — SEC-A1 regla derivada del servidor', 
       },
       kycProfile: { findUnique: jest.fn().mockResolvedValue(null), upsert: jest.fn() },
       sellRequest: {
-        aggregate: jest.fn().mockResolvedValue({ _sum: { quotedTotalCents: 0 } }),
+        findMany: jest.fn(async () => []), // M-46 §4.39c: acumulado mensual = findMany+reduce (COALESCE de 2 columnas)
         create: jest.fn(async ({ data }: any) => ({
           id: 'sr-1',
           status: data.status,
@@ -140,7 +140,7 @@ describe('BuylistService.createRequest — SEC-A2 tope mensual atómico (TOCTOU)
       },
       kycProfile: { findUnique: jest.fn().mockResolvedValue(null), upsert: jest.fn() },
       sellRequest: {
-        aggregate: jest.fn().mockResolvedValue({ _sum: { quotedTotalCents: 0 } }),
+        findMany: jest.fn(async () => []), // M-46 §4.39c: acumulado mensual = findMany+reduce (COALESCE de 2 columnas)
         create: jest.fn(async ({ data }: any) => ({ id: 'sr', status: data.status, quotedTotalCents: data.quotedTotalCents, items: [] })),
       },
       $transaction: jest.fn(async (cb: any, opts: any) => {
@@ -155,7 +155,7 @@ describe('BuylistService.createRequest — SEC-A2 tope mensual atómico (TOCTOU)
 
     expect(txOpts?.isolationLevel).toBe(Prisma.TransactionIsolationLevel.Serializable);
     // El aggregate del acumulado se ejecuta con el cliente transaccional (dentro de $transaction).
-    expect(prisma.sellRequest.aggregate).toHaveBeenCalled();
+    expect(prisma.sellRequest.findMany).toHaveBeenCalled();
   });
 
   it('dos solicitudes concurrentes cerca del tope: solo una se crea (no excede el tope)', async () => {
@@ -175,7 +175,11 @@ describe('BuylistService.createRequest — SEC-A2 tope mensual atómico (TOCTOU)
         },
         kycProfile: { findUnique: jest.fn().mockResolvedValue(null), upsert: jest.fn() },
         sellRequest: {
-          aggregate: jest.fn(async () => ({ _sum: { quotedTotalCents: shared.createdTotalCents } })),
+          // M-46 §4.39c: el acumulado se reduce en memoria; una fila con el total acumulado equivale
+          // al `_sum` previo. `offerGrossCents: null` = sin oferta emitida ⇒ manda `quotedTotalCents`.
+          findMany: jest.fn(async () => [
+            { offerGrossCents: null, quotedTotalCents: shared.createdTotalCents },
+          ]),
           create: jest.fn(async ({ data }: any) => {
             shared.createdTotalCents += data.quotedTotalCents;
             return { id: 'sr', status: data.status, quotedTotalCents: data.quotedTotalCents, items: [] };

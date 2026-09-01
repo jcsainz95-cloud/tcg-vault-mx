@@ -3,6 +3,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { SettingsService } from '../modules/settings/settings.service';
 import { SettingKey } from '../modules/settings/settings.constants';
 import { UploadsService } from '../modules/uploads/uploads.service';
+import { SELL_REQUEST_TERMINAL_STATES } from '../common/sell-request-states';
 
 /**
  * IneRetentionJobService — Retención/purga de imágenes de INE (LFPDPPP).
@@ -10,6 +11,7 @@ import { UploadsService } from '../modules/uploads/uploads.service';
  * Borra las imágenes de INE (objeto en el bucket + limpia `ineFrontKey`/`ineBackKey`)
  * de un usuario cuando:
  *   1) NO tiene solicitudes de buylist abiertas (la INE ya no se necesita para operar), y
+ *      «abierta» = NO terminal, por COMPLEMENTO sobre `SELL_REQUEST_TERMINAL_STATES` (M-46, §4.39c);
  *   2) su última solicitud cerrada/pagada superó el periodo `INE_RETENTION_DAYS` (dial).
  *
  * La función es disparable (invocable) aquí y el scheduling repetible BullMQ ya está cableado
@@ -24,8 +26,16 @@ import { UploadsService } from '../modules/uploads/uploads.service';
 export class IneRetentionJobService {
   private readonly logger = new Logger(IneRetentionJobService.name);
 
-  // Estados terminales de una solicitud (INE ya no se necesita para procesarla).
-  private static readonly CLOSED = ['pagada', 'rechazada', 'abandonada'] as const;
+  // v1.51 (M-46, §4.39c **SITIO 1** — el más grave de los nueve, y era de CUMPLIMIENTO).
+  //
+  // Este archivo definía su propio `CLOSED = ['pagada','rechazada','abandonada']`, copia número uno
+  // de CINCO del set terminal. M-46 añade `expirada`: con la lista a mano, una solicitud **expirada**
+  // contaría como **ABIERTA PARA SIEMPRE** ⇒ `openCount > 0` en cada corrida ⇒ **el INE de esa
+  // persona NO SE PURGA NUNCA** (PII / LFPDPPP). No falla, no avisa y no se nota: simplemente el
+  // `continue` de abajo salta a esa persona para siempre.
+  //
+  // La constante local **se borra**; la fuente es `common/sell-request-states.ts`. La nota de deuda
+  // que pedía este reapuntado llevaba **147 commits** sin cobrarse; se cobra aquí.
 
   constructor(
     private readonly prisma: PrismaService,
@@ -47,14 +57,14 @@ export class IneRetentionJobService {
       const openCount = await this.prisma.sellRequest.count({
         where: {
           userId: kyc.userId,
-          status: { notIn: [...IneRetentionJobService.CLOSED] },
+          status: { notIn: [...SELL_REQUEST_TERMINAL_STATES] },
         },
       });
       if (openCount > 0) continue;
 
       // 2) Última solicitud cerrada/pagada: si ninguna cerró aún, no purgamos.
       const lastClosed = await this.prisma.sellRequest.findFirst({
-        where: { userId: kyc.userId, status: { in: [...IneRetentionJobService.CLOSED] } },
+        where: { userId: kyc.userId, status: { in: [...SELL_REQUEST_TERMINAL_STATES] } },
         orderBy: { createdAt: 'desc' },
       });
       if (!lastClosed) continue;

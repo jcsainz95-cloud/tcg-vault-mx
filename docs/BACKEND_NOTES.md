@@ -4,6 +4,215 @@
 > El contrato (`docs/API_CONTRACT.md`) manda sobre el código. Stack: NestJS + Prisma + PostgreSQL,
 > Redis/BullMQ (jobs), JWT + argon2, S3/MinIO (presigned URLs), Stripe.
 
+## 0.14 v1.51 — **M-46: los CIMIENTOS del ciclo de adquisición** (schema, diez diales, días hábiles, el radio del enum) (2026-09-01)
+
+> Implementa **ARCHITECTURE §11 (M-46)** + **§4.39(c)(d)(e)(k)(l)** y **API_CONTRACT v1.51.4 §M10**.
+> ⚠️ **Esto NO es el ciclo: es la base sobre la que va.** No hay un solo endpoint del ciclo en este
+> pase — ni ofertar, ni aceptar, ni guía, ni barrido, ni correos, ni la mesa de decisión. Lo que hay es
+> **la migración, los diales, el helper de días hábiles, el set único de estados y la columna de
+> identidad de producto**, que es lo que todos los pases siguientes van a necesitar y que **no se puede
+> paralelizar** porque toca zona compartida.
+
+### 0.14.1 Qué quedó en la migración `20260901120000_m46_buylist_acquisition_cycle`
+
+**Una sola migración** (M-46 se enmendó **en el sitio cuatro veces** —v1.51.1 a v1.51.4— porque era
+papel; esta es su **primera ejecución** y ya nace con las cuatro enmiendas aplicadas). **Aditiva pura**:
+
+| Bloque | Qué |
+|---|---|
+| 1 | `SellRequestStatus` **+4 valores** (`ofertada`, `aceptada`, `en_transito`, `expirada`), con `IF NOT EXISTS` |
+| 2 | **3 enums nuevos**: `SellOfferState`, `SellRequestExpiryReason`, `BuyDecision` |
+| 3–7 | **32 columnas** en `SellRequest` (oferta, montos congelados, plazos, caducidad, cancelación, domicilio de origen, guía, tránsito, guía muerta, caja) + **4 índices** |
+| 7-bis | **7 columnas** en `SellRequestItem` (cherry-pick, precio ofertado/derivado, motivo del override, basis e instrumentación) + **1 índice** |
+| 8 | `InventoryItem.cardProductId` + **backfill** por la FK `@unique` |
+| 9 | **backfill** `VariantPriceOverride.bountyTargetQty = 2` (D35) |
+
+**Verificación mecánica del DDL:** se contrastó el archivo escrito a mano contra
+`prisma migrate diff --from-schema-datamodel <schema en HEAD> --to-schema-datamodel <schema nuevo>`.
+Coinciden **columna por columna, tipo por tipo y nombre de índice por nombre de índice**. Se escribió a
+mano —y no se dejó el generado— porque la migración lleva **dos backfills**, el **orden de despliegue
+de seis pasos** y el **paso 6 humano**, que ningún generador puede producir.
+
+**Cero `DROP`, cero `ALTER COLUMN`, exactamente DOS `UPDATE`** (los dos backfills declarados), y
+**ninguno toca `SellRequest`**. Todas las columnas son nullable salvo `offerReissueCount Int NOT NULL
+DEFAULT 0` — cuyo default puebla las filas existentes con **la verdad** (`0`: ninguna oferta se ha
+cancelado nunca) ⇒ **cero backfill**.
+
+**Lo que NO se creó, y es tan importante como lo que sí:**
+- **`offerShippingPaidByUs`** (retirada en v1.51.1 por D31): con **una sola banda** no hay `fee = 0` que
+  desambiguar y el campo solo podría valer `true`. *Un booleano de un solo valor invita a que alguien lo
+  ponga en `false` y resucite la banda.* **No existe en el schema ni en el SQL.**
+- **`pickupAddressId`**: el domicilio es **snapshot, no FK**. Con FK alguien haría el join e imprimiría
+  la dirección **viva** —el bug exacto que el snapshot existe para impedir— y, como `Address` **se puede
+  borrar**, una referencia viva dejaría **solicitudes en vuelo sin origen**.
+- **`declinedAt`**: duplicaría `closedAt`, sellado en la misma transacción. *Dos columnas para el mismo
+  instante es la primera versión de que se desincronicen.*
+
+**Los dos backfills, y por qué son legales.** El de `cardProductId` **COPIA** —no infiere— a través de
+la FK **`@unique`** `sourceSellRequestItemId` el valor que **el propio vendedor eligió** al cotizar. El
+**criterio 160 prohíbe adivinar** («ninguna migración puede adivinar si aquella pieza era la promo o la
+del set base»); **copiar por una llave única no es adivinar por heurística**, y el `UPDATE` no menciona
+rareza, nombre, fecha ni acabado — hay un test que lo asevera. Toda pieza **sin**
+`sourceSellRequestItemId` queda en `null` y se reclasifica **a mano desde M1**, tal cual pide el
+criterio. El del bounty pone **2 para todas** porque es la **política que fijó el dueño**, no una
+inferencia por fila, y no toca bounties apagados ni completados. Los dos son **idempotentes**
+(`… IS NULL`): la segunda corrida toca 0 filas.
+
+**El paso 6 NO está en el SQL, a propósito.** El **censo y triage humano** de las `cotizada` vivas
+(BL-10 + BL-12, **las mismas filas** ⇒ un solo triage) es **una decisión, no un `UPDATE`**. La consulta
+del censo queda **comentada al final del archivo** para que devops la copie. Sin ese paso, la primera
+corrida de la regla 7 del barrido **manda correos reales** de «no procederemos» a vendedores con
+solicitudes viejas. **No se rellena ninguna dirección por migración**: copiarla de un pedido o de la
+libreta viva sería **adivinar el consentimiento** del vendedor (criterio 160 aplicado a PII).
+
+**Precedencia de release (BL-11), que devops necesita y no es un séptimo paso:** el deploy del código se
+parte en dos con orden obligatorio — **FRONTEND PRIMERO, backend después**. `POST /buylist/requests`
+gana un campo **obligatorio** (`addressId`) en un endpoint **vivo**: front nuevo contra backend viejo
+**funciona** (el `ValidationPipe` con whitelist descarta lo desconocido); backend nuevo contra front
+viejo **rompe TODAS las altas**. *(El endpoint en sí NO se implementó en este pase.)*
+
+### 0.14.2 Los DIEZ diales (`settings.constants.ts`)
+
+Sembrados con sus defaults de `PROJECT.md` §P.10, con validador propio y **expuestos los diez** en el
+DTO de M10 (`GET`/`PUT /admin/settings`):
+
+| # | Dial | Default | Clase |
+|---|---|---|---|
+| 1 | `buylistOfferAcceptDeadlineBusinessDays` | 2 | **se congela** |
+| 2 | `buylistShipDeadlineBusinessDays` | 3 | **se congela** |
+| 3 | `buylistMinimumRequestCents` | 50000 | gate · **cruzada** |
+| 4 | `buylistOfferIssueDeadlineBusinessDays` | 7 | gate |
+| 5 | `buylistOperatorOfferCapCents` | 150000 | gate |
+| 6 | `buylistVariantPositionCap` | 10 | política |
+| 7 | `buylistShippingFeeCents` | 18000 | **se congela** · **cruzada** |
+| 8 | `buylistShipmentConfirmAlertBusinessDays` | 5 | política |
+| 9 | `buylistMinimumOfferNetCents` | 20000 | gate · **cruzada** |
+| 10 | `buylistOfferReissueAlertCount` | 2 | política |
+
+- **Se congelan 3, son gates o política 7.** El **10 no es excepción** aunque su alerta se lea contra una
+  columna: lo que se persiste es el **conteo** (`offerReissueCount`, un **hecho**), no el **umbral** (el
+  dial, una **política**). *El hecho se guarda; la política se relee* ⇒ mover el dial **reevalúa la
+  alerta de todas las filas vivas**, que es lo correcto para un control interno. **Ninguno de los siete
+  lleva columna en `SellRequest`.**
+- **El `0` NO es legal en el dial 9**, con validador propio y mensaje que dice por qué: con el piso en 0
+  la guarda de emisión `net < piso` **nunca dispara** y vuelve a ser emitible la oferta que anuncia
+  **MX$0**. Con el piso en **1 centavo** la regla degenera **exactamente** en la de v1.51.1
+  (`net < 1` ⇔ `net ≤ 0`): **la guarda vieja no se perdió, se convirtió en el suelo del dial.**
+- **`requiredGrossCents` (MX$380) NO es un décimo dial**: es `dial 9 + dial 7`, **derivado**. Hay test que
+  verifica que no exista como clave. *Dos fuentes para el mismo número es la primera versión del bug.*
+- **⚠️ Dial 7 ≠ `shippingFeeCents`.** MX$180 (lo que **nos descontamos** por traer la carta del vendedor)
+  contra MX$175 (lo que **le cobramos** al comprador por mandarle la suya). **Mover uno no mueve el
+  otro**; unificarlos «porque se parecen» rompería dos flujos a la vez.
+- **DOS diales que NO existen, verificable por lo negativo:** `buylist_shipping_threshold_cents` (D31) y
+  el «recorte material» de D28. **No se siembran, no se apagan, no quedan en 0: dejan de existir**, y hay
+  un test que busca los dos por su clave de BD **y** por su nombre de DTO.
+
+**La validación cruzada de TRES términos** (`tarifa + piso ≤ mínimo`) vive en
+`SettingsService.assertBuylistCrossDials`, **no** en `SETTING_VALIDATORS`: aquel mapa es un validador
+**por clave** y un validador por clave **solo ve su propio valor**. Se evalúa sobre
+**`{...vigente, ...body}`** porque el `PUT` es **parcial** — validar solo lo que viene permitiría romper
+el invariante mandando **una** de las tres, que es el agujero exacto que existe para tapar. Es
+**bloqueante** (no advertencia), aplica en **los tres sentidos** y emite `422 VALIDATION_ERROR` con
+`details.rule = "buylist_fee_plus_min_net_le_min_request"` — **el nombre NUEVO**: los dos anteriores
+describen relaciones de **dos** términos que ya no son la regla, y *un `details.rule` que miente es peor
+que uno ausente*. **El dial 10 no entra**: cuenta actos, no centavos.
+
+### 0.14.3 `common/business-days.ts` — falla ruidosamente
+
+L-V, sin **festivos oficiales de México** (Art. 74 LFT, tabla **explícita por año**, 2026–2030), en
+`America/Mexico_City`. Cuatro funciones: `isBusinessDay`, `addBusinessDays`, `businessDaysUntil` y
+`businessDaysSince` (esta última es la que necesita la regla 7 del barrido, y se expone **para que nadie
+la reimplemente restando fechas**).
+
+- **Si el año no está cubierto, LANZA** (`BusinessDaysCoverageError`, tipo propio para que el barrido lo
+  distinga y aplique la única conducta correcta: **loggear `error` y NO expirar**). **Prohibido degradar
+  a «no hay festivos»**: adelantaría vencimientos y **expiraría ofertas de gente que sí cumplió**.
+  *Fallar hacia «no vence» es el único lado seguro.* **Requiere extensión anual** — el `throw` es lo que
+  garantiza que nadie se entere tarde.
+- **Una fecha inválida también lanza** (`BusinessDaysInputError`), no se degrada a «hoy»: *una fecha
+  silenciosamente equivocada es un vencimiento silenciosamente equivocado*.
+- **Se cuenta sobre la fecha CIVIL de CDMX**, no sobre el instante UTC: un vencimiento a las 23:00 CST
+  cae **al día siguiente** en UTC, y ese día es exactamente el que le quitaríamos al vendedor. Hay test.
+- **⚠️ Punto abierto declarado, no adivinado:** el **1-dic sexenal** de 2030. El Art. 74 LFT dice
+  literalmente «1o. de diciembre», pero la reforma constitucional movió la **transmisión** al **1 de
+  octubre** desde 2024 y la LFT no se actualizó. Se sembró la fecha **literal de la ley**, que en 2030
+  **cae en domingo** ⇒ **no resta ningún día hábil y la ambigüedad no mueve ningún plazo hoy**. Si se
+  confirma que el descanso es el **1-oct-2030 (martes)**, hay que añadirlo: **eso sí movería una fecha**.
+
+**El frontend NO recalcula plazos**: recibe el ISO ya resuelto y lo formatea. Dos implementaciones de
+«día hábil» en dos lenguajes es la receta para que la pantalla y el correo digan fechas distintas.
+
+### 0.14.4 El radio del enum: los NUEVE sitios, cerrados
+
+Fuente única en **`common/sell-request-states.ts`**. **TERMINAL** se declara **literal** (clase R: lo
+fija `PROJECT.md` §P.1, no el schema) y **LIVE se deriva por complemento** (criterio 129), de modo que un
+estado nuevo entre **solo** a la cola del back-office.
+
+| # | Sitio | Qué se hizo | Efecto observable |
+|---|---|---|---|
+| 1 | `jobs/ine-retention.service.ts` | su `CLOSED` local **se borró** | **cierra el hueco de PII**: una `expirada` contaba abierta para siempre ⇒ el INE **no se purgaba nunca** |
+| 2+3 | `users.service.ts` + `buylist.service.ts` | los **dos cuerpos duplicados colapsan** en `common/buylist-aml.ts` | ⚠️ **dos cambios de conducta**, abajo |
+| 4 | `monthPaidOutCentsTx` | **renombrado** a `monthCommittedGrossPaidCentsTx` + doc | **la cifra no cambia**; el nombre mentía (mide **compromiso bruto**, no caja — la caja es `payoutNetCents`) |
+| 5 | `admin.service.ts` `workQueue.buylist` | pasa a `SELL_REQUEST_LIVE_STATES` | ⚠️ **la cifra cambia a propósito**: ahora incluye `ofertada`/`aceptada`/`en_transito` |
+| 6 | `admin.service.ts` reporte de brackets | excluye `offerDecision:'skip'` | una línea que **no compramos** no es una operación de compra |
+| 7 | `buylist-reject.constants.ts` | la constante **se mudó** a `common/`; queda **re-exportación** de compat | gana `expirada` ⇒ el guard «no pisar terminal» **sí la ve** |
+| 8 | `paySpei` | las **dos** copias inline usan `SELL_REQUEST_PAYABLE_STATES` | pre-check y guarda transaccional **no pueden divergir** |
+| 9 | DTOs | **`isTerminal` derivado server-side** en detalle admin, detalle cliente, cola de admin y listado propio | **el frontend borra `M5View.tsx:REQUEST_TERMINAL`** y **no lo sustituye por otra constante propia** |
+
+**⚠️ Sitios 2+3 — los dos cambios de conducta que QA debe verificar:**
+1. **`expirada` deja de quemar cuota mensual AML.** El predicado pasa a ser *por complemento* sobre
+   `SELL_REQUEST_NON_COMMITTING_STATES`. Una oferta caducada le seguía consumiendo el tope al vendedor —
+   cuota quemada por una operación que **no ocurrió** y que, en la mitad de los casos, caducó por un
+   plazo **nuestro**.
+2. **El monto pasa a ser el BRUTO OFERTADO cuando existe** (`offerGrossCents ?? quotedTotalCents ?? 0`,
+   criterio 155). **Consecuencia técnica visible en los mocks:** el acumulado deja de usar `aggregate`
+   (`_sum`) y pasa a `findMany` + `reduce`, porque el monto es un **COALESCE entre dos columnas** que
+   `_sum` no expresa. *Sumar el campo equivocado sería exactamente el error que este control cierra.*
+   Se actualizaron **8 specs** que mockeaban `sellRequest.aggregate`.
+
+**Sitio 6, detalle que no es cosmético:** el predicado se escribió con un **`OR` explícito**
+(`[{ offerDecision: null }, { offerDecision: { not: 'skip' } }]`) y no con `{ not: 'skip' }` a secas.
+Sobre una columna **nullable**, el trato que un `not` le da al `NULL` es una sutileza del ORM, y aquí la
+diferencia es **borrar de la serie histórica todas las líneas previas al ciclo** — o sea, el **100 % de
+los datos que existen hoy**.
+
+**Guard de residuo:** `test/sell-request-states.spec.ts` **lee `src/` como texto** (quitando
+comentarios) y falla si cualquiera de los literales reaparece, con el nombre del sitio y la razón. Hay
+además el guard simétrico —«los consumidores **importan** la constante»— porque «no hay literal» se
+cumpliría también si alguien hubiera **borrado el filtro entero**, que es peor.
+
+### 0.14.5 `InventoryItem.cardProductId` (D7) y la deuda documental
+
+Columna + propagación en `convertToInventory` + backfill por FK única. **Los tres comentarios que
+afirmaban una propagación inexistente** quedaron corregidos (`schema.prisma` y `dto/buylist.dto.ts` en
+este pase; ARCHITECTURE §4.29d lo corrigió el arquitecto) y la deuda quedó **registrada y cerrada** como
+**INV-D7** en `docs/TECH_DEBT.md` — se registra **aunque nazca cerrada** porque §4.39(d.4) lo exige y
+porque **§11 M-32 se contradecía a sí misma** remitiendo a una entrada que no existía.
+
+**Aprovechando el mismo `create`, y porque el contrato lo manda (§4.39i.5, criterio 135):**
+`acquisitionCostCents` pasa a `offeredPriceCents ?? approvedPriceCents ?? quotedPriceCents ?? 0`. **Hoy
+es un no-op** (nada escribe `offeredPriceCents` todavía); se pone ahora porque olvidarlo después sería
+registrar el costo **cotizado** de una pieza comprada a otro precio. **El envío no entra al costo de la
+pieza.**
+
+### 0.14.6 P-30 H2 — la llave canónica de variante
+
+`buylist` interpolaba la llave a mano. **El contrato enumeraba DOS sitios; en el código vivo eran
+CUATRO** (`batchQuote`, la vitrina de bounties, `createRequest` y el conteo de bounties al pagar). Se
+migraron **los cuatro**: cerrar dos de cuatro habría dejado la clase abierta, y este ciclo mete **cuatro
+fuentes nuevas** que se agrupan por esa misma familia de llaves — una que la construya distinto
+desalinea las cifras de la mesa **en silencio** y el operador compra mal. `variantKey()` **no se tocó**
+(cambiarla produce misses de override/referencia = dinero mal).
+
+### 0.14.7 Lo que este pase deja para el siguiente (declarado, no olvidado)
+
+Ningún endpoint del ciclo; el barrido sigue con sus **plazos viejos** (7/30 inline en
+`jobs/buylist-sweep.service.ts`) y **sin las siete reglas**; `variantPositionKey` (§4.39g) no se añadió
+—es de la mesa de decisión—; y la desviación **BL-9** (re-anclar `abandonada` a `receivedAt`) no se
+tocó: es un **cambio de comportamiento** que va con el barrido, no con los cimientos.
+
+---
+
 ## 0.13 v1.51 — **BL-2: `respond` gana la guarda de estado** (dinero saliente, agujero VIVO en `main`) (2026-09-01)
 
 > Implementa **API_CONTRACT §6 v1.51** (`POST /buylist/requests/:id/respond`) y **ARCHITECTURE

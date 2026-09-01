@@ -71,7 +71,7 @@ describe('BuylistService — match CLABE por HMAC (sin descifrar)', () => {
         }),
       },
       sellRequest: {
-        aggregate: jest.fn().mockResolvedValue({ _sum: { quotedTotalCents: 0 } }),
+        findMany: jest.fn(async () => []), // M-46 §4.39c: acumulado mensual = findMany+reduce (COALESCE de 2 columnas)
         create: jest.fn(async ({ data }: any) => ({ id: 'sr', status: data.status, quotedTotalCents: data.quotedTotalCents, clabeSnapshotEnc: data.clabeSnapshotEnc, items: [] })),
       },
       $transaction: jest.fn(async (cb: any) => cb(prisma)),

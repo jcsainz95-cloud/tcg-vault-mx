@@ -37,6 +37,15 @@ import {
   SELL_REQUEST_LIVE_ADJUSTMENT_STATES,
   SELL_REQUEST_TERMINAL_STATES,
 } from './buylist-reject.constants';
+// v1.51 (M-46, §4.39c) — la fuente ÚNICA de los subconjuntos de `SellRequestStatus`.
+import {
+  isTerminalSellRequestStatus,
+  SELL_REQUEST_PAYABLE_STATES,
+} from '../../common/sell-request-states';
+// v1.51 (M-46, §4.39c sitios 2+3) — el acumulado mensual de compromiso, en un solo cuerpo.
+import { monthCommittedGrossCents } from '../../common/buylist-aml';
+// P-30 H2 (§4.39e) — la llave canónica de variante. NO se interpola a mano.
+import { variantKey } from '../../common/variant-key';
 
 /**
  * v2.0 (§4.36.6) — caps de la vitrina pública de bounties. `SHOWCASE` es el del contrato (50, sin
@@ -86,6 +95,15 @@ function toAdminSellRequestDTO(r: {
     id: r.id,
     userId: r.userId,
     status: r.status,
+    // ⚠️ v1.51 (M-46, §4.39c **SITIO 9**) — `isTerminal` DERIVADO SERVER-SIDE.
+    //
+    // Existe para **BORRAR la quinta copia del set terminal**, que vivía en el FRONTEND
+    // (`M5View.tsx`, `REQUEST_TERMINAL`) — la única de las cinco fuera del backend, y la que hacía
+    // que la UI ofreciera acciones sobre una solicitud que el backend rechaza.
+    // **El frontend NO lo sustituye por otra constante propia: el servidor le dice.** *La copia se
+    // cura eliminando la NECESIDAD de la copia, no moviéndola de archivo.*
+    // Viaja en las DOS proyecciones (admin y cliente): las dos pantallas hacen la misma pregunta.
+    isTerminal: isTerminalSellRequestStatus(r.status),
     quotedTotalCents: r.quotedTotalCents,
     approvedTotalCents: r.approvedTotalCents,
     ineRequired: r.ineRequired,
@@ -397,7 +415,8 @@ export class BuylistService {
           it.rawCondition,
           it.finish,
           curve,
-          overrides.get(`${k.cardId}|${k.productType}|${k.gradeKey}|${k.finish}`) ?? null,
+          // P-30 H2 (§4.39e): `variantKey()`, NO una interpolación a mano. Ver la nota del import.
+          overrides.get(variantKey(k)) ?? null,
           it.productId,
         );
         results.push({ index, cardId: it.cardId, ok: true, ...payload });
@@ -626,7 +645,15 @@ export class BuylistService {
       })),
     );
     const rows = candidates.filter((r) => {
-      const ref = refs.get(`${r.cardId}|${r.productType}|${r.gradeKey}|${r.finish}`);
+      // P-30 H2 (§4.39e): misma fuente que el PRODUCTOR del map (`getReferencesBatch`).
+      const ref = refs.get(
+        variantKey({
+          cardId: r.cardId,
+          productType: r.productType,
+          gradeKey: r.gradeKey,
+          finish: r.finish,
+        }),
+      );
       const referenceMxnCents = ref && ref.status === 'priced' ? (ref.referenceMxnCents ?? null) : null;
       // MISMO cuerpo de precedencia que la cotización ⇒ el número publicado ES el que se paga.
       const curveQuoteCents = quoteAcquisitionFromCurve(referenceMxnCents, curve).curveQuoteCents;
@@ -766,7 +793,18 @@ export class BuylistService {
         // dentro del cuerpo compartido (money-safe: no se fusionan precios de dos identidades).
         override:
           overrides.get(
-            `${it.cardId}|${it.productType}|${this.pricing.gradeKeyFor({ productType: it.productType, rawCondition: it.rawCondition })}|${it.finish ?? 'normal'}`,
+            // P-30 H2 (§4.39e): la llave se CONSTRUYE con el helper, nunca con un template. Esta era
+            // la peor de las cuatro: cuatro componentes interpolados en una sola línea de 190
+            // caracteres, con el `gradeKey` resuelto EN MEDIO de la expresión.
+            variantKey({
+              cardId: it.cardId,
+              productType: it.productType,
+              gradeKey: this.pricing.gradeKeyFor({
+                productType: it.productType,
+                rawCondition: it.rawCondition,
+              }),
+              finish: (it.finish ?? 'normal') as Finish,
+            }),
           ) ?? null,
         productId: it.productId,
       });
@@ -916,29 +954,36 @@ export class BuylistService {
   }
 
   /**
-   * SEC-A2: acumulado del mes en curso leído sobre el cliente transaccional (`tx`), para
-   * que el chequeo del tope mensual y la creación de la solicitud sean atómicos bajo
-   * aislamiento serializable. Misma regla que `UsersService.monthUsedCents`.
+   * SEC-A2: acumulado del mes en curso leído sobre el cliente transaccional (`tx`), para que el
+   * chequeo del tope mensual y la creación de la solicitud sean atómicos bajo aislamiento
+   * serializable.
+   *
+   * v1.51 (M-46, §4.39c **SITIO 3**): el cuerpo era un **duplicado literal** del de
+   * `UsersService.monthUsedCents` (sitio 2) —su JSDoc previo lo reconocía— y cada copia llevaba su
+   * propio literal de estados. **Los dos colapsan en `common/buylist-aml.ts`**: aquí solo queda el
+   * paso del `tx`. *La variante transaccional no es otra función: es la misma con otro cliente.*
    */
   private async monthUsedCentsTx(tx: Prisma.TransactionClient, userId: string): Promise<number> {
-    const start = new Date();
-    start.setUTCDate(1);
-    start.setUTCHours(0, 0, 0, 0);
-    const agg = await tx.sellRequest.aggregate({
-      where: {
-        userId,
-        createdAt: { gte: start },
-        status: { notIn: ['rechazada', 'abandonada'] },
-      },
-      _sum: { quotedTotalCents: true },
-    });
-    return agg._sum.quotedTotalCents ?? 0;
+    return monthCommittedGrossCents(tx, userId);
   }
 
   /**
-   * v2.1.6 (AML-1, §4.36.6a) — acumulado **PAGADO** del mes del vendedor: *el dinero que SALIÓ*.
+   * v2.1.6 (AML-1, §4.36.6a) — acumulado **de COMPROMISO YA CONSUMADO** del mes del vendedor.
    *
-   * **Por qué no basta el acumulado de intake** (`monthUsedCentsTx`, que suma `quotedTotalCents`): el
+   * ### ⚠️ v1.51 (M-46, §4.39c **SITIO 4** / §4.39i.4) — CAMBIA EL NOMBRE Y CAMBIA EL DOC, NO LA CIFRA
+   * Se llamaba `monthPaidOutCentsTx` y su docblock decía *«el dinero que SALIÓ»*. **El nombre
+   * mentía**, y con M-46 la mentira empieza a costar: bajo el criterio 155 esto es un acumulado de
+   * **COMPROMISO (brutos)** —la misma base que AML—, **no** de caja. **La caja la lee M7 desde
+   * `SellRequest.payoutNetCents`** (`max(0, brutoAprobado − envío)`, sellado en la misma transacción
+   * que `pagada`), y **son dos medidas que conviven y NO se mezclan**: si el tope sumara netos, un
+   * envío caro **bajaría** el acumulado y alguien pasaría el tope sin que se note; si la caja sumara
+   * brutos, **M7 reportaría una salida de dinero que nunca ocurrió**. *Los nombres deben decirlo.*
+   *
+   * El `where` **conserva `status:'pagada'`** —es un literal legítimo, un estado concreto y no un
+   * subconjunto del enum— así que **no se reapunta a ninguna constante**: no es una de las copias del
+   * set terminal. **La cifra que devuelve no cambia en este pase.**
+   *
+   * **Por qué no basta el acumulado de intake** (`monthUsedCentsTx`): el
    * tope se evaluaba sobre la COTIZACIÓN de entrada, pero el dinero sale en la APROBACIÓN. Una línea
    * `precio_pendiente` entra al mes consumiendo **$0**; si después el dueño le fija precio y la
    * aprueba, ese monto **sí es dinero que sale** y hasta v2.1.5 **nada lo medía**. Con suficientes
@@ -953,7 +998,7 @@ export class BuylistService {
    * que este control viene a cerrar. El conjunto está acotado por el propio tope (las solicitudes
    * PAGADAS de UN vendedor en UN mes).
    */
-  private async monthPaidOutCentsTx(tx: Prisma.TransactionClient, userId: string): Promise<number> {
+  private async monthCommittedGrossPaidCentsTx(tx: Prisma.TransactionClient, userId: string): Promise<number> {
     const start = new Date();
     start.setUTCDate(1);
     start.setUTCHours(0, 0, 0, 0);
@@ -1040,6 +1085,10 @@ export class BuylistService {
     const data = rows.map((r) => ({
       sellRequestId: r.id,
       status: r.status,
+      // v1.51 (M-46, §4.39c sitio 9): `isTerminal` DERIVADO SERVER-SIDE, también en el listado.
+      // Si viajara solo en el detalle, la lista tendría que volver a codificar el set para saber
+      // qué fila sigue viva — y volveríamos a tener la copia que esto vino a borrar.
+      isTerminal: isTerminalSellRequestStatus(r.status),
       quotedTotalCents: r.quotedTotalCents,
       ineRequired: r.ineRequired,
       createdAt: r.createdAt,
@@ -1255,6 +1304,13 @@ export class BuylistService {
       userId: r.userId,
       seller: this.sellerRef(r.user),
       status: r.status,
+      // ⚠️ v1.51 (M-46, §4.39c **SITIO 9**) — la razón de ser de este campo está EN ESTA COLA.
+      // `M5View.tsx` codificaba `REQUEST_TERMINAL` para decidir qué acciones ofrecer sobre cada fila
+      // de este listado: la QUINTA copia del set terminal y la única fuera del backend. Con
+      // `expirada` en el enum, la UI ofrecería acciones que el backend rechaza.
+      // **El frontend borra su literal y no lo sustituye por otra constante propia: el servidor le
+      // dice.** *La copia se cura eliminando la necesidad de la copia.*
+      isTerminal: isTerminalSellRequestStatus(r.status),
       quotedTotalCents: r.quotedTotalCents,
       approvedTotalCents: r.approvedTotalCents ?? undefined,
       createdAt: r.createdAt,
@@ -1775,10 +1831,30 @@ export class BuylistService {
             rawCondition: item.rawCondition,
             // v1.6-finish: el acabado snapshoteado se PROPAGA a la copia física (ARCHITECTURE §3.7).
             finish: item.finish,
+            // ⚠️ v1.51 (M-46, D7, §4.39d) — **LA PROPAGACIÓN QUE TRES COMENTARIOS AFIRMABAN Y NO
+            // EXISTÍA.** `schema.prisma`, `dto/buylist.dto.ts` y ARCHITECTURE §4.29d decían desde
+            // v1.30 que `SellRequestItem.cardProductId` «se propaga al `InventoryItem` al convertir»;
+            // `InventoryItem` **no tenía la columna** y este `create` **no la propagaba ni podía**.
+            // M-46 crea la columna y ESTA línea es la propagación. Los tres comentarios quedaron
+            // corregidos y la deuda documental registrada en `docs/TECH_DEBT.md` (INV-D7).
+            // `null` = línea de set_base ⇒ pieza de set_base. Sin esto, los conteos de la mesa de
+            // decisión mezclarían una promo con la del set base (§P.8 / D6).
+            cardProductId: item.cardProductId,
             ownerType: 'platform',
             status: 'in_stock',
             acquisitionType: 'buylist',
-            acquisitionCostCents: item.approvedPriceCents ?? item.quotedPriceCents ?? 0,
+            // ⚠️ v1.51 (M-46, §4.39i.5, criterio 135) — **el costo de inventario es el BRUTO de esa
+            // línea**, y desde el ciclo la fuente ÚNICA es `offeredPriceCents` (congelado al ofertar,
+            // no se mueve jamás — D2/D9). El fallback `approvedPriceCents ?? quotedPriceCents` se
+            // conserva para las filas **pre-M-46**, donde `offeredPriceCents` es `null` y no puede
+            // ser otra cosa. Hoy nada escribe `offeredPriceCents` ⇒ **esta línea es un no-op sobre
+            // los datos existentes**; se pone ahora porque olvidarla después sería registrar el costo
+            // COTIZADO de una pieza que se compró a otro precio.
+            // **El envío NO entra al costo de la pieza**: dos piezas idénticas compradas al mismo
+            // bruto tienen el MISMO costo y el MISMO margen, llegue una en un paquete caro y la otra
+            // no. Mezclarlos ensuciaría el P&L por carta que M7 existe para mostrar.
+            acquisitionCostCents:
+              item.offeredPriceCents ?? item.approvedPriceCents ?? item.quotedPriceCents ?? 0,
             sourceSellRequestItemId: item.id,
           },
         });
@@ -1831,7 +1907,12 @@ export class BuylistService {
     if (req.status === 'pagada') {
       return toAdminSellRequestDTO(req);
     }
-    if (!['aprobada', 'verificacion'].includes(req.status) || !req.verifiedAt) {
+    // v1.51 (M-46, §4.39c **SITIO 8**) — el «estado pagable» estaba escrito INLINE **dos veces en
+    // este mismo método**: aquí (pre-check) y en el `where` del `updateMany` de abajo (la guarda
+    // atómica real). Dos literales en un método de DINERO SALIENTE es la forma más barata de que una
+    // edición mueva uno y no el otro: el pre-check diría «no» y la guarda «sí», o al revés.
+    // **Una sola constante, los dos sitios.**
+    if (!(SELL_REQUEST_PAYABLE_STATES as readonly string[]).includes(req.status) || !req.verifiedAt) {
       throw BusinessException.validation(
         'VALIDATION_ERROR',
         'Payment allowed only after receipt/verification and approval',
@@ -1856,7 +1937,7 @@ export class BuylistService {
       async (tx) => {
         // Lo que REALMENTE sale por esta solicitud: lo aprobado manda; sin cherry-pick, lo cotizado.
         const payoutCents = req.approvedTotalCents ?? req.quotedTotalCents ?? 0;
-        const alreadyPaid = await this.monthPaidOutCentsTx(tx, req.userId);
+        const alreadyPaid = await this.monthCommittedGrossPaidCentsTx(tx, req.userId);
         if (alreadyPaid + payoutCents > capPerMonth) {
           throw BusinessException.validation('BUYLIST_LIMIT_EXCEEDED', 'Per-month payout cap exceeded', {
             scope: 'per_month_payout',
@@ -1865,7 +1946,9 @@ export class BuylistService {
           });
         }
         const res = await tx.sellRequest.updateMany({
-          where: { id, status: { in: ['aprobada', 'verificacion'] }, verifiedAt: { not: null } },
+          // §4.39c sitio 8: la MISMA constante que el pre-check de arriba. Ésta es la guarda real
+          // (patrón `count===1`): la del motor, no la de la aplicación.
+          where: { id, status: { in: [...SELL_REQUEST_PAYABLE_STATES] }, verifiedAt: { not: null } },
           // SEC-D2: `pagada` es terminal → sella closedAt (ancla la retención de INE al cierre real).
           data: { status: 'pagada', speiReference, paidBy, paidAt: new Date(), closedAt: new Date() },
         });
@@ -1936,7 +2019,9 @@ export class BuylistService {
         rawCondition: it.rawCondition,
       });
       const finish = (it.finish ?? 'normal') as Finish;
-      const key = `${it.cardId}|${it.productType}|${gradeKey}|${finish}`;
+      // P-30 H2 (§4.39e): agrupación por la MISMA llave que usan pricing/catálogo. Si esta se
+      // construyera distinto, el bounty contaría piezas de una variante contra el objetivo de otra.
+      const key = variantKey({ cardId: it.cardId, productType: it.productType, gradeKey, finish });
       const prev = byKey.get(key);
       if (prev) prev.qty += 1;
       else byKey.set(key, { cardId: it.cardId, productType: it.productType, gradeKey, finish, qty: 1 });

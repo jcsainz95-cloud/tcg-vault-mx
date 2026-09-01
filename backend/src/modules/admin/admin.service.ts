@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { randomBytes, randomUUID } from 'crypto';
 import * as argon2 from 'argon2';
+import { SELL_REQUEST_LIVE_STATES } from '../../common/sell-request-states';
 import {
   AuthProvider,
   DisputeStatus,
@@ -1089,6 +1090,18 @@ export class AdminService {
         where: {
           itemStatus: { not: 'rechazada' },
           sellRequest: { status: 'pagada', ...(r ? { paidAt: r } : {}) },
+          // v1.51 (M-46, §4.39c **SITIO 6**) — una línea que NO compramos no es una operación de
+          // compra. Con el cherry-pick al ofertar (§P.2), una solicitud pagada puede llevar líneas
+          // `skip` que nunca costaron un peso; contarlas como operaciones contaminaría la
+          // instrumentación de §N.8 (infla el conteo y hunde el precio medio del bracket).
+          // `null` = línea PREVIA al ciclo (todas las de hoy) ⇒ **sigue contando**, que es correcto:
+          // antes de M-46 no había forma de no comprar una línea aprobada.
+          // ⚠️ Se escribe con un `OR` EXPLÍCITO y no con `{ not: 'skip' }`: sobre una columna
+          // NULLABLE, el trato que un `not` le da al `NULL` es una sutileza del ORM, y aquí la
+          // diferencia es **borrar de la serie histórica TODAS las líneas previas al ciclo** —o sea,
+          // el 100% de los datos que existen hoy. Un predicado de instrumentación no puede depender
+          // de recordar esa regla.
+          OR: [{ offerDecision: null }, { offerDecision: { not: 'skip' } }],
         },
         select: {
           marketBracket: true,
@@ -1146,7 +1159,13 @@ export class AdminService {
         this.prisma.order.count({ where: { status: 'settled', settledAt: period } }),
         this.prisma.order.aggregate({ where: { status: 'settled', settledAt: period }, _sum: { totalCents: true } }),
         this.prisma.shipmentRequest.count({ where: { status: { in: ['solicitado', 'picking', 'guia'] } } }),
-        this.prisma.sellRequest.count({ where: { status: { in: ['cotizada', 'recibida', 'verificacion', 'aprobada'] } } }),
+        // v1.51 (M-46, §4.39c **SITIO 5**) — la cola de trabajo se define POR EXCLUSIÓN, no con una
+        // lista de estados vivos. Codificaba `['cotizada','recibida','verificacion','aprobada']`, así
+        // que M-46 la habría dejado **SUBCONTANDO el pipeline**: `ofertada`, `aceptada` y
+        // `en_transito` —las tres nuevas y no terminales— no aparecerían en la cola del operador.
+        // ⚠️ **LA CIFRA CAMBIA A PROPÓSITO** (ahora incluye esos tres estados) y **no vuelve a
+        // subcontar** cuando se añada otro: `LIVE = enum − TERMINAL` (criterio 129).
+        this.prisma.sellRequest.count({ where: { status: { in: [...SELL_REQUEST_LIVE_STATES] } } }),
         this.prisma.dispute.count({ where: { status: { in: ['abierta', 'en_revision'] } } }),
         this.prisma.pendingPriceEntry.count({ where: { status: 'open' } }),
         this.prisma.sellRequest.aggregate({ where: { status: 'pagada', paidAt: period }, _sum: { approvedTotalCents: true } }),
