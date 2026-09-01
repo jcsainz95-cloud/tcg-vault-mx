@@ -40,6 +40,7 @@ import {
 } from './buylist-reject.constants';
 // v1.51 (M-46, §4.39c) — la fuente ÚNICA de los subconjuntos de `SellRequestStatus`.
 import {
+  isPayableSellRequest,
   isTerminalSellRequestStatus,
   SELL_REQUEST_COMMITTED_STATES,
   SELL_REQUEST_IN_TRANSIT_STATES,
@@ -1447,9 +1448,15 @@ export class BuylistService implements OnModuleInit {
       q?: string;
       dateRange?: { gte?: Date; lte?: Date };
       centsRange?: { gte?: number; lte?: number };
+      /**
+       * v1.51.8 · **BL-18** (§M5, D12/criterio 129) — `true` = todo lo que **NO** es terminal;
+       * `false` = los terminales. `undefined` = sin filtro (comportamiento de hoy, intacto).
+       */
+      live?: boolean;
     },
   ) {
     const where: Prisma.SellRequestWhereInput = {};
+    const live = filters?.live;
     // v1.25-buylist-orders-pagination (§M5): `status` pasa a aceptar CSV → `status IN (...)`
     // (la pestaña «Cerradas» = `pagada,rechazada,abandonada` en UNA llamada). Compat TOTAL: un solo
     // token se comporta IDÉNTICO a hoy (escalar `where.status = token`, no `{ in: [...] }`); omitirlo
@@ -1474,6 +1481,35 @@ export class BuylistService implements OnModuleInit {
           tokens.length === 1
             ? (tokens[0] as SellRequestStatus)
             : { in: tokens as SellRequestStatus[] };
+      }
+    }
+    // ⚠️ v1.51.8 · **BL-18** — `live?` POR EXCLUSIÓN, nunca como lista de estados vivos.
+    //
+    // Estaba **declarado en el contrato desde v1.51 y ausente del código**; mientras tanto la pestaña
+    // «Cerradas» mandaba un CSV que **enumeraba los cuatro terminales** — la forma exacta que este
+    // ciclo retiró de los otros cinco sitios. Se implementa (no se retira) porque `live?` **es** la
+    // contraparte server-side de `isTerminal`: quitarlo del contrato **bendeciría** la enumeración en
+    // el cliente justo después de haberla borrado de todas partes.
+    //
+    // **Por EXCLUSIÓN** sobre `SELL_REQUEST_TERMINAL_STATES` (criterio 129): así un estado nuevo del
+    // enum entra a la vista de «vivas» **solo**, sin que nadie tenga que acordarse de nada. Es la
+    // única de las dos direcciones en la que olvidarse falla hacia el lado seguro.
+    //
+    // **Combinable con `status`:** los dos predicados caen sobre el MISMO campo, así que se
+    // **intersectan** con `AND` (no se pisan — asignar `where.status` dos veces dejaría ganar al
+    // último y el filtro del usuario desaparecería en silencio). Una combinación contradictoria
+    // —`status=pagada` con `live=true`— da **conjunto vacío, no un error**: pedir la intersección de
+    // dos filtros legítimos es legítimo, y un 4xx obligaría al cliente a razonar sobre qué estados
+    // son terminales… que es exactamente lo que este parámetro existe para evitar.
+    if (live !== undefined) {
+      const liveStatus: Prisma.EnumSellRequestStatusFilter = live
+        ? { notIn: [...SELL_REQUEST_TERMINAL_STATES] }
+        : { in: [...SELL_REQUEST_TERMINAL_STATES] };
+      if (where.status !== undefined) {
+        where.AND = [{ status: where.status }, { status: liveStatus }];
+        delete where.status;
+      } else {
+        where.status = liveStatus;
       }
     }
     // v1.7-admin-users: filtro opcional por SellRequest.userId (simetría con /admin/orders).
@@ -1524,6 +1560,16 @@ export class BuylistService implements OnModuleInit {
       // **El frontend borra su literal y no lo sustituye por otra constante propia: el servidor le
       // dice.** *La copia se cura eliminando la necesidad de la copia.*
       isTerminal: isTerminalSellRequestStatus(r.status),
+      // ⚠️ v1.51.8 (M-46, §4.39c **SITIO 10**) — **DINERO SALIENTE, y ADMIN-ONLY.**
+      // `M5View.tsx` decidía el botón de pagar por SPEI con `SELL_REQUEST_PAYABLE_STATES` transcrito
+      // a mano… **y con UNO SOLO de los dos términos**, así que la UI habilitaba el pago en filas
+      // donde el servidor responde `422`. Aquí sale el MISMO cuerpo que usan el pre-check y la
+      // guarda atómica de `paySpei`: **tres lectores, una regla**.
+      // **NO es un permiso ni relaja nada:** el rol lo sigue imponiendo `MoneyOutGuard`, y el
+      // frontend conserva solo su mitad de rol (`isSuperAdmin && req.isPayable === true`).
+      // **Jamás en un DTO de cliente** (a diferencia de `isTerminal`, que viaja en las dos): al
+      // vendedor le anticiparía un depósito que aún puede no ocurrir.
+      isPayable: isPayableSellRequest(r),
       quotedTotalCents: r.quotedTotalCents,
       approvedTotalCents: r.approvedTotalCents ?? undefined,
       createdAt: r.createdAt,
@@ -2102,6 +2148,19 @@ export class BuylistService implements OnModuleInit {
   }
 
   /**
+   * v1.51.8 (§4.39c **sitio 10**) — **`isPayableSellRequest` traducido a `where` de Prisma**: los
+   * **DOS** términos, derivados de la misma constante y del mismo campo.
+   *
+   * Existe porque un `where` es declarativo y no puede *invocar* el predicado; lo que sí puede es
+   * **no repetir la constante**. Que las dos formas digan lo mismo lo asevera un test que las cruza
+   * sobre **todo el enum × `verifiedAt ∈ {null, fecha}`** — si alguien mueve una y no la otra, ese
+   * test cae. *La guarda del motor y el aviso de la UI no pueden discrepar en una ruta de dinero.*
+   */
+  private payableWhere(): Prisma.SellRequestWhereInput {
+    return { status: { in: [...SELL_REQUEST_PAYABLE_STATES] }, verifiedAt: { not: null } };
+  }
+
+  /**
    * v1.51.5 · **BL-14** — el `409` de la guarda, con el estado **releído** contra el que se chocó.
    *
    * Se relee (y **dentro de la transacción**, cuando la hay) porque la lectura inicial ya puede estar
@@ -2661,7 +2720,10 @@ export class BuylistService implements OnModuleInit {
     // atómica real). Dos literales en un método de DINERO SALIENTE es la forma más barata de que una
     // edición mueva uno y no el otro: el pre-check diría «no» y la guarda «sí», o al revés.
     // **Una sola constante, los dos sitios.**
-    if (!(SELL_REQUEST_PAYABLE_STATES as readonly string[]).includes(req.status) || !req.verifiedAt) {
+    // v1.51.8 (**SITIO 10**): y ahora son **TRES** lectores con **UN** cuerpo — el tercero es
+    // `AdminBuylistDTO.isPayable`, que es lo que gobierna el botón de pagar en M5. La condición
+    // completa (los DOS términos) vive en `isPayableSellRequest`; aquí solo se invoca.
+    if (!isPayableSellRequest(req)) {
       throw BusinessException.validation(
         'VALIDATION_ERROR',
         'Payment allowed only after receipt/verification and approval',
@@ -2701,7 +2763,10 @@ export class BuylistService implements OnModuleInit {
         const res = await tx.sellRequest.updateMany({
           // §4.39c sitio 8: la MISMA constante que el pre-check de arriba. Ésta es la guarda real
           // (patrón `count===1`): la del motor, no la de la aplicación.
-          where: { id, status: { in: [...SELL_REQUEST_PAYABLE_STATES] }, verifiedAt: { not: null } },
+          // v1.51.8: el fragmento sale de `payableWhere()`, que es la traducción a `where` de
+          // `isPayableSellRequest` — **los dos términos, la misma constante**. Hay un test que
+          // asevera que el predicado y el `where` coinciden en TODO el enum × `verifiedAt`.
+          where: { id, ...this.payableWhere() },
           // SEC-D2: `pagada` es terminal → sella closedAt (ancla la retención de INE al cierre real).
           data: {
             status: 'pagada',

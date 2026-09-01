@@ -43,12 +43,21 @@ export class AdminBuylistController {
     @Query('to') to?: string,
     @Query('minCents') minCents?: string,
     @Query('maxCents') maxCents?: string,
+    // v1.51.8 · **BL-18** (§M5, D12/criterio 129) — `live?` estaba **declarado en el contrato y
+    // ausente del código**. Es la contraparte server-side de `isTerminal`: mientras faltaba, la
+    // pestaña «Cerradas» tenía que mandar un CSV **enumerando los cuatro terminales**.
+    @Query('live') live?: string,
   ) {
     const f = parseAdminListFilters({ page, pageSize, q, from, to, minCents, maxCents });
     return this.buylist.adminList(status, f.page, f.pageSize, userId, {
       q: f.q,
       dateRange: f.dateRange,
       centsRange: f.centsRange,
+      // Solo los DOS valores explícitos filtran; cualquier otra cosa (incluido omitirlo) deja el
+      // listado EXACTAMENTE como estaba. Mismo criterio y mismo precedente que `guest`/`needsManual`
+      // en `GET /admin/orders`: un query param mal escrito **no puede** convertir una cola de
+      // trabajo en un 400 — el modo seguro de un filtro ausente es «no filtrar», no «fallar».
+      live: live === 'true' ? true : live === 'false' ? false : undefined,
     });
   }
 

@@ -2,6 +2,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { SellRequestStatus } from '@prisma/client';
 import {
+  isPayableSellRequest,
   isTerminalSellRequestStatus,
   SELL_REQUEST_COMMITTED_STATES,
   SELL_REQUEST_IN_TRANSIT_STATES,
@@ -264,6 +265,32 @@ describe('§4.39c — los NUEVE sitios: guard de RESIDUO (ninguno vuelve a codif
     // Detalle (admin + cliente, vía la lista blanca compartida), listado de admin y listado propio.
     expect(ocurrencias).toBe(3);
   });
+
+  it('sitio 10 — `isPayable` se DERIVA server-side y es ADMIN-ONLY (UNA sola emisión)', () => {
+    // La SEXTA copia gobernaba el botón de PAGAR POR SPEI y replicaba **uno solo** de los dos
+    // términos. `isPayable` la borra — pero **solo en la proyección de admin**: al vendedor le
+    // anticiparía un depósito que aún puede no ocurrir. Que sea UNA emisión es la prueba de que no
+    // se coló en las dos proyecciones de cliente (donde `isTerminal` sí va, y son tres).
+    const buylist = CODE.find((f) => f.path === 'modules/buylist/buylist.service.ts');
+    expect((buylist?.text.match(/isPayable: isPayableSellRequest\(/g) ?? []).length).toBe(1);
+  });
+
+  it('sitio 10 — `isPayableSellRequest` coincide con la constante Y exige `verifiedAt`', () => {
+    for (const s of Object.values(SellRequestStatus)) {
+      const enElSet = (SELL_REQUEST_PAYABLE_STATES as readonly SellRequestStatus[]).includes(s);
+      // Con fecha: manda el set.
+      expect(isPayableSellRequest({ status: s, verifiedAt: new Date() })).toBe(enElSet);
+      // ⚠️ Sin fecha: NUNCA, ni siquiera en un estado del set. Éste es el término que el cliente no
+      // replicaba, y por el que la UI ofrecía un pago que el servidor rechaza con 422.
+      expect(isPayableSellRequest({ status: s, verifiedAt: null })).toBe(false);
+    }
+  });
+
+  // NOTA: el guard de RESIDUO del estado pagable ya existe arriba (sitio 8) y discrimina por el
+  // ORDEN del literal (`['aprobada','verificacion']`). No se añade otro: el set del AJUSTE VIVO
+  // (`['verificacion','aprobada']`, `buylist-reject.constants.ts`) tiene **los mismos dos miembros y
+  // otra regla**, y un guard que no distinguiera el orden los confundiría — declarando ofensor a un
+  // literal legítimo. *Dos reglas que hoy coinciden en sus miembros no son la misma regla.*
 });
 
 // ============================================================================================

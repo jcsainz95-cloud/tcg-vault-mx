@@ -107,6 +107,52 @@ export const SELL_REQUEST_PAYABLE_STATES = [
 ] as const satisfies readonly SellRequestStatus[];
 
 /**
+ * v1.51.8 (**§4.39c SITIO 10**, API_CONTRACT §M5) — **¿esta solicitud está en condición de pagarse?**
+ * `isPayable` **derivado server-side**, y **es el MISMO cuerpo** que usan el pre-check y la guarda
+ * atómica de `paySpei`. **Tres lectores, una regla.**
+ *
+ * ```
+ * isPayable = status ∈ SELL_REQUEST_PAYABLE_STATES  ∧  verifiedAt IS NOT NULL
+ * ```
+ *
+ * ### Por qué existe, y por qué NO bastaba con que el cliente copiara bien
+ * `M5View.tsx` tenía `canPay = isSuperAdmin && (status === 'aprobada' || status === 'verificacion')`:
+ * `SELL_REQUEST_PAYABLE_STATES` **transcrito a mano en el cliente**, gobernando **el botón de pagar
+ * por SPEI**. Es la **tercera** copia de la regla que el **sitio 8** acaba de consolidar server-side
+ * *precisamente por ser dinero* — y ésta vive en **otro lenguaje, otro paquete y otro ciclo de
+ * release**, así que ni el compilador ni un test de backend la ven.
+ *
+ * ⚠️ **Y estaba INCOMPLETA:** la precondición del servidor son **DOS** términos y el cliente replicaba
+ * **solo el primero**, así que **la UI habilitaba el pago en solicitudes donde el servidor responde
+ * `422`**. *No era una copia fiel que pudiera desincronizarse algún día: ya lo estaba.*
+ *
+ * El remedio **no** es que el cliente replique las dos condiciones —eso sería duplicar **dos** reglas
+ * en vez de una y meter `verifiedAt` en la lógica de una pantalla—. *La copia se cura eliminando la
+ * necesidad de la copia.*
+ *
+ * ### ⚠️ ACTOR-INDEPENDIENTE, y no es un permiso
+ * *«¿esta solicitud está en condición de pagarse?»* es propiedad **de la fila**; *«¿puedo pagarla
+ * yo?»* es propiedad **del actor**. Fundirlas haría que **la misma solicitud respondiera distinto
+ * según quién pregunte**: *dos preguntas en un campo son un campo que nadie sabe leer.* El rol se
+ * queda en el cliente (ya gatea toda la sección de dinero) y **el servidor lo impone igual con
+ * `MoneyOutGuard`**. Un `isPayable: true` **NO autoriza** un pago: `pay-spei` conserva su rol y sus
+ * dos guardas intactas.
+ *
+ * **ADMIN-ONLY** (a diferencia de `isTerminal`, que viaja en las dos proyecciones de cliente): al
+ * vendedor no le toca saber si su solicitud entró a la cola de pago — le anticiparía un depósito que
+ * aún puede no ocurrir.
+ */
+export function isPayableSellRequest(sr: {
+  status: SellRequestStatus;
+  verifiedAt: Date | null;
+}): boolean {
+  return (
+    (SELL_REQUEST_PAYABLE_STATES as readonly SellRequestStatus[]).includes(sr.status) &&
+    sr.verifiedAt != null
+  );
+}
+
+/**
  * `isTerminal` **derivado server-side** (§4.39c **sitio 9**, API_CONTRACT §M5/§11).
  *
  * ⚠️ Existe para **BORRAR la quinta copia del set terminal**, que vivía en el **frontend**

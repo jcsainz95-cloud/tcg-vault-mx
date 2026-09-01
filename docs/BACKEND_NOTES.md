@@ -4,6 +4,119 @@
 > El contrato (`docs/API_CONTRACT.md`) manda sobre el código. Stack: NestJS + Prisma + PostgreSQL,
 > Redis/BullMQ (jobs), JWT + argon2, S3/MinIO (presigned URLs), Stripe.
 
+## 0.17 v1.51.8 — **BL-17 (`isPayable`) y BL-18 (`live?`)**: la sexta copia gobernaba el botón de pagar (2026-09-01)
+
+> Implementa **API_CONTRACT v1.51.8 §A/§C** y **ARCHITECTURE §4.39c SITIO 10**, **§9 BL-17/BL-18**.
+> **Van juntos por lo que le ahorran al consumidor:** mismo endpoint, mismo DTO, misma doctrina ⇒ el
+> frontend hace **un** pase y no dos.
+> ⚠️ **ORDEN OBLIGATORIO — BACKEND PRIMERO, frontend después** (al revés de BL-11). Si el frontend
+> borrara su literal antes de que el campo exista, `isPayable` llegaría `undefined` y **el botón de
+> pago moriría para todos**. Con este orden el peor caso del desfase es *«sigue como hoy»*.
+
+### 0.17.1 BL-17 — `isPayable`, y la copia **ya estaba rota**
+
+`M5View.tsx` tenía `canPay = isSuperAdmin && (status === 'aprobada' || status === 'verificacion')`:
+`SELL_REQUEST_PAYABLE_STATES` **transcrito a mano en el cliente**, gobernando el botón de **pagar por
+SPEI**. Es la **tercera** copia de la regla que el **sitio 8** acababa de consolidar server-side
+*precisamente por ser dinero* — y ésta vive en **otro lenguaje, otro paquete y otro ciclo de
+release**, así que ni el compilador ni un test de backend la veían.
+
+⚠️ **Y estaba INCOMPLETA.** La precondición real del servidor son **DOS** términos y el cliente
+replicaba **solo el primero**:
+
+```
+isPayable = status ∈ SELL_REQUEST_PAYABLE_STATES  ∧  verifiedAt IS NOT NULL
+```
+
+Es decir: **la UI habilitaba el botón de pago en solicitudes donde el servidor responde `422`.** *No
+era una copia fiel que pudiera desincronizarse algún día: ya lo estaba.* Y eso descarta la alternativa
+—que el cliente replicara *bien* las dos condiciones— porque sería **duplicar dos reglas en vez de una**
+y meter `verifiedAt` en la lógica de una pantalla: más copias, no menos.
+
+**Cómo queda: TRES lectores, UN cuerpo.**
+
+| Lector | Qué usa |
+|---|---|
+| Pre-check de `paySpei` | `isPayableSellRequest(req)` |
+| **Guarda atómica** del `updateMany` (`count === 1`) | `payableWhere()` — la traducción a `where` de lo mismo |
+| `AdminBuylistDTO.isPayable` (M5) | `isPayableSellRequest(r)` |
+
+`isPayableSellRequest` vive en `common/sell-request-states.ts`, junto a `isTerminalSellRequestStatus`
+y derivado de la misma constante. `payableWhere()` existe porque **un `where` es declarativo y no
+puede invocar el predicado**; lo que sí puede es **no repetir la constante**. Que las dos formas digan
+lo mismo lo asevera un test que las cruza sobre **todo el enum × `verifiedAt ∈ {null, fecha}`**: si
+alguien mueve una y no la otra, ese test cae.
+
+**Las tres acotaciones del contrato, implementadas tal cual:**
+- **ADMIN-ONLY.** Sale **solo** en `adminList` — hay guard de censo que asevera **una** emisión (frente
+  a las **tres** de `isTerminal`, que sí viaja en las dos proyecciones de cliente). Al vendedor le
+  anticiparía un depósito que aún puede no ocurrir.
+- **ACTOR-INDEPENDIENTE.** El rol **no** entra en el booleano: *«¿esta solicitud está en condición de
+  pagarse?»* es propiedad **de la fila**; *«¿puedo pagarla yo?»* es del actor. Fundirlas haría que la
+  misma solicitud **respondiera distinto según quién pregunte**.
+- **NO es un permiso y no relaja nada.** `pay-spei` conserva `super_admin` + `MoneyOutGuard` + sus dos
+  guardas server-side. Un `isPayable: true` **no autoriza** un pago.
+
+### 0.17.2 BL-18 — `live?`, por exclusión
+
+Estaba **declarado en el contrato desde v1.51 y ausente del código**; mientras tanto la pestaña
+«Cerradas» mandaba un **CSV que enumeraba los cuatro terminales** — la forma exacta que este ciclo
+retiró de los otros cinco sitios. **Se implementa, no se retira**: `live?` **es** la contraparte
+server-side de `isTerminal`, y quitarlo del contrato **bendeciría** la enumeración en el cliente justo
+después de haberla borrado de todas partes.
+
+| Caso | `where` |
+|---|---|
+| `live=true` | `status: { notIn: SELL_REQUEST_TERMINAL_STATES }` — **exclusión**, nunca una lista de vivos |
+| `live=false` | `status: { in: SELL_REQUEST_TERMINAL_STATES }` |
+| `live` + `status` | `AND: [{ status: <lo pedido> }, { status: <live> }]` — **se intersectan** |
+| `live` ausente | **el `where` de hoy, byte a byte** (incluido el escalar cuando `status` trae un solo token) |
+
+- **Por qué `AND` y no reasignar `where.status`:** asignarlo dos veces dejaría ganar al último y **el
+  filtro del usuario desaparecería en silencio**. Un listado que ignora lo que le pidieron es peor que
+  uno que falla.
+- **Contradicción ⇒ conjunto VACÍO, no un 4xx** (`status=pagada` ∧ `live=true`). Pedir la intersección
+  de dos filtros legítimos es legítimo, y un `400` obligaría al cliente a razonar sobre **qué estados
+  son terminales**… que es exactamente lo que este parámetro existe para evitar.
+- **Parsing del query param:** solo `'true'` / `'false'` filtran; **cualquier otra cosa (incluido
+  omitirlo) no filtra y no falla**. Mismo criterio y mismo precedente que `guest`/`needsManual` en
+  `GET /admin/orders`: un query param mal escrito **no puede** convertir una cola de trabajo en un
+  `400` — el modo seguro de un filtro ausente es «no filtrar».
+- La validación previa **no se relaja**: un token de `status` inválido sigue siendo `400
+  VALIDATION_ERROR` con `details.invalidStatus`, venga o no `live`.
+
+### 0.17.3 Tests
+
+| Archivo | Qué fija |
+|---|---|
+| `test/buylist.is-payable-live.spec.ts` (**NUEVO**, 26) | **El que no puede faltar:** estado pagable **con `verifiedAt` nulo ⇒ `isPayable: false`** (el caso que hoy la UI pinta como pagable y el servidor rechaza) · la **tabla de verdad completa** (enum × `verifiedAt`) · **el predicado ≡ el `where` de la guarda** sobre todo el espacio de entrada · `isPayable:false` ⇒ `paySpei` responde `422` (el aviso y el servidor coinciden) · **admin-only** (ausente en `listMine`, donde `isTerminal` sí está) · actor-independiente · `live` por exclusión, **un estado nuevo no-terminal sale en `live=true` sin tocar el endpoint** · las dos vistas **particionan** el enum · intersección con `status` sin pisar el filtro · **contradicción ⇒ vacío, no 4xx** · parsing del controller (`true`/`false`/basura/ausente) |
+| `test/sell-request-states.spec.ts` (+2) | **Sitio 10**: `isPayable` se emite **UNA** vez (admin-only) y el predicado exige **los dos términos**, estado por estado |
+
+El fake de Prisma de este spec **evalúa el `where`** contra un universo con una fila por estado del
+enum: un mock que devolviera una lista fija dejaría pasar los tests aunque el filtro no existiera, y lo
+que hay que probar de `live?` es **qué filas salen**.
+
+**Prueba de mutación hecha a mano, dos veces:** (1) dejando `isPayable` con **un solo término** (el
+defecto real del frontend) ⇒ **fallan 4** tests, incluido el que el orquestador pidió; (2) escribiendo
+`live=true` como **lista de vivos enumerada a mano** ⇒ **fallan 4**, entre ellos el del estado nuevo.
+Revertidas ambas.
+
+`npm test` **213 suites / 2732 tests en verde** · `npm run typecheck` limpio · `npm run lint` con las
+**2 warnings preexistentes** y ninguna nueva.
+
+### 0.17.4 Lo que NO entra, y queda señalado
+
+**`awaitingGuide?` (v1.51.1/D31) sigue declarado en §M5 y ausente del código** — mismo patrón exacto
+que BL-18 (`GET /admin/buylist` con un query param que el controller no tiene). **No se implementa
+aquí** porque depende de columnas que solo puebla el ciclo de oferta (`guideSentAt`, `acceptedAt`) y su
+orden normativo es `acceptedAt asc`: hoy filtraría siempre vacío. **Se señala para el arquitecto**, no
+se resuelve por cuenta propia.
+
+**Zona compartida tocada:** `backend/src/common/sell-request-states.ts` (adición de
+`isPayableSellRequest`, dictada por §4.39c sitio 10). Aditiva.
+
+---
+
 ## 0.16 v1.51.5 — **Dos agujeros de dinero en el mismo commit: BL-14 y `brutoConsumado`** (+ cierre de los dos `TODO(M-46)`) (2026-09-01)
 
 > Implementa **API_CONTRACT v1.51.5 §A/§B** y **ARCHITECTURE §4.39(i) 4-bis**, **§4.39(b.3)**, **§9
