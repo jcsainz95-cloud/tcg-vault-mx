@@ -395,6 +395,21 @@
 > **el consejo cambia**: `addPricedCard` en vez de `addAnother`, porque «agrega otra carta» ahí es **una
 > cinta de correr** — mil cartas más del mismo set siguen sumando cero. **Cero tokens, cero componentes;
 > una clave nueva y una que cambia de contenido y de sitio.**
+>
+> **Corrección v2.3.9 (2026-09-01 — se fija el EN que §23 nunca dio, y se ratifican dos aciertos del pase).**
+> **`SIN PRECIO` no tenía par en inglés** —a diferencia de `SIN ENVÍO`/`NOT SHIPPED`—, así que el
+> implementador tuvo que elegirlo. Queda **`Sin precio` / `No price yet`**: en inglés *«No price»* puede
+> leerse como **«no vale nada»**, que es **exactamente** la conclusión que §23.3h existe para impedir, y es
+> una etiqueta **pegada a dinero**. En español no hace falta el «aún» porque *«sin precio»* ya se lee como
+> *«todavía sin asignar»* —lo que significa «no vale nada» es *«sin valor»*—: **es traducción de
+> significado, no de palabras**, y a EN le cuesta un término más llegar al mismo sitio. **EN queda 2
+> caracteres más largo ⇒ la celda se dimensiona por EN** (§9.4). **Se ratifican** además: **(a)** que la
+> decisión de §23.3g-bis viva en **una sola capa** —la vista decide, el carrito obedece— y que el
+> acoplamiento esté **documentado en el prop**, porque *un componente que decide solo si pinta una regla de
+> dinero no puede saber si otro ya la está pintando: o la duplica o la omite*; y **(b)** el retiro de
+> **`buylist.totalPendingNote`**, que decía que esas cartas se cotizan *«cuando las recibimos»* cuando bajo
+> el ciclo se cotizan **al ofertar, antes de que el vendedor mande nada** — **cuarta aparición del mismo
+> patrón** y la primera que caza el implementador, no yo. Entra al registro de §23.14 como la fila 11.
 
 ---
 
@@ -6271,6 +6286,16 @@ decisión:**
   **exactamente 1**. Ver §23.14.6-6, que ya exige medir **visibilidad efectiva** y **desambiguar la
   instancia**.
 
+> **⚠ Dónde vive esta decisión — normativo (v2.3.9), porque repartirla es cómo se llegó a las dos copias.**
+> La regla es **de pantalla**, así que **solo puede decidirla quien ve la pantalla entera**: la **vista**.
+> El carrito **recibe la orden y obedece**; **no decide si pinta la nota**. Es un acoplamiento
+> **deliberado**, y el implementador lo dejó documentado en el propio prop — bien hecho: sin esa nota, el
+> siguiente que pase lo lee como un acoplamiento sucio, se lo «devuelve» al componente **por higiene**, y
+> reintroduce el defecto exacto de v2.3.7. *Un componente que decide por su cuenta si muestra una regla de
+> dinero **no puede saber** si otro ya la está mostrando: por construcción, o la duplica o la omite.*
+> **Prohibido** repartir esta decisión entre dos componentes, y **prohibido** derivarla de un media query
+> local: sale del mismo estado de layout que decide si el carrito es panel fijo o drawer.
+
 **(h) Líneas sin precio (`precio_pendiente`) — ⚠ REESCRITO v2.3.8: el problema no era la línea, era el
 TOTAL.**
 
@@ -6285,8 +6310,36 @@ TOTAL.**
 > calculado» no es un cero**. §23.3h ya lo tenía bien **por línea** (`SIN PRECIO`, nunca `MX$ 0.00`); lo
 > que faltaba era **decirlo del agregado**, que es lo único que el vendedor mira cuando tiene 999 líneas.
 
-**Por línea:** aportan **0** al total. Versalita **`SIN PRECIO`** (`accent`, §7.3) **sin monto**.
-**Nunca `MX$ 0.00`**, nunca excluidas en silencio.
+**Por línea:** aportan **0** al total. Versalita **`SIN PRECIO` / `NO PRICE YET`** (`accent`, §7.3) **sin
+monto**. **Nunca `MX$ 0.00`**, nunca excluidas en silencio.
+
+> **⚠ v2.3.9 — el EN de la versalita, que §23 nunca fijó (a diferencia de `SIN ENVÍO`/`NOT SHIPPED`).**
+> **ES `Sin precio` (10) · EN `No price yet` (12).** El frontend propuso `No price` (8) por una restricción
+> de layout real —la celda comparte sitio con un monto— y señaló que `No price yet` **también cabe**.
+> **Se toma el «yet», y los tres caracteres valen.**
+>
+> - **Porque en inglés «No price» sí puede leerse como «no vale nada»**, y esa es **exactamente** la lectura
+>   que la segunda frase de esta sección existe para impedir. Es una etiqueta **pegada a dinero**: la
+>   doctrina money-safe de §7.3 no es solo *no prometer de más*, es **no dejar concluir algo falso**.
+> - **Porque el riesgo NO es simétrico entre idiomas, y por eso ES no lleva «aún».** En español *«sin
+>   precio»* se lee como *«todavía sin asignar»* —lo que significa «no vale nada» es *«sin valor»*—, así
+>   que ES **ya tiene la temporalidad gratis**. En inglés hay que pagarla con una palabra. **No es una
+>   asimetría de paridad: es una traducción de SIGNIFICADO, no de palabras** — las dos versalitas dicen lo
+>   mismo, y a EN le cuesta un término más llegar ahí.
+> - **Y porque la etiqueta es lo que se repite.** La prosa explicativa se pinta **una vez**; la versalita,
+>   **una por línea**. Con 999 líneas, **lo que el vendedor escanea es la etiqueta** — que es justo el
+>   motivo por el que aquí sí conviene que la etiqueta sea autosuficiente, aunque en general
+>   *«la etiqueta se repite y la explicación no»*.
+> - **Layout:** EN es **2 caracteres más largo** que ES, así que **la celda se dimensiona por EN** (§9.4:
+>   por el más largo, no por el idioma por defecto). Las versalitas **envuelven a dos líneas antes de
+>   truncarse**; **prohibido** `line-clamp` o elipsis sobre esta etiqueta.
+>
+> **Y lo que NO se toca** (§23.14.5): **`buylist.linePending`** («Precio pendiente» / "Price pending")
+> sigue vivo **fuera del cotizador**, en «Mis solicitudes», donde la línea **ya no es una cotización viva
+> sino el registro de una solicitud enviada**. El frontend hizo esa separación y la dejó escrita; **se
+> ratifica**. No es una segunda etiqueta para el mismo estado: es **el mismo hecho en dos momentos** del
+> ciclo, y ninguna de las dos es falsa. Tampoco se tocan `admin.*.colPending` / `pendingPrice` («No
+> price»): son **superficie de admin**, otro registro y otras restricciones de densidad.
 
 - **⚠ Se RETIRA la línea muted por ítem** (*«Todavía no tiene precio; no suma a tu total.»*). Con carritos
   de cientos de líneas, repetir la misma explicación N veces **es ruido, no información**, y empuja hacia
@@ -7461,7 +7514,9 @@ Convención §9.2. **Todo lo de §23 existe en los dos idiomas** (el proyecto ti
     redacciones del mismo** — con carrito lleno de pendientes, «agrega otra carta» es una **cinta de
     correr**.
 - `buylist.quote.pendingLine.{label,note}` — **⚠ v2.3.8: `note` CAMBIA de contenido y de sitio.** `label`
-  sigue siendo la versalita **`SIN PRECIO`** por línea. `note` **deja de pintarse por ítem** (con 999
+  sigue siendo la versalita por línea: **`Sin precio` / `No price yet`** *(⚠ v2.3.9 — el EN se fija por fin;
+  §23 lo había dejado sin par, a diferencia de `SIN ENVÍO`/`NOT SHIPPED`. **EN es 2 caracteres más largo
+  que ES ⇒ la celda se dimensiona por EN**, §9.4; el porqué del «yet», en §23.3h)*. `note` **deja de pintarse por ítem** (con 999
   líneas era ruido) y pasa a pintarse **UNA vez en el bloque de dinero**, con **`{count}` interpolado** y
   la frase que dice **qué pasa con esas cartas** («las cotizamos a mano y te las incluimos en la oferta») —
   sin ella, «no suman» se lee como «no las queremos» y el vendedor **las borra**. Texto normativo ES/EN en
@@ -7793,6 +7848,21 @@ clave; tres no se tocan.**
 | 8 | `buylist.trustValidity` | pie de `/buylist` **y** resumen del paso de crear | **Contradicción viva de dinero** | **D2/D9** |
 | 9 | `buylist.created` | aviso `role="status"` tras crear la solicitud | **Contradicción viva — invita a enviar sin guía** | **D16** / §P.4 |
 | 10 | `buylist.subtitle` · `home.sellBody` | `h1` de `/buylist` · banda CTA «Vender mis cartas» del home | Mejora **opcional** (no contradice) | — |
+| 11 | ~~`buylist.totalPendingNote`~~ **RETIRADA** *(hallazgo del frontend, v2.3.9)* | bloque de dinero del carrito | **Contradicción viva** | **D2/D9 + §P.4** |
+
+> **⚠ La 11 la encontró el frontend, no este barrido, y es la CUARTA vez que aparece el mismo patrón.**
+> `buylist.totalPendingNote` decía que las cartas sin precio se cotizan **«cuando las recibimos»**. Bajo el
+> ciclo de oferta eso es **falso y del revés**: se cotizan **al ofertar** —a mano, antes de que el vendedor
+> mande nada— y por eso **entran en la oferta que él acepta**. El texto era de la era en que el vendedor
+> enviaba primero y se cotizaba después; **sobrevivió al cambio de significado** igual que `expiry.*`,
+> «Guía de envío seguro» y «Por recibir». **Retiro ratificado**: su trabajo lo hace ahora
+> `buylist.quote.pendingLine.note` (§23.3h), que dice **la verdad nueva** — *«las cotizamos a mano y te las
+> incluimos en la oferta»*.
+> **Nota de alcance:** `buylist.requestPendingNote` («El total mostrado no incluye las cartas con precio
+> pendiente») **se queda**: vive en «Mis solicitudes», es cierto y **no afirma cuándo** se cotizan. *Mejora
+> opcional, no bloqueante:* podría cerrar con la misma frase de tranquilidad que `pendingLine.note`, porque
+> ahí el vendedor **ya envió** y la pregunta «¿y estas se van a cotizar?» pesa más. **Lo dejo propuesto, no
+> mandado.**
 
 **Y lo que el barrido confirmó que NO se toca** (§23.14.5): `home.bounties.wePay`, `buylist.bounties.wePay`,
 `nmOnlyBody`, `payAfterReceipt`, `trustPayment`, `cartFooterNote` y **todo** el envío del **comprador**
