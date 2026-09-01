@@ -262,6 +262,24 @@
 > una nueva) y §23.13. **Sigue sin tokens nuevos, sin componentes nuevos y con paridad ES/EN.** La objeción
 > de UX —el vendedor cerca del mínimo se entera del ~36% hasta el correo— queda **registrada en §23.3l**,
 > con su mitigación de producto: **medir**, y si duele, **mover el dial del mínimo**, no repintar la resta.
+>
+> **Corrección v2.3.2 (2026-09-01 — barrido de copy vivo tras D16/D31/D43; §23.14 nueva).**
+> El primer pase de frontend dejó tres textos **que seguían contando el trato viejo** en pantallas vivas, y
+> el barrido de esta versión encontró **cuatro más**. La cabeza de todo es la misma: **D16/D31 cambió quién
+> pone el envío y ningún texto anterior a esa decisión se revisó.** Lo que cambia: **(1)** la guía de
+> empaque deja de mandar al vendedor a **comprar y asegurar su propia guía** —bajo D16 pagaría **dos
+> veces**— y de paso pierde la ambigüedad de llamarse «Guía de envío seguro» en la misma página donde
+> «guía» ya significa **la etiqueta que ponemos nosotros**; **(2)** el cotizador del **home** deja de
+> rotular su total con «Te pagamos» —un rótulo que **promete depósito** sobre una cifra que no lo es— y
+> **entra a §23.3g** como tercera superficie de cotizador; **(3)** `buylist.trustShipping`, que el frontend
+> dejó **como recorte**, se **retira**: lo que le quedaba ya estaba dicho **palabra por palabra** dos
+> párrafos arriba, y la mitad que faltaba **no puede vivir ahí** porque ese bloque es `muted` y §23.3c
+> prohíbe el `muted` para esta regla. Del barrido salen además **dos contradicciones de dinero con D2/D9**
+> (`estimateNote` y `trustValidity` seguían prometiendo que **el monto final se confirma al verificar**,
+> cuando la oferta es **vinculante y no se reprecia**) y **una de D16** (`buylist.created` invitaba a
+> **mandar el paquete** sin nuestra guía). **Cero tokens, cero componentes nuevos, cero cifras nuevas**: es
+> un pase **solo de copy y de dónde se pinta**, y **D43 sigue intacta** (ninguna cadena nueva lleva una
+> cifra de envío). Alcance: §7.13 reescrita, §23.3c-bis y §23.3g (fila nueva), §23.12 y **§23.14 nueva**.
 
 ---
 
@@ -1001,12 +1019,37 @@ Lista de líneas alineadas (label izquierda, monto derecha `tabular-nums`):
 Cada línea que el usuario pueda cuestionar tiene un `?`/tooltip. El total nunca aparece sin su desglose.
 Los importes vienen en centavos del contrato; el formato es §9.3.
 
-### 7.13 Guía de envío seguro (`SafeShippingGuide`) — buylist
-- Componente ilustrado paso a paso (sleeve → top loader → sobre rígido → sobre acolchado), visible
-  **antes** de crear la solicitud de buylist (requisito PROJECT/AC 34). Menciona explícitamente
-  **sleeve** y **top loader**.
-- Formato: tarjetas numeradas con icono + texto corto; opción "Ya lo entendí" para continuar. Accesible
-  desde un enlace persistente en todo el flujo de buylist. Ilustraciones con `alt` descriptivo.
+### 7.13 Guía de EMPAQUE (`SafeShippingGuide`) — buylist · **reescrita v2.3.2 (D16/D31)**
+
+> **⚠ El componente cambia de tema, no solo de texto.** Nació cuando **el vendedor compraba su propio
+> envío**; bajo **D16/D31 la guía (la etiqueta) la ponemos nosotros, siempre**. Un componente que sigue
+> enseñando a **comprar y asegurar** una etiqueta le cuesta dinero real al vendedor. Lo que queda de él es
+> lo único que sigue siendo suyo: **cómo empaca**. El copy normativo está en **§23.14.1**.
+
+- **Qué es:** cuatro pasos de **empaque** (funda → top loader → sobre/caja rígida → **la etiqueta que le
+  mandamos**), visible **antes** de crear la solicitud (PROJECT/AC 34). Menciona explícitamente **sleeve**
+  y **top loader**, y **su `intro` lleva la política NM-only** — así **AC 34 se cumple en toda instancia
+  del componente**, incluido el **modal**, que hoy no tiene el bloque NM-only al lado.
+- **⚠ Se retira la palabra «guía» del título y del enlace.** En la misma página conviven dos «guías»: el
+  **manual** y **la etiqueta que ponemos nosotros** (§23.3d). El título pasa a **«Cómo empacar tus
+  cartas» / "How to pack your cards"** (claves `safeShipping.title` y `buylist.shippingGuideLink`, que
+  **tienen que decir lo mismo**: el enlace, el título del modal y el `h2` de la sección inline salen de
+  ahí). *No es cosmético: «Guía de envío seguro» junto a «Nosotros ponemos la guía de envío» se lee como
+  «la etiqueta segura», que es exactamente el malentendido que D16 puede producir.*
+- **El paso 4 es una regla de dinero, no un consejo.** Dice **quién pone la etiqueta**, **que su costo se
+  descuenta** y **qué NO debe hacer el vendedor** (comprar, asegurar, mandar antes de tenerla). Los tres
+  van juntos: ver la regla de §23.14.3 —**una cadena que viaja sola no puede decir «ponemos la guía» sin
+  «y se descuenta»**—, y este componente **viaja solo** (modal sin contexto de dinero, y §P lo repite en
+  el correo de aceptación y en el de la etiqueta).
+- **Sin cifras.** D43 alcanza a este componente: **ningún paso lleva monto, rango ni porcentaje de envío**.
+- **Formato (sin cambios):** retícula editorial `01–04` — regla superior, numeral mono en `accent`, título
+  `text-sm` medium en tinta, cuerpo `text-[13px]` muted. **Sin cajas, sin iconos, sin rellenos.** `columns`
+  = 2 (modal, con CTA «Ya lo entendí») · 4 (sección inline al pie de `/buylist`).
+- **El alto de fila NO se fija y el paso 4 no se trunca.** Es el cuerpo más largo de los cuatro (§23.14.1)
+  y en `lg:grid-cols-4` ocupa ~2 líneas más que sus vecinos. **Prohibidos `line-clamp`, «ver más» y altura
+  fija**; si en algún ancho no cupiera, se corrige el contenedor, nunca el texto (misma doctrina §23.12).
+- Semántica: `<ol>` con un `<li>` por paso (ya lo es); el numeral es `aria-hidden` (decorativo, el orden lo
+  da la lista). Si algún día lleva ilustraciones, con `alt` descriptivo.
 
 ### 7.14 Cotizador de buylist (`BuylistQuoter`)
 - Formulario compacto: selector de carta (Combobox con búsqueda sobre catálogo EN) → tipo de producto →
@@ -5934,6 +5977,23 @@ dinero**, con el mismo rango visual que la información de servicio de un pedido
 - **No es una región `aria-live`.** Es copy estático; anunciarla en cada cambio del carrito la convertiría
   en ruido y, peor, en alarma.
 
+**(c-bis) La regla que faltaba: un TOTAL rotulado no promete depósito; un precio POR CARTA sí puede decir
+«Pagamos» (v2.3.2).** §23.3c prohibía `Total a recibir`, `Tu pago` y `Ganarías`, pero lo hacía **como lista
+de ejemplos**, y por eso `home.quoter.wePay` («Te pagamos») sobrevivió al pase de D43 en otra pantalla. La
+regla, ahora en forma general y verificable:
+
+| Superficie | ¿Puede rotularse como pago? | Por qué |
+|---|---|---|
+| **El TOTAL de un bloque de dinero del cotizador** (carrito, panel de escritorio, teaser del home, resumen del paso de crear) | **NO.** Solo `buylist.quote.money.cardsValue` — «Valor de tus cartas» / "Value of your cards" | Ese total **es la suma de las cartas**, no lo que se deposita: le falta la resta del envío y le sobran las líneas que quizá **no compremos** (§23.3a.2). Rotularlo «Te pagamos» **es** el daño *«dije $500 y llegaron menos»*, escrito antes de que exista una oferta |
+| **El precio de UNA carta** (teja de bounty, línea del carrito, ficha) | **SÍ**, `Pagamos` / "We pay" | Nombra una **tarifa por pieza**, no un importe a depositar. El descuento del envío es **por solicitud**, no por carta, así que no hay resta que omitir. `home.bounties.wePay` y `buylist.bounties.wePay` **se quedan como están** |
+
+- **Prueba de una línea:** *si el número es una **suma**, su rótulo no puede contener un verbo de pago.*
+  ES: `pagamos`, `te pagamos`, `recibes`, `ganas`, `depositamos`. EN: `we pay you`, `you get`, `you'd
+  receive`, `payout`. **Sobre un precio unitario, esos verbos sí se permiten.**
+- **Un solo string para el rótulo del total.** Las tres superficies usan **la misma clave**,
+  `buylist.quote.money.cardsValue`, aunque vivan en namespaces distintos. Un `home.quoter.cardsValue`
+  duplicado es exactamente el mecanismo por el que este rótulo se desincronizó la primera vez.
+
 **(d) La redacción, ES y EN — cuatro movimientos, y el orden es normativo.**
 La frase tiene que lograr **dos cosas a la vez**: que el vendedor **sepa que habrá un descuento** antes de
 crear la solicitud, y que **no crea que ya sabe cuánto**. Ahí se juega todo el patrón.
@@ -6011,10 +6071,22 @@ y vive en §23.4.2:
 
 | Superficie | Cuándo | Qué muestra | ⚠ |
 |---|---|---|---|
-| **1. Carrito del cotizador** (`SellCartDrawer`, §18.4) | **siempre, incluso con el carrito vacío** | el bloque de (c): **un monto** (cuando hay líneas) + la frase de (d) | El `SellRequirementsPanel` del propio drawer **también es cotizador**: tampoco lleva cifras de envío |
+| **0. Teaser del cotizador en el HOME** (`HomeQuoterPanel`) — **NUEVA v2.3.2** | **siempre**, en las **dos** instancias (columna del hero y sección móvil) y **con o sin líneas** | la frase de (d), **misma clave y mismo texto**; el total rotulado `cardsValue` (c-bis) | **NO cuelga de `withTrust`**: esa banda **no se pinta en móvil**, y móvil es donde vende la mayoría. Va en el **cuerpo del panel**, entre el bloque de dinero y el enlace «Continuar mi cotización» |
+| **1. Carrito del cotizador** (`SellCartDrawer` / panel fijo de escritorio, §18.4) | **siempre, incluso con el carrito vacío** | el bloque de (c): **un monto** (cuando hay líneas) + la frase de (d) | El `SellRequirementsPanel` del propio drawer **también es cotizador**: tampoco lleva cifras de envío |
+| **1-bis. Cabecera de `/buylist`** (bajo `payAfterReceipt`) — **NUEVA v2.3.2** | siempre | la frase de (d), **misma clave**, en **tinta `text-sm`** (no `muted`, no `rule-note`) | En **móvil el carrito es un drawer cerrado**: sin esta instancia, un vendedor puede recorrer toda la página sin leer la regla. **Sustituye** al retirado `buylist.trustShipping` (§23.14.2) |
 | **2. Paso de crear la solicitud** | antes del botón que crea | la **misma frase, carácter por carácter** + la condición NM + la dirección de origen elegida | Es el último momento antes de comprometer cartas: **misma frase, no una versión resumida** |
+| **2-bis. Guía de empaque, paso 4** (`SafeShippingGuide`, §7.13) — **NUEVA v2.3.2** | siempre que se pinte el componente (modal, sección inline, y los correos de §P) | **su propia redacción corta** (§23.14.1): quién pone la etiqueta + **que se descuenta** + qué no hacer | **Única excepción al «misma frase»**, y está acotada: es una **celda de retícula de ~13px**, no un bloque de dinero. Lo que **no** puede omitir es la resta (§23.14.3) |
 | **3. Términos** (`offer.terms`, render del backend) | con la oferta | la regla **en prosa y CON la cifra congelada** | **Los términos NO son el cotizador**: viajan con la oferta, son autenticados y ahí el número **sí** es vinculante |
 | **4. Correo de oferta** (§23.4.2) | al emitir | la regla en prosa **con el envío Y el neto nombrados**, junto a la tabla de los tres montos | **Es la primera vez que el vendedor ve la tarifa** (v2.3.1). Ver la decisión 8 de §23.4.2 |
+
+> **⚠ Por qué la fila 0 entra y no es una amplificación (la pregunta correcta, después de §23.3a.3).** El
+> panel del home **se rotula a sí mismo «Cotizador»**, cotiza contra `POST /buylist/quote` y enseña un
+> total: **es el cotizador**, y es **la primera pantalla de dinero de todo el embudo**. D31 pide que la
+> regla se diga **en el cotizador**; incluirlo es **cumplimiento literal**. Lo que en v2.3 fue
+> amplificación fue meter **cifras**, y esta fila **no mete ninguna** (la frase es estática, §23.3k: no
+> depende de ningún dato, no se esqueletiza, no puede fallar). Dejarlo fuera sería dibujar la frontera de
+> D31 alrededor de **las superficies que yo ya había documentado** — que es, exactamente, el mecanismo por
+> el que estos tres textos sobrevivieron.
 
 **(h) Líneas sin precio (`precio_pendiente`).** Aportan **0** al total. Se listan con la versalita
 `SIN PRECIO` (`accent`, §7.3) **sin monto** y una línea muted: *«Todavía no tiene precio; no suma a tu
@@ -6812,6 +6884,21 @@ Convención §9.2. **Todo lo de §23 existe en los dos idiomas** (el proyecto ti
   frase**: la nueva incorpora la cita con el número). **El test de paridad ES/EN debe quedar en verde con
   las tres ausentes en los dos idiomas** — una clave viva en un solo idioma es el modo típico en que una
   cifra retirada reaparece en producción.
+- **⚠ v2.3.2 — dos claves MÁS se retiran y dos se REUSAN fuera de su namespace (§23.14):**
+  - ~~`home.quoter.wePay`~~ («Te pagamos» / "We pay you") — **retirada de los dos catálogos**. El total del
+    teaser del home se rotula con **`buylist.quote.money.cardsValue`**, la misma clave del carrito. **No se
+    crea un duplicado en `home.*`** (§23.3c-bis).
+  - ~~`buylist.trustShipping`~~ — **retirada de los dos catálogos**. Su mitad falsa ya la había borrado
+    frontend; la que quedaba **duplicaba `buylist.nmOnlyBody`** y su hueco **no podía llenarse ahí** (bloque
+    `muted`, prohibido por §23.3c). Ver §23.14.2b.
+  - **`buylist.quote.shippingNote` se reusa en dos superficies nuevas** —el teaser del home y la cabecera de
+    `/buylist`— **sin cambiar una letra** y **sin clave nueva**. Es el mismo párrafo, sin placeholders.
+  - **Cambian de contenido, no de nombre:** `safeShipping.{title,intro,step3Body,step4Title,step4Body}`,
+    `buylist.shippingGuideLink`, `buylist.estimateNote`, `buylist.trustValidity`, `buylist.created`; y
+    **opcionales** (PO decide): `buylist.subtitle`, `home.sellBody`. **Textos normativos en §23.14.1 y
+    §23.14.4.**
+  - **Longitud (§9.4):** en `safeShipping.step4Body` **EN es más largo que ES** (≈155 vs ≈146) y es **el
+    cuerpo más largo de la retícula 01–04**: la fila **no lleva alto fijo, ni `line-clamp`, ni «ver más»**.
 
 **Correos (`buylist.mail.*`)** — una clave **por párrafo** (nunca un solo string; §22.11 sentó el patrón):
 - `offer.{subject,preheader,eyebrow,headline,conditionIntro,buyGroup,skipGroup,skipLabel,consequenceTitle,consequenceBody,grossLabel,shippingLabel,netLabel,ruleParagraph,deadlineParagraph,cta,ctaNote,guideParagraph,addressParagraph,closingParagraph}`
@@ -6989,3 +7076,340 @@ Convención §9.2. **Todo lo de §23 existe en los dos idiomas** (el proyecto ti
    cuatro columnas de la tira es idéntica en ES y EN.
    (n) 390px: la tira colapsa a dos renglones de dos **conservando el separador de grupos**; ningún monto
    truncado con `MX$ 999,999.00`.
+
+---
+
+### 23.14 Barrido de copy vivo — las superficies que seguían contando el trato viejo (v2.3.2)
+
+> **Por qué existe esta sección.** §23 diseñó **el ciclo nuevo**. Lo que **no** hizo —y es un fallo de este
+> documento, no del frontend— fue **auditar el copy que ya estaba en pantalla**. D16/D31 cambió **quién
+> pone el envío**; todo texto escrito antes de esa decisión quedó sospechoso por defecto, y tres de ellos
+> sobrevivieron al pase de D43 **porque §23 no los nombraba**. El frontend los encontró al implementar y
+> **no los tocó** (el copy es de ux-ui); aquí se resuelven, y el barrido completo encontró **cuatro más**.
+>
+> **La lección, escrita para que se pueda aplicar la próxima vez:** *cuando una decisión cambia **quién
+> paga algo**, el entregable no es la pantalla nueva — es **la lista de todo lo que afirmaba lo
+> contrario**.* §23.3g ahora es esa lista y por eso gana filas en vez de notas al pie.
+
+**Índice de lo que cambia.** «Contradicción viva» = un vendedor podía leerlo **hoy** y actuar mal.
+
+| # | Clave | Superficie donde se pinta | Clase | Choca con |
+|---|---|---|---|---|
+| 1 | `safeShipping.step4Title` · `step4Body` | modal del hero de `/buylist` · sección inline al pie · (§P: correo de aceptación y correo de la etiqueta) | **Contradicción viva — la más cara** | **D16/D31** |
+| 2 | `safeShipping.intro` | idem | **Contradicción de dominio** + hueco de **AC 34** | §H / AC 34 |
+| 3 | `safeShipping.title` · `buylist.shippingGuideLink` | enlace del hero · título del modal · `h2` de la sección inline | **Ambigüedad creada por D16** | D16/D31 |
+| 4 | `safeShipping.step3Body` | idem | Mejora (rescata contenido del paso 4 viejo) | — |
+| 5 | `home.quoter.wePay` | teaser del cotizador del home (**dos instancias**: columna del hero y sección móvil) | **Contradicción viva — promete depósito** | §23.3c / D31 |
+| 6 | `buylist.trustShipping` | bloque de confianza al pie de `/buylist` | **Recorte + duplicado** ⇒ **retirada** | D16/D31 y `nmOnlyBody` |
+| 7 | `buylist.estimateNote` | bloque de dinero del carrito (`SellCartContents`) | **Contradicción viva de dinero** | **D2/D9** |
+| 8 | `buylist.trustValidity` | pie de `/buylist` **y** resumen del paso de crear | **Contradicción viva de dinero** | **D2/D9** |
+| 9 | `buylist.created` | aviso `role="status"` tras crear la solicitud | **Contradicción viva — invita a enviar sin guía** | **D16** / §P.4 |
+| 10 | `buylist.subtitle` · `home.sellBody` | `h1` de `/buylist` · banda CTA «Vender mis cartas» del home | Mejora **opcional** (no contradice) | — |
+
+**Y lo que el barrido confirmó que NO se toca** (§23.14.5): `home.bounties.wePay`, `buylist.bounties.wePay`,
+`nmOnlyBody`, `payAfterReceipt`, `trustPayment`, `cartFooterNote` y **todo** el envío del **comprador**
+(`withdrawals.*`, `checkout.*`) — que es **otro eje de dinero** y no lo toca D16.
+
+---
+
+#### 23.14.1 La guía de empaque — el daño era mayor que el paso 4
+
+**Diagnóstico paso por paso.** Se revisaron los siete strings del componente. **Tres estaban mal, y solo
+uno se había reportado.**
+
+| String | Veredicto | Razón |
+|---|---|---|
+| `title` / `shippingGuideLink` | **Cambia** | «Guía de envío seguro» convive en la misma página con «Nosotros ponemos **la guía** de envío». Dos referentes para la misma palabra, y uno de ellos es **una etiqueta que cuesta dinero** |
+| `intro` | **Cambia** | Habla de **«disputas»**, que es el remedio del **comprador** (§legal, 7 días desde la entrega) y **no existe** del lado del vendedor: su riesgo es que **la carta no se compre** y **la devolución le cueste**. Además, **AC 34 exige la política NM-only en la guía** y el **modal no la tenía** (vive suelta en la página, que el modal tapa) |
+| `step1Title/Body` (funda) | **Intacto** | Es empaque puro. AC 34 exige la palabra **sleeve/funda**: se conserva |
+| `step2Title/Body` (top loader) | **Intacto** | Igual. AC 34 exige **top loader**: se conserva |
+| `step3Title` | **Intacto** | — |
+| `step3Body` | **Cambia (mejora)** | Hereda el **«anota tu número de solicitud»** que se pierde al reescribir el paso 4. Es información útil de recepción y no tenía por qué morir con el trato viejo |
+| `step4Title/Body` | **Se reescribe entero** | *«Asegura por el valor cotizado»* ⇒ bajo D16 **el vendedor paga dos veces por lo mismo**. Es la única línea del producto que le **cuesta dinero real** a quien la obedece |
+| `understood` | **Intacto** | — |
+
+**Copy normativo (ES y EN — paridad estricta; PO ratifica, §23.14.7).**
+
+| Clave | ES | EN |
+|---|---|---|
+| `safeShipping.title` | Cómo empacar tus cartas | How to pack your cards |
+| `buylist.shippingGuideLink` | Cómo empacar tus cartas | How to pack your cards |
+| `safeShipping.intro` | Solo compramos cartas en Near Mint. Empácalas bien: la que no llegue en NM no se compra, y la devolución corre por tu cuenta. | We only buy Near Mint cards. Pack them well: a card that doesn't arrive NM isn't bought, and the return is at your cost. |
+| `safeShipping.step1Title` | *(sin cambio)* Funda blanda | *(unchanged)* Soft sleeve |
+| `safeShipping.step1Body` | *(sin cambio)* Cada carta en su funda, nunca suelta ni pegada a otra. | *(unchanged)* Every card in its own sleeve, never loose or stuck to another. |
+| `safeShipping.step2Title` | *(sin cambio)* Top loader rígido | *(unchanged)* Rigid top loader |
+| `safeShipping.step2Body` | *(sin cambio)* La funda entra en un top loader; así la carta no se dobla. | *(unchanged)* The sleeve goes into a top loader so the card can't bend. |
+| `safeShipping.step3Title` | *(sin cambio)* Sobre o caja rígida | *(unchanged)* Rigid mailer or box |
+| `safeShipping.step3Body` | Sobre burbuja para pocas cartas, caja con relleno para lotes; adentro, una hoja con tu número de solicitud. | Bubble mailer for a few cards, padded box for larger lots; inside, a sheet with your request number. |
+| **`safeShipping.step4Title`** | **La guía la ponemos nosotros** | **We provide the label** |
+| **`safeShipping.step4Body`** | **Al aceptar la oferta te mandamos la guía y su costo se descuenta de tu pago. Tú no compras ni aseguras nada, y no mandas el paquete hasta tenerla.** | **When you accept the offer we send you the label and its cost is deducted from your payment. You buy and insure nothing, and you don't ship until you have it.** |
+| `safeShipping.understood` | *(sin cambio)* Ya lo entendí | *(unchanged)* Got it |
+
+**Las cuatro decisiones del paso 4, y por qué cada una está donde está:**
+
+1. **El título nombra al responsable, no a la acción.** «La guía la ponemos nosotros» / "We provide the
+   label" corrige el error en el **encabezado**, que es lo único que se lee en una retícula de cuatro
+   columnas si el vendedor va rápido. Un título como «Envío» habría dejado el arreglo escondido en el
+   cuerpo.
+2. **La resta va en la misma frase que el ofrecimiento** (§23.14.3). No se puede partir en «te mandamos la
+   guía» aquí y «se descuenta» en otro lado: **este componente viaja solo** —el modal no tiene un bloque
+   de dinero al lado, y `PROJECT.md` §P lo repite dentro de dos correos—.
+3. **Las tres prohibiciones son la parte operativa**, y están en orden de coste: **comprar** (paga dos
+   veces), **asegurar** (paga dos veces, y es lo que decía el texto viejo **con todas sus letras**),
+   **mandar antes de tener la etiqueta** (`PROJECT.md`: *«si aun así manda algo por su cuenta, esa pieza
+   **no está comprada**»* — el peor desenlace posible del ciclo).
+4. **Sin cifras.** D43 alcanza aquí: ni monto, ni rango, ni «tarifa baja», ni `$0`. Y **sin «gratis»**: el
+   envío **no es gratis**, es **nuestro y descontado** (§23.3e).
+
+> **Nota de tiempo verbal, porque el componente se pinta en dos momentos.** «Al aceptar la oferta…» /
+> "When you accept the offer…" funciona **antes** de que exista oferta (lo que va a pasar) y **después** de
+> aceptarla (lo que está pasando). Un texto en pasado («ya te mandamos la guía») rompería el uso de AC 34,
+> que es **antes de crear la solicitud**.
+
+---
+
+#### 23.14.2 Las dos superficies de dinero: el teaser del home y el recorte de `/buylist`
+
+**(a) `home.quoter.wePay` — RETIRADA. La decisión es que el rótulo deje de prometer, Y que la superficie
+entre a §23.3g.** El encargo daba las dos salidas como alternativas; **se toman las dos**, porque
+resuelven cosas distintas:
+
+| Qué | Decisión |
+|---|---|
+| **El rótulo** | `home.quoter.wePay` **se retira de los dos catálogos** y el total pasa a rotularse con **`buylist.quote.money.cardsValue`** — la **misma clave** que ya usan el carrito y el resumen del paso de crear. **No se crea `home.quoter.cardsValue`**: un segundo string con el mismo significado es el mecanismo exacto por el que este rótulo se desincronizó |
+| **La superficie** | El teaser **entra a §23.3g como fila 0** y pinta la **nota de servicio** (`buylist.quote.shippingNote`, componente `BuylistShippingNote` ya existente), **sin cifras** (D43 intacta) |
+
+- **Por qué el rótulo solo no bastaba.** Con «Valor de tus cartas» el teaser deja de **mentir**, pero sigue
+  siendo **la primera pantalla de dinero del embudo** y **no dice el trato**. D31 pide la regla **en el
+  cotizador**, y este panel **se llama «Cotizador»** en su propio `eyebrow`.
+- **Por qué la nota sola no bastaba.** Un total rotulado «Te pagamos» **con** una nota que dice que se
+  descuenta el envío es **peor** que cualquiera de los dos solos: el rótulo afirma un depósito y la nota lo
+  desmiente en el mismo bloque. El vendedor se queda con el número grande.
+- **Dónde va la nota, exactamente:** en el **cuerpo del panel**, después del bloque de dinero (o del estado
+  vacío) y **antes** del enlace «Continuar mi cotización». **⚠ Fuera del bloque `withTrust`**, que **no se
+  renderiza en móvil** (`withTrust={false}` en la sección de 390px). Una regla de dinero que solo existe en
+  escritorio **no es una regla**.
+- **Se renderiza siempre**, con cero líneas y con líneas, igual que en el carrito: la nota **no depende de
+  ningún dato** (§23.3k) y por tanto **no se esqueletiza, no aparece, no desaparece y no se mueve**.
+- El rótulo se pinta con `.eyebrow` (mono, versalitas) en el teaser y en el carrito, y en sentence-case en
+  el resumen del paso de crear. **Es el mismo string**; la caja alta la pone el CSS, **nunca el catálogo**.
+
+**(b) `buylist.trustShipping` — RETIRADA. El remanente no es el texto final, y tampoco necesita redacción
+propia: necesita desaparecer.**
+
+El frontend hizo lo correcto al borrar la cláusula falsa y **no inventar copy**. Lo que sobrevivió —*«Si una
+carta se rechaza por no estar en NM, la devolución corre por tu cuenta (7 días).»*— no se queda, por **dos**
+razones independientes, y cualquiera de las dos bastaría:
+
+1. **Ya está dicho, dos párrafos arriba, en la misma página y con más detalle.** `buylist.nmOnlyBody`:
+   *«Si al recibir y verificar la carta no está en NM, **no se compra**: se devuelve si deseas (**a tu
+   costo, 7 días**) o se considera abandonada a los 30 días.»* El remanente es un **eco degradado** de su
+   propio vecino: dice menos y ocupa un párrafo. Nadie lo habría escrito así a propósito — que es
+   exactamente lo que el encargo sospechaba.
+2. **Y su hueco original —quién pone el envío— NO puede llenarse ahí.** Ese bloque es
+   `text-[13px] text-muted`. §23.3c es explícita: la regla de D16 va **en tinta, `text-sm`, nunca `muted`**,
+   porque D31 la quiere *«al mismo nivel visual que los montos»* y **no en letra chica**. Reescribir
+   `trustShipping` para que contara el trato nuevo habría **cumplido la letra y roto la norma**: la regla
+   más importante del ciclo, degradada a gris de 13px, debajo de todo.
+
+**Qué queda en su lugar** (dos movimientos, **cero strings nuevos**):
+
+- **La nota de servicio sube a la cabecera de `/buylist`** (§23.3g, fila **1-bis**): `BuylistShippingNote`
+  justo debajo de `payAfterReceipt`, en **tinta `text-sm`**, sin `rule-note`, sin caja. **Motivo decisivo:
+  en móvil el carrito es un drawer cerrado**, así que hoy un vendedor puede recorrer `/buylist` entera —
+  hero, bounties, binder, políticas, guía de empaque— **sin leer nunca la regla del envío**. La cabecera es
+  el sitio donde ya viven los hechos del trato y es lo primero que se ve.
+- **El bloque de confianza del pie baja a dos párrafos**: `trustPayment` y `trustValidity` (este último
+  reescrito, §23.14.4). El bloque **no pierde información**: la del envío subió y la del NM ya estaba
+  arriba.
+
+> **Repetición aceptada, y por qué no es un bug.** En escritorio, `/buylist` muestra la nota **dos veces**
+> (cabecera + panel fijo del carrito). Es **el mismo string, carácter por carácter** — §23.3g fila 2 ya
+> normaliza esa repetición para el paso de crear. Una regla de dinero repetida es redundancia; **dos
+> redacciones distintas de la misma regla** sería el defecto. Nunca lo segundo.
+
+---
+
+#### 23.14.3 La regla de «la cadena que viaja sola», con su frontera dibujada
+
+§23.12 la enunció para los correos. Se **eleva a regla de sistema** y se le pone el límite que faltaba,
+porque sin límite habría obligado a meter la resta en cadenas donde no cabe ni hace falta:
+
+> **Toda cadena que afirme que el envío corre por nuestra cuenta debe decir, en la misma cadena, que su
+> costo se descuenta de lo que se le paga al vendedor — en ES y en EN.**
+> Aplica a: asuntos, preheaders, notificaciones, la nota del cotizador, **el paso 4 de la guía de empaque**
+> y cualquier `title`/`aria-label` que resuma el trato.
+
+| Caso | ¿Tiene que llevar la resta? | Por qué |
+|---|---|---|
+| «Nosotros ponemos la guía de envío» (nota del cotizador, teaser, cabecera) | **Sí** | Es una **afirmación sobre quién paga**. Sola, promete un beneficio y esconde su costo |
+| **Paso 4 de la guía de empaque** | **Sí** | Viaja en un **modal sin dinero al lado** y dentro de **dos correos** (§P). Por eso su cuerpo lleva «y su costo se descuenta de tu pago» aunque sea una celda de 13px |
+| `offer.guideParagraph` («al aceptar te mandamos la guía…») | **No** | La **tabla de los tres montos está en la misma pantalla**. La aritmética ya está a la vista (§23.12) |
+| **«Primero aceptas la oferta y después te llega la guía»** (`buylist.created`, §23.14.4) | **No** | Es una **secuencia**, no una afirmación de coste: no dice quién paga, no promete nada y no se puede leer como beneficio. **La regla muerde sobre las afirmaciones de coste, no sobre la logística** |
+
+**Y su recíproca, que es la que falló aquí:** *ninguna cadena puede afirmar que **el vendedor** pone,
+compra, asegura o cubre el envío hacia nosotros.* **Cero excepciones** — la única cosa que sigue siendo
+suya es **la devolución de una carta rechazada por no ser NM (7 días)**, que **no cambió** y que se dice
+en **`nmOnlyBody`** y en la **`intro`** de la guía de empaque, en ningún otro sitio.
+
+---
+
+#### 23.14.4 Lo que el barrido encontró de más (fuera de los tres reportados)
+
+> **Estas cuatro no salen de D16/D31 sino de D2/D9 y de §P.4.** Se resuelven aquí porque **dos de ellas
+> son párrafos hermanos de los textos que sí me tocaba tocar** (`trustValidity` comparte `<div>` con
+> `trustShipping`) y dejarlas habría producido un bloque donde **el párrafo nuevo dice una cosa y el de
+> abajo la contraria** — exactamente el defecto que este pase viene a cerrar.
+
+**(a) `buylist.estimateNote` — contradicción viva de dinero (bloque de dinero del carrito).**
+
+- **Dice hoy:** *«El total es un ESTIMADO. **El monto final lo confirma la plataforma cuando recibimos y
+  verificamos tus cartas.**»* / "…The final amount is confirmed by the platform when we receive and verify
+  your cards."
+- **Por qué está mal, y es grave:** señala **el momento equivocado** e implica **repreciado**. Bajo
+  **D2** el precio ofertado es **vinculante desde que sale el correo** y bajo **D9** *«verificar tiene solo
+  dos desenlaces: llega en NM y se paga lo ofertado, o no llega en NM y se rechaza»*. Este texto le dice al
+  vendedor que **el número puede moverse después de que él ya mandó las cartas** — que es la ansiedad exacta
+  que §23 existe para matar, y además **regala** la mejor promesa del producto.
+- **Lo que sí es cierto y no estaba dicho:** el total es indicativo **porque los precios se mueven** *y*
+  **porque puede que no compremos todas las líneas** (§23.3a.2 identificó justamente ese cherry-pick como
+  la razón por la que un neto en el cotizador sería optimista). Decirlo es lo honesto.
+
+| | ES | EN |
+|---|---|---|
+| **Nuevo** | El total es un ESTIMADO: los precios se mueven y puede que no compremos todas las líneas. Lo firme te lo mandamos en la oferta. | The total is an ESTIMATE: prices move and we may not buy every line. The firm amount comes to you in the offer. |
+
+*No cierra con «antes de que aceptes» a propósito: `shippingNote` está en el mismo bloque y ya termina así.
+Dos frases con la misma cola se leen como una plantilla, no como dos hechos.*
+
+**(b) `buylist.trustValidity` — la misma contradicción, en dos sitios.** Se pinta en el pie de `/buylist`
+**y** en el resumen del paso de crear. Dice *«el monto final se confirma con los precios vigentes al
+verificar tus cartas»*: mismo error que (a).
+
+| | ES | EN |
+|---|---|---|
+| **Nuevo** | La cotización es un estimado con los precios de hoy. El precio vinculante es el de la oferta que te mandamos por correo, y ese precio ya no se mueve cuando recibimos tus cartas. | The quote is an estimate at today's prices. The binding price is the one in the offer we email you, and that price does not move when we receive your cards. |
+
+> **⚠ Precisión deliberada: se dice «el PRECIO no se mueve», no «el total no cambia».** El total **sí**
+> puede bajar, porque **una carta que no llegue en NM no se compra ni se paga** (D1/D9). Escribir «el monto
+> no cambia» sería una promesa falsa del otro lado. Lo que nunca se mueve es **el precio unitario
+> ofertado**, y eso es lo que dice la frase. La condición NM está a la vista en `nmOnlyBody`, arriba.
+
+**(c) `buylist.created` — contradicción viva con D16: invita a mandar el paquete.**
+
+- **Dice hoy:** *«¡Solicitud creada! **Te avisaremos cuando recibamos tu carta.**»* / "…We'll let you know
+  when we receive your card."
+- **Por qué está mal:** se pinta **justo después de crear la solicitud**, que es el momento exacto en que
+  el vendedor decide qué hacer con sus cartas. «Cuando recibamos tu carta» **se lee como una instrucción de
+  enviarla** y **se salta el ciclo entero** (oferta → aceptación → etiqueta). Un vendedor que la obedezca
+  manda un paquete **sin nuestra guía**, y `PROJECT.md` es tajante: *«si aun así manda algo por su cuenta,
+  esa pieza **no está comprada**»*. Es la única de las siete que puede terminar en **cartas de valor
+  viajando fuera del trato**.
+
+| | ES | EN |
+|---|---|---|
+| **Nuevo** | ¡Solicitud creada! Te mandaremos una oferta por correo. No mandes tus cartas todavía: primero aceptas la oferta y después te llega la guía. | Request created! We'll email you an offer. Don't ship your cards yet: first you accept the offer, then the label reaches you. |
+
+- **Sin plazos.** No dice «en 7 días hábiles»: ese reloj es **nuestro**, y §23.4.3 ya razona que anunciarle
+  al vendedor un plazo que depende de nuestra carga de trabajo no le sirve de nada.
+- **Sin cifras** y **sin la resta** — es una secuencia, no una afirmación de coste (§23.14.3).
+
+**(d) `buylist.subtitle` y `home.sellBody` — mejora OPCIONAL, no contradicción. Decide PO.**
+
+Ambas dicen **«Tú envías, nosotros autenticamos y pagamos»**. Estrictamente **sigue siendo cierto** (el
+vendedor lleva el paquete al mostrador), así que **no se marca como contradicción**. Pero en el `h1` de
+`/buylist` la frase queda **a dos líneas** de «Nosotros ponemos la guía de envío», y en una estructura de
+tres tiempos *«tú X, nosotros Y y Z»* el primer tiempo se lee como **su parte del gasto** — o sea que
+**nos quita el mejor argumento del producto** y siembra la duda que la nota tiene que deshacer.
+
+| Clave | ES propuesto | EN propuesto |
+|---|---|---|
+| `buylist.subtitle` | Cotizamos tu lista con el valor de mercado del día. Nosotros autenticamos y te pagamos por SPEI. | We quote your list at the day's market value. We authenticate and pay you by bank transfer. |
+| `home.sellBody` | Cotizamos tu lista con el valor de mercado del día. Nosotros autenticamos y pagamos. | We quote your list at the day's market value. We authenticate and pay. |
+
+> **Por qué NO se propone «Te mandamos la guía, autenticamos y pagamos»**, que sería la versión lucida: es
+> una cadena que **viaja sola** y diría «ponemos la guía» **sin** «y se descuenta» ⇒ §23.14.3 lo prohíbe, y
+> la resta **no cabe** en un subtítulo sin arruinarlo. **La regla tiene dientes también contra el copy que
+> nos favorece**, y se registra aquí como ejemplo. La salida correcta es **quitar el reparto**, no
+> reclamar el mérito a medias.
+
+---
+
+#### 23.14.5 Lo que NO se toca (lista cerrada, para que nadie lo «arregle» de más)
+
+| Clave / familia | Por qué se queda | ⚠ |
+|---|---|---|
+| `home.bounties.wePay` · `buylist.bounties.wePay` («Pagamos» / "We pay") | Es un **precio por carta**, no una suma: nombra una **tarifa**, y el envío se descuenta **por solicitud** (§23.3c-bis) | Si alguien las «corrige» a `cardsValue`, la teja de bounty deja de decir qué hace y el barrido habrá causado un daño nuevo |
+| `buylist.nmOnlyTitle` / `nmOnlyBody` | La devolución de una carta rechazada por no ser NM **sigue corriendo por cuenta del vendedor (7 días)**. **D16 no la tocó** | Es el **único** «a tu costo» legítimo del flujo del vendedor. Ver §23.14.3 |
+| `buylist.payAfterReceipt` · `buylist.cartFooterNote` · `buylist.trustPayment` | *«El pago se realiza después de recibir y verificar tus cartas»* **sigue siendo cierto**: el pago ocurre tras la verificación; lo que **no** ocurre es **repreciar** | No confundir *cuándo se paga* (cierto) con *cuándo se fija el monto* (la oferta) — la distinción que arregla (a) y (b) |
+| `home.bounties.subtitle` · `buylist.bounties.subtitle` | Misma frase, mismo motivo | — |
+| `withdrawals.*`, `checkout.*`, `shipmentStage.*` (envío del **comprador**) | Es **el otro eje de dinero**: ahí el comprador **sí** paga su envío y su seguro. D16 gobierna **el envío del vendedor hacia nosotros**, nada más | `withdrawals.shippingFee` («Tarifa de envío (con seguro)») es **legítima**; un `grep` de «envío» que la marque está mal calibrado |
+| `grading.*` («el gradeo y su costo corren por tu cuenta») | Es el **gancho de grading** (§22), otro dominio y otra decisión | — |
+| `safeShipping.step1*` / `step2*` / `understood` | Empaque puro; además **AC 34 exige** las palabras *sleeve/funda* y *top loader* | Si se reescriben «por consistencia», se puede romper AC 34 |
+
+---
+
+#### 23.14.6 Verificación (QA visual · barato y `grep`-able)
+
+1. **`grep` de la afirmación prohibida** en `messages/{es,en}.json`: `cubres`, `tú cubres`, `por tu cuenta`,
+   `a tu costo`, `you cover`, `at your cost`, `on you`. **Toda coincidencia superviviente debe estar en**
+   `nmOnlyBody`, `safeShipping.intro`, `grading.*` o el eje del comprador. **Cualquier otra es el bug.**
+2. **`grep` de la promesa de depósito sobre una suma:** `Te pagamos`, `We pay you`, `Recibes`, `You get`,
+   `Ganarías`. **Cero coincidencias** en `home.quoter.*` y `buylist.quote.*` en los dos idiomas.
+3. **Paridad estricta:** `home.quoter.wePay` y `buylist.trustShipping` **no existen en NINGUNO de los dos
+   catálogos**. Una clave viva en un solo idioma es el modo típico en que un texto retirado revive.
+4. **Guía de empaque, los dos montajes** (modal `columns=2` y sección inline `columns=4`), en ES y EN:
+   el paso 4 dice **quién pone la etiqueta**, **que se descuenta** y **las tres prohibiciones**; **no**
+   aparece ninguna forma de `asegura`/`insure` como instrucción al vendedor; el `intro` menciona **Near
+   Mint**; los pasos 1 y 2 siguen diciendo **funda/sleeve** y **top loader** (AC 34).
+5. **La palabra «guía» en `/buylist`:** el enlace, el título del modal y el `h2` inline dicen **«Cómo
+   empacar tus cartas»**. La palabra «guía» **solo** aparece donde significa **la etiqueta**.
+6. **Teaser del home, las DOS instancias**: en `lg` (columna del hero, `withTrust` implícito) **y** en
+   390px (sección propia, `withTrust={false}`) la nota **está presente**, con **cero cartas** y con cartas,
+   en ES y EN; el total se rotula **«Valor de tus cartas»**. **Si la nota solo aparece en escritorio, es el
+   bug** (§23.14.2a).
+7. **`/buylist` en 390px sin abrir el drawer:** la nota **se lee en la cabecera**. Recorrer la página entera
+   con el carrito cerrado y confirmar que la regla del envío aparece **al menos una vez**.
+8. **D43 sigue intacta tras este pase:** repetir la prueba **(l.1)** y **(l.6)** de §23.13.8 sobre las
+   cadenas **nuevas** — ninguna contiene un monto, un rango ni un porcentaje de envío; la **primera**
+   aparición de la tarifa en todo el ciclo sigue siendo **el correo 1**.
+9. **El aviso de solicitud creada** no contiene «recibamos tu carta» ni ningún plazo, y **sí** contiene la
+   instrucción de **no enviar todavía**.
+10. **Bloque de dinero del carrito:** `estimateNote` y `shippingNote` conviven **sin decir lo mismo** y
+    **sin terminar igual**; ninguna de las dos afirma que el monto se confirma al verificar.
+
+---
+
+#### 23.14.7 Notas a otros roles (derivadas de este barrido)
+
+1. **PO — ratificar siete textos, y tres son sensibles.** Todo §23.14.1 y §23.14.4 es **copy del trato**.
+   Los tres que conviene mirar con calma: **(a)** `safeShipping.step4Body`, porque **sustituye una
+   instrucción que le costaba dinero al vendedor** y ahora afirma la resta en una celda pequeña; **(b)**
+   `estimateNote`, porque **admite en voz alta que puede que no compremos todas las líneas** —es honesto y
+   está respaldado por §23.3a.2, pero es una frase que un negocio puede querer matizar—; **(c)**
+   `buylist.created`, porque **le dice explícitamente al vendedor que no mande nada todavía**.
+   El punto **(d)** de §23.14.4 (`subtitle`/`sellBody`) es **opcional** y no bloquea nada.
+2. **⚠ PO / arquitecto — `buylist.adjust.*` puede ser una pantalla MUERTA, y no la resuelvo yo.**
+   `PROJECT.md` registra que la contradicción de D27 quedó *«DISUELTA por D30: sin re-confirmación, el
+   ciclo de buylist **no usa `ajustada` en ningún punto**»*, y D9 mata el repreciado. Sin embargo el
+   catálogo mantiene vivo un modal completo —`adjust.{title,body,newTotal,accept,decline,error}`— cuyo
+   cuerpo dice *«Tras la verificación **ajustamos el precio** de una o más cartas»*. **Si ese flujo ya no
+   existe, es la misma contradicción de (a) y (b) pero con UI detrás.** No la toco: decidir si el estado
+   `ajustada` sigue vivo es del **arquitecto**, y retirar la pantalla es de **frontend**. **Petición:**
+   confirmar el estado del flujo; si está muerto, el copy se retira con él y **no hay que redactar nada**.
+3. **Arquitecto / PO — desalineación de conteo entre documentos (sin efecto en el diseño).**
+   `ARCHITECTURE §4.39(n)` v1.51.4 promovió la **cancelación por nuestra parte** a **correo 5** (productor
+   único), mientras que **§23.4.4 la trata como la variante 3c** de una misma plantilla. **El contenido
+   coincide** —de hecho el contrato apunta a §23.4.4-3c como su fuente de texto— y §23.13.2 ya pedía
+   formalizar las variantes. **No renumero §23 por mi cuenta**; se registra para que un pase lo alinee y
+   nadie crea que son dos correos distintos.
+4. **Frontend — qué hay que tocar, y es poco.** **Cero componentes nuevos.** (i) `SafeShippingGuide`: solo
+   copy (§7.13 reescrita para que el componente no vuelva a contar el trato viejo). (ii) `HomeQuoterPanel`:
+   cambiar el rótulo a la clave compartida y montar `BuylistShippingNote` **en el cuerpo del panel, fuera
+   de `withTrust`**. (iii) `BuylistView`: montar `BuylistShippingNote` bajo `payAfterReceipt` y **borrar el
+   `<p>` de `trustShipping`** (el bloque queda con dos párrafos). (iv) `SellCartContents`: solo copy.
+   **Ninguna clave nueva se crea**; se **retiran dos** (`home.quoter.wePay`, `buylist.trustShipping`) y se
+   **reutilizan dos que ya existen** (`buylist.quote.money.cardsValue`, `buylist.quote.shippingNote`).
+5. **Backend — recordatorio, no petición.** `PROJECT.md` §H manda repetir la guía de empaque **en el correo
+   de aceptación y en el de la etiqueta**. Cuando esas plantillas se escriban, **el paso 4 va con su
+   resta** (§23.14.3): ahí la cadena viaja **sin** ninguna tabla de montos al lado.
