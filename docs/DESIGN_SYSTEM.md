@@ -344,17 +344,19 @@
 > sus límites → ver §1.** El §1 solo pedía un tono «claro, directo, tranquilizador», que no decía si la
 > metáfora de caza (hoy viva en «Caza la carta. Nosotros la guardamos.», «Sets en cacería», «Top
 > Bounties» y el badge `BOUNTY`) es voz de marca legítima o un desliz. Queda escrito
-> que **sí lo es, y dónde**: titulares y CTA de **marketing** (home, landing del buylist). Y **dónde no**:
-> microcopy funcional, errores, dinero/checkout, legal, mensajes de accesibilidad y etiquetas de
-> nav/categoría, que sostienen claridad y SEO. Con dos límites duros anclados a los principios que ya
-> existían: el registro es **sobrio y adulto** (principio 3 — siguen prohibidos emojis, tipografía de
-> juguete y degradados arcoíris) y **la honestidad manda sobre el ingenio** (principio 1 — ninguna
-> metáfora afirma algo que el producto no hace). Más **paridad ES/EN** (§9): si la traducción literal
-> suena forzada se reescribe, no se calca. Se registra el **caso que enseña el límite**: `home.ctaShop`
-> quedó **literal a propósito** («Explorar el catálogo»), porque en el botón que convierte el usuario
-> necesita saber a dónde va — el titular evoca, el **CTA nombra la acción real**. **Aditiva: cero
-> tokens nuevos, cero componentes nuevos, cero claves i18n nuevas y cero cambios de contrato**; no
-> modifica ninguna sección previa.
+> que **sí lo es, y dónde**: titulares, **rótulos** y CTA de **marketing** (home, landing del buylist).
+> Y **dónde no**: microcopy funcional, errores, dinero/checkout, legal, mensajes de accesibilidad y **el
+> nombre de la cosa** (nav, filtros, texto de enlace), que sostiene claridad y SEO — con la distinción
+> **nombre ≠ rótulo**: un rótulo de agrupación sí admite voz de marca cuando el nombre real de cada
+> elemento va debajo y es lo que se indexa (caso `home.setsWanted`). Con dos límites duros anclados a
+> los principios que ya existían: el registro es **sobrio y adulto** (principio 3 — siguen prohibidos
+> emojis, tipografía de juguete y degradados arcoíris) y **la honestidad manda sobre el ingenio**
+> (principio 1 — ninguna metáfora afirma algo que el producto no hace). Más **paridad ES/EN** (§9): si
+> la traducción literal suena forzada se reescribe, no se calca. Se registra el **caso que enseña el
+> límite**: `home.ctaShop` quedó **literal a propósito** («Explorar el catálogo»), porque en el botón
+> que convierte el usuario necesita saber a dónde va — el titular evoca, el **CTA nombra la acción
+> real**. **Aditiva: cero tokens nuevos, cero componentes nuevos, cero claves i18n nuevas y cero
+> cambios de contrato**; no modifica ninguna sección previa.
 
 ---
 
@@ -409,10 +411,18 @@ se nombran correctamente.
 caza es **voz legítima del copy**: *cazar, cacería, bounty, presa*. Copy vivo hoy: «Caza la carta.
 Nosotros la guardamos.» (`home.heroTitle`), «Sets en cacería» (`home.setsWanted`), «Top Bounties» y el
 badge `BOUNTY`.
-- **Dónde sí:** **titulares y CTA de marketing** (home, landing del cotizador/buylist), donde crea
-  memoria de marca. **Dónde no:** microcopy funcional, **estados de error**, flujos de
-  **dinero/checkout**, copy legal, mensajes de accesibilidad y **etiquetas de nav/categoría** — que
-  sostienen la claridad y el SEO. Ahí manda la **claridad literal** ("Compra", "Bóveda", "Pagar").
+- **Dónde sí:** **titulares, rótulos y CTA de marketing** (home, landing del cotizador/buylist), donde
+  crea memoria de marca. **Dónde no:** microcopy funcional, **estados de error**, flujos de
+  **dinero/checkout**, copy legal, mensajes de accesibilidad y **el nombre de la cosa** — el término de
+  categoría que el usuario teclea y el buscador indexa: nav, filtros y **texto de enlace** («Comprar»,
+  «Bóveda», «Pagar», «Cartas gradeadas», «Producto sellado»). Ahí manda la **claridad literal**.
+- **Nombre ≠ rótulo (el caso «Sets en cacería»):** lo que la claridad y el SEO protegen es el **nombre
+  de cada elemento**, no el **rótulo que encabeza la lista**. El rótulo `home.setsWanted` lleva voz de
+  marca sin costo porque **el nombre real de cada set va debajo**: el rótulo es un `eyebrow` (no un
+  enlace ni un encabezado), y lo que se indexa y se clica es el nombre del set. La agrupación se puede
+  evocar; sus elementos, no. *(Sustituyó a «Sets buscados», que además **afirmaba algo falso**: sugería
+  que la plataforma quiere comprar esos sets, cuando son sets **con inventario a la venta** — ver el
+  principio 1 abajo.)*
 - **El caso que enseña el límite — el CTA primario del hero se resolvió LITERAL a propósito:**
   `home.ctaShop` es **«Explorar el catálogo» / «Explore the catalog»**, no un «Empezar la cacería»
   (ejemplo ilustrativo del registro; **nunca fue copy vivo** — se propuso y se descartó). En el botón
