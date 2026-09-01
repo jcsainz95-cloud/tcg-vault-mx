@@ -1,7 +1,7 @@
 {
   "common": {
     "appName": "TCG HUNT",
-    "tagline": "Pokémon card marketplace with custody",
+    "tagline": "Buy and sell Pokémon cards in Mexico, with a vault",
     "brand": {
       "name": "TCG HUNT",
       "domain": "tcghunt.mx",
@@ -71,16 +71,16 @@
   },
   "home": {
     "heroKicker": "Pokémon cards · Mexico",
-    "heroTitle": "Buy Pokémon cards at real prices and keep them in the vault",
-    "heroSubtitle": "Authenticated, condition guaranteed. Grow your collection and request shipping whenever you want.",
-    "ctaShop": "Browse the catalog",
-    "ctaSealed": "Sealed product",
+    "heroTitle": "Hunt the card. We keep it safe.",
+    "heroSubtitle": "Authenticated cards at real market prices. They live insured in your vault and ship in one go, whenever you say.",
+    "ctaShop": "Explore the catalog",
+    "ctaSealed": "Browse sealed product",
     "ctaBuylist": "Sell my cards",
-    "setsWanted": "Wanted sets",
+    "setsWanted": "Sets on the hunt",
     "trustAuth": "Every card is authenticated on intake",
-    "trustCustody": "Insured custody, no unnecessary shipping",
+    "trustCustody": "Insured vault: one shipment, whenever you say",
     "trustPrice": "Transparent market value in MXN",
-    "trustPayout": "Payment by bank transfer after verification",
+    "trustPayout": "We transfer as soon as we verify your cards",
     "yourVault": "Your vault",
     "vaultLink": "Open my vault",
     "vaultLabel": "Vault",
@@ -88,20 +88,20 @@
     "quoter": {
       "label": "Quoter",
       "title": "How much is your binder worth?",
-      "subtitle": "Search your cards, build the list and see what we pay today. Quoting is free.",
+      "subtitle": "Build your list and see what we pay today. Free, no account, no commitment.",
       "searchLabel": "Search a card to quote",
       "searchPlaceholder": "Search a card…",
       "add": "Add",
-      "empty": "No cards added yet. Search one to see what we pay today.",
+      "empty": "Search your first card and we'll tell you what we pay for it.",
       "pending": "Pending",
       "pendingNote": "{count, plural, one {# card will be quoted on receipt} other {# cards will be quoted on receipt}}",
       "quoteError": "Could not quote",
       "wePay": "We pay you",
       "remove": "Remove {name}",
-      "continue": "Continue my quote",
+      "continue": "Sell these cards",
       "viewMore": "See more in the quoter"
     },
-    "featuredTitle": "Featured from the catalog",
+    "featuredTitle": "Featured pieces",
     "featuredTitleShort": "Featured",
     "viewAllCatalog": "View the full catalog",
     "carouselPrev": "Previous",
@@ -121,30 +121,30 @@
     "graded": {
       "title": "Graded cards",
       "companies": "PSA · CGC",
-      "subtitle": "Sealed slab; grade and cert number verified against the grading company's registry.",
+      "subtitle": "Sealed slab. Grade and cert verifiable in the PSA or CGC registry.",
       "viewAll": "View all graded",
       "cert": "Cert {num}"
     },
     "bounties": {
       "title": "Top Bounties",
       "viewAll": "See the full buylist",
-      "subtitle": "These are the cards we pay best for right now.",
+      "subtitle": "The cards we pay best for right now. If you have one, bring it in.",
       "wePay": "We pay",
       "badge": "Bounty"
     },
     "how": {
       "title": "How the vault works",
       "tag": "Insured custody",
-      "step1Title": "You buy at the day's price",
-      "step1Body": "Every card carries its verified condition and market price — no surprises at checkout.",
-      "step2Title": "They stay in the vault",
-      "step2Body": "Stored and insured. You see your collection's value updated, card by card.",
+      "step1Title": "You buy with no surprises",
+      "step1Body": "Every card shows its verified condition and market price. What you see is what you pay.",
+      "step2Title": "They stay in your vault",
+      "step2Body": "Stored and insured, with your collection's value updated card by card.",
       "step3Title": "Request shipping whenever you want",
-      "step3Body": "One shipment for everything you've stacked up, or sell from the vault without moving it."
+      "step3Body": "One shipment for everything you've stacked up. Or sell from the vault without moving a card."
     },
-    "sellTitle": "Sell my cards",
-    "sellBody": "We quote your list at the day's market value. You ship, we authenticate and pay.",
-    "sellCta": "Quote my list",
+    "sellTitle": "Turn your doubles into cash",
+    "sellBody": "We quote your list at the day's market value. You ship, we authenticate and transfer.",
+    "sellCta": "Quote my list free",
     "featuredSet": {
       "label": "Market value · Featured set",
       "collectingTitle": "Collecting history",
@@ -154,7 +154,7 @@
     "gradingGems": {
       "title": "Gems worth grading",
       "kicker": "ILLUSTRATIVE · WE DO NOT ASSESS THE COPY",
-      "lead": "Ungraded cards whose market value, once graded, is far higher."
+      "lead": "Ungraded cards that are worth far more once graded."
     }
   },
   "catalog": {

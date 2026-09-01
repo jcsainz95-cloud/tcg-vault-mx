@@ -9812,3 +9812,118 @@ cambios de conducta** (la única línea de producto tocada es un comentario). Es
 este archivo y `docs/TECH_DEBT.md` (a petición explícita del techlead, que es su dueño de petición).
 `backend/` intacto. **`docs/DESIGN_SYSTEM.md` NO se tocó**: §23 es de ux-ui, que trabajaba en él en
 paralelo durante este pase.
+
+---
+
+## §41 · Copy del home reescrito con la voz de marca HUNT — solo cadenas, cero render (2026-09-01, rama `claude/ecommerce-home-copy-optimization-dd3d2w`)
+
+Pase **exclusivamente de copy**. No se tocó ni un componente, estilo, ruta, hook ni llamada a la API: el
+árbol que pinta el home es **byte a byte el mismo** que antes del pase. Lo único que cambia es el **valor**
+de un conjunto de claves i18n del bloque `home.*` y de `common.tagline`, en ES y EN.
+
+### 41.1 Qué se buscaba
+
+El home hablaba como un catálogo genérico («Compra cartas Pokémon con precio real…», «Ver el catálogo»,
+«Sets buscados»). La marca es **TCG HUNT**, y el léxico de caza (cazar/cacería/bounty) ya vivía en el
+producto solo a medias: «Top Bounties» estaba, pero el resto del home no lo acompañaba. Este pase alinea el
+copy con esa voz **sin romper la sobriedad editorial del sistema de diseño** (§1: claro, directo,
+tranquilizador; nada infantil; sin emojis; sin signos de admiración).
+
+Decisión del humano, no del frontend. Aquí solo queda registrada la implementación.
+
+### 41.2 Regla que gobernó el pase: se cambian VALORES, nunca el juego de claves
+
+`src/lib/i18n-parity.test.ts` exige que ES y EN tengan **el mismo conjunto de rutas de clave**. Añadir o
+borrar una clave en un solo idioma es un rojo inmediato, y borrarla en los dos rompe en silencio a
+cualquier consumidor. Por eso el pase se aplicó con un editor **consciente de la ruta** que reescribe solo
+la porción de valor de las líneas objetivo y luego **verifica estructuralmente** que:
+
+- la lista de rutas de clave (y su orden) es idéntica antes y después, y
+- el conjunto de valores que difieren es **exactamente** el conjunto pedido — ni uno más.
+
+Se conservan intactas las **claves muertas** del bloque (`home.ctaBuylist`, `home.trustAuth`,
+`home.trustPrice`, `home.vaultLabel`, `home.featuredSet.*`). Están sin consumidor hoy, pero borrarlas es
+un cambio de superficie i18n que no le toca a un pase de copy; si deben morir, es una limpieza aparte y
+deliberada, con la paridad ES/EN movida a la vez.
+
+### 41.3 Qué NO se tocó, y por qué
+
+Copy **legal** o **fuente de verdad**, deliberadamente fuera del alcance:
+
+| Clave(s) | Razón |
+|---|---|
+| `catalog.gradingNote.*`, `catalog.gradingBadge.*` | Deslinde legal del gancho de grading. |
+| `home.gradingGems.kicker` (`ILUSTRATIVO · NO EVALUAMOS LA PIEZA`) | Deslinde legal (§22.6). Reescribirlo por «tono» es publicar otra afirmación jurídica. |
+| `common.brand.*` (`TCG HUNT`, `tcghunt.mx`) | Fuente de verdad de la marca (§28), con candado propio en `brand.test.ts` y en la paridad. |
+| `nav.*`, pie, `stock.*`, `price.pending*`, `finish.*`, aria-labels de control, estados del carrusel | Fuera del home o portadores de estado/accesibilidad, no de marketing. |
+
+`home.gradingGems.lead` **sí** se reescribió: es la frase descriptiva de la vitrina, no el descargo. El
+descargo es el `kicker`, y sigue palabra por palabra como estaba.
+
+### 41.4 El efecto colateral que este pase sí tenía: `home.featuredTitle` es también un `aria-label`
+
+`featuredTitle` no es solo el H2 de la vitrina. `FeaturedCarousel.tsx` lo usa además como
+**`ariaLabel` de la región** del carrusel (`ariaLabel={t('featuredTitle')}`). Cambiar el título de «Piezas
+destacadas del catálogo» a «Piezas destacadas» mueve, por tanto, **el nombre accesible de la región**, y
+con él dos candados de `FeaturedCarouselRotation.test.tsx` que lo fijan en duro:
+
+- `getByRole('region', { name: … })` (ES) y su gemelo en EN,
+- la aserción de §23.9 `expect(section).toHaveAttribute('aria-label', …)`.
+
+Se actualizaron los tres literales. Lo que **no** se tocó es lo que esos candados protegen de verdad:
+`aria-roledescription` sigue siendo `carrusel`/`carousel`, y la aserción
+`expect(section.getAttribute('aria-label')).not.toMatch(/rotaci|carrus|gradе|PSA/i)` sigue viva y verde —
+el nuevo nombre tampoco menciona la rotación (§22.6b-e intacto). Es decir: cambió la **cadena esperada**,
+no la **norma verificada**.
+
+Vale la pena dejarlo escrito porque es la trampa del pase: «solo cambio textos» dejó de ser cierto en el
+momento en que un texto de marketing es a la vez el nombre accesible de un `role="region"`. Un cambio de
+copy en `featuredTitle` es siempre también un cambio de accesibilidad, y quien lo toque después debe
+mirar `FeaturedCarousel.tsx:600` antes de asumir que no.
+
+### 41.5 Tests de render que fijaban copy en duro
+
+`page.test.tsx` fija literales en español para comprobar que el home pinta lo que debe. Se actualizaron
+**ocho** (no los seis previstos: el brief no contaba `quoter.empty` ni `quoter.continue`, que también
+cambiaron de valor): `heroTitle`, `ctaShop`, `quoter.title`, `quoter.empty`, `setsWanted`,
+`featuredTitle`, `sellCta`, `quoter.continue`.
+
+Los **E2E de Playwright no se tocaron y no rompen**: leen las claves con el helper `t(locale, 'home.…')`
+en vez de teclear la frase, así que siguen a la traducción sola. Es la razón por la que ese helper existe,
+y este pase es su primera cobranza real.
+
+### 41.6 Comentarios de código con copy viejo — no corregidos, señalados
+
+Quedan referencias al copy anterior en **comentarios** de archivos de producto:
+`FeaturedCarousel.tsx:157` y `:601` («Piezas destacadas del catálogo»), y `page.tsx:35` y `:37`
+(«Sets buscados», «Continuar mi cotización»). Son prosa, no render. **No se editaron a propósito**: el
+encargo acotaba el pase a cadenas y `ux-ui` trabajaba `DESIGN_SYSTEM.md` en paralelo sobre estos mismos
+componentes; meter mano en sus archivos por un comentario es invitar a un conflicto de merge por cero
+beneficio funcional. Queda anotado aquí como **deuda cosmética menor**, no bloqueante, para el próximo
+pase que toque esos archivos por un motivo real.
+
+### 41.7 Verificación
+
+Suite completa, no un subconjunto:
+
+| Comando | Resultado |
+|---|---|
+| `npm run test` | ✔ **102 archivos / 944 casos, todos verdes** (~92 s) |
+| `npm run typecheck` | ✔ `tsc --noEmit` sin errores |
+| `npm run lint` | ✔ `No ESLint warnings or errors` |
+
+**Delta de casos: 0.** Un pase de copy no debe añadir ni quitar pruebas; si lo hiciera, no sería un pase de
+copy. Los 944 son los mismos 944 de antes, con ocho literales esperados distintos en dos archivos.
+
+`i18n-parity.test.ts` verde confirma lo importante: paridad ES/EN intacta, cero apariciones de la marca
+retirada «TCG Vault», y ningún candado semántico del catálogo (créditos, grados, disclaimer del gancho)
+movido por el camino.
+
+### 41.8 Alcance
+
+Escrituras: `frontend/messages/es.json`, `frontend/messages/en.json`,
+`frontend/src/app/[locale]/(storefront)/page.test.tsx`,
+`frontend/src/app/[locale]/(storefront)/_home/FeaturedCarouselRotation.test.tsx` y este archivo.
+Cero cambios de contrato, cero endpoints nuevos, cero mocks nuevos, cero tokens nuevos, cero componentes
+tocados. `backend/` intacto. **`docs/DESIGN_SYSTEM.md` NO se tocó** (es de ux-ui, que trabajaba en él en
+paralelo durante este pase) ni tampoco `docs/API_CONTRACT.md`.

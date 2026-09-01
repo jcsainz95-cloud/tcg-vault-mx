@@ -200,7 +200,7 @@ function getTrack() {
 }
 
 function getSection() {
-  return screen.getByRole('region', { name: 'Piezas destacadas del catálogo' });
+  return screen.getByRole('region', { name: 'Piezas destacadas' });
 }
 
 function statusLine() {
@@ -861,7 +861,7 @@ describe('§23.9 · anuncio a lectores de pantalla (patrón APG)', () => {
     await mountCarousel();
     const section = getSection();
     expect(section).toHaveAttribute('aria-roledescription', 'carrusel');
-    expect(section).toHaveAttribute('aria-label', 'Piezas destacadas del catálogo');
+    expect(section).toHaveAttribute('aria-label', 'Piezas destacadas');
     expect(section.getAttribute('aria-label')).not.toMatch(/rotaci|carrus|gradе|PSA/i);
   });
 
@@ -940,7 +940,7 @@ describe('§23.12 · i18n', () => {
     await act(async () => {
       window.dispatchEvent(new Event('resize'));
     });
-    expect(screen.getByRole('region', { name: 'Featured from the catalog' })).toHaveAttribute(
+    expect(screen.getByRole('region', { name: 'Featured pieces' })).toHaveAttribute(
       'aria-roledescription',
       'carousel',
     );
