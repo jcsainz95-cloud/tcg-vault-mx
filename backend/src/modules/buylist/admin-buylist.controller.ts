@@ -21,6 +21,7 @@ import { AuditService } from '../audit/audit.service';
 import {
   AdminPickupAddressDto,
   ConfirmShipmentDto,
+  ConvertToInventoryDto,
   DeclineDto,
   GuideCancellationDoneDto,
   GuideDto,
@@ -548,9 +549,12 @@ export class AdminBuylistController {
   @Post('items/:itemId/convert-to-inventory')
   async convert(
     @Param('itemId') itemId: string,
+    // v1.51.18 (fase 8, §4.39m.3): `locationId` OPCIONAL — se ofrece, no se exige. Body vacío `{}`
+    // sigue siendo válido, así que el llamador de hoy no se rompe.
+    @Body() dto: ConvertToInventoryDto,
     @CurrentUser() user: { id: string; role: Role },
   ) {
-    const res = await this.buylist.convertToInventory(itemId, user.id);
+    const res = await this.buylist.convertToInventory(itemId, user.id, dto?.locationId);
     await this.audit.log({
       actorUserId: user.id,
       actorRole: user.role,

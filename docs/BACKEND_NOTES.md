@@ -4,6 +4,122 @@
 > El contrato (`docs/API_CONTRACT.md`) manda sobre el código. Stack: NestJS + Prisma + PostgreSQL,
 > Redis/BullMQ (jobs), JWT + argon2, S3/MinIO (presigned URLs), Stripe.
 
+## 0.25 v1.51.18 — **BL-25 (el puerto de DISPARO) y BL-26 (un `total` que mentía)** (2026-09-01)
+
+> Implementa **ARCHITECTURE §4.39m.5** (BL-25) y **§4.39m.7.2** (BL-26). **CERO DDL, CERO endpoints,
+> CERO diales.** Un puerto nuevo (interno, no cruza el contrato), `convert-to-inventory` gana
+> `locationId?` y `pendingPublish`, y una cola deja de mentir en su conteo.
+
+### 0.25.1 ⚠️ Corté: el disparador (c) NO entró, y por una razón que hay que leer
+
+**Entra:** el puerto, el **consumidor (a)** (`buylist` al convertir) y **BL-26**.
+**Queda fuera:** el **consumidor (c)** (`pricing`, cuando el precio se vuelve resoluble).
+
+No es tamaño. Al ir a escribirlo aparece un problema que **es el mismo que el arquitecto acaba de
+prohibir resolver a lo bruto en (m.6)**: para disparar desde `pricing` hay que ir **de una clave de
+variante a las piezas de inventario de esa variante**, y **`gradeKey` NO ES UNA COLUMNA** de
+`InventoryItem` — se deriva (`buildGradeKey`: `raw:{rawCondition}` / `graded:{company}:{value}` /
+`sealed`). Escribir ese `where` sería **poner una segunda definición de la clave de variante en una
+consulta**, que es literalmente *«una copia de la regla»* en vez de *«la salida de la regla»*. Va en
+0.25.5 como escalada.
+
+Y hay una segunda decisión ahí que tampoco es mía: **(c) tiene DOS productores con formas distintas**
+—el `POST /admin/pricing/override` (un acto puntual) y el **barrido de precios** (una ingesta masiva
+que puede resolver miles de variantes de golpe)—. Disparar pieza a pieza tras un barrido completo es
+una decisión de operación, no de implementación.
+
+### 0.25.2 `INVENTORY_PUBLISH_PORT` — de disparo, y la forma lo hace cumplir
+
+`reevaluateForPublication(inventoryItemIds: string[])`. **Eso es toda la firma**, y es el diseño: no
+hay estado destino, ni precio, ni `status` que un llamador pueda pasar. Hay un test que **asevera la
+firma carácter por carácter** — verificar una *ausencia* solo se puede hacer por la forma.
+
+- **Las guardas viven del otro lado**, así que un llamador con un bug —o malicioso— **no puede
+  publicar una pieza impublicable**. Tests: status no publicable, inventario de custodia, sin precio,
+  sin ubicación. En los cuatro el puerto **dice que no** y el estado no se mueve.
+- **En lote, idempotente, no-op sobre lo impublicable.** Una pieza `listed` responde
+  `already_listed` sin re-publicar ni re-resolver; ids repetidos o vacíos no producen trabajo extra;
+  un id inexistente devuelve `not_found` **sin lanzar** y sin tumbar el lote.
+- **Devuelve qué pasó por pieza** para que el llamador registre **sin re-derivar** la regla. Si
+  tuviera que re-derivarla, tendríamos la regla en dos sitios otra vez.
+
+**⚠️ Cableado — el ciclo que esto evita, por si alguien mueve la inyección.** El token se declara en
+`inventory-publish.module.ts` (`@Global`), **no** en `InventoryModule`: Nest no re-exporta tokens
+ajenos, y re-exportar `InventoryModule` entero **publicaría globalmente su grafo de servicios de
+escritura**, que es exactamente lo que §4.39f prohíbe. Fuera solo existe **el token**.
+Y: `InventoryService` depende de `PricingService`, así que **el consumidor de (c) NO puede ser
+`PricingService`** —sería `PricingService → PORT → InventoryService → PricingService`, un ciclo de
+providers que solo se arregla con `forwardRef`—: tiene que ser **una hoja del grafo** (un controller o
+un job). Está escrito en el docblock del módulo.
+
+**Un solo cuerpo de publicación.** Al nacer el puerto, `tryAutoPublish` (disparador **b**) habría
+quedado con una copia del pipeline; **la borré**: ahora llama a `reevaluateOne`, el mismo cuerpo. El
+disparador (b) **sigue sin pasar por el puerto** —sería `inventory` dándole la vuelta al módulo para
+llamar a su propia puerta— y hay test que falla si alguien inyecta el token dentro de `inventory`.
+
+### 0.25.3 Consumidor (a) — `convert-to-inventory`
+
+`locationId?` **opcional** (se ofrece, no se exige), `pendingPublish` en la respuesta, y el disparo
+**post-commit**. ⛔ **Sigue sin aceptar `listPriceCents`**, y hay test que lo asevera **por la forma**
+(firma + campos del DTO), no por una validación.
+
+**⚠️ El degradado no inventa un estado bueno.** Si el puerto lanza o no está cableado, `pendingPublish`
+sale `['location','price']` — *«no sé, revísalo»*. **Jamás `[]`**: un `[]` significaría *«ya está a la
+venta»* y **sacaría la pieza de la única pantalla donde se encontraría**. Es la misma regla de BL-22:
+*donde el flag solo hace VISIBLE, se falla hacia visible.*
+
+**El replay también dispara.** Si el deep-link solo viajara en la primera conversión, M5 lo perdería
+**justo en el reintento**, que es cuando el operador está buscando qué pasó — y como el puerto es
+idempotente, re-disparar es gratis y **recupera un disparo perdido** en la llamada original.
+
+### 0.25.4 BL-26 — el `total` cuenta lo que `data` pagina
+
+Con `?onlyAlerts=true`, `pending-shipment-confirmation` paginaba y contaba en SQL y **filtraba
+después**: `total: 10` con 3 filas ⇒ **tres páginas vacías** y un número que miente sobre el trabajo
+pendiente. Ahora, con `onlyAlerts`, se deriva sobre la cola entera, se filtra y **el total sale del
+conjunto filtrado**. **Sin `onlyAlerts` no se barre**: ahí `data` y `total` ya coinciden en SQL, y
+barrer de más para obtener el mismo número sería pagar por nada.
+
+⚠️ **BL-22 sigue vivo dentro de esto**, y tiene test: la fila cuyo calendario no cubre la fecha
+**degrada a `alert: true`**, así que **entra** en `?onlyAlerts=true` y **suma al `total`**. *La fila
+más rara no puede ser la más escondida.* Es también la razón por la que esto **no se arregla con un
+`where`**: `alert` no es columna y su degradación no es expresable en SQL.
+
+La construcción de la fila se extrajo a `pendingShipmentRow` — **cuerpo único**: *el `total` no puede
+contar filas construidas con una regla distinta de la que produce las filas de `data`.*
+
+### 0.25.5 Tests
+
+`test/inventory.publish-port.spec.ts` (**17**) y `test/buylist.bl25-bl26.spec.ts` (**16**). Suite:
+**223 suites / 3009 tests**, verde. Actualicé `buylist.convert-guard.spec.ts` y
+`buylist.security.spec.ts`, que aseveraban la respuesta de convert con `toEqual` exacto.
+
+**Mutación (5 corridas, todas cazadas):** (1) `total` = superconjunto ⇒ 3 fallos; (2) el degradado
+inventa `missing: []` ⇒ 2 fallos; (3) el disparo deja de ser best-effort ⇒ 2 fallos; (4) el puerto
+re-publica lo `listed` ⇒ 2 fallos; (5) se quitan las guardas del puerto ⇒ 3 fallos.
+
+⚠️ **Nota de proceso:** al aplicar BL-26 corrí `prettier` sobre `buylist.service.ts` y me reformateó
+**445 líneas** que yo no había tocado. Lo revertí y reapliqué el cambio a mano (**diff final: 68/33**).
+*Un diff que mezcla reformateo con lógica es un diff que nadie puede revisar* — y `npm run lint` no
+corre prettier, así que el reformateo no era ni siquiera necesario.
+
+### 0.25.6 ⚠️ Escalada al arquitecto (1)
+
+**El consumidor (c) necesita ir de una VARIANTE a las PIEZAS de esa variante, y `gradeKey` no es una
+columna.** Se deriva de `rawCondition` / `gradingCompany`+`gradeValue` (`buildGradeKey`,
+`pricing.types.ts:561`). Traducirlo a un `where` sería **una segunda definición de la clave de
+variante en una consulta** — el patrón que (m.6) acaba de prohibir para el precio, por el mismo
+motivo y sobre el mismo dinero. Además **(c) tiene dos productores de formas distintas** (el override
+puntual de M2 y el barrido masivo de precios), y disparar pieza a pieza tras un barrido completo es
+una decisión de operación. **Ninguna de las dos la resuelvo solo.**
+
+### 0.25.7 Lo que NO entró
+
+- **Disparador (c)** — ver arriba.
+- **`workQueue.pendingPublish`** del dashboard (§11): módulo `admin`, **otro work stream**.
+- La entrada de **deuda de escala de `pending-publish`** en `TECH_DEBT.md` — el arquitecto la dejó
+  para **cuando el techlead la pida**, no ahora.
+
 ## 0.24 v1.51 fase 8 — **Publicar: la cola «listas para publicar» y el bypass del `PATCH`** (2026-09-01)
 
 > Implementa **API_CONTRACT §M1 / §11 `PendingPublishRowDTO`** sobre **ARCHITECTURE §4.39m.1/m.2/m.4**

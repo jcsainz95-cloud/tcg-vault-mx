@@ -8,6 +8,10 @@ import { SealedCatalogAdminService } from './sealed-catalog-admin.service';
 import { SealedProductService } from './sealed-product.service';
 import { InventoryController } from './inventory.controller';
 import { PricingModule } from '../pricing/pricing.module';
+// v1.51.18 (BL-25, §4.39m.5): el puerto de DISPARO de publicación (`INVENTORY_PUBLISH_PORT`) se ata
+// a `InventoryService` —el trabajo a disparar ES su pipeline; un adaptador aparte sería una segunda
+// forma de publicar— pero se DECLARA en `inventory-publish.module.ts` (@Global), que es quien lo
+// expone al resto del backend sin publicar este módulo entero.
 
 @Module({
   imports: [PricingModule],

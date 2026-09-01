@@ -48,6 +48,8 @@ import {
   UpdateItemDto,
 } from './dto/inventory.dto';
 import { toCardDTO } from '../catalog/catalog.service';
+// v1.51.18 (BL-25, §4.39m.5): `inventory` DECLARA y PROVEE el puerto de disparo de publicación.
+import { PublishReevaluationResult } from './inventory-publish.port';
 import { sanitizeSealedImageUrl } from './sealed-image-host';
 import { AuditService } from '../audit/audit.service';
 
@@ -2166,44 +2168,119 @@ export class InventoryService {
    * **escala a la cola de precio pendiente** y la pieza **sigue en `pending-publish`**. *Se degrada
    * el intento, nunca la visibilidad.*
    */
-  private async tryAutoPublish(itemId: string, trigger: string): Promise<PendingPublishState | null> {
+  private async tryAutoPublish(itemId: string, trigger: string): Promise<void> {
+    // ⚠️ v1.51.18 — **UN SOLO CUERPO DE PUBLICACIÓN.** Antes esto tenía su propia copia del
+    // pipeline; al nacer el puerto (BL-25) habría quedado la MISMA regla escrita dos veces, y la
+    // segunda copia se habría desviado en el primer cambio. `reevaluateOne` es la única.
+    // El disparador (b) **NO pasa por el puerto** —sería `inventory` dándole la vuelta al módulo
+    // para llamar a su propia puerta (§4.39m.5)—: llama al cuerpo directamente.
     const item = await this.prisma.inventoryItem.findUnique({
       where: { id: itemId },
       include: { card: true },
     });
-    if (!item) return null;
+    if (!item) return;
     const ctx = await this.loadPublishPricingCtx([item]);
-    // El estado se calcula ANTES del intento y con el cuerpo de solo lectura: es lo que se devuelve
-    // al llamador (`pendingPublish` del contrato) y lo que decide si hay algo que intentar.
+    const res = await this.reevaluateOne(item, ctx);
+    if (res.outcome !== 'published') {
+      this.logger.debug(`auto-publish (${trigger}): ${item.folio} → ${res.outcome}`);
+    }
+  }
+
+  /**
+   * ⚠️⚠️ v1.51.18 · **BL-25** (§4.39m.5) — **`INVENTORY_PUBLISH_PORT`: «REEVALÚA ESTAS PIEZAS».**
+   *
+   * Implementación del **puerto de DISPARO**. Lo que entra son **ids y nada más**: no hay estado
+   * destino, ni precio, ni `status` que un llamador pueda pasar. **La decisión y la escritura viven
+   * aquí**, tras el pipeline de siempre — así lo que cruzó la frontera fue una **notificación**, no
+   * una **autoridad**, y un llamador con un bug **no puede publicar una pieza impublicable**.
+   *
+   * **En lote, idempotente y no-op sobre lo impublicable**: llamarlo de más no hace nada. **No lanza
+   * por una pieza**: devuelve qué pasó con cada una, para que el llamador registre **sin re-derivar**
+   * la regla — si tuviera que re-derivarla, tendríamos la regla en dos sitios otra vez.
+   *
+   * ⚠️ **La cola `pending-publish` es la RED de este disparo** (ver el docblock del puerto): por eso
+   * el fallo puede ser silencioso *para el llamador* sin ser silencioso *para la operación*.
+   */
+  async reevaluateForPublication(
+    inventoryItemIds: string[],
+  ): Promise<PublishReevaluationResult[]> {
+    const ids = [...new Set(inventoryItemIds)].filter((x) => typeof x === 'string' && x.length > 0);
+    if (ids.length === 0) return [];
+    const out: PublishReevaluationResult[] = [];
+    const curve = await this.pricing.loadPricingCurve();
+    const sealed = await this.pricing.loadSealedSpreads();
+    for (let i = 0; i < ids.length; i += PENDING_PUBLISH_CHUNK_SIZE) {
+      const chunkIds = ids.slice(i, i + PENDING_PUBLISH_CHUNK_SIZE);
+      const items = await this.prisma.inventoryItem.findMany({
+        where: { id: { in: chunkIds } },
+        include: { card: true },
+      });
+      const found = new Set(items.map((it) => it.id));
+      for (const missingId of chunkIds.filter((x) => !found.has(x))) {
+        out.push({ inventoryItemId: missingId, outcome: 'not_found', missing: [] });
+      }
+      const ctx = await this.loadPublishPricingCtx(items, { curve, sealed });
+      for (const item of items) {
+        out.push(await this.reevaluateOne(item, ctx));
+      }
+    }
+    return out;
+  }
+
+  /**
+   * Una pieza del disparo. **Comparte el pipeline con todo lo demás** (`assertPublishableGuards` +
+   * `resolvePublishSalePrice` + `claimListed`): *no hay una segunda forma de publicar*.
+   */
+  private async reevaluateOne(
+    item: PublishableItem,
+    ctx: PublishPricingCtx,
+  ): Promise<PublishReevaluationResult> {
+    const id = item.id;
+    // Idempotencia observable: una pieza ya a la venta no se vuelve a publicar ni se re-resuelve.
+    // (Re-resolver lo `listed` es trabajo de `publish-all`, que existe para eso y es explícito.)
+    if (item.status === 'listed') {
+      return { inventoryItemId: id, outcome: 'already_listed', missing: [] };
+    }
     const state = this.pendingPublishStateOf(item, ctx);
     if (item.locationId == null) {
       // Sin ubicación no se publica **y no se escala nada**: el hueco es de captura, no de mercado.
-      // Escalar aquí ensuciaría la cola de M2 con piezas cuyo precio sí resuelve.
-      return state;
+      return { inventoryItemId: id, outcome: 'missing_location', missing: state.missing };
     }
     try {
       this.assertPublishableGuards(item);
-      const resolved = await this.resolvePublishSalePrice(item, null, ctx);
-      if (!resolved.ok) {
-        // Ya escaló a la cola de M2 dentro de `resolvePublishSalePrice`: la pieza queda VISIBLE.
-        return {
-          ...state,
-          missing: state.missing.includes('price') ? state.missing : [...state.missing, 'price'],
-          resolvedSalePriceCents: null,
-          priceBasis: 'pending',
-        };
-      }
-      await this.claimListed(item);
-      this.logger.log(`auto-publish (${trigger}): ${item.folio} publicada`);
-      return { ...state, missing: [] };
     } catch (e) {
-      // `ITEM_NOT_PUBLISHABLE` por carrera (un checkout la reservó entre medias) y cualquier otro
-      // fallo: se registra y **no se propaga**. El hecho que disparó el intento ya está escrito.
+      // Status de origen no publicable o inventario que no es de plataforma. **Correcto y esperado**:
+      // el puerto NUNCA fuerza. Se registra porque un disparo sobre algo ajeno es señal de un bug
+      // del llamador, y un no-op mudo lo escondería.
       this.logger.warn(
-        `auto-publish (${trigger}) skipped for ${item.folio}: ${e instanceof Error ? e.message : String(e)}`,
+        `publish trigger: ${item.folio} no publicable (${e instanceof Error ? e.message : String(e)})`,
       );
-      return state;
+      return { inventoryItemId: id, outcome: 'not_publishable', missing: state.missing };
     }
+    const resolved = await this.resolvePublishSalePrice(item, null, ctx);
+    if (!resolved.ok) {
+      // Ya escaló a la cola de M2: *un pendiente visible, no una carta perdida.*
+      return {
+        inventoryItemId: id,
+        outcome: 'price_pending',
+        missing: state.missing.includes('price') ? state.missing : [...state.missing, 'price'],
+        ...(resolved.pendingPriceEntryId
+          ? { pendingPriceEntryId: resolved.pendingPriceEntryId }
+          : {}),
+      };
+    }
+    try {
+      await this.claimListed(item);
+    } catch (e) {
+      // La guarda atómica perdió la carrera (un checkout la reservó entre medias). Es la conducta
+      // CORRECTA (anti-double-sell) y no se convierte en error del llamador.
+      this.logger.warn(
+        `publish trigger: ${item.folio} perdió la carrera al publicar (${e instanceof Error ? e.message : String(e)})`,
+      );
+      return { inventoryItemId: id, outcome: 'not_publishable', missing: state.missing };
+    }
+    this.logger.log(`publish trigger: ${item.folio} publicada`);
+    return { inventoryItemId: id, outcome: 'published', missing: [] };
   }
 
   async moveItem(id: string, dto: MoveItemDto, actorUserId: string) {

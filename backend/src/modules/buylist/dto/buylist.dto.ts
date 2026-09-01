@@ -264,3 +264,22 @@ export class PaySpeiDto {
 export class RejectRequestDto {
   @IsOptional() @IsString() @MaxLength(500) reason?: string;
 }
+
+/**
+ * v1.51.18 (fase 8, §M5 · ARCHITECTURE §4.39m.3) — body de
+ * `POST /admin/buylist/items/:itemId/convert-to-inventory`.
+ *
+ * ⚠️ **`locationId` es OPCIONAL y es el ÚNICO campo.** Se **ofrece** para no obligar a un segundo
+ * viaje, pero **no se exige**: *bloquear la conversión por falta de ubicación atoraría el flujo de
+ * pago, y el pago al vendedor no puede depender de que ya sepamos en qué caja va la carta* (criterio
+ * 125). La pieza sin ubicación **sale SEÑALADA** en `pending-publish`, no bloqueada.
+ *
+ * ⛔ **NO existe `listPriceCents` aquí, y no es un olvido** (D10, criterio 126): *en todo el ciclo de
+ * buylist **no existe** ningún campo para capturar el **precio de venta***, ni se «hereda» el precio
+ * de compra como precio de venta. Lo fija la curva (§N.1) con su precedencia money-safe. **La defensa
+ * es la FORMA DEL DTO**, no una validación: no hay campo que manipular (el `ValidationPipe` con
+ * whitelist descarta cualquier extra).
+ */
+export class ConvertToInventoryDto {
+  @IsOptional() @IsString() locationId?: string;
+}

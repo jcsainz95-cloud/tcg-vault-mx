@@ -76,6 +76,10 @@ import { variantKey, variantPositionKey } from '../../common/variant-key';
 // ⚠️ Este puerto NO es best-effort como `MAIL_PORT`: su ausencia/fallo ⇒ `positionUnavailable`,
 // JAMÁS un `0` (§4.39f).
 import {
+  INVENTORY_PUBLISH_PORT,
+  InventoryPublishPort,
+} from '../inventory/inventory-publish.port';
+import {
   INVENTORY_POSITION_PORT,
   InventoryPositionPort,
   VariantPositionRef,
@@ -420,6 +424,12 @@ export class BuylistService implements OnModuleInit {
     // runtime es un DEFECTO DE ARRANQUE (se grita en `onModuleInit`) y su fallo se traduce en
     // `position: null` + `positionUnavailable: true`, **jamás en un 0**.
     @Optional() @Inject(INVENTORY_POSITION_PORT) private readonly inventoryPosition?: InventoryPositionPort,
+    // ⚠️ v1.51.18 (BL-25, §4.39m.5): puerto de **DISPARO** de publicación. `@Optional` por los DOS
+    // motivos esta vez: los tests unitarios legacy **y** porque este puerto **SÍ es best-effort** —
+    // *la conversión NO puede fallar porque la publicación falle*. Sin puerto se loggea y se sigue, y
+    // la pieza **queda en `pending-publish`**, que es la red. (Contraste deliberado con el de
+    // posición, justo encima, que **NO** es best-effort porque allí **no hay red**.)
+    @Optional() @Inject(INVENTORY_PUBLISH_PORT) private readonly inventoryPublish?: InventoryPublishPort,
   ) {}
 
   /**
@@ -3661,47 +3671,82 @@ export class BuylistService implements OnModuleInit {
       sellerShippedDeclaredAt: { not: null },
       shipmentConfirmedAt: null,
     };
+    const include = { user: { select: { id: true, name: true, email: true, phone: true } } };
+    const orderBy = { sellerShippedDeclaredAt: 'asc' } as const;
+    // ⚠️ v1.51.18 · **BL-26** (§4.39m.7.2) — **`total` CUENTA EXACTAMENTE EL CONJUNTO QUE `data`
+    // PAGINA.** Antes esta cola paginaba y contaba en SQL, y **después** filtraba `data` por `alert`:
+    // con `?onlyAlerts=true` el `total` era el de la cola COMPLETA ⇒ **páginas vacías al final** y un
+    // número que **miente sobre el tamaño del trabajo pendiente**, que es lo único que una cola
+    // existe para decir. Es §P.8 aplicado a un conteo — la misma lógica que prohíbe el `0` de
+    // `positionUnavailable`.
+    //
+    // ⚠️ **NO se arregla moviendo el filtro al `where`**, y ésta es la parte que hay que leer
+    // despacio: `alert` es **derivado** y depende de `businessDaysSince`, **que LANZA** por doctrina.
+    // Una fila fuera de la cobertura del calendario **degrada a `alert: true`** (BL-22) — un `where`
+    // no puede expresar eso, y traducirlo pondría **una segunda definición de la alerta** en una
+    // consulta que ningún test de días hábiles cubre. *Es el hallazgo de BL-22 mordiendo por el otro
+    // lado.* **Se cuenta sobre el conjunto ya derivado, igual que se pagina.**
+    //
+    // Sin `onlyAlerts` **no se barre**: ahí `data` y `total` ya coinciden en SQL, y barrer de más
+    // para obtener el mismo número sería pagar por nada.
+    if (onlyAlerts) {
+      const all = await this.prisma.sellRequest.findMany({ where, orderBy, include });
+      const alerted = all.map((r) => this.pendingShipmentRow(r, alertDays)).filter((x) => x.alert);
+      return {
+        data: alerted.slice((page - 1) * pageSize, page * pageSize),
+        page,
+        pageSize,
+        total: alerted.length,
+      };
+    }
     const [rows, total] = await Promise.all([
       this.prisma.sellRequest.findMany({
         where,
-        orderBy: { sellerShippedDeclaredAt: 'asc' },
+        orderBy,
         skip: (page - 1) * pageSize,
         take: pageSize,
-        include: { user: { select: { id: true, name: true, email: true, phone: true } } },
+        include,
       }),
       this.prisma.sellRequest.count({ where }),
     ]);
-    const data = rows
-      .map((r) => {
-        // ⚠️ v1.51.14 · BL-22: se captura POR FILA. Antes, una sola fila fuera de la cobertura del
-        // calendario devolvía `500` en TODA la cola.
-        const waiting = this.safeDerive(
-          () => businessDaysSince(r.sellerShippedDeclaredAt as Date),
-          `días esperando de ${r.id}`,
-        );
-        return {
-          sellRequestId: r.id,
-          seller: this.sellerRef(r.user),
-          sellerShippedDeclaredAt: r.sellerShippedDeclaredAt,
-          shipDeadlineAt: r.shipDeadlineAt,
-          carrier: r.shipmentCarrier,
-          trackingNumber: r.shipmentTrackingNumber,
-          businessDaysWaiting: waiting.value,
-          ...(waiting.failed ? { businessDaysUnavailable: true as const } : {}),
-          // ⚠️ **`alert` falla hacia `true`, no hacia `false`.** *«Llevo demasiado esperando»* y *«no
-          // puedo saber cuánto llevo»* piden **la misma acción humana**: que alguien mire. Y un
-          // `false` sacaría la fila del filtro `?onlyAlerts=true`, que es la única vista donde se
-          // encontraría — **la fila más rara sería la más escondida**.
-          // (Contraste con la mesa, que falla hacia `"none"`: allí el veredicto **aconseja un acto**
-          // y uno inventado frenaría o empujaría una compra. *Donde el flag solo hace VISIBLE, se
-          // falla hacia visible; donde condiciona un acto, hacia «no sé».*)
-          alert: waiting.failed || (waiting.value as number) > alertDays,
-        };
-      })
-      // El filtro de alertas se aplica DESPUÉS de derivarlas: `alert` no es columna, así que no hay
-      // `where` que lo exprese. El `total` es el de la cola completa (es lo que el contrato pagina).
-      .filter((r) => (onlyAlerts ? r.alert : true));
-    return { data, page, pageSize, total };
+    return { data: rows.map((r) => this.pendingShipmentRow(r, alertDays)), page, pageSize, total };
+  }
+
+  /**
+   * Una fila de la cola «por confirmar envío», con su `alert` **ya derivado**. Cuerpo ÚNICO: lo usan
+   * la rama paginada en SQL y la que filtra por alerta — *el `total` no puede contar filas
+   * construidas con una regla distinta de la que produce las filas de `data`.*
+   */
+  private pendingShipmentRow(
+    r: Prisma.SellRequestGetPayload<{
+      include: { user: { select: { id: true; name: true; email: true; phone: true } } };
+    }>,
+    alertDays: number,
+  ) {
+    // ⚠️ v1.51.14 · BL-22: se captura POR FILA. Antes, una sola fila fuera de la cobertura del
+    // calendario devolvía `500` en TODA la cola.
+    const waiting = this.safeDerive(
+      () => businessDaysSince(r.sellerShippedDeclaredAt as Date),
+      `días esperando de ${r.id}`,
+    );
+    return {
+      sellRequestId: r.id,
+      seller: this.sellerRef(r.user),
+      sellerShippedDeclaredAt: r.sellerShippedDeclaredAt,
+      shipDeadlineAt: r.shipDeadlineAt,
+      carrier: r.shipmentCarrier,
+      trackingNumber: r.shipmentTrackingNumber,
+      businessDaysWaiting: waiting.value,
+      ...(waiting.failed ? { businessDaysUnavailable: true as const } : {}),
+      // ⚠️ **`alert` falla hacia `true`, no hacia `false`.** *«Llevo demasiado esperando»* y *«no
+      // puedo saber cuánto llevo»* piden **la misma acción humana**: que alguien mire. Y un
+      // `false` sacaría la fila del filtro `?onlyAlerts=true`, que es la única vista donde se
+      // encontraría — **la fila más rara sería la más escondida**.
+      // (Contraste con la mesa, que falla hacia `"none"`: allí el veredicto **aconseja un acto**
+      // y uno inventado frenaría o empujaría una compra. *Donde el flag solo hace VISIBLE, se
+      // falla hacia visible; donde condiciona un acto, hacia «no sé».*)
+      alert: waiting.failed || (waiting.value as number) > alertDays,
+    };
   }
 
 
@@ -4671,8 +4716,22 @@ export class BuylistService implements OnModuleInit {
     return { data, page, pageSize, total };
   }
 
-  /** Conversión a inventario en un clic. API_CONTRACT §M5. */
-  async convertToInventory(itemId: string, actorUserId: string) {
+  /**
+   * Conversión a inventario en un clic. API_CONTRACT §M5.
+   *
+   * ### ⚠️ v1.51.18 (fase 8 · §4.39m.3/m.5) — la conversión ya no MUERE aquí
+   * Antes la pieza nacía `in_stock` **sin ubicación y sin precio**, y **nada la empujaba a la venta**.
+   * Ahora:
+   * - **`locationId` OPCIONAL** (m.3): se **ofrece** para no obligar a un segundo viaje, pero **NO se
+   *   exige** — *bloquear la conversión por falta de ubicación atoraría el pago al vendedor, y el
+   *   pago no puede depender de que ya sepamos en qué caja va la carta*. ⚠️ **NO acepta
+   *   `listPriceCents`** (D10, criterio 126): el ciclo **no captura precios de venta**.
+   * - **Disparador (a)**: POST-COMMIT se pide a `inventory` que **reevalúe** la pieza. Se pide, no se
+   *   ordena: el puerto **no acepta estado destino ni precio**, y las guardas viven del otro lado.
+   * - La respuesta gana **`pendingPublish`** — el deep-link desde M5 a la cola de M1. `missing: []` ⇒
+   *   **se publicó sola** (criterio 125).
+   */
+  async convertToInventory(itemId: string, actorUserId: string, locationId?: string) {
     const item = await this.prisma.sellRequestItem.findUnique({
       where: { id: itemId },
       include: { card: true },
@@ -4682,7 +4741,15 @@ export class BuylistService implements OnModuleInit {
     // que la guardia de aprobación para que un item ya convertido (itemStatus=
     // 'convertida_inventario') no dispare 422 en reintentos.
     if (item.inventoryItemId) {
-      return { inventoryItemId: item.inventoryItemId, alreadyConverted: true };
+      // ⚠️ v1.51.18: el replay **también** trae `pendingPublish`. Si solo lo trajera la primera
+      // conversión, M5 perdería el deep-link justo en el reintento — que es cuando el operador está
+      // buscando qué pasó. Y **se re-dispara**: el puerto es idempotente y un disparo perdido en la
+      // llamada original es exactamente lo que un reintento debe poder recuperar.
+      return {
+        inventoryItemId: item.inventoryItemId,
+        alreadyConverted: true,
+        pendingPublish: await this.triggerPublish(item.inventoryItemId),
+      };
     }
     // GUARDIA DE APROBACIÓN (PROJECT §H, criterios 3d/16): SOLO una carta cuyo resultado
     // de verificación fue `aprobada` puede convertirse en InventoryItem vendible. Una carta
@@ -4721,6 +4788,9 @@ export class BuylistService implements OnModuleInit {
             cardProductId: item.cardProductId,
             ownerType: 'platform',
             status: 'in_stock',
+            // v1.51.18 (§4.39m.3): la ubicación **se ofrece, no se exige**. `undefined` ⇒ la pieza
+            // nace sin caja y sale SEÑALADA en `pending-publish` — nunca invisible.
+            ...(locationId ? { locationId } : {}),
             acquisitionType: 'buylist',
             // ⚠️ v1.51 (M-46, §4.39i.5, criterio 135) — **el costo de inventario es el BRUTO de esa
             // línea**, y desde el ciclo la fuente ÚNICA es `offeredPriceCents` (congelado al ofertar,
@@ -4752,7 +4822,15 @@ export class BuylistService implements OnModuleInit {
         });
         return inv;
       });
-      return { inventoryItemId: created.id, folio: created.folio };
+      // ⚠️ **POST-COMMIT.** La conversión ya está escrita: el disparo no puede deshacerla ni
+      // retrasarla, y su fallo **no la revierte**. *Bloquear el pago al vendedor porque no pudimos
+      // poner una carta a la venta invierte las prioridades.*
+      return {
+        inventoryItemId: created.id,
+        folio: created.folio,
+        alreadyConverted: false,
+        pendingPublish: await this.triggerPublish(created.id),
+      };
     } catch (e) {
       // Violación de unicidad → otra conversión ganó la carrera: ya convertido.
       if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
@@ -4760,9 +4838,61 @@ export class BuylistService implements OnModuleInit {
           where: { sourceSellRequestItemId: itemId },
           select: { id: true },
         });
-        return { inventoryItemId: existing?.id, alreadyConverted: true };
+        return {
+          inventoryItemId: existing?.id,
+          alreadyConverted: true,
+          ...(existing?.id ? { pendingPublish: await this.triggerPublish(existing.id) } : {}),
+        };
       }
       throw e;
+    }
+  }
+
+  /**
+   * ⚠️ v1.51.18 · **BL-25** (§4.39m.5) — **el disparador (a): «reevalúa esta pieza».**
+   *
+   * Traduce el resultado del puerto al `pendingPublish` que §M5 declara en la respuesta de
+   * `convert-to-inventory`: el **deep-link desde M5 a la cola de M1**. `missing: []` ⇒ **la pieza se
+   * publicó sola** (criterio 125).
+   *
+   * ### ⚠️ Best-effort, con su red nombrada
+   * Se llama **post-commit** y **nunca lanza**: la conversión ya ocurrió y *no puede fallar porque la
+   * publicación falle*. Un fallo aquí —o un puerto no cableado— **no deja la pieza invisible**: la
+   * deja en **`GET /admin/inventory/pending-publish`**, que es una cola que un operador trabaja.
+   * ⚠️ **Esa cola ES la red de este disparo** ⇒ **no se retira ni se estrecha sin sustituirla**; el
+   * día que se «optimice», esto pasa a ser fail-silent sobre inventario **pagado y no vendible**.
+   *
+   * ⚠️ **El degradado NO inventa un estado bueno.** Sin puerto se responde `missing: []`… **no**: se
+   * responde con lo que sabemos, que es *nada*, y por eso `missing` sale **vacío solo cuando el
+   * puerto confirmó que no falta nada**. Si el puerto no contesta, se dice `['location','price']`
+   * —*«no sé, revísalo»*— porque un `[]` inventado significaría **«ya está a la venta»** y sacaría la
+   * pieza de la pantalla que existe para encontrarla. *Donde el flag solo hace VISIBLE, se falla
+   * hacia visible.*
+   */
+  private async triggerPublish(
+    inventoryItemId: string,
+  ): Promise<{ missing: ('location' | 'price')[]; pendingPriceEntryId?: string }> {
+    const unknown = { missing: ['location', 'price'] as ('location' | 'price')[] };
+    if (!this.inventoryPublish) {
+      this.logger.warn(
+        `convert-to-inventory: INVENTORY_PUBLISH_PORT no disponible para ${inventoryItemId}; ` +
+          'la pieza queda en pending-publish',
+      );
+      return unknown;
+    }
+    try {
+      const [res] = await this.inventoryPublish.reevaluateForPublication([inventoryItemId]);
+      if (!res) return unknown;
+      return {
+        missing: res.missing,
+        ...(res.pendingPriceEntryId ? { pendingPriceEntryId: res.pendingPriceEntryId } : {}),
+      };
+    } catch (e) {
+      this.logger.error(
+        `convert-to-inventory: disparo de publicación falló para ${inventoryItemId}: ` +
+          `${e instanceof Error ? e.message : String(e)}`,
+      );
+      return unknown;
     }
   }
 

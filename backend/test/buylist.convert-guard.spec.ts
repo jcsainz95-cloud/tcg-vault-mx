@@ -77,7 +77,16 @@ describe('BuylistService.convertToInventory — guardia de aprobación (itemStat
   it('item APROBADA → crea InventoryItem y marca convertida_inventario', async () => {
     const { svc, prisma, created } = build({ itemStatus: 'aprobada' });
     const res = await svc.convertToInventory('sri-1', 'actor');
-    expect(res).toEqual({ inventoryItemId: 'inv-1', folio: 'INV-000001' });
+    // v1.51.18 (fase 8): la respuesta gana `pendingPublish` (deep-link de M5 a la cola de M1) y
+    // `alreadyConverted`. Aquí el puerto NO está cableado (test unitario), así que el degradado
+    // honesto es «no sé»: `['location','price']`. **Jamás `[]`**, que significaría «ya está a la
+    // venta» y sacaría la pieza de la pantalla que existe para encontrarla.
+    expect(res).toEqual({
+      inventoryItemId: 'inv-1',
+      folio: 'INV-000001',
+      alreadyConverted: false,
+      pendingPublish: { missing: ['location', 'price'] },
+    });
     expect(prisma.inventoryItem.create).toHaveBeenCalledTimes(1);
     expect(created.id).toBe('inv-1');
     expect(prisma.sellRequestItem.update).toHaveBeenCalledWith(
@@ -92,7 +101,11 @@ describe('BuylistService.convertToInventory — guardia de aprobación (itemStat
     // idempotencia gana y devuelve el inventoryItemId existente, sin lanzar 422.
     const { svc, prisma } = build({ itemStatus: 'convertida_inventario', inventoryItemId: 'inv-existing' });
     const res = await svc.convertToInventory('sri-1', 'actor');
-    expect(res).toEqual({ inventoryItemId: 'inv-existing', alreadyConverted: true });
+    expect(res).toEqual({
+      inventoryItemId: 'inv-existing',
+      alreadyConverted: true,
+      pendingPublish: { missing: ['location', 'price'] },
+    });
     expect(prisma.inventoryItem.create).not.toHaveBeenCalled();
   });
 });

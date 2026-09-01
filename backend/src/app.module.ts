@@ -17,6 +17,8 @@ import { InventoryModule } from './modules/inventory/inventory.module';
 // lote). Existe para que `buylist` lea la posición de inventario SIN importar `InventoryModule`:
 // los dos viven en streams distintos y tienen que poder mergear por separado.
 import { InventoryPositionModule } from './modules/inventory/inventory-position.module';
+// v1.51.18 (BL-25, §4.39m.5): puerto de DISPARO de publicación. @Global, exporta SOLO el token.
+import { InventoryPublishModule } from './modules/inventory/inventory-publish.module';
 import { OrdersModule } from './modules/orders/orders.module';
 import { VaultModule } from './modules/vault/vault.module';
 import { ShipmentsModule } from './modules/shipments/shipments.module';
@@ -51,6 +53,7 @@ import { MoneyOutGuard } from './common/guards/money-out.guard';
     CatalogModule,
     InventoryModule,
     InventoryPositionModule,
+    InventoryPublishModule,
     OrdersModule,
     VaultModule,
     ShipmentsModule,
