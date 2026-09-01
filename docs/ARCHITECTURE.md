@@ -11522,7 +11522,7 @@ verificable con inventario**.
 > topes AML/KYC, el flujo de **ajuste** (`ajustada`) que sigue vivo para otros caminos, y el **precio de venta** (D10:
 > lo fija la curva; este ciclo no captura precios de venta).
 > **Diseño en papel.** Lo implementan **backend** (schema, servicios, jobs, correos) y **frontend** (M5, M1, portal del
-> vendedor). Contrato observable en `API_CONTRACT.md` ~~**v1.51**~~ **v1.51.5**. Migración **M-46** (§11).
+> vendedor). Contrato observable en `API_CONTRACT.md` ~~**v1.51**~~ **v1.51.6**. Migración **M-46** (§11).
 > **Regla de conflicto aplicada:** donde este documento y `PROJECT.md` §P difieran, **manda PROJECT**. Las tensiones y
 > los huecos que encontré **están señalados en (o)**, no resueltos en silencio.
 >
@@ -12266,6 +12266,154 @@ si NO  (sin bounty, O bounty con bountyTargetQty = null):
 > **(a)** el **backfill** cura las filas que ya existen · **(b)** el **default** cura las que se creen · **(c)** la
 > **lectura** frena cualquier `null` que se cuele. Ninguno de los tres es redundante: cubren **el pasado**, **el
 > futuro** y **el accidente**.
+
+---
+
+### ⚠️ v1.51.6 — CINCO PRECISIONES DE LA MESA, LEVANTADAS POR EL BACKEND QUE LA CONSTRUYÓ
+
+*Las cinco las señaló en vez de zanjarlas, y en las cinco tenía razón en preguntar. **Cuatro se RATIFICAN** (el código
+ya hace lo correcto y lo que faltaba era decirlo aquí); **una CAMBIA EL PREDICADO** y va a backend como corrección.*
+
+#### (g.1) ⚠️ **CAMBIA UNA NORMA — la posición EXCLUYE la solicitud en pantalla. Los tres sumandos de promesa, no el stock.**
+
+**El defecto es mío:** la tabla de predicados de (g) dice *«`SellRequestItem` con `offerDecision='buy'` cuya solicitud
+está en …»* y **nunca dijo «otra solicitud»**. Backend implementó el predicado **literal**, que es lo correcto cuando
+el contrato no distingue. Consecuencia verificada en el código (`buylist.service.ts:1839-1861`: el `where` no acota
+`sellRequestId`): **abierta la mesa sobre una solicitud ya `ofertada`, sus propias líneas suman a `committed`.**
+
+- **Hoy NO es un bug, y backend lo diagnosticó bien:** `offerDecision` solo se puebla **al emitir la oferta**, así que
+  una solicitud `cotizada` —el caso normal de la mesa— tiene sus líneas en `null` y **no se autocuenta**. El fallo
+  nace **el día que los endpoints de oferta escriban `offerDecision`**.
+- **⚠️ Y el disparador es más ancho que la reemisión.** La mesa **no tiene precondición de estado** (solo `404`;
+  `buylist.service.ts:1570-1580`), así que se puede abrir sobre una `ofertada`/`aceptada`/`en_transito`/`recibida`/
+  `verificacion` — y **en todas ellas se autocuenta**. *La reemisión, en cambio, es el único caso que NO falla*: para
+  re-ofertar hay que cancelar, la solicitud vuelve a `cotizada` y `cotizada` **no está en el predicado**.
+
+**Por qué excluir es lo correcto y no una comodidad — el argumento está en `PROJECT.md` §P.2 y es literal:**
+*«Ocho copias en la caja y tres más en camino es una razón perfectamente buena para no comprar **la novena**»*. **La
+novena es lo que se juzga; las ocho y las tres son el contexto.** Si la novena se cuenta a sí misma, la frase es
+circular y el umbral se lo come el propio sujeto de la decisión. Peor aún, en la lectura de revisión el número
+**engaña**: un `committed: 3` que son **las tres líneas que el operador está viendo en pantalla** se lee como *«hay
+tres más en otro lado»*.
+
+> **NORMA (sustituye la tabla de predicados de (g) en su tercera columna):** los **TRES sumandos de promesa**
+> —`verifying`, `inTransit`, `committed`— se calculan **sobre `SellRequestItem` de OTRAS solicitudes**:
+> `sellRequestId != :id` entra al `where`, junto a `offerDecision='buy'` y el filtro de estados.
+> **`stock` NO se excluye, y la asimetría es deliberada:** una pieza en la bóveda es un **hecho**, no una promesa —
+> da igual qué solicitud la trajo—. *Los sumandos que cuentan promesas excluyen la solicitud cuyas promesas se están
+> juzgando; el que cuenta hechos cuenta todo.* Es la misma distinción promesa/hecho sobre la que está construida
+> toda esta sección.
+>
+> **Semántica del campo, para que no se pueda releer mal:** `position` = **«lo que ya tengo o ya debo, SIN contar
+> esta solicitud»**. Lo que aporta la solicitud en pantalla **ya está a la vista**: son sus líneas.
+>
+> **Dirección del cambio, dicha en voz alta:** excluir **baja** `total`, o sea hace `do_not_buy` **menos** probable.
+> Eso es aceptable aquí y **solo aquí** porque **la sugerencia no bloquea nada** (D6) y porque el operador tiene las
+> líneas de la solicitud delante. **No es un aflojamiento de un control de dinero: es quitar un doble conteo de un
+> consejo.** *(Contrástese con `brutoConsumado` (§4.39i.4-bis), donde el mismo razonamiento llevó a la conclusión
+> contraria porque allí sí hay un tope que puede quedarse corto.)*
+>
+> **Caso de prueba exigible (QA):** solicitud X `ofertada` con 3 líneas `buy` de la carta C y **cero** existencias
+> ⇒ abrir la mesa de **X** debe dar `committed: 0`; abrir la mesa de **otra** solicitud Y con la misma carta debe
+> dar `committed: 3`. **Dueño de la corrección: backend.**
+
+#### (g.2) ✅ RATIFICADO — en una línea de PRODUCTO SEPARADO, el bounty y el override no gobiernan la sugerencia, y por eso siempre sale `variant_cap`
+
+Backend ignora el override de M-30 en una línea con `cardProductId` **también para la sugerencia**, no solo para el
+precio (`buylist.service.ts:1652-1653`, y ese mismo `null` viaja a `positionAndSuggestion` en `:1675`). **Es
+correcto, y la causa es de MODELO, no de código:** la `@@unique` de `VariantPriceOverride` es
+`(cardId, productType, gradeKey, finish)` — **sin `cardProductId`** —, así que esa fila **describe la variante de
+set base**. Aplicarle su bounty a una promo sería exactamente la fusión de identidades que §P.8 llama *«peor que no
+mostrar nada»*, y lo sería **en el consejo igual que en el precio**: un bounty configurado para la carta del set base
+frenaría (o dejaría de frenar) la compra de **otra pieza que vale distinto**.
+
+> **NORMA:** una línea con `cardProductId != null` **siempre** se juzga con **`rule: "variant_cap"`** y
+> **`bountyActive: false`**. **No es un caso legacy ni un `null` mal formado** —el caso de (g)/D32, que también da
+> `variant_cap`, se distingue porque **ahí `bountyActive` es `true`**—. Los dos veredictos son legibles y distintos
+> en la respuesta, que es lo que exige el criterio 144.
+> **Lo que haría falta para cambiarlo, para que quede dicho y nadie lo intente a medias:** meter `cardProductId` en
+> la `@@unique` de `VariantPriceOverride` — **DDL, backfill y re-llaveo de una tabla de dinero**. Es un proyecto
+> propio, **no un ajuste de la mesa**, y hoy **no hay demanda**: no existe forma de configurar un bounty por producto
+> separado (no hay panel de bounties — D32, proyecto aparte del humano). *Sin escritura no puede haber lectura.*
+
+#### (g.3) ✅ RATIFICADO — deriva de identidad ⇒ `derivedPriceCents: null` **y `pendingReason: null`**. NO se añade un valor al enum.
+
+Cuando el `finish` snapshoteado ya no está en `Card.availableFinishes` o el `cardProductId` no resuelve, la línea no
+tiene precio derivable **por identidad, no por mercado**. Backend emite los dos `null`, no revienta con un `422` —el
+contrato solo declara `403`/`404` en este endpoint y **esta pantalla es diagnóstica: si revienta, el operador pierde
+las otras 40 líneas por culpa de una**— y **no inventa un `pendingReason`**. Ratifico las tres decisiones.
+
+> **Por qué NO entra `identity_drift` al enum, y el argumento es más fuerte que «afirma algo del mercado»:**
+> `PendingPriceReason` **no es un enum de este DTO**: es una **columna persistida** (`PendingPriceEntry.reason`,
+> `schema.prisma:988`) que además **sirve el filtro `?reason=` de `GET /admin/pricing/pending`**. Añadirle un valor
+> costaría **DDL**, y metería en la cola de precios de M2 una opción de filtro que **nunca puede aparecer ahí**
+> —nada escala una línea con deriva a esa cola— o, peor, **invitaría a escalarla**: y en la cola de precios esa línea
+> es **incurable**, porque su problema no es que falte un precio, es que la variante que pide **ya no existe**. El
+> remedio es de **catálogo** (reparar `availableFinishes`) o de **operación** (rescatarla con override al ofertar),
+> y ninguno de los dos vive en M2.
+>
+> **NORMA — las tres combinaciones legales del par, porque la lectura ingenua *«sin precio ⇒ hay motivo»* es falsa:**
+> | `derivedPriceCents` | `pendingReason` | Significa | Qué pinta el front |
+> |---|---|---|---|
+> | número | `null` | precio derivado normalmente | el monto |
+> | `null` | `no_market` \| `premium_at_floor` | **el mercado se consultó y no dio precio** | `SIN PRECIO` + el motivo |
+> | **`null`** | **`null`** | **⚠️ DERIVA DE IDENTIDAD: el mercado ni se consultó** | `SIN PRECIO`, **con copy propio** |
+>
+> **El discriminador ya existe y no hace falta un campo nuevo: es el PAR.** `derivedPriceCents === null ∧
+> pendingReason === null ⇒ deriva de identidad`, sin ambigüedad. **La línea sigue siendo rescatable con override al
+> ofertar** (§4.39e), así que **no se autoexcluye del ciclo**: nace desmarcada por (g.4), no prohibida.
+> **Para ux-ui:** esa tercera fila necesita **su propio texto** —*«esta carta cambió en el catálogo»*, no *«sin
+> precio de mercado»*—, porque el remedio del operador es distinto. **Es su documento, no lo redacto yo.**
+
+#### (g.4) ✅ RATIFICADO y PROMOVIDO AL CONTRATO — `totals.buyableGrossCents` suma **la selección POR DEFECTO**
+
+**La ambigüedad era real y es mía:** el DTO decía *«Σ de las líneas marcadas `buy` en esta previsualización»* y **el
+`GET` no recibe ninguna selección**. Backend la resolvió leyendo `DESIGN_SYSTEM §23.6(g)` —*«toda línea con precio
+resoluble nace marcada como comprar; la línea sin precio nace desmarcada»*— y lo señaló. **La resolución es la
+correcta; el defecto es que estaba en el sistema de diseño y no aquí.**
+
+> **NORMA (se promueve a `API_CONTRACT`, §DTOs y §M5-ciclo):**
+> `buyableGrossCents = Σ derivedPriceCents de las líneas con derivedPriceCents != null`.
+> **Es la SELECCIÓN POR DEFECTO**, no una selección recibida: el endpoint es un `GET` **sin cuerpo y sin query de
+> selección**, y el default es *«la solicitud tal como llegó, menos lo que no se puede preciar»* — el cherry-pick es
+> **quitar**, nunca poner.
+> - **Una línea sin precio derivable aporta `0` y nace desmarcada** (no se puede ofertar sin monto), **incluidas las
+>   de deriva de identidad de (g.3)**.
+> - **La UI recalcula la suma al desmarcar; el UMBRAL y el VEREDICTO los sigue mandando el servidor**
+>   (`minimumOfferNetCents`, `requiredGrossCents`, `netBelowMinimum`) — los diales se editan sin redeploy y una
+>   constante en el front quedaría desincronizada **en silencio**. Norma ya vigente, aquí solo se reafirma.
+> - **Por qué la definición vive en el CONTRATO y no solo en el sistema de diseño:** *qué suma un total de dinero es
+>   una propiedad de la interfaz, no de la pantalla.* Un backend que no lea `DESIGN_SYSTEM` —y no tiene por qué,
+>   `CLAUDE.md` solo se lo exige al frontend— debe poder implementar este campo bien. **§23.6(g) sigue siendo la
+>   fuente del comportamiento de la CASILLA; el contrato lo es de la SUMA.** No se contradicen: describen el mismo
+>   default desde los dos lados.
+
+#### (g.5) ✅ CONFIRMADO — `seller.phone` es **entrega pendiente de D12**, y la mesa no debe nada. Pero el hueco es MÁS ANCHO de lo que backend creyó.
+
+Backend lo dejó fuera porque poblarlo obliga a tocar `sellerRef()`, compartido con `adminList`/`adminGet`.
+**Confirmado: D12 es el dueño y la mesa no debía nada en este pase.**
+
+> **⚠️ Verificado antes de escribir, y el hallazgo corrige mi propio borrador:** el contrato **ya concedió** el campo
+> — `AdminSellerRef = { id, name, email, phone?: string | null }` (§11 DTOs, añadido por **D12/v1.51**). O sea **no
+> hay nada que «añadir al contrato»**: lo que hay es una **entrega de D12 que no se ha implementado**.
+> `sellerRef()` (`buylist.service.ts:1536-1540`) devuelve `{ id, name, email }` y **los cuatro `include` que lo
+> alimentan seleccionan solo esos tres campos** (`:1510`, `:1548`, y los de la mesa y `rejected-items`).
+> - **La prosa de §M5 que dice `AdminSellerRef = { id, name, email }` (v1.18) quedó RANCIA** al concederse `phone`;
+>   es la misma clase de defecto que las citas de §4.39e. **El DTO de §11 manda sobre la prosa de §M5.**
+> - **Alcance real de la entrega de D12: CUATRO superficies, no una** — `GET /admin/buylist` (la cola, que es donde
+>   §M5 lo exige explícitamente: *«el teléfono viaja en la cola»*), `GET /admin/buylist/:id`,
+>   `GET /admin/buylist/rejected-items` y la **mesa**. Se resuelven con **un cambio en `sellerRef()` y un campo más
+>   en cuatro `select`** — exactamente el trabajo compartido que backend hizo bien en no meter en el pase de la mesa.
+> - **Registrado como desviación `BL-15`** (§9): *el contrato declara un campo que el código no emite.* **Dueño:
+>   backend, bajo D12.** No es un defecto de la mesa y no se le reclama a ella.
+>
+> **Y el cabo que hace que esto importe más que un campo de contacto:** `pickupAddressMissing` **vive en la mesa**, y
+> el remedio que el propio contrato prescribe para ese aviso es *«el operador **llama al vendedor** (`seller.phone`)
+> para que capture la dirección»*. **La pantalla que levanta la bandera no lleva hoy el medio de actuar** — la misma
+> fricción que `pickupAddressMissing` existe para evitar, un paso más abajo. Cuando D12 se entregue, **la mesa lo
+> hereda sin tocar una línea de `adminDecisionTable`**: esa es la señal de que el reparto era el correcto.
+> **Régimen PII: sin cambios** (§4.18d, criterio 130 — back-office por rol, sin enmascarado, **prohibido en toda
+> superficie pública**). *No se está abriendo un dato nuevo: se está entregando uno ya autorizado.*
 
 ---
 
@@ -13745,7 +13893,7 @@ serializarlo o llevarlo en **una sola sesión**:
 | `backend/src/jobs/` | barrido reescrito | ver la nota de §2 sobre `jobs/` |
 | `frontend/src/lib/` | `isTerminal` viene del server; se **borra** el literal de `M5View.tsx` | quinta copia del set terminal |
 | `backend/src/common/error-codes.ts` | **5 códigos nuevos** *(v1.51.3)*: `PICKUP_ADDRESS_REQUIRED` · `PICKUP_ADDRESS_NOT_FOUND` · `PICKUP_ADDRESS_MISSING` · `PICKUP_ADDRESS_LOCKED` · `DECLINE_NOT_ALLOWED` **+ 1** *(v1.51.4)*: `GUIDE_CANCELLATION_PENDING` | enum de errores pisado por dos streams |
-| `docs/API_CONTRACT.md` | ~~v1.51.3~~ ~~v1.51.4~~ **v1.51.5** | — (mío) |
+| `docs/API_CONTRACT.md` | ~~v1.51.3~~ ~~v1.51.4~~ ~~v1.51.5~~ **v1.51.6** | — (mío) |
 
 **Nota de secuencia para backend:** la **desviación BL-2** de (b.2) —el `respond` sin guarda— **no depende de M-46** y
 es explotable **hoy**. Puede y debe ir **primero**, en su propio commit, antes que el resto del ciclo.
@@ -14491,6 +14639,8 @@ Riesgos técnicos:
   | # | Desviación | Dueño | Puerta |
   |---|---|---|---|
   | **BL-2** ⚠️ **3 de 4 CERRADAS — falta la cuarta línea de la guarda, y su bloqueo YA DESAPARECIÓ** *(DINERO SALIENTE, no depende de M-46)* | `respond` (`buylist.service.ts:1067-1093`) hacía `findUnique` **solo para autorizar propiedad** (`:1069`) y **nunca leía `req.status`**: `accept` fijaba `status:'aprobada'` **incondicionalmente** (`:1090`). **El dueño de una solicitud `pagada`/`rechazada`/`abandonada` podía revivirla a `aprobada`** — que con `verifiedAt` es el estado pagable de `paySpei`. `decline` tenía el hueco simétrico | backend | ✅ **El agujero explotable está CERRADO**: guarda atómica (`count===1`) con `closedAt IS NULL ∧ adjustmentSentAt IS NOT NULL ∧ status ∈ SELL_REQUEST_LIVE_ADJUSTMENT_STATES` (`buylist.service.ts:1331-1343`) + `409 NO_LIVE_ADJUSTMENT` (`:1353`). ⛔ **ABIERTO: la CUARTA condición `offerSentAt IS NULL` ⇒ `409 ADJUST_NOT_ALLOWED_IN_OFFER_CYCLE`.** Los `TODO(M-46)` de `:1340` y `:1351` se dejaron porque *«la columna aún no existe»* — **`offerSentAt` YA EXISTE** (`schema.prisma:1189`, M-46 aplicada) ⇒ **el bloqueo desapareció y esto es cablable ahora**. Sin ello el criterio 150 no está cerrado en `respond` (§4.39b.2/b.3) |
+  | **BL-16** *(v1.51.6 — **defecto del CONTRATO, no del código**; hoy latente, activo el día que se emita la primera oferta)* | El predicado de los tres sumandos de promesa de la mesa **no acota `sellRequestId`** (`buylist.service.ts:1839-1861`), porque **el contrato nunca dijo «otra solicitud»**. Abierta la mesa sobre una solicitud **`ofertada`**, **sus propias líneas suman a `committed`** y el operador decidiría contra una posición **inflada por él mismo**. Hoy inocuo (`offerDecision` solo se puebla al emitir, y el caso normal es `cotizada`). ⚠️ **El disparador es más ancho que la reemisión:** la mesa **no tiene precondición de estado**, así que se autocuenta en `ofertada`/`aceptada`/`en_transito`/`recibida`/`verificacion` — *la reemisión es el único caso que NO falla, porque exige cancelar y `cotizada` no está en el predicado* | backend | **Con el pase de los endpoints de oferta, no después** (antes de que nada escriba `offerDecision`). Cierre = `sellRequestId != :id` en los **tres** sumandos de promesa; **`stock` NO se excluye** (§4.39g.1). Caso de prueba exigido en el contrato v1.51.6 |
+  | **BL-15** *(v1.51.6 — **el contrato declara un campo que el código no emite**; entrega pendiente de D12)* | `AdminSellerRef` declara **`phone?: string \| null`** desde D12/v1.51 (§11 DTOs), pero `sellerRef()` (`buylist.service.ts:1536-1540`) devuelve `{id, name, email}` y **los cuatro `include` que lo alimentan seleccionan solo esos tres campos** (`:1510`, `:1548`, mesa y `rejected-items`). §M5 lo exige explícitamente en la **cola**: *«el teléfono viaja en la cola de buylist»*. ⚠️ La prosa de §M5 que aún dice `AdminSellerRef = { id, name, email }` (v1.18) quedó **rancia**; **manda el DTO de §11** | backend (bajo **D12**) | **Con D12.** ⚠️ **NO es un defecto de la mesa** y no se le reclama a ella: backend hizo bien en no meter trabajo compartido en ese pase. Cierre = `phone` en `sellerRef()` + un campo más en los cuatro `select`. **Régimen PII sin cambios** (§4.18d, criterio 130). Sin él, `pickupAddressMissing` avisa en una pantalla que **no lleva el medio de actuar** (§4.39g.5) |
   | **BL-3** ✅ **CERRADA (2026-09-01)** *(PII / cumplimiento)* | `jobs/ine-retention.service.ts:28` definía su propio `CLOSED = ['pagada','rechazada','abandonada']`. Con `expirada` en el enum, **una solicitud expirada contaría abierta para siempre ⇒ el INE nunca se purga** | backend | ✅ Cerrada con M-46: el literal desapareció y el job importa `SELL_REQUEST_TERMINAL_STATES` (`ine-retention.service.ts:6`, usado en `:60` y `:67`, **por complemento**). §4.39c, sitio 1 |
   | **BL-4** ✅ **CERRADA (2026-09-01)** *(dinero / AML)* | `users.service.ts:194` y `buylist.service.ts:927` eran **el mismo cuerpo duplicado** (`monthUsedCents` / `monthUsedCentsTx`; el JSDoc lo reconocía). Con `expirada`, una oferta vencida **le seguiría quemando la cuota mensual** al vendedor. Además medían sobre `quotedTotalCents`, cuando el criterio 155 exige **bruto** | backend | ✅ Cerrada con M-46: **un solo cuerpo** en `common/buylist-aml.ts` (`monthCommittedGrossCents`), predicado por complemento sobre `SELL_REQUEST_NON_COMMITTING_STATES` y monto `offerGrossCents ?? quotedTotalCents ?? 0` (`:85`, `:91`). Los dos consumidores solo pasan el cliente (`users.service.ts:196`, `buylist.service.ts:1032`). §4.39c, sitios 2+3. ⚠️ **El sitio 4 NO quedó alineado con éste — ver BL-5** |
   | **BL-5** ⚠️ **PARCIALMENTE CERRADA — la mitad viva es la de DINERO** | `buylist.service.ts:960` `monthPaidOutCentsTx` (AML-1) es el **tercer** sitio que codifica «dinero salido». Bajo el criterio 155 es un **acumulado de COMPROMISO (brutos)**, no de caja; la caja (M7) debe leer `payoutNetCents`. **El nombre miente** | backend | ✅ **Nombre y doc: cerrados** (hoy `monthCommittedGrossPaidCentsTx`, `buylist.service.ts:1066`). ⛔ **ABIERTO: el CAMPO.** Sigue midiendo `approvedTotalCents ?? quotedTotalCents` y **se salta `offerGrossCents`** ⇒ una solicitud **ofertada** que llegue a `pagada` sin decisión por-ítem acumula por **la COTIZACIÓN**, no por el bruto comprometido. Norma vigente y única: **§4.39i.4-bis (`brutoConsumado`)**, contrato **v1.51.5** |

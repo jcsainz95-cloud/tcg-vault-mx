@@ -2,7 +2,85 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-01 (rev **v1.51.5**).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-01 (rev **v1.51.6**).
+>
+> **Changelog v1.51.6 — LA MESA DE DECISIÓN NO SE CUENTA A SÍ MISMA. Cinco precisiones levantadas por el backend que
+> la construyó (2026-09-01, arquitecto; **CERO DDL, CERO endpoints nuevos, CERO diales**. ARCHITECTURE §4.39
+> enmendada por **sexta** vez — **§4.39(g.1)–(g.5) NUEVAS**):**
+> ⚠️ **Las cinco las señaló en vez de zanjarlas y en las cinco tenía razón en preguntar. CUATRO SE RATIFICAN** (el
+> código ya hace lo correcto; lo que faltaba era decirlo en el contrato); **UNA CAMBIA EL PREDICADO** y vuelve a
+> backend. **Nada se borra; lo superado queda tachado.**
+>
+> **A. ⚠️⚠️ LO ÚNICO QUE CAMBIA UNA NORMA — `position` EXCLUYE la solicitud en pantalla.**
+> - **El defecto es del contrato, no del código.** Los predicados decían *«líneas `buy` cuya solicitud está en …»* y
+>   **nunca dijeron «OTRA solicitud»**. Backend implementó el literal, que es lo correcto ante un contrato que no
+>   distingue. Resultado: **abierta la mesa sobre una solicitud ya `ofertada`, sus propias líneas suman a
+>   `committed`** y el operador decidiría contra una posición **inflada por él mismo**.
+> - **Hoy no es un bug** —`offerDecision` solo se puebla al emitir, y el caso normal de la mesa es `cotizada`—, pero
+>   **el disparador es más ancho que la reemisión**: la mesa **no tiene precondición de estado**, así que se puede
+>   abrir sobre `ofertada`/`aceptada`/`en_transito`/`recibida`/`verificacion` y **en todas se autocuenta**. *La
+>   reemisión es justamente el único caso que NO falla: para re-ofertar hay que cancelar, y `cotizada` no está en el
+>   predicado.*
+> - **NORMA:** los **TRES sumandos de promesa** (`verifying`, `inTransit`, `committed`) llevan **`sellRequestId !=
+>   :id`** en su `where`. **`stock` NO se excluye:** una pieza en la bóveda es un **hecho**, no una promesa — da igual
+>   qué solicitud la trajo. *Los sumandos que cuentan promesas excluyen la solicitud cuyas promesas se juzgan; el que
+>   cuenta hechos cuenta todo.*
+> - **Semántica del campo:** `position` = **«lo que ya tengo o ya debo, SIN contar esta solicitud»**. Lo que aporta la
+>   solicitud en pantalla **ya está a la vista: son sus líneas**. Justificación en `PROJECT.md` §P.2 —*«ocho copias y
+>   tres en camino es razón para no comprar **la novena**»*: **la novena es lo que se juzga, no parte del contexto.**
+>
+> **B. ✅ RATIFICADO — `totals.buyableGrossCents` es la SELECCIÓN POR DEFECTO, y ahora lo dice ESTE documento.**
+> - **Ambigüedad real y mía:** el DTO decía *«Σ de las líneas marcadas `buy`»* y **el `GET` no recibe selección
+>   alguna**. Backend la resolvió con `DESIGN_SYSTEM §23.6(g)` y lo señaló. **La resolución es correcta; el defecto
+>   era que la definición vivía en el sistema de diseño.**
+> - **NORMA:** `buyableGrossCents = Σ derivedPriceCents de las líneas con derivedPriceCents != null`. Una línea sin
+>   precio derivable aporta **`0`** y **nace desmarcada**. *Qué suma un total de dinero es una propiedad de la
+>   interfaz, no de la pantalla:* un backend que no lea `DESIGN_SYSTEM` —y no tiene por qué— debe poder implementarlo
+>   bien. §23.6(g) sigue siendo la fuente del comportamiento de **la casilla**; el contrato lo es de **la suma**.
+>
+> **C. ✅ RATIFICADO — deriva de identidad ⇒ `derivedPriceCents: null` Y `pendingReason: null`. NO entra `identity_drift`.**
+> - **`PendingPriceReason` no es un enum de este DTO: es una COLUMNA PERSISTIDA** (`PendingPriceEntry.reason`) que
+>   además sirve el filtro `?reason=` de `GET /admin/pricing/pending`. Un valor nuevo costaría **DDL** y metería en la
+>   cola de M2 una opción que **nunca puede aparecer ahí** — o, peor, invitaría a escalar ahí una línea **incurable
+>   por precio**: su problema no es que falte un monto, es que **la variante que pide ya no existe**.
+> - **NORMA — el par tiene TRES combinaciones legales y la lectura ingenua «sin precio ⇒ hay motivo» es FALSA:**
+>   `(número, null)` = precio normal · `(null, no_market|premium_at_floor)` = **el mercado se consultó y no dio** ·
+>   **`(null, null)` = DERIVA DE IDENTIDAD, el mercado ni se consultó**. **El discriminador es el PAR** — no hace
+>   falta campo nuevo. La línea **sigue siendo rescatable con override al ofertar**.
+> - **Sin `422`, y es deliberado:** la mesa es **diagnóstica**; reventar por una línea le quita al operador las otras
+>   cuarenta. **Para ux-ui:** la tercera fila necesita **copy propio** (*«esta carta cambió en el catálogo»*, no *«sin
+>   precio de mercado»*): el remedio del operador es distinto.
+>
+> **D. ✅ RATIFICADO — una línea de PRODUCTO SEPARADO se juzga SIEMPRE con `variant_cap`.**
+> - La `@@unique` de `VariantPriceOverride` **no lleva `cardProductId`**, así que esa fila describe la **variante de
+>   set base**. Se ignora para el precio **y también para la sugerencia**: aplicarle el bounty de la carta base a una
+>   promo frenaría (o dejaría de frenar) la compra de **otra pieza que vale distinto** — la fusión de identidades que
+>   §P.8 llama *«peor que no mostrar nada»*.
+> - **NORMA:** `cardProductId != null` ⇒ **`rule: "variant_cap"` con `bountyActive: false`**, siempre. **Se distingue
+>   del caso legacy de D32** —que también da `variant_cap`— porque **ahí `bountyActive` es `true`**. Cambiarlo exigiría
+>   meter `cardProductId` en esa `@@unique`: **DDL + backfill + re-llaveo de una tabla de dinero**, proyecto propio y
+>   **sin demanda** (no existe forma de configurar un bounty por producto separado).
+>
+> **E. `seller.phone` — ENTREGA PENDIENTE DE D12, no un hueco de la mesa. CERO cambio de contrato: ya estaba dado.**
+> - **Backend acertó al dejarlo fuera, y al verificarlo aparece algo más ancho:** `AdminSellerRef` **ya declara
+>   `phone?: string | null`** desde **D12/v1.51** (§11 DTOs). No hay nada que añadir — hay una **entrega que no se
+>   implementó**: `sellerRef()` devuelve `{id, name, email}` y los `select` que lo alimentan traen solo esos tres.
+> - **Alcance real: CUATRO superficies**, no la mesa — `GET /admin/buylist` (**donde §M5 lo exige explícitamente**:
+>   *«el teléfono viaja en la cola»*), `GET /admin/buylist/:id`, `GET /admin/buylist/rejected-items` y la mesa. Un
+>   cambio en `sellerRef()` + un campo en cuatro `select`: **exactamente el trabajo compartido que backend hizo bien
+>   en no meter en el pase de la mesa.** Registrado como **BL-15** (ARCHITECTURE §9). **Dueño: backend, bajo D12.**
+> - **⚠️ La prosa de §M5 que dice `AdminSellerRef = { id, name, email }` (v1.18) quedó RANCIA** al concederse `phone`.
+>   **El DTO de §11 manda sobre esa prosa.**
+> - **Por qué importa más que un campo de contacto:** `pickupAddressMissing` **vive en la mesa**, y el remedio que
+>   este contrato prescribe es *«el operador llama al vendedor (`seller.phone`)»*. **La pantalla que levanta la
+>   bandera no lleva hoy el medio de actuar.** Cuando D12 se entregue, **la mesa lo hereda sin tocar
+>   `adminDecisionTable`** — la señal de que el reparto era correcto. **Régimen PII sin cambios** (§4.18d, criterio
+>   130): *no se abre un dato nuevo, se entrega uno ya autorizado.*
+>
+> **F. Sin cambios.** Todo lo de v1.51.5 (incluido `brutoConsumado`), SEC-A1, los cuatro terminales, los CINCO
+> correos, las SIETE reglas del barrido, los DIEZ diales, `positionUnavailable` (**sigue prohibido devolver `0`**),
+> `suggestion` **sigue sin bloquear** (D6), los cuatro sumandos **siguen sin colapsarse** en una cifra, «en camino» =
+> `inTransit` **y nada más**, y `variantPositionKey`.
 >
 > **Changelog v1.51.5 — CON QUÉ CAMPO SE MIDE EL TOPE AML: `brutoConsumado`. RECONCILIACIÓN DOC↔CÓDIGO TRAS EL PASE
 > DE M-46 (2026-09-01, arquitecto; **CERO endpoints nuevos, CERO DDL, CERO diales**. ARCHITECTURE §4.39 enmendada por
@@ -1819,7 +1897,9 @@
 >   decía "por año desc" (ambiguo dentro del mismo año); se vuelve norma lo que backend ya implementa en este stream.
 >   Sin cambio de shape.
 > - **§M5 · identidad del vendedor:** `GET /admin/buylist` (cada fila) y `GET /admin/buylist/:id` ganan
->   **`seller: AdminSellerRef = { id, name, email }`** (join a `User`), además del `userId` existente (compat). La UI
+>   **`seller: AdminSellerRef = { id, name, email }`** *(⚠️ **v1.51.6: cita RANCIA** — D12/v1.51 le añadió
+>   **`phone?: string | null`**; la forma vigente es la del **DTO de §11**, que manda sobre esta prosa. Ver **BL-15**)*
+>   (join a `User`), además del `userId` existente (compat). La UI
 >   muestra nombre/correo y relega el UUID a tooltip/detalle. **PII:** son endpoints de back-office ya protegidos por
 >   rol (`vault_operator`/`super_admin`); el **correo es dato de contacto operativo, NO es la CLABE** — **no** requiere
 >   reveal auditado ni enmascarado. La CLABE sigue con su régimen actual (enmascarada; en claro SOLO por `reveal-clabe`).
@@ -8159,7 +8239,7 @@ Notas de seguridad: **host fijo** de pokemontcg.io (sin SSRF); `POKEMONTCG_IO_AP
       desempeño sale de **una sola tabla**: `count(declinedBy IS NOT NULL)` vs `count(declinedBy IS NULL)` **sobre
       `expiredReason='no_offer'`** — sin `AuditLog`, sin tocar el enum, sin tocar el copy — **y encima contesta
       QUIÉN**, que un valor de enum no podía. `null` también en toda solicitud que no esté `expirada`.
-  - **`seller` (v1.18-buylist-rejects, NUEVO):** cada fila gana **`seller: AdminSellerRef = { id, name, email }`** (join a `User`; `seller.id === userId`). `userId` se **conserva** (compat). La UI de M5 muestra **nombre + correo** como identidad primaria y relega el UUID a tooltip/detalle. **PII:** back-office protegido por rol (`vault_operator`/`super_admin`); el **correo del vendedor es dato de contacto operativo — NO es la CLABE** y por tanto **no** requiere enmascarado ni reveal auditado. El régimen de la CLABE **no cambia**.
+  - **`seller` (v1.18-buylist-rejects, NUEVO):** cada fila gana **`seller: AdminSellerRef = { id, name, email }`** *(⚠️ **v1.51.6: cita RANCIA** — D12/v1.51 añadió **`phone?`** al ref; manda el **DTO de §11**. Desviación **BL-15**: el código aún no lo emite en ninguna de las cuatro superficies)* (join a `User`; `seller.id === userId`). `userId` se **conserva** (compat). La UI de M5 muestra **nombre + correo** como identidad primaria y relega el UUID a tooltip/detalle. **PII:** back-office protegido por rol (`vault_operator`/`super_admin`); el **correo del vendedor es dato de contacto operativo — NO es la CLABE** y por tanto **no** requiere enmascarado ni reveal auditado. El régimen de la CLABE **no cambia**.
 - `GET /api/v1/admin/buylist/:id` — detalle con items y estados. La CLABE del vendedor se expone **enmascarada** como `clabeMasked` (`****1234`); **nunca** el snapshot cifrado ni la CLABE en claro. Para pagar, el súper-admin usa `reveal-clabe` (ver abajo).
   > **⚠️ v1.51.3 (D36/D37) — el DETALLE gana `pickupAddress: PickupAddressSnapshotDTO | null`** (§11): **la dirección
   > de ORIGEN congelada**, la que el operador **teclea a mano en el portal de la paquetería** para comprar la etiqueta
@@ -8460,6 +8540,21 @@ Res `200`: `{ sellRequestId, status, seller: AdminSellerRef, quotedTotalCents, l
 
 - **`totals` es una PREVISUALIZACIÓN, no un compromiso.** Se calcula con la curva y los diales **de este instante** y
   **cambia** si el admin cambia de decisión. **Lo vinculante se congela al emitir la oferta**, no aquí.
+  > **⚠️ v1.51.6 — QUÉ SUMA `buyableGrossCents`, dicho aquí y no solo en el sistema de diseño.**
+  > Este endpoint es un **`GET` sin cuerpo y sin query de selección**, así que *«las líneas marcadas `buy`»* **no
+  > puede referirse a una selección recibida**: se refiere a la **selección POR DEFECTO**.
+  > ```
+  > buyableGrossCents = Σ derivedPriceCents  de las líneas con derivedPriceCents != null
+  > ```
+  > - **Default = «la solicitud tal como llegó, menos lo que no se puede preciar».** El cherry-pick es **quitar**,
+  >   nunca poner. Una línea **sin precio derivable aporta `0` y nace desmarcada** —no se puede ofertar sin monto—,
+  >   **incluidas las de deriva de identidad** (ver `pendingReason` abajo).
+  > - **La UI recalcula la suma al desmarcar; el UMBRAL y el VEREDICTO los sigue mandando el servidor**
+  >   (`minimumOfferNetCents`, `requiredGrossCents`, `netBelowMinimum`): los diales se editan sin redeploy y una
+  >   constante en el front quedaría desincronizada **en silencio**.
+  > - **Por qué la definición vive aquí:** *qué suma un total de dinero es una propiedad de la interfaz, no de la
+  >   pantalla.* `DESIGN_SYSTEM §23.6(g)` sigue siendo la fuente del comportamiento de **la casilla**; este contrato
+  >   lo es de **la suma**. Describen el mismo default desde los dos lados y **no se contradicen**.
 - **`requiresAuthorization`** = `true` si el actor es `vault_operator` y `buyableGrossCents > operatorCapCents`. Es un
   **aviso**, no un bloqueo: el operador puede preparar la oferta igual y quedará esperando autorización (D24).
 - **Por línea (`BuylistDecisionLineDTO`, §11) — los cuatro datos que exige el criterio 115:**
@@ -8471,9 +8566,28 @@ Res `200`: `{ sellRequestId, status, seller: AdminSellerRef, quotedTotalCents, l
   | Campo | Predicado | Entra en `position.total` (tope/bounty) | Se pinta como **«en camino»** |
   |---|---|---|---|
   | `position.stock` | `InventoryItem` de plataforma, on-hand, **misma variante incluyendo `cardProductId`** | **sí** | no |
-  | `position.verifying` | líneas `buy` cuya solicitud está `recibida`\|`verificacion` | **sí** | no |
-  | `position.inTransit` | líneas `buy` cuya solicitud está **`en_transito`** | **sí** | **SÍ — la ÚNICA** |
-  | `position.committed` | líneas `buy` cuya solicitud está `ofertada`\|`aceptada` | **sí** | no |
+  | `position.verifying` | líneas `buy` **de OTRA solicitud** (`sellRequestId != :id`) en `recibida`\|`verificacion` | **sí** | no |
+  | `position.inTransit` | ídem, **de OTRA solicitud**, en **`en_transito`** | **sí** | **SÍ — la ÚNICA** |
+  | `position.committed` | ídem, **de OTRA solicitud**, en `ofertada`\|`aceptada` | **sí** | no |
+
+  > ### ⚠️⚠️ v1.51.6 — `position` EXCLUYE LA SOLICITUD EN PANTALLA. Los TRES sumandos de promesa; el `stock` NO.
+  > **Corrección de un predicado que este contrato dejó ambiguo** (decía *«cuya solicitud está en …»* y **nunca dijo
+  > «otra»**). Sin el `sellRequestId != :id`, abrir la mesa sobre una solicitud ya `ofertada` hace que **sus propias
+  > líneas sumen a `committed`**: el operador decidiría contra una posición **inflada por él mismo**.
+  > - **`position` significa «lo que ya tengo o ya debo, SIN contar esta solicitud».** Lo que aporta la solicitud en
+  >   pantalla **ya está a la vista: son sus líneas.** El fundamento es literal en `PROJECT.md` §P.2 —*«ocho copias en
+  >   la caja y tres más en camino es una razón perfectamente buena para no comprar **la novena**»*—: **la novena es
+  >   lo que se juzga, no parte del contexto contra el que se juzga.** Contarse a sí misma vuelve la frase circular.
+  > - **⚠️ Y en la lectura de REVISIÓN el número no solo infla: ENGAÑA.** Un `committed: 3` que son **las tres líneas
+  >   que el operador está viendo** se lee como *«hay tres más en otro lado»*. `0` es la respuesta verdadera.
+  > - **`stock` no se excluye, y la asimetría es deliberada:** una pieza en la bóveda es un **hecho**, no una promesa
+  >   — da igual qué solicitud la trajo. *Los sumandos que cuentan promesas excluyen la solicitud cuyas promesas se
+  >   juzgan; el que cuenta hechos cuenta todo.*
+  > - **No es un aflojamiento de un control de dinero:** excluir baja `total` y hace `do_not_buy` menos probable, y
+  >   eso es aceptable **aquí y solo aquí** porque **la sugerencia no bloquea nada** (D6) y el operador tiene las
+  >   líneas delante. Es **quitar un doble conteo de un consejo**, no relajar un tope.
+  > - **Caso de prueba EXIGIDO (QA):** solicitud X `ofertada`, 3 líneas `buy` de la carta C, cero existencias ⇒ la
+  >   mesa de **X** da `committed: 0`; la mesa de **otra** solicitud Y con la misma carta da `committed: 3`.
 
   - `position.total = stock + verifying + inTransit + committed`. Contesta *«¿de cuántas copias ya soy
     responsable?»* — **una línea ya ofertada es dinero comprometido** (D2: la oferta es vinculante).
@@ -8490,6 +8604,17 @@ Res `200`: `{ sellRequestId, status, seller: AdminSellerRef, quotedTotalCents, l
 - **Identidad de la carta (D7 / §P.8):** los conteos se hacen sobre la **identidad real de la pieza**, con
   `cardProductId` en la llave. *Un conteo que mezcla una promo con su versión del set base **es peor que no mostrar
   nada**.* Requiere **M-46** (`InventoryItem.cardProductId`).
+  > **⚠️ v1.51.6 — CONSECUENCIA: una línea de PRODUCTO SEPARADO se juzga SIEMPRE con `variant_cap`.**
+  > La `@@unique` de `VariantPriceOverride` es `(cardId, productType, gradeKey, finish)` — **sin `cardProductId`** —,
+  > así que esa fila **describe la variante de set base**. Se ignora para el precio (§4.29b) **y también para la
+  > sugerencia**: aplicarle el bounty de la carta base a una promo frenaría —o dejaría de frenar— la compra de **otra
+  > pieza que vale distinto**, que es la misma fusión de identidades que este párrafo prohíbe.
+  > - **NORMA:** `cardProductId != null` ⇒ **`suggestion.rule = "variant_cap"` con `bountyActive: false`**, siempre.
+  > - **Se distingue del caso legacy de D32** —un bounty vivo sin `targetQty`, que también cae a `variant_cap`—
+  >   porque **allí `bountyActive` es `true`**. Los dos son legibles y distintos en la respuesta (criterio 144).
+  > - **Cambiarlo exigiría meter `cardProductId` en esa `@@unique`: DDL, backfill y re-llaveo de una tabla de
+  >   dinero.** Proyecto propio, **no un ajuste de la mesa**, y hoy **sin demanda**: no existe forma de configurar un
+  >   bounty por producto separado (no hay panel de bounties — D32, proyecto aparte). *Sin escritura no hay lectura.*
 - **La sugerencia — precedencia, NO un «o» (D15 + D29, criterio 153):**
   ```
   bounty VIVO ∧ targetQty ≠ null  ⇒ manda el BOUNTY: do_not_buy ⇔ position.total ≥ bountyTargetQty
@@ -9721,7 +9846,24 @@ BuylistDecisionLineDTO = {
   derivedPriceCents: number | null,                   // curva VIGENTE al ofertar
   priceBasis: PriceBasis,
   pendingReason: PendingPriceReason | null,
+  // ⚠️ v1.51.6 — EL PAR (derivedPriceCents, pendingReason) TIENE TRES COMBINACIONES LEGALES, y la lectura ingenua
+  // «sin precio ⇒ hay motivo» es FALSA:
+  //   (número, null)                            ⇒ precio derivado normalmente. El front pinta el monto.
+  //   (null, no_market | premium_at_floor)       ⇒ EL MERCADO SE CONSULTÓ y no dio precio. Pinta SIN PRECIO + motivo.
+  //   (null, null)                               ⇒ ⚠️ DERIVA DE IDENTIDAD: el `finish` snapshoteado ya no está en
+  //                                                `Card.availableFinishes`, o el `cardProductId` no resuelve. EL
+  //                                                MERCADO NI SE CONSULTÓ. Pinta SIN PRECIO con COPY PROPIO.
+  // EL DISCRIMINADOR ES EL PAR — no hace falta campo nuevo. NO se añade `identity_drift` a `PendingPriceReason`:
+  // ese enum es una COLUMNA PERSISTIDA (`PendingPriceEntry.reason`) que sirve el filtro `?reason=` de M2; un valor
+  // nuevo costaría DDL y metería en la cola de precios una línea INCURABLE POR PRECIO (su problema no es que falte
+  // un monto: es que la variante que pide ya no existe). La mesa NO devuelve 422 por esto —es diagnóstica: reventar
+  // por una línea le quita al operador las otras cuarenta— y la línea SIGUE SIENDO RESCATABLE con override al ofertar.
   position: { stock: number, verifying: number, inTransit: number, committed: number, total: number } | null,
+  // ⚠️ v1.51.6 — `position` = «lo que YA tengo o YA debo, SIN CONTAR ESTA SOLICITUD». Los tres sumandos de PROMESA
+  // (`verifying`/`inTransit`/`committed`) llevan `sellRequestId != :id`; `stock` NO se excluye (una pieza en bóveda
+  // es un HECHO, no una promesa: da igual qué solicitud la trajo). Sin esa exclusión, abrir la mesa sobre una
+  // solicitud ya `ofertada` haría que sus PROPIAS líneas sumaran a `committed` (§P.2: «la novena» es lo que se
+  // juzga, no parte del contexto). Lo que aporta la solicitud en pantalla ya está a la vista: son sus líneas.
   positionUnavailable?: boolean,                      // true ⇒ NO pintar 0, pintar «no disponible»
   suggestion: { verdict: "buy" | "do_not_buy" | "none",
                 rule: "bounty_target" | "variant_cap" | null,
@@ -9736,7 +9878,13 @@ BuylistDecisionLineDTO = {
 // DERIVADOS y viajan por la misma razón que `requiresAuthorization`: el servidor manda el número Y el veredicto,
 // y la UI no hace aritmética de dinero.
 BuylistDecisionTotalsDTO = {
-  buyableGrossCents: number,          // Σ de las líneas marcadas `buy` en esta previsualización
+  // ⚠️ v1.51.6 — LA SELECCIÓN POR DEFECTO, no una selección recibida: este endpoint es un GET SIN cuerpo y SIN query
+  // de selección. Exactamente: Σ `derivedPriceCents` de las líneas con `derivedPriceCents != null`. Una línea sin
+  // precio derivable aporta 0 y NACE DESMARCADA (no se puede ofertar sin monto), incluida la de deriva de identidad.
+  // El default es «la solicitud tal como llegó, menos lo que no se puede preciar»: el cherry-pick es QUITAR, nunca
+  // poner. La UI recalcula la suma al desmarcar; el UMBRAL y el VEREDICTO los sigue mandando el servidor.
+  // (`DESIGN_SYSTEM §23.6g` es la fuente del comportamiento de la CASILLA; este contrato lo es de la SUMA.)
+  buyableGrossCents: number,          // Σ de las líneas marcadas `buy` en esta previsualización (= el default)
   shippingFeeCents: number,           // tarifa VIGENTE (D31: siempre; se congela al EMITIR, no aquí)
   netCents: number,                   // max(0, buyableGrossCents − shippingFeeCents)
   minimumOfferNetCents: number,       // dial 9 vigente (MX$200 por defecto)
