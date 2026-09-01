@@ -3,7 +3,30 @@
 > **Nombre comercial / marca:** **TCG Vault MX**. Es el nombre que se usa en la interfaz, la
 > comunicación y los términos. "Marketplace TCG con Bóveda" es solo el título descriptivo del proyecto.
 >
-> **ESTADO AL 2026-09-01 (4ª ronda del bloque v2.1 — CORRECTIVA Y ACOTADA — LEER PRIMERO):** el **bloque v2.1
+> **ESTADO AL 2026-09-01 (6ª ronda del bloque v2.1 — CORRECTIVA FINAL — LEER PRIMERO):** el **bloque v2.1
+> (ciclo de adquisición del buylist, §P)** queda **CERRADO, sin preguntas abiertas propias**. Tres cierres:
+> **(D34)** **SÍ hay piso: no se puede EMITIR una oferta cuyo NETO quede por debajo de MX$200** —el bloqueo
+> vive **en la emisión**, no en el dial ni en la aceptación; el operador **compra más líneas o no oferta**—,
+> con lo que la **pregunta 25 queda CERRADA** y **los diales del ciclo pasan de OCHO a NUEVE** (§P.10).
+> **(D35)** el **objetivo del bounty por defecto es 2** («hasta tener 2 en inventario»): es el **default al
+> dar de alta** y el valor con el que **se llenan los bounties viejos sin meta** —**no se desactivan**—,
+> y **sigue siendo editable por bounty**; con eso la **pregunta 26 queda CERRADA**. **(Pregunta 27)** la
+> resolvió el **arquitecto**: **se reutiliza el terminal `expirada`** y **el motivo se persiste en columna
+> propia** (`no_offer` / `not_shipped`), así que **los estados terminales vuelven a ser CUATRO** —el
+> requisito de negocio nunca fue «un estado nuevo», sino que **los dos desenlaces sean distinguibles**, y
+> eso se cumple con el motivo—; además **sí caduca** una solicitud que tenga una oferta esperando
+> autorización (**y el barrido anula esa oferta al hacerlo**) y **el reloj NO reinicia** al cancelar una
+> oferta emitida: **cuenta desde la creación de la solicitud**. **`caducada` como estado propio era un
+> SUPUESTO de nombre de este documento y queda SUPERADO.** Ver **§P.1, §P.2, §P.3, §P.3.1, §P.5.1, §P.9,
+> §P.10, §P.11, §P.12**, **§N.6**, **§H**, **M5/M10**, criterios **16/113/127/129/145/152/158/164/165**
+> (corregidos), criterios **167–169** (nuevos) y decisiones **94–96**.
+> **⚠ Una consecuencia que este documento SEÑALA en vez de callar**: al no reiniciar el reloj tras cancelar
+> una oferta, **una solicitud puede caducar el mismo día en que vuelve a la fila** si ya pasaron los 7 días
+> hábiles desde su creación — se castiga al cliente por una corrección **nuestra**. Ver la bandera en
+> «Riesgos y banderas» y la nota de §P.3.1.
+>
+> **ESTADO AL 2026-09-01 (4ª ronda del bloque v2.1 — CORRECTIVA Y ACOTADA — histórico; superado por el
+> bloque de arriba en lo que toca a diales, terminales y preguntas 25/26/27):** el **bloque v2.1
 > (ciclo de adquisición del buylist, §P)** sigue **CERRADO y listo para el arquitecto**, con **una corrección
 > de raíz**: **D27 y D28 quedan SUPERADAS por D30**. El rechazo parcial **ya no le pregunta nada al
 > vendedor**; en su lugar, **la oferta se declara CONDICIONAL a Near Mint línea por línea en el propio correo
@@ -239,7 +262,9 @@
 > la empuja a la venta** (no hay auto-publicación ni cola de pendientes de publicar). Se cierra el ciclo en
 > **ocho fases** —**cotiza → ofertamos → acepta → manda la guía → recibimos → verificamos → pagamos →
 > publicamos**— con **cuatro estados nuevos**: **`ofertada`**, **`aceptada`**, **`en_transito`** y
-> **`expirada`** (terminal) *(**⚠ 5ª ronda, D33: se suma un quinto — `caducada`**, terminal)*.
+> **`expirada`** (terminal) *(**⚠ 5ª ronda, D33: se suma un quinto — `caducada`**, terminal)* **⚠ 6ª ronda:
+> NO se suma ninguno — la caducidad es `expirada` con motivo `no_offer`; **siguen siendo cuatro** estados
+> nuevos y **cuatro terminales**.*
 > **Doce decisiones cerradas del humano**: **(D1)** la oferta es **todo-o-nada** —
 > el cliente ve el **desglose línea por línea** de qué compramos y qué no, pero **acepta o rechaza el paquete
 > completo**; **no hay aceptación parcial**—; **(D2)** el **precio ofertado es vinculante desde que sale el
@@ -441,7 +466,8 @@
 > obligatorio** —distinto de la expiración: no es *«aceptaste y no mandaste»*, es *«no procederemos»*—, así
 > que **los correos del ciclo pasan de tres a CUATRO** (§P.3, §H, criterios 16/142 y la pregunta 6, que se
 > había cerrado con «tres»); **(2)** es **un dial más** — se fue el **umbral de guía** (D31) y entra este
-> **plazo**, así que la tabla de §P.10 **vuelve a OCHO diales**.
+> **plazo**, así que la tabla de §P.10 **vuelve a OCHO diales** *(**⚠ 6ª ronda, D34: pasan a NUEVE** — entra
+> el **neto mínimo para emitir**, MX$200)*.
 > **Además, tres puntos que el arquitecto dejó señalados y el humano ya resolvió**: **(a)** el **costo real
 > de la etiqueta** **se puede capturar (opcional)** al confirmar el envío, con **fallback a la tarifa
 > congelada de MX$180** si no se captura — **el P&L usa el real cuando existe y la tarifa cuando no**, y
@@ -449,17 +475,63 @@
 > **cierra la contradicción criterio 135 × D19** que este documento tenía abierta; **(b)** los **demás
 > puntos del arquitecto** —quién cancela la guía, a qué estado vuelve una oferta cancelada, que `expirada`
 > selle la fecha de cierre y la línea sin precio que aporta 0 al mínimo— **quedan como él los resolvió** y
-> este documento **no los toca**; **(c)** los **estados terminales pasan de cuatro a CINCO** con la
-> caducidad (§P.1, §P.9, M5, criterios 113/129/145).
+> este documento **no los toca**; **(c)** ~~los **estados terminales pasan de cuatro a CINCO** con la
+> caducidad~~ **⚠ SUPERADO en la 6ª ronda: siguen siendo CUATRO** — la caducidad es **`expirada` con motivo
+> `no_offer`**, resolución de la pregunta 27 (§P.1, §P.9, M5, criterios 113/129/145/169).
 > **⚠ Coherencia que este documento SEÑALA en vez de resolver en silencio**: al desaparecer la banda donde el
 > vendedor pagaba su envío, **una oferta recortada por cherry-pick por debajo de MX$180 deposita MX$0 con
 > TODO aprobado** —el mínimo **no se re-aplica a la oferta** (criterio 158c)—, cosa que antes no podía pasar
 > en esa banda. La protección que queda es **informativa y sí existe**: el vendedor **ve el neto antes de
 > aceptar** (D31) y puede decir que no. **Se abre la pregunta 25** por si el humano quiere además un **piso
-> de neto** para emitir la oferta. Ver **§P.3, §P.4, §P.10, §P.12** (corregidas), **§P.1, §P.2, §P.5, §P.6,
+> de neto** para emitir la oferta. *(**⚠ CERRADA en la 6ª ronda: SÍ lo quiere — MX$200 de neto, D34.**)* Ver **§P.3, §P.4, §P.10, §P.12** (corregidas), **§P.1, §P.2, §P.5, §P.6,
 > §P.9, §P.11**, **§E**, **§H**, **§N.6**, **«Fuera de alcance»**, **M5/M10**, criterios
 > **16/113/122/123/127/129/133/134/135/137/142/145/149/153/158** (corregidos), criterios **162–166**
 > (nuevos) y decisiones **90–92**. **Preguntas: se CIERRA la 24; se abren la 25, la 26 y la 27.**
+> **⚠ Este bloque quedó corregido por la 6ª ronda (D34–D35 + la resolución de la 27), que sigue abajo.**
+> **Requisito v2.1 — SEXTA RONDA: PISO DE NETO PARA EMITIR, EL BOUNTY NACE CON META 2 Y LA CADUCIDAD ES UN
+> MOTIVO, NO UN ESTADO (2026-09-01, DOS DECISIONES DEL HUMANO — D34, D35 — MÁS LA RESOLUCIÓN DE LA
+> PREGUNTA 27 POR EL ARQUITECTO):**
+> **(D34) SÍ hay piso, y es MX$200 de NETO.** Este documento había señalado (pregunta 25) que, con una sola
+> banda, **un cherry-pick chico puede depositar MX$0 sin rechazar ninguna carta**: la validación
+> `tarifa < mínimo` protege la **solicitud completa**, no la **oferta recortada**. **El humano lo cierra con
+> un piso: no se puede EMITIR una oferta cuyo NETO sea menor a MX$200.** El operador **compra más líneas o
+> no oferta**. **Dónde vive el bloqueo, dicho con precisión**: en la **emisión de la oferta** —**no** en el
+> dial y **no** en la aceptación—. Los **diales no ven el recorte** que hizo el operador, y **el correo no
+> debe llegar a mandarse**: no se trata de que el vendedor rechace una oferta ridícula, sino de que **esa
+> oferta no exista**. **La aritmética que lo sostiene** *(el humano la puso sobre la mesa; se registra
+> porque es lo que hace defendible el número)*: una solicitud cuesta **~$217** de operar —etiqueta **$180**
+> más tiempo de operador—; comprando al **40% de referencia** hace falta un **bruto de ~$362** para que la
+> operación **se pague sola**, lo que deja **~$182 de neto**. **MX$200 queda justo arriba** y exige un
+> **bruto de ~$380**: **conserva el margen de cherry-pick sobre lotes grandes** sin permitir la oferta
+> absurda. **No es un bloqueo nuevo**: el arquitecto ya había bloqueado el caso **`neto ≤ 0`**; **esto lo
+> SUBE a MX$200**, es el mismo bloqueo con número. **Es un dial más**, así que la tabla de §P.10 pasa de
+> **OCHO a NUEVE**. **Lo que NO cambia**: el **piso de cero** (criterio **152**) sigue existiendo como
+> invariante **al pagar** —una oferta ya emitida cuyo bruto aprobado caiga por debajo del envío **sigue
+> depositando MX$0 y nunca deuda**—; D34 gobierna **qué se puede emitir**, no **cuánto se paga**.
+> **(D35) El objetivo del bounty por defecto es 2.** El humano fijó el número que faltaba en D32: **«hasta
+> tener 2 en inventario»**. Es **(a)** el **valor por defecto** al dar de alta un bounty y **(b)** el valor
+> con el que **se llenan los bounties viejos** que hoy no tienen meta — **NO se desactivan** ni se sacan de
+> la vitrina *(esto **corrige el supuesto** que este documento había redactado, que los trataba como «sin
+> bounty» hasta que alguien los editara)*. **Sigue siendo editable por bounty**: **2 es el default, no un
+> tope rígido**. Con eso la **pregunta 26 queda CERRADA**.
+> **(Pregunta 27 — resuelta por el ARQUITECTO, no por este documento):** decidió **reusar el estado terminal
+> `expirada`** y **persistir el motivo en columna propia** (`no_offer` = nadie ofertó / `not_shipped` =
+> aceptó y no mandó), **en vez de crear un quinto terminal**. **Su razón, que este documento adopta**: *un
+> estado que se comporta idéntico a otro en todas las reglas —cierre, purga de INE, cuota, «no se revive»—
+> **no es un estado, es un atributo**; pero **la causa sí importa** para el correo y **no es derivable**.*
+> **Consecuencia: los estados terminales siguen siendo CUATRO** (`pagada`, `rechazada`, `expirada`,
+> `abandonada`). **`caducada` como estado propio era un SUPUESTO de nombre de este documento y queda
+> SUPERADO**; el **requisito de negocio no cambia ni un ápice**: los **dos desenlaces tienen que ser
+> distinguibles** —**correos distintos** y **reportes que los separen**— y eso lo cumple el motivo.
+> **Sus respuestas a los dos bordes del plazo**: **(b)** **SÍ** caduca aunque haya una oferta **esperando
+> autorización**, y **el barrido ANULA esa oferta al hacerlo** *(supuesto confirmado, con el verbo
+> explícito)*; **(c)** el reloj **NO reinicia** al cancelar una oferta emitida — **cuenta desde la creación
+> de la solicitud** *(**⚠ esto CORRIGE el supuesto** que este documento había redactado, que lo reiniciaba
+> desde la cancelación)*.
+> Ver **§P.1, §P.2, §P.3, §P.3.1, §P.5.1, §P.9, §P.10, §P.11, §P.12**, **§N.6**, **§H**, **«Fuera de
+> alcance»**, **M5/M10**, criterios **16/113/127/129/145/152/158/164/165** (corregidos), criterios
+> **167–169** (nuevos) y decisiones **94–96**.
+> **Preguntas: se CIERRAN la 25, la 26 y la 27. El bloque v2.1 queda sin preguntas abiertas propias.**
 > Este documento manda sobre el contrato y sobre el código (ver `CLAUDE.md` › Regla de conflicto).
 
 ## Idea en una frase
@@ -894,10 +966,16 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
       **lista de picking por ubicación**, **captura de guía**, solo sobre cartas `settled`.
 - [ ] **M5 — Buylist** *(pipeline ampliado en v2.1, §P)*: pipeline
       `cotizada → ofertada → aceptada → en_transito → recibida → verificación → aprobada → pagada`, con
-      **estados terminales** *(**eran cuatro; en la 5ª ronda pasan a CINCO**, D33)* **`pagada`**,
-      **`rechazada`** (el cliente dice que no, o **no responde en el plazo**), **`expirada`** (aceptó pero
-      **el paquete no salió en el plazo**), **`abandonada`** (los 30 días de §H) y **`caducada`**
-      *(**SUPUESTO** de nombre — **nadie la ofertó en 7 días hábiles**, D33; §P.3.1)*. **Decisión carta por
+      **estados terminales** *(**eran cuatro; la 5ª ronda los subió a CINCO; la 6ª los devuelve a CUATRO** —
+      ver abajo)* **`pagada`**,
+      **`rechazada`** (el cliente dice que no, o **no responde en el plazo**), **`expirada`** y
+      **`abandonada`** (los 30 días de §H). ~~y **`caducada`** *(SUPUESTO de nombre — nadie la ofertó en 7
+      días hábiles, D33; §P.3.1)*~~ **⚠ SUPERADO en la 6ª ronda (resolución de la pregunta 27 por el
+      arquitecto)**: la caducidad **NO es un quinto estado**, es **`expirada` con motivo `no_offer`**
+      —frente a `not_shipped`, que es *«aceptó y no mandó»*—, con el **motivo en columna propia**. **M5 tiene
+      que mostrar el motivo**, no solo el estado: la cola y la ficha de solicitud **distinguen los dos
+      desenlaces a simple vista**, y los **reportes los separan** (§P.1, §P.3.1, criterio 169).
+      **Decisión carta por
       carta AL OFERTAR** (cherry-pick), **mesa de decisión con inventario a
       la vista** (stock propio + piezas en camino + sugerencia no bloqueante, §P.2), **envío del correo de
       oferta** (con **bruto / envío / neto**, D16), **autorización del súper-admin** para las ofertas del
@@ -959,15 +1037,24 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
       nuestra cuenta** desde el mínimo, así que **no hay umbral que configurar** (§P.12).
       *(NUEVO 5ª ronda v2.1, **D33**)*: se suma el **plazo de caducidad de la solicitud sin oferta** (default
       **7 días hábiles**, contados desde la creación): pasado ese plazo sin que nadie oferte, la solicitud
-      **caduca** y sale el **correo de «no procederemos»**. Es **dial editable sin deploy y auditado**, y
-      **se congela por solicitud** como los demás plazos (P18).
+      **caduca** —queda **`expirada` con motivo `no_offer`**, 6ª ronda— y sale el **correo de «no
+      procederemos»**. Es **dial editable sin deploy y auditado**, y **se congela por solicitud** como los
+      demás plazos (P18).
+      *(NUEVO 6ª ronda v2.1, **D34**)*: se suma el **neto mínimo para EMITIR una oferta** (default
+      **MX$200**). **No se puede emitir** una oferta cuyo **neto** (`bruto ofertado − tarifa de envío`) quede
+      **por debajo de ese número**: el operador **compra más líneas o no oferta**. Es **dial editable sin
+      deploy y auditado**, **se congela por solicitud** como los demás y **es el NOVENO dial del ciclo**
+      (§P.10). **Ojo con dónde vive**: **no** es una validación entre diales de esta pantalla —**M10 no ve el
+      recorte que hizo el operador**—; es un **bloqueo en la emisión** (§P.2, criterio 167). Lo que M10
+      configura aquí es **el número**, no el momento.
       *(NUEVO 3ª ronda v2.1 — los números que faltaban, ya fijados por el humano; **corregido en la 4ª**)*:
       **tope de oferta del operador = MX$1,500** (D24), **tope general de piezas por variante = 10** (D29) y
       **tarifa de envío del buylist = MX$180** (D25; **distinta** del envío de retiro de MX$175). Se suma
       además el dial de **alerta de «ya lo mandé» sin confirmar** (default **5 días hábiles**, P17).
       ~~Y el **umbral de «recorte material» = 20%** del bruto, el que dispara la pregunta al vendedor en un
       rechazo parcial (D28).~~ **⚠ RETIRADO en la 4ª ronda (D30): dial SIN OBJETO — no se implementa** (§P.10).
-      **La tabla completa de los OCHO diales del ciclo vive en §P.10**, que es su origen único.
+      **La tabla completa de los ~~OCHO~~ NUEVE diales del ciclo vive en §P.10**, que es su origen único
+      *(**6ª ronda, D34**: entra el **neto mínimo para EMITIR una oferta**, default **MX$200**).*
       *(3ª ronda, P18)*: **cada dial de plazo y la tarifa de envío se CONGELAN por solicitud** en el momento
       en que se fijan — cambiar el dial **solo afecta a las solicitudes nuevas** y **nunca** mueve una fecha
       o un monto ya comunicados por correo.
@@ -1076,11 +1163,15 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
         arranca **siempre con la entrega de la guía**. **Sin envío en el plazo ⇒ la oferta `expira`**, la
         solicitud **se cancela** y **se le notifica al vendedor**.
       - **7 días hábiles para que NOSOTROS ofertemos** *(NUEVO 5ª ronda, **D33**)*, contados **desde que se
-        crea la solicitud**. **Sin oferta en el plazo ⇒ la solicitud CADUCA** (terminal) y **sale un correo
+        crea la solicitud**. **Sin oferta en el plazo ⇒ la solicitud CADUCA** —queda **`expirada` con motivo
+        `no_offer`**, *6ª ronda*— y **sale un correo
         diciendo explícitamente que NO PROCEDEREMOS con la oferta**, invitando al cliente a **volver a
         cotizar cuando quiera**. **Es el único plazo del ciclo que corre contra NOSOTROS**, no contra el
         vendedor — por eso **no lleva recordatorio al cliente** (avisarle de un plazo que depende de nuestra
         carga de trabajo no le sirve de nada; ver §P.3.1).
+        *(**6ª ronda**: el reloj **cuenta SIEMPRE desde la creación de la solicitud** y **no se reinicia**
+        si una oferta emitida se cancela — resolución del arquitecto a la pregunta 27, que **corrige el
+        supuesto** que este documento había redactado. Ver la bandera de §P.3.1.)*
       - **Un recordatorio, uno POR PLAZO DEL VENDEDOR** (D23): a **un día hábil** de vencer sale **un** correo
         de aviso, **una sola vez** — no en cada corrida del barrido. *(3ª ronda, respuesta a la pregunta 21:
         aplica a **cada uno de los dos plazos del vendedor** —aceptar y enviar—, así que en un ciclo puede
@@ -1888,11 +1979,27 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
       **Alcance mínimo, a propósito**: **solo se exige el objetivo donde hoy se configuran los bounties**.
       **NO se construye panel de bounties** — el humano lo pidió y decidió dejarlo como **proyecto aparte**
       (ver «Fuera de alcance»).
-      *(**SUPUESTO** — bounties **ya creados** sin objetivo: se les **exige el dato al editarlos** y,
+      ~~*(**SUPUESTO** — bounties **ya creados** sin objetivo: se les **exige el dato al editarlos** y,
       mientras no lo tengan, la mesa los trata como **«sin bounty» para efectos de la sugerencia** y aplica el
       **tope general de 10** —el lado seguro del error: preferimos frenar de más a comprar sin techo—. **No
       afecta el precio**: el bounty sigue ganando la precedencia de compra (§N.6). Ver **pregunta abierta
-      26**.)*
+      26**.)*~~ **⚠ SUPUESTO SUPERADO por D35 (6ª ronda)** — ver el bullet siguiente. **No hay bounties
+      tratados como «sin bounty»**, ni bounties sin meta esperando a que alguien los edite.
+- [ ] **El objetivo por defecto es 2** *(NUEVO 6ª ronda v2.1, **D35**; cierra la pregunta 26; ver criterio
+      168)*: el humano fijó el número — **«hasta tener 2 en inventario»**. Tres cosas, y nada más:
+      **(a)** **es el valor por defecto al dar de alta** un bounty: el campo llega **prellenado con 2**,
+      así que el objetivo sigue siendo **obligatorio** (D32) pero **deja de ser fricción**;
+      **(b)** **es el valor con el que se llenan los bounties viejos** que hoy no tienen meta —**se les
+      asigna 2 y siguen vivos**: **NO se desactivan**, **NO salen de la vitrina** y **NO cambian de
+      precio**—;
+      **(c)** **sigue siendo editable por bounty**: **2 es el default, no un tope rígido**. Un bounty puede
+      pedir 1 o 20 si el dueño lo decide.
+      **Por qué esto cierra el hueco de verdad**: con (b), **el caso «bounty sin meta» deja de existir
+      también hacia atrás** —no solo para las altas nuevas—, así que la precedencia de §P.2 **siempre tiene
+      un número contra el cual medir la posición** desde el día uno, sin depender de que alguien recuerde
+      editar los viejos.
+      *(**Nota**: **2 NO es un dial de M10** — es el **valor por defecto de un campo**, y el campo se edita
+      bounty por bounty. Los **nueve diales del ciclo** siguen siendo los de §P.10.)*
 
 **N.7 — «Valor de mercado» solo se muestra cuando el mercado fijó el precio (decisión 2, LOCKED)**
 - [ ] **Regla (solo lado VENTA)**: en la ficha de producto, el bloque **«Valor de mercado»**
@@ -2541,15 +2648,26 @@ gananciaNeta  =  estimadoPSA9 − (precioVentaRaw + gradingCost)      ← SOLO p
 > compararse—, **sin construir panel de bounties** (proyecto aparte). **(D33)** una solicitud que **nadie
 > ofertó en 7 días hábiles CADUCA**, con un **correo que dice explícitamente que NO PROCEDEREMOS** — es el
 > **CUARTO correo obligatorio** y **un dial más**, así que la tabla de §P.10 **vuelve a ocho diales** y los
-> **estados terminales pasan de cuatro a cinco**. Se resuelve además el **costo real de la etiqueta**
+> ~~**estados terminales pasan de cuatro a cinco**~~ *(**⚠ 6ª ronda: NO — siguen siendo CUATRO**; la
+> caducidad es **`expirada` con motivo `no_offer`**)*. Se resuelve además el **costo real de la etiqueta**
 > (captura **opcional**, *fallback* a la tarifa congelada). Ver **§P.3, §P.3.1, §P.4, §P.10, §P.12**.
+> **SEXTA RONDA (D34–D35 + resolución de la pregunta 27 por el arquitecto)**: **(D34)** **no se puede EMITIR
+> una oferta cuyo NETO sea menor a MX$200** —bloqueo **en la emisión**, no en el dial ni en la aceptación;
+> el operador **compra más líneas o no oferta**—, así que la tabla de §P.10 pasa de **ocho a NUEVE diales**.
+> **(D35)** el **objetivo del bounty tiene default 2** y **los bounties viejos se llenan con 2** (no se
+> desactivan), **editable por bounty**. **(P27)** la **caducidad es un MOTIVO de `expirada`**
+> (`no_offer` / `not_shipped`), **no un quinto estado**; **caduca aunque haya oferta esperando autorización**
+> —**el barrido la anula**— y **el reloj NO reinicia** al cancelar una oferta. Ver **§P.1, §P.2, §P.3.1,
+> §P.10, §P.12, §N.6** y criterios **167–169**.
 > **Alcance de esta feature**: el **ciclo** (decidir, comunicar, comprometer, **mandar la guía**, recibir,
-> pagar y publicar), los **estados nuevos** *(cuatro en el primer pase; **el terminal `caducada` de D33 es el
-> quinto**)*, los **tres plazos** *(**eran dos**: se suma el de caducidad, D33)*, los **CUATRO correos** del
-> ciclo *(**eran tres**: se suma el de «no procederemos», D33)*, la **mesa de decisión** del admin y el
+> pagar y publicar), los **estados nuevos** *(cuatro en el primer pase; ~~**el terminal `caducada` de D33 es
+> el quinto**~~ — **⚠ 6ª ronda: no hay quinto estado, hay un MOTIVO nuevo en `expirada`**)*, los **tres
+> plazos** *(**eran dos**: se suma el de caducidad, D33)*, los **CUATRO correos** del
+> ciclo *(**eran tres**: se suma el de «no procederemos», D33)*, la **mesa de decisión** del admin —**con el
+> bloqueo de emisión por neto mínimo**, D34— y el
 > **cierre hasta publicar**. **Fuera**: la **integración con paquetería** —la etiqueta se compra a mano,
-> D19— y el **panel de bounties** (D32). El schema, el contrato, las plantillas de correo y el tratamiento
-> visual los definen arquitecto y ux-ui; aquí solo se fija el **requisito de producto**.
+> D19— y el **panel de bounties** (D32, confirmado en la 6ª). El schema, el contrato, las plantillas de correo
+> y el tratamiento visual los definen arquitecto y ux-ui; aquí solo se fija el **requisito de producto**.
 
 **P.1 — Las ocho fases y los estados**
 
@@ -2564,25 +2682,40 @@ gananciaNeta  =  estimadoPSA9 − (precioVentaRaw + gradingCost)      ← SOLO p
 | 7 | **Pagamos** | `pagada` | Súper-admin | Igual que hoy (**SPEI**) + **se deposita el NETO** (D16), **nunca negativo** + **conversión a inventario** |
 | 8 | **Publicamos** | pieza **a la venta** | Admin / operador | **NUEVO** — cerrar el ciclo: **ubicación + precio ⇒ publicada** |
 
-- [ ] **Estados terminales — ~~son cuatro~~ SON CINCO** *(actualizado 2ª ronda v2.1, cierra la pregunta 10;
-      **corregido en la 5ª por D33**)*: **`pagada`** (el ciclo terminó bien), **`rechazada`** —el cliente dice
-      que no, **o no responde en el plazo de aceptación** (D3)—, **`expirada`** —aceptó pero **el paquete no
-      salió en el plazo** (D4)—, **`abandonada`** —los **30 días** de §H con la carta ya en nuestras manos— y
-      **`caducada`** *(NUEVO 5ª ronda, D33)* —**nadie la ofertó en 7 días hábiles** (§P.3.1)—. Ninguna deja
-      nada pendiente ni cartas comprometidas. **Todo lo que no es terminal es una «solicitud viva»** (§P.9).
-- [ ] **`expirada` y `caducada` son desenlaces DISTINTOS y tienen que poder distinguirse** *(5ª ronda, D33)*:
-      **`expirada`** es *«aceptaste y no mandaste»* —**el plazo era del vendedor**—; **`caducada`** es *«no
-      procederemos con la oferta»* —**el plazo era NUESTRO**—. Llevan **correos distintos**, significan cosas
-      opuestas para el cliente y para los reportes, así que **mezclarlas sería mentir en las dos**.
-      *(**SUPUESTO** de nombre: uso **`caducada`**. Si se modela como estado propio o como `expirada` con un
-      motivo lo decide el **arquitecto**; el requisito de negocio es solo que **sean distinguibles**. Ver
-      **pregunta abierta 27**.)*
+- [ ] **Estados terminales — ~~son cuatro~~ ~~SON CINCO~~ SON CUATRO** *(actualizado 2ª ronda v2.1, cierra la
+      pregunta 10; **la 5ª ronda (D33) los subió a cinco; la 6ª los devuelve a CUATRO** — resolución de la
+      pregunta 27 por el arquitecto)*: **`pagada`** (el ciclo terminó bien), **`rechazada`** —el cliente dice
+      que no, **o no responde en el plazo de aceptación** (D3)—, **`expirada`** —**dos causas**, ver el
+      bullet siguiente— y **`abandonada`** —los **30 días** de §H con la carta ya en nuestras manos—.
+      ~~y **`caducada`** *(NUEVO 5ª ronda, D33)*~~ **⚠ SUPERADO en la 6ª ronda: no es un estado.** Ninguna
+      deja nada pendiente ni cartas comprometidas. **Todo lo que no es terminal es una «solicitud viva»**
+      (§P.9).
+- [ ] **`expirada` tiene DOS causas y el MOTIVO se guarda aparte** *(5ª ronda D33; **REDACTADO DE NUEVO en la
+      6ª — resolución de la pregunta 27 por el arquitecto**)*: los **dos desenlaces siguen siendo distintos y
+      **tienen que poder distinguirse**, pero **no son dos estados**:
+      - **`expirada` + motivo `not_shipped`** = *«aceptaste y no mandaste»* — **el plazo era del vendedor**
+        (D4);
+      - **`expirada` + motivo `no_offer`** = *«no procederemos con la oferta»* — **el plazo era NUESTRO**
+        (D33, §P.3.1).
+      **El motivo se persiste en columna propia**, no se deriva ni se infiere. **Razón del arquitecto, que
+      este documento adopta**: *un estado que se comporta **idéntico** a otro en todas las reglas —cierre,
+      purga de INE, cuota, «no se revive»— **no es un estado, es un atributo**; pero **la causa sí importa**
+      para el correo y **no es derivable**.*
+      **El requisito de negocio NO cambia**: llevan **correos distintos**, significan cosas opuestas para el
+      cliente y para los reportes, y **mezclarlas sería mentir en las dos**. Lo que cambia es **dónde vive la
+      distinción**: en el **motivo**, no en el nombre del estado. **Toda superficie que muestre el desenlace
+      —cola de M5, ficha de solicitud, portal del cliente y reportes de M9— muestra el MOTIVO, no solo el
+      estado.**
+      ~~*(**SUPUESTO** de nombre: uso **`caducada`**…)*~~ **⚠ Ese supuesto queda SUPERADO**: `caducada` era
+      **un nombre que este documento inventó** mientras la pregunta 27 estaba abierta. **Pregunta 27
+      CERRADA.**
 - [ ] **Regla dura del ciclo**: **no se puede llegar a `en_transito` sin haber pasado por `ofertada` y
       `aceptada`**. Es la regla que impide que alguien pague un envío —o que nosotros compremos una guía—
       sin un sí de las dos partes (§H).
 - [ ] **Una solicitud terminal NO se revive** *(cerrado por el humano — respuesta a la pregunta 2;
-      **ampliado en la 5ª ronda por D33**)*: tras **`rechazada`**, **`expirada`**, **`abandonada`** o
-      **`caducada`**, si el vendedor todavía quiere vender, **cotiza de nuevo**. **No se re-oferta sobre una
+      **ampliado en la 5ª ronda por D33**; **precisado en la 6ª**)*: tras **`rechazada`**, **`expirada`**
+      —**por cualquiera de sus dos motivos**— o **`abandonada`**, si el vendedor todavía quiere vender,
+      **cotiza de nuevo**. **No se re-oferta sobre una
       solicitud terminal**: el mercado ya se movió y la oferta anterior era vinculante **solo mientras
       vivió**. *(El correo de caducidad **lo invita explícitamente** a volver a cotizar, D33.)*
 
@@ -2628,6 +2761,11 @@ gananciaNeta  =  estimadoPSA9 − (precioVentaRaw + gradingCost)      ← SOLO p
       **Alcance mínimo, dicho explícitamente**: **no se construye panel de bounties** —el humano lo pidió y
       lo dejó como **proyecto aparte**—; aquí **solo se exige el objetivo donde hoy se configuran** (§N.6,
       «Fuera de alcance»).
+      *(**6ª ronda, D35 — el número y el caso histórico**: el objetivo **por defecto es 2** («hasta tener 2
+      en inventario»), y **los bounties viejos sin meta se llenan con 2** — **no se desactivan**. Con eso la
+      rama (a) tiene número **también hacia atrás**, sin depender de que alguien edite los viejos. **Se cae
+      el supuesto** que este documento tenía redactado —tratarlos como «sin bounty» hasta que se editaran—:
+      **ningún bounty se comporta como «sin bounty»**. §N.6, criterio **168**.)*
 - [ ] **Qué cuenta como «posición» para el tope (D29)** *(⚠ AMPLÍA lo que decía el bullet superseded, que
       hablaba de «stock + en camino»; se señala en vez de cambiarlo en silencio)*: la posición de una variante
       son **cuatro sumandos**, no dos — **stock** (piezas en inventario) **+ verificando** (recibidas, aún en
@@ -2644,6 +2782,43 @@ gananciaNeta  =  estimadoPSA9 − (precioVentaRaw + gradingCost)      ← SOLO p
       decida con el dato a la vista.
 - [ ] **Cherry-pick AL OFERTAR**: el admin marca **línea por línea** qué compra y qué no. Lo que resulta de
       esa decisión **es la oferta**.
+- [ ] **PISO DE NETO: no se puede EMITIR una oferta cuyo neto quede por debajo de MX$200** *(NUEVO 6ª ronda,
+      **D34**; cierra la pregunta 25; ver criterio 167)*: si tras el cherry-pick el **neto** —`bruto ofertado
+      − tarifa de envío congelada`— **queda por debajo del piso**, la oferta **no se emite** y **el correo no
+      se manda**. **El operador tiene dos salidas y ninguna más: comprar más líneas, o no ofertar.**
+      **Dónde vive el bloqueo, dicho con precisión** *(es la parte que se desincroniza si no se escribe)*:
+      **en la EMISIÓN de la oferta**. **No** en el dial —**M10 no ve el recorte que hizo el operador**, así
+      que la validación entre diales (criterio 127) **no puede cubrir este caso**— y **no** en la aceptación
+      —**el correo no debe llegar a mandarse**: el punto **no** es que el vendedor rechace una oferta
+      ridícula, es que **esa oferta no exista**—.
+      **Por qué MX$200 y no otro número** *(la aritmética del humano, registrada porque es lo que lo hace
+      defendible)*: una solicitud cuesta **~MX$217** de operar —**etiqueta MX$180** + tiempo de operador—;
+      comprando al **40% de referencia**, para que la operación **se pague sola** hace falta un **bruto de
+      ~MX$362**, que deja **~MX$182 de neto**. **MX$200 queda justo arriba** y exige un **bruto de ~MX$380**:
+      **conserva el margen de cherry-pick sobre lotes grandes** —recortar una solicitud de $3,000 a $600
+      sigue siendo perfectamente posible— **sin permitir la oferta absurda**.
+      **No es un bloqueo nuevo, es el mismo con número**: el arquitecto ya había bloqueado el caso
+      **`neto ≤ 0`**; **D34 lo sube a MX$200**.
+      **Es un dial** (§P.10, el **noveno**), **se congela por solicitud** como los demás y **queda
+      auditado**. **El rechazo dice por qué y con qué cifras** —bruto actual, envío, neto y cuánto falta—,
+      igual que el cotizador le dice al vendedor cuánto le falta para el mínimo (§P.12): un "no" seco deja al
+      operador adivinando.
+      **⚠ Lo que D34 NO toca**: el **piso de cero al PAGAR** (criterio **152**) **sigue existiendo tal cual**.
+      Son dos cosas distintas y conviven: **D34 gobierna qué se puede EMITIR** (mira el **bruto ofertado**,
+      antes del correo); **el criterio 152 gobierna cuánto se PAGA** (mira el **bruto aprobado**, después de
+      verificar). Una oferta emitida por **MX$400 de neto** de la que solo se aprueben **MX$100** de bruto
+      **sigue depositando MX$0 y nunca deuda** — D34 **no** la rescata, y **no** pretende hacerlo: no se puede
+      saber al ofertar qué va a llegar en NM.
+- [ ] **Qué le pasa al cliente cuando el operador «no oferta» por el piso** *(NUEVO 6ª ronda — coherencia
+      entre D34 y D33, que este documento escribe en vez de dejarla implícita)*: **no queda colgado**. Si el
+      operador decide **no ofertar**, la solicitud sigue **`cotizada`** y **el barrido de caducidad la cierra
+      a los 7 días hábiles** desde su creación (§P.3.1), con el **correo de «no procederemos»** que **ya es
+      obligatorio**. **D34 y D33 encajan sin alcance nuevo**: el piso impide **la oferta mala**, y la
+      caducidad garantiza que **igual haya respuesta**.
+      *(⚠ **Lo que este documento NO agrega, y se dice para que nadie lo asuma**: **no existe** un botón de
+      *«declinar esta solicitud ahora»* que le ahorre al cliente los **7 días hábiles** de espera. **Sería
+      alcance nuevo** y hay que pedirlo. Con lo decidido el desenlace es **correcto pero lento**: el cliente
+      espera el plazo completo por una decisión que ya se tomó el día 1.)*
 - [ ] **Quién puede emitir la oferta (D13)** *(cierra la pregunta 1 — corrige el supuesto de «solo
       súper-admin» del primer pase)*: ofertar **compromete un pago vinculante** (D2), así que se gobierna con
       la **misma mecánica de topes** que ya usa el buylist para el dinero:
@@ -2732,6 +2907,12 @@ condicional a NM línea por línea)**
       el número enfrente: en una oferta de **MX$500** los **MX$180** son el **36%** —el vendedor recibe
       **MX$320**— y **debe verlo ANTES de aceptar**. La misma frase va en el **cotizador** y en los
       **términos** (§E, §H): **tres superficies, mismo mensaje**.
+- [ ] **Hay ofertas que NO se emiten: el piso de neto de MX$200** *(NUEVO 6ª ronda, **D34**; la regla vive en
+      §P.2, aquí se dice su efecto sobre el correo)*: **si el neto no llega a MX$200, el correo de oferta no
+      se manda**. No existe una variante de correo que anuncie un depósito de **MX$20** ni de **MX$0**: esa
+      oferta **no llega a existir**. **Es coherente con lo que este documento ya exigía en la otra punta** —
+      el cotizador **no crea** una solicitud por debajo del mínimo (§P.12)—: **dos umbrales, dos momentos**,
+      y en ninguno de los dos se manda un mensaje que no vale la pena mandar.
 - [ ] **El correo anuncia la guía, pero la guía todavía no existe (D21)**: ~~en la banda con envío a nuestro
       costo~~ **en toda oferta** *(5ª ronda, D31)*, el correo de oferta dice que **el envío corre por nuestra
       cuenta** y que **la guía le llega al aceptar**. **No se compra etiqueta al ofertar**: solo se gasta
@@ -2777,6 +2958,11 @@ condicional a NM línea por línea)**
       **expiración/cancelación** y **«no procederemos» por caducidad** (§P.3.1). El cuarto **no es una
       variante del tercero**: la expiración dice *«aceptaste y no mandaste»*; la caducidad dice *«no vamos a
       ofertarte»*. **Son mensajes opuestos y no se pueden fusionar.**
+      *(**⚠ Precisión OBLIGATORIA de la 6ª ronda**: ahora que **los dos desenlaces comparten el estado
+      `expirada`** (resolución de la pregunta 27), **el correo NO se elige por el estado: se elige por el
+      MOTIVO** (`not_shipped` ⇒ expiración; `no_offer` ⇒ «no procederemos»). **Siguen siendo CUATRO correos
+      distintos**; compartir estado **no los fusiona**. Es justamente el riesgo que trae el modelado nuevo, y
+      por eso se escribe: criterios **142**, **165c** y **169c**.)*
 
 **P.3.1 — La solicitud que nadie oferta CADUCA: nunca dejamos a alguien esperando sin respuesta (D33 — 5ª
 ronda; NUEVA)**
@@ -2798,22 +2984,33 @@ ronda; NUEVA)**
       **(b)** **no se le reprocha nada al cliente**: la solicitud **no queda `rechazada`** (eso significaría
       que él dijo que no o que no respondió) **ni `expirada`** (eso significaría que aceptó y no mandó). **Es
       un desenlace nuestro y se llama como tal.**
-- [ ] **`caducada` no se confunde con `expirada`** (§P.1): **correos distintos, significados opuestos**.
-      Mezclarlas dejaría al cliente sin saber qué pasó y a los reportes sin poder separar *«se nos fue el
-      tiempo»* de *«el vendedor no cumplió»* — que es exactamente la métrica que uno quiere vigilar.
-- [ ] **Terminal es terminal, también aquí** (§P.1): sobre una solicitud **`caducada`** **no se re-oferta**;
+- [ ] **La caducidad no se confunde con la expiración por no enviar** (§P.1): **correos distintos,
+      significados opuestos**. Mezclarlas dejaría al cliente sin saber qué pasó y a los reportes sin poder
+      separar *«se nos fue el tiempo»* de *«el vendedor no cumplió»* — que es exactamente la métrica que uno
+      quiere vigilar.
+      *(**6ª ronda — pregunta 27 CERRADA por el arquitecto**: ~~`caducada` como estado propio~~ **queda
+      SUPERADO**. Es **`expirada` con motivo `no_offer`**, con el **motivo en columna propia**, frente a
+      **`not_shipped`**. **El requisito de negocio es idéntico**: correos distintos y reportes que los
+      separen. Lo único que cambia es **dónde vive la distinción**.)*
+- [ ] **Terminal es terminal, también aquí** (§P.1): sobre una solicitud que **caducó** **no se re-oferta**;
       si el vendedor sigue interesado, **cotiza de nuevo** (y el correo se lo dice).
-- [ ] **Qué pasa con una oferta que estaba esperando autorización** *(**SUPUESTO**, se señala en vez de
-      resolverse en silencio)*: si el operador preparó una oferta arriba de su tope y **el súper-admin no la
-      autorizó dentro del plazo**, **la solicitud caduca igual** —**el cliente sigue esperando, y el pendiente
-      es nuestro**—; al caducar, **la oferta pendiente sale de la cola de autorización** y **ya no puede
-      autorizarse después** (terminal es terminal, criterio 145). Ver **pregunta abierta 27**.
-- [ ] **Qué pasa si una oferta emitida se cancela y la solicitud vuelve a la fila** *(**SUPUESTO**)*: el reloj
-      de caducidad **vuelve a arrancar desde la cancelación**, **no** desde la creación original. Contarlo
-      desde el origen **mataría la solicitud el mismo día** en que volvió a la fila —ya pasaron los 7 días
-      mientras la oferta estaba viva—, y eso castigaría al cliente por una corrección nuestra. *(A qué estado
-      vuelve exactamente una oferta cancelada lo resolvió el **arquitecto**; aquí solo se fija **cómo cuenta
-      el reloj**.)* Ver **pregunta abierta 27**.
+- [ ] **Qué pasa con una oferta que estaba esperando autorización** *(~~SUPUESTO~~ **CONFIRMADO en la 6ª
+      ronda por el arquitecto**)*: si el operador preparó una oferta arriba de su tope y **el súper-admin no
+      la autorizó dentro del plazo**, **la solicitud caduca igual** —**el cliente sigue esperando, y el
+      pendiente es nuestro**—; **el barrido ANULA esa oferta al caducar la solicitud**: sale de la cola de
+      autorización y **ya no puede autorizarse después** (terminal es terminal, criterio 145). *(El verbo
+      importa: no es que «quede huérfana en la cola», es que **el barrido la anula**.)*
+- [ ] **Qué pasa si una oferta emitida se cancela y la solicitud vuelve a la fila** *(**⚠ SUPUESTO
+      CORREGIDO en la 6ª ronda por el arquitecto**)*: ~~el reloj de caducidad **vuelve a arrancar desde la
+      cancelación**, **no** desde la creación original.~~ **Regla vigente: el reloj NO se reinicia — cuenta
+      SIEMPRE desde la creación de la solicitud.** Un solo origen, un solo reloj.
+      **⚠ Consecuencia que este documento SEÑALA en vez de callar**: si la oferta se cancela **después** de
+      que ya pasaron los 7 días hábiles desde la creación, la solicitud **caduca el mismo día en que vuelve a
+      la fila** — el cliente recibe un *«no procederemos»* **por una corrección nuestra**, sin que nadie haya
+      vuelto a mirar su solicitud. Es exactamente el escenario por el que este documento había supuesto lo
+      contrario. **Se registra como bandera** (ver «Riesgos y banderas»), **no** como bloqueo: el arquitecto
+      lo decidió y es coherente con *«un plazo, un origen»*; si al humano le parece injusto, **mover el
+      arranque del reloj es una decisión de producto de una línea**.
 
 **P.4 — La guía la mandamos nosotros, SIEMPRE (D16, ~~D18b~~, D19, D20, D21, D22 — REESCRITA en la 2ª ronda,
 supersede D5; **CORREGIDA en la 5ª por D31: se elimina el umbral**)**
@@ -3001,8 +3198,15 @@ quedan SUPERADAS; cierra la pregunta 16)**
       un cherry-pick puede dejar el **bruto ofertado por debajo de MX$180** y entonces **el neto es MX$0
       aunque todo llegue en NM**. Antes de D31 eso no podía pasar (ahí el vendedor pagaba su propio envío).
       **Sigue sin haber deuda del vendedor** (criterio 152) y **él ve el neto antes de aceptar** (D31), así
-      que **puede rechazar** — pero si el humano quiere además un **piso de neto para siquiera emitir la
-      oferta**, eso es **alcance nuevo**: **pregunta abierta 25**.
+      que **puede rechazar** — ~~pero si el humano quiere además un **piso de neto para siquiera emitir la
+      oferta**, eso es **alcance nuevo**: **pregunta abierta 25**.~~
+      **⚠ CERRADO en la 6ª ronda (D34): SÍ hay piso, y es MX$200 de NETO.** El hueco **no se tapa aquí** —la
+      validación entre diales **sigue sin poder verlo**, porque **M10 no conoce el recorte del operador**—:
+      se tapa **en la emisión de la oferta** (§P.2, criterio **167**). **Los dos mecanismos conviven y
+      cubren cosas distintas**: `tarifa < mínimo` protege **la solicitud completa** *(«ninguna solicitud
+      aceptable puede depositar cero si todo llega en NM»)*; el **piso de neto de MX$200** protege **la
+      oferta recortada** *(«ninguna oferta se emite si no vale la pena para nadie»)*. **La pregunta 25 queda
+      CERRADA.**
       **Sigue siendo una validación BLOQUEANTE de la pantalla de diales (M10), no una nota al pie** —
       criterio **127**.
 
@@ -3085,12 +3289,16 @@ quedan SUPERADAS; cierra la pregunta 16)**
       de venta vivas**, **cuántas** tiene cada uno, y **llamarlos** — el **teléfono viaja en la cola de
       buylist**, no hay que ir a buscarlo a la ficha del usuario.
 - [ ] **Qué cuenta como «solicitud viva»** *(cerrado por el humano — respuesta a la pregunta 10;
-      **actualizado en la 5ª ronda por D33**)*: **todo lo que NO sea terminal**. Los **terminales ~~son
-      cuatro~~ son CINCO**: **`pagada`**, **`rechazada`**, **`abandonada`**, **`expirada`** y **`caducada`**
-      *(nadie la ofertó en 7 días hábiles, §P.3.1)*. Se define **por exclusión a propósito**: así, cualquier
+      **actualizado en la 5ª ronda por D33**; **CORREGIDO en la 6ª**)*: **todo lo que NO sea terminal**. Los
+      **terminales ~~son cuatro~~ ~~son CINCO~~ **son CUATRO**: **`pagada`**, **`rechazada`**,
+      **`abandonada`** y **`expirada`** —**con sus dos motivos**, `not_shipped` y `no_offer` (§P.1)—.
+      ~~y **`caducada`**~~ **⚠ SUPERADO en la 6ª ronda: no es un estado, es un motivo.**
+      Se define **por exclusión a propósito**: así, cualquier
       estado que se agregue después al ciclo **entra a la vista solo**, sin que haya que acordarse de
-      actualizar una lista — **y `caducada` es justamente el primer caso donde esa decisión se paga sola**:
-      una solicitud caducada **deja de contar como viva sin que nadie toque la definición**.
+      actualizar una lista.
+      *(**6ª ronda — la definición por exclusión se paga sola por partida doble**: la caducidad **ni siquiera
+      necesitó entrar a la lista**, porque **no agregó un estado**. Una solicitud que caduca deja de contar
+      como viva **por ser `expirada`**, sin que nadie toque nada.)*
 - [ ] **Una solicitud `cotizada` es «viva» y tiene reloj (D33)**: mientras espera nuestra oferta **cuenta como
       viva** —el operador la ve y puede llamar al vendedor—, y **caduca a los 7 días hábiles** si nadie la
       oferta. **La cola de buylist es, entre otras cosas, la lista de gente a la que le debemos una
@@ -3098,18 +3306,22 @@ quedan SUPERADAS; cierra la pregunta 16)**
 - [ ] **El teléfono es dato de back-office**: **nunca** se muestra en superficie pública ni en la vista de
       seguimiento de un pedido (coherente con §J, que ya lo prohíbe explícitamente).
 
-**P.10 — Diales del ciclo (D8; ampliado en la 2ª ronda, COMPLETADO en la 3ª, CORREGIDO en la 4ª y en la 5ª —
-origen único de los números)**
-> **Esta tabla es el origen único de los OCHO diales del ciclo.** El resto del documento —§E, §H, M5, M10,
+**P.10 — Diales del ciclo (D8; ampliado en la 2ª ronda, COMPLETADO en la 3ª, CORREGIDO en la 4ª, en la 5ª y
+en la 6ª — origen único de los números)**
+> **Esta tabla es el origen único de los NUEVE diales del ciclo.** El resto del documento —§E, §H, M5, M10,
 > los criterios— **los cita, no los vuelve a enumerar**: las copias en prosa son las que se desincronizan,
 > porque ningún test las mira. Tras la 3ª ronda **ninguno queda sin número**.
+> **⚠ Corrección de la 6ª ronda (D34) — entra uno y no sale ninguno: pasan a NUEVE.** Entra el **«neto
+> mínimo para EMITIR la oferta» (MX$200, D34)**. **Es el único dial del ciclo que NO se evalúa en la
+> pantalla de diales ni en un barrido**: se evalúa **en la emisión de la oferta**, contra el resultado del
+> cherry-pick del operador (§P.2, criterio 167). M10 configura **el número**; el **momento** es otro.
 > **⚠ Corrección de la 4ª ronda (D30)**: eran **nueve**; el **«umbral de recorte material» (20%, D28)** queda
 > **SIN OBJETO** —al no haber pregunta al vendedor, **no hay umbral que calibrar**— y **se retira de la
 > tabla**. **Quedaron OCHO.** El dial no se «apaga» ni queda en 0: **deja de existir**.
 > **⚠ Corrección de la 5ª ronda (D31 + D33) — se va uno y entra otro, así que SIGUEN SIENDO OCHO**: sale el
 > **«umbral de guía a nuestro costo» (MX$1,000, D18b)**, **dial sin objeto** porque **la guía va SIEMPRE**
 > (D31); entra el **«plazo de caducidad de la solicitud sin oferta» (7 días hábiles, D33)**. **La cuenta
-> vuelve a OCHO**, con otra composición.
+> vuelve a OCHO**, con otra composición. *(**⚠ Superado por la 6ª ronda: son NUEVE** — ver abajo.)*
 - [ ] Los ~~**dos**~~ **TRES plazos** son **diales editables desde M10**, **sin redeploy** y **auditados**:
       **plazo para aceptar** (default **2 días hábiles**), **plazo para que el paquete salga** (default
       **3 días hábiles**) y **plazo de caducidad de la solicitud sin oferta** (default **7 días hábiles**,
@@ -3121,9 +3333,16 @@ origen único de los números)**
       la bandeja de alguien. Lo mismo aplica a la **tarifa de envío** (D25): la oferta lleva **la suya**,
       congelada. Vencerle una oferta a alguien **antes de la fecha que le escribimos** sería romper la palabra
       que la oferta vinculante venía a dar.
-- [ ] **OCHO diales del ciclo** *(3ª ronda: ya todos con número; **4ª ronda: eran nueve — D28 quedó sin
+- [ ] **NUEVE diales del ciclo** *(3ª ronda: ya todos con número; **4ª ronda: eran nueve — D28 quedó sin
       objeto y se retiró**; **5ª ronda: sale el umbral de guía (D31) y entra el plazo de caducidad (D33) —
-      siguen siendo OCHO**)*, todos en M10, sin redeploy y auditados — tabla abajo.
+      siguieron siendo OCHO**; **6ª ronda: entra el neto mínimo para emitir (D34) y no sale ninguno — son
+      NUEVE**)*, todos en M10, sin redeploy y auditados — tabla abajo.
+- [ ] **Los diales de MONTO ahora son TRES, y responden a tres preguntas distintas** *(6ª ronda)*: el
+      **mínimo de compra** (*«¿vale la pena esta operación?»*, se juzga **al crear la solicitud**), la
+      **tarifa de envío del buylist** (*«¿cuánto cuesta traer las cartas?»*) y el **neto mínimo para emitir**
+      (*«¿vale la pena esta OFERTA, después del recorte?»*, se juzga **al emitir**). **Mover uno no mueve a
+      los otros**, y **cada uno se evalúa en su propio momento** — que es justamente lo que hacía falta:
+      **un solo umbral en un solo momento** dejaba descubierto el segundo momento (§P.12, criterio 158c).
 - [ ] ~~**Los dos umbrales de monto son independientes**: el **mínimo de compra** y el **umbral de guía**
       responden a preguntas distintas —*«¿vale la pena esta operación?»* y *«¿a partir de cuánto pago yo el
       envío?»*— y **mover uno no mueve el otro** (D18b).~~ **⚠ SUPERSEDED por D31 (5ª ronda)**: la segunda
@@ -3144,17 +3363,20 @@ origen único de los números)**
       *(**Colchón: ninguno** —estrictamente menor—. **Cerrado por el humano en la 5ª ronda**: aceptó a ojos
       abiertos que en el piso de $500 el envío pese **36%**; con eso la **pregunta 24 queda cerrada**.)*
       *(**⚠ Lo que NO cubre**: la **oferta recortada por cherry-pick** puede quedar por debajo de la tarifa y
-      depositar **MX$0** — se señala en §P.12 y §P.5.1; **pregunta abierta 25**.)*
+      depositar **MX$0** — se señalaba en §P.12 y §P.5.1 como **pregunta abierta 25**. **⚠ CERRADO en la 6ª
+      ronda por D34**: eso lo cubre **otro dial y en otro momento** — el **neto mínimo para emitir**, en la
+      **emisión**. **Esta validación no cambia**: sigue siendo `tarifa < mínimo`, bloqueante, en M10.)*
 
 | Dial del ciclo | Default | Qué gobierna |
 |---|---|---|
 | **Plazo para aceptar la oferta** (D3/D14) | **2 días hábiles** | Sin respuesta ⇒ **`rechazada`** (§P.3). Se **congela** al enviar la oferta |
 | **Plazo para que el paquete salga** (D4/D14/D21) | **3 días hábiles** | Sin envío ⇒ **`expirada`** (§P.4). Se **congela** al entregar la guía |
-| **Plazo de caducidad de la solicitud sin oferta** (**D33**) | **7 días hábiles** | *(NUEVO 5ª ronda)* Sin que **nadie oferte**, la solicitud **`caduca`** y sale el correo de **«no procederemos»** (§P.3.1). Se cuenta **desde la creación** y **se congela** ahí. **Es el único plazo que corre contra NOSOTROS** y **no lleva recordatorio al cliente** |
-| **Mínimo de compra** (D18) | **MX$500** *(inclusivo)* | Por debajo, **no se crea la solicitud** (§P.12). **Desde él, la guía va por nuestra cuenta** (D31) |
+| **Plazo de caducidad de la solicitud sin oferta** (**D33**) | **7 días hábiles** | *(NUEVO 5ª ronda)* Sin que **nadie oferte**, la solicitud queda **`expirada` con motivo `no_offer`** *(6ª ronda — ~~`caducada`~~)* y sale el correo de **«no procederemos»** (§P.3.1). Se cuenta **desde la creación**, **se congela** ahí y **NO se reinicia** si se cancela una oferta *(6ª ronda)*. **Es el único plazo que corre contra NOSOTROS** y **no lleva recordatorio al cliente** |
+| **Mínimo de compra** (D18) | **MX$500** *(inclusivo)* | Por debajo, **no se crea la solicitud** (§P.12). **Desde él, la guía va por nuestra cuenta** (D31). Se juzga sobre el **total cotizado**, **al crear** |
+| **Neto mínimo para EMITIR la oferta** (**D34**) | **MX$200** | *(NUEVO 6ª ronda)* Por debajo, **la oferta NO se emite y el correo NO se manda** — el operador **compra más líneas o no oferta** (§P.2). Se juzga sobre el **neto** (`bruto ofertado − tarifa congelada`), **al emitir**, contra el resultado del **cherry-pick**. **Único dial que NO se evalúa en M10 ni en un barrido.** **Sube a MX$200** el bloqueo de `neto ≤ 0` que ya existía. **No toca** el piso de cero al pagar (criterio 152) |
 | ~~**Umbral de guía a nuestro costo** (D18b)~~ | ~~**MX$1,000** *(inclusivo)*~~ | **⚠ RETIRADO en la 5ª ronda (D31): dial SIN OBJETO.** **La guía la ponemos SIEMPRE**, desde el mínimo, así que **no hay umbral que configurar** (§P.4, §P.12). **No se implementa** |
 | **Tope de oferta del operador** (D13/**D24**) | **MX$1,500** | Bruto por encima del cual la oferta **la autoriza el súper-admin** (§P.2). Incluye los **overrides** (D26) |
-| **Tope general de piezas por variante** (D15/**D29**) | **10 piezas** | Dispara **«no comprar»** en cartas **sin bounty**; **nunca bloquea** (§P.2). *(5ª ronda, D32: con el **objetivo del bounty obligatorio**, **siempre hay contra qué comparar**)* |
+| **Tope general de piezas por variante** (D15/**D29**) | **10 piezas** | Dispara **«no comprar»** en cartas **sin bounty**; **nunca bloquea** (§P.2). *(5ª ronda, D32: con el **objetivo del bounty obligatorio**, **siempre hay contra qué comparar**; **6ª ronda, D35**: ese objetivo tiene **default 2** y **los bounties viejos se llenan con 2** — el default **NO es un dial de M10**, es el valor inicial de un campo editable por bounty, §N.6)* |
 | **Tarifa de envío del buylist** (D16/**D25**) | **MX$180** | El **envío que se descuenta SIEMPRE** (D31) y que el correo de oferta anuncia; se **congela** al ofertar (§P.4). **Distinta** del envío de retiro (MX$175). **Es lo que se le descuenta al vendedor**, no necesariamente lo que costó la etiqueta (el costo real es **captura opcional**, 5ª ronda) |
 | **Alerta de «ya lo mandé» sin confirmar** (**P17**) | **5 días hábiles** | Pasado ese tiempo, la solicitud se **destaca como alerta** en la cola de «por confirmar envío» (§P.13). **No expira nada** |
 | ~~**Umbral de «recorte material»** (**D28**)~~ | ~~**20%** del bruto~~ | **⚠ RETIRADO en la 4ª ronda (D30): dial SIN OBJETO.** Gobernaba la pregunta *«¿continúas?»* del rechazo parcial; **al no haber pregunta, no hay umbral que calibrar** (§P.5.1). **No se implementa** |
@@ -3222,11 +3444,35 @@ origen único de los números)**
 > siempre se deduce del importe a pagar**. Verificable en el caso que más duele: una oferta de **MX$500** —
 > el vendedor **ve MX$320** como depósito **antes** de apretar «aceptar», no después.
 >
-> **Flujo crítico — la solicitud que nadie oferta caduca (D33):** una solicitud **`cotizada`** que **nadie
-> ofertó** en **7 días hábiles** queda **`caducada`** y **sale el correo que dice que NO PROCEDEREMOS con la
-> oferta** e invita a **volver a cotizar**. Verificable adelantando el reloj; verificable además que
-> **`caducada` y `expirada` se distinguen** (correos distintos y estado distinguible), que **no llega ningún
+> **Flujo crítico — la solicitud que nadie oferta caduca (D33; *precisado en la 6ª ronda*):** una solicitud
+> **`cotizada`** que **nadie ofertó** en **7 días hábiles** queda **`expirada` con motivo `no_offer`** y
+> **sale el correo que dice que NO PROCEDEREMOS con la oferta** e invita a **volver a cotizar**. Verificable
+> adelantando el reloj; verificable además que **los dos motivos de `expirada` se distinguen** —**correos
+> distintos** y **motivo visible en la cola, en la ficha y en los reportes**—, que **no llega ningún
 > recordatorio** por este plazo y que **ofertar después ya no funciona** (terminal es terminal).
+> **Verificable el borde que resolvió el arquitecto**: una solicitud con **oferta esperando autorización**
+> del súper-admin **caduca igual**, y **el barrido ANULA esa oferta** —después **no se puede autorizar**—.
+>
+> **Flujo crítico — el reloj de caducidad no se reinicia (6ª ronda):** se cancela una oferta emitida y la
+> solicitud vuelve a la fila; el reloj **sigue contando desde la creación original**, **no** desde la
+> cancelación. Verificable en el caso incómodo: si al cancelar ya pasaron los **7 días hábiles** desde la
+> creación, la solicitud **caduca ese mismo día**. *(Es el comportamiento decidido; queda registrado como
+> **bandera para el humano**, no como defecto.)*
+>
+> **Flujo crítico — la oferta que no vale la pena NO se emite (D34):** de una solicitud cotizada en
+> **MX$3,000** el operador recorta hasta un **bruto de MX$300**; el neto sería **MX$120** ⇒ **la emisión se
+> bloquea**, **el correo NO se manda** y el mensaje dice **por qué y cuánto falta**. El operador **agrega
+> líneas** hasta un bruto de **MX$400** (neto **MX$220**) ⇒ **la oferta sale**. Verificable con los **tres
+> bordes** contra el piso de **MX$200**: bruto **MX$379** (neto **MX$199**) ⇒ **no se emite**; bruto
+> **MX$380** (neto **MX$200**) ⇒ **se emite** —**el piso es inclusivo**—; bruto **MX$381** (neto **MX$201**)
+> ⇒ **se emite**. Verificable además **por lo que NO existe**: **ningún** correo de oferta anuncia un
+> depósito de **MX$0** ni de **MX$20**, y el bloqueo **no se puede saltar** desde el servidor.
+>
+> **Flujo crítico — el piso de EMITIR y el piso de PAGAR son dos cosas distintas (D34 × criterio 152):** una
+> oferta se emite legítimamente con **bruto MX$1,000 / neto MX$820**; al verificar solo se aprueban
+> **MX$100** ⇒ **se deposita MX$0**, **sin deuda**. **D34 no rescata este caso y no pretende hacerlo**: al
+> ofertar **no se puede saber qué va a llegar en NM**. Verificable que **las dos reglas conviven** y que
+> **ninguna anula a la otra**.
 >
 > **Flujo crítico — la oferta se acepta CON la condición NM escrita, línea por línea (D30):** el correo de
 > oferta de las 2 cartas compradas dice, **en cada línea**, **«siempre que llegue en Near Mint»**, y dice
@@ -3280,9 +3526,16 @@ origen único de los números)**
 > **$500**) → **NO se guarda** y el error dice **por qué** (criterio 127, **re-anclado por D31**); **buscar en
 > M10 el dial de «umbral de recorte material»** → **no existe** (D28 quedó sin objeto); **buscar en M10 el
 > dial de «umbral de guía»** → **no existe** (D31 lo dejó sin objeto) y **ninguna conducta del sistema depende
-> de él**; **crear un bounty sin capturar su objetivo** → **no se guarda** (D32); **intentar ofertar sobre una
-> solicitud `caducada`** o **autorizar una oferta que quedó en cola cuando la solicitud caducó** → **no
-> funciona** (D33 + terminal es terminal); **confirmar un envío SIN capturar el costo real de la etiqueta** →
+> de él**; **crear un bounty sin capturar su objetivo** → **no se guarda** (D32) —aunque en la práctica **el campo
+> llega prellenado con 2**, D35—; **buscar un bounty vivo SIN objetivo** (viejo o nuevo) → **no existe
+> ninguno**: a los viejos **se les asignó 2** y **siguen en la vitrina** (D35); **intentar ofertar sobre una
+> solicitud que caducó** o **autorizar una oferta que el barrido anuló al caducar la solicitud** → **no
+> funciona** (D33 + terminal es terminal); **intentar EMITIR una oferta cuyo neto quede por debajo de
+> MX$200** —**incluyendo llegar ahí con un override manual** o **saltándose la pantalla y pegándole directo
+> al servidor**— → **no se emite**, **el correo no se manda** y el error dice **por qué y cuánto falta**
+> (D34, criterio 167); **buscar en M10 una validación que impida el neto bajo** → **no está ahí**: el dial
+> existe, pero **el bloqueo vive en la emisión** (§P.2); **confirmar un envío SIN capturar el costo real de
+> la etiqueta** →
 > **se permite**, y el gasto del periodo se registra con la **tarifa congelada de MX$180** (*fallback*), sin
 > que cambie **un peso** el neto del vendedor.
 
@@ -3324,22 +3577,40 @@ ronda por D31**)**
       solicitud (es cuando aplica). ~~Y el **umbral de guía** sobre el **BRUTO ofertado**.~~ **⚠ SIN OBJETO
       (D31)**: **no hay nada que juzgar** para decidir si mandamos etiqueta — **siempre la mandamos**.
 - [ ] **El mínimo NO se re-aplica a la oferta** *(3ª ronda; cierra la pregunta 19 — supuesto confirmado)*: el
-      mínimo **gatea la creación de la solicitud, no la oferta**. Si se cotizaron **$600** y tras el
-      cherry-pick solo compramos **$200**, **la oferta sale igual**: ya gastamos el trabajo de revisar esa
-      solicitud, y negarnos a comprar al final por un umbral que se cumplió al entrar sería tirar ese trabajo
-      **y** dejar al vendedor sin respuesta. **Un solo umbral, en un solo momento.**
+      mínimo **gatea la creación de la solicitud, no la oferta**. ~~Si se cotizaron **$600** y tras el
+      cherry-pick solo compramos **$200**, **la oferta sale igual**~~ *(**⚠ EJEMPLO superado en la 6ª ronda
+      por D34**: ese caso da **neto MX$20** y **ya NO se emite**. **La regla sigue igual**; cámbiese el
+      ejemplo por **se cotizaron $3,000 y tras el cherry-pick compramos $600** — neto **$420** —, que **sí
+      sale**)*: ya gastamos el trabajo de revisar esa
+      solicitud, y negarnos a comprar al final por **el mismo** umbral que se cumplió al entrar sería tirar
+      ese trabajo **y** dejar al vendedor sin respuesta. **Un solo umbral por momento** *(~~«en un solo
+      momento»~~ — **6ª ronda**: hay **dos momentos**, el de crear y el de emitir, **con umbrales distintos**;
+      lo que sigue prohibido es **aplicar el mismo umbral dos veces**).*
       *(⚠ **Requisito retirado** de la 2ª ronda, se señala en vez de borrarlo: aquí decía que *«la mesa de
       decisión debe avisarlo»*. Era **alcance que yo había inventado** mientras la pregunta seguía abierta;
       con la respuesta del humano —«el mínimo no se re-aplica»— **no hay aviso obligatorio**. La mesa ya
       muestra el **bruto ofertado** en todo momento, así que el operador tiene la cifra a la vista.)*
-      *(⚠ **CONSECUENCIA NUEVA de la 5ª ronda (D31), que este documento señala en vez de resolver en
+      *(⚠ **CONSECUENCIA de la 5ª ronda (D31), que este documento señaló en vez de resolver en
       silencio**: como ahora **el envío se descuenta SIEMPRE**, un bruto ofertado por debajo de **MX$180**
       produce un **neto de MX$0 aunque todas las cartas lleguen en NM** —el piso de cero, criterio 152—.
       **Antes de D31 eso no podía pasar** en esa zona de monto, porque ahí el vendedor pagaba su propio envío
       y **no había nada que descontarle**. **Lo que protege al vendedor sigue existiendo y es real**: **no
       queda debiendo nada** y **ve el neto antes de aceptar** (D31), así que **puede rechazar una oferta que
-      no le paga nada**. **Lo que NO existe hoy** es un **piso de neto** que impida siquiera emitir esa
-      oferta — eso sería **alcance nuevo**: **pregunta abierta 25**.)*
+      no le paga nada**. ~~**Lo que NO existe hoy** es un **piso de neto** que impida siquiera emitir esa
+      oferta — eso sería **alcance nuevo**: **pregunta abierta 25**.~~
+      **⚠ CERRADO en la 6ª ronda (D34): SÍ existe ese piso, y es MX$200 de NETO.**)*
+- [ ] **El mínimo no se re-aplica, PERO hay un segundo umbral en el segundo momento** *(NUEVO 6ª ronda,
+      **D34**; cierra la pregunta 25 sin contradecir lo que el humano ya había decidido)*: la regla de arriba
+      **sigue intacta** —el **mínimo de compra** gatea **la creación de la solicitud** y **no se vuelve a
+      aplicar a la oferta**—. Lo que la 6ª ronda agrega es **otro umbral, con otro número y otra pregunta**:
+      el **neto mínimo para EMITIR (MX$200)**, que se juzga **al emitir la oferta** (§P.2).
+      **No es «volver a aplicar el mínimo»** y conviene decir por qué, porque se parecen: el **mínimo de
+      compra** pregunta *«¿vale la pena abrir esta operación?»* y se mide sobre el **total cotizado**; el
+      **piso de neto** pregunta *«¿vale la pena esta oferta, ya recortada?»* y se mide sobre el **neto**.
+      Si el piso fuera «el mínimo otra vez» ($500), un cherry-pick legítimo de un lote grande **quedaría
+      prohibido**; con **MX$200** —bruto de ~**MX$380**— **el cherry-pick sigue siendo posible** y lo único
+      que se prohíbe es **la oferta que no se paga sola**.
+      **Sigue habiendo un solo umbral por momento**: uno al crear, uno al emitir.
 
 **P.13 — El reloj y el estado no son lo mismo: nadie pierde su venta por una demora nuestra (riesgo conocido D20 × D4)**
 > **El choque, dicho sin rodeos**: **D20** dice que quien marca **`en_transito`** es **el operador**, y
@@ -3511,12 +3782,23 @@ ronda por D31**)**
   nada**. Si alguien vuelve a proponerlo, es **alcance nuevo** y hay que pedirlo explícitamente **con la
   objeción de D30 resuelta**: llega **con la etiqueta comprada y las cartas en la bóveda**, donde **ninguna
   respuesta del vendedor es buena**.
-- **Re-ofertar sobre una solicitud terminal** *(2ª ronda v2.1, respuesta a la pregunta 2)*: `rechazada`,
-  `expirada`, `abandonada` y —*5ª ronda, D33*— **`caducada`** son **terminales**. No se revive una solicitud
-  ni se le emite una oferta nueva encima: el vendedor **cotiza de nuevo** *(y en el caso de `caducada`, el
-  correo de «no procederemos» **se lo dice explícitamente**)*.
+- **Re-ofertar sobre una solicitud terminal** *(2ª ronda v2.1, respuesta a la pregunta 2; **corregido en la
+  6ª**)*: `rechazada`, `expirada` —**con cualquiera de sus dos motivos**, `not_shipped` y `no_offer`— y
+  `abandonada` son **terminales**. ~~y —*5ª ronda, D33*— **`caducada`**~~ **⚠ SUPERADO: no es un estado.**
+  No se revive una solicitud ni se le emite una oferta nueva encima: el vendedor **cotiza de nuevo** *(y en
+  el caso de la caducidad, el correo de «no procederemos» **se lo dice explícitamente**)*.
+- **Emitir una oferta que no vale la pena** *(NUEVO 6ª ronda v2.1, **D34**)*: **no existe** ninguna vía para
+  mandarle a alguien una oferta cuyo **neto quede por debajo de MX$200**. No es que el vendedor la reciba y
+  la rechace: **no se emite**. El operador **compra más líneas o no oferta** (§P.2, criterio 167).
+- **Panel de gestión de bounties** *(5ª ronda v2.1, D32; **confirmado en la 6ª**)*: sigue **fuera** — el
+  humano lo dejó como **proyecto aparte**. **D35 no lo reabre**: fijar el **default en 2** y **llenar los
+  bounties viejos con 2** se hace **donde hoy se configuran los bounties**, **sin pantalla nueva** ni
+  tablero.
 - **Editar una oferta ya enviada** *(2ª ronda v2.1, respuesta a la pregunta 3)*: no hay ventana de
   corrección. Si el admin se equivocó, **cancela y emite otra** (correo nuevo, plazo desde cero, auditado).
+  *(**Precisión de la 6ª ronda, para que «plazo desde cero» no se lea de más**: lo que arranca de cero es el
+  **plazo de ACEPTACIÓN** de la oferta nueva. El **reloj de caducidad NO se reinicia** — sigue contando
+  desde la **creación de la solicitud** (§P.3.1). Son dos relojes distintos.)*
 - **Aceptar una oferta desde un enlace anónimo** *(2ª ronda v2.1, respuesta a la pregunta 7)*: aceptar
   **exige sesión iniciada**. El enlace tokenizado de §J sirve para **mirar** un pedido de invitado, no para
   **comprometer dinero**.
@@ -3623,18 +3905,23 @@ ronda por D31**)**
 - **Pago de buylist**: solo **SPEI** a cuenta a nombre del propio usuario (sin otros métodos). La **CLABE**
   se guarda **cifrada en BD**; el **INE se almacena cifrado en R2 con retención** (`INE_RETENTION_DAYS`,
   default 180) y se **verifica contra el nombre de la CLABE**.
-- **Ciclo de adquisición del buylist** *(v2.1, §P; actualizado en la 2ª ronda por D13–D23)*: el pipeline es
+- **Ciclo de adquisición del buylist** *(v2.1, §P; actualizado en la 2ª ronda por D13–D23; **6ª ronda**)*: el
+  pipeline es
   `cotizada → ofertada → aceptada → en_transito → recibida → verificación → aprobada → pagada`, con **cuatro
-  estados terminales** (**`pagada`, `rechazada`, `expirada`, `abandonada`** y —*5ª ronda, D33*— **`caducada`**).
+  estados terminales** (**`pagada`, `rechazada`, `expirada`, `abandonada`**) ~~y —*5ª ronda, D33*—
+  **`caducada`**~~ **⚠ 6ª ronda: siguen siendo CUATRO** — la **caducidad** es **`expirada` con motivo
+  `no_offer`** (frente a `not_shipped`), con el **motivo en columna propia**; el requisito de negocio es que
+  **los dos desenlaces sean distinguibles** (§P.1, criterio 169).
   **Nada llega a "en camino" sin
   oferta aceptada** ni sin que **el operador confirme el envío** (D20). El **precio ofertado es vinculante
   desde que sale el correo**; frente al vendedor lo vinculante es el **NETO** y el **costo de adquisición** es
   el **BRUTO** (el envío es **gasto operativo**, D16). Los ~~**dos**~~ **TRES plazos** —**2 días hábiles**
   para aceptar, **3 días hábiles** para que salga el paquete y **7 días hábiles para que NOSOTROS ofertemos**
   (*5ª ronda, D33*)— son **diales de M10** editables sin deploy y auditados, junto
-  con el **mínimo de compra (MX$500)**, el **tope de oferta del operador**
-  y el **tope de piezas por variante**. ~~el **umbral de guía (MX$1,000)**~~ — **retirado (D31): dial sin
-  objeto**. La **guía la ponemos nosotros SIEMPRE** *(5ª ronda, D31 — ~~arriba del umbral~~)*, se compra **a
+  con el **mínimo de compra (MX$500)**, el **tope de oferta del operador**,
+  el **tope de piezas por variante** y —*6ª ronda, D34*— el **neto mínimo para EMITIR una oferta
+  (MX$200)**. ~~el **umbral de guía (MX$1,000)**~~ — **retirado (D31): dial sin
+  objeto**. **Son NUEVE diales en total** (§P.10, origen único). La **guía la ponemos nosotros SIEMPRE** *(5ª ronda, D31 — ~~arriba del umbral~~)*, se compra **a
   mano y fuera del sistema** (**sin integración con paquetería**, D19) **al aceptar** (D21), y su **costo
   real es captura opcional** con *fallback* a la tarifa congelada. El **monto de cada
   línea se deriva server-side** (SEC-A1) de la curva de compra (§N.1) al momento de ofertar; **la aceptación
@@ -3675,6 +3962,12 @@ ronda por D31**)**
 > **SUPERSEDED** por el **162** (una sola banda) — **QA no verifica el 133**. Se **actualizan** los criterios
 > **16, 113, 122, 123, 127, 129, 134, 135, 142, 145, 149, 153, 158, 159** y se agregan los **162–166**. **El
 > 152 (invariante money-safe) NO se toca**, y **150/151/161** de la 4ª ronda **siguen vigentes tal cual**.
+> **⚠ Actualización v2.1 — 6ª ronda (D34–D35 + resolución de la pregunta 27):** se **actualizan** los
+> criterios **16, 113, 127, 129, 145, 152 (solo con una nota de alcance — el invariante NO cambia), 158,
+> 164 y 165**, y se **agregan los 167–169**. **Los diales del ciclo pasan de OCHO a NUEVE** (criterio 127) y
+> **los estados terminales vuelven a ser CUATRO** (criterio 169): `caducada` **no existe como estado** —QA
+> no debe buscarlo—, la caducidad es **`expirada` con motivo `no_offer`**. **162/163 siguen vigentes tal
+> cual.**
 
 **Catálogo y precio**
 1. En la sección **Compra**, un visitante navega **nuestro inventario publicado a la venta** y filtra por
@@ -3793,10 +4086,12 @@ ronda por D31**)**
     **desde que la guía llega al vendedor**, ~~y **desde la aceptación** cuando lo paga él~~ *(**esa segunda
     mitad se retira en la 5ª ronda, D31: ya no hay banda donde él pague el envío**)*— queda **`expirada`**,
     se **cancela** y **se notifica al vendedor** por correo;
-    (d) *(NUEVO 5ª ronda, **D33**)* una solicitud **`cotizada`** que **nadie ofertó** en **7 días hábiles**
-    desde su creación queda **`caducada`** y **le llega un correo que dice explícitamente que NO
+    (d) *(NUEVO 5ª ronda, **D33**; **corregido en la 6ª**)* una solicitud **`cotizada`** que **nadie ofertó**
+    en **7 días hábiles** desde su creación queda **`expirada` con motivo `no_offer`** ~~`caducada`~~ y **le
+    llega un correo que dice explícitamente que NO
     PROCEDEREMOS con la oferta**, invitándola a **volver a cotizar**. **Es el único plazo que corre contra
-    NOSOTROS** y **no lleva recordatorio al cliente**.
+    NOSOTROS**, **no lleva recordatorio al cliente** y **su reloj NO se reinicia** si se cancela una oferta
+    —cuenta **desde la creación** (6ª ronda, criterio 169).
     Los **tres** plazos nuevos son **diales de M10** (criterio 127), se cuentan en **días hábiles** —**lunes
     a viernes, sin festivos oficiales de México, en `America/Mexico_City`** (criterios 141 y 154)— y se
     comunican al cliente **con fecha y hora explícitas**, no como "en 2 días". **Cada plazo se congela por
@@ -4290,14 +4585,18 @@ ronda por D31**)**
 
 **Ciclo de adquisición del buylist — oferta, aceptación, guía y publicación (v2.1, §P)**
 113. **El pipeline tiene las ocho fases y los estados nuevos** *(actualizado 2ª ronda; **corregido en la 5ª
-    por D33**)*: una solicitud recorre
+    por D33** y **de nuevo en la 6ª por la resolución de la pregunta 27**)*: una solicitud recorre
     `cotizada → ofertada → aceptada → en_transito → recibida → verificación → aprobada → pagada`, y
-    sus **estados terminales ~~son cuatro~~ SON CINCO**: **`pagada`**, **`rechazada`**, **`expirada`**,
-    **`abandonada`** y **`caducada`** *(nadie la ofertó en 7 días hábiles, D33)*.
+    sus **estados terminales ~~son cuatro~~ ~~SON CINCO~~ SON CUATRO**: **`pagada`**, **`rechazada`**,
+    **`expirada`** y **`abandonada`**. ~~y **`caducada`** *(nadie la ofertó en 7 días hábiles, D33)*~~
+    **⚠ SUPERADO en la 6ª: la caducidad es `expirada` con motivo `no_offer`, no un quinto estado.**
     Verificable recorriendo el ciclo completo en el back-office y viendo el estado en cada paso, tanto en la
-    vista del admin como en la del cliente. Verificable además que **`caducada` y `expirada` se distinguen**
-    —estado distinguible y **correos distintos**—, porque significan cosas opuestas: *«no vamos a ofertarte»*
-    vs. *«aceptaste y no mandaste»* (criterio 165).
+    vista del admin como en la del cliente. Verificable además que **los dos motivos de `expirada` se
+    distinguen** —**motivo persistido en columna propia**, **visible en la cola de M5, en la ficha, en el
+    portal del cliente y en los reportes de M9**, y **correos distintos**—, porque significan cosas opuestas:
+    *«no vamos a ofertarte»* (`no_offer`) vs. *«aceptaste y no mandaste»* (`not_shipped`) — criterios 165 y
+    **169**. Verificable **por lo que NO existe**: **no hay** un quinto estado terminal, y **el motivo no se
+    infiere** de otros campos: **está guardado**.
 114. **Nadie manda cartas sin un sí nuestro (regla dura)**: una solicitud **`cotizada`** u **`ofertada`**
     **no ofrece ninguna vía** —ni en el portal del cliente, ni en el back-office— para avisar «ya lo mandé»
     o marcarse en tránsito, y la pantalla del cliente **no muestra guía, instrucciones ni dirección de
@@ -4373,19 +4672,26 @@ ronda por D31**)**
     mercado** queda en **«precio pendiente»**, **no se publica** y **se escala al dueño** — **nunca** hereda
     el precio de compra ni sale a la venta con MX$0.
 127. **Los diales del ciclo son editables y auditados (D8, ampliado 2ª ronda, completado en la 3ª,
-    **corregido en la 4ª por D30** y **CORREGIDO en la 5ª por D31/D33**)**: el súper-admin edita en **M10**
-    los **OCHO diales de §P.10** — plazo de aceptación (**2 días hábiles**), plazo de envío (**3 días
-    hábiles**), **plazo de caducidad de la solicitud sin oferta (7 días hábiles — NUEVO, D33)**, mínimo de
+    **corregido en la 4ª por D30**, **en la 5ª por D31/D33** y **en la 6ª por D34**)**: el súper-admin edita
+    en **M10** los **NUEVE diales de §P.10** — plazo de aceptación (**2 días hábiles**), plazo de envío
+    (**3 días hábiles**), **plazo de caducidad de la solicitud sin oferta (7 días hábiles — D33)**, mínimo de
     compra (**MX$500**), tope de oferta del operador (**MX$1,500**), tope de piezas por variante (**10**),
-    tarifa de envío del buylist (**MX$180**) y alerta de «ya lo mandé» sin confirmar (**5 días hábiles**).
+    tarifa de envío del buylist (**MX$180**), alerta de «ya lo mandé» sin confirmar (**5 días hábiles**) y
+    **neto mínimo para EMITIR una oferta (MX$200 — NUEVO, D34)**.
     Cada cambio **surte efecto sin redeploy**, queda **auditado** (bitácora M10) y **aplica a
     solicitudes nuevas**. Verificable: **mover el mínimo de compra no mueve la tarifa de envío**, y **mover la
     tarifa del buylist (MX$180) no mueve la tarifa de envío de retiro (MX$175)** — son diales distintos.
     **Dos diales retirados, verificables por AUSENCIA**: **(a)** el **umbral de recorte material (20%, D28)**
     quedó **SIN OBJETO** en la 4ª ronda; **(b)** el **umbral de guía (MX$1,000, D18b)** queda **SIN OBJETO**
     en la 5ª (**D31**: la guía va **siempre**). Verificable porque **no existe** ninguno de los dos campos en
-    M10 **ni ninguna conducta del sistema que dependa de ellos**. **La cuenta se mantiene en OCHO** porque
-    **salió el umbral de guía y entró el plazo de caducidad**.
+    M10 **ni ninguna conducta del sistema que dependa de ellos**. ~~**La cuenta se mantiene en OCHO** porque
+    **salió el umbral de guía y entró el plazo de caducidad**.~~ **⚠ 6ª ronda: la cuenta sube a NUEVE** —
+    entra el **neto mínimo para emitir** (D34) y **no sale ninguno**.
+    **⚠ Dónde se evalúa cada dial, dicho aquí porque es lo que se implementa mal** *(6ª ronda)*: **ocho** de
+    los nueve se evalúan en **barridos** o en **la propia pantalla de diales**; el **noveno —el neto mínimo
+    para emitir— se evalúa en la EMISIÓN de la oferta** (criterio **167**). **M10 configura su número pero no
+    lo valida contra nada**, porque **M10 no ve el recorte que hizo el operador**. Verificable: **no existe**
+    en M10 ninguna validación cruzada que involucre al neto mínimo, **y sí existe** el bloqueo al emitir.
     **Validación entre diales — REFORMULADA en la 4ª, RE-ANCLADA en la 5ª** *(D30 → D31)*: ~~M10 rechaza una
     tarifa de envío mayor a `umbral de guía × (1 − umbral de recorte material)` (**MX$800**)~~; ~~M10 rechaza
     una tarifa **igual o mayor que el umbral de guía** (**MX$1,000**)~~ — **ambas fórmulas citan diales que
@@ -4401,9 +4707,11 @@ ronda por D31**)**
     piso de MX$500 el envío pese **36%**.)*
     *(**⚠ Alcance de la garantía, dicho explícitamente**: esta validación protege la **solicitud completa**,
     **no** la **oferta recortada por cherry-pick** —el mínimo **no se re-aplica a la oferta**, criterio 158c—.
-    Un bruto ofertado por debajo de MX$180 **sí** puede depositar MX$0 con todo aprobado; el vendedor **no
-    queda debiendo** (criterio 152) y **ve el neto antes de aceptar** (criterio 163). **Pregunta abierta
-    25**.)*
+    Un bruto ofertado por debajo de MX$180 **sí** podía depositar MX$0 con todo aprobado; el vendedor **no
+    queda debiendo** (criterio 152) y **ve el neto antes de aceptar** (criterio 163). ~~**Pregunta abierta
+    25**.~~ **⚠ CERRADO en la 6ª ronda (D34)**: **ese hueco lo tapa el criterio 167**, no este. **Los dos
+    conviven**: **127** = *«ninguna solicitud aceptable puede depositar cero si todo llega en NM»*;
+    **167** = *«ninguna oferta se emite si su neto no llega a MX$200»*.)*
 128. **Celular obligatorio en los tres puntos (D11)**: **(a)** el registro **no se completa** sin celular;
     **(b)** el **alta de usuario desde el back-office** **no se completa** sin celular; **(c)** un usuario sin
     celular —incluido el que **entró con Google** y el que ya existía con el campo vacío— **no puede crear una
@@ -4412,11 +4720,12 @@ ronda por D31**)**
 129. **Cotizaciones vivas y teléfono en la cola (D12)**: el back-office puede ver **qué usuarios tienen
     solicitudes de venta vivas** y **cuántas** tiene cada uno, y **el teléfono aparece en la propia cola de
     buylist** (sin abrir la ficha del usuario), de modo que el operador pueda **llamar**. **«Viva» = todo lo
-    que NO es terminal**; los terminales son **`pagada`, `rechazada`, `abandonada`, `expirada`** y
-    **`caducada`** *(actualizado 2ª ronda, respuesta a la pregunta 10; **quinto terminal agregado en la 5ª
-    por D33**)*. Verificable con dos usuarios con distinto número de solicitudes vivas: el conteo y el
-    teléfono son correctos, y una solicitud en **cualquiera de los CINCO estados terminales deja de contar**
-    —incluida una que **caducó por no haberla ofertado**—.
+    que NO es terminal**; los terminales son **`pagada`, `rechazada`, `abandonada`** y **`expirada`** —**con
+    sus dos motivos**— *(actualizado 2ª ronda, respuesta a la pregunta 10; **la 5ª ronda (D33) había agregado
+    un quinto; la 6ª lo retira: la caducidad es un MOTIVO de `expirada`, no un estado**)*. Verificable con dos
+    usuarios con distinto número de solicitudes vivas: el conteo y el
+    teléfono son correctos, y una solicitud en **cualquiera de los CUATRO estados terminales deja de contar**
+    —incluida una que **caducó por no haberla ofertado** (`expirada` + `no_offer`)—.
 130. **El teléfono no se filtra al público**: el número **no aparece** en ninguna superficie pública (ficha,
     Compra, confirmación de pedido ni **vista de seguimiento por enlace tokenizado**, §J).
 131. **Producto separado: promo y exclusivo de deck no se confunden con el set base (D7)**: una **promo** y un
@@ -4505,6 +4814,10 @@ ronda por D31**)**
     procederemos» por caducidad** (D33, criterio 165). Verificable además que el **recordatorio existe solo
     para los DOS plazos del vendedor** (aceptar y enviar) y que **el plazo de caducidad NO genera
     recordatorio** al cliente, porque **corre contra nosotros**, no contra él.
+    *(**⚠ 6ª ronda — verificable explícitamente, porque el modelado nuevo lo pone en riesgo**: los dos
+    últimos correos **comparten el estado `expirada`** y aun así **son distintos**. **El correo se elige por
+    el MOTIVO**, no por el estado: `not_shipped` ⇒ expiración; `no_offer` ⇒ «no procederemos». Verificable
+    con dos solicitudes ambas `expirada`: **llegan correos diferentes** y **ninguno recibe el del otro**.)*
 143. **Tope de oferta del operador, con autorización del súper-admin (D13)**: el **operador** emite ofertas
     cuyo **bruto** cabe en su tope; una oferta **por encima del tope** **no sale** —el correo **no se manda**—
     y queda **pendiente de autorización**, y **al autorizarla el súper-admin** sale con el mismo contenido.
@@ -4518,13 +4831,15 @@ ronda por D31**)**
     desglosando los cuatro sumandos. Verificable en los dos disparadores por separado; y en ambos casos **el
     admin puede comprar igual, sin bloqueo ni permiso extra** (criterio 117).
 145. **Terminal es terminal: ni se re-oferta ni se edita (respuestas a las preguntas 2 y 3; **ampliado en la
-    5ª ronda por D33**)**: sobre una solicitud **`rechazada`**, **`expirada`**, **`abandonada`** o
-    **`caducada`** **no existe** ninguna acción de «re-ofertar»; y sobre una oferta **ya enviada** **no
+    5ª ronda por D33**, **corregido en la 6ª**)**: sobre una solicitud **`rechazada`**, **`expirada`**
+    —**por cualquiera de sus dos motivos**— o **`abandonada`** **no existe** ninguna acción de «re-ofertar»;
+    y sobre una oferta **ya enviada** **no
     existe** ninguna acción de «editar». La única vía es **cancelar y emitir una oferta nueva** (correo nuevo,
-    plazo desde cero, **auditado**). Verificable: ambas acciones no existen en la UI **y** son rechazadas si
+    **plazo de aceptación** desde cero, **auditado** — *el reloj de caducidad **NO** se reinicia, criterio
+    169*). Verificable: ambas acciones no existen en la UI **y** son rechazadas si
     se intentan directo contra el servidor. Verificable además el caso que abre D33: una oferta que estaba
-    **pendiente de autorización** cuando la solicitud **caducó** **sale de la cola** y **ya no puede
-    autorizarse** (criterio 165).
+    **pendiente de autorización** cuando la solicitud **caducó** **es anulada por el barrido**, **sale de la
+    cola** y **ya no puede autorizarse** (criterio 165).
 146. **Aceptar exige sesión iniciada (respuesta a la pregunta 7)**: el enlace del correo **lleva** al portal,
     pero la aceptación **solo se ejecuta con la sesión del dueño de la solicitud**. Verificable: abrir el
     enlace **sin sesión** no acepta nada (pide iniciar sesión), y **un tercero con el correo reenviado no
@@ -4600,6 +4915,11 @@ ronda por D31**)**
     diferencia queda como **gasto nuestro**. Verificable además que **no existe ninguna ruta** —UI, petición
     manipulada, override o ajuste de diales— que produzca un neto negativo o un cobro al vendedor de una
     solicitud de buylist. **El peor caso posible para un vendedor es cobrar $0, nunca deber.**
+    *(**6ª ronda — este criterio NO se toca, y conviene decir por qué junto al 167**: **D34 gobierna qué se
+    EMITE** —neto **ofertado** ≥ **MX$200**, criterio 167— y **el 152 gobierna cuánto se PAGA** —neto
+    **aprobado**, con piso de cero—. **Son dos momentos y dos cifras**: una oferta legítima de neto **MX$820**
+    puede terminar depositando **MX$0** si casi nada llega en NM, y **eso sigue siendo correcto**. **Ninguno
+    de los dos anula al otro.**)*
 153. **Tope general de piezas por variante = 10, con precedencia del bounty (D29)**: la mesa pinta **«no
     comprar»** cuando la **posición** de la variante —**stock + verificando + tránsito + comprometido**—
     llega a **10** **y la carta NO tiene bounty**. Verificable en cuatro casos: **(a)** carta **sin bounty**
@@ -4640,13 +4960,22 @@ ronda por D31**)**
     **(a)** una solicitud de **exactamente MX$500 SÍ se crea** —**y SÍ lleva guía a nuestro costo**—;
     ~~**(b)** una oferta de **exactamente MX$1,000 SÍ lleva guía a nuestro costo**~~ **⚠ SIN OBJETO (D31):
     no hay segundo borde — la guía va SIEMPRE desde el mínimo**;
-    **(c)** si se cotizaron **MX$600** y tras el cherry-pick el **bruto ofertado** queda en **MX$200**, **la
-    oferta sale igual** —el mínimo **gatea la creación de la solicitud, no la oferta**— y **no hay bloqueo**
-    por ese motivo; el correo anuncia **bruto MX$200 / envío MX$180 / neto MX$20**.
-    *(⚠ **Consecuencia señalada, no resuelta en silencio (5ª ronda)**: con (c) llevado al extremo —bruto
-    ofertado **por debajo de MX$180**— el **neto es MX$0 con todo aprobado**. **No hay deuda del vendedor**
-    (criterio 152) y **él lo ve antes de aceptar** (criterio 163). Un **piso de neto para emitir la oferta**
-    **no existe hoy** y sería **alcance nuevo** — **pregunta abierta 25**.)*
+    **(c)** el **mínimo de compra no se re-aplica a la oferta** —**gatea la creación de la solicitud, no la
+    oferta**—: si se cotizaron **MX$3,000** y tras el cherry-pick el **bruto ofertado** queda en **MX$600**,
+    **la oferta sale igual** y **no hay bloqueo por ese motivo**; el correo anuncia **bruto MX$600 / envío
+    MX$180 / neto MX$420**.
+    ~~si se cotizaron **MX$600** y tras el cherry-pick el bruto queda en **MX$200**, la oferta sale igual…
+    el correo anuncia **bruto MX$200 / envío MX$180 / neto MX$20**.~~ **⚠ EJEMPLO SUPERADO en la 6ª ronda
+    (D34)**: ese caso **ya no se emite** —**neto MX$20 < piso MX$200**—. **La regla (c) NO cambió**: lo que
+    cambió es que **ahora hay OTRO umbral, en OTRO momento** (criterio **167**). El mínimo sigue sin
+    re-aplicarse; lo que gatea la emisión es el **neto mínimo**, que es **otro número y otra pregunta**.
+    ~~*(⚠ **Consecuencia señalada, no resuelta en silencio (5ª ronda)**: con (c) llevado al extremo —bruto
+    ofertado **por debajo de MX$180**— el **neto es MX$0 con todo aprobado**… Un **piso de neto para emitir
+    la oferta** **no existe hoy** y sería **alcance nuevo** — **pregunta abierta 25**.)*~~
+    **⚠ CERRADO en la 6ª ronda (D34): el piso de neto SÍ existe y es MX$200** (criterio 167). **Pregunta 25
+    CERRADA.** Lo que sigue siendo cierto de la nota vieja: **no hay deuda del vendedor** (criterio 152) y
+    **él ve el neto antes de aceptar** (criterio 163) — esas dos protecciones **no dependían del piso** y
+    **siguen intactas**.
 159. **Recordatorio: uno POR PLAZO DEL VENDEDOR, cada uno una sola vez (respuesta a la pregunta 21;
     **precisado en la 5ª ronda por D33**: el **plazo de caducidad NO lleva recordatorio**, porque corre contra
     nosotros)**: hay **dos plazos del vendedor**
@@ -4710,29 +5039,35 @@ solicitud que caduca (v2.1, D31–D33; §E/§H/§N.6/§P.1/§P.2/§P.3/§P.3.1/�
     **bounty vivo y sin objetivo**, así que **ninguna carta queda sin techo de sugerencia**. Verificable
     también **lo que NO se construye**: **no hay panel de bounties** —el humano lo dejó como **proyecto
     aparte**—; el objetivo se exige **donde hoy se configuran los bounties**, sin pantalla nueva.
-    *(**SUPUESTO** — bounties **preexistentes** sin objetivo: se les exige el dato **al editarlos** y,
+    ~~*(**SUPUESTO** — bounties **preexistentes** sin objetivo: se les exige el dato **al editarlos** y,
     mientras no lo tengan, la mesa los trata como **«sin bounty» para la sugerencia** (aplica el tope de 10);
-    **el precio no cambia**. Ver **pregunta abierta 26**.)*
+    **el precio no cambia**. Ver **pregunta abierta 26**.)*~~ **⚠ SUPUESTO SUPERADO por D35 (6ª ronda)** —
+    ver criterio **168**: **hay default (2)** y **los viejos se llenan con 2**, así que **ningún bounty se
+    comporta como «sin bounty»** y **ninguno queda esperando a que alguien lo edite**.
 165. **La solicitud que nadie oferta CADUCA a los 7 días hábiles, con un correo que dice que NO PROCEDEREMOS
-    (D33)**: una solicitud **`cotizada`** que **nadie ofertó** en **7 días hábiles** desde su creación queda
-    **`caducada`** (terminal) y **le llega un correo** que dice **explícitamente que no vamos a proceder con
+    (D33; **corregido en la 6ª ronda**)**: una solicitud **`cotizada`** que **nadie ofertó** en **7 días
+    hábiles** desde su creación queda **`expirada` con motivo `no_offer`** ~~`caducada`~~ (terminal) y **le
+    llega un correo** que dice **explícitamente que no vamos a proceder con
     la oferta** e **invita a volver a cotizar cuando quiera**. Verificable en seis puntos:
     **(a)** adelantando el reloj: al día 6 hábil **sigue viva**, al día 7 hábil **caduca y sale el correo**;
     **(b)** el correo **no dice** *«no pudimos procesar tu solicitud»* ni deja la puerta a medio abrir: dice
     **que no procederemos**;
-    **(c)** **`caducada` se distingue de `expirada`** —correos distintos, estado distinguible— porque
-    significan cosas opuestas (*«no vamos a ofertarte»* vs. *«aceptaste y no mandaste»*);
+    **(c)** **el motivo `no_offer` se distingue del motivo `not_shipped`** —correos distintos y **motivo
+    visible** en la cola, la ficha, el portal del cliente y los reportes— porque
+    significan cosas opuestas (*«no vamos a ofertarte»* vs. *«aceptaste y no mandaste»*); ver criterio **169**;
     **(d)** **no llega ningún recordatorio** por este plazo (corre contra nosotros, no contra el vendedor);
     **(e)** el plazo es **dial de M10**, se cuenta en **días hábiles** (criterio 154), **se congela por
     solicitud** (criterio 157) y **queda auditado** (criterio 127);
-    **(f)** **ofertar sobre una solicitud `caducada` no funciona**, y una **oferta que estaba pendiente de
-    autorización** cuando caducó **sale de la cola y ya no puede autorizarse** (criterio 145).
-    *(**SUPUESTOS** señalados: el **nombre** `caducada` y el hecho de modelarla como estado propio —el
-    requisito de negocio es solo que **sea distinguible de `expirada`**—; que una solicitud **caduque aunque
-    tenga una oferta esperando autorización** —el cliente sigue esperando y el pendiente es nuestro—; y que,
-    si una oferta emitida se **cancela** y la solicitud vuelve a la fila, **el reloj arranque de nuevo desde
-    la cancelación**, no desde la creación —contarlo desde el origen la mataría el mismo día—. Ver **pregunta
-    abierta 27**.)*
+    **(f)** **ofertar sobre una solicitud que caducó no funciona**, y una **oferta que estaba pendiente de
+    autorización** cuando caducó **es ANULADA por el barrido**, sale de la cola y **ya no puede autorizarse**
+    (criterio 145).
+    ~~*(**SUPUESTOS** señalados: el **nombre** `caducada` y el hecho de modelarla como estado propio…; que
+    una solicitud **caduque aunque tenga una oferta esperando autorización**…; y que, si una oferta emitida
+    se **cancela**, **el reloj arranque de nuevo desde la cancelación**. Ver **pregunta abierta 27**.)*~~
+    **⚠ Los tres supuestos quedaron RESUELTOS en la 6ª ronda por el arquitecto (pregunta 27 CERRADA)**:
+    **(1)** ~~estado propio~~ ⇒ **`expirada` + motivo en columna propia**; **(2)** caduca aunque haya oferta
+    esperando autorización ⇒ **CONFIRMADO**, y **el barrido la anula**; **(3)** ~~el reloj reinicia desde la
+    cancelación~~ ⇒ **CORREGIDO: NO reinicia, cuenta desde la creación**. Ver criterio **169**.
 166. **El costo real de la etiqueta: captura OPCIONAL, con fallback a la tarifa congelada (5ª ronda; cierra
     la contradicción criterio 135 × D19)**: al **confirmar el envío**, el operador **puede** capturar cuánto
     costó de verdad la etiqueta. Verificable en cuatro puntos:
@@ -4746,6 +5081,76 @@ solicitud que caduca (v2.1, D31–D33; §E/§H/§N.6/§P.1/§P.2/§P.3/§P.3.1/�
     **(d)** esto **no es integración con paquetería** (D19 intacta): **no hay** cotización de tarifas, ni
     compra automática, ni validación del número contra el transportista — **es un campo que el operador
     escribe**.
+
+**Ciclo de adquisición del buylist — 6ª ronda (CORRECTIVA FINAL): piso de neto para emitir, bounty con meta
+2 y la caducidad como motivo (v2.1, D34–D35 + resolución de la pregunta 27; §N.6/§P.1/§P.2/§P.3/§P.3.1/
+§P.5.1/§P.9/§P.10/§P.11/§P.12)**
+> **⚠ Corregidos en la 6ª ronda**: el **127** sube a **NUEVE diales** y aclara **dónde se evalúa cada uno**;
+> el **16**, **113**, **129**, **145**, **158** y **165** dejan de hablar de `caducada` como estado; el
+> **164** pierde su supuesto de bounties viejos. **El 152 NO se toca** (el piso de cero al pagar sigue
+> intacto) y **el 162/163 de la 5ª ronda siguen vigentes tal cual**.
+167. **PISO DE NETO: no se emite una oferta cuyo neto quede por debajo de MX$200 (D34 — cierra la pregunta
+    25)**: al emitir, si el **neto** (`bruto ofertado − tarifa de envío congelada`) **no llega a MX$200**, la
+    oferta **no se emite** y **el correo no se manda**. Verificable en siete puntos:
+    **(a)** **los tres bordes**, con piso **MX$200** y tarifa **MX$180**: bruto **MX$379** (neto **MX$199**)
+    ⇒ **no se emite**; bruto **MX$380** (neto **MX$200**) ⇒ **se emite** —**el piso es INCLUSIVO**—; bruto
+    **MX$381** (neto **MX$201**) ⇒ **se emite**;
+    **(b)** **el correo NO se manda** en el caso bloqueado — verificable en la bandeja del vendedor, no solo
+    en la pantalla del operador: **no existe** ningún correo de oferta que anuncie un depósito de **MX$0**
+    ni de **MX$20**;
+    **(c)** **el mensaje de rechazo dice por qué y cuánto falta** —bruto actual, envío, neto y la
+    diferencia—, igual que el cotizador le dice al vendedor cuánto le falta para el mínimo (criterio 158);
+    **(d)** **el bloqueo vive en la EMISIÓN**: **no** es una validación de M10 (criterio 127) **ni** de la
+    aceptación. Verificable: la pantalla de diales **guarda MX$200 sin validarlo contra nada**, y **el
+    bloqueo aparece al emitir**;
+    **(e)** **no se puede saltar**: se rechaza también **directo contra el servidor**, y también cuando el
+    neto baja del piso **por un override manual** (D26);
+    **(f)** **es un dial** (§P.10, el noveno): editable en M10 sin redeploy, **auditado** y **congelado por
+    solicitud**. Bajarlo a **MX$0** hace que **el bloqueo se comporte como el `neto ≤ 0` que ya existía** —
+    **D34 es ese mismo bloqueo con número**, no uno nuevo;
+    **(g)** **el cherry-pick sobre lotes grandes sigue siendo posible**: una solicitud cotizada en
+    **MX$3,000** recortada a un bruto de **MX$600** (neto **MX$420**) **se emite sin fricción**. El piso
+    **no** es «el mínimo de compra otra vez» (criterio 158c sigue vigente: el mínimo **no** se re-aplica).
+    **Verificable que NO rompe el criterio 152**: una oferta emitida legítimamente (bruto **MX$1,000**, neto
+    **MX$820**) de la que solo se aprueben **MX$100** al verificar **sigue depositando MX$0 sin deuda**.
+    **D34 gobierna qué se EMITE; el 152 gobierna cuánto se PAGA. Conviven y ninguno anula al otro.**
+168. **El objetivo del bounty tiene default 2, y los bounties viejos se llenan con 2 (D35 — cierra la
+    pregunta 26)**: Verificable en cinco puntos:
+    **(a)** al **dar de alta** un bounty, el campo de objetivo llega **prellenado con 2** («hasta tener 2 en
+    inventario»); **sigue siendo obligatorio** (criterio 164): **borrarlo y guardar ⇒ no se guarda**;
+    **(b)** **es editable**: guardar un bounty con objetivo **1** o **20** **funciona** — **2 es el default,
+    no un tope rígido**;
+    **(c)** los **bounties preexistentes sin objetivo** quedan con **objetivo 2**, y **siguen vivos**:
+    **no se desactivan**, **no salen de la vitrina** (Home ni Vender) y **su precio no cambia**;
+    **(d)** verificable **por lo que NO existe**: **ningún** bounty vivo sin objetivo, y **ningún** bounty
+    tratado como «sin bounty» por la mesa de decisión — la rama (a) de la precedencia de §P.2 **siempre
+    tiene número contra el cual medir la posición**, también para los viejos;
+    **(e)** **no se construye panel de bounties** (criterio 164): el default y el llenado ocurren **donde hoy
+    se configuran los bounties**, **sin pantalla nueva**. *(El **2 no es un dial de M10**: es el valor
+    inicial de un campo editable por bounty.)*
+169. **La caducidad es un MOTIVO de `expirada`, no un quinto estado — y los dos desenlaces se distinguen
+    igual (resolución de la pregunta 27 por el arquitecto)**: los **estados terminales son CUATRO**
+    (`pagada`, `rechazada`, `expirada`, `abandonada`) y **`expirada` lleva un motivo persistido en columna
+    propia**: **`no_offer`** (nadie ofertó, D33) o **`not_shipped`** (aceptó y no mandó, D4). Verificable en
+    cinco puntos:
+    **(a)** **no existe** un quinto estado terminal en el modelo ni en ninguna pantalla;
+    **(b)** **el motivo está guardado, no inferido**: dos solicitudes ambas `expirada` con motivos distintos
+    **se distinguen sin mirar ningún otro campo**;
+    **(c)** **los correos son distintos** —*«no procederemos con la oferta»* vs. *«aceptaste y no mandaste»*—
+    y **cada uno sale con su motivo**, nunca cruzados;
+    **(d)** **los reportes (M9) separan las dos causas**: se puede medir *«se nos fue el tiempo»* aparte de
+    *«el vendedor no cumplió»* — que es la métrica que el negocio quiere vigilar; y las superficies que
+    muestran el desenlace (**cola de M5, ficha de solicitud, portal del cliente**) **muestran el motivo**;
+    **(e)** **ambas se comportan idéntico en todo lo demás**: cierre, **purga del INE**, **cuota/acumulados**
+    y **«no se revive»** — que es exactamente la razón por la que no son dos estados.
+    **Los dos bordes del plazo, verificables**: **(1)** una solicitud con **oferta esperando autorización**
+    **caduca igual**, y **el barrido ANULA esa oferta** —después **no se puede autorizar** (criterio 145)—;
+    **(2)** **el reloj de caducidad NO se reinicia** al cancelar una oferta emitida: **cuenta desde la
+    creación de la solicitud**. Verificable en el caso incómodo: si al cancelar ya pasaron los **7 días
+    hábiles** desde la creación, la solicitud **caduca ese mismo día**.
+    *(⚠ Ese último comportamiento está **decidido y es el vigente**, pero **tiene un costo para el cliente** y
+    queda registrado como **bandera** en «Riesgos y banderas» — **corrige** el supuesto contrario que este
+    documento había redactado.)*
 
 ## Riesgos y banderas para el humano
 > No bloquean el desarrollo técnico del MVP, pero deben resolverse antes de operar con público real.
@@ -4832,6 +5237,11 @@ solicitud que caduca (v2.1, D31–D33; §E/§H/§N.6/§P.1/§P.2/§P.3/§P.3.1/�
   elegibles**, y en esa franja **la etiqueta pesa proporcionalmente más** (36% en el piso). Se registra
   **explícitamente** para que el humano lo tenga a la vista, porque **es consecuencia directa de una decisión
   suya y él ya la aceptó a ojos abiertos**.
+  **⚠ Actualización de la 6ª ronda (D34) — el riesgo se ACOTA un poco, y por un lado que no se buscaba**:
+  con el **piso de neto de MX$200**, **ninguna oferta chica llega a emitirse**, así que **cada ciclo abusado
+  exige ahora un bruto de al menos ~MX$380** para que exista siquiera la oferta que le da derecho a la
+  etiqueta. **No es una mitigación anti-abuso** —no se diseñó para eso y **no sustituye un tope**—, pero
+  **sube el piso de esfuerzo** del abusivo. **El costo por ciclo abusado no cambia: una etiqueta de MX$180.**
   **Resolución
   por omisión, registrada aquí a propósito**: **el MVP NO impone ningún tope de guías por usuario/periodo**;
   se **vigila a mano** al arrancar. **No se inventa alcance** para taparlo — es un riesgo **conocido,
@@ -4851,6 +5261,17 @@ solicitud que caduca (v2.1, D31–D33; §E/§H/§N.6/§P.1/§P.2/§P.3/§P.3.1/�
   ux-ui y del contenido legal**, no de software: un vendedor que se sienta sorprendido al recibir MX$720 de
   una oferta de MX$1,480 es **una disputa y una reseña mala**, aunque tengamos razón. **Bandera, no bloqueo**:
   conviene revisar la redacción de ese correo con quien vea los términos antes de operar con público.
+- **Experiencia del cliente — el reloj de caducidad no perdona una corrección NUESTRA** *(NUEVO 6ª ronda
+  v2.1; resolución de la pregunta 27 por el arquitecto)*: el reloj de **7 días hábiles** cuenta **desde la
+  creación de la solicitud** y **no se reinicia** si cancelamos una oferta ya emitida. **Consecuencia real**:
+  si nos equivocamos en una oferta, la cancelamos al día 8 y la solicitud vuelve a la fila, el cliente
+  recibe un **«no procederemos»** *ese mismo día* — **castigado por un error nuestro**, sin que nadie haya
+  vuelto a mirar su solicitud. **Es el comportamiento decidido**, y es coherente con *«un plazo, un
+  origen»*; se registra **porque este documento había supuesto lo contrario** y porque el humano debería
+  verlo antes de operar con público. **Mitigación de proceso, no de software**: cancelar una oferta emitida
+  es **una acción de admin, no un evento automático**, así que quien cancela **puede** re-ofertar en el
+  acto. **Si al humano le parece injusto, mover el arranque del reloj es una decisión de producto de una
+  línea** — no un rediseño. **Bandera, no bloqueo.**
 - **Operativo/contractual — la etiqueta debe poder cancelarse** *(2ª ronda v2.1, D22)*: la regla de que
   **compramos guías cancelables o reembolsables** es una **restricción sobre con qué paquetería trabajamos**,
   no un ajuste de software. Conviene **confirmarla con la paquetería antes de operar**: si la etiqueta que
@@ -5215,8 +5636,9 @@ El MVP se considera "lanzado" cuando, en una **beta cerrada**, se cumple en un p
    dice *«no vamos a ofertarte»*. Ver §P.3, §P.3.1 y criterios 142/165.)*
    **(P7)** **aceptar exige sesión** — **no hay enlace anónimo** de aceptación.
    **(P10)** **«solicitud viva» = todo lo que NO sea terminal**; **terminales**: **`pagada`, `rechazada`,
-   `abandonada`, `expirada`** *(**⚠ 5ª ronda, D33: se suma `caducada` — son cinco**; la definición **por
-   exclusión** no cambia y por eso **se actualizó sola**)*.
+   `abandonada`, `expirada`** *(~~**⚠ 5ª ronda, D33: se suma `caducada` — son cinco**~~ — **⚠ 6ª ronda:
+   SIGUEN SIENDO CUATRO**; la caducidad es un **motivo de `expirada`**, no un estado. La definición **por
+   exclusión** no cambia, y esta vez **ni siquiera hubo nada que agregar**)*.
    **(P12)** la **ubicación NO se exige al convertir** —bloquear la conversión por falta de ubicación
    **atoraría el flujo de pago**—, pero la pieza sin ubicación **sale señalada** en la cola de piezas listas
    para publicar.
@@ -5284,7 +5706,9 @@ El MVP se considera "lanzado" cuando, en una **beta cerrada**, se cumple en un p
    zona de monto **el vendedor pagaba su propio envío y no había nada que descontarle**. **El invariante de
    este bullet sigue intacto** —el neto **nunca es negativo** y **nunca hay cobro al vendedor**—; lo que
    cambia es que **el piso de cero ahora sí es alcanzable sin rechazo de cartas**. Se señala en §P.5.1, §P.10
-   y §P.12, y se abre la **pregunta 25**.
+   y §P.12, y se abre la **pregunta 25**. *(**⚠ CERRADA en la 6ª ronda por D34**: con el **piso de neto de
+   MX$200 al EMITIR**, **esa oferta ya no llega a existir**. El invariante de este bullet **sigue intacto y
+   sigue siendo necesario**: gobierna **el pago**, no la emisión — decisión **94**, criterios 152 y 167.)*
 88. **Cierre de las siete preguntas restantes (respuestas del humano, 2026-08-31, 3ª ronda)**:
    **(P11)** el **inventario ya capturado** sin eje de producto separado se corrige **a MANO**; **ninguna
    migración adivina** *(supuesto confirmado)*.
@@ -5384,9 +5808,11 @@ objeto; ver §E/§H/§P.3/§P.5.1/§P.6/§P.10/§P.11):**
    **siempre tiene con qué compararse**.
    **Qué NO se construye**: **panel de bounties**. El humano lo pidió y **decidió dejarlo como proyecto
    aparte**; aquí **solo se exige el objetivo donde hoy se configuran** (§N.6, «Fuera de alcance»).
-   *(**SUPUESTO** — bounties preexistentes sin objetivo: se les exige el dato **al editarlos**; mientras no lo
-   tengan, la mesa los trata como **«sin bounty» para la sugerencia** y aplica el tope de 10 —el lado seguro
-   del error—, **sin tocar el precio**. **Pregunta abierta 26**.)*
+   ~~*(**SUPUESTO** — bounties preexistentes sin objetivo: se les exige el dato **al editarlos**; mientras no
+   lo tengan, la mesa los trata como **«sin bounty» para la sugerencia** y aplica el tope de 10 —el lado
+   seguro del error—, **sin tocar el precio**. **Pregunta abierta 26**.)*~~
+   **⚠ SUPUESTO SUPERADO en la 6ª ronda por D35 (decisión 95)**: el objetivo tiene **default 2** y **los
+   bounties viejos se llenan con 2** — **no se desactivan** y **ninguno se comporta como «sin bounty»**.
 92. **D33 — La solicitud que nadie oferta CADUCA a los 7 días hábiles, con un correo que dice que NO
    PROCEDEREMOS.**
    **El hueco que cierra**: al re-anclarse el barrido de 30 días —**correctamente**, porque **`cotizada` ahora
@@ -5399,13 +5825,20 @@ objeto; ver §E/§H/§P.3/§P.5.1/§P.6/§P.10/§P.11):**
    **Dos consecuencias que se escriben, no se dejan mintiendo**: **(1)** es el **CUARTO correo obligatorio**
    —los del ciclo pasan de **tres a cuatro** (§P.3, §H, criterios 16/142 y la **pregunta 6**, que se había
    cerrado con «tres»)—; **(2)** es **un dial más**: se fue el **umbral de guía** (D31) y entró este **plazo**,
-   así que **§P.10 vuelve a OCHO diales**. Además, **los estados terminales pasan de cuatro a cinco**.
+   así que **§P.10 vuelve a OCHO diales** *(**⚠ 6ª ronda: NUEVE**, entra el neto mínimo para emitir, D34)*.
+   ~~Además, **los estados terminales pasan de cuatro a cinco**.~~ *(**⚠ 6ª ronda: NO** — siguen siendo
+   **CUATRO**; la caducidad es un **motivo de `expirada`**, decisión 96.)*
    **No lleva recordatorio al cliente**: es **el único plazo del ciclo que corre contra nosotros**, y avisarle
    de un plazo que depende de nuestra carga de trabajo no le sirve de nada.
-   *(**SUPUESTOS** señalados: el **nombre `caducada`** y modelarla como estado propio —el requisito real es que
-   **sea distinguible de `expirada`**, porque significan cosas opuestas—; que **caduque aunque haya una oferta
-   esperando autorización** —el cliente sigue esperando y el pendiente es nuestro—; y que, si una oferta
-   emitida se **cancela**, el reloj **arranque de nuevo desde la cancelación**. **Pregunta abierta 27**.)*
+   ~~*(**SUPUESTOS** señalados: el **nombre `caducada`** y modelarla como estado propio —el requisito real es
+   que **sea distinguible de `expirada`**, porque significan cosas opuestas—; que **caduque aunque haya una
+   oferta esperando autorización** —el cliente sigue esperando y el pendiente es nuestro—; y que, si una
+   oferta emitida se **cancela**, el reloj **arranque de nuevo desde la cancelación**. **Pregunta abierta
+   27**.)*~~
+   **⚠ RESUELTOS en la 6ª ronda por el arquitecto (decisión 96, pregunta 27 CERRADA)**: **`expirada` +
+   motivo en columna propia** (`no_offer` / `not_shipped`) —**los terminales siguen siendo CUATRO**—; **sí
+   caduca** con oferta en cola **y el barrido la anula**; y **el reloj NO reinicia**: cuenta **desde la
+   creación**.
 93. **Costo real de la etiqueta: captura OPCIONAL con fallback a la tarifa congelada** *(5ª ronda; resuelve un
    punto que el arquitecto había señalado y **cierra la contradicción criterio 135 × D19**)*: al **confirmar
    el envío**, el operador **puede** capturar cuánto costó la etiqueta. **Si no lo captura, el gasto se
@@ -5416,7 +5849,65 @@ objeto; ver §E/§H/§P.3/§P.5.1/§P.6/§P.10/§P.11):**
    *(Los **demás puntos del arquitecto** —quién cancela la guía, a qué estado vuelve una oferta cancelada, que
    `expirada` selle la fecha de cierre y la línea sin precio que aporta 0 al mínimo— **quedan como él los
    resolvió**; este documento **no los toca**, y lo único que agrega es **cómo cuenta el reloj de caducidad**
-   cuando una oferta se cancela, §P.3.1.)*
+   cuando una oferta se cancela, §P.3.1.)* **⚠ Y en eso el arquitecto lo corrigió en la 6ª ronda: el reloj
+   NO se reinicia — ver decisión 96.**
+
+**Decisiones v2.1 — sexta ronda del humano (2026-09-01; D34–D35, CORRECTIVAS FINALES, más la resolución de
+la pregunta 27 por el arquitecto; ver §N.6/§P.1/§P.2/§P.3/§P.3.1/§P.5.1/§P.9/§P.10/§P.11/§P.12):**
+> Dos decisiones del humano —ambas **fijan un número que faltaba**— y una resolución técnica que **simplifica
+> el modelo sin tocar el requisito**. Con esto **el bloque v2.1 queda sin preguntas abiertas propias**.
+94. **D34 — SÍ hay piso: no se puede EMITIR una oferta cuyo NETO sea menor a MX$200.**
+   **La pregunta que cierra (la 25)**: este documento había señalado que, con **una sola banda**, un
+   **cherry-pick chico** puede depositar **MX$0 sin rechazar ninguna carta** — la validación
+   `tarifa < mínimo` protege **la solicitud completa**, no **la oferta recortada**.
+   **Qué se decide**: **el operador compra más líneas o no oferta**.
+   **Dónde vive el bloqueo, que es la mitad de la decisión**: en la **EMISIÓN de la oferta**. **No en el
+   dial** —los diales **no ven el recorte** que hizo el operador, así que M10 no puede validarlo— y **no en
+   la aceptación** —**el correo no debe llegar a mandarse**: el punto no es que el vendedor rechace una
+   oferta ridícula, es que **esa oferta no exista**—.
+   **La aritmética, registrada porque es lo que hace defendible el número** *(la puso el humano)*: una
+   solicitud cuesta **~MX$217** de operar (**etiqueta MX$180** + tiempo de operador); comprando al **40% de
+   referencia**, para que se **pague sola** hace falta un **bruto de ~MX$362**, que deja **~MX$182 de neto**.
+   **MX$200 queda justo arriba** y exige un **bruto de ~MX$380**: **conserva margen de cherry-pick sobre
+   lotes grandes** sin permitir la oferta absurda.
+   **No es un bloqueo nuevo**: el arquitecto ya había bloqueado **`neto ≤ 0`**; **D34 lo SUBE a MX$200** —
+   **el mismo bloqueo con número**.
+   **Consecuencias**: **(1)** es **un dial más** ⇒ la tabla de §P.10 pasa de **OCHO a NUEVE**; **(2)** el
+   **piso de cero al PAGAR (criterio 152) NO se toca** — D34 gobierna **qué se emite**, el 152 gobierna
+   **cuánto se paga**; **(3)** el **mínimo de compra sigue sin re-aplicarse a la oferta** (criterio 158c):
+   este es **otro umbral, con otro número, en otro momento**. Ver §P.2, §P.3, §P.10, §P.12 y criterio **167**.
+95. **D35 — El objetivo del bounty por defecto es 2.**
+   **El número que faltaba en D32**: *«hasta tener 2 en inventario»*.
+   **Qué se decide, en tres piezas**: **(a)** es el **valor por defecto al dar de alta** un bounty —el campo
+   llega prellenado, así que el objetivo **sigue siendo obligatorio pero deja de ser fricción**—; **(b)** es
+   el valor con el que **se llenan los bounties viejos** sin meta — **NO se desactivan**, **no salen de la
+   vitrina** y **no cambian de precio**—; **(c)** **sigue siendo editable por bounty**: **2 es el default, no
+   un tope rígido**.
+   *(**⚠ CORRIGE un supuesto de este documento**: yo había propuesto tratar a los bounties viejos como **«sin
+   bounty» para la sugerencia** hasta que alguien los editara, y ofrecí «poner un objetivo por defecto» como
+   alternativa que **explícitamente no recomendaba**. **El humano eligió esa alternativa y le puso número.**
+   Con eso el caso «bounty sin meta» deja de existir **también hacia atrás**, sin depender de que nadie
+   recuerde editar nada.)*
+   **Qué NO se construye**: sigue **sin panel de bounties** (proyecto aparte). El default y el llenado
+   ocurren **donde hoy se configuran**. **El 2 no es un dial de M10**: es el valor inicial de un campo.
+   **Pregunta 26 CERRADA.** Ver §N.6, §P.2 y criterio **168**.
+96. **Resolución de la pregunta 27 por el ARQUITECTO — la caducidad es un MOTIVO, no un quinto estado.**
+   **Qué decidió**: **reusar el terminal `expirada`** y **persistir el motivo en columna propia**
+   (**`no_offer`** / **`not_shipped`**), en vez de crear un quinto terminal.
+   **Su razón, que este documento adopta**: *un estado que se comporta **idéntico** a otro en todas las
+   reglas —cierre, purga de INE, cuota, «no se revive»— **no es un estado, es un atributo**; pero **la causa
+   sí importa** para el correo y **no es derivable**.*
+   **Consecuencia**: **los terminales siguen siendo CUATRO**. **`caducada` era un SUPUESTO de nombre de este
+   documento y queda SUPERADO.** **El requisito de negocio no cambia**: los dos desenlaces **tienen que ser
+   distinguibles** —correos distintos y reportes que los separen— y el motivo lo cumple.
+   **Sus respuestas a los dos bordes del plazo**: **(a)** **SÍ** caduca aunque haya una oferta **esperando
+   autorización**, y **el barrido ANULA esa oferta al hacerlo** *(supuesto **confirmado**, con el verbo
+   explícito)*; **(b)** el reloj **NO reinicia** al cancelar una oferta emitida — **cuenta desde la creación
+   de la solicitud** *(**⚠ CORRIGE** el supuesto contrario que este documento había redactado)*.
+   *(⚠ **Lo que este documento SEÑALA** sobre (b): una solicitud puede **caducar el mismo día en que vuelve a
+   la fila** si ya pasaron los 7 días hábiles — **el cliente paga una corrección nuestra**. Queda como
+   **bandera** en «Riesgos y banderas», no como bloqueo.)*
+   **Pregunta 27 CERRADA.** Ver §P.1, §P.3.1, §P.9, M5 y criterios **113/129/145/165/169**.
 
 ## Único pendiente no bloqueante
 - **Metas de lanzamiento N/X/Y/Z**: el humano las fija al momento de lanzar la beta cerrada (usuarios,
@@ -5777,13 +6268,24 @@ backend/arquitecto al implementar, sin decisión de producto adicional).
 
 ## Preguntas abiertas — ciclo de adquisición del buylist (v2.1, §P)
 > **Historial completo, con estado de cierre.** Las **doce decisiones originales (D1–D12)**, las **once de la
-> segunda ronda (D13–D23)**, las **seis de la tercera (D24–D29)**, la **correctiva de la cuarta (D30)** y las
-> **tres de la quinta (D31–D33)** están cerradas y ya redactadas en §P, §E, §H y §N.6; **no se re-litigan**.
-> Abajo se conservan **las veinticuatro preguntas con su desenlace** —qué se cerró, con qué decisión y si
-> **corrigió** el supuesto que yo había tomado— y se agregan **las tres nuevas (25, 26, 27)** que abrió la
-> quinta ronda.
+> segunda ronda (D13–D23)**, las **seis de la tercera (D24–D29)**, la **correctiva de la cuarta (D30)**, las
+> **tres de la quinta (D31–D33)** y las **dos de la sexta (D34–D35)** están cerradas y ya redactadas en §P,
+> §E, §H y §N.6; **no se re-litigan**.
+> Abajo se conservan **las veintisiete preguntas con su desenlace** —qué se cerró, con qué decisión y si
+> **corrigió** el supuesto que yo había tomado—.
 >
-> ## **ESTADO (2026-09-01, 5ª ronda — CIERRE CORRECTIVO): las 24 anteriores están CERRADAS; hay TRES nuevas, ninguna bloqueante.**
+> ## **ESTADO (2026-09-01, 6ª ronda — CIERRE CORRECTIVO FINAL): las 27 preguntas están CERRADAS. El bloque v2.1 NO tiene preguntas abiertas propias.**
+> **Las tres que abrió la quinta ronda quedaron cerradas en la sexta**: **(25)** el humano puso **piso: neto
+> mínimo de MX$200 para EMITIR** (**D34**) — la tabla de §P.10 pasa a **NUEVE diales**; **(26)** el humano
+> fijó el **objetivo del bounty por defecto en 2** y **los viejos se llenan con 2, sin desactivarse**
+> (**D35**); **(27)** la resolvió el **arquitecto**: **`expirada` + motivo en columna propia**
+> (`no_offer` / `not_shipped`), así que **los terminales vuelven a ser CUATRO**, **sí caduca** con oferta en
+> cola de autorización —**el barrido la anula**— y **el reloj NO reinicia** al cancelar una oferta.
+> **Dos supuestos míos quedaron corregidos en esta ronda**: el **nombre/modelado `caducada`** y el
+> **reinicio del reloj desde la cancelación**. **Uno más quedó corregido por D35**: tratar a los bounties
+> viejos como «sin bounty».
+>
+> ## **ESTADO (2026-09-01, 5ª ronda — histórico): las 24 anteriores están CERRADAS; hay TRES nuevas, ninguna bloqueante.**
 > Las **doce del primer pase**, las **diez de la segunda**, **la 23 de la tercera** y **la 24 de la cuarta**
 > quedaron todas resueltas. **Ningún número de dinero sigue sin fijar**: tope de oferta del operador
 > **MX$1,500**, tarifa de envío **MX$180**, tope de piezas por variante **10**, alerta de «ya lo mandé»
@@ -5806,7 +6308,8 @@ backend/arquitecto al implementar, sin decisión de producto adicional).
 > **Se abren TRES preguntas nuevas (25, 26, 27)**, todas **no bloqueantes** y todas con **supuesto
 > redactado**: **(25)** el **piso de cero ahora es alcanzable sin rechazo de cartas** —efecto colateral de
 > quitar la banda intermedia—; **(26)** qué hacer con los **bounties ya creados sin objetivo**; **(27)** el
-> **modelado y los bordes del nuevo plazo de caducidad**.
+> **modelado y los bordes del nuevo plazo de caducidad**. **⚠ Las TRES quedaron CERRADAS en la 6ª ronda** —
+> ver el bloque de estado de arriba y el desenlace de cada una abajo.
 >
 > **Un residuo que NO es pregunta, sino riesgo aceptado:** el **límite anti-abuso** de guías por
 > usuario/periodo (segunda mitad de la pregunta 16) **no se decidió**, y la resolución registrada es **no
@@ -5861,9 +6364,10 @@ backend/arquitecto al implementar, sin decisión de producto adicional).
 10. ~~**¿Qué cuenta como "solicitud viva"?**~~ → **CERRADA: todo lo que NO sea terminal.** Terminales:
    **`pagada`, `rechazada`, `abandonada`, `expirada`**. *(Nota: la respuesta **agrega `abandonada`** a la
    lista de terminales que yo había escrito; ya está reflejado en §P.1, M5 y el criterio 129.)*
-   *(**Nota de la 5ª ronda, D33**: la lista pasa a **CINCO** con **`caducada`**. **La definición no se tocó**
-   —sigue siendo *«todo lo que NO es terminal»*—, y eso es exactamente lo que el humano quería al cerrarla por
-   exclusión: **el estado nuevo entró solo**.)*
+   ~~*(**Nota de la 5ª ronda, D33**: la lista pasa a **CINCO** con **`caducada`**…)*~~
+   *(**⚠ Nota de la 6ª ronda**: la lista **NO pasó a cinco** — **siguen siendo CUATRO**. La caducidad es un
+   **motivo de `expirada`**. **La definición por exclusión se pagó sola por partida doble**: no solo el
+   desenlace nuevo entró sin tocar la lista, es que **ni siquiera hubo desenlace nuevo que agregar**.)*
 11. ~~**Producto separado (D7) — ¿qué hacemos con lo ya capturado?**~~ → **CERRADA (3ª ronda): corrección
    MANUAL. Mi supuesto era CORRECTO.** Las filas ambiguas ya capturadas se **reclasifican a mano desde M1**;
    **ninguna migración adivina** cuál era cuál. Ver §P.8 y criterio **160**.
@@ -5921,7 +6425,8 @@ backend/arquitecto al implementar, sin decisión de producto adicional).
    *(**Nota de la 5ª ronda, D31**: **la mitad del borde de $1,000 quedó SIN OBJETO** —ese umbral desapareció—,
    así que **queda un solo borde, el de $500**, y es **inclusivo en los dos sentidos**: **se crea la
    solicitud Y lleva guía nuestra**. **La otra mitad —que el mínimo no se re-aplica— sigue vigente**, y es
-   justamente la que abre la **pregunta 25**.)*
+   justamente la que abrió la **pregunta 25** — **cerrada en la 6ª ronda por D34**: el mínimo **sigue sin
+   re-aplicarse**, pero **hay otro umbral en otro momento**, el **neto mínimo para EMITIR (MX$200)**.)*
 20. ~~**¿Qué cifra de envío se descuenta, si la guía se compra DESPUÉS de ofertar?**~~ → **CERRADA por D25 —
    supuesto CONFIRMADO, con número.** Se descuenta una **tarifa fija de MX$180**, **congelada al ofertar**;
    si la etiqueta real sale **más cara la absorbemos**, si sale **más barata es margen nuestro**. El humano
@@ -5963,58 +6468,63 @@ backend/arquitecto al implementar, sin decisión de producto adicional).
    decidido: NINGUNO**. El humano **aceptó a ojos abiertos** que en el piso de $500 el envío pese **36%**
    (recibe **$320**), con la condición de que **se le diga al vendedor en todos lados y antes de aceptar**
    (D31). **Tarifa y mínimo siguen siendo diales**: si duele, se mueven.
-   *(Lo que **sí** sobrevive de esta pregunta, pero **con otra forma**, es la **pregunta 25**: la validación
-   protege la **solicitud completa**, no la **oferta recortada**.)*
+   *(Lo que **sí** sobrevivió de esta pregunta, pero **con otra forma**, fue la **pregunta 25**: la validación
+   protege la **solicitud completa**, no la **oferta recortada**. **Cerrada en la 6ª ronda por D34** — la
+   oferta recortada la protege **otro dial en otro momento**: el **neto mínimo de MX$200 al EMITIR**.)*
 
-**Huecos NUEVOS que abrió la quinta ronda (25, 26, 27) — ninguno bloqueante:**
-25. **[ABIERTA — no bloqueante, pero SÍ cambia conducta en un caso real] ¿Debe haber un PISO DE NETO para
-   siquiera emitir una oferta?** — Es el **efecto colateral de D31** que este documento señala en vez de
-   resolver solo. **Antes**, una oferta chica (por ejemplo **MX$200** tras cherry-pick de una solicitud de
-   MX$600) caía en la banda donde **el vendedor pagaba su propio envío**: cobraba **MX$200 completos**.
-   **Ahora**, con el envío descontado siempre, esa misma oferta deposita **MX$20** — y una de **MX$150**
-   deposita **MX$0** **aunque todas las cartas lleguen en NM**. La validación del criterio 127
-   (`tarifa < mínimo`) **no cubre este caso**, porque **el mínimo no se re-aplica a la oferta** (criterio
-   158c, decisión del humano en la 3ª ronda, que **sigue vigente**).
-   **Lo que YA protege al vendedor y no depende de esta pregunta**: **(a)** **nunca queda debiendo** —el neto
-   se topa en cero, criterio **152**—; **(b)** **ve el neto exacto antes de aceptar** —requisito de
-   comunicación de D31, criterio **163**— y **puede rechazar**.
-   **SUPUESTO redactado (lo que dice hoy el documento)**: **la oferta sale igual**, sin piso, y **el vendedor
-   decide con la cifra enfrente**. Es la lectura literal de la decisión vigente («un solo umbral, en un solo
-   momento») y **no inventa alcance**.
-   **Lo que falta decidir**: ¿basta con eso, o el humano quiere **un piso** —por ejemplo *«no se emite una
-   oferta cuyo neto quede por debajo de MX$X»*, o *«si el neto queda en MX$0 la oferta no sale»*—? **Es una
-   decisión de producto, no técnica**: emitir una oferta que paga $0 es defendible (el vendedor la rechaza) y
-   también es defendible no mandarla nunca (nos ahorra el ridículo y una conversación mala).
-   **Por qué no bloquea**: el arquitecto puede construir contra el default (sin piso) y el piso, si llega,
-   es **una validación más al emitir**, no un cambio de modelo.
-26. **[ABIERTA — no bloqueante] Los bounties YA creados sin objetivo, ¿qué pasa con ellos?** — **D32** hace
-   **obligatorio** el objetivo **al dar de alta** un bounty. Queda por decidir **qué se hace con los que ya
-   existen sin él** (si los hay).
-   **SUPUESTO redactado**: **se les exige el dato al editarlos** y, **mientras no lo tengan**, la mesa de
-   decisión los trata como **«sin bounty» para efectos de la sugerencia** —o sea, **aplica el tope general de
-   10**—. Es **el lado seguro del error**: preferimos **frenar de más** a **comprar sin techo**, que es
-   exactamente el hueco que D32 vino a cerrar. **El precio NO cambia**: el bounty sigue ganando la precedencia
-   de compra (§N.6) — esto solo afecta **la sugerencia**.
-   **Alternativas que el humano puede preferir**: **(a)** **desactivar** los bounties sin objetivo hasta que
-   se les capture (más agresivo: los saca de la vitrina); **(b)** **poner un objetivo por defecto** (yo **no
-   lo propongo**: un número inventado en un dial de compra es justo lo que este documento evita).
-   **Por qué no bloquea**: si hoy no hay bounties sin objetivo, la pregunta es teórica; y si los hay, el
-   supuesto es conservador.
-27. **[ABIERTA — no bloqueante] Los bordes del nuevo plazo de caducidad (D33): modelado y reinicio del
-   reloj.** — **D33 está decidido**; lo que queda son **tres detalles de borde** que el documento **resolvió
-   con supuestos** para no dejarlos mintiendo:
-   **(a) ¿Estado propio o motivo?** **SUPUESTO**: un **terminal propio** (**`caducada`**), porque `expirada`
-   ya significa *«aceptaste y no mandaste»* y mezclarlos dejaría al cliente y a los reportes sin poder
-   distinguir *«se nos fue el tiempo»* de *«el vendedor no cumplió»*. **El requisito de negocio es solo que
-   sean distinguibles**; si el arquitecto prefiere modelarlo como `expirada` + motivo, **es su decisión**,
-   siempre que **los correos y los reportes sigan separándolos**.
-   **(b) ¿Caduca una solicitud que tiene una oferta esperando autorización del súper-admin?** **SUPUESTO: SÍ**
-   —**el cliente sigue esperando y el pendiente es nuestro**—, y al caducar **la oferta sale de la cola de
-   autorización y ya no puede autorizarse** (terminal es terminal). La alternativa sería **congelar el reloj
-   mientras hay algo en la cola**, que protege al operador pero **deja al cliente esperando**, que es
-   justamente lo que D33 vino a impedir.
-   **(c) Si una oferta emitida se CANCELA y la solicitud vuelve a la fila, ¿desde cuándo cuenta el reloj?**
-   **SUPUESTO: desde la cancelación**, no desde la creación original — contarlo desde el origen **mataría la
-   solicitud el mismo día** en que volvió a la fila, castigando al cliente por una corrección nuestra.
-   **Por qué no bloquea**: los tres supuestos son conservadores y coherentes con reglas ya cerradas; ninguno
-   cambia el plazo (7 días hábiles) ni el correo.
+**Huecos que abrió la quinta ronda (25, 26, 27) — LOS TRES CERRADOS EN LA SEXTA:**
+25. ~~**[ABIERTA] ¿Debe haber un PISO DE NETO para siquiera emitir una oferta?**~~ → **CERRADA en la 6ª ronda
+   por D34: SÍ, y es MX$200 de NETO. Mi supuesto («sin piso») quedó DESCARTADO.**
+   **Lo que preguntaba**: con **una sola banda**, una oferta chica —por ejemplo **MX$200 de bruto** tras
+   cherry-pick de una solicitud de MX$600— deposita **MX$20**, y una de **MX$150** deposita **MX$0** **aunque
+   todas las cartas lleguen en NM**. La validación del criterio 127 (`tarifa < mínimo`) **no cubre ese caso**,
+   porque **el mínimo no se re-aplica a la oferta** (criterio 158c, que **sigue vigente**).
+   **Qué decidió el humano**: **no se puede EMITIR una oferta cuyo neto sea menor a MX$200.** **El operador
+   compra más líneas o no oferta.**
+   **Dónde vive el bloqueo** *(la parte que este documento se había perdido al plantear la pregunta)*: en la
+   **EMISIÓN**, **no** en el dial —**los diales no ven el recorte del operador**— y **no** en la aceptación
+   —**el correo no debe llegar a mandarse**—.
+   **La aritmética que lo sostiene**: operar una solicitud cuesta **~MX$217** (etiqueta **MX$180** + tiempo);
+   al **40% de referencia** hace falta un **bruto de ~MX$362** para que se pague sola (**~MX$182 de neto**).
+   **MX$200 queda justo arriba** (bruto ~**MX$380**) y **conserva el margen de cherry-pick sobre lotes
+   grandes**.
+   **No es un bloqueo nuevo**: el arquitecto ya bloqueaba `neto ≤ 0`; **D34 lo sube a MX$200**.
+   **Consecuencias**: **un dial más** ⇒ §P.10 pasa a **NUEVE**; **el criterio 152 no se toca** (el piso de
+   cero al **pagar** sigue igual). Ver §P.2, §P.10, §P.12, decisión **94** y criterio **167**.
+26. ~~**[ABIERTA] Los bounties YA creados sin objetivo, ¿qué pasa con ellos?**~~ → **CERRADA en la 6ª ronda
+   por D35: el objetivo por defecto es 2, y con 2 se llenan los viejos. Mi supuesto quedó CORREGIDO.**
+   **Lo que yo había supuesto**: exigirles el dato **al editarlos** y, mientras tanto, tratarlos como **«sin
+   bounty» para la sugerencia** (aplicando el tope de 10). Ofrecí «poner un objetivo por defecto» como
+   alternativa **que explícitamente no recomendaba** —*«un número inventado en un dial de compra es justo lo
+   que este documento evita»*—.
+   **Qué decidió el humano**: **esa alternativa, con número: 2.** *(Y la objeción se cae sola: **2 no es un
+   número inventado por este documento, es el número del dueño**, y **no es un dial** — es el valor inicial
+   de un campo editable por bounty.)*
+   **Las tres piezas**: **(a)** **default 2 al dar de alta**; **(b)** **los viejos se llenan con 2** —**NO se
+   desactivan**, siguen en la vitrina y **no cambian de precio**—; **(c)** **editable por bounty**: 2 es el
+   default, **no un tope rígido**.
+   **Qué gana**: el caso «bounty sin meta» deja de existir **también hacia atrás**, sin depender de que
+   alguien recuerde editar los viejos, y **ningún bounty se comporta como «sin bounty»**. **Sigue sin haber
+   panel de bounties.** Ver §N.6, §P.2, decisión **95** y criterio **168**.
+27. ~~**[ABIERTA] Los bordes del plazo de caducidad (D33): modelado y reinicio del reloj.**~~ → **CERRADA en
+   la 6ª ronda POR EL ARQUITECTO. De mis tres supuestos: uno DESCARTADO, uno CONFIRMADO, uno CORREGIDO.**
+   **(a) ¿Estado propio o motivo?** **Mi supuesto (`caducada` como terminal propio) quedó DESCARTADO.**
+   El arquitecto decidió **reusar `expirada`** y **persistir el motivo en columna propia** (**`no_offer`** /
+   **`not_shipped`**). **Su razón, que este documento adopta**: *un estado que se comporta **idéntico** a otro
+   en todas las reglas —cierre, purga de INE, cuota, «no se revive»— **no es un estado, es un atributo**;
+   pero **la causa sí importa** para el correo y **no es derivable**.* **Los terminales vuelven a ser
+   CUATRO**, y **el requisito de negocio que yo había escrito se cumple igual**: los dos desenlaces
+   **distinguibles**, con **correos distintos** y **reportes que los separan**. *(Yo mismo había dicho que
+   «si el arquitecto prefiere modelarlo como `expirada` + motivo, es su decisión» — lo prefirió.)*
+   **(b) ¿Caduca con una oferta esperando autorización?** **Mi supuesto CONFIRMADO: SÍ** —el cliente sigue
+   esperando y el pendiente es nuestro—, **y con el verbo explícito: el barrido ANULA esa oferta al hacerlo**,
+   así que después **no puede autorizarse**.
+   **(c) ¿Desde cuándo cuenta el reloj si se cancela una oferta emitida?** **⚠ Mi supuesto quedó CORREGIDO.**
+   Yo había escrito *«desde la cancelación»*; la regla vigente es **NO se reinicia: cuenta desde la creación
+   de la solicitud**.
+   **Lo que este documento señala sobre (c), en vez de callarlo**: es exactamente el escenario por el que yo
+   había supuesto lo contrario — **una solicitud puede caducar el mismo día en que vuelve a la fila**, y el
+   cliente recibe un *«no procederemos»* **por una corrección nuestra**. **Está decidido y es el vigente**;
+   queda como **bandera** en «Riesgos y banderas» para que el humano lo vea. **Si le parece injusto, mover el
+   arranque del reloj es una decisión de producto de una línea.**
+   Ver §P.1, §P.3.1, §P.9, decisión **96** y criterio **169**.
