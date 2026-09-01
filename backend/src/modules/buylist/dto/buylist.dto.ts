@@ -203,6 +203,17 @@ export class GuideCancellationDoneDto {
   @IsOptional() @IsInt() @Min(0) guideActualCostCents?: number;
 }
 
+/**
+ * v1.51.3 (§M5, D39) — `POST /admin/buylist/:id/decline`. Body vacío `{}` es válido.
+ *
+ * ⚠️ El `reason` es **motivo INTERNO, NO PII**: va al `AuditLog` y **NUNCA se le muestra al
+ * vendedor ni entra al correo** — el correo 4 tiene **prohibido** explicar por qué no ofertamos.
+ * **No lleva columna**: `declinedBy` + `closedAt` + la bitácora ya guardan el acto entero.
+ */
+export class DeclineDto {
+  @IsOptional() @IsString() @Length(0, 500) reason?: string;
+}
+
 export class ItemDecisionDto {
   @IsIn(['approve', 'adjust', 'reject']) decision!: 'approve' | 'adjust' | 'reject';
   // B-4: cota dura de sanidad (MX$10,000). La cota fina (≤ quoted × factor y ≤ tope por

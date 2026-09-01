@@ -430,3 +430,227 @@ export function pickupAddressLine(snapshot: unknown): string | null {
     .map((v) => v.trim());
   return parts.length > 0 ? parts.join(', ') : null;
 }
+
+/**
+ * v1.51 (§4.39n · DESIGN_SYSTEM §23.4.3/§23.4.4/§23.4.5) — **los correos 2, 3 y 4 del ciclo.**
+ *
+ * ⚠️ **UN PRODUCTOR POR CORREO, elegido en el CALL-SITE.** Nada de `switch (status)`: `expiredReason`
+ * es `null` en dos de los tres productores del 3, así que ramificar sobre datos de la fila
+ * **elegiría mal**. El barrido llama a la plantilla que corresponde a **su regla**, y `decline` llama
+ * a la del correo 4 — **la misma, con el mismo texto** que la regla 7 (*un correo por hecho, no un
+ * correo por camino*).
+ */
+
+/** Variante del recordatorio (correo 2). Son **el mismo hecho** con dos acciones distintas. */
+export type OfferReminderKind = 'accept' | 'ship';
+
+export interface SellOfferReminderParams {
+  kind: OfferReminderKind;
+  folio: string;
+  /** Nº de cartas compradas — el recordatorio NO re-lista el desglose. */
+  buyLineCount: number;
+  /** ⚠️ SOLO el neto: es el único monto vinculante, y repetir la resta lo volvería una oferta nueva. */
+  netCents: number;
+  deadlineAt: Date;
+  /** Solo en `ship`: paquetería y número de guía, para que pueda usarlos. */
+  carrier?: string | null;
+  trackingNumber?: string | null;
+  portalUrl?: string;
+}
+
+/**
+ * **CORREO 2 — EL RECORDATORIO** (D23). *«Te queda un día.»*
+ *
+ * **UNA SOLA VEZ por plazo** — lo garantiza el barrido sellando `offerAcceptReminderSentAt` /
+ * `shipReminderSentAt`, no esta plantilla. *Un segundo recordatorio idéntico destruye la credibilidad
+ * del primero.*
+ *
+ * ### ⚠️ La regla que más fácil se rompe
+ * El bloque congelado **repite la condición NM junto a la cifra**. La tentación de un recordatorio es
+ * ser «ligero» y quedarse con el monto — y un correo que repite el neto **sin** decir *«siempre que
+ * lleguen en Near Mint»* **degrada la condición a letra chica por omisión**, que es exactamente lo
+ * que D30 vino a impedir.
+ *
+ * **No re-lista el desglose:** un recordatorio que repite la tabla completa **se lee como una oferta
+ * nueva** y arruina la propiedad más valiosa del ciclo — que hay **una** oferta y **no se edita**.
+ * **Mismos números, congelados:** si mostrara un monto o una fecha distintos de los del correo 1,
+ * sería un defecto **bloqueante**, no una discrepancia menor.
+ */
+export function sellOfferReminderTemplate(
+  params: SellOfferReminderParams,
+  name: string,
+  locale?: string | null,
+): MailMessage {
+  const l = normalizeLocale(locale);
+  const en = l === 'en';
+  const accept = params.kind === 'accept';
+  const deadline = formatDateTime(params.deadlineAt, l);
+  const title = accept
+    ? en
+      ? 'Your offer expires tomorrow'
+      : 'Tu oferta vence mañana'
+    : en
+      ? 'Your package needs to ship tomorrow'
+      : 'Tu paquete debe salir mañana';
+  // ⚠️ La condición NM viaja PEGADA al conteo de cartas, en una línea corta.
+  const frozen = en
+    ? `YOUR OFFER · ${params.folio}\n${params.buyLineCount} card(s), only if they arrive Near Mint\nDEPOSITED TO YOU: ${money(params.netCents, l)}\nExpires ${deadline}`
+    : `TU OFERTA · ${params.folio}\n${params.buyLineCount} carta(s), siempre que lleguen en Near Mint\nSE TE DEPOSITAN: ${money(params.netCents, l)}\nVence el ${deadline}`;
+  const ask = accept
+    ? en
+      ? 'You still have to respond to the offer.'
+      : 'Todavía tienes que responder la oferta.'
+    : en
+      ? 'Your package still has to be dropped off.'
+      : 'Tu paquete todavía tiene que salir.';
+  // §P.13: la salida que evita que alguien pierda su venta por una demora NUESTRA.
+  const alreadySent = accept
+    ? ''
+    : en
+      ? 'If you already dropped it off, tell us from your account and we stop the clock.'
+      : 'Si ya lo depositaste, avísanos desde tu cuenta y detenemos el reloj.';
+  const guide =
+    !accept && params.trackingNumber
+      ? en
+        ? `Carrier: ${params.carrier ?? ''} · Tracking: ${params.trackingNumber}`
+        : `Paquetería: ${params.carrier ?? ''} · Guía: ${params.trackingNumber}`
+      : '';
+  const ctaLabel = accept
+    ? en
+      ? 'View and respond to the offer'
+      : 'Ver y responder la oferta'
+    : en
+      ? 'Go to my request'
+      : 'Ir a mi solicitud';
+  const cta = params.portalUrl
+    ? `<p style="margin:20px 0"><a href="${escapeHtml(params.portalUrl)}" style="background:#111;color:#fff;padding:12px 20px;border-radius:6px;text-decoration:none;display:inline-block">${escapeHtml(ctaLabel)}</a></p>`
+    : `<p style="margin:20px 0"><strong>${escapeHtml(en ? 'Sign in to your account to continue.' : 'Entra a tu cuenta para continuar.')}</strong></p>`;
+
+  return {
+    to: '',
+    subject: title,
+    html: layout(
+      title,
+      `<p>${escapeHtml(en ? 'Hi' : 'Hola')} ${escapeHtml(name)}:</p>` +
+        `<p>${escapeHtml(ask)}</p>` +
+        `<div style="background:#EFEBE2;padding:12px;margin:16px 0"><p style="margin:0;font-size:13px;white-space:pre-line">${escapeHtml(frozen)}</p></div>` +
+        (guide ? `<p style="font-family:monospace">${escapeHtml(guide)}</p>` : '') +
+        (alreadySent ? `<p>${escapeHtml(alreadySent)}</p>` : '') +
+        cta,
+    ),
+    text:
+      `${en ? 'Hi' : 'Hola'} ${name}:\n\n${title}\n\n${ask}\n\n${frozen}\n` +
+      (guide ? `\n${guide}\n` : '') +
+      (alreadySent ? `\n${alreadySent}\n` : '') +
+      `\n${BRAND}`,
+  };
+}
+
+/** Variante del correo 3. **3a** = no respondió la oferta · **3b** = aceptó y el paquete no salió. */
+export type SellExpiredKind = 'no_response' | 'not_shipped';
+
+/**
+ * **CORREO 3 — EXPIRACIÓN** (barrido, reglas 1 y 2). **Dos productores, un hecho de fondo:** *«se te
+ * venció un plazo y la solicitud queda cerrada»*.
+ *
+ * ⚠️ **SIN MONTOS, ni siquiera en 3b** — donde el monto ya no se va a pagar y mencionarlo **solo
+ * duele**. Y **este correo NO lo manda la cancelación de una oferta** (ése es el 5): aquél afirma que
+ * *hubo una oferta y **tu** plazo venció*, y en una cancelación **no venció nada** — cancelamos
+ * nosotros.
+ */
+export function sellRequestExpiredTemplate(
+  params: { kind: SellExpiredKind; folio: string; closedAt: Date; portalUrl?: string },
+  name: string,
+  locale?: string | null,
+): MailMessage {
+  const l = normalizeLocale(locale);
+  const en = l === 'en';
+  const noResponse = params.kind === 'no_response';
+  const when = formatDate(params.closedAt, l);
+  const title = noResponse
+    ? en
+      ? 'Your offer expired'
+      : 'Tu oferta venció'
+    : en
+      ? 'Your sell request expired'
+      : 'Tu solicitud de venta venció';
+  const body1 = noResponse
+    ? en
+      ? `The deadline to respond ended on ${when} and the offer is no longer valid. No card was purchased and you have nothing pending.`
+      : `El plazo para responder terminó el ${when} y la oferta ya no es válida. No se compró ninguna carta y no tienes nada pendiente.`
+    : en
+      ? `You accepted the offer, but the package did not ship within the deadline, which ended on ${when}. The request is closed and no card was purchased.`
+      : `Aceptaste la oferta, pero el paquete no salió dentro del plazo, que terminó el ${when}. La solicitud queda cerrada y no se compró ninguna carta.`;
+  const body2 = en
+    ? 'If you still want to sell, you can get a new quote whenever you like.'
+    : 'Si sigues queriendo vender, puedes cotizar de nuevo cuando quieras.';
+  const ctaLabel = en ? 'Get a new quote' : 'Cotizar de nuevo';
+  const cta = params.portalUrl
+    ? `<p style="margin:20px 0"><a href="${escapeHtml(params.portalUrl)}" style="background:#111;color:#fff;padding:12px 20px;border-radius:6px;text-decoration:none;display:inline-block">${escapeHtml(ctaLabel)}</a></p>`
+    : '';
+  return {
+    to: '',
+    subject: title,
+    html: layout(
+      title,
+      `<p style="font-size:12px;color:#888">${escapeHtml(params.folio)}</p>` +
+        `<p>${escapeHtml(en ? 'Hi' : 'Hola')} ${escapeHtml(name)}:</p>` +
+        `<p>${escapeHtml(body1)}</p><p>${escapeHtml(body2)}</p>` +
+        cta,
+    ),
+    text: `${en ? 'Hi' : 'Hola'} ${name}:\n\n${params.folio}\n\n${title}\n\n${body1}\n\n${body2}\n\n${BRAND}`,
+  };
+}
+
+/**
+ * **CORREO 4 — «NO PROCEDEREMOS»** (D33/D39). **DOS productores, UN solo correo:** el barrido (regla
+ * 7) y `POST …/decline`. **Misma plantilla, mismo texto** — al vendedor no le corresponde saber si le
+ * contestamos rápido o dejamos correr el reloj: *un correo por hecho, no un correo por camino.*
+ *
+ * ### ⚠️ Es el más corto y el más fácil de arruinar. Su trabajo es CERRAR SIN ACUSAR Y SIN EXPLICAR.
+ * **PROHIBIDO aquí, y cada prohibición tiene su razón:**
+ * - **Decir POR QUÉ no ofertamos** — abre una negociación que no existe y filtra criterio interno.
+ * - **Cualquier referencia al TIEMPO transcurrido** («tras revisar», «después de 7 días», «perdón por
+ *   la demora») — delata **por qué camino** se cerró, que es justo lo que la fusión de productores
+ *   prohíbe.
+ * - **Cualquier MONTO**, ni el total cotizado: nombrarlo junto a «no procederemos» se lee como *«te
+ *   íbamos a pagar esto y no lo hicimos»*, y la cotización **nunca fue vinculante**.
+ * - **Fórmulas vagas** («no pudimos procesar», «seguimos revisando») — dejan al vendedor esperando.
+ * - **Culpar o insinuar incumplimiento**, y **la palabra «venció»**: aquí **no venció nada suyo**. Es
+ *   el motivo entero por el que este correo existe separado del 3.
+ */
+export function sellRequestNotPursuedTemplate(
+  params: { folio: string; portalUrl?: string },
+  name: string,
+  locale?: string | null,
+): MailMessage {
+  const l = normalizeLocale(locale);
+  const en = l === 'en';
+  const title = en ? 'We will not proceed with the offer' : 'No vamos a proceder con la oferta';
+  const body1 = en
+    ? `About your sell request ${params.folio}: we will not proceed with the offer.`
+    : `Sobre tu solicitud ${params.folio}: no vamos a proceder con la oferta.`;
+  // Lo único que de verdad le sirve saber: que no tiene nada que hacer.
+  const body2 = en
+    ? "There is nothing pending on your side: don't send any card, no shipping label was generated and you owe us nothing."
+    : 'No hay nada pendiente de tu parte: no mandes ninguna carta, no se generó ninguna guía y no nos debes nada.';
+  const body3 = en
+    ? 'Prices move all the time. You can get a new quote whenever you like.'
+    : 'Los precios se mueven todo el tiempo. Puedes volver a cotizar cuando quieras.';
+  const ctaLabel = en ? 'Get a new quote' : 'Cotizar de nuevo';
+  const cta = params.portalUrl
+    ? `<p style="margin:20px 0"><a href="${escapeHtml(params.portalUrl)}" style="background:#111;color:#fff;padding:12px 20px;border-radius:6px;text-decoration:none;display:inline-block">${escapeHtml(ctaLabel)}</a></p>`
+    : '';
+  return {
+    to: '',
+    subject: title,
+    html: layout(
+      title,
+      `<p style="font-size:12px;color:#888">${escapeHtml(params.folio)}</p>` +
+        `<p>${escapeHtml(en ? 'Hi' : 'Hola')} ${escapeHtml(name)}:</p>` +
+        `<p>${escapeHtml(body1)}</p><p>${escapeHtml(body2)}</p><p>${escapeHtml(body3)}</p>` +
+        cta,
+    ),
+    text: `${en ? 'Hi' : 'Hola'} ${name}:\n\n${params.folio}\n\n${title}\n\n${body1}\n\n${body2}\n\n${body3}\n\n${BRAND}`,
+  };
+}

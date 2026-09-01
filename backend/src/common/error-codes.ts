@@ -286,6 +286,11 @@ export const ErrorCode = {
   // únicamente por este endpoint, porque *una etiqueta comprada y olvidada es dinero tirado que nadie
   // ve*. `details: { guideCancellationPendingAt, guideCancellationDoneAt }`. 409.
   NO_PENDING_GUIDE_CANCELLATION: 'NO_PENDING_GUIDE_CANCELLATION',
+  // v1.51.3 (D39) — `POST /admin/buylist/:id/decline` sobre algo que no es una `cotizada` abierta.
+  // ⚠️ NO se puede declinar una `ofertada`: hay una oferta VINCULANTE en la bandeja del vendedor, y
+  // el correo 4 afirma que NUNCA ofertamos. La vía correcta es `offer/cancel` y declinar después.
+  // Sin `200` idempotente: este verbo manda un correo a una persona. `details: { status, offerState }`. 409.
+  DECLINE_NOT_ALLOWED: 'DECLINE_NOT_ALLOWED',
 
   // Guest checkout (v1.21) — API_CONTRACT §0 / §4-G. Todos ADITIVOS: ningún código previo cambia.
   // El invitado eligió destino bóveda. NO es un error de UI: es la señal del UPSELL (criterio 48),

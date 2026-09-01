@@ -10,6 +10,7 @@ import {
   Role,
   SellItemStatus,
   SellOfferState,
+  SellRequestExpiryReason,
   SellRequestStatus,
   VariantPriceOverride,
 } from '@prisma/client';
@@ -40,6 +41,7 @@ import {
   sellItemRejectedTemplate,
   sellOfferCancelledTemplate,
   sellOfferTemplate,
+  sellRequestNotPursuedTemplate,
 } from './buylist-mail.templates';
 // v1.51 (D14, criterio 154): los plazos del ciclo son DÍAS HÁBILES `America/Mexico_City`. El front
 // NO los recalcula: dos implementaciones de «día hábil» dicen fechas distintas.
@@ -3326,6 +3328,110 @@ export class BuylistService implements OnModuleInit {
       );
     }
     return toAdminSellRequestDTO(after);
+  }
+
+
+  /**
+   * **`POST /admin/buylist/:id/decline` — «DECLINAR AHORA»** (v1.51.3, D39).
+   *
+   * ### ⚠️ NO ES UN DESENLACE NUEVO: ES EL MISMO DE LA REGLA 7, SIN LA ESPERA
+   * *El operador ya decidió que no compra; esperar siete días para que un cron diga lo que él ya sabe
+   * no protege a nadie — deja al vendedor esperando y a la cola sucia.* Mismo `status` (`expirada`),
+   * mismo `expiredReason` (`no_offer`), **mismo correo 4 con el mismo texto**.
+   *
+   * **Toda la diferencia está en `declinedBy`:** poblado ⇒ **lo decidió una persona**; `null` ⇒ lo
+   * cerró el barrido. Es el único discriminador entre *«decidimos»* y *«dejamos vencer»*, y **vive
+   * solo del lado admin**: para el vendedor las dos causas son **el mismo hecho**, y por eso
+   * `expiredReason` **no gana un tercer valor** (ese enum viaja al cliente y gobierna su copy).
+   *
+   * ### ⚠️ NO se puede declinar una `ofertada`
+   * Hay una oferta **vinculante** en la bandeja del vendedor: cerrarla por aquí le **retiraría un
+   * trato que le prometimos** y le mandaría **el correo equivocado** (el 4 afirma que **nunca
+   * ofertamos**). La vía correcta es `offer/cancel` —que manda el correo 5 y devuelve la solicitud a
+   * `cotizada` con el reloj repuesto— y **desde ahí** sí se puede declinar. *Dos puertas, dos hechos:
+   * una retira una oferta, la otra cierra una espera.*
+   *
+   * **SÍ se declina con una oferta `pending_authorization` viva** (la solicitud está en `cotizada` y
+   * el vendedor no sabe que existe): **se anula en la misma transacción**, exactamente como la regla
+   * 7. Sin eso, el súper-admin autorizaría después **sobre una solicitud TERMINAL**.
+   *
+   * **⚠️ SIN `200` idempotente:** un segundo `decline` ⇒ `409`. Este verbo **manda un correo a una
+   * persona**, y un `200` silencioso en la segunda llamada esconde justo lo que hay que ver.
+   *
+   * ⚠️ **El `reason` NO llega hasta aquí, y es deliberado.** Es **motivo interno**: va al `AuditLog`
+   * desde el controller y **NO lleva columna** (`declinedBy` + `closedAt` + la bitácora guardan el
+   * acto entero). Recibirlo en el servicio sin usarlo sugeriría que hace algo — y lo único que puede
+   * hacer un motivo aquí es acabar filtrándose al correo, que lo tiene **prohibido**.
+   */
+  async adminDecline(id: string, actor: { id: string; role: Role }) {
+    const now = new Date();
+    const outcome = await this.prisma.$transaction(async (tx) => {
+      const before = await tx.sellRequest.findUnique({
+        where: { id },
+        include: { user: { select: { name: true, email: true, locale: true } } },
+      });
+      if (!before) throw BusinessException.notFound();
+      const guard = await tx.sellRequest.updateMany({
+        // Transición TERMINAL ⇒ la guarda es la del motor (misma disciplina que `paySpei` y
+        // `offer/authorize`), no un `if` sobre la lectura de arriba.
+        where: { id, status: 'cotizada', closedAt: null },
+        data: {
+          status: 'expirada',
+          expiredReason: SellRequestExpiryReason.no_offer,
+          closedAt: now,
+          // ⚠️ AQUÍ está toda la diferencia con la regla 7 del barrido.
+          declinedBy: actor.id,
+          // La oferta preparada muere con la solicitud, en la MISMA escritura.
+          ...(before.offerState === 'pending_authorization'
+            ? {
+                offerState: 'cancelled',
+                offerCancelledAt: now,
+                offerCancelReason: 'decline: no procederemos con la oferta',
+              }
+            : {}),
+        },
+      });
+      if (guard.count !== 1) {
+        throw BusinessException.conflict(
+          'DECLINE_NOT_ALLOWED',
+          'Only an open, unoffered sell request can be declined',
+          { status: before.status, offerState: before.offerState },
+        );
+      }
+      // PROJECTION-EXEMPT: fila cruda DENTRO de la tx; se proyecta abajo con la lista blanca admin.
+      const after = await tx.sellRequest.findUnique({ where: { id } });
+      return { before, after };
+    });
+
+    // CORREO 4, best-effort POST-COMMIT. **Misma plantilla y mismo texto que la regla 7**: al
+    // vendedor no le corresponde saber si le contestamos rápido o dejamos correr el reloj.
+    await this.sendNotPursuedMail(id, outcome.before.user);
+    return toAdminSellRequestDTO(outcome.after as Prisma.SellRequestGetPayload<object>);
+  }
+
+  /** **CORREO 4 — «no procederemos».** Best-effort post-commit; su fallo no revierte el cierre. */
+  private async sendNotPursuedMail(
+    id: string,
+    user: { name: string; email: string; locale: string | null } | null | undefined,
+  ): Promise<void> {
+    try {
+      if (!this.mail || !user?.email) {
+        this.logger.warn(
+          `buylist decline mail skipped for ${id}: ${this.mail ? 'no recipient email' : 'MAIL_PORT unavailable'}`,
+        );
+        return;
+      }
+      const msg = sellRequestNotPursuedTemplate(
+        { folio: id, portalUrl: this.portalRequestUrl(id) },
+        user.name ?? '',
+        user.locale,
+      );
+      await this.mail.send({ ...msg, to: user.email });
+    } catch (e) {
+      this.logger.error(
+        `buylist decline mail failed for ${id}: ${e instanceof Error ? e.message : String(e)}`,
+      );
+    }
   }
 
   /**

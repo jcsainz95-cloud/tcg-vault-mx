@@ -20,6 +20,7 @@ import { BuylistService } from './buylist.service';
 import { AuditService } from '../audit/audit.service';
 import {
   ConfirmShipmentDto,
+  DeclineDto,
   GuideCancellationDoneDto,
   GuideDto,
   ItemDecisionDto,
@@ -364,6 +365,33 @@ export class AdminBuylistController {
       entityType: 'SellRequest',
       entityId: id,
       after: { note: dto.note, guideActualCostCents: dto.guideActualCostCents ?? null },
+    });
+    return res;
+  }
+
+  /**
+   * v1.51.3 (D39) — **«declinar ahora»**: cierra hoy una solicitud que no vamos a ofertar, en vez de
+   * dejar al vendedor esperando siete días a que un cron diga lo que el operador ya sabe.
+   *
+   * **Mismo desenlace que la regla 7 del barrido** (`expirada`/`no_offer`, **mismo correo 4**); la
+   * única diferencia es `declinedBy`. **No es dinero saliente ⇒ sin `@MoneyOut`.**
+   * ⚠️ El `reason` es **INTERNO**: va a la bitácora y **jamás** al correo — el 4 tiene prohibido
+   * explicar por qué no ofertamos.
+   */
+  @Post(':id/decline')
+  async decline(
+    @Param('id') id: string,
+    @Body() dto: DeclineDto,
+    @CurrentUser() user: { id: string; role: Role },
+  ) {
+    const res = await this.buylist.adminDecline(id, user);
+    await this.audit.log({
+      actorUserId: user.id,
+      actorRole: user.role,
+      action: 'buylist.request.decline',
+      entityType: 'SellRequest',
+      entityId: id,
+      after: { reason: dto.reason },
     });
     return res;
   }

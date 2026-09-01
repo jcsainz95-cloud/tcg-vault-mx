@@ -4,6 +4,149 @@
 > El contrato (`docs/API_CONTRACT.md`) manda sobre el código. Stack: NestJS + Prisma + PostgreSQL,
 > Redis/BullMQ (jobs), JWT + argon2, S3/MinIO (presigned URLs), Stripe.
 
+## 0.20 v1.51 — **El barrido de SIETE reglas, los correos 2/3/4 y «declinar ahora»** (2026-09-01)
+
+> Implementa **ARCHITECTURE §4.39j** (las siete reglas), **§4.39n** (correos 2, 3 y 4) y
+> **API_CONTRACT §M5** (`POST /admin/buylist/:id/decline`, D39).
+>
+> ### ⚠️ Corté el pase, y digo por dónde
+> El orquestador pidió **cuatro** cosas. Entran **tres** —barrido + correos + `decline`— porque son
+> **una sola unidad**: el barrido no existe sin sus correos, y `decline` es **el segundo productor del
+> correo 4** (misma plantilla, mismo texto). **Queda fuera:** `PATCH …/pickup-address` (BL-13) y las
+> colas de autorización / `live-sellers`. Ninguna de las tres piezas de aquí depende de ellas, y
+> `pickup-address` arrastra su propia guarda (`PICKUP_ADDRESS_LOCKED`) y su interacción con la guía
+> muerta — es un pase con su propia superficie de prueba. *Dos pases verdes antes que uno a medias.*
+
+### 0.20.1 El barrido: siete reglas, **un job, un cron**
+
+`jobs/buylist-sweep.service.ts` reescrito. **NO es un job nuevo:** mismo `buylist-sweep`, mismo cron
+`'0 8 * * *'`, así que el `toEqual` **exhaustivo** de `test/scheduler.spec.ts` **no se toca**. *Un
+barrido más en el mismo pase es una query más, no un servicio más — y partirlo obligaría a razonar
+sobre dos relojes.*
+
+| # | Regla | Efecto |
+|---|---|---|
+| 1 | `ofertada` con el plazo de aceptación vencido | `rechazada` + **correo 3a** + tarea de guía si la hubiera |
+| 2 | `aceptada` vencida **y sin ninguna de las dos señales** | `expirada`/`not_shipped` + **correo 3b** + **tarea «cancelar guía no usada»** |
+| 3 | `ofertada` a **1 día hábil** de vencer | **correo 2a**, **UNA vez** |
+| 4 | `aceptada` a **1 día hábil**, sin señal del vendedor | **correo 2b**, **UNA vez** |
+| 5 | Ajuste sin responder a 7 días | `rechazada` (legacy, **sin cambio**, sin correo) |
+| 6 | Abandono a 30 días — **RE-ANCLADO en `receivedAt`** | `abandonada` |
+| 7 | `cotizada` que **nadie ofertó** en 7 días hábiles | `expirada`/`no_offer` + **correo 4** + **anula la oferta pendiente** |
+
+**Aquí se saldan los 7/30 inline que quedaban:** el set del ajuste vivo sale de
+`SELL_REQUEST_LIVE_ADJUSTMENT_STATES` y ya no hay literales de estado en el job.
+
+**La regla 7 cierra un hueco humano, no técnico.** Al re-anclar la 6 en `receivedAt`, **nada cerraba
+ya una `cotizada`**: el cliente podía esperar **indefinidamente** una respuesta que nadie le debía
+formalmente. Una cotización no compromete dinero — **el daño era humano**. Y lo que hace legítima la
+regla es que **cierra con una carta que dice explícitamente que no procederemos**, no con un archivado
+silencioso.
+
+**No contradice §P.13** aunque lo parezca: la regla 2 **le quita algo** a alguien que cumplió; la 7
+**no le quita nada** —nunca hubo oferta— y **lo libera de una espera abierta**. Además, el plazo que
+vence aquí **es nuestro** (por eso el dial se llama `buylistOfferIssueDeadlineBusinessDays`).
+
+**Ancla D38:** `offerIssueClockStartedAt ?? createdAt`. Cancelar una oferta enviada repone los siete
+días **íntegros** — *el vendedor no paga por una corrección nuestra*.
+
+**Anula la oferta `pending_authorization` en la MISMA escritura.** Sin eso, el súper-admin autorizaría
+después **sobre una solicitud terminal**, mandando un correo vinculante a alguien a quien acabamos de
+escribirle que no procederíamos.
+
+### 0.20.2 El candado de §P.13, y por qué la regla 2 no basta con la fecha
+
+La regla 2 lleva **`sellerShippedDeclaredAt: null` ∧ `shipmentConfirmedAt: null` en el `where`**. Es
+el candado que impide expirarle la venta a quien sí cumplió: *un plazo del vendedor solo puede vencer
+por algo que dependa del vendedor*. Y una `aceptada` **sin guía** tiene `shipDeadlineAt = null` ⇒ **no
+entra al predicado** ⇒ no expira: la etiqueta depende de **nosotros**.
+
+### 0.20.3 D23 — el recordatorio sale **una** vez, y hay DOS candados
+
+El barrido corre a diario y la ventana de «falta 1 día hábil» dura **más de una corrida**:
+
+| Candado | Qué cubre |
+|---|---|
+| `…ReminderSentAt: null` **en el `where` de la consulta** | el caso **secuencial**: la corrida de mañana ya no ve la fila |
+| `updateMany` + **`count === 1`** sobre ese mismo campo | el caso **concurrente**: dos corridas leen la fila sin sellar y **solo una** puede mandar el correo |
+
+⚠️ **Escribí el test del primero y el segundo sobrevivió a la mutación.** Al quitar el
+`if (count !== 1) continue` **nada falló**, porque el filtro de la consulta ya tapaba el caso
+secuencial. Añadí un test que simula **perder la carrera** (el sello lo gana otro ⇒ `count = 0`) y
+asevera que **no se manda el correo**; con él, la mutación sí cae. *Un candado sin test propio es un
+candado que alguien borra en el siguiente refactor.*
+
+**El contenido del recordatorio tiene su propia regla, y es la que más fácil se rompe:** repite el
+neto **junto a la condición NM**. La tentación es ser «ligero» y quedarse con la cifra — y un
+recordatorio que repite el monto **sin** decir *«siempre que lleguen en Near Mint»* **degrada la
+condición a letra chica por omisión**. Y **no re-lista el desglose**: un recordatorio que repite la
+tabla **se lee como una oferta nueva** y arruina la propiedad más valiosa del ciclo (hay **una** oferta
+y **no se edita**).
+
+### 0.20.4 Los correos 2, 3 y 4
+
+**Best-effort POST-COMMIT** en los tres: su fallo se loggea y **no revierte la transición** — lo
+contrario dejaría filas colgadas de un servicio externo. Test con `callOrder` que asevera el orden, y
+otro que hace fallar el envío y verifica que la expiración quedó escrita.
+**`escapeHtml` en todo valor dinámico**, fechas en `America/Mexico_City`, `normalizeLocale`, y
+**minimización**: jamás CLABE ni terceros.
+
+- **Correo 3 (expiración):** dos variantes, **sin montos ni siquiera en 3b** — ahí el monto ya no se
+  va a pagar y **mencionarlo solo duele**.
+- **⚠️ Correo 4 («no procederemos»):** **no puede decir «se te venció»** — nada expiró, **la cerramos
+  nosotros**. Además tiene prohibido explicar el porqué, mencionar **cualquier monto** y referirse al
+  **tiempo transcurrido** (delataría **por qué camino** se cerró, y es *un correo por hecho, no por
+  camino*). Hay un test que asevera las cuatro prohibiciones por lo negativo.
+
+**Un productor por correo, elegido en el call-site.** Nada de `switch (status)`: `expiredReason` es
+`null` en dos de los tres productores del correo 3, así que ramificar sobre datos de la fila
+**elegiría mal**.
+
+### 0.20.5 `POST /admin/buylist/:id/decline` (D39)
+
+**No es un desenlace nuevo: es el de la regla 7, sin la espera.** Mismo `status`, mismo
+`expiredReason`, **mismo correo 4 con el mismo texto**. *Toda la diferencia está en `declinedBy`*:
+poblado ⇒ lo decidió una persona; `null` ⇒ lo cerró el cron.
+
+- **No se puede declinar una `ofertada`:** hay un trato **vinculante** en la bandeja del vendedor, y
+  el correo 4 afirma que **nunca ofertamos**. La vía es `offer/cancel` (correo 5, reloj repuesto) y
+  declinar **después**. *Dos puertas, dos hechos.*
+- **Sí se declina con una `pending_authorization` viva**, que se **anula en la misma transacción**.
+- **Sin `200` idempotente:** un segundo `decline` ⇒ `409`. Este verbo **manda un correo a una
+  persona**, y un `200` silencioso escondería justo lo que hay que ver.
+- ⚠️ **El `reason` NO llega al servicio**, y es deliberado: va al `AuditLog` desde el controller y no
+  tiene columna. Recibirlo sin usarlo sugeriría que hace algo — y lo único que un motivo puede hacer
+  aquí es **acabar filtrándose al correo**, que lo tiene prohibido. Hay test sobre la **aridad** de la
+  función: es la versión estructural de la prohibición. *(De paso, eso quitó la única warning de lint
+  que este pase había introducido.)*
+
+### 0.20.6 Tests
+
+`test/buylist-sweep.seven-rules.spec.ts` (**NUEVO, 24**), +5 en `test/buylist.offer-cycle.spec.ts`
+(`decline`), y `test/buylist-sweep.closedat.spec.ts` **reescrito** sin perder su tesis (SEC-D2: toda
+terminal sella `closedAt`) — su mock era **posicional** (`mockResolvedValueOnce` ×2) y el barrido pasó
+de dos queries a seis; ahora responde **por regla**, no por orden de llamada.
+
+El fake **evalúa el `where`**: un mock que devolviera todas las filas dejaría pasar los tests aunque
+los candados (`sellerShippedDeclaredAt: null`, el sello del recordatorio) no existieran.
+
+**Prueba de mutación, tres a la vez:** quitar el sello del recordatorio, quitar el candado del «ya lo
+mandé» y quitar la apertura de la tarea de guía ⇒ **caen los tests correspondientes** (el primero,
+solo tras añadir el test de concurrencia — ver §0.20.3).
+
+`npm test` **216 suites / 2844 tests en verde** · `npm run typecheck` limpio · `npm run lint` con las
+**2 warnings preexistentes** y ninguna nueva.
+
+### 0.20.7 Lo que queda
+
+`PATCH /admin/buylist/:id/pickup-address` (BL-13, con `PICKUP_ADDRESS_LOCKED` y su interacción con la
+guía muerta), `GET /admin/buylist/offers/pending-authorization`, `GET /admin/buylist/live-sellers` y
+el filtro `awaitingGuide`. **Ninguna es dependencia de lo de este pase.**
+
+**Zona compartida tocada:** `backend/src/common/error-codes.ts` (`DECLINE_NOT_ALLOWED`). Aditiva.
+
+---
+
 ## 0.19 v1.51.11 — **BL-20** y el ciclo cerrado hasta `en_transito` (guía, confirmación y el «ya lo mandé») (2026-09-01)
 
 > Implementa **API_CONTRACT v1.51.11 §B** (BL-20) y **§M5/§6** (`POST …/guide`,

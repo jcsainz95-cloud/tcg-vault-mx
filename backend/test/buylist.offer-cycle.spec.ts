@@ -843,3 +843,61 @@ describe('La oferta como la ve el VENDEDOR (`SellOfferPublicDTO`)', () => {
     expect(res.offer.lines).toHaveLength(1);
   });
 });
+
+// =============================================================================================
+describe('`POST …/decline` (D39) — el mismo desenlace de la regla 7, sin la espera', () => {
+  it('`cotizada` ⇒ `expirada`/`no_offer` + CORREO 4, y `declinedBy` = el actor', async () => {
+    const { svc, request, mail } = build({ status: 'cotizada', offerState: null });
+    const res: any = await svc.adminDecline('sr-1', OPERATOR);
+    expect(request.status).toBe('expirada');
+    expect(request.expiredReason).toBe('no_offer');
+    expect(request.closedAt).toBeInstanceOf(Date);
+    // ⚠️ AQUÍ está toda la diferencia con la regla 7 del barrido (que lo deja en `null`).
+    expect(request.declinedBy).toBe('op-1');
+    expect(res).toHaveProperty('isPayable'); // proyección admin
+    expect(mail.send).toHaveBeenCalledTimes(1);
+  });
+
+  it('⚠️ el motivo interno NI SIQUIERA LLEGA al servicio: no hay por dónde filtrarlo al correo', async () => {
+    // El `reason` se queda en el controller (va al AuditLog) y no viaja hasta aquí. Es la versión
+    // estructural de la prohibición: el correo 4 no puede explicar por qué no ofertamos, y el dato
+    // con el que podría hacerlo no está en el alcance de esta función.
+    expect(BuylistService.prototype.adminDecline.length).toBe(2);
+    const { svc, mail } = build({ status: 'cotizada', offerState: null });
+    await svc.adminDecline('sr-1', OPERATOR);
+    const msg = (mail.send as jest.Mock).mock.calls[0][0];
+    expect(msg.text).toMatch(/no vamos a proceder/i);
+    expect(msg.text).not.toMatch(/MX\$/);
+  });
+
+  it('⚠️ NO se puede declinar una `ofertada`: hay un trato vinculante en su bandeja', async () => {
+    const { svc, request, mail } = build({ status: 'ofertada', offerState: 'sent' });
+    await expect(svc.adminDecline('sr-1', OPERATOR)).rejects.toMatchObject({
+      code: 'DECLINE_NOT_ALLOWED',
+      details: { status: 'ofertada' },
+    });
+    // Cerrarla por aquí le retiraría un trato prometido y le mandaría el correo equivocado (el 4
+    // afirma que NUNCA ofertamos). La vía correcta es `offer/cancel` y declinar después.
+    expect(request.status).toBe('ofertada');
+    expect(mail.send).not.toHaveBeenCalled();
+  });
+
+  it('SÍ se declina con una `pending_authorization` viva, y se ANULA en la misma escritura', async () => {
+    const { svc, request } = build({ status: 'cotizada', offerState: 'pending_authorization' });
+    await svc.adminDecline('sr-1', OPERATOR);
+    expect(request.status).toBe('expirada');
+    // Sin esto, el súper-admin autorizaría después sobre una solicitud TERMINAL.
+    expect(request.offerState).toBe('cancelled');
+  });
+
+  it('⚠️ SIN `200` idempotente: un segundo decline ⇒ 409 (y NO se manda un segundo correo)', async () => {
+    const { svc, mail } = build({ status: 'cotizada', offerState: null });
+    await svc.adminDecline('sr-1', OPERATOR);
+    expect(mail.send).toHaveBeenCalledTimes(1);
+    await expect(svc.adminDecline('sr-1', OPERATOR)).rejects.toMatchObject({
+      code: 'DECLINE_NOT_ALLOWED',
+    });
+    // Este verbo manda un correo a una persona: un 200 silencioso escondería justo lo que hay que ver.
+    expect(mail.send).toHaveBeenCalledTimes(1);
+  });
+});
