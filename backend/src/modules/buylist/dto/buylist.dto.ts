@@ -172,6 +172,37 @@ export class OfferResponseDto {
   @IsIn(['accept', 'reject']) decision!: 'accept' | 'reject';
 }
 
+/**
+ * v1.51 (§M5, D19) — `POST /admin/buylist/:id/guide`.
+ *
+ * ⚠️ **NO HAY INTEGRACIÓN CON PAQUETERÍA, y es alcance CERRADO:** sin compra automática, sin
+ * cotización de tarifas, sin rastreo en vivo y **sin validación del número contra el transportista**.
+ * **El sistema solo guarda y muestra.** Por eso el DTO valida forma (longitud, trim) y nada más:
+ * fingir una validación de guía sería prometer una verificación que no existe.
+ */
+export class GuideDto {
+  @IsString() @Length(1, 100) carrier!: string;
+  @IsString() @Length(1, 100) trackingNumber!: string;
+}
+
+/**
+ * v1.51.1 (§M5) — `POST /admin/buylist/:id/confirm-shipment`. El costo REAL de la etiqueta es
+ * **OPCIONAL** (fallback a la tarifa congelada).
+ *
+ * ⚠️ **FRONTERA MONEY-SAFE: este número NO ENTRA JAMÁS en `payoutNetCents`.** Al vendedor se le
+ * descuenta **la tarifa congelada que aceptó**, cueste lo que cueste la etiqueta real (D25/criterio
+ * 157). Es insumo **de reporte**, no de pago.
+ */
+export class ConfirmShipmentDto {
+  @IsOptional() @IsInt() @Min(0) guideActualCostCents?: number;
+}
+
+/** v1.51.1 (§M5, D22) — `POST /admin/buylist/:id/guide/cancellation-done`. Misma frontera money-safe. */
+export class GuideCancellationDoneDto {
+  @IsOptional() @IsString() @Length(0, 500) note?: string;
+  @IsOptional() @IsInt() @Min(0) guideActualCostCents?: number;
+}
+
 export class ItemDecisionDto {
   @IsIn(['approve', 'adjust', 'reject']) decision!: 'approve' | 'adjust' | 'reject';
   // B-4: cota dura de sanidad (MX$10,000). La cota fina (≤ quoted × factor y ≤ tope por

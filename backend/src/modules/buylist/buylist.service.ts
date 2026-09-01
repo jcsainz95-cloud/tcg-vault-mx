@@ -43,7 +43,7 @@ import {
 } from './buylist-mail.templates';
 // v1.51 (D14, criterio 154): los plazos del ciclo son DÍAS HÁBILES `America/Mexico_City`. El front
 // NO los recalcula: dos implementaciones de «día hábil» dicen fechas distintas.
-import { addBusinessDays } from '../../common/business-days';
+import { addBusinessDays, businessDaysSince } from '../../common/business-days';
 import { envOr } from '../mail/mail-env.util';
 import {
   rejectDeadlines,
@@ -134,6 +134,18 @@ function toAdminSellRequestDTO(r: {
     // cura eliminando la NECESIDAD de la copia, no moviéndola de archivo.*
     // Viaja en las DOS proyecciones (admin y cliente): las dos pantallas hacen la misma pregunta.
     isTerminal: isTerminalSellRequestStatus(r.status),
+    // ⚠️ v1.51.11 · **BL-20** (§4.39c **SITIO 10**) — `isPayable` DERIVADO, en la proyección
+    // **COMPARTIDA** y no en cada shape: así las CUATRO respuestas de mutación (`receive`, `verify`,
+    // `reject`, `pay-spei`) lo heredan y **ninguna mutación futura puede olvidarlo**.
+    //
+    // El defecto que cierra: §11 lo declara **sin `?`**, pero solo lo emitía `adminList` ⇒ quien
+    // escribiera `if (res.isPayable)` sobre `verify` obtenía un **`false` silencioso en superficie de
+    // dinero**. Y **`verify` es justamente la transición que lo vuelve verdadero** (sella
+    // `verifiedAt`): era el peor sitio posible para omitirlo.
+    //
+    // ⚠️ **ADMIN-ONLY.** La proyección de CLIENTE es «ésta MENOS N campos» (abajo): este campo entra
+    // en esa resta. Añadirlo aquí sin añadirlo allí **lo filtra al vendedor**.
+    isPayable: isPayableSellRequest(r),
     quotedTotalCents: r.quotedTotalCents,
     approvedTotalCents: r.approvedTotalCents,
     ineRequired: r.ineRequired,
@@ -156,13 +168,29 @@ function toAdminSellRequestDTO(r: {
 
 /**
  * S49-M1 — proyección de `SellRequest` hacia el **CLIENTE** (`POST /buylist/requests/:id/respond`,
- * `GET /buylist/requests/:id`). Es la de admin **menos** los dos campos internos: `closedAt` (el
- * schema: «NO se expone en DTOs de cliente») y `paidBy` (uuid del staff que ejecutó el SPEI — el
- * vendedor no tiene por qué recibir la identidad del operador). `clabeSnapshotEnc` no aparece en
- * NINGUNA de las dos: sólo `reveal-clabe` devuelve la CLABE, y en claro.
+ * `GET /buylist/requests/:id`). Es la de admin **menos** los campos internos: `closedAt` (el
+ * schema: «NO se expone en DTOs de cliente»), `paidBy` (uuid del staff que ejecutó el SPEI — el
+ * vendedor no tiene por qué recibir la identidad del operador) y —**v1.51.11 / BL-20**—
+ * **`isPayable`**. `clabeSnapshotEnc` no aparece en NINGUNA de las dos: sólo `reveal-clabe` devuelve
+ * la CLABE, y en claro.
+ *
+ * ### ⚠️ LA TRAMPA DE ESTA FUNCIÓN, escrita para el próximo que añada un campo arriba
+ * Esta proyección **hereda por omisión**: se construye como «la de admin **menos N**», así que
+ * **todo campo nuevo de `toAdminSellRequestDTO` se publica al VENDEDOR salvo que se reste aquí**. Es
+ * lo contrario de la lista blanca de arriba, y es deliberado —el cliente ve *casi* lo mismo—, pero
+ * significa que **añadir un campo admin-only son DOS cambios, no uno**. `isPayable` es exactamente
+ * ese caso: al vendedor no le toca saber si su solicitud entró a la cola de pago, porque **le
+ * anticiparía un depósito que aún puede no ocurrir** (v1.51.8).
  */
 function toCustomerSellRequestDTO(r: Parameters<typeof toAdminSellRequestDTO>[0]) {
-  const { closedAt: _closedAt, paidBy: _paidBy, ...safe } = toAdminSellRequestDTO(r);
+  const {
+    closedAt: _closedAt,
+    paidBy: _paidBy,
+    // ⚠️ v1.51.11 · BL-20 — el TERCER campo restado. Sin esta línea, el `isPayable` que se añadió
+    // arriba viajaría al vendedor por `GET /buylist/requests/:id` y `respond`.
+    isPayable: _isPayable,
+    ...safe
+  } = toAdminSellRequestDTO(r);
   return safe;
 }
 
@@ -2897,6 +2925,407 @@ export class BuylistService implements OnModuleInit {
         `buylist offer-cancel mail failed for ${req.id}: ${e instanceof Error ? e.message : String(e)}`,
       );
     }
+  }
+
+
+  // ===========================================================================================
+  // v1.51 — LA GUÍA Y EL TRÁNSITO (§M5 · ARCHITECTURE §4.39)
+  // ===========================================================================================
+
+  /**
+   * **`POST /admin/buylist/:id/guide` — capturar la guía** (D19/D21/D22, criterios 122/123/137).
+   *
+   * ### ⚠️ La etiqueta se compra AL ACEPTAR, no al ofertar (D21)
+   * Precondición **`status='aceptada'`**. *Ofertar a diez personas y comprar diez guías por
+   * adelantado sería tirar el dinero de las que digan que no.* Una oferta rechazada o ignorada
+   * **jamás genera etiqueta**.
+   *
+   * ### UN SOLO timestamp de guía, y es deliberado
+   * `PROJECT.md` ancla el plazo en *«que la guía llega al vendedor»* y el número queda visible al
+   * capturarse: **capturar ES entregar**. Dos campos (`emitida`/`entregada`) invitarían a que uno se
+   * quede sin poblar y **el reloj arrancara en el momento equivocado**.
+   *
+   * ### El reloj arranca con la GUÍA, no con la aceptación (criterio 123)
+   * `shipDeadlineAt = guideSentAt + buylistShipDeadlineBusinessDays` (días hábiles). Una guía
+   * entregada dos días después de aceptar **corre el vencimiento dos días**: *sería injusto correrle
+   * el reloj mientras espera una etiqueta que depende de nosotros.*
+   *
+   * **Mientras no haya guía, `shipDeadlineAt` es `null` ⇒ la regla 2 del barrido no ve la solicitud
+   * ⇒ NO expira.** Es correcto (§P.13) pero deja **un pendiente NUESTRO** que podría quedarse quieto
+   * para siempre — por eso existe la cola `awaitingGuide`.
+   *
+   * ### Re-captura: se corrige el número, NO se mueve la fecha
+   * ```
+   * shipDeadlineAt IS NULL      ⇒ congelar     // primera guía, o tras una corrección de dirección
+   * shipDeadlineAt IS NOT NULL  ⇒ NO se toca   // criterio 157: la fecha ya comunicada no se mueve
+   * ```
+   * ⚠️ Sin el primer caso, la guía re-capturada tras una corrección dejaría `shipDeadlineAt` en
+   * `null` **para siempre**: una solicitud invisible para el reloj **y** para la cola. *Un plazo que
+   * no arranca es tan defectuoso como uno que arranca mal.*
+   *
+   * ### `409 GUIDE_CANCELLATION_PENDING` (v1.51.4 / BL-13)
+   * Con una cancelación pendiente, capturar la etiqueta nueva **pisaría el número de la vieja** y la
+   * cola pediría cancelar *la que ya es la buena*. **Una etiqueta viva por solicitud.**
+   */
+  async adminGuide(id: string, carrier: string, trackingNumber: string) {
+    const days = await this.settings.getNumber(SettingKey.BUYLIST_SHIP_DEADLINE_BUSINESS_DAYS);
+    const now = new Date();
+    return this.prisma.$transaction(async (tx) => {
+      const before = await tx.sellRequest.findUnique({
+        where: { id },
+        select: {
+          status: true,
+          shipDeadlineAt: true,
+          shipmentCarrier: true,
+          shipmentTrackingNumber: true,
+          guideCancellationPendingAt: true,
+          guideCancellationDoneAt: true,
+        },
+      });
+      if (!before) throw BusinessException.notFound();
+      if (
+        before.guideCancellationPendingAt != null &&
+        before.guideCancellationDoneAt == null
+      ) {
+        throw BusinessException.conflict(
+          'GUIDE_CANCELLATION_PENDING',
+          'There is a pending guide cancellation: close it before capturing a new label',
+          {
+            carrier: before.shipmentCarrier,
+            trackingNumber: before.shipmentTrackingNumber,
+            guideCancellationPendingAt: before.guideCancellationPendingAt,
+          },
+        );
+      }
+      const guard = await tx.sellRequest.updateMany({
+        // La guarda es del MOTOR (patrón `count===1`), no un `if` sobre la lectura de arriba.
+        where: { id, status: 'aceptada', closedAt: null },
+        data: {
+          shipmentCarrier: carrier.trim(),
+          shipmentTrackingNumber: trackingNumber.trim(),
+          guideSentAt: now,
+          // Solo se congela si NO había fecha: re-capturar corrige el número, no mueve el plazo.
+          ...(before.shipDeadlineAt == null
+            ? { shipDeadlineAt: addBusinessDays(now, days) }
+            : {}),
+        },
+      });
+      if (guard.count !== 1) {
+        const current = await tx.sellRequest.findUnique({
+          where: { id },
+          select: { status: true },
+        });
+        throw BusinessException.conflict(
+          'GUIDE_NOT_ALLOWED',
+          'A guide can only be captured on an accepted sell request',
+          { status: current?.status },
+        );
+      }
+      const after = await tx.sellRequest.findUnique({
+        where: { id },
+        select: {
+          id: true,
+          status: true,
+          shipmentCarrier: true,
+          shipmentTrackingNumber: true,
+          guideSentAt: true,
+          shipDeadlineAt: true,
+        },
+      });
+      return {
+        sellRequestId: after?.id as string,
+        status: after?.status as SellRequestStatus,
+        shipmentCarrier: after?.shipmentCarrier ?? null,
+        shipmentTrackingNumber: after?.shipmentTrackingNumber ?? null,
+        guideSentAt: after?.guideSentAt ?? null,
+        shipDeadlineAt: after?.shipDeadlineAt ?? null,
+      };
+    });
+  }
+
+  /**
+   * **`POST /admin/buylist/:id/confirm-shipment` — LO ÚNICO que mueve a `en_transito`** (D20,
+   * criterios 114/122/138).
+   *
+   * ### ⚠️ Por qué esto y el «ya lo mandé» son DOS actos y no uno
+   * El plazo mide **una acción del vendedor**, pero nos enteramos por **una acción nuestra**. Sin
+   * nada en medio: el vendedor deposita el día 3, el operador confirma el día 4, y el barrido ya
+   * expiró una solicitud **en la que el vendedor cumplió** — se queda sin venta **por una latencia
+   * nuestra**, y encima ya gastamos la etiqueta. Por eso `declare-shipped` **detiene el reloj sin
+   * mover el estado** y esta confirmación **mueve el estado**: el barrido solo expira si **no hubo
+   * ninguna de las dos**.
+   *
+   * **Y AHORA SÍ** la línea empieza a sumar a la cifra de **«en camino»** de la mesa de decisión de
+   * **otras** solicitudes (criterio 116). Ni la compra de la guía ni el aviso del vendedor la mueven:
+   * *contar promesas como inventario es exactamente el error que esa pantalla existe para evitar.*
+   *
+   * ### `guideSentAt` NO es precondición — fail-VISIBLE, no fail-blocking
+   * Si el paquete llegó sin que hubiéramos capturado guía, **negar la confirmación no devuelve el
+   * paquete**. El caso queda **anotado** (`guideMissing: true` en la bitácora), que le da a M9 una
+   * métrica real de operación.
+   *
+   * ### ⚠️ FRONTERA MONEY-SAFE
+   * `guideActualCostCents` **NO ENTRA JAMÁS en `payoutNetCents`**: al vendedor se le descuenta **la
+   * tarifa congelada que aceptó**, cueste lo que cueste la etiqueta real (D25/criterio 157). Es
+   * insumo **de reporte**, no de pago.
+   */
+  async adminConfirmShipment(
+    id: string,
+    actor: { id: string; role: Role },
+    guideActualCostCents?: number,
+  ) {
+    const now = new Date();
+    return this.prisma.$transaction(async (tx) => {
+      const before = await tx.sellRequest.findUnique({
+        where: { id },
+        select: { status: true, guideSentAt: true },
+      });
+      if (!before) throw BusinessException.notFound();
+      const guard = await tx.sellRequest.updateMany({
+        // Regla dura (criterio 114): **solo** `aceptada`. No existe secuencia que llegue a
+        // `en_transito` sin pasar por `ofertada` y `aceptada`, y la guarda va en el `where`.
+        where: { id, status: 'aceptada', closedAt: null },
+        data: {
+          status: 'en_transito',
+          shipmentConfirmedAt: now,
+          shipmentConfirmedBy: actor.id,
+          // Insumo de REPORTE. No se toca `payoutNetCents` ni `offerShippingFeeCents`.
+          ...(guideActualCostCents != null ? { guideActualCostCents } : {}),
+        },
+      });
+      if (guard.count !== 1) {
+        const current = await tx.sellRequest.findUnique({
+          where: { id },
+          select: { status: true },
+        });
+        throw BusinessException.conflict(
+          'NOT_ACCEPTED',
+          'Shipment can only be confirmed on an accepted sell request',
+          { status: current?.status },
+        );
+      }
+      const after = await tx.sellRequest.findUnique({
+        where: { id },
+        select: {
+          id: true,
+          status: true,
+          shipmentConfirmedAt: true,
+          shipmentConfirmedBy: true,
+          guideActualCostCents: true,
+        },
+      });
+      return {
+        response: {
+          sellRequestId: after?.id as string,
+          status: after?.status as SellRequestStatus,
+          shipmentConfirmedAt: after?.shipmentConfirmedAt ?? null,
+          shipmentConfirmedBy: after?.shipmentConfirmedBy ?? null,
+          guideActualCostCents: after?.guideActualCostCents ?? null,
+        },
+        // Fail-VISIBLE: el caso «llegó sin guía capturada» no bloquea, pero queda contado.
+        audit: { guideMissing: before.guideSentAt == null, guideActualCostCents },
+      };
+    });
+  }
+
+  /**
+   * **`POST /buylist/requests/:id/declare-shipped` — el «ya lo mandé»** (§P.13, criterios 138/156).
+   *
+   * ### Los TRES efectos, y los tres importan
+   * 1. **DETIENE el reloj del vendedor** (sella `sellerShippedDeclaredAt`): el barrido ya no puede
+   *    expirar esa solicitud.
+   * 2. **NO mueve el estado.** Sigue `aceptada`. **Es su palabra, todavía sin confirmar.**
+   * 3. **NO suma al conteo de «en camino»** de la mesa. *Es una promesa, no un paquete.* El conteo se
+   *    queda **corto, no inflado** — que es el lado seguro del error — y la alerta P17 existe para
+   *    que alguien lo corrija pronto en vez de que se quede corto indefinidamente.
+   *
+   * **Idempotente:** una segunda llamada devuelve `200` con el timestamp **ya sellado** y **no lo
+   * re-fija** — re-fijarlo le regalaría al vendedor **un reloj infinito**. A diferencia de `respond`,
+   * aquí el `200` idempotente **sí** es correcto: no mueve dinero y el hecho que declara es puntual.
+   */
+  async declareShipped(userId: string, id: string) {
+    const req = await this.prisma.sellRequest.findUnique({ where: { id } });
+    // Anti-IDOR: ajena o inexistente ⇒ MISMA respuesta 404.
+    if (!req || req.userId !== userId) throw BusinessException.notFound();
+    if (req.status !== 'aceptada') {
+      // Una `cotizada` u `ofertada` NO ofrece esta vía (criterio 114): la pantalla del cliente no
+      // muestra guía ni instrucciones de envío hasta que la oferta está ACEPTADA.
+      throw BusinessException.conflict('NOT_ACCEPTED', 'This sell request is not accepted', {
+        status: req.status,
+      });
+    }
+    if (req.sellerShippedDeclaredAt != null) {
+      // Idempotencia: NO se re-fija. El reloj se detuvo una vez y ahí se queda.
+      return {
+        sellRequestId: req.id,
+        status: req.status,
+        sellerShippedDeclaredAt: req.sellerShippedDeclaredAt,
+      };
+    }
+    const now = new Date();
+    const guard = await this.prisma.sellRequest.updateMany({
+      // La guarda del motor incluye `sellerShippedDeclaredAt: null`: dos llamadas concurrentes no
+      // pueden re-sellar el timestamp (y con él, correr el reloj hacia adelante).
+      where: { id, userId, status: 'aceptada', closedAt: null, sellerShippedDeclaredAt: null },
+      data: { sellerShippedDeclaredAt: now },
+    });
+    const after = await this.prisma.sellRequest.findUnique({
+      where: { id },
+      select: { id: true, status: true, sellerShippedDeclaredAt: true },
+    });
+    if (guard.count !== 1 && after?.sellerShippedDeclaredAt == null) {
+      throw BusinessException.conflict('NOT_ACCEPTED', 'This sell request is not accepted', {
+        status: after?.status,
+      });
+    }
+    return {
+      sellRequestId: after?.id as string,
+      status: after?.status as SellRequestStatus,
+      sellerShippedDeclaredAt: after?.sellerShippedDeclaredAt as Date,
+    };
+  }
+
+  /**
+   * **`GET /admin/buylist/pending-shipment-confirmation`** — la cola «por confirmar envío»
+   * (criterio 156).
+   *
+   * Es **el trabajo que la separación de D20 crea**: las solicitudes en las que **el vendedor ya
+   * cumplió** (`sellerShippedDeclaredAt != null`) y **nosotros todavía no confirmamos**. Sin esta
+   * cola, el reloj detenido sería un pendiente invisible.
+   *
+   * **`alert` es DERIVADO server-side, no se persiste** (basta el timestamp + el dial): han pasado
+   * más de `buylistShipmentConfirmAlertBusinessDays` días hábiles desde la declaración.
+   *
+   * ⚠️ **La alerta NO HACE NADA MÁS: no expira, no cancela, no mueve el estado y no suma a «en
+   * camino».** *El vendedor ya cumplió; el pendiente es nuestro, así que el remedio es hacerlo
+   * visible, no castigarlo.* Orden `sellerShippedDeclaredAt` **asc** (lo más viejo primero: es una
+   * cola de trabajo).
+   */
+  async adminPendingShipmentConfirmation(page: number, pageSize: number, onlyAlerts?: boolean) {
+    const alertDays = await this.settings.getNumber(
+      SettingKey.BUYLIST_SHIPMENT_CONFIRM_ALERT_BUSINESS_DAYS,
+    );
+    const where: Prisma.SellRequestWhereInput = {
+      status: 'aceptada',
+      sellerShippedDeclaredAt: { not: null },
+      shipmentConfirmedAt: null,
+    };
+    const [rows, total] = await Promise.all([
+      this.prisma.sellRequest.findMany({
+        where,
+        orderBy: { sellerShippedDeclaredAt: 'asc' },
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+        include: { user: { select: { id: true, name: true, email: true } } },
+      }),
+      this.prisma.sellRequest.count({ where }),
+    ]);
+    const data = rows
+      .map((r) => {
+        const businessDaysWaiting = businessDaysSince(r.sellerShippedDeclaredAt as Date);
+        return {
+          sellRequestId: r.id,
+          seller: this.sellerRef(r.user),
+          sellerShippedDeclaredAt: r.sellerShippedDeclaredAt,
+          shipDeadlineAt: r.shipDeadlineAt,
+          carrier: r.shipmentCarrier,
+          trackingNumber: r.shipmentTrackingNumber,
+          businessDaysWaiting,
+          alert: businessDaysWaiting > alertDays,
+        };
+      })
+      // El filtro de alertas se aplica DESPUÉS de derivarlas: `alert` no es columna, así que no hay
+      // `where` que lo exprese. El `total` es el de la cola completa (es lo que el contrato pagina).
+      .filter((r) => (onlyAlerts ? r.alert : true));
+    return { data, page, pageSize, total };
+  }
+
+  /**
+   * **`GET /admin/buylist/guides/pending-cancellation`** — «cancelar guía no usada» (D22, criterio
+   * 139).
+   *
+   * *Una etiqueta comprada y olvidada es **dinero tirado que nadie ve**.* Las dos mitades de D22 son
+   * obligatorias: **que la etiqueta sea cancelable no sirve si nadie avisa.** Ésta es la mitad del
+   * aviso.
+   *
+   * ⚠️ **NO DESAPARECE SOLA** (criterio 139): sale de la cola únicamente por
+   * `POST …/guide/cancellation-done`. Por eso el predicado es
+   * `guideCancellationPendingAt != null ∧ guideCancellationDoneAt IS NULL`, y **con el número de guía
+   * a la vista** — sin él la fila no es trabajable.
+   */
+  async adminPendingGuideCancellation(page: number, pageSize: number) {
+    const where: Prisma.SellRequestWhereInput = {
+      guideCancellationPendingAt: { not: null },
+      guideCancellationDoneAt: null,
+    };
+    const [rows, total] = await Promise.all([
+      this.prisma.sellRequest.findMany({
+        where,
+        orderBy: { guideCancellationPendingAt: 'asc' },
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+        include: { user: { select: { id: true, name: true, email: true } } },
+      }),
+      this.prisma.sellRequest.count({ where }),
+    ]);
+    return {
+      data: rows.map((r) => ({
+        sellRequestId: r.id,
+        seller: this.sellerRef(r.user),
+        carrier: r.shipmentCarrier,
+        trackingNumber: r.shipmentTrackingNumber,
+        guideSentAt: r.guideSentAt,
+        guideCancellationPendingAt: r.guideCancellationPendingAt,
+        // Por qué se abrió la tarea. ⚠️ v1.51.4: puede ser un estado NO terminal — la corrección de
+        // dirección sobre una solicitud VIVA es el tercer productor de esta cola.
+        closedStatus: r.status,
+        expiredReason: r.expiredReason,
+      })),
+      page,
+      pageSize,
+      total,
+    };
+  }
+
+  /**
+   * **`POST /admin/buylist/:id/guide/cancellation-done`** (D22, criterio 139).
+   *
+   * La **única** salida de la cola. Captura el costo REAL de la etiqueta que murió sin usarse: `0`
+   * si la paquetería la reembolsó, el importe si no. **Sin este campo, la etiqueta tirada —el
+   * «dinero que nadie ve» de D22— nunca entraría al P&L**, que es justo lo que la cola existe para
+   * evitar.
+   *
+   * ⚠️ **Misma frontera money-safe que `confirm-shipment`: NO toca `payoutNetCents`.** Las dos ramas
+   * son **disjuntas** (o el envío se confirmó, o la guía murió sin usarse), así que **nunca hay dos
+   * escritores del campo en el mismo estado**.
+   */
+  async adminGuideCancellationDone(
+    id: string,
+    actor: { id: string; role: Role },
+    guideActualCostCents?: number,
+  ) {
+    const now = new Date();
+    const guard = await this.prisma.sellRequest.updateMany({
+      where: { id, guideCancellationPendingAt: { not: null }, guideCancellationDoneAt: null },
+      data: {
+        guideCancellationDoneAt: now,
+        guideCancellationDoneBy: actor.id,
+        ...(guideActualCostCents != null ? { guideActualCostCents } : {}),
+      },
+    });
+    const after = await this.prisma.sellRequest.findUnique({ where: { id } });
+    if (!after) throw BusinessException.notFound();
+    if (guard.count !== 1) {
+      throw BusinessException.conflict(
+        'NO_PENDING_GUIDE_CANCELLATION',
+        'There is no pending guide cancellation on this sell request',
+        {
+          guideCancellationPendingAt: after.guideCancellationPendingAt,
+          guideCancellationDoneAt: after.guideCancellationDoneAt,
+        },
+      );
+    }
+    return toAdminSellRequestDTO(after);
   }
 
   /**

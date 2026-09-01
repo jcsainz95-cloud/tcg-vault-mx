@@ -267,13 +267,17 @@ describe('§4.39c — los NUEVE sitios: guard de RESIDUO (ninguno vuelve a codif
     expect(ocurrencias).toBe(4);
   });
 
-  it('sitio 10 — `isPayable` se DERIVA server-side y es ADMIN-ONLY (UNA sola emisión)', () => {
+  it('sitio 10 — `isPayable` se DERIVA server-side y es ADMIN-ONLY', () => {
     // La SEXTA copia gobernaba el botón de PAGAR POR SPEI y replicaba **uno solo** de los dos
-    // términos. `isPayable` la borra — pero **solo en la proyección de admin**: al vendedor le
-    // anticiparía un depósito que aún puede no ocurrir. Que sea UNA emisión es la prueba de que no
-    // se coló en las dos proyecciones de cliente (donde `isTerminal` sí va, y son tres).
+    // términos. `isPayable` la borra.
+    // v1.51.11 · BL-20: son DOS emisiones — el listado de admin y **la proyección COMPARTIDA**, para
+    // que las cuatro respuestas de mutación (`receive`/`verify`/`reject`/`pay-spei`) lo hereden y
+    // ninguna futura pueda olvidarlo. `verify` es justamente la transición que lo vuelve verdadero.
     const buylist = CODE.find((f) => f.path === 'modules/buylist/buylist.service.ts');
-    expect((buylist?.text.match(/isPayable: isPayableSellRequest\(/g) ?? []).length).toBe(1);
+    expect((buylist?.text.match(/isPayable: isPayableSellRequest\(/g) ?? []).length).toBe(2);
+    // ⚠️ Y la MITAD QUE FALTA SI SOLO SE HACE LA PRIMERA: la proyección de cliente se construye como
+    // «la de admin MENOS N campos», así que el campo nuevo hay que RESTARLO ahí o viaja al vendedor.
+    expect(buylist?.text).toMatch(/isPayable: _isPayable/);
   });
 
   it('sitio 10 — `isPayableSellRequest` coincide con la constante Y exige `verifiedAt`', () => {

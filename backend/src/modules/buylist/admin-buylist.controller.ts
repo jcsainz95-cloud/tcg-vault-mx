@@ -19,6 +19,9 @@ import { parseAdminListFilters } from '../../common/admin-list-filters';
 import { BuylistService } from './buylist.service';
 import { AuditService } from '../audit/audit.service';
 import {
+  ConfirmShipmentDto,
+  GuideCancellationDoneDto,
+  GuideDto,
   ItemDecisionDto,
   OfferCancelDto,
   OfferDto,
@@ -248,6 +251,121 @@ export class AdminBuylistController {
       after: { wasSent: audit.wasSent, reason: audit.reason },
     });
     return response;
+  }
+
+  /**
+   * v1.51 (D19/D21/D22, criterios 122/123/137) — **capturar la guía.** Congela el plazo de envío la
+   * PRIMERA vez; una re-captura corrige el número **sin mover la fecha ya comunicada** (criterio
+   * 157). Auditado `buylist.tracking.capture`.
+   */
+  @Post(':id/guide')
+  async guide(
+    @Param('id') id: string,
+    @Body() dto: GuideDto,
+    @CurrentUser() user: { id: string; role: Role },
+  ) {
+    const res = await this.buylist.adminGuide(id, dto.carrier, dto.trackingNumber);
+    await this.audit.log({
+      actorUserId: user.id,
+      actorRole: user.role,
+      action: 'buylist.tracking.capture',
+      entityType: 'SellRequest',
+      entityId: id,
+      after: {
+        carrier: res.shipmentCarrier,
+        trackingNumber: res.shipmentTrackingNumber,
+        shipDeadlineAt: res.shipDeadlineAt,
+      },
+    });
+    return res;
+  }
+
+  /**
+   * v1.51 (D20, criterios 114/122/138) — **LO ÚNICO que mueve a `en_transito`.**
+   *
+   * Ni la compra de la guía ni el «ya lo mandé» del vendedor mueven este estado por sí solos: el
+   * primero es papel y el segundo es **su palabra, todavía sin confirmar**.
+   * `guideMissing` va a la bitácora **sin bloquear**: si el paquete llegó sin guía capturada, negar
+   * la confirmación no devuelve el paquete — pero el caso queda contado (fail-visible).
+   */
+  @Post(':id/confirm-shipment')
+  async confirmShipment(
+    @Param('id') id: string,
+    @Body() dto: ConfirmShipmentDto,
+    @CurrentUser() user: { id: string; role: Role },
+  ) {
+    const { response, audit } = await this.buylist.adminConfirmShipment(
+      id,
+      user,
+      dto.guideActualCostCents,
+    );
+    await this.audit.log({
+      actorUserId: user.id,
+      actorRole: user.role,
+      action: 'buylist.shipment.confirm',
+      entityType: 'SellRequest',
+      entityId: id,
+      after: {
+        guideMissing: audit.guideMissing,
+        guideActualCostCents: audit.guideActualCostCents ?? null,
+      },
+    });
+    return response;
+  }
+
+  /**
+   * v1.51 (criterio 156) — cola **«por confirmar envío»**: el vendedor ya cumplió y el pendiente es
+   * NUESTRO. `alert` es derivado; **no expira, no cancela, no mueve nada.**
+   * Ruta literal declarada ANTES de `@Get(':id')` para que el parámetro no la capture.
+   */
+  @Get('pending-shipment-confirmation')
+  pendingShipmentConfirmation(
+    @Query('page') page = '1',
+    @Query('pageSize') pageSize = '20',
+    @Query('onlyAlerts') onlyAlerts?: string,
+  ) {
+    const f = parseAdminListFilters({ page, pageSize });
+    // Tri-estado ratificado (v1.51.9 D): solo `'true'`/`'false'` filtran; cualquier otra cosa no
+    // filtra y NO falla — un query param mal escrito no puede convertir una cola de trabajo en 400.
+    return this.buylist.adminPendingShipmentConfirmation(
+      f.page,
+      f.pageSize,
+      onlyAlerts === 'true' ? true : undefined,
+    );
+  }
+
+  /**
+   * v1.51 (D22, criterio 139) — cola **«cancelar guía no usada»**. *Una etiqueta comprada y olvidada
+   * es dinero tirado que nadie ve.* **NO desaparece sola:** sale únicamente por
+   * `POST :id/guide/cancellation-done`.
+   */
+  @Get('guides/pending-cancellation')
+  pendingGuideCancellation(@Query('page') page = '1', @Query('pageSize') pageSize = '20') {
+    const f = parseAdminListFilters({ page, pageSize });
+    return this.buylist.adminPendingGuideCancellation(f.page, f.pageSize);
+  }
+
+  /**
+   * v1.51.1 (D22) — cierra la tarea y **captura el costo REAL de la etiqueta que murió sin usarse**.
+   * Es el único momento en que se conoce: `0` si la paquetería la reembolsó, el importe si no.
+   * ⚠️ **No toca `payoutNetCents`**: es reporte, no pago.
+   */
+  @Post(':id/guide/cancellation-done')
+  async guideCancellationDone(
+    @Param('id') id: string,
+    @Body() dto: GuideCancellationDoneDto,
+    @CurrentUser() user: { id: string; role: Role },
+  ) {
+    const res = await this.buylist.adminGuideCancellationDone(id, user, dto.guideActualCostCents);
+    await this.audit.log({
+      actorUserId: user.id,
+      actorRole: user.role,
+      action: 'buylist.guide.cancellation_done',
+      entityType: 'SellRequest',
+      entityId: id,
+      after: { note: dto.note, guideActualCostCents: dto.guideActualCostCents ?? null },
+    });
+    return res;
   }
 
   @Post(':id/receive')

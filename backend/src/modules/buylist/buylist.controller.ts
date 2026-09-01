@@ -152,4 +152,24 @@ export class BuylistController {
   ) {
     return this.buylist.offerResponse(userId, id, dto.decision);
   }
+
+  /**
+   * v1.51 (§P.13, criterios 138/156) — **el «ya lo mandé».** Body vacío.
+   *
+   * ⚠️ **DETIENE el reloj del vendedor y NO mueve nada más.** La solicitud **sigue `aceptada`** y
+   * **no suma a «en camino»**: es **su palabra, todavía sin confirmar**. Lo único que mueve a
+   * `en_transito` es la confirmación del operador (D20).
+   *
+   * Existe porque *un plazo del vendedor solo puede vencer por algo que dependa del vendedor*: sin
+   * esto, quien deposita el día 3 pierde la venta si nosotros confirmamos el día 4.
+   *
+   * **Idempotente** (`200` con el timestamp ya sellado, sin re-fijarlo): a diferencia de `respond`,
+   * aquí el `200` idempotente **sí** es correcto — no mueve dinero y el hecho que declara es puntual.
+   */
+  @Roles(Role.customer, Role.vault_operator, Role.super_admin)
+  @Post('requests/:id/declare-shipped')
+  @HttpCode(200)
+  declareShipped(@CurrentUser('id') userId: string, @Param('id') id: string) {
+    return this.buylist.declareShipped(userId, id);
+  }
 }

@@ -4,6 +4,141 @@
 > El contrato (`docs/API_CONTRACT.md`) manda sobre el código. Stack: NestJS + Prisma + PostgreSQL,
 > Redis/BullMQ (jobs), JWT + argon2, S3/MinIO (presigned URLs), Stripe.
 
+## 0.19 v1.51.11 — **BL-20** y el ciclo cerrado hasta `en_transito` (guía, confirmación y el «ya lo mandé») (2026-09-01)
+
+> Implementa **API_CONTRACT v1.51.11 §B** (BL-20) y **§M5/§6** (`POST …/guide`,
+> `POST …/confirm-shipment`, `POST /buylist/requests/:id/declare-shipped`, las dos colas y
+> `guide/cancellation-done`), sobre **ARCHITECTURE §4.39** (D19/D20/D21/D22, criterios 114/122/123/
+> 137/138/156).
+
+### 0.19.1 BL-20 — `isPayable` en las cuatro proyecciones, y la trampa que lo acompaña
+
+**Son DOS cambios, no uno**, y el primero sin el segundo **convierte un arreglo de tipos en una fuga
+de estado interno**:
+
+| # | Dónde | Qué |
+|---|---|---|
+| 1 | `toAdminSellRequestDTO` (proyección **COMPARTIDA**) | **añade** `isPayable` ⇒ `receive`, `verify`, `reject` y `pay-spei` lo heredan, y **ninguna mutación futura puede olvidarlo** |
+| 2 | `toCustomerSellRequestDTO` | **resta** `isPayable` ⇒ pasa de restar **dos** campos a **TRES** (`closedAt`, `paidBy`, `isPayable`) |
+
+**Por qué el segundo es obligatorio:** la proyección de cliente **hereda por omisión** —se construye
+como «la de admin **menos N**»—, así que **todo campo nuevo de la de admin se publica al vendedor
+salvo que se reste**. Es lo contrario de la lista blanca de arriba y es deliberado (el cliente ve
+*casi* lo mismo), pero significa que **añadir un campo admin-only son dos cambios**. Quedó escrito en
+el docblock de esa función, para el próximo que añada uno.
+
+**`verify` era el peor sitio posible para omitirlo:** es **la transición que vuelve `isPayable`
+verdadero** (sella `verifiedAt`), así que quien escribiera `if (res.isPayable)` justo después obtenía
+un **`false` silencioso en superficie de dinero**. Hay test que lo recorre: antes `false`, después
+`true`.
+
+**El test de la fuga asevera por AUSENCIA DE CLAVE**, no por valor falsy: un `isPayable: false`
+filtrado seguiría siendo estado interno del pipeline viajando al vendedor.
+
+### 0.19.2 La separación que arregla un bug real (D20 · §P.13)
+
+El plazo mide **una acción del vendedor** pero nos enteramos por **una acción nuestra**. Sin nada en
+medio: el vendedor deposita el **día 3**, el operador confirma el **día 4**, y el barrido ya expiró
+una solicitud **en la que el vendedor cumplió** — se queda sin venta **por una latencia nuestra**, y
+encima ya gastamos la etiqueta. Por eso son **dos actos**:
+
+| Acto | Estado | Reloj | ¿«en camino»? |
+|---|---|---|---|
+| `POST /buylist/requests/:id/declare-shipped` (vendedor) | **no lo mueve** — sigue `aceptada` | **lo DETIENE** | **no** |
+| `POST /admin/buylist/:id/confirm-shipment` (operador) | **`en_transito`** | — | **sí, aquí empieza** |
+
+*El barrido solo expira si no hubo **ninguna** de las dos.* El «ya lo mandé» es **su palabra, todavía
+sin confirmar**: el conteo de «en camino» se queda **corto, no inflado** — el lado seguro del error—,
+y la **alerta P17** existe para que alguien lo corrija pronto.
+
+**Idempotencia del «ya lo mandé»:** `200` con el timestamp ya sellado y **sin re-fijarlo** —
+re-fijarlo le regalaría al vendedor **un reloj infinito**. La guarda del motor lleva
+`sellerShippedDeclaredAt: null`, así que dos llamadas concurrentes tampoco pueden re-sellarlo. A
+diferencia de `respond`, aquí el `200` idempotente **sí** es correcto: no mueve dinero y el hecho que
+declara es puntual.
+
+**La cola que la separación crea:** `GET /admin/buylist/pending-shipment-confirmation` — las
+solicitudes con el reloj detenido y sin confirmar. Sin ella, el pendiente **nuestro** sería invisible.
+`alert` es **derivado** (timestamp + dial), **no expira, no cancela, no mueve el estado y no suma a
+«en camino»**: *el vendedor ya cumplió; el remedio es hacerlo visible, no castigarlo.*
+
+### 0.19.3 La guía (D21) y la etiqueta muerta (D22)
+
+**D21 — la etiqueta se compra AL ACEPTAR, no al ofertar.** Precondición `status='aceptada'`; sobre una
+`ofertada` ⇒ `409 GUIDE_NOT_ALLOWED`. *Ofertar a diez personas y comprar diez guías por adelantado
+sería tirar el dinero de las que digan que no.* **El reloj arranca con la ENTREGA DE LA GUÍA**
+(`shipDeadlineAt = guideSentAt + 3 días hábiles`), no con la aceptación: sería injusto correrle el
+plazo mientras espera una etiqueta que depende de nosotros.
+
+**Un solo timestamp de guía** (`guideSentAt`): capturar **es** entregar. Dos campos
+(`emitida`/`entregada`) invitarían a que uno se quede sin poblar y **el reloj arrancara en el momento
+equivocado**.
+
+**Re-captura:** corrige `carrier`/`trackingNumber` y **NO mueve la fecha ya comunicada** (criterio
+157) — salvo que `shipDeadlineAt` esté en `null`, en cuyo caso **sí congela**. Sin ese matiz, la guía
+re-capturada tras una corrección de dirección dejaría el plazo en `null` **para siempre**: una
+solicitud invisible para el reloj **y** para la cola `awaitingGuide`. *Un plazo que no arranca es tan
+defectuoso como uno que arranca mal.*
+
+**`409 GUIDE_CANCELLATION_PENDING`:** con una cancelación abierta, capturar la etiqueta nueva
+**pisaría el número de la vieja** y la cola pediría cancelar *la que ya es la buena*. **Una etiqueta
+viva por solicitud.**
+
+**D22 — las dos mitades, y las dos van:** la tarea se **encola** (ya lo hacía `offer/cancel`) **y
+alguien avisa** (`GET /admin/buylist/guides/pending-cancellation`, con el número de guía a la vista —
+sin él la fila no es trabajable). **No desaparece sola** (criterio 139): sale únicamente por
+`POST …/guide/cancellation-done`, que es **el único momento en que se conoce el costo final** de la
+etiqueta (`0` si la reembolsaron). Sin ese campo, *el «dinero tirado que nadie ve» nunca entraría al
+P&L*.
+
+**⚠️ FRONTERA money-safe, en las dos ramas:** `guideActualCostCents` **NO ENTRA JAMÁS en
+`payoutNetCents`**. Al vendedor se le descuenta **la tarifa congelada que aceptó**, cueste lo que
+cueste la etiqueta real (D25/criterio 157). Hay test que captura una etiqueta de $450 y verifica que
+`offerShippingFeeCents`, `offerNetCents` y `payoutNetCents` **no se mueven**.
+
+**`guideSentAt` NO es precondición de `confirm-shipment`:** si el paquete llegó sin guía capturada,
+negar la confirmación **no devuelve el paquete**. El caso queda **anotado** (`guideMissing: true` en
+la bitácora): **fail-visible, no fail-blocking**.
+
+### 0.19.4 Tests
+
+`test/buylist.guide-transit.spec.ts` (**NUEVO, 30**) + censo del sitio 10 actualizado.
+
+**El que motiva todo el diseño:** vendedor que declara el **día 3** y operador que confirma el **día
+4** ⇒ la solicitud **sigue viva** (`closedAt` nulo, estado intacto hasta la confirmación). Y: **no se
+entra a `en_transito`** desde `cotizada`/`ofertada`/`recibida`/`en_transito`, ni por la guía ni por el
+«ya lo mandé» — solo por la confirmación del operador.
+
+**Prueba de mutación, tres a la vez:** (1) quitar la resta de `isPayable` en la proyección de cliente
+—la fuga de BL-20—, (2) que `declare-shipped` mueva a `en_transito`, (3) que `confirm-shipment` acepte
+cualquier estado ⇒ **8 tests fallan**. Revertidas.
+
+`npm test` **215 suites / 2815 tests en verde** · `npm run typecheck` limpio · `npm run lint` con las
+**2 warnings preexistentes**.
+
+### 0.19.5 Un límite que descubrí implementando, y NO resolví por mi cuenta
+
+**`businessDaysSince` LANZA fuera de los años que cubre `MX_HOLIDAYS` (2026-2030)**, y la cola «por
+confirmar envío» lo llama **por fila**. Consecuencia: una sola fila con `sellerShippedDeclaredAt`
+fuera de cobertura **tumba la cola entera** con un `500`.
+
+**Lo dejé lanzando a propósito y lo señalo en vez de degradarlo**, por dos razones: (a) `business-days`
+lanza **por doctrina** —degradar a «no hay festivos» adelantaría vencimientos y expiraría ofertas de
+gente que sí cumplió—, y (b) inventarme aquí una degradación sería crear política que el contrato no
+tiene. **Pero el modo de fallo no es el mismo que en un plazo:** aquí lo que desaparece es **una cola
+de trabajo entera**, que es justamente el fallo que §4.39c(c.11) acaba de llamar *«el que no se ve»*.
+
+**En la práctica hoy no se puede disparar** (`sellerShippedDeclaredAt` solo lo escribe
+`declare-shipped`, con `now()`), **pero se dispara solo en 2031** si nadie extiende la tabla. **Para
+el arquitecto:** ¿degradación por fila (`alert: true` + días desconocidos) o `500` de la cola? **No lo
+resuelvo yo.** Y **para devops:** extender `MX_HOLIDAYS` es una tarea con **fecha**, no «cuando se
+pueda».
+
+**Zona compartida tocada:** `backend/src/common/error-codes.ts` (cuatro códigos del contrato).
+Aditiva.
+
+---
+
 ## 0.18 v1.51 — **EL CORAZÓN DEL CICLO: la oferta** (emitir, autorizar, cancelar, responder) + **BL-16** (2026-09-01)
 
 > Implementa **API_CONTRACT §M5** (`POST …/offer`, `…/offer/authorize`, `…/offer/cancel`) y **§6**

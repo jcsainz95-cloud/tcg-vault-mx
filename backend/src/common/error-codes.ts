@@ -267,6 +267,26 @@ export const ErrorCode = {
   // después NO funciona y NO tiene efecto. `details.offerAcceptDeadlineAt`. 409.
   OFFER_EXPIRED: 'OFFER_EXPIRED',
 
+  // ===================== v1.51 · CICLO — GUÍA Y TRÁNSITO (§M5 / §4.39) =====================
+  // `POST /admin/buylist/:id/guide` sobre algo que no está `aceptada`. **La guía se compra AL
+  // ACEPTAR, no al ofertar** (D21, criterio 137): ofertar a diez personas y comprar diez etiquetas
+  // por adelantado sería tirar el dinero de las que digan que no. `details.status`. 409.
+  GUIDE_NOT_ALLOWED: 'GUIDE_NOT_ALLOWED',
+  // v1.51.4 (BL-13) — hay una cancelación de guía PENDIENTE: capturar la etiqueta nueva pisaría el
+  // número de la vieja y la cola pediría cancelar *la que ya es la buena*. Serializa lo que la
+  // operación ya exige: **una etiqueta viva por solicitud**. *Dos etiquetas vivas para un paquete es
+  // cómo se paga dos veces y se pierde una caja.*
+  // `details: { carrier, trackingNumber, guideCancellationPendingAt }`. 409.
+  GUIDE_CANCELLATION_PENDING: 'GUIDE_CANCELLATION_PENDING',
+  // `confirm-shipment` (admin) y `declare-shipped` (cliente) exigen `status='aceptada'`.
+  // Regla dura (criterio 114): **no existe** ninguna secuencia que lleve una solicitud a
+  // `en_transito` sin haber pasado por `ofertada` y `aceptada`. `details.status`. 409.
+  NOT_ACCEPTED: 'NOT_ACCEPTED',
+  // `guide/cancellation-done` sin tarea abierta. La cola **NO desaparece sola** (criterio 139): sale
+  // únicamente por este endpoint, porque *una etiqueta comprada y olvidada es dinero tirado que nadie
+  // ve*. `details: { guideCancellationPendingAt, guideCancellationDoneAt }`. 409.
+  NO_PENDING_GUIDE_CANCELLATION: 'NO_PENDING_GUIDE_CANCELLATION',
+
   // Guest checkout (v1.21) — API_CONTRACT §0 / §4-G. Todos ADITIVOS: ningún código previo cambia.
   // El invitado eligió destino bóveda. NO es un error de UI: es la señal del UPSELL (criterio 48),
   // con `details.upsell=true`. La bóveda exige cuenta por decisión de producto (PROJECT §C/§J). 422.
