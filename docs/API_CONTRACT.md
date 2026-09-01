@@ -2,7 +2,69 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-01 (rev **v1.51.8**).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-01 (rev **v1.51.9**).
+>
+> **Changelog v1.51.9 — «DECLARADO Y AUSENTE» SON DOS COSAS DISTINTAS, Y HAY UN TERCER FILTRO (2026-09-01,
+> arquitecto; **CERO DDL, CERO campos nuevos, CERO cambios de conducta**. ARCHITECTURE §4.39c gana la doctrina de las
+> reglas que coinciden):**
+> ⚠️ **Dos preguntas de backend al cerrar BL-17/BL-18, más el barrido que pidió el orquestador.** Backend no rellenó
+> `awaitingGuide?` y lo señaló. Correcto — y la respuesta **no** es la de `live?`.
+>
+> **A. ⚠️ LA DISTINCIÓN QUE FALTABA: «declarado y ausente» tiene DOS CAUSAS y solo UNA es un defecto.**
+> Van tres filtros del ciclo declarados en §M5 y **no eran el mismo caso**:
+> | | **Categoría (b) — DEFECTO** | **Categoría (a) — NO es defecto** |
+> |---|---|---|
+> | Qué es | declarado, **ausente**, y **sus insumos ya existen** ⇒ **se podría implementar hoy** | declarado, ausente, y **depende de una feature que aún no se construye** |
+> | Cómo se detecta | *«si lo implementara hoy, ¿haría algo?»* → **sí** | → **no: siempre devolvería vacío** |
+> | Ejemplo | **`live?`** (filtra por `status`, que toda fila tiene) · `seller.phone` · `isPayable` | **`awaitingGuide?`** · **`offerReissueAlert?`** |
+> | Qué se hace | **se implementa** (BL-15/BL-17/BL-18) | **se queda declarado y se MARCA** |
+>
+> **`live?` era (b) y por eso hubo que construirlo:** su ausencia **forzaba al cliente a enumerar los cuatro
+> terminales**, la copia que este ciclo vino a borrar. **`awaitingGuide?` es (a):** filtra `status='aceptada' ∧
+> guideSentAt IS NULL`, y **`aceptada` solo es alcanzable por el ciclo de oferta** ⇒ hoy devolvería vacío **siempre**,
+> y su ausencia **no obliga al cliente a nada**. *Un filtro que hoy no puede tener filas no es una deuda: es una pieza
+> del diseño que todavía no toca.*
+>
+> **B. `awaitingGuide?` y `offerReissueAlert?` SE QUEDAN DECLARADOS, MARCADOS. No se retiran.**
+> - **Retirarlos sería peor:** habría que **volver a escribirlos palabra por palabra** en el pase que construya el
+>   ciclo. **Este contrato es el DISEÑO del ciclo, no el inventario de lo desplegado** — §4.39 entera fue papel
+>   durante cuatro revisiones y M-46 se enmendó cinco veces **antes** de existir. Retirar el diseño porque el código
+>   no ha llegado invierte la regla de conflicto.
+> - **Lo que sí faltaba es el MARCADOR.** Se introduce la etiqueta **⏳ CICLO DE OFERTA** sobre todo campo/filtro de
+>   §M5 cuya implementación llega con ese pase, para que **«declarado» deje de leerse como «disponible»** y para que
+>   el próximo que haga este barrido **no tenga que volver a decidir la categoría de cada uno**.
+>
+> **C. ⚠️ EL BARRIDO QUE PIDIÓ EL ORQUESTADOR: hay un TERCERO, y es de la categoría (a).**
+> **`offerReissueAlert?: boolean` (query, v1.51.4)** — declarado en §M5, **ausente del controller**. Filtra
+> `offerReissueCount >= dial 10`, y esa columna es **`0` en toda fila** hasta que se cancele una oferta enviada ⇒
+> **vacío siempre, hoy**. **Mismo tratamiento que `awaitingGuide?`: se queda y se marca.**
+> **Y NO hay un cuarto de la categoría (b):** revisadas las declaraciones de §M5 una por una, las únicas cuyos
+> insumos existen hoy ya están registradas — `seller.phone` (**BL-15**, abierta), `isPayable` (**BL-17**, abierta) y
+> `live?` (**BL-18**, ✅ cerrada). El resto del pipeline (`offerState`, `offerGrossCents`, `expiredReason`,
+> `offerIssueDeadlineAt`, `offerReissueCount`…) es **(a)** por construcción.
+>
+> **D. ✅ RATIFICADO — parsing TRI-ESTADO de los booleanos de filtro: `'true'`/`'false'` filtran; cualquier otra cosa
+> NO filtra y NO falla.**
+> - **Es el precedente exacto del proyecto**, verificado: `guest` y `needsManual` en `GET /admin/orders` hacen
+>   literalmente esto, con el mismo comentario. **La consistencia dentro del proyecto pesa más que la pureza.**
+> - **⚠️ Y no contradice la doctrina fail-closed de este ciclo — la completa.** Donde he exigido fallar
+>   (`positionUnavailable` jamás `0`, `business-days` que **lanza**) el fallo sería **invisible y accionable**: un `0`
+>   se ve idéntico a un conteo real y empuja a comprar de más. Aquí la degradación es **visible por construcción**: no
+>   filtrar devuelve el **superconjunto**, y una cola sin filtrar se nota a simple vista. **La regla que unifica las
+>   dos: se falla cerrado cuando el error sería indistinguible de un acierto; se falla abierto cuando el error salta a
+>   la vista.** *Un query param mal escrito no puede convertir una cola de trabajo en un `400`.*
+> - **La frontera con `page`/`pageSize` (que sí dan `400`) es principiada, no histórica:** un booleano tiene
+>   **exactamente dos** valores con sentido, así que un tercero es **con certeza** un error tipográfico con lectura
+>   segura obvia (no filtrar); una paginación mal formada, en cambio, produce un resultado **plausible y silenciosamente
+>   equivocado** —el operador creería estar en la página 5— y ahí el `400` es lo correcto. **Ni se toca `page`/`pageSize`
+>   ni se tocan `from`/`to`/`minCents`/`maxCents`/`q`**, que conservan su `400` ya normado.
+> - **Alcance de la norma:** rige **todo booleano de filtro de back-office** — `live`, `awaitingGuide`,
+>   `offerReissueAlert`, `guest`, `needsManual`. **Sin `live`, el `where` queda byte a byte como estaba.**
+> - **`live` intersecta con `status`, no lo reasigna** (ya normado, aquí se reafirma **porque backend explicó bien el
+>   riesgo**): asignar dos veces dejaría ganar al último y **el filtro del usuario desaparecería en silencio** — que es
+>   el mismo modo de fallo que esta sección lleva ocho revisiones cerrando.
+>
+> **E. Sin cambios.** Todo v1.51.8 y anteriores. **Ningún campo nuevo, ningún endpoint, ningún dial, ningún DDL.**
 >
 > **Changelog v1.51.8 — LA SEXTA COPIA GOBIERNA EL BOTÓN DE PAGAR: `isPayable`. Tres hallazgos del frontend al cerrar
 > BL-6 sitio 9 (2026-09-01, arquitecto; **CERO DDL**, un campo derivado + un query param ya declarado. ARCHITECTURE
@@ -8310,13 +8372,26 @@ Notas de seguridad: **host fijo** de pokemontcg.io (sin SSRF); `POKEMONTCG_IO_AP
       terminales. **Se implementa por EXCLUSIÓN sobre `SELL_REQUEST_TERMINAL_STATES`, no como una lista de estados
       vivos** (criterio 129): así un estado nuevo entra a la vista **solo**. Combinable con `status` CSV (se
       intersectan); si `status` contradice a `live` el resultado es vacío, **no** un error.
-      > **⚠️ v1.51.8 — DECLARADO Y AUSENTE. SE IMPLEMENTA, NO SE RETIRA. Desviación BL-18.** Verificado: el
-      > controller **no tiene ese `@Query`**, y mientras tanto la pestaña «Cerradas» manda un **CSV que enumera los
-      > cuatro terminales** — **la forma exacta que este pase retiró de los otros cinco sitios**. **`live?` es la
-      > contraparte server-side de `isTerminal`**: retirarlo del contrato **bendeciría** la enumeración en el cliente
-      > justo después de borrarla en todas partes. **La semántica no cambia** —ya está escrita arriba y es la
-      > correcta—; lo que falta es el código. **Puerta: el mismo pase que entregue `isPayable`** (mismo endpoint,
-      > mismo DTO, misma doctrina ⇒ el frontend hace **un** pase y no dos). **Dueño: backend.**
+      > **⚠️ v1.51.8 — DECLARADO Y AUSENTE. SE IMPLEMENTA, NO SE RETIRA. Desviación BL-18** ✅ **CERRADA
+      > (2026-09-01).** El controller no tenía ese `@Query` y la pestaña «Cerradas» mandaba un **CSV que enumeraba los
+      > cuatro terminales** — la forma exacta que este pase retiró de los otros cinco sitios. **`live?` es la
+      > contraparte server-side de `isTerminal`**: retirarlo **bendeciría** la enumeración en el cliente justo después
+      > de borrarla en todas partes.
+      > **⚠️ v1.51.9 — PARSING NORMADO (ratifica lo implementado): TRI-ESTADO.**
+      > **`'true'` y `'false'` filtran; cualquier otro valor —incluido omitirlo— NO filtra y NO falla.** Precedente
+      > exacto del proyecto: `guest`/`needsManual` en `GET /admin/orders`. *Un query param mal escrito no puede
+      > convertir una cola de trabajo en un `400`.* **Sin `live`, el `where` queda byte a byte como estaba.**
+      > - **No contradice el fail-closed de este ciclo, lo completa:** se falla **cerrado** cuando el error sería
+      >   **indistinguible de un acierto** (`positionUnavailable` jamás `0`; `business-days` lanza) y **abierto**
+      >   cuando **salta a la vista** — no filtrar devuelve el **superconjunto**, y una cola sin filtrar se nota.
+      > - **Por qué `page`/`pageSize` sí dan `400` y esto no:** un booleano tiene **exactamente dos** valores con
+      >   sentido ⇒ un tercero es con certeza un error tipográfico con lectura segura obvia; una paginación mal
+      >   formada produce un resultado **plausible y silenciosamente equivocado**. **`from`/`to`/`minCents`/`maxCents`
+      >   /`q` conservan su `400`.**
+      > - **`live` INTERSECTA con `status`, no lo reasigna.** Asignarlo dos veces dejaría **ganar al último** y **el
+      >   filtro del usuario desaparecería en silencio**. Contradicción ⇒ **vacío, no error**.
+      > - **Alcance:** esta norma rige **todo booleano de filtro de back-office** — `live`, `awaitingGuide`,
+      >   `offerReissueAlert`, `guest`, `needsManual`.
     - **`seller.phone: string | null` (NUEVO, D12/criterio 129):** *el teléfono viaja en la cola de buylist*, para que
       el operador **pueda llamar** sin ir a buscarlo a la ficha del usuario. Mismo régimen PII que `seller.email`
       (§4.18d): back-office por rol, **sin** enmascarado ni reveal auditado, y **prohibido en toda superficie
@@ -8356,8 +8431,15 @@ Notas de seguridad: **host fijo** de pokemontcg.io (sin SSRF); `POKEMONTCG_IO_AP
       `sellerShippedDeclaredAt`, `shipmentTrackingNumber` (NUEVOS, admin-only)** en `AdminBuylistDTO` — para que la
       cola de M5 muestre el pipeline sin abrir cada detalle. **`offerState` NUNCA sale en un DTO de cliente.**
   - **⚠️ v1.51.1 — DOS adiciones más, las dos aditivas:**
-    - **`awaitingGuide?: boolean` (query, NUEVO — D31):** `awaitingGuide=true` ⇒ `status='aceptada' ∧ guideSentAt IS
-      NULL`, orden **`acceptedAt` asc** (lo más viejo primero: es cola de trabajo). **Por qué existe:** con **una sola
+    - **`awaitingGuide?: boolean` (query, NUEVO — D31) — ⏳ CICLO DE OFERTA:** `awaitingGuide=true` ⇒
+      `status='aceptada' ∧ guideSentAt IS NULL`, orden **`acceptedAt` asc** (lo más viejo primero: es cola de trabajo).
+      > **⚠️ v1.51.9 — DECLARADO Y AÚN NO IMPLEMENTADO, Y ESO NO ES UN DEFECTO (categoría (a), changelog v1.51.9).**
+      > Backend no lo construyó **y acertó**: `aceptada` **solo es alcanzable por el ciclo de oferta**, y
+      > `guideSentAt`/`acceptedAt` solo los puebla ese ciclo ⇒ **hoy filtraría vacío siempre**. **No se retira del
+      > contrato**: habría que reescribirlo palabra por palabra en el pase que construya el ciclo, y **este documento
+      > es el DISEÑO del ciclo, no el inventario de lo desplegado**. **Se entrega con el pase de la oferta**, junto a
+      > los endpoints que pueblan esas columnas. ⚠️ **No confundir con `live?` (BL-18)**, que sí era un defecto porque
+      > sus insumos ya existían y su ausencia forzaba al cliente a enumerar los terminales. **Por qué existe:** con **una sola
       banda** la guía es un paso de **toda** compra, y `shipDeadlineAt` solo se congela al capturarla ⇒ **una `aceptada`
       sin guía no corre reloj y no expira nunca**. Eso es **correcto** (el vendedor no puede mandar sin etiqueta y §P.13
       prohíbe vencerle un plazo por algo nuestro), pero **sin esta vista el pendiente es invisible** y la aceptación se
@@ -8389,9 +8471,13 @@ Notas de seguridad: **host fijo** de pokemontcg.io (sin SSRF); `POKEMONTCG_IO_AP
       `offerReissueCount >= buylistOfferReissueAlertCount` (**dial 10**, default **2**). **El servidor manda el número
       Y el veredicto** — misma norma que `alert`, `requiresAuthorization` y `netBelowMinimum`: **la UI no compara
       contra una constante propia**, porque el umbral es editable sin redeploy.
-    - **`offerReissueAlert?: boolean` (query, NUEVO):** `offerReissueAlert=true` filtra las filas en alerta.
-      Combinable con el resto (se intersectan), igual que `awaitingGuide`. **Sin este filtro la alerta sería
+    - **`offerReissueAlert?: boolean` (query, NUEVO) — ⏳ CICLO DE OFERTA:** `offerReissueAlert=true` filtra las filas
+      en alerta. Combinable con el resto (se intersectan), igual que `awaitingGuide`. **Sin este filtro la alerta sería
       decorativa:** obligaría a paginar la cola entera para encontrar las tres filas que importan (lección de **P-5**).
+      > **⚠️ v1.51.9 — el TERCERO declarado-y-ausente, encontrado en el barrido. Categoría (a), mismo trato que
+      > `awaitingGuide?`.** `offerReissueCount` es **`0` en toda fila** hasta que se cancele una oferta **enviada**, y
+      > eso solo ocurre dentro del ciclo ⇒ **hoy filtraría vacío siempre**. **Se queda declarado y se entrega con el
+      > pase de la oferta**, en el mismo commit que escribe `offerReissueCount`.
     - **⚠️ NO BLOQUEA NADA.** No expira, no cancela, no mueve estados, no cambia el rol requerido, no aparece en ningún
       correo y **no gatea `POST …/offer`** — exactamente como la alerta de «por confirmar envío» (criterio 156).
       **Sigue sin haber tope de re-emisiones ni plazo absoluto**, y por la misma razón que los descartó §4.39(o.19):
