@@ -9906,10 +9906,45 @@ griego disfrazados de latín. Único cirílico era este; las 11 coincidencias re
 CAPITAL LETTER SIGMA) usada legítimamente como notación de sumatoria en comentarios de `contract.ts`,
 `fixtures.ts` y `MasterSet.test.tsx`. **Ningún otro homoglifo vivo en el frontend.**
 
-**Residuo conocido, decisión del techlead:** la restauración literal pedida deja el brazo como `grade`,
-que caza «gradeadas» y «graded» pero **no «grading»**. Si el guard debe cubrir también «grading», el
-brazo tiene que ser `grad`. No lo amplié por cuenta propia: ensanchar un candado es un cambio de norma,
-no una corrección de dedazo, y este pase es de copy.
+**Alcance del brazo: `grad`, y cubre la familia completa. Sin residuo pendiente.** La restauración
+literal del homoglifo dejaba el brazo como `grade`, que caza «gradeadas» y «graded» pero **no «grading»**
+ni «grados» — justo las formas que usaría un copy nuevo. Lo dejé señalado sin ampliarlo, porque ensanchar
+un candado es un cambio de **norma** y no una corrección de dedazo. **El techlead resolvió ampliarlo**, y
+el argumento cierra el asunto: la norma ya estaba escrita **antes** que la regex —la primera línea del
+comentario del bloque dice que el nombre accesible no habla «ni de grading», y §22.6b-e es sobre el gancho
+de grading entero—, así que el brazo siempre estuvo escrito para la **familia**; el homoglifo solo tapó
+que no la cubría.
+
+**Norma vigente:** `NOMBRE_ACCESIBLE_PROHIBIDO = /rotaci|carrus|grad|PSA/i` cubre
+`grade` · `graded` · `grading` · `gradeadas` · `gradeo` · `grados`. Riesgo de falso positivo **nulo**:
+ese `aria-label` es el título de la sección de destacadas, y ninguna palabra legítima que quepa ahí
+contiene `grad` (comprobado sobre los cuatro valores reales — `Piezas destacadas`, `Destacadas`,
+`Featured pieces`, `Featured` — ninguno casa).
+
+**El control se amplió con la norma, y ahí hubo una trampa que casi cuela.** Añadir casos que la regex
+nueva acepta no prueba nada si la **vieja** también los aceptaba: serían decorativos, el mismo defecto
+que este apartado existe para matar. Los dos casos nuevos están elegidos para **discriminar**:
+
+| Caso de control | `/grad/` | `/grade/` | ¿Discrimina? |
+|---|---|---|---|
+| `Gancho de grading` | ✔ | ✘ | **sí** |
+| `Grados y certificados` | ✔ | ✘ | **sí** |
+| ~~`Gradeo de piezas`~~ | ✔ | ✔ | **no — descartado** |
+
+El primer candidato para el segundo hueco fue «Gradeo de piezas», y **es inservible**: «grade**o**»
+contiene `grade` como subcadena, así que pasa igual con el brazo estrecho. Se descartó y quedó anotado en
+el comentario del propio `it.each`, junto al otro criterio que invalida un caso: **no colar `PSA` en la
+cadena**, porque entonces casa por el otro brazo y tampoco prueba el de grading.
+
+**Verificado rompiéndolo, dos mutaciones:**
+
+| Mutación | Resultado |
+|---|---|
+| estrechar `grad` → `grade` | **2 rojos** — `Gancho de grading` y `Grados y certificados` |
+| reintroducir el homoglifo U+0435 | **3 rojos** — los dos de arriba + `Cartas gradeadas` |
+
+Es decir: el candado ya no solo detecta que alguien lo mate (homoglifo), sino que **detecta que alguien lo
+estreche de vuelta**, que era la regresión silenciosa que quedaba abierta.
 
 Vale la pena dejarlo escrito porque es la trampa del pase: «solo cambio textos» dejó de ser cierto en el
 momento en que un texto de marketing es a la vez el nombre accesible de un `role="region"`. Un cambio de
@@ -9958,13 +9993,13 @@ Suite completa, no un subconjunto (cifras finales, tras las tres rondas de corre
 
 | Comando | Resultado |
 |---|---|
-| `npm run test` | ✔ **102 archivos / 948 casos, todos verdes** (~96 s) |
+| `npm run test` | ✔ **102 archivos / 950 casos, todos verdes** (~92 s) |
 | `npm run typecheck` | ✔ `tsc --noEmit` sin errores |
 | `npm run lint` | ✔ `No ESLint warnings or errors` |
 
-**Delta de casos: +4**, y los cuatro son el caso de control de §41.4 (`it.each` de un `it` con cuatro
-cadenas). El pase de copy en sí aporta **0**: un cambio de textos no debe añadir ni quitar pruebas. Los
-944 originales siguen siendo los mismos 944.
+**Delta de casos: +6**, y los seis son el caso de control de §41.4 (un `it.each` con seis cadenas: cuatro
+que cubren un brazo cada uno, dos que cubren la ampliación a `grad`). El pase de copy en sí aporta **0**:
+un cambio de textos no debe añadir ni quitar pruebas. Los 944 originales siguen siendo los mismos 944.
 
 `i18n-parity.test.ts` verde confirma lo importante: paridad ES/EN intacta (**2 287 claves, conjuntos
 idénticos**), cero apariciones de la marca retirada «TCG Vault», y ningún candado semántico del catálogo
