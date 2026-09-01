@@ -3,7 +3,43 @@
 > **Nombre comercial / marca:** **TCG Vault MX**. Es el nombre que se usa en la interfaz, la
 > comunicación y los términos. "Marketplace TCG con Bóveda" es solo el título descriptivo del proyecto.
 >
-> **ESTADO AL 2026-09-01 (8ª ronda del bloque v2.1 — CORRECTIVA FINAL DE DOCUMENTACIÓN — LEER PRIMERO):**
+> **ESTADO AL 2026-09-01 (9ª ronda del bloque v2.1 — CIERRE DE DOCUMENTACIÓN — LEER PRIMERO):**
+> **No entra alcance nuevo, no se abre ninguna pregunta y no se toca ninguna regla vigente.** Esta ronda
+> **formaliza como requisito de negocio las DOS decisiones que vivían solo en documentos del arquitecto**
+> (**D41** y **D42** — era la **pregunta 31**, que el humano contestó: *sí, van en este documento*) y
+> **cierra** el único punto que la 8ª ronda había dejado marcado como pendiente. Tres cosas:
+> **(1) D42 — TRAS CANCELAR UNA OFERTA YA ENVIADA, EL PORTAL NO SE QUEDA MUDO.** Es **el hermano de pantalla
+> del correo 5**. Si le mandamos *«cancelamos tu oferta»* y al entrar al portal **no ve rastro de nada**, la
+> **pantalla contradice al correo** y el vendedor queda peor que antes de escribirle: con un correo que no
+> puede confirmar en ningún lado. **El portal dice que hubo una oferta, que se canceló y CUÁNDO** —esos tres
+> datos— **y nada más**: **el motivo interno no le concierne** (por qué la cancelamos es evaluación nuestra
+> y vive en la bitácora, M10). **El contracaso NO cambia y se prueba junto**: la oferta que **solo esperaba
+> autorización** **no deja rastro** —ahí el portal **sigue mudo**, porque esa oferta **nunca existió para
+> él**—. **Un solo hecho —¿le llegó o no le llegó?— gobierna las tres consecuencias**: correo, reloj y
+> pantalla. Ver **§P.3**, §P.11, criterio **176** y decisión **104**.
+> **(2) D41 — EL COTIZADOR CONOCE EL MÍNIMO, Y SOLO EL MÍNIMO.** Para que el criterio **132(a)** se pueda
+> cumplir —que la pantalla diga **cuánto falta** *antes* de intentar enviar—, el cotizador **necesita saber
+> el mínimo de compra**: es un dial y no puede estar quemado en la pantalla. **Se publica ese dato y ningún
+> otro**; en particular **la tarifa de envío NO se publica a ninguna superficie pública**. Así **D43 no
+> depende de que el frontend se porte bien**: lo que no llega a la pantalla **no se puede pintar por error,
+> ni hoy ni en un rediseño**. *(**D41 nació como una propuesta más amplia del arquitecto —publicar los
+> diales al cotizador— que él mismo retiró; lo que queda vigente es esta versión acotada**: de los **dos
+> diales de monto** (mínimo y tarifa), **solo el mínimo es público**.)* Ver **§E**, **§H**, criterio **177**
+> y decisión **105**. *(**No cierra la pregunta 30**: los **términos** son otra superficie y siguen con su
+> supuesto.)*
+> **(3) «EN LA OFERTA: CORREO + PANTALLA» — CONFIRMADO POR EL HUMANO; deja de ser pendiente.** La 8ª ronda
+> **señaló** que *«la resta vive SOLO en el correo»* **no puede leerse literal**, porque la **pantalla de
+> aceptación** tiene que mostrar **los tres montos**: ahí es donde se acepta con sesión iniciada (§P.3) y
+> **aceptar a ciegas sería peor que el problema que D43 resuelve**. **El humano confirma que esa lectura es
+> la correcta**: se redacta **«en la oferta: correo + pantalla»** y **se retira la marca de pendiente**. **No
+> cambia ningún texto** —ya estaba así en §H(2), §P.3 y el criterio 174(e)—: lo que cambia es que **deja de
+> estar en observación**.
+> **Preguntas: la 31 queda CERRADA.** Del ciclo del buylist siguen abiertas la **28**, la **29**, la **30** y
+> la **32** (todas **no bloqueantes, con supuesto tomado**); los demás bloques de preguntas quedan **como
+> estaban**. **No se abre ninguna nueva.**
+>
+> **ESTADO AL 2026-09-01 (8ª ronda del bloque v2.1 — CORRECTIVA FINAL DE DOCUMENTACIÓN — VIGENTE; solo su
+> punto (1) de «lo que este documento SEÑALA» queda confirmado y cerrado por el bloque de arriba):**
 > **una decisión del humano (D43)** y **una corrección de conteo** a la que llegaron por separado el
 > **arquitecto** y **ux-ui**. **No entra alcance nuevo: entra precisión.** Tres cosas:
 > **(1) LOS CORREOS OBLIGATORIOS DEL CICLO SON CINCO, NO CUATRO — y hay un caso que no manda NINGUNO.**
@@ -47,6 +83,11 @@
 > **ahí es donde se acepta con sesión iniciada** (§P.3) y aceptar a ciegas sería peor que el problema que
 > D43 resuelve; se redacta como **«en la oferta: correo + pantalla»**. **(2)** el **arquitecto tomó dos
 > decisiones (D41, D42) que NO están en este documento** — ver **preguntas 30 y 31**.
+> **⚠ LOS DOS SEÑALAMIENTOS QUEDAN CERRADOS EN LA 9ª RONDA** *(se conservan como historial)*: **(1)** el
+> **humano confirmó** que la lectura correcta es **«en la oferta: correo + pantalla»** — **deja de ser
+> pendiente**; **(2)** **D41 y D42 quedan formalizados como requisito de negocio en ESTE documento** (§E,
+> §H, §P.3, criterios **176/177**, decisiones **104/105**), con lo que **la regla de conflicto vuelve a
+> sostenerse**: `PROJECT.md` manda sobre ellas. **Pregunta 31 CERRADA.**
 > **Preguntas: se abren la 30, la 31 y la 32** (las tres **no bloqueantes**, con supuesto tomado).
 >
 > **ESTADO AL 2026-09-01 (7ª ronda del bloque v2.1 — CORRECTIVA FINAL — histórico; superado por el bloque
@@ -866,6 +907,10 @@ de autenticidad/condición y precios opacos. Este marketplace resuelve:
       expresar este faltante en términos de envío** — §H, criterios 132 y 174.)* Es un **dial de M10**, ~~distinto del umbral de guía~~ **distinto de la tarifa de envío**
       *(5ª ronda, D31: **el umbral de guía ya no existe**; los dos diales de monto que quedan son el **mínimo**
       y la **tarifa**, y **una validación bloqueante los relaciona**: `tarifa < mínimo`, criterio 127)*.
+      *(**⚠ 9ª ronda, D41** — de esos **dos diales de monto**, **el mínimo es el ÚNICO que la pantalla
+      pública conoce**: el cotizador **necesita el mínimo vigente** para poder decir *«te faltan $120»* sin
+      quemar el número en el código, y **no necesita —ni recibe— la tarifa de envío**. Ver §H y criterio
+      **177**.)*
 - [ ] ~~**El envío del vendedor lo ponemos nosotros desde MX$1,000** *(2ª ronda v2.1, D16/D18b; precisado en
       la 3ª, D25 + bordes)*: hay **tres bandas** por monto de la solicitud/oferta — **menos de $500: no se
       compra**; **de $500 (inclusive) a menos de $1,000: se compra y el vendedor paga su envío**, como hoy;
@@ -883,9 +928,14 @@ de autenticidad/condición y precios opacos. Este marketplace resuelve:
       requisito de comunicación explícito del humano)*: **el cotizador**, el **correo de oferta** y los
       **términos** dicen, con todas sus letras, que **el envío lo ponemos nosotros y que SIEMPRE se deduce del
       importe a pagar**. **No es letra chica**: en una oferta de **MX$500** los **MX$180** son el **36%** —el
-      vendedor recibe **MX$320**— y **tiene que verlo antes de aceptar**, no después. En el **cotizador** la
-      cifra aún no es una oferta, así que ahí se comunica **la regla y el monto de la tarifa**; en el **correo
+      vendedor recibe **MX$320**— y **tiene que verlo antes de aceptar**, no después. ~~En el **cotizador** la
+      cifra aún no es una oferta, así que ahí se comunica **la regla y el monto de la tarifa**~~; en el **correo
       de oferta** se comunica **el cálculo exacto de esa operación** (bruto, envío y neto, §P.3).
+      *(**⚠ ACOTADO por D43 (8ª ronda) y cerrado por D41 (9ª)** — se conserva el tachado como historial: en el
+      **cotizador** se comunica **la regla y NADA del monto**; **la cifra de la tarifa no se pinta ahí y
+      tampoco se le manda a esa pantalla**. **Lo que NO se movió**: la regla se sigue diciendo en las **tres
+      superficies** y el vendedor sigue viendo el cálculo **antes de aceptar**. §H, criterios **174** y
+      **177**.)*
 - [ ] **Celular obligatorio para vender** *(NUEVO v2.1, D11)*: **no se puede crear una solicitud de venta sin
       un celular de contacto** en la cuenta. Si falta (cuenta creada con **Google** o cuenta vieja con el
       campo vacío), se pide **en ese momento** y la solicitud no avanza hasta capturarlo. Razón de negocio: el
@@ -1478,6 +1528,31 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
       el monto del envío**. Eso obliga a que ese correo **no dé por sabido nada** (§P.3, criterio 175) y deja
       una pregunta de negocio abierta —¿se cae más gente cerca del mínimo?— que **se responde midiendo**, no
       repintando la resta: ver «Riesgos y banderas».
+
+- [ ] **Buylist — D41: LA PANTALLA PÚBLICA CONOCE EL MÍNIMO, Y SOLO EL MÍNIMO** *(NUEVO 9ª ronda v2.1,
+      **D41** — regla de negocio que **hace ejecutable a D43 y al criterio 132(a)**; **no es diseño de
+      endpoint**, eso es del arquitecto y ya está resuelto)*:
+      **(1) Qué SÍ sabe la pantalla pública**: el **mínimo de compra vigente** (**MX$500** hoy). Lo necesita
+      para cumplir el criterio **132(a)** —decir **cuánto falta** *antes* de que el vendedor intente enviar
+      la solicitud— **con el número correcto** y **sin quemarlo**: el mínimo es un **dial de M10** y el día
+      que el negocio lo mueva, **la pantalla tiene que moverse con él**. Un mínimo escrito a mano en el
+      frontend **es una promesa que caduca en silencio**.
+      **(2) Qué NO sabe: la tarifa de envío.** **No se publica a ninguna superficie pública** —ni para
+      pintarla, ni «por si acaso», ni escondida en el dato que viaja detrás de la pantalla—. Es **el mismo
+      dial** que D43 sacó del cotizador, y **el resto de los diales de M10 tampoco se publican** (topes,
+      plazos, piso de neto, sugerencias de la mesa): **son controles internos**.
+      **Por qué, dicho como requisito de negocio y no como preferencia técnica**: **D43 no puede depender de
+      que el frontend se porte bien**. Mientras la tarifa **llegue** a la pantalla, pintarla es **un
+      descuido de una línea** —hoy, o en el rediseño de dentro de seis meses, o en un experimento de
+      marketing— y **nadie lo notaría hasta que un vendedor lo vea**. **Lo que no llega, no se puede pintar
+      por error.** Es la misma lógica con la que el mínimo **se valida en el servidor** y no solo en el
+      cotizador (criterio 132b): **la superficie del cliente no se defiende sola**.
+      **Lo que esto NO cambia**: la **regla en palabras** sigue diciéndose en el cotizador (D31/D43) —**decir
+      que el envío se descuenta no requiere conocer su monto**—, y **los tres montos siguen viviendo en la
+      oferta**, que es **autenticada** y usa la **tarifa congelada** de esa solicitud (§P.3, criterio 174e).
+      *(**Alcance, para que no se lea de más**: este bullet habla del **cotizador y de las superficies
+      públicas del buylist**. Los **términos** son otra superficie y su tratamiento sigue con el supuesto de
+      la **pregunta abierta 30**.)*
 - [ ] **Buylist — la solicitud que nadie oferta CADUCA a los 7 días hábiles** *(NUEVO 5ª ronda v2.1, **D33**;
       ver §P.3.1)*: **`cotizada` significa «esperando que NOSOTROS ofertemos»**. Si **nadie la oferta en 7
       días hábiles** desde su creación, la solicitud **caduca** (estado **terminal**) y **sale un correo al
@@ -1504,6 +1579,10 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
       ciclo»**: nada de **CLABE** (ni enmascarada), nada de **datos de terceros**, nada de **otras
       solicitudes**, nada de **cifras internas de la mesa** (posición, sugerencia, topes) y nada de
       **domicilio**. **La regla nunca dependió del número.**
+      *(**⚠ 9ª ronda, D42 — la regla no se detiene en la bandeja**: **ninguna superficie del vendedor puede
+      contradecir a otra**. Si el correo 5 le afirma que hubo una oferta y que la cancelamos, **el portal
+      tiene que decir lo mismo** —hubo oferta, se canceló, y cuándo—; y donde **el correo correcto es
+      ninguno**, **la pantalla correcta también es ninguna**. §P.3, criterio **176**.)*
 
 ### I. Acabado / versión de carta (transversal — NUEVO v1.4)
 > **⚠ Actualizado por §N (v2.0):** el acabado **deja de tener regla de precio propia** — el mapeo «acabado →
@@ -3349,6 +3428,35 @@ condicional a NM línea por línea)**
       desincronizarse. **El barrido que anula una oferta pendiente al caducar tampoco manda el 5**: manda el
       **4**, que es el hecho real (*no procederemos*). Criterio **173**.
 
+- [ ] **D42 — EL PORTAL NO SE QUEDA MUDO DESPUÉS DE UNA CANCELACIÓN: es el hermano de pantalla del correo 5**
+      *(NUEVO 9ª ronda, **D42** — decisión que estaba **solo en documentos del arquitecto** y se formaliza
+      aquí como **requisito de negocio**: es *«qué VE el vendedor cuando le cancelamos»*)*:
+      **El hueco, dicho tal cual**: el correo 5 le afirma que **hubo una oferta y que la cancelamos
+      nosotros**. Si entra a su portal y **no encuentra rastro de nada** —ni de la oferta ni de la
+      cancelación—, **la pantalla contradice al correo**. Y entre las dos, **le va a creer a la pantalla**:
+      queda con un correo que **no puede confirmar en ningún lado**, que es **exactamente la sensación de
+      «me escribieron por error» o «esto es phishing»** — el daño que el correo 5 vino a evitar, reaparecido
+      una pantalla después. **Un correo que no se puede verificar en el portal es medio correo.**
+      **Qué muestra el portal, y es todo**: **(1)** que **hubo una oferta**, **(2)** que **se canceló** y
+      **(3)** **la fecha** de esa cancelación.
+      **Qué NO muestra**: **el motivo interno** —por qué la cancelamos es **evaluación nuestra** y vive en la
+      **bitácora** (M10), igual que ya pasa con «por qué puerta entró la decisión» del correo 4—; y, **por la
+      misma coherencia que ya exige el correo 5** (criterio 173a), **ningún texto de plazo vencido**, **ningún
+      «venció»** y **ningún monto de la oferta cancelada** — repintar la resta de una oferta que ya no existe
+      **es ofrecerle un trato que retiramos**.
+      **Y no hace falta que diga «tu solicitud sigue viva» con esas palabras**: la solicitud **vuelve a
+      `cotizada`** (D38) y **el portal ya pinta el estado** —*esperando nuestra oferta*—, que es el mismo que
+      vio el día que la creó. **D42 no agrega una pantalla nueva ni un estado nuevo**: agrega **el rastro que
+      faltaba** dentro del detalle de la solicitud que el vendedor ya tiene.
+      **El contracaso NO cambia, y se prueba junto con este**: cancelar una oferta que **solo esperaba
+      autorización** **no deja rastro en el portal** —igual que **no manda correo** y **no reinicia el
+      reloj**—, porque **esa oferta nunca existió para él** y pintarla le revelaría **un control interno
+      nuestro**. Es la misma regla de las otras dos consecuencias: **un solo hecho —¿le llegó o no le
+      llegó?— gobierna las TRES** (correo, reloj y pantalla), así que **no pueden desincronizarse**.
+      *(**Cómo se muestra** —dónde vive el rastro, qué componente lo pinta— **es del arquitecto y de ux-ui**;
+      el requisito de negocio es que **ninguna superficie del vendedor contradiga a otra**.) Criterio
+      **176**.*
+
 **P.3.1 — La solicitud que nadie oferta CADUCA: nunca dejamos a alguien esperando sin respuesta (D33 — 5ª
 ronda; NUEVA)**
 > **El hueco que cierra, dicho tal cual**: al re-anclarse el barrido de 30 días —**correctamente**, porque
@@ -3974,6 +4082,17 @@ en la 6ª — origen único de los números)**
 > nada** en su bandeja **ni en su portal** que le revele que existió una oferta. **Los casos (3) y (4) se
 > corren juntos**: es la misma acción con dos consecuencias opuestas, y probarlas por separado esconde
 > justamente el riesgo.
+>
+> **Flujo crítico — el correo 5 y el portal dicen LO MISMO (D42, 9ª ronda; criterio 176):** se toma el caso
+> **(3)** del flujo anterior —oferta **enviada** que **nosotros cancelamos**— y, **sin salir de la sesión del
+> vendedor**, se abre **su solicitud en el portal**. Verificable que **la pantalla confirma el correo**:
+> dice que **hubo una oferta**, que **se canceló** y **con qué fecha**, y el estado que muestra es el de una
+> solicitud **viva y esperando nuestra oferta** (`cotizada`). Verificable **por lo que NO aparece**: **el
+> motivo interno** de la cancelación, **ningún monto** de la oferta cancelada, **ninguna palabra de plazo
+> vencido** y **ninguna acción** que lo invite a cotizar de nuevo. **Y el contracaso, en la misma corrida**:
+> el caso **(4)** —oferta que solo esperaba autorización— **deja el portal exactamente igual que antes**:
+> **cero rastro**. **Los dos se corren juntos, como el correo y el reloj**: es la **tercera consecuencia**
+> del mismo hecho, y probarla sola esconde justo el riesgo de que se desincronice.
 >
 > **Flujo crítico — el cotizador dice el envío en palabras, y el mínimo con su cifra (D43, 8ª ronda;
 > criterio 174):** un visitante arma un carrito de **MX$380**. Verificable **las dos cosas a la vez**:
@@ -5985,6 +6104,60 @@ envío que se dice en palabras (v2.1, D43 + corrección de conteo; §E/§H/§P.3
     prohibido** — lo que sigue prohibido ahí es **omitir la condición NM** y **poner el bruto en el asunto**.
     **La regla general es «no des por sabido lo que no dijiste»**, no una lista negra de palabras.
 
+**Ciclo de adquisición del buylist — 9ª ronda (CIERRE DE DOCUMENTACIÓN): las dos decisiones que vivían fuera
+de este documento (v2.1, D41 + D42; §E/§H/§P.3/§P.11)**
+> **⚠ No se corrige ningún criterio anterior.** El **176** y el **177** son **nuevos** y **cuelgan de reglas
+> que ya estaban**: el **176** es la **superficie** del criterio **173(a)** (correo 5) y el **177** es lo que
+> hace **ejecutables a la vez** el **132(a)** y el **174(a)**. **El 132, el 134, el 172, el 173, el 174 y el
+> 175 siguen vigentes tal cual.**
+
+176. **D42 — TRAS CANCELAR UNA OFERTA ENVIADA, EL PORTAL LO DICE; TRAS CANCELAR UNA PENDIENTE, NO (9ª ronda;
+    es el **hermano de pantalla del criterio 173a**)**: verificable en cinco puntos, y **los dos primeros se
+    corren en la misma sesión en la que se lee el correo**:
+    **(a)** **la pantalla confirma el correo**: cancelada una oferta **ya enviada**, el vendedor abre **su
+    solicitud** y ve **los tres datos**: que **hubo una oferta**, que **se canceló** y **la fecha** de la
+    cancelación;
+    **(b)** **el estado que ve es el de una solicitud viva**: **`cotizada`** —*esperando nuestra oferta*—, el
+    mismo que vio al crearla (criterio 172a). **No hace falta la frase «sigue viva»**: **el estado ya lo
+    dice**;
+    **(c)** **verificable por lo que NO aparece en esa pantalla**: **el motivo interno** de la cancelación,
+    **ningún monto** de la oferta cancelada, **ninguna palabra de plazo vencido** —*«venció»*, *«expiró»*— y
+    **ninguna acción** que lo empuje a cotizar de nuevo (duplicaría una solicitud abierta). *(Es **la misma
+    lista** que el criterio **173(a)** exige en el correo 5: **las dos superficies afirman lo mismo, o el
+    correo no sirve**.)*;
+    **(d)** **el contracaso, en la misma corrida**: cancelar una oferta que **todavía esperaba autorización**
+    **no deja NINGÚN rastro en el portal** —queda **idéntico a antes**—, igual que **no manda correo** y
+    **no reinicia el reloj** (criterios **173c** y **172c**). **Los tres se prueban juntos**: es **un solo
+    hecho —¿le llegó o no le llegó?— con TRES consecuencias**, y probarlas por separado esconde justo el
+    riesgo de que se desincronicen;
+    **(e)** **no hay pantalla nueva ni estado nuevo**: verificable **por lo que no existe** — el rastro vive
+    **dentro del detalle de la solicitud que el vendedor ya tenía**, y **no aparece** ningún estado terminal
+    ni ningún motivo nuevo en el modelo (criterio 169a).
+    **Nota de alcance**: este criterio fija **qué ve y qué no ve el vendedor**. **Cómo se muestra** —dónde
+    vive el rastro, qué componente lo pinta— es del **arquitecto** y de **ux-ui**; el requisito de negocio es
+    que **ninguna superficie del vendedor contradiga a otra**.
+
+177. **D41 — LA PANTALLA PÚBLICA CONOCE EL MÍNIMO Y SOLO EL MÍNIMO (9ª ronda; es lo que hace **ejecutables a
+    la vez** el 132(a) y el 174(a))**: verificable en cuatro puntos:
+    **(a)** **el mínimo es dato público y está vivo**: se **cambia el dial del mínimo en M10** (de **MX$500**
+    a, por ejemplo, **MX$700**) y **el cotizador dice el faltante nuevo sin tocar código ni volver a
+    desplegar**: con un carrito de **MX$380** pasa a decir **«te faltan MX$320»**. *(Si el número estuviera
+    quemado en la pantalla este punto falla — y el criterio **132(a)** quedaría mintiendo el día que el
+    negocio mueva el dial.)*;
+    **(b)** **la tarifa de envío NO viaja a la pantalla pública**: verificable **por debajo del píxel** —no
+    solo mirando la pantalla, que es lo que ya cubre el **174(a)**—: **lo que la superficie pública recibe no
+    contiene la tarifa** (**MX$180**) **en ninguna forma**: ni como cifra, ni como porcentaje, ni como neto
+    ya calculado, ni «guardada para uso futuro». **Se busca el valor, no la etiqueta**;
+    **(c)** **tampoco viajan los demás diales internos**: **topes** (por solicitud y mensual), **plazos**,
+    **piso de neto** y **cifras de la mesa** (posición, sugerencia) **no se publican** — **el mínimo es la
+    excepción, y lo es porque el vendedor lo necesita para decidir antes de enviar**;
+    **(d)** **la regla en palabras sigue estando**: quitar la tarifa **no quita el mensaje** — la frase
+    cualitativa del criterio **175(a)** sigue en el cotizador. **Decir que el envío se descuenta no requiere
+    saber cuánto es.**
+    **Nota de alcance**: este criterio fija **qué sabe la pantalla pública y qué no**. **Por dónde llega ese
+    mínimo** es del **arquitecto**; lo que este documento exige es que **D43 no dependa de que el frontend se
+    porte bien**: **lo que no llega a la pantalla no se puede pintar por error**, ni hoy ni en un rediseño.
+
 ## Riesgos y banderas para el humano
 > No bloquean el desarrollo técnico del MVP, pero deben resolverse antes de operar con público real.
 - **Negocio — el vendedor cerca del mínimo se entera del ~36% HASTA el correo de oferta** *(NUEVA 8ª ronda,
@@ -6922,6 +7095,48 @@ ux-ui; ver §E/§H/§P.3/§P.3.1/§P.5.1/§P.12/M5 y criterios 173–175):**
    referirse al monto ya visto **sí es verdad**. **La regla general es «no des por sabido lo que no
    dijiste»**, no una lista negra de palabras. Ver criterio **175**.
 
+**Decisiones v2.1 — novena ronda (2026-09-01; D41 + D42, formalización; ver §E/§H/§P.3/§P.11 y criterios
+176–177):**
+> **No entra alcance nuevo.** Esta ronda **no decide nada que no estuviera decidido**: **trae a este
+> documento** las dos decisiones que vivían **solo en documentos del arquitecto**, porque **son requisito de
+> negocio** y la **regla de conflicto** dice que `PROJECT.md` manda sobre el contrato. Cierra la **pregunta
+> 31**.
+
+104. **D42 — Tras cancelar una oferta YA ENVIADA, el portal del vendedor lo dice: hubo una oferta, se
+   canceló, y cuándo.**
+   **Qué se decide**: el portal muestra **esos tres datos y nada más**. **El motivo interno no se publica**
+   —por qué cancelamos es **evaluación nuestra** y vive en la bitácora—, y **por coherencia con el correo 5**
+   tampoco se pintan **montos de la oferta cancelada** ni **palabras de plazo vencido**.
+   **Por qué es requisito de negocio y no diseño**: es **«qué VE el vendedor cuando le cancelamos»**. El
+   correo 5 le afirma un hecho; **si el portal no lo confirma, la pantalla contradice al correo** y entre las
+   dos **le va a creer a la pantalla**. Queda con un correo que no puede verificar en ningún lado —**la
+   sensación exacta de «me escribieron por error» o «esto es phishing»**—, que es el daño que el correo 5
+   vino a evitar, reaparecido **una pantalla después**. **Un correo que no se puede verificar en el portal es
+   medio correo.**
+   **Qué NO agrega**: **ninguna pantalla nueva, ningún estado nuevo, ningún motivo nuevo**. La solicitud
+   **vuelve a `cotizada`** (D38) y el portal **ya pinta ese estado**: por eso **no hace falta escribir «sigue
+   viva»**.
+   **El contracaso queda pegado al caso, a propósito**: la oferta que **solo esperaba autorización** **no
+   deja rastro** —**ni correo, ni reloj, ni pantalla**—. **Un solo hecho —¿le llegó o no le llegó?— gobierna
+   las TRES consecuencias**, así que **no pueden desincronizarse**. Ver §P.3, §P.11 y criterio **176**.
+
+105. **D41 — El cotizador conoce el mínimo de compra, y ningún otro dial. La tarifa de envío no se publica.**
+   **Qué se decide**: la **pantalla pública** recibe **el mínimo vigente** —lo necesita para cumplir el
+   criterio **132(a)**: decir **cuánto falta** *antes* de que el vendedor intente enviar, **con el número
+   correcto** y **sin quemarlo**, porque el mínimo es un **dial** que el negocio puede mover— **y ningún otro
+   dato del negocio**. En particular **la tarifa de envío NO se publica**.
+   **Por qué la tarifa no, dicho como requisito**: **D43 no puede depender de que el frontend se porte
+   bien**. Mientras la tarifa **llegue** a la pantalla, pintarla es **un descuido de una línea** —hoy, en un
+   rediseño o en un experimento de marketing— y **nadie lo nota hasta que un vendedor lo ve**. **Lo que no
+   llega, no se puede pintar por error.** Es la misma lógica por la que el mínimo **se valida en el
+   servidor** y no solo en el cotizador (criterio 132b): **la superficie del cliente no se defiende sola**.
+   **Historia, para que el número no confunda**: **D41 nació como una propuesta más amplia del arquitecto**
+   —publicar los diales al cotizador— **que él mismo retiró**. Lo que queda vigente es **esta versión
+   acotada**: de los **dos diales de monto** (mínimo y tarifa), **solo el mínimo es público**.
+   **Qué NO cambia**: la **regla en palabras** sigue en el cotizador (D31/D43) —**decir que el envío se
+   descuenta no requiere saber cuánto es**— y **los tres montos siguen en la oferta**. **No cierra la
+   pregunta 30**: los **términos** son otra superficie. Ver §E, §H y criterio **177**.
+
 ## Único pendiente no bloqueante
 - **Metas de lanzamiento N/X/Y/Z**: el humano las fija al momento de lanzar la beta cerrada (usuarios,
   ventas `settled`, buylist aprobadas/pagadas, retiros sin disputa, ventana 30–60 días). No bloquean el
@@ -7612,7 +7827,8 @@ backend/arquitecto al implementar, sin decisión de producto adicional).
    bancarios** —antes de saber si le compramos— y **toca el flujo de KYC/AML**, que es de los pocos con
    implicación legal. Si es **(a)**, **no hay nada que hacer**: el documento ya está correcto.
 
-**Los tres huecos de la octava ronda (30–32) — abiertos, con supuesto tomado:**
+**Los tres huecos de la octava ronda (30–32) — con supuesto tomado; ⚠ la 31 quedó CERRADA en la 9ª ronda,
+la 30 y la 32 siguen abiertas:**
 30. **[ABIERTA — no bloqueante] ¿Los TÉRMINOS publican la cifra del envío, o también la dicen en palabras?**
    *(nace de **D43**, §H)*
    **El hueco**: D43 saca la cifra **del cotizador** y la deja **en la oferta**. Pero D31 manda decir la
@@ -7628,8 +7844,17 @@ backend/arquitecto al implementar, sin decisión de producto adicional).
    sujeta a cambio; la que aplica a tu venta es la de tu oferta»*).
    **Por qué no bloquea**: en los dos casos **el cotizador y la oferta quedan igual**; solo cambia una página
    estática.
-31. **[ABIERTA — no bloqueante] Hay DOS decisiones del arquitecto (D41 y D42) que NO están en este
-   documento.** *(hallazgo de la 8ª ronda)*
+31. ~~**[ABIERTA — no bloqueante] Hay DOS decisiones del arquitecto (D41 y D42) que NO están en este
+   documento.**~~ **[CERRADA en la 9ª ronda — el humano contestó: SÍ, van en este documento]**
+   *(hallazgo de la 8ª ronda)*
+   **Respuesta**: **las dos se formalizan como requisito de negocio aquí**. **D42** —*«tras cancelar una
+   oferta ya enviada, el portal dice que hubo una oferta, que se canceló y cuándo; el motivo interno no»*—
+   queda en **§P.3**, **§P.11** y el criterio **176** (decisión **104**). **D41 NO estaba muerto**: lo que
+   murió fue **la propuesta amplia** del arquitecto (publicar los diales); **queda vigente su versión
+   acotada** —*«el cotizador conoce el mínimo y solo el mínimo; la tarifa de envío no se publica»*— en
+   **§E**, **§H** y el criterio **177** (decisión **105**). **El supuesto que este documento había tomado
+   —«no se formalizan aquí» y «D41 se da por muerto»— queda SUPERADO.** *(Se conserva el texto original
+   abajo como historial.)*
    **Qué pasa**: la numeración de decisiones del ciclo llega a **D40** aquí, y el bloque nuevo entra como
    **D43**. Los números **D41** y **D42** existen en documentos del arquitecto —**D41** fue una propuesta
    suya que él mismo retiró (publicar diales al cotizador), y **D42** resuelve que **el portal del vendedor
@@ -7638,12 +7863,14 @@ backend/arquitecto al implementar, sin decisión de producto adicional).
    cancelamos»*—, y es **el hermano de pantalla del correo 5** que esta ronda acaba de crear. Si vive solo en
    documentos del arquitecto, **este documento no manda sobre él**, que es justo lo contrario de la regla de
    conflicto.
-   **Supuesto tomado**: **no se formalizan aquí** —no me los pediste y **inventar su alcance sería peor**—,
-   y **D41 se da por muerto** (superado por D43).
-   **Qué confirmar**: ¿quieres que **D42 se redacte como requisito en este documento** —«tras una
+   ~~**Supuesto tomado**: **no se formalizan aquí** —no me los pediste y **inventar su alcance sería peor**—,
+   y **D41 se da por muerto** (superado por D43).~~ **⚠ SUPERADO en la 9ª ronda: se formalizan las dos, y
+   D41 vive acotado.**
+   ~~**Qué confirmar**: ¿quieres que **D42 se redacte como requisito en este documento** —«tras una
    cancelación, el portal del vendedor dice qué pasó y que su solicitud sigue viva»—, o lo dejas como
    decisión de diseño del arquitecto? *(Si lo quieres aquí, es **una ronda corta**: el hecho ya está
-   decidido y el correo 5 ya lo afirma; faltaría solo la superficie.)*
+   decidido y el correo 5 ya lo afirma; faltaría solo la superficie.)*~~ **⚠ CONTESTADO: va en este
+   documento, y fue exactamente «una ronda corta» — solo se agregó la superficie.**
 32. **[ABIERTA — no bloqueante] ¿El correo 5 debe decir algo sobre QUÉ SIGUE, o basta con «tu solicitud
    sigue viva»?** *(nace del correo nuevo, §P.3)*
    **El hueco**: el correo 5 tiene **prohibido** el CTA de «cotiza de nuevo» (duplicaría una solicitud
