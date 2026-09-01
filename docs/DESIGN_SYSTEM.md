@@ -309,6 +309,24 @@
 > a la cabecera de §23.14.6. **Cero cambios de copy, de diseño y de claves**: solo cambia cómo se verifica.
 > *Motivo por el que se corrige algo cosmético: una regla que da falsos positivos se deja de correr, y esta
 > protege la distinción **rótulo vs. prosa / suma vs. tarifa unitaria** que costó dos rondas fijar.*
+>
+> **Corrección v2.3.5 (2026-09-01 — dos rótulos de M5 levantados por frontend; §23.8a nueva).**
+> **§23.8 tenía un hueco:** especificó **las cuatro colas** de M5 pero **nunca las PESTAÑAS DE ETAPA**, así
+> que al crecer el enum el frontend tuvo que **inventar un rótulo** para que tres estados no desaparecieran
+> de la pantalla — y lo declaró como decisión suya. **§23.8a llena el hueco y le da a M5 el eje que le
+> faltaba: el rótulo dice DE QUIÉN ES EL PENDIENTE** («Por + verbo» cuando es nuestro; de quién depende
+> cuando no lo es). Cambian **tres** rótulos y sus claves: **(1)** ~~«Por recibir»~~ ⇒ **«Por ofertar»**,
+> porque §23.1a ratificó que `cotizada` significa **«te debemos una respuesta»** y **ahí no hay nada que
+> recibir** — el rótulo viejo induce a **esperar** en la única cola donde corre un plazo de 7 días hábiles
+> **en contra nuestra**; **(2)** ~~«Ciclo de oferta»~~ ⇒ **«Con el vendedor»** —**la estructura del
+> frontend se RATIFICA** (una pestaña y no tres, y `aceptada` jamás bajo un rótulo de «en camino»,
+> criterio 156); lo que cambia es la jerga interna por la pregunta operativa—; y **(3)** hallazgo del
+> barrido: ~~«Rechazadas»~~ ⇒ **«Piezas rechazadas»**, porque esa pestaña lista **ítems** mientras
+> `rechazada` es **un estado de solicitud** que vive en «Cerradas» — **la misma palabra con dos
+> significados en la misma pantalla**. Se dejan intactas «Verificando», «Por pagar» y «Cerradas».
+> **Es la tercera vez en este ciclo que el defecto es el mismo** —`expiry.*`, «Guía de envío seguro» y
+> ahora «Por recibir»—: **un nombre que sobrevive al cambio de significado**. **Cero tokens, cero
+> componentes, cero cambios de dato.**
 
 ---
 
@@ -1559,6 +1577,7 @@ Recomendado documentarlos con ejemplos (Storybook opcional; lo decide frontend/d
 | **Buylist — responder la oferta** (v2.3) | `GET /buylist/requests/:id`, `POST …/offer-response` | **PipelineStepper de 8 pasos (§23.2)**, bloque de condición NM, AmountBreakdown de 3 montos, plazo, Aceptar `primary` / Rechazar `secondary` (§23.5) |
 | **M5 — mesa de decisión** (v2.3) | `GET /admin/buylist/:id/decision-table`, `POST …/offer` | **Tira de posición de 4 sumandos + titular `POSICIÓN n/m` (§23.6)**, sugerencia en prosa, override + motivo, **barra sticky de totales**, `SIN CONTEO` (§23.7) |
 | **M5 — colas del ciclo** (v2.3) | `/admin/buylist/queues/*` | DataTable ×4: por autorizar (con «muere el»), por confirmar envío (con `ALERTA`), guías por cancelar, vendedores vivos (con teléfono) — §23.8 |
+| **M5 — pestañas de etapa** (v2.3.5) | `GET /admin/buylist` (+ `…/rejected-items`) | Seis pestañas, **partición TOTAL de `SellRequestStatus`**: Por ofertar · Con el vendedor · Verificando · Por pagar · Cerradas · Piezas rechazadas — **§23.8a** |
 | Disputa | `POST /disputes` | Textarea descripción, **DisputeEvidenceContact** (correo `soporte@tcgvault.mx`, §7.11), PipelineStepper — **sin uploader** |
 | Admin dashboard | `GET /admin/dashboard` | 8× StatCard (enmascarado por rol), cola de trabajo accionable |
 | M1 Inventario | `/admin/inventory/*` | Alta **sin foto** (imagen de catálogo remota); para gradeada captura **`certNumber`**; folio, ubicación CAJA/FILA/SLOT, DataTable |
@@ -6835,6 +6854,108 @@ permiso.
 
 ### 23.8 Colas nuevas de M5 y «declinar ahora»
 
+> **⚠ v2.3.5 — §23.8 tenía un HUECO y el frontend lo tapó con criterio propio.** Esta sección especificó
+> **las cuatro colas** (vistas con acción propia) pero **nunca las PESTAÑAS DE ETAPA** de M5, que son otra
+> cosa: la partición total de `SellRequestStatus` en la pantalla principal. Al crecer el enum en cuatro
+> valores, el frontend tuvo que inventar un rótulo (`ciclo`) **para que tres estados no desaparecieran de
+> la pantalla**, y lo declaró como decisión suya. Hizo bien las dos cosas: **taparlo** y **decirlo**.
+> **§23.8a llena el hueco.**
+
+#### 23.8a Las pestañas de ETAPA de M5 — el eje es DE QUIÉN ES EL PENDIENTE
+
+**El criterio de rotulación, que es lo que faltaba.** M5 es una **cola de trabajo**, así que sus pestañas
+tienen que contestar **«¿qué me toca?»**, no «¿en qué estado está el registro?». De ahí sale un eje único:
+
+| Eje | Qué significa | Forma del rótulo |
+|---|---|---|
+| **El pendiente es NUESTRO** | hay una acción que solo nosotros podemos hacer, y normalmente **hay un reloj corriendo en contra nuestra** | **«Por + verbo»** — nombra la acción |
+| **El pendiente NO es nuestro** | ya hicimos lo que nos tocaba; aquí solo se **mira** | nombra **de quién depende**, nunca la acción |
+
+**Mapa normativo (enmienda: §23.8 antes no lo tenía).**
+
+| Pestaña | Estados | Rótulo ES / EN | Pendiente |
+|---|---|---|---|
+| **1** | `cotizada` | **«Por ofertar» / "To offer"** ⚠ *(era «Por recibir» / "To receive")* | **NUESTRO** — y con el reloj de caducidad de 7 días hábiles (D33) corriendo en contra |
+| **2** | `ofertada` · `aceptada` · `en_transito` | **«Con el vendedor» / "With the seller"** ⚠ *(era «Ciclo de oferta» / "Offer cycle")* | **NO nuestro** — monitoreo |
+| **3** | `recibida` · `verificacion` | «Verificando» / "Verifying" — **sin cambio** | NUESTRO |
+| **4** | `aprobada` | «Por pagar» / "To pay" — **sin cambio** | NUESTRO |
+| **5** *(transversal)* | `pagada` · `rechazada` · `abandonada` · `expirada` | «Cerradas» / "Closed" — **sin cambio** | ninguno |
+| **6** *(transversal, ítems)* | *ítems* rechazados, no solicitudes | **«Piezas rechazadas» / "Rejected items"** ⚠ *(era «Rechazadas» / "Rejected")* | ninguno |
+
+**(a) «Por recibir» ⇒ «Por ofertar» — el rótulo describía lo que el estado ya NO significa.**
+**§23.1a lo dice con todas sus letras:** `cotizada` *«cambia de sentido en v2.3: ya no es "llegó y algún día
+se verá", es **"te debemos una respuesta"»***. El rótulo se quedó anclado al modelo viejo, en el que el
+vendedor mandaba el paquete primero y nosotros lo recibíamos. **Hoy en esa pestaña no hay nada que
+recibir**: hay **gente esperando nuestra oferta**.
+
+- **El daño es operativo, no cosmético.** «Por recibir» le dice al operador *«espera un paquete»* —una
+  postura pasiva— cuando lo que esa cola contiene es **un pendiente nuestro con un plazo de 7 días hábiles
+  corriendo en contra**, al final del cual la solicitud **caduca sola** y al vendedor le llega un *«no
+  procederemos»* que **nadie decidió**. Un rótulo que induce a esperar es, literalmente, el
+  comportamiento que hace que ese correo salga.
+- **Es el mismo patrón que ya cacé dos veces**: `expiry.*` en un correo donde no expiraba nada (§23.12) y
+  «Guía de envío seguro» donde «guía» ya significaba otra cosa (§7.13). **Un nombre sobrevive al cambio de
+  significado y sigue empujando a quien lo lee hacia el modelo mental viejo.** Es, con diferencia, la forma
+  más común de deuda de copy en este proyecto — y la más barata de arreglar.
+- **La clave también se renombra:** `admin.m5.tabs.por_recibir` ⇒ **`admin.m5.tabs.por_ofertar`**. Misma
+  doctrina que `offerCancelled.*`: *el número mal puesto se nota, el nombre que miente se propaga*.
+  *(El discriminante TypeScript `M5OpTab` y el mapa `M5_STATUS_TAB` son código y los decide frontend; la
+  recomendación es que **acompañen**, porque ese mapa es justamente lo que alguien lee para decidir dónde
+  vive un estado nuevo.)*
+
+**(b) La pestaña agrupada — se RATIFICA la estructura, se corrige el rótulo.**
+**Las dos decisiones del frontend eran correctas y quedan normadas:**
+
+1. **UNA pestaña y no tres.** Los tres estados son **monitoreo desde esta cola**; las colas con acción
+   propia (por autorizar, por confirmar envío, guías por cancelar) son **vistas aparte** (§23.8). Tres
+   pestañas sin acción invitarían a buscar un botón que no existe en ninguna.
+2. **`aceptada` NUNCA bajo un rótulo que diga «en camino».** Aceptar **no mueve nada** (criterio 156,
+   §23.1e) y el único estado que significa «un paquete viaja» es `en_transito`. **Esta restricción sigue
+   en pie con el rótulo nuevo** y es la que descarta a la mitad de los candidatos.
+
+**Por qué «Ciclo de oferta» no se queda**, aunque no esté mal: **(i)** es **jerga interna** —nombra una
+fase de nuestro proceso, no un estado del trabajo del operador—; y **(ii)** es **impreciso por el borde**:
+`en_transito` ya no es «el ciclo de la oferta», la oferta se aceptó dos pasos antes. **«Con el vendedor»**
+contesta la pregunta operativa (*¿de quién depende?*), es verdad en los tres —su respuesta, su decisión de
+enviar, su paquete— y **no se puede leer como «hay cartas llegando»**, que era el riesgo real.
+
+> **⚠ Concesión consciente, para que no parezca descuido:** en `en_transito` el paquete lo tiene **la
+> paquetería**, no el vendedor. Se acepta porque **el fallo caro es el contrario** —creer que hay cartas en
+> casa cuando no las hay— y porque **la fila desambigua sola**: dentro de la pestaña, cada solicitud lleva
+> su badge (`OFERTADA` / `ACEPTADA` / `EN TRÁNSITO`, §23.1a). **La pestaña agrupa; el badge precisa.**
+> Y las llamadas al vendedor **no se sacan de aquí**: salen de la cola «vendedores con solicitudes vivas»
+> (§23.8), que existe justo para eso.
+
+**(c) «Rechazadas» ⇒ «Piezas rechazadas» — hallazgo del barrido: una MISMA palabra con dos significados en
+la MISMA pantalla.** Esta pestaña es **transversal y NO contiene solicitudes**: consume
+`GET /admin/buylist/rejected-items` y lista **ítems** (cartas/piezas) rechazados por no llegar en NM. Pero
+`rechazada` es **también un estado de solicitud** —el del vendedor que **no respondió la oferta**
+(§23.4.4-3a)— y ese vive en **«Cerradas»**.
+
+- **Consecuencia:** un operador que busca *«las solicitudes que se rechazaron»* pulsa **«Rechazadas»** y
+  encuentra **cartas**. Y las solicitudes que buscaba están en otra pestaña, con la misma palabra pintada
+  en su badge. **Es una misnavegación garantizada, no hipotética.**
+- **El arreglo nombra el objeto**, que es lo que faltaba: **«Piezas rechazadas» / "Rejected items"** —
+  «piezas» es el término que ya usan M1 y el inventario, y **cubre raw, sellado y gradeadas**, mientras que
+  «cartas» dejaría fuera al sellado. Clave: `admin.m5.tabs.rechazadas` ⇒ **`admin.m5.tabs.piezas_rechazadas`**.
+
+**(d) Lo que NO se toca, y por qué se dice** (misma disciplina que §23.14.5: un barrido que cambia de más
+hace daño nuevo):
+
+| Pestaña | Veredicto |
+|---|---|
+| **«Verificando»** | **Se queda.** D16/D31/D33 no la tocaron y sigue siendo cierta: agrupa `recibida` + `verificacion`, o sea *«está en casa y hay que revisarlo»*. Es un gerundio entre rótulos «Por X», pero **describe bien el trabajo real** — y §23.6 ya usa «EN NUESTRAS MANOS» para ese mismo tramo |
+| **«Por pagar»** | **Se queda.** Nombra la acción y el pendiente es nuestro: encaja en el eje sin cambiar una letra |
+| **«Cerradas»** | **Se queda.** Los cuatro terminales, y `expirada` entre ellos. **Ojo:** su contenido incluye solicitudes con badge `RECHAZADA`, `SIN ENVÍO` y `NO PROCEDIÓ` (§23.1d) — el **motivo** lo pinta la fila, no la pestaña |
+
+**(e) Accesibilidad y forma (§6.6, sin novedades).** Las pestañas son `role="tablist"` con
+`aria-selected`; **el rótulo es el único portador del significado** (ningún color distingue una pestaña de
+otra). Longitudes para el dimensionado (§9.4): la más larga es **«Piezas rechazadas» (17)** vs "Rejected
+items" (14); en la fila 2, ES y EN empatan a 15. **La barra se dimensiona por ES.**
+
+---
+
+**Las CUATRO colas** (vistas con acción propia, distintas de las pestañas de (a)-(d)).
 Todas reutilizan `DataTable` (§7.7) con su colapso a card en `< md`. **El teléfono viaja en la cola** (D12):
 columna `Vendedor` con nombre + teléfono en mono seleccionable, **jamás en superficie pública**.
 
@@ -7045,6 +7166,24 @@ Convención §9.2. **Todo lo de §23 existe en los dos idiomas** (el proyecto ti
 - `totals.belowMinimum` — con `{netAmount}`, `{minimumAmount}`, `{shortfallAmount}` interpolados.
 - `pickupAddressMissing.{text,remedy}` · `decline.{action,title,body,reasonLabel,reasonHint,confirm}`
 - `queues.{pendingAuth,pendingShipment,pendingGuide,liveSellers}.*` + `queues.diesOn`, `queues.alert`.
+
+**Pestañas de etapa de M5 (`admin.m5.tabs.*`) — ⚠ NUEVAS en el documento (v2.3.5, §23.8a).**
+Existían en el catálogo pero **§23 nunca las especificó**; se normalizan aquí. **Dos cambian de rótulo Y de
+clave; tres no se tocan.**
+
+| Clave | Antes | Ahora | Nota |
+|---|---|---|---|
+| ~~`por_recibir`~~ ⇒ **`por_ofertar`** | «Por recibir» / "To receive" | **«Por ofertar» / "To offer"** | El rótulo describía lo que `cotizada` **ya no significa** (§23.1a). **Se renombra la clave**, no solo el texto |
+| ~~`ciclo`~~ ⇒ **`con_vendedor`** | «Ciclo de oferta» / "Offer cycle" | **«Con el vendedor» / "With the seller"** | Rótulo puesto por frontend ante el hueco de §23.8. **La estructura se ratifica**; cambia el nombre |
+| `verificando` | «Verificando» / "Verifying" | **sin cambio** | — |
+| `por_pagar` | «Por pagar» / "To pay" | **sin cambio** | — |
+| `cerradas` | «Cerradas» / "Closed" | **sin cambio** | — |
+| ~~`rechazadas`~~ ⇒ **`piezas_rechazadas`** | «Rechazadas» / "Rejected" | **«Piezas rechazadas» / "Rejected items"** | Colisionaba con el **estado** `rechazada` de solicitud, que vive en «Cerradas» (§23.8ac) |
+
+- **Las dos claves viejas se retiran de los dos catálogos** (paridad estricta: `por_recibir`, `ciclo` y
+  `rechazadas` **no existen en ES ni en EN**). Misma doctrina que `offerCancelled.*`: **cero coexistencia**.
+- **Longitudes (§9.4):** la más larga es **«Piezas rechazadas» (17)** vs "Rejected items" (14) ⇒ **la barra
+  se dimensiona por ES**. En `con_vendedor`, ES y EN empatan a 15.
 
 **Notas de longitud (§9.4)**
 - `EN NUESTRAS MANOS` (17) vs `IN OUR HANDS` (12) y `COMPROMETIDO` (12) vs `COMMITTED` (9): **ES es el más
@@ -7534,6 +7673,15 @@ tres tiempos *«tú X, nosotros Y y Z»* el primer tiempo se lee como **su parte
    > que el sistema acaba de bendecir **entrena a ignorarla**.
 3. **Paridad estricta:** `home.quoter.wePay` y `buylist.trustShipping` **no existen en NINGUNO de los dos
    catálogos**. Una clave viva en un solo idioma es el modo típico en que un texto retirado revive.
+   **v2.3.5:** lo mismo para `admin.m5.tabs.{por_recibir,ciclo,rechazadas}` ⇒ sustituidas por
+   `{por_ofertar,con_vendedor,piezas_rechazadas}` (§23.8a).
+3-bis. **Pestañas de M5 — aserción positiva (patrón (i) de la convención de arriba).** El mapa
+   `estado → pestaña` es **total**: los **diez** valores de `SellRequestStatus` tienen pestaña, y
+   `cotizada` cae en **«Por ofertar»**, los tres del tramo (`ofertada`/`aceptada`/`en_transito`) en **«Con
+   el vendedor»** y los **cuatro** terminales en «Cerradas». *Un estado sin pestaña **no falla, no avisa y
+   desaparece del back-office**: por eso la comprobación es una partición total, no un `grep`.*
+   Y una comprobación de lectura, barata: **la palabra «recibir/receive» no aparece en ninguna pestaña**, y
+   **«Rechazadas» a secas tampoco** — si aparece, volvió la colisión con el estado `rechazada`.
 4. **Guía de empaque, los dos montajes** (modal `columns=2` y sección inline `columns=4`), en ES y EN:
    el paso 4 dice **quién pone la etiqueta**, **que se descuenta** y **las tres prohibiciones**; **no**
    aparece ninguna forma de `asegura`/`insure` como instrucción al vendedor; el `intro` menciona **Near
@@ -7602,3 +7750,12 @@ tres tiempos *«tú X, nosotros Y y Z»* el primer tiempo se lee como **su parte
 5. **Backend — recordatorio, no petición.** `PROJECT.md` §H manda repetir la guía de empaque **en el correo
    de aceptación y en el de la etiqueta**. Cuando esas plantillas se escriban, **el paso 4 va con su
    resta** (§23.14.3): ahí la cadena viaja **sin** ninguna tabla de montos al lado.
+6. **Frontend — pestañas de M5 (v2.3.5, §23.8a).** Tres rótulos y tres claves:
+   `por_recibir`⇒`por_ofertar`, `ciclo`⇒`con_vendedor`, `rechazadas`⇒`piezas_rechazadas`, con las viejas
+   **borradas de los dos catálogos**. **Tu estructura se ratifica sin cambios** —una pestaña para el tramo
+   y `aceptada` fuera de todo rótulo de «en camino»—: lo que cambia es el texto, no el mapa. El
+   discriminante `M5OpTab` y `M5_STATUS_TAB` son **tuyos**; la recomendación es que **acompañen el
+   renombre**, porque ese mapa es exactamente lo que alguien lee para decidir dónde vive el próximo estado
+   nuevo — y un `por_recibir` ahí dentro seguirá diciendo «esto es la cola de paquetes» mucho después de
+   que la pestaña diga otra cosa. **Y gracias por dejar el hueco declarado en vez de taparlo en silencio:**
+   así se pudo arreglar el rótulo *y* la sección que faltaba, en vez de solo uno de los dos.
