@@ -2,7 +2,46 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-01 (rev **v1.51.10**).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-01 (rev **v1.51.11**).
+>
+> **Changelog v1.51.11 — DÓNDE VIAJA `isPayable`, Y POR QUÉ LA SÉPTIMA COPIA *NO* SE CURA (2026-09-01, arquitecto;
+> **CERO DDL, CERO campos nuevos**. ARCHITECTURE §4.39c gana **(c.11)** y los sitios **11/12**; §9 gana **BL-20**):**
+> ⚠️ **Dos hallazgos del frontend al borrar la sexta copia. En los dos no tocó nada y en los dos acertó.**
+>
+> **A. ✅ RATIFICADO — la SÉPTIMA y la OCTAVA copia NO se curan con un derivado. El criterio es nuevo.**
+> - `showMoneyOut` (`M5View.tsx:874`) transcribe `SELL_REQUEST_PAYABLE_STATES` **por segunda vez en el mismo
+>   archivo**, y `canDecide` (`:873`) hace lo propio con `SELL_REQUEST_VERIFYING_STATES`. **El frontend no las tocó
+>   porque `isPayable` lleva `verifiedAt` y `showMoneyOut` no** — sustituirlo **ocultaría la sección de dinero,
+>   incluido el reveal de CLABE**, en filas donde este contrato no dice que se oculte. **Es la contra-regla de
+>   §4.39c aplicada correctamente:** *el criterio de consolidación es la REGLA, no el CONTENIDO.*
+> - **Por qué no son el sitio 10 otra vez:** `canPay` era la **transcripción de una precondición del servidor** y la
+>   copiaba **mal**. Éstas **no tienen contraparte server-side** —`reveal-clabe` **no tiene precondición de estado** y
+>   `itemDecision` solo exige **no-terminal**— y son **más estrictas** que el servidor, así que solo pueden **ocultar**
+>   un control, nunca ofrecer uno que el servidor rechace. **Server-derivar una «sección» sería inventarle al backend
+>   un concepto que no tiene:** él conoce precondiciones de *endpoints*, no *secciones de pantalla*.
+> - **⚠️ Y los modos de fallo NO son simétricos, que es la razón de dinero:** si `isPayable` falta, el botón sale
+>   **deshabilitado** — **se ve**. Si faltara un `showMoneyOut` derivado, **desaparece la sección entera con el reveal
+>   de CLABE dentro**, y ése es **el ÚNICO punto del contrato que devuelve la CLABE en claro**: sin sección **no hay
+>   otra ruta** y **no queda señal de que faltara algo**. **NORMA:** *se server-deriva el predicado que **gatea una
+>   acción**; no el que decide si un control **existe**.* **Un fallo que deshabilita se ve; uno que desaparece, no.**
+> - **Consecuencia visible hoy, y es la correcta:** una `aprobada` **sin `verifiedAt`** pinta la sección con el botón
+>   **deshabilitado** —*se ve, no se paga*— donde antes salía habilitado y contestaba `422`.
+>
+> **B. ⚠️ `isPayable` VIAJA EN TODA PROYECCIÓN ADMIN DE UNA `SellRequest`, INCLUIDAS LAS RESPUESTAS DE MUTACIÓN.**
+> - **El defecto es mío:** §11 lo declara **sin `?`**, pero la proyección compartida solo emite `isTerminal`, así que
+>   **`receive`, `verify`, `reject` y `pay-spei` devuelven un DTO al que le falta un campo no-opcional**. Quien
+>   escriba `if (res.isPayable)` sobre `verify` obtiene un **`false` silencioso en superficie de dinero**.
+> - **⚠️ Y `verify` es precisamente la transición que vuelve `isPayable` verdadero** (sella `verifiedAt`): es el peor
+>   sitio posible para omitirlo. **Se emite en las cuatro; el contrato NO se acota.**
+> - **Se deriva en la proyección COMPARTIDA**, no en cada shape: así las cuatro lo heredan y **ninguna mutación futura
+>   puede olvidarlo** — la misma doctrina de «un cuerpo, muchos lectores» que rige `isPayableSellRequest`.
+> - **⚠️⚠️ TRAMPA, y es de PII/alcance: la proyección de CLIENTE se construye como «la de admin MENOS dos campos».**
+>   Añadir `isPayable` arriba **sin** añadirlo a esa resta **lo filtra al VENDEDOR** por `GET /buylist/requests/:id` y
+>   `respond`, rompiendo el **admin-only** de v1.51.8. **Pasan a ser TRES campos excluidos:** `closedAt`, `paidBy` y
+>   **`isPayable`**. Desviación **BL-20**.
+>
+> **C. Sin cambios.** Ningún campo nuevo, ningún endpoint, ningún dial, ningún DDL. `isPayable` conserva su
+> definición, su carácter **actor-independiente** y su condición de **aviso de UI, no permiso**.
 >
 > **Changelog v1.51.10 — VOCABULARIO DE ESTADO DEL REGISTRO DE DESVIACIONES (2026-09-01, arquitecto; **CERO cambios
 > de interfaz**. ARCHITECTURE §9 gana su leyenda; aquí solo se alinean las dos marcas que hablaban de código):**
@@ -8438,6 +8477,17 @@ Notas de seguridad: **host fijo** de pokemontcg.io (sin SSRF); `POKEMONTCG_IO_AP
       >   `isPayable` llega `undefined` y **el botón muere para todos**; con este orden el peor caso es *«sigue como
       >   hoy»*. Consumo defensivo (`=== true`), mismo patrón que `isTerminal === false`. Desviación **BL-17**,
       >   ARCHITECTURE §4.39(c) **sitio 10**.
+      > - **⚠️ v1.51.11 — DÓNDE VIAJA, exhaustivamente (desviación BL-20).** `isPayable` viaja en **TODA proyección
+      >   ADMIN de una `SellRequest`**: el **listado**, el **detalle**, la **mesa** y **también las respuestas de
+      >   mutación** — `receive`, `verify`, `reject` y `pay-spei`. **No es opcional en ninguna.** ⚠️ **`verify` es la
+      >   transición que lo vuelve `true`** (sella `verifiedAt`): omitirlo ahí es el peor caso, porque quien lea
+      >   `res.isPayable` tras verificar obtiene un **`false` silencioso en superficie de dinero**.
+      >   **Se deriva en la proyección COMPARTIDA**, no shape por shape, para que **ninguna mutación futura pueda
+      >   olvidarlo**.
+      >   ⚠️⚠️ **Y la contrapartida obligatoria:** la proyección de **cliente** se construye como *«la de admin menos
+      >   los campos internos»*. **`isPayable` entra a esa exclusión** —pasan de **dos** a **TRES** (`closedAt`,
+      >   `paidBy`, `isPayable`)—: sin eso, añadirlo arriba **lo filtraría al vendedor** por
+      >   `GET /buylist/requests/:id` y `respond`, rompiendo el **admin-only** de este mismo bloque.
     - **`offerState`, `offerGrossCents`, `offerNetCents`, `offerAcceptDeadlineAt`, `shipDeadlineAt`,
       `sellerShippedDeclaredAt`, `shipmentTrackingNumber` (NUEVOS, admin-only)** en `AdminBuylistDTO` — para que la
       cola de M5 muestre el pipeline sin abrir cada detalle. **`offerState` NUNCA sale en un DTO de cliente.**
@@ -10302,6 +10352,11 @@ PendingPublishRowDTO = { inventoryItemId: string, folio: string, card: CardDTO, 
 //   servidor responde 422. ⚠️ ACTOR-INDEPENDIENTE: el rol se queda en el cliente (`isSuperAdmin && isPayable`),
 //   porque «¿está en condición de pagarse?» y «¿puedo pagarla yo?» son DOS PREGUNTAS y un campo contesta UNA.
 //   ⚠️ NO ES UN PERMISO: `pay-spei` sigue siendo super_admin con MoneyOutGuard. JAMÁS en el DTO de cliente.
+//   ⚠️ v1.51.11 (BL-20) — NO ES OPCIONAL Y VIAJA EN TODAS LAS PROYECCIONES ADMIN: listado, detalle, mesa Y las
+//   respuestas de mutación (`receive`, `verify`, `reject`, `pay-spei`). Se deriva en la proyección COMPARTIDA para
+//   que ninguna mutación futura pueda olvidarlo. `verify` es la transición que lo vuelve `true`: omitirlo ahí daría
+//   un `false` silencioso en superficie de dinero. ⚠️ La proyección de CLIENTE = la de admin MENOS `closedAt`,
+//   `paidBy` **y `isPayable`** (TRES, no dos): sin esa tercera exclusión el campo se filtraría al vendedor.
 AdminBuylistDTO  += { isTerminal: boolean, isPayable: boolean, offerState: SellOfferState | null,
                       offerSentAt: string | null, offerGrossCents: number | null,
                       offerShippingFeeCents: number | null,
