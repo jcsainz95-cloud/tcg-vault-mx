@@ -48,6 +48,7 @@ import {
 // NO los recalcula: dos implementaciones de «día hábil» dicen fechas distintas.
 import { addBusinessDays, businessDaysSince } from '../../common/business-days';
 import {
+  deriveRejectedReason,
   rejectDeadlines,
   SELL_REQUEST_LIVE_ADJUSTMENT_STATES,
   SELL_REQUEST_TERMINAL_STATES,
@@ -195,6 +196,45 @@ function toCustomerSellRequestDTO(r: Parameters<typeof toAdminSellRequestDTO>[0]
     ...safe
   } = toAdminSellRequestDTO(r);
   return safe;
+}
+
+/**
+ * ⚠️ v1.51.16 · **BL-24** — **qué le falta a una proyección de oferta para ser MOSTRABLE.**
+ *
+ * Recibe **la proyección REAL** (la que produce `offerPublicDTO`, la misma que sirve
+ * `GET /buylist/requests/:id`) y devuelve **los nombres de lo que falta**, vacío si está completa.
+ * Separarla de quien la construye es lo que la vuelve **verificable rama por rama** sin fabricar una
+ * solicitud imposible: *un candado sin test propio es un candado que alguien borra en el siguiente
+ * refactor*. **No es una checklist paralela**: no sabe leer la fila, solo mira la proyección — si el
+ * portal exige un campo nuevo mañana, entra por `offerPublicDTO` y esta función lo ve.
+ *
+ * Lo exigido es literal del contrato (§M5, v1.51.16): **`terms` íntegro** —los tres textos, no
+ * vacíos— y **TODA línea con su `offerDecision`**. Más el desglose **no vacío**: una oferta sin
+ * líneas es inmostrable por la misma R2 del portal.
+ *
+ * ⚠️ **No mira montos ni plazos**: `acceptDeadlineAt` es `null` en el camino `202` **por diseño**
+ * (lo congela `authorize`), y confundir *«incompleto para MOSTRAR»* con *«incompleto para PAGAR»*
+ * convertiría un backstop en una segunda regla de negocio.
+ */
+export function offerProjectionGaps(
+  projected: {
+    terms: { perLineConditionLabel: string; consequence: string; rule: string };
+    lines: { id: string; offerDecision: BuyDecision | null }[];
+  } | null,
+): string[] {
+  // `null` = la proyección no existe ⇒ el portal no pinta NADA. Es el hueco más grande posible.
+  if (projected == null) return ['offer'];
+  const missing: string[] = [];
+  for (const key of ['perLineConditionLabel', 'consequence', 'rule'] as const) {
+    const v = projected.terms?.[key];
+    if (typeof v !== 'string' || v.trim().length === 0) missing.push(`terms.${key}`);
+  }
+  if (projected.lines.length === 0) missing.push('lines');
+  // El itemId, no el índice: `details` tiene que ser accionable para quien vaya a arreglar el bug.
+  for (const line of projected.lines) {
+    if (line.offerDecision == null) missing.push(`lines[${line.id}].offerDecision`);
+  }
+  return missing;
 }
 
 /**
@@ -1269,7 +1309,11 @@ export class BuylistService implements OnModuleInit {
     inventoryItemId: string | null;
     rejectedAt?: Date | null;
     rejectionReason?: string | null;
-  }) {
+    // v1.51.15 (§11): el BLOQUE DE OFERTA que viaja a las DOS audiencias (`buy`|`skip` y el monto
+    // congelado). Los cinco campos ADMIN-ONLY de `AdminSellItemDTO` NO entran aquí a propósito.
+    offerDecision?: BuyDecision | null;
+    offeredPriceCents?: number | null;
+  }, opts?: { conditionLabel?: string }) {
     // v1.18-buylist-rejects (§11): campos de RECHAZO — poblados SOLO si itemStatus='rechazada';
     // en cualquier otro status se OMITEN. Los plazos returnDeadlineAt/abandonDeadlineAt se DERIVAN
     // server-side de rejectedAt (fuente única; NO son columnas). Ítems legacy (rechazados pre-M-22,
@@ -1282,6 +1326,48 @@ export class BuylistService implements OnModuleInit {
             ...rejectDeadlines(i.rejectedAt),
           }
         : {};
+    // ⚠️ v1.51.15 (§11 `SellItemDTO`, criterios 118/161(d)) — **EL BLOQUE DE OFERTA, PARTIDO POR
+    // AUDIENCIA.** §11 lo declara desde v1.51 y esta proyección **no emitía ninguno de los tres**, así
+    // que el portal del vendedor recibía una oferta sin desglose: sin `offerDecision` no puede decir
+    // *qué* compramos, sin `offeredPriceCents` no puede decir *a cuánto*, y sin `condition` no puede
+    // mostrar lo que el vendedor está aceptando.
+    //
+    // ### Qué entra aquí y qué NO, y por qué la frontera es la forma de la función
+    // Entra **lo declarado para CLIENTE**: `offerDecision`, `offeredPriceCents` y `condition`.
+    // **NO entran** los CINCO admin-only de `AdminSellItemDTO` (`offerDerivedPriceCents`,
+    // `offerOverrideReason`, `offerPriceBasis`, `offerMarketMxnCents`, `offerMarketBracket`): los dos
+    // primeros son **deliberación interna** —*el vendedor ve EL NÚMERO QUE LE OFERTAMOS, no cómo se
+    // fabricó*— y los tres restantes son instrumentación §N.8 del mismo régimen. Esta función es
+    // COMPARTIDA por las dos audiencias, así que la regla se hace cumplir por **ausencia**: no se
+    // leen de la fila, luego no pueden escaparse. Es la dirección segura del contrato
+    // (`AdminSellItemDTO = SellItemDTO & {…}`: admin **añade**, cliente **no resta**) y **lo contrario
+    // de la trampa de `toCustomerSellRequestDTO`**, que hereda por omisión y por eso necesitó la
+    // resta explícita de `isPayable` (BL-20).
+    //
+    // ### `null` explícito, nunca `0` ni omisión
+    // `offerDecision: null` = **línea pre-ciclo** (el contrato le da ese significado). `null` en
+    // `offeredPriceCents` = **línea `skip`**: el criterio 118 exige que el desglose diga qué NO
+    // compramos, y el correo lo lista **sin monto** — *cero es un precio*.
+    //
+    // ### `condition` — SOLO en la proyección de CLIENTE, y solo si el llamador trae la etiqueta
+    // §11: *«la CONDICIÓN NM de esa línea, YA RENDERIZADA por el backend en el `locale` del usuario,
+    // y **es el MISMO string que usó el correo**»* (criterio 161(d): la pantalla de aceptación la
+    // muestra *palabra por palabra*). Por eso **no se renderiza aquí**: se **recibe** ya renderizada
+    // desde `offerTermsCopy(locale-del-vendedor)`, la MISMA llamada que llena `offer.terms`. El valor
+    // que se pinta pegado al monto y el del bloque legal **son el mismo, por construcción**.
+    // - Sin `conditionLabel` ⇒ la clave **no existe**. Ésa es la superficie de ADMIN (que además no
+    //   tiene el locale del vendedor a mano: renderizarla en el del operador sería mostrarle al
+    //   vendedor un texto que él nunca leyó) y la LISTA del cliente, que **no lleva oferta**.
+    // - Con `conditionLabel` y línea `buy` ⇒ el string.
+    // - Con `conditionLabel` y línea `skip`/pre-ciclo ⇒ `null`. **Poner la condición de compra junto a
+    //   una carta que NO compramos sería una promesa que no hicimos**, y el correo tampoco la pone.
+    const offer = {
+      offerDecision: i.offerDecision ?? null,
+      offeredPriceCents: i.offeredPriceCents ?? null,
+      ...(opts?.conditionLabel != null
+        ? { condition: i.offerDecision === 'buy' ? opts.conditionLabel : null }
+        : {}),
+    };
     // v1.3.1: `category` reemplazado por `rarity`; v2.0 (P-48): `appliedRule` → `priceBasis`.
     return {
       id: i.id,
@@ -1305,6 +1391,7 @@ export class BuylistService implements OnModuleInit {
       itemStatus: i.itemStatus,
       inventoryItemId: i.inventoryItemId ?? undefined,
       ...rejection,
+      ...offer,
     };
   }
 
@@ -1348,10 +1435,23 @@ export class BuylistService implements OnModuleInit {
     // S49-M1: la CABECERA pasa por la MISMA lista blanca de cliente que `respond`. Antes se
     // descartaba `clabeSnapshotEnc` a mano y el resto se esparcía crudo — así se colaba `closedAt`
     // (interno, SEC-D2) y se colaría cualquier columna sensible futura del schema.
+    // v1.51.15 (§11): el detalle del CLIENTE lleva `condition` **también en `items[]`**, no solo en
+    // `offer.lines[]`. Es el mismo desglose visto por la misma persona, y el mismo `locale`: dos
+    // arreglos de la misma respuesta que dijeran cosas distintas sobre la misma línea serían
+    // exactamente el defecto que el criterio 161(d) prohíbe.
+    // Se lee SOLO `perLineConditionLabel`, que no depende de montos — por eso esta llamada va sin
+    // ellos. `terms.rule` (el único que sí los necesita) sale de `offerPublicDTO`, que los tiene
+    // congelados en la fila: *no se interpola dinero donde no hay dinero que interpolar.*
+    const conditionLabel = offerTermsCopy(req.user?.locale ?? null).perLineConditionLabel;
     return {
       ...toCustomerSellRequestDTO(req),
       sellRequestId: req.id,
-      items: req.items.map((i) => this.itemDTO(i)),
+      // ⚠️ v1.51.15 · **BL-23(3)** — POR QUÉ quedó `rechazada`. **Derivado, CERO DDL** (la regla y su
+      // orden de evaluación viven en `deriveRejectedReason`). **Solo en el DETALLE**, por la misma
+      // razón que `expiredReason`: pertenece a la ficha de UNA solicitud, y la lista solo necesita
+      // identificarla y decir si sigue viva (§6, tabla de alcance de v1.51.8).
+      rejectedReason: deriveRejectedReason(req, req.items),
+      items: req.items.map((i) => this.itemDTO(i, { conditionLabel })),
       // v1.51 (§6) — LA OFERTA COMO LA VE EL VENDEDOR. `null` salvo con `offerState='sent'`: una
       // oferta que espera autorización **no existe para él** (D13/D24), y una cancelada se limpió.
       // ⚠️ NUNCA lleva `offerState` ni ninguna cifra interna de la mesa.
@@ -1506,10 +1606,16 @@ export class BuylistService implements OnModuleInit {
        * `false` = los terminales. `undefined` = sin filtro (comportamiento de hoy, intacto).
        */
       live?: boolean;
+      /**
+       * v1.51.1 · **D31** (§M5) — `true` ⇒ `status='aceptada' ∧ guideSentAt IS NULL`, orden
+       * `acceptedAt` **asc**. Es un **FILTRO sobre la cola que ya existe**, no una cola nueva.
+       */
+      awaitingGuide?: boolean;
     },
   ) {
     const where: Prisma.SellRequestWhereInput = {};
     const live = filters?.live;
+    const awaitingGuide = filters?.awaitingGuide;
     // v1.25-buylist-orders-pagination (§M5): `status` pasa a aceptar CSV → `status IN (...)`
     // (la pestaña «Cerradas» = `pagada,rechazada,abandonada` en UNA llamada). Compat TOTAL: un solo
     // token se comporta IDÉNTICO a hoy (escalar `where.status = token`, no `{ in: [...] }`); omitirlo
@@ -1565,6 +1671,30 @@ export class BuylistService implements OnModuleInit {
         where.status = liveStatus;
       }
     }
+    // ⚠️ v1.51.1 · **D31 — `awaitingGuide`: el pendiente NUESTRO que podía quedarse quieto para
+    // siempre.** Con una sola banda la guía es un paso de TODA compra, y `shipDeadlineAt` solo se
+    // congela al capturarla ⇒ **una `aceptada` sin guía no corre reloj y no expira nunca**. Eso es
+    // **correcto** (§P.13: un plazo del vendedor solo puede vencer por algo que dependa del
+    // vendedor, y la etiqueta depende de NOSOTROS), **pero sin esta vista el pendiente es
+    // invisible** y la aceptación se queda quieta para siempre. *Un paso que ya no es opcional
+    // necesita una cola que lo vigile.*
+    //
+    // Es un **FILTRO sobre la cola que ya existe**, no una cola nueva: el dato ya viaja en
+    // `AdminBuylistDTO` y la lección de **P-5** prohíbe que el front lo derive paginando.
+    //
+    // Se combina con los demás por `AND` (mismo criterio que `live`: no se reasigna `status`, que
+    // haría desaparecer en silencio el filtro que pidió el usuario).
+    if (awaitingGuide === true) {
+      where.AND = [
+        ...((where.AND as Prisma.SellRequestWhereInput[]) ?? []),
+        { status: 'aceptada' },
+        { guideSentAt: null },
+      ];
+      if (where.status !== undefined) {
+        where.AND.push({ status: where.status });
+        delete where.status;
+      }
+    }
     // v1.7-admin-users: filtro opcional por SellRequest.userId (simetría con /admin/orders).
     if (userId) where.userId = userId;
     // v1.25-buylist-orders-pagination (§M5): `q` contains case-insensitive OR sobre folio
@@ -1591,12 +1721,14 @@ export class BuylistService implements OnModuleInit {
     const [rows, total] = await Promise.all([
       this.prisma.sellRequest.findMany({
         where,
-        orderBy: { createdAt: 'desc' },
+        // v1.51.1 (D31): en la vista `awaitingGuide` el orden es `acceptedAt` **asc** — lo más viejo
+        // primero, porque ahí es una **cola de trabajo**, no un histórico.
+        orderBy: awaitingGuide === true ? { acceptedAt: 'asc' } : { createdAt: 'desc' },
         skip: (page - 1) * pageSize,
         take: pageSize,
         include: {
           items: { include: { card: true } },
-          user: { select: { id: true, name: true, email: true } },
+          user: { select: { id: true, name: true, email: true, phone: true } },
         },
       }),
       this.prisma.sellRequest.count({ where }),
@@ -1645,9 +1777,27 @@ export class BuylistService implements OnModuleInit {
 
   /** v1.18-buylist-rejects: AdminSellerRef = { id, name, email } (§11). Tolerante a mocks sin join. */
   private sellerRef(
-    user: { id: string; name: string; email: string } | null | undefined,
-  ): { id: string; name: string; email: string } | undefined {
-    return user ? { id: user.id, name: user.name, email: user.email } : undefined;
+    user: { id: string; name: string; email: string; phone?: string | null } | null | undefined,
+  ): { id: string; name: string; email: string; phone: string | null } | undefined {
+    return user
+      ? {
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          // ⚠️ v1.51 · **BL-15** (D12, criterios 129/130) — **el teléfono viaja EN LA FILA**, para que
+          // el operador **pueda llamar desde la solicitud sin ir a buscar al usuario**. Ése es el
+          // requisito: *«que sepamos qué usuarios tienen cotizaciones abiertas»* y poder contactarlos.
+          //
+          // **Régimen PII: el MISMO que el correo del vendedor** (§4.18d) — dato de contacto
+          // operativo de back-office **tras el guard de rol**, **sin enmascarado y sin reveal
+          // auditado**. **No es la CLABE**, cuyo régimen no cambia en nada.
+          // ⛔ **PROHIBIDO en toda superficie pública** (criterio 130) y **PROHIBIDO en el buscador
+          // `q`**: buscar por teléfono convertiría el listado en un **oráculo de enumeración** —
+          // quien probara números sabría cuáles tienen cuenta aquí. Hay guard de test.
+          // `null` en cuentas de Google y en cuentas viejas sin capturar.
+          phone: user.phone ?? null,
+        }
+      : undefined;
   }
 
   async adminGet(id: string) {
@@ -1656,7 +1806,7 @@ export class BuylistService implements OnModuleInit {
       include: {
         items: { include: { card: true } },
         // v1.18-buylist-rejects: mismo `seller: AdminSellerRef` que el listado (§M5).
-        user: { select: { id: true, name: true, email: true } },
+        user: { select: { id: true, name: true, email: true, phone: true } },
       },
     });
     if (!req) throw BusinessException.notFound();
@@ -1721,7 +1871,7 @@ export class BuylistService implements OnModuleInit {
       where: { id },
       include: {
         items: { include: { card: { include: { set: true } } } },
-        user: { select: { id: true, name: true, email: true } },
+        user: { select: { id: true, name: true, email: true, phone: true } },
       },
     });
     if (!req) throw BusinessException.notFound();
@@ -2493,10 +2643,30 @@ export class BuylistService implements OnModuleInit {
       }
       // PROJECTION-EXEMPT: fila cruda DENTRO de la tx; se proyecta abajo con `offerResponseShape`
       // (lista blanca del contrato §M5) antes de devolverla. `updateMany` no devuelve filas.
-      return tx.sellRequest.findUnique({
+      const row = await tx.sellRequest.findUnique({
         where: { id },
-        include: { items: { include: { card: { include: { set: true } } } } },
+        include: {
+          items: { include: { card: { include: { set: true } } } },
+          // El `locale` del VENDEDOR: es el que renderiza `terms`, y sin él la guarda validaría un
+          // texto que no es el que él va a leer.
+          user: { select: { locale: true } },
+        },
       });
+      if (!row) throw BusinessException.notFound();
+      // ---- 7-bis. ⚠️⚠️ GUARDA DE PROYECCIÓN (v1.51.16 · BL-24) — ÚLTIMO PASO ANTES DEL COMMIT ----
+      // Va **dentro** de la transacción y **después** de las escrituras a propósito: así valida la
+      // fila REAL que `GET /buylist/requests/:id` leería, no una simulación armada a mano — y al
+      // lanzar, **la transacción se deshace entera**. Consecuencia exacta y buscada: **no se emite,
+      // no se persiste, NO sale correo** (va post-commit) y **`offerSentAt` nunca se sella**, así que
+      // el plazo del vendedor **nunca se congela** y la solicitud se queda `cotizada` ⇒ la mira la
+      // **regla 7 del barrido (NUESTRO plazo)**, no la 1 (el suyo). *El defecto cae en nuestra cola y
+      // en nuestro reloj, que es donde §P.13 dice que tiene que caer.*
+      this.assertOfferProjectionComplete(
+        id,
+        { ...row, locale: row.user?.locale ?? null },
+        now,
+      );
+      return row;
     });
     if (!updated) throw BusinessException.notFound();
 
@@ -2777,10 +2947,16 @@ export class BuylistService implements OnModuleInit {
         );
       }
       // PROJECTION-EXEMPT: fila cruda DENTRO de la tx; se proyecta abajo con la lista blanca de
-      // cliente antes de devolverla.
+      // cliente antes de devolverla. El join de `user` trae SOLO el `locale` (ver abajo) y **no se
+      // esparce**: la respuesta se arma campo a campo.
       return tx.sellRequest.findUnique({
         where: { id },
-        include: { items: { include: { card: true } } },
+        // ⚠️ v1.51.15 — el `locale` del VENDEDOR entra a esta respuesta. Sin él, `offerPublicDTO`
+        // caía al idioma por defecto y **esta misma oferta se leía en dos idiomas distintos**: en
+        // inglés al abrir el portal (`getMine` sí pasaba el locale) y en español al aceptarla. El
+        // criterio 161(d) pide que la condición sea la MISMA palabra por palabra; un locale distinto
+        // la cambia entera.
+        include: { items: { include: { card: true } }, user: { select: { locale: true } } },
       });
     });
     if (!row) throw BusinessException.notFound();
@@ -2789,7 +2965,7 @@ export class BuylistService implements OnModuleInit {
       status: row.status as 'aceptada' | 'rechazada',
       ...(row.acceptedAt ? { acceptedAt: row.acceptedAt } : {}),
       isTerminal: isTerminalSellRequestStatus(row.status),
-      offer: this.offerPublicDTO(row, row.items),
+      offer: this.offerPublicDTO({ ...row, locale: row.user?.locale ?? null }, row.items),
     };
   }
 
@@ -2843,6 +3019,7 @@ export class BuylistService implements OnModuleInit {
       offerNetCents: number | null;
       offerAcceptDeadlineAt: Date | null;
       acceptedAt: Date | null;
+      guideSentAt: Date | null;
       shipDeadlineAt: Date | null;
       sellerShippedDeclaredAt: Date | null;
       shipmentCarrier: string | null;
@@ -2852,21 +3029,104 @@ export class BuylistService implements OnModuleInit {
     items: Parameters<BuylistService['itemDTO']>[0][],
   ) {
     if (req.offerState !== 'sent' || req.offerSentAt == null) return null;
+    // ⚠️ v1.51.15 — **UNA sola llamada, para el bloque legal Y para cada línea.** No son dos renders
+    // que coinciden: es el MISMO valor. Criterio 161(d) exige que lo que el vendedor lee pegado al
+    // monto sea, palabra por palabra, lo que le dijo el correo; renderizarlo dos veces (aunque fuera
+    // con la misma función) haría que la identidad dependiera de que nadie cambie un argumento.
+    const shippingFeeCents = req.offerShippingFeeCents ?? 0;
+    // Lo que se deposita es SIEMPRE el neto (D31: no hay `depositField` que consultar).
+    const netCents = req.offerNetCents ?? 0;
+    // ⚠️ v1.51.15 · BL-23(2) — los montos de `terms.rule` son **LAS MISMAS CONSTANTES** que se
+    // emiten en el desglose, no una segunda lectura de la fila. La prosa dice *«se te depositan X»*
+    // y el `AmountBreakdown` dice `netCents`: si salieran de dos expresiones distintas, un cambio en
+    // una **haría que la pantalla se contradijera a sí misma** sobre una cifra vinculante.
+    const terms = offerTermsCopy(req.locale, { shippingFeeCents, netCents });
     return {
       sentAt: req.offerSentAt,
       grossCents: req.offerGrossCents ?? 0,
-      shippingFeeCents: req.offerShippingFeeCents ?? 0,
-      // Lo que se deposita es SIEMPRE el neto (D31: no hay `depositField` que consultar).
-      netCents: req.offerNetCents ?? 0,
+      shippingFeeCents,
+      netCents,
       acceptDeadlineAt: req.offerAcceptDeadlineAt,
       acceptedAt: req.acceptedAt,
+      // ⚠️ v1.51.15 · **BL-23(5)** — **`guideSentAt` NO ES DERIVABLE**, y por eso es obligatorio.
+      // `carrier != null` **NO implica guía viva**: al corregir la dirección tras la guía (§4.39t) se
+      // **limpian** `guideSentAt`/`shipDeadlineAt` y se **CONSERVAN** `carrier`/`trackingNumber`
+      // (son precisamente lo que hay que cancelar). Un cliente que dedujera «hay guía» del carrier
+      // pintaría **instrucciones de envío para una etiqueta ANULADA**. Es el único marcador veraz.
+      guideSentAt: req.guideSentAt,
       shipDeadlineAt: req.shipDeadlineAt,
       sellerShippedDeclaredAt: req.sellerShippedDeclaredAt,
       carrier: req.shipmentCarrier,
       trackingNumber: req.shipmentTrackingNumber,
-      terms: offerTermsCopy(req.locale),
-      lines: items.map((i) => this.itemDTO(i)),
+      terms,
+      lines: items.map((i) => this.itemDTO(i, { conditionLabel: terms.perLineConditionLabel })),
     };
+  }
+
+  /**
+   * ⚠️⚠️ v1.51.16 · **BL-24** (§4.39h paso **7-bis** / (h.1) · §M5) — **GUARDA DE PROYECCIÓN: NO SE
+   * EMITE UNA OFERTA QUE EL PORTAL NO PODRÍA MOSTRAR.**
+   *
+   * ### El defecto que cierra, y es de DINERO y de JUSTICIA
+   * El portal aplica **R2 sin excepción**: una oferta incompleta —sin `terms`, o con líneas sin
+   * `offerDecision`— **no se pinta a medias**, y eso es *correcto*. Pero entonces **el vendedor no
+   * tiene forma de aceptar**, el barrido **sigue contando sus 2 días hábiles**, y acaba recibiendo un
+   * correo que le dice que **no respondió**. **Falló nuestra proyección y la factura le llegaba a
+   * él** — exactamente lo que §P.13 prohíbe, y la injusticia que motivó D38.
+   *
+   * ### ⚠️ LA GUARDA **ES** LA PROYECCIÓN — ésta es la parte que importa
+   * Se llama a `offerPublicDTO`, **la MISMA función que sirve `GET /buylist/requests/:id`**. No es
+   * una lista de comprobación paralela, y no puede serlo: una checklist aparte sería **un segundo
+   * cuerpo de la regla de proyección**, justo lo que el arquitecto descartó en las otras dos vías. Al
+   * ser la misma, **no puede divergir de lo que el portal recibe** y **cualquier campo que el portal
+   * exija mañana entra al gate solo, sin que nadie se acuerde**.
+   *
+   * ### Por qué se proyecta «como si estuviera enviada»
+   * `offerPublicDTO` devuelve `null` salvo con `offerState='sent'` — es su regla de VISIBILIDAD
+   * (D13/D24: una oferta en cola de autorización **no existe** para el vendedor). Aquí se pregunta
+   * otra cosa: *«cuando ESTA oferta salga, ¿se podrá mostrar?»*. Por eso se fuerzan los DOS campos
+   * que gobiernan la visibilidad y **nada más**: el resto —`terms`, líneas, montos— es la fila real.
+   * **Con `202` es donde importa**: `authorize` **no revalida** (§M5 lo dice por escrito para el piso
+   * de neto), así que si la cola de autorización aceptara una oferta inmostrable, saldría inmostrable
+   * al autorizarla y **el gate no habría servido de nada**.
+   *
+   * ### Qué se exige, literal del contrato
+   * `terms` **íntegro** (`perLineConditionLabel`, `consequence`, `rule`) y **TODA** línea con su
+   * `offerDecision`. Se añade el desglose **no vacío**: una oferta sin líneas es inmostrable por la
+   * misma R2 (hoy inalcanzable — sin líneas `buy` el bruto es 0 y salta antes
+   * `OFFER_NET_BELOW_MINIMUM`—, y un backstop se escribe justo para lo que «no puede pasar»).
+   *
+   * ⚠️ **NO valida montos ni plazos**: `acceptDeadlineAt` es `null` en el camino `202` **por diseño**
+   * (lo congela `authorize`), y confundir *«incompleto para mostrar»* con *«incompleto para pagar»*
+   * convertiría un backstop en una segunda regla de negocio.
+   *
+   * `500`, no `422`: **el operador no hizo nada mal y no puede corregir nada** en esa pantalla. Se
+   * **loguea**, porque el filtro global no loguea las `BusinessException` y *un backstop que dispara
+   * en silencio es un backstop que nadie arregla*.
+   */
+  private assertOfferProjectionComplete(
+    id: string,
+    row: Parameters<BuylistService['offerPublicDTO']>[0] & {
+      items: Parameters<BuylistService['itemDTO']>[0][];
+    },
+    now: Date,
+  ): void {
+    const missing = offerProjectionGaps(
+      this.offerPublicDTO(
+        { ...row, offerState: 'sent', offerSentAt: row.offerSentAt ?? now },
+        row.items,
+      ),
+    );
+    if (missing.length === 0) return;
+    // ⚠️ Se loguea ANTES de lanzar: es NUESTRO defecto, y el vendedor se queda sin su oferta.
+    this.logger.error(
+      `buylist offer projection incomplete for ${id}: ${missing.join(', ')} — la oferta NO se emite`,
+    );
+    throw BusinessException.internal(
+      'OFFER_PROJECTION_INCOMPLETE',
+      'The client projection of this offer is incomplete; the offer was not emitted',
+      { missing, sellRequestId: id },
+    );
   }
 
   /**
@@ -2943,6 +3203,185 @@ export class BuylistService implements OnModuleInit {
   // ===========================================================================================
   // v1.51 — LA GUÍA Y EL TRÁNSITO (§M5 · ARCHITECTURE §4.39)
   // ===========================================================================================
+
+
+  /**
+   * v1.51.3 (D36/D37, §4.39q) — **el snapshot de la dirección de origen, en UN solo sitio.**
+   *
+   * ⚠️ **SEC-A1 aplicado a un dato que no es dinero: NADIE ESCRIBE UN DOMICILIO — se ELIGE una fila
+   * de la libreta del vendedor.** Ni el cliente ni el admin mandan campos sueltos; los dos mandan un
+   * `addressId`. *La defensa es la forma del DTO: no hay campo de dirección que manipular.*
+   *
+   * ⛔ **PROHIBIDO derivarla de un pedido, del KYC o de «la default»**: sería inventarle al vendedor
+   * un origen **que él no confirmó para esta solicitud**, y rompería entera la propiedad del
+   * snapshot. Si no tiene la dirección buena en su libreta, **la añade ÉL** y el operador la
+   * selecciona — para eso el operador tiene su teléfono (D12).
+   *
+   * **Misma respuesta para «no existe» y «no es suya»** (`422 PICKUP_ADDRESS_NOT_FOUND`): distinguir
+   * las dos convertiría el endpoint en un oráculo de existencia de direcciones ajenas.
+   *
+   * Devuelve el JSON que se congela en `SellRequest.pickupAddressSnapshot` — **una copia, no una
+   * FK**: `Address` se puede borrar, y una referencia viva dejaría solicitudes en vuelo sin origen.
+   */
+  private async resolvePickupAddressSnapshot(
+    ownerUserId: string,
+    addressId: string,
+  ): Promise<Prisma.InputJsonValue> {
+    const addr = await this.prisma.address.findUnique({ where: { id: addressId } });
+    if (!addr || addr.userId !== ownerUserId) {
+      throw BusinessException.validation(
+        'PICKUP_ADDRESS_NOT_FOUND',
+        'Address not found for this seller',
+        { addressId },
+      );
+    }
+    return {
+      line1: addr.line1,
+      ...(addr.line2 ? { line2: addr.line2 } : {}),
+      ...(addr.neighborhood ? { neighborhood: addr.neighborhood } : {}),
+      city: addr.city,
+      state: addr.state,
+      postalCode: addr.postalCode,
+      country: addr.country,
+      // ⚠️ El teléfono de la ETIQUETA es el del domicilio, **no `User.phone`** (que es el nuestro,
+      // para llamarle). Se parecen y no son el mismo dato.
+      phone: addr.phone,
+      capturedAt: new Date().toISOString(),
+      // Trazabilidad de QUÉ fila se copió, sin que sea una FK viva.
+      addressId: addr.id,
+    };
+  }
+
+  /**
+   * **`PATCH /admin/buylist/:id/pickup-address` — corregir la dirección DESPUÉS de la guía**
+   * (v1.51.4, **BL-13**, §4.39t).
+   *
+   * ### Por qué existe: el remedio que quedaba ACUSABA AL VENDEDOR
+   * Con la guía ya emitida y un typo **NUESTRO** en la etiqueta, no había salida: la cola de guía
+   * muerta solo se abre si la solicitud **expira o se cancela**; `offer/cancel` **rechaza una
+   * `aceptada`**; y la ruta del cliente está cerrada por `guideSentAt IS NULL`. ⇒ **La única salida
+   * era dejar vencer el plazo de envío** ⇒ `expirada`/`not_shipped` ⇒ el correo de *«aceptaste y el
+   * paquete no salió»*. **Un error nuestro terminaba imputándole un incumplimiento al vendedor** —
+   * la misma injusticia que D38 quitó, por otra puerta. *No era una comodidad ausente: era un
+   * desenlace incorrecto.*
+   *
+   * ### La guarda, y por qué cada condición
+   * ```
+   * legal ⇔ closedAt                IS NULL   // no se toca una terminal
+   *       ∧ shipmentConfirmedAt     IS NULL   // el paquete ya viaja: corregir el papel no lo desvía
+   *       ∧ sellerShippedDeclaredAt IS NULL   // él dice que YA lo depositó ⇒ la etiqueta está USADA
+   * ```
+   * ⚠️ **La tercera se rechaza a propósito y hay que decirlo en voz alta:** si el vendedor ya
+   * depositó, el papel **no está impreso: está en manos de una paquetería**. Cambiar la fila **no
+   * mueve la caja**, y dejarlo pasar **crearía la ilusión de que sí**. Ahí el remedio es humano de
+   * verdad —llamar a la paquetería— y **el sistema no debe fingir que tiene un botón para eso**.
+   *
+   * ⚠️ **A diferencia de la ruta de cliente, `guideSentAt` NO es precondición: es justo la ventana
+   * que esta ruta existe para cubrir.**
+   *
+   * ### Los efectos, en UNA transacción
+   * El snapshot **siempre** se re-congela. Y **si había papel impreso**, la solicitud vuelve a un
+   * estado **que ya existe y ya se vigila**: `aceptada` **sin guía** ⇒ `shipDeadlineAt = null` ⇒ la
+   * regla 2 del barrido **no la ve** ⇒ **no puede expirar por nuestro error**, y aparece en
+   * `awaitingGuide`. *La corrección no inventa un camino: devuelve la solicitud al punto exacto del
+   * que nunca debió salir.* **Cero estados nuevos, cero colas nuevas, cero correos.**
+   *
+   * ⚠️ **`guideCancellationDoneAt = null` REABRE la tarea, y sin esa línea el fallo es invisible:**
+   * una **segunda** corrección sobre la misma solicitud **no volvería a aparecer en la cola** (el
+   * predicado exige `doneAt IS NULL`) y **la etiqueta se perdería del P&L en silencio** — la cola de
+   * guía muerta es *«la ÚNICA puerta por la que el costo de una etiqueta tirada entra al P&L»*.
+   *
+   * **`carrier`/`trackingNumber` NO se limpian**: son **lo que hay que cancelar**, y la fila de la
+   * cola los muestra para que el operador sepa **qué** guía matar. Borrarlos la vaciaría de lo que la
+   * hace trabajable.
+   *
+   * ⚠️ **LÍMITE ACEPTADO Y DECLARADO:** con **dos** correcciones sobre la misma solicitud, el segundo
+   * `guide/cancellation-done` **pisa** `guideActualCostCents` del primero ⇒ el P&L pierde una
+   * etiqueta. Se acepta: **este número no le paga a nadie** y exige equivocarse **dos veces con la
+   * misma solicitud**. ⛔ **Prohibido el atajo de acumular (`+=`)**: convertiría *«el costo de la
+   * etiqueta»* en *«la suma de los costos»* **sin cambiarle el nombre**.
+   */
+  async adminUpdatePickupAddress(id: string, addressId: string) {
+    const now = new Date();
+    return this.prisma.$transaction(async (tx) => {
+      const before = await tx.sellRequest.findUnique({
+        where: { id },
+        select: {
+          userId: true,
+          status: true,
+          closedAt: true,
+          guideSentAt: true,
+          shipmentConfirmedAt: true,
+          sellerShippedDeclaredAt: true,
+          pickupAddressSnapshot: true,
+        },
+      });
+      if (!before) throw BusinessException.notFound();
+      // La dirección se resuelve contra la libreta DEL VENDEDOR de esta solicitud, no del actor.
+      const snapshot = await this.resolvePickupAddressSnapshot(before.userId, addressId);
+      const hadGuide = before.guideSentAt != null;
+      const guard = await tx.sellRequest.updateMany({
+        // Guarda del MOTOR (`count === 1`), no un `if` sobre la lectura de arriba.
+        where: {
+          id,
+          closedAt: null,
+          shipmentConfirmedAt: null,
+          sellerShippedDeclaredAt: null,
+        },
+        data: {
+          pickupAddressSnapshot: snapshot,
+          ...(hadGuide
+            ? {
+                guideCancellationPendingAt: now,
+                // ⚠️ REABRE la tarea. Sin esto, la segunda corrección pierde una etiqueta del P&L
+                // **en silencio**.
+                guideCancellationDoneAt: null,
+                guideCancellationDoneBy: null,
+                guideSentAt: null,
+                // Sin guía no hay reloj: la regla 2 deja de ver la fila y NO puede expirar por
+                // nuestro error.
+                shipDeadlineAt: null,
+              }
+            : {}),
+        },
+      });
+      if (guard.count !== 1) {
+        throw BusinessException.conflict(
+          'PICKUP_ADDRESS_LOCKED',
+          'The pickup address can no longer be corrected on this sell request',
+          {
+            status: before.status,
+            guideSentAt: before.guideSentAt,
+            sellerShippedDeclaredAt: before.sellerShippedDeclaredAt,
+          },
+        );
+      }
+      const after = await tx.sellRequest.findUnique({
+        where: { id },
+        select: {
+          id: true,
+          status: true,
+          pickupAddressSnapshot: true,
+          guideSentAt: true,
+          shipDeadlineAt: true,
+          guideCancellationPendingAt: true,
+        },
+      });
+      return {
+        sellRequestId: after?.id as string,
+        status: after?.status as SellRequestStatus,
+        pickupAddress: after?.pickupAddressSnapshot ?? null,
+        guideSentAt: after?.guideSentAt ?? null,
+        shipDeadlineAt: after?.shipDeadlineAt ?? null,
+        guideCancellationPendingAt: after?.guideCancellationPendingAt ?? null,
+        // Material de bitácora: SOLO los ids, jamás el domicilio (misma norma que la ruta de cliente).
+        auditAddressIds: {
+          before: (before.pickupAddressSnapshot as { addressId?: string } | null)?.addressId ?? null,
+          after: addressId,
+        },
+      };
+    });
+  }
 
   /**
    * **`POST /admin/buylist/:id/guide` — capturar la guía** (D19/D21/D22, criterios 122/123/137).
@@ -3228,7 +3667,7 @@ export class BuylistService implements OnModuleInit {
         orderBy: { sellerShippedDeclaredAt: 'asc' },
         skip: (page - 1) * pageSize,
         take: pageSize,
-        include: { user: { select: { id: true, name: true, email: true } } },
+        include: { user: { select: { id: true, name: true, email: true, phone: true } } },
       }),
       this.prisma.sellRequest.count({ where }),
     ]);
@@ -3301,7 +3740,7 @@ export class BuylistService implements OnModuleInit {
         skip: (page - 1) * pageSize,
         take: pageSize,
         include: {
-          user: { select: { id: true, name: true, email: true } },
+          user: { select: { id: true, name: true, email: true, phone: true } },
           items: { select: { offerDecision: true } },
         },
       }),
@@ -3435,7 +3874,7 @@ export class BuylistService implements OnModuleInit {
         orderBy: { guideCancellationPendingAt: 'asc' },
         skip: (page - 1) * pageSize,
         take: pageSize,
-        include: { user: { select: { id: true, name: true, email: true } } },
+        include: { user: { select: { id: true, name: true, email: true, phone: true } } },
       }),
       this.prisma.sellRequest.count({ where }),
     ]);
@@ -4206,7 +4645,7 @@ export class BuylistService implements OnModuleInit {
           // canónico, mismo include que sealed-mapping.service).
           card: { include: { set: true } },
           sellRequest: {
-            select: { id: true, userId: true, user: { select: { id: true, name: true, email: true } } },
+            select: { id: true, userId: true, user: { select: { id: true, name: true, email: true, phone: true } } },
           },
         },
       }),

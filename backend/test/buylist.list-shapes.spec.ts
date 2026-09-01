@@ -108,7 +108,9 @@ describe('BuylistService.adminList — shape AdminBuylistDTO', () => {
         include: {
           items: { include: { card: true } },
           // v1.18: join a User para AdminSellerRef (solo id/name/email — nunca passwordHash etc.).
-          user: { select: { id: true, name: true, email: true } },
+          // v1.51 · BL-15 (D12): el `select` gana `phone` — el teléfono viaja EN LA FILA para poder
+          // llamar desde la solicitud. Mismo régimen PII que el correo; PROHIBIDO en el buscador `q`.
+          user: { select: { id: true, name: true, email: true, phone: true } },
         },
       }),
     );
@@ -117,7 +119,13 @@ describe('BuylistService.adminList — shape AdminBuylistDTO', () => {
     expect(row.id).toBe('sr-1');
     expect(row.userId).toBe('user-1');
     // v1.18: identidad del vendedor (seller.id === userId; email SIN enmascarar — no es la CLABE).
-    expect(row.seller).toEqual({ id: 'user-1', name: 'Ash Ketchum', email: 'ash@example.com' });
+    // v1.51 · BL-15 (D12): `AdminSellerRef` gana `phone` — back-office por rol, sin enmascarar.
+    expect(row.seller).toEqual({
+      id: 'user-1',
+      name: 'Ash Ketchum',
+      email: 'ash@example.com',
+      phone: null,
+    });
     // La cola M5 lee it.card.name → card debe venir poblado.
     expect(row.items[0].card).toEqual({ id: 'card-1', name: 'Pidgey', number: '16' });
     expect(row.items[0].card.name).toBe('Pidgey');

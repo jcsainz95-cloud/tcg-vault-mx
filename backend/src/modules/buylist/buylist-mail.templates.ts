@@ -237,7 +237,19 @@ export function sellOfferTemplate(
   const en = l === 'en';
   const buy = params.lines.filter((x) => x.offeredPriceCents != null);
   const skip = params.lines.filter((x) => x.offeredPriceCents == null);
-  const condition = en ? 'only if it arrives Near Mint' : 'siempre que llegue en Near Mint';
+  // ⚠️ v1.51.15 (§11 `SellItemDTO.condition`) — **UN CUERPO, TRES LECTORES.** La condición por línea y
+  // la consecuencia salen de `offerTermsCopy`, **no de literales locales**. Antes había DOS copias
+  // byte a byte del mismo texto VINCULANTE (aquí y allá) que solo coincidían por disciplina; el
+  // contrato exige que `item.condition` sea **«el MISMO string que usó el correo»** (criterio 161(d):
+  // la pantalla de aceptación lo muestra *palabra por palabra*), y eso **no se puede garantizar con
+  // dos literales** — se garantiza con una sola fuente. *La copia se cura eliminando la copia.*
+  // El texto renderizado NO cambia: los literales eran idénticos. Lo que cambia es que ahora **no
+  // pueden divergir** en el próximo cambio de copy.
+  const terms = offerTermsCopy(locale, {
+    shippingFeeCents: params.shippingFeeCents,
+    netCents: params.netCents,
+  });
+  const condition = terms.perLineConditionLabel;
   const deadline = formatDateTime(params.acceptDeadlineAt, l);
   const safeName = escapeHtml(name);
   const idOf = (x: OfferMailLine) =>
@@ -259,17 +271,13 @@ export function sellOfferTemplate(
         `${escapeHtml(en ? 'Not included in this offer' : 'No entra en esta oferta')}</p>`,
     )
     .join('');
-  const consequence = en
-    ? `If a card doesn't arrive Near Mint we don't buy it, we don't pay for it and we send it back: you have 7 days to arrange the return, at your cost, and after 30 days it is considered abandoned. Rejecting one card does NOT cancel the purchase of the others and does NOT change any price: the ones that do arrive Near Mint are paid at the price in this offer.`
-    : `Si una carta no llega en Near Mint no se compra, no se paga y te la devolvemos: tienes 7 días para gestionar la devolución, a tu costo, y a los 30 días se considera abandonada. Rechazar una carta NO cancela la compra de las demás y NO cambia el precio de ninguna: las que sí lleguen en Near Mint se pagan al precio de esta oferta.`;
+  const consequence = terms.consequence;
   const totalsHtml =
     `<p style="margin:16px 0">` +
     `${escapeHtml(en ? 'Value of the cards' : 'Valor de las cartas')}: <strong>${escapeHtml(money(params.grossCents, l))}</strong><br/>` +
     `${escapeHtml(en ? 'Shipping we cover' : 'Envío que ponemos nosotros')}: − ${escapeHtml(money(params.shippingFeeCents, l))}<br/>` +
     `<strong style="font-size:18px">${escapeHtml(en ? 'DEPOSITED TO YOU' : 'SE TE DEPOSITAN')}: ${escapeHtml(money(params.netCents, l))}</strong></p>`;
-  const shippingProse = en
-    ? `We provide the shipping label. Its cost, ${money(params.shippingFeeCents, l)}, is a flat fee and is ALWAYS deducted from what we pay you: you pay nothing out of pocket. The amount deposited to you is ${money(params.netCents, l)}.`
-    : `Nosotros ponemos la guía de envío. Su costo, ${money(params.shippingFeeCents, l)}, es una tarifa fija y SIEMPRE se descuenta de lo que te pagamos: tú no pagas nada de tu bolsillo. La cifra que se te deposita es ${money(params.netCents, l)}.`;
+  const shippingProse = terms.rule;
   const deadlineProse = en
     ? `You have until ${deadline}. If you don't respond before that time, the offer cancels itself.`
     : `Tienes hasta el ${deadline}. Si no respondes antes de esa hora, la oferta se cancela sola.`;
@@ -393,6 +401,24 @@ export function sellOfferCancelledTemplate(
  * MISMAS plantillas que el correo. La redacción es de ux-ui (DESIGN_SYSTEM §23.4.2); el render es
  * nuestro, para que **la pantalla y el correo no puedan decir cosas distintas**.
  *
+ * ### ⚠️ v1.51.15 — ESTA FUNCIÓN ES LA FUENTE ÚNICA, y tiene TRES lectores
+ * 1. **`SellOfferPublicDTO.terms`** — el bloque legal de la pantalla de aceptación.
+ * 2. **El correo de oferta** (`sellOfferTemplate`) — que hasta v1.51.15 llevaba **su propia copia
+ *    byte a byte** de estos dos textos. Coincidían **por disciplina**, no por construcción.
+ * 3. **`SellItemDTO.condition`** (proyección de CLIENTE) — la condición pegada al monto de cada
+ *    línea comprada, que §11 define como *«**el MISMO string que usó el correo**»*.
+ *
+ * ⚠️ **v1.51.15 · BL-23(2): `rule` necesita LOS MONTOS**, por eso la firma los toma. Se pasan
+ * **siempre** desde los dos productores reales (el correo y `offerPublicDTO`), que los tienen
+ * congelados en la fila. El `?? 0` del default existe **solo** para los lectores que quieren el texto
+ * sin cifras (tests de copy): **una oferta jamás se emite por esa vía** — la guarda de proyección
+ * (BL-24) exige `rule` no vacío sobre la proyección REAL, con los montos REALES.
+ *
+ * El criterio 161(d) exige que la pantalla de aceptación muestre la condición **palabra por
+ * palabra**. Con tres literales en tres archivos eso es una promesa que se rompe en el primer cambio
+ * de copy y **sin que ningún test lo note**; con un cuerpo, es una propiedad. *Si cambias el texto
+ * aquí, cambia en los tres sitios a la vez — que es exactamente lo que el contrato pide.*
+ *
  * - `perLineConditionLabel` — la **frase cortísima** que se pinta pegada al monto de cada línea
  *   comprada. Es corta a propósito: se repite N veces y la ceguera por repetición es real; el detalle
  *   vive en `consequence`, en **un solo** bloque destacado.
@@ -400,16 +426,35 @@ export function sellOfferCancelledTemplate(
  *   7 días a su costo, abandono a 30) **más** que el rechazo de una línea **NO cancela la compra de
  *   las demás y NO reprecia ninguna** (criterio 161b).
  */
-export function offerTermsCopy(locale?: string | null): {
+export function offerTermsCopy(
+  locale?: string | null,
+  amounts?: { shippingFeeCents: number; netCents: number },
+): {
   perLineConditionLabel: string;
   consequence: string;
+  rule: string;
 } {
-  const en = normalizeLocale(locale) === 'en';
+  const l = normalizeLocale(locale);
+  const en = l === 'en';
+  const shipping = money(amounts?.shippingFeeCents ?? 0, l);
+  const net = money(amounts?.netCents ?? 0, l);
   return {
     perLineConditionLabel: en ? 'only if it arrives Near Mint' : 'siempre que llegue en Near Mint',
     consequence: en
       ? `If a card doesn't arrive Near Mint we don't buy it, we don't pay for it and we send it back: you have 7 days to arrange the return, at your cost, and after 30 days it is considered abandoned. Rejecting one card does NOT cancel the purchase of the others and does NOT change any price: the ones that do arrive Near Mint are paid at the price in this offer.`
       : `Si una carta no llega en Near Mint no se compra, no se paga y te la devolvemos: tienes 7 días para gestionar la devolución, a tu costo, y a los 30 días se considera abandonada. Rechazar una carta NO cancela la compra de las demás y NO cambia el precio de ninguna: las que sí lleguen en Near Mint se pagan al precio de esta oferta.`,
+    // ⚠️ v1.51.15 · **BL-23(2)** — **LA PROSA DEL DESCUENTO, CON LOS MONTOS YA INTERPOLADOS.**
+    // §23.5b obliga al portal a llevarla: bajo D43 **es el único sitio donde el vendedor puede
+    // RELEER la resta** (el correo la estrena y el recordatorio no la repite). Vivía solo dentro de
+    // la plantilla del correo, así que el frontend **tuvo que duplicarla en su i18n** — la única
+    // copia de copy que ese pase se vio obligado a crear (DESIGN_SYSTEM §23.5h la permite **como
+    // puente**, y este campo es lo que la deja sin objeto).
+    // ⚠️ **Y lo que de verdad cierra: sin el campo, el front interpolaría ÉL los tres montos de una
+    // oferta VINCULANTE.** No es copy duplicado, es **la presentación del dinero fabricándose en dos
+    // sitios que pueden divergir** — justo lo que §23.5a existe para impedir.
+    rule: en
+      ? `We provide the shipping label. Its cost, ${shipping}, is a flat fee and is ALWAYS deducted from what we pay you: you pay nothing out of pocket. The amount deposited to you is ${net}.`
+      : `Nosotros ponemos la guía de envío. Su costo, ${shipping}, es una tarifa fija y SIEMPRE se descuenta de lo que te pagamos: tú no pagas nada de tu bolsillo. La cifra que se te deposita es ${net}.`,
   };
 }
 
@@ -673,8 +718,15 @@ export function sellRequestNotPursuedTemplate(
  * ### Las tres cosas que estaban mal antes (y las tres eran independientes)
  * 1. **Sin prefijo de idioma.** El frontend corre con `localePrefix: 'always'` ⇒ `/buylist/...`
  *    redirige a `/es/...` y el vendedor que eligió inglés **aterriza en español**.
- * 2. **Path con forma de API**, no de pantalla (`/buylist/requests/:id` es la ruta del endpoint; el
- *    portal vive en `/[locale]/buylist`) ⇒ **404**.
+ * 2. ~~**Path con forma de API**, no de pantalla~~ ⛔ **CORREGIDO por el arquitecto en v1.51.15
+ *    (BL-23.1): esta frase estaba MAL y se podía leer al revés.** **Espejar la ruta del recurso es
+ *    BUENO**; lo roto era **la falta del `{locale}`** y **que no existía pantalla detrás**. La
+ *    pantalla del portal vive en **`/[locale]/buylist/requests/[id]`**, y v1.51.13 fijó
+ *    `/{locale}/buylist/{id}` — backend implementó esa forma, así que **el enlace seguía roto, ahora
+ *    por DIVERGENCIA**: mandábamos a una ruta y la pantalla vivía en otra. **Manda la del
+ *    frontend**: `/buylist` **no es una colección, es una SECCIÓN** que ya renderiza pantalla propia;
+ *    colgarle un `[id]` afirmaría que *todo* lo que hay bajo `/buylist` es una solicitud.
+ *    ⚠️ *Sin esta nota, alguien quitaría `requests/` para cumplir una regla que nunca se escribió.*
  * 3. **Era el ÚNICO enlace de correo del proyecto fuera del molde.** Los otros dos (`auth.service` y
  *    `guest-order-mail.service`) son idénticos entre sí y ambos llevan locale: no fue un olvido
  *    puntual, fue **un enlace escrito fuera de un patrón que ya existía**.
@@ -704,5 +756,6 @@ export function buylistPortalUrl(sellRequestId: string, locale?: string | null):
   const origin = envOr(process.env.APP_PUBLIC_URL, '').trim().replace(/\/+$/, '');
   if (!origin) return undefined;
   // ⚠️ EL MISMO normalizador que eligió el idioma del cuerpo, no una cascada paralela.
-  return `${origin}/${normalizeLocale(locale)}/buylist/${encodeURIComponent(sellRequestId)}`;
+  // v1.51.15 · BL-23(1): `…/buylist/requests/{id}` — la ruta REAL de la pantalla. Ver el punto 2.
+  return `${origin}/${normalizeLocale(locale)}/buylist/requests/${encodeURIComponent(sellRequestId)}`;
 }

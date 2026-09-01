@@ -214,6 +214,18 @@ export class DeclineDto {
   @IsOptional() @IsString() @Length(0, 500) reason?: string;
 }
 
+/**
+ * v1.51.4 (§M5, BL-13) — `PATCH /admin/buylist/:id/pickup-address`.
+ *
+ * ⚠️ **NI EL CLIENTE NI EL ADMIN ESCRIBEN UN DOMICILIO: los dos ELIGEN una fila** de la libreta del
+ * vendedor. *La defensa es la forma del DTO: no hay campo de dirección que manipular.* Si el vendedor
+ * no tiene la buena en su libreta, **la añade ÉL** y el operador la selecciona — para eso el operador
+ * tiene su teléfono (D12). ⛔ Prohibido teclearla, copiarla de un pedido o derivarla del KYC.
+ */
+export class AdminPickupAddressDto {
+  @IsString() @IsNotEmpty() addressId!: string;
+}
+
 export class ItemDecisionDto {
   @IsIn(['approve', 'adjust', 'reject']) decision!: 'approve' | 'adjust' | 'reject';
   // B-4: cota dura de sanidad (MX$10,000). La cota fina (≤ quoted × factor y ≤ tope por

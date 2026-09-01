@@ -4,6 +4,261 @@
 > El contrato (`docs/API_CONTRACT.md`) manda sobre el código. Stack: NestJS + Prisma + PostgreSQL,
 > Redis/BullMQ (jobs), JWT + argon2, S3/MinIO (presigned URLs), Stripe.
 
+## 0.23 v1.51.15/16 — **La línea de la oferta para el vendedor, BL-23 y BL-24 (la guarda de emisión)** (2026-09-01)
+
+> Implementa **API_CONTRACT §11 / §6 / §M5** (v1.51.15 y v1.51.16) sobre **ARCHITECTURE §4.39h paso
+> 7-bis + (h.1)**, §4.39a y §4.39t. **CERO DDL, CERO endpoints nuevos, CERO diales.** Un código de
+> error nuevo (`OFFER_PROJECTION_INCOMPLETE`).
+
+### 0.23.1 Lo que cerró este pase
+
+| # | Qué | Dónde |
+|---|---|---|
+| §11 | `offerDecision`, `offeredPriceCents`, `condition` en la línea de **cliente** | `buylist.service.ts` `itemDTO` |
+| BL-23(1) | El path del CTA → `/{locale}/buylist/requests/{id}` | `buylist-mail.templates.ts` `buylistPortalUrl` |
+| BL-23(2) | `offer.terms.rule` — la prosa del descuento con montos interpolados | `offerTermsCopy` |
+| BL-23(3) | `rejectedReason` — **derivado, cero DDL** | `buylist-reject.constants.ts` `deriveRejectedReason` |
+| BL-23(5) | `offer.guideSentAt` al cliente | `offerPublicDTO` |
+| BL-23(6) | `paidAt`/`speiReference` — **ya viajaban**, no hubo cambio de código | `toAdminSellRequestDTO` (test nuevo que lo fija) |
+| BL-23(4) | `SellItemDTO` / `AdminSellItemDTO` — **los shapes de red no cambian** | ver 0.23.3 |
+| **BL-24** | **Guarda de proyección al emitir** (paso 7-bis) | `adminOffer` + `offerProjectionGaps` |
+
+### 0.23.2 §11 — los tres campos de la línea, y la audiencia se hace cumplir por AUSENCIA
+
+`itemDTO` es **compartido por admin y cliente** (a diferencia de la cabecera, que sí está partida en
+`toAdminSellRequestDTO`/`toCustomerSellRequestDTO`). No lo partí, y no por pereza: **el contrato
+declara la dirección segura**, `AdminSellItemDTO = SellItemDTO & {…}` — *admin AÑADE, cliente no
+resta*. Los cinco admin-only (`offerDerivedPriceCents`, `offerOverrideReason`, `offerPriceBasis`,
+`offerMarketMxnCents`, `offerMarketBracket`) **no se leen de la fila**, luego no pueden escaparse. Es
+**lo contrario de la trampa de `toCustomerSellRequestDTO`**, que hereda por omisión y por eso necesitó
+la resta explícita de `isPayable` (BL-20): aquí un campo interno nuevo tendría que **añadirse a
+propósito** al cuerpo compartido para filtrarse. Hay test de fuga por **ausencia de clave** con las
+cinco columnas **pobladas** en la fila (un test de fuga con la columna vacía no prueba nada).
+
+**`condition` no se renderiza en `itemDTO`: se RECIBE ya renderizada.** §11 pide *«el MISMO string que
+usó el correo»*, y eso no se garantiza con dos literales — se garantiza con una fuente. `offerTermsCopy`
+pasa a tener **tres lectores** (`offer.terms`, el correo y `item.condition`) y el correo **dejó de tener
+su copia local** de `condition` y `consequence`: eran dos strings byte a byte idénticos que coincidían
+**por disciplina**. El texto renderizado no cambió; lo que cambió es que ya **no pueden divergir**. Hay
+guarda de censo que falla si el literal NM vuelve a aparecer dos veces en `src/`.
+
+- Sin `conditionLabel` ⇒ **la clave no existe** (admin, y la lista del cliente, que no lleva oferta).
+- Con label y línea `buy` ⇒ el string. Con label y `skip`/pre-ciclo ⇒ `null`: **poner la condición de
+  compra junto a una carta que NO compramos sería una promesa que no hicimos**, y el correo tampoco la
+  pone.
+
+⚠️ **Bug que salió al hacerlo:** `offerResponse` no cargaba el `locale` del vendedor, así que
+`offerPublicDTO` caía al idioma por defecto ⇒ **la misma oferta se leía en inglés al abrir el portal y
+en español al aceptarla**. Corregido (join de `user.locale` dentro de la tx); hay test de regresión. El
+criterio 161(d) pide *«palabra por palabra»* y un locale distinto cambia la palabra entera.
+
+### 0.23.3 ⚠️⚠️ BL-24 — la guarda de emisión (paso 7-bis)
+
+`assertOfferProjectionComplete` va **DENTRO de la transacción y DESPUÉS de las escrituras**, como
+último gesto antes del commit. Eso no es un detalle de colocación:
+
+- Valida **la fila REAL** que `GET /buylist/requests/:id` leería, no una simulación armada a mano.
+- Al lanzar, **la transacción se deshace entera** ⇒ no se persiste, **`offerSentAt` nunca se sella** y
+  el plazo del vendedor **nunca se congela**. La solicitud se queda `cotizada`, así que la mira la
+  **regla 7 del barrido (NUESTRO plazo)**, no la 1 (el suyo). El correo es post-commit ⇒ **no sale**.
+- **Se proyecta «como si estuviera enviada»** (se fuerzan `offerState:'sent'` y `offerSentAt`, y **nada
+  más**): `offerPublicDTO` devuelve `null` fuera de `sent` por su regla de **visibilidad** (D13/D24),
+  y aquí se pregunta otra cosa — *«cuando esta oferta salga, ¿se podrá mostrar?»*. **Con `202` es donde
+  importa:** §M5 dice por escrito que `authorize` **no revalida**, así que sin esto una oferta
+  inmostrable entraría a la cola y **saldría inmostrable al autorizarla**.
+- **No mira montos ni plazos.** `acceptDeadlineAt` es `null` en el camino `202` **por diseño**, y
+  confundir *«incompleto para MOSTRAR»* con *«incompleto para PAGAR»* convertiría un backstop en una
+  segunda regla de negocio.
+- **`500`, no `422`**, y se **loguea** antes de lanzar: el filtro global **no loguea** las
+  `BusinessException`, y *un backstop que dispara en silencio es un backstop que nadie arregla*.
+
+**La regla se extrajo a `offerProjectionGaps(projected)`, pura y exportada.** Recibe **la proyección
+real** —sigue siendo *la guarda ES la proyección*, no una checklist paralela: no sabe leer la fila— y
+devuelve **los nombres de lo que falta** (`terms.rule`, `lines[<itemId>].offerDecision`, …), que es lo
+que viaja en `details.missing`. Separarla es lo que la vuelve **verificable rama por rama** sin
+fabricar una solicitud imposible: *un candado sin test propio es un candado que alguien borra en el
+siguiente refactor.*
+
+⚠️ **Para QA — dónde ver la guarda funcionando de verdad:** el fixture de `bl21-bl22.spec.ts` tenía un
+doble de `sellRequestItem.updateMany` que devolvía `count: 1` **sin escribir nada**. Al añadir el gate,
+esos dos tests empezaron a dar `500` — **y el que mentía era el doble**. Lo arreglé para que aplique la
+escritura. *Un fixture que no refleja la escritura oculta la guarda que la protege.*
+
+### 0.23.4 BL-23 — las cuatro adiciones
+
+- **`terms.rule`**: `offerTermsCopy(locale, { shippingFeeCents, netCents })`. Los montos son **las
+  mismas constantes** que emite el desglose del DTO, no una segunda lectura de la fila: la prosa dice
+  *«se te depositan X»* y el `AmountBreakdown` dice `netCents`; con dos expresiones, **la pantalla se
+  contradiría sobre una cifra vinculante**. El correo consume `terms.rule` (era la tercera copia). Con
+  esto **la copia del i18n del frontend (DESIGN_SYSTEM §23.5h) queda sin objeto**.
+- **`guideSentAt`**: **no es derivable de `carrier != null`** — §4.39t **conserva** carrier/tracking y
+  **limpia** `guideSentAt`. Test explícito del estado post-corrección: carrier presente, `guideSentAt`
+  null.
+- **`rejectedReason`**: `deriveRejectedReason(row, items)`, **solo en el DETALLE** del cliente, por la
+  misma razón que `expiredReason` (§6, tabla de alcance v1.51.8: pertenece a la ficha de UNA solicitud).
+  ⚠️ **`all_items_rejected` se evalúa PRIMERO** — ver 0.23.6, es la escalada de este pase.
+- **`paidAt`/`speiReference`**: **sin cambio de código**, ya viajaban. Añadí el test que lo fija (y que
+  `paidBy` sigue fuera), porque *un campo que viaja sin test es un campo que el próximo refactor quita*.
+
+### 0.23.5 Tests
+
+`test/buylist.item-offer-block.spec.ts` (**29**) y `test/buylist.bl23-bl24.spec.ts` (**36**). Suite
+completa: **220 suites / 2943 tests**, verde. Actualicé `bl21-bl22.spec.ts` (path del CTA + el fixture
+de arriba).
+
+**Mutación (5 corridas, todas cazadas):** (1) guarda 7-bis a no-op ⇒ 5 fallos; (2) `condition` sin mirar
+`offerDecision` ⇒ 3 fallos; (3) el correo recupera su copia de la prosa ⇒ 1 fallo; (4) la guarda fuera
+de la transacción ⇒ falla el test de *«no se persiste»*; (5) **`all_items_rejected` movida detrás de las
+guardas de nulos ⇒ SOBREVIVIÓ**. Mi test de orden pasaba **por la razón equivocada** (las tres fechas
+existían en el caso que probé). El caso que discrimina es la **cohorte legacy**: todas las cartas
+rechazadas y **nunca hubo oferta** — con la regla abajo, la guarda `offerSentAt == null` devuelve `null`
+y **se pierde la única causa honesta**. Añadido, y ahora la mutación muere.
+
+### 0.23.6 ⚠️ Escaladas al arquitecto (2, ninguna bloqueante)
+
+1. **`all_items_rejected` y el ORDEN de evaluación (BL-23.3).** La tabla de §6 enumera **valores**, no
+   un orden, y el orden **no es libre**: una solicitud que llegó a verificación fue ofertada, aceptada y
+   **enviada**, así que su `closedAt` cae muy **después** del plazo de aceptación. Evaluar las fechas
+   primero le diría *«no respondiste»* a quien respondió y mandó el paquete — la mentira exacta que este
+   campo existe para borrar. **Lo implementé con `all_items_rejected` primero** (la tabla define esa
+   causa **solo** por los ítems, sin mencionar la oferta) y lo señalo por si el arquitecto quiere fijar
+   el orden por escrito.
+2. **Nit de documentación:** la línea `Err:` de `POST /admin/buylist/:id/offer` (§M5) **no lista**
+   `500 OFFER_PROJECTION_INCOMPLETE`, aunque la prosa normativa de v1.51.16 sí lo fija en esa secuencia.
+   Implementé según la prosa. **No toqué el contrato.**
+
+### 0.23.7 Lo que NO entró (y sigue pendiente)
+
+- **Fase 8** (`GET /admin/inventory/pending-publish`, cierre del bypass de `PATCH
+  /admin/inventory/items/:id`, y los **tres disparadores** de publicación automática) — cortada desde el
+  pase anterior, sin tocar.
+- **BL-11** (`addressId` obligatorio en `POST /buylist/requests`) y el `PATCH …/pickup-address` del
+  **cliente** — no son de este pase.
+
+## 0.22 v1.51.4 — **BL-13 (corregir la dirección tras la guía), `awaitingGuide` y BL-15 (el teléfono en la cola)** (2026-09-01)
+
+> Implementa **API_CONTRACT §M5** (`PATCH /admin/buylist/:id/pickup-address`, `awaitingGuide`,
+> `seller.phone`) sobre **ARCHITECTURE §4.39t** y **D12/D31/D36**.
+> **Con esto el ciclo del buylist queda cerrado del lado del operador**: emitir → autorizar/cancelar →
+> aceptar → guía → corregir la guía → confirmar → barrido, con sus cinco correos y sus cuatro colas.
+
+### 0.22.1 Corté, y la **fase 8 va sola** — la razón es concreta
+
+**Este pase trae los tres puntos del ciclo; la fase 8 NO entra.** No es solo tamaño:
+
+1. **Es otro módulo y otras guardas.** `inventory`, con `assertPublishableGuards` +
+   `resolvePublishSalePrice` + `claimListed`, que no toqué en todo este ciclo.
+2. **Cerrar el bypass del `PATCH` individual es BREAKING CHICO sobre un endpoint VIVO**: pasa a
+   devolver `422 ITEM_NOT_PUBLISHABLE` / `422 PRICE_PENDING` donde hoy devuelve `200`. Eso merece su
+   propio pase y su propia superficie de prueba, no la cola de otro.
+3. **⚠️ Y el contrato pide MÁS de lo que parece — esto conviene verlo antes de planificarlo.** §M1
+   no manda solo *«una cola de visibilidad»*: manda **AUTO-PUBLICACIÓN SIN BOTÓN** (criterio 125) e
+   **intentarla en TRES momentos**: (a) al convertir desde M5, (b) al fijar/mover ubicación y
+   (c) **cuando el precio se vuelve resoluble — «barrido de precios u override de M2»**. El (c) vive
+   **fuera de `inventory`**, en el eje de precios. *La cola es la mitad visible; los tres disparadores
+   son la feature.*
+
+### 0.22.2 BL-13 — `PATCH /admin/buylist/:id/pickup-address`
+
+**Por qué no es una comodidad.** Con la guía emitida y un typo **NUESTRO** en la etiqueta, no había
+salida: la cola de guía muerta solo se abre si la solicitud **expira o se cancela**; `offer/cancel`
+**rechaza una `aceptada`**; y la ruta del cliente está cerrada por `guideSentAt IS NULL`. ⇒ **La única
+salida era dejar vencer el plazo de envío** ⇒ `expirada`/`not_shipped` ⇒ el correo de *«aceptaste y el
+paquete no salió»*. **Un error nuestro terminaba imputándole un incumplimiento al vendedor.** *No era
+una comodidad ausente: era un desenlace incorrecto.*
+
+**La guarda, condición por condición:**
+
+| Condición | Por qué |
+|---|---|
+| `closedAt IS NULL` | no se toca una terminal |
+| `shipmentConfirmedAt IS NULL` | el paquete ya viaja: corregir el papel no lo desvía |
+| `sellerShippedDeclaredAt IS NULL` | ⚠️ él dice que **ya lo depositó** ⇒ la etiqueta está **usada** |
+
+⚠️ **La tercera se rechaza a propósito.** Si el vendedor ya depositó, el papel **no está impreso:
+está en manos de una paquetería**. Cambiar la fila **no mueve la caja**, y dejarlo pasar **crearía la
+ilusión de que sí**. Ahí el remedio es humano de verdad —llamar a la paquetería— y **el sistema no
+debe fingir que tiene un botón para eso**. ⚠️ **`guideSentAt` NO es precondición: es justo la ventana
+que esta ruta existe para cubrir.**
+
+**Efectos.** El snapshot **siempre** se re-congela. Si había papel impreso, la solicitud vuelve a un
+estado **que ya existe y ya se vigila**: `aceptada` **sin guía** ⇒ `shipDeadlineAt = null` ⇒ la regla 2
+del barrido **no la ve** ⇒ **no puede expirar por nuestro error**, y aparece en `awaitingGuide`. *La
+corrección no inventa un camino: devuelve la solicitud al punto exacto del que nunca debió salir.*
+**Cero estados nuevos, cero colas nuevas, cero correos.**
+
+⚠️ **`guideCancellationDoneAt = null` REABRE la tarea, y sin esa línea el fallo es invisible:** una
+**segunda** corrección sobre la misma solicitud **no volvería a aparecer en la cola** (el predicado
+exige `doneAt IS NULL`) y **la etiqueta se perdería del P&L en silencio** — esa cola es *«la ÚNICA
+puerta por la que el costo de una etiqueta tirada entra al P&L»*. Tiene test propio, y la mutación que
+borra esas dos líneas lo tumba.
+
+**`carrier`/`trackingNumber` NO se limpian:** son **lo que hay que cancelar**, y la fila de la cola los
+muestra para que el operador sepa **qué** guía matar.
+
+**SEC-A1 aplicado a un dato que no es dinero: nadie ESCRIBE un domicilio, se ELIGE una fila** de la
+libreta del vendedor. *La defensa es la forma del DTO: no hay campo de dirección que manipular.* Y
+**«no existe» y «no es suya» dan la MISMA respuesta** (`422 PICKUP_ADDRESS_NOT_FOUND`): distinguirlas
+convertiría el endpoint en un **oráculo de existencia de direcciones ajenas**.
+
+El **teléfono del snapshot es el del DOMICILIO**, no `User.phone` (que es el nuestro, para llamarle).
+Se parecen y no son el mismo dato. Y **la bitácora recibe solo los `addressId`**, jamás el domicilio:
+*un domicilio en la bitácora es PII que nadie va a purgar*.
+
+**`resolvePickupAddressSnapshot()` queda extraído** para que `POST /buylist/requests` (BL-11, cuando
+llegue) use **el mismo cuerpo** y no una segunda forma del snapshot.
+
+### 0.22.3 `awaitingGuide` (D31) y BL-15 (el teléfono)
+
+**`awaitingGuide`** es un **filtro sobre la cola que ya existe**, no una cola nueva (P-5 prohíbe que el
+front lo derive paginando): `status='aceptada' ∧ guideSentAt IS NULL`, orden **`acceptedAt` asc**
+(es cola de trabajo). Se intersecta con `status` por `AND` —**sin reasignar `where.status`**, que
+haría desaparecer en silencio el filtro que pidió el usuario— y usa el **parsing tri-estado**
+ratificado. Existe porque una `aceptada` sin guía **no corre reloj y no expira nunca** —correcto, la
+etiqueta depende de nosotros— **pero sin esta vista el pendiente es invisible**.
+
+**BL-15:** `sellerRef()` emite `phone` y los ocho `select` de vendedor lo piden. Un cuerpo, muchos
+lectores — así la cola principal, el detalle, la mesa y las tres colas lo heredan.
+⚠️ **PII:** en claro **tras el guard de rol**, como el correo (§4.18d) — **no es la CLABE**, cuyo
+régimen no cambia. ⛔ **Y NO entra al buscador `q`**: buscar por teléfono convertiría el listado en un
+**oráculo de enumeración** (quien probara números sabría cuáles tienen cuenta aquí). **Hay guard de
+test**, y la mutación que añade `phone` al `OR` lo tumba.
+
+### 0.22.4 Tests
+
+`test/buylist.pickup-address.spec.ts` (**NUEVO, 16**) + tres fixtures actualizados (`AdminSellerRef`
+cambió de forma).
+
+**Prueba de mutación, tres a la vez:** (1) que la corrección **no reabra** la tarea, (2) que se permita
+corregir **tras el «ya lo mandé»**, (3) que `q` **gane el teléfono** ⇒ **3 tests fallan**, uno por
+cada una. Revertidas.
+
+`npm test` **218 suites / 2878 tests en verde** · `npm run typecheck` limpio · `npm run lint` con las
+**2 warnings preexistentes**.
+
+### 0.22.5 ⚠️ Un hecho de estado que conviene tener a la vista
+
+**Hoy NADIE escribe `pickupAddressSnapshot` salvo este endpoint nuevo.** `POST /buylist/requests` gana
+`addressId` obligatorio con **BL-11**, que es **FRONTEND PRIMERO** y sigue abierta, y la ruta de
+cliente `PATCH /buylist/requests/:id/pickup-address` (§4.39q.4) **tampoco está implementada**.
+
+Consecuencia verificable: **`POST /admin/buylist/:id/offer` responde `422 PICKUP_ADDRESS_MISSING` en
+toda solicitud existente**, porque ninguna tiene snapshot. **No es un defecto de este pase** —la guarda
+es correcta y deliberada (D36: *«la respuesta correcta a un dato que falta es pedirlo, no
+adivinarlo»*)— pero significa que **el ciclo no se puede recorrer de punta a punta hasta que BL-11
+aterrice**, y que **este endpoint es, hoy, la única vía para desbloquear una solicitud**. Lo señalo
+para que no se descubra al probar.
+
+### 0.22.6 Lo que queda
+
+**Fase 8** (cola «listas para publicar» + cerrar el bypass del `PATCH` individual + **los tres
+disparadores de auto-publicación**), **BL-11** (frontend) y la ruta de cliente de `pickup-address`.
+
+**Zona compartida tocada:** `backend/src/common/error-codes.ts` (`PICKUP_ADDRESS_NOT_FOUND`,
+`PICKUP_ADDRESS_LOCKED`). Aditiva.
+
+---
+
 ## 0.21 v1.51.13/14 — **BL-21 (la cadena del CTA) y BL-22 (una fila mala no tumba una cola)** + las dos colas que faltaban (2026-09-01)
 
 > Implementa **ARCHITECTURE §4.39n.1** (BL-21), **§4.39k.1** (BL-22) y **API_CONTRACT §M5**

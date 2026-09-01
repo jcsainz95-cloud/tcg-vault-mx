@@ -24,20 +24,23 @@ const pii = new PiiCryptoService(new ConfigService({}));
 const SUPER = { id: 'sa-1', role: 'super_admin' as const };
 
 // =============================================================================================
-describe('⚠️ BL-21 — `{origen}/{locale}/buylist/{id}`', () => {
+describe('⚠️ BL-21/BL-23(1) — `{origen}/{locale}/buylist/requests/{id}`', () => {
   const OLD = process.env.APP_PUBLIC_URL;
   afterEach(() => {
     if (OLD === undefined) delete process.env.APP_PUBLIC_URL;
     else process.env.APP_PUBLIC_URL = OLD;
   });
 
-  it('la forma canónica lleva el LOCALE como segmento y el path de PANTALLA', () => {
+  it('la forma canónica lleva el LOCALE como segmento y el path REAL de la pantalla', () => {
     process.env.APP_PUBLIC_URL = 'https://tcghunt.mx';
-    expect(buylistPortalUrl('sr-1', 'en')).toBe('https://tcghunt.mx/en/buylist/sr-1');
-    expect(buylistPortalUrl('sr-1', 'es')).toBe('https://tcghunt.mx/es/buylist/sr-1');
-    // ⚠️ Ni el path de API (`/buylist/requests/...`, que daría 404) ni el ?query (el id no es
-    // secreto: la razón que obligó al query param en el enlace de invitado no existe aquí).
-    expect(buylistPortalUrl('sr-1', 'en')).not.toMatch(/\/requests\//);
+    // ⛔ v1.51.15 · BL-23(1): la forma de v1.51.13 (`/{locale}/buylist/{id}`) era MÍA y estaba mal —
+    // la pantalla vive en `/[locale]/buylist/requests/[id]`, así que el enlace seguía roto **por
+    // divergencia**. Manda la del frontend: `/buylist` es una SECCIÓN con pantalla propia, no una
+    // colección a la que se le pueda colgar un `[id]`.
+    expect(buylistPortalUrl('sr-1', 'en')).toBe('https://tcghunt.mx/en/buylist/requests/sr-1');
+    expect(buylistPortalUrl('sr-1', 'es')).toBe('https://tcghunt.mx/es/buylist/requests/sr-1');
+    // Sigue prohibido el ?query: el id no es secreto, así que la razón que obligó al query param en
+    // el enlace de invitado no existe aquí y manda la regla normal (un recurso, un segmento).
     expect(buylistPortalUrl('sr-1', 'en')).not.toMatch(/\?/);
   });
 
@@ -45,15 +48,15 @@ describe('⚠️ BL-21 — `{origen}/{locale}/buylist/{id}`', () => {
     process.env.APP_PUBLIC_URL = 'https://tcghunt.mx';
     // Cualquier valor que el cuerpo renderizaría como `es`, la URL también.
     for (const l of [null, undefined, 'fr', 'es-MX', '']) {
-      expect(buylistPortalUrl('sr-1', l)).toBe('https://tcghunt.mx/es/buylist/sr-1');
+      expect(buylistPortalUrl('sr-1', l)).toBe('https://tcghunt.mx/es/buylist/requests/sr-1');
     }
     // Y el único que el cuerpo renderiza en inglés, la URL también.
-    expect(buylistPortalUrl('sr-1', 'en')).toBe('https://tcghunt.mx/en/buylist/sr-1');
+    expect(buylistPortalUrl('sr-1', 'en')).toBe('https://tcghunt.mx/en/buylist/requests/sr-1');
   });
 
   it('normaliza la barra final (un origen, sin path, sin barra)', () => {
     process.env.APP_PUBLIC_URL = 'https://tcghunt.mx///';
-    expect(buylistPortalUrl('sr-1', 'es')).toBe('https://tcghunt.mx/es/buylist/sr-1');
+    expect(buylistPortalUrl('sr-1', 'es')).toBe('https://tcghunt.mx/es/buylist/requests/sr-1');
   });
 
   it('⚠️ sin origen ⇒ `undefined`, y el correo SALE IGUAL con instrucción de texto', () => {
@@ -120,7 +123,20 @@ describe('⚠️ BL-21 — el correo en inglés lleva el botón a la pantalla en
           return { count: 1 };
         }),
       },
-      sellRequestItem: { updateMany: jest.fn(async () => ({ count: 1 })) },
+      sellRequestItem: {
+        // ⚠️ v1.51.16 — el doble APLICA la escritura sobre los ítems, no la finge. La guarda de
+        // proyección (BL-24) relee la fila dentro de la tx y exige `offerDecision` en toda línea:
+        // un doble que dijera `count: 1` sin escribir nada haría fallar la emisión aquí… **y sería
+        // el doble el que miente**. *Un fixture que no refleja la escritura oculta la guarda que la
+        // protege.*
+        updateMany: jest.fn(async ({ where, data }: any) => {
+          const ids: string[] = where.id?.in ?? (where.id ? [where.id] : []);
+          for (const it of request.items as Record<string, unknown>[]) {
+            if (ids.includes(it.id as string)) Object.assign(it, data);
+          }
+          return { count: ids.length };
+        }),
+      },
       $transaction: jest.fn(async (cb: any) => cb(prisma)),
     };
     const pricing = {
@@ -154,8 +170,8 @@ describe('⚠️ BL-21 — el correo en inglés lleva el botón a la pantalla en
   }
 
   it.each([
-    ['en', '/en/buylist/sr-1'],
-    ['es', '/es/buylist/sr-1'],
+    ['en', '/en/buylist/requests/sr-1'],
+    ['es', '/es/buylist/requests/sr-1'],
   ])('con `locale=%s` el href del CTA apunta a `%s`', async (locale, path) => {
     process.env.APP_PUBLIC_URL = 'https://tcghunt.mx';
     const { svc, mail } = build(locale);

@@ -103,7 +103,13 @@ describe('BuylistService.adminRejectedItems — shape RejectedSellItemDTO + orde
 
     expect(row.id).toBe('sri-1');
     expect(row.sellRequestId).toBe('sr-1'); // deep-link al detalle
-    expect(row.seller).toEqual({ id: 'user-1', name: 'Ash Ketchum', email: 'ash@example.com' });
+    // v1.51 · BL-15 (D12): `AdminSellerRef` gana `phone`. `null` en cuentas de Google / viejas.
+    expect(row.seller).toEqual({
+      id: 'user-1',
+      name: 'Ash Ketchum',
+      email: 'ash@example.com',
+      phone: null,
+    });
     // T-1: card es la proyección canónica CardDTO (§11) — setName PLANO, subtypes y
     // availableFinishes presentes; la relación Prisma cruda `set` NO se propaga.
     expect(row.card.name).toBe('Pidgey');
@@ -265,7 +271,12 @@ describe('SellItemDTO — campos de rechazo en las proyecciones (listMine/getMin
     };
     const svc = buildService(prisma);
     const res: any = await svc.adminGet('sr-1');
-    expect(res.seller).toEqual({ id: 'user-1', name: 'Ash Ketchum', email: 'ash@example.com' });
+    expect(res.seller).toEqual({
+      id: 'user-1',
+      name: 'Ash Ketchum',
+      email: 'ash@example.com',
+      phone: null,
+    });
     // El join crudo de User NO se propaga (solo el ref proyectado).
     expect(res.user).toBeUndefined();
     expect(res.items[0].rejectionReason).toBe('no es NM: whitening');

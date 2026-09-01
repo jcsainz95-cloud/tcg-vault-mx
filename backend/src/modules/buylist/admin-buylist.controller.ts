@@ -19,6 +19,7 @@ import { parseAdminListFilters } from '../../common/admin-list-filters';
 import { BuylistService } from './buylist.service';
 import { AuditService } from '../audit/audit.service';
 import {
+  AdminPickupAddressDto,
   ConfirmShipmentDto,
   DeclineDto,
   GuideCancellationDoneDto,
@@ -65,6 +66,9 @@ export class AdminBuylistController {
     // ausente del código**. Es la contraparte server-side de `isTerminal`: mientras faltaba, la
     // pestaña «Cerradas» tenía que mandar un CSV **enumerando los cuatro terminales**.
     @Query('live') live?: string,
+    // v1.51.1 · D31 — `awaitingGuide`: la vista del pendiente NUESTRO (una `aceptada` sin guía no
+    // corre reloj y no expira nunca, así que sin esta vista se queda quieta para siempre).
+    @Query('awaitingGuide') awaitingGuide?: string,
   ) {
     const f = parseAdminListFilters({ page, pageSize, q, from, to, minCents, maxCents });
     return this.buylist.adminList(status, f.page, f.pageSize, userId, {
@@ -76,6 +80,9 @@ export class AdminBuylistController {
       // en `GET /admin/orders`: un query param mal escrito **no puede** convertir una cola de
       // trabajo en un 400 — el modo seguro de un filtro ausente es «no filtrar», no «fallar».
       live: live === 'true' ? true : live === 'false' ? false : undefined,
+      // Mismo parsing tri-estado ratificado (v1.51.9 D) que `live`, `guest` y `needsManual`.
+      awaitingGuide:
+        awaitingGuide === 'true' ? true : awaitingGuide === 'false' ? false : undefined,
     });
   }
 
@@ -404,6 +411,36 @@ export class AdminBuylistController {
    * ⚠️ El `reason` es **INTERNO**: va a la bitácora y **jamás** al correo — el 4 tiene prohibido
    * explicar por qué no ofertamos.
    */
+  /**
+   * v1.51.4 (**BL-13**, §4.39t) — **corregir la dirección de origen DESPUÉS de la guía.**
+   *
+   * Existe porque el remedio que quedaba **acusaba al vendedor**: sin esta ruta, un typo NUESTRO en
+   * la etiqueta solo se «arreglaba» dejando vencer el plazo de envío, y eso le manda el correo de
+   * *«aceptaste y el paquete no salió»*.
+   *
+   * **No es dinero saliente ⇒ sin `@MoneyOut`.** ⚠️ **Auditado SIN PII**: en `before`/`after` van
+   * **solo los `addressId`**, nunca el domicilio — misma norma que la ruta de cliente.
+   */
+  @Patch(':id/pickup-address')
+  async pickupAddress(
+    @Param('id') id: string,
+    @Body() dto: AdminPickupAddressDto,
+    @CurrentUser() user: { id: string; role: Role },
+  ) {
+    const { auditAddressIds, ...res } = await this.buylist.adminUpdatePickupAddress(id, dto.addressId);
+    await this.audit.log({
+      actorUserId: user.id,
+      actorRole: user.role,
+      action: 'buylist.pickup_address.admin_update',
+      entityType: 'SellRequest',
+      entityId: id,
+      // ⚠️ SOLO los ids. Un domicilio en la bitácora es PII que nadie va a purgar.
+      before: { addressId: auditAddressIds.before },
+      after: { addressId: auditAddressIds.after, guideReissued: res.guideCancellationPendingAt != null },
+    });
+    return res;
+  }
+
   @Post(':id/decline')
   async decline(
     @Param('id') id: string,

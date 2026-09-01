@@ -252,6 +252,21 @@ export const ErrorCode = {
   // grossShortfallCents }` — el faltante va en BRUTO porque es la palanca del operador. 422.
   // ⚠️ `OFFER_NET_NOT_POSITIVE` (v1.51.1) **NO EXISTE**: su nombre describía la regla vieja.
   OFFER_NET_BELOW_MINIMUM: 'OFFER_NET_BELOW_MINIMUM',
+  // ⚠️ v1.51.16 · **BL-24** (§4.39h paso 7-bis / §M5) — **GUARDA DE PROYECCIÓN: no se emite una
+  // oferta que el portal no podría mostrar.** Es un **500, NO un 422**, y la diferencia es el punto:
+  // el operador **no hizo nada mal y no puede corregir nada** en esa pantalla — es **nuestro**
+  // defecto. Va **AL FINAL** de la secuencia, después de todo lo que él sí puede arreglar.
+  //
+  // El defecto que cierra: el portal no pinta una oferta incompleta (R2, y es correcto), así que el
+  // vendedor **no puede aceptar**… **pero el barrido sigue contando sus 2 días hábiles** y acaba
+  // mandándole un correo que dice que **no respondió**. *Falló nuestra proyección y la factura le
+  // llegaba a él.* Al fallar la guarda **no se sella `offerSentAt`** ⇒ la solicitud se queda
+  // `cotizada` ⇒ la mira la **regla 7 del barrido (NUESTRO plazo)**, no la 1 (el del vendedor).
+  //
+  // `details: { missing: string[], sellRequestId }` — `missing` **nombra lo que falta**
+  // (`terms.rule`, `lines[<itemId>].offerDecision`, …). 500.
+  // ⚠️ **Es un BACKSTOP: si alguna vez dispara, se arregla el bug — no se vuelve parte del flujo.**
+  OFFER_PROJECTION_INCOMPLETE: 'OFFER_PROJECTION_INCOMPLETE',
   // `POST …/offer/authorize` sobre algo que no está esperando autorización. DOS candados a propósito
   // (§4.39h): `offerState='pending_authorization' ∧ status='cotizada' ∧ closedAt IS NULL` — el
   // segundo existe para que perder el primero no resucite una solicitud TERMINAL con un correo
@@ -271,6 +286,15 @@ export const ErrorCode = {
   // `POST /admin/buylist/:id/guide` sobre algo que no está `aceptada`. **La guía se compra AL
   // ACEPTAR, no al ofertar** (D21, criterio 137): ofertar a diez personas y comprar diez etiquetas
   // por adelantado sería tirar el dinero de las que digan que no. `details.status`. 409.
+  // v1.51.4 (BL-13) — `PATCH /admin/buylist/:id/pickup-address`: el `addressId` no existe **o no es
+  // del vendedor de esta solicitud** — MISMA respuesta para los dos casos (distinguirlas sería un
+  // oráculo de existencia de direcciones ajenas). `details.addressId`. 422.
+  PICKUP_ADDRESS_NOT_FOUND: 'PICKUP_ADDRESS_NOT_FOUND',
+  // v1.51.4 (BL-13) — ya no se puede corregir: terminal, envío confirmado, o el vendedor **ya
+  // declaró que lo depositó** (⇒ la etiqueta está USADA y cambiar la fila no mueve la caja; ahí el
+  // remedio es humano). ⚠️ `guideSentAt` NO es precondición: es la ventana que esta ruta cubre.
+  // `details: { status, guideSentAt, sellerShippedDeclaredAt }`. 409.
+  PICKUP_ADDRESS_LOCKED: 'PICKUP_ADDRESS_LOCKED',
   GUIDE_NOT_ALLOWED: 'GUIDE_NOT_ALLOWED',
   // v1.51.4 (BL-13) — hay una cancelación de guía PENDIENTE: capturar la etiqueta nueva pisaría el
   // número de la vieja y la cola pediría cancelar *la que ya es la buena*. Serializa lo que la

@@ -64,3 +64,57 @@ export function rejectDeadlines(rejectedAt: Date | null | undefined): {
     abandonDeadlineAt: new Date(rejectedAt.getTime() + BUYLIST_REJECT_ABANDON_WINDOW_DAYS * DAY_MS),
   };
 }
+
+/**
+ * ⚠️ v1.51.15 · **BL-23(3)** (API_CONTRACT §6 · ARCHITECTURE §4.39a) — **POR QUÉ QUEDÓ
+ * `rechazada`: DERIVADO server-side, CERO DDL.**
+ *
+ * `rechazada` tiene **TRES productores** y ninguno era distinguible desde el DTO, así que el portal
+ * usó una frase neutra *a propósito* (bien hecho). Pero **decirle «se te venció el plazo» a quien
+ * PULSÓ RECHAZAR es acusarlo de una pasividad que no tuvo** — el mismo argumento de D33, y el mismo
+ * que separó el correo 5 del 3. Aquí las causas **sí son hechos distintos para el destinatario**,
+ * así que merecen valores distintos.
+ *
+ * ### No necesita columna: las dos causas ambiguas son excluyentes POR CONSTRUCCIÓN
+ * Un rechazo del vendedor **solo es legal ANTES** del plazo (después es `409 OFFER_EXPIRED`) y el
+ * barrido **solo puede actuar DESPUÉS**. La frontera no es una convención: es una guarda del
+ * servidor. Por eso basta comparar `closedAt` con `offerAcceptDeadlineAt`.
+ *
+ * ### ⚠️ Y lo deriva EL SERVIDOR, no el front
+ * Que el cliente comparara esas dos fechas sería **exactamente la reconstrucción en el cliente** que
+ * `isTerminal` e `isPayable` vinieron a borrar.
+ *
+ * ### ⚠️ EL ORDEN DE EVALUACIÓN NO ES LIBRE — `all_items_rejected` VA PRIMERO
+ * La tabla del contrato enumera **valores**, no un orden, y el orden importa: una solicitud que
+ * llegó a verificación **fue ofertada, aceptada y enviada**, así que su `closedAt` cae muy **después**
+ * del plazo de aceptación. Evaluar las fechas primero le diría *«no respondiste»* a un vendedor que
+ * respondió, mandó el paquete y **lo que pasó es que ninguna carta pasó la verificación** — la
+ * mentira exacta que este campo existe para borrar. *Las dos reglas de fecha son excluyentes entre
+ * sí; ésta es de otro eje y las domina.*
+ */
+export type SellRequestRejectionReason =
+  | 'declined_by_seller'
+  | 'accept_deadline_passed'
+  | 'all_items_rejected';
+
+export function deriveRejectedReason(
+  r: {
+    status: string;
+    closedAt?: Date | null;
+    offerSentAt?: Date | null;
+    offerAcceptDeadlineAt?: Date | null;
+  },
+  items: { itemStatus: string }[] | null | undefined,
+): SellRequestRejectionReason | null {
+  // Solo tiene sentido sobre una solicitud RECHAZADA: en cualquier otro estado no hay causa que dar.
+  if (r.status !== 'rechazada') return null;
+  // (1) Ninguna carta pasó la verificación. Va PRIMERO — ver el bloque de arriba.
+  const list = items ?? [];
+  if (list.length > 0 && list.every((i) => i.itemStatus === 'rechazada')) return 'all_items_rejected';
+  // (2)/(3) Las dos causas del ciclo de oferta. Sin oferta enviada **no hay dato honesto que dar**
+  // (fila pre-M-46, o el `decline` del ajuste legacy, que exige `offerSentAt: null`).
+  if (r.offerSentAt == null || r.closedAt == null || r.offerAcceptDeadlineAt == null) return null;
+  return r.closedAt.getTime() <= r.offerAcceptDeadlineAt.getTime()
+    ? 'declined_by_seller'
+    : 'accept_deadline_passed';
+}
