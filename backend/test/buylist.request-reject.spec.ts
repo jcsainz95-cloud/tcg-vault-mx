@@ -52,13 +52,21 @@ function buildForItemDecision(nonRejectedRemaining: number) {
     rejectionReason: null,
     sellRequest: {
       userId: 'u1',
+      // v1.51.5 · BL-14: el `include` trae el ESTADO de la solicitud (viva en este escenario).
+      status: 'verificacion',
       user: { email: 'seller@example.com', name: 'Ash', locale: 'es' },
     },
     card: { name: 'Pidgey', number: '16', set: { name: 'Base Set' } },
   };
+  const live: any = { ...item };
   const prisma: any = {
     sellRequestItem: {
-      findUnique: jest.fn().mockResolvedValue(item),
+      findUnique: jest.fn(async (args: any) => (args?.include ? item : { ...live })),
+      // v1.51.5 · BL-14: escritura guardada (`updateMany` + `count === 1`), y relectura después.
+      updateMany: jest.fn(async ({ data }: any) => {
+        Object.assign(live, data);
+        return { count: 1 };
+      }),
       update: jest.fn(async ({ data }: any) => ({ id: item.id, ...data })),
       aggregate: jest.fn(async () => ({
         _sum: { approvedPriceCents: null },

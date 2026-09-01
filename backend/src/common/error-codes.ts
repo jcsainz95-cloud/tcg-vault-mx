@@ -218,9 +218,9 @@ export const ErrorCode = {
   // v1.51 · criterio 150 por lo negativo — el flujo `ajustada` NO existe en el ciclo de OFERTA:
   // `respond` y `itemDecision(adjust)` quedan prohibidos si `offerSentAt IS NOT NULL`.
   // `details.status`. 409.
-  // ⚠️ TODAVÍA NO SE EMITE: la columna `SellRequest.offerSentAt` llega con M-46. El código está
-  // registrado aquí (el contrato ya lo publica) y sus dos puntos de emisión están marcados con
-  // `TODO(M-46)` en `buylist.service.ts` (`respond`). Ver docs/BACKEND_NOTES.md.
+  // ✅ v1.51.5 (§4.39b.3): **YA SE EMITE en `respond`** — la columna `offerSentAt` existe desde M-46,
+  // así que el bloqueo del `TODO` desapareció y se cableó. `itemDecision(adjust)` la emitirá con el
+  // pase de `POST /admin/buylist/:id/offer`. Ver docs/BACKEND_NOTES.md.
   ADJUST_NOT_ALLOWED_IN_OFFER_CYCLE: 'ADJUST_NOT_ALLOWED_IN_OFFER_CYCLE',
 
   // Guest checkout (v1.21) — API_CONTRACT §0 / §4-G. Todos ADITIVOS: ningún código previo cambia.

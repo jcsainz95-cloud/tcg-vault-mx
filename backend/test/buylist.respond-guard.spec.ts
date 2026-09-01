@@ -1,3 +1,5 @@
+import { readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { ConfigService } from '@nestjs/config';
 import { BuylistService } from '../src/modules/buylist/buylist.service';
 import { PrismaService } from '../src/prisma/prisma.service';
@@ -42,6 +44,9 @@ function liveAdjustmentRow(over: Record<string, unknown> = {}) {
     // Ajuste enviado y SIN responder: es lo que hace vivo el plazo de 7d del barrido.
     adjustmentSentAt: new Date('2026-08-03T00:00:00Z'),
     closedAt: null,
+    // v1.51.5 (§4.39b.3): la CUARTA condición de la precondición, ya cableada. `null` = solicitud
+    // de la cohorte LEGACY (sin oferta emitida), que es la única a la que el ajuste le aplica.
+    offerSentAt: null,
     ...over,
   };
 }
@@ -305,5 +310,89 @@ describe('BL-2 · concurrencia: dos `accept` simultáneos, UNA sola transición'
     expect(results.filter((r) => r.status === 'rejected')).toHaveLength(1);
     // El estado final es UNO de los dos desenlaces, nunca una mezcla.
     expect(['aprobada', 'rechazada']).toContain(state.status);
+  });
+});
+
+// =============================================================================================
+// v1.51.5 (§4.39b.3) — LA CUARTA CONDICIÓN, ya cableada: cierre de los dos `TODO(M-46)`
+// =============================================================================================
+/**
+ * El JSDoc de `respond` afirmaba que `offerSentAt IS NULL` *«no se puede cablear sin inventar la
+ * columna»*. **`offerSentAt` existe desde M-46**, así que el bloqueo desapareció y el `TODO` pasó a
+ * ser **documentación que miente**.
+ *
+ * **La ruta de ajuste NO muere con el ciclo (§4.39b.3): sobrevive a UNA COHORTE.** Para toda
+ * solicitud nueva es *inalcanzable por construcción* (`recibida` solo se llega vía
+ * `en_transito ← aceptada ← ofertada` ⇒ nunca sin `offerSentAt`), pero la cohorte **legacy en vuelo**
+ * al cut-over **la necesita**: apagar la salida el día que se apaga la entrada dejaría a un vendedor
+ * con un ajuste vivo y **sin forma de aceptar un dinero que ya le propusimos**.
+ */
+describe('v1.51.5 · `respond` — la solicitud del CICLO no se ajusta (criterio 150)', () => {
+  it.each([['accept'], ['decline']] as const)(
+    '%s con `offerSentAt` poblado ⇒ 409 ADJUST_NOT_ALLOWED_IN_OFFER_CYCLE, y NADA se mueve',
+    async (decision) => {
+      // Peor caso posible: ajuste VIVO y estado legal. Lo único que la descalifica es el ciclo.
+      const { svc, state } = fakeDb(
+        liveAdjustmentRow({ offerSentAt: new Date('2026-08-04T00:00:00Z') }),
+      );
+      await expect(svc.respond('u1', 'sr-1', decision)).rejects.toMatchObject({
+        code: 'ADJUST_NOT_ALLOWED_IN_OFFER_CYCLE',
+        status: 409,
+        details: { status: 'verificacion' },
+      });
+      // El precio ofertado es vinculante desde el correo y NO se mueve (D2/D9): ni por esta puerta.
+      expect(state.status).toBe('verificacion');
+      expect(state.approvedAt).toBeNull();
+      expect(state.closedAt).toBeNull();
+      expect(state.adjustmentSentAt).not.toBeNull();
+    },
+  );
+
+  it('la CUARTA condición vive en el `where` del updateMany, no en un `if` de aplicación', async () => {
+    const { svc, guardWheres } = fakeDb(liveAdjustmentRow());
+    await svc.respond('u1', 'sr-1', 'accept');
+    expect(guardWheres[0]).toMatchObject({ offerSentAt: null });
+  });
+
+  it('⚠️ los DOS códigos 409 discriminan: «no hay ajuste» ≠ «aquí no se ajusta NUNCA»', async () => {
+    // Sin ajuste vivo y sin ciclo ⇒ NO_LIVE_ADJUSTMENT (puede resolverse esperando un ajuste).
+    const sinAjuste = fakeDb(liveAdjustmentRow({ adjustmentSentAt: null }));
+    await expect(sinAjuste.svc.respond('u1', 'sr-1', 'accept')).rejects.toMatchObject({
+      code: 'NO_LIVE_ADJUSTMENT',
+    });
+    // Con ciclo ⇒ ADJUST_NOT_ALLOWED_IN_OFFER_CYCLE (no se resolverá jamás). *Un código que miente
+    // sobre la causa manda a alguien a esperar algo que no va a pasar.*
+    const enCiclo = fakeDb(
+      liveAdjustmentRow({ adjustmentSentAt: null, offerSentAt: new Date('2026-08-04T00:00:00Z') }),
+    );
+    await expect(enCiclo.svc.respond('u1', 'sr-1', 'accept')).rejects.toMatchObject({
+      code: 'ADJUST_NOT_ALLOWED_IN_OFFER_CYCLE',
+    });
+  });
+
+  it('la cohorte LEGACY sigue pudiendo responder: sin `offerSentAt`, el flujo intacto', async () => {
+    const { svc, state } = fakeDb(liveAdjustmentRow());
+    await svc.respond('u1', 'sr-1', 'accept');
+    expect(state.status).toBe('aprobada');
+    expect(state.adjustmentSentAt).toBeNull();
+  });
+});
+
+// =============================================================================================
+// v1.51.5 — el `TODO(M-46)` no puede volver: es documentación que se vuelve falsa
+// =============================================================================================
+describe('v1.51.5 · guard de residuo — cero `TODO(M-46)` en `src/`', () => {
+  it('no queda ningún `TODO(M-46)` pendiente (su bloqueo desapareció con la migración)', () => {
+    const SRC = join(__dirname, '..', 'src');
+    const walk = (dir: string): string[] =>
+      readdirSync(dir, { withFileTypes: true }).flatMap((e) =>
+        e.isDirectory() ? walk(join(dir, e.name)) : e.name.endsWith('.ts') ? [join(dir, e.name)] : [],
+      );
+    const ofensores = walk(SRC).filter((f) => {
+      const text = readFileSync(f, 'utf8');
+      // Se busca el marcador PENDIENTE, no las menciones en prosa de que ya se cerró.
+      return /TODO\(M-46\):/.test(text);
+    });
+    expect(ofensores).toEqual([]);
   });
 });

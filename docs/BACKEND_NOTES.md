@@ -4,6 +4,310 @@
 > El contrato (`docs/API_CONTRACT.md`) manda sobre el código. Stack: NestJS + Prisma + PostgreSQL,
 > Redis/BullMQ (jobs), JWT + argon2, S3/MinIO (presigned URLs), Stripe.
 
+## 0.16 v1.51.5 — **Dos agujeros de dinero en el mismo commit: BL-14 y `brutoConsumado`** (+ cierre de los dos `TODO(M-46)`) (2026-09-01)
+
+> Implementa **API_CONTRACT v1.51.5 §A/§B** y **ARCHITECTURE §4.39(i) 4-bis**, **§4.39(b.3)**, **§9
+> (BL-14, BL-5 la mitad viva)**.
+> **Van juntos porque el segundo depende del primero:** `brutoConsumado` ancla el acumulado AML en
+> `approvedTotalCents` **porque en un estado terminal es final** — y sin la guarda de BL-14 **no lo
+> era**. *Una norma que se apoya en una afirmación falsa sobre el código no es una norma.*
+
+### 0.16.1 (a) BL-14 — `itemDecision` no leía el estado de la solicitud
+
+**Era peor que un `if` faltante.** El `include` del `findUnique` traía un `select` con **solo `userId`
+y `user`**: `status` **ni siquiera se leía**, así que no había forma de comprobarlo aunque alguien
+hubiera querido. Las únicas guardas eran existencia del ítem, idempotencia a nivel ítem
+(`itemStatus === 'rechazada'`) y longitud del `reason`. **Nada a nivel solicitud.**
+
+Consecuencia: sobre una solicitud **`pagada`**, un operador re-decidía un ítem, `recomputeApprovedTotal`
+corría, y **el bruto aprobado se reescribía después de que el SPEI salió**. Hermana exacta de **BL-2**
+por la puerta del ítem: BL-2 revivía la solicitud; ésta reescribe **el monto** de una ya liquidada.
+
+**Se cierra con el mismo patrón que BL-2, en dos capas:**
+
+| Capa | Qué | Por qué |
+|---|---|---|
+| **Pre-check** | `isTerminalSellRequestStatus(item.sellRequest.status)` ⇒ `409 NO_LIVE_ADJUSTMENT` (`details.status`) | Mensaje honesto y **antes de cualquier escritura**. Va incluso **antes de la idempotencia del `reject`**: sobre una solicitud cerrada, un `200` silencioso diría que la operación está disponible |
+| **Guarda del MOTOR** | `updateMany` + **`count === 1`** con `sellRequest: { status: { notIn: TERMINAL } }` **en el `where`** | Un `if` sobre la lectura previa es read-then-write y sufre **TOCTOU**. Mismo patrón atómico que `respond`, `paySpei` y `rejectRequest` |
+
+**Un solo sitio para el conjunto de estados:** `notTerminalWhere()` se deriva de
+`SELL_REQUEST_TERMINAL_STATES`, **la misma constante** de la que se deriva `isTerminalSellRequestStatus`.
+Es la doctrina del **sitio 8** de §4.39c: dos literales de estados en un método de dinero es la forma
+más barata de que una edición mueva uno y no el otro.
+
+**Cambios de forma que QA y techlead deben ver:**
+- Las **tres** escrituras de `itemDecision` pasan de `update` a **`updateMany` guardado + relectura**
+  (`updateMany` no devuelve filas). La relectura lleva su `PROJECTION-EXEMPT` razonado: el caller la
+  proyecta con `toAdminSellItemRow`.
+- **La rama `adjust` cambia de orden y gana atomicidad.** `adjustmentSentAt` se escribía **primero y
+  suelto**: sobre una solicitud cerrada dejaba **el plazo de 7 días puesto** aunque la decisión no
+  prosperara, y el barrido lo habría visto como un ajuste vivo. Ahora las dos escrituras van en **un
+  solo `$transaction`**, cada una con su guarda, y el plazo se pone **después** de la decisión.
+- **`409` sobre terminal es un cambio de conducta observable:** un `reject` sobre un ítem ya
+  `rechazada` de una solicitud terminal **ya no devuelve `200`**. Es deliberado y está en el contrato.
+
+⚠️ **No basta la guarda del ciclo de oferta** (`422 OFFER_PRICE_IMMUTABLE` /
+`409 ADJUST_NOT_ALLOWED_IN_OFFER_CYCLE`): ésas miran `offerSentAt`, y una solicitud **pre-M-46** ya
+pagada **no lo tiene**.
+
+### 0.16.2 (b) `brutoConsumado` — con qué columna se mide el tope AML
+
+```
+brutoConsumado(sr) = approvedTotalCents ?? offerGrossCents ?? quotedTotalCents ?? 0
+```
+
+**Vive en `common/buylist-aml.ts`, pegado a la OTRA cascada, y eso es el punto.** El archivo ya
+alojaba `monthCommittedGrossCents` (sitios 2+3, **dos** términos). Ponerlas juntas es la única defensa
+real contra que alguien las «unifique por consistencia» — el comentario de `brutoConsumado` explica,
+en el mismo scroll, por qué son dos.
+
+**Los tres sitios, un solo cuerpo:**
+
+| # | Sitio | Antes | Ahora |
+|---|---|---|---|
+| a | `monthCommittedGrossPaidCentsTx` (acumulado del mes) | `approvedTotalCents ?? quotedTotalCents` | `brutoConsumado` de cada fila (+ `offerGrossCents` **en el `select`** — sin leerlo la cascada no puede aplicarse) |
+| b | El término de la solicitud **en curso** en la guarda del tope de `pay-spei` | ídem | `brutoConsumado(req)` |
+| c | **`payoutNetCents`**, sellado en la misma tx que `pagada` | **no se escribía** | `max(0, brutoConsumado(req) − (offerShippingFeeCents ?? 0))` |
+
+**(a) y (b) tienen que compartir cuerpo**: son los dos lados de la misma desigualdad
+(`acumulado + enCurso > cap`), y medir cada lado con una cascada distinta es **comparar dos cosas**.
+
+**El agujero real era el término central.** Sin `offerGrossCents` la cascada salta de *aprobado* a
+*cotizado*, y con **override al alza (D26)** el cotizado es **menor** que el ofertado ⇒ el acumulado se
+queda **corto** y el vendedor **rebasa el tope mensual sin que ningún control lo note**. *Un tope que
+puede quedarse corto no es un tope.* (El caso simétrico —cherry-pick, cotizado mayor— acumulaba **de
+más**: injusto, pero fail-closed.)
+
+**Decisión mía en el sitio (c), señalada:** el contrato escribe
+`max(0, brutoConsumado − offerShippingFeeCents)` y esa columna es **`null` en toda fila pre-M-46** (y
+hoy en todas, porque nada escribe ofertas todavía). Se implementa **`offerShippingFeeCents ?? 0`**: en
+una fila sin tarifa congelada **no se le descontó ningún envío**, y restar el dial vigente sería
+cobrarle un envío **que nunca se le anunció** — lo contrario de D25. Sin ese `?? 0` la resta sería
+`NaN`.
+
+**Cero regresión:** en toda fila pre-M-46 `offerGrossCents` es `null` ⇒ la cascada colapsa a la de hoy.
+
+### 0.16.3 (c) Los dos `TODO(M-46)` de BL-2, cerrados
+
+El JSDoc de `respond` afirmaba que la cuarta condición *«no se puede cablear hoy sin inventar la
+columna»*. **`offerSentAt` existe desde M-46**, así que el bloqueo desapareció y el `TODO` pasó a ser
+**documentación que miente**. Se cierra:
+
+- **`offerSentAt: null` entra al `where`** de la guarda (la precondición del contrato, ahora completa
+  con sus **cuatro** condiciones).
+- **La rama de error discrimina:** con `offerSentAt` poblado ⇒ **`409 ADJUST_NOT_ALLOWED_IN_OFFER_CYCLE`**;
+  si no ⇒ `409 NO_LIVE_ADJUSTMENT`. **Son dos hechos distintos con dos conductas distintas**: el
+  primero puede resolverse esperando un ajuste; el segundo, jamás. *Un código que miente sobre la
+  causa manda a alguien a esperar algo que no va a pasar.*
+- **No se retira nada** (§4.39b.3): la ruta de ajuste es **inalcanzable por construcción** para toda
+  solicitud nueva, pero la **cohorte legacy en vuelo** la necesita. *Se apaga la entrada, no la salida.*
+- El comentario de `ADJUST_NOT_ALLOWED_IN_OFFER_CYCLE` en `error-codes.ts` decía «TODAVÍA NO SE EMITE»;
+  ahora dice dónde sí se emite y qué falta (`itemDecision(adjust)`, con el pase de `POST …/offer`).
+
+### 0.16.4 Tests
+
+| Archivo | Qué fija |
+|---|---|
+| `test/buylist.bl14-bruto-consumado.spec.ts` (**NUEVO**, 22) | **El que no puede faltar:** un ítem de una solicitud `pagada` no se re-decide **y el bruto aprobado no se mueve** — se asevera el monto **antes y después**, y que **no hubo NINGUNA escritura** (un test que solo mirase el 409 pasaría igual si la escritura ocurriera antes del throw) · los **cuatro** terminales · **TOCTOU**: con una lectura vieja, el **motor** para la escritura · `reject` no se cuela por la idempotencia · `adjust` no deja el plazo puesto · el flujo vivo intacto · la cascada término a término (incluido **aprobado `0` ≠ ausencia**) · **override al alza** en el acumulado · `payoutNetCents` definido, no negativo y sin envío inventado · **la otra cascada sigue en dos términos y ni siquiera lee `approvedTotalCents`** |
+| `test/buylist.respond-guard.spec.ts` (+6) | `accept`/`decline` con `offerSentAt` ⇒ `ADJUST_NOT_ALLOWED_IN_OFFER_CYCLE` y **nada se mueve** · la cuarta condición está **en el `where`** · los dos 409 **discriminan** · la cohorte legacy sigue pudiendo responder · **guard de residuo: cero `TODO(M-46)` en `src/`** |
+| Fixtures actualizados (5 specs) | `reject`, `request-reject`, `approved-price-cap`, `ronda-c`, `respond-guard`: el `include` espeja el nuevo `status`, y los mocks pasan de `update` a **`updateMany` con semántica condicional** (un mock que devolviera `{count:1}` a ciegas dejaría pasar los tests aunque la guarda no existiera) |
+
+**Prueba de mutación hecha a mano, dos veces:** (1) quitando `sellRequest: notTerminalWhere()` del
+`where` ⇒ **falla** el test de TOCTOU; (2) quitando `offerGrossCents` de la cascada ⇒ **fallan** 4
+tests (la cascada, el acumulado, y los dos de `payoutNetCents`). Revertidas ambas.
+
+`npm test` **212 suites / 2704 tests en verde** · `npm run typecheck` limpio · `npm run lint` con las
+**2 warnings preexistentes** y ninguna nueva.
+
+### 0.16.5 Zona compartida tocada (para el orquestador)
+
+`backend/src/common/buylist-aml.ts` (adición de `brutoConsumado`) y `backend/src/common/error-codes.ts`
+(un comentario). Las dos son **aditivas** y están dictadas por el contrato v1.51.5; se señalan por si
+otro stream tocó los mismos archivos en paralelo.
+
+---
+
+## 0.15 v1.51 — **La MESA DE DECISIÓN y el puerto de posición** (M-46: `INVENTORY_POSITION_PORT` + `GET /admin/buylist/:id/decision-table`) (2026-09-01)
+
+> Implementa **ARCHITECTURE §4.39(f)(g)** + **§11 (M-46, fila del puerto)** y **API_CONTRACT §M5 /
+> §11** (`BuylistDecisionLineDTO`, `BuylistDecisionTotalsDTO`).
+> **Cierra el agujero que abrió la petición original del humano:** *«cuando llegue una solicitud vendrá
+> con una o varias cartas que en admin se me despliegue cuántas tenemos en inventario y cuántas vienen
+> en camino que hemos comprado a otros usuarios»* (§P.2). Hasta este pase `adminGet` **no exponía ni
+> una cifra de stock**: se compraba a ciegas.
+>
+> **Lo que este pase NO trae** (declarado, no olvidado): `POST …/offer`, `…/offer/authorize`,
+> `…/offer/cancel`, la guía, el barrido de siete reglas, los cinco correos y las cuatro colas. La mesa
+> **previsualiza**; nada de aquí compromete dinero.
+
+### 0.15.1 `INVENTORY_POSITION_PORT` — el único dato que cruza de `inventory` a `buylist`
+
+| Archivo | Qué |
+|---|---|
+| `modules/inventory/inventory-position.port.ts` (**NUEVO**) | Token + `VariantPositionRef` + `InventoryPositionPort`. **Copiado literal de §4.39f**, sin rediseño |
+| `modules/inventory/inventory-position.adapter.ts` (**NUEVO**) | El adaptador: **UN** `groupBy` sobre `InventoryItem` para las N variantes |
+| `modules/inventory/inventory-position.module.ts` (**NUEVO**) | Módulo **`@Global`** que provee/exporta **solo el token** |
+| `app.module.ts` | Registra `InventoryPositionModule` |
+
+**Por qué un módulo `@Global` propio y no `imports: [InventoryModule]` ni `InventoryModule` global.**
+El puerto tiene que llegar a `buylist` **sin** acoplar los dos streams en el grafo de módulos (§4.39f).
+`MailModule` ya sienta el precedente de `@Global`, pero volver global a `InventoryModule` entero
+publicaría su grafo de servicios de **escritura** a todo el backend. Aquí lo único exportado es un token
+de **solo lectura**, y `InventoryPositionAdapter` es provider **privado**: nadie puede inyectar la clase
+concreta y saltarse el seam.
+
+**⚠️ Este puerto NO es best-effort, y esa es la parte que no se puede copiar de `MAIL_PORT`.**
+
+| Situación | Qué hace la mesa |
+|---|---|
+| El provider **no está cableado** | `position: null` + `positionUnavailable: true`; **error en el log de izado** (`BuylistService.onModuleInit`) |
+| El adaptador **revienta** (BD caída) | `position: null` + `positionUnavailable: true`; `error` con el motivo |
+| El adaptador devuelve un `Map` **sin la clave** de una variante | **`stock: 0`** — cero **legítimo**: «no hay ninguna» |
+| Cualquiera de los tres | **JAMÁS `0` como sustituto de «no pude contar»** |
+
+El adaptador **no captura excepciones a propósito**: tragarlas y devolver un `Map` vacío sería
+indistinguible de «no tengo ninguna de estas cartas» y produciría **el cero prohibido**. Hay un test que
+lo asevera (`inventory-position.port.spec.ts`).
+
+**El `@Optional()` del `@Inject` existe SOLO por los tests unitarios legacy** (mismo motivo que
+`MAIL_PORT`) y por ningún otro. Como el `@Optional()` hace que un desconexionado sea **silencioso**, se
+añadió una aseveración de **wiring real** en `test/app.module.spec.ts`: el token está provisto **y**
+`BuylistService` lo recibe.
+
+**Qué cuenta el adaptador:** `InventoryItem` de **`ownerType='platform'`**, `status NOT IN NOT_ON_HAND`
+(**la constante exportada de `master-set.service.ts`, reusada, no redefinida**), acotado por
+`cardId IN (…)` (que es lo que sirve `@@index([cardId, finish, status])`), agrupado por la variante
+**incluyendo `cardProductId`**. El `gradeKey` sale de **`pricing.gradeKeyFor`** — la misma función que
+lo produce del lado de `buylist`.
+
+### 0.15.2 `variantPositionKey()` — zona compartida, adición mandada por §4.39g
+
+`common/variant-key.ts` gana `variantPositionKey(parts & { cardProductId })` = `variantKey(parts)` +
+`|` + (`cardProductId` ?? `'base'`). **`variantKey()` NO se tocó** (la consumen los mapas de
+`PriceReference`/`VariantPriceOverride`, cuya `@@unique` no lleva `cardProductId`; cambiarle la forma
+sería un miss silencioso de override/referencia = dinero mal).
+
+⚠️ **Es zona compartida (`backend/src/common/`)**: la adición es **puramente aditiva** y está dictada
+literalmente por ARCHITECTURE §4.39g. **Queda señalada para el orquestador** por si otro stream tocó el
+mismo archivo en paralelo.
+
+**Las CUATRO fuentes de la posición usan esta función** — hay guard en
+`test/sell-request-states.spec.ts`. El censo de `variantKey(` de ese mismo guard sube de **4 a 6** (la
+mesa añade dos consumidores **que usan el helper**); lo que sigue sin poder subir nunca es el número de
+interpolaciones a mano, que es el test que de verdad protege el invariante.
+
+### 0.15.3 `GET /api/v1/admin/buylist/:id/decision-table`
+
+Roles heredados de `AdminBuylistController` (`vault_operator` / `super_admin`) ⇒ `403` fuera de ellos;
+`404 NOT_FOUND` si la solicitud no existe. **Sin `@MoneyOut`** (no sale dinero) y **SIN AuditLog**:
+ARCHITECTURE §4.39 lo dice explícitamente — *«la mesa decide qué comprar, no cómo nos hemos portado»*.
+Lo que se audita es la **emisión**.
+
+**La posición son cuatro sumandos y `inTransit` es UNO de ellos:**
+
+| Sumando | De dónde | ¿Suma a `total`? | ¿Es «en camino»? |
+|---|---|---|---|
+| `stock` | `INVENTORY_POSITION_PORT` (otro stream) | sí | no |
+| `verifying` | `SellRequestItem.offerDecision='buy'` + solicitud en `SELL_REQUEST_VERIFYING_STATES` | sí | no |
+| `inTransit` | ídem + `SELL_REQUEST_IN_TRANSIT_STATES` (`en_transito`) | sí | **SÍ, la única** |
+| `committed` | ídem + `SELL_REQUEST_COMMITTED_STATES` (`ofertada`, `aceptada`) | sí | no |
+
+Los cuatro se emiten **por separado** (más `total`): tienen **confianza distinta** y esa distinción es
+el valor de la pantalla. **No hay un segundo campo «en camino»** — hay un test que busca cualquier clave
+con ese nombre. Una `aceptada` **no** entra en `inTransit`: *es una promesa, no un paquete* (criterio
+116); solo cuenta lo que el operador confirmó como enviado (D20).
+
+**La sugerencia:** precedencia `bounty vivo ∧ targetQty ≠ null → bounty_target`; en cualquier otro caso
+→ `variant_cap`. **NUNCA bloquea**: no hay validación de la oferta contra ella y no se emite ninguna
+bandera que un front pudiera leer como «no se puede» (hay test). **Siempre dice qué regla se disparó**
+(`rule` + `thresholdQty` + `bountyActive`). Un **bounty legacy con `targetQty = null` cae al TOPE
+GENERAL** y la respuesta lo **declara** (`rule: 'variant_cap'` **con** `bountyActive: true`): no es «sin
+límite». Con `positionUnavailable` ⇒ `{ verdict: 'none', rule: null, thresholdQty: null, bountyActive }`
+— **nunca se infiere un veredicto sobre un total que no se pudo calcular**.
+
+«Bounty vivo» = `bountyEnabled ∧ bountyCompletedAt IS NULL ∧ isBountyEffective(precio, curva vigente)`
+(§4.36.6): un bounty por debajo de la tarifa de la curva **dejó de ser bounty** y no gobierna el consejo.
+
+**El precio derivado sale del seam único `decideBuyLine`** con la **curva vigente ahora** — no se hereda
+de la cotización (§P.2). `quotedPriceCents` (el snapshot) y `derivedPriceCents` viajan **los dos**, que
+es justamente la diferencia que el operador necesita ver.
+
+### 0.15.4 Sin N+1: qué se lee y cuántas veces
+
+Con **1 línea o con 40 líneas** el número de lecturas es **idéntico**, y lo es **por tipo de lectura**
+(un test compara el censo completo, no solo el total — un intercambio de una lectura por otra pasaría
+un total y sería igual de malo):
+
+`sellRequest.findUnique` ×1 · curva ×1 · `getVariantOverridesBatch` ×1 · `getReferencesBatch` ×1 ·
+`findCardProductsByTcgIds` ×1 · `getReferencesByCardProductBatch` ×1 · **puerto de posición ×1** ·
+`sellRequestItem.findMany` ×1 · diales ×4.
+
+Para lograrlo se añadieron **dos hermanas EN LOTE** en `PricingService` (mismo módulo, mismo stream):
+
+- **`findCardProductsByTcgIds(ids)`** — hermana de `findCardProductByTcgId`.
+- **`getReferencesByCardProductBatch(items)`** + `cardProductRefKey()` — hermana de
+  `getReferenceByCardProduct`. Existe porque `getReferencesBatch` aplica `BASE_CARD_REF_WHERE`, que
+  **excluye justamente** las filas de `deck_exclusive`/`promo`: sin ella, una solicitud de promos volvía
+  a hacer una lectura por línea. Mismo desempate determinista (`isBetterRef`) y misma FX izada una vez.
+
+Y **`decideBuyLine` gana un parámetro `prefetched?`**: los **dos lookups** que ese cuerpo haría por
+línea, ya resueltos por el caller. **No cambia ni una decisión de dinero** —es el mismo dato, leído
+antes—; la secuencia curva/override/bounty/pendiente **sigue viviendo ahí y solo ahí**. Las guardas de
+identidad (`PRODUCT_NOT_FOUND` / `PRODUCT_CARD_MISMATCH`) **se re-aplican sobre la fila que trajo el
+lote**: un `productId` de otra carta **no se reinterpreta** como la carta de set. Sin `prefetched` el
+comportamiento previo queda **intacto** (cotizador público, `/quote/batch`, `createRequest`).
+
+`sellRequestItem.findMany` trae filas (no agregados) porque Prisma **no puede agrupar por un campo de
+la relación** (`sellRequest.status`) y hacen falta las tres clases en una sola lectura. Está acotado por
+`cardId IN (…)` + `offerDecision='buy'`. Si el profiling lo pidiera, la alternativa es **tres**
+`groupBy` (uno por clase de estado): sigue siendo constante en N.
+
+### 0.15.5 Decisiones que tomé y que conviene que el arquitecto vea
+
+1. **`totals.buyableGrossCents` = la selección POR DEFECTO** (toda línea con precio derivable). El
+   contrato dice *«Σ de las líneas marcadas `buy` en esta previsualización»* pero **el `GET` no recibe
+   selección**. Se resolvió con DESIGN_SYSTEM §23.6(g), que es explícito: *«Toda línea con precio
+   resoluble nace marcada como comprar; la línea sin precio nace desmarcada»*. **Se señala como
+   ambigüedad del contrato, no se da por zanjada.**
+2. **Línea sin precio por deriva de IDENTIDAD** (el `finish` snapshoteado ya no está en
+   `Card.availableFinishes`, o el `cardProductId` no resuelve): la mesa emite
+   `derivedPriceCents: null` + **`pendingReason: null`** y **no revienta**. El contrato solo declara
+   `403`/`404` para este endpoint, así que un `422` sería una violación; y **no se inventa un
+   `pendingReason`** porque sus dos valores (`no_market`, `premium_at_floor`) **afirman algo sobre el
+   mercado**, que aquí ni se consultó. La línea sigue rescatable con override al ofertar. *La respuesta
+   correcta a un dato que falta es decir que falta, no elegirle un motivo.* **Si el arquitecto prefiere
+   un valor propio del enum (`identity_drift`), es cambio de contrato: lo pido, no lo hago.**
+3. **En una línea de producto separado el bounty/override de la variante se IGNORA también para la
+   sugerencia**, no solo para el precio. La `@@unique` de `VariantPriceOverride` **no lleva
+   `cardProductId`**, así que esa fila describe la variante de **set_base**; aplicarla a una promo sería
+   la fusión de identidades que §P.8 llama «peor que no mostrar nada». Consecuencia: una línea de
+   producto separado **siempre** se juzga con `variant_cap`. **El contrato no lo dice explícitamente.**
+4. **`seller` viaja SIN `phone`.** `AdminSellerRef.phone` es **opcional** en el contrato, y poblarlo
+   exigiría tocar `sellerRef()`, que comparten `adminList`/`adminGet` — es trabajo de **D12** (la cola
+   de vendedores vivos), no de la mesa. Se deja para ese pase.
+5. **La solicitud abierta cuenta en su propia posición si ya está `ofertada`/`aceptada`.** El predicado
+   del contrato es **por estado** y no excluye la solicitud que se está mirando; abriendo la mesa sobre
+   una `cotizada` (el caso normal) esto no aplica. Se implementó el predicado **literal**.
+
+### 0.15.6 Tests
+
+| Archivo | Qué fija |
+|---|---|
+| `test/buylist.decision-table.spec.ts` (**NUEVO**, 32) | Puerto caído ⇒ `null` + `positionUnavailable` (**aseverado con `toBeNull()` y `not.toBe(0)`**, jamás `toBeFalsy()`, que pasaría con `0`) · cero real vs sin conteo · los cuatro sumandos separados · `aceptada` ∉ `inTransit` · identidad de producto y acabado · la sugerencia no bloquea y nombra la regla · borde inclusivo del tope · bounty legacy ⇒ `variant_cap` · bounty no efectivo/completado · **no-N+1 por censo de lecturas** · totales, `netBelowMinimum`, `requiresAuthorization` por actor, `pickupAddressMissing` · líneas de producto separado |
+| `test/inventory-position.port.spec.ts` (**NUEVO**, 12) | Plataforma + `NOT_ON_HAND` reusada · llave canónica · identidad de producto/acabado/grado · ausencia ≠ cero inventado · una query para N · **el adaptador NO se traga los errores** |
+| `test/app.module.spec.ts` (+1) | El token **está provisto** y `BuylistService` **lo recibe** (el `@Optional()` hace silencioso el desconexionado) |
+| `test/sell-request-states.spec.ts` (+1, censo actualizado) | `variantPositionKey` es **derivada** de `variantKey` y su caso base es explícito (`base`, no cadena vacía) |
+
+**Prueba de mutación hecha a mano:** se cambió el `position: null` por un desglose de ceros y los dos
+tests de la rama del puerto **fallaron**; se revirtió. El test que importa es el que se rompe cuando
+alguien "mejora" el `null` a `0`.
+
+`npm test` **211 suites / 2676 tests en verde** · `npm run typecheck` limpio · `npm run lint` con las
+**2 warnings preexistentes** (`inventory.service.ts:452`, `sealed-product.service.ts:11`) y ninguna
+nueva.
+
+---
+
 ## 0.14 v1.51 — **M-46: los CIMIENTOS del ciclo de adquisición** (schema, diez diales, días hábiles, el radio del enum) (2026-09-01)
 
 > Implementa **ARCHITECTURE §11 (M-46)** + **§4.39(c)(d)(e)(k)(l)** y **API_CONTRACT v1.51.4 §M10**.
@@ -256,7 +560,8 @@ valor**: renombrar la clave no sería una defensa.
 
 Ningún endpoint **del ciclo** (`quote-policy` no lo es: es la política pública del cotizador); el
 barrido sigue con sus **plazos viejos** (7/30 inline en `jobs/buylist-sweep.service.ts`) y **sin las
-siete reglas**; `variantPositionKey` (§4.39g) no se añadió —es de la mesa de decisión—; y la desviación
+siete reglas**; `variantPositionKey` (§4.39g) no se añadió —es de la mesa de decisión, y **entró en el
+pase §0.15**—; y la desviación
 **BL-9** (re-anclar `abandonada` a `receivedAt`) no se tocó: es un **cambio de comportamiento** que va
 con el barrido, no con los cimientos.
 

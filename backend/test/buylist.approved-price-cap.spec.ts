@@ -25,18 +25,29 @@ function buildSettings(capPerRequest = 300_000): SettingsService {
 function buildService(item: any, settings = buildSettings()) {
   // v1.8-ronda-c: itemDecision ahora incluye sellRequest.userId (RB-3 cap por-KYC) y recalcula
   // approvedTotalCents (RB-6). El mock provee el include, kycProfile (sin override) y el aggregate.
-  const withRel = { ...item, sellRequest: { userId: item.userId ?? 'u1' } };
+  // v1.51.5 · BL-14: el `include` trae además el ESTADO de la solicitud, y la escritura del ítem es
+  // un `updateMany` guardado (`count === 1`) seguido de una relectura.
+  const withRel = {
+    ...item,
+    sellRequest: { userId: item.userId ?? 'u1', status: item.requestStatus ?? 'verificacion' },
+  };
+  const live: any = { ...item };
   const prisma: any = {
     sellRequestItem: {
-      findUnique: jest.fn().mockResolvedValue(withRel),
+      findUnique: jest.fn(async (args: any) => (args?.include ? withRel : { ...live })),
+      updateMany: jest.fn(async ({ data }: any) => {
+        Object.assign(live, data);
+        return { count: 1 };
+      }),
       update: jest.fn(async ({ data }: any) => ({ id: item.id, ...data })),
       aggregate: jest.fn().mockResolvedValue({
         _sum: { approvedPriceCents: 0 },
         _count: { approvedPriceCents: 0 },
       }),
     },
-    sellRequest: { update: jest.fn() },
+    sellRequest: { update: jest.fn(), updateMany: jest.fn(async () => ({ count: 1 })) },
     kycProfile: { findUnique: jest.fn().mockResolvedValue(item.kyc ?? null) },
+    $transaction: jest.fn(async (cb: any, _opts?: any) => cb(prisma)),
   };
   const svc = new BuylistService(
     prisma as PrismaService,
@@ -59,7 +70,7 @@ describe('BuylistService.itemDecision — cota de approvedPriceCents (B-4)', () 
     await expect(svc.itemDecision('sri-1', 'approve', 99_999_999)).rejects.toMatchObject({
       code: 'APPROVED_PRICE_CAP_EXCEEDED',
     });
-    expect(prisma.sellRequestItem.update).not.toHaveBeenCalled();
+    expect(prisma.sellRequestItem.updateMany).not.toHaveBeenCalled();
   });
 
   it('RECHAZA un ajuste al alza por encima del tope AML por solicitud aunque no supere 2x', async () => {
@@ -84,7 +95,10 @@ describe('BuylistService.itemDecision — cota de approvedPriceCents (B-4)', () 
     });
     const res = await svc.itemDecision('sri-3', 'adjust', 8000); // 1.6x
     expect(res).toMatchObject({ itemStatus: 'ajustada', approvedPriceCents: 8000 });
-    expect(prisma.sellRequest.update).toHaveBeenCalled(); // dispara plazo 7d
+    // v1.51.5 · BL-14: el plazo de 7d también se escribe GUARDADO (`updateMany`), y DESPUÉS de la
+    // decisión — antes se ponía primero y suelto, así que sobre una solicitud cerrada quedaba puesto
+    // aunque la decisión no prosperara.
+    expect(prisma.sellRequest.updateMany).toHaveBeenCalled();
   });
 
   it('ACEPTA aprobar el precio cotizado tal cual (flujo normal intacto)', async () => {

@@ -90,3 +90,68 @@ export async function monthCommittedGrossCents(
   // a M-46) la única medida que existe es la cotización.
   return rows.reduce((acc, r) => acc + (r.offerGrossCents ?? r.quotedTotalCents ?? 0), 0);
 }
+
+/**
+ * v1.51.5 (ARCHITECTURE **§4.39i.4-bis**, NORMATIVO, DINERO, AML) — **el BRUTO CONSUMADO de una
+ * solicitud: con qué columna se mide el compromiso que YA se consumó.**
+ *
+ * ```
+ * brutoConsumado(sr) = approvedTotalCents ?? offerGrossCents ?? quotedTotalCents ?? 0
+ * ```
+ *
+ * ### El hueco que cierra, dicho sin rodeos
+ * El invariante 4 (criterio 155) fijaba **qué** mide cada acumulado —brutos el tope, netos la caja—
+ * y **nunca dijo con qué columna**. Con una sola columna de bruto no costaba nada; **M-46 introduce
+ * tres** y la omisión se vuelve un **hueco de tope**. El término que faltaba es el **central**,
+ * `offerGrossCents`: sin él la cascada salta de *aprobado* a **cotizado**, y cotizado ≠ ofertado
+ * **en los dos sentidos**:
+ *
+ * | Caso | `quotedTotalCents` | `offerGrossCents` | Acumulaba | Efecto |
+ * |---|---|---|---|---|
+ * | Cherry-pick al ofertar | **mayor** | menor | de más | injusto, pero **fail-closed** |
+ * | **Override al alza (D26)** | **menor** | mayor | **de menos** | ⚠️ **el vendedor REBASA el tope mensual sin que nada lo note** |
+ *
+ * La segunda fila es la que obliga: **un acumulado AML que puede quedarse corto no es un tope.** Y el
+ * override al alza no es hipotético: es una vía explícita del ciclo, con su propio motivo obligatorio.
+ *
+ * ### Los tres términos, en orden de cercanía al dinero que de verdad salió
+ * 1. **`approvedTotalCents`** — el bruto **aprobado** tras la verificación. Es el que generó
+ *    `payoutNetCents`, así que es el único que no miente sobre lo que se depositó. Lidera **porque
+ *    en un estado terminal es final** — y que lo sea depende de la guarda de terminal de
+ *    `itemDecision` (**BL-14**), que va en el mismo pase que esta función. *Sin ese candado, esta
+ *    norma se apoya en una afirmación falsa.*
+ * 2. **`offerGrossCents`** — el bruto **ofertado**. ⚠️ **EL TÉRMINO QUE FALTABA.** Aplica cuando la
+ *    solicitud se pagó **sin ninguna decisión por-ítem** (`recomputeApprovedTotal` deja `null` si
+ *    **ningún** ítem tiene `approvedPriceCents`, y `pay-spei` admite pagar desde `verificacion`). En
+ *    el ciclo eso significa *«se aceptó todo tal cual se ofertó»*, y el bruto correcto es **el
+ *    vinculante** (D2), no la cotización.
+ * 3. **`quotedTotalCents`** — **SOLO filas pre-M-46**, donde es la única medida que existe. Con el
+ *    ciclo vivo, llegar aquí es un **defecto de dato**, no un caso de negocio.
+ *
+ * **Cero regresión:** en toda fila pre-M-46 `offerGrossCents` es `null` ⇒ la cascada colapsa a la de
+ * hoy (`approvedTotalCents ?? quotedTotalCents ?? 0`).
+ *
+ * ### ⚠️⚠️ POR QUÉ HAY **DOS** CASCADAS EN ESTE ARCHIVO Y NO SE UNIFICAN
+ * `monthCommittedGrossCents` (arriba, sitios 2+3) se queda en **DOS** términos
+ * (`offerGrossCents ?? quotedTotalCents ?? 0`) **y no es una inconsistencia: es la regla.** Se
+ * escribe aquí, pegado, porque la simetría es tentadora y «unificarlas» **reabriría el agujero**:
+ *
+ * - **Miden preguntas distintas.** Arriba: *«¿cuánto sigue COMPROMETIDO este mes?»* (ancla
+ *   `createdAt`, sobre solicitudes **vivas** + `pagada`). Aquí: *«¿cuánto compromiso se CONSUMÓ este
+ *   mes?»* (ancla `paidAt`, **solo `pagada`**).
+ * - **En una solicitud VIVA `approvedTotalCents` es PARCIAL**, y por eso no puede liderar allí: el
+ *   recompute corre en **cada** decisión por-ítem, así que durante la verificación el número **sube
+ *   desde `null`** conforme se deciden líneas. Un acumulado AML que puede **BAJAR** mientras la
+ *   operación avanza es exactamente el bypass que el invariante 4 describe. **El compromiso se
+ *   mantiene en el bruto ofertado hasta que la solicitud cierra.**
+ * - **Aquí la solicitud es TERMINAL**, así que el aprobado es final y puede liderar.
+ *
+ * ⚠️ **No añadir `approvedTotalCents` a la de arriba «por consistencia».**
+ */
+export function brutoConsumado(sr: {
+  approvedTotalCents: number | null;
+  offerGrossCents: number | null;
+  quotedTotalCents: number | null;
+}): number {
+  return sr.approvedTotalCents ?? sr.offerGrossCents ?? sr.quotedTotalCents ?? 0;
+}

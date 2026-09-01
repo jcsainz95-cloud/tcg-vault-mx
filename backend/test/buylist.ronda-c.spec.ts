@@ -29,12 +29,34 @@ describe('itemDecision — RB-6 approvedTotalCents + RB-3 cap por-KYC', () => {
     aggregateSum?: number | null;
     aggregateCount?: number;
     settings?: SettingsService;
+    /** v1.51.5 · BL-14: estado de la SOLICITUD dueña del ítem. */
+    requestStatus?: string;
+    /** v1.51.5 · BL-14: `count` que devuelve la guarda del motor (0 = chocó con un terminal). */
+    guardCount?: number;
   }) {
-    const withRel = { ...opts.item, sellRequest: { userId: 'u1' } };
+    // v1.51.5 · BL-14: el `include` de `itemDecision` ahora trae el ESTADO de la solicitud (sin él,
+    // la guarda de terminal no podría comprobarse) — el fixture lo espeja. `status` por defecto:
+    // `verificacion` (viva), que es el escenario de estos tests.
+    const current: any = { ...opts.item };
+    const withRel = {
+      ...current,
+      sellRequest: { userId: 'u1', status: opts.requestStatus ?? 'verificacion' },
+    };
     const sellRequestUpdates: any[] = [];
     const prisma: any = {
       sellRequestItem: {
-        findUnique: jest.fn().mockResolvedValue(withRel),
+        // La PRIMERA lectura trae las relaciones; la RE-lectura post-`updateMany` trae la fila ya
+        // escrita (el servicio ya no usa el valor de retorno de un `update`).
+        findUnique: jest.fn(async (args: any) =>
+          args?.include ? { ...current, ...withRel, ...current } : { ...current },
+        ),
+        // v1.51.5 · BL-14: la escritura pasa a `updateMany` + `count === 1` con la guarda de terminal
+        // en el `where`. El fixture aplica el `data` sobre la fila viva para que la re-lectura vea lo
+        // escrito, igual que haría el motor.
+        updateMany: jest.fn(async ({ data }: any) => {
+          Object.assign(current, data);
+          return { count: opts.guardCount ?? 1 };
+        }),
         update: jest.fn(async ({ data }: any) => ({ id: opts.item.id, ...data })),
         aggregate: jest.fn().mockResolvedValue({
           _sum: { approvedPriceCents: opts.aggregateSum ?? null },
@@ -114,7 +136,8 @@ describe('itemDecision — RB-6 approvedTotalCents + RB-3 cap por-KYC', () => {
     });
     const res = await svc.itemDecision('sri-1', 'approve', 500_000);
     expect(res).toMatchObject({ itemStatus: 'aprobada', approvedPriceCents: 500_000 });
-    expect(prisma.sellRequestItem.update).toHaveBeenCalled();
+    // v1.51.5 · BL-14: la escritura es `updateMany` guardado, no un `update` a pelo.
+    expect(prisma.sellRequestItem.updateMany).toHaveBeenCalled();
   });
 
   it('RB-3: sin override, el mismo monto (500,000 > dial 300,000) se RECHAZA por el cap AML', async () => {

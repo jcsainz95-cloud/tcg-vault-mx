@@ -47,7 +47,9 @@ import {
   SELL_REQUEST_VERIFYING_STATES,
 } from '../../common/sell-request-states';
 // v1.51 (M-46, §4.39c sitios 2+3) — el acumulado mensual de compromiso, en un solo cuerpo.
-import { monthCommittedGrossCents } from '../../common/buylist-aml';
+// v1.51.5 (§4.39i.4-bis) — `brutoConsumado`: CON QUÉ columna se mide el compromiso ya CONSUMADO.
+// ⚠️ Son DOS cascadas distintas a propósito (razonadas juntas en `buylist-aml.ts`): no se unifican.
+import { brutoConsumado, monthCommittedGrossCents, SellRequestReader } from '../../common/buylist-aml';
 // P-30 H2 (§4.39e) — la llave canónica de variante. NO se interpola a mano.
 // M-46 (§4.39g) — `variantPositionKey` = la canónica + la identidad de producto (D7). La usan las
 // CUATRO fuentes de la posición de la mesa de decisión.
@@ -1170,10 +1172,18 @@ export class BuylistService implements OnModuleInit {
    * `precio_pendiente` (sin mercado —el bin NO gana— y el guardarraíl `premium_at_floor`). Por eso el
    * hueco es responsabilidad de este pase aunque el remedio viva en el seam de M5.
    *
-   * Se suma en memoria porque el monto que salió es `approvedTotalCents ?? quotedTotalCents` — un
-   * COALESCE que `_sum` de Prisma no expresa, y sumar el campo equivocado sería exactamente el error
-   * que este control viene a cerrar. El conjunto está acotado por el propio tope (las solicitudes
-   * PAGADAS de UN vendedor en UN mes).
+   * Se suma en memoria porque el monto es un **COALESCE de tres columnas** (`brutoConsumado`) que
+   * `_sum` de Prisma no expresa, y sumar el campo equivocado sería exactamente el error que este
+   * control viene a cerrar. El conjunto está acotado por el propio tope (las solicitudes PAGADAS de
+   * UN vendedor en UN mes).
+   *
+   * ### ⚠️ v1.51.5 (§4.39i.4-bis) — CAMBIA EL CAMPO, y esto SÍ mueve la cifra
+   * Leía `approvedTotalCents ?? quotedTotalCents` y **se saltaba `offerGrossCents`**: una solicitud
+   * **ofertada** pagada sin decisión por-ítem acumulaba por **la COTIZACIÓN**. Con **override al alza
+   * (D26)** el cotizado es **MENOR** que el ofertado ⇒ el acumulado se quedaba **corto** y el
+   * vendedor podía **rebasar el tope mensual sin que ningún control lo notara**. Ahora usa
+   * **`brutoConsumado`**, el mismo cuerpo que el término de la solicitud en curso — **son los dos
+   * lados de la misma desigualdad, y medirlos distinto es comparar dos cosas**.
    */
   private async monthCommittedGrossPaidCentsTx(tx: Prisma.TransactionClient, userId: string): Promise<number> {
     const start = new Date();
@@ -1184,9 +1194,11 @@ export class BuylistService implements OnModuleInit {
       // una solicitud de diciembre que se paga en enero consume tope de ENERO, que es el mes en que
       // el dinero sale.
       where: { userId, status: 'pagada', paidAt: { gte: start } },
-      select: { approvedTotalCents: true, quotedTotalCents: true },
+      // v1.51.5: el término CENTRAL (`offerGrossCents`) entra al `select` — sin leerlo, la cascada
+      // no puede aplicarse aunque esté escrita.
+      select: { approvedTotalCents: true, offerGrossCents: true, quotedTotalCents: true },
     });
-    return rows.reduce((acc, r) => acc + (r.approvedTotalCents ?? r.quotedTotalCents ?? 0), 0);
+    return rows.reduce((acc, r) => acc + brutoConsumado(r), 0);
   }
 
   private itemDTO(i: {
@@ -1305,12 +1317,13 @@ export class BuylistService implements OnModuleInit {
    * solicitud ya cerrada, o ya pagada una vez. `decline` tenía el hueco simétrico: reescribía una
    * `pagada` a `rechazada`, borrando el rastro del pago.
    *
-   * Precondición NORMATIVA (API_CONTRACT §6 v1.51, ARCHITECTURE §4.39(b.2)) — para AMBAS ramas:
+   * Precondición NORMATIVA (API_CONTRACT §6 v1.51, ARCHITECTURE §4.39(b.2)) — para AMBAS ramas,
+   * **las CUATRO condiciones, ya cableadas** (v1.51.5):
    * ```
    * legal ⇔ closedAt IS NULL
    *       ∧ adjustmentSentAt IS NOT NULL          // hay un ajuste VIVO que responder
    *       ∧ status ∈ { verificacion, aprobada }   // los únicos que el barrido de 7d reconoce
-   *       ∧ offerSentAt IS NULL                   // (M-46: la columna AÚN NO EXISTE, ver abajo)
+   *       ∧ offerSentAt IS NULL                   // criterio 150: en el ciclo NO se ajusta
    * ```
    * **La guarda vive en el `where` del `updateMany` y se verifica con `count === 1`**, no en un `if`
    * de aplicación: un read-then-write sufre TOCTOU y dos `accept` concurrentes pasarían los dos.
@@ -1323,12 +1336,26 @@ export class BuylistService implements OnModuleInit {
    * este verbo mueve dinero, y un `200` silencioso en la segunda llamada esconde justo lo que hay que
    * ver.
    *
-   * ### PENDIENTE M-46 — `offerSentAt` NO existe todavía en el schema
-   * La cuarta condición del contrato (`offerSentAt IS NULL`; si no ⇒
-   * **`409 ADJUST_NOT_ALLOWED_IN_OFFER_CYCLE`**) NO se puede cablear hoy sin inventar la columna, que
-   * llega con M-46 (ciclo de oferta). Las otras tres cierran el agujero explotable HOY, que es lo que
-   * BL-2 exige y por lo que va en su propio commit. Cuando M-46 aterrice, el cableado son dos puntos
-   * marcados abajo con `TODO(M-46)`. Registrado en docs/BACKEND_NOTES.md.
+   * ### ✅ v1.51.5 — la CUARTA condición ya está cableada (cierre de los dos `TODO(M-46)`)
+   * Este bloque decía que `offerSentAt IS NULL` *«NO se puede cablear hoy sin inventar la columna»*.
+   * **Esa premisa dejó de sostenerse en cuanto M-46 aterrizó: la columna existe.** Un TODO cuyo
+   * bloqueo desapareció y se queda escrito **es documentación que miente**, así que se cierra aquí:
+   * `offerSentAt: null` entra al `where` de la guarda, y la rama de error **discrimina**
+   * (ARCHITECTURE §4.39(b.3)).
+   *
+   * **Por qué la 409 se parte en dos códigos y no es cosmética.** `NO_LIVE_ADJUSTMENT` dice *«no hay
+   * ajuste que responder»*; `ADJUST_NOT_ALLOWED_IN_OFFER_CYCLE` dice *«esta solicitud es del ciclo y
+   * aquí no se ajusta NUNCA»* (criterio 150, por lo negativo). **Son dos hechos distintos y llevan a
+   * dos conductas distintas**: el primero puede resolverse esperando a que el admin mande un ajuste;
+   * el segundo, jamás. *Un código que miente sobre la causa manda a alguien a esperar algo que no va
+   * a pasar.*
+   *
+   * **La ruta de ajuste NO muere con el ciclo (§4.39b.3):** para toda solicitud nueva es
+   * **inalcanzable por construcción** (`recibida` solo se llega vía `en_transito ← aceptada ←
+   * ofertada` ⇒ nunca sin `offerSentAt`), pero la **cohorte legacy en vuelo** al cut-over **la
+   * necesita** — apagar la salida el día que se apaga la entrada dejaría a un vendedor con un ajuste
+   * vivo y **sin forma de aceptar un dinero que ya le propusimos**. Por eso aquí **no se retira
+   * nada**: se cierra la entrada del ciclo y se deja la salida de la cohorte.
    */
   async respond(userId: string, id: string, decision: 'accept' | 'decline') {
     const req = await this.prisma.sellRequest.findUnique({ where: { id } });
@@ -1360,7 +1387,9 @@ export class BuylistService implements OnModuleInit {
           closedAt: null,
           adjustmentSentAt: { not: null },
           status: { in: [...SELL_REQUEST_LIVE_ADJUSTMENT_STATES] },
-          // TODO(M-46): añadir `offerSentAt: null` en cuanto la columna exista (ciclo de oferta).
+          // ✅ v1.51.5 (§4.39b.3, criterio 150): la CUARTA condición. En el ciclo de oferta el precio
+          // es vinculante desde el correo y NO se ajusta después (D2/D9) — ni por esta puerta.
+          offerSentAt: null,
         },
         data,
       });
@@ -1369,10 +1398,17 @@ export class BuylistService implements OnModuleInit {
         // chocó: el `req` de arriba ya puede estar viejo si otra llamada ganó la carrera.
         const current = await tx.sellRequest.findUnique({
           where: { id },
-          select: { status: true },
+          select: { status: true, offerSentAt: true },
         });
-        // TODO(M-46): si `current.offerSentAt != null` ⇒ 409 ADJUST_NOT_ALLOWED_IN_OFFER_CYCLE
-        // (criterio 150 por lo negativo) en vez de esta 409.
+        // ✅ v1.51.5: la rama de error DISCRIMINA. Una solicitud del ciclo no es «sin ajuste vivo»:
+        // es «aquí no se ajusta, y no lo hará nunca» (criterio 150 por lo negativo).
+        if (current?.offerSentAt != null) {
+          throw BusinessException.conflict(
+            'ADJUST_NOT_ALLOWED_IN_OFFER_CYCLE',
+            'Price adjustments do not exist in the offer cycle: the offered price is binding',
+            { status: current.status },
+          );
+        }
         throw BusinessException.conflict(
           'NO_LIVE_ADJUSTMENT',
           'No live price adjustment to respond to on this sell request',
@@ -2053,7 +2089,66 @@ export class BuylistService implements OnModuleInit {
     }
   }
 
-  /** Cherry-pick: decisión carta por carta. API_CONTRACT §M5. */
+  /**
+   * v1.51.5 · **BL-14** — el `where` de la guarda de terminal, en **UN SOLO SITIO**.
+   *
+   * Se deriva de `SELL_REQUEST_TERMINAL_STATES`, **la misma constante** de la que se deriva el
+   * pre-check (`isTerminalSellRequestStatus`). Es la doctrina del **sitio 8** de §4.39c aplicada
+   * aquí: dos literales de estados en un método de dinero es la forma más barata de que una edición
+   * mueva uno y no el otro, y entonces *el pre-check dice «no» y la guarda «sí», o al revés*.
+   */
+  private notTerminalWhere(): Prisma.SellRequestWhereInput {
+    return { status: { notIn: [...SELL_REQUEST_TERMINAL_STATES] } };
+  }
+
+  /**
+   * v1.51.5 · **BL-14** — el `409` de la guarda, con el estado **releído** contra el que se chocó.
+   *
+   * Se relee (y **dentro de la transacción**, cuando la hay) porque la lectura inicial ya puede estar
+   * vieja si otra llamada ganó la carrera: `details.status` tiene que decir el estado **real**, no el
+   * que teníamos en la mano. Mismo código y misma forma que la guarda de `respond` (§9 BL-14).
+   */
+  private async throwTerminalConflict(db: SellRequestReader, sellRequestId: string): Promise<never> {
+    const current = await db.sellRequest.findUnique({
+      where: { id: sellRequestId },
+      select: { status: true },
+    });
+    throw BusinessException.conflict(
+      'NO_LIVE_ADJUSTMENT',
+      'This sell request is closed: its items can no longer be decided',
+      { status: current?.status },
+    );
+  }
+
+  /**
+   * Cherry-pick: decisión carta por carta. API_CONTRACT §M5.
+   *
+   * ### ⚠️ v1.51.5 · BL-14 — GUARDA DE TERMINAL. Es DINERO, y era peor que un `if` faltante.
+   * Hasta v1.51.4 este método **no leía `sellRequest.status` en ningún punto**: su `findUnique`
+   * seleccionaba **solo `userId` y `user`**, así que el estado **ni siquiera estaba disponible** para
+   * comprobarlo. Las únicas guardas eran existencia del ítem, idempotencia a nivel ítem y longitud
+   * del motivo — **nada a nivel solicitud**. Consecuencia real: sobre una solicitud **`pagada`** un
+   * operador re-decidía un ítem, `recomputeApprovedTotal` corría y **`approvedTotalCents` se
+   * reescribía DESPUÉS de que el SPEI salió**. Es la hermana de **BL-2** por la puerta del ítem: BL-2
+   * revivía la solicitud; ésta reescribe **el monto** de una solicitud ya liquidada.
+   *
+   * **De esta guarda depende `brutoConsumado` (§4.39i.4-bis).** Esa norma ancla el acumulado AML en
+   * `approvedTotalCents` **porque en un terminal es final** — y sin este candado **no lo era**, así
+   * que el tope mensual podía medir un número distinto del que salió por SPEI. Por eso van en el
+   * mismo commit.
+   *
+   * **Cómo se cierra, en dos capas:**
+   * - **Pre-check** con el estado ya leído ⇒ `409 NO_LIVE_ADJUSTMENT` (`details.status`) **antes de
+   *   cualquier escritura** y antes incluso de la idempotencia del `reject`: sobre una solicitud
+   *   cerrada la respuesta honesta es «esto ya no se opera», no un `200` que sugiere que sí.
+   * - **Guarda del MOTOR** en el `where` de **todas** las escrituras (`updateMany` + `count === 1`),
+   *   nunca un `if` sobre la lectura previa: eso es read-then-write y sufre TOCTOU. Mismo patrón
+   *   atómico que `respond` (BL-2), `paySpei` y `rejectRequest`.
+   *
+   * ⚠️ **No basta la guarda del ciclo de oferta** (`422 OFFER_PRICE_IMMUTABLE` /
+   * `409 ADJUST_NOT_ALLOWED_IN_OFFER_CYCLE`): ésas miran `offerSentAt`, y una solicitud **pre-M-46**
+   * ya pagada **no lo tiene**.
+   */
   async itemDecision(
     itemId: string,
     decision: 'approve' | 'adjust' | 'reject',
@@ -2068,6 +2163,9 @@ export class BuylistService implements OnModuleInit {
         sellRequest: {
           select: {
             userId: true,
+            // ⚠️ v1.51.5 (BL-14): el ESTADO de la solicitud. Su ausencia de este `select` era el
+            // agujero: no había forma de comprobarlo aunque alguien hubiera querido.
+            status: true,
             // v1.18: destinatario/idioma del correo de rechazo (dueño de la solicitud).
             user: { select: { email: true, name: true, locale: true } },
           },
@@ -2077,6 +2175,18 @@ export class BuylistService implements OnModuleInit {
       },
     });
     if (!item) throw BusinessException.notFound();
+
+    // ⚠️ v1.51.5 · BL-14 — PRE-CHECK de terminal. Va ANTES de todo lo demás (incluida la
+    // idempotencia del `reject`): sobre una solicitud `pagada`/`rechazada`/`abandonada`/`expirada`
+    // no hay decisión de ítem que tomar, y un `200` silencioso ahí diría que sí la hay.
+    // La guarda REAL —la del motor— está en el `where` de cada escritura de abajo.
+    if (isTerminalSellRequestStatus(item.sellRequest.status)) {
+      throw BusinessException.conflict(
+        'NO_LIVE_ADJUSTMENT',
+        'This sell request is closed: its items can no longer be decided',
+        { status: item.sellRequest.status },
+      );
+    }
 
     // ------- v1.18-buylist-rejects: semántica COMPLETA de `reject` (API_CONTRACT §M5) -------
     if (decision === 'reject') {
@@ -2100,8 +2210,10 @@ export class BuylistService implements OnModuleInit {
       const rejectedAt = new Date();
       // INVARIANTE de dinero (BL-1, §4.18b): el rechazo SACA el ítem del total aprobado aunque
       // antes hubiera sido aprobado/ajustado → approvedPriceCents=null ANTES del recompute.
-      const updated = await this.prisma.sellRequestItem.update({
-        where: { id: itemId },
+      // v1.51.5 · BL-14: `updateMany` + `count === 1` con la guarda de terminal EN EL `where` — la
+      // exclusión la da el motor, no un `if` sobre la lectura de arriba (que una carrera invalida).
+      const guard = await this.prisma.sellRequestItem.updateMany({
+        where: { id: itemId, sellRequest: this.notTerminalWhere() },
         data: {
           itemStatus: 'rechazada',
           approvedPriceCents: null,
@@ -2109,6 +2221,11 @@ export class BuylistService implements OnModuleInit {
           rejectionReason: trimmedReason,
         },
       });
+      if (guard.count !== 1) await this.throwTerminalConflict(this.prisma, item.sellRequestId);
+      // `updateMany` no devuelve filas: la relectura es la única forma de responder el estado ya
+      // escrito (mismo motivo que en `respond`).
+      const updated = await this.prisma.sellRequestItem.findUnique({ where: { id: itemId } });
+      if (!updated) throw BusinessException.notFound();
       await this.recomputeApprovedTotal(item.sellRequestId);
       // Correo al vendedor: best-effort POST-commit — su fallo se loggea y NO revierte la decisión.
       await this.sendItemRejectedMail(item, trimmedReason, rejectedAt);
@@ -2142,11 +2259,6 @@ export class BuylistService implements OnModuleInit {
       // B-4: cota server-side de dinero saliente (además del @Max del DTO).
       await this.assertApprovedPriceWithinCap(effective, item.quotedPriceCents, amlCap);
       data.approvedPriceCents = effective;
-      // Dispara el plazo de 7 días en la solicitud.
-      await this.prisma.sellRequest.update({
-        where: { id: item.sellRequestId },
-        data: { adjustmentSentAt: new Date() },
-      });
     }
     data.itemStatus = itemStatus;
     // v1.18: si un ítem antes rechazado se re-decide approve/adjust, los campos de rechazo se
@@ -2155,7 +2267,31 @@ export class BuylistService implements OnModuleInit {
       data.rejectedAt = null;
       data.rejectionReason = null;
     }
-    const updated = await this.prisma.sellRequestItem.update({ where: { id: itemId }, data });
+    // v1.51.5 · BL-14 — las DOS escrituras de esta rama van en UN SOLO boundary atómico, cada una
+    // con la guarda de terminal en su `where`. Antes, el `adjustmentSentAt` se escribía **primero y
+    // suelto**: sobre una solicitud cerrada dejaba el plazo de 7 días puesto aunque la decisión no
+    // prosperara. *Una precondición y su efecto son una operación del motor, no dos pasos que una
+    // carrera pueda separar.*
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const guard = await tx.sellRequestItem.updateMany({
+        where: { id: itemId, sellRequest: this.notTerminalWhere() },
+        data: data as Prisma.SellRequestItemUpdateManyMutationInput,
+      });
+      if (guard.count !== 1) await this.throwTerminalConflict(tx, item.sellRequestId);
+      if (decision === 'adjust') {
+        // Dispara el plazo de 7 días en la solicitud — también guardado, y DESPUÉS de la decisión.
+        const g2 = await tx.sellRequest.updateMany({
+          where: { id: item.sellRequestId, ...this.notTerminalWhere() },
+          data: { adjustmentSentAt: new Date() },
+        });
+        if (g2.count !== 1) await this.throwTerminalConflict(tx, item.sellRequestId);
+      }
+      // PROJECTION-EXEMPT: fila cruda DENTRO de la tx; el caller la proyecta con
+      // `toAdminSellItemRow` antes de devolverla (abajo). `updateMany` no devuelve filas, así que la
+      // relectura es la única forma de responder el estado ya escrito.
+      return tx.sellRequestItem.findUnique({ where: { id: itemId } });
+    });
+    if (!updated) throw BusinessException.notFound();
     // RB-6 / SEC-D3: deriva y persiste `approvedTotalCents` server-side desde los montos aprobados
     // por ítem, en el punto donde esos montos cambian. Lo lee el P&L / la tarjeta "buylist del periodo".
     await this.recomputeApprovedTotal(item.sellRequestId);
@@ -2548,8 +2684,12 @@ export class BuylistService implements OnModuleInit {
     // y no liquida.
     const paid = await this.prisma.$transaction(
       async (tx) => {
-        // Lo que REALMENTE sale por esta solicitud: lo aprobado manda; sin cherry-pick, lo cotizado.
-        const payoutCents = req.approvedTotalCents ?? req.quotedTotalCents ?? 0;
+        // v1.51.5 (§4.39i.4-bis) — SITIO (b): el término de la solicitud EN CURSO. Usa el MISMO
+        // cuerpo que el acumulado de arriba (sitio (a)) porque son los dos lados de la misma
+        // desigualdad `acumulado + enCurso > cap`: medir cada lado con una cascada distinta es
+        // comparar dos cosas. Lo aprobado manda; sin decisiones por-ítem, **lo OFERTADO** (que es lo
+        // vinculante, D2); y solo en filas pre-M-46, lo cotizado.
+        const payoutCents = brutoConsumado(req);
         const alreadyPaid = await this.monthCommittedGrossPaidCentsTx(tx, req.userId);
         if (alreadyPaid + payoutCents > capPerMonth) {
           throw BusinessException.validation('BUYLIST_LIMIT_EXCEEDED', 'Per-month payout cap exceeded', {
@@ -2563,7 +2703,28 @@ export class BuylistService implements OnModuleInit {
           // (patrón `count===1`): la del motor, no la de la aplicación.
           where: { id, status: { in: [...SELL_REQUEST_PAYABLE_STATES] }, verifiedAt: { not: null } },
           // SEC-D2: `pagada` es terminal → sella closedAt (ancla la retención de INE al cierre real).
-          data: { status: 'pagada', speiReference, paidBy, paidAt: new Date(), closedAt: new Date() },
+          data: {
+            status: 'pagada',
+            speiReference,
+            paidBy,
+            paidAt: new Date(),
+            closedAt: new Date(),
+            // v1.51.5 (§4.39i.4-bis) — SITIO (c): **la CAJA**, sellada en la MISMA transacción que
+            // `pagada`. Es la fuente de M7 (netos), distinta del acumulado de compromiso (brutos):
+            // *si el tope sumara netos, un envío caro bajaría el acumulado; si la caja sumara brutos,
+            // M7 reportaría una salida que nunca ocurrió* (criterio 155).
+            //
+            // Con `approvedTotalCents = null` la fórmula vieja quedaba **indefinida**, y tratar el
+            // bruto como `0` le pagaría **MX$0** a un vendedor que aceptó una oferta vinculante y
+            // cuyas cartas nadie rechazó. La cascada le paga **lo ofertado menos el envío**, que es
+            // literalmente lo que se le prometió. *El piso de cero protege al vendedor de deber; no
+            // es una excusa para no pagarle* (invariante 1, criterio 152).
+            //
+            // `offerShippingFeeCents ?? 0`: en una fila **pre-M-46** no hay tarifa congelada porque
+            // **no se le descontó ninguna**. Restar un dial vigente aquí sería cobrarle un envío que
+            // nunca se le anunció — lo contrario de D25.
+            payoutNetCents: Math.max(0, payoutCents - (req.offerShippingFeeCents ?? 0)),
+          },
         });
         if (res.count !== 1) return null;
         // v1.28 (P-22): conteo de bounty EN LA MISMA transacción del pago (§4.26e).
