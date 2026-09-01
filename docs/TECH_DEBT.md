@@ -4130,7 +4130,7 @@
   para este stream: consolidar una teja canónica ahí (o retirar `ListingCard` si se decide que la
   teja vive por vista) — la decisión de dónde vive pasa por techlead/orquestador.
 
-#### MK-D2 · Huérfanos `FeaturedSetGlance` + claves `home.trustAuth/trustPrice/ctaBuylist/vaultLabel/featuredSet.*` (Baja, frontend + ux-ui)
+#### MK-D2 · Huérfanos `FeaturedSetGlance` + claves `home.ctaBuylist/vaultLabel/featuredSet.*` (Baja, frontend + ux-ui) — **`trustAuth`/`trustPrice` YA BORRADAS**
 - **Dónde:** `frontend/src/components/domain/PortfolioTrendChart.tsx` (`FeaturedSetGlance`, retirado
   de la home por el makeover; solo lo referencia su test) y claves i18n `home.trustAuth`,
   `home.trustPrice`, `home.ctaBuylist`, `home.vaultLabel`, `home.featuredSet.*` (ES+EN) sin consumidor
@@ -4139,6 +4139,30 @@
   `components/domain/` — su baja no puede ejecutarla este stream unilateralmente.
 - **Disparador:** decidir la **baja con ux-ui** (¿regresa el glance en alguna vista o se retira
   §7.18?); al retirarlo, borrar componente + test + claves en el stream que tenga la zona compartida.
+
+> **Baja PARCIAL ejecutada (2026-09-01, pase §41, rama `claude/ecommerce-home-copy-optimization-dd3d2w`).**
+> `home.trustAuth` y `home.trustPrice` **borradas de ES y EN**. Salen de esta ficha; el resto
+> (`FeaturedSetGlance`, `home.ctaBuylist`, `home.vaultLabel`, `home.featuredSet.*`) **sigue abierto sin
+> cambios**.
+>
+> **Por qué estas dos y no las otras:** `trustPrice` decía «Valor de mercado transparente en MXN» /
+> «Transparent market value in MXN». Es **exactamente la afirmación de precio que §41.9-bis acaba de
+> retirar del hero y del paso 1** por falsa: el precio mostrado es `mercado × markup` (1.15×–1.60×), no el
+> de mercado. Muerta no engaña a nadie; el problema es que **repone el bloqueante sola** el día que
+> alguien rehaga la banda de confianza, y por un camino que ningún gate ve —una clave preexistente que
+> nadie escribió en ese diff—. Misma forma que el homoglifo de §41.4: latente hasta que alguien la toca.
+> `ctaBuylist`, `vaultLabel` y `featuredSet.*` **no cargan ninguna afirmación falsa** (`featuredSet.*`
+> dice «referencia de mercado», que es el término correcto), así que no había razón para adelantar su
+> baja fuera del acuerdo con ux-ui.
+>
+> **Evidencia de que la baja era segura:** `git log -S"trustAuth" -- frontend/src` no devuelve **ningún**
+> commit — las dos claves **nunca se renderizaron**, en toda la historia del repo. `DESIGN_SYSTEM.md` no
+> tiene sección de banda de confianza que las exija, y la banda real (`HomeQuoter.tsx:304-311`) pinta
+> **dos** renglones: `trustCustody` y `trustPayout`. No es una clave que se quedó sin consumidor: nació
+> sin él. El historial de git conserva el texto si alguna vez hace falta.
+>
+> Paridad ES/EN verificada tras el borrado: **2 285 claves, conjuntos idénticos** (eran 2 287). Se van de
+> los dos locales o de ninguno.
 
 #### MK-D4 · Chips de filtro del catálogo con etiquetas sin traducir (`productType`, acabado) (Baja, frontend)
 - **Dónde:** `catalog/CatalogView.tsx` → `buildChips`: el chip de `productType` pinta el valor crudo

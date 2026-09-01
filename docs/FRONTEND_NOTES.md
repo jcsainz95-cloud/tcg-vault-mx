@@ -10169,6 +10169,38 @@ redacción anterior; no la introduce este cambio.
 > petición, y vaciarlo lo dejaría sin tema. Queda dicho para que nadie lea «solo en el hero» como un
 > hecho verificado: son dos, y la segunda es deliberada.
 
+### 41.11 Se borran `home.trustAuth` y `home.trustPrice`: el bloqueante B1 estaba embotellado en una clave muerta
+
+`home.trustPrice` decía «Valor de mercado transparente en MXN» / «Transparent market value in MXN» — es
+**la misma afirmación que §41.9-bis acaba de retirar del hero y del paso 1** por falsa (el precio mostrado
+es `mercado × markup`, 1.15×–1.60×). Nadie la pintaba, así que no engañaba a nadie **hoy**.
+
+Ese «hoy» es todo el problema. El día que alguien reponga la banda de confianza completa, **B1 vuelve
+solo**, y por un camino que ningún gate puede ver: una clave que ya estaba ahí, que nadie escribió en ese
+diff, y que por tanto nadie revisa. Es la **misma forma que el homoglifo de §41.4** — algo latente que no
+falla hasta que alguien lo toca, y que entonces falla en silencio.
+
+**Elegido: borrarlas** (ES y EN), frente a la alternativa de corregir el texto de `trustPrice`. Una cadena
+muerta *correcta* sigue siendo una cadena que nadie verifica, y la decisión se apoya en evidencia, no en
+preferencia:
+
+- `git log -S"trustAuth" -- frontend/src` no devuelve **ningún** commit: estas claves **nunca se
+  renderizaron en toda la historia del repo**. No son claves que perdieron su consumidor — nacieron sin él.
+- `DESIGN_SYSTEM.md` **no tiene sección de banda de confianza** que las exija (comprobado; ux-ui no
+  depende de ellas).
+- La banda real (`HomeQuoter.tsx:304-311`) tiene **dos** renglones y solo dos: `trustCustody` y
+  `trustPayout`.
+- El texto queda en el historial de git si alguna vez hace falta.
+
+**Alcance deliberadamente corto.** Se borran **solo esas dos**. Las otras huérfanas del home
+(`home.ctaBuylist`, `home.vaultLabel`, `home.featuredSet.*`) **se quedan**: no cargan ninguna afirmación
+falsa —`featuredSet.*` dice «referencia de mercado», que es justamente el término correcto—, así que no
+había razón para adelantar su baja fuera del acuerdo pendiente con ux-ui. La ficha **MK-D2** de
+`TECH_DEBT.md`, que las cubría a las cinco, queda actualizada: baja **parcial**, el resto sigue abierto.
+
+Paridad ES/EN tras el borrado: **2 285 claves, conjuntos idénticos** (eran 2 287). Se van de los dos
+locales o de ninguno — `i18n-parity` no admite otra cosa, y es el candado que lo garantiza.
+
 ### 41.10 «Asegurado» no era un sinónimo: era una póliza que no existe
 
 Hallazgo escalado al humano durante el pase, sobre una bandera abierta en `PROJECT.md:2969-2971`
