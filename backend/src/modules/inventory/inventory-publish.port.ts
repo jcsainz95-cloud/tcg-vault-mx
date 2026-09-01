@@ -1,3 +1,5 @@
+import { Finish, ProductType } from '@prisma/client';
+
 /**
  * `inventory-publish.port.ts` (v1.51.18, **BL-25**, ARCHITECTURE §4.39m.5) — **el disparo de
  * publicación que cruza de fuera hacia `inventory`.**
@@ -14,15 +16,32 @@
  * pieza impublicable**, porque las guardas están del otro lado. *No se exporta la capacidad de
  * escribir inventario; se exporta la capacidad de PEDIRLE a `inventory` que haga su trabajo.*
  *
- * ### Un método, no dos
+ * ### UN CUERPO, DOS ENTRADAS (v1.51.19, §4.39m.8)
  * Los dos disparadores hacen **la misma pregunta** —*«¿esto ya se puede publicar?»*—; lo que difiere
- * es **la CAUSA, no la petición**. Dos métodos serían **dos caminos hacia adentro**, y el segundo
- * nacería copiando al primero.
+ * es **la CAUSA, no la petición**. Por eso hay **un solo cuerpo** de intento de publicación.
+ *
+ * Pero **el disparador (c) NO PUEDE nombrar piezas**: cuando el precio de una variante se vuelve
+ * resoluble, quien lo sabe (`pricing`) conoce **una clave de variante**, no ids de inventario. De ahí
+ * la **segunda entrada**, `reevaluateVariantsForPublication`, que **resuelve la clave a ids y
+ * desemboca en el MISMO cuerpo**. *Es un ADAPTADOR delante del cuerpo único, no una copia* — lo que
+ * la regla protegía (dos implementaciones del intento de publicación) **sigue sin ocurrir**.
+ *
+ * ⚠️ **Y la resolución vive DENTRO de `inventory`, no en el llamador.** `gradeKey` **no es columna de
+ * `InventoryItem`**: se deriva de `productType`/`rawCondition`/`gradingCompany`/`gradeValue`. Un
+ * `where` que la reconstruyera sería **una segunda definición de la clave de variante dentro de una
+ * consulta**, sobre el mismo dinero — *una copia de la regla, no la salida de la regla* (§4.39m.6).
+ * Se filtra **en memoria**, con la función de su dueño, del lado de `inventory`. **Ni SQL ni DDL.**
  *
  * ### Forma
- * **En lote** (ids de pieza), **idempotente**, y **sin efecto sobre lo no publicable**: llamarlo de
- * más es un **no-op**. Devuelve **qué pasó por pieza**, para que el llamador pueda registrar el
- * resultado **sin re-derivar** la regla.
+ * **En lote** (ids de pieza **o** claves de variante), **idempotente**, y **sin efecto sobre lo no
+ * publicable**: llamarlo de más es un **no-op**. Devuelve **qué pasó por pieza**, para que el llamador
+ * pueda registrar el resultado **sin re-derivar** la regla.
+ *
+ * ⚠️ **El lote no es un detalle de rendimiento: es lo que disuelve el fan-out.** El barrido de precios
+ * pasa **el conjunto que REALMENTE cambió en UNA llamada**, nunca N llamadas ni «todas las variantes
+ * del set» — *repreciar algo que no se movió no vuelve publicable a nadie*. El troceado, si hace
+ * falta, es **del job** (§4.15c: robusto, idempotente, reanudable), y **un trozo perdido cae en
+ * `pending-publish`**.
  *
  * ### ⚠️ Best-effort, y la ÚNICA razón que lo sostiene — hay que leerla porque es la que lo sostiene
  * Se invoca **post-commit** y su fallo **no revierte nada**: *la conversión NO puede fallar porque la
@@ -45,6 +64,14 @@
  * resoluble). ⛔ **El disparador (b) —fijar/mover ubicación— NO usa el puerto**: es una operación de
  * `inventory` **sobre sí mismo**, y meterla por aquí sería darle la vuelta al módulo **para llamar a
  * su propia puerta**.
+ *
+ * ### ⚠️⚠️ EL CONSUMIDOR DE (c) TIENE QUE SER UNA **HOJA** DEL GRAFO — NUNCA `PricingService`
+ * `InventoryService` **ya depende de `PricingService`**. Un `PricingService` que consumiera este
+ * puerto cerraría **`Pricing → PORT → Inventory → Pricing`**. ⛔ **Y `forwardRef` está PROHIBIDO para
+ * esto**: *un ciclo que se «arregla» con `forwardRef` sigue siendo un ciclo*, y aquí además **uniría
+ * los dos módulos de dinero** justo por la frontera que §4.39f existe para mantener abierta.
+ * Los consumidores válidos son **hojas**: el **job/servicio de ingesta** del barrido y el **handler
+ * del override** de M2.
  *
  * Lo **declara y provee `inventory`** (dueño del dato), igual que el de posición. *Dos puertos, dos
  * direcciones, una regla: el que sabe hacer el trabajo lo expone; el que lo necesita lo pide.*
@@ -81,6 +108,42 @@ export interface PublishReevaluationResult {
   pendingPriceEntryId?: string;
 }
 
+/**
+ * Identidad de la VARIANTE cuyo precio pudo volverse resoluble (§4.39m.8). Es la clave que conoce
+ * `pricing`; **traducirla a piezas es trabajo de `inventory`**.
+ *
+ * ⚠️ `cardProductId` va incluido porque **una promo y la versión del set base son variantes
+ * distintas** (D7 / §4.39d): resolver el precio de una **no** vuelve publicable a la otra.
+ */
+export interface VariantPublishRef {
+  cardId: string;
+  productType: ProductType;
+  /** Clave DERIVADA en inventario (`buildGradeKey`); aquí llega tal cual la conoce `pricing`. */
+  gradeKey: string;
+  finish: Finish;
+  /**
+   * ⚠️⚠️ **TRES ESTADOS, y el `undefined` NO es `null`:**
+   * - **ausente (`undefined`) ⇒ SIN RESTRICCIÓN** (cualquier producto de esa carta/acabado).
+   * - **`null` ⇒ SOLO la variante del set base.**
+   * - **número ⇒ solo ESE producto.**
+   *
+   * ⚠️⚠️ **Y AQUÍ HAY UNA TRAMPA REAL, verificada en el schema: `cardProductId` tiene DOS
+   * IDENTIFICADORES DISTINTOS en este repo.**
+   * - `InventoryItem.cardProductId` y `PendingPriceEntry.cardProductId` son **`Int`** = el
+   *   **`tcgplayerProductId`**.
+   * - `PriceReference.cardProductId` es **`String`** = el **uuid de `CardProduct`** (FK).
+   *
+   * **Este campo es el PRIMERO (el `Int` de TCGplayer)**, porque es contra lo que se empareja el
+   * inventario. Un llamador que pasara el uuid de `PriceReference` **no casaría con nada** y el
+   * disparo sería un **no-op silencioso que parece funcionar**. *Si no tienes el identificador
+   * correcto, OMITE el campo* —sin restricción es la dirección segura: un disparo de más es un
+   * no-op, uno de menos es una carta que se queda en la caja.
+   */
+  cardProductId?: number | null;
+  /** Mismos tres estados. `InventoryItem.sealedProductId` es el uuid de `SealedProduct`. */
+  sealedProductId?: string | null;
+}
+
 export interface InventoryPublishPort {
   /**
    * ⚠️ **«Reevalúa estas piezas», no «publícalas».** Sin estado destino, sin precio, sin `status`.
@@ -88,4 +151,18 @@ export interface InventoryPublishPort {
    * pieza — el resultado por pieza es la respuesta.
    */
   reevaluateForPublication(inventoryItemIds: string[]): Promise<PublishReevaluationResult[]>;
+
+  /**
+   * ⚠️ **Segunda ENTRADA al MISMO cuerpo** (§4.39m.8) — para el disparador (c), que **no puede
+   * nombrar piezas**: solo conoce claves de variante. Resuelve las claves a ids **dentro de
+   * `inventory`** (SELECT por las partes columnares + filtro en memoria por `gradeKey` derivado) y
+   * llama a `reevaluateForPublication`.
+   *
+   * Sigue siendo un **disparo**: el llamador tampoco aquí puede expresar estado destino ni precio.
+   * Devuelve el resultado **por pieza resuelta** — una variante sin piezas `in_stock` no produce
+   * filas, que es el no-op esperado.
+   */
+  reevaluateVariantsForPublication(
+    variants: VariantPublishRef[],
+  ): Promise<PublishReevaluationResult[]>;
 }

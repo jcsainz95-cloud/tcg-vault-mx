@@ -49,7 +49,7 @@ import {
 } from './dto/inventory.dto';
 import { toCardDTO } from '../catalog/catalog.service';
 // v1.51.18 (BL-25, §4.39m.5): `inventory` DECLARA y PROVEE el puerto de disparo de publicación.
-import { PublishReevaluationResult } from './inventory-publish.port';
+import { PublishReevaluationResult, VariantPublishRef } from './inventory-publish.port';
 import { sanitizeSealedImageUrl } from './sealed-image-host';
 import { AuditService } from '../audit/audit.service';
 
@@ -174,6 +174,43 @@ export type PendingPublishMissing = 'location' | 'price';
  * emparejamiento «pieza ↔ entrada abierta» no se haga con una llave inventada en el sitio: dos
  * llaves distintas para la misma cola producen deep-links que apuntan a la entrada equivocada.
  */
+/**
+ * v1.51.19 (§4.39m.8) — llave de emparejamiento **variante ↔ pieza** para el disparador (c). Incluye
+ * `cardProductId` y `sealedProductId` porque **una promo y la versión del set base son variantes
+ * distintas** (D7 / §4.39d) y **un ETB y un blíster también** (BLOQ-2b): resolver el precio de una
+ * **no** vuelve publicable a la otra. *Una llave que las colapsara publicaría la carta equivocada.*
+ */
+function variantPublishMatches(
+  ref: VariantPublishRef,
+  piece: {
+    cardId: string;
+    productType: ProductType;
+    gradeKey: string;
+    finish: Finish;
+    cardProductId: number | null;
+    sealedProductId: string | null;
+  },
+): boolean {
+  if (
+    ref.cardId !== piece.cardId ||
+    ref.productType !== piece.productType ||
+    ref.finish !== piece.finish ||
+    ref.gradeKey !== piece.gradeKey
+  ) {
+    return false;
+  }
+  // ⚠️ TRES estados, no dos, y colapsarlos sería un bug SILENCIOSO:
+  //   `undefined` (clave ausente) = **sin restricción**  ·  `null` = **solo la del set base**
+  //   número/uuid = **solo ese producto**
+  // Un `?? null` aquí convertiría «no restrinjas» en «solo la base» y el disparo **dejaría fuera**
+  // justo las promos — un fallo que se ve como un no-op y que nadie encontraría.
+  if (ref.cardProductId !== undefined && ref.cardProductId !== piece.cardProductId) return false;
+  if (ref.sealedProductId !== undefined && ref.sealedProductId !== piece.sealedProductId) {
+    return false;
+  }
+  return true;
+}
+
 function pendingQueueKey(k: {
   cardId: string;
   productType: ProductType;
@@ -2225,6 +2262,90 @@ export class InventoryService {
       }
     }
     return out;
+  }
+
+  /**
+   * ⚠️⚠️ v1.51.19 · **BL-25 / §4.39m.8** — **SEGUNDA ENTRADA al MISMO cuerpo: por VARIANTE.**
+   *
+   * El disparador (c) —*«el precio de esta variante ya resuelve»*— **no puede nombrar piezas**: quien
+   * lo sabe es `pricing`, y `pricing` conoce **una clave de variante**, no ids de inventario. Esta
+   * entrada traduce; **no reimplementa nada**: resuelve a ids y llama a `reevaluateForPublication`.
+   * *Es un adaptador delante del cuerpo único, no una copia.*
+   *
+   * ### ⚠️ Por qué la traducción vive AQUÍ y no en el llamador — ni SQL, ni DDL
+   * **`gradeKey` NO es columna de `InventoryItem`**: es columna de los modelos de PRECIO
+   * (`VariantPriceOverride`, `PriceReference`, `PendingPriceEntry`) y en inventario **se DERIVA** de
+   * `productType`/`rawCondition`/`gradingCompany`/`gradeValue` (`buildGradeKey`). Un `where` que la
+   * reconstruyera sería **una segunda definición de la clave de variante dentro de una consulta**, y
+   * sobre el mismo dinero: en los términos de §4.39m.6, ***una copia de la regla, no la salida de la
+   * regla***.
+   *
+   * **Los tres pasos, y el orden importa:**
+   * 1. **SELECT por las partes COLUMNARES** — `cardId ∈ (…) ∧ productType ∧ finish ∧
+   *    status='in_stock' ∧ ownerType='platform'`. Lo sirve el índice `[cardId, finish, status]` que
+   *    **ya existe** (M-21).
+   * 2. **FILTRAR en memoria** `gradeKeyFor(pieza) === gradeKey`, **con la función de su dueño**.
+   * 3. Los ids entran al **MISMO cuerpo**.
+   *
+   * **Ninguna regla entra al SQL ni cruza la frontera:** la derivación la aplica quien la posee, y el
+   * llamador sigue sin poder expresar nada más que *«reevalúa»*.
+   *
+   * ### ⚠️ Y por qué NO se materializa (la distinción de §4.39m.6, refinada en m.8)
+   * Se materializa **solo cuando el camino en memoria exigiría cargar un conjunto NO ACOTADO** — que
+   * es el caso de `pending-publish`, cuyo candidato es *todo el inventario*. **Aquí el conjunto está
+   * ACOTADO POR LA ENTRADA**: las piezas `in_stock` de unas cartas y acabados concretos. *Materializar
+   * aquí sería añadir estado derivado —y por tanto capaz de desincronizarse— para resolver un problema
+   * que no existe*, y acabaríamos con una columna `gradeKey` en `InventoryItem` **que puede mentir**.
+   *
+   * ⚠️ **Solo `status='in_stock'`**: una pieza ya `listed` no necesita este disparo (y re-resolver lo
+   * publicado es trabajo de `publish-all`, que existe para eso y es explícito).
+   */
+  async reevaluateVariantsForPublication(
+    variants: VariantPublishRef[],
+  ): Promise<PublishReevaluationResult[]> {
+    if (variants.length === 0) return [];
+    // Agrupa por las partes columnares para hacer UNA consulta por (productType, finish) en vez de
+    // una por variante: el fan-out que el lote existe para evitar también aplica aquí adentro.
+    const byShape = new Map<string, { productType: ProductType; finish: Finish; cardIds: Set<string> }>();
+    for (const v of variants) {
+      const k = `${v.productType}|${v.finish}`;
+      const g = byShape.get(k) ?? { productType: v.productType, finish: v.finish, cardIds: new Set<string>() };
+      g.cardIds.add(v.cardId);
+      byShape.set(k, g);
+    }
+    const ids: string[] = [];
+    for (const g of byShape.values()) {
+      // PASO 1 — solo columnas. `cardProductId` TAMBIÉN es columna (M-46) y entra en el paso 2 junto
+      // al `gradeKey`, porque una promo y la del set base **son variantes distintas** (D7).
+      const candidates = await this.prisma.inventoryItem.findMany({
+        where: {
+          ownerType: 'platform',
+          status: 'in_stock',
+          productType: g.productType,
+          finish: g.finish,
+          cardId: { in: [...g.cardIds] },
+        },
+        select: {
+          id: true,
+          cardId: true,
+          productType: true,
+          rawCondition: true,
+          gradingCompany: true,
+          gradeValue: true,
+          finish: true,
+          cardProductId: true,
+          sealedProductId: true,
+        },
+      });
+      // PASO 2 — el `gradeKey` se DERIVA aquí, en memoria, con `buildGradeKey`: la misma función que
+      // usa el resto del sistema. Si un día cambia, cambia en un sitio.
+      for (const c of candidates) {
+        const piece = { ...c, gradeKey: buildGradeKey(c) };
+        if (variants.some((v) => variantPublishMatches(v, piece))) ids.push(c.id);
+      }
+    }
+    // PASO 3 — el MISMO cuerpo. Nada de lo de arriba decide si se publica: solo QUÉ se mira.
+    return this.reevaluateForPublication(ids);
   }
 
   /**

@@ -4,6 +4,113 @@
 > El contrato (`docs/API_CONTRACT.md`) manda sobre el código. Stack: NestJS + Prisma + PostgreSQL,
 > Redis/BullMQ (jobs), JWT + argon2, S3/MinIO (presigned URLs), Stripe.
 
+## 0.26 v1.51.19 — **BL-25 completo: el disparador (c), con la resolución DENTRO de `inventory`** (2026-09-01)
+
+> Implementa **ARCHITECTURE §4.39m.8**. **CERO DDL, CERO SQL nuevo, CERO endpoints.** Una segunda
+> entrada al puerto y dos consumidores. Cierra **BL-25**.
+
+### 0.26.1 La forma: SELECT columnar + filtro en memoria
+
+```
+1. SELECT por las partes COLUMNARES: cardId ∈ (…) ∧ productType ∧ finish ∧ status='in_stock' ∧ ownerType='platform'
+2. FILTRAR en memoria: buildGradeKey(pieza) === gradeKey buscado
+3. Los ids entran al MISMO cuerpo de (m.5)
+```
+
+**Ninguna regla entra al SQL ni cruza la frontera.** Hay guarda que asevera que el `where` lleva
+**exactamente cinco claves columnares** y que ni `gradeKey` ni `rawCondition` ni `gradeValue` aparecen
+en la consulta — y otra que asevera que el filtro llama a **`buildGradeKey`**, no a un literal copiado.
+Y una tercera sobre `schema.prisma`: **`InventoryItem` sigue sin columna `gradeKey`** (no se
+materializó nada).
+
+**Un cuerpo, dos entradas.** `reevaluateVariantsForPublication` **resuelve y delega** en
+`reevaluateForPublication`: es un adaptador delante del cuerpo único, no una copia. Tests de que las
+guardas no se relajan por esta vía: `listed` no se toca, la custodia no entra, sin ubicación no
+publica, y **una gradeada sin `certNumber` sale `not_publishable`** aunque su variante resuelva.
+
+**El lote también por dentro:** N variantes con el mismo `(productType, finish)` producen **una**
+consulta con `cardId IN (…)`, no N.
+
+### 0.26.2 ⚠️⚠️ La trampa que encontré al implementarlo: `cardProductId` tiene DOS identificadores
+
+Verificado en el schema:
+
+| Modelo | Tipo | Qué es |
+|---|---|---|
+| `InventoryItem.cardProductId` | **`Int`** | el **`tcgplayerProductId`** |
+| `PendingPriceEntry.cardProductId` | **`Int`** | el **`tcgplayerProductId`** |
+| `PriceReference.cardProductId` | **`String`** | el **uuid de `CardProduct`** (FK) |
+
+**Son dos identificadores distintos del mismo eje.** Un llamador que pasara el uuid de
+`PriceReference` **no casaría con ninguna pieza** y el disparo sería un **no-op silencioso que parece
+funcionar** — de los que nadie encuentra. `VariantPublishRef.cardProductId` es **el `Int`**, y el
+docblock lo dice con la trampa entera.
+
+De ahí que el campo tenga **TRES estados y no dos**, implementados explícitamente:
+- **ausente (`undefined`) ⇒ sin restricción**; **`null` ⇒ solo la del set base**; **número ⇒ solo ese
+  producto**.
+- Un `?? null` habría convertido *«no restrinjas»* en *«solo la base»* y **habría dejado fuera justo
+  las promos**. Hay test por cada estado; la mutación que los colapsa muere.
+
+**El barrido OMITE el campo** (tiene el uuid, no el Int): *sin restricción es la dirección segura* —un
+disparo de más es un no-op, porque cada pieza se juzga por su propio precio; uno de menos es **una
+carta que se queda en la caja**.
+
+### 0.26.3 Los dos productores de (c)
+
+| Productor | Dónde | Alcance |
+|---|---|---|
+| `POST /admin/pricing/override` | `PricingController` (handler) | **una** variante, **una** llamada, tras escribir y auditar |
+| barrido de precios | `PriceIngestService`, **los DOS caminos** | **una** llamada con **el conjunto que ESCRIBIÓ** |
+
+⚠️ **Los dos sentidos del barrido tienen alcances distintos, y la diferencia quedó escrita en el
+código para que nadie los iguale:** `reconcilePublishedPrices` (lo `listed` que pudo **degradarse**)
+barre **el SET completo**, porque ahí *la ausencia es la señal* —el acabado que el proveedor dejó de
+reportar—. El disparo nuevo (lo `in_stock` que pudo volverse **publicable**) pasa **solo lo escrito**,
+porque *repreciar algo que no se movió no vuelve publicable a nadie*.
+
+**Disparan LOS DOS caminos de ingesta** (`ingestSinglesForSet` primario y `ingestForSet` legacy). Hay
+test de eso: media regla en un camino y media en otro es la forma en que una regla se pierde.
+
+### 0.26.4 ⚠️ El ciclo, cerrado por construcción y con guarda
+
+El consumidor es **una hoja**: el **handler** del override y el **servicio de ingesta**. **Nunca
+`PricingService`** —cerraría `Pricing → PORT → Inventory → Pricing`— y **`forwardRef` está prohibido**.
+
+Hay guardas de código para las dos cosas, y una lección de escribirlas: **miran CÓDIGO, no prosa**.
+Sin quitar los comentarios, el fichero que *documenta* «`forwardRef` está prohibido» habría hecho
+fallar el test que verifica que no se usa — y el arreglo obvio (borrar la explicación) habría sido
+exactamente al revés de lo que se quiere.
+
+### 0.26.5 Tests
+
+`test/inventory.publish-port-variants.spec.ts` (**20**) y `test/pricing.publish-trigger.spec.ts`
+(**16**). Suite: **225 suites / 3045 tests**, verde. Ningún test existente necesitó cambios — el puerto
+es aditivo y los dos disparos son best-effort.
+
+**Mutación (5 corridas, todas cazadas):** (1) colapsar los tres estados de `cardProductId` ⇒ 1 fallo;
+(2) quitar el filtro de `gradeKey` ⇒ 2 fallos; (3) meter `rawCondition` al `where` ⇒ 1 fallo;
+(4) fan-out de N llamadas en el barrido ⇒ 1 fallo; (5) el camino legacy deja de disparar ⇒ 1 fallo.
+
+### 0.26.6 ⚠️ Escalada al arquitecto (1, no bloqueante)
+
+**«Solo el conjunto REALMENTE cambiado» quedó implementado como «las variantes que este barrido
+ESCRIBIÓ», y el residuo hay que decirlo:** una reescritura con **el mismo precio** entra igual, porque
+`persistMarketReference` devuelve `void` y **no reporta si cambió algo**. Distinguirlo exigiría
+comparar contra **la referencia MÁS RECIENTE** (no contra la fila de hoy: en la primera corrida del día
+*todo* es «nuevo»), es decir **una consulta más en un camino de dinero compartido** por varios
+llamadores. **No lo cambié.**
+
+El residuo está acotado y no creo que valga la cirugía: el `SELECT` del puerto solo mira **piezas
+`in_stock` de plataforma**, así que una variante repreciada sin piezas sin publicar **no produce
+trabajo ninguno**. Pero es una desviación de la letra de (m.8) y prefiero decirla.
+
+### 0.26.7 Lo que NO entró
+
+- **`workQueue.pendingPublish`** del dashboard (§11): módulo `admin`, **otro work stream**.
+- La deuda de escala de `pending-publish` en `TECH_DEBT.md` — a petición del techlead.
+- **BL-27** (el mecanismo anti-reformateo del prettier) — es de **devops**, su ruta.
+
 ## 0.25 v1.51.18 — **BL-25 (el puerto de DISPARO) y BL-26 (un `total` que mentía)** (2026-09-01)
 
 > Implementa **ARCHITECTURE §4.39m.5** (BL-25) y **§4.39m.7.2** (BL-26). **CERO DDL, CERO endpoints,
