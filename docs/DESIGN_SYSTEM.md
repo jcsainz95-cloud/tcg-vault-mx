@@ -410,6 +410,28 @@
 > **`buylist.totalPendingNote`**, que decía que esas cartas se cotizan *«cuando las recibimos»* cuando bajo
 > el ciclo se cotizan **al ofertar, antes de que el vendedor mande nada** — **cuarta aparición del mismo
 > patrón** y la primera que caza el implementador, no yo. Entra al registro de §23.14 como la fila 11.
+>
+> **Corrección v2.3.10 (2026-09-01 — la MESA DE DECISIÓN existe; §23.6 ratificada con una corrección).**
+> **(1) Namespace: manda el catálogo.** §23.12 decía `admin.buylist.desk.*`; M5 vive en **`admin.m5.*`** y
+> todo el admin está indexado por módulo. Mi ruta habría creado el único namespace fuera de convención,
+> **a cambio de nada**: se corrige el documento, no el código. *§23.12 especifica **qué claves existen y
+> qué dicen**, no dónde vive el árbol — ese archivo es de frontend, y ante un choque **gana la
+> convención**.*
+> **(2) Copy de las ~64 claves RATIFICADO, con UN fallo: `confirm.deadlineNote` incumple R4.** Lleva
+> **«2 días hábiles» escrito a mano** y ese plazo es **un dial de M10** (D3/D8) — la constante que *«se
+> desincroniza en silencio la primera vez que alguien mueve el dial»* (criterio 154), **prometida al
+> operador en el diálogo donde emite dinero**. Dos salidas: interpolar el dial, o —**sin tocar el
+> contrato**— quitar el número y decir lo único que ahí importa: **que el plazo se congela al emitir**.
+> **(3) §23.6d reescrito, y una parte era una contradicción MÍA.** La **densidad compacta queda DIFERIDA**
+> (mi propio texto ya la daba por *opcional*, y además cambia una protección de R6 —la etiqueta por celda—
+> por menos scroll: mal negocio). Y **se retira la frase «en `< md` la fila colapsa a card (§7.7)»**:
+> §23.6e dice que la línea **no es una fila de tabla sino una banda**, así que arrastré una regla del
+> `DataTable` sin comprobar que aplicara. El requisito móvil real ya estaba bien en §23.13.8(n).
+> **(4) Se elevan a norma dos defensas que el implementador escribió mejor de lo que yo las tenía:** los
+> **cuatro mecanismos** que hacen R6 irrompible —regla vertical, encabezados de grupo reales, gradiente por
+> **peso** y **la ausencia** de todo lugar donde la suma pueda aparecer, con test **por lo negativo**— y la
+> **segunda puerta de D6**: *el default no consulta la sugerencia ni una vez*, porque **un botón apagado se
+> ve y se protesta, pero un default sesgado no se ve nunca**. **Cero tokens, cero componentes.**
 
 ---
 
@@ -7097,15 +7119,46 @@ La tira es una **retícula de anchos fijos** (`grid-template-columns` con tracks
 una columna («¿de cuáles tengo muchas?») en vez de leer 40 renglones. Es la propiedad que hace que el sitio
 «se lea como una tabla de precios» (§3.1) aplicada a la pantalla más densa del producto.
 
-**(d) Dos densidades:**
+**(d) Densidad — ⚠ REESCRITO v2.3.10: la compacta queda DIFERIDA y la frase del `< md` era mía y estaba
+mal.**
 
-| Densidad | Dónde | Etiquetas |
+| Densidad | Estado |
+|---|---|
+| **Cómoda** — cada cifra con su etiqueta en la celda (`EN INVENTARIO 5`) | **Default, única y SUFICIENTE.** Es la que se implementa **a todos los anchos** |
+| **Compacta** (`≥ lg`, etiquetas subidas a `<th scope="col">`) | **DIFERIDA. No se pide.** Sigue siendo *opcional* como decía este apartado, y hay una razón para no tener prisa (abajo) |
+
+- **Por qué la compacta no solo es opcional sino que conviene aplazarla:** su ahorro es **scroll** en
+  solicitudes largas; su coste es que **deja cuatro números desnudos en una fila**. La etiqueta por celda
+  es uno de los cuatro mecanismos que impiden que el ojo sume «en camino» + «comprometido» (R6, §23.6c-bis),
+  y **R6 es el valor de esta pantalla**. Cambiar una protección de dinero por menos scroll es un mal
+  negocio, y más antes de saber si existen solicitudes de 40 líneas. *Si algún día se construye, la
+  condición es que los **encabezados de grupo sigan siendo `<th>` reales** y que la **regla vertical**
+  entre los dos grupos se conserve: las etiquetas pueden subir, la separación no puede desaparecer.*
+- **⚠ Y se retira la frase «en `< md` la fila colapsa a card (§7.7)», que era una contradicción mía.**
+  §7.7 gobierna el `DataTable`, y **(e) dice explícitamente que la línea de la mesa NO es una fila de tabla
+  de 9 columnas, sino una banda de dos renglones**. Una banda **no tiene que colapsar a card**: ya lo es.
+  Arrastré la frase de §7.7 sin comprobar que aplicara. **El requisito móvil real es el que ya está en
+  §23.13.8(n) y no cambia:** a 390px **la tira se parte en dos renglones de dos, conservando el separador
+  de grupos**, y ningún monto se trunca.
+
+**(c-bis) ⚠ Los CUATRO mecanismos que hacen R6 irrompible por descuido (normativo desde v2.3.10).**
+R6 decía **qué** está prohibido —que «en camino» y «comprometido» se sumen— pero no **cómo** se impide.
+El implementador lo resolvió con cuatro barreras independientes y **se elevan a norma**, porque juntas
+convierten una regla de disciplina en una propiedad de la pantalla:
+
+| # | Mecanismo | Qué cierra |
 |---|---|---|
-| **Cómoda** (default, y **la única** en `< lg`) | siempre | cada cifra lleva su etiqueta en la celda (`EN INVENTARIO 5`) |
-| **Compacta** (opcional, `≥ lg`) | solicitudes largas | las etiquetas suben **una sola vez** a la cabecera (`<th scope="col">` reales) y las filas quedan con los **cuatro números** + el titular |
+| **1** | **Regla vertical** entre los dos grupos | Separación **visual**: los cuatro números no forman una serie continua |
+| **2** | **Encabezados de grupo reales** (`EN NUESTRAS MANOS` / `TODAVÍA NO`) | Separación **semántica**: el lector de pantalla anuncia **el grupo antes de la cifra**, así que la distinción existe también sin ver |
+| **3** | **Gradiente por PESO, no por contraste** — las cuatro en tinta | Separación **de jerarquía sin castigar**: ninguna cifra se degrada a «menos importante», que sería mentir sobre datos que sí son ciertos |
+| **4** | **La AUSENCIA**: sin subtotal, sin `+`, sin paréntesis, sin barra apilada | Separación **estructural**: no hay ningún sitio donde la suma pueda aparecer |
 
-En `< md` la fila colapsa a **card** (§7.7): identidad, montos, y la tira **en dos renglones de dos**,
-conservando la regla como separador horizontal entre los dos grupos.
+- **El mecanismo 4 es el único verificable por lo negativo, y por eso es el que se testea:** *la suma de
+  «en camino» + «comprometido» **no aparece en ninguna celda**.* Es la comprobación (h) de §23.13.8
+  convertida en aserción automática — y es la forma correcta de defender R6, porque **una prohibición que
+  solo vive en la cabeza del que dibuja se rompe en el siguiente rediseño**.
+- **Los cuatro son independientes a propósito:** si alguien retira uno «por limpieza», quedan tres. Una
+  regla de dinero con una sola defensa **es una regla con un solo punto de fallo**.
 
 **(e) Anatomía completa de la línea** (banda de dos renglones, no una fila de tabla de 9 columnas):
 
@@ -7150,6 +7203,14 @@ Sugerencia: no comprar — tope general (10). Este bounty no tiene objetivo; se 
 | **Ocupa el mismo espacio en los tres veredictos** | La fila **no cambia de alto** entre `buy`, `do_not_buy` y `none`. Si la fila salta al cambiar el veredicto, el operador aprende a temerle |
 | **NUNCA gobierna el default de la casilla** | Ver (g) |
 | **NUNCA apaga un control** | Ver (h) |
+
+> **⚠ D6 tiene DOS puertas, no una (ratificado v2.3.10).** Este documento insistía en que la sugerencia
+> **no apaga controles** (h) — la puerta visible. El implementador protegió además la **invisible**, y es
+> la que de verdad se cuela: **la selección por defecto no consulta la sugerencia ni una sola vez**.
+> Su formulación, que adopto: *si el default siguiera a la sugerencia, «no comprar» sería un **bloqueo
+> blando** y la **inercia** haría el trabajo que el sistema tiene prohibido hacer.* Un botón apagado se ve
+> y se protesta; **un default sesgado no se ve nunca** y produce el mismo resultado con mejor prensa.
+> **Verificable por construcción:** el cálculo del default **no recibe la sugerencia como entrada**.
 
 **(g) El default de la casilla, y por qué NO lo decide la sugerencia.**
 Toda línea **con precio resoluble** nace **marcada como «comprar»**; la línea **sin precio** nace
@@ -7613,7 +7674,50 @@ Existían en el catálogo desde el pase del portal pero **§23.12 no las inventa
 > i18n es el espejo**, y cuando el servidor mande la prosa **esta clave se borra, no se deja de reserva**.
 > Decisión completa, con sus tres condiciones y el motivo por el que **no es bloqueante**, en **§23.5h**.
 
-**Mesa de decisión (`admin.buylist.desk.*`)**
+**Mesa de decisión — ⚠ el namespace correcto es `admin.m5.desk.*` (v2.3.10).**
+
+> **Manda el catálogo, no este documento.** §23.12 escribió `admin.buylist.desk.*`, pero **M5 vive en
+> `admin.m5.*`** y todo el admin está indexado por módulo (`admin.m1.*`, `admin.m2.*`, `admin.m8.*`…).
+> Mi ruta habría creado **el único namespace de admin que no sigue la convención**, a cambio de nada.
+> **No se renombra: se corrige el documento.**
+> **La regla que se deja escrita:** *§23.12 especifica **qué claves deben existir y qué dicen**, no dónde
+> vive el árbol del catálogo — ese archivo es de frontend. Cuando una ruta inventada aquí choca con una
+> convención ya establecida allí, **gana la convención**.* Es lo mismo que con `M5OpTab`: yo normo el
+> significado, el implementador norma su estructura.
+
+**Mesa de decisión (`admin.m5.desk.*`) — copy RATIFICADO con UNA corrección (v2.3.10).**
+§23.6 daba anatomía, versalitas y cuatro frases de ejemplo, **no las ~64 cadenas**, así que las redactó el
+implementador. Revisadas contra R1–R7 y D6: **pasan**, con un fallo.
+
+| ⚠ | Clave | Qué pasa |
+|---|---|---|
+| **R4** | `desk.confirm.deadlineNote` | **«El vendedor tendrá 2 días hábiles para responder»** — el **2 está escrito a mano**, y ese plazo es un **dial de M10** (D3/D8). Es exactamente lo que R4 prohíbe: *«una constante en el front se desincroniza **en silencio** la primera vez que alguien mueve el dial»* (criterio 154). **Y aquí duele el doble**: la cifra se le promete al operador **en el diálogo donde emite dinero**, y el correo saldría con el plazo real |
+
+**Las dos salidas, y la segunda no necesita contrato:**
+1. **Interpolar el dial** — `«El vendedor tendrá {days} días hábiles para responder…»` — **si** el DTO de
+   la mesa ya lo trae. **Preferida.**
+2. **Quitar el número** — `«El plazo para responder empieza a correr al emitir y se congela ahí.»` /
+   *"The response window starts when you issue the offer and is frozen then."* — **cero cambios de
+   contrato, cero riesgo de desincronización, y no pierde nada**: lo que el operador necesita saber es
+   **que el plazo se congela al emitir**, no cuántos días son. **Si (1) no está disponible hoy, se toma
+   (2); no se deja el número a mano.**
+
+**Ratificado sin cambios todo lo demás**, incluidas las claves que el implementador **añadió** y que §23.12
+no preveía —y que hacían falta—: `suggestion.{reasonCapOk,reasonBountyOk}` (la sugerencia de **comprar**
+también necesita su porqué, criterio 144), `noPriceReason.{no_market,premium_at_floor,identity_drift}`,
+`totals.{previewNote,noLines}`, `override.{derived,noDerived}` y `desk.{sent,pendingAuthorization,readOnly}`.
+Tres aciertos que merecen nombrarse:
+
+- **`totals.previewNote`** — *«Estas cifras se calculan con la curva y los diales de ahora. Lo vinculante se
+  congela al emitir.»* **Es R4 dicha en pantalla**, y no se la pedí.
+- **`totals.net` = «Se deposita» / "Deposited"**, en tercera persona, frente al `SE TE DEPOSITAN` /
+  `DEPOSITED TO YOU` del vendedor. **Correcto:** el admin no es quien cobra. Localización de registro, no
+  traducción literal.
+- **`confirm.body`** nombra **bruto, envío y neto juntos** ⇒ **R1 intacta** también en el admin.
+- **`desk.noPrice` = «Sin precio» / "No price"** *(sin «yet»)* **se queda así**: es **superficie de admin**,
+  el mismo registro que `admin.*.colPending`, y **`noPriceReason.*` explica la causa al lado**. El «yet» de
+  §23.3h es para **el vendedor**, donde «no price» puede leerse como «no vale nada». **Un `grep` que
+  unifique las dos está mal calibrado** (§23.14.5).
 - `position.{title,ofTotal,groupInHouse,groupNotYet,stock,verifying,inTransit,committed,rule.bounty,rule.cap,aria}`
 - `position.unavailable.{tag,text,noSuggestion,banner,retry}` — `SIN CONTEO`.
 - `suggestion.{buy,doNotBuy,none,reasonCap,reasonBounty,legacyBountyNote}`
