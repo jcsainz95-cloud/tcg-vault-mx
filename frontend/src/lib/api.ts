@@ -30,6 +30,7 @@ import type {
   BuylistQuoteItemDTO,
   BuylistBatchQuoteResultDTO,
   BuylistBatchQuoteResponse,
+  BuylistQuotePolicyDTO,
   SellRequestDTO,
   ShipmentDTO,
   ShipmentQuoteResponse,
@@ -1365,6 +1366,23 @@ export async function batchQuote(items: BuylistQuoteItemDTO[]): Promise<BuylistB
   return delay({ results });
 }
 
+/**
+ * Política pública del cotizador (contrato §6 · `GET /buylist/quote-policy`, v1.51.4 · D43).
+ * `public`, READ-ONLY, cacheable (`Cache-Control: public, max-age=300`). Devuelve UN entero:
+ * `minimumRequestCents`. Es lo único que el cotizador público necesita para cumplir el criterio
+ * 132(a) de PROJECT.md (decir CUÁNTO FALTA con el número correcto y no dejar proceder el botón).
+ *
+ * ⚠️ Consumo normado por el contrato: se pide AL MONTAR el cotizador (ver `useQuotePolicy`), no
+ * se guarda en un store de vida larga entre navegaciones — la caché pública es de 5 minutos.
+ * ⚠️ Degradación FAIL-OPEN: si falla, el llamador NO pinta faltante, NO inventa mínimo y DEJA el
+ * botón habilitado; la puerta real es el `422 BUYLIST_MINIMUM_NOT_MET` del servidor.
+ */
+export async function getBuylistQuotePolicy(): Promise<BuylistQuotePolicyDTO> {
+  if (!config.useMocks) return apiRequest<BuylistQuotePolicyDTO>('/buylist/quote-policy');
+  // MOCK: el dial sembrado hace de servidor falso (fixtures), no de default del cliente.
+  return delay({ ...fx.mockBuylistQuotePolicy });
+}
+
 export async function getSellRequests(): Promise<SellRequestDTO[]> {
   if (!config.useMocks) {
     const res = await apiRequest<{ data: SellRequestDTO[] }>('/buylist/requests');
@@ -1388,6 +1406,16 @@ export interface CreateSellRequestInput {
     productId?: number;
   }[];
   /**
+   * ⚠️ v1.51.3 (D36/D37) — **OBLIGATORIO**. Id de una dirección de la libreta del PROPIO vendedor
+   * (`GET /users/me/addresses`): es la dirección de ORIGEN que el backend copia a
+   * `SellRequest.pickupAddressSnapshot` y que va IMPRESA en la guía que ponemos nosotros (D16).
+   * NO hay fallback a la dirección `isDefault` — la libreta tiene N filas y elegir por el vendedor
+   * es elegir de dónde salen sus cartas. La UI PRESELECCIONA la predeterminada, pero el id viaja
+   * SIEMPRE explícito en el body. Ausente ⇒ `422 PICKUP_ADDRESS_REQUIRED`; inexistente o de otro
+   * usuario ⇒ `422 PICKUP_ADDRESS_NOT_FOUND` (misma respuesta a propósito, anti-IDOR).
+   */
+  addressId: string;
+  /**
    * CLABE destino en claro (18 dígitos). v1.15: OPCIONAL. Si se OMITE, el backend hace fallback
    * server-side a la CLABE en archivo del PROPIO usuario (`clabeOnFile=true`; mismo fallback que
    * `reveal-clabe`). Sin `clabe` y sin CLABE en archivo → `422 CLABE_REQUIRED`. Con `clabe` presente
@@ -1410,6 +1438,24 @@ export async function createSellRequest(input: CreateSellRequestInput): Promise<
     // lleva y el backend hace el fallback server-side a la CLABE del propio usuario (§6). Sin flags
     // de cliente: el contrato ya soporta el shape directo.
     return apiRequest<SellRequestDTO>('/buylist/requests', { method: 'POST', body: input });
+  }
+  // MOCK · v1.51.3 (D36/D37): la dirección de ORIGEN es OBLIGATORIA y se resuelve contra la libreta
+  // del PROPIO usuario. Sin `addressId` no se crea nada (hermano exacto de CLABE_REQUIRED); un id
+  // inexistente o ajeno devuelve PICKUP_ADDRESS_NOT_FOUND — LA MISMA respuesta para los dos casos,
+  // a propósito (anti-IDOR: no se confirma la existencia de una fila ajena).
+  if (!input.addressId) {
+    throw new ApiClientError(422, {
+      code: 'PICKUP_ADDRESS_REQUIRED',
+      message: 'A pickup address is required',
+      details: { field: 'addressId' },
+    });
+  }
+  if (!fx.mockAddresses.some((a) => a.id === input.addressId)) {
+    throw new ApiClientError(422, {
+      code: 'PICKUP_ADDRESS_NOT_FOUND',
+      message: 'Pickup address not found',
+      details: { field: 'addressId' },
+    });
   }
   // MOCK: replica el shape de la respuesta del contrato (SellRequestDTO). El monto se resuelve por
   // la REGLA de la rareza (v1.3.1), igual que el cotizador; v1.30 (§4.29): con `productId` la línea
@@ -1436,6 +1482,22 @@ export async function createSellRequest(input: CreateSellRequestInput): Promise<
     };
   });
   const quotedTotalCents = items.reduce((s, it) => s + (it.quotedPriceCents ?? 0), 0);
+  // MOCK · v1.51 (D18, criterio 132(b)): la PUERTA del mínimo vive en el servidor y se juzga sobre
+  // el TOTAL cotizado BRUTO, con borde INCLUSIVO (exactamente el mínimo SÍ se crea). Una línea en
+  // `precio_pendiente` aporta 0 (no tiene `quotedPriceCents`). El `shortfallCents` lo calcula el
+  // SERVIDOR: es el número AUTORITATIVO con el que la pantalla se repinta.
+  const minimumCents = fx.mockBuylistQuotePolicy.minimumRequestCents;
+  if (quotedTotalCents < minimumCents) {
+    throw new ApiClientError(422, {
+      code: 'BUYLIST_MINIMUM_NOT_MET',
+      message: 'The request total is below the buylist minimum',
+      details: {
+        minimumCents,
+        totalCents: quotedTotalCents,
+        shortfallCents: minimumCents - quotedTotalCents,
+      },
+    });
+  }
   return delay({
     sellRequestId: `sr-${Math.floor(Math.random() * 9000 + 1000)}`,
     status: 'cotizada',

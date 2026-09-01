@@ -30,6 +30,7 @@ import type {
   ClientDisputeDTO,
   ShipmentDTO,
   AddressDTO,
+  BuylistQuotePolicyDTO,
   CatalogFacetsDTO,
   PortfolioHistoryResponse,
   PortfolioPointDTO,
@@ -957,6 +958,14 @@ export const mockSellRequests: SellRequestDTO[] = [
     ],
   },
 ];
+
+/**
+ * MOCK: respuesta de `GET /buylist/quote-policy` (contrato §6/§11, v1.51.4 · D43). UN entero.
+ * Es el valor SEMBRADO del dial `buylist_minimum_request_cents` (MX$500) actuando como servidor
+ * falso — NO es un default de la ruta real: la ruta real NUNCA inventa el mínimo (si el endpoint
+ * falla, el front no pinta faltante y deja el botón vivo; el 422 del servidor trae el número).
+ */
+export const mockBuylistQuotePolicy: BuylistQuotePolicyDTO = { minimumRequestCents: 50000 };
 
 /** KYC del comprador (contrato GET /users/me/kyc). CLABE enmascarada; INE aún no en archivo. */
 export const mockKyc: KycInfoDTO = {

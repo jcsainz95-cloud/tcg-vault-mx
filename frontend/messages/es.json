@@ -683,6 +683,14 @@
     "limitPerMonth": "Tope mensual",
     "nmOnlyTitle": "Solo compramos en Near Mint (NM)",
     "nmOnlyBody": "Si al recibir y verificar la carta no está en NM, no se compra: se devuelve si deseas (a tu costo, 7 días) o se considera abandonada a los 30 días.",
+    "request": {
+      "address": {
+        "label": "Dirección de origen",
+        "why": "La necesitamos para imprimir la guía que te vamos a mandar.",
+        "printed": "Esta dirección va impresa en la guía.",
+        "missing": "Elige la dirección de donde salen tus cartas para continuar."
+      }
+    },
     "requestTitle": "Crear solicitud de venta",
     "clabeLabel": "CLABE (18 dígitos, a tu nombre)",
     "clabeHint": "El pago SPEI se realiza a esta CLABE, que debe estar a tu nombre.",
@@ -725,6 +733,18 @@
       "sealed": "Sellado"
     },
     "rarityLabel": "Rareza",
+    "quote": {
+      "money": {
+        "cardsValue": "Valor de tus cartas"
+      },
+      "shippingNote": "Nosotros ponemos la guía de envío y su costo se descuenta siempre de lo que te pagamos: tú no pagas nada de tu bolsillo. El monto exacto va en la oferta, antes de que aceptes.",
+      "minimum": {
+        "shortfall": "Te faltan {amount}",
+        "minimumIs": "para el mínimo de {amount}.",
+        "addAnother": "Agrega otra carta.",
+        "reachedAnnounce": "Ya alcanzaste el mínimo de {amount}."
+      }
+    },
     "cartTitle": "Tu lista",
     "cartCount": "{count} carta(s)",
     "cartFab": {
@@ -743,7 +763,6 @@
     "increaseQty": "Aumentar cantidad",
     "decreaseQty": "Disminuir cantidad",
     "removeLine": "Quitar",
-    "totalEstimated": "Total estimado",
     "clearCart": "Vaciar la lista",
     "cartFooterNote": "El pago se realiza después de recibir y verificar tus cartas.",
     "linePending": "Precio pendiente",
@@ -752,7 +771,7 @@
     "estimateNote": "El total es un ESTIMADO. El monto final lo confirma la plataforma cuando recibimos y verificamos tus cartas.",
     "sendRequestCta": "Enviar solicitud ({count})",
     "summaryTitle": "Resumen de tu venta",
-    "trustShipping": "Tú cubres el envío de tus cartas hacia nosotros (mira la guía de envío seguro). Si una carta se rechaza por no estar en NM, la devolución también corre por tu cuenta (7 días).",
+    "trustShipping": "Si una carta se rechaza por no estar en NM, la devolución corre por tu cuenta (7 días).",
     "trustPayment": "El pago se realiza después de recibir y verificar tus cartas.",
     "trustValidity": "La cotización es un estimado con los precios de hoy; el monto final se confirma con los precios vigentes al verificar tus cartas.",
     "clabeSectionTitle": "Cuenta de pago (SPEI)",
@@ -2583,7 +2602,10 @@
     "GRADED_ESTIMATE_SLAB_PUBLISHED": "Esta carta ya tiene una pieza publicada de ese grado. Ese precio es dinero real, no un estimado; para cambiarlo, edita el precio de la pieza en Inventario › Gradeadas.",
     "GRADED_ESTIMATE_SLAB_PUBLISHED_WITH_DETAILS": "Esta carta ya tiene {count, plural, one {una pieza {grade} publicada} other {# piezas {grade} publicadas}}. Ese precio es dinero real, no un estimado; para cambiarlo, edita el precio de la pieza en Inventario › Gradeadas.",
     "GRADING_SORT_REQUIRES_FILTER": "Ese orden solo existe para la vitrina de cartas destacadas para gradear; sin ese filtro no se puede aplicar.",
-    "GRADED_CONFIG_INVALID": "Un umbral de la configuración del gancho está corrupto, así que no se evalúa nada: una lista de revisión calculada contra un umbral basura es peor que no tenerla. Corrige la configuración de arriba y reintenta."
+    "GRADED_CONFIG_INVALID": "Un umbral de la configuración del gancho está corrupto, así que no se evalúa nada: una lista de revisión calculada contra un umbral basura es peor que no tenerla. Corrige la configuración de arriba y reintenta.",
+    "PICKUP_ADDRESS_REQUIRED": "Necesitamos la dirección de donde salen tus cartas para imprimir la guía.",
+    "PICKUP_ADDRESS_NOT_FOUND": "Esa dirección ya no está en tu libreta. Elige otra o agrega una nueva.",
+    "BUYLIST_MINIMUM_NOT_MET": "Tu solicitud todavía no alcanza el mínimo de compra."
   },
   "payment": {
     "title": "Pago",

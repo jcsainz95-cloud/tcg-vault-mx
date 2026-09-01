@@ -69,6 +69,16 @@ async function openBaseSet() {
  * grid anterior — sin panel intermedio). La casilla queda habilitada cuando su cotización
  * (batch client-side de MasterSetBinder) resuelve.
  */
+/**
+ * v1.51.3 (D36/D37): crear la solicitud exige `addressId`. La libreta mock trae una dirección
+ * predeterminada, así que el modal la PRESELECCIONA — pero llega por red: los tests esperan al
+ * `Select` antes de confirmar. (Que el id viaje explícito lo verifica BuylistKycForm.test.)
+ */
+async function pickAddress() {
+  const select = (await screen.findByLabelText('Dirección de origen')) as HTMLSelectElement;
+  await waitFor(() => expect(select.value).toBe('addr-1'));
+}
+
 async function addCard(name: string, finish = 'Normal') {
   await openBaseSet();
   const btn = await screen.findByRole('button', {
@@ -130,7 +140,7 @@ describe('BuylistView · raw = binder Master Set (mode="quoter", v1.21)', () => 
     );
 
     openCart();
-    expect(screen.getByText('Total estimado')).toBeInTheDocument();
+    expect(screen.getByText('Valor de tus cartas')).toBeInTheDocument();
     expect(screen.getByText('Estimado c/u:')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Enviar solicitud (1)' })).toBeEnabled();
   });
@@ -286,6 +296,7 @@ describe('BuylistView · carrito de venta', () => {
       target: { value: '002010077777777771' },
     });
     // a11y (hallazgo QA): el submit del modal KYC tiene una etiqueta DISTINTA del CTA del carrito.
+    await pickAddress();
     fireEvent.click(screen.getByRole('button', { name: 'Confirmar y enviar' }));
 
     await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
@@ -344,6 +355,7 @@ describe('BuylistView · carrito de venta', () => {
     fireEvent.change(await screen.findByLabelText(/CLABE/), {
       target: { value: '002010077777777771' },
     });
+    await pickAddress();
     fireEvent.click(screen.getByRole('button', { name: 'Confirmar y enviar' }));
 
     await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
@@ -569,6 +581,7 @@ describe('BuylistView · graded/sealed (grid plano, sin variantes por acabado)',
     fireEvent.change(await screen.findByLabelText(/CLABE/), {
       target: { value: '002010077777777771' },
     });
+    await pickAddress();
     fireEvent.click(screen.getByRole('button', { name: 'Confirmar y enviar' }));
 
     await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
@@ -622,6 +635,7 @@ describe('BuylistView · acabado (finish, raw)', () => {
     fireEvent.change(await screen.findByLabelText(/CLABE/), {
       target: { value: '002010077777777771' },
     });
+    await pickAddress();
     fireEvent.click(screen.getByRole('button', { name: 'Confirmar y enviar' }));
 
     await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
@@ -859,6 +873,7 @@ describe('BuylistView · gating de requisitos de cuenta (vender)', () => {
     openCart();
 
     fireEvent.click(screen.getByRole('button', { name: 'Enviar solicitud (1)' }));
+    await pickAddress();
     fireEvent.click(await screen.findByRole('button', { name: 'Confirmar y enviar' }));
 
     expect(screen.getByText('La CLABE debe tener 18 dígitos.')).toBeInTheDocument();
@@ -920,6 +935,7 @@ describe('BuylistView · v1.15 CLABE/INE en archivo', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Enviar solicitud (1)' }));
     // El modal arranca en modo "usar mi CLABE": se confirma sin teclear los 18 dígitos.
+    await pickAddress();
     fireEvent.click(await screen.findByRole('button', { name: 'Confirmar y enviar' }));
 
     await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
@@ -971,6 +987,7 @@ describe('BuylistView · productos SEPARADOS por productId (v1.30 §4.29)', () =
     fireEvent.change(await screen.findByLabelText(/CLABE/), {
       target: { value: '002010077777777771' },
     });
+    await pickAddress();
     fireEvent.click(screen.getByRole('button', { name: 'Confirmar y enviar' }));
 
     await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
@@ -996,6 +1013,7 @@ describe('BuylistView · productos SEPARADOS por productId (v1.30 §4.29)', () =
     fireEvent.change(await screen.findByLabelText(/CLABE/), {
       target: { value: '002010077777777771' },
     });
+    await pickAddress();
     fireEvent.click(screen.getByRole('button', { name: 'Confirmar y enviar' }));
 
     await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
@@ -1019,6 +1037,7 @@ describe('BuylistView · productos SEPARADOS por productId (v1.30 §4.29)', () =
     fireEvent.change(await screen.findByLabelText(/CLABE/), {
       target: { value: '002010077777777771' },
     });
+    await pickAddress();
     fireEvent.click(screen.getByRole('button', { name: 'Confirmar y enviar' }));
 
     await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
@@ -1063,7 +1082,7 @@ describe('BuylistView · P-42 carrito fijo (desktop) + sombreado', () => {
       expect(screen.queryByTestId('sell-cart-fab')).not.toBeInTheDocument();
       expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
       // El total y el CTA de enviar están a la vista SIN necesidad de abrir el carrito.
-      expect(screen.getByText('Total estimado')).toBeInTheDocument();
+      expect(screen.getByText('Valor de tus cartas')).toBeInTheDocument();
       expect(screen.getByRole('button', { name: 'Enviar solicitud (1)' })).toBeEnabled();
     } finally {
       restore();
@@ -1132,5 +1151,103 @@ describe('BuylistView · P-44 rareza en las tejas', () => {
     await screen.findByRole('button', { name: /^Agregar Charizard \(Normal\) a la venta/ });
     // La rareza se pinta en las tejas (una por acabado de Charizard).
     expect(screen.getAllByText('Rare Holo').length).toBeGreaterThan(0);
+  });
+});
+
+/**
+ * v1.51.4/v1.51.5 (D43) — EL COTIZADOR PIERDE LA ARITMÉTICA DEL ENVÍO Y CONSERVA EL FALTANTE.
+ *
+ * Lo que estos tests fijan, y por qué cada uno:
+ *  - el bloque de dinero tiene UN SOLO monto (sin línea de envío, sin resta, sin neto, sin `≈`);
+ *  - la nota de servicio es copy estático: se pinta con el carrito VACÍO y no espera a ningún dato;
+ *  - el faltante del mínimo (criterio 132a) dice CUÁNTO falta y apaga el CTA;
+ *  - si `GET /buylist/quote-policy` falla, la degradación es FAIL-OPEN (sin faltante, CTA vivo).
+ */
+describe('BuylistView · cotizador sin cifras de envío (D43) + faltante del mínimo (132a)', () => {
+  const NOTE_ES =
+    'Nosotros ponemos la guía de envío y su costo se descuenta siempre de lo que te pagamos: tú no pagas nada de tu bolsillo. El monto exacto va en la oferta, antes de que aceptes.';
+
+  it('la nota de servicio se pinta con el carrito VACÍO (copy estático: no espera a ningún dato)', () => {
+    // Sin sesión y sin cotizar nada: el trato se explica antes de que agregar cueste algo.
+    renderWithProviders(<BuylistView />, 'es');
+    openCart();
+    expect(screen.getByText('Tu carrito está vacío. Elige una carta del catálogo para agregarla.')).toBeInTheDocument();
+    expect(screen.getByTestId('buylist-shipping-note')).toHaveTextContent(NOTE_ES);
+  });
+
+  it('la nota sigue ahí aunque la política del cotizador FALLE (no se esqueletiza, no se condiciona)', async () => {
+    vi.spyOn(api, 'getBuylistQuotePolicy').mockRejectedValue(new Error('network'));
+    renderWithProviders(<BuylistView />, 'es');
+    openCart();
+    expect(screen.getByTestId('buylist-shipping-note')).toHaveTextContent(NOTE_ES);
+  });
+
+  it('el bloque de dinero lleva UN SOLO monto: ni línea de envío, ni resta, ni neto, ni «≈»', async () => {
+    asVerifiedCustomer();
+    renderWithProviders(<BuylistView />, 'es');
+    await addCard('Charizard');
+    openCart();
+
+    const money = screen.getByTestId('sell-cart-money');
+    // El único rótulo de monto del bloque (§23.12), y jamás uno que prometa depósito.
+    expect(within(money).getByText('Valor de tus cartas')).toBeInTheDocument();
+    await waitFor(() => expect(money.textContent?.match(/MX\$/g) ?? []).toHaveLength(1));
+    expect(money.textContent).not.toMatch(/≈|%|recibir[íi]as|neto|te quedar[íi]an|env[íi]o que ponemos/i);
+    // Y la nota vive DENTRO del bloque de dinero, sin caja ni regla que la separe del monto.
+    expect(within(money).getByTestId('buylist-shipping-note')).toBeInTheDocument();
+  });
+
+  it('por debajo del mínimo: dice cuánto falta (con el número del servidor) y el CTA NO procede', async () => {
+    asVerifiedCustomer();
+    // Mínimo alto a propósito: 1 Charizard (MX$24,250) queda por debajo de MX$50,000.
+    vi.spyOn(api, 'getBuylistQuotePolicy').mockResolvedValue({ minimumRequestCents: 5_000_000 });
+    renderWithProviders(<BuylistView />, 'es');
+    await addCard('Charizard');
+    openCart();
+
+    const shortfall = await screen.findByTestId('buylist-minimum-shortfall');
+    expect(shortfall).toHaveTextContent('Te faltan MX$25,750.00');
+    expect(shortfall).toHaveTextContent('para el mínimo de MX$50,000.00');
+    expect(shortfall).toHaveTextContent('Agrega otra carta.');
+    // ⛔ el faltante NUNCA se expresa en términos de envío.
+    expect(shortfall.textContent).not.toMatch(/env[íi]o|gu[íi]a/i);
+
+    const cta = screen.getByRole('button', { name: 'Enviar solicitud (1)' });
+    expect(cta).toBeDisabled();
+    // §15.9: apagado pero no mudo — apunta al texto que explica y da el remedio.
+    expect(cta.getAttribute('aria-describedby')).toContain('sell-cart-minimum');
+  });
+
+  it('al CRUZAR el mínimo el faltante desaparece y se anuncia SIN mencionar envío ni neto', async () => {
+    asVerifiedCustomer();
+    // MX$30,000: una Charizard queda debajo; dos, arriba.
+    vi.spyOn(api, 'getBuylistQuotePolicy').mockResolvedValue({ minimumRequestCents: 3_000_000 });
+    renderWithProviders(<BuylistView />, 'es');
+    await addCard('Charizard');
+    openCart();
+    expect(await screen.findByTestId('buylist-minimum-shortfall')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Aumentar cantidad' }));
+
+    await waitFor(() =>
+      expect(screen.queryByTestId('buylist-minimum-shortfall')).not.toBeInTheDocument(),
+    );
+    const announce = await screen.findByText('Ya alcanzaste el mínimo de MX$30,000.00.');
+    expect(announce).toHaveAttribute('aria-live', 'polite');
+    expect(announce.textContent).not.toMatch(/env[íi]o|neto/i);
+    expect(screen.getByRole('button', { name: 'Enviar solicitud (2)' })).toBeEnabled();
+  });
+
+  it('FAIL-OPEN: si la política no llega, no se pinta faltante, no se inventa mínimo y el CTA sigue vivo', async () => {
+    asVerifiedCustomer();
+    vi.spyOn(api, 'getBuylistQuotePolicy').mockRejectedValue(new Error('429'));
+    renderWithProviders(<BuylistView />, 'es');
+    await addCard('Charizard');
+    openCart();
+
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Enviar solicitud (1)' })).toBeEnabled());
+    expect(screen.queryByTestId('buylist-minimum-shortfall')).not.toBeInTheDocument();
+    // Ni un número inventado: el bloque de dinero sigue con UN solo monto.
+    expect(screen.getByTestId('sell-cart-money').textContent?.match(/MX\$/g) ?? []).toHaveLength(1);
   });
 });

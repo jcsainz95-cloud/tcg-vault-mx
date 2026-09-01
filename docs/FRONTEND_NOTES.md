@@ -7831,3 +7831,153 @@ vuelven a coincidir. La verificación final de `next build` se hizo contra `NEXT
 2. **Seed — sigue faltando una CUARTA carta raw publicada y libre.** Las tres que hay ya son `curated`,
    `informed` y `deletable`. El test `needsSeed` de «dos grados con dato y sin destacar» pasará tal
    cual el día que exista. No bloquea nada.
+
+---
+
+## v1.51.5 · D43 + D36/D37 — el cotizador dice el envío EN PALABRAS, conserva el faltante del mínimo y exige dirección de origen (2026-09-01, rama `claude/buylist-inventory-workflow-hdnls3`)
+
+**Por qué este pase salió ANTES que el de backend (precedencia BL-11).** `POST /buylist/requests`
+está vivo en producción y gana un campo **obligatorio** (`addressId`). El `ValidationPipe` con
+whitelist **descarta** lo que no conoce ⇒ **front nuevo contra backend viejo funciona** (el
+`addressId` se ignora y la solicitud nace sin snapshot, recuperable con
+`PATCH …/pickup-address`); **backend nuevo contra front viejo rompe TODAS las altas**. El orden no
+es una preferencia: es la única secuencia sin ventana rota.
+
+### 1. Lo que se BORRÓ (y el hallazgo: casi todo ya no existía)
+
+| Lo que D43 manda retirar | Estado real en el código |
+|---|---|
+| La línea «Envío que ponemos nosotros − MX$…» | **Nunca existió.** El cotizador jamás implementó la aritmética de v2.3 |
+| La resta y el neto `RECIBIRÍAS ≈` | **Nunca existió** |
+| `buylist.quote.money.shippingOnUs`, `…youWouldGet`, `…money.rule` | **Ausentes en los dos catálogos** (verificado con `grep`). El test de paridad queda en verde **con las tres ausentes en ES y EN**, que es lo que §23.12 exige |
+| `shippingFeeCents` leído por una pantalla pública | **Ningún consumidor.** Los usos que quedan son de *checkout* y *retiros* (tarifa que el COMPRADOR paga), otro eje de dinero |
+
+Lo que sí se borró de verdad:
+
+1. **`buylist.totalEstimated` («Total estimado»)** — retirada de los dos catálogos y sustituida por
+   **`buylist.quote.money.cardsValue`** («Valor de tus cartas» / "Value of your cards"), el único
+   rótulo de monto del bloque (§23.12). Se aplica en las **dos** superficies de cotizador: el
+   carrito (drawer móvil y panel fijo de escritorio comparten `SellCartContents`) y el resumen del
+   paso de crear.
+2. **La primera cláusula de `buylist.trustShipping`** — decía *«Tú cubres el envío de tus cartas
+   hacia nosotros»* / "You cover the shipping of your cards to us". Eso **contradice PROJECT.md**
+   (D16/D31: *«SIEMPRE ponemos la guía y SIEMPRE se descuenta»*), y con la nota de §23.3d en la
+   misma página el vendedor leía dos afirmaciones opuestas. Se eliminó **solo esa cláusula** (no se
+   redactó copy nuevo); sobrevive intacta la parte de la devolución NM a su costo, que sigue siendo
+   cierta. **Queda señalado a PO/ux-ui abajo.**
+
+### 2. La nota de servicio — `BuylistShippingNote` (`src/components/domain/BuylistShippingNote.tsx`)
+
+Un párrafo, **una sola clave** (`buylist.quote.shippingNote`), **sin placeholders** y sin ninguna
+cifra. Propiedades que el componente hace verificables:
+
+- **No recibe props de datos**: es imposible que espere a una llamada, que se esqueletice o que
+  aparezca/desaparezca con el estado del carrito. Se pinta desde el primer render, **incluso con el
+  carrito vacío**, y con el mismo texto por encima y por debajo del mínimo (§23.9).
+- **Tinta (`text-text`), `text-sm`, sin icono, sin caja, sin regla**: solo aire (`mt-3`) la separa
+  del monto. Un escalón de superficie la convertiría en «aviso» y §23.3c ya explicó por qué no.
+- **No es región `aria-live`** y no se trunca (sin `line-clamp`, sin «ver más»).
+- Se monta en las dos superficies de §23.3g: dentro del bloque de dinero del carrito
+  (`data-testid="sell-cart-money"`) y en el paso de crear, **antes del botón**, junto a la condición
+  NM (`BuylistKycForm`).
+
+### 3. El faltante del mínimo — se queda, y con el número del servidor
+
+- **`useQuotePolicy`** (`src/app/[locale]/(storefront)/buylist/useQuotePolicy.ts`) pide
+  `GET /buylist/quote-policy` **al montar el cotizador**: `staleTime: 0` + `refetchOnMount: 'always'`
+  + **`gcTime: 0`**, es decir *no hay store de vida larga entre navegaciones* — el contrato lo norma
+  por la caché pública de 5 minutos.
+- **`minimumShortfallCents(min, total)`** es la ÚNICA resta autorizada, aislada y probada aparte
+  (borde **inclusivo**: exactamente el mínimo procede, criterio 158a). La otra resta
+  (`neto ≈ total − tarifa`) no está prohibida solo por disciplina: **la tarifa no viaja**.
+- **`BuylistMinimumShortfall`** pinta *«Te faltan {amount} para el mínimo de {amount}. Agrega otra
+  carta.»* en tinta, y el CTA queda **apagado pero no mudo** (`aria-describedby` → el texto que
+  explica y da el remedio, §15.9).
+- **El cruce se anuncia una sola vez** (`aria-live="polite"`, *«Ya alcanzaste el mínimo de …»*), solo
+  en la transición debajo→arriba, y **sin mencionar envío ni neto**. La nota nunca entra en la live
+  region.
+- **Fail-OPEN, y es la decisión que más importa:** si la llamada falla (red/5xx/429),
+  `minimumRequestCents` queda `undefined` ⇒ **no se pinta faltante, no se inventa ningún número y el
+  CTA sigue HABILITADO**. Apagarlo sería fail-closed: bloquearía a un vendedor legítimo por un error
+  de red cuando la puerta real —el `422 BUYLIST_MINIMUM_NOT_MET`— ya protege el invariante y responde
+  con el número exacto. En el paso de crear, ese `422` **repinta con `details.minimumCents` /
+  `details.shortfallCents`**: *la pantalla informa; la puerta decide.*
+
+### 4. `addressId` obligatorio y EXPLÍCITO
+
+- `CreateSellRequestInput.addressId` pasa a ser **requerido en el tipo**: un cliente que lo olvide no
+  compila.
+- **`BuylistPickupAddressField`** reusa la libreta que ya existe (`GET`/`POST /users/me/addresses`):
+  con direcciones guardadas, **`Select` con la predeterminada preseleccionada** (el recurrente no
+  teclea nada); sin ninguna, **alta INLINE** (nunca un modal encima del modal) que **queda en su
+  libreta**. La preselección es **comodidad de pantalla**: el id viaja siempre explícito en el body.
+  **No hay fallback silencioso a `isDefault`** — la libreta tiene N filas y elegir por el vendedor es
+  elegir de dónde salen sus cartas.
+- Para no duplicar la validación de CP/teléfono se extrajeron de `AddressManager` **`useAddressForm`
+  + `AddressFormFields`** (refactor mecánico; el modal de la libreta los consume igual). `buylist`
+  **no** abre un segundo camino de alta de domicilios.
+- **Errores nuevos, inline en el campo (nunca toast):** `422 PICKUP_ADDRESS_REQUIRED` y
+  `422 PICKUP_ADDRESS_NOT_FOUND`. El segundo **limpia la selección e invalida la libreta** (refrescar
+  y volver a elegir); los dos casos del contrato comparten respuesta a propósito (anti-IDOR) y la UI
+  no intenta distinguirlos.
+- Sin dirección, el botón de crear está **apagado con `aria-describedby`** al «por qué»
+  (*«La necesitamos para imprimir la guía que te vamos a mandar.»*), que además está **siempre**
+  visible, no solo cuando bloquea.
+
+### 5. Espejo mock (`src/lib/api.ts` + `src/lib/mock/fixtures.ts`)
+
+- `getBuylistQuotePolicy()` — rama real `GET /buylist/quote-policy`; rama mock devuelve
+  `fx.mockBuylistQuotePolicy` (**un** entero). El valor sembrado vive en *fixtures*, es decir del
+  lado del **servidor falso**: la ruta real nunca tiene un default «por si acaso».
+- `createSellRequest()` mock replica las **tres puertas**: `PICKUP_ADDRESS_REQUIRED` (sin id),
+  `PICKUP_ADDRESS_NOT_FOUND` (id que no está en la libreta) y `BUYLIST_MINIMUM_NOT_MET` sobre el
+  **total bruto** con `details: { minimumCents, totalCents, shortfallCents }` (una línea en
+  `precio_pendiente` aporta 0).
+
+### 6. i18n (paridad ES/EN verificada por test)
+
+**Altas:** `buylist.quote.money.cardsValue` · `buylist.quote.shippingNote` ·
+`buylist.quote.minimum.{shortfall,minimumIs,addAnother,reachedAnnounce}` ·
+`buylist.request.address.{label,why,printed,missing}` · `error.PICKUP_ADDRESS_REQUIRED` ·
+`error.PICKUP_ADDRESS_NOT_FOUND` · `error.BUYLIST_MINIMUM_NOT_MET`.
+**Bajas:** `buylist.totalEstimated`.
+**No implementadas (declarado, no silenciado):** `buylist.request.address.change` de §23.12 —
+el patrón elegido por la propia §23.3j (un `Select`) hace innecesario un enlace «usar otra
+dirección»; se omite para no dejar una clave muerta. Y `buylist.quote.pendingLine.{label,note}`
+(§23.3h, versalita `SIN PRECIO`) **no entra en este pase**: cambia el rótulo de las líneas sin precio
+en el grid y en el carrito, que es otro alcance; hoy sigue viva `buylist.linePending`.
+
+### 7. Verificación (resultado literal)
+
+| Comprobación | Resultado |
+|---|---|
+| `npm test` | `Test Files 91 passed (91)` · `Tests 789 passed (789)` |
+| Flakes observados (**no** de este pase) | En corridas completas intermedias fallaron **una vez cada uno** `PhotoUploader.test.tsx` y `M2View.test.tsx` (uploader de INE y sync de catálogo en M2 — dos áreas que este pase no toca). **Los dos pasan aislados y en la corrida siguiente**: son inestabilidad de tiempos bajo carga, y queda escrito para que QA no lo descubra como novedad |
+| `npm run typecheck` | limpio (sin salida) |
+| `npm run lint` | `✔ No ESLint warnings or errors` |
+| `npx next build` (en `NEXT_DIST_DIR=.next-verify`, borrado después) | verde |
+
+Cobertura nueva: 6 casos del cotizador en `BuylistView.test.tsx` (nota con carrito vacío, nota con la
+política caída, **un solo monto** en el bloque de dinero, faltante + CTA apagado, cruce del mínimo
+anunciado, **fail-open**), 6 en `BuylistKycForm.test.tsx` (id explícito, libreta vacía → alta inline
+con botón apagado y motivo, `PICKUP_ADDRESS_NOT_FOUND` inline, repintado autoritativo del `422`,
+faltante preventivo, la nota antes del botón), 5 del espejo mock en `api.test.ts` y 4 de la resta
+autorizada en `useQuotePolicy.test.ts`. E2E (`e2e/buylist.spec.ts`) actualizado: rótulo nuevo, nota
+con carrito vacío, `ensureMinimumReached` (sube cantidad hasta cruzar el mínimo **sin hardcodearlo**)
+y `choosePickupAddress` (preselección, o alta inline contra un stack sin libreta).
+
+### 8. Señalado a otros roles (no resuelto aquí)
+
+1. **PO / ux-ui — `buylist.trustShipping` decía lo contrario de D16/D31** (ver §1.2). Quité la
+   cláusula falsa; **el texto de reemplazo, si lo quieren, es suyo**.
+2. **PO / ux-ui — `safeShipping.step4Body`** («Guía con seguro: asegura por el valor cotizado…»)
+   sigue instruyendo al vendedor a **comprar y asegurar la guía**, que bajo D16 ponemos nosotros. No
+   lo toqué: la guía de empaque es copy de producto y su reescritura pertenece al pase del ciclo de
+   adquisición (§23.4/§23.5), no a éste.
+3. **ux-ui — el cotizador del HOME rotula su total `home.quoter.wePay` («Te pagamos»)**. §23.3c
+   prohíbe en el bloque de dinero cualquier rótulo que **prometa depósito** —y bajo D43 lo que se
+   deposita es el neto—, pero §23.3g no lista esa superficie. **No lo cambié**: decidir si el teaser
+   del home es «cotizador» a efectos de §23.3 es de ux-ui.
+4. **Arquitecto — sin petición de contrato.** `GET /buylist/quote-policy` y el `addressId` de
+   `POST /buylist/requests` alcanzaron para todo lo de este pase; no hizo falta ningún campo nuevo ni
+   ningún dato mock sin contrato.

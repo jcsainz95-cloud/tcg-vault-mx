@@ -683,6 +683,14 @@
     "limitPerMonth": "Monthly cap",
     "nmOnlyTitle": "We only buy Near Mint (NM)",
     "nmOnlyBody": "If on receipt and verification the card isn't NM, we don't buy it: it's returned if you wish (at your cost, 7 days) or considered abandoned after 30 days.",
+    "request": {
+      "address": {
+        "label": "Pickup address",
+        "why": "We need it to print the label we'll send you.",
+        "printed": "This address is printed on the label.",
+        "missing": "Choose the address your cards ship from to continue."
+      }
+    },
     "requestTitle": "Create sell request",
     "clabeLabel": "CLABE (18 digits, in your name)",
     "clabeHint": "The SPEI payment goes to this CLABE, which must be in your name.",
@@ -725,6 +733,18 @@
       "sealed": "Sealed"
     },
     "rarityLabel": "Rarity",
+    "quote": {
+      "money": {
+        "cardsValue": "Value of your cards"
+      },
+      "shippingNote": "We provide the shipping label and its cost is always deducted from what we pay you: you pay nothing out of pocket. The exact amount is in the offer, before you accept.",
+      "minimum": {
+        "shortfall": "You're {amount} short",
+        "minimumIs": "of the {amount} minimum.",
+        "addAnother": "Add another card.",
+        "reachedAnnounce": "You've reached the {amount} minimum."
+      }
+    },
     "cartTitle": "Your list",
     "cartCount": "{count} card(s)",
     "cartFab": {
@@ -743,7 +763,6 @@
     "increaseQty": "Increase quantity",
     "decreaseQty": "Decrease quantity",
     "removeLine": "Remove",
-    "totalEstimated": "Estimated total",
     "clearCart": "Clear the list",
     "cartFooterNote": "Payment is made after we receive and verify your cards.",
     "linePending": "Price pending",
@@ -752,7 +771,7 @@
     "estimateNote": "The total is an ESTIMATE. The final amount is confirmed by the platform when we receive and verify your cards.",
     "sendRequestCta": "Submit request ({count})",
     "summaryTitle": "Your sale summary",
-    "trustShipping": "You cover the shipping of your cards to us (see the safe shipping guide). If a card is rejected for not being NM, the return is also at your cost (7 days).",
+    "trustShipping": "If a card is rejected for not being NM, the return is at your cost (7 days).",
     "trustPayment": "Payment is made after we receive and verify your cards.",
     "trustValidity": "The quote is an estimate at today's prices; the final amount is confirmed at the prices in effect when we verify your cards.",
     "clabeSectionTitle": "Payout account (SPEI)",
@@ -2583,7 +2602,10 @@
     "GRADED_ESTIMATE_SLAB_PUBLISHED": "This card already has a published piece of that grade. That price is real money, not an estimate; to change it, edit the piece price in Inventory › Graded.",
     "GRADED_ESTIMATE_SLAB_PUBLISHED_WITH_DETAILS": "This card already has {count, plural, one {one published {grade} piece} other {# published {grade} pieces}}. That price is real money, not an estimate; to change it, edit the piece price in Inventory › Graded.",
     "GRADING_SORT_REQUIRES_FILTER": "That sort order only exists for the showcase of cards worth grading; without that filter it cannot be applied.",
-    "GRADED_CONFIG_INVALID": "A threshold in the hook configuration is corrupt, so nothing is evaluated: a review list computed against a garbage threshold is worse than no list. Fix the configuration above and retry."
+    "GRADED_CONFIG_INVALID": "A threshold in the hook configuration is corrupt, so nothing is evaluated: a review list computed against a garbage threshold is worse than no list. Fix the configuration above and retry.",
+    "PICKUP_ADDRESS_REQUIRED": "We need the address your cards ship from to print the label.",
+    "PICKUP_ADDRESS_NOT_FOUND": "That address is no longer in your address book. Choose another or add a new one.",
+    "BUYLIST_MINIMUM_NOT_MET": "Your request is still below the buy minimum."
   },
   "payment": {
     "title": "Payment",

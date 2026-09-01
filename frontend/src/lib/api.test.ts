@@ -4,6 +4,8 @@ import {
   getCatalogFacets,
   getPortfolioHistory,
   getBuylistQuote,
+  getBuylistQuotePolicy,
+  createSellRequest,
   batchQuote,
   BUYLIST_QUOTE_BATCH_MAX,
   loginWithGoogle,
@@ -616,5 +618,86 @@ describe('api (rama REAL) · WS-F endpoints, headers y errores', () => {
     expect(list).toHaveLength(1);
     expect(String(fetchMock.mock.calls[0][0])).toContain('/disputes');
     expect(fetchMock.mock.calls[0][1].method ?? 'GET').toBe('GET');
+  });
+});
+
+/**
+ * v1.51.4/v1.51.5 (D41/D43) + v1.51.3 (D36/D37) — el ESPEJO mock de la política del cotizador y
+ * de las tres puertas nuevas de `POST /buylist/requests`. Si el mock deja de espejar el contrato,
+ * la UI se prueba contra una mentira: por eso el shape se afirma campo por campo.
+ */
+describe('api · buylist quote-policy (D43) y las puertas de POST /buylist/requests (D36/D37)', () => {
+  const ITEMS = [{ cardId: 'c-charizard', productType: 'raw' as const, rawCondition: 'NM' as const }];
+
+  it('getBuylistQuotePolicy devuelve UN SOLO campo: el mínimo (⛔ sin `shippingFeeCents`)', async () => {
+    const policy = await getBuylistQuotePolicy();
+    // La lista de lo que NO lleva es CERRADA: cualquier dial extra en ruta pública es un defecto.
+    expect(Object.keys(policy)).toEqual(['minimumRequestCents']);
+    expect(typeof policy.minimumRequestCents).toBe('number');
+    expect('shippingFeeCents' in policy).toBe(false);
+  });
+
+  it('getBuylistQuotePolicy REAL → GET /buylist/quote-policy (sin body, sin params)', async () => {
+    const originalUseMocks = config.useMocks;
+    const fetchMock = vi.fn().mockResolvedValue({
+      status: 200,
+      ok: true,
+      json: async () => ({ minimumRequestCents: 50000 }),
+    } as unknown as Response);
+    config.useMocks = false;
+    vi.stubGlobal('fetch', fetchMock);
+    try {
+      await expect(getBuylistQuotePolicy()).resolves.toEqual({ minimumRequestCents: 50000 });
+      const [url, init] = fetchMock.mock.calls[0];
+      expect(String(url)).toContain('/buylist/quote-policy');
+      expect(init?.method ?? 'GET').toBe('GET');
+      expect(init?.body).toBeUndefined();
+    } finally {
+      config.useMocks = originalUseMocks;
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('sin `addressId` NO se crea nada: 422 PICKUP_ADDRESS_REQUIRED (hermano de CLABE_REQUIRED)', async () => {
+    await expect(
+      // @ts-expect-error — el tipo YA lo exige; el test cubre al cliente desactualizado.
+      createSellRequest({ items: ITEMS, clabe: '002010077777777771' }),
+    ).rejects.toMatchObject({ status: 422, code: 'PICKUP_ADDRESS_REQUIRED' });
+  });
+
+  it('`addressId` ajeno o inexistente: 422 PICKUP_ADDRESS_NOT_FOUND (misma respuesta, anti-IDOR)', async () => {
+    await expect(
+      createSellRequest({ items: ITEMS, addressId: 'addr-de-otro', clabe: '002010077777777771' }),
+    ).rejects.toMatchObject({ status: 422, code: 'PICKUP_ADDRESS_NOT_FOUND' });
+  });
+
+  it('con dirección propia crea la solicitud y devuelve el shape del contrato', async () => {
+    const res = await createSellRequest({
+      items: ITEMS,
+      addressId: fx.mockAddresses[0].id,
+      clabe: '002010077777777771',
+    });
+    expect(res.status).toBe('cotizada');
+    expect(res.items).toHaveLength(1);
+    expect(res.quotedTotalCents).toBeGreaterThan(0);
+  });
+
+  it('por debajo del mínimo: 422 BUYLIST_MINIMUM_NOT_MET con el `shortfallCents` del SERVIDOR', async () => {
+    // Zapdos entra en `precio_pendiente` ⇒ aporta 0 al total ⇒ la solicitud no alcanza el mínimo.
+    await expect(
+      createSellRequest({
+        items: [{ cardId: 'c-zapdos', productType: 'raw', rawCondition: 'NM', finish: 'holofoil' }],
+        addressId: fx.mockAddresses[0].id,
+        clabe: '002010077777777771',
+      }),
+    ).rejects.toMatchObject({
+      status: 422,
+      code: 'BUYLIST_MINIMUM_NOT_MET',
+      details: {
+        minimumCents: fx.mockBuylistQuotePolicy.minimumRequestCents,
+        totalCents: 0,
+        shortfallCents: fx.mockBuylistQuotePolicy.minimumRequestCents,
+      },
+    });
   });
 });

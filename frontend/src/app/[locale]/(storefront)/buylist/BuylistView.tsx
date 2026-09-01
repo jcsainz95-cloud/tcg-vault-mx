@@ -51,6 +51,9 @@ import { FinishMark } from '@/components/domain/FinishMark';
 // en módulos propios (extracción mecánica, sin cambio de comportamiento).
 import { useSellCart } from './useSellCart';
 import { SellCartContents } from './SellCartContents';
+// v1.51.4 (D43): el mínimo de compra del cotizador. Se pide AL MONTAR esta vista (el cotizador),
+// no se guarda en un store de vida larga: el contrato lo norma por la caché pública de 5 minutos.
+import { useQuotePolicy } from './useQuotePolicy';
 import { MyRequestsSection } from './MyRequestsSection';
 import { EditorialLink } from '../_shared/EditorialLink';
 
@@ -431,6 +434,9 @@ export function BuylistView() {
   // verificado, CLABE registrada e INE esperado por topes. El bloqueo real es server-side;
   // aquí solo se comunica temprano para que el 403 no sea la primera noticia.
   const sellReq = useSellRequirements(totalEstimatedCents);
+  // `minimumRequestCents` queda undefined mientras carga Y si la llamada falla: la degradación es
+  // fail-OPEN (sin faltante y con el CTA vivo), porque la puerta real es el 422 del servidor.
+  const { minimumRequestCents } = useQuotePolicy();
 
   return (
     <div className="grid lg:grid-cols-[40px_1fr]">
@@ -777,6 +783,7 @@ export function BuylistView() {
                 totalEstimatedCents={totalEstimatedCents}
                 pendingCardCount={pendingCardCount}
                 cartCount={cartCount}
+                minimumRequestCents={minimumRequestCents}
                 onSetQuantity={setQuantity}
                 onRemoveLine={removeLine}
                 onToggleLineDetail={toggleLineDetail}
@@ -812,6 +819,7 @@ export function BuylistView() {
             totalEstimatedCents={totalEstimatedCents}
             pendingCardCount={pendingCardCount}
             cartCount={cartCount}
+            minimumRequestCents={minimumRequestCents}
             onSetQuantity={setQuantity}
             onRemoveLine={removeLine}
             onToggleLineDetail={toggleLineDetail}
@@ -920,7 +928,7 @@ export function BuylistView() {
                 })}
               </ul>
               <div className="flex items-baseline justify-between gap-3 pt-3">
-                <span className="text-[13px] font-medium text-text">{t('totalEstimated')}</span>
+                <span className="text-[13px] font-medium text-text">{t('quote.money.cardsValue')}</span>
                 {totalEstimatedCents === 0 && pendingCardCount > 0 ? (
                   <span className="font-mono text-[13px] text-accent">{t('linePending')}</span>
                 ) : (
@@ -940,6 +948,10 @@ export function BuylistView() {
 
             <BuylistKycForm
               items={requestItems}
+              // El mismo mínimo del cotizador: el paso de crear no vuelve a pedirlo (una sola
+              // llamada por montaje) y el `422` del servidor manda sobre él si difieren.
+              minimumRequestCents={minimumRequestCents}
+              totalEstimatedCents={totalEstimatedCents}
               // Heads-up de topes/CLABE derivado de GET /users/me/kyc; el backend re-decide (SEC-A1).
               ineExpected={sellReq.ineExpected}
               clabeMasked={sellReq.clabeMasked}

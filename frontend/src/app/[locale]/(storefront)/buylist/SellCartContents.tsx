@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect, useRef, useState } from 'react';
 import { useLocale, useTranslations } from 'next-intl';
 import type { AppLocale } from '@/i18n/routing';
 import type { BuylistQuoteResponse } from '@/types/contract';
@@ -9,8 +10,11 @@ import { Button } from '@/components/ui/Button';
 import { Link } from '@/i18n/navigation';
 import { FinishMark } from '@/components/domain/FinishMark';
 import { SellRequirementsPanel } from '@/components/domain/SellRequirementsPanel';
+import { BuylistShippingNote } from '@/components/domain/BuylistShippingNote';
+import { BuylistMinimumShortfall } from '@/components/domain/BuylistMinimumShortfall';
 import type { CartLine } from './useSellCart';
 import { MAX_LINE_QUANTITY } from './useSellCart';
+import { minimumShortfallCents } from './useQuotePolicy';
 
 /**
  * Renglón de detalle: concepto a la izquierda, dato a la derecha.
@@ -44,6 +48,12 @@ export interface SellCartContentsProps {
   pendingCardCount: number;
   /** Piezas totales (suma de cantidades), para el CTA «Enviar solicitud (N)». */
   cartCount: number;
+  /**
+   * Mínimo de compra del servidor (`GET /buylist/quote-policy`). `undefined` mientras carga y
+   * también si la llamada FALLÓ: los dos casos degradan igual —sin faltante y con el CTA vivo—
+   * porque la puerta real es el `422` del servidor (fail-open, contrato §6).
+   */
+  minimumRequestCents?: number;
   onSetQuantity: (lineId: string, quantity: number) => void;
   onRemoveLine: (lineId: string) => void;
   onToggleLineDetail: (lineId: string) => void;
@@ -65,6 +75,7 @@ export function SellCartContents({
   totalEstimatedCents,
   pendingCardCount,
   cartCount,
+  minimumRequestCents,
   onSetQuantity,
   onRemoveLine,
   onToggleLineDetail,
@@ -75,6 +86,35 @@ export function SellCartContents({
   const tFinish = useTranslations('finish');
   const locale = useLocale() as AppLocale;
 
+  // Faltante del mínimo (criterio 132a). `null` = no hay faltante que pintar: o el mínimo ya se
+  // alcanzó (borde INCLUSIVO) o NO se conoce (la política no llegó) — y en ese segundo caso el
+  // CTA sigue habilitado a propósito: fail-open, la puerta es el `422` del servidor.
+  const shortfallCents =
+    cart.length > 0 ? minimumShortfallCents(minimumRequestCents, totalEstimatedCents) : null;
+  const belowMinimum = shortfallCents != null;
+
+  // §23.10 · el CRUCE del mínimo se anuncia una vez con `aria-live="polite"`, y el anuncio ya no
+  // menciona envío ni neto. Solo la TRANSICIÓN debajo→arriba habla: un carrito que nace por
+  // encima del mínimo no dispara nada (sería ruido), y la nota de servicio jamás entra aquí.
+  const [minimumAnnounce, setMinimumAnnounce] = useState('');
+  const wasBelowRef = useRef<boolean | null>(null);
+  useEffect(() => {
+    if (minimumRequestCents == null || cart.length === 0) {
+      wasBelowRef.current = null;
+      setMinimumAnnounce('');
+      return;
+    }
+    const below = totalEstimatedCents < minimumRequestCents;
+    if (wasBelowRef.current === true && !below) {
+      setMinimumAnnounce(
+        t('quote.minimum.reachedAnnounce', { amount: formatMoneyCents(minimumRequestCents, locale) }),
+      );
+    } else if (below) {
+      setMinimumAnnounce('');
+    }
+    wasBelowRef.current = below;
+  }, [minimumRequestCents, totalEstimatedCents, cart.length, locale, t]);
+
   return (
     <>
       {/* Requisitos de cuenta SIEMPRE visibles (aun con carrito vacío — §18.6: el
@@ -83,7 +123,12 @@ export function SellCartContents({
       <SellRequirementsPanel req={sellReq} />
 
       {cart.length === 0 ? (
-        <p className="mt-5 text-[13px] leading-[1.7] text-muted">{t('cartEmpty')}</p>
+        <>
+          <p className="mt-5 text-[13px] leading-[1.7] text-muted">{t('cartEmpty')}</p>
+          {/* §23.9: el cotizador vacío TAMBIÉN explica el trato del envío. Que se lea antes de
+              agregar nada es el punto: cambiar de opinión todavía no cuesta nada. */}
+          <BuylistShippingNote className="mt-4" />
+        </>
       ) : (
         <>
           <ul className="mt-4">
@@ -204,19 +249,46 @@ export function SellCartContents({
             })}
           </ul>
 
-          {/* Artboard 2b: etiqueta mono en versalitas y cifra héroe (26px) del total. */}
-          <div className="flex items-baseline justify-between gap-3 py-5">
-            <span className="font-mono text-[11px] font-medium uppercase tracking-eyebrow text-text">
-              {t('totalEstimated')}
-            </span>
-            {/* Si TODO el carrito está pendiente, el total no es MX$0.00: es pendiente. */}
-            {totalEstimatedCents === 0 && pendingCardCount > 0 ? (
-              <span className="font-mono text-[13px] text-accent">{t('linePending')}</span>
-            ) : (
-              <span className="tabular font-mono text-[26px] font-medium leading-none text-text">
-                {formatMoneyCents(totalEstimatedCents, locale)}
+          {/* Bloque de dinero del cotizador (§23.3c, D43): UN SOLO MONTO, rotulado por lo que es
+              —«Valor de tus cartas»—, el faltante del mínimo si lo hay, y la nota de servicio del
+              envío. ⛔ NO hay línea de envío, NO hay resta, NO hay neto estimado y el bloque NO
+              reserva altura para ellos: esas líneas no existen en ningún estado, así que un hueco
+              con forma de monto solo prometería una cifra que jamás va a llegar. */}
+          <div className="py-5" data-testid="sell-cart-money">
+            {/* Artboard 2b: etiqueta mono en versalitas y cifra héroe (26px) del total. */}
+            <div className="flex items-baseline justify-between gap-3">
+              <span className="font-mono text-[11px] font-medium uppercase tracking-eyebrow text-text">
+                {t('quote.money.cardsValue')}
               </span>
+              {/* Si TODO el carrito está pendiente, el total no es MX$0.00: es pendiente. */}
+              {totalEstimatedCents === 0 && pendingCardCount > 0 ? (
+                <span className="font-mono text-[13px] text-accent">{t('linePending')}</span>
+              ) : (
+                <span className="tabular font-mono text-[26px] font-medium leading-none text-text">
+                  {formatMoneyCents(totalEstimatedCents, locale)}
+                </span>
+              )}
+            </div>
+
+            {/* Faltante (criterio 132a): cuánto falta, con el número del servidor. Al cruzar el
+                mínimo lo ÚNICO que cambia es que este bloque desaparece. */}
+            {belowMinimum && minimumRequestCents != null && (
+              <BuylistMinimumShortfall
+                id="sell-cart-minimum"
+                shortfallCents={shortfallCents}
+                minimumCents={minimumRequestCents}
+                className="mt-3"
+              />
             )}
+
+            {/* La nota de servicio: aire, no regla ni caja (§23.3c). Misma frase por encima y por
+                debajo del mínimo — al no llevar cifras no depende de ningún estado. */}
+            <BuylistShippingNote className="mt-3" />
+
+            {/* El cruce del mínimo se anuncia una sola vez; la nota NUNCA entra en la live region. */}
+            <p aria-live="polite" className="sr-only">
+              {minimumAnnounce}
+            </p>
           </div>
           {pendingCardCount > 0 && (
             <p className="mb-3 font-mono text-[11px] leading-[1.6] text-muted">
@@ -252,8 +324,20 @@ export function SellCartContents({
               <Button
                 variant="primary"
                 className="mt-5 min-h-[54px] w-full tracking-eyebrow"
-                disabled={cart.length === 0 || !sellReq.canSubmit}
-                aria-describedby={sellReq.emailBlocked ? 'sell-blocked-reason' : undefined}
+                // El gate del mínimo SOLO existe cuando el mínimo se conoce (`belowMinimum` es
+                // false si la política no llegó): apagar el botón por un error de red sería
+                // fail-closed y bloquearía a un vendedor legítimo.
+                disabled={cart.length === 0 || !sellReq.canSubmit || belowMinimum}
+                // §15.9/§23.10: ningún control apagado y mudo — el motivo y su remedio siempre
+                // están enlazados (el faltante dice cuánto falta y qué hacer).
+                aria-describedby={
+                  [
+                    sellReq.emailBlocked ? 'sell-blocked-reason' : null,
+                    belowMinimum ? 'sell-cart-minimum' : null,
+                  ]
+                    .filter(Boolean)
+                    .join(' ') || undefined
+                }
                 onClick={onSubmit}
               >
                 {t('sendRequestCta', { count: cartCount })}

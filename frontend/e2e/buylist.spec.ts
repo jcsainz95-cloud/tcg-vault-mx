@@ -92,6 +92,43 @@ async function openCart(page: Page) {
 }
 
 /**
+ * v1.51.4 (D43 · criterio 132a): por debajo del MÍNIMO de compra el CTA no procede. El mínimo es
+ * un dial del servidor (`GET /buylist/quote-policy`) y cambia por entorno, así que el smoke no lo
+ * hardcodea: sube la CANTIDAD de la línea hasta que el faltante desaparece. Si no hay faltante
+ * —ya alcanza, o la política no llegó y la degradación es fail-open— no toca nada.
+ */
+async function ensureMinimumReached(page: Page) {
+  const panel = cartPanel(page);
+  const shortfall = panel.getByTestId('buylist-minimum-shortfall');
+  const qty = panel.getByRole('spinbutton').first();
+  for (const n of [1, 2, 5, 12, 30, 80, 200, 500, 999]) {
+    if ((await shortfall.count()) === 0) return;
+    await qty.fill(String(n));
+  }
+  await expect(shortfall, 'el carrito no alcanzó el mínimo ni con la cantidad máxima').toHaveCount(0);
+}
+
+/**
+ * v1.51.3 (D36/D37): `POST /buylist/requests` exige `addressId`. Con libreta, la UI PRESELECCIONA
+ * la predeterminada (el recurrente no teclea nada) y el test solo verifica que la elección existe;
+ * sin libreta —posible contra el stack real— captura una INLINE, que queda guardada.
+ */
+async function choosePickupAddress(scope: Locator) {
+  const select = scope.getByLabel(t('es', 'buylist.request.address.label'));
+  if ((await select.count()) > 0) {
+    await expect(select).not.toHaveValue('');
+    return;
+  }
+  await scope.getByLabel(t('es', 'addresses.line1')).fill('Av. Reforma 222');
+  await scope.getByLabel(t('es', 'addresses.city')).fill('Ciudad de México');
+  await scope.getByLabel(t('es', 'addresses.state')).fill('CDMX');
+  await scope.getByLabel(t('es', 'addresses.postalCode')).fill('06600');
+  await scope.getByLabel(t('es', 'addresses.phone')).fill('5555123456');
+  await scope.getByRole('button', { name: t('es', 'addresses.save') }).click();
+  await expect(scope.getByLabel(t('es', 'buylist.request.address.label'))).toHaveCount(1);
+}
+
+/**
  * Descubre y agrega la PRIMERA carta cotizable sin hardcodear nombre/id, vía el grid plano
  * GRADED (env-agnóstico: el binder raw necesita nombres de set del seed; el grid graded
  * solo necesita que exista al menos un set con cartas cotizables): tipo de producto →
@@ -162,7 +199,7 @@ test.describe('buylist · raw = binder Master Set (mode="quoter") + drawer del c
     // el contador del FAB sube y el carrito se revisa abriéndolo (P-16, §18.4a).
     await expect(page.getByText(t('es', 'buylist.addedLine', { name: 'Charizard', finish: 'Normal' }))).toBeVisible();
     await openCart(page);
-    await expect(page.getByText(t('es', 'buylist.totalEstimated'))).toBeVisible();
+    await expect(page.getByText(t('es', 'buylist.quote.money.cardsValue'))).toBeVisible();
 
     // Transparencia: el detalle expandible trae el valor de referencia y el acabado.
     // v2.0 (P-48): la fila «Regla aplicada» SE RETIRÓ — no hay reglas por rareza/acabado, hay una
@@ -191,9 +228,30 @@ test.describe('buylist · raw = binder Master Set (mode="quoter") + drawer del c
     await addFromBinder(page, 'Pikachu');
     await openCart(page);
 
-    await expect(page.getByText(t('es', 'buylist.totalEstimated'))).toBeVisible();
+    await expect(page.getByText(t('es', 'buylist.quote.money.cardsValue'))).toBeVisible();
     await expect(page.getByText(t('es', 'buylist.estimateNote'))).toBeVisible();
     await expect(page.getByRole('button', { name: /Enviar solicitud/ })).toBeEnabled();
+
+    // D43 · el bloque de dinero del cotizador: UN SOLO monto y la nota de servicio en palabras.
+    // Ni línea de envío, ni resta, ni neto estimado, ni «≈» — y el faltante, si lo hubiera, jamás
+    // se expresa en términos de envío.
+    const money = cartPanel(page).getByTestId('sell-cart-money');
+    await expect(money.getByTestId('buylist-shipping-note')).toHaveText(
+      t('es', 'buylist.quote.shippingNote'),
+    );
+    expect((await money.innerText()).match(/MX\$/g) ?? []).toHaveLength(1);
+    expect(await money.innerText()).not.toMatch(/≈|%|[Rr]ecibir[íi]as|[Nn]eto/);
+  });
+
+  test('la nota de servicio del envío se lee con el carrito VACÍO (copy estático, sin cifras)', async ({
+    page,
+  }) => {
+    // Sin fixtures ni sesión: la frase no depende de ningún dato, así que corre en cualquier stack.
+    await page.goto('/es/buylist');
+    await openCart(page);
+    const note = cartPanel(page).getByTestId('buylist-shipping-note');
+    await expect(note).toHaveText(t('es', 'buylist.quote.shippingNote'));
+    expect(await note.innerText()).not.toMatch(/MX\$|%|≈/);
   });
 
   test('carta sin referencia entra a "precio pendiente" (estimado pendiente, backend lo fija)', async ({
@@ -278,7 +336,7 @@ test.describe('buylist · graded/sealed: grid plano (set + búsqueda + bulk)', (
 
     await expect(page.getByText(t('es', 'buylist.bulkAdded', { count: 2 }))).toBeVisible();
     await openCart(page);
-    await expect(page.getByText(t('es', 'buylist.totalEstimated'))).toBeVisible();
+    await expect(page.getByText(t('es', 'buylist.quote.money.cardsValue'))).toBeVisible();
   });
 });
 
@@ -320,7 +378,7 @@ test.describe('buylist · cotizador v2: FAB + drawer del carrito (Stream C, P-14
     });
     await expect(drawer.getByTestId('finish-band')).toHaveAttribute('data-finish', 'reverse_holo');
     await expect(drawer.getByText('Reverse', { exact: true })).toBeVisible();
-    await expect(drawer.getByText(t('es', 'buylist.totalEstimated'))).toBeVisible();
+    await expect(drawer.getByText(t('es', 'buylist.quote.money.cardsValue'))).toBeVisible();
 
     // Cerrar (botón 44px): el diálogo desaparece y el foco REGRESA al FAB (§18.4b).
     await drawer.getByRole('button', { name: t('es', 'buylist.cartDrawer.close') }).click();
@@ -349,7 +407,7 @@ test.describe('buylist · solicitud con KYC/INE (AC 14; contrato §6/§8)', () =
     const dialog = page.getByRole('dialog');
     // Resumen de la venta antes de confirmar (cartas + total + vigencia).
     await expect(dialog.getByText(t('es', 'buylist.summaryTitle'))).toBeVisible();
-    await expect(dialog.getByText(t('es', 'buylist.totalEstimated'))).toBeVisible();
+    await expect(dialog.getByText(t('es', 'buylist.quote.money.cardsValue'))).toBeVisible();
     await expect(dialog.getByText(t('es', 'buylist.trustValidity'))).toBeVisible();
     await expect(dialog.getByLabel(/CLABE/)).toBeVisible();
     await expect(dialog.getByText(t('es', 'ine.front'))).toBeVisible(); // INE anverso
@@ -357,6 +415,14 @@ test.describe('buylist · solicitud con KYC/INE (AC 14; contrato §6/§8)', () =
     // El uploader solo acepta imágenes (backend endurece kyc_ine a image/*).
     await expect(dialog.getByLabel(t('es', 'ine.front'))).toHaveAttribute('accept', 'image/*');
     await expect(dialog.getByText(t('es', 'ine.privacy'))).toBeVisible();
+
+    // D36/D37 · la dirección de ORIGEN se pide AQUÍ (con la CLABE), con su porqué a la vista.
+    await expect(dialog.getByText(t('es', 'buylist.request.address.why'))).toBeVisible();
+    await choosePickupAddress(dialog);
+    // D43 · la MISMA frase del cotizador, carácter por carácter, antes del botón que compromete.
+    await expect(dialog.getByTestId('buylist-shipping-note')).toHaveText(
+      t('es', 'buylist.quote.shippingNote'),
+    );
   });
 
   /**
@@ -377,12 +443,19 @@ test.describe('buylist · solicitud con KYC/INE (AC 14; contrato §6/§8)', () =
 
     // Estructura: el carrito (drawer, P-16) suma un total ESTIMADO (no un monto de fixture).
     await openCart(page);
-    await expect(page.getByText(t('es', 'buylist.totalEstimated'))).toBeVisible();
+    await expect(page.getByText(t('es', 'buylist.quote.money.cardsValue'))).toBeVisible();
+
+    // 132(a): por debajo del mínimo de compra el CTA no procede y la pantalla dice cuánto falta.
+    // El mínimo lo fija el servidor, así que el smoke sube cantidad hasta cruzarlo (sin hardcodear).
+    await ensureMinimumReached(page);
 
     await page.getByRole('button', { name: /Enviar solicitud/ }).click();
 
     const dialog = page.getByRole('dialog', { name: t('es', 'buylist.requestTitle') });
     await expect(dialog.getByText(t('es', 'buylist.summaryTitle'))).toBeVisible();
+
+    // D36/D37: sin dirección de origen no se crea la solicitud (el botón está apagado).
+    await choosePickupAddress(dialog);
 
     // CLABE: si el modal pide capturarla (sin CLABE en archivo), se llena una válida.
     const clabeInput = dialog.getByLabel(/CLABE/);

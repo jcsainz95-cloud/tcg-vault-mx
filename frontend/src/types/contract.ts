@@ -839,6 +839,23 @@ export interface BuylistBatchQuoteResponse {
   results: BuylistBatchQuoteResultDTO[];
 }
 
+// ---- Política pública del cotizador (contrato §6/§11 · GET /buylist/quote-policy, v1.51.4/D43) ----
+// UN SOLO ENTERO, y el DTO importa tanto por lo que NO lleva como por lo que lleva. Es la ÚNICA
+// cifra de dinero que el cotizador público conoce y existe para el criterio 132(a) de PROJECT.md:
+// «el botón no procede y la pantalla dice CUÁNTO FALTA, con el número correcto» (el 422 del
+// servidor no puede alimentar esa pantalla: si el botón no procede, no se manda nada).
+// ⛔ NO lleva `shippingFeeCents` — bajo D43 el cotizador dice el envío EN PALABRAS y ninguna
+//    pantalla pública consume la tarifa. La exclusión es del CONTRATO, no de la disciplina del
+//    front: un valor que no llega al navegador no se puede pintar por accidente.
+// ⛔ NO lleva plazos, topes AML, umbral de INE, `currency`, `shortfallCents` ni ningún derivado
+//    del carrito (el carrito es estado del cliente; el faltante AUTORITATIVO lo da el
+//    `422 BUYLIST_MINIMUM_NOT_MET` de POST /buylist/requests).
+// ✅ Resta AUTORIZADA en cliente: `faltante = minimumRequestCents − totalCarrito`.
+// ⛔ Resta PROHIBIDA: `neto ≈ total − tarifa` (además de imposible: la tarifa no viaja).
+export interface BuylistQuotePolicyDTO {
+  minimumRequestCents: number;
+}
+
 // v1.3.1: `category` (BuylistCategory) REEMPLAZADO por `rarity`; v2.0 (P-48) retira `appliedRule`
 // y lo sustituye por la instrumentación de la decisión de precio (`priceBasis`/`marketBracket`).
 export interface SellItemDTO {

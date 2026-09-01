@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
 import { ShieldCheck } from 'lucide-react';
 import { createSellRequest } from '@/lib/api';
@@ -15,6 +16,9 @@ import { Banner } from '@/components/ui/Banner';
 import { PhotoUploader } from '@/components/ui/PhotoUploader';
 import { useErrorMessage } from '@/components/ui/QueryState';
 import { EmailNotVerifiedNotice } from './EmailNotVerifiedNotice';
+import { BuylistShippingNote } from './BuylistShippingNote';
+import { BuylistMinimumShortfall } from './BuylistMinimumShortfall';
+import { BuylistPickupAddressField } from './BuylistPickupAddressField';
 
 /**
  * Ítem del payload de `POST /buylist/requests` (contrato §6). El modelo es
@@ -55,6 +59,14 @@ export interface BuylistKycFormProps {
    * uploaders de INE y se OMITE `ineUploadKeys` (el backend usa el INE de archivo para el umbral AML).
    */
   ineOnFile?: boolean;
+  /**
+   * Mínimo de compra vigente (`GET /buylist/quote-policy`), heredado del cotizador: NO se vuelve a
+   * pedir aquí. `undefined` = no se conoce (fail-open) ⇒ no se pinta faltante y el botón NO se
+   * apaga por este eje; la puerta es el `422 BUYLIST_MINIMUM_NOT_MET` del servidor.
+   */
+  minimumRequestCents?: number;
+  /** Total cotizado del carrito, para el faltante PREVENTIVO (el autoritativo lo da el 422). */
+  totalEstimatedCents?: number;
 }
 
 const CLABE_RE = /^\d{18}$/;
@@ -74,12 +86,15 @@ export function BuylistKycForm({
   clabeMasked,
   clabeOnFile,
   ineOnFile,
+  minimumRequestCents,
+  totalEstimatedCents = 0,
 }: BuylistKycFormProps) {
   const t = useTranslations('buylist');
   const tine = useTranslations('ine');
   const locale = useLocale() as AppLocale;
   const getErrorMessage = useErrorMessage();
   const { user, ready } = useSession();
+  const qc = useQueryClient();
 
   /**
    * "Usar mi CLABE en archivo" en un clic (no reteclear 18 dígitos): el cliente NUNCA tiene la CLABE
@@ -97,6 +112,14 @@ export function BuylistKycForm({
   // Preset por el heads-up de topes (ineExpected); un 422 INE_REQUIRED también lo activa.
   const [ineRequired, setIneRequired] = useState(ineExpected ?? false);
   const [formError, setFormError] = useState<string | null>(null);
+  // v1.51.3 (D36/D37): dirección de ORIGEN. Se preselecciona en pantalla y viaja EXPLÍCITA.
+  const [addressId, setAddressId] = useState('');
+  const [addressError, setAddressError] = useState<string | null>(null);
+  // Faltante AUTORITATIVO del `422 BUYLIST_MINIMUM_NOT_MET` (criterio 132b). Manda sobre el
+  // preventivo: si difieren (caché de 5 min o dial movido), la pantalla se repinta con este.
+  const [serverMinimum, setServerMinimum] = useState<{ minimumCents: number; shortfallCents: number } | null>(
+    null,
+  );
   // v1.5: el backend bloquea vender con emailVerified=false (403 EMAIL_NOT_VERIFIED).
   const [emailNotVerified, setEmailNotVerified] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -107,14 +130,30 @@ export function BuylistKycForm({
 
   const ineComplete = !!ineFrontKey && !!ineBackKey;
 
+  // Faltante a pintar: el del SERVIDOR si ya habló; si no, el preventivo (mínimo del cotizador −
+  // total). `null` cuando no se conoce el mínimo: ahí no se pinta nada y el botón sigue vivo.
+  const preventiveShortfall =
+    minimumRequestCents != null && totalEstimatedCents < minimumRequestCents
+      ? { minimumCents: minimumRequestCents, shortfallCents: minimumRequestCents - totalEstimatedCents }
+      : null;
+  const shortfall = serverMinimum ?? preventiveShortfall;
+  const belowMinimum = shortfall != null;
+
   async function submit() {
     setFormError(null);
     setClabeError(null);
+    setAddressError(null);
     setEmailNotVerified(false);
 
     const storedMode = useStoredClabe && clabeShortcutAvailable;
     if (!storedMode && !CLABE_RE.test(clabe)) {
       setClabeError(t('clabeInvalid'));
+      return;
+    }
+    // Sin dirección NO se manda nada: el `addressId` es obligatorio en el contrato y aquí no hay
+    // relleno de cortesía — mandar sin él solo produciría un 422 evitable.
+    if (!addressId) {
+      setAddressError(t('request.address.missing'));
       return;
     }
 
@@ -125,6 +164,9 @@ export function BuylistKycForm({
         // lleva cardId/productType/rawCondition; el backend re-deriva el monto
         // y decide el requisito de INE/tope por el TOTAL (SEC-A1, server-side).
         items,
+        // v1.51.3 (D36/D37): SIEMPRE explícito, aunque la UI lo haya preseleccionado. El backend
+        // copia esa fila a `pickupAddressSnapshot` — no la referencia — y de ahí sale la etiqueta.
+        addressId,
         // v1.15: modo "CLABE en archivo" → se OMITE `clabe` (el backend usa la CLABE del propio
         // usuario en archivo, fallback server-side). Si no, va la CLABE capturada.
         ...(storedMode ? {} : { clabe }),
@@ -145,6 +187,26 @@ export function BuylistKycForm({
         // v1.15: se envió sin `clabe` y no hay CLABE en archivo → forzar captura y salir del atajo.
         setUseStoredClabe(false);
         setClabeError(t('clabeRequired'));
+      } else if (code === 'PICKUP_ADDRESS_REQUIRED') {
+        // No debería ocurrir (el botón se apaga sin dirección), pero si ocurre se pide INLINE.
+        setAddressError(getErrorMessage(e));
+      } else if (code === 'PICKUP_ADDRESS_NOT_FOUND') {
+        // El id no existe O no es del usuario — el contrato devuelve LO MISMO en los dos casos a
+        // propósito (anti-IDOR). Remedio único: refrescar la libreta y volver a elegir.
+        setAddressId('');
+        void qc.invalidateQueries({ queryKey: ['addresses'] });
+        setAddressError(getErrorMessage(e));
+      } else if (code === 'BUYLIST_MINIMUM_NOT_MET') {
+        // details: { minimumCents, totalCents, shortfallCents } — el faltante lo calcula el
+        // SERVIDOR y es el que manda. El front lo RENDERIZA, no lo recalcula.
+        const details = e instanceof ApiClientError ? e.details : undefined;
+        const minimumCents = details?.minimumCents;
+        const shortfallCents = details?.shortfallCents;
+        if (typeof minimumCents === 'number' && typeof shortfallCents === 'number') {
+          setServerMinimum({ minimumCents, shortfallCents });
+        } else {
+          setFormError(getErrorMessage(e));
+        }
       } else if (code === 'CLABE_NOT_OWN_NAME') {
         setClabeError(t('clabeNotOwnName'));
       } else if (code === 'CLABE_INVALID') {
@@ -210,6 +272,14 @@ export function BuylistKycForm({
         </div>
       )}
 
+      {/* Dirección de ORIGEN (D36/D37): se pide junto con la CLABE, no al aceptar la oferta. */}
+      <BuylistPickupAddressField
+        value={addressId}
+        onChange={setAddressId}
+        error={addressError}
+        describedById="kyc-address-reason"
+      />
+
       <section className="flex flex-col gap-3 rounded-lg border border-border bg-surface-2/40 p-4">
         <div className="flex items-center gap-2">
           <ShieldCheck size={18} className="text-info" aria-hidden />
@@ -245,11 +315,40 @@ export function BuylistKycForm({
       {(emailBlocked || emailNotVerified) && <EmailNotVerifiedNotice />}
       {formError && <Banner variant="danger" role="alert">{formError}</Banner>}
 
+      {/* Faltante del mínimo en el paso de crear. El del SERVIDOR (422) manda sobre el preventivo:
+          la pantalla informa, la puerta decide. */}
+      {shortfall && (
+        <BuylistMinimumShortfall
+          id="kyc-minimum-reason"
+          shortfallCents={shortfall.shortfallCents}
+          minimumCents={shortfall.minimumCents}
+        />
+      )}
+
+      {/* §23.3g (superficie 2): la MISMA frase del cotizador, carácter por carácter —no una
+          versión resumida— y la condición NM, justo antes del botón que compromete las cartas. */}
+      <div className="flex flex-col gap-2">
+        <BuylistShippingNote />
+        <p className="text-sm leading-[1.7] text-muted">
+          <span className="font-medium text-text">{t('nmOnlyTitle')}.</span> {t('nmOnlyBody')}
+        </p>
+      </div>
+
       <Button
         onClick={submit}
         loading={submitting}
-        disabled={submitting || emailBlocked}
-        aria-describedby={emailBlocked ? 'kyc-blocked-reason' : undefined}
+        // Sin dirección el botón se apaga (§23.3j) — pero NUNCA mudo: el `aria-describedby`
+        // apunta al motivo y a su remedio. El mínimo solo apaga cuando SE CONOCE (fail-open).
+        disabled={submitting || emailBlocked || !addressId || belowMinimum}
+        aria-describedby={
+          [
+            emailBlocked ? 'kyc-blocked-reason' : null,
+            !addressId ? 'kyc-address-reason' : null,
+            belowMinimum ? 'kyc-minimum-reason' : null,
+          ]
+            .filter(Boolean)
+            .join(' ') || undefined
+        }
       >
         {submitting ? t('submitting') : t('submit')}
       </Button>
