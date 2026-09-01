@@ -223,6 +223,50 @@ export const ErrorCode = {
   // pase de `POST /admin/buylist/:id/offer`. Ver docs/BACKEND_NOTES.md.
   ADJUST_NOT_ALLOWED_IN_OFFER_CYCLE: 'ADJUST_NOT_ALLOWED_IN_OFFER_CYCLE',
 
+  // ===================== v1.51 · CICLO DE ADQUISICIÓN — LA OFERTA (§M5 / §4.39h) =====================
+  // `POST /admin/buylist/:id/offer` sobre una solicitud que no está `cotizada`, o con una oferta ya
+  // preparada/enviada. `details: { status, offerState }`. 409.
+  OFFER_NOT_ALLOWED: 'OFFER_NOT_ALLOWED',
+  // Sobre una oferta YA ENVIADA. Una oferta enviada NO SE EDITA: se cancela y se emite otra
+  // (criterio 145) — el precio ofertado es vinculante desde el correo (D2/D9). `details.status`. 409.
+  OFFER_ALREADY_SENT: 'OFFER_ALREADY_SENT',
+  // v1.51.3 (D36) — SIN DIRECCIÓN DE ORIGEN NO SE OFERTA. Ofertar es comprometer dinero Y prometer
+  // una etiqueta: si el hueco se descubriera al capturar la guía, ya le habríamos escrito al vendedor
+  // que le compramos y estaríamos incumpliendo un contrato por un dato que nunca pedimos.
+  // ⚠️ PROHIBIDO rellenarla leyendo la libreta viva. `details: { sellRequestId }`. 422.
+  PICKUP_ADDRESS_MISSING: 'PICKUP_ADDRESS_MISSING',
+  // Las líneas del body no cubren EXACTAMENTE los ítems de la solicitud. Sin esto, una línea olvidada
+  // saldría del correo sin que nadie decidiera nada sobre ella.
+  // `details: { missingItemIds, unknownItemIds }`. 422.
+  OFFER_LINES_MISMATCH: 'OFFER_LINES_MISMATCH',
+  // Línea `buy` sin monto resoluble y sin override. **La oferta NO sale a medias**: o se le pone
+  // precio a mano (con motivo) o esa línea se marca `skip`. `details.itemIds`. 422.
+  OFFER_LINE_NOT_PRICEABLE: 'OFFER_LINE_NOT_PRICEABLE',
+  // Override sin motivo (criterio 148a). *Sin motivo no hay override*: es lo que convierte un número
+  // a mano en una decisión revisable en vez de una cifra huérfana. `details.itemIds`. 422.
+  OVERRIDE_REASON_REQUIRED: 'OVERRIDE_REASON_REQUIRED',
+  // v1.51.2 (D34) — PISO DE NETO PARA EMITIR: `offerNetCents < buylistMinimumOfferNetCents`. El
+  // umbral es INCLUSIVO (D40): exactamente el piso SÍ se emite. ⚠️ Gobierna la EMISIÓN, JAMÁS el
+  // pago (`payoutNetCents` no tiene más piso que el cero).
+  // `details: { grossCents, shippingFeeCents, netCents, minimumNetCents, requiredGrossCents,
+  // grossShortfallCents }` — el faltante va en BRUTO porque es la palanca del operador. 422.
+  // ⚠️ `OFFER_NET_NOT_POSITIVE` (v1.51.1) **NO EXISTE**: su nombre describía la regla vieja.
+  OFFER_NET_BELOW_MINIMUM: 'OFFER_NET_BELOW_MINIMUM',
+  // `POST …/offer/authorize` sobre algo que no está esperando autorización. DOS candados a propósito
+  // (§4.39h): `offerState='pending_authorization' ∧ status='cotizada' ∧ closedAt IS NULL` — el
+  // segundo existe para que perder el primero no resucite una solicitud TERMINAL con un correo
+  // vinculante. `details: { offerState, status }`. 409.
+  OFFER_NOT_PENDING_AUTHORIZATION: 'OFFER_NOT_PENDING_AUTHORIZATION',
+  // `POST …/offer/cancel` sin oferta viva, o sobre una solicitud que ya avanzó más allá de
+  // `ofertada` (una `aceptada` NO se cancela por esta vía). `details: { status, offerState }`. 409.
+  OFFER_NOT_CANCELLABLE: 'OFFER_NOT_CANCELLABLE',
+  // `POST /buylist/requests/:id/offer-response` sobre una solicitud que no está `ofertada`.
+  // `details.status`. 409.
+  OFFER_NOT_PENDING: 'OFFER_NOT_PENDING',
+  // El plazo de aceptación (2 días hábiles, congelado al comunicar la oferta) ya venció. Aceptar
+  // después NO funciona y NO tiene efecto. `details.offerAcceptDeadlineAt`. 409.
+  OFFER_EXPIRED: 'OFFER_EXPIRED',
+
   // Guest checkout (v1.21) — API_CONTRACT §0 / §4-G. Todos ADITIVOS: ningún código previo cambia.
   // El invitado eligió destino bóveda. NO es un error de UI: es la señal del UPSELL (criterio 48),
   // con `details.upsell=true`. La bóveda exige cuenta por decisión de producto (PROJECT §C/§J). 422.

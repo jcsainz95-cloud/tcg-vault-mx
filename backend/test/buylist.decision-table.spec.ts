@@ -53,6 +53,8 @@ interface OtherLine {
   finish?: string;
   cardProductId?: number | null;
   status: string;
+  /** BL-16: de qué solicitud es la línea. Por defecto, de una AJENA. */
+  sellRequestId?: string;
 }
 
 interface Opts {
@@ -66,6 +68,8 @@ interface Opts {
   /** `null` ⇒ el puerto NO está cableado. `'throw'` ⇒ el puerto revienta. */
   port?: 'missing' | 'throw' | 'ok';
   otherLines?: OtherLine[];
+  /** BL-16: la solicitud que se abre en la mesa. */
+  sellRequestId?: string;
   status?: string;
   pickupAddressSnapshot?: unknown;
 }
@@ -90,6 +94,7 @@ function build(opts: Opts) {
   });
 
   const prismaCalls: string[] = [];
+  const itemWheres: any[] = [];
   const track = <T>(name: string, fn: (args?: any) => Promise<T>) =>
     jest.fn(async (args?: any) => {
       prismaCalls.push(name);
@@ -99,7 +104,7 @@ function build(opts: Opts) {
   const prisma: any = {
     sellRequest: {
       findUnique: track('sellRequest.findUnique', async () => ({
-        id: 'sr-1',
+        id: opts.sellRequestId ?? 'sr-1',
         userId: 'u-1',
         user: { id: 'u-1', name: 'Ash Ketchum', email: 'ash@example.com' },
         status: opts.status ?? 'cotizada',
@@ -119,16 +124,22 @@ function build(opts: Opts) {
       })),
     },
     sellRequestItem: {
-      findMany: track('sellRequestItem.findMany', async () =>
-        (opts.otherLines ?? []).map((o) => ({
-          cardId: o.cardId ?? 'card-1',
-          productType: 'raw',
-          rawCondition: 'NM',
-          finish: o.finish ?? 'normal',
-          cardProductId: o.cardProductId ?? null,
-          sellRequest: { status: o.status },
-        })),
-      ),
+      findMany: track('sellRequestItem.findMany', async (args?: any) => {
+        itemWheres.push(args?.where);
+        // ⚠️ El fake EVALÚA `sellRequestId: { not: … }`: un mock que devolviera todas las filas
+        // dejaría pasar el test de BL-16 aunque la exclusión no existiera.
+        const excluded = args?.where?.sellRequestId?.not;
+        return (opts.otherLines ?? [])
+          .filter((o) => (o.sellRequestId ?? 'ajena') !== excluded)
+          .map((o) => ({
+            cardId: o.cardId ?? 'card-1',
+            productType: 'raw',
+            rawCondition: 'NM',
+            finish: o.finish ?? 'normal',
+            cardProductId: o.cardProductId ?? null,
+            sellRequest: { status: o.status },
+          }));
+      }),
     },
   };
 
@@ -182,7 +193,7 @@ function build(opts: Opts) {
     undefined,
     opts.port === 'missing' ? undefined : port,
   );
-  return { svc, prismaCalls, port };
+  return { svc, prismaCalls, port, lastItemWhere: () => itemWheres[itemWheres.length - 1] };
 }
 
 const OPERATOR = { id: 'op-1', role: 'vault_operator' as const };
@@ -277,6 +288,50 @@ describe('(2) La posición son CUATRO sumandos, y «en camino» es UNO SOLO de e
       committed: 2, // ofertada + aceptada
       total: 10,
     });
+  });
+
+  it('⚠️ BL-16 — la posición EXCLUYE la solicitud EN PANTALLA (los tres sumandos de promesa)', async () => {
+    // Caso de prueba EXIGIDO por el contrato (§4.39g.1): solicitud X `ofertada` con 3 líneas `buy` de
+    // la carta C y cero existencias ⇒ la mesa de **X** da `committed: 0`; la de **otra** solicitud Y
+    // con la misma carta da `committed: 3`.
+    const tresDeX: OtherLine[] = [
+      { status: 'ofertada', sellRequestId: 'sr-1' },
+      { status: 'ofertada', sellRequestId: 'sr-1' },
+      { status: 'ofertada', sellRequestId: 'sr-1' },
+    ];
+    // (a) La mesa de X: sus PROPIAS líneas no cuentan.
+    const x = build({ port: 'ok', lines: [{ id: 'it-1' }], onHand: { [K]: 0 }, otherLines: tresDeX });
+    const resX = await x.svc.adminDecisionTable('sr-1', OPERATOR);
+    expect(resX.lines[0].position?.committed).toBe(0);
+    expect(resX.lines[0].position?.total).toBe(0);
+    // Y el `where` lo dice: la exclusión es del MOTOR, no un filtro en memoria.
+    const where = (x.prismaCalls, x.lastItemWhere());
+    expect(where?.sellRequestId).toEqual({ not: 'sr-1' });
+
+    // (b) La mesa de OTRA solicitud: las mismas tres SÍ cuentan (son contexto ajeno).
+    const y = build({
+      port: 'ok',
+      sellRequestId: 'sr-2',
+      lines: [{ id: 'it-9' }],
+      onHand: { [K]: 0 },
+      otherLines: tresDeX,
+    });
+    const resY = await y.svc.adminDecisionTable('sr-2', OPERATOR);
+    expect(resY.lines[0].position?.committed).toBe(3);
+  });
+
+  it('BL-16 — `stock` NO se excluye: una pieza en bóveda es un HECHO, no una promesa', async () => {
+    // La asimetría es deliberada: da igual qué solicitud trajo la pieza; ya está en la caja.
+    const { svc } = build({
+      port: 'ok',
+      lines: [{ id: 'it-1' }],
+      onHand: { [K]: 4 },
+      otherLines: [{ status: 'ofertada', sellRequestId: 'sr-1' }],
+    });
+    const res = await svc.adminDecisionTable('sr-1', OPERATOR);
+    expect(res.lines[0].position?.stock).toBe(4);
+    expect(res.lines[0].position?.committed).toBe(0);
+    expect(res.lines[0].position?.total).toBe(4);
   });
 
   it('⚠️ una solicitud `aceptada` NO suma a `inTransit`: es una promesa, no un paquete', async () => {

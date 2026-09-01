@@ -6,7 +6,13 @@ import { Roles } from '../../common/decorators/roles.decorator';
 import { RequireEmailVerified } from '../../common/decorators/require-email-verified.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { BuylistService } from './buylist.service';
-import { BatchQuoteDto, CreateRequestDto, PublicQuoteDto, RespondDto } from './dto/buylist.dto';
+import {
+  BatchQuoteDto,
+  CreateRequestDto,
+  OfferResponseDto,
+  PublicQuoteDto,
+  RespondDto,
+} from './dto/buylist.dto';
 
 @Controller('buylist')
 export class BuylistController {
@@ -123,5 +129,27 @@ export class BuylistController {
     @Body() dto: RespondDto,
   ) {
     return this.buylist.respond(userId, id, dto.decision);
+  }
+
+  /**
+   * v1.51 (§6, D1/D2/D3, criterios 118/119/120/121/146/161) — **la respuesta a la OFERTA.**
+   *
+   * ⚠️ **`accept` sobre `ofertada` ⇒ `aceptada`, NUNCA `aprobada`.** Si saltara a `aprobada`, la
+   * solicitud caería en la cola de «listas para pagar SPEI» **sin envío, sin recepción y sin
+   * verificación** — pagaríamos por cartas que nunca recibimos.
+   *
+   * **EXIGE SESIÓN DEL DUEÑO** (criterio 146): el correo **lleva** a esta pantalla, pero la respuesta
+   * **no se ejecuta desde un enlace anónimo** — **no existe enlace tokenizado de aceptación**.
+   * **SEC-A1 (criterio 120):** ningún monto viaja en el body; la defensa es **la forma del DTO**.
+   */
+  @Roles(Role.customer, Role.vault_operator, Role.super_admin)
+  @Post('requests/:id/offer-response')
+  @HttpCode(200)
+  offerResponse(
+    @CurrentUser('id') userId: string,
+    @Param('id') id: string,
+    @Body() dto: OfferResponseDto,
+  ) {
+    return this.buylist.offerResponse(userId, id, dto.decision);
   }
 }

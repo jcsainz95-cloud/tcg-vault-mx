@@ -262,8 +262,9 @@ describe('§4.39c — los NUEVE sitios: guard de RESIDUO (ninguno vuelve a codif
     const buylist = CODE.find((f) => f.path === 'modules/buylist/buylist.service.ts');
     const ocurrencias = (buylist?.text.match(/isTerminal: isTerminalSellRequestStatus\(/g) ?? [])
       .length;
-    // Detalle (admin + cliente, vía la lista blanca compartida), listado de admin y listado propio.
-    expect(ocurrencias).toBe(3);
+    // Detalle (admin + cliente, vía la lista blanca compartida), listado de admin, listado propio y
+    // —v1.51— la respuesta a la OFERTA (`offer-response`, que el contrato §6 exige que lo devuelva).
+    expect(ocurrencias).toBe(4);
   });
 
   it('sitio 10 — `isPayable` se DERIVA server-side y es ADMIN-ONLY (UNA sola emisión)', () => {
@@ -317,7 +318,9 @@ describe('§4.39e — P-30 H2: `buylist` deja de interpolar la llave canónica a
     // (el test de arriba, que es el que de verdad protege el invariante). Si esta cifra sube porque
     // alguien añadió un consumidor que USA el helper, se actualiza; si sube el otro, se corrige el
     // código.
-    expect((buylist?.text.match(/variantKey\(/g) ?? []).length).toBe(6);
+    // v1.51 (ciclo de oferta): el seam en LOTE que comparten la mesa y la emisión añade un séptimo
+    // consumidor —el lookup del override por línea—, y **usa el helper**. Censo, no tope.
+    expect((buylist?.text.match(/variantKey\(/g) ?? []).length).toBe(7);
   });
 
   it('la POSICIÓN se llavea con `variantPositionKey()` — la canónica MÁS la identidad de producto', () => {

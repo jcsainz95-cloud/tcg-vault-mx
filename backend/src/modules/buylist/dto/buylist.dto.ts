@@ -4,6 +4,7 @@ import {
   IsArray,
   IsIn,
   IsInt,
+  IsNotEmpty,
   IsObject,
   IsOptional,
   IsString,
@@ -122,6 +123,53 @@ export class CreateRequestDto {
 
 export class RespondDto {
   @IsIn(['accept', 'decline']) decision!: 'accept' | 'decline';
+}
+
+/**
+ * v1.51 (§M5, §4.39h) — UNA LÍNEA del cherry-pick al ofertar (D26, criterio 148).
+ *
+ * ⚠️ **SEC-A1: el monto DERIVADO no viaja aquí.** Lo calcula el servidor con `decideBuyLine` y la
+ * curva vigente. Lo único que el cliente puede mandar es un **override explícito** — y **con motivo**,
+ * que es lo que lo convierte en una decisión revisable en vez de una cifra huérfana.
+ */
+export class OfferLineDto {
+  @IsString() @IsNotEmpty() itemId!: string;
+  @IsIn(['buy', 'skip']) decision!: 'buy' | 'skip';
+  // Cota dura de sanidad (la misma que `approvedPriceCents`); la cota FINA —el tope del operador
+  // sobre el bruto resultante— la impone el servicio. `0` es un monto legal de override: nunca se
+  // ofertaría, pero el DTO no es el sitio donde se decide eso (lo frena el piso de neto).
+  @IsOptional() @IsInt() @Min(0) @Max(MAX_APPROVED_PRICE_CENTS) overridePriceCents?: number;
+  // OBLIGATORIO ⇔ el override difiere del derivado — condición que **solo el servidor puede
+  // evaluar** (necesita el derivado). Por eso aquí es opcional y el `422 OVERRIDE_REASON_REQUIRED`
+  // sale del servicio, no del pipe. El pipe sí impone la LONGITUD cuando viene.
+  @IsOptional() @IsString() @Length(3, 500) overrideReason?: string;
+}
+
+/**
+ * v1.51 (§M5) — `POST /admin/buylist/:id/offer`. **Las líneas deben cubrir EXACTAMENTE los ítems de
+ * la solicitud** (ni faltar ni sobrar); eso lo valida el servicio con `422 OFFER_LINES_MISMATCH`,
+ * porque el pipe no conoce la solicitud.
+ */
+export class OfferDto {
+  @IsArray() @ArrayNotEmpty() @ValidateNested({ each: true }) @Type(() => OfferLineDto)
+  lines!: OfferLineDto[];
+}
+
+/** v1.51 (§M5) — `POST /admin/buylist/:id/offer/cancel`. Motivo INTERNO (no PII), va al AuditLog. */
+export class OfferCancelDto {
+  @IsOptional() @IsString() @Length(0, 500) reason?: string;
+}
+
+/**
+ * v1.51 (§6) — `POST /buylist/requests/:id/offer-response`. **`{ decision }` y NADA MÁS.**
+ *
+ * ⚠️ **SEC-A1 (criterio 120): la defensa es LA FORMA DEL DTO, no una validación.** No hay campo de
+ * monto que manipular, así que una petición manipulada **no puede cambiar lo ofertado**; todo campo
+ * extra lo descarta el `ValidationPipe` (whitelist). **Todo-o-nada** (D1): no existe vía para aceptar
+ * solo algunas líneas ni para contraofertar.
+ */
+export class OfferResponseDto {
+  @IsIn(['accept', 'reject']) decision!: 'accept' | 'reject';
 }
 
 export class ItemDecisionDto {

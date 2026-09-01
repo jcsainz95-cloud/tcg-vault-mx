@@ -1,4 +1,16 @@
-import { Body, Controller, Get, Headers, Param, Patch, Post, Query } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Headers,
+  HttpStatus,
+  Param,
+  Patch,
+  Post,
+  Query,
+  Res,
+} from '@nestjs/common';
+import type { Response } from 'express';
 import { Role } from '@prisma/client';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { MoneyOut } from '../../common/decorators/money-out.decorator';
@@ -8,6 +20,8 @@ import { BuylistService } from './buylist.service';
 import { AuditService } from '../audit/audit.service';
 import {
   ItemDecisionDto,
+  OfferCancelDto,
+  OfferDto,
   PaySpeiDto,
   RejectedItemsQueryDto,
   RejectRequestDto,
@@ -115,6 +129,125 @@ export class AdminBuylistController {
       entityId: id,
     });
     return res;
+  }
+
+  /**
+   * v1.51 (D1/D2/D13/D24/D26, criterios 143/147/148) — **EMITIR (o PREPARAR) la oferta.**
+   *
+   * ⚠️ **DOS CÓDIGOS DE ÉXITO DISTINTOS, y la diferencia es la que importa:** dentro del tope del
+   * operador ⇒ **`200`** y **sale el correo**; por encima ⇒ **`202`**, `offerState =
+   * pending_authorization`, **el correo NO se manda** y la solicitud **sigue `cotizada`**. *Una
+   * oferta que espera autorización no existe para el vendedor.* El `202` **es un estado real, no un
+   * error**: el operador puede prepararla; lo que no puede es que salga sola.
+   *
+   * El código se fija con `@Res({ passthrough: true })` porque **depende del resultado**, no de la
+   * ruta: `@HttpCode` es estático y aquí mentiría en la mitad de los casos.
+   *
+   * **NO lleva `@MoneyOut`**: no sale dinero: se COMPROMETE. El SPEI sigue siendo del súper-admin.
+   * Auditado `buylist.offer.send` (o `buylist.offer.prepare` cuando queda esperando), más un
+   * `buylist.offer.override` **por línea** con quién / derivado / fijado a mano / por qué.
+   */
+  @Post(':id/offer')
+  async offer(
+    @Param('id') id: string,
+    @Body() dto: OfferDto,
+    @CurrentUser() user: { id: string; role: Role },
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const { response, audit } = await this.buylist.adminOffer(id, user, dto.lines);
+    res.status(audit.requiresAuthorization ? HttpStatus.ACCEPTED : HttpStatus.OK);
+    await this.audit.log({
+      actorUserId: user.id,
+      actorRole: user.role,
+      // El nombre distingue los dos desenlaces: «se preparó» no es «se envió», y la bitácora tiene
+      // que poder contestar cuál fue sin releer montos.
+      action: audit.requiresAuthorization ? 'buylist.offer.prepare' : 'buylist.offer.send',
+      entityType: 'SellRequest',
+      entityId: id,
+      after: {
+        grossCents: audit.grossCents,
+        shippingFeeCents: audit.shippingFeeCents,
+        netCents: audit.netCents,
+        // El dial vigente AL EMITIR: la pregunta «¿por qué se permitió esta oferta?» es de
+        // auditoría, no de cálculo — por eso el piso NO lleva columna congelada.
+        minimumOfferNetCents: audit.minimumOfferNetCents,
+        operatorCapCents: audit.operatorCapCents,
+        requiresAuthorization: audit.requiresAuthorization,
+        buyLineCount: audit.buyLineCount,
+        skipLineCount: audit.skipLineCount,
+      },
+    });
+    // Un asiento POR LÍNEA con override (§4.39h): sin él, un número puesto a mano sería una cifra
+    // huérfana y el criterio 148 no sería verificable.
+    for (const o of audit.overrides) {
+      await this.audit.log({
+        actorUserId: user.id,
+        actorRole: user.role,
+        action: 'buylist.offer.override',
+        entityType: 'SellRequestItem',
+        entityId: o.itemId,
+        after: {
+          derivedPriceCents: o.derivedPriceCents,
+          offeredPriceCents: o.offeredPriceCents,
+          reason: o.reason,
+        },
+      });
+    }
+    return response;
+  }
+
+  /**
+   * v1.51 (D24, criterios 143/147) — **`super_admin`**: autoriza **LO GUARDADO** y **manda el
+   * correo**. No acepta líneas ni montos: aceptar cambios aquí convertiría la autorización en una
+   * segunda edición y el «quién preparó / quién autorizó» dejaría de significar nada.
+   * La bitácora registra los dos **por separado** (criterio 147).
+   */
+  @Post(':id/offer/authorize')
+  @Roles(Role.super_admin)
+  async offerAuthorize(@Param('id') id: string, @CurrentUser() user: { id: string; role: Role }) {
+    const { response } = await this.buylist.adminOfferAuthorize(id, user);
+    await this.audit.log({
+      actorUserId: user.id,
+      actorRole: user.role,
+      action: 'buylist.offer.authorize',
+      entityType: 'SellRequest',
+      entityId: id,
+      after: {
+        offerGrossCents: response.offerGrossCents,
+        offerNetCents: response.offerNetCents,
+        offerAcceptDeadlineAt: response.offerAcceptDeadlineAt,
+      },
+    });
+    return response;
+  }
+
+  /**
+   * v1.51 (criterio 145, D38) — **la ÚNICA vía para corregir una oferta equivocada.** No existe
+   * «corregir un número» sobre una oferta que el vendedor ya tiene en su bandeja: se **cancela y se
+   * emite otra**.
+   *
+   * La oferta anterior **sobrevive íntegra en la bitácora** (`before` completo) — que es lo que
+   * `PROJECT.md` exige y lo que hace revisable la corrección.
+   */
+  @Post(':id/offer/cancel')
+  async offerCancel(
+    @Param('id') id: string,
+    @Body() dto: OfferCancelDto,
+    @CurrentUser() user: { id: string; role: Role },
+  ) {
+    const { response, audit } = await this.buylist.adminOfferCancel(id, user, dto.reason);
+    await this.audit.log({
+      actorUserId: user.id,
+      actorRole: user.role,
+      action: 'buylist.offer.cancel',
+      entityType: 'SellRequest',
+      entityId: id,
+      before: audit.before,
+      // `wasSent` es el discriminador de los TRES efectos de D38 (reloj, conteo y correo 5): queda
+      // en la bitácora para que se pueda auditar cuál de las dos ramas corrió.
+      after: { wasSent: audit.wasSent, reason: audit.reason },
+    });
+    return response;
   }
 
   @Post(':id/receive')

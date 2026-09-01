@@ -1,5 +1,6 @@
 import { Inject, Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
 import {
+  BuyDecision,
   Card,
   Finish,
   MovementReason,
@@ -8,6 +9,7 @@ import {
   RawCondition,
   Role,
   SellItemStatus,
+  SellOfferState,
   SellRequestStatus,
   VariantPriceOverride,
 } from '@prisma/client';
@@ -32,7 +34,17 @@ import {
   resolvePendingReason,
 } from '../../common/pricing-curve';
 import { MAIL_PORT, MailPort } from '../mail/mail.port';
-import { sellItemRejectedTemplate } from './buylist-mail.templates';
+import {
+  offerTermsCopy,
+  pickupAddressLine,
+  sellItemRejectedTemplate,
+  sellOfferCancelledTemplate,
+  sellOfferTemplate,
+} from './buylist-mail.templates';
+// v1.51 (D14, criterio 154): los plazos del ciclo son DÍAS HÁBILES `America/Mexico_City`. El front
+// NO los recalcula: dos implementaciones de «día hábil» dicen fechas distintas.
+import { addBusinessDays } from '../../common/business-days';
+import { envOr } from '../mail/mail-env.util';
 import {
   rejectDeadlines,
   SELL_REQUEST_LIVE_ADJUSTMENT_STATES,
@@ -303,13 +315,16 @@ type PositionMap = Map<
 /** v1.51 (M-46) — una línea de la mesa con su llave canónica y su llave de posición ya resueltas. */
 interface DecisionLine {
   it: {
+    id: string;
     cardId: string;
     card: Card;
     productType: ProductType;
     rawCondition: RawCondition | null;
     finish: Finish | null;
+    quotedPriceCents: number | null;
   };
-  variant: { finish: Finish };
+  /** La llave canónica de la variante, ya resuelta (`variantKey` la consume tal cual). */
+  variant: { cardId: string; productType: ProductType; gradeKey: string; finish: Finish };
   cardProductId: number | null;
 }
 
@@ -1290,7 +1305,10 @@ export class BuylistService implements OnModuleInit {
   async getMine(userId: string, id: string) {
     const req = await this.prisma.sellRequest.findUnique({
       where: { id },
-      include: { items: { include: { card: true } } },
+      // v1.51 (§6): el `locale` del dueño alimenta `offer.terms`, que **renderiza el backend** con
+      // la MISMA fuente que el correo — para que la pantalla y el correo no puedan decir cosas
+      // distintas.
+      include: { items: { include: { card: true } }, user: { select: { locale: true } } },
     });
     if (!req || req.userId !== userId) throw BusinessException.notFound();
     // v1.18-buylist-rejects (§6): los items del detalle del PROPIO cliente se proyectan como
@@ -1303,6 +1321,10 @@ export class BuylistService implements OnModuleInit {
       ...toCustomerSellRequestDTO(req),
       sellRequestId: req.id,
       items: req.items.map((i) => this.itemDTO(i)),
+      // v1.51 (§6) — LA OFERTA COMO LA VE EL VENDEDOR. `null` salvo con `offerState='sent'`: una
+      // oferta que espera autorización **no existe para él** (D13/D24), y una cancelada se limpió.
+      // ⚠️ NUNCA lleva `offerState` ni ninguna cifra interna de la mesa.
+      offer: this.offerPublicDTO({ ...req, locale: req.user?.locale ?? null }, req.items),
     };
   }
 
@@ -1662,56 +1684,16 @@ export class BuylistService implements OnModuleInit {
     if (!req) throw BusinessException.notFound();
     const items = req.items ?? [];
 
-    // (2) LAS LLAVES — se construyen UNA vez por línea y las consumen las CUATRO fuentes de la
-    // posición + los dos mapas de dinero. `variantKey()` / `variantPositionKey()`, NUNCA una
-    // interpolación a mano: si una fuente llaveara distinto, las cifras se desalinearían EN SILENCIO
-    // (que es la peor forma de fallar en dinero) y el operador compraría mal.
-    const lines = items.map((it) => {
-      const gradeKey = this.pricing.gradeKeyFor({
-        productType: it.productType,
-        rawCondition: it.rawCondition,
-      });
-      const finish = (it.finish ?? 'normal') as Finish;
-      const variant = { cardId: it.cardId, productType: it.productType, gradeKey, finish };
-      return {
-        it,
-        variant,
-        cardProductId: it.cardProductId ?? null,
-        positionKey: variantPositionKey({ ...variant, cardProductId: it.cardProductId ?? null }),
-      };
-    });
-
-    // (3) DINERO EN LOTE — la curva UNA vez, los overrides en un batch, y las referencias en DOS
-    // batches disjuntos: el de set_base (que excluye deck_exclusive/promo) y el de producto separado
-    // (que es justamente lo que aquél no puede servir, §4.27f).
-    const curve = await this.pricing.loadPricingCurve();
-    const overrides = await this.pricing.getVariantOverridesBatch(lines.map((l) => l.variant));
-    const baseRefs = await this.pricing.getReferencesBatch(
-      lines.filter((l) => l.cardProductId == null).map((l) => l.variant),
-    );
-    const products = await this.pricing.findCardProductsByTcgIds(
-      lines.filter((l) => l.cardProductId != null).map((l) => l.cardProductId as number),
-    );
-    const productRefs = await this.pricing.getReferencesByCardProductBatch(
-      lines
-        .filter((l) => l.cardProductId != null)
-        .map((l) => {
-          const cp = products.get(l.cardProductId as number);
-          return cp
-            ? {
-                cardProductId: cp.id,
-                productType: l.variant.productType,
-                gradeKey: l.variant.gradeKey,
-                finish: l.variant.finish,
-              }
-            : null;
-        })
-        .filter((x): x is NonNullable<typeof x> => x != null),
-    );
+    // (2)+(3) LAS LLAVES Y EL DINERO EN LOTE — **el MISMO seam que usa la emisión de la oferta**
+    // (§4.39e). La mesa previsualiza exactamente el número que `POST …/offer` va a congelar: si la
+    // previsualización y la emisión leyeran por caminos distintos, el operador decidiría con una
+    // cifra y firmaría otra.
+    const { lines, decisions, overrides } = await this.deriveOfferLinesBatch(items);
 
     // (4) LA POSICIÓN — cuatro sumandos, cuatro fuentes, UNA llave.
     const position = await this.positionFor(
       lines.map((l) => ({ ...l.variant, cardProductId: l.cardProductId })),
+      req.id,
     );
 
     // (5) LOS DIALES vigentes. Se leen AHORA porque la mesa es una PREVISUALIZACIÓN: lo vinculante se
@@ -1734,7 +1716,7 @@ export class BuylistService implements OnModuleInit {
       const override =
         l.cardProductId == null ? (overrides.get(variantKey(l.variant)) ?? null) : null;
 
-      const decision = await this.derivedLine(l, curve, override, baseRefs, products, productRefs);
+      const decision = decisions.get(it.id) ?? null;
       const derivedPriceCents = decision?.quotedPriceCents ?? null;
       if (derivedPriceCents != null) buyableGrossCents += derivedPriceCents;
 
@@ -1791,6 +1773,85 @@ export class BuylistService implements OnModuleInit {
       // decisión de compra, no de datos personales (la dirección vive en el detalle).
       pickupAddressMissing: req.pickupAddressSnapshot == null,
     };
+  }
+
+  /**
+   * v1.51 (M-46, §4.39e) — **LAS LLAVES Y EL DINERO DE LAS N LÍNEAS, EN LOTE. UN solo seam para la
+   * MESA y para la EMISIÓN.**
+   *
+   * Existe porque la mesa **previsualiza exactamente el número que la emisión va a congelar**: si las
+   * dos leyeran por caminos distintos, el operador decidiría con una cifra y firmaría otra — la misma
+   * clase de divergencia que `decideBuyLine` vino a cerrar entre el cotizador público y la solicitud.
+   *
+   * **Sin N+1:** una lectura de curva, un batch de `VariantPriceOverride`, un batch de `PriceReference`
+   * de set_base, un batch de `CardProduct` y un batch de referencias por producto. **Cinco lecturas,
+   * no crecen con el número de líneas.**
+   *
+   * ⚠️ La secuencia curva/override/bounty/pendiente **NO se reimplementa aquí**: sigue viviendo en
+   * `decideBuyLine` y solo en él. Esto es carga de datos, no decisión de dinero.
+   */
+  private async deriveOfferLinesBatch(
+    items: (DecisionLine['it'] & { cardProductId: number | null })[],
+  ): Promise<{
+    lines: (DecisionLine & { positionKey: string })[];
+    decisions: Map<string, BuyLineDecision | null>;
+    overrides: Map<string, VariantPriceOverride>;
+  }> {
+    // Las llaves se construyen UNA vez por línea y las consumen las CUATRO fuentes de la posición +
+    // los dos mapas de dinero. `variantKey()` / `variantPositionKey()`, NUNCA una interpolación a
+    // mano: si una fuente llaveara distinto, las cifras se desalinearían EN SILENCIO.
+    const lines = items.map((it) => {
+      const gradeKey = this.pricing.gradeKeyFor({
+        productType: it.productType,
+        rawCondition: it.rawCondition,
+      });
+      const finish = (it.finish ?? 'normal') as Finish;
+      const variant = { cardId: it.cardId, productType: it.productType, gradeKey, finish };
+      return {
+        it,
+        variant,
+        cardProductId: it.cardProductId ?? null,
+        positionKey: variantPositionKey({ ...variant, cardProductId: it.cardProductId ?? null }),
+      };
+    });
+
+    const curve = await this.pricing.loadPricingCurve();
+    const overrides = await this.pricing.getVariantOverridesBatch(lines.map((l) => l.variant));
+    const baseRefs = await this.pricing.getReferencesBatch(
+      lines.filter((l) => l.cardProductId == null).map((l) => l.variant),
+    );
+    const products = await this.pricing.findCardProductsByTcgIds(
+      lines.filter((l) => l.cardProductId != null).map((l) => l.cardProductId as number),
+    );
+    const productRefs = await this.pricing.getReferencesByCardProductBatch(
+      lines
+        .filter((l) => l.cardProductId != null)
+        .map((l) => {
+          const cp = products.get(l.cardProductId as number);
+          return cp
+            ? {
+                cardProductId: cp.id,
+                productType: l.variant.productType,
+                gradeKey: l.variant.gradeKey,
+                finish: l.variant.finish,
+              }
+            : null;
+        })
+        .filter((x): x is NonNullable<typeof x> => x != null),
+    );
+
+    const decisions = new Map<string, BuyLineDecision | null>();
+    for (const l of lines) {
+      // El override M-30 se llavea SIN `cardProductId` ⇒ describe la variante de SET_BASE. En una
+      // línea de producto separado se IGNORA (§4.39g.2): aplicarlo sería fusionar dos identidades.
+      const override =
+        l.cardProductId == null ? (overrides.get(variantKey(l.variant)) ?? null) : null;
+      decisions.set(
+        l.it.id,
+        await this.derivedLine(l, curve, override, baseRefs, products, productRefs),
+      );
+    }
+    return { lines, decisions, overrides };
   }
 
   /**
@@ -1892,7 +1953,11 @@ export class BuylistService implements OnModuleInit {
    * `null` ⇒ **no se pudo contar**: el puerto falta (defecto de arranque) o falló. **JAMÁS se
    * degrada a ceros.**
    */
-  private async positionFor(refs: VariantPositionRef[]): Promise<PositionMap | null> {
+  private async positionFor(
+    refs: VariantPositionRef[],
+    /** BL-16 (§4.39g.1): la solicitud EN PANTALLA, excluida de los tres sumandos de promesa. */
+    excludeSellRequestId: string,
+  ): Promise<PositionMap | null> {
     // (a) STOCK — el único sumando que cruza de `inventory`. Sin puerto o con puerto que truena, la
     // posición ENTERA queda no disponible: un desglose con tres sumandos ciertos y un cuarto
     // inventado sumaría a un total falso, y el total es lo que decide la sugerencia.
@@ -1922,6 +1987,21 @@ export class BuylistService implements OnModuleInit {
       where: {
         cardId: { in: [...new Set(refs.map((r) => r.cardId))] },
         offerDecision: 'buy',
+        // ⚠️ v1.51.6 · **BL-16** (§4.39g.1) — **OTRAS solicitudes.** Los tres sumandos de PROMESA
+        // excluyen la solicitud que se está mirando; `stock` **NO** (una pieza en bóveda es un
+        // HECHO, no una promesa: da igual qué solicitud la trajo).
+        //
+        // Sin esto, abierta la mesa sobre una solicitud ya `ofertada`, **sus propias líneas suman a
+        // `committed`** y el operador decidiría contra una posición **inflada por él mismo**.
+        // `PROJECT.md` §P.2 es literal: *«ocho copias en la caja y tres más en camino es una razón
+        // perfectamente buena para no comprar LA NOVENA»* — la novena es lo que se juzga; las ocho y
+        // las tres son el contexto. Si la novena se cuenta a sí misma la frase es circular, y en
+        // pantalla el número **engaña**: un `committed: 3` que son las tres líneas que el operador
+        // tiene delante se lee como *«hay tres más en otro lado»*.
+        //
+        // Semántica del campo: `position` = «lo que ya tengo o ya debo, **SIN contar esta
+        // solicitud**». Lo que aporta la de la pantalla ya está a la vista: son sus líneas.
+        sellRequestId: { not: excludeSellRequestId },
         sellRequest: {
           status: {
             in: [
@@ -2042,6 +2122,781 @@ export class BuylistService implements OnModuleInit {
         bountyActive,
       },
     };
+  }
+
+
+  // ===========================================================================================
+  // v1.51 — EL CICLO DE ADQUISICIÓN: LA OFERTA (§M5 · ARCHITECTURE §4.39h)
+  // «Ahí mandamos el correo al cliente diciendo que estamos dispuestos a comprar y a cuánto.»
+  // ===========================================================================================
+
+  /**
+   * Campos congelados de la oferta que la cancelación **limpia**, y los mismos que la emisión
+   * escribe. Se declaran **una vez** porque emitir y cancelar tienen que ser exactamente inversos:
+   * si la lista se escribiera dos veces, una cancelación podría dejar un monto congelado vivo y la
+   * oferta siguiente heredaría una cifra que nadie decidió.
+   */
+  private static readonly OFFER_FROZEN_NULL = {
+    offerGrossCents: null,
+    offerShippingFeeCents: null,
+    offerNetCents: null,
+    offerAcceptDeadlineAt: null,
+    offerAcceptReminderSentAt: null,
+  } as const;
+
+  /** Ídem, por línea. */
+  private static readonly OFFER_LINE_NULL = {
+    offerDecision: null,
+    offeredPriceCents: null,
+    offerDerivedPriceCents: null,
+    offerOverrideReason: null,
+    offerPriceBasis: null,
+    offerMarketMxnCents: null,
+    offerMarketBracket: null,
+  } as const;
+
+  /**
+   * URL del portal para el CTA de los correos. Vacía ⇒ la plantilla degrada el botón a una
+   * instrucción de texto. *Un botón muerto es peor que una frase.*
+   */
+  private portalRequestUrl(sellRequestId: string): string | undefined {
+    const base = envOr(process.env.APP_PUBLIC_URL, '');
+    return base ? `${base.replace(/\/+$/, '')}/buylist/requests/${sellRequestId}` : undefined;
+  }
+
+  /**
+   * **`POST /admin/buylist/:id/offer` — EMITIR (o PREPARAR) la oferta** (D1/D2/D13/D24/D26,
+   * criterios 143/147/148).
+   *
+   * ### La secuencia es NORMATIVA y el orden importa (§4.39h)
+   * ```
+   * 1  precondición (cotizada ∧ offerState ∈ {null, cancelled})
+   * 1-bis  PICKUP_ADDRESS_MISSING          ← lo más barato de comprobar, y hace inútil todo lo demás
+   * 2  OFFER_LINES_MISMATCH                ← cubren EXACTAMENTE los ítems
+   * 3  precio por línea (decideBuyLine)    ← OFFER_LINE_NOT_PRICEABLE / OVERRIDE_REASON_REQUIRED
+   * 4-5 bruto → envío CONGELADO → neto
+   * 6  OFFER_NET_BELOW_MINIMUM             ← ⚠️ ANTES del tope: nada inofertable llega a la cola
+   * 7  tope del operador                   ← 200 (sale) | 202 (espera autorización)
+   * ```
+   *
+   * ### Dos desenlaces, y la diferencia es la que importa
+   * | Actor | Bruto | Resp. | Efecto |
+   * |---|---|---|---|
+   * | `super_admin` | cualquiera | **200** | `sent` + `ofertada` + **el correo SALE** |
+   * | `vault_operator` | `≤ cap` (**inclusivo**) | **200** | ídem — sale sola |
+   * | `vault_operator` | `> cap` | **202** | `pending_authorization`, **`status` SIGUE `cotizada`**, **NINGÚN correo** |
+   *
+   * **Una oferta que espera autorización NO EXISTE para el vendedor** (D13/D24): mandarle el correo
+   * le filtraría la existencia y el orden de magnitud de un control interno nuestro. El `202` **es un
+   * estado real, no un error**: el operador *puede* prepararla; lo que no puede es que salga sola.
+   *
+   * ### Money-safe
+   * - **El precio sale de `decideBuyLine`** con la curva **vigente al ofertar** — no se hereda de la
+   *   cotización (§P.2: entre cotizar y ofertar el mercado se movió, y lo vinculante es lo que
+   *   ofertamos). **Prohibida una cuarta reimplementación** de la secuencia.
+   * - **INVARIANTE `offerDecision='buy' ⇒ offeredPriceCents IS NOT NULL`**, en la MISMA transacción.
+   *   `convertToInventory` ya lee `offeredPriceCents ?? …`: si esto no lo escribiera, la conversión
+   *   capitalizaría el **precio COTIZADO** de una pieza comprada a otro precio, **sin fallar y sin
+   *   avisar**, y el margen de M7 saldría inflado (§4.39i.5).
+   * - **La tarifa se CONGELA aquí** (D25): si la etiqueta sale más cara la absorbemos; si sale más
+   *   barata es margen nuestro. **Nunca se recalcula tras mandar la oferta** — si el descuento pudiera
+   *   moverse, el neto dejaría de ser vinculante.
+   * - **El override NO es puerta trasera al tope** (criterio 148c): el tope se juzga sobre el bruto
+   *   **resultante**, overrides incluidos.
+   *
+   * El correo es **best-effort POST-COMMIT**: su fallo se loggea y **no revierte la oferta** — lo
+   * contrario dejaría una decisión de dinero colgada de un servicio externo.
+   */
+  async adminOffer(
+    id: string,
+    actor: { id: string; role: Role },
+    lines: { itemId: string; decision: BuyDecision; overridePriceCents?: number; overrideReason?: string }[],
+  ) {
+    // ---- 1. Precondición (lectura para el DIAGNÓSTICO; la guarda real es el `where` de abajo) ----
+    const req = await this.prisma.sellRequest.findUnique({
+      where: { id },
+      include: {
+        items: { include: { card: { include: { set: true } } } },
+        user: { select: { id: true, name: true, email: true, locale: true } },
+      },
+    });
+    if (!req) throw BusinessException.notFound();
+    if (req.offerState === 'sent') {
+      // Una oferta ENVIADA no se edita: se cancela y se emite otra (criterio 145). El precio
+      // ofertado es vinculante desde el correo (D2/D9).
+      throw BusinessException.conflict(
+        'OFFER_ALREADY_SENT',
+        'This offer was already sent: cancel it and issue a new one',
+        { status: req.status, offerState: req.offerState },
+      );
+    }
+    if (req.status !== 'cotizada' || (req.offerState != null && req.offerState !== 'cancelled')) {
+      throw BusinessException.conflict('OFFER_NOT_ALLOWED', 'This sell request cannot be offered', {
+        status: req.status,
+        offerState: req.offerState,
+      });
+    }
+
+    // ---- 1-bis. SIN DIRECCIÓN DE ORIGEN NO SE OFERTA (D36) ----
+    // Ofertar es comprometer dinero Y prometer una etiqueta. Si el hueco se descubriera al capturar
+    // la guía, ya le habríamos escrito al vendedor que le compramos y estaríamos incumpliendo un
+    // contrato por un dato que nunca pedimos.
+    // ⚠️ PROHIBIDO rellenarla leyendo la libreta viva: sería inventarle un origen que él NO confirmó
+    // para esta solicitud. *La respuesta correcta a un dato que falta es pedirlo, no adivinarlo.*
+    if (req.pickupAddressSnapshot == null) {
+      throw BusinessException.validation(
+        'PICKUP_ADDRESS_MISSING',
+        'This sell request has no pickup address snapshot',
+        { sellRequestId: id },
+      );
+    }
+
+    // ---- 2. Las líneas cubren EXACTAMENTE los ítems ----
+    // Sin esto, una línea olvidada saldría del correo sin que nadie decidiera nada sobre ella.
+    const itemIds = new Set(req.items.map((i) => i.id));
+    const sent = new Set(lines.map((l) => l.itemId));
+    const missingItemIds = [...itemIds].filter((x) => !sent.has(x));
+    const unknownItemIds = [...sent].filter((x) => !itemIds.has(x));
+    if (missingItemIds.length > 0 || unknownItemIds.length > 0 || lines.length !== sent.size) {
+      throw BusinessException.validation(
+        'OFFER_LINES_MISMATCH',
+        'Offer lines must cover exactly the items of this sell request',
+        { missingItemIds, unknownItemIds },
+      );
+    }
+
+    // ---- 3. Precio por línea — el SEAM ÚNICO, en lote, con la curva VIGENTE AHORA ----
+    const { decisions } = await this.deriveOfferLinesBatch(req.items);
+    const byItem = new Map(lines.map((l) => [l.itemId, l]));
+    const notPriceable: string[] = [];
+    const reasonMissing: string[] = [];
+    const resolved: {
+      itemId: string;
+      decision: BuyDecision;
+      derived: BuyLineDecision | null;
+      offeredPriceCents: number | null;
+      overrideReason: string | null;
+    }[] = [];
+    for (const item of req.items) {
+      const l = byItem.get(item.id) as (typeof lines)[number];
+      const derived = decisions.get(item.id) ?? null;
+      const derivedCents = derived?.quotedPriceCents ?? null;
+      if (l.decision === 'skip') {
+        resolved.push({ itemId: item.id, decision: 'skip', derived, offeredPriceCents: null, overrideReason: null });
+        continue;
+      }
+      const hasOverride = l.overridePriceCents != null;
+      const offered = hasOverride ? (l.overridePriceCents as number) : derivedCents;
+      if (offered == null) {
+        // La oferta NO sale a medias: o se le pone precio a mano, o esa línea se marca `skip`.
+        notPriceable.push(item.id);
+        continue;
+      }
+      // *Sin motivo no hay override* (criterio 148a): es lo que convierte un número a mano en una
+      // decisión revisable en vez de una cifra huérfana. Se compara contra el DERIVADO, así que
+      // reenviar el mismo número que dijo la curva NO exige motivo (no es un override).
+      const isOverride = hasOverride && offered !== derivedCents;
+      const reason = (l.overrideReason ?? '').trim();
+      if (isOverride && (reason.length < 3 || reason.length > 500)) {
+        reasonMissing.push(item.id);
+        continue;
+      }
+      resolved.push({
+        itemId: item.id,
+        decision: 'buy',
+        derived,
+        offeredPriceCents: offered,
+        overrideReason: isOverride ? reason : null,
+      });
+    }
+    if (notPriceable.length > 0) {
+      throw BusinessException.validation(
+        'OFFER_LINE_NOT_PRICEABLE',
+        'A `buy` line has no resolvable price and no override',
+        { itemIds: notPriceable },
+      );
+    }
+    if (reasonMissing.length > 0) {
+      throw BusinessException.validation(
+        'OVERRIDE_REASON_REQUIRED',
+        'An override requires a reason (3-500 chars)',
+        { itemIds: reasonMissing },
+      );
+    }
+
+    // ---- 4-5. Bruto → envío CONGELADO → neto ----
+    const buyLines = resolved.filter((r) => r.decision === 'buy');
+    const offerGrossCents = buyLines.reduce((a, r) => a + (r.offeredPriceCents as number), 0);
+    const [shippingFeeCents, minimumOfferNetCents, operatorCapCents, acceptDeadlineDays] =
+      await Promise.all([
+        this.settings.getNumber(SettingKey.BUYLIST_SHIPPING_FEE_CENTS),
+        this.settings.getNumber(SettingKey.BUYLIST_MINIMUM_OFFER_NET_CENTS),
+        this.settings.getNumber(SettingKey.BUYLIST_OPERATOR_OFFER_CAP_CENTS),
+        this.settings.getNumber(SettingKey.BUYLIST_OFFER_ACCEPT_DEADLINE_BUSINESS_DAYS),
+      ]);
+    // ⚠️ UNA SOLA BANDA (D31): siempre mandamos guía y siempre se descuenta.
+    // ⚠️ INVARIANTE (i.1, criterio 152): **el neto NUNCA es negativo.** El `max(0,…)` no es una
+    // defensa: es la DEFINICIÓN. Bruto $100 con tarifa $180 ⇒ **MX$0**, no −$80, y jamás un cargo,
+    // un adeudo ni una retención contra operaciones futuras. *El peor caso para un vendedor es
+    // cobrar $0 — nunca deber.*
+    const offerNetCents = Math.max(0, offerGrossCents - shippingFeeCents);
+
+    // ---- 6. PISO DE NETO (D34/D40) — ANTES del tope: nada inofertable llega a la cola ----
+    if (offerNetCents < minimumOfferNetCents) {
+      const requiredGrossCents = minimumOfferNetCents + shippingFeeCents;
+      throw BusinessException.validation(
+        'OFFER_NET_BELOW_MINIMUM',
+        'The announced deposit would be below the minimum net',
+        {
+          grossCents: offerGrossCents,
+          shippingFeeCents,
+          netCents: offerNetCents,
+          minimumNetCents: minimumOfferNetCents,
+          requiredGrossCents,
+          // El faltante va en BRUTO a propósito: la palanca del operador es el bruto. «Te faltan
+          // $330 de bruto» es accionable donde «el neto es bajo» no lo es.
+          grossShortfallCents: requiredGrossCents - offerGrossCents,
+        },
+      );
+    }
+
+    // ---- 7. Tope del operador (D13/D24). El borde es INCLUSIVO: $1,500 SALE. ----
+    // El súper-admin oferta sin tope. El override no es puerta trasera: el tope mira el bruto
+    // RESULTANTE, overrides incluidos.
+    const requiresAuthorization =
+      actor.role === Role.vault_operator && offerGrossCents > operatorCapCents;
+    const now = new Date();
+    // ---- 8. Al SALIR: plazo CONGELADO en días hábiles (D14, criterio 154) ----
+    const offerAcceptDeadlineAt = requiresAuthorization
+      ? null
+      : addBusinessDays(now, acceptDeadlineDays);
+
+    const updated = await this.prisma.$transaction(async (tx) => {
+      // La precondición vive en el `where` (patrón `count===1`): la exclusión la da el motor, no un
+      // `if` sobre la lectura de arriba, que una carrera puede invalidar.
+      const guard = await tx.sellRequest.updateMany({
+        where: {
+          id,
+          status: 'cotizada',
+          closedAt: null,
+          OR: [{ offerState: null }, { offerState: 'cancelled' }],
+        },
+        data: requiresAuthorization
+          ? {
+              // ⚠️ `status` SIGUE `cotizada`: el cliente NO debe enterarse de que existe (D13/D24).
+              offerState: 'pending_authorization',
+              offerPreparedBy: actor.id,
+              offerPreparedAt: now,
+              offerGrossCents,
+              offerShippingFeeCents: shippingFeeCents,
+              offerNetCents,
+              offerCancelledAt: null,
+              offerCancelReason: null,
+            }
+          : {
+              offerState: 'sent',
+              status: 'ofertada',
+              offerPreparedBy: actor.id,
+              offerPreparedAt: now,
+              offerSentAt: now,
+              offerAcceptDeadlineAt,
+              offerAcceptReminderSentAt: null,
+              offerGrossCents,
+              offerShippingFeeCents: shippingFeeCents,
+              offerNetCents,
+              offerCancelledAt: null,
+              offerCancelReason: null,
+            },
+      });
+      if (guard.count !== 1) {
+        const current = await tx.sellRequest.findUnique({
+          where: { id },
+          select: { status: true, offerState: true },
+        });
+        throw BusinessException.conflict('OFFER_NOT_ALLOWED', 'This sell request cannot be offered', {
+          status: current?.status,
+          offerState: current?.offerState,
+        });
+      }
+      // ---- Las líneas, en la MISMA transacción que el encabezado ----
+      // Las `skip` comparten `data` ⇒ una sola escritura. Las `buy` llevan cada una su monto, así
+      // que no hay forma de agruparlas: es una escritura por línea comprada, acotada por la
+      // solicitud (no crece con el catálogo).
+      const skipIds = resolved.filter((r) => r.decision === 'skip').map((r) => r.itemId);
+      if (skipIds.length > 0) {
+        await tx.sellRequestItem.updateMany({
+          where: { id: { in: skipIds }, sellRequestId: id },
+          data: { ...BuylistService.OFFER_LINE_NULL, offerDecision: 'skip' },
+        });
+      }
+      for (const r of buyLines) {
+        await tx.sellRequestItem.updateMany({
+          where: { id: r.itemId, sellRequestId: id },
+          data: {
+            offerDecision: 'buy',
+            // ⚠️ INVARIANTE: una línea `buy` SIEMPRE lleva monto. Es lo que `convertToInventory`
+            // capitaliza como `acquisitionCostCents` (§4.39i.5).
+            offeredPriceCents: r.offeredPriceCents,
+            // Los TRES datos del override (criterio 148b): lo que dijo la curva, lo que se oferta y
+            // por qué — para que el delta sea visible SIN leer la bitácora.
+            offerDerivedPriceCents: r.derived?.quotedPriceCents ?? null,
+            offerOverrideReason: r.overrideReason,
+            // Enum EXISTENTE, sin valores nuevos: un override (y el rescate de un `precio_pendiente`)
+            // queda `override`.
+            offerPriceBasis: r.overrideReason != null ? 'override' : (r.derived?.priceBasis ?? null),
+            // Instrumentación §N.8 del momento de OFERTAR — NO se reusa la del quote: son dos
+            // decisiones en dos instantes, y la del quote ya está congelada.
+            offerMarketMxnCents: r.derived?.quote.marketMxnCents ?? null,
+            offerMarketBracket: marketBracketOf(r.derived?.quote.marketMxnCents ?? null),
+          },
+        });
+      }
+      // PROJECTION-EXEMPT: fila cruda DENTRO de la tx; se proyecta abajo con `offerResponseShape`
+      // (lista blanca del contrato §M5) antes de devolverla. `updateMany` no devuelve filas.
+      return tx.sellRequest.findUnique({
+        where: { id },
+        include: { items: { include: { card: { include: { set: true } } } } },
+      });
+    });
+    if (!updated) throw BusinessException.notFound();
+
+    // ---- Correo POST-COMMIT, best-effort, y SOLO si la oferta salió ----
+    // Con `202` NO se manda nada: esa oferta no existe para el vendedor.
+    if (!requiresAuthorization) {
+      await this.sendOfferMail(updated, req.user);
+    }
+
+    return {
+      response: this.offerResponseShape(updated, requiresAuthorization),
+      audit: {
+        grossCents: offerGrossCents,
+        shippingFeeCents,
+        netCents: offerNetCents,
+        // El dial vigente AL EMITIR queda en la bitácora: la pregunta «¿por qué se permitió esta
+        // oferta?» es de auditoría, no de cálculo (por eso el piso NO lleva columna).
+        minimumOfferNetCents,
+        operatorCapCents,
+        requiresAuthorization,
+        buyLineCount: buyLines.length,
+        skipLineCount: resolved.length - buyLines.length,
+        overrides: resolved
+          .filter((r) => r.overrideReason != null)
+          .map((r) => ({
+            itemId: r.itemId,
+            derivedPriceCents: r.derived?.quotedPriceCents ?? null,
+            offeredPriceCents: r.offeredPriceCents,
+            reason: r.overrideReason,
+          })),
+      },
+    };
+  }
+
+  /**
+   * **`POST /admin/buylist/:id/offer/authorize`** — `super_admin` (D24, criterios 143/147).
+   *
+   * **Autoriza LO GUARDADO.** No acepta líneas ni montos: aceptar cambios aquí convertiría la
+   * autorización en una segunda edición y el «quién preparó / quién autorizó» dejaría de significar
+   * nada. **El piso de neto NO se reevalúa** (D34): reevaluarlo compararía un monto congelado contra
+   * un dial vivo, que es el anti-patrón que el criterio 157 prohíbe en todas las demás congelaciones.
+   *
+   * **Precondición — DOS candados a propósito** (defensa en profundidad, D33):
+   * ```
+   * offerState = 'pending_authorization'  ∧  status = 'cotizada'  ∧  closedAt IS NULL
+   * ```
+   * El barrido ya anula la oferta en la misma transacción en que caduca, así que el primer conjunto
+   * bastaría — **pero si un refactor futuro olvida anularla, el segundo sigue cerrando la puerta**.
+   * Sin esto, el súper-admin **resucitaría una solicitud TERMINAL mandando un correo VINCULANTE** a
+   * alguien a quien ya le escribimos que no procederíamos. *En dinero saliente, una sola guarda es
+   * una guarda que se pierde.*
+   *
+   * **El plazo se congela EN ESTE INSTANTE** (criterio 157): la fecha se fija **al comunicarse**, y
+   * la oferta se comunica ahora.
+   */
+  async adminOfferAuthorize(id: string, actor: { id: string; role: Role }) {
+    const days = await this.settings.getNumber(
+      SettingKey.BUYLIST_OFFER_ACCEPT_DEADLINE_BUSINESS_DAYS,
+    );
+    const now = new Date();
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const guard = await tx.sellRequest.updateMany({
+        where: { id, offerState: 'pending_authorization', status: 'cotizada', closedAt: null },
+        data: {
+          offerState: 'sent',
+          status: 'ofertada',
+          offerAuthorizedBy: actor.id,
+          offerAuthorizedAt: now,
+          offerSentAt: now,
+          offerAcceptDeadlineAt: addBusinessDays(now, days),
+          offerAcceptReminderSentAt: null,
+        },
+      });
+      if (guard.count !== 1) {
+        const current = await tx.sellRequest.findUnique({
+          where: { id },
+          select: { status: true, offerState: true },
+        });
+        if (!current) throw BusinessException.notFound();
+        // `details.status` para que la cola pueda decir «esta caducó mientras esperaba tu
+        // autorización» en vez de un «conflicto» mudo.
+        throw BusinessException.conflict(
+          'OFFER_NOT_PENDING_AUTHORIZATION',
+          'There is no offer pending authorization on this sell request',
+          { offerState: current.offerState, status: current.status },
+        );
+      }
+      // PROJECTION-EXEMPT: ídem — se proyecta con `offerResponseShape` antes de salir.
+      return tx.sellRequest.findUnique({
+        where: { id },
+        include: {
+          items: { include: { card: { include: { set: true } } } },
+          user: { select: { id: true, name: true, email: true, locale: true } },
+        },
+      });
+    });
+    if (!updated) throw BusinessException.notFound();
+    await this.sendOfferMail(updated, updated.user);
+    return { response: this.offerResponseShape(updated, false) };
+  }
+
+  /**
+   * **`POST /admin/buylist/:id/offer/cancel`** (criterio 145, D38, v1.51.4).
+   *
+   * **La única vía para corregir una oferta equivocada** — *no hay «corregir un número» sobre una
+   * oferta que el vendedor ya tiene en su bandeja*. La solicitud vuelve a **`cotizada`** y los campos
+   * congelados se **limpian**; la oferta anterior **sobrevive íntegra en `AuditLog`**.
+   *
+   * ### ⚠️ Los TRES efectos de D38/v1.51.4 cuelgan del MISMO `if`, y eso es la garantía
+   * ```
+   * offerState == 'sent'                  ⇒ offerIssueClockStartedAt = now  ∧  offerReissueCount += 1  ∧  CORREO 5
+   * offerState == 'pending_authorization' ⇒ nada de lo anterior — NI UN CORREO
+   * ```
+   * **Por qué reinicia el reloj:** la regla 7 medía desde `createdAt` y la cancelación no lo tocaba,
+   * así que cancelar en el día 7 **para corregir un error nuestro** devolvía la solicitud a la fila
+   * **con cero días** y el barrido de esa madrugada le mandaba un *«no procederemos»*. **El vendedor
+   * cumplió, esperó, y recibía un cierre causado por nuestra corrección.**
+   *
+   * **Y el candado es ESTRUCTURAL:** cancelar una `pending_authorization` no reinicia nada porque esa
+   * oferta **nunca existió para el vendedor**. Con eso el bucle **silencioso**
+   * —preparar→cancelar→preparar— no existe: *el reinicio no puede ocurrir sin que al vendedor le
+   * llegue un correo*. Como las tres cosas dependen de **una sola condición**, no pueden
+   * desincronizarse.
+   */
+  async adminOfferCancel(id: string, actor: { id: string; role: Role }, reason?: string) {
+    const now = new Date();
+    const outcome = await this.prisma.$transaction(async (tx) => {
+      const before = await tx.sellRequest.findUnique({
+        where: { id },
+        include: { items: true, user: { select: { id: true, name: true, email: true, locale: true } } },
+      });
+      if (!before) throw BusinessException.notFound();
+      const wasSent = before.offerState === 'sent';
+      const guard = await tx.sellRequest.updateMany({
+        where: {
+          id,
+          closedAt: null,
+          offerState: { in: ['sent', 'pending_authorization'] },
+          // Una `aceptada` NO se cancela por esta vía: ya hay un compromiso de las dos partes.
+          status: { in: ['cotizada', 'ofertada'] },
+        },
+        data: {
+          ...BuylistService.OFFER_FROZEN_NULL,
+          offerState: 'cancelled',
+          status: 'cotizada',
+          offerSentAt: null,
+          offerCancelledAt: now,
+          offerCancelReason: reason?.trim() ? reason.trim() : null,
+          // D38 + v1.51.4: los TRES efectos, bajo la MISMA condición.
+          ...(wasSent
+            ? {
+                offerIssueClockStartedAt: now,
+                offerReissueCount: { increment: 1 },
+              }
+            : {}),
+          // D22: si había guía emitida, se abre la tarea «cancelar guía no usada» — no desaparece
+          // sola (criterio 139).
+          ...(before.shipmentTrackingNumber != null && before.guideCancellationDoneAt == null
+            ? { guideCancellationPendingAt: now }
+            : {}),
+        },
+      });
+      if (guard.count !== 1) {
+        throw BusinessException.conflict(
+          'OFFER_NOT_CANCELLABLE',
+          'There is no live offer to cancel on this sell request',
+          { status: before.status, offerState: before.offerState },
+        );
+      }
+      await tx.sellRequestItem.updateMany({
+        where: { sellRequestId: id },
+        data: { ...BuylistService.OFFER_LINE_NULL },
+      });
+      // PROJECTION-EXEMPT: se proyecta con `toAdminSellRequestDTO` fuera de la tx (la lista blanca
+      // que excluye `clabeSnapshotEnc`).
+      const after = await tx.sellRequest.findUnique({ where: { id } });
+      return { before, after, wasSent };
+    });
+
+    // ⚠️ CORREO 5 y SOLO si la oferta se había ENVIADO. Escribirle sobre una
+    // `pending_authorization` le filtraría que preparamos algo por encima del tope del operador.
+    if (outcome.wasSent) {
+      await this.sendOfferCancelledMail(outcome.before, outcome.before.user);
+    }
+    return {
+      response: toAdminSellRequestDTO(outcome.after as Prisma.SellRequestGetPayload<object>),
+      audit: {
+        wasSent: outcome.wasSent,
+        reason: reason?.trim() || undefined,
+        before: {
+          offerState: outcome.before.offerState,
+          offerGrossCents: outcome.before.offerGrossCents,
+          offerShippingFeeCents: outcome.before.offerShippingFeeCents,
+          offerNetCents: outcome.before.offerNetCents,
+          offerSentAt: outcome.before.offerSentAt,
+          offerAcceptDeadlineAt: outcome.before.offerAcceptDeadlineAt,
+          lines: outcome.before.items.map((i) => ({
+            itemId: i.id,
+            offerDecision: i.offerDecision,
+            offeredPriceCents: i.offeredPriceCents,
+            offerDerivedPriceCents: i.offerDerivedPriceCents,
+            offerOverrideReason: i.offerOverrideReason,
+          })),
+        },
+      },
+    };
+  }
+
+  /**
+   * **`POST /buylist/requests/:id/offer-response`** — el vendedor acepta o rechaza **la oferta
+   * completa** (D1/D2/D3, criterios 118/119/120/121/146/161).
+   *
+   * ### ⚠️ LA LÍNEA MÁS IMPORTANTE DE LA RELEASE: `accept` ⇒ `aceptada`, **NUNCA `aprobada`**
+   * `accept` **no produce ninguna transición de dinero**: no toca ítems, no toca montos y **no
+   * habilita el pago**. Si saltara a `aprobada`, la solicitud caería en la cola de «listas para pagar
+   * SPEI» **sin envío, sin recepción y sin verificación** — pagaríamos por cartas que nunca
+   * recibimos. Después de `aceptada` **todavía no hay nada en camino**: el conteo de «en camino» de
+   * la mesa **no se mueve** (criterios 116/138).
+   *
+   * - **EXIGE SESIÓN DEL DUEÑO** (criterio 146): el correo **lleva** a la pantalla, pero la respuesta
+   *   **no se ejecuta desde un enlace anónimo**. Un tercero con sesión propia ⇒ `404` (no `403`: no
+   *   se confirma la existencia de una solicitud ajena).
+   * - **TODO-O-NADA** (D1): no existe vía para aceptar solo algunas líneas ni para contraofertar.
+   * - **SEC-A1** (criterio 120): ningún monto viaja en el body — la defensa es **la forma del DTO**.
+   * - **El plazo vencido NO se puede aceptar** (`409 OFFER_EXPIRED`), y la guarda vive en el `where`.
+   */
+  async offerResponse(userId: string, id: string, decision: 'accept' | 'reject') {
+    const req = await this.prisma.sellRequest.findUnique({ where: { id } });
+    // Anti-IDOR: solicitud ajena o inexistente ⇒ MISMA respuesta 404.
+    if (!req || req.userId !== userId) throw BusinessException.notFound();
+    if (req.status !== 'ofertada' || req.offerState !== 'sent') {
+      throw BusinessException.conflict('OFFER_NOT_PENDING', 'There is no live offer to respond to', {
+        status: req.status,
+      });
+    }
+    const now = new Date();
+    if (req.offerAcceptDeadlineAt != null && req.offerAcceptDeadlineAt.getTime() <= now.getTime()) {
+      throw BusinessException.conflict('OFFER_EXPIRED', 'The acceptance deadline has passed', {
+        offerAcceptDeadlineAt: req.offerAcceptDeadlineAt,
+      });
+    }
+    const row = await this.prisma.$transaction(async (tx) => {
+      const guard = await tx.sellRequest.updateMany({
+        where: {
+          id,
+          userId,
+          status: 'ofertada',
+          offerState: 'sent',
+          closedAt: null,
+          // El plazo, TAMBIÉN en el `where`: un read-then-write dejaría aceptar una oferta que
+          // venció entre la lectura y la escritura.
+          offerAcceptDeadlineAt: { gt: now },
+        },
+        data:
+          decision === 'accept'
+            ? // ⚠️ `aceptada`. NUNCA `aprobada`. No se toca ni un monto ni un ítem.
+              { status: 'aceptada', acceptedAt: now }
+            : { status: 'rechazada', closedAt: now },
+      });
+      if (guard.count !== 1) {
+        const current = await tx.sellRequest.findUnique({
+          where: { id },
+          select: { status: true, offerAcceptDeadlineAt: true },
+        });
+        if (
+          current?.status === 'ofertada' &&
+          current.offerAcceptDeadlineAt != null &&
+          current.offerAcceptDeadlineAt.getTime() <= now.getTime()
+        ) {
+          throw BusinessException.conflict('OFFER_EXPIRED', 'The acceptance deadline has passed', {
+            offerAcceptDeadlineAt: current.offerAcceptDeadlineAt,
+          });
+        }
+        throw BusinessException.conflict(
+          'OFFER_NOT_PENDING',
+          'There is no live offer to respond to',
+          { status: current?.status },
+        );
+      }
+      // PROJECTION-EXEMPT: fila cruda DENTRO de la tx; se proyecta abajo con la lista blanca de
+      // cliente antes de devolverla.
+      return tx.sellRequest.findUnique({
+        where: { id },
+        include: { items: { include: { card: true } } },
+      });
+    });
+    if (!row) throw BusinessException.notFound();
+    return {
+      sellRequestId: row.id,
+      status: row.status as 'aceptada' | 'rechazada',
+      ...(row.acceptedAt ? { acceptedAt: row.acceptedAt } : {}),
+      isTerminal: isTerminalSellRequestStatus(row.status),
+      offer: this.offerPublicDTO(row, row.items),
+    };
+  }
+
+  /** Shape de respuesta compartido por `offer` y `offer/authorize` (§M5). */
+  private offerResponseShape(
+    req: Prisma.SellRequestGetPayload<{ include: { items: { include: { card: true } } } }> | {
+      id: string;
+      status: SellRequestStatus;
+      offerState: SellOfferState | null;
+      offerSentAt: Date | null;
+      offerGrossCents: number | null;
+      offerShippingFeeCents: number | null;
+      offerNetCents: number | null;
+      offerAcceptDeadlineAt: Date | null;
+      items: Parameters<BuylistService['itemDTO']>[0][];
+    },
+    requiresAuthorization: boolean,
+  ) {
+    return {
+      sellRequestId: req.id,
+      status: req.status,
+      offerState: req.offerState,
+      offerSentAt: req.offerSentAt,
+      offerGrossCents: req.offerGrossCents,
+      offerShippingFeeCents: req.offerShippingFeeCents,
+      offerNetCents: req.offerNetCents,
+      offerAcceptDeadlineAt: req.offerAcceptDeadlineAt,
+      requiresAuthorization,
+      items: (req.items ?? []).map((i) => this.itemDTO(i)),
+    };
+  }
+
+  /**
+   * v1.51 (§11 `SellOfferPublicDTO`) — **LA OFERTA COMO LA VE EL VENDEDOR.** Presente **solo** con
+   * `offerState='sent'`; `null` en cualquier otro caso.
+   *
+   * **LOS TRES MONTOS, SIN LETRAS CHIQUITAS** (D16, criterios 133/134): *«la resta se ENSEÑA, no se
+   * esconde»*. **NUNCA lleva `offerState`** (admin-only: le filtraría el orden de magnitud de nuestro
+   * tope interno) ni ninguna cifra de la mesa.
+   *
+   * `terms` lo **renderiza el backend** (misma fuente que el correo), y los plazos viajan como ISO ya
+   * resuelto en días hábiles: **el front NO recalcula plazos** — dos implementaciones de «día hábil»
+   * en dos lenguajes hacen que la pantalla y el correo digan fechas distintas (criterio 154).
+   */
+  private offerPublicDTO(
+    req: {
+      offerState: SellOfferState | null;
+      offerSentAt: Date | null;
+      offerGrossCents: number | null;
+      offerShippingFeeCents: number | null;
+      offerNetCents: number | null;
+      offerAcceptDeadlineAt: Date | null;
+      acceptedAt: Date | null;
+      shipDeadlineAt: Date | null;
+      sellerShippedDeclaredAt: Date | null;
+      shipmentCarrier: string | null;
+      shipmentTrackingNumber: string | null;
+      locale?: string | null;
+    },
+    items: Parameters<BuylistService['itemDTO']>[0][],
+  ) {
+    if (req.offerState !== 'sent' || req.offerSentAt == null) return null;
+    return {
+      sentAt: req.offerSentAt,
+      grossCents: req.offerGrossCents ?? 0,
+      shippingFeeCents: req.offerShippingFeeCents ?? 0,
+      // Lo que se deposita es SIEMPRE el neto (D31: no hay `depositField` que consultar).
+      netCents: req.offerNetCents ?? 0,
+      acceptDeadlineAt: req.offerAcceptDeadlineAt,
+      acceptedAt: req.acceptedAt,
+      shipDeadlineAt: req.shipDeadlineAt,
+      sellerShippedDeclaredAt: req.sellerShippedDeclaredAt,
+      carrier: req.shipmentCarrier,
+      trackingNumber: req.shipmentTrackingNumber,
+      terms: offerTermsCopy(req.locale),
+      lines: items.map((i) => this.itemDTO(i)),
+    };
+  }
+
+  /**
+   * **CORREO 1 — la oferta.** POST-COMMIT y **best-effort**: su fallo se loggea y **NO revierte la
+   * oferta** (lo contrario dejaría una decisión de dinero colgada de un servicio externo).
+   * **Minimización:** solo las cartas de ESTA solicitud, sus montos y el plazo. Jamás CLABE, jamás
+   * terceros, jamás una cifra de la mesa.
+   */
+  private async sendOfferMail(
+    req: Prisma.SellRequestGetPayload<{ include: { items: { include: { card: { include: { set: true } } } } } }>,
+    user: { name: string; email: string; locale: string | null } | null | undefined,
+  ): Promise<void> {
+    try {
+      if (!this.mail || !user?.email) {
+        this.logger.warn(
+          `buylist offer mail skipped for ${req.id}: ${this.mail ? 'no recipient email' : 'MAIL_PORT unavailable'}`,
+        );
+        return;
+      }
+      const msg = sellOfferTemplate(
+        {
+          folio: req.id,
+          lines: req.items.map((i) => ({
+            cardName: i.card?.name ?? '',
+            setName: i.card?.set?.name ?? '',
+            cardNumber: i.card?.number ?? '',
+            finish: (i.finish ?? 'normal') as Finish,
+            offeredPriceCents: i.offerDecision === 'buy' ? i.offeredPriceCents : null,
+          })),
+          grossCents: req.offerGrossCents ?? 0,
+          shippingFeeCents: req.offerShippingFeeCents ?? 0,
+          netCents: req.offerNetCents ?? 0,
+          acceptDeadlineAt: req.offerAcceptDeadlineAt as Date,
+          pickupAddressLine: pickupAddressLine(req.pickupAddressSnapshot),
+          portalUrl: this.portalRequestUrl(req.id),
+        },
+        user.name ?? '',
+        user.locale,
+      );
+      await this.mail.send({ ...msg, to: user.email });
+    } catch (e) {
+      this.logger.error(
+        `buylist offer mail failed for ${req.id}: ${e instanceof Error ? e.message : String(e)}`,
+      );
+    }
+  }
+
+  /** **CORREO 5 — cancelamos la oferta.** Mismo régimen best-effort post-commit. */
+  private async sendOfferCancelledMail(
+    req: { id: string; offerSentAt: Date | null },
+    user: { name: string; email: string; locale: string | null } | null | undefined,
+  ): Promise<void> {
+    try {
+      if (!this.mail || !user?.email) {
+        this.logger.warn(
+          `buylist offer-cancel mail skipped for ${req.id}: ${this.mail ? 'no recipient email' : 'MAIL_PORT unavailable'}`,
+        );
+        return;
+      }
+      const msg = sellOfferCancelledTemplate(
+        { folio: req.id, offerSentAt: req.offerSentAt, portalUrl: this.portalRequestUrl(req.id) },
+        user.name ?? '',
+        user.locale,
+      );
+      await this.mail.send({ ...msg, to: user.email });
+    } catch (e) {
+      this.logger.error(
+        `buylist offer-cancel mail failed for ${req.id}: ${e instanceof Error ? e.message : String(e)}`,
+      );
+    }
   }
 
   /**

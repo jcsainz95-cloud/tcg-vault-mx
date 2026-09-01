@@ -4,6 +4,161 @@
 > El contrato (`docs/API_CONTRACT.md`) manda sobre el código. Stack: NestJS + Prisma + PostgreSQL,
 > Redis/BullMQ (jobs), JWT + argon2, S3/MinIO (presigned URLs), Stripe.
 
+## 0.18 v1.51 — **EL CORAZÓN DEL CICLO: la oferta** (emitir, autorizar, cancelar, responder) + **BL-16** (2026-09-01)
+
+> Implementa **API_CONTRACT §M5** (`POST …/offer`, `…/offer/authorize`, `…/offer/cancel`) y **§6**
+> (`POST /buylist/requests/:id/offer-response`), sobre **ARCHITECTURE §4.39h** (la secuencia),
+> **§4.39n** (correos 1 y 5), **§4.39g.1** (BL-16) y **§4.39i.5** (la cláusula de acoplamiento).
+> Es literalmente lo que pidió el humano: *«ahí mandamos el correo al cliente diciendo que estamos
+> dispuestos a comprar y a cuánto»*.
+
+### 0.18.1 `POST /admin/buylist/:id/offer` — la secuencia, en el orden normativo
+
+```
+1     precondición: cotizada ∧ offerState ∈ {null, cancelled}    → 409 OFFER_NOT_ALLOWED / OFFER_ALREADY_SENT
+1-bis PICKUP_ADDRESS_MISSING          ← lo más barato, y hace inútil todo lo demás
+2     OFFER_LINES_MISMATCH            ← las líneas cubren EXACTAMENTE los ítems
+3     precio por línea (decideBuyLine) → OFFER_LINE_NOT_PRICEABLE / OVERRIDE_REASON_REQUIRED
+4-5   bruto → envío CONGELADO → neto = max(0, bruto − tarifa)
+6     OFFER_NET_BELOW_MINIMUM         ← ⚠️ ANTES del tope: nada inofertable llega a la cola
+7     tope del operador               → 200 (sale, con correo) | 202 (espera, SIN correo)
+```
+
+**El precio sale de `decideBuyLine`, no de una cuarta reimplementación.** Se extrajo
+`deriveOfferLinesBatch()` —el seam en lote que ya usaba la mesa— y **ahora lo comparten la mesa y la
+emisión**: la mesa **previsualiza exactamente el número que la emisión congela**. Si leyeran por
+caminos distintos, el operador decidiría con una cifra y firmaría otra.
+
+**Dos desenlaces, y el código HTTP los distingue.** El `202` se fija con
+`@Res({ passthrough: true })` porque **depende del resultado, no de la ruta**: un `@HttpCode`
+estático mentiría en la mitad de los casos. Con `202` la solicitud **sigue `cotizada`** y **no sale
+ningún correo** — una oferta que espera autorización **no existe para el vendedor**; escribirle le
+filtraría la existencia y el orden de magnitud de nuestro tope interno.
+
+**Money-safe, punto por punto:**
+- **`offerDecision='buy' ⇒ offeredPriceCents IS NOT NULL`, en la MISMA transacción.** Es la cláusula
+  de acoplamiento de §4.39i.5: `convertToInventory` ya lee `offeredPriceCents ?? …`, así que sin esta
+  escritura la conversión capitalizaría el **precio COTIZADO** de una pieza comprada a otro precio,
+  **sin fallar y sin avisar**, y el margen de M7 saldría inflado. Hay test que recorre las líneas.
+- **El neto se topa en CERO** (invariante 1, criterio 152). `max(0, …)` no es una defensa: es **la
+  definición**. Bruto $100 con tarifa $180 ⇒ **MX$0**, jamás −$80, jamás un cargo o un adeudo.
+- **La tarifa se CONGELA aquí** (D25) en `offerShippingFeeCents`: no se relee el dial al pagar.
+- **El override no es puerta trasera al tope** (criterio 148c): el tope mira el bruto **resultante**.
+- **Los tres bordes inclusivos** (mínimo, tope, piso) se fijan con **un test parametrizado** y con
+  **override**, no barriendo la curva: el borde es una propiedad del comparador, y una búsqueda por
+  aproximación haría que el test dependiera de una tabla de precios editable sin redeploy.
+
+**Guarda del motor, no `if` de aplicación:** la precondición vive en el `where` del `updateMany`
+(`count === 1`), igual que BL-2/BL-14/`paySpei`. El encabezado y **todas** las líneas van en el mismo
+boundary; las `skip` comparten `data` ⇒ **una** escritura, y las `buy` llevan cada una su monto
+(inherente: Prisma no expresa un update masivo con valores distintos).
+
+### 0.18.2 `…/offer/authorize` y `…/offer/cancel`
+
+**`authorize`** autoriza **LO GUARDADO**: no acepta líneas ni montos, y **el piso NO se reevalúa**
+(reevaluarlo compararía un monto congelado contra un dial vivo). **DOS candados**
+(`offerState='pending_authorization' ∧ status='cotizada' ∧ closedAt IS NULL`): el barrido ya anula la
+oferta al caducar, así que el primero bastaría — **pero si un refactor futuro lo olvida, el segundo
+sigue cerrando la puerta**, y sin él el súper-admin resucitaría una solicitud **terminal** mandando un
+**correo vinculante**. El plazo se congela **en este instante** (se fija al comunicarse).
+
+**`cancel`** — los **TRES efectos de D38/v1.51.4 cuelgan del MISMO `if`**, y eso es la garantía:
+
+| `offerState` | reloj | conteo | correo |
+|---|---|---|---|
+| `sent` | `offerIssueClockStartedAt = now` | `offerReissueCount += 1` | **correo 5** |
+| `pending_authorization` | — | — | **ninguno** |
+
+El reinicio existe porque el reloj de la regla 7 colgaba de `createdAt`: cancelar el día 7 **para
+corregir un error nuestro** devolvía la solicitud con **cero días** y el barrido le mandaba un *«no
+procederemos»*. **El vendedor cumplía y recibía un cierre causado por nuestra corrección.** El candado
+es estructural: *el reinicio no puede ocurrir sin que al vendedor le llegue un correo* — hay test que
+cruza las tres señales en las dos ramas. La oferta anterior sobrevive íntegra en el `before` de la
+bitácora, y `OFFER_FROZEN_NULL` / `OFFER_LINE_NULL` se declaran **una vez** porque emitir y cancelar
+tienen que ser exactamente inversos.
+
+### 0.18.3 `POST /buylist/requests/:id/offer-response`
+
+**Va en este pase aunque no estaba en la lista de endpoints**, porque el test que el plan marcó como
+no negociable —*`ofertada` + `accept` ⇒ `aceptada`, JAMÁS `aprobada`*— **no se puede escribir sin él**,
+y sin él la oferta emitida no tiene salida.
+
+**`accept` no produce NINGUNA transición de dinero:** no toca ítems, no toca montos, no habilita el
+pago — hay test que compara el JSON de las líneas antes y después y que asevera que
+`sellRequestItem.updateMany` **ni se llama**. Si saltara a `aprobada`, la solicitud caería en la cola
+de SPEI **sin envío, sin recepción y sin verificación**. El plazo va **también en el `where`**: un
+read-then-write dejaría aceptar una oferta que venció entre la lectura y la escritura.
+
+También se completó `SellOfferPublicDTO` (`offer` en `offer-response` **y** en
+`GET /buylist/requests/:id`, un solo constructor): **los tres montos**, `terms` **renderizados por el
+backend** con la misma fuente que el correo, y **nunca `offerState`** ni ninguna cifra de la mesa.
+
+### 0.18.4 Los correos 1 y 5
+
+**Best-effort POST-COMMIT** (try/catch que solo loguea): el fallo del correo **no revierte la
+oferta** — lo contrario dejaría una decisión de dinero colgada de un servicio externo. Hay test con
+`callOrder` que asevera que `mail.send` ocurre **después** del commit, y otro que hace fallar el envío
+y verifica que la oferta quedó emitida.
+
+- **Correo 1 (oferta):** los **TRES montos** —*«la resta se ENSEÑA, no se esconde»*—, la condición NM
+  **en la línea** pegada al monto, lo que **NO** compramos **con nombre y sin monto** (prohibido
+  `MX$ 0.00`, y prohibido explicar por qué), el bloque de consecuencia, y el plazo con **fecha y hora
+  explícitas** en `America/Mexico_City`.
+- **Correo 5 (cancelación):** **un solo productor** (`offer/cancel` con `sent`). Prohibido «venció»,
+  cualquier plazo del vendedor y **cualquier monto** (se limpiaron y no se resucitan). No es una
+  variante del 3: aquél afirma *«tu plazo venció»* y aquí **no venció nada**.
+- **`escapeHtml` en todo valor dinámico** (S15-B1) — hay test con un `<script>` en el nombre.
+- **Minimización:** jamás CLABE, terceros ni cifras de la mesa — test que lo asevera sobre el mensaje.
+
+⚠️ **Un botón muerto es peor que una frase:** el CTA sale de `APP_PUBLIC_URL`; **si la env no está, la
+plantilla degrada a una instrucción de texto** en vez de renderizar un enlace roto. **Para devops:**
+`APP_PUBLIC_URL` **no está en `.env.example`** (archivo suyo) — se señala, no se toca.
+
+### 0.18.5 BL-16 — la posición excluye la solicitud EN PANTALLA
+
+Entra **en este pase y no después**, o sea **antes de que algo escriba `offerDecision`** (hasta hoy el
+defecto era latente porque ninguna fila tenía ese campo poblado).
+
+Los **tres sumandos de promesa** (`verifying`, `inTransit`, `committed`) llevan
+`sellRequestId: { not: :id }`; **`stock` NO se excluye**, y la asimetría es deliberada: *una pieza en
+bóveda es un **hecho**, no una promesa — da igual qué solicitud la trajo*. `PROJECT.md` §P.2 es
+literal: *«ocho copias en la caja y tres más en camino es una razón perfectamente buena para no
+comprar **la novena**»* — la novena es lo que se juzga; si se cuenta a sí misma la frase es circular y
+el número **engaña** en pantalla.
+
+Caso de prueba exigido, implementado: X `ofertada` con 3 líneas de C ⇒ la mesa de **X** da
+`committed: 0`; la de **Y** da `committed: 3`. El fake **evalúa** el `not`, así que un mock que
+devolviera todas las filas no dejaría pasar el test.
+
+### 0.18.6 Tests
+
+`test/buylist.offer-cycle.spec.ts` (**NUEVO, 51**) + 2 en `test/buylist.decision-table.spec.ts` (BL-16)
++ dos censos actualizados en `test/sell-request-states.spec.ts`.
+
+Los cinco que el plan marcó: (1) `accept ⇒ aceptada`, aseverado **también por lo negativo**
+(`not.toBe('aprobada')`, en la respuesta **y** en la fila); (2) `202` con **ausencia de la llamada** al
+correo; (3) el neto topado en cero con el caso que lo produce; (4) override que rebasa el tope, y el
+válido con sus tres datos + su asiento; (5) viernes + 2 días hábiles **no** cae en fin de semana.
+
+**Prueba de mutación hecha a mano, tres a la vez:** `accept → 'aprobada'`, quitar el
+`sellRequestId: { not: … }` de BL-16 y mandar el correo también con `pending_authorization` ⇒ **6
+tests fallan**. Revertidas.
+
+`npm test` **214 suites / 2785 tests en verde** · `npm run typecheck` limpio · `npm run lint` con las
+**2 warnings preexistentes**.
+
+### 0.18.7 Lo que este pase NO trae, declarado
+
+`POST …/guide`, `…/confirm-shipment`, `…/decline`, `PATCH …/pickup-address`, `declare-shipped`, las
+**cuatro colas** nuevas, los **correos 2/3/4** y las **siete reglas del barrido** (que sigue con sus
+plazos viejos). El ciclo queda operable de punta a punta hasta **`aceptada`**; de ahí en adelante es el
+pase siguiente.
+
+**Zona compartida tocada:** `backend/src/common/error-codes.ts` (once códigos nuevos, todos del
+contrato). Aditiva.
+
+---
+
 ## 0.17 v1.51.8 — **BL-17 (`isPayable`) y BL-18 (`live?`)**: la sexta copia gobernaba el botón de pagar (2026-09-01)
 
 > Implementa **API_CONTRACT v1.51.8 §A/§C** y **ARCHITECTURE §4.39c SITIO 10**, **§9 BL-17/BL-18**.
