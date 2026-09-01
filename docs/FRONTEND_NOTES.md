@@ -8405,3 +8405,132 @@ desaparece del back-office***, así que no hay cadena que buscar — se afirma l
    **ningún endpoint, ningún campo, ningún mock**. Siguen abiertas las dos peticiones del pase
    anterior (`live?` sin implementar en backend, y `canPay` como sexta copia sin contraparte
    server-derived).
+
+---
+
+## v1.51.8 · `isPayable` y `live?` — se borra la SEXTA copia (la que ya estaba rota) y la última enumeración de terminales (2026-09-01, rama `claude/buylist-inventory-workflow-hdnls3`)
+
+> Consume los dos campos que backend entregó en `1ac4304` a raíz de las dos peticiones que dejé
+> abiertas en el pase de §4.39c. Contrato: **API_CONTRACT §M5 v1.51.8** (`isPayable`) y **BL-18**
+> (`live?`). ARCHITECTURE §4.39(c) **sitio 10**.
+
+### 1. `canPay` — no era una copia que pudiera romperse: ya estaba rota
+
+Cuando levanté esta sexta copia dije que no la curaba porque el contrato no exponía nada
+equivalente. Al implementarla el backend apareció **lo que desde el cliente no se veía**: la
+precondición del servidor son **DOS** términos y el literal replicaba **el primero**.
+
+```
+servidor:  status ∈ SELL_REQUEST_PAYABLE_STATES  ∧  verifiedAt IS NOT NULL
+cliente:   status === 'aprobada' || status === 'verificacion'      ← solo el primero
+```
+
+⇒ **la pantalla habilitaba el botón de pagar en filas donde el servidor responde `422`.** No es una
+copia que pudiera desincronizarse algún día. Ya lo estaba, en dinero saliente.
+
+```ts
+const canPay = isSuperAdmin && req.isPayable === true;
+```
+
+- **El literal de estados se borró.** El remedio **no** era replicar bien las dos condiciones: eso
+  duplicaría **dos** reglas en vez de una y metería `verifiedAt` en la lógica de una pantalla.
+- **`=== true`, y aquí importa más que en `isTerminal`:** si el campo faltara, el botón que sobra
+  es un **botón de pago**. Fail-closed, con test.
+- **El ROL se queda en el cliente y NO se fundió en el campo.** *«¿esta solicitud está en condición
+  de pagarse?»* es propiedad de **la fila**; *«¿puedo pagarla yo?»* es propiedad **del actor**. Un
+  check de permiso en el cliente es *affordance*; un check de máquina de estados es una regla
+  duplicada — **solo la segunda se cura**. El servidor impone el rol igual con `MoneyOutGuard`:
+  `isPayable: true` **no autoriza** un pago.
+
+### 2. `live=false` — la última enumeración de terminales que quedaba viva en el cliente
+
+La pestaña «Cerradas» mandaba `status=pagada,rechazada,abandonada,expirada`: **la forma exacta que
+este ciclo retiró de los otros cinco sitios**, sobreviviendo en el único lugar donde el contrato
+todavía no ofrecía alternativa. Ahora manda **`live: false`** y el servidor filtra **por exclusión**
+sobre su propio set ⇒ **un terminal nuevo entra a esta pestaña solo**, sin tocar este archivo.
+
+- `M5_CLOSED_STATUSES` y `M5_CLOSED_STATUS_CSV` **desaparecen**. `M5_STATUS_TAB` conserva la
+  asignación de los cuatro terminales a `cerradas` porque eso es la **partición** (lo que impide
+  que un estado desaparezca del back-office), no una consulta.
+- El booleano se serializa **en el call-site** (`String(filters.live)`), siguiendo el precedente ya
+  establecido por `guest`/`needsManual` en M3 — `api-client` no acepta `boolean` y no hacía falta
+  ampliarlo.
+- **No dependo del borde no especificado** que backend señaló (un valor mal escrito no filtra y no
+  falla): solo se manda `false`, literal.
+- Hay aserción **negativa** además de la positiva: si alguien repone el CSV, el test se pone rojo.
+
+### 3. El mock tenía que dejar de reproducir el bug
+
+En modo mock **no hay servidor que derive**, así que la regla vive en el servidor falso — y si se
+hubiera quedado con un término, **el mock mantendría vivo el bug en la pantalla que existe para
+demostrarlo**. Tres cambios:
+
+1. `MockAdminBuylistRow` gana **`verifiedAt`** — una **columna de la «tabla»**, no un campo del
+   DTO: `mockAdminBuylistDTO` la destructura fuera a propósito para que no se filtre al cliente por
+   un `...row` distraído. Es exactamente el reparto del backend real.
+2. La guarda de `paySpei` del mock pregunta por **`isPayable`**, no por una tercera lista de
+   estados. Antes replicaba solo el primer término, igual que la UI.
+3. `verifyBuylistRequest` sella `verifiedAt`, como hace el backend en el mismo `verify()`.
+
+**Y una fixture que modelaba un estado imposible:** `sr-3001` estaba en `verificacion` **sin**
+`verifiedAt`. El backend sella las dos cosas en la misma transacción, así que esa fila no existe en
+producción — y con la regla completa se volvía no-pagable, rompiendo dos tests. No era un dato de
+más: era **un estado que el servidor no puede producir**. Corregida (y `sr-3003`/`aprobada` igual).
+
+### 4. Verificación (resultado literal)
+
+| Comprobación | Resultado |
+|---|---|
+| `npm test` | `Test Files 93 passed (93)` · `Tests 832 passed (832)` (base: 93/828) |
+| `npm run typecheck` | limpio (sin salida) |
+| `npm run lint` | `✔ No ESLint warnings or errors` |
+| Flakes conocidos (`M2View`, `PhotoUploader`) | **no se dispararon** |
+
+Los cuatro casos nuevos de `isPayable` **se verificaron en rojo**: reponiendo el literal viejo caen
+dos —el `aprobada`-sin-verificar (el caso del `422`) y el fail-closed—, que son justamente los que
+el literal no podía ver.
+
+### 5. ⚠️ Encontré DOS derivaciones más del mismo tipo, y una es del MISMO set
+
+El barrido posterior al borrado dio dos transcripciones más en `M5View`, **dos líneas por debajo**
+de la que acabo de curar:
+
+| Línea | Literal | Constante del backend que transcribe |
+|---|---|---|
+| `:873` `canDecide` | `status === 'recibida' \|\| status === 'verificacion'` | **`SELL_REQUEST_VERIFYING_STATES`** |
+| `:874` `showMoneyOut` | `status === 'verificacion' \|\| status === 'aprobada'` | **`SELL_REQUEST_PAYABLE_STATES`** — *el MISMO set que la sexta copia*, transcrito **una segunda vez** |
+
+**`showMoneyOut` es la séptima copia y es gemela de la sexta.** Gatea la sección de dinero (revelar
+CLABE + el bloque de pago). **No la toqué, y no por descuido:**
+
+- **No puedo reusar `isPayable`**: no son el mismo predicado. `isPayable` lleva el término
+  `verifiedAt`; `showMoneyOut` no. Sustituirlo **ocultaría la sección de dinero** —incluido el
+  reveal de CLABE, que es una acción auditada con su propia guarda server-side— en filas donde el
+  contrato no dice que se oculte. Sería resolver en silencio un cambio de conducta en superficie
+  money-out.
+- **No me invento un campo.** Es la misma disciplina que apliqué con `canPay` antes de que
+  existiera `isPayable`.
+
+**Consecuencia visible hoy, y es correcta:** una `aprobada` **sin** `verifiedAt` pinta la sección de
+dinero con el botón de pagar **deshabilitado** (`showMoneyOut` true, `canPay` false). Se ve la
+sección, no se puede pagar. Es estrictamente mejor que antes —cuando el botón salía habilitado y
+contestaba `422`— y está cubierto por test para que nadie lo lea como un olvido.
+
+### 6. Señalado a otros roles (no resuelto aquí)
+
+1. **Arquitecto — la SÉPTIMA copia (`showMoneyOut`) es del mismo set que la sexta.** Si merece el
+   mismo remedio, es un derivado más en `AdminBuylistDTO` (¿`isMoneyOutVisible`? ¿o `isPayable` con
+   el término `verifiedAt` movido al consumidor?). **La decisión es suya**, con un matiz que pesa:
+   una sección de dinero que aparece y desaparece por un campo derivado es más delicada que un
+   botón, porque **el reveal de CLABE cuelga de ahí**. La octava (`canDecide` =
+   `SELL_REQUEST_VERIFYING_STATES`) es del mismo tipo pero no toca dinero.
+2. **Arquitecto / backend — `isPayable` NO viaja en las respuestas de `receive`/`verify`/
+   `reject`/`pay-spei`.** El §11 lo declara en el composite `AdminBuylistDTO` (sin `?`), pero
+   `toAdminSellRequestDTO` —la proyección que devuelven esos cuatro endpoints— **solo emite
+   `isTerminal`**; `isPayable` sale **únicamente** de la lista. **Hoy no rompe nada** (M5 lo lee de
+   la lista y descarta el cuerpo de las mutaciones), y lo tipé **obligatorio** porque el contrato
+   manda. Pero el tipo afirma algo que esas cuatro respuestas no entregan: quien mañana escriba
+   `if (res.isPayable)` sobre el resultado de `verifyBuylistRequest` obtendrá un `false` silencioso
+   **en una superficie de dinero**. O lo emiten las cuatro, o el contrato acota dónde viaja.
+3. **`ITEM_TERMINAL` (`M5View`) y `RESOLVED` (`M8View`)** siguen como estaban: subconjuntos de
+   `SellItemStatus` y `DisputeStatus`, **dos enums que v1.51 no toca**. Misma clase, cero radio.

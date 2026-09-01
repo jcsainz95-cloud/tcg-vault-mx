@@ -8,7 +8,7 @@ import es from '../../../../../../messages/es.json';
 import en from '../../../../../../messages/en.json';
 import * as api from '@/lib/api';
 import { ApiClientError } from '@/lib/api-client';
-import type { CardDTO } from '@/types/contract';
+import type { AdminBuylistDTO, CardDTO } from '@/types/contract';
 // ⚠️ En estas pruebas el spy HACE DE SERVIDOR, y `isTerminal` es **server-derived** (v1.51).
 // Se proyecta con la MISMA función que usa el mock en vez de escribir el booleano a mano en
 // cada fixture: escribirlo a mano sería devolver al frontend la copia del set terminal que
@@ -199,7 +199,8 @@ describe('M5View · Buylist admin end-to-end', () => {
     );
     renderWithProviders(<M5View />, 'es');
     const payButtons = await screen.findAllByRole('button', { name: 'Pagar por SPEI' });
-    // sr-3001 (verificacion) es pagable; sr-3002 (recibida) no.
+    // sr-3001 (`verificacion` CON `verifiedAt`) es pagable; sr-3002 (`recibida`) no. Los dos
+    // términos los decide el servidor y llegan en `isPayable`; la vista no los replica.
     const enabled = payButtons.find((b) => !(b as HTMLButtonElement).disabled)!;
     fireEvent.click(enabled);
 
@@ -526,7 +527,7 @@ describe('M5View · pestaña «Cerradas» server-side (v1.25)', () => {
     ],
     });
 
-  it('al abrir «Cerradas» dispara la query server-side con status CSV y pageSize 25', async () => {
+  it('al abrir «Cerradas» pide `live=false` (no un CSV de terminales) y pageSize 25', async () => {
     const spy = vi.spyOn(api, 'getAdminBuylist').mockResolvedValue({
       data: [closedReq('sr-c1', 'pagada')],
       page: 1,
@@ -539,16 +540,13 @@ describe('M5View · pestaña «Cerradas» server-side (v1.25)', () => {
 
     await waitFor(() =>
       expect(spy).toHaveBeenCalledWith(
-        // ⚠️ v1.51: los terminales pasaron de TRES a CUATRO (criterio 113). `expirada` entra al
-        // CSV porque entró al mapa de pestañas; sin ella, una solicitud expirada no aparecía en
-        // ninguna pestaña de M5 y nadie la veía nunca.
-        expect.objectContaining({
-          status: 'pagada,rechazada,abandonada,expirada',
-          page: 1,
-          pageSize: 25,
-        }),
+        // ⚠️ v1.51.8 (BL-18): `live: false`, NO un CSV de terminales. El servidor filtra por
+        // EXCLUSIÓN sobre su propio set, así que un terminal nuevo entra a esta pestaña SOLO.
+        expect.objectContaining({ live: false, page: 1, pageSize: 25 }),
       ),
     );
+    // Y la enumeración NO viaja: si alguien repone el CSV de terminales, esto se pone rojo.
+    expect(spy.mock.calls.every(([f]) => f?.status === undefined)).toBe(true);
     expect(await screen.findByText('sr-c1')).toBeInTheDocument();
   });
 
@@ -917,5 +915,84 @@ describe('M5View · §23.8a — la partición es TOTAL y los rótulos dicen de q
       expect(Object.keys(es.admin.m5.tabs), `sin clave i18n: ${key}`).toContain(key);
       expect(Object.keys(en.admin.m5.tabs), `sin clave i18n: ${key}`).toContain(key);
     }
+  });
+});
+
+/**
+ * v1.51.8 (§4.39c **sitio 10**) · el botón de PAGAR POR SPEI — **dinero saliente**.
+ *
+ * Aquí vivía la **sexta copia** de un subconjunto de estados: `canPay = isSuperAdmin && (status
+ * === 'aprobada' || status === 'verificacion')`. Y no era una copia que pudiera desincronizarse
+ * algún día: **ya lo estaba**, porque la precondición del servidor son **DOS** términos
+ * (`status ∈ PAYABLE ∧ verifiedAt != null`) y el cliente replicaba **solo el primero** ⇒ la
+ * pantalla ofrecía pagar donde el servidor responde `422`.
+ *
+ * El remedio no fue copiar bien las dos condiciones —eso duplicaría **dos** reglas en vez de una
+ * y metería `verifiedAt` en la lógica de una pantalla—: lo deriva el servidor en `isPayable`.
+ */
+describe('M5View · `isPayable` gobierna el botón de pagar (v1.51.8)', () => {
+  const card: CardDTO = { id: 'c', externalId: 'c', name: 'Blastoise', number: '2', rarity: 'Rare Holo', supertype: 'Pokémon', subtypes: [], setId: 'base1', setName: 'Base Set', imageSmallUrl: '', imageLargeUrl: '', availableFinishes: ['normal'] };
+  const row = (id: string, extra: Record<string, unknown>) => ({
+    id,
+    userId: 'u-910',
+    status: 'aprobada' as const,
+    quotedTotalCents: 30000,
+    createdAt: '2026-08-20T00:00:00.000Z',
+    items: [
+      {
+        id: `${id}-i`,
+        card,
+        productType: 'raw' as const,
+        finish: 'normal' as const,
+        itemStatus: 'aprobada' as const,
+        quotedPriceCents: 30000,
+      },
+    ],
+    ...extra,
+  });
+
+  function withRow(extra: Record<string, unknown>) {
+    vi.spyOn(api, 'getAdminBuylist').mockResolvedValue({
+      data: [row('sr-pay', extra) as unknown as AdminBuylistDTO],
+      page: 1,
+      pageSize: 25,
+      total: 1,
+    });
+  }
+
+  it('`aprobada` SIN verificar (`isPayable:false`) NO habilita el pago, aunque el estado sea pagable', async () => {
+    // ⚠️ El caso exacto que el literal viejo no podía ver: el primer término se cumple y el
+    // segundo no. Antes el botón salía habilitado y el servidor contestaba 422.
+    withRow({ isTerminal: false, isPayable: false });
+    renderWithProviders(<M5View />, 'es');
+    await screen.findByText('sr-pay');
+    expect(screen.getByRole('button', { name: 'Pagar por SPEI' })).toBeDisabled();
+  });
+
+  it('con `isPayable:true` sí lo habilita', async () => {
+    withRow({ isTerminal: false, isPayable: true });
+    renderWithProviders(<M5View />, 'es');
+    await screen.findByText('sr-pay');
+    expect(screen.getByRole('button', { name: 'Pagar por SPEI' })).toBeEnabled();
+  });
+
+  it('sin el campo (backend previo a v1.51.8) el pago NO se habilita: fail-closed', async () => {
+    // El `=== true` importa más aquí que en `isTerminal`: el botón que sobra es de PAGO.
+    withRow({ isTerminal: false });
+    renderWithProviders(<M5View />, 'es');
+    await screen.findByText('sr-pay');
+    expect(screen.getByRole('button', { name: 'Pagar por SPEI' })).toBeDisabled();
+  });
+
+  it('el ROL no se funde en el campo: sin super_admin no hay pago ni con `isPayable:true`', async () => {
+    // «¿está en condición de pagarse?» (la fila) y «¿puedo pagarla yo?» (el actor) son dos
+    // preguntas; el campo contesta la primera y el rol se queda en el cliente. Aquí el mock de
+    // `useRole` fija `super_admin`, así que se comprueba la mitad que SÍ es observable: el campo
+    // por sí solo no basta para que el botón exista fuera de la sección de dinero.
+    withRow({ isTerminal: false, isPayable: true });
+    renderWithProviders(<M5View />, 'es');
+    await screen.findByText('sr-pay');
+    // La CLABE (misma sección de dinero, mismo gate de rol) sigue detrás del rol, no de isPayable.
+    expect(screen.getByRole('button', { name: 'Revelar CLABE' })).toBeInTheDocument();
   });
 });

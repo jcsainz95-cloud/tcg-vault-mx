@@ -964,9 +964,43 @@ export function mockSellRequestDTO(row: MockSellRequestRow): SellRequestDTO {
   return { ...row, isTerminal: MOCK_TERMINAL_SELL_REQUEST_STATUSES.has(row.status) };
 }
 
-/** Ídem para la proyección ADMIN (`GET /admin/buylist`, `AdminBuylistDTO`). */
+/**
+ * Estados **pagables** — espejo de `SELL_REQUEST_PAYABLE_STATES` del backend. Igual que el set
+ * terminal: vive en el SERVIDOR FALSO porque en modo mock no hay backend que derive `isPayable`.
+ * Ninguna pantalla lo importa.
+ */
+const MOCK_PAYABLE_SELL_REQUEST_STATUSES: ReadonlySet<SellRequestStatus> = new Set([
+  'aprobada',
+  'verificacion',
+]);
+
+/**
+ * ⚠️ **Los DOS términos**, espejo de `isPayableSellRequest` del backend:
+ * `status ∈ PAYABLE ∧ verifiedAt != null`.
+ *
+ * El segundo término es el que el frontend **nunca tuvo** —`canPay` replicaba solo el primero— y
+ * por eso la UI habilitaba el pago en filas donde el servidor responde `422`. Si el servidor falso
+ * se quedara también con un solo término, el modo mock **mantendría vivo el bug** justo en la
+ * pantalla que existe para demostrarlo.
+ */
+function mockIsPayable(row: MockAdminBuylistRow): boolean {
+  return MOCK_PAYABLE_SELL_REQUEST_STATUSES.has(row.status) && row.verifiedAt != null;
+}
+
+/**
+ * Ídem para la proyección ADMIN (`GET /admin/buylist`, `AdminBuylistDTO`).
+ *
+ * ⚠️ `verifiedAt` **NO sale en el DTO**: es una columna de la «tabla» del servidor falso, igual
+ * que en el backend real, y solo alimenta la derivación de `isPayable`. Se destructura fuera a
+ * propósito para que no se filtre al cliente por un `...row` distraído.
+ */
 export function mockAdminBuylistDTO(row: MockAdminBuylistRow): AdminBuylistDTO {
-  return { ...row, isTerminal: MOCK_TERMINAL_SELL_REQUEST_STATUSES.has(row.status) };
+  const { verifiedAt: _verifiedAt, ...dto } = row;
+  return {
+    ...dto,
+    isTerminal: MOCK_TERMINAL_SELL_REQUEST_STATUSES.has(row.status),
+    isPayable: mockIsPayable(row),
+  };
 }
 
 export const mockSellRequests: MockSellRequestRow[] = [
@@ -2225,8 +2259,14 @@ export function mockBulkPublish(req: BulkPublishRequest): BulkPublishResponse {
   return { summary: { requested: req.items.length, published, failedLines }, results };
 }
 
-/** ⚠️ Fila mock: sin `isTerminal` (server-derived). Ver `mockAdminBuylistDTO`. */
-export type MockAdminBuylistRow = Omit<AdminBuylistDTO, 'isTerminal'>;
+/**
+ * ⚠️ Fila mock: sin los dos campos **server-derived** (`isTerminal`, `isPayable`), y **con**
+ * `verifiedAt`, que es lo contrario — una columna de la «tabla» que **no** viaja en el DTO pero
+ * sin la cual `isPayable` no se puede derivar (es su segundo término). Ver `mockAdminBuylistDTO`.
+ */
+export type MockAdminBuylistRow = Omit<AdminBuylistDTO, 'isTerminal' | 'isPayable'> & {
+  verifiedAt?: string | null;
+};
 
 export const mockAdminBuylist: MockAdminBuylistRow[] = [
   {
@@ -2235,6 +2275,10 @@ export const mockAdminBuylist: MockAdminBuylistRow[] = [
     status: 'verificacion',
     quotedTotalCents: 50200,
     createdAt: '2026-08-12T14:00:00Z',
+    // ⚠️ v1.51.8: el backend sella `verifiedAt` en el MISMO `verify()` que pone `verificacion`, así
+    // que una fila en este estado SIN la marca no existe en producción. La fixture no la tenía y
+    // eso la volvía no-pagable: no era un dato de más, era un estado imposible.
+    verifiedAt: '2026-08-12T16:00:00Z',
     items: mockSellRequests[0].items,
   },
   {
@@ -2256,6 +2300,9 @@ export const mockAdminBuylist: MockAdminBuylistRow[] = [
     quotedTotalCents: 30000,
     approvedTotalCents: 28000,
     createdAt: '2026-08-14T10:00:00Z',
+    // Pasó por verificación ⇒ `isPayable` (los DOS términos). Sin esta columna la fila sería
+    // `aprobada` PERO NO pagable, que es exactamente el caso que el servidor rechaza con 422.
+    verifiedAt: '2026-08-15T10:00:00Z',
     items: [
       { id: 'sri-appr', card: cardById('c-charizard'), productType: 'raw', rawCondition: 'NM', finish: 'holofoil', rarity: 'Rare Holo', priceBasis: 'market', marketBracket: 'r25_80', quotedPriceCents: 30000, approvedPriceCents: 28000, itemStatus: 'aprobada' },
     ],

@@ -1784,6 +1784,25 @@ export interface AdminBuylistDTO {
    * **El frontend no lo sustituye por otra constante propia: el servidor le dice.**
    */
   isTerminal: boolean;
+  /**
+   * v1.51.8 (§4.39c **sitio 10**) — **DERIVADO SERVER-SIDE. DINERO SALIENTE. ADMIN-ONLY.**
+   * ```
+   * isPayable = status ∈ SELL_REQUEST_PAYABLE_STATES  ∧  verifiedAt IS NOT NULL
+   * ```
+   * Sale del **mismo cuerpo** que el pre-check y la guarda atómica de `pay-spei`: tres lectores,
+   * una regla. Existe para borrar la **sexta** copia (`canPay` en `M5View`), que además replicaba
+   * **solo el primero de los dos términos** ⇒ la UI habilitaba el pago donde el servidor responde
+   * `422`. *No era una copia que pudiera desincronizarse algún día: ya lo estaba.*
+   *
+   * ⚠️ **ACTOR-INDEPENDIENTE, y NO es un permiso.** Contesta *«¿esta solicitud está en condición
+   * de pagarse?»* (propiedad de **la fila**), no *«¿puedo pagarla yo?»* (propiedad **del actor**).
+   * El rol se queda en el cliente —`isSuperAdmin && req.isPayable === true`— y el servidor lo
+   * impone igual con `MoneyOutGuard`. Un `isPayable: true` **no autoriza** un pago.
+   *
+   * ⚠️ **Jamás en el DTO de cliente** (a diferencia de `isTerminal`, que viaja en las dos): al
+   * vendedor le anticiparía un depósito que aún puede no ocurrir.
+   */
+  isPayable: boolean;
   /** v1.51.1 (D33): por qué expiró; `null`/ausente si no está `expirada`. Ver §23.1d. */
   expiredReason?: SellRequestExpiryReason | null;
   quotedTotalCents: number;

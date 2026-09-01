@@ -138,18 +138,6 @@ export const M5_OP_TAB_ORDER: M5OpTab[] = ['por_ofertar', 'con_vendedor', 'verif
 const M5_OP_TABS: { key: M5OpTab; statuses: SellRequestStatus[] }[] = M5_OP_TAB_ORDER.map(
   (key) => ({ key, statuses: statusesForTab(key) }),
 );
-/**
- * Estados terminales que agrupa la pestaña «Cerradas» (v1.25-buylist-orders-pagination). Se pide
- * server-side como `status=…` (CSV) en UNA llamada paginada.
- *
- * ⚠️ **Es una consulta, no una definición.** El set terminal canónico vive en el backend
- * (`common/sell-request-states.ts`); aquí solo se enumeran los estados que esta pestaña pide.
- * El contrato v1.51 ofrece `live=false`, que filtra los terminales **por exclusión server-side**
- * y haría innecesaria hasta esta enumeración — pero el backend todavía no implementa el
- * parámetro, así que se sigue mandando el CSV. Ver `docs/FRONTEND_NOTES.md`.
- */
-const M5_CLOSED_STATUSES: SellRequestStatus[] = statusesForTab('cerradas');
-const M5_CLOSED_STATUS_CSV = M5_CLOSED_STATUSES.join(',');
 const M5_PAGE_SIZE = 25;
 
 /** Límites del motivo de rechazo (contrato §M5: 3–500 chars; 400 si no cumple). */
@@ -446,7 +434,12 @@ export function M5View() {
   // El buscador global alimenta `q` server-side cuando la pestaña activa es «Cerradas».
   const closedQ = debouncedClosedSearch.trim() === '' ? undefined : debouncedClosedSearch.trim();
   const closedFilters = {
-    status: M5_CLOSED_STATUS_CSV,
+    // ⚠️ v1.51.8 (BL-18) — **`live: false`, NO un CSV que enumere los cuatro terminales.**
+    // Aquí sobrevivía la última copia de esa enumeración en el cliente, después de haberla
+    // retirado de los otros cinco sitios. El servidor filtra **por exclusión** sobre su propio set
+    // terminal (criterio 129), así que **un terminal nuevo entra a esta pestaña solo**: sin tocar
+    // este archivo, sin tocar el endpoint y sin que nadie tenga que acordarse.
+    live: false,
     page: closedPage,
     pageSize: M5_PAGE_SIZE,
     q: closedQ,
@@ -858,8 +851,22 @@ export function M5View() {
             <EmptyState title={searchTerm !== '' ? t('emptySearch') : t('emptyTab')} />
           ) : (
             visible.map((req) => {
-          const canPay =
-            isSuperAdmin && (req.status === 'aprobada' || req.status === 'verificacion');
+          // ⚠️ **DINERO SALIENTE.** Aquí vivía la SEXTA copia: `SELL_REQUEST_PAYABLE_STATES`
+          // transcrito a mano —y **con uno solo de los dos términos** del servidor, que también
+          // exige `verifiedAt != null`—, así que la pantalla habilitaba el pago en filas donde el
+          // servidor responde 422. No era una copia que pudiera desincronizarse algún día: **ya lo
+          // estaba.** Ahora lo deriva el servidor (`isPayable`, §4.39c sitio 10) del MISMO cuerpo
+          // que el pre-check y la guarda atómica de `pay-spei`: tres lectores, una regla.
+          //
+          // ⚠️ El ROL se queda aquí y NO se funde en el campo: «¿esta solicitud está en condición
+          // de pagarse?» es propiedad de LA FILA; «¿puedo pagarla yo?» es propiedad DEL ACTOR.
+          // Un check de permiso en el cliente es affordance; un check de máquina de estados es una
+          // regla duplicada — solo la segunda se cura. El servidor impone el rol igual con
+          // `MoneyOutGuard`: `isPayable: true` NO autoriza un pago.
+          //
+          // `=== true` por lo mismo que `isTerminal === false`, y con más razón: si el campo
+          // faltara, el botón que sobra es un **botón de pago**.
+          const canPay = isSuperAdmin && req.isPayable === true;
           // Solo se muestran las acciones de la ETAPA actual de la solicitud:
           //  - decidir carta (aprobar/ajustar/rechazar) solo tras recibir/verificar;
           //  - revelar CLABE / pagar SPEI solo en verificación o por-pagar.

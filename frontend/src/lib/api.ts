@@ -2697,6 +2697,19 @@ function mockSellerFor(userId: string): AdminSellerRef {
 export interface AdminBuylistFilters {
   /** v1.25: uno o varios `SellRequestStatus` en CSV (`IN (...)`); un solo valor = como HOY. */
   status?: string;
+  /**
+   * v1.51.8 (BL-18) — **la contraparte server-side de `isTerminal`**. `live=false` filtra los
+   * terminales; `live=true`, todo lo que NO lo es.
+   *
+   * ⚠️ **Se implementa POR EXCLUSIÓN sobre el set terminal del backend** (criterio 129), así que
+   * un estado nuevo entra a la vista **solo**. Es lo que permite que «Cerradas» deje de mandar un
+   * CSV que **enumera** los cuatro terminales — la última copia de esa enumeración que quedaba
+   * viva en el cliente después de retirarla de los otros cinco sitios.
+   *
+   * Se **intersecta** con `status` (no lo pisa); si se contradicen, el resultado es **vacío, no
+   * un error**.
+   */
+  live?: boolean;
   userId?: string;
   q?: string;
   from?: string;
@@ -2720,6 +2733,10 @@ export async function getAdminBuylist(
     return apiRequest<Paginated<AdminBuylistDTO>>('/admin/buylist', {
       query: {
         status: filters.status,
+        // Mismo patrón que `guest`/`needsManual` en M3 (§M3): el booleano se serializa AQUÍ, no en
+        // `api-client`, y `false` viaja como `live=false` en vez de omitirse — que es justo lo que
+        // esta pestaña necesita pedir.
+        live: filters.live === undefined ? undefined : String(filters.live),
         userId: filters.userId,
         q: filters.q,
         from: filters.from,
@@ -2739,6 +2756,9 @@ export async function getAdminBuylist(
     const set = new Set(filters.status.split(',').map((s) => s.trim()).filter(Boolean));
     data = data.filter((r) => set.has(r.status));
   }
+  // MOCK: espeja `live` POR EXCLUSIÓN sobre `isTerminal` —el campo que el servidor falso acaba de
+  // derivar—, no contra una lista de estados vivos. Se intersecta con `status`, igual que el real.
+  if (filters.live !== undefined) data = data.filter((r) => r.isTerminal !== filters.live);
   if (filters.userId) data = data.filter((r) => r.userId === filters.userId);
   const q = filters.q?.trim().toLowerCase();
   if (q) {
@@ -2798,6 +2818,9 @@ export async function verifyBuylistRequest(id: string): Promise<AdminBuylistDTO>
   }
   const req = mockFindBuylistRequest(id);
   req.status = 'verificacion';
+  // v1.51.8: el backend sella `verifiedAt` AQUÍ, y es el SEGUNDO término de `isPayable`. Sin esta
+  // línea el servidor falso dejaría toda solicitud como no-pagable para siempre.
+  req.verifiedAt = new Date().toISOString();
   for (const it of req.items) if (it.itemStatus === 'recibida') it.itemStatus = 'verificacion';
   return delay(fx.mockAdminBuylistDTO({ ...req }));
 }
@@ -3014,7 +3037,11 @@ export async function paySpeiBuylist(id: string, speiReference: string): Promise
     });
   }
   const req = mockFindBuylistRequest(id);
-  if (req.status !== 'aprobada' && req.status !== 'verificacion') {
+  // MOCK · v1.51.8: la precondición son **DOS** términos (`status ∈ PAYABLE ∧ verifiedAt != null`)
+  // y se pregunta por la MISMA vía que el DTO (`isPayable`), no por una tercera lista de estados.
+  // Antes esta guarda replicaba solo el primero, igual que hacía la UI: el servidor falso
+  // reproducía el bug en vez de cazarlo.
+  if (!fx.mockAdminBuylistDTO(req).isPayable) {
     throw new ApiClientError(422, {
       code: 'VALIDATION_ERROR',
       message: 'Payment allowed only after receipt/verification and approval',
