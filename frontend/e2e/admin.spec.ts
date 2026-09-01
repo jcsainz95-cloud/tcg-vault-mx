@@ -183,6 +183,100 @@ test.describe('admin · M5 mesa de decisión (§23.6)', () => {
   });
 });
 
+/**
+ * **LAS CUATRO COLAS DEL CICLO** (§23.8) y **la cola que lo cierra** en M1.
+ *
+ * Cada una contesta un pendiente **nuestro** que, si nadie mira, cuesta dinero o cuesta una venta.
+ * El smoke mide **lo que no se puede recalcular en el cliente** y **lo que no desaparece solo**.
+ */
+test.describe('admin · colas del ciclo de compra (§23.8)', () => {
+  test('la cola de autorización avisa de que la fila SE MUERE SOLA', async ({ page }) => {
+    mockOnly('las cuatro colas se sirven de fixtures deterministas');
+    await loginAs(page, 'admin');
+    await page.goto('/es/admin/m5');
+    const queues = page.getByTestId('cycle-queues');
+    await expect(queues).toBeVisible();
+    await expect(
+      queues.getByText(t('es', 'admin.m5.queues.pendingAuth.warning')),
+    ).toBeVisible();
+    await expect(queues.getByText(t('es', 'admin.m5.queues.pendingAuth.diesToday'))).toBeVisible();
+  });
+
+  /**
+   * ⚠️ `businessDaysWaiting: null` **no es cero**, y `alert` **falla hacia «sí, avisa»**: «llevo
+   * demasiado esperando» y «no sé cuánto llevo» piden la MISMA acción humana.
+   */
+  test('«por confirmar envío»: un cálculo imposible se dice con palabras y la alerta sigue encendida', async ({
+    page,
+  }) => {
+    mockOnly('la fila con días no calculables es un estado fabricado por el fixture');
+    await loginAs(page, 'admin');
+    await page.goto('/es/admin/m5');
+    const queues = page.getByTestId('cycle-queues');
+    await queues.getByRole('tab', { name: t('es', 'admin.m5.queues.pendingShipment.tab') }).click();
+
+    await expect(
+      queues.getByText(t('es', 'admin.m5.queues.pendingShipment.waitingUnknown')),
+    ).toBeVisible();
+    // Ni un cero que se vea confiable…
+    await expect(queues.getByText('0 días hábiles')).toHaveCount(0);
+    // …ni una alerta apagada por falta de dato.
+    await expect(queues.getByTestId('shipment-alert').first()).toBeVisible();
+  });
+
+  /** D22 · criterio 139: la cola **no se vacía sola**. Las dos mitades van juntas. */
+  test('«guías por cancelar» tiene salida, y es la única', async ({ page }) => {
+    mockOnly('la cola de guías se sirve de fixtures deterministas');
+    await loginAs(page, 'admin');
+    await page.goto('/es/admin/m5');
+    const queues = page.getByTestId('cycle-queues');
+    await queues.getByRole('tab', { name: t('es', 'admin.m5.queues.pendingGuide.tab') }).click();
+
+    await expect(queues.getByText(t('es', 'admin.m5.queues.pendingGuide.note'))).toBeVisible();
+    await queues.getByRole('button', { name: t('es', 'admin.m5.queues.pendingGuide.done') }).first().click();
+
+    const dialog = page.getByRole('dialog');
+    await expect(dialog).toBeVisible();
+    await dialog
+      .getByRole('button', { name: t('es', 'admin.m5.queues.pendingGuide.doneConfirm') })
+      .click();
+    await expect(page.getByText(t('es', 'admin.m5.queues.pendingGuide.doneOk'))).toBeVisible();
+    // Y ahora la cola SÍ está vacía — porque alguien la vació, no porque se vaciara sola.
+    await expect(queues.getByText(t('es', 'admin.m5.queues.pendingGuide.empty'))).toBeVisible();
+  });
+
+  /** D12: el teléfono viaja EN LA FILA, para poder llamar sin ir a buscar al usuario. */
+  test('«vendedores con solicitudes vivas» trae el teléfono en la fila', async ({ page }) => {
+    mockOnly('la cola de vendedores vivos se sirve de fixtures deterministas');
+    await loginAs(page, 'admin');
+    await page.goto('/es/admin/m5');
+    const queues = page.getByTestId('cycle-queues');
+    await queues.getByRole('tab', { name: t('es', 'admin.m5.queues.liveSellers.tab') }).click();
+    await expect(queues.getByText('5555123456')).toBeVisible();
+    // Y cuando no hay, se DICE — no se deja un hueco.
+    await expect(queues.getByText(t('es', 'admin.m5.queues.liveSellers.noPhone'))).toBeVisible();
+  });
+
+  /**
+   * La cola que CIERRA el ciclo. ⚠️ Cada fila dice **qué le falta**, y una pieza sin `missing`
+   * legible **no se pinta como lista**: saldría de la única pantalla donde alguien la encontraría.
+   */
+  test('M1 · «listas para publicar» dice qué le falta a cada pieza y no inventa precios', async ({
+    page,
+  }) => {
+    mockOnly('la cola de publicación se sirve de fixtures deterministas');
+    await loginAs(page, 'admin');
+    await page.goto('/es/admin/m1');
+    const queue = page.getByTestId('pending-publish-queue');
+    await expect(queue).toBeVisible();
+    await expect(queue.getByText(t('es', 'admin.m1.publishQueue.missingLocation')).first()).toBeVisible();
+    await expect(queue.getByText(t('es', 'admin.m1.publishQueue.noSalePrice')).first()).toBeVisible();
+    // ⛔ Nunca MX$0.00 para «no resoluble», y ningún botón de publicar: la pieza sale sola.
+    await expect(queue.getByText('MX$0.00')).toHaveCount(0);
+    await expect(queue.getByRole('button', { name: /publicar/i })).toHaveCount(0);
+  });
+});
+
 test.describe('admin · M5 buylist (cherry-pick)', () => {
   test('permite decisión carta por carta y respeta dinero saliente', async ({ page }) => {
     // Las acciones cherry-pick solo existen si hay AL MENOS una solicitud con items en cola.

@@ -25,6 +25,8 @@ import { Badge } from '@/components/ui/Badge';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { PipelineStepper } from '@/components/ui/PipelineStepper';
 import { BuylistDecisionDesk } from './BuylistDecisionDesk';
+import { BuylistShipmentActions } from './BuylistShipmentActions';
+import { BuylistCycleQueues } from './BuylistCycleQueues';
 import { Button } from '@/components/ui/Button';
 import { Banner } from '@/components/ui/Banner';
 import { Input } from '@/components/ui/Input';
@@ -512,6 +514,11 @@ export function M5View() {
         />
       </div>
 
+      {/* Las CUATRO colas del ciclo (§23.8). Son vistas con ACCIÓN PROPIA y por eso viven fuera de
+          las pestañas de etapa: éstas particionan `SellRequestStatus`, aquéllas contestan un
+          pendiente NUESTRO que, si nadie mira, cuesta dinero o cuesta una venta. */}
+      <BuylistCycleQueues isSuperAdmin={isSuperAdmin} />
+
       {/* Pestañas por etapa: cada operativa muestra el conteo de solicitudes en esa etapa.
           «Cerradas» (v1.25) y «Piezas rechazadas» (v1.18) son transversales, server-side paginadas; su
           conteo es el `total` del query dedicado (solo tras cargar). */}
@@ -988,6 +995,12 @@ export function M5View() {
               {deskFor === req.id && (
                 <BuylistDecisionDesk sellRequestId={req.id} onClose={() => setDeskFor(null)} />
               )}
+
+              {/* Guía + confirmación: solo en `aceptada`, que es el único estado donde las dos
+                  acciones existen. Capturar la guía NO mueve el estado; confirmar sí — y son dos
+                  actos separados porque el plazo mide algo del VENDEDOR y nos enteramos por algo
+                  NUESTRO. */}
+              {req.status === 'aceptada' && <BuylistShipmentActions request={req} />}
 
               <div className="flex flex-col divide-y divide-border">
                 {req.items.map((it) => {

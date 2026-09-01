@@ -2043,6 +2043,140 @@ export interface BuylistOfferResultDTO {
   items: SellItemDTO[];
 }
 
+// ---- v1.51 · las CUATRO COLAS del ciclo + la guía (contrato §M5). Todas ADMIN-ONLY ----
+
+/** Respuesta de `POST /admin/buylist/:id/guide`. ⚠️ **NO mueve el estado**: solo congela el plazo. */
+export interface BuylistGuideResultDTO {
+  sellRequestId: string;
+  status: SellRequestStatus;
+  shipmentCarrier: string | null;
+  shipmentTrackingNumber: string | null;
+  guideSentAt: string | null;
+  /**
+   * ⚠️ **El reloj del vendedor arranca con la ENTREGA DE LA GUÍA, no con la aceptación.** Una guía
+   * entregada dos días después de aceptar corre el vencimiento dos días: *sería injusto correrle
+   * el reloj mientras espera una etiqueta que depende de NOSOTROS.* Y re-capturar para corregir un
+   * typo **no re-congela** una fecha ya comunicada.
+   */
+  shipDeadlineAt: string | null;
+}
+
+/**
+ * Respuesta de `POST /admin/buylist/:id/confirm-shipment` — **lo ÚNICO que mueve a `en_transito`**.
+ *
+ * ⚠️ **`guideActualCostCents` NO ENTRA JAMÁS en lo que se le deposita al vendedor.** Al vendedor se
+ * le descuenta **la tarifa congelada que aceptó**, cueste lo que cueste la etiqueta real. Es insumo
+ * **de reporte** (M7), no de pago.
+ */
+export interface BuylistShipmentConfirmResultDTO {
+  sellRequestId: string;
+  status: 'en_transito';
+  shipmentConfirmedAt: string;
+  shipmentConfirmedBy: string;
+  guideActualCostCents: number | null;
+}
+
+/** Fila de «ofertas por autorizar». ⚠️ **Estas filas se mueren solas**: ver `caducityAt`. */
+export interface PendingOfferAuthorizationRowDTO {
+  sellRequestId: string;
+  seller: AdminSellerRef;
+  preparedBy: string;
+  offerPreparedAt: string;
+  offerGrossCents: number;
+  operatorCapCents: number;
+  excessCents: number;
+  lineCount: number;
+  buyLineCount: number;
+  /**
+   * Cuándo **caduca la solicitud** si nadie autoriza. Derivado server-side del ANCLA del ciclo, no
+   * de `createdAt`. *Una cola cuyas filas se mueren sin avisar es una cola que se trabaja a ciegas.*
+   */
+  caducityAt: string;
+}
+
+/** Fila de «por confirmar envío» (el vendedor ya dijo «ya lo mandé»). */
+export interface PendingShipmentConfirmationRowDTO {
+  sellRequestId: string;
+  seller: AdminSellerRef;
+  sellerShippedDeclaredAt: string;
+  shipDeadlineAt: string | null;
+  carrier: string | null;
+  trackingNumber: string | null;
+  /**
+   * ⚠️ **`null` NO es cero: es «no se pudo calcular»** (el cálculo de días hábiles **lanza** fuera
+   * de la cobertura del calendario, por doctrina). La fila **se degrada y la cola se pinta** —
+   * prohibido que una fila devuelva `500` en un listado.
+   */
+  businessDaysWaiting: number | null;
+  businessDaysUnavailable?: true;
+  /**
+   * ⚠️ **Falla hacia `true`, y el front NO lo recalcula.** *«Llevo demasiado esperando»* y *«no sé
+   * cuánto llevo»* piden **la misma acción humana**, y un `false` sacaría la fila del filtro de
+   * alertas — **la más rara sería la más escondida**.
+   *
+   * ⚠️ **La alerta NO HACE NADA MÁS**: no expira, no cancela, no mueve el estado y no suma a «en
+   * camino». *El vendedor ya cumplió; el pendiente es nuestro, así que el remedio es hacerlo
+   * visible, no castigarlo.*
+   */
+  alert: boolean;
+}
+
+/**
+ * Fila de «guías por cancelar» (D22). ⚠️ **NO desaparece sola**: sale de la cola **únicamente** por
+ * `POST …/guide/cancellation-done`. *Una etiqueta comprada y olvidada es dinero tirado que nadie ve.*
+ */
+export interface PendingGuideCancellationRowDTO {
+  sellRequestId: string;
+  seller: AdminSellerRef;
+  carrier: string;
+  trackingNumber: string;
+  guideSentAt: string;
+  guideCancellationPendingAt: string;
+  /** Por qué se abrió la tarea. Puede NO ser terminal: la corrección de dirección la abre en vivo. */
+  closedStatus: SellRequestStatus;
+  expiredReason: SellRequestExpiryReason | null;
+}
+
+/**
+ * Fila de «vendedores con solicitudes vivas» (D12). Es *«la lista de gente a la que le debemos una
+ * respuesta»*. ⚠️ **`phone` es dato de contacto operativo de back-office** —sin enmascarar, sin
+ * reveal auditado— y **PROHIBIDO en toda superficie pública**. `null` en cuentas de Google/viejas.
+ */
+export interface LiveSellerRowDTO {
+  seller: { id: string; name: string; email: string; phone: string | null };
+  liveCount: number;
+  oldestCreatedAt: string;
+  latestStatus: SellRequestStatus;
+}
+
+/**
+ * Fila de «listas para publicar» (fase 8, criterio 125). *Comprar bien y dejar la carta en una caja
+ * sin precio es comprar mal.*
+ *
+ * ⚠️ **AUTO-PUBLICACIÓN, SIN BOTÓN:** la pieza **sale sola** de la cola en cuanto `missing` queda
+ * vacío. Esta cola es **SOLO VISIBILIDAD**: no captura precios de venta, no los sugiere y no los
+ * hereda del costo de compra.
+ */
+export interface PendingPublishRowDTO {
+  inventoryItemId: string;
+  folio: string;
+  card: CardDTO;
+  productType: ProductType;
+  finish: Finish;
+  cardProductId: number | null;
+  locationId: string | null;
+  listPriceCents: number | null;
+  resolvedSalePriceCents: number | null;
+  priceBasis: PriceBasis | null;
+  /** Deep-link a la cola de precio pendiente de M2. */
+  pendingPriceEntryId: string | null;
+  /** QUÉ LE FALTA. Vacío ⇒ la pieza ya no debería estar aquí. */
+  missing: ('location' | 'price')[];
+  acquisitionType: AcquisitionType;
+  sourceSellRequestItemId: string | null;
+  createdAt: string;
+}
+
 export interface AdminBuylistDTO {
   id: string;
   userId: string;
@@ -2083,6 +2217,30 @@ export interface AdminBuylistDTO {
   // SEC-A1: la UI solo lo muestra, nunca lo calcula.
   approvedTotalCents?: number;
   createdAt: string;
+  // ---- v1.51 (M-46) · el PIPELINE del ciclo, ADMIN-ONLY ----
+  /**
+   * ⚠️ **ADMIN-ONLY, jamás en un DTO de cliente**: una oferta `pending_authorization` le filtraría
+   * al vendedor la existencia y el orden de magnitud de nuestro tope interno.
+   */
+  offerState?: 'pending_authorization' | 'sent' | 'cancelled' | null;
+  /**
+   * La guía capturada. ⚠️ **Que exista NO significa que el paquete viaje**: capturar la guía **no
+   * mueve el estado**. Solo `confirm-shipment` mueve a `en_transito`.
+   */
+  shipmentCarrier?: string | null;
+  shipmentTrackingNumber?: string | null;
+  /** «Capturar ES entregar» (criterio 123): es el instante en que arranca el reloj del vendedor. */
+  guideSentAt?: string | null;
+  /** Congelado al capturar la guía. `null` mientras no haya guía ⇒ **la solicitud no expira**. */
+  shipDeadlineAt?: string | null;
+  /**
+   * El «ya lo mandé» del vendedor. ⚠️ **NO mueve el estado y NO suma a «en camino»**: *es una
+   * promesa, no un paquete.* Lo único que hace es **detener SU reloj**, porque un plazo del
+   * vendedor solo puede vencer por algo que dependa del vendedor.
+   */
+  sellerShippedDeclaredAt?: string | null;
+  /** Costo REAL de la etiqueta. ⚠️ **NO participa en lo que se le deposita al vendedor.** */
+  guideActualCostCents?: number | null;
   items: SellItemDTO[];
 }
 

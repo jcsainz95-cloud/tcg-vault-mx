@@ -9316,3 +9316,176 @@ rechazar dice el neto y la condición **y no argumenta**) y **3** E2E de la mesa
    (ES y EN), incluidas las de override, las de la barra de totales y las dos frases de desenlace de
    la emisión. Queda a ratificación.
 3. **§23.6d (dos densidades) no se implementó**; ver §8.4.
+
+---
+
+## v1.51.19 · Cierre de la interfaz del ciclo: guía, confirmación, las cuatro colas y la que lo cierra (2026-09-01, rama `claude/buylist-inventory-workflow-hdnls3`)
+
+> Con este pase **el ciclo de adquisición tiene interfaz completa**: se puede ofertar, autorizar,
+> mandar la guía, confirmar el envío, trabajar las cuatro colas y ver qué falta para publicar.
+
+### 0. Primero: el fallo de R4 que ux-ui encontró en una cadena mía
+
+**`confirm.deadlineNote` decía «El vendedor tendrá 2 días hábiles para responder», con el 2 escrito a
+mano** — y ese plazo es **un dial de M10**. Es literalmente la constante que R4 describe, y dolía el
+doble por dónde estaba: **se le prometía al operador en el diálogo donde emite dinero, mientras el
+correo saldría con el plazo real**.
+
+**El DTO de la mesa no trae el dial**, así que se tomó la salida (2): **se quita el número.**
+
+> **ES:** «El plazo para responder empieza a correr al emitir y se congela ahí.»
+> **EN:** "The response deadline starts when you issue the offer and is frozen at that moment."
+
+No se pierde nada: lo que el operador necesita saber es **que se congela al emitir**, no cuántos días
+son — y eso es cierto siempre. Queda un comentario en el código diciendo que **si el DTO gana el
+dial, se interpola**, para que nadie vuelva a escribirlo a mano.
+
+### 1. Guía y confirmación — por qué son DOS actos (§M5 · D19/D20/D21)
+
+`BuylistShipmentActions.tsx`, montado **solo en `aceptada`**, que es el único estado donde las dos
+acciones existen.
+
+> **El requisito que obliga a separarlos:** el plazo mide **una acción del vendedor** —que deposite
+> el paquete— pero **nos enteramos por una acción nuestra** —que alguien lo confirme—. Sin
+> separarlos, quien deposita el día 3 pierde su venta si el operador confirma el día 4, **y encima
+> ya gastamos la guía**.
+
+Las tres reglas se hacen **evidentes en pantalla**, no solo se respetan:
+
+| Acto | Qué hace | Qué NO hace |
+|---|---|---|
+| **Capturar la guía** | **congela el plazo del vendedor**, que arranca **con la entrega de la guía, no con la aceptación** | **no mueve el estado**. Re-capturar corrige un typo y **no re-congela** una fecha ya comunicada |
+| **Confirmar el envío** | **lo ÚNICO** que mueve a `en_transito` — y lo único que hace que estas cartas cuenten como «en camino» en la mesa **de otras solicitudes** | — |
+| **El «ya lo mandé» del vendedor** | **detiene SU reloj** | **no mueve nada**: se pinta como **renglón informativo, nunca como badge**. Un segundo badge invitaría a leerlo como estado y a contarlo como inventario en camino |
+
+- **Sin guía, la pantalla lo DICE**: *«Sin guía todavía: el plazo del vendedor no ha arrancado»*, en
+  vez de dejar un hueco que se lea como «sin plazo» o, peor, como «ya venció». (Y es correcto que no
+  corra: *un plazo del vendedor solo puede vencer por algo que dependa del vendedor*, y la etiqueta
+  depende de nosotros.)
+- **`guideSentAt` NO es precondición para confirmar.** Si el paquete llegó sin guía capturada, el
+  diálogo **avisa** y deja confirmar igual: *negarlo no devuelve el paquete*. Fail-visible.
+- **La frontera money-safe se dice donde alguien podría creer lo contrario:** el costo real de la
+  etiqueta es **insumo de reporte**, y bajo el campo se lee *«No cambia lo que se le deposita al
+  vendedor: eso es la tarifa que él aceptó»*.
+
+### 2. Las cuatro colas (§23.8) — `BuylistCycleQueues.tsx`
+
+Van **fuera** de las pestañas de etapa, y la distinción importa: las pestañas **particionan
+`SellRequestStatus`**; las colas contestan **un pendiente nuestro con acción propia**.
+
+| Cola | Lo que la hace distinta |
+|---|---|
+| **Ofertas por autorizar** | Columna **«Muere el»** con la fecha, y a ≤1 día hábil la versalita `CADUCA HOY/MAÑANA` en accent. *Una cola cuyas filas se mueren sin avisar se trabaja a ciegas.* Autorizar **autoriza lo guardado**: el diálogo lo dice y **no ofrece editar nada** |
+| **Por confirmar envío** | La **alerta la manda el servidor y no se deriva de los días** (ver §3) |
+| **Guías por cancelar** | **Tiene salida, y es obligatoria** (ver §4) |
+| **Vendedores con solicitudes vivas** | **El teléfono viaja en la fila** (D12), para poder llamar sin ir a buscar al usuario. Sin teléfono se **dice** («Sin teléfono»), no se deja un hueco |
+
+- **Un `vault_operator` no ve el botón de autorizar** y, en su lugar, **se le dice de quién es la
+  acción** — nunca un botón apagado y mudo (§15.9).
+- **El «por qué se cerró» de las guías se pinta por su MOTIVO** (§23.1d): una `expirada` +
+  `not_shipped` sale como **SIN ENVÍO**, no como el rótulo genérico. Hay test que verifica que
+  «Expirada» **no** aparece.
+
+### 3. Lo que NO se recalcula, mismo criterio que la autorización de la mesa
+
+**`businessDaysWaiting: null` NO es cero: es «no se pudo calcular»** (el cálculo de días hábiles
+**lanza** fuera de la cobertura del calendario, por doctrina — degradar a «no hay festivos»
+adelantaría vencimientos). La fila **se degrada y la cola se pinta**; *prohibido que una fila
+devuelva 500 en un listado*.
+
+Y **el `alert` se usa tal cual, jamás derivado del número**: **falla hacia «sí, avisa»** porque
+*«llevo demasiado esperando»* y *«no sé cuánto llevo»* piden **la misma acción humana** — y un
+`false` sacaría la fila del filtro de alertas, con lo que **la más rara sería la más escondida**.
+Hay test unitario **y** E2E de que con `null` se pinta *«No se pudo calcular»*, **no aparece
+`0 días hábiles`**, y **la alerta sigue encendida**.
+
+**Y la alerta no promete nada más:** no expira, no cancela, no mueve el estado y no suma a «en
+camino». *El vendedor ya cumplió; el pendiente es nuestro, así que el remedio es hacerlo visible, no
+castigarlo.*
+
+### 4. La cola de guías tiene salida, y las dos mitades de D22 van juntas
+
+`POST …/guide/cancellation-done` es **la única forma** de que una fila salga de esa cola: **no
+desaparece sola**. Sin implementar la salida, la cola **no se vacía nunca** — y el propósito de D22
+(*una etiqueta comprada y olvidada es dinero tirado que nadie ve*) se convertiría en una lista que
+crece.
+
+El diálogo captura el **costo real** (`0` si la paquetería reembolsó) porque **es el único momento en
+que se conoce el costo final de una etiqueta cancelada**, con la misma frontera money-safe escrita al
+lado: *«no toca lo que se le deposita a nadie»*. Y el **vacío es positivo**: *«Ninguna guía pendiente
+de cancelar»*, porque aquí «no hay nada» es una buena noticia.
+
+### 5. La cola que cierra el ciclo — `PendingPublishQueue.tsx` en M1
+
+> *Comprar bien y dejar la carta en una caja sin precio es comprar mal.*
+
+Cada fila dice **qué le falta** (ubicación, precio o ambos) y **de dónde viene** la pieza. Sin precio
+resoluble **no se pinta `MX$ 0.00`** —cero es un precio— sino la versalita + **deep-link a la cola de
+precio pendiente de M2**. **No hay botón de publicar**: la pieza **sale sola** en cuanto no le falta
+nada, *sin depender de que alguien se acuerde de apretarlo*.
+
+**⚠️ Y la regla defensiva que el orquestador subrayó, implementada y probada por los dos lados:**
+una fila con **`missing` vacío o ausente** se pinta **«POR REVISAR»**, **nunca como «ya está
+lista»** — si la pintáramos así, **la pieza saldría de la única pantalla donde alguien la
+encontraría**. Es la misma doctrina del conteo ausente de la mesa: *un «no sé» que se ve como un
+valor bueno es peor que no mostrar nada*. Hay test para `missing: []` **y** para el campo ausente del
+DTO.
+
+Se monta **arriba del inventario general**, antes de las pestañas: es un pendiente nuestro **con
+dinero ya gastado**, y además **es la RED del disparo de auto-publicación** —best-effort— cuya
+aceptabilidad depende de que un disparo perdido **deje la pieza en esta cola** en vez de invisible.
+
+### 6. Archivos, i18n y un efecto colateral
+
+- **Nuevos:** `m5/BuylistShipmentActions.tsx` (8 tests), `m5/BuylistCycleQueues.tsx` (12 tests),
+  `m1/PendingPublishQueue.tsx` (7 tests).
+- **Tocados:** `types/contract.ts` (7 DTOs + el pipeline del ciclo en `AdminBuylistDTO`),
+  `lib/api.ts` (9 funciones), `lib/mock/fixtures.ts` (servidor falso de las cuatro colas + guía +
+  confirmación + autorizar + `cancellation-done`), `m5/M5View.tsx`, `m1/M1View.tsx`, `messages/*`
+  (**89 claves** en `admin.m5.shipment.*`, `admin.m5.queues.*` y `admin.m1.publishQueue.*`).
+- **La cola de guías del mock es MUTABLE a propósito**: se vacía **solo** por
+  `cancellation-done`, igual que la real. Un fixture inmutable habría hecho pasar un test que en
+  producción fallaría.
+- **Efecto colateral del arnés, y van dos pases seguidos:** la cola de publicación lista Charizard,
+  y un test de M1 esperaba por `findAllByText('Charizard')` **como ancla de la pestaña Gradeadas**.
+  El `await` pasó a resolver **antes** de que cargaran las gradeadas y las aserciones siguientes
+  medían un DOM a medias. Se cambió el ancla a **«PSA 9»**, que es lo único que solo existe ahí.
+  *Un `await` sobre un texto que otra sección también pinta no es una espera: es una coincidencia.*
+
+### 7. Verificación (resultado literal)
+
+| Comprobación | Resultado |
+|---|---|
+| `npm test` | **`Test Files 100 passed (100)` · `Tests 943 passed (943)`** |
+| `npm run typecheck` | **limpio (sin salida)** |
+| `npm run lint` | **`✔ No ESLint warnings or errors`** |
+| **Suite E2E COMPLETA** (mock, `E2E_DEV_SERVER=1 E2E_MOCK_PORT=3111`) | **`124 passed · 3 skipped · 0 failed`** (7.1 min) |
+
+Cobertura nueva: **27 unitarios** (guía que no confirma, plazo que se dice cuando no ha arrancado,
+«corregir» con guía existente, el «ya lo mandé» sin badge, confirmar como único movimiento, el costo
+real como reporte, confirmar sin guía; la caducidad destacada, autorizar-lo-guardado sin edición, el
+operador sin botón pero con explicación, días no calculables con alerta encendida, la salida única de
+la cola de guías, el vacío positivo, el motivo del cierre, el teléfono y su ausencia; qué le falta a
+cada pieza, sin `MX$ 0.00`, el deep-link, **`missing` vacío y ausente ⇒ POR REVISAR**, sin botón de
+publicar, y **paridad EN en las tres superficies**) y **5 E2E** en `admin.spec.ts`.
+
+### 8. Lo que sigue sin entregarse (declarado)
+
+1. **`POST …/decline`** («declinar ahora», D39) y **`POST …/offer/cancel`**, con su confirmación de
+   consecuencia (§23.8 da el copy exacto del diálogo de declinar).
+2. **`PATCH /admin/buylist/:id/pickup-address`** — corregir la dirección **después** de la guía
+   (BL-13), que es el tercer productor de la cola de guías por cancelar.
+3. **Paginación de las cuatro colas y de la de publicar**: hoy se pinta la primera página que
+   devuelve el servidor. Con volumen real hará falta el paginador (el patrón ya existe en M5
+   «Cerradas»).
+4. **`?onlyAlerts=true`** en la cola de confirmación: el contrato lo ofrece y aún no hay filtro en
+   la UI.
+
+### 9. A ux-ui
+
+**§23.8 da las columnas clave y el tratamiento propio de cada cola, pero no el copy literal**, así
+que **las 89 claves de este pase son mías** (ES y EN), incluidos los tres textos que hacen el trabajo
+pedagógico y que conviene revisar con calma: el de la guía (*«capturar la guía NO mueve el
+estado…»*), el del «ya lo mandé» (*«eso detuvo su reloj y nada más»*) y el de la alerta (*«…o no
+pudimos calcular cuánto. Las dos piden lo mismo»*). Los tres explican **por qué** la pantalla se
+comporta así, que es lo que evita que alguien la «arregle».

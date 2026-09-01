@@ -28,6 +28,7 @@ import { MasterSetPanel } from '@/components/master-set/MasterSetPanel';
 import { AddItemModal } from './AddItemModal';
 import { LocationsModal } from './LocationsModal';
 import { InventoryValueCards } from './InventoryValueCards';
+import { PendingPublishQueue } from './PendingPublishQueue';
 import { PublishAllDialog } from './PublishAllDialog';
 import { VariantDrawer } from './VariantDrawer';
 import { SealedTab } from './SealedTab';
@@ -279,6 +280,12 @@ export function M1View() {
       {/* Tarjetas de valor (P-24): SOLO super_admin — para vault_operator la fila se OMITE
           por completo (sin candados; el endpoint tampoco le sirve el dato). */}
       {isSuperAdmin && <InventoryValueCards />}
+
+      {/* Fase 8 · la cola que CIERRA el ciclo de compra: piezas ya pagadas que todavía no están a
+          la venta. Va arriba, antes del inventario general, porque es un pendiente NUESTRO con
+          dinero ya gastado — y porque es la RED del disparo de auto-publicación: si un disparo se
+          pierde, la pieza aparece aquí en vez de volverse invisible. */}
+      <PendingPublishQueue />
 
       {/* Toolbar: pestañas a la izquierda; acciones a la derecha. */}
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border">

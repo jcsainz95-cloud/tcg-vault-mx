@@ -36,6 +36,13 @@ import type {
   BuylistDecisionTableDTO,
   BuylistOfferLineInput,
   BuylistOfferResultDTO,
+  BuylistGuideResultDTO,
+  BuylistShipmentConfirmResultDTO,
+  PendingOfferAuthorizationRowDTO,
+  PendingShipmentConfirmationRowDTO,
+  PendingGuideCancellationRowDTO,
+  LiveSellerRowDTO,
+  PendingPublishRowDTO,
   SellOfferResponseDTO,
   ShipmentDTO,
   ShipmentQuoteResponse,
@@ -2947,6 +2954,171 @@ export async function emitBuylistOffer(
   } catch (e) {
     throw translateFixtureError(e);
   }
+}
+
+/**
+ * **CAPTURAR LA GUÍA** (contrato §M5 · `POST /admin/buylist/:id/guide`, D19/D21/D22).
+ *
+ * ⚠️ **NO mueve el estado.** La solicitud sigue `aceptada`. Lo único que hace es **congelar el
+ * plazo de envío**, y el reloj arranca **con la entrega de la guía, no con la aceptación**: una
+ * guía entregada dos días después de aceptar corre el vencimiento dos días. *Sería injusto correrle
+ * el reloj al vendedor mientras espera una etiqueta que depende de nosotros.*
+ *
+ * ⚠️ **No hay integración con paquetería, y es alcance cerrado (D19):** sin compra automática, sin
+ * tarifas, sin rastreo en vivo y **sin validar el número contra el transportista**. *El sistema
+ * solo guarda y muestra.* El número es visible para **las dos partes**: al vendedor para usarlo, al
+ * operador para conciliar al recibir.
+ *
+ * **Re-capturar corrige un typo** pero **no re-congela** una fecha ya comunicada (criterio 157).
+ */
+export async function captureBuylistGuide(
+  id: string,
+  input: { carrier: string; trackingNumber: string },
+): Promise<BuylistGuideResultDTO> {
+  if (!config.useMocks) {
+    return apiRequest<BuylistGuideResultDTO>(`/admin/buylist/${id}/guide`, {
+      method: 'POST',
+      body: input,
+    });
+  }
+  try {
+    return delay(fx.mockCaptureGuide(id, input));
+  } catch (e) {
+    throw translateFixtureError(e);
+  }
+}
+
+/**
+ * **CONFIRMAR EL ENVÍO** (contrato §M5 · `POST /admin/buylist/:id/confirm-shipment`, D20).
+ *
+ * ⚠️ **Es lo ÚNICO que mueve a `en_transito`.** Ni comprar la guía, ni el «ya lo mandé» del
+ * vendedor mueven este estado. Y **solo desde aquí** la línea empieza a sumar a la cifra de «en
+ * camino» de la mesa de decisión de otras solicitudes.
+ *
+ * ⚠️ **`guideActualCostCents` es OPCIONAL y NO ENTRA JAMÁS en lo que se le deposita al vendedor**:
+ * a él se le descuenta **la tarifa congelada que aceptó**, cueste lo que cueste la etiqueta real.
+ * Es insumo **de reporte** (M7). *Escrito para que nadie «mejore» el pago con el costo real.*
+ */
+export async function confirmBuylistShipment(
+  id: string,
+  input: { guideActualCostCents?: number } = {},
+): Promise<BuylistShipmentConfirmResultDTO> {
+  if (!config.useMocks) {
+    return apiRequest<BuylistShipmentConfirmResultDTO>(`/admin/buylist/${id}/confirm-shipment`, {
+      method: 'POST',
+      body: input,
+    });
+  }
+  try {
+    return delay(fx.mockConfirmShipment(id, input));
+  } catch (e) {
+    throw translateFixtureError(e);
+  }
+}
+
+/**
+ * **AUTORIZAR una oferta preparada** (`POST /admin/buylist/:id/offer/authorize`, **`super_admin`**).
+ * ⚠️ **No acepta líneas ni montos: autoriza LO GUARDADO.** Aceptar cambios aquí convertiría la
+ * autorización en una segunda edición y el «quién preparó / quién autorizó» dejaría de significar
+ * nada. Al autorizar **sale el correo** y el plazo del vendedor **se congela en ese instante**.
+ */
+export async function authorizeBuylistOffer(id: string): Promise<BuylistOfferResultDTO> {
+  if (!config.useMocks) {
+    return apiRequest<BuylistOfferResultDTO>(`/admin/buylist/${id}/offer/authorize`, {
+      method: 'POST',
+      body: {},
+    });
+  }
+  try {
+    return delay(fx.mockAuthorizeOffer(id));
+  } catch (e) {
+    throw translateFixtureError(e);
+  }
+}
+
+/**
+ * **MARCAR LA GUÍA COMO CANCELADA** (`POST /admin/buylist/:id/guide/cancellation-done`, D22).
+ *
+ * ⚠️ **Es la ÚNICA salida de la cola «guías por cancelar»** (criterio 139): esa cola **no
+ * desaparece sola**. Sin esta llamada, la fila se queda ahí para siempre — y las dos mitades de
+ * D22 van juntas: *una etiqueta comprada y olvidada es dinero tirado que nadie ve*.
+ *
+ * `guideActualCostCents` es **el único momento en que se conoce el costo final de una etiqueta
+ * cancelada** (`0` si la paquetería la reembolsó). Misma frontera money-safe: **no toca lo que se
+ * le deposita al vendedor**.
+ */
+export async function markBuylistGuideCancellationDone(
+  id: string,
+  input: { note?: string; guideActualCostCents?: number } = {},
+): Promise<{ sellRequestId: string; guideCancellationDoneAt: string }> {
+  if (!config.useMocks) {
+    return apiRequest(`/admin/buylist/${id}/guide/cancellation-done`, {
+      method: 'POST',
+      body: input,
+    });
+  }
+  try {
+    return delay(fx.mockGuideCancellationDone(id, input));
+  } catch (e) {
+    throw translateFixtureError(e);
+  }
+}
+
+/** Cola «ofertas por autorizar» (`GET /admin/buylist/offers/pending-authorization`). */
+export async function getPendingOfferAuthorizations(): Promise<
+  Paginated<PendingOfferAuthorizationRowDTO>
+> {
+  if (!config.useMocks) {
+    return apiRequest<Paginated<PendingOfferAuthorizationRowDTO>>(
+      '/admin/buylist/offers/pending-authorization',
+    );
+  }
+  return delay(fx.mockPendingOfferAuthorizations());
+}
+
+/** Cola «por confirmar envío» (`GET /admin/buylist/pending-shipment-confirmation`). */
+export async function getPendingShipmentConfirmations(): Promise<
+  Paginated<PendingShipmentConfirmationRowDTO>
+> {
+  if (!config.useMocks) {
+    return apiRequest<Paginated<PendingShipmentConfirmationRowDTO>>(
+      '/admin/buylist/pending-shipment-confirmation',
+    );
+  }
+  return delay(fx.mockPendingShipmentConfirmations());
+}
+
+/** Cola «guías por cancelar» (`GET /admin/buylist/guides/pending-cancellation`). */
+export async function getPendingGuideCancellations(): Promise<
+  Paginated<PendingGuideCancellationRowDTO>
+> {
+  if (!config.useMocks) {
+    return apiRequest<Paginated<PendingGuideCancellationRowDTO>>(
+      '/admin/buylist/guides/pending-cancellation',
+    );
+  }
+  return delay(fx.mockPendingGuideCancellations());
+}
+
+/** Cola «vendedores con solicitudes vivas» (`GET /admin/buylist/live-sellers`, D12). */
+export async function getLiveSellers(): Promise<Paginated<LiveSellerRowDTO>> {
+  if (!config.useMocks) {
+    return apiRequest<Paginated<LiveSellerRowDTO>>('/admin/buylist/live-sellers');
+  }
+  return delay(fx.mockLiveSellers());
+}
+
+/**
+ * Cola «listas para publicar» (`GET /admin/inventory/pending-publish`, fase 8).
+ * ⚠️ **Es la RED del disparo de auto-publicación**: la publicación se intenta best-effort en tres
+ * momentos, y **un disparo perdido deja la pieza EN ESTA COLA** en vez de invisible. Por eso la
+ * cola no se estrecha ni se «optimiza».
+ */
+export async function getPendingPublish(): Promise<Paginated<PendingPublishRowDTO>> {
+  if (!config.useMocks) {
+    return apiRequest<Paginated<PendingPublishRowDTO>>('/admin/inventory/pending-publish');
+  }
+  return delay(fx.mockPendingPublish());
 }
 
 /** Marca recepción física de la solicitud → `recibida` (contrato POST /admin/buylist/:id/receive). */

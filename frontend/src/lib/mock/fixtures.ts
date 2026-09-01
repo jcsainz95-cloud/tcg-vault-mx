@@ -24,6 +24,15 @@ import type {
   BuylistDecisionTableDTO,
   BuylistOfferLineInput,
   BuylistOfferResultDTO,
+  BuylistGuideResultDTO,
+  BuylistShipmentConfirmResultDTO,
+  PendingOfferAuthorizationRowDTO,
+  PendingShipmentConfirmationRowDTO,
+  PendingGuideCancellationRowDTO,
+  LiveSellerRowDTO,
+  PendingPublishRowDTO,
+  AdminSellerRef,
+  Paginated,
   SellOfferPublicDTO,
   PickupAddressSnapshotDTO,
   SellRequestStatus,
@@ -4713,4 +4722,262 @@ export function mockEmitOffer(
     requiresAuthorization: needsAuth,
     items: row.items,
   };
+}
+
+// ---------------------------------------------------------------------------------------------
+// MOCK · GUÍA, CONFIRMACIÓN Y LAS CUATRO COLAS DEL CICLO (contrato §M5)
+// ---------------------------------------------------------------------------------------------
+
+/** Dial del plazo de envío. Vive del lado del SERVIDOR falso, nunca en una pantalla. */
+const MOCK_SHIP_DEADLINE_DAYS = 3;
+
+/**
+ * MOCK de `POST …/guide`. ⚠️ **NO mueve el estado** — la solicitud sigue `aceptada`. Congela
+ * `shipDeadlineAt` **solo cuando está en `null`**: re-capturar para corregir un typo **no mueve una
+ * fecha ya comunicada** (criterio 157), y dejarla en `null` para siempre sería una solicitud que
+ * nunca puede expirar (v1.51.4).
+ */
+export function mockCaptureGuide(
+  id: string,
+  input: { carrier: string; trackingNumber: string },
+): BuylistGuideResultDTO {
+  const row = mockAdminBuylist.find((r) => r.id === id);
+  if (!row) throw new ApiFixtureNotFound('Sell request not found');
+  if (row.status !== 'aceptada') {
+    throw new ApiFixtureError(409, 'GUIDE_NOT_ALLOWED', 'the guide is bought on acceptance', {
+      status: row.status,
+    });
+  }
+  const guideSentAt = new Date().toISOString();
+  row.shipmentCarrier = input.carrier;
+  row.shipmentTrackingNumber = input.trackingNumber;
+  row.guideSentAt = guideSentAt;
+  row.shipDeadlineAt =
+    row.shipDeadlineAt ??
+    new Date(Date.now() + MOCK_SHIP_DEADLINE_DAYS * 24 * 60 * 60 * 1000).toISOString();
+  return {
+    sellRequestId: id,
+    status: row.status,
+    shipmentCarrier: row.shipmentCarrier ?? null,
+    shipmentTrackingNumber: row.shipmentTrackingNumber ?? null,
+    guideSentAt,
+    shipDeadlineAt: row.shipDeadlineAt ?? null,
+  };
+}
+
+/**
+ * MOCK de `POST …/confirm-shipment` — **lo único que mueve a `en_transito`**.
+ * ⚠️ `guideSentAt` **NO es precondición**: si el paquete llegó sin que hubiéramos capturado guía,
+ * negar la confirmación **no devuelve el paquete**. Fail-visible, no fail-blocking.
+ */
+export function mockConfirmShipment(
+  id: string,
+  input: { guideActualCostCents?: number },
+): BuylistShipmentConfirmResultDTO {
+  const row = mockAdminBuylist.find((r) => r.id === id);
+  if (!row) throw new ApiFixtureNotFound('Sell request not found');
+  if (row.status !== 'aceptada') {
+    throw new ApiFixtureError(409, 'NOT_ACCEPTED', 'only an accepted request can be confirmed', {
+      status: row.status,
+    });
+  }
+  row.status = 'en_transito';
+  return {
+    sellRequestId: id,
+    status: 'en_transito',
+    shipmentConfirmedAt: new Date().toISOString(),
+    shipmentConfirmedBy: 'admin@tcghunt.mx',
+    guideActualCostCents: input.guideActualCostCents ?? null,
+  };
+}
+
+/** MOCK de `POST …/offer/authorize`: autoriza LO GUARDADO y el correo sale. */
+export function mockAuthorizeOffer(id: string): BuylistOfferResultDTO {
+  const row = mockAdminBuylist.find((r) => r.id === id);
+  if (!row) throw new ApiFixtureNotFound('Sell request not found');
+  row.status = 'ofertada';
+  return {
+    sellRequestId: id,
+    status: 'ofertada',
+    offerState: 'sent',
+    offerSentAt: new Date().toISOString(),
+    offerGrossCents: 200000,
+    offerShippingFeeCents: MOCK_SHIPPING_FEE_CENTS,
+    offerNetCents: 182000,
+    offerAcceptDeadlineAt: MOCK_OFFER_DEADLINE,
+    requiresAuthorization: false,
+    items: row.items,
+  };
+}
+
+/**
+ * MOCK de `POST …/guide/cancellation-done`. Es **la única salida** de su cola: la fila se retira
+ * aquí y en ningún otro sitio.
+ */
+export function mockGuideCancellationDone(
+  id: string,
+  _input: { note?: string; guideActualCostCents?: number },
+): { sellRequestId: string; guideCancellationDoneAt: string } {
+  const idx = mockPendingGuideCancellationRows.findIndex((r) => r.sellRequestId === id);
+  if (idx === -1) {
+    throw new ApiFixtureError(409, 'NO_PENDING_GUIDE_CANCELLATION', 'no pending cancellation');
+  }
+  mockPendingGuideCancellationRows.splice(idx, 1);
+  return { sellRequestId: id, guideCancellationDoneAt: new Date().toISOString() };
+}
+
+const MOCK_SELLER: AdminSellerRef = {
+  id: 'u-777',
+  name: 'Ash Ketchum',
+  email: 'ash@example.com',
+};
+
+export function mockPendingOfferAuthorizations(): Paginated<PendingOfferAuthorizationRowDTO> {
+  const rows: PendingOfferAuthorizationRowDTO[] = [
+    {
+      sellRequestId: 'sr-auth-1',
+      seller: MOCK_SELLER,
+      preparedBy: 'operador@tcghunt.mx',
+      offerPreparedAt: '2026-08-29T15:00:00Z',
+      offerGrossCents: 200000,
+      operatorCapCents: MOCK_OPERATOR_CAP_CENTS,
+      excessCents: 50000,
+      lineCount: 4,
+      buyLineCount: 3,
+      // ⚠️ Se muere sola: si nadie autoriza antes de esta fecha, el barrido caduca la solicitud.
+      caducityAt: new Date(Date.now() + 20 * 60 * 60 * 1000).toISOString(),
+    },
+  ];
+  return { data: rows, page: 1, pageSize: 20, total: rows.length };
+}
+
+export function mockPendingShipmentConfirmations(): Paginated<PendingShipmentConfirmationRowDTO> {
+  const rows: PendingShipmentConfirmationRowDTO[] = [
+    {
+      sellRequestId: 'sr-conf-1',
+      seller: MOCK_SELLER,
+      sellerShippedDeclaredAt: '2026-08-26T18:00:00Z',
+      shipDeadlineAt: '2026-09-02T18:00:00Z',
+      carrier: 'Estafeta',
+      trackingNumber: '7712345678',
+      businessDaysWaiting: 6,
+      alert: true,
+    },
+    {
+      sellRequestId: 'sr-conf-2',
+      seller: { id: 'u-778', name: 'Misty', email: 'misty@example.com' },
+      sellerShippedDeclaredAt: '2026-08-31T18:00:00Z',
+      shipDeadlineAt: null,
+      carrier: null,
+      trackingNumber: null,
+      // ⚠️ El caso que el front NO puede recalcular: no se pudo contar los días hábiles. La fila
+      // se degrada y la cola SE PINTA, y `alert` falla hacia `true` — «llevo demasiado» y «no sé
+      // cuánto llevo» piden la MISMA acción humana.
+      businessDaysWaiting: null,
+      businessDaysUnavailable: true,
+      alert: true,
+    },
+  ];
+  return { data: rows, page: 1, pageSize: 20, total: rows.length };
+}
+
+/** ⚠️ Mutable: la cola **no desaparece sola**; solo la vacía `guide/cancellation-done`. */
+const mockPendingGuideCancellationRows: PendingGuideCancellationRowDTO[] = [
+  {
+    sellRequestId: 'sr-guide-1',
+    seller: MOCK_SELLER,
+    carrier: 'Estafeta',
+    trackingNumber: '7798765432',
+    guideSentAt: '2026-08-20T18:00:00Z',
+    guideCancellationPendingAt: '2026-08-28T18:00:00Z',
+    closedStatus: 'expirada',
+    expiredReason: 'not_shipped',
+  },
+];
+
+export function mockPendingGuideCancellations(): Paginated<PendingGuideCancellationRowDTO> {
+  return {
+    data: [...mockPendingGuideCancellationRows],
+    page: 1,
+    pageSize: 20,
+    total: mockPendingGuideCancellationRows.length,
+  };
+}
+
+export function mockLiveSellers(): Paginated<LiveSellerRowDTO> {
+  const rows: LiveSellerRowDTO[] = [
+    {
+      // D12: el teléfono viaja EN LA FILA para poder llamar sin ir a buscar al usuario.
+      seller: { id: 'u-777', name: 'Ash Ketchum', email: 'ash@example.com', phone: '5555123456' },
+      liveCount: 3,
+      oldestCreatedAt: '2026-08-25T14:00:00Z',
+      latestStatus: 'cotizada',
+    },
+    {
+      // `null` en cuentas de Google / viejas: se dice, no se inventa.
+      seller: { id: 'u-778', name: 'Misty', email: 'misty@example.com', phone: null },
+      liveCount: 1,
+      oldestCreatedAt: '2026-08-30T14:00:00Z',
+      latestStatus: 'ofertada',
+    },
+  ];
+  return { data: rows, page: 1, pageSize: 20, total: rows.length };
+}
+
+export function mockPendingPublish(): Paginated<PendingPublishRowDTO> {
+  const rows: PendingPublishRowDTO[] = [
+    {
+      inventoryItemId: 'inv-pub-1',
+      folio: 'INV-004201',
+      card: cardById('c-charizard'),
+      productType: 'raw',
+      finish: 'holofoil',
+      cardProductId: null,
+      locationId: null,
+      listPriceCents: null,
+      resolvedSalePriceCents: 120000,
+      priceBasis: 'market',
+      pendingPriceEntryId: null,
+      missing: ['location'],
+      acquisitionType: 'buylist',
+      sourceSellRequestItemId: 'sri-desk-1',
+      createdAt: '2026-08-30T18:00:00Z',
+    },
+    {
+      inventoryItemId: 'inv-pub-2',
+      folio: 'INV-004202',
+      card: cardById('c-eevee'),
+      productType: 'raw',
+      finish: 'reverse_holo',
+      cardProductId: null,
+      locationId: 'loc-a1',
+      listPriceCents: null,
+      resolvedSalePriceCents: null,
+      priceBasis: null,
+      // Deep-link a la cola de precio pendiente de M2: la pieza no se publica sin precio.
+      pendingPriceEntryId: 'ppe-77',
+      missing: ['price'],
+      acquisitionType: 'buylist',
+      sourceSellRequestItemId: 'sri-desk-3',
+      createdAt: '2026-08-30T18:05:00Z',
+    },
+    {
+      inventoryItemId: 'inv-pub-3',
+      folio: 'INV-004203',
+      card: cardById('c-pikachu'),
+      productType: 'raw',
+      finish: 'normal',
+      cardProductId: null,
+      locationId: null,
+      listPriceCents: null,
+      resolvedSalePriceCents: null,
+      priceBasis: null,
+      pendingPriceEntryId: 'ppe-78',
+      missing: ['location', 'price'],
+      acquisitionType: 'buylist',
+      sourceSellRequestItemId: 'sri-desk-2',
+      createdAt: '2026-08-30T18:10:00Z',
+    },
+  ];
+  return { data: rows, page: 1, pageSize: 20, total: rows.length };
 }

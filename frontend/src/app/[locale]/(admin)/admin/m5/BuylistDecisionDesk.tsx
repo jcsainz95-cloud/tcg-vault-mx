@@ -631,6 +631,15 @@ export function BuylistDecisionDesk({ sellRequestId, onClose }: BuylistDecisionD
                   netAmount: formatMoneyCents(totals.netCents, locale),
                 })}
               </p>
+              {/*
+                ⚠️ **R4 — esta nota NO nombra cuántos días son, y es deliberado.** El plazo de
+                aceptación es un **dial de M10** (D3/D8, criterio 154) y el DTO de la mesa **no lo
+                trae**; escribirlo a mano sería la constante que R4 describe: se desincroniza **en
+                silencio** la primera vez que alguien mueva el dial. Y dolería el doble aquí —el
+                operador leería un plazo en el diálogo donde compromete dinero **mientras el correo
+                sale con el real**—. Lo que necesita saber es **que se congela al emitir**, no
+                cuántos días son; eso sí es cierto siempre. Si el DTO gana el dial, se interpola.
+              */}
               <p className="mt-3 text-xs leading-[1.6] text-muted">{t('confirm.deadlineNote')}</p>
             </Modal>
           </div>
