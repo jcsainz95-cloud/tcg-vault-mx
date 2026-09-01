@@ -11,6 +11,7 @@ import { AmountBreakdown } from '@/components/ui/AmountBreakdown';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { Button } from '@/components/ui/Button';
 import { QueryState } from '@/components/ui/QueryState';
+import { historicalCardMeta, historicalCardName } from '@/lib/historical-card';
 
 /**
  * 6f (detalle) — Repite el desglose del pago y deja la factura como acción
@@ -48,22 +49,64 @@ export function OrderDetailView({ orderId }: { orderId: string }) {
             <div className="gutter border-b border-border pb-12 pt-6 lg:border-b-0 lg:border-r">
               <h2 className="eyebrow">{t('items')}</h2>
               <div className="mt-2.5">
-                {query.data.items.map((it) => (
-                  <div
-                    key={it.inventoryItemId}
-                    className="flex items-center gap-[18px] border-b border-border py-4 last:border-b-0"
-                  >
-                    <div className="w-11 shrink-0">
-                      <CardImage src={it.card.imageSmallUrl} alt={it.card.name} className="p-1" />
+                {query.data.items.map((it) => {
+                  /*
+                   * RENDER DEGRADADO POR CAMPO (contrato §4 «Tolerancia del histórico» punto 4;
+                   * ARCHITECTURE §5.2.9). Ésta es la ÚNICA superficie que lee del histórico: su
+                   * `card` es `HistoricalOrderItemCardDTO` y CUALQUIER hecho puede faltar.
+                   * Interpolarlos a pelo pintaba la línea MUDA —`{it.card.name}` con `name`
+                   * ausente rinde cadena vacía, y el `alt` de la miniatura salía `null`—: el
+                   * importe estaba bien y aun así la línea no decía nada.
+                   * ⛔ El hueco NO se rellena con `GET /catalog/cards/:cardId` ni con ninguna
+                   * otra consulta: sería re-resolver un hecho congelado desde el cliente
+                   * (§5.2.2). El acta dice lo que registró; si no lo registró, lo dice también.
+                   */
+                  const { text: itemName, hasName } = historicalCardName(it.card, t('item.unknownCard'));
+                  const meta = historicalCardMeta(it.card);
+                  return (
+                    <div
+                      key={it.inventoryItemId}
+                      className="flex items-center gap-[18px] border-b border-border py-4 last:border-b-0"
+                    >
+                      <div className="w-11 shrink-0">
+                        {/* `alt` SIEMPRE con texto (WCAG 1.1.1): el nombre real o la etiqueta
+                            neutra. Sin `cardId` la imagen es `null` por construcción y aquí
+                            queda el pozo de papel quieto, que es el placeholder del contrato. */}
+                        <CardImage src={it.card.imageSmallUrl} alt={itemName} className="p-1" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        {hasName ? (
+                          // datos de catálogo en inglés → lang="en" (DESIGN_SYSTEM §9.2)
+                          <span className="text-[15px] text-text" lang="en">
+                            {itemName}
+                          </span>
+                        ) : (
+                          /* Etiqueta neutra: mono en versalitas muted, el mismo tratamiento que
+                             el resto de etiquetas honestas del sistema (§7.3). Debe leerse
+                             DELIBERADA —«esto no consta»— y no como un fallo de carga. NO lleva
+                             `lang="en"`: es copy de la interfaz, no un nombre de catálogo. */
+                          <span
+                            title={t('item.unknownCardHint')}
+                            className="font-mono text-[11px] uppercase leading-none tracking-[0.08em] text-muted"
+                          >
+                            {itemName}
+                          </span>
+                        )}
+                        {/* Fragmentos que el acta no registró: se OMITEN. Sin renglón vacío. */}
+                        {meta && (
+                          <p lang="en" className="mt-1.5 font-mono text-[11px] text-muted">
+                            {meta}
+                          </p>
+                        )}
+                      </div>
+                      {/* El dinero NO vive en el blob (`unitPriceCents` es columna propia de
+                          `OrderItem`): un snapshot incompleto no mueve un centavo. */}
+                      <span className="tabular shrink-0 text-[15px] text-text">
+                        {formatMoneyCents(it.unitPriceCents, locale)}
+                      </span>
                     </div>
-                    <span className="flex-1 text-[15px] text-text" lang="en">
-                      {it.card.name}
-                    </span>
-                    <span className="tabular text-[15px] text-text">
-                      {formatMoneyCents(it.unitPriceCents, locale)}
-                    </span>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
 

@@ -2,7 +2,105 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-31 (rev **v1.51-a**).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-31 (rev **v1.52**).
+>
+> **Changelog v1.52 — la teja de set gana su LOGO (2026-08-31, arquitecto; petición del DUEÑO. Lo implementan
+> BACKEND y FRONTEND. ARCHITECTURE §4.39, migración M-47).**
+> **Cero rutas nuevas, cero códigos de error nuevos, cero montos, cero permisos.** Base: v1.51-c, vigente entera.
+> Es **ADITIVO puro**: todo consumidor existente sigue funcionando sin cambios.
+> - **Qué se añade y DÓNDE — dos superficies, y la segunda es la que se olvida:**
+>   1. **`MasterSetSummaryDTO` gana `logoUrl: string | null`.** Lo sirven **cuatro** endpoints
+>      (`GET /admin/inventory/master-sets`, `GET /admin/vaults/:userId/master-sets`, `GET /vault/master-sets` y el
+>      índice M1), porque es **un read model único** (§4.20f). Es **la teja** de selección de set.
+>   2. **`GET /buylist/sets` → `data[]` gana `logoUrl: string | null`.** **No es opcional:** el modo `quoter` de esa
+>      misma retícula **no tiene endpoint de índice propio** y compone sus tejas *client-side* desde aquí. Sin este
+>      campo, la teja del cotizador sería **la única sin logo**.
+> - **Dónde NO se añade, deliberadamente (es tan normativo como lo anterior):** `GET /catalog/facets` → `sets[]` y
+>   `GET /catalog/sets` (alimentan **chips y filtros de TEXTO**, no tejas), `CardDTO`/`card.setName` (el set ahí es
+>   metadata de una carta: sería el mismo logo repetido por cada carta de la rejilla), `GET /admin/catalog/remote-sets`
+>   (espejo del proveedor, no una selección) y `SetRefDTO` (cabecera de gráfica). **Regla:** *la imagen de set viaja
+>   donde el SET es el objeto que se selecciona.* ARCHITECTURE §4.39.5.
+> - **`null` es un valor NORMAL y PERMANENTE, no un error ni un estado transitorio.** Clase **(P) presentación**
+>   (§5.2.2) ⇒ **clave SIEMPRE presente, ausencia como `null`** — nunca omitida, nunca `""`, nunca una URL de
+>   placeholder inventada por el backend. Hay sets que el proveedor **no ilustra** (promos, colecciones raras, sets
+>   viejos) y los seguirá sin ilustrar. Se declara `logoUrl: string | null` **y no `logoUrl?: string`** a propósito:
+>   el opcional se lee como «normalmente está» e invita a `s.logoUrl!`; el `null` explícito **obliga** a decidir qué se
+>   pinta cuando no hay. Es la grieta de `imageSmallUrl` (§5.2.1) cerrada por adelantado.
+> - **Un segundo origen del `null`, indistinguible a propósito:** un set **aún no re-sincronizado** también rinde
+>   `null`. El contrato **no** los distingue y el cliente **no** debe intentarlo: para el front, «sin logo» es un solo
+>   caso. Quien los distingue es el operador, por el lado del sync (ARCHITECTURE §4.39.4).
+> - **Origen del dato y su peor caso:** URL de un **CDN de tercero** (`images.pokemontcg.io`, el **mismo** host que ya
+>   sirve el arte de las cartas). **Sin copia propia.** Si el CDN cae, la teja cae a su placeholder — mismo riesgo que
+>   ya corre toda imagen de carta del sitio, no una clase de fallo nueva. **Prohibido construir la URL por plantilla**
+>   desde el `setId` (misma regla que §5.2.5 para cartas).
+> - **`symbolUrl` (el glifo cuadrado) SE PERSISTE pero NO SE EXPONE en este pase.** No aparece en ningún DTO: hoy no
+>   hay superficie que lo use. Exponerlo el día que exista el chip es **aditivo de proyección, sin migración y sin
+>   re-sync**. ARCHITECTURE §4.39.5.
+> - **Frontend, nivel de imagen decidido por el arquitecto (§5.3, ARCHITECTURE §4.39.7): NIVEL B** — `<img>` crudo,
+>   **sin `next/image`, sin `srcset`**. Una retícula es una rejilla y la regla de coste 4 de §5.3.3 lo prohíbe; además
+>   el proveedor sirve **una sola URL** por imagen. **`remotePatterns` no cambia** (mismo host).
+> - **Migración `M-47`** (ARCHITECTURE §11): dos columnas nullable en `CardSet`, **aditiva pura**, money-safe, sin
+>   ventana ni cut-over. **Sin backfill de datos**: los sets ya importados se pueblan re-corriendo el sync existente.
+> - **Base previa:** v1.51-c.
+>
+> **Changelog v1.51-c — el contrato deja de prometer lo que el histórico puede no traer (2026-08-31, arquitecto;
+> tres correcciones de PRECISIÓN enrutadas por el techlead. ARCHITECTURE §5.2.9).**
+> **Cero rutas, cero códigos de error, cero montos, cero migraciones y CERO cambios de conducta en backend.**
+> Base: v1.51-b, vigente entera. Es un pase de **documentación**: alinea el contrato con lo que el código ya sirve.
+> - **T-3 — la corrección que importa. `items[].card` pasa a ser DOS formas hermanas, no una.** v1.51-b declaró
+>   `cardId`, `name`, `number` y `productType` **requeridos** en las tres superficies. Pero `GET /orders/:orderId`
+>   **lee de una columna `Json`** que escribieron versiones anteriores del código: un blob histórico incompleto rinde
+>   un `card` **sin esos campos**, y eso ya es conducta probada y correcta del backend. **Era el mismo pecado que este
+>   pase vino a matar, invertido**: el tipo del cliente volviendo a prometer lo que el backend puede no enviar — la
+>   grieta exacta por la que se cayó `imageSmallUrl`. Se declara:
+>   - **`OrderItemCardDTO`** (hechos **completos**) ⇒ los DOS quotes, donde los hechos **nacen en la petición** desde
+>     la pieza viva y por tanto están garantizados.
+>   - **`HistoricalOrderItemCardDTO` = `Partial<FrozenCardFacts> & { imageSmallUrl: string | null }`** ⇒
+>     `GET /orders/:orderId`. **Toda** clave congelada puede faltar; `imageSmallUrl` **nunca** falta (se resuelve en
+>     lectura), su ausencia se expresa con `null`.
+>   - **Se RECHAZA la otra salida (que el backend rellene un mínimo desde el join):** violaría §5.2.2 —los hechos
+>     congelados **no se re-resuelven**— y cambiaría un hueco honesto por un dato **inventado dentro de un registro
+>     probatorio**. Un hecho congelado que se perdió **está perdido**; el acta dice que no consta. §5.2.9.
+>   - **La tolerancia es de LECTURA: no relaja la ESCRITURA.** El checkout sigue obligado a persistir los ocho hechos
+>     con `cardId`/`name`/`number`/`productType` no nulos. Un pedido nuevo incompleto sería **defecto**, no tolerancia.
+> - **T-4 — `null` ≠ ausente, y el contrato decía lo que no era.** `rawCondition`, `gradingCompany` y `gradeValue`
+>   viajan como **`null` con la clave presente** (así los congela el checkout desde columnas nullables); el contrato
+>   los declaraba `rawCondition?: RawCondition`, es decir **omitidos**. Se corrige **el contrato**, no el código:
+>   pedirle al backend que omita nulos sería cambio de conducta **y** divergencia entre blobs viejos y nuevos, por una
+>   ganancia nula. `setName` sigue siendo el único hecho que viaja **omitido**.
+> - **T-5 — mueren los ejemplos `"card": {}`.** Los ejemplos de `/checkout/quote`, `/checkout/guest/quote` y
+>   `GET /orders/:orderId` llevan ahora `card` **poblado y realista**; el del histórico incluye a propósito **una
+>   segunda línea con blob incompleto**, para que la forma tolerante se vea, no solo se lea.
+> - **Confirmación de alcance (no es cambio): `GuestTrackingItemDTO` se queda como está.** Es la cuarta superficie que
+>   emite imagen; resuelve por join en vivo desde `inventoryItem.card` y **no** por §5.2.5 — es otro DTO, plano, sin
+>   `cardId` (prohibido por criterio 51) y de una vista de envío en curso, no del acta de compra. **No es regresión y
+>   nadie debe uniformizarlo por iniciativa propia.** Su única deuda viva es **D-IMG-2** (identidad por join en vivo):
+>   baja, no bloqueante, dueño **backend**, se alinea en el próximo trabajo sobre ese módulo. Nota completa en §4-G.
+> - **Base previa:** v1.51-b.
+>
+> **Changelog v1.51-b — se DECLARA una forma que llevaba viva sin declarar: `OrderItemCardDTO` (2026-08-31,
+> arquitecto; lo implementan BACKEND y FRONTEND. ARCHITECTURE §5.2).**
+> **Cero rutas nuevas, cero códigos de error nuevos, cero montos, cero migraciones.** Base: v1.51-a, intacta.
+> - **El problema que cierra:** el objeto `items[].card` de `POST /checkout/quote`, `POST /checkout/guest/quote` y
+>   `GET /orders/:orderId` **nunca tuvo forma declarada** — este contrato lo escribía como `"card": {}` y nombraba
+>   `OrderItemPreview` sin definir sus campos. Con la forma sin declarar, el backend lo persiste como JSON `object`
+>   y el frontend lo tipó como **`CardDTO` completo**, prometiendo campos (`id`, `externalId`, `imageLargeUrl`,
+>   `availableFinishes`…) que **el backend nunca envió en esa posición**. De ahí el hueco gris de la miniatura: no
+>   fue un olvido de una línea, fue **un blob sin forma en un extremo y un tipo falso en el otro**.
+> - **Se declara `OrderItemCardDTO`** (abajo, §4). Es **la forma que ya se sirve** más **un campo**:
+>   **`imageSmallUrl: string | null`**. **NO es `CardDTO`** y no debe volver a tiparse como tal.
+> - **`imageSmallUrl` es NULLABLE y la clave está SIEMPRE presente** (`null`, nunca omitida — misma norma de shape
+>   estable que `unavailableItems: []`). `null` es resultado legítimo: la columna `Card.imageSmallUrl` es `String?`
+>   y la fila `Card` puede no existir. El front pinta placeholder; **no es error y no rompe ningún flujo**.
+> - **ORIGEN del campo, normativo (ARCHITECTURE §5.2.5): se resuelve EN LECTURA, uniendo por el `cardId` ya
+>   congelado en el snapshot. NO se persiste en `OrderItem.cardSnapshot` y NO se resuelve vía
+>   `inventoryItemId → InventoryItem.card`** (esa pieza sigue mutando de titular y estado; el `cardId` congelado es
+>   el único puente estable). Consecuencia buscada: **los pedidos históricos muestran miniatura sin migración
+>   alguna**, porque histórico y futuro pasan por el mismo código de lectura.
+> - **Lo que este changelog NO cambia:** la estructura **persistida** del snapshot (mismos ocho campos), ningún
+>   importe, ninguna precedencia de precio, ningún estado de orden, y **nada** de `GuestOrderTrackingDTO`
+>   (`GuestTrackingItemDTO.imageSmallUrl` ya existía) ni de `ClientShipmentItemDTO`. Es **display-only**.
+> - **Base previa:** v1.51-a.
 >
 > **Changelog v1.51-a — UN cambio de invariante y UNA nota normativa de lectura (2026-08-31, arquitecto;
 > lo implementa BACKEND, y FRONTEND solo si pinta el rango. ARCHITECTURE §4.38(r.3.1), §4.38(r.3.4), §4.38(m.2.1)).**
@@ -2171,6 +2269,15 @@ CardDTO      = { id, externalId, name, number, numberSort: number, numberPrefix:
                  rarity, supertype, subtypes: string[],
                  setId, setName, imageSmallUrl, imageLargeUrl,
                  availableFinishes: Finish[], displayFinishes: Finish[] }
+// v1.51-b — CUIDADO: el objeto `card` de una LÍNEA DE COMPRA (`/checkout/quote`, `/checkout/guest/quote`,
+//   `GET /orders/:orderId`) **NO es un CardDTO**: es un snapshot congelado de 8 campos + `imageSmallUrl:
+//   string | null` resuelta en lectura. Tiparlo como CardDTO es exactamente el defecto que v1.51-b corrige
+//   (prometía `id`/`imageLargeUrl`/`availableFinishes` que el backend nunca envió ahí).
+// v1.51-c — y son DOS formas, no una (ambas en §4): `OrderItemCardDTO` (hechos COMPLETOS) en los dos QUOTES, y
+//   `HistoricalOrderItemCardDTO` (`Partial` de los hechos) en `GET /orders/:orderId`, que lee del JSON persistido y
+//   **no puede garantizar** ni `name` ni `cardId`. Tipar el histórico con la forma completa es el MISMO pecado,
+//   invertido: el tipo del cliente volvería a prometer lo que el backend puede no enviar.
+//   Doctrina de qué se congela y qué se resuelve: ARCHITECTURE §5.2 y §5.2.9.
 // referenceValue = valor de mercado (referencia). salePriceCents = precio de venta = referencia × (1+markup) u override.
 // rawCondition solo aplica a productType=raw y su ÚNICO valor es "NM". El LABEL legible de NM
 // ("Casi nueva (Near Mint)" / "Near Mint" + descripción) vive en i18n del FRONT, NO en la API.
@@ -2607,9 +2714,19 @@ BuylistBatchQuoteResponse = { results: BuylistBatchQuoteResultDTO[] }
 // v1.42 (BLOQ-3): el binder cuenta SOLO SINGLES → todas las agregaciones de este DTO (distinctCardsOwned, totalPieces,
 //   completionPct) EXCLUYEN `productType='sealed'` (alinea con H9; el sellado vive en la pestaña «Sellado», §sealed-sets).
 //   `catalogCardCount` (denominador = catálogo) NO cambia. Mismo filtro en el scope user_vault. Ver ARCHITECTURE §4.20b.
+// v1.52 (M-47, ARCHITECTURE §4.39): `logoUrl` = imagen del LOGO del set (`images.logo` de pokemontcg.io,
+//   persistida en `CardSet.logoUrl`). Es EL campo de la teja de selección de set.
+//   ⚠️ `string | null`, NO `logoUrl?`: la clave va SIEMPRE presente y la ausencia se expresa con `null`
+//   (clase (P) presentación, §5.2.2/§5.2.9). `null` es NORMAL y PERMANENTE — hay sets que el proveedor no
+//   ilustra (promos, colecciones raras, sets viejos) — y también es lo que rinde un set aún no re-sincronizado;
+//   el contrato NO distingue ambos orígenes y el cliente NO debe intentarlo. No es error, no se reintenta, no
+//   se registra incidente: el front pinta su estado «sin logo» (lo define ux-ui). ⛔ PROHIBIDO construir la URL
+//   por plantilla desde el `setId`. Nivel de imagen: **B** (`<img>` crudo, sin next/image, sin srcset — §5.3.3).
+//   NO existe `symbolUrl` en este DTO: se persiste en `CardSet` pero no se expone todavía (§4.39.5).
 MasterSetSummaryDTO = { setId: string, name: string, series?: string, releaseDate?: string, year?: number,
                         printedTotal?: number, catalogCardCount: number, distinctCardsOwned: number,
-                        completionPct: number | null, totalPieces: number }
+                        completionPct: number | null, totalPieces: number,
+                        logoUrl: string | null }                       // v1.52 (M-47)
 MasterSetIndexResponse = { data: MasterSetSummaryDTO[], page: number, pageSize: number, total: number }
 // Celda del binder (GET /admin/inventory/master-sets/:setId). Una por Card del catálogo del set. `number` es el
 // Card.number crudo (String, p. ej. "4", "SV107", "TG12"); `numberSort` es la CLAVE NUMÉRICA derivada server-side
@@ -3268,6 +3385,12 @@ Res `200`:
 - `sets`: `{ id, name, releaseDate, year }` con `year` **derivado** de `releaseDate`; solo sets con inventario publicado; **ordenados por año desc**. **v1.33 (P-27):** igual que `GET /catalog/sets`, un subset de un master combinado se **pliega** en su principal (Celebrations una vez) y la entrada gana `partSetIds?` (aditivo/opcional).
 - `productTypes` / `sealedSubtypes`: subconjuntos presentes en el inventario publicado.
 - `finishes` (v1.6-finish): `distinct` de `InventoryItem.finish` sobre el inventario publicado (subconjunto de `Finish`), para el filtro de acabado.
+- **⛔ v1.52 — `sets[]` NO lleva `logoUrl`, y es deliberado (ARCHITECTURE §4.39.5).** Esta faceta alimenta los **chips
+  de texto** «Sets buscados» de la home y el **filtro de texto** de Compra: ninguna de las dos es una teja con imagen,
+  y la home **ya** carga imágenes de terceros (en este mismo ciclo se corrigió que pedía de más). El logo vive en
+  `MasterSetSummaryDTO` y en `GET /buylist/sets`, que son las superficies donde **el set es el objeto que se
+  selecciona**. Si alguna de estas dos superficies pasara a ser una retícula de tejas, es un **aditivo de proyección**
+  (el dato ya está en `CardSet.logoUrl`: sin DDL, sin migración, sin re-sync) que **pasa por el arquitecto** (regla 9).
 
 ### GET /api/v1/catalog/cards/:cardId — `public`  (FICHA — aquí aplica la regla de visibilidad v2.0)
 Res `200` (**v1.38-grouped-listings, `GroupedListingDetailResponse`**): `{ card: CardDTO, listings: GroupedListingDTO[], units: ListingDTO[] }` **(+ v1.50, ADITIVO: `gradedEstimates?: GradedEstimateDTO[]`)**.
@@ -3357,6 +3480,9 @@ Res `200`: `{ data: [{ id, name, series, releaseDate, year }] }` (datos en ingl�
   **pliega** en su **principal**: Celebrations aparece **una** sola vez (no dos entradas `cel25`/`cel25c`). La entrada
   combinada gana `partSetIds?: string[]` (los set-ids reales que agrupa) para que el front filtre por todas las partes.
   ADITIVO/opcional (los sets normales lo omiten). Solo presentación; el subset sigue siendo un `CardSet` real.
+- **⛔ v1.52 — este endpoint NO lleva `logoUrl`** (misma razón que `GET /catalog/facets`: hoy no alimenta ninguna
+  retícula de tejas). ARCHITECTURE §4.39.5. *(Nota para el master set combinado de P-27: cuando un subset se pliega en
+  su principal, la teja usa el logo **del principal** — el subset no aporta el suyo.)*
 
 ### GET /api/v1/catalog/featured-set/value-history — `public`  (v1.9-set-chart — gráfica del hero)
 Serie temporal del **valor de mercado agregado del set destacado** (estilo acciones), para el hero de la home
@@ -3593,10 +3719,103 @@ Err `401`.
 
 ## 4. Compra, checkout y órdenes (Stripe)
 
+> **`items[].card` — DOS formas hermanas, no una (v1.51-c, NORMATIVA; ARCHITECTURE §5.2 y §5.2.9).**
+> Aplica a las **tres** superficies que sirven líneas de compra. Antes se escribía `"card": {}`; esa forma vacía
+> es lo que dejó caer `imageSmallUrl` en la grieta. **v1.51-c** corrige el error espejo: v1.51-b declaró **una sola**
+> forma con `cardId`/`name`/`number`/`productType` **requeridos**, y la superficie histórica **no puede garantizarlos**.
+>
+> **La forma depende de DÓNDE nacen los hechos:**
+>
+> | Superficie | Forma de `items[].card` | Origen de los hechos |
+> |---|---|---|
+> | `POST /checkout/quote` | **`OrderItemCardDTO`** (completa) | Construidos **en memoria, en esta misma petición**, desde la pieza viva |
+> | `POST /checkout/guest/quote` (§4-G.1) | **`OrderItemCardDTO`** (completa) | ídem |
+> | `GET /orders/:orderId` | **`HistoricalOrderItemCardDTO`** (tolerante) | **Leídos** del JSON persistido `OrderItem.cardSnapshot`, escrito al cobrar — quizá por una versión anterior del código |
+>
+> ```ts
+> // ---- (F) HECHOS CONGELADOS (clase F, §5.2.2) — persistidos en `OrderItem.cardSnapshot` al cobrar.
+> //      Inmutables: un re-sync de catálogo NO los cambia en un pedido ya cobrado.
+> FrozenCardFacts = {
+>   cardId: string,
+>   name: string,
+>   setName?: string,                       // AUSENTE (no `null`) si la carta no tenía set al congelar
+>   number: string,
+>   productType: ProductType,
+>   rawCondition: RawCondition | null,      // clave SIEMPRE presente; `null` fuera de raw (único valor "NM")
+>   gradingCompany: GradingCompany | null,  // clave SIEMPRE presente; `null` fuera de graded
+>   gradeValue: string | null               // clave SIEMPRE presente; `null` fuera de graded
+> }
+>
+> // ---- (P) PRESENTACIÓN RESUELTA EN LECTURA (clase P, §5.2.3) — NO se persiste.
+> //      Se resuelve por join sobre `cardId`. Clave SIEMPRE presente; `null` es legítimo.
+>
+> // Los DOS quotes: hechos COMPLETOS por construcción (nacen en la petición) + presentación resuelta.
+> OrderItemCardDTO = FrozenCardFacts & { imageSmallUrl: string | null }
+>
+> // `GET /orders/:orderId`: CUALQUIER hecho congelado puede FALTAR (blob histórico incompleto).
+> // `imageSmallUrl` NO puede faltar: se resuelve en lectura, así que su clave está siempre presente.
+> HistoricalOrderItemCardDTO = Partial<FrozenCardFacts> & { imageSmallUrl: string | null }
+> ```
+>
+> - **Ninguna de las dos es `CardDTO`.** No traen `id`, `externalId`, `imageLargeUrl`, `rarity`, `supertype`,
+>   `subtypes`, `setId`, `numberSort`, `numberPrefix`, `availableFinishes` ni `displayFinishes`. **Prohibido tiparlas
+>   como `CardDTO`** en el cliente: ese tipo falso es exactamente lo que hizo que el front pintara una imagen que el
+>   backend nunca enviaba. Quien necesite el `CardDTO` completo, lo pide por `GET /catalog/cards/:id` con el `cardId`.
+> - **`imageSmallUrl`: clave SIEMPRE presente, valor nullable, en las TRES superficies.** `null` cuando la fila `Card`
+>   ya no existe, cuando su columna (`String?`) es nula, o cuando el blob histórico no trae `cardId` con el que unir.
+>   El cliente **renderiza su placeholder**; no es error, no se reintenta, no bloquea el checkout ni el pedido.
+>   **Prohibido construir la URL por plantilla** o derivarla del `externalId` — solo se sirve lo que la columna
+>   contenga (§5.2.5).
+> - **`null` ≠ ausente, y aquí la diferencia es normativa (v1.51-c).** `rawCondition`, `gradingCompany` y `gradeValue`
+>   viajan como **`null` con la clave presente** (así los congela el checkout desde columnas nullables de
+>   `InventoryItem`), **no omitidas**. `setName` es el único hecho que viaja **omitido** cuando no aplica. Un cliente
+>   que valide `!('rawCondition' in card)` para «es sellado» está leyendo mal: el discriminante es `productType`.
+> - **`OrderItemPreview`** (nombre ya usado por los dos quotes) queda definido como:
+>   `{ inventoryItemId: string, card: OrderItemCardDTO, unitPriceCents: number }`.
+> - **`OrderItemDTO`** (líneas de `GET /orders/:orderId`) queda definido como:
+>   `{ inventoryItemId: string, card: HistoricalOrderItemCardDTO, unitPriceCents: number }`.
+> - **Sellado (`productType='sealed'`): límite declarado.** El snapshot ancla `cardId`, no `sealedProductId` ⇒ la
+>   imagen resuelta es la de la **carta ancla**, que es la **cola** de la cascada de §4.34a. Mostrar la caja en el
+>   historial exigiría congelar identidad de sellado en la línea (clase F, DDL aditivo) y es **alcance de producto**:
+>   pasa por el arquitecto (regla 9), no se compensa con un join a `InventoryItem`. Ver ARCHITECTURE §5.2.6.
+>
+> **TOLERANCIA DEL HISTÓRICO — qué puede faltar y cómo reacciona el cliente (v1.51-c, NORMATIVA).**
+> `OrderItem.cardSnapshot` es una columna `Json`: la base **no valida su esquema** y el blob de un pedido de 2024 lo
+> escribió una versión anterior del código. Por eso `GET /orders/:orderId` sirve la forma **tolerante**, y por eso el
+> contrato **no** promete lo que no puede entregar. Reglas:
+>
+> 1. **Puede faltar cualquiera de los ocho hechos**, incluidos `cardId`, `name`, `number` y `productType`. Un blob
+>    ausente, no-objeto o vacío rinde `card` **solo con `imageSmallUrl: null`**. Sigue siendo **`200`**, nunca `500`.
+> 2. **PROHIBIDO rellenar un hecho que falta.** Ni el backend ni el cliente pueden recuperar `name`/`number`/`setName`
+>    desde `Card` (ni por join, ni por un `GET /catalog/cards/:cardId` desde el front). Los hechos congelados **no se
+>    re-resuelven** (§5.2.2): el catálogo de hoy dice qué se llama esa carta **hoy**, no qué decía el pedido cuando se
+>    pagó. Rellenar convertiría un hueco honesto («el acta no lo registró») en un dato **inventado y presentado como
+>    probatorio** — que es peor, y en un registro dinero-adyacente. Fundamento en ARCHITECTURE §5.2.9.
+> 3. **Asimetría de peor caso, que es la regla de oro:** un campo de clase (P) que no resuelve degrada a `null` ⇒
+>    **hueco visual**. Un campo de clase (F) que se perdió degrada a **ausente** ⇒ **el cliente dice que no consta**.
+>    Ninguno de los dos degrada jamás a *otro valor*.
+> 4. **Deber del cliente (frontend), por campo:**
+>    - `name` ausente ⇒ etiqueta neutra desde i18n (p. ej. `orders.item.unknownCard`). **Nunca** cadena vacía,
+>      `"undefined"`, ni la línea desaparecida: la línea **se pinta igual**, porque tiene importe.
+>    - `number` / `setName` ausentes ⇒ se **omite** ese fragmento del subtítulo (nada de `«#»` ni `«· »` huérfanos).
+>    - `productType` ausente ⇒ **no se infiere**: se omiten los adornos que dependen de él (badge de sellado/graded).
+>    - `cardId` ausente ⇒ **no hay enlace** a la ficha de catálogo (el CTA «ver carta» no se pinta) y la imagen es
+>      `null` por construcción.
+>    - `rawCondition` / `gradingCompany` / `gradeValue` ausentes **o `null`** ⇒ se omite ese chip. Mismo render.
+> 5. **MONEY-SAFE, y esto cierra la preocupación de fondo:** el dinero de la línea **no vive en el blob**.
+>    `unitPriceCents` es **columna propia** de `OrderItem`, y el `breakdown` sale de columnas de `Order` (§5.1). Un
+>    snapshot incompleto **no puede alterar ni un centavo** de lo que el pedido muestra ni de lo que se cobró.
+> 6. **La tolerancia describe la LECTURA, no relaja la ESCRITURA.** Invariante del write path, vigente y no
+>    negociable: el checkout persiste siempre los ocho hechos, con `cardId`, `name`, `number` y `productType`
+>    **no nulos** (salen de columnas `NOT NULL` de `InventoryItem`/`Card`). Un pedido cobrado por el código vigente
+>    **nunca** produce un `card` incompleto. Si alguna vez lo produjera, es **defecto de backend**, no tolerancia.
+
 ### POST /api/v1/checkout/quote — `customer`  (v1.21.3-quote-prune: resolución POR ÍTEM)
 Calcula el desglose sin cobrar (para mostrar líneas en el checkout).
 Req: `{ inventoryItemIds: string[] }`  *(sin cambios)*
 Res `200`: `{ items: OrderItemPreview[], breakdown: BreakdownDTO, unavailableItems: UnavailableCartItemDTO[] }`
+*(v1.51-b: `items[].card` es **`OrderItemCardDTO`** — ver arriba. Aquí **no hay consulta extra**: la ruta ya carga
+`card` en memoria para preciar, así que la imagen sale del objeto ya cargado.)*
 
 **Poda amable (v1.21.3):** el quote resuelve **por ítem**, nunca revienta por una pieza muerta del carrito
 (`localStorage` puede traer ids de piezas ya vendidas/borradas):
@@ -3618,7 +3837,12 @@ Res `200`: `{ items: OrderItemPreview[], breakdown: BreakdownDTO, unavailableIte
 
 Ejemplo (una pieza vendida entre visitas, otra borrada):
 ```json
-{ "items": [{ "inventoryItemId": "a1…", "card": {}, "unitPriceCents": 12500 }],
+{ "items": [{ "inventoryItemId": "a1…",
+              "card": { "cardId": "card-1", "name": "Charizard", "setName": "Base",
+                        "number": "4", "productType": "raw",
+                        "rawCondition": "NM", "gradingCompany": null, "gradeValue": null,
+                        "imageSmallUrl": "https://images.pokemontcg.io/base1/4.png" },
+              "unitPriceCents": 12500 }],
   "breakdown": { "subtotalCents": 12500, "ivaCents": 2000, "ivaRatePct": 16,
                  "processingFeeCents": 700, "totalCents": 15200, "currency": "MXN" },
   "unavailableItems": [
@@ -3672,10 +3896,42 @@ Res `200`:
 ```json
 { "id": "…", "status": "settled", "createdAt": "…", "settledAt": "…",
   "breakdown": { "…": "BreakdownDTO" },
-  "items": [{ "inventoryItemId": "…", "card": {}, "unitPriceCents": 12500 }],
+  "items": [
+    { "inventoryItemId": "a1…",
+      "card": { "cardId": "card-1", "name": "Charizard", "setName": "Base",
+                "number": "4", "productType": "graded",
+                "rawCondition": null, "gradingCompany": "PSA", "gradeValue": "9",
+                "imageSmallUrl": "https://images.pokemontcg.io/base1/4.png" },
+      "unitPriceCents": 25000 },
+    { "inventoryItemId": "b2…",
+      "card": { "name": "Reliquia", "number": "1", "imageSmallUrl": null },
+      "unitPriceCents": 12500 }
+  ],
   "cfdiStatus": "registrado", "invoiceRequested": false, "stripePaymentIntentId": "pi_…" }
 ```
+> La **segunda línea del ejemplo es deliberada**: es un pedido antiguo cuyo blob quedó **incompleto** (sin `cardId`,
+> sin `setName`, sin `productType`, sin condición). Es un `200` **válido**, no un error, y su `unitPriceCents` está
+> intacto. Ver «TOLERANCIA DEL HISTÓRICO» al inicio de §4.
+
 Err `403/404`.
+
+> **v1.51-c — `items[].card` es `HistoricalOrderItemCardDTO`**, la forma **tolerante** (definida al inicio de §4;
+> v1.51-b la declaraba con `cardId`/`name`/`number`/`productType` **requeridos**, y esta superficie no puede
+> garantizarlos). **Ésta es la única superficie que lee del HISTÓRICO**, y por eso importa cómo se sirve:
+> - Los **hechos congelados** (clase F) salen de `OrderItem.cardSnapshot` tal cual se escribieron al cobrar. **No se
+>   re-derivan nunca**, ni siquiera si el catálogo cambió: el pedido dice lo que decía cuando se pagó. **Corolario
+>   incómodo pero correcto (v1.51-c): si el blob NO lo dice, la respuesta tampoco lo dice.** El hecho perdido se
+>   **omite**; jamás se sustituye por el valor que hoy tiene `Card`.
+> - **`imageSmallUrl` se resuelve en LECTURA**, con **una sola consulta batcheada** por los `cardId` distintos del
+>   pedido (`Card.findMany({ where: { id: { in: […] } }, select: { id, imageSmallUrl } })`). **Prohibido el N+1** y
+>   **prohibido** resolver vía `inventoryItemId → InventoryItem.card`. Una línea **sin `cardId`** no entra en el `in`
+>   (no se consulta por la nada) y resuelve a `imageSmallUrl: null`.
+> - **Efecto sobre pedidos anteriores a v1.51-b:** muestran miniatura **sin migración ni backfill**, porque el
+>   histórico y los pedidos nuevos comparten el mismo código de lectura. Si un pedido viejo siguiera sin imagen tras
+>   el cambio, la implementación se desvió de esta norma. Fundamento completo: ARCHITECTURE §5.2.4.
+> - **Un blob incompleto no es un incidente operable.** No produce `4xx`/`5xx`, no se registra como error de runtime
+>   y **no se repara** (no hay backfill; §5.2.4 sigue vigente). Es un dato histórico que dice menos de lo que hoy
+>   diríamos, y así se muestra.
 
 Tras `settled`, los items aparecen en la bóveda con `ownershipStatus=settled`. En `pending` ya están en la bóveda con `ownershipStatus=pending`.
 
@@ -3741,7 +3997,12 @@ constante de servidor, §4-G.10).
 Res `200` (v1.21.3-quote-prune: gana `unavailableItems`, **siempre presente**; v1.21.4-dual-breakdown:
 gana `vaultBreakdown`, **siempre presente** — ver abajo):
 ```json
-{ "items": [{ "inventoryItemId": "…", "card": {}, "unitPriceCents": 12500 }],
+{ "items": [{ "inventoryItemId": "a1…",
+              "card": { "cardId": "card-1", "name": "Charizard", "setName": "Base",
+                        "number": "4", "productType": "raw",
+                        "rawCondition": "NM", "gradingCompany": null, "gradeValue": null,
+                        "imageSmallUrl": "https://images.pokemontcg.io/base1/4.png" },
+              "unitPriceCents": 12500 }],
   "fulfillmentMode": "direct_ship",
   "breakdown": { "subtotalCents": 25000, "shippingFeeCents": 17500, "ivaCents": 6800,
                  "ivaRatePct": 16, "processingFeeCents": 1900, "totalCents": 51200, "currency": "MXN" },
@@ -3754,6 +4015,12 @@ gana `vaultBreakdown`, **siempre presente** — ver abajo):
 > **factura CFDI manual por correo** y el enlace a términos desde su i18n (criterio 48b). El **precio de venta es el
 > mismo** que para un usuario con cuenta (mismas reglas de venta por rareza/acabado; comprar como invitado no cambia
 > condiciones comerciales).
+> **v1.51-b:** `items[].card` es **`OrderItemCardDTO`** (la forma **completa**, definida al inicio de §4), con
+> `imageSmallUrl` incluida — el checkout de invitado pintaba el hueco gris por la misma causa que el de cuenta. Igual
+> que en `/checkout/quote`, **no hay consulta extra**: la ruta ya carga `card` en memoria para preciar. **La
+> tolerancia del histórico NO aplica aquí** (v1.51-c): un quote construye los hechos en la misma petición desde la
+> pieza viva, así que `cardId`/`name`/`number`/`productType` **siempre vienen**. Sin cambio en `GuestTrackingItemDTO`
+> (§4-G, que ya traía `imageSmallUrl` por join, y **es otro DTO** — ver su nota de alcance).
 
 **`vaultBreakdown` — desglose reactivo del destino (v1.21.4-dual-breakdown, N-12).** El quote devuelve **DOS
 desgloses en una sola respuesta** para que la UI conmute el resumen **al instante** al alternar el radio de destino
@@ -3915,7 +4182,7 @@ GuestTrackingItemDTO = {
   finish: Finish, productType: ProductType,
   rawCondition?: RawCondition, sealedSubtype?: SealedSubtype,
   gradingCompany?: GradingCompany, gradeValue?: string,
-  imageSmallUrl?: string,                              // imagen de catálogo remota (pokemontcg.io)
+  imageSmallUrl?: string,                              // imagen de catálogo remota (pokemontcg.io); AUSENTE, no null
   unitPriceCents: number
 }
 GuestTrackingShippingDTO = {
@@ -3927,6 +4194,27 @@ GuestTrackingShippingDTO = {
 }
 GuestTrackingPaymentDTO = { brand?: string, last4?: string }   // "visa", "4242" — NADA más
 ```
+
+> **⚠️ `GuestTrackingItemDTO` NO es `OrderItemCardDTO` ni su versión histórica, y NO debe «uniformizarse»
+> (v1.51-c, NORMATIVA — confirmación de alcance).** Es la **cuarta** superficie que emite una imagen de línea y es
+> **otro DTO, con otras reglas**, ya enrutado como **D-IMG-2** (ARCHITECTURE §9). Se declara aquí para que nadie lo
+> alinee por iniciativa propia creyendo que corrige una inconsistencia:
+> - **Es plano, no anidado:** los campos van al **nivel del ítem** (`name`, `imageSmallUrl`, …), **no** dentro de un
+>   objeto `card`. Además lleva `finish` y `sealedSubtype`, que `OrderItemCardDTO` **no** tiene, y **no lleva
+>   `cardId`** — está en la lista cerrada de campos **prohibidos** de este DTO (identificadores internos, criterio 51).
+>   Esa prohibición es la razón estructural por la que **no puede** usar la resolución de §5.2.5: la unión de §5.2.5
+>   es **por `cardId`**, y aquí `cardId` no puede ni existir en la respuesta.
+> - **`imageSmallUrl` se resuelve por join en vivo desde `inventoryItem.card`, y así se queda.** Es clase (P): el join
+>   es el camino correcto (§5.2.3). **No contradice §5.2.5**, cuya prohibición de pasar por `inventoryItemId` aplica
+>   al **acta de compra** (`GET /orders/:orderId`), no a esta vista de seguimiento de un envío en curso.
+> - **Ausente, no nulo:** aquí `imageSmallUrl` y las opcionales **se OMITEN** cuando no hay valor (`?? undefined`),
+>   al revés que en `OrderItemCardDTO`, donde `imageSmallUrl: null` con clave presente es obligatorio. **Las dos
+>   convenciones son correctas en su superficie**; unificarlas sería un cambio de forma en un DTO público y **pasa
+>   por el arquitecto** (regla 9). El cliente de tracking trata «ausente» exactamente como «sin imagen» ⇒ placeholder.
+> - **Lo que sí queda pendiente aquí, y solo eso:** este DTO resuelve la **IDENTIDAD** (`name`, `setName`, `number`)
+>   por join en vivo en lugar de leerla del registro congelado ⇒ un re-sync que renombre una carta cambia lo que dice
+>   un pedido ya cobrado. Es **D-IMG-2**, severidad **baja, no bloqueante**, **dueño: backend**, y se alinea a §5.2.2
+>   *en el próximo trabajo sobre este módulo*. **No justifica un pase propio y no se toca en este.**
 
 **Lo que este DTO NO expone (lista cerrada y normativa; cualquier campo fuera de la lista de arriba está prohibido):**
 
@@ -4479,8 +4767,15 @@ abierta 1** (pricing on-demand del cotizador) en ARCHITECTURE §10.
 #### GET /api/v1/buylist/sets — `public`  (v1.3)
 Sets que tienen **cartas importadas** (para poblar el dropdown de set del cotizador). A diferencia de
 `GET /catalog/sets` (solo sets con inventario publicado), aquí aparecen **todos** los sets del catálogo.
-Res `200`: `{ data: [{ id, name, series, releaseDate, year }] }` (datos en inglés; `year` derivado de
+Res `200`: `{ data: [{ id, name, series, releaseDate, year, logoUrl }] }` (datos en inglés; `year` derivado de
 `releaseDate`).
+- **`logoUrl: string | null` (v1.52, M-47, ADITIVO — ARCHITECTURE §4.39):** logo de la expansión
+  (`CardSet.logoUrl`). **No es decorativo aquí ni es opcional de implementar:** este endpoint es la **fuente
+  client-side de la retícula de tejas del cotizador** — el modo `quoter` de `MasterSetIndex` **no tiene endpoint de
+  índice propio** y construye sus `MasterSetSummaryDTO` a partir de esta respuesta. Si el campo no se emite (o el
+  front no lo mapea al componer las tejas), la teja del cotizador es **la única sin logo** de todo el producto.
+  **Clave SIEMPRE presente; `null` = el proveedor no publica logo para ese set, o el set aún no se re-sincronizó**
+  (indistinguibles a propósito). Caso **normal y permanente**, no error. Nivel de imagen **B** (§5.3.3).
 - **Ordenamiento NORMATIVO (v1.18-buylist-rejects):** por **`releaseDate` desc** usando la fecha **COMPLETA**
   (no solo el año: dos sets del mismo año quedan por fecha real, el más reciente primero); **desempate** (misma
   `releaseDate`) por **`name` asc**; los sets **sin `releaseDate`** (`null`) van **AL FINAL**, entre ellos por
@@ -4880,6 +5175,11 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
     `partSetIds`; el subset **no** aparece como fila propia. La fila combinada trae `partSetIds` (§DTOs). Sigue O(1)
     queries (se agrupan por set-id canónico los resultados de las agregaciones ya existentes). **Money-safe:** solo
     lectura; ninguna escritura consulta el mapa.
+  - **v1.52 (M-47) — `logoUrl: string | null`.** Sale de la **misma** fila `CardSet` de la query (1): **cero queries
+    nuevas, cero N+1**. Aplica a los **cuatro** consumidores de `MasterSetSummaryDTO` (este índice, `GET
+    /admin/vaults/:userId/master-sets`, `GET /vault/master-sets` y el modo cotizador, que lo toma de
+    `GET /buylist/sets`) — es **un read model único** y romper esa simetría sería el error. Con el plegado P-27, la
+    fila combinada emite el logo **del principal**. Definición completa y semántica del `null` en §DTOs.
 - `GET /api/v1/admin/inventory/master-sets/:setId` — **(NUEVO)** binder del set: una celda por carta del catálogo.
   `:setId` = id LOCAL del `CardSet` (no `externalId`). Res `200` (`MasterSetBinderResponse`): `{ set, printedTotal,
   catalogCardCount, cells: MasterSetCardCellDTO[] }`, `cells` en **ORDEN NATURAL por número** (ver nota).
@@ -6262,6 +6562,19 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
 
 #### Sync de catálogo desde pokemontcg.io (`super_admin`, auditado) — v1.1
 Ingesta de datos de catálogo (Card/CardSet en inglés). Ver ARCHITECTURE §4.8. Todas quedan en `AuditLog`.
+> **v1.52 (M-47) — el sync ahora persiste también las IMÁGENES DEL SET** (`CardSet.logoUrl` / `symbolUrl`, ARCHITECTURE
+> §4.39). **Sin cambio de forma en ninguna request ni response de esta sección**: es un efecto del `upsert` de metadata.
+> Consecuencias operativas, porque **es el único mecanismo de relleno** (no hay endpoint de backfill y no lo habrá):
+> - Los sets **nuevos** llegan con logo desde el primer sync posterior al deploy. **No hay que hacer nada.**
+> - Los sets **ya importados** tienen `logoUrl = null` hasta que se les re-corra el sync. **Vía recomendada:
+>   `POST /admin/catalog/sync { setId }` por set** — el botón por fila que M2 ya tiene, y basta con los sets que la
+>   retícula muestra. `POST /admin/catalog/sync-all { force: true }` también los puebla, pero re-importa **todo** el
+>   catálogo y re-corre el resolver estructural TCGCSV: es el martillo, **no es un paso obligatorio de v1.52**.
+> - **Invariante del escritor (no-degradación):** si la respuesta remota no trae `images`, el `update` **deja la
+>   columna como está** — no la pone a `null`. Un `sync {setId}` **nunca** puede borrar un logo que un `sync-all` ya
+>   escribió. Es conducta verificable por QA (ARCHITECTURE §4.39.8).
+> - Se persiste solo si la URL es absoluta **`https:`** y de un host admisible; si no, **`null` + log**. El host es el
+>   mismo que ya sirve el arte de las cartas ⇒ **`remotePatterns` del frontend no cambia** (§5.3.4).
 - `GET /api/v1/admin/catalog/remote-sets` — consulta `/v2/sets` remoto.
   Res `200`: `{ data: [{ id, name, series, releaseDate, printedTotal, imported: boolean, cardCount: number }] }` ordenado por `releaseDate` **desc**. `imported` = si el `CardSet` ya existe local; `cardCount` = cartas locales del set.
 - `POST /api/v1/admin/catalog/sync` — importa/actualiza cartas.

@@ -599,7 +599,14 @@ describe('GET /admin/pricing/graded-estimates/preview — «¿por qué no está 
       'sourceStat',
     ]);
     // Lo que NO puede filtrarse: los flags INTERNOS del resolver (GU-A8 + el del ingest de v1.50.2).
-    for (const interno of ['estimatesEnabled', 'highlightEnabled', 'ingestConfigInvalid']) {
+    for (const interno of [
+      'estimatesEnabled',
+      'highlightEnabled',
+      'ingestConfigInvalid',
+      // v1.51-b (R1): el detalle de QUÉ clave del ingest está corrupta es diagnóstico INTERNO (va al
+      // log del veredicto). Que exista no puede cambiar la forma del DTO del contrato.
+      'ingestInvalidKeys',
+    ]) {
       expect(res.config).not.toHaveProperty(interno);
     }
   });

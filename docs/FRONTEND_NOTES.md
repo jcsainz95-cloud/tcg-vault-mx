@@ -8707,3 +8707,1539 @@ señalan la clave culpable por su nombre.
    M2 (hermanos de **F-19**). Desde este pase **ninguna pantalla los ofrece como remedio**, así que
    no hay nada roto que arreglar: darles editor es feature nueva con invariantes propios
    (`highlightGrades ⊆ grades`) y entra por `PROJECT.md`, como dice §22.12 nº17.
+
+## §34 · Peso de imagen en la home, la candidata a LCP, el preconnect que faltaba, la miniatura del carrito de VENTA y el mock que tapaba un bug de producción — 2026-08-31, rama `claude/tcg-hunt-orchestrator-28p7z1`
+
+> Seis arreglos acotados de rendimiento de imágenes + una miniatura faltante. Diagnóstico previo
+> verificado; aquí solo se implementa. **Cero cambios de contrato** (uno se ESCALA, ver §34.7).
+> Escrituras: `frontend/` y este archivo. No se tocó `backend/`, `next.config.mjs` ni `next/image`
+> (esa decisión está con el arquitecto).
+
+### 34.1 El carrusel descargaba 7 imágenes HD para pintarlas a 160px
+
+`FeaturedCarousel.tsx` — las tejas **secundarias** pedían `imageLargeUrl ?? imageSmallUrl`
+(~734×1024 en pokemontcg.io) y las pintaban a `w-[160px]` / `lg:w-[268px]`. Son **siete** tejas y es
+el **primer bloque con imágenes de la home**. Pasan a `imageSmallUrl` (245×342).
+
+La teja **líder** (`w-[236px]` / `lg:w-[400px]`) **NO cambia**: ahí P-39 («foto HD en el
+featured/ficha») sigue vigente y con 400px la chica se vería blanda. La asimetría es intencional y
+queda escrita **en las dos tejas** para que nadie la «uniformice» de vuelta en una limpieza.
+
+> Nota honesta: en `lg` la teja secundaria mide 268px y la imagen chica 245px de ancho — un 9 % de
+> upscale en pantallas 1x. Se acepta: el ahorro de bytes es de otro orden de magnitud. Si esas tejas
+> crecen por encima de ~245px reales en móvil/tablet, toca revisar.
+
+**No pude medir los bytes.** El egress a `images.pokemontcg.io` está **bloqueado por política del
+proxy** en este entorno (`CONNECT … 403`, `connect_rejected`), así que no hay cifra real que
+reportar y **no la estimo**. Lo verificable es la geometría: 734×1024 contra 245×342 (**~12.6× el
+área de píxeles**). Queda como tarea de medición para quien tenga red hacia el CDN.
+
+### 34.2 `CardImage` gana `priority` (opt-in) — la imagen del LCP dejaba de ser prioritaria
+
+`CardImage` ponía `loading="lazy"` a **todo**, incluida la teja líder del carrusel, que es la
+**candidata a LCP** de la home. Encima el fade-in `opacity-0 → opacity-100` esperaba al `onLoad`:
+aunque los bytes ya hubieran llegado, el pintado (y con él la métrica) se retrasaba.
+
+Nueva prop `priority` (default `false` ⇒ **conducta previa idéntica en las 14 superficies que ya
+usaban el componente**): `loading="eager"` + `fetchpriority="high"` + sin fade. Se usa **en un solo
+sitio**: la teja líder. En rejillas NO se usa — `lazy` es lo correcto ahí, y varias `high`
+compitiendo por ancho de banda retrasan justo a la que importa. La regla está escrita en el JSDoc de
+la prop.
+
+**Detalle de react-dom 18:** el atributo va en **minúsculas** (`fetchpriority`). Con la grafía
+camelCase que declara `@types/react` (`fetchPriority`), react-dom 18 no lo reconoce y avisa por
+consola («React does not recognize the fetchPriority prop…»), ensuciando la salida de los tests. Se
+emite en minúsculas con un `as` acotado y comentado; al subir a React 19 puede volver a camelCase.
+Hay un test que falla si vuelve el aviso.
+
+### 34.3 `decoding="async"` en `CardImage`
+
+Para todas las imágenes de carta. Barato, sin efecto visual, no bloquea el hilo principal mientras
+el navegador descomprime el JPEG.
+
+### 34.4 `preconnect` a `images.pokemontcg.io`
+
+`grep -rn "preconnect\|dns-prefetch" frontend/src` daba **cero**. **Todas** las imágenes de carta de
+la app vienen de ese tercero, así que el navegador pagaba DNS + TCP + TLS completos **después** de
+descubrir el primer `<img>`. Van `preconnect` + `dns-prefetch` (respaldo) en el `<head>` del layout
+raíz `src/app/[locale]/layout.tsx` — es el único layout que renderiza `<html>`; el layout de
+`(storefront)` no llega al `<head>`.
+
+- **Sin `crossOrigin`**: un `<img>` normal no se pide en modo CORS; un preconnect `anonymous` abriría
+  una conexión de otra piscina que esas imágenes no reutilizarían (trabajo de más, ahorro cero).
+- **`tcgplayer-cdn.tcgplayer.com` queda FUERA, a propósito**: en la home el sellado vive en
+  `SealedShelf`, **por debajo** del carrusel (bajo el pliegue). Preconectar dominios que quizá no se
+  usen desperdicia conexiones. Si algún día el sellado sube sobre el pliegue, ese es el momento.
+
+### 34.5 El carrito de VENTA tenía la imagen y no la pintaba
+
+`SellCartContents.tsx` no pintaba miniatura, pero el dato **ya viajaba** en la línea
+(`useSellCart.CartLine.card.imageSmallUrl`, poblado desde el binder y el picker de `BuylistView`).
+Era el único listado de piezas de la app que lo tenía y no lo usaba. Se pinta con el patrón de
+`CheckoutView`: columna fija `w-12` a la izquierda, contenido en `min-w-0 flex-1` (el nombre sigue
+truncando en el drawer de 400px). **Es el único cambio visual de este pase.**
+
+`QuoterCardRef.imageSmallUrl` es **opcional** (el binder de Master Set puede no traerla), así que la
+columna entera se omite cuando no hay imagen: un `CardImage` sin `src` deja el esqueleto pulsando
+para siempre, que se lee como un «cargando» eterno.
+
+> El carrito de **COMPRA** falla por otra causa (el backend no manda la URL) y **no se tocó**: no es
+> del front. Ver §34.6 y §34.7.
+
+### 34.6 El simulador mentía, y por eso el bug llegó a producción sin que nadie lo viera
+
+`api.ts` · `getCheckoutQuote` (rama mock) devolvía `card: l.card`, el **`CardDTO` completo** del
+fixture. El backend real devuelve otra cosa: `OrdersService.quote()` → `cardSnapshot()`, un snapshot
+plano `{ cardId, name, setName, number, productType, rawCondition, gradingCompany, gradeValue }` —
+**sin `imageSmallUrl`/`imageLargeUrl`, sin `id`**, y con `productType`/`rawCondition` **dentro** de
+`card` en vez de al nivel del ítem. Por eso el carrito se veía impecable en `dev` y en los e2e de
+Playwright, y llegaba roto a producción.
+
+El mock ahora replica el snapshot real (`mockQuoteCardSnapshot`). **El mock queda «peor» a
+propósito**: en desarrollo el checkout de compra ahora se ve como se ve en producción. Un simulador
+feo es mejor que uno que miente.
+
+Para que no se quede desalineado **en la otra dirección**, `api.checkout-quote.test.ts` **pinea las
+llaves exactas** del snapshot (`MOCK_QUOTE_CARD_KEYS`, exportada). Cuando backend añada la imagen a
+este camino, el test falla y obliga a actualizar mock + lista en el mismo commit.
+
+**Efecto colateral revelado (no es regresión, es la verdad saliendo a flote):** `CheckoutView:237`
+lee `item.productType` al nivel del ítem, que el backend **nunca manda ahí** ⇒ el sufijo de condición
+(`· NM`) tampoco se pinta hoy en producción. No lo «arreglo» en el front moviendo la lectura dentro
+de `card`: eso sería adivinar un contrato. Va a §34.7.
+
+**Gemelo conocido, NO tocado:** `getGuestCheckoutQuote` tiene exactamente la misma mentira
+(`guest-checkout.service.ts` usa el mismo `cardSnapshot`). Queda fuera de este pase por alcance;
+mismo dueño y mismo arreglo que §34.7 nº1.
+
+### 34.7 Peticiones al ARQUITECTO (regla 9 — no toqué el contrato)
+
+1. **`OrderItemPreview` no está definido en `API_CONTRACT.md`.** El contrato solo lo nombra en
+   `POST /checkout/quote` («Res 200: `{ items: OrderItemPreview[], … }`») y el ejemplo trae
+   `"card": {}`. `frontend/src/types/contract.ts:158` declara `CardDTO.imageSmallUrl` **obligatorio**
+   y `OrderItemPreview.card: CardDTO`, y el backend **no lo cumple**: manda el `cardSnapshot`. Pido
+   **definir `OrderItemPreview` en el contrato** y decidir el sentido del arreglo:
+   (a) el snapshot gana `imageSmallUrl` (es lo que la UI necesita: el checkout **pinta** miniatura), o
+   (b) el tipo del front deja de prometer un `CardDTO`. **La (a) es la que arregla el carrito de
+   compra**; con la (b) hay que quitar la miniatura del checkout, que es peor producto.
+   Aplica **igual** a `POST /checkout/guest/quote` (§4-G.1) — mismo snapshot, mismo bug.
+   Mientras tanto: mock alineado a la realidad + un `as unknown as` acotado y comentado en el punto
+   exacto de la divergencia (`api.ts`), más el test que la pinea.
+2. **`productType` / `rawCondition` en el preview del quote**: hoy viven dentro de `card` en el
+   backend y al nivel del ítem en el tipo del front. Al cerrar el punto 1, decidir dónde van (no lo
+   asumo).
+
+### 34.8 Verificación
+
+- `npm install` ✔ (exit 0) · `npm run lint` ✔ **0 warnings, 0 errors** · `npm run typecheck` ✔
+  (`tsc --noEmit`, sin salida) · `npm run test` ✔ **849/849 en 96 archivos** · `npm run build` ✔.
+- Base antes de este pase: **842/94** (la de §33.5). Delta **+7 tests, +2 archivos**, ninguna prueba
+  retirada ni debilitada:
+  - `CardImage.test.tsx` **+5**: el default sigue en `lazy` y sin `fetchpriority` (candado de
+    no-regresión para las 14 superficies existentes) · `priority` ⇒ `eager` + `fetchpriority=high` ·
+    `decoding="async"` siempre · `priority` pinta sin esperar al `onLoad` y sin `priority` conserva
+    el fade · **cero avisos de React** por props desconocidas.
+  - `api.checkout-quote.test.ts` **+2**: llaves exactas del snapshot y ausencia de imagen.
+- **El `preconnect` se verificó en el HTML servido**, no solo en el JSX: `next build` + `next start`
+  + `curl /es` ⇒ los dos `<link>` salen **dentro de `<head>`** (offset 23 959, `<body` en 24 163).
+  Importaba comprobarlo: con React 18 no hay hoisting de `<link>`, por eso van en el `<head>`
+  explícito del layout raíz y no en un layout de grupo.
+- Cero tokens nuevos, cero componentes nuevos, cero cambios de contrato, cero escrituras fuera de
+  `frontend/` y este archivo. `next/image` sigue sin adoptarse y `next.config.mjs` sin tocar.
+
+---
+
+## §35 · El sufijo «· NM» vuelve, y el tipo falso que lo escondía se retira (contrato v1.51-b) — 2026-08-31
+
+> Rama `claude/tcg-hunt-orchestrator-28p7z1`, sobre `8c6f2ba`. Cierra las dos peticiones al
+> arquitecto de §34.7. El arquitecto declaró **`OrderItemCardDTO`** (contrato §4, rev **v1.51-b**) y
+> backend implementó `imageSmallUrl` (commit `8c6f2ba`). Este pase alinea el cliente.
+
+### 35.1 La causa raíz no era una línea: era un tipo que prometía lo que nadie enviaba
+
+`contract.ts` declaraba `OrderItemPreview.card: CardDTO` y `CardDTO.imageSmallUrl: string`
+(obligatorio). El backend nunca sirvió un `CardDTO` en esa posición: sirve un snapshot congelado.
+Con el tipo mintiendo, `CheckoutView` podía leer `item.productType` **al nivel del ítem** y compilar
+tan feliz — y el sufijo de condición salía **siempre vacío**, en silencio, durante un release entero.
+Un `undefined` en un campo que el tipo jura obligatorio no da error: da una cadena en blanco.
+
+Por eso el arreglo empieza por el tipo y no por la línea. `OrderItemCardDTO`
+(`frontend/src/types/contract.ts`) declara los **ocho campos congelados + `imageSmallUrl:
+string | null`** y **nada más**; `OrderItemPreview` queda en **tres claves**
+(`{ inventoryItemId, card, unitPriceCents }`), espejo exacto del test del backend
+(`expect(preview).not.toHaveProperty('productType')`). Las **tres** superficies que sirven líneas de
+compra apuntan al mismo tipo: `CheckoutQuoteResponse`, `GuestCheckoutQuoteResponse` y
+`OrderDetailDTO`.
+
+Con el tipo honesto, el compilador señaló **solo** los sitios que leían de más — y ninguno más apareció
+en las vistas: el resto del código ya leía `card.name` / `card.setName` / `card.number` /
+`card.imageSmallUrl`, que sí existen. El bug era exactamente el que se había escalado, ni uno más.
+
+### 35.2 Lo que cambió, sitio por sitio
+
+| Archivo | Cambio |
+|---|---|
+| `src/types/contract.ts` | nace `OrderItemCardDTO`; `OrderItemPreview` a 3 claves; `OrderDetailDTO.items` y `GuestCheckoutQuoteResponse.items` pasan a `OrderItemPreview[]` |
+| `CheckoutView.tsx` | `item.productType`/`item.rawCondition` → **`item.card.productType`/`item.card.rawCondition`**. El sufijo «· NM» vuelve a pintarse |
+| `GuestCheckoutView.tsx` | misma meta que la cuenta: el invitado tampoco veía la condición (§4-G.1 comparte forma con §4) |
+| `components/ui/CardImage.tsx` | `src?: string \| null` y el esqueleto pulsa **solo si hay `src`** |
+| `lib/mock/fixtures.ts` | nace `orderItemCard(listing)`; `mockOrderDetail.items[].card` deja de ser un `CardDTO` |
+| `lib/api.ts` | los **dos** mocks de quote sirven `OrderItemCardDTO` con `imageSmallUrl`; muere el `as unknown as` |
+
+### 35.3 `null` no es «cargando»
+
+`imageSmallUrl` es **clave siempre presente, valor nullable**, y `null` es un resultado **legítimo**
+(la columna es nullable y la fila `Card` puede no existir). El defecto de `CardImage` era que sin
+`src` dejaba el `animate-pulse` **eterno**: un dato ausente por diseño se leía como una app colgada.
+
+Se arregló **en el componente**, no en cada llamada. En §34.5 lo resolví en `SellCartContents` con un
+`&&` en el sitio de uso, que es correcto pero no escala: `CardImage` tiene **16 superficies** y varias
+más ya recibían `undefined` (`SealedVaultPanel` con `?? undefined`, `PublicOrderTracking` con la
+`imageSmallUrl?` opcional de `GuestTrackingItemDTO`) — todas pulsando para siempre. Ahora sin `src`
+queda el **pozo de papel quieto**, que es exactamente el «placeholder» que pide el contrato §4.
+Con `src` el esqueleto sigue igual: mientras la imagen viaja, sí hay algo que esperar.
+
+Nota deliberada: en el checkout **no se colapsa la columna** de la miniatura como en el carrito de
+venta. En una línea de compra la columna es parte de la retícula (§20) y hacerla desaparecer
+desalinearía la fila; en el drawer de venta la miniatura era un extra opcional.
+
+### 35.4 El mock ya no miente en ninguna de las dos direcciones
+
+En §34.6 el mock se puso a decir la verdad del backend **de entonces** (ocho campos, sin imagen) y el
+pin de `api.checkout-quote.test.ts` se dejó fallando **a propósito hacia arriba**: en cuanto el
+backend añadiera `imageSmallUrl`, obligaría a mover mock y pin en el mismo commit. Funcionó
+exactamente así — esa es la razón de que el pin exista y no un capricho.
+
+Actualizado contra el contrato nuevo: `MOCK_QUOTE_CARD_KEYS` gana la **novena** llave
+(`imageSmallUrl`) y nace `MOCK_QUOTE_ITEM_KEYS` (`inventoryItemId`, `card`, `unitPriceCents`) — el pin
+de que **nada se cuela al nivel del ítem**, que es la mitad del bug que nadie estaba vigilando. El
+mock de **invitado** (`getGuestCheckoutQuote`), gemelo declarado en §34.6, servía `card: l.card` (el
+`CardDTO` del fixture) y ahora pasa por el mismo `orderItemCard()`; el test lo cubre.
+
+### 35.5 Un tipo falso más, del mismo linaje, corregido de paso
+
+`ShipmentDTO.items[].card` estaba tipado `CardDTO` y el contrato §5 declara `ClientShipmentItemDTO.card`
+con **cinco** campos (`id, name, setName, number, imageSmallUrl`). **No había bug visible** —
+`ShipmentsView` y `ShipmentDetailView` solo leen esos cinco—, pero es la misma clase de defecto que
+acaba de costar un release: un tipo que promete `imageLargeUrl`/`rarity`/`availableFinishes` que esa
+ruta no envía. Se corrigió el tipo; cero cambios de render, cero fallos de `tsc`.
+
+### 35.6 Verificación
+
+- `npm run lint` ✔ **0 warnings, 0 errors** · `npm run typecheck` ✔ (`tsc --noEmit`, sin salida) ·
+  `npm run test` ✔ **857/857 en 97 archivos**.
+- Base antes de este pase: **849/96** (§34.8). Delta **+8 tests, +1 archivo**, ninguna prueba retirada
+  ni debilitada:
+  - `checkout/CheckoutItemLine.test.tsx` **+4** (nuevo): el sufijo «· NM» en el DOM para cuenta y para
+    invitado · una pieza `graded` **no** inventa sufijo · `imageSmallUrl: null` no deja `animate-pulse`.
+    Lee el **DOM**, no el tipo: si alguien vuelve a subir los campos un nivel, el sufijo desaparece y
+    el test cae.
+  - `api.checkout-quote.test.ts` **+3** (2 → 5): las 9 llaves del `card`, las 3 del ítem con el
+    `not.toHaveProperty('productType')` espejo del backend, `imageSmallUrl` siempre presente y
+    nullable, el `card` sin los 5 campos de `CardDTO` que §4 declara ausentes, y la misma forma en el
+    camino de invitado.
+  - `CardImage.test.tsx` **+1**: sin `src` (y con `src={null}`) ni `<img>` ni esqueleto; con `src` el
+    esqueleto vuelve.
+- Cero tokens nuevos, cero componentes nuevos, cero escrituras fuera de `frontend/` y este archivo.
+  `next.config.mjs` sin tocar y `next/image` sin adoptar (§5.3 de ARCHITECTURE tiene decisión propia
+  del arquitecto; **este pase no la implementa**).
+
+---
+
+## §36 · P-49: la rotación automática del carrusel de destacadas (`DESIGN_SYSTEM.md` §23, v2.6) — 2026-08-31, rama `claude/tcg-hunt-orchestrator-28p7z1`
+
+> ⚠️ **RÓTULO DE ESTADO (añadido 2026-08-31) — ESTA SECCIÓN ESTÁ SUPERADA EN PARTE. NO ES EL SITIO AL QUE
+> IR POR LA DECISIÓN DEL DUEÑO.**
+>
+> §36 documenta el pase que **CONSTRUYÓ** el conmutador de reproducción. El dueño lo **retiró** después,
+> y esa decisión —con su razón, su alcance y lo que se perdió— vive en **§39**, no aquí. Quien siga un
+> puntero a «§36» buscando la decisión aterriza en una descripción de piezas que **ya no existen**:
+> `PlaybackToggle`, el slot `titleAdjacent` de `Shelf`, «las 10 claves de §23.12» y la cadencia de 7 s.
+> Los punteros del código (`FeaturedCarousel.tsx`) se corrigieron a §39 en el pase de §40.
+>
+> **Qué sigue vigente de §36:** los dos hallazgos de navegador (36.2 «cualquier scroll que no hayamos
+> originado deja la función muerta» y 36.3 «R6 no se cumple en el extremo derecho»), 36.4 (§23.8 promete
+> ocho tejas sin JS y hoy no es cierto) y la geometría. **Qué NO:** todo lo que menciona el conmutador,
+> sus claves i18n, su área táctil, `titleAdjacent` y la cadencia de 7 s.
+>
+> Correcciones puntuales anteriores: §38.1 y §38.2 (dentro del texto, en su sitio).
+
+**Procedencia.** Este frontend **recomendó no hacerlo**, con tres argumentos. El dueño los oyó y decidió
+hacerlo igualmente, y ux-ui **resolvió los tres** en vez de ignorarlos (§23.1 reconcilia la doctrina de
+movimiento con la nueva §17.3a, §23.8 corrige la nota 2 de §20.16, §23.7 cierra el hueco de
+`prefers-reduced-motion`). Este pase implementa §23 al pie de la letra salvo **dos** puntos, ambos
+descubiertos **en el navegador** y documentados abajo con su evidencia.
+
+### 36.1 Qué se construyó
+
+| Pieza | Archivo | Qué hace |
+|---|---|---|
+| Geometría pura | `frontend/src/app/[locale]/(storefront)/_home/carouselGeometry.ts` | `readTrackGeometry` / `nextScrollTarget` / `prevScrollTarget` / `pageScrollTarget` / `scrollTrackTo`. Todo el cálculo del destino, **sin DOM**, para que R6 quede cubierto por tests de verdad |
+| Rotación + máquina de estados | `_home/FeaturedCarousel.tsx:220-560` | modos `playing`/`paused`/`ended`, suspensión de nivel 1, temporizador, precondiciones, canal de estado |
+| Conmutador | `_home/FeaturedCarousel.tsx:139-181` (`PlaybackToggle`) | mono 10px + glifo lucide 12/14px, tinta, sin caja, área táctil por `::after` |
+| Slot del encabezado | `_shared/Shelf.tsx` (`titleAdjacent`, `sectionRef`, `ariaRoledescription`) | el hueco estructural del kicker, **sin** su envoltorio `.eyebrow` |
+| Aviso de carga de la foto líder | `frontend/src/components/ui/CardImage.tsx` (`onLoaded`) | precondición 3 de §23.3 |
+| i18n | `frontend/messages/{es,en}.json` → `home.featured.*` | las 10 claves de §23.12, con paridad ES/EN |
+
+**Las siete reglas duras, una por una:**
+
+- **R1 (rota la ventana, nunca el rol).** ⚠️ **Enunciado CORREGIDO en §38.2 — lo que decía aquí era
+  falso.** Decía: *«lo único que la rotación escribe es `scrollLeft`; el tic no provoca ni un
+  `setState`»*. **No es cierto:** el tic llama a `measure()`, que escribe `canPrev`/`canNext`/`overflows`,
+  y hay re-render en el primer tic y en el último. R1 se cumple igual, pero **por otra razón**: el rol de
+  teja se deriva del **índice del array** sobre una lista que la rotación jamás toca, con `key` estable,
+  así que React reconcilia en sitio (mismo nodo, mismo `src`, mismo `fetchpriority`). Ésa es la garantía
+  dura y la fija el test `FeaturedCarouselRotation.test.tsx` («la teja líder conserva identidad, sitio,
+  imagen HD y fetchpriority en TODOS los tics»), que compara la **referencia del nodo** y el orden de
+  `alt` de las ocho tejas en los siete tics. Es la prueba que protege lo que arregló §34.1 — y el
+  invariante se sostiene **por** ella, no sin ella. Detalle y por qué el argumento viejo era peligroso:
+  §38.2.
+- **R2 (nunca coexiste con carga).** Cuatro precondiciones: hidratado · consulta resuelta con ≥ 2 tejas ·
+  `load` de la foto líder **o** tope de 3 s · 7 s de reposo. Con skeleton no hay pista, y sin pista no hay
+  ni temporizador ni conmutador.
+- **R3 (freno siempre visible).** El conmutador se renderiza con **el mismo booleano** que habilita el
+  movimiento (`rotationPossible`), así que no puede existir uno sin el otro.
+- **R4 (`prefers-reduced-motion` ⇒ cero).** En la **lógica del componente**, como pide §8.2: el
+  temporizador no arranca, el conmutador no se renderiza, las flechas pasan a `behavior:'auto'`. Se
+  escucha **en vivo** con `useMediaQuery`, que ya suscribía `change`.
+- **R5 (la intervención gana para siempre).** Sin reanudación automática. Ver §36.2 — la regla se conserva
+  en su intención pero **hubo que acotarla**.
+- **R6 (una teja por tic, al punto de snap).** Destino desde `offsetLeft`, nunca `scrollBy(ancho × 0,8)`.
+  Ver §36.3 — hay una excepción geométricamente inevitable.
+- **R7 (una pasada y para).** `ended` usa **el mismo predicado** que apaga la flecha «siguiente». Sin
+  clones, sin bucle, sin rebobinado animado; REPETIR salta a 0 sin animación.
+
+### 36.2 Hallazgo 1 — «cualquier scroll que no hayamos originado» deja la función MUERTA al primer render
+
+§23.5 enuncia: *«cualquier desplazamiento de la pista que el carrusel no haya originado ⇒ PAUSA
+PERMANENTE»*, como regla general para cubrir los casos que nadie enumeró. Implementada literalmente,
+**el carrusel se pausaba solo antes de su primer tic**. Evidencia, con un listener de captura en
+Chromium sobre la home real (build de producción, modo mocks):
+
+```
+{"ev":[{"t":999,"id":"piezas-destacadas-pista","left":32}], "label":"Reanudar la rotación automática"}
+```
+
+Un único evento `scroll`, ~1 s después de hidratar, sin usuario de por medio: es **el propio motor
+aplicando `scroll-snap`**, que mueve `scrollLeft` de 0 al valor del `gutter` (32px en `lg`). El anclaje de
+scroll hace lo mismo cuando una imagen tardía cambia el layout. En la primera corrida de E2E el
+conmutador ya decía **REANUDAR** antes de que nadie tocara nada.
+
+**Resolución (no re-litiga la decisión, la hace funcionar):** ⚠️ **CORREGIDA en §38.1 — la guarda (a)
+se retiró.** Este pase dejó **dos** guardas: (a) no lo originamos nosotros **y** (b) el usuario tocó la
+pista hace menos de `USER_INPUT_WINDOW_MS` (1200 ms), medido con `pointerdown` / `touchstart` / `wheel` /
+`keydown` / `focus` sobre la pista. **(a) sobraba y hacía daño**: hoy queda **solo (b)**, que es el
+enunciado literal de §23.5a. Ver §38.1 con la medición.
+
+La guarda que queda cubre **exactamente** lo que §23.5 enumera —swipe, arrastre, rueda/trackpad y «el
+scroll que provoca el navegador al tabular a una teja fuera de pantalla», que llega por `focus`— y deja
+fuera lo que §23.5 no puede haber querido decir: un reajuste del motor de layout no es una intervención
+del usuario. Los cinco listeners solo escriben un `ref`: cero re-render por mover el ratón.
+
+Regresión fijada en `FeaturedCarouselRotation.test.tsx` («un re-snap del NAVEGADOR (scroll sin entrada del
+usuario) NO pausa»).
+
+### 36.3 Hallazgo 2 — R6 no puede cumplirse en el extremo derecho de la pista
+
+R6 dice: *«ningún reposo deja una teja cortada por el borde izquierdo»*. En el **tope** de la pista
+(`scrollWidth − clientWidth`) eso es geométricamente imposible salvo que el contenido sea múltiplo exacto
+del paso de teja: ahí la última teja queda flush a la **derecha** y la primera visible sale cortada por la
+izquierda. Afecta al **último** tic de la pasada y a la última pulsación de flecha, y no hay alternativa
+mejor —pararse en el snap anterior dejaría la última teja permanentemente inalcanzable, que es peor—.
+Se acepta, se documenta y los asertos de E2E lo contemplan explícitamente (`snap || tope`). No es una
+licencia de implementación: en cualquier otro reposo el aterrizaje **sí** es un punto de snap.
+
+### 36.4 Hallazgo 3 — §23.8 promete ocho tejas sin JS, y hoy eso NO es cierto (y no lo introduce §23)
+
+§23.8 (y la corrección de §20.16 nota 2) afirman que sin JS queda *«una pista de scroll-snap nativa con
+sus ocho tejas completas y legibles»* y que *«el contenido nunca depende del JS»*. **Verificado en
+Chromium con `javaScriptEnabled: false`: el contenido sí depende del JS.** Las tejas las trae
+`GET /catalog/cards` por react-query **en el cliente**, así que sin JS el estante se queda en su estado de
+carga. Es una condición **preexistente** de la home, no algo que §23 haya introducido, y §23 la mejora en
+lo que sí le toca: sin JS **no se pinta ni una flecha ni el conmutador**, así que no queda ningún control
+muerto y —lo que importa para 2.2.2— **no puede haber movimiento sin freno**.
+
+Corregirlo del todo es mover la consulta a servidor (RSC/prefetch/hidratación de la caché), decisión de
+arquitectura fuera de este pase. **Solicitud al arquitecto** anotada en el resumen. El E2E afirma lo
+verificable y declara en su cabecera lo que no puede afirmar, en vez de fingir cobertura.
+
+### 36.5 Decisiones de implementación menores
+
+- **`titleAdjacent` en vez de ampliar `kicker` a `ReactNode`** (§23.15 nº1 ofrecía las dos vías). El
+  camino del kicker envuelve el contenido en `<span class="eyebrow">`, que impone **color muted** y
+  `gap-4` en todas las anchuras; §23.4b pide **tinta** y `gap` 12/16px. El slot hermano evita
+  sobreescribir dos propiedades heredadas por accidente. `kicker` **también** se amplió a `ReactNode`
+  como pedía la nota (cambio de tipo, cero cambios de render): el kicker de Gradeadas sigue siendo texto
+  y ninguna otra pantalla se toca — verificado con `tsc` y con los 917 tests.
+- **Las flechas se arreglaron sin cambiarles el paso.** §23.15 nº2 señalaba el `scrollBy(clientWidth ×
+  0,8)`; §23.13 nº13 prohíbe cambiar el **paso** de las flechas. Se conservan las dos cosas: el paso sigue
+  siendo ~una página, pero el **destino** es ahora el punto de snap de una teja (`pageScrollTarget`), así
+  que la flecha ya no deja media teja cortada por el borde izquierdo. Con `snap-x` en `proximity` (que es
+  lo que hay hoy) el navegador **no** corregía ese reposo por su cuenta.
+- **Las flechas dejaron de pintarse antes de hidratar** (§23.8, §20.16 nota 2 corregida). Su paso, su
+  tamaño y su apagado en los extremos **no cambian** (§23.13 nº13).
+- **REANUDAR desde el extremo va a TERMINADO, no a «reproduciendo».** El diagrama de §23.5 no cubre
+  «pausado + ya no queda pista»; anunciar «reproduciendo» sobre algo que no puede moverse sería falso.
+  Se resuelve con el mismo predicado (`canNext === false`) y el conmutador queda en **REPETIR**.
+- **`aria-live` de la pista atado al temporizador**, no al modo (§23.9b), y línea `role="status"`
+  `sr-only` que emite **solo** en las dos transiciones no solicitadas.
+- **Suspensión por «< 50 % visible»** con `IntersectionObserver` y una escotilla: si la pista es más alta
+  que la mitad del viewport, el ratio nunca llegaría a 0,5 y el carrusel quedaría congelado con la pista
+  llenando la pantalla. Sin `IntersectionObserver` (jsdom, navegadores viejos) se asume visible.
+- **Cero tokens nuevos, cero componentes de dominio nuevos, cero cambios de contrato.** `next/image` **no**
+  se adopta (§5.3 de `ARCHITECTURE.md` es decisión del arquitecto, fuera de este pase) y `next.config.mjs`
+  no se toca.
+
+### 36.6 La red de seguridad: qué quedó cubierto y qué NO
+
+**Cubierto** — `carouselGeometry.test.ts` (**17**, aritmética pura) + `FeaturedCarouselRotation.test.tsx`
+(**43**, temporizadores falsos) + `e2e/featured-rotation.spec.ts` (**8**, Chromium):
+reposo inicial y las cuatro precondiciones · una teja por tic y el aterrizaje en snap · `prefers-reduced-
+motion` inactivo, activo, y **activado en caliente** · el conmutador ausente en los cinco casos de §23.4d
+· suspensión por puntero, foco y pestaña oculta, sin tics acumulados · intervención por swipe, rueda,
+foco perseguido, flecha y ancla, permanente · re-snap del navegador que **no** pausa · fin de pasada,
+REPETIR y el retroceso desde TERMINADO · identidad y `fetchpriority` de la teja líder en los siete tics ·
+numeración intacta · `aria-roledescription`, `aria-live` conmutando, pista con nombre, tejas sin
+`aria-label` · orden de tabulación, WCAG 2.5.3, área táctil ≥ 44×44 **medida en el navegador** en 390 /
+640 / 1024 sin solaparse con el H2 ni el link · paridad ES/EN.
+
+**NO cubierto, y por qué:**
+
+1. **La suspensión por «menos del 50 % de la pista visible»** (§23.5). jsdom no tiene
+   `IntersectionObserver`, y en E2E exigiría dejar la home haciendo scroll durante ≥ 7 s para distinguir
+   la suspensión de un tic tardío. Es el único freno de §23.5 sin test.
+2. **`behavior:'smooth'` vs `'auto'` como comportamiento observable.** `Element.prototype.scrollTo` **no
+   existe en jsdom**; el componente cae a `scrollLeft = n`, que es un salto. Lo que sí está cubierto es
+   *qué* `behavior` se pide (rama con `scrollTo` inyectado en `carouselGeometry.test.ts`) y que con
+   movimiento reducido la flecha llega a su destino sin esperar animación (E2E).
+3. **Los ≈ 550 ms del deslizamiento y el ≈ 7 % de ciclo de trabajo** (§23.1 punto 3). Los fija el scroll
+   suave nativo del navegador; no hay API para medirlo de forma estable en CI.
+4. **El renderizado del servidor sin hidratar** (fila del medio de §23.8). RTL monta y ejecuta efectos: no
+   hay forma de observar el frame previo. El E2E sin JS cubre el extremo (ni flechas ni conmutador).
+5. **Contraste y versalitas.** Son CSS (`.eyebrow` + `text-text`, par ya verificado en §10/§23.11);
+   ningún test los mide.
+6. **El layout de la pista en los tests unitarios está INYECTADO.** jsdom no calcula layout, así que
+   `offsetLeft`/`clientWidth`/`scrollWidth` se sobrescriben a mano. Los unitarios no demuestran que la
+   teja aterrice visualmente flush: eso lo demuestra el E2E, midiendo `getBoundingClientRect()` real.
+
+### 36.7 Verificación
+
+- `npm run lint` ✔ **0 warnings, 0 errors** · `npm run typecheck` ✔ · `npm run test` ✔ **917/917 en 99
+  archivos** · `npm run build` ✔.
+- Base antes de este pase: **857/97** (§35.6). Delta **+60 tests, +2 archivos**, ninguna prueba retirada ni
+  debilitada.
+- `npx playwright test e2e/featured-rotation.spec.ts` ✔ **8/8** en Chromium (build de producción, modo
+  mocks). Sin regresiones en `grading-estimate.spec.ts`, `catalog.spec.ts` e `i18n-locale.spec.ts`
+  (**30 passed, 3 skipped** — los 3 son los `@real` que necesitan backend).
+- Cero escrituras fuera de `frontend/` y este archivo.
+
+---
+
+## §37 · El acta histórica deja de pintarse MUDA: forma tolerante + render degradado (contrato v1.51-c, ARCHITECTURE §5.2.9) — 2026-08-31, rama `claude/tcg-hunt-orchestrator-28p7z1`
+
+> Encargo del arquitecto (§5.2.9, fila **frontend**, puerta: antes del merge del stream «Órdenes y
+> dinero»), convertido en bloqueante por QA. Los commits anteriores de este stream se escribieron
+> contra **v1.51-b** y eran conformes a él; **v1.51-c** aterrizó después. Es encargo abierto, no
+> regresión.
+
+### 37.1 El defecto: el mismo del `CardDTO` falso, por el otro lado
+
+`GET /orders/:orderId` es la **única** superficie que lee del HISTÓRICO. Su `card` sale de
+`OrderItem.cardSnapshot`, una columna `Json` que PostgreSQL **no valida** y que en un pedido antiguo
+escribió una versión anterior de nuestro propio código. `src/types/contract.ts` la tipaba como
+`OrderItemPreview` — o sea `OrderItemCardDTO` completo, con `name: string` **requerido**.
+
+Servido el blob incompleto que el backend produce de verdad, la línea **no reventaba y el importe salía
+bien**, pero se pintaba muda:
+
+```
+NOMBRE RENDERIZADO => [""]        ← `{it.card.name}` con `name` ausente rinde cadena vacía en React
+IMGS => [{"alt": null, ...}]      ← <img> sin alt (WCAG 1.1.1)
+```
+
+Es el gemelo exacto del `CardDTO` falso de §35: un tipo de cliente **prometiendo** lo que el backend
+puede no enviar. En §35 el tipo prometía de más y escondía el «· NM»; aquí promete de más y deja la
+línea sin voz. La misma grieta, invertida.
+
+### 37.2 Lo que cambió, sitio por sitio
+
+| Archivo:línea | Cambio |
+|---|---|
+| `frontend/src/types/contract.ts:638` | `FrozenCardFacts` (los 8 hechos de clase F) + `ResolvedCardImage` (clase P) como piezas separadas. |
+| `frontend/src/types/contract.ts:652,654,656` | **I3**: `rawCondition`/`gradingCompany`/`gradeValue` pasan de `?: T` (opcional-ausente) a **`T \| null` con la clave SIEMPRE presente**, que es como viajan de verdad (el checkout los congela desde columnas nullables de `InventoryItem`). Sin bug hoy —nadie usaba `in` como discriminante— pero el tipo ya no miente. El discriminante sigue siendo `productType`. |
+| `frontend/src/types/contract.ts:675,699` | `OrderItemCardDTO = FrozenCardFacts & ResolvedCardImage` (los DOS quotes, forma completa) y **`HistoricalOrderItemCardDTO = Partial<FrozenCardFacts> & ResolvedCardImage`** (histórico, forma tolerante). |
+| `frontend/src/types/contract.ts:719` | `OrderItemDTO` (línea de `GET /orders/:orderId`) — mismas tres claves que el quote, `card` tolerante. |
+| `frontend/src/types/contract.ts:772` | `OrderDetailDTO.items: OrderItemDTO[]` (era `OrderItemPreview[]`). **El cambio de tipo solo ya puso el `alt` en rojo en `tsc`.** |
+| `frontend/src/lib/historical-card.ts` (nuevo) | `historicalCardName` + `historicalCardMeta`: render degradado por campo, funciones **puras**. No hay dónde colgar una petición aunque alguien quisiera. |
+| `frontend/.../orders/[orderId]/OrderDetailView.tsx:52-109` | Render degradado: etiqueta neutra i18n, `alt` siempre con texto, subtítulo compuesto por fragmentos y omitido entero si no queda ninguno. |
+| `frontend/messages/{es,en}.json` | `orders.item.unknownCard` («Carta sin registro» / «Card not recorded») + `orders.item.unknownCardHint` (el `title` que explica que **el importe no cambia**). No existía en ninguno de los dos idiomas. |
+| `frontend/src/lib/mock/fixtures.ts:333-335` | `orderItemCard()` sirve los tres campos como `null`, no `undefined` (alineado a I3). |
+| `frontend/src/lib/mock/fixtures.ts:995` | `mockOrderDetailLegacy` (`ord-9003`) — acta con blob incompleto, tres líneas: completa / parcial / vacía. |
+| `frontend/src/lib/api.ts:878` | `getOrder('ord-9003')` sirve ese acta en modo mocks. |
+
+### 37.3 La etiqueta neutra tenía que verse deliberada, no como un error
+
+Mono en versalitas `text-muted` (`font-mono text-[11px] uppercase tracking-[0.08em]`): el mismo
+tratamiento que el resto de etiquetas honestas del sistema, y **no** el `accent` de `PendingPriceLabel`
+—esto no es una alerta, es un hecho que el acta no registró—. Tres detalles que no son cosméticos:
+
+1. **Sin `lang="en"`.** El nombre de una carta es dato de catálogo en inglés; la etiqueta neutra es copy
+   de la interfaz. Heredar el `lang="en"` haría que un lector de pantalla leyera «Carta sin registro» con
+   fonética inglesa.
+2. **`title` con el porqué** (`unknownCardHint`), que dice explícitamente que **el importe cobrado no
+   cambia**. Es lo que un cliente mirando su acta necesita saber.
+3. **El `alt` de la miniatura es la misma etiqueta.** `alt=""` (decorativa) sería mentir: la miniatura de
+   una línea de compra es contenido.
+
+El subtítulo (`Base Set · #4 · NM`) se compone con lo registrado y **se omite lo demás**: sin `#`
+huérfano, sin `· ` colgando, sin renglón vacío que reserve espacio y se lea como un fallo de carga. Es
+el mismo renglón mono del checkout, así que el acta y el carrito dicen lo mismo con la misma voz.
+
+### 37.4 Lo que NO se hizo, que es la parte importante
+
+⛔ **No se rellena el hueco.** Ni con `GET /catalog/cards/:cardId` ni con ninguna otra consulta. El
+catálogo dice cómo se llama esa carta **hoy**, no qué decía el pedido cuando se pagó; rellenar convierte
+«el acta no lo registró» en un dato inventado presentado como probatorio, dentro de un registro
+dinero-adyacente (§5.2.2 / §5.2.9). El hueco se ve; el relleno no.
+
+Backend ya tiene su guardián del lado servidor. Del lado del cliente el guardián es un **test**:
+`OrderDetailView.test.tsx` espía `getCardDetail` y `getCatalog` con una línea que trae `cardId` y **no**
+trae `name` —el caso donde el relleno sería posible— y exige que **ninguna** se llame, y que el nombre
+que hoy tiene esa carta en el catálogo **no aparezca** en pantalla. Además, las dos funciones de
+`historical-card.ts` son puras y síncronas: para rellenar habría que reescribir el módulo, no colarse
+en él.
+
+**`null` ≠ ausente en las tres condicionales.** `rawCondition`/`gradingCompany`/`gradeValue` se leen con
+`== null` (cubre los dos casos: la clave presente con `null` del checkout vigente y la clave omitida de
+un blob viejo). Y `productType` ausente **no se infiere**: sin él no se pinta adorno de condición aunque
+`rawCondition` viniera en el blob — inferir el tipo desde qué claves llegaron es el `'rawCondition' in
+card` que el contrato prohíbe.
+
+### 37.5 El simulador vuelve a poder producir lo que el backend produce
+
+`ord-9003` (`mockOrderDetailLegacy`) es un pedido de **2024** con tres líneas: blob completo, blob
+parcial (`name` + `number`, sin `setName` ni `productType`) y **blob vacío** (`{ imageSmallUrl: null }`,
+el peor caso del contrato). Está en `mockOrders`, así que el render degradado es **visible en `dev`**, no
+solo en un test. Es la lección de §34.6 aplicada otra vez: la grieta anterior existió porque el mock
+servía datos más completos que el backend y en local todo se veía impecable.
+
+Importes de ese acta: `unitPriceCents` **intactos** en las tres líneas y `breakdown` coherente, porque el
+dinero **no vive en el blob** (`OrderItem.unitPriceCents` es columna propia; el desglose sale de columnas
+de `Order`). Un snapshot incompleto no puede mover un centavo.
+
+### 37.6 M-1 — el candado que le faltaba al trabajo de rendimiento de `171f24b`
+
+QA revirtió las dos mejoras y la suite siguió verde: una mejora invisible para los tests es una conducta
+que el siguiente refactor deshace sin enterarse. Ahora muerde:
+
+- `FeaturedCarousel.test.tsx` (+3): las tejas **secundarias** piden `imageSmallUrl` (y su `src` no
+  contiene `-large`); la teja **líder** conserva `priority` (`loading="eager"` + `fetchpriority="high"` +
+  sin fade-in); y `priority` es **exclusivo** de la líder (las demás `lazy`, sin `fetchpriority`).
+- `src/app/[locale]/layout.test.tsx` (nuevo, 3): el `<head>` trae `preconnect` **y** `dns-prefetch` a
+  `images.pokemontcg.io`, **sin** `crossorigin` (un `<img>` normal no se pide en modo CORS: el
+  `anonymous` abriría otra piscina de conexiones), y **un solo** dominio preconectado. Se renderiza el
+  layout de verdad con `renderToStaticMarkup` —`next/font/google` y `next-intl/server` se sustituyen,
+  porque lo que se mide es el `<head>`, no la fuente—.
+
+### 37.7 M-3 — el comentario que dejó de ser cierto: se alinea la geometría
+
+`SellCartContents.tsx` omitía **la columna de imagen entera** cuando la línea no traía miniatura,
+justificándolo con «un `CardImage` sin `src` deja el esqueleto pulsando para siempre». Esa razón la
+derogué yo mismo en `6396edb`: hoy el esqueleto pulsa **solo** mientras hay una imagen en vuelo, y sin
+`src` queda el pozo de papel quieto, que **es** el placeholder del sistema (§35.3).
+
+Elijo **alinear la geometría**, no reescribir la excusa: la columna se pinta siempre. Dos filas con
+geometría distinta en el mismo drawer —y distinta de la del checkout— según un dato que el usuario no
+controla era el peor de los dos resultados. El comentario ahora cuenta esa historia.
+
+### 37.8 Peticiones al arquitecto (regla 9 — no toqué el contrato)
+
+Ninguna. El encargo §5.2.9 se implementa tal cual está escrito; no hizo falta ningún campo ni endpoint
+que el contrato no tenga. (La petición sobre §23.8 —resolver la consulta del carrusel en servidor— sigue
+enrutada aparte y no bloquea.)
+
+### 37.9 Verificación
+
+- `npm run lint` ✔ **0 warnings, 0 errors** · `npm run typecheck` ✔ · `npm run test` ✔ **943/943 en 102
+  archivos** · `npm run build` ✔.
+- Base antes de este pase: **917/99** (§36.7). Delta **+26 tests, +3 archivos**, ninguna prueba retirada
+  ni debilitada.
+- **Verificación destructiva.** Sirviendo `mockOrderDetailLegacy` (el blob incompleto):
+
+  | | Antes | Ahora |
+  |---|---|---|
+  | Nombre de la línea vacía | `[""]` | `"Carta sin registro"` / `"Card not recorded"` |
+  | `alt` de la miniatura sin nombre | `null` | la etiqueta neutra (no vacía) |
+  | Subtítulo del blob parcial | (no había) | `#58` — sin `· ` colgando ni adorno inferido |
+  | Importes | `MX$450.00 / MX$125.00 / MX$80.00` | **idénticos** |
+
+- **Los candados muerden** (revertido cada cambio, uno por uno): render degradado → **8 tests en rojo** +
+  `tsc` en rojo (`alt`: `string | undefined` no asignable a `string`); teja secundaria a `imageLargeUrl`
+  → **1 en rojo**; `priority` fuera de la líder → **1 en rojo**; `preconnect` borrado → **2 en rojo**.
+  Todo restaurado después.
+- Cero escrituras fuera de `frontend/` y este archivo. `next/image` **no** se adopta, `next.config.mjs`
+  intacto, `backend/` intacto.
+
+---
+
+## §38 · Un test verde que certificaba lo contrario de la norma, y dos enunciados falsos que lo sostenían (hallazgos del techlead sobre §36) — 2026-08-31, rama `claude/tcg-hunt-orchestrator-28p7z1`
+
+> Pase corto de cierre. El trabajo de §36 quedó aprobado y se mergea; esto cierra cuatro cosas que el
+> techlead encontró y que **no podían sobrevivir a quien las escribió**: una prueba que afirmaba lo
+> contrario de la norma, el comentario falso que la justificaba, un enunciado de rendimiento que era
+> falso (aunque su conclusión fuera correcta) y tres huecos de cobertura que sí eran cubribles.
+> Nada de esto era urgente por accesibilidad —el conmutador cumple WCAG 2.2.2 y sigue cumpliéndolo—;
+> era urgente porque una afirmación falsa **con forma de prueba** es lo que el próximo mantenedor lee
+> como especificación.
+
+### 38.1 El hallazgo principal: la guarda que solo disparaba contra la persona a la que decía proteger
+
+**Lo que había.** `handleScroll` tenía dos guardas:
+
+```ts
+if (programmaticRef.current > 0) return;   // (a) «este scroll lo originamos NOSOTROS»
+if (userInputRef.current === 0) return;    // (b) «nadie tocó la pista hace poco»
+```
+
+…y encima el comentario *«Dos guardas, y las dos son necesarias»*. Y un test verde en
+`FeaturedCarouselRotation.test.tsx` que hacía `pointerDown(track)` e **inmediatamente después**
+`scroll(track)`, y afirmaba que **NO** pausa.
+
+**Por qué eso es una afirmación falsa.** §23.5a es normativa y es un **si y solo si**: un `scroll` pausa
+*si y solo si* hay `pointerdown`/`touchstart`/`wheel`/`keydown`/`focus` en los **1200 ms** previos. En ese
+test hay un `pointerdown` inmediatamente anterior ⇒ **la norma dice que debe pausar**. El test decía lo
+contrario y pasaba, porque el código hacía ganar a la evidencia débil.
+
+**Decisión: se RETIRA (a). No se invirtió el orden.** Tres razones, en orden de peso:
+
+1. **§23.5a es un bicondicional, y una guarda es el bicondicional.** Con (b) sola, el código *es* la norma
+   leída en voz alta. Con dos guardas hay que explicar cuál gana y en qué orden — y esa explicación es
+   precisamente lo que se había escrito mal.
+2. **Invertir el orden deja (a) viva pero inalcanzable en el único caso donde difería.** Sería código
+   muerto con un comentario diciendo que es necesario: exactamente la misma forma del defecto que este
+   pase viene a cerrar, un escalón más abajo.
+3. **(b) ya domina a (a).** Medido, no razonado — abajo.
+
+**La medición (Chromium, build de producción, modo mocks, home real).** Dos sondas de Playwright,
+temporales, retiradas tras medir:
+
+| Medición | Qué se instrumentó | Resultado |
+|---|---|---|
+| **1-bis** — ¿(b) sola basta contra el motor? | Listener de captura de `scroll` + de las cinco entradas, instalado con `addInitScript` (o sea, **desde antes de hidratar**). Pasada completa, 25 s, sin tocar nada | **53 eventos `scroll`, 0 con antecedente de usuario ≤ 1200 ms.** El primero es el famoso `t ≈ 954 ms, scrollLeft: 32` — **el `scroll-snap` de la hidratación que motivó §23.5a**. (b) lo descarta él solo, y descarta los 53 |
+| **2** — ¿(a) cambia el resultado en algún sitio? | Esperar al arranque de un tic (`polling: 16`) y emitir una **rueda real** sobre la pista dentro del deslizamiento | Gesto a **+56 ms** del tic ⇒ conmutador **se quedó en PAUSAR** (el gesto se tragó) y, al retirar el puntero, `scrollLeft` **460 → 756**: la rotación **se reanudó sola**. R5 incumplido y §23.13 nº9 al pie de la letra |
+| **3** — insumo para la deuda FR-C1 | Rueda **vertical** pura sobre la pista | `dx=0 dy=250` **llega a la pista y arma la ventana** de 1200 ms. §23.5 solo nombra la rueda *horizontal* |
+
+O sea: (a) no aportaba nada en el camino del motor (0 de 53) y su **único** efecto observable era contra
+un gesto real. *La guarda solo disparaba contra la persona a la que decía proteger.*
+
+**Confirmación de que el candado nuevo muerde.** Se volvió a poner (a) a mano y se corrió la suite: **1
+test en rojo, exactamente el nuevo** (`un gesto REAL dentro del deslizamiento del tic PAUSA…`), 45 en
+verde. Es decir: (a) es inerte para todo lo demás que está probado, y lo único que cambia es el caso que
+la norma exige. Restaurado después.
+
+**Lo que se borró con ella:** `PROGRAMMATIC_SETTLE_MS` (la constante de 900 ms), `programmaticRef` y el
+temporizador que lo decrementaba. `scrollProgrammatically` pasa a llamarse **`moveTrack`**: ya no marca
+nada, solo desplaza y mide, y el nombre viejo prometía una marca que ya no existe. El comentario que
+queda **no dice «necesarias»**: trae la doctrina («cuando dos evidencias coexisten, gana el humano») y la
+medición, y pide explícitamente que quien quiera reintroducir una marca de origen traiga el escenario
+concreto en que la persona se equivoca y el motor acierta.
+
+**Los tests, que es lo que no podía quedarse como estaba.** El test falso se sustituye por **dos**, que
+son las dos caras del bicondicional:
+
+- *«el scroll de NUESTRO propio tic no pausa, y lo bloquea el antecedente (no una marca de origen)»* — el
+  propósito legítimo que (a) decía cubrir, ahora fijado sobre la guarda que de verdad lo cubre.
+- *«un gesto REAL dentro del deslizamiento del tic PAUSA: el antecedente del usuario gana (§23.5a)»* — el
+  caso que el test viejo negaba, con su comentario explicando qué decía antes y por qué era falso.
+
+Y el escenario se fija además **en el navegador**, que es donde la ventana de coexistencia existe de
+verdad (jsdom no tiene scroll suave): `e2e/featured-rotation.spec.ts` → *«§23.5a · un gesto REAL dentro
+del tic PAUSA y no se reanuda sola (gana el humano)»*, que reproduce la medición 2 y asserta las dos
+mitades: pausa inmediata **y** ni un tic más tras retirar el puntero.
+
+### 38.2 El enunciado de R1 era falso; la conclusión era correcta por otra razón
+
+**Lo que se declaró en §36.1 (y en el comentario de `FeaturedCarousel.tsx`):** *«lo único que la rotación
+escribe es `scrollLeft`; el tic no provoca ni un `setState`»*. **Es falso.** `moveTrack` y `handleScroll`
+llaman a `measure()`, que escribe `canPrev` / `canNext` / `overflows`. Hay re-render en el primer tic
+(se enciende «anterior») y en el último (se apaga «siguiente»), además del que cierra la pasada.
+
+**R1 se cumple igual, pero por otra razón — y la otra razón es más fuerte.** El rol de teja se deriva del
+**índice del array** (`i === 0` ⇒ teja líder, HD + `priority`) sobre una lista que la rotación **jamás
+toca**, con `key` estable (`representativeInventoryItemId`). React reconcilia en sitio: mismo nodo, mismo
+`src`, mismo `fetchpriority`, **haya los `setState` que haya**.
+
+**Por qué el argumento viejo era peligroso, y no solo inexacto.** Hacía creer dos cosas falsas:
+
+1. Que meter un `setState` en el camino del tic **rompería el LCP**. No lo rompe. Quien tenga que añadir
+   estado ahí mañana se habría autoprohibido algo inocuo, o —peor— habría concluido que el argumento no
+   se sostiene y que R1 tampoco.
+2. Que el invariante **se sostiene sin el test**. Se sostiene **por** el test: `FeaturedCarouselRotation`
+   compara la referencia del nodo líder, el orden de los ocho `alt` y el `src`/`fetchpriority` de la teja
+   2 en los siete tics. Sin él, nada impide que alguien derive el rol de la posición de scroll.
+
+Corregido en los dos sitios: el bloque R1 de la cabecera del componente, el comentario del temporizador
+(`FeaturedCarousel.tsx`) y §36.1 de este archivo, que ahora remite aquí.
+
+### 38.3 Tres huecos que sí eran cubribles (la lista de §36.6 era honesta pero incompleta)
+
+1. **La llegada por ancla MID-VISIT.** El test que había ponía `location.hash` **antes de montar**, así
+   que ejercitaba el `check()` del montaje y **el listener de `hashchange` no se ejecutaba nunca**. Pero
+   el camino real de §22.4a es el otro: el usuario ya está en la home, vuelve de la nota al pie del gancho
+   y el `hash` cambia **con el componente montado y rotando**. *El camino tapado era el secundario; el
+   primario no tenía red.* Cubierto: se deja rotar un tic, se dispara `HashChangeEvent`, y se afirma
+   pausa + anuncio + **que no se rebobina** (§23.5) ni se mueve después.
+2. **La intervención dentro de los ~900 ms.** No es que no estuviera cubierta: estaba cubierta **al
+   revés**. Ver §38.1.
+3. **`onError` de la foto líder como desbloqueo.** `CardImage` llama a `settle()` también en `onError`
+   («un 404 no puede dejar a nadie esperando»), pero que un fallo de la líder habilite la rotación **sin
+   gastar los 3 s de `LEAD_IMAGE_CAP_MS`** no lo afirmaba nadie. Cubierto con un `fireEvent.error`: el
+   reposo de 7 s arranca en el instante del error, no en el tope.
+
+### 38.4 Los dos menores que el techlead señaló sin ficha
+
+- **`onTogglePlayback` resolvía `'paused'` POR DESCARTE**, tras los `if` de `'playing'` y `'ended'`.
+  Correcto hoy con una unión de tres y silenciosamente incorrecto con una de cuatro: un modo nuevo caería
+  en REANUDAR sin que nada avise. Es **el patrón que este proyecto lleva todo el día cerrando**, así que
+  se cierra igual: `switch` exhaustivo con candado `never` (`const unhandled: never = mode`). Un cuarto
+  modo **no compila** hasta que alguien decida qué hace este botón con él.
+- **`statusTextRef.current = {…}` era mutación de ref en FASE DE RENDER.** Idempotente y benigna hoy,
+  pero es el patrón que muerde bajo StrictMode (doble render). Pasa a un `useEffect` sin deps —el mismo
+  patrón que ya usaba `pauseRef`— declarado **antes** que el efecto del ancla, que es el único que puede
+  leer esos textos en el primer commit.
+- **De regalo, en el mismo sitio:** `settleTimersRef` era un `array` al que se hacía `push` en cada
+  entrada del usuario y que solo se vaciaba al desmontar ⇒ crecía sin tope durante toda la visita (una
+  rueda larga son decenas de entradas). Pasa a `Set` y cada temporizador **se borra a sí mismo** al
+  cumplirse. No cambia ninguna conducta.
+
+### 38.5 Deuda anotada, no arreglada
+
+**FR-C1** en `docs/TECH_DEBT.md`: la ventana de 1200 ms de §23.5a se arma con `onWheel` **sin discriminar
+eje** (medido: `dx=0 dy=250` la arma) y con `onFocus`. El riesgo va **en dirección contraria** a la que se
+sospechaba: no es el falso negativo —un swipe emite muchos `scroll` y el primero llega en milisegundos—
+sino el falso **positivo**: si en esos 1200 ms una imagen tardía provoca *scroll anchoring* (el escenario
+que §23.5a describe, y lo que pasa en red lenta), el carrusel se pausa sin que nadie lo pidiera. No se
+toca aquí porque **§23.5a es normativa**: el enunciado y el número viven en `DESIGN_SYSTEM.md` y su dueño
+es ux-ui. Disparador: que QA o soporte vean el conmutador en REANUDAR sin intervención.
+
+### 38.6 Verificación
+
+- `npm run lint` ✔ **0 warnings, 0 errors** · `npm run typecheck` ✔ · `npm run test` ✔ **946/946 en 102
+  archivos** · `npm run build` ✔.
+- Base antes de este pase: **943/102** (§37.9). Delta **+3 tests** (`FeaturedCarouselRotation` 43 → 46),
+  sin archivos nuevos. **Una prueba retirada: la falsa**, sustituida por dos que cubren las dos caras del
+  bicondicional de §23.5a — el saldo neto de asertos sube, no baja.
+- **E2E del carrusel, obligatorio porque cambió la conducta de las guardas:**
+  `npx playwright test e2e/featured-rotation.spec.ts` ✔ **9/9** en Chromium (build de producción, modo
+  mocks). Eran 8; el nuevo es la regresión de §23.5a en navegador. Nótese que el nº 1 («reposo inicial de
+  7 s… sin auto-pausarse») **sigue verde sin la guarda (a)**: es la confirmación en vivo de que (b) sola
+  aguanta el `scroll-snap` de la hidratación.
+- **El candado muerde:** con (a) reintroducida a mano, **1 rojo y solo 1** — el test nuevo. Restaurado.
+- Cero cambios de contrato, cero tokens nuevos, cero componentes nuevos. Escrituras: `frontend/`,
+  este archivo y `docs/TECH_DEBT.md`. `backend/` intacto.
+
+## §39 · Se retira el conmutador de reproducción del carrusel y la cadencia baja a 5 s (`DESIGN_SYSTEM.md` §23 rev.) — 2026-08-31, rama `claude/tcg-hunt-orchestrator-28p7z1`
+
+> ⚠️ **DOS AFIRMACIONES DE ESTA SECCIÓN ERAN FALSAS Y ESTÁN CORREGIDAS EN §40** (hallazgos de QA y del
+> techlead, cada uno por su lado): §39.6 decía «**ni uno solo cubría conducta que siga viva**» y «ahora
+> muerde por los dos lados» sobre el test de la ventana de 1200 ms. Lo primero **no era cierto** (§40.2),
+> lo segundo describía un candado **simbólico** (§40.1). El resto de §39 se sostiene. Se dejan las frases
+> donde estaban, con su corrección al lado, en vez de reescribirlas: eran afirmaciones sobre el propio
+> trabajo de quien las escribió, y borrarlas sería el mismo error otra vez.
+
+Decisión del **dueño**, tomada tras ver P-49 publicado. No se re-discute aquí; se documenta y se
+implementa.
+
+### 39.1 Por qué se retira — la razón, no solo el cambio
+
+El conmutador PAUSAR/REANUDAR/REPETIR se fundó en **WCAG 2.2.2** («Pausar, detener, ocultar»), que
+exige un mecanismo para detener cualquier movimiento automático que dure más de 5 s. Ese fundamento es
+correcto **como estándar** y sigue siéndolo. Lo que no es, es una **obligación legal** para esta tienda:
+
+- **WCAG es una recomendación del W3C**, un consorcio industrial. No es ley en ninguna jurisdicción por
+  sí misma; adquiere fuerza solo cuando una ley la incorpora por referencia.
+- **En México**, las obligaciones de accesibilidad digital con dientes apuntan a **sitios de gobierno**
+  y servicios públicos. Una tienda privada de cartas no cae bajo ellas.
+- **La norma europea** que sí cubre comercio electrónico privado (la de accesibilidad de productos y
+  servicios) solo aplicaría **si vendiéramos a Europa**. No es el caso.
+
+El dueño decidió no adoptarlo. **Lo que se retira es el CONTROL MANUAL, no la protección**: los cinco
+frenos automáticos siguen enteros (§39.3), y el que de verdad protege a una persona —
+`prefers-reduced-motion`— no solo se queda, sino que ahora está probado en navegador real (§39.6).
+
+Que quede escrito para quien lo lea en un año: **esto es una decisión de negocio sobre un estándar
+voluntario, no un descuido ni una regresión de accesibilidad por ignorancia.** Si algún día se vende a
+Europa, o si el criterio del dueño cambia, el control vuelve — y vuelve entero, porque el predicado que
+lo gobernaba sigue vivo (§39.4).
+
+### 39.2 Qué se fue, con archivo
+
+| Qué | Dónde |
+|---|---|
+| Componente `PlaybackToggle` (46 líneas: iconos `Pause`/`Play`/`RotateCcw`, área táctil `::after`, `.eyebrow`) | `FeaturedCarousel.tsx` |
+| `onTogglePlayback` con su `switch` exhaustivo y su candado `never` | `FeaturedCarousel.tsx` |
+| `goToMode`, `playbackWord`, `playbackAria` | `FeaturedCarousel.tsx` |
+| El paso del slot `titleAdjacent` a `Shelf` | `FeaturedCarousel.tsx` |
+| El slot `titleAdjacent` **entero** (prop, tipo y rama de render) | `_shared/Shelf.tsx` |
+| Claves `home.featured.playback.*` (6 por idioma) | `messages/es.json`, `messages/en.json` |
+| Import `lucide-react` de los tres glifos | `FeaturedCarousel.tsx` |
+
+**El slot se pudo borrar porque se verificó primero**: `titleAdjacent` no tenía más consumidor que el
+carrusel (`grep` sobre `src/` y `e2e/`). El encabezado de §20.3 vuelve a su **fila de tres elementos**
+(H2 · «Ver todo el catálogo» · flechas) y el H2 deja de vivir dentro de un `<div>` de agrupación.
+
+### 39.3 Los cinco frenos automáticos: intactos, y ahora probados por movimiento
+
+Ninguno se tocó. Lo que cambió es **cómo se prueban**: con el botón fuera, la única evidencia honesta de
+que un freno funciona es que **la pista no se mueve**. Todas las aserciones que leían la etiqueta del
+control ahora leen `scrollLeft` (helper `expectFrozen`, en los dos archivos de test). Es una aserción
+**más fuerte**, no más débil: *el botón decía lo que el componente creía; el `scrollLeft` dice lo que el
+componente hizo.*
+
+1. **Hover** — `pointerInside`, suspensión silenciosa y reversible.
+2. **Foco de teclado** — `focusInside`, sobre la sección entera.
+3. **Intervención del usuario ⇒ PAUSA PERMANENTE** — §23.5a con su ventana de **1200 ms**, que **no se
+   tocó** (es una medición de navegador, no una comodidad).
+4. **Visibilidad** — `IntersectionObserver` (< 50 % visible) + `visibilitychange` (pestaña oculta).
+5. **`prefers-reduced-motion` ⇒ CERO movimiento**, escuchado **en vivo**, enforzado en JS y no en
+   `globals.css` (§8.2: la regla global solo anula duraciones de CSS, no un `setTimeout`).
+
+### 39.4 El acoplamiento que había que desmontar sin romper — `rotationPossible`
+
+`rotationPossible` era **el mismo booleano** que decidía dos cosas: si había rotación **y** si se pintaba
+el conmutador («control y movimiento nacen del mismo booleano», §23.8). Retirado el control, la trampa
+evidente era borrarlo «porque ya no hay botón que pintar». **No se borró**: sigue siendo la única puerta
+de `timerRunning`, y con él siguen vivos los cuatro apagados que gobierna — movimiento reducido, pista
+que no desborda, una sola teja, y consulta en carga o en error. Está anotado en el propio código con la
+advertencia explícita.
+
+**Ramas muertas retiradas** (el otro encargo del pase):
+
+- **El `never`.** El candado de exhaustividad vivía dentro de `onTogglePlayback`; se fue con él. No
+  quedó ningún `never` discriminando una unión que ya nadie conmuta.
+- **La transición `ended` → `paused`** de `pauseByIntervention`. La pedía §23.6 **por el conmutador**
+  (para que el botón pasara de REPETIR a REANUDAR). Sin control, no tiene **un solo efecto observable**:
+  los dos modos dejan el temporizador parado y la pista en `aria-live="polite"`. La guarda se colapsa a
+  `if (modeRef.current !== 'playing') return;` y `paused`/`ended` quedan **ambos terminales**.
+- **`PlaybackMode` se conserva con sus tres modos**, y no por inercia: distinguen el anuncio del canal de
+  estado («rotación pausada» vs «fin de las piezas destacadas», §23.9c). Colapsarlos a un booleano
+  `rotando/no rotando` haría indistinguibles esos dos anuncios.
+
+### 39.5 Cadencia 7 s → 5 s
+
+`ROTATION_REST_MS` 7000 → **5000**. Los 7 s se eligieron para quedar **por encima** del umbral de 5 s de
+WCAG 2.2.2 y sostener el argumento del control; retirado el control, la cadencia deja de estar atada a
+ese umbral. **Lo demás del tic no cambia**: una teja por tic, deslizamiento de ~0,5 s, no arranca hasta
+que cargaron las fotos, reposo antes del primer movimiento, **una sola pasada y se detiene**. Al terminar
+queda quieta —ya no hay control que ofrezca REPETIR— y las flechas siguen navegando a mano.
+
+### 39.6 Tests: adaptados, no borrados — y el saldo real
+
+**Se retiraron 9 unitarios y 1 E2E**, todos los que probaban **exclusivamente el control**: área táctil
+44×44 por pseudo-elemento, orden de tabulación (primer control del estante), «nunca `disabled` ni
+`loading`», el ciclo PAUSAR ⟷ REANUDAR, REPETIR, «el conmutador no emite por el canal de estado», su
+sitio pegado al H2, su nombre accesible WCAG 2.5.3, y el presupuesto de la fila en 390/640/1024. ~~**Ni uno
+solo cubría conducta que siga viva.**~~
+
+> ⚠️ **FALSO, y corregido en §40.2 y §40.3.** QA lo midió a los dos lados del diff y tenía razón por
+> partida doble: **(1)** los tres casos de §23.4d se reescribieron de «no se pinta el botón» a «la pista
+> no se mueve» y **perdieron poder discriminante** (en jsdom la pista tampoco se mueve cuando el guard no
+> existe); **(2)** de los diez casos retirados, uno tenía **enunciado hermano vivo** —la guarda de
+> `pauseByIntervention` que impide un segundo anuncio tras el fin— y quedó **descubierto**. Los dos
+> huecos están cerrados en §40 con mutación que los pone en rojo.
+
+**Todo lo demás se adaptó.** Los dos que más importaba que sobrevivieran lo hicieron, y con la aserción
+correcta:
+
+- **«Reposo inicial sin auto-pausarse»** (E2E). Prueba que el `scroll-snap` que Chromium aplica al
+  hidratar **no se lee como intervención**. Antes se leía en la etiqueta («sigue diciendo PAUSAR»); ahora
+  se lee donde está la respuesta de verdad: **la pista se mueve**.
+- **La regresión de §23.5a** (unit + E2E). El gesto real que cae dentro del deslizamiento de un tic tiene
+  antecedente de usuario ⇒ pausa, y no se reanuda sola. Aserción reescrita sobre `scrollLeft`.
+
+**Se añadieron 3 casos**, dos de ellos porque el pase destapó agujeros reales:
+
+- `§20.3 · el encabezado vuelve a su fila de tres elementos` (2 unitarios): el H2 va suelto, y los únicos
+  botones del estante son las dos flechas.
+- **`§23.5 · la pista fuera de vista suspende` (E2E, NUEVO).** El freno de `IntersectionObserver`
+  **no tenía ninguna red**: jsdom no lo implementa, así que una mutación que borre `inView` de
+  `suspended` pasaba **los 39 unitarios en verde**. Se aparta la vista con `window.scrollTo` y nunca
+  tocando la pista — un gesto sobre la pista sería intervención (§23.5 nivel 2) y el test pasaría por el
+  motivo equivocado.
+- **`la ventana de §23.5a dura de verdad: a 1199 ms el gesto TODAVÍA cuenta` (unit, NUEVO).** La ventana
+  estaba pinneada solo por el lado de FUERA (a 1201 ms ya caducó); por dentro no, y `USER_INPUT_WINDOW_MS
+  = 0` pasaba en verde. ~~Ahora muerde por los dos lados.~~ El número es una medición de navegador y
+  acortarlo se lleva por delante la pausa por swipe en táctil (§23.13 nº9).
+
+  > ⚠️ **«Muerde por los dos lados» era falso, y el título del test afirmaba más de lo que el test
+  > hacía** (hallazgo del techlead). El caso calculaba sus tiempos con `USER_INPUT_WINDOW_MS - 1`, así
+  > que **se movía con la constante**: lo que pinneaba era la **forma del predicado**, no el número.
+  > Demostrado con `USER_INPUT_WINDOW_MS = 300` ⇒ **40/40 en verde**. Mata `= 0` (ahí la resta da −1 y
+  > no hay ventana), y nada más. Corregido en §40.1: los dos bordes pasan a **1199/1201 literales** y se
+  > añade el `expect(USER_INPUT_WINDOW_MS).toBe(1200)` que fija el número.
+
+### 39.7 Verificación — se probó, no se asumió
+
+- `npm run lint` ✔ **0 warnings, 0 errors** · `npm run typecheck` ✔ · `npm run test` ✔ **940/940 en 102
+  archivos** · `npm run build` ✔.
+- Base antes del pase: **946/102**. Delta **−6** (`FeaturedCarouselRotation` 46 → 40: −9 retirados del
+  conmutador, +3 nuevos). Sin archivos nuevos ni borrados.
+- **E2E del carrusel** (obligatorio: cambia conducta de rotación):
+  `npx playwright test e2e/featured-rotation.spec.ts` ✔ **9/9** en Chromium, build de producción, modo
+  mocks. Eran 9: se retiró el del presupuesto del conmutador y entró el de visibilidad.
+- **Pasada completa medida**: **15,3 s** de punta a punta en el viewport por defecto (menos tejas fuera
+  de pantalla ⇒ menos tics que en 390px). El presupuesto del test bajó de `180 s` a `120 s` y la espera
+  del fin de `120 s` a `80 s`.
+
+**Los cinco frenos, verificados por MUTACIÓN — no por lectura del código.** Se rompió cada uno a mano y
+se comprobó que la suite se pone roja:
+
+| Freno | Mutación | Resultado |
+|---|---|---|
+| 1 · hover | quitar `pointerInside` de `suspended` | **3 unitarios rojos** |
+| 2 · foco | quitar `focusInside` | **1 unitario rojo** |
+| 3 · intervención | anular la llamada a `pauseByIntervention()` en `handleScroll` | **4 unitarios rojos** |
+| 3b · ventana 1200 ms | `USER_INPUT_WINDOW_MS = 0` | **1 unitario rojo** (el nuevo) |
+| 4a · pestaña oculta | quitar `!tabVisible` | **1 unitario rojo** |
+| 4b · fuera de vista | quitar `!inView` | **E2E rojo** — la pista siguió rotando fuera de pantalla (`460 → 960`). En unitarios **no lo detecta nadie** (jsdom no tiene `IntersectionObserver`): por eso existe el caso E2E nuevo |
+| 5 · `prefers-reduced-motion` | quitar `!reducedMotion` de `rotationPossible` | **3 unitarios rojos + 2 E2E rojos** en Chromium con `emulateMedia({ reducedMotion: 'reduce' })` — movimiento real, preferencia real |
+| extra · `rotationPossible` | `= true` | **3 unitarios rojos** |
+
+La fuente quedó **byte a byte idéntica** al commit tras cada mutación (`git diff --stat` vacío).
+
+### 39.8 Nota sobre deuda ya registrada
+
+**FR-C1** (`docs/TECH_DEBT.md`, anotada en §38.5) sigue vigente en su sustancia —la ventana de 1200 ms se
+arma con `onWheel` sin discriminar eje— pero **su disparador quedó obsoleto**: decía «que QA o soporte
+vean el conmutador en REANUDAR sin intervención», y ya no hay conmutador que mirar. El síntoma
+observable ahora es **que la pista deje de rotar sola antes de terminar su pasada**. No se edita
+`TECH_DEBT.md` aquí porque ese archivo se escribe **a petición del techlead**; queda señalado para él.
+
+### 39.9 Alcance
+
+Cero cambios de contrato, cero endpoints nuevos, cero tokens nuevos, cero componentes nuevos.
+Escrituras: `frontend/` y este archivo. `backend/` intacto. **`docs/DESIGN_SYSTEM.md` NO se tocó**: §23
+es de ux-ui, que documenta esta misma decisión en paralelo.
+
+---
+
+## §40 · Los candados que faltaban: la petición del dueño no la protegía nada, y una frase mía sobre mi propio trabajo era falsa — 2026-08-31, rama `claude/tcg-hunt-orchestrator-28p7z1`
+
+Tanda de cierre del stream. QA y techlead aprobaron §39, cada uno con condiciones, y **los dos
+encontraron por separado el mismo agujero**. Esta sección no rehace §39: le pone la red que le faltaba y
+corrige lo que afirmaba de más.
+
+La lección de fondo, que vale más que los tests: **un test que deriva sus tiempos de la constante que
+dice proteger no protege la constante — se mueve con ella.** Pinnea la *forma* del predicado, no el
+*número*. Y como los números de §23 son mediciones de navegador y decisiones del dueño, ahí es donde
+había que morder.
+
+### 40.1 Los tres números medidos, clavados con literales
+
+**El problema, medido por QA:** `ROTATION_REST_MS = 5000 → 7000` dejaba **940/940 unitarios y 9/9 E2E en
+verde**. Los unitarios importan la constante y calculan sus esperas con ella; el E2E la **duplicaba a
+mano** (`const REST_MS = 5000`, con un comentario —«debe seguir a `ROTATION_REST_MS`»— que nada
+enforzaba) y su único aserto temporal, `waitForTimeout(REST_MS - 2000)` + `waitForFunction` con 15 s de
+margen, pasa igual con 7 s reales.
+
+Dicho sin adornos: **la petición explícita del dueño era lo único de §39 sin red de regresión.** El
+techlead extendió el hallazgo a `USER_INPUT_WINDOW_MS = 1200` y `LEAD_IMAGE_CAP_MS = 3000`, y demostró
+que el test «pinneada por ambos lados» de §39.6 era **simbólico**: con `USER_INPUT_WINDOW_MS = 300` la
+suite quedaba 40/40 en verde.
+
+**Lo que se hizo,** siguiendo la dirección del techlead (`expect(CONSTANTE).toBe(n)` con el porqué al
+lado, o literales absolutos en los tests de borde) — se hicieron **las dos**:
+
+| Candado | Dónde | Qué mata |
+|---|---|---|
+| `expect(ROTATION_REST_MS).toBe(5000)` | `FeaturedCarouselRotation.test.tsx`, describe propio | cualquier cambio de cadencia |
+| `expect(USER_INPUT_WINDOW_MS).toBe(1200)` | ídem | cualquier cambio de la ventana de §23.5a |
+| `expect(LEAD_IMAGE_CAP_MS).toBe(3000)` | ídem | cualquier cambio del tope de la precondición 3 |
+| bordes **1199 / 1201 literales** (antes `USER_INPUT_WINDOW_MS ± 1`) | los dos casos de la ventana | que se acorte **o** se alargue, con conducta y no solo con un número |
+| `expect(constantInSource('ROTATION_REST_MS')).toBe(REST_MS)` + `expect(REST_MS).toBe(5000)` | `e2e/featured-rotation.spec.ts`, test propio | que las dos copias diverjan **y** que la cadencia cambie |
+
+El describe de los tres `toBe` lleva escrito el porqué, y es el que importa: *esto es una medición o una
+decisión del dueño; si se pone rojo, la respuesta no es actualizar el literal, es traer la decisión y
+actualizar `DESIGN_SYSTEM.md` §23 y este archivo en el mismo commit.*
+
+**Sobre el E2E: no se importa el componente.** `FeaturedCarousel.tsx` es `'use client'` y arrastra React,
+`next-intl` y `@tanstack/react-query` al proceso de Playwright. Se **lee el fuente** y se compara con una
+expresión regular acotada (`export const NOMBRE = <número>;`), que falla ruidosamente si el fuente cambia
+de forma. Detalle que costó una corrida: **`__dirname`, no `import.meta.url`** — Playwright transpila los
+specs a CJS y basta un `import.meta` en el archivo para que lo trate como ESM y reviente el `require` de
+los demás imports (`ReferenceError: require is not defined in ES module scope`). Queda anotado en el
+propio spec.
+
+También se corrigió el **título** del test de la ventana (afirmaba más de lo que hacía) y el enunciado de
+§39.6 que lo repetía.
+
+### 40.2 Sí se había perdido cobertura de conducta viva, y §39 lo afirmaba al revés
+
+**El hallazgo de QA, verificado a los dos lados del diff:**
+
+| Mutación | `origin/main` (aserción = «no se pinta el botón») | `HEAD` de §39 (aserción = «la pista no se mueve») |
+|---|---|---|
+| quitar `overflows` de `rotationPossible` | **2 unitarios rojos** | **40/40 verdes** |
+| `featured.length > 1` → `> 0` | **2 unitarios rojos** | **40/40 verdes** |
+
+**La causa, y es sutil:** en jsdom, con geometría degenerada, `nextScrollTarget()` devuelve `null` y la
+pista **no se mueve aunque el guard no exista**. Los tres casos de §23.4d se reescribieron de «no se
+pinta el botón» a «la pista no se mueve», y **dos pasaban por el motivo equivocado**.
+
+**El defecto sí es observable en navegador real**, y ahí está la aserción que faltaba: sin `overflows`,
+una pista que no desborda entra en `mode='ended'` en el primer tic y **anuncia «Fin de las piezas
+destacadas.»** por el `role="status"` sobre algo que nunca se movió. Eso rompe §23.9(c) en el canal que
+ux-ui acaba de subir a obligatorio.
+
+**Cierre:** cada caso de §23.4d exige ahora **las dos cosas** — pista quieta **y canal de estado mudo**.
+La segunda es la que discrimina: distingue «el guard apagó el temporizador» de «el temporizador corrió y
+descubrió que no había a dónde ir». Y el caso de **una sola teja** (§40.4) recibe layout que **sí**
+desborda, para que aísle la causa que su nombre promete.
+
+**La frase falsa se corrigió donde estaba, en los dos sitios durables:** la cabecera de
+`FeaturedCarouselRotation.test.tsx` (líneas 20-21) y §39.6 de este archivo. En los dos se deja el
+enunciado original visible con su corrección al lado. Es el patrón que este proyecto lleva todo el día
+cerrando —una afirmación que no se sostiene, escrita en un documento que la gente cree—, esta vez en una
+afirmación de este frontend sobre su propio trabajo. Se anota así a propósito.
+
+### 40.3 La guarda que protege el canal de estado: no era vía muerta, y no tenía prueba
+
+`FeaturedCarousel.tsx` · `pauseByIntervention`. El colapso a `if (modeRef.current !== 'playing') return;`
+es **correcto** (el techlead lo confirmó), pero el comentario lo describía como rama muerta y eso
+**subestimaba lo que hace hoy**: borrarla emite `setStatusMessage('Rotación automática pausada.')`
+**después** de «Fin de las piezas destacadas.» ⇒ **dos anuncios en la misma visita**, y §23.9(c) permite
+**como mucho uno**.
+
+Tres caminos reales lo disparan, y los tres llaman a `pauseByIntervention` **incondicionalmente**:
+
+1. la flecha «anterior» tras el fin (`goByArrow` no mira el modo),
+2. un swipe sobre la pista tras el fin (`handleScroll`),
+3. el regreso por ancla de §22.4a vía `hashchange`.
+
+**Y la mutación pasaba en verde**: ningún test intervenía después de `ended` y leía la línea de estado.
+Era el único de los diez casos retirados con el conmutador cuyo **enunciado hermano sigue vivo**.
+
+Cerrado con un caso que ejercita **dos** de los tres caminos (flecha y swipe, ambos tras la pasada
+completa) y exige que el canal siga diciendo «Fin de las piezas destacadas.». El comentario del código se
+reescribió para decir qué protege de verdad, con la lista de llamadores.
+
+### 40.4 «Una sola teja ⇒ no rota» ahora aísla su causa
+
+El caso no llamaba a `applyFakeLayout` ni disparaba `resize`, así que `overflows` era `false` y la pista
+estaba quieta **por desbordamiento, no por longitud**: el `describe` decía «estos casos son los que lo
+fijan» y éste no fijaba lo que nombra.
+
+Se le inyecta a propósito una pista **que sí desborda con una sola teja** (`clientWidth 200 /
+scrollWidth 1000` — una teja más ancha que el viewport). Es geometría sintética y **declarada**, como
+todo el layout de ese archivo, pero deja `overflows === true`, con lo que el único predicado que puede
+apagar la rotación es `featured.length > 1`. Con la mutación `> 0` el temporizador arranca, el tic no
+encuentra teja siguiente (`offsets === [0]`) y **anuncia el fin**: rojo. Se cubrió, no se aceptó como
+incubrible.
+
+### 40.5 Frases falsas en documentos vivos, corregidas
+
+| Dónde | Decía | Dice |
+|---|---|---|
+| `TECH_DEBT.md` **FR-C1**, premisa | «WCAG 2.2.2 sigue cumplido por el conmutador, que es visible y opera» | Falso desde `bb3fb2c`. Premisa nueva remitiendo a `DESIGN_SYSTEM.md` **§23.4.0**, que deja escrito que **no** se cumple y por qué se acepta |
+| `TECH_DEBT.md` **FR-C1**, disparador | «que QA o soporte vean el conmutador en REANUDAR sin intervención» | «que **la pista deje de rotar sola antes de terminar su pasada**» — observable sin conmutador |
+| `TECH_DEBT.md` **FR-C1**, severidad | Media-baja | **Media**. No cambió el síntoma: **se fue el remedio** (§40.6) |
+| `FeaturedCarousel.tsx:45` y `:175` | «ver `FRONTEND_NOTES.md` §36» para la decisión del dueño | **§39**. §36 es el pase que **construyó** el conmutador; quien seguía el puntero aterrizaba en `PlaybackToggle`, `titleAdjacent` y «las 10 claves de §23.12», todo falso |
+| `FRONTEND_NOTES.md` §36 | sin rótulo | **Banner de superado**, con qué sigue vigente y qué no (mismo patrón que el rótulo de §38 dentro de §36) |
+| `FeaturedCarouselRotation.test.tsx:716` | «una descarga cada **7 s**» | «cada **5 s**, §34.1» |
+| `e2e/featured-rotation.spec.ts` | «~28 s» la pasada completa | **15,3 s medidos** (QA midió ~14 s netos). El «~28 s» era cuenta de servilleta sobre 390 px |
+| `FeaturedCarouselRotation.test.tsx` | «los **38** casos restantes» | 39 — costura del reaplicado tras el reset del árbol; el texto se reescribió entero |
+
+### 40.6 FR-C1: no cambió el síntoma, se fue el remedio
+
+Es lo más importante de esa ficha y merece decirse aparte, porque lo señaló QA y no estaba escrito en
+ningún sitio. FR-C1 describe un **falso positivo**: una rueda **vertical pura** sobre la pista, o un
+*scroll anchoring* provocado por una imagen tardía, arma la ventana de 1200 ms y **pausa la rotación
+permanentemente sin que nadie lo haya pedido**.
+
+Cuando esa deuda se aceptó como Media-baja, el usuario al que le ocurría **tenía salida: pulsar
+REANUDAR**. Hoy **no hay ninguna recuperación en toda la visita**: `paused` es terminal, no hay control,
+y ni el hover, ni el foco, ni volver a la pestaña devuelven la rotación. El defecto pasó de «molesto y
+reversible por el usuario» a «la función queda muerta hasta la siguiente carga de página».
+
+**La severidad registrada ya no describía el riesgo**, y por eso sube a Media. Sigue no bloqueante por
+una razón concreta y no por inercia: **no se ha reproducido ni una vez** (53 eventos `scroll` / 0 con
+antecedente en la medición de la pasada completa), y esa corrida no tenía red lenta. Las salidas siguen
+siendo de **ux-ui** porque tocan §23.5a; ninguna se implementa aquí.
+
+### 40.7 Deuda anotada
+
+- **FR-C2** (`TECH_DEBT.md`, NUEVA) — **el freno por visibilidad tiene un único punto de cobertura en
+  todo el proyecto**, y es un E2E. Aviso de QA. `IntersectionObserver` no existe en jsdom, así que
+  borrar `inView` de `suspended` pasa **los 44 unitarios en verde**; toda la red es el caso
+  `§23.5 · la pista fuera de vista suspende` de `e2e/featured-rotation.spec.ts`. Si alguna vez se compone
+  un gate solo con la suite unitaria, ese freno queda a ciegas. Dueño **frontend** (el test) + **devops**
+  (la composición del gate).
+- **No se abrieron FR-C3 ni FR-C4**: se cerraron en código. Las constantes medidas quedan las tres con
+  candado (§40.1), §23.9(c) «un solo mensaje por visita» tiene test (§40.3) y el caso de una sola teja
+  aísla su causa (§40.4). Anotar como deuda algo que cabía en el pase habría sido moverlo de sitio, no
+  resolverlo.
+
+### 40.8 Verificación — mutación, no lectura
+
+- `npm run lint` ✔ **0 warnings, 0 errors** · `npm run typecheck` ✔ · `npm run test` ✔ **944/944 en 102
+  archivos** · `npm run build` ✔.
+- Delta de casos: **+4** (`FeaturedCarouselRotation` 40 → 44: 3 candados de constante + 1 del canal de
+  estado). Sin archivos nuevos ni borrados.
+- **E2E del carrusel** ✔ **10/10** en Chromium, build de producción, modo mocks (eran 9; entra el candado
+  de cadencia).
+- **Pasada completa: 15,3 s** en el viewport por defecto, sin cambio respecto a §39 (no se tocó conducta).
+
+**Cada candado, verificado rompiéndolo** — la fuente del componente quedó **byte a byte idéntica** tras
+cada mutación (`git status` limpio):
+
+| Mutación | Resultado |
+|---|---|
+| `ROTATION_REST_MS = 7000` | **1 unitario rojo** (`ROTATION_REST_MS = 5000 …`) **+ 1 E2E rojo** (`la cadencia de este archivo es la MISMA …`, `Expected 5000 / Received 7000`) |
+| `USER_INPUT_WINDOW_MS = 300` | **2 unitarios rojos** (el candado + el borde de 1199 ms) |
+| `USER_INPUT_WINDOW_MS = 5000` | **2 unitarios rojos** (el candado + el borde de 1201 ms) |
+| `LEAD_IMAGE_CAP_MS = 1000` | **1 unitario rojo** |
+| quitar `overflows` de `rotationPossible` | **1 unitario rojo** — `pista que no desborda ⇒ ni se mueve NI anuncia el fin`. Antes de §40: **0** |
+| `featured.length > 1` → `> 0` | **1 unitario rojo** — `una sola teja ⇒ … es la LONGITUD lo que lo impide`. Antes de §40: **0** |
+| quitar `if (modeRef.current !== 'playing') return;` | **1 unitario rojo** — `tras el fin, una intervención NO añade un segundo anuncio`. Antes de §40: **0** |
+
+**Respuesta directa a la pregunta del cierre: sí.** Revertir `ROTATION_REST_MS` a 7000 pone **dos** cosas
+en rojo, una en cada suite, y las dos nombran el número en su enunciado. Probado, no asumido.
+
+### 40.9 Alcance
+
+Cero cambios de contrato, cero endpoints nuevos, cero tokens nuevos, cero componentes nuevos, **cero
+cambios de conducta** (la única línea de producto tocada es un comentario). Escrituras: `frontend/`,
+este archivo y `docs/TECH_DEBT.md` (a petición explícita del techlead, que es su dueño de petición).
+`backend/` intacto. **`docs/DESIGN_SYSTEM.md` NO se tocó**: §23 es de ux-ui, que trabajaba en él en
+paralelo durante este pase.
+
+---
+
+## §41 · Copy del home reescrito con la voz de marca HUNT — solo cadenas, cero render (2026-09-01, rama `claude/ecommerce-home-copy-optimization-dd3d2w`)
+
+Pase **exclusivamente de copy**. No se tocó ni un componente, estilo, ruta, hook ni llamada a la API: el
+árbol que pinta el home es **byte a byte el mismo** que antes del pase. Lo único que cambia es el **valor**
+de un conjunto de claves i18n del bloque `home.*` y de `common.tagline`, en ES y EN.
+
+### 41.1 Qué se buscaba
+
+El home hablaba como un catálogo genérico («Compra cartas Pokémon con precio real…», «Ver el catálogo»,
+«Sets buscados»). La marca es **TCG HUNT**, y el léxico de caza (cazar/cacería/bounty) ya vivía en el
+producto solo a medias: «Top Bounties» estaba, pero el resto del home no lo acompañaba. Este pase alinea el
+copy con esa voz **sin romper la sobriedad editorial del sistema de diseño** (§1: claro, directo,
+tranquilizador; nada infantil; sin emojis; sin signos de admiración).
+
+Decisión del humano, no del frontend. Aquí solo queda registrada la implementación.
+
+### 41.2 Regla que gobernó el pase: se cambian VALORES, nunca el juego de claves
+
+`src/lib/i18n-parity.test.ts` exige que ES y EN tengan **el mismo conjunto de rutas de clave**. Añadir o
+borrar una clave en un solo idioma es un rojo inmediato, y borrarla en los dos rompe en silencio a
+cualquier consumidor. Por eso el pase se aplicó con un editor **consciente de la ruta** que reescribe solo
+la porción de valor de las líneas objetivo y luego **verifica estructuralmente** que:
+
+- la lista de rutas de clave (y su orden) es idéntica antes y después, y
+- el conjunto de valores que difieren es **exactamente** el conjunto pedido — ni uno más.
+
+Se conservan intactas las **claves muertas** del bloque (`home.ctaBuylist`, `home.trustAuth`,
+`home.trustPrice`, `home.vaultLabel`, `home.featuredSet.*`). Están sin consumidor hoy, pero borrarlas es
+un cambio de superficie i18n que no le toca a un pase de copy; si deben morir, es una limpieza aparte y
+deliberada, con la paridad ES/EN movida a la vez.
+
+### 41.3 Qué NO se tocó, y por qué
+
+Copy **legal** o **fuente de verdad**, deliberadamente fuera del alcance:
+
+| Clave(s) | Razón |
+|---|---|
+| `catalog.gradingNote.*`, `catalog.gradingBadge.*` | Deslinde legal del gancho de grading. |
+| `home.gradingGems.kicker` (`ILUSTRATIVO · NO EVALUAMOS LA PIEZA`) | Deslinde legal (§22.6). Reescribirlo por «tono» es publicar otra afirmación jurídica. |
+| `common.brand.*` (`TCG HUNT`, `tcghunt.mx`) | Fuente de verdad de la marca (§28), con candado propio en `brand.test.ts` y en la paridad. |
+| `nav.*`, pie, `stock.*`, `price.pending*`, `finish.*`, aria-labels de control, estados del carrusel | Fuera del home o portadores de estado/accesibilidad, no de marketing. |
+
+`home.gradingGems.lead` **sí** se reescribió: es la frase descriptiva de la vitrina, no el descargo. El
+descargo es el `kicker`, y sigue palabra por palabra como estaba.
+
+### 41.4 El efecto colateral que este pase sí tenía: `home.featuredTitle` es también un `aria-label`
+
+`featuredTitle` no es solo el H2 de la vitrina. `FeaturedCarousel.tsx` lo usa además como
+**`ariaLabel` de la región** del carrusel (`ariaLabel={t('featuredTitle')}`). Cambiar el título de «Piezas
+destacadas del catálogo» a «Piezas destacadas» mueve, por tanto, **el nombre accesible de la región**, y
+con él dos candados de `FeaturedCarouselRotation.test.tsx` que lo fijan en duro:
+
+- `getByRole('region', { name: … })` (ES) y su gemelo en EN,
+- la aserción de §23.9 `expect(section).toHaveAttribute('aria-label', …)`.
+
+Se actualizaron los tres literales. `aria-roledescription` sigue siendo `carrusel`/`carousel`.
+
+**Corrección (hallazgo bloqueante del techlead, cerrado en este mismo pase).** La primera redacción de
+esta sección afirmaba que la aserción
+`expect(section.getAttribute('aria-label')).not.toMatch(/rotaci|carrus|grad?|PSA/i)` «sigue viva y verde»
+y que «cambió la cadena esperada, no la norma verificada». **Para tres de los cuatro brazos era cierto;
+para el cuarto era falso.** La `e` de `grade` era el **homoglifo cirílico U+0435 CYRILLIC SMALL LETTER
+IE**, no la `e` ASCII: ese brazo exigía la secuencia `grad` + U+0435, que **ningún copy latino puede
+producir jamás**. El guard contra «gradeadas/graded» en el nombre accesible de la región llevaba tiempo
+sin poder fallar, y como los otros tres brazos sí funcionaban, el test estaba verde y el lint callado.
+
+El homoglifo **es preexistente: venía de `main`, no lo introdujo este pase** (verificado con
+`git show HEAD~1`). Lo que sí introdujo este pase fue *escribir en el registro durable que la aserción
+verificaba algo que no verificaba*, que es la parte que de verdad hacía daño: una nota que certifica una
+cobertura inexistente es peor que no tener nota.
+
+Arreglado aquí: `e` ASCII restaurada, la regex extraída a la constante compartida
+`NOMBRE_ACCESIBLE_PROHIBIDO`, y **un caso de control que la prueba en positivo** (`it.each` con
+`'Cartas gradeadas'`, `'… rotación automática'`, `'Carrusel de destacadas'`, `'Gradeadas PSA'`: una
+cadena por brazo). El control **reusa el mismo objeto regex** a propósito — duplicar el literal habría
+reproducido el defecto en vez de cazarlo.
+
+**Verificado rompiéndolo:** reintroducir el homoglifo pone en rojo el control con el mensaje
+`AssertionError: expected 'Cartas gradeadas' to match /rotaci|carrus|grad<U+0435>|PSA/i`. Antes de este
+pase, esa misma mutación daba **verde**.
+
+**Lección, y es la que importa:** una aserción **negativa** (`not.toMatch`, `not.toContain`,
+`toEqual([])`) no demuestra nada por sí sola — pasa igual si el sujeto está limpio que si el candado está
+roto. Toda aserción negativa que proteja algo real necesita un control que la dispare. En este archivo
+ahora lo tiene; en el resto del repo, no necesariamente.
+
+**Barrido asociado:** escaneado todo `frontend/` (`.ts`, `.tsx`, `.json`, `.css`) en busca de cirílico y
+griego disfrazados de latín. Único cirílico era este; las 11 coincidencias restantes son `Σ` (GREEK
+CAPITAL LETTER SIGMA) usada legítimamente como notación de sumatoria en comentarios de `contract.ts`,
+`fixtures.ts` y `MasterSet.test.tsx`. **Ningún otro homoglifo vivo en el frontend.**
+
+**Alcance del brazo: `grad`, y cubre la familia completa. Sin residuo pendiente.** La restauración
+literal del homoglifo dejaba el brazo como `grade`, que caza «gradeadas» y «graded» pero **no «grading»**
+ni «grados» — justo las formas que usaría un copy nuevo. Lo dejé señalado sin ampliarlo, porque ensanchar
+un candado es un cambio de **norma** y no una corrección de dedazo. **El techlead resolvió ampliarlo**, y
+el argumento cierra el asunto: la norma ya estaba escrita **antes** que la regex —la primera línea del
+comentario del bloque dice que el nombre accesible no habla «ni de grading», y §22.6b-e es sobre el gancho
+de grading entero—, así que el brazo siempre estuvo escrito para la **familia**; el homoglifo solo tapó
+que no la cubría.
+
+**Norma vigente:** `NOMBRE_ACCESIBLE_PROHIBIDO` cubre
+`grade` · `graded` · `grading` · `gradeadas` · `gradeo` · `grados`. Riesgo de falso positivo **benigno,
+no nulo** (corrección del techlead: «nulo» estaba sobrevendido). `upgrade` y `gradual` contienen `grad`,
+y «Upgrade your collection» es inglés de marketing perfectamente plausible en un H2. Lo que hace el
+residuo inofensivo no es que la cadena no exista, es que **`DESIGN_SYSTEM.md` §1 (v2.9) ya veta la voz de
+marca en mensajes de accesibilidad**: cualquier cadena capaz de disparar el brazo está prohibida en ese
+hueco por otra vía. Sobre los cuatro valores reales de hoy (`Piezas destacadas`, `Destacadas`,
+`Featured pieces`, `Featured`) no casa ninguno.
+
+**El control se amplió con la norma, y ahí hubo una trampa que casi cuela.** Añadir casos que la regex
+nueva acepta no prueba nada si la **vieja** también los aceptaba: serían decorativos, el mismo defecto
+que este apartado existe para matar. Los dos casos nuevos están elegidos para **discriminar**:
+
+| Caso de control | `/grad/` | `/grade/` | ¿Discrimina? |
+|---|---|---|---|
+| `Gancho de grading` | ✔ | ✘ | **sí** |
+| `Grados y certificados` | ✔ | ✘ | **sí** |
+| ~~`Gradeo de piezas`~~ | ✔ | ✔ | **no — descartado** |
+
+El primer candidato para el segundo hueco fue «Gradeo de piezas», y **es inservible**: «grade**o**»
+contiene `grade` como subcadena, así que pasa igual con el brazo estrecho.
+
+**T1 (techlead) — el mismo error, en la dirección contraria, y se me coló.** Al escribir ese criterio
+anoté «no colar `PSA` en la cadena del brazo de grading»… y dejé en la lista `'Gradeadas PSA'` como
+control del brazo `PSA`. Contiene `grad`: **casa por el brazo de grading y nunca llega a probar `PSA`**.
+Consecuencia medida: se podía **borrar el brazo `PSA` entero, o meterle una `А` cirílica U+0410, y los
+seis controles seguían verdes**. Era el agujero que este apartado existe para cerrar, reintroducido al
+cerrarlo. Y arrastraba dos afirmaciones falsas: el comentario del `it.each` decía «cada cadena existe para
+disparar UN brazo» y esta nota decía «una cadena por brazo» — para `PSA`, ninguna de las dos era cierta.
+Sustituido por `'Certificadas PSA'` (casa `PSA` y ningún otro brazo).
+
+**Lo que cambió de fondo, y es la lección del hallazgo.** Dos veces seguidas el criterio correcto estaba
+**escrito en un comentario** y aun así se violó al aplicarlo. Un comentario no verifica nada. Así que el
+criterio pasó a ser **código**:
+
+- Los brazos se declaran sueltos (`BRAZOS_PROHIBIDOS = ['rotaci', 'carrus', 'grad', 'PSA']`) y la regex se
+  **compone** de ellos. Con la regex como literal opaco, «qué brazo prueba esta cadena» no es una pregunta
+  que un test pueda hacer — y por eso el agujero era invisible.
+- Cada control es un par `[cadena, brazo]`, y el test exige que la cadena case con **su** brazo y con
+  **ninguno de los otros**. Esa es la regla general que pediste, ejecutable en vez de comentada.
+- Un test de **cobertura** exige que todo brazo tenga al menos un control. Añadir un brazo sin su cadena
+  ahora es rojo, no un descuido silencioso.
+
+**Verificado rompiéndolo, cuatro mutaciones:**
+
+| Mutación | Resultado |
+|---|---|
+| estrechar `grad` → `grade` | **3 rojos** — `Gancho de grading`, `Grados y certificados` y `Cartas gradeadas` (este último por casar con un brazo ajeno) |
+| homoglifo U+0435 en `grad` | **3 rojos** — los tres controles del brazo de grading |
+| **borrar el brazo `PSA`** | **2 rojos** — `Certificadas PSA` **+ el test de cobertura**, que nombra el brazo que falta |
+| **`PSA` → `PАS` (А cirílica U+0410)** | **1 rojo** — `Certificadas PSA` |
+
+Antes de T1, las dos últimas filas daban **verde**. El candado ya no solo detecta que alguien lo mate o lo
+estreche: detecta que alguien lo **vacíe por un brazo**.
+
+Vale la pena dejarlo escrito porque es la trampa del pase: «solo cambio textos» dejó de ser cierto en el
+momento en que un texto de marketing es a la vez el nombre accesible de un `role="region"`. Un cambio de
+copy en `featuredTitle` es siempre también un cambio de accesibilidad, y quien lo toque después debe
+mirar `FeaturedCarousel.tsx:600` antes de asumir que no.
+
+### 41.5 Tests de render que fijaban copy en duro
+
+`page.test.tsx` fija literales en español para comprobar que el home pinta lo que debe. Se actualizaron
+**ocho** (no los seis previstos: el brief no contaba `quoter.empty` ni `quoter.continue`, que también
+cambiaron de valor): `heroTitle`, `ctaShop`, `quoter.title`, `quoter.empty`, `setsWanted`,
+`featuredTitle`, `sellCta`, `quoter.continue`.
+
+Los **E2E de Playwright no se tocaron y no rompen**: leen las claves con el helper `t(locale, 'home.…')`
+en vez de teclear la frase, así que siguen a la traducción sola. Es la razón por la que ese helper existe,
+y este pase es su primera cobranza real.
+
+### 41.6 Comentarios de código con copy viejo — no corregidos, señalados
+
+Quedan **cinco** referencias al copy anterior en **comentarios** de archivos de producto:
+
+| Archivo | Línea | Copy viejo citado |
+|---|---|---|
+| `_home/FeaturedCarousel.tsx` | 157 | «Piezas destacadas del catálogo» |
+| `_home/FeaturedCarousel.tsx` | 601 | «Piezas destacadas del catálogo» |
+| `_home/HomeQuoter.tsx` | 22 | «Continuar mi cotización» |
+| `(storefront)/page.tsx` | 35 | «Sets buscados» |
+| `(storefront)/page.tsx` | 37 | «Continuar mi cotización» |
+
+Son prosa, no render. **No se editaron a propósito** porque el encargo acotaba el pase a cadenas de
+copy y ninguna de estas líneas cambia lo que ve el usuario.
+
+*(Corrección del techlead: la primera redacción daba además una segunda razón —«`ux-ui` trabajaba sobre
+estos mismos componentes», con riesgo de conflicto de merge— que es **falsa**. Por la tabla de propiedad
+de `CLAUDE.md`, `ux-ui` escribe en `docs/DESIGN_SYSTEM.md` y **no puede escribir en `frontend/`**: el
+riesgo de conflicto en `frontend/src/` era **cero**. Se retira, porque dejarla escrita le enseñaría una
+regla de propiedad equivocada al próximo que lea esta nota. El primer motivo se sostiene solo. También se
+completó el inventario: eran cinco sitios, no cuatro — faltaba `HomeQuoter.tsx:22`.)*
+
+Queda anotado como **deuda cosmética menor**, no bloqueante, para el próximo pase que toque esos archivos
+por un motivo real.
+
+### 41.7 Verificación
+
+Suite completa, no un subconjunto (cifras finales, tras las tres rondas de corrección):
+
+| Comando | Resultado |
+|---|---|
+| `npm run test` | ✔ **102 archivos / 951 casos, todos verdes** (~94 s) |
+| `npm run typecheck` | ✔ `tsc --noEmit` sin errores |
+| `npm run lint` | ✔ `No ESLint warnings or errors` |
+
+**Delta de casos: +7**, y los siete son el control de §41.4: un `it.each` con **seis** cadenas (una por
+brazo, con tres para el brazo `grad` porque cubren la ampliación) **más** el test de **cobertura de
+brazos** que entró con T1. El pase de copy en sí aporta **0**: un cambio de textos no debe añadir ni
+quitar pruebas. Los 944 originales siguen siendo los mismos 944.
+
+`i18n-parity.test.ts` verde confirma lo importante: paridad ES/EN intacta (**2 287 claves, conjuntos
+idénticos**), cero apariciones de la marca retirada «TCG Vault», y ningún candado semántico del catálogo
+(créditos, grados, disclaimer del gancho) movido por el camino.
+
+**Inestabilidad observada, ajena a este pase.** En una de las corridas completas cayó
+`M2View.test.tsx > «money-safe: si TCGCSV no fue alcanzable del todo …»`. **En aislado el archivo pasa
+65/65**, y la corrida completa siguiente pasó 948/948. Es **GR-D4**, ya registrada en `TECH_DEBT.md` como
+inestable en suite completa; es un test de **admin M2** que no toca ninguna clave del home. No se
+investigó más aquí porque no pertenece a este pase, pero queda dicho que se vio.
+
+### 41.8 Alcance
+
+Escrituras: `frontend/messages/es.json`, `frontend/messages/en.json`,
+`frontend/src/app/[locale]/(storefront)/page.test.tsx`,
+`frontend/src/app/[locale]/(storefront)/_home/FeaturedCarouselRotation.test.tsx`, este archivo y
+`docs/TECH_DEBT.md` (a petición explícita del techlead, que es su dueño de petición).
+Cero cambios de contrato, cero endpoints nuevos, cero mocks nuevos, cero tokens nuevos, cero componentes
+tocados. `backend/` intacto. **`docs/DESIGN_SYSTEM.md` NO se tocó** (es de ux-ui) ni tampoco
+`docs/API_CONTRACT.md`.
+
+**Una clave fuera del home:** `vault.trustBanner` (§41.10). Sale del encargo original —que era
+«copy de marketing del home»— y se tocó a propósito, porque repetía **palabra por palabra** la misma
+afirmación falsa que se estaba corrigiendo en el home. Corregir cuatro superficies y dejar la quinta
+habría dejado la contradicción **dentro del producto**, que es peor que no haber tocado ninguna. Sigue
+siendo `frontend/`, así que no cruza ninguna frontera de propiedad.
+
+### 41.9 Ronda de corrección de QA — tres afirmaciones que el producto desmiente
+
+QA rechazó la primera versión del copy. Los tres hallazgos son de **veracidad**, no de tono, y ninguno se
+discutió: si el texto y el producto discrepan, el texto está mal.
+
+**(a) BLOQUEANTE — «Lo que ves es lo que pagas» / «What you see is what you pay» era falso.**
+`PROJECT.md:346` fija que los precios de catálogo/ficha se muestran **sin IVA**, y `:348`, `:401` y `:766`
+que al total se le suman **IVA 16 %**, **costo de procesamiento** y **MX$175 de envío** (verificado línea
+por línea antes de reescribir, no asumido). Prometer equivalencia de precio en el home y desmentirla en el
+checkout es exactamente la sorpresa que el título «Compras sin sorpresas» decía evitar. Lo bueno es que el
+desglose **es** el argumento: se dice, no se esconde.
+- `how.step1Title` → `Compras con las cuentas claras` / `You buy with the numbers up front`
+- `how.step1Body` → `… Antes de pagar ves el desglose completo: IVA, procesamiento y envío.` /
+  `… Before you pay, you see the full breakdown: VAT, processing and shipping.`
+
+**(b) `trustPayout` prometía un plazo inexistente.** «Te transferimos **en cuanto** verificamos» promete
+inmediatez, y **no hay SLA de pago**: el SPEI lo opera el admin a mano (`:431`), el pipeline pasa por
+`aprobada` donde el dueño decide **carta por carta** y puede rechazar por NM-only (`:424-428`, `:435`), y
+sobre MX$3 000 el pago está **bloqueado por KYC** (`:439-443`). Encima había perdido la palabra
+**recepción**, que `:433-435` exige comunicar («el pago se realiza DESPUÉS de que recibimos y
+verificamos»). Nuevo valor: `Te pagamos por transferencia tras recibir y verificar` /
+`We pay by bank transfer after we receive and verify`.
+
+**(c) `gradingGems.lead` había perdido su anclaje.** Mi redacción («valen mucho más en el mercado»)
+soltaba el anclaje a **valor de mercado** y sonaba a predicción sobre **esas** copias — justo lo que
+`catalog.gradingNote.p3` desmiente. En EN era más marcado. ES vuelve a anclar
+(`Cartas sin gradear cuyo valor de mercado, ya gradeadas, es muy superior.`) y **EN se revierte al valor
+original de `main`**, byte a byte (verificado contra `478a826~1`).
+
+**Lección del pase:** el riesgo de un cambio de copy no es el tono, es que una frase más pegadora afirme
+algo que el sistema no cumple. Las tres eran mejores como marketing y peores como descripción del
+producto. Ninguna la habría cazado un test: no hay candado que compare el copy con `PROJECT.md`.
+
+### 41.9-bis Segunda ronda de QA — el precio mostrado NO es el de mercado, en ninguna de las dos direcciones
+
+QA rechazó **otra vez**, con tres bloqueantes, y los tres son **la misma falla**: el copy afirmaba que el
+número que se enseña **es** el valor de mercado. En este producto no lo es en ningún sentido:
+
+| Dirección | Regla | Fuente verificada |
+|---|---|---|
+| Venta | `redondeo↑(max(piso, mercado × markup))`, markup **1.60× → 1.15×** | `PROJECT.md:1200`, `:1209`; `backend/src/common/money.ts` (`computeSalePriceFromCurve`) |
+| Compra | **30 % → 50 %** del mercado | `PROJECT.md:1201`, `:1210` |
+
+Mercado $50 ⇒ **venta $70**. Mercado $100 ⇒ **compra $40**. El «precio de mercado» no se cobra ni se paga
+nunca; es una **referencia**.
+
+- **(B1) `heroSubtitle`** decía «al precio real del mercado» / «at real market prices». Falso por
+  construcción. **Se quita el claim entero**, no se matiza: el precio nunca fue el argumento del hero, la
+  custodia sí. Vuelve a «con condición garantizada» / «condition guaranteed».
+- **(B2) `sellBody`** — **una preposición volvió falsa la frase.** Yo había cambiado «cotizamos **con** el
+  valor de mercado» por «**al** valor de mercado». «Cotizar **al** valor X» dice que X es lo que recibes, y
+  se paga 30-50 % de eso. Restaurado a **«con … como referencia»** / «using … as the reference». Lo que lo
+  hace grave: el cotizador de **esa misma página** solo enseña «Te pagamos $X», así que la contradicción
+  era visible en la pantalla siguiente.
+- **(B3) `how.step1Body`** decía «su precio de mercado», contra una decisión **LOCKED** (§N.7 / decisión 2 /
+  criterio 92): `PROJECT.md:1320-1321` fija que **tejas y listados no muestran mercado «y no van a
+  mostrarlo»** — solo la ficha. Verificado en el código: `FeaturedCarousel.tsx:141-151` pinta
+  **únicamente** `salePriceCents`. Era falso **en la misma pantalla donde se leía**.
+
+**Fuera de los bloqueantes, dos más de la misma familia:**
+
+- **`how.step3Body` vendía consignación**, que está **fuera de alcance** (`PROJECT.md:2076`,
+  «Consignación / marketplace C2C»). Comprobado en el producto: la bóveda solo tiene **`Retirar`** —no
+  existe ninguna acción de venta en `VaultView`—, y §E exige que el vendedor **envíe** la carta. «O las
+  vendes desde la bóveda, sin moverlas» prometía una función que no existe y que nadie va a construir.
+  Ahora: `Un solo envío para todo lo que acumulaste, cuando tú lo pidas.`
+- **`setsWanted` (EN)**: `Sets on the hunt` se lee como que **los sets** cazan. → `Sets to hunt`. El ES
+  (`Sets en cacería`) lo aprobó el humano y **no se toca**.
+
+**Auditoría, no confianza en la lista.** Tras aplicar, se barrió **todo** el bloque `home.*` en los dos
+idiomas por `mercado|precio|pagam|valor|vend` (ES) y `market|price|pay|value|sell|worth` (EN) buscando
+cualquier otra afirmación de precio. **Ninguna más es falsa**: las de pago (`quoter.*`, `bounties.*`)
+dicen «lo que te pagamos», que es exactamente lo que el cotizador enseña; `featuredSet.*` y `trustPrice`
+son **claves muertas** (no se renderizan).
+
+**Por qué esto pasó tres gates.** Los tres bloqueantes sobrevivieron a `test`, `typecheck` y `lint` y a una
+ronda de corrección. Ningún candado compara el copy con `PROJECT.md` ni con el componente que lo pinta, y
+**no puede haberlo** sin inventar un acoplamiento peor que el problema. La verificación de un cambio de
+copy es **leer la fuente**, y la fuente no es el brief que pide el cambio: los tres errores venían del
+brief, y el brief es justo lo que no se puede usar como referencia para validarlos.
+
+**Y la regla que faltaba explícita: el brief de un rol NO es fuente de verdad para otro.** La regla de
+conflicto de `CLAUDE.md` ordena `PROJECT.md` > contrato > código. La instrucción de un compañero —por
+detallada que venga, y aunque traiga el valor exacto a teclear— **no está en esa cadena**. Los tres
+bloqueantes salieron del brief y sobrevivieron dos gates precisamente porque cada revisión posterior lo
+dio por bueno: un texto entre comillas parece un dato verificado y no lo es. Un valor de copy solo se
+puede validar contra `PROJECT.md` y contra el componente que lo pinta; si el brief y la fuente discrepan,
+manda la fuente y se devuelve el hallazgo a quien lo redactó.
+
+### 41.9-ter Tercera ronda — dos residuos que yo mismo levanté
+
+Ninguno era falso; los dos eran **sobrepromesa o ruido**, y los levanté al reportar en vez de aplicarlos
+en silencio.
+
+- **`how.step1Body`: «su precio final» → «su precio de venta»** (EN: `final price` → `sale price`). Los
+  precios se muestran **sin IVA** (`PROJECT.md:346`), así que «final» se podía leer como «no hay más
+  cargos» — la misma familia de sobrepromesa que «Lo que ves es lo que pagas», más pequeña. El criterio
+  con el que se decidió, y que vale más que el caso: **el copy no debería necesitar que la línea de al
+  lado lo rescate**. Que la frase siguiente desactivara la lectura mala no era razón para dejarla.
+- **La muletilla «cuando tú digas/quieras/pidas» estaba cuatro veces** en el home: `heroSubtitle`,
+  `trustCustody`, `how.step3Title` y `how.step3Body` — el paso 3 **se repetía a sí mismo**, título y
+  cuerpo. Se queda donde pega y se dice de otra forma en el resto: `how.step3Body` →
+  `Todo lo que acumulaste sale junto, en un solo envío.`, `trustCustody` →
+  `Bóveda bajo resguardo: un solo envío para todo`.
+
+**Verificado que la reescritura no cuela un claim nuevo** (es una reformulación, no una promesa distinta):
+`PROJECT.md:400` da el retiro de una o varias piezas **sin mínimo**, y `:401` fija la tarifa **por
+paquete**, que es lo que sostiene «un solo envío para todo». La restricción real —solo se retiran piezas
+**liquidadas y sin envío activo** (`vault.onlySettled`)— es **preexistente** y afectaba igual a la
+redacción anterior; no la introduce este cambio.
+
+> **Residuo declarado, no resuelto:** el objetivo era dejar la frase **solo en el hero**, y quedan **dos**
+> apariciones — `heroSubtitle` y `how.step3Title` («Pides el envío cuando quieras»). `step3Title` no
+> entraba en el cambio pedido y **no se tocó**: es el titular del paso cuyo asunto *es* el envío a
+> petición, y vaciarlo lo dejaría sin tema. Queda dicho para que nadie lea «solo en el hero» como un
+> hecho verificado: son dos, y la segunda es deliberada.
+
+### 41.11 Se borran `home.trustAuth` y `home.trustPrice`: el bloqueante B1 estaba embotellado en una clave muerta
+
+`home.trustPrice` decía «Valor de mercado transparente en MXN» / «Transparent market value in MXN» — es
+**la misma afirmación que §41.9-bis acaba de retirar del hero y del paso 1** por falsa (el precio mostrado
+es `mercado × markup`, 1.15×–1.60×). Nadie la pintaba, así que no engañaba a nadie **hoy**.
+
+Ese «hoy» es todo el problema. El día que alguien reponga la banda de confianza completa, **B1 vuelve
+solo**, y por un camino que ningún gate puede ver: una clave que ya estaba ahí, que nadie escribió en ese
+diff, y que por tanto nadie revisa. Es la **misma forma que el homoglifo de §41.4** — algo latente que no
+falla hasta que alguien lo toca, y que entonces falla en silencio.
+
+**Elegido: borrarlas** (ES y EN), frente a la alternativa de corregir el texto de `trustPrice`. Una cadena
+muerta *correcta* sigue siendo una cadena que nadie verifica, y la decisión se apoya en evidencia, no en
+preferencia:
+
+- `git log -S"trustAuth" -- frontend/src` no devuelve **ningún** commit: estas claves **nunca se
+  renderizaron en toda la historia del repo**. No son claves que perdieron su consumidor — nacieron sin él.
+- `DESIGN_SYSTEM.md` **no tiene sección de banda de confianza** que las exija (comprobado; ux-ui no
+  depende de ellas).
+- La banda real (`HomeQuoter.tsx:304-311`) tiene **dos** renglones y solo dos: `trustCustody` y
+  `trustPayout`.
+- El texto queda en el historial de git si alguna vez hace falta.
+
+**Alcance deliberadamente corto.** Se borran **solo esas dos**. Las otras huérfanas del home
+(`home.ctaBuylist`, `home.vaultLabel`, `home.featuredSet.*`) **se quedan**: no cargan ninguna afirmación
+falsa —`featuredSet.*` dice «referencia de mercado», que es justamente el término correcto—, así que no
+había razón para adelantar su baja fuera del acuerdo pendiente con ux-ui. La ficha **MK-D2** de
+`TECH_DEBT.md`, que las cubría a las cinco, queda actualizada: baja **parcial**, el resto sigue abierto.
+
+Paridad ES/EN tras el borrado: **2 285 claves, conjuntos idénticos** (eran 2 287). Se van de los dos
+locales o de ninguno — `i18n-parity` no admite otra cosa, y es el candado que lo garantiza.
+
+### 41.10 «Asegurado» no era un sinónimo: era una póliza que no existe
+
+Hallazgo escalado al humano durante el pase, sobre una bandera abierta en `PROJECT.md:2969-2971`
+(«definir si hay seguro formal»). **Respuesta del humano: no hay póliza contratada** — *«No hay seguro
+sino que están en lugar seguro»*. La bóveda es un lugar físicamente seguro; **no existe cobertura
+aseguradora del inventario en custodia**.
+
+«Asegurado» no es sinónimo de «resguardado»: **nombra una póliza**. Afirmarlo sobre **bienes de terceros**
+sin tenerla es la promesa que se vuelve cara el día que se pierde un paquete, y estaba escrita en cinco
+sitios. Corregidas:
+
+| Clave | ES | EN |
+|---|---|---|
+| `home.heroSubtitle` | «Viven **resguardadas** en tu bóveda…» | «They live **safe** in your vault…» |
+| `home.trustCustody` | `Bóveda bajo resguardo: un solo envío, cuando tú digas` | `Vault storage: one shipment, whenever you say` |
+| `home.how.tag` | `Custodia en bóveda` | `Vault custody` |
+| `home.how.step2Body` | `Guardadas bajo resguardo, …` | `Kept safe, …` |
+| `vault.trustBanner` | «autenticadas y **resguardadas** en bóveda» | «authenticated and **kept safe** in custody» |
+
+**Auditoría exhaustiva, no lista a ojo.** Se barrieron ambos catálogos completos por `asegurad|seguro`
+(ES) e `insur` (EN) sobre las 2 287 claves, y se reauditó después de editar: **cero afirmaciones de seguro
+sobre la custodia** sobreviven en `home.*` ni en `vault.*`. Ese barrido es lo que da derecho a decir que
+son cinco y no «las que se vieron».
+
+**Lo que NO se tocó, porque es otra afirmación y es legítima** — asegurar un *paquete* con la paquetería
+no es asegurar un *inventario en custodia*:
+
+| Clave | Por qué se queda |
+|---|---|
+| `shipments.shippingFee` («Envío (con seguro)» / «Shipping fee (insured)») | Habla del **envío**, no de la custodia. **Ver pregunta abierta abajo.** |
+| `safeShipping.step4Title` / `step4Body`, `buylist.trustShipping`, `buylist.shippingGuideLink` | Instrucciones al **vendedor** del buylist para que asegure **su** envío hacia nosotros. |
+| `admin.m2.gradedEstimates.tiers.hint` («retorno asegurado») | Costeo de PSA en back-office, no promesa al cliente. |
+| `catalog.gradingNote.p5` | Copy **legal** de grading, congelado. |
+| `admin.m6.resetShareNote` («canal seguro»), `admin.m6.deleteQuestion` («¿Seguro que…?») | «Seguro» en otra acepción; falsos positivos del barrido. |
+
+> **PREGUNTA ABIERTA para product-owner — no la resuelvo yo.** `shipments.shippingFee` afirma que el envío
+> va **con seguro** / **insured**. **No está verificado** que la paquetería lo cubra dentro de la tarifa de
+> **MX$175** (`PROJECT.md:401`). Es la **misma clase de afirmación** que la que se acaba de retirar de la
+> custodia —una cobertura declarada en el copy— solo que sobre el envío, así que no puede quedarse sin
+> comprobar solo porque el barrido la clasificara como «legítima»: es legítima **si la póliza existe**.
+> Si no la hay, esa cadena necesita el mismo tratamiento. **Dueño de la respuesta: product-owner**
+> (es negocio/contrato con la paquetería, no copy).

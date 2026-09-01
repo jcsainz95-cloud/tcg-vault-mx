@@ -233,8 +233,14 @@ export function CheckoutView() {
                       {item.card.name}
                     </p>
                     <p className="mt-1.5 font-mono text-[11px] text-muted" lang="en">
+                      {/* v1.51-b: `productType`/`rawCondition` viajan DENTRO de `card`
+                          (`OrderItemCardDTO`, contrato §4) — el backend NUNCA los mandó al
+                          nivel del ítem, así que leerlos ahí dejaba el sufijo «· NM» siempre
+                          en blanco. */}
                       {item.card.setName} · #{item.card.number}
-                      {item.productType === 'raw' && item.rawCondition ? ` · ${item.rawCondition}` : ''}
+                      {item.card.productType === 'raw' && item.card.rawCondition
+                        ? ` · ${item.card.rawCondition}`
+                        : ''}
                     </p>
                     <button
                       type="button"

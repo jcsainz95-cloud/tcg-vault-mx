@@ -18,8 +18,25 @@ export interface ShelfProps {
   title: React.ReactNode;
   /** aria-label de la sección; obligatorio si `title` no es string plano. */
   ariaLabel?: string;
-  /** Eyebrow mono junto al título (p. ej. «PSA · CGC», §20.5). */
-  kicker?: string;
+  /**
+   * `aria-roledescription` de la <section> — **localizado**, nunca en inglés crudo (§23.9a). Hoy solo
+   * lo usa el carrusel («carrusel» / «carousel»), que con su `aria-label` se anuncia «Piezas
+   * destacadas del catálogo, carrusel».
+   */
+  ariaRoledescription?: string;
+  /**
+   * Ref a la <section>. La usa el carrusel para escuchar `pointerenter`/`pointerleave` y
+   * `focusin`/`focusout` de TODO el estante (encabezado incluido, §23.5) con listeners nativos: un
+   * `onMouseEnter` de React aquí obligaría a re-renderizar el estante entero en cada entrada del
+   * puntero, y §23.2 pide que la rotación no re-renderice tejas.
+   */
+  sectionRef?: React.Ref<HTMLElement>;
+  /**
+   * Eyebrow mono junto al título (p. ej. «PSA · CGC», §20.5).
+   * `ReactNode` desde v2.6 (§23.15 nº3): el tipo se amplía, pero el kicker sigue siendo **texto** en
+   * todas las pantallas que lo usan y conserva su envoltorio `.eyebrow` (mono muted) y su `gap-4`.
+   */
+  kicker?: React.ReactNode;
   /** Apoyo muted bajo el encabezado (§20.5/§20.7). */
   subtitle?: string;
   subtitleClassName?: string;
@@ -39,6 +56,8 @@ export function Shelf({
   id,
   title,
   ariaLabel,
+  ariaRoledescription,
+  sectionRef,
   kicker,
   subtitle,
   subtitleClassName,
@@ -54,7 +73,13 @@ export function Shelf({
     <h2 className="font-serif text-[22px] leading-tight text-text lg:text-[29px]">{title}</h2>
   );
   return (
-    <section id={id} className={className} aria-label={ariaLabel ?? (typeof title === 'string' ? title : undefined)}>
+    <section
+      id={id}
+      ref={sectionRef}
+      className={className}
+      aria-label={ariaLabel ?? (typeof title === 'string' ? title : undefined)}
+      aria-roledescription={ariaRoledescription}
+    >
       <div
         className={cn(
           'gutter flex flex-wrap items-baseline justify-between gap-x-4 gap-y-2',

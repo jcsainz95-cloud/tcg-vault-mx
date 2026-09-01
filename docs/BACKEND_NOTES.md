@@ -4,6 +4,686 @@
 > El contrato (`docs/API_CONTRACT.md`) manda sobre el código. Stack: NestJS + Prisma + PostgreSQL,
 > Redis/BullMQ (jobs), JWT + argon2, S3/MinIO (presigned URLs), Stripe.
 
+## 0.18 — **El invariante «PROHIBIDO rellenar» ya tiene guardián, y el blob deja de salir verbatim** (2026-08-31, v1.51-e)
+
+> Propiedad: **backend**. Cierra los dos hallazgos que QA dejó como *condiciones* sobre `8c6f2ba`.
+> **Cero cambios de contrato** (sigue en **v1.51-c**), **cero migraciones**, **cero montos tocados**.
+> Un solo cambio de conducta, y es de **filtrado de salida**.
+
+### I2 — el invariante más peligroso de romper no tenía quien lo afirmara (SOLO TEST)
+
+**El hallazgo, en seco:** QA mutó `toHistoricItemPreviews` para que **rellenara** `name` ausente desde
+el join —justo la salida que ARCHITECTURE §5.2.9 rechaza, porque *«el caso degradado es precisamente
+donde el dato re-resuelto tiene más probabilidad de ser falso»*— y **pasó la suite entera** (los 28
+del archivo y los 2 670 del proyecto). La conducta era **correcta**; lo que faltaba era el test que la
+afirmara.
+
+El test del re-sync (IMG-4) solo cubre el caso en que el hecho **sí** está en el blob: «el acta dice lo
+de ayer, no lo de hoy». Nadie afirmaba lo simétrico —**blob SIN el hecho ⇒ respuesta SIN el hecho**—, que
+es el caso donde inventar el dato hace el daño de verdad: un registro que respalda una venta afirmando,
+con la misma tipografía que los hechos reales, algo cuyo respaldo es el catálogo de hoy.
+
+**Lo que se escribió:** bloque **`IMG-5`** en `backend/src/modules/orders/img-order-item-card.spec.ts`.
+
+- **Barrido de los OCHO hechos** (`it.each` sobre `FROZEN_CARD_FACT_KEYS`): se borra un hecho del blob y
+  se afirma que la respuesta **no trae esa clave** — ni presente-con-`undefined`, ni con otro valor.
+- **El montaje es el punto:** la fila `Card` de la BD trae la identidad **COMPLETA** (`name`, `number`,
+  `productType`, `setName`) y el blob no. *La carta existe, tiene nombre, y aun así el pedido histórico
+  no lo muestra.* Hay un test extra que verifica que el fixture de `Card` de verdad lo trae, para que los
+  ocho casos no puedan pasar «por no haber de dónde rellenar».
+- **Variantes pedidas:** `{}` solo ⇒ `card` es **exactamente** `{ imageSmallUrl: null }`; `{cardId}` solo
+  ⇒ imagen **sí** (clase P), los otros siete **no** (clase F); blob nulo / no-objeto / array / número.
+- **La asimetría de §5.2.9 en una sola respuesta:** (P) degrada a `null` **con la clave presente**; (F)
+  degrada a **clave omitida**. Ninguna degrada a *otro valor*.
+- **Money-safe:** con blob vacío, `unitPriceCents` y el `breakdown` salen intactos (el dinero no vive en
+  el blob — columnas propias, §5.1).
+
+Las aserciones son sobre **lo que sale por el cable** (`Object.keys` del `card` servido), **no** sobre el
+cuerpo de una función: así el guardián caza el relleno **venga por donde venga** —ensanchando
+`CARD_IMAGE_SELECT`, tocando `loadCardsForSnapshots`, o en el `map` de la proyección—.
+
+**Verificado rompiéndolo, no asumido.** Se reprodujo la mutación de QA en su forma completa (widen de
+`CARD_IMAGE_SELECT` a `name` + `if (card.name == null && row?.name != null) card.name = row.name` en
+`toHistoricItemPreviews`) y el archivo pasó de **50/50 verde** a **4 rojos**, encabezados por
+**★ blob SIN `name` ⇒ la respuesta NO trae ese hecho…**. La mutación quedó revertida; el árbol está limpio.
+
+### I1 — el blob de la columna `Json` ya no sale al cable verbatim (ÚNICO cambio de conducta)
+
+`readFrozenCardFacts` hacía `return value as PersistedCardFacts`: **lo que hubiera en la columna se
+servía tal cual**. QA lo probó sirviendo un `card` con `internalCostCents`, `__note` y una
+`imageSmallUrl` podrida. Hoy no fugaba nada —el write path escribe exactamente ocho claves—, pero era un
+**passthrough sin allowlist desde un registro dinero-adyacente hacia una respuesta HTTP** cuya forma fija
+el contrato §4.
+
+**Ahora proyecta por allowlist explícita** (`FROZEN_CARD_FACT_KEYS`, exportada), con un **cerrojo de
+compilación** (`ALLOWLIST_IS_FROZEN_FACT_KEYS`) que ata la lista a `FrozenCardFacts`: añadir un noveno
+hecho al tipo y olvidar la lista **no compila**.
+
+Tres precisiones que importan:
+
+1. **Un `pick` NO es «rellenar».** §5.2.2 prohíbe **completar lo ausente**; no prohíbe **proyectar lo
+   presente**. Filtrar es compatible con la doctrina y de hecho la refuerza — es el complemento de IMG-5.
+2. **Allowlist, jamás un `omit` de lo conocido.** Un `omit` falla **abierto** ante una clave nueva e
+   imprevista; la allowlist falla **cerrada**. Hay test que fija justo esa diferencia.
+3. **`null` ≠ ausente se conserva intacto.** Se copia la clave **si existe en el blob**, con su valor tal
+   cual: `rawCondition: null` sigue viajando como `null` con la clave presente, y un `setName` que el blob
+   no trae sigue **omitido**. La proyección **no crea claves**.
+
+**Alcance del cambio:** `readFrozenCardFacts` tiene dos lectores — `getOrder` (esta superficie) y
+`payments.service.ts` (el correo de confirmación de invitado, que solo lee `name`/`setName`/`number`).
+Ninguno pierde nada: los ocho hechos pasan intactos, solo se cae el ruido.
+
+### M-2 — divergencia nominal, alineada
+
+El alias interno se llamaba `HistoricOrderItemCardDTO`; el contrato **v1.51-c** lo nombra
+**`HistoricalOrderItemCardDTO`**. §5.2.9 lo marca opcional/sin puerta, así que era cosmético — pero un
+nombre que no existe en el contrato hace que quien lo busque no lo encuentre. Renombrados el alias y su
+cerrojo (`HISTORICAL_IS_RESOLVED_SHAPE`). **Sin cambio de conducta ni de forma.**
+
+### Nit de operador (fuera de orders, una sola cadena de texto)
+
+`src/modules/pricing/graded-phase2-verdict.ts:584`, caso `VIABLE`: la frase que **lee el operador** estaba
+rota —*«apagar el dial por una fila para además la actualización de todas las demás»*, sin verbo—. Ahora
+dice *«apagar el dial por una fila **DETENDRÍA** además la actualización de todas las demás»*. **Solo
+texto: ni una línea de lógica.**
+
+### Lo que otros roles necesitan saber
+- **frontend: nada cambia.** La forma servida es la misma que QA verificó contra el contrato v1.51-c. La
+  tolerancia del histórico (`HistoricalOrderItemCardDTO`, todo hecho opcional) sigue igual, y el render
+  degradado por campo del contrato §4 punto 4 sigue siendo el deber del cliente.
+- **QA:** el archivo pasó de **28 a 50 tests**. Los bloques nuevos son **IMG-5** (no rellenar) e **IMG-6**
+  (allowlist). Los dos se verificaron **en rojo** con su regresión correspondiente.
+- **devops:** sin migración, sin env, sin paso de despliegue.
+
+### Validación
+- `npm run typecheck`: **limpio**. · `npm run lint`: **0 errores** (los 2 warnings preexistentes y ajenos:
+  `inventory.service.ts`, `sealed-product.service.ts`).
+- `npm test`: **2 692/2 692 en 207 suites** (baseline **2 670**, +22 tests nuevos, **0 regresiones**).
+
+---
+
+## 0.17 — **La miniatura del carrito: resuelta EN LECTURA, no persistida** (2026-08-31, v1.51-b)
+
+> Propiedad: **backend**. Implementa ARCHITECTURE **§5.2** (doctrina del snapshot congelado) y
+> API_CONTRACT **v1.51-b** (`OrderItemCardDTO`). **Cero migraciones, cero backfill, cero cambios de
+> contrato, cero montos tocados.** Si vas a leer una sola cosa: **la miniatura NO se persiste**.
+
+### Qué estaba roto
+`OrdersService.cardSnapshot()` congelaba ocho hechos de la compra y **no** `imageSmallUrl`, así que
+las tres superficies que sirven líneas de compra pintaban un hueco gris: el **carrito**
+(`POST /checkout/quote`), el **checkout de invitado** (`POST /checkout/guest/quote`) y el **detalle de
+pedido** (`GET /orders/:orderId`). La causa raíz no era la línea olvidada: era que el retorno estaba
+tipado como **`object`**, así que el compilador no podía ver la divergencia con lo que el contrato
+promete. Cualquier campo futuro habría caído en la misma grieta.
+
+### La regla, en una frase
+**`imageSmallUrl` no se lee NUNCA del JSON —ni aunque alguien la escribiera ahí— y no se escribe
+NUNCA en él: se resuelve en lectura uniendo por el `cardId` congelado.** Un solo camino.
+
+| | Dónde vive | Quién la sirve |
+|---|---|---|
+| **Hechos congelados (clase F)** — `cardId`, `name`, `setName`, `number`, `productType`, `rawCondition`, `gradingCompany`, `gradeValue` | Persistidos en `OrderItem.cardSnapshot` (**sin cambios**) | Se sirven **tal cual se escribieron**; un re-sync de catálogo no los altera |
+| **`imageSmallUrl` (clase P)** | **No se persiste** | Join sobre `Card.imageSmallUrl` en la proyección de lectura |
+
+### Qué se tocó
+- **`backend/src/modules/orders/order-item-card.ts` (NUEVO).** Declara `FrozenCardFacts` (lo que se
+  persiste), `OrderItemCardDTO` (lo que viaja por el cable) y el cuerpo único de resolución
+  `resolveOrderItemCard()`, más `readFrozenCardFacts()` / `distinctCardIds()` / `CARD_IMAGE_SELECT`.
+  Incluye un **cerrojo de compilación** que rompe el build si la proyección deja de rendir el DTO del
+  contrato.
+- **`orders.service.ts`** — `OrderLineData.cardSnapshot: FrozenCardFacts` (era `object`) y
+  `cardSnapshot(): FrozenCardFacts` con retorno **anotado**: añadir ahí un campo de presentación es
+  ahora un **error de compilación**. Nueva proyección compartida `toOrderItemPreviews()` (los dos
+  quotes) y `loadCardsForSnapshots()` (una sola consulta batcheada para el histórico).
+- **`guest-checkout.service.ts`** — el quote de invitado usa el **mismo** cuerpo de proyección. El
+  defecto vivía duplicado en dos mapeos idénticos; ahora hay uno.
+- **`payments.service.ts`** — el correo de confirmación de invitado leía el blob con un cast ad-hoc y
+  una forma paralela; ahora usa `readFrozenCardFacts()`. Mismo comportamiento, una sola definición de
+  «qué trae el snapshot». **El correo no lleva imagen.**
+
+### Lo que otros roles necesitan saber
+- **`imageSmallUrl` es clave SIEMPRE presente, valor nullable.** `null` es un resultado **legítimo**
+  (la fila `Card` ya no existe, o su columna `String?` está vacía): el front pinta su placeholder, no
+  es un error, no se reintenta, no bloquea el checkout ni el pedido. Nunca se omite la clave.
+- **`OrderItemCardDTO` NO es `CardDTO`.** Son 8 hechos + `imageSmallUrl`. No trae `id`, `externalId`,
+  `imageLargeUrl`, `rarity`, `supertype`, `availableFinishes`… Quien necesite el `CardDTO` completo lo
+  pide por `GET /catalog/cards/:id` con el `cardId`.
+- **`productType` y `rawCondition` viajan DENTRO de `card`**, nunca al nivel del ítem. Cada preview es
+  exactamente `{ inventoryItemId, card, unitPriceCents }` — tres claves, ni una más. Hay test que lo
+  fija en las dos rutas de quote.
+- **Coste:** los dos quotes **no** hacen ninguna consulta extra (la imagen sale del `card` que ya se
+  carga para preciar). `GET /orders/:orderId` hace **+1 consulta batcheada** por los `cardId`
+  distintos del pedido (`select` de dos columnas). **Nunca N+1**, y cero consultas si el pedido no
+  tiene líneas o su blob no trae `cardId`.
+- **Sellado — límite declarado (ARCHITECTURE §5.2.6):** el snapshot ancla `cardId`, no
+  `sealedProductId`, así que en el historial una línea `productType='sealed'` rinde la imagen de la
+  **carta ancla** (la cola de la cascada de §4.34a). Es un límite conocido, **no un bug**, y no se
+  compensa con un join a `InventoryItem`. Mostrar la caja es alcance de producto: pasa por el
+  arquitecto.
+- **devops: nada que hacer.** No hay migración, ni env, ni paso de despliegue.
+
+### La prueba decisiva (para QA)
+`backend/src/modules/orders/img-order-item-card.spec.ts` — **28 tests**. El que separa una
+implementación correcta de una disfrazada:
+
+> ★ *«un pedido creado ANTES del arreglo (JSON sin imagen) DEVUELVE miniatura — sin migración ni
+> backfill»* (bloque IMG-4).
+
+El test construye una fila `OrderItem` con el blob **exacto** que escribía el código anterior (ocho
+claves, sin rastro de `imageSmallUrl`), afirma esa ausencia **antes** de llamar, y comprueba que
+`getOrder` devuelve la URL — y que el blob **sigue** sin la clave después (la resolución es en
+memoria, no un backfill encubierto). Como el histórico y los pedidos nuevos comparten el mismo código
+de lectura, un solo cambio arregló ambos.
+
+Cubierto además: batcheo real (una sola llamada, `cardId` deduplicados) · prohibición del puente por
+`inventoryItemId` (el mock de `InventoryItem` **revienta** si se consulta) · fila `Card` inexistente y
+columna nula ⇒ `null` con 200 · blob viejo sin `cardId` ⇒ `null` y cero consultas · la imagen
+**envenenada** dentro del JSON se ignora y gana el join · los hechos congelados sobreviven a un
+re-sync que renombró la carta · `cardSnapshot()` sigue congelando ocho claves y **ninguna** imagen ·
+money-safe en las tres superficies (montos y desgloses idénticos) · la guardia `FORBIDDEN` intacta.
+
+### Validación
+- `npm run typecheck`: **limpio**. · `npm run lint`: **0 errores** (2 warnings preexistentes, ajenos:
+  `inventory.service.ts`, `sealed-product.service.ts`).
+- `npm test`: **2 661/2 661 en 207 suites** (baseline 2 633 en 206 + 28 nuevos, **0 regresiones**).
+- **Nota de alcance:** el tipado nuevo puso en rojo dos fixtures de
+  `backend/test/guest-checkout.session.spec.ts` cuyo `cardSnapshot` mock no traía `cardId` ni
+  `productType` (justo el tipo de divergencia que el `object` ocultaba). Se completaron los fixtures —
+  cambio mínimo y necesario para dejar `typecheck` verde; ninguna aserción se modificó.
+
+---
+
+## 0.16 — **El ingest de estimados PSA trae CERO filas: el MAPA DE CAUSAS + los arreglos al diagnóstico** (2026-08-31, v1.51-b/-c)
+
+> Propiedad: **backend**. Nada de esto cambia el contrato (`GradedIngestResult` no viaja por HTTP) ni
+> el esquema de BD. Corrige el **diagnóstico**, no la fuente de datos.
+
+### Por qué existe esta sección
+En producción el dial `grading_hook_enabled` está en **`on`**, el barrido completo corrió, y el
+diagnóstico de curaduría de una carta real dice **«PSA 10: sin dato · PSA 9: sin dato»**: el ingest
+escribió **cero filas**. El obstáculo no era la fuente de datos — era que **el artefacto que existe
+para decir por qué está roto estaba dando causas falsas**. Primero se arregla el diagnóstico; con él ya
+honesto, la causa real se lee de una corrida.
+
+> **Estado v1.51-d (2026-08-31).** Producción ya escribe (hay estimados PSA reales), pero **muchas
+> cartas siguen sin dato**. §0.16.1 son los arreglos del primer pase (v1.51-b); **§0.16.3** son los
+> residuos que ese pase dejó — incluida la **tercera** instancia del defecto R1, que caía justo en la
+> causa #5 («set sin `pptSetId`»), o sea en la hipótesis principal de esas cartas faltantes.
+> **§0.16.4 es el pase que deja de perseguir instancias y pone el GUARDIÁN**: comprueba, corrida a
+> corrida, que el veredicto no cita ninguna línea de log que no exista — y con él cerró la cuarta y la
+> quinta instancia. **§0.16.5 es el remate**: hace el guardián automático (era opt-in), le añade el
+> invariante inverso (mencionar una línea obliga a citarla) y cierra la **sexta** instancia, que QA
+> encontró viva. **Si vas a leer una sola: §0.16.5.**
+>
+> ⚠️ **Matiz honesto sobre «cierra la CLASE» (QA, v1.51-e).** §0.16.4 afirmaba que el pase cerraba la
+> CLASE. Lo que cierra es la clase **en las instancias que la suite EJERCITA**: QA midió que **4 de los
+> 10 bloques** que la suite produce (`VIABLE`, `dial_off`, `ingest_config_invalid`, `no_scope`) emiten
+> **CERO citas**, así que ahí el invariante pasa **por vacuidad** — pasar no prueba nada. El guardián no
+> puede verificar una rama que ningún test hace correr; lo que garantiza es que **ninguna rama
+> ejercitada** pueda citar en falso, y —desde §0.16.5— que ninguna pueda **esquivar** la cita
+> nombrando la línea sin marcador. La cobertura de ramas sigue siendo trabajo de tests, no del
+> invariante.
+>
+> ⚠️ **Lectura de `SETS NO PEDIDOS` (importante para el dueño).** Hasta v1.51-c esa línea fundía dos
+> causas y no marcaba parcialidad. Desde v1.51-d hay **dos** líneas (`SETS NO PEDIDOS` = comprobado y
+> sin mapeo; `SETS SIN COMPROBAR` = el catálogo del proveedor no respondió) y una marca explícita
+> (`ALCANCE RECORRIDO: PARCIAL` / `COTA INFERIOR`) cuando el recorrido se cortó. **Un bloque anterior a
+> v1.51-d no distingue esas dos causas ni avisa de parcialidad: vuelve a correr antes de concluir.**
+
+---
+
+## 0.16.1 — Los arreglos al diagnóstico del primer pase (v1.51-b)
+
+### (R1) El veredicto daba DOS diagnósticos FALSOS
+`result.enabled = true` se asignaba **después** de las dos salidas tempranas de `ingestGradedEstimates`,
+y el veredicto usaba ese único booleano como «por qué no pasó nada»:
+
+| Situación real | Lo que el bloque `[VEREDICTO-PSA]` decía | Por qué es grave |
+|---|---|---|
+| Dial **`on`** + clave del ingest corrupta | *«el dial está en `off`» · «Enciende el dial»* | El operador mira el dial, **lo ve encendido**, y el único artefacto de diagnóstico le miente. La clave corrupta sigue ahí. **Es una causa candidata de las cero filas de hoy, disfrazada por su propio detector.** |
+| Sin inventario RAW en alcance | *«Revisa las líneas “PPT graded: EL REQUEST FALLÓ” del log»* | Esas líneas **no existen**: no hubo ninguna petición que pudiera fallar. Manda a buscar un log inexistente. |
+
+**Arreglo:** `enabled` desaparece como entrada del veredicto y lo sustituye el **motivo de la parada**
+(`dial_off` / `ingest_config_invalid` / `no_scope`), evaluado **al principio** de la cadena de
+precedencia, cada uno con **su** titular y **su** `nextStep`. En `ingest_config_invalid` se **NOMBRA la
+clave** (nuevo campo interno `GradedEstimateConfig.ingestInvalidKeys`, que **no** viaja al DTO).
+
+> ⚠️ **CORRECCIÓN v1.51-c (TL-GE6) — esta sección prometía una garantía que el tipo NO daba.** Decía:
+> *«el parámetro es obligatorio en `emitGradedVerdict`: una salida nueva que no declare su causa no
+> compila, que es el candado que impide la reincidencia»*. El techlead lo verificó y el candado era de
+> **ARIDAD**, no de corrección: `stopReason: GradedStopReason | null` obliga a pasar *un* argumento, no
+> *el correcto* — un `emitGradedVerdict(…, null)` en una salida temprana futura compilaba y reproducía
+> R1 palabra por palabra. Un docstring que promete de más es la misma clase de defecto que este pase
+> vino a matar, así que la promesa se corrige aquí y el candado se rehace de verdad en **§0.16.3
+> (TL-GE6)**: la entrada es hoy una **unión discriminada** (`GradedRunOutcome`). Lo que el tipo
+> garantiza ahora: una parada **no puede** traer conteos del proveedor, una observación **no puede**
+> omitir su recuento de peticiones, y `ingest_config_invalid` **exige** al menos una clave nombrada
+> (`readonly [string, ...string[]]`). Lo que **sigue sin garantizar** —y por eso se dice en vez de
+> prometerse—: que el motivo elegido sea el verdadero. Eso lo cubren los tests, no el compilador.
+
+### (TL-GE1) `COSTE MEDIDO` no era atribuible
+Se calculaba como `creditsBefore − creditsAfter` sobre `PptApiClient.lastDailyRemaining`, que es
+**estado del singleton del proceso**: lo pisa cualquier respuesta de PPT — incluido **el barrido de
+precios RAW, que corre justo antes en la misma corrida** (`jobs/price-ingest.service.ts` llama
+`ingestAll()` y después `runGradedEstimates()`). La línea le cobraba a la sonda créditos ajenos, y con
+el umbral duro de `>= 0.5 crédito/carta` podía disparar una **escalada de presupuesto falsa**. Como la
+cifra es precondición del primer `off → on` (§4.38r.3.1.1), tenía que ser real o no estar.
+
+**Arreglo:** se suma `metadata.apiCallsConsumed` **por respuesta graded** (`PptApiClient` ya lo extraía;
+`fetchGradedPage` lo tiraba). Si alguna respuesta no lo trae, **no se reporta ningún número**: el bloque
+dice `COSTE: NO SE PUDO AISLAR …` y explica por qué el contador diario no sirve. Se retiró el helper
+`creditsSpent(before, after)` y el campo `GradedEstimateFetchResult.dailyRemainingBefore`; el sustituto
+es `gradedApiCallsConsumed: number | null`. Con una parada temprana la línea dice `COSTE: 0 créditos`,
+que es exacto y cierra la duda «¿me cobraron por la corrida que no hizo nada?».
+
+### (TL-GE2/R2) «conteo inducido» tenía DOS definiciones
+El veredicto eximía a la SONDA (correcto: clasifica con `detectGradedShape`, que ignora `GRADED_FORMAT`
+a propósito); el ingest no la eximía. La misma corrida podía emitir *«S2 mayoritario pero NO se escala»*
+y, tres líneas abajo, *«NO_VIABLE ⇒ ESCALA AL ARQUITECTO»*.
+**Arreglo:** `shapeCountIsInduced({ probe, forcedFormat })` se exporta desde `graded-phase2-verdict.ts`
+y lo consumen **las dos** superficies.
+
+### (TL-GE3) La bandera de la sonda no avisaba ante un typo
+`gradedProbeRequested()` aceptaba `on|true|1|yes` y cualquier otro valor caía **en silencio** a `false`
+⇒ la corrida pide y **escribe**. Su hermana `gradedFormatOverride()` sí avisaba. **Arreglo (mínimo, sin
+tocar la semántica):** valor no vacío y no reconocido ⇒ `warn` explícito diciendo que la sonda quedó
+**apagada** y que la corrida SÍ escribirá. `off|false|0|no` se reconocen como negativos para no gritar
+por un valor escrito a propósito; el valor de retorno no cambia en ningún caso.
+
+---
+
+## 0.16.2 — **MAPA DE CAUSAS: todas las rutas por las que la corrida termina con CERO filas**
+
+Recorrido completo de `PriceIngestService.ingestGradedEstimates` y del camino graded de
+`PokemonPriceTrackerBulkProvider`. Orden = orden en que se evalúan. Todo se lee con
+`grep VEREDICTO-PSA` (el bloque final) y `grep graded-estimate-ingest` / `grep "PPT graded"` (el detalle).
+
+> **Dónde se corrige cada cosa.** `ENV` = variable de entorno del servicio en el **dashboard de
+> Railway** (requiere redeploy del servicio). `SETTING` = fila en la BD, se corrige **sin deploy** con
+> `PUT /admin/settings` o `PUT /admin/pricing/graded-estimates`. `DATOS` = inventario/catálogo.
+
+| # | Causa (cero filas) | Qué la dispara | Línea de log de hoy | `VEREDICTO-PSA` | Qué revisar (Railway / admin) |
+|---|---|---|---|---|---|
+| 1 | **Dial apagado** | `grading_hook_enabled` = `off` (seed) | `graded-estimate-ingest: dial 'grading_hook_enabled' = off → no se pide NADA` | `INDETERMINADO` · `stopReason=dial_off` | **SETTING** — `PUT /admin/settings {"gradingHookEnabled":"on"}`. Es el dial ÚNICO: encenderlo también publica las cifras. |
+| 2 | **Config del ingest corrupta** | `graded_estimate_min_sample_count`, `graded_estimate_source_stat` o `graded_estimate_ingest_max_cards_per_run` **presente-pero-INVÁLIDA** (p. ej. un `2000` guardado cuando el máximo pasó a 1 000) | `graded-estimate-ingest: el dial … está en 'on', pero la config del INGEST tiene clave(s) PRESENTE(S)-e-INVÁLIDA(S): <clave>` + `graded-estimate config: la clave '<clave>' está PRESENTE pero es INVÁLIDA` | `INDETERMINADO` · `stopReason=ingest_config_invalid` (con la clave **nombrada**) | **SETTING** — corrige **esa** clave con `PUT /admin/pricing/graded-estimates`. **No es el dial.** |
+| 3 | **Alcance vacío** | Cero `InventoryItem` con `ownerType='platform'`, `status='listed'`, `productType='raw'` | `graded-estimate-ingest: NINGUNA carta con inventario RAW publicado → no se pide nada` | `INDETERMINADO` · `stopReason=no_scope` | **DATOS** — publica al menos una pieza RAW. Un inventario en `draft`/`sold` **no cuenta**. |
+| 4 | **Sin llave del proveedor** | `POKEMONPRICETRACKER_API_KEY` ausente o `CHANGE_ME` | `PPT graded: falta POKEMONPRICETRACKER_API_KEY → no se ingesta` | `INDETERMINADO` · **«NO HUBO NI UNA PETICIÓN: falta POKEMONPRICETRACKER_API_KEY»** (v1.51-c, R1-ter: ya **no** comparte titular con #5 ni #9, y **no** manda a la línea «EL REQUEST FALLÓ», que aquí no existe) | **ENV** — `POKEMONPRICETRACKER_API_KEY` en Railway. |
+| 5 | **Set sin `pptSetId`** (comprobado) | Se consultó `GET /api/v2/sets` y el `CardSet` del inventario **no empató** (nunca se cae al `externalId`) | `PPT graded: set <sv8> sin pptSetId → no se pide nada` + `PptSetMapper: N/M sets SIN mapeo a PokemonPriceTracker` | `INDETERMINADO` · **«NO HUBO NI UNA PETICIÓN: N set(s) … NO tienen `pptSetId` (sv8, sv7)»** — con los sets **NOMBRADOS**. ⚠️ Si algún otro set sí se pidió, el veredicto puede ser **`VIABLE`** y aun así el bloque trae la línea **`SETS NO PEDIDOS:`** con estos sets (v1.51-c, R1-ter) | **DATOS** — remapear el set (`PptSetMapper` empata por NOMBRE contra `GET /api/v2/sets`). Si el set publicado no está mapeado, ese set **no se pide jamás**: es la causa más probable de «escribe algunas cartas y otras siguen sin dato». ⚠️ **v1.51-d:** confirma antes que el bloque **no** dice `ALCANCE RECORRIDO: PARCIAL` (si lo dice, el número es un mínimo) y que estos sets salen en `SETS NO PEDIDOS` y **no** en `SETS SIN COMPROBAR` (ésa es la #5-bis). |
+| 5-bis | **Mapeo NO COMPROBADO** (v1.51-d, R1-quater) | `GET /api/v2/sets` **no respondió** (cuota diaria agotada por el barrido RAW, o fallo de red) ⇒ de esos sets **no se sabe** si tienen `pptSetId`. Es la **#8 llegando por otra puerta** | `PptSetMapper: NO SE PUDO CONSULTAR /api/v2/sets — …` + `PPT graded: set <sv8> sin pptSetId → no se pide nada` (consecuencia, no causa) | `INDETERMINADO` · **«NO HUBO NI UNA PETICIÓN, y NO es que falte mapeo … NO SE PUDO COMPROBAR»** + línea **`SETS SIN COMPROBAR:`** | **Reintentar, NO mapear.** Con cuota: espera a las 00:00 UTC o corre el gancho **antes** del barrido RAW. Con fallo de red: revisa conectividad/llave contra `GET /api/v2/sets`. ⚠️ **Hasta v1.51-c esto se publicaba como la #5** («ve a mapearlos»): causa falsa y acción equivocada. |
+| 6 | **Sonda pedida por env** | `POKEMONPRICETRACKER_GRADED_PROBE=on\|true\|1\|yes` | `PPT graded: SONDA pedida por el operador … NO se escribe absolutamente nada` + bloque `PPT-GRADED-SONDA` | Puede ser `VIABLE` **con 0 escrituras** (`MODO: SONDA de SOLO LECTURA`) | **ENV** — **borra** `POKEMONPRICETRACKER_GRADED_PROBE` de Railway. Es la causa más fácil de pasar por alto: el veredicto dice «funciona» y aun así no escribe. |
+| 7 | **Sin formato de moneda** | Ni `POKEMONPRICETRACKER_GRADED_MARKET_FORMAT` ni `POKEMONPRICETRACKER_MARKET_FORMAT` (candado de dinero) | `PPT graded: sin POKEMONPRICETRACKER_MARKET_FORMAT (ni _GRADED_MARKET_FORMAT) → SONDA de SOLO LECTURA` | Igual que #6 | **ENV** — `POKEMONPRICETRACKER_MARKET_FORMAT=usd_dollars`. Sin moneda declarada **no se escribe dinero**, por diseño. |
+| 8 | **Cuota diaria agotada** | `429 limitType=daily`. ⚠️ **El barrido de precios RAW corre ANTES y gasta de la MISMA cuota**: si la agota, el gancho PSA nunca llega a pedir | `PPT graded: 429 DAILY en el set <sv8> → PARADA.` + `PPT /api/v2/cards: 429 DAILY (cuota diaria agotada) → PARADA` + `graded-estimate-ingest: 429 DAILY → PARADA`. ⚠️ Si la cuota se agota **antes**, al pedir el catálogo, la línea es la de la **#5-bis** | `INDETERMINADO` («la cuota diaria se agotó antes de obtener una sola respuesta») si pasa en la 1ª petición; si no, `MODO: … ⚠️ topó la CUOTA DIARIA`. **v1.51-d:** el `AHORA:` de esta rama cita `429 DAILY`, **no** «EL REQUEST FALLÓ» | **ENV/plan** — cuota del plan de PPT. Se resetea a las 00:00 UTC. Palancas: reducir el alcance del barrido RAW o correr el gancho en otro momento. |
+| 9 | **Credencial rechazada / set inexistente** | `401`/`403` (llave vencida o **plan sin eBay**) o `404` (pptSetId que ya no existe) | `PPT graded: EL REQUEST FALLÓ para el set … → revisa POKEMONPRICETRACKER_API_KEY (ausente, vencida o sin el plan que incluye eBay)` | `INDETERMINADO` · **«Se emitieron peticiones en N set(s) y NINGUNA respondió OK»** — es el ÚNICO caso que manda a leer «EL REQUEST FALLÓ», porque es el único donde esa línea existe. ⚠️ **v1.51-d (QA):** el **429 diario** (#8) NO cae aquí — tiene su propia línea (`429 DAILY … → PARADA`) y su propio `nextStep`; hasta v1.51-c también mandaba a «EL REQUEST FALLÓ», que en esa rama no se emite | **ENV** — la llave y, sobre todo, **si el plan incluye el bloque de eBay**. Un `403` aquí significa que el plan no da ventas PSA. |
+| 10 | **`includeEbay` + `fetchAllInSet` incompatibles** | El proveedor rechaza la combinación con un 4xx de parámetro | `⛔ graded-estimate-ingest ESCALADA AL ARQUITECTO … ebay_not_supported_with_set_sweep` | **`NO_VIABLE`** | **Nada que tocar** — es rediseño de coste y de barrido ⇒ **arquitecto (regla 9)**. No se degrada a «una petición por carta». |
+| 11 | **La respuesta no trae bloque PSA** | Ninguna entrada del set trae `ebay.salesByGrade` ni `gradedPrices` | `graded-estimate-ingest: set <X> devolvió entradas SIN bloque PSA → se SALTA`; si **ningún** set lo vio: `⛔ … no_graded_block_in_response` | `INDETERMINADO` («NINGUNA trae bloque PSA») | **Plan del proveedor / elección de sets** — repite con un set de cartas caras y muy vendidas. Si sigue vacío, el plan no expone ventas PSA ⇒ arquitecto. |
+| 12 | **Shape S2 (número pelado)** | PPT sirve `gradedPrices.psaN` escalar: sin `count` ni fecha de última venta | `graded-estimate-ingest: SHAPE NO PERSISTIBLE (S2, gradedPrices escalar)` (por carta) + `⛔ … shape_not_persistible_s2_dominant` | **`NO_VIABLE`** («ninguna configuración lo arregla») | **Nada que tocar** — decisión de producto/costo ⇒ **arquitecto**. La captura manual sigue funcionando. |
+| 13 | **Override de formato mal puesto** | `POKEMONPRICETRACKER_GRADED_FORMAT=graded_prices` fuerza `useS1=false` ⇒ todo se cuenta S2 aunque llegue S1 impecable | `graded-estimate-ingest: S2 mayoritario … pero NO se escala — la corrida fue con POKEMONPRICETRACKER_GRADED_FORMAT="…"` | `INDETERMINADO` («refleja lo que le pedimos mirar, no lo que sirve») | **ENV** — **borra** `POKEMONPRICETRACKER_GRADED_FORMAT` (o ponlo en `auto`). Un valor no reconocido ya emite `warn` y cae a `auto`. |
+| 14 | **Muestra insuficiente** | El objeto S1 trae `count` menor que `graded_estimate_min_sample_count` (seed **5**), o **no trae `count`** (desconocido ≠ suficiente) | `graded-estimate-ingest: DESCARTADA entrada (sample_too_small) … count=<n> muestra=…` | Puede ser `VIABLE` con `written=0` | **SETTING** — `graded_estimate_min_sample_count` vía `PUT /admin/pricing/graded-estimates` (rango `[1,100]`). Bajarlo **admite más ruido**: es dinero, decídelo a propósito. |
+| 15 | **Fecha de última venta ilegible** | El campo de evidencia no existe con ese nombre o no es fecha parseable (`YYYY-MM-DD`, ISO-8601 o epoch ms) | `graded-estimate-ingest: DESCARTADA entrada (evidence_unknown) …` — la muestra incluye `evidenceField` buscado | Puede ser `VIABLE` con `written=0` | **ENV** — `POKEMONPRICETRACKER_GRADED_EVIDENCE_FIELD` (default `lastSaleDate`). El nombre real se ve en la muestra cruda del drop. |
+| 16 | **Evidencia vieja** | La última venta es más antigua que `graded_estimate_freshness_days` (seed 30) | `graded-estimate-ingest: DESCARTADA entrada (evidence_too_old) …` | Puede ser `VIABLE` con `written=0` | **SETTING** — `graded_estimate_freshness_days`. Es el mismo dial que usa la lectura: subirlo exhibe datos más viejos. |
+| 17 | **El stat pedido no está** | `graded_estimate_source_stat` = `median` ⇒ se busca `medianPrice` (`average`→`averagePrice`, `smart`→`smartMarketPrice`); si falta o no es número positivo | `graded-estimate-ingest: DESCARTADA entrada (unrecognized_shape \| not_a_positive_amount) …` | Puede ser `VIABLE` con `written=0` | **SETTING** `graded_estimate_source_stat` / **ENV** `POKEMONPRICETRACKER_GRADED_FIELD`. La muestra cruda del drop dice qué campos sí vinieron. |
+| 18 | **El grado no se pide** | `graded_estimate_grades` (seed `["10","9"]`) no incluye el grado que trae la respuesta | *(silencioso: el grado se OMITE sin drop — es un estado normal)* | Puede ser `VIABLE` con `written=0` | **SETTING** — `graded_estimate_grades`. |
+| 19 | **La carta no se resuelve** | La fila del proveedor no casa por `externalId` ni por `number` (ni por variantes) con ninguna carta **en alcance** | *(silencioso salvo ambigüedad: `el número "X" … casa con N cartas del set → se OMITE`)* | Puede ser `VIABLE` con `written=0` | **DATOS** — `Card.externalId` / `Card.number` del catálogo local frente a los del proveedor. ⚠️ **Es la ruta con menos traza de todo el mapa** (ver TECH_DEBT TL-GE5). |
+| 20 | **INV-D: slab publicado** | La carta ya tiene un **slab publicado** de ese grado ⇒ esa fila es el precio REAL de una pieza | `graded-estimate-ingest: SALTADA card=… PSA <n> — hay slab PUBLICADO de ese grado (INV-D)` | `VIABLE`, `written` menor de lo esperado | **Nada que arreglar** — es la guarda de dinero funcionando (misma regla que el `409` del override manual). |
+| 21 | **Override manual / fila de mercado** | Ya existe una fila del día con `isManualOverride=true` (o `refKind='market'`) y el ingest **no la pisa** | *(contador `skippedManual` en la línea de resumen)* | `VIABLE`, `written` menor de lo esperado | **Nada que arreglar** — el ingest jamás degrada dinero real a estimado. Borra el override si quieres que el automático mande. |
+
+### Lo que este mapa **no** cubre
+Que la cifra ya escrita **se exhiba**. Eso es el gate de lectura (frescura por `capturedDate`, cotas de
+magnitud, `graded_estimate_max_raw_multiple`, dial de vitrina) y tiene su propio diagnóstico en el
+preview de curaduría (`reason: FEATURE_OFF` / `NO_COST_TIER` / `STALE`…). Aquí solo está **por qué no se
+escribió**.
+
+### La secuencia mínima para el operador (una corrida, una respuesta)
+1. Dispara `POST /admin/jobs/price-ingest` con body `{}` (con `setId` **el gancho PSA no corre**).
+2. `grep VEREDICTO-PSA` en el log de Railway. El bloque trae `VEREDICTO`, `QUÉ LLEGÓ`, `MODO`, `COSTE`
+   y **`AHORA:`** — esa última línea es la única acción siguiente.
+3. Si aparece **`SETS NO PEDIDOS:`**, esos sets no se pidieron NUNCA (fila #5) — sus cartas no tienen
+   dato por eso, no por el proveedor. Es compatible con `VEREDICTO: VIABLE`.
+4. Si `MODO: SONDA`, no hubo escrituras **por diseño**: filas #6 y #7.
+5. Si `VEREDICTO: NO_VIABLE`, la decisión es del **arquitecto** (filas #10 y #12), no de configuración.
+
+---
+
+## 0.16.3 — **Residuos del pase anterior: la TERCERA instancia de R1, y el candado que no cerraba** (v1.51-c)
+
+> Propiedad: **backend**. Sin cambio de contrato ni de esquema. Sigue siendo **diagnóstico**: ni una
+> ruta de escritura de dinero cambia, y la sonda sigue siendo solo-lectura por construcción.
+
+### (R1-ter) El mismo defecto de R1, en las dos causas MÁS PROBABLES del cero de producción
+R1 cerró dos instancias («config inválida» y «alcance vacío») y **dejó viva la tercera**: la rama
+`!requestOk` del veredicto seguía diciendo *«Revisa las líneas “PPT graded: EL REQUEST FALLÓ” del
+log»* **también cuando no hubo NINGUNA petición**. Se llega ahí por dos caminos que el propio mapa de
+causas lista como **#4** y **#5**:
+
+| Camino | Qué hace el provider | Qué línea SÍ existe en el log |
+|---|---|---|
+| Sin `POKEMONPRICETRACKER_API_KEY` | `return empty` **antes** de llamar | `PPT graded: falta POKEMONPRICETRACKER_API_KEY` |
+| **Set sin `pptSetId`** | `return empty` **antes** de llamar | `PPT graded: set <X> sin pptSetId → no se pide nada` |
+
+En ninguno de los dos existe la línea «EL REQUEST FALLÓ» — y **«set sin `pptSetId`» es hoy la hipótesis
+principal de las cartas que en producción siguen sin dato**, así que el mensaje mandaba a buscar
+exactamente donde no hay nada.
+
+**Arreglo:**
+- `GradedEstimateFetchResult` gana **`noRequestReason: 'missing_api_key' | 'set_without_ppt_set_id' |
+  null`**: el provider distingue «no se pidió» de «se pidió y falló». `null` = hubo petición (incluye el
+  rechazo de parámetro, que es un 4xx real).
+- El orquestador lo acumula a escala de corrida en **`GradedRequestTally`** (`attempted`,
+  `missingApiKey`, `setsWithoutPptSetId[]`) y lo pasa dentro del `outcome`.
+- El veredicto tiene **una rama por causa**, cada una apuntando a la línea de log **que sí existe**; y
+  cuando la causa es `pptSetId`, **NOMBRA los sets** (`sv8, sv7`) en el titular y en el `AHORA:`.
+- Nueva línea del bloque **`SETS NO PEDIDOS:`** — se imprime **aunque el veredicto sea `VIABLE`**, que
+  es justo el estado de producción («escribe estimados de un set y a la vez nunca pidió los otros»).
+  Sin ella había que deducirlo del log de `PptSetMapper`.
+
+### (TL-GE2-bis) El cierre de TL-GE2 introdujo una afirmación FALSA en el texto que va al ARQUITECTO
+El `detail` de la escalada `shape_not_persistible_s2_dominant` decía, literal: *«Evidencia:
+GRADED_FORMAT=auto (autodetección, sin override)»*. En la rama que **el propio TL-GE2 acababa de abrir**
+(`probe=true` + formato forzado ⇒ la sonda sí escala, porque su conteo no está inducido)
+`forcedFormatSeen` vale `graded_prices`: el texto que sostiene una decisión de **presupuesto** afirmaba
+un hecho falso sobre la corrida que lo produjo, mientras el `AuditLog` de tres líneas más abajo llevaba
+el valor verdadero. **Arreglo:** la frase se **deriva** de «el conteo NO está inducido» (que es lo que
+quiere decir) en vez de un literal, y nombra la razón real en cada caso (`auto` ⇒ autodetección pura;
+sonda ⇒ `detectGradedShape` ignora el override). El test de la sonda ahora **asierta sobre `detail`**
+(no lo hacía: por eso pasó).
+
+### (QA-GE2) Una conclusión sobre el modelo de cobro sacada de CERO observaciones
+Con `creditsSpent: 0` y `cardsReturned: 0` (p. ej. todos los sets sin `pptSetId`) la línea imprimía
+*«COSTE MEDIDO: 0 crédito(s) por 0 carta(s) DEVUELTAS … Compatible con “se cobra por PETICIÓN”»*. No
+tocaba dinero (`perCard` era `null`), pero era una regresión del propio diagnóstico. **Arreglo:** cuarto
+estado explícito — con cero cartas devueltas se dice **`NO SE PUEDE MEDIR`** y no se afirma nada del
+modelo de cobro.
+
+### (TL-GE6) El candado de R1 era de ARIDAD; hoy es de FORMA
+La entrada del veredicto era plana (`stopReason` + `invalidConfigKeys` + `requestOk` + `shapeCounts` +
+`forcedFormat` como hermanos). Hoy es la unión **`GradedRunOutcome`**:
+
+```ts
+| { kind: 'stopped'; reason: 'dial_off' | 'no_scope' }
+| { kind: 'stopped'; reason: 'ingest_config_invalid'; invalidConfigKeys: readonly [string, ...string[]] }
+| { kind: 'observed'; requestOk; requests: GradedRequestTally; shapeCounts; forcedFormat }
+```
+
+Con esto, **(a)** una parada no puede fingir conteos, **(b)** una observación no puede omitir su causa
+de parada (no paró), **(c)** `ingest_config_invalid` **exige** una clave nombrada — lo que elimina de
+raíz el default `invalidConfigKeys = []` que degradaba en silencio a «no identificada(s)» — y **(d)** el
+bloque ya no imprime `GRADED_FORMAT=auto` cableado en las paradas (nada actuó sobre nada). Los tres
+estados prohibidos están probados con **`@ts-expect-error`**: si alguien vuelve a aplanar la entrada,
+`graded-estimate.probe.spec.ts` **deja de compilar**.
+
+**Lo que el tipo NO garantiza (y no se promete):** que el motivo declarado sea el verdadero. La única
+guarda ahí son los tests de corrida real (dial `on` + clave corrupta, alcance vacío, set sin `pptSetId`,
+sin API key), que comprueban el bloque emitido por el job entero, no la función pura.
+
+**Tests:** `test/graded-estimate.probe.spec.ts` — 61 (13 nuevos: 7 de R1-ter, 3 de QA-GE2, 3 de TL-GE6).
+
+---
+
+## 0.16.4 — **El GUARDIÁN: el veredicto no puede citar una línea de log que no existe** (v1.51-d)
+
+> Propiedad: **backend**. Sin cambio de contrato ni de esquema. **Ni una ruta de escritura de dinero
+> cambia**; la sonda sigue siendo solo-lectura por construcción y S2 sigue NO PERSISTIBLE.
+
+### El diagnóstico del proceso (por qué este pase NO empieza por las instancias)
+Van **tres** pases sobre el mismo defecto y cada uno cerró instancias dejando otra viva: R1 cerró dos,
+R1-ter la tercera, el techlead encontró la **cuarta** y QA la **quinta**. El invariante que se rompe
+**no** es «el tipo permite un estado imposible» —eso lo cerró `GradedRunOutcome` en §0.16.3— sino:
+
+> **el mensaje cita una evidencia que en ese estado no existe.**
+
+Mientras esa cita fuera **prosa libre verificada a mano**, la instancia número seis estaba garantizada.
+Así que el encargo #1 de este pase es el **guardián**, y las instancias vienen después.
+
+### (TL-GE7) El guardián, en dos piezas
+**1. Una constante por línea, compartida.** `backend/src/modules/pricing/graded-log-lines.ts` declara
+las marcas del camino graded (`missingApiKey`, `setWithoutPptSetId`, `requestFailed`, `dailyStop`,
+`mapperUnmatched`, `mapperUnavailable`, `ingest`). El que **emite** (`PokemonPriceTrackerBulkProvider`,
+`PptSetMapper`) usa `emitirLineaGraded(marca, …valores)` y el que **cita** (`gradedPhase2Verdict`) usa
+`citarLineaViva(marca)` / `citarLineaAusente(marca)`. Nunca dos literales que se parecen. Las partes
+variables de la línea (id de set, contadores) van como `…` en la marca: `emitirLineaGraded` las rellena
+y el guardián las trata como comodín, así que **la cita y la emisión son la misma cadena por
+construcción**.
+
+**2. Citar es afirmar, y se verifica.** `citarLineaViva` produce `«…»` = *«esta línea está en el log de
+ESTA corrida»*; `citarLineaAusente` produce `"…" (NO existe en esta corrida)` = lo contrario. El
+guardián (`test/graded-run.harness.ts` → `verificarCitasDelVeredicto`) toma **todos** los logs de una
+corrida real, saca las citas del bloque `[VEREDICTO-PSA]` y exige que las vivas aparezcan en el pajar y
+las ausentes no. El pajar **excluye el propio bloque**, o el guardián sería un espejo.
+
+**Verificación retroactiva (lo que hace que el guardián valga algo).** Se re-introdujeron las dos
+instancias de este pase en el código y se corrió **solo el invariante**, sin ninguna aserción de
+contenido. Las cazó las dos:
+
+| Instancia re-introducida | Lo que el guardián reportó |
+|---|---|
+| QA (429 daily): `nextStep` incondicional | `vivasHuerfanas: ["PPT graded: EL REQUEST FALLÓ"]` |
+| R1-quater: catálogo caído tratado como «sin mapeo» | `vivasHuerfanas: ["PptSetMapper: … sets SIN mapeo a PokemonPriceTracker"]` |
+
+El techlead predijo que «habría cazado R1-quater». Lo hace, y también la quinta.
+
+### (QA) El `429 DAILY` mandaba a un log inexistente
+La rama «se pidió y falló» tenía titular con variante para `dailyLimited`, pero un `nextStep`
+**incondicional** que mandaba a `PPT graded: EL REQUEST FALLÓ`. `PptDailyLimitError` tiene **su propia
+rama** en el provider (`PPT graded: 429 DAILY en el set … → PARADA.`) y `EL REQUEST FALLÓ` es el
+`else`, así que con la cuota agotada el `grep` del operador no devuelve nada. Es alcanzable en
+producción: el barrido RAW corre en la misma corrida y consume del mismo contador diario.
+
+**Arreglo:** cada titular cita **su** línea. Con `dailyLimited` se cita `dailyStop` y se manda a esperar
+al reinicio (o a correr el ingest antes del barrido RAW). **No** se afirma nada sobre `EL REQUEST
+FALLÓ` en esa rama: con la cuota agotada puede existir (si otro set falló antes por otra causa) o no, y
+el veredicto no tiene cómo saberlo — así que no se afirma ninguna de las dos cosas.
+
+### (R1-quater, techlead §1) `set_without_ppt_set_id` MENTÍA cuando el mapper no pudo correr
+`PptSetMapper.resolveForSets` devolvía `Map<localSetId, string | null>` y ese `null` significaba **dos
+cosas incompatibles**:
+
+| `null` significaba | Causa del mapa | Acción correcta |
+|---|---|---|
+| «se consultó `/api/v2/sets` y este set NO empató» | #5 | **Mapear** el set (revisar el nombre) |
+| «NO se pudo consultar `/api/v2/sets`» (cuota agotada por el barrido RAW, o red) | #8 | **Reintentar** — no hay nada que mapear |
+
+Las dos llegaban aguas abajo como `noRequestReason: 'set_without_ppt_set_id'` y el veredicto publicaba
+*«N sets NO tienen `pptSetId` mapeado … ve a mapearlos»* **también en el segundo caso**: causa falsa,
+acción equivocada y cita a `PptSetMapper: … sets SIN mapeo`, que esa rama **no emite**. Los tres
+defectos de R1 otra vez — y la causa #8 disfrazada de la #5, que es justo la «hipótesis principal de
+las cartas sin dato».
+
+**Arreglo (por TIPO, no por mensaje — la lección del hilo es que los mensajes se desincronizan):**
+- `PptSetMapping` (unión discriminada) sustituye al `string | null`: `{pptSetId}` |
+  `{pptSetId: null, reason: 'unmatched'}` | `{pptSetId: null, reason: 'mapper_unavailable', cause}`.
+- `GradedRequestTally` separa `setsUnmatched` de `mapper: {available:false, cause, sets}` — y el tipo
+  **exige** causa **y al menos un set nombrado** (`readonly [string, ...string[]]`), misma técnica que
+  `invalidConfigKeys` en TL-GE6.
+- El veredicto tiene una rama propia, que **va antes** que la de `setsUnmatched`: no se puede afirmar
+  «no está mapeado» si no se pudo mirar. Titular propio (`NO SE PUDO COMPROBAR`), acción propia
+  (esperar al reinicio de cuota vs. revisar la red) y línea propia (`PptSetMapper: NO SE PUDO CONSULTAR
+  /api/v2/sets`, una sola marca para las dos causas).
+- Bloque: `SETS NO PEDIDOS` (sin mapeo) y `SETS SIN COMPROBAR` (catálogo caído) son **líneas distintas**.
+
+### (techlead §2) La exhaustividad se cierra con un candado, no con un comentario
+`no_scope` se atrapaba con `else if (o.kind === 'stopped')`, o sea **por descarte**: un motivo nuevo
+heredaría en silencio el titular de «inventario RAW vacío» — el defecto (b) de R1 palabra por palabra.
+Hoy las paradas viven en `stoppedVerdict`, que discrimina por `reason` y cierra con `const
+motivoSinRama: never = o`. Para que ese `never` sea real, las paradas simples se distribuyen con un
+mapped type (TypeScript filtra **miembros** de una unión, no reduce la unión de literales dentro de un
+miembro). **Cero cambio de conducta hoy**; lo que cambia es que un motivo nuevo **no compila** hasta que
+alguien le escriba su rama. En tiempo de ejecución no se lanza (un diagnóstico no puede tumbar el job):
+se dice el nombre del motivo y que le falta rama.
+
+### (QA) `SETS NO PEDIDOS: N` era una COTA INFERIOR redactada como total
+Decía «N set(s) **del alcance**», pero el bucle se corta: tope de sonda, `break` por cuota diaria,
+`return` de escalada — y el alcance mismo puede venir recortado por `ingestMaxCardsPerRun`. Una corrida
+SONDA podía imprimir «1 set(s)» habiendo 20 sin mapear, sin marca de parcialidad.
+
+**Arreglo:** `GradedRequestTally.sweepComplete` (= se visitaron todos los sets del alcance **y** el
+alcance no venía recortado). Cuando es `false`, las líneas de sets llevan `⚠️ COTA INFERIOR …` y el
+bloque añade `ALCANCE RECORRIDO: PARCIAL`. La marca sale **aunque no haya sets pendientes**: «cero sets
+sin mapear» sobre un recorrido cortado engaña igual que un total inflado.
+
+### (techlead §7) El docstring de `observed`, corregido — sin tercera variante
+Decía «se llegó a hablar (o al menos a intentar hablar) con el proveedor», y eso es falso para «todos
+los sets sin `pptSetId`», que llega con `kind:'observed'` y `attempted: 0`. Es **exactitud de
+comentario, no defecto de conducta**: se corrige el comentario (hoy dice «la corrida no paró antes de
+tiempo: llegó al bucle de sets») y **no** se monta una tercera variante. Quien quiera saber si se le
+habló al proveedor lo tiene en `requests`, que es el dato explícito.
+
+### Qué cambió, archivo por archivo
+| Archivo | Qué |
+|---|---|
+| `src/modules/pricing/graded-log-lines.ts` | **nuevo** — las marcas compartidas + `emitirLineaGraded` / `citarLineaViva` / `citarLineaAusente` / `citaCoincideConLinea` |
+| `src/modules/pricing/ppt-set-mapper.service.ts` | `PptSetMapping`; `resolveForSets` devuelve el motivo; la rama del catálogo caído emite su marca propia |
+| `src/modules/pricing/providers/pokemonpricetracker-bulk.provider.ts` | las 4 líneas citables se emiten desde la constante (texto de salida **idéntico**) |
+| `src/modules/pricing/price-ingest.service.ts` | consume `PptSetMapping`; separa `setsUnmatched` de `mapperUnavailable`; cuenta sets visitados ⇒ `sweepComplete` |
+| `src/modules/pricing/graded-phase2-verdict.ts` | tally partido; rama del catálogo caído; cita por causa en `dailyLimited`; `stoppedVerdict` con `never`; líneas `SETS SIN COMPROBAR` / `ALCANCE RECORRIDO` |
+| `test/graded-run.harness.ts` | **nuevo** — cableado de corrida real (mapper REAL opcional, `fetch` enrutado por URL) + el guardián |
+| `test/graded-verdict-guard.spec.ts` | **nuevo** — 19 casos: el guardián sobre corridas reales, el caso MIXTO de producción y la parcialidad |
+
+**Tests:** 2 633 en 206 suites (antes 2 612 / 205). `test/graded-verdict-guard.spec.ts` 19 nuevos;
+`graded-estimate.probe.spec.ts` +1 (candado de exhaustividad de paradas);
+`ppt-set-mapper.service.spec.ts` +1 (fallo NO-diario ⇒ «no se pudo comprobar»).
+
+**Deuda anotada:** `TECH_DEBT.md` → **TL-GE7-D1** (una sola causa por corrida en `SETS SIN COMPROBAR`;
+sin caché negativa de `/api/v2/sets`). **TL-GE4** y **TL-GE5** siguen abiertas; la última frase de
+TL-GE5 se corrigió en este pase (leer `SETS NO PEDIDOS` ya no es «gratis» sin las dos cautelas).
+
+---
+
+## 0.16.5 — **El remate: el guardián deja de ser OPT-IN, la cita deja de ser esquivable, y la instancia #6** (v1.51-e)
+
+> Propiedad: **backend**. Sin cambio de contrato ni de esquema. **Ni una ruta de escritura de dinero
+> cambia**: la suite completa sigue verde (2 670 tests / 207 suites) y el caso `VIABLE` sigue
+> escribiendo exactamente una fila.
+
+### El diagnóstico del techlead, y por qué este pase es el que cierra la discusión
+El pase anterior puso el guardián y declaró la clase cerrada. El techlead contestó que **habría una
+sexta instancia y por dónde entraría**, y enumeró tres agujeros (R-1, R-2, R-3). Los tres son la misma
+observación: *el mecanismo que existe para no depender de la disciplina humana seguía dependiendo de
+ella*. Se cierran aquí, y QA además **reprodujo la sexta instancia viva** en el commit anterior.
+
+### (R-1) El guardián era OPT-IN — y eso es lo que había fallado cuatro veces
+`esperarVeredictoCitable` era una llamada que cada test decidía hacer. En el propio
+`graded-verdict-guard.spec.ts` había **dos** casos que montaban corrida real sin llamarla, y
+`graded-estimate.probe.spec.ts` capturaba logs y **nunca** pasaba por el guardián.
+
+**Arreglo — capturar logs ES suscribirse.** `capturarLogs()` apunta su buffer en un registro de módulo
+y `test/graded-run.harness.ts` declara un `afterEach` de nivel superior que corre el invariante sobre
+**todo** buffer capturado en el test que acaba de terminar. Como el `import` se evalúa antes que
+cualquier `afterEach` del `.spec`, el guardián corre **primero** (antes de un `jest.restoreAllMocks()`).
+Escribir «un test de corrida sin guardián» ya no es una opción por omisión: hay que pedirlo por su
+nombre con **`sinGuardianPorque(motivo)`**, que exige motivo no vacío, se ve en el diff y **se
+verifica**: si el test SÍ emitió bloque `VEREDICTO-PSA`, la exención falla por **sobrante**. Hoy hay
+exactamente **5** exenciones, todas del mismo tipo (tests que llaman al PROVIDER suelto, sin corrida).
+
+**Lo primero que cazó al dejar de ser opt-in.** Un test de `probe.spec` que cableaba el mapper con un
+doble: el doble devolvía `reason:'unmatched'` **sin emitir la línea del mapper**, así que el veredicto
+citaba `«PptSetMapper: … sets SIN mapeo»` sobre unos logs donde no existía. No era un defecto de
+producción (el mapper real emite esa línea en la MISMA llamada que devuelve `unmatched`) sino un
+**doble que mentía sobre el estado del mundo**. Se arregló en el DOBLE —`wireJob` emite ahora las dos
+marcas del mapper por la MISMA constante—, no en el guardián ni en el veredicto.
+
+### (R-2) La cita solo estaba vigilada si llevaba `«»`, y la forma histórica del defecto no las lleva
+`extraerCitasVivas` solo ve comillas angulares. Nada impedía escribir
+`Revisa las líneas "PPT graded: EL REQUEST FALLÓ" del log` —con comillas rectas o tipográficas y sin
+marcador— y el guardián era **ciego**. No es hipotético: **ése es el texto literal de R1 original**.
+
+**Arreglo — el invariante INVERSO.** `mencionesSinMarcar()` (en `graded-log-lines.ts`) exige que en el
+texto del bloque **ninguna** ocurrencia de una marca de `GRADED_LOG_LINES` —ni de sus prefijos
+`PPT graded:` / `PptSetMapper:`— quede fuera de un marcador de cita. Se comprueba en el mismo
+`esperarVeredictoCitable`, o sea en toda corrida guardada. Con eso, **mencionar una línea obliga a
+citarla**, y citarla la mete en el invariante directo. La aguja del mapper lleva los dos puntos a
+propósito: hablar del **servicio** `PptSetMapper` (que el `nextStep` hace, legítimamente) no es citar su
+**línea**.
+
+### (R-3) El `else` que afirmaba «hubo petición» no tenía candado
+`price-ingest.service.ts` clasificaba con `if / else if / else`: un **cuarto** motivo de «no se pidió»
+(circuit-breaker, skip por scope, rate-limit local) caería en el `else`, incrementaría
+`requests.attempted` y el veredicto mandaría al operador a **«EL REQUEST FALLÓ» por una petición que
+nunca se emitió**. Es el defecto (b) de R1 palabra por palabra, en el dato que **gobierna la cita**.
+Mismo patrón ocho líneas abajo: un tercer `reason` en `PptSetMapping` (p. ej. `'ambiguous'`) heredaría
+en silencio el titular «no está mapeado».
+
+**Arreglo:** `switch` con `const … : never` sobre **las dos** uniones. **Conducta hoy: idéntica.**
+Verificado con contraejemplo: añadir `'circuit_breaker'` a `noRequestReason` y `'ambiguous'` a
+`PptSetMapping` **rompe la compilación** en las dos líneas del candado. En ejecución no se lanza (un
+diagnóstico no puede tumbar el job) y el motivo desconocido es **fail-closed**: NO cuenta como petición
+emitida, así que el veredicto cae en el titular honesto («ninguna causa conocida ⇒ repórtalo») en vez
+de mandar a un log que quizá no existe.
+
+### (QA) La instancia #6, viva en el commit anterior: `unavailable` y `unmatched` COEXISTEN
+La rama «el catálogo no se pudo consultar» afirmaba **incondicionalmente** dos cosas que solo son
+ciertas si no hay además sets sin mapear: «**NO es que falte mapeo**» y que
+`PptSetMapper: … sets SIN mapeo` **no existe en esta corrida**. Pero los dos estados conviven sin
+esfuerzo, porque `PptSetMapper.loadRemoteSets` **cachea solo el ÉXITO**: un fallo transitorio de
+`/api/v2/sets` en el set A y un éxito en el set B dan `mapper.available:false` **y**
+`setsUnmatched:[B]` a la vez. Resultado medido: el bloque citaba la **misma línea** como VIVA (en
+`SETS NO PEDIDOS`) y como AUSENTE (en el `AHORA:`), y le daba al operador la acción equivocada para el
+set que sí necesita mapeo.
+
+**Arreglo:** las dos afirmaciones se condicionan a `sinMapeo.length === 0`. Cuando conviven, el titular
+publica **las DOS causas numeradas** y el `nextStep` **las DOS acciones** (reintentar los sin comprobar,
+mapear los sin mapeo), citando `mapperUnavailable` **y** `mapperUnmatched` como vivas —porque las dos lo
+están— y solo `requestFailed` como ausente. **Con test de corrida real** (dos sets, `/api/v2/sets` que
+falla la primera vez y responde la segunda) y su contraste, para que el titular «NO es que falte mapeo»
+siga saliendo cuando de verdad no falta.
+
+### (A7, sugerencia del techlead — **probada**, no aceptada a ciegas)
+Proponía sustituir el mapped type distributivo de `GradedSimpleStop` por `const sinRama: never =
+o.reason`, con la reserva de que no había podido compilarlo. **Funciona**: TypeScript estrecha el acceso
+a propiedad `o.reason` por flujo de control aunque no pueda descartar el miembro, así que se llega a
+`never` igual. Se comprobaron las dos direcciones antes de tocar nada —la versión simple compila, y
+añadir un motivo a `GradedStopReason` **rompe la compilación**— y se simplificó. Cuatro líneas de tipos
+crípticos menos, garantía idéntica.
+
+### Precisión de dos afirmaciones que se habían pasado de fuertes
+- **`TECH_DEBT.md` TL-GE7-D1 punto 1** decía «no produce ninguna cita falsa». Ese razonamiento cubría
+  *unavailable + unavailable*, **no** *unavailable + unmatched* — que sí la producía, y era la instancia
+  #6. Corregido allí, con el alcance exacto de lo que sigue siendo deuda.
+- **§0.16.4** decía que el pase «cierra la CLASE». Matizado arriba: cierra la clase en las instancias
+  que la suite **ejercita** (4 de 10 bloques no emiten ninguna cita ⇒ el invariante pasa por vacuidad).
+- **El docstring de `graded-log-lines.ts`** decía que emisor y citador leen la misma constante «incluido
+  `PriceIngestService`». Para la marca `ingest` es **falso** (se emite como literal crudo en ~20 sitios).
+  No hay defecto —el guardián verifica contra logs REALES—, pero la frase ahora dice exactamente hasta
+  dónde llega la promesa.
+
+### Los dos cerrojos del carrito (T-1, T-2)
+- **T-1 — el cerrojo de compilación no hacía lo que su comentario juraba.** `OrderItemCardDTO extends
+  ReturnType<…>` es **asignabilidad en una sola dirección**: borrar `imageSmallUrl` compilaba, hacerla
+  opcional compilaba y ensancharla a `string | null | undefined` compilaba. Hoy es una **igualdad**
+  (`Equals<A,B>` invariante, en las dos direcciones) y **las tres roturas se comprobaron una a una: las
+  tres NO compilan**. El comentario se reescribió para describir lo que la aserción cubre de verdad — y
+  para no prometer nada sobre lo que viaja por el cable en ejecución, que lo fijan los tests.
+- **T-2 — la tercera superficie era la única sin frontera tipada.** Los dos quotes cruzaban
+  `toOrderItemPreviews(...)` con retorno anotado; el **histórico** —el de garantía más débil, porque lee
+  `Json`— proyectaba en línea dentro de un `return` de ~25 claves, con tipo inferido y contrastado con
+  nada. Ahora tiene su proyección hermana **`toHistoricItemPreviews(items, facts, cardsById)`** con
+  retorno declarado (`HistoricOrderItemCardDTO = PersistedCardFacts & { imageSmallUrl: string | null }`)
+  y **su propio cerrojo de igualdad**. Ese tipo **no** es `OrderItemCardDTO`, y la diferencia es
+  deliberada: el contrato describe las ocho claves como presentes y para un blob histórico incompleto
+  eso solo se puede prometer con una tolerancia que **norma el arquitecto** (T-3, enrutado — regla 9).
+  Aquí se declara lo que el código produce; no se ensancha el contrato por cuenta propia.
+
+### Archivos tocados
+| Archivo | Qué cambia |
+|---|---|
+| `src/modules/pricing/graded-log-lines.ts` | `mencionesSinMarcar()` + agujas/prefijos (R-2); docstring con el alcance real de «una sola constante» |
+| `src/modules/pricing/graded-phase2-verdict.ts` | rama fundida `unavailable` + `unmatched` (instancia #6); `GradedSimpleStop` sin mapped type y `never` sobre el discriminante (A7) |
+| `src/modules/pricing/price-ingest.service.ts` | dos `switch` con `never` (R-3), fail-closed en el motivo sin rama |
+| `src/modules/orders/order-item-card.ts` | `Equals<>` + cerrojo de igualdad (T-1); `HistoricOrderItemCardDTO` + su cerrojo (T-2) |
+| `src/modules/orders/orders.service.ts` | `toHistoricItemPreviews(...)` anotada; `getOrder` la usa (T-2) |
+| `test/graded-run.harness.ts` | registro + `afterEach` del guardián automático y `sinGuardianPorque` (R-1); el mapper doble emite las marcas reales; complemento en `verificarCitasDelVeredicto` |
+| `test/graded-verdict-guard.spec.ts` | +9 casos: instancia #6 y su contraste, complemento R-2, exención de R-1 |
+| `test/graded-estimate.probe.spec.ts` | 5 `sinGuardianPorque(...)` nombradas (tests del provider suelto) |
+
+**Tests:** **2 670 en 207 suites** (antes 2 661 / 207), todos verdes. Lint y typecheck limpios.
+
+**Deuda anotada:** `TECH_DEBT.md` → **TL-GE8-4** (`requestFailedCount` ausente ⇒ bajo `dailyLimited` se
+calla algo decidible), **TL-GE8-5** (`sweepComplete` ignora cartas con `set` nulo; la rama «ninguna
+causa conocida» es alcanzable, cita y no tiene test), **T-6** (`FrozenCardFacts` compila contra
+`InputJsonValue` solo por ser `type`), **T-7** (dos dobles de invitado sin `card`), **T-8** (el detalle
+admin sin test). **TL-GE8-1/2/3 no existen**: eran R-1, R-2 y R-3, y nacieron y murieron en este pase.
+
+---
+
 ## 0.15 — **I8 estrechado: `ingestMaxCardsPerRun` pasa de `[1, 5000]` a `[1, 1000]`** (2026-08-31, v1.51-a)
 
 > Decisión del **arquitecto** (ARCHITECTURE §4.38r.3.4, contrato **v1.51-a**, adenda (r.8) nº 3).
@@ -11142,7 +11822,10 @@ llave ni salida a la API del proveedor; **no se intentó ninguna corrida real**)
 - **Cero escrituras**, comprobado donde se escribe: job completo con el provider real y un `prisma` que
   delata cualquier `create`/`update` en `PriceReference`. Con el **contraste** en el mismo test (el
   mismo fixture SÍ escribe cuando hay formato), para que «0 escrituras» no sea un fixture flojo.
-- Gasto: la sonda no pagina; mide `dailyRemainingBefore`/`after`; no clasifica según `GRADED_FORMAT`.
+- Gasto: la sonda no pagina; mide el coste; no clasifica según `GRADED_FORMAT`. ⚠️ **Superado por
+  §0.16.1 (TL-GE1):** la medición era `dailyRemainingBefore − dailyRemaining` sobre el contador del
+  singleton, que el barrido RAW contamina; hoy es `metadata.apiCallsConsumed` por llamada graded, y
+  `dailyRemainingBefore` **ya no existe**.
 - El veredicto como función pura: las 8 ramas + las 3 formas de la línea de coste.
 
 ### Validación
