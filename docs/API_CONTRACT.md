@@ -2,7 +2,18 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-01 (rev **v1.51.9**).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-01 (rev **v1.51.10**).
+>
+> **Changelog v1.51.10 — VOCABULARIO DE ESTADO DEL REGISTRO DE DESVIACIONES (2026-09-01, arquitecto; **CERO cambios
+> de interfaz**. ARCHITECTURE §9 gana su leyenda; aquí solo se alinean las dos marcas que hablaban de código):**
+> ⚠️ **No toca ni un endpoint, ni un DTO, ni una norma.** §9 tenía **estado mixto** —`BL-18` marcada ✅ y `BL-14` sin
+> marca, **estando las dos igual**— y este documento repetía esas ✅ en dos sitios. Criterio aplicado a todo:
+> **una desviación se cierra AL MERGEAR, no al implementar** (`⛔ ABIERTA` → `🔧 RESUELTA EN RAMA` → `✅ CERRADA`).
+> **Motivo:** la rama todavía debe pasar **QA, techlead y la fase de seguridad**, y cualquiera de los tres puede
+> rechazar y **reabrir** el código — *un ✅ que puede des-cerrarse solo no es un estado, es un pronóstico*. Además §9
+> alimenta el DoD, y un ✅ le dice a devops *«esto ya no hay que verificarlo»*.
+> **Las marcas de decisiones cerradas por el humano (D31/D32/D34/D35/D36…) NO cambian:** una decisión se cierra
+> cuando se toma; no necesita merge.
 >
 > **Changelog v1.51.9 — «DECLARADO Y AUSENTE» SON DOS COSAS DISTINTAS, Y HAY UN TERCER FILTRO (2026-09-01,
 > arquitecto; **CERO DDL, CERO campos nuevos, CERO cambios de conducta**. ARCHITECTURE §4.39c gana la doctrina de las
@@ -8372,8 +8383,8 @@ Notas de seguridad: **host fijo** de pokemontcg.io (sin SSRF); `POKEMONTCG_IO_AP
       terminales. **Se implementa por EXCLUSIÓN sobre `SELL_REQUEST_TERMINAL_STATES`, no como una lista de estados
       vivos** (criterio 129): así un estado nuevo entra a la vista **solo**. Combinable con `status` CSV (se
       intersectan); si `status` contradice a `live` el resultado es vacío, **no** un error.
-      > **⚠️ v1.51.8 — DECLARADO Y AUSENTE. SE IMPLEMENTA, NO SE RETIRA. Desviación BL-18** ✅ **CERRADA
-      > (2026-09-01).** El controller no tenía ese `@Query` y la pestaña «Cerradas» mandaba un **CSV que enumeraba los
+      > **⚠️ v1.51.8 — DECLARADO Y AUSENTE. SE IMPLEMENTA, NO SE RETIRA. Desviación BL-18** 🔧 **RESUELTA EN RAMA;
+      > ✅ al mergear** *(vocabulario de estado en ARCHITECTURE §9)*. El controller no tenía ese `@Query` y la pestaña «Cerradas» mandaba un **CSV que enumeraba los
       > cuatro terminales** — la forma exacta que este pase retiró de los otros cinco sitios. **`live?` es la
       > contraparte server-side de `isTerminal`**: retirarlo **bendeciría** la enumeración en el cliente justo después
       > de borrarla en todas partes.
@@ -8400,7 +8411,7 @@ Notas de seguridad: **host fijo** de pokemontcg.io (sin SSRF); `POKEMONTCG_IO_AP
       terminal.** Hoy `M5View.tsx:110` (`REQUEST_TERMINAL`) codifica el set en el frontend — la quinta de cinco
       copias, y la única fuera del backend. **El frontend NO lo sustituye por otra constante propia: el servidor le
       dice.** *La copia se cura eliminando la necesidad de la copia.* Ver ARCHITECTURE §4.39(c) sitio 9.
-      ✅ **CERRADO en backend y frontend (2026-09-01).**
+      🔧 **RESUELTO EN RAMA (backend y frontend); ✅ al mergear** *(vocabulario de estado en ARCHITECTURE §9)*.
     - **`isPayable: boolean` (v1.51.8, NUEVO, derivado server-side) — ⚠️ DINERO SALIENTE. ADMIN-ONLY.**
       ```
       isPayable = status ∈ SELL_REQUEST_PAYABLE_STATES  ∧  verifiedAt IS NOT NULL
