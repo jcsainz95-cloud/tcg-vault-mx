@@ -327,6 +327,22 @@
 > **Es la tercera vez en este ciclo que el defecto es el mismo** —`expiry.*`, «Guía de envío seguro» y
 > ahora «Por recibir»—: **un nombre que sobrevive al cambio de significado**. **Cero tokens, cero
 > componentes, cero cambios de dato.**
+>
+> **Corrección v2.3.6 (2026-09-01 — errata de conteo levantada por frontend; regla nueva en §23.12).**
+> §23.14.6-3bis decía **«los DIEZ valores de `SellRequestStatus`»**: son **ONCE**. El texto y la tabla de
+> §23.8a **siempre repartieron once** (1+3+2+1+4) — mentía **el número suelto**. **El origen es una
+> distinción real que no estaba nombrada:** §23.12 lista **diez** claves bajo `status.sellRequest.*` y
+> **ahí el diez es correcto**, porque `expirada` **se rotula por su motivo** (§23.1d) y no tiene clave en
+> ese espacio. **El diez viajó del sitio donde era cierto al sitio donde no lo es.** No era cosmético: el
+> número vivía **dentro de una regla de verificación**, así que un test escrito contra «diez» habría
+> dejado **un estado sin comprobar** — y esa regla existe justamente porque un estado sin pestaña **no
+> falla ni avisa, desaparece del back-office**. *Una regla de QA con el número mal deja pasar el caso que
+> vino a cazar.* Se corrige el dígito y, sobre todo, **se nombra la distinción donde nace** (§23.12:
+> «rótulos de estado ≠ estados», con las cuatro magnitudes — 11 estados · 10 claves · 3 de motivo · 4
+> terminales) y **se marca §2.4 como no-contable**, que es el otro sitio donde `expirada` ocupa tres filas.
+> **Regla adoptada:** *toda afirmación de cobertura se escribe contra el **enum del contrato**, nunca
+> contra el número de claves i18n ni de filas de una tabla de color; y si el número y la enumeración
+> discrepan, **manda la enumeración**.* **Cero cambios de copy, de claves y de diseño.**
 
 ---
 
@@ -539,6 +555,14 @@ visible + contraste AA** (§10). El icono queda **opcional/decorativo** (`aria-h
 > regla derivada, que vale para toda superficie (cola de M5, ficha, portal del vendedor y reportes):
 > **se pinta el motivo, no el estado**, y cuando el motivo falta se cae al **fallback neutro**, nunca al
 > acusatorio. Ver §23.1.
+>
+> **⚠ Consecuencia de conteo (v2.3.6) — esta tabla NO sirve para contar estados.** Por la excepción de
+> arriba, `expirada` ocupa **tres filas** aquí y **cero claves** en `status.sellRequest.*`: las filas de
+> `SellRequest` en esta tabla **no son** los valores del enum. **Cualquier afirmación de cobertura**
+> —particiones, mapas totales, `switch` exhaustivos, reglas de QA— **se escribe contra el enum del
+> contrato, nunca contra el número de filas de esta tabla ni contra el número de claves i18n.** El desfase
+> ya causó una errata real; la regla y sus cuatro magnitudes están en **§23.12 («rótulos de estado ≠
+> estados»)**.
 
 ---
 
@@ -7070,7 +7094,28 @@ Convención §9.2. **Todo lo de §23 existe en los dos idiomas** (el proyecto ti
 
 **Estados y stepper**
 - `status.sellRequest.{cotizada,ofertada,aceptada,en_transito,recibida,verificacion,aprobada,pagada,rechazada,abandonada}`
+  — **DIEZ claves para ONCE estados, y no es un olvido.**
 - `status.sellRequestExpiry.{not_shipped,no_offer,unknown}` — **tres**, incluido el fallback neutro.
+
+> **⚠ RÓTULOS DE ESTADO ≠ ESTADOS (v2.3.6). Nombrada aquí porque este es el sitio donde nace el desfase.**
+> `SellRequestStatus` tiene **ONCE** valores, pero `status.sellRequest.*` tiene **DIEZ** claves: **`expirada`
+> no tiene rótulo propio en ese espacio** porque **se pinta por su MOTIVO** —`status.sellRequestExpiry.*`,
+> la única excepción del sistema y obligatoria (§23.1d)—. Sumando los dos espacios hay **13 rótulos** para
+> **11 estados**, porque `expirada` aporta **tres**.
+>
+> | Se cuenta… | Cuántos | Dónde vale |
+> |---|---|---|
+> | **Estados** (`SellRequestStatus`) | **11** | particiones, mapas totales, `switch` exhaustivos, **reglas de QA** |
+> | **Claves de `status.sellRequest.*`** | **10** | inventario i18n, test de paridad |
+> | **Claves de `status.sellRequestExpiry.*`** | **3** | idem |
+> | **Terminales** | **4** (`pagada`·`rechazada`·`abandonada`·`expirada`) | «Cerradas», `isTerminal` |
+>
+> **La regla:** *cuando cuentes, di **qué** estás contando.* Un «diez» a secas es ambiguo entre dos
+> magnitudes distintas de esta misma feature, y **ya viajó una vez** — de aquí, donde era cierto, a
+> §23.14.6-3bis, donde dejaba **un estado sin verificar**. **Ninguna afirmación de cobertura (particiones,
+> mapas totales, reglas de QA) se escribe contra el conteo de CLAVES**: se escribe contra el **enum del
+> contrato**, que es la fuente. Si el número y la enumeración discrepan, **manda la enumeración** — es lo
+> que pasó aquí: la tabla de §23.8a estaba bien y el dígito estaba mal.
   ES `SIN ENVÍO` / `NO PROCEDIÓ` / `EXPIRADA`; EN `NOT SHIPPED` / `NOT PURSUED` / `EXPIRED`.
 - `status.offerState.pending_authorization` — `POR AUTORIZAR` / `NEEDS APPROVAL` (**admin-only**).
 - `buylist.stepper.{1..8}.label` + `buylist.stepper.closed.{rechazada,not_shipped,no_offer,abandonada}`.
@@ -7676,10 +7721,24 @@ tres tiempos *«tú X, nosotros Y y Z»* el primer tiempo se lee como **su parte
    **v2.3.5:** lo mismo para `admin.m5.tabs.{por_recibir,ciclo,rechazadas}` ⇒ sustituidas por
    `{por_ofertar,con_vendedor,piezas_rechazadas}` (§23.8a).
 3-bis. **Pestañas de M5 — aserción positiva (patrón (i) de la convención de arriba).** El mapa
-   `estado → pestaña` es **total**: los **diez** valores de `SellRequestStatus` tienen pestaña, y
-   `cotizada` cae en **«Por ofertar»**, los tres del tramo (`ofertada`/`aceptada`/`en_transito`) en **«Con
-   el vendedor»** y los **cuatro** terminales en «Cerradas». *Un estado sin pestaña **no falla, no avisa y
-   desaparece del back-office**: por eso la comprobación es una partición total, no un `grep`.*
+   `estado → pestaña` es **total**: los **ONCE** valores de `SellRequestStatus` tienen pestaña —
+   `cotizada` en **«Por ofertar»**, los **tres** del tramo (`ofertada`/`aceptada`/`en_transito`) en **«Con
+   el vendedor»**, los **dos** de casa (`recibida`/`verificacion`) en «Verificando», `aprobada` en «Por
+   pagar» y los **cuatro** terminales en «Cerradas» ⇒ **1+3+2+1+4 = 11**. *Un estado sin pestaña **no
+   falla, no avisa y desaparece del back-office**: por eso la comprobación es una partición total, no un
+   `grep`.*
+   > **⚠ ERRATA CORREGIDA (v2.3.6) — aquí decía «los DIEZ valores», y el número importaba.** Son **once**
+   > (`ARCHITECTURE`/contrato §Enums manda, y `SellRequestStatus` los lista). **El texto y la tabla de
+   > §23.8a siempre repartieron once**; el que mentía era **el número suelto**. Y el origen es exactamente
+   > la distinción de la nota de abajo: **§23.12 lista DIEZ claves bajo `status.sellRequest.*` y ahí el diez
+   > es correcto**, porque `expirada` **se rotula por su motivo** (§23.1d) y no tiene clave en ese espacio.
+   > **El diez viajó del sitio donde era cierto al sitio donde no lo es.**
+   > **Por qué no era una errata cosmética:** el número vivía **dentro de una regla de verificación**, así
+   > que un test escrito contra «diez» habría dejado **un estado sin comprobar** — y la regla existe
+   > precisamente porque un estado sin pestaña **no falla ni avisa**. *Una regla de QA con el número mal
+   > deja pasar justo el caso que vino a cazar.* Es la cuarta vez en este ciclo que el defecto es **un
+   > nombre o un número que sobrevive a su significado**; la diferencia es que esta vez estaba **en el
+   > detector**, no en el copy.
    Y una comprobación de lectura, barata: **la palabra «recibir/receive» no aparece en ninguna pestaña**, y
    **«Rechazadas» a secas tampoco** — si aparece, volvió la colisión con el estado `rechazada`.
 4. **Guía de empaque, los dos montajes** (modal `columns=2` y sección inline `columns=4`), en ES y EN:
