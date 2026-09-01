@@ -2074,6 +2074,10 @@ gananciaNeta  =  estimadoPSA9 − (precioVentaRaw + gradingCost)      ← SOLO p
 
 ## Fuera de alcance (por ahora — fase 2 o posterior)
 - **Consignación / marketplace C2C** (cartas de terceros vendidas dentro de la bóveda).
+  *(Ojo — esta línea NO responde la **pregunta abierta 26**: lo que está fuera es la plataforma como
+  **intermediaria** entre dos usuarios. Que **la plataforma COMPRE** una carta que ya está en la bóveda —el
+  buylist sin el paso de envío— es **otra cosa** y está **sin decidir**. Hoy **no existe y no se promete**
+  (decisión **64**, criterio **121**).)*
 - **Order-book / trading instantáneo** (compra/venta digital tipo bolsa dentro de la bóveda).
 - **Wallet de saldo** para usuarios (el dinero se liquida por transacción).
 - **Pagos y logística automatizados** (guías automáticas, pagos SPEI automáticos): en MVP son manuales.
@@ -2974,10 +2978,19 @@ gananciaNeta  =  estimadoPSA9 − (precioVentaRaw + gradingCost)      ← SOLO p
     legal del seguro de custodia**)*: **no hay póliza** sobre el inventario en bóveda, así que el producto
     describe la custodia **solo** con vocabulario de resguardo —«**resguardadas**», «**en bóveda**», «**kept
     safe**»— y **jamás** con vocabulario de seguro.
-    **Verificación negativa, y es la que importa**: **cero apariciones** de **«asegurada / aseguradas /
-    asegurado / asegurados / seguro»** (ES) y **«insured / insurance»** (EN) —en `messages/` ES y EN, en las
-    **plantillas de correo** y en la **página de términos**— **referidas a la custodia**, es decir en el
-    **home**, el **catálogo**, la **bóveda / Mi bóveda**, los **correos** al cliente y los **términos**.
+    **Verificación negativa, y es la que importa**: **cero apariciones** —en `messages/` ES y EN, en las
+    **plantillas de correo** y en la **página de términos**— de una afirmación de cobertura **referida a la
+    custodia**, es decir en el **home**, el **catálogo**, la **bóveda / Mi bóveda**, los **correos** al cliente
+    y los **términos**. **El patrón a buscar es este, y está acotado a propósito** *(ver (e): la versión
+    original marcaba «seguro» pelado y producía 5 falsos positivos)*:
+    - **ES, familia de `asegurar`** — `asegurad\w*` (**asegurada/o/s**, **aseguradora**), **`aseguramos`**,
+      **`aseguranza`**, **`póliza`**. Todas afirman cobertura en cualquier contexto: **fallan sin adjudicar**.
+    - **ES, el sustantivo `seguro`, SOLO en posición de sustantivo** — precedido de **determinante o
+      preposición** (`un/el/la/nuestro/su/con/sin seguro`) o seguido de **`contra`/`de`** (`seguro contra robo`,
+      `seguro de custodia`). **`seguro` en posición de adjetivo (detrás del sustantivo: «envío seguro», «canal
+      seguro») o de interjección (delante de «que»: «¿Seguro que…?») NO se marca** — no es una afirmación de
+      cobertura, es otra palabra.
+    - **EN** — **`insured`**, **`insurance`**, **`insurable`**.
     **(a) EXCLUSIONES — usos legítimos que describen un seguro REAL de un tercero, y que este criterio NO
     marca** *(sin esta lista el check produce falsos positivos y el siguiente QA lo ignora, que es como mueren
     los checks)*:
@@ -2998,6 +3011,36 @@ gananciaNeta  =  estimadoPSA9 − (precioVentaRaw + gradingCost)      ← SOLO p
     se puede es **llamarla seguro**.
     **(d)** El criterio **se retira o se reescribe** el día que exista póliza contratada, y eso **reabre la
     decisión 63** (quién asegura, qué cubre, hasta qué monto) **antes** de volver a usar la palabra.
+    **(e) ENMIENDA DEL 2026-09-01 tras la PRIMERA CORRIDA — por qué el patrón quedó así** *(QA reportó **5
+    falsos positivos**: «Guía de envío **seguro**» ×3, «canal **seguro**», «¿**Seguro** que deseas eliminar…?»;
+    ninguno afirma cobertura)*: se descartaron **las dos** salidas propuestas y se acotó el patrón.
+    - **Por qué NO una exclusión (a)(5) para usos adjetivales**: obligaría a **adjudicar los mismos 5 hits a
+      mano en cada pasada**. Este criterio dice en su propia (a) que eso **es como mueren los checks**; añadir
+      una excepción interpretable sería aplicarse el defecto que denuncia.
+    - **Por qué NO estrechar a `asegurad*` a secas** *(era la opción más barata, y es la que se rechaza con
+      razón concreta)*: **dejaría ciega la comprobación al sustantivo `seguro`**, que es **la forma más natural
+      de afirmar cobertura** —«tus cartas **tienen seguro**», «bóveda **con seguro** contra robo»— y que **este
+      mismo documento usa en §D** («MX$175 por paquete (**con seguro**)»). También perdería **`aseguramos`**,
+      que **no** casa con `asegurad*`. Un patrón que no atrapa la frase que el propio documento ya escribe no
+      es un patrón, es un placebo.
+    - **Lo que hace el patrón acotado**: elimina los **5** falsos positivos **mecánicamente, sin criterio
+      humano** (ninguno lleva determinante/preposición delante ni «contra/de» detrás), y **no pierde ninguna
+      forma que afirme cobertura**. **Cero adjudicación manual en corpus limpio** — si aparece un hit, es real.
+    - **Si aun así aparece un caso ambiguo**, manda la regla **(b)**, y el caso **se anota aquí** en vez de
+      resolverse en silencio en la corrida.
+121. **NUEVO — Ninguna superficie promete VENDER DESDE LA BÓVEDA** *(2026-09-01, decisión 64)*: **esa capacidad
+    no existe** —la bóveda no tiene acción de venta, **§E** está construido sobre que el vendedor **envía** la
+    carta, y **«Consignación / marketplace C2C» está en Fuera de alcance**—, así que **prometerla es publicar
+    algo falso**.
+    **Verificación negativa**: **cero apariciones**, en `messages/` **ES y EN** y en cualquier superficie
+    visible, de una promesa de **vender / monetizar / liquidar una carta que está en la bóveda sin sacarla**.
+    El hit conocido es **`home.how.step3Body`** —«O las vendes desde la bóveda, sin moverlas» / «Or sell from
+    the vault without moving a card»—; **retirarlo es trabajo de frontend ya instruido**, y este criterio es el
+    que lo cierra.
+    **(a)** Lo que **sí** se puede decir del paso 3 es lo que existe: la carta **se guarda** en la bóveda, se
+    **retira** con envío, o se **vende a la plataforma por el flujo de buylist** —que **hoy exige enviarla**—.
+    **(b)** Este criterio **no prejuzga** si la capacidad debe existir algún día: eso es la **pregunta abierta
+    26**. **Se retira mientras no exista**; el día que exista, este criterio se retira con ella.
 
 ## Riesgos y banderas para el humano
 > No bloquean el desarrollo técnico del MVP, pero deben resolverse antes de operar con público real.
@@ -3497,6 +3540,26 @@ El MVP se considera "lanzado" cuando, en una **beta cerrada**, se cumple en un p
      (insured)»** dentro de la tarifa fija de MX$175 es **otro dato y otra fuente** (la paquetería, no la
      bóveda) y **no se toca por analogía** — ver **pregunta abierta 25**.
 
+64. **«Vender desde la bóveda» NO existe: se retira la promesa del copy. Si debe existir algún día es del
+   dueño** *(2026-09-01; hallazgo de QA en el re-gate del pase de copy del home)*:
+
+   - **El hecho, que no admite discusión**: `home.how.step3Body` promete **«O las vendes desde la bóveda, sin
+     moverlas»** / **«Or sell from the vault without moving a card»**, y **eso hoy es falso** por tres razones
+     independientes: la **bóveda no tiene acción de venta**, **§E** (buylist) está construido sobre que el
+     usuario **envía** la carta, y **«Consignación / marketplace C2C (cartas de terceros vendidas dentro de la
+     bóveda)»** está listado en **Fuera de alcance**. **Frontend ya está retirando la frase** — no espera a
+     nadie, porque una promesa falsa en el home no se queda en pantalla mientras se decide su futuro.
+   - **Lo que esta decisión cierra**: **la promesa se retira del producto y del documento**, y **ninguna
+     superficie puede volver a hacerla mientras la capacidad no exista** (verificable: **criterio 121**). Es el
+     mismo patrón de la decisión 62: **el documento se alinea con el producto**, no al revés.
+   - **Lo que esta decisión NO cierra, y no me corresponde cerrar**: **si la capacidad debe construirse**. Eso
+     es **alcance nuevo con flujo de dinero** —la plataforma compraría una carta ya bajo su custodia— y por
+     tanto **es del dueño**: ver **pregunta abierta 26**, con mi recomendación.
+   - **Por qué se registra en vez de solo borrar la cadena** *(la razón de existir de esta entrada)*: la frase
+     **suena bien y describe algo que el negocio hace parecer obvio** —la carta ya está autenticada y en
+     nuestro poder—, así que **va a volver** si lo único que queda es un commit que la quitó. Queda escrito
+     **qué se prometió, por qué era falso y quién decide su futuro**.
+
 ## Único pendiente no bloqueante
 - **Metas de lanzamiento N/X/Y/Z**: el humano las fija al momento de lanzar la beta cerrada (usuarios,
   ventas `settled`, buylist aprobadas/pagadas, retiros sin disputa, ventana 30–60 días). No bloquean el
@@ -3830,6 +3893,34 @@ backend/arquitecto al implementar, sin decisión de producto adicional).
         «Shipping fee»**; (2) se **corrige §D**; (3) **sale de la exclusión (a)(1) del criterio 120** y **entra**
         al alcance de ese criterio. **Ruta de la corrección**: es **copy de checkout** ⇒ rol **frontend**,
         stream **«Órdenes y dinero»**, con el mismo patrón ES/EN de la corrección del home.
+26. **¿VENDER DESDE LA BÓVEDA es roadmap, o se descarta?** *(NUEVA, 2026-09-01 — es el resto que deja la
+    **decisión 64**; **no bloquea nada**: la promesa falsa ya se está retirando del copy)*
+
+    - **ESTADO: ABIERTA — PENDIENTE DE RESPUESTA DEL DUEÑO.** **No la cierro yo**: es **alcance nuevo con flujo
+      de dinero**, y el documento ya tiene una línea de Fuera de alcance que la roza. **No hay supuesto por
+      defecto que cambie el producto**: pase lo que pase, **hoy no se promete** (criterio 121).
+    - **QUIÉN RESPONDE: el dueño.** Solo se le pide un **sí/no de intención**, no un diseño.
+    - **QUÉ SE PREGUNTA**: el copy del home prometía que puedes **vender una carta desde la bóveda sin
+      moverla**. ¿Es **algo que quieres construir** (⇒ candidata de roadmap, fase 2) o **algo que nunca
+      quisiste** (⇒ se descarta y queda dicho, para que la frase no reaparezca en tres meses porque suena bien)?
+    - **MI RECOMENDACIÓN COMO PO: candidata de roadmap, no descarte.** La razón es que **el flujo ya existe casi
+      entero**: es el **buylist sin el paso de envío**. La carta ya está **en nuestro poder**, ya fue
+      **verificada al ingreso**, ya es **NM confirmado** y su **titularidad es `settled`** — desaparecen justo
+      las partes caras y riesgosas del buylist (recepción, verificación de condición, rechazo/devolución). Para
+      el dueño es **inventario que se compra sin logística**, y para el cliente es **liquidez sin fricción**.
+      Es la clase de función que **hace que la bóveda valga la pena** en vez de ser solo un almacén.
+    - **PRECISIÓN QUE IMPORTA, PARA NO CONFUNDIRLA CON LO QUE ESTÁ FUERA DE ALCANCE**: lo de arriba **NO es
+      consignación ni C2C**. En Fuera de alcance está «**cartas de terceros vendidas dentro de la bóveda**» —es
+      decir, la plataforma como **intermediaria** entre dos usuarios—. Lo que recomiendo es que **la plataforma
+      COMPRE** la carta, igual que en el buylist: **una sola contraparte, sin order-book, sin wallet**. Si el
+      dueño quiere lo otro, eso **sigue fuera de alcance** y es otra conversación.
+    - **LO QUE HABRÍA QUE RESOLVER SI DICE QUE SÍ** *(no lo asumo, lo enumero para que la respuesta venga
+      completa)*: **(a)** ¿a qué precio —la **tarifa de buylist** vigente, o una **mejor** por ahorrarse la
+      logística—?; **(b)** ¿aplican los **topes y el INE** del buylist (MX$3,000/solicitud, MX$10,000/mes) y el
+      **soporte AML**, dado que sigue siendo un **pago SPEI a un particular**?; **(c)** ¿qué pasa con una carta
+      con **titularidad `pending`** o dentro de la **ventana de disputa**?; **(d)** ¿el traspaso a inventario
+      vendible es **inmediato**, al no haber envío que esperar? **Nada de esto se diseña hasta que haya un sí**,
+      y el diseño es del **arquitecto**, no mío.
 ## Decisiones (v2.0, P-48) — precio puro por valor de mercado (LOCKED)
 > Decisiones del humano **ya tomadas** en conversación (2026-08-24), a partir del hallazgo de cartas
 > publicadas a **MX$1.31 / MX$3.71** con un supuesto piso de **MX$15**. Tras ver la causa raíz, el humano
