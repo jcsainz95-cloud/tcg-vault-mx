@@ -2,7 +2,115 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-29 (rev **v1.50.3-g**).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-01 (rev **v1.51**).
+>
+> **Changelog v1.51 — CICLO DE ADQUISICIÓN DEL BUYLIST: ofertar, aceptar, guía y publicar (2026-09-01, arquitecto;
+> lo implementan BACKEND + FRONTEND. `PROJECT.md` §P v2.1 APROBADO, criterios 113–161. ARCHITECTURE §4.39, §9, §11
+> `v1.51-buylist-acquisition-cycle` / **M-46**):**
+> ⚠️ **La release de contrato más grande desde v1.21. TOCA DINERO en las dos direcciones (lo que ofertamos y lo que
+> pagamos). Base previa: v1.50.3-g. Nada de lo previo se retira: todo lo de abajo es ADITIVO salvo los cuatro puntos
+> marcados BREAKING, que son endurecimientos de guarda.**
+>
+> **A. Enums (§Enums) — cuatro valores nuevos y dos enums nuevos.**
+> - **`SellRequestStatus` += `ofertada | aceptada | en_transito | expirada`** (Clase E, espeja `schema.prisma`, M-46).
+>   Pipeline: `cotizada → ofertada → aceptada → en_transito → recibida → verificacion → aprobada → pagada`.
+>   **Los TERMINALES pasan de tres a CUATRO: `pagada | rechazada | abandonada | expirada`** (criterio 113).
+>   ⚠️ **El radio de este cambio son NUEVE listas de literales en el código que NO fallan en compilación** — tabla
+>   completa y reapuntado obligatorio en ARCHITECTURE §4.39(c). Una de ellas deja **el INE sin purgar** (BL-3).
+> - **`SellOfferState = pending_authorization | sent | cancelled`** (NUEVO, **admin-only**, nunca en DTO de cliente).
+>   Es un **segundo eje**, no un quinto estado de la solicitud: mientras una oferta espera autorización del súper-admin
+>   la solicitud sigue viéndose `cotizada` **porque el cliente no debe enterarse de que existe** (D13/D24).
+> - **`BuyDecision = buy | skip`** (NUEVO): el cherry-pick **al ofertar** (§P.2).
+>
+> **B. Cliente (§6) — UN endpoint nuevo, UNO nuevo de logística, y UNO endurecido (BREAKING chico).**
+> - **NUEVO `POST /buylist/requests/:id/offer-response`** — `{ decision: "accept" | "reject" }`. **Exige sesión del
+>   dueño** (criterio 146: no existe enlace tokenizado de aceptación). **`accept` sobre `ofertada` ⇒ `aceptada` —
+>   NUNCA `aprobada`.** Todo-o-nada: **no hay** vía para aceptar solo algunas líneas ni para contraofertar (D1).
+>   **Ningún monto viaja en el body** (SEC-A1, criterio 120): la defensa es **la forma del DTO**, no una validación.
+> - **NUEVO `POST /buylist/requests/:id/declare-shipped`** — el **«ya lo mandé»** (§P.13). **DETIENE el plazo del
+>   vendedor y NO mueve el estado ni el conteo de «en camino»** (criterios 138/156).
+> - **⚠️ BREAKING chico — `POST /buylist/requests/:id/respond` gana guarda de estado.** Hoy **no lee `req.status`**
+>   (`buylist.service.ts:1069`) y fija `status:'aprobada'` **incondicionalmente** (`:1090`): **una solicitud `pagada`
+>   se puede revivir a `aprobada`**, que con `verifiedAt` es el estado pagable de `paySpei`. Pasa a exigir **ajuste
+>   vivo** (`409 NO_LIVE_ADJUSTMENT`) y queda **prohibido** en el ciclo de oferta
+>   (`409 ADJUST_NOT_ALLOWED_IN_OFFER_CYCLE`, criterio 150). **Desviación BL-2, ARCHITECTURE §9 — explotable HOY y
+>   va en su propio commit, antes del resto del ciclo.**
+> - **`POST /buylist/requests`** gana **`422 BUYLIST_MINIMUM_NOT_MET`** (D18, con el **faltante calculado
+>   server-side**: *«te faltan $120»*) y **`422 PHONE_REQUIRED`** (D11 — cubre Google y cuentas viejas).
+> - **`GET /buylist/requests/:id`** gana el bloque **`offer`** (tres montos, plazos, guía, condición NM **renderizada
+>   por el backend**) y **`isTerminal`**. **Nada de `offerState`** ni de cifras internas de la mesa.
+>
+> **C. Back-office M5 (§M10 §M5) — la mesa, la oferta, la guía y tres colas.**
+> - **NUEVO `GET /admin/buylist/:id/decision-table`** — la **mesa de decisión** (D6). Por línea: qué pidió vender,
+>   cuánto se cotizó, el **precio derivado por la curva vigente AL OFERTAR**, la **posición con sus CUATRO sumandos**
+>   (`stock + verifying + inTransit + committed`) y una **sugerencia que NUNCA bloquea** y que **dice qué regla
+>   disparó** (criterios 115/144/153). **«En camino» que se pinta = `position.inTransit` y nada más** (criterio 116).
+>   ⚠️ **Si el puerto de inventario no responde: `position: null` + `positionUnavailable: true`. JAMÁS `0`.**
+> - **NUEVO `POST /admin/buylist/:id/offer`** (cherry-pick + override con **motivo obligatorio**),
+>   **`POST …/offer/authorize`** (`super_admin`), **`POST …/offer/cancel`**.
+>   **Dos desenlaces:** dentro del tope ⇒ `200` y **sale el correo**; por encima ⇒ **`202`**, `offerState =
+>   pending_authorization`, **el correo NO se manda** y la solicitud **sigue `cotizada`** (D13/D24, criterio 147).
+> - **NUEVO `POST /admin/buylist/:id/guide`** (captura de paquetería + nº de guía; **congela el plazo de envío**) y
+>   **`POST …/confirm-shipment`** (**lo único que mueve a `en_transito`**, D20).
+> - **NUEVAS tres colas:** `GET /admin/buylist/offers/pending-authorization`,
+>   `GET /admin/buylist/pending-shipment-confirmation` (con la **alerta P17 a 5 días hábiles**, que **no expira
+>   nada**) y `GET /admin/buylist/guides/pending-cancellation` (D22 — **no desaparece sola**, criterio 139).
+> - **NUEVO `GET /admin/buylist/live-sellers`** — D12: quién tiene solicitudes **vivas**, **cuántas** y su
+>   **teléfono**, en **una** query agrupada. «Viva» = **todo lo que NO es terminal**, por exclusión (criterio 129).
+> - **`GET /admin/buylist`** gana `live?`, `seller.phone` e **`isTerminal`** (server-derived: **el frontend borra su
+>   quinta copia del set terminal**, `M5View.tsx:110`).
+> - **⚠️ BREAKING chico — `PATCH /admin/buylist/items/:itemId/decision`:** en una solicitud del ciclo de oferta,
+>   `approvedPriceCents` en el body ⇒ **`422 OFFER_PRICE_IMMUTABLE`** y `decision:"adjust"` ⇒
+>   **`409 ADJUST_NOT_ALLOWED_IN_OFFER_CYCLE`**. `approve` fija **server-side** `approvedPriceCents =
+>   offeredPriceCents`. Es el criterio 124 por lo negativo: **en verificación no existe campo de monto**.
+> - **`POST /admin/buylist/:id/pay-spei`** paga el **NETO** (`max(0, brutoAprobado − envío)`) y sella
+>   `payoutNetCents`. **NUNCA negativo, nunca un cargo al vendedor** (criterio 152).
+>
+> **D. Back-office M1 (§M1) — fase 8: publicar.**
+> - **NUEVO `GET /admin/inventory/pending-publish`** — la cola de «listas para publicar», diciendo **qué le falta** a
+>   cada pieza (`missing: ["location"|"price"]`) (criterio 125).
+> - **`POST /admin/buylist/items/:itemId/convert-to-inventory`** gana **`locationId?` OPCIONAL** (se ofrece, **no se
+>   exige**: bloquear la conversión atoraría el pago) y devuelve `pendingPublish` para el **deep-link desde M5**.
+>   Propaga **`cardProductId`** (D7) y fija **`acquisitionCostCents` = el BRUTO ofertado de la línea** (criterio 135).
+>   **NO acepta `listPriceCents`** (D10: el ciclo no captura precios de venta).
+> - **⚠️ BREAKING chico — `PATCH /admin/inventory/items/:id` cierra el bypass de publicación.** Hoy es un `update`
+>   plano **sin** `assertPublishableGuards`, **sin** `resolvePublishSalePrice` y **sin** `claimListed`: acepta marcar
+>   `listed` una pieza **sin precio resoluble** ⇒ el storefront **la descarta en silencio** y **no entra a ninguna
+>   cola**. Pasa a correr el pipeline completo: **`422 ITEM_NOT_PUBLISHABLE`** y **`422 PRICE_PENDING`** (con
+>   escalada y `pendingPriceEntryId`). Desviación **INV-P1**, ARCHITECTURE §9. **Cero rediseño de precios de venta.**
+> - **`POST /admin/inventory/items`** y **`PATCH …/items/:id`** ganan **`cardProductId?`** (D7 / criterio 160: la
+>   reclasificación de lo ya capturado es **a mano desde M1**, auditada; **ninguna migración adivina**).
+>
+> **E. M10 (§M10) — OCHO diales nuevos y UNA validación cruzada BLOQUEANTE.**
+> - Los ocho de `PROJECT.md` §P.10, todos editables **sin redeploy**, **auditados** y **congelados por solicitud**
+>   (criterio 157). **El noveno (umbral de recorte material, D28) NO EXISTE y no se implementa** — buscarlo en M10
+>   debe dar **nada** (criterio 127).
+> - **`buylistShippingFeeCents` (MX$180) ≠ `shippingFeeCents` (MX$175, retiro).** Son **dos diales distintos**;
+>   mover uno **no** mueve el otro (criterio 127, última línea).
+> - **BLOQUEANTE, en los dos sentidos:** `buylistShippingFeeCents < buylistShippingThresholdCents` ⇒
+>   `422 VALIDATION_ERROR` con `details.rule`. **Se evalúa sobre el estado RESULTANTE** (`{...vigente, ...body}`),
+>   no sobre el body: el `PUT` es parcial y validar solo lo que viene deja romper el invariante mandando **una** de
+>   las dos claves. Bordes: `180/1000` ✅ · `999/1000` ✅ · `1000/1000` ❌ · `1200/1000` ❌.
+>
+> **F. Reglas de dinero — normativas, transversales a todos los endpoints de arriba.**
+> - **Bruto** = Σ `offeredPriceCents` de las líneas `buy`, **congelado al ofertar**. **Envío** = tarifa **congelada**
+>   (`0` en la banda del vendedor). **Neto** = `max(0, bruto − envío)`.
+> - **Topes por solicitud, tope MENSUAL y umbral de INE se juzgan sobre el BRUTO; el SPEI paga el NETO** (criterios
+>   136/155). Descontar el envío **no puede** colar una operación bajo el umbral de INE.
+> - **Dos medidas que NO se mezclan:** el acumulado que gobierna el **tope** suma **BRUTOS**; el de **caja de M7**
+>   suma **NETOS** (`payoutNetCents`). Si el tope sumara netos, un envío caro bajaría el acumulado y alguien pasaría
+>   el tope sin que se note.
+> - **Costo de inventario = el BRUTO de esa línea.** El envío **NO** entra al costo de la pieza: es gasto del periodo
+>   (criterio 135).
+> - **El precio ofertado es vinculante desde el correo y no se mueve** (D2/D9). Un **rechazo parcial de cualquier
+>   tamaño** se paga sin preguntar nada: **no existe** pantalla, correo, estado, plazo ni umbral de *«¿continúas?»*, y
+>   **el ítem `ajustada` no se usa en ninguna parte del ciclo** (D30, criterios 124/150).
+> - **INVARIANTE: el NETO nunca es negativo y nunca se le cobra al vendedor** (criterio 152). **No debe existir
+>   ninguna ruta** —UI, petición manipulada, override o cambio de diales— que produzca un neto negativo o un adeudo.
+>
+> **G. Sin cambios.** Curva de compra/venta (§N / ARCH §4.36), política NM-only, **montos** de los topes AML/KYC,
+> cotizador público (`/buylist/quote`, `/quote/batch`), checkout, órdenes, disputas, gancho de grading, ninguna
+> superficie pública de catálogo.
 >
 > **Changelog v1.50.3-g — DICTAMEN del gate de seguridad / `M-44` + `M-45` (2026-08-29, arquitecto;
 > lo implementa BACKEND. ARCHITECTURE §4.38(l.4.10)–(l.4.13), §9, §11):**
@@ -1939,8 +2047,43 @@ VaultZone           = platform_stock | customer_custody
 OrderStatus         = pending | settled | failed | refunded | chargeback
 ShipmentStatus      = solicitado | picking | guia | enviado | entregado | cancelado
 ShipmentActiveStage = solicitado | picking | guia | enviado  // v1.17: subconjunto "activo" de ShipmentStatus expuesto en HoldingDTO.shipmentState. `entregado` NUNCA aparece (el item ya es InventoryStatus.withdrawn y sale de holdings); `cancelado` libera el item ⇒ shipmentState=null.
-SellRequestStatus   = cotizada | recibida | verificacion | aprobada | pagada | rechazada | abandonada
+SellRequestStatus   = cotizada | ofertada | aceptada | en_transito | recibida | verificacion | aprobada | pagada
+                    | rechazada | abandonada | expirada
+                    // ⚠️ v1.51 (M-46, PROJECT §P.1 / criterio 113) — CUATRO valores nuevos: `ofertada`, `aceptada`,
+                    // `en_transito`, `expirada`. CLASE E: espeja `schema.prisma`. Pipeline feliz:
+                    //   cotizada → ofertada → aceptada → en_transito → recibida → verificacion → aprobada → pagada
+                    // TERMINALES = CUATRO (eran tres): `pagada | rechazada | abandonada | expirada`.
+                    //   → declarados LITERALES (Clase R: los fija PROJECT §P.1, no el schema) en
+                    //     `common/sell-request-states.ts`.
+                    // «VIVA» = TODO lo que NO es terminal, DERIVADO POR COMPLEMENTO a propósito (criterio 129): así
+                    //   un estado que se añada mañana entra SOLO a la cola del back-office. No se declara una lista.
+                    // ⚠️ RADIO DEL CAMBIO: NUEVE listas de literales en el código codifican subconjuntos de este enum
+                    //   y NINGUNA falla en compilación (van dentro de `in`/`notIn`/`includes`). Tabla completa y
+                    //   reapuntado obligatorio en ARCHITECTURE §4.39(c). La más grave —`ine-retention.service.ts:28`—
+                    //   deja el INE de una `expirada` SIN PURGAR PARA SIEMPRE (PII/LFPDPPP, desviación BL-3).
+                    // REGLA DURA (criterio 114): `en_transito` es INALCANZABLE sin pasar por `ofertada` y `aceptada`.
+                    //   Guarda en el `updateMany` (patrón count===1), no un `if` previo al update.
+SellOfferState      = pending_authorization | sent | cancelled
+                    // v1.51 (M-46, §4.39a) — SEGUNDO EJE del ciclo, ORTOGONAL a SellRequestStatus. NO es un quinto
+                    // estado de la solicitud: PROJECT §P.1 fija CUATRO estados nuevos, y una oferta que espera la
+                    // autorización del súper-admin (D13/D24) tiene que dejar la solicitud viéndose `cotizada`
+                    // porque EL CLIENTE NO DEBE ENTERARSE DE QUE EXISTE (le filtraría el orden de magnitud de
+                    // nuestro tope interno). Lo único que este eje expresa y `status` no puede:
+                    //   pending_authorization → preparada por el operador, EXCEDE su tope, EL CORREO NO SALIÓ
+                    //                           (status sigue `cotizada`)
+                    //   sent                  → oferta emitida y VINCULANTE (D2); persiste durante todo el pipeline
+                    //   cancelled             → cancelada por el admin (criterio 145: no se edita, se cancela y se
+                    //                           emite otra); la solicitud vuelve a `cotizada`
+                    // ⚠️ ADMIN-ONLY: NUNCA viaja en un DTO de cliente. NO gatea el pipeline físico (eso es `status`).
+BuyDecision         = buy | skip
+                    // v1.51 (M-46, §P.2) — cherry-pick AL OFERTAR, por línea. `SellRequestItem.offerDecision`.
+                    // `skip` = «esta no te la compramos», y el desglose del correo se lo dice al vendedor. Una línea
+                    // `skip` NO es una operación de compra: se excluye del reporte de brackets del eje de compra
+                    // (§N.8) — ARCHITECTURE §4.39(c) sitio 6.
 SellItemStatus      = cotizada | precio_pendiente | recibida | verificacion | aprobada | ajustada | rechazada | pagada | convertida_inventario
+                    // ⚠️ v1.51 — SIN CAMBIO, y es deliberado. `ajustada` NO se usa en NINGÚN punto del ciclo de
+                    // adquisición (D30, criterios 124/150): el rechazo parcial se paga sin preguntar nada. El flujo
+                    // de ajuste sigue vivo para OTROS caminos, y por eso el valor no se retira.
 PriceBasis          = market | floor | override | bounty | pending   // v2.0 (P-48, PROJECT §N.7 LOCKED): QUÉ determinó el precio.
                     // Lo calcula SIEMPRE el backend (SEC-A1); la UI NO lo infiere comparando cifras: lo OBEDECE.
                     // market  = el mercado produjo el precio (curva). EMPATE (piso == mercado×markup) cuenta como market.
@@ -4587,6 +4730,28 @@ Err:
 - **`422 CLABE_REQUIRED`** (v1.15 — sin `clabe` en el body y sin CLABE en archivo)
 - `422 CLABE_INVALID` (formato != 18 dígitos, solo cuando `clabe` viene en el body)
 - `422 CLABE_NOT_OWN_NAME` (la `clabe` del body no coincide con la de archivo — nombre propio)
+- **`422 BUYLIST_MINIMUM_NOT_MET` (v1.51, D18, criterio 132)** — el **TOTAL** de la solicitud queda por debajo del
+  **mínimo de compra** (`buylistMinimumRequestCents`, default MX$500, **borde INCLUSIVO**: exactamente MX$500 **SÍ se
+  crea**, criterio 158(a)).
+  `details: { minimumCents: number, totalCents: number, shortfallCents: number }`.
+  > **`shortfallCents` lo calcula el SERVIDOR, y no es un adorno.** El criterio 132(a) exige que la pantalla diga
+  > **cuánto falta** (*«te faltan $120»*), no solo que no se puede: *un «no» seco manda al vendedor a otro lado; un
+  > «te faltan $120» lo manda a agregar otra carta*. El front **renderiza** el número, no lo calcula.
+  > **La validación vive en el servidor porque el cotizador es superficie de cliente y se puede saltar** (criterio
+  > 132(b)): mandar la solicitud directo al backend **tampoco** la crea.
+  > **El mínimo se juzga sobre el TOTAL, no por carta ni por línea:** una carta de $600 pasa; mil cartas que suman
+  > $400, no.
+  > **⚠️ SUPUESTO (ARCHITECTURE §4.39o.8):** una línea en `precio_pendiente` aporta **0** a `totalCents` (no tiene
+  > `quotedPriceCents`). `PROJECT.md` no lo dice; contar una línea sin cifra exigiría inventarle una, que es
+  > justo lo prohibido por §N.2.
+  > **El mínimo NO se re-aplica a la oferta** (criterio 158(c)): cotizados $600, cherry-pick a $200 ⇒ **la oferta sale
+  > igual**. Un solo umbral, en un solo momento.
+- **`422 PHONE_REQUIRED` (v1.51, D11, criterio 128(c))** — el usuario **no tiene celular** en su cuenta.
+  `details: { field: "phone" }`. **Sin celular, no hay solicitud.**
+  > Cubre el hueco real: `User.phone` es **nullable** en el schema (`schema.prisma:352`) aunque el **registro local**
+  > ya lo exija (`POST /auth/register`), así que las cuentas creadas con **Google** y las **cuentas viejas** lo tienen
+  > vacío. El front debe **pedir el dato en ese momento** (`PATCH /users/me`) y reintentar; hasta capturarlo, la
+  > solicitud **no avanza**. El mismo requisito rige el **alta de usuario desde M6** (criterio 128(b)).
 
 ### GET /api/v1/buylist/requests — `customer` → lista propia.
 ### GET /api/v1/buylist/requests/:id — `customer` → detalle con estados por item, ajustes propuestos, plazos.
@@ -4595,9 +4760,129 @@ Err:
 > `abandonDeadlineAt` (+30 días). Es la MISMA información del correo de rechazo (§M5): el vendedor ve en la app por qué
 > se rechazó su carta y hasta cuándo puede gestionar la devolución. Ítems legacy (rechazados antes de M-22) traen los
 > cuatro campos `null`.
+> **⚠️ v1.51 (M-46) — la proyección de CLIENTE gana `offer` e `isTerminal`, y lo que NO gana importa igual.**
+> - **`isTerminal: boolean`** — derivado **server-side** de `SELL_REQUEST_TERMINAL_STATES` (los CUATRO: `pagada`,
+>   `rechazada`, `abandonada`, `expirada`). **El frontend NO vuelve a codificar ese set** (ver §M5, `M5View.tsx:110`).
+> - **`offer: SellOfferPublicDTO | null`** (§11) — presente **solo** cuando la oferta está **emitida**
+>   (`offerState = 'sent'`); `null` en cualquier otro caso. Lleva los **tres montos**, **cuál se deposita**, el plazo
+>   con **fecha y hora**, el desglose **línea por línea** con su **condición NM**, y —cuando existe— la **guía**.
+> - **⚠️ Lo que NUNCA viaja al cliente, y por qué:** **`offerState`** (una oferta `pending_authorization` le filtraría
+>   al vendedor la existencia y el orden de magnitud de nuestro **tope interno**), **`offerDerivedPriceCents`** y
+>   **`offerOverrideReason`** (deliberación interna: el vendedor ve **el número que le ofertamos**, no cómo se
+>   fabricó), **cualquier cifra de la mesa de decisión** (posición, sugerencia, «en camino» — le diríamos cuánto
+>   inventario tenemos), y **`closedAt`**/**`paidBy`** (ya excluidos, S49-M1).
+> - **Los ítems `skip` SÍ se muestran** al cliente, con su `offerDecision:"skip"` y **sin monto**: el criterio 118
+>   exige que el desglose diga **qué NO compramos**.
+> - **Antes de que la oferta exista**, la pantalla del cliente **no muestra guía, dirección ni instrucciones de
+>   envío**, y **no ofrece** ninguna vía para avisar «ya lo mandé» ni para marcarse en tránsito (criterio 114).
 
 ### POST /api/v1/buylist/requests/:id/respond — `customer`
-Responde a un ajuste del admin (aceptar/rechazar el ajuste). Req: `{ decision: "accept" | "decline" }`. Plazo: 7 días sin respuesta → `rechazada` (job).
+Responde a un **ajuste del admin** (aceptar/rechazar el ajuste). Req: `{ decision: "accept" | "decline" }`. Plazo: 7 días sin respuesta → `rechazada` (job).
+
+> ### ⚠️ v1.51 — GUARDA DE ESTADO OBLIGATORIA (BREAKING chico, DINERO SALIENTE). Desviación **BL-2**, ARCHITECTURE §9.
+> **Este endpoint hoy no lee el estado de la solicitud.** `buylist.service.ts:1067-1093` hace `findUnique`
+> **solo para autorizar propiedad** (`:1069`); **`req.status` NUNCA se lee**, y la rama `accept` mueve los ítems
+> `ajustada → aprobada` y fija **`status:'aprobada'` incondicionalmente** (`:1090`). Consecuencia **viva en `main`**:
+> **el dueño de una solicitud `pagada`, `rechazada` o `abandonada` puede re-postear `accept` y revivirla a
+> `aprobada`** — que junto con `verifiedAt` es exactamente el **estado pagable** de `pay-spei` (`:1754`/`:1788`). La
+> rama `decline` tiene el hueco simétrico: reescribe una `pagada` a `rechazada`.
+>
+> **Precondición NORMATIVA, para AMBAS ramas, evaluada en el `updateMany` con patrón `count===1`** (la guarda tiene
+> que ser la del motor, no un `if` de aplicación que una carrera pueda saltar):
+> ```
+> legal ⇔ closedAt IS NULL
+>       ∧ adjustmentSentAt IS NOT NULL          // hay un ajuste VIVO
+>       ∧ status ∈ { verificacion, aprobada }   // los únicos estados que el sweep de 7d reconoce
+>       ∧ offerSentAt IS NULL                   // no es una solicitud del ciclo de oferta
+> ```
+> **Errores nuevos:**
+> - **`409 NO_LIVE_ADJUSTMENT`** (`details.status`) — no hay ajuste vivo. Cubre `pagada` (**dinero ya salió**),
+>   `rechazada`, `abandonada`, `expirada`, y el **re-`accept`** sobre un ajuste ya consumido
+>   (`adjustmentSentAt = null`).
+>   **La idempotencia aquí NO es «200 con el estado actual»**, a diferencia de `reject` por-ítem: este verbo mueve
+>   dinero, y un `200` silencioso en la segunda llamada esconde exactamente lo que hay que ver.
+> - **`409 ADJUST_NOT_ALLOWED_IN_OFFER_CYCLE`** (`details.status`) — la solicitud va por el **ciclo de oferta**
+>   (`offerSentAt IS NOT NULL`). Es el cierre **por lo negativo** del criterio 150: *«intentar disparar el flujo
+>   `ajustada` en una solicitud de buylist → **no existe** esa vía»*. D30 retiró el uso de `ajustada` del ciclo
+>   completo (criterio 124 recuperó su alcance íntegro).
+>
+> **Este endpoint NO responde a una oferta.** Para eso está `offer-response` (abajo). Son **dos actos de negocio
+> distintos**: aquí el vendedor acepta **que le bajemos el precio de una carta que ya tenemos**; allá acepta **un
+> contrato de compra antes de gastar un peso en envío**. Razonamiento completo en ARCHITECTURE §4.39(b.1).
+> **Este arreglo NO depende de M-46 y debe ir primero, en su propio commit.**
+
+### POST /api/v1/buylist/requests/:id/offer-response — `customer`  (v1.51 — NUEVO · **respuesta a la OFERTA**)
+Acepta o rechaza **la oferta completa**. `PROJECT.md` §P.3 (D1/D2/D3), criterios 118/119/120/121/146/161.
+
+Req: **`{ decision: "accept" | "reject" }`** — **y nada más**.
+
+> **⚠️ SEC-A1 — el monto NO viaja del cliente al servidor (criterio 120).** Aceptar es aceptar **la oferta que está
+> guardada**, no mandar un número. **La defensa es la FORMA DEL DTO, no una validación**: no hay campo de monto que
+> manipular. Una respuesta manipulada **no puede cambiar** lo ofertado, y todo campo extra lo descarta el
+> `ValidationPipe` (whitelist). El intento queda **registrado**.
+> **⚠️ TODO-O-NADA (D1, criterio 118).** El cliente **ve el desglose completo** (qué compramos, a cuánto, y **qué NO
+> compramos**) pero **acepta o rechaza el paquete entero**. **No existe** —ni en UI ni por petición cruda— vía para
+> aceptar **solo algunas líneas**, ni para **contraofertar**: *media compra deja al vendedor mandando un paquete por
+> un monto que ya no es el que aceptó, y nos deja conciliando dos verdades distintas*.
+> **⚠️ EXIGE SESIÓN DEL DUEÑO (criterio 146).** El correo **lleva** a la pantalla, pero la respuesta **no se ejecuta
+> desde un enlace anónimo**: aceptar compromete dinero de las dos partes y **un correo reenviado no puede convertirse
+> en una aceptación válida**. **NO existe enlace tokenizado de aceptación** (a diferencia del seguimiento de invitado
+> de §4-G, que solo **muestra**). Un tercero con sesión propia ⇒ `404 NOT_FOUND` (no `403`: no se confirma la
+> existencia de la solicitud ajena).
+
+**Tabla de transición — NORMATIVA. Es la línea más importante de esta release:**
+
+| Estado al entrar | `decision` | Resultado |
+|---|---|---|
+| `ofertada` ∧ `offerAcceptDeadlineAt > now` | `accept` | **`aceptada`** — sella `acceptedAt`. **NUNCA `aprobada`.** |
+| `ofertada` ∧ `offerAcceptDeadlineAt > now` | `reject` | **`rechazada`** + `closedAt` |
+| `ofertada` ∧ plazo vencido | cualquiera | **`409 OFFER_EXPIRED`** (`details.offerAcceptDeadlineAt`) |
+| **cualquier otro estado** | cualquiera | **`409 OFFER_NOT_PENDING`** (`details.status`) |
+
+> **⚠️ `accept` NO produce NINGUNA transición de dinero, y esa es la propiedad que protege la caja.** No toca ítems,
+> no toca montos, **no habilita el pago**. Si aceptar saltara a `aprobada`, la solicitud caería en la cola de «listas
+> para pagar SPEI» **sin envío, sin recepción y sin verificación** — pagaríamos por cartas que nunca recibimos.
+> Después de `aceptada` **todavía no hay nada en camino**: el conteo de «en camino» de la mesa de decisión **no se
+> mueve** (criterios 116/138).
+> **El plazo es de 2 días hábiles (D3/D14, criterio 121)**, congelado al enviar la oferta y **comunicado con fecha y
+> hora explícitas** (nunca «en 2 días»). Pasado el plazo **sin respuesta** la solicitud queda **`rechazada`** por el
+> barrido y **aceptar después ya no funciona** — con mensaje claro y **sin efecto**.
+> **Terminal es terminal (criterio 145):** sobre una solicitud `rechazada`/`expirada`/`abandonada` **no existe**
+> re-ofertar ni re-aceptar. Si el vendedor todavía quiere vender, **cotiza de nuevo**: el mercado ya se movió y la
+> oferta anterior era vinculante **solo mientras vivió**.
+
+Res `200`: `{ sellRequestId, status: "aceptada" | "rechazada", acceptedAt?: string, isTerminal: boolean, offer: SellOfferPublicDTO }` (§11).
+Err: `401`, `404 NOT_FOUND` (inexistente **o de otro dueño**), `409 OFFER_NOT_PENDING`, `409 OFFER_EXPIRED`, `400 VALIDATION_ERROR` (`decision` fuera del par).
+
+### POST /api/v1/buylist/requests/:id/declare-shipped — `customer`  (v1.51 — NUEVO · el **«ya lo mandé»**)
+`PROJECT.md` §P.13 (choque **D20 × D4**), criterios 138/156. Req: **body vacío `{}`**.
+
+> **⚠️ EL REQUISITO DE NEGOCIO QUE ESTE ENDPOINT EXISTE PARA CUMPLIR:** *un plazo del vendedor solo puede vencer por
+> algo que dependa del vendedor.* **Nuestra carga de trabajo no puede cancelarle una venta.** D20 pone la marca de
+> `en_transito` en manos del **operador** y D4 expira la solicitud si el paquete no sale en el plazo: si el vendedor
+> deposita **el día 3** y el operador **no confirma hasta el día 4**, el barrido expiraría una venta donde el
+> vendedor **sí cumplió** — y, con guía nuestra, además perderíamos la etiqueta.
+>
+> **Efecto EXACTO — tres cosas, y las tres importan:**
+> 1. **DETIENE el reloj del vendedor**: sella `sellerShippedDeclaredAt`; el barrido **ya no puede expirar** esa
+>    solicitud (regla 2 de ARCHITECTURE §4.39j).
+> 2. **NO mueve el estado.** La solicitud **sigue `aceptada`**. Es **su palabra, todavía sin confirmar**.
+> 3. **NO suma al conteo de «en camino»** de la mesa de decisión. *Es una promesa, no un paquete.* El conteo se queda
+>    **corto, no inflado** — que es el lado seguro del error — y la **alerta P17** existe para que alguien lo corrija
+>    pronto en vez de que se quede corto indefinidamente.
+>
+> **Precondición:** `status = 'aceptada'`. Cualquier otro estado ⇒ **`409 NOT_ACCEPTED`** (`details.status`).
+> En particular: una solicitud **`cotizada` u `ofertada` NO ofrece esta vía** (criterio 114) — y la pantalla del
+> cliente **no muestra guía, instrucciones ni dirección de envío** hasta que la oferta está **aceptada**.
+> **Idempotente:** una segunda llamada devuelve `200` con el `sellerShippedDeclaredAt` ya sellado y **no lo re-fija**
+> (re-fijarlo le regalaría al vendedor un reloj infinito). A diferencia de `respond`, aquí el `200` idempotente **sí**
+> es correcto: no mueve dinero y el hecho que declara es puntual.
+> **Alerta P17 (criterio 156):** pasados `buylistShipmentConfirmAlertBusinessDays` (default **5 días hábiles**) sin
+> confirmación del operador, la solicitud **se destaca como alerta** en la cola «por confirmar envío». **Eso es TODO
+> lo que pasa:** no expira, no cancela, no mueve el estado y no suma a «en camino». Es **derivada**, no se persiste.
+
+Res `200`: `{ sellRequestId, status: "aceptada", sellerShippedDeclaredAt: string }`.
+Err: `401`, `404 NOT_FOUND`, `409 NOT_ACCEPTED`.
 
 ---
 
@@ -4711,7 +4996,19 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
 
 ### M1 — Inventario y bóveda (`vault_operator+`)
 - `POST /api/v1/admin/inventory/items` — alta de item.
-  Req: `{ cardId, productType, rawCondition?, finish?, sealedSubtype?, sealedCondition?, gradingCompany?, gradeValue?, certNumber?, locationId?, acquisitionType, acquisitionPct?, acquisitionCostCents?, listPriceCents?, sourceSellRequestItemId? }`
+  Req: `{ cardId, productType, rawCondition?, finish?, sealedSubtype?, sealedCondition?, gradingCompany?, gradeValue?, certNumber?, locationId?, acquisitionType, acquisitionPct?, acquisitionCostCents?, listPriceCents?, sourceSellRequestItemId?, cardProductId? }`
+  - **`cardProductId?: number` (v1.51/M-46, ADITIVO, D7 — criterios 131/160):** identidad de **producto separado**
+    (promo / exclusivo de deck) de **esta copia física**. Es el **`tcgplayerProductId`** (mismo eje que
+    `SellRequestItem.cardProductId` M-32 y `PriceReference.cardProductId` M-31), **no** el UUID interno de
+    `CardProduct`. **Ausente/`null` ⇒ pieza del `set_base`** (comportamiento actual, retrocompatible).
+    **Por qué importa y no es cosmético:** *una promo y un exclusivo de deck son **producto separado** de la versión
+    del set base — en el cotizador, en el inventario, en los **conteos** de la mesa de decisión y en la publicación*
+    (§P.8). Sin este eje, la mesa muestra un único «5» donde hay **3 del set base y 2 de la promo, que valen
+    distinto**, y **publicar una afectaría el precio de la otra**. **No se re-llavea nada** (§L sigue vigente): la
+    identidad sale del **catálogo ya sincronizado** y **no** se fusionan ni se inventan set-ids.
+    Validación: debe pertenecer a los `CardProduct` del `cardId` ⇒ `422 PRODUCT_CARD_MISMATCH`; inexistente ⇒
+    `422 PRODUCT_NOT_FOUND`. En la **conversión desde buylist** se **hereda** del `SellRequestItem` (no se recaptura),
+    igual que `finish`.
   - **`locationId?` OPCIONAL (v1.28/P-19 — alineación de contrato; el DTO backend ya lo trataba opcional):** una
     pieza puede nacer **sin ubicación** (la bóveda física la definirá el humano después, nota P-17). Aplica igual
     a `items/batch` y a `adjustments(encontrada)`. **`acquisitionCostCents?`** (ya existente en el DTO, ahora
@@ -4731,6 +5028,53 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
     autorizado por rol.
 - `GET /api/v1/admin/inventory/items/:id` — detalle + historial de movimientos.
 - `PATCH /api/v1/admin/inventory/items/:id` — editar (grado, `certNumber`, `sealedSubtype`, `listPriceCents` manual, ubicación, etc.). **No** hay campos de foto de producto (v1.2). **No** edita el mapeo TCGCSV (v1.19; ver abajo).
+  > ### ⚠️ v1.51 — SE CIERRA EL BYPASS DE PUBLICACIÓN (BREAKING chico). Desviación **INV-P1**, ARCHITECTURE §9/§4.39(m.4).
+  > **Hoy este endpoint es un `update` plano** (`inventory.service.ts:1729-1752`): valida el `certNumber` de una
+  > gradeada y **nada más**. **NO** corre `assertPublishableGuards` (`:1226`), **NO** corre `resolvePublishSalePrice`
+  > (`:1253`), **NO** corre `claimListed` (`:1347`). Los caminos de **lote** (`bulk-publish`, `publish-all`) sí corren
+  > el pipeline completo; **este no**.
+  > **Consecuencia medible:** acepta marcar `status:"listed"` una pieza **sin precio resoluble** ⇒ el storefront
+  > **la descarta en silencio** (`catalog.service.ts:571`) y **no entra a ninguna cola**. La pieza queda **invisible
+  > para el comprador y para el operador a la vez** — la contradicción exacta de la fase 8 (*«ninguna pieza adquirida
+  > se queda invisible»*, §P.7).
+  > **Norma:** cuando el `PATCH` **resulta** en `status="listed"` y el estado **previo NO era `listed`**, corre el
+  > **pipeline completo**, con los **mismos códigos que el camino de lote**:
+  > - **`422 ITEM_NOT_PUBLISHABLE`** (`details.status`) — status de origen no publicable (`reserved`, `in_custody`,
+  >   `picking`, `lost`, …) o pieza que **no es de plataforma** (anti double-sell).
+  > - **`422 PRICE_PENDING`** — sin precio de venta resoluble. **ESCALA a la cola de precio pendiente** (dedupe
+  >   idempotente) y devuelve **`details.pendingPriceEntryId`**. *Money-safe: jamás se lista sin precio.*
+  > - La invariante «gradeada publicada exige `certNumber`» (v1.2/M-12) **no cambia**.
+  > **Qué NO cambia, dicho explícitamente para que nadie lo recorte de más:** **`listPriceCents` sigue siendo
+  > editable aquí.** Es el **override manual POR PIEZA de M1**, que **precede a este ciclo**. D10 prohíbe capturar
+  > precio de venta **dentro del ciclo de buylist** —por eso `convert-to-inventory` **no** lo acepta—, **no** retira
+  > una perilla de M1 que ya existía. **Cero rediseño de precios de venta en esta release.**
+  > **v1.51 — `cardProductId?: number | null` (NUEVO, aditivo, D7 / criterio 160):** identidad de **producto separado**
+  > (promo / exclusivo de deck) de la pieza. Es la **vía de corrección A MANO** que exige el criterio 160 —
+  > **auditada** (M10)— para reclasificar el inventario **ya capturado**. ⚠️ **NO existe** ningún proceso, script ni
+  > botón que reasigne identidad de piezas históricas **por inferencia**: *ninguna migración puede adivinar si aquella
+  > pieza era la promo o la del set base, y una migración que adivina produce cifras que se ven confiables y no lo
+  > son*. **Es trabajo de captura, no de software.** Validación: debe pertenecer a los `CardProduct` del `cardId` de
+  > la pieza ⇒ si no, **`422 PRODUCT_CARD_MISMATCH`**; inexistente ⇒ **`422 PRODUCT_NOT_FOUND`** (mismos códigos que
+  > §6, sin vocabulario nuevo).
+- **`GET /api/v1/admin/inventory/pending-publish` (v1.51 — NUEVO, `vault_operator+`)** — **cola «listas para
+  publicar»** (fase 8, D10, criterio 125). *Comprar bien y dejar la carta en una caja sin precio es comprar mal.*
+  Query: `?missing=location|price&acquisitionType=&setId=&page=&pageSize=` (todos opcionales; `pageSize` ≤ 100).
+  Res `200`: `{ data: PendingPublishRowDTO[], page, pageSize, total }` (§11).
+  > **Predicado de la cola:** `ownerType='platform'` ∧ `status='in_stock'` ∧ ( `locationId IS NULL` **∨** precio de
+  > venta **no resoluble** ). Cada fila dice **QUÉ LE FALTA** (`missing: ("location" | "price")[]`) y, si falta
+  > precio, trae `pendingPriceEntryId` para el **deep-link a la cola de precio pendiente de M2**.
+  > **⚠️ AUTO-PUBLICACIÓN: «ubicación + precio ⇒ publicada», SIN BOTÓN (criterio 125).** La pieza **sale sola** de
+  > esta cola en cuanto no le falta nada — *sin depender de que alguien se acuerde de apretar un botón*. La
+  > publicación **se intenta** en los tres momentos en que puede dejar de faltar algo: **(a)** al convertir desde M5,
+  > **(b)** al fijar/mover ubicación, **(c)** cuando el precio se vuelve resoluble (barrido de precios u override de
+  > M2). **Cada intento corre el pipeline COMPLETO** (`assertPublishableGuards` + `resolvePublishSalePrice` +
+  > `claimListed`) — el mismo que ya corren los caminos de lote.
+  > **Se respeta la Regla de Compra (§A):** lo que está en **«precio pendiente» NO se publica** y el comprador
+  > **NUNCA** ve ese estado.
+  > **La cola es visible en el dashboard** como parte de la cola de trabajo del back-office (ver `workQueue` abajo).
+  > **Alcance (D10): SOLO VISIBILIDAD.** Esta cola **no captura precios de venta**, no los sugiere y no los hereda del
+  > costo de compra.
+  Err: `403`, `400 VALIDATION_ERROR`.
 - **Sellado — referencia de mercado TCGCSV (v1.19, READ-ONLY en M1):** para items `productType=sealed`, `GET /admin/inventory/items` (cada fila) y `GET .../items/:id` exponen además:
   - `tcgplayerProductId?: number` y `tcgplayerGroupId?: number` — mapeo curado al producto de TCGplayer/TCGCSV (`null`/omitidos si no mapeado; M-23).
   - `sealedMarketRef?: PriceInfo` — **valor de referencia de mercado** del producto sellado (`source: "tcgcsv"`, MXN con FX+colchón, `capturedDate` del último ingest). `null`/omitido si el item no está mapeado o aún no hay ingest. En listados se resuelve por lote (`getReferencesBatch`, sin N+1).
@@ -6885,6 +7229,22 @@ Notas de seguridad: **host fijo** de pokemontcg.io (sin SSRF); `POKEMONTCG_IO_AP
     - **`minCents?` / `maxCents?` (rango de MONTO, enteros ≥ 0):** aplican sobre **`quotedTotalCents`** — `gte minCents`, `lte maxCents`. **Por qué `quotedTotalCents` y NO `approvedTotalCents`:** `quotedTotalCents` es `Int @default(0)` — **siempre existe** para toda solicitud (snapshot histórico de la cotización), mientras que `approvedTotalCents` es **nullable** y sólo se puebla tras aprobar/ajustar; filtrar por él **excluiría** justo las solicitudes `rechazada`/`abandonada` (sin aprobado) que dominan la pestaña «Cerradas», rompiendo el caso de uso del PO. `quotedTotalCents` también es estable (el rechazo por-ítem NO lo recalcula — BL-1). **No** se ofrece filtro por `approvedTotalCents` en esta versión (si el PO lo pide luego, sería un par de params separados, aditivo). No negativo / no entero / `maxCents < minCents` → `400 VALIDATION_ERROR`.
     - **`pageSize`:** default **20 SIN CAMBIOS** (subirlo cambiaría el tamaño de respuesta de consumidores actuales = ruptura silenciosa); el front pide **`pageSize=25`** (sugerencia del PO). Máx **100** sin cambios. Paginación inválida → `400 VALIDATION_ERROR`.
     - **Seguridad (documentada; el guard es del backend):** el listado ya está tras rol `vault_operator`/`super_admin`. `q`/`from`/`to`/`minCents`/`maxCents` **sólo REDUCEN** el conjunto que el rol ya puede ver — no hay IDOR ni enumeración cruzada nueva (no saltan el guard, no cambian el shape ni la proyección PII). `q` **NO** busca sobre CLABE/RFC/INE (datos cifrados/enmascarados): evita convertir el buscador en un oráculo de enumeración sobre PII sensible. La CLABE sigue enmascarada; en claro sólo por `reveal-clabe`.
+  - **v1.51 (M-46) — TRES adiciones a la cola, todas aditivas:**
+    - **`live?: boolean` (query, NUEVO):** `live=true` filtra **todo lo que NO es terminal**; `live=false` filtra los
+      terminales. **Se implementa por EXCLUSIÓN sobre `SELL_REQUEST_TERMINAL_STATES`, no como una lista de estados
+      vivos** (criterio 129): así un estado nuevo entra a la vista **solo**. Combinable con `status` CSV (se
+      intersectan); si `status` contradice a `live` el resultado es vacío, **no** un error.
+    - **`seller.phone: string | null` (NUEVO, D12/criterio 129):** *el teléfono viaja en la cola de buylist*, para que
+      el operador **pueda llamar** sin ir a buscarlo a la ficha del usuario. Mismo régimen PII que `seller.email`
+      (§4.18d): back-office por rol, **sin** enmascarado ni reveal auditado, y **prohibido en toda superficie
+      pública** (criterio 130). `null` en cuentas de Google / cuentas viejas sin capturar.
+    - **`isTerminal: boolean` (NUEVO, derivado server-side):** ⚠️ **existe para BORRAR la quinta copia del set
+      terminal.** Hoy `M5View.tsx:110` (`REQUEST_TERMINAL`) codifica el set en el frontend — la quinta de cinco
+      copias, y la única fuera del backend. **El frontend NO lo sustituye por otra constante propia: el servidor le
+      dice.** *La copia se cura eliminando la necesidad de la copia.* Ver ARCHITECTURE §4.39(c) sitio 9.
+    - **`offerState`, `offerGrossCents`, `offerNetCents`, `offerAcceptDeadlineAt`, `shipDeadlineAt`,
+      `sellerShippedDeclaredAt`, `shipmentTrackingNumber` (NUEVOS, admin-only)** en `AdminBuylistDTO` — para que la
+      cola de M5 muestre el pipeline sin abrir cada detalle. **`offerState` NUNCA sale en un DTO de cliente.**
   - **`seller` (v1.18-buylist-rejects, NUEVO):** cada fila gana **`seller: AdminSellerRef = { id, name, email }`** (join a `User`; `seller.id === userId`). `userId` se **conserva** (compat). La UI de M5 muestra **nombre + correo** como identidad primaria y relega el UUID a tooltip/detalle. **PII:** back-office protegido por rol (`vault_operator`/`super_admin`); el **correo del vendedor es dato de contacto operativo — NO es la CLABE** y por tanto **no** requiere enmascarado ni reveal auditado. El régimen de la CLABE **no cambia**.
 - `GET /api/v1/admin/buylist/:id` — detalle con items y estados. La CLABE del vendedor se expone **enmascarada** como `clabeMasked` (`****1234`); **nunca** el snapshot cifrado ni la CLABE en claro. Para pagar, el súper-admin usa `reveal-clabe` (ver abajo).
   - **`seller` (v1.18-buylist-rejects, NUEVO):** el detalle gana el mismo **`seller: AdminSellerRef`** que el listado. Los `items` (`SellItemDTO`, §11) incluyen los campos de rechazo (`rejectionReason`, `rejectedAt`, `returnDeadlineAt`, `abandonDeadlineAt`) cuando aplique.
@@ -6893,6 +7253,32 @@ Notas de seguridad: **host fijo** de pokemontcg.io (sin SSRF); `POKEMONTCG_IO_AP
 - `POST /api/v1/admin/buylist/:id/receive` — marca recepción física → `recibida`.
 - `POST /api/v1/admin/buylist/:id/verify` — inicia/registra verificación → `verificacion`.
 - `PATCH /api/v1/admin/buylist/items/:itemId/decision` — **cherry-pick** — Req `{ decision: "approve" | "adjust" | "reject", approvedPriceCents?, reason? }` → actualiza `SellItemStatus`. `adjust` fija `adjustmentSentAt` (dispara plazo de 7 días).
+  > **⚠️ v1.51 — EN EL CICLO DE OFERTA NO EXISTE NI REPRECIAR NI AJUSTAR (BREAKING chico; D9/D30, criterios
+  > 119/124/150).** Discriminador: **`SellRequest.offerSentAt IS NOT NULL`**. Cuando lo es:
+  > - **`approvedPriceCents` en el body ⇒ `422 OFFER_PRICE_IMMUTABLE`** (`details.itemId`,
+  >   `details.offeredPriceCents`). **El monto no se toma del cliente ni del admin**: `approve` fija
+  >   **server-side** `approvedPriceCents = SellRequestItem.offeredPriceCents`.
+  > - **`decision:"adjust"` ⇒ `409 ADJUST_NOT_ALLOWED_IN_OFFER_CYCLE`** (`details.status`). Es el criterio 150 por lo
+  >   negativo: *«el ítem `ajustada` **no se usa en ninguna parte** del ciclo de buylist»*, y con D30 el criterio 124
+  >   **recuperó su alcance completo**: en la pantalla de verificación **no existe campo de monto, ni repreciar, ni
+  >   contraofertar, ni ajustar**.
+  > - **`reject` NO cambia** (mismo motivo obligatorio, mismos plazos 7d/30d, mismo correo por carta, misma
+  >   auto-transición). **Es el mecanismo del rechazo PARCIAL, y no necesita ninguno nuevo** (D30): se **rechaza carta
+  >   por carta con el correo que YA EXISTE** y **lo aprobado se paga al precio ofertado**.
+  > - **La verificación tiene exactamente DOS desenlaces por carta (D9, criterio 124):** llega **NM** ⇒ **aprobada y
+  >   se paga lo ofertado**; **no** llega NM ⇒ **rechazada, no se paga** y corren los plazos de §H (**7 días a costo
+  >   del usuario**, **abandono a 30 días**). **No hay un tercer camino** y **la solicitud no gana ningún tercer
+  >   estado.**
+  > - **⚠️ Por qué el depósito PUEDE ser menor sin contradecir el criterio 134:** *lo prohibido es que la cifra baje
+  >   **por decisión nuestra*** —recalcular el envío, repreciar una línea, aplicar una comisión sorpresa (D2/D9/D25)—;
+  >   *lo permitido, **porque estaba escrito y el vendedor lo aceptó antes de empacar**, es que baje porque una carta
+  >   **no cumplió la condición NM** que el propio correo de oferta declaró **línea por línea*** (D30, criterio 161).
+  >   Al rechazar una carta **no baja el precio: baja el número de líneas compradas**, y **el depósito baja
+  >   exactamente el bruto de esa línea, ni un peso más**.
+  > - **Piezas que llegan sin haber sido ofertadas** (el vendedor metió algo que no compramos): **no están compradas**.
+  >   Se registran y aplican los plazos de devolución de §H. **No** se convierten a inventario vendible.
+  > **En solicitudes previas al ciclo (`offerSentAt IS NULL`) el endpoint NO cambia**: `adjust` sigue disponible y
+  > `approvedPriceCents` sigue aceptándose. El flujo de ajuste **no se retira**, solo queda **fuera** de este ciclo.
   > **v1.18-buylist-rejects — semántica COMPLETA de `decision:"reject"`:**
   > - **`reason: string` — OBLIGATORIO con `reject`** (3–500 chars; falta/vacío → `400 VALIDATION_ERROR`). Motivo del
   >   rechazo (típicamente "no es NM: …", PROJECT §H). Se persiste en `SellRequestItem.rejectionReason`, va al
@@ -6940,6 +7326,34 @@ Notas de seguridad: **host fijo** de pokemontcg.io (sin SSRF); `POKEMONTCG_IO_AP
   > abandonada pasa a inventario" aplica a ítems **aprobados** cuya solicitud se abandonó (clic del admin sobre el ítem
   > `aprobada`; deuda BE-3 para automatizarlo), nunca a `rechazada`. Reintento sobre ítem ya convertido sigue siendo
   > idempotente (`alreadyConverted:true`).
+  > **⚠️ v1.51 (M-46) — CUATRO cambios: `locationId?` opcional, `cardProductId` propagado, costo = BRUTO ofertado, y
+  > el enlace a la cola de publicar. Fase 8 de `PROJECT.md` §P.7 (D10), criterios 125/126/131/135.**
+  > - **Req gana `locationId?: string` OPCIONAL** (criterio 125). Se **OFRECE** en el mismo paso para no obligar a un
+  >   segundo viaje al sistema, pero **NO es obligatoria**: *bloquear la conversión por falta de ubicación **atoraría
+  >   el flujo de pago**, y el pago al vendedor no puede depender de que ya sepamos en qué caja va la carta*. A
+  >   cambio, la pieza sin ubicación sale **SEÑALADA** en la cola de pendientes de publicar.
+  > - **⚠️ `acquisitionCostCents` = el BRUTO OFERTADO de esa línea** (criterio 135):
+  >   `SellRequestItem.offeredPriceCents` (fallback `approvedPriceCents ?? quotedPriceCents ?? 0` para filas previas
+  >   a M-46). **El ENVÍO NO ENTRA AL COSTO DE LA PIEZA**: es **gasto operativo del periodo** (M7). Mezclarlos
+  >   ensuciaría el **P&L por carta** —dos piezas idénticas tendrían costos distintos según el paquete en que
+  >   llegaron— y volvería **inútil el margen por pieza que M7 existe para mostrar**. Verificable en M7: dos piezas
+  >   idénticas compradas al mismo bruto, una llegada con envío caro y otra sin envío nuestro, tienen **exactamente
+  >   el mismo costo y el mismo margen**.
+  > - **⚠️ `cardProductId` SE PROPAGA — y hasta M-46 NO SE PROPAGABA (D7, criterio 131).** `InventoryItem` gana la
+  >   columna (**M-46**) y la conversión copia `SellRequestItem.cardProductId`: la pieza queda ligada a **ESE**
+  >   producto, no al `set_base`. **Tres comentarios del repo afirmaban esta propagación desde v1.30 y era falsa**
+  >   (`schema.prisma:1142`, `dto/buylist.dto.ts:98-99`, ARCHITECTURE §4.29d) — desviación **INV-D7**, §9. Sin esto
+  >   los conteos de la mesa **mezclan una promo con la versión del set base**, y *«una sugerencia basada en un conteo
+  >   que mezcla identidades es peor que no dar sugerencia, porque el operador la creería»* (§P.8).
+  > - **⚠️ NO acepta `listPriceCents` — y no es un olvido (D10, criterio 126).** *En todo el ciclo de buylist **no
+  >   existe** ningún campo para capturar el **precio de venta** de la pieza*, ni se «hereda» el precio de compra como
+  >   precio de venta. Lo fija la **curva por valor de mercado** (§N.1) con su precedencia money-safe; sin dato de
+  >   mercado la pieza queda en **«precio pendiente»**, **no se publica** y **se escala al dueño** — *es un pendiente
+  >   visible, no una carta perdida*, y **nunca** sale a la venta con MX$0.
+  > - **Res gana `pendingPublish: { missing: ("location" | "price")[], pendingPriceEntryId?: string }`** — el
+  >   **enlace desde M5 a la cola de M1** (`GET /admin/inventory/pending-publish`). `missing: []` ⇒ la pieza ya se
+  >   **publicó sola** (auto-publicación, criterio 125).
+  Res `200`: `{ inventoryItemId, alreadyConverted: boolean, pendingPublish: { missing, pendingPriceEntryId? } }`.
 - **`POST /api/v1/admin/buylist/:id/reject` (v1.24-buylist-request-reject, NUEVO)** — `vault_operator`/`super_admin` (mismo guard que el resto de §M5 hasta verificación; **NO** es dinero saliente → sin `MoneyOutGuard`), **auditado** (`action: buylist.reject`). Botón «Rechazar solicitud» de M5: **cierre EXPLÍCITO** de una solicitud a estado terminal `rechazada`. Cubre el caso operativo que la auto-transición no alcanza: solicitudes **ya atoradas** cuyo(s) ítem(es) fueron rechazados **antes** del fix P-4 (o rechazadas por otra vía sin sellar la solicitud).
   Req: `{ reason?: string }` — `reason` **opcional** (0–500 chars), motivo interno del cierre a nivel solicitud; **NO PII**, va al `AuditLog` (`after`), no se expone al cliente ni al correo (no hay correo en este flujo). Body vacío `{}` es válido.
   > **Semántica SEGURA y mínima (norma):**
@@ -6949,6 +7363,267 @@ Notas de seguridad: **host fijo** de pokemontcg.io (sin SSRF); `POKEMONTCG_IO_AP
   Res `200`: la `SellRequest` actualizada (mismo shape que `GET /admin/buylist/:id`: `status="rechazada"`, `closedAt` sellado, `seller`, `items` con sus campos de rechazo).
   Err: `403 FORBIDDEN` (cliente), `404 NOT_FOUND` (solicitud inexistente), `422 REQUEST_HAS_NON_REJECTED_ITEMS` (queda ítem vivo), `409 CONFLICT` (solicitud en otro estado terminal `pagada`/`abandonada`).
 - `POST /api/v1/admin/buylist/:id/pay-spei` — **`super_admin`** — Req `{ speiReference }` + `Idempotency-Key` → registra pago manual, request `→pagada`. Err `403 MONEY_OUT_FORBIDDEN`. Precondición: `aprobada` + verificada (pago **tras** recepción/verificación).
+  > **⚠️ v1.51 — SE PAGA EL NETO, Y EL NETO NUNCA ES NEGATIVO (criterios 136/150/151/152/155).**
+  > - **Monto que sale = `payoutNetCents = max( 0 , approvedTotalCents − offerShippingFeeCents )`**, sellado en la
+  >   **misma transacción** que `status='pagada'`. `approvedTotalCents` es el **BRUTO APROBADO** (Σ `offeredPriceCents`
+  >   de las líneas `buy` que terminaron `aprobada`/`convertida_inventario`); `offerShippingFeeCents` es la **tarifa
+  >   CONGELADA al ofertar** (`0` en la banda donde el vendedor paga su envío).
+  > - **INVARIANTE MONEY-SAFE — `max(0, …)` no es una defensa, es la DEFINICIÓN.** Oferta MX$1,480, aprobado MX$100,
+  >   envío MX$180 ⇒ el neto es **MX$0**, **no −MX$80**. **No se genera ningún cargo, adeudo ni saldo negativo**
+  >   contra el vendedor, **no se retiene** contra operaciones futuras, y la diferencia queda como **gasto nuestro**.
+  >   ***El peor caso posible para un vendedor es cobrar $0 — nunca deber.*** **No debe existir ninguna ruta** —UI,
+  >   petición manipulada, override o ajuste de diales— que produzca un neto negativo o un cobro a un vendedor.
+  > - **Rechazo TOTAL ⇒ absorbemos la guía entera (D17, criterio 140):** `approvedTotalCents = 0` ⇒ neto **MX$0**, el
+  >   vendedor **no debe nada** y **no existe ninguna acción de cobro**. Pusimos la guía apostando a que la mercancía
+  >   era NM; **esa apuesta es nuestra**.
+  > - **Rechazo PARCIAL de CUALQUIER tamaño ⇒ se paga sin preguntar nada (D30, criterio 150).** El SPEI **NO se
+  >   detiene** por ninguna confirmación del vendedor: **no existe** pantalla, correo, estado, plazo **ni umbral**
+  >   —ni configurable ni en código— que cambie el comportamiento según el tamaño del recorte. Bruto aprobado
+  >   MX$900 sobre una oferta de MX$1,480 (−39%) ⇒ se depositan **MX$720**; MX$1,300 (−12%) ⇒ **MX$1,120**.
+  >   **Exactamente el mismo tratamiento.**
+  > - **⚠️ DOS ACUMULADOS QUE NO SE MEZCLAN (criterio 155).** El **tope MENSUAL** que valida este endpoint se mide en
+  >   **BRUTOS** (`offerGrossCents ?? quotedTotalCents`) porque es el **valor comprometido** y la **misma base que
+  >   AML/INE**; el **acumulado de caja de M7** se mide en **NETOS** (`payoutNetCents`) porque es **lo que de verdad
+  >   salió por SPEI**. Si el tope sumara netos, un envío caro **iría bajando el acumulado** y un usuario pasaría el
+  >   tope **sin que se note**; si la caja sumara brutos, **M7 reportaría una salida de dinero que nunca ocurrió**.
+  >   ⚠️ Consecuencia para backend: `monthPaidOutCentsTx` (`buylist.service.ts:960`) es el acumulado de
+  >   **COMPROMISO**, no de caja — **el nombre miente** (desviación BL-5, ARCHITECTURE §9).
+  > - **Estados pagables:** `SELL_REQUEST_PAYABLE_STATES` (`aprobada`, `verificacion`) — hoy el literal está **inline
+  >   dos veces en el mismo método** (`:1754` y `:1788`, desviación BL-7). El pago sigue siendo **exclusivo del
+  >   súper-admin**, sin tope ni delegación (criterio 26 intacto).
+
+#### <a id="M5-ciclo"></a>Ciclo de adquisición — mesa, oferta, guía y colas (v1.51 — NUEVO; `PROJECT.md` §P, criterios 113–161)
+
+> **Rol por defecto de TODA esta familia: `vault_operator` / `super_admin`** (mismo guard que el resto de M5 hasta
+> verificación; **no** es dinero saliente ⇒ **sin `MoneyOutGuard`**). **Dos excepciones explícitas**: `offer/authorize`
+> es **`super_admin`**, y `pay-spei` sigue siendo **`super_admin`** con `MoneyOutGuard`.
+> **Todo el bloque es auditado** (`AuditLog`, M10) con actor, solicitud y `before`/`after`.
+
+##### `GET /api/v1/admin/buylist/:id/decision-table` — la MESA DE DECISIÓN (D6, criterios 115/116/117/144/153)
+> *«El admin no debería decidir una compra sin saber cuánto de eso ya tiene. Ocho copias en la caja y tres más en
+> camino es una razón perfectamente buena para no comprar la novena — y hoy esa información no está en la pantalla
+> donde se decide.»* (§P.2)
+
+Res `200`: `{ sellRequestId, status, seller: AdminSellerRef, quotedTotalCents, lines: BuylistDecisionLineDTO[], totals: { buyableGrossCents, shippingPaidByUs, shippingFeeCents, netCents }, operatorCapCents, requiresAuthorization: boolean }` (§11).
+
+- **`totals` es una PREVISUALIZACIÓN, no un compromiso.** Se calcula con la curva y los diales **de este instante** y
+  **cambia** si el admin cambia de decisión. **Lo vinculante se congela al emitir la oferta**, no aquí.
+- **`requiresAuthorization`** = `true` si el actor es `vault_operator` y `buyableGrossCents > operatorCapCents`. Es un
+  **aviso**, no un bloqueo: el operador puede preparar la oferta igual y quedará esperando autorización (D24).
+- **Por línea (`BuylistDecisionLineDTO`, §11) — los cuatro datos que exige el criterio 115:**
+  **(a)** qué pidió vender y **cuánto se cotizó**; **(b)** **cuántas piezas de esa carta hay en inventario**;
+  **(c)** **cuántas vienen en camino**; **(d)** una **sugerencia legible**.
+- **⚠️ LA POSICIÓN SON CUATRO SUMANDOS, Y «EN CAMINO» ES UNO SOLO DE ELLOS.** Son **dos preguntas distintas** y
+  `PROJECT.md` quiere **ambos números a la vista** (§P.2, criterios 116/153):
+
+  | Campo | Predicado | Entra en `position.total` (tope/bounty) | Se pinta como **«en camino»** |
+  |---|---|---|---|
+  | `position.stock` | `InventoryItem` de plataforma, on-hand, **misma variante incluyendo `cardProductId`** | **sí** | no |
+  | `position.verifying` | líneas `buy` cuya solicitud está `recibida`\|`verificacion` | **sí** | no |
+  | `position.inTransit` | líneas `buy` cuya solicitud está **`en_transito`** | **sí** | **SÍ — la ÚNICA** |
+  | `position.committed` | líneas `buy` cuya solicitud está `ofertada`\|`aceptada` | **sí** | no |
+
+  - `position.total = stock + verifying + inTransit + committed`. Contesta *«¿de cuántas copias ya soy
+    responsable?»* — **una línea ya ofertada es dinero comprometido** (D2: la oferta es vinculante).
+  - **La cifra «en camino» que pinta la UI es `position.inTransit`, y nada más.** Contesta *«¿qué viaja de verdad?»*.
+    **NO suman**: una `aceptada`, una con **guía emitida sin confirmar**, ni un **«ya lo mandé» del vendedor**
+    (criterios 116/138/156). *Contar promesas como inventario es exactamente el error que esta pantalla existe para
+    evitar.*
+  - **Se emite UN objeto con el desglose, no dos cifras sueltas.** Dos campos numéricos independientes («posición» y
+    «en camino») son dos cosas que la UI puede cruzar mal; aquí una **es** la otra desglosada.
+- **⚠️ `position: null` + `positionUnavailable: true` cuando el conteo NO se pudo obtener.** **PROHIBIDO devolver
+  `0`.** Un cero que en realidad significa «no pude contar» es exactamente el fallo que §P.8 llama *«peor que no
+  mostrar nada, porque se ve confiable»*, y empuja al operador a **comprar de más**. En ese caso
+  `suggestion.verdict = "none"` y **el front debe pintar «no disponible»**, jamás inferir una sugerencia.
+- **Identidad de la carta (D7 / §P.8):** los conteos se hacen sobre la **identidad real de la pieza**, con
+  `cardProductId` en la llave. *Un conteo que mezcla una promo con su versión del set base **es peor que no mostrar
+  nada**.* Requiere **M-46** (`InventoryItem.cardProductId`).
+- **La sugerencia — precedencia, NO un «o» (D15 + D29, criterio 153):**
+  ```
+  bounty VIVO   ⇒ manda el BOUNTY:  do_not_buy ⇔ bountyTargetQty ≠ null ∧ position.total ≥ bountyTargetQty
+                  (el tope general NO aplica mientras haya bounty vivo)
+  sin bounty    ⇒ manda el TOPE:    do_not_buy ⇔ position.total ≥ buylistVariantPositionCap  (default 10)
+  ```
+  - **⚠️ LA SUGERENCIA NUNCA BLOQUEA (D6, criterios 117/144/153(d)).** El admin puede **comprar una línea que la
+    sugerencia desaconseja** y **descartar una que la sugerencia aconseja**, **sin fricción, sin permiso extra y sin
+    confirmación adicional**. **El backend NO valida la oferta contra la sugerencia.** *Se escribe aquí para que nadie
+    lo «endurezca» por parecer prudente: endurecerlo **contradice `PROJECT.md`**.* **La decisión es del operador,
+    línea por línea.**
+  - **La sugerencia se explica**: devuelve `rule` (`bounty_target` | `variant_cap`), `thresholdQty` y `bountyActive`
+    junto al desglose de los cuatro sumandos — criterio 144: *«dice qué regla se disparó y con qué cifras»*.
+  - **⚠️ Consecuencia literal señalada (ARCHITECTURE §4.39o.2):** un bounty vivo **sin objetivo**
+    (`bountyTargetQty = null`) **nunca** pinta «no comprar», por muchas copias que se acumulen. Es la lectura literal
+    de D29(a).
+- **`derivedPriceCents`** sale de **`decideBuyLine`** con la **curva vigente AHORA**, no de la cotización: *el monto
+  no se hereda ciegamente* (§P.2). Una línea sin dato de mercado trae `derivedPriceCents: null` + `pendingReason` y
+  **no se oferta con una cifra inventada** — **nunca MX$0 ni cifra de respaldo** (§N.2).
+- Err: `403`, `404 NOT_FOUND`.
+
+##### `POST /api/v1/admin/buylist/:id/offer` — EMITIR (o preparar) la oferta (D1/D2/D13/D24/D26)
+Req: `{ lines: [{ itemId: string, decision: "buy" | "skip", overridePriceCents?: number, overrideReason?: string }] }`
+
+- **Precondición:** `status='cotizada'` ∧ `offerState ∈ {null, cancelled}`. Otro caso ⇒ **`409 OFFER_NOT_ALLOWED`**
+  (`details.status`, `details.offerState`). Sobre una oferta **ya enviada** ⇒ **`409 OFFER_ALREADY_SENT`**: *una
+  oferta enviada **NO se edita**; se **cancela y se emite una nueva*** (criterio 145).
+- **`lines` debe cubrir EXACTAMENTE los ítems de la solicitud** (ni faltar ni sobrar) ⇒ si no,
+  **`422 OFFER_LINES_MISMATCH`** (`details: { missingItemIds, unknownItemIds }`). Sin esto, una línea olvidada saldría
+  del correo sin que nadie decidiera nada sobre ella.
+- **Precio por línea — el seam es único (ARCHITECTURE §4.39e):** el monto derivado sale de **`decideBuyLine`**, el
+  mismo cuerpo que usan el cotizador público y `createRequest`, invocado **en lote** con la **curva vigente al
+  ofertar**. *La cotización pública y la solicitud que se paga no pueden divergir: el vendedor ve un número y firma
+  otro.* **Prohibida una cuarta reimplementación.**
+- **Override manual (D26, criterio 148) — tres datos, no dos:**
+  - Se persisten **`offerDerivedPriceCents`** (lo que dijo la curva; `null` si la línea estaba en `precio_pendiente`),
+    **`offeredPriceCents`** (lo que se oferta) y **`offerOverrideReason`**.
+  - **`overrideReason` es OBLIGATORIO ⇔ `overridePriceCents ≠ offerDerivedPriceCents`** (3–500 chars) ⇒ si falta,
+    **`422 OVERRIDE_REASON_REQUIRED`** (`details.itemIds`). ***Sin motivo, no hay override.*** Es lo que convierte un
+    número a mano en una **decisión revisable** en vez de una cifra huérfana.
+  - **El override NO es puerta trasera al tope** (criterio 148(c)): el tope se juzga sobre el **bruto RESULTANTE**,
+    overrides incluidos.
+  - **El override es lo único que puede rescatar una línea en «precio pendiente»**; la otra salida legítima es
+    `decision:"skip"` (el desglose le dirá al cliente que esa no se la compramos).
+  - **Después del correo NO hay override** (D2): ni al recibir, ni al verificar, ni por autorización posterior.
+- **Línea `buy` sin monto resoluble y sin override** ⇒ **`422 OFFER_LINE_NOT_PRICEABLE`** (`details.itemIds`). **La
+  oferta no sale a medias.**
+- **Banda de envío (D16/D18b, criterio 158(b) — borde INCLUSIVO):**
+  `offerShippingPaidByUs = (offerGrossCents >= buylistShippingThresholdCents)`; exactamente MX$1,000 **SÍ** lleva guía
+  nuestra. `offerShippingFeeCents = offerShippingPaidByUs ? buylistShippingFeeCents : 0`.
+  `offerNetCents = max(0, offerGrossCents − offerShippingFeeCents)` = **el NETO ANUNCIADO**, y **es la cifra
+  vinculante frente al vendedor**.
+- **⚠️ TOPE DEL OPERADOR — DOS DESENLACES, DOS CÓDIGOS DE ÉXITO DISTINTOS (D13/D24, criterios 143/147):**
+
+  | Actor | Bruto | Respuesta | Efecto |
+  |---|---|---|---|
+  | `super_admin` | cualquiera | **`200`** | `offerState='sent'`, `status='ofertada'`, **el correo SALE** |
+  | `vault_operator` | `≤ buylistOperatorOfferCapCents` (**inclusivo**) | **`200`** | ídem — **sale sola** |
+  | `vault_operator` | `> cap` | **`202`** | `offerState='pending_authorization'`, **`status` SIGUE `cotizada`**, **el correo NO se manda** |
+
+  **Bordes verificables (criterio 147):** `$1,499` sale · **`$1,500` sale** (el tope es **inclusivo**) · `$1,501`
+  espera. **El súper-admin oferta sin tope**, y **el SPEI sigue siendo solo suyo**.
+  **La bitácora registra `offerPreparedBy` y `offerAuthorizedBy` POR SEPARADO** (criterio 147).
+  **El `202` es un estado real, no un error:** el operador **puede** preparar la oferta; lo que no puede es que salga
+  sola (*«requiere autorización del súper-admin»*, no *«prohibido prepararla»*).
+- **Al SALIR** (directo o tras autorizar): `offerSentAt=now()`, **`offerAcceptDeadlineAt` = `now` + 2 días hábiles
+  CONGELADO**, correo de oferta **post-commit best-effort**, `AuditLog buylist.offer.send`.
+- **⚠️ CONGELACIÓN POR SOLICITUD (D8/D25, criterio 157) — se respetan las fechas ya comunicadas.** Se congelan en
+  columnas y **nunca se releen del dial**: `offerAcceptDeadlineAt`, `offerShippingFeeCents`, `offerShippingPaidByUs`,
+  `offerGrossCents`, `offerNetCents` y los `offeredPriceCents` por línea. **Mover un dial en M10 NO toca ninguna
+  solicitud viva**; solo afecta a las **nuevas**. *Vencerle una oferta a alguien antes de la fecha que le escribimos
+  sería romper la palabra que la oferta vinculante venía a dar.*
+- **⚠️ La tarifa se CONGELA aunque la etiqueta real cueste otra cosa (D25, criterio 149).** Si la etiqueta sale **más
+  cara**, **absorbemos** la diferencia (gasto operativo); si sale **más barata**, la diferencia es **margen nuestro**.
+  **En ningún caso se recalcula el descuento después de mandar la oferta**: si el descuento pudiera moverse tras la
+  aceptación, **el neto dejaría de ser vinculante** y volveríamos al problema del *«$1,480 que llegan como $1,350»*.
+- **El correo de oferta NO compra etiqueta (D21):** solo **anuncia** que el envío corre por nuestra cuenta y que **la
+  guía le llega al aceptar**. *Solo se gasta etiqueta en quien ya dijo que sí.*
+- **El mínimo de compra NO se re-aplica aquí** (criterio 158(c)): cotizados $600 y cherry-pick a $200 ⇒ **la oferta
+  sale igual, sin bloqueo**.
+
+Res `200` | `202`: `{ sellRequestId, status, offerState, offerSentAt: string | null, offerGrossCents, offerShippingPaidByUs, offerShippingFeeCents, offerNetCents, offerAcceptDeadlineAt: string | null, requiresAuthorization: boolean, items: SellItemDTO[] }`.
+Err: `403`, `404 NOT_FOUND`, `409 OFFER_NOT_ALLOWED`, `409 OFFER_ALREADY_SENT`, `422 OFFER_LINES_MISMATCH`, `422 OFFER_LINE_NOT_PRICEABLE`, `422 OVERRIDE_REASON_REQUIRED`, `400 VALIDATION_ERROR`.
+
+##### `POST /api/v1/admin/buylist/:id/offer/authorize` — **`super_admin`** (D24, criterio 143/147)
+Req: body vacío `{}`.
+> **⚠️ El endpoint NO acepta líneas ni montos: autoriza LO GUARDADO.** Al autorizarla, la oferta sale **con el mismo
+> contenido** que se preparó (criterio 143). Aceptar cambios aquí convertiría la autorización en una segunda edición y
+> el «quién preparó / quién autorizó» dejaría de significar nada.
+> Sella `offerAuthorizedBy` / `offerAuthorizedAt`, pasa `offerState → sent`, `status → ofertada`, **congela
+> `offerAcceptDeadlineAt` EN ESTE INSTANTE** (criterio 157: la fecha se fija **al comunicarse**, y la oferta se
+> comunica ahora) y **manda el correo**.
+Res `200`: mismo shape que `POST …/offer`.
+Err: `403 FORBIDDEN` (operador — **registrado**), `404 NOT_FOUND`, **`409 OFFER_NOT_PENDING_AUTHORIZATION`** (`details.offerState`).
+
+##### `POST /api/v1/admin/buylist/:id/offer/cancel` (criterio 145)
+Req: `{ reason?: string }` (0–500, interno, **NO PII**, va al `AuditLog`; **no** se expone al cliente).
+> **La única vía para corregir una oferta equivocada** — *no hay «corregir un número» sobre una oferta que el vendedor
+> ya tiene en su bandeja*. Efecto: `offerState → cancelled`, **`status → cotizada`**, se **limpian** los campos
+> congelados (`offerGross/Net/ShippingFee/ShippingPaidByUs/AcceptDeadlineAt/AcceptReminderSentAt`) y los per-línea
+> (`offerDecision`, `offeredPriceCents`, `offerDerivedPriceCents`, `offerOverrideReason`, `offerPriceBasis`,
+> `offerMarket*`). La oferta anterior **sobrevive íntegra en `AuditLog`** (`buylist.offer.cancel` con `before`
+> completo) — que es lo que `PROJECT.md` exige.
+> **Emitir una nueva es `POST …/offer` otra vez: correo nuevo y el plazo VUELVE A EMPEZAR.**
+> **Si había guía emitida** (`shipmentTrackingNumber != null`), se abre la tarea **«cancelar guía no usada»** (D22).
+> ⚠️ **Volver a `cotizada` es DECISIÓN DEL ARQUITECTO** — `PROJECT.md` dice «cancela y emite una nueva» pero **no
+> nombra el estado intermedio** (ARCHITECTURE §4.39o.4). No es terminal, así que no choca con el criterio 145.
+Res `200`: la `SellRequest` actualizada. Err: `403`, `404`, **`409 OFFER_NOT_CANCELLABLE`** (no hay oferta viva, o la
+solicitud ya avanzó más allá de `ofertada` — una `aceptada` **no** se cancela por esta vía).
+
+##### `GET /api/v1/admin/buylist/offers/pending-authorization` — cola de autorización (criterio 143/147)
+Query: `?page=&pageSize=` (`pageSize` ≤ 100). Res `200`: `{ data: PendingOfferAuthorizationRowDTO[], page, pageSize, total }` (§11).
+Orden **`offerPreparedAt` asc** (lo más viejo primero: es una cola de trabajo, no un feed). Err `403`, `400 VALIDATION_ERROR`.
+
+##### `POST /api/v1/admin/buylist/:id/guide` — capturar la guía (D19/D21/D22, criterios 122/137)
+Req: `{ carrier: string, trackingNumber: string }` (ambos 1–100 chars, trim).
+> **⚠️ NO HAY INTEGRACIÓN CON PAQUETERÍA, y es alcance cerrado (D19).** Sin compra automática, sin cotización de
+> tarifas, sin rastreo en vivo y **sin validación del número contra el transportista**. **El sistema solo guarda y
+> muestra.** Eso es **proyecto aparte**.
+> **La guía se compra AL ACEPTAR, no al ofertar (D21, criterio 137):** precondición **`status='aceptada'`**; sobre una
+> `ofertada` ⇒ **`409 GUIDE_NOT_ALLOWED`**. *Ofertar a diez personas y comprar diez guías por adelantado sería tirar el
+> dinero de las que digan que no.*
+> **⚠️ UN SOLO TIMESTAMP DE GUÍA — `guideSentAt` — y es deliberado.** `PROJECT.md` ancla el plazo en *«que la guía
+> llega al vendedor»* (criterio 123) y el número *«queda visible para el vendedor»* al capturarse: **capturar ES
+> entregar**. Dos campos (`emitida`/`entregada`) invitarían a que uno se quede sin poblar y el reloj arranque en el
+> momento equivocado.
+> **CONGELA `shipDeadlineAt` = `guideSentAt` + 3 días hábiles** (D4/D14/D21). **El reloj arranca con la ENTREGA DE LA
+> GUÍA, no con la aceptación** (criterio 123): una guía entregada **dos días después** de aceptar **corre el
+> vencimiento dos días**. *Sería injusto correrle el reloj mientras espera una etiqueta que depende de nosotros.*
+> En la **banda donde el vendedor paga su envío**, `shipDeadlineAt` se congela **al ACEPTAR** (§P.4) y este endpoint
+> es **opcional** (el operador puede capturar el número que el vendedor le comunique; ver ARCHITECTURE §4.39o.10).
+> **El número de guía es visible para las DOS partes** (criterio 122): al vendedor para que pueda usarlo, al operador
+> para **conciliar** al recibir.
+> **Re-captura:** llamar de nuevo **actualiza** `carrier`/`trackingNumber` (corregir un typo debe ser posible) pero
+> **NO re-congela `shipDeadlineAt`** — mover la fecha ya comunicada rompería el criterio 157.
+Res `200`: `{ sellRequestId, status, shipmentCarrier, shipmentTrackingNumber, guideSentAt, shipDeadlineAt }`.
+Err: `403`, `404`, `409 GUIDE_NOT_ALLOWED` (`details.status`), `400 VALIDATION_ERROR`.
+
+##### `POST /api/v1/admin/buylist/:id/confirm-shipment` — **lo ÚNICO que mueve a `en_transito`** (D20, criterio 122/138)
+Req: body vacío `{}`. Precondición `status='aceptada'` ⇒ si no, **`409 NOT_ACCEPTED`** (`details.status`).
+> **Efecto:** `status → en_transito`, sella `shipmentConfirmedAt` / `shipmentConfirmedBy` (**quién lo hizo**, criterio
+> 122), y **AHORA SÍ** la línea empieza a sumar a la cifra de **«en camino»** de la mesa de decisión de otras
+> solicitudes (criterio 116).
+> **⚠️ Ni la compra de la guía ni el aviso del vendedor mueven este estado por sí solos (D20).** El «ya lo mandé»
+> **detiene el reloj** y **no mueve nada más** (§P.13). **Aceptar no pone nada en camino.**
+> **Regla dura (criterio 114):** este endpoint **solo** acepta `aceptada`. **No existe** ninguna secuencia que lleve
+> una solicitud a `en_transito` sin haber pasado por **`ofertada` y `aceptada`**. La guarda va en el `updateMany`
+> (patrón `count===1`), no en un `if` previo.
+Res `200`: `{ sellRequestId, status: "en_transito", shipmentConfirmedAt, shipmentConfirmedBy }`.
+Err: `403`, `404`, `409 NOT_ACCEPTED`.
+
+##### `GET /api/v1/admin/buylist/pending-shipment-confirmation` — cola «por confirmar envío» + alerta P17 (criterio 156)
+Query: `?onlyAlerts=&page=&pageSize=`. Res `200`: `{ data: PendingShipmentConfirmationRowDTO[], page, pageSize, total }` (§11).
+> Enumera las `aceptada` con **`sellerShippedDeclaredAt != null`** y **sin** `shipmentConfirmedAt`. Cada fila trae
+> **`alert: boolean`** = han pasado más de `buylistShipmentConfirmAlertBusinessDays` (default **5 días hábiles**)
+> desde la declaración. **Es DERIVADO server-side, no se persiste** (basta el timestamp + el dial).
+> **⚠️ La alerta NO HACE NADA MÁS (criterio 156): no expira, no cancela, no mueve el estado y no suma al conteo de
+> «en camino».** *El vendedor ya cumplió; el pendiente es nuestro, así que el remedio es **hacerlo visible**, no
+> castigarlo.* Orden `sellerShippedDeclaredAt` **asc**. Err `403`, `400 VALIDATION_ERROR`.
+
+##### `GET /api/v1/admin/buylist/guides/pending-cancellation` — «cancelar guía no usada» (D22, criterio 139)
+Query: `?page=&pageSize=`. Res `200`: `{ data: PendingGuideCancellationRowDTO[], page, pageSize, total }` (§11).
+> Enumera las solicitudes con `guideCancellationPendingAt != null` ∧ `guideCancellationDoneAt IS NULL`, **con el
+> número de guía a la vista**. Se abre cuando una solicitud **con guía emitida** **expira** o **se cancela**.
+> *Una etiqueta comprada y olvidada es **dinero tirado que nadie ve**.*
+> **⚠️ NO DESAPARECE SOLA** (criterio 139): sale de la cola únicamente por
+> **`POST /api/v1/admin/buylist/:id/guide/cancellation-done`** (body `{ note?: string }`), que sella
+> `guideCancellationDoneAt` / `guideCancellationDoneBy` y queda auditado.
+> ⚠️ **Rol `vault_operator`+ — SUPUESTO señalado** (ARCHITECTURE §4.39o.3): el criterio 139 no dice quién marca la
+> tarea; es operación, no dinero saliente. **En la banda donde el vendedor paga su envío no hay guía ⇒ no hay tarea.**
+> **Requisito de compra que esto impone y que NO es detalle operativo (D22):** la etiqueta que compremos debe ser
+> **cancelable o reembolsable** — es un **criterio para elegir con qué paquetería trabajamos**.
+Err `403`, `400 VALIDATION_ERROR`; el `POST`: `403`, `404`, `409 NO_PENDING_GUIDE_CANCELLATION`.
+
+##### `GET /api/v1/admin/buylist/live-sellers` — cotizaciones vivas + teléfono (D12, criterios 129/130)
+Query: `?q=&page=&pageSize=`. Res `200`: `{ data: LiveSellerRowDTO[], page, pageSize, total }` (§11) — `{ seller: { id, name, email, phone }, liveCount, oldestCreatedAt, latestStatus }`.
+> **«VIVA» = TODO lo que NO es terminal**, **definido por exclusión A PROPÓSITO** (criterio 129): así **cualquier
+> estado que se agregue después al ciclo entra a la vista solo**, sin que haya que acordarse de actualizar una lista.
+> Los terminales son los **CUATRO**: `pagada`, `rechazada`, `abandonada`, **`expirada`**.
+> **UNA sola query agrupada** (`GROUP BY userId`) — **no** se resuelve paginando la cola y contando en memoria (esa
+> es la lección de P-5: un conteo por-usuario derivado de una página es **incorrecto**, no solo lento).
+> **PII (criterio 130):** el teléfono es **dato de contacto operativo de back-office** —mismo régimen que el correo
+> del vendedor (§4.18d): **sin** enmascarado, **sin** reveal auditado, y **NO** es la CLABE, cuyo régimen no cambia—.
+> **NUNCA** aparece en superficie pública: ni en ficha, ni en Compra, ni en confirmación de pedido, ni en la **vista
+> de seguimiento por enlace tokenizado** (§4-G / §J).
+Err `403`, `400 VALIDATION_ERROR`.
 
 ### M6 — Usuarios / KYC (`super_admin`; `vault_operator` lectura limitada)
 > **Estado v1.3: YA EXISTE en backend** (`AdminUsersController` + `AdminService.listUsers/getUser/updateUserKyc/updateUserStatus`). No requiere backend nuevo; falta **consumo de frontend** (M6 es `ModuleTodo` en UI). Shapes confirmados contra el código: el **listado** es paginado `{ data, page, pageSize, total }` con `data: { id, email, name, role, status, createdAt }[]` y filtros `q` (email/name) + `status`; la **ficha 360°** (`GET /admin/users/:id`) incluye `kycProfile` (CLABE/RFC **enmascarados** incluso para `super_admin`; `ineOnFile: boolean`), `billingProfile` (RFC enmascarado; `null` para `vault_operator`), `addresses`, `orders` (últimas 20), `sellRequests` (20), `disputes` (20) y `ownedItems` (bóveda). El `vault_operator` recibe **proyección reducida** (sin RFC/INE/billing).
@@ -7136,6 +7811,60 @@ Notas de seguridad: **host fijo** de pokemontcg.io (sin SSRF); `POKEMONTCG_IO_AP
   del proveedor y escribimos filas? — decisión de **coste** y de calidad de dato). Colapsarlos obligaría a elegir entre
   «no puedo probar el ingest sin publicar» y «no puedo publicar sin encender el gasto». Con dos, el operador puede
   **rodar el ingest en observación con la vitrina apagada**, que es la secuencia de encendido que pide §4.38(h).
+- **v1.51 (M-46) — OCHO diales nuevos del CICLO DE ADQUISICIÓN DEL BUYLIST** (`PROJECT.md` §P.10, criterio 127).
+  Se exponen en el `GET` y se editan por este `PUT` (mismo patrón que el resto de `ConfigSetting`): **sin redeploy**,
+  **auditados** (M10) y **aplican a solicitudes NUEVAS** — las vivas llevan su valor **congelado** (criterio 157).
+
+  | Dial (DTO) | `SettingKey` | Default | Qué gobierna | Validación |
+  |---|---|---|---|---|
+  | `buylistOfferAcceptDeadlineBusinessDays` | `buylist_offer_accept_deadline_business_days` | **2** | sin respuesta ⇒ `rechazada` (§P.3) | entero ≥ 1 |
+  | `buylistShipDeadlineBusinessDays` | `buylist_ship_deadline_business_days` | **3** | sin envío ⇒ `expirada` (§P.4) | entero ≥ 1 |
+  | `buylistMinimumRequestCents` | `buylist_minimum_request_cents` | **50000** (MX$500, **inclusivo**) | por debajo **no se crea** la solicitud (§P.12) | entero ≥ 0 |
+  | `buylistShippingThresholdCents` | `buylist_shipping_threshold_cents` | **100000** (MX$1,000, **inclusivo**) | de ahí en adelante **la guía la ponemos nosotros** (§P.4) | entero ≥ 0 · **cruzada** ↓ |
+  | `buylistOperatorOfferCapCents` | `buylist_operator_offer_cap_cents` | **150000** (MX$1,500, **inclusivo**) | **bruto** por encima ⇒ la oferta **la autoriza el súper-admin** (§P.2). **Incluye los overrides** (D26) | entero ≥ 0 |
+  | `buylistVariantPositionCap` | `buylist_variant_position_cap` | **10** | dispara **«no comprar»** en cartas **sin bounty**; **NUNCA bloquea** (§P.2) | entero ≥ 1 |
+  | `buylistShippingFeeCents` | `buylist_shipping_fee_cents` | **18000** (MX$180) | el **envío que se descuenta** y que el correo anuncia; **se congela al ofertar** (D25) | entero ≥ 0 · **cruzada** ↓ |
+  | `buylistShipmentConfirmAlertBusinessDays` | `buylist_shipment_confirm_alert_business_days` | **5** | alerta de «ya lo mandé» sin confirmar (§P.13, P17). **NO expira nada** | entero ≥ 1 |
+
+  - **⚠️ ERAN NUEVE Y SON OCHO.** El **«umbral de recorte material» (20%, D28)** quedó **SIN OBJETO** con D30 —al no
+    haber pregunta al vendedor **no hay umbral que calibrar**— y **NO SE IMPLEMENTA**. Verificable **por lo negativo**
+    (criterio 127): **buscar ese dial en M10 debe dar NADA**, y **ninguna conducta del sistema depende de él**. El
+    dial **no se «apaga» ni queda en 0: deja de existir.**
+  - **⚠️ `buylistShippingFeeCents` (MX$180) y `shippingFeeCents` (MX$175) son DOS DIALES DISTINTOS.** Se parecen y
+    **no son el mismo número**: el de **retiro** (§D) es lo que **le cobramos al comprador** por mandarle su carta; el
+    del **buylist** es lo que **nos descontamos** por traer la del vendedor. **Mover uno NO mueve el otro** (criterio
+    127, última línea), y **unificarlos «porque se parecen» rompería dos flujos a la vez**.
+  - **`buylistMinimumRequestCents` y `buylistShippingThresholdCents` son INDEPENDIENTES (D18b):** contestan preguntas
+    distintas —*«¿vale la pena esta operación?»* y *«¿a partir de cuánto pago yo el envío?»*—. **Mover uno no mueve el
+    otro.** Los **dos bordes son INCLUSIVOS**, ambos **a favor del vendedor** (criterio 158): *«desde $500 te
+    compramos; desde $1,000 el envío va por nuestra cuenta»*.
+  - **Seeds:** son claves **NUEVAS**, así que el `upsert` con `update:{}` de `seed.ts` **sí** las crea en entornos ya
+    sembrados. ⚠️ **La disciplina de dos artefactos de ARCHITECTURE §11.0 NO aplica** (rige el cambio de un seed
+    **existente**). **Devops no necesita un paso de despliegue extra para estos ocho.**
+
+- **⚠️ v1.51 — VALIDACIÓN CRUZADA ENTRE DIALES, BLOQUEANTE (criterio 127, reformulada por D30).**
+  ```
+  INVARIANTE:   buylistShippingFeeCents  <  buylistShippingThresholdCents        (ESTRICTAMENTE menor)
+  ```
+  - **Razón de negocio, no de forma:** el umbral es **INCLUSIVO**, así que **la oferta más chica que puede llevar
+    envío a nuestro costo vale exactamente el umbral**. Si la tarifa lo igualara o lo superara, **una operación con
+    TODO aprobado depositaría MX$0** — le estaríamos ofreciendo a alguien un trato que **no le paga nada aunque
+    cumpla perfecto**. *Eso no es un piso de seguridad: es una **oferta rota**.*
+  - **Es BLOQUEANTE, NO una advertencia** — M10 debe **IMPEDIR** la combinación, no solo señalarla.
+  - **Aplica en LOS DOS SENTIDOS:** subir la tarifa por encima del umbral **y** bajar el umbral por debajo de la
+    tarifa se rechazan **igual**.
+  - **⚠️ SE EVALÚA SOBRE EL ESTADO RESULTANTE, NO SOBRE EL BODY.** `PUT /admin/settings` es **parcial**: hay que
+    validar **`{...vigente, ...body}`**. Validar solo las claves que vienen **permite romper el invariante mandando
+    UNA de las dos** — que es exactamente el agujero que esta validación existe para tapar.
+  - Error: **`422 VALIDATION_ERROR`** con
+    `details: { rule: "buylist_shipping_fee_lt_threshold", shippingFeeCents, shippingThresholdCents }` y un mensaje
+    que **dice POR QUÉ** (no un «valor inválido» seco).
+  - **Bordes verificables (criterio 127):** `tarifa=180 / umbral=1000` ⇒ **guarda** · `999/1000` ⇒ **guarda** ·
+    `1000/1000` (igual) ⇒ **NO guarda** · `1200/1000` (mayor) ⇒ **NO guarda**.
+  - **SUPUESTO vigente (pregunta abierta 24 de `PROJECT.md`):** **estrictamente menor, sin colchón** — el mínimo
+    defendible. Si el humano prefiere margen (p. ej. `tarifa ≤ umbral / 2`), **es un número que fija él** y solo
+    cambia la constante de esta validación.
+
 - `PUT /api/v1/admin/settings` — Req parcial con las keys a actualizar; **sin redeploy**. Registra `AuditLog`. Err `422 VALIDATION_ERROR`.
 - `GET /api/v1/admin/audit-log` — **bitácora global** `?actorUserId=&action=&entityType=&from=&to=&page=` → `{ data: AuditLogDTO[] }`.
 
@@ -7220,7 +7949,9 @@ Notas de seguridad: **host fijo** de pokemontcg.io (sin SSRF); `POKEMONTCG_IO_AP
 ```json
 {
   "profitPeriodCents": 0, "salesPeriod": { "count": 0, "amountCents": 0 },
-  "workQueue": { "shipments": 0, "buylist": 0, "disputes": 0, "pendingPrices": 0 },
+  "workQueue": { "shipments": 0, "buylist": 0, "disputes": 0, "pendingPrices": 0,
+                 "buylistPendingAuthorization": 0, "buylistPendingShipmentConfirmation": 0,
+                 "buylistPendingGuideCancellation": 0, "pendingPublish": 0 },
   "inventoryValueCents": 0, "custodyValueCents": 0,
   "buylistPeriod": { "count": 0, "amountCents": 0 },
   "dataHealth": { "pendingPriceCount": 0, "lastPriceSyncAt": "…", "lastFxAt": "…" },
@@ -7228,6 +7959,21 @@ Notas de seguridad: **host fijo** de pokemontcg.io (sin SSRF); `POKEMONTCG_IO_AP
 }
 ```
 Los campos de dinero (`profit*`, `inventoryValue*`, `custodyValue*`) se omiten/enmascaran para `vault_operator`.
+
+> **⚠️ v1.51 (M-46) — `workQueue` gana CUATRO contadores y `workQueue.buylist` CAMBIA DE CIFRA a propósito.**
+> - **`workQueue.buylist` pasa a contar `status IN SELL_REQUEST_LIVE_STATES`** (todo lo **no terminal**), en vez del
+>   literal `['cotizada','recibida','verificacion','aprobada']` de hoy (`admin.service.ts:1149`). **Hoy subcuenta el
+>   pipeline** y, con M-46, dejaría fuera `ofertada`, `aceptada` y `en_transito` — tres estados que **sí** son trabajo
+>   pendiente. Al derivarse por complemento **no vuelve a subcontar** cuando se añada otro estado. Desviación
+>   **BL-7**, ARCHITECTURE §9. **La cifra sube: es intencional.**
+> - **`buylistPendingAuthorization`** — ofertas esperando al súper-admin (criterio 143/147).
+> - **`buylistPendingShipmentConfirmation`** — «ya lo mandé» sin confirmar (§P.13). *(La **alerta** P17 a 5 días
+>   hábiles vive en la fila de la cola, no en el tablero: el tablero cuenta trabajo, no urgencia.)*
+> - **`buylistPendingGuideCancellation`** — guías compradas y no usadas (D22, criterio 139). *Una etiqueta comprada y
+>   olvidada es **dinero tirado que nadie ve**.*
+> - **`pendingPublish`** — piezas convertidas a las que les falta **ubicación o precio** (fase 8, criterio 125:
+>   *«la cola es **visible en el dashboard** como parte de la cola de trabajo del back-office»*).
+> Los cuatro son **conteos**, sin campos de dinero ⇒ **visibles para `vault_operator`** como el resto de `workQueue`.
 
 ---
 
@@ -7277,10 +8023,151 @@ AdminOrderItemDTO += { marketMxnCents?: number | null, priceBasis?: PriceBasis,
                        marketBracket?: MarketBracket | null, finish?: Finish }
 // v2.0 (P-48) — la entrada de la cola de precio pendiente gana la RAZÓN (M-41). `null` en filas históricas.
 PendingPriceEntryDTO += { reason?: PendingPriceReason | null }
+// ⚠️ v1.51 (M-46) — `SellItemDTO` gana el bloque de OFERTA. Todos nullables/ausentes en líneas previas al ciclo.
+//   * `offerDecision: BuyDecision | null`  = el cherry-pick AL OFERTAR (`buy` | `skip`). `null` = línea pre-ciclo.
+//   * `offeredPriceCents: number | null`   = ⚠️ **LA FUENTE ÚNICA DEL COSTO DE ADQUISICIÓN.** Congelado al enviar la
+//     oferta; NO SE MUEVE JAMÁS (D2/D9) — ni porque el mercado cambie, ni al recibir, ni al verificar. Es lo que se
+//     paga, y es el `acquisitionCostCents` de la pieza al convertir (criterio 135). `null` en líneas `skip`.
+//   * `offerDerivedPriceCents: number | null` = lo que produjo la CURVA (`decideBuyLine`) al ofertar. Se persiste
+//     SIEMPRE en una línea `buy` para que el delta del override sea visible sin leer la bitácora (criterio 148(b)).
+//     `null` si la línea estaba en `precio_pendiente` y el override la rescató. ⚠️ ADMIN-ONLY.
+//   * `offerOverrideReason: string | null` = motivo del override manual (D26). ⚠️ ADMIN-ONLY.
+//     **OBLIGATORIO ⇔ `offeredPriceCents !== offerDerivedPriceCents`**: *sin motivo, no hay override* (criterio
+//     148(a)). Es lo que convierte un número a mano en una DECISIÓN REVISABLE en vez de una cifra huérfana.
+//   * `offerPriceBasis: PriceBasis | null` = qué determinó el monto OFERTADO. Enum EXISTENTE, sin valores nuevos:
+//     override manual (y rescate de `precio_pendiente`) ⇒ `override`.
+//   * `offerMarketMxnCents` / `offerMarketBracket` = instrumentación §N.8 **del instante de OFERTAR**. NO se reusa la
+//     del quote: son DOS decisiones en DOS instantes (el mercado se movió entre una y otra) y la del quote ya está
+//     congelada. Un ajuste posterior no las reescribe.
+//   * `condition: string | null` (SOLO en la proyección de CLIENTE) = la CONDICIÓN NM de esa línea, YA RENDERIZADA
+//     por el backend en el `locale` del usuario, y **es el MISMO string que usó el correo** (criterio 161(d): la
+//     pantalla de aceptación muestra la condición «palabra por palabra»). El front lo pinta VERBATIM y NO tiene copia
+//     propia: dos plantillas distintas rompen la identidad en el primer cambio de copy.
+// ⚠️ LO QUE **NO** VIAJA AL CLIENTE en este bloque: `offerDerivedPriceCents` y `offerOverrideReason` (deliberación
+//   interna — el vendedor ve EL NÚMERO QUE LE OFERTAMOS, no cómo se fabricó). Las líneas `skip` **SÍ** se le muestran,
+//   con `offeredPriceCents: null`: el criterio 118 exige que el desglose diga QUÉ NO COMPRAMOS.
+SellItemDTO      += { offerDecision?: BuyDecision | null, offeredPriceCents?: number | null,
+                      offerDerivedPriceCents?: number | null, offerOverrideReason?: string | null,
+                      offerPriceBasis?: PriceBasis | null, offerMarketMxnCents?: number | null,
+                      offerMarketBracket?: MarketBracket | null, condition?: string | null }
+
+// ⚠️ v1.51 — LA OFERTA COMO LA VE EL VENDEDOR. Presente en `GET /buylist/requests/:id` y en la respuesta de
+// `offer-response` SOLO cuando `offerState='sent'`; `null` en cualquier otro caso (§6). NUNCA lleva `offerState`.
+// LOS TRES MONTOS, SIN LETRAS CHIQUITAS (D16, criterios 133/134):
+//   * `grossCents`   = valor de las cartas (BRUTO).
+//   * `shippingFeeCents` = el envío que ponemos y descontamos. **0 en la banda donde el vendedor paga el suyo.**
+//   * `netCents`     = `max(0, gross − shipping)` = **LO QUE SE DEPOSITA**, y es **LA CIFRA VINCULANTE** frente al
+//     vendedor. `depositField: "netCents" | "grossCents"` lo dice EXPLÍCITAMENTE para que la UI no lo adivine.
+//   * `shippingPaidByUs: boolean` = la BANDA, congelada. ⚠️ Existe como campo propio y NO se infiere de
+//     `shippingFeeCents === 0`: la banda decide el CONTENIDO del correo/pantalla (un monto vs. tres) y un `0` sería
+//     ambiguo si la tarifa se fijara en cero (ARCHITECTURE §4.39o.9). En la banda del vendedor la UI muestra **UN
+//     SOLO MONTO** y dice que el envío corre por su cuenta.
+// «La resta se ENSEÑA, no se esconde»: un correo que anuncie $1,480 y termine en un depósito de $1,350 destruye
+// exactamente la confianza que la oferta vinculante venía a construir.
+// PLAZOS: `acceptDeadlineAt` y `shipDeadlineAt` viajan como **ISO datetime YA RESUELTO** en días hábiles
+// (`America/Mexico_City`, L-V sin festivos oficiales — criterio 154). ⚠️ **EL FRONT NO RECALCULA PLAZOS**: dos
+// implementaciones de «día hábil» en dos lenguajes hacen que la pantalla y el correo digan fechas distintas, que es
+// justo lo que el criterio 154 prohíbe. Se muestran con FECHA Y HORA EXPLÍCITAS, nunca «en 2 días».
+// `terms` = el texto legal RENDERIZADO POR EL BACKEND (mismas plantillas que el correo). `terms.consequence` es el
+// bloque destacado de qué pasa con la carta que no llegue NM (no se compra, no se paga, se devuelve: 7 días a su
+// costo, abandono a 30) + que **el rechazo de una línea NO cancela la compra de las demás** y **no se reprecia
+// ninguna** (criterio 161(b)). La REDACCIÓN es de ux-ui (DESIGN_SYSTEM.md); el RENDER es del backend.
+SellOfferPublicDTO = { sentAt: string, grossCents: number, shippingFeeCents: number, netCents: number,
+                       shippingPaidByUs: boolean, depositField: "netCents" | "grossCents",
+                       acceptDeadlineAt: string,
+                       acceptedAt: string | null,
+                       shipDeadlineAt: string | null,
+                       sellerShippedDeclaredAt: string | null,
+                       carrier: string | null, trackingNumber: string | null,
+                       terms: { perLineConditionLabel: string, consequence: string },
+                       lines: SellItemDTO[] }
+
+// ⚠️ v1.51 — UNA FILA DE LA MESA DE DECISIÓN (`GET /admin/buylist/:id/decision-table`). ADMIN-ONLY, íntegro.
+// `derivedPriceCents` sale de `decideBuyLine` con la CURVA VIGENTE AHORA (no se hereda de la cotización, §P.2);
+// `null` + `pendingReason` cuando la carta no tiene dato de mercado — esa línea NO se oferta con una cifra inventada:
+// o se rescata con override (dentro del tope, con motivo, auditado) o queda FUERA de la oferta. NUNCA MX$0.
+// ⚠️ `position` son CUATRO SUMANDOS y `position.inTransit` ES la cifra de «en camino» que se pinta (§P.2(c),
+// criterios 116/153). NO se emite un segundo campo «en camino»: uno ES el otro desglosado, y dos cifras
+// independientes son dos cifras que la UI puede cruzar mal.
+// ⚠️ `position: null` + `positionUnavailable: true` cuando el conteo NO se pudo obtener (puerto de inventario caído).
+// **PROHIBIDO devolver 0**: un cero que significa «no pude contar» es lo que §P.8 llama «peor que no mostrar nada,
+// porque se ve confiable», y empuja al operador a COMPRAR DE MÁS. En ese caso `suggestion.verdict = "none"` y el
+// front pinta «no disponible» — jamás infiere una sugerencia.
+// ⚠️ `suggestion` NUNCA BLOQUEA (D6, criterios 117/144/153(d)): el backend NO valida la oferta contra ella. El admin
+// compra una línea con `do_not_buy` y descarta una con `buy`, SIN fricción ni permiso extra. Se escribe para que
+// nadie lo «endurezca» por parecer prudente: endurecerlo CONTRADICE PROJECT.md.
+BuylistDecisionLineDTO = {
+  itemId: string, card: CardDTO, productType: ProductType, finish: Finish,
+  cardProductId: number | null,                       // D7: identidad REAL de la pieza; entra a la llave del conteo
+  quotedPriceCents: number | null,                    // (a) lo que se le cotizó
+  derivedPriceCents: number | null,                   // curva VIGENTE al ofertar
+  priceBasis: PriceBasis,
+  pendingReason: PendingPriceReason | null,
+  position: { stock: number, verifying: number, inTransit: number, committed: number, total: number } | null,
+  positionUnavailable?: boolean,                      // true ⇒ NO pintar 0, pintar «no disponible»
+  suggestion: { verdict: "buy" | "do_not_buy" | "none",
+                rule: "bounty_target" | "variant_cap" | null,
+                thresholdQty: number | null,
+                bountyActive: boolean } | null
+}
+
+// ⚠️ v1.51 — filas de las CUATRO colas nuevas. Todas ADMIN-ONLY, todas paginadas `{ data, page, pageSize, total }`.
+PendingOfferAuthorizationRowDTO = { sellRequestId: string, seller: AdminSellerRef, preparedBy: string,
+                                    offerPreparedAt: string, offerGrossCents: number,
+                                    operatorCapCents: number, excessCents: number,
+                                    lineCount: number, buyLineCount: number }
+// `alert` = DERIVADO server-side (no columna): han pasado > buylistShipmentConfirmAlertBusinessDays (default 5 días
+// hábiles) desde `sellerShippedDeclaredAt` sin confirmación. ⚠️ La alerta NO EXPIRA, NO CANCELA, NO MUEVE EL ESTADO y
+// NO SUMA a «en camino» (criterio 156). El vendedor ya cumplió; el pendiente es NUESTRO.
+PendingShipmentConfirmationRowDTO = { sellRequestId: string, seller: AdminSellerRef,
+                                      sellerShippedDeclaredAt: string, shipDeadlineAt: string | null,
+                                      carrier: string | null, trackingNumber: string | null,
+                                      businessDaysWaiting: number, alert: boolean }
+// D22 / criterio 139: NO desaparece sola. Sale de la cola solo por POST .../guide/cancellation-done.
+PendingGuideCancellationRowDTO = { sellRequestId: string, seller: AdminSellerRef,
+                                   carrier: string, trackingNumber: string,
+                                   guideSentAt: string, guideCancellationPendingAt: string,
+                                   closedStatus: SellRequestStatus }   // `expirada` | `rechazada` (por qué se abrió)
+// D12 / criterios 129-130: «viva» = TODO lo que NO es terminal, por EXCLUSIÓN (un estado nuevo entra solo).
+// `phone` = dato de contacto operativo de back-office (mismo régimen que `email`, §4.18d): sin enmascarado, sin
+// reveal auditado, y PROHIBIDO en toda superficie pública (criterio 130). `null` en Google / cuentas viejas.
+LiveSellerRowDTO = { seller: { id: string, name: string, email: string, phone: string | null },
+                     liveCount: number, oldestCreatedAt: string, latestStatus: SellRequestStatus }
+// Fase 8 / criterio 125. `missing` dice QUÉ LE FALTA; la pieza SALE SOLA de la cola cuando `missing` queda vacío
+// (auto-publicación: ubicación + precio ⇒ publicada, sin botón). `pendingPriceEntryId` = deep-link a la cola de
+// precio pendiente de M2. La pieza SIN UBICACIÓN sale SEÑALADA (la conversión no la exige, para no atorar el pago).
+PendingPublishRowDTO = { inventoryItemId: string, folio: string, card: CardDTO, productType: ProductType,
+                         finish: Finish, cardProductId: number | null,
+                         locationId: string | null, listPriceCents: number | null,
+                         resolvedSalePriceCents: number | null, priceBasis: PriceBasis | null,
+                         pendingPriceEntryId: string | null,
+                         missing: ("location" | "price")[],
+                         acquisitionType: AcquisitionType, sourceSellRequestItemId: string | null,
+                         createdAt: string }
+
+// ⚠️ v1.51 (M-46) — `AdminBuylistDTO` gana el pipeline del ciclo + el teléfono + `isTerminal`.
+//   * `isTerminal: boolean` — DERIVADO server-side de los CUATRO terminales. **Existe para que el frontend BORRE su
+//     copia del set** (`M5View.tsx:110`, quinta de cinco). El front NO lo sustituye por otra constante propia.
+//   * `seller.phone` — D12: el teléfono viaja EN LA COLA, para poder llamar sin abrir la ficha (criterio 129).
+//   * `offerState` — ⚠️ ADMIN-ONLY, jamás en un DTO de cliente: una oferta `pending_authorization` le filtraría al
+//     vendedor la existencia y el orden de magnitud de nuestro tope interno.
+//   * `payoutNetCents` — lo que SALIÓ por SPEI (`max(0, brutoAprobado − envío)`). Es la fuente de la CAJA de M7,
+//     distinta del acumulado de COMPROMISO que gobierna el tope mensual y que se mide en BRUTOS (criterio 155).
+AdminBuylistDTO  += { isTerminal: boolean, offerState: SellOfferState | null,
+                      offerSentAt: string | null, offerGrossCents: number | null,
+                      offerShippingPaidByUs: boolean | null, offerShippingFeeCents: number | null,
+                      offerNetCents: number | null, offerAcceptDeadlineAt: string | null,
+                      acceptedAt: string | null, guideSentAt: string | null, shipDeadlineAt: string | null,
+                      shipmentCarrier: string | null, shipmentTrackingNumber: string | null,
+                      sellerShippedDeclaredAt: string | null, shipmentConfirmedAt: string | null,
+                      guideCancellationPendingAt: string | null, guideCancellationDoneAt: string | null,
+                      payoutNetCents: number | null }
 // v1.18-buylist-rejects: identidad del vendedor en M5 (GET /admin/buylist, /admin/buylist/:id, rejected-items).
 // PII: correo = dato de contacto operativo de back-office (roles vault_operator/super_admin); NO es la CLABE →
 // sin enmascarado ni reveal auditado. seller.id === SellRequest.userId (que se conserva por compat).
-AdminSellerRef   = { id: string, name: string, email: string }
+// v1.51 (D12, criterios 129-130): +`phone`, MISMO régimen que el correo (sin enmascarado, sin reveal) y PROHIBIDO en
+// toda superficie pública. El régimen de la CLABE NO cambia.
+AdminSellerRef   = { id: string, name: string, email: string, phone?: string | null }
 // v1.18-buylist-rejects: fila de GET /admin/buylist/rejected-items (pestaña «Rechazadas», transversal a
 // solicitudes). `reason` = rejectionReason. Deadlines derivadas como en SellItemDTO. La "fase" (devolución /
 // abandono) la deriva el front de now vs las fechas; no se expone como campo.
@@ -7488,6 +8375,49 @@ AdminCreatedUserDTO = { user: { id, email, name, role: Role, locale: Locale, sta
 ---
 
 ## 12. Notas de coherencia con PROJECT.md
+- **CICLO DE ADQUISICIÓN DEL BUYLIST (v1.51, M-46, PROJECT §P v2.1 APROBADO, criterios 113–161).** Lo que **no cabe en
+  ningún endpoint** porque es conducta del sistema, y que QA debe poder verificar contra este documento:
+  - **«DÍA HÁBIL» TIENE UNA DEFINICIÓN ÚNICA (criterio 154):** **lunes a viernes**, excluyendo los **festivos
+    oficiales de México**, en **`America/Mexico_City`**. **El sábado NO cuenta.** La **fecha límite del correo**, la
+    que muestra **la pantalla del cliente**, la que usa **el barrido** y la que dispara **el recordatorio** son
+    **exactamente la misma**. Vive en `backend/src/common/business-days.ts` (**zona compartida**), una sola
+    implementación para los cuatro consumidores. **⚠️ El frontend NO recalcula plazos**: recibe el ISO ya resuelto.
+    **⚠️ Fail-closed hacia el vendedor:** si la tabla de festivos no cubre el año pedido, la función **lanza** y el
+    barrido **loggea y NO expira**. Degradar a «no hay festivos» adelantaría vencimientos y **expiraría ofertas de
+    gente que sí cumplió** — fallar hacia *«no vence»* es el único lado seguro.
+  - **EL BARRIDO (`buylist-sweep`) — seis reglas, y una RE-ANCLADA (ARCHITECTURE §4.39j):**
+    (1) `ofertada` con plazo vencido ⇒ **`rechazada`** + correo;
+    (2) `aceptada` con plazo de envío vencido **y sin «ya lo mandé»** ⇒ **`expirada`** + correo + **tarea «cancelar
+    guía no usada»** si había guía;
+    (3)(4) **recordatorio a UN día hábil, UNO POR PLAZO, cada uno UNA SOLA VEZ** (criterio 159 — el guard es el
+    timestamp sellado, no un cálculo: el barrido corre varias veces y **no puede** mandar otro; un ciclo genera
+    **hasta dos**);
+    (5) el sweep de **ajuste 7d NO cambia** (`adjustmentSentAt`, `verificacion|aprobada`);
+    (6) **⚠️ CAMBIO OBSERVABLE — el abandono de 30 días se RE-ANCLA**: de `cotizada`/`createdAt` a
+    **`{recibida,verificacion,aprobada}`/`receivedAt`**. §P.1 define `abandonada` como los 30 días **con la carta ya
+    en nuestras manos**, y §P.13 prohíbe que un plazo del vendedor venza por **nuestra** demora. **Una `cotizada`
+    deja de auto-archivarse** — es deliberado: D12 quiere esas solicitudes **vivas y visibles** (con teléfono) para
+    que alguien las trabaje. Desviación **BL-9**, ARCHITECTURE §9.
+    **Toda transición terminal sella `closedAt`, `expirada` INCLUIDA** — es la única ancla de la retención del INE
+    (SEC-D2); sin eso el INE de una expirada **no se purga jamás** (desviación BL-3).
+  - **LOS CORREOS DEL CICLO SON TRES, Y NI UNO MÁS (criterios 142/150):** **oferta**, **recordatorio** y
+    **expiración/cancelación**. Los **rechazos por carta** usan el correo que **YA EXISTE** (§M5 v1.18), sin
+    mecanismo nuevo. La 3ª ronda llegó a proponer un cuarto; **con D30 no existe**. Mecanismo idéntico al de
+    ARCHITECTURE §4.18c: `buylist` inyecta **`MAIL_PORT`**, renderiza con plantilla **local al módulo**, bilingüe
+    ES/EN por `User.locale`, **best-effort post-commit** (su fallo no revierte la transición). **El módulo `mail` NO
+    se toca.**
+    **⚠️ PROHIBIDO en los tres correos** (misma norma de minimización que §4.18c): **CLABE** (ni enmascarada), datos
+    de terceros, montos o estado de **otras** solicitudes, y **cualquier cifra interna de la mesa** (posición,
+    sugerencia, tope del operador) — el vendedor no ve nuestros controles.
+  - **LA OFERTA ES CONDICIONAL Y LA CONDICIÓN VA AL FRENTE, POR LÍNEA (D30, criterio 161).** El correo de una oferta
+    de 3 líneas muestra la condición **en las 3**, no en un pie de página; dice **una vez y destacado** qué pasa con
+    la que no cumpla; dice que **el rechazo de una línea NO cancela la compra de las demás** y que **no se reprecia
+    ninguna**; y **sale ANTES de que exista guía** (D21), de modo que **el vendedor acepta la condición antes de que
+    gastemos en envío y antes de que él empaque**. **Por eso el rechazo parcial no vuelve a preguntar nada**
+    (criterio 150): al verificar **no cambió el trato**, **se cumplió una condición ya aceptada**.
+  - **EL RÉGIMEN DE LA CLABE NO CAMBIA.** `reveal-clabe` sigue siendo el **único** punto del contrato que devuelve la
+    CLABE en claro, `super_admin`, money-out y auditado por llamada. Nada del ciclo nuevo la toca, la expone ni la
+    manda por correo.
 - **PRECIO PURO POR VALOR DE MERCADO (v2.0, P-48, PROJECT §N LOCKED) — la nota que manda sobre las de abajo.** El
   precio de **cartas sueltas** (raw **y** gradeadas) depende **solo del valor de mercado**:
   `venta = redondeo↑(max(piso, mercado × markup(mercado)))` · `compra = max(bin, mercado × pct(mercado))`, ambas
