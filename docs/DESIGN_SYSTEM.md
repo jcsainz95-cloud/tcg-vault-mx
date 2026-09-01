@@ -280,6 +280,21 @@
 > **mandar el paquete** sin nuestra guía). **Cero tokens, cero componentes nuevos, cero cifras nuevas**: es
 > un pase **solo de copy y de dónde se pinta**, y **D43 sigue intacta** (ninguna cadena nueva lleva una
 > cifra de envío). Alcance: §7.13 reescrita, §23.3c-bis y §23.3g (fila nueva), §23.12 y **§23.14 nueva**.
+>
+> **Corrección v2.3.3 (2026-09-01 — dictamen del arquitecto sobre `ARCHITECTURE §4.39(n)`).**
+> **Los correos del ciclo son CINCO, no cuatro, y «3c» deja de existir.** §23.4.4 trataba la **cancelación
+> de la oferta por nuestra parte** como tercera variante del correo 3; **es un correo propio** porque
+> **deja la solicitud `cotizada` y VIVA**, mientras 3a y 3b dejan terminales. **El texto ratificado no
+> cambia una letra**: cambia de número, pasa a **§23.4.4-bis** y —**lo que de verdad importaba**— sale del
+> prefijo que mentía: ~~`expiry.cancelledByUs.*`~~ ⇒ **`offerCancelled.*`**. *Un número mal puesto se nota;
+> un prefijo que miente se propaga, porque no se lee: se autocompleta* — y `expiry.*` empujaba cada edición
+> futura hacia «se te venció», que es **la frase prohibida** en ese correo. Se corrigen además todas las
+> referencias cruzadas al conteo viejo dentro de §23 (§23.0, §23.4.0, §23.4.7, §23.13.2/6/8, §23.14.7).
+> **Segunda resolución, en dirección contraria: `buylist.adjust.*` NO se retira** — es **inalcanzable para
+> el ciclo nuevo pero necesaria para la cohorte heredada en vuelo**; su retiro va **con gate, no con
+> fecha**. De ahí sale una regla que este documento adopta: *el copy de un flujo que se apaga se retira
+> cuando **termina su última instancia viva**, no cuando el flujo deja de crearse.* **Cero cambios de
+> diseño visual, cero tokens, cero redacción nueva.**
 
 ---
 
@@ -5748,7 +5763,8 @@ El cuerpo de la nota es el texto más largo del sistema: debe poder envolver sin
 
 ### 23.0 Alcance y las SIETE reglas duras
 
-**Qué diseña §23:** los **cuatro correos** del ciclo (§23.4), la **nota de servicio del envío** en el
+**Qué diseña §23:** los **cinco correos** del ciclo (§23.4 — *eran cuatro hasta v2.3.3; la cancelación se
+separó, ver §23.4.4-bis*), la **nota de servicio del envío** en el
 cotizador (§23.3 — **sin cifras, v2.3.1/D43**; ~~el aviso con la resta hecha~~ quedó superado), los
 **cuatro estados nuevos** y el **stepper de ocho pasos** (§23.1, §23.2), la
 **pantalla del vendedor** que espeja el correo (§23.5), la **mesa de decisión** del admin (§23.6), el
@@ -6137,16 +6153,28 @@ refuerza—. Queda **una reserva acotada**, para que esté escrita y se pueda me
 
 ---
 
-### 23.4 Los CUATRO correos del ciclo
+### 23.4 Los CINCO correos del ciclo
 
 > Los correos son **el documento donde se cierra el trato**. `PROJECT.md` §P.3 los pone al mismo nivel que
 > una pantalla: la oferta **es** el correo. Aquí se define la **estructura, la jerarquía y el tono**; el
 > texto vive en las plantillas locales del módulo `buylist` (`buylist-mail.templates.ts`, bilingüe por
 > `User.locale`) y el **render es del backend**. La **redacción es de ux-ui** y se ratifica con PO.
 >
-> *(Nota de formato: §23.4 es la **única** sección del documento con cuatro niveles de encabezado. Son ocho
-> bloques hermanos —el medio, el esqueleto y los cuatro correos con sus asuntos— y meterlos como negritas
-> dentro de un solo `###` los volvería inencontrables. No es un desliz.)*
+> **⚠ v2.3.3 — SON CINCO, y «3c» ya no existe. Manda `ARCHITECTURE §4.39(n)`.** §23.4.4 trataba la
+> **cancelación de la oferta por nuestra parte** como una tercera variante del correo 3. **Es un correo
+> propio, el 5**, y el argumento no es de jerarquía documental sino de hechos: **3a y 3b dejan la solicitud
+> en un estado TERMINAL; la cancelación la deja `cotizada` y VIVA**, de vuelta en la fila con 7 días
+> hábiles completos (D38). Agruparlos era precisamente lo que **R3** prohíbe —*un correo por HECHO, no por
+> camino*— aplicado al revés: no fusioné dos caminos del mismo hecho, **fusioné dos hechos distintos**.
+> **El texto que escribí para «3c» es correcto y no se redacta nada nuevo**: cambia de número, de
+> subsección (**§23.4.4-bis**) y —lo que de verdad importa— **de prefijo de clave** (§23.12).
+>
+> *(Nota de formato: §23.4 es la **única** sección del documento con cuatro niveles de encabezado. Son nueve
+> bloques hermanos —el medio, el esqueleto y los cinco correos con sus asuntos— y meterlos como negritas
+> dentro de un solo `###` los volvería inencontrables. No es un desliz.*
+> **La numeración `23.4.N` NO sigue al número del correo** y por eso el 5 entra como **§23.4.4-bis** en
+> lugar de renumerar `.5/.6/.7`: hay referencias cruzadas vivas a esas tres subsecciones dentro y fuera de
+> §23, y **renumerarlas para ganar una coincidencia estética habría roto punteros reales**.)*
 
 #### 23.4.0 El medio: papel y tinta en HTML de correo
 
@@ -6161,7 +6189,7 @@ El correo no es la app y no puede fingir que lo es. Restricciones asumidas como 
 | **Modo oscuro del cliente** | `<meta name="color-scheme" content="light">` + `supported-color-schemes: light` y **`bgcolor` explícito en cada `td`**. El sistema no tiene modo oscuro (§2.1) y aquí no se inventa uno. **Ningún significado depende del fondo** |
 | **Imágenes** | **Solo el wordmark** (PNG del lockup, ≤ 240px de ancho, con `alt="TCG HUNT"`). **Cero imágenes de carta**, cero iconos-imagen, **cero imágenes de fondo**: el correo tiene que decir todo lo que dice **con las imágenes bloqueadas**, que es el estado por defecto de la mitad de las bandejas |
 | **Parte de texto plano** | **OBLIGATORIA** (`multipart/alternative`) y con **el mismo contenido sustantivo**: los tres montos, la condición por línea y el plazo. Un correo de dinero sin parte de texto es un correo que algunos clientes muestran mutilado |
-| **Prohibido en los cuatro** | **CLABE** (ni enmascarada), datos de terceros, montos de otras solicitudes, **cualquier cifra interna de la mesa** (posición, sugerencia, tope del operador, cuánto inventario tenemos), teléfono del vendedor, y cualquier enlace que **ejecute** una acción sin sesión |
+| **Prohibido en los CINCO** | **CLABE** (ni enmascarada), datos de terceros, montos de otras solicitudes, **cualquier cifra interna de la mesa** (posición, sugerencia, tope del operador, cuánto inventario tenemos), teléfono del vendedor, y cualquier enlace que **ejecute** una acción sin sesión. **En el correo 5 se añade `offerCancelReason`**: el motivo de la cancelación es de la bitácora, no del vendedor |
 
 #### 23.4.1 Esqueleto común
 
@@ -6358,20 +6386,25 @@ TU OFERTA · BL-000123
 - **No hay recordatorio del plazo de caducidad** (los 7 días hábiles nuestros). Correcto por diseño:
   avisarle al vendedor de un plazo que depende de nuestra carga de trabajo no le sirve de nada.
 
-#### 23.4.4 CORREO 3 — EXPIRACIÓN / CANCELACIÓN (⚠ tiene TRES productores y NO son el mismo hecho)
+#### 23.4.4 CORREO 3 — EXPIRACIÓN (⚠ DOS productores, y los dos son terminales)
 
-`ARCHITECTURE §4.39(n)` agrupa en el correo 3 tres cosas que **afirman cosas distintas**. Diseñarlas con un
-solo texto rompería **R3** en la dirección más cara: acusando a quien no falló.
+> **⚠ v2.3.3 — esta subsección tenía TRES variantes y ahora tiene DOS.** La tercera (~~3c~~, «la cancelamos
+> nosotros») **salió de aquí** y es el **correo 5** (§23.4.4-bis). El criterio de corte es el estado que
+> deja: **3a y 3b cierran la solicitud; la cancelación la devuelve viva a la fila.** ~~3c~~ **no vuelve a
+> nombrarse en §23**; si aparece en algún sitio, es una referencia sin actualizar.
+
+Dos productores distintos con el **mismo hecho de fondo** (*«se te venció un plazo y la solicitud queda
+cerrada»*) y dos acciones distintas ⇒ **una plantilla, dos variantes**. Es exactamente el reparto que pide
+**R3**: se fusiona lo que comparte hecho, **no** lo que comparte estado técnico.
 
 | Variante | Productor | Estado que deja | Hecho que afirma | ⚠ |
 |---|---|---|---|---|
 | **3a — no respondiste** | barrido regla 1 | `rechazada` (**terminal**) | *«el plazo para responder terminó»* | — |
 | **3b — no salió el paquete** | barrido regla 2 | `expirada` + `not_shipped` (**terminal**) | *«aceptaste y el paquete no salió en el plazo»* | — |
-| **3c — la cancelamos nosotros** | `POST …/offer/cancel` | **`cotizada` — NO es terminal**: vuelve a la fila con **7 días hábiles completos** (D38) | *«cancelamos la oferta; no es nada de tu parte»* | **⚠ Un texto de «se venció tu plazo» aquí es FALSO y culpa al vendedor de un acto NUESTRO** |
 
 **Esqueleto compartido:** eyebrow + titular serif + **dos párrafos** (qué pasó · qué sigue) + **bloque de
-estado** (folio, fecha del cierre, versalita del desenlace) + CTA. **Sin montos** salvo en 3b, donde el
-monto ya no se va a pagar y mencionarlo solo duele: **ninguna de las tres variantes lleva montos.**
+estado** (folio, fecha del cierre, versalita del desenlace) + CTA. **Sin montos** ni siquiera en 3b, donde
+el monto ya no se va a pagar y mencionarlo solo duele: **ninguna de las dos variantes lleva montos.**
 
 **Copys (ES, con EN en §23.12):**
 
@@ -6382,13 +6415,53 @@ monto ya no se va a pagar y mencionarlo solo duele: **ninguna de las tres varian
   el paquete no salió antes del {fecha límite}, así que cerramos la solicitud. Si la guía que te mandamos
   sigue sin usar, ya no es válida.»* + la misma invitación. **Hechos y fechas, cero adjetivos**: ni
   «lamentablemente», ni «no cumpliste», ni «desafortunadamente».
-- **3c** — Titular: «Cancelamos la oferta que te mandamos». Cuerpo: *«La oferta del {fecha} ya no es válida:
+
+#### 23.4.4-bis CORREO 5 — CANCELAMOS LA OFERTA (⚠ el único desenlace que NO cierra nada)
+
+> **Era la «variante 3c» hasta v2.3.3.** El **texto no cambia una letra** —está ratificado y es correcto—;
+> cambian **el número, la subsección y el prefijo de su clave**. Se separa por dictamen del arquitecto
+> (`ARCHITECTURE §4.39(n)`, v1.51.4), y la razón vale la pena escribirla porque es una regla, no un caso:
+> **lo que agrupa correos es el HECHO y su desenlace, nunca el productor ni el `status`.**
+
+| | Correo 5 |
+|---|---|
+| **Productor** | **uno solo**: `POST /admin/buylist/:id/offer/cancel` sobre una oferta **`sent`** |
+| **Estado que deja** | **`cotizada` — NO es terminal**: vuelve a la fila con **7 días hábiles completos** (D38) |
+| **Hecho que afirma** | *«cancelamos la oferta; no es nada de tu parte, y tu solicitud sigue viva»* |
+| **Quién falló** | **nadie**, y menos el vendedor: es **un acto nuestro** (típicamente, corregir un número mal puesto) |
+| **⚠** | Un texto de «se venció tu plazo» aquí es **FALSO** y **culpa al vendedor de un acto NUESTRO** |
+
+**Por qué NO podía quedarse dentro del correo 3** (tres razones, y la tercera es la operativa):
+
+1. **Contradice el hecho.** El correo 3 afirma *«esto se acabó»*; el 5 afirma *«esto sigue, y te
+   escribiremos otra vez»*. Son **instrucciones opuestas** para el vendedor: uno le dice que vuelva a
+   cotizar, el otro que **no** lo haga.
+2. **Contradice el estado.** 3a/3b sellan `closedAt`; el 5 deja la solicitud abierta. Una plantilla que
+   comparte «bloque de estado» entre desenlaces terminales y no terminales **pinta un cierre que no
+   ocurrió** — y §23.2d ya trunca el stepper en un cierre para los terminales.
+3. **Y por eso el CTA es otro.** «Cotizar de nuevo» sobre una solicitud **viva** manda al vendedor a
+   **duplicarla**. El 5 dice **«Ver mi solicitud»**. Un CTA equivocado no es un matiz de tono: **crea
+   trabajo basura en la cola de M5**.
+
+**Copy (ES, con EN en §23.12) — sin cambios respecto de la ~~3c~~ ratificada:**
+
+- Titular: «Cancelamos la oferta que te mandamos». Cuerpo: *«La oferta del {fecha} ya no es válida:
   **la cancelamos nosotros**. No es nada de tu parte.»* + *«Tu solicitud sigue viva y volvemos a revisarla;
   te escribiremos con una oferta nueva o con nuestra respuesta.»* **CTA: Ver mi solicitud** (no «cotizar de
   nuevo»: la solicitud **no** está cerrada).
 
-**Prohibido en 3c:** la palabra «venció», cualquier plazo del vendedor, y el CTA de volver a cotizar
-(mandaría a duplicar una solicitud que sigue abierta). Ver la solicitud al arquitecto en §23.13.2.
+**Prohibido en el correo 5:** la palabra **«venció»**, **cualquier plazo del vendedor**, **cualquier monto**
+(los de la oferta cancelada se limpian de la fila y **no se resucitan para el correo**), el **motivo interno**
+(`offerCancelReason` es de la bitácora) y el **CTA de volver a cotizar**.
+
+> **⚠ Y el correo 5 NO lo manda el barrido.** Cuando el barrido anula una oferta al caducar la solicitud,
+> el hecho real es *«no procederemos»* ⇒ sale el **correo 4**. **Un productor por correo, y el 5 tiene
+> exactamente uno** (`ARCHITECTURE §4.39(n)`). Un `catch` que mande el 5 desde el barrido le diría al
+> vendedor que su solicitud sigue viva **el día que la cerramos**.
+
+> **Deuda de pantalla que este correo sigue teniendo (no la resuelve el renumerado):** tras la cancelación
+> el portal se queda **mudo** —`offer` vuelve a `null`— y el vendedor no ve rastro de la oferta que sí
+> recibió. **La pantalla contradice al correo.** La petición al arquitecto sigue abierta en **§23.13.3**.
 
 #### 23.4.5 CORREO 4 — «NO PROCEDEREMOS» (nadie ofertó, o el operador declinó)
 
@@ -6454,8 +6527,13 @@ una fecha límite, un «7 días» o un «venció», el correo está mal.
 | 2b | `Te queda 1 día hábil para enviar tu paquete` | `1 business day left to ship your package` |
 | 3a | `Tu oferta venció` | `Your offer expired` |
 | 3b | `Se venció el plazo para enviar tu paquete` | `The shipping deadline passed` |
-| 3c | `Cancelamos la oferta que te mandamos` | `We cancelled the offer we sent you` |
 | 4 | `No procederemos con tu solicitud de venta` | `We won't be proceeding with your sell request` |
+| **5** *(era ~~3c~~)* | `Cancelamos la oferta que te mandamos` | `We cancelled the offer we sent you` |
+
+> **⚠ El asunto del 5 es el único de los cierres que NO puede empezar por «Tu oferta venció…».** Se lee
+> entero antes de abrir nada: **«Cancelamos»** pone el sujeto de la acción **en nosotros** en la primera
+> palabra, en los dos idiomas. Es la misma doctrina de §23.1d —*en un desenlace ambiguo el sistema no acusa
+> al cliente*— aplicada a la bandeja de entrada, que es donde más gente se queda.
 
 **Preheader del correo 1** (texto oculto, primera línea que ve la bandeja) — **⚠ corregido en v2.3.1**:
 ES *«Compramos 2 de tus 3 cartas, siempre que lleguen en Near Mint. La guía la ponemos nosotros y se
@@ -6920,9 +6998,30 @@ Convención §9.2. **Todo lo de §23 existe en los dos idiomas** (el proyecto ti
   arrives Near Mint»). ≤ 34 car. ES, ≤ 30 EN.
 - `reminder.accept.{subject,headline,body,cta}` · `reminder.ship.{subject,headline,body,guideLabel,alreadyShipped,cta}`
   · `reminder.frozen.{cards,net,deadline}` (el bloque congelado, compartido).
-- `expiry.noResponse.{subject,headline,p1,p2,cta}` · `expiry.notShipped.{subject,headline,p1,p2,cta}` ·
-  `expiry.cancelledByUs.{subject,headline,p1,p2,cta}` — **tres variantes, no una** (§23.4.4).
+- `expiry.noResponse.{subject,headline,p1,p2,cta}` · `expiry.notShipped.{subject,headline,p1,p2,cta}` —
+  **DOS variantes del correo 3**, no tres (§23.4.4).
 - `notPursued.{subject,headline,p1,p2,p3,cta}` — el correo 4. **Sin ninguna clave de plazo, monto ni motivo.**
+- **⚠ v2.3.3 — `offerCancelled.{subject,headline,p1,p2,cta}` — el correo 5. CAMBIA DE PREFIJO, no de texto.**
+  ~~`expiry.cancelledByUs.*`~~ **se retira de los dos catálogos**; el contenido se mueve **carácter por
+  carácter** a `offerCancelled.*`. **Este renombre es el punto importante del pase, más que el número.**
+
+  > **Por qué el prefijo importaba más que el número.** Un correo mal numerado **se nota**: alguien lee la
+  > tabla y lo corrige. **Un prefijo que miente se propaga**, porque no se lee — se autocompleta. Quien
+  > abra `expiry.cancelledByUs` dentro de seis meses leerá **«expiración»** antes de leer el texto, y la
+  > deriva natural de ese texto es hacia «se te venció», que es **exactamente la frase prohibida** en este
+  > correo (§23.4.4-bis): la que **culpa al vendedor de un acto nuestro**. El árbol de claves es
+  > documentación que el editor lee **primero y sin querer**; si el nodo padre afirma un hecho falso, cada
+  > edición futura empuja el texto hacia la mentira. **El nombre viejo deja de existir: cero coexistencia.**
+
+  > **Y por qué `expiry.noResponse` y `expiry.notShipped` SÍ se quedan** —para que el renombre no se
+  > sobre-aplique—: en las dos **venció un plazo de verdad** (`offerAcceptDeadlineAt`, `shipDeadlineAt`) y
+  > las dos lo dicen en su titular («Tu oferta venció»). El prefijo **describe su hecho**. Que `noResponse`
+  > deje `rechazada` en vez de `expirada` es un detalle de la máquina de estados, no del hecho que el
+  > vendedor lee. **`cancelledByUs` era el único donde no expiró nada.**
+
+  > **`offerCancelled` no es un nombre inventado: es el vocabulario del propio contrato** —`offerCancelledAt`,
+  > `POST …/offer/cancel`, `offerCancelReason`—. Una clave de correo que nombra **el mismo evento que el
+  > schema** no se puede desincronizar por descuido, que es justo lo que le pasó a la anterior.
 
 **Mesa de decisión (`admin.buylist.desk.*`)**
 - `position.{title,ofTotal,groupInHouse,groupNotYet,stock,verifying,inTransit,committed,rule.bounty,rule.cap,aria}`
@@ -6970,16 +7069,22 @@ Convención §9.2. **Todo lo de §23 existe en los dos idiomas** (el proyecto ti
    navegador, D43 deja de depender de la disciplina del frontend y pasa a ser imposible de violar por
    accidente.** Un dial publicado y sin uso es una cifra esperando a que alguien la pinte. **Decisión del
    arquitecto; no bloquea nada** (el frontend simplemente no lo lee).
-2. **⚠ Arquitecto / PO — el correo 3 tiene TRES productores y uno de ellos NO es terminal.** La tabla de
-   `ARCHITECTURE §4.39(n)` agrupa en el correo 3 la **falta de respuesta** (`rechazada`), el **no envío**
-   (`expirada`/`not_shipped`) y la **cancelación de la oferta por nosotros** (que devuelve la solicitud a
-   `cotizada` con 7 días hábiles completos, D38). El tercero **afirma un hecho distinto y deja un estado
-   distinto**: un texto de «se venció tu plazo» ahí **culpa al vendedor de un acto nuestro**, que es
-   exactamente el fallo que motivó separar el correo 4. §23.4.4 define **tres variantes** de una misma
-   plantilla. **Petición:** confirmar que la plantilla del correo 3 se selecciona por **productor** (y que
-   ese discriminador está disponible al renderizar), o formalizar las tres variantes en el contrato.
+2. **✅ CERRADA (v2.3.3) — «el correo 3 tiene TRES productores y uno de ellos NO es terminal».**
+   **El arquitecto resolvió el fondo, no la forma: la cancelación es un CORREO PROPIO, el 5**
+   (`ARCHITECTURE §4.39(n)`, v1.51.4), con **un solo productor**. §23 se alinea en v2.3.3: ~~3c~~ deja de
+   existir, el texto **no cambia una letra** y nace **§23.4.4-bis**. **La petición original —«confirmar que
+   la plantilla se selecciona por productor»— queda sin objeto**: si cada hecho tiene su plantilla, no hay
+   nada que discriminar en tiempo de render.
+   **⚠ Y la parte que sí quedó como trabajo mío, porque era el riesgo real:** la clave se llamaba
+   `expiry.cancelledByUs.*`. **El número mal puesto se nota; el prefijo que miente se propaga** — quien lo
+   edite dentro de seis meses leerá «expiración» antes que el texto, y la deriva natural es hacia «se te
+   venció», la frase **prohibida** en este correo. Pasa a **`offerCancelled.*`** (§23.12), que es el
+   vocabulario del propio contrato. **Lección de proceso, y me toca a mí:** agrupé dos hechos opuestos
+   **porque compartían `status`** — exactamente lo que **R3** prohíbe, aplicado al revés de como lo escribí.
+   > ~~**Petición:** confirmar que la plantilla del correo 3 se selecciona por **productor**, o formalizar
+   > las tres variantes en el contrato.~~
 3. **⚠ Arquitecto — tras una cancelación, el portal del vendedor se queda mudo.** Al cancelar se **limpian**
-   los campos de la oferta y `offer` vuelve a `null`: el vendedor que acaba de recibir el correo 3c entra a
+   los campos de la oferta y `offer` vuelve a `null`: el vendedor que acaba de recibir el **correo 5** entra a
    su cuenta y **no ve rastro** de la oferta que sí recibió, ni del hecho de que la cancelamos. La pantalla
    contradice el correo. **Petición:** un dato mínimo en la proyección de cliente (p. ej.
    `lastOfferCancelledAt`) que permita pintar *«Te mandamos una oferta y la cancelamos el {fecha}; estamos
@@ -6995,9 +7100,11 @@ Convención §9.2. **Todo lo de §23 existe en los dos idiomas** (el proyecto ti
    la cola de M5 y la ficha expongan **cuántas veces se ha reiniciado el reloj** (o la fecha del primer
    `createdAt` junto a `caducityAt`), para que el operador vea el bucle. Sin dato, el diseño no puede
    mostrarlo.
-6. **PO — ratificar textos.** `offer.perLineCondition`, el bloque `consequence`, los tres titulares del
-   correo 3 y los tres párrafos del correo 4. Son el **documento vinculante** del ciclo; ux-ui propone la
-   redacción, PO (y quien haga la revisión legal de los términos) la ratifica.
+6. **PO — ratificar textos.** `offer.perLineCondition`, el bloque `consequence`, los **dos** titulares del
+   correo 3, el del **correo 5** y los tres párrafos del correo 4. Son el **documento vinculante** del
+   ciclo; ux-ui propone la redacción, PO (y quien haga la revisión legal de los términos) la ratifica.
+   *(v2.3.3: el titular del correo 5 **ya estaba ratificado como «3c»** — cambió de número y de clave, no de
+   texto. **No hay que volver a ratificarlo**; se lista para que el inventario cuadre.)*
    **⚠ Se añaden tres textos de v2.3.1 (D43), y los tres son sensibles:** **(a)**
    `buylist.quote.shippingNote` en ES y EN —**la única cosa que el vendedor lee sobre el envío antes de
    comprometer sus cartas**, §23.3d—; **(b)** el `offer.ruleParagraph` ampliado, en particular la
@@ -7037,11 +7144,19 @@ Convención §9.2. **Todo lo de §23 existe en los dos idiomas** (el proyecto ti
    plazo siguen legibles; el neto es la cifra más grande. **⚠ v2.3.1: la cifra del envío aparece DOS veces
    —tabla y prosa— y el neto también**; el correo **no contiene** «como ya sabías», «recuerda que» ni
    ninguna fórmula que presuponga que el vendedor ya conocía la tarifa.
-   (b) **Ningún asunto ni preheader del sistema contiene el bruto** (R1) — buscar el bruto en los cuatro.
+   (b) **Ningún asunto ni preheader del sistema contiene el bruto** (R1) — buscar el bruto en **los cinco**.
    (c) **Ningún correo que mencione un monto ofertado omite la condición NM** (R2) — incluido el
    recordatorio.
    (d) **El correo 4 no contiene**: ninguna fecha límite, ningún monto, ninguna palabra de causa, ninguna
    referencia al tiempo transcurrido.
+   (d-bis) **⚠ v2.3.3 — el correo 5, y es la prueba más barata del renumerado.** `grep` de `venció` /
+   `expired` / `deadline` sobre la plantilla del **5** en ES y EN ⇒ **cero coincidencias**; **cero montos**;
+   su CTA dice **«Ver mi solicitud»** y **no** «Cotizar de nuevo». Y la prueba de la clave: **el prefijo
+   `expiry.cancelledByUs` no existe en ninguno de los dos catálogos** (el test de paridad debe quedar en
+   verde con la clave **ausente en ES y EN**); el contenido vive en **`offerCancelled.*`**.
+   (d-ter) **Cancelar una oferta `sent` manda el 5; el barrido al caducar manda el 4.** Forzar los dos
+   caminos y comprobar que **no se cruzan**: un 5 disparado por el barrido le diría al vendedor que su
+   solicitud sigue viva **el día que la cerramos**.
    (e) `expirada` con los **dos** motivos: correos distintos, versalitas distintas, **colores distintos**, y
    el `no_offer` **sin ningún rojo**; con `expiredReason` forzado a `null`, cae al fallback neutro y **no**
    al acusatorio.
@@ -7072,8 +7187,8 @@ Convención §9.2. **Todo lo de §23 existe en los dos idiomas** (el proyecto ti
    —cotizador, paso de crear, correo de alta si lo hubiera, portal en `cotizada`— y verificar que **ninguna
    superficie contiene la tarifa**. La primera aparición del monto del envío en todo el ciclo debe ser el
    **correo 1**.
-   (m) **EN completo** en las cuatro plantillas, en la tira de posición y en las colas; la alineación de las
-   cuatro columnas de la tira es idéntica en ES y EN.
+   (m) **EN completo** en las **cinco** plantillas, en la tira de posición y en las colas; la alineación de
+   las cuatro columnas de la tira es idéntica en ES y EN.
    (n) 390px: la tira colapsa a dos renglones de dos **conservando el separador de grupos**; ningún monto
    truncado con `MX$ 999,999.00`.
 
@@ -7389,20 +7504,33 @@ tres tiempos *«tú X, nosotros Y y Z»* el primer tiempo se lee como **su parte
    está respaldado por §23.3a.2, pero es una frase que un negocio puede querer matizar—; **(c)**
    `buylist.created`, porque **le dice explícitamente al vendedor que no mande nada todavía**.
    El punto **(d)** de §23.14.4 (`subtitle`/`sellBody`) es **opcional** y no bloquea nada.
-2. **⚠ PO / arquitecto — `buylist.adjust.*` puede ser una pantalla MUERTA, y no la resuelvo yo.**
-   `PROJECT.md` registra que la contradicción de D27 quedó *«DISUELTA por D30: sin re-confirmación, el
-   ciclo de buylist **no usa `ajustada` en ningún punto**»*, y D9 mata el repreciado. Sin embargo el
-   catálogo mantiene vivo un modal completo —`adjust.{title,body,newTotal,accept,decline,error}`— cuyo
-   cuerpo dice *«Tras la verificación **ajustamos el precio** de una o más cartas»*. **Si ese flujo ya no
-   existe, es la misma contradicción de (a) y (b) pero con UI detrás.** No la toco: decidir si el estado
-   `ajustada` sigue vivo es del **arquitecto**, y retirar la pantalla es de **frontend**. **Petición:**
-   confirmar el estado del flujo; si está muerto, el copy se retira con él y **no hay que redactar nada**.
-3. **Arquitecto / PO — desalineación de conteo entre documentos (sin efecto en el diseño).**
-   `ARCHITECTURE §4.39(n)` v1.51.4 promovió la **cancelación por nuestra parte** a **correo 5** (productor
-   único), mientras que **§23.4.4 la trata como la variante 3c** de una misma plantilla. **El contenido
-   coincide** —de hecho el contrato apunta a §23.4.4-3c como su fuente de texto— y §23.13.2 ya pedía
-   formalizar las variantes. **No renumero §23 por mi cuenta**; se registra para que un pase lo alinee y
-   nadie crea que son dos correos distintos.
+2. **✅ RESUELTA (v2.3.3) — `buylist.adjust.*` NO se retira: sobrevive a una COHORTE.**
+   Yo lo planteé como *«¿vive o muere?»* y **la pregunta estaba mal formulada**. El arquitecto la corrigió:
+   para el **ciclo nuevo** ese flujo es **inalcanzable por construcción** (D9/D30), pero **las solicitudes
+   heredadas que estén en vuelo el día del cut-over lo necesitan** — retirar ese copy ese día dejaría a un
+   vendedor **sin poder cobrar algo que ya le prometimos**.
+   **Lo que aprendo y dejo escrito como regla de este documento:** *el copy de un flujo que se apaga no se
+   retira cuando el flujo deja de crearse, sino cuando **la última instancia viva termina**.* Un catálogo
+   de i18n **sirve a los datos que existen**, no al diseño vigente; borrar una clave es una **migración de
+   datos disfrazada de limpieza de texto**. Esa es la diferencia con las claves de §23.14: `wePay` y
+   `trustShipping` se retiran **hoy** porque **nada las necesita** —no hay cohorte detrás de un rótulo—,
+   mientras que `adjust.*` tiene registros esperándola.
+   **Estado:** se queda **tal cual, sin reescribir**, y **frontend ya tiene instrucción de no tocarla**. Su
+   retiro va **con gate, no con fecha** (depende de cuándo se haga el cut-over), y el gate lo expresa el
+   arquitecto. **Este documento no le pone plazo.**
+3. **✅ CERRADA (v2.3.3) — el conteo de correos: son CINCO y «3c» no existe.**
+   Manda `ARCHITECTURE §4.39(n)`, y **el argumento es de hechos, no de jerarquía documental**: la
+   cancelación deja la solicitud **`cotizada` y viva**, mientras 3a y 3b dejan **terminales**. **No es una
+   variante del 3 — es otro desenlace.** §23 queda alineada: §23.4 dice **CINCO**, la cancelación es
+   **§23.4.4-bis / correo 5**, y **el texto no cambió una letra** (estaba bien; era renumerar).
+   **Lo que sí era un defecto real y no el número: el prefijo de la clave.** ~~`expiry.cancelledByUs.*`~~ ⇒
+   **`offerCancelled.*`** (§23.12). *Un número mal puesto se nota; **un prefijo que miente se propaga**,
+   porque no se lee — se autocompleta.* **Frontend/backend: el nombre viejo deja de existir, sin
+   coexistencia**, y el test de paridad debe pasar con la clave **ausente en los dos idiomas**.
+   **Y la lección que me llevo, porque es de método:** agrupé dos hechos opuestos **porque compartían
+   `status`**. Es literalmente lo que **R3** prohíbe (*un correo por HECHO, no por camino*), aplicado al
+   revés de como yo mismo lo escribí — la misma trampa que §23.4.6 documenta para `expirada`, en la que caí
+   **una subsección más arriba**.
 4. **Frontend — qué hay que tocar, y es poco.** **Cero componentes nuevos.** (i) `SafeShippingGuide`: solo
    copy (§7.13 reescrita para que el componente no vuelva a contar el trato viejo). (ii) `HomeQuoterPanel`:
    cambiar el rótulo a la clave compartida y montar `BuylistShippingNote` **en el cuerpo del panel, fuera
