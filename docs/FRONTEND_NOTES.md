@@ -9915,11 +9915,14 @@ comentario del bloque dice que el nombre accesible no habla «ni de grading», y
 de grading entero—, así que el brazo siempre estuvo escrito para la **familia**; el homoglifo solo tapó
 que no la cubría.
 
-**Norma vigente:** `NOMBRE_ACCESIBLE_PROHIBIDO = /rotaci|carrus|grad|PSA/i` cubre
-`grade` · `graded` · `grading` · `gradeadas` · `gradeo` · `grados`. Riesgo de falso positivo **nulo**:
-ese `aria-label` es el título de la sección de destacadas, y ninguna palabra legítima que quepa ahí
-contiene `grad` (comprobado sobre los cuatro valores reales — `Piezas destacadas`, `Destacadas`,
-`Featured pieces`, `Featured` — ninguno casa).
+**Norma vigente:** `NOMBRE_ACCESIBLE_PROHIBIDO` cubre
+`grade` · `graded` · `grading` · `gradeadas` · `gradeo` · `grados`. Riesgo de falso positivo **benigno,
+no nulo** (corrección del techlead: «nulo» estaba sobrevendido). `upgrade` y `gradual` contienen `grad`,
+y «Upgrade your collection» es inglés de marketing perfectamente plausible en un H2. Lo que hace el
+residuo inofensivo no es que la cadena no exista, es que **`DESIGN_SYSTEM.md` §1 (v2.9) ya veta la voz de
+marca en mensajes de accesibilidad**: cualquier cadena capaz de disparar el brazo está prohibida en ese
+hueco por otra vía. Sobre los cuatro valores reales de hoy (`Piezas destacadas`, `Destacadas`,
+`Featured pieces`, `Featured`) no casa ninguno.
 
 **El control se amplió con la norma, y ahí hubo una trampa que casi cuela.** Añadir casos que la regex
 nueva acepta no prueba nada si la **vieja** también los aceptaba: serían decorativos, el mismo defecto
@@ -9932,19 +9935,40 @@ que este apartado existe para matar. Los dos casos nuevos están elegidos para *
 | ~~`Gradeo de piezas`~~ | ✔ | ✔ | **no — descartado** |
 
 El primer candidato para el segundo hueco fue «Gradeo de piezas», y **es inservible**: «grade**o**»
-contiene `grade` como subcadena, así que pasa igual con el brazo estrecho. Se descartó y quedó anotado en
-el comentario del propio `it.each`, junto al otro criterio que invalida un caso: **no colar `PSA` en la
-cadena**, porque entonces casa por el otro brazo y tampoco prueba el de grading.
+contiene `grade` como subcadena, así que pasa igual con el brazo estrecho.
 
-**Verificado rompiéndolo, dos mutaciones:**
+**T1 (techlead) — el mismo error, en la dirección contraria, y se me coló.** Al escribir ese criterio
+anoté «no colar `PSA` en la cadena del brazo de grading»… y dejé en la lista `'Gradeadas PSA'` como
+control del brazo `PSA`. Contiene `grad`: **casa por el brazo de grading y nunca llega a probar `PSA`**.
+Consecuencia medida: se podía **borrar el brazo `PSA` entero, o meterle una `А` cirílica U+0410, y los
+seis controles seguían verdes**. Era el agujero que este apartado existe para cerrar, reintroducido al
+cerrarlo. Y arrastraba dos afirmaciones falsas: el comentario del `it.each` decía «cada cadena existe para
+disparar UN brazo» y esta nota decía «una cadena por brazo» — para `PSA`, ninguna de las dos era cierta.
+Sustituido por `'Certificadas PSA'` (casa `PSA` y ningún otro brazo).
+
+**Lo que cambió de fondo, y es la lección del hallazgo.** Dos veces seguidas el criterio correcto estaba
+**escrito en un comentario** y aun así se violó al aplicarlo. Un comentario no verifica nada. Así que el
+criterio pasó a ser **código**:
+
+- Los brazos se declaran sueltos (`BRAZOS_PROHIBIDOS = ['rotaci', 'carrus', 'grad', 'PSA']`) y la regex se
+  **compone** de ellos. Con la regex como literal opaco, «qué brazo prueba esta cadena» no es una pregunta
+  que un test pueda hacer — y por eso el agujero era invisible.
+- Cada control es un par `[cadena, brazo]`, y el test exige que la cadena case con **su** brazo y con
+  **ninguno de los otros**. Esa es la regla general que pediste, ejecutable en vez de comentada.
+- Un test de **cobertura** exige que todo brazo tenga al menos un control. Añadir un brazo sin su cadena
+  ahora es rojo, no un descuido silencioso.
+
+**Verificado rompiéndolo, cuatro mutaciones:**
 
 | Mutación | Resultado |
 |---|---|
-| estrechar `grad` → `grade` | **2 rojos** — `Gancho de grading` y `Grados y certificados` |
-| reintroducir el homoglifo U+0435 | **3 rojos** — los dos de arriba + `Cartas gradeadas` |
+| estrechar `grad` → `grade` | **3 rojos** — `Gancho de grading`, `Grados y certificados` y `Cartas gradeadas` (este último por casar con un brazo ajeno) |
+| homoglifo U+0435 en `grad` | **3 rojos** — los tres controles del brazo de grading |
+| **borrar el brazo `PSA`** | **2 rojos** — `Certificadas PSA` **+ el test de cobertura**, que nombra el brazo que falta |
+| **`PSA` → `PАS` (А cirílica U+0410)** | **1 rojo** — `Certificadas PSA` |
 
-Es decir: el candado ya no solo detecta que alguien lo mate (homoglifo), sino que **detecta que alguien lo
-estreche de vuelta**, que era la regresión silenciosa que quedaba abierta.
+Antes de T1, las dos últimas filas daban **verde**. El candado ya no solo detecta que alguien lo mate o lo
+estreche: detecta que alguien lo **vacíe por un brazo**.
 
 Vale la pena dejarlo escrito porque es la trampa del pase: «solo cambio textos» dejó de ser cierto en el
 momento en que un texto de marketing es a la vez el nombre accesible de un `role="region"`. Un cambio de
@@ -9993,13 +10017,14 @@ Suite completa, no un subconjunto (cifras finales, tras las tres rondas de corre
 
 | Comando | Resultado |
 |---|---|
-| `npm run test` | ✔ **102 archivos / 950 casos, todos verdes** (~92 s) |
+| `npm run test` | ✔ **102 archivos / 951 casos, todos verdes** (~94 s) |
 | `npm run typecheck` | ✔ `tsc --noEmit` sin errores |
 | `npm run lint` | ✔ `No ESLint warnings or errors` |
 
-**Delta de casos: +6**, y los seis son el caso de control de §41.4 (un `it.each` con seis cadenas: cuatro
-que cubren un brazo cada uno, dos que cubren la ampliación a `grad`). El pase de copy en sí aporta **0**:
-un cambio de textos no debe añadir ni quitar pruebas. Los 944 originales siguen siendo los mismos 944.
+**Delta de casos: +7**, y los siete son el control de §41.4: un `it.each` con **seis** cadenas (una por
+brazo, con tres para el brazo `grad` porque cubren la ampliación) **más** el test de **cobertura de
+brazos** que entró con T1. El pase de copy en sí aporta **0**: un cambio de textos no debe añadir ni
+quitar pruebas. Los 944 originales siguen siendo los mismos 944.
 
 `i18n-parity.test.ts` verde confirma lo importante: paridad ES/EN intacta (**2 287 claves, conjuntos
 idénticos**), cero apariciones de la marca retirada «TCG Vault», y ningún candado semántico del catálogo
