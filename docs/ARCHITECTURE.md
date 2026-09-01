@@ -11522,7 +11522,7 @@ verificable con inventario**.
 > topes AML/KYC, el flujo de **ajuste** (`ajustada`) que sigue vivo para otros caminos, y el **precio de venta** (D10:
 > lo fija la curva; este ciclo no captura precios de venta).
 > **Diseño en papel.** Lo implementan **backend** (schema, servicios, jobs, correos) y **frontend** (M5, M1, portal del
-> vendedor). Contrato observable en `API_CONTRACT.md` **v1.51**. Migración **M-46** (§11).
+> vendedor). Contrato observable en `API_CONTRACT.md` ~~**v1.51**~~ **v1.51.5**. Migración **M-46** (§11).
 > **Regla de conflicto aplicada:** donde este documento y `PROJECT.md` §P difieran, **manda PROJECT**. Las tensiones y
 > los huecos que encontré **están señalados en (o)**, no resueltos en silencio.
 >
@@ -11579,6 +11579,35 @@ verificable con inventario**.
 > una contradicción que haya que «corregir de vuelta»**: `PROJECT.md` **manda** y lo que aquí se escribe es su
 > aterrizaje técnico. **Lo que sí es contradicción viva y no es de este pase**: el ejemplo numérico del criterio
 > 158(c), señalado en **(o.17)** desde v1.51.2 y **todavía abierto**.
+>
+> ---
+> ### ⚠️ ENMIENDA v1.51.5 (PASE DE RECONCILIACIÓN DOC↔CÓDIGO) — manda sobre las cuatro anteriores
+> **No trae decisiones nuevas del humano ni DDL.** Cierra **ocho** discrepancias: las **seis** que backend levantó al
+> terminar su pase de M-46 y **dos** que ux-ui levantó al cerrar el suyo (`DESIGN_SYSTEM.md` §23.13, puntos 2 y 3).
+> **Ninguno de los dos las resolvió por su cuenta, y los dos hicieron bien: los documentos son míos.** Siete eran
+> errores míos de documentación; **ninguna era un error del código**.
+> | # | Discrepancia | Naturaleza | Qué cambia |
+> |---|---|---|---|
+> | **1** | §4.39(e) y §9 **BL-8** citaban **dos** sitios de interpolación a mano (`:544`, `:1537`); **eran CUATRO** | **cita rancia + CONTEO equivocado** | **(e)** tabla de los cuatro sitios vivos + la lección · **§9 BL-8** ✅ cerrada |
+> | **2** | §11 afirmaba que `@@index([status, createdAt])` *«ya existe»* en `SellRequest`. **No existe** | **aserción falsa mía** | **§11**: se retira la afirmación y el índice queda como **M-46b diferida**, con su consulta y su disparador. **NO entra a M-46** |
+> | **3** | §4.39(p) decía «~24 columnas»; la tabla de §11 enumera **32** (solo `SellRequest`) | **aproximación errónea, no imprecisa** | **§11**: conteo exacto (**32 + 7 + 1 = 40**) + la norma *«una cabecera no aproxima lo que una tabla enumera»* |
+> | **4** | ⚠️ **DINERO/AML.** El sitio 4 del radio del enum se renombró a *«compromiso bruto»* y **sigue midiendo `approvedTotalCents ?? quotedTotalCents`**, saltándose `offerGrossCents` | **NORMA que faltaba** (el invariante 4 decía **qué** medía y nunca **con qué campo**) | **(i) 4-bis NUEVO**: `brutoConsumado` y sus **tres** consumidores · **(c)** sitio 4 reabierto · **§9 BL-5** parcial · **BL-14 NUEVA** |
+> | **5** | `acquisitionCostCents` pasó a `offeredPriceCents ?? …` y **hoy es no-op** (nada escribe `offeredPriceCents`) | **acoplamiento sin escribir** | **(i) invariante 5**: verificado ✅ + **cláusula de acoplamiento** e invariante exigible a QA |
+> | **6** | El **1-dic sexenal** (Art. 74 LFT literal) vs. el 1-oct (transmisión real desde 2024) | **punto legal abierto, ya declarado en el código** | Decisión y **fecha de revisión** registradas en `docs/TECH_DEBT.md` (**BE-D46-1**) |
+> | **7** *(ux-ui §23.13.2)* | ¿`buylist.adjust.*` es pantalla muerta? El ciclo dice que `ajustada` **no se usa en ningún punto**, y la ruta sigue viva de punta a punta | **pregunta mal planteada por mí** («vive o muere» cuando la respuesta es **«sobrevive a una cohorte»**) | **(b.3) NUEVO**: inalcanzable **por construcción** para lo nuevo, **necesaria** para la cohorte legacy, con **caducidad expresada como consulta**. **Cero migración.** Los dos `TODO(M-46)` de `respond` **ya son cablables** |
+> | **8** *(ux-ui §23.13.3)* | La cancelación es **correo 5** en §4.39(n) y **variante 3c** en `DESIGN_SYSTEM` §23.4.4 | **numeración desalineada** (el contenido coincide) | **(n)**: manda §4.39(n) ⇒ **CINCO correos, «3c» no existe**; cabecera del apartado corregida (decía «CUATRO» sobre una tabla de cinco). ⚠️ **El riesgo real es el prefijo `expiry.*`**, no el número |
+>
+> **Lo que esta enmienda NO toca:** ni una decisión del humano (D1–D43 intactas), ni el schema (**cero DDL, cero
+> migración**), ni un endpoint, ni un dial (siguen **DIEZ**), ni el **número** de correos (siguen **CINCO** — el 8 solo
+> alinea cómo se numeran), ni una regla del barrido (siguen **SIETE**), ni los cuatro terminales, ni el
+> mínimo/tarifa/piso, ni la curva, ni NM-only. **Ni una sola norma de la MESA DE DECISIÓN** (§4.39g): la posición y sus
+> cuatro sumandos, la sugerencia, `positionUnavailable` y el puerto de §4.39f **no se tocan en este pase** — dicho
+> explícitamente porque hay un backend construyéndola mientras esto se escribe.
+> **⚠️ Lo único que cambia de CONDUCTA es el punto 4** (`brutoConsumado`) — **y por eso el contrato sube a v1.51.5.**
+> Los puntos 1, 3, 5 y 7 son citas, confirmaciones y un dictamen que **no altera ninguna regla**; el 2 retira una
+> afirmación falsa; el 6 registra una decisión ya tomada; el 8 es numeración. **El punto 4, BL-14 y los dos
+> `TODO(M-46)` del punto 7 se enrutan a backend; el punto 8 y el retiro diferido del punto 7, a ux-ui/frontend**
+> (regla 8 de `CLAUDE.md`: el arquitecto no corrige código).
 
 #### (a) La máquina de estados — ocho fases, cuatro estados nuevos, cuatro terminales
 
@@ -11778,6 +11807,77 @@ legal ⇔ req.closedAt IS NULL
   segunda llamada esconde exactamente lo que hay que ver.
 - **Dueño: backend.** Registrado como desviación **BL-2** en §9. **No espera al resto del ciclo**: es explotable hoy.
 
+**(b.3) ⚠️ v1.51.5 — ¿LA RUTA DE AJUSTE MUERE CON EL CICLO O SOBREVIVE? DICTAMEN: SOBREVIVE, ACOTADA A UNA COHORTE
+QUE SE EXTINGUE SOLA, Y SU CADUCIDAD YA ESTÁ EN EL CÓDIGO.**
+*(Levantado por ux-ui en `DESIGN_SYSTEM.md` §23.13 fricción 2, al ver que el catálogo i18n mantiene vivo el modal
+`buylist.adjust.*` con el texto «Tras la verificación ajustamos el precio de una o más cartas». **Hizo bien en no
+retirarlo**: decidir si el estado `ajustada` sigue vivo es mío, y la respuesta **no es «murió»**.)*
+
+**La premisa es literal y la verifiqué:** `PROJECT.md:533` dice que *«sin re-confirmación, el ciclo de buylist **no
+usa `ajustada` en ningún punto** y el criterio 124 vuelve a ser cierto **sin acotación**»*. **Y la ruta completa está
+viva HOY en producción**, punta a punta: botón «Ajustar» en M5 (`M5View.tsx:901`, modal `:1136-1191`) →
+`PATCH …/items/:itemId/decision` con `decision:'adjust'` → `itemStatus='ajustada'` + `adjustmentSentAt`
+(`buylist.service.ts:1592-1601`) → modal del vendedor (`MyRequestsSection.tsx:146-190`, claves
+`buylist.adjust.*` de `messages/{es,en}.json`) → `POST …/respond` → guarda BL-2 (`buylist.service.ts:1331-1343`).
+
+**Las dos respuestas posibles no son «vive» y «muere», y por eso la pregunta estaba mal planteada (por mí):**
+
+| | Qué pasa el día del cut-over | Qué pasa después |
+|---|---|---|
+| **Solicitudes NUEVAS** (post-ciclo) | **La ruta es INALCANZABLE por construcción**, no por una prohibición que alguien pueda olvidar | idem, para siempre |
+| **Solicitudes LEGACY en vuelo** (ya en `recibida`/`verificacion`/`aprobada` al desplegar) | **La ruta les sigue haciendo falta** — algunas tienen un ajuste ya mandado y un vendedor esperando el botón | se extinguen **solas** |
+
+**Por qué es inalcanzable para lo nuevo, y por qué eso es estructural y no disciplina.** El invariante 1 de (a) fija
+que `en_transito` solo se alcanza desde `aceptada` y `aceptada` solo desde `ofertada`; `recibida` solo desde
+`en_transito`. **Ninguna solicitud posterior al ciclo puede llegar a `verificacion`/`aprobada` sin `offerSentAt`**, y
+con `offerSentAt IS NOT NULL` las **dos** puertas del ajuste están cerradas por contrato: `itemDecision(adjust)` ⇒
+`409 ADJUST_NOT_ALLOWED_IN_OFFER_CYCLE` (§4.39i.6) y `respond` ⇒ la misma `409` (b.2). **Sin ítems `ajustada` el modal
+del vendedor no se monta** (`MyRequestsSection.tsx:81-82`: solo renderiza si `items.some(itemStatus==='ajustada')`)
+⇒ **el copy que ux-ui señaló es inalcanzable para un vendedor del ciclo nuevo, sin tocar una línea de frontend.**
+
+**⚠️ Por qué NO se borra nada el día del cut-over — y esto es lo que convierte la pregunta en una decisión de
+arquitectura y no de copy.** Retirar el endpoint, el botón o el copy en el mismo release que enciende el ciclo
+**rompería a la cohorte legacy en el peor momento posible**: un vendedor con un ajuste vivo se quedaría con un modal
+sin texto (o sin modal) y **sin forma de aceptar un dinero que ya le propusimos**. *Se apaga la entrada, no la
+salida.* **El texto, además, no es falso para quien lo recibe**: a esa cohorte **sí** le ajustamos el precio tras la
+verificación. Era una promesa **general** equivocada, no un texto equivocado.
+
+**LA CADUCIDAD, y no hace falta inventarla porque ya está implementada.** El barrido cierra todo ajuste sin
+responder a los **7 días naturales** de `adjustmentSentAt` (`jobs/buylist-sweep.service.ts:19-34`:
+`status ∈ {verificacion, aprobada} ∧ adjustmentSentAt ≤ now−7d ⇒ rechazada + closedAt`). Por tanto:
+
+> **Fecha de caducidad de la ruta de ajuste = `último adjustmentSentAt de la cohorte legacy + 7 días`.**
+> No es una fecha de calendario fija porque depende de cuándo se haga el cut-over; **es una consulta**, y por eso se
+> escribe como consulta y no como fecha —una fecha inventada hoy caducaría mal—:
+> ```sql
+> -- Cero filas ⇒ la ruta de ajuste ya no es alcanzable por nadie. Es el gate de retiro.
+> SELECT count(*) FROM "SellRequest"
+>  WHERE "closedAt" IS NULL
+>    AND "offerSentAt" IS NULL
+>    AND "status" IN ('recibida','verificacion','aprobada');
+> ```
+> **Cota superior práctica:** la cohorte entera se agota en **≤ 37 días** tras el cut-over (30 del abandono + 7 del
+> ajuste), y en la práctica mucho antes. **Se verifica con esa consulta, no con el calendario.**
+
+**Consecuencias, por dueño:**
+- **backend — NO retira nada, y cablea los dos `TODO(M-46)` que ya se pueden cablear.** El JSDoc de `respond`
+  (`buylist.service.ts:1303-1308`) dice que la cuarta condición *«NO se puede cablear hoy sin inventar la columna»*.
+  **Esa premisa YA NO SE SOSTIENE: `offerSentAt` existe** (`schema.prisma:1189`, M-46 aplicada). Los dos `TODO(M-46)`
+  de `:1340` y `:1351` **son ahora ejecutables y obligatorios**: `offerSentAt: null` en el `where` de la guarda, y
+  `409 ADJUST_NOT_ALLOWED_IN_OFFER_CYCLE` en la rama de error. **Sin ellos, (b.2) queda a medias y la prohibición del
+  criterio 150 no está cableada en `respond`.** *No es deuda nueva: es un TODO cuyo bloqueo desapareció.*
+- **frontend / ux-ui — el copy `buylist.adjust.*` SE QUEDA, con retiro diferido.** No se redacta nada nuevo, no se
+  corrige el texto y **no se borra ahora**. Se retira cuando la consulta de arriba dé cero, junto con el modal y el
+  botón «Ajustar» de M5. *Registrar el gate es el trabajo; borrar hoy sería el error.*
+- **Schema — CERO migración.** `SellItemStatus.ajustada` y `SellRequest.adjustmentSentAt` **se quedan**, por retención
+  de filas históricas: hay solicitudes pagadas cuyo importe se explica por un ajuste, y borrar el valor haría
+  ilegible su historia. Mismo precedente que `category` (M-14) y `ruleMode`/`ruleValue`/`ruleSource` (§4.36.7c):
+  **legacy vivo en BD, muerto para escritura nueva.**
+- **La guarda BL-2 NO acaba protegiendo una rama inalcanzable — al revés.** Durante la ventana de la cohorte protege
+  **exactamente** las solicitudes que tienen dinero en vuelo, que es cuando más falta hace. Después queda como guarda
+  residual sobre una ruta muerta, que **cuesta un `where` y se queda**: *una guarda sobre código inalcanzable es
+  barata; quitarla el día que alguien reviva la ruta es caro.*
+
 ---
 
 #### (c) DECISIÓN 2 — el radio del enum son **NUEVE** sitios, y ninguno falla en compilación
@@ -11790,7 +11890,7 @@ Ninguna es un error de tipos: todas son literales dentro de un `in`/`notIn`/`inc
 | 1 | `jobs/ine-retention.service.ts:28` — `CLOSED` | `['pagada','rechazada','abandonada']` | una `expirada` cuenta **abierta para siempre** ⇒ **el INE no se purga nunca**. PII / LFPDPPP | **ALTA (cumplimiento)** |
 | 2 | `users.service.ts:194` — `monthUsedCents` | `notIn ['rechazada','abandonada']` | una oferta **expirada** sigue quemando la cuota mensual del vendedor. AML | **ALTA (dinero)** |
 | 3 | `buylist.service.ts:927` — `monthUsedCentsTx` | **duplicado literal** del anterior (su propio JSDoc lo reconoce: *«misma regla que `UsersService.monthUsedCents`»*) | ídem, y con dos cuerpos que hay que acordarse de mover a la vez | **ALTA (dinero)** |
-| 4 | `buylist.service.ts:960` — `monthPaidOutCentsTx` (AML-1) | `status:'pagada'` + `approvedTotalCents ?? quotedTotalCents` | tercer sitio que codifica «dinero salido»; con el ciclo nuevo la medida correcta es **bruto** para el tope y **neto** para caja (criterio 155) | **ALTA (dinero)** |
+| 4 | `buylist.service.ts:960` — `monthPaidOutCentsTx` (AML-1) | `status:'pagada'` + `approvedTotalCents ?? quotedTotalCents` | tercer sitio que codifica «dinero salido»; con el ciclo nuevo la medida correcta es **bruto** para el tope y **neto** para caja (criterio 155). ⚠️ **v1.51.5: además le falta un TÉRMINO** — se salta `offerGrossCents`. Ver §4.39i.4-bis | **ALTA (dinero)** |
 | 5 | `admin.service.ts:1149` — dashboard `workQueue.buylist` | `in ['cotizada','recibida','verificacion','aprobada']` | subcuenta el pipeline: `ofertada`/`aceptada`/`en_transito` **no aparecen** en la cola de trabajo | Media |
 | 6 | `admin.service.ts:1090-1091` — reporte de brackets | `itemStatus != 'rechazada'` + `sellRequest.status='pagada'` | define «operación consumada» con literales propios; además **contaría líneas `skip`** (que nunca compramos) como operaciones de compra | Media |
 | 7 | `buylist-reject.constants.ts:27` — `SELL_REQUEST_TERMINAL_STATES` | `['pagada','rechazada','abandonada']` | una `expirada` **se puede reescribir** (el guard «no pisar terminal» no la ve) | **ALTA** |
@@ -11828,7 +11928,7 @@ export const SELL_REQUEST_PAYABLE_STATES    = ['aprobada','verificacion'] as con
 |---|---|
 | 1 | `IneRetentionJobService.CLOSED` **se borra** y usa `SELL_REQUEST_TERMINAL_STATES`. **Cierra el hueco de PII.** |
 | 2+3 | **Los dos cuerpos colapsan en UNO** (`common/`), con variante transaccional que recibe el `tx`. Predicado: `status notIn SELL_REQUEST_NON_COMMITTING_STATES`. Monto: **bruto** — `offerGrossCents ?? quotedTotalCents ?? 0` (criterio 155). |
-| 4 | Conserva `status:'pagada'` (es un literal legítimo, no un subconjunto), pero **cambia de nombre y de doc**: mide **compromiso bruto**, no caja. La caja (M7) usa `payoutNetCents` (ver (i)). |
+| 4 | Conserva `status:'pagada'` (es un literal legítimo, no un subconjunto), pero **cambia de nombre y de doc**: mide **compromiso bruto**, no caja. La caja (M7) usa `payoutNetCents` (ver (i)). ⚠️ **AMPLIADO en v1.51.5 — «solo nombre y doc» era INSUFICIENTE y lo escribo como corrección mía, no del código.** Renombrar un acumulador a *«compromiso BRUTO»* y dejarlo leyendo `approvedTotalCents ?? quotedTotalCents` deja el nombre diciendo **bruto ofertado** y la cifra midiendo **cotización** en el caso en que `approvedTotalCents` es `null`. **El campo también cambia**, a la cascada de **TRES** términos de **§4.39i.4-bis**: `approvedTotalCents ?? offerGrossCents ?? quotedTotalCents ?? 0`. Backend hizo bien en no cambiarlo en silencio: **esta línea es la autorización.** |
 | 5 | `workQueue.buylist` = `count(status IN SELL_REQUEST_LIVE_STATES)`. **Cambia la cifra a propósito** (ahora incluye los tres estados nuevos no-terminales) y **no vuelve a subcontar** cuando se añada otro. |
 | 6 | Añade `offerDecision != 'skip'` al `where` del eje de compra. Una línea que **no compramos** no es una operación de compra y contaminaría la instrumentación de §N.8. |
 | 7 | `SELL_REQUEST_TERMINAL_STATES` **se MUEVE** de `modules/buylist/buylist-reject.constants.ts` a `common/sell-request-states.ts`; el archivo viejo la **re-exporta** (compat de imports) o se actualizan los imports. Gana `expirada`. |
@@ -11914,11 +12014,31 @@ reimplementación de la secuencia curva/override/bounty/pendiente. Concreciones:
   se oferta con una cifra inventada**: o se rescata con override (dentro del tope, con motivo, auditado) o **queda
   fuera de la oferta** (`decision:"skip"`), que es una salida legítima. **Jamás MX$0 ni cifra de respaldo.**
 
-**Deuda P-30 H2 que se cobra en este pase (finding 6):** `buylist` interpola la llave canónica **a mano** en
-`buylist.service.ts:544` y `:1537`, existiendo `variantKey()` (`common/variant-key.ts:16-27`) + `pricing.gradeKeyFor()`
-y un guard en `test/tech-debt-backend.spec.ts:74-147`. **Se reapuntan a `variantKey()`** ahora, porque este ciclo mete
-**cuatro fuentes nuevas** que se agrupan por esa familia de llaves: si una la construye distinto, las cifras de la mesa
-de decisión se desalinean **en silencio** y el operador compra mal.
+**Deuda P-30 H2 que se cobra en este pase (finding 6) — ✅ CERRADA (2026-09-01).** `buylist` interpolaba la llave
+canónica **a mano**, existiendo `variantKey()` (`common/variant-key.ts:16-27`) + `pricing.gradeKeyFor()` y un guard en
+`test/tech-debt-backend.spec.ts:50-135`. **Se reapuntaron a `variantKey()`** porque este ciclo mete **cuatro fuentes
+nuevas** que se agrupan por esa familia de llaves: si una la construye distinto, las cifras de la mesa de decisión se
+desalinean **en silencio** y el operador compra mal.
+
+> **⚠️ CORRECCIÓN DE ENUMERACIÓN (v1.51.5) — eran CUATRO sitios, no dos. El número estaba mal, no solo las líneas.**
+> Este documento y §9 (**BL-8**) citaban *«`buylist.service.ts:544` y `:1537`»* como **los dos** sitios. **Verificado
+> contra el código: eran cuatro.** Backend los migró los cuatro; la enumeración correcta, con las líneas **vivas tras
+> el pase**, es:
+>
+> | # | Sitio vivo | Qué llavea | Por qué importaba |
+> |---|---|---|---|
+> | 1 | `buylist.service.ts:419` — `batchQuote` | lee el `VariantPriceOverride` del lote (`getVariantOverridesBatch`) | un miss del map ⇒ la cotización en lote **ignora el override** y cotiza con la curva pelada |
+> | 2 | `buylist.service.ts:715` — vitrina de bounties (`GET /buylist/bounties`) | lee la `PriceReference` del lote (`getReferencesBatch`) | un miss ⇒ `curveQuoteCents` sale de un mercado `null` ⇒ **`isBountyEffective` decide sobre nada** |
+> | 3 | `buylist.service.ts:864` — `createRequest` | lee el override del lote antes de `decideBuyLine` | **la peor de las cuatro**: cuatro componentes interpolados en una línea, con el `gradeKey` resuelto **en medio** de la expresión. Un miss aquí desalinea **el precio que el vendedor firma** |
+> | 4 | `buylist.service.ts:2089` — `countBountyAcquisitionsTx` | agrupa las piezas compradas por variante para incrementar `bountyAcquiredQty` | un miss ⇒ el bounty **cuenta piezas de una variante contra el objetivo de otra** |
+>
+> **Lección que queda viva (por qué se escribe en vez de solo corregir el número):** *una cita por número de línea
+> caduca en el primer commit ajeno; un **conteo** equivocado sobrevive porque nadie lo recuenta.* Los dos sitios
+> citados eran reales cuando se escribieron, pero la lista **nunca fue exhaustiva** y el «dos» se leyó como aserción
+> durante cuatro revisiones. **Norma para este documento: cuando se enumere un radio de cambio, el número va
+> acompañado del predicado que lo genera** —aquí, *«toda lectura de un `Map` producido por `getReferencesBatch` o
+> `getVariantOverridesBatch`»*— para que se pueda **recontar**, no solo releer. El guard que lo sostiene es el
+> round-trip productor↔consumidor de `test/tech-debt-backend.spec.ts:100-135`, que **no depende de ninguna línea**.
 
 ---
 
@@ -12377,8 +12497,9 @@ dos plantillas distintas es una promesa que se rompe en el primer cambio de copy
 | **Bruto ofertado** | `Σ offeredPriceCents` de las líneas `offerDecision='buy'` | `SellRequest.offerGrossCents` (congelado al ofertar) |
 | **Envío** | tarifa **congelada**, **SIEMPRE** (⛔ v1.51.1/D31: ya no hay banda con `0`) | `SellRequest.offerShippingFeeCents` |
 | **Neto anunciado** | `max(0, offerGrossCents − offerShippingFeeCents)` | `SellRequest.offerNetCents` (congelado) |
-| **Bruto aprobado** | `Σ offeredPriceCents` de las líneas `buy` que terminaron `aprobada`\|`convertida_inventario` | `SellRequest.approvedTotalCents` (recomputado) |
-| **NETO A PAGAR** | **`max(0, approvedTotalCents − offerShippingFeeCents)`** | `SellRequest.payoutNetCents` (sellado al pagar) |
+| **Bruto aprobado** | `Σ offeredPriceCents` de las líneas `buy` que terminaron `aprobada`\|`convertida_inventario` | `SellRequest.approvedTotalCents` (recomputado). ⚠️ **`null` mientras NINGÚN ítem tenga `approvedPriceCents`** |
+| **Bruto consumado** *(v1.51.5)* | **`approvedTotalCents ?? offerGrossCents ?? quotedTotalCents ?? 0`** — ver **4-bis** | derivado; **no** se persiste. Es la base de los tres sitios de dinero de abajo |
+| **NETO A PAGAR** | ~~`max(0, approvedTotalCents − offerShippingFeeCents)`~~ ⇒ **`max(0, brutoConsumado − offerShippingFeeCents)`** *(v1.51.5: el primer término se define aunque el aprobado sea `null`)* | `SellRequest.payoutNetCents` (sellado al pagar) |
 
 **Los SIETE invariantes, en orden de importancia:**
 *(eran seis; **v1.51.1 añade el 7** —la contabilidad del envío, cierre de (o.1)—. Los seis primeros **no cambian**, y
@@ -12399,11 +12520,102 @@ el 6 **conserva su número** porque se cita como «§4.39i.6» desde §11.)*
    si la caja sumara brutos, **M7 reportaría una salida de dinero que nunca ocurrió**. Consecuencia directa para
    backend: `monthPaidOutCentsTx` (sitio 4 de (c)) es el **acumulado de COMPROMISO**, no de caja, y **M7 lee
    `payoutNetCents`**. Los nombres deben decirlo.
+   > **⚠️⚠️ 4-bis (v1.51.5, NORMATIVO, DINERO, AML) — `brutoConsumado`: CON QUÉ CAMPO se mide cada acumulado.
+   > Cierre de la pregunta que backend elevó y NO resolvió por su cuenta (hizo bien).**
+   >
+   > El invariante 4 decía **qué** mide cada acumulado (brutos vs netos) y **nunca dijo con qué columna**. Con una
+   > sola columna de bruto (`quotedTotalCents`) la omisión no costaba nada; M-46 introduce **tres** —cotizado,
+   > ofertado y aprobado— y la omisión pasa a ser un **hueco de tope AML**. Se cierra aquí, por nombre.
+   >
+   > **Definición normativa — el bruto CONSUMADO de una solicitud:**
+   > ```
+   > brutoConsumado(sr) = sr.approvedTotalCents ?? sr.offerGrossCents ?? sr.quotedTotalCents ?? 0
+   > ```
+   > **Los tres términos, en orden de cercanía al dinero que de verdad salió, y por qué ese orden:**
+   > 1. **`approvedTotalCents` — el bruto APROBADO.** Es `Σ offeredPriceCents` de las líneas `buy` que terminaron
+   >    `aprobada`/`convertida_inventario` (tabla de arriba), o sea el bruto **post-cherry-pick de verificación**.
+   >    Es **el que generó `payoutNetCents`**, así que es el único que no miente sobre lo que se depositó.
+   > 2. **`offerGrossCents` — el bruto OFERTADO. ⚠️ ESTE ES EL TÉRMINO QUE FALTABA.** Aplica cuando la solicitud se
+   >    pagó **sin ninguna decisión por-ítem** (`recomputeApprovedTotal` deja `null` si **ningún** ítem tiene
+   >    `approvedPriceCents`, y `pay-spei` admite pagar desde `verificacion`). En el ciclo de oferta eso significa
+   >    *«se aceptó todo tal cual se ofertó»*, y el bruto correcto es **el vinculante** (D2), no la cotización.
+   > 3. **`quotedTotalCents` — el bruto COTIZADO. SOLO filas pre-M-46**, donde es la única medida que existe. Con el
+   >    ciclo vivo, llegar aquí es un **defecto de dato**, no un caso de negocio.
+   >
+   > **⚠️ POR QUÉ ESTO ES UN HUECO DE AML Y NO UNA IMPRECISIÓN CONTABLE.** Sin el término 2, la cascada salta de
+   > *aprobado* a *cotizado* — y **cotizado ≠ ofertado en las dos direcciones**:
+   > | Caso | `quotedTotalCents` | `offerGrossCents` | Qué acumula HOY | Efecto |
+   > |---|---|---|---|---|
+   > | Cherry-pick al ofertar (se descartan líneas) | **mayor** | menor | **de más** | bloquea a un vendedor legítimo. Injusto, pero **fail-closed** |
+   > | **Override manual al alza (D26)** | **menor** | mayor | **de menos** | ⚠️ **el vendedor puede REBASAR el tope mensual sin que ningún control lo note.** Es exactamente el bypass que el invariante 4 describe, por otra puerta |
+   >
+   > La segunda fila es la que obliga: **un acumulado AML que puede quedarse corto no es un tope.** Y el override al
+   > alza no es hipotético — es una vía explícita del ciclo (D26, §4.39e), con su propio motivo obligatorio.
+   >
+   > **DÓNDE aplica `brutoConsumado`, exhaustivamente (tres sitios, un solo cuerpo):**
+   > | # | Sitio | Hoy | Norma |
+   > |---|---|---|---|
+   > | a | `monthCommittedGrossPaidCentsTx` — el acumulado del mes (sitio 4 de (c)) | `approvedTotalCents ?? quotedTotalCents` | `brutoConsumado` **de cada fila** |
+   > | b | El término de **la solicitud en curso** dentro de la guarda del tope de `pay-spei` (`payoutCents`) | `approvedTotalCents ?? quotedTotalCents` | `brutoConsumado(req)` |
+   > | c | **`payoutNetCents = max(0, brutoConsumado(req) − offerShippingFeeCents)`**, sellado en la misma transacción que `pagada` | `max(0, approvedTotalCents − …)` — **indefinido si es `null`** | `brutoConsumado(req)` |
+   >
+   > - **(a) y (b) tienen que usar el MISMO cuerpo o el tope es incoherente:** son los dos lados de la misma
+   >   desigualdad (`acumulado + enCurso > cap`). Medir cada lado con una cascada distinta es comparar dos cosas.
+   > - **(c) no es una extensión oportunista: es la ÚNICA lectura que respeta D2.** Con `approvedTotalCents = null`,
+   >   tratar el bruto como `0` pagaría **MX$0** a un vendedor que aceptó una oferta vinculante y cuyas cartas nadie
+   >   rechazó. La cascada le paga **lo ofertado menos el envío**, que es literalmente lo que se le prometió. *El piso
+   >   de cero protege al vendedor de deber; no es una excusa para no pagarle.*
+   >
+   > **⚠️ LO QUE ESTA NORMA NO TOCA — `monthCommittedGrossCents` (sitios 2+3) SE QUEDA EN DOS TÉRMINOS
+   > (`offerGrossCents ?? quotedTotalCents ?? 0`), Y NO ES UNA INCONSISTENCIA: ES LA REGLA.**
+   > Se escribe porque la simetría es tentadora y «unificarlas» reabriría el agujero:
+   > - **Miden preguntas distintas.** Sitios 2+3 = *«¿cuánto sigue COMPROMETIDO este mes?»*, anclado en `createdAt`,
+   >   sobre solicitudes **vivas** (más `pagada`). Sitio 4 = *«¿cuánto compromiso se CONSUMÓ este mes?»*, anclado en
+   >   `paidAt`, sobre `status='pagada'` **exclusivamente**.
+   > - **En una solicitud VIVA, `approvedTotalCents` es PARCIAL, y por eso NO puede liderar allí.** El recompute
+   >   corre en **cada** decisión por-ítem: durante la verificación el número **sube desde `null`** conforme se
+   >   deciden líneas. Un acumulado AML que puede **bajar** mientras la operación avanza es precisamente el bypass
+   >   del invariante 4 (*«un envío caro bajaría el acumulado y alguien pasaría el tope sin que se note»*). **El
+   >   compromiso se mantiene en el bruto ofertado hasta que la solicitud cierra.**
+   > - **En el sitio 4 la solicitud es TERMINAL**, así que `approvedTotalCents` es final y puede liderar.
+   >   ⚠️ **Ese «es final» es hoy una AFIRMACIÓN FALSA sobre el código, y de ella depende esta norma:**
+   >   `itemDecision` **no tiene guarda de terminal** y puede reescribir `approvedTotalCents` después del pago —
+   >   desviación **BL-14** (§9), enrutada a backend. **La norma se escribe completa; el candado que la sostiene es
+   >   BL-14**, y los dos van en el mismo pase.
+   >
+   > **Verificable por QA, sin leer el código (los cuatro casos):** (1) `pagada` con `approvedTotalCents` ⇒ acumula
+   > ese número; (2) `pagada` del ciclo **sin** decisiones por-ítem ⇒ acumula **`offerGrossCents`**, y `payoutNetCents
+   > = offerGrossCents − offerShippingFeeCents`; (3) fila **pre-M-46** (`offerGrossCents IS NULL`) ⇒ acumula
+   > `quotedTotalCents` — **conducta idéntica a la de hoy, cero regresión**; (4) oferta con **override al alza** que
+   > deja `offerGrossCents > quotedTotalCents`, pagada sin decisiones ⇒ el acumulado sube por el **ofertado**, y el
+   > tope mensual la frena donde debe.
 5. **El costo de inventario es el BRUTO de esa línea (criterio 135).** `convertToInventory` fija
    `acquisitionCostCents = SellRequestItem.offeredPriceCents` (con fallback a `approvedPriceCents ?? quotedPriceCents`
    para filas pre-M-46). **El envío NO entra al costo de la pieza**: dos piezas idénticas compradas al mismo bruto
    tienen el **mismo** costo y el **mismo** margen, llegue una en un paquete caro y la otra sin envío nuestro.
    Mezclarlos ensuciaría el P&L por carta que M7 existe para mostrar.
+   > **✅ v1.51.5 — VERIFICADO CONTRA EL CÓDIGO: la cadena YA está anclada en el precio ofertado.**
+   > `buylist.service.ts:1921-1922` fija `acquisitionCostCents: item.offeredPriceCents ?? item.approvedPriceCents ??
+   > item.quotedPriceCents ?? 0`, que es **exactamente** esta norma y **exactamente** lo que el contrato dice en §M5
+   > (`convert-to-inventory`). **Ninguna de las dos partes se mueve**: ni el orden de la cascada ni el `0` final.
+   >
+   > **⚠️ ACOPLAMIENTO NORMATIVO (v1.51.5) — el único modo en que esta línea correcta se vuelve un error de dinero.**
+   > **Hoy la cascada es un NO-OP**: `offeredPriceCents` es una columna de M-46 y **nada la escribe todavía** (los
+   > endpoints de oferta no existen — verificado: `modules/buylist/*.controller.ts` no expone `offer`,
+   > `offer/authorize`, `offer/cancel` ni `offer-response`). Toda pieza convertida hoy toma el fallback, que es la
+   > conducta previa: **cero regresión**.
+   > **Norma:** el pase que implemente `POST /admin/buylist/:id/offer` **escribe `SellRequestItem.offeredPriceCents`
+   > en la MISMA transacción que congela la oferta, para TODA línea `offerDecision='buy'`, sin excepción.** No es una
+   > recomendación de secuencia: es **la condición de verdad de esta cascada**. Si la oferta se emite y la columna
+   > queda en `null`, `convertToInventory` cae al fallback **sin fallar, sin avisar y sin dejar rastro**, y registra
+   > como costo de adquisición **el precio COTIZADO de una pieza que se compró a otro precio** — con override al alza
+   > (D26), el costo entra **por debajo** del real y el **margen de M7 sale inflado en todas las piezas de esa
+   > oferta**. *Es un error silencioso, permanente (el costo no se recalcula nunca) y que se descubre en un reporte,
+   > no en una excepción.*
+   > **Invariante verificable, y es el que QA debe exigir en el pase de la oferta:**
+   > `offerDecision = 'buy' ⇒ offeredPriceCents IS NOT NULL`. Un ítem `buy` sin precio ofertado **no es un caso de
+   > negocio**: la línea sin dato de mercado sale de la oferta como `skip` (§4.39e, *«jamás MX$0 ni cifra de
+   > respaldo»*), nunca como `buy` con `null`.
 6. **El precio ofertado es vinculante y NO se mueve (D2/D9, criterios 119/124).** Ni por el mercado, ni al recibir, ni
    al verificar. **En la pantalla de verificación no existe campo de monto, ni repreciar, ni contraofertar, ni
    ajustar.** Contrato: `PATCH /admin/buylist/items/:itemId/decision` **rechaza** `approvedPriceCents` en el body
@@ -12718,6 +12930,14 @@ sábado no cuenta.** La **fecha límite del correo**, la de **la pantalla del cl
   `businessDaysUntil(to)`. Una implementación, cuatro consumidores.
 - **La tabla de festivos es DATO, no código suelto**: lista explícita por año (Art. 74 LFT + los de transmisión de
   poder). **Requiere extensión anual.**
+  > **⚠️ v1.51.5 — PUNTO LEGAL ABIERTO, DECIDIDO Y CON CADUCIDAD: el 1-dic sexenal.** El Art. 74 LFT dice
+  > literalmente *«el 1o. de diciembre de cada seis años»*, pero la reforma constitucional movió **la transmisión**
+  > al **1 de octubre** desde 2024 y **la LFT no se actualizó**. **Decisión: se siembra la fecha LITERAL DE LA LEY
+  > (`2030-12-01`)** —mismo criterio con el que la tabla ya excluye los festivos «de costumbre» que la ley no
+  > reconoce—, y **hoy no mueve ningún plazo porque cae en DOMINGO** (igual que en 2024). Lo que **sí** movería un
+  > día hábil es el **1-oct-2030, que es MARTES**. **Decisión, razonamiento completo y FECHA DE REVISIÓN
+  > (⏰ antes del 2030-09-01) en `docs/TECH_DEBT.md` → `BE-D46-1`.** ⚠️ **El `throw` de cobertura NO sirve de
+  > recordatorio para este caso**: salta al necesitar 2031, o sea **después** de las dos fechas en disputa.
 - **⚠️ Norma money-safe (y de trato justo):** si el cálculo necesita un año que la tabla **no cubre**, la función
   **lanza**. **Prohibido degradar a «no hay festivos»**: eso adelantaría vencimientos y **expiraría ofertas de gente
   que sí cumplió**. El barrido captura, loggea `error` y **no expira**. Fallar hacia *«no vence»* es el único lado
@@ -12960,7 +13180,13 @@ El resto del `PATCH` **no cambia** — en particular `listPriceCents`, que es el
 
 ---
 
-#### (n) Correos — **CUATRO obligatorios** (v1.51.1: eran tres), y ni uno más
+#### (n) Correos — ~~**CUATRO obligatorios**~~ **CINCO obligatorios** (v1.51.1: tres → cuatro; **v1.51.4: cuatro → CINCO**), y ni uno más
+
+> **⚠️ v1.51.5 — LA CABECERA DE ESTE APARTADO DECÍA «CUATRO» MIENTRAS SU PROPIA TABLA LISTABA CINCO.** Corregida.
+> Es el mismo defecto que el «~24 columnas» de §11: **un conteo en la cabecera que nadie recuenta cuando la tabla de
+> abajo crece.** El bloque de v1.51.4 («SON CINCO CORREOS») ya lo decía y **no se propagó al título** — que es
+> justamente lo que un lector rápido lee. **Norma:** el número vive en **un** sitio; si aparece dos veces, se
+> actualizan las dos o no se escribe la segunda.
 
 ~~`PROJECT.md` (criterios 142/150) fija **tres** correos del ciclo: **oferta**, **recordatorio** y
 **expiración/cancelación**.~~ ⛔ **ENMENDADO por D33: son CUATRO.** La 3ª ronda llegó a proponer un cuarto por otra
@@ -13017,6 +13243,32 @@ existe es otro.** Los **rechazos por carta** siguen usando el correo que **ya ex
 > **la solicitud sigue viva**, así que un CTA de *«cotizar de nuevo»* —el del correo 3— lo manda a **duplicar una
 > solicitud abierta**. Fusionarlas no era una simplificación: era el fallo, esperando.
 >
+> **⚠️⚠️ v1.51.5 — DICTAMEN DE NUMERACIÓN: MANDA ESTE APARTADO. SON CINCO CORREOS; «3c» NO EXISTE.**
+> *(Levantado por ux-ui en `DESIGN_SYSTEM.md` §23.13 punto 3, que **no renumeró §23 por su cuenta**. Hizo bien: el
+> **conteo** de artefactos del ciclo es un hecho del contrato, no una decisión de diseño, y §23.4.4 sigue tratando la
+> cancelación como la **variante 3c** de la plantilla de expiración.)*
+> - **El contenido coincide y no se redacta nada nuevo.** §23.4.4-3c ya tiene el titular, el cuerpo, el asunto y las
+>   prohibiciones correctas —incluida *«prohibida la palabra venció»*—, y **este apartado apunta a ese texto como su
+>   fuente**. Lo único que cambia es **cómo se numera y dónde cuelga**.
+> - **Por qué el `5` gana al `3c`, y no es por jerarquía de documentos.** El argumento ya está escrito **en la tabla
+>   de arriba de este mismo bloque**: la cancelación **deja la solicitud `cotizada`, viva y con el reloj reiniciado**,
+>   mientras 3a y 3b dejan terminales. **Un correo cuyo desenlace no es terminal no es una variante del correo que
+>   anuncia un desenlace terminal**; es exactamente la prueba con la que D33 creó el correo 4, un nivel más abajo.
+>   Llamarle «3c» **conserva en el nombre la fusión que este pase deshizo**.
+> - **⚠️ Y el riesgo REAL no es el número: es el ESPACIO DE NOMBRES.** §23.4.6/§23.4.7 dejan la clave de este correo
+>   como **`expiry.cancelledByUs.*`**, colgando de `expiry.*`. Mientras viva ahí, **el nombre le sigue diciendo
+>   «expiración» a quien lo edite**, y la primera variante que alguien añada bajo ese prefijo heredará el vocabulario
+>   de vencimiento **que este correo tiene prohibido**. *La numeración se puede leer mal; un prefijo se hereda solo.*
+> - **Norma, y es lo único que le toca hacer a ux-ii en su documento:** la cancelación se numera **CORREO 5**
+>   (hermana del 4, no hija del 3), y su clave i18n **sale de `expiry.*`** — sugerencia, no imposición, porque el
+>   nombre es suyo: `offerCancelled.*`, hermana de `notPursued.*`. **El texto no se toca. El esqueleto compartido de
+>   §23.4.1 SE SIGUE COMPARTIENDO**: compartir maqueta no es ser el mismo correo, igual que los cinco comparten
+>   `MAIL_PORT` y no por eso son uno.
+> - **Consecuencia para backend (ya normada, aquí solo se confirma):** `BuylistMailKind` tiene **CINCO** miembros y el
+>   discriminador es **el productor en el call-site**, no un `switch` sobre datos de la fila — ver justo abajo.
+> - **También queda desalineado el título de `DESIGN_SYSTEM` §23.4 («Los CUATRO correos del ciclo»)**, por la misma
+>   causa que la cabecera de este apartado. **Es de ux-ui**; se señala, no se corrige desde aquí.
+
 > **⚠️ `expiredReason` NO PUEDE SER EL DISCRIMINADOR, y se demuestra por lo negativo (no es opinión):** es **`null` en
 > DOS de los tres casos** —la regla 1 deja `rechazada` (el motivo solo se sella en `expirada`) y la cancelación deja
 > `cotizada`—, así que un `switch (expiredReason)` **caería al mismo default en 3a y en la cancelación**, que son los
@@ -13485,7 +13737,7 @@ serializarlo o llevarlo en **una sola sesión**:
 
 | Zona | Qué se toca | Riesgo si dos streams la tocan a la vez |
 |---|---|---|
-| `backend/prisma/schema.prisma` | **M-46** (enums + ~20 columnas ⇒ **~23 desde v1.51.3** ⇒ **~24 desde v1.51.4**) | migraciones divergentes. ⚠️ **v1.51.4: SIGUE habiendo DDL y hay UNA COLUMNA MÁS (`offerReissueCount`) — RE-SERIALIZAR OTRA VEZ** |
+| `backend/prisma/schema.prisma` | **M-46** — 3 enums nuevos, 4 valores de enum y **40 columnas**: ~~«enums + ~20 ⇒ ~23 desde v1.51.3 ⇒ ~24 desde v1.51.4»~~ ⛔ **la aproximación era ERRÓNEA, no imprecisa** (v1.51.5, corregida contra el schema) | migraciones divergentes. ⚠️ **v1.51.4: SIGUE habiendo DDL y hay UNA COLUMNA MÁS (`offerReissueCount`) — RE-SERIALIZAR OTRA VEZ** |
 | `backend/src/common/sell-request-states.ts` | **NUEVO** (el set único de (c)) | vuelve la novena copia |
 | `backend/src/common/variant-key.ts` | `variantPositionKey()` **aditiva** | drift de llave ⇒ cifras desalineadas **en silencio** |
 | `backend/src/common/business-days.ts` | **NUEVO** ((k)) | dos definiciones de «día hábil» ⇒ correo y pantalla con fechas distintas |
@@ -13493,7 +13745,7 @@ serializarlo o llevarlo en **una sola sesión**:
 | `backend/src/jobs/` | barrido reescrito | ver la nota de §2 sobre `jobs/` |
 | `frontend/src/lib/` | `isTerminal` viene del server; se **borra** el literal de `M5View.tsx` | quinta copia del set terminal |
 | `backend/src/common/error-codes.ts` | **5 códigos nuevos** *(v1.51.3)*: `PICKUP_ADDRESS_REQUIRED` · `PICKUP_ADDRESS_NOT_FOUND` · `PICKUP_ADDRESS_MISSING` · `PICKUP_ADDRESS_LOCKED` · `DECLINE_NOT_ALLOWED` **+ 1** *(v1.51.4)*: `GUIDE_CANCELLATION_PENDING` | enum de errores pisado por dos streams |
-| `docs/API_CONTRACT.md` | ~~v1.51.3~~ **v1.51.4** | — (mío) |
+| `docs/API_CONTRACT.md` | ~~v1.51.3~~ ~~v1.51.4~~ **v1.51.5** | — (mío) |
 
 **Nota de secuencia para backend:** la **desviación BL-2** de (b.2) —el `respond` sin guarda— **no depende de M-46** y
 es explotable **hoy**. Puede y debe ir **primero**, en su propio commit, antes que el resto del ciclo.
@@ -14238,13 +14490,14 @@ Riesgos técnicos:
   §4.39; ninguna corregida por mí (CLAUDE.md). Dictamen completo en §4.39; aquí el registro con dueño y puerta:**
   | # | Desviación | Dueño | Puerta |
   |---|---|---|---|
-  | **BL-2** *(DINERO SALIENTE, **viva hoy en `main`**, no depende de M-46)* | `respond` (`buylist.service.ts:1067-1093`) hace `findUnique` **solo para autorizar propiedad** (`:1069`) y **nunca lee `req.status`**: `accept` fija `status:'aprobada'` **incondicionalmente** (`:1090`). **El dueño de una solicitud `pagada`/`rechazada`/`abandonada` puede revivirla a `aprobada`** — que con `verifiedAt` es el estado pagable de `paySpei` (`:1754`/`:1788`). `decline` tiene el hueco simétrico (reescribe una `pagada` a `rechazada`) | backend | **Inmediata, en su propio commit, ANTES del resto del ciclo.** Cierre = guarda de §4.39(b.2) (`409 NO_LIVE_ADJUSTMENT` + `409 ADJUST_NOT_ALLOWED_IN_OFFER_CYCLE`) |
-  | **BL-3** *(PII / cumplimiento)* | `jobs/ine-retention.service.ts:28` define su propio `CLOSED = ['pagada','rechazada','abandonada']`. Con `expirada` en el enum, **una solicitud expirada cuenta abierta para siempre ⇒ el INE nunca se purga** | backend | **Junto con M-46, no después.** Cierre = `SELL_REQUEST_TERMINAL_STATES` compartido (§4.39c, sitio 1) |
-  | **BL-4** *(dinero / AML)* | `users.service.ts:194` y `buylist.service.ts:927` son **el mismo cuerpo duplicado** (`monthUsedCents` / `monthUsedCentsTx`; el JSDoc lo reconoce). Con `expirada`, una oferta vencida **le sigue quemando la cuota mensual** al vendedor. Además miden sobre `quotedTotalCents`, cuando el criterio 155 exige **bruto** | backend | Junto con M-46. Cierre = un solo cuerpo en `common/` + `SELL_REQUEST_NON_COMMITTING_STATES` (§4.39c, sitios 2+3) |
-  | **BL-5** | `buylist.service.ts:960` `monthPaidOutCentsTx` (AML-1) es el **tercer** sitio que codifica «dinero salido». Bajo el criterio 155 es un **acumulado de COMPROMISO (brutos)**, no de caja; la caja (M7) debe leer `payoutNetCents`. **El nombre miente** | backend | Junto con M-46 (§4.39c sitio 4, §4.39i.4) |
-  | **BL-6** | **El set terminal está copiado en CINCO lugares** (`ine-retention:28`, `buylist-reject.constants:27`, los dos `notIn` por complemento, y `M5View.tsx:110`). Las notas de deuda de `buylist-reject.constants.ts:9-11` y `:22-25` llevan **147 commits** sin cobrarse | backend (4) · frontend (1) | Junto con M-46. Cierre: fuente única en `common/` **y** `isTerminal` server-derived en el DTO — *la quinta copia se cura eliminando la necesidad de la copia* (§4.39c, sitio 9) |
-  | **BL-7** | `buylist.service.ts:1754` y `:1788` codifican el «estado pagable» **inline dos veces en el mismo método**; `admin.service.ts:1149` (dashboard) y `:1090-1091` (brackets) codifican los suyos | backend | Junto con M-46 (§4.39c, sitios 5/6/8) |
-  | **BL-8** *(P-30 H2, deuda preexistente que este pase obliga a cobrar)* | `buylist` **interpola la llave canónica a mano** en `buylist.service.ts:544` y `:1537`, existiendo `variantKey()` (`common/variant-key.ts:16-27`) y un guard en `test/tech-debt-backend.spec.ts:74-147`. **Cuatro fuentes nuevas** van a agruparse por esa familia de llaves: una que la construya distinto desalinea las cifras de la mesa **en silencio** | backend | Junto con M-46 (§4.39e) |
+  | **BL-2** ⚠️ **3 de 4 CERRADAS — falta la cuarta línea de la guarda, y su bloqueo YA DESAPARECIÓ** *(DINERO SALIENTE, no depende de M-46)* | `respond` (`buylist.service.ts:1067-1093`) hacía `findUnique` **solo para autorizar propiedad** (`:1069`) y **nunca leía `req.status`**: `accept` fijaba `status:'aprobada'` **incondicionalmente** (`:1090`). **El dueño de una solicitud `pagada`/`rechazada`/`abandonada` podía revivirla a `aprobada`** — que con `verifiedAt` es el estado pagable de `paySpei`. `decline` tenía el hueco simétrico | backend | ✅ **El agujero explotable está CERRADO**: guarda atómica (`count===1`) con `closedAt IS NULL ∧ adjustmentSentAt IS NOT NULL ∧ status ∈ SELL_REQUEST_LIVE_ADJUSTMENT_STATES` (`buylist.service.ts:1331-1343`) + `409 NO_LIVE_ADJUSTMENT` (`:1353`). ⛔ **ABIERTO: la CUARTA condición `offerSentAt IS NULL` ⇒ `409 ADJUST_NOT_ALLOWED_IN_OFFER_CYCLE`.** Los `TODO(M-46)` de `:1340` y `:1351` se dejaron porque *«la columna aún no existe»* — **`offerSentAt` YA EXISTE** (`schema.prisma:1189`, M-46 aplicada) ⇒ **el bloqueo desapareció y esto es cablable ahora**. Sin ello el criterio 150 no está cerrado en `respond` (§4.39b.2/b.3) |
+  | **BL-3** ✅ **CERRADA (2026-09-01)** *(PII / cumplimiento)* | `jobs/ine-retention.service.ts:28` definía su propio `CLOSED = ['pagada','rechazada','abandonada']`. Con `expirada` en el enum, **una solicitud expirada contaría abierta para siempre ⇒ el INE nunca se purga** | backend | ✅ Cerrada con M-46: el literal desapareció y el job importa `SELL_REQUEST_TERMINAL_STATES` (`ine-retention.service.ts:6`, usado en `:60` y `:67`, **por complemento**). §4.39c, sitio 1 |
+  | **BL-4** ✅ **CERRADA (2026-09-01)** *(dinero / AML)* | `users.service.ts:194` y `buylist.service.ts:927` eran **el mismo cuerpo duplicado** (`monthUsedCents` / `monthUsedCentsTx`; el JSDoc lo reconocía). Con `expirada`, una oferta vencida **le seguiría quemando la cuota mensual** al vendedor. Además medían sobre `quotedTotalCents`, cuando el criterio 155 exige **bruto** | backend | ✅ Cerrada con M-46: **un solo cuerpo** en `common/buylist-aml.ts` (`monthCommittedGrossCents`), predicado por complemento sobre `SELL_REQUEST_NON_COMMITTING_STATES` y monto `offerGrossCents ?? quotedTotalCents ?? 0` (`:85`, `:91`). Los dos consumidores solo pasan el cliente (`users.service.ts:196`, `buylist.service.ts:1032`). §4.39c, sitios 2+3. ⚠️ **El sitio 4 NO quedó alineado con éste — ver BL-5** |
+  | **BL-5** ⚠️ **PARCIALMENTE CERRADA — la mitad viva es la de DINERO** | `buylist.service.ts:960` `monthPaidOutCentsTx` (AML-1) es el **tercer** sitio que codifica «dinero salido». Bajo el criterio 155 es un **acumulado de COMPROMISO (brutos)**, no de caja; la caja (M7) debe leer `payoutNetCents`. **El nombre miente** | backend | ✅ **Nombre y doc: cerrados** (hoy `monthCommittedGrossPaidCentsTx`, `buylist.service.ts:1066`). ⛔ **ABIERTO: el CAMPO.** Sigue midiendo `approvedTotalCents ?? quotedTotalCents` y **se salta `offerGrossCents`** ⇒ una solicitud **ofertada** que llegue a `pagada` sin decisión por-ítem acumula por **la COTIZACIÓN**, no por el bruto comprometido. Norma vigente y única: **§4.39i.4-bis (`brutoConsumado`)**, contrato **v1.51.5** |
+  | **BL-14** *(v1.51.5 — **DINERO / AML**, viva hoy en `main`, **NO** depende de M-46)* | `PATCH /admin/buylist/items/:itemId/decision` (`itemDecision`, `buylist.service.ts:1509-1615`) **no lee `sellRequest.status` en ningún punto** — su `findUnique` solo selecciona `userId` y `user` (`:1517-1530`). Un ítem de una solicitud **`pagada`** se puede re-decidir (`approve`/`adjust`/`reject`), y cada decisión dispara `recomputeApprovedTotal` (`:1613`/`:1564`) ⇒ **`approvedTotalCents` MUTA DESPUÉS DEL PAGO**. Es la hermana de **BL-2** por la puerta del ítem: BL-2 revivía la solicitud, ésta reescribe **el monto** de una solicitud ya liquidada. **Consecuencia directa sobre §4.39i.4-bis:** el acumulado de compromiso consumado (sitio 4) se ancla en `approvedTotalCents` **porque es final en `pagada`** — y hoy **no lo es**, así que el tope AML mensual puede medir un número distinto del que salió por SPEI | backend | **Con M-46, en el mismo commit que la guarda de BL-2** (mismo módulo, misma clase de hueco). Cierre = guarda de terminal en `itemDecision` (`409 NO_LIVE_ADJUSTMENT` con `details.status`, **mismo código y misma forma** que la de `respond`, `:1265`), **antes** de cualquier escritura. ⚠️ **No basta con la guarda del ciclo de oferta** (`422 OFFER_PRICE_IMMUTABLE` / `409 ADJUST_NOT_ALLOWED_IN_OFFER_CYCLE`, §4.39i.6): ésas solo miran `offerSentAt`, y una solicitud **pre-M-46** ya pagada no tiene `offerSentAt` |
+  | **BL-6** ⚠️ **4 de 5 CERRADAS — la QUINTA (frontend) sigue viva** | **El set terminal está copiado en CINCO lugares** (`ine-retention:28`, `buylist-reject.constants:27`, los dos `notIn` por complemento, y `M5View.tsx:110`). Las notas de deuda de `buylist-reject.constants.ts:9-11` y `:22-25` llevan **147 commits** sin cobrarse | backend ✅ (4) · **frontend ⛔ (1)** | ✅ **Backend cerrado**: fuente única en `common/sell-request-states.ts` y `isTerminal` **ya viaja** en los tres DTOs (`buylist.service.ts:106`, `:1156`, `:1378`). ⛔ **Frontend ABIERTO y con efecto observable:** `M5View.tsx:110` **sigue** con `REQUEST_TERMINAL = ['pagada','rechazada','abandonada']` —**sin `expirada`**— y `isTerminal` **no se consume en ningún archivo de `frontend/src`**. Efecto: `canRejectRequest` (`M5View.tsx:780`) da **`true`** sobre una solicitud **`expirada`** ⇒ la UI ofrece «Rechazar solicitud» y el backend contesta `409 CONFLICT`. Cierre = **borrar el literal y leer `isTerminal` del DTO**; *la quinta copia se cura eliminando la necesidad de la copia* (§4.39c, sitio 9) |
+  | **BL-7** ✅ **CERRADA (2026-09-01)** | `buylist.service.ts:1754` y `:1788` codifican el «estado pagable» **inline dos veces en el mismo método**; `admin.service.ts:1149` (dashboard) y `:1090-1091` (brackets) codifican los suyos | backend | ✅ Cerrada con M-46: `paySpei` usa `SELL_REQUEST_PAYABLE_STATES` en **los dos** sitios (`buylist.service.ts:1980` pre-check y `:2016` guarda del `updateMany`), el dashboard usa `SELL_REQUEST_LIVE_STATES` (`admin.service.ts:1168`) y el reporte de brackets filtra `offerDecision != 'skip'` (`admin.service.ts:1104`). §4.39c, sitios 5/6/8 |
+  | **BL-8** ✅ **CERRADA (2026-09-01)** *(P-30 H2, deuda preexistente que este pase obligó a cobrar)* | `buylist` **interpolaba la llave canónica a mano**, existiendo `variantKey()` (`common/variant-key.ts:16-27`) y un guard en `test/tech-debt-backend.spec.ts:50-135`. **Cuatro fuentes nuevas** se agrupan por esa familia de llaves: una que la construya distinto desalinea las cifras de la mesa **en silencio**. ⚠️ **CORRECCIÓN DE ENUMERACIÓN (v1.51.5): eran CUATRO sitios, no los dos que esta fila citaba** (`:544`, `:1537` — líneas rancias **y conteo equivocado**). Los cuatro vivos hoy: `:419` (`batchQuote`), `:715` (vitrina de bounties), `:864` (`createRequest` — la peor), `:2089` (`countBountyAcquisitionsTx`). Tabla y lección en **§4.39e** | backend | ✅ Cerrada con M-46 — **los cuatro** migrados a `variantKey()` (§4.39e) |
   | **INV-D7** *(documentación que miente, 3 sitios + 1 autocontradicción)* | `schema.prisma:1142`, `dto/buylist.dto.ts:98-99` y ARCHITECTURE §4.29d afirman que `SellRequestItem.cardProductId` **se propaga al `InventoryItem` al convertir**. **`InventoryItem` no tiene esa columna** (`schema.prisma:659-747`) y `convertToInventory` (`:1691-1703`) no la propaga ni podría. §11 M-32 se contradice a sí misma («sería una sub-decisión a anotar en `TECH_DEBT.md`») y **no hay entrada en `TECH_DEBT.md`** | backend | **M-46** (columna + propagación + backfill determinista + los tres comentarios). Backend abre además la entrada en `docs/TECH_DEBT.md`. §4.39(d) |
   | **INV-P1** *(fase 8, dinero-adyacente)* | `PATCH /admin/inventory/items/:id` (`inventory.service.ts:1729-1752`) es un **`update` plano**: **sin** `assertPublishableGuards` (`:1226`), **sin** `resolvePublishSalePrice` (`:1253`), **sin** `claimListed` (`:1347`). Acepta marcar `listed` una pieza **sin precio resoluble** ⇒ el storefront la descarta en silencio (`catalog.service.ts:571`) y **no entra a ninguna cola**: invisible para el comprador **y** para el operador. Los caminos de lote sí corren el pipeline completo | backend | Con la fase 8 de M-46. Cierre = §4.39(m.4) (`422 ITEM_NOT_PUBLISHABLE`, `422 PRICE_PENDING` con escalada) |
   | **BL-9** *(cambio de comportamiento, no bug)* | El barrido mata `cotizada` a los 30 días de `createdAt` (`jobs/buylist-sweep.service.ts:37-42`). PROJECT §P.1 define `abandonada` como los 30 días **con la carta ya en nuestras manos**, y §P.13 prohíbe que un plazo del vendedor venza por nuestra demora. **Se re-ancla a `receivedAt` sobre `{recibida,verificacion,aprobada}`** ⇒ una `cotizada` **deja de auto-archivarse** | backend | Con M-46. **QA debe verificar el cambio; el humano debe conocerlo** (§4.39j regla 6, §4.39o.6). ⚠️ **v1.51.1: son DOS cambios, no uno** — la `cotizada` además **caduca a 7 días hábiles** (D33, regla 7) |
@@ -15394,7 +15647,26 @@ propia configuración para ser determinista deja, **por construcción**, de ser 
 stream que toque el schema. Es **aditiva**: cuatro valores de enum, **dos** enums nuevos *(v1.51.1: tres, con
 `SellRequestExpiryReason`)*, columnas **todas nullable o con default** *(v1.51.3: **tres más**, todas nullable;
 **v1.51.4: una más**, `offerReissueCount Int @default(0)`, **`NOT NULL` con default**)*, **cero `DROP`**, **cero
-cambios de tipo**. Segura con la app corriendo. Spec completa en **§4.39**; contrato en `API_CONTRACT.md` **v1.51.4**.
+cambios de tipo**. Segura con la app corriendo. Spec completa en **§4.39**; contrato en `API_CONTRACT.md` **v1.51.5**.
+
+> **⚠️ CONTEO EXACTO DE M-46 (v1.51.5) — corrige la aproximación «~24» de §4.39(p), que era ERRÓNEA, no imprecisa.**
+> §4.39(p) arrastraba un conteo incremental que partía de un «~20» equivocado en v1.51 y le fue sumando los deltas
+> (`+3` en v1.51.3, `+1` en v1.51.4) hasta «~24», mientras **la tabla enumerada de abajo listaba 32 solo en
+> `SellRequest`**. **Backend implementó las filas enumeradas, que son las correctas.** El número autoritativo se
+> cuenta **de la tabla**, no de la cabecera:
+>
+> | Modelo | Columnas M-46 | Verificación |
+> |---|---|---|
+> | `SellRequest` | **32** | `schema.prisma:1182-1269` — de `offerState` a `payoutNetCents`, ambas inclusive |
+> | `SellRequestItem` | **7** | `schema.prisma:1343-1359` — de `offerDecision` a `offerMarketBracket` |
+> | `InventoryItem` | **1** | `cardProductId` (§4.39d) |
+> | **TOTAL** | **40** | *(+3 enums nuevos, +4 valores en `SellRequestStatus`, +6 índices)* |
+>
+> *(Las 32 de `SellRequest` = las de v1.51 tras retirar `offerShippingPaidByUs` (D31) + `expiredReason` y
+> `guideActualCostCents` (v1.51.1) + las **tres** de v1.51.3 + `offerReissueCount` (v1.51.4).)*
+> **Norma para este documento:** una cabecera **no** lleva un conteo aproximado de algo que una tabla enumera abajo.
+> O lleva el número exacto —y entonces cuadra con la tabla— o **no lleva número**. *Un «~24» junto a una tabla de 32
+> no advierte de una imprecisión: contradice al documento en el que vive.*
 
 > **⚠️ Orden obligatorio del despliegue (importa) — SEIS pasos desde v1.51.2 (eran cinco):**
 >
@@ -15442,7 +15714,7 @@ cambios de tipo**. Segura con la app corriendo. Spec completa en **§4.39**; con
 | M-46 | `SellRequest.offerPreparedBy` / `offerPreparedAt` | `String?` / `DateTime?` | Add column ×2 | D13/D24, criterio 147: **quién preparó**. |
 | M-46 | `SellRequest.offerAuthorizedBy` / `offerAuthorizedAt` | `String?` / `DateTime?` | Add column ×2 | criterio 147: **quién autorizó**, por separado. |
 | M-46 | `SellRequest.offerSentAt` | `DateTime?` | Add column | **D2: desde aquí el precio es vinculante.** Es además el **discriminador** «esta solicitud va por el ciclo de oferta» (§4.39i.6). |
-| M-46 | `SellRequest.offerGrossCents` | `Int?` | Add column | **BRUTO congelado.** Base de los topes AML/KYC y del umbral de INE (criterio 136/155). |
+| M-46 | `SellRequest.offerGrossCents` | `Int?` | Add column | **BRUTO congelado.** Base de los topes AML/KYC y del umbral de INE (criterio 136/155). ⚠️ **v1.51.5: es el término CENTRAL de `brutoConsumado`** (§4.39i.4-bis) — el que faltaba en el acumulado de compromiso consumado. Su ausencia hacía que una solicitud **ofertada** pagada sin decisión por-ítem acumulara por la **cotización**. |
 | M-46 | `SellRequest.offerShippingFeeCents` | `Int?` | Add column | Tarifa **congelada al ofertar** (D25). ~~`0` en la banda del vendedor.~~ ⚠️ **v1.51.1/D31: SIEMPRE la tarifa vigente; no hay banda con `0`.** **Distinta** de `shipping_fee_cents` (retiro, MX$175). Es además el **ingreso de envío** del buylist en M7 (§4.39i.7). |
 | ~~M-46~~ | ~~`SellRequest.offerShippingPaidByUs`~~ | ~~`Boolean?`~~ | ⛔ **RETIRADA (v1.51.1 / D31)** | ~~Banda congelada (D18b)…~~ **NO SE CREA.** Con **una sola banda** no hay `0` que desambiguar y el campo solo podría valer `true`; un booleano de un solo valor **invita a que alguien lo ponga en `false` y resucite la banda**. Misma doctrina que el dial D28: *no se apaga, deja de existir*. **`offerShippingFeeCents` sí se queda** (es el monto). §4.39(o.9) |
 | M-46 | `SellRequest.offerNetCents` | `Int?` | Add column | **NETO ANUNCIADO** = `max(0, bruto − envío)`. Es la cifra vinculante frente al vendedor (D16). |
@@ -15464,17 +15736,17 @@ cambios de tipo**. Segura con la app corriendo. Spec completa en **§4.39**; con
 | M-46 | `SellRequest.sellerShippedDeclaredAt` | `DateTime?` | Add column | **«Ya lo mandé» (§P.13).** Lo fija el **cliente**. **DETIENE el reloj y NO mueve el estado ni el conteo de «en camino»** (criterios 138/156). |
 | M-46 | `SellRequest.shipmentConfirmedAt` / `shipmentConfirmedBy` | `DateTime?` / `String?` | Add column ×2 | D20: **solo esto** mueve a `en_transito` y **solo esto** suma a «en camino» (criterio 116). |
 | M-46 | `SellRequest.guideCancellationPendingAt` / `guideCancellationDoneAt` / `guideCancellationDoneBy` | `DateTime?` ×2 / `String?` | Add column ×3 | D22/criterio 139: la tarea **no desaparece sola** hasta que alguien la marca. |
-| M-46 | `SellRequest.payoutNetCents` | `Int?` | Add column | **Lo que salió por SPEI** = `max(0, brutoAprobado − envío)`, sellado en la **misma transacción** que `pagada`. **Es la fuente de la caja de M7** (criterio 155), distinta del acumulado de compromiso (brutos). |
+| M-46 | `SellRequest.payoutNetCents` | `Int?` | Add column | **Lo que salió por SPEI** = `max(0, ` ~~`brutoAprobado`~~ **`brutoConsumado`** ` − envío)` *(v1.51.5: el primer término queda **definido** aunque `approvedTotalCents` sea `null` — §4.39i.4-bis)*, sellado en la **misma transacción** que `pagada`. **Es la fuente de la caja de M7** (criterio 155), distinta del acumulado de compromiso (brutos). |
 | M-46 | `enum BuyDecision` (**NUEVO**) | `buy \| skip` | **DDL aditivo (enum)** | Cherry-pick **al ofertar** (§P.2). |
 | M-46 | `SellRequestItem.offerDecision` | `BuyDecision?` | Add column | `null` = línea previa al ciclo. Entra al `where` del reporte de brackets (§4.39c, sitio 6): una línea `skip` **no es** una operación de compra. |
-| M-46 | `SellRequestItem.offeredPriceCents` | `Int?` | Add column | **FUENTE ÚNICA DEL COSTO DE ADQUISICIÓN.** Congelado al ofertar; **no se mueve jamás** (D2/D9). `convertToInventory` lo copia a `acquisitionCostCents`. |
+| M-46 | `SellRequestItem.offeredPriceCents` | `Int?` | Add column | **FUENTE ÚNICA DEL COSTO DE ADQUISICIÓN.** Congelado al ofertar; **no se mueve jamás** (D2/D9). `convertToInventory` lo copia a `acquisitionCostCents` (ya implementado, `buylist.service.ts:1921-1922`). ⚠️ **v1.51.5 — ACOPLAMIENTO:** hoy **nada la escribe** (los endpoints de oferta no existen) ⇒ la cascada del costo es un **no-op**. **El pase que implemente `POST …/offer` la escribe en la MISMA transacción que congela la oferta, para TODA línea `offerDecision='buy'`.** Sin eso, la conversión capitaliza el precio **COTIZADO** de una pieza comprada a otro precio, **en silencio**. Invariante exigible: `offerDecision='buy' ⇒ offeredPriceCents IS NOT NULL` (§4.39i.5). |
 | M-46 | `SellRequestItem.offerDerivedPriceCents` | `Int?` | Add column | Lo que produjo **`decideBuyLine`** con la curva vigente al ofertar. Se persiste **siempre** en una línea `buy`, para que el delta del override sea visible sin leer la bitácora (criterio 148(b)). `null` si la línea estaba en `precio_pendiente`. |
 | M-46 | `SellRequestItem.offerOverrideReason` | `String?` | Add column | **OBLIGATORIO ⇔ `offeredPriceCents ≠ offerDerivedPriceCents`** (3–500). *Sin motivo no hay override* (criterio 148(a)). |
 | M-46 | `SellRequestItem.offerPriceBasis` | `PriceBasis?` | Add column | Enum **existente**, sin valores nuevos. Override (y rescate de `precio_pendiente`) ⇒ `override`. |
 | M-46 | `SellRequestItem.offerMarketMxnCents` / `offerMarketBracket` | `Int?` / `MarketBracket?` | Add column ×2 | Instrumentación §N.8 **del momento de OFERTAR**. No se reusa la del quote: son **dos decisiones en dos instantes** y la del quote ya está congelada. |
 | **M-46** | **`InventoryItem.cardProductId`** | **`Int?`** | **Add column** | **D7 / §4.39(d) — se cura la contradicción documental de TRES sitios.** Es el `tcgplayerProductId` (mismo eje que `SellRequestItem.cardProductId` M-32 y `PriceReference.cardProductId` M-31), **no** el UUID interno. `null` = set_base. **Sin esto, §P.8 no se sostiene y con ella se cae D6.** |
 | M-46 | **Backfill** de `InventoryItem.cardProductId` | `UPDATE … FROM SellRequestItem` por `sourceSellRequestItemId` | **Data** | ⚠️ **NO viola el criterio 160.** Ese criterio prohíbe **inferir**; esto **copia** por una FK **`@unique`** (`schema.prisma:697`) el valor que el propio vendedor eligió. Toda pieza sin `sourceSellRequestItemId` queda `null` y **se reclasifica a mano desde M1**. Idempotente (`WHERE cardProductId IS NULL`). |
-| M-46 | `SellRequest` índices | `@@index([offerState])`, `@@index([status, offerAcceptDeadlineAt])`, `@@index([status, shipDeadlineAt])`, `@@index([guideCancellationPendingAt])` | Add index ×4 | Sirven las **cuatro colas** y las **dos reglas del barrido** sin barrer la tabla. `@@index([status])` y `@@index([status, createdAt])` ya existen y no se duplican. |
+| M-46 | `SellRequest` índices | `@@index([offerState])`, `@@index([status, offerAcceptDeadlineAt])`, `@@index([status, shipDeadlineAt])`, `@@index([guideCancellationPendingAt])` | Add index ×4 | Sirven las **cuatro colas** y las **dos reglas del barrido** sin barrer la tabla. ~~`@@index([status])` y `@@index([status, createdAt])` ya existen y no se duplican.~~ ⚠️ **CORREGIDO v1.51.5: `@@index([status, createdAt])` NO EXISTE y nunca existió.** Los preexistentes son **`@@index([userId])` y `@@index([status])`**, y solo ésos. **La afirmación se retira; el índice NO entra a M-46** — ver la nota de abajo. |
 | M-46 | `SellRequestItem` índices | `@@index([offerDecision])` | Add index | Sirve los tres sumandos de posición que salen de `SellRequestItem` (§4.39g). |
 | M-46 | `InventoryItem` índice | — (**ninguno obligatorio**) | — | El `@@index([cardId, finish, status])` (M-21) **ya sirve** la agregación on-hand. `@@index([cardId, productType, finish, status])` es **recomendación** si el profiling lo pide, **no** parte de M-46. |
 | M-46 | ~~**8**~~ **NUEVE diales nuevos** (`ConfigSetting`) | claves de §4.39(l) + seeds | **DATA/seed** | ⚠️ **§11.0 NO aplica**: son claves **NUEVAS**, y el `upsert` con `update:{}` de `seed.ts` **sí** las crea en entornos ya sembrados. La disciplina de dos artefactos rige el cambio de un seed **existente**, no el alta de uno nuevo. Se dice aquí para que devops **no** monte un paso de despliegue que no hace falta. ⚠️ **v1.51.1: SIGUEN SIENDO OCHO, pero cambia UNO** — **NO se siembra** `buylist_shipping_threshold_cents` (retirado, D31) y **sí** `buylist_offer_issue_deadline_business_days` = **7** (D33). El retirado **nunca llega a existir**, así que no hay seed que borrar ni dial que apagar. ⚠️ **v1.51.2 (D34): AHORA SON NUEVE** — alta limpia, **no sale ninguno**: se siembra **`buylist_minimum_offer_net_cents` = 20000** (MX$200). |
@@ -15484,6 +15756,27 @@ cambios de tipo**. Segura con la app corriendo. Spec completa en **§4.39**; con
 | M-46 | `common/sell-request-states.ts` (**NUEVO**) · `common/business-days.ts` (**NUEVO**) · `common/variant-key.ts` (`variantPositionKey`, aditiva) | Código (**zona compartida**) | Código | §4.39(c)/(k)/(g). El orquestador los **serializa**. `variantKey()` **NO se toca** (cambiarla produce misses silenciosos de override/referencia = dinero mal). |
 | M-46 | `modules/inventory/inventory-position.port.ts` (**NUEVO**) | Puerto `INVENTORY_POSITION_PORT` | Código | §4.39(f). Lo **declara y provee `inventory`**, lo **consume `buylist`**. **Solo lectura, en lote.** ⚠️ **NO es best-effort como `MAIL_PORT`**: su ausencia ⇒ `position:null` + `positionUnavailable:true`, **jamás `0`**. |
 | M-46 | Correcciones de comentario | `schema.prisma:1142`, `dto/buylist.dto.ts:98-99`, ARCHITECTURE §4.29d | Código/doc | Los tres afirman una propagación de `cardProductId` que **nunca existió**. **Backend registra la deuda documental en `docs/TECH_DEBT.md`** (no es ruta del arquitecto), con cierre = M-46. |
+
+> **⚠️ DICTAMEN v1.51.5 — `@@index([status, createdAt])` sobre `SellRequest`: NO ENTRA A M-46. Queda como M-46b,
+> DIFERIDA, con su consulta y su disparador escritos.**
+> §11 afirmaba que ese índice *«ya existe»*. **Es falso** (`schema.prisma:1273-1279`: solo `[userId]`, `[status]` y
+> los cuatro de M-46). Backend **no lo añadió** porque no estaba en la lista enumerada, y **acertó**. Las dos salidas
+> posibles y por qué elijo ésta:
+> - **M-46 ya está aplicada.** Una migración aplicada **no se reescribe**: meterlo ahí obligaría a una **M-46b** de
+>   todos modos. Que la corrección viva en la lista de M-46 sería exactamente el error que §11 acaba de cometer —
+>   documentar como hecho algo que no está en el DDL.
+> - **Ninguna consulta enumerada lo necesita.** Verificado, una por una: la **regla 7** del barrido filtra por
+>   `status='cotizada'` y evalúa la antigüedad **en días hábiles, en memoria** (`businessDaysSince`, §4.39k) ⇒ el
+>   `WHERE` es solo `status` y `@@index([status])` lo sirve; `monthCommittedGrossCents` filtra por **`userId`**
+>   (`@@index([userId])`); la caja del dashboard filtra por `status='pagada' ∧ paidAt` —que pediría
+>   **`[status, paidAt]`**, no `[status, createdAt]`—; y las cuatro colas del ciclo tienen ya sus índices propios.
+> - **La única consulta que lo usaría** es `GET /admin/buylist` (`buylist.service.ts:1354-1358`): filtro por `status`
+>   + `orderBy createdAt desc` + paginación. Es una **cola de back-office, gateada por rol y paginada** — **no** una
+>   ruta de dinero, **no** un barrido y **no** una superficie pública. **No justifica una migración por sí sola.**
+> - **Disparador de M-46b (para que la opción no se pierda):** perfilado de `GET /admin/buylist` **con filtro de
+>   `status`** que muestre `Seq Scan` o coste dominado por el `Sort`, con la tabla ya en volumen de producción del
+>   ciclo. Entonces entra `@@index([status, createdAt])` **con esa consulta nombrada en la migración**, y no antes.
+>   *Un índice sin una consulta que lo nombre es una apuesta, y las apuestas no se documentan como hechos.*
 
 > **⛔ SUPERSEDED por M-46 — el párrafo de §11 `v1.30-buylist-quote-por-producto`** que decía *«ni en `InventoryItem`
 > (la pieza convertida hereda el `cardProductId` vía el flujo M5; si el backend decide materializarlo como columna

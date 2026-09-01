@@ -2,7 +2,109 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-01 (rev **v1.51.4**).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-01 (rev **v1.51.5**).
+>
+> **Changelog v1.51.5 — CON QUÉ CAMPO SE MIDE EL TOPE AML: `brutoConsumado`. RECONCILIACIÓN DOC↔CÓDIGO TRAS EL PASE
+> DE M-46 (2026-09-01, arquitecto; **CERO endpoints nuevos, CERO DDL, CERO diales**. ARCHITECTURE §4.39 enmendada por
+> **quinta** vez —**§4.39(i) 4-bis NUEVO**—, §9 (**BL-14 NUEVA**; BL-3/4/7/8 ✅ cerradas; BL-5/BL-6 parciales), §11
+> (índice inexistente retirado + conteo exacto)):**
+> ⚠️ **Este pase NO trae decisiones del humano.** Resuelve las **seis discrepancias** que backend levantó al cerrar
+> M-46 y **no tocó por su cuenta** (los documentos son del arquitecto). **Cinco de las seis eran errores míos de
+> documentación; una —la 4— era una NORMA que faltaba.** **Nada se borra; lo superado queda tachado.**
+>
+> **A. ⚠️⚠️ LO ÚNICO QUE CAMBIA UNA NORMA (y es de DINERO / AML): `brutoConsumado`.**
+> - **El hueco, dicho sin rodeos.** El invariante *«dos medidas que no se mezclan»* (criterio 155) fijaba **qué** mide
+>   cada acumulado —**brutos** el tope, **netos** la caja— y **nunca dijo con qué columna**. Con una sola columna de
+>   bruto no costaba nada; **M-46 introduce tres** (`quotedTotalCents`, `offerGrossCents`, `approvedTotalCents`) y la
+>   omisión se vuelve un **hueco de tope**.
+> - **Norma nueva, por nombre:**
+>   **`brutoConsumado(sr) = approvedTotalCents ?? offerGrossCents ?? quotedTotalCents ?? 0`.**
+>   El término que faltaba es **`offerGrossCents`**: hoy la cascada salta de *aprobado* a **cotizado**, así que una
+>   solicitud **ofertada** que se pague **sin decisión por-ítem** acumula por **la COTIZACIÓN**.
+> - **⚠️ Por qué es AML y no contabilidad fina.** `quotedTotalCents ≠ offerGrossCents` **en los dos sentidos**: con
+>   cherry-pick al ofertar el cotizado es **mayor** (acumula de más — injusto pero **fail-closed**); con **override
+>   manual al alza (D26)** el cotizado es **menor** ⇒ **el vendedor puede REBASAR el tope mensual sin que ningún
+>   control lo note.** *Un tope que puede quedarse corto no es un tope.*
+> - **Tres consumidores, un solo cuerpo:** **(a)** el acumulado mensual de `pay-spei`; **(b)** el término de la
+>   solicitud **en curso** de esa misma guarda —(a) y (b) son los dos lados de la misma desigualdad y **medirlos
+>   distinto es comparar dos cosas**—; **(c) `payoutNetCents = max(0, brutoConsumado − offerShippingFeeCents)`**, que
+>   además **define** el caso `approvedTotalCents IS NULL`: se paga **lo ofertado menos el envío**, que es lo que se
+>   prometió. *El piso de cero protege al vendedor de deber; no es excusa para no pagarle.*
+> - **⚠️ NO se toca el acumulado de COMPROMISO VIVO** (`offerGrossCents ?? quotedTotalCents ?? 0`, anclado en
+>   `createdAt`): allí `approvedTotalCents` es **parcial** durante la verificación y **haría BAJAR el acumulado
+>   mientras la operación avanza** — el bypass exacto que el criterio 155 describe. **Son dos preguntas distintas y
+>   por eso dos cascadas distintas.** Razonamiento completo en ARCHITECTURE **§4.39(i) 4-bis**.
+> - **Cero regresión sobre datos existentes:** en toda fila **pre-M-46** `offerGrossCents` es `null` ⇒ la cascada
+>   colapsa a la de hoy.
+>
+> **B. ⚠️ DESVIACIÓN NUEVA — BL-14 (`itemDecision` sin guarda de terminal). De ella DEPENDE (A).**
+> - `PATCH /admin/buylist/items/:itemId/decision` **no lee `sellRequest.status`** ⇒ un ítem de una solicitud
+>   **`pagada`** se puede re-decidir, y cada decisión recalcula `approvedTotalCents` ⇒ **el bruto aprobado MUTA
+>   DESPUÉS DEL PAGO.** Es la hermana de **BL-2** por la puerta del ítem.
+> - **(A) se ancla en `approvedTotalCents` porque en `pagada` es final** — y hoy **no lo es**. **Norma:** el endpoint
+>   rechaza con **`409 NO_LIVE_ADJUSTMENT`** (`details.status`) sobre cualquier solicitud en estado **terminal**,
+>   **antes** de cualquier escritura — mismo código y misma forma que la guarda de `respond`.
+> - ⚠️ **No basta la guarda del ciclo de oferta** (`422 OFFER_PRICE_IMMUTABLE` / `409
+>   ADJUST_NOT_ALLOWED_IN_OFFER_CYCLE`): ésas miran `offerSentAt`, y una solicitud **pre-M-46** ya pagada no lo tiene.
+>
+> **C. `acquisitionCostCents` — VERIFICADO ✅ y con la cláusula que faltaba.**
+> - La cadena `offeredPriceCents ?? approvedPriceCents ?? quotedPriceCents ?? 0` **ya está implementada** y coincide
+>   con este contrato. **No se mueve.**
+> - **Hoy es un NO-OP**: nada escribe `offeredPriceCents` todavía. **Acoplamiento normativo:** el pase que implemente
+>   `POST /admin/buylist/:id/offer` **escribe `offeredPriceCents` en la MISMA transacción que congela la oferta, para
+>   TODA línea `offerDecision='buy'`**. Si no, la conversión cae al fallback **sin fallar ni avisar** y capitaliza el
+>   **precio COTIZADO de una pieza comprada a otro precio** — con override al alza, **el margen de M7 sale inflado**.
+> - **Invariante exigible a QA:** `offerDecision='buy' ⇒ offeredPriceCents IS NOT NULL`. Una línea sin dato de mercado
+>   sale de la oferta como **`skip`**, nunca como `buy` con `null`.
+>
+> **D. ⚠️ LA RUTA DE AJUSTE (`ajustada` / `respond`) NO MUERE CON EL CICLO: SOBREVIVE A UNA COHORTE, CON CADUCIDAD.**
+> *(Levantado por ux-ui: el catálogo i18n mantiene vivo el modal `buylist.adjust.*` —«Tras la verificación ajustamos
+> el precio»— mientras `PROJECT.md:533` dice que el ciclo **no usa `ajustada` en ningún punto**.)*
+> - **Para toda solicitud del ciclo la ruta es INALCANZABLE POR CONSTRUCCIÓN, no por una prohibición recordable:**
+>   `recibida` solo se alcanza vía `en_transito ← aceptada ← ofertada`, así que **ninguna solicitud nueva llega a
+>   `verificacion` sin `offerSentAt`**; y con `offerSentAt IS NOT NULL` las dos puertas ya devuelven
+>   **`409 ADJUST_NOT_ALLOWED_IN_OFFER_CYCLE`** (`respond` y `itemDecision(adjust)`).
+> - **Para la cohorte LEGACY en vuelo al cut-over, la ruta SIGUE SIENDO NECESARIA y no se retira nada** —ni el
+>   endpoint, ni el botón de M5, ni el copy—. Apagar la salida el día que se apaga la entrada dejaría a un vendedor
+>   con un ajuste vivo **sin forma de aceptar un dinero que ya le propusimos**.
+> - **CADUCIDAD, expresada como consulta y no como fecha** (depende de cuándo se despliegue):
+>   `SELECT count(*) FROM "SellRequest" WHERE "closedAt" IS NULL AND "offerSentAt" IS NULL AND "status" IN
+>   ('recibida','verificacion','aprobada')`. **Cero filas ⇒ la ruta ya no es alcanzable y se puede retirar.** Cota
+>   superior: **≤ 37 días** tras el cut-over (30 del abandono + 7 del barrido de ajuste, ambos ya implementados).
+> - **CERO migración.** `SellItemStatus.ajustada` y `adjustmentSentAt` **se quedan** por retención histórica (mismo
+>   precedente que `category` y `ruleMode`/`ruleValue`/`ruleSource`): **legacy en BD, muerto para escritura nueva.**
+> - **⚠️ Para backend, ahora:** el JSDoc de `respond` dice que la cuarta condición *«no se puede cablear sin inventar
+>   la columna»*. **`offerSentAt` YA EXISTE** (M-46 aplicada) ⇒ **los dos `TODO(M-46)` son ejecutables y
+>   obligatorios**: `offerSentAt: null` en el `where` de la guarda y `409 ADJUST_NOT_ALLOWED_IN_OFFER_CYCLE` en la
+>   rama de error. Sin ellos, la prohibición del criterio 150 **no está cableada en `respond`**. Detalle en
+>   ARCHITECTURE **§4.39(b.3)**.
+>
+> **E. Numeración de correos: MANDA `ARCHITECTURE §4.39(n)` — son CINCO y «3c» no existe.**
+> - La cancelación por nuestra parte es el **CORREO 5**, hermano del 4, **no** una variante del 3: **deja la solicitud
+>   `cotizada` y VIVA**, mientras 3a y 3b dejan terminales. *Un correo cuyo desenlace no es terminal no es variante
+>   del que anuncia uno terminal.* **El texto de `DESIGN_SYSTEM` §23.4.4-3c es correcto y no se redacta nada nuevo**;
+>   cambia **cómo se numera y de dónde cuelga**.
+> - **⚠️ El riesgo real es el ESPACIO DE NOMBRES, no el número:** la clave vive bajo **`expiry.*`**, y ese prefijo
+>   **le seguirá diciendo «expiración» a quien la edite**, heredando un vocabulario de vencimiento que este correo
+>   **tiene prohibido**. **Norma:** sale de `expiry.*` (sugerencia: `offerCancelled.*`, hermana de `notPursued.*`).
+> - **`BuylistMailKind` tiene CINCO miembros** y el discriminador sigue siendo **el productor en el call-site**, no un
+>   `switch` sobre datos de la fila (`expiredReason` es `null` en dos de los tres casos). **Interno de backend, no
+>   cruza el contrato.** El esqueleto compartido **se sigue compartiendo**: compartir maqueta no es ser el mismo correo.
+>
+> **F. Correcciones de documentación (sin efecto sobre la interfaz).** El radio de P-30 H2 eran **cuatro** sitios y no
+> dos (§4.39e); `@@index([status, createdAt])` **no existe** y queda como **M-46b diferida** con su consulta y su
+> disparador (§11); M-46 son **40 columnas** exactas —32 `SellRequest` + 7 `SellRequestItem` + 1 `InventoryItem`—, no
+> «~24» (§11); el **1-dic sexenal** queda registrado con su fecha de revisión en `docs/TECH_DEBT.md` (**BE-D46-1**).
+>
+> **G. Sin cambios.** SEC-A1, los **cuatro** terminales, el **número** de correos (siguen **CINCO**; E solo alinea su
+> numeración con `DESIGN_SYSTEM`), las **SIETE** reglas del barrido, los **DIEZ** diales,
+> `GET /buylist/quote-policy` y su campo único, `POST /buylist/requests` (**BL-11 sigue vigente: FRONTEND PRIMERO**),
+> el mínimo (MX$500), la tarifa (MX$180), el piso (MX$200), AML/KYC e INE sobre el **BRUTO**, el SPEI por el **NETO**,
+> la curva, NM-only y toda superficie pública.
+> **⚠️ Y explícitamente: NI UNA NORMA DE LA MESA DE DECISIÓN.** `GET /admin/buylist/:id/decision-table`, los **cuatro
+> sumandos** de la posición, la **sugerencia**, `positionUnavailable` y el puerto `INVENTORY_POSITION_PORT` **no se
+> tocan en v1.51.5**. Se dice aquí porque hay backend construyéndola contra este documento mientras se edita: **puede
+> seguir sin releer nada de §M5-ciclo/decision-table.**
 >
 > **Changelog v1.51.4 — LOS DOS NÚMEROS PÚBLICOS DEL COTIZADOR (hueco BLOQUEANTE), EL PORTAL QUE DEJA DE ESTAR MUDO,
 > EL QUINTO CORREO Y LA DIRECCIÓN CORREGIBLE TRAS LA GUÍA (2026-09-01, arquitecto; PASE DE FRICCIONES DE PANTALLA
@@ -353,7 +455,9 @@
 >   **`409 ADJUST_NOT_ALLOWED_IN_OFFER_CYCLE`**. `approve` fija **server-side** `approvedPriceCents =
 >   offeredPriceCents`. Es el criterio 124 por lo negativo: **en verificación no existe campo de monto**.
 > - **`POST /admin/buylist/:id/pay-spei`** paga el **NETO** (`max(0, brutoAprobado − envío)`) y sella
->   `payoutNetCents`. **NUNCA negativo, nunca un cargo al vendedor** (criterio 152).
+>   `payoutNetCents`. **NUNCA negativo, nunca un cargo al vendedor** (criterio 152). *(⚠️ **v1.51.5**: «brutoAprobado»
+>   se precisa a **`brutoConsumado = approvedTotalCents ?? offerGrossCents ?? quotedTotalCents ?? 0`**, que define el
+>   caso `approvedTotalCents IS NULL`. Con el aprobado presente **la cifra es la misma**. Ver §M5 `pay-spei`.)*
 >
 > **D. Back-office M1 (§M1) — fase 8: publicar.**
 > - **NUEVO `GET /admin/inventory/pending-publish`** — la cola de «listas para publicar», diciendo **qué le falta** a
@@ -399,9 +503,14 @@
 >   136/155). Descontar el envío **no puede** colar una operación bajo el umbral de INE.
 > - **Dos medidas que NO se mezclan:** el acumulado que gobierna el **tope** suma **BRUTOS**; el de **caja de M7**
 >   suma **NETOS** (`payoutNetCents`). Si el tope sumara netos, un envío caro bajaría el acumulado y alguien pasaría
->   el tope sin que se note.
+>   el tope sin que se note. *(⚠️ **v1.51.5 — CON QUÉ CAMPO**: el tope **VIVO** (intake) suma `offerGrossCents ??
+>   quotedTotalCents ?? 0`; el tope **CONSUMADO** (`pay-spei`) y `payoutNetCents` suman **`brutoConsumado =
+>   approvedTotalCents ?? offerGrossCents ?? quotedTotalCents ?? 0`**. **Dos cascadas a propósito** — ver §M5
+>   `pay-spei` y ARCHITECTURE §4.39(i) 4-bis.)*
 > - **Costo de inventario = el BRUTO de esa línea.** El envío **NO** entra al costo de la pieza: es gasto del periodo
->   (criterio 135).
+>   (criterio 135). *(⚠️ **v1.51.5**: la cadena es `offeredPriceCents ?? approvedPriceCents ?? quotedPriceCents ?? 0`
+>   y **hoy es un no-op** porque nada escribe `offeredPriceCents`. El pase de la oferta **debe** escribirla — cláusula
+>   de acoplamiento en §M5 `convert-to-inventory`.)*
 > - **El precio ofertado es vinculante desde el correo y no se mueve** (D2/D9). Un **rechazo parcial de cualquier
 >   tamaño** se paga sin preguntar nada: **no existe** pantalla, correo, estado, plazo ni umbral de *«¿continúas?»*, y
 >   **el ítem `ajustada` no se usa en ninguna parte del ciclo** (D30, criterios 124/150).
@@ -5479,6 +5588,36 @@ Responde a un **ajuste del admin** (aceptar/rechazar el ajuste). Req: `{ decisio
 > distintos**: aquí el vendedor acepta **que le bajemos el precio de una carta que ya tenemos**; allá acepta **un
 > contrato de compra antes de gastar un peso en envío**. Razonamiento completo en ARCHITECTURE §4.39(b.1).
 > **Este arreglo NO depende de M-46 y debe ir primero, en su propio commit.**
+>
+> ### ⚠️⚠️ v1.51.5 — ESTE ENDPOINT ESTÁ EN SUNSET, NO MUERTO. Qué se retira, qué no, y CUÁNDO.
+> *(Pregunta de ux-ui: el modal `buylist.adjust.*` sigue prometiendo *«tras la verificación ajustamos el precio»*
+> mientras `PROJECT.md:533` dice que el ciclo **no usa `ajustada` en ningún punto**. Dictamen completo en
+> ARCHITECTURE **§4.39(b.3)**.)*
+> - **Alcanzable SOLO por la cohorte LEGACY** —solicitudes que ya estaban en `recibida`/`verificacion`/`aprobada`
+>   cuando se encendió el ciclo—. Para todo lo nuevo es **inalcanzable por construcción**: `recibida` solo se llega
+>   vía `en_transito ← aceptada ← ofertada`, así que **no existe una solicitud nueva con `offerSentAt IS NULL` en un
+>   estado de ajuste**. La cuarta línea de la precondición **no es una defensa: es una tautología** para lo nuevo, y
+>   la guarda real para lo viejo.
+> - **⚠️ NO SE RETIRA NADA EN EL RELEASE DEL CICLO** —ni el endpoint, ni el botón «Ajustar» de M5, ni el modal del
+>   vendedor, ni las claves `buylist.adjust.*`—. Apagar la salida a la vez que la entrada dejaría a un vendedor con
+>   un ajuste vivo **sin forma de cobrar algo que ya le propusimos**. *El copy tampoco es falso para quien lo recibe:
+>   a esa cohorte SÍ le ajustamos el precio tras la verificación.*
+> - **GATE DE RETIRO (no una fecha — depende de cuándo sea el cut-over):**
+>   ```sql
+>   SELECT count(*) FROM "SellRequest"
+>    WHERE "closedAt" IS NULL AND "offerSentAt" IS NULL
+>      AND "status" IN ('recibida','verificacion','aprobada');
+>   ```
+>   **Cero filas ⇒ retirable**: endpoint, botón, modal y claves i18n, **en ese momento y no antes**. **Cota superior
+>   ≤ 37 días** tras el cut-over (30 del abandono + 7 del barrido de ajuste; **ambos plazos ya implementados**).
+> - **CERO migración y CERO DDL.** `SellItemStatus.ajustada` y `SellRequest.adjustmentSentAt` **se quedan** —hay
+>   solicitudes pagadas cuyo importe solo se explica por un ajuste—: **legacy en BD, muerto para escritura nueva**,
+>   mismo régimen que `category` (M-14) y `ruleMode`/`ruleValue`/`ruleSource` (§4.36.7c).
+> - **⚠️ ACCIÓN INMEDIATA PARA BACKEND — los dos `TODO(M-46)` ya no están bloqueados.** El JSDoc de `respond`
+>   declara que la condición `offerSentAt IS NULL` *«no se puede cablear hoy sin inventar la columna»*. **La columna
+>   YA EXISTE** (M-46 aplicada). ⇒ **cablear `offerSentAt: null` en el `where` de la guarda y
+>   `409 ADJUST_NOT_ALLOWED_IN_OFFER_CYCLE` en la rama de error.** Hasta entonces, **la precondición de arriba está
+>   implementada solo en tres de sus cuatro líneas** y el criterio 150 no está cerrado en este endpoint.
 
 ### POST /api/v1/buylist/requests/:id/offer-response — `customer`  (v1.51 — NUEVO · **respuesta a la OFERTA**)
 Acepta o rechaza **la oferta completa**. `PROJECT.md` §P.3 (D1/D2/D3), criterios 118/119/120/121/146/161.
@@ -8048,6 +8187,24 @@ Notas de seguridad: **host fijo** de pokemontcg.io (sin SSRF); `POKEMONTCG_IO_AP
 - `POST /api/v1/admin/buylist/:id/receive` — marca recepción física → `recibida`.
 - `POST /api/v1/admin/buylist/:id/verify` — inicia/registra verificación → `verificacion`.
 - `PATCH /api/v1/admin/buylist/items/:itemId/decision` — **cherry-pick** — Req `{ decision: "approve" | "adjust" | "reject", approvedPriceCents?, reason? }` → actualiza `SellItemStatus`. `adjust` fija `adjustmentSentAt` (dispara plazo de 7 días).
+  > **⚠️⚠️ v1.51.5 — GUARDA DE TERMINAL (NUEVA, NORMATIVA, DINERO). Se evalúa ANTES que todo lo demás de este
+  > endpoint, incluida la del ciclo de oferta. Desviación BL-14 (ARCHITECTURE §9).**
+  > Si `SellRequest.status` es **terminal** (`pagada` · `rechazada` · `expirada` · `abandonada`) ⇒
+  > **`409 NO_LIVE_ADJUSTMENT`** con `details.status`, **sin escribir nada**. **Mismo código y misma forma que la
+  > guarda de `POST /buylist/requests/:id/respond`** — es el mismo hueco por otra puerta.
+  > - **Qué cierra:** hoy el handler **no lee `sellRequest.status` en ningún punto**, y cada decisión por-ítem dispara
+  >   el recálculo de `approvedTotalCents` ⇒ **el bruto aprobado de una solicitud YA PAGADA se puede reescribir**. El
+  >   depósito ya salió por SPEI y no se mueve, pero **la cifra contra la que se mide el tope AML mensual sí**, y la
+  >   norma de `brutoConsumado` (§`pay-spei`) **se ancla en que `approvedTotalCents` es final en `pagada`**.
+  > - **⚠️ La guarda del ciclo de oferta NO cubre esto:** `OFFER_PRICE_IMMUTABLE` y `ADJUST_NOT_ALLOWED_IN_OFFER_CYCLE`
+  >   miran **`offerSentAt`**, y una solicitud **pre-M-46** ya pagada **no lo tiene**. Son dos ejes distintos:
+  >   *«esta solicitud ya cerró»* y *«esta solicitud va por el ciclo de oferta»*. **Hacen falta las dos.**
+  > - **Precedencia explícita:** terminal ⇒ `409 NO_LIVE_ADJUSTMENT` **gana** sobre `422 OFFER_PRICE_IMMUTABLE` y
+  >   sobre `409 ADJUST_NOT_ALLOWED_IN_OFFER_CYCLE`. *Una solicitud cerrada no se discute por el monto: no se toca.*
+  > - **Idempotencia:** **no la hay, y es deliberado.** Un segundo `reject` sobre un ítem ya `rechazada` de una
+  >   solicitud **viva** sigue siendo `200` no-op (norma v1.18, intacta); sobre una solicitud **terminal** es `409`.
+  >   *El no-op existe para no re-enviar un correo, no para dejar escribir sobre lo cerrado.*
+  >
   > **⚠️ v1.51 — EN EL CICLO DE OFERTA NO EXISTE NI REPRECIAR NI AJUSTAR (BREAKING chico; D9/D30, criterios
   > 119/124/150).** Discriminador: **`SellRequest.offerSentAt IS NOT NULL`**. Cuando lo es:
   > - **`approvedPriceCents` en el body ⇒ `422 OFFER_PRICE_IMMUTABLE`** (`details.itemId`,
@@ -8129,7 +8286,26 @@ Notas de seguridad: **host fijo** de pokemontcg.io (sin SSRF); `POKEMONTCG_IO_AP
   >   cambio, la pieza sin ubicación sale **SEÑALADA** en la cola de pendientes de publicar.
   > - **⚠️ `acquisitionCostCents` = el BRUTO OFERTADO de esa línea** (criterio 135):
   >   `SellRequestItem.offeredPriceCents` (fallback `approvedPriceCents ?? quotedPriceCents ?? 0` para filas previas
-  >   a M-46). **El ENVÍO NO ENTRA AL COSTO DE LA PIEZA**: es **gasto operativo del periodo** (M7). Mezclarlos
+  >   a M-46).
+  >   > **✅ v1.51.5 — VERIFICADO CONTRA EL CÓDIGO Y CONFIRMADO: la cadena queda anclada en el PRECIO OFERTADO (D9).**
+  >   > `buylist.service.ts:1921-1922` implementa exactamente esta cascada, en ese orden, con ese `0` final.
+  >   > **No se mueve ni un término.**
+  >   >
+  >   > **⚠️ CLÁUSULA DE ACOPLAMIENTO (NORMATIVA) — el único modo de que esta línea correcta se vuelva un error de
+  >   > dinero.** **Hoy la cascada es un NO-OP:** `offeredPriceCents` es columna de M-46 y **nada la escribe todavía**
+  >   > (los endpoints de oferta aún no existen), así que toda pieza convertida hoy toma el fallback — **conducta
+  >   > previa, cero regresión**.
+  >   > **Norma:** el pase que implemente **`POST /admin/buylist/:id/offer` escribe `SellRequestItem.offeredPriceCents`
+  >   > en la MISMA transacción que congela la oferta, para TODA línea `offerDecision='buy'`, sin excepción.** No es
+  >   > una recomendación de secuencia: es **la condición de verdad de esta cascada**. Si la oferta se emite y la
+  >   > columna queda `null`, la conversión cae al fallback **sin fallar, sin avisar y sin dejar rastro**, y capitaliza
+  >   > como costo **el precio COTIZADO de una pieza comprada a otro precio**; con override al alza (D26) el costo
+  >   > entra **por debajo** del real y **el margen de M7 sale inflado en todas las piezas de esa oferta**. *Error
+  >   > silencioso, permanente —el costo no se recalcula nunca— y que se descubre en un reporte, no en una excepción.*
+  >   > **Invariante exigible a QA:** `offerDecision='buy' ⇒ offeredPriceCents IS NOT NULL`. Una línea sin dato de
+  >   > mercado **sale de la oferta como `skip`** (jamás MX$0 ni cifra de respaldo), nunca como `buy` con `null`.
+  >
+  >   **El ENVÍO NO ENTRA AL COSTO DE LA PIEZA**: es **gasto operativo del periodo** (M7). Mezclarlos
   >   ensuciaría el **P&L por carta** —dos piezas idénticas tendrían costos distintos según el paquete en que
   >   llegaron— y volvería **inútil el margen por pieza que M7 existe para mostrar**. Verificable en M7: dos piezas
   >   idénticas compradas al mismo bruto, una llegada con envío caro y otra sin envío nuestro, tienen **exactamente
@@ -8159,10 +8335,14 @@ Notas de seguridad: **host fijo** de pokemontcg.io (sin SSRF); `POKEMONTCG_IO_AP
   Err: `403 FORBIDDEN` (cliente), `404 NOT_FOUND` (solicitud inexistente), `422 REQUEST_HAS_NON_REJECTED_ITEMS` (queda ítem vivo), `409 CONFLICT` (solicitud en otro estado terminal `pagada`/`abandonada`).
 - `POST /api/v1/admin/buylist/:id/pay-spei` — **`super_admin`** — Req `{ speiReference }` + `Idempotency-Key` → registra pago manual, request `→pagada`. Err `403 MONEY_OUT_FORBIDDEN`. Precondición: `aprobada` + verificada (pago **tras** recepción/verificación).
   > **⚠️ v1.51 — SE PAGA EL NETO, Y EL NETO NUNCA ES NEGATIVO (criterios 136/150/151/152/155).**
-  > - **Monto que sale = `payoutNetCents = max( 0 , approvedTotalCents − offerShippingFeeCents )`**, sellado en la
-  >   **misma transacción** que `status='pagada'`. `approvedTotalCents` es el **BRUTO APROBADO** (Σ `offeredPriceCents`
-  >   de las líneas `buy` que terminaron `aprobada`/`convertida_inventario`); `offerShippingFeeCents` es la **tarifa
-  >   CONGELADA al ofertar** (`0` en la banda donde el vendedor paga su envío).
+  > - **Monto que sale = `payoutNetCents = max( 0 , ` ~~`approvedTotalCents`~~ **`brutoConsumado(req)`** ` −
+  >   offerShippingFeeCents )`**, sellado en la **misma transacción** que `status='pagada'`. `approvedTotalCents` es el
+  >   **BRUTO APROBADO** (Σ `offeredPriceCents` de las líneas `buy` que terminaron `aprobada`/`convertida_inventario`);
+  >   `offerShippingFeeCents` es la **tarifa CONGELADA al ofertar** ~~(`0` en la banda donde el vendedor paga su
+  >   envío)~~ *(⛔ **v1.51.1 / D31: una sola banda, SIEMPRE la tarifa; no existe el `0`.** Cita rancia corregida en
+  >   v1.51.5)*.
+  >   *(⚠️ **v1.51.5**: el primer término pasa a `brutoConsumado` para que quede **definido** cuando
+  >   `approvedTotalCents IS NULL` — ver el bloque de abajo. Con el aprobado presente, **la cifra es idéntica**.)*
   > - **INVARIANTE MONEY-SAFE — `max(0, …)` no es una defensa, es la DEFINICIÓN.** Oferta MX$1,480, aprobado MX$100,
   >   envío MX$180 ⇒ el neto es **MX$0**, **no −MX$80**. **No se genera ningún cargo, adeudo ni saldo negativo**
   >   contra el vendedor, **no se retiene** contra operaciones futuras, y la diferencia queda como **gasto nuestro**.
@@ -8177,15 +8357,62 @@ Notas de seguridad: **host fijo** de pokemontcg.io (sin SSRF); `POKEMONTCG_IO_AP
   >   MX$900 sobre una oferta de MX$1,480 (−39%) ⇒ se depositan **MX$720**; MX$1,300 (−12%) ⇒ **MX$1,120**.
   >   **Exactamente el mismo tratamiento.**
   > - **⚠️ DOS ACUMULADOS QUE NO SE MEZCLAN (criterio 155).** El **tope MENSUAL** que valida este endpoint se mide en
-  >   **BRUTOS** (`offerGrossCents ?? quotedTotalCents`) porque es el **valor comprometido** y la **misma base que
-  >   AML/INE**; el **acumulado de caja de M7** se mide en **NETOS** (`payoutNetCents`) porque es **lo que de verdad
-  >   salió por SPEI**. Si el tope sumara netos, un envío caro **iría bajando el acumulado** y un usuario pasaría el
-  >   tope **sin que se note**; si la caja sumara brutos, **M7 reportaría una salida de dinero que nunca ocurrió**.
+  >   **BRUTOS** porque es el **valor comprometido** y la **misma base que AML/INE**; el **acumulado de caja de M7** se
+  >   mide en **NETOS** (`payoutNetCents`) porque es **lo que de verdad salió por SPEI**. Si el tope sumara netos, un
+  >   envío caro **iría bajando el acumulado** y un usuario pasaría el tope **sin que se note**; si la caja sumara
+  >   brutos, **M7 reportaría una salida de dinero que nunca ocurrió**.
   >   ⚠️ Consecuencia para backend: `monthPaidOutCentsTx` (`buylist.service.ts:960`) es el acumulado de
-  >   **COMPROMISO**, no de caja — **el nombre miente** (desviación BL-5, ARCHITECTURE §9).
-  > - **Estados pagables:** `SELL_REQUEST_PAYABLE_STATES` (`aprobada`, `verificacion`) — hoy el literal está **inline
-  >   dos veces en el mismo método** (`:1754` y `:1788`, desviación BL-7). El pago sigue siendo **exclusivo del
-  >   súper-admin**, sin tope ni delegación (criterio 26 intacto).
+  >   **COMPROMISO**, no de caja — **el nombre miente** (desviación BL-5, ARCHITECTURE §9). *(v1.51.5: el nombre ✅ ya
+  >   se corrigió a `monthCommittedGrossPaidCentsTx`; **el campo sigue abierto** — sigue leyendo.)*
+  >
+  > **⚠️⚠️ v1.51.5 — NORMA: CON QUÉ CAMPO SE MIDE EL TOPE. `brutoConsumado`. (DINERO / AML, NORMATIVO)**
+  > Este bloque decía `offerGrossCents ?? quotedTotalCents` y §4.39c(sitio 4) decía *«la cifra no cambia»*
+  > (`approvedTotalCents ?? quotedTotalCents`). **Eran dos cascadas distintas para el mismo acumulado, en dos
+  > documentos.** Backend implementó lo que se le dijo —**solo nombre y doc**— y **elevó la pregunta en vez de elegir
+  > por su cuenta. Hizo bien.** La respuesta es **una tercera cascada, de TRES términos**, que es la única que no
+  > miente en ningún caso:
+  > ```
+  > brutoConsumado(sr) = sr.approvedTotalCents ?? sr.offerGrossCents ?? sr.quotedTotalCents ?? 0
+  > ```
+  > | Término | Cuándo aplica | Por qué en ese orden |
+  > |---|---|---|
+  > | `approvedTotalCents` | hay al menos **una** decisión por-ítem | es el bruto **post-cherry-pick de verificación**, o sea **el que generó el depósito**. No miente sobre lo que salió |
+  > | **`offerGrossCents`** ⚠️ **EL QUE FALTABA** | pagada **sin ninguna** decisión por-ítem (el recompute deja `null`, y `pay-spei` admite pagar desde `verificacion`) | significa *«se aceptó todo tal cual se ofertó»* ⇒ el bruto correcto es **el VINCULANTE** (D2), no la cotización |
+  > | `quotedTotalCents` | **solo** filas **pre-M-46** | es la única medida que existía. Con el ciclo vivo, llegar aquí es un **defecto de dato**, no un caso de negocio |
+  >
+  > **Por qué el término 2 no es un detalle:** `quotedTotalCents ≠ offerGrossCents` **en las dos direcciones**. Con
+  > cherry-pick al ofertar el cotizado es **mayor** ⇒ acumula **de más** (injusto, pero **fail-closed**). Con
+  > **override manual al alza (D26)** el cotizado es **menor** ⇒ acumula **de menos** ⇒ **el vendedor rebasa el tope
+  > mensual sin que ningún control lo note.** *Un tope que puede quedarse corto no es un tope.*
+  >
+  > **Los TRES sitios que usan `brutoConsumado`, y son todos:**
+  > 1. **El acumulado del mes** (`status='pagada' ∧ paidAt >= inicio de mes UTC`): `Σ brutoConsumado(fila)`.
+  > 2. **El término de la solicitud EN CURSO** de esta misma guarda. **(1) y (2) comparten cuerpo obligatoriamente**:
+  >    son los dos lados de `acumulado + enCurso > cap`, y medir cada lado distinto es comparar dos cosas.
+  > 3. **`payoutNetCents`** (arriba). Define el caso `approvedTotalCents IS NULL`: se paga **lo ofertado menos el
+  >    envío**. Tratar ese bruto como `0` pagaría **MX$0** a alguien que aceptó una oferta vinculante y a quien nadie
+  >    le rechazó una carta.
+  >
+  > **⚠️ EL ACUMULADO DE COMPROMISO *VIVO* NO CAMBIA — y no es una inconsistencia, es la regla.** El de intake
+  > (`POST /buylist/requests`, anclado en `createdAt`, sobre estados **no terminales** + `pagada`) **se queda en
+  > `offerGrossCents ?? quotedTotalCents ?? 0`**. En una solicitud **viva**, `approvedTotalCents` es **parcial** —el
+  > recompute corre en **cada** decisión por-ítem—, así que liderarla con él haría **bajar el acumulado mientras la
+  > verificación avanza**: el bypass exacto que el criterio 155 describe. **El compromiso se mantiene en el bruto
+  > ofertado hasta que la solicitud cierra.** Razonamiento largo en ARCHITECTURE §4.39(i) **4-bis**.
+  >
+  > **Precondición de esta norma — `approvedTotalCents` tiene que ser FINAL en `pagada`, y hoy no lo es:** ver
+  > **BL-14** en el punto B del changelog y en ARCHITECTURE §9. **Los dos cambios van en el mismo pase.**
+  >
+  > **Casos de prueba EXIGIDOS (QA, normativos):** (1) `pagada` con aprobado ⇒ acumula el aprobado; (2) `pagada` del
+  > ciclo **sin** decisiones por-ítem ⇒ acumula **`offerGrossCents`** y `payoutNetCents = offerGrossCents −
+  > offerShippingFeeCents`; (3) fila **pre-M-46** ⇒ acumula `quotedTotalCents` (**conducta idéntica a la de hoy**);
+  > (4) oferta con **override al alza** (`offerGrossCents > quotedTotalCents`) pagada sin decisiones ⇒ el tope se
+  > evalúa sobre el **ofertado** y frena donde debe; (5) `PATCH …/items/:itemId/decision` sobre una solicitud
+  > **`pagada`** ⇒ **`409 NO_LIVE_ADJUSTMENT`** y `approvedTotalCents` **intacto** (BL-14).
+  > - **Estados pagables:** `SELL_REQUEST_PAYABLE_STATES` (`aprobada`, `verificacion`) — ~~hoy el literal está
+  >   **inline dos veces en el mismo método** (`:1754` y `:1788`, desviación BL-7)~~ *(✅ **v1.51.5: BL-7 CERRADA** —
+  >   las dos apariciones usan la constante compartida)*. El pago sigue siendo **exclusivo del súper-admin**, sin tope
+  >   ni delegación (criterio 26 intacto).
 
 #### <a id="M5-ciclo"></a>Ciclo de adquisición — mesa, oferta, guía y colas (v1.51 — NUEVO; `PROJECT.md` §P, criterios 113–161)
 
@@ -9576,8 +9803,9 @@ PendingPublishRowDTO = { inventoryItemId: string, folio: string, card: CardDTO, 
 //   * `seller.phone` — D12: el teléfono viaja EN LA COLA, para poder llamar sin abrir la ficha (criterio 129).
 //   * `offerState` — ⚠️ ADMIN-ONLY, jamás en un DTO de cliente: una oferta `pending_authorization` le filtraría al
 //     vendedor la existencia y el orden de magnitud de nuestro tope interno.
-//   * `payoutNetCents` — lo que SALIÓ por SPEI (`max(0, brutoAprobado − envío)`). Es la fuente de la CAJA de M7,
-//     distinta del acumulado de COMPROMISO que gobierna el tope mensual y que se mide en BRUTOS (criterio 155).
+//   * `payoutNetCents` — lo que SALIÓ por SPEI (`max(0, brutoConsumado − envío)`, v1.51.5; antes «brutoAprobado»).
+//     Es la fuente de la CAJA de M7, distinta del acumulado de COMPROMISO que gobierna el tope mensual y que se mide
+//     en BRUTOS (criterio 155). `brutoConsumado = approvedTotalCents ?? offerGrossCents ?? quotedTotalCents ?? 0`.
 // ⚠️ v1.51.1 — TRES adiciones y UNA retirada:
 //   * `expiredReason` (D33) — por qué expiró; `null` si no está `expirada`. Lo persiste el barrido (M-46).
 //   * `offerIssueDeadlineAt` (D33) — DERIVADO, `null` salvo en `cotizada`. NO se persiste porque NO se le comunica al
