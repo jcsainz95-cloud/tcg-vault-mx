@@ -2,7 +2,74 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-01 (rev **v1.51.12**).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-01 (rev **v1.51.14**).
+>
+> **Changelog v1.51.14 — UNA FILA MALA NO TUMBA UNA COLA: degradación POR FILA de los días hábiles (2026-09-01,
+> arquitecto; **CERO DDL, CERO endpoints**; un campo pasa a nullable y otro se añade opcional. ARCHITECTURE §4.39k
+> gana **(k.1)**; §9 gana **BL-22**):**
+> ⚠️ **Lo levantó backend al implementar la guía —su fixture usó una fecha de 2020 y el test reventó— y NO lo
+> resolvió**, con razón: `business-days` **lanza por doctrina** e inventarse una degradación habría sido crear
+> política que este contrato no tenía. **Van ocho de ocho elevadas en vez de resueltas en silencio.**
+>
+> **A. ⚠️⚠️ EL DEFECTO — y no es «un plazo que falla».** La cola «por confirmar envío» calcula los días hábiles **por
+> fila** y **sin capturar**: **una sola fila fuera de la cobertura del calendario devuelve `500` en toda la cola**. Lo
+> que desaparece **no es un cálculo: es una cola de trabajo entera** — y un `500` de back-office se lee como *«no hay
+> nada pendiente»* o *«hoy está rota»*, y **en ninguno de los dos casos alguien va a buscar una fila con una fecha
+> rara**. Es exactamente el fallo que v1.51.11 llamó *el que no se ve*.
+>
+> **B. NORMA — se captura POR FILA; la fila se marca, la COLA SE PINTA. Y no es política nueva: une DOS que ya
+> estaban escritas.** *(1)* «el caller captura» **ya era doctrina**, pero escrita solo para el barrido; *(2)* la forma
+> por-fila **ya existe**: es la de la mesa (`position: null` + `positionUnavailable: true`). **Un error de cobertura
+> nunca llega a la respuesta HTTP**, y **la función sigue lanzando** — se norma el llamador, no el helper.
+> - `businessDaysWaiting: number | null` + **`businessDaysUnavailable?: true`**.
+> - **⚠️ `alert` falla hacia `true`, no hacia `false`.** *«Llevo demasiado esperando»* y *«no puedo saber cuánto
+>   llevo»* piden **la misma acción humana**; y un `false` **sacaría la fila del filtro `?onlyAlerts=true`**, que es
+>   la única vista donde alguien la encontraría — **la fila más rara sería la más escondida.**
+> - **La regla que reconcilia esto con la mesa:** *donde el flag no tiene más consecuencia que la **visibilidad**, se
+>   falla hacia **visible**; donde **gatea o aconseja un acto** (el `verdict` de la mesa), se falla hacia **«none»**.*
+>   La alerta de esta cola **no expira, no cancela y no mueve nada** (criterio 156): cae del primer lado.
+>
+> **C. ⚠️ LAS ESCRITURAS NO DEGRADAN.** Al **congelar** un plazo (`offerAcceptDeadlineAt` al ofertar,
+> `shipDeadlineAt` al entregar la guía) un error de calendario **debe propagarse y la petición debe fallar**: *si no
+> podemos calcular la fecha límite, no emitimos la oferta*. **Se degrada lo que se MUESTRA, nunca lo que se
+> COMPROMETE.**
+>
+> **D. Alcance: TRES superficies, dos aún sin construir — nacen con la regla.** La cola «por confirmar envío»
+> (**viva**), `AdminBuylistDTO.offerIssueDeadlineAt` y `PendingOfferAuthorizationRowDTO.caducityAt` (**declaradas, no
+> implementadas**). *Se norma ahora para no escribir el mismo defecto dos veces más.*
+>
+> **E. Sin cambios.** Ni endpoints, ni diales, ni DDL, ni la doctrina de `business-days`. **Hoy el defecto no se puede
+> disparar** (el timestamp solo se escribe con `now()`); **se dispara solo el 1-ene-2031**.
+>
+> **Changelog v1.51.13 — LA URL DEL CTA: el enlace del correo de oferta no podía funcionar (2026-09-01, arquitecto;
+> **CERO DDL, CERO endpoints, CERO campos**. ARCHITECTURE §4.39n gana **(n.1)**; §9 gana **BL-21**):**
+> ⚠️ **Hallazgo de devops al ir a declarar la variable: verificó a dónde lleva el enlace en vez de darlo por bueno.**
+> **Este contrato no fijaba la forma de esa URL en ninguna parte — el hueco es mío.**
+>
+> **A. ⚠️⚠️ FORMA CANÓNICA: `{origen}/{locale}/buylist/{sellRequestId}`. Estaba rota por TRES razones, no dos.**
+> | # | Defecto | Consecuencia |
+> |---|---|---|
+> | 1 | **sin prefijo de idioma** (el frontend corre con prefijo **siempre**) | **el vendedor que eligió inglés aterriza en español — en el correo donde acepta una oferta vinculante** |
+> | 2 | **path con forma de API**, no de pantalla | **404** |
+> | 3 | ⚠️ **es el ÚNICO enlace de correo del proyecto fuera del molde** (los otros dos son idénticos entre sí y ambos llevan locale) | no era un olvido puntual: **se escribió fuera de un patrón que ya existía** |
+>
+> **B. DE DÓNDE SALE EL IDIOMA — y es la parte que importa.** `{locale}` **no es un default**: es **el mismo valor que
+> renderizó el cuerpo**, de `User.locale` y por el **mismo normalizador** que las plantillas del ciclo. *Un correo
+> tiene UN idioma; el cuerpo y el botón lo comparten.* Construirlos por vías distintas es exactamente cómo se manda un
+> correo en inglés con un botón a una pantalla en español.
+>
+> **C. EL ORIGEN ES UN ORIGEN, NO UNA LISTA — y no es el de CORS.** Sin path, sin barra final. **Prohibido copiar la
+> allow-list de CORS**, separada por comas en producción: daría `https://a,https://b/buylist/...`, **un href roto en un
+> correo de dinero**. *(Footgun heredado que aparece de paso: los otros dos enlaces derivan su origen del **primer
+> elemento** de esa lista — y **el orden de una lista de CORS no significa nada**: reordenarla movería en silencio el
+> origen de todos los correos. No bloquea; se migra a la variable dedicada cuando se toquen. **BL-21**.)*
+>
+> **D. ✅ RATIFICADA la degradación de devops:** variable **declarada sin valor** ⇒ el correo **sale igual**, con
+> **instrucción de texto** en vez de botón. **El envío nunca se bloquea por el CTA** y **jamás se emite un href a
+> medias**. *Fijar el valor antes de que exista la pantalla **no enciende un enlace: enciende un 404**.* Se fija
+> **cuando la pantalla responda `200`**.
+>
+> **E. Sin cambios.** Ni endpoints, ni campos, ni diales, ni DDL. Aplica a **los cinco** correos del ciclo con CTA.
 >
 > **Changelog v1.51.12 — EL BORDE DE LA IGUALDAD EN EL OVERRIDE, Y EL `202` QUE ES DINÁMICO (2026-09-01, arquitecto;
 > **CERO DDL, CERO endpoints, CERO campos — el código ya es correcto**. ARCHITECTURE §4.39e enmendada):**
@@ -9236,6 +9303,35 @@ Res `200` | `202`: `{ sellRequestId, status, offerState, offerSentAt: string | n
 *(v1.51.1: **sin** `offerShippingPaidByUs`. v1.51.2: **sin cambio de shape** — el piso no añade campos a la respuesta de éxito; su número vive en el `details` del error y en `decision-table`.)*
 Err: `403`, `404 NOT_FOUND`, `409 OFFER_NOT_ALLOWED`, `409 OFFER_ALREADY_SENT`, **`422 PICKUP_ADDRESS_MISSING`** (v1.51.3), `422 OFFER_LINES_MISMATCH`, `422 OFFER_LINE_NOT_PRICEABLE`, `422 OVERRIDE_REASON_REQUIRED`, **`422 OFFER_NET_BELOW_MINIMUM`** (v1.51.2; ~~`422 OFFER_NET_NOT_POSITIVE`~~ de v1.51.1 **NO existe**), `400 VALIDATION_ERROR`.
 
+> ### ⚠️⚠️ v1.51.13 — LA URL DEL CTA DE LOS CORREOS DEL CICLO (NORMATIVA; interfaz backend↔frontend). BL-21.
+> *(Este contrato **no fijaba la forma del enlace en ninguna parte** — el hueco es mío. Lo levantó **devops** al ir a
+> declarar la variable y **verificar a dónde lleva** en vez de darlo por bueno.)*
+> **Forma canónica, y es la única:**
+> ```
+> {origen público del frontend}/{locale}/buylist/{sellRequestId}
+> ```
+> - **⚠️ `{locale}` es OBLIGATORIO y no es un default: es EL MISMO valor que renderizó el cuerpo del correo**, salido
+>   de **`User.locale` del vendedor** por el **mismo normalizador** que usan las plantillas del ciclo (cascada
+>   `user.locale ?? DEFAULT_LOCALE ?? 'es'`). El frontend corre con **prefijo de idioma SIEMPRE**, así que un path sin
+>   él **redirige al idioma por defecto**: sin esta regla, **un vendedor que eligió inglés recibe un correo en inglés
+>   cuyo botón abre una pantalla en español — y es el correo donde acepta una oferta vinculante.** *Un correo tiene
+>   UN idioma; el cuerpo y el botón lo comparten.*
+> - **Segmento de ruta, no query param.** El seguimiento de invitado usa `?token=` porque **ese token es un secreto**
+>   que el front mueve al body y borra (§4-G.7); aquí el `sellRequestId` **no es secreto** —el portal está
+>   autenticado y el vendedor ya lo ve—, así que **no aplica** esa excepción y manda la regla normal.
+> - **⚠️ EL ORIGEN ES UN ORIGEN, NO UNA LISTA, y NO es el de CORS.** Un esquema+host(+puerto), **sin path** y **sin
+>   barra final** (se normaliza). **Prohibido rellenarlo copiando la allow-list de CORS**, que en producción es
+>   **separada por comas**: produciría `https://a,https://b/buylist/...` — **un href roto en un correo de dinero**.
+> - **Sin origen configurado ⇒ el correo SALE IGUAL, con instrucción de texto en lugar de botón.** **El envío NUNCA
+>   se bloquea por no poder construir el CTA** —la oferta es vinculante y el vendedor debe enterarse— y **jamás se
+>   emite un href relativo, parcial o a medias**: o el enlace es completo y correcto, o **no hay enlace**. *Un botón
+>   muerto en un correo de dinero es peor que una frase que explica dónde entrar.* Misma doctrina que
+>   `positionUnavailable`: **degradar a «no disponible», nunca a algo que parezca bueno.**
+> - **Aplica a los CINCO correos del ciclo** que lleven CTA al portal, no solo al de oferta.
+> - **La pantalla la sirve frontend** (`/{locale}/buylist/{sellRequestId}`); **la cadena la construye backend**. El
+>   valor del origen **se fija cuando esa pantalla responda `200`**, no antes: fijarlo antes **no enciende un enlace,
+>   enciende un 404**.
+
 ##### `POST /api/v1/admin/buylist/:id/offer/authorize` — **`super_admin`** (D24, criterio 143/147)
 Req: body vacío `{}`.
 > **⚠️ El endpoint NO acepta líneas ni montos: autoriza LO GUARDADO.** Al autorizarla, la oferta sale **con el mismo
@@ -9591,6 +9687,11 @@ Query: `?onlyAlerts=&page=&pageSize=`. Res `200`: `{ data: PendingShipmentConfir
 > Enumera las `aceptada` con **`sellerShippedDeclaredAt != null`** y **sin** `shipmentConfirmedAt`. Cada fila trae
 > **`alert: boolean`** = han pasado más de `buylistShipmentConfirmAlertBusinessDays` (default **5 días hábiles**)
 > desde la declaración. **Es DERIVADO server-side, no se persiste** (basta el timestamp + el dial).
+> **⚠️ v1.51.14 (BL-22) — si los días hábiles NO se pueden calcular** (fecha fuera de la cobertura del calendario, que
+> **lanza por doctrina**), **la fila se degrada y la COLA SE PINTA**: `businessDaysWaiting: null` +
+> `businessDaysUnavailable: true` + **`alert: true`**. **Prohibido que una fila devuelva `500` en el listado.** El
+> `alert` falla hacia `true` porque *«llevo demasiado»* y *«no sé cuánto llevo»* piden **la misma acción humana**, y
+> un `false` sacaría la fila de `?onlyAlerts=true` — **la más rara sería la más escondida**. Ver ARCHITECTURE §4.39(k.1).
 > **⚠️ La alerta NO HACE NADA MÁS (criterio 156): no expira, no cancela, no mueve el estado y no suma al conteo de
 > «en camino».** *El vendedor ya cumplió; el pendiente es nuestro, así que el remedio es **hacerlo visible**, no
 > castigarlo.* Orden `sellerShippedDeclaredAt` **asc**. Err `403`, `400 VALIDATION_ERROR`.
@@ -10348,10 +10449,17 @@ PendingOfferAuthorizationRowDTO = { sellRequestId: string, seller: AdminSellerRe
 // `alert` = DERIVADO server-side (no columna): han pasado > buylistShipmentConfirmAlertBusinessDays (default 5 días
 // hábiles) desde `sellerShippedDeclaredAt` sin confirmación. ⚠️ La alerta NO EXPIRA, NO CANCELA, NO MUEVE EL ESTADO y
 // NO SUMA a «en camino» (criterio 156). El vendedor ya cumplió; el pendiente es NUESTRO.
+// ⚠️ v1.51.14 (BL-22) — `businessDaysWaiting` pasa a `number | null` y gana `businessDaysUnavailable?: true`.
+// El cálculo de días hábiles LANZA fuera de la cobertura del calendario (por doctrina: degradar a «no hay festivos»
+// adelantaría vencimientos). Se captura POR FILA: la fila se marca y LA COLA SE PINTA — una fila mala NO puede
+// devolver 500 en un listado, que es el fallo «que no se ve» (§4.39c c.11). ⚠️ `alert` falla hacia TRUE, no false:
+// «llevo demasiado» y «no sé cuánto llevo» piden la MISMA acción humana, y un `false` sacaría la fila del filtro
+// `?onlyAlerts=true`, que es la única vista donde se encontraría. Ver ARCHITECTURE §4.39(k.1).
 PendingShipmentConfirmationRowDTO = { sellRequestId: string, seller: AdminSellerRef,
                                       sellerShippedDeclaredAt: string, shipDeadlineAt: string | null,
                                       carrier: string | null, trackingNumber: string | null,
-                                      businessDaysWaiting: number, alert: boolean }
+                                      businessDaysWaiting: number | null,
+                                      businessDaysUnavailable?: true, alert: boolean }
 // D22 / criterio 139: NO desaparece sola. Sale de la cola solo por POST .../guide/cancellation-done.
 PendingGuideCancellationRowDTO = { sellRequestId: string, seller: AdminSellerRef,
                                    carrier: string, trackingNumber: string,

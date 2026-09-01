@@ -11522,7 +11522,7 @@ verificable con inventario**.
 > topes AML/KYC, el flujo de **ajuste** (`ajustada`) que sigue vivo para otros caminos, y el **precio de venta** (D10:
 > lo fija la curva; este ciclo no captura precios de venta).
 > **Diseño en papel.** Lo implementan **backend** (schema, servicios, jobs, correos) y **frontend** (M5, M1, portal del
-> vendedor). Contrato observable en `API_CONTRACT.md` ~~**v1.51**~~ **v1.51.12**. Migración **M-46** (§11).
+> vendedor). Contrato observable en `API_CONTRACT.md` ~~**v1.51**~~ **v1.51.14**. Migración **M-46** (§11).
 > **Regla de conflicto aplicada:** donde este documento y `PROJECT.md` §P difieran, **manda PROJECT**. Las tensiones y
 > los huecos que encontré **están señalados en (o)**, no resueltos en silencio.
 >
@@ -13317,6 +13317,61 @@ sábado no cuenta.** La **fecha límite del correo**, la de **la pantalla del cl
   exactamente lo que el criterio 154 prohíbe.
 - Los plazos se comunican con **fecha y hora explícitas**, nunca «en 2 días».
 
+> ### ⚠️⚠️ (k.1) v1.51.14 — QUIÉN CAPTURA EL `throw`: **la fila se degrada, la COLA se pinta**
+> *(Lo levantó **backend** al implementar la guía —su fixture usó una fecha de 2020 y el test reventó— y **no lo
+> resolvió**, con razón: `business-days` lanza **por doctrina** e inventarse una degradación aquí sería crear
+> política que el contrato no tiene. Y lo enmarcó contra **§4.39c(c.11)**, que es exactamente donde encaja.)*
+>
+> **El problema, y por qué no es «un plazo que falla».** `adminPendingShipmentConfirmation` llama a
+> `businessDaysSince` **por fila** (`buylist.service.ts:3225`), sin capturar. **Una sola fila fuera de la cobertura de
+> `MX_HOLIDAYS` tumba la cola entera con un `500`.** Lo que desaparece no es un cálculo: es **una cola de trabajo
+> completa** — y un `500` en un listado de back-office se lee como *«no hay nada pendiente»* o *«hoy la pantalla está
+> rota»*, y **en ninguno de los dos casos alguien va a buscar una fila con una fecha rara**. Es literalmente el fallo
+> que (c.11) llamó *el que no se ve*: **un fallo que deshabilita se ve; uno que desaparece, no.**
+>
+> **⚠️ Esta norma NO inventa política: une DOS que ya existen en este documento.**
+> 1. **«El caller captura» ya era doctrina — pero escrita solo para el barrido.** Este mismo apartado dice: *«El
+>    barrido captura, loggea `error` y **no expira**»*. Lo que faltaba era decir que **eso rige para TODO lector**,
+>    no solo para el job.
+> 2. **La forma por-fila ya existe, y es la de la mesa** (§4.39g): `position: null` + `positionUnavailable: true`
+>    ⇒ *«un insumo no se pudo calcular ⇒ se marca ESA fila, se pinta el resto, y jamás se inventa un número»*.
+>
+> **NORMA — lecturas de `business-days` en superficies de LISTADO:**
+> - **Se captura POR FILA.** El valor derivado sale **`null`** + un **flag explícito de indisponibilidad**; la
+>   colección **se devuelve completa**. **Un error de cobertura NUNCA llega a la respuesta HTTP.**
+> - **La función NO cambia: sigue lanzando.** Lo que se norma es **el llamador** — la doctrina de `business-days`
+>   (*fallar hacia «no vence» es el único lado seguro*) queda **intacta**.
+> - **⚠️ Hacia dónde falla el flag derivado, según lo que el flag HAGA** *(y esto reconcilia (k.1) con §4.39g en vez
+>   de contradecirlo)*:
+>   | El flag… | Falla hacia | Por qué |
+>   |---|---|---|
+>   | **solo hace VISIBLE** una fila en una cola de trabajo (`alert`) | **`true`** | *«llevo demasiado esperando»* y *«no puedo saber cuánto llevo»* piden **la misma acción humana**: que alguien mire. Y `alert:false` la **sacaría del filtro `?onlyAlerts=true`**, que es la única vista donde se encontraría — la fila más rara sería la más escondida |
+>   | **gatea o aconseja una ACCIÓN** (`suggestion.verdict` de la mesa) | **`"none"`** | ahí un veredicto inventado **frena o empuja una compra** sobre un número que no existe |
+>   **La regla que las une:** *donde el flag no tiene más consecuencia que la visibilidad, se falla hacia **visible**;
+>   donde condiciona un acto, se falla hacia **«no sé»**.* La alerta de esta cola **no expira, no cancela y no mueve
+>   nada** (criterio 156), así que cae del primer lado sin ambigüedad.
+> - **⚠️ LAS ESCRITURAS NO DEGRADAN — y ésta es la otra mitad.** Cuando `addBusinessDays` **congela un plazo**
+>   (`offerAcceptDeadlineAt` al ofertar, `shipDeadlineAt` al entregar la guía — `buylist.service.ts:2400`, `:2557`,
+>   `:3009`), un error de cobertura **debe propagarse y la petición debe fallar**. *Si no podemos calcular la fecha
+>   límite, no emitimos la oferta:* congelar un plazo equivocado es exactamente lo que la doctrina prohíbe. **Se
+>   degrada lo que se MUESTRA, nunca lo que se COMPROMETE.**
+>
+> **Alcance — las TRES superficies, dos de ellas aún sin construir (por eso se norma ahora):**
+> | Superficie | Derivado | Estado |
+> |---|---|---|
+> | `GET /admin/buylist/pending-shipment-confirmation` | `businessDaysWaiting` | **viva** — es la que backend encontró |
+> | `AdminBuylistDTO.offerIssueDeadlineAt` | `addBusinessDays(offerIssueClockStartedAt ?? createdAt, dial)` **por fila de la cola de M5** | **declarada, no implementada** |
+> | `PendingOfferAuthorizationRowDTO.caducityAt` | misma fórmula, por fila de la cola de autorización | **declarada, no implementada** |
+> *Las dos últimas **nacen con la regla**: se norma ahora para no escribir el mismo defecto dos veces más.*
+>
+> **Calibración honesta del riesgo:** **hoy no se puede disparar** —`sellerShippedDeclaredAt` solo lo escribe
+> `declare-shipped`, con `now()`— y **se dispara solo, sin que nadie toque nada, el 1 de enero de 2031**.
+> ⚠️ **Y esta norma MEJORA lo que dice `BE-D46-1`:** esa entrada describe la consecuencia de no extender
+> `MX_HOLIDAYS` como *«los plazos dejan de calcularse»*; **sin (k.1) la consecuencia real era peor** (una cola
+> devolviendo `500`), y **con (k.1) pasa a ser lo que la entrada ya decía**: filas marcadas, cola en pie. *La fecha
+> de revisión (⏰ antes del 2030-09-01) no se relaja por esto* — `TECH_DEBT.md` es de backend, así que la
+> actualización de esa entrada se la enruta el techlead.
+
 ---
 
 #### (l) Los NUEVE diales y la validación **bloqueante** entre tres de ellos
@@ -13570,6 +13625,52 @@ existe es otro.** Los **rechazos por carta** siguen usando el correo que **ya ex
 | 3 | **Expiración** | barrido reglas 1 y 2, ~~y cancelación de oferta~~ ⛔ **v1.51.4: la cancelación SALE de aquí** | *«hubo una oferta y **tu** plazo venció»* |
 | **4** | **⚠️ NUEVO — CADUCIDAD SIN OFERTA (D33)** | barrido **regla 7** · **⚠️ v1.51.3/D39: también `POST …/decline`** (segundo productor, **misma plantilla, mismo texto**) | ***«no procederemos con la oferta»*** |
 | **5** | **⚠️ NUEVO (v1.51.4) — CANCELACIÓN DE UNA OFERTA ENVIADA** | **`POST …/offer/cancel` con `offerState='sent'`, y NADA MÁS** | ***«cancelamos la oferta que te mandamos; no es nada de tu parte y tu solicitud sigue viva»*** |
+
+> ### ⚠️⚠️ (n.1) v1.51.13 — **LA URL DEL CTA**: forma exacta, de dónde sale el idioma, y de dónde sale el origen
+> *(Hallazgo de **devops** al ir a declarar la variable: fue a verificar **a dónde lleva el enlace** en vez de darlo
+> por bueno. El CTA del correo de oferta apuntaba a una URL que **no podía funcionar por dos razones
+> independientes**; verificándolo aparece una **tercera**. La pantalla la construye **frontend**; **la forma de la
+> URL es mía** y hasta hoy este documento **no la fijaba en ninguna parte** — de ahí el hueco.)*
+>
+> **Las tres divergencias, verificadas** (`buylist.service.ts:2190-2193` construía
+> `${APP_PUBLIC_URL}/buylist/requests/${id}`):
+> | # | Defecto | Consecuencia |
+> |---|---|---|
+> | 1 | **Sin prefijo de idioma.** `frontend/src/i18n/routing.ts` corre con **`localePrefix: 'always'`** | `/buylist/...` **redirige a `/es/buylist/...`** ⇒ **el vendedor que eligió inglés aterriza en español**, y es el correo donde **acepta una oferta vinculante** |
+> | 2 | **Path con forma de API, no de pantalla.** `/buylist/requests/:id` es la ruta del **endpoint**; el portal vive en `/[locale]/buylist` | **404** |
+> | 3 | **⚠️ Tercera, que no se había señalado: no sigue el patrón del proyecto.** `auth.service.ts:63-72` y `guest-order-mail.service.ts:38-43` construyen sus enlaces **idénticos entre sí** y este es **el único correo que se sale** | la divergencia no era un olvido puntual: era **un enlace escrito fuera del molde que ya existía** |
+>
+> **NORMA — forma canónica del enlace al portal por solicitud:**
+> ```
+> {origen público}/{locale}/buylist/{sellRequestId}
+> ```
+> - **`{locale}` NO es un adorno ni un default: es EL MISMO valor con el que se renderizó el cuerpo del correo.**
+>   Sale de **`User.locale` del vendedor**, pasado por el **mismo `normalizeLocale`** que ya usan las plantillas del
+>   ciclo (`buylist-mail.templates.ts:31`), con la cascada del proyecto `user.locale ?? DEFAULT_LOCALE ?? 'es'`.
+>   **Un correo tiene UN idioma, y el cuerpo y el botón comparten el mismo** — construirlos por vías distintas es
+>   exactamente cómo se manda un correo en inglés cuyo botón abre una pantalla en español.
+> - **Segmento de ruta, no query param — y la asimetría con el enlace de invitado tiene motivo.** El seguimiento de
+>   invitado usa `?token=` **porque el token es un SECRETO de URL** que el front mueve al body y borra (§4-G.7). Aquí
+>   el `sellRequestId` **no es secreto**: el portal está **autenticado** y el vendedor ya ve ese id. *La razón que
+>   obligó al query param allí no existe aquí*, así que manda la regla normal: **un recurso se direcciona con un
+>   segmento**.
+> - **⚠️ EL ORIGEN ES UN ORIGEN, NO UNA LISTA. Y no es el de CORS.** Sale de una variable cuyo **único** trabajo es
+>   *«la URL pública del frontend»*: **un** esquema+host(+puerto), **sin path** y **sin barra final** (se normaliza).
+>   **PROHIBIDO rellenarla copiando la allow-list de CORS**, que en producción es **separada por comas**: copiarla
+>   produce `https://a,https://b/buylist/...` — **un href roto en un correo de dinero**.
+>   ⚠️ **Y hay un footgun heredado que conviene ver junto:** los **otros dos** enlaces del proyecto derivan su origen
+>   de **`APP_BASE_URL.split(',')[0]`**, o sea del **primer elemento de una allow-list de CORS**. Funciona, pero **el
+>   orden de una lista de CORS no significa nada**: reordenarla —cambio perfectamente legítimo— **movería en silencio
+>   el origen de todos los correos**. Por eso el enlace del ciclo sale de la variable **dedicada** y no de esa lista.
+>   Desviación **BL-21**.
+> - **Sin origen configurado ⇒ el correo SALE IGUAL, con instrucción de texto en vez de botón. RATIFICADO.**
+>   *(Es lo que devops dejó a propósito: declarar la variable **sin valor**, porque fijarla antes de que exista la
+>   pantalla **no enciende un enlace, enciende un 404**.)* **El correo NUNCA se bloquea por no poder construir el
+>   CTA** —la oferta es vinculante y el vendedor tiene que enterarse— y **jamás se emite un href relativo, parcial o
+>   a medias**: o el enlace es completo y correcto, o no hay enlace. *Un botón muerto en un correo de dinero es peor
+>   que una frase que explica dónde entrar.* Misma doctrina que `positionUnavailable`: **degradar a «no disponible»,
+>   nunca a un valor que parezca bueno.**
+> - **Puerta de activación:** el valor se fija **cuando la pantalla responde `200`**, no antes. Lo verifica devops.
 
 > **⚠️ v1.51.3 / D39 — DOS PRODUCTORES, UN SOLO CORREO. No hay un quinto.** El barrido y el botón cierran el **mismo
 > hecho** (*no vamos a ofertar*) con el **mismo estado**, el **mismo motivo** y el **mismo texto**. **Prohibido
@@ -14115,7 +14216,7 @@ serializarlo o llevarlo en **una sola sesión**:
 | `backend/src/jobs/` | barrido reescrito | ver la nota de §2 sobre `jobs/` |
 | `frontend/src/lib/` | `isTerminal` viene del server; se **borra** el literal de `M5View.tsx` | quinta copia del set terminal |
 | `backend/src/common/error-codes.ts` | **5 códigos nuevos** *(v1.51.3)*: `PICKUP_ADDRESS_REQUIRED` · `PICKUP_ADDRESS_NOT_FOUND` · `PICKUP_ADDRESS_MISSING` · `PICKUP_ADDRESS_LOCKED` · `DECLINE_NOT_ALLOWED` **+ 1** *(v1.51.4)*: `GUIDE_CANCELLATION_PENDING` | enum de errores pisado por dos streams |
-| `docs/API_CONTRACT.md` | ~~v1.51.3~~ … ~~v1.51.10~~ ~~v1.51.11~~ **v1.51.12** | — (mío) |
+| `docs/API_CONTRACT.md` | ~~v1.51.3~~ … ~~v1.51.12~~ ~~v1.51.13~~ **v1.51.14** | — (mío) |
 | `frontend/src/lib/` · `M5View.tsx` | `canPay` pierde su literal de estados (**BL-17**); el rol se queda | **sexta** copia de un subconjunto del enum, y ésta gobierna el **botón de pagar** |
 
 **Nota de secuencia para backend:** la **desviación BL-2** de (b.2) —el `respond` sin guarda— **no depende de M-46** y
@@ -14891,6 +14992,8 @@ Riesgos técnicos:
   | **BL-17** 🔧 **RESUELTA EN RAMA A MEDIAS — y la mitad pendiente es CORRECTA, no un olvido** *(v1.51.8 — **DINERO SALIENTE**; **SEXTA copia** de un subconjunto de estados)* | `M5View.tsx:820-821` — `canPay = isSuperAdmin && (status === 'aprobada' \|\| status === 'verificacion')` es **`SELL_REQUEST_PAYABLE_STATES` transcrito a mano en el cliente**, y **gobierna el botón de pagar por SPEI**. ⚠️ **Además es INCOMPLETA:** la precondición del servidor son **dos** términos (`… ∧ verifiedAt IS NOT NULL`, `buylist.service.ts:2664`/`:2704`) y el cliente **solo replica el primero** ⇒ **la UI puede habilitar el pago donde el servidor responde `422`**. **No se rompe al crecer el enum** —no es un radio de enum, es un predicado de dinero duplicado a través del cable— pero es la **tercera** copia de la regla que el sitio 8 acaba de consolidar *por ser dinero*, y en otro lenguaje y otro release | **backend** (emite) ✅ · **frontend** (consume) 🔧 | 🔧 **Backend: hecho en rama** — `AdminBuylistDTO.isPayable` (`buylist.service.ts:1572`) derivado de **`isPayableSellRequest`**, el mismo cuerpo que el pre-check (`:2726`) y el `where` de la guarda (`:2767`) de `paySpei`: **tres lectores, una regla**. 🔧 **Frontend: en curso** — `M5View` borra la mitad de ESTADO y conserva **solo** la de ROL (`isSuperAdmin && req.isPayable === true`). ⚠️ **La partición NO es un cierre incompleto: es la norma que este documento fijó** — **BACKEND PRIMERO** (al revés de BL-11), porque si el frontend borrara su literal antes, `isPayable` llegaría `undefined` y **el botón moriría para todos**. *El desfase es el diseño, no el retraso.* **El frontend hizo bien en no inventarse el campo** |
   | **BL-19** ⏳ **NO ES UN DEFECTO** *(v1.51.9 — se registra para que el próximo barrido no vuelva a decidirlo; **no lleva marca de abierta/cerrada porque nunca hubo nada que corregir**)* | **`awaitingGuide?` y `offerReissueAlert?`** están declarados en §M5 y **ausentes del código**. ⚠️ **Misma FORMA que BL-18 y CAUSA distinta:** sus insumos (`aceptada`, `guideSentAt`, `acceptedAt`, `offerReissueCount > 0`) **solo los puebla el ciclo de oferta** ⇒ **hoy filtrarían vacío siempre**, y su ausencia **no obliga al cliente a nada**. `live?` era lo contrario: filtraba por `status` —que toda fila tiene— y su falta **forzaba al cliente a enumerar los cuatro terminales**. *Un filtro que hoy no puede tener filas no es deuda: es diseño que aún no toca* | backend | **Con el pase de los endpoints de oferta**, en el mismo commit que puebla sus columnas. **NO se retiran del contrato** (habría que reescribirlos palabra por palabra; este documento es el **diseño** del ciclo, no el inventario de lo desplegado). Marcados **⏳ CICLO DE OFERTA** en §M5. **Barrido completo: no hay un cuarto de la categoría implementable-hoy** — las únicas eran `seller.phone` (BL-15), `isPayable` (BL-17) y `live?` (BL-18) |
   | **BL-18** 🔧 **RESUELTA EN RAMA** *(v1.51.8 — **el contrato declara un parámetro que el código no implementa**; hermana de BL-15)* | `GET /admin/buylist` declara **`live?: boolean`** (§M5, v1.51/D12) y **el backend no lo implementa**: `admin-buylist.controller.ts:36-53` no tiene ese `@Query`, y `grep live` en `modules/buylist/` no devuelve nada relacionado. Mientras tanto la pestaña «Cerradas» manda un **CSV que ENUMERA los cuatro terminales** (`M5View.tsx:110-111`) — **la forma exacta que este pase retiró de todos los demás sitios**. ⚠️ El frontend lo mitigó con un `Record` **total** sobre el enum (deja de compilar si entra un estado), **pero esa red depende de que alguien actualice `contract.ts` a mano**: un terminal nuevo en el backend **no** rompe su build por sí solo | backend | 🔧 **Resuelta en rama: implementada, no retirada.** `@Query('live')` con parsing **tri-estado** (`'true'`/`'false'` filtran; cualquier otra cosa no filtra y **no falla** — precedente `guest`/`needsManual`), **por exclusión** sobre `SELL_REQUEST_TERMINAL_STATES` e **intersectando** con `status` en vez de reasignarlo (*asignar dos veces dejaría ganar al último y el filtro del usuario desaparecería en silencio*). Contradicción ⇒ vacío, no error. **Sin `live`, el `where` queda byte a byte como estaba.** Parsing normado en contrato v1.51.9 |
+  | **BL-22** ⛔ **ABIERTA** *(v1.51.14 — **una fila mala tumba una COLA entera**; lo levantó **backend** al implementar la guía y **no lo resolvió**, con razón)* | `adminPendingShipmentConfirmation` llama a **`businessDaysSince` por fila** (`buylist.service.ts:3225`) **sin capturar**. `business-days` **lanza por doctrina** fuera de la cobertura de `MX_HOLIDAYS` (2026–2030) ⇒ **una sola fila fuera de rango devuelve `500` en toda la cola**. ⚠️ **El modo de fallo no es el de un plazo:** lo que desaparece es **una cola de trabajo**, y un `500` de back-office se lee como *«no hay nada pendiente»* o *«hoy está rota»* — **nadie va a buscar una fila con una fecha rara**. Es el fallo que §4.39c(c.11) llama *el que no se ve*. **Hoy no se puede disparar** (`sellerShippedDeclaredAt` solo lo escribe `declare-shipped`, con `now()`); **se dispara solo el 1-ene-2031** | backend | **Cierre = §4.39(k.1):** captura **por fila**, `businessDaysWaiting: null` + flag de indisponibilidad, **la cola se pinta**, y **`alert: true`** (*donde el flag solo hace visible, se falla hacia visible*; `false` la sacaría de `?onlyAlerts=true`, la única vista donde se encontraría). ⚠️ **Las ESCRITURAS no degradan**: `addBusinessDays` al congelar `offerAcceptDeadlineAt`/`shipDeadlineAt` **debe seguir propagando** — *se degrada lo que se muestra, nunca lo que se compromete*. **Aplica también a `offerIssueDeadlineAt` y `caducityAt`**, aún sin implementar: **nacen con la regla** |
+  | **BL-21** ⛔ **ABIERTA** *(v1.51.13 — **enlace de correo que no puede funcionar**; lo levantó **devops** al ir a declarar la variable, verificando **a dónde lleva** en vez de darlo por bueno)* | El CTA del correo de oferta construía `${APP_PUBLIC_URL}/buylist/requests/${id}` (`buylist.service.ts:2190-2193`) — **roto por TRES razones independientes**: **(1)** sin prefijo de idioma, y `frontend/src/i18n/routing.ts` corre con **`localePrefix:'always'`** ⇒ redirige a `/es/...` y **el vendedor que eligió inglés aterriza en español, en el correo donde acepta una oferta vinculante**; **(2)** el path tiene forma de **API**, no de pantalla (el portal vive en `/[locale]/buylist`) ⇒ **404**; **(3)** **es el único enlace de correo del proyecto fuera del molde** — `auth.service.ts:63-72` y `guest-order-mail.service.ts:38-43` son idénticos entre sí y ambos llevan locale. ⚠️ **Footgun heredado, mismo hallazgo:** esos dos derivan el origen de **`APP_BASE_URL.split(',')[0]`**, o sea del primer elemento de una **allow-list de CORS** — y **el orden de una lista de CORS no significa nada**: reordenarla movería en silencio el origen de todos los correos | **backend** (la cadena) · **frontend** (la pantalla, ya enrutada) · devops (el valor) | **Sin daño hoy:** la variable está **declarada sin valor** a propósito, y con ella vacía la plantilla **degrada a instrucción de texto** — el estado seguro. Cierre = forma canónica **`{origen}/{locale}/buylist/{sellRequestId}`** con el `locale` del **mismo `normalizeLocale`** que renderiza el cuerpo (§4.39n.1), origen de la variable **dedicada** (**un origen, sin path, sin barra final, NUNCA la lista de CORS**). **El valor se fija cuando la pantalla responda `200`.** El footgun de los otros dos enlaces **no bloquea** y se migra a la variable dedicada cuando se toquen |
   | **BL-20** ⛔ **ABIERTA** *(v1.51.11 — **el tipo promete un campo que la mitad de las proyecciones no manda**; hermana invertida de BL-18)* | §11 declara **`isPayable: boolean` SIN `?`** en `AdminBuylistDTO`, pero **`toAdminSellRequestDTO` (`buylist.service.ts:93-142`) solo emite `isTerminal`**. Esa proyección es la respuesta de **`receive`, `verify`, `reject` y `pay-spei`** (`:2075`, `:2090`, `:1603`, `:2716`/`:2800`/`:2807`) ⇒ **cuatro respuestas devuelven un DTO al que le falta un campo no-opcional**. Hoy no rompe porque M5 lo lee del listado y descarta el cuerpo de las mutaciones, y el frontend lo tipó obligatorio **porque el contrato manda** — pero quien escriba `if (res.isPayable)` sobre `verifyBuylistRequest` obtiene un **`false` silencioso en superficie de dinero**. ⚠️ **Y `verify` es justo la transición que VUELVE `isPayable` verdadero** (sella `verifiedAt`), así que es el peor sitio posible para omitirlo | backend | **Se emite en las cuatro, no se acota el contrato.** Cierre = **`isPayable: isPayableSellRequest(r)` en `toAdminSellRequestDTO`** —la proyección **compartida**, así que las cuatro lo heredan y **ninguna mutación futura puede olvidarlo**—; ya recibe `status` y `verifiedAt` (`:105`), **cero datos nuevos**. ⚠️⚠️ **TRAMPA OBLIGATORIA: `toCustomerSellRequestDTO` (`:152-155`) es «la de admin menos DOS campos» por rest-destructuring.** Añadir `isPayable` arriba **SIN añadirlo al strip lo filtra al VENDEDOR** por `GET /buylist/requests/:id` y `respond`, violando el «admin-only, jamás al cliente» de v1.51.8. **Pasan a ser TRES campos stripped** (`closedAt`, `paidBy`, `isPayable`) |
   | **BL-16** ⛔ **ABIERTA** *(v1.51.6 — **defecto del CONTRATO, no del código**; hoy latente, activo el día que se emita la primera oferta)* | El predicado de los tres sumandos de promesa de la mesa **no acota `sellRequestId`** (`buylist.service.ts:1839-1861`), porque **el contrato nunca dijo «otra solicitud»**. Abierta la mesa sobre una solicitud **`ofertada`**, **sus propias líneas suman a `committed`** y el operador decidiría contra una posición **inflada por él mismo**. Hoy inocuo (`offerDecision` solo se puebla al emitir, y el caso normal es `cotizada`). ⚠️ **El disparador es más ancho que la reemisión:** la mesa **no tiene precondición de estado**, así que se autocuenta en `ofertada`/`aceptada`/`en_transito`/`recibida`/`verificacion` — *la reemisión es el único caso que NO falla, porque exige cancelar y `cotizada` no está en el predicado* | backend | **Con el pase de los endpoints de oferta, no después** (antes de que nada escriba `offerDecision`). Cierre = `sellRequestId != :id` en los **tres** sumandos de promesa; **`stock` NO se excluye** (§4.39g.1). Caso de prueba exigido en el contrato v1.51.6 |
   | **BL-15** ⛔ **ABIERTA** *(v1.51.6 — **el contrato declara un campo que el código no emite**; entrega pendiente de D12)* | `AdminSellerRef` declara **`phone?: string \| null`** desde D12/v1.51 (§11 DTOs), pero `sellerRef()` (`buylist.service.ts:1536-1540`) devuelve `{id, name, email}` y **los cuatro `include` que lo alimentan seleccionan solo esos tres campos** (`:1510`, `:1548`, mesa y `rejected-items`). §M5 lo exige explícitamente en la **cola**: *«el teléfono viaja en la cola de buylist»*. ⚠️ La prosa de §M5 que aún dice `AdminSellerRef = { id, name, email }` (v1.18) quedó **rancia**; **manda el DTO de §11** | backend (bajo **D12**) | **Con D12.** ⚠️ **NO es un defecto de la mesa** y no se le reclama a ella: backend hizo bien en no meter trabajo compartido en ese pase. Cierre = `phone` en `sellerRef()` + un campo más en los cuatro `select`. **Régimen PII sin cambios** (§4.18d, criterio 130). Sin él, `pickupAddressMissing` avisa en una pantalla que **no lleva el medio de actuar** (§4.39g.5) |
