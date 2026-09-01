@@ -227,8 +227,8 @@
 > jerarquía, su tono y sus **prohibiciones**, empezando por la que sostiene todo el trato: la
 > **condición NM declarada línea por línea, pegada al dinero**, y los **tres montos** (bruto / envío /
 > **neto**) con el neto como **única cifra vinculante y única cifra que puede viajar en el asunto**;
-> **(2)** el **aviso del descuento de envío en el cotizador**, resuelto como **aritmética ya hecha**
-> («recibirías ≈ MX$ 320») dentro del bloque de dinero, **no** como advertencia ni como letra chica;
+> **(2)** ~~el **aviso del descuento de envío en el cotizador**, resuelto como **aritmética ya hecha**
+> («recibirías ≈ MX$ 320») dentro del bloque de dinero~~ **⚠ SUPERADO en v2.3.1 (D43) — ver abajo**;
 > **(3)** los **cuatro estados nuevos** (`ofertada`, `aceptada`, `en_transito`, `expirada`) en el mapa
 > canónico §2.4 —con **`expirada` pintando su MOTIVO, no su estado**, porque sus dos causas significan
 > cosas opuestas— y el **`PipelineStepper` de OCHO pasos** con la rama de error como **cierre terminal**,
@@ -243,6 +243,25 @@
 > correo con **fallbacks de sistema como diseño real**). Sin entrega de Claude Design para esta feature:
 > se compone con lo ya ratificado (`Badge` §7.2, `Banner` §7.5, `DataTable` §7.7, `PipelineStepper`
 > §7.9, `AmountBreakdown` §7.12, barra sticky §21.6, reglas §4.3, `--app-header-h` §4.5).
+>
+> **Corrección v2.3.1 (2026-09-01 — D43, decisión del humano; pase correctivo acotado sobre §23).**
+> **El cotizador deja de hablar de montos de envío.** Se retiran del carrito la línea de envío, la resta y
+> el neto estimado (`RECIBIRÍAS ≈`), y en su lugar va **una nota de servicio sin cifras**: *«Nosotros
+> ponemos la guía de envío y su costo se descuenta siempre de lo que te pagamos: tú no pagas nada de tu
+> bolsillo. El monto exacto va en la oferta, antes de que aceptes.»* Razón: **el cotizador es indicativo por
+> construcción** —los precios se mueven y puede que no compremos todas las líneas—, así que restarle un
+> envío exacto es **precisión falsa**; peor aún, el neto que pintaba era **sistemáticamente optimista**
+> (el cherry-pick solo quita líneas), o sea que fabricaba la decepción que R1 existe para evitar. **La resta
+> con los tres montos vive solo en la oferta** (correo §23.4.2 + portal §23.5), que es autenticada y usa la
+> tarifa **congelada**. **El faltante para el mínimo se queda** (criterio 132), ahora **solo y sin nada de
+> envío al lado**. Consecuencia asumida y trabajada: **el correo de oferta es la primera vez que el vendedor
+> ve el monto del envío** ⇒ ese correo **repite la cifra del envío en la prosa** (no solo en la tabla), el
+> preheader deja de decir «el envío lo ponemos nosotros» **sin** «y se descuenta», y queda prohibida toda
+> fórmula que presuponga conocimiento previo («como ya sabías»). Alcance: §23.0 (precisión de R1), **§23.3
+> reescrita**, §23.4.2, §23.4.3, §23.4.7, §23.5b/c/d, §23.9, §23.10, §23.11, §23.12 (tres claves retiradas,
+> una nueva) y §23.13. **Sigue sin tokens nuevos, sin componentes nuevos y con paridad ES/EN.** La objeción
+> de UX —el vendedor cerca del mínimo se entera del ~36% hasta el correo— queda **registrada en §23.3l**,
+> con su mitigación de producto: **medir**, y si duele, **mover el dial del mínimo**, no repintar la resta.
 
 ---
 
@@ -1463,8 +1482,8 @@ Recomendado documentarlos con ejemplos (Storybook opcional; lo decide frontend/d
 | Checkout | `POST /checkout/quote`,`/session` | AmountBreakdown (subtotal+fee+IVA), Stripe, Banner CFDI |
 | Mi bóveda / portafolio | `GET /vault/holdings`, `/vault/portfolio/history` | CardTile compacto, badge titularidad, **PortfolioTrendChart** (§7.17), StatCard "valor portafolio" (+sparkline opcional), PriceTag pending |
 | Retiro / envío | `POST /shipments/quote`,`/shipments` | Selección items settled, AmountBreakdown (envío+IVA), Address MX, PipelineStepper |
-| Buylist cotizador | `POST /buylist/quote` | BuylistQuoter, Banner PAY_AFTER_RECEIPT, SafeShippingGuide, PriceTag, **bloque de descuento de envío (§23.3)** |
-| Buylist solicitud | `POST /buylist/requests` | KYC/CLABE inputs, **IneUploader** (único uploader, §7.10), topes (Banner límite), **selector de dirección de origen (§23.3g)** |
+| Buylist cotizador | `POST /buylist/quote` · `GET /buylist/quote-policy` | BuylistQuoter, Banner PAY_AFTER_RECEIPT, SafeShippingGuide, PriceTag, **nota de servicio del envío — sin cifras (§23.3, v2.3.1/D43)** + faltante del mínimo |
+| Buylist solicitud | `POST /buylist/requests` | KYC/CLABE inputs, **IneUploader** (único uploader, §7.10), topes (Banner límite), **selector de dirección de origen (§23.3j)** |
 | **Buylist — responder la oferta** (v2.3) | `GET /buylist/requests/:id`, `POST …/offer-response` | **PipelineStepper de 8 pasos (§23.2)**, bloque de condición NM, AmountBreakdown de 3 montos, plazo, Aceptar `primary` / Rechazar `secondary` (§23.5) |
 | **M5 — mesa de decisión** (v2.3) | `GET /admin/buylist/:id/decision-table`, `POST …/offer` | **Tira de posición de 4 sumandos + titular `POSICIÓN n/m` (§23.6)**, sugerencia en prosa, override + motivo, **barra sticky de totales**, `SIN CONTEO` (§23.7) |
 | **M5 — colas del ciclo** (v2.3) | `/admin/buylist/queues/*` | DataTable ×4: por autorizar (con «muere el»), por confirmar envío (con `ALERTA`), guías por cancelar, vendedores vivos (con teléfono) — §23.8 |
@@ -5686,8 +5705,9 @@ El cuerpo de la nota es el texto más largo del sistema: debe poder envolver sin
 
 ### 23.0 Alcance y las SIETE reglas duras
 
-**Qué diseña §23:** los **cuatro correos** del ciclo (§23.4), el **aviso del descuento de envío** en el
-cotizador (§23.3), los **cuatro estados nuevos** y el **stepper de ocho pasos** (§23.1, §23.2), la
+**Qué diseña §23:** los **cuatro correos** del ciclo (§23.4), la **nota de servicio del envío** en el
+cotizador (§23.3 — **sin cifras, v2.3.1/D43**; ~~el aviso con la resta hecha~~ quedó superado), los
+**cuatro estados nuevos** y el **stepper de ocho pasos** (§23.1, §23.2), la
 **pantalla del vendedor** que espeja el correo (§23.5), la **mesa de decisión** del admin (§23.6), el
 **tratamiento del conteo ausente** (§23.7) y las **colas nuevas de M5** (§23.8).
 
@@ -5705,6 +5725,14 @@ se compra a mano y se captura), y **ningún panel de bounties** (proyecto aparte
 | **R5** | **La sugerencia informa; no bloquea, no preselecciona, no cambia de tamaño.** El servidor **no** valida la oferta contra ella y la UI tampoco | D6 es explícita. Endurecerla «por prudencia» **contradice PROJECT** (§4.39g). Y un default gobernado por la sugerencia es un bloqueo blando |
 | **R6** | **«En camino» y «comprometido» NO se suman jamás.** No existe subtotal, paréntesis, `+`, barra de progreso apilada ni etiqueta común que los agrupe en una cifra | Tienen **confianza distinta** y esa distinción **es** el punto de la pantalla. *«Contar promesas como inventario es exactamente el error que esta pantalla existe para evitar»* (§P.2) |
 | **R7** | **Un conteo ausente NO es un número.** Cuando el conteo no se pudo obtener, **desaparece la tira entera** y aparece una **frase**. Prohibidos `0`, `—`, `–`, `?`, `N/D`, celda vacía, gris de placeholder y skeleton permanente | Un cero que significa «no pude contar» *«es peor que no mostrar nada, porque se ve confiable»* y **empuja a comprar de más** (§P.8, §4.39f) |
+
+> **⚠ Precisión de R1 (v2.3.1, D43) — sin ella, §23.3 parecería violar la regla.** **R1 gobierna el dinero
+> de la OFERTA**, que es el único vinculante: ahí, y solo ahí, existen «bruto», «envío» y «neto», y ahí el
+> bruto nunca puede aparecer sin los otros dos. **El total del cotizador NO es un bruto**: es una cotización
+> **indicativa** sobre cartas que quizá no compremos, y por D43 **no tiene envío ni neto al lado** — por eso
+> el cotizador **no lo llama bruto, no lo presenta como base de una resta y no lo rotula como pago**
+> (§23.3c). Lejos de debilitar R1, D43 la refuerza: **la primera cifra que el vendedor ve rotulada como "lo
+> que recibes" es el NETO**, en el asunto del correo 1 (§23.4.7).
 
 ---
 
@@ -5818,61 +5846,139 @@ color **nunca** es el único indicador: versalita + timestamp + `aria-label`.
 
 ---
 
-### 23.3 El aviso del descuento de envío en el cotizador — aritmética hecha, no advertencia
+### 23.3 El envío en el cotizador — una NOTA DE SERVICIO, sin cifras (v2.3.1 · D43)
 
-**(a) El problema, con el número enfrente.** El envío **siempre** se descuenta (D31). En una oferta de
-**MX$500** son **MX$180**: el vendedor recibe **MX$320**, el **36%**. Tiene que verlo **antes de crear la
-solicitud**, no en el correo. Y tiene que verlo **sin que parezca un castigo**, porque no lo es: nosotros
-ponemos la guía y él no paga nada de su bolsillo.
+> **⚠ Sección reescrita el 2026-09-01 por decisión del humano (D43).** Lo que v2.3 pedía aquí —**la resta
+> hecha y enseñada** dentro del bloque de dinero del carrito— queda **SUPERADO**. Se conserva en **(a)**,
+> marcado y sin borrar, porque el contraste entre las dos versiones **es** la lección. **Lo vigente empieza
+> en (b).** Si algo de §23 sigue asumiendo que el vendedor vio una cifra de envío antes de la oferta, manda
+> esta sección.
 
-**(b) La decisión de diseño: no es un aviso, es una LÍNEA DEL DINERO.**
-Se rechazan explícitamente las tres salidas fáciles:
+**(a) ⚠ SUPERADO — la «aritmética ya hecha» de v2.3. NO IMPLEMENTAR.**
+
+> ```
+> ┌ TU COTIZACIÓN ────────────────────────────────┐   ⚠ SUPERADO por D43 — NO IMPLEMENTAR
+> │ 3 cartas                                      │
+> │ Valor de tus cartas              MX$ 500.00   │
+> │ Envío que ponemos nosotros     − MX$ 180.00   │
+> │ ───────────────────────────────────────────   │
+> │ RECIBIRÍAS ≈                     MX$ 320.00   │
+> └───────────────────────────────────────────────┘
+> ```
+> Quedan retirados: ~~la línea de envío~~, ~~la regla de la resta~~, ~~`RECIBIRÍAS ≈`~~, ~~el neto
+> estimado~~ y ~~la aparición conjunta de envío + neto al cruzar el mínimo~~.
+
+**Por qué se retira** (tres razones, y la segunda no estaba en v2.3):
+
+1. **El cotizador ya es indicativo.** Los precios se mueven y **puede que no compremos todas las líneas**.
+   Restarle un envío exacto a un número que de todas formas va a cambiar es **precisión falsa**: le sugiere
+   al vendedor un neto que **nadie se comprometió a pagar**. La resta pertenece al único documento donde los
+   números son vinculantes.
+2. **⚠ Y el neto del cotizador era sistemáticamente OPTIMISTA.** El cherry-pick solo **quita** líneas: el
+   bruto de la oferta es **≤** el total del carrito, y el neto también. `RECIBIRÍAS ≈ MX$ 320` no era una
+   aproximación centrada, era **la mejor cifra posible** — es decir, fabricaba con nuestras propias manos la
+   decepción *«dije $500 y llegaron menos»* que **R1** existe para evitar. El `≈` no salvaba eso: un `≈` se
+   lee como «más o menos esto», no como «esto o menos».
+3. **Nota de proceso, y me toca a mí:** **D31 nunca pidió cifras en el cotizador.** Pide que el cotizador
+   diga «con todas sus letras» que **ponemos la guía** y que **siempre** se deduce del pago. Los tres montos
+   en el carrito fueron una **amplificación de este documento** — el mismo patrón por el que D31 tuvo que
+   retirar el umbral de MX$1,000 que *«nunca fue un pedido del humano»*. **D43 no contradice D31: le quita
+   la amplificación.** El requisito de comunicar el descuento sigue vivo y esta sección lo cumple.
+
+**(b) La decisión vigente (D43).** El cotizador **no menciona ningún monto de envío**: **sin cifra, sin
+resta, sin neto estimado, sin porcentaje**, y **sin expresar el faltante del mínimo en términos de envío**.
+Solo una **frase cualitativa**. La resta con los tres montos vive **exclusivamente en la oferta** —correo
+(§23.4.2) y portal (§23.5)—, autenticada y armada server-side con la tarifa **congelada**.
+
+> **⚠ Consecuencia que hay que decir en voz alta, porque cambia el peso de otra pantalla:** **el correo de
+> oferta es ahora la PRIMERA vez que el vendedor ve el monto del envío.** Ya no confirma algo que vio en el
+> carrito: es **información nueva, en el momento exacto en que decide**. Ver §23.4.2 (enmienda v2.3.1) y la
+> objeción registrada en (l).
+
+**(c) La forma: es una NOTA DE SERVICIO, no una advertencia y no letra chica.**
+No es un banner de aviso —eso ya se rechazó en v2.3 y **sigue rechazado**— ni una nota al pie. Es **un hecho
+del trato**, redactado como se redacta un hecho del trato: prosa corta, en tinta, **dentro del bloque de
+dinero**, con el mismo rango visual que la información de servicio de un pedido («llega en 3 días»).
 
 | Rechazado | Por qué |
 |---|---|
-| **`Banner warning`** («Ojo: se descuenta el envío») | Un banner de atención sobre un trato que es **bueno** para el vendedor lo enmarca como problema. Y los banners se ignoran: es la ceguera que §22.12 ya documentó |
-| **Asterisco + nota al pie** | Es literalmente la definición de letra chica que §P.3 prohíbe. La nota al pie de §22 existe para un **disclaimer legal largo**; aquí lo que hay que comunicar es **una resta**, y una resta se enseña |
-| **Porcentaje («−36%»)** | Invita a discutir el porcentaje en vez de leer el depósito, y **cambia con cada carrito**. Se muestran **pesos**, nunca porcentajes |
-
-**La resta se hace y se enseña**, en el mismo bloque donde el vendedor ya está mirando su total, con la
-gramática de `AmountBreakdown` (§7.12) y la voz de dinero de §20.14 (cifras en mono `tabular-nums`):
+| **`Banner warning`** («Ojo: se descuenta el envío») | Un banner de atención sobre un trato que es **bueno** para el vendedor lo enmarca como problema. Y los banners se ignoran: la ceguera que §22.12 ya documentó |
+| **Asterisco + nota al pie / `<details>` / tooltip / acordeón** | Es la definición de letra chica que §P.3 prohíbe. Y un tooltip **no existe en táctil**. La frase no se esconde: es corta **porque** tiene que estar a la vista |
+| **Porcentaje («−36%»)** | Invita a discutir el porcentaje en vez de leer el trato, y **cambia con cada carrito**. Sin cifras **y sin porcentajes** |
+| **Un renglón de envío con `—`, `?` o «según la oferta»** | Un hueco con forma de monto **se lee como monto** (misma doctrina que R7 y que §7.3). Si no hay cifra, **no hay renglón**: el bloque de dinero del cotizador tiene **exactamente un monto** |
+| **La cifra «solo en los requisitos de venta» o «solo en el FAQ del cotizador»** | Cumplimiento por reubicación. El panel de requisitos y el paso de crear **son el cotizador**. D43 no admite una puerta lateral |
 
 ```
 ┌ TU COTIZACIÓN ────────────────────────────────┐
 │ 3 cartas                                      │
-│ Valor de tus cartas              MX$ 500.00   │
-│ Envío que ponemos nosotros     − MX$ 180.00   │
-│ ───────────────────────────────────────────   │
-│ RECIBIRÍAS ≈                     MX$ 320.00   │
+│ Valor de tus cartas              MX$ 500.00   │  ← el ÚNICO monto del bloque
 │                                               │
-│ Nosotros ponemos la guía y su costo siempre   │
-│ se descuenta de lo que te pagamos. Tú no      │
-│ pagas nada de envío.                          │
+│ Nosotros ponemos la guía de envío y su costo  │  ← sans text-sm, TINTA (no muted),
+│ se descuenta siempre de lo que te pagamos:    │    sin icono, sin caja, sin regla
+│ tú no pagas nada de tu bolsillo. El monto     │    que la separe del monto
+│ exacto va en la oferta, antes de que aceptes. │
 └───────────────────────────────────────────────┘
 ```
 
-- **`RECIBIRÍAS ≈`** (condicional + `≈`), **no** `SE TE DEPOSITAN`. En el cotizador **todavía no hay
-  oferta**: puede haber cherry-pick. El copy del correo (**indicativo**, cifra exacta) y el copy del
-  cotizador (**condicional**, aproximación) tienen que ser distinguibles de un vistazo, o el vendedor creerá
-  que ya le prometimos $320.
-- **El signo `−` es texto**, no color: es el segundo canal de «esto resta» (§2.4). La línea del envío **no**
-  se pinta en rojo: no es un error ni una alerta.
-- **La frase de la regla va en el mismo bloque y en tinta** (`text-sm`, `--color-text`), no muted: §10
-  prohíbe el muted para información esencial, y ésta lo es (D31 la exige «al mismo nivel visual que los
-  montos»).
-- **Nunca** las palabras «comisión», «cargo», «penalización», «retención». Es **el envío que ponemos
-  nosotros**.
+- **Vive dentro del bloque de dinero**, separada del monto **solo por aire** (escala §4.1, ~`12px`). Ni
+  regla, ni caja, ni pozo: un escalón de superficie la convertiría en «aviso» y (c) ya explicó por qué no.
+- **En tinta `--color-text`, `text-sm`** — nunca muted: §10 prohíbe el muted para información esencial, y
+  D31 exige esta regla «al mismo nivel visual que los montos».
+- **Siempre visible —desde el carrito vacío, no desde la primera carta—** y **con el mismo texto por encima
+  y por debajo del mínimo**. Que se lea **antes** de agregar nada es justamente el punto: el trato se explica
+  cuando todavía no cuesta nada cambiar de opinión.
+  Al no llevar cifras **no depende de ningún estado**: no aparece, no desaparece, no se mueve. Eso mata de
+  raíz una clase entera de bugs que v2.3 sí tenía (el bloque que se materializaba al cruzar el mínimo).
+- **El total se rotula por lo que es:** `Valor de tus cartas`. **Prohibidos** `Total a recibir`, `Tu pago`,
+  `Ganarías` o cualquier rótulo que prometa depósito (§7.3: money-safe también es no prometer).
+- **No es una región `aria-live`.** Es copy estático; anunciarla en cada cambio del carrito la convertiría
+  en ruido y, peor, en alarma.
 
-**(c) Las tres superficies, y qué dice cada una** (D31 exige tres; aquí se les da forma):
+**(d) La redacción, ES y EN — cuatro movimientos, y el orden es normativo.**
+La frase tiene que lograr **dos cosas a la vez**: que el vendedor **sepa que habrá un descuento** antes de
+crear la solicitud, y que **no crea que ya sabe cuánto**. Ahí se juega todo el patrón.
 
-| Superficie | Cuándo | Qué muestra | Componente |
-|---|---|---|---|
-| **1. Carrito del cotizador** (`SellCartDrawer`, §18.4) | **desde la primera carta**, siempre visible | el bloque completo de (b) **en cuanto el total alcanza el mínimo**; por debajo, ver (d) | bloque de dinero del drawer |
-| **2. Paso de crear la solicitud** | antes del botón que crea | el **mismo bloque**, cifra a cifra idéntica, + una frase de la condición NM + la dirección de origen elegida | resumen previo |
-| **3. Términos** (`offer.terms`, render del backend) | permanente | la regla en prosa | §23.4 (la redacción es de ux-ui, el render del backend) |
+| # | Movimiento | ES | EN | Qué hace |
+|---|---|---|---|---|
+| 1 | **Quién pone la guía** | «Nosotros ponemos la guía de envío» | "We provide the shipping label" | Encuadra el hecho como **servicio**, no como cobro |
+| 2 | **La resta, nombrada y sin condición** | «y su costo se descuenta siempre de lo que te pagamos» | "and its cost is always deducted from what we pay you" | **Anuncia el descuento.** `siempre` / `always` cierra la lectura «quizá solo en algunos casos» |
+| 3 | **El alivio, DESPUÉS de la resta** | «: tú no pagas nada de tu bolsillo» | ": you pay nothing out of pocket" | Impide leerlo como castigo. Va **después**, nunca antes |
+| 4 | **La cita con el número** | «El monto exacto va en la oferta, antes de que aceptes.» | "The exact amount is in the offer, before you accept." | **Impide creer que ya sabe cuánto** y dice **dónde y cuándo** lo sabrá |
 
-**(d) Por debajo del mínimo: se muestra el faltante, NO el neto.** Con un total de MX$380 el neto sería
-MX$200 y el bloque diría una cifra **que no vamos a pagar**, porque la solicitud **no se crea**. Regla:
+**Texto completo (normativo; PO ratifica, §23.13.6):**
+- **ES** — *«Nosotros ponemos la guía de envío y su costo se descuenta siempre de lo que te pagamos: tú no
+  pagas nada de tu bolsillo. El monto exacto va en la oferta, antes de que aceptes.»*
+- **EN** — *"We provide the shipping label and its cost is always deducted from what we pay you: you pay
+  nothing out of pocket. The exact amount is in the offer, before you accept."*
+
+**Por qué el orden 2 → 3 es normativo.** Invertido («no pagas nada de envío, y su costo se descuenta…») la
+primera cláusula **ancla en "gratis"** y la segunda se lee como una corrección incómoda. La resta se nombra
+primero **porque es la noticia**; el alivio es el matiz, no el titular.
+
+**Por qué el movimiento 4 es el que sostiene el patrón.** Convierte un **hueco de información** en una
+**cita**: no dice «hay un descuento que no te decimos», dice «**el número exacto te llega antes de que te
+comprometas**». Es la misma doctrina de §7.3 y de R7 aplicada al copy: cuando no hay número, se dice **qué
+va a pasar con el número** — jamás se insinúa uno. Sin el movimiento 4 la frase es honesta pero deja al
+vendedor **rellenando el hueco con su propia estimación**, que es la peor de las cifras posibles: la que se
+inventó él.
+
+**(e) Prohibiciones del cotizador — la lista es cerrada y es verificable de un `grep`:**
+
+| Prohibido | Por qué |
+|---|---|
+| **Cualquier cifra de envío**: `MX$ 180`, `180`, `~200`, `$0` | D43. Y `$0` sería mentira: sí hay costo, lo pagamos y se descuenta |
+| **Rangos** («entre $150 y $200», «alrededor de $180», «aprox.») | Un rango **es** una cifra, con menos precisión y la misma promesa implícita |
+| **Adjetivos de tamaño aplicados a la tarifa**: «pequeño», «mínimo», «bajo», «simbólico», «razonable», «apenas», «solo» | **Es un juicio que no nos toca.** En una cotización de MX$500 la tarifa es el **36%**: llamarla «pequeña» es decidir por el vendedor cómo debe sentirse ante un número que **todavía no le enseñamos**. *(La palabra «mínimo» sigue siendo legítima donde nombra el **mínimo de compra** —«el mínimo de MX$500»—: ahí no califica la tarifa, nombra un umbral.)* |
+| **Porcentajes** | Igual que las cifras, y además cambia con cada carrito |
+| **`RECIBIRÍAS`, `NETO ESTIMADO`, `TE QUEDARÍAN`, `≈` sobre un neto** | Es la resta por otro nombre |
+| **Expresar el faltante del mínimo en términos de envío** («te faltan $120 para cubrir el envío») | Reintroduce la cifra **y** miente sobre qué es el mínimo: el mínimo **no es** el envío |
+| **«comisión», «cargo», «penalización», «retención», «descuento por manejo»** | No es ninguna de esas cosas. Es **la guía que ponemos nosotros** |
+| **«gratis», «sin costo», «cortesía», «envío gratis»** | Es exactamente la lectura falsa que el movimiento 2 viene a impedir |
+| **«como ya sabes», «recuerda que»** | El vendedor **no lo sabía**. Presuponer conocimiento es la versión educada de mentir |
+
+**(f) El mínimo se queda — solo, y sin nada de envío al lado.**
+El faltante es **un monto legítimo del cotizador**: es una cifra sobre **sus** cartas, no sobre nuestro
+servicio, y sin ella un «no» seco manda al vendedor a otro lado (criterio 132, que **no cambia**).
 
 ```
 ┌ TU COTIZACIÓN ────────────────────────────────┐
@@ -5881,36 +5987,81 @@ MX$200 y el bloque diría una cifra **que no vamos a pagar**, porque la solicitu
 │                                               │
 │ TE FALTAN MX$ 120.00 para el mínimo de        │
 │ MX$ 500.00.  Agrega otra carta.               │
+│                                               │
+│ Nosotros ponemos la guía de envío y su costo  │  ← la MISMA frase, sin cambios
+│ se descuenta siempre de lo que te pagamos:    │
+│ tú no pagas nada de tu bolsillo. El monto     │
+│ exacto va en la oferta, antes de que aceptes. │
 └───────────────────────────────────────────────┘
 ```
 
-- **No se pinta la línea de envío ni el neto** mientras el total esté por debajo del mínimo. Aparecen
-  **juntos**, en el mismo instante en que la solicitud se vuelve posible.
-- El faltante es `details.shortfallCents` del servidor (R4). *«Un "no" seco manda al vendedor a otro lado;
-  un "te faltan $120" lo manda a agregar otra carta»* (criterio 132).
-- La transición al cruzar el mínimo se anuncia con `aria-live="polite"`.
+- **Queda retirada la regla de v2.3** que ataba la aparición del envío al cruce del mínimo («aparecen
+  juntos, en el mismo instante»): **ya no hay nada de envío que aparezca**. Al cruzar el mínimo lo único que
+  cambia es que **el faltante desaparece**.
+- El faltante y el mínimo son `details.shortfallCents` y `minimumRequestCents` **del servidor** (R4). La
+  **puerta manda sobre la pantalla**: si el `422 BUYLIST_MINIMUM_NOT_MET` trae otro mínimo, se repinta con
+  el del error.
+- La transición al cruzar el mínimo sigue anunciándose con **`aria-live="polite"`**, y **el anuncio ya no
+  menciona envío ni neto**: *«Ya alcanzaste el mínimo de MX$ 500.00.»*
 
-**(e) Líneas sin precio (`precio_pendiente`).** Aportan **0** al total. Se listan con la versalita
+**(g) Dónde se dice la regla, actualizado.** D31 exige tres superficies —**cotizador, correo de oferta y
+términos**—; **las tres siguen diciéndola**, y lo que cambia es **quién puede llevar la cifra**. El cotizador
+ocupa dos filas porque son dos pantallas (carrito y paso de crear); el **correo de oferta** es la cuarta fila
+y vive en §23.4.2:
+
+| Superficie | Cuándo | Qué muestra | ⚠ |
+|---|---|---|---|
+| **1. Carrito del cotizador** (`SellCartDrawer`, §18.4) | **siempre, incluso con el carrito vacío** | el bloque de (c): **un monto** (cuando hay líneas) + la frase de (d) | El `SellRequirementsPanel` del propio drawer **también es cotizador**: tampoco lleva cifras de envío |
+| **2. Paso de crear la solicitud** | antes del botón que crea | la **misma frase, carácter por carácter** + la condición NM + la dirección de origen elegida | Es el último momento antes de comprometer cartas: **misma frase, no una versión resumida** |
+| **3. Términos** (`offer.terms`, render del backend) | con la oferta | la regla **en prosa y CON la cifra congelada** | **Los términos NO son el cotizador**: viajan con la oferta, son autenticados y ahí el número **sí** es vinculante |
+| **4. Correo de oferta** (§23.4.2) | al emitir | la regla en prosa **con el envío Y el neto nombrados**, junto a la tabla de los tres montos | **Es la primera vez que el vendedor ve la tarifa** (v2.3.1). Ver la decisión 8 de §23.4.2 |
+
+**(h) Líneas sin precio (`precio_pendiente`).** Aportan **0** al total. Se listan con la versalita
 `SIN PRECIO` (`accent`, §7.3) **sin monto** y una línea muted: *«Todavía no tiene precio; no suma a tu
-total.»* **Nunca `MX$ 0.00`**, nunca excluidas en silencio.
+total.»* **Nunca `MX$ 0.00`**, nunca excluidas en silencio. *(Sin cambios respecto de v2.3.)*
 
-**(f) NO hay casilla de «entiendo el descuento» al crear la solicitud.** Decisión explícita: el acto
-vinculante es **aceptar la oferta** (§23.5), y ahí sí hay confirmación. Pedir un consentimiento en un momento
-en que **no hay nada que consentir** (todavía no sabemos qué le compraremos ni por cuánto) produce dos
-efectos malos: fricción donde no protege, y la falsa impresión de que el trato ya está cerrado.
+**(i) NO hay casilla de «entiendo el descuento» al crear la solicitud — y con D43 menos que nunca.**
+El acto vinculante es **aceptar la oferta** (§23.5), y ahí sí hay confirmación, con el número enfrente.
+Pedir consentimiento aquí produce dos daños: fricción donde no protege, y la falsa impresión de que el trato
+ya está cerrado. **Y ahora se agrega un tercero, decisivo:** una casilla que dice «entiendo el descuento»
+sobre un monto que **deliberadamente no estamos mostrando** extrae consentimiento **de algo desconocido** —
+es el patrón oscuro que este ciclo entero existe para no cometer. **Si alguien propone la casilla como
+compensación por D43, la respuesta es no.**
 
-**(g) La dirección de origen, en el mismo paso.** Se pide **al crear** (D36/D37), con el patrón de la
+**(j) La dirección de origen, en el mismo paso.** Se pide **al crear** (D36/D37), con el patrón de la
 libreta que ya existe: si tiene direcciones guardadas, **`Select` con la predeterminada preseleccionada**
 (el recurrente no teclea nada); si no tiene ninguna, el formulario de alta inline, y queda en su libreta.
 Sin dirección **el botón de crear está apagado con `aria-describedby`** apuntando al motivo — nunca un
 botón mudo (§15.9). Copy de por qué: *«La necesitamos para imprimir la guía que te vamos a mandar.»*
 `422 PICKUP_ADDRESS_REQUIRED` / `PICKUP_ADDRESS_NOT_FOUND` se pintan inline en el campo, no como toast.
 
-**(h) ⚠ Degradación honesta si el número no llega.** El envío y el mínimo son **diales editables sin
-redeploy**: la cifra **no se hardcodea en el frontend** (regla 1 de §11.4 aplicada al dinero, R4). Si el
-contrato no entrega los dos números a la superficie pública, la UI pinta **la frase de la regla sin cifra**
-(«el envío lo ponemos nosotros y su costo se descuenta de lo que te pagamos») y **omite el bloque de la
-resta** — nunca inventa 180. Ver la solicitud al arquitecto en §23.13.1.
+**(k) Dependencia de datos: D43 la vuelve casi cero.**
+
+| Dato | ¿Lo necesita el cotizador? | Qué pasa si no llega |
+|---|---|---|
+| La **frase** de (d) | **No necesita ningún dato.** Es copy estático de `messages/{es,en}.json` | No puede fallar. **No se esqueletiza, no se condiciona, no espera al servidor** |
+| `minimumRequestCents` (`GET /buylist/quote-policy`, D41) | **Sí**, para el faltante | **No se pinta el faltante y no se inventa ningún mínimo.** El CTA sigue vivo: la puerta real es el `422` del servidor, que trae el mínimo autoritativo y repinta |
+| `shippingFeeCents` | **⚠ Ya NO.** Ninguna superficie pública lo consume | — (ver **§23.13.1-bis**: se propone retirarlo del DTO público) |
+
+La regla 1 de §11.4 aplicada al dinero (R4) sigue en pie: **ninguna cifra de estas se hardcodea**. Lo que
+cambia es que **la cifra que más riesgo de hardcodeo tenía —la tarifa— ya no se pinta en ningún lado
+público**, así que el riesgo desaparece por construcción, no por disciplina.
+
+**(l) Objeción registrada (obligación de representar a quien usa esto).**
+**Acepto D43** y creo que la razón que la sostiene es correcta —y en (a.2) le agregué un argumento que la
+refuerza—. Queda **una reserva acotada**, para que esté escrita y se pueda medir:
+
+- **La reserva:** el vendedor que cotiza **cerca del mínimo** decide crear la solicitud, captura su
+  dirección y espera, sin saber que la deducción puede ser **~36%** de lo que está viendo. Lo descubre en el
+  correo. **No pierde dinero ni cartas** —puede decir que no, y ese es el punto que baja la gravedad—, pero
+  **sí pierde tiempo y confianza**, y nosotros perdemos el trato con una oferta ya emitida.
+- **Lo que NO propongo:** volver a pintar la cifra en el cotizador. Ya vimos en (a.2) que el neto de esa
+  pantalla es optimista por construcción; enseñarlo sería peor.
+- **Lo que propongo, y es de producto, no de diseño (§23.13.6-bis.b):** **medir el rechazo por tamaño de
+  oferta.**
+  Si las ofertas chicas se rechazan sistemáticamente después del correo, el problema **no** es la
+  divulgación: es **la proporción**. Y la proporción se arregla con **un dial** —subir el mínimo de compra
+  para que la tarifa nunca sea una tajada brutal—, no con más letra en una pantalla indicativa.
 
 ---
 
@@ -6009,9 +6160,11 @@ QUÉ PASA SI UNA CARTA NO LLEGA EN NEAR MINT           ← bloque sobre POZO #EF
  ─────────────────────────────────────────────────    ← regla de TINTA 1px (la única del correo)
  SE TE DEPOSITAN                        MX$   840.00  ← mono 22px peso 500, tinta
 
- Nosotros ponemos la guía de envío y su costo SIEMPRE  ← sans 15px TINTA (no muted)
- se descuenta de lo que te pagamos. Tú no pagas nada
- de envío. La cifra que se te deposita es MX$ 840.00.
+ Nosotros ponemos la guía de envío. Su costo,          ← sans 15px TINTA (no muted)
+ MX$ 180.00, es una tarifa fija y SIEMPRE se            ⚠ v2.3.1: la prosa nombra
+ descuenta de lo que te pagamos: tú no pagas            TAMBIÉN el envío, no solo
+ nada de tu bolsillo. La cifra que se te                el neto (ver decisión 8)
+ deposita es MX$ 840.00.
 ──────────────────────────────────────────────────────
  Tienes hasta el miércoles 3 de septiembre de 2026,   ← sans 15px; la fecha en mono 500
  6:00 p. m. (2 días hábiles). Si no respondes antes
@@ -6031,7 +6184,7 @@ QUÉ PASA SI UNA CARTA NO LLEGA EN NEAR MINT           ← bloque sobre POZO #EF
  verificar tus cartas.
 ```
 
-**Las siete decisiones que sostienen este correo:**
+**Las OCHO decisiones que sostienen este correo** *(eran siete; la 8 entra en v2.3.1 con D43)*:
 
 1. **La condición está EN LA LÍNEA, no en una leyenda.** `terms.perLineConditionLabel` se pinta en cada
    línea comprada, en **tinta** (no muted), **en el mismo renglón que el monto**, alineada a la izquierda
@@ -6052,20 +6205,43 @@ QUÉ PASA SI UNA CARTA NO LLEGA EN NEAR MINT           ← bloque sobre POZO #EF
    tinta** del correo va encima del neto. El signo `−` es texto. El neto es la cifra más grande del correo
    **y la única en 22px**: el bruto y el envío comparten cuerpo (15px mono) para que ninguno compita.
 5. **La regla del descuento se escribe, no solo se resta** (D31), en **tinta y al lado de los montos**, y
-   **repite el neto en prosa** («La cifra que se te deposita es MX$ 840.00»): quien lee en diagonal la tabla
-   y quien lee la prosa se llevan **el mismo número**.
+   **repite en prosa el envío y el neto** («Su costo, MX$ 180.00… La cifra que se te deposita es
+   MX$ 840.00»): quien lee en diagonal la tabla y quien lee la prosa se llevan **los mismos números**.
+   *(Ampliado en v2.3.1 — antes la prosa solo repetía el neto; ver la decisión 8.)*
 6. **Plazo con fecha, hora, día de la semana y «días hábiles» entre paréntesis.** Nunca «en 2 días». La
    fecha llega **ya resuelta** del servidor (R4). Se dice **qué pasa si no responde** — que la oferta se
    cancela sola — porque el silencio también es una decisión y debe estar informada.
 7. **El CTA lleva al portal y lo dice.** «Entrarás con tu cuenta: esta oferta no se acepta desde un enlace
    del correo» convierte una restricción de seguridad en una **señal de seriedad**. No existe enlace
    tokenizado de aceptación.
+8. **⚠ NUEVA (v2.3.1, D43) — este correo es la PRIMERA vez que el vendedor ve el monto del envío.** Ya no
+   confirma nada que haya visto en el carrito (§23.3): **introduce un número nuevo en el momento en que
+   decide**. La consecuencia de diseño es una sola y es de **redundancia de canal**: **la cifra del envío se
+   dice DOS VECES —en la tabla y en la prosa—**, igual que el neto. Antes bastaba con que la prosa repitiera
+   el neto, porque el envío era un recordatorio; **un número que se estrena no puede vivir en una sola
+   celda**, que es justo la celda que se salta quien lee en diagonal. Se añade `es una tarifa fija`: es un
+   hecho de `PROJECT.md` (§P, D31) y **quita la sospecha** de un cargo variable calculado a nuestro gusto —
+   sin pedir disculpas y sin vender el descuento. *(Redacción sujeta a ratificación de PO, §23.13.6.)*
+
+**Lo que se revisó con esa lente y se decidió NO cambiar** *(v2.3.1 — se escribe para que nadie lo
+«mejore» después)*:
+
+| Se consideró | Decisión | Por qué |
+|---|---|---|
+| **Subir los montos por encima de la condición**, ya que el envío es información nueva | **NO** | R2 manda: la condición se lee **antes** del dinero y **dentro** de cada línea. Un correo que abre con la resta convierte el trato en una factura |
+| **Darle más peso tipográfico a la línea del envío** para que el número nuevo se note | **NO** | Si el envío compite con el neto, el vendedor se va con **la cifra equivocada en la cabeza**. La resta ya tiene dos canales visuales: la **regla de tinta** y el signo `−`. Al envío se le da el segundo canal **en la prosa**, que no cuesta jerarquía |
+| **Poner el envío en el asunto o en el preheader** «ya que es nuevo» | **NO — lo prohíbe R1** | El asunto sigue llevando **solo el neto**, y con D43 esa regla vale más que antes: **la primera cifra que este vendedor ve en su vida sobre esta venta es la que efectivamente va a recibir**, rotulada «se te depositan» |
+| **Explicar por qué cobramos envío**, o disculparse por el descuento | **NO** | El correo **informa un hecho del trato**; justificarlo lo vuelve negociable y sugiere que nos parece caro |
+| **Un bloque «esto no te lo habíamos dicho»** | **NO** | Nombrar el hueco lo agranda. La frase del cotizador ya prometió que el monto exacto venía aquí; **cumplirla en silencio es la forma correcta de cumplirla** |
 
 **Prohibiciones específicas del correo 1:**
 `MX$ 0.00` en cualquier línea · el bruto en el asunto o en el preheader (**R1**) · porcentajes · una
 condición en pie de página en vez de por línea · botones de «aceptar» / «rechazar» **dentro del correo** ·
 cualquier cifra de la mesa de decisión · prometer la guía como si ya existiera («tu guía está lista»: no se
-compra al ofertar, D21).
+compra al ofertar, D21) · **⚠ (v2.3.1) cualquier fórmula que PRESUPONGA conocimiento previo del envío** —
+«como ya sabías», «como te habíamos dicho», «recuerda que», «el descuento habitual», «te confirmamos el
+envío de siempre»—: con D43 **es falso**, y un correo de dinero que le dice al vendedor que ya sabía algo
+que nunca vio **le enseña a desconfiar de todo lo demás que ese correo afirma**.
 
 #### 23.4.3 CORREO 2 — EL RECORDATORIO (uno por plazo, una sola vez)
 
@@ -6095,6 +6271,13 @@ TU OFERTA · BL-000123
   Enlace: «Ver el desglose completo» → portal.
 - **Mismos números, congelados.** Si el recordatorio muestra un monto o una fecha distintos de los del
   correo 1, es un **defecto bloqueante**, no una discrepancia menor.
+- **⚠ Revisado con la lente de D43 (v2.3.1) y NO cambia.** El bloque congelado sigue llevando **solo el
+  neto**, sin la resta. Es correcto por partida doble: el neto es **el único monto vinculante** (R1) y es
+  **el único que el vendedor necesita para decidir** si acepta; y repetir la resta en un recordatorio lo
+  convertiría en una **oferta nueva** (la propiedad que este ciclo más protege: hay **una** oferta y **no se
+  edita**). El envío ya se estrenó en el correo 1 y se puede releer, completo, en el portal — al que este
+  correo enlaza con «Ver el desglose completo». **La divulgación es del correo 1 + el portal; el
+  recordatorio no la repite ni la sustituye.**
 - **Una sola vez por plazo** (el barrido corre varias veces). Es regla de backend; la nota se deja aquí
   porque un segundo recordatorio idéntico **destruye la credibilidad del primero**.
 - **2b lleva el número de guía en mono seleccionable**, y el texto dice qué hacer si **ya** lo mandó:
@@ -6202,10 +6385,24 @@ una fecha límite, un «7 días» o un «venció», el correo está mal.
 | 3c | `Cancelamos la oferta que te mandamos` | `We cancelled the offer we sent you` |
 | 4 | `No procederemos con tu solicitud de venta` | `We won't be proceeding with your sell request` |
 
-**Preheader del correo 1** (texto oculto, primera línea que ve la bandeja):
-ES *«Compramos 2 de tus 3 cartas, siempre que lleguen en Near Mint. El envío lo ponemos nosotros.»* ·
-EN *«We'll buy 2 of your 3 cards, provided they arrive Near Mint. Shipping is on us.»*
+**Preheader del correo 1** (texto oculto, primera línea que ve la bandeja) — **⚠ corregido en v2.3.1**:
+ES *«Compramos 2 de tus 3 cartas, siempre que lleguen en Near Mint. La guía la ponemos nosotros y se
+descuenta.»* · EN *"We'll buy 2 of your 3 cards, provided they arrive Near Mint. We provide the label and
+deduct it."*
 **El preheader del correo 1 lleva la condición** — es la primera superficie del trato y no puede omitirla.
+
+> **⚠ Por qué se corrigió** (v2.3.1, D43): ~~«El envío lo ponemos nosotros» / «Shipping is on us»~~ decía
+> **la mitad buena** del hecho y omitía la resta. Cuando el vendedor ya había visto la aritmética en el
+> carrito, esa media frase era taquigrafía inofensiva; **ahora es la primera cosa que lee sobre el envío en
+> todo el ciclo**, y «lo ponemos nosotros» a secas se lee como **«gratis»**. **Regla derivada, válida en
+> todo el sistema: donde aparezca «ponemos la guía», viaja «y se descuenta».** Las dos mitades no se
+> separan nunca — ni en un preheader, ni en un asunto, ni en una notificación, ni en un tuit.
+> **Única excepción, y es aparente:** el **rótulo de la fila de la tabla de montos** del correo/portal
+> (`Envío que ponemos nosotros  − MX$ 180.00`) puede ser corto **porque la resta está a la vista** — signo
+> `−`, regla de tinta y neto debajo hacen literalmente lo que la frase diría. La regla protege a la frase
+> **suelta**, no al renglón de una aritmética visible.
+> El asunto **no cambia**: sigue llevando **solo el neto**, que es la cifra rotulada con lo que de verdad
+> recibe (R1).
 
 ---
 
@@ -6220,6 +6417,12 @@ la **condición en un bloque sobre pozo** (mismo texto del correo) → la lista 
 condición por línea → las **no compradas** sin monto → el `AmountBreakdown` de los tres montos con el neto
 destacado → el plazo con fecha y hora → **dos acciones**.
 
+- **⚠ v2.3.1 (D43): el portal es el único sitio donde el vendedor puede RELEER la resta.** El correo la
+  estrena y el recordatorio no la repite (§23.4.3), así que aquí el `AmountBreakdown` de los **tres** montos
+  es **obligatorio** y va acompañado de la **misma frase en prosa del correo**, con el envío y el neto
+  nombrados —no una versión abreviada, no solo el neto—. Un portal que muestre únicamente `SE TE DEPOSITAN`
+  deja al vendedor **sin ningún lugar donde volver a ver de dónde salió**, salvo un correo que quizá borró.
+
 **(c) Las dos acciones, y su jerarquía deliberada:**
 
 | Acción | Variante | Por qué |
@@ -6230,6 +6433,10 @@ destacado → el plazo con fecha y hora → **dos acciones**.
 - **Confirmación al aceptar** (§7.6, es dinero): repite **el neto** y **la condición** en una frase —
   *«Aceptas que te compremos 2 cartas por MX$ 840.00, siempre que lleguen en Near Mint»*— y el botón dice el
   verbo con el monto: **«Aceptar y recibir mi guía»**. Sin cuenta atrás, sin urgencia artificial.
+  *(**Revisado con la lente de D43 y NO cambia:** el diálogo se abre **a 200px del bloque de los tres
+  montos**, y R1 autoriza expresamente al **neto** a viajar solo. Meterle la resta convertiría el último
+  clic en una re-lectura del trato — y el sitio para leer el trato es la pantalla, no el diálogo que la
+  tapa.)*
 - **`aria-live="polite"`** al resolver; el resultado sustituye el bloque de acciones por el estado nuevo.
 - **NO existen casillas por línea.** El todo-o-nada se demuestra **por lo que no está** (§P.11): la lista es
   de solo lectura, sin `checkbox`, sin «quitar esta carta».
@@ -6237,9 +6444,18 @@ destacado → el plazo con fecha y hora → **dos acciones**.
   no como toast: el vendedor acaba de intentar comprometer dinero.
 
 **(d) Antes de que exista oferta**, la pantalla **no muestra guía, ni nuestra dirección, ni instrucciones de
-envío**, y **no ofrece** ninguna vía para decir «ya lo mandé» (criterio 114). Muestra: sus cartas, el aviso
-de descuento de §23.3, **su propia dirección de origen** (que es suya y tiene que poder verificarla) y una
-frase clara: *«Todavía no mandes nada. Te escribimos con nuestra oferta.»*
+envío**, y **no ofrece** ninguna vía para decir «ya lo mandé» (criterio 114). Muestra: sus cartas, **su
+propia dirección de origen** (que es suya y tiene que poder verificarla), una frase clara —*«Todavía no
+mandes nada. Te escribimos con nuestra oferta.»*— y **la nota de servicio del envío de §23.3d, palabra por
+palabra y SIN CIFRAS**.
+
+> **⚠ Corrección v2.3.1 (D43).** Aquí decía «el aviso de descuento de §23.3», que en v2.3 era **el bloque
+> con la resta**. Sería un error doble pintarlo: (1) D43 lo prohíbe en toda superficie previa a la oferta, y
+> (2) **antes de la oferta no existe tarifa congelada**, así que cualquier cifra que apareciera aquí sería
+> **la del dial de hoy**, capaz de no coincidir con la que se le ofertará mañana. La regla es limpia:
+> **antes de la oferta, la frase; desde la oferta, los tres montos.** El portal **cambia de idioma sobre el
+> dinero exactamente en el mismo instante** en que sale el correo 1 — que es el instante en que el número
+> deja de ser un dial y pasa a ser un compromiso.
 
 **(e) La dirección de origen, con su ventana de corrección.** Mientras `guideSentAt === null`, junto a la
 dirección va **«Cambiar»** (`PATCH …/pickup-address`, elige otra de su libreta). Cuando ya hay guía, el
@@ -6493,11 +6709,14 @@ Motivo (interno, queda en bitácora) [                          ]
 | **Mesa de decisión** | skeleton **con la retícula final** (§18.6): identidad, dos montos y **la tira de cuatro**, para que no salte al llegar el dato | no aplica (una solicitud siempre tiene líneas) | `Banner danger` + Reintentar. **Si falla el conteo, NO es error de pantalla**: es §23.7 |
 | **Colas de M5** | filas skeleton | mensaje positivo («Nada pendiente aquí») | banner + reintentar |
 | **Portal, oferta** | skeleton del bloque de montos con **la altura final** | — | banner persistente con el estado real |
-| **Cotizador** | ya definido en §18.6 | «Tu cotización está vacía» | inline |
+| **Cotizador** | ya definido en §18.6. **La nota de servicio del envío (§23.3d) se pinta desde el primer render**: es copy estático, no espera a ningún dato y **no se esqueletiza** | «Tu cotización está vacía» — **con la nota igualmente visible**: el trato se explica antes de que haya carrito | inline. **Si falla `quote-policy`**: no se pinta el faltante, no se inventa mínimo, **la nota sigue ahí** y el CTA sigue vivo (la puerta es el `422` del servidor) |
 
 **Regla money-safe del skeleton:** ningún skeleton reserva el hueco de una cifra que puede **no existir**
 (§22 R4 aplicada aquí): la tira de posición se esqueletiza porque **siempre** hay respuesta —número o
 `positionUnavailable`—, pero el bloque de montos del portal **no se esqueletiza si no hay oferta**.
+**⚠ Y el bloque de dinero del cotizador no reserva altura para ninguna línea de envío ni de neto** (v2.3.1,
+D43): esas líneas **no existen en ningún estado**, así que un skeleton que las dibuje estaría prometiendo
+una cifra que jamás va a llegar — la misma mentira que §23.7 prohíbe en la tira de posición.
 
 ---
 
@@ -6516,6 +6735,11 @@ Motivo (interno, queda en bitácora) [                          ]
   emitir. La barra sticky va al final del DOM y no rompe el orden.
 - **`aria-live="polite"`** en: totales de la mesa, cruce del mínimo en el cotizador, resultado de aceptar o
   rechazar. **`assertive`** solo para errores de emisión y de aceptación (dinero).
+  **⚠ v2.3.1 (D43):** el anuncio del cruce del mínimo **ya no menciona envío ni neto** (*«Ya alcanzaste el
+  mínimo de MX$ 500.00»*), y **la nota de servicio del envío NO va dentro de una región live**: es texto
+  permanente, y repetirlo en cada cambio del carrito lo volvería ruido para quien navega con lector de
+  pantalla. Se lee **una vez, en su orden del DOM** —inmediatamente después del monto—, que es exactamente
+  donde lo lee quien mira.
 - **Táctil ≥ 44px** en casillas de la mesa (se usa junto a las cajas, a veces con prisa) y en las dos
   acciones del portal.
 - **Correo:** tablas de layout con `role="presentation"`; la tabla de montos **no** es presentacional (lleva
@@ -6543,7 +6767,10 @@ Todo lo que §23 usa ya está verificado en §10 y §17.2:
 
 **Reglas derivadas de esta sección:**
 1. **El muted no porta ninguna cifra ni ningún estado de §23.** Las cuatro cifras de la posición, la frase de
-   `SIN CONTEO` y la frase del descuento van en **tinta**. El muted queda para etiquetas y notas.
+   `SIN CONTEO` y **la nota de servicio del envío del cotizador** (§23.3d, v2.3.1) van en **tinta**. El muted
+   queda para etiquetas y notas. **Con D43 esta regla pesa más, no menos:** la nota es ahora **lo único** que
+   el vendedor lee sobre el envío antes de la oferta — degradarla a muted la convertiría en la letra chica
+   que §P.3 prohíbe, por la puerta del color.
 2. **`warning` y `danger` comparten el rojo**, así que `SIN ENVÍO` (danger) y `ALERTA` (warning) se
    distinguen **por la palabra**, nunca por el matiz.
 3. **`no_offer` es neutral a propósito.** Es el único desenlace del ciclo que **no** puede llevar rojo:
@@ -6564,14 +6791,44 @@ Convención §9.2. **Todo lo de §23 existe en los dos idiomas** (el proyecto ti
 - `buylist.stepper.{1..8}.label` + `buylist.stepper.closed.{rechazada,not_shipped,no_offer,abandonada}`.
 - `buylist.shipDeclared.{label,at}` — `PAQUETE REPORTADO`.
 
-**Cotizador (§23.3)**
-- `buylist.quote.money.{cardsValue,shippingOnUs,youWouldGet,rule}` — `rule` es la frase del descuento.
-- `buylist.quote.minimum.{shortfall,minimumIs,addAnother}` — con `{amount}` interpolado, nunca concatenado.
+**Cotizador (§23.3)** — **⚠ reescrito en v2.3.1 (D43)**
+- `buylist.quote.money.cardsValue` — el **único** rótulo de monto del bloque («Valor de tus cartas» /
+  "Value of your cards"). **Prohibido** cambiarlo por uno que prometa pago (§23.3c).
+- **`buylist.quote.shippingNote`** — **la frase completa de §23.3d, UNA sola clave** (es **un párrafo**; el
+  patrón «una clave por párrafo» de §22.11 se cumple, no se trocea en cuatro para «armarla»: trocearla
+  invitaría a que alguien pinte solo el movimiento 1 y se pierda la resta).
+  **ES:** «Nosotros ponemos la guía de envío y su costo se descuenta siempre de lo que te pagamos: tú no
+  pagas nada de tu bolsillo. El monto exacto va en la oferta, antes de que aceptes.»
+  **EN:** "We provide the shipping label and its cost is always deducted from what we pay you: you pay
+  nothing out of pocket. The exact amount is in the offer, before you accept."
+  **Sin placeholders**: esta clave **no admite `{amount}`** — si alguien le añade uno, es el bug de D43.
+- `buylist.quote.minimum.{shortfall,minimumIs,addAnother,reachedAnnounce}` — con `{amount}` interpolado,
+  nunca concatenado. `reachedAnnounce` es el `aria-live` del cruce (§23.10) y **no nombra envío ni neto**.
 - `buylist.quote.pendingLine.{label,note}` — `SIN PRECIO` + «no suma a tu total».
 - `buylist.request.address.{label,why,change,printed,missing}`.
+- **⚠ CLAVES RETIRADAS (no se implementan; si ya existen, se borran):**
+  ~~`buylist.quote.money.shippingOnUs`~~ (el rótulo de la línea de envío), ~~`buylist.quote.money.youWouldGet`~~
+  (`RECIBIRÍAS ≈`) y ~~`buylist.quote.money.rule`~~ (sustituida por `shippingNote`, que **no es la misma
+  frase**: la nueva incorpora la cita con el número). **El test de paridad ES/EN debe quedar en verde con
+  las tres ausentes en los dos idiomas** — una clave viva en un solo idioma es el modo típico en que una
+  cifra retirada reaparece en producción.
 
 **Correos (`buylist.mail.*`)** — una clave **por párrafo** (nunca un solo string; §22.11 sentó el patrón):
 - `offer.{subject,preheader,eyebrow,headline,conditionIntro,buyGroup,skipGroup,skipLabel,consequenceTitle,consequenceBody,grossLabel,shippingLabel,netLabel,ruleParagraph,deadlineParagraph,cta,ctaNote,guideParagraph,addressParagraph,closingParagraph}`
+- **⚠ v2.3.1 (D43) — DOS claves del correo 1 cambian de CONTENIDO, ninguna de nombre:**
+  - `offer.ruleParagraph` gana **dos interpolaciones**: `{shippingAmount}` **y** `{netAmount}` (antes solo
+    el neto). ES: *«Nosotros ponemos la guía de envío. Su costo, {shippingAmount}, es una tarifa fija y
+    siempre se descuenta de lo que te pagamos: tú no pagas nada de tu bolsillo. La cifra que se te deposita
+    es {netAmount}.»* · EN: *"We provide the shipping label. Its cost, {shippingAmount}, is a flat fee and
+    is always deducted from what we pay you: you pay nothing out of pocket. The amount deposited to you is
+    {netAmount}."* **Los dos montos llegan resueltos del servidor** (R4) y son los **congelados** de la
+    oferta, no los diales de hoy.
+  - `offer.preheader` incorpora la resta (§23.4.7). **Regla de sistema, con el alcance que le da §23.4.7:**
+    ninguna cadena **que viaje sola** —preheader, asunto, notificación, la nota del cotizador— puede decir
+    «ponemos la guía» / "we provide the label" **sin** su «y se descuenta» / "and deduct it", **en ninguno de
+    los dos idiomas**. Dentro del correo o del portal, donde la tabla de los tres montos está a la vista, un
+    párrafo logístico como `offer.guideParagraph` («al aceptar te mandamos la guía…») **sí** puede hablar de
+    la guía sin repetir la resta: ahí la aritmética ya está en pantalla.
 - `offer.perLineCondition` — **la frase corta por línea** («siempre que llegue en Near Mint» / «provided it
   arrives Near Mint»). ≤ 34 car. ES, ≤ 30 EN.
 - `reminder.accept.{subject,headline,body,cta}` · `reminder.ship.{subject,headline,body,guideLabel,alreadyShipped,cta}`
@@ -6597,22 +6854,35 @@ Convención §9.2. **Todo lo de §23 existe en los dos idiomas** (el proyecto ti
   neto se dimensiona por el **máximo de ambos**.
 - Las versalitas de estado **envuelven a dos líneas antes que truncarse** en columnas estrechas.
 - **Prohibido concatenar** para armar montos o plazos: interpolación con `{amount}` / `{date}`.
+- **`buylist.quote.shippingNote` (v2.3.1):** ~163 caracteres en ES y ~155 en EN ⇒ **4 líneas** en el drawer
+  de 400px y **3–4** en el paso de crear. El bloque de dinero **no lleva alto fijo** y la nota **no se
+  trunca, no lleva `line-clamp`, no lleva «ver más»**: es corta a propósito **para caber entera**. Si en
+  algún ancho no cupiera, se corrige el contenedor, **nunca el texto**.
 
 ---
 
 ### 23.13 Notas a otros roles (solicitudes derivadas del diseño)
 
-1. **⚠ Arquitecto — el cotizador es PÚBLICO y necesita dos números que hoy solo viven en M10 (la más
-   importante).** §23.3 exige mostrar **la tarifa de envío** y **el mínimo de compra** *antes* de crear la
-   solicitud, y `PROJECT.md` lo marca como **requisito, no adorno** (D31, criterio 132). Pero
-   `buylistShippingFeeCents` y `buylistMinimumRequestCents` son **diales de M10** y **no hay ninguna
-   superficie pública que los entregue** (`POST /buylist/quote` y `/quote/batch` no los devuelven, y no
-   existe un endpoint de config pública). **Hardcodearlos en el frontend está prohibido** por nuestra propia
-   regla: son editables sin redeploy y una constante quedaría desincronizada en silencio (R4). **Petición:**
-   que la respuesta del quote (o del batch) eche los dos montos, o que exista un endpoint público de
-   configuración del buylist. **Mientras no exista**, §23.3h define la degradación honesta —frase sin
-   cifra— pero **el requisito de PROJECT queda parcialmente incumplido**, y eso es de producto, no de
-   diseño.
+1. **✅ CERRADA — «el cotizador es PÚBLICO y necesita dos números de M10».** *(Se conserva el texto original
+   abajo, tachado, porque el modo en que se cerró importa.)* **Se resolvió al revés de como este documento
+   lo planteó: el humano quitó el requisito (D43) en vez de construir la superficie.** El cotizador **ya no
+   muestra ninguna cifra de envío** (§23.3 reescrita). El diagnóstico era correcto —hardcodear estaba
+   prohibido— pero **la conclusión de que había que exponer la tarifa era mía, no de `PROJECT.md`**: D31
+   pedía *decir la regla con todas sus letras*, no *hacer la resta*. **Sin deuda pendiente por este punto.**
+   > ~~**⚠ Arquitecto — el cotizador es PÚBLICO y necesita dos números que hoy solo viven en M10 (la más
+   > importante).** §23.3 exige mostrar **la tarifa de envío** y **el mínimo de compra** *antes* de crear la
+   > solicitud… **Petición:** que la respuesta del quote (o del batch) eche los dos montos, o que exista un
+   > endpoint público de configuración del buylist.~~
+   **1-bis. ⚠ Arquitecto — consecuencia directa: `shippingFeeCents` se quedó sin consumidor público.**
+   `GET /buylist/quote-policy` (v1.51.4, D41) se creó **para** este requisito y expone
+   `{ minimumRequestCents, shippingFeeCents }`. Con D43, **`minimumRequestCents` sigue siendo necesario**
+   (el faltante del mínimo se queda, criterio 132) pero **`shippingFeeCents` ya no lo consume ninguna
+   pantalla pública**. **Petición: retirarlo del DTO público.** El argumento es del propio contrato — *«se
+   publica un dial **solo si** la pantalla pública lo necesita para no mentir sobre el dinero»*: hoy ninguna
+   lo necesita. Y hay un beneficio de diseño que vale más que la limpieza: **si el número no llega al
+   navegador, D43 deja de depender de la disciplina del frontend y pasa a ser imposible de violar por
+   accidente.** Un dial publicado y sin uso es una cifra esperando a que alguien la pinte. **Decisión del
+   arquitecto; no bloquea nada** (el frontend simplemente no lo lee).
 2. **⚠ Arquitecto / PO — el correo 3 tiene TRES productores y uno de ellos NO es terminal.** La tabla de
    `ARCHITECTURE §4.39(n)` agrupa en el correo 3 la **falta de respuesta** (`rechazada`), el **no envío**
    (`expirada`/`not_shipped`) y la **cancelación de la oferta por nosotros** (que devuelve la solicitud a
@@ -6641,6 +6911,26 @@ Convención §9.2. **Todo lo de §23 existe en los dos idiomas** (el proyecto ti
 6. **PO — ratificar textos.** `offer.perLineCondition`, el bloque `consequence`, los tres titulares del
    correo 3 y los tres párrafos del correo 4. Son el **documento vinculante** del ciclo; ux-ui propone la
    redacción, PO (y quien haga la revisión legal de los términos) la ratifica.
+   **⚠ Se añaden tres textos de v2.3.1 (D43), y los tres son sensibles:** **(a)**
+   `buylist.quote.shippingNote` en ES y EN —**la única cosa que el vendedor lee sobre el envío antes de
+   comprometer sus cartas**, §23.3d—; **(b)** el `offer.ruleParagraph` ampliado, en particular la
+   afirmación **«es una tarifa fija»** (sale de `PROJECT.md` §P/D31 — *«una tarifa fija de MX$180»*— y
+   **conviene que PO confirme que se puede afirmar así frente al cliente**); **(c)** el preheader corregido
+   del correo 1.
+   **6-bis. ⚠ PO — dos encargos que solo se pueden cerrar del lado de producto.**
+   **(a) Formalizar D43 en `PROJECT.md`.** La decisión llegó a este pase por la vía del orquestador y
+   `PROJECT.md` todavía no la registra: el bullet de D31 *«el descuento del envío se dice EN TODOS LADOS»*
+   sigue en pie —**y esta sección lo cumple**—, pero conviene que diga explícitamente que **en el cotizador
+   se dice sin cifras** y que **la resta con los tres montos vive solo en la oferta**. Sin ese renglón, el
+   próximo que lea D31 y el criterio 132 va a reconstruir la resta del carrito **creyendo que corrige un
+   olvido**. *(Recordatorio de la regla de conflicto: manda `PROJECT.md`; este documento se alinea, no al
+   revés.)*
+   **(b) Medir lo que D43 traslada al correo** — es la mitigación que propuse en §23.3l, y es de producto:
+   **tasa de rechazo y de silencio por tamaño de oferta**, mirando en especial las ofertas cerca del mínimo,
+   donde la tarifa fija pesa **~36%**. Si esas ofertas se caen sistemáticamente **después** del correo, el
+   problema **no es la divulgación** (enseñar en el cotizador un neto optimista sería peor, §23.3a.2): es
+   **la proporción**, y se corrige **con el dial del mínimo de compra**, que ya existe en M10. Es un
+   experimento barato: el dato ya se registra por solicitud.
 7. **Frontend — qué hay que tocar y qué no.** **No** se pide ningún componente nuevo. Se **extienden** dos:
    (a) `PipelineStepper` — ocho pasos, tres orientaciones (§23.2b) y **cierre terminal** en vez de noveno
    nodo; (b) el mapa de badges — recibe `{status, expiredReason}` y resuelve `expirada` **por el motivo**,
@@ -6648,9 +6938,18 @@ Convención §9.2. **Todo lo de §23 existe en los dos idiomas** (el proyecto ti
    `AmountBreakdown` §7.12, `Select`/`Input`/`Textarea` §6.2–6.3, barra sticky §21.6, skeletons §18.6.
    **La plantilla de correo es medio nuevo**, con su propia hoja de reglas (§23.4.0) y **su parte de texto
    plano obligatoria**.
+   **⚠ v2.3.1 (D43) — lo que cambia para frontend, y es sobre todo trabajo que se BORRA:** en el cotizador
+   se retiran **la línea de envío, la regla de la resta y el neto estimado** (y sus tres claves i18n,
+   §23.12); el bloque de dinero queda con **un monto, el faltante cuando aplique y una frase estática**; el
+   cotizador **deja de leer `shippingFeeCents`** (solo necesita `minimumRequestCents`, y sabe vivir sin él,
+   §23.3k); el portal **antes de la oferta** pinta la frase, **no** el bloque de la resta (§23.5d). En el
+   correo 1, la prosa pasa a interpolar **dos** montos. **Cero componentes nuevos y cero tokens nuevos**,
+   igual que el resto de §23.
 8. **QA visual sugerido.**
    (a) **Correo 1 con imágenes bloqueadas y sin webfonts**: los tres montos, la condición por línea y el
-   plazo siguen legibles; el neto es la cifra más grande.
+   plazo siguen legibles; el neto es la cifra más grande. **⚠ v2.3.1: la cifra del envío aparece DOS veces
+   —tabla y prosa— y el neto también**; el correo **no contiene** «como ya sabías», «recuerda que» ni
+   ninguna fórmula que presuponga que el vendedor ya conocía la tarifa.
    (b) **Ningún asunto ni preheader del sistema contiene el bruto** (R1) — buscar el bruto en los cuatro.
    (c) **Ningún correo que mencione un monto ofertado omite la condición NM** (R2) — incluido el
    recordatorio.
@@ -6670,7 +6969,22 @@ Convención §9.2. **Todo lo de §23 existe en los dos idiomas** (el proyecto ti
    (j) `netBelowMinimum` y `pickupAddressMissing` apagan el botón **con texto asociado**; ninguno apagado y
    mudo.
    (k) `requiresAuthorization` ⇒ el botón dice **«Enviar a autorización»**, no «Emitir».
-   (l) **Cotizador por debajo del mínimo**: no se pinta ni la línea de envío ni el neto; sí el faltante.
+   (l) **⚠ REESCRITA (v2.3.1, D43) — el cotizador no dice ninguna cifra de envío, en NINGÚN estado.**
+   Es la prueba más barata de todo §23 y se corre con un `grep` sobre el DOM y sobre `messages/{es,en}.json`:
+   　(l.1) En el **carrito, el panel de requisitos de venta y el paso de crear**, en **ES y EN**, por debajo
+   y por encima del mínimo, con líneas `SIN PRECIO` y con el carrito vacío: **el único `MX$` que aparece es
+   el valor de las cartas y, cuando aplique, el faltante y el mínimo**. Cero coincidencias de `180`, de
+   `RECIBIRÍAS` / `YOU'D GET`, de `%`, y de «envío/shipping» seguido de dígitos.
+   　(l.2) La **frase de servicio es idéntica carácter por carácter** en las dos superficies del cotizador,
+   **y no cambia** al cruzar el mínimo (ni de texto, ni de posición, ni de tamaño).
+   　(l.3) **El faltante sigue vivo** («te faltan MX$120 para el mínimo de MX$500») y **no menciona envío**.
+   　(l.4) **Con `GET /buylist/quote-policy` caído**: no hay faltante, **no hay mínimo inventado**, la frase
+   sigue ahí y el CTA sigue habilitado (la puerta es el `422` del servidor).
+   　(l.5) **Las tres claves retiradas no existen en ninguno de los dos idiomas** y el test de paridad pasa.
+   　(l.6) **Rastro de la primera divulgación:** recorrer todo lo que el vendedor ve **antes** del correo 1
+   —cotizador, paso de crear, correo de alta si lo hubiera, portal en `cotizada`— y verificar que **ninguna
+   superficie contiene la tarifa**. La primera aparición del monto del envío en todo el ciclo debe ser el
+   **correo 1**.
    (m) **EN completo** en las cuatro plantillas, en la tira de posición y en las colas; la alineación de las
    cuatro columnas de la tira es idéntica en ES y EN.
    (n) 390px: la tira colapsa a dos renglones de dos **conservando el separador de grupos**; ningún monto
