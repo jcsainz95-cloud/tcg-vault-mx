@@ -2,7 +2,50 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-01 (rev **v1.51.16**).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-01 (rev **v1.51.17**).
+>
+> **Changelog v1.51.17 — ORDEN DE EVALUACIÓN, UN NIT Y UNA RATIFICACIÓN (2026-09-01, arquitecto; **CERO DDL, CERO
+> campos, CERO endpoints**. ARCHITECTURE §4.39a y §4.39n.1 enmendadas):**
+> ⚠️ **Tres de backend al implementar BL-23/BL-24, ninguna bloqueante — más DOS hallazgos suyos que valen más que
+> las tres y que pasan a doctrina.**
+>
+> **A. ⚠️ `rejectedReason`: EL ORDEN DE EVALUACIÓN NO ERA LIBRE, y esta tabla enumeraba valores sin decirlo.**
+> Backend tiene razón y el defecto es mío. **`all_items_rejected` va PRIMERO:** una solicitud que llegó a
+> verificación **fue ofertada, aceptada Y enviada**, así que su `closedAt` cae **muy después** del plazo — evaluar las
+> fechas primero le diría ***«no respondiste» a quien respondió y mandó el paquete***. **Es el mismo tipo de mentira
+> que cerró el correo 4.** *Las reglas de fecha son excluyentes entre sí; ésta es de otro eje y las domina.*
+> - **Y añado la precondición que dice POR QUÉ, no solo el orden:** las reglas de fecha **solo aplican con
+>   `acceptedAt IS NULL`** — una vez aceptada, comparar `closedAt` con el plazo de aceptación **no significa nada**.
+>   *Un orden es una convención que alguien reordena; una precondición es un hecho de la máquina.* **Si nada encaja
+>   limpiamente ⇒ `null`**: *más vale no decir la causa que decir la equivocada.*
+>
+> **B. Nit — la línea `Err:` de `POST …/offer` no listaba `500 OFFER_PROJECTION_INCOMPLETE`.** Añadido. **Backend
+> implementó según la prosa normativa, que es lo correcto: la secuencia manda sobre el resumen.**
+>
+> **C. ✅ RATIFICADO — NO había nada que partir en el CÓDIGO, y el encargo estaba de más.** Backend no tocó la
+> proyección de línea y **su razón es la correcta: LA DIRECCIÓN DE LA COMPOSICIÓN ES LA GARANTÍA.** `AdminSellItemDTO
+> = SellItemDTO & {…}` es **aditiva** —admin **añade**, el cliente **no resta**— así que los cinco campos admin-only
+> **no se leen de la fila** al proyectar cliente y **no pueden escaparse**. `toCustomerSellRequestDTO` es
+> **sustractiva** («admin menos los internos») y por eso **sí** necesitaba el strip, que **crece con cada campo admin
+> nuevo** (BL-20). **REGLA GENERAL:** *donde se pueda elegir, se compone **hacia arriba** — lo nuevo nace fuera del
+> cliente; donde ya se compone hacia abajo, la lista de exclusión es obligatoria.* **Escrito en el DTO para que el
+> próximo no lo parta «por consistencia».**
+>
+> **D. ⚠️ DOCTRINA ENSANCHADA — «un correo tiene un idioma» se queda corto: UNA OFERTA tiene un idioma, en TODAS sus
+> superficies.** Backend encontró un **bug vivo**: `offer-response` no cargaba el `locale` del vendedor, así que **la
+> misma oferta se leía en inglés al abrir el portal y en español al aceptarla**. Es la norma de v1.51.13 fallando
+> **dentro de un solo acto**. Aplica al **correo**, a `GET /buylist/requests/:id` y a **la respuesta de
+> `offer-response`**. **Donde se construya la proyección de la oferta, el vendedor ya tiene que estar cargado** — y
+> **no se adivina cayendo al default**, que es justo lo que produjo el bug.
+>
+> **E. ⚠️ DOCTRINA DE TESTS — un doble con `count` constante valida cualquier cosa.** Un doble devolvía **`count: 1`
+> sin escribir nada**; al entrar el gate de v1.51.16 empezó a dar `500`, y **el que mentía era el doble**. El patrón
+> `count===1` **es** el mecanismo money-safe de todo el ciclo, y **su verificación depende de que el doble sepa NO
+> coincidir**. Norma en ARCHITECTURE §4.39a: el doble **implementa el `where` condicionalmente** y **devuelve `0`
+> cuando la guarda no debería coincidir**. *Un `count` constante no es un test que falle mal: es uno que no prueba
+> nada y lo parece — en verde.*
+>
+> **F. Sin cambios.** Ni DDL, ni campos, ni endpoints, ni diales.
 >
 > **Changelog v1.51.16 — UNA OFERTA INMOSTRABLE NO SE EMITE (2026-09-01, arquitecto; **CERO DDL, CERO campos**; una
 > guarda nueva y un código de error. ARCHITECTURE §4.39h gana **(h.1)**; §9 gana **BL-24**):**
@@ -5941,12 +5984,24 @@ Err:
 > > pasividad que no tuvo**. Es el argumento de **D33** y del prefijo `expiry.*` un nivel más abajo, y **la misma
 > > prueba que aplico siempre lo resuelve al revés que allí: aquí las causas SÍ son hechos distintos para el
 > > destinatario**, así que sí merecen valores distintos.
-> > | Valor | Qué ocurrió | Cómo se deriva (**sin columna nueva**) |
-> > |---|---|---|
-> > | `declined_by_seller` | **él rechazó la oferta** | `offerSentAt != null ∧ closedAt <= offerAcceptDeadlineAt` — un rechazo solo es legal **antes** del plazo (`409 OFFER_EXPIRED` después) |
-> > | `accept_deadline_passed` | no contestó y el barrido cerró | `offerSentAt != null ∧ closedAt > offerAcceptDeadlineAt` — el barrido **solo puede** actuar pasado el plazo |
-> > | `all_items_rejected` | ninguna carta pasó la verificación | **todos** los ítems en `itemStatus='rechazada'` |
-> > | `null` | fila **pre-M-46** (sin `offerSentAt`) | no hay dato honesto que dar |
+> > **⚠️ v1.51.17 — EL ORDEN DE EVALUACIÓN NO ES LIBRE, y esta tabla enumeraba VALORES sin decirlo.** Lo señaló
+> > backend al implementarlo. **Se evalúa en este orden, y la fila 1 domina:**
+> > | # | Valor | Qué ocurrió | Cómo se deriva (**sin columna nueva**) |
+> > |---|---|---|---|
+> > | **1** | `all_items_rejected` | ninguna carta pasó la verificación | hay ítems y **todos** en `itemStatus='rechazada'` |
+> > | 2 | `declined_by_seller` | **él rechazó la oferta** | `offerSentAt != null ∧ closedAt <= offerAcceptDeadlineAt` — un rechazo solo es legal **antes** del plazo (`409 OFFER_EXPIRED` después) |
+> > | 3 | `accept_deadline_passed` | no contestó y el barrido cerró | `offerSentAt != null ∧ closedAt > offerAcceptDeadlineAt` — el barrido **solo puede** actuar pasado el plazo |
+> > | — | `null` | fila **pre-M-46**, o nada encaja limpiamente | **no hay dato honesto que dar** |
+> > **⚠️ Por qué la 1 va primero, y es el mismo tipo de mentira que cerró el correo 4:** una solicitud que llegó a
+> > verificación **fue ofertada, aceptada Y enviada**, así que su `closedAt` cae **muy después** del plazo de
+> > aceptación. Evaluar las fechas primero le diría ***«no respondiste» a quien respondió y mandó el paquete*** — y lo
+> > que de verdad pasó es que **ninguna carta pasó la verificación**. *Las reglas 2 y 3 son excluyentes entre sí; la 1
+> > es de OTRO EJE y las domina.*
+> > **⚠️ Y la precondición que dice POR QUÉ, no solo el orden:** las reglas 2 y 3 **solo aplican con
+> > `acceptedAt IS NULL`**. Una vez que el vendedor **aceptó**, comparar `closedAt` con el plazo de aceptación **no
+> > significa nada** — ese plazo ya se cumplió. *Un orden es una convención que alguien puede reordenar; una
+> > precondición es un hecho de la máquina.* **Si nada encaja limpiamente ⇒ `null`**, nunca una causa que pueda ser
+> > falsa: **más vale no decir la causa que decir la equivocada.**
 > > **Las dos primeras son mutuamente excluyentes POR CONSTRUCCIÓN**, no por convención — por eso el discriminador no
 > > necesita DDL. **Y lo deriva el SERVIDOR**: si el front comparara `closedAt` contra `offerAcceptDeadlineAt`,
 > > sería exactamente la reconstrucción en el cliente que `isTerminal`/`isPayable` vinieron a borrar.
@@ -9438,7 +9493,7 @@ Res `200` | `202`: `{ sellRequestId, status, offerState, offerSentAt: string | n
 > por un decorador estático. **El `202` es un estado real** (`offerState='pending_authorization'`, `status` sigue
 > `cotizada`, **ningún correo**), no un matiz de transporte.
 *(v1.51.1: **sin** `offerShippingPaidByUs`. v1.51.2: **sin cambio de shape** — el piso no añade campos a la respuesta de éxito; su número vive en el `details` del error y en `decision-table`.)*
-Err: `403`, `404 NOT_FOUND`, `409 OFFER_NOT_ALLOWED`, `409 OFFER_ALREADY_SENT`, **`422 PICKUP_ADDRESS_MISSING`** (v1.51.3), `422 OFFER_LINES_MISMATCH`, `422 OFFER_LINE_NOT_PRICEABLE`, `422 OVERRIDE_REASON_REQUIRED`, **`422 OFFER_NET_BELOW_MINIMUM`** (v1.51.2; ~~`422 OFFER_NET_NOT_POSITIVE`~~ de v1.51.1 **NO existe**), `400 VALIDATION_ERROR`.
+Err: `403`, `404 NOT_FOUND`, `409 OFFER_NOT_ALLOWED`, `409 OFFER_ALREADY_SENT`, **`422 PICKUP_ADDRESS_MISSING`** (v1.51.3), `422 OFFER_LINES_MISMATCH`, `422 OFFER_LINE_NOT_PRICEABLE`, `422 OVERRIDE_REASON_REQUIRED`, **`422 OFFER_NET_BELOW_MINIMUM`** (v1.51.2; ~~`422 OFFER_NET_NOT_POSITIVE`~~ de v1.51.1 **NO existe**), `400 VALIDATION_ERROR`, **`500 OFFER_PROJECTION_INCOMPLETE`** *(v1.51.16 — **añadido a esta línea en v1.51.17**: la prosa normativa ya lo fijaba en la secuencia y **esta línea lo omitía**. Backend implementó según la prosa, que es lo correcto: **la secuencia manda sobre el resumen**)*.
 
 > ### ⚠️⚠️ v1.51.13 — LA URL DEL CTA DE LOS CORREOS DEL CICLO (NORMATIVA; interfaz backend↔frontend). BL-21.
 > *(Este contrato **no fijaba la forma del enlace en ninguna parte** — el hueco es mío. Lo levantó **devops** al ir a
@@ -10456,6 +10511,13 @@ PendingPriceEntryDTO += { reason?: PendingPriceReason | null }
 // ⚠️ LO QUE **NO** VIAJA AL CLIENTE en este bloque: `offerDerivedPriceCents` y `offerOverrideReason` (deliberación
 //   interna — el vendedor ve EL NÚMERO QUE LE OFERTAMOS, no cómo se fabricó). Las líneas `skip` **SÍ** se le muestran,
 //   con `offeredPriceCents: null`: el criterio 118 exige que el desglose diga QUÉ NO COMPRAMOS.
+// ⚠️ v1.51.17 — ✅ RATIFICADO: NO hay nada que «partir» en el CÓDIGO, y el próximo que lo lea NO debe partirlo
+// «por consistencia». Backend no tocó la proyección y su razón es la correcta: LA DIRECCIÓN DE LA COMPOSICIÓN ES LA
+// GARANTÍA. Aquí es ADITIVA (`AdminSellItemDTO = SellItemDTO & {…}`): admin AÑADE y el cliente NO RESTA, así que los
+// cinco campos admin-only NO SE LEEN de la fila al proyectar cliente y NO PUEDEN escaparse. Contrástese con
+// `toCustomerSellRequestDTO`, que es SUSTRACTIVA («admin MENOS los internos») y por eso SÍ necesita la lista de
+// exclusión, que además CRECE con cada campo admin nuevo (BL-20). REGLA GENERAL: donde se pueda elegir, se compone
+// HACIA ARRIBA — lo nuevo nace fuera del cliente. Donde ya se compone hacia abajo, el strip es obligatorio.
 // ⚠️⚠️ v1.51.15 — EL BLOQUE DE OFERTA SE PARTE POR AUDIENCIA. Lo levantó frontend: consume `SellItemDTO` en el
 // PORTAL DEL VENDEDOR y el tipo traía CINCO campos ADMIN-ONLY, así que declaró el suyo MÁS ESTRECHO que el contrato
 // **a sabiendas y diciéndolo** (correcto). Es la forma INVERSA de BL-20: allí un campo admin-only viajaba de más;

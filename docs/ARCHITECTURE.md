@@ -11522,7 +11522,7 @@ verificable con inventario**.
 > topes AML/KYC, el flujo de **ajuste** (`ajustada`) que sigue vivo para otros caminos, y el **precio de venta** (D10:
 > lo fija la curva; este ciclo no captura precios de venta).
 > **Diseño en papel.** Lo implementan **backend** (schema, servicios, jobs, correos) y **frontend** (M5, M1, portal del
-> vendedor). Contrato observable en `API_CONTRACT.md` ~~**v1.51**~~ **v1.51.16**. Migración **M-46** (§11).
+> vendedor). Contrato observable en `API_CONTRACT.md` ~~**v1.51**~~ **v1.51.17**. Migración **M-46** (§11).
 > **Regla de conflicto aplicada:** donde este documento y `PROJECT.md` §P difieran, **manda PROJECT**. Las tensiones y
 > los huecos que encontré **están señalados en (o)**, no resueltos en silencio.
 >
@@ -11682,6 +11682,19 @@ cotizada → ofertada → aceptada → en_transito → recibida → verificacion
    petición cruda— que salte cualquiera de los dos pasos. El backend lo implementa con **guardas de estado en el
    `updateMany` (patrón `count===1`)**, no con un `if` previo al `update`: la guarda tiene que ser la del motor, no la
    de la aplicación (mismo patrón que `paySpei`, §SEC-M5).
+   > **⚠️⚠️ v1.51.17 — EXIGENCIA SOBRE LOS TESTS DE ESTA GUARDA: un doble que devuelve `count` CONSTANTE valida
+   > cualquier cosa.** *(Hallazgo de método de backend: un doble devolvía **`count: 1` sin escribir nada**; al entrar
+   > el gate de (h.1) empezó a dar `500`, y **el que mentía era el doble, no el código**. Es el hermano exacto del
+   > `updateMany` a ciegas que este apartado ya cazó.)*
+   > **El patrón `count===1` ES el mecanismo money-safe de todo este ciclo** —lo usan `paySpei`, BL-2, BL-14 y las
+   > transiciones de la máquina—, y **su verificación depende por completo de que el doble sepa NO coincidir**.
+   > **NORMA:** todo doble de `updateMany`/`update` que se use para probar una guarda `count===1` **implementa el
+   > `where` de forma condicional** y **devuelve `0` cuando la guarda no debería coincidir**. **Un doble que devuelve
+   > un `count` constante hace que TODA prueba de guarda pase por vacío** — y pasa **en verde**, que es lo que la
+   > vuelve peligrosa: *no es un test que falle mal, es un test que no prueba nada y lo parece*.
+   > **Para QA:** un doble con `count` constante es **un defecto DEL TEST**, y se trata como tal — no se «arregla»
+   > tocando el código que acaba de empezar a fallar. *El día que un gate nuevo pone un test en rojo, la primera
+   > pregunta es si el test decía la verdad antes.*
 2. **Terminal es terminal (criterio 145).** `pagada` · `rechazada` · `expirada` · `abandonada` **no se reviven, no se
    re-ofertan y no se re-sellan**. Toda transición terminal fija **`closedAt = now()`** (patrón SEC-D2) — **incluida
    `expirada`**, que es nueva y de la que depende la purga del INE (ver (c)).
@@ -13708,6 +13721,22 @@ existe es otro.** Los **rechazos por carta** siguen usando el correo que **ya ex
 > > - **La variable NO cambia de nombre ni se unifica: `APP_PUBLIC_URL` se queda SEPARADA de `APP_BASE_URL`.** Ése
 > >   era justamente el punto de v1.51.13: `APP_BASE_URL` es la **allow-list de CORS** y **el orden de una allow-list
 > >   no significa nada** — unificarlas ataría el origen de todos los correos a un reordenamiento legítimo de CORS.
+> ### ⚠️⚠️ v1.51.17 — LA NORMA SE ENSANCHA: **una OFERTA tiene un idioma, en TODAS sus superficies**
+> *(Backend encontró un **bug vivo** implementando BL-23: la respuesta de `offer-response` **no cargaba el idioma del
+> vendedor**, así que **la misma oferta se leía en inglés al abrir el portal y en español al aceptarla**. Es esta
+> misma norma fallando **dentro de una sola sesión de pantalla** — y el caso demuestra que redactarla como *«un
+> correo tiene un idioma»* la dejaba corta.)*
+> **NORMA (sustituye el alcance, no el contenido):** **toda superficie que renderice prosa de la oferta usa el MISMO
+> `User.locale` del vendedor** — el **correo**, `GET /buylist/requests/:id` (`offer.terms`) y **la respuesta de
+> `POST …/offer-response`**. Son **tres** superficies del **mismo** compromiso.
+> - **Consecuencia práctica y verificable:** **donde se construya la proyección de la oferta hay que haber cargado el
+>   vendedor.** Una proyección que no recibe el `locale` **no puede** rendir `terms` — y **no debe adivinarlo**
+>   cayendo al default: eso es precisamente lo que produjo el bug.
+> - **Por qué importa más aquí que en un correo suelto:** el vendedor **acepta un compromiso vinculante**, y las tres
+>   claves de `terms` son **el texto de lo que acepta**. *Que la condición cambie de idioma entre la pantalla donde
+>   la lee y la respuesta donde la acepta es la misma clase de defecto que un correo cuyo botón abre otra lengua,
+>   pero ocurriendo dentro de un solo acto.*
+>
 > - **`{locale}` NO es un adorno ni un default: es EL MISMO valor con el que se renderizó el cuerpo del correo.**
 >   Sale de **`User.locale` del vendedor**, pasado por el **mismo `normalizeLocale`** que ya usan las plantillas del
 >   ciclo (`buylist-mail.templates.ts:31`), con la cascada del proyecto `user.locale ?? DEFAULT_LOCALE ?? 'es'`.
@@ -14280,7 +14309,7 @@ serializarlo o llevarlo en **una sola sesión**:
 | `backend/src/jobs/` | barrido reescrito | ver la nota de §2 sobre `jobs/` |
 | `frontend/src/lib/` | `isTerminal` viene del server; se **borra** el literal de `M5View.tsx` | quinta copia del set terminal |
 | `backend/src/common/error-codes.ts` | **5 códigos nuevos** *(v1.51.3)*: `PICKUP_ADDRESS_REQUIRED` · `PICKUP_ADDRESS_NOT_FOUND` · `PICKUP_ADDRESS_MISSING` · `PICKUP_ADDRESS_LOCKED` · `DECLINE_NOT_ALLOWED` **+ 1** *(v1.51.4)*: `GUIDE_CANCELLATION_PENDING` | enum de errores pisado por dos streams |
-| `docs/API_CONTRACT.md` | ~~v1.51.3~~ … ~~v1.51.14~~ ~~v1.51.15~~ **v1.51.16** | — (mío) |
+| `docs/API_CONTRACT.md` | ~~v1.51.3~~ … ~~v1.51.15~~ ~~v1.51.16~~ **v1.51.17** | — (mío) |
 | `frontend/src/lib/` · `M5View.tsx` | `canPay` pierde su literal de estados (**BL-17**); el rol se queda | **sexta** copia de un subconjunto del enum, y ésta gobierna el **botón de pagar** |
 
 **Nota de secuencia para backend:** la **desviación BL-2** de (b.2) —el `respond` sin guarda— **no depende de M-46** y
