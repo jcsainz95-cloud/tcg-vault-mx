@@ -197,9 +197,9 @@ services:
       MAIL_FROM: ${MAIL_FROM:-}
       SUPPORT_EMAIL: ${SUPPORT_EMAIL:-}
       # CTA de los correos del buylist. MISMA URL que APP_BASE_URL de staging (arriba).
-      # Vacía = el botón degrada a instrucción de texto. Fíjala (STAGING_APP_PUBLIC_URL=
-      # http://localhost:3010) SOLO cuando exista la ruta del portal. Ver DEVOPS_NOTES §33.
-      APP_PUBLIC_URL: ${STAGING_APP_PUBLIC_URL:-}
+      # ACTIVA desde 2026-09-01 (la ruta del portal ya existe, §33.4-bis). Vaciar la variable
+      # es el rollback: el botón vuelve a degradar a instrucción de texto.
+      APP_PUBLIC_URL: ${STAGING_APP_PUBLIC_URL:-http://localhost:3010}
       DEFAULT_LOCALE: ${DEFAULT_LOCALE:-es}
     ports:
       - "${STAGING_BACKEND_PORT:-3011}:3001"

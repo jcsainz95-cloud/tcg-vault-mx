@@ -116,11 +116,10 @@ export DATABASE_URL="${DATABASE_URL:-postgresql://tcg:tcg_local_dev_password@loc
 export REDIS_URL="${REDIS_URL:-redis://localhost:6379}"
 export APP_BASE_URL="${APP_BASE_URL:-http://localhost:$FRONTEND_PORT}"
 # CTA de los correos del buylist (v1.51). MISMA URL que APP_BASE_URL, leída con otro nombre por
-# `buylist.service.ts`. Se exporta VACÍA por defecto: la plantilla degrada el botón a una
-# instrucción de texto, y eso es preferible mientras `/{locale}/buylist/requests/<id>` no exista
-# como página del frontend (DEVOPS_NOTES §33). Para ejercitar el CTA en local cuando exista:
-#   APP_PUBLIC_URL=http://localhost:3000 ./scripts/stack-native.sh up
-export APP_PUBLIC_URL="${APP_PUBLIC_URL:-}"
+# `buylist.service.ts`. ACTIVA desde 2026-09-01: la pantalla `/{locale}/buylist/requests/<id>` ya
+# existe y se midió viva (DEVOPS_NOTES §33.4-bis). Espeja a APP_BASE_URL para que no puedan
+# divergir. Para volver al degrade (botón -> instrucción de texto): APP_PUBLIC_URL= ./scripts/...
+export APP_PUBLIC_URL="${APP_PUBLIC_URL:-http://localhost:$FRONTEND_PORT}"
 export JWT_ACCESS_SECRET="${JWT_ACCESS_SECRET:-local_dev_only_access_secret_at_least_32_chars_long}"
 export JWT_REFRESH_SECRET="${JWT_REFRESH_SECRET:-local_dev_only_refresh_secret_at_least_32_chars_different}"
 

@@ -77,6 +77,17 @@
 > el destino `…/buylist/requests/<id>` **no existe todavía como página del frontend** (verificado), así
 > que fijarla hoy cambia la frase segura por **un botón a 404**. Contrato de formato, activación en 3
 > pasos, hallazgos enrutados y la revisión del resto del ciclo (correo, plazos, cola): **§33**.
+>
+> **⇒ Actualización 2026-09-01, 2ª ronda: `APP_PUBLIC_URL` ACTIVADA (§33.4-bis) + NUEVA §34 (BL-27).**
+> **(a)** La pantalla del portal ya existe, así que la puerta se cruzó **midiéndola**: 307→200, con
+> **404 de control negativo**. Activada en local y staging; **en prod la fija el humano**. Sigue abierto
+> —y enrutado a backend— que el correo arma el path **sin `/{locale}`**, así que un vendedor `en`
+> aterriza en español. **(b)** **BL-27**: `prettier` reformateó 445 líneas dentro de un cambio de dos.
+> Medido el terreno (**274/418 archivos** sin formatear ⇒ un commit de **~13,7k líneas**; y el
+> formateador **ni siquiera está elegido**: entra como transitivo de `resend`), **NO formateo el árbol**:
+> cablé el gate que bloquea **la mezcla** de reformateo con lógica y **deja pasar** el commit de solo
+> formato (`scripts/check-format-mix.sh` + job `format-mix`, probado contra 4 casos). **§34.6** tiene el
+> estado real del gate de seguridad y el harness E2E: **no falta construir, falta encender**.
 
 ---
 
@@ -5110,6 +5121,47 @@ STAGING_APP_PUBLIC_URL=http://localhost:3010 docker compose -f docker-compose.st
 `NoopMailAdapter`, que **loguea el correo en vez de enviarlo** — emite una oferta y busca el `href` en el
 log del backend. Si en el log aparece la instrucción de texto en vez del botón, la variable no llegó.
 
+
+### 33.4-bis La puerta se cruzó, y se cruzó MIDIÉNDOLA (2026-09-01)
+
+`APP_PUBLIC_URL` quedó **declarada pero sin valor** porque el destino no existía. Ya existe:
+`frontend/src/app/[locale]/(storefront)/buylist/requests/[id]/page.tsx`. La activación exigía un
+200, no una inspección de directorios, así que se levantó el frontend y **se midió**, con **control
+negativo** (sin él, un 200 no significa nada):
+
+| Petición | Literal |
+|---|---|
+| `/buylist/requests/<id>` — **lo que arma el correo hoy** | **307** → `Location: /es/buylist/requests/<id>` |
+| …siguiendo el redirect (`curl -L`) | **200** |
+| `/es/buylist/requests/<id>` | **200** |
+| `/en/buylist/requests/<id>` | **200** |
+| `/es/buylist/requests-que-no-existe/<id>` ← **control negativo** | **404** |
+
+**Veredicto: el CTA lleva a la pantalla correcta.** Variable activada en local
+(`APP_PUBLIC_URL=http://localhost:3000`), en staging (`STAGING_APP_PUBLIC_URL=http://localhost:3010`)
+y en los tres puntos de fontanería. **En PROD la fija el humano** (Railway > backend > Variables):
+mientras no esté, el correo de producción sigue degradando a la instrucción de texto.
+
+**Lo que sigue abierto y NO lo cierra esta activación (enrutado a backend, ya con corroboración
+del propio frontend):** el correo arma el path **sin `/{locale}`**, así que el 307 del middleware
+manda **siempre a `/es`** (`localeDetection:false`). Un vendedor con `locale=en` recibe el correo en
+inglés y aterriza en la pantalla en español. El docblock de la pantalla nueva lo dice con todas las
+letras: *«el path que el correo debe apuntar es `/{locale}/buylist/requests/{sellRequestId}`, con el
+`locale` del `User`»*. El arreglo es añadir el locale en `portalRequestUrl()`, igual que
+`buildFrontendLink()`. **No se parchea desde la env** poniendo `…/es`: eso congelaría el idioma para
+todos. Un botón que funciona en el idioma equivocado es peor que uno correcto, pero mucho mejor que
+ningún botón — por eso se activa ahora y el defecto queda abierto, no escondido.
+
+> **Nota de por qué la medición fue solo del frontend.** El stack completo **no arranca** con el
+> árbol de trabajo de hoy: `./scripts/stack-native.sh up` muere en el backend con
+> `ReferenceError: Optional is not defined` en `backend/src/modules/pricing/pricing.controller.ts:181`.
+> Es **trabajo en vuelo sin comitear** (BL-25, el `@Optional() @Inject(INVENTORY_PUBLISH_PORT)` nuevo;
+> `HEAD` no lo tiene) y **no es mío**: `Optional` **sí** está importado en la línea 1, así que no es un
+> import ausente sino cómo resuelve ese binding en runtime — el primer sospechoso es el ciclo de
+> `require` que abre el import nuevo de `../inventory/inventory-publish.port`, la otra mitad del mismo
+> cambio. **Enrutado a backend, no tocado.** La ruta del portal se verificó levantando solo el
+> frontend, que es lo que respondía la pregunta.
+
 ### 33.5 La fontanería que faltaba (sin esto, declararla no habría servido de nada)
 
 `environment:` en compose es una **allow-list explícita**: lo que no se nombra, **no entra al contenedor**.
@@ -5174,3 +5226,140 @@ Se revisó qué necesita el ciclo de adquisición para funcionar de punta a punt
 | El CTA sale roto/al sitio equivocado en prod | **Borrar `APP_PUBLIC_URL`** en Railway (o dejarla vacía) y reiniciar el servicio | Vuelve la **instrucción de texto**. Es el estado seguro y **es el estado por defecto**. Sin migración, sin ventana, sin pérdida de nada. |
 | El pass-through de correo molesta en local | Dejar `RESEND_API_KEY=` vacía en tu `.env` | `NoopMailAdapter`, exactamente como antes de este pase. |
 | Hay que revertir el commit entero | `git revert` de este commit | Se pierde la declaración y el cableado; **el comportamiento de la app no cambia** (los defaults son vacíos y equivalen a la ausencia de las variables). |
+---
+
+## 34. BL-27 — el formateador rompía la revisión por diff. Mecanismo elegido: **bloquear la mezcla, no formatear el árbol** (2026-09-01)
+
+**El encargo llegó con dos salidas y la elección era mía.** La elijo con datos medidos, no por gusto.
+
+### 34.1 Lo que se midió antes de decidir (literal)
+
+```
+$ backend/node_modules/.bin/prettier --check "src/**/*.ts" "test/**/*.ts"
+Code style issues found in 274 files.
+```
+
+| Medición | Literal |
+|---|---|
+| Archivos `.ts` en `backend/src` + `backend/test` | **418** |
+| Archivos que prettier reformatearía | **274 (65 %)** |
+| Líneas de ese reformateo (copia en scratchpad, `.prettierrc` del repo) | **+10.435 / −3.311 ≈ 13.746 líneas** |
+| Cambio de comportamiento en esas 13.746 líneas | **ninguno** |
+
+Y tres hechos sobre el formateador que cambian por completo la decisión:
+
+1. **Nadie lo eligió.** `prettier` **no está en `devDependencies`**. Llega de rebote:
+   `resend@4.8.0 → @react-email/render@1.1.2 → prettier@3.9.6`. **El formateador del proyecto es una
+   dependencia transitiva del SDK de correo.** Un `npm update` de `resend` puede cambiar la versión
+   del formateador y, con ella, el formato de todo el repositorio.
+2. **`npm run lint` no lo corre, y no es un olvido.** `backend/.eslintrc.js` hace
+   `extends: [..., 'prettier']` — `eslint-config-prettier` existe **para apagar** las reglas de
+   formato de eslint. Lint y formato están desacoplados **a propósito**.
+3. **El frontend no tiene prettier en absoluto**: ni dependencia, ni binario, ni `.prettierrc`. Un
+   `npx prettier` ahí formatearía con los **defaults** (80 columnas, comillas dobles) — es decir,
+   una reescritura del frontend entero con un estilo que nadie acordó. Solo `backend/.prettierrc`
+   existe (`singleQuote`, `trailingComma: all`, `printWidth: 100`).
+
+### 34.2 Por qué NO cableo el formateador (la opción A), hoy
+
+Cablear `prettier --check` como gate exige **primero** un commit que formatee el árbol. Ese commit,
+medido, es de **13.746 líneas en 274 archivos**. Y ahí está la ironía que decide el asunto:
+
+> **El commit que arregla «los diffs no son revisables» sería, él mismo, un diff de 13.746 líneas
+> imposible de revisar** — y aterrizaría **justo antes** de la fase de seguridad, cuyo valor entero
+> está en revisar por diff, y **encima de dos agentes escribiendo ahora mismo** en `backend/` y
+> `frontend/` (conflicto garantizado con todo lo que está en vuelo).
+
+Súmese que **no sería un commit mío**: reformatear `backend/` y `frontend/` es escribir en rutas de
+otros roles. Yo no puedo hacerlo y no debo pedirlo en caliente.
+
+**No la descarto para siempre — la dejo costeada** (§34.5), que es lo que pedía el encargo: *saber el
+tamaño antes de llegar al gate*.
+
+### 34.3 Lo que SÍ cablé: la norma del arquitecto, ejecutable
+
+> *Un diff no mezcla reformateo con lógica; si hay que reformatear, va en su propio commit sin un
+> solo cambio de comportamiento.*
+
+`scripts/check-format-mix.sh` + job **`format-mix`** en `.github/workflows/ci.yml` (dentro de
+`ci-ok`, o sea **bloqueante**). **No es un gate de estilo**: no exige que el árbol esté formateado,
+no reformatea nada y no opina sobre comillas. Responde a una sola pregunta por archivo modificado:
+
+    ¿este cambio reformateó el archivo Y ADEMÁS cambió otra cosa?
+
+**El algoritmo es exacto, sin umbrales ni heurísticas** (por eso no tiene falsos positivos):
+
+| Situación del archivo | Decisión |
+|---|---|
+| En HEAD **no** es idéntico a su propia salida de prettier | **Se ignora** — nadie lo reformateó. Es el caso normal en este árbol. |
+| En HEAD sí, y en BASE **también** lo era | **Se ignora** — ya estaba formateado de antes. |
+| En HEAD sí, en BASE no ⇒ **este cambio lo reformateó**. Y `prettier(BASE) == HEAD` | **PASA** — el cambio es *exactamente* el reformateo. **Es el commit que la norma autoriza.** |
+| Ídem, pero `prettier(BASE) != HEAD` | **FALLA** — reformateo **mezclado** con otra cosa. |
+
+La versión de prettier va **clavada a 3.9.6** en el script. No es cosmético: si el comparador usara
+«la última», su veredicto cambiaría solo, sin que nadie tocara nada.
+
+### 34.4 Probado contra los cuatro casos, no solo contra el bueno
+
+Repo git sintético, con un archivo sin formatear como los 274 reales:
+
+| Caso | Esperado | Resultado |
+|---|---|---|
+| **1. El de BL-27**: `prettier --write` + cambiar `IVA = 0.16` → `0.08` | falla | **`rc=1`** — y lo dice donde importa: *«f.ts → **2 línea(s) de cambio real**»*. Ésa es exactamente la línea de dinero que se perdía entre el reformateo. |
+| **2. Commit de SOLO formato** (la vía autorizada) | pasa | `rc=0`, «Reformateo LIMPIO (sin lógica mezclada) en 1 archivo(s)» |
+| **3. SOLO lógica**, sin tocar formato | pasa | `rc=0` |
+| **4. Re-indentar A MANO** (envolver un bloque en un `if`) — el falso positivo clásico | pasa | `rc=0` |
+
+Y contra el repo **real** (`HEAD~5..HEAD`, 25 archivos evaluados, trabajo en vuelo de backend y
+frontend): **`rc=0`, sin falso positivo**, en ~39 s. El coste en CI es de ese orden: dos pasadas de
+prettier por archivo **modificado**, no por archivo del repo.
+
+> Nota metodológica: el caso 1 **pasó en verde en el primer intento y era el test el que estaba mal**
+> (el `sed` ya no casaba tras el reformateo, así que no cambiaba nada). Se corrigió el test, no el
+> script. Un comparador que solo se prueba contra el caso que debe fallar no está probado.
+
+### 34.5 Si algún día se quiere la opción A (formatear el árbol), así se hace y esto cuesta
+
+Queda **propuesta y costeada, sin cablear**. Orden obligatorio — y el primer punto no es negociable:
+
+1. **Ventana sin trabajo en vuelo.** Con agentes escribiendo, un reformateo de 274 archivos genera
+   conflictos en todo lo abierto.
+2. **`prettier` pasa a `devDependencies` con versión fija** (hoy es transitivo de `resend`: nadie
+   controla su versión). **Es de backend**, y el frontend además tendría que **elegir su
+   `.prettierrc`** — sin él, los defaults reescriben el frontend entero con otro estilo.
+3. **Un commit por paquete, solo formato**: `style: formatear backend/ (sin cambios de comportamiento)`
+   y su gemelo de frontend. Verificación de que no cambió comportamiento: **la suite completa en
+   verde antes y después**, más el propio `format-mix` (que reconoce y aprueba el commit de solo
+   formato — caso 2). El tamaño medido hoy: **274 archivos / ~13,7k líneas** solo en backend.
+4. **Solo entonces** se puede endurecer `format-mix` a un `prettier --check` del árbol.
+
+Mientras eso no ocurra, el estado correcto es el actual: **el árbol NO está formateado, y no pasa
+nada**, porque lo que se protege no es el estilo — es la revisabilidad del diff.
+
+### 34.6 Estado del gate de seguridad y del harness E2E (lo que pedía el encargo: el tamaño)
+
+Revisado archivo por archivo. **Cableado ≠ corriendo**, y la diferencia es justo donde está el hueco.
+
+| Pieza del DoD | Archivo | Estado real |
+|---|---|---|
+| **SAST en cada PR** | `security-sast.yml` (semgrep · gitleaks · npm-audit · trivy-fs · trivy-image → `sast-ok`) | ✅ **Cableado y corriendo** en `push` y `pull_request`. |
+| **Harness E2E** | `e2e.yml` → `backend-e2e` (Postgres+Redis reales, **deploy-blocking**) + `frontend-e2e` (mock, **informativo** por decisión §24) | ✅ **Cableado.** El mock es soft-gate **a propósito**; el gate real de UI es `e2e-real.yml`. |
+| **E2E contra stack real** | `e2e-real.yml` (nightly 08:00 UTC · `workflow_dispatch` · `workflow_call` desde deploy con `require_real_stripe: true`) | ⚠️ **Cableado, pero sin `STRIPE_TEST_SECRET_KEY` su preflight ABORTA** la ruta de promoción (hueco §32.7-1, del humano). |
+| **DAST contra staging que bloquea la promoción** | `deploy.yml` → `dast-staging` (ZAP baseline) con `promote-production-*` condicionado a `dast-staging.outputs.critical == 'false'` | ⚠️ **Cableado y correctamente condicionado… en un camino que no se usa.** `deploy.yml` es **`workflow_dispatch` only**; los deploys reales van por push-to-deploy de Vercel/Railway, que **no pasan por este DAST**. Es el hueco estructural de §32.11, ahora con nombre. |
+| **DAST programado semanal** | `security-scheduled.yml` (lunes 06:00 UTC) | ⚠️ **No-op silencioso**: su preflight comprueba `STAGING_BASE_URL` y, si falta, emite un `::notice::` y **se salta todo**. Hoy falta ⇒ **el DAST no se ha ejecutado nunca**. |
+| **Que los gates sean `required checks`** | Protección de rama en GitHub | ❓ **No verificable desde aquí** (no hay `gh` en este entorno). `ci-ok`, `sast-ok` y `e2e-ok` están **diseñados** como required checks, pero si nadie los marcó como tales en *Settings → Branches*, **no bloquean nada**. Comprobación del humano: `gh api repos/<org>/<repo>/branches/main/protection`. |
+
+**Resumen honesto del tamaño:** no falta *construir* casi nada — **falta encender**. Dos secretos
+(`STAGING_BASE_URL`, `STRIPE_TEST_*`) y una decisión sobre el camino de deploy: mientras el deploy
+real sea push-to-deploy, el DAST de staging **no se interpone**, y el DoD pide que se interponga.
+Eso último **no lo cierro yo solo**: o los deploys pasan por `deploy.yml`, o hay que mover el DAST
+a un disparo post-deploy que bloquee la promoción. **Decisión del humano** (y del arquitecto si
+cambia el flujo).
+
+### 34.7 Rollback de BL-27
+
+| Escenario | Acción |
+|---|---|
+| El comparador da un falso positivo y frena a alguien | Quitar `format-mix` de `needs`/condición de `ci-ok` en `ci.yml` (una línea): sigue corriendo e informando, deja de bloquear. |
+| Se quiere retirar del todo | Borrar el job `format-mix` y `scripts/check-format-mix.sh`. **No deja rastro**: no toca el árbol, no formatea, no tiene estado. |
+| Un caso legítimo que el algoritmo no contempla | Partir el commit en dos (formato / lógica) — que es, exactamente, lo que la norma pide. |

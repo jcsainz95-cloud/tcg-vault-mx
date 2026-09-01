@@ -163,20 +163,68 @@ jobs:
         run: npm run build --if-present
 
   # ---------------------------------------------------------------------------
+  # BL-27 — «un diff no mezcla reformateo con lógica» (norma del arquitecto).
+  # NO es un gate de estilo: no exige que el árbol esté formateado ni reformatea
+  # nada. Solo bloquea el diff que reformatea Y ADEMÁS cambia comportamiento,
+  # porque ése es el que hace INVISIBLE una línea de dinero a la revisión del
+  # techlead y de la fase de seguridad. El commit de SOLO formato pasa.
+  # Detalle del porqué y del algoritmo: scripts/check-format-mix.sh + §34.
+  # ---------------------------------------------------------------------------
+  format-mix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # El comparador necesita el commit BASE, no solo el HEAD.
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Resolver base del diff
+        id: base
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "ref=${{ github.event.pull_request.base.sha }}" >> "$GITHUB_OUTPUT"
+          elif git rev-parse --verify --quiet "${{ github.event.before }}^{commit}" >/dev/null 2>&1; then
+            echo "ref=${{ github.event.before }}" >> "$GITHUB_OUTPUT"
+          elif git rev-parse --verify --quiet origin/main^{commit} >/dev/null 2>&1; then
+            echo "ref=origin/main" >> "$GITHUB_OUTPUT"
+          else
+            echo "ref=" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Comparar (reformateo vs lógica)
+        run: |
+          BASE="${{ steps.base.outputs.ref }}"
+          if [ -z "$BASE" ]; then
+            echo "::notice title=format-mix::Sin commit base utilizable (rama nueva). No concluye; no se finge verde."
+            exit 0
+          fi
+          set +e
+          ./scripts/check-format-mix.sh "$BASE" "${{ github.sha }}"
+          rc=$?
+          set -e
+          case "$rc" in
+            0) exit 0 ;;
+            2) echo "::notice title=format-mix::El comparador no pudo concluir (base inaccesible)."; exit 0 ;;
+            *) echo "::error title=format-mix::Este diff mezcla reformateo con cambios de comportamiento (BL-27). Sepáralos en dos commits."; exit 1 ;;
+          esac
+
+  # ---------------------------------------------------------------------------
   # Gate final: resume el estado. Verde también en greenfield (jobs saltados).
   # Útil como required check en la protección de rama.
   # ---------------------------------------------------------------------------
   ci-ok:
-    needs: [detect, backend, frontend]
+    needs: [detect, backend, frontend, format-mix]
     if: always()
     runs-on: ubuntu-latest
     steps:
       - name: Verificar resultados
         run: |
-          echo "backend:  ${{ needs.backend.result }}"
-          echo "frontend: ${{ needs.frontend.result }}"
+          echo "backend:    ${{ needs.backend.result }}"
+          echo "frontend:   ${{ needs.frontend.result }}"
+          echo "format-mix: ${{ needs.format-mix.result }}"
           # Falla solo si algún job que SÍ corrió terminó en failure.
-          if [ "${{ needs.backend.result }}" = "failure" ] || [ "${{ needs.frontend.result }}" = "failure" ]; then
+          if [ "${{ needs.backend.result }}" = "failure" ] || [ "${{ needs.frontend.result }}" = "failure" ] || [ "${{ needs.format-mix.result }}" = "failure" ]; then
             echo "::error::Algún job de CI falló."
             exit 1
           fi

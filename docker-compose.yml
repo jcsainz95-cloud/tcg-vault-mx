@@ -199,10 +199,10 @@ services:
       APP_BASE_URL: ${APP_BASE_URL:-http://localhost:3000}
       # CTA de los correos del buylist (v1.51: oferta y cancelación de oferta). Es la MISMA URL
       # que APP_BASE_URL (su PRIMER origen) leída con otro nombre por `buylist.service.ts`.
-      # Default VACÍO a propósito: la plantilla degrada el botón a instrucción de texto, que es
-      # lo correcto mientras la ruta `/{locale}/buylist/requests/<id>` no exista en el frontend.
-      # Ver .env.example (bloque APP_PUBLIC_URL) y DEVOPS_NOTES §33.
-      APP_PUBLIC_URL: ${APP_PUBLIC_URL:-}
+      # ACTIVA desde 2026-09-01: la ruta `/{locale}/buylist/requests/<id>` ya existe y se midió
+      # (307->200; 404 en el control negativo — DEVOPS_NOTES §33.4-bis). Por eso el default ya
+      # NO es vacío: espeja el de APP_BASE_URL. Vaciarla sigue siendo el rollback (degrada a texto).
+      APP_PUBLIC_URL: ${APP_PUBLIC_URL:-http://localhost:3000}
       # Correo transaccional. Este bloque es PASS-THROUGH: `environment:` es una allow-list, así
       # que sin estas tres líneas ponerlas en `.env` NO llegaba al contenedor (se perdían en
       # silencio). Los defaults VACÍOS conservan el comportamiento local de siempre:
