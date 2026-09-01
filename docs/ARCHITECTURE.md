@@ -12,25 +12,29 @@
 > **ya existía desde v1.51.3 y sigue existiendo — si el orquestador ya serializó las tres columnas de v1.51.3, TIENE
 > QUE VOLVER A HACERLO.** Contrato en `API_CONTRACT.md` **v1.51.4**. **M-46 se enmienda EN EL SITIO por CUARTA vez**
 > (sigue siendo papel). **Nada de v1.51.3 se borra: lo superado queda marcado.**
-> 1. **⚠️ EL HUECO ERA REAL Y SE CIERRA QUITANDO EL REQUISITO, NO CONSTRUYENDO LA SUPERFICIE (D43).** ux-ui levantó
->    que §23.3 exige pintar una **resta con cifras** (*valor − envío = recibirías*) en el **cotizador**, que es
+> 1. **⚠️ EL HUECO ERA REAL. LA RESPUESTA ES UNA SUPERFICIE MÍNIMA: UN DIAL, NO DOS Y NO CERO (D43).** ux-ui levantó
+>    que §23.3 exige pintar cifras (*valor − envío = recibirías*, *«te faltan $120»*) en el **cotizador**, que es
 >    **público**, y que `buylistShippingFeeCents` / `buylistMinimumRequestCents` **solo se leen desde M10 con rol
->    `super_admin`** — sin superficie pública que los entregue y con el hardcodeo **prohibido** por regla propia
->    (diales editables sin redeploy). El diagnóstico era **correcto**. **La respuesta del humano NO es publicarlos:**
->    **el cotizador deja de mencionar montos de envío.** §4.39(r).
-> 2. **⚠️ D43 — EL COTIZADOR LO DICE EN PALABRAS, NO EN CIFRAS.** Una sola frase **cualitativa** —*«nosotros nos
->    encargamos de la guía de envío y su costo se descuenta del pago»*—: **sin tarifa, sin resta, sin neto estimado y
->    sin faltante con cifra**. **La resta con montos vive SOLO en la oferta**, que es **autenticada** y se arma
->    **server-side con la tarifa congelada** — donde el acceso a los diales **no es un problema**.
-> 3. **⚠️ ⛔ SE RETIRA D41 ENTERO: `GET /api/v1/buylist/quote-policy` NO EXISTE Y NO SE IMPLEMENTA.** Este mismo pase
->    llegó a diseñarlo (endpoint público cacheable con dos diales); **queda superado por D43 y se marca, no se borra**,
->    para que nadie lo reconstruya leyendo un borrador. **Con él caen:** la superficie pública nueva, la caché a
->    invalidar, la exposición de **cualquier** dial, y **la autorización que yo había dado al frontend para restar en
->    cliente** — que **se REVOCA**: **R4 de §23 vuelve a regir sin excepciones**.
->    **Y cae también un riesgo que yo iba a tener que normar:** que alguien confundiera la resta **indicativa** del
->    cotizador con el neto **congelado** de la oferta. **Ya no hay dos restas, así que no hay nada que distinguir.**
->    *Restarle un envío exacto a un número que de todas formas va a cambiar es **precisión falsa**: sugiere un neto que
->    nadie se comprometió a pagar.* **La mejor superficie pública es la que no existe.** §4.39(r).
+>    `super_admin`** — sin superficie pública y con el hardcodeo **prohibido** (diales editables sin redeploy). El
+>    diagnóstico era **correcto**. §4.39(r).
+> 2. **⚠️ D43 — EL ENVÍO SE DICE EN PALABRAS, NO EN CIFRAS.** Una frase **cualitativa** —*«nosotros nos encargamos de
+>    la guía de envío y su costo se descuenta del pago»*—: **sin tarifa, sin resta, sin neto estimado, sin porcentaje**.
+>    **La resta con montos vive SOLO en la oferta**, **autenticada** y armada **server-side con la tarifa congelada** —
+>    donde el acceso a los diales **no es un problema**. *Restarle un envío exacto a una cotización que de todas formas
+>    va a cambiar es **precisión falsa**: sugiere un neto que nadie se comprometió a pagar.*
+> 3. **⚠️ PERO EL MÍNIMO SÍ ES UNA CIFRA DEL COTIZADOR, Y LO EXIGE UN CRITERIO EXPLÍCITO.** El **criterio 132(a)** pide
+>    *«el botón **no procede** y la pantalla dice **cuánto falta** («te faltan $120», **con el número correcto**)»*, y
+>    **son DOS frentes, no uno**: el 132(b) —el `422` server-side— **no cubre el (a)**, porque si el botón no procede
+>    **no se manda nada** y el `422` **nunca se dispara**; y hardcodear el mínimo lo prohíbe **R4** y lo desmiente
+>    *«el número correcto»*. **`PROJECT.md` manda sobre este documento.**
+>    ⇒ **`GET /api/v1/buylist/quote-policy` EXISTE, `public`, cacheable, con UN SOLO CAMPO:
+>    `{ minimumRequestCents }`.** **Un faltante del mínimo NO es un monto de envío: D43 no lo toca.**
+> 4. **⚠️ `shippingFeeCents` SALE DEL DTO — y ésa es la parte fuerte, no un detalle de recorte.** Ninguna pantalla
+>    pública lo consume ya. **Si el número no llega al navegador, D43 deja de depender de la disciplina del frontend:**
+>    *un valor que no viaja no se puede pintar por accidente.* **Queda una asimetría deliberada:** la resta del
+>    **faltante** está **autorizada por regla** (la exige el 132(a)); la del **envío** es **imposible por
+>    construcción**. Con ello **sigue sin haber dos restas**, así que **no hay «indicativo vs vinculante» que
+>    distinguir** — el riesgo que yo iba a tener que normar **desaparece igual**. §4.39(r).
 > 4. **⚠️ EL CORREO 3 TENÍA TRES PRODUCTORES Y UNO AFIRMABA UN HECHO FALSO. SON CINCO CORREOS, NO CUATRO.** La
 >    cancelación de una oferta **no es una expiración**: deja la solicitud **`cotizada` y VIVA**, y un texto de *«se
 >    venció tu plazo»* ahí **le imputa al vendedor un acto NUESTRO**. **Es literalmente el argumento con el que D33
@@ -71,9 +75,9 @@
 >    corriendo). **Y entra el DÉCIMO dial: `buylistOfferReissueAlertCount` = 2.** **Eran nueve; son DIEZ.** La
 >    **validación cruzada de M10 NO cambia: sigue siendo la de TRES términos** — el dial 10 es un **conteo**, no un
 >    monto, y no entra en ninguna identidad aritmética. §4.39(l), §4.39(u), §11.
-> 11. **Lo que este pase NO añade:** **ninguna superficie pública nueva** (D43 la retira: **CERO diales publicados**),
->    ni un estado, ni un valor de enum, ni una regla del barrido (siguen **SIETE**), ni una cola nueva (la corrección
->    de dirección **reusa** `awaitingGuide` y «cancelar guía no usada»), ni un endpoint de cliente nuevo, ni un `PATCH`
+> 11. **Lo que este pase NO añade:** **ningún dial público más allá del mínimo** (**1 de 10**, lista **cerrada**), ni un
+>    estado, ni un valor de enum, ni una regla del barrido (siguen **SIETE**), ni una cola nueva (la corrección de
+>    dirección **reusa** `awaitingGuide` y «cancelar guía no usada»), ni un endpoint de cliente nuevo, ni un `PATCH`
 >    que acepte un domicilio suelto (**SEC-A1: ni el cliente ni el admin escriben una dirección — los dos eligen una
 >    fila de la libreta del VENDEDOR**).
 > **Lo que NO cambia:** **D31 en lo esencial** —el envío **siempre** se descuenta y **siempre** se comunica: en el
@@ -13345,36 +13349,44 @@ existe es otro.** Los **rechazos por carta** siguen usando el correo que **ya ex
     flujo paso a paso**, no quien revisó los números. **Un pase de arquitectura sobre un ciclo operativo debería
     incluir un trazado extremo-a-extremo por estado**, y este documento no lo tenía. *Lo dejo escrito porque el
     remedio no es «revisar mejor»: es **cambiar qué se revisa**.*
-    **⚠️ Y hay un CUARTO fallo, de otra clase, que también me apunto: ante el hueco de (r) diseñé la superficie sin
-    preguntar si el requisito tenía que existir.** El humano contestó **D43** —*el cotizador no menciona montos de
-    envío*— y con eso **el hueco se cerró quitando el requisito**, no construyendo el endpoint. Yo produje endpoint,
-    regla de exposición, caché y disclaimer: **todo correcto y todo innecesario**. *La primera pregunta ante «hay que
-    abrir una superficie» no es **cómo la abro con seguridad**, sino **¿tiene que existir?**. La mejor superficie
-    pública es la que no existe.*
+    **⚠️ Y hay un CUARTO fallo, que son DOS y en direcciones OPUESTAS — es el más instructivo del pase:**
+    **(i) SOBRE-EXPUSE.** Ante el hueco de (r) diseñé **cómo abrir la superficie con seguridad** sin preguntar
+    **si el requisito debía existir**. El humano contestó **D43** (*el envío se dice en palabras*) y con eso la mitad
+    del requisito **desapareció**: mi endpoint, mi regla de exposición, mi caché y mi disclaimer eran **correctos y a
+    medias innecesarios**.
+    **(ii) SOBRE-CORREGÍ, y esto es peor.** Al recibir D43 **retiré el endpoint entero** — y con él dejé el
+    **criterio 132(a)** *(«el botón no procede y **la pantalla dice cuánto falta**, con el número correcto»)* **sin
+    ninguna forma de cumplirse**: verifiqué el **132(b)** —el `422` server-side—, lo argumenté bien, y **no leí que el
+    criterio tiene DOS frentes**. **`PROJECT.md` manda sobre este documento**, así que eso no era una simplificación:
+    era **romper un criterio vivo**.
+    **La lección, en una línea: *verificar contra el CRITERIO, no contra la decisión que acabo de recibir.*** Una
+    decisión del humano acota **el diseño**; **no deroga los criterios que no menciona**. *Cuando llega una corrección
+    de rumbo, el trabajo no es ejecutarla al máximo: es re-verificar qué colgaba de lo que se retira.* **La forma final
+    —un dial, el que un criterio explícito exige, y ni uno más— no salió de ninguno de mis dos extremos.**
 23. **LÍMITE ACEPTADO — `guideActualCostCents` con DOS etiquetas muertas en la misma solicitud.** Detalle y
     razonamiento en (t.4). **Se acepta** porque el número **no le paga a nadie** (nunca entra en `payoutNetCents`) y
     el caso exige equivocarse **dos veces sobre la misma solicitud**; el daño es de **reporte** (una etiqueta que no
     llega a M7). **La cura correcta es una tabla hija `GuideLabel`** y **no se hace aquí**: es DDL relacional para un
     caso que no ha ocurrido nunca. ⚠️ **Prohibido el atajo de acumular en la columna**: convertiría *«el costo de la
     etiqueta»* en *«la suma de los costos»* **sin cambiarle el nombre**.
-24. ~~**SUPUESTO — el cotizador público como oráculo de diales**~~ ⛔ **SIN OBJETO (D43): no hay endpoint público, así
-    que no hay oráculo que sondear, ni throttle que dimensionar, ni caché que razonar.** **Lo que SÍ queda vivo de este
-    punto, y por eso no se borra:** *la propiedad que hay que conservar no es el secreto de dos diales, es que **NINGÚN
-    dial se publique**.* **`seguridad` debe leer (r.2) como lista CERRADA con resultado CERO**, y tratar cualquier
-    aparición de `GET /buylist/quote-policy` (o de cualquier ruta pública que devuelva un `ConfigSetting`) **como un
-    defecto**, no como una mejora — verificable **por lo negativo**, igual que los diales retirados.
+24. **SUPUESTO — el cotizador público como oráculo, con UN solo dato y cuantificado.** `GET /buylist/quote-policy` es
+    **anónimo, cacheable y sin coste de cómputo**: alguien puede **sondearlo** para detectar **cuándo movemos el
+    mínimo**. **Se acepta a ojos abiertos:** ese valor **ya es una promesa comercial publicada** (*«desde $500 te
+    compramos»*), así que el sondeo **no revela nada que cualquier visitante no lea en la home**. Mitigación: **el
+    mismo throttle público** que `/quote` y `/bounties`, **y nada más** (un endpoint de **un entero** no justifica
+    ceremonia). ⚠️ **La propiedad que hay que conservar no es el secreto de este dial: es que NO SE SUME NINGÚN OTRO.**
+    **`seguridad` debe leer (r.2) como lista CERRADA con resultado UNO**, y tratar cualquier dial adicional en ruta
+    pública —**y muy en particular `ineThresholdCents` y los topes AML**— **como un defecto**, no como una mejora.
     **Dos cosas enrutadas, ninguna mía:**
-    (a) **ux-ui — `DESIGN_SYSTEM.md` §23.3 queda OBSOLETO** (define la aritmética del carrito, el bloque
-    `RECIBIRÍAS ≈`, el faltante con cifra y la degradación de §23.3h). **No lo toco: es su ruta.** La corrección es
-    acotada y en su favor: **la «degradación honesta» que él mismo definió en §23.3h —la frase sin cifra— pasa de ser
-    el plan B a ser EL DISEÑO**; lo que se cae es el bloque de la resta, el neto estimado y el faltante con cifra.
-    **§23.3f y §23.3g (sin casilla de consentimiento, dirección de origen en el mismo paso) no los toca D43.**
-    (b) **PO / copy — el residuo declarado del mínimo.** Si el storefront anuncia *«desde MX$500 te compramos»*, esa
-    frase es **copy, no una lectura del dial**: si el humano mueve `buylistMinimumRequestCents`, **hay que editar el
-    texto a mano**. **Es un riesgo DECLARADO, no silencioso** —y es estrictamente menor que el que D43 evita: una
-    promesa comercial desfasada se corrige editando una frase; **una resta desfasada le habría dicho a alguien cuánto
-    iba a cobrar**. El sistema, en todo caso, **no depende de esa frase**: el mínimo autoritativo lo evalúa
-    `POST /buylist/requests` y el faltante lo calcula el servidor ((r.4)).
+    (a) **ux-ui — `DESIGN_SYSTEM.md` §23.3 queda PARCIALMENTE obsoleto.** **No lo toco: es su ruta.** **Se cae:** el
+    bloque de la resta, `RECIBIRÍAS ≈` y el neto estimado (D43). **SOBREVIVE TAL CUAL: §23.3d, el faltante con cifra**
+    —lo exige el criterio 132(a)—, y **§23.3e/f/g** (líneas sin precio, sin casilla de consentimiento, dirección de
+    origen en el mismo paso). **§23.3h** —la degradación *«frase sin cifra»*— **sigue siendo el fallback correcto**,
+    ahora solo para el caso en que el endpoint no responda ((r.6)).
+    (b) **PO / copy — el residuo del mínimo, ahora OPCIONAL de cerrar.** La frase de storefront *«desde MX$500 te
+    compramos»* es **copy, no una lectura del dial**, así que moverlo exige editar el texto a mano. **Con el endpoint
+    vigente, esa frase PUEDE volverse data-driven** (leer `minimumRequestCents`) y el residuo desaparece. **No lo
+    normo** —es decisión de copy, no de arquitectura—; lo dejo señalado porque **la vía para cerrarlo ya existe**.
 25. **SEÑALADO AL PRODUCT-OWNER — el conteo de correos de `PROJECT.md`.** Los criterios 142/150 hablan de **tres**
     correos; D33 los subió a **cuatro** ((n)) y **v1.51.4 los sube a CINCO** al sacar la cancelación del correo 3. **La
     regla de `PROJECT.md` sigue siendo cierta** —*un correo por hecho, no por camino*— y es **precisamente ella** la
@@ -13454,8 +13466,8 @@ serializarlo o llevarlo en **una sola sesión**:
 >
 > | Cambio | Stream | Nota |
 > |---|---|---|
-> | ~~`GET /buylist/quote-policy` (NUEVO, público, cacheable)~~ ⛔ **RETIRADO POR D43 — NO SE IMPLEMENTA** | — | **CERO trabajo de backend.** No hay endpoint, no hay DTO, no hay caché, no hay diales publicados ((r.3)) |
-> | **D43 — el cotizador dice el envío EN PALABRAS, sin cifras** | **frontend** (cotizador) **+ ux-ui** (copy y §23.3) | **CERO backend, CERO contrato.** Es **una frase i18n**: se **quita** el bloque de la resta, el neto estimado y el faltante con cifra. *Un string no se desincroniza de un dial* |
+> | **`GET /buylist/quote-policy`** (NUEVO, `public`, cacheable, **UN campo**) | Catálogo y precios (`modules/buylist/`) **+ frontend** (cotizador) | **Aditivo puro y mínimo.** Lee **UN** `ConfigSetting` (`buylist_minimum_request_cents`); **no** toca `modules/settings/` ni su rol. **Existe porque el criterio 132(a) lo exige** ((r.1) punto 4). ⚠️ **`shippingFeeCents` NO va en el DTO** |
+> | **D43 — el cotizador dice el ENVÍO en palabras, sin cifras** | **frontend** (cotizador) **+ ux-ui** (copy y §23.3) | **CERO backend, CERO contrato.** Es **una frase i18n**: se **quita** el bloque de la resta y el neto estimado. ⚠️ **El faltante del mínimo SE QUEDA** (criterio 132(a)) |
 > | `lastOfferCancelledAt` en el detalle de cliente | Catálogo y precios **+ frontend** (portal) | **Proyección**, cero DDL. Deriva de `offerCancelledAt` + `offerSentAt` ((s.1)) |
 > | **`quotedTotalCents`/`quotedPriceCents` a `null`** en cierre `no_offer` (proyección **cliente**) | Catálogo y precios **+ frontend** (portal) | ⚠️ **Regla de proyección, NO decisión de pintado.** La proyección **admin no cambia** ((s.2)) |
 > | **Correo 5** (cancelación) + `BuylistMailKind` | Catálogo y precios (plantillas locales de `buylist`) | **Son CINCO correos.** ⚠️ **Cancelar una `pending_authorization` NO manda nada** ((n)) |
@@ -13652,78 +13664,84 @@ México (D25/D31). *Una dirección más lejos no encarece la oferta.*
 
 ---
 
-#### (r) EL DESCUENTO DEL ENVÍO EN EL COTIZADOR — **CUALITATIVO, SIN CIFRAS** (v1.51.4, **D43**, NORMATIVO)
+#### (r) LO QUE EL COTIZADOR PÚBLICO SABE DEL DINERO — **el mínimo SÍ, el envío EN PALABRAS** (v1.51.4, **D43**, NORMATIVO)
 
-> **⛔⛔ ESTE APARTADO LLEGÓ A DISEÑAR UNA SUPERFICIE PÚBLICA DE DIALES (D41) Y **QUEDA SUPERADA POR D43**.**
-> **`GET /api/v1/buylist/quote-policy` NO EXISTE, NO SE IMPLEMENTA Y NO SE VUELVE A PROPONER SIN DECISIÓN DEL HUMANO.**
-> **No se borra el diseño: se marca**, para que nadie lo reconstruya leyendo un borrador y para que quede el
-> razonamiento de por qué la respuesta correcta era **quitar el requisito**, no construir la superficie.
-> **Si el endpoint aparece en el código, es un defecto** — verificable **por lo negativo**, la misma doctrina con la que
-> este documento retira diales ((l)): *no se apaga, no se deja vacío: deja de existir.*
+> **⚠️ Este apartado tuvo TRES redacciones en el mismo pase y la final es la de abajo. Se deja el rastro porque las
+> dos anteriores fallaron en direcciones opuestas y esa simetría es la lección:**
+> **(1) D41 —publicar DOS diales— sobre-expuso:** abrí una superficie sin preguntar si el requisito debía existir.
+> **(2) Retirar el endpoint ENTERO sobre-corrigió:** verifiqué el criterio **132(b)** y **no el 132(a)**, y con eso
+> dejé un criterio vivo de `PROJECT.md` **sin forma de cumplirse**.
+> **(3) VIGENTE — superficie MÍNIMA: UN dial, el que un criterio explícito exige, y ni uno más.**
 
 **(r.1) El hueco que ux-ui levantó era REAL, y el diagnóstico era correcto.** **D31** obliga a comunicar el descuento
 del envío **en tres sitios**, y el **primero es el cotizador** ((n), última viñeta). `DESIGN_SYSTEM.md` §23.3 lo
 aterrizó en **una resta enseñada** (*valor − envío = recibirías ≈*) y **un faltante con cifra**.
 
-**Y el cotizador es PÚBLICO, sin sesión.** Los dos números que esa pantalla necesitaba —**`buylistShippingFeeCents`**
+**Y el cotizador es PÚBLICO, sin sesión.** Los dos números que esa pantalla usaba —**`buylistShippingFeeCents`**
 (dial 7) y **`buylistMinimumRequestCents`** (dial 3)— **solo se leen desde `GET /admin/settings`, `super_admin`**.
-`POST /buylist/quote`, `/quote/batch` y `GET /buylist/bounties` **no los devuelven**, y **no existe ninguna superficie
+`POST /buylist/quote`, `/quote/batch` y `GET /buylist/bounties` **no los devuelven**, y **no existía ninguna superficie
 pública de configuración**. **Hardcodearlos en el frontend está prohibido por la regla de este propio documento**: son
-diales editables **sin redeploy**, y una constante `18000` en el front **se desincroniza en silencio** la primera vez
-que el humano mueva la tarifa. **Nadie lo vio en nueve pases de documentación**: hizo falta que alguien **dibujara la
+diales editables **sin redeploy**, y una constante `50000` en el front **se desincroniza en silencio** la primera vez
+que el humano mueva el mínimo. **Nadie lo vio en nueve pases de documentación**: hizo falta que alguien **dibujara la
 pantalla**.
 
-**✅ DECISIÓN DEL HUMANO (D43): el cotizador DEJA DE MENCIONAR MONTOS DE ENVÍO.**
+**✅ DECISIÓN DEL HUMANO (D43): el cotizador DEJA DE MENCIONAR MONTOS DE ENVÍO — y SOLO de envío.**
 
 ```
-COTIZADOR   (público, sin sesión)  →  UNA FRASE CUALITATIVA, cero cifras de envío
+COTIZADOR   (público, sin sesión)  →  el ENVÍO en palabras (cero cifras)  ·  el MÍNIMO con su cifra
 OFERTA      (autenticada)          →  LOS TRES MONTOS, armados server-side con la TARIFA CONGELADA
-TÉRMINOS    (offer.terms)          →  la regla en prosa
+TÉRMINOS    (offer.terms)          →  la regla del envío en prosa
 ```
 
-**Norma, en cuatro líneas:**
-1. **El cotizador dice, en palabras:** *«nosotros nos encargamos de la guía de envío y su costo se descuenta del
-   pago»* (redacción exacta de ux-ui). **Sin tarifa, sin resta, sin neto estimado, sin faltante con cifra, sin
-   porcentaje.**
+**Norma, en cinco líneas:**
+1. **El cotizador dice el envío EN PALABRAS:** *«nosotros nos encargamos de la guía de envío y su costo se descuenta
+   del pago»* (redacción de ux-ui). **Sin tarifa, sin resta, sin neto estimado, sin porcentaje.**
 2. **La resta con montos vive SOLO en la oferta**, que es **autenticada** y se arma **server-side con la tarifa
    congelada** (`offerShippingFeeCents`, D25) — **ahí el acceso a los diales no es un problema**, porque la resolución
    es del servidor y el destinatario es el dueño de la solicitud.
-3. **El frontend NO recibe, NO lee y NO deriva ningún dial en superficie pública.** *Una frase cualitativa **no tiene
-   nada que desincronizarse**: el humano puede mover la tarifa cien veces y el texto sigue siendo verdad.* **Ésa es la
-   propiedad, y es más fuerte que cualquier caché.**
-4. **D31 sigue vigente en lo esencial:** el envío **siempre** se descuenta y **siempre** se comunica —**tres
-   superficies, como exige D31**—; lo que cambia es **la forma de la primera**: cualitativa en vez de aritmética.
+3. **⚠️ PERO EL MÍNIMO SÍ ES UNA CIFRA DEL COTIZADOR, y lo es desde antes de este cambio.** El **criterio 132(a)**
+   —*«desde el cotizador, el botón de crear solicitud **no procede** y la pantalla dice **cuánto falta** («te faltan
+   $120», **con el número correcto**)»*— es **explícito y verificable**, y `PROJECT.md` **manda sobre este documento**.
+   **Un faltante del mínimo NO es un monto de envío**, así que **no lo toca D43**.
+4. **⚠️ Y el 132(a) NO se puede cumplir por ninguna otra vía. Las dos escapatorias están cerradas por escrito:**
+   **(i)** el botón **«no procede»** ⇒ **no se manda nada al servidor** ⇒ el `422 BUYLIST_MINIMUM_NOT_MET` **nunca se
+   dispara** y no puede alimentar esa pantalla; **(ii)** hardcodear el mínimo lo prohíbe **R4 de §23** y lo desmiente
+   el propio criterio, que exige **«el número correcto»**. ⇒ **hace falta una superficie pública, y de un solo dato.**
+5. **D31 sigue vigente en lo esencial:** el envío **siempre** se descuenta y **siempre** se comunica —**tres
+   superficies**—; lo que cambia es **la forma de la primera**: cualitativa en vez de aritmética.
 
-**(r.1-bis) Por qué D43 es MEJOR, no solo más barato — y por qué retiro D41 sin resistencia.**
+**(r.1-bis) Por qué D43 es MEJOR, no solo más barato — y por qué la tarifa sale del DTO POR CONSTRUCCIÓN.**
 - **La cotización ya es indicativa**: los precios se mueven y **puede que no compremos todas las líneas** (cherry-pick,
   D1). **Restarle un envío exacto a un número que de todas formas va a cambiar es *precisión falsa*:** le sugiere al
   vendedor un **neto que nadie se comprometió a pagar**. *La resta pertenece al único documento donde los números son
   vinculantes.*
-- **Y desaparece un riesgo que yo mismo iba a tener que normar:** que alguien confundiera la resta **indicativa** del
-  cotizador con el neto **congelado** de la oferta. Bajo D41 yo lo resolvía con doctrina, copy condicional (`≈`) y una
-  prueba de QA sobre el **tono**. Bajo D43 **no hay dos restas, así que no hay nada que distinguir**. *Una norma que
-  deja de hacer falta vale más que una norma bien escrita.*
-- **Y cae la superficie entera:** sin endpoint público no hay **diales expuestos**, no hay **caché que invalidar**, no
-  hay **oráculo que sondear** ((o.24), ahora sin objeto) y no hay un cajón al que alguien le eche la siguiente bandera.
-- **Lección de forma, para el próximo hueco:** *ante un requisito que obliga a abrir una superficie, la primera
-  pregunta no es «¿cómo la abro con seguridad?» sino «¿el requisito tiene que existir?».* **Yo pasé directo a la
-  segunda.** Diseñé el endpoint, la regla de exposición, la caché y el disclaimer — **todo correcto, y todo
-  innecesario**. **La mejor superficie pública es la que no existe.**
+- **Desaparece el riesgo que yo iba a tener que normar:** confundir la resta **indicativa** del cotizador con el neto
+  **congelado** de la oferta. Bajo D41 lo resolvía con doctrina, copy condicional (`≈`) y una prueba de QA sobre el
+  **tono**. Bajo D43 **no hay dos restas, así que no hay nada que distinguir**. *Una norma que deja de hacer falta vale
+  más que una norma bien escrita.*
+- **⚠️ Y por eso `shippingFeeCents` SALE DEL DTO, que es el punto más fuerte de esta redacción (y es de ux-ui).**
+  Ninguna pantalla pública lo consume ya. **Si el número no llega al navegador, D43 deja de depender de la disciplina
+  del frontend:** *un valor que no viaja no se puede pintar por accidente.* **Eso es más fuerte que cualquier regla
+  escrita** — y es exactamente lo que dice mi propia doctrina de exposición: *se publica un dial **solo si la pantalla
+  pública lo necesita**.* **El mínimo lo necesita; la tarifa ya no.**
+- **El resultado es una superficie de UN entero**, sin PII, sin sesión, sin cómputo y ya comunicada al mundo como
+  promesa comercial. *Cuando la superficie mínima que cumple el criterio es un número que ya publicamos en la home, la
+  discusión de exposición se acaba sola.*
 
-**(r.2) ⛔ SUPERSEDED — la tabla de exposición dial por dial. Se CONSERVA como DOCTRINA, con CERO diales publicados.**
+**(r.2) La tabla de exposición dial por dial — VIGENTE, con resultado UNO.**
 
-> **La regla sigue escrita porque el día que alguien vuelva a pedir publicar un dial, ésta es la prueba que tiene que
-> pasar — y hoy la pasan CERO.** Se publica un dial **si y solo si (a)** la pantalla pública lo necesita **para no
+> **La regla no cambia y es la prueba que tiene que pasar cualquier dial futuro.** Se publica un dial **si y solo si
+> (a)** la pantalla pública lo necesita **para no
 > mentir sobre el dinero del visitante** **y (b)** conocerlo **no le da ventaja a nadie contra un control nuestro**.
-> **⚠️ D43 responde a (a) por otra vía: la pantalla ya no necesita ninguna cifra para ser honesta, porque dice la
-> verdad EN PALABRAS.** Con eso, **los diez diales fallan (a)** y la tabla siguiente queda en su forma final:
-> **ninguno se publica.** *Publicar diales «de más porque son inofensivos» es superficie de más: cada dial publicado es
-> un control cuyo umbral queda documentado para quien quiera esquivarlo.*
+> **⚠️ D43 no cambia la regla: cambia QUÉ necesita la pantalla.** El envío pasa a decirse **en palabras** ⇒ la tarifa
+> **deja de pasar (a)**. El **mínimo sigue pasándola**, y no por gusto: **lo exige el criterio 132(a) con la frase
+> «con el número correcto»**. *Publicar diales «de más porque son inofensivos» es superficie de más: cada dial
+> publicado es un control cuyo umbral queda documentado para quien quiera esquivarlo.*
 
 | # | Dial | ¿Público? | Por qué |
 |---|---|---|---|
-| **3** | `buylistMinimumRequestCents` | ~~**SÍ**~~ ⛔ **NO (D43)** | Bajo D41 pasaba (a) por el *«te faltan $120»* del drawer. **D43 retira ese requisito de la pantalla pública:** el faltante con cifra lo da el **`422 BUYLIST_MINIMUM_NOT_MET`** de `POST /buylist/requests` —**autenticado, server-side, con `shortfallCents` ya calculado**—, que es **exactamente donde el criterio 132 lo pide** ((r.4)) |
-| **7** | `buylistShippingFeeCents` | ~~**SÍ**~~ ⛔ **NO (D43)** | Bajo D41 pasaba (a) porque *era la resta entera*. **D43 quita la resta del cotizador**: la tarifa se comunica **con cifra en el correo de oferta y en `offer.terms`**, y **en palabras** en el cotizador. Falla (a) y ya no hay nada que compense publicarla |
+| **3** | `buylistMinimumRequestCents` | ✅ **SÍ — y es el ÚNICO** | **(a) Lo exige un criterio explícito y verificable**, el **132(a)**: *el botón no procede y **la pantalla dice cuánto falta**, con **el número correcto***. **No hay otra vía:** si el botón no procede, **no se manda nada** y el `422` **nunca se dispara**; y hardcodearlo lo prohíbe **R4** y lo desmiente *«el número correcto»*. **(b)** Es **promesa comercial ya publicada** (*«desde $500 te compramos»*): saberlo **empuja a completar el carrito**, que es lo que queremos. **Un faltante del mínimo NO es un monto de envío ⇒ D43 no lo toca** |
+| **7** | `buylistShippingFeeCents` | ~~**SÍ**~~ ⛔ **NO (D43) — y sale del DTO, no solo del render** | Bajo D41 pasaba (a) porque *era la resta entera*. **D43 quita la resta del cotizador** ⇒ **ninguna pantalla pública lo consume**, así que **falla (a)** y no hay nada que compense publicarlo. Se comunica **con cifra en el correo de oferta y en `offer.terms`**, y **en palabras** en el cotizador. ⚠️ **Retirarlo del DTO —y no solo del pintado— es la parte importante:** *un valor que no llega al navegador no se puede pintar por accidente.* **D43 deja de depender de la disciplina del frontend y pasa a ser estructural** |
 | 1 | `buylistOfferAcceptDeadlineBusinessDays` | **NO** | Falla (a): el cotizador no habla de plazos. **Y trae un peligro propio:** se **congela por solicitud** (criterio 157), así que el **dial vigente puede diferir del que tiene por escrito** un vendedor con oferta viva ⇒ dos fechas para el mismo trato |
 | 2 | `buylistShipDeadlineBusinessDays` | **NO** | Idéntico al 1: falla (a) y **se congela** |
 | 4 | `buylistOfferIssueDeadlineBusinessDays` | **NO** | Falla (a) **y** es un **SLA NUESTRO que a propósito no se le comunica** ((n), `offerIssueDeadlineAt` derivado y no persistido). Publicarlo **crearía la promesa** que decidimos no hacer |
@@ -13735,68 +13753,99 @@ TÉRMINOS    (offer.terms)          →  la regla en prosa
 | — | `buylistCapPerRequestCents`, `buylistCapPerMonthCents`, **`ineThresholdCents`** | **NO — y éste es el veto duro** | ⚠️⚠️ **Publicar el umbral de INE y los topes AML es publicar el manual de cómo estructurar por debajo de ellos.** No es una preferencia: es un control de cumplimiento cuyo valor **pierde eficacia al ser conocido**. **Ningún pase futuro los mueve a una superficie pública sin decisión explícita del humano y revisión de `seguridad`** |
 | — | Todo lo demás de `GET /admin/settings` (Stripe, FX, proveedores, feature flags, `catalogSyncFromDate`) | **NO** | Ni siquiera es del buylist |
 
-**Resultado final (D43): 0 de 10 diales del ciclo, y 0 de todo lo demás. NINGÚN dial se publica.**
+**Resultado final: 1 de 10 diales del ciclo (el mínimo), y 0 de todo lo demás.**
+⚠️ **Es lista CERRADA, no ejemplo.** `seguridad` debe tratar **cualquier** dial adicional en superficie pública —y muy
+en particular `ineThresholdCents` y los topes AML— **como un defecto**, no como una mejora.
 
-**(r.3) ⛔ SUPERSEDED POR D43 — la forma del endpoint. NO SE IMPLEMENTA.**
+**(r.3) La forma — endpoint PROPIO, `GET`, **UN SOLO CAMPO**.**
 
-~~**`GET /api/v1/buylist/quote-policy`** — `public`, READ-ONLY, cacheable, dos campos.~~
-⛔ **RETIRADO ANTES DE EXISTIR.** No hay endpoint, no hay DTO, no hay caché, no hay throttle que dimensionar y no hay
-**ninguna** superficie pública nueva. **Se conserva tachado, no borrado**, con **una** consecuencia práctica que sí
-sobrevive y que hay que dejar escrita porque alguien volverá a proponerlo:
+**`GET /api/v1/buylist/quote-policy`** — `public`, **READ-ONLY estricto** (doctrina v1.12 de endpoints anónimos: no
+persiste, no escala pendientes, no mueve dinero), **cacheable**. Contrato en `API_CONTRACT.md` §6.
 
-> **⚠️ NORMA QUE SOBREVIVE — dónde NO se meten estos números si el tema se reabre.** Ni `POST /buylist/quote` ni
-> `POST /buylist/quote/batch` son sitio para ellos, **y el segundo es el peligroso**: el batch cotiza **la rejilla que
-> se está mirando, NO el carrito** (§4.16b), así que cualquier bloque de totales calculado ahí sería **el total de la
-> página de resultados** — *una cifra de dinero correcta que describe otra cosa; la peor clase de bug, porque cuadra.*
-> Tampoco `GET /buylist/bounties` (es una **vitrina** con cap y orden propios, que puede quedar **vacía**: la copia de
-> dinero no puede depender de que haya bounties). Y **nunca** un `GET /config` público genérico: *un cajón llamado
-> «config pública» invita a echarle la siguiente bandera, y así es como el umbral de INE acaba publicado «porque ya
-> había un endpoint».*
+```
+BuylistQuotePolicyDTO = { minimumRequestCents: number }      // UN entero. Y nada más.
+```
 
-**(r.4) COHERENCIA — con D43 **NO HAY DOS RESTAS**, así que no hay nada que distinguir.**
+- **⚠️ `shippingFeeCents` NO está en el DTO, y la ausencia es la norma.** No es que el front «no deba pintarlo»: **no
+  lo recibe**. *Un valor que no viaja no se puede pintar por accidente* — **D43 pasa de ser una regla que alguien
+  puede olvidar a ser una propiedad del contrato.**
+- **Sobre el nombre.** `quote-policy` describe **la categoría** (*las reglas que gobiernan la cotización pública*), no
+  su contenido, y por eso sobrevive a que el contenido se reduzca a uno. **El guardarraíl real es la lista cerrada de
+  (r.2), no el nombre** — pero el nombre sigue importando: **jamás `GET /config`**, porque *un cajón llamado «config
+  pública» invita a echarle la siguiente bandera, y así es como el umbral de INE acaba publicado «porque ya había un
+  endpoint»*.
+
+**⚠️ Dónde NO se mete este número, aunque «ahorre una llamada»:**
+
+| Alternativa | Por qué se rechaza |
+|---|---|
+| **`POST /buylist/quote`** | Es **por carta**: el mismo número se repetiría **N veces por render de la rejilla**, anidando una **política del negocio** dentro de la cotización de **una carta**. Y un `POST` **no se cachea**: el dato que menos cambia viajaría en el que más se llama |
+| **`POST /buylist/quote/batch`** | ⚠️ **El peligroso.** El batch cotiza **la rejilla que se está mirando, NO el carrito** (§4.16b): un bloque de totales calculado ahí sería **el total de la página de resultados**. *Una cifra de dinero correcta que describe otra cosa — la peor clase de bug, porque cuadra.* |
+| **`GET /buylist/bounties`** | Es una **vitrina** con cap 50, orden propio y que puede quedar **vacía** o desaparecer de la página. **La copia de dinero del cotizador no puede depender de que haya bounties** |
+
+**(r.4) COHERENCIA — UNA sola resta, y DOS faltantes que no se pisan.**
 
 ```
 ⛔ D41 (SUPERSEDED):  cotizador = resta INDICATIVA («RECIBIRÍAS ≈»)   ·   oferta = resta VINCULANTE
-✅ D43 (VIGENTE):     cotizador = FRASE, sin cifras                    ·   oferta = LA ÚNICA resta, vinculante
+✅ D43 (VIGENTE):     cotizador = el envío EN PALABRAS                ·   oferta = LA ÚNICA resta, vinculante
 ```
 
 - **Hay exactamente UNA tarifa vinculante por solicitud y UNA sola superficie que la muestra:** la **oferta**, con
   `SellRequest.offerShippingFeeCents` **congelado al emitir** y **nunca releído del dial** (criterio 157, D25). El
-  cotizador **no la contradice porque no la menciona**.
-- **⚠️ EL FALTANTE DEL MÍNIMO SIGUE CUMPLIENDO EL CRITERIO 132, y en el sitio correcto.** El criterio exige que **la
-  pantalla diga cuánto falta** (*«te faltan $120»*), y quien lo dice es el **`422 BUYLIST_MINIMUM_NOT_MET`** de
-  `POST /buylist/requests`, con **`details: { minimumCents, totalCents, shortfallCents }` calculado por el servidor**
-  — que es además lo que el propio criterio 132(b) exige (*«la validación vive en el servidor porque el cotizador se
-  puede saltar»*). **El front RENDERIZA ese número; no lo calcula y no lo conoce antes.** *Un «no» seco manda al
-  vendedor a otro lado; un «te faltan $120» lo manda a agregar otra carta — y eso se sigue diciendo, solo que en el
-  momento en que el sistema ya tiene la respuesta correcta.*
-- **`offer.terms`** sigue repitiendo la regla en prosa, **renderizado por el backend** (D31, tercera superficie).
+  cotizador **no la contradice porque no la menciona ni la conoce**.
+- **⚠️ EL MÍNIMO SÍ TIENE DOS SUPERFICIES, y las DOS son obligatorias — es literalmente lo que pide el criterio 132:**
+  | Frente | Superficie | Quién calcula | Naturaleza |
+  |---|---|---|---|
+  | **132(a)** *«el botón no procede y la pantalla dice cuánto falta»* | **cotizador** (`GET /buylist/quote-policy` + el total del carrito) | **el front resta**, con el mínimo del servidor | **preventivo** — evita el viaje |
+  | **132(b)** *«saltándose el cotizador tampoco se crea»* | **`422 BUYLIST_MINIMUM_NOT_MET`** de `POST /buylist/requests` | **el servidor**, `details.shortfallCents` | **AUTORITATIVO** — es el que manda |
+  **No se pisan y no se duplican: uno evita el error, el otro lo decide.** Si difieren —caché, o dial movido entre
+  medias— **manda el `details` del `422`** y la UI **repinta con ese número**. *La pantalla informa; la puerta decide.*
+- **`offer.terms`** sigue repitiendo la regla del envío en prosa, **renderizado por el backend** (D31, 3ª superficie).
 
-**(r.5) ⛔ SUPERSEDED — la caché.** Sin endpoint no hay `Cache-Control`, ni TTL de servidor, ni ventana de rancidez, ni
-CDN que considerar. *Y con ello desaparece el único escenario en que la pantalla podía pintar un número distinto del
-que la puerta iba a evaluar.* **Nada que invalidar es la mejor política de invalidación.**
+**(r.5) Caché — `Cache-Control: public, max-age=300`, y sus dos efectos declarados.**
 
-**(r.6) Lo que el frontend PUEDE y NO PUEDE hacer — bajo D43, y la autorización de D41 queda REVOCADA.**
+- **Por qué 5 min y no 24 h:** el mínimo **gatea un botón**; cuando el humano lo mueve, el storefront debe reflejarlo
+  en lo que dura un café. **Por qué no `no-store`:** un entero sin PII, **idéntico para todos** y pedido en **cada
+  visita** — cacheable también en CDN. **Sin `Vary` por sesión** y **sin variante autenticada**.
+- **⚠️ Efecto de la rancidez, en las DOS direcciones, aceptado a ojos abiertos porque ninguna es money-unsafe:**
+  - **Si el mínimo SUBE** y la caché es vieja ⇒ el botón se habilita, el vendedor envía y recibe el **`422` con el
+    número correcto**. **Coste: un viaje de más, con mensaje accionable.**
+  - **Si el mínimo BAJA** y la caché es vieja ⇒ **el botón queda apagado hasta 5 minutos a alguien que YA califica**.
+    Es el peor de los dos y **aun así no crea nada mal**: solo retrasa. **Mitigación normativa: el front pide este
+    endpoint AL MONTAR el cotizador**, no lo guarda en un store de vida larga entre navegaciones.
+  - **En ningún caso se crea una solicitud incorrecta**: la puerta revalida siempre ((r.4), criterio 132(b)).
+- El backend puede cachearlo **en memoria**; **su TTL no puede superar el `max-age` publicado** (implementación, no
+  contrato).
 
-- ✅ **Pinta la frase cualitativa** (i18n, ES/EN, propiedad de frontend): *«nosotros nos encargamos de la guía de envío
-  y su costo se descuenta del pago»*. **Es un string, no un cálculo**, así que **no puede desincronizarse de ningún
-  dial** — la propiedad que D41 perseguía con caché y disciplina, D43 la obtiene **por construcción**.
-- ⛔ **REVOCADO lo que D41 autorizaba:** **no** hay `neto ≈ total − tarifa`, **no** hay `faltante = mínimo − total`,
-  **no** hay bloque de resta, **no** hay neto estimado y **no** hay porcentaje. **R4 de §23 vuelve a regir sin
-  excepciones en el cotizador.**
-- ⛔ **Sigue prohibido y ahora sin matices:** constantes `18000`/`50000`, un `.env` del front con esos valores, un
-  default «por si acaso», y cualquier lectura de dial en superficie pública. **En el cotizador no hay ninguna cifra de
-  envío que pintar, así que tampoco hay ninguna que inventar.**
-- ✅ **La cotización por línea y el total del carrito NO cambian:** siguen saliendo de `POST /buylist/quote(/batch)`
-  como hoy. **Lo que se retira es la resta del envío, no el cotizador.**
-- ⚠️ **`DESIGN_SYSTEM.md` §23.3 queda OBSOLETO** (define la aritmética en el carrito, el bloque `RECIBIRÍAS ≈`, el
-  faltante con cifra y la degradación de §23.3h). **NO lo toco: es ruta de ux-ui** y lo corrige él. **Nota amable y
-  cierta:** *la «degradación honesta» que ux-ui definió en §23.3h —la frase sin cifra— **pasa de ser el plan B a ser el
-  diseño**.* Enrutado en (o.24).
+**(r.6) Lo que el frontend PUEDE y NO PUEDE hacer — la asimetría es el diseño.**
 
-**(r.7) Lo que este apartado NO hace.** **No** crea ninguna superficie pública · **no** expone ningún dial · **no**
-toca `GET /admin/settings` ni su rol · **no** cambia la validación cruzada · **no** persiste nada · **no** añade DDL ·
-**no** toca SEC-A1 · **no** cambia el momento en que se valida el mínimo (sigue siendo `POST /buylist/requests`) ·
+- ✅ **Pinta la frase cualitativa del envío** (i18n ES/EN, propiedad de frontend): *«nosotros nos encargamos de la guía
+  de envío y su costo se descuenta del pago»*. **Es un string, no un cálculo.**
+- ✅ **AUTORIZADA UNA sola resta: `faltante = minimumRequestCents − totalCarrito`**, y el gate del botón
+  (`total >= minimumRequestCents`). **No contradice R4 de §23**, cuya razón declarada es *la constante que se
+  desincroniza en silencio* y *las dos implementaciones de «día hábil»*: aquí **no hay constante** —el mínimo llega del
+  servidor— y **no hay calendario**; el total del carrito **ya es** una suma cliente de importes por línea que el
+  servidor resolvió. **Y el criterio 132(a) la exige explícitamente.**
+- ⛔ **PROHIBIDA la otra resta: `neto ≈ total − tarifa`.** No hay bloque de resta, no hay neto estimado, no hay
+  porcentaje. **Y no depende de que el front obedezca: la tarifa NO VIAJA** ((r.3)). *Una está autorizada por regla; la
+  otra es imposible por construcción — y esa asimetría es deliberada.*
+- ⛔ **Sigue prohibido:** constantes `18000`/`50000` en el front, un `.env` con esos valores, un default «por si el
+  endpoint no responde», y cualquier otra lectura de dial en superficie pública.
+- **Degradación (fail-OPEN, y se razona):** si la llamada falla (red, `5xx`, `429`), el front **no conoce el mínimo**
+  ⇒ **no pinta faltante** y **deja el botón habilitado**; el servidor responde `422` con el número exacto. *Apagar el
+  botón sería fail-closed: bloquearía a un vendedor legítimo por un error de red, cuando la puerta ya protege el
+  invariante.* **Jamás se inventa el número.**
+- ✅ **La cotización por línea y el total del carrito NO cambian:** siguen saliendo de `POST /buylist/quote(/batch)`.
+  **Lo que se retira es la resta del envío, no el cotizador.**
+- ⚠️ **`DESIGN_SYSTEM.md` §23.3 queda parcialmente OBSOLETO.** **NO lo toco: es ruta de ux-ui.** Lo que se cae: el
+  bloque de la resta, `RECIBIRÍAS ≈` y el neto estimado. **Lo que SOBREVIVE y conviene que él lo sepa:** **§23.3d —el
+  faltante con cifra— SIGUE VIGENTE TAL CUAL** (lo exige el criterio 132(a)), y §23.3e/f/g no los toca D43. Enrutado
+  en (o.24).
+
+**(r.7) Lo que este apartado NO hace.** **No** crea un endpoint de settings público · **no** expone **ningún otro**
+dial · **no** toca `GET /admin/settings` ni su rol · **no** cambia la validación cruzada · **no** persiste nada ·
+**no** añade DDL · **no** toca SEC-A1 (**es una LECTURA de un entero; ningún monto viaja del cliente al servidor**) ·
+**no** cambia el momento en que se valida el mínimo (sigue siendo `POST /buylist/requests`) ·
 **no** cambia la cotización por línea ni el total del carrito · y **no** convierte la cotización en vinculante.
 
 ---
@@ -15289,8 +15338,9 @@ propia configuración para ser determinista deja, **por construcción**, de ser 
 > (no entra a ningún `WHERE` de barrido; el filtro `?offerReissueAlert=true` corre sobre la cola de M5, ya acotada por
 > rol y paginada).
 > **Lo que v1.51.4 NO añade al schema:** ni un enum, ni un valor de enum, ni una FK, ni una tabla. **D43 y D42 son
-> CERO DDL**: D43 **retira** una superficie (el cotizador dice el envío **en palabras**, sin leer ningún dial) y D42
-> es **proyección** sobre `offerCancelledAt`/`offerSentAt`, que ya están en M-46.
+> CERO DDL**: D43 **lee un `ConfigSetting` que ya existe** (`buylist_minimum_request_cents`, sembrado desde v1.51) y
+> D42 es **proyección** sobre `offerCancelledAt`/`offerSentAt`, que ya están en M-46. **`GET /buylist/quote-policy` no
+> añade ni una clave de seed: publica un dial que ya estaba.**
 > **El orden de despliegue sigue teniendo SEIS pasos** (el dial 10 es una clave **nueva** ⇒ el `upsert` con
 > `update:{}` de `seed.ts` **la crea sola**; §11.0 **no aplica**, que rige el cambio de un seed **existente**).
 >
