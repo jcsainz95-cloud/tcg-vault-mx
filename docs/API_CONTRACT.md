@@ -2,7 +2,72 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-01 (rev **v1.51.7**).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-01 (rev **v1.51.8**).
+>
+> **Changelog v1.51.8 — LA SEXTA COPIA GOBIERNA EL BOTÓN DE PAGAR: `isPayable`. Tres hallazgos del frontend al cerrar
+> BL-6 sitio 9 (2026-09-01, arquitecto; **CERO DDL**, un campo derivado + un query param ya declarado. ARCHITECTURE
+> §4.39 enmendada por **octava** vez — §4.39c **sitio 10**, §9 **BL-17/BL-18**):**
+> ⚠️ **El frontend no tocó ninguno de los tres y explicó por qué: el contrato no expone nada equivalente y no se
+> inventan campos.** Correcto — misma disciplina con la que no rellenó `quote-policy` por su cuenta.
+>
+> **A. ⚠️⚠️ `AdminBuylistDTO` gana `isPayable: boolean` (derivado server-side). DINERO SALIENTE.**
+> - **El defecto:** `M5View.tsx:820-821` tiene `canPay = isSuperAdmin && (status === 'aprobada' || status ===
+>   'verificacion')` — **`SELL_REQUEST_PAYABLE_STATES` transcrito a mano en el cliente**, gobernando **el botón de
+>   pagar por SPEI**. Es la **sexta** copia de un subconjunto de estados y la **tercera** de esta regla concreta.
+> - **⚠️ Y está INCOMPLETA — el hallazgo que el frontend no podía ver desde su lado.** La precondición real del
+>   servidor son **DOS** términos: `status ∈ PAYABLE` **∧ `verifiedAt IS NOT NULL`**. El cliente **solo replica el
+>   primero** ⇒ **hoy la UI puede habilitar el botón de pago donde el servidor responde `422`.** *No es una copia
+>   fiel que pueda desincronizarse algún día: ya está desincronizada.*
+> - **NORMA:** `isPayable = status ∈ SELL_REQUEST_PAYABLE_STATES ∧ verifiedAt IS NOT NULL`, **de la misma constante y
+>   el mismo campo que el pre-check y la guarda atómica de `pay-spei`** — tres lectores, **un** cuerpo. El frontend
+>   hace `isSuperAdmin && req.isPayable === true` y **borra el literal de estados**.
+> - **⚠️ ADMIN-ONLY: jamás en el DTO de cliente** —a diferencia de `isTerminal`, que viaja en las dos proyecciones—.
+>   Al vendedor no le toca saber si su solicitud ya entró en la cola de pago: es estado interno del pipeline y le
+>   anticiparía un depósito que aún puede no ocurrir.
+> - **⚠️ ORDEN OBLIGATORIO: BACKEND PRIMERO** (al revés de BL-11). Si el frontend borra su literal antes de que el
+>   campo exista, `isPayable` llega `undefined` y **el botón muere para todos**. Con el orden correcto, el peor caso
+>   del desfase es *«el botón sigue como hoy»*. Consumo **defensivo** (`=== true`), mismo patrón que `isTerminal ===
+>   false`. Desviación **BL-17**.
+>
+> **B. `isPayable` es ACTOR-INDEPENDIENTE y el ROL se queda en el cliente — la asimetría, por escrito.**
+> - **Son dos preguntas:** *«¿esta solicitud está en condición de pagarse?»* (propiedad **de la fila**) y *«¿puedo
+>   pagarla yo?»* (propiedad **del actor**). Fundirlas haría que **la misma solicitud respondiera distinto según quién
+>   pregunte**. *Dos preguntas en un campo son un campo que nadie sabe leer.*
+> - **El rol ya está bien donde está:** el frontend lo tiene, ya gatea con él **toda** la sección de dinero saliente,
+>   y **el servidor lo impone igual** con `MoneyOutGuard`. Un check de **permiso** en el cliente es *affordance*; un
+>   check de **estado de máquina** en el cliente es una regla de negocio duplicada. **Solo la segunda se cura.**
+> - *(Y por eso `requiresAuthorization` de la mesa **sí** es actor-dependiente sin contradicción: ahí lo que se
+>   pregunta **es** una propiedad del actor —su tope—. La regla es «cada campo contesta UNA pregunta», no «nunca se
+>   mira al actor».)*
+>
+> **C. `live?` SE IMPLEMENTA, no se retira. Estaba declarado y ausente.**
+> - Verificado: `admin-buylist.controller.ts` **no tiene ese `@Query`**. Mientras tanto la pestaña «Cerradas» manda
+>   un **CSV que enumera los cuatro terminales** — **la forma exacta que este pase retiró de todos los demás sitios**.
+> - **Se implementa** porque `live?` **es** la contraparte server-side de `isTerminal`: retirarlo **bendeciría** la
+>   enumeración en el cliente justo después de haberla borrado de cinco sitios. Semántica **sin cambios** y ya
+>   especificada: **por EXCLUSIÓN sobre `SELL_REQUEST_TERMINAL_STATES`**, nunca una lista de vivos (criterio 129);
+>   combinable con `status` (se intersectan; contradicción ⇒ **vacío, no error**).
+> - **Puerta: el mismo pase que entregue `isPayable`** — mismo endpoint, mismo DTO, misma doctrina, y el frontend hace
+>   **un** pase en vez de dos. Desviación **BL-18**.
+> - *(La mitigación del frontend —un `Record` **total** sobre el enum que deja de compilar si entra un estado— es
+>   buena y baja la severidad, pero **depende de que alguien actualice `contract.ts` a mano**: un terminal nuevo en el
+>   backend no rompe su build por sí solo.)*
+>
+> **D. §6 — AMBIGÜEDAD DE ALCANCE RESUELTA: el bloque de `isTerminal`/`offer` se lee POR CAMPO, no por bloque.**
+> - El bloque colgaba de **dos** encabezados (lista y detalle) diciendo *«la proyección de CLIENTE»*, mientras las
+>   adiciones vecinas sí distinguen. **El frontend lo leyó como las dos y el backend lo implementó como las dos: los
+>   dos acertaron en `isTerminal`.** Se desambigua **campo por campo** (tabla en §6), porque las dos proyecciones de
+>   cliente **son shapes distintos** —la lista es una forma propia y estrecha; el detalle sale de la proyección
+>   completa—, así que un alcance único para todo el bloque **no podía ser correcto**.
+> - **`isTerminal` → LISTA Y DETALLE.** Si viajara solo en el detalle, **la lista tendría que volver a codificar el
+>   set** para saber qué fila sigue viva — reintroduciendo exactamente la copia que el campo existe para borrar. Y es
+>   la lista (`MyRequestsSection`) la que decide qué pintar por fila.
+> - **`offer` → SOLO DETALLE.** Es un DTO anidado y pesado (tres montos, desglose línea por línea con su condición
+>   NM, guía); multiplicarlo por N en un listado es coste sin uso.
+>
+> **E. Sin cambios.** Todo v1.51.7 y anteriores: `brutoConsumado`, el `?? 0` del envío, `positionUnavailable`, la
+> **no-bloqueo** de la sugerencia, los cuatro sumandos, `isTerminal` en las dos proyecciones, y el régimen de
+> `MoneyOutGuard` sobre `pay-spei` (**que no se relaja: `isPayable` es un aviso de UI, no un permiso**).
 >
 > **Changelog v1.51.7 — EL SUSTRAENDO QUE FALTABA: `payoutNetCents` restaba `null` en el 100% de las filas reales
 > (2026-09-01, arquitecto; **CERO DDL, CERO endpoints, CERO diales — el código ya es correcto**. ARCHITECTURE §4.39
@@ -5546,8 +5611,24 @@ Err:
 > se rechazó su carta y hasta cuándo puede gestionar la devolución. Ítems legacy (rechazados antes de M-22) traen los
 > cuatro campos `null`.
 > **⚠️ v1.51 (M-46) — la proyección de CLIENTE gana `offer` e `isTerminal`, y lo que NO gana importa igual.**
+>
+> > **⚠️ v1.51.8 — ALCANCE, DESAMBIGUADO: este bloque se lee CAMPO POR CAMPO, no en bloque.**
+> > Cuelga de **dos** encabezados —la **lista** (`GET /buylist/requests`) y el **detalle** (`…/:id`)— y decía *«la
+> > proyección de CLIENTE»* sin distinguir, mientras las adiciones vecinas sí lo hacen. **Ambigüedad mía**, señalada
+> > por frontend. **No podía haber un alcance único**: las dos proyecciones de cliente **son shapes distintos** — la
+> > lista es una forma propia y estrecha, el detalle sale de la proyección completa.
+> > | Campo | Lista | Detalle | Por qué |
+> > |---|---|---|---|
+> > | **`isTerminal`** | **SÍ** | **SÍ** | Si viajara solo en el detalle, **la lista tendría que volver a codificar el set terminal** para saber qué fila sigue viva — **reintroduciendo la copia que este campo existe para borrar**. Y es la lista la que decide qué pintar por fila |
+> > | **`offer`** | **NO** | **SÍ** | DTO anidado y **pesado** (tres montos, desglose línea por línea con su condición NM, guía). Multiplicarlo por N en un listado es coste sin uso |
+> > | `expiredReason`, `lastOfferCancelledAt` y demás campos de estado de la oferta | **NO** | **SÍ** | Pertenecen a la ficha de **una** solicitud; la lista solo necesita identificarla y decir si sigue viva |
+> > **Lo implementado coincide con esta norma** (`listMine` emite `isTerminal` y no `offer`): se documenta la
+> > conducta correcta, **no se pide ningún cambio de código**.
+>
 > - **`isTerminal: boolean`** — derivado **server-side** de `SELL_REQUEST_TERMINAL_STATES` (los CUATRO: `pagada`,
 >   `rechazada`, `abandonada`, `expirada`). **El frontend NO vuelve a codificar ese set** (ver §M5, `M5View.tsx:110`).
+>   **Viaja en la LISTA y en el DETALLE** (ver la tabla de arriba). ⚠️ **No confundir con `isPayable`** (v1.51.8),
+>   que es **admin-only** y **jamás** llega al cliente.
 > - **`offer: SellOfferPublicDTO | null`** (§11) — presente **solo** cuando la oferta está **emitida**
 >   (`offerState = 'sent'`); `null` en cualquier otro caso. Lleva los **tres montos**, **cuál se deposita**, el plazo
 >   con **fecha y hora**, el desglose **línea por línea** con su **condición NM**, y —cuando existe— la **guía**.
@@ -8229,6 +8310,13 @@ Notas de seguridad: **host fijo** de pokemontcg.io (sin SSRF); `POKEMONTCG_IO_AP
       terminales. **Se implementa por EXCLUSIÓN sobre `SELL_REQUEST_TERMINAL_STATES`, no como una lista de estados
       vivos** (criterio 129): así un estado nuevo entra a la vista **solo**. Combinable con `status` CSV (se
       intersectan); si `status` contradice a `live` el resultado es vacío, **no** un error.
+      > **⚠️ v1.51.8 — DECLARADO Y AUSENTE. SE IMPLEMENTA, NO SE RETIRA. Desviación BL-18.** Verificado: el
+      > controller **no tiene ese `@Query`**, y mientras tanto la pestaña «Cerradas» manda un **CSV que enumera los
+      > cuatro terminales** — **la forma exacta que este pase retiró de los otros cinco sitios**. **`live?` es la
+      > contraparte server-side de `isTerminal`**: retirarlo del contrato **bendeciría** la enumeración en el cliente
+      > justo después de borrarla en todas partes. **La semántica no cambia** —ya está escrita arriba y es la
+      > correcta—; lo que falta es el código. **Puerta: el mismo pase que entregue `isPayable`** (mismo endpoint,
+      > mismo DTO, misma doctrina ⇒ el frontend hace **un** pase y no dos). **Dueño: backend.**
     - **`seller.phone: string | null` (NUEVO, D12/criterio 129):** *el teléfono viaja en la cola de buylist*, para que
       el operador **pueda llamar** sin ir a buscarlo a la ficha del usuario. Mismo régimen PII que `seller.email`
       (§4.18d): back-office por rol, **sin** enmascarado ni reveal auditado, y **prohibido en toda superficie
@@ -8237,6 +8325,33 @@ Notas de seguridad: **host fijo** de pokemontcg.io (sin SSRF); `POKEMONTCG_IO_AP
       terminal.** Hoy `M5View.tsx:110` (`REQUEST_TERMINAL`) codifica el set en el frontend — la quinta de cinco
       copias, y la única fuera del backend. **El frontend NO lo sustituye por otra constante propia: el servidor le
       dice.** *La copia se cura eliminando la necesidad de la copia.* Ver ARCHITECTURE §4.39(c) sitio 9.
+      ✅ **CERRADO en backend y frontend (2026-09-01).**
+    - **`isPayable: boolean` (v1.51.8, NUEVO, derivado server-side) — ⚠️ DINERO SALIENTE. ADMIN-ONLY.**
+      ```
+      isPayable = status ∈ SELL_REQUEST_PAYABLE_STATES  ∧  verifiedAt IS NOT NULL
+      ```
+      > **Existe para borrar la SEXTA copia, que gobierna el botón de PAGAR POR SPEI.** `M5View.tsx:820-821` tiene
+      > `canPay = isSuperAdmin && (status === 'aprobada' || status === 'verificacion')`: `SELL_REQUEST_PAYABLE_STATES`
+      > **transcrito a mano en el cliente**, y **la tercera copia** de la regla que §4.39c **sitio 8** acaba de
+      > consolidar server-side *precisamente por ser dinero*. Esta tercera está en **otro lenguaje, otro paquete y
+      > otro ciclo de release**: ni el compilador ni un test de backend la ven.
+      > - **⚠️ Y está INCOMPLETA:** la precondición del servidor son **DOS** términos y el cliente **solo replica el
+      >   primero** ⇒ **hoy la UI puede habilitar el pago donde el servidor responde `422`.** *No es una copia que
+      >   pueda desincronizarse algún día: ya lo está.*
+      > - **Se deriva de la MISMA constante y el MISMO `verifiedAt`** que el pre-check y la guarda atómica de
+      >   `pay-spei`: **tres lectores, un cuerpo.** El frontend hace `isSuperAdmin && req.isPayable === true`.
+      > - **⚠️ ACTOR-INDEPENDIENTE — el rol NO entra en este booleano.** *«¿esta solicitud está en condición de
+      >   pagarse?»* es propiedad **de la fila**; *«¿puedo pagarla yo?»* es propiedad **del actor**. Fundirlas haría
+      >   que la misma solicitud respondiera distinto según quién pregunte. El rol se queda en el cliente porque ya lo
+      >   tiene, ya gatea toda la sección de dinero, y **el servidor lo impone igual con `MoneyOutGuard`**.
+      > - **⚠️ NO ES UN PERMISO Y NO RELAJA NADA.** Es un **aviso de UI**: `pay-spei` sigue siendo `super_admin` con
+      >   `MoneyOutGuard` y sus dos guardas server-side intactas. Un `isPayable: true` **no autoriza** un pago.
+      > - **ADMIN-ONLY: jamás en el DTO de cliente** (a diferencia de `isTerminal`, que viaja en las dos): al vendedor
+      >   no le toca saber si su solicitud entró a la cola de pago — le anticiparía un depósito que puede no ocurrir.
+      > - **⚠️ ORDEN: BACKEND PRIMERO, frontend después** (al revés de BL-11). Si el frontend borra su literal antes,
+      >   `isPayable` llega `undefined` y **el botón muere para todos**; con este orden el peor caso es *«sigue como
+      >   hoy»*. Consumo defensivo (`=== true`), mismo patrón que `isTerminal === false`. Desviación **BL-17**,
+      >   ARCHITECTURE §4.39(c) **sitio 10**.
     - **`offerState`, `offerGrossCents`, `offerNetCents`, `offerAcceptDeadlineAt`, `shipDeadlineAt`,
       `sellerShippedDeclaredAt`, `shipmentTrackingNumber` (NUEVOS, admin-only)** en `AdminBuylistDTO` — para que la
       cola de M5 muestre el pipeline sin abrir cada detalle. **`offerState` NUNCA sale en un DTO de cliente.**
@@ -8576,6 +8691,13 @@ Notas de seguridad: **host fijo** de pokemontcg.io (sin SSRF); `POKEMONTCG_IO_AP
   >   **inline dos veces en el mismo método** (`:1754` y `:1788`, desviación BL-7)~~ *(✅ **v1.51.5: BL-7 CERRADA** —
   >   las dos apariciones usan la constante compartida)*. El pago sigue siendo **exclusivo del súper-admin**, sin tope
   >   ni delegación (criterio 26 intacto).
+  > - **⚠️ v1.51.8 — LA PRECONDICIÓN SON DOS TÉRMINOS, Y EL CLIENTE SOLO REPLICABA UNO.** El servidor exige
+  >   **`status ∈ SELL_REQUEST_PAYABLE_STATES` ∧ `verifiedAt IS NOT NULL`** (pre-check y guarda del `updateMany`),
+  >   pero `M5View.tsx:820-821` calcula `canPay` **solo con los estados** ⇒ **la UI habilita hoy el botón de pago
+  >   sobre solicitudes que el servidor rechaza con `422`.** Cierre = **`AdminBuylistDTO.isPayable`** (arriba, §M5
+  >   listado), derivado del **mismo cuerpo**: tres lectores, una regla. **Desviación BL-17 — BACKEND PRIMERO.**
+  >   ⚠️ **`isPayable` NO relaja este endpoint**: `MoneyOutGuard`, el rol y las dos guardas siguen **idénticos**. Es
+  >   un aviso de UI, **no un permiso** — un `isPayable: true` no autoriza un pago.
 
 #### <a id="M5-ciclo"></a>Ciclo de adquisición — mesa, oferta, guía y colas (v1.51 — NUEVO; `PROJECT.md` §P, criterios 113–161)
 
@@ -10076,7 +10198,14 @@ PendingPublishRowDTO = { inventoryItemId: string, folio: string, card: CardDTO, 
 //   ⚠️ NO BLOQUEA NADA: no expira, no cancela, no mueve estados, no gatea `POST …/offer` y no aparece en ningún correo.
 //   ⚠️ ADMIN-ONLY, jamás en un DTO de cliente: mide NUESTRA conducta, y al vendedor ya se le dijo una vez por vuelta
 //     (correo 5). Tampoco va en `decision-table` (la mesa decide qué comprar, no cómo nos hemos portado).
-AdminBuylistDTO  += { isTerminal: boolean, offerState: SellOfferState | null,
+// ⚠️ v1.51.8 — `isPayable` (ADMIN-ONLY, DINERO SALIENTE). Deriva de la MISMA constante y el MISMO `verifiedAt` que
+//   el pre-check y la guarda atómica de `pay-spei`: `status ∈ SELL_REQUEST_PAYABLE_STATES ∧ verifiedAt != null`.
+//   Existe para borrar la SEXTA copia de un subconjunto de estados (`M5View.tsx:820-821` `canPay`), que gobierna el
+//   BOTÓN DE PAGAR y que además replica solo UNO de los dos términos del servidor ⇒ hoy habilita el pago donde el
+//   servidor responde 422. ⚠️ ACTOR-INDEPENDIENTE: el rol se queda en el cliente (`isSuperAdmin && isPayable`),
+//   porque «¿está en condición de pagarse?» y «¿puedo pagarla yo?» son DOS PREGUNTAS y un campo contesta UNA.
+//   ⚠️ NO ES UN PERMISO: `pay-spei` sigue siendo super_admin con MoneyOutGuard. JAMÁS en el DTO de cliente.
+AdminBuylistDTO  += { isTerminal: boolean, isPayable: boolean, offerState: SellOfferState | null,
                       offerSentAt: string | null, offerGrossCents: number | null,
                       offerShippingFeeCents: number | null,
                       offerNetCents: number | null, offerAcceptDeadlineAt: string | null,

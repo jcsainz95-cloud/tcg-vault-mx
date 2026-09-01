@@ -11522,7 +11522,7 @@ verificable con inventario**.
 > topes AML/KYC, el flujo de **ajuste** (`ajustada`) que sigue vivo para otros caminos, y el **precio de venta** (D10:
 > lo fija la curva; este ciclo no captura precios de venta).
 > **Diseño en papel.** Lo implementan **backend** (schema, servicios, jobs, correos) y **frontend** (M5, M1, portal del
-> vendedor). Contrato observable en `API_CONTRACT.md` ~~**v1.51**~~ **v1.51.7**. Migración **M-46** (§11).
+> vendedor). Contrato observable en `API_CONTRACT.md` ~~**v1.51**~~ **v1.51.8**. Migración **M-46** (§11).
 > **Regla de conflicto aplicada:** donde este documento y `PROJECT.md` §P difieran, **manda PROJECT**. Las tensiones y
 > los huecos que encontré **están señalados en (o)**, no resueltos en silencio.
 >
@@ -11896,6 +11896,7 @@ Ninguna es un error de tipos: todas son literales dentro de un `in`/`notIn`/`inc
 | 7 | `buylist-reject.constants.ts:27` — `SELL_REQUEST_TERMINAL_STATES` | `['pagada','rechazada','abandonada']` | una `expirada` **se puede reescribir** (el guard «no pisar terminal» no la ve) | **ALTA** |
 | 8 | `buylist.service.ts:1754` **y** `:1788` — `paySpei` | `['aprobada','verificacion']` **inline dos veces en el mismo método** | el pre-check y la guarda transaccional pueden divergir en una edición | Media |
 | 9 | `M5View.tsx:110` — `REQUEST_TERMINAL` | quinta copia del set terminal, **en el frontend** | la UI ofrece acciones sobre una `expirada` que el backend rechaza | Media |
+| **10** | **`M5View.tsx:820-821` — `canPay`** *(v1.51.8; lo levantó **frontend** al cerrar el sitio 9)* | `isSuperAdmin && (status === 'aprobada' \|\| status === 'verificacion')` = **`SELL_REQUEST_PAYABLE_STATES` transcrito a mano en el cliente**, y **gobierna el botón de PAGAR POR SPEI** | ⚠️ **NADA — y por eso hay que decir que NO es del mismo tipo que los otros nueve.** Ver el dictamen de abajo | **ALTA (dinero saliente)** |
 
 **El set de terminales está copiado en CINCO lugares (1, 2+3 por complemento, 7, 9) justo cuando le añadimos un
 valor.** Las notas de deuda de `buylist-reject.constants.ts:9-11` y `:22-25` («cuando ese archivo se toque, debe
@@ -11933,11 +11934,69 @@ export const SELL_REQUEST_PAYABLE_STATES    = ['aprobada','verificacion'] as con
 | 6 | Añade `offerDecision != 'skip'` al `where` del eje de compra. Una línea que **no compramos** no es una operación de compra y contaminaría la instrumentación de §N.8. |
 | 7 | `SELL_REQUEST_TERMINAL_STATES` **se MUEVE** de `modules/buylist/buylist-reject.constants.ts` a `common/sell-request-states.ts`; el archivo viejo la **re-exporta** (compat de imports) o se actualizan los imports. Gana `expirada`. |
 | 8 | Las **dos** apariciones usan `SELL_REQUEST_PAYABLE_STATES`. |
-| 9 | **`M5View.tsx` borra su literal.** No lo sustituye por otra constante de frontend: el backend le dice. `AdminBuylistDTO` y el DTO de cliente ganan **`isTerminal: boolean`** derivado server-side (§API_CONTRACT v1.51). *La quinta copia se cura eliminando la necesidad de la copia, no moviéndola de archivo.* |
+| 9 | **`M5View.tsx` borra su literal.** No lo sustituye por otra constante de frontend: el backend le dice. `AdminBuylistDTO` y el DTO de cliente ganan **`isTerminal: boolean`** derivado server-side (§API_CONTRACT v1.51). *La quinta copia se cura eliminando la necesidad de la copia, no moviéndola de archivo.* ✅ **CERRADO en backend y frontend (2026-09-01).** |
+| **10** | **`AdminBuylistDTO` gana `isPayable: boolean`** derivado server-side; `M5View` borra la mitad de ESTADO de `canPay` y conserva **solo la de ROL**. **Dueño: backend primero, frontend después.** Dictamen completo abajo. |
 
 **Test de contrato exigible (QA):** paridad a tres bandas del enum `SellRequestStatus` — `schema.prisma` ↔
 `common/enum-values.ts` ↔ la línea canónica de `API_CONTRACT.md` §Enums (§4.37), **más** un test que asserte
 `LIVE ∪ TERMINAL == Object.values(SellRequestStatus)` y `LIVE ∩ TERMINAL == ∅`.
+
+> ### ⚠️⚠️ v1.51.8 — SITIO 10: LA SEXTA COPIA, Y POR QUÉ **NO** ES DEL MISMO TIPO QUE LAS OTRAS NUEVE
+> *(Lo levantó **frontend** al cerrar el sitio 9. **No lo cambió** porque el contrato no expone nada equivalente y
+> **no se inventan campos** — misma disciplina con la que no rellenó `quote-policy` por su cuenta. Correcto.)*
+>
+> **Primero la diferencia, porque el orquestador pidió explícitamente que la asimetría quedara escrita:**
+> **este sitio NO se rompe al añadir un valor al enum.** `expirada` no es pagable y el literal del cliente no la
+> incluye; si mañana entra un estado nuevo, `canPay` seguirá dando el resultado correcto. **Los nueve primeros son un
+> radio de ENUM; éste es un PREDICADO DE DINERO DUPLICADO A TRAVÉS DEL CABLE.** Entra a esta tabla porque codifica a
+> mano un subconjunto del enum, pero **su severidad viene de otro sitio**, y son tres razones:
+>
+> 1. **Es la tercera copia de la MISMA regla que el sitio 8 acaba de consolidar por ser dinero.** El argumento del
+>    sitio 8 —*«dos literales en un método de dinero saliente es la forma más barata de que una edición mueva uno y no
+>    el otro»*— **no se debilita al cruzar el cable: se agrava**. La tercera copia está en **otro lenguaje**, en
+>    **otro paquete** y con **otro ciclo de release**, así que ni el compilador ni un test de backend la ven.
+> 2. **⚠️ Y es INCOMPLETA, que es el hallazgo que el frontend no podía ver desde su lado.** La precondición real del
+>    servidor son **DOS** términos: `status ∈ SELL_REQUEST_PAYABLE_STATES` **∧ `verifiedAt IS NOT NULL`**
+>    (`buylist.service.ts:2664` pre-check y `:2704` guarda). `canPay` **solo replica el primero** ⇒ **hoy la UI puede
+>    habilitar el botón de pago donde el servidor responde `422`.** *No es una copia fiel que se pueda desincronizar
+>    algún día: ya está desincronizada.*
+> 3. **La quinta copia ofrecía un botón que el servidor rechazaba con `409`; ésta ofrece EL BOTÓN DE PAGAR.**
+>    `MoneyOutGuard`, SPEI, irreversible. **Misma clase de defecto, distinto blast radius.**
+>
+> **Y el remedio NO es que el cliente replique bien las dos condiciones.** Eso sería **duplicar dos reglas en vez de
+> una** y meter `verifiedAt` en la lógica de una pantalla — más copias, no menos. *La copia se cura eliminando la
+> necesidad de la copia*, igual que en el sitio 9.
+>
+> **NORMA — `AdminBuylistDTO` gana `isPayable: boolean`, derivado server-side:**
+> ```
+> isPayable = status ∈ SELL_REQUEST_PAYABLE_STATES  ∧  verifiedAt IS NOT NULL
+> ```
+> **De la MISMA constante y con el MISMO `verifiedAt` que usan el pre-check y la guarda atómica de `paySpei`** — tres
+> lectores, **un** cuerpo. El frontend hace `isSuperAdmin && req.isPayable` y **borra el literal de estados**.
+>
+> **⚠️ `isPayable` es ACTOR-INDEPENDIENTE, y el rol se queda en el cliente. Ésta es la asimetría, y tiene motivo:**
+> - **Son dos preguntas distintas:** *«¿esta solicitud está en condición de pagarse?»* (propiedad **de la fila**) y
+>   *«¿puedo pagarla yo?»* (propiedad **del actor**). Fundirlas en un booleano haría que **la misma solicitud
+>   respondiera distinto según quién preguntara** — y es exactamente el antipatrón que este documento ya rechazó en
+>   (g): *«dos campos numéricos independientes son dos cosas que la UI puede cruzar mal»*, aquí en su versión inversa,
+>   *dos preguntas metidas en un campo son un campo que nadie sabe leer*.
+> - **El rol ya está bien donde está.** El frontend **tiene** el rol (`useRole()`), ya gatea con él **toda** la
+>   sección de dinero saliente (`showMoneyOut`, el reveal de CLABE) y **el servidor lo impone igual** con
+>   `MoneyOutGuard` pase lo que pase en la UI. Un check de **permiso** en el cliente es *affordance*; un check de
+>   **estado de máquina** en el cliente es una regla de negocio duplicada. **Solo la segunda es la que se cura.**
+> - *(Precedente en sentido contrario, para que no parezca arbitrario: `requiresAuthorization` de la mesa **sí** es
+>   actor-dependiente. Y es correcto ahí, porque lo que se pregunta **es** una propiedad del actor —su tope—, no un
+>   estado de la fila. La regla es «cada campo contesta UNA pregunta», no «nunca se mira al actor».)*
+>
+> **`isPayable` es ADMIN-ONLY: jamás en el DTO de cliente** —a diferencia de `isTerminal`, que viaja en las dos—.
+> Al vendedor no le corresponde saber si su solicitud ya entró en la cola de pago: es estado interno de nuestro
+> pipeline y le anticiparía un depósito que aún puede no ocurrir.
+>
+> **Orden obligatorio: backend primero, frontend después** (al revés de BL-11). Si el frontend borrara su literal
+> antes de que el campo exista, `req.isPayable` sería `undefined` y el botón quedaría **muerto para todos**. Con el
+> orden correcto el peor caso del desfase es *«el botón sigue como hoy»*. El frontend lo consume **defensivamente**
+> (`req.isPayable === true`), **mismo patrón que ya aplicó con `isTerminal === false`** (`M5View.tsx:844`) y por la
+> misma razón: un backend anterior no manda el campo.
 
 ---
 
@@ -13972,7 +14031,8 @@ serializarlo o llevarlo en **una sola sesión**:
 | `backend/src/jobs/` | barrido reescrito | ver la nota de §2 sobre `jobs/` |
 | `frontend/src/lib/` | `isTerminal` viene del server; se **borra** el literal de `M5View.tsx` | quinta copia del set terminal |
 | `backend/src/common/error-codes.ts` | **5 códigos nuevos** *(v1.51.3)*: `PICKUP_ADDRESS_REQUIRED` · `PICKUP_ADDRESS_NOT_FOUND` · `PICKUP_ADDRESS_MISSING` · `PICKUP_ADDRESS_LOCKED` · `DECLINE_NOT_ALLOWED` **+ 1** *(v1.51.4)*: `GUIDE_CANCELLATION_PENDING` | enum de errores pisado por dos streams |
-| `docs/API_CONTRACT.md` | ~~v1.51.3~~ ~~v1.51.4~~ ~~v1.51.5~~ ~~v1.51.6~~ **v1.51.7** | — (mío) |
+| `docs/API_CONTRACT.md` | ~~v1.51.3~~ ~~v1.51.4~~ ~~v1.51.5~~ ~~v1.51.6~~ ~~v1.51.7~~ **v1.51.8** | — (mío) |
+| `frontend/src/lib/` · `M5View.tsx` | `canPay` pierde su literal de estados (**BL-17**); el rol se queda | **sexta** copia de un subconjunto del enum, y ésta gobierna el **botón de pagar** |
 
 **Nota de secuencia para backend:** la **desviación BL-2** de (b.2) —el `respond` sin guarda— **no depende de M-46** y
 es explotable **hoy**. Puede y debe ir **primero**, en su propio commit, antes que el resto del ciclo.
@@ -14718,6 +14778,8 @@ Riesgos técnicos:
   | # | Desviación | Dueño | Puerta |
   |---|---|---|---|
   | **BL-2** ⚠️ **3 de 4 CERRADAS — falta la cuarta línea de la guarda, y su bloqueo YA DESAPARECIÓ** *(DINERO SALIENTE, no depende de M-46)* | `respond` (`buylist.service.ts:1067-1093`) hacía `findUnique` **solo para autorizar propiedad** (`:1069`) y **nunca leía `req.status`**: `accept` fijaba `status:'aprobada'` **incondicionalmente** (`:1090`). **El dueño de una solicitud `pagada`/`rechazada`/`abandonada` podía revivirla a `aprobada`** — que con `verifiedAt` es el estado pagable de `paySpei`. `decline` tenía el hueco simétrico | backend | ✅ **El agujero explotable está CERRADO**: guarda atómica (`count===1`) con `closedAt IS NULL ∧ adjustmentSentAt IS NOT NULL ∧ status ∈ SELL_REQUEST_LIVE_ADJUSTMENT_STATES` (`buylist.service.ts:1331-1343`) + `409 NO_LIVE_ADJUSTMENT` (`:1353`). ⛔ **ABIERTO: la CUARTA condición `offerSentAt IS NULL` ⇒ `409 ADJUST_NOT_ALLOWED_IN_OFFER_CYCLE`.** Los `TODO(M-46)` de `:1340` y `:1351` se dejaron porque *«la columna aún no existe»* — **`offerSentAt` YA EXISTE** (`schema.prisma:1189`, M-46 aplicada) ⇒ **el bloqueo desapareció y esto es cablable ahora**. Sin ello el criterio 150 no está cerrado en `respond` (§4.39b.2/b.3) |
+  | **BL-17** *(v1.51.8 — **DINERO SALIENTE**, viva hoy en `main`; **SEXTA copia** de un subconjunto de estados)* | `M5View.tsx:820-821` — `canPay = isSuperAdmin && (status === 'aprobada' \|\| status === 'verificacion')` es **`SELL_REQUEST_PAYABLE_STATES` transcrito a mano en el cliente**, y **gobierna el botón de pagar por SPEI**. ⚠️ **Además es INCOMPLETA:** la precondición del servidor son **dos** términos (`… ∧ verifiedAt IS NOT NULL`, `buylist.service.ts:2664`/`:2704`) y el cliente **solo replica el primero** ⇒ **la UI puede habilitar el pago donde el servidor responde `422`**. **No se rompe al crecer el enum** —no es un radio de enum, es un predicado de dinero duplicado a través del cable— pero es la **tercera** copia de la regla que el sitio 8 acaba de consolidar *por ser dinero*, y en otro lenguaje y otro release | **backend** (emite) · **frontend** (consume) | ⚠️ **Orden obligatorio: BACKEND PRIMERO** (al revés de BL-11): si el frontend borra su literal antes, `isPayable` llega `undefined` y **el botón muere para todos**. Cierre = **`AdminBuylistDTO.isPayable`** derivado de la MISMA constante y el MISMO `verifiedAt` que la guarda de `paySpei` (§4.39c sitio 10), + `M5View` conserva **solo** la mitad de ROL. **El frontend hizo bien en no inventarse el campo** |
+  | **BL-18** *(v1.51.8 — **el contrato declara un parámetro que el código no implementa**; hermana de BL-15)* | `GET /admin/buylist` declara **`live?: boolean`** (§M5, v1.51/D12) y **el backend no lo implementa**: `admin-buylist.controller.ts:36-53` no tiene ese `@Query`, y `grep live` en `modules/buylist/` no devuelve nada relacionado. Mientras tanto la pestaña «Cerradas» manda un **CSV que ENUMERA los cuatro terminales** (`M5View.tsx:110-111`) — **la forma exacta que este pase retiró de todos los demás sitios**. ⚠️ El frontend lo mitigó con un `Record` **total** sobre el enum (deja de compilar si entra un estado), **pero esa red depende de que alguien actualice `contract.ts` a mano**: un terminal nuevo en el backend **no** rompe su build por sí solo | backend | **Se IMPLEMENTA, no se retira** (§4.39c, nota de `live?`). **Puerta: el mismo pase que entregue `isPayable` (BL-17)** — mismo endpoint, mismo DTO, misma doctrina, y así el frontend hace **un** pase y no dos. **Por exclusión sobre `SELL_REQUEST_TERMINAL_STATES`**, nunca una lista de vivos |
   | **BL-16** *(v1.51.6 — **defecto del CONTRATO, no del código**; hoy latente, activo el día que se emita la primera oferta)* | El predicado de los tres sumandos de promesa de la mesa **no acota `sellRequestId`** (`buylist.service.ts:1839-1861`), porque **el contrato nunca dijo «otra solicitud»**. Abierta la mesa sobre una solicitud **`ofertada`**, **sus propias líneas suman a `committed`** y el operador decidiría contra una posición **inflada por él mismo**. Hoy inocuo (`offerDecision` solo se puebla al emitir, y el caso normal es `cotizada`). ⚠️ **El disparador es más ancho que la reemisión:** la mesa **no tiene precondición de estado**, así que se autocuenta en `ofertada`/`aceptada`/`en_transito`/`recibida`/`verificacion` — *la reemisión es el único caso que NO falla, porque exige cancelar y `cotizada` no está en el predicado* | backend | **Con el pase de los endpoints de oferta, no después** (antes de que nada escriba `offerDecision`). Cierre = `sellRequestId != :id` en los **tres** sumandos de promesa; **`stock` NO se excluye** (§4.39g.1). Caso de prueba exigido en el contrato v1.51.6 |
   | **BL-15** *(v1.51.6 — **el contrato declara un campo que el código no emite**; entrega pendiente de D12)* | `AdminSellerRef` declara **`phone?: string \| null`** desde D12/v1.51 (§11 DTOs), pero `sellerRef()` (`buylist.service.ts:1536-1540`) devuelve `{id, name, email}` y **los cuatro `include` que lo alimentan seleccionan solo esos tres campos** (`:1510`, `:1548`, mesa y `rejected-items`). §M5 lo exige explícitamente en la **cola**: *«el teléfono viaja en la cola de buylist»*. ⚠️ La prosa de §M5 que aún dice `AdminSellerRef = { id, name, email }` (v1.18) quedó **rancia**; **manda el DTO de §11** | backend (bajo **D12**) | **Con D12.** ⚠️ **NO es un defecto de la mesa** y no se le reclama a ella: backend hizo bien en no meter trabajo compartido en ese pase. Cierre = `phone` en `sellerRef()` + un campo más en los cuatro `select`. **Régimen PII sin cambios** (§4.18d, criterio 130). Sin él, `pickupAddressMissing` avisa en una pantalla que **no lleva el medio de actuar** (§4.39g.5) |
   | **BL-3** ✅ **CERRADA (2026-09-01)** *(PII / cumplimiento)* | `jobs/ine-retention.service.ts:28` definía su propio `CLOSED = ['pagada','rechazada','abandonada']`. Con `expirada` en el enum, **una solicitud expirada contaría abierta para siempre ⇒ el INE nunca se purga** | backend | ✅ Cerrada con M-46: el literal desapareció y el job importa `SELL_REQUEST_TERMINAL_STATES` (`ine-retention.service.ts:6`, usado en `:60` y `:67`, **por complemento**). §4.39c, sitio 1 |
