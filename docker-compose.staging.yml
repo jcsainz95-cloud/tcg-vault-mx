@@ -191,6 +191,15 @@ services:
       # emailVerified:true, asi que un dummy no bloquea comprar/vender/retirar. En el
       # staging real la inyecta el secret manager (nunca una clave real de prod).
       RESEND_API_KEY: ${RESEND_API_KEY:-re_staging_dummy_key_for_local_testing}
+      # Remitente y buzón de soporte de los correos (incluidos los del buylist). Vacíos = el
+      # backend cae a sus defaults de código / a la cadena SUPPORT_EMAIL >
+      # DISPUTE_EVIDENCE_CONTACT > default. Pass-through: `environment:` es allow-list.
+      MAIL_FROM: ${MAIL_FROM:-}
+      SUPPORT_EMAIL: ${SUPPORT_EMAIL:-}
+      # CTA de los correos del buylist. MISMA URL que APP_BASE_URL de staging (arriba).
+      # Vacía = el botón degrada a instrucción de texto. Fíjala (STAGING_APP_PUBLIC_URL=
+      # http://localhost:3010) SOLO cuando exista la ruta del portal. Ver DEVOPS_NOTES §33.
+      APP_PUBLIC_URL: ${STAGING_APP_PUBLIC_URL:-}
       DEFAULT_LOCALE: ${DEFAULT_LOCALE:-es}
     ports:
       - "${STAGING_BACKEND_PORT:-3011}:3001"

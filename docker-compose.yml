@@ -197,6 +197,23 @@ services:
       SEED_OPERATOR_EMAIL: ${SEED_OPERATOR_EMAIL:-}
       SEED_OPERATOR_PASSWORD: ${SEED_OPERATOR_PASSWORD:-}
       APP_BASE_URL: ${APP_BASE_URL:-http://localhost:3000}
+      # CTA de los correos del buylist (v1.51: oferta y cancelación de oferta). Es la MISMA URL
+      # que APP_BASE_URL (su PRIMER origen) leída con otro nombre por `buylist.service.ts`.
+      # Default VACÍO a propósito: la plantilla degrada el botón a instrucción de texto, que es
+      # lo correcto mientras la ruta `/{locale}/buylist/requests/<id>` no exista en el frontend.
+      # Ver .env.example (bloque APP_PUBLIC_URL) y DEVOPS_NOTES §33.
+      APP_PUBLIC_URL: ${APP_PUBLIC_URL:-}
+      # Correo transaccional. Este bloque es PASS-THROUGH: `environment:` es una allow-list, así
+      # que sin estas tres líneas ponerlas en `.env` NO llegaba al contenedor (se perdían en
+      # silencio). Los defaults VACÍOS conservan el comportamiento local de siempre:
+      #   RESEND_API_KEY vacía  -> NoopMailAdapter (loguea el correo, no lo envía).
+      #   MAIL_FROM vacía       -> default de código (mail.module.ts).
+      #   SUPPORT_EMAIL vacía   -> cadena SUPPORT_EMAIL > DISPUTE_EVIDENCE_CONTACT > default.
+      # ⚠ Si pones una RESEND_API_KEY REAL en tu `.env`, este stack LOCAL enviará correos DE
+      #   VERDAD a las direcciones sembradas. Es opt-in consciente, no el default.
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      MAIL_FROM: ${MAIL_FROM:-}
+      SUPPORT_EMAIL: ${SUPPORT_EMAIL:-}
       DEFAULT_LOCALE: ${DEFAULT_LOCALE:-es}
     ports:
       - "3001:3001"

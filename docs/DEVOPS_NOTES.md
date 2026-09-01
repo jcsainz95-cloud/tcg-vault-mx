@@ -67,6 +67,16 @@
 > post-deploy**, su idempotencia, qué hacer si falla y el **rollback** quedan en **§27**, y el orquestador
 > idempotente **`scripts/post-deploy.sh`** los corre en orden y **PARA ante «ACCIÓN REQUERIDA»** del reshape
 > money-crítico. Ver **§27**.
+>
+> **⇒ Actualización 2026-09-01 (v1.51, rama `claude/buylist-inventory-workflow-hdnls3`): NUEVA §33 —
+> `APP_PUBLIC_URL`.** El ciclo de adquisición del buylist manda dos correos con un **CTA al portal del
+> vendedor** y esa URL sale de `APP_PUBLIC_URL`, que **no estaba declarada** (hueco levantado por backend,
+> `BACKEND_NOTES` §0.18). Ya está: declarada en `.env.example`, **alineada a `APP_BASE_URL`** (no es una
+> segunda URL, es la misma con otro nombre) y **cableada** en los dos composes y en `stack-native.sh` —
+> sin ese cableado, ponerla en `.env` **no llegaba al contenedor**. Se deja **SIN VALOR a propósito**:
+> el destino `…/buylist/requests/<id>` **no existe todavía como página del frontend** (verificado), así
+> que fijarla hoy cambia la frase segura por **un botón a 404**. Contrato de formato, activación en 3
+> pasos, hallazgos enrutados y la revisión del resto del ciclo (correo, plazos, cola): **§33**.
 
 ---
 
@@ -4992,3 +5002,175 @@ roles; el dato ya existe y ya es de solo-lectura.
 | **Contrapartida de cerrarlo del todo** | Un `super_admin` JWT de producción guardado en CI. **Decisión del humano, no de devops.** |
 | **Vía barata propuesta** | Job post-deploy con `railway logs` \| `grep 'config inventory'` — cero secretos nuevos. **Sin cablear** hasta poder probarla contra Railway. |
 | **Mejor solución** | Exponerlo en la UI de M2 (techlead). **Enrutado a frontend/backend.** |
+---
+
+## 33. `APP_PUBLIC_URL` — el CTA de los correos del buylist: declarado, alineado y **todavía sin valor a propósito** (2026-09-01, stream `claude/buylist-inventory-workflow-hdnls3`)
+
+**El hueco lo levantó backend, no QA ni un incidente** (`BACKEND_NOTES` §0.18: *«`APP_PUBLIC_URL` no está
+en `.env.example` (archivo suyo) — se señala, no se toca»*). Es la manera correcta de enrutar un hallazgo
+de entorno y aquí queda cerrado por su dueño.
+
+### 33.1 Qué se tocó (todo dentro de rutas de devops)
+
+| Archivo | Cambio |
+|---|---|
+| `.env.example` | **Declarada `APP_PUBLIC_URL`** (bloque propio, pegado a `APP_BASE_URL`), + `STAGING_APP_PUBLIC_URL` en la sección de staging, + entrada en la topología `[RW]` de Railway de la cabecera. |
+| `docker-compose.yml` | `APP_PUBLIC_URL` + **pass-through de correo** (`RESEND_API_KEY`, `MAIL_FROM`, `SUPPORT_EMAIL`) en el servicio `backend`. |
+| `docker-compose.staging.yml` | `APP_PUBLIC_URL: ${STAGING_APP_PUBLIC_URL:-}` + `MAIL_FROM` + `SUPPORT_EMAIL`. |
+| `scripts/stack-native.sh` | `export APP_PUBLIC_URL="${APP_PUBLIC_URL:-}"` junto al de `APP_BASE_URL`. |
+
+**Ni una línea de `backend/` ni de `frontend/`.** Lo que sale de este pase y no es mío va enrutado en §33.4.
+
+### 33.2 No es una variable nueva: es `APP_BASE_URL` **con otro nombre**
+
+El encargo era explícito —*si ya existe algo equivalente, alinea en vez de crear una segunda*—, y existe.
+`APP_BASE_URL` **ya es** «la URL pública del frontend con la que el backend arma los enlaces de los
+correos». Tres consumidores lo demuestran, y **los tres usan su PRIMER origen**:
+
+| Consumidor | Enlace que construye |
+|---|---|
+| `backend/src/modules/auth/auth.service.ts` → `buildFrontendLink()` | verificación de email / reset de contraseña |
+| `backend/src/modules/orders/guest-order-mail.service.ts` → `buildTrackingUrl()` | seguimiento de pedido de invitado |
+| `backend/src/main.ts` | allow-list de CORS (la **lista completa**, no solo el primero) |
+
+`APP_PUBLIC_URL` (`buylist.service.ts` → `portalRequestUrl()`) es **la cuarta lectura de la misma URL**,
+por un nombre distinto y por otra vía (`process.env` directo, no `ConfigService`). Como el nombre lo
+elige el código y el código no es mío, **no puedo unificarlas desde infraestructura**; lo que sí puedo es
+que **no puedan divergir por descuido**, y eso es lo que hace la declaración:
+
+> **REGLA DE ALINEACIÓN (obligatoria, todos los entornos):**
+> `APP_PUBLIC_URL` == **PRIMER origen** de `APP_BASE_URL`. Mismo esquema, mismo host, mismo puerto.
+> En el switch del rebrand **P-21** (§25) **se cambian las dos a la vez, o ninguna.**
+
+**La trampa que esta regla evita, y que no es teórica:** en producción `APP_BASE_URL` es una **lista
+separada por comas** (§25), porque alimenta CORS. `portalRequestUrl()` **no parte por comas** — hace
+`envOr(process.env.APP_PUBLIC_URL, '')` y concatena—, así que copiar la lista tal cual produce un href
+`https://www.tcghunt.mx,https://tcghunt.mx/buylist/requests/…`: un botón roto en un correo de dinero.
+El bloque de `.env.example` lo grita en mayúsculas.
+
+**Enrutado a backend (consolidación real, no la hago yo):** `portalRequestUrl()` puede caer a
+`APP_BASE_URL.split(',')[0].trim()` cuando `APP_PUBLIC_URL` esté ausente — exactamente el patrón que ya
+usan `auth.service.ts` y `guest-order-mail.service.ts`. Con eso `APP_PUBLIC_URL` pasa de ser **una segunda
+fuente de verdad** a un **override opcional**, y la divergencia deja de ser posible en vez de quedar
+prohibida por comentario. Son dos líneas y **es de backend**.
+
+### 33.3 Contrato de formato (de esto depende que el enlace se arme bien)
+
+El backend hace, literalmente: `` `${base.replace(/\/+$/, '')}/buylist/requests/${sellRequestId}` ``.
+De ahí salen las reglas — verificadas contra el código, no supuestas:
+
+| Caso | Qué pasa | Veredicto |
+|---|---|---|
+| `https://www.tcghunt.mx` | href correcto | ✅ **forma canónica** |
+| `https://www.tcghunt.mx/` (barra final) | el backend recorta `/+$` | ✅ tolerado (escríbela sin barra igual) |
+| `www.tcghunt.mx` (**sin esquema**) | href **relativo** dentro del cliente de correo → no lleva a ningún sitio. El backend **no valida el esquema** | ⛔ |
+| `https://a.mx,https://b.mx` (la lista de CORS) | `…,https://b.mx/buylist/requests/<id>` | ⛔ |
+| `https://www.tcghunt.mx/es` (parche del locale) | el enlace sí resolvería… **congelando el idioma a ES** para todo vendedor, incluido el que tiene `locale=en` | ⛔ el locale es del path, no del origen |
+| **ausente / vacía / solo espacios** | `envOr` trata blanco como ausente ⇒ `portalUrl: undefined` ⇒ **la plantilla degrada el botón a una instrucción de texto**. **NO** falla el arranque: no está en `required` de `env.validation.ts` | ⚠️ red de seguridad, **no** estado deseado |
+
+### 33.4 ⛔ Por qué se declara **vacía**: el destino todavía no existe
+
+Fijarla hoy **no enciende un enlace, enciende un 404**. Verificado en el árbol, no supuesto:
+
+1. **No hay página de la solicitud.** Bajo `frontend/src/app/[locale]/` los únicos segmentos dinámicos son
+   `catalog/[cardId]`, `orders/[orderId]`, `shipments/[id]` y `sellado/[inventoryItemId]`. **No existe
+   `buylist/requests/[id]`.** El portal del vendedor vive hoy *dentro* de `/[locale]/buylist`
+   (`MyRequestsSection.tsx`), que además **no lee ningún parámetro de URL**: no hay deep-link ni por query
+   ni por ancla. `/buylist/requests/:id` es **una ruta de la API** (contrato §6), no una de pantalla.
+2. **Falta el prefijo de idioma.** `frontend/src/i18n/routing.ts` corre con `localePrefix: 'always'`, así
+   que el middleware redirige `/buylist/requests/<id>` → `/es/buylist/requests/<id>`… que tampoco existe.
+   No hay `rewrites` en `next.config.mjs` ni catch-all que lo rescate.
+
+*Un botón muerto es peor que una frase* — y **un botón a 404 es un botón muerto**. La degradación que
+backend construyó es la conducta correcta mientras esto siga así, y por eso la variable queda **declarada,
+documentada y cableada, pero sin valor**: activarla es cambiar una línea, no un deploy de infra.
+
+| Hallazgo | Dueño | Qué falta exactamente |
+|---|---|---|
+| No existe la página del portal por solicitud | **frontend** | Ruta `/[locale]/buylist/requests/[id]` (o la que el arquitecto decida) que muestre la oferta y sus dos botones. |
+| El path del CTA **no lleva `/{locale}`**, a diferencia de **todos** los demás enlaces de correo del proyecto (`auth`, `guest-order`) | **backend** (contrato: **arquitecto**) | Que `portalRequestUrl()` incluya el locale del usuario, o que se decida y escriba que el portal vive en una ruta sin prefijo. Hoy funciona por el redirect del middleware, que es **suerte, no diseño**. |
+
+**Activación (3 pasos, el día que la ruta exista):**
+
+```bash
+# 1) COMPROBAR el destino. Si esto no da 200, NO fijes la variable.
+curl -s -o /dev/null -w '%{http_code}\n' "https://<dominio>/es/buylist/requests/<id-real>"
+
+# 2) Local / staging
+APP_PUBLIC_URL=http://localhost:3000   ./scripts/stack-native.sh up      # nativo
+STAGING_APP_PUBLIC_URL=http://localhost:3010 docker compose -f docker-compose.staging.yml --profile apps up -d
+
+# 3) PROD — Railway > servicio backend > Variables (env de runtime, sin redeploy de código):
+#    APP_PUBLIC_URL = PRIMER origen de APP_BASE_URL
+#      pre-switch P-21 : https://www.tcgvaultmx.com
+#      post-switch P-21: https://www.tcghunt.mx
+```
+
+**Verificación de que quedó bien (sin abrir un cliente de correo):** en local, `RESEND_API_KEY` vacía deja
+`NoopMailAdapter`, que **loguea el correo en vez de enviarlo** — emite una oferta y busca el `href` en el
+log del backend. Si en el log aparece la instrucción de texto en vez del botón, la variable no llegó.
+
+### 33.5 La fontanería que faltaba (sin esto, declararla no habría servido de nada)
+
+`environment:` en compose es una **allow-list explícita**: lo que no se nombra, **no entra al contenedor**.
+`APP_PUBLIC_URL` no estaba nombrada en ningún sitio, así que **ponerla en `.env` no habría tenido ningún
+efecto** y el síntoma habría sido «la declaré y el correo sigue sin botón». De paso, el mismo agujero
+afectaba a **tres variables de correo** que este ciclo usa y que tampoco viajaban: `RESEND_API_KEY`,
+`MAIL_FROM` y `SUPPORT_EMAIL` (esta última es la que decide el buzón que aparece en los correos del
+buylist, cadena `SUPPORT_EMAIL` → `DISPUTE_EVIDENCE_CONTACT` → default de código).
+
+Todos los defaults nuevos son **vacíos**, o sea **cero cambio de comportamiento**: `RESEND_API_KEY=""` es
+falsy ⇒ `NoopMailAdapter` (idéntico a antes); `MAIL_FROM`/`SUPPORT_EMAIL`/`APP_PUBLIC_URL` vacías ⇒ `envOr`
+las trata como ausentes ⇒ los mismos defaults de código de siempre.
+
+> ⚠️ **Lo único que cambia de verdad:** si alguien tiene una `RESEND_API_KEY` **real** en su `.env`, el
+> stack **local** ahora **sí enviará correos**. Es opt-in consciente (el `.env.example` la trae vacía), y
+> es justo lo que hacía falta para probar de punta a punta los correos nuevos del ciclo.
+
+Comprobado renderizando la configuración, no por lectura:
+
+```bash
+docker compose -f docker-compose.yml         --profile apps config | grep -E 'APP_PUBLIC_URL|MAIL_FROM|SUPPORT_EMAIL|RESEND'
+docker compose -f docker-compose.staging.yml --profile apps config | grep -E 'APP_PUBLIC_URL|MAIL_FROM|SUPPORT_EMAIL|RESEND'
+```
+
+### 33.6 El resto del ciclo (correos, plazos en días hábiles, cola): **revisado — no falta ninguna variable más**
+
+Se revisó qué necesita el ciclo de adquisición para funcionar de punta a punta. Resultado, con evidencia:
+
+| Frente | Estado | Detalle |
+|---|---|---|
+| **Correo** (oferta, cancelación, recordatorio) | ✅ **Completo** | `RESEND_API_KEY` (obligatoria en no-local por `env.validation.ts`), `MAIL_FROM` (opcional, default en código) y `SUPPORT_EMAIL` (opcional, cadena de fallback) ya estaban declaradas; lo que faltaba era el **pass-through** de §33.5. |
+| **Zona horaria** (`America/Mexico_City`) | ✅ **No necesita env, y es lo correcto** | `business-days.ts` y las plantillas usan `Intl` con `timeZone: 'America/Mexico_City'` **explícito**. No leen `process.env.TZ`. **Fijar un `TZ` en el contenedor no cambiaría ninguna fecha** — y por eso **no se añade**: una env que no hace nada es una env que alguien acabará creyendo que hace algo. La zona es parte de la definición del plazo (criterio 154), no configuración. |
+| **Formato de fecha en español** | ⚠️ **Sin acción, riesgo residual anotado** | Las plantillas piden `es-MX` con `dateStyle:'full'`. Eso necesita **ICU completo** en el runtime; con `small-icu` las fechas del correo saldrían **en inglés** (no rompe, *miente*). `node:20-alpine` trae full-icu por defecto desde Node 13, pero **no lo pude verificar aquí: no hay demonio de Docker en este entorno** (`docker info` falla). No cablé un gate de build sobre una suposición. **Verificación de un renglón** cuando haya Docker: `docker run --rm node:20-alpine node -p "new Intl.DateTimeFormat('es-MX',{dateStyle:'full'}).format(new Date())"` → debe salir en español. Si saliera en inglés, es mío y se arregla en `Dockerfile.backend`. |
+| **Barrido de plazos** (`buylist-sweep`) | ✅ **Ya cubierto** | Lo agenda el scheduler a `0 8 * * *` **UTC** = 02:00 CDMX. **Requiere `REDIS_URL`** — sin Redis **no se programa NINGÚN cron** (ya documentado en `.env.example` y §19). En Railway lo inyecta el add-on. **No hay env que declarar**: a diferencia de los crons de precios, este horario está **fijo en el código** (`scheduler.service.ts`). Si algún día hay que moverlo, hace falta que **backend** lo lea de una env; hoy no me consta que haga falta y **no invento la variable**. |
+| **Trabajo de cola** | ✅ **Ya cubierto** | Mismo `REDIS_URL` + `REDIS_FAMILY` (§20, la trampa IPv6 de Railway). Nada nuevo para el buylist. |
+| **Calendario de días hábiles** | ⚠️ **Ni env ni infra — pero SÍ operación** | `MX_HOLIDAYS` es una **tabla en código** (`backend/src/common/business-days.ts`) que cubre **2026–2030** y **falla ruidosamente** fuera de rango (`BusinessDaysCoverageError`), a propósito: degradar a «no hay festivos» **adelantaría vencimientos**. **Lo que verá devops** si nadie la extiende: el barrido **no expira nada** y loguea `error`. **Extenderla es de backend** (§33.7 lo deja como aviso con fecha, no como sorpresa). |
+
+**En una línea: para este ciclo faltaba `APP_PUBLIC_URL` y su fontanería. Lo demás ya estaba.**
+
+### 33.7 Dos avisos operativos que salen de esta revisión (ninguno bloquea)
+
+1. **Vigilancia del calendario (2030).** Cuando se acerque el cierre de 2030, el síntoma será
+   *«el barrido del buylist no expira ofertas y loguea `BusinessDaysCoverageError`»*. **No es un fallo de
+   infraestructura**: es la tabla `MX_HOLIDAYS` sin extender. Queda escrito aquí para que quien esté de
+   guardia no lo diagnostique desde cero. **Dueño: backend.**
+2. **Envs que el backend lee y `.env.example` todavía no declara** (mías, **fuera de este ciclo**, todas
+   **opcionales con default en código** — ninguna afecta al buylist): `GUEST_ORDER_SWEEP_CRON`,
+   `SCHEDULER_SHUTDOWN_TIMEOUT_MS`, `CATALOG_REFRESH_VARIANTS_BATCH_DELAY_MS`,
+   `POKEMONPRICETRACKER_PARTIAL_MIN_PRICE`, `POKEMONPRICETRACKER_GRADED_FIELD`,
+   `POKEMONPRICETRACKER_GRADED_FORMAT`, `POKEMONPRICETRACKER_GRADED_MARKET_FORMAT`,
+   `POKEMONPRICETRACKER_GRADED_EVIDENCE_FIELD`. Se listan **ahora que se detectaron** en vez de
+   documentarlas de memoria en un pase que no es el suyo: son diales finos del proveedor de precios
+   *graded* y merecen leerse una por una antes de escribir su default en la plantilla. **Dueño: devops
+   (yo), en un pase de plantilla del stream de precios.**
+
+### 33.8 Rollback
+
+**No hay rollback de deploy que hacer aquí: no hay código nuevo, no hay migración y no hay servicio nuevo.**
+
+| Escenario | Acción | Efecto |
+|---|---|---|
+| El CTA sale roto/al sitio equivocado en prod | **Borrar `APP_PUBLIC_URL`** en Railway (o dejarla vacía) y reiniciar el servicio | Vuelve la **instrucción de texto**. Es el estado seguro y **es el estado por defecto**. Sin migración, sin ventana, sin pérdida de nada. |
+| El pass-through de correo molesta en local | Dejar `RESEND_API_KEY=` vacía en tu `.env` | `NoopMailAdapter`, exactamente como antes de este pase. |
+| Hay que revertir el commit entero | `git revert` de este commit | Se pierde la declaración y el cableado; **el comportamiento de la app no cambia** (los defaults son vacíos y equivalen a la ausencia de las variables). |
