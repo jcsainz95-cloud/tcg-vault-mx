@@ -3,7 +3,54 @@
 > **Nombre comercial / marca:** **TCG Vault MX**. Es el nombre que se usa en la interfaz, la
 > comunicación y los términos. "Marketplace TCG con Bóveda" es solo el título descriptivo del proyecto.
 >
-> **ESTADO AL 2026-09-01 (7ª ronda del bloque v2.1 — CORRECTIVA FINAL — LEER PRIMERO):** cuatro decisiones
+> **ESTADO AL 2026-09-01 (8ª ronda del bloque v2.1 — CORRECTIVA FINAL DE DOCUMENTACIÓN — LEER PRIMERO):**
+> **una decisión del humano (D43)** y **una corrección de conteo** a la que llegaron por separado el
+> **arquitecto** y **ux-ui**. **No entra alcance nuevo: entra precisión.** Tres cosas:
+> **(1) LOS CORREOS OBLIGATORIOS DEL CICLO SON CINCO, NO CUATRO — y hay un caso que no manda NINGUNO.**
+> Este documento venía contando **cuatro** y metía **tres desenlaces distintos dentro de uno solo**
+> («expiración/cancelación»). **El conteo estaba mal y se corrige**: *«cancelamos nosotros tu oferta»* **no
+> es** una expiración — **la solicitud sigue VIVA**, vuelve a la fila con sus 7 días hábiles completos
+> (D38) y **nadie incumplió nada** —, así que mandarle un correo que dice *«se venció tu plazo»* **le imputa
+> al vendedor un acto NUESTRO**. Es **literalmente el argumento de D33** —el que creó el correo de «no
+> procederemos»— aplicado un nivel más abajo, y la respuesta tiene que ser la misma: **correo propio**.
+> **Los CINCO son: (1) oferta, (2) recordatorio, (3) expiración, (4) «no procederemos», (5) «cancelamos la
+> oferta».** Y **el caso que NO manda correo**: **cancelar una oferta que todavía esperaba autorización** —
+> esa oferta **nunca existió para el vendedor**; contársela sería revelarle una decisión interna que jamás
+> le concernió. Ver **§P.3** (tabla), §P.3.1, §P.5.1, §H, M5, «Fuera de alcance», criterios **16/142** y
+> el criterio **173** (nuevo). **Hueco de documentación que esto destapa y se cierra aquí**: el criterio
+> 16(b) —la oferta que vence sin respuesta— **nunca dijo que saliera correo**, aunque el ciclo llevaba
+> desde la 2ª ronda contando uno de «expiración». **Sale correo**; no es alcance nuevo, es lo que
+> «expiración» siempre cubrió.
+> **(2) D43 — EL COTIZADOR DICE EL ENVÍO EN PALABRAS, NO EN CIFRAS.** Decisión del humano: el cotizador
+> **no menciona ningún monto de envío** —**sin cifra, sin resta, sin neto estimado y sin expresar el
+> faltante del mínimo en términos de envío**—; solo la **frase cualitativa** *«nosotros ponemos la guía y su
+> costo se descuenta de lo que te pagamos»*. **La resta con los tres montos vive SOLO en la oferta**
+> (correo + pantalla de aceptación), que es **autenticada** y usa la **tarifa congelada**. Razón: el
+> cotizador **ya es indicativo** —los precios se mueven y puede que no compremos todas las líneas—, así que
+> restarle un envío exacto es **precisión falsa**; y el neto del carrito era **sistemáticamente optimista**,
+> porque el recorte del operador **solo quita líneas**: pintaba la **mejor** cifra posible, nunca la
+> esperada. **⚠ EL CRITERIO 132 NO CAMBIA Y SIGUE VIGENTE ENTERO**: el **faltante del mínimo** (*«te faltan
+> $120»*) **SÍ se pinta en el cotizador**, con sus **dos frentes (a) y (b) intactos** — **un faltante del
+> mínimo no es un monto de envío**. Ver **§E**, **§H**, §P.3, §P.12, «Fuera de alcance» y criterios
+> **174/175** (nuevos). **D43 supersede la parte del cotizador de D31**, no D31 entera: *«el envío siempre
+> se deduce»* **se sigue diciendo en las tres superficies**; lo que sale del cotizador es **el número**.
+> **(3) TRES TEXTOS AL CLIENTE, RATIFICADOS (uno con una acotación).** La **frase del cotizador** queda
+> **ratificada literal**; la afirmación **«es una tarifa fija»** del correo de oferta queda **ratificada
+> ACOTADA a esa oferta** —es fija **para esta operación**, no una lista de precios permanente: la tarifa es
+> un **dial** (D31) y **«fija» no puede aparecer en ninguna superficie que no tenga una tarifa congelada
+> detrás**, empezando por el cotizador—; y la **prohibición de presuponer conocimiento previo**
+> («como ya sabías», «recuerda que») queda **ratificada para el correo de oferta y toda superficie anterior
+> a él**, con la **excepción explícita del recordatorio**, que llega **después** y donde referirse al monto
+> ya visto **sí es verdad**. Ver criterio **175** y decisiones **101–103**.
+> **⚠ Lo que este documento SEÑALA y el humano debería mirar**: **(1)** *«la resta vive solo en el correo»*
+> **no puede leerse literal** — la **pantalla de aceptación** tiene que mostrar los tres montos, porque
+> **ahí es donde se acepta con sesión iniciada** (§P.3) y aceptar a ciegas sería peor que el problema que
+> D43 resuelve; se redacta como **«en la oferta: correo + pantalla»**. **(2)** el **arquitecto tomó dos
+> decisiones (D41, D42) que NO están en este documento** — ver **preguntas 30 y 31**.
+> **Preguntas: se abren la 30, la 31 y la 32** (las tres **no bloqueantes**, con supuesto tomado).
+>
+> **ESTADO AL 2026-09-01 (7ª ronda del bloque v2.1 — CORRECTIVA FINAL — histórico; superado por el bloque
+> de arriba en lo que toca al conteo de correos y a lo que el cotizador dice del envío):** cuatro decisiones
 > del humano (**D36–D40**) y **una corrección enrutada por el arquitecto**. La más importante **tapa un hueco
 > BLOQUEANTE que nadie había visto**:
 > **(D36/D37) EL CICLO NUNCA PEDÍA LA DIRECCIÓN DEL VENDEDOR.** Verificado: hasta esta ronda, **§P no
@@ -381,7 +428,8 @@
 > pase de dejar los recordatorios fuera de alcance)*. Se **cierran además seis preguntas abiertas** del
 > primer pase: **no se re-oferta** sobre una solicitud terminal, **no se edita** una oferta ya enviada (se
 > cancela y se emite otra), los **correos obligatorios son tres** (oferta, recordatorio, expiración)
-> *(**⚠ corregido en la 5ª ronda: son CUATRO** — D33 suma el de «no procederemos»)*,
+> *(**⚠ corregido en la 5ª ronda: son CUATRO** — D33 suma el de «no procederemos»; **⚠ corregido otra vez
+> en la 8ª: son CINCO** — la **cancelación** sale del correo de expiración, §P.3, criterio 173)*,
 > **aceptar exige sesión** (no hay enlace anónimo), **«solicitud viva» = todo lo que NO sea terminal**
 > (terminales: **pagada, rechazada, abandonada, expirada**) y la **ubicación NO se exige al convertir**
 > —bloquear la conversión atoraría el pago— pero la pieza sin ubicación **sale señalada** en la cola de
@@ -517,7 +565,9 @@
 > consecuencias que este documento escribe en vez de dejar mintiendo**: **(1)** es un **CUARTO correo
 > obligatorio** —distinto de la expiración: no es *«aceptaste y no mandaste»*, es *«no procederemos»*—, así
 > que **los correos del ciclo pasan de tres a CUATRO** (§P.3, §H, criterios 16/142 y la pregunta 6, que se
-> había cerrado con «tres»); **(2)** es **un dial más** — se fue el **umbral de guía** (D31) y entra este
+> había cerrado con «tres») *(**⚠ 8ª ronda: y de CUATRO a CINCO** — el mismo razonamiento, aplicado a la
+> **cancelación**, que también decía una cosa falsa metida dentro del correo de expiración; §P.3, criterio
+> **173**)*; **(2)** es **un dial más** — se fue el **umbral de guía** (D31) y entra este
 > **plazo**, así que la tabla de §P.10 **vuelve a OCHO diales** *(**⚠ 6ª ronda, D34: pasan a NUEVE** — entra
 > el **neto mínimo para emitir**, MX$200)*.
 > **Además, tres puntos que el arquitecto dejó señalados y el humano ya resolvió**: **(a)** el **costo real
@@ -811,7 +861,9 @@ de autenticidad/condición y precios opacos. Este marketplace resuelve:
       crea la solicitud**. El mínimo se juzga sobre el **TOTAL de la solicitud** —da igual si es **una carta
       o mil**—, se **valida en el servidor** (no solo en el cotizador, que es superficie del cliente y se
       puede saltar) y el cotizador **dice cuánto falta** para alcanzarlo (*«te faltan $120»*), no solo que no
-      se puede. Es un **dial de M10**, ~~distinto del umbral de guía~~ **distinto de la tarifa de envío**
+      se puede. *(**⚠ 8ª ronda, D43 — esto NO se toca**: el faltante del mínimo **se sigue pintando con su
+      cifra**. Lo que sale del cotizador son **los montos de ENVÍO**, que es otra cosa; y **queda prohibido
+      expresar este faltante en términos de envío** — §H, criterios 132 y 174.)* Es un **dial de M10**, ~~distinto del umbral de guía~~ **distinto de la tarifa de envío**
       *(5ª ronda, D31: **el umbral de guía ya no existe**; los dos diales de monto que quedan son el **mínimo**
       y la **tarifa**, y **una validación bloqueante los relaciona**: `tarifa < mínimo`, criterio 127)*.
 - [ ] ~~**El envío del vendedor lo ponemos nosotros desde MX$1,000** *(2ª ronda v2.1, D16/D18b; precisado en
@@ -898,9 +950,16 @@ de autenticidad/condición y precios opacos. Este marketplace resuelve:
 - [ ] **Mensaje explícito al vendedor — CUATRO ideas** *(actualizado v2.1; precisado en la 2ª ronda por
       D16; ampliado en la 4ª ronda por D30; **eran TRES y pasan a CUATRO en la 5ª ronda por D31**)*: el
       cotizador/solicitud, el correo de oferta y los términos comunican claramente que
-      **(d) *(NUEVO 5ª ronda, D31)* el envío lo ponemos NOSOTROS en toda compra y su costo SIEMPRE se deduce
-      del importe a pagar** —**MX$180**, dicho **antes** de que aceptes y **no en letra chica**: en una oferta
-      de $500 son el **36%** y recibes **$320**—, y que
+      **(d) *(NUEVO 5ª ronda, D31; **⚠ ACOTADO en la 8ª por D43**)* el envío lo ponemos NOSOTROS en toda
+      compra y su costo SIEMPRE se deduce del importe a pagar** ~~—**MX$180**, dicho **antes** de que
+      aceptes y **no en letra chica**: en una oferta de $500 son el **36%** y recibes **$320**—~~
+      **⚠ D43 (8ª ronda) — la IDEA se dice en las tres superficies; la CIFRA solo en la oferta**: en el
+      **cotizador** esta idea va **en palabras y sin ningún número de envío** (ni la tarifa, ni el
+      porcentaje, ni un neto estimado); **los MX$180, el 36% y el neto se ven en la oferta —correo y
+      pantalla de aceptación—, que es donde el vendedor decide** y donde la tarifa **ya está congelada**
+      (§H, §P.3, criterio **174**). **Lo que NO se movió**: sigue siendo obligatorio que lo vea **antes de
+      aceptar** y **no en letra chica**. **Siguen siendo CUATRO ideas**: D43 **no quita ninguna**, cambia
+      **dónde aparece el número de una de ellas**. Y que
       **(a) solo compramos lo que te ofertamos por correo, y el NETO que anunciamos es el que se deposita**
       (no se recalcula al recibir; **lo único que puede reducirlo es que una línea no cumpla la condición NM
       de (c)** — nunca un recálculo nuestro, criterio 134),
@@ -1064,8 +1123,9 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
       a inventario en un clic** al pagar. La cola muestra el **teléfono del vendedor** y permite ver **qué
       usuarios tienen cotizaciones vivas y cuántas** (§P.9).
       *(NUEVO 5ª ronda v2.1)*: se suman **(a)** el **barrido de caducidad** de solicitudes `cotizada` que
-      **nadie ofertó en 7 días hábiles**, con su **correo de «no procederemos»** (D33) — es el **cuarto correo
-      obligatorio** del ciclo; y **(b)** la **captura OPCIONAL del costo real de la etiqueta** al **confirmar
+      **nadie ofertó en 7 días hábiles**, con su **correo de «no procederemos»** (D33) — es el **correo
+      obligatorio número 4** del ciclo *(**⚠ 8ª ronda: el ciclo tiene CINCO correos, no cuatro** — §P.3,
+      criterio 173)*; y **(b)** la **captura OPCIONAL del costo real de la etiqueta** al **confirmar
       el envío**, con **fallback a la tarifa congelada de MX$180** si no se captura (el P&L de M7 usa el real
       cuando existe). **Lo que se le descuenta al vendedor no cambia**: es siempre la tarifa congelada (D25).
       *(NUEVO 7ª ronda v2.1)*: se suman **(a)** la acción **«declinar ahora»** sobre una solicitud
@@ -1075,6 +1135,14 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
       vendedor** —capturada **al crear la solicitud** (D36/D37, §P.2.1)— **a la vista del operador en la
       ficha**, porque es **el dato con el que compra la etiqueta**. **M5 no captura direcciones**: **muestra
       la que el vendedor eligió o confirmó** de su libreta.
+      *(NUEVO 8ª ronda v2.1)*: **los correos obligatorios del ciclo son CINCO** (§P.3, tabla), y M5 es donde
+      se dispara el quinto: al **cancelar una oferta YA ENVIADA** sale el correo **«cancelamos la oferta»**
+      y la solicitud **vuelve a la fila con 7 días hábiles completos**; al **cancelar una oferta que todavía
+      esperaba autorización** **no sale ningún correo y no se reinicia ningún reloj**. **La pantalla de
+      cancelación tiene que decirle al operador cuál de las dos cosas va a pasar** —**si el vendedor se va a
+      enterar o no**— **antes de que confirme**: es la diferencia entre corregir un número por dentro y
+      mandarle una cancelación a alguien. **Ambas quedan auditadas** (quién canceló y cuándo). Criterio
+      **173**.
       *(NUEVO 3ª ronda v2.1; **corregido en la 4ª**)*: se suman **(a)** la **cola de ofertas pendientes de
       autorización** del súper-admin (las del operador por encima de **MX$1,500**, D24), **(b)** el
       **override manual de línea al ofertar** con **motivo obligatorio** (D26) y **(c)** la cola de **«por
@@ -1372,11 +1440,44 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
       humano quiere además un piso de neto para siquiera emitir la oferta, es alcance nuevo** — **pregunta
       abierta 25**.
 - [ ] **Buylist — el envío se deduce SIEMPRE, y se dice en todos lados antes de aceptar** *(NUEVO 5ª ronda
-      v2.1, **D31** — requisito de comunicación explícito del humano)*: el **cotizador**, el **correo de
+      v2.1, **D31** — requisito de comunicación explícito del humano; **⚠ ACOTADO en la 8ª ronda por D43 en
+      lo que toca al COTIZADOR**)*: el **cotizador**, el **correo de
       oferta** y los **términos** dicen que **la guía la ponemos nosotros en toda compra** y que su costo
       **SIEMPRE se deduce del importe a pagar**. **No va como letra chica**: en una oferta de **MX$500** los
       **MX$180** son el **36%** —el vendedor recibe **MX$320**— y **debe verlo antes de aceptar**. *(El humano
       aceptó ese peso **a ojos abiertos**; **tarifa y mínimo siguen siendo diales** y, si duele, se mueven.)*
+      ~~El **36%**, los **MX$180** y los **MX$320** se pintan en las tres superficies.~~ **⚠ CORREGIDO por
+      D43 (8ª ronda): eso valía para el mensaje, no para las cifras.** **La REGLA se sigue diciendo en las
+      tres superficies** —esa parte de D31 **no se toca**—; **los NÚMEROS solo viven en la oferta**. En el
+      **cotizador** la regla se dice **en palabras y sin ninguna cifra de envío** (bullet siguiente).
+
+- [ ] **Buylist — D43: EL COTIZADOR DICE EL ENVÍO EN PALABRAS; LOS TRES MONTOS VIVEN EN LA OFERTA** *(NUEVO
+      8ª ronda v2.1, **D43** — decisión del humano; **acota D31**, no la revierte)*:
+      **(1) En el cotizador**: se dice **la regla, en una frase cualitativa** —*«nosotros nos encargamos de
+      la guía y su costo se descuenta del pago»*— y **NADA más sobre el envío**: **sin la cifra de la
+      tarifa**, **sin la resta**, **sin neto estimado**, **sin porcentajes**, y **sin expresar el faltante
+      del mínimo en términos de envío** (*«te faltan $120 para cubrir el envío»* queda **prohibido**: mezcla
+      dos cosas que no son la misma y **miente sobre qué es el mínimo**).
+      **(2) En la oferta —correo y pantalla de aceptación—**: van **los TRES montos** (bruto, envío, neto),
+      **con la resta a la vista** y con **cuál se deposita** dicho explícitamente. **Sin cambio: D16/D31
+      siguen íntegras ahí** (§P.3, criterio 134).
+      **Por qué, dicho como requisito de negocio**: el cotizador **es indicativo y lo dice** —los precios se
+      mueven y **puede que no compremos todas las líneas**—, así que restarle **un envío exacto** a un total
+      que todavía no es un trato es **precisión falsa**: viste de vinculante una cifra que no lo es. Y hay
+      una razón peor, y es la que decide: **ese neto del carrito era sistemáticamente OPTIMISTA**, porque el
+      recorte del operador **solo puede quitar líneas** — la pantalla pintaba **la mejor cifra posible**,
+      nunca la esperada, y fabricaba **exactamente la decepción** que la oferta vinculante existe para
+      evitar. Una cifra que **solo puede empeorar** no es una estimación: es una promesa que no hicimos.
+      **⚠ EL FALTANTE DEL MÍNIMO SE QUEDA, ENTERO — el criterio 132 NO cambia**: *«te faltan $120 para el
+      mínimo de $500»* **sí se pinta en el cotizador**, con **sus dos frentes (a) y (b) exigidos tal cual**.
+      **Un faltante del mínimo no es un monto de envío**: es una cifra sobre **las cartas del vendedor**, no
+      sobre **nuestro servicio**, y sin ella un «no» seco lo manda a otro lado sin decirle qué le falta.
+      **Quien lea este bullet y quiera retirar también la resta del faltante, está leyendo mal**: son dos
+      restas distintas y solo una se va.
+      **⚠ Consecuencia asumida, no escondida**: **el correo de oferta es la PRIMERA vez que el vendedor ve
+      el monto del envío**. Eso obliga a que ese correo **no dé por sabido nada** (§P.3, criterio 175) y deja
+      una pregunta de negocio abierta —¿se cae más gente cerca del mínimo?— que **se responde midiendo**, no
+      repintando la resta: ver «Riesgos y banderas».
 - [ ] **Buylist — la solicitud que nadie oferta CADUCA a los 7 días hábiles** *(NUEVO 5ª ronda v2.1, **D33**;
       ver §P.3.1)*: **`cotizada` significa «esperando que NOSOTROS ofertemos»**. Si **nadie la oferta en 7
       días hábiles** desde su creación, la solicitud **caduca** (estado **terminal**) y **sale un correo al
@@ -1384,6 +1485,25 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
       cuando quiera**. **No es un «no pudimos procesar tu solicitud» vago**: el cliente **debe saber a qué
       atenerse**. Es un **dial de M10**, se cuenta en **días hábiles** (D14) y **no lleva recordatorio al
       cliente** — es un plazo **nuestro**, no suyo.
+- [ ] **Buylist — NINGÚN CORREO LE AFIRMA AL VENDEDOR UN HECHO QUE NO OCURRIÓ** *(NUEVO 8ª ronda v2.1 —
+      regla transversal; **es la que fija el conteo en CINCO**, §P.3)*: los **correos obligatorios del ciclo
+      son CINCO** —**oferta**, **recordatorio**, **expiración**, **«no procederemos»** y **«cancelamos la
+      oferta»**—, y el reparto **no es de estilo: es de veracidad**. La regla que los gobierna es una sola:
+      **un correo = un hecho**. De ella salen las tres consecuencias que hay que respetar:
+      **(a)** **decirle «se venció tu plazo» a alguien cuyo plazo no venció es mentirle**, y decírselo cuando
+      **el que canceló fuimos nosotros** es además **echarle la culpa** — por eso la cancelación tiene correo
+      propio;
+      **(b)** **dos caminos al mismo hecho comparten correo y texto** (el barrido y «declinar ahora» dicen lo
+      mismo; los dos plazos del vendedor vencen igual): **al vendedor no le corresponde saber por cuál puerta
+      entró la decisión** —eso es evaluación nuestra y vive en la bitácora—; y
+      **(c)** **hay un caso en el que el correo correcto es NINGUNO**: cancelar una oferta **que nunca
+      salió** —la que esperaba autorización—. **Escribirle sería contarle una decisión interna que jamás le
+      concernió** y revelarle un control nuestro. **El silencio también es una decisión de comunicación**, y
+      aquí es la correcta.
+      **Aplica a los cinco, sin excepción, todo lo que este documento ya exigía «para los correos del
+      ciclo»**: nada de **CLABE** (ni enmascarada), nada de **datos de terceros**, nada de **otras
+      solicitudes**, nada de **cifras internas de la mesa** (posición, sugerencia, topes) y nada de
+      **domicilio**. **La regla nunca dependió del número.**
 
 ### I. Acabado / versión de carta (transversal — NUEVO v1.4)
 > **⚠ Actualizado por §N (v2.0):** el acabado **deja de tener regla de precio propia** — el mapeo «acabado →
@@ -2737,7 +2857,8 @@ gananciaNeta  =  estimadoPSA9 − (precioVentaRaw + gradingCost)      ← SOLO p
 > obligatorio** —con eso el «bounty sin meta» deja de existir y el tope de 10 siempre tiene con qué
 > compararse—, **sin construir panel de bounties** (proyecto aparte). **(D33)** una solicitud que **nadie
 > ofertó en 7 días hábiles CADUCA**, con un **correo que dice explícitamente que NO PROCEDEREMOS** — es el
-> **CUARTO correo obligatorio** y **un dial más**, así que la tabla de §P.10 **vuelve a ocho diales** y los
+> **CUARTO correo obligatorio** *(**⚠ 8ª ronda: el ciclo tiene CINCO** — criterio 173)* y **un dial más**,
+> así que la tabla de §P.10 **vuelve a ocho diales** y los
 > ~~**estados terminales pasan de cuatro a cinco**~~ *(**⚠ 6ª ronda: NO — siguen siendo CUATRO**; la
 > caducidad es **`expirada` con motivo `no_offer`**)*. Se resuelve además el **costo real de la etiqueta**
 > (captura **opcional**, *fallback* a la tarifa congelada). Ver **§P.3, §P.3.1, §P.4, §P.10, §P.12**.
@@ -2765,8 +2886,10 @@ gananciaNeta  =  estimadoPSA9 − (precioVentaRaw + gradingCost)      ← SOLO p
 > **Alcance de esta feature**: el **ciclo** (decidir, comunicar, comprometer, **mandar la guía**, recibir,
 > pagar y publicar), los **estados nuevos** *(cuatro en el primer pase; ~~**el terminal `caducada` de D33 es
 > el quinto**~~ — **⚠ 6ª ronda: no hay quinto estado, hay un MOTIVO nuevo en `expirada`**)*, los **tres
-> plazos** *(**eran dos**: se suma el de caducidad, D33)*, los **CUATRO correos** del
-> ciclo *(**eran tres**: se suma el de «no procederemos», D33)*, la **mesa de decisión** del admin —**con el
+> plazos** *(**eran dos**: se suma el de caducidad, D33)*, los ~~**CUATRO**~~ **CINCO correos** del
+> ciclo *(**eran tres**: se suma el de «no procederemos», D33; **⚠ 8ª ronda: y el de «cancelamos la
+> oferta», que estaba mal fusionado dentro del de expiración** — §P.3, criterio 173)*, la **mesa de
+> decisión** del admin —**con el
 > bloqueo de emisión por neto mínimo**, D34— y el
 > **cierre hasta publicar**. *(**7ª ronda**: se suma el **dato que faltaba para que «mandar la guía» sea
 > ejecutable** — la **dirección de origen del vendedor**, pedida **al crear la solicitud** y **reusando la
@@ -3099,6 +3222,11 @@ condicional a NM línea por línea)**
       el número enfrente: en una oferta de **MX$500** los **MX$180** son el **36%** —el vendedor recibe
       **MX$320**— y **debe verlo ANTES de aceptar**. La misma frase va en el **cotizador** y en los
       **términos** (§E, §H): **tres superficies, mismo mensaje**.
+      *(**⚠ Precisión de la 8ª ronda, D43 — lo que viaja a las tres superficies es la REGLA, no la cifra**:
+      en el **cotizador** la frase va **sin ningún monto de envío** (§H, criterio 174). **Los MX$180, el 36%
+      y el neto son de la oferta**, y por eso este bullet los exige **aquí**: es el documento donde el
+      vendedor decide, y donde la tarifa ya está **congelada**. **Este bullet no pierde nada**; el que se
+      acota es el del cotizador.)*
 - [ ] **Hay ofertas que NO se emiten: el piso de neto de MX$200** *(NUEVO 6ª ronda, **D34**; la regla vive en
       §P.2, aquí se dice su efecto sobre el correo)*: **si el neto no llega a MX$200, el correo de oferta no
       se manda**. No existe una variante de correo que anuncie un depósito de **MX$20** ni de **MX$0**: esa
@@ -3153,15 +3281,73 @@ condicional a NM línea por línea)**
       porque **corre contra nosotros**, no contra el vendedor. Avisarle *«ojo, nos falta un día para
       contestarte»* no le sirve de nada.)*
       ~~Los **correos obligatorios del ciclo son tres**: oferta, recordatorio y expiración/cancelación.~~
-      **⚠ CORREGIDO en la 5ª ronda (D33): son CUATRO** — **oferta**, **recordatorio**,
-      **expiración/cancelación** y **«no procederemos» por caducidad** (§P.3.1). El cuarto **no es una
+      ~~**⚠ CORREGIDO en la 5ª ronda (D33): son CUATRO** — **oferta**, **recordatorio**,
+      **expiración/cancelación** y **«no procederemos» por caducidad** (§P.3.1).~~ El cuarto **no es una
       variante del tercero**: la expiración dice *«aceptaste y no mandaste»*; la caducidad dice *«no vamos a
       ofertarte»*. **Son mensajes opuestos y no se pueden fusionar.**
       *(**⚠ Precisión OBLIGATORIA de la 6ª ronda**: ahora que **los dos desenlaces comparten el estado
       `expirada`** (resolución de la pregunta 27), **el correo NO se elige por el estado: se elige por el
-      MOTIVO** (`not_shipped` ⇒ expiración; `no_offer` ⇒ «no procederemos»). **Siguen siendo CUATRO correos
-      distintos**; compartir estado **no los fusiona**. Es justamente el riesgo que trae el modelado nuevo, y
+      MOTIVO** (`not_shipped` ⇒ expiración; `no_offer` ⇒ «no procederemos»). ~~**Siguen siendo CUATRO correos
+      distintos**~~; compartir estado **no los fusiona**. Es justamente el riesgo que trae el modelado nuevo, y
       por eso se escribe: criterios **142**, **165c** y **169c**.)*
+      **⚠ CORREGIDO EN LA 8ª RONDA: SON CINCO — ver el bullet siguiente, que es el origen único del
+      conteo.** El tachado de arriba se conserva como historial; **lo que NO cambia** de él es la razón por
+      la que el 4 es propio y la regla de que **el correo no se elige por el estado**.
+
+- [ ] **LOS CINCO CORREOS OBLIGATORIOS DEL CICLO, Y EL CASO QUE NO MANDA NINGUNO** *(NUEVO 8ª ronda —
+      **corrige el conteo de CUATRO a CINCO**; el diagnóstico lo levantaron por separado **ux-ui** y el
+      **arquitecto**, y este documento lo ratifica y lo hace suyo)*:
+      **La regla de conteo, para que nadie la vuelva a re-litigar: un correo = un HECHO que le afirmamos al
+      vendedor.** Dos maneras de llegar al **mismo hecho** comparten correo y texto; dos **hechos distintos**
+      no se fusionan aunque compartan estado, plazo o pantalla.
+
+      | # | Correo | Quién lo dispara (el PRODUCTOR) | Qué le afirma al vendedor | Dónde queda la solicitud |
+      |---|---|---|---|---|
+      | **1** | **Oferta** | emitir la oferta, o autorizarla el súper-admin | *«te compramos esto a este precio si llega NM; el envío se descuenta; se te depositan $X»* | `ofertada` |
+      | **2** | **Recordatorio** | el barrido, a **1 día hábil** de vencer **cada plazo del vendedor** (aceptar / enviar) | *«te queda un día»* | sin cambio |
+      | **3** | **Expiración** | el barrido, por **cualquiera de los dos plazos DEL VENDEDOR**: no respondió, o aceptó y no mandó | *«un plazo TUYO venció y la operación se cerró»* | `rechazada` (no respondió) · `expirada` + `not_shipped` (no mandó) |
+      | **4** | **«No procederemos»** | el **barrido de caducidad** (7 días hábiles) **o** el botón **«declinar ahora»** (D39) | *«no vamos a ofertarte; puedes volver a cotizar cuando quieras»* | `expirada` + `no_offer` |
+      | **5** | **«Cancelamos la oferta»** *(NUEVO 8ª ronda)* | **nosotros**, al cancelar una oferta **YA ENVIADA** | *«la cancelamos NOSOTROS, no es nada de tu parte y tu solicitud sigue viva»* | vuelve a **`cotizada`** con **7 días hábiles completos** (D38) |
+      | **—** | **NINGUNO** *(NUEVO 8ª ronda)* | cancelar una oferta que **todavía esperaba autorización** | **nada: esa oferta nunca existió para él** | vuelve a `cotizada`, **sin reiniciar reloj y sin correo** |
+
+- [ ] **Por qué el 5 tiene que ser un correo propio, y no la «cancelación» que vivía dentro del 3** *(8ª
+      ronda)*: el correo 3 **afirma un hecho que en este caso es FALSO** — que **un plazo del vendedor
+      venció**. Cuando **cancelamos nosotros**, **no venció nada, no incumplió nadie y la solicitud NO se
+      cerró**: sigue viva y vuelve a la fila. Mandarle el 3 **le imputa un incumplimiento que no existió**, y
+      encima le esconde el único hecho que sí ocurrió: **que fuimos nosotros**. Y trae un daño extra que el
+      caso del correo 4 no tenía: **el 3 lo invita a «cotizar de nuevo»**, y aquí eso lo manda a **duplicar
+      una solicitud que sigue abierta** — nos ensucia la cola y lo confunde a él.
+      **Es el mismo argumento con el que D33 creó el correo 4**, un nivel más abajo: *un correo que dice la
+      cosa equivocada es peor que no escribir*. Fusionarlos **no era una simplificación: era el fallo
+      esperando**.
+- [ ] **Por qué el conteo sube a CINCO y no a SEIS** *(8ª ronda — la regla de conteo, aplicada)*: **el
+      correo 3 se queda como UNO** aunque tenga dos productores, porque los dos afirman **el mismo hecho**
+      —*«un plazo tuyo venció y esto se cerró»*— y **en los dos incumplió el vendedor**; cambia **cuál**
+      plazo, y eso es **copy**, no un mensaje distinto. Es **exactamente el mismo trato que ya recibía el
+      recordatorio**, que también cubre los dos plazos del vendedor con un solo correo. Y el **correo 4 sigue
+      siendo UNO** aunque lo disparen el barrido y «declinar ahora» (D39): **mismo hecho, mismo texto** —al
+      vendedor **no le corresponde** saber si le contestamos rápido o dejamos correr el reloj; eso es
+      **evaluación nuestra** y vive en la bitácora.
+      *(**Si alguna vez esos dos productores del 3 tuvieran que afirmar hechos distintos, serían SEIS** — y
+      esa es una decisión de producto que **pasa por este documento**, no un detalle de plantillas.)*
+- [ ] **El correo se elige por el PRODUCTOR, no por el estado ni por el motivo** *(8ª ronda — **amplía** la
+      precisión de la 6ª ronda, que ya decía «por el motivo, no por el estado»)*: **el motivo de cierre
+      tampoco alcanza**, y se demuestra por lo negativo: **queda vacío en dos de los tres desenlaces del
+      antiguo correo 3** —«no respondió» deja la solicitud **`rechazada`** (el motivo solo se sella en
+      `expirada`) y **la cancelación la deja `cotizada`**—, así que elegir por motivo **mandaría el mismo
+      correo a los dos extremos opuestos del eje «¿quién falló?»**: al que no cumplió y al que no hizo
+      absolutamente nada. **Lo que sí discrimina siempre es quién disparó el cierre.** *(Cómo se implementa
+      —dónde vive ese discriminador— es del arquitecto; el requisito de negocio es que **ningún vendedor
+      reciba un correo que describa un hecho que no ocurrió**.)*
+- [ ] **Cancelar una oferta que ESPERABA AUTORIZACIÓN no manda ningún correo** *(NUEVO 8ª ronda — hueco que
+      este documento no tenía escrito)*: una oferta que **no salió** porque estaba pendiente de autorización
+      del súper-admin (D13, criterio 143) **nunca existió para el vendedor**. Si al cancelarla le
+      escribiéramos, le estaríamos contando **que preparamos algo que él nunca supo que existía** y, de paso,
+      revelándole **la existencia y el orden de magnitud de un control interno nuestro** (el tope del
+      operador). **No se le manda nada**, y **tampoco se le reinicia el reloj** (§P.3.1): **el mismo hecho
+      —que la oferta llegó o no llegó a sus manos— gobierna las dos consecuencias**, así que no pueden
+      desincronizarse. **El barrido que anula una oferta pendiente al caducar tampoco manda el 5**: manda el
+      **4**, que es el hecho real (*no procederemos*). Criterio **173**.
 
 **P.3.1 — La solicitud que nadie oferta CADUCA: nunca dejamos a alguien esperando sin respuesta (D33 — 5ª
 ronda; NUEVA)**
@@ -3176,8 +3362,9 @@ ronda; NUEVA)**
 - [ ] **Sale un correo que dice que NO PROCEDEREMOS — con esas palabras, no con un rodeo**: el cliente recibe
       un correo que le dice **explícitamente que no vamos a proceder con la oferta**, y que **puede volver a
       cotizar cuando quiera**. **No sirve** un *«no pudimos procesar tu solicitud»* vago ni un
-      *«seguimos revisando»*: el cliente **tiene que saber a qué atenerse**. Es el **CUARTO correo obligatorio
-      del ciclo** (§P.3).
+      *«seguimos revisando»*: el cliente **tiene que saber a qué atenerse**. Es el ~~**CUARTO**~~ **correo
+      obligatorio número 4 de los CINCO** del ciclo (§P.3, tabla) *(**8ª ronda**: el conteo total subió a
+      cinco; **este correo no cambió ni una palabra** — cambió el correo que estaba a su lado)*.
 - [ ] **Este plazo corre contra NOSOTROS, y eso cambia dos cosas**: **(a)** **no lleva recordatorio al
       cliente** —avisarle de un plazo que depende de nuestra carga de trabajo no le sirve de nada—; y
       **(b)** **no se le reprocha nada al cliente**: la solicitud **no queda `rechazada`** (eso significaría
@@ -3207,6 +3394,10 @@ ronda; NUEVA)**
       pendiente es nuestro**—; **el barrido ANULA esa oferta al caducar la solicitud**: sale de la cola de
       autorización y **ya no puede autorizarse después** (terminal es terminal, criterio 145). *(El verbo
       importa: no es que «quede huérfana en la cola», es que **el barrido la anula**.)*
+      *(**8ª ronda — qué correo sale aquí, que este documento no había dicho**: sale el **4** («no
+      procederemos»), **no** el 5 («cancelamos la oferta»). El hecho real para el vendedor es que **no vamos
+      a ofertarle**; que hubiera una oferta anulada por dentro **es información nuestra, no suya** — §P.3,
+      criterio **173**.)*
 - [ ] ~~**Qué pasa si una oferta emitida se cancela y la solicitud vuelve a la fila** *(**⚠ SUPUESTO
       CORREGIDO en la 6ª ronda por el arquitecto**)*: el reloj de caducidad **vuelve a arrancar desde la
       cancelación**, **no** desde la creación original. **Regla vigente: el reloj NO se reinicia — cuenta
@@ -3234,6 +3425,17 @@ ronda; NUEVA)**
       **Qué NO cambia**: mientras **nadie cancele nada**, el reloj **cuenta desde la creación** como siempre
       (§P.10). El reinicio **no es automático ni periódico**: lo dispara **una acción nuestra**, la
       cancelación de una oferta **ya emitida**.
+      **⚠ PRECISIÓN OBLIGATORIA DE LA 8ª RONDA — «ya emitida» quiere decir QUE LE LLEGÓ AL VENDEDOR, y de
+      ahí cuelgan las DOS consecuencias a la vez**: cancelar una oferta **enviada** ⇒ **se reinicia el reloj
+      Y sale el correo 5** («cancelamos la oferta», §P.3); cancelar una oferta que **solo esperaba
+      autorización** ⇒ **ni reloj ni correo**, porque **para el vendedor no pasó nada** —esa oferta nunca
+      existió para él— y **su solicitud lleva todo el tiempo esperando nuestra respuesta**, que es justo lo
+      que este plazo mide. **Un solo hecho gobierna las dos consecuencias**, así que **no pueden
+      desincronizarse**: *no hay reinicio silencioso*. Con eso, **el bucle silencioso** (preparar → cancelar
+      → preparar → cancelar, sin que al vendedor le llegue nada) **queda cerrado de raíz**, y el riesgo del
+      bullet siguiente se reduce al **bucle ruidoso**, donde **cada vuelta le cuesta al operador mandarle al
+      vendedor una oferta vinculante y su cancelación**, con **las dos entradas en la bitácora**. Criterio
+      **173**.
       **⚠ RIESGO NUEVO que esto abre, SEÑALADO aquí sin inventarle remedio** *(7ª ronda)*: **cancelar y
       re-emitir en bucle podría alargar el plazo indefinidamente** — cada cancelación regala 7 días hábiles
       más, y una solicitud podría quedarse viva para siempre sin que el cliente reciba nunca ni oferta ni
@@ -3386,10 +3588,13 @@ quedan SUPERADAS; cierra la pregunta 16)**
       ~~Los **correos obligatorios del ciclo siguen siendo TRES** —oferta, recordatorio, expiración— *(la 3ª
       ronda llegó a proponer un cuarto; con D30 **no existe**)*.~~
       **⚠ Precisión de la 5ª ronda (D33): el rechazo parcial NO agrega ningún correo —eso sigue igual—, pero
-      el conteo del ciclo SÍ cambió: son CUATRO**, porque **D33 suma el de «no procederemos» por caducidad**
-      (§P.3, §P.3.1). **El cuarto correo que la 3ª ronda proponía —el de *«¿continúas?»*— sigue sin
-      existir**; el cuarto que sí existe es **de otro momento y de otro sentido** (antes de ofertar, y porque
-      **el plazo que se venció fue el nuestro**).
+      el conteo del ciclo SÍ cambió: son ~~CUATRO~~ CINCO** *(**8ª ronda**)*, porque **D33 suma el de «no
+      procederemos» por caducidad** (§P.3, §P.3.1) **y la 8ª ronda saca la CANCELACIÓN a correo propio**.
+      **El correo que la 3ª ronda proponía —el de *«¿continúas?»*— sigue sin existir**, y **ninguno de los
+      dos que se sumaron es él**: los dos son **de otro momento y de otro sentido** —**antes de ofertar** el
+      4 (porque el plazo que se venció fue **el nuestro**) y **antes de que el vendedor mande nada** el 5
+      (porque **el que canceló fue nosotros**)—. **Sigue sin existir cualquier correo POSTERIOR a la
+      verificación que le pida algo al vendedor.** Ver §P.3, tabla, y criterio **173**.
 - [ ] **La contradicción con D9 quedó DISUELTA, no acotada (D30)** *(⚠ corrige lo que decía la 3ª ronda)*:
       ~~D27 introducía un «ajuste de ALCANCE» que obligaba a **acotar** el criterio 124 (que decía que en
       verificación *«no existe ajustar»*).~~ Sin re-confirmación, **el ciclo de buylist no usa el ítem
@@ -3644,7 +3849,8 @@ en la 6ª — origen único de los números)**
 >    DIRECCIÓN de la libreta que ya usa para recibir compras** *(7ª ronda, D36/D37; si no tuviera ninguna, la
 >    captura ahí)* → queda **`cotizada`**, la
 >    pantalla le dice **que todavía no mande nada** y **ya le dice que el envío lo ponemos nosotros y que se
->    deduce de lo que se le paga** (D31).
+>    deduce de lo que se le paga** (D31) — *(**8ª ronda, D43**: **en palabras y sin ninguna cifra de envío**;
+>    el único monto que ve aquí es **el valor de sus cartas**, y el **faltante del mínimo** cuando aplique)*.
 > 2. El súper-admin (**o el operador, si el bruto cabe en su tope**) abre la **mesa de decisión** y ve, por
 >    cada carta, **cuántas tiene** y **cuántas vienen en camino**, más la **sugerencia**. **Compra 2 líneas y
 >    descarta 1.**
@@ -3701,10 +3907,14 @@ en la 6ª — origen único de los números)**
 > **Verificable por lo que NO existe**: **ningún** monto produce un correo de oferta con **un solo monto**, y
 > **no hay** ningún dial de «umbral de guía» en M10.
 >
-> **Flujo crítico — el descuento se anuncia en las TRES superficies, antes de aceptar (D31):** el
+> **Flujo crítico — el descuento se anuncia en las TRES superficies, antes de aceptar (D31; *acotado en la
+> 8ª por D43*):** el
 > **cotizador**, el **correo de oferta** y los **términos** dicen que **el envío lo ponemos nosotros y que
 > siempre se deduce del importe a pagar**. Verificable en el caso que más duele: una oferta de **MX$500** —
-> el vendedor **ve MX$320** como depósito **antes** de apretar «aceptar», no después.
+> el vendedor **ve MX$320** como depósito **antes** de apretar «aceptar», no después. *(**⚠ 8ª ronda, D43**:
+> lo que va a las tres superficies es **la regla**; **la cifra vive en la oferta**. Este flujo **sigue
+> verificándose igual en su punto que importa** —los MX$320 antes de aceptar—, y **cambia solo dónde NO
+> deben estar**: ver el flujo de D43 más abajo.)*
 >
 > **Flujo crítico — la solicitud que nadie oferta caduca (D33; *precisado en la 6ª ronda*):** una solicitud
 > **`cotizada`** que **nadie ofertó** en **7 días hábiles** queda **`expirada` con motivo `no_offer`** y
@@ -3746,6 +3956,35 @@ en la 6ª — origen único de los números)**
 > Verificable **por lo que NO existe**: **no hay** una libreta de «remitentes» separada de la del comprador,
 > **no hay** pantalla nueva de domicilio y **no se pide la dirección al aceptar**. Verificable el borde ya
 > vigente: una dirección **fuera de México** **no sirve** para vender (criterio 31).
+>
+> **Flujo crítico — LOS CINCO CORREOS, y el que NO sale (8ª ronda; criterio 173):** se montan **cuatro
+> cierres distintos** sobre cuatro solicitudes y se leen **las cuatro bandejas**:
+> **(1)** oferta enviada, el vendedor **no responde** en 2 días hábiles ⇒ queda **`rechazada`** y le llega
+> **«tu plazo venció»**;
+> **(2)** oferta aceptada, el **paquete no sale** en 3 días hábiles ⇒ **`expirada` + `not_shipped`** y le
+> llega **«aceptaste y no mandaste»**;
+> **(3)** oferta **enviada** que **nosotros cancelamos** ⇒ la solicitud **vuelve a `cotizada` y sigue viva**,
+> le llega **«la cancelamos nosotros, tu solicitud sigue viva»** y **arranca un plazo nuevo de 7 días
+> hábiles** (criterio 172);
+> **(4)** oferta **pendiente de autorización** que **nosotros cancelamos** ⇒ **no le llega absolutamente
+> nada** y **el reloj no se reinicia**.
+> **Verificable por lo que NO pasa, que es donde estaba el defecto**: en **(3)** el vendedor **no recibe**
+> ningún texto que diga *«venció»*, **ningún** plazo suyo, **ningún** monto de la oferta cancelada y
+> **ninguna** invitación a «cotizar de nuevo» —duplicaría una solicitud abierta—; y en **(4)** **no aparece
+> nada** en su bandeja **ni en su portal** que le revele que existió una oferta. **Los casos (3) y (4) se
+> corren juntos**: es la misma acción con dos consecuencias opuestas, y probarlas por separado esconde
+> justamente el riesgo.
+>
+> **Flujo crítico — el cotizador dice el envío en palabras, y el mínimo con su cifra (D43, 8ª ronda;
+> criterio 174):** un visitante arma un carrito de **MX$380**. Verificable **las dos cosas a la vez**:
+> **(a)** la pantalla **dice «te faltan MX$120»** para el mínimo de MX$500 —**criterio 132(a), intacto**—; y
+> **(b)** **en toda la pantalla no aparece ningún número de envío**: ni **MX$180**, ni un porcentaje, ni un
+> «recibirías», ni una resta. Se completa el carrito a **MX$600** y se repite: sigue **sin cifras de envío**,
+> con **el valor de las cartas como único monto** y **la frase cualitativa** debajo. Después se emite la
+> oferta y **ahí sí** aparecen **los tres montos con la resta** (criterio 134), **iguales en el correo y en
+> la pantalla de aceptación**. **Verificable por lo que NO existe**: **ninguna** frase que exprese el
+> faltante del mínimo **en términos de envío**, y **ninguna** aparición de la palabra «fija» aplicada a la
+> tarifa **fuera de la oferta** (criterio 175c).
 >
 > **Flujo crítico — la oferta que no vale la pena NO se emite (D34):** de una solicitud cotizada en
 > **MX$3,000** el operador recorta hasta un **bruto de MX$300**; el neto sería **MX$120** ⇒ **la emisión se
@@ -3859,6 +4098,18 @@ ronda por D31**)**
 - [ ] **El cotizador dice cuánto falta, no solo que no se puede (D18)**: *«te faltan $120 para llegar al
       mínimo de $500»*. Un "no" seco manda al vendedor a otro lado; un "te faltan $120" lo manda **a agregar
       otra carta**.
+      *(**⚠ 8ª ronda, D43 — esta cifra SE QUEDA, y la frase tiene una forma prohibida**: se dice *«te faltan
+      $120 **para el mínimo de $500**»* y **nunca** *«te faltan $120 **para cubrir el envío**»*. Lo segundo
+      **reintroduce la tarifa por la puerta de atrás** y además **miente sobre qué es el mínimo**: el mínimo
+      **no es el envío**, es el piso por debajo del cual **operar la solicitud pierde dinero** —la razón que
+      abre esta sección—. Criterios **132** y **174**.)*
+- [ ] **El cotizador NO menciona ningún monto de envío** *(NUEVO 8ª ronda, **D43**; ver §H, criterio 174)*:
+      la tabla de arriba **se lee así**: en la columna «qué ve el vendedor», **la cifra del envío es de la
+      OFERTA, no del cotizador**. En el cotizador va **la regla en palabras** —*«nosotros ponemos la guía y
+      su costo se descuenta de lo que te pagamos»*— **sin tarifa, sin resta, sin neto estimado y sin
+      porcentaje**. **El mínimo y su faltante no se tocan** (bullet anterior). **Los dos números conviven en
+      la misma pantalla sin contradecirse** porque **uno es sobre sus cartas y el otro sobre nuestro
+      servicio**, y solo el primero es exacto en ese momento.
 - [ ] ~~**Los dos umbrales son diales SEPARADOS (D18b)**: el **mínimo de compra** y el **umbral de guía**
       viven en M10 como dos números independientes.~~ **⚠ SUPERSEDED por D31 (5ª ronda)**: **el umbral de guía
       se retira**. Los **dos diales de monto** que quedan son el **mínimo de compra** y la **tarifa de envío
@@ -4080,10 +4331,24 @@ ronda por D31**)**
 - ~~**Recordatorios automáticos de los plazos del buylist** *(v2.1, SUPUESTO)*~~ — **REVERTIDO (2ª ronda
   v2.1, D23)**: **el recordatorio SÍ entra al MVP**. Es **uno solo**, a **un día hábil** de vencer y **una
   sola vez**, y **solo para los dos plazos DEL VENDEDOR**. ~~Los correos obligatorios del ciclo pasan a ser
-  **tres**.~~ **⚠ Actualizado en la 5ª ronda (D33): son CUATRO** — **oferta**, **recordatorio**,
-  **expiración/cancelación** y **«no procederemos» por caducidad**. Lo que **sigue fuera** es cualquier
+  **tres**.~~ ~~**⚠ Actualizado en la 5ª ronda (D33): son CUATRO** — **oferta**, **recordatorio**,
+  **expiración/cancelación** y **«no procederemos» por caducidad**.~~ **⚠ Actualizado otra vez en la 8ª
+  ronda: son CINCO** — **oferta**, **recordatorio**, **expiración**, **«no procederemos»** y **«cancelamos
+  la oferta»** (§P.3, criterio 173). Lo que **sigue fuera** es cualquier
   **secuencia** de recordatorios (más de uno por plazo, escalado, SMS o WhatsApp) y **cualquier recordatorio
   del plazo de caducidad**, que corre contra nosotros y no contra el vendedor.
+- **Avisarle al vendedor de una oferta que nunca salió** *(NUEVO 8ª ronda v2.1)*: **no existe**. Cancelar
+  una oferta que estaba **pendiente de autorización** **no manda ningún correo, ni una notificación, ni deja
+  rastro en su portal**. **No es un olvido**: **esa oferta nunca existió para él**, y contársela sería
+  revelarle **una decisión y un control internos** que jamás le concernieron. Si alguien lo propone, es
+  **alcance nuevo** y hay que pedirlo con esa objeción resuelta (§P.3, criterio 173c).
+- **Cifras de envío en el cotizador público** *(NUEVO 8ª ronda v2.1, **D43**)*: **no existen**. El cotizador
+  **no muestra la tarifa, ni la resta, ni un neto estimado, ni un porcentaje, ni el faltante del mínimo
+  expresado en términos de envío**. Dice **la regla en palabras** y **el faltante del mínimo con su cifra**
+  (criterio 132, **intacto**), y nada más. Razón: el cotizador **es indicativo** y su neto era
+  **sistemáticamente optimista** —el recorte del operador **solo quita líneas**—, así que era **la mejor
+  cifra posible, nunca la esperada**. Si alguien quiere reponer la resta ahí, es **alcance nuevo** y tiene
+  que resolver eso primero (§H, criterio 174).
 - **Cobrarle el envío al vendedor cuando se rechaza todo** *(2ª ronda v2.1, D17)*: **no existe**. Si ninguna
   carta pasa la verificación, **absorbemos la guía**: no hay cobranza al vendedor, **no hay saldo negativo**,
   no se retiene contra operaciones futuras. **El neto de una solicitud nunca es negativo.**
@@ -4406,8 +4671,14 @@ ronda por D31**)**
     **7 días** para gestionar la devolución **a su costo**, y
     **a los 30 días** se considera **abandonada**; una carta **NM** abandonada **pasa a inventario** y una
     **no-NM** abandonada **NO entra al inventario vendible**;
-    (b) *(nuevo)* una solicitud **`ofertada`** sin respuesta del cliente en **2 días hábiles** queda
-    **`rechazada`** y la oferta deja de ser válida;
+    (b) *(nuevo; **⚠ COMPLETADO en la 8ª ronda — faltaba decir que sale correo**)* una solicitud
+    **`ofertada`** sin respuesta del cliente en **2 días hábiles** queda
+    **`rechazada`**, la oferta deja de ser válida **y se le notifica al vendedor por correo** (el **correo 3
+    de expiración**, §P.3). *(**No es alcance nuevo**: el ciclo lleva desde la 2ª ronda contando un correo
+    obligatorio de «expiración», y este es uno de sus dos productores. Lo que faltaba era **escribirlo aquí**
+    — el frente (c) sí lo decía y el (b) no, y ese silencio se leía como «no sale nada». Un vendedor que
+    recibió una **oferta vinculante** y no contestó **tiene que saber que se cerró**; dejarlo sin una
+    palabra es el mismo hueco que D33 vino a cerrar del otro lado.)*;
     (c) *(nuevo)* una solicitud **`aceptada`** cuyo **paquete no salió** en **3 días hábiles** —contados
     **desde que la guía llega al vendedor**, ~~y **desde la aceptación** cuando lo paga él~~ *(**esa segunda
     mitad se retira en la 5ª ronda, D31: ya no hay banda donde él pague el envío**)*— queda **`expirada`**,
@@ -4434,6 +4705,12 @@ ronda por D31**)**
     contrario**: un plazo **para nosotros**, que **obliga a responderle al cliente**. Verificable: **no
     existe** ninguna ruta que abra un plazo de respuesta **después de la verificación**, y **sí existe** un
     plazo que cierra una solicitud **antes de ofertar**.
+    *(**⚠ 8ª ronda — CINCO plazos y CINCO correos NO son la misma lista, y confundirlas es fácil**: los
+    plazos son **cinco** (7 y 30 días de devolución/abandono, 2 hábiles para aceptar, 3 hábiles para enviar,
+    7 hábiles de caducidad) y los correos obligatorios también son **cinco**, pero **no se corresponden uno
+    a uno**: el correo **3** cubre **dos** plazos —(b) y (c)— y el correo **5** («cancelamos la oferta»)
+    **no cuelga de ningún plazo**: lo dispara **una acción nuestra**. El mapa correcto está en la tabla de
+    **§P.3** y se verifica con el criterio **173**.)*
     Y el disparador *«falta de respuesta a un ajuste»* de §H **sigue sin ninguna ruta viva dentro del
     buylist**: D9 mató el repreciado y D30 retiró la re-confirmación, así que **el único caso vivo que activa
     los 7/30 días es la carta rechazada por no ser NM** (y cualquier pieza que el vendedor mande sin que se la
@@ -5074,6 +5351,15 @@ ronda por D31**)**
     crear solicitud **no procede** y la pantalla dice **cuánto falta** (*«te faltan $120»*, con el número
     correcto); **(b)** **saltándose el cotizador** —mandando la solicitud directo al servidor— **tampoco se
     crea**. El mínimo se juzga sobre el **TOTAL** (una carta de $600 pasa; mil cartas que suman $400, no).
+    *(**⚠ NOTA DE LA 8ª RONDA — este criterio NO CAMBIA con D43, y se escribe porque ya hubo un intento de
+    recortarlo por leer solo la mitad**: D43 saca del cotizador **los montos de ENVÍO**, no el **faltante
+    del mínimo**. **Los dos frentes (a) y (b) siguen exigiéndose enteros**: (a) el cotizador **sigue
+    diciendo cuánto falta, con la cifra** —*«te faltan $120»*—, y (b) el servidor **sigue rechazando** la
+    solicitud que se salte el cotizador. **Un faltante del mínimo no es un monto de envío**: es una cifra
+    sobre **las cartas del vendedor** y es **exacta**, no una estimación de nuestro servicio. Lo único que
+    D43 prohíbe aquí es **expresar ese faltante en términos de envío** (*«te faltan $120 para cubrir el
+    envío»*), que sería reintroducir la tarifa por la puerta de atrás **y además mentir sobre qué es el
+    mínimo**. Ver criterio **174**.)*
 133. ~~**Tres bandas de monto, con el envío en la banda correcta (D18b; bordes cerrados en la 3ª ronda)**: una
     solicitud de **MX$300** no se crea; una de **MX$700** se crea y **el vendedor paga su envío** (correo con
     un solo monto); una de **MX$1,500** se crea y **la guía la ponemos nosotros**. Bordes **$500 y $1,000,
@@ -5144,18 +5430,28 @@ ronda por D31**)**
     **un día hábil** de vencer sale **un** correo de recordatorio; **corriendo el barrido varias veces NO se
     manda otro**. Verificable ejecutando el barrido tres veces dentro de la ventana: **un solo correo**.
     ~~Los correos obligatorios del ciclo son **tres**: oferta, recordatorio y expiración/cancelación.~~
-    **⚠ CORREGIDO: son CUATRO** — **oferta**, **recordatorio**, **expiración/cancelación** y **«no
-    procederemos» por caducidad** (D33, criterio 165). Verificable además que el **recordatorio existe solo
+    ~~**⚠ CORREGIDO: son CUATRO** — **oferta**, **recordatorio**, **expiración/cancelación** y **«no
+    procederemos» por caducidad** (D33, criterio 165).~~ **⚠ CORREGIDO OTRA VEZ EN LA 8ª RONDA: son CINCO**
+    — **oferta**, **recordatorio**, **expiración**, **«no procederemos»** y **«cancelamos la oferta»**; la
+    **cancelación sale de dentro del correo de expiración**, donde afirmaba un hecho falso. **El conteo y su
+    verificación viven ahora en el criterio 173**, que es su origen único. Verificable además que el
+    **recordatorio existe solo
     para los DOS plazos del vendedor** (aceptar y enviar) y que **el plazo de caducidad NO genera
     recordatorio** al cliente, porque **corre contra nosotros**, no contra él.
     *(**⚠ 6ª ronda — verificable explícitamente, porque el modelado nuevo lo pone en riesgo**: los dos
     últimos correos **comparten el estado `expirada`** y aun así **son distintos**. **El correo se elige por
     el MOTIVO**, no por el estado: `not_shipped` ⇒ expiración; `no_offer` ⇒ «no procederemos». Verificable
     con dos solicitudes ambas `expirada`: **llegan correos diferentes** y **ninguno recibe el del otro**.)*
-    *(**⚠ 7ª ronda, D39 — «declinar ahora» NO agrega un quinto correo**: los obligatorios **siguen siendo
-    CUATRO**. Declinar dispara **el mismo correo de «no procederemos»** que el barrido, porque **el correo se
-    elige por el MOTIVO** (`no_offer`) y el motivo es el mismo. Verificable: **no existe** ninguna plantilla
-    de correo específica de «declinado por el operador».)*
+    *(**⚠ 7ª ronda, D39 — «declinar ahora» NO agrega un correo nuevo**: ~~los obligatorios **siguen siendo
+    CUATRO**~~ *(el conteo se corrigió a **CINCO** en la 8ª por otra razón, ajena a D39)*. Declinar dispara
+    **el mismo correo de «no procederemos»** que el barrido, porque **es el mismo hecho**; el motivo
+    coincide (`no_offer`) y el texto también. Verificable: **no existe** ninguna plantilla
+    de correo específica de «declinado por el operador». **Esta parte de D39 no cambió.**)*
+    *(**⚠ 8ª ronda — el discriminador se AMPLÍA: el correo se elige por el PRODUCTOR, no por el motivo**. La
+    corrección de la 6ª ronda («por el motivo, no por el estado») **se queda corta**: el motivo **queda
+    vacío en dos de los tres desenlaces** que el viejo correo 3 agrupaba —«no respondió» deja `rechazada` y
+    la **cancelación** deja `cotizada`—, así que elegir por motivo **manda el mismo correo al que no cumplió
+    y al que no hizo nada**. Verificable en el criterio **173**.)*
 143. **Tope de oferta del operador, con autorización del súper-admin (D13)**: el **operador** emite ofertas
     cuyo **bruto** cabe en su tope; una oferta **por encima del tope** **no sale** —el correo **no se manda**—
     y queda **pendiente de autorización**, y **al autorizarla el súper-admin** sale con el mismo contenido.
@@ -5379,6 +5675,11 @@ solicitud que caduca (v2.1, D31–D33; §E/§H/§N.6/§P.1/§P.2/§P.3/§P.3.1/�
     ni en un pie de página en letra chica. Verificable además que **la pantalla de aceptación muestra la
     misma información que el correo** (coherente con el criterio 161d) y que **la cifra anunciada es el
     NETO**, no el bruto (criterio 134).
+    *(**⚠ ACOTADO en la 8ª ronda por D43 — este criterio NO se retira, se precisa qué se verifica en cada
+    superficie**: lo que se verifica en **las tres** es **la FRASE** («el envío lo ponemos nosotros y
+    siempre se deduce»). **Las CIFRAS —MX$180, MX$320, la resta— se verifican SOLO en la oferta** (correo y
+    pantalla de aceptación); **en el cotizador se verifica su AUSENCIA** (criterio 174a). **El punto que más
+    duele sigue intacto**: el vendedor ve **MX$320 antes de apretar «aceptar»**.)*
 164. **El objetivo del bounty es OBLIGATORIO (D32)**: **no se puede guardar un bounty sin capturar su
     objetivo** (`bountyTargetQty`, §N.6). Verificable: **(a)** intentar crear un bounty **sin objetivo** ⇒
     **no se guarda** y el error dice por qué; **(b)** con el objetivo capturado, la mesa de decisión pinta
@@ -5550,8 +5851,9 @@ reinicia y el «no» que no hace esperar (v2.1, D36–D40 + o.17; §E/§H/§P.1/
     **(a)** la solicitud queda **`expirada` con motivo `no_offer`** — **el mismo estado y el mismo motivo**
     que produce el barrido (criterio 169), **sin estado nuevo ni motivo nuevo**;
     **(b)** sale **exactamente el mismo correo** de *«no procederemos con la oferta»*, con su **invitación a
-    volver a cotizar** — **no es una variante ni un correo nuevo**: los correos obligatorios del ciclo
-    **siguen siendo CUATRO** (criterio 142);
+    volver a cotizar** — **no es una variante ni un correo nuevo**: ~~los correos obligatorios del ciclo
+    **siguen siendo CUATRO**~~ **declinar NO suma ningún correo** *(8ª ronda: el total del ciclo es **CINCO**
+    por una razón ajena a D39 — criterios 142 y **173**)*;
     **(c)** el cliente lo recibe **el mismo día**, **sin esperar los 7 días hábiles**;
     **(d)** **terminal es terminal**: después **no se puede ofertar** (criterio 145), y si había una oferta
     **esperando autorización**, **se anula igual** que al caducar;
@@ -5570,7 +5872,9 @@ reinicia y el «no» que no hace esperar (v2.1, D36–D40 + o.17; §E/§H/§P.1/
     de la solicitud** (criterio 165a);
     **(c)** **el reinicio lo dispara una acción nuestra**, no el tiempo: **solo** la **cancelación de una
     oferta ya emitida** lo reinicia — **no** lo reinicia mirar la solicitud, ni prepararla, ni dejarla en la
-    cola de autorización;
+    cola de autorización *(**⚠ 8ª ronda — se verifica JUNTO con el correo, porque es el mismo hecho**:
+    cancelar una oferta **enviada** ⇒ **reinicia el reloj Y sale el correo 5**; cancelar una **pendiente de
+    autorización** ⇒ **ni reloj ni correo**. **No existe el reinicio silencioso** — criterio 173c)*;
     **(d)** **se reinician los DOS relojes** al cancelar y re-emitir: el **plazo de aceptación** de la oferta
     nueva **y** el de caducidad;
     **(e)** **queda auditado** cada reinicio (quién canceló y cuándo), porque es **tiempo que le regalamos a
@@ -5579,9 +5883,120 @@ reinicia y el «no» que no hace esperar (v2.1, D36–D40 + o.17; §E/§H/§P.1/
     plazo indefinidamente**. **Este documento no fija el candado** —es **decisión del arquitecto**—, pero
     **sí fija el requisito de negocio que cualquier candado debe preservar**: **ningún cliente puede quedarse
     esperando indefinidamente sin oferta ni «no procederemos»** (es el hueco que §P.3.1 vino a cerrar).
+    *(**⚠ 8ª ronda — el riesgo se ACOTA solo, sin candado nuevo**: como el reinicio **solo ocurre al cancelar
+    una oferta que YA LE LLEGÓ al vendedor** (criterio 173), **cada vuelta del bucle le cuesta al operador
+    mandarle una oferta vinculante y su cancelación**, con **dos entradas en la bitácora**. El bucle
+    **silencioso** —preparar, cancelar, preparar, cancelar sin que al vendedor le llegue nada— **ya no
+    reinicia nada**. Queda vivo el **bucle ruidoso**, que es *un operador portándose mal con testigos*, no
+    un agujero anónimo.)*
+
+**Ciclo de adquisición del buylist — 8ª ronda (CORRECTIVA FINAL DE DOCUMENTACIÓN): los CINCO correos y el
+envío que se dice en palabras (v2.1, D43 + corrección de conteo; §E/§H/§P.3/§P.3.1/§P.5.1/§P.12/M5)**
+> **⚠ Corregidos en la 8ª ronda**: el **16(b)** gana el correo que le faltaba; el **142** y el **171(b)**
+> dejan de decir «cuatro». **El 132 NO se toca** —gana una nota defensiva, no un cambio— y **el 134, el 152,
+> el 165, el 167, el 169, el 170 y el 172 siguen vigentes tal cual**.
+
+173. **LOS CINCO CORREOS DEL CICLO — cada uno afirma un hecho VERDADERO, y hay un caso que no manda ninguno
+    (8ª ronda; **⚠ CORRIGE el conteo de CUATRO a CINCO** del criterio 142)**: los correos obligatorios son
+    **oferta**, **recordatorio**, **expiración**, **«no procederemos»** y **«cancelamos la oferta»**.
+    Verificable en ocho puntos:
+    **(a)** **el quinto existe y es propio**: cancelar una oferta **ya enviada** manda un correo que dice
+    que **la cancelamos NOSOTROS**, que **no es nada de su parte** y que **su solicitud sigue viva**.
+    Verificable **por lo que NO contiene**: **ni la palabra «venció»**, **ni ningún plazo del vendedor**,
+    **ni ningún monto** de la oferta cancelada, **ni el motivo interno** por el que la cancelamos, **ni un
+    CTA de «cotiza de nuevo»** —la solicitud **no está cerrada** y duplicarla ensucia la cola—;
+    **(b)** **el correo de expiración NO se usa aquí**: verificable comparando las dos bandejas — al que
+    **no respondió** le llega *«tu plazo venció»* y al que **le cancelamos** le llega *«la cancelamos
+    nosotros»*, **y nunca al revés**;
+    **(c)** **el silencio del caso que nunca salió**: cancelar una oferta que estaba **pendiente de
+    autorización** **no manda absolutamente ningún correo** — verificable en la bandeja del vendedor (vacía)
+    y **por lo que tampoco pasa**: **el reloj de caducidad no se reinicia** (criterio 172). **Las dos
+    consecuencias se prueban juntas**, porque las gobierna el mismo hecho;
+    **(d)** **el barrido que anula una oferta pendiente al caducar manda el correo 4**, no el 5 (criterio
+    165f): verificable leyendo el correo — dice *«no procederemos»*, **no** *«cancelamos tu oferta»*;
+    **(e)** **el correo NO se puede elegir por el estado ni por el motivo**, y se prueba por lo negativo:
+    montar **tres cierres** —no respondió (`rechazada`), no envió (`expirada` + `not_shipped`) y cancelación
+    (vuelve a `cotizada`)— y comprobar que **llegan tres textos distintos y correctos**. *(Si el sistema
+    eligiera por motivo, el primero y el tercero recibirían el mismo, y son los dos extremos opuestos de
+    «quién falló».)*;
+    **(f)** **el conteo es CINCO y no seis**: **no existe** una plantilla distinta para «venció el plazo de
+    aceptar» y «venció el plazo de enviar» **más allá del copy del plazo** —son **el mismo correo 3**, igual
+    que los dos recordatorios son **el mismo correo 2**—, y **no existe** ninguna plantilla de «declinado
+    por el operador» (criterio 171b);
+    **(g)** **ningún correo del ciclo pide nada después de la verificación** (§P.5.1): verificable **por lo
+    que no existe**;
+    **(h)** **todo lo prohibido en los correos del ciclo aplica a los cinco**: **CLABE** (ni enmascarada),
+    datos de terceros, montos de **otras** solicitudes, cifras internas de la mesa y **domicilio** — se
+    verifica buscando esos datos **en los cinco**, no en cuatro.
+    **Nota de alcance**: este criterio fija **qué correo sale y qué afirma**. **No fija cómo se implementa
+    el discriminador** — eso es del arquitecto; el requisito de negocio es que **ningún vendedor reciba un
+    correo que describa un hecho que no ocurrió**.
+
+174. **D43 — EL COTIZADOR DICE EL ENVÍO EN PALABRAS, SIN CIFRAS; LA RESTA VIVE EN LA OFERTA (8ª ronda,
+    decisión del humano; **acota D31**, **NO toca el criterio 132**)**: verificable en seis puntos:
+    **(a)** en el **cotizador público**, con un carrito cualquiera, **no aparece ninguna cifra de envío**:
+    ni la tarifa (**MX$180**), ni un **neto/«recibirías»/«te quedarían»** estimado, ni una **resta**, ni un
+    **porcentaje**. **Se busca el número en toda la pantalla**, no solo en el bloque de dinero;
+    **(b)** en su lugar aparece **la frase cualitativa** (criterio 175a), y **el único monto del bloque es
+    el valor de las cartas**;
+    **(c)** **⚠ el faltante del mínimo SIGUE PINTÁNDOSE, con su cifra**: con un carrito de **MX$380** la
+    pantalla dice **«te faltan MX$120»** para el mínimo de **MX$500** — **criterio 132(a), intacto** — y
+    **saltarse el cotizador sigue sin crear la solicitud** — **criterio 132(b), intacto**. **Este punto se
+    verifica en la misma corrida que (a)**, a propósito: es el que impide recortar de más;
+    **(d)** **el faltante nunca se expresa en términos de envío**: **no existe** en ninguna superficie
+    pública la frase *«te faltan $X para cubrir el envío»* ni ninguna variante que ate el faltante a la
+    guía;
+    **(e)** en la **oferta** —**correo y pantalla de aceptación**— siguen apareciendo **los tres montos con
+    la resta y cuál se deposita** (criterio 134, **sin cambio**), y **coinciden entre correo y pantalla**:
+    el vendedor **no acepta a ciegas**;
+    **(f)** **la tarifa que aparece en la oferta es la CONGELADA** de esa solicitud (P18), no la del dial
+    del día: verificable moviendo el dial después de emitir y comprobando que **el correo, la pantalla y el
+    depósito no se mueven**.
+
+175. **LOS TRES TEXTOS AL VENDEDOR, RATIFICADOS (8ª ronda — son promesas de negocio, no decisiones de
+    diseño)**: verificable en cinco puntos:
+    **(a)** **la frase del cotizador (ES) es exactamente**: *«Nosotros ponemos la guía de envío y su costo
+    se descuenta siempre de lo que te pagamos: tú no pagas nada de tu bolsillo. El monto exacto va en la
+    oferta, antes de que aceptes.»* **RATIFICADA LITERAL**. Verificable además que **sus cuatro partes están
+    y en ese orden**: quién pone la guía, **que se descuenta siempre**, que **no paga de su bolsillo** y
+    **dónde verá el número**. La tercera parte **va después** de la segunda: al revés ancla en «gratis» y
+    convierte la resta en una corrección incómoda. La versión **EN** dice lo mismo (paridad ES/EN);
+    **(b)** **prohibido llamar «gratis», «sin costo» o «cortesía» al envío** —es la lectura falsa que la
+    frase existe para impedir— **y prohibido calificarlo de «pequeño», «mínimo», «bajo» o «simbólico»**: en
+    una cotización de **MX$500** la tarifa es el **36%**, y decidir por el vendedor cómo debe sentirse ante
+    **un número que todavía no le enseñamos** no nos toca. *(«Mínimo» sigue siendo legítimo cuando nombra el
+    **mínimo de compra**: ahí no califica la tarifa, nombra un umbral.)*;
+    **(c)** **«es una tarifa fija», en el correo de oferta: RATIFICADA, con una acotación que es parte del
+    requisito** — la afirmación es **verdadera y sostenible dentro de esa oferta**: la tarifa **no depende
+    de cuántas cartas mande, ni del peso, ni del destino, ni del costo real de la etiqueta** (criterios
+    149/166) y **está congelada** para esa solicitud (P18). **Lo que NO puede afirmar es permanencia**: la
+    tarifa es un **dial** que el negocio puede mover (D31). Verificable en dos frentes: **(c.1)** en el
+    correo, «fija» aparece **junto al monto de esa oferta** y **no** como una lista de precios de la
+    plataforma (nada de *«nuestra tarifa es y será de $180»*); y **(c.2)** **«fija» NO aparece en ninguna
+    superficie que no tenga una tarifa congelada detrás** — en particular **no aparece en el cotizador**,
+    donde además no hay ninguna cifra (criterio 174a);
+    **(d)** **prohibida toda fórmula que presuponga conocimiento previo en el correo de oferta**: **no
+    contiene** «como ya sabías», «como sabes», «recuerda que» ni ninguna variante aplicada al monto del
+    envío. **RATIFICADA, y la razón es que ahora sería FALSA**: con D43, **ese correo es la primera vez que
+    el vendedor ve la cifra**. Verificable buscando esas fórmulas en el correo de oferta **y en toda
+    superficie anterior a él**;
+    **(e)** **la excepción, dicha para que nadie la aplique de más**: en el **recordatorio** (correo 2), que
+    llega **después** de la oferta, referirse al monto **ya visto** **sí es verdad** y **no está
+    prohibido** — lo que sigue prohibido ahí es **omitir la condición NM** y **poner el bruto en el asunto**.
+    **La regla general es «no des por sabido lo que no dijiste»**, no una lista negra de palabras.
 
 ## Riesgos y banderas para el humano
 > No bloquean el desarrollo técnico del MVP, pero deben resolverse antes de operar con público real.
+- **Negocio — el vendedor cerca del mínimo se entera del ~36% HASTA el correo de oferta** *(NUEVA 8ª ronda,
+  consecuencia directa de **D43**; objeción levantada por ux-ui y **asumida**)*: al sacar la cifra del
+  cotizador, un vendedor que cotiza cerca de **MX$500** ve **MX$180 de envío por primera vez** en el momento
+  en que decide. **Es el costo aceptado de no mentirle antes** —el neto del carrito era optimista por
+  construcción—, pero puede traducirse en **rechazos y silencios concentrados en las ofertas chicas**.
+  **Cómo se resuelve, y NO es repintando la resta**: **se mide** —tasa de rechazo y de no-respuesta **por
+  tamaño de oferta**, mirando especialmente la franja pegada al mínimo— y, si duele, **se mueve el dial del
+  mínimo de compra**, que ya existe en M10. **El problema, si aparece, no será la divulgación: será la
+  proporción.** *(El dato ya se registra por solicitud; no hace falta instrumentación nueva. Si el humano
+  quiere el reporte como pantalla, eso **sí** sería alcance nuevo.)*
 - **Legal — custodia/depositario**: la bóveda implica guardar bienes de terceros. Validar con abogado la
   figura de **depositario**, el **contrato de custodia**, la responsabilidad por pérdida/daño y el **tope
   por carta**. Definir si hay **seguro formal** del inventario en custodia.
@@ -6284,7 +6699,8 @@ objeto; ver §E/§H/§P.3/§P.5.1/§P.6/§P.10/§P.11):**
    cliente a **volver a cotizar cuando quiera**. **Días hábiles**, por consistencia con **D14**.
    **Dos consecuencias que se escriben, no se dejan mintiendo**: **(1)** es el **CUARTO correo obligatorio**
    —los del ciclo pasan de **tres a cuatro** (§P.3, §H, criterios 16/142 y la **pregunta 6**, que se había
-   cerrado con «tres»)—; **(2)** es **un dial más**: se fue el **umbral de guía** (D31) y entró este **plazo**,
+   cerrado con «tres»)— *(**⚠ 8ª ronda: y de cuatro a CINCO**, por el mismo tipo de error en el correo de
+   expiración — decisión **101**, criterio **173**)*; **(2)** es **un dial más**: se fue el **umbral de guía** (D31) y entró este **plazo**,
    así que **§P.10 vuelve a OCHO diales** *(**⚠ 6ª ronda: NUEVE**, entra el neto mínimo para emitir, D34)*.
    ~~Además, **los estados terminales pasan de cuatro a cinco**.~~ *(**⚠ 6ª ronda: NO** — siguen siendo
    **CUATRO**; la caducidad es un **motivo de `expirada`**, decisión 96.)*
@@ -6432,6 +6848,79 @@ o.17 enrutada por el arquitecto; ver §E/§H/§P.1/§P.2/§P.2.1/§P.3/§P.3.1/�
    *(Corrección enrutada **o.17**, del mismo bloque: los **ejemplos** con **neto MX$20 / MX$0** como ofertas
    válidas quedan **corregidos**; la **regla del criterio 158(c) —el mínimo no se re-aplica a la oferta—
    sigue viva**. Ver §P.5.1, §P.12 y criterio 158.)*
+
+**Decisiones v2.1 — octava ronda (2026-09-01; D43 + corrección de conteo enrutada por el arquitecto y por
+ux-ui; ver §E/§H/§P.3/§P.3.1/§P.5.1/§P.12/M5 y criterios 173–175):**
+> **No entra alcance nuevo.** Una es **decisión del humano** (D43) y las otras dos son **correcciones de
+> documentación**: un conteo que este documento tenía mal y dos textos al cliente que había que ratificar.
+
+101. **Los correos obligatorios del ciclo son CINCO, no cuatro. ⚠ CORRIGE a este documento.**
+   **Qué estaba mal**: el correo 3 se llamaba *«expiración/cancelación»* y **metía tres desenlaces en uno
+   solo**. Dos son del vendedor (no respondió; aceptó y no mandó) y el tercero **es nuestro**: cancelamos la
+   oferta. Ese tercero **no es una expiración**: **no venció ningún plazo**, **no incumplió nadie** y **la
+   solicitud sigue viva** —vuelve a la fila con 7 días hábiles completos (D38)—. Mandarle ahí un correo que
+   dice *«se venció tu plazo»* **le imputa al vendedor un acto nuestro**, y su CTA de *«cotiza de nuevo»* lo
+   manda a **duplicar una solicitud abierta**.
+   **Qué se decide**: **la cancelación de una oferta YA ENVIADA tiene correo propio** —*«la cancelamos
+   nosotros, no es nada de tu parte, tu solicitud sigue viva»*—. **Es el argumento con el que D33 creó el
+   correo 4, un nivel más abajo**, así que la respuesta es la misma. **Los CINCO**: oferta, recordatorio,
+   expiración, «no procederemos», «cancelamos la oferta».
+   **Y un caso que NO manda ningún correo**: **cancelar una oferta que aún esperaba autorización**. Esa
+   oferta **nunca existió para el vendedor**; escribirle sería contarle una decisión interna que jamás le
+   concernió **y** revelarle un control nuestro. **De ahí cuelgan las dos consecuencias juntas**: **enviada
+   ⇒ reinicia reloj + correo; pendiente de autorización ⇒ ni reloj ni correo.** Con eso el **bucle
+   silencioso** de re-emisión **queda cerrado de raíz**.
+   **La regla que evita que el conteo se vuelva a equivocar** (§H): **un correo = un HECHO que le afirmamos
+   al vendedor**. Por eso **son cinco y no seis**: los dos plazos del vendedor comparten el correo 3 (mismo
+   hecho, distinto plazo) igual que ya compartían el recordatorio, y los dos productores del 4 comparten
+   texto (D39).
+   **Y por eso el discriminador no puede ser el estado ni el motivo**: el motivo **queda vacío en dos de los
+   tres desenlaces** que el viejo correo 3 agrupaba, así que **mandaría el mismo correo al que no cumplió y
+   al que no hizo nada**. **Lo que discrimina es quién disparó el cierre.** *(Cómo se implementa es del
+   arquitecto.)*
+   **Hueco de documentación que esto destapa y se cierra**: el criterio **16(b)** nunca dijo que saliera
+   correo al vencer el plazo de aceptación. **Sale** — no es alcance nuevo, es lo que «expiración» cubrió
+   desde la 2ª ronda. Ver §P.3 (tabla, **origen único del conteo**), §H, M5, criterios **16/142/171** y el
+   criterio **173** (nuevo). **Pregunta 6 RE-CERRADA por tercera vez.**
+
+102. **D43 — El cotizador dice el envío EN PALABRAS; la resta con los tres montos vive en la OFERTA.**
+   **Qué decide el humano**: el **cotizador no menciona ningún monto de envío** —**sin cifra, sin resta, sin
+   neto estimado y sin expresar el faltante del mínimo en términos de envío**—; solo **la frase
+   cualitativa**. **Los tres montos y la resta viven en la oferta**, que es **autenticada** y usa la
+   **tarifa congelada**.
+   **Sus razones, y la mejor no es la primera**: **(1)** el cotizador **ya es indicativo** —los precios se
+   mueven y **puede que no compremos todas las líneas**—, así que restarle un envío exacto es **precisión
+   falsa**; **(2)** *(argumento de ux-ui, y es el que decide)* ese neto era **sistemáticamente OPTIMISTA**,
+   porque el recorte del operador **solo quita líneas**: la pantalla pintaba **la mejor cifra posible, nunca
+   la esperada**, y fabricaba justo la decepción que la oferta vinculante existe para evitar.
+   **Qué NO cambia — y se escribe fuerte porque ya hubo un recorte de más**: **el criterio 132 queda
+   ENTERO**. El **faltante del mínimo** (*«te faltan $120»*) **SÍ se pinta en el cotizador**, con sus **dos
+   frentes (a) y (b)**. **Un faltante del mínimo no es un monto de envío**: es una cifra **sobre las cartas
+   del vendedor**, exacta, y sin ella un «no» seco lo manda a otro lado.
+   **Qué acota de D31 y qué no**: **la REGLA sigue diciéndose en las tres superficies** (cotizador, oferta,
+   términos) — eso de D31 **no se toca**; lo que sale del cotizador es **el número**.
+   **Consecuencia asumida**: **el correo de oferta pasa a ser la primera vez que el vendedor ve la cifra del
+   envío** — de ahí la decisión 103, y una bandera de negocio (medir, no repintar). Ver §E, §H, §P.3, §P.12,
+   «Fuera de alcance» y criterios **132 (intacto) / 174**.
+
+103. **Los tres textos al cliente: DOS ratificados literales y UNO ratificado con acotación.**
+   **(a) La frase del cotizador — RATIFICADA LITERAL**: *«Nosotros ponemos la guía de envío y su costo se
+   descuenta siempre de lo que te pagamos: tú no pagas nada de tu bolsillo. El monto exacto va en la oferta,
+   antes de que aceptes.»* Hace **las dos cosas que tenía que hacer a la vez**: que sepa que **habrá un
+   descuento** y que **no crea que ya sabe cuánto**. El orden importa: el alivio va **después** de la resta,
+   nunca antes.
+   **(b) «Es una tarifa fija» en el correo de oferta — RATIFICADA, ACOTADA A ESA OFERTA.** Es **verdadera y
+   sostenible**: la tarifa **no depende del número de cartas, ni del peso, ni del destino, ni del costo real
+   de la etiqueta**, y **está congelada** para esa solicitud. **Lo que el negocio NO puede prometer es
+   permanencia**: es un **dial** y D31 dice expresamente que **si duele se mueve**. Por eso «fija» **solo
+   puede aparecer donde haya una tarifa congelada detrás** —el correo y la pantalla de esa oferta— y
+   **nunca** en el cotizador ni en una superficie que la presente como lista de precios.
+   **(c) La prohibición de presuponer conocimiento previo — RATIFICADA**, y **la razón es que ahora sería
+   falsa**: con D43, el correo de oferta **es la primera vez que ve la cifra**, así que «como ya sabías» o
+   «recuerda que» **serían mentira educada**. Aplica al **correo de oferta y a toda superficie anterior**.
+   **Excepción explícita, para que no se aplique de más**: en el **recordatorio**, que llega **después**,
+   referirse al monto ya visto **sí es verdad**. **La regla general es «no des por sabido lo que no
+   dijiste»**, no una lista negra de palabras. Ver criterio **175**.
 
 ## Único pendiente no bloqueante
 - **Metas de lanzamiento N/X/Y/Z**: el humano las fija al momento de lanzar la beta cerrada (usuarios,
@@ -6880,9 +7369,20 @@ backend/arquitecto al implementar, sin decisión de producto adicional).
    escrito**)* y **se descuenta del pago**. Esto además **deja sin efecto a D5**: el cliente **ya no captura**
    la guía.
 6. ~~**¿Qué correos son obligatorios en el ciclo?**~~ → **CERRADA por D23; RE-CERRADA con otro número en la 5ª
-   ronda por D33.** ~~Son **tres**: oferta, recordatorio y expiración.~~ **⚠ SON CUATRO**: **oferta**,
-   **recordatorio** (uno por plazo del vendedor, a un día hábil, una sola vez), **expiración/cancelación** y
-   **«no procederemos» por caducidad** (**D33**). *(Residuo **CERRADO en la 3ª ronda**: el recordatorio es
+   ronda por D33; ⚠ RE-CERRADA OTRA VEZ EN LA 8ª RONDA — es la TERCERA vez que este conteo cambia, y la
+   razón siempre fue la misma: un correo que agrupaba hechos distintos.** ~~Son **tres**: oferta,
+   recordatorio y expiración.~~ ~~**⚠ SON CUATRO**~~ **⚠ SON CINCO**: **oferta**,
+   **recordatorio** (uno por plazo del vendedor, a un día hábil, una sola vez), **expiración**,
+   **«no procederemos» por caducidad** (**D33**) y **«cancelamos la oferta»** (**8ª ronda**).
+   **Lo que la 8ª ronda corrige, dicho corto**: la **cancelación** vivía **dentro** del correo de
+   expiración, y ahí **afirmaba un hecho falso** —*«se venció tu plazo»* cuando **no venció nada** y **la
+   solicitud sigue viva**—. Es **el mismo error que D33 arregló en el otro extremo**, así que la respuesta
+   es la misma: **correo propio**. Y se cierra un caso que nunca se había preguntado: **cancelar una oferta
+   que aún esperaba autorización NO manda ningún correo**. Ver §P.3 (tabla, origen único del conteo), §H y
+   criterio **173**.
+   *(**Nota de método, porque el patrón ya se repitió tres veces**: el conteo se equivoca cada vez que se
+   agrupan correos **por el estado en que queda la solicitud** en lugar de **por el hecho que se le
+   afirma al vendedor**. La regla que evita la cuarta vez está escrita en §H: **un correo = un hecho**.)* *(Residuo **CERRADO en la 3ª ronda**: el recordatorio es
    **uno POR PLAZO** —hasta dos en el ciclo, cada uno una sola vez—. ~~Nota: con **D27** puede aparecer **un
    tercer plazo**; ver pregunta 23.~~ **Corrección de la 4ª ronda**: con **D30 no hay tercer plazo ni cuarto
    correo**.)*
@@ -7111,3 +7611,46 @@ backend/arquitecto al implementar, sin decisión de producto adicional).
    **Por qué importa aunque no bloquee**: si la respuesta es **(b)**, cambia **cuándo se piden datos
    bancarios** —antes de saber si le compramos— y **toca el flujo de KYC/AML**, que es de los pocos con
    implicación legal. Si es **(a)**, **no hay nada que hacer**: el documento ya está correcto.
+
+**Los tres huecos de la octava ronda (30–32) — abiertos, con supuesto tomado:**
+30. **[ABIERTA — no bloqueante] ¿Los TÉRMINOS publican la cifra del envío, o también la dicen en palabras?**
+   *(nace de **D43**, §H)*
+   **El hueco**: D43 saca la cifra **del cotizador** y la deja **en la oferta**. Pero D31 manda decir la
+   regla en **tres** superficies, y la tercera son **los términos**. Si los términos publican
+   **«MX$180»**, entonces *«el correo de oferta es la primera vez que ve la cifra»* —el argumento con el que
+   ese correo repite el monto y tiene prohibido dar nada por sabido— **es cierto solo en la práctica**, no
+   por construcción.
+   **Supuesto tomado**: los términos **dicen la regla** («el envío lo ponemos nosotros y su costo siempre se
+   deduce») **y no publican la tarifa como cifra**, por coherencia con D43 y porque **la tarifa es un dial**
+   —publicarla la vuelve una promesa que después hay que mantener o corregir—.
+   **Qué confirmar**: **(a)** los términos van sin cifra —supuesto—; **o (b)** sí llevan la cifra, y
+   entonces hay que decir **cómo se etiqueta** para que no se lea como precio garantizado (*«tarifa vigente,
+   sujeta a cambio; la que aplica a tu venta es la de tu oferta»*).
+   **Por qué no bloquea**: en los dos casos **el cotizador y la oferta quedan igual**; solo cambia una página
+   estática.
+31. **[ABIERTA — no bloqueante] Hay DOS decisiones del arquitecto (D41 y D42) que NO están en este
+   documento.** *(hallazgo de la 8ª ronda)*
+   **Qué pasa**: la numeración de decisiones del ciclo llega a **D40** aquí, y el bloque nuevo entra como
+   **D43**. Los números **D41** y **D42** existen en documentos del arquitecto —**D41** fue una propuesta
+   suya que él mismo retiró (publicar diales al cotizador), y **D42** resuelve que **el portal del vendedor
+   no se quede mudo después de cancelarle una oferta**—.
+   **Por qué importa**: **D42 es requisito de negocio, no diseño** —es *«qué ve el vendedor cuando le
+   cancelamos»*—, y es **el hermano de pantalla del correo 5** que esta ronda acaba de crear. Si vive solo en
+   documentos del arquitecto, **este documento no manda sobre él**, que es justo lo contrario de la regla de
+   conflicto.
+   **Supuesto tomado**: **no se formalizan aquí** —no me los pediste y **inventar su alcance sería peor**—,
+   y **D41 se da por muerto** (superado por D43).
+   **Qué confirmar**: ¿quieres que **D42 se redacte como requisito en este documento** —«tras una
+   cancelación, el portal del vendedor dice qué pasó y que su solicitud sigue viva»—, o lo dejas como
+   decisión de diseño del arquitecto? *(Si lo quieres aquí, es **una ronda corta**: el hecho ya está
+   decidido y el correo 5 ya lo afirma; faltaría solo la superficie.)*
+32. **[ABIERTA — no bloqueante] ¿El correo 5 debe decir algo sobre QUÉ SIGUE, o basta con «tu solicitud
+   sigue viva»?** *(nace del correo nuevo, §P.3)*
+   **El hueco**: el correo 5 tiene **prohibido** el CTA de «cotiza de nuevo» (duplicaría una solicitud
+   abierta) y **prohibido** el motivo interno de la cancelación. Queda entonces sin decir **cuándo** vuelve a
+   saber de nosotros.
+   **Supuesto tomado**: dice **que la volvemos a revisar** y lleva a **ver su solicitud**, **sin prometer una
+   fecha**. Prometer *«te contestamos en 7 días hábiles»* **sería exponerle nuestro plazo interno de
+   caducidad**, y ese plazo **corre contra nosotros**: convertirlo en promesa pública cambia su naturaleza.
+   **Qué confirmar**: ¿te sirve el supuesto, o prefieres que el correo **sí le dé un horizonte**?
+   **Por qué no bloquea**: es **una frase** del mismo correo, en cualquiera de las dos versiones.
