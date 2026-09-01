@@ -2,7 +2,43 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-01 (rev **v1.51.15**).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-01 (rev **v1.51.16**).
+>
+> **Changelog v1.51.16 — UNA OFERTA INMOSTRABLE NO SE EMITE (2026-09-01, arquitecto; **CERO DDL, CERO campos**; una
+> guarda nueva y un código de error. ARCHITECTURE §4.39h gana **(h.1)**; §9 gana **BL-24**):**
+> ⚠️ **Hallazgo de ux-ui, y es de DINERO y de JUSTICIA, no de copy. Hizo lo correcto al no taparlo con texto:** una
+> pantalla que prometiera *«no te preocupes por el plazo»* **estaría mintiendo si el barrido no lo respeta**.
+>
+> **A. ⚠️⚠️ EL DEFECTO.** El portal aplica **R2 sin excepción** —una oferta incompleta **no se pinta a medias**, y eso
+> es correcto—, así que si la proyección sale incompleta **el vendedor no puede aceptar**, el barrido **sigue contando
+> sus 2 días hábiles**, y acaba recibiendo un correo diciéndole que **no respondió**. **Falló nuestra proyección y la
+> factura le llegaba a él**: exactamente lo que **§P.13** prohíbe, y la injusticia que motivó **D38** — aquí sin que
+> medie siquiera una corrección nuestra, solo un defecto.
+>
+> **B. DICTAMEN — la tercera vía: imposible por construcción.** La emisión **construye la proyección de cliente y
+> asevera que está completa** antes de comprometer nada; si no lo está ⇒ **`500 OFFER_PROJECTION_INCOMPLETE`**, y **no
+> se emite, no se persiste, no sale correo, no se congela ningún plazo**.
+> - **Se descartan las otras dos por la misma razón de fondo:** *«el barrido no expira lo inmostrable»* y *«el reloj se
+>   detiene»* obligan al **job** a re-derivar «¿esto se puede mostrar?» ⇒ **un segundo cuerpo de la regla de
+>   proyección**, justo lo que este ciclo lleva quince revisiones cerrando. Y ambas **dejan al vendedor con una oferta
+>   vinculante que no puede aceptar**: la primera, además, sin caducidad — limbo permanente.
+> - **⚠️ La guarda ES la proyección**, no una checklist paralela: por eso **no puede divergir** de lo que el portal
+>   recibe y **todo campo que el portal exija mañana entra al gate solo**.
+> - **`500` y no `422`, a propósito:** el operador **no hizo nada mal ni puede arreglar nada** ahí. Es un **backstop**
+>   al final de la secuencia; *si dispara, se arregla el bug — no se vuelve parte del flujo*.
+>
+> **C. ⚠️ LA PROPIEDAD QUE LO HACE JUSTO, y es la razón para preferirla.** Al fallar, **`offerSentAt` nunca se sella**
+> ⇒ el plazo de aceptación **nunca se congela** ⇒ la solicitud **se queda `cotizada`** ⇒ **la mira la regla 7 (NUESTRO
+> plazo), no la regla 1 (el DEL VENDEDOR)**. Si no lo arreglamos, él recibe el **correo 4 —«no procederemos»—, que es
+> verdad**, en vez del correo 3 —«no respondiste»—, **que sería mentira**. *Las otras dos vías dejaban al vendedor
+> sosteniendo el problema; ésta nos lo devuelve.*
+>
+> **D. Suficiencia, con su condición dicha.** Cierra la clase entera **porque el ciclo aún no ha emitido ninguna
+> oferta** — **no hay cohorte que rescatar**. Y el residuo *«se vuelve inmostrable después de emitida»* queda acotado
+> por construcción: un campo nuevo entra al gate solo, y **una carta no puede desaparecer del catálogo** (la línea la
+> referencia por FK).
+>
+> **E. Sin cambios.** Ni campos, ni endpoints, ni diales, ni DDL. **R2 del portal no se toca: era correcto.**
 >
 > **Changelog v1.51.15 — EL PORTAL DEL VENDEDOR: seis huecos del contrato, todos míos (2026-09-01, arquitecto;
 > **CERO DDL** — un path corregido, tres campos nuevos, dos declarados y un tipo partido. ARCHITECTURE §4.39n.1
@@ -9297,7 +9333,32 @@ Req: `{ lines: [{ itemId: string, decision: "buy" | "skip", overridePriceCents?:
   > autorizar: una fila muerta en una cola que existe para trabajarse. **Nada inofertable llega a la cola.** Secuencia
   > normativa *(v1.51.3 añade el paso 1-bis al principio)*: precondición → **`PICKUP_ADDRESS_MISSING`** →
   > `OFFER_LINES_MISMATCH` → precio por línea (`OFFER_LINE_NOT_PRICEABLE` / `OVERRIDE_REASON_REQUIRED`) → cálculo de
-  > bruto/envío/neto → **`OFFER_NET_BELOW_MINIMUM`** → tope (`200`|`202`).
+  > bruto/envío/neto → **`OFFER_NET_BELOW_MINIMUM`** → tope (`200`|`202`) → **⚠️ guarda de proyección
+  > (`500 OFFER_PROJECTION_INCOMPLETE`, v1.51.16 — ver abajo)**.
+  >
+  > ### ⚠️⚠️ v1.51.16 — GUARDA DE PROYECCIÓN: **no se emite una oferta que el portal no podría mostrar.** (BL-24)
+  > *(Hallazgo de **ux-ui**, y es de **dinero y de justicia**, no de copy.)*
+  > **El defecto que cierra:** el portal aplica **R2 sin excepción** —una oferta incompleta **no se pinta a
+  > medias**—, así que si la proyección sale incompleta **el vendedor no tiene forma de aceptar**… **y el barrido
+  > sigue contando sus 2 días hábiles**, hasta mandarle un correo que le dice que **no respondió**. **Falló nuestra
+  > proyección y la factura le llegaba a él** — justo lo que **§P.13** prohíbe y la injusticia que motivó **D38**.
+  > **NORMA:** **antes de comprometer nada**, la emisión **construye la proyección de cliente de esa oferta y asevera
+  > que está completa** (`terms` íntegro —`perLineConditionLabel`, `consequence`, `rule`— y **toda** línea con su
+  > `offerDecision`). Si no lo está ⇒ **`500 OFFER_PROJECTION_INCOMPLETE`** (`details` nombra lo que falta), **y no se
+  > emite, no se persiste, NO SALE CORREO y no se congela ningún plazo.**
+  > - **⚠️ Es LA MISMA proyección que sirve `GET /buylist/requests/:id`, no una checklist paralela.** Así **no puede
+  >   divergir de lo que el portal recibe**, y **todo campo que el portal exija en el futuro entra al gate solo**.
+  > - **Es `500` y no `422` a propósito:** el operador **no hizo nada mal y no puede corregir nada** en esa pantalla.
+  >   Es **nuestro** defecto. Va **al final**, tras todas las validaciones que él **sí** puede arreglar: es un
+  >   **backstop**, y *si dispara se arregla el bug — no se vuelve parte del flujo de trabajo*.
+  > - **Ya era la doctrina, aplicada al objeto entero en vez de a la línea:** §4.39e prohíbe ofertar una línea sin
+  >   precio **con una cifra inventada**, y v1.51.14 fijó que ***se degrada lo que se MUESTRA, nunca lo que se
+  >   COMPROMETE*** — **una oferta es un compromiso**.
+  > - **⚠️ La propiedad que lo hace justo:** al fallar, **`offerSentAt` nunca se sella** ⇒ `offerAcceptDeadlineAt`
+  >   nunca se congela ⇒ la solicitud **se queda `cotizada`**, y entonces **no la mira la regla 1 (el plazo DEL
+  >   VENDEDOR) sino la regla 7 (el plazo NUESTRO)**. Si no lo arreglamos, el vendedor recibe el **correo 4
+  >   —«no procederemos»—, que es VERDAD**, en vez del correo 3 —«no respondiste»—, **que sería mentira**. *El defecto
+  >   cae en nuestra cola y en nuestro reloj, que es donde §P.13 dice que tiene que caer.*
   > *La dirección va primero porque es la más barata de comprobar y la que hace inútil todo lo demás: sin ella la
   > oferta no se podría cumplir aunque el resto saliera perfecto.*
   >
