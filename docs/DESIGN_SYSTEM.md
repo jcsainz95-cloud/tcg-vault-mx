@@ -368,6 +368,33 @@
 > del teaser del home: **«presente» no era el requisito, «visible» sí** (la nota está en el DOM pero
 > `hidden` a 390px). **Tres peticiones al arquitecto en §23.13.9**, y una es de dinero: **una oferta
 > inmostrable puede consumirle el plazo al vendedor** y vencerle por un fallo nuestro.
+>
+> **Corrección v2.3.8 (2026-09-01 — dos decisiones de pantalla, y una rectificación mía).**
+> **(1) RECTIFICACIÓN: el defecto del teaser a 390px NO existía.** En v2.3.7 escribí como hecho que la nota
+> estaba «en el DOM pero `hidden`». **Es falso**: hay una nota visible en los dos anchos y **§23.14.2a
+> estaba cumplida desde el principio**. Lo que fallaba era **la medición** — el home monta el panel **dos
+> veces** (por diseño, §23.3g fila 0) **con el mismo identificador**, y la comprobación miraba la copia de
+> escritorio. La regla afinada se queda y **gana la mitad que faltaba**: si el diseño manda dos montajes,
+> **una comprobación que no desambigüe cuál mira no está midiendo la pantalla**. *Acepté un hallazgo sin
+> preguntar cómo se midió y lo escribí en la fuente de verdad; **un diagnóstico falso se propaga igual que
+> un nombre falso**. La corrección se deja visible, no se borra.*
+> **(2) DOS notas de envío a la vez ⇒ §23.3g-bis: EXACTAMENTE UNA visible por pantalla.** Autoricé las dos
+> instancias **por separado y nunca las miré juntas** — el error clásico de especificar por reglas y no por
+> pantallas. Se resuelve por construcción con el criterio que sale de por qué existe cada una: **gana la
+> más cercana a la decisión**, y la cabecera **solo se monta cuando el carrito no está visible**, que era
+> su única razón de ser. Dos párrafos idénticos de cuatro líneas no refuerzan: **son la firma de un error
+> de render**.
+> **(3) EL TOTAL QUE NO EXPLICA SU PROPIA ARITMÉTICA — §23.3h reescrita + §23.3f-bis nueva.** Con líneas en
+> `precio_pendiente`, el bloque decía *«TE FALTAN MX$500… Agrega otra carta»* frente a **un carrito de 999
+> cartas**. Un **test E2E** vio el total en cero y **concluyó que el cotizador no sumaba**: *si alguien que
+> conoce el sistema se confunde, el vendedor se confunde seguro — y él no abre un issue, cierra la
+> pestaña.* Es **R7 aplicada al total**: *un cero que significa «todavía no lo he calculado» no es un
+> cero*. §23.3h lo tenía bien **por línea** y le faltaba **el agregado**. Ahora: la explicación se pinta
+> **una vez** en el bloque de dinero con `{count}` (y **se retira** la línea repetida por ítem, que con
+> cientos de líneas era ruido), dice **qué pasa con esas cartas** para que el vendedor **no las borre**, y
+> **el consejo cambia**: `addPricedCard` en vez de `addAnother`, porque «agrega otra carta» ahí es **una
+> cinta de correr** — mil cartas más del mismo set siguen sumando cero. **Cero tokens, cero componentes;
+> una clave nueva y una que cambia de contenido y de sitio.**
 
 ---
 
@@ -6162,6 +6189,35 @@ servicio, y sin ella un «no» seco manda al vendedor a otro lado (criterio 132,
 - La transición al cruzar el mínimo sigue anunciándose con **`aria-live="polite"`**, y **el anuncio ya no
   menciona envío ni neto**: *«Ya alcanzaste el mínimo de MX$ 500.00.»*
 
+**(f-bis) ⚠ Con líneas sin precio, «Agrega otra carta» es el consejo EQUIVOCADO (v2.3.8).**
+Con 999 cartas en `precio_pendiente`, el bloque decía *«TE FALTAN MX$ 500.00 para el mínimo de MX$ 500.00.
+**Agrega otra carta.**»* mientras el vendedor miraba **un carrito lleno**. Aritméticamente impecable; como
+consejo, **una cinta de correr**: puede agregar mil cartas más del mismo set y **seguir en cero**.
+
+**Es peor que confuso — es una instrucción que no puede funcionar.** Y el daño se acumula con el de (h):
+el mensaje se lee como *«tu carrito está casi vacío»* justo cuando está lleno.
+
+**La corrección: el consejo cambia cuando hay líneas sin precio.** No el faltante —ese es correcto y se
+queda—, **solo la acción sugerida**:
+
+| Estado | Qué se pinta |
+|---|---|
+| Falta para el mínimo, **sin** líneas sin precio | faltante + mínimo + **`minimum.addAnother`** — «Agrega otra carta.» *(sin cambios)* |
+| Falta para el mínimo, **con** líneas sin precio | faltante + mínimo + **`minimum.addPricedCard`** — **«Agrega una carta que ya tenga precio.»** La explicación del **por qué** ya está encima, en `pendingLine.note` (§23.3h), y **no se repite aquí** |
+
+| Clave | ES | EN |
+|---|---|---|
+| **`minimum.addPricedCard`** *(nueva)* | Agrega una carta que ya tenga precio. | Add a card that already has a price. |
+
+- **«que ya tenga precio»**, no «con precio»: el **«ya»** dice que las otras **también lo tendrán**, y
+  evita partir el carrito en cartas buenas y cartas malas. Coherente con la segunda frase de (h).
+- **El faltante NO cambia de cifra ni de redacción.** Sigue siendo `details.shortfallCents` del servidor
+  (R4) y sigue siendo **legítimo** (criterio 132): es una cifra sobre **sus** cartas.
+- **Prohibido** convertir el faltante en una explicación («te faltan MX$500 porque tus cartas no tienen
+  precio»): mezcla dos hechos en una cifra y **la cifra deja de ser verificable**. Dos frases, dos trabajos:
+  **(h)** explica **por qué el total es ese**, **(f-bis)** dice **qué hacer**.
+- El anuncio `aria-live` al cruzar el mínimo **no cambia**.
+
 **(g) Dónde se dice la regla, actualizado.** D31 exige tres superficies —**cotizador, correo de oferta y
 términos**—; **las tres siguen diciéndola**, y lo que cambia es **quién puede llevar la cifra**. El cotizador
 ocupa dos filas porque son dos pantallas (carrito y paso de crear); el **correo de oferta** es la cuarta fila
@@ -6186,9 +6242,74 @@ y vive en §23.4.2:
 > D31 alrededor de **las superficies que yo ya había documentado** — que es, exactamente, el mecanismo por
 > el que estos tres textos sobrevivieron.
 
-**(h) Líneas sin precio (`precio_pendiente`).** Aportan **0** al total. Se listan con la versalita
-`SIN PRECIO` (`accent`, §7.3) **sin monto** y una línea muted: *«Todavía no tiene precio; no suma a tu
-total.»* **Nunca `MX$ 0.00`**, nunca excluidas en silencio. *(Sin cambios respecto de v2.3.)*
+**(g-bis) ⚠ EXACTAMENTE UNA nota visible por pantalla (v2.3.8).** La tabla de (g) dice **dónde puede** ir
+la nota; le faltaba decir **cuántas se ven a la vez**. A 1280px `/buylist` acabó mostrando **dos párrafos
+idénticos de cuatro líneas** —cabecera y panel fijo del carrito—, porque autoricé cada fila por separado y
+**nunca miré las dos juntas**.
+
+**La regla:** *en cualquier pantalla y a cualquier ancho, la nota se ve **una vez**: ni cero, ni dos.*
+
+**Y el criterio de desempate sale solo de por qué existe cada instancia — gana la más cercana a la
+decisión:**
+
+| Situación | Quién pinta | Por qué |
+|---|---|---|
+| **Carrito visible de forma persistente** (escritorio: panel fijo lateral) | **el bloque de dinero** | Es donde está el monto. La cabecera **no se monta**: su única razón de ser era cubrir el caso contrario |
+| **Carrito NO visible** (móvil: drawer cerrado) | **la cabecera** | Es literalmente el motivo por el que la fila 1-bis existe: sin ella se recorre la página entera sin leer la regla |
+| **Drawer abierto** (móvil) | **el bloque de dinero** del drawer | Tapa la página; la de la cabecera no está a la vista |
+| **Paso de crear** | **el suyo** | Es el último momento antes de comprometer cartas (fila 2) |
+
+- **Esto NO contradice §23.3c** («no aparece, no desaparece, no se mueve»): esa prohibición es sobre el
+  **estado del carrito** —vacío/lleno, bajo/sobre el mínimo—, no sobre el **layout**. La invariante que
+  ahora se pide es **más fuerte y más simple de comprobar**: *siempre visible exactamente una vez*, en vez
+  de *al menos una vez*.
+- **Por qué dos copias idénticas sí son un defecto**, aunque el texto sea correcto: dos párrafos iguales
+  a 600px de distancia y con el mismo peso visual son **la firma de un error de render** — el vendedor no
+  concluye «esto es importante», concluye «esta página está rota». Y repetir **no** refuerza: es la misma
+  ceguera que §23.3c ya invocó para rechazar el banner.
+- **Comprobable en una línea:** contar los nodos **visibles** de `BuylistShippingNote` en cada ancho ⇒
+  **exactamente 1**. Ver §23.14.6-6, que ya exige medir **visibilidad efectiva** y **desambiguar la
+  instancia**.
+
+**(h) Líneas sin precio (`precio_pendiente`) — ⚠ REESCRITO v2.3.8: el problema no era la línea, era el
+TOTAL.**
+
+> **La evidencia, y es de las mejores que ha dado este proyecto.** Un **test E2E** agregó cartas de un set
+> sin precios, vio el total en cero y **concluyó que el cotizador no sumaba**. No sumaba **porque no
+> debía** — pero **nada en pantalla lo decía**. *Si alguien que conoce el sistema saca esa conclusión, un
+> vendedor con 999 cartas la saca seguro.* Y el vendedor no puede abrir un issue: cierra la pestaña.
+>
+> **El diagnóstico, en una frase:** *una pantalla aritméticamente correcta que no explica su propia
+> aritmética le enseña al usuario que está rota.* Es **R7 aplicada al total**: R7 dice que **un conteo
+> ausente no es un número**; aquí el espejo es que **un total de cero que significa «todavía no lo he
+> calculado» no es un cero**. §23.3h ya lo tenía bien **por línea** (`SIN PRECIO`, nunca `MX$ 0.00`); lo
+> que faltaba era **decirlo del agregado**, que es lo único que el vendedor mira cuando tiene 999 líneas.
+
+**Por línea:** aportan **0** al total. Versalita **`SIN PRECIO`** (`accent`, §7.3) **sin monto**.
+**Nunca `MX$ 0.00`**, nunca excluidas en silencio.
+
+- **⚠ Se RETIRA la línea muted por ítem** (*«Todavía no tiene precio; no suma a tu total.»*). Con carritos
+  de cientos de líneas, repetir la misma explicación N veces **es ruido, no información**, y empuja hacia
+  abajo lo único que hay que leer. **La etiqueta se repite; la explicación, no.** *(Es el mismo criterio
+  por el que §23.4.3 prohíbe que el recordatorio repita el desglose.)*
+
+**En el bloque de dinero, UNA vez:** siempre que haya al menos una línea sin precio, se pinta
+**`buylist.quote.pendingLine.note`** —independiente del mínimo, del total y de si falta algo—:
+
+| | ES | EN |
+|---|---|---|
+| **`pendingLine.note`** | {count, plural, one {# carta todavía no tiene precio, así que no suma al total} other {# cartas todavía no tienen precio, así que no suman al total}}. Las cotizamos a mano y te las incluimos en la oferta. | {count, plural, one {# card has no price yet, so it doesn't count toward the total} other {# cards have no price yet, so they don't count toward the total}}. We quote those by hand and include them in your offer. |
+
+- **La segunda frase no es relleno: es la que evita que el vendedor las borre del carrito.** Sin ella,
+  «no suman» se lee como «no las queremos», y la reacción racional es **quitarlas** — perdiendo justo las
+  cartas que más trabajo nos costó catalogar. Dice **qué pasa con ellas**, que es la doctrina de §23.3d
+  movimiento 4 aplicada aquí: *cuando no hay número, se dice qué va a pasar con el número*.
+- **En tinta `text-sm`**, no muted: §10 prohíbe el muted para información esencial, y esta explica **por
+  qué el total no es lo que el vendedor esperaba**.
+- **No lleva ningún monto** ⇒ §23.3c sigue intacta: el bloque de dinero tiene **exactamente un monto**
+  (más el faltante y el mínimo cuando aplican, §23.3f). Un conteo de cartas **no es un monto**.
+- **Si TODAS las líneas están sin precio**, el total **no se pinta `MX$ 0.00`**: se pinta la versalita
+  `SIN PRECIO` en lugar de la cifra (regla ya viva en el carrito) **y esta nota debajo**.
 
 **(i) NO hay casilla de «entiendo el descuento» al crear la solicitud — y con D43 menos que nunca.**
 El acto vinculante es **aceptar la oferta** (§23.5), y ahí sí hay confirmación, con el número enfrente.
@@ -7334,7 +7455,18 @@ Convención §9.2. **Todo lo de §23 existe en los dos idiomas** (el proyecto ti
   **Sin placeholders**: esta clave **no admite `{amount}`** — si alguien le añade uno, es el bug de D43.
 - `buylist.quote.minimum.{shortfall,minimumIs,addAnother,reachedAnnounce}` — con `{amount}` interpolado,
   nunca concatenado. `reachedAnnounce` es el `aria-live` del cruce (§23.10) y **no nombra envío ni neto**.
-- `buylist.quote.pendingLine.{label,note}` — `SIN PRECIO` + «no suma a tu total».
+  - **⚠ v2.3.8 — clave NUEVA: `buylist.quote.minimum.addPricedCard`** («Agrega una carta que ya tenga
+    precio.» / "Add a card that already has a price."). **Sustituye a `addAnother` cuando hay líneas sin
+    precio** (§23.3f-bis). `addAnother` **se queda** para el caso normal: son **dos consejos, no dos
+    redacciones del mismo** — con carrito lleno de pendientes, «agrega otra carta» es una **cinta de
+    correr**.
+- `buylist.quote.pendingLine.{label,note}` — **⚠ v2.3.8: `note` CAMBIA de contenido y de sitio.** `label`
+  sigue siendo la versalita **`SIN PRECIO`** por línea. `note` **deja de pintarse por ítem** (con 999
+  líneas era ruido) y pasa a pintarse **UNA vez en el bloque de dinero**, con **`{count}` interpolado** y
+  la frase que dice **qué pasa con esas cartas** («las cotizamos a mano y te las incluimos en la oferta») —
+  sin ella, «no suman» se lee como «no las queremos» y el vendedor **las borra**. Texto normativo ES/EN en
+  §23.3h.
+  **Sigue SIN IMPLEMENTARSE desde v2.3** *(alcance confirmado a frontend: `label` + `note` + `addPricedCard`)*.
 - `buylist.request.address.{label,why,change,printed,missing}`.
 - **⚠ CLAVES RETIRADAS (no se implementan; si ya existen, se borran):**
   ~~`buylist.quote.money.shippingOnUs`~~ (el rótulo de la línea de envío), ~~`buylist.quote.money.youWouldGet`~~
@@ -7779,10 +7911,14 @@ razones independientes, y cualquiera de las dos bastaría:
   reescrito, §23.14.4). El bloque **no pierde información**: la del envío subió y la del NM ya estaba
   arriba.
 
-> **Repetición aceptada, y por qué no es un bug.** En escritorio, `/buylist` muestra la nota **dos veces**
-> (cabecera + panel fijo del carrito). Es **el mismo string, carácter por carácter** — §23.3g fila 2 ya
-> normaliza esa repetición para el paso de crear. Una regla de dinero repetida es redundancia; **dos
-> redacciones distintas de la misma regla** sería el defecto. Nunca lo segundo.
+> **⚠ CORREGIDO (v2.3.8) — aquí dije que la repetición era aceptable. Vista en pantalla, no lo es.**
+> A 1280px `/buylist` muestra **dos párrafos idénticos de cuatro líneas** a la vez (cabecera + panel fijo
+> del carrito). Autoricé cada instancia **por separado** y **nunca miré las dos juntas**, que es el error
+> clásico de especificar por reglas y no por pantallas. La regla nueva está en **§23.3g-bis: EXACTAMENTE
+> UNA nota visible por pantalla**, y la resuelve por construcción.
+> *Lo que sí sigue en pie de lo que escribí: **dos redacciones distintas de la misma regla** sería un
+> defecto mucho peor que dos copias idénticas. La corrección va de **cuántas se ven**, no de cuál es el
+> texto — que sigue siendo uno solo.*
 
 ---
 
@@ -7994,17 +8130,43 @@ tres tiempos *«tú X, nosotros Y y Z»* el primer tiempo se lee como **su parte
    el requisito es VISIBLE.** En `lg` (columna del hero) **y** en 390px (sección propia,
    `withTrust={false}`), con **cero cartas** y con cartas, en ES y EN, el total se rotula **«Valor de tus
    cartas»** y la nota **se lee en pantalla**.
-   > **Por qué se afina:** el frontend encontró que a 390px la nota **está en el DOM pero `hidden`**. Con
-   > la regla escrita como *«está presente»*, una comprobación que consultara el DOM **habría pasado en
-   > verde** sobre una pantalla donde el vendedor **no lee nada** — y §23.14.2a existe precisamente porque
-   > *«una regla de dinero que solo existe en escritorio no es una regla»*. **Un nodo oculto no comunica.**
-   > La comprobación se hace **sobre visibilidad efectiva** (no `display:none`, no `hidden`, no ancestro
-   > colapsado, no `sr-only`) **en el viewport de 390px**, no sobre la existencia del nodo.
-   > *Es la misma familia de defecto que el «diez» de §23.14.6-3bis: **la regla medía lo que no era**.*
-   **Si la nota solo se ve en escritorio, es el bug** (§23.14.2a). *(Enrutado a frontend; el diseño no
-   cambia — lo que cambia es cómo se verifica.)*
-7. **`/buylist` en 390px sin abrir el drawer:** la nota **se lee en la cabecera**. Recorrer la página entera
-   con el carrito cerrado y confirmar que la regla del envío aparece **al menos una vez**.
+   > **⚠ RECTIFICACIÓN (v2.3.8) — el defecto que motivó esta afinación NO EXISTÍA.** En v2.3.7 escribí
+   > aquí que *«a 390px la nota está en el DOM pero `hidden`»*. **Es falso y se corrige en el sitio**:
+   > medido con navegador real, **hay una nota visible en los dos anchos** y **§23.14.2a estaba cumplida
+   > desde el primer día**. Lo que fallaba era **la medición**: el home monta el panel del cotizador **dos
+   > veces** —columna del hero y sección móvil, §23.3g fila 0— **con el mismo identificador**, y la
+   > comprobación cogía **la copia de escritorio**, que a 390px está oculta *por diseño*.
+   > **La regla afinada se queda igual y sigue valiendo** (visibilidad efectiva, no presencia en el DOM),
+   > pero **no hay nada que arreglar en la pantalla**. Y la afinación gana una segunda mitad, que es la que
+   > de verdad faltaba: **el diseño MANDA dos montajes**, así que **una comprobación que no desambigüe cuál
+   > mira no está midiendo la pantalla, está midiendo un nodo cualquiera**. Se verifica **la instancia
+   > visible en ese viewport**, nunca «la primera que aparezca».
+   > *Lección, y me toca a mí por partida doble: acepté un hallazgo sin pedir cómo se había medido, y lo
+   > escribí en el documento como hecho. **Un diagnóstico falso en la fuente de verdad se propaga igual que
+   > un nombre falso** — que es justo lo que esta sección persigue. La corrección se deja **visible**, no
+   > se borra.*
+   **Si a algún ancho no se ve ninguna nota, es el bug** (§23.14.2a).
+7. **`/buylist` — la nota se ve EXACTAMENTE UNA VEZ, a todos los anchos (§23.3g-bis, v2.3.8).**
+   Contar los nodos **visibles** de `BuylistShippingNote` ⇒ **1**, ni 0 ni 2:
+   　(7.1) **390px, drawer cerrado** ⇒ la de **la cabecera**. Recorrer la página entera y confirmar que la
+   regla del envío **se lee sin abrir el carrito**.
+   　(7.2) **390px, drawer abierto** ⇒ la del **bloque de dinero**.
+   　(7.3) **1280px** (panel fijo lateral) ⇒ la del **bloque de dinero**, y **la cabecera NO la monta**.
+   *Antes de v2.3.8 este caso daba **2** y nadie lo había mirado, porque cada instancia estaba autorizada
+   en una sección distinta.*
+8. **Líneas sin precio — el carrito explica su propia aritmética (§23.3h / §23.3f-bis, v2.3.8).**
+   Con un carrito de **muchas** líneas en `precio_pendiente`, en ES y EN:
+   　(8.1) La explicación aparece **UNA sola vez**, en el bloque de dinero, con el **conteo** interpolado —
+   **no** una vez por ítem. Cada línea lleva su versalita **`SIN PRECIO`** y **ningún `MX$ 0.00`**.
+   　(8.2) La nota dice **qué pasa con esas cartas** («las cotizamos a mano y te las incluimos en la
+   oferta»). *Sin esa frase el vendedor las borra, que es el peor desenlace posible de esta pantalla.*
+   　(8.3) **Con faltante + pendientes**, el consejo es **«Agrega una carta que ya tenga precio»**, nunca
+   «Agrega otra carta». **Sin** pendientes, sigue siendo «Agrega otra carta».
+   　(8.4) **Con TODAS las líneas sin precio**: el total **no es `MX$ 0.00`** —es la versalita— y la
+   pantalla **explica por qué**. *Este es el caso exacto que hizo que un test E2E concluyera que el
+   cotizador no sumaba.*
+   　(8.5) El bloque sigue teniendo **exactamente un monto** (más faltante y mínimo si aplican): el conteo
+   de cartas **no es un monto** y no introduce uno.
 8. **D43 sigue intacta tras este pase:** repetir la prueba **(l.1)** y **(l.6)** de §23.13.8 sobre las
    cadenas **nuevas** — ninguna contiene un monto, un rango ni un porcentaje de envío; la **primera**
    aparición de la tarifa en todo el ciclo sigue siendo **el correo 1**.
@@ -8061,6 +8223,18 @@ tres tiempos *«tú X, nosotros Y y Z»* el primer tiempo se lee como **su parte
 5. **Backend — recordatorio, no petición.** `PROJECT.md` §H manda repetir la guía de empaque **en el correo
    de aceptación y en el de la etiqueta**. Cuando esas plantillas se escriban, **el paso 4 va con su
    resta** (§23.14.3): ahí la cadena viaja **sin** ninguna tabla de montos al lado.
+7. **✅ Frontend — ALCANCE CONFIRMADO para el siguiente pase (v2.3.8).** Sí, adelante, y es **pequeño**:
+   **(a)** implementar por fin `buylist.quote.pendingLine.{label,note}` — pendiente desde v2.3 — con la
+   `note` **reescrita**: **una sola vez en el bloque de dinero**, con `{count}`, en **tinta `text-sm`**, y
+   **sin** la línea repetida por ítem (§23.3h); **(b)** la clave nueva
+   `buylist.quote.minimum.addPricedCard`, que **sustituye a `addAnother` solo cuando hay líneas sin
+   precio** (§23.3f-bis); **(c)** montar la nota del envío **condicionada al layout** para que se vea
+   **exactamente una vez** (§23.3g-bis) — la cabecera **no se monta** cuando el carrito es panel fijo.
+   **Cero componentes nuevos.** `BuylistShippingNote` ya existe; lo que cambia es **dónde se monta**.
+   **Y una petición de testabilidad, que es tuya y sale del falso positivo de v2.3.7:** el home monta el
+   panel del cotizador **dos veces por diseño**; **dales identificadores distinguibles**. No es cosmético —
+   con el mismo id, cualquier comprobación futura vuelve a medir el nodo equivocado, y esa fue la causa de
+   que yo escribiera un defecto inexistente en este documento.
 6. **Frontend — pestañas de M5 (v2.3.5, §23.8a).** Tres rótulos y tres claves:
    `por_recibir`⇒`por_ofertar`, `ciclo`⇒`con_vendedor`, `rechazadas`⇒`piezas_rechazadas`, con las viejas
    **borradas de los dos catálogos**. **Tu estructura se ratifica sin cambios** —una pestaña para el tramo
