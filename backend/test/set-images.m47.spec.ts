@@ -153,10 +153,65 @@ describe('M-47 (A) — guardarraíl de ingesta: solo https:// del host del prove
     expect('symbolUrl' in args.update).toBe(false);
   });
 
-  it('acepta el host admitido con path/query cualquiera (no se reescribe la URL)', async () => {
+  it('acepta el host admitido con path/query cualquiera (una URL limpia NO se reescribe)', async () => {
     const url = `${HOST}/sv8/logo_hires.png?v=2`;
     const args = await upsertArgsFor({ ...baseSet, images: { logo: url } });
     expect(args.create.logoUrl).toBe(url); // se persiste TAL CUAL, jamás construida por plantilla
+  });
+});
+
+/**
+ * I-4 (gate de QA/seguridad) — el guardarraíl debe SOSTENER lo que promete. Tres agujeros concretos que
+ * el primer pase dejaba abiertos, alineados con el precedente de la casa `sanitizeSealedImageUrl`
+ * (`src/modules/inventory/sealed-image-host.ts`, §4.32c).
+ */
+describe('M-47 (A) — I-4: puerto, userinfo y NORMALIZACIÓN de la cadena persistida', () => {
+  it('PUERTO no estándar ⇒ RECHAZADO (`host`, no `hostname`: otro puerto es otro endpoint)', async () => {
+    const args = await upsertArgsFor({
+      ...baseSet,
+      images: { logo: 'https://images.pokemontcg.io:8443/sv8/logo.png' },
+    });
+    expect(args.create.logoUrl).toBeNull();
+    expect('logoUrl' in args.update).toBe(false);
+  });
+
+  it('el puerto https POR DEFECTO (`:443`) sí se acepta y queda elidido en lo persistido', async () => {
+    const args = await upsertArgsFor({
+      ...baseSet,
+      images: { logo: 'https://images.pokemontcg.io:443/sv8/logo.png' },
+    });
+    // El WHATWG URL elide el puerto por defecto ⇒ mismo endpoint, misma cadena canónica.
+    expect(args.create.logoUrl).toBe(`${HOST}/sv8/logo.png`);
+  });
+
+  it('USERINFO ⇒ RECHAZADO (credenciales embebidas confunden sobre quién es el host real)', async () => {
+    for (const url of [
+      'https://evil@images.pokemontcg.io/sv8/logo.png',
+      'https://user:pass@images.pokemontcg.io/sv8/logo.png',
+    ]) {
+      const args = await upsertArgsFor({ ...baseSet, images: { logo: url, symbol: url } });
+      expect(args.create.logoUrl).toBeNull();
+      expect(args.create.symbolUrl).toBeNull();
+      expect('logoUrl' in args.update).toBe(false);
+      expect('symbolUrl' in args.update).toBe(false);
+    }
+  });
+
+  it('se persiste la forma NORMALIZADA, no la cadena cruda que `new URL` perdonó', async () => {
+    // `new URL` TOLERA espacios/C0 al borde y ELIMINA tabs/saltos interiores: guardar el crudo metería
+    // en la BD exactamente lo que el parser acaba de limpiar.
+    const sucia = `  ${HOST}/sv8/lo\tgo.png\n `;
+    const args = await upsertArgsFor({ ...baseSet, images: { logo: sucia } });
+    expect(args.create.logoUrl).toBe(`${HOST}/sv8/logo.png`);
+    expect(args.create.logoUrl).not.toBe(sucia);
+    // Invariante fuerte: lo persistido NUNCA lleva espacios ni caracteres de control.
+    expect(args.create.logoUrl).not.toMatch(/[\s\u0000-\u001f]/);
+  });
+
+  it('espacio INTERIOR ⇒ se percent-encodea (no entra crudo a la BD)', async () => {
+    const args = await upsertArgsFor({ ...baseSet, images: { logo: `${HOST}/sv8/lo go.png` } });
+    expect(args.create.logoUrl).toBe(`${HOST}/sv8/lo%20go.png`);
+    expect(args.create.logoUrl).not.toContain(' ');
   });
 });
 

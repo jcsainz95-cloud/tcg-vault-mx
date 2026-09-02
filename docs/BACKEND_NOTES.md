@@ -43,6 +43,26 @@ comentado en el código para que nadie lo «simplifique» después.
 Casos rechazados y probados: `http:`, host arbitrario `https:`, **subdominio parecido**
 (`images.pokemontcg.io.evil.com`), URL relativa, `javascript:`, `data:`, cadena vacía, no-string.
 
+### I-4 (gate de QA/seguridad) — el guardarraíl ahora sostiene lo que promete
+
+El primer pase dejaba tres agujeros. Los tres cerrados, alineados con el precedente de la casa
+`sanitizeSealedImageUrl` (`src/modules/inventory/sealed-image-host.ts`, §4.32c):
+
+| Agujero | Antes | Ahora |
+|---|---|---|
+| **Puerto** | comparaba `URL.hostname`, que **descarta el puerto** ⇒ `https://images.pokemontcg.io:8443/x.png` **pasaba** | compara `URL.host` (hostname **+ puerto**). El `:443` por defecto lo elide el propio WHATWG URL ⇒ se acepta y queda canónico |
+| **Userinfo** | `https://evil@images.pokemontcg.io/logo.png` **pasaba** | rechazado si `username`/`password` no están vacíos — las credenciales embebidas existen para confundir sobre quién es el host |
+| **Cadena cruda** | devolvía `raw`; `new URL` **tolera** espacios y C0 al borde y elimina tabs/saltos interiores ⇒ entraba a la BD lo que el parser acababa de perdonar | devuelve **`parsed.href`** (forma normalizada). Para una URL limpia `href === raw`, así que no reescribe nada legítimo |
+
+### ⚠️ Corrección a una frase de la primera versión de este pase
+
+El JSDoc de `sanitizeSetImageUrl` decía *«es lo único que seguridad tiene que mirar de este pase»*.
+Leída como «de este pase» era cierta; leída como **postura de seguridad** —que es como se lee a los seis
+meses— **es falsa en el mismo archivo**: `upsertCards` persiste `images.small`/`images.large` del **mismo
+proveedor SIN ninguna validación**, y ésas sí se renderizan en todo el sitio. **Esa brecha es anterior a
+M-47** y este pase **no la cierra a propósito** (la cura toca `backend/src/common/`, zona compartida).
+La frase está **acotada en el código** y la brecha registrada como **M47-R1** en `docs/TECH_DEBT.md`.
+
 ### ⚠️ HECHO PENDIENTE de §4.39.4 — **NO SE PUDO VERIFICAR** (y qué implica)
 
 §4.39.8 encargo (e) pedía confirmar **contra una respuesta real** si el objeto `set` **anidado en una
@@ -91,7 +111,7 @@ escritor único y ya es idempotente y auditado.
   como fila propia y su logo **no** se hereda ni se suma.
 - ⛔ **Prohibido** construir la URL por plantilla desde el `setId`. Solo se pinta lo que la columna traiga.
 
-### Tests — `backend/test/set-images.m47.spec.ts` (25 tests)
+### Tests — `backend/test/set-images.m47.spec.ts` (30 tests)
 
 Tres bloques, escritos para fallar **en ambas direcciones**:
 - **(A) persistencia:** create/update con las dos imágenes; ausencia ⇒ no-op; una sola de las dos;
@@ -113,10 +133,22 @@ Tres bloques, escritos para fallar **en ambas direcciones**:
 | Guardarraíl desactivado (`if (false)`) | 🔴 **5** tests |
 | Exponer `symbolUrl` en `MasterSetSummaryDTO` | 🔴 1 test |
 | Meter `logoUrl` en `GET /catalog/facets` | 🔴 1 test |
+| **I-4:** volver a `URL.hostname` (pierde el puerto) | 🔴 1 test |
+| **I-4:** quitar el rechazo de userinfo | 🔴 1 test |
+| **I-4:** volver a persistir la cadena cruda (`raw`) | 🔴 **3** tests |
+
+### Deuda registrada (`docs/TECH_DEBT.md`, sección Backend)
+- **M47-R1** — tres criterios distintos para la misma amenaza (éste, el del sellado, y el **ninguno** del
+  arte de carta). Cura: helper único en `backend/src/common/` parametrizado por allowlist, con el arte de
+  carta cubierto **o declarado exento por escrito**. **Disparador: el siguiente pase que toque ingesta de
+  imágenes.** ⛔ Requiere que el orquestador serialice `backend/src/common/`.
+- **M47-D1** — una URL rechazada se queda pegada para siempre (corolario correcto de «rechazada ≡
+  ausente», pero silencioso: la única señal es un `logger.warn`). Disparador: segunda categoría de imagen
+  de tercero, o alarma sobre logs de sync.
 
 ### Validación
 - `npx tsc --noEmit`: limpio · `npm run lint`: **0 errores** (2 warnings preexistentes, ajenos).
-- `npm test`: **2 717/2 717 en 208 suites** (baseline 2 692 en 207 + 25 nuevos, **0 regresiones**).
+- `npm test`: **2 722/2 722 en 208 suites** (baseline 2 692 en 207 + 30 nuevos, **0 regresiones**).
 - `npx prisma validate`: schema válido. `npm run test:integration` **no se corrió**: no hay Postgres
   alcanzable en este entorno (`localhost:5432` sin respuesta) ⇒ **M-47 no se ha ejecutado contra una BD
   real**. El DDL es un `ADD COLUMN TEXT` por columna, la misma forma que las ~30 migraciones aditivas ya

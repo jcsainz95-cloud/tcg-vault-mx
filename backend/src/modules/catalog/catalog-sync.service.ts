@@ -20,6 +20,10 @@ const DATE_PATTERN = /^\d{4}\/\d{2}\/\d{2}$/;
  * v1.52-set-logos (M-47, §4.39.4) — ÚNICO host admitido para las imágenes de set. Es el MISMO que ya
  * sirve el arte de todas las cartas del sitio ⇒ `remotePatterns` del frontend NO cambia (§5.3.4) y no
  * hay superficie nueva para seguridad. NO se amplía sin pasar por arquitecto/frontend.
+ *
+ * Se compara contra `URL.host` (hostname **+ puerto**), no contra `hostname`: al no llevar puerto, esta
+ * constante solo empata con el puerto https por defecto (el WHATWG URL elide `:443`). Un
+ * `images.pokemontcg.io:8443` es OTRO endpoint y se rechaza.
  */
 export const SET_IMAGE_HOST = 'images.pokemontcg.io';
 
@@ -872,12 +876,31 @@ export class CatalogSyncService {
   }
 
   /**
-   * v1.52-set-logos (M-47, §4.39.4) — guardarraíl de ingesta de las imágenes de set. Devuelve la URL
-   * SOLO si es absoluta, `https:` y del host que ya sirve el arte de las cartas de este proveedor;
-   * cualquier otra cosa ⇒ `null` + log (nunca se persiste).
+   * v1.52-set-logos (M-47, §4.39.4) — guardarraíl de ingesta de las **imágenes de SET**. Devuelve la
+   * URL **normalizada** (`URL.href`) SOLO si es absoluta, `https:`, **sin credenciales embebidas**, y
+   * cuyo **`host` COMPLETO** (hostname + puerto) es exactamente el del CDN del proveedor; cualquier
+   * otra cosa ⇒ `null` + log (nunca se persiste).
    *
-   * Es lo único que seguridad tiene que mirar de este pase: impide que el proveedor (o algo que se
-   * haga pasar por él) meta en la BD un puntero a un host arbitrario que el front luego renderice.
+   * **ALCANCE — leer esto antes de citarlo como postura de seguridad.** Esto cubre **las dos columnas
+   * que M-47 introduce** (`CardSet.logoUrl` / `symbolUrl`) y **nada más**. NO es «lo único que hay que
+   * mirar»: el **arte de carta** (`upsertCards` → `Card.imageSmallUrl` / `imageLargeUrl`, unas 90
+   * líneas más abajo) persiste `images.small`/`images.large` del **mismo proveedor SIN ninguna
+   * validación**, y ésas sí se renderizan en todo el sitio. Esa brecha es **anterior a M-47** y este
+   * pase **no la cierra a propósito** (unificar los tres criterios vigentes —éste, el del sellado en
+   * `inventory/sealed-image-host.ts`, y el ninguno del arte de carta— exige un helper en
+   * `backend/src/common/`, **zona compartida** que otra sesión tiene abierta). Registrada como **R1**
+   * en `docs/TECH_DEBT.md`, con disparador explícito.
+   *
+   * Rigor alineado con `sanitizeSealedImageUrl` (`inventory/sealed-image-host.ts`), que es el
+   * precedente de la casa para esta misma amenaza:
+   *  - **`host`, no `hostname`.** `hostname` DESCARTA el puerto ⇒ `https://images.pokemontcg.io:8443/x`
+   *    habría pasado. `host` lo incluye (y el WHATWG URL ya elide el `:443` por defecto).
+   *  - **Sin userinfo.** `https://evil@images.pokemontcg.io/logo.png` se rechaza: las credenciales
+   *    embebidas existen para confundir sobre quién es el host de verdad.
+   *  - **Se persiste `parsed.href`, no la cadena cruda.** `new URL` TOLERA espacios y caracteres de
+   *    control (C0) al borde y tabs/saltos interiores: los elimina o los percent-encodea. Guardar el
+   *    crudo metería en la BD exactamente lo que el parser acaba de perdonar. Para una URL limpia
+   *    `href === raw`, así que esto no reescribe nada legítimo.
    *
    * Si pokemontcg.io empezara a servir imágenes desde OTRO host, backend NO amplía esta lista por su
    * cuenta: lo reporta, y `remotePatterns` del frontend se amplía DETRÁS, nunca por delante (§5.3.4).
@@ -893,18 +916,29 @@ export class CatalogSyncService {
       parsed = new URL(raw);
     } catch {
       this.logger.warn(
-        `upsertSet(${setExternalId}): images.${kind} no es una URL absoluta (${raw}); NO se persiste (M-47).`,
+        `upsertSet(${setExternalId}): images.${kind} no es una URL absoluta; NO se persiste (M-47).`,
       );
       return null;
     }
-    if (parsed.protocol !== 'https:' || parsed.hostname !== SET_IMAGE_HOST) {
+    // Credenciales embebidas: mismo rechazo que `sanitizeSealedImageUrl` (§4.32c) — `https://evil@host/`
+    // existe para que el host real pase desapercibido.
+    if (parsed.username !== '' || parsed.password !== '') {
+      this.logger.warn(
+        `upsertSet(${setExternalId}): images.${kind} trae credenciales embebidas (userinfo); ` +
+          `NO se persiste (M-47, §4.39.4).`,
+      );
+      return null;
+    }
+    // `host` (hostname + puerto), NO `hostname`: un puerto no estándar es OTRO endpoint.
+    if (parsed.protocol !== 'https:' || parsed.host.toLowerCase() !== SET_IMAGE_HOST) {
       this.logger.warn(
         `upsertSet(${setExternalId}): images.${kind} fuera del guardarraíl https://${SET_IMAGE_HOST} ` +
-          `(${parsed.protocol}//${parsed.hostname}); NO se persiste (M-47, §4.39.4).`,
+          `(${parsed.protocol}//${parsed.host}); NO se persiste (M-47, §4.39.4).`,
       );
       return null;
     }
-    return raw;
+    // Forma NORMALIZADA: lo que entra a la BD es lo que el parser validó, no la cadena cruda.
+    return parsed.href;
   }
 
   /**
