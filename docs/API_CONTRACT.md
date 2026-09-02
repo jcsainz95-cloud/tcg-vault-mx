@@ -2,7 +2,67 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-01 (rev **v1.51.19**).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-02 (rev **v1.51.20**).
+>
+> **Changelog v1.51.20 — LAS TRES ESCALADAS DEL GATE, RESUELTAS (2026-09-02, arquitecto; **CERO DDL, CERO endpoints,
+> CERO campos**. DOS códigos de error nuevos. ARCHITECTURE §4.39(q.3), §4.39(i) **6-bis** y **6-ter**, §5.2 NUEVA,
+> §9 con **BL-28**):**
+> ⚠️ **Las tres las levantó backend tras cerrar los once hallazgos del gate, y en las tres implementó lo que este
+> contrato dice en vez de decidir por su cuenta. Es lo correcto, y las tres eran defectos MÍOS** — dos huecos de
+> declaración y una fuente de monto sin caso de ausencia. **La racha de señalar-en-vez-de-inventar sigue intacta.**
+>
+> **A. `PICKUP_ADDRESS_NOT_FOUND` — UNA sola forma de `details`: `{ field: "addressId" }`.**
+> - **El contrato se contradecía**: §6 declaraba la forma y las **otras dos rutas** que resuelven una dirección la
+>   dejaban **sin declarar** — y un hueco de declaración **se lee como permiso**. Backend emitió **las dos** (superset)
+>   para no elegir por mí.
+> - **Vigente:** las **TRES** rutas (`POST /buylist/requests` · `PATCH /buylist/requests/:id/pickup-address` ·
+>   `PATCH /admin/buylist/:id/pickup-address`) devuelven **`details: { field: "addressId" }` y nada más**. **La clave
+>   `addressId` se retira.**
+> - **Por qué `field` y no el id:** `field` dice *qué control repintar* —lo único que separa **capturar**
+>   (`PICKUP_ADDRESS_REQUIRED`) de **volver a elegir**—; **el id no dice nada nuevo: el cliente lo acaba de mandar**.
+>   Y devolverlo **eco de un UUID ajeno** al cuerpo, a los logs y a la telemetría, en el único código de la familia
+>   que existe **por anti-enumeración**. ⚠️ **El superset era la peor opción**: no cierra la ambigüedad, **la vuelve
+>   permanente**. **Acción backend: una línea, NO bloqueante. No rompe al front** (ramifica por `code`).
+>
+> **B. ⚠️ DOS CÓDIGOS NUEVOS en `PATCH /admin/buylist/items/:itemId/decision` — `approve` sobre una línea que NO
+> COMPRAMOS deja de valer `0`. Es DINERO Y PROPIEDAD AJENA.**
+> - **El hueco era mío:** el contrato dijo que en el ciclo `approve` toma `offeredPriceCents` y **nunca dijo qué pasa
+>   cuando esa fuente no existe** — y es `null` en **toda** línea `skip`. Backend fijó `0` y **no inventó un código**
+>   (§N.2). **Con el `0`, la línea quedaba `aprobada`**, que es (1) el **único** estado que `convert-to-inventory`
+>   admite ⇒ **una carta que nunca compramos entraba al inventario vendible con costo 0**, y (2) el estado que la
+>   **saca de §H** ⇒ **el reloj de devolución del vendedor nunca arrancaba**.
+> - **`422 ITEM_NOT_OFFERED`** — `approve` sobre una línea con `offerDecision != 'buy'`. `details: { itemId,
+>   offerDecision }`. **No escribe nada.** La vía correcta existe y es **`reject` con motivo**, que ancla los 7/30
+>   días de §H y manda el correo por carta.
+> - **`500 OFFERED_PRICE_MISSING`** — línea `buy` **sin** `offeredPriceCents`: viola el invariante que la emisión
+>   garantiza sin excepción. **Backstop**, misma doctrina que `OFFER_PROJECTION_INCOMPLETE` (BL-24): el operador **no
+>   lo causó y no puede arreglarlo** ⇒ **se arregla el bug**, no se paga un `0`.
+> - **Discriminador entre los dos: ¿le debemos dinero a esta línea?** No ⇒ `422` accionable. Sí, y no sabemos cuánto
+>   ⇒ `500`. **`reject` no cambia** (legal sobre cualquier línea) y **fuera del ciclo nada de esto aplica**.
+>
+> **C. PRECEDENCIA — se ordenan los errores del ciclo entre sí.** El terminal ya ganaba sobre los dos; **los dos no
+> estaban ordenados entre sí**, y el orden en que §M5 los **lista nunca fue una precedencia**.
+> ```
+> 409 NO_LIVE_ADJUSTMENT  >  409 ADJUST_NOT_ALLOWED_IN_OFFER_CYCLE | 422 ITEM_NOT_OFFERED  >  422 OFFER_PRICE_IMMUTABLE
+> ```
+> **De lo que anula el ACTO ENTERO a lo que objeta un CAMPO** — el mismo criterio con el que ya se ordenó el terminal.
+> **Los dos del medio no compiten** (los selecciona un `decision` distinto). ⚠️ **Cambia lo que backend implementó**
+> (eligió el `422` primero, y **no clavó su elección en un test** — correcto): *«ese campo no se toca»* insinúa
+> *«quítalo y procede»*, **y no procede**. **Precisión que evita una cuarta escalada:
+> `OFFER_PRICE_IMMUTABLE` es regla del CUERPO, no del verbo** ⇒ aplica **también con `reject`**.
+>
+> **D. Registro (ARCHITECTURE §9).** **BL-25** y **BL-26** pasan a **🔧 RESUELTA EN RAMA**. Entra **BL-28**:
+> `offer/cancel` limpiaba **`offerSentAt`**, contra el schema, §4.39i.6 y §6/D42 — **habría deshecho por una puerta
+> lateral el arreglo del agujero de dinero**. **Norma:** `offerSentAt` es la **marca permanente de pertenencia al
+> ciclo**; lo vivo lo dice **`offerState`**; **ninguna ruta lo limpia jamás**. Y se declara que el espacio de nombres
+> **`BL-nn` pertenece a §9** (hoy tres documentos lo usan para tres cosas distintas).
+>
+> **E. Norma de cobertura (ARCHITECTURE §5.2 NUEVA).** Cinco disparadores que exigen **integración por HTTP contra BD
+> real**: dinero · regla en el motor · proyección · superficie HTTP · cableado entre módulos. **No hay porcentaje
+> objetivo**: el pase rechazado tenía el mejor número del repo.
+>
+> **F. Sin cambios.** Ni endpoints, ni campos, ni diales, ni DDL. Los **cinco** correos, las **siete** reglas del
+> barrido, los **cuatro** terminales, el mínimo, la tarifa, los pisos, SEC-A1 y la curva **intactos**.
 >
 > **Changelog v1.51.19 — EL TERCER DISPARADOR: NI SQL NI DDL (2026-09-01, arquitecto; **CERO DDL, CERO endpoints,
 > CERO campos** — todo interno. ARCHITECTURE §4.39m gana **(m.8)** y enmienda **(m.5)/(m.6)**; §9 gana **BL-27**):**
@@ -2955,12 +3015,24 @@
   | Código | HTTP | Dónde | Qué pasó | Qué hace el front |
   |---|---|---|---|---|
   | **`PICKUP_ADDRESS_REQUIRED`** | `422` | `POST /buylist/requests` | **no vino `addressId`** | pedir/elegir dirección (`GET`/`POST /users/me/addresses`) y **reintentar**. *Hermano exacto de `CLABE_REQUIRED`* |
-  | **`PICKUP_ADDRESS_NOT_FOUND`** | `422` | `POST /buylist/requests` · `PATCH …/pickup-address` | el `addressId` **no existe** **o no es del usuario** | refrescar la libreta y volver a elegir. ⚠️ **Misma respuesta para los dos casos a propósito** (anti-enumeración de IDs ajenos) |
+  | **`PICKUP_ADDRESS_NOT_FOUND`** | `422` | `POST /buylist/requests` · `PATCH …/pickup-address` (**cliente y admin**) | el `addressId` **no existe** **o no es del usuario** | refrescar la libreta y volver a elegir. ⚠️ **Misma respuesta para los dos casos a propósito** (anti-enumeración de IDs ajenos) |
   | **`PICKUP_ADDRESS_MISSING`** | `422` | `POST /admin/buylist/:id/offer` (**admin**) | la solicitud **no tiene snapshot** — solo puede ser una fila **legacy** anterior a M-46 | **no se oferta.** El operador llama al vendedor (`seller.phone`) para que la capture desde el portal, **o la declina** (`POST …/decline`). ⚠️ **Prohibido rellenarla leyendo la libreta viva** |
   | **`PICKUP_ADDRESS_LOCKED`** | `409` | `PATCH …/pickup-address` | **ya hay guía** (`guideSentAt != null`) o la solicitud está **cerrada** | **la dirección ya está impresa**: el remedio es humano (cancelar la guía y re-emitir), no un `PATCH` |
   **`REQUIRED` vs `NOT_FOUND` son códigos distintos por la misma razón que `CLABE_REQUIRED` vs `CLABE_INVALID`:** uno
   manda a **capturar**, el otro a **volver a elegir**. Un solo código obligaría al front a adivinar cuál de las dos
   pantallas abrir.
+  **⚠️ v1.51.20 — FORMA DE `details`: ÚNICA, NORMATIVA Y LA MISMA EN LAS TRES RUTAS.**
+  ```
+  details = { field: "addressId" }        // PICKUP_ADDRESS_REQUIRED  y  PICKUP_ADDRESS_NOT_FOUND
+  ```
+  Aplica **idéntica** a `POST /buylist/requests` (§6), `PATCH /buylist/requests/:id/pickup-address` (§6, cliente) y
+  `PATCH /admin/buylist/:id/pickup-address` (§M5-ciclo, admin) — **es un cuerpo compartido y devuelve una sola
+  cosa**. ⛔ **`details.addressId` NO se emite.** *(Cierre de la escalada 1 de backend: §6 declaraba la forma y las
+  otras dos rutas la dejaban sin declarar, así que emitió el **superset** para no elegir por el arquitecto. Correcto,
+  y aquí se elige.)* **Por qué `field` y no el id:** `field` dice **qué control repintar**, que es lo único que separa
+  *capturar* de *volver a elegir*; **el id no aporta nada —el cliente lo mandó en esa misma petición— y en cambio saca
+  un identificador AJENO al cuerpo de respuesta, a los logs y a la telemetría**, justo en el código que existe **por
+  anti-enumeración**. Razonamiento completo en ARCHITECTURE **§4.39(q.3)**.
 - **`409 DECLINE_NOT_ALLOWED` (v1.51.3, D39):** `POST /admin/buylist/:id/decline` sobre una solicitud que **no está
   `cotizada` y abierta**. `details: { status, offerState }`. Cubre los dos casos que importan: la **`ofertada`** (hay
   una oferta **vinculante** en la bandeja del vendedor ⇒ la vía correcta es `offer/cancel`, que manda el correo que
@@ -2969,6 +3041,26 @@
 - **`422 ITEM_NOT_IN_CUSTODY` (v1.17.1):** en `POST /shipments`, se intenta retirar un item cuyo `status` **no es `in_custody`** — típicamente ya `withdrawn` (retiro entregado, terminal), o cualquier otro estado no custodiable. **Guardarraíl anti doble-retiro/doble-cobro:** un item ya entregado (`withdrawn`) **NO** es re-elegible para un nuevo retiro aunque conserve `ownershipStatus='settled'` (histórico). Comparte criterio con el flag de lectura `HoldingDTO.withdrawable` (§3): read y write usan la **misma** regla de elegibilidad. Distinto de `422 ITEM_NOT_SETTLED` (aún `pending`, no liquidado) y de `409 ITEM_IN_ANOTHER_SHIPMENT` (ya tiene envío activo). Ver §5 y ARCHITECTURE §3.3.
 - **`422 ITEM_NOT_ADJUSTABLE` (v1.20):** en `POST /admin/inventory/adjustments`, la pieza referida **no** es ajustable: solo piezas `ownerType=platform` con status ∈ `{in_stock, listed}` admiten `perdida | danada | error_captura`. Una pieza `reserved` (en una orden viva), `in_custody`/`picking`/`shipped`/`delivered` (bóveda/envío de cliente) o ya terminal (`lost | damaged | withdrawn`) **no** se ajusta desde el binder — su salida/incidencia va por el flujo dueño (órdenes M3, retiros M4, `mark` + reposición para custodia de clientes). Ver §M1 y ARCHITECTURE §4.20e.
 - **`422 INSUFFICIENT_STOCK` (v1.34):** en `POST /admin/inventory/items/bulk-remove` (baja rápida por cantidad, P-29), hay **menos** piezas ajustables que la `quantity` pedida para el `(cardId, finish[, condición])`. Ajustable = misma regla que `ITEM_NOT_ADJUSTABLE` (`ownerType=platform`, status ∈ `{in_stock, listed}`). **Operación atómica:** el fallo **NO baja ninguna pieza** (todo o nada). `details: { available: number, requested: number }` (el front muestra cuántas hay realmente para que el operador ajuste la cantidad). Distinto de `422 ITEM_NOT_ADJUSTABLE`, que aquí surge por **carrera TOCTOU** (una pieza sale del allowlist entre la lectura y la escritura ⇒ rollback). Ya en el enum central `common/error-codes.ts`. Ver §M1.
+- **`422 ITEM_NOT_OFFERED` (v1.51.20 — NUEVO; DINERO Y PROPIEDAD AJENA):** en `PATCH /admin/buylist/items/:itemId/decision`
+  **dentro del ciclo de oferta** (`offerSentAt IS NOT NULL`), se manda **`decision:"approve"`** sobre una línea cuyo
+  **`offerDecision != 'buy'`** — o sea, **una carta que NO compramos** (`skip`, o una línea sin decisión).
+  `details: { itemId, offerDecision }`. **No escribe nada.**
+  > **El remedio NO es aprobarla más barata: es `decision:"reject"` con su motivo**, que es lo que ancla los plazos
+  > **7d/30d de §H** y manda el correo por carta. **Guardarraíl:** sin este código la línea quedaba **`aprobada` con
+  > monto `0`** — y `aprobada` es el **único** estado que `convert-to-inventory` admite (`422 ITEM_NOT_APPROVED`),
+  > así que **una carta que nunca compramos entraba al inventario VENDIBLE con costo `0`** (margen de M7 al 100%
+  > sobre mercancía ajena) **y salía de §H**, dejando al vendedor sin reloj de devolución y sin aviso.
+  > **Hermano de `ITEM_NOT_APPROVED`, y no el mismo:** aquél dice *«esta línea aún no está aprobada»*; éste dice
+  > **«esta línea no se puede aprobar: no la compramos»**. Ver §M5 y ARCHITECTURE §4.39(i) **6-bis**.
+- **`500 OFFERED_PRICE_MISSING` (v1.51.20 — NUEVO; BACKSTOP, no error de cliente):** mismo endpoint, `approve` sobre
+  una línea **`offerDecision='buy'` cuyo `offeredPriceCents` es `null`**. `details: { itemId }`. **No escribe nada y
+  no paga.**
+  > **Es `500` y no `422` a propósito** (misma doctrina que `500 OFFER_PROJECTION_INCOMPLETE`, §M5-ciclo): **el
+  > operador no lo causó y no puede resolverlo**. Viola el invariante que la emisión garantiza **sin excepción**
+  > (`offerDecision='buy' ⇒ offeredPriceCents IS NOT NULL`). **Si dispara, se arregla el bug** — no se paga un `0`,
+  > no se «rescata» con la cascada del costo de adquisición y no se degrada a `422`, que culparía a quien pulsó el
+  > botón. **El discriminador con `ITEM_NOT_OFFERED` es una sola pregunta: ¿le debemos dinero a esta línea?**
+  > **No** ⇒ `422` accionable. **Sí, y no sabemos cuánto** ⇒ `500`.
 - **Códigos nuevos de la CURVA (v2.0, P-48 — `PUT /api/v1/admin/pricing/curve`; detalle en §M2 «Curva de precio por
   VALOR DE MERCADO» y ARCHITECTURE §4.36.3).** Todos son **`422`**, todos se validan **al GUARDAR** (no solo en
   runtime), todos se evalúan sobre el **objeto completo** (no sobre un delta) y **todos indican QUÉ PUNTO lo rompe**
@@ -5996,6 +6088,10 @@ Err:
 - **`422 PICKUP_ADDRESS_NOT_FOUND` (v1.51.3)** — el `addressId` **no existe** **o no pertenece al usuario
   autenticado**. `details: { field: "addressId" }`. ⚠️ **Los dos casos devuelven lo mismo, a propósito** (anti-IDOR:
   no se confirma la existencia de una fila ajena).
+  **⚠️ v1.51.20 — ésta es la forma ÚNICA y es la misma en las TRES rutas** (aquí, en el `PATCH` de cliente y en el
+  `PATCH` de admin de §M5-ciclo): **`details: { field: "addressId" }`, sin más claves**. ⛔ **`details.addressId` NO
+  se emite** — el cliente acaba de mandarlo y devolverlo solo sacaría un identificador **ajeno** a la respuesta, a
+  los logs y a la telemetría. Norma en §0 (familia `PICKUP_ADDRESS_*`) y ARCHITECTURE §4.39(q.3).
 - `422 CLABE_NOT_OWN_NAME` (la `clabe` del body no coincide con la de archivo — nombre propio)
 - **`422 BUYLIST_MINIMUM_NOT_MET` (v1.51, D18, criterio 132)** — el **TOTAL** de la solicitud queda por debajo del
   **mínimo de compra** (`buylistMinimumRequestCents`, default MX$500, **borde INCLUSIVO**: exactamente MX$500 **SÍ se
@@ -6232,7 +6328,8 @@ Req: **`{ addressId: string }`** — **de la propia libreta del usuario**. El se
 
 Res `200`: `{ sellRequestId, pickupAddress: PickupAddressSnapshotDTO }` (§11).
 Err: `403 FORBIDDEN`, `404 NOT_FOUND` (solicitud ajena o inexistente — misma respuesta, anti-IDOR),
-**`422 PICKUP_ADDRESS_NOT_FOUND`** (el `addressId` no existe o no es suyo),
+**`422 PICKUP_ADDRESS_NOT_FOUND`** (el `addressId` no existe o no es suyo; **`details: { field: "addressId" }`** —
+forma **única**, v1.51.20),
 **`409 PICKUP_ADDRESS_LOCKED`** (`details: { status, guideSentAt }` — ya hay guía, o la solicitud está cerrada),
 `400 VALIDATION_ERROR`.
 
@@ -8938,6 +9035,10 @@ Notas de seguridad: **host fijo** de pokemontcg.io (sin SSRF); `POKEMONTCG_IO_AP
 - `POST /api/v1/admin/buylist/:id/receive` — marca recepción física → `recibida`.
 - `POST /api/v1/admin/buylist/:id/verify` — inicia/registra verificación → `verificacion`.
 - `PATCH /api/v1/admin/buylist/items/:itemId/decision` — **cherry-pick** — Req `{ decision: "approve" | "adjust" | "reject", approvedPriceCents?, reason? }` → actualiza `SellItemStatus`. `adjust` fija `adjustmentSentAt` (dispara plazo de 7 días).
+  **Err (resumen; la PRECEDENCIA entre ellos es normativa y está más abajo, v1.51.20):** `403`, `404 NOT_FOUND`,
+  `400 VALIDATION_ERROR` (`reject` sin `reason`), **`409 NO_LIVE_ADJUSTMENT`** (solicitud terminal),
+  **`409 ADJUST_NOT_ALLOWED_IN_OFFER_CYCLE`**, **`422 OFFER_PRICE_IMMUTABLE`**, **`422 ITEM_NOT_OFFERED`** *(NUEVO
+  v1.51.20)*, **`500 OFFERED_PRICE_MISSING`** *(NUEVO v1.51.20, backstop)*.
   > **⚠️⚠️ v1.51.5 — GUARDA DE TERMINAL (NUEVA, NORMATIVA, DINERO). Se evalúa ANTES que todo lo demás de este
   > endpoint, incluida la del ciclo de oferta. Desviación BL-14 (ARCHITECTURE §9).**
   > Si `SellRequest.status` es **terminal** (`pagada` · `rechazada` · `expirada` · `abandonada`) ⇒
@@ -8965,6 +9066,75 @@ Notas de seguridad: **host fijo** de pokemontcg.io (sin SSRF); `POKEMONTCG_IO_AP
   >   negativo: *«el ítem `ajustada` **no se usa en ninguna parte** del ciclo de buylist»*, y con D30 el criterio 124
   >   **recuperó su alcance completo**: en la pantalla de verificación **no existe campo de monto, ni repreciar, ni
   >   contraofertar, ni ajustar**.
+  >
+  > ### ⚠️⚠️ v1.51.20 — `approve` SOBRE UNA LÍNEA QUE NO COMPRAMOS. NUEVO `422 ITEM_NOT_OFFERED` + backstop `500`.
+  > *(Escalada **2** de backend: implementó lo que este contrato decía —el monto sale de `offeredPriceCents`—, se topó
+  > con que **una línea `skip` no tiene ninguno**, fijó `0` y **no inventó un código de error** (§N.2). Hizo bien.
+  > **El hueco es mío:** nombré la fuente del monto y **nunca nombré el caso en que esa fuente no existe**. Dictamen
+  > completo en ARCHITECTURE **§4.39(i) 6-bis**.)*
+  >
+  > **⚠️ Lo que hacía el `0`, y por qué no era cosmético.** `offeredPriceCents` es **`null` en toda línea `skip`**
+  > (§11, por diseño). Con `?? 0` la línea quedaba **`aprobada` con monto cero**, y `aprobada` es exactamente:
+  > **(1)** el **único** estado que `POST …/convert-to-inventory` admite —`422 ITEM_NOT_APPROVED` es su guarda
+  > única— ⇒ **una carta que nunca compramos entraba al inventario VENDIBLE**, con `acquisitionCostCents = 0` (la
+  > cascada cae en el `approvedPriceCents = 0`) ⇒ **M7 reportando 100% de margen sobre mercancía ajena**; y **(2)** el
+  > estado que **saca la línea de §H** —los plazos 7d/30d se anclan en `rejectedAt`, que solo escribe `reject`— ⇒ **el
+  > reloj del vendedor nunca arrancaba y su carta desaparecía en silencio**, sin correo y sin fila en ninguna cola.
+  > *Tercer `0` de este stream que significaba «no hay dato» y se leía como cifra. Aquí ni siquiera falta un dato: la
+  > línea NO SE COMPRÓ, y el número correcto no es `0` — es que la operación no exista.*
+  >
+  > **NORMA — resolución de `decision:"approve"` con `offerSentAt IS NOT NULL`:**
+  >
+  > | `offerDecision` | `offeredPriceCents` | Resultado |
+  > |---|---|---|
+  > | **`buy`** | no nulo | **`200`** · `approvedPriceCents := offeredPriceCents` **server-side** (sin cambios) |
+  > | **`skip`** | (`null` siempre) | **`422 ITEM_NOT_OFFERED`** · `details: { itemId, offerDecision }` · **no escribe nada** |
+  > | **`null`** *(línea sin decisión en una oferta ya emitida)* | — | **`422 ITEM_NOT_OFFERED`** · `details: { itemId, offerDecision: null }` |
+  > | **`buy`** | **`null`** ⚠️ | **`500 OFFERED_PRICE_MISSING`** · `details: { itemId }` · **no escribe nada, no paga** |
+  >
+  > - **El discriminador entre el `422` y el `500` es UNA pregunta: ¿le debemos dinero a esta línea?** **No** (`skip`
+  >   o sin decisión) ⇒ **`422` accionable**: el operador no hizo nada irreparable y **la vía correcta está a un
+  >   clic** — **`decision:"reject"` con su motivo**, que ancla §H y manda el correo por carta. **Sí, y no sabemos
+  >   cuánto** (`buy` sin precio) ⇒ **`500`, backstop**: viola el invariante que la emisión garantiza **sin
+  >   excepción** (cláusula de acoplamiento, `convert-to-inventory`); **el operador no lo causó ni puede
+  >   resolverlo** ⇒ **se arregla el bug**.
+  > - **Es la MISMA regla que este contrato ya escribió** para las piezas que llegan sin haber sido ofertadas
+  >   (*«no están compradas; se registran y aplican los plazos de §H; no se convierten a inventario vendible»*, abajo).
+  >   Una línea **`skip` es ese caso** — solo que decidido por nosotros, no por el vendedor.
+  > - **`convert-to-inventory` NO gana una segunda guarda:** con esta norma una `skip` **jamás alcanza `aprobada`**,
+  >   así que `ITEM_NOT_APPROVED` **sigue bastando**. *Duplicar la guarda duplicaría la regla, y la copia se desfasa.*
+  > - **⚠️ Fuera del ciclo (`offerSentAt IS NULL`, cohorte legacy) NADA de esto aplica** y `ITEM_NOT_OFFERED` **no
+  >   existe**: `offerDecision` es `null` en **toda** línea pre-ciclo, así que aplicarlo allí **rompería la cohorte
+  >   entera**.
+  >
+  > ### ⚠️ v1.51.20 — PRECEDENCIA ENTRE LOS ERRORES DE ESTE ENDPOINT (escalada 3). El orden de la LISTA nunca fue una precedencia.
+  > ```
+  > 409 NO_LIVE_ADJUSTMENT                     «esta SOLICITUD está cerrada»       (guarda de terminal, arriba)
+  >   >  409 ADJUST_NOT_ALLOWED_IN_OFFER_CYCLE «este VERBO no existe aquí»         [solo con decision="adjust"]
+  >      422 ITEM_NOT_OFFERED                  «esta LÍNEA no se compró»           [solo con decision="approve"]
+  >   >  422 OFFER_PRICE_IMMUTABLE             «ese CAMPO de dinero no viaja»      [con CUALQUIER decision]
+  >   >  500 OFFERED_PRICE_MISSING             backstop: se compró y no sabemos cuánto
+  > ```
+  > - **Criterio: de lo que anula el ACTO ENTERO a lo que objeta un CAMPO** — el mismo con el que ya se puso el
+  >   terminal encima de los dos (*«una solicitud cerrada no se discute por el monto: no se toca»*). **Una precedencia
+  >   que cambia de criterio a mitad de lista no es una precedencia: son dos.**
+  > - **Los dos peldaños del medio NO compiten:** los selecciona un `decision` distinto y **solo llega uno por
+  >   petición**, así que su orden relativo **nunca se plantea**.
+  > - **⚠️ El `409` del verbo gana al `422` del campo**, y esto **cambia lo que backend implementó** (eligió el `422`;
+  >   **su test de integración acepta cualquiera de los dos a propósito**, así que no clavó la decisión — correcto).
+  >   *«Ese campo no se toca»* le insinúa al operador *«quítalo y procede»* — **y no procede**: el reintento con
+  >   `adjust` sin monto choca con el `409`. **Dos errores para una causa, y el primero apunta al remedio
+  >   equivocado.** El argumento HTTP de *«el cuerpo antes que el estado»* **no aplica**: las dos guardas leen el
+  >   **mismo `offerSentAt`, en la misma lectura**. Y la elección es **neutra en dinero** —las dos rechazan sin
+  >   escribir un peso, con la guarda en el `where` (`count !== 1` no escribe nada)—, por eso se decide por claridad.
+  > - **⚠️ PRECISIÓN — `OFFER_PRICE_IMMUTABLE` es regla del CUERPO, no del verbo:** dentro del ciclo,
+  >   **`approvedPriceCents` presente ⇒ `422`, sea cual sea el `decision`, `reject` incluido**. No contradice que
+  >   **`reject` sigue siendo legal a los dos lados del eje** (lo que se rechaza es el **cuerpo**, no el verbo).
+  >   *Aceptar-e-ignorar un campo de dinero entrena al integrador a mandarlo, y el día que el verbo cambie empieza a
+  >   tener efecto.*
+  > - **QA:** el caso que hoy acepta cualquiera de los dos **ya puede fijar el `409`**, conservando el discriminante
+  >   limpio (`adjust` sin monto ⇒ `409`; `approve` con monto ⇒ `422`).
+  >
   > - **`reject` NO cambia** (mismo motivo obligatorio, mismos plazos 7d/30d, mismo correo por carta, misma
   >   auto-transición). **Es el mecanismo del rechazo PARCIAL, y no necesita ninguno nuevo** (D30): se **rechaza carta
   >   por carta con el correo que YA EXISTE** y **lo aprobado se paga al precio ofertado**.
@@ -9055,6 +9225,12 @@ Notas de seguridad: **host fijo** de pokemontcg.io (sin SSRF); `POKEMONTCG_IO_AP
   >   > silencioso, permanente —el costo no se recalcula nunca— y que se descubre en un reporte, no en una excepción.*
   >   > **Invariante exigible a QA:** `offerDecision='buy' ⇒ offeredPriceCents IS NOT NULL`. Una línea sin dato de
   >   > mercado **sale de la oferta como `skip`** (jamás MX$0 ni cifra de respaldo), nunca como `buy` con `null`.
+  >   > **⚠️ v1.51.20 — el invariante gana DIENTES en los dos extremos.** Antes solo lo vigilaba QA; ahora una
+  >   > violación **falla en caliente y no llega aquí**: si la línea es `buy` sin precio, `approve` devuelve
+  >   > **`500 OFFERED_PRICE_MISSING`** y **no hay pieza que convertir**; si la línea es **`skip`**, `approve`
+  >   > devuelve **`422 ITEM_NOT_OFFERED`** y **jamás alcanza `aprobada`**, que es el único estado que esta
+  >   > conversión admite. ⇒ **el término `approvedPriceCents` de la cascada deja de ser alcanzable con un `0`
+  >   > fabricado**, y el fallback queda para lo que siempre fue: **filas pre-M-46**.
   >
   >   **El ENVÍO NO ENTRA AL COSTO DE LA PIEZA**: es **gasto operativo del periodo** (M7). Mezclarlos
   >   ensuciaría el **P&L por carta** —dos piezas idénticas tendrían costos distintos según el paquete en que
@@ -9875,7 +10051,8 @@ Req: **`{ addressId: string }`** — **de la libreta del PROPIO VENDEDOR**. El s
 
 Res `200`: `{ sellRequestId, status, pickupAddress: PickupAddressSnapshotDTO, guideSentAt: null | string, shipDeadlineAt: null | string, guideCancellationPendingAt: string | null }`.
 Err: `403 FORBIDDEN` (cliente), `404 NOT_FOUND`, **`422 PICKUP_ADDRESS_NOT_FOUND`** (el `addressId` no existe **o no es
-del vendedor de esta solicitud** — misma respuesta para los dos casos), **`409 PICKUP_ADDRESS_LOCKED`**,
+del vendedor de esta solicitud** — misma respuesta para los dos casos; **`details: { field: "addressId" }`**, la
+**misma forma única** que las otras dos rutas, v1.51.20), **`409 PICKUP_ADDRESS_LOCKED`**,
 `400 VALIDATION_ERROR`.
 
 ##### `POST /api/v1/admin/buylist/:id/guide` — capturar la guía (D19/D21/D22, criterios 122/137)

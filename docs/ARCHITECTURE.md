@@ -4,6 +4,22 @@
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
 >
 > ---
+> **Rev v1.51.20 — CIERRE DE LAS TRES ESCALADAS DEL GATE + DOS REGISTROS + UNA NORMA DE COBERTURA** (2026-09-02,
+> arquitecto; rama `claude/buylist-inventory-workflow-hdnls3`). **CERO DDL, CERO endpoints, CERO campos nuevos.**
+> Contrato en `API_CONTRACT.md` **v1.51.20**. **Nada se borra; lo superado queda marcado.**
+> 1. **§4.39(q.3)** — la forma de `details` de `PICKUP_ADDRESS_NOT_FOUND` es **ÚNICA**: `{ field: "addressId" }`.
+>    **Se retira el superset** que el hueco de declaración había hecho razonable. *(escalada 1)*
+> 2. **§4.39(i) 6-bis** — `approve` sobre una línea que **no compramos** deja de valer `0`: **`422 ITEM_NOT_OFFERED`**,
+>    y **`500 OFFERED_PRICE_MISSING`** como backstop cuando **sí** se compró y no sabemos a cuánto. *(escalada 2)*
+> 3. **§4.39(i) 6-ter** — **escalera de precedencia** de los errores del ciclo, de lo que anula el **acto** a lo que
+>    objeta un **campo**. *(escalada 3)*
+> 4. **§9** — **BL-25** y **BL-26** pasan a **🔧 RESUELTA EN RAMA**; entra **BL-28** (`offer/cancel` limpiaba
+>    `offerSentAt`); y se declara a quién pertenece el espacio de nombres `BL-nn`, que tres documentos usan para tres
+>    cosas distintas.
+> 5. **§5.2 NUEVA** — **qué exige cobertura de integración y no unitaria.** Cinco disparadores, derivados de los ocho
+>    bloqueantes que 4.171 pruebas en verde no podían ver.
+>
+> ---
 > Rev **v1.51.4-qualitative-shipping-and-portal-truth** (2026-09-01, rama `claude/buylist-inventory-workflow-hdnls3`,
 > arquitecto — **PASE DE FRICCIONES DE PANTALLA** sobre v1.51.3, DISEÑO EN PAPEL). **Seis fricciones levantadas por
 > `DESIGN_SYSTEM.md` §23.13; una era BLOQUEANTE de un requisito del humano (**cerrada por D43 QUITANDO el
@@ -13055,6 +13071,114 @@ el 6 **conserva su número** porque se cita como «§4.39i.6» desde §11.)*
    ajustar.** Contrato: `PATCH /admin/buylist/items/:itemId/decision` **rechaza** `approvedPriceCents` en el body
    cuando `offerSentAt IS NOT NULL` → **`422 OFFER_PRICE_IMMUTABLE`**, y `decision:"adjust"` →
    **`409 ADJUST_NOT_ALLOWED_IN_OFFER_CYCLE`**. `approve` fija **server-side** `approvedPriceCents = offeredPriceCents`.
+
+   > **⚠️⚠️ 6-bis (v1.51.20, NORMATIVO, DINERO **Y PROPIEDAD AJENA**) — `approve` SOBRE UNA LÍNEA QUE NO COMPRAMOS.**
+   > *(Escalada **2** de backend. Implementó **lo que este invariante decía** —el monto sale de `offeredPriceCents`—,
+   > se topó con que una línea `skip` **no tiene ninguno**, fijó `0` y **me lo subió en vez de inventarse un código**.
+   > Hizo bien: §N.2 prohíbe rellenar lo que el contrato no nombra. **El defecto es mío:** el invariante 6 nombró **la
+   > fuente** del monto y **jamás nombró el caso en que esa fuente no existe**.)*
+   >
+   > **EL HALLAZGO, y es bastante peor que un `0` cosmético.** `offeredPriceCents` es **`null` en toda línea `skip`**
+   > (§11, por diseño: *«una línea sin dato de mercado sale de la oferta como `skip`, jamás MX$0»*). Con el `0`, la
+   > línea quedaba **`aprobada` con monto cero** — y `aprobada` es, exactamente:
+   > - el **único** estado que `POST …/convert-to-inventory` admite (`422 ITEM_NOT_APPROVED` es su **guarda única**)
+   >   ⇒ **una carta que nunca compramos entra al inventario VENDIBLE**, y entra con `acquisitionCostCents = 0` (la
+   >   cascada de §M5 cae en el `approvedPriceCents = 0`) ⇒ **M7 reporta margen del 100% sobre mercancía ajena**;
+   > - el estado que **saca a la línea de §H**: los plazos de devolución (7d) y abandono (30d) se anclan en
+   >   `rejectedAt`, que **solo escribe `reject`** ⇒ **el reloj del vendedor nunca arranca** y su carta **desaparece
+   >   en silencio**, sin correo, sin plazo y sin fila en ninguna cola.
+   >
+   > *Es la tercera vez en este stream que un `0` que significaba «no hay dato» se leyó como una cifra* (el `0`
+   > prohibido de `positionUnavailable`, el `?? 0` de **4-ter**, y éste). **Aquí ni siquiera es un dato que falta: es
+   > una línea que NO SE COMPRÓ**, y el número correcto no es `0` — **es que la operación no exista**.
+   >
+   > **NORMA — resolución de `decision:"approve"` cuando `offerSentAt IS NOT NULL`:**
+   >
+   > | `offerDecision` | `offeredPriceCents` | Resultado |
+   > |---|---|---|
+   > | **`buy`** | **no nulo** | **`200`** · `approvedPriceCents := offeredPriceCents` **server-side** (invariante 6, sin cambios) |
+   > | **`skip`** | (`null` siempre) | **`422 ITEM_NOT_OFFERED`** · `details: { itemId, offerDecision }` · **no escribe nada** |
+   > | **`null`** *(línea sin decisión dentro de una oferta ya emitida)* | — | **`422 ITEM_NOT_OFFERED`** · `details: { itemId, offerDecision: null }` |
+   > | **`buy`** | **`null`** ⚠️ | **`500 OFFERED_PRICE_MISSING`** · `details: { itemId }` · **no escribe nada y no paga** |
+   >
+   > **El discriminador entre el `422` y el `500` es UNA sola pregunta: ¿LE DEBEMOS DINERO A ESTA LÍNEA?**
+   > - **NO le debemos** (`skip`, o sin decisión) ⇒ **`422`**, y es **accionable**: el operador no hizo nada
+   >   irreparable y **la vía correcta existe y está a un clic** — **`decision:"reject"` con su motivo**, que es lo
+   >   que ancla los 7/30 días de §H y dispara el correo por carta. *El error le dice la verdad y le señala la
+   >   puerta.* Es además **la misma regla que el contrato ya escribió** para las piezas que llegan sin haber sido
+   >   ofertadas (*«no están compradas; se registran y aplican los plazos de §H»*): una línea `skip` **es ese caso**,
+   >   solo que decidido por nosotros en vez de por el vendedor.
+   > - **SÍ le debemos y no sabemos cuánto** (`buy` sin precio) ⇒ **`500`**, y es un **backstop**, misma doctrina que
+   >   el `500 OFFER_PROJECTION_INCOMPLETE` de (h.1)/BL-24: **el operador no lo causó y no puede resolverlo**. Viola
+   >   el invariante *«`offerDecision='buy' ⇒ offeredPriceCents IS NOT NULL`»* que la emisión garantiza **sin
+   >   excepción** (cláusula de acoplamiento de §M5). **Si dispara, se arregla el bug** — no se paga un `0`, no se
+   >   «rescata» con la cascada del costo y no se degrada a `422`, que le echaría la culpa a quien pulsó el botón.
+   >
+   > **Lo que NO cambia — y hay que escribirlo o alguien lo estirará:**
+   > - **`reject` sigue siendo legal sobre CUALQUIER línea**, `skip` incluida, y **no se gatea por el eje** (decisión
+   >   de backend, **ratificada**). Es el mecanismo del rechazo parcial (D30) **y** el único que ancla §H para la
+   >   mercancía que llegó sin estar comprada. *Se guarda lo que el estado condiciona, no todo lo que se leyó.*
+   > - **Fuera del ciclo (`offerSentAt IS NULL`, cohorte legacy) NADA de esto aplica:** `approve` sigue aceptando
+   >   `approvedPriceCents` y `adjust` sigue disponible ((b.3)). **`ITEM_NOT_OFFERED` no existe en esa rama**, y no es
+   >   un descuido: `offerDecision` es `null` en **toda** línea pre-ciclo, así que aplicarlo allí **rompería la
+   >   cohorte entera de un golpe**.
+   > - **`convert-to-inventory` NO gana una segunda guarda.** Con esta norma una línea `skip` **jamás alcanza
+   >   `aprobada`**, así que `ITEM_NOT_APPROVED` **sigue bastando**. *Duplicar la guarda duplicaría la regla, y la
+   >   copia se desfasa* — es la lección de las seis copias del subconjunto de estados (BL-17).
+   > - **Los dos códigos son NUEVOS y van al enum central** `common/error-codes.ts`. **Cero DDL, cero campos, cero
+   >   endpoints.**
+
+   > **⚠️⚠️ 6-ter (v1.51.20, NORMATIVO) — PRECEDENCIA ENTRE LOS ERRORES DEL CICLO.**
+   > *(Escalada **3** de backend. Eligió el `422` y —lo que de verdad importa— **no clavó su elección en un test**: la
+   > aserción de integración **acepta cualquiera de los dos** a propósito y fija solo el discriminante limpio. Eso es
+   > exactamente lo que hay que hacer con una decisión que no es tuya: **implementar una y no convertirla en
+   > verdad**.)*
+   >
+   > **El hueco:** una petición con `decision:"adjust"` **y** `approvedPriceCents` viola **las dos** guardas a la vez.
+   > La guarda de terminal se ordenó **sobre las dos** (BL-14) y las dos **nunca se ordenaron entre sí**. ⚠️ **El
+   > orden en que §M5 las LISTA no era una declaración de precedencia**, y lo digo aquí para que no vuelva a leerse
+   > así.
+   >
+   > **ESCALERA NORMATIVA — de lo que anula el ACTO ENTERO a lo que objeta un CAMPO:**
+   > ```
+   > 409 NO_LIVE_ADJUSTMENT                     «esta SOLICITUD está cerrada»        (terminal, BL-14)
+   >   >  409 ADJUST_NOT_ALLOWED_IN_OFFER_CYCLE «este VERBO no existe aquí»          [solo con decision="adjust"]
+   >      422 ITEM_NOT_OFFERED                  «esta LÍNEA no se compró»            [solo con decision="approve"]
+   >   >  422 OFFER_PRICE_IMMUTABLE             «ese CAMPO de dinero no viaja»       [con CUALQUIER decision]
+   >   >  500 OFFERED_PRICE_MISSING             backstop: se compró y no sabemos cuánto
+   > ```
+   > **Los dos peldaños del medio NO compiten: son mutuamente excluyentes por construcción** —los selecciona un
+   > `decision` distinto y solo llega uno por petición—, así que **su orden relativo nunca se plantea**. Se escriben
+   > al mismo nivel en vez de inventarles una jerarquía que ninguna petición podría ejercer.
+   >
+   > **Por qué el `409` del VERBO gana al `422` del CAMPO — y esto no contradice a backend, lo completa:**
+   > 1. **Es la MISMA regla que este documento ya aplicó al terminal.** *«Una solicitud cerrada no se discute por el
+   >    monto: no se toca»* puso el terminal encima **por ser más envolvente**, no por ser más grave. La escalera solo
+   >    continúa ese criterio un peldaño más abajo: *«un verbo que no existe no se discute por sus campos»*. **Una
+   >    precedencia que cambia de criterio a mitad de la lista no es una precedencia: son dos.**
+   > 2. **El `422` primero produce un diálogo de error que MIENTE por implicatura.** *«Ese campo no se toca»* le dice
+   >    al operador *«quita el monto y esto procede»* — **y no procede**: el reintento con `adjust` sin monto choca
+   >    con el `409`. **Dos errores para una sola causa, y el primero apunta al remedio equivocado.** Con el `409`
+   >    delante **no hay reintento válido que descubrir**, porque no existe: en este ciclo **no se ajusta**.
+   > 3. **El argumento de HTTP a favor del `422` no aplica aquí, y lo desarmo explícitamente.** *«El cuerpo se valida
+   >    antes que el estado»* vale cuando validar el cuerpo **ahorra leer estado**; aquí **las dos guardas leen el
+   >    MISMO `offerSentAt`, en la misma lectura**. **No hay orden natural que respetar ⇒ se elige el orden que
+   >    informa mejor.**
+   > 4. **La elección es NEUTRA en dinero**, y por eso se decide por claridad y no por prudencia: las dos ramas
+   >    **rechazan sin escribir un peso**, el monto que viajó **no tuvo efecto en ninguna**, y la atomicidad no
+   >    depende del orden — la guarda vive en el **`where`** y un `count !== 1` no escribe nada.
+   >
+   > **Y una precisión que evita la cuarta escalada: `OFFER_PRICE_IMMUTABLE` es una regla del CUERPO, no del verbo.**
+   > Dentro del ciclo, **`approvedPriceCents` presente ⇒ `422`, sea cual sea el `decision`** — **`reject` incluido**.
+   > No contradice *«`reject` no se gatea por el eje»* (que sigue vigente: **`reject` es legal a los dos lados**): lo
+   > que se rechaza no es el verbo, es **un cuerpo que trae un monto en un ciclo donde el monto es inmutable**.
+   > *Aceptar-e-ignorar un campo de dinero entrena al integrador a mandarlo, y el día que el verbo cambie empieza a
+   > tener efecto.* **Un campo de dinero que viaja y no hace nada es un campo de dinero esperando a hacer algo.**
+   >
+   > **Acción (backend, NO bloqueante):** invertir el orden de esas dos ramas. **QA:** el caso de integración que hoy
+   > acepta cualquiera de los dos **ya puede fijar el `409`**, conservando el discriminante limpio (`adjust` sin monto
+   > ⇒ `409`; `approve` con monto ⇒ `422`).
+
 7. **⚠️ NUEVO (v1.51.1, cierre de (o.1)) — EL ENVÍO DEL BUYLIST ENTRA A M7 POR LOS DOS LADOS, Y LA BASE SE DECLARA.**
    El humano eligió: **captura OPCIONAL del costo real** de la etiqueta, con **fallback a la tarifa congelada**.
    ```
@@ -14463,7 +14587,7 @@ serializarlo o llevarlo en **una sola sesión**:
 | `backend/src/modules/settings/` | **~~9~~ 10** diales *(v1.51.4)* + validación cruzada de **3** términos *(v1.51.2, **no cambia**)* | seeds pisados |
 | `backend/src/jobs/` | barrido reescrito | ver la nota de §2 sobre `jobs/` |
 | `frontend/src/lib/` | `isTerminal` viene del server; se **borra** el literal de `M5View.tsx` | quinta copia del set terminal |
-| `backend/src/common/error-codes.ts` | **5 códigos nuevos** *(v1.51.3)*: `PICKUP_ADDRESS_REQUIRED` · `PICKUP_ADDRESS_NOT_FOUND` · `PICKUP_ADDRESS_MISSING` · `PICKUP_ADDRESS_LOCKED` · `DECLINE_NOT_ALLOWED` **+ 1** *(v1.51.4)*: `GUIDE_CANCELLATION_PENDING` | enum de errores pisado por dos streams |
+| `backend/src/common/error-codes.ts` | **5 códigos nuevos** *(v1.51.3)*: `PICKUP_ADDRESS_REQUIRED` · `PICKUP_ADDRESS_NOT_FOUND` · `PICKUP_ADDRESS_MISSING` · `PICKUP_ADDRESS_LOCKED` · `DECLINE_NOT_ALLOWED` **+ 1** *(v1.51.4)*: `GUIDE_CANCELLATION_PENDING` **+ 2** *(v1.51.20, (i) 6-bis)*: `ITEM_NOT_OFFERED` · `OFFERED_PRICE_MISSING` | enum de errores pisado por dos streams |
 | `docs/API_CONTRACT.md` | ~~v1.51.3~~ … ~~v1.51.17~~ ~~v1.51.18~~ **v1.51.19** | — (mío) |
 | `backend/src/modules/inventory/inventory-publish.port.ts` | **NUEVO** (`INVENTORY_PUBLISH_PORT`, §4.39m.5) | **segundo** camino hacia adentro de `inventory` si se hace por duplicado |
 | `frontend/src/lib/` · `M5View.tsx` | `canPay` pierde su literal de estados (**BL-17**); el rol se queda | **sexta** copia de un subconjunto del enum, y ésta gobierna el **botón de pagar** |
@@ -14548,6 +14672,34 @@ Req += { addressId: string }          // OBLIGATORIO desde v1.51.3
 | `addressId` **ausente / vacío** | **`422 PICKUP_ADDRESS_REQUIRED`** (`details: { field: "addressId" }`) |
 | `addressId` inexistente **o de otro usuario** | **`422 PICKUP_ADDRESS_NOT_FOUND`** (`details: { field: "addressId" }`) — **la misma respuesta para los dos casos, a propósito**: distinguirlos sería un oráculo de enumeración de IDs ajenos (anti-IDOR, §7) |
 | el usuario **no tiene ninguna dirección** | el front **captura una** con `POST /users/me/addresses` (endpoint que **ya existe**) y reintenta con el `id` que devuelve |
+
+> ### ⚠️ v1.51.20 — LA FORMA DE `details` ES **UNA**, Y ES `{ field: "addressId" }`. Se retira el superset.
+> *(Escalada **1** de backend al cerrar el gate. Emitió **las dos formas** —`{ field, addressId }`— para no decidir
+> por mí. **Hizo bien**, y el defecto es mío: yo declaré la forma en **§6** y dejé las otras dos rutas **sin
+> declararla**, y un hueco de declaración se lee como permiso.)*
+>
+> **NORMA — las TRES rutas que resuelven una dirección devuelven `details: { field: "addressId" }` y nada más:**
+> `POST /buylist/requests` · `PATCH /buylist/requests/:id/pickup-address` · `PATCH /admin/buylist/:id/pickup-address`.
+> **La clave `addressId` se retira.** Aplica igual a su hermano `PICKUP_ADDRESS_REQUIRED`, que ya la tenía así.
+>
+> - **Por qué `field` y no el id — y no es simetría estética.** `field` contesta *«qué control repinto»*, que es lo
+>   **único** que el front necesita para elegir entre **capturar** (`PICKUP_ADDRESS_REQUIRED`) y **volver a elegir**
+>   (`PICKUP_ADDRESS_NOT_FOUND`) — la distinción por la que existen dos códigos y no uno (q.2). El id **no contesta
+>   nada nuevo: el cliente lo acaba de mandar en esa misma petición**, y los tres cuerpos tienen **un solo** campo
+>   de dirección, así que no hay ambigüedad que desempatar.
+> - **Y devolverlo tiene un costo que `field` no tiene.** El caso que dispara este código incluye *«el id es de otro
+>   usuario»*: el eco mete un **UUID ajeno** en el cuerpo de respuesta, en los logs de error y en la telemetría del
+>   cliente. **No es una fuga** —quien lo mandó ya lo tenía— pero **ensancha el radio de un identificador ajeno a
+>   cambio de cero información**, y precisamente en el único código de la familia que existe **por
+>   anti-enumeración**. *Cuando el valor informativo es cero, cualquier costo gana.*
+> - **⚠️ El superset era la PEOR de las tres opciones, y por eso esto se cierra en vez de dejarse.** Emitir las dos
+>   formas **no resuelve la contradicción: la vuelve permanente** — dos integradores escriben dos lectores distintos
+>   contra el mismo código y **ninguno de los dos está equivocado**, hasta el día en que alguien retire una de las
+>   dos claves y rompa a uno de ellos **sin cambiar el contrato**. *Un contrato que satisface las dos lecturas de una
+>   ambigüedad no la cerró: la ratificó.*
+> - **Acción (backend, una línea, NO bloqueante):** dejar de emitir la clave `addressId`. **No rompe al frontend** —
+>   ninguna pantalla la consume (el front ramifica por `code`) y **§6 nunca la declaró**, así que no existe código
+>   legítimo escrito contra ella.
 
 - **⚠️ NO HAY FALLBACK SERVER-SIDE A LA DIRECCIÓN «POR DEFECTO», y aquí me aparto del patrón de la CLABE a
   propósito.** La CLABE **admite fallback** porque en archivo hay **exactamente una** y es del propio usuario
@@ -15106,6 +15258,51 @@ processingFeeCents = totalCents − baseCents
   - `catalog-price-sync` **2×/día** (v1.12-catalog-pricing, §4.13c; crons sugeridos `0 12` y `0 0` UTC = **06:00 y 18:00 CDMX**, dueño devops): **importa sets nuevos** y **refresca precios de TODO el catálogo**. Como pokemontcg.io no tiene bulk de solo-precios, refrescar precios ⇒ **re-sync completo** (`syncAll({force:true})`): `upsertCards` repuebla cartas + `PriceReference` por acabado (1.1) con el FX del día. Secuencial (respeta backoff 429 del cliente), single-flight (`syncAllStatus.running`), idempotente (upsert). Requiere `POKEMONTCG_IO_API_KEY` para la cuota (§8). **Nuevo respecto al `price-sync` de bóveda:** este SÍ precia el catálogo completo (no filtra por `InventoryItem`).
 - **Validaciones duras:** dirección de envío/retiro **debe ser MX** (rechazo si no); retiro solo sobre `settled`; carta "precio pendiente" **no comprable**; topes de buylist (por solicitud/mes) e INE sobre tope.
 
+### 5.2 Qué exige cobertura de INTEGRACIÓN y no unitaria (v1.51.20, NORMATIVO, transversal)
+
+> **De dónde sale esta norma, porque no es una preferencia.** El gate del ciclo de adquisición cerró con **4.171
+> pruebas en verde** (cifra de QA) **y ocho bloqueantes vivos**. El diagnóstico de QA fue el correcto y es el que
+> convierte esto en una decisión de arquitectura: *no es que la suite fallara en avisar — está construida para no
+> poder*. Los ocho los encontró **ejercitando los endpoints por HTTP contra el stack real**, y **ninguno era sutil**:
+> rutas que devolvían `404` por su orden de declaración, un campo que el `ValidationPipe` descartaba en silencio,
+> veintiún campos que el DTO no proyectaba, una guarda de dinero que no existía. **Un mock de Prisma confirma la
+> forma del CÓDIGO, no la del SISTEMA**, y las cuatro cosas de arriba viven **fuera** del código que el unitario
+> ejecuta. Así que la norma no es «más pruebas»: es **qué clase de defecto tiene que poder hacer fallar la suite**.
+
+**REGLA.** Exige **al menos un caso de integración por HTTP contra base de datos real** todo lo que cumpla
+**cualquiera** de estos cinco. No es una escala de calidad ni una recomendación de cobertura: es la lista de
+**lugares donde el unitario es ciego por construcción**.
+
+| # | Dispara si el código… | Por qué el unitario no puede verlo | Bloqueante que lo probó |
+|---|---|---|---|
+| **1. DINERO** | escribe o decide un monto, o **gatea** una escritura de dinero (precondición de pago, tope, guarda de inmutabilidad) | el mock devuelve lo que le pidas: el peso que no debía salir **sale igual, y en verde** | `adjust` sobre una oferta **aceptada** ⇒ `200` ⇒ **el vendedor aceptó MX$500 y cobró MX$0** |
+| **2. La regla vive en el MOTOR** | `updateMany` condicional, guarda en el `where`, `@@unique`, transacción serializable | **el mock evalúa el `where` que TÚ escribiste, no el que la BD aplica** — y si lo evalúa de verdad es porque alguien **reimplementó el motor dentro del test**, que es la misma copia de la regla por otra puerta | ídem: la guarda del ciclo no existía y nada lo delataba |
+| **3. Es una PROYECCIÓN** | un DTO decide **qué viaja y qué no** (campos admin-only, redacciones, PII) | una prueba de **escritura no ve un campo que no se proyecta**: los datos estaban en la BD y el DTO emitía **2 de 26** | las dos proyecciones de `SellRequest`, y la de cliente definida **por resta** |
+| **4. Es superficie HTTP** | ruta y **orden de declaración**, `ValidationPipe`/whitelist, guards de rol, código y forma del error | el unitario **llama al servicio**: no pasa por el router ni por el pipe. Un campo descartado por la whitelist **no existe** para él | dos colas devolviendo `404`; `addressId` **descartado en silencio** |
+| **5. Cruza un módulo o un puerto** | cableado del contenedor DI, adaptadores, puertos entre módulos | `@Optional()` + `catch` **compila, pasa la suite entera y apaga la función en producción**, con un `warn` como único síntoma | el puerto de publicación (R1/R2 del techlead) |
+
+**Y su recíproco, que importa lo mismo:** lo que **no** toca ninguno de los cinco —lógica pura: interpolación de la
+curva, `business-days`, formatos, `money.ts`, derivaciones sin BD— **se prueba unitariamente y punto**. Subirlo a
+integración es lento y no descubre nada: *ahí el unitario no es ciego, es el instrumento correcto*. **Esta norma no
+dice «desconfía de los unitarios»; dice dónde NO son evidencia.**
+
+**Consecuencias operativas (las cuatro son normativas):**
+- **Régimen del archivo de integración — norma de backend, la adopto y la generalizo:** **nada de mocks de Prisma
+  ahí**. Si un caso necesita un estado que la API no puede fabricar, se **siembra por el cliente de BD** y se
+  **ejercita por HTTP**. *Un mock dentro de la suite de integración reintroduce exactamente la ceguera que esa suite
+  existe para eliminar, y encima con su nombre puesto.*
+- **El flujo crítico de punta a punta es UN caso, no N.** El smoke del ciclo (cotizar → ofertar → aceptar → guía →
+  declarar → confirmar → recibir → verificar → aprobar → pagar) vale **porque termina en una aserción de dinero** —
+  `payoutNetCents === offerNetCents`, el invariante que el bug rompía. **Un recorrido que no asevera un invariante es
+  una demo**, y una demo en verde es peor que ninguna prueba porque ocupa su sitio.
+- **El semillero es parte del contrato de la suite.** Si el arnés **no puede fabricar** un estado desde la UI —una
+  oferta emitida, por ejemplo—, las pruebas que lo necesitan **se saltan para siempre y en verde**: doce del portal
+  llevaban así todo el pase. *Una prueba que se salta sola es una prueba que no existe, y no lo parece.* **Todo
+  estado que un flujo crítico atraviesa tiene que ser fabricable por el seed.**
+- **⚠️ Dónde NO se aplica esta norma: como porcentaje.** **No hay número de cobertura objetivo y no lo habrá.** El
+  pase que se rechazó con ocho bloqueantes tenía **el mejor número de la historia del repo**. Cobertura no es cuánto
+  código se ejecutó: es **qué defectos pueden hacer fallar la suite**, y eso no se mide con un porcentaje.
+
 ---
 
 ## 6. i18n (convención)
@@ -15235,15 +15432,34 @@ Riesgos técnicos:
   > **Quien mergee esta rama convierte todos los `🔧` en `✅` en un solo pase.** Es una tarea de una línea por fila y
   > **no requiere volver a mirar el código**: la fila ya dice qué se hizo y dónde.
 
+  > ### ⚠️ v1.51.20 — EL NÚMERO `BL-nn` ES DE ESTA TABLA. Hoy tres documentos lo usan para tres cosas distintas.
+  > *(Lo destapó el cierre del gate: **el mismo identificador nombra defectos diferentes en tres sitios**, y ya se
+  > cruzó dos veces.)*
+  >
+  > | Cita | Qué significa hoy | El choque, con nombre |
+  > |---|---|---|
+  > | **`BL-nn` sin cualificar** | **esta tabla (§9)** — el registro **canónico** de desviaciones | **`BL-26` aquí = el `total` que MIENTE** con `?onlyAlerts=true` |
+  > | `BL-nn` en `BACKEND_NOTES.md` | los defectos que backend cerró en su pase v1.51.20 (`BL-26`…`BL-30`) | **`BL-26` allí = `POST /buylist/requests` ignoraba `addressId`** |
+  > | «`BL-n` **de QA**» | la numeración de bloqueantes del veredicto de QA | «**BL-2 de QA**» ≠ **BL-2** de §9 (el `respond` sin guarda) |
+  >
+  > **NORMA: el espacio de nombres `BL-nn` pertenece a §9.** Quien necesite numerar hallazgos propios usa **su propio
+  > prefijo** —`BE-n` **ya existe** y es de backend (`BE-3`, `BE-5`); el patrón sirve igual para `QA-n`— o **cita el
+  > número de §9**. ⚠️ **No renumero documentos ajenos** (no son mis rutas): esto se enruta a cada dueño como
+  > **limpieza de documentación, NO bloqueante**.
+  > **Por qué no es burocracia:** este registro **alimenta el DoD**. Un veredicto que diga *«BL-26 sigue abierta»*
+  > señala **dos defectos distintos según quién lo lea**, y uno de los dos **ya está cerrado**. Es la forma más barata
+  > que existe de **dar por cerrado algo que nadie arregló**.
+
   | # | Desviación | Dueño | Puerta |
   |---|---|---|---|
   | **BL-2** 🔧 **RESUELTA EN RAMA — las CUATRO líneas de la guarda** *(DINERO SALIENTE, no depende de M-46)* | `respond` (`buylist.service.ts:1067-1093`) hacía `findUnique` **solo para autorizar propiedad** (`:1069`) y **nunca leía `req.status`**: `accept` fijaba `status:'aprobada'` **incondicionalmente** (`:1090`). **El dueño de una solicitud `pagada`/`rechazada`/`abandonada` podía revivirla a `aprobada`** — que con `verifiedAt` es el estado pagable de `paySpei`. `decline` tenía el hueco simétrico | backend | 🔧 **Resuelta en rama.** Guarda atómica (`count===1`) con `closedAt IS NULL ∧ adjustmentSentAt IS NOT NULL ∧ status ∈ SELL_REQUEST_LIVE_ADJUSTMENT_STATES` + `409 NO_LIVE_ADJUSTMENT`; y la **cuarta** condición ya cableada: **`offerSentAt: null` en el `where`** (`buylist.service.ts:1393`) con la rama de error **discriminando** `409 ADJUST_NOT_ALLOWED_IN_OFFER_CYCLE` (`:1408`). Los dos `TODO(M-46)` se cerraron cuando su bloqueo —*«la columna aún no existe»*— **desapareció** al aplicarse M-46. Criterio 150 cerrado en `respond` (§4.39b.2/b.3) |
   | **BL-17** 🔧 **RESUELTA EN RAMA A MEDIAS — y la mitad pendiente es CORRECTA, no un olvido** *(v1.51.8 — **DINERO SALIENTE**; **SEXTA copia** de un subconjunto de estados)* | `M5View.tsx:820-821` — `canPay = isSuperAdmin && (status === 'aprobada' \|\| status === 'verificacion')` es **`SELL_REQUEST_PAYABLE_STATES` transcrito a mano en el cliente**, y **gobierna el botón de pagar por SPEI**. ⚠️ **Además es INCOMPLETA:** la precondición del servidor son **dos** términos (`… ∧ verifiedAt IS NOT NULL`, `buylist.service.ts:2664`/`:2704`) y el cliente **solo replica el primero** ⇒ **la UI puede habilitar el pago donde el servidor responde `422`**. **No se rompe al crecer el enum** —no es un radio de enum, es un predicado de dinero duplicado a través del cable— pero es la **tercera** copia de la regla que el sitio 8 acaba de consolidar *por ser dinero*, y en otro lenguaje y otro release | **backend** (emite) ✅ · **frontend** (consume) 🔧 | 🔧 **Backend: hecho en rama** — `AdminBuylistDTO.isPayable` (`buylist.service.ts:1572`) derivado de **`isPayableSellRequest`**, el mismo cuerpo que el pre-check (`:2726`) y el `where` de la guarda (`:2767`) de `paySpei`: **tres lectores, una regla**. 🔧 **Frontend: en curso** — `M5View` borra la mitad de ESTADO y conserva **solo** la de ROL (`isSuperAdmin && req.isPayable === true`). ⚠️ **La partición NO es un cierre incompleto: es la norma que este documento fijó** — **BACKEND PRIMERO** (al revés de BL-11), porque si el frontend borrara su literal antes, `isPayable` llegaría `undefined` y **el botón moriría para todos**. *El desfase es el diseño, no el retraso.* **El frontend hizo bien en no inventarse el campo** |
   | **BL-19** ⏳ **NO ES UN DEFECTO** *(v1.51.9 — se registra para que el próximo barrido no vuelva a decidirlo; **no lleva marca de abierta/cerrada porque nunca hubo nada que corregir**)* | **`awaitingGuide?` y `offerReissueAlert?`** están declarados en §M5 y **ausentes del código**. ⚠️ **Misma FORMA que BL-18 y CAUSA distinta:** sus insumos (`aceptada`, `guideSentAt`, `acceptedAt`, `offerReissueCount > 0`) **solo los puebla el ciclo de oferta** ⇒ **hoy filtrarían vacío siempre**, y su ausencia **no obliga al cliente a nada**. `live?` era lo contrario: filtraba por `status` —que toda fila tiene— y su falta **forzaba al cliente a enumerar los cuatro terminales**. *Un filtro que hoy no puede tener filas no es deuda: es diseño que aún no toca* | backend | **Con el pase de los endpoints de oferta**, en el mismo commit que puebla sus columnas. **NO se retiran del contrato** (habría que reescribirlos palabra por palabra; este documento es el **diseño** del ciclo, no el inventario de lo desplegado). Marcados **⏳ CICLO DE OFERTA** en §M5. **Barrido completo: no hay un cuarto de la categoría implementable-hoy** — las únicas eran `seller.phone` (BL-15), `isPayable` (BL-17) y `live?` (BL-18) |
   | **BL-18** 🔧 **RESUELTA EN RAMA** *(v1.51.8 — **el contrato declara un parámetro que el código no implementa**; hermana de BL-15)* | `GET /admin/buylist` declara **`live?: boolean`** (§M5, v1.51/D12) y **el backend no lo implementa**: `admin-buylist.controller.ts:36-53` no tiene ese `@Query`, y `grep live` en `modules/buylist/` no devuelve nada relacionado. Mientras tanto la pestaña «Cerradas» manda un **CSV que ENUMERA los cuatro terminales** (`M5View.tsx:110-111`) — **la forma exacta que este pase retiró de todos los demás sitios**. ⚠️ El frontend lo mitigó con un `Record` **total** sobre el enum (deja de compilar si entra un estado), **pero esa red depende de que alguien actualice `contract.ts` a mano**: un terminal nuevo en el backend **no** rompe su build por sí solo | backend | 🔧 **Resuelta en rama: implementada, no retirada.** `@Query('live')` con parsing **tri-estado** (`'true'`/`'false'` filtran; cualquier otra cosa no filtra y **no falla** — precedente `guest`/`needsManual`), **por exclusión** sobre `SELL_REQUEST_TERMINAL_STATES` e **intersectando** con `status` en vez de reasignarlo (*asignar dos veces dejaría ganar al último y el filtro del usuario desaparecería en silencio*). Contradicción ⇒ vacío, no error. **Sin `live`, el `where` queda byte a byte como estaba.** Parsing normado en contrato v1.51.9 |
+  | **BL-28** 🔧 **RESUELTA EN RAMA** *(v1.51.20 — **el código contradecía a TRES fuentes a la vez**: el schema, §4.39i.6 y el contrato §6/D42. ⚠️ **Nadie la había reportado**: la encontró y la cerró **backend** mientras arreglaba otra cosa. **La registro yo porque el invariante que se violaba es MÍO**, y porque §9 existe para que un defecto de este tamaño no dependa de que alguien lo recuerde)* | `adminOfferCancel` escribía **`offerSentAt: null`** al cancelar una oferta. Rompía **dos** cosas a la vez, y la segunda es de dinero: **(1)** `lastOfferCancelledAt` exige `offerSentAt IS NOT NULL` ⇒ salía **siempre `null`** ⇒ el vendedor que acababa de recibir el **correo 5** entraba al portal y **no veía rastro**: *la pantalla contradecía al correo*, que es literalmente lo que D42 se creó para arreglar. **(2)** ⚠️ **la solicitud salía del ciclo a ojos de las guardas** —`offerSentAt` **es** el discriminador (§4.39i.6)— ⇒ `respond` e `itemDecision(adjust)` **volvían a admitir la vía de ajuste que el criterio 150 declara inexistente** ⇒ **habría deshecho por una puerta lateral el arreglo del agujero de dinero de BL-2/BL-14**, y sin tocar una sola línea de esas guardas | backend | 🔧 **Resuelta en rama: se retiró la línea.** **No reabre ninguna fuga** — `offerPublicDTO` sigue gateado por `offerState === 'sent'` y la re-emisión no mira ese campo (`status='cotizada' ∧ offerState ∈ {null, cancelled}`). ⚠️ **NORMA que deja escrita, y es la lección que se lleva el ciclo:** `offerSentAt` **no es «hay una oferta viva»** — es la **marca PERMANENTE de que esta solicitud entró al ciclo**. Lo vivo lo dice **`offerState`**. **Ninguna ruta lo limpia jamás**: quien pregunte *«¿sigue habiendo oferta?»* lee `offerState`; quien pregunte *«¿esta solicitud es del ciclo?»* lee `offerSentAt`. *Un campo que contesta dos preguntas distintas acaba contestándole mal a una de las dos*, y aquí la mal contestada era la que protege el dinero. **Cancelar una oferta NO devuelve la solicitud al mundo legacy** |
   | **BL-27** ⛔ **ABIERTA** *(v1.51.19 — **higiene de diff**, y muerde justo en la fase de seguridad; lo levantó **backend** como nota de proceso)* | Al aplicar BL-26, `prettier` **reformateó 445 líneas que nadie había tocado**; backend lo **revirtió y reaplicó a mano** (diff final **68/33**). Causa: **`npm run lint` NO corre prettier**, así que el árbol **deriva** y cualquier corrida ad-hoc reformatea código ajeno. ⚠️ **Por qué no es cosmético:** un diff que mezcla reformateo con lógica **es irrevisable**, y **el gate de seguridad y el techlead revisan por diff** — una línea de dinero escondida entre 445 de reformateo **no se ve**. *Convierte una revisión de seguridad en imposible justo cuando más falta hace* | **devops** (herramienta) · backend (disciplina) | **Norma (arquitecto): un diff NO mezcla reformateo con lógica.** Si hay que reformatear, **va en su propio commit, sin un solo cambio de comportamiento**. **El mecanismo lo elige devops** —cablear el formateador en `lint`/CI para que el árbol esté siempre formateado y una corrida sea **no-op**, o retirarlo del flujo ad-hoc—: las dos cierran el hueco, y **la elección es de su ruta**, no mía |
-  | **BL-25** ⛔ **ABIERTA** *(v1.51.18 — **seam que no existe**; escalada de **backend**, que **no cortó los dos disparadores por tamaño** sino porque ambos lo necesitan)* | Los disparadores **(a) al convertir** (en `buylist`) y **(c) precio resoluble** (en `pricing`) de §4.39m.2 necesitan **disparar trabajo de `inventory` desde fuera del módulo**, y **ese camino no existe**. ⚠️ **El precedente NO aplica solo:** `INVENTORY_POSITION_PORT` se declaró **«de solo lectura»** y su docblock razona que importar `InventoryModule` traería *«un grafo de servicios de ESCRITURA a un módulo que no debe poder escribir inventario»* (`inventory-position.port.ts:11-13`) — **un puerto de publicación es de escritura**, así que es **instancia nueva de la doctrina, no aplicación de ella**. Hacer (a) y (c) por separado **inventaría dos caminos hacia adentro, con el segundo copiando al primero** | backend | **Cierre = §4.39(m.5): UN `INVENTORY_PUBLISH_PORT`, UN método.** ⚠️ **Es un puerto de DISPARO, no de escritura:** el llamador dice *«reevalúa estas piezas»*, **jamás «publícalas»** — sin estado destino, sin precio, sin `status`; la decisión y la escritura viven **enteras dentro de `inventory`**, tras sus guardas. *Cruza una notificación, no una autoridad*, y por eso **preserva §4.39f en vez de romperlo**. En lote, **idempotente**, no-op sobre lo impublicable, **post-commit best-effort** (la conversión **no** puede fallar porque falle la publicación). **Best-effort es aceptable SOLO porque `pending-publish` es la red** ⇒ **esa cola no se retira ni se estrecha sin sustituirla**. **Dos consumidores: `buylist` y `pricing`. El disparador (b) NO lo usa** (es `inventory` sobre sí mismo) |
-  | **BL-26** ⛔ **ABIERTA** *(v1.51.18 — **un `total` que miente**; defecto mío, destapado al ratificar la decisión de backend sobre el `total` de `pending-publish`)* | `GET /admin/buylist/pending-shipment-confirmation` con **`?onlyAlerts=true`** filtra `data` **después** de derivar la alerta —correcto: `alert` no es columna— pero cuenta **`total` sobre la cola SIN filtrar**. ⇒ el cliente pagina un conjunto que no existe: **páginas vacías al final** y un número que **miente sobre el tamaño del trabajo pendiente**, que es lo único que una cola existe para decir. Mismo espíritu que el `0` prohibido de `positionUnavailable` | backend | **Cierre = §4.39(m.7.2): `total` cuenta EXACTAMENTE el conjunto que `data` pagina.** Con `onlyAlerts=true`, el `total` es el de las filas **en alerta**. ⚠️ **No se resuelve moviendo el filtro al `where`** —`alert` es derivado y depende de `business-days`, que **lanza** (§4.39k.1)—: se cuenta **sobre el conjunto ya derivado**, igual que se pagina |
+  | **BL-25** 🔧 **RESUELTA EN RAMA** *(v1.51.18 — **seam que no existe**; escalada de **backend**, que **no cortó los dos disparadores por tamaño** sino porque ambos lo necesitan)* | Los disparadores **(a) al convertir** (en `buylist`) y **(c) precio resoluble** (en `pricing`) de §4.39m.2 necesitan **disparar trabajo de `inventory` desde fuera del módulo**, y **ese camino no existe**. ⚠️ **El precedente NO aplica solo:** `INVENTORY_POSITION_PORT` se declaró **«de solo lectura»** y su docblock razona que importar `InventoryModule` traería *«un grafo de servicios de ESCRITURA a un módulo que no debe poder escribir inventario»* (`inventory-position.port.ts:11-13`) — **un puerto de publicación es de escritura**, así que es **instancia nueva de la doctrina, no aplicación de ella**. Hacer (a) y (c) por separado **inventaría dos caminos hacia adentro, con el segundo copiando al primero** | backend | **Cierre = §4.39(m.5): UN `INVENTORY_PUBLISH_PORT`, UN método.** ⚠️ **Es un puerto de DISPARO, no de escritura:** el llamador dice *«reevalúa estas piezas»*, **jamás «publícalas»** — sin estado destino, sin precio, sin `status`; la decisión y la escritura viven **enteras dentro de `inventory`**, tras sus guardas. *Cruza una notificación, no una autoridad*, y por eso **preserva §4.39f en vez de romperlo**. En lote, **idempotente**, no-op sobre lo impublicable, **post-commit best-effort** (la conversión **no** puede fallar porque falle la publicación). **Best-effort es aceptable SOLO porque `pending-publish` es la red** ⇒ **esa cola no se retira ni se estrecha sin sustituirla**. **Dos consumidores: `buylist` y `pricing`. El disparador (b) NO lo usa** (es `inventory` sobre sí mismo) · 🔧 **v1.51.20: implementada y ENDURECIDA por los cierres R1/R2 del techlead** — el adaptador **declara `implements`** (antes el token se ataba con `useExisting` y renombrar el método dejaba `tsc` y la suite en verde con **los tres consumidores reventando en runtime**) y hay **test de cableado** que asevera el token, las **dos entradas** y los **dos consumidores**. *Que romper la firma ahora falle en COMPILACIÓN es lo que convierte al puerto en una frontera y no en una convención* |
+  | **BL-26** 🔧 **RESUELTA EN RAMA** *(v1.51.18 — **un `total` que miente**; defecto mío, destapado al ratificar la decisión de backend sobre el `total` de `pending-publish`)* | `GET /admin/buylist/pending-shipment-confirmation` con **`?onlyAlerts=true`** filtra `data` **después** de derivar la alerta —correcto: `alert` no es columna— pero cuenta **`total` sobre la cola SIN filtrar**. ⇒ el cliente pagina un conjunto que no existe: **páginas vacías al final** y un número que **miente sobre el tamaño del trabajo pendiente**, que es lo único que una cola existe para decir. Mismo espíritu que el `0` prohibido de `positionUnavailable` | backend | **Cierre = §4.39(m.7.2): `total` cuenta EXACTAMENTE el conjunto que `data` pagina.** Con `onlyAlerts=true`, el `total` es el de las filas **en alerta**. ⚠️ **No se resuelve moviendo el filtro al `where`** —`alert` es derivado y depende de `business-days`, que **lanza** (§4.39k.1)—: se cuenta **sobre el conjunto ya derivado**, igual que se pagina · 🔧 **v1.51.20: implementada** (`buylist.service.ts:3676-3690`) — el `total` deriva del **mismo** conjunto que se pagina |
   | **BL-24** ⛔ **ABIERTA** *(v1.51.16 — **DINERO y JUSTICIA**: el vendedor paga por un defecto NUESTRO; lo levantó **ux-ui** y **no lo tapó con copy**)* | El portal aplica **R2 sin excepción** —una oferta incompleta (sin `terms`, o con líneas sin `offerDecision`) **no se pinta a medias**, lo cual es correcto—, pero entonces **el vendedor no tiene forma de aceptar** y **el barrido sigue contando sus 2 días hábiles**, hasta mandarle el correo 3 diciéndole que **no respondió**. **Falló nuestra proyección y la factura le llega a él**: lo que **§P.13** prohíbe y la injusticia que motivó **D38** — aquí sin mediar siquiera una corrección nuestra, solo un defecto. ⚠️ **El copy no puede arreglarlo:** una pantalla que prometiera *«no te preocupes por el plazo»* **mentiría si el barrido no lo respeta** | backend | **Cierre = §4.39(h.1): guarda de proyección al EMITIR**, paso **7-bis**, último antes del commit. La emisión **construye la MISMA proyección que sirve `GET /buylist/requests/:id`** y asevera que está completa; si no ⇒ **`500 OFFER_PROJECTION_INCOMPLETE`** y **no se emite, no se persiste, NO sale correo, no se congela plazo**. ⚠️ **La guarda ES la proyección** (no una checklist paralela) ⇒ no puede divergir y **todo campo futuro del portal entra solo**. **`500` y no `422`**: el operador no hizo nada mal ni puede arreglarlo — es **backstop**, y si dispara **se arregla el bug**. ⚠️ **Propiedad que lo hace justo:** al fallar, `offerSentAt` no se sella ⇒ queda `cotizada` ⇒ la mira la **regla 7 (NUESTRO plazo)**, no la 1 ⇒ el vendedor recibiría el **correo 4 («no procederemos»), que es verdad**, no el 3 («no respondiste»), **que sería mentira** |
   | **BL-23** ⛔ **ABIERTA** *(v1.51.15 — **seis huecos del CONTRATO** en el portal del vendedor, todos míos; los levantó **frontend** al construirlo y **en los seis señaló en vez de inventar**)* | **(1)** el **path del CTA** que fijé (`/{locale}/buylist/{id}`) **no es donde vive la pantalla** (`/buylist/requests/{id}`) ⇒ **el enlace del correo sigue roto, ahora por divergencia**: backend implementó mi forma. **(2)** `offer.terms` **no tiene la prosa del descuento con montos**, que §23.5b exige en el portal y que solo existía en la plantilla del correo ⇒ el front **tuvo que duplicar copy** (la única copia que ese pase creó) **y tendría que interpolar él tres montos de una oferta vinculante**. **(3)** `rechazada` **no discrimina cuál de sus TRES productores** la cerró ⇒ la pantalla no puede hablar sin arriesgarse a **acusar de pasividad a quien pulsó rechazar**. **(4)** `SellItemDTO` **mezcla dos audiencias** (5 campos admin-only, 2 ya prohibidos por escrito en §6) ⇒ el front declaró su tipo **más estrecho a sabiendas**; es **BL-20 al revés**: el tipo *invita* a la fuga. **(5)** `guideSentAt` **no viaja al cliente** y §23.5e depende de él — ⚠️ **y no es derivable de `carrier != null`**: §4.39t **conserva** carrier/tracking y **limpia** `guideSentAt`, así que derivarlo pintaría instrucciones para **una etiqueta anulada**. **(6)** `pagada` **sin fecha de SPEI**: el código **ya emite** `paidAt`/`speiReference`, el contrato **no los declaraba** | **arquitecto** (contrato ✅ hecho en v1.51.15) → **backend** (emitir) · **frontend** (consumir) | **Cerrado en el CONTRATO (v1.51.15); falta el código.** backend: ajustar el **path** a `/{locale}/buylist/requests/{id}` (una línea), emitir **`terms.rule`** (misma plantilla y locale que el correo), **`rejectedReason`** (**derivado, CERO DDL** — las causas son excluyentes **por construcción**), **`guideSentAt`**, y declarar **`paidAt`/`speiReference`** (**`paidBy` sigue excluido**). frontend: **borrar la copia de copy** que `terms.rule` deja sin objeto y adoptar `AdminSellItemDTO`/`SellItemDTO` |
   | **BL-22** ⛔ **ABIERTA** *(v1.51.14 — **una fila mala tumba una COLA entera**; lo levantó **backend** al implementar la guía y **no lo resolvió**, con razón)* | `adminPendingShipmentConfirmation` llama a **`businessDaysSince` por fila** (`buylist.service.ts:3225`) **sin capturar**. `business-days` **lanza por doctrina** fuera de la cobertura de `MX_HOLIDAYS` (2026–2030) ⇒ **una sola fila fuera de rango devuelve `500` en toda la cola**. ⚠️ **El modo de fallo no es el de un plazo:** lo que desaparece es **una cola de trabajo**, y un `500` de back-office se lee como *«no hay nada pendiente»* o *«hoy está rota»* — **nadie va a buscar una fila con una fecha rara**. Es el fallo que §4.39c(c.11) llama *el que no se ve*. **Hoy no se puede disparar** (`sellerShippedDeclaredAt` solo lo escribe `declare-shipped`, con `now()`); **se dispara solo el 1-ene-2031** | backend | **Cierre = §4.39(k.1):** captura **por fila**, `businessDaysWaiting: null` + flag de indisponibilidad, **la cola se pinta**, y **`alert: true`** (*donde el flag solo hace visible, se falla hacia visible*; `false` la sacaría de `?onlyAlerts=true`, la única vista donde se encontraría). ⚠️ **Las ESCRITURAS no degradan**: `addBusinessDays` al congelar `offerAcceptDeadlineAt`/`shipDeadlineAt` **debe seguir propagando** — *se degrada lo que se muestra, nunca lo que se compromete*. **Aplica también a `offerIssueDeadlineAt` y `caducityAt`**, aún sin implementar: **nacen con la regla** |
