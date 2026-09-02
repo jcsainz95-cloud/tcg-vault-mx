@@ -10263,25 +10263,29 @@ papel**:
 
 | Pieza | Implementación |
 |---|---|
-| Placa (`SetPlate`) | `aspect-[3/2] w-full bg-ink`, radio 0, **sin borde**, aire 16/20/24px. La caja se pinta antes que la imagen ⇒ **cero CLS** sin que el contrato mande dimensiones |
+| Placa (`SetPlate`) | `aspect-[3/2] w-full bg-ink`, radio 0, **sin borde**, aire 16/20/24px. ⚠️ **La primera versión de esta fila era FALSA**: decía «cero CLS» y la placa sí saltaba de alto al cargar, porque la `<img>` iba en flujo y anulaba la relación de aspecto. Corregido y **medido** en §43 (bloqueante B-1 de QA) |
 | Logo | `<img>` crudo (**nivel B**, §4.39.7): sin `next/image`, sin `srcset`, `loading="lazy"` en TODAS, `decoding="async"`, `object-contain` (R1) |
 | Contorno de seguridad | `filter: drop-shadow(0 0 1px var(--color-on-ink)) ×2` en línea. **Obligatorio** (§24.2): salva al logo oscuro sin filete *sin* tener que inspeccionar logo a logo |
-| Sin logo | **Monograma** serif sobre la tinta (§24.5), `aria-hidden` |
+| Sin logo | **Monograma** serif sobre la tinta (§24.5), `aria-hidden`. ⚠️ La primera versión lo dejaba pintado **también con logo** (se transparentaba a través del PNG): corregido en §43 (bloqueante B-2) |
 | Leyenda | Nombre serif 16/18/20px con **2 líneas reservadas** (40/45/50px) y sin truncado; meta mono 11px versalitas `tracking-label` |
 | Retícula | `grid-cols-2 · sm:3 · lg:4`, gap 24/32 → 32/40. **Se topa en 4** |
 | Foco | El anillo **estándar** del sistema (`:focus-visible` global de `globals.css`: `outline 2px` + `offset 2px`). Se retiró el `focus-visible:shadow-focus focus-visible:outline-none` que traía la teja: el anillo tiene que caer **por fuera**, sobre papel — rojo sobre tinta es 2,5:1 (§24.9) |
 
 ### 2. El monograma no es un esqueleto: es contenido final (R4)
 
-Se pinta **desde el primer frame**, debajo del `<img>`, y la imagen lo tapa sin transición. Consecuencia
+> ⚠️ **CORRECCIÓN (§43).** Este párrafo decía «la imagen lo tapa» y **no era cierto**: el monograma se
+> quedaba pintado debajo de un PNG con transparencia, así que se veía **a través** del logo, para
+> siempre. Hoy se **retira** al `onLoad`. Lo que sigue vale con esa corrección aplicada.
+
+Se pinta **desde el primer frame** y **se retira cuando la imagen carga**, sin transición. Consecuencia
 deliberada: **la placa no pulsa nunca**. Es el precedente literal de `CardImage`, que deja el pozo QUIETO
 cuando no hay `src` porque un `animate-pulse` eterno hace que un dato ausente **legítimo** parezca una app
 colgada. Y aquí `logoUrl: null` es legítimo, **normal y permanente** (§4.39.6): promos, colecciones y sets
 viejos no van a tener logo nunca, y un set aún no re-sincronizado se ve **idéntico** a propósito.
 
 `onError` retira el `<img>` y deja el monograma: un 404 del CDN **no deja a nadie esperando** y jamás se ve
-un icono de imagen rota. El estado `failed` muere con la teja (keyada por `setId`), así que un fallo no se
-hereda al paginar.
+un icono de imagen rota. La placa va keyada por `logoUrl`, así que ni un fallo ni una carga previa se
+heredan al paginar **ni cuando un re-sync cambia el logo del mismo set** (§43).
 
 La derivación (`setMonogram`, exportada para poder probarla) es **presentación del front**, no un dato:
 iniciales de las palabras significativas, máximo 3, ignorando `and`/`&`/`of`/`the`, con caída a los 3
@@ -10345,6 +10349,10 @@ afirma y confirmando que la suite se pone roja:
 
 Suite completa del front: **964 pruebas verdes**, typecheck y lint limpios.
 
+> ⚠️ **Y aun así el pase se rechazó.** Ninguna de esas 13 pruebas podía ver los dos bloqueantes: jsdom no
+> hace layout ni carga imágenes. La tabla de arriba es honesta sobre lo que mutó, pero **la cobertura que
+> yo creí tener no existía** — dos de esas pruebas afirmaban más de lo que verificaban. Ver §43.
+
 ### 7. Lo que queda pendiente (y quién lo debe)
 
 1. **§24.10 — la placa `sm` (112×64) en el encabezado del binder.** Diseñada por ux-ui, **no
@@ -10358,3 +10366,145 @@ Suite completa del front: **964 pruebas verdes**, typecheck y lint limpios.
 3. **Cero claves i18n nuevas**, tal como manda §24.15: el nombre, la serie y el año ya se pintaban, el
    `alt` es vacío por diseño y el monograma se deriva del nombre — no se traduce. `messages/*.json` no se
    tocó y la paridad ES/EN queda intacta.
+
+---
+
+## §43 · P-54, segunda ronda: los dos bloqueantes que 964 pruebas verdes no podían ver (rechazo de QA sobre §42) — 2026-09-02, rama `claude/tcg-hunt-orchestrator-28p7z1`
+
+> QA midió en **Chromium real** lo que mi suite medía en **jsdom**. Lo importante de este rechazo no es
+> que el componente estuviera mal: es que **yo creí que mis pruebas lo cubrían**. Dos de ellas afirmaban
+> más de lo que verificaban.
+
+### 1. B-1 · La placa NO era de tamaño fijo: crecía con la proporción del logo
+
+**El defecto.** La `<img>` iba **en flujo** con `h-full` (`height:100%`) dentro de un padre cuya altura la
+fijaba `aspect-ratio`. Esa altura **no es definida** para el hijo, así que `height:100%` resuelve a `auto`,
+la imagen toma su **proporción intrínseca**, y su alto pasa a ser el `min-content` del padre: el
+`aspect-[3/2]` queda **anulado**. Medido por QA a 1440 y reproducido por mí:
+
+| Proporción del logo | Placa que salía | Esperado |
+|---|---|---|
+| 1.92:1 | 180×120 ✅ | 180×120 |
+| **1.60:1** | **180×131** | 180×120 |
+| **1:1** | **180×180** | 180×120 |
+| **1:2** | **180×312** | 180×120 |
+
+Umbral ≈1.83:1 en `lg`: **cualquier logo menos apaisado que eso descuadraba la retícula**, y §4.39.2 dice
+que el logo es de «proporción MUY variable entre sets». Viola **R1**, §24.3 («uno cuadrado o vertical se
+contiene igual») y §24.12 nº3. Y además la placa **saltaba de alto al cargar la imagen** — CLS, lo que
+§4.39.8 encargo (c) prohíbe explícitamente y lo que §42 afirmaba, en falso, no tener.
+
+**El arreglo.** Los **dos** hijos de la placa pasan a **absolutos**: un hijo absoluto no contribuye a la
+altura del padre, así que la caja mide `width × 2/3` **siempre**, haya logo apaisado, cuadrado, vertical o
+ninguno. El aire interior (16/20/24px) se muda del padre a la **imagen** (`p-4 sm:p-5 lg:p-6`): para un
+hijo absoluto el bloque contenedor es la **caja de relleno** del padre, así que un `p-4` arriba no lo
+tocaría, y con `box-sizing:border-box` el `object-contain` encaja dentro de la caja de contenido — mismo
+aire, sin devolverle el alto a la imagen. Se añade `container-type: inline-size`, que además aísla el
+tamaño de la caja de su contenido.
+
+**Medido, no razonado** (viewport → ancho de placa, con logo cuadrado forzado):
+
+| Viewport | Placa | ¿3:2? |
+|---|---|---|
+| 390 | 163×109 | ✅ |
+| 640 | 181×121 | ✅ |
+| 1024 | 116×77 | ✅ |
+| 1280 / 1440 | 180×120 | ✅ |
+
+### 2. B-2 · El monograma nunca se ocultaba: se transparentaba bajo el logo
+
+**El defecto.** Había `onError` pero **no su contraparte al cargar**. El monograma se pintaba siempre, y
+§24.2 establece como hecho que los logos del proveedor son **PNG con transparencia**: `object-contain` no
+pinta fondo, así que el monograma se veía **a través** del logo, de forma permanente. Viola §24.5 («cuando
+la imagen llega, **la imagen lo tapa**») y §24.14 nº6.
+
+**El arreglo.** `SetPlate` pasa de un booleano a **tres estados** —`pending` · `loaded` · `failed`— y el
+monograma se **retira** en `loaded`, sin transición (un cross-fade mostraría justo las dos cosas
+superpuestas que se están corrigiendo). `failed` vuelve a mostrarlo, así que un fallo posterior a la carga
+tampoco deja la placa vacía.
+
+### 3. I-2 · El monograma estaba atado al breakpoint del VIEWPORT, no al ancho de la PLACA
+
+QA lo midió en `/es/buylist`: a viewport 1024 la placa del cotizador mide **116×77** —**más pequeña que en
+móvil**— y el monograma fijo de `lg:text-[44px]` la llenaba de borde a borde («CEL» desbordado).
+
+**El arreglo:** `container-type: inline-size` en la placa + `text-[16cqw]` en el monograma ⇒ el tamaño se
+mide contra **la placa**, que es la caja de la que depende de verdad. §24.5 pide ≈28px a 167px de ancho y
+≈44px a 280px, o sea 16,8 % y 15,7 %: **16 %** interpola los dos puntos. Medido después del arreglo, la
+proporción es **exactamente 0,16 en los cuatro viewports** (26,08/163 · 29,01/181 · 18,56/116 ·
+28,80/180). La curva exacta queda como consulta a ux-ui (`TECH_DEBT.md` DT-Gc).
+
+### 4. I-1 · La lección: la prueba que afirmaba más de lo que verificaba
+
+`expect(plate.className).toContain('aspect-[3/2]')` comprueba que **la cadena de clase está**, no que la
+caja mida 3:2. Con esa afirmación de más, B-1 pasó con **964 pruebas verdes**. Igual el caso R4: verificaba
+el monograma solo en la teja **sin** logo, nunca que **desapareciera** en la teja con logo — por eso B-2
+tampoco se vio. **Ninguna prueba de vitest puede cerrar esta clase**: jsdom no hace layout ni carga
+imágenes. La aserción de clase no se «arregla» afinándola; hay que **cambiar de instrumento**.
+
+Lo que se hizo, en dos frentes:
+
+**(a) En vitest se REBAJA la afirmación a lo que de verdad se verifica.** La prueba de geometría se
+sustituye por una de **estructura** —los dos hijos son absolutos, el aire vive en la imagen y no en el
+padre— que es la *causa* del defecto, y su comentario dice explícitamente que **no mide la caja** y dónde
+se mide. Se añaden dos pruebas de B-2 (el monograma se retira al `load`; y vuelve si la imagen falla
+después). Total: **16** pruebas, suite completa **967 verdes**.
+
+**(b) La geometría se mide en Chromium.** Nuevo `frontend/e2e/master-set-plate.spec.ts` (5 pruebas):
+
+1. **R1** — todas las placas de la retícula miden **exactamente lo mismo** y su alto es 2/3 de su ancho,
+   con logos interceptados de proporción **1.92:1, 1.60:1, 1:1 y 1:2** conviviendo en la misma página.
+2. **Cero CLS** — se **retiene** la respuesta del logo, se mide la placa vacía, se libera y se vuelve a
+   medir: el alto no cambia. Sirve un logo **cuadrado** a propósito: con uno apaisado de 1.92:1 el defecto
+   no se manifestaba y la prueba habría pasado sin probar nada.
+3. **B-2** — hay exactamente **un monograma por placa sin logo, ni uno más**, y ninguna placa tiene
+   `<img>` y monograma a la vez (`imgs + monos === 1`).
+4. **404** — se descubre del DOM el primer logo con imagen, se le fuerza un 404 y se comprueba que esa
+   placa cae al monograma **y conserva su caja**.
+5. **I-2** — el monograma guarda la misma proporción con su placa en dos anchos de placa muy distintos
+   (181px y 116px), y las letras nunca llenan la placa.
+
+**Verificación por mutación, esta vez en el navegador** (cada mutación = build de producción + suite):
+
+| Mutación | Resultado |
+|---|---|
+| B-1: la `<img>` vuelve al flujo con `h-full` y el aire al padre | **4 rojas**, con el mensaje `placa 1: 180×131 no es 3:2` — el número exacto que reportó QA |
+| B-2: el monograma se pinta siempre | **1 roja**, y solo esa: `Expected 2, Received 6` monogramas |
+| I-2: el monograma vuelve a `text-[28px] lg:text-[44px]` | **1 roja**: `monograma 44px sobre placa 116px` |
+| Sin mutar | **5 verdes** |
+
+### 5. Dos cosas más que se cerraron en esta ronda
+
+- **`SetPlate.failed` no se reiniciaba** si cambiaba el `logoUrl` del **mismo** `setId` (tras un re-sync,
+  la teja se quedaba en monograma hasta desmontarse). La placa ahora va keyada por `logoUrl`.
+- **Falso rojo propio, dejado escrito porque volverá a morder:** el primer intento del test del 404
+  localizaba la teja con `page.locator('li').filter({ hasText: 'Surging Sparks' })`, y `/es/buylist`
+  **también** pinta «Top Bounties», cuyas tarjetas mencionan ese set y llevan arte de carta. El test medía
+  una tarjeta de bounty. Se corrigió acotando a las `li` **que tienen placa**. Y de paso el spec se
+  reescribió **agnóstico**: cero nombres de set literales — la proporción se reparte por hash de la URL y
+  la víctima del 404 se descubre del DOM.
+
+### 6. Alcance del nuevo spec, dicho sin adornos
+
+Corre en **modo mock** y está marcado `needsSeed` contra el stack real, con su razón impresa: `logoUrl` es
+`null` en **todo** el catálogo real hasta que un operador re-sincronice (§4.39.4 — **no hay backfill**), así
+que en real no habría ninguna placa **con** logo que medir. No es «no supe escribirlo agnóstico»: el spec ya
+lo es, y el día que el seed E2E traiga un set con logo basta **borrar el guardarraíl**. Interceptar las
+imágenes no es la parte mock — la geometría es una propiedad del CSS y hay que forzar proporciones que un
+CDN de terceros no sirve a la carta.
+
+Verificado además que el pase **no rompe lo que ya existía**: `e2e/master-set.spec.ts` y
+`e2e/buylist.spec.ts` (los que recorren el índice del cotizador) pasan — **20 pruebas E2E verdes** en total.
+
+### 7. Consulta abierta para ux-ui (no toco §24)
+
+§24.4 declara para `lg` una placa de **~216×144**. En el cotizador sale de **116×77**, y a 640 sale de
+**181×121**: es decir, **en `lg` la placa es más pequeña que en móvil**. La causa no es la placa sino la
+retícula: el número de columnas está atado al **viewport** (`sm:grid-cols-3 lg:grid-cols-4`) mientras que
+la retícula del cotizador vive en una **columna estrecha** (~560px a viewport 1024), así que las 4 columnas
+entran donde §24.4 asumía 4 columnas de una página ancha. Las cifras de §24.4 describen el índice de M1 y
+la bóveda, no el cotizador.
+
+**No lo cambio yo.** La corrección natural sería contar columnas por **contenedor** en vez de por viewport
+(la placa ya usa `container-type` para su monograma), pero §24.4 está escrita en anchos de viewport y
+tocarlo es decisión de ux-ui. Queda como pregunta con las medidas encima de la mesa.

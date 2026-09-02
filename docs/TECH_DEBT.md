@@ -5011,3 +5011,82 @@
 > **Cierra sin deuda residual.** Nota para quien lea la ficha original: el diagnóstico decía «hoy es
 > cierto, el riesgo es futuro». Era **optimista** — ya era falso al escribirlo, para el caso de bóveda.
 > Una ficha de acoplamiento no sustituye a verificar el valor contra el componente.
+
+---
+
+### Cierre del pase P-54 · logos de expansión en el índice de sets (§42) — rama `claude/tcg-hunt-orchestrator-28p7z1`, 2026-09-02 (dueño: **frontend**, no bloqueante)
+
+> Deuda anotada tras la **segunda** ronda de QA sobre el pase. Los dos **bloqueantes** de esa ronda
+> (B-1: la placa crecía con la proporción del logo y anulaba `aspect-[3/2]`; B-2: el monograma no se
+> retiraba y se transparentaba bajo el logo) **NO figuran aquí: se corrigieron en la rama**, con
+> medición de caja real en Chromium (`frontend/e2e/master-set-plate.spec.ts`) y verificados por
+> mutación. Ver `FRONTEND_NOTES.md` §43. Lo que sigue es lo que **queda abierto y aceptado**.
+
+#### DT-Ga · §24.10 — la placa `sm` del encabezado del binder está diseñada y no implementada (Baja, frontend)
+- **Dueño:** frontend. **Severidad:** Baja. **Estado: abierta, aceptada.**
+- **Deuda:** `DESIGN_SYSTEM.md` §24.10 define una `SetPlate` tamaño `sm` (112×64, `aspect-[7/4]`, padding
+  8px, mismas reglas de tinta/contain/contorno y mismo monograma) a la izquierda del título del set en el
+  **encabezado del binder**, oculta por debajo de `sm`. Este pase implementó **solo la teja del índice**:
+  el encargo acotaba el trabajo a `MasterSetIndex.tsx` y `MasterSetBinder.tsx` estaba fuera de alcance
+  (otra sesión trabajaba en paralelo sobre zonas vecinas).
+- **Impacto:** ninguno funcional. El binder sigue con su título en texto, que es lo que había antes de
+  §24; no hay hueco, no hay salto, no hay regresión. Es diseño **entregado y no consumido**.
+- **Dirección:** extraer `SetPlate` de `MasterSetIndex.tsx` con una prop `size` (`md` retícula / `sm`
+  encabezado) y montarla en el encabezado del binder. `MasterSetBinder` ya recibe el
+  `MasterSetSummaryDTO` **entero**, con `logoUrl` incluido: no hace falta contrato, ni endpoint, ni
+  prop nueva de datos. Coste estimado: pequeño.
+- **Disparador:** el siguiente pase que toque `frontend/src/components/master-set/MasterSetBinder.tsx`.
+
+#### DT-Gb · `currentSetId` es una prop sin consumidor (Baja, frontend)
+- **Dueño:** frontend. **Severidad:** Baja. **Estado: abierta, aceptada, con FECHA DE CADUCIDAD.**
+- **Deuda:** `MasterSetIndex` acepta `currentSetId?: string` para el estado «seleccionado / actual» de
+  §24.6 (`aria-current="true"` + subrayado 2px de acento). **Ningún anfitrión la pasa**: hoy, al abrir un
+  set, el índice se desmonta y no hay «set actual» que pintar. Se implementó porque §24.6 lo especifica y
+  porque prohíbe **inventar** una selección que no existe; queda lista para cuando el anfitrión sepa de
+  verdad cuál es (vuelta del binder con el set en la URL).
+- **Impacto:** código vivo que ninguna pantalla ejercita. Lo cubre una prueba unitaria, así que no puede
+  pudrirse en silencio — pero una prueba no es un consumidor.
+- **Dirección:** **cablearla o retirarla.** El sistema de diseño puede esperar; el código sin consumidor
+  no. Si se retira, §24.6 queda sin implementar y hay que decirlo en `FRONTEND_NOTES`.
+- **Disparador (duro):** si no se cablea en los **dos próximos pases** sobre `components/master-set/`,
+  **se retira**.
+
+#### DT-Gc · El monograma escala por unidades de contenedor, y §24.5 solo da dos puntos de referencia (Baja, frontend + ux-ui)
+- **Dueño:** frontend (la implementación), **ux-ui** (la norma). **Severidad:** Baja. **Estado: abierta, aceptada.**
+- **Contexto:** la primera versión ató el tamaño del monograma al **breakpoint del viewport**
+  (`text-[28px] lg:text-[44px]`). QA lo tumbó (I-2): en el cotizador la retícula vive en una columna
+  estrecha, así que en `lg` la placa mide ~116px —**más pequeña que en móvil**— y un monograma fijo de
+  44px la llenaba de borde a borde. Ya está corregido: `container-type: inline-size` en la placa +
+  `text-[16cqw]`, es decir **≈16 % del ancho de la placa**, medido y fijado en Playwright.
+- **Deuda residual:** §24.5 especifica el tamaño con **dos puntos** («≈28px a 167px de ancho, ≈44px a
+  280px»), que dan 16,8 % y 15,7 %. El 16 % implementado es una **interpolación del front**, no una regla
+  escrita: si ux-ui quiere una curva distinta (p. ej. tope máximo, o mínimo legible por debajo de cierto
+  ancho), hoy no está dicha en ningún sitio y el siguiente que la toque volverá a inventarla.
+- **Dirección:** que ux-ui fije el porcentaje —o el `clamp()`— en §24.5, y que el código lo cite.
+- **Disparador:** la respuesta de ux-ui a la consulta abierta de §24.4 sobre el ancho real de la
+  retícula en el cotizador (ver `FRONTEND_NOTES.md` §43), que es el mismo hilo.
+
+#### DT-Gd · `CardSetDTO` sirve a dos endpoints que el contrato define DISTINTOS, y el campo opcional desactiva el invariante de §4.39.6 (Media, frontend + arquitecto)
+- **Dueño:** frontend (el tipo), **arquitecto** si se decide que el contrato nombre dos DTOs.
+  **Severidad:** Media. **Estado: abierta, aceptada.**
+- **Deuda:** `GET /catalog/sets` y `GET /buylist/sets` comparten el tipo `CardSetDTO` en el cliente, pero
+  el contrato los define distintos: `logoUrl` **entra** en `/buylist/sets` (y ahí es de clave **siempre
+  presente**) y **NO entra** en `/catalog/sets` (§4.39.5). Colapsarlos obligó a declarar
+  `logoUrl?: string | null`, y ese `?` **desactiva en el cliente justo el invariante que §4.39.6 existe
+  para garantizar**: hoy `fetchQuoterIndex` **compila igual si el campo desaparece** de la respuesta del
+  cotizador. El campo requerido de `MasterSetSummaryDTO` sigue en pie y es el que atrapó los dos sitios
+  que construían el DTO a mano — pero el eslabón `/buylist/sets` → teja quedó sin candado de tipos.
+- **Por qué se hizo así:** `lib/api.ts` (donde vive `listBuylistSets`) estaba **tomado por otra rama**
+  durante el pase; partir el tipo exige tocarlo. La decisión local fue la correcta dada la contención;
+  el problema es el tipo único, no la decisión.
+- **Incluida en esta misma ficha (no es un ítem aparte, y anotarla suelta la haría parecer cosmética):**
+  la **divergencia del mock**. `lib/api.ts` sirve `getSets()` y `listBuylistSets()` del **mismo**
+  `fx.mockSets`, así que en modo mock `/catalog/sets` **también** rinde `logoUrl`, cosa que el backend
+  real no hace. Nadie lo consume hoy y el tipo opcional impide asumirlo, pero es exactamente la clase de
+  «el mock promete más que el backend» que ya costó un defecto en producción (§34). Se cierra con lo
+  mismo: dos tipos, dos fixtures.
+- **Dirección:** `BuylistSetDTO extends CardSetDTO { logoUrl: string | null }` (requerido) para
+  `listBuylistSets`, `CardSetDTO` **sin** `logoUrl` para `getSets`, y un fixture propio por endpoint.
+  Cero cambios de contrato; si el arquitecto prefiere nombrarlos en `API_CONTRACT.md`, mejor.
+- **Disparador (duro):** el **primer pase de frontend después de que `claude/buylist-inventory-workflow-hdnls3`
+  fusione** y `lib/api.ts` quede libre.

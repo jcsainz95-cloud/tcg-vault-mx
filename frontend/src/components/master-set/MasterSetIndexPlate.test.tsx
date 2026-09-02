@@ -79,11 +79,34 @@ describe('§24 · la teja del índice: placa de tinta + leyenda', () => {
       'drop-shadow(0 0 1px var(--color-on-ink)) drop-shadow(0 0 1px var(--color-on-ink))',
     );
 
-    // La placa: caja fija 3:2, tinta, sin borde y sin radio (radio 0 es global, §4.2).
+    // La placa es de tinta y sin borde (radio 0 es global, §4.2).
     const plate = img!.parentElement!;
-    expect(plate.className).toContain('aspect-[3/2]');
     expect(plate.className).toContain('bg-ink');
     expect(plate.className).not.toContain('border');
+  });
+
+  it('R1 (estructura): la imagen va ABSOLUTA y con el aire propio — no puede devolverle su alto a la placa', async () => {
+    // ⚠️ ALCANCE HONESTO. Esta prueba NO mide la caja: jsdom no hace layout ni carga imágenes, así
+    // que `toContain('aspect-[3/2]')` —lo que este archivo afirmaba antes— comprueba que la CADENA
+    // de clase está, no que la caja mida 3:2. Por eso el bloqueante B-1 pasó con la suite verde.
+    // Aquí se verifica solo la CAUSA estructural: con la <img> en flujo, `height:100%` contra un
+    // padre de altura `aspect-ratio` resuelve a `auto` y el min-content de la imagen anula la
+    // relación de aspecto. La GEOMETRÍA real (misma caja con logo apaisado, cuadrado, vertical y
+    // sin logo) se mide en Chromium: `e2e/master-set-plate.spec.ts`.
+    renderWithProviders(<MasterSetIndex mode="platform" onOpenSet={noop} />, 'es');
+
+    const tile = await tileOf(/Surging Sparks/);
+    const img = tile.querySelector('img')!;
+    const plate = img.parentElement!;
+    // El <img> NO está en flujo…
+    expect(img.className).toContain('absolute');
+    expect(img.className).not.toContain('relative');
+    // …el monograma tampoco (mientras se le ve, antes del onLoad)…
+    expect(within(tile).getByTestId('set-monogram').className).toContain('absolute');
+    // …y el aire interior vive en la IMAGEN, no en el padre (para un hijo absoluto el bloque
+    // contenedor es la caja de relleno del padre: un `p-4` arriba no lo tocaría).
+    expect(img.className).toContain('p-4');
+    expect(plate.className).not.toContain('p-4');
   });
 
   it('R2/§24.8: el nombre del set sigue siendo el nombre accesible de la teja; el logo y el monograma NO se anuncian', async () => {
@@ -109,6 +132,33 @@ describe('§24 · la teja del índice: placa de tinta + leyenda', () => {
     expect(tile.textContent).toContain('BS');
     expect(tile).toHaveAccessibleName(/Base Set/);
     expect(tile).not.toHaveAccessibleName(/BS/);
+  });
+
+  it('B-2: cuando el logo CARGA, el monograma se RETIRA (los PNG del proveedor son transparentes: si se queda, se ve a través)', async () => {
+    renderWithProviders(<MasterSetIndex mode="platform" onOpenSet={noop} />, 'es');
+
+    const tile = await tileOf(/Surging Sparks/);
+    const img = tile.querySelector('img')!;
+    // Antes de cargar, el monograma ES el contenido de la placa (nunca vacía, nunca pulso).
+    expect(within(tile).getByTestId('set-monogram')).toBeInTheDocument();
+
+    fireEvent.load(img);
+
+    await waitFor(() => expect(within(tile).queryByTestId('set-monogram')).toBeNull());
+    // …y el logo sigue ahí: se retiró el monograma, no la imagen.
+    expect(tile.querySelector('img')).not.toBeNull();
+  });
+
+  it('B-2 (vuelta): si la imagen falla DESPUÉS de cargar el monograma no se queda escondido', async () => {
+    renderWithProviders(<MasterSetIndex mode="platform" onOpenSet={noop} />, 'es');
+
+    const tile = await tileOf(/Surging Sparks/);
+    fireEvent.load(tile.querySelector('img')!);
+    await waitFor(() => expect(within(tile).queryByTestId('set-monogram')).toBeNull());
+
+    fireEvent.error(tile.querySelector('img')!);
+    await waitFor(() => expect(tile.querySelector('img')).toBeNull());
+    expect(within(tile).getByTestId('set-monogram')).toBeInTheDocument();
   });
 
   it('el fixture cubre los DOS casos: en la MISMA retícula conviven tejas con logo y tejas sin logo', async () => {

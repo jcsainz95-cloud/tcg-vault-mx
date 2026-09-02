@@ -76,10 +76,16 @@ const LOGO_SAFETY_OUTLINE =
  * sets, radio 0, sin borde, con aire interior; el logo va `object-contain` (R1: nunca `cover`,
  * nunca estirado, nunca recortado) sobre `--color-ink`, también en tema claro (R3).
  *
- * El MONOGRAMA se pinta desde el primer frame, debajo del `<img>`, y la imagen lo tapa sin
- * transición: la placa nunca se ve vacía y **nunca pulsa** (R4). Un `animate-pulse` eterno haría
- * que un `logoUrl: null` —caso normal y permanente— pareciera una app colgada; es el precedente
- * literal de `CardImage`, que deja el pozo QUIETO cuando no hay `src`.
+ * El MONOGRAMA se pinta desde el primer frame y **se retira cuando la imagen carga** (no se
+ * limita a quedar debajo: los PNG del proveedor tienen transparencia y se transparentaría a
+ * través del logo). La placa nunca se ve vacía y **nunca pulsa** (R4). Un `animate-pulse` eterno
+ * haría que un `logoUrl: null` —caso normal y permanente— pareciera una app colgada; es el
+ * precedente literal de `CardImage`, que deja el pozo QUIETO cuando no hay `src`.
+ *
+ * ⚠️ La GEOMETRÍA de esta caja (que mida lo mismo con cualquier proporción de logo) **no la puede
+ * verificar jsdom**: no hace layout ni carga imágenes. Su prueba vive en
+ * `e2e/master-set-plate.spec.ts`, midiendo cajas reales en Chromium. Lo que sí se prueba en
+ * vitest es la ESTRUCTURA que la hace posible (hijos absolutos, aire en la imagen).
  *
  * `onError` retira el `<img>` y deja el monograma: un 404 del CDN no deja a nadie esperando y
  * jamás se ve un icono de imagen rota (§24.5 nº3).
@@ -89,18 +95,44 @@ const LOGO_SAFETY_OUTLINE =
  * `<button>` — sin esto un lector anunciaría «logo de Surging Sparks, Surging Sparks».
  */
 function SetPlate({ name, logoUrl }: { name: string; logoUrl: string | null }) {
-  const [failed, setFailed] = useState(false);
-  // Cada teja va keyada por `setId` en la lista, así que un fallo NO se hereda entre sets al
-  // paginar o filtrar: el estado muere con la teja.
-  const src = failed ? null : logoUrl;
+  // Tres estados, no un booleano: `pending` (aún no llegó) · `loaded` (la imagen tapa al
+  // monograma) · `failed` (404/CDN caído ⇒ se retira el <img> y el monograma se queda).
+  const [state, setState] = useState<'pending' | 'loaded' | 'failed'>('pending');
+  const src = state === 'failed' ? null : logoUrl;
+  // §24.5: el monograma se pinta desde el primer frame y la imagen lo TAPA cuando llega. No basta
+  // con superponer: los logos del proveedor son PNG con transparencia y `object-contain` no pinta
+  // fondo, así que un monograma que sigue en el DOM se ve A TRAVÉS del logo, para siempre
+  // (bloqueante B-2 de QA). Se retira al `onLoad`, sin transición — un cross-fade mostraría las
+  // dos cosas superpuestas, que es justo lo que se está corrigiendo.
+  const showMonogram = !src || state !== 'loaded';
   return (
-    <div className="relative aspect-[3/2] w-full bg-ink p-4 sm:p-5 lg:p-6">
-      <span
-        aria-hidden="true"
-        className="absolute inset-0 flex items-center justify-center font-serif text-[28px] leading-none tracking-[0.06em] text-on-ink lg:text-[44px]"
-      >
-        {setMonogram(name)}
-      </span>
+    // GEOMETRÍA (R1) — la caja es de tamaño FIJO y los dos hijos van ABSOLUTOS. Es la corrección
+    // del bloqueante B-1: con la <img> en FLUJO, `h-full` (height:100%) contra un padre cuya
+    // altura la fija `aspect-ratio` resuelve a `auto`, la imagen toma su proporción intrínseca y
+    // su alto pasa a ser el min-content del padre ⇒ el `aspect-[3/2]` queda ANULADO y la placa
+    // crece con cada logo (un logo cuadrado la hacía 180×180 en vez de 180×120), además de saltar
+    // de alto al cargar (CLS). Un hijo absoluto no contribuye al alto del padre, así que la placa
+    // mide lo mismo con logo apaisado, cuadrado, vertical o sin logo. `container-type:inline-size`
+    // refuerza esto (aísla el tamaño de la caja de su contenido) y, sobre todo, habilita las
+    // unidades `cqw` del monograma.
+    <div
+      data-testid="set-plate"
+      className="relative aspect-[3/2] w-full bg-ink [container-type:inline-size]"
+    >
+      {showMonogram && (
+        <span
+          data-testid="set-monogram"
+          aria-hidden="true"
+          // §24.5 pide el monograma PROPORCIONAL a la placa (≈28px a 167px de ancho, ≈44px a
+          // 280px ⇒ ≈16 % del ancho). Atarlo al breakpoint del VIEWPORT era el defecto I-2: en el
+          // cotizador la retícula vive en una columna estrecha, así que en `lg` la placa es MÁS
+          // pequeña que en móvil y un monograma fijo de 44px la desbordaba. `cqw` mide contra la
+          // PLACA, que es la caja de la que el tamaño depende de verdad.
+          className="absolute inset-0 flex items-center justify-center font-serif text-[16cqw] leading-none tracking-[0.06em] text-on-ink"
+        >
+          {setMonogram(name)}
+        </span>
+      )}
       {src && (
         // Nivel B (ARCHITECTURE §4.39.7): `<img>` crudo, sin next/image y sin `srcset` (no
         // conocemos las dimensiones intrínsecas y el CDN sirve un solo tamaño).
@@ -114,8 +146,13 @@ function SetPlate({ name, logoUrl }: { name: string; logoUrl: string | null }) {
           // compitiéndose el ancho de banda es lo contrario de lo que se busca.
           loading="lazy"
           decoding="async"
-          onError={() => setFailed(true)}
-          className="relative h-full w-full object-contain"
+          onLoad={() => setState('loaded')}
+          onError={() => setState('failed')}
+          // El aire interior (16/20/24px, §24.3) vive AQUÍ y no en el padre: para un hijo
+          // absoluto el bloque contenedor es la caja de relleno del padre, así que un `p-4`
+          // arriba no lo tocaría. Con `box-sizing:border-box`, `object-contain` encaja dentro
+          // de la caja de contenido ⇒ mismo aire, sin devolverle el alto a la imagen.
+          className="absolute inset-0 h-full w-full object-contain p-4 sm:p-5 lg:p-6"
           style={{ filter: LOGO_SAFETY_OUTLINE }}
         />
       )}
@@ -273,7 +310,10 @@ export function MasterSetIndex({ mode, userId, onOpenSet, currentSetId }: Props)
                         aria-current={isCurrent ? 'true' : undefined}
                         className="group flex w-full flex-col text-left"
                       >
-                        <SetPlate name={s.name} logoUrl={s.logoUrl} />
+                        {/* `key` por logo: si un re-sync cambia el `logoUrl` del MISMO set, la
+                            placa se remonta y el estado `failed`/`loaded` no se hereda (si no,
+                            una teja que falló se quedaría en monograma hasta desmontarse). */}
+                        <SetPlate key={s.logoUrl ?? 'no-logo'} name={s.name} logoUrl={s.logoUrl} />
                         <div className="mt-3 flex flex-col gap-0.5">
                           <span className="flex flex-wrap items-baseline gap-x-2">
                             {/* §24.6 — hover: subrayado 1px en tinta. Seleccionado: 2px de acento
