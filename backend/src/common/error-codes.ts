@@ -196,6 +196,36 @@ export const ErrorCode = {
   // v1.15: POST /buylist/requests sin `clabe` en el body Y sin CLABE en archivo
   // (KycProfile.clabeEnc vacío). Distinto de CLABE_INVALID (formato) y CLABE_NOT_OWN_NAME.
   CLABE_REQUIRED: 'CLABE_REQUIRED',
+  // ===== v1.51.20 · LA PUERTA DEL CICLO — `POST /buylist/requests` (§6, D11/D18/D36/D37) =====
+  // v1.51.3 (D36/D37, criterio 128) — **sin `addressId` en el body**. HERMANO EXACTO de
+  // `CLABE_REQUIRED` en forma y en remedio: sin dirección de ORIGEN no se puede imprimir la etiqueta
+  // que D16 promete poner nosotros ⇒ *sin dirección no se crea la solicitud*.
+  // ⚠️ NO HAY FALLBACK a la dirección `isDefault`: la libreta tiene N filas y elegir por el vendedor
+  // es elegir DE DÓNDE SALEN SUS CARTAS. La comodidad va en la pantalla (preselección), la
+  // afirmación va en el contrato. `details: { field: "addressId" }`. 422.
+  PICKUP_ADDRESS_REQUIRED: 'PICKUP_ADDRESS_REQUIRED',
+  // v1.51 (D18, criterio 132(b)) — el TOTAL COTIZADO BRUTO queda por debajo de
+  // `buylistMinimumRequestCents` (default MX$500). Borde **INCLUSIVO**: exactamente el mínimo SÍ se
+  // crea (criterio 158(a)). El descuento de envío NO se resta antes de comparar.
+  // ⚠️ Son DOS frentes y éste es el (b): el (a) —que el botón del cotizador no proceda— vive en el
+  // front con `GET /buylist/quote-policy`. El (b) existe porque *el cotizador es superficie de
+  // cliente y se puede saltar*: mandar la solicitud directo al backend tampoco la crea.
+  // `details: { minimumCents, totalCents, shortfallCents }` — el faltante lo calcula el SERVIDOR
+  // (criterio 132(a): *un «no» seco manda al vendedor a otro lado; un «te faltan $120» lo manda a
+  // agregar otra carta*). Una línea `precio_pendiente` aporta 0 al total (§4.39o.8). 422.
+  BUYLIST_MINIMUM_NOT_MET: 'BUYLIST_MINIMUM_NOT_MET',
+  // v1.51 (D11, criterio 128(c)) — el usuario **no tiene celular** en su cuenta. `User.phone` es
+  // nullable en el schema aunque el registro local ya lo exija, así que las cuentas de **Google** y
+  // las **viejas** lo tienen vacío. Sin celular, no hay solicitud: el remedio es `PATCH /users/me` y
+  // reintentar. `details: { field: "phone" }`. 422.
+  PHONE_REQUIRED: 'PHONE_REQUIRED',
+  // v1.51 (D9/D30, criterios 119/124/150) — `PATCH /admin/buylist/items/:itemId/decision` con
+  // `approvedPriceCents` en el body sobre una solicitud del CICLO DE OFERTA
+  // (`offerSentAt IS NOT NULL`). **El monto no se toma del cliente ni del admin**: `approve` lo fija
+  // server-side desde `SellRequestItem.offeredPriceCents`, que es la cifra que el vendedor aceptó
+  // línea por línea. ⚠️ Precedencia: `NO_LIVE_ADJUSTMENT` (terminal) GANA sobre ésta.
+  // `details: { itemId, offeredPriceCents }`. 422.
+  OFFER_PRICE_IMMUTABLE: 'OFFER_PRICE_IMMUTABLE',
   // Una carta rechazada en verificación (resultado NO-NM, PROJECT §H) NUNCA puede
   // convertirse en InventoryItem vendible: convert-to-inventory exige itemStatus='aprobada'.
   ITEM_NOT_APPROVED: 'ITEM_NOT_APPROVED',
@@ -219,8 +249,10 @@ export const ErrorCode = {
   // `respond` y `itemDecision(adjust)` quedan prohibidos si `offerSentAt IS NOT NULL`.
   // `details.status`. 409.
   // ✅ v1.51.5 (§4.39b.3): **YA SE EMITE en `respond`** — la columna `offerSentAt` existe desde M-46,
-  // así que el bloqueo del `TODO` desapareció y se cableó. `itemDecision(adjust)` la emitirá con el
-  // pase de `POST /admin/buylist/:id/offer`. Ver docs/BACKEND_NOTES.md.
+  // así que el bloqueo del `TODO` desapareció y se cableó.
+  // ✅ v1.51.20 · **BL-27**: **YA SE EMITE también en `itemDecision(adjust)`**, con el pre-check y con
+  // la guarda del MOTOR (`offerSentAt` en el `where`). Hasta ese pase estaba cableada **solo** en
+  // `respond`, y por la puerta del ítem se podía reescribir el precio de una oferta ya ACEPTADA.
   ADJUST_NOT_ALLOWED_IN_OFFER_CYCLE: 'ADJUST_NOT_ALLOWED_IN_OFFER_CYCLE',
 
   // ===================== v1.51 · CICLO DE ADQUISICIÓN — LA OFERTA (§M5 / §4.39h) =====================

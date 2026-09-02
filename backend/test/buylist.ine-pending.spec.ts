@@ -3,6 +3,8 @@ import { BuylistService } from '../src/modules/buylist/buylist.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { PricingService } from '../src/modules/pricing/pricing.service';
 import { SettingsService } from '../src/modules/settings/settings.service';
+// v1.51.20 · BL-26: la puerta de `createRequest` (celular + dirección + mínimo) en un solo sitio.
+import { GATE_ADDRESS_ID, buylistGateMocks } from './helpers/buylist-create-gate';
 import { UsersService } from '../src/modules/users/users.service';
 import { PiiCryptoService } from '../src/common/crypto/pii-crypto.service';
 import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
@@ -68,6 +70,8 @@ function buildPrisma(rarity: string | null) {
         return rows.filter(Boolean);
       }),
     },
+    // v1.51.20 · BL-26: vendedor con celular y dirección propia (la puerta se prueba por HTTP).
+    ...buylistGateMocks('user-1'),
     kycProfile: { findUnique: jest.fn().mockResolvedValue(null), upsert: jest.fn() },
     sellRequest: {
       findMany: jest.fn(async () => []), // M-46 §4.39c: acumulado mensual = findMany+reduce (COALESCE de 2 columnas)
@@ -117,6 +121,8 @@ describe('BuylistService.createRequest — Fase 0.3: INE exigida ante línea pen
         [{ cardId: 'c1', productType: 'raw' as any, rawCondition: 'NM' as any, finish: 'holofoil' as any }],
         VALID_CLABE,
         // sin ineUploadKeys
+        undefined,
+        GATE_ADDRESS_ID,
       ),
     ).rejects.toMatchObject({ code: 'INE_REQUIRED' });
   });
@@ -136,6 +142,7 @@ describe('BuylistService.createRequest — Fase 0.3: INE exigida ante línea pen
       [{ cardId: 'c1', productType: 'raw' as any, rawCondition: 'NM' as any, finish: 'holofoil' as any }],
       VALID_CLABE,
       { front: 'ine-front-key', back: 'ine-back-key' },
+      GATE_ADDRESS_ID,
     );
     expect(res.ineRequired).toBe(true);
     expect(res.items[0].itemStatus).toBe('precio_pendiente');
@@ -166,6 +173,8 @@ describe('BuylistService.createRequest — Fase 0.3: INE exigida ante línea pen
       'user-1',
       [{ cardId: 'c1', productType: 'raw' as any, rawCondition: 'NM' as any }],
       VALID_CLABE,
+      undefined,
+      GATE_ADDRESS_ID,
     );
     expect(res.ineRequired).toBe(false);
     expect(res.items[0].itemStatus).toBe('cotizada');

@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Header, HttpCode, Param, Post } from '@nestjs/common';
+import { Body, Controller, Get, Header, HttpCode, Param, Patch, Post } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { Role } from '@prisma/client';
 import { Public } from '../../common/decorators/public.decorator';
@@ -6,17 +6,24 @@ import { Roles } from '../../common/decorators/roles.decorator';
 import { RequireEmailVerified } from '../../common/decorators/require-email-verified.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { BuylistService } from './buylist.service';
+import { AuditService } from '../audit/audit.service';
 import {
   BatchQuoteDto,
   CreateRequestDto,
   OfferResponseDto,
+  PickupAddressDto,
   PublicQuoteDto,
   RespondDto,
 } from './dto/buylist.dto';
 
 @Controller('buylist')
 export class BuylistController {
-  constructor(private readonly buylist: BuylistService) {}
+  constructor(
+    private readonly buylist: BuylistService,
+    // v1.51.3 (D36/D37): `PATCH …/pickup-address` se AUDITA (`buylist.pickup_address.update`), y la
+    // bitácora la escribe el controller — misma disciplina que la ruta hermana de admin.
+    private readonly audit: AuditService,
+  ) {}
 
   // Rate-limit dedicado (60/min por IP) alineado con los controllers públicos hermanos
   // (`buylist-catalog.controller.ts`). El cotizador por-carta es anónimo (@Public) y READ-ONLY;
@@ -105,7 +112,10 @@ export class BuylistController {
   @Post('requests')
   @HttpCode(201)
   create(@CurrentUser('id') userId: string, @Body() dto: CreateRequestDto) {
-    return this.buylist.createRequest(userId, dto.items, dto.clabe, dto.ineUploadKeys);
+    // ⚠️ v1.51.3 (D36/D37) — `addressId` viaja al servicio. Sin esta línea el campo se recibe y se
+    // tira: era el defecto BL-1 (toda solicitud nacía sin snapshot de origen y, por tanto,
+    // inofertable). El `422 PICKUP_ADDRESS_REQUIRED` lo emite el servicio, no el pipe.
+    return this.buylist.createRequest(userId, dto.items, dto.clabe, dto.ineUploadKeys, dto.addressId);
   }
 
   @Roles(Role.customer, Role.vault_operator, Role.super_admin)
@@ -118,6 +128,52 @@ export class BuylistController {
   @Get('requests/:id')
   get(@CurrentUser('id') userId: string, @Param('id') id: string) {
     return this.buylist.getMine(userId, id);
+  }
+
+  /**
+   * v1.51.3 (§6, D36/D37 · ARCHITECTURE §4.39q.4) — **corregir la dirección de ORIGEN.**
+   *
+   * Re-congela el snapshot **mientras no haya papel impreso**. Existe porque entre capturar la
+   * dirección (al crear) y comprar la etiqueta (al aceptar) pasan **hasta 9 días hábiles** —7 del
+   * plazo de emisión + 2 del de aceptación— y en ese tramo el vendedor **se muda** o **descubre el
+   * typo**. Sin esta ruta el único remedio sería dejar morir la solicitud y volver a cotizar (nueve
+   * días hábiles tirados por una letra) o, peor, **imprimir la etiqueta mal y perder las cartas**.
+   *
+   * Es además **la puerta de rescate de las filas LEGACY** (`cotizada` anteriores a M-46, snapshot
+   * `null`): sin ella una legacy **no se podría ofertar nunca** (`422 PICKUP_ADDRESS_MISSING`).
+   *
+   * ⚠️ **La línea es `guideSentAt`, NO `status`** (§M5-ciclo: «capturar es entregar»). Después del
+   * papel **no hay self-service**: el remedio tiene endpoint, pero es de ADMIN
+   * (`PATCH /admin/buylist/:id/pickup-address`) — *no existe editar una dirección impresa; existe
+   * tirar la etiqueta y comprar otra*, y eso debe tener **nombre, fecha y bitácora**.
+   *
+   * ⚠️ **AUDITADO SIN PII:** en `before`/`after` van **solo los `addressId`**. La bitácora contesta
+   * *«cambió, y a cuál»*, **no** *«dónde vive»*.
+   */
+  @Roles(Role.customer, Role.vault_operator, Role.super_admin)
+  @Patch('requests/:id/pickup-address')
+  @HttpCode(200)
+  async pickupAddress(
+    @CurrentUser() user: { id: string; role: Role },
+    @Param('id') id: string,
+    @Body() dto: PickupAddressDto,
+  ) {
+    const { auditAddressIds, ...res } = await this.buylist.updatePickupAddress(
+      user.id,
+      id,
+      dto.addressId,
+    );
+    await this.audit.log({
+      actorUserId: user.id,
+      actorRole: user.role,
+      action: 'buylist.pickup_address.update',
+      entityType: 'SellRequest',
+      entityId: id,
+      // ⚠️ SOLO los ids. Un domicilio en la bitácora es PII que nadie va a purgar.
+      before: { addressId: auditAddressIds.before },
+      after: { addressId: auditAddressIds.after },
+    });
+    return res;
   }
 
   @Roles(Role.customer, Role.vault_operator, Role.super_admin)

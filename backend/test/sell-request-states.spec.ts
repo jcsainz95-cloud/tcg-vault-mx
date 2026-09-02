@@ -262,22 +262,34 @@ describe('§4.39c — los NUEVE sitios: guard de RESIDUO (ninguno vuelve a codif
     const buylist = CODE.find((f) => f.path === 'modules/buylist/buylist.service.ts');
     const ocurrencias = (buylist?.text.match(/isTerminal: isTerminalSellRequestStatus\(/g) ?? [])
       .length;
-    // Detalle (admin + cliente, vía la lista blanca compartida), listado de admin, listado propio y
-    // —v1.51— la respuesta a la OFERTA (`offer-response`, que el contrato §6 exige que lo devuelva).
-    expect(ocurrencias).toBe(4);
+    // ⚠️ v1.51.20 · **BL-29 — BAJA DE 4 A 3, Y ESO ES EL ARREGLO, NO UNA REGRESIÓN.**
+    // El listado de admin tenía **su propio literal** de doce claves —y por eso arrastraba el mismo
+    // agujero de proyección que el detalle: ninguno de los veintiún campos del ciclo salía—. Ahora
+    // el listado sale de **la MISMA proyección compartida** que el detalle, así que su ocurrencia
+    // desaparece **porque desapareció la copia**, que es exactamente lo que el sitio 9 persigue.
+    // Quedan TRES: la BASE compartida (admin + cliente), el listado propio del cliente
+    // (`listMine`, shape estrecho y propio por contrato) y la respuesta a la OFERTA
+    // (`offer-response`, que §6 exige que lo devuelva).
+    expect(ocurrencias).toBe(3);
   });
 
   it('sitio 10 — `isPayable` se DERIVA server-side y es ADMIN-ONLY', () => {
     // La SEXTA copia gobernaba el botón de PAGAR POR SPEI y replicaba **uno solo** de los dos
     // términos. `isPayable` la borra.
-    // v1.51.11 · BL-20: son DOS emisiones — el listado de admin y **la proyección COMPARTIDA**, para
-    // que las cuatro respuestas de mutación (`receive`/`verify`/`reject`/`pay-spei`) lo hereden y
-    // ninguna futura pueda olvidarlo. `verify` es justamente la transición que lo vuelve verdadero.
     const buylist = CODE.find((f) => f.path === 'modules/buylist/buylist.service.ts');
-    expect((buylist?.text.match(/isPayable: isPayableSellRequest\(/g) ?? []).length).toBe(2);
-    // ⚠️ Y la MITAD QUE FALTA SI SOLO SE HACE LA PRIMERA: la proyección de cliente se construye como
-    // «la de admin MENOS N campos», así que el campo nuevo hay que RESTARLO ahí o viaja al vendedor.
-    expect(buylist?.text).toMatch(/isPayable: _isPayable/);
+    // ⚠️ v1.51.20 · **BL-29 — UNA sola emisión, y es MÁS fuerte que las dos de antes.**
+    // Con la proyección unificada, `isPayable` se deriva en **un solo sitio** del que heredan el
+    // listado, el detalle y las cuatro respuestas de mutación
+    // (`receive`/`verify`/`reject`/`pay-spei`). `verify` es justamente la transición que lo vuelve
+    // verdadero: omitirlo ahí daría un `false` silencioso en superficie de dinero.
+    expect((buylist?.text.match(/isPayable: isPayableSellRequest\(/g) ?? []).length).toBe(1);
+    // ⚠️ Y LA MITAD QUE IMPORTA: que **NO** viaje al vendedor. Antes eso se garantizaba con una
+    // RESTA explícita (`isPayable: _isPayable`) sobre una proyección de cliente que heredaba por
+    // omisión — una lista negra disfrazada, que el ciclo habría convertido en fuga de veintiún
+    // campos. Ahora se garantiza **por construcción**: la proyección de cliente sale de
+    // `toSellRequestBaseDTO`, que **no lee** `isPayable` ni ninguna columna del ciclo.
+    expect(buylist?.text).toMatch(/function toCustomerSellRequestDTO\([\s\S]{0,400}toSellRequestBaseDTO\(r\)/);
+    expect(buylist?.text).not.toMatch(/toCustomerSellRequestDTO[\s\S]{0,600}toAdminSellRequestDTO\(r\)/);
   });
 
   it('sitio 10 — `isPayableSellRequest` coincide con la constante Y exige `verifiedAt`', () => {

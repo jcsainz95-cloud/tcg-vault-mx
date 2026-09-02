@@ -5,6 +5,8 @@ import { BuylistService } from '../src/modules/buylist/buylist.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { PricingService } from '../src/modules/pricing/pricing.service';
 import { SettingsService } from '../src/modules/settings/settings.service';
+// v1.51.20 · BL-26: la puerta de `createRequest` (celular + dirección + mínimo) en un solo sitio.
+import { GATE_ADDRESS_ID, buylistGateMocks, withMinimumOff } from './helpers/buylist-create-gate';
 import { UsersService } from '../src/modules/users/users.service';
 import { PiiCryptoService } from '../src/common/crypto/pii-crypto.service';
 import { BatchQuoteDto, BUYLIST_QUOTE_BATCH_MAX } from '../src/modules/buylist/dto/buylist.dto';
@@ -27,8 +29,8 @@ function settingsHighCaps(): SettingsService {
   return {
     // v2.0 (P-48): ya no hay tabla de reglas por rareza; la curva la iza `PricingService`.
     getRaw: jest.fn(async () => null),
-    getNumber: jest.fn(async (key: string) =>
-      key === 'buylist_price_fallback_pct' ? 40 : 100_000_000,
+    getNumber: jest.fn(
+      withMinimumOff(async (key: string) => (key === 'buylist_price_fallback_pct' ? 40 : 100_000_000)),
     ),
   } as unknown as SettingsService;
 }
@@ -82,6 +84,8 @@ describe('createRequest — CLABE opcional + fallback server-side (§4.16a)', ()
           return rows.filter(Boolean);
         }),
       },
+      // v1.51.20 · BL-26: vendedor con celular y dirección propia. Este bloque prueba la CLABE.
+      ...buylistGateMocks('u1'),
       kycProfile: {
         findUnique: jest.fn(async ({ where }: any) => kycByUser[where.userId] ?? null),
         upsert: jest.fn().mockResolvedValue(undefined),
@@ -117,7 +121,7 @@ describe('createRequest — CLABE opcional + fallback server-side (§4.16a)', ()
       // Otro usuario con OTRA CLABE en archivo: jamás debe usarse para u1.
       u2: { clabeEnc: pii.encrypt(CLABE_OTHER), clabeHmac: pii.clabeBlindIndex(CLABE_OTHER) },
     });
-    const res = await svc(prisma).createRequest('u1', [{ cardId: 'c', productType: 'raw' as any }]);
+    const res = await svc(prisma).createRequest('u1', [{ cardId: 'c', productType: 'raw' as any }], undefined, undefined, GATE_ADDRESS_ID);
     expect(res.status).toBe('cotizada');
 
     // El snapshot descifra a la CLABE PROPIA (no la de u2), y NO está en claro en la columna.
@@ -146,6 +150,8 @@ describe('createRequest — CLABE opcional + fallback server-side (§4.16a)', ()
       'u1',
       [{ cardId: 'c', productType: 'raw' as any }],
       VALID_CLABE,
+      undefined,
+      GATE_ADDRESS_ID,
     );
     expect(res.status).toBe('cotizada');
     const upsertCreate = prisma.kycProfile.upsert.mock.calls[0][0].create;
@@ -164,7 +170,7 @@ describe('createRequest — CLABE opcional + fallback server-side (§4.16a)', ()
       u2: { clabeEnc: pii.encrypt(CLABE_OTHER), clabeHmac: pii.clabeBlindIndex(CLABE_OTHER) },
     });
     await expect(
-      svc(prisma).createRequest('u1', [{ cardId: 'c', productType: 'raw' as any }]),
+      svc(prisma).createRequest('u1', [{ cardId: 'c', productType: 'raw' as any }], undefined, undefined, GATE_ADDRESS_ID),
     ).rejects.toMatchObject({ code: 'CLABE_REQUIRED' });
     expect(prisma.sellRequest.create).not.toHaveBeenCalled();
     // No se consultó (ni usó) la KYC de otro usuario.
@@ -176,7 +182,7 @@ describe('createRequest — CLABE opcional + fallback server-side (§4.16a)', ()
   it('sin `clabe` y sin KYC alguna → 422 CLABE_REQUIRED', async () => {
     const prisma = buildPrisma({ u1: null });
     await expect(
-      svc(prisma).createRequest('u1', [{ cardId: 'c', productType: 'raw' as any }]),
+      svc(prisma).createRequest('u1', [{ cardId: 'c', productType: 'raw' as any }], undefined, undefined, GATE_ADDRESS_ID),
     ).rejects.toMatchObject({ code: 'CLABE_REQUIRED' });
   });
 
@@ -185,7 +191,7 @@ describe('createRequest — CLABE opcional + fallback server-side (§4.16a)', ()
       u1: { clabeEnc: pii.encrypt(CLABE_OWN), clabeHmac: pii.clabeBlindIndex(CLABE_OWN) },
     });
     await expect(
-      svc(prisma).createRequest('u1', [{ cardId: 'c', productType: 'raw' as any }], '123'),
+      svc(prisma).createRequest('u1', [{ cardId: 'c', productType: 'raw' as any }], '123', undefined, GATE_ADDRESS_ID),
     ).rejects.toMatchObject({ code: 'CLABE_INVALID' });
   });
 });

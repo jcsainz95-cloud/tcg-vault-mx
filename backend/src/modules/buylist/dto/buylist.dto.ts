@@ -113,6 +113,31 @@ export class RequestItemDto {
 export class CreateRequestDto {
   @IsArray() @ArrayNotEmpty() @ValidateNested({ each: true }) @Type(() => RequestItemDto)
   items!: RequestItemDto[];
+  /**
+   * ⚠️ v1.51.3 (D36/D37, §6 · ARCHITECTURE §4.39q) — **LA DIRECCIÓN DE ORIGEN. OBLIGATORIA.**
+   *
+   * Es el único campo obligatorio nuevo de todo el ciclo. Sin domicilio de remitente **no se imprime
+   * una etiqueta**, y D16 («la guía la ponemos nosotros») deja de ser ejecutable: el backend copia la
+   * fila de la libreta a `SellRequest.pickupAddressSnapshot` en la MISMA transacción que crea la
+   * solicitud.
+   *
+   * ### ⚠️ Por qué `@IsOptional()` aquí y el `422` en el servicio — es deliberado, no un olvido
+   * El contrato exige **`422 PICKUP_ADDRESS_REQUIRED`** (`details: { field: "addressId" }`) cuando
+   * falta, **no un `400 VALIDATION_ERROR`**: es un requisito **de negocio con remedio nombrado**
+   * (capturar una dirección y reintentar), igual que `CLABE_REQUIRED`, del que es hermano exacto.
+   * Si el pipe lo rechazara, el cliente recibiría el código genérico y **el front no sabría qué
+   * pantalla abrir**. El pipe valida **forma**; el servicio valida **la puerta**.
+   *
+   * ⚠️ **BL-1 (el defecto que esta línea cierra):** este campo **no existía en el DTO** y el
+   * `ValidationPipe` con `whitelist` **lo descartaba en silencio** — el frontend lo mandaba, la
+   * solicitud nacía sin snapshot y **quedaba inofertable** (`422 PICKUP_ADDRESS_MISSING`) desde su
+   * primer instante. *Un campo ausente de un DTO con whitelist no da error: da un dato perdido.*
+   *
+   * ⛔ **NO se acepta un domicilio suelto** (SEC-A1 aplicado a un dato que no es dinero): el cliente
+   * manda **un identificador de su propia libreta** y el servidor resuelve. La defensa es la FORMA
+   * del DTO — no hay campo de dirección que manipular.
+   */
+  @IsOptional() @IsString() addressId?: string;
   // v1.15 (ARCHITECTURE §4.16a, PII): `clabe` OPCIONAL. Si se omite, el backend resuelve la CLABE
   // del PROPIO usuario en archivo (KycProfile.clabeEnc, desencriptada — misma fuente que
   // reveal-clabe); si tampoco hay en archivo → 422 CLABE_REQUIRED. Con `clabe` presente el flujo
@@ -123,6 +148,22 @@ export class CreateRequestDto {
 
 export class RespondDto {
   @IsIn(['accept', 'decline']) decision!: 'accept' | 'decline';
+}
+
+/**
+ * v1.51.3 (§6, D36/D37 · ARCHITECTURE §4.39q.4) — `PATCH /buylist/requests/:id/pickup-address`.
+ *
+ * **`{ addressId }` y NADA MÁS.** El servidor **re-resuelve y re-congela** el snapshot contra la
+ * libreta del propio usuario; **no acepta campos de domicilio sueltos**. Misma forma —y la misma
+ * razón— que `AdminPickupAddressDto`: *no existe «inyectar un domicilio que no es tuyo» porque no
+ * hay dónde escribirlo.*
+ *
+ * Aquí el `addressId` **sí** es obligatorio de forma (`400 VALIDATION_ERROR` si falta): a diferencia
+ * de `POST /buylist/requests`, este endpoint **no tiene otro trabajo** — una llamada sin `addressId`
+ * no es «una solicitud a la que le falta un dato», es una petición vacía.
+ */
+export class PickupAddressDto {
+  @IsString() @IsNotEmpty() addressId!: string;
 }
 
 /**

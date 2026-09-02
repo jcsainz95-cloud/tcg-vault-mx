@@ -3,6 +3,8 @@ import { OrdersService } from '../src/modules/orders/orders.service';
 import { PricingService } from '../src/modules/pricing/pricing.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { SettingsService } from '../src/modules/settings/settings.service';
+// v1.51.20 · BL-26: la puerta de `createRequest` (celular + dirección + mínimo) en un solo sitio.
+import { GATE_ADDRESS_ID, buylistGateMocks, withMinimumOff } from './helpers/buylist-create-gate';
 import { StripeService } from '../src/modules/payments/stripe.service';
 import { CatalogService } from '../src/modules/catalog/catalog.service';
 import { BuylistService } from '../src/modules/buylist/buylist.service';
@@ -125,6 +127,8 @@ describe('E6 — instrumentación de COMPRA: se congela con `quotedPriceCents` (
           return rows.filter(Boolean);
         }),
       },
+      // v1.51.20 · BL-26: vendedor con celular y dirección propia (la puerta se prueba por HTTP).
+      ...buylistGateMocks('u1'),
       kycProfile: { findUnique: jest.fn(async () => null), upsert: jest.fn() },
       sellRequest: {
         findMany: jest.fn(async () => []), // M-46 §4.39c: acumulado mensual = findMany+reduce (COALESCE de 2 columnas)
@@ -160,7 +164,7 @@ describe('E6 — instrumentación de COMPRA: se congela con `quotedPriceCents` (
     } as unknown as PricingService;
     const settings = {
       getRaw: jest.fn(),
-      getNumber: jest.fn(async () => 100_000_000),
+      getNumber: jest.fn(withMinimumOff(async () => 100_000_000)),
     } as unknown as SettingsService;
     return {
       svc: new BuylistService(prisma, pricing, settings, {} as UsersService, pii),
@@ -174,6 +178,8 @@ describe('E6 — instrumentación de COMPRA: se congela con `quotedPriceCents` (
       'u1',
       [{ cardId: 'c1', productType: 'raw' as never, rawCondition: 'NM' as never, finish: 'reverse_holo' as never }],
       '012345678901234567',
+      undefined,
+      GATE_ADDRESS_ID,
     );
     expect(created[0]).toMatchObject({
       quotedPriceCents: 4000, // (1) precio final
@@ -192,6 +198,8 @@ describe('E6 — instrumentación de COMPRA: se congela con `quotedPriceCents` (
       'u1',
       [{ cardId: 'c1', productType: 'raw' as never, rawCondition: 'NM' as never }],
       '012345678901234567',
+      undefined,
+      GATE_ADDRESS_ID,
     );
     expect(created[0]).toMatchObject({
       quotedPriceCents: 250000,
@@ -207,6 +215,8 @@ describe('E6 — instrumentación de COMPRA: se congela con `quotedPriceCents` (
       'u1',
       [{ cardId: 'c1', productType: 'raw' as never, rawCondition: 'NM' as never }],
       '012345678901234567',
+      undefined,
+      GATE_ADDRESS_ID,
     );
     expect(created[0].ruleMode).toBeUndefined();
     expect(created[0].ruleValue).toBeUndefined();

@@ -3,6 +3,8 @@ import { BuylistService } from '../src/modules/buylist/buylist.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { PricingService } from '../src/modules/pricing/pricing.service';
 import { SettingsService } from '../src/modules/settings/settings.service';
+// v1.51.20 · BL-26: la puerta de `createRequest` (celular + dirección + mínimo) en un solo sitio.
+import { GATE_ADDRESS_ID, buylistGateMocks } from './helpers/buylist-create-gate';
 import { UsersService } from '../src/modules/users/users.service';
 import { PiiCryptoService } from '../src/common/crypto/pii-crypto.service';
 import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
@@ -105,6 +107,8 @@ function buildPrisma(rarity: string | null = 'Common') {
         return rows.filter(Boolean);
       }),
     },
+    // v1.51.20 · BL-26: vendedor con celular y dirección propia (la puerta se prueba por HTTP).
+    ...buylistGateMocks('user-1'),
     kycProfile: { findUnique: jest.fn().mockResolvedValue(null), upsert: jest.fn() },
     sellRequest: {
       findMany: jest.fn(async () => []), // M-46 §4.39c: acumulado mensual = findMany+reduce (COALESCE de 2 columnas)
@@ -228,7 +232,7 @@ describe('createRequest — snapshot de la regla aplicada + topes intactos', () 
       referenceMxnCents: 10000,
       overridesByKey: { [K]: { buyOverrideCents: 300 } },
     });
-    const res = await svc.createRequest('user-1', [item], VALID_CLABE);
+    const res = await svc.createRequest('user-1', [item], VALID_CLABE, undefined, GATE_ADDRESS_ID);
     expect(getVariantOverridesBatch).toHaveBeenCalledTimes(1); // lote también en createRequest
     expect(res.quotedTotalCents).toBe(300);
     // Snapshot PERSISTIDO en SellRequestItem (lo que habilita el conteo P-22 al pagar).
@@ -253,7 +257,7 @@ describe('createRequest — snapshot de la regla aplicada + topes intactos', () 
       settings: buildSettings({ rules: {} }),
       overridesByKey: { [K]: { bountyEnabled: true, bountyPriceCents: 250000 } },
     });
-    const res = await svc.createRequest('user-1', [item], VALID_CLABE);
+    const res = await svc.createRequest('user-1', [item], VALID_CLABE, undefined, GATE_ADDRESS_ID);
     expect(res.items[0]).toMatchObject({
       priceBasis: 'bounty',
       quotedPriceCents: 250000,
@@ -269,14 +273,14 @@ describe('createRequest — snapshot de la regla aplicada + topes intactos', () 
       settings: buildSettings({ capPerRequest: 100_000 }),
       overridesByKey: { [K]: { bountyEnabled: true, bountyPriceCents: 250_000 } },
     });
-    await expect(svc.createRequest('user-1', [item], VALID_CLABE)).rejects.toMatchObject({
+    await expect(svc.createRequest('user-1', [item], VALID_CLABE, undefined, GATE_ADDRESS_ID)).rejects.toMatchObject({
       code: 'BUYLIST_LIMIT_EXCEEDED',
     });
   });
 
   it('sin fila M-30 el snapshot es el de la CURVA (priceBasis="market")', async () => {
     const { svc } = buildSvc({ referenceMxnCents: 10000 });
-    const res = await svc.createRequest('user-1', [item], VALID_CLABE);
+    const res = await svc.createRequest('user-1', [item], VALID_CLABE, undefined, GATE_ADDRESS_ID);
     expect(res.items[0]).toMatchObject({ priceBasis: 'market', quotedPriceCents: 4000 });
   });
 });

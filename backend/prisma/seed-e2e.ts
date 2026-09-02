@@ -31,6 +31,8 @@ import {
   E2E_FOLIOS,
   E2E_LIST_OVERRIDE_CENTS,
   E2E_LOCATIONS,
+  E2E_PICKUP_ADDRESS,
+  E2E_SELL_REQUESTS,
   E2E_SET,
   E2E_SETTINGS,
   E2E_STALE_ESTIMATES,
@@ -83,11 +85,15 @@ export async function seedE2E(prisma: PrismaClient): Promise<void> {
         name: u.name,
         role: u.role,
         locale: 'es',
+        // ⚠️ v1.51.20 (D11, criterio 128(c)): SIN celular, `POST /buylist/requests` responde
+        // `422 PHONE_REQUIRED` y NINGÚN flujo de venta arranca. Va también en el `update` porque una
+        // BD ya sembrada por una corrida anterior tiene los usuarios creados y sin teléfono.
+        phone: u.phone,
         // v1.5: fixtures deterministas verificados (staff v1.5-6; y el customer E2E para que el
         // EmailVerifiedGuard no bloquee los flujos de comprar/retirar/vender de la suite).
         emailVerified: true,
       },
-      update: { status: 'active', role: u.role, emailVerified: true },
+      update: { status: 'active', role: u.role, emailVerified: true, phone: u.phone },
     });
     userIds[u.email] = created.id;
   }
@@ -580,23 +586,111 @@ export async function seedE2E(prisma: PrismaClient): Promise<void> {
     { ownerType: 'customer', ownerUserId: customerId, ownershipStatus: 'pending', status: 'in_custody', locationId: custodyLoc.id },
   );
 
-  // 8. Dirección MX por defecto del customer (para retiros).
-  const existingAddr = await prisma.address.findFirst({ where: { userId: customerId } });
-  if (!existingAddr) {
-    await prisma.address.create({
-      data: {
-        userId: customerId,
-        line1: 'Av. E2E 123',
-        neighborhood: 'Centro',
-        city: 'CDMX',
-        state: 'CDMX',
-        postalCode: '01000',
-        country: 'MX',
-        phone: '5555555555',
-        isDefault: true,
-      },
-    });
+  // 8. Dirección MX por defecto de los DOS customers.
+  //
+  // ⚠️ v1.51.20 (D36/D37): antes solo la tenía `customer`, y desde que `POST /buylist/requests` exige
+  // `addressId` eso dejaba a `customer2` **sin poder crear ninguna solicitud** — y `customer2` es
+  // justo quien ejercita `CLABE_NOT_OWN_NAME` en la suite. Sirve para DOS cosas a la vez: destino de
+  // los retiros de la bóveda y ORIGEN de las solicitudes de venta.
+  const addressIdByUser: Record<string, string> = {};
+  for (const email of [E2E_USERS.customer.email, E2E_USERS.customer2.email]) {
+    const uid = userIds[email];
+    const existingAddr = await prisma.address.findFirst({ where: { userId: uid } });
+    addressIdByUser[email] =
+      existingAddr?.id ??
+      (
+        await prisma.address.create({
+          data: { userId: uid, ...E2E_PICKUP_ADDRESS, isDefault: true },
+        })
+      ).id;
   }
+
+  // 9. ⚠️ LAS DOS SOLICITUDES DE VENTA DEL CICLO (M-46, §4.39).
+  //
+  // **Por qué existen:** el seed no creaba NINGUNA `SellRequest`, y ésa era la razón de raíz de que
+  // DOCE pruebas de UI del ciclo se saltaran siempre (`test.skip('sin solicitud ofertada en este
+  // entorno')`). El arnés del frontend **no puede fabricar una oferta emitida desde la UI** —hace
+  // falta un operador trabajando la mesa de decisión— así que sin dato en la BD el gate del portal
+  // del vendedor **nunca corría de verdad**: *ochenta tests en verde que no tocaban el ciclo*.
+  //
+  // ⚠️ **El ORDEN es normativo.** `listMine` ordena `createdAt desc` y la suite del portal exige que
+  // **la primera fila NO tenga oferta**. La `ofertada` se siembra PRIMERO (queda debajo) y la
+  // `cotizada` DESPUÉS (queda arriba). Se fuerzan `createdAt` explícitos para no depender de la
+  // resolución del reloj entre dos inserts consecutivos.
+  //
+  // ⚠️ **Los montos se congelan como los congela `POST …/offer`**, no se recalculan aquí: bruto =
+  // lo que la curva paga por el charizard NM, envío = el dial vigente, neto = `max(0, bruto − envío)`.
+  // Si el seed inventara su propia aritmética, el portal mostraría una oferta que el backend no
+  // habría podido emitir.
+  const charizardId = cardIds[E2E_CARDS.charizard.externalId];
+  const pickupSnapshot: Prisma.InputJsonValue = {
+    ...E2E_PICKUP_ADDRESS,
+    capturedAt: new Date('2026-01-05T15:00:00Z').toISOString(),
+    addressId: addressIdByUser[E2E_USERS.customer.email],
+  };
+  const offered = E2E_SELL_REQUESTS.offered;
+  await prisma.sellRequest.create({
+    data: {
+      userId: customerId,
+      status: 'ofertada',
+      quotedTotalCents: offered.grossCents,
+      createdAt: new Date('2026-01-05T15:00:00Z'),
+      pickupAddressSnapshot: pickupSnapshot,
+      // La oferta ENVIADA: `offerState='sent'` es lo ÚNICO que hace que `offer` viaje al cliente.
+      offerState: 'sent',
+      offerPreparedBy: userIds[E2E_USERS.operator.email],
+      offerPreparedAt: new Date('2026-01-06T15:00:00Z'),
+      offerSentAt: new Date('2026-01-06T15:00:00Z'),
+      offerGrossCents: offered.grossCents,
+      offerShippingFeeCents: offered.shippingFeeCents,
+      offerNetCents: offered.netCents,
+      // ⚠️ Plazo VIVO y lejano: un deadline pasado convertiría la oferta en `OFFER_EXPIRED` y el
+      // portal dejaría de ofrecer aceptar — la prueba se saltaría igual que sin fixture.
+      offerAcceptDeadlineAt: new Date('2099-12-31T23:59:59Z'),
+      items: {
+        create: [
+          {
+            cardId: charizardId,
+            productType: 'raw',
+            rawCondition: 'NM',
+            finish: 'normal',
+            rarity: E2E_CARDS.charizard.rarity,
+            priceBasis: 'market',
+            marketMxnCents: E2E_CARDS.charizard.refNmCents,
+            quotedPriceCents: offered.grossCents,
+            itemStatus: 'cotizada',
+            // El desglose línea por línea que el criterio 118 exige: qué compramos y a cuánto.
+            offerDecision: 'buy',
+            offeredPriceCents: offered.grossCents,
+          },
+        ],
+      },
+    },
+  });
+  await prisma.sellRequest.create({
+    data: {
+      userId: customerId,
+      status: 'cotizada',
+      quotedTotalCents: offered.grossCents,
+      createdAt: new Date('2026-01-07T15:00:00Z'),
+      pickupAddressSnapshot: pickupSnapshot,
+      items: {
+        create: [
+          {
+            cardId: charizardId,
+            productType: 'raw',
+            rawCondition: 'NM',
+            finish: 'normal',
+            rarity: E2E_CARDS.charizard.rarity,
+            priceBasis: 'market',
+            marketMxnCents: E2E_CARDS.charizard.refNmCents,
+            quotedPriceCents: offered.grossCents,
+            itemStatus: 'cotizada',
+          },
+        ],
+      },
+    },
+  });
 }
 
 // --------- CLI runner (npm run seed:synthetic / prisma db seed en modo synthetic) ---------

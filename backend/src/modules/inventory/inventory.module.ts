@@ -8,10 +8,12 @@ import { SealedCatalogAdminService } from './sealed-catalog-admin.service';
 import { SealedProductService } from './sealed-product.service';
 import { InventoryController } from './inventory.controller';
 import { PricingModule } from '../pricing/pricing.module';
-// v1.51.18 (BL-25, §4.39m.5): el puerto de DISPARO de publicación (`INVENTORY_PUBLISH_PORT`) se ata
-// a `InventoryService` —el trabajo a disparar ES su pipeline; un adaptador aparte sería una segunda
-// forma de publicar— pero se DECLARA en `inventory-publish.module.ts` (@Global), que es quien lo
-// expone al resto del backend sin publicar este módulo entero.
+// v1.51.18 (BL-25, §4.39m.5) / v1.51.20 (R1): el puerto de DISPARO de publicación
+// (`INVENTORY_PUBLISH_PORT`) se declara y provee en `inventory-publish.module.ts` (@Global), atado a
+// un ADAPTADOR PRIVADO (`InventoryPublishAdapter implements InventoryPublishPort`) que **delega** en
+// `InventoryService`. Delegar no es reimplementar: el pipeline de publicación sigue en un solo
+// sitio, y el `implements` es lo que hace que romper la firma **falle en compilación** en vez de
+// apagar la auto-publicación en silencio. Este módulo NO se vuelve global: fuera solo sale un token.
 
 @Module({
   imports: [PricingModule],

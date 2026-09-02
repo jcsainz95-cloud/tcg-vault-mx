@@ -25,6 +25,10 @@ describe('E2E — Buylist (cotizador + pipeline + pago SPEI)', () => {
   let operatorToken: string;
   let adminToken: string;
   const cardId: Record<string, string> = {};
+  // ⚠️ v1.51.20 (D36/D37): `addressId` es OBLIGATORIO en `POST /buylist/requests`. Se resuelve de la
+  // libreta que siembra `seed-e2e` (una por customer), no se inventa: el servidor comprueba que la
+  // fila sea DEL usuario autenticado y responde `422 PICKUP_ADDRESS_NOT_FOUND` si no lo es.
+  const addressId: Record<string, string> = {};
 
   beforeAll(async () => {
     h = await E2EHarness.create();
@@ -36,6 +40,11 @@ describe('E2E — Buylist (cotizador + pipeline + pago SPEI)', () => {
     for (const [key, c] of Object.entries(E2E_CARDS)) {
       const card = await h.prisma.card.findUnique({ where: { externalId: c.externalId } });
       cardId[key] = card!.id;
+    }
+    for (const key of ['customer', 'customer2'] as const) {
+      const user = await h.prisma.user.findUnique({ where: { email: E2E_USERS[key].email } });
+      const addr = await h.prisma.address.findFirst({ where: { userId: user!.id } });
+      addressId[key] = addr!.id;
     }
   });
 
@@ -86,6 +95,7 @@ describe('E2E — Buylist (cotizador + pipeline + pago SPEI)', () => {
         json: {
           items: [{ cardId: cardId.charizard, productType: 'raw', rawCondition: 'NM' }],
           clabe: CLABE_A,
+          addressId: addressId.customer,
         },
       });
       expect(res.status).toBe(201);
@@ -102,7 +112,7 @@ describe('E2E — Buylist (cotizador + pipeline + pago SPEI)', () => {
       }));
       const res = await h.api('POST', '/buylist/requests', {
         token: customerToken,
-        json: { items, clabe: CLABE_A },
+        json: { items, clabe: CLABE_A, addressId: addressId.customer },
       });
       expect(res.status).toBe(422);
       expect(res.body.error.code).toBe('BUYLIST_LIMIT_EXCEEDED');
@@ -117,6 +127,7 @@ describe('E2E — Buylist (cotizador + pipeline + pago SPEI)', () => {
         json: {
           items: [{ cardId: cardId.highvalue, productType: 'raw', rawCondition: 'NM' }],
           clabe: CLABE_A,
+          addressId: addressId.customer,
         },
       });
       expect(res.status).toBe(422);
@@ -130,6 +141,7 @@ describe('E2E — Buylist (cotizador + pipeline + pago SPEI)', () => {
         json: {
           items: [{ cardId: cardId.charizard, productType: 'raw', rawCondition: 'NM' }],
           clabe: CLABE_A,
+          addressId: addressId.customer2,
         },
       });
       expect(first.status).toBe(201);
@@ -137,8 +149,15 @@ describe('E2E — Buylist (cotizador + pipeline + pago SPEI)', () => {
       const second = await h.api('POST', '/buylist/requests', {
         token: customer2Token,
         json: {
-          items: [{ cardId: cardId.reverse, productType: 'raw', rawCondition: 'NM' }],
+          // ⚠️ El `reverse` cotiza MX$9.20 — por debajo del mínimo de compra. Se acompaña de un
+          // charizard para que la solicitud sea legítima y el `422` que se afirma sea el de la
+          // CLABE, no el del mínimo: *un test que pasa por el error equivocado no prueba nada.*
+          items: [
+            { cardId: cardId.reverse, productType: 'raw', rawCondition: 'NM' },
+            { cardId: cardId.charizard, productType: 'raw', rawCondition: 'NM' },
+          ],
           clabe: CLABE_B,
+          addressId: addressId.customer2,
         },
       });
       expect(second.status).toBe(422);
@@ -156,6 +175,7 @@ describe('E2E — Buylist (cotizador + pipeline + pago SPEI)', () => {
         json: {
           items: [{ cardId: cardId.charizard, productType: 'raw', rawCondition: 'NM' }],
           clabe: CLABE_A,
+          addressId: addressId.customer,
         },
       });
       expect(res.status).toBe(201);

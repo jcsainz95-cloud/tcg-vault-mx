@@ -1,7 +1,7 @@
 import { Global, Module } from '@nestjs/common';
 import { InventoryModule } from './inventory.module';
-import { InventoryService } from './inventory.service';
 import { INVENTORY_PUBLISH_PORT } from './inventory-publish.port';
+import { InventoryPublishAdapter } from './inventory-publish.adapter';
 
 /**
  * v1.51.18 (**BL-25**, ARCHITECTURE §4.39m.5) — módulo **@Global** que exporta **solo**
@@ -13,11 +13,26 @@ import { INVENTORY_PUBLISH_PORT } from './inventory-publish.port';
  * grafo de módulos hace que un cambio de providers en uno pueda **romper el arranque** del otro).
  * **`InventoryModule` NO se vuelve global**: fuera solo existe **un token**.
  *
- * La diferencia con el de posición es que aquí el token **no se ata a un adaptador propio, sino a
- * `InventoryService`**, y eso es deliberado: el trabajo que hay que disparar **es** el pipeline de
- * publicación —`assertPublishableGuards` + `resolvePublishSalePrice` + `claimListed`— y un adaptador
- * separado tendría que **reimplementarlo o llamarlo**, es decir, **una segunda forma de publicar**.
- * *El puerto expone una capacidad que ya existe; no fabrica una paralela.*
+ * ### ⚠️ v1.51.20 · **R1** — AHORA SÍ ES UN ADAPTADOR PROPIO, COMO EL DE POSICIÓN
+ * Hasta v1.51.19 el token se ataba con **`useExisting: InventoryService`**, y este bloque lo
+ * defendía diciendo que un adaptador *«tendría que reimplementar el pipeline o llamarlo, es decir,
+ * una segunda forma de publicar»*. **La primera mitad sería un bug; la segunda es justo lo que hace
+ * `InventoryPublishAdapter`: delegar.** *Delegar no es reimplementar* — el pipeline
+ * (`assertPublishableGuards` + `resolvePublishSalePrice` + `claimListed`) sigue **en un solo sitio**.
+ *
+ * Lo que se gana, y por lo que se cambia:
+ * - **Comprobación EN COMPILACIÓN.** `InventoryService` **no declaraba `implements
+ *   InventoryPublishPort`**, así que renombrar `reevaluateForPublication` dejaba `tsc` verde, las
+ *   specs verdes (mockean el puerto) y **los tres consumidores reventando en runtime capturando el
+ *   error** ⇒ la auto-publicación **apagada entera**, con un `logger.warn` como único síntoma.
+ * - **Lo que hay detrás del token deja de ser el servicio de ESCRITURA completo.** El puerto promete
+ *   exponer *«una capacidad, no una autoridad»*; con `useExisting`, quien resolviera el token tenía
+ *   `bulkPublish`, `publishAll` y `convertToInventory` en la mano. *La promesa la cumplía la buena
+ *   educación del llamador, no el tipo.*
+ *
+ * **Y el cableado se ASEVERA** (`test/app.module.spec.ts`): con `@Optional()` + `catch` en los tres
+ * consumidores, sacar este módulo del grafo compilaba, pasaba el smoke de DI y pasaba la suite
+ * entera **con la publicación apagada en silencio**.
  *
  * ### ⚠️ EL CICLO QUE ESTO EVITA, escrito para el próximo que mueva la inyección
  * `InventoryService` depende de `PricingService`. Si el consumidor del disparador **(c)** fuera
@@ -34,7 +49,13 @@ import { INVENTORY_PUBLISH_PORT } from './inventory-publish.port';
   // token ajeno no se puede, y re-exportar `InventoryModule` entero **publicaría globalmente todo su
   // grafo de servicios de ESCRITURA** — exactamente lo que §4.39f prohíbe. Declarándolo en este
   // módulo, lo único que sale al resto del backend es **el token**.
-  providers: [{ provide: INVENTORY_PUBLISH_PORT, useExisting: InventoryService }],
+  // El adaptador es un provider PRIVADO de este módulo: fuera solo existe el token. Nadie puede
+  // inyectar `InventoryPublishAdapter` por su clase concreta y saltarse el seam — misma disciplina,
+  // línea por línea, que `InventoryPositionModule`.
+  providers: [
+    InventoryPublishAdapter,
+    { provide: INVENTORY_PUBLISH_PORT, useExisting: InventoryPublishAdapter },
+  ],
   exports: [INVENTORY_PUBLISH_PORT],
 })
 export class InventoryPublishModule {}

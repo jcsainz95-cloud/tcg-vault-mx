@@ -3,6 +3,8 @@ import { BuylistService } from '../src/modules/buylist/buylist.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { PricingService } from '../src/modules/pricing/pricing.service';
 import { SettingsService } from '../src/modules/settings/settings.service';
+// v1.51.20 · BL-26: la puerta de `createRequest` (celular + dirección + mínimo) en un solo sitio.
+import { GATE_ADDRESS_ID, buylistGateMocks, withMinimumOff } from './helpers/buylist-create-gate';
 import { UsersService } from '../src/modules/users/users.service';
 import { PiiCryptoService } from '../src/common/crypto/pii-crypto.service';
 import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
@@ -163,6 +165,8 @@ describe('BuylistService.createRequest — snapshot del acabado + del priceBasis
           return rows.filter(Boolean);
         }),
       },
+      // v1.51.20 · BL-26: vendedor con celular y dirección propia (la puerta se prueba por HTTP).
+      ...buylistGateMocks('user-1'),
       kycProfile: { findUnique: jest.fn().mockResolvedValue(null), upsert: jest.fn() },
       sellRequest: {
         findMany: jest.fn(async () => []), // M-46 §4.39c: acumulado mensual = findMany+reduce (COALESCE de 2 columnas)
@@ -238,6 +242,8 @@ describe('BuylistService.createRequest — snapshot del acabado + del priceBasis
       'user-1',
       [{ cardId: 'c1', productType: 'raw' as any, rawCondition: 'NM' as any, finish: 'reverse_holo' as any }],
       VALID_CLABE,
+      undefined,
+      GATE_ADDRESS_ID,
     );
     expect(res.items[0].finish).toBe('reverse_holo');
     expect(res.items[0].quotedPriceCents).toBe(5078); // $125 × 40.625 % EXACTO (v2.1.2, sin cuantizar)
@@ -266,6 +272,8 @@ describe('BuylistService.createRequest — snapshot del acabado + del priceBasis
         'user-1',
         [{ cardId: 'c1', productType: 'raw' as any, rawCondition: 'NM' as any, finish: 'holofoil' as any }],
         VALID_CLABE,
+        undefined,
+        GATE_ADDRESS_ID,
       ),
     ).rejects.toMatchObject({ code: 'FINISH_NOT_AVAILABLE' });
   });
@@ -296,6 +304,8 @@ describe('BLOQUEO 2 — quote y createRequest cotizan por el MISMO cuerpo (§4.3
         findUnique: jest.fn(async () => card),
         findMany: jest.fn(async () => [card]),
       },
+      // v1.51.20 · BL-26: vendedor con celular y dirección propia (la puerta se prueba por HTTP).
+      ...buylistGateMocks('u1'),
       kycProfile: { findUnique: jest.fn(async () => null), upsert: jest.fn() },
       sellRequest: {
         findMany: jest.fn(async () => []), // M-46 §4.39c: acumulado mensual = findMany+reduce (COALESCE de 2 columnas)
@@ -334,7 +344,7 @@ describe('BLOQUEO 2 — quote y createRequest cotizan por el MISMO cuerpo (§4.3
     } as unknown as PricingService;
     const settings = {
       getRaw: jest.fn(),
-      getNumber: jest.fn(async () => 100_000_000),
+      getNumber: jest.fn(withMinimumOff(async () => 100_000_000)),
     } as unknown as SettingsService;
     return new BuylistService(prisma as PrismaService, pricing, settings, {} as UsersService, pii);
   }
@@ -356,6 +366,7 @@ describe('BLOQUEO 2 — quote y createRequest cotizan por el MISMO cuerpo (§4.3
       // Fase 0.3 (compliance): una línea `precio_pendiente` EXIGE INE (el monto incierto se trata
       // como potencialmente por encima del umbral). Se aporta para poder comparar los DOS caminos.
       INE_KEYS,
+      GATE_ADDRESS_ID,
     );
 
     // El DTO de la solicitud emite el monto ausente como `undefined` (`?? undefined`); el del quote
@@ -369,7 +380,7 @@ describe('BLOQUEO 2 — quote y createRequest cotizan por el MISMO cuerpo (§4.3
     // Special Illustration Rare con mercado de $1: la curva la manda al BIN ⇒ `premium_at_floor`.
     const quoted = await harness(100, 'Special Illustration Rare').publicQuote('c1', 'raw', 'NM', 'normal');
     const created = await harness(100, 'Special Illustration Rare').createRequest(
-      'u1', [line], VALID_CLABE_2, INE_KEYS,
+      'u1', [line], VALID_CLABE_2, INE_KEYS, GATE_ADDRESS_ID,
     );
     expect(quoted.quote.quotedPriceCents).toBeNull();
     expect(quoted.priceBasis).toBe('pending');
@@ -382,6 +393,8 @@ describe('BLOQUEO 2 — quote y createRequest cotizan por el MISMO cuerpo (§4.3
     const card = { id: 'c1', rarity: 'Common', availableFinishes: ['normal'] };
     const prisma: any = {
       card: { findUnique: jest.fn(async () => card), findMany: jest.fn(async () => [card]) },
+      // v1.51.20 · BL-26: vendedor con celular y dirección propia (la puerta se prueba por HTTP).
+      ...buylistGateMocks('u1'),
       kycProfile: { findUnique: jest.fn(async () => null), upsert: jest.fn() },
       sellRequest: {
         findMany: jest.fn(async () => []), // M-46 §4.39c: acumulado mensual = findMany+reduce (COALESCE de 2 columnas)
@@ -404,10 +417,10 @@ describe('BLOQUEO 2 — quote y createRequest cotizan por el MISMO cuerpo (§4.3
       settlePendingForVariant: jest.fn(async () => undefined),
       getVariantOverridesBatch: jest.fn(async () => new Map()),
     } as unknown as PricingService;
-    const settings = { getRaw: jest.fn(), getNumber: jest.fn(async () => 100_000_000) } as unknown as SettingsService;
+    const settings = { getRaw: jest.fn(), getNumber: jest.fn(withMinimumOff(async () => 100_000_000)) } as unknown as SettingsService;
     const svc = new BuylistService(prisma as PrismaService, pricing, settings, {} as UsersService, pii);
 
-    await svc.createRequest('u1', [line, line, line], VALID_CLABE_2);
+    await svc.createRequest('u1', [line, line, line], VALID_CLABE_2, undefined, GATE_ADDRESS_ID);
 
     expect(prisma.card.findMany).toHaveBeenCalledTimes(1);
     expect(prisma.card.findUnique).not.toHaveBeenCalled();

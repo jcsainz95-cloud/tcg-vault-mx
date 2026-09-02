@@ -4,6 +4,8 @@ import { BuylistService } from '../src/modules/buylist/buylist.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { PricingService } from '../src/modules/pricing/pricing.service';
 import { SettingsService } from '../src/modules/settings/settings.service';
+// v1.51.20 · BL-26: la puerta de `createRequest` (celular + dirección + mínimo) en un solo sitio.
+import { GATE_ADDRESS_ID, buylistGateMocks } from './helpers/buylist-create-gate';
 import { UsersService } from '../src/modules/users/users.service';
 import { PiiCryptoService } from '../src/common/crypto/pii-crypto.service';
 import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
@@ -77,6 +79,8 @@ describe('BuylistService.createRequest — SEC-A1 regla derivada del servidor', 
           return rows.filter(Boolean);
         }),
       },
+      // v1.51.20 · BL-26: vendedor con celular y dirección propia (la puerta se prueba por HTTP).
+      ...buylistGateMocks('user-1'),
       kycProfile: { findUnique: jest.fn().mockResolvedValue(null), upsert: jest.fn() },
       sellRequest: {
         findMany: jest.fn(async () => []), // M-46 §4.39c: acumulado mensual = findMany+reduce (COALESCE de 2 columnas)
@@ -114,6 +118,8 @@ describe('BuylistService.createRequest — SEC-A1 regla derivada del servidor', 
       // El cliente ya NO envía category; aunque colara un campo extra, el backend lo ignora.
       [{ cardId: 'card-common', productType: 'raw' as any, rawCondition: 'NM' as any }],
       VALID_CLABE,
+      undefined,
+      GATE_ADDRESS_ID,
     );
 
     // v2.0 (P-48): el monto se deriva del MERCADO REAL de la variante (SEC-A1), no de nada del DTO.
@@ -138,6 +144,8 @@ describe('BuylistService.createRequest — SEC-A2 tope mensual atómico (TOCTOU)
           return rows.filter(Boolean);
         }),
       },
+      // v1.51.20 · BL-26: vendedor con celular y dirección propia (la puerta se prueba por HTTP).
+      ...buylistGateMocks('u'),
       kycProfile: { findUnique: jest.fn().mockResolvedValue(null), upsert: jest.fn() },
       sellRequest: {
         findMany: jest.fn(async () => []), // M-46 §4.39c: acumulado mensual = findMany+reduce (COALESCE de 2 columnas)
@@ -151,7 +159,7 @@ describe('BuylistService.createRequest — SEC-A2 tope mensual atómico (TOCTOU)
     // v2.0 (P-48): sin mercado la línea queda `precio_pendiente` y dispara el gate de INE (Fase 0.3),
     // ruido ajeno a lo que este caso verifica (aislamiento serializable). Se le da mercado.
     const svc = new BuylistService(prisma as PrismaService, buildPricing(1000), buildSettings(100_000_000), {} as UsersService, pii);
-    await svc.createRequest('u', [{ cardId: 'c', productType: 'raw' as any }], VALID_CLABE);
+    await svc.createRequest('u', [{ cardId: 'c', productType: 'raw' as any }], VALID_CLABE, undefined, GATE_ADDRESS_ID);
 
     expect(txOpts?.isolationLevel).toBe(Prisma.TransactionIsolationLevel.Serializable);
     // El aggregate del acumulado se ejecuta con el cliente transaccional (dentro de $transaction).
@@ -173,6 +181,8 @@ describe('BuylistService.createRequest — SEC-A2 tope mensual atómico (TOCTOU)
             return rows.filter(Boolean);
           }),
         },
+        // v1.51.20 · BL-26: vendedor con celular y dirección propia.
+        ...buylistGateMocks('u'),
         kycProfile: { findUnique: jest.fn().mockResolvedValue(null), upsert: jest.fn() },
         sellRequest: {
           // M-46 §4.39c: el acumulado se reduce en memoria; una fila con el total acumulado equivale
@@ -194,8 +204,10 @@ describe('BuylistService.createRequest — SEC-A2 tope mensual atómico (TOCTOU)
 
     const item = [{ cardId: 'c', productType: 'raw' as any }];
     // Serializable ⇒ efectivamente secuencial: la primera pasa, la segunda ve el acumulado.
-    await build().createRequest('u', item, VALID_CLABE);
-    await expect(build().createRequest('u', item, VALID_CLABE)).rejects.toMatchObject({
+    await build().createRequest('u', item, VALID_CLABE, undefined, GATE_ADDRESS_ID);
+    await expect(
+      build().createRequest('u', item, VALID_CLABE, undefined, GATE_ADDRESS_ID),
+    ).rejects.toMatchObject({
       code: 'BUYLIST_LIMIT_EXCEEDED',
     });
     expect(shared.createdTotalCents).toBe(300); // solo UNA solicitud creada

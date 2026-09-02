@@ -70,6 +70,11 @@ export class AdminBuylistController {
     // v1.51.1 · D31 — `awaitingGuide`: la vista del pendiente NUESTRO (una `aceptada` sin guía no
     // corre reloj y no expira nunca, así que sin esta vista se queda quieta para siempre).
     @Query('awaitingGuide') awaitingGuide?: string,
+    // ⚠️ v1.51.20 · **I1** (§M5, v1.51.9) — `offerReissueAlert` era el TERCER parámetro
+    // declarado-y-ausente: se aceptaba y **devolvía el superconjunto**, que es peor que ignorarlo
+    // con un error — la cola parecía filtrada y no lo estaba. Sin él, la alerta anti-bucle obliga a
+    // paginar la cola entera para encontrar las tres filas que importan (lección de **P-5**).
+    @Query('offerReissueAlert') offerReissueAlert?: string,
   ) {
     const f = parseAdminListFilters({ page, pageSize, q, from, to, minCents, maxCents });
     return this.buylist.adminList(status, f.page, f.pageSize, userId, {
@@ -84,6 +89,10 @@ export class AdminBuylistController {
       // Mismo parsing tri-estado ratificado (v1.51.9 D) que `live`, `guest` y `needsManual`.
       awaitingGuide:
         awaitingGuide === 'true' ? true : awaitingGuide === 'false' ? false : undefined,
+      // Mismo parsing tri-estado. El contrato solo declara `=true`; `=false` llega al servicio y
+      // éste lo trata como «sin filtro», igual que `awaitingGuide`.
+      offerReissueAlert:
+        offerReissueAlert === 'true' ? true : offerReissueAlert === 'false' ? false : undefined,
     });
   }
 
@@ -97,6 +106,84 @@ export class AdminBuylistController {
   @Get('rejected-items')
   rejectedItems(@Query() query: RejectedItemsQueryDto) {
     return this.buylist.adminRejectedItems(query.page ?? 1, query.pageSize ?? 20, query.userId);
+  }
+
+  // ======================= v1.51 · LAS CUATRO COLAS DEL CICLO (§M5) =======================
+  // ⚠️⚠️ **TODAS LAS RUTAS LITERALES VAN AQUÍ, ANTES DE `@Get(':id')`, Y ESO NO ES ESTILO.**
+  // Nest resuelve **por orden de declaración**: `@Get(':id')` casa con CUALQUIER segmento único, así
+  // que una literal de un solo segmento declarada después **es inalcanzable** — el handler de detalle
+  // se la come y responde `404 NOT_FOUND` (la solicitud `live-sellers` no existe).
+  //
+  // **BL-28 (v1.51.20) — esto pasó de verdad y estuvo vivo:** `live-sellers` y
+  // `pending-shipment-confirmation` estaban **después** de `@Get(':id')` y devolvían **404** en
+  // producción, tumbando los criterios 129/130 y 156 con el frontend ya llamándolas. Las de **dos**
+  // segmentos (`offers/…`, `guides/…`) se salvaban por accidente de forma, no por diseño. Peor: dos
+  // comentarios **afirmaban** que la declaración iba antes de `@Get(':id')`, y era **falso** — *un
+  // comentario que promete una propiedad que el código no tiene es peor que no tener comentario,
+  // porque el siguiente lector deja de comprobarla.*
+  //
+  // ⇒ **Las cuatro se agrupan aquí, juntas, encima del detalle.** Si añades otra cola: **va en este
+  // bloque**, no debajo.
+  /**
+   * v1.51 (D24, criterios 143/147) — **cola de ofertas por autorizar** (`super_admin` la trabaja; la
+   * lectura la comparte el back-office).
+   *
+   * ⚠️ **Estas filas se mueren solas:** la `cotizada` que sostiene la oferta caduca a los 7 días
+   * hábiles y el barrido **anula la oferta**, así que autorizar después devuelve `409`. Por eso
+   * `caducityAt` viaja en la fila.
+   */
+  @Get('offers/pending-authorization')
+  pendingOfferAuthorization(@Query('page') page = '1', @Query('pageSize') pageSize = '20') {
+    const f = parseAdminListFilters({ page, pageSize });
+    return this.buylist.adminPendingOfferAuthorization(f.page, f.pageSize);
+  }
+
+  /**
+   * v1.51 (D12, criterios 129/130) — **«la lista de gente a la que le debemos una respuesta»**:
+   * vendedores con solicitudes **vivas**, cuántas, la más antigua y su **teléfono**, para poder
+   * llamar sin abrir la ficha. «Viva» = todo lo que **NO** es terminal, **por exclusión**.
+   * ⚠️ El teléfono es back-office por rol y **prohibido en toda superficie pública**.
+   */
+  @Get('live-sellers')
+  liveSellers(@Query('page') page = '1', @Query('pageSize') pageSize = '20') {
+    const f = parseAdminListFilters({ page, pageSize });
+    return this.buylist.adminLiveSellers(f.page, f.pageSize);
+  }
+
+  /**
+   * v1.51 (criterio 156) — cola **«por confirmar envío»**: el vendedor ya cumplió y el pendiente es
+   * NUESTRO. `alert` es derivado; **no expira, no cancela, no mueve nada.**
+   *
+   * ⚠️ v1.51.20 · **BL-28** — este docblock estaba **suelto**, pegado varias rutas más arriba, y
+   * afirmaba *«Ruta literal declarada ANTES de `@Get(':id')`»* cuando la ruta estaba **60 líneas
+   * DESPUÉS**: la afirmación era falsa y el endpoint devolvía **404** (lo capturaba `:id`). Ahora el
+   * comentario está donde dice estar, y el bloque entero está donde el comentario promete.
+   */
+  @Get('pending-shipment-confirmation')
+  pendingShipmentConfirmation(
+    @Query('page') page = '1',
+    @Query('pageSize') pageSize = '20',
+    @Query('onlyAlerts') onlyAlerts?: string,
+  ) {
+    const f = parseAdminListFilters({ page, pageSize });
+    // Tri-estado ratificado (v1.51.9 D): solo `'true'`/`'false'` filtran; cualquier otra cosa no
+    // filtra y NO falla — un query param mal escrito no puede convertir una cola de trabajo en 400.
+    return this.buylist.adminPendingShipmentConfirmation(
+      f.page,
+      f.pageSize,
+      onlyAlerts === 'true' ? true : undefined,
+    );
+  }
+
+  /**
+   * v1.51 (D22, criterio 139) — cola **«cancelar guía no usada»**. *Una etiqueta comprada y olvidada
+   * es dinero tirado que nadie ve.* **NO desaparece sola:** sale únicamente por
+   * `POST :id/guide/cancellation-done`.
+   */
+  @Get('guides/pending-cancellation')
+  pendingGuideCancellation(@Query('page') page = '1', @Query('pageSize') pageSize = '20') {
+    const f = parseAdminListFilters({ page, pageSize });
+    return this.buylist.adminPendingGuideCancellation(f.page, f.pageSize);
   }
 
   @Get(':id')
@@ -320,64 +407,6 @@ export class AdminBuylistController {
       },
     });
     return response;
-  }
-
-  /**
-   * v1.51 (criterio 156) — cola **«por confirmar envío»**: el vendedor ya cumplió y el pendiente es
-   * NUESTRO. `alert` es derivado; **no expira, no cancela, no mueve nada.**
-   * Ruta literal declarada ANTES de `@Get(':id')` para que el parámetro no la capture.
-   */
-  /**
-   * v1.51 (D24, criterios 143/147) — **cola de ofertas por autorizar** (`super_admin` la trabaja; la
-   * lectura la comparte el back-office).
-   *
-   * ⚠️ **Estas filas se mueren solas:** la `cotizada` que sostiene la oferta caduca a los 7 días
-   * hábiles y el barrido **anula la oferta**, así que autorizar después devuelve `409`. Por eso
-   * `caducityAt` viaja en la fila. Ruta literal ANTES de `@Get(':id')`.
-   */
-  @Get('offers/pending-authorization')
-  pendingOfferAuthorization(@Query('page') page = '1', @Query('pageSize') pageSize = '20') {
-    const f = parseAdminListFilters({ page, pageSize });
-    return this.buylist.adminPendingOfferAuthorization(f.page, f.pageSize);
-  }
-
-  /**
-   * v1.51 (D12, criterios 129/130) — **«la lista de gente a la que le debemos una respuesta»**:
-   * vendedores con solicitudes **vivas**, cuántas, la más antigua y su **teléfono**, para poder
-   * llamar sin abrir la ficha. «Viva» = todo lo que **NO** es terminal, **por exclusión**.
-   * ⚠️ El teléfono es back-office por rol y **prohibido en toda superficie pública**.
-   */
-  @Get('live-sellers')
-  liveSellers(@Query('page') page = '1', @Query('pageSize') pageSize = '20') {
-    const f = parseAdminListFilters({ page, pageSize });
-    return this.buylist.adminLiveSellers(f.page, f.pageSize);
-  }
-
-  @Get('pending-shipment-confirmation')
-  pendingShipmentConfirmation(
-    @Query('page') page = '1',
-    @Query('pageSize') pageSize = '20',
-    @Query('onlyAlerts') onlyAlerts?: string,
-  ) {
-    const f = parseAdminListFilters({ page, pageSize });
-    // Tri-estado ratificado (v1.51.9 D): solo `'true'`/`'false'` filtran; cualquier otra cosa no
-    // filtra y NO falla — un query param mal escrito no puede convertir una cola de trabajo en 400.
-    return this.buylist.adminPendingShipmentConfirmation(
-      f.page,
-      f.pageSize,
-      onlyAlerts === 'true' ? true : undefined,
-    );
-  }
-
-  /**
-   * v1.51 (D22, criterio 139) — cola **«cancelar guía no usada»**. *Una etiqueta comprada y olvidada
-   * es dinero tirado que nadie ve.* **NO desaparece sola:** sale únicamente por
-   * `POST :id/guide/cancellation-done`.
-   */
-  @Get('guides/pending-cancellation')
-  pendingGuideCancellation(@Query('page') page = '1', @Query('pageSize') pageSize = '20') {
-    const f = parseAdminListFilters({ page, pageSize });
-    return this.buylist.adminPendingGuideCancellation(f.page, f.pageSize);
   }
 
   /**

@@ -4697,3 +4697,87 @@
   El único caso que sí se limpia solo es el del smoke de borrado, que retira lo que siembra.
 - **Disparador para cerrarla:** que el arnés pueda marcar sus propias filas (p. ej. una carta de seed
   reservada al E2E cuyo estimado sea siempre desechable). Es alcance nuevo, no un arreglo.
+
+---
+
+### Ronda de corrección del gate QA + techlead del ciclo de adquisición (rama `claude/buylist-inventory-workflow-hdnls3`, 2026-09-02) — deuda del pase (dueño: **backend**, no bloqueante)
+
+> **Contexto, porque explica por qué esta lista es corta.** El gate llegó con **8 bloqueantes de QA**
+> y **3 cierres condicionantes del techlead**, y **los once se arreglaron en el pase** (ver
+> `docs/BACKEND_NOTES.md` §v1.51.20). Lo que queda aquí es **lo que se decidió NO hacer ahora**, con
+> el disparador escrito. Ninguno es money-unsafe: los tres que sí lo eran —la guarda del ciclo de
+> oferta, la puerta de `POST /buylist/requests` y la llave de la cola de pendientes— **se cerraron**.
+
+#### BLC-D1 · `GET /admin/inventory/pending-publish` no escala: la precedencia de precio se evalúa **en memoria** (Media, backend)
+- **Dónde:** `backend/src/modules/inventory/inventory.service.ts` → `pendingPublishStateOf` +
+  `derivePublishSalePrice`, servidos por chunks de `PENDING_PUBLISH_CHUNK_SIZE` (100).
+- **Qué pasa:** la cola **no puede filtrar en SQL por «le falta precio»**, porque *«tiene precio»* es
+  el resultado de una **precedencia de cuatro peldaños** (override de línea → override de pieza →
+  \[sellado: H-1 override/mercado×spread | raw/graded: sellOverride M-30 → curva\] → PRICE_PENDING)
+  que mezcla columnas de tres tablas, diales y una curva interpolada. Hoy se **leen** las piezas
+  candidatas y se decide **fila por fila en memoria**, así que el coste crece con el inventario de
+  plataforma, no con el tamaño de la cola.
+- **Impacto:** latencia de una pantalla de back-office. **Cero riesgo de dinero**: la decisión que se
+  toma es la misma; lo que no escala es **cuántas filas hay que mirar para tomarla**.
+- **⚠️ EL ARREGLO PROHIBIDO, escrito para que nadie lo intente:** ⛔ **traducir la precedencia a
+  SQL** (un `WHERE` con `COALESCE`s y `JOIN`s a `VariantPriceOverride`/`PriceReference`). Sería **una
+  segunda implementación de la regla de precio**, en otro lenguaje, sobre dinero — exactamente la
+  clase de copia que §4.39m.6 prohíbe y que este mismo ciclo tuvo que cerrar dos veces (`isPayable`,
+  `pendingQueueKey`). *Una copia de la regla no es una optimización: es un segundo precio.*
+- **✅ El arreglo permitido:** **materializar LA SALIDA de la regla**, no la regla. Una columna
+  derivada (`InventoryItem.publishBlockedBy`, o una tabla-índice) **escrita por el MISMO cuerpo** que
+  hoy decide (`pendingPublishStateOf`), y refrescada por los mismos disparos que ya existen
+  (conversión, override, barrido de precios, `publish-all`). El `WHERE` filtra por **el veredicto ya
+  calculado**; nadie vuelve a calcularlo. Es aditivo y no toca la precedencia.
+- **Disparador:** cuando el inventario de plataforma pase de ~5.000 piezas o la cola tarde >2 s.
+
+#### BLC-D3 · Interpolaciones a mano de la llave de variante, vivas en camino de dinero (Media, backend)
+- **Dónde (SOLO lo de este stream):** `inventory.service.ts:1506` (sellado),
+  `inventory.service.ts:1537` (raw/graded) y `price-ingest.service.ts:839`.
+- **Qué pasa:** P-30 H2 (§4.39e) dejó `variantKey()` como **la** forma canónica de construir
+  `cardId|productType|gradeKey|finish`, precisamente porque un template a mano **no falla en
+  compilación cuando el orden o un componente cambian**: falla devolviendo `undefined` de un `Map`,
+  que se lee como *«esta variante no tiene override»* — **un precio distinto, en silencio**.
+  Estas tres siguen construyéndola a mano.
+- **Impacto:** hoy **ninguno**: los tres literales coinciden con `variantKey()` componente a
+  componente (verificado en este pase). Es **riesgo**, no defecto — el mismo perfil que tenía la
+  llave de la cola de pendientes **antes** de que R3 demostrara que ya había divergido.
+- **⚠️ Alcance deliberadamente acotado:** el resto de las interpolaciones (`:3008`, `:3026`,
+  `:3045`, `price-ingest.service.ts:780`) pertenecen a **otros streams** y **no se tocan** en este
+  pase (regla de zonas compartidas). Se dejan nombradas para que el siguiente barrido las cubra.
+- **Disparador:** al tocar cualquiera de los tres por otro motivo, sustituir por `variantKey()`.
+  Es un cambio de una línea con test existente que lo cubre.
+
+#### BLC-D4 · `BuylistService` = **5.742 líneas / 68 métodos** (Media, backend)
+- **Dónde:** `backend/src/modules/buylist/buylist.service.ts`.
+- **Qué pasa:** el archivo concentra **cinco responsabilidades** que no comparten estado: cotización,
+  ciclo de oferta, colas de back-office, correos y pago. Este pase lo **hizo crecer** (+626 líneas:
+  la puerta, las guardas y la proyección unificada), así que la nota se re-anota con el número real.
+- **Impacto:** mantenibilidad y superficie de conflicto entre streams. **No es un riesgo de dinero**:
+  las reglas críticas ya viven en cuerpos únicos y con guardas de residuo (`sell-request-states`,
+  `buylist-aml`, `variant-key`).
+- **✅ La costura de MENOR riesgo, ya identificada y medida:** **las cinco colas de admin**
+  (`adminPendingOfferAuthorization`, `adminLiveSellers`, `adminPendingShipmentConfirmation`,
+  `adminPendingGuideCancellation`, `adminRejectedItems`) suman **~700 líneas** y son **lecturas
+  puras**: no escriben, no mueven dinero, no comparten estado con el resto. Salen a un
+  `BuylistQueriesService` sin tocar ninguna transacción.
+  ⛔ **Lo que NO se debe extraer primero:** el ciclo de oferta y `paySpei`. Ahí el valor está en que
+  precondición y efecto se lean juntos; partirlos por tamaño es cambiar un problema de líneas por uno
+  de coherencia.
+- **Disparador:** al abrir el siguiente stream que toque `buylist`, extraer **las colas** como primer
+  movimiento del pase, no como refactor suelto.
+
+#### ✅ P4-D2 — **RESUELTA** (2026-09-02, este ciclo)
+- La nota pedía reapuntar `ine-retention.service.ts` a `SELL_REQUEST_TERMINAL_STATES` y borrar su
+  `CLOSED` local. **Hecho en M-46** (§4.39c **sitio 1**): la constante local ya no existe y el job
+  importa la fuente única. Y no era cosmético — con `expirada` en el enum, la copia local habría
+  contado esas solicitudes como **abiertas para siempre** ⇒ el INE de esa persona **no se purga
+  nunca** (PII / LFPDPPP). *La deuda llevaba 147 commits sin cobrarse y se cobró antes de que el enum
+  la convirtiera en un incidente de cumplimiento.*
+
+#### ✅ P4-D3 — **RESUELTA** (2026-09-02, este ciclo)
+- La nota decía que `getMine` propagaba `closedAt` al cliente dueño vía spread y pedía «proyectar
+  campos explícitos (allow-list)». **Hecho**: S49-M1 puso la lista blanca y **BL-29** la reforzó
+  invirtiendo la herencia — la proyección de cliente sale ahora de una **base compartida** que **no
+  lee** `closedAt`, `paidBy`, `isPayable` ni ninguna de las 21 columnas del ciclo. Hay guard de
+  residuo (`test/buylist.projection-and-queue-key.spec.ts`).

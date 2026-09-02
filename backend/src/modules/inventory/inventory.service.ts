@@ -169,12 +169,6 @@ export const PENDING_PUBLISH_CHUNK_SIZE = PUBLISH_ALL_CHUNK_SIZE;
 export type PendingPublishMissing = 'location' | 'price';
 
 /**
- * Llave LÓGICA de dedupe de la cola de precio pendiente — **la misma que usa `escalatePending`**
- * (`cardId|productType|gradeKey|finish|sealedProductId`). Se escribe aquí una vez para que el
- * emparejamiento «pieza ↔ entrada abierta» no se haga con una llave inventada en el sitio: dos
- * llaves distintas para la misma cola producen deep-links que apuntan a la entrada equivocada.
- */
-/**
  * v1.51.19 (§4.39m.8) — llave de emparejamiento **variante ↔ pieza** para el disparador (c). Incluye
  * `cardProductId` y `sealedProductId` porque **una promo y la versión del set base son variantes
  * distintas** (D7 / §4.39d) y **un ETB y un blíster también** (BLOQ-2b): resolver el precio de una
@@ -211,14 +205,49 @@ function variantPublishMatches(
   return true;
 }
 
+/**
+ * Llave LÓGICA de dedupe de la cola de precio pendiente — **la misma que usa `escalatePending`**.
+ * Se escribe aquí una vez para que el emparejamiento «pieza ↔ entrada abierta» no se haga con una
+ * llave inventada en el sitio: *dos llaves distintas para la misma cola producen deep-links que
+ * apuntan a la entrada equivocada*.
+ *
+ * ### ⚠️⚠️ v1.51.20 · **R3** — DOS DEFECTOS, Y LOS DOS ESTABAN EN ESTE DOCBLOCK
+ * 1. **El comentario estaba pegado a la función equivocada.** Vivía sobre `variantPublishMatches`
+ *    —que ya tiene el suyo— así que describía una función y documentaba otra. *Un docblock que
+ *    describe a su vecino es peor que ninguno: el siguiente lector cree haber leído el contrato.*
+ * 2. **Su afirmación de paridad era FALSA, y en un camino de dinero.** Decía «la misma que usa
+ *    `escalatePending`» y enumeraba **CINCO** componentes; `escalatePending` dedupe por **SEIS**
+ *    —incluye **`cardProductId`** (`pricing.service.ts`, dedupe por
+ *    `(cardId, productType, gradeKey, finish, cardProductId, sealedProductId, status='open')`)—
+ *    y `openPendingEntriesFor` **ni siquiera lo seleccionaba**.
+ *
+ * **Qué rompía, concretamente:** `buylist` **sí** abre entradas con `cardProductId` **no nulo** (una
+ * promo, un deck exclusive). Con cinco componentes, **una promo y su versión del set base
+ * colapsaban en la misma llave** ⇒ el deep-link de `pending-publish` podía llevar al operador **a la
+ * entrada de OTRO producto**, y el cierre simétrico de la cola podía apagar el aviso equivocado.
+ * *Es exactamente la fusión money-unsafe que D7/§4.29d prohíbe, por la puerta de una llave con un
+ * componente de menos.*
+ *
+ * ⚠️ **`cardProductId` aquí es el `Int` de TCGplayer** (el de `InventoryItem`/`PendingPriceEntry`),
+ * **no** el uuid `String` de `PriceReference.cardProductId`. Son dos identificadores distintos con el
+ * mismo nombre en este repo (ver `VariantPublishRef`).
+ */
 function pendingQueueKey(k: {
   cardId: string;
   productType: ProductType;
   gradeKey: string;
   finish: Finish;
+  cardProductId?: number | null;
   sealedProductId?: string | null;
 }): string {
-  return `${k.cardId}|${k.productType}|${k.gradeKey}|${k.finish}|${k.sealedProductId ?? ''}`;
+  return [
+    k.cardId,
+    k.productType,
+    k.gradeKey,
+    k.finish,
+    k.cardProductId ?? '',
+    k.sealedProductId ?? '',
+  ].join('|');
 }
 
 /**
@@ -281,6 +310,15 @@ interface PendingVariantKey {
   productType: ProductType;
   gradeKey: string;
   finish: Finish;
+  /**
+   * ⚠️ v1.51.20 · **R3** — **EL SEXTO COMPONENTE, Y ES MONEY-SAFE.** `escalatePending` dedupe **con**
+   * `cardProductId` desde v1.30 (§4.29d) y `buylist` **sí** abre entradas con él poblado; el eje de
+   * inventario escalaba y cerraba **sin él**, o sea **bajo la llave del set base**. Efecto: resolver
+   * el precio de la versión base podía **cerrar el aviso de la promo** (y al revés), que es
+   * exactamente la fusión que D7 prohíbe. `null`/ausente = línea de set base (conducta previa).
+   * Es el **`Int` de TCGplayer** (`InventoryItem.cardProductId`), no el uuid de `PriceReference`.
+   */
+  cardProductId?: number | null;
   sealedProductId?: string | null;
 }
 type PublishPriceDerivation =
@@ -1425,7 +1463,14 @@ export class InventoryService {
           // acabado, M-19) y con la RAZÓN, que es lo que hace triable la cola en M2.
           await this.pricing.settlePendingForVariant(
             derived.pendingReason ?? 'no_market',
-            { cardId: k.cardId, productType: k.productType, gradeKey: k.gradeKey, finish: k.finish },
+            {
+              cardId: k.cardId,
+              productType: k.productType,
+              gradeKey: k.gradeKey,
+              finish: k.finish,
+              // R3: money-safe — una promo y su set base son entradas SEPARADAS de la cola.
+              cardProductId: k.cardProductId ?? null,
+            },
             'inventory',
           );
     return { ok: false, message: derived.message, pendingPriceEntryId };
@@ -1516,6 +1561,8 @@ export class InventoryService {
           productType: item.productType,
           gradeKey,
           finish: item.finish,
+          // R3: la identidad REAL de la pieza entra a la llave de la cola.
+          cardProductId: item.cardProductId,
         },
         pendingReason,
       };
@@ -1525,7 +1572,15 @@ export class InventoryService {
       salePriceCents: sale.priceCents,
       priceSource: 'derived',
       priceBasis: sale.basis,
-      pendingKey: { cardId: item.cardId, productType: item.productType, gradeKey, finish: item.finish },
+      pendingKey: {
+        cardId: item.cardId,
+        productType: item.productType,
+        gradeKey,
+        finish: item.finish,
+        // R3: el CIERRE simétrico usa la MISMA llave que la escalada — con los seis componentes, o
+        // resolver una variante apagaría el aviso de otra.
+        cardProductId: item.cardProductId,
+      },
     };
   }
 
@@ -1705,6 +1760,10 @@ export class InventoryService {
         productType: true,
         gradeKey: true,
         finish: true,
+        // ⚠️ v1.51.20 · R3 — SIN esta columna la llave de la cola tenía CINCO componentes y la de
+        // `escalatePending` SEIS: una promo y su set base colapsaban, y el deep-link podía apuntar a
+        // la entrada del otro producto.
+        cardProductId: true,
         sealedProductId: true,
       },
       orderBy: { createdAt: 'asc' },
@@ -1715,6 +1774,7 @@ export class InventoryService {
         productType: r.productType,
         gradeKey: r.gradeKey,
         finish: r.finish,
+        cardProductId: r.cardProductId,
         sealedProductId: r.sealedProductId,
       });
       // La MÁS ANTIGUA gana (orden asc): el deep-link lleva a la entrada que lleva más esperando.

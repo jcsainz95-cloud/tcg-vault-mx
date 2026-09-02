@@ -51,7 +51,15 @@ function matches(value: unknown, cond: unknown): boolean {
  * el `where` se evalúa contra el estado real —incluida la **relación** `sellRequest`—, que es
  * exactamente donde la norma exige que viva la guarda.
  */
-function fakeDb(opts: { requestStatus: string; staleStatusForRead?: string; approvedTotalCents: number }) {
+function fakeDb(opts: {
+  requestStatus: string;
+  staleStatusForRead?: string;
+  approvedTotalCents: number;
+  /** v1.51.20 · BL-27: fila DEL CICLO (`offerSentAt IS NOT NULL`). Por defecto, pre-ciclo. */
+  offerSentAt?: Date | null;
+  /** El monto ofertado de la línea, que es lo que `approve` fija server-side dentro del ciclo. */
+  offeredPriceCents?: number | null;
+}) {
   const request: Record<string, unknown> = {
     id: 'sr-1',
     userId: 'u1',
@@ -61,6 +69,9 @@ function fakeDb(opts: { requestStatus: string; staleStatusForRead?: string; appr
     offerGrossCents: null,
     adjustmentSentAt: null,
     closedAt: null,
+    // ⚠️ v1.51.20 · BL-27 — el SEGUNDO eje de la guarda. `null` = solicitud PRE-ciclo (la cohorte
+    // legacy, donde `adjust` y `approvedPriceCents` siguen siendo legales).
+    offerSentAt: opts.offerSentAt ?? null,
   };
   const item: Record<string, unknown> = {
     id: 'sri-1',
@@ -68,6 +79,7 @@ function fakeDb(opts: { requestStatus: string; staleStatusForRead?: string; appr
     itemStatus: 'aprobada',
     quotedPriceCents: 50_000,
     approvedPriceCents: 40_000,
+    offeredPriceCents: opts.offeredPriceCents ?? null,
     finish: 'normal',
     rejectedAt: null,
     rejectionReason: null,
@@ -86,6 +98,9 @@ function fakeDb(opts: { requestStatus: string; staleStatusForRead?: string; appr
               sellRequest: {
                 userId: 'u1',
                 status: opts.staleStatusForRead ?? request.status,
+                // BL-27: el discriminador del ciclo entra al `select` de producción, así que el
+                // fake tiene que emitirlo o el pre-check leería `undefined`.
+                offerSentAt: request.offerSentAt,
                 user: { email: 's@e.mx', name: 'Ash', locale: 'es' },
               },
               card: { name: 'Pidgey', number: '16', set: { name: 'Base Set' } },

@@ -6,11 +6,62 @@
  * Todos los montos son enteros en centavos MXN (*Cents), como el resto del sistema.
  */
 
+/**
+ * ⚠️ v1.51.20 (D11, criterio 128(c)) — **`phone` es obligatorio en TODOS los fixtures de usuario.**
+ * `POST /buylist/requests` responde `422 PHONE_REQUIRED` sin celular en la cuenta, así que un
+ * fixture sin él haría que **ningún** flujo de venta arrancara. Es `User.phone` —NUESTRO dato para
+ * llamar al vendedor (D12)— y **no** el de la etiqueta, que es `Address.phone`. Se parecen y no son
+ * el mismo dato: por eso llevan valores DISTINTOS a propósito, para que un test que los confunda
+ * falle en vez de pasar por casualidad.
+ */
 export const E2E_USERS = {
-  customer: { email: 'customer@e2e.local', password: 'Customer123!', name: 'E2E Customer', role: 'customer' as const },
-  customer2: { email: 'customer2@e2e.local', password: 'Customer123!', name: 'E2E Customer Two', role: 'customer' as const },
-  operator: { email: 'operator@e2e.local', password: 'Operator123!', name: 'E2E Operator', role: 'vault_operator' as const },
-  admin: { email: 'admin@e2e.local', password: 'Admin123!', name: 'E2E Admin', role: 'super_admin' as const },
+  customer: { email: 'customer@e2e.local', password: 'Customer123!', name: 'E2E Customer', role: 'customer' as const, phone: '5511110001' },
+  customer2: { email: 'customer2@e2e.local', password: 'Customer123!', name: 'E2E Customer Two', role: 'customer' as const, phone: '5511110002' },
+  operator: { email: 'operator@e2e.local', password: 'Operator123!', name: 'E2E Operator', role: 'vault_operator' as const, phone: '5511110003' },
+  admin: { email: 'admin@e2e.local', password: 'Admin123!', name: 'E2E Admin', role: 'super_admin' as const, phone: '5511110004' },
+} as const;
+
+/**
+ * v1.51.20 (D36/D37) — **la dirección de ORIGEN del vendedor, sembrada para los DOS customers.**
+ * Sin ella `POST /buylist/requests` responde `422 PICKUP_ADDRESS_REQUIRED` y el ciclo no arranca.
+ * `phone` es el del DOMICILIO (va impreso en la etiqueta), distinto de `User.phone`.
+ */
+export const E2E_PICKUP_ADDRESS = {
+  line1: 'Av. E2E 123',
+  neighborhood: 'Centro',
+  city: 'CDMX',
+  state: 'CDMX',
+  postalCode: '01000',
+  country: 'MX',
+  phone: '5555555555',
+} as const;
+
+/**
+ * v1.51.20 (M-46, §4.39) — **las DOS solicitudes de venta del seed.** Existen porque `seed-e2e` no
+ * creaba **ninguna** `SellRequest`, y ésa era la razón de raíz de que **doce** pruebas de UI del
+ * ciclo se saltaran siempre (`test.skip('sin solicitud ofertada en este entorno')`): el arnés no
+ * puede fabricar una oferta emitida desde la UI —hace falta un operador con la mesa de decisión— y
+ * sin dato en la BD el gate del frontend **nunca corría de verdad**.
+ *
+ * ⚠️ **El ORDEN de creación importa y es normativo para la suite del portal.** `listMine` ordena por
+ * `createdAt desc`, y `buylist-offer.spec.ts` tiene un caso que exige que **la PRIMERA fila NO tenga
+ * oferta** (mira el estado previo). Por eso la `ofertada` se siembra **antes** (queda más abajo) y la
+ * `cotizada` **después** (queda arriba). *Un fixture cuyo orden se elige a ciegas es un test que se
+ * salta solo.*
+ */
+export const E2E_SELL_REQUESTS = {
+  /** `ofertada` con la oferta ENVIADA: los tres montos congelados y el plazo vivo. */
+  offered: {
+    folioHint: 'e2e-offered',
+    /** charizard NM: la curva paga 50 % de $1,000. Es el BRUTO congelado de la oferta. */
+    grossCents: 50000,
+    /** Tarifa de envío congelada al ofertar (D25/D31: una sola banda, siempre se descuenta). */
+    shippingFeeCents: 18000,
+    /** NETO ANUNCIADO = max(0, bruto − envío). Es la cifra vinculante frente al vendedor. */
+    netCents: 32000,
+  },
+  /** `cotizada` sin oferta: la fila que el portal pinta como «te debemos una respuesta». */
+  quoted: { folioHint: 'e2e-quoted' },
 } as const;
 
 export const E2E_SET = { externalId: 'e2e-base', name: 'E2E Base Set', series: 'E2E', releaseDate: '1999/01/09' } as const;

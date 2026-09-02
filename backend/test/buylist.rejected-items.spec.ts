@@ -26,7 +26,9 @@ function buildService(prisma: any): BuylistService {
     prisma as unknown as PrismaService,
     // v1.22-2 / N-15: adminRejectedItems deriva displayFinishes de este lote (vacío = sin supresión).
     { getPricedRawFinishesBatch: jest.fn(async () => new Map()) } as unknown as PricingService,
-    {} as SettingsService,
+    // v1.51.20 · BL-29: la proyección admin deriva `offerIssueDeadlineAt` y `offerReissueAlert` de
+    // dos diales, así que `adminGet` necesita un `SettingsService` aunque este spec mire los rechazos.
+    { getNumber: jest.fn(async () => 7) } as unknown as SettingsService,
     {} as UsersService,
     pii,
   );
