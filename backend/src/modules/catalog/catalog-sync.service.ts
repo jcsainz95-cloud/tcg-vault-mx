@@ -16,6 +16,12 @@ import { CardProductResolverService } from './card-product-resolver.service';
 export const SET_ID_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 /** Formato de fecha de pokemontcg.io (`yyyy/MM/dd`). */
 const DATE_PATTERN = /^\d{4}\/\d{2}\/\d{2}$/;
+/**
+ * v1.52-set-logos (M-47, §4.39.4) — ÚNICO host admitido para las imágenes de set. Es el MISMO que ya
+ * sirve el arte de todas las cartas del sitio ⇒ `remotePatterns` del frontend NO cambia (§5.3.4) y no
+ * hay superficie nueva para seguridad. NO se amplía sin pasar por arquitecto/frontend.
+ */
+export const SET_IMAGE_HOST = 'images.pokemontcg.io';
 
 /**
  * CatalogSyncService — Ingesta de METADATA de catálogo desde pokemontcg.io (M2, ARCHITECTURE §4.8).
@@ -811,8 +817,31 @@ export class CatalogSyncService {
     return count;
   }
 
-  /** Upsert idempotente del set por externalId. */
+  /**
+   * Upsert idempotente del set por externalId.
+   *
+   * v1.52-set-logos (M-47, §4.39.4) — persiste también las IMÁGENES DEL SET (`logoUrl`/`symbolUrl`)
+   * con DOS reglas que se componen, y equivocarse en cualquiera de las dos falla en silencio:
+   *
+   *  1. **Guardarraíl de ingesta** (`sanitizeSetImageUrl`): solo se persiste una URL absoluta `https:`
+   *     del host que YA sirve el arte de las cartas. Cualquier otra cosa NO se persiste (+ log).
+   *  2. **NO-DEGRADACIÓN**: ausente (o rechazada por el guardarraíl) ⇒ **no-op** en el `update`, jamás
+   *     `null`; en el `create` (set nuevo) ⇒ `null`. Sin esto, la vía «set anidado en una carta»
+   *     borraría lo que la vía `GET /v2/sets` ya escribió, y el logo aparecería y desaparecería según
+   *     qué botón de M2 se pulsó último. Misma clase de invariante que M-44 impuso sobre
+   *     `PriceReference` (un escritor no degrada lo que otro afirmó), aquí en su versión barata:
+   *     cosmética, no dinero, pero con el mismo modo de fallo silencioso.
+   *
+   * La composición de (1) y (2) es deliberada: una URL rechazada se trata EXACTAMENTE como ausente. Si
+   * el `update` la mapeara a `null`, un glitch del proveedor (una URL `http:` un día) BORRARÍA un logo
+   * bueno — que es justo lo que la regla 2 existe para impedir. «Nunca se persiste una URL mala» y
+   * «nunca se borra una buena» se cumplen las dos a la vez solo así.
+   *
+   * Money-safe: `CardSet` no entra en ningún cálculo de precio (§4.39.9).
+   */
   private async upsertSet(rs: RemoteCardSet) {
+    const logoUrl = this.sanitizeSetImageUrl(rs.images?.logo, rs.id, 'logo');
+    const symbolUrl = this.sanitizeSetImageUrl(rs.images?.symbol, rs.id, 'symbol');
     // PROJECTION-EXEMPT: helper PRIVADO del sync (`upsertSet`); su resultado se consume dentro del
     // propio job para llavear las cartas. No lo devuelve ningún controller.
     return this.prisma.cardSet.upsert({
@@ -824,6 +853,9 @@ export class CatalogSyncService {
         releaseDate: rs.releaseDate,
         printedTotal: rs.printedTotal,
         ptcgoCode: rs.ptcgoCode,
+        // Set NUEVO: no hay nada que degradar ⇒ ausente/rechazada = `null` (§4.39.4).
+        logoUrl,
+        symbolUrl,
       },
       update: {
         name: rs.name,
@@ -831,8 +863,48 @@ export class CatalogSyncService {
         releaseDate: rs.releaseDate,
         printedTotal: rs.printedTotal,
         ptcgoCode: rs.ptcgoCode,
+        // NO-DEGRADACIÓN: la clave NI SIQUIERA VIAJA cuando no hay valor bueno ⇒ Prisma deja la
+        // columna intacta. (`logoUrl: undefined` también sería no-op, pero omitirla lo hace explícito.)
+        ...(logoUrl !== null ? { logoUrl } : {}),
+        ...(symbolUrl !== null ? { symbolUrl } : {}),
       },
     });
+  }
+
+  /**
+   * v1.52-set-logos (M-47, §4.39.4) — guardarraíl de ingesta de las imágenes de set. Devuelve la URL
+   * SOLO si es absoluta, `https:` y del host que ya sirve el arte de las cartas de este proveedor;
+   * cualquier otra cosa ⇒ `null` + log (nunca se persiste).
+   *
+   * Es lo único que seguridad tiene que mirar de este pase: impide que el proveedor (o algo que se
+   * haga pasar por él) meta en la BD un puntero a un host arbitrario que el front luego renderice.
+   *
+   * Si pokemontcg.io empezara a servir imágenes desde OTRO host, backend NO amplía esta lista por su
+   * cuenta: lo reporta, y `remotePatterns` del frontend se amplía DETRÁS, nunca por delante (§5.3.4).
+   */
+  private sanitizeSetImageUrl(
+    raw: string | undefined | null,
+    setExternalId: string,
+    kind: 'logo' | 'symbol',
+  ): string | null {
+    if (typeof raw !== 'string' || raw.trim() === '') return null;
+    let parsed: URL;
+    try {
+      parsed = new URL(raw);
+    } catch {
+      this.logger.warn(
+        `upsertSet(${setExternalId}): images.${kind} no es una URL absoluta (${raw}); NO se persiste (M-47).`,
+      );
+      return null;
+    }
+    if (parsed.protocol !== 'https:' || parsed.hostname !== SET_IMAGE_HOST) {
+      this.logger.warn(
+        `upsertSet(${setExternalId}): images.${kind} fuera del guardarraíl https://${SET_IMAGE_HOST} ` +
+          `(${parsed.protocol}//${parsed.hostname}); NO se persiste (M-47, §4.39.4).`,
+      );
+      return null;
+    }
+    return raw;
   }
 
   /**

@@ -126,6 +126,16 @@ export interface MasterSetSummaryDTO {
   // plegados: principal + subsets importados). Presente SOLO en masters combinados (≥2 partes);
   // un set normal lo OMITE. ADITIVO/opcional. Money-safe: solo lectura de presentación.
   partSetIds?: string[];
+  // v1.52-set-logos (M-47, §4.39.5) — LOGO de la expansión (`CardSet.logoUrl`, `images.logo` de
+  // pokemontcg.io). Es EL campo de la teja de selección de set y viaja en los CUATRO consumidores de
+  // este DTO (M1, admin-bóveda-cliente, «Mi bóveda» y —vía `GET /buylist/sets`— el cotizador): es un
+  // read model ÚNICO y romper esa simetría sería el error.
+  // ⚠️ `string | null`, NO `logoUrl?`: la clave va SIEMPRE presente y la ausencia se expresa con `null`
+  // (clase (P) presentación, §5.2.9). `null` es NORMAL y PERMANENTE (sets que el proveedor no ilustra)
+  // y también es lo que rinde un set aún no re-sincronizado; el contrato NO distingue ambos orígenes.
+  // Sale de la MISMA fila `CardSet` de la query (1) del índice ⇒ cero queries nuevas, cero N+1.
+  // NO existe `symbolUrl` aquí: se persiste en `CardSet` pero NO se expone en ningún DTO (§4.39.5).
+  logoUrl: string | null;
 }
 
 export interface MasterSetIndexResponse {
@@ -399,7 +409,16 @@ export class MasterSetService implements OnModuleInit {
     const sets = await this.prisma.cardSet.findMany({
       where: q.q ? { name: { contains: q.q, mode: 'insensitive' } } : {},
       // v1.33 (P-27): `externalId` para plegar subsets→principal por el mapa curado (§4.31c).
-      select: { id: true, externalId: true, name: true, series: true, releaseDate: true, printedTotal: true },
+      // v1.52 (M-47, §4.39.5): `logoUrl` sale de ESTA misma fila ⇒ cero queries nuevas, cero N+1.
+      select: {
+        id: true,
+        externalId: true,
+        name: true,
+        series: true,
+        releaseDate: true,
+        printedTotal: true,
+        logoUrl: true,
+      },
     });
     const setIds = sets.map((s) => s.id);
     const externalBySetId = new Map(sets.map((s) => [s.id, s.externalId]));
@@ -442,6 +461,9 @@ export class MasterSetService implements OnModuleInit {
         catalogVariantCount,
         distinctVariantsOwned: a.distinctVariants,
         variantCompletionPct,
+        // v1.52 (M-47, §4.39.6): clave SIEMPRE presente; `?? null` porque la columna es `String?` y
+        // Prisma rinde `null`, pero el `??` deja explícito que jamás se omite ni se emite `""`.
+        logoUrl: s.logoUrl ?? null,
       };
     });
 
@@ -492,6 +514,8 @@ export class MasterSetService implements OnModuleInit {
    * suma es exacta), recomputa completitud y quita las filas de subset. La fila del principal conserva
    * su `setId`/`name`/`releaseDate` (nombre del master) y gana `partSetIds`. CA-71: si el principal no
    * está en `rows` (no importado / fuera del filtro `q`) NO se pliega. Puro/sin queries; money-safe.
+   * v1.52 (M-47): `logoUrl` NO se suma ni se hereda del subset — la fila combinada emite el logo DEL
+   * PRINCIPAL (§API_CONTRACT M1), que es exactamente lo que ya trae `primaryRow` sin tocarlo.
    */
   private foldCombinedMasterSets(
     rows: MasterSetSummaryDTO[],

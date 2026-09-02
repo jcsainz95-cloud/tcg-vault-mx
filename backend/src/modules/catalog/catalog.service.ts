@@ -1621,11 +1621,18 @@ export class CatalogService {
    * el año — dos sets del mismo año quedan por fecha exacta), desempate por `name` asc, y
    * los sets SIN `releaseDate` al final (también por nombre), en vez de mezclados como si
    * fueran los más antiguos.
+   *
+   * v1.52-set-logos (M-47, §4.39.5) — emite `logoUrl`. NO es decorativo aquí ni opcional de
+   * implementar: este endpoint es la FUENTE CLIENT-SIDE de la retícula de tejas del COTIZADOR (el modo
+   * `quoter` de `MasterSetIndex` no tiene endpoint de índice propio y compone sus `MasterSetSummaryDTO`
+   * a partir de esta respuesta). Sin este campo, la teja del cotizador sería la ÚNICA sin logo de todo
+   * el producto. Clave SIEMPRE presente, `null` = sin logo publicado o set aún no re-sincronizado
+   * (indistinguibles a propósito, §4.39.6). `symbolUrl` NO se expone.
    */
   async listSetsWithImportedCards() {
     const sets = await this.prisma.cardSet.findMany({
       where: { cards: { some: {} } },
-      select: { id: true, name: true, series: true, releaseDate: true },
+      select: { id: true, name: true, series: true, releaseDate: true, logoUrl: true },
     });
     // `releaseDate` viene de pokemontcg.io como `yyyy/MM/dd`, por lo que la comparación
     // lexicográfica de strings equivale a la cronológica con la fecha completa.
@@ -1638,6 +1645,8 @@ export class CatalogService {
         series: s.series ?? null,
         releaseDate: s.releaseDate ?? null,
         year: yearFromReleaseDate(s.releaseDate),
+        // v1.52 (M-47, §4.39.6): clave SIEMPRE presente; ausencia = `null` explícito, nunca omitida.
+        logoUrl: s.logoUrl ?? null,
       }))
       .sort((a, b) => {
         if (a.releaseDate && b.releaseDate) {
