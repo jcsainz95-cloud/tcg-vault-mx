@@ -54,6 +54,25 @@ El primer pase dejaba tres agujeros. Los tres cerrados, alineados con el precede
 | **Userinfo** | `https://evil@images.pokemontcg.io/logo.png` **pasaba** | rechazado si `username`/`password` no están vacíos — las credenciales embebidas existen para confundir sobre quién es el host |
 | **Cadena cruda** | devolvía `raw`; `new URL` **tolera** espacios y C0 al borde y elimina tabs/saltos interiores ⇒ entraba a la BD lo que el parser acababa de perdonar | devuelve **`parsed.href`** (forma normalizada). Para una URL limpia `href === raw`, así que no reescribe nada legítimo |
 
+### N-3 — disciplina de log del guardarraíl (qué se registra al rechazar, y qué NO)
+
+`M47-D1` declara estos `warn` la **única señal** de que una URL se rechaza de forma indefinida ⇒ su forma
+es **contrato operativo**, no cosmética: tienen que ser **greppables** y **no forjables**. Por eso:
+
+- **La rama de PARSEO FALLIDO no interpola `raw`.** Ahí el parseo falló ⇒ no existe forma normalizada, y
+  volcar la cadena sería escribir verbatim en el log lo que se acaba de declarar no confiable. Una cadena
+  con `CRLF` puede **forjar líneas de log** (log injection) que parezcan de otro subsistema. El
+  diagnóstico queda **reducido, no perdido**: prefijo estable `upsertSet(<setId>): images.<kind>` +
+  **`longitud=`** (un número no puede forjar una línea, y distingue «basura larga» de «token corto»).
+  Para ver la cadena exacta está la respuesta del proveedor, no nuestro log.
+- **La rama de USERINFO sí nombra el host** (`parsed.host`): ahí `parsed` existe, y `URL.host` es un
+  componente **ya parseado** —el WHATWG URL prohíbe C0/espacio en el host y elimina tab/CR/LF de la
+  entrada antes de parsear ⇒ **no puede forjar una línea**. Es justo el dato diagnosticable
+  (`…@evil.com` vs `evil@images.pokemontcg.io`). **El userinfo NO se registra**: es el material sensible
+  del caso.
+- Las tres decisiones están **fijadas por tests** (`M-47 (A) — N-3`), no solo comentadas: si alguien
+  devuelve `raw` al log, o quita el host, o quita `longitud=`, la suite se pone roja.
+
 ### ⚠️ Corrección a una frase de la primera versión de este pase
 
 El JSDoc de `sanitizeSetImageUrl` decía *«es lo único que seguridad tiene que mirar de este pase»*.
@@ -111,7 +130,7 @@ escritor único y ya es idempotente y auditado.
   como fila propia y su logo **no** se hereda ni se suma.
 - ⛔ **Prohibido** construir la URL por plantilla desde el `setId`. Solo se pinta lo que la columna traiga.
 
-### Tests — `backend/test/set-images.m47.spec.ts` (30 tests)
+### Tests — `backend/test/set-images.m47.spec.ts` (32 tests)
 
 Tres bloques, escritos para fallar **en ambas direcciones**:
 - **(A) persistencia:** create/update con las dos imágenes; ausencia ⇒ no-op; una sola de las dos;
@@ -136,6 +155,9 @@ Tres bloques, escritos para fallar **en ambas direcciones**:
 | **I-4:** volver a `URL.hostname` (pierde el puerto) | 🔴 1 test |
 | **I-4:** quitar el rechazo de userinfo | 🔴 1 test |
 | **I-4:** volver a persistir la cadena cruda (`raw`) | 🔴 **3** tests |
+| **N-3:** devolver `raw` al log de parseo | 🔴 1 test |
+| **N-3:** quitar el host del log de userinfo | 🔴 1 test |
+| **N-3:** quitar `longitud=` del log de parseo | 🔴 1 test |
 
 ### Deuda registrada (`docs/TECH_DEBT.md`, sección Backend)
 - **M47-R1** — tres criterios distintos para la misma amenaza (éste, el del sellado, y el **ninguno** del
@@ -148,7 +170,7 @@ Tres bloques, escritos para fallar **en ambas direcciones**:
 
 ### Validación
 - `npx tsc --noEmit`: limpio · `npm run lint`: **0 errores** (2 warnings preexistentes, ajenos).
-- `npm test`: **2 722/2 722 en 208 suites** (baseline 2 692 en 207 + 30 nuevos, **0 regresiones**).
+- `npm test`: **2 724/2 724 en 208 suites** (baseline 2 692 en 207 + 32 nuevos, **0 regresiones**).
 - `npx prisma validate`: schema válido. `npm run test:integration` **no se corrió**: no hay Postgres
   alcanzable en este entorno (`localhost:5432` sin respuesta) ⇒ **M-47 no se ha ejecutado contra una BD
   real**. El DDL es un `ADD COLUMN TEXT` por columna, la misma forma que las ~30 migraciones aditivas ya

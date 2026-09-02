@@ -915,17 +915,36 @@ export class CatalogSyncService {
     try {
       parsed = new URL(raw);
     } catch {
+      // N-3 — POR QUÉ ESTE LOG **NO** INTERPOLA `raw`, y por qué no es un descuido que arreglar
+      // devolviéndolo:
+      //  · En esta rama el parseo FALLÓ ⇒ no existe ninguna forma normalizada de la cadena. Volcarla
+      //    sería escribir en el log, verbatim, exactamente lo que se acaba de declarar NO CONFIABLE.
+      //  · Una cadena con `CRLF` puede **forjar líneas de log** (log injection): un atacante que
+      //    controle el upstream podría fabricar una línea que parezca de otro subsistema. `raw` viene
+      //    de un tercero, y ésta es la ÚNICA rama donde no ha pasado por el parser.
+      //  · `M47-D1` (docs/TECH_DEBT.md) se apoya en estos `warn` como **única señal** de que una URL
+      //    se está rechazando de forma indefinida ⇒ tienen que ser greppables y NO forjables. Un
+      //    prefijo estable (`upsertSet(<setId>): images.<kind>`) vale más que el contenido crudo.
+      //  · El diagnóstico queda REDUCIDO, no perdido: set + tipo de imagen + `length` (un número no
+      //    puede forjar una línea, y distingue «vino basura larga» de «vino un token corto»). Para ver
+      //    la cadena exacta está la respuesta del proveedor, no nuestro log.
       this.logger.warn(
-        `upsertSet(${setExternalId}): images.${kind} no es una URL absoluta; NO se persiste (M-47).`,
+        `upsertSet(${setExternalId}): images.${kind} no es una URL absoluta ` +
+          `(longitud=${raw.length}; se OMITE el valor crudo a propósito, ver N-3); NO se persiste (M-47).`,
       );
       return null;
     }
     // Credenciales embebidas: mismo rechazo que `sanitizeSealedImageUrl` (§4.32c) — `https://evil@host/`
     // existe para que el host real pase desapercibido.
     if (parsed.username !== '' || parsed.password !== '') {
+      // A DIFERENCIA de la rama de arriba, aquí `parsed` SÍ existe ⇒ sí se puede nombrar contra qué se
+      // rechazó. `URL.host` es un componente ya PARSEADO y normalizado: el WHATWG URL prohíbe C0/espacio
+      // en el host y elimina tab/CR/LF de la entrada antes de parsear ⇒ **no puede forjar una línea**.
+      // Es justo el dato diagnosticable (`…@evil.com` vs `evil@images.pokemontcg.io`), sin volcar la
+      // cadena no confiable. El userinfo NO se registra: es el material sensible del caso.
       this.logger.warn(
-        `upsertSet(${setExternalId}): images.${kind} trae credenciales embebidas (userinfo); ` +
-          `NO se persiste (M-47, §4.39.4).`,
+        `upsertSet(${setExternalId}): images.${kind} trae credenciales embebidas (userinfo) ` +
+          `sobre el host ${parsed.host}; NO se persiste (M-47, §4.39.4).`,
       );
       return null;
     }

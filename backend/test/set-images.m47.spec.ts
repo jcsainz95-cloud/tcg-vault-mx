@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common';
 import { CatalogSyncService } from '../src/modules/catalog/catalog-sync.service';
 import { CatalogService, toCardDTO } from '../src/modules/catalog/catalog.service';
 import { MasterSetService } from '../src/modules/inventory/master-set.service';
@@ -212,6 +213,68 @@ describe('M-47 (A) — I-4: puerto, userinfo y NORMALIZACIÓN de la cadena persi
     const args = await upsertArgsFor({ ...baseSet, images: { logo: `${HOST}/sv8/lo go.png` } });
     expect(args.create.logoUrl).toBe(`${HOST}/sv8/lo%20go.png`);
     expect(args.create.logoUrl).not.toContain(' ');
+  });
+});
+
+/**
+ * N-3 (gate de QA) — DISCIPLINA DE LOG del guardarraíl. `M47-D1` (docs/TECH_DEBT.md) declara estos
+ * `warn` la ÚNICA señal de que una URL se rechaza indefinidamente, así que su forma es contrato
+ * operativo, no cosmética: tienen que ser **greppables** y **no forjables**. Estos tests fijan la
+ * decisión de recortar `raw` para que el próximo lector no la lea como descuido y la «arregle».
+ */
+describe('M-47 (A) — N-3: qué se registra al rechazar, y qué NO', () => {
+  /** Captura los `warn` emitidos durante una corrida de `sync`. */
+  async function warnsFor(set: Record<string, unknown>): Promise<string[]> {
+    const spy = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    try {
+      const svc = new CatalogSyncService(
+        syncPrisma() as PrismaService,
+        clientForSet(set),
+        syncSettings(),
+        reconciler(),
+      );
+      await svc.sync('sv8');
+      return spy.mock.calls.map((c) => String(c[0]));
+    } finally {
+      spy.mockRestore();
+    }
+  }
+
+  it('URL no parseable: el log NO vuelca la cadena cruda (anti log-injection) pero SIGUE siendo diagnosticable', async () => {
+    // CRLF: si la cadena entrara verbatim al log, un upstream comprometido podría FORJAR una línea
+    // que parezca emitida por otro subsistema.
+    const forjada = '/x/logo.png\r\nWARN [OtroServicio] LINEA-FORJADA';
+    const warns = (await warnsFor({ ...baseSet, images: { logo: forjada } })).filter((w) =>
+      w.includes('images.logo'),
+    );
+    expect(warns).toHaveLength(1);
+    const w = warns[0];
+    // Lo que NO puede estar: la cadena cruda, ni ningún salto de línea que parta el registro.
+    expect(w).not.toContain('LINEA-FORJADA');
+    expect(w).not.toContain(forjada);
+    expect(w).not.toMatch(/[\r\n]/);
+    // Lo que SÍ tiene que estar: prefijo estable greppable + el dato no forjable que queda.
+    expect(w).toContain('upsertSet(sv8)');
+    expect(w).toContain('images.logo');
+    expect(w).toContain(`longitud=${forjada.length}`);
+  });
+
+  it('userinfo: el log NOMBRA el host (contra qué se rechazó) y NO filtra las credenciales', async () => {
+    const warns = (
+      await warnsFor({
+        ...baseSet,
+        images: { logo: 'https://evil:s3cr3t@images.pokemontcg.io/x.png' },
+      })
+    ).filter((w) => w.includes('images.logo'));
+    expect(warns).toHaveLength(1);
+    const w = warns[0];
+    // `URL.host` es un componente ya parseado: diagnosticable y no forjable.
+    expect(w).toContain('images.pokemontcg.io');
+    expect(w).toContain('userinfo');
+    // El userinfo es el material sensible del caso: no se registra ni el usuario ni la contraseña.
+    expect(w).not.toContain('s3cr3t');
+    expect(w).not.toContain('evil');
+    expect(w).not.toMatch(/[\r\n]/);
   });
 });
 
