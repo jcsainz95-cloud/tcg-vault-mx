@@ -12797,3 +12797,126 @@ Baseline de entrada: 225 suites / 3045 unitarios y 15 suites / 183 de integraci�
    dos, pero no las ordena **entre sí**. Se eligió el **`422` primero** (es el orden en que §M5 las
    lista y es el campo de dinero). El test de integración acepta cualquiera de los dos a propósito, y
    fija el discriminante limpio (`adjust` sin monto ⇒ `409`).
+
+---
+
+## v1.51.20-b — Las tres escaladas, resueltas por el arquitecto (2026-09-02)
+
+> **Entrada:** dictamen del arquitecto (`e406b57`) sobre las tres escaladas que dejé abiertas.
+> **Ninguna era bloqueante y las tres cambiaron algo.** Dos códigos de error nuevos, cero DDL, cero
+> endpoints. Lo anoto aquí porque **una de las tres corrige código mío que ya estaba en `main`**.
+
+### 1. `PICKUP_ADDRESS_NOT_FOUND` — el superset se retira: `details` queda `{ field: "addressId" }`
+Yo emitía **los dos** (`field` **y** `addressId`) porque §6 y §M5 los declaraban distinto y el cuerpo
+que resuelve la dirección es **compartido** por las tres rutas. El arquitecto lo corrigió y el
+argumento va más allá de la pregunta que hice:
+- **`field` dice qué control repintar** —lo único que separa *capturar* (`PICKUP_ADDRESS_REQUIRED`) de
+  *volver a elegir*—; **el id no contesta nada nuevo: el cliente lo acaba de mandar en esa petición**.
+- **Devolverlo saca un UUID ajeno** al cuerpo, a los logs y a la telemetría — **en el único código de
+  la familia que existe por ANTI-ENUMERACIÓN**. *Eco de un identificador que no es tuyo, en el error
+  diseñado para no confirmar que existe.*
+- Y su juicio sobre mi salida, que me llevo: **el superset era la peor de las tres opciones — no
+  cierra la ambigüedad, la vuelve permanente.** El hueco era de declaración (una sección la declaraba
+  y las otras dos la dejaban sin declarar), y *un hueco de declaración se lee como permiso*.
+
+**Hecho:** una línea en `resolvePickupAddressSnapshot`. No rompe al front (ramifica por `code`).
+
+### 2. ⚠️ `approve` sobre una línea que NO compramos — `422 ITEM_NOT_OFFERED` + backstop `500`
+**Esto era mucho más grave que el `0` que yo dejé documentado.** Yo implementé lo que el contrato
+decía (el monto sale de `offeredPriceCents`), me topé con que una línea `skip` **no tiene ninguno**,
+fijé `0` y **no inventé un código** (§N.2). El hueco era del contrato — pero el efecto del `0` no era
+cosmético: **la línea quedaba `aprobada`**, y `aprobada` es exactamente:
+1. **el ÚNICO estado que `convert-to-inventory` admite** (`422 ITEM_NOT_APPROVED` es su guarda única)
+   ⇒ **una carta que nunca compramos entraba al inventario VENDIBLE** con `acquisitionCostCents = 0`
+   ⇒ **M7 reportando 100 % de margen sobre mercancía ajena**;
+2. **el estado que saca la línea de §H** —los plazos 7d/30d se anclan en `rejectedAt`, que solo
+   escribe `reject`— ⇒ **el reloj de devolución del vendedor no arrancaba nunca** y su carta
+   desaparecía en silencio, sin correo y sin fila en ninguna cola.
+
+*Tercer `0` de este stream que significaba «no hay dato» y se leía como cifra. Aquí ni siquiera falta
+un dato: la línea **no se compró**, y el número correcto no es `0` — es que la operación no exista.*
+
+| `offerDecision` | `offeredPriceCents` | Resultado |
+|---|---|---|
+| `buy` | no nulo | `200` · `approvedPriceCents := offeredPriceCents` **server-side** |
+| `skip` | (`null` siempre) | **`422 ITEM_NOT_OFFERED`** · `{ itemId, offerDecision }` · no escribe nada |
+| `null` | — | **`422 ITEM_NOT_OFFERED`** · `{ itemId, offerDecision: null }` |
+| `buy` | **`null`** ⚠️ | **`500 OFFERED_PRICE_MISSING`** · `{ itemId }` · no escribe nada, no paga |
+
+- **Discriminador: una sola pregunta — ¿le debemos dinero a esta línea?** **No** ⇒ `422` accionable,
+  y **el remedio está a un clic**: `decision:"reject"` con motivo, que ancla §H y manda el correo por
+  carta. **Sí, y no sabemos cuánto** ⇒ **`500` backstop**, misma doctrina que
+  `OFFER_PROJECTION_INCOMPLETE`: el operador **no lo causó y no puede resolverlo**, así que **se
+  arregla el bug** — no se paga un `0` ni se degrada a `422`, que culparía a quien pulsó el botón.
+- **`reject` no cambia** y **fuera del ciclo nada de esto aplica** (`offerDecision` es `null` en toda
+  línea pre-ciclo: aplicarlo allí rompería la cohorte legacy entera).
+- **`convert-to-inventory` NO gana una segunda guarda:** con esta norma una `skip` **jamás alcanza
+  `aprobada`**, así que `ITEM_NOT_APPROVED` sigue bastando. *Duplicar la guarda duplicaría la regla.*
+- **Se retiró el `?? 0`** de la resolución del monto: dentro del ciclo la escalera ya garantizó las dos
+  condiciones, así que el valor **no puede** faltar. *Un `?? 0` ahí volvería a abrir el agujero entero.*
+
+### 3. La precedencia va **al revés** de lo que implementé: gana el `409`
+```
+409 NO_LIVE_ADJUSTMENT                     «esta SOLICITUD está cerrada»   (terminal)
+  >  409 ADJUST_NOT_ALLOWED_IN_OFFER_CYCLE «este VERBO no existe aquí»     [solo decision="adjust"]
+     422 ITEM_NOT_OFFERED                  «esta LÍNEA no se compró»       [solo decision="approve"]
+  >  422 OFFER_PRICE_IMMUTABLE             «ese CAMPO no viaja»            [CUALQUIER decision]
+  >  500 OFFERED_PRICE_MISSING             backstop
+```
+Yo puse el `422` del campo primero **siguiendo el orden en que §M5 los lista** — y *el orden de una
+lista nunca fue una precedencia*. El criterio correcto es **de lo que anula el ACTO ENTERO a lo que
+objeta un CAMPO**, el mismo con el que ya se había puesto el terminal encima: *«ese campo no se toca»*
+le insinúa al operador *«quítalo y procede»*, **y no procede** — el reintento sin monto choca igual
+con el `409`. **Dos errores para una causa, y el primero apunta al remedio equivocado.**
+Los dos peldaños del medio **no compiten**: los selecciona un `decision` distinto.
+
+⚠️ **Precisión que evita una cuarta escalada: `OFFER_PRICE_IMMUTABLE` es regla del CUERPO, no del
+VERBO** ⇒ **`approvedPriceCents` presente ⇒ `422` sea cual sea el `decision`, `reject` incluido**. No
+contradice que `reject` siga siendo legal a los dos lados del eje: *lo que se rechaza es el cuerpo, no
+el verbo*. **Aceptar-e-ignorar un campo de dinero entrena al integrador a mandarlo, y el día que el
+verbo cambie empieza a tener efecto.**
+
+**Y aquí se nota por qué el test estaba bien escrito:** el caso de integración **aceptaba cualquiera
+de los dos a propósito**, así que **no había clavado mi elección en un test** y la inversión no rompió
+nada. Ahora **fija el `409`**, conservando el discriminante limpio.
+
+### Cómo quedó implementado
+- **Un solo cuerpo**, `assertOfferCycleAllows(decision, approvedPriceCents, line, status)`: síncrono y
+  sin leer BD, para que lo compartan **los dos** sitios que lo necesitan —el pre-check y el
+  discriminador de la guarda del motor—. *Dos escaleras de precedencia para el mismo endpoint son dos
+  precedencias, y la que se lee en el código no sería la que se dispara en una carrera.*
+- El discriminador de la carrera **relee la línea**: la que teníamos en la mano es **pre-ciclo**
+  (`offerDecision: null`), y evaluarla daría `ITEM_NOT_OFFERED` sobre una línea que **acaba de
+  comprarse**. Se relee para que el error sea **el mismo que daría el reintento**.
+- Los dos códigos entran al **enum central** (`common/error-codes.ts`, **zona compartida** — nadie más
+  la tocó en esta ventana).
+
+### BL-28 — mi hallazgo, normado
+`offer/cancel` limpiaba `offerSentAt`. La norma escrita: **esa marca es la señal PERMANENTE de
+pertenencia al ciclo; lo vivo lo dice `offerState`; ninguna ruta la limpia jamás.** Verificado por
+`grep`: tras el arreglo, `offerSentAt: null` solo aparece **en un `where`** (predicado de lectura de la
+guarda de `respond`), en ninguna escritura.
+
+### Verificación (literal)
+```
+npx tsc --noEmit -p tsconfig.json        →  sin salida (limpio)
+npx eslint "src/**/*.ts" "test/**/*.ts"  →  0 errores, 2 warnings PRE-EXISTENTES
+npx jest                                 →  Test Suites: 227 passed, 227 total
+                                            Tests:       3069 passed, 3069 total
+./scripts/stack-native.sh test:integration
+                                         →  Test Suites: 16 passed, 16 total
+                                            Tests:       228 passed, 228 total
+```
+Respecto al pase anterior (3063 / 224): **+6 unitarios y +4 de integración**, todos de los dos códigos
+nuevos y de la precedencia invertida.
+
+### Para el FRONTEND (aditivo sobre la nota anterior)
+- **`PICKUP_ADDRESS_NOT_FOUND` ya NO devuelve `details.addressId`** — solo `{ field: "addressId" }`.
+  Si alguien lo leía, era un eco de lo que él mismo mandó.
+- **Dos códigos nuevos en `PATCH /admin/buylist/items/:itemId/decision`:** `422 ITEM_NOT_OFFERED`
+  (`{ itemId, offerDecision }`) — **el copy debe empujar a `reject` con motivo, no a «aprobar más
+  barato»** — y `500 OFFERED_PRICE_MISSING` (`{ itemId }`), que es **defecto nuestro**: el copy no
+  debe culpar al operador.
+- **`adjust` con monto ahora responde `409`, no `422`.** Si el front ramificaba por status, revisar.
+- **`reject` con `approvedPriceCents` en el body ahora es `422`** dentro del ciclo (antes se ignoraba
+  el campo). Si alguna pantalla lo manda «por si acaso», hay que dejar de mandarlo.

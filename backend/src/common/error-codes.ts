@@ -226,6 +226,35 @@ export const ErrorCode = {
   // línea por línea. ⚠️ Precedencia: `NO_LIVE_ADJUSTMENT` (terminal) GANA sobre ésta.
   // `details: { itemId, offeredPriceCents }`. 422.
   OFFER_PRICE_IMMUTABLE: 'OFFER_PRICE_IMMUTABLE',
+  // ⚠️ v1.51.20 (§0, §M5, ARCHITECTURE §4.39(i) 6-bis) — `decision:"approve"` DENTRO del ciclo
+  // (`offerSentAt IS NOT NULL`) sobre una línea con `offerDecision != 'buy'`: **una carta que NO
+  // compramos** (`skip`, o una línea sin decisión). `details: { itemId, offerDecision }`. **No escribe
+  // nada.** 422.
+  //
+  // **El guardarraíl que es, y no era cosmético.** `offeredPriceCents` es `null` en TODA línea `skip`,
+  // así que un `?? 0` dejaba la línea **`aprobada` con monto cero** — y `aprobada` es exactamente:
+  //   (1) el **único** estado que `convert-to-inventory` admite (su guarda única es
+  //       `422 ITEM_NOT_APPROVED`) ⇒ **una carta que nunca compramos entraba al inventario VENDIBLE**
+  //       con `acquisitionCostCents = 0` ⇒ M7 reportando **100 % de margen sobre mercancía ajena**; y
+  //   (2) el estado que **saca la línea de §H** —los plazos 7d/30d se anclan en `rejectedAt`, que solo
+  //       escribe `reject`— ⇒ **el reloj de devolución del vendedor no arrancaba nunca** y su carta
+  //       desaparecía en silencio, sin correo y sin fila en ninguna cola.
+  // **El remedio NO es aprobarla más barata: es `decision:"reject"` con motivo**, que ancla §H y manda
+  // el correo por carta. ⚠️ **Fuera del ciclo NO EXISTE**: `offerDecision` es `null` en toda línea
+  // pre-ciclo, y aplicarlo allí rompería la cohorte legacy entera.
+  // **Hermano de `ITEM_NOT_APPROVED`, y no el mismo:** aquél dice «esta línea aún no está aprobada»;
+  // éste dice **«esta línea no se puede aprobar: no la compramos»**.
+  ITEM_NOT_OFFERED: 'ITEM_NOT_OFFERED',
+  // ⚠️ v1.51.20 — **BACKSTOP, no error de cliente.** `approve` sobre una línea `offerDecision='buy'`
+  // cuyo `offeredPriceCents` es `null`: viola el invariante que la emisión garantiza **sin excepción**
+  // (`buy ⇒ offeredPriceCents IS NOT NULL`). `details: { itemId }`. **No escribe nada y no paga.** 500.
+  //
+  // **Es `500` y no `422` a propósito** (misma doctrina que `OFFER_PROJECTION_INCOMPLETE`): el operador
+  // **no lo causó y no puede resolverlo**; un `422` culparía a quien pulsó el botón. **Si dispara, se
+  // arregla el bug** — no se paga un `0` ni se «rescata» con la cascada del costo de adquisición.
+  // **Discriminador con `ITEM_NOT_OFFERED`, una sola pregunta: ¿le debemos dinero a esta línea?**
+  // **No** ⇒ `422` accionable. **Sí, y no sabemos cuánto** ⇒ `500`.
+  OFFERED_PRICE_MISSING: 'OFFERED_PRICE_MISSING',
   // Una carta rechazada en verificación (resultado NO-NM, PROJECT §H) NUNCA puede
   // convertirse en InventoryItem vendible: convert-to-inventory exige itemStatus='aprobada'.
   ITEM_NOT_APPROVED: 'ITEM_NOT_APPROVED',

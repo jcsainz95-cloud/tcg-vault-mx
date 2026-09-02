@@ -59,6 +59,11 @@ function fakeDb(opts: {
   itemStatus?: string;
   offeredPriceCents?: number | null;
   quotedPriceCents?: number | null;
+  /**
+   * v1.51.20 — **qué decidimos sobre ESTA línea al ofertar.** `'buy'` por defecto (la línea del
+   * camino feliz); `'skip'` y `null` son los dos casos de `422 ITEM_NOT_OFFERED`.
+   */
+  offerDecision?: 'buy' | 'skip' | null;
 }) {
   const request: Record<string, unknown> = {
     id: 'sr-1',
@@ -76,6 +81,7 @@ function fakeDb(opts: {
     itemStatus: opts.itemStatus ?? 'verificacion',
     quotedPriceCents: opts.quotedPriceCents ?? 50_000,
     offeredPriceCents: opts.offeredPriceCents ?? null,
+    offerDecision: opts.offerDecision === undefined ? 'buy' : opts.offerDecision,
     approvedPriceCents: null,
     finish: 'normal',
     rejectedAt: null,
@@ -219,6 +225,21 @@ describe('BL-27 — `itemDecision` en el CICLO DE OFERTA (§M5, criterios 119/12
     expect(item.rejectionReason).toBe('no es NM: whitening');
   });
 
+  it('⚠️ PRECEDENCIA v1.51.20: `adjust` CON monto ⇒ gana el `409` del VERBO, no el `422` del CAMPO', async () => {
+    // Escalada 3, resuelta por el arquitecto **al revés de lo que implementé primero**. Criterio: *de
+    // lo que anula el ACTO ENTERO a lo que objeta un CAMPO*. Con el `422` delante, el operador lee
+    // «ese campo no se toca» ⇒ lo quita y reintenta ⇒ **choca igual con el `409`**. Dos errores para
+    // una causa, y el primero apunta al remedio equivocado.
+    const { svc, item, request, writes } = fakeDb({ offerSentAt: OFFER_SENT, offeredPriceCents: 63_500 });
+    await expect(svc.itemDecision('sri-1', 'adjust', 9_900)).rejects.toMatchObject({
+      code: 'ADJUST_NOT_ALLOWED_IN_OFFER_CYCLE',
+      details: { status: 'verificacion' },
+    });
+    expect(item.itemStatus).not.toBe('ajustada');
+    expect(request.adjustmentSentAt).toBeNull();
+    expect(writes).toEqual([]);
+  });
+
   it('⚠️ PRECEDENCIA: sobre una TERMINAL gana `409 NO_LIVE_ADJUSTMENT`, aunque las dos apliquen', async () => {
     // *Una solicitud cerrada no se discute por el monto: no se toca.* El contrato lo fija explícito.
     const { svc, writes } = fakeDb({
@@ -230,6 +251,90 @@ describe('BL-27 — `itemDecision` en el CICLO DE OFERTA (§M5, criterios 119/12
       code: 'NO_LIVE_ADJUSTMENT',
       details: { status: 'pagada' },
     });
+    expect(writes).toEqual([]);
+  });
+
+  describe('⚠️ v1.51.20 — `approve` sobre una línea que NO COMPRAMOS (escalada 2)', () => {
+    // El dictamen del arquitecto en una frase: con el `?? 0` la línea quedaba **`aprobada`**, que es
+    // (1) el ÚNICO estado que `convert-to-inventory` admite ⇒ **una carta que nunca compramos entraba
+    // al inventario VENDIBLE con costo 0** (100 % de margen sobre mercancía ajena), y (2) el estado
+    // que la **saca de §H** ⇒ el reloj de devolución del vendedor **no arrancaba nunca**.
+    // *Aquí ni siquiera falta un dato: la línea NO SE COMPRÓ, y el número correcto no es `0` — es que
+    // la operación no exista.*
+
+    it('línea `skip` ⇒ 422 ITEM_NOT_OFFERED, y NO llega a `aprobada`', async () => {
+      const { svc, item, writes } = fakeDb({
+        offerSentAt: OFFER_SENT,
+        offerDecision: 'skip',
+        offeredPriceCents: null, // `skip` NUNCA lleva monto (§11, por diseño)
+      });
+      await expect(svc.itemDecision('sri-1', 'approve')).rejects.toMatchObject({
+        code: 'ITEM_NOT_OFFERED',
+        details: { itemId: 'sri-1', offerDecision: 'skip' },
+      });
+      // ⚠️ LA aserción que justifica el código: `aprobada` es la puerta de la conversión.
+      expect(item.itemStatus).not.toBe('aprobada');
+      expect(item.approvedPriceCents).toBeNull();
+      expect(writes).toEqual([]);
+    });
+
+    it('línea SIN decisión (`null`) en una oferta ya emitida ⇒ 422 ITEM_NOT_OFFERED', async () => {
+      const { svc, item, writes } = fakeDb({
+        offerSentAt: OFFER_SENT,
+        offerDecision: null,
+        offeredPriceCents: null,
+      });
+      await expect(svc.itemDecision('sri-1', 'approve')).rejects.toMatchObject({
+        code: 'ITEM_NOT_OFFERED',
+        details: { itemId: 'sri-1', offerDecision: null },
+      });
+      expect(item.itemStatus).not.toBe('aprobada');
+      expect(writes).toEqual([]);
+    });
+
+    it('la vía CORRECTA sobre una `skip` es `reject` con motivo — y sigue funcionando', async () => {
+      // *El remedio no es aprobarla más barata.* `reject` ancla `rejectedAt`, que es el ancla ÚNICA
+      // de los plazos 7d/30d de §H y lo que dispara el correo por carta.
+      const { svc, item } = fakeDb({
+        offerSentAt: OFFER_SENT,
+        offerDecision: 'skip',
+        offeredPriceCents: null,
+      });
+      const res: any = await svc.itemDecision('sri-1', 'reject', undefined, 'llegó sin haber sido ofertada');
+      expect(res.itemStatus).toBe('rechazada');
+      expect(item.rejectedAt).not.toBeNull();
+    });
+
+    it('línea `buy` SIN `offeredPriceCents` ⇒ 500 OFFERED_PRICE_MISSING (backstop, no culpa del operador)', async () => {
+      // Viola el invariante que la emisión garantiza SIN EXCEPCIÓN. Es `500` a propósito: el operador
+      // no lo causó y no puede resolverlo. **Si dispara, se arregla el bug — no se paga un `0`.**
+      const { svc, item, writes } = fakeDb({
+        offerSentAt: OFFER_SENT,
+        offerDecision: 'buy',
+        offeredPriceCents: null,
+      });
+      await expect(svc.itemDecision('sri-1', 'approve')).rejects.toMatchObject({
+        code: 'OFFERED_PRICE_MISSING',
+        details: { itemId: 'sri-1' },
+      });
+      expect(item.approvedPriceCents).toBeNull();
+      expect(writes).toEqual([]);
+    });
+  });
+
+  it('⚠️ `OFFER_PRICE_IMMUTABLE` es regla del CUERPO, no del VERBO ⇒ aplica también con `reject`', async () => {
+    // Precisión del arquitecto que evita una cuarta escalada. No contradice que `reject` siga siendo
+    // legal a los dos lados del eje: **lo que se rechaza es el CUERPO, no el verbo**.
+    // *Aceptar-e-ignorar un campo de dinero entrena al integrador a mandarlo, y el día que el verbo
+    // cambie empieza a tener efecto.*
+    const { svc, item, writes } = fakeDb({ offerSentAt: OFFER_SENT, offeredPriceCents: 63_500 });
+    await expect(
+      svc.itemDecision('sri-1', 'reject', 9_900, 'no es NM: whitening'),
+    ).rejects.toMatchObject({
+      code: 'OFFER_PRICE_IMMUTABLE',
+      details: { itemId: 'sri-1', offeredPriceCents: 63_500 },
+    });
+    expect(item.itemStatus).not.toBe('rechazada');
     expect(writes).toEqual([]);
   });
 

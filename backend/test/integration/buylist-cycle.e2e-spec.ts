@@ -112,6 +112,12 @@ describe('E2E — Ciclo de adquisición del buylist (§6 · §M5)', () => {
       expect(ajeno.body.error.code).toBe('PICKUP_ADDRESS_NOT_FOUND');
       expect(inexistente.body.error.code).toBe(ajeno.body.error.code);
       expect(inexistente.body.error.message).toBe(ajeno.body.error.message);
+      // ⚠️ v1.51.20 (escalada 1) — `details` es **`{ field }` y NADA MÁS**. El `addressId` se retiró:
+      // no contesta nada nuevo (el cliente lo acaba de mandar) y devolverlo **sacaría un UUID ajeno**
+      // al cuerpo, a los logs y a la telemetría, **justo en el único código de la familia que existe
+      // por anti-enumeración**. Se afirma la AUSENCIA, que es lo que el eco haría regresar.
+      expect(ajeno.body.error.details).toEqual({ field: 'addressId' });
+      expect(inexistente.body.error.details).toEqual({ field: 'addressId' });
     });
 
     it('por DEBAJO del mínimo → 422 BUYLIST_MINIMUM_NOT_MET con el faltante calculado por el SERVIDOR', async () => {
@@ -522,12 +528,13 @@ describe('E2E — Ciclo de adquisición del buylist (§6 · §M5)', () => {
         token: operatorToken,
         json: { decision: 'adjust', approvedPriceCents: 9900 },
       });
-      // ⚠️ `approvedPriceCents` viaja TAMBIÉN aquí, y gana el `422`: es la primera puerta y el
-      // contrato la lista primero. Lo que este caso fija es que **ninguna de las dos deja pasar**.
-      expect([409, 422]).toContain(res.status);
-      expect(['ADJUST_NOT_ALLOWED_IN_OFFER_CYCLE', 'OFFER_PRICE_IMMUTABLE']).toContain(
-        res.body.error.code,
-      );
+      // ⚠️ v1.51.20 (escalada 3, resuelta) — **este caso ya FIJA el `409`.** `approvedPriceCents`
+      // viaja también aquí y, aun así, **gana el `409` del VERBO sobre el `422` del CAMPO**: la
+      // precedencia va *de lo que anula el ACTO ENTERO a lo que objeta un CAMPO*. Con el `422`
+      // delante, el operador lee «ese campo no se toca», lo quita y reintenta — **y choca igual con
+      // el `409`**: dos errores para una causa, y el primero apunta al remedio equivocado.
+      expect(res.status).toBe(409);
+      expect(res.body.error.code).toBe('ADJUST_NOT_ALLOWED_IN_OFFER_CYCLE');
       // Sin monto en el body, el discriminante es limpio: `adjust` no existe en el ciclo, punto.
       const soloAdjust = await h.api('PATCH', `/admin/buylist/items/${itemId}/decision`, {
         token: operatorToken,
@@ -568,6 +575,106 @@ describe('E2E — Ciclo de adquisición del buylist (§6 · §M5)', () => {
       expect(res.status).toBe(409);
       expect(res.body.error.code).toBe('NO_LIVE_ADJUSTMENT');
       expect(res.body.error.details.status).toBe('rechazada');
+    });
+  });
+
+  // ===========================================================================================
+  // 5-bis) `approve` SOBRE UNA LÍNEA QUE NO COMPRAMOS — 422 ITEM_NOT_OFFERED (escalada 2)
+  // ===========================================================================================
+  describe('una carta que no compramos no entra al inventario (v1.51.20, §4.39(i) 6-bis)', () => {
+    let srId: string;
+    let buyItemId: string;
+    let skipItemId: string;
+
+    beforeAll(async () => {
+      // DOS líneas físicas de la misma carta (§4.16b: no se colapsan). Se compra una y se descarta
+      // la otra — el cherry-pick real del criterio 148.
+      const created = await createRequest(
+        validBody({
+          items: [
+            { cardId: cardId.charizard, productType: 'raw', rawCondition: 'NM' },
+            { cardId: cardId.charizard, productType: 'raw', rawCondition: 'NM' },
+          ],
+        }),
+      );
+      srId = created.body.sellRequestId;
+      const detail = await h.api('GET', `/admin/buylist/${srId}`, { token: operatorToken });
+      buyItemId = detail.body.items[0].id;
+      skipItemId = detail.body.items[1].id;
+      const offer = await h.api('POST', `/admin/buylist/${srId}/offer`, {
+        token: operatorToken,
+        json: {
+          lines: [
+            { itemId: buyItemId, decision: 'buy' },
+            { itemId: skipItemId, decision: 'skip' },
+          ],
+        },
+      });
+      expect(offer.status).toBe(200);
+      await h.api('POST', `/buylist/requests/${srId}/offer-response`, {
+        token: customerToken,
+        json: { decision: 'accept' },
+      });
+    });
+
+    it('`approve` sobre la línea `skip` → 422 ITEM_NOT_OFFERED y NO alcanza `aprobada`', async () => {
+      const res = await h.api('PATCH', `/admin/buylist/items/${skipItemId}/decision`, {
+        token: operatorToken,
+        json: { decision: 'approve' },
+      });
+      expect(res.status).toBe(422);
+      expect(res.body.error.code).toBe('ITEM_NOT_OFFERED');
+      expect(res.body.error.details).toEqual({ itemId: skipItemId, offerDecision: 'skip' });
+
+      // ⚠️ **LA ASERCIÓN QUE JUSTIFICA EL CÓDIGO.** `aprobada` es el ÚNICO estado que
+      // `convert-to-inventory` admite: con el `?? 0` de antes, esta carta —que NUNCA compramos—
+      // entraba al inventario VENDIBLE con costo 0. Se comprueba por la puerta de verdad.
+      const item = await h.prisma.sellRequestItem.findUnique({ where: { id: skipItemId } });
+      expect(item!.itemStatus).not.toBe('aprobada');
+      expect(item!.approvedPriceCents).toBeNull();
+      const convert = await h.api('POST', `/admin/buylist/items/${skipItemId}/convert-to-inventory`, {
+        token: operatorToken,
+      });
+      expect(convert.status).toBe(422);
+      expect(convert.body.error.code).toBe('ITEM_NOT_APPROVED');
+    });
+
+    it('la vía correcta es `reject` con motivo: ancla §H y deja el reloj del vendedor corriendo', async () => {
+      const res = await h.api('PATCH', `/admin/buylist/items/${skipItemId}/decision`, {
+        token: operatorToken,
+        json: { decision: 'reject', reason: 'llegó sin haber sido ofertada: no la compramos' },
+      });
+      expect(res.status).toBe(200);
+      expect(res.body.itemStatus).toBe('rechazada');
+      // `rejectedAt` es el ancla ÚNICA de los plazos 7d/30d — lo que el `0` dejaba sin arrancar.
+      expect(res.body.rejectedAt).toBeTruthy();
+      const detalle = await h.api('GET', `/buylist/requests/${srId}`, { token: customerToken });
+      const linea = detalle.body.items.find((i: { id: string }) => i.id === skipItemId);
+      expect(linea.returnDeadlineAt).toBeTruthy();
+      expect(linea.abandonDeadlineAt).toBeTruthy();
+    });
+
+    it('⚠️ `OFFER_PRICE_IMMUTABLE` es regla del CUERPO: `reject` CON monto también es 422', async () => {
+      // Precisión del arquitecto. `reject` sigue siendo legal a los dos lados del eje — lo que se
+      // rechaza es el **cuerpo**, no el verbo. *Aceptar-e-ignorar un campo de dinero entrena al
+      // integrador a mandarlo, y el día que el verbo cambie empieza a tener efecto.*
+      const res = await h.api('PATCH', `/admin/buylist/items/${buyItemId}/decision`, {
+        token: operatorToken,
+        json: { decision: 'reject', reason: 'no es NM: whitening', approvedPriceCents: 9900 },
+      });
+      expect(res.status).toBe(422);
+      expect(res.body.error.code).toBe('OFFER_PRICE_IMMUTABLE');
+      const item = await h.prisma.sellRequestItem.findUnique({ where: { id: buyItemId } });
+      expect(item!.itemStatus).not.toBe('rechazada');
+    });
+
+    it('la línea `buy` sí se aprueba, al precio ofertado y server-side', async () => {
+      const res = await h.api('PATCH', `/admin/buylist/items/${buyItemId}/decision`, {
+        token: operatorToken,
+        json: { decision: 'approve' },
+      });
+      expect(res.status).toBe(200);
+      expect(res.body.approvedPriceCents).toBe(50000);
     });
   });
 

@@ -3643,11 +3643,16 @@ export class BuylistService implements OnModuleInit {
       throw BusinessException.validation(
         'PICKUP_ADDRESS_NOT_FOUND',
         'Address not found for this seller',
-        // ⚠️ v1.51.20: viajan LOS DOS. El contrato declara `details.addressId` en la ruta de ADMIN
-        // (§M5) y `details: { field: "addressId" }` en las de CLIENTE (§6): un cuerpo compartido no
-        // puede elegir una y dejar a la otra sin lo que su consumidor espera. Echar de vuelta el id
-        // que el propio llamador mandó no confirma nada sobre la existencia de una fila ajena.
-        { field: 'addressId', addressId },
+        // ⚠️ v1.51.20 (escalada 1, resuelta por el arquitecto) — **`field` Y NADA MÁS. El `addressId`
+        // se RETIRA.** Este cuerpo lo comparten las TRES rutas (crear, cliente y admin), así que la
+        // forma tiene que ser única o la ambigüedad se vuelve permanente.
+        // **Por qué `field` y no el id:** `field` dice *qué control repintar* —lo único que separa
+        // «capturar» (`PICKUP_ADDRESS_REQUIRED`) de «volver a elegir»—; **el id no contesta nada
+        // nuevo: el cliente lo acaba de mandar en esta misma petición**. Y devolverlo **saca un UUID
+        // ajeno** al cuerpo, a los logs y a la telemetría, **justo en el único código de la familia
+        // que existe por ANTI-ENUMERACIÓN**. *Eco de un identificador que no es tuyo, en el error
+        // diseñado para no confirmar que existe.*
+        { field: 'addressId' },
       );
     }
     return {
@@ -4803,22 +4808,133 @@ export class BuylistService implements OnModuleInit {
   }
 
   /**
+   * ⚠️⚠️ v1.51.20 — **LA ESCALERA DEL CICLO DE OFERTA, EN UN SOLO CUERPO.** §M5 (`PATCH
+   * /admin/buylist/items/:itemId/decision`), ARCHITECTURE §4.39(i) **6-bis**. Solo se invoca con
+   * `offerSentAt IS NOT NULL`: **fuera del ciclo nada de esto aplica** y `ITEM_NOT_OFFERED` **no
+   * existe** —`offerDecision` es `null` en toda línea pre-ciclo, y aplicarlo allí rompería la cohorte
+   * legacy entera.
+   *
+   * ### La PRECEDENCIA es normativa (escalada 3, resuelta por el arquitecto)
+   * ```
+   * 409 NO_LIVE_ADJUSTMENT                     «esta SOLICITUD está cerrada»   (terminal, ARRIBA de esto)
+   *   >  409 ADJUST_NOT_ALLOWED_IN_OFFER_CYCLE «este VERBO no existe aquí»     [solo decision="adjust"]
+   *      422 ITEM_NOT_OFFERED                  «esta LÍNEA no se compró»       [solo decision="approve"]
+   *   >  422 OFFER_PRICE_IMMUTABLE             «ese CAMPO no viaja»            [CUALQUIER decision]
+   *   >  500 OFFERED_PRICE_MISSING             backstop: se compró y no sabemos cuánto
+   * ```
+   * **Criterio: de lo que anula el ACTO ENTERO a lo que objeta un CAMPO** — el mismo con el que ya se
+   * puso el terminal encima de todo. *Una precedencia que cambia de criterio a mitad de lista no es
+   * una precedencia: son dos.*
+   *
+   * ⚠️ **Esto INVIRTIÓ lo que yo había implementado** (yo puse el `422` del campo primero, siguiendo
+   * el orden en que §M5 los **lista** — y el orden de una lista nunca fue una precedencia). El motivo
+   * de que gane el `409`: *«ese campo no se toca»* le insinúa al operador *«quítalo y procede»*, **y
+   * no procede** — el reintento sin monto choca igual con el `409`. **Dos errores para una causa, y
+   * el primero apunta al remedio equivocado.** La elección es **neutra en dinero**: las dos ramas
+   * rechazan sin escribir un peso.
+   * **Los dos peldaños del medio NO compiten**: los selecciona un `decision` distinto y solo llega uno
+   * por petición, así que su orden relativo nunca se plantea.
+   *
+   * ### ⚠️ `OFFER_PRICE_IMMUTABLE` es regla del CUERPO, no del VERBO
+   * Dentro del ciclo, **`approvedPriceCents` presente ⇒ `422`, sea cual sea el `decision`, `reject`
+   * incluido**. No contradice que `reject` siga siendo legal a los dos lados del eje: **lo que se
+   * rechaza es el cuerpo, no el verbo**. *Aceptar-e-ignorar un campo de dinero entrena al integrador
+   * a mandarlo, y el día que el verbo cambie empieza a tener efecto.*
+   *
+   * ### Por qué `ITEM_NOT_OFFERED` existe, y por qué era peor que «un cero mal puesto»
+   * `offeredPriceCents` es **`null` en toda línea `skip`** (§11, por diseño). Con `?? 0` la línea
+   * quedaba **`aprobada` con monto cero**, y `aprobada` es exactamente:
+   * **(1)** el **único** estado que `POST …/convert-to-inventory` admite ⇒ **una carta que nunca
+   * compramos entraba al inventario VENDIBLE** con `acquisitionCostCents = 0` ⇒ **M7 reportando 100 %
+   * de margen sobre mercancía ajena**; y **(2)** el estado que **saca la línea de §H** —los plazos
+   * 7d/30d se anclan en `rejectedAt`, que solo escribe `reject`— ⇒ **el reloj de devolución del
+   * vendedor nunca arrancaba y su carta desaparecía en silencio**, sin correo y sin cola.
+   * *Aquí ni siquiera falta un dato: la línea NO SE COMPRÓ, y el número correcto no es `0` — es que
+   * la operación no exista.* El remedio está a un clic y es **`reject` con motivo**.
+   *
+   * **`convert-to-inventory` NO gana una segunda guarda:** con esta norma una `skip` **jamás alcanza
+   * `aprobada`**, así que `ITEM_NOT_APPROVED` sigue bastando. *Duplicar la guarda duplicaría la
+   * regla, y la copia se desfasa.*
+   *
+   * ⚠️ **Es SÍNCRONA y no lee la BD**: recibe la línea y el estado ya leídos. Eso es lo que permite
+   * llamarla desde los **dos** sitios que la necesitan —el pre-check y el discriminador de la guarda
+   * del motor— sin que puedan divergir.
+   */
+  private assertOfferCycleAllows(
+    decision: 'approve' | 'adjust' | 'reject',
+    approvedPriceCents: number | undefined,
+    line: { id: string; offerDecision: BuyDecision | null; offeredPriceCents: number | null },
+    status: SellRequestStatus,
+  ): void {
+    // --- Peldaño 2: anula el ACTO ENTERO -----------------------------------------------------
+    // `adjust` no existe en el ciclo, nunca (criterio 150 por lo negativo).
+    if (decision === 'adjust') {
+      throw BusinessException.conflict(
+        'ADJUST_NOT_ALLOWED_IN_OFFER_CYCLE',
+        'Price adjustments do not exist in the offer cycle: the offered price is binding',
+        { status },
+      );
+    }
+    // Aprobar una carta que NO compramos. `reject` NO entra aquí: es legal sobre cualquier línea y es
+    // justamente la vía correcta para una `skip` que llegó en el paquete (§H).
+    if (decision === 'approve' && line.offerDecision !== 'buy') {
+      throw BusinessException.validation(
+        'ITEM_NOT_OFFERED',
+        'This line was not purchased: it cannot be approved. Reject it with a reason instead',
+        { itemId: line.id, offerDecision: line.offerDecision },
+      );
+    }
+
+    // --- Peldaño 3: objeta un CAMPO. CUALQUIER `decision`, `reject` incluido ------------------
+    if (approvedPriceCents != null) {
+      throw BusinessException.validation(
+        'OFFER_PRICE_IMMUTABLE',
+        'The offered price is binding: it cannot be repriced in the offer cycle',
+        { itemId: line.id, offeredPriceCents: line.offeredPriceCents },
+      );
+    }
+
+    // --- Peldaño 4: BACKSTOP. No es error del operador: es un invariante nuestro roto ---------
+    if (decision === 'approve' && line.offeredPriceCents == null) {
+      this.logger.error(
+        `buylist offered price missing for item ${line.id}: la línea es \`buy\` y no tiene ` +
+          '`offeredPriceCents`. Viola el invariante que la emisión garantiza SIN EXCEPCIÓN ' +
+          '(§4.39i.5). NO se aprueba y NO se paga: se arregla el bug.',
+      );
+      throw BusinessException.internal(
+        'OFFERED_PRICE_MISSING',
+        'This purchased line has no offered price on record; it cannot be approved',
+        { itemId: line.id },
+      );
+    }
+  }
+
+  /**
    * v1.51.20 · **BL-27** — el conflicto de `itemDecision` cuando la guarda del MOTOR no encontró la
    * fila, **con el estado releído** y **discriminando por eje**. Es el hermano de la rama de error de
    * `respond` (§4.39b.3): *un código que miente sobre la causa manda a alguien a esperar algo que no
    * va a pasar.*
    *
-   * **Precedencia idéntica a la del pre-check** (§M5, v1.51.5): **terminal primero**
-   * (`409 NO_LIVE_ADJUSTMENT` gana), y solo si la solicitud sigue viva se mira el ciclo de oferta.
-   * Llegar aquí con el eje del ciclo cambiado significa que **una emisión de oferta ganó la carrera**
-   * entre nuestra lectura y nuestra escritura: el monto que teníamos resuelto ya no es el vinculante,
-   * y por eso el `422 OFFER_PRICE_IMMUTABLE` es la respuesta correcta también para un `approve`
-   * (*«el precio ofertado manda; el que traías no se escribe»*).
+   * **Precedencia idéntica a la del pre-check, y por CONSTRUCCIÓN:** terminal primero
+   * (`409 NO_LIVE_ADJUSTMENT` gana) y, si la solicitud sigue viva y ya está en el ciclo, se delega en
+   * **`assertOfferCycleAllows` — el MISMO cuerpo** que evaluó el pre-check. *Dos escaleras de
+   * precedencia para el mismo endpoint son dos precedencias, y la que se lee en el código no sería la
+   * que se dispara en una carrera.*
+   *
+   * ⚠️ **La línea se RELEE, y es lo que hace honesta la respuesta.** Llegar aquí significa que una
+   * emisión de oferta ganó la carrera entre nuestra lectura y nuestra escritura, así que la línea que
+   * teníamos en la mano es **pre-ciclo** (`offerDecision: null`, sin monto ofertado): evaluar la
+   * escalera con ella daría `ITEM_NOT_OFFERED` sobre una línea que **acaba de comprarse**. Se relee
+   * para que el error sea **el mismo que daría el reintento**.
    */
   private async throwItemDecisionConflict(
-    db: SellRequestReader,
+    // ⚠️ Se AMPLÍA el lector localmente en vez de tocar `SellRequestReader` (zona compartida,
+    // `common/buylist-aml.ts`): la relectura de la LÍNEA solo la necesita este cuerpo, y ensanchar el
+    // tipo común obligaría a proveer `sellRequestItem` a los tres acumulados AML que no lo usan.
+    db: SellRequestReader & Pick<Prisma.TransactionClient, 'sellRequestItem'>,
     item: { id: string; sellRequestId: string; offeredPriceCents: number | null },
     decision: 'approve' | 'adjust',
+    approvedPriceCents?: number,
   ): Promise<never> {
     const sellRequestId = item.sellRequestId;
     const current = await db.sellRequest.findUnique({
@@ -4826,17 +4942,15 @@ export class BuylistService implements OnModuleInit {
       select: { status: true, offerSentAt: true },
     });
     if (current != null && !isTerminalSellRequestStatus(current.status) && current.offerSentAt != null) {
-      if (decision === 'adjust') {
-        throw BusinessException.conflict(
-          'ADJUST_NOT_ALLOWED_IN_OFFER_CYCLE',
-          'Price adjustments do not exist in the offer cycle: the offered price is binding',
-          { status: current.status },
-        );
-      }
-      throw BusinessException.validation(
-        'OFFER_PRICE_IMMUTABLE',
-        'The offered price is binding: it cannot be repriced in the offer cycle',
-        { itemId: item.id, offeredPriceCents: item.offeredPriceCents },
+      const fresh = await db.sellRequestItem.findUnique({
+        where: { id: item.id },
+        select: { id: true, offerDecision: true, offeredPriceCents: true },
+      });
+      this.assertOfferCycleAllows(
+        decision,
+        approvedPriceCents,
+        fresh ?? { id: item.id, offerDecision: null, offeredPriceCents: item.offeredPriceCents },
+        current.status,
       );
     }
     // Terminal (o cualquier otra desaparición de la fila): el `409` de siempre, con su relectura.
@@ -4952,19 +5066,7 @@ export class BuylistService implements OnModuleInit {
     // motor— está en el `where` de cada escritura de abajo.
     const inOfferCycle = item.sellRequest.offerSentAt != null;
     if (inOfferCycle) {
-      // El monto NO se toma del cliente NI DEL ADMIN: `approve` lo fija server-side desde la línea
-      // ofertada. Un `approvedPriceCents` en el body es, literalmente, repreciar lo ya firmado.
-      if (approvedPriceCents != null) {
-        throw BusinessException.validation(
-          'OFFER_PRICE_IMMUTABLE',
-          'The offered price is binding: it cannot be repriced in the offer cycle',
-          { itemId, offeredPriceCents: item.offeredPriceCents ?? null },
-        );
-      }
-      // `reject` SÍ existe en el ciclo (es el rechazo parcial, D30); `adjust` NO existe, nunca.
-      if (decision === 'adjust') {
-        await this.throwAdjustNotAllowedInOfferCycle(this.prisma, item.sellRequestId);
-      }
+      this.assertOfferCycleAllows(decision, approvedPriceCents, item, item.sellRequest.status);
     }
     // El `where` de TODAS las escrituras afirma el eje del ciclo TAL COMO SE OBSERVÓ al resolver el
     // monto. Si cambia bajo nuestros pies, `count !== 1` y no se escribe nada.
@@ -5041,10 +5143,16 @@ export class BuylistService implements OnModuleInit {
       // ⚠️ v1.51.20 · BL-27 — EN EL CICLO EL MONTO ES SERVER-SIDE Y ES **EL OFERTADO**: es la cifra
       // que el vendedor aceptó línea por línea en el correo (D2/D9/D30). Fuera del ciclo, el flujo
       // de ajuste NO se retira y el body sigue mandando (cohorte legacy, §4.39b.3).
-      // Una línea `skip` no lleva monto ofertado (`null`): aprobarla no puede inventar un precio, y
-      // `0` es lo único honesto — la carta no se compró, y el contrato no define otro desenlace.
+      //
+      // ⚠️ **SIN `?? 0`, y ésa es la corrección del arquitecto (escalada 2).** Dentro del ciclo la
+      // escalera de arriba ya garantizó las DOS condiciones —`offerDecision === 'buy'` y
+      // `offeredPriceCents != null`—: una `skip` sale por `422 ITEM_NOT_OFFERED` y una `buy` sin
+      // precio por `500 OFFERED_PRICE_MISSING`. **Un `?? 0` aquí volvería a abrir el agujero**: la
+      // línea quedaría `aprobada` con monto cero, que es el único estado que la conversión admite ⇒
+      // mercancía ajena en el inventario vendible con costo 0, y el reloj de §H sin arrancar.
+      // *El `!` no es confianza: es la afirmación de un invariante que se acaba de comprobar.*
       const effective = inOfferCycle
-        ? (item.offeredPriceCents ?? 0)
+        ? (item.offeredPriceCents as number)
         : (approvedPriceCents ?? item.quotedPriceCents ?? 0);
       // B-4: cota server-side de dinero saliente (además del @Max del DTO). Se aplica TAMBIÉN al
       // monto derivado de la oferta: defensa en profundidad, no confianza en el origen.
@@ -5074,14 +5182,18 @@ export class BuylistService implements OnModuleInit {
         where: { id: itemId, sellRequest: { ...this.notTerminalWhere(), ...offerCycleWhere } },
         data: data as Prisma.SellRequestItemUpdateManyMutationInput,
       });
-      if (guard.count !== 1) await this.throwItemDecisionConflict(tx, item, decision);
+      if (guard.count !== 1) {
+        await this.throwItemDecisionConflict(tx, item, decision, approvedPriceCents);
+      }
       if (decision === 'adjust') {
         // Dispara el plazo de 7 días en la solicitud — también guardado, y DESPUÉS de la decisión.
         const g2 = await tx.sellRequest.updateMany({
           where: { id: item.sellRequestId, ...this.notTerminalWhere(), ...offerCycleWhere },
           data: { adjustmentSentAt: new Date() },
         });
-        if (g2.count !== 1) await this.throwItemDecisionConflict(tx, item, decision);
+        if (g2.count !== 1) {
+          await this.throwItemDecisionConflict(tx, item, decision, approvedPriceCents);
+        }
       }
       // PROJECTION-EXEMPT: fila cruda DENTRO de la tx; el caller la proyecta con
       // `toAdminSellItemRow` antes de devolverla (abajo). `updateMany` no devuelve filas, así que la
