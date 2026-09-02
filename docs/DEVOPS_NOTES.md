@@ -5363,3 +5363,169 @@ cambia el flujo).
 | El comparador da un falso positivo y frena a alguien | Quitar `format-mix` de `needs`/condición de `ci-ok` en `ci.yml` (una línea): sigue corriendo e informando, deja de bloquear. |
 | Se quiere retirar del todo | Borrar el job `format-mix` y `scripts/check-format-mix.sh`. **No deja rastro**: no toca el árbol, no formatea, no tiene estado. |
 | Un caso legítimo que el algoritmo no contempla | Partir el commit en dos (formato / lógica) — que es, exactamente, lo que la norma pide. |
+
+---
+
+## 35. Stack nativo para el gate de QA del stream `buylist-inventory-workflow` — lo que arrancó, y el rojo que **no era del producto** (2026-09-02)
+
+**Encargo:** QA no puede correr su gate sin un stack vivo y no tiene herramientas de escritura
+(es intencional). Levantar la ruta nativa y decir **exactamente** qué puede correr y qué no.
+
+**Regla que gobierna esta sección:** todo número de aquí está **medido** sobre el árbol limpio en
+`claude/buylist-inventory-workflow-hdnls3` (commit `742ce51`). Donde no medí, lo digo.
+
+### 35.1 Punto de partida (confirmado, no asumido)
+
+| Hecho | Comprobación |
+|---|---|
+| No hay demonio de Docker | `/var/run/docker.sock`: *No such file or directory* ⇒ `docker-compose.yml` **no es una opción**; la ruta nativa es la única |
+| Postgres instalado y **parado** | `pg_lsclusters` → `16 main 5432 down` |
+| Redis instalado y **parado** | `redis-cli ping` → *Connection refused* |
+| Sin `.env` en ninguna parte | solo `.env.example` |
+| Puertos 3000/3099 libres | `ss -ltnp` sin coincidencias |
+| `node_modules` presentes | backend 578 paquetes · frontend 447 |
+
+### 35.2 `./scripts/stack-native.sh up --seed --gate` — **exit 0**, literales
+
+```
+▸ Postgres (16/main)          ✔ arriba.            (había un pid file rancio; el script lo purgó solo)
+▸ Redis                       ✔ arriba.
+▸ Rol y base de datos         ✔ rol 'tcg' ya existe.  ✔ base 'tcg_marketplace' ya existe (datos intactos).
+▸ prisma migrate deploy       35 migrations found in prisma/migrations
+                              No pending migrations to apply.
+▸ Seed sintético              ✓ seed-e2e: dataset sintético cargado (determinista).
+▸ Backend NestJS (:3099)      ✔ salud: {"status":"ok","uptime":6,"timestamp":"2026-09-02T04:33:17.395Z","db":"up","redis":"up"}
+▸ next build                  ✔ build listo (NODE_ENV=production, sin aviso de NODE_ENV no estándar).
+▸ Frontend (:3000)            ✔ arriba en http://localhost:3000 (modo build)
+```
+
+`status` tras el arranque: `postgres: accepting connections` · `redis: PONG` · `backend: 200 (:3099)` ·
+`frontend: 200 (:3000)`.
+
+**`DATABASE_URL` efectivo (contraseña enmascarada):**
+`postgresql://tcg:****@localhost:5432/tcg_marketplace?schema=public`
+Credencial de **desarrollo local**, la misma de `.env.example`. Aquí no hay ni se inventó ningún
+secreto real.
+
+**M-46 aplicada — verificada en la BD, no solo en el «no pending».** `migrate deploy` dijo *no
+pending* porque la base **persistió de una sesión previa**; eso por sí solo no prueba nada, así que
+se comprobó el registro **y** los objetos:
+
+```
+migration_name                                  | finished_at         | steps | rolled_back_at
+20260901120000_m46_buylist_acquisition_cycle    | 2026-09-01 21:01:13 |     1 | (null)
+```
+`35 aplicadas · 0 pendientes-o-fallidas · 0 rolled_back` · `prisma migrate status` → *Database schema is up to date!*
+
+Y sus objetos existen de verdad: los 3 enums (`BuyDecision{buy,skip}`,
+`SellOfferState{pending_authorization,sent,cancelled}`, `SellRequestExpiryReason{no_offer,not_shipped}`),
+los 5 índices (`SellRequest_offerState_idx`, `SellRequest_status_offerAcceptDeadlineAt_idx`,
+`SellRequest_status_shipDeadlineAt_idx`, `SellRequest_guideCancellationPendingAt_idx`,
+`SellRequestItem_offerDecision_idx`) y las columnas (`SellRequest.offerState`, `.offerAcceptDeadlineAt`,
+`.shipDeadlineAt`, `.guideCancellationPendingAt`, `.closedAt`, `.expiredReason`, `SellRequestItem.offerDecision`).
+
+**Backend vivo, con guards puestos** (no es un arnés recortado): `GET /api/v1/health` → 200 ·
+`GET /api/v1/catalog/cards?limit=1` → 200 · `GET /api/v1/admin/orders` sin token → **401** ·
+`SchedulerService: BullMQ operativo`.
+Único aviso en el log: `pokemontcg.io … -> HTTP 403` (sin egress). **Esperado y money-safe**: deja los
+precios STALE, no borra ni escribe $0.
+
+### 35.3 El rojo de la suite de integración: **entorno, no producto** — y el footgun que casi me como
+
+El encargo pedía el literal de `cd backend && npm run test:integration`. Es éste:
+
+| # | Cómo se corrió | Resultado literal | Veredicto |
+|---|---|---|---|
+| A | `cd backend && npm run test:integration` (**literal**) | `Test Suites: 1 failed, 14 passed, 15 total` · `Tests: 5 failed, 178 passed, 183 total` · 31.7 s · **exit 1** | rojo de **entorno** |
+| B | igual, con `DATABASE_URL` **exportada** | `15 passed, 15 total` · `183 passed, 183 total` · 26.3 s · **exit 0** | ✅ |
+| C | 1ª versión de mi subcomando (**mal**: filtraba `NODE_ENV=development`) | `3 failed, 12 passed` · `25 failed, 158 passed` · **exit 1**, con **13 asertos fallando en `Received: 429`** | rojo **del arnés** |
+| D | subcomando ya corregido (`NODE_ENV=test`) | `15 passed, 15 total` · `183 passed, 183 total` · 27.2 s · **exit 0** | ✅ |
+
+**Por qué falla A.** Una sola suite, `seed-idempotency.e2e-spec.ts`, y con este literal:
+
+```
+PrismaClientInitializationError: error: Environment variable not found: DATABASE_URL.
+  -->  schema.prisma:11
+   |
+10 |   provider = "postgresql"
+11 |   url      = env("DATABASE_URL")
+    at Object.<anonymous> (test/integration/seed-idempotency.e2e-spec.ts:42:5)
+```
+
+Las otras **14 sí** ven la BD porque arrancan el `AppModule`, y `ConfigModule.forRoot()`
+(`app.module.ts:39`, **sin `envFilePath`** ⇒ default `<cwd>/.env`) carga `backend/.env` dentro de
+`process.env` al importar el módulo. `seed-idempotency` es la **única** que no pasa por Nest: hace
+`new PrismaClient()` a nivel de módulo, o sea **antes** de que nadie cargue el `.env`.
+`test/integration/setup.ts` no tapa el hueco: para `DATABASE_URL` solo emite un `console.warn` (y no
+podría poner default: no existe una BD «de mentira» válida). **Ese warn sale también en la corrida
+verde** — es ruido conocido, no un síntoma.
+
+**El footgun de C, que es el hallazgo que de verdad importa.** Mi primer subcomando reexportaba el
+bloque de env de la cabecera del script, `NODE_ENV=development` incluido. `export` alcanza a todo
+hijo y **jest solo pone `NODE_ENV=test` si nadie lo puso antes**, así que ese `development` ganaba.
+De `src/config/test-env.ts:28` (`process.env.NODE_ENV === 'test'`) cuelgan dos piezas:
+
+1. **`AppThrottlerGuard`** — login 5/min por IP (SEC-C1). Con `NODE_ENV≠test` el guard no se omite y
+   la suite, que hace ~10 logins desde 127.0.0.1 en el mismo minuto, **se autoenvenena con 429**.
+   Es exactamente el fallo de CI del 2026-08-18 que motivó `test-env.ts`.
+2. **El scheduler BullMQ** — cada suite registraría los crons y un worker sobre la cola compartida
+   `tcg-daily`, y el catch-up de `price-ingest` encola trabajo **real**: escrituras de fondo en la
+   misma BD que se está midiendo.
+
+O sea: sin `NODE_ENV=test` el arnés no solo pinta rojos falsos, **mide otra cosa**. Es el **mismo
+footgun de §32.10** (el `NODE_ENV` exportado que rompía `next build`), en otro consumidor. Queda
+cerrado por construcción y comentado en el propio script.
+
+`PORT` no hace falta neutralizarlo: el harness hace `app.listen(0)` (`test/integration/helpers/e2e-app.ts:172`).
+
+**Lo que cablé (todo en rutas de devops):**
+
+| Archivo | Qué |
+|---|---|
+| `backend/.env` (**untracked**, `.gitignore`) | `DATABASE_URL`, `REDIS_URL`, `APP_BASE_URL`, `APP_PUBLIC_URL`, `JWT_*` de desarrollo. **Sin Stripe, sin Resend, sin S3, sin API keys de precios** — a propósito (§35.4). Con él, el comando literal pasa de 0 a **14/15 suites**. |
+| `scripts/stack-native.sh` → `test:integration` | Exporta el mismo env que usa `up` **y fija `NODE_ENV=test`**. Comprueba que Postgres responda antes de correr. Da **15/15 · 183/183 · exit 0**. |
+| `scripts/stack-native.sh` → `migrate deploy` | El mensaje decía «incluida M-41» **desde M-41 hasta M-46**. Ahora el nombre se deriva del árbol: un mensaje que envejece en silencio es peor que no tenerlo, porque se cita en veredictos. |
+| `scripts/stack-native.sh` → `mask_url()` | Un solo sitio que enmascara la contraseña antes de imprimir una URL de conexión. |
+
+### 35.4 Qué puede correr QA y qué no
+
+**✅ Sí, ahora mismo, sin tocar nada:**
+
+| Qué | Comando | Estado medido |
+|---|---|---|
+| Integración contra **BD real** | `./scripts/stack-native.sh test:integration` | **15/15 suites · 183/183 tests · exit 0** |
+| Una spec suelta | `./scripts/stack-native.sh test:integration -t "<patrón>"` | pasa args a jest |
+| Backend en vivo | `curl localhost:3099/api/v1/health` | `{"status":"ok",…,"db":"up","redis":"up"}` |
+| Frontend horneado (mocks=**false**, API→:3099) | `http://localhost:3000/es` | 200, `next build` con `NODE_ENV=production` |
+| Gate E2E real | `cd frontend && E2E_BASE_URL=http://localhost:3000 E2E_REAL=1 npm run test:e2e` | Chromium 141 en `/opt/pw-browsers/chromium` **verificado**; Playwright 1.56.0 |
+
+**❌ No, y no es arreglable en esta máquina** (no son fallos del producto; **no los reporte como bugs**):
+
+| Qué | Por qué | Síntoma esperado |
+|---|---|---|
+| Cobrar de verdad (checkout, guest-checkout, envíos) | **Sin egress a `api.stripe.com`** (CONNECT → 403) y sin `STRIPE_TEST_SECRET_KEY`. No se inventó ninguna clave. | 503 `PAYMENT_PROVIDER_UNAVAILABLE`, se libera la reserva (**money-safe**) |
+| Subir el INE del buylist (sobre el tope AML) | **No hay MinIO/R2** nativo; `uploads` no lo cubre esta ruta | el spec de infra lo **salta** con aviso |
+| Correo real (Resend) | Sin `RESEND_API_KEY` ⇒ `NoopMailAdapter` (degradación de LOCAL_ENVS) | no sale correo; el flujo no se bloquea |
+| Precios frescos de proveedor | Sin egress a `pokemontcg.io` / `tcgcsv.com` (403) | precios **STALE**; no borra, no escribe $0 |
+
+**⚠️ Dos avisos operativos (ninguno bloquea):**
+
+1. **La suite de integración ESCRIBE en la BD** (resiembra el fixture). Si después va el gate de
+   Playwright, **vuelva a sembrar**: `./scripts/stack-native.sh up --seed --infra`. El subcomando lo
+   avisa al empezar. Orden recomendado: **integración → re-seed → E2E**.
+2. **Deriva cosmética de schema** (no bloquea, **no es mía**): `prisma migrate diff` reporta un único
+   `ALTER INDEX "PriceReference_variant_capturedDate_key" RENAME TO
+   "PriceReference_cardId_productType_gradeKey_finish_capturedD_key"`. Mismas columnas, misma
+   unicidad: solo el **nombre** difiere entre `schema.prisma` y la BD. Efecto real: un
+   `prisma migrate dev` querría generar una migración de rename. `backend/prisma/` es del rol
+   **backend**; queda anotado, no tocado.
+
+### 35.5 Apagado y rollback
+
+| Escenario | Acción |
+|---|---|
+| Terminar la sesión, conservar datos | `./scripts/stack-native.sh down` (para backend y frontend; deja PG/Redis) |
+| Apagar todo | `./scripts/stack-native.sh down --all` |
+| BD envenenada por una corrida | `./scripts/stack-native.sh up --seed --infra` (el seed es **idempotente**: lo prueba `seed-idempotency.e2e-spec.ts`) |
+| Revertir lo de esta sección | Borrar `backend/.env` y revertir `scripts/stack-native.sh`. Se pierde el 15/15 (vuelve a 14/15 por `DATABASE_URL`); **nada más**: no toca `backend/`, ni `frontend/`, ni migraciones, ni datos |
+| El subcomando molesta | `cd backend && NODE_ENV=test DATABASE_URL=… npm run test:integration` hace lo mismo a mano |

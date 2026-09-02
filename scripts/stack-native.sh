@@ -38,6 +38,9 @@
 #   ./scripts/stack-native.sh up --seed   # + `npm run seed:synthetic` (datos E2E)
 #   ./scripts/stack-native.sh up --gate   # frontend con `next build` + `next start`
 #                                         #   ⇒ el ÚNICO modo válido para una corrida de GATE
+#   ./scripts/stack-native.sh test:integration   # suite de integración del backend contra
+#                                         #   BD REAL, con el env exportado (15/15 · 183/183).
+#                                         #   NO uses `npm run test:integration` a secas: ver §35.
 #   ./scripts/stack-native.sh status      # qué está arriba y en qué puerto
 #   ./scripts/stack-native.sh down        # apaga backend y frontend (deja PG/Redis)
 #   ./scripts/stack-native.sh down --all  # + para Postgres y Redis
@@ -82,6 +85,11 @@ log()  { printf '\n\033[1;36m▸ %s\033[0m\n' "$*"; }
 ok()   { printf '\033[1;32m  ✔ %s\033[0m\n' "$*"; }
 warn() { printf '\033[1;33m  ⚠ %s\033[0m\n' "$*"; }
 die()  { printf '\n\033[1;31m✖ %s\033[0m\n' "$*" >&2; exit 1; }
+
+# Enmascara la contraseña de una URL de conexión antes de imprimirla. Aunque aquí la
+# credencial sea de desarrollo, el script se copia/pega en sesiones que SÍ acaban en un
+# transcript: nunca se imprime un DATABASE_URL entero.
+mask_url() { printf '%s' "$1" | sed -E 's#(//[^:]+):[^@]+@#\1:****@#'; }
 
 # --- psql como el superusuario `postgres`, SIN interpolar valores en el SQL ---
 #   uso:   psql_as_postgres <user> <pass> <db> <<'SQL'
@@ -206,7 +214,14 @@ SQL
 
   log "prisma migrate deploy (idempotente)"
   ( cd "$BACKEND_DIR" && npx prisma migrate deploy )
-  ok "Migraciones al día (incluida M-41)."
+  # El nombre de la última migración se DERIVA del árbol, no se escribe a mano. La versión
+  # previa decía «incluida M-41» y lo siguió diciendo hasta M-46: un mensaje que envejece en
+  # silencio es PEOR que no tenerlo, porque se cita en veredictos como si fuera una medición.
+  # `migrate deploy` ya aborta el script (set -e) si alguna migración falla, así que si
+  # llegamos aquí, la de abajo está aplicada.
+  local last_mig
+  last_mig="$(ls -1 "$BACKEND_DIR/prisma/migrations" 2>/dev/null | grep -E '^[0-9]{14}_' | sort | tail -1)"
+  ok "Migraciones al día (la más reciente del árbol: ${last_mig:-¿ninguna?})."
 }
 
 # -----------------------------------------------------------------------------
@@ -490,8 +505,10 @@ case "${1:-up}" in
     fi
     if [ "$ONLY_INFRA" = 1 ]; then
       log "LISTO (solo infra)."
-      echo "  DATABASE_URL: $(printf '%s' "$DATABASE_URL" | sed -E 's#(//[^:]+):[^@]+@#\1:****@#')"
-      echo "  Para los tests de integración del backend:  cd backend && npm run test:integration"
+      echo "  DATABASE_URL: $(mask_url "$DATABASE_URL")"
+      echo "  Tests de integración del backend (BD real):  ./scripts/stack-native.sh test:integration"
+      echo "  (NO uses \`cd backend && npm run test:integration\` a secas: deja 1 suite de 15 en"
+      echo "   rojo por env, no por producto. El subcomando exporta el env correcto — ver §35.)"
       exit 0
     fi
     start_backend
@@ -500,6 +517,72 @@ case "${1:-up}" in
     warn "Junto con la falta de STRIPE_TEST_SECRET_KEY son los DOS huecos de entorno que dejan"
     warn "4 smokes de dinero sin verificar en navegador. Ambos siguen ABIERTOS — DEVOPS_NOTES §31/§32.7."
     print_e2e_instructions
+    ;;
+  test:integration)
+    shift || true
+    # -------------------------------------------------------------------------
+    # POR QUÉ EXISTE ESTE SUBCOMANDO (medido el 2026-09-02 · DEVOPS_NOTES §35)
+    #
+    # `cd backend && npm run test:integration` A SECAS deja 1 suite de 15 en rojo, y ese
+    # rojo NO es del producto: es fontanería de entorno.
+    #   · 14 suites arrancan el AppModule, y `ConfigModule.forRoot()` (app.module.ts:39,
+    #     SIN `envFilePath` ⇒ default `<cwd>/.env`) carga `backend/.env` dentro de
+    #     process.env al IMPORTAR el módulo. Por eso ven la BD y pasan.
+    #   · `seed-idempotency.e2e-spec.ts` es la ÚNICA que NO pasa por Nest: hace
+    #     `new PrismaClient()` a nivel de módulo, o sea ANTES de que nadie haya cargado
+    #     el .env. Revienta con, literal:
+    #         PrismaClientInitializationError:
+    #           error: Environment variable not found: DATABASE_URL.
+    #     Medido: 14 passed / 1 failed · 178 passed / 5 failed · exit 1.
+    #   · Con DATABASE_URL EXPORTADA en el entorno del proceso: 15/15 suites ·
+    #     183/183 tests · exit 0. Mismo código, mismo commit, árbol limpio.
+    #
+    # `test/integration/setup.ts` NO tapa este hueco: para DATABASE_URL solo emite un
+    # `console.warn` (no pone default, y no podría: no hay una BD "de mentira" válida).
+    # Ese warn sale INCLUSO en la corrida verde — es ruido conocido, no un síntoma.
+    #
+    # Este subcomando no es un atajo ni un arnés distinto: reexporta EL MISMO bloque de
+    # env de la cabecera de este script, así que la BD que miden los tests es exactamente
+    # la que levanta `up`. Arreglar el spec para que no dependa del proceso sería trabajo
+    # del rol BACKEND (es su archivo); devops cierra el hueco por el lado del ENTORNO.
+    # -------------------------------------------------------------------------
+    pg_isready -q 2>/dev/null || die "Postgres no acepta conexiones. Levanta la infra primero:
+     ./scripts/stack-native.sh up --infra"
+    redis-cli ping >/dev/null 2>&1 || warn "Redis NO responde: los specs que tocan BullMQ/health degradarán."
+    log "Suite de INTEGRACIÓN del backend contra BD REAL (15 specs, --runInBand)"
+    echo "  DATABASE_URL: $(mask_url "$DATABASE_URL")"
+    warn "Esta suite ESCRIBE en la BD (resiembra el fixture). Si después vas a correr el gate"
+    warn "E2E de Playwright, vuelve a sembrar:  ./scripts/stack-native.sh up --seed"
+    # -------------------------------------------------------------------------
+    # NODE_ENV=test SE FIJA AQUÍ, Y NO ES OPCIONAL. (§35.3 — mismo footgun que §32.10)
+    #
+    # La cabecera de este script exporta NODE_ENV=development PARA EL BACKEND que corre
+    # como servidor. `export` alcanza a todo hijo, y jest solo pone NODE_ENV=test si NADIE
+    # lo puso antes — así que ese `development` GANABA sobre el default de jest y se colaba
+    # en la suite. Consecuencia medida (corrida real, mismo commit, árbol limpio):
+    #     Test Suites: 3 failed, 12 passed · Tests: 25 failed, 158 passed · exit 1
+    #     los 13 asertos con literal propio fallaron TODOS con `Received: 429`.
+    # Porque `src/config/test-env.ts:28` es `process.env.NODE_ENV === 'test'`, y de ahí
+    # cuelgan DOS piezas:
+    #   1. `AppThrottlerGuard` (login 5/min por IP, SEC-C1). Con NODE_ENV≠test el guard
+    #      NO se omite y la suite —que hace ~10 logins desde 127.0.0.1 en el mismo minuto—
+    #      se autoenvenena con 429. Es EXACTAMENTE el fallo de CI del 2026-08-18.
+    #   2. El scheduler BullMQ. Con NODE_ENV≠test cada suite registra los crons y un worker
+    #      sobre la cola compartida `tcg-daily`, y el catch-up de `price-ingest` encola
+    #      trabajo REAL: escrituras de fondo en la BD que se está midiendo, y `afterAll`
+    #      colgado esperando a `worker.close()`.
+    # O sea: sin esta línea el arnés no solo pinta rojos falsos, es que MIDE OTRA COSA.
+    # `PORT` no hace falta neutralizarlo: el harness hace `app.listen(0)` (puerto efímero,
+    # helpers/e2e-app.ts:172), no lee PORT, y por eso no choca con el backend de :3099.
+    #
+    # Con NODE_ENV=test: 15/15 suites · 183/183 tests · exit 0.
+    # -------------------------------------------------------------------------
+    # `npm run <script> -- args` solo si hay args: sin ellos, el `--` suelto confunde a npm.
+    if [ "$#" -gt 0 ]; then
+      ( cd "$BACKEND_DIR" && NODE_ENV=test npm run test:integration -- "$@" )
+    else
+      ( cd "$BACKEND_DIR" && NODE_ENV=test npm run test:integration )
+    fi
     ;;
   status)
     log "Estado del stack nativo"
@@ -528,6 +611,6 @@ case "${1:-up}" in
     fi
     ;;
   *)
-    die "Uso: $0 {up [--infra|--seed|--gate] | status | down [--all]}"
+    die "Uso: $0 {up [--infra|--seed|--gate] | test:integration [args de jest] | status | down [--all]}"
     ;;
 esac
