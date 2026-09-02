@@ -195,12 +195,21 @@ describe('arnés E2E · el gate `@real` no puede vaciarse en silencio', () => {
   it('la SUITE conserva su cobertura `@real` (la clase, no solo el archivo que regresionó)', () => {
     const withReal = files.filter((f) => realTests(byFile.get(f)!).length > 0);
     const total = files.reduce((n, f) => n + realTests(byFile.get(f)!).length, 0);
-    // Hoy: 25 tests `@real` repartidos en 9 archivos (buylist, catálogo, checkout, grading,
-    // guest-checkout, master-set, curva de precios, envíos, bóveda). Pisos, no listas: el hueco
-    // que se cierra es «una feature entera deja de correr contra el stack levantado».
-    expect(withReal.map(name).sort(), 'archivos con cobertura @real').toHaveLength(9);
+    // Hoy: 11 archivos con cobertura `@real` (buylist, **portal de la oferta**, catálogo,
+    // checkout, grading, guest-checkout, master-set, curva de precios, envíos, bóveda y **admin**).
+    // v1.51.20 entran los dos que faltaban —`buylist-offer.spec.ts` y `admin.spec.ts`—: el ciclo de
+    // compra tenía 23 casos de UI que **el gate real no seleccionaba**, porque ninguno llevaba el
+    // tag y la semilla no creaba ninguna `SellRequest`.
+    //
+    // ⚠️ **Pisos, no listas** (y el conteo de archivos también pasa a ser piso: era una igualdad
+    // que convertía *añadir cobertura* en un rojo, justo el movimiento que esta regla quiere
+    // premiar). El hueco que se cierra es «una feature entera deja de correr contra el stack
+    // levantado», y ése solo se abre hacia ABAJO.
+    expect(withReal.map(name).sort().length, 'archivos con cobertura @real').toBeGreaterThanOrEqual(
+      11,
+    );
     expect(total, 'tests que el gate @real seleccionaría en toda la suite').toBeGreaterThanOrEqual(
-      24,
+      36,
     );
   });
 

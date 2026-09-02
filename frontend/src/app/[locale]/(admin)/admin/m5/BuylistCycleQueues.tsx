@@ -63,13 +63,46 @@ function WaitingCell({ row }: { row: PendingShipmentConfirmationRowDTO }) {
   );
 }
 
-/** Un día hábil o menos ⇒ la fecha se destaca. *Una cola cuyas filas se mueren sin avisar se trabaja a ciegas.* */
+/** Día CALENDARIO (`YYYY-MM-DD`) de un instante en `America/Mexico_City`; `null` si no es fecha. */
+function calendarDayMx(iso: string | number | Date): string | null {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return null;
+  // `en-CA` da ISO (`2026-09-02`) y por tanto ordena y compara como texto sin más aritmética.
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Mexico_City' }).format(date);
+}
+
+/**
+ * **Énfasis visual de «esto se muere ya»: `hoy` / `mañana` en el CALENDARIO de Ciudad de México.**
+ *
+ * ⚠️ **Esto NO es la regla de días hábiles del servidor, y el rótulo no puede insinuar que lo sea.**
+ * La fecha de muerte (`caducityAt`) la deriva **el servidor** con
+ * `addBusinessDays(offerIssueClockStartedAt ?? createdAt, buylistOfferIssueDeadlineBusinessDays)`
+ * (contrato §M5/D33·D38): sabe de fines de semana y de festivos, y **lanza** fuera de la cobertura de
+ * su calendario en vez de degradar. **El front no tiene ese calendario y no lo va a reimplementar** —
+ * es la misma prohibición que ya declara `formatDateTimeMx`: *el front no recalcula el plazo, solo lo
+ * formatea*. Una segunda aritmética de días hábiles aquí sería **una segunda fecha límite**.
+ *
+ * Antes esto medía una ventana rodante de 24/48 **horas** bajo un rótulo que decía *«un día hábil o
+ * menos»*: dos mentiras pequeñas en direcciones distintas. **(i)** prometía la regla del servidor sin
+ * tenerla; y **(ii)** ni siquiera acertaba lo que el copy visible dice: a las 23:00 una fila que muere
+ * mañana a las 22:00 cae dentro de las 24 h y se rotulaba **«Caduca hoy»**. Ahora se compara **el día
+ * del calendario**, que es exactamente lo que «hoy» y «mañana» significan para quien lee la cola.
+ *
+ * **Alcance, para que nadie lo cargue de más: es énfasis, no una puerta.** No habilita ni bloquea
+ * ninguna acción y **la fecha completa con hora va SIEMPRE impresa al lado** (`formatDateTimeMx`) —
+ * el dato normativo es esa fecha; esto solo la destaca. *Una cola cuyas filas se mueren sin avisar se
+ * trabaja a ciegas.*
+ */
 function caducityTone(caducityAt: string): 'today' | 'tomorrow' | null {
-  const hours = (new Date(caducityAt).getTime() - Date.now()) / 3_600_000;
-  if (!Number.isFinite(hours)) return null;
-  if (hours <= 24) return 'today';
-  if (hours <= 48) return 'tomorrow';
-  return null;
+  const dies = calendarDayMx(caducityAt);
+  const today = calendarDayMx(Date.now());
+  if (!dies || !today) return null;
+  if (dies === today) return 'today';
+  // «Mañana» se calcula sobre el DÍA, no sumando 86.400.000 ms al instante: el día siguiente de una
+  // fecha es siempre el día siguiente, aunque la zona cambiara de offset esa noche.
+  const next = new Date(`${today}T00:00:00Z`);
+  next.setUTCDate(next.getUTCDate() + 1);
+  return dies === next.toISOString().slice(0, 10) ? 'tomorrow' : null;
 }
 
 export interface BuylistCycleQueuesProps {

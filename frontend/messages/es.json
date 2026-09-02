@@ -1216,6 +1216,7 @@
       "publishQueue": {
         "title": "Listas para publicar",
         "subtitle": "Piezas compradas que todavía no están a la venta. Salen solas de aquí en cuanto no les falta nada.",
+        "count": "{count, plural, =0 {Ninguna pendiente} one {# pendiente} other {# pendientes}}",
         "empty": "Ninguna pieza pendiente de publicar.",
         "folio": "Folio",
         "piece": "Pieza",

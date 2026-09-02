@@ -4,6 +4,176 @@
 > Fecha: 2026-08-13. Branch: `claude/tcg-cards-marketplace-oijthj`.
 > El contrato (`docs/API_CONTRACT.md`) y el sistema de diseño (`docs/DESIGN_SYSTEM.md`) mandan.
 
+## §27 · El ciclo de compra entra al gate real: 23 pruebas que nadie corría, el `total` que se tiraba y un rótulo que prometía la regla del servidor (2026-09-02)
+
+> Rama `claude/buylist-inventory-workflow-hdnls3`, sobre `235b7f9`. Tres encargos del cierre del
+> stream: **(1)** taguear `@real` las pruebas de UI del ciclo ahora que la semilla tiene dato,
+> **(2)** pintar el `total` de la cola de publicar (deuda **D5** del techlead) y **(3)** dejar de
+> prometer la regla de días hábiles del servidor en `caducityTone`.
+
+### 1. Los 23 casos del ciclo no los corría **nadie** — y por dos razones encadenadas
+
+`buylist-offer.spec.ts` (6) y `admin.spec.ts` (17) no entraban al gate real por **dos** motivos que
+se tapaban mutuamente:
+
+1. **Ninguno llevaba `@real`.** En modo real `playwright.config.ts` filtra con `grep: /@real/`, así
+   que el «verde» de esos dos archivos se medía **solo contra los fixtures del propio front**.
+2. **Y aunque lo hubieran llevado, se habrían saltado:** todos abrían con `needsSeed(...)`, que es
+   `test.skip(IS_REAL, …)`. La semilla no creaba **ninguna** `SellRequest`.
+
+Con el seed de v1.51.20 (una `cotizada` y una `ofertada` con la oferta emitida, `netCents=32000`) el
+dato existe. **Se tagearon 12 de los 23** — los que el seed satisface **y** que no dejan huella:
+
+| Archivo | `@real` nuevos | Qué cubren |
+|---|---|---|
+| `buylist-offer.spec.ts` | **5** de 6 | los tres montos + condición NM + plazo con fecha; que no hay cherry-pick ni contraoferta; el estado **previo** a la oferta; el `404` neutro de una solicitud ajena; el CTA del correo sin sesión |
+| `admin.spec.ts` | **7** de 17 | dashboard (la puerta); **mesa de decisión** ×2 (los cuatro sumandos separados · la sugerencia no bloquea); cola «vendedores vivos»; cola «listas para publicar»; «Piezas rechazadas» sin convertir; spreads de sellado (T-1) |
+
+#### 1.a Lo que **no** se tagueó, y por qué (para que nadie lo lea como olvido)
+
+- **`aceptar la oferta` — el único que se deja fuera a sabiendas.** **Consume** la oferta
+  (`ofertada` → `aceptada`). El seed siembra **una sola**, compartida con los otros dos casos del
+  archivo: tagueárlo los dejaría verdes-por-`skip` según **qué worker gane la carrera**
+  (`fullyParallel: true`) y sin dato en **todas las corridas siguientes**. *Un caso destructivo
+  sobre un dato singleton no es cobertura: es una bomba de relojería en el gate.* Sigue vivo contra
+  los fixtures, que sí son reponibles. **Petición al backend abajo.**
+- **Tres colas vacías** (`offers/pending-authorization`, `pending-shipment-confirmation`,
+  `guides/pending-cancellation`): los endpoints **ya existen** (BL-28 los sacó del `404`), pero el
+  seed no siembra filas — verificado contra el stack, `total: 0` en las tres. Se **reclasificaron de
+  `mockOnly` a `needsSeed`**, que es la clasificación honesta: *«el test está bien, falta el dato»* es
+  una petición accionable; *«esto solo corre con mocks»* esconde el hueco. (Además, «guías por
+  cancelar» **confirma** la cancelación: contra el stack consumiría la fila.)
+- **Dos casos de cherry-pick** (`admin.m5` aprobar/ajustar/rechazar por ítem): necesitan una
+  solicitud en `recibida`/`verificacion`, y llegar ahí exige recorrer aceptar → guía → «ya lo mandé»
+  → confirmar → recibir. Verificado: `GET /admin/buylist?status=verificacion` → `total: 0`.
+- **M8 disputas:** `GET /admin/disputes` → `total: 0`.
+- **Dos genuinamente mock-only:** el switcher «Ver como» (afordancia de demo; en real el rol lo dicta
+  el JWT) y la fila `positionUnavailable` (estado fabricado).
+
+#### 1.b Dos cambios de arnés que hacen falta para que el tag signifique algo
+
+**(i) Se busca por ESTADO, nunca por POSICIÓN.** `openRequestWhere(page, …)` recorre «Mis
+solicitudes» hasta encontrar la que el caso necesita. Antes, «sin oferta todavía» abría **la primera
+fila** y se saltaba si traía oferta — lo que obligaba a que el orden de creación del seed fuera
+normativo.
+
+> ⚠️ **Y ese orden ya no se sostiene, con o sin mi cambio.** El propio subset `@real` **crea una
+> `SellRequest` en cada corrida**: `buylist.spec.ts:680` (`@real vender`) hace `POST
+> /buylist/requests` de verdad. Verificado en la BD tras una corrida: la fila más nueva es la del
+> smoke, no la del seed. Es decir, **la primera corrida real rompe la invariante que el seed
+> documenta como normativa** (`BACKEND_NOTES §v1.51.20`: *«el orden de creación es normativo […] la
+> suite del portal exige que la primera fila no tenga oferta»*). Buscar por estado no es una
+> preferencia de estilo: es lo que hace la suite **repetible**. *Una suite que depende del orden del
+> seed mide el seed, no el producto.*
+
+**(ii) No encontrar el dato es ROJO, no `skip`.** `openOfferedRequest`, `openPreOfferRequest` y
+`openDesk` **lanzan** con un mensaje que dice qué falta y quién lo siembra. Un `skip` ahí solo podría
+significar que el dato se perdió — exactamente lo que el gate tiene que gritar. `openDesk` dejó de
+devolver `boolean` por el mismo motivo.
+
+**(iii) Dos asserts se reescribieron contra el INVARIANTE, no contra el fixture** (era la condición
+para poder taguearlos):
+
+- **«vendedores con solicitudes vivas»:** afirmaba el literal `5555123456` y exigía que coexistieran
+  una fila con teléfono y otra sin él — cierto solo en mocks. Ahora afirma lo que D12 protege y vale
+  en los dos entornos: **cada fila resuelve la columna del teléfono** —el número **o** «Sin
+  teléfono»— y **nunca la deja en blanco**. Un hueco es el fallo real: el operador no sabe si el
+  vendedor no dio teléfono o si la pantalla se lo comió.
+- **«listas para publicar»:** exigía que coexistieran una pieza sin ubicación y otra sin precio
+  (contra el stack **todas** tienen precio resoluble). Ahora afirma los tres invariantes del caso:
+  **cada fila dice qué le falta**, **nunca `MX$0.00`**, **ningún botón de publicar**.
+
+### 2. D5 — el `total` de la cola de publicar (`PendingPublishQueue.tsx`)
+
+El componente **descartaba** el `total` del servidor. La razón por la que eso importa es económica:
+ese conteo **se paga con un barrido completo del inventario** —la precedencia de precio se evalúa
+fila por fila en memoria (`BLC-D1`)— y **el único consumidor lo tiraba**. Se cobraba el barrido y no
+se pintaba el resultado.
+
+Se pinta junto al título. Dos decisiones:
+
+- **Es `total`, no `data.length`.** La respuesta viene paginada (`pageSize: 20`); `data.length`
+  contesta *«cuántas caben en esta página»*, que no es una pregunta que nadie tenga. Verificado
+  contra el stack: `total: 13`.
+- **`total` ausente NO se degrada a `data.length`.** Misma doctrina que `MissingCell` y que el conteo
+  ausente de la mesa (§23.7): un número del tamaño de la página *se ve igual de confiable* que el
+  bueno y **miente hacia abajo justo cuando la cola es grande**, que es cuando el número importa.
+  Sin `total` no se pinta contador; las filas se listan igual.
+- **El cero se dice con palabras** («Ninguna pendiente»), no como `0 pendientes`.
+
+*(La paginación sigue sin construirse: el encargo era pintar el número, no construir la navegación.)*
+
+### 3. `caducityTone` — un rótulo que prometía una regla que el front no tiene
+
+`BuylistCycleQueues.tsx` rotulaba la función *«Un día hábil o menos»* y medía una **ventana rodante
+de 24/48 horas**. Dos imprecisiones en direcciones distintas:
+
+1. **Prometía la regla del servidor.** `caducityAt` lo deriva el backend con
+   `addBusinessDays(offerIssueClockStartedAt ?? createdAt, buylistOfferIssueDeadlineBusinessDays)`:
+   sabe de fines de semana y festivos, y **lanza** fuera de la cobertura de su calendario en vez de
+   degradar. El front no tiene ese calendario y **no lo va a reimplementar** — es la prohibición que
+   `formatDateTimeMx` ya declara (*el front no recalcula el plazo, solo lo formatea*). *Una segunda
+   aritmética de días hábiles sería una segunda fecha límite.*
+2. **Ni siquiera acertaba el copy visible.** A las 23:00, una fila que muere **mañana** a las 22:00
+   cae dentro de las 24 h y se rotulaba **«Caduca hoy»**.
+
+**Arreglo:** el tono se calcula sobre el **día del calendario en `America/Mexico_City`** —que es
+exactamente lo que «hoy» y «mañana» significan para quien lee la cola— y el docblock dice qué mide,
+qué **no** mide y que **la fecha completa con hora va siempre impresa al lado**. No se colgó de un
+campo del servidor porque **no existe**: `PendingOfferAuthorizationRowDTO` trae `caducityAt` y nada
+más (contrato §M5). No es un bug —es énfasis, no una puerta— pero el rótulo sí lo era.
+
+> El fixture del unitario pasó de `Date.now() + 20 h` a `caducityOnMxDay(n)`: veinte horas caen hoy
+> o mañana **según la hora a la que corra la suite**.
+
+### 4. El código que revivió (BL-29): comprobado, no supuesto
+
+La proyección admin pasó de 2 a 43 claves y la de cliente ganó `expiredReason`, `pickupAddress` y
+`lastOfferCancelledAt`. Se verificó **contra el stack** que los nombres que el front lee existen tal
+cual en la respuesta —`shipmentTrackingNumber`, `shipmentCarrier`, `expiredReason`,
+`lastOfferCancelledAt`— porque el riesgo real no es que el campo no llegue: es que **llegue con otro
+nombre y la rama siga muerta sin que nada falle**.
+
+Los cuatro caminos que revivieron **estaban bien cableados** y tienen unitario que los fija:
+`BuylistShipmentActions` (prefill de guía), `M5View`/`BuylistCycleQueues` (`StatusBadge` por
+**motivo**, no por estado), y en el portal del vendedor `hideMoney` (`expirada ∧ no_offer` ⇒ ni una
+cifra), el banner de cancelación (D42) y las tres frases de cierre. **No se pudieron observar vivos**:
+el seed no llega a ningún estado terminal, cancelado ni enviado — ver la petición 2 de abajo.
+
+### 5. Peticiones (no bloqueantes)
+
+1. **Backend / seed — una solicitud `ofertada` DESECHABLE por corrida.** Es lo único que separa a
+   `aceptar la oferta` del gate real. Alternativa equivalente: un endpoint de reset del escenario.
+2. **Backend / seed — estados terminales y del tramo de envío.** Hoy no hay forma de ver vivos
+   `expirada/no_offer`, `expirada/not_shipped`, `lastOfferCancelledAt` ni una guía capturada. Son
+   exactamente las ramas que BL-29/BL-30 revivieron, y siguen cubiertas **solo** por unitarios.
+3. **Backend / seed — filas para las tres colas vacías** (`pending-authorization`,
+   `pending-shipment-confirmation`, `guides/pending-cancellation`) y una solicitud en
+   `verificacion` (desbloquea los dos casos de cherry-pick). Los endpoints ya existen.
+4. **Arquitecto — nada.** No hizo falta ningún campo ni endpoint fuera del contrato.
+
+### 6. Verificación
+
+```
+npx tsc --noEmit            →  sin salida (limpio)
+npm run lint                →  ✔ No ESLint warnings or errors
+npm test                    →  Test Files 100 passed (100) · Tests 949 passed (949)
+E2E mock (E2E_MOCK_PORT=3020, suite COMPLETA)
+                            →  124 passed · 3 skipped · 0 failed
+E2E real (E2E_BASE_URL=http://localhost:3000 E2E_REAL=1)
+                            →  34 passed · 3 failed
+```
+
+Los **3 rojos de real son los smokes de dinero** (`checkout.spec.ts:57`, `guest-checkout.spec.ts:131`,
+`shipments.spec.ts:30`): este entorno no tiene salida a Stripe (`CONNECT 403`) y están escritos para
+ser rojos a propósito, no para saltarse. **Los 12 tests recién tagueados pasan los 12.**
+
+> ⚠️ **El subset `@real` no se puede correr en otro puerto.** La allow-list de CORS del backend es
+> `APP_BASE_URL=http://localhost:3000` y nada más, así que un frontend servido en :3010 recibe la
+> página pero **ninguna** respuesta de la API: 34 de 37 rojos por el arnés, no por el producto.
+> Corolario operativo: **para correr el gate sobre código recién tocado hay que reconstruir el
+> artefacto de :3000**, no levantar uno al lado. `.gitignore` documenta la receta.
+
 ## §26 · El *breaking* de `intent`, la captura manual y la lista de revisión (contrato v1.50.2 / v1.50.3) — 2026-08-28
 
 > Rama `claude/psa-graded-card-value-gmhv5u`, sobre `397db13`. Cierra el **bloqueante** del rechazo

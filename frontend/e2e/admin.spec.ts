@@ -9,7 +9,12 @@ import { loginAs, mockOnly, needsSeed } from './utils/auth';
  * (disputa por correo a soporte, sin comparador de fotos, v1.2).
  */
 test.describe('admin · dashboard', () => {
-  test('muestra las 8 tarjetas del dashboard', async ({ page }) => {
+  /**
+   * Entra al subset real porque es **la puerta**: si el dashboard no resuelve contra datos de
+   * verdad, ninguna de las pantallas del ciclo (M1/M5) es alcanzable, y el resto de los `@real`
+   * de este archivo fallaría por un motivo que no es el suyo.
+   */
+  test('@real muestra las 8 tarjetas del dashboard', async ({ page }) => {
     await loginAs(page, 'admin');
     await page.goto('/es/admin');
     await expect(page.getByRole('heading', { name: t('es', 'admin.modules.dashboard') })).toBeVisible();
@@ -103,28 +108,38 @@ async function openM5Stage(page: import('@playwright/test').Page, label: string)
  * separados, que «sin conteo» **no se parece a un cero**, y que la sugerencia **no bloquea**.
  */
 test.describe('admin · M5 mesa de decisión (§23.6)', () => {
-  /** Abre la mesa de la primera solicitud `cotizada`. `false` si no hay ninguna en cola. */
-  async function openDesk(page: import('@playwright/test').Page): Promise<boolean> {
+  /**
+   * Abre la mesa de la primera solicitud `cotizada`.
+   *
+   * ⚠️ Se espera a que la cola RESUELVA antes de preguntar. `count()` no auto-espera: con
+   * `GET /admin/buylist` en vuelo devuelve 0 y el test se saltaría solo — un falso verde
+   * silencioso sobre la pantalla que el humano pidió primero. La cola está resuelta cuando hay
+   * una solicitud con mesa **o** cuando dice explícitamente que la pestaña está vacía.
+   *
+   * ⚠️ **Cola vacía ⇒ ROJO, no `skip`** (v1.51.20). Antes devolvía `false` y el llamador se
+   * saltaba el caso; desde que el seed siembra una `cotizada`, quedarse sin mesa que abrir **es**
+   * el hallazgo. El mensaje dice quién siembra el dato.
+   */
+  async function openDesk(page: import('@playwright/test').Page): Promise<void> {
     await page.goto('/es/admin/m5');
     await expect(page.getByRole('heading', { name: t('es', 'admin.m5.title') })).toBeVisible();
     const open = page.getByRole('button', { name: t('es', 'admin.m5.desk.open') }).first();
-    /*
-     * ⚠️ Se espera a que la cola RESUELVA antes de preguntar. `count()` no auto-espera: con
-     * `GET /admin/buylist` en vuelo devuelve 0 y el test se saltaría solo — un falso verde
-     * silencioso sobre la pantalla que el humano pidió primero. La cola está resuelta cuando hay
-     * una solicitud con mesa **o** cuando dice explícitamente que la pestaña está vacía.
-     */
     await expect(open.or(page.getByText(t('es', 'admin.m5.emptyTab'))).first()).toBeVisible();
-    if ((await open.count()) === 0) return false;
+    if ((await open.count()) === 0) {
+      throw new Error(
+        'No hay ninguna solicitud `cotizada` con mesa de decisión que abrir. En modo real la ' +
+          'siembra `backend/prisma/seed-e2e.ts`; en modo mock, `src/lib/mock/fixtures.ts`.',
+      );
+    }
     await open.click();
     await expect(page.getByTestId('decision-desk')).toBeVisible();
-    return true;
   }
 
-  test('la posición se lee en dos tiempos y los cuatro sumandos van SEPARADOS', async ({ page }) => {
-    needsSeed('ninguna solicitud `cotizada` en cola: no hay mesa que abrir');
+  test('@real la posición se lee en dos tiempos y los cuatro sumandos van SEPARADOS', async ({
+    page,
+  }) => {
     await loginAs(page, 'admin');
-    test.skip(!(await openDesk(page)), 'sin solicitudes cotizadas en este entorno');
+    await openDesk(page);
 
     const strip = page.getByTestId('position-strip').first();
     await expect(strip).toBeVisible();
@@ -148,7 +163,7 @@ test.describe('admin · M5 mesa de decisión (§23.6)', () => {
   }) => {
     mockOnly('la fila «sin conteo» es un estado fabricado por el fixture');
     await loginAs(page, 'admin');
-    test.skip(!(await openDesk(page)), 'sin solicitudes cotizadas en este entorno');
+    await openDesk(page);
 
     const box = page.getByTestId('position-unavailable').first();
     await expect(box).toBeVisible();
@@ -160,12 +175,11 @@ test.describe('admin · M5 mesa de decisión (§23.6)', () => {
     await expect(page.getByText(/No pudimos contar el inventario de \d+ de \d+ cartas/)).toBeVisible();
   });
 
-  test('la sugerencia informa y NO bloquea: se puede emitir con líneas desaconsejadas', async ({
+  test('@real la sugerencia informa y NO bloquea: se puede emitir con líneas desaconsejadas', async ({
     page,
   }) => {
-    needsSeed('ninguna solicitud `cotizada` en cola: no hay mesa que abrir');
     await loginAs(page, 'admin');
-    test.skip(!(await openDesk(page)), 'sin solicitudes cotizadas en este entorno');
+    await openDesk(page);
 
     // Las líneas con precio nacen MARCADAS aunque la sugerencia diga «no comprar» (D6: si el
     // default siguiera a la sugerencia, sería un bloqueo blando).
@@ -191,7 +205,9 @@ test.describe('admin · M5 mesa de decisión (§23.6)', () => {
  */
 test.describe('admin · colas del ciclo de compra (§23.8)', () => {
   test('la cola de autorización avisa de que la fila SE MUERE SOLA', async ({ page }) => {
-    mockOnly('las cuatro colas se sirven de fixtures deterministas');
+    // v1.51.20: el endpoint EXISTE (antes daba 404) — lo que falta es una fila. Es `needsSeed`,
+    // no `mockOnly`: una petición accionable a `backend/prisma/seed-e2e.ts`, no una limitación.
+    needsSeed('ninguna oferta en `pending_authorization` (GET …/offers/pending-authorization → total 0)');
     await loginAs(page, 'admin');
     await page.goto('/es/admin/m5');
     const queues = page.getByTestId('cycle-queues');
@@ -209,7 +225,8 @@ test.describe('admin · colas del ciclo de compra (§23.8)', () => {
   test('«por confirmar envío»: un cálculo imposible se dice con palabras y la alerta sigue encendida', async ({
     page,
   }) => {
-    mockOnly('la fila con días no calculables es un estado fabricado por el fixture');
+    // `businessDaysWaiting: null` sí es un estado fabricado; pero además la cola viene vacía.
+    needsSeed('ninguna solicitud por confirmar envío (GET …/pending-shipment-confirmation → total 0)');
     await loginAs(page, 'admin');
     await page.goto('/es/admin/m5');
     const queues = page.getByTestId('cycle-queues');
@@ -226,7 +243,8 @@ test.describe('admin · colas del ciclo de compra (§23.8)', () => {
 
   /** D22 · criterio 139: la cola **no se vacía sola**. Las dos mitades van juntas. */
   test('«guías por cancelar» tiene salida, y es la única', async ({ page }) => {
-    mockOnly('la cola de guías se sirve de fixtures deterministas');
+    // ⚠️ Además de vacía, este caso CONFIRMA la cancelación: contra el stack consumiría la fila.
+    needsSeed('ninguna guía por cancelar (GET …/guides/pending-cancellation → total 0)');
     await loginAs(page, 'admin');
     await page.goto('/es/admin/m5');
     const queues = page.getByTestId('cycle-queues');
@@ -245,33 +263,81 @@ test.describe('admin · colas del ciclo de compra (§23.8)', () => {
     await expect(queues.getByText(t('es', 'admin.m5.queues.pendingGuide.empty'))).toBeVisible();
   });
 
-  /** D12: el teléfono viaja EN LA FILA, para poder llamar sin ir a buscar al usuario. */
-  test('«vendedores con solicitudes vivas» trae el teléfono en la fila', async ({ page }) => {
-    mockOnly('la cola de vendedores vivos se sirve de fixtures deterministas');
+  /**
+   * **D12: el teléfono viaja EN LA FILA**, para poder llamar sin ir a buscar al usuario.
+   *
+   * v1.51.20 — pasa a `@real`. Antes afirmaba el literal del fixture (`5555123456`) y exigía que
+   * hubiera **a la vez** una fila con teléfono y otra sin él, lo que solo es cierto en mocks. Se
+   * reescribe contra el **invariante**, que es el que D12 protege y el que vale en los dos
+   * entornos: *cada fila resuelve la columna del teléfono — o el número, o el aviso de que no hay
+   * — y **nunca la deja en blanco***. Un hueco es el fallo real: el operador no sabe si el
+   * vendedor no dio teléfono o si la pantalla se lo comió.
+   */
+  test('@real «vendedores con solicitudes vivas»: cada fila resuelve el teléfono, sin huecos', async ({
+    page,
+  }) => {
     await loginAs(page, 'admin');
     await page.goto('/es/admin/m5');
     const queues = page.getByTestId('cycle-queues');
     await queues.getByRole('tab', { name: t('es', 'admin.m5.queues.liveSellers.tab') }).click();
-    await expect(queues.getByText('5555123456')).toBeVisible();
-    // Y cuando no hay, se DICE — no se deja un hueco.
-    await expect(queues.getByText(t('es', 'admin.m5.queues.liveSellers.noPhone'))).toBeVisible();
+
+    // La cola resolvió cuando hay filas O cuando dice que está vacía (`count()` no auto-espera).
+    const rows = queues.locator('tbody tr');
+    await expect(rows.first().or(queues.getByText(t('es', 'admin.m5.queues.empty'))).first()).toBeVisible();
+    const total = await rows.count();
+    expect(total, 'sin vendedores con solicitudes vivas: el seed debe dejar al menos uno').toBeGreaterThan(0);
+
+    const noPhone = t('es', 'admin.m5.queues.liveSellers.noPhone');
+    for (let i = 0; i < total; i++) {
+      const phoneCell = rows.nth(i).locator('td').nth(1);
+      const text = (await phoneCell.innerText()).trim();
+      // O un número marcable, o la frase que dice que no lo hay. Jamás la celda vacía.
+      expect(text === noPhone || /\d{7,}/.test(text), `fila ${i}: teléfono sin resolver ("${text}")`).toBe(true);
+    }
   });
 
   /**
    * La cola que CIERRA el ciclo. ⚠️ Cada fila dice **qué le falta**, y una pieza sin `missing`
    * legible **no se pinta como lista**: saldría de la única pantalla donde alguien la encontraría.
    */
-  test('M1 · «listas para publicar» dice qué le falta a cada pieza y no inventa precios', async ({
+  /**
+   * v1.51.20 — pasa a `@real`. Antes exigía que coexistieran una pieza a la que le falta
+   * **ubicación** y otra a la que le falta **precio**, que es una coincidencia de fixture (contra
+   * el stack todas las piezas de la cola tienen precio resoluble). Se reescribe contra los tres
+   * invariantes que el caso existe para proteger, ciertos en cualquier entorno:
+   *   1. **cada fila dice qué le falta** — una fila muda saldría de la única pantalla donde
+   *      alguien la encontraría;
+   *   2. **nunca `MX$0.00`** para «no resoluble» — cero es un precio (§7.3); y
+   *   3. **ningún botón de publicar** — la pieza sale sola (D10, criterio 125).
+   * Y se añade el **tamaño de la cola** (deuda D5 del techlead): el servidor paga un barrido
+   * completo del inventario para calcularlo (`BLC-D1`) y hasta ahora el único consumidor lo tiraba.
+   */
+  test('@real M1 · «listas para publicar» dice cuántas hay, qué le falta a cada pieza y no inventa precios', async ({
     page,
   }) => {
-    mockOnly('la cola de publicación se sirve de fixtures deterministas');
     await loginAs(page, 'admin');
     await page.goto('/es/admin/m1');
     const queue = page.getByTestId('pending-publish-queue');
     await expect(queue).toBeVisible();
-    await expect(queue.getByText(t('es', 'admin.m1.publishQueue.missingLocation')).first()).toBeVisible();
-    await expect(queue.getByText(t('es', 'admin.m1.publishQueue.noSalePrice')).first()).toBeVisible();
-    // ⛔ Nunca MX$0.00 para «no resoluble», y ningún botón de publicar: la pieza sale sola.
+
+    // La cola resolvió cuando hay filas O cuando dice que está vacía.
+    const rows = queue.locator('tbody tr');
+    await expect(
+      rows.first().or(queue.getByText(t('es', 'admin.m1.publishQueue.empty'))).first(),
+    ).toBeVisible();
+    const total = await rows.count();
+    expect(total, 'la cola de publicar está vacía: el seed debe dejar al menos una pieza').toBeGreaterThan(0);
+
+    // D5: el TAMAÑO del trabajo pendiente, que es para lo que existe una cola. Es el conteo del
+    // servidor sobre la cola entera, así que puede ser MAYOR que las filas de esta página.
+    await expect(queue.getByTestId('publish-queue-total')).toBeVisible();
+
+    // (1) Ninguna fila muda: la celda «Le falta» siempre dice algo.
+    for (let i = 0; i < total; i++) {
+      const missing = (await rows.nth(i).locator('td').nth(2).innerText()).trim();
+      expect(missing, `fila ${i}: no dice qué le falta`).not.toBe('');
+    }
+    // (2) y (3).
     await expect(queue.getByText('MX$0.00')).toHaveCount(0);
     await expect(queue.getByRole('button', { name: /publicar/i })).toHaveCount(0);
   });
@@ -279,9 +345,11 @@ test.describe('admin · colas del ciclo de compra (§23.8)', () => {
 
 test.describe('admin · M5 buylist (cherry-pick)', () => {
   test('permite decisión carta por carta y respeta dinero saliente', async ({ page }) => {
-    // Las acciones cherry-pick solo existen si hay AL MENOS una solicitud con items en cola.
-    // Verificado contra el stack vivo: `GET /admin/buylist` → `total: 0`.
-    needsSeed('ninguna solicitud de buylist en cola (GET /admin/buylist → total 0)');
+    // Las acciones cherry-pick viven en las solicitudes que YA están EN LA CASA. v1.51.20: el seed
+    // ya siembra solicitudes (`cotizada` + `ofertada`), pero **ninguna llega a `verificacion`** —
+    // hacerlo exige recorrer aceptar → guía → «ya lo mandé» → confirmar → recibir.
+    // Verificado contra el stack vivo: `GET /admin/buylist?status=verificacion` → `total: 0`.
+    needsSeed('ninguna solicitud en `recibida`/`verificacion` (GET /admin/buylist?status=verificacion → total 0)');
     await loginAs(page, 'admin');
     await page.goto('/es/admin/m5');
     // El cherry-pick por ítem vive en las solicitudes que YA están en la casa.
@@ -297,7 +365,7 @@ test.describe('admin · M5 buylist (cherry-pick)', () => {
   });
 
   test('v1.18: rechazar exige motivo en un diálogo (3–500) antes de enviar la decisión', async ({ page }) => {
-    needsSeed('ninguna solicitud de buylist en cola: no hay botón «Rechazar» que abrir');
+    needsSeed('ninguna solicitud en `verificacion`: no hay botón «Rechazar» que abrir');
     await loginAs(page, 'admin');
     await page.goto('/es/admin/m5');
     await openM5Stage(page, t('es', 'admin.m5.tabs.verificando'));
@@ -312,7 +380,9 @@ test.describe('admin · M5 buylist (cherry-pick)', () => {
     await expect(confirm).toBeEnabled();
   });
 
-  test('v1.18: la pestaña Piezas rechazadas existe y NO ofrece convertir a inventario', async ({ page }) => {
+  test('@real v1.18: la pestaña Piezas rechazadas existe y NO ofrece convertir a inventario', async ({
+    page,
+  }) => {
     await loginAs(page, 'admin');
     await page.goto('/es/admin/m5');
     await page.getByRole('tab', { name: t('es', 'admin.m5.tabs.piezas_rechazadas') }).click();
@@ -350,7 +420,7 @@ test.describe('admin · M8 disputas', () => {
  * dos lados toca hoy.
  */
 test.describe('admin · M2 spreads del sellado (T-1)', () => {
-  test('hay fila editable para UPC y Collection, y el vacío dice que cae al global', async ({
+  test('@real hay fila editable para UPC y Collection, y el vacío dice que cae al global', async ({
     page,
   }) => {
     await loginAs(page, 'admin');

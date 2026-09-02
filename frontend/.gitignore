@@ -2,6 +2,12 @@
 /.next
 # Bundle de MOCKS que hornea el `webServer` de Playwright (ver playwright.config.ts).
 /.next-e2e-mock
+# Bundle contra el BACKEND REAL, para correr el subset `@real` sobre código recién tocado sin
+# reconstruir (ni reiniciar) el frontend del stack que devops tenga sirviendo en :3000.
+#   NEXT_DIST_DIR=.next-e2e-real NEXT_PUBLIC_USE_MOCKS=false \
+#   NEXT_PUBLIC_API_BASE_URL=http://localhost:3099/api/v1 npx next build && npx next start -p 3010
+#   E2E_BASE_URL=http://localhost:3010 E2E_REAL=1 npm run test:e2e
+/.next-e2e-real
 /out
 /build
 next-env.d.ts

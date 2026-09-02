@@ -1216,6 +1216,7 @@
       "publishQueue": {
         "title": "Ready to publish",
         "subtitle": "Pieces we bought that are not on sale yet. They leave this queue on their own as soon as nothing is missing.",
+        "count": "{count, plural, =0 {None pending} one {# pending} other {# pending}}",
         "empty": "No pieces pending publication.",
         "folio": "Folio",
         "piece": "Piece",

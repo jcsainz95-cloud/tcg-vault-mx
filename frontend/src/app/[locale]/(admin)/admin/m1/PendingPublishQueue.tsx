@@ -65,9 +65,37 @@ export function PendingPublishQueue() {
   const locale = useLocale() as AppLocale;
   const query = useQuery({ queryKey: ['pending-publish'], queryFn: getPendingPublish });
 
+  /**
+   * **EL TAMAÑO DEL TRABAJO PENDIENTE** (deuda D5 del techlead).
+   *
+   * `total` es el conteo del SERVIDOR sobre la cola entera, no `data.length` — y la distinción es
+   * la única razón por la que este número vale algo. La respuesta viene paginada (`pageSize` 20),
+   * así que `data.length` responde *«cuántas caben en esta página»*, que no es una pregunta que
+   * nadie tenga. **`total` se paga caro**: obtenerlo obliga a barrer el inventario y evaluar la
+   * precedencia de precio fila por fila (`BLC-D1`), y hasta ahora **el único consumidor lo tiraba**
+   * — se cobraba el barrido y no se pintaba el resultado.
+   *
+   * ⚠️ **`total` ausente no se degrada a `data.length`.** Un número inventado del tamaño de la
+   * página se ve *igual de confiable* que el bueno y **miente hacia abajo** justo cuando la cola es
+   * grande — que es cuando el número importa. Es la misma doctrina que `MissingCell` y que el
+   * conteo ausente de la mesa (§23.7): *ante «no sé», no se pinta un valor que parezca bueno.*
+   * Sin `total` no se pinta contador; las filas se listan igual.
+   */
+  const total = query.data?.total;
+
   return (
     <section className="border-t border-border py-6" data-testid="pending-publish-queue">
-      <h2 className="font-serif text-lg text-text">{t('title')}</h2>
+      <div className="flex flex-wrap items-baseline justify-between gap-3">
+        <h2 className="font-serif text-lg text-text">{t('title')}</h2>
+        {typeof total === 'number' && (
+          <span
+            data-testid="publish-queue-total"
+            className="tabular font-mono text-[11px] uppercase tracking-[0.06em] text-muted"
+          >
+            {t('count', { count: total })}
+          </span>
+        )}
+      </div>
       <p className="mt-1 max-w-[70ch] text-sm leading-[1.6] text-muted">{t('subtitle')}</p>
 
       <QueryState

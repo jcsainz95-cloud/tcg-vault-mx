@@ -47,13 +47,23 @@ function row(over: Partial<PendingPublishRowDTO> = {}): PendingPublishRowDTO {
   };
 }
 
-function stub(rows: PendingPublishRowDTO[]) {
-  vi.spyOn(api, 'getPendingPublish').mockResolvedValue({
-    data: rows,
-    page: 1,
-    pageSize: 20,
-    total: rows.length,
-  });
+/**
+ * `total` es OVERRIDEABLE a propósito: el caso que importa es justamente aquel en que **no** coincide
+ * con `rows.length` (la respuesta viene paginada). Un stub que lo derivara siempre de las filas no
+ * podría distinguir «pinté el conteo del servidor» de «conté las filas que tengo delante».
+ */
+function stub(rows: PendingPublishRowDTO[], total: number = rows.length) {
+  vi.spyOn(api, 'getPendingPublish').mockResolvedValue({ data: rows, page: 1, pageSize: 20, total });
+}
+
+/**
+ * Respuesta **sin la clave `total`** — un backend anterior a la cola paginada. Va aparte de `stub`
+ * a propósito: `stub(rows, undefined)` dispararía el valor por defecto del parámetro y mediría el
+ * caso contrario al que dice medir.
+ */
+function stubWithoutTotal(rows: PendingPublishRowDTO[]) {
+  vi.spyOn(api, 'getPendingPublish').mockResolvedValue({ data: rows, page: 1, pageSize: 20 } as
+    Awaited<ReturnType<typeof api.getPendingPublish>>);
 }
 
 beforeEach(() => {
@@ -110,6 +120,43 @@ describe('Cola «listas para publicar» — la red que cierra el ciclo', () => {
     ).toBeInTheDocument();
     // Y no hay ningún botón de «publicar»: la pieza sale sola (criterio 125).
     expect(screen.queryByRole('button', { name: /publicar/i })).not.toBeInTheDocument();
+  });
+
+  /**
+   * **D5 (techlead) — una cola existe para decir el TAMAÑO del trabajo pendiente.**
+   * El servidor paga un barrido completo del inventario para calcular este `total` (`BLC-D1`) y el
+   * único consumidor lo tiraba. El assert que lo demuestra es el desacuerdo: 3 filas en la página,
+   * **47** en la cola.
+   */
+  it('pinta el TOTAL del servidor, no el número de filas de la página', async () => {
+    stub([row(), row({ inventoryItemId: 'inv-2' }), row({ inventoryItemId: 'inv-3' })], 47);
+    renderWithProviders(<PendingPublishQueue />, 'es');
+    expect(await screen.findByTestId('publish-queue-total')).toHaveTextContent('47 pendientes');
+  });
+
+  it('una sola pendiente se dice en singular, y cero se dice con palabras', async () => {
+    stub([row()], 1);
+    const { unmount } = renderWithProviders(<PendingPublishQueue />, 'es');
+    expect(await screen.findByTestId('publish-queue-total')).toHaveTextContent('1 pendiente');
+    unmount();
+
+    stub([], 0);
+    renderWithProviders(<PendingPublishQueue />, 'es');
+    // ⛔ Nunca «0 pendientes»: el cero de una cola vacía se dice, no se numera.
+    expect(await screen.findByTestId('publish-queue-total')).toHaveTextContent('Ninguna pendiente');
+  });
+
+  /**
+   * ⚠️ Misma doctrina que `MissingCell`: ante un «no sé» **no se pinta un valor que parezca bueno**.
+   * Degradar a `data.length` daría un número del tamaño de la página —creíble y **corto**— justo
+   * cuando la cola es grande, que es cuando el número importa.
+   */
+  it('`total` ausente (backend anterior) NO se degrada a las filas de la página: no se pinta', async () => {
+    stubWithoutTotal([row(), row({ inventoryItemId: 'inv-2', folio: 'INV-004202' })]);
+    renderWithProviders(<PendingPublishQueue />, 'es');
+    // Las filas se listan igual: lo que falta es el contador, no la cola.
+    expect(await screen.findByText('INV-004202')).toBeInTheDocument();
+    expect(screen.queryByTestId('publish-queue-total')).not.toBeInTheDocument();
   });
 
   it('vacío: mensaje propio, no una tabla en blanco', async () => {

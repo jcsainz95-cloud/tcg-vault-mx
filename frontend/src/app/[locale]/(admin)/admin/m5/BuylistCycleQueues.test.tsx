@@ -16,6 +16,22 @@ function page<T>(data: T[]) {
   return { data, page: 1, pageSize: 20, total: data.length };
 }
 
+/**
+ * Instante que cae, **sin ambigüedad**, en el día `offsetDays` respecto de HOY en
+ * `America/Mexico_City`. Sustituye al viejo `Date.now() + 20 h`, que dejó de ser determinista al
+ * pasar `caducityTone` de una ventana rodante de horas al **día del calendario**: veinte horas caen
+ * hoy o mañana según la hora a la que corra la suite.
+ */
+function caducityOnMxDay(offsetDays: number): string {
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Mexico_City' }).format(
+    new Date(Date.now()),
+  );
+  const day = new Date(`${today}T00:00:00Z`);
+  day.setUTCDate(day.getUTCDate() + offsetDays);
+  // Mediodía de CDMX (UTC−6 todo el año desde 2022): lejos de cualquier borde de medianoche.
+  return new Date(`${day.toISOString().slice(0, 10)}T12:00:00-06:00`).toISOString();
+}
+
 function authRow(over: Partial<PendingOfferAuthorizationRowDTO> = {}) {
   return {
     sellRequestId: 'sr-auth-1',
@@ -27,7 +43,7 @@ function authRow(over: Partial<PendingOfferAuthorizationRowDTO> = {}) {
     excessCents: 50000,
     lineCount: 4,
     buyLineCount: 3,
-    caducityAt: new Date(Date.now() + 20 * 3_600_000).toISOString(),
+    caducityAt: caducityOnMxDay(0),
     ...over,
   };
 }
@@ -102,6 +118,47 @@ describe('Colas del ciclo — ofertas por autorizar', () => {
       screen.getByText(/Si nadie autoriza antes de esa fecha, la solicitud caduca sola/),
     ).toBeInTheDocument();
     expect(screen.getByText('Caduca hoy')).toBeInTheDocument();
+  });
+
+  /**
+   * **El énfasis es del CALENDARIO de CDMX, no de una ventana rodante de horas** — y no promete la
+   * regla de días hábiles del servidor, que el front no tiene (ver `caducityTone`).
+   *
+   * El caso que fija el reloj a las 23:00 de CDMX es exactamente la regresión que había: una fila
+   * que muere **mañana** a mediodía está a ~13 h de distancia, así que la ventana vieja (`≤24 h`)
+   * la rotulaba **«Caduca hoy»** — el copy visible decía un día que no era.
+   */
+  it('«hoy» y «mañana» son días de CALENDARIO en CDMX, no una ventana de 24/48 h', async () => {
+    // 2026-09-01 23:00 en CDMX (UTC−6). Se congela `Date.now`, que es lo único que lee el tono.
+    vi.spyOn(Date, 'now').mockReturnValue(new Date('2026-09-02T05:00:00.000Z').getTime());
+
+    // Muere MAÑANA a mediodía de CDMX ⇒ 2026-09-02T18:00Z: a solo ~13 h del reloj congelado.
+    const tomorrowNoon = caducityOnMxDay(1);
+    expect(tomorrowNoon).toBe('2026-09-02T18:00:00.000Z');
+
+    stub({ auth: [authRow({ caducityAt: tomorrowNoon })] });
+    renderWithProviders(<BuylistCycleQueues isSuperAdmin />, 'es');
+    expect(await screen.findByText('operador@tcghunt.mx')).toBeInTheDocument();
+
+    // ⛔ La ventana vieja (`≤24 h`) decía «Caduca hoy» aquí. El día del calendario dice «mañana».
+    expect(screen.getByText('Caduca mañana')).toBeInTheDocument();
+    expect(screen.queryByText('Caduca hoy')).not.toBeInTheDocument();
+  });
+
+  it('a más de dos días no se destaca nada: el énfasis se gasta si se pinta siempre', async () => {
+    stub({ auth: [authRow({ caducityAt: caducityOnMxDay(3) })] });
+    renderWithProviders(<BuylistCycleQueues isSuperAdmin />, 'es');
+    expect(await screen.findByText('operador@tcghunt.mx')).toBeInTheDocument();
+    expect(screen.queryByText('Caduca hoy')).not.toBeInTheDocument();
+    expect(screen.queryByText('Caduca mañana')).not.toBeInTheDocument();
+  });
+
+  it('mañana se rotula «Caduca mañana», y sigue siendo un día de calendario', async () => {
+    stub({ auth: [authRow({ caducityAt: caducityOnMxDay(1) })] });
+    renderWithProviders(<BuylistCycleQueues isSuperAdmin />, 'es');
+    expect(await screen.findByText('operador@tcghunt.mx')).toBeInTheDocument();
+    expect(screen.getByText('Caduca mañana')).toBeInTheDocument();
+    expect(screen.queryByText('Caduca hoy')).not.toBeInTheDocument();
   });
 
   it('autorizar es autorizar LO GUARDADO: el diálogo lo dice y no ofrece editar', async () => {
