@@ -10243,3 +10243,118 @@ no es asegurar un *inventario en custodia*:
 > comprobar solo porque el barrido la clasificara como «legítima»: es legítima **si la póliza existe**.
 > Si no la hay, esa cadena necesita el mismo tratamiento. **Dueño de la respuesta: product-owner**
 > (es negocio/contrato con la paquetería, no copy).
+
+---
+
+## §42 · P-54: el índice de sets pinta el LOGO de la expansión — la placa de tinta (`DESIGN_SYSTEM.md` §24, contrato v1.52 / M-47, `ARCHITECTURE.md` §4.39) — 2026-09-02, rama `claude/tcg-hunt-orchestrator-28p7z1`
+
+> El diseño estaba **escrito** (ux-ui, §24 completa con cinco reglas duras R1–R5). Esto es su ejecución,
+> no una interpretación. Riesgo de dinero: **ninguno** — es presentación pura.
+
+### 1. Qué cambió, y por qué cabe en UN archivo
+
+`MasterSetIndex.tsx` es el índice **compartido por los cuatro modos** (`platform` de M1, `quoter` del
+cotizador, `user_vault_self`, `user_vault_admin`, §4.20f). La teja vive entera ahí, así que las cuatro
+pantallas anfitrionas reciben el cambio **sin tocarlas**: siguen invocando el mismo componente con su
+`mode`. Ese es el motivo de que §24.1 diseñe «para una superficie» y salgan cuatro gratis.
+
+La teja pasa de **tarjeta de texto** (borde + `bg-surface` + hover de fondo) a **placa + leyenda sobre
+papel**:
+
+| Pieza | Implementación |
+|---|---|
+| Placa (`SetPlate`) | `aspect-[3/2] w-full bg-ink`, radio 0, **sin borde**, aire 16/20/24px. La caja se pinta antes que la imagen ⇒ **cero CLS** sin que el contrato mande dimensiones |
+| Logo | `<img>` crudo (**nivel B**, §4.39.7): sin `next/image`, sin `srcset`, `loading="lazy"` en TODAS, `decoding="async"`, `object-contain` (R1) |
+| Contorno de seguridad | `filter: drop-shadow(0 0 1px var(--color-on-ink)) ×2` en línea. **Obligatorio** (§24.2): salva al logo oscuro sin filete *sin* tener que inspeccionar logo a logo |
+| Sin logo | **Monograma** serif sobre la tinta (§24.5), `aria-hidden` |
+| Leyenda | Nombre serif 16/18/20px con **2 líneas reservadas** (40/45/50px) y sin truncado; meta mono 11px versalitas `tracking-label` |
+| Retícula | `grid-cols-2 · sm:3 · lg:4`, gap 24/32 → 32/40. **Se topa en 4** |
+| Foco | El anillo **estándar** del sistema (`:focus-visible` global de `globals.css`: `outline 2px` + `offset 2px`). Se retiró el `focus-visible:shadow-focus focus-visible:outline-none` que traía la teja: el anillo tiene que caer **por fuera**, sobre papel — rojo sobre tinta es 2,5:1 (§24.9) |
+
+### 2. El monograma no es un esqueleto: es contenido final (R4)
+
+Se pinta **desde el primer frame**, debajo del `<img>`, y la imagen lo tapa sin transición. Consecuencia
+deliberada: **la placa no pulsa nunca**. Es el precedente literal de `CardImage`, que deja el pozo QUIETO
+cuando no hay `src` porque un `animate-pulse` eterno hace que un dato ausente **legítimo** parezca una app
+colgada. Y aquí `logoUrl: null` es legítimo, **normal y permanente** (§4.39.6): promos, colecciones y sets
+viejos no van a tener logo nunca, y un set aún no re-sincronizado se ve **idéntico** a propósito.
+
+`onError` retira el `<img>` y deja el monograma: un 404 del CDN **no deja a nadie esperando** y jamás se ve
+un icono de imagen rota. El estado `failed` muere con la teja (keyada por `setId`), así que un fallo no se
+hereda al paginar.
+
+La derivación (`setMonogram`, exportada para poder probarla) es **presentación del front**, no un dato:
+iniciales de las palabras significativas, máximo 3, ignorando `and`/`&`/`of`/`the`, con caída a los 3
+primeros caracteres cuando el nombre es numérico (`151` → `151`). Que dos sets compartan iniciales da igual:
+el nombre completo está debajo.
+
+### 3. A11y: el logo es decorativo, el texto es el dato (R2)
+
+`alt=""` + `aria-hidden="true"` en el logo **y** en el monograma. El nombre accesible de la teja lo dan el
+nombre visible y la meta, que ya están dentro del `<button>`; no se añade `aria-label` (duplicaría y
+desalinearía ES/EN). Sin ese `aria-hidden`, un lector de pantalla anunciaría «BS, Base Set, Base 1999».
+Hay **una** parada de tabulación por set y `lang="en"` viaja ahora en el nombre y en la meta (antes envolvía
+también al badge `Combinado`, que es español).
+
+### 4. Contrato: `logoUrl` REQUERIDO donde llega, OPCIONAL donde no lo emiten
+
+- **`MasterSetSummaryDTO.logoUrl: string | null`** — requerido a propósito. Ser requerido es lo que obliga al
+  compilador a que quien compone el DTO **client-side** (el modo `quoter`, que lo arma desde
+  `GET /buylist/sets`) decida el valor en vez de olvidarlo. Sin eso, la teja del cotizador sería la única sin
+  logo de todo el producto y **nada** fallaría hasta verlo con los ojos. Al añadir el campo, el typecheck
+  señaló **exactamente** los dos sitios que lo construían a mano (dos fixtures de test) — que es el efecto
+  buscado.
+- **`CardSetDTO.logoUrl?: string | null`** — opcional, y no por descuido: el mismo tipo sirve a **dos**
+  endpoints y solo uno lo emite. `GET /buylist/sets` lo manda siempre; `GET /catalog/sets` **no**
+  (§4.39.5: alimenta dropdown y filtro de texto, no tejas). En esa respuesta la clave está **ausente de
+  verdad**, y el tipo lo dice.
+
+### 5. El mock dice la verdad — los dos casos, en la misma retícula
+
+Los fixtures traen sets **con** logo (`sv08`, `sv06`, `sv1`, `cel25`) y sets **sin** logo (`cel25c`,
+`swsh1`, `base1` → `logoUrl: null`, clave presente). Si todos tuvieran logo, el monograma **no se
+ejercitaría jamás** en dev ni en Playwright y el hueco solo aparecería en producción: es el modo exacto en
+que se escapó el bug de la imagen del carrito (§34). Hay un test dedicado a esto —«conviven tejas con logo
+y tejas sin logo»— que se pone **rojo** si alguien uniforma los fixtures en cualquiera de las dos
+direcciones.
+
+**Divergencia conocida y acotada:** `lib/api.ts` sirve `getSets()` (`/catalog/sets`) y `listBuylistSets()`
+(`/buylist/sets`) del **mismo** array `mockSets`, así que en modo mock `/catalog/sets` también rinde
+`logoUrl` aunque el backend real no lo emita ahí. No lo consume nadie (los chips de la home y el `SetFilter`
+son texto) y el tipo opcional impide asumirlo. Se deja anotado porque la separación limpia exige tocar
+`lib/api.ts`, que en este pase lo tenía otra rama.
+
+### 6. Verificación por mutación (no «los tests pasan»)
+
+13 pruebas nuevas en `MasterSetIndexPlate.test.tsx`. Cada una se comprobó **rompiendo a propósito** lo que
+afirma y confirmando que la suite se pone roja:
+
+| Mutación | Resultado |
+|---|---|
+| `fetchQuoterIndex` deja de mapear `logoUrl` | 2 rojas |
+| Se quita el `aria-hidden` del monograma | 1 roja (nombre accesible contaminado) |
+| `object-contain` → `object-cover` | 1 roja |
+| Se quita el contorno de seguridad | 1 roja |
+| Se quita el `onError` | 1 roja |
+| Se añade `animate-pulse` a la placa | 2 rojas |
+| Se quita el `aria-current` | 1 roja |
+| Retícula a 1 columna | 1 roja |
+| Monograma sin tope de 3 / sin stop-words / sin caída a 3 caracteres | 1 roja cada una |
+| La teja vuelve a ser tarjeta (`border` + `bg-surface`) | 1 roja |
+| Fixtures: **todos** con logo / **ninguno** con logo / el índice mock deja de proyectar el campo | 2, 4 y 4 rojas |
+
+Suite completa del front: **964 pruebas verdes**, typecheck y lint limpios.
+
+### 7. Lo que queda pendiente (y quién lo debe)
+
+1. **§24.10 — la placa `sm` (112×64) en el encabezado del binder.** Diseñada por ux-ui, **no
+   implementada** en este pase: el encargo acotaba el trabajo a la teja del índice y `MasterSetBinder.tsx`
+   estaba fuera de alcance. Es aditivo y pequeño (`MasterSetBinder` ya recibe el `MasterSetSummaryDTO`
+   entero, logo incluido). **Dueño: frontend, siguiente pase.**
+2. **`currentSetId`** existe como prop opcional del índice (§24.6) y **ningún anfitrión la pasa todavía**:
+   hoy, al abrir un set, el índice se desmonta y no hay «set actual» que pintar. Está para cuando el
+   anfitrión sepa de verdad cuál es (vuelta del binder con el set en la URL) — §24.6 prohíbe **inventar**
+   una selección que no existe.
+3. **Cero claves i18n nuevas**, tal como manda §24.15: el nombre, la serie y el año ya se pintaban, el
+   `alt` es vacío por diseño y el monograma se deriva del nombre — no se traduce. `messages/*.json` no se
+   tocó y la paridad ES/EN queda intacta.

@@ -1260,6 +1260,7 @@ describe('Master Set · Multi-parte / master combinado (P-27, v1.33)', () => {
           name: 'Classic Collection',
           series: 'Sword & Shield',
           year: 2021,
+          logoUrl: null,
           catalogCardCount: 25,
           distinctCardsOwned: 0,
           completionPct: 0,

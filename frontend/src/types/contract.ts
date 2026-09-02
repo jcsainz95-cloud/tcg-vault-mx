@@ -391,6 +391,15 @@ export interface CardSetDTO {
   // (principal + subsets). Presente SOLO en masters combinados; el dropdown filtra por TODAS las partes.
   // Un set normal lo omite (comportamiento previo intacto).
   partSetIds?: string[];
+  // v1.52 (M-47, ARCHITECTURE §4.39.5, aditivo): logo de la expansión (`CardSet.logoUrl`).
+  // ⚠️ OPCIONAL **aquí a propósito**, y no por descuido: este mismo tipo sirve a DOS endpoints y
+  // solo UNO lo emite. `GET /buylist/sets` lo manda SIEMPRE (clave presente, `null` cuando el
+  // proveedor no publica logo) porque es la fuente client-side de la retícula de tejas del
+  // cotizador; `GET /catalog/sets` NO lo emite (§4.39.5 «NO entra»: alimenta dropdown/filtro de
+  // texto, no tejas). Por eso `?: string | null` y no `string | null`: en la respuesta de catálogo
+  // la clave está AUSENTE de verdad. Quien lo consuma debe tratar `undefined` y `null` igual
+  // («sin logo»); ⛔ PROHIBIDO construir la URL por plantilla desde el `id`.
+  logoUrl?: string | null;
 }
 
 // v1.1: facetas dinámicas de "Compra" (contrato GET /catalog/facets).
@@ -1115,6 +1124,17 @@ export interface MasterSetSummaryDTO {
   // `partSetIds` = los set-ids REALES plegados (principal + subsets); presente SOLO en masters
   // combinados. Un set normal lo omite. Sirve para que el front marque "combinado" / filtre por partes.
   partSetIds?: string[];
+  // ===== v1.52 (M-47, ARCHITECTURE §4.39, aditivo): logo de la expansión =====
+  // `string | null` REQUERIDO (no `logoUrl?`): la clave va SIEMPRE presente y la ausencia se
+  // expresa con `null` (clase (P) presentación, §5.2.9). `null` es NORMAL y PERMANENTE — hay sets
+  // que el proveedor no ilustra (promos, colecciones, sets viejos) y también lo rinde un set aún
+  // no re-sincronizado; el contrato NO distingue ambos orígenes y el cliente NO debe intentarlo.
+  // No es error: no se reintenta, no se registra incidente. Ser REQUERIDO es deliberado — obliga
+  // al compilador a que quien componga este DTO client-side (el modo `quoter`, que lo mapea desde
+  // `GET /buylist/sets`) decida el valor en vez de olvidarlo en silencio, que es como la teja del
+  // cotizador se quedaría sin logo. Lo pinta `MasterSetIndex` (DESIGN_SYSTEM §24: placa de tinta
+  // + monograma cuando es `null`). ⛔ PROHIBIDO construir la URL por plantilla desde el `setId`.
+  logoUrl: string | null;
 }
 
 // Ordenamiento del índice (contrato §M1). `release_desc` es el default.
