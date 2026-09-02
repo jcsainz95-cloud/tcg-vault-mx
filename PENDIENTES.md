@@ -82,6 +82,38 @@ Doble veredicto por-stream aprobado; mergeado a `main` (`6c5763b`). Se despliega
 
 ## Abiertos
 
+### Diseñado y documentado pero SIN CONSTRUIR (2026-09-02)
+
+#### P-54 · 🎨 Logos de expansión en el índice de sets (en vez de los títulos en texto) — 0% implementado
+- **Pedido del humano:** que el índice de sets muestre **el logo de cada expansión**, no su nombre en texto.
+- **Lo que SÍ existe (todo documental, ya en `main` y desplegado como docs):**
+  - `docs/ARCHITECTURE.md` **§4.39** (v1.52-set-logos) — marcada **NORMATIVO**: persistir `CardSet.logoUrl`
+    y `symbolUrl`, migración **M-47 aditiva pura**, sin backfill (se puebla por re-sync), servidas desde el
+    mismo host que ya sirve el arte de las cartas ⇒ cero acción de devops.
+  - `docs/API_CONTRACT.md` **v1.52** — `logoUrl: string | null` declarado en el DTO de set y en 4 endpoints.
+  - `docs/DESIGN_SYSTEM.md` **§24** (v2.8) — la «placa de tinta» `#1A1A18`, con **monograma serif** cuando el
+    set no tiene logo (R4: sin logo no hay hueco ni pulso eterno).
+- **🔴 Lo que NO existe — nada de código:**
+  - `backend/prisma/schema.prisma` **no tiene** `logoUrl` ni `symbolUrl`. La última migración es `m43`;
+    **M-47 nunca se creó ni se aplicó**.
+  - `grep logoUrl backend/src frontend/src` ⇒ **cero coincidencias**. Ni ingesta, ni DTO, ni componente.
+- **⚠ Por qué esto importa más que un pendiente normal:** el contrato **declara un campo que la API no
+  devuelve**, y §4.39 está marcada NORMATIVO. Por la regla de conflicto del equipo el contrato manda sobre el
+  código, así que hoy cualquiera —humano o agente— que lea `API_CONTRACT v1.52` va a creer que `logoUrl`
+  existe. Es exactamente la clase de defecto que esta sesión persiguió todo el tiempo: **una afirmación más
+  fuerte que la realidad**. Mientras no se construya, o se construye o el contrato debe decir «declarado, no
+  implementado».
+- **Trabajo pendiente, por dueño:**
+  - **(backend)** migración M-47 (dos columnas nullable en `CardSet`) + persistir `images.logo`/`images.symbol`
+    en el sync de metadata + exponer `logoUrl` en los 4 endpoints del contrato v1.52. `symbolUrl` se persiste
+    y **no se expone** (§4.39.5).
+  - **(frontend)** la retícula de §24: placa de tinta, monograma serif de respaldo, sin pulso cuando no hay logo.
+  - **(devops)** nada. §4.39.7 lo deja explícito: mismo host de imágenes, cero superficie nueva.
+  - **Poblado:** por **re-sync**, no por backfill — no hay `UPDATE` masivo (§4.39.4).
+- **Riesgo de dinero:** ninguno. Es presentación (clase P); M-47 es aditiva pura, sin `DROP`, sin `NOT NULL`.
+- **Requisito abierto:** §24.13 nº1 — un dato que ux-ui dejó pedido al arquitecto. **No bloquea**: sin él la
+  retícula funciona con monogramas.
+
 ### Infraestructura · Disco de la base de datos (2026-09-01)
 
 #### P-53 · 💾 El disco de Postgres se llena por el ritmo de escritura del historial de precios — MITIGADO, falta la cura
