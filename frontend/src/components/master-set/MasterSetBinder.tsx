@@ -41,6 +41,7 @@ import { CardDetailModal } from '@/components/domain/CardDetailModal';
 import { cn } from '@/lib/cn';
 import { HuntMarkMicro } from '@/components/domain/LogoTcgHunt';
 import { VariantPricingCompact } from './VariantPriceConsole';
+import { SetPlate } from './SetPlate';
 import type { MasterSetViewMode } from './mode';
 
 type PieceFilter = 'all' | 'with' | 'gaps';
@@ -396,9 +397,19 @@ export function MasterSetBinder({ mode, userId, set, onBack, onOpenCell, onAddVa
           <Button variant="ghost" size="sm" onClick={onBack} aria-label={t('backToIndex')}>
             <ChevronLeft size={18} /> {t('backToIndex')}
           </Button>
-          <h2 lang="en" className="text-h2">
-            {title}
-          </h2>
+          {/* §24.10 (DT-Ga) — el «destacado» de la referencia NO va arriba del índice (allí no hay
+              set actual: en cuanto eliges, te vas); su traducción correcta es la CONFIRMACIÓN de lo
+              que elegiste, aquí, a la izquierda del título. Mismo `SetPlate` y mismo acabado de
+              §24.2.d en tamaño `sm` (112×64, aire 8px, SIN repisa, oculto por debajo de `sm`).
+              `alt=""` + `aria-hidden` van dentro del componente: el nombre accesible es el título.
+              El `key` por logo remonta el pozo si un re-sync cambia la URL del mismo set (si no, un
+              `failed` previo se quedaría pegado en monograma). */}
+          <div className="flex items-center gap-4">
+            <SetPlate key={set.logoUrl ?? 'no-logo'} name={title} logoUrl={set.logoUrl} size="sm" />
+            <h2 lang="en" className="text-h2">
+              {title}
+            </h2>
+          </div>
         </div>
         {binder.data && !isQuoter && (
           <span className="font-mono tabular-nums text-xs text-muted">
