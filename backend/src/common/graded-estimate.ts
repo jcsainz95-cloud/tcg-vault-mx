@@ -45,7 +45,7 @@ export interface GradingCostTier {
  *
  * | Flag | Qué apaga | Se pone en `false` por |
  * |---|---|---|
- * | `enabled` | — (es el **espejo** del dial M10; viaja al DTO de admin) | dial `graded_estimates_enabled != 'on'` |
+ * | `enabled` | — (es el **espejo** del dial M10; viaja al DTO de admin **y lo lee el gate del INGEST**) | dial `grading_hook_enabled != 'on'` |
  * | `estimatesEnabled` | **ficha + teja + vitrina** (implica apagar todo) | dial `off`, o `grades`/`freshnessDays` **presente-e-inválida** |
  * | `highlightEnabled` | **teja + vitrina** (la ficha sigue informando) | lo anterior, o `minUpsidePct`/`highlightGrades` **presente-e-inválida** |
  *
@@ -54,9 +54,18 @@ export interface GradingCostTier {
  */
 export interface GradedEstimateConfig {
   /**
-   * ESPEJO READ-ONLY del dial M10 `graded_estimates_enabled` (fail-closed, seed `off`). Es el `enabled`
-   * del DTO de admin; **no** lo apaga una clave corrupta (eso se refleja en el `reason` del preview y en
-   * el `warn`, §4.38d › Observabilidad), porque el contrato lo define como espejo del dial.
+   * ESPEJO READ-ONLY del **DIAL ÚNICO** M10 `grading_hook_enabled` (fail-closed, seed `off`, v1.51
+   * M-46). Es el `enabled` del DTO de admin; **no** lo apaga una clave corrupta (eso se refleja en el
+   * `reason` del preview y en el `warn`, §4.38d › Observabilidad), porque el contrato lo define como
+   * espejo del dial.
+   *
+   * **v1.51 (§4.38r): gobierna las DOS cosas** — la EXHIBICIÓN (ficha/teja/vitrina) y la OBTENCIÓN
+   * (el ingest de fase 2: créditos y escrituras).
+   *
+   * ⚠️ **El gate del INGEST lee ESTE campo —el dial crudo—, NUNCA `estimatesEnabled`/
+   * `highlightEnabled`** (§4.38h.3 / §4.38r.7). Esos dos doblan la validez de claves de **curaduría**
+   * (`minUpsidePct`, `highlightGrades`, `maxRawMultiple`), y un dedazo en una de ellas **no puede**
+   * congelar la obtención de datos: apagaría la vitrina *y*, sin querer, el feed.
    */
   enabled: boolean;
   /** ¿La FICHA puede informar? Gobierna `selectGradedEstimates`. */
@@ -88,13 +97,11 @@ export interface GradedEstimateConfig {
 
   // ===================== v1.50.2 — gate de confianza (§4.38k) + ingest (§4.38h) =====================
 
-  /**
-   * ESPEJO READ-ONLY del segundo dial M10, `graded_estimate_ingest_enabled` (seed `off`). Gobierna la
-   * **obtención** (¿gastamos créditos y escribimos filas?), NO la **exhibición** (`enabled`). Son dos
-   * diales a propósito: con uno solo, el operador tendría que elegir entre «no puedo probar el ingest
-   * sin publicar» y «no puedo publicar sin encender el gasto» (§4.38d).
-   */
-  ingestEnabled: boolean;
+  // ⛔ v1.51 (M-46, §4.38r): `ingestEnabled` RETIRADO. Había un segundo dial
+  // (`graded_estimate_ingest_enabled`) para la obtención; el dueño decidió **un solo interruptor** y
+  // ahora `enabled` gobierna exhibición Y obtención. El estado «traer y escribir con la tienda
+  // callada» **ya no es expresable** (§4.38r.6.4): su sustituto es la SONDA
+  // (`POKEMONPRICETRACKER_GRADED_PROBE`, observa sin escribir) y la lista de revisión.
   /**
    * Decaimiento del OVERRIDE MANUAL, **seed 30** (= `freshnessDays`), §4.38m / criterio 109. El
    * override manual **SÍ caduca**, y se mide contra su fecha de captura.
@@ -141,6 +148,18 @@ export interface GradedEstimateConfig {
    */
   ingestConfigInvalid: boolean;
   /**
+   * INTERNO (no viaja al DTO), v1.51-b (R1): **QUÉ clave(s) del ingest están presente(s)-e-inválida(s)**,
+   * por nombre. `ingestConfigInvalid` se deriva de esta lista (`length > 0`), así que las dos no pueden
+   * divergir.
+   *
+   * Existe porque el fail-closed que apaga el ingest tenía que poder NOMBRAR su causa. El veredicto
+   * (`[VEREDICTO-PSA]`) es el único artefacto que el operador mira cuando el ingest escribe cero filas,
+   * y «la config del ingest es inválida» no es accionable: `graded_estimate_ingest_max_cards_per_run`
+   * sí lo es. Misma doctrina que `maxRawMultipleInvalid` con su `409`: la superficie que existe para
+   * que el operador confíe tiene que decirle qué corregir, no que «algo está mal».
+   */
+  ingestInvalidKeys: readonly string[];
+  /**
    * INTERNO (no viaja al DTO), v1.50.3 (§4.38n.3): ¿`graded_estimate_max_raw_multiple` está
    * PRESENTE-pero-INVÁLIDA? Es la ÚNICA clave de la que depende la **coherencia de magnitud** (las
    * cotas inferior y de orden de grados son invariantes de producto, sin dial).
@@ -164,7 +183,7 @@ export type GradedEstimateSourceStat = 'median' | 'average' | 'smart';
 /** El `GradedEstimateConfigDTO` del contrato (§M2). Los flags internos de GU-A8 NO forman parte de él. */
 export type GradedEstimateConfigDTO = Omit<
   GradedEstimateConfig,
-  'estimatesEnabled' | 'highlightEnabled' | 'ingestConfigInvalid' | 'maxRawMultipleInvalid'
+  'estimatesEnabled' | 'highlightEnabled' | 'ingestConfigInvalid' | 'ingestInvalidKeys' | 'maxRawMultipleInvalid'
 >;
 
 /**
@@ -175,7 +194,7 @@ export type GradedEstimateConfigDTO = Omit<
 export function toGradedEstimateConfigDTO(cfg: GradedEstimateConfig): GradedEstimateConfigDTO {
   return {
     enabled: cfg.enabled,
-    ingestEnabled: cfg.ingestEnabled,
+    // v1.51 (M-46): `ingestEnabled` ya no se emite — el DTO del contrato lo perdió con el colapso.
     grades: cfg.grades,
     highlightGrades: cfg.highlightGrades,
     freshnessDays: cfg.freshnessDays,
@@ -467,10 +486,27 @@ export const GRADED_ESTIMATE_SOURCE_STAT_VALUES: readonly GradedEstimateSourceSt
 ];
 export const DEFAULT_GRADED_ESTIMATE_SOURCE_STAT: GradedEstimateSourceStat = 'median';
 
-/** Tope DURO de cuota por corrida del ingest (§4.38h.3). Un error de alcance no quema el día. */
+/**
+ * Tope DURO de cuota por corrida del ingest (§4.38h.3). Un error de alcance no quema el día.
+ *
+ * ⚠️ **v1.51-a (§4.38r.3.4) — el MÁXIMO baja de `5000` a `1000`. El seed sigue siendo 250.**
+ * `5 000 × 2 créditos × 2 corridas = 20 000 créditos/día` era **la cuota diaria COMPLETA** del plan del
+ * dueño, autorizable con **un solo `PUT` válido**, sin redeploy y sin aprobación adicional: un tope cuyo
+ * máximo admisible coincide con el presupuesto total no es un tope. `1 000` deja **4×** de holgura sobre
+ * el seed y sigue siendo ~140× el inventario RAW publicado medido, así que no estorba a nadie.
+ *
+ * ⛔ **Lo que este número NO acota, y decirlo importa:** acota las cartas **EN ALCANCE** (las que el job
+ * mira), **no** las que el proveedor DEVUELVE — la petición pide el SET entero (`fetchAllInSet=true`).
+ * Si PPT cobra por carta devuelta, el coste real es `ingestMaxCardsPerRun × A`, con `A` = devueltas /
+ * en-alcance gobernado por **cuántos SETS** toca el alcance, que **ningún dial de este archivo acota**
+ * (con `A = 16`, 1 000 siguen siendo 16 000 créditos). Bajar este máximo reduce el **peor caso
+ * NOMINAL**; **no** convierte el dial en un presupuesto ni cierra la amplificación. Quien lea
+ * «bajamos el tope» como «ya está acotado el gasto» habrá comprado falsa cobertura: eso lo cierra la
+ * precondición de medición de §4.38(r.3.1), no esta constante.
+ */
 export const DEFAULT_GRADED_ESTIMATE_INGEST_MAX_CARDS_PER_RUN = 250;
 export const GRADED_ESTIMATE_INGEST_MAX_CARDS_MIN = 1;
-export const GRADED_ESTIMATE_INGEST_MAX_CARDS_MAX = 5000;
+export const GRADED_ESTIMATE_INGEST_MAX_CARDS_MAX = 1000;
 
 /**
  * Config APAGADA e INERTE — el estado del dial `off` (seed) y el que usan los tests de «con `off` el
@@ -483,7 +519,6 @@ export const DISABLED_GRADED_ESTIMATE_CONFIG: GradedEstimateConfig = {
   enabled: false,
   estimatesEnabled: false,
   highlightEnabled: false,
-  ingestEnabled: false,
   grades: [],
   highlightGrades: [],
   freshnessDays: DEFAULT_GRADED_ESTIMATE_FRESHNESS_DAYS,
@@ -495,6 +530,7 @@ export const DISABLED_GRADED_ESTIMATE_CONFIG: GradedEstimateConfig = {
   sourceStat: DEFAULT_GRADED_ESTIMATE_SOURCE_STAT,
   ingestMaxCardsPerRun: DEFAULT_GRADED_ESTIMATE_INGEST_MAX_CARDS_PER_RUN,
   ingestConfigInvalid: false,
+  ingestInvalidKeys: [],
   maxRawMultipleInvalid: false,
 };
 
@@ -535,7 +571,15 @@ export function validateGradedEstimateSourceStat(v: unknown): string | null {
     : `must be one of ${GRADED_ESTIMATE_SOURCE_STAT_VALUES.join('|')}`;
 }
 
-/** I8 — `ingestMaxCardsPerRun`: entero en `[1, 5000]`. */
+/**
+ * I8 — `ingestMaxCardsPerRun`: entero en `[1, 1000]` (**estrechado en v1.51-a; antes `[1, 5000]`**).
+ *
+ * Es la MISMA puerta para las tres vías de escritura/lectura (`PUT /admin/pricing/graded-estimates`,
+ * `PUT /admin/settings` y el lector fail-closed del resolver), así que estrechar aquí estrecha las tres.
+ * Un valor **almacenado** en `(1 000, 5 000]` no queda gastando: el lector lo marca `invalid` ⇒
+ * `ingestConfigInvalid` ⇒ el ingest **sale antes de pedir nada** (fail-closed on-read). Ese camino tiene
+ * prueba propia en `graded-estimate.one-dial.spec.ts`.
+ */
 export function validateGradedEstimateIngestMaxCards(v: unknown): string | null {
   return isInt(v) && v >= GRADED_ESTIMATE_INGEST_MAX_CARDS_MIN && v <= GRADED_ESTIMATE_INGEST_MAX_CARDS_MAX
     ? null

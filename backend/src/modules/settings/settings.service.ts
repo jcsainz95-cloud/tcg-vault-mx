@@ -4,6 +4,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { StripeFeeConfig } from '../../common/money';
 import { BusinessException } from '../../common/business.exception';
 import {
+  RETIRED_SETTING_KEYS,
   SETTING_DEFAULTS,
   SETTING_DTO_MAP,
   SETTING_VALIDATORS,
@@ -91,6 +92,13 @@ export class SettingsService implements OnModuleInit {
   async logConfigInventory(): Promise<void> {
     try {
       const rows = await this.prisma.configSetting.findMany();
+      // v1.51 (M-46, §4.38r.1) — PRIMERO las RETIRADAS PRESENTES, y **antes** del `return` temprano de
+      // «sin divergencias»: tras el colapso a un dial, producción queda justo en ese caso (ninguna
+      // divergencia y las dos filas viejas ahí), que es exactamente el entorno donde callarlas sería
+      // peor. Una clave retirada que aparece en la tabla sin rótulo es una TRAMPA DE DIAGNÓSTICO:
+      // alguien lee `graded_estimate_ingest_enabled = off` y concluye que el ingest está apagado
+      // MIENTRAS GASTA (lo que gobierna es `grading_hook_enabled`, y puede estar en `on`).
+      this.logRetiredKeys(rows);
       const diffs: string[] = [];
       // v1.50.3-c (techlead): denominador = las claves COMPARABLES, no `rows.length`. La tabla puede
       // tener claves sin default de código (retiradas, o escritas fuera de banda) que el `continue` de
@@ -154,6 +162,33 @@ export class SettingsService implements OnModuleInit {
           '(el otro es GET /admin/pricing/graded-estimates). El arranque CONTINÚA.',
       );
     }
+  }
+
+  /**
+   * v1.51 (M-46, §4.38r.1) — lista las claves **RETIRADAS que siguen en la tabla**, con su valor, bajo
+   * un rótulo que dice que **no se leen**.
+   *
+   * Las filas no se borran a propósito (§11.0 punto 4: borrar config para lograr cero efecto es
+   * escribir en producción sin motivo; y son lo que mantiene fail-closed al código viejo si hay
+   * rollback). El precio de dejarlas es que **mienten a quien lea la tabla a pelo**, y esta línea es
+   * el pago de ese precio.
+   *
+   * `log` y no `warn`: que estén ahí es lo NORMAL después del pase, y una alarma que suena siempre se
+   * aprende a ignorar. Si no hay ninguna —entorno nuevo, sembrado ya sin ellas— no se emite nada.
+   */
+  private logRetiredKeys(rows: { key: string; valueJson: unknown }[]): void {
+    const present = rows
+      .filter((r) => (RETIRED_SETTING_KEYS as readonly string[]).includes(r.key))
+      .sort((a, b) => a.key.localeCompare(b.key));
+    if (present.length === 0) return;
+    const shown = present.map((r) => `${r.key}=${canonicalJson(r.valueJson)}`).join('; ');
+    this.logger.log(
+      `config inventory: ${present.length} clave(s) RETIRADAS presentes en la base (INERTES, NO SE ` +
+        `LEEN) → ${shown}. (§4.38r.1: las retiró M-46 y NO se borran —mantienen fail-closed al ` +
+        'código viejo si hay rollback—, pero su valor NO gobierna nada: el gancho de grading, ' +
+        'exhibición Y obtención, lo gobierna `grading_hook_enabled`. NO concluyas de estas filas que ' +
+        'el ingest está apagado.)',
+    );
   }
 
   /** Lee un dial; si no existe fila, devuelve el default. */

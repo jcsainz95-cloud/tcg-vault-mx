@@ -301,7 +301,7 @@ describe('getGradedEstimatesBatch — UNA query con la clave canónica (§4.38a/
  * los que prueban el fail-closed la DEJAN FUERA a propósito (R1: ausente ⇒ tabla vacía).
  */
 const SEEDED_TIERS = { [SettingKey.GRADING_COST_TIERS]: DEFAULT_GRADING_COST_TIERS };
-const ON = { [SettingKey.GRADED_ESTIMATES_ENABLED]: 'on' };
+const ON = { [SettingKey.GRADING_HOOK_ENABLED]: 'on' };
 
 describe('loadGradedEstimateConfig — fail-closed en dos niveles (§4.38d)', () => {
   it('con el dial `off` (seed) devuelve la config APAGADA sin evaluar nada', async () => {
@@ -331,7 +331,7 @@ describe('loadGradedEstimateConfig — fail-closed en dos niveles (§4.38d)', ()
     const keys = (prisma as any).configSetting.findMany.mock.calls[0][0].where.key.in;
     expect(new Set(keys)).toEqual(
       new Set([
-        SettingKey.GRADED_ESTIMATES_ENABLED,
+        SettingKey.GRADING_HOOK_ENABLED,
         SettingKey.GRADED_ESTIMATE_GRADES,
         SettingKey.GRADED_ESTIMATE_HIGHLIGHT_GRADES,
         SettingKey.GRADED_ESTIMATE_FRESHNESS_DAYS,
@@ -342,7 +342,6 @@ describe('loadGradedEstimateConfig — fail-closed en dos niveles (§4.38d)', ()
         SettingKey.GRADED_ESTIMATE_MIN_SAMPLE_COUNT,
         SettingKey.GRADED_ESTIMATE_SOURCE_STAT,
         SettingKey.GRADED_ESTIMATE_INGEST_MAX_CARDS_PER_RUN,
-        SettingKey.GRADED_ESTIMATE_INGEST_ENABLED,
       ]),
     );
   });
@@ -362,15 +361,18 @@ describe('loadGradedEstimateConfig — fail-closed en dos niveles (§4.38d)', ()
       // v1.50.3 — seeds ALINEADOS a `PROJECT.md` §O.7 (GU-A17). Los tres corregidos van con su valor
       // del criterio, no con el que el código eligió: `manualFreshnessDays` 30 (era `null` ⇒ derogaba
       // el criterio 109), `minSampleCount` 5 (era 3 ⇒ permisivo) y `maxRawMultiple` 100 (era 50 ⇒
-      // suprimía sin explicación las cartas de 50×–100×). `ingestEnabled: false` = fail-closed: el
-      // ingest no gasta un solo crédito hasta que el dueño lo encienda.
-      ingestEnabled: false,
+      // suprimía sin explicación las cartas de 50×–100×). v1.51 (M-46): `ingestEnabled` desapareció —
+      // con el dial ÚNICO, `enabled: false` YA significa «el ingest no gasta un solo crédito».
       manualFreshnessDays: 30,
       maxRawMultiple: 100,
       minSampleCount: 5,
       sourceStat: 'median',
       ingestMaxCardsPerRun: 250,
       ingestConfigInvalid: false,
+      // v1.51-b (R1): la lista de claves del ingest presente(s)-e-inválida(s), VACÍA con la config
+      // sana. `ingestConfigInvalid` se deriva de ella, así que este `toEqual` también fija que no
+      // pueden divergir: una lista no vacía con el flag en `false` sería imposible de escribir.
+      ingestInvalidKeys: [],
       // v1.50.3 (§4.38n.3): flag INTERNO —no viaja al DTO— que la LISTA DE REVISIÓN usa para decidir
       // entre evaluar (dial `off` = decisión) y `409` (clave corrupta = intención perdida).
       maxRawMultipleInvalid: false,

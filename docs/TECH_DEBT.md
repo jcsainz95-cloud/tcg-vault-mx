@@ -13,6 +13,25 @@
 > validación de diales M10, y acotado por periodo de reportes) **ya están corregidos** con tests; no
 > figuran como deuda.
 
+### M47-R1 · TRES criterios distintos para la MISMA amenaza (URL de imagen de tercero que se persiste y se renderiza) (techlead R1, M-47/v1.52, 2026-09-02)
+- **Dueño:** backend. **Severidad:** Media (aceptada, **no bloqueante**). **⛔ NO ejecutar sin que el orquestador serialice `backend/src/common/`** — es zona compartida y otra sesión la tenía abierta cuando se detectó.
+- **Deuda:** hoy conviven **tres** criterios incompatibles para el mismo riesgo (persistir una URL de un tercero que luego sale como `<img src>`):
+  1. `CatalogSyncService.sanitizeSetImageUrl` (M-47, `catalog-sync.service.ts`) — **host EXACTO** (`URL.host`, con puerto), rechaza userinfo, persiste `URL.href` normalizado.
+  2. `sanitizeSealedImageUrl` (`src/modules/inventory/sealed-image-host.ts`, §4.32c) — **allowlist de dominios raíz** (host o subdominio), rechaza userinfo, persiste la cadena **cruda** (sin normalizar).
+  3. **Arte de carta** (`catalog-sync.service.ts`, `upsertCards` → `Card.imageSmallUrl` / `imageLargeUrl`) — **NINGÚN criterio**: `c.images?.small ?? null` entra a la BD sin validar esquema, host ni forma.
+- **Por qué importa:** (3) es la superficie **más renderizada del sitio** (toda rejilla de cartas, ficha, carrito, bóveda) y es la única sin guardarraíl. Y la asimetría entre (1) y (2) hace que «¿esto está validado?» dependa de qué archivo tocó quien lo escribió, que es justo el modo de fallo que este proyecto persigue. **La brecha de (3) es ANTERIOR a M-47**: M-47 no la introdujo ni la agravó (añadió el único de los tres que valida puerto y normaliza).
+- **Impacto hoy:** bajo pero real. El proveedor es el mismo host en la práctica y el front pinta `<img>` crudo (React escapa el atributo, no hay `dangerouslySetInnerHTML`), así que no hay XSS directo; el riesgo es **puntero a host arbitrario persistido** si el upstream se compromete o cambia, con exfiltración de referer/IP de cada visitante y contenido no controlado en la página.
+- **Cura (una sola, no tres parches):** helper ÚNICO en `backend/src/common/` **parametrizado por allowlist** (host exacto ∪ dominios raíz), que rechace no-`https:`, userinfo y puerto no estándar, y devuelva la forma **normalizada**. Los tres call-sites convergen en él, y el **arte de carta queda cubierto o declarado EXENTO por escrito** (con el motivo) — lo que no puede quedarse es el silencio actual.
+- **Disparador:** **el siguiente pase que toque ingesta de imágenes** (de carta, de sellado o de set), o antes si el pentester lo escala. Requiere ventana de `backend/src/common/` asignada por el orquestador. Ref: `BACKEND_NOTES.md` §0.19, ARCHITECTURE §4.39.4 / §4.32c.
+
+### M47-D1 · Una URL RECHAZADA por el guardarraíl se queda pegada para siempre, y la única señal es un `warn` (backend, M-47/v1.52, 2026-09-02)
+- **Dueño:** backend. **Severidad:** Baja (aceptada, **no bloqueante**; presentación pura, clase (P), cero dinero).
+- **Deuda:** es el **corolario correcto** de la decisión «URL rechazada ≡ AUSENTE» (§4.39.4 + regla de no-degradación): el `update` de `upsertSet` **no escribe `null`** cuando la URL viene mala, precisamente para que un glitch del proveedor no borre un logo bueno. La consecuencia es que si el proveedor **cambia de host** (o empieza a servir `http:`), `CardSet.logoUrl` conserva **punteros muertos** indefinidamente: ningún re-sync los limpia, porque el escritor está diseñado para no limpiar nunca.
+- **Por qué se acepta así:** la alternativa —degradar a `null` cuando la URL se rechaza— reintroduce exactamente el fallo silencioso que la regla existe para impedir (un `sync {setId}` borrando lo que un `sync-all` escribió), y lo hace en el caso **más frecuente** (dato ausente) para cubrir el **menos frecuente** (proveedor cambia de host). Se prefiere un logo obsoleto a un logo que parpadea.
+- **Impacto:** una teja pinta la imagen rota / el placeholder del navegador hasta que alguien mire los logs. **Cero efecto en dinero, inventario, pedidos o bóveda.** No hay alarma: la única traza es `logger.warn` en `upsertSet` («fuera del guardarraíl…»). **La FORMA de ese `warn` es parte de esta deuda** (N-3): prefijo estable `upsertSet(<setId>): images.<kind>` para poder greparlo, sin la cadena cruda (no forjable) y con el host ya parseado cuando existe. Fijada por tests; ver `BACKEND_NOTES.md` §0.19.
+- **Salida cuando toque:** una operación explícita de **invalidación** (no un backfill de datos: un `UPDATE … SET logoUrl = NULL WHERE logoUrl NOT LIKE …` disparado por el operador, o el helper de R1 emitiendo un contador). Cualquiera de las dos **pasa por el arquitecto** (§4.39.4 prohíbe endpoints/jobs/scripts de backfill en este pase).
+- **Disparador:** si aparece una **segunda** categoría de imagen de tercero persistida con este patrón, **o** cuando se monte alarma/aggregación sobre los logs de sync (lo que ocurra antes). Se resuelve gratis dentro de **M47-R1** si esa cura incluye el contador. Ref: `BACKEND_NOTES.md` §0.19.
+
 ### BE-D46-1 · El **1-dic sexenal** de la tabla de festivos: la LFT dice una fecha y la Constitución ya movió el acto a otra — **decisión tomada, con fecha de caducidad** (M-46, v1.51.5, 2026-09-01)
 - **Dueño del código:** **backend** (`backend/src/common/business-days.ts` es zona compartida). **Entrada redactada por el arquitecto** a petición del orquestador, en el pase de reconciliación doc↔código v1.51.5, porque la decisión es **normativa** (afecta plazos que se le prometen por escrito a un vendedor) y su registro no puede quedar solo en un comentario de código. **Severidad: Baja HOY, Media a partir de 2030.** **No bloqueante.**
 - **El punto legal, con las dos fuentes enfrentadas:**
@@ -49,19 +68,175 @@
 - **Guard que impide la reincidencia:** `backend/test/inventory.card-product-id.spec.ts` — asevera la propagación, que el backfill joinea por la llave única y **que la frase falsa no vuelve** al schema ni al DTO.
 - **Lección transferible (esto es lo que queda vivo de la entrada):** *un comentario que describe una conducta de otro módulo no tiene quién lo verifique.* Los tres sobrevivieron porque **describían el futuro** («se propaga») en presente. Cuando un comentario afirme una conducta cross-módulo, o hay un test que la sostiene, o el comentario dice explícitamente que **todavía no ocurre**.
 
+### I8-B1 · `ingestConfigInvalid` NO cubre `grades` ni `freshnessDays`, y las dos viajan al proveedor (techlead B-1, v1.51-a, 2026-08-31)
+- **Dueño:** backend (si la salida elegida es ampliar el fail-closed, el alcance lo confirma el **arquitecto**: cambia qué apaga el ingest). **Severidad:** **Media** (aceptada, **no bloqueante hoy** porque `grading_hook_enabled` está `off` y con `off` no se pide ni se escribe nada).
+- **Deuda:** el gate de dinero del ingest sale por `cfg.ingestConfigInvalid` (`price-ingest.service.ts:1000`), que se compone con **tres** claves (`pricing.service.ts:1326`: `minSampleCount`, `sourceStat`, `ingestMaxCardsPerRun`). Pero al proveedor viajan **cinco**: `grades` (`price-ingest.service.ts:1095`) y `freshnessDays` (`:1102`) *(números de línea tras el pase v1.51-a; eran `:1087`/`:1094` en el reporte del techlead)* también se le pasan a `fetchGradedEstimatesForSet`, y **ninguna de las dos** marca `ingestConfigInvalid`. Con `graded_estimate_grades` corrupta, el resolver **apaga ficha y vitrina** (`estimatesEnabled=false`) y, en la misma corrida, el ingest **gasta créditos y ESCRIBE** usando el seed de esa misma clave — un valor que el resolver acaba de declarar no fiable.
+- **Por qué importa más de lo que parece:** invierte la doctrina propia del proyecto («en la dirección del DINERO se falla cerrando»). Además hay una **divergencia documental**: el docstring que justifica que el gate lea el **dial crudo** en vez de `estimatesEnabled` (`price-ingest.service.ts`, bloque «v1.51 (M-46, §4.38r.7)») nombra **tres** claves de *curaduría* (`minUpsidePct`, `highlightGrades`, `maxRawMultiple`) como lo que no debe congelar el feed — pero el código habilita **cinco**: las tres de curaduría **más** `grades` y `freshnessDays`, que no son curaduría (gobiernan qué se pide y qué cuenta como fresco).
+- **Impacto:** ninguno observable con el dial `off`. Con el dial `on`, una edición fuera de banda de `graded_estimate_grades`/`graded_estimate_freshness_days` produce **gasto + escritura con seeds** mientras la superficie de lectura está apagada.
+- **Salidas (excluyentes; lo que NO puede quedarse es la divergencia):** **(a)** ampliar `ingestConfigInvalid` a `gradesRes.invalid || freshRes.invalid` (fail-closed completo; **decide arquitecto**, porque hace que una clave de exhibición corrupta congele también la obtención), **o (b)** reescribir el docstring para que deje de decir «curaduría» y **enumere exactamente** qué claves habilitan el gasto pese a estar corruptas y por qué se aceptó. Con (a) hace falta un test gemelo del de I8 (`graded-estimate.one-dial.spec.ts`): clave corrupta ⇒ cero `fetch`.
+- **Disparador:** **antes del primer `off → on` de `grading_hook_enabled`** (mismo momento que M43-D2). Ref: ARCHITECTURE §4.38(h.3), §4.38(d) «Alcance del apagado», `BACKEND_NOTES.md` §0.15.
+
+### I8-B2 · El dial que multiplica la factura no tiene `warn` al izarse; el de «rancio» sí (techlead B-2, v1.51-a, 2026-08-31)
+- **Dueño:** backend (la **regla** de cuándo avisar —el presupuesto declarado— la fija el **arquitecto**). **Severidad:** Baja (aceptada, **no bloqueante**; es observabilidad, no comportamiento).
+- **Deuda:** asimetría de ceremonia. `manualFreshnessDays: null` —que solo **desactiva un criterio de frescura**— tiene **`warn` obligatorio** al izar la config (**I8-bis**, `pricing.service.ts`, con test propio en `graded-estimate.batch.spec.ts`). `ingestMaxCardsPerRun` —el dial que **multiplica la factura del proveedor**— se iza **en silencio** con cualquier valor de su rango. El dial de dinero tiene **menos** ceremonia que el dial de rancio.
+- **Impacto:** un `1000` puesto por dedazo (4× el seed) no deja ninguna señal en el log del arranque ni de la corrida; el operador se entera por la factura. No cambia ningún importe por sí solo.
+- **Propuesta (del techlead):** emitir `warn` al izar una config cuyo `ingestMaxCardsPerRun` **supere el presupuesto declarado** — no un umbral hardcodeado; el presupuesto vive hoy en `DEVOPS_NOTES.md` §32.12 y el arquitecto tiene que decir **de dónde lo lee el backend** (¿otra clave de config? ¿env?) antes de implementarlo. **⚠️ El aviso debe decir «techo NOMINAL»**, nunca una cifra firme de créditos: el factor de amplificación `A` (§4.38r.3.1) no lo acota este dial (ver nota de I8 abajo).
+- **Disparador:** cuando el arquitecto defina dónde vive el presupuesto declarado, o en el primer `PUT` que suba este dial por encima del seed — lo que ocurra antes. Ref: ARCHITECTURE §4.38(r.3.4), §4.38(m) (I8-bis como precedente de forma).
+
+> **Nota de alcance sobre el estrechamiento de I8 (v1.51-a, `[1, 5000]` → `[1, 1000]`) — NO es deuda, es
+> una advertencia contra la falsa cobertura.** Bajar el máximo reduce el peor caso **NOMINAL** que un
+> solo `PUT` autoriza (de 20 000 a 4 000 créditos/día). **No cierra la amplificación:** `ingestMaxCardsPerRun`
+> acota las cartas **en alcance**, no las que el proveedor devuelve (`fetchAllInSet=true` pide el SET
+> entero), y el factor `A` lo manda el número de **sets** tocados, que **no es configurable**. Con `A=16`,
+> 1 000 siguen siendo 16 000 créditos. Lo que acota el gasto es la **medición** que §4.38(r.3.1) hace
+> precondición del primer `off → on`, y ésa **sigue abierta** (dueño: devops + QA, (r.8) nº 1).
+
+> **D-3 (techlead) — CERRADA en este mismo pase, sin deuda residual.** Los comentarios de
+> `graded-estimate.composition.spec.ts:654` y `:680` seguían diciendo «las 12 claves» después de que
+> v1.51 (M-46) las bajara a **11** al fundir los dos diales M10 en `grading_hook_enabled`. `pricing.service.ts:99`
+> exige que ese número no mienta («un número que miente es peor que no tenerlo») y el test que lo acompaña
+> mentía. Los dos comentarios dicen ahora **11**, con la nota de por qué cambió.
+
+### TL-GE4 · La regla S1/S2 está DUPLICADA entre `detectGradedShape` y `parseGradedEntry` (techlead GE-4, v1.51-b, 2026-08-31)
+- **Dueño:** backend. **Severidad:** Media-baja (aceptada, **no bloqueante hoy**: las dos copias coinciden y hay tests que fijan la conducta de cada una por separado).
+- **Deuda:** «qué es S1 y qué es S2» se decide en **dos** funciones de `pokemonpricetracker-bulk.provider.ts`: `detectGradedShape` (la SONDA, ~`:143`) y `parseGradedEntry` (el camino que ESCRIBE, ~`:1108`). Las dos repiten literalmente el mismo par de extracciones (`pickObject(pickObject(e['ebay']), 'salesByGrade')` y `pickObject(e, 'gradedPrices')`) y la misma precedencia (`S1 gana si existe`). Divergen **a propósito** en una sola cosa: la sonda ignora `GRADED_FORMAT` y el parser lo obedece.
+- **Por qué importa:** es exactamente la forma del defecto **TL-GE2/R2** que se acaba de cerrar en este pase (dos definiciones de «conteo inducido», una en cada lado, que llegaron a contradecirse en la misma corrida). Aquí el riesgo es peor de leer: si el proveedor cambia el nombre del bloque y solo se actualiza una copia, la **sonda diría «llega S1, la fase 2 funciona»** mientras el ingest clasifica todo como S2 y no escribe **ni una fila** — o al revés. El veredicto y la conducta se separarían sin que ningún test actual lo note, porque cada copia tiene los suyos.
+- **Impacto hoy:** ninguno observable. Las dos copias están sincronizadas y verificadas (`graded-estimate.probe.spec.ts`).
+- **Salida propuesta:** extraer un `extractGradedBlocks(entry) → { salesByGrade, gradedPrices, externalId }` **puro** y que las dos funciones lo consuman, dejando en cada una **solo** su diferencia declarada (la sonda fija `useS1 = salesByGrade != null`; el parser aplica `forcedFormat`). Con un test que afirme que, para el mismo `entry`, `detectGradedShape` y `parseGradedEntry` **con `forcedFormat='auto'`** devuelven el MISMO `shape` — el gemelo del test que cerró TL-GE2/R2.
+- **Disparador:** el primero de (a) **cualquier cambio en el shape del bloque PSA** del proveedor (nombre de campo, anidamiento) o (b) **antes del primer `off → on`** de `grading_hook_enabled` en producción, junto con el resto de la fase 2. Ref: `BACKEND_NOTES.md` §0.16, ARCHITECTURE §4.38(h.1-bis).
+
+### TL-GE5 · La fila que NO resuelve a una carta se descarta SIN dejar traza (backend, v1.51-b, 2026-08-31)
+- **Dueño:** backend. **Severidad:** ⬆️ **Media** (subida desde Baja en v1.51-c: **el disparador YA se cumplió**, ver abajo). Sigue siendo **no bloqueante** y **no toca dinero** — la dirección del fallo es la segura: **no** se escribe una referencia huérfana —, pero hoy es una pregunta abierta del dueño sin instrumento que la conteste.
+- **Deuda:** en `ingestGradedEstimates`, `if (!cardId || !allowed.has(cardId)) continue;` (`price-ingest.service.ts`, bucle de `res.rows`) descarta la fila **en silencio**: no hay `warn`, no hay contador en `GradedIngestResult` y no hay `AuditLog`. El único caso que sí deja traza es la **ambigüedad** («el número X casa con N cartas → se OMITE»). Todos los demás —`externalId` que no empata, número con un formato que `cardNumberVariants` no cubre, carta de otro set— desaparecen.
+- **Por qué importa:** es la **única fila del MAPA DE CAUSAS (`BACKEND_NOTES.md` §0.16.2, #19) sin línea de log**. En una corrida que devuelve S1 impecable y escribe cero filas, el veredicto diría `VIABLE` con `written=0` y **nada** en el log explicaría el hueco: el operador se queda exactamente en el estado que el bloque `[VEREDICTO-PSA]` existe para evitar. Es el mismo defecto de forma que §4.38h.4 ya obligó a cerrar para los descartes del parser («sin traza, el descarte es invisible y el preview solo dice `NO_PSA10`»), aplicado al descarte de resolución.
+- **⚠️ Salida propuesta — CORREGIDA en v1.51-c (techlead): la anterior medía la POBLACIÓN EQUIVOCADA.** Se proponía un contador `skippedUnresolved` sobre las filas del proveedor que caen en `if (!cardId || !allowed.has(cardId)) continue;`. No sirve: con `fetchAllInSet=true` esas filas son **el SET ENTERO**, mientras `allowed` son solo las cartas con **inventario RAW publicado** ⇒ ese `continue` salta **por diseño en toda corrida sana**, y el contador quedaría dominado por el caso normal (un set de 200 cartas con 3 publicadas daría `skippedUnresolved = 197`, todos legítimos). El instrumento correcto es el **COMPLEMENTO**: un `Set<string>` de los `cardId` **resueltos** en el set y reportar **`allowed.size − resueltos.size`** por set —las cartas NUESTRAS que el proveedor no empató, que es la pregunta— más una muestra acotada de los `externalId`/`number` del proveedor que no casaron (tope de N por set, para no reproducir el ruido de 2 000 líneas que motivó el veredicto). Mismo coste, y sí contesta. Sigue siendo un campo **INTERNO** de `GradedIngestResult` (no viaja por HTTP) ⇒ **sin cambio de contrato**.
+- **Nota (código muerto):** en `price-ingest.service.ts` (`if (!cardId || !allowed.has(cardId)) continue;`) la segunda mitad, **`!allowed.has(cardId)`, es inalcanzable**: `buildGradedCardIndex` construye el índice **recorriendo `allowed`**, así que todo `cardId` que el resolver devuelve ya está en `allowed`. Quien implemente esto que la retire o la deje con su comentario, pero que no la cuente como una causa de descarte distinta.
+- **Disparador: ✅ YA SE CUMPLIÓ (v1.51-c, 2026-08-31).** Decía «la primera corrida real con `VEREDICTO: VIABLE` y `written` < cartas S1 observadas»; **producción está exactamente ahí ahora mismo** (el ingest escribe —hay estimados PSA reales— y muchas cartas siguen sin dato, y el dueño quiere saber por qué). El trabajo queda **listo para tomarse**, con una precisión de v1.51-c: la causa #5 del mapa («set sin `pptSetId`») **ya dejó de ser invisible** —el bloque `[VEREDICTO-PSA]` trae la línea `SETS NO PEDIDOS:` con los sets nombrados (`BACKEND_NOTES.md` §0.16.3)—, así que descartar esa causa antes de implementar esto es **barato, pero hay que leer la línea con las dos cautelas que v1.51-d le añadió** (§0.16.4): **(1)** `SETS NO PEDIDOS` cuenta solo los sets del **recorrido**, y el recorrido se corta (tope de sonda, cuota diaria, escalada, alcance recortado por `ingestMaxCardsPerRun`) ⇒ si el bloque trae `ALCANCE RECORRIDO: PARCIAL` / `COTA INFERIOR`, ese número es un **mínimo** y la causa #5 **no** queda descartada por verlo bajo; **(2)** existe una línea hermana, `SETS SIN COMPROBAR`, para los sets cuyo mapeo **ni se intentó** (catálogo `/api/v2/sets` caído, causa #8) — hasta v1.51-c esos sets se publicaban **dentro** de `SETS NO PEDIDOS`, así que una lectura anterior de esa línea pudo atribuir a la causa #5 lo que era la #8. Con las dos cautelas, la lectura sigue siendo gratis; sin ellas, engaña. Ref: `BACKEND_NOTES.md` §0.16.2 fila #19.
+
+> **TL-GE1, TL-GE2/R2, TL-GE3 y R1 — CERRADOS en el pase v1.51-b, sin deuda residual.** Se anotan aquí
+> por el **hallazgo de proceso** que levantó el techlead: los cuatro se detectaron en dos pases de
+> revisión independientes y **ninguno llegó a este archivo**, así que el techlead los volvió a encontrar
+> desde cero. Quedaron: **R1** — el veredicto daba dos diagnósticos FALSOS (`enabled` sobrecargado como
+> «por qué no pasó nada» y asignado *después* de dos salidas tempranas) ⇒ hoy hay `stopReason` con
+> titular y acción propios por causa, y la clave inválida se NOMBRA. **TL-GE1** — `COSTE MEDIDO` se
+> calculaba restando el contador diario del **singleton** `PptApiClient`, que el barrido RAW de la misma
+> corrida pisa ⇒ hoy se suma `metadata.apiCallsConsumed` de las llamadas graded y, sin atribución, **no
+> se reporta número**. **TL-GE2/R2** — dos definiciones de «conteo inducido» ⇒ una sola,
+> `shapeCountIsInduced`, exportada y consumida por ingest y veredicto. **TL-GE3** — la bandera
+> `POKEMONPRICETRACKER_GRADED_PROBE` caía en silencio ante un typo ⇒ `warn` explícito (semántica
+> intacta). Detalle y tests en `BACKEND_NOTES.md` §0.16.1.
+>
+> **Residuos del propio pase, CERRADOS en v1.51-c, sin deuda nueva.** El segundo repaso encontró que
+> R1 había dejado viva una **tercera** instancia de su propio defecto (la rama `!requestOk` mandaba a
+> leer «EL REQUEST FALLÓ» también cuando **no hubo petición**: sin API key y **set sin `pptSetId`**), que
+> el cierre de TL-GE2 introdujo una **afirmación falsa** en el `detail` que se le manda al arquitecto
+> («GRADED_FORMAT=auto» en la rama donde vale `graded_prices`), que la línea de coste **concluía el
+> modelo de cobro desde cero observaciones**, y que el candado de R1 era de **aridad**, no de
+> corrección. Los cuatro quedan cerrados en `BACKEND_NOTES.md` §0.16.3 (unión discriminada
+> `GradedRunOutcome` + `noRequestReason` en el provider), con los estados prohibidos probados por
+> `@ts-expect-error`. **Nada de esto cambió una ruta de escritura de dinero.**
+>
+> **Residuos del tercer pase, CERRADOS en v1.51-d, sin deuda nueva de conducta.** El techlead encontró
+> la **cuarta** instancia de R1 y QA la **quinta**, así que este pase empezó por el **guardián** y no
+> por las instancias: **TL-GE7** — las líneas de log del camino graded viven en
+> `backend/src/modules/pricing/graded-log-lines.ts`, el emisor y la cita leen la **misma constante**, y
+> un test sobre las corridas reales (`test/graded-verdict-guard.spec.ts` + el guardián de
+> `test/graded-run.harness.ts`) exige que toda línea citada entre `«…»` **exista en los logs de esa
+> misma corrida** (y que las citadas como ausentes, no). Se verificó **retroactivamente** contra las dos
+> instancias de este pase: el guardián las caza a las dos, solo con el invariante y sin ninguna
+> aserción de contenido. **R1-quater** — `pptSetId == null` significaba dos cosas («se comprobó y no
+> empata» vs. «no se pudo comprobar») ⇒ `PptSetMapping` las separa por tipo y el veredicto tiene
+> titular, acción y línea propios para cada una. **QA (429 daily)** — el `nextStep` era incondicional y
+> mandaba a «EL REQUEST FALLÓ», que la rama del 429 diario **no emite**. **QA (cota inferior)** —
+> `SETS NO PEDIDOS` se marca ahora como mínimo cuando el recorrido no cubrió el alcance. **techlead
+> §2** — `no_scope` se discrimina por `reason` con `never` de cierre. Detalle en `BACKEND_NOTES.md`
+> §0.16.4. **Ninguno cambió una ruta de escritura de dinero.**
+
+### TL-GE7-D1 · El catálogo de sets caído se reporta con UNA causa y se re-pide una vez POR SET (backend, v1.51-d, 2026-08-31)
+- **Dueño:** backend. **Severidad:** Baja (aceptada, **no bloqueante**; no toca dinero y no afecta a ninguna decisión de escritura).
+- **Deuda (dos residuos del cierre de R1-quater, los dos de precisión, no de conducta):**
+  1. **Una sola causa por corrida.** `GradedRequestTally.mapper` lleva `cause: 'daily_limit' | 'request_failed'` y el veredicto publica la del **primer** set que quedó sin comprobar. Si en la misma corrida un set falla por cuota y otro por red, el titular nombra solo una de las dos. Para **esa** combinación (dos causas de *unavailable*) no hay cita falsa: las dos emiten la MISMA marca citable (`PptSetMapper: NO SE PUDO CONSULTAR /api/v2/sets`), así que el guardián sigue verde y el `grep` del operador sigue devolviendo la línea; lo único impreciso es la acción sugerida («espera a las 00:00 UTC» vs. «revisa la red»).
+     - **⛔ Corrección (v1.51-e, hallazgo de QA — la afirmación original se pasaba de fuerte).** La frase anterior decía «**no produce ninguna cita falsa**» a secas, y ese razonamiento **solo cubría** la combinación *unavailable + unavailable*. **NO cubría `unavailable` + `unmatched`**, que sí producía una cita falsa y que era la **instancia #6** del defecto R1: como `loadRemoteSets` cachea **solo el éxito**, un fallo transitorio de `/api/v2/sets` en el set A y un éxito en el set B dan `mapper.available:false` **y** `setsUnmatched:[B]` **a la vez**, y el bloque citaba `PptSetMapper: … sets SIN mapeo` como **viva** (línea `SETS NO PEDIDOS`) y como **AUSENTE** (`AHORA:`) en el mismo bloque, además de afirmar «NO es que falte mapeo» habiéndolo. **Ya está CORREGIDO** en este pase (rama condicionada a `sinMapeo.length === 0` + rama fundida que publica las dos causas con sus dos acciones) y **con test de corrida real** (`test/graded-verdict-guard.spec.ts`, describe «el catálogo caído para UN set y sin mapeo para OTRO»). Lo que queda de deuda aquí es solo lo de arriba: la causa única entre dos *unavailable*.
+  2. **Sin caché negativa.** `PptSetMapper.loadRemoteSets` cachea en memoria solo el ÉXITO; si `/api/v2/sets` falla, cada set del alcance vuelve a pedirlo. Con `daily_limit` es inocuo (el candado en memoria de `PptApiClient` corta **sin** pegarle al proveedor), pero con `request_failed` son N peticiones fallidas por corrida en vez de una.
+- **Impacto hoy:** ninguno observable con el dial `off`, y con el dial `on` es ruido de log + N intentos fallidos contra un endpoint que ya se sabe caído. Money-safe intacto: sin catálogo **no se pide nada** y **no se escribe nada**.
+- **Salida propuesta:** llevar la causa por set (`mapper.sets` como pares `{setExternalId, cause}`) si alguna vez se ven las dos causas en la misma corrida, y cachear el fallo de `loadRemoteSets` por corrida (un `remoteSetsError` en memoria, limpiado igual que la caché de éxito).
+- **Disparador:** el primero de (a) una corrida real que reporte `SETS SIN COMPROBAR` con más de un set, o (b) **antes del primer `off → on`** de `grading_hook_enabled`, junto con el resto de la fase 2. Ref: `BACKEND_NOTES.md` §0.16.4.
+
+### Pase v1.51-e (remate del guardián graded + cerrojos del carrito) — deuda del cuarto pase (backend, 2026-08-31, no bloqueante)
+
+> **Lo que NACIÓ Y MURIÓ en este mismo pase, y por eso NO se anota como deuda abierta.** El techlead
+> enumeró tres residuos (R-1, R-2, R-3) que habrían sido TL-GE8-1/2/3: el guardián era **opt-in**, la
+> cita solo estaba vigilada si llevaba `«»`, y el `else` que afirma «hubo petición» no tenía candado.
+> **Los tres quedan cerrados aquí**: `capturarLogs()` suscribe el buffer y un `afterEach` del harness
+> corre el invariante sobre todo test que capture logs (con opt-out **nombrado** y **verificado**,
+> `sinGuardianPorque`); el complemento del invariante (`mencionesSinMarcar`) prohíbe nombrar una marca
+> —o sus prefijos `PPT graded:` / `PptSetMapper:`— fuera de un marcador de cita; y las dos cadenas
+> `if/else` de `price-ingest.service.ts` son `switch` con `const … : never` (verificado con
+> contraejemplo: un cuarto `noRequestReason` y un tercer `reason` de `PptSetMapping` **no compilan**).
+> También se cerró la **instancia #6** que QA reprodujo (ver la corrección dentro de TL-GE7-D1) y se
+> sustituyó el mapped type distributivo de `GradedSimpleStop` por un miembro normal + `never` sobre el
+> discriminante (A7 del techlead, **compilado y verificado** en las dos direcciones). Ninguno de estos
+> cambios toca una ruta de escritura de dinero.
+
+#### TL-GE8-4 · `GradedRequestTally` no lleva `requestFailedCount`: bajo `dailyLimited` el bloque CALLA si además hubo fallos (backend, v1.51-e)
+- **Dueño:** backend. **Severidad:** Baja (aceptada, **no bloqueante**; no toca dinero, solo precisión del diagnóstico).
+- **Deuda:** en la rama «se emitieron peticiones y ninguna respondió OK» con `dailyLimited: true`, el `nextStep` cita `«PPT graded: 429 DAILY … → PARADA.»` y **deliberadamente no afirma nada** sobre `EL REQUEST FALLÓ`: con la cuota agotada esa línea **puede** existir (si otro set falló antes por 401/red) o no, y hoy el veredicto **no tiene el dato** para saberlo. Callar es lo correcto frente a mentir, pero es callar algo **decidible**: el provider ya sabe cuándo entró en el `else` del `catch` (el que emite `requestFailed`), así que bastaría un contador `requestFailedCount` en el tally para que el bloque dijera «además hubo N peticiones que fallaron ⇒ busca también esta línea» o «no hubo ninguna ⇒ no la busques».
+- **Impacto:** el operador con cuota agotada **y** un 401 de fondo no ve el segundo problema hasta la corrida siguiente. Cero impacto en dinero: sin respuestas OK no se escribe nada.
+- **Salida propuesta:** `requestFailedCount: number` en `GradedRequestTally`, poblado desde el provider; el `nextStep` de `dailyLimited` añade la cita VIVA solo si `> 0`. El guardián lo verifica solo, sin aserción de contenido.
+- **Disparador:** la próxima vez que se toque el tally, o **antes del primer `off → on`** de `grading_hook_enabled` si la cuota diaria se topa en una corrida real. Ref: `BACKEND_NOTES.md` §0.16.5.
+
+#### TL-GE8-5 · `sweepComplete` ignora las cartas con `set` nulo, y la rama «ninguna causa conocida» no tiene test (backend, v1.51-e)
+- **Dueño:** backend. **Severidad:** Baja-Media (aceptada, **no bloqueante**; ninguna de las dos ramas escribe nada).
+- **Deuda (dos cosas, la misma familia — «el bloque afirma más de lo que sabe»):**
+  1. **`sweepComplete` puede salir `true` habiendo cartas que nadie miró.** El alcance se construye con `cardIds` (cartas con inventario RAW publicado), pero el agrupador por set descarta las que vienen sin `set` (`price-ingest.service.ts`, `if (!c.set) continue;`). Esas cartas **están en alcance y no se miran nunca**, y sin embargo `setsVisitados === setsEnAlcance` se cumple ⇒ el bloque **no** marca `ALCANCE RECORRIDO: PARCIAL` ni `COTA INFERIOR`. Con `Card.setId` obligatorio en el schema es hoy inalcanzable por datos, pero es exactamente la clase de afirmación que este hilo lleva cuatro pases cerrando: un total que en realidad es un mínimo.
+  2. **La rama «ninguna causa conocida» es alcanzable en producción, tiene CITA y no tiene test.** Es el `return` final de `noRequestOkVerdict` cuando `attempted === 0` sin llave ausente, sin catálogo caído y sin sets sin mapear (y, desde este pase, también el destino de un `noRequestReason` sin rama, que ahora **no** incrementa `attempted`). Cita `«graded-estimate-ingest»` como viva. Ningún test la ejercita, y **un test de función pura no la cerraría**: el guardián solo verifica contra logs de corridas REALES, así que hace falta construir la corrida.
+- **Impacto:** (1) una cifra de sets presentada como total cuando es un mínimo; (2) una rama de diagnóstico sin red. Ninguna de las dos escribe ni relaja un gate: money-safe intacto.
+- **Salida propuesta:** (1) contar las cartas descartadas por `!c.set` y meterlas en el predicado de `sweepComplete` (o darles su propia línea «N carta(s) del alcance sin set ⇒ no se miraron»); (2) montar la corrida que llega ahí (un `noRequestReason` desconocido inyectado por un doble de provider) y pasarla por el guardián.
+- **Disparador:** la próxima vez que se toque `sweepComplete` o el tally, o **antes del primer `off → on`** en producción. Ref: `BACKEND_NOTES.md` §0.16.5.
+
+#### T-9 · HUECO #1 del guardián de citas: los tests de **función pura** lo esquivan (backend, v1.51-e)
+- **Dueño:** backend. **Severidad:** Baja-Media (aceptada, **no bloqueante**; es cobertura del guardián, no conducta del producto).
+- **Deuda:** desde este pase el guardián de citas es **automático** —`capturarLogs()` suscribe el buffer y un `afterEach` corre el invariante sobre **todo test que capture logs**, con opt-out nombrado y verificado (`sinGuardianPorque`)—. Pero engancha por **captura de logs**, así que un test que llama a `gradedPhase2Verdict(...)` **como función pura**, sin montar corrida ni capturar nada, **no lo dispara**: nadie mira el texto que produce. Y esa es exactamente la mitad por la que **R1 entró la primera vez** (una cita a una línea de log que no existía, escrita en un veredicto que ningún test de corrida real ejercitaba).
+- **Impacto:** ninguno observable hoy — las instancias conocidas de R1 están cerradas y con test de corrida real. Es una **puerta lateral** del guardián: quien añada mañana un veredicto nuevo probándolo solo como función pura vuelve a quedar sin red, y el guardián automático no protestará.
+- **Salida propuesta (la que añadió el techlead, y es barata):** **`mencionesSinMarcar()` es puramente TEXTUAL y no necesita logs.** Es el complemento del invariante —prohíbe nombrar una marca, o sus prefijos `PPT graded:` / `PptSetMapper:`, fuera de un marcador de cita— y opera sobre una cadena, no sobre un buffer. Así que se puede correr sobre `report.lines` de **cualquier** test de función pura: **~3 líneas en un helper compartido** (`esperarSinMencionesSinMarcar(report)`) invocado desde los tests puros de `gradedPhase2Verdict`. No cubre el hueco entero (la mitad que verifica que la cita **exista viva en el log** sigue exigiendo corrida real, por construcción), pero cubre **la mitad exacta** por la que R1 entró.
+- **Refs:** `src/modules/pricing/graded-log-lines.ts:187` (`mencionesSinMarcar`), `test/graded-verdict-guard.spec.ts` (harness `capturarLogs`/`sinGuardianPorque`), `src/modules/pricing/graded-phase2-verdict.ts`.
+- **Disparador:** **la próxima rama nueva en `gradedPhase2Verdict`**, o **antes del primer `off → on`** de `grading_hook_enabled` — lo que ocurra antes.
+
+#### T-6 · `FrozenCardFacts` compila contra `Prisma.InputJsonValue` **solo por ser un `type` alias** (backend, v1.51-e)
+- **Dueño:** backend. **Severidad:** Baja (aceptada, **no bloqueante**; hoy compila y no hay error latente en ejecución).
+- **Deuda:** el blob congelado viaja a Prisma como `Prisma.InputJsonValue`, y esa asignabilidad depende de que `FrozenCardFacts` sea un **`type` alias** y no una `interface`: los alias de objeto tienen índice implícito para el chequeo estructural y las `interface` **no**. Convertirlo a `interface` —un refactor que cualquiera haría por costumbre— **rompe el build**, y lo rompe con un error **críptico y lejano**: no habla de `FrozenCardFacts` sino de `Type 'OrderLineData[]' is not assignable to … OrderItemCreateWithoutOrderInput[]` en `orders.service.ts` y `guest-checkout.service.ts` (verificado en este pase). El bloque de doctrina de `order-item-card.ts` **no advierte de esto**.
+- **Impacto:** media hora perdida por quien lo intente, en un archivo que es la doctrina del snapshot congelado. Ningún impacto en ejecución ni en dinero.
+- **Salida propuesta:** una línea en el docstring de `FrozenCardFacts` («⛔ tiene que seguir siendo `type`, no `interface`: es lo que lo hace asignable a `Prisma.InputJsonValue`») o, mejor, un cerrojo explícito del estilo `const _esJsonPersistible: Prisma.InputJsonValue = {} as FrozenCardFacts;` que falle **en el archivo correcto** y no a dos módulos de distancia.
+- **Disparador:** el próximo cambio en `order-item-card.ts`.
+
+#### T-7 · Dos mocks de `guest-checkout.session.spec.ts` ejercitan en silencio la rama «sin fila `Card` ⇒ `null`» (backend, v1.51-e)
+- **Dueño:** backend. **Severidad:** Baja (aceptada, **no bloqueante**).
+- **Deuda:** `test/guest-checkout.session.spec.ts:94` y `:118` mockean `priceCartForOrder`/`priceCartForQuote` con `items: ids.map((id) => ({ id, folio: … })) as never` — o sea **sin `card`**. `toOrderItemPreviews` resuelve la clase (P) por `cardByItemId.get(inventoryItemId)`, así que en esos tests el mapa devuelve `undefined` y **todas** las líneas salen con `imageSmallUrl: null`. El `as never` tapa que el doble no cumple la forma que el código real recibe: esos tests están ejercitando el camino degradado creyendo ejercitar el bueno.
+- **Impacto:** ninguno hoy (esos tests no afirman nada sobre la miniatura), pero es un doble que MIENTE sobre la forma: si mañana alguien añade ahí una aserción de imagen, la escribirá contra el camino equivocado.
+- **Salida propuesta:** darle `card: { imageSmallUrl: … }` al doble y quitar el `as never`, o dejar el `as never` con un comentario que diga explícitamente qué rama se está ejercitando.
+- **Disparador:** el próximo test que toque la miniatura en el flujo de invitado.
+
+#### T-8 · El detalle **admin** de un pedido resuelve la miniatura solo por lectura de código: no hay test que lo fije (backend, v1.51-e)
+- **Dueño:** backend. **Severidad:** Baja (aceptada, **no bloqueante**).
+- **Deuda:** `getOrder(userId, orderId, isAdmin)` sirve **dos** superficies con el mismo cuerpo: el detalle del cliente y el del admin (`isAdmin = true`, que se salta el guard de propiedad). Que el admin vea la miniatura resuelta es cierto **por construcción** —es literalmente el mismo `return`, y desde este pase la misma proyección anotada `toHistoricItemPreviews`—, pero **ningún test lo fija**: si alguien bifurcara el cuerpo por `isAdmin`, nada se pondría rojo.
+- **Impacto:** ninguno hoy. Es cobertura ausente, no defecto.
+- **Salida propuesta:** un caso en `IMG-4` con `getOrder(otroUsuario, orderId, true)` que afirme el mismo `card.imageSmallUrl` que ve el dueño (4 líneas).
+- **Disparador:** el próximo cambio en `getOrder` o en las superficies de admin de pedidos.
+
 ### M43-D1 · `reconcilePublishedPrices` sigue siendo `raw`-only: un slab sin referencia no entra a la cola (M-43, 2026-08-29)
 - **Dueño:** backend. **Severidad:** Media-baja (aceptada, **no bloqueante**). Residual **declarado por el arquitecto** en ARCHITECTURE §4.38(l.4.9), fuera del alcance de M-43 por decisión del orquestador.
 - **Deuda:** el barrido de reconciliación (`reconcilePublishedPrices`) lleva `productType:'raw'` en su `where` (candado 1 de §4.38l.4.6). Con M-43, un slab cuya única fila de `graded:PSA:N` sea un estimado —o al que se le borre su referencia de mercado— **deja de venderse** (`priceBasis:'pending'`, `fetchSellable` lo descarta, `GET /catalog/listings/:id` ⇒ 404) **pero NO aparece en `PendingPriceEntry`**, así que no entra a la cola de triaje de §M2 y el dueño no tiene dónde verlo.
 - **Impacto:** una pieza puede quedar apagada **en silencio**. **No puede ocurrir durante la migración** si se ejecuta el cut-over de §4.38(l.4.7) en orden (el paso 3 re-afirma cada slab expuesto **antes** de migrar, ver `BACKEND_NOTES.md` §0.11.6). Sí puede ocurrir **después** — por ejemplo si alguien borra una referencia de mercado de un slab. Money-safe en la dirección segura: la pieza no se vende barata, simplemente no se vende.
-- **Disparador:** al **encender el gancho de grading** (`gradedEstimatesEnabled='on'`) o antes de que M2 se use como bandeja única de precios pendientes. El fix es extender el barrido a `productType:'graded'`; toca el módulo `pricing` y la cola, así que **el alcance lo confirma el arquitecto**.
+- **Disparador:** al **encender el gancho de grading** (v1.51: `gradingHookEnabled='on'`, el dial ÚNICO — §4.38r) o antes de que M2 se use como bandeja única de precios pendientes. El fix es extender el barrido a `productType:'graded'`; toca el módulo `pricing` y la cola, así que **el alcance lo confirma el arquitecto**.
 - **⚠️ Actualización v1.50.3-g (ARCHITECTURE §4.38l.4.12, dictamen del arquitecto):** sigue **sin bloquear la fusión** ni el encendido en staging con datos sintéticos, pero pasa a ser **precondición del cut-over de producción**, cabalgando sobre la puerta que ya está cerrada (condición **C3** del blue team). Se satisface por **cualquiera** de dos vías: **(i)** extender `reconcilePublishedPrices` a `graded` —de fondo, **dueño backend**, con el cuidado declarado de no inundar la cola el día del encendido— **o (ii)** un **detector recurrente con alerta** sobre el predicado del **paso 5(−)** del runbook (`BACKEND_NOTES.md` §0.11.6), que es **la misma consulta que ya hay que escribir**, agendada — **dueño devops**. El arquitecto declara **(ii) suficiente para abrir la puerta del cut-over**; **(i) se conserva aquí con su disparador propio** y no bloquea ningún deploy. **Este pase (M-44) NO lo implementa: quedó explícitamente fuera de alcance.**
 
 ### M43-D2 · `PriceReference.evidenceDate` existe pero NO está cableada (criterio 109 sigue con su aproximación) (M-43, 2026-08-29)
 - **Dueño:** backend (el alcance lo decide **arquitecto**; ver nota de gobierno abajo). **Severidad:** Baja (aceptada, **no bloqueante**, **sin regresión**).
 - **Deuda:** la migración `v1.50.3-f-graded-estimate-kind` creó la columna `evidenceDate DateTime? @db.Date` (§4.38m.2, empaquetada con `refKind` para no pagar dos ventanas de migración), pero **este pase no la cableó**: ni el ingest la puebla (el parser YA resuelve la `lastSaleDate` del proveedor y la usa para el gate de escritura, pero no la persiste) ni `stale()` la lee (sigue midiendo contra `capturedDate`). **La columna está en `null` en todas las filas**, así que `evidenceDate ?? capturedDate` sería hoy idéntico a `capturedDate`: **cero cambio de comportamiento, cero regresión**.
-- **Impacto:** el **criterio 109** sigue cumpliéndose por la **aproximación conservadora** vigente —el gate de evidencia en la **escritura** del ingest, con cota honesta `≤ 2 × freshnessDays` (60 d con el seed) en vez de los 30 literales—, que ya está **declarada como desviación en §9** y que cierra el fallo grave («fresco para siempre»). Lo que falta es el cierre **al pie de la letra**. La deuda es de **precisión**, no de seguridad, y el dial del ingest está `off`.
+- **Impacto:** el **criterio 109** sigue cumpliéndose por la **aproximación conservadora** vigente —el gate de evidencia en la **escritura** del ingest, con cota honesta `≤ 2 × freshnessDays` (60 d con el seed) en vez de los 30 literales—, que ya está **declarada como desviación en §9** y que cierra el fallo grave («fresco para siempre»). Lo que falta es el cierre **al pie de la letra**. La deuda es de **precisión**, no de seguridad, y el dial del gancho (v1.51: `grading_hook_enabled`) está `off`.
 - **Nota de gobierno (por qué no se hizo aquí):** §11 describe el cierre exacto junto a la columna, pero **el alcance que el arquitecto asignó a M-43 enumera la columna en el schema y nada más**; cablear `stale()` y el escritor del ingest habría sido cambiar un comportamiento de frescura de dinero-adyacente **sin encargo**. Se declara en vez de decidirlo por cuenta propia (regla 9).
-- **Disparador:** **antes de encender `graded_estimate_ingest_enabled`** (la fase 2), que es cuando la fecha de la evidencia empieza a importar de verdad. El trabajo es: (a) `persistGradedEstimateReference` recibe y persiste la `evidenceDate` que el parser ya trae, y (b) `isStaleByOrigin`/`stale()` miden contra `evidenceDate ?? capturedDate`. Ref: ARCHITECTURE §4.38(m.2), §11 (M-43), `BACKEND_NOTES.md` §0.11.7.
+- **Disparador (⚠️ ADELANTADO en v1.51 por M-46):** **antes del primer `off → on` de `grading_hook_enabled` en producción**. Antes decía «antes de encender `graded_estimate_ingest_enabled` (la fase 2)», y con **dos** diales eso era una fecha lejana; con el **dial ÚNICO** (§4.38r) *encender la fase 2 y encender la feature son el mismo acto*, así que esto pasa a estar **delante del paso 5 del pase** (§4.38r.4) — es la **GU-9** que el arquitecto repositionó a **bloqueante del primer encendido en producción** (§4.38r.6.2, §10). Cierre por **una de dos**: el humano acepta por escrito la cota `≤ 60 días`, **o** se cablea `evidenceDate`. El trabajo es: (a) `persistGradedEstimateReference` recibe y persiste la `evidenceDate` que el parser ya trae, y (b) `isStaleByOrigin`/`stale()` miden contra `evidenceDate ?? capturedDate`. Ref: ARCHITECTURE §4.38(m.2), §11 (M-43), `BACKEND_NOTES.md` §0.11.7.
+- **✅ Actualización v1.51-a (2026-08-31) — GU-9 CERRADA ⇒ esta deuda DEJA DE BLOQUEAR el encendido.** El dueño **aceptó por escrito la cota de ≤ 60 días** (`PROJECT.md`, decisión 61; ARCHITECTURE §4.38m.2.1), que era **una** de las dos vías de cierre del disparador anterior. Queda por tanto: **severidad BAJA, NO bloqueante**, sin disparador de fecha. Se conserva porque el cierre *al pie de la letra* del criterio 109 sigue pendiente y porque **la columna `evidenceDate` YA EXISTE** en el schema (migración `v1.50.3-f-graded-estimate-kind`): el trabajo restante es (a)+(b) de arriba, **sin DDL y sin ventana de migración**. ⛔ **Lo que este cierre NO autoriza a nadie:** tocar `graded_estimate_freshness_days` — se queda en **30**; escribir 60 daría un peor caso de **120** (§4.38m.2.1). Encargo: (r.8) nº 7.
 
 ### M44-D1 · La validación de entrada del override de precios vive en el handler, no en el DTO (M-44, 2026-08-29)
 - **Dueño:** backend (la decisión de fondo, si se toma, es del **arquitecto**). **Severidad:** Baja (aceptada, **no bloqueante**, sin impacto observable).
@@ -2543,10 +2718,14 @@
 >   con «no automatizar».
 >
 > **Lo que queda abierto de esta entrada** es la **verificación en staging con datos reales** (severidad
-> **Baja**, no bloqueante): el ingest arranca con dial `graded_estimate_ingest_enabled` en **`off`**, así que
-> hasta que un humano lo encienda **no gasta un solo crédito ni escribe una sola fila**. El orden de encendido
-> lo fija §4.38h: rodar el ingest **en observación con la vitrina apagada**, revisar la traza (`AuditLog`
-> `graded_estimate.ingest.*`) y solo entonces encender la exhibición.
+> **Baja**, no bloqueante): el ingest arranca con el dial del gancho —desde v1.51 el ÚNICO,
+> `grading_hook_enabled`— en **`off`**, así que hasta que un humano lo encienda **no gasta un solo crédito ni
+> escribe una sola fila**. ~~El orden de encendido lo fija §4.38h: rodar el ingest **en observación con la
+> vitrina apagada**, revisar la traza (`AuditLog` `graded_estimate.ingest.*`) y solo entonces encender la
+> exhibición.~~ ⛔ **ACTUALIZADO en v1.51 (M-46, §4.38r):** con un solo dial ese orden **ya no es
+> expresable**; el sustituto es rodar con la **SONDA** (`POKEMONPRICETRACKER_GRADED_PROBE=on`, solo-lectura
+> por construcción), revisar la traza y la lista de revisión, y **solo entonces** encender el dial — que
+> desde v1.51 es un **acto de gasto** además de una decisión comercial (§4.38r.3).
 >
 > **Y una escalada que puede reabrir esto como decisión de ARQUITECTURA (regla 9):** si la corrida revela que
 > `includeEbay=true` **no** combina con `fetchAllInSet=true`, el job **PARA** y lo reporta (`escalation`). En
@@ -4006,7 +4185,7 @@
   para este stream: consolidar una teja canónica ahí (o retirar `ListingCard` si se decide que la
   teja vive por vista) — la decisión de dónde vive pasa por techlead/orquestador.
 
-#### MK-D2 · Huérfanos `FeaturedSetGlance` + claves `home.trustAuth/trustPrice/ctaBuylist/vaultLabel/featuredSet.*` (Baja, frontend + ux-ui)
+#### MK-D2 · Huérfanos `FeaturedSetGlance` + claves `home.ctaBuylist/vaultLabel/featuredSet.*` (Baja, frontend + ux-ui) — **`trustAuth`/`trustPrice` YA BORRADAS**
 - **Dónde:** `frontend/src/components/domain/PortfolioTrendChart.tsx` (`FeaturedSetGlance`, retirado
   de la home por el makeover; solo lo referencia su test) y claves i18n `home.trustAuth`,
   `home.trustPrice`, `home.ctaBuylist`, `home.vaultLabel`, `home.featuredSet.*` (ES+EN) sin consumidor
@@ -4015,6 +4194,30 @@
   `components/domain/` — su baja no puede ejecutarla este stream unilateralmente.
 - **Disparador:** decidir la **baja con ux-ui** (¿regresa el glance en alguna vista o se retira
   §7.18?); al retirarlo, borrar componente + test + claves en el stream que tenga la zona compartida.
+
+> **Baja PARCIAL ejecutada (2026-09-01, pase §41, rama `claude/ecommerce-home-copy-optimization-dd3d2w`).**
+> `home.trustAuth` y `home.trustPrice` **borradas de ES y EN**. Salen de esta ficha; el resto
+> (`FeaturedSetGlance`, `home.ctaBuylist`, `home.vaultLabel`, `home.featuredSet.*`) **sigue abierto sin
+> cambios**.
+>
+> **Por qué estas dos y no las otras:** `trustPrice` decía «Valor de mercado transparente en MXN» /
+> «Transparent market value in MXN». Es **exactamente la afirmación de precio que §41.9-bis acaba de
+> retirar del hero y del paso 1** por falsa: el precio mostrado es `mercado × markup` (1.15×–1.60×), no el
+> de mercado. Muerta no engaña a nadie; el problema es que **repone el bloqueante sola** el día que
+> alguien rehaga la banda de confianza, y por un camino que ningún gate ve —una clave preexistente que
+> nadie escribió en ese diff—. Misma forma que el homoglifo de §41.4: latente hasta que alguien la toca.
+> `ctaBuylist`, `vaultLabel` y `featuredSet.*` **no cargan ninguna afirmación falsa** (`featuredSet.*`
+> dice «referencia de mercado», que es el término correcto), así que no había razón para adelantar su
+> baja fuera del acuerdo con ux-ui.
+>
+> **Evidencia de que la baja era segura:** `git log -S"trustAuth" -- frontend/src` no devuelve **ningún**
+> commit — las dos claves **nunca se renderizaron**, en toda la historia del repo. `DESIGN_SYSTEM.md` no
+> tiene sección de banda de confianza que las exija, y la banda real (`HomeQuoter.tsx:304-311`) pinta
+> **dos** renglones: `trustCustody` y `trustPayout`. No es una clave que se quedó sin consumidor: nació
+> sin él. El historial de git conserva el texto si alguna vez hace falta.
+>
+> Paridad ES/EN verificada tras el borrado: **2 285 claves, conjuntos idénticos** (eran 2 287). Se van de
+> los dos locales o de ninguno.
 
 #### MK-D4 · Chips de filtro del catálogo con etiquetas sin traducir (`productType`, acabado) (Baja, frontend)
 - **Dónde:** `catalog/CatalogView.tsx` → `buildChips`: el chip de `productType` pinta el valor crudo
@@ -4579,7 +4782,7 @@
 - **Qué NO se hace al verlo:** ni escotilla, ni dial nuevo, ni `count` inventado. **Vuelve al
   arquitecto** (regla 9). Las opciones —degradar a manual de forma permanente, buscar un segundo
   proveedor, o pagar el plan que exponga `salesByGrade`— son de **producto y de costo**.
-- **Impacto hoy: ninguno** (`graded_estimate_ingest_enabled` seed `off`). **No hay acantilado detrás:**
+- **Impacto hoy: ninguno** (el dial del gancho —v1.51: `grading_hook_enabled`— tiene seed `off`). **No hay acantilado detrás:**
   la degradación a manual ya está diseñada, aceptada y funcionando — es el estado de v1.50. Se pierde la
   **automatización** de la feature, no la feature.
 - **Disparador:** la primera corrida real del ingest.
@@ -4655,7 +4858,7 @@
   porque el defecto opuesto —silenciar un cambio de shape real— es peor, y por debajo del suelo la señal
   **se informa con `warn`** en vez de perderse. Sigue siendo **constante de código, no dial**
   (§4.38h.1-ter: se calibra una vez).
-- **Disparador:** la primera corrida real del ingest con `graded_estimate_ingest_enabled = on`. Si el
+- **Disparador:** la primera corrida real del ingest con `grading_hook_enabled = on` (v1.51: es el mismo acto que encender la feature). Si el
   `warn` de «no se escala por muestra corta» aparece de forma sostenida sobre corridas de alcance normal,
   el número está mal calibrado y ahí sí habrá datos para elegirlo.
 
@@ -4697,6 +4900,232 @@
   El único caso que sí se limpia solo es el del smoke de borrado, que retira lo que siembra.
 - **Disparador para cerrarla:** que el arnés pueda marcar sus propias filas (p. ej. una carta de seed
   reservada al E2E cuyo estimado sea siempre desechable). Es alcance nuevo, no un arreglo.
+
+### Última pasada de M-46 (§22.14 + los dos candados burlados) — rama `claude/psa-graded-card-value-gmhv5u`, 2026-08-31 (dueño: **frontend**, no bloqueante)
+
+#### GR-D4 · El `findAllByRole` del botón «Refrescar variantes y precios» es INESTABLE en suite completa (Media→Baja, frontend — **fuera del stream que la anotó**)
+- **Dueño:** frontend. **Severidad:** Baja (test, no producto). **Estado: abierta, ticket propio.**
+- **Qué pasa:** el test `M2 · jerarquía por-fila (§19.4) › I y G son botones directos…` falla de
+  forma intermitente en la **suite completa** —QA lo vio caer **1 de 2 corridas**, en el
+  `findAllByRole` del botón «Refrescar variantes y precios de {set} usando solo TCGCSV»— y **pasa
+  3/3 aislado**. En la corrida de cierre de este pase (842/842) **no se reprodujo**: es intermitente,
+  no determinista, y esto es lo único que se puede afirmar hoy.
+- **Hipótesis (no verificada, y se anota como hipótesis):** `M2View` monta muchas queries a la vez y
+  el `findAllByRole` corre con la ventana por defecto de `waitFor` (1 s). Bajo la carga de la suite
+  completa esa ventana se puede agotar antes del render. Si es eso, el arreglo es del **test**
+  (esperar por un hito estable de la vista, o subir el timeout de ese `find*`), no del componente.
+- **Por qué no se arregla aquí:** **ningún commit de este pase toca `M2View.tsx` ni
+  `M2View.test.tsx`**. Tocar un archivo ajeno al stream para «dejarlo verde» es exactamente cómo un
+  flake se convierte en un cambio sin revisar. Va como ticket propio de frontend.
+- **Disparador para cerrarla:** reproducir el rojo con `--repeat` o `--sequence.shuffle` sobre la
+  suite completa, confirmar (o descartar) la hipótesis del timeout y arreglar el test en su rama.
+
+> **Addendum (2026-09-01, pase §41) — segundo avistamiento, y el alcance de la ficha se GENERALIZA.**
+> En una corrida completa del pase de copy cayó
+> `M2 · «Refrescar variantes + precios (solo TCGCSV)» por set (P-13) › money-safe: si TCGCSV no fue
+> alcanzable del todo (tcgcsvReachable=false) avisa resultado parcial` (**`M2View.test.tsx:794`**). El
+> archivo pasó **65/65 aislado** y las corridas completas siguientes dieron verde.
+>
+> **Es un `it` DISTINTO del que nombraba esta ficha**, y en otro `describe`: lo registrado era
+> `:718`/`:722` («jerarquía por-fila §19.4»). La hipótesis del timeout **sí transfiere**, porque los dos
+> usan el **mismo** `findAllByRole` del botón «Refrescar variantes y precios de {set} usando solo
+> TCGCSV» — ese selector aparece **7 veces** en el archivo, **4 de ellas dentro de un `find*ByRole`**.
+>
+> Por eso el alcance deja de ser «el test de `:722`» y pasa a ser **«el `findAllByRole` del botón
+> Refrescar, compartido por ≥3 tests del archivo»** (de ahí el título nuevo). **Dos avistamientos sobre
+> el mismo selector en dos tests distintos refuerzan la hipótesis** y descartan que sea una peculiaridad
+> de un `it` concreto. Quien la investigue debe atacar el **selector compartido**, no perseguir una sola
+> línea — que es justo lo que la ficha anterior le habría hecho hacer.
+>
+> Sigue **sin arreglarse aquí y por la misma razón**: el pase §41 no toca `M2View.tsx` ni
+> `M2View.test.tsx`, y están fuera de su stream.
+
+### Cierre del pase de la rotación del carrusel (§23) — rama `claude/tcg-hunt-orchestrator-28p7z1`, 2026-08-31 (dueño: **frontend**, no bloqueante)
+
+#### FR-C1 · La ventana de 1200 ms de §23.5a se arma con entradas que NO desplazan la pista — el riesgo es el FALSO POSITIVO (Media-baja, frontend + ux-ui)
+> ⚠️ **ACTUALIZADA el 2026-08-31 tras `bb3fb2c` (a petición del techlead, con el hallazgo de QA).** La
+> ficha original decía «no bloqueante: hoy no hay ni un reporte y **WCAG 2.2.2 sigue cumplido por el
+> conmutador, que es visible y opera**», y su disparador era «que QA o soporte vean **el conmutador en
+> REANUDAR** sin intervención». **Las dos cosas son falsas desde `bb3fb2c`**: el conmutador se retiró
+> (decisión del dueño, `DESIGN_SYSTEM.md` **§23.4.0**, que además deja escrito que la implementación
+> **NO cumple** WCAG 2.2.2 y por qué se acepta). Las dos frases originales quedan **citadas aquí** en vez
+> de borradas: una premisa falsa en un documento durable es justo lo que este proyecto lleva todo el día
+> cerrando, y quien vuelva a esta ficha tiene que poder ver qué se creía y qué resultó no ser cierto.
+>
+> **Y lo más importante, que QA señaló: no cambió el síntoma — SE FUE EL REMEDIO.** Esta ficha describe
+> un **falso positivo**: una rueda vertical pura, o un *scroll anchoring* por imagen tardía, arma la
+> ventana y **pausa la rotación permanentemente sin que nadie lo haya pedido**. Cuando se aceptó como
+> Media-baja, el usuario al que le ocurría **tenía salida: pulsar REANUDAR**. Hoy **no hay ninguna
+> recuperación en toda la visita**: `paused` es terminal, no hay control, y ni el hover, ni el foco, ni
+> volver a la pestaña, ni recargar-sin-recargar devuelven la rotación. El defecto pasó de «molesto y
+> reversible por el usuario» a «la función queda muerta hasta la siguiente carga de página». **La
+> severidad registrada ya no describe el riesgo real.**
+
+- **Dueño:** **frontend** (la medición), **ux-ui** (la norma: §23.5a es normativa y el número vive ahí, no en el componente). **Severidad:** **Media** (subida desde Media-baja al desaparecer la mitigación; sigue **no bloqueante** porque **no se ha reproducido ni una vez**: 53 eventos `scroll` / 0 con antecedente en la medición de la pasada completa, y esa corrida no tenía red lenta). **Premisa vigente:** la protección de accesibilidad ya no descansa en un control visible sino en los cinco frenos automáticos, y §23.4.0 (a) deja constancia de que 2.2.2 **no se cumple** por decisión del dueño — así que este falso positivo ya no tiene por encima ninguna red que lo compense.
+- **Qué pasa:** `handleScroll` (`frontend/src/app/[locale]/(storefront)/_home/FeaturedCarousel.tsx`) pausa para siempre si hay antecedente de usuario en los 1200 ms previos. El antecedente lo arman **cinco** entradas y **dos de ellas no implican que el usuario esté moviendo la pista**:
+  - **`onWheel` no discrimina eje.** Medido en Chromium sobre la home real: una rueda **vertical** pura sobre la pista (`deltaX: 0, deltaY: 250`) —o sea, alguien pasando de largo la home— **llega a la pista y arma la ventana**. §23.5 solo nombra la rueda/trackpad **horizontal** como intervención.
+  - **`onFocus`** la arma igual, y el foco puede aterrizar en una teja sin que nadie desplace nada.
+- **Por qué importa (y por qué el riesgo va al revés de lo que se sospechaba):** el falso **negativo** no es el problema —un swipe emite muchos `scroll` y el primero llega en milisegundos, muy dentro de la ventana—. El problema es el falso **positivo**: si dentro de esos 1200 ms una imagen tardía provoca *scroll anchoring* —que es **exactamente** el escenario que §23.5a describe y lo que pasa en red lenta—, el carrusel **se pausa sin que nadie lo pidiera**. Sería el defecto que §23.5a vino a matar (el conmutador en REANUDAR con el usuario quieto), re-armado por una entrada inocente. Hoy no se reproduce: en la medición de la pasada completa, **53 eventos `scroll` y 0 con antecedente** — pero esa corrida no tenía red lenta ni imágenes tardías.
+- **Lo que NO es:** no es la guarda que se retiró en este pase (esa disparaba contra la persona; ésta dispararía contra el motor). Y no es motivo para reintroducirla: una marca de origen no distingue un anclaje de scroll de un swipe, que es justo lo que haría falta aquí.
+- **Salidas posibles (ninguna implementada; la elección es de ux-ui porque toca la norma):** **(a)** discriminar eje en `onWheel` (`Math.abs(deltaX) > Math.abs(deltaY)`), que es lo que §23.5 nombra — barato y del componente, pero cambia el enunciado de §23.5a y por eso pasa por ux-ui; **(b)** exigir que el `scroll` mueva `scrollLeft` de verdad antes de atribuirlo (hoy `handleScroll` no compara posiciones); **(c)** acortar la ventana, que es **decisión de ux-ui en §23.5a con medición delante** («si alguna vez se toca ese número, se toca aquí»). No se toma ninguna sin dato.
+- **Salida que ganó peso al irse el remedio:** cualquiera de las tres de arriba sirve, pero además hay una **cuarta** que antes no hacía falta plantearse — que la pausa por intervención deje de ser terminal **para el caso del falso positivo** (p. ej. atribuir solo el `scroll` que mueve `scrollLeft` de verdad, salida (b), que mata la causa en vez de ofrecer recuperación). **No se implementa aquí:** toca §23.5a, que es norma de ux-ui, y hacerlo «de paso» en un pase de cierre es exactamente cómo se cuela un cambio de conducta sin revisar.
+- **Disparador (nuevo, observable sin conmutador):** que **QA o soporte vean que la pista deja de rotar sola antes de terminar su pasada** — sin que nadie la haya tocado, mirado con el ratón, tabulado ni apartado de la vista. Es el mismo defecto de siempre leído donde ahora se ve: en el movimiento, no en la etiqueta de un botón que ya no existe. Para instrumentarlo basta reproducir la home con throttling de red y una imagen líder lenta, y registrar `scroll` + última entrada, como en la medición del pase. Ref: `DESIGN_SYSTEM.md` §23.5a y §23.4.0, `docs/FRONTEND_NOTES.md` §38 y §40.
+
+#### FR-C2 · El freno por VISIBILIDAD tiene un único punto de cobertura en todo el proyecto, y es un E2E (Media-baja, frontend + devops)
+- **Dueño:** **frontend** (el test), **devops** (la composición del gate). **Severidad:** Media-baja. **Estado: abierta, aceptada.** Aviso de QA en el cierre del stream.
+- **Qué pasa:** de los cinco frenos automáticos del carrusel, el de visibilidad (`IntersectionObserver` < 50 % + `visibilitychange`) es el **único** cuya mitad de `IntersectionObserver` **no tiene ni un test unitario**: jsdom no implementa la API, así que una mutación que borre `inView` de `suspended` pasa **los 44 unitarios en verde** (verificado en el pase anterior con 39, y el número no cambia la conclusión). Toda su red es **un solo caso**: `§23.5 · la pista fuera de vista suspende, y al volver NO se acumulan tics` en `frontend/e2e/featured-rotation.spec.ts`.
+- **Por qué importa:** no es un problema mientras el gate corra unitarios **y** E2E, que es lo que manda `CLAUDE.md`. Es un problema el día que alguien componga un gate «rápido» solo con la suite unitaria —o que la suite E2E se salte por flake, timeout o falta de navegador en un runner—: **ese freno queda a ciegas y nadie se entera**. Un carrusel que sigue rotando fuera de pantalla gasta CPU y batería en móvil y es justo lo que §23.5 prohíbe.
+- **Lo que NO es:** no es un hueco de implementación (el freno funciona y está medido: la mutación pone el E2E en rojo, `460 → 960`), ni algo que se arregle escribiendo otro test unitario con la API que jsdom no tiene.
+- **Salidas posibles:** **(a)** un *stub* de `IntersectionObserver` en `vitest.setup.ts` que permita disparar entradas a mano — cubre la lógica del componente, no el observador real, y hay que decirlo en el test; **(b)** marcar el spec del carrusel como **obligatorio** en el gate de CI (devops), de modo que saltárselo sea una decisión explícita y no un descuido; **(c)** las dos.
+- **Disparador para cerrarla:** que se proponga cualquier gate que no incluya `e2e/featured-rotation.spec.ts`, o que ese spec se marque `skip`/`fixme` por cualquier motivo. Ref: `docs/FRONTEND_NOTES.md` §40, cabecera de `frontend/e2e/featured-rotation.spec.ts`.
+
+### Cierre del pase de copy del home (§41) — rama `claude/ecommerce-home-copy-optimization-dd3d2w`, 2026-09-01 (dueño: **frontend**, no bloqueante)
+
+> Deuda anotada **a petición del techlead** en su veredicto sobre el pase de copy. Ambos ítems son de
+> **acoplamiento**, no de defecto: nada está roto hoy. Los textos son los que redactó el techlead.
+> **Ninguno se implementa en este pase** — el alcance seguía siendo el copy.
+>
+> El hallazgo **bloqueante** de ese mismo veredicto (el homoglifo cirílico U+0435 que dejaba muerto un
+> brazo del guard de `aria-label`) **NO figura aquí: se corrigió en la rama**, con caso de control y
+> verificado por mutación. Ver `FRONTEND_NOTES.md` §41.4.
+
+#### DT-Fx · Tests unitarios del storefront acoplados a literales de copy en español (Baja, frontend)
+- **Dueño:** frontend. **Severidad:** Baja. **Estado: abierta, aceptada.**
+- **Deuda:** `page.test.tsx` y `FeaturedCarouselRotation.test.tsx` localizan nodos **tecleando la frase de
+  marketing** (8 literales tuvieron que reescribirse en el pase de copy §41, rama
+  `claude/ecommerce-home-copy-optimization-dd3d2w`). Los E2E de Playwright **no rompieron** porque
+  resuelven las claves con `t(locale, 'home.…')` (`e2e/utils/i18n.ts`), que es lo que
+  `DESIGN_SYSTEM.md` §9 pide. `src/test/render.tsx` ya importa `messages/{es,en}.json`, así que los
+  unitarios pueden leer `es.home.<clave>` **sin infraestructura nueva**.
+- **Alcance de la deuda:** solo los literales que sirven para **localizar** el nodo. **Se conservan como
+  literal a propósito** las aserciones que son **sobre el texto**: el candado de `aria-label` de §23.9 y
+  cualquier deslinde legal (`home.gradingGems.kicker`, `catalog.gradingNote.*`), donde leer la clave haría
+  el test **tautológico**.
+- **Impacto si no se paga:** cada pase de copy del home cuesta una ronda de tests rojos y arrastra el
+  riesgo de que la corrección **debilite la aserción** para volver al verde.
+- **Coste estimado:** bajo (2 archivos, sin helper nuevo). **No bloqueante.**
+- **Disparador:** el próximo pase que cambie copy del home, o cualquier corrección de un test rojo de esta
+  familia que proponga relajar la aserción en vez de actualizar el literal.
+
+#### DT-Fy · `home.featuredTitle` es a la vez titular de marketing y nombre accesible de un landmark (Baja, frontend + ux-ui)
+- **Dueño:** frontend (el desacople), **ux-ui** (la norma: §1 es suya). **Severidad:** Baja.
+  **Estado: abierta, aceptada.**
+- **Deuda:** `FeaturedCarousel.tsx:600` usa `ariaLabel={t('featuredTitle')}` para el `role="region"` del
+  carrusel, y la misma clave es el H2 (que alterna con `featuredTitleShort` en móvil, así que el nombre
+  del landmark y el título visible **no coinciden por debajo de `lg`**). `DESIGN_SYSTEM.md` §1 (v2.9)
+  admite la metáfora de marca en **titulares de marketing** y la prohíbe en **mensajes de accesibilidad**:
+  esta clave cae en **los dos lados a la vez**.
+- **Impacto:** hoy el valor es neutro («Piezas destacadas»); el riesgo es que un futuro pase de copy meta
+  voz de marca en el **árbol de accesibilidad** sin que ningún gate lo note.
+- **Dirección:** clave propia y estable para el `aria-label` de la región, desacoplada del titular.
+  **No bloqueante.**
+- **Disparador:** el próximo pase de copy que toque `home.featuredTitle`, o cualquier propuesta de meter
+  léxico de marca (cacería/bounty/HUNT) en ese valor.
+
+#### DT-Fz · ~~`home.how.step1Body` enumera las líneas del resumen de checkout~~ → **RESUELTA de raíz** (2026-09-01, misma rama)
+- **Dueño:** frontend. **Severidad:** Baja. **Estado: abierta, aceptada.** Anotada a petición del techlead en el veredicto del pase §41.
+- **Hoy es CIERTO, y eso es justo lo que la hace fácil de pasar por alto.** `home.how.step1Body` dice «ves el desglose completo: **IVA, procesamiento y envío**» (EN: «VAT, processing and shipping»), y el resumen de checkout tiene hoy exactamente esas líneas: `checkout.subtotal`, `checkout.processingFee`, `checkout.iva`, `checkout.shipping`, `checkout.total` (verificado sobre `messages/es.json`).
+- **Deuda:** el home **espeja la composición de un componente que no controla**. La enumeración es una afirmación sobre el checkout escrita en la home, y **nada la ata**: no hay test que compare ambas superficies, ni podría haberlo sin inventar un acoplamiento nuevo. El día que el resumen gane o pierda una línea —un descuento, una cuota aduanal, o que la comisión del procesador se absorba en el precio en vez de trasladarse— **el home vuelve a ser falso en silencio**.
+- **Por qué importa más de lo que parece:** es la **recurrencia, por una vía nueva, de la falla que QA acaba de rechazar** en este mismo pase (§41.9a: «Lo que ves es lo que pagas» prometía una equivalencia que el desglose desmentía). Se corrigió una frase falsa sustituyéndola por una frase cierta **pero frágil**. No es un defecto hoy; es el mismo defecto esperando otro cambio de checkout.
+- **Salidas (excluyentes):** **(a)** redactar **sin enumerar** — «ves el desglose completo antes de pagar» / «you see the full breakdown before you pay»: rompe el acoplamiento a **coste cero**, sin perder el argumento (el desglose sigue siendo el gancho), y es la salida barata; **o (b)** conservar la enumeración porque concreta mejor, y entonces **anclar el disparador a `checkout.*`**: quien toque las líneas del resumen tiene que revisar esta clave.
+- **Impacto si no se paga:** una afirmación falsa en el home, invisible para el gate, hasta que alguien la lea con el checkout delante.
+- **Coste estimado:** trivial con la salida (a). **No bloqueante.**
+- **Disparador:** cualquier cambio en la composición del resumen de checkout (altas/bajas de línea en `checkout.*`), o el próximo pase de copy que toque `home.how.step1Body`. Ref: `FRONTEND_NOTES.md` §41.9(a), `PROJECT.md:346`, `:348`, `:401`, `:766`.
+
+> **RESUELTA en la misma rama, y no por haberla pagado: la enumeración era además FALSA.** La segunda
+> ronda de QA (§41.9-bis) tumbó `home.how.step1Body` por otro motivo —afirmaba «su precio de mercado»
+> contra una decisión LOCKED— y al reescribirla se comprobó que la enumeración «IVA, procesamiento y
+> **envío**» tampoco cuadraba: `AmountBreakdown.tsx:64-70` pinta la línea de envío **solo** cuando viene
+> `shippingFeeCents`, que es el caso `direct_ship` (invitado). En **compras a bóveda el envío NO se
+> cobra ahí** — y esta es precisamente la sección «Cómo funciona la bóveda».
+>
+> El valor nuevo adopta la **salida (a)** de esta ficha —redactar **sin enumerar**—:
+> «En el checkout ves el desglose completo antes de pagar.» / «At checkout you see the full breakdown
+> before you pay.» El acoplamiento a la composición de `checkout.*` **desaparece**: la frase es cierta
+> para cualquier juego de líneas presente o futuro.
+>
+> **Cierra sin deuda residual.** Nota para quien lea la ficha original: el diagnóstico decía «hoy es
+> cierto, el riesgo es futuro». Era **optimista** — ya era falso al escribirlo, para el caso de bóveda.
+> Una ficha de acoplamiento no sustituye a verificar el valor contra el componente.
+
+---
+
+### Cierre del pase P-54 · logos de expansión en el índice de sets (§42) — rama `claude/tcg-hunt-orchestrator-28p7z1`, 2026-09-02 (dueño: **frontend**, no bloqueante)
+
+> Deuda anotada tras la **segunda** ronda de QA sobre el pase. Los dos **bloqueantes** de esa ronda
+> (B-1: la placa crecía con la proporción del logo y anulaba `aspect-[3/2]`; B-2: el monograma no se
+> retiraba y se transparentaba bajo el logo) **NO figuran aquí: se corrigieron en la rama**, con
+> medición de caja real en Chromium (`frontend/e2e/master-set-plate.spec.ts`) y verificados por
+> mutación. Ver `FRONTEND_NOTES.md` §43. Lo que sigue es lo que **queda abierto y aceptado**.
+
+#### DT-Ga · §24.10 — la placa `sm` del encabezado del binder está diseñada y no implementada (Baja, frontend)
+- **Dueño:** frontend. **Severidad:** Baja. **Estado: abierta, aceptada.**
+- **Deuda:** `DESIGN_SYSTEM.md` §24.10 define una `SetPlate` tamaño `sm` (112×64, `aspect-[7/4]`, padding
+  8px, mismas reglas de tinta/contain/contorno y mismo monograma) a la izquierda del título del set en el
+  **encabezado del binder**, oculta por debajo de `sm`. Este pase implementó **solo la teja del índice**:
+  el encargo acotaba el trabajo a `MasterSetIndex.tsx` y `MasterSetBinder.tsx` estaba fuera de alcance
+  (otra sesión trabajaba en paralelo sobre zonas vecinas).
+- **Impacto:** ninguno funcional. El binder sigue con su título en texto, que es lo que había antes de
+  §24; no hay hueco, no hay salto, no hay regresión. Es diseño **entregado y no consumido**.
+- **Dirección:** extraer `SetPlate` de `MasterSetIndex.tsx` con una prop `size` (`md` retícula / `sm`
+  encabezado) y montarla en el encabezado del binder. `MasterSetBinder` ya recibe el
+  `MasterSetSummaryDTO` **entero**, con `logoUrl` incluido: no hace falta contrato, ni endpoint, ni
+  prop nueva de datos. Coste estimado: pequeño.
+- **Disparador:** el siguiente pase que toque `frontend/src/components/master-set/MasterSetBinder.tsx`.
+
+#### DT-Gb · `currentSetId` es una prop sin consumidor (Baja, frontend)
+- **Dueño:** frontend. **Severidad:** Baja. **Estado: abierta, aceptada, con FECHA DE CADUCIDAD.**
+- **Deuda:** `MasterSetIndex` acepta `currentSetId?: string` para el estado «seleccionado / actual» de
+  §24.6 (`aria-current="true"` + subrayado 2px de acento). **Ningún anfitrión la pasa**: hoy, al abrir un
+  set, el índice se desmonta y no hay «set actual» que pintar. Se implementó porque §24.6 lo especifica y
+  porque prohíbe **inventar** una selección que no existe; queda lista para cuando el anfitrión sepa de
+  verdad cuál es (vuelta del binder con el set en la URL).
+- **Impacto:** código vivo que ninguna pantalla ejercita. Lo cubre una prueba unitaria, así que no puede
+  pudrirse en silencio — pero una prueba no es un consumidor.
+- **Dirección:** **cablearla o retirarla.** El sistema de diseño puede esperar; el código sin consumidor
+  no. Si se retira, §24.6 queda sin implementar y hay que decirlo en `FRONTEND_NOTES`.
+- **Disparador (duro):** si no se cablea en los **dos próximos pases** sobre `components/master-set/`,
+  **se retira**.
+
+#### DT-Gc · El monograma escala por unidades de contenedor, y §24.5 solo da dos puntos de referencia (Baja, frontend + ux-ui)
+- **Dueño:** frontend (la implementación), **ux-ui** (la norma). **Severidad:** Baja. **Estado: abierta, aceptada.**
+- **Contexto:** la primera versión ató el tamaño del monograma al **breakpoint del viewport**
+  (`text-[28px] lg:text-[44px]`). QA lo tumbó (I-2): en el cotizador la retícula vive en una columna
+  estrecha, así que en `lg` la placa mide ~116px —**más pequeña que en móvil**— y un monograma fijo de
+  44px la llenaba de borde a borde. Ya está corregido: `container-type: inline-size` en la placa +
+  `text-[16cqw]`, es decir **≈16 % del ancho de la placa**, medido y fijado en Playwright.
+- **Deuda residual:** §24.5 especifica el tamaño con **dos puntos** («≈28px a 167px de ancho, ≈44px a
+  280px»), que dan 16,8 % y 15,7 %. El 16 % implementado es una **interpolación del front**, no una regla
+  escrita: si ux-ui quiere una curva distinta (p. ej. tope máximo, o mínimo legible por debajo de cierto
+  ancho), hoy no está dicha en ningún sitio y el siguiente que la toque volverá a inventarla.
+- **Dirección:** que ux-ui fije el porcentaje —o el `clamp()`— en §24.5, y que el código lo cite.
+- **Disparador:** la respuesta de ux-ui a la consulta abierta de §24.4 sobre el ancho real de la
+  retícula en el cotizador (ver `FRONTEND_NOTES.md` §43), que es el mismo hilo.
+
+#### DT-Gd · `CardSetDTO` sirve a dos endpoints que el contrato define DISTINTOS, y el campo opcional desactiva el invariante de §4.39.6 (Media, frontend + arquitecto)
+- **Dueño:** frontend (el tipo), **arquitecto** si se decide que el contrato nombre dos DTOs.
+  **Severidad:** Media. **Estado: abierta, aceptada.**
+- **Deuda:** `GET /catalog/sets` y `GET /buylist/sets` comparten el tipo `CardSetDTO` en el cliente, pero
+  el contrato los define distintos: `logoUrl` **entra** en `/buylist/sets` (y ahí es de clave **siempre
+  presente**) y **NO entra** en `/catalog/sets` (§4.39.5). Colapsarlos obligó a declarar
+  `logoUrl?: string | null`, y ese `?` **desactiva en el cliente justo el invariante que §4.39.6 existe
+  para garantizar**: hoy `fetchQuoterIndex` **compila igual si el campo desaparece** de la respuesta del
+  cotizador. El campo requerido de `MasterSetSummaryDTO` sigue en pie y es el que atrapó los dos sitios
+  que construían el DTO a mano — pero el eslabón `/buylist/sets` → teja quedó sin candado de tipos.
+- **Por qué se hizo así:** `lib/api.ts` (donde vive `listBuylistSets`) estaba **tomado por otra rama**
+  durante el pase; partir el tipo exige tocarlo. La decisión local fue la correcta dada la contención;
+  el problema es el tipo único, no la decisión.
+- **Incluida en esta misma ficha (no es un ítem aparte, y anotarla suelta la haría parecer cosmética):**
+  la **divergencia del mock**. `lib/api.ts` sirve `getSets()` y `listBuylistSets()` del **mismo**
+  `fx.mockSets`, así que en modo mock `/catalog/sets` **también** rinde `logoUrl`, cosa que el backend
+  real no hace. Nadie lo consume hoy y el tipo opcional impide asumirlo, pero es exactamente la clase de
+  «el mock promete más que el backend» que ya costó un defecto en producción (§34). Se cierra con lo
+  mismo: dos tipos, dos fixtures.
+- **Dirección:** `BuylistSetDTO extends CardSetDTO { logoUrl: string | null }` (requerido) para
+  `listBuylistSets`, `CardSetDTO` **sin** `logoUrl` para `getSets`, y un fixture propio por endpoint.
+  Cero cambios de contrato; si el arquitecto prefiere nombrarlos en `API_CONTRACT.md`, mejor.
+- **Disparador (duro):** el **primer pase de frontend después de que `claude/buylist-inventory-workflow-hdnls3`
+  fusione** y `lib/api.ts` quede libre.
 
 ---
 

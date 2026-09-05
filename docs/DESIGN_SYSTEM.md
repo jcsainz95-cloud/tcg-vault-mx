@@ -4,7 +4,12 @@
 > El frontend (Next.js 14 + Tailwind) implementa este documento; no lo contradice.
 > Manda `PROJECT.md` sobre el contrato y sobre este documento; este documento define solo lo visual/UX,
 > nunca datos, contrato ni arquitectura.
-> Estado: **v1.3** (rediseño 5a "papel/tinta/bermellón" — sin look de IA). Fecha: 2026-08-16. Branch: `claude/rediseno-5a-pantallas`.
+> Estado: **v3.0** — última sección añadida: **§25, ciclo de adquisición del buylist**. Fecha: 2026-09-05.
+> Rama: `claude/buylist-inventory-workflow-hdnls3` (fusión con `main`, que traía hasta **v2.9**: §22.13/§22.14,
+> §23 rotación del carrusel y §24 logos de expansión). La numeración de esta fusión está explicada en la
+> **nota de reconciliación** del changelog de abajo.
+> Dirección de arte vigente desde **v1.3** (rediseño 5a "papel/tinta/bermellón" — sin look de IA;
+> 2026-08-16, rama `claude/rediseno-5a-pantallas`), con el rebrand **TCG HUNT** de v1.7 (§17).
 > Origen: **codificado a partir del rediseño 5a implementado en `frontend/`** (dirección de arte
 > aprobada por el humano). No hubo entrega formal de Claude Design; los tokens de este documento se
 > **extraen de los valores reales** de `frontend/src/app/globals.css`, `frontend/tailwind.config.ts` y
@@ -220,15 +225,175 @@
 > de ROI, pero no es confiable» ⇒ **ficha sí, teja y vitrina no**—, **indistinguible en pantalla** del
 > caso «no pasa el gate», y así debe ser (R5). Sigue **cero tokens nuevos**.
 >
-> **Añadido v2.3 (§P de PROJECT — ciclo de adquisición del buylist: ofertar, aceptar, guía y publicar)
-> → ver §23.** El buylist deja de ir de `cotizada` directo a la recepción física y gana **oferta
-> vinculante → aceptación → guía → tránsito**. §23 define lo que le toca al diseño: **(1) los CUATRO
+> **Revisión del humano (2026-08-31), incorporada — la burbuja entra también al carrusel «Piezas
+> destacadas del catálogo» → nueva §22.6b.** El gancho pasa de **tres** superficies a **cuatro**: la
+> vitrina «Joyas para gradear» **se conserva tal cual** y el carrusel del home **suma** la cifra. No es un
+> copiar-pegar: `FeaturedCarousel` **no usa `CatalogTile`** —tiene teja propia, con dos anatomías (una
+> grande de 400px y una chica de 268px) y **sin CTA que absorba la altura**—, así que §22.6b define dónde
+> entra la burbuja en cada una, con qué forma de copy y cómo se comporta la retícula en el **caso
+> disparejo**, que aquí es **el normal**: el carrusel ordena por **precio descendente** y el gate de ROI
+> castiga precisamente a las caras, así que lo esperable es **cero o una-dos burbujas entre ocho**.
+> Decisión de fondo: **la numeración mono roja `01 · 02 · 03` (§20.3) y la burbuja no coexisten** — si el
+> carrusel pinta al menos una cifra, la numeración desaparece **de toda la pista** (no tile a tile): junto
+> a un monto, un número de dos dígitos se lee como *ranking de oportunidades*, que es la afirmación que §O
+> prohíbe, y sería un **tercer rojo** en una teja de 160px. **Cero tokens nuevos, cero claves i18n nuevas,
+> cero componentes nuevos**: el badge de §22.5 se reutiliza con un `surface` de tres valores enumerados
+> que solo elige **qué forma de copy ya ratificada** se usa y **en qué breakpoint**, y que **no puede**
+> apagar el micro-aviso (R3 sigue intacta).
+>
+> **Añadido v2.3 (2026-08-31) — el gancho pasa a UN SOLO dial: los dos avisos de M10 → ver §22.13.**
+> `ARCHITECTURE.md` §4.38(r) (rev v1.51-one-dial) colapsa los dos interruptores en `gradingHookEnabled`
+> (M-46): el mismo dial gobierna **exhibición Y obtención**. Como el dial **ya no significa lo mismo en
+> cada sentido**, el aviso de M10 pasa de **uno** a **dos**: **al encender**, publica una afirmación
+> comercial **y** abre una llave de gasto (proveedor de paga, con un techo de créditos **que aún nadie ha
+> medido**, y escribe precios) — `Banner warning`, con la consecuencia nueva en una entradilla que se lee
+> aunque nadie lea el párrafo; **al apagar**, deja de publicar **y** deja de actualizar, con la **escalera
+> de remedios** en el texto para que nadie apague la feature entera por una carta mal capturada —
+> `Banner info`, **sin color**, porque el apagado es el botón de pánico y no puede dar miedo. **Ninguna
+> superficie del storefront cambia** (§22.0–§22.12 intactas) y sigue **cero tokens nuevos, cero
+> componentes nuevos y cero cambios de contrato**.
+>
+> **Corregido v2.4 (2026-08-31) — el aviso de encendido deja de afirmar la cifra de créditos como si
+> estuviera medida: §22.13(d) y §22.13(d.1).** La v2.3 escribía *«hasta {credits} créditos al día
+> ({maxCards} × {perCard} × {runs})»* **sin calificador**, y esa aritmética supone que el proveedor cobra
+> **por carta en alcance**. No es lo que hace la petición: manda `fetchAllInSet=true`, o sea pide **el set
+> entero**, y `ingestMaxCardsPerRun` acota las cartas **en alcance**, no las **devueltas**
+> (`ARCHITECTURE.md` §4.38(r.3.1.0), **factor de amplificación `A`**). Si PPT cobra por carta devuelta, el
+> techo real es `1 000 × A` — con 250 cartas en 20 sets de 200, **16 000/día** sobre una cuota de 20 000:
+> la diferencia entre gastar el **5 %** y el **80 %** del plan del dueño. **Nadie lo ha medido**, y por eso
+> el `COSTE MEDIDO` de §4.38(r.3.1.1) es la precondición viva del primer encendido (A-1). El copy pasa a
+> **separar lo que sabemos** (cuántas cartas suyas entran) **de lo que no sabemos** (cómo factura el
+> proveedor), dice que **la primera corrida lo mide**, y deja **previsto** el texto medido (`onMeasured`)
+> para que publicar la cifra real sea **cambiar un selector, no reescribir el aviso**. Además: el máximo de
+> `ingestMaxCardsPerRun` baja de **5 000 a 1 000** (I8, contrato **v1.51-a**) y **GU-9 quedó cerrada** (el
+> dueño aceptó los 60 días de antigüedad del dato automático). Sigue **cero tokens nuevos, cero componentes
+> nuevos y cero cambios de contrato** — con **una petición abierta** al arquitecto para poder encender
+> `onMeasured` (§22.12 nº14).
+>
+> **Corregido v2.5 (2026-08-31) — dos punteros que apuntaban a la nada: §22.14 (nueva) y §22.13(d)/(e).**
+> El aviso decía que el tope se edita **«en M2 · Catálogo y precios»** y que un grado entero se quita **«de
+> "grados" en M2»**. Verificado contra el código: **M2 no dibuja ninguno de los dos** —
+> `GradedEstimatesSection.tsx` pinta escalones, margen mínimo y frescura, y **read-only** los grados y los
+> diales de confianza; `ingestMaxCardsPerRun` no aparece ni en la UI ni en el payload del `PUT`. Es la
+> **misma familia** que el defecto de la v2.4: aquélla afirmaba un número no medido, ésta manda al dueño a
+> un sitio donde **no puede hacer lo que la pantalla le dice**. Salidas: **el tope gana campo real en M2**
+> (**§22.14**, con su aviso de créditos calificado según (d.1) y rango `[1, 1000]`) porque es **la única
+> palanca que el aviso ofrece frente al gasto**; **el escalón de «grados» se retira** del aviso de apagado,
+> porque no es accionable por el dueño y la propia regla de (e) ya decía que sólo se nombran los que sí lo
+> son. Los otros tres punteros del texto **se verificaron y son ciertos**: `gancho-revision`,
+> «margen mínimo» y «Actualizar precios ahora». Sigue **cero tokens nuevos, cero componentes nuevos y cero
+> cambios de contrato**.
+>
+> **Añadido v2.6 (2026-08-31) — rotación automática del carrusel de destacadas (P-49) → ver §23.**
+> Decisión **del dueño**, tomada tras oír la recomendación contraria del frontend. §23 no la re-litiga: la
+> diseña, y **resuelve los tres hechos** que el frontend puso sobre la mesa. (1) La doctrina de §17.3
+> —«el movimiento no decorativo se lee como carga»— se **matiza y se hace explícita**: se separan
+> *movimiento-de-estado* (prohibido, sigue igual) de *movimiento-de-presentación* (permitido **solo** bajo
+> las cuatro condiciones de §23.1, la primera de las cuales es que **nunca coexista con un skeleton**).
+> (2) La nota 2 de §20.16 («el carrusel degrada a scroll-snap nativo sin JS») **se corrige**: el JS pasa a
+> ser obligatorio **para rotar**, no para leer — el marcado servido sigue siendo una pista de scroll-snap
+> estática y **ése es el estado inicial**, no un fallback (§23.8). (3) `prefers-reduced-motion` deja de
+> depender de la regla CSS global (que solo anula duraciones y **no cubre** ni el scroll suave por JS ni un
+> temporizador): la regla pasa a ser **no moverse en absoluto** y se verifica en la lógica del componente
+> (§8.2, §23.7). La decisión que bloqueaba el código —**dónde vive el control de pausa**— se resuelve en
+> **§23.4**: no es una tercera flecha, es un **conmutador mono pegado al H2** (el hueco estructural del
+> kicker), en el mismo sitio en las tres anchuras. Regla dura heredada del frontend y **no negociable**:
+> **rota la ventana, nunca el rol de teja líder** (§23.2). **Cero tokens nuevos, cero cambios de contrato,
+> cero datos nuevos.**
+>
+> **Añadido v2.6.1 (2026-08-31) — §23 corregida en tres puntos sobre evidencia medida en navegador.** La
+> implementación de §23 fue **completa y correcta**; lo que falló fue este documento, escrito sobre lectura de
+> código. Se corrigen: (1) **§23.5a**, la regla de pausa por desplazamiento pasa a **«atribuible a un acto del
+> usuario»** —tal como estaba, literal, el motor de `scroll-snap` autopausaba el carrusel antes del primer
+> tic—; (2) **§23.3a**, R6 no es cumplible en el **tope físico de la pista** y ese corte queda como límite
+> aceptado y acotado; (3) **§23.8a**, sin JS el estante queda **en carga** (react-query resuelve en cliente,
+> hecho **preexistente**), de modo que lo prometido sin JS se reduce a lo que sí es cierto: **cero controles
+> muertos y cero movimiento sin freno**. Ninguna decisión de diseño de §23 cae con estas tres.
+>
+> **Añadido v2.7 (2026-08-31) — el carrusel pierde el conmutador PAUSAR/REANUDAR/REPETIR y acelera a 5 s
+> → §23 revisada.** Decisión **del dueño**, tomada **después de ver la función publicada**. Dos cambios,
+> ninguno más: **(1) se retira el control de reproducción** —del encabezado y de cualquier otro sitio—, con
+> lo que el hueco estructural del kicker **vuelve a estar libre** y la fila de §20.3 recupera su **terna**
+> (H2 ⟷ link ⟷ flechas); **(2) la cadencia baja de 7 s a 5 s** (reposo inicial incluido). El resto del tic
+> **no cambia**: una teja por tic, ≈ 0,55 s de traslación, nada arranca sobre skeletons, la pista hace una
+> sola pasada. **Los cinco frenos automáticos se conservan íntegros** —hover, foco de teclado, intervención
+> del usuario (pausa **permanente**, §23.5a con su ventana de 1200 ms), visibilidad y
+> `prefers-reduced-motion` ⇒ **cero movimiento**—: lo que desaparece es el **control explícito**, no los
+> frenos. La v2.6 fundó ese control en **WCAG 2.2.2 (nivel A)**, y eso sigue siendo cierto **como
+> estándar**; lo que aquella redacción no distinguió, y **§23.4.0** ahora sí, es que **el estándar no es
+> ley aplicable a esta tienda** (W3C no legisla; en México las obligaciones exigibles son de **gobierno**;
+> la norma europea que sí cubre comercio electrónico aplicaría solo vendiendo a la UE). §23 **no
+> re-litiga** la decisión: la registra con su razón, la especifica, y **deja escrito lo que se perdió**
+> (§23.16 — el usuario táctil que solo mira se queda sin forma explícita de detenerla). Sigue **cero tokens
+> nuevos, cero componentes nuevos, cero cambios de contrato**; se **retiran** seis claves i18n (§23.12).
+>
+> **Añadido v2.8 (2026-08-31) — el índice de sets pasa de nombres a LOGOS: la placa de tinta → ver §24.**
+> Pedido **del dueño**, con **referencia visual** (retícula oscura de 3 columnas, logo contenido en teja de
+> tamaño fijo, nombre debajo). Se traslada la **estructura**, no el acabado: **cero morado, cero neón, cero
+> esquinas redondeadas** (§4.2). La decisión de fondo es que **la teja oscura de la referencia no es gusto,
+> es la solución al problema real**: los logos de pokemontcg.io están dibujados para fondos oscuros (filete
+> blanco casi universal) y sobre el papel `#F4F1EA` una parte se vería lavada o invisible — y son cientos,
+> llegan de un tercero y **nadie los va a inspeccionar uno por uno**. Por eso el logo vive sobre una
+> **placa de tinta** `#1A1A18` (§24.2), que **no es un elemento importado de la referencia**: es el
+> **panel de tinta que el sistema ya tiene** (§2.2, hero de auth y sidebar del back-office) haciendo un
+> trabajo. Se añade un **contorno de seguridad** de 1px en papel alrededor del alfa del logo, que es
+> invisible en los logos claros (se funde con su propio filete) y **rescata** los oscuros: así funciona con
+> ambos **sin saber cuál es cuál**. **Superficie elegida: `MasterSetIndex`** —el índice de sets compartido,
+> en sus cuatro modos (cotizador, M1 admin, bóveda propia y de cliente)—; los chips «Sets buscados» de la
+> home (§20.2), el `SetFilter` de Compra (§7.16b) y el combobox de alta del admin (§16.5) **NO cambian**, y
+> §24.1 dice por qué. Sin logo (promos, colecciones, sets viejos) la placa lleva un **monograma serif** —
+> nunca un hueco, nunca un roto y **nunca un pulso** (precedente `CardImage`, §5). **Cero tokens nuevos de
+> color/tipografía, cero claves i18n nuevas, cero cambios de contrato**: sin `logoUrl` la retícula degrada a
+> monogramas y sigue siendo usable. Hay **un requisito de dato abierto** al arquitecto (§24.13 nº1).
+>
+> **Añadido v2.9 (2026-09-01) — léxico de marca: la metáfora de caza de TCG HUNT como voz de copy, con
+> sus límites → ver §1.** El §1 solo pedía un tono «claro, directo, tranquilizador», que no decía si la
+> metáfora de caza (hoy viva en «Caza la carta. Nosotros la guardamos.», «Sets en cacería», «Top
+> Bounties» y el badge `BOUNTY`) es voz de marca legítima o un desliz. Queda escrito
+> que **sí lo es, y dónde**: titulares, **rótulos** y CTA de **marketing** (home, landing del buylist).
+> Y **dónde no**: microcopy funcional, errores, dinero/checkout, legal, mensajes de accesibilidad y **el
+> nombre de la cosa** (nav, filtros, texto de enlace), que sostiene claridad y SEO — con la distinción
+> **nombre ≠ rótulo**: un rótulo de agrupación sí admite voz de marca cuando el nombre real de cada
+> elemento va debajo y es lo que se indexa (caso `home.setsWanted`). Con dos límites duros anclados a
+> los principios que ya existían: el registro es **sobrio y adulto** (principio 3 — siguen prohibidos
+> emojis, tipografía de juguete y degradados arcoíris) y **la honestidad manda sobre el ingenio**
+> (principio 1 — ninguna metáfora afirma algo que el producto no hace). Más **paridad ES/EN** (§9): si
+> la traducción literal suena forzada se reescribe, no se calca. Se registra el **caso que enseña el
+> límite**: `home.ctaShop` quedó **literal a propósito** («Explorar el catálogo»), porque en el botón
+> que convierte el usuario necesita saber a dónde va — el titular evoca, el **CTA nombra la acción
+> real**. **Aditiva: cero tokens nuevos, cero componentes nuevos, cero claves i18n nuevas y cero
+> cambios de contrato**; no modifica ninguna sección previa.
+>
+> ---
+>
+> **⚠ Reconciliación de numeración al fusionar con `main` (2026-09-05).** La entrega que sigue —el **ciclo
+> de adquisición del buylist**, §P de `PROJECT.md`— se escribió en rama con las etiquetas **§23 / v2.3**.
+> Al absorber `main`, esas dos etiquetas ya estaban **ocupadas y publicadas**: **v2.3** es el *dial único
+> del gancho* (§22.13), **§23** es la *rotación automática del carrusel* (P-49, v2.6–v2.7) y **§24** son
+> los *logos de expansión* (P-54, v2.8), los tres con sus veredictos aprobados y con código, tests y
+> `*_NOTES.md` que ya los citan. Se aplica el mismo criterio que en la fusión anterior (nota de v2.2:
+> *«la curva P-48 ya ocupaba §21 y la etiqueta v2.1 en producción, así que esta entrega pasa a §22 /
+> v2.2»*): **renumera lo que todavía no había entrado, nunca lo que ya está publicado**. Por tanto
+> **§23 (rama) ⇒ §25** y **v2.3 ⇒ v3.0**, con sus diez correcciones **v2.3.1–v2.3.10 ⇒ v3.0.1–v3.0.10**.
+> Se salta a **v3.0** en vez de a «v2.10» a propósito: en un documento que ya tiene **v2.1** (§21) y que
+> cita versiones dentro de los títulos («reescrita v3.0.2»), *«v2.10» y «v2.1» son el mismo error que este
+> ciclo cazó cuatro veces —una etiqueta que se lee como otra—*. **No cambia ni una decisión de diseño:**
+> cambian el número de sección y la etiqueta de versión, y el texto de las entradas es **literal el
+> ratificado**. **Las referencias externas a `DESIGN_SYSTEM §23.x` del ciclo de buylist** —en
+> `ARCHITECTURE.md`, `API_CONTRACT.md`, las `*_NOTES.md`, `backend/` y `frontend/`— **siguen apuntando al
+> número viejo**: actualizarlas le toca a **cada rol dueño de esa ruta**, no a este documento (ver el
+> resumen de esta fusión). Dentro de este archivo la renumeración es **completa**: no queda ningún `§23.x`
+> que signifique buylist, ni ningún `§25.x` que signifique carrusel.
+>
+> **Añadido v3.0 (§P de PROJECT — ciclo de adquisición del buylist: ofertar, aceptar, guía y publicar)
+> → ver §25.** El buylist deja de ir de `cotizada` directo a la recepción física y gana **oferta
+> vinculante → aceptación → guía → tránsito**. §25 define lo que le toca al diseño: **(1) los CUATRO
 > correos del ciclo** —oferta, recordatorio, expiración/cancelación y «no procederemos»— con su
 > jerarquía, su tono y sus **prohibiciones**, empezando por la que sostiene todo el trato: la
 > **condición NM declarada línea por línea, pegada al dinero**, y los **tres montos** (bruto / envío /
 > **neto**) con el neto como **única cifra vinculante y única cifra que puede viajar en el asunto**;
 > **(2)** ~~el **aviso del descuento de envío en el cotizador**, resuelto como **aritmética ya hecha**
-> («recibirías ≈ MX$ 320») dentro del bloque de dinero~~ **⚠ SUPERADO en v2.3.1 (D43) — ver abajo**;
+> («recibirías ≈ MX$ 320») dentro del bloque de dinero~~ **⚠ SUPERADO en v3.0.1 (D43) — ver abajo**;
 > **(3)** los **cuatro estados nuevos** (`ofertada`, `aceptada`, `en_transito`, `expirada`) en el mapa
 > canónico §2.4 —con **`expirada` pintando su MOTIVO, no su estado**, porque sus dos causas significan
 > cosas opuestas— y el **`PipelineStepper` de OCHO pasos** con la rama de error como **cierre terminal**,
@@ -238,13 +403,13 @@
 > «en camino» con «comprometido»**— más una **sugerencia que informa y nunca preselecciona**;
 > **(5)** el estado **`positionUnavailable`**: cuando no se pudo contar, **desaparece la tira entera y
 > aparece una frase** — prohibidos el `0`, el `—`, el `?`, la celda vacía y el skeleton eterno.
-> §23 es **aditiva**: **cero tokens nuevos** de color y tipografía, cero elementos gráficos nuevos, y
-> **una sola pieza de medio nuevo** (la plantilla de correo, §23.4, que traduce papel/tinta a HTML de
+> §25 es **aditiva**: **cero tokens nuevos** de color y tipografía, cero elementos gráficos nuevos, y
+> **una sola pieza de medio nuevo** (la plantilla de correo, §25.4, que traduce papel/tinta a HTML de
 > correo con **fallbacks de sistema como diseño real**). Sin entrega de Claude Design para esta feature:
 > se compone con lo ya ratificado (`Badge` §7.2, `Banner` §7.5, `DataTable` §7.7, `PipelineStepper`
 > §7.9, `AmountBreakdown` §7.12, barra sticky §21.6, reglas §4.3, `--app-header-h` §4.5).
 >
-> **Corrección v2.3.1 (2026-09-01 — D43, decisión del humano; pase correctivo acotado sobre §23).**
+> **Corrección v3.0.1 (2026-09-01 — D43, decisión del humano; pase correctivo acotado sobre §25).**
 > **El cotizador deja de hablar de montos de envío.** Se retiran del carrito la línea de envío, la resta y
 > el neto estimado (`RECIBIRÍAS ≈`), y en su lugar va **una nota de servicio sin cifras**: *«Nosotros
 > ponemos la guía de envío y su costo se descuenta siempre de lo que te pagamos: tú no pagas nada de tu
@@ -252,18 +417,18 @@
 > construcción** —los precios se mueven y puede que no compremos todas las líneas—, así que restarle un
 > envío exacto es **precisión falsa**; peor aún, el neto que pintaba era **sistemáticamente optimista**
 > (el cherry-pick solo quita líneas), o sea que fabricaba la decepción que R1 existe para evitar. **La resta
-> con los tres montos vive solo en la oferta** (correo §23.4.2 + portal §23.5), que es autenticada y usa la
+> con los tres montos vive solo en la oferta** (correo §25.4.2 + portal §25.5), que es autenticada y usa la
 > tarifa **congelada**. **El faltante para el mínimo se queda** (criterio 132), ahora **solo y sin nada de
 > envío al lado**. Consecuencia asumida y trabajada: **el correo de oferta es la primera vez que el vendedor
 > ve el monto del envío** ⇒ ese correo **repite la cifra del envío en la prosa** (no solo en la tabla), el
 > preheader deja de decir «el envío lo ponemos nosotros» **sin** «y se descuenta», y queda prohibida toda
-> fórmula que presuponga conocimiento previo («como ya sabías»). Alcance: §23.0 (precisión de R1), **§23.3
-> reescrita**, §23.4.2, §23.4.3, §23.4.7, §23.5b/c/d, §23.9, §23.10, §23.11, §23.12 (tres claves retiradas,
-> una nueva) y §23.13. **Sigue sin tokens nuevos, sin componentes nuevos y con paridad ES/EN.** La objeción
-> de UX —el vendedor cerca del mínimo se entera del ~36% hasta el correo— queda **registrada en §23.3l**,
+> fórmula que presuponga conocimiento previo («como ya sabías»). Alcance: §25.0 (precisión de R1), **§25.3
+> reescrita**, §25.4.2, §25.4.3, §25.4.7, §25.5b/c/d, §25.9, §25.10, §25.11, §25.12 (tres claves retiradas,
+> una nueva) y §25.13. **Sigue sin tokens nuevos, sin componentes nuevos y con paridad ES/EN.** La objeción
+> de UX —el vendedor cerca del mínimo se entera del ~36% hasta el correo— queda **registrada en §25.3l**,
 > con su mitigación de producto: **medir**, y si duele, **mover el dial del mínimo**, no repintar la resta.
 >
-> **Corrección v2.3.2 (2026-09-01 — barrido de copy vivo tras D16/D31/D43; §23.14 nueva).**
+> **Corrección v3.0.2 (2026-09-01 — barrido de copy vivo tras D16/D31/D43; §25.14 nueva).**
 > El primer pase de frontend dejó tres textos **que seguían contando el trato viejo** en pantallas vivas, y
 > el barrido de esta versión encontró **cuatro más**. La cabeza de todo es la misma: **D16/D31 cambió quién
 > pone el envío y ningún texto anterior a esa decisión se revisó.** Lo que cambia: **(1)** la guía de
@@ -271,34 +436,34 @@
 > veces**— y de paso pierde la ambigüedad de llamarse «Guía de envío seguro» en la misma página donde
 > «guía» ya significa **la etiqueta que ponemos nosotros**; **(2)** el cotizador del **home** deja de
 > rotular su total con «Te pagamos» —un rótulo que **promete depósito** sobre una cifra que no lo es— y
-> **entra a §23.3g** como tercera superficie de cotizador; **(3)** `buylist.trustShipping`, que el frontend
+> **entra a §25.3g** como tercera superficie de cotizador; **(3)** `buylist.trustShipping`, que el frontend
 > dejó **como recorte**, se **retira**: lo que le quedaba ya estaba dicho **palabra por palabra** dos
-> párrafos arriba, y la mitad que faltaba **no puede vivir ahí** porque ese bloque es `muted` y §23.3c
+> párrafos arriba, y la mitad que faltaba **no puede vivir ahí** porque ese bloque es `muted` y §25.3c
 > prohíbe el `muted` para esta regla. Del barrido salen además **dos contradicciones de dinero con D2/D9**
 > (`estimateNote` y `trustValidity` seguían prometiendo que **el monto final se confirma al verificar**,
 > cuando la oferta es **vinculante y no se reprecia**) y **una de D16** (`buylist.created` invitaba a
 > **mandar el paquete** sin nuestra guía). **Cero tokens, cero componentes nuevos, cero cifras nuevas**: es
 > un pase **solo de copy y de dónde se pinta**, y **D43 sigue intacta** (ninguna cadena nueva lleva una
-> cifra de envío). Alcance: §7.13 reescrita, §23.3c-bis y §23.3g (fila nueva), §23.12 y **§23.14 nueva**.
+> cifra de envío). Alcance: §7.13 reescrita, §25.3c-bis y §25.3g (fila nueva), §25.12 y **§25.14 nueva**.
 >
-> **Corrección v2.3.3 (2026-09-01 — dictamen del arquitecto sobre `ARCHITECTURE §4.39(n)`).**
-> **Los correos del ciclo son CINCO, no cuatro, y «3c» deja de existir.** §23.4.4 trataba la **cancelación
+> **Corrección v3.0.3 (2026-09-01 — dictamen del arquitecto sobre `ARCHITECTURE §4.39(n)`).**
+> **Los correos del ciclo son CINCO, no cuatro, y «3c» deja de existir.** §25.4.4 trataba la **cancelación
 > de la oferta por nuestra parte** como tercera variante del correo 3; **es un correo propio** porque
 > **deja la solicitud `cotizada` y VIVA**, mientras 3a y 3b dejan terminales. **El texto ratificado no
-> cambia una letra**: cambia de número, pasa a **§23.4.4-bis** y —**lo que de verdad importaba**— sale del
+> cambia una letra**: cambia de número, pasa a **§25.4.4-bis** y —**lo que de verdad importaba**— sale del
 > prefijo que mentía: ~~`expiry.cancelledByUs.*`~~ ⇒ **`offerCancelled.*`**. *Un número mal puesto se nota;
 > un prefijo que miente se propaga, porque no se lee: se autocompleta* — y `expiry.*` empujaba cada edición
 > futura hacia «se te venció», que es **la frase prohibida** en ese correo. Se corrigen además todas las
-> referencias cruzadas al conteo viejo dentro de §23 (§23.0, §23.4.0, §23.4.7, §23.13.2/6/8, §23.14.7).
+> referencias cruzadas al conteo viejo dentro de §25 (§25.0, §25.4.0, §25.4.7, §25.13.2/6/8, §25.14.7).
 > **Segunda resolución, en dirección contraria: `buylist.adjust.*` NO se retira** — es **inalcanzable para
 > el ciclo nuevo pero necesaria para la cohorte heredada en vuelo**; su retiro va **con gate, no con
 > fecha**. De ahí sale una regla que este documento adopta: *el copy de un flujo que se apaga se retira
 > cuando **termina su última instancia viva**, no cuando el flujo deja de crearse.* **Cero cambios de
 > diseño visual, cero tokens, cero redacción nueva.**
 >
-> **Corrección v2.3.4 (2026-09-01 — falso positivo levantado por frontend al implementar §23.14).**
-> **Se recalibra la regla de QA 2 de §23.14.6**, que marcaba **`buylist.quote.shippingNote`** —la cadena
-> **normativa** de §23.3d, citada literal en el mock-up de §23.3c— porque buscaba `te pagamos` / `we pay
+> **Corrección v3.0.4 (2026-09-01 — falso positivo levantado por frontend al implementar §25.14).**
+> **Se recalibra la regla de QA 2 de §25.14.6**, que marcaba **`buylist.quote.shippingNote`** —la cadena
+> **normativa** de §25.3d, citada literal en el mock-up de §25.3c— porque buscaba `te pagamos` / `we pay
 > you` exigiendo **«cero coincidencias»** sobre `buylist.quote.*`. El patrón no era el problema: **la
 > forma de la regla sí**. El criterio real es más fino —*rótulo que promete depósito **sobre una suma***— y
 > `shippingNote` **no es un rótulo ni cuelga de una suma**: es prosa, y «lo que te pagamos» es **el
@@ -306,17 +471,17 @@
 > **(2a)** aserción positiva —el rótulo del total resuelve a `buylist.quote.money.cardsValue` y a ninguna
 > otra clave— **(2b)** `grep` acotado a **claves de rótulo de monto** y **(2c)** lista de **supervivientes
 > esperados**, que es el patrón que la regla 1 **ya usaba bien** con `grading.*`. Se añade la convención
-> a la cabecera de §23.14.6. **Cero cambios de copy, de diseño y de claves**: solo cambia cómo se verifica.
+> a la cabecera de §25.14.6. **Cero cambios de copy, de diseño y de claves**: solo cambia cómo se verifica.
 > *Motivo por el que se corrige algo cosmético: una regla que da falsos positivos se deja de correr, y esta
 > protege la distinción **rótulo vs. prosa / suma vs. tarifa unitaria** que costó dos rondas fijar.*
 >
-> **Corrección v2.3.5 (2026-09-01 — dos rótulos de M5 levantados por frontend; §23.8a nueva).**
-> **§23.8 tenía un hueco:** especificó **las cuatro colas** de M5 pero **nunca las PESTAÑAS DE ETAPA**, así
+> **Corrección v3.0.5 (2026-09-01 — dos rótulos de M5 levantados por frontend; §25.8a nueva).**
+> **§25.8 tenía un hueco:** especificó **las cuatro colas** de M5 pero **nunca las PESTAÑAS DE ETAPA**, así
 > que al crecer el enum el frontend tuvo que **inventar un rótulo** para que tres estados no desaparecieran
-> de la pantalla — y lo declaró como decisión suya. **§23.8a llena el hueco y le da a M5 el eje que le
+> de la pantalla — y lo declaró como decisión suya. **§25.8a llena el hueco y le da a M5 el eje que le
 > faltaba: el rótulo dice DE QUIÉN ES EL PENDIENTE** («Por + verbo» cuando es nuestro; de quién depende
 > cuando no lo es). Cambian **tres** rótulos y sus claves: **(1)** ~~«Por recibir»~~ ⇒ **«Por ofertar»**,
-> porque §23.1a ratificó que `cotizada` significa **«te debemos una respuesta»** y **ahí no hay nada que
+> porque §25.1a ratificó que `cotizada` significa **«te debemos una respuesta»** y **ahí no hay nada que
 > recibir** — el rótulo viejo induce a **esperar** en la única cola donde corre un plazo de 7 días hábiles
 > **en contra nuestra**; **(2)** ~~«Ciclo de oferta»~~ ⇒ **«Con el vendedor»** —**la estructura del
 > frontend se RATIFICA** (una pestaña y no tres, y `aceptada` jamás bajo un rótulo de «en camino»,
@@ -328,29 +493,29 @@
 > ahora «Por recibir»—: **un nombre que sobrevive al cambio de significado**. **Cero tokens, cero
 > componentes, cero cambios de dato.**
 >
-> **Corrección v2.3.6 (2026-09-01 — errata de conteo levantada por frontend; regla nueva en §23.12).**
-> §23.14.6-3bis decía **«los DIEZ valores de `SellRequestStatus`»**: son **ONCE**. El texto y la tabla de
-> §23.8a **siempre repartieron once** (1+3+2+1+4) — mentía **el número suelto**. **El origen es una
-> distinción real que no estaba nombrada:** §23.12 lista **diez** claves bajo `status.sellRequest.*` y
-> **ahí el diez es correcto**, porque `expirada` **se rotula por su motivo** (§23.1d) y no tiene clave en
+> **Corrección v3.0.6 (2026-09-01 — errata de conteo levantada por frontend; regla nueva en §25.12).**
+> §25.14.6-3bis decía **«los DIEZ valores de `SellRequestStatus`»**: son **ONCE**. El texto y la tabla de
+> §25.8a **siempre repartieron once** (1+3+2+1+4) — mentía **el número suelto**. **El origen es una
+> distinción real que no estaba nombrada:** §25.12 lista **diez** claves bajo `status.sellRequest.*` y
+> **ahí el diez es correcto**, porque `expirada` **se rotula por su motivo** (§25.1d) y no tiene clave en
 > ese espacio. **El diez viajó del sitio donde era cierto al sitio donde no lo es.** No era cosmético: el
 > número vivía **dentro de una regla de verificación**, así que un test escrito contra «diez» habría
 > dejado **un estado sin comprobar** — y esa regla existe justamente porque un estado sin pestaña **no
 > falla ni avisa, desaparece del back-office**. *Una regla de QA con el número mal deja pasar el caso que
-> vino a cazar.* Se corrige el dígito y, sobre todo, **se nombra la distinción donde nace** (§23.12:
+> vino a cazar.* Se corrige el dígito y, sobre todo, **se nombra la distinción donde nace** (§25.12:
 > «rótulos de estado ≠ estados», con las cuatro magnitudes — 11 estados · 10 claves · 3 de motivo · 4
 > terminales) y **se marca §2.4 como no-contable**, que es el otro sitio donde `expirada` ocupa tres filas.
 > **Regla adoptada:** *toda afirmación de cobertura se escribe contra el **enum del contrato**, nunca
 > contra el número de claves i18n ni de filas de una tabla de color; y si el número y la enumeración
 > discrepan, **manda la enumeración**.* **Cero cambios de copy, de claves y de diseño.**
 >
-> **Corrección v2.3.7 (2026-09-01 — el PORTAL DEL VENDEDOR existe; §23.5g y §23.5h nuevas).**
-> La pantalla a la que apunta el correo de oferta **era un 404** y ya no lo es. §23.5 cubría **la oferta
+> **Corrección v3.0.7 (2026-09-01 — el PORTAL DEL VENDEDOR existe; §25.5g y §25.5h nuevas).**
+> La pantalla a la que apunta el correo de oferta **era un 404** y ya no lo es. §25.5 cubría **la oferta
 > viva y los cierres**, pero **no** el rechazo confirmado, la oferta incompleta, el 404 neutro ni la puerta
 > de sesión: el frontend los construyó, **declaró** las claves que tuvo que nombrar y escribió el EN.
-> **Se ratifica el espacio `buylist.offer.*` completo** (inventariado por fin en §23.12) **con tres
+> **Se ratifica el espacio `buylist.offer.*` completo** (inventariado por fin en §25.12) **con tres
 > correcciones**: **(C1)** `offer.deadline` decía que la oferta *«se cancela sola»* y **«cancelar» es
-> desde v2.3.3 el verbo del correo 5** —lo que hacemos NOSOTROS—; una oferta que muere por silencio
+> desde v3.0.3 el verbo del correo 5** —lo que hacemos NOSOTROS—; una oferta que muere por silencio
 > **vence**. **(C2)** el diálogo de rechazar gana **el neto y la condición**: R2 no admite excepción y es
 > el último instante en que el vendedor puede saber qué suelta — con una lista de prohibiciones para que
 > informar no se convierta en presionar. **(C3)** el diálogo de aceptar **se reenmarca** (*«La condición es
@@ -361,60 +526,60 @@
 > seguro: **la puerta de sesión se resuelve por la SESIÓN, nunca por una consulta**, o es un oráculo— y la
 > **frase neutra de `rechazada`**, con el reparto `rejectedNow`/`noLongerActive` que solo usa la neutra
 > donde la ignorancia es real.
-> **§23.5h decide la prosa duplicada: se PERMITE como puente y NO es bloqueante**, porque omitirla sería
-> una **regresión de producto** (§23.5b: el portal es el único sitio donde la resta se relee) y duplicarla
+> **§25.5h decide la prosa duplicada: se PERMITE como puente y NO es bloqueante**, porque omitirla sería
+> una **regresión de producto** (§25.5b: el portal es el único sitio donde la resta se relee) y duplicarla
 > es una **deuda de mantenimiento** — con tres condiciones: **el correo es la fuente**, **verbatim
 > verificado** y **la clave se borra** cuando el servidor mande la prosa. Se afina además la verificación
 > del teaser del home: **«presente» no era el requisito, «visible» sí** (la nota está en el DOM pero
-> `hidden` a 390px). **Tres peticiones al arquitecto en §23.13.9**, y una es de dinero: **una oferta
+> `hidden` a 390px). **Tres peticiones al arquitecto en §25.13.9**, y una es de dinero: **una oferta
 > inmostrable puede consumirle el plazo al vendedor** y vencerle por un fallo nuestro.
 >
-> **Corrección v2.3.8 (2026-09-01 — dos decisiones de pantalla, y una rectificación mía).**
-> **(1) RECTIFICACIÓN: el defecto del teaser a 390px NO existía.** En v2.3.7 escribí como hecho que la nota
-> estaba «en el DOM pero `hidden`». **Es falso**: hay una nota visible en los dos anchos y **§23.14.2a
+> **Corrección v3.0.8 (2026-09-01 — dos decisiones de pantalla, y una rectificación mía).**
+> **(1) RECTIFICACIÓN: el defecto del teaser a 390px NO existía.** En v3.0.7 escribí como hecho que la nota
+> estaba «en el DOM pero `hidden`». **Es falso**: hay una nota visible en los dos anchos y **§25.14.2a
 > estaba cumplida desde el principio**. Lo que fallaba era **la medición** — el home monta el panel **dos
-> veces** (por diseño, §23.3g fila 0) **con el mismo identificador**, y la comprobación miraba la copia de
+> veces** (por diseño, §25.3g fila 0) **con el mismo identificador**, y la comprobación miraba la copia de
 > escritorio. La regla afinada se queda y **gana la mitad que faltaba**: si el diseño manda dos montajes,
 > **una comprobación que no desambigüe cuál mira no está midiendo la pantalla**. *Acepté un hallazgo sin
 > preguntar cómo se midió y lo escribí en la fuente de verdad; **un diagnóstico falso se propaga igual que
 > un nombre falso**. La corrección se deja visible, no se borra.*
-> **(2) DOS notas de envío a la vez ⇒ §23.3g-bis: EXACTAMENTE UNA visible por pantalla.** Autoricé las dos
+> **(2) DOS notas de envío a la vez ⇒ §25.3g-bis: EXACTAMENTE UNA visible por pantalla.** Autoricé las dos
 > instancias **por separado y nunca las miré juntas** — el error clásico de especificar por reglas y no por
 > pantallas. Se resuelve por construcción con el criterio que sale de por qué existe cada una: **gana la
 > más cercana a la decisión**, y la cabecera **solo se monta cuando el carrito no está visible**, que era
 > su única razón de ser. Dos párrafos idénticos de cuatro líneas no refuerzan: **son la firma de un error
 > de render**.
-> **(3) EL TOTAL QUE NO EXPLICA SU PROPIA ARITMÉTICA — §23.3h reescrita + §23.3f-bis nueva.** Con líneas en
+> **(3) EL TOTAL QUE NO EXPLICA SU PROPIA ARITMÉTICA — §25.3h reescrita + §25.3f-bis nueva.** Con líneas en
 > `precio_pendiente`, el bloque decía *«TE FALTAN MX$500… Agrega otra carta»* frente a **un carrito de 999
 > cartas**. Un **test E2E** vio el total en cero y **concluyó que el cotizador no sumaba**: *si alguien que
 > conoce el sistema se confunde, el vendedor se confunde seguro — y él no abre un issue, cierra la
 > pestaña.* Es **R7 aplicada al total**: *un cero que significa «todavía no lo he calculado» no es un
-> cero*. §23.3h lo tenía bien **por línea** y le faltaba **el agregado**. Ahora: la explicación se pinta
+> cero*. §25.3h lo tenía bien **por línea** y le faltaba **el agregado**. Ahora: la explicación se pinta
 > **una vez** en el bloque de dinero con `{count}` (y **se retira** la línea repetida por ítem, que con
 > cientos de líneas era ruido), dice **qué pasa con esas cartas** para que el vendedor **no las borre**, y
 > **el consejo cambia**: `addPricedCard` en vez de `addAnother`, porque «agrega otra carta» ahí es **una
 > cinta de correr** — mil cartas más del mismo set siguen sumando cero. **Cero tokens, cero componentes;
 > una clave nueva y una que cambia de contenido y de sitio.**
 >
-> **Corrección v2.3.9 (2026-09-01 — se fija el EN que §23 nunca dio, y se ratifican dos aciertos del pase).**
+> **Corrección v3.0.9 (2026-09-01 — se fija el EN que §25 nunca dio, y se ratifican dos aciertos del pase).**
 > **`SIN PRECIO` no tenía par en inglés** —a diferencia de `SIN ENVÍO`/`NOT SHIPPED`—, así que el
 > implementador tuvo que elegirlo. Queda **`Sin precio` / `No price yet`**: en inglés *«No price»* puede
-> leerse como **«no vale nada»**, que es **exactamente** la conclusión que §23.3h existe para impedir, y es
+> leerse como **«no vale nada»**, que es **exactamente** la conclusión que §25.3h existe para impedir, y es
 > una etiqueta **pegada a dinero**. En español no hace falta el «aún» porque *«sin precio»* ya se lee como
 > *«todavía sin asignar»* —lo que significa «no vale nada» es *«sin valor»*—: **es traducción de
 > significado, no de palabras**, y a EN le cuesta un término más llegar al mismo sitio. **EN queda 2
 > caracteres más largo ⇒ la celda se dimensiona por EN** (§9.4). **Se ratifican** además: **(a)** que la
-> decisión de §23.3g-bis viva en **una sola capa** —la vista decide, el carrito obedece— y que el
+> decisión de §25.3g-bis viva en **una sola capa** —la vista decide, el carrito obedece— y que el
 > acoplamiento esté **documentado en el prop**, porque *un componente que decide solo si pinta una regla de
 > dinero no puede saber si otro ya la está pintando: o la duplica o la omite*; y **(b)** el retiro de
 > **`buylist.totalPendingNote`**, que decía que esas cartas se cotizan *«cuando las recibimos»* cuando bajo
 > el ciclo se cotizan **al ofertar, antes de que el vendedor mande nada** — **cuarta aparición del mismo
-> patrón** y la primera que caza el implementador, no yo. Entra al registro de §23.14 como la fila 11.
+> patrón** y la primera que caza el implementador, no yo. Entra al registro de §25.14 como la fila 11.
 >
-> **Corrección v2.3.10 (2026-09-01 — la MESA DE DECISIÓN existe; §23.6 ratificada con una corrección).**
-> **(1) Namespace: manda el catálogo.** §23.12 decía `admin.buylist.desk.*`; M5 vive en **`admin.m5.*`** y
+> **Corrección v3.0.10 (2026-09-01 — la MESA DE DECISIÓN existe; §25.6 ratificada con una corrección).**
+> **(1) Namespace: manda el catálogo.** §25.12 decía `admin.buylist.desk.*`; M5 vive en **`admin.m5.*`** y
 > todo el admin está indexado por módulo. Mi ruta habría creado el único namespace fuera de convención,
-> **a cambio de nada**: se corrige el documento, no el código. *§23.12 especifica **qué claves existen y
+> **a cambio de nada**: se corrige el documento, no el código. *§25.12 especifica **qué claves existen y
 > qué dicen**, no dónde vive el árbol — ese archivo es de frontend, y ante un choque **gana la
 > convención**.*
 > **(2) Copy de las ~64 claves RATIFICADO, con UN fallo: `confirm.deadlineNote` incumple R4.** Lleva
@@ -422,11 +587,11 @@
 > desincroniza en silencio la primera vez que alguien mueve el dial»* (criterio 154), **prometida al
 > operador en el diálogo donde emite dinero**. Dos salidas: interpolar el dial, o —**sin tocar el
 > contrato**— quitar el número y decir lo único que ahí importa: **que el plazo se congela al emitir**.
-> **(3) §23.6d reescrito, y una parte era una contradicción MÍA.** La **densidad compacta queda DIFERIDA**
+> **(3) §25.6d reescrito, y una parte era una contradicción MÍA.** La **densidad compacta queda DIFERIDA**
 > (mi propio texto ya la daba por *opcional*, y además cambia una protección de R6 —la etiqueta por celda—
 > por menos scroll: mal negocio). Y **se retira la frase «en `< md` la fila colapsa a card (§7.7)»**:
-> §23.6e dice que la línea **no es una fila de tabla sino una banda**, así que arrastré una regla del
-> `DataTable` sin comprobar que aplicara. El requisito móvil real ya estaba bien en §23.13.8(n).
+> §25.6e dice que la línea **no es una fila de tabla sino una banda**, así que arrastré una regla del
+> `DataTable` sin comprobar que aplicara. El requisito móvil real ya estaba bien en §25.13.8(n).
 > **(4) Se elevan a norma dos defensas que el implementador escribió mejor de lo que yo las tenía:** los
 > **cuatro mecanismos** que hacen R6 irrompible —regla vertical, encabezados de grupo reales, gradiente por
 > **peso** y **la ausencia** de todo lugar donde la suma pueda aparecer, con test **por lo negativo**— y la
@@ -481,6 +646,34 @@ sostiene esa dualidad con cinco principios:
 Tono de voz del copy: **claro, directo, tranquilizador**. Explica el "por qué" cuando toca dinero
 ("Este cargo cubre el procesamiento del pago"). Sin jerga innecesaria; los términos fiscales (IVA, CFDI)
 se nombran correctamente.
+
+**Léxico de marca — la metáfora de caza (TCG HUNT).** La marca es **TCG HUNT** (§17) y su metáfora de
+caza es **voz legítima del copy**: *cazar, cacería, bounty, presa*. Copy vivo hoy: «Caza la carta.
+Nosotros la guardamos.» (`home.heroTitle`), «Sets en cacería» (`home.setsWanted`), «Top Bounties» y el
+badge `BOUNTY`.
+- **Dónde sí:** **titulares, rótulos y CTA de marketing** (home, landing del cotizador/buylist), donde
+  crea memoria de marca. **Dónde no:** microcopy funcional, **estados de error**, flujos de
+  **dinero/checkout**, copy legal, mensajes de accesibilidad y **el nombre de la cosa** — el término de
+  categoría que el usuario teclea y el buscador indexa: nav, filtros y **texto de enlace** («Comprar»,
+  «Bóveda», «Pagar», «Cartas gradeadas», «Producto sellado»). Ahí manda la **claridad literal**.
+- **Nombre ≠ rótulo (el caso «Sets en cacería»):** lo que la claridad y el SEO protegen es el **nombre
+  de cada elemento**, no el **rótulo que encabeza la lista**. El rótulo `home.setsWanted` lleva voz de
+  marca sin costo porque **el nombre real de cada set va debajo**: el rótulo es un `eyebrow` (no un
+  enlace ni un encabezado), y lo que se indexa y se clica es el nombre del set. La agrupación se puede
+  evocar; sus elementos, no. *(Sustituyó a «Sets buscados», que además **afirmaba algo falso**: sugería
+  que la plataforma quiere comprar esos sets, cuando son sets **con inventario a la venta** — ver el
+  principio 1 abajo.)*
+- **El caso que enseña el límite — el CTA primario del hero se resolvió LITERAL a propósito:**
+  `home.ctaShop` es **«Explorar el catálogo» / «Explore the catalog»**, no un «Empezar la cacería»
+  (ejemplo ilustrativo del registro; **nunca fue copy vivo** — se propuso y se descartó). En el botón
+  que convierte, el usuario necesita saber **a dónde va**; la metáfora nombra el deseo pero no el
+  destino. Regla derivada: el titular puede evocar, el **CTA nombra la acción real**.
+- **Límite de registro:** la caza es **sobria y adulta** (principio 3: coleccionismo serio, no
+  infantil), nunca *cute* ni de dibujos animados. Siguen prohibidos emojis, tipografía de juguete y
+  degradados arcoíris. **La honestidad manda sobre el ingenio:** ninguna metáfora puede afirmar algo
+  que el producto no hace (principio 1, confianza visible).
+- **Paridad ES/EN (§9):** debe funcionar en los dos idiomas (hunt / cacería); si la traducción literal
+  suena forzada se **reescribe** con un giro natural, conservando significado y registro.
 
 ---
 
@@ -603,20 +796,20 @@ a `{token de color, clave i18n}`. Nunca se traduce el enum a color en el backend
 | Shipment | `enviado` | primary | En tránsito |
 | Shipment | `entregado` | success | Entregado |
 | Shipment | `cancelado` | neutral | Cancelado |
-| SellRequest | `cotizada` | neutral | Cotizada — **esperando NUESTRA oferta** (v2.3, §23.1) |
-| SellRequest | **`ofertada`** | **accent** | **Oferta vinculante enviada; el reloj es del vendedor** (v2.3) |
-| SellRequest | **`aceptada`** | **accent** | **Dijo que sí; todavía no viaja nada** (v2.3) |
-| SellRequest | **`en_transito`** | **primary** | **Un paquete viaja de verdad** (v2.3) |
+| SellRequest | `cotizada` | neutral | Cotizada — **esperando NUESTRA oferta** (v3.0, §25.1) |
+| SellRequest | **`ofertada`** | **accent** | **Oferta vinculante enviada; el reloj es del vendedor** (v3.0) |
+| SellRequest | **`aceptada`** | **accent** | **Dijo que sí; todavía no viaja nada** (v3.0) |
+| SellRequest | **`en_transito`** | **primary** | **Un paquete viaja de verdad** (v3.0) |
 | SellRequest | `recibida` | info | Recibida física |
 | SellRequest | `verificacion` | accent | En verificación |
 | SellRequest | `aprobada` | success (outline) | Aprobada, por pagar |
 | SellRequest | `pagada` | success | Pagada (SPEI) |
 | SellRequest | `rechazada` | danger | Rechazada |
-| SellRequest | **`expirada` + `not_shipped`** | **danger** | **Aceptó y el paquete no salió** (v2.3 — se pinta el MOTIVO) |
-| SellRequest | **`expirada` + `no_offer`** | **neutral** | **No procedimos con la oferta** (v2.3 — se pinta el MOTIVO) |
-| SellRequest | **`expirada` + `null`** | **neutral** | **Fallback legacy: nunca acusa** (v2.3, §23.1) |
+| SellRequest | **`expirada` + `not_shipped`** | **danger** | **Aceptó y el paquete no salió** (v3.0 — se pinta el MOTIVO) |
+| SellRequest | **`expirada` + `no_offer`** | **neutral** | **No procedimos con la oferta** (v3.0 — se pinta el MOTIVO) |
+| SellRequest | **`expirada` + `null`** | **neutral** | **Fallback legacy: nunca acusa** (v3.0, §25.1) |
 | SellRequest | `abandonada` | neutral | Abandonada → inventario |
-| SellOffer (admin) | **`pending_authorization`** | **accent (outline)** | **Preparada, esperando al súper-admin — JAMÁS en superficie de cliente** (v2.3) |
+| SellOffer (admin) | **`pending_authorization`** | **accent (outline)** | **Preparada, esperando al súper-admin — JAMÁS en superficie de cliente** (v3.0) |
 | Precio | `pending` (precio pendiente) | warning (outline) | Sin precio; escalado al dueño |
 | Dispute | `abierta` | warning | Abierta |
 | Dispute | `en_revision` | accent | En revisión |
@@ -636,21 +829,21 @@ editorial 5a los badges son texto, no pastillas con icono. Esto es un **cambio d
 aprobado**, no un descuido; la accesibilidad se preserva por **texto en versalitas + `aria-label` + foco
 visible + contraste AA** (§10). El icono queda **opcional/decorativo** (`aria-hidden`).
 
-> **⚠ Excepción de mapeo introducida en v2.3 (§23.1): `expirada` NO tiene un color propio, tiene DOS.**
+> **⚠ Excepción de mapeo introducida en v3.0 (§25.1): `expirada` NO tiene un color propio, tiene DOS.**
 > Es el único valor de enum del sistema cuyo **color y cuya versalita se eligen por un segundo campo**
 > (`expiredReason`), porque sus dos causas significan **cosas opuestas para el vendedor**: una dice que él
 > incumplió y la otra dice que **nosotros** no respondimos. Pintar las dos igual —o peor, pintar las dos
 > con el rojo de `rechazada`— **acusaría de incumplimiento a alguien a quien nunca le ofertamos**. La
 > regla derivada, que vale para toda superficie (cola de M5, ficha, portal del vendedor y reportes):
 > **se pinta el motivo, no el estado**, y cuando el motivo falta se cae al **fallback neutro**, nunca al
-> acusatorio. Ver §23.1.
+> acusatorio. Ver §25.1.
 >
-> **⚠ Consecuencia de conteo (v2.3.6) — esta tabla NO sirve para contar estados.** Por la excepción de
+> **⚠ Consecuencia de conteo (v3.0.6) — esta tabla NO sirve para contar estados.** Por la excepción de
 > arriba, `expirada` ocupa **tres filas** aquí y **cero claves** en `status.sellRequest.*`: las filas de
 > `SellRequest` en esta tabla **no son** los valores del enum. **Cualquier afirmación de cobertura**
 > —particiones, mapas totales, `switch` exhaustivos, reglas de QA— **se escribe contra el enum del
 > contrato, nunca contra el número de filas de esta tabla ni contra el número de claves i18n.** El desfase
-> ya causó una errata real; la regla y sus cuatro magnitudes están en **§23.12 («rótulos de estado ≠
+> ya causó una errata real; la regla y sus cuatro magnitudes están en **§25.12 («rótulos de estado ≠
 > estados»)**.
 
 ---
@@ -1123,10 +1316,10 @@ un módulo— todo el card es clickable (foco visible).
 - Estados de paso: **completado** (success, check), **actual** (primary, resaltado + anillo), **pendiente**
   (neutral, atenuado), **error/rechazo** (danger, X). Conector coloreado hasta el paso actual.
 - Mapas:
-  - Buylist: ~~`cotizada → recibida → verificación → aprobada → pagada`~~ **⚠ SUPERSEDED por §23.2 (v2.3):
+  - Buylist: ~~`cotizada → recibida → verificación → aprobada → pagada`~~ **⚠ SUPERSEDED por §25.2 (v3.0):
     son OCHO pasos** — `cotizada → ofertada → aceptada → en_transito → recibida → verificación → aprobada
     → pagada`. Las terminales (`rechazada`, `expirada` **con su motivo**, `abandonada`) **no son pasos**:
-    son un **cierre** que trunca la cadena (§23.2). La **fase 8 «publicar» tampoco es un paso** — es vida
+    son un **cierre** que trunca la cadena (§25.2). La **fase 8 «publicar» tampoco es un paso** — es vida
     de la pieza en inventario, no de la solicitud.
   - Envío: `solicitado → picking → guía → enviado → entregado`.
   - Orden (para el comprador): `pending → settled` (con posible rama `refunded/chargeback`).
@@ -1179,35 +1372,35 @@ Lista de líneas alineadas (label izquierda, monto derecha `tabular-nums`):
 Cada línea que el usuario pueda cuestionar tiene un `?`/tooltip. El total nunca aparece sin su desglose.
 Los importes vienen en centavos del contrato; el formato es §9.3.
 
-### 7.13 Guía de EMPAQUE (`SafeShippingGuide`) — buylist · **reescrita v2.3.2 (D16/D31)**
+### 7.13 Guía de EMPAQUE (`SafeShippingGuide`) — buylist · **reescrita v3.0.2 (D16/D31)**
 
 > **⚠ El componente cambia de tema, no solo de texto.** Nació cuando **el vendedor compraba su propio
 > envío**; bajo **D16/D31 la guía (la etiqueta) la ponemos nosotros, siempre**. Un componente que sigue
 > enseñando a **comprar y asegurar** una etiqueta le cuesta dinero real al vendedor. Lo que queda de él es
-> lo único que sigue siendo suyo: **cómo empaca**. El copy normativo está en **§23.14.1**.
+> lo único que sigue siendo suyo: **cómo empaca**. El copy normativo está en **§25.14.1**.
 
 - **Qué es:** cuatro pasos de **empaque** (funda → top loader → sobre/caja rígida → **la etiqueta que le
   mandamos**), visible **antes** de crear la solicitud (PROJECT/AC 34). Menciona explícitamente **sleeve**
   y **top loader**, y **su `intro` lleva la política NM-only** — así **AC 34 se cumple en toda instancia
   del componente**, incluido el **modal**, que hoy no tiene el bloque NM-only al lado.
 - **⚠ Se retira la palabra «guía» del título y del enlace.** En la misma página conviven dos «guías»: el
-  **manual** y **la etiqueta que ponemos nosotros** (§23.3d). El título pasa a **«Cómo empacar tus
+  **manual** y **la etiqueta que ponemos nosotros** (§25.3d). El título pasa a **«Cómo empacar tus
   cartas» / "How to pack your cards"** (claves `safeShipping.title` y `buylist.shippingGuideLink`, que
   **tienen que decir lo mismo**: el enlace, el título del modal y el `h2` de la sección inline salen de
   ahí). *No es cosmético: «Guía de envío seguro» junto a «Nosotros ponemos la guía de envío» se lee como
   «la etiqueta segura», que es exactamente el malentendido que D16 puede producir.*
 - **El paso 4 es una regla de dinero, no un consejo.** Dice **quién pone la etiqueta**, **que su costo se
   descuenta** y **qué NO debe hacer el vendedor** (comprar, asegurar, mandar antes de tenerla). Los tres
-  van juntos: ver la regla de §23.14.3 —**una cadena que viaja sola no puede decir «ponemos la guía» sin
+  van juntos: ver la regla de §25.14.3 —**una cadena que viaja sola no puede decir «ponemos la guía» sin
   «y se descuenta»**—, y este componente **viaja solo** (modal sin contexto de dinero, y §P lo repite en
   el correo de aceptación y en el de la etiqueta).
 - **Sin cifras.** D43 alcanza a este componente: **ningún paso lleva monto, rango ni porcentaje de envío**.
 - **Formato (sin cambios):** retícula editorial `01–04` — regla superior, numeral mono en `accent`, título
   `text-sm` medium en tinta, cuerpo `text-[13px]` muted. **Sin cajas, sin iconos, sin rellenos.** `columns`
   = 2 (modal, con CTA «Ya lo entendí») · 4 (sección inline al pie de `/buylist`).
-- **El alto de fila NO se fija y el paso 4 no se trunca.** Es el cuerpo más largo de los cuatro (§23.14.1)
+- **El alto de fila NO se fija y el paso 4 no se trunca.** Es el cuerpo más largo de los cuatro (§25.14.1)
   y en `lg:grid-cols-4` ocupa ~2 líneas más que sus vecinos. **Prohibidos `line-clamp`, «ver más» y altura
-  fija**; si en algún ancho no cupiera, se corrige el contenedor, nunca el texto (misma doctrina §23.12).
+  fija**; si en algún ancho no cupiera, se corrige el contenedor, nunca el texto (misma doctrina §25.12).
 - Semántica: `<ol>` con un `<li>` por paso (ya lo es); el numeral es `aria-hidden` (decorativo, el orden lo
   da la lista). Si algún día lleva ilustraciones, con `alt` descriptivo.
 
@@ -1473,6 +1666,24 @@ no del set entero).
   `aria-live="polite"` (o `assertive` para errores de pago).
 - **Movimiento reducido:** `prefers-reduced-motion` desactiva animaciones/transiciones no esenciales
   (implementado en `globals.css`).
+- **Movimiento reducido — el alcance real de la regla global (precisión v2.6).** La regla de `globals.css`
+  **solo anula duraciones y retardos de CSS**. Por construcción **no cubre** tres cosas, y las tres existen
+  en este sistema: (a) el **scroll suave por JS** (`scrollTo/scrollBy({behavior:'smooth'})`, que no es una
+  transición CSS), (b) los **temporizadores** (`setInterval`/`setTimeout` que desplazan algo solos) y
+  (c) las animaciones por `requestAnimationFrame`. Por lo tanto:
+  > **Regla: con `prefers-reduced-motion: reduce` la regla es NO MOVERSE EN ABSOLUTO, nunca «moverse más
+  > lento».** Todo movimiento originado en JS se apaga en la **lógica del componente**, no en la hoja de
+  > estilo: los temporizadores **no arrancan**, y el scroll iniciado por el usuario (flechas, «ir a») pasa a
+  > `behavior: 'auto'` (salto instantáneo, que es movimiento **cero** y no una animación corta).
+  - La preferencia se **escucha en vivo** (`matchMedia(...).addEventListener('change')`), no se lee una sola
+    vez al montar: activarla en el sistema operativo debe detener el movimiento **en ese momento**, sin
+    recargar.
+  - Un control cuyo único trabajo es **detener** un movimiento que ya no ocurre **no se renderiza**: un
+    botón «Pausar» sobre contenido quieto es una afirmación falsa, y deshabilitado sería ruido. *(v2.7: la
+    única superficie que tenía uno —el carrusel de destacadas— ya **no tiene ningún control de
+    reproducción**, §23.4. La regla no se retira: gobierna cualquier control futuro de este tipo, y hoy se
+    cumple en su forma más fuerte —no hay control que pueda quedar muerto. Lo que **no** desaparece con él
+    son los **frenos**: el movimiento automático sigue teniendo cinco, §23.5.)*
 
 ### 8.3 Feedback de acciones de dinero
 - Las acciones de dinero (pagar, cobrar envío, reembolsar, pagar SPEI) usan botón `loading` con label
@@ -1685,12 +1896,12 @@ Recomendado documentarlos con ejemplos (Storybook opcional; lo decide frontend/d
 | Checkout | `POST /checkout/quote`,`/session` | AmountBreakdown (subtotal+fee+IVA), Stripe, Banner CFDI |
 | Mi bóveda / portafolio | `GET /vault/holdings`, `/vault/portfolio/history` | CardTile compacto, badge titularidad, **PortfolioTrendChart** (§7.17), StatCard "valor portafolio" (+sparkline opcional), PriceTag pending |
 | Retiro / envío | `POST /shipments/quote`,`/shipments` | Selección items settled, AmountBreakdown (envío+IVA), Address MX, PipelineStepper |
-| Buylist cotizador | `POST /buylist/quote` · `GET /buylist/quote-policy` | BuylistQuoter, Banner PAY_AFTER_RECEIPT, SafeShippingGuide, PriceTag, **nota de servicio del envío — sin cifras (§23.3, v2.3.1/D43)** + faltante del mínimo |
-| Buylist solicitud | `POST /buylist/requests` | KYC/CLABE inputs, **IneUploader** (único uploader, §7.10), topes (Banner límite), **selector de dirección de origen (§23.3j)** |
-| **Buylist — responder la oferta** (v2.3) | `GET /buylist/requests/:id`, `POST …/offer-response` | **PipelineStepper de 8 pasos (§23.2)**, bloque de condición NM, AmountBreakdown de 3 montos, plazo, Aceptar `primary` / Rechazar `secondary` (§23.5) |
-| **M5 — mesa de decisión** (v2.3) | `GET /admin/buylist/:id/decision-table`, `POST …/offer` | **Tira de posición de 4 sumandos + titular `POSICIÓN n/m` (§23.6)**, sugerencia en prosa, override + motivo, **barra sticky de totales**, `SIN CONTEO` (§23.7) |
-| **M5 — colas del ciclo** (v2.3) | `/admin/buylist/queues/*` | DataTable ×4: por autorizar (con «muere el»), por confirmar envío (con `ALERTA`), guías por cancelar, vendedores vivos (con teléfono) — §23.8 |
-| **M5 — pestañas de etapa** (v2.3.5) | `GET /admin/buylist` (+ `…/rejected-items`) | Seis pestañas, **partición TOTAL de `SellRequestStatus`**: Por ofertar · Con el vendedor · Verificando · Por pagar · Cerradas · Piezas rechazadas — **§23.8a** |
+| Buylist cotizador | `POST /buylist/quote` · `GET /buylist/quote-policy` | BuylistQuoter, Banner PAY_AFTER_RECEIPT, SafeShippingGuide, PriceTag, **nota de servicio del envío — sin cifras (§25.3, v3.0.1/D43)** + faltante del mínimo |
+| Buylist solicitud | `POST /buylist/requests` | KYC/CLABE inputs, **IneUploader** (único uploader, §7.10), topes (Banner límite), **selector de dirección de origen (§25.3j)** |
+| **Buylist — responder la oferta** (v3.0) | `GET /buylist/requests/:id`, `POST …/offer-response` | **PipelineStepper de 8 pasos (§25.2)**, bloque de condición NM, AmountBreakdown de 3 montos, plazo, Aceptar `primary` / Rechazar `secondary` (§25.5) |
+| **M5 — mesa de decisión** (v3.0) | `GET /admin/buylist/:id/decision-table`, `POST …/offer` | **Tira de posición de 4 sumandos + titular `POSICIÓN n/m` (§25.6)**, sugerencia en prosa, override + motivo, **barra sticky de totales**, `SIN CONTEO` (§25.7) |
+| **M5 — colas del ciclo** (v3.0) | `/admin/buylist/queues/*` | DataTable ×4: por autorizar (con «muere el»), por confirmar envío (con `ALERTA`), guías por cancelar, vendedores vivos (con teléfono) — §25.8 |
+| **M5 — pestañas de etapa** (v3.0.5) | `GET /admin/buylist` (+ `…/rejected-items`) | Seis pestañas, **partición TOTAL de `SellRequestStatus`**: Por ofertar · Con el vendedor · Verificando · Por pagar · Cerradas · Piezas rechazadas — **§25.8a** |
 | Disputa | `POST /disputes` | Textarea descripción, **DisputeEvidenceContact** (correo `soporte@tcgvault.mx`, §7.11), PipelineStepper — **sin uploader** |
 | Admin dashboard | `GET /admin/dashboard` | 8× StatCard (enmascarado por rol), cola de trabajo accionable |
 | M1 Inventario | `/admin/inventory/*` | Alta **sin foto** (imagen de catálogo remota); para gradeada captura **`certNumber`**; folio, ubicación CAJA/FILA/SLOT, DataTable |
@@ -3320,6 +3531,50 @@ tinta del sello.
 - El logo **no sustituye texto accesible**: donde el lockup sea el único contenido de un enlace, el
   `aria-label` porta "TCG HUNT" (+ destino). Las versiones decorativas (badge, guiños) van `aria-hidden`.
 
+#### 17.3a Movimiento — las dos categorías (matiz v2.6, obligatorio leer antes de animar nada)
+
+Hasta la v2.5 este documento decía, en la práctica, **«en este sistema el movimiento se lee como carga»**
+(aquí arriba: «no animar la mira como spinner»; §18.4: «feedback al agregar: SIN animación — una mira/pulso
+animado se confunde con carga, §17.3»). Esa doctrina **sigue en pie**, pero estaba enunciada de más: prohíbe
+por igual dos cosas que no son la misma. Se precisa, y la precisión es normativa.
+
+| | **Movimiento-de-estado** (prohibido, sin excepciones) | **Movimiento-de-presentación** (permitido solo donde este documento lo autorice) |
+|---|---|---|
+| Qué comunica | «El sistema está trabajando / algo pasó» | «Aquí hay más contenido del que cabe» |
+| Forma | En el sitio, sin desplazamiento: pulso, giro, brillo, latido, shimmer | **Traslación** de un contenedor a una posición de reposo |
+| Final | **No tiene.** Es indefinido por definición: un spinner nunca resuelve | **Tiene.** Cada tramo termina en una composición quieta y legible |
+| Ciclo de trabajo | Continuo (100 % del tiempo en marcha) | **Casi todo el tiempo quieto** (§23.3: ≈ 10 % en marcha desde v2.7; era ≈ 7 % con la cadencia de 7 s) |
+| Dónde vive | **Dentro** del elemento que carga o que responde (skeleton con la forma de la teja, spinner dentro del botón) | **Sobre el contenedor** ya resuelto; nunca dentro de un elemento que carga |
+| Ejemplos | Mira animada como spinner, pulso al agregar al carrito, latido en un precio | La rotación del carrusel de destacadas (§23) |
+
+**Las cuatro condiciones que hacen legítimo un movimiento-de-presentación.** Solo si se cumplen **las
+cuatro**; si falla una, vuelve a ser movimiento prohibido:
+
+1. **No coexiste jamás con un estado de carga.** No arranca hasta que el contenido está resuelto y las
+   imágenes visibles han cargado (§23.3). Esto elimina de raíz la lectura «la página sigue trabajando»:
+   no puede confundirse con carga algo que, por construcción, **nunca ocurre mientras hay carga**.
+2. **Traslada, no palpita.** Desplazamiento lateral con destino y llegada. Prohibidos el fundido, el
+   `cross-fade`, el zoom, el `scale` y cualquier cosa que no sea mover la ventana.
+3. **Reposo dominante.** El elemento está quieto la inmensa mayoría del tiempo y cada reposo es una
+   composición completa y legible (nada cortado por el borde izquierdo).
+4. **Tiene frenos, y son efectivos sin que el usuario tenga que descubrir nada** (§23.5), y **no existe**
+   con `prefers-reduced-motion` (§8.2, §23.7).
+
+> **Precisión v2.7 — la condición 4 dice «frenos», no «botón».** Hasta la v2.6 esta condición decía «es
+> interrumpible **y el control está a la vista**», porque la única superficie autorizada llevaba un
+> conmutador. El dueño lo retiró (§23.4), así que la condición se enuncia por lo que de verdad la sostiene:
+> **un movimiento-de-presentación no puede existir sin frenos** —se detiene al hover, al foco, ante
+> cualquier intervención del usuario, fuera de pantalla y con movimiento reducido—, y **puede** existir sin
+> un control explícito. Lo que sigue prohibido, sin matices, es **el movimiento sin ningún freno**. Y la
+> otra mitad de la regla sigue **literal**: *ningún control se pinta si no puede funcionar* (§8.2). Si una
+> superficie futura reintroduce un control explícito, vuelve a aplicarle todo §23.4 tal como estaba: a la
+> vista, nunca tras hover, nunca deshabilitado.
+
+**Lo que NO cambia:** §18.4 sigue exactamente igual — el **feedback de una acción** (agregar al carrito,
+guardar, cobrar) **no se anima nunca**. Ahí la pregunta del usuario es «¿funcionó?», y la ambigüedad se paga
+con dinero; el canal sigue siendo el contador, el renglón `role="status"` y el estado del botón. Tampoco
+cambia la prohibición de animar la mira. La marca no se mueve; el contenido, donde §23 lo autoriza, sí.
+
 ### 17.4 Copy de transición — cómo se nombra el sitio
 
 - **Nombre de marca:** **"TCG HUNT"** — siempre en mayúsculas, con espacio, sin guion. Nunca "TcgHunt",
@@ -4036,8 +4291,22 @@ en lugar de cifra (§16.4). El panel **nunca** muestra montos si no hay precios 
 
 ### 20.3 Carrusel «Piezas destacadas»
 
-Encabezado de sección: fila `justify-between` — **H2 serif 29px** («Piezas destacadas del catálogo»)
-⟷ link muted «Ver todo el catálogo» + **flechas cuadradas**.
+Encabezado de sección: fila `justify-between` — **H2 serif 29px** («Piezas destacadas del catálogo») ⟷
+link muted «Ver todo el catálogo» + **flechas cuadradas**. **Tres elementos, ni uno más.**
+
+> ⚠️ **Desde 2026-08-31 (v2.6, P-49) esta pista ROTA SOLA.** La cadencia, los frenos, la máquina de
+> estados, el final de pista, `prefers-reduced-motion` y el anuncio a lectores de pantalla están en **§23**,
+> no aquí. Lo que §20.3 define abajo —flechas, pista, anatomía de las dos tejas, numeración— **no cambia ni
+> un píxel**: §23 es aditiva. La única costura con esta sección es el **reparto de responsabilidades del
+> movimiento**: **las flechas siguen moviendo una «página»** con su paso y su apagado en los extremos tal
+> cual; **la rotación mueve exactamente una teja** (§23.3).
+>
+> **Actualización v2.7 (2026-08-31): el encabezado vuelve a ser el de siempre.** La v2.6 metía en esta fila
+> un cuarto elemento —el **conmutador de reproducción** pegado al H2, en el hueco del kicker—; el dueño lo
+> **retiró** (§23.4). Esta fila **recupera literalmente su terna original** (H2 ⟷ link ⟷ flechas), el hueco
+> estructural del kicker **queda libre** y la prohibición de §22.6b-e vuelve a aplicar **sin ninguna
+> excepción**: aquí no va kicker, ni subtítulo, ni control, ni nada. La rotación **sigue existiendo**; lo
+> que ya no existe es un control visible para ella.
 
 - **Flechas:** botones cuadrados de **38px** (radio 0), `border: 1px solid`; **habilitada** = borde
   `--color-primary` (tinta) y glifo tinta; **deshabilitada/extremo** = borde `--color-border-strong`
@@ -4052,8 +4321,16 @@ Encabezado de sección: fila `justify-between` — **H2 serif 29px** («Piezas d
   **numeración mono roja de dos dígitos** (`01`, `02`… mono 10px `--color-accent`) + nombre serif
   16px; sublínea mono 11px muted; precio 17px sans 500 `tabular-nums`; distintivo de stock.
 - La numeración es **decorativa/orientadora** (`aria-hidden`); el orden real lo da el DOM.
+  - ⚠️ **Condicional desde 2026-08-31 (§22.6b-c):** si el carrusel muestra **alguna cifra del gancho de
+    grading**, la numeración **desaparece de toda la pista** (no teja a teja). Junto a un monto, un ordinal
+    se lee como *ranking de oportunidades* —lo que §O prohíbe— y sería un tercer elemento de acento en la
+    teja. Sin cifras en la pista, §20.3 se aplica **tal cual**, numeración incluida.
 - **Contenido:** solo piezas publicadas con precio (regla dura §7.1); la selección «destacadas» es
   curaduría o criterio de negocio, nunca placeholders.
+- **Gancho de grading (§22.6b):** las tejas de este carrusel pueden llevar la **burbuja del estimado**
+  («En PSA 10 vale ≈ MX$…») como **último bloque** de la teja, bajo una regla de 1px, con su **micro-aviso
+  visible** obligatorio. La anatomía por teja (grande y chica), la forma del copy en cada ancho y el
+  comportamiento de la pista cuando solo algunas tejas la llevan están **en §22.6b**, no aquí.
 
 ### 20.4 Sección «Producto sellado» — banda de pozo con tejas horizontales
 
@@ -4300,8 +4577,25 @@ Recordatorio §9: los labels uppercase con tracking ancho crecen ~25% en ES; los
    en cartas sueltas, el contrato tendría que exponer el conteo real de publicaciones equivalentes
    por variante (§20.6). Hoy el diseño es veraz sin él («Queda 1»/omitir).
 2. **Frontend:** el hero H1 50px y el aspect 4/5 de la pieza grande son valores del artboard
-   (arbitrary values, no tokens); el carrusel debe degradar a scroll-snap nativo; el estado del
-   cotizador de la home se comparte con `/buylist` (§18), no se duplica.
+   (arbitrary values, no tokens); el estado del cotizador de la home se comparte con `/buylist` (§18),
+   no se duplica.
+   - **Corrección v2.6 (P-49) — lo que decía esta nota sobre el carrusel ya no es cierto tal cual.**
+     Decía: *«el carrusel debe degradar a scroll-snap nativo sin JS»*. Con la rotación automática (§23) el
+     JS pasa a ser **obligatorio para rotar**. Lo que ahora es cierto, y sustituye a la frase anterior:
+     > **Sin JS (y antes de hidratar) el carrusel es una pista de scroll-snap nativa que NO rota**, con su
+     > desplazamiento táctil/de rueda intacto. Ese estado **no es un fallback degradado: es el estado
+     > inicial** del componente, del que la rotación solo sale hacia arriba, y solo tras hidratar. Lo que
+     > requiere JS es **rotar y las flechas** — y las dos cosas **no se pintan si no funcionan** (§23.8), así
+     > que no queda ningún control muerto ni ningún movimiento sin freno.
+     - *(v2.7: donde esta nota decía «y el conmutador de pausa», ya no hay conmutador — se retiró, §23.4.
+       Lo garantizado sin JS no cambia: **cero flechas, cero movimiento**.)*
+     - **Corrección v2.6.1 (2026-08-31), verificada en navegador:** la frase de arriba decía además que sin
+       JS se leían **«las ocho tejas completas»** y que **«el contenido nunca depende del JS»**. Las dos son
+       **falsas hoy**, y lo eran **antes de §23**: el contenido del estante lo resuelve **react-query en el
+       cliente**, así que sin JS la sección queda en **estado de carga**. Lo que sí se garantiza sin JS es
+       **cero flechas y cero movimiento**. Ver **§23.8a**; la condición para que la promesa
+       original fuera cierta (resolver la consulta en servidor) es **petición abierta al arquitecto**,
+       §23.15 nº2.
 3. **QA visual sugerido:** (a) home sin bounties → la sección §20.7 no existe en el DOM; (b) ningún
    distintivo «N en stock» en singles mientras el contrato no exponga conteos; (c) foco visible
    recorrible por toda la home incluida la banda oscura; (d) móvil 390: sin scroll horizontal
@@ -5096,9 +5390,12 @@ que truncar.
 > **§N → §O de `PROJECT.md`** (el disclaimer es hoy **§O.5**), con el contrato en **v1.50**.
 >
 > **Qué es:** el tratamiento visual del requisito **§O de `PROJECT.md`** — sobre una carta **raw**
-> publicada en Compra, mostrar **cuánto valdría si se gradeara PSA 10 / PSA 9**, en **tres superficies**:
-> **bloque de valores** junto al precio en la **ficha**, **badge** en la teja de Compra y **vitrina «Joyas
-> para gradear»** en el home.
+> publicada en Compra, mostrar **cuánto valdría si se gradeara PSA 10 / PSA 9**, en **cuatro superficies**:
+> **bloque de valores** junto al precio en la **ficha**, **badge** en la teja de Compra, **vitrina «Joyas
+> para gradear»** en el home y —desde la revisión del 2026-08-31— el **carrusel «Piezas destacadas del
+> catálogo»** del home (§22.6b). *(Donde el texto de §22 diga «las tres superficies» por arrastre, léase
+> «las cuatro»: el carrusel es **rejilla** a todos los efectos —ver la nota de vocabulario de §22.0— y no
+> relaja ninguna regla.)*
 >
 > **Revisión del humano (2026-08-23) — dos cambios que reescriben §22.3–§22.5:**
 > 1. **Fuera la aritmética.** *«No hay que mostrarlo así mejor. Solo pongamos cuánto vale en PSA 10… nos
@@ -5119,6 +5416,23 @@ que truncar.
 > **muestra suficiente de ventas**) y **coherente en magnitud**—. La **ficha no aplica la coherencia con la
 > misma dureza**: informa lo que hay. Solo la rejilla —superficie de **promoción**— exige confianza. Se
 > traduce en la regla dura **R6** (§22.0) y en un **estado nuevo** en §22.7.
+>
+> **Revisión del humano (2026-08-31) — cuarta superficie: el carrusel «Piezas destacadas del catálogo».**
+> La burbuja del gancho debe aparecer **también** en el carrusel del home, **conservando** la vitrina
+> «Joyas para gradear»: las dos superficies **conviven**. No hay artboard nuevo; se resuelve en **§22.6b**
+> con las piezas ya ratificadas. Lo que obliga a diseñar (y no a copiar) es que `FeaturedCarousel` tiene
+> **teja propia**, no `CatalogTile`: dos anatomías distintas, sin CTA, sin `mt-auto`, y con la numeración
+> mono roja de §20.3 encima. Las tres decisiones que salen de ahí —**dónde** entra la burbuja en cada
+> teja, **cómo** cabe el micro-aviso en la chica y **qué pasa con la numeración**— viven en §22.6b.
+>
+> **Revisión del arquitecto (2026-08-31) — UN SOLO DIAL (`gradingHookEnabled`, M-46; `ARCHITECTURE.md`
+> §4.38(r), rev v1.51-one-dial).** Los dos interruptores del gancho se colapsan en uno: el mismo dial
+> gobierna **exhibición Y obtención**. El dueño tenía razón y la simplificación **no se disculpa** — el
+> segundo interruptor **nunca se dibujó en el panel**, así que no era gobernable; se documenta y se sigue.
+> Lo que sí cambia para el diseño es que **el dial ya no significa lo mismo en cada sentido**, y por eso el
+> aviso de M10 pasa de **uno** a **dos**: **§22.13**. **Cero tokens nuevos, cero componentes nuevos, cero
+> cambios de contrato**, y **ninguna superficie del storefront se toca**: §22.0–§22.12 y las reglas R1–R6
+> quedan intactas. El colapso cambia **cuándo hay dato**, no cómo se pinta.
 >
 > **Origen:** **no hay entrega de Claude Design** para esta feature. §22 se construye **desde cero sobre la
 > piel ya aprobada**: no inventa una identidad para el gancho, la **compone** con piezas ya ratificadas
@@ -5149,6 +5463,22 @@ que truncar.
 | **R4** | **Ausencia total ante cualquier hueco** (§O.4): sin dato, dato rancio o —en badge y vitrina— gate no cumplido o **cifra no confiable** (R6) ⇒ **no se renderiza nada**. Ni `$0`, ni `—`, ni «precio pendiente», ni caja vacía, ni encabezado huérfano, ni **skeleton** que reserve el hueco. La teja se ve **exactamente como hoy**. | En un argumento de venta, un hueco es peor que el silencio (precedente: fast-follow de seguridad del «$0 latente»). Nótese que §22 **excluye** aquí el `PendingPriceLabel` de §7.3 a propósito. |
 | **R5** | **El cálculo no se muestra, en ninguna superficie.** Ni el costo de gradeo, ni `minUpsidePct`, ni la ganancia en MXN, ni el multiplicador, ni un porcentaje de rendimiento, ni la palabra «gate». Tampoco **el criterio de confianza** de R6: ni la muestra, ni el origen, ni la cota de magnitud. Todo eso vive **solo server-side**, decidiendo elegibilidad de badge y vitrina. | *Nueva, cambio 1.* Lo que el humano quitó no es solo la talacha de calcularlo: es la **promesa implícita** que carga un número de ganancia. Un estimado se defiende como dato de mercado; una ganancia calculada se lee como oferta. Y un sello de «confianza» sería lo mismo por la puerta de atrás: convertiría la ausencia de sello en una acusación. |
 | **R6** | **La rejilla solo promociona cifras confiables.** En **teja y vitrina** la cifra se pinta solo si el número es **confiable**: **fresco**, de **origen confiable** (**override manual** del dueño, o **dato automático con muestra suficiente de ventas** gradeadas) y **coherente en magnitud** (la cota es **`psa10 > precio raw`**: se descarta si el estimado PSA 10 sale **≤ el raw publicado**; y también si es **absurdamente mayor**, que ya es dato roto). La **ficha informa lo que hay** y **no** aplica la coherencia con la misma dureza. Se evalúa **server-side** y **nunca** se explica en pantalla (R5): una cifra suprimida por confianza es **indistinguible** de una suprimida por el gate de ROI. | La rejilla es **promoción**: ahí un número que no se sostiene es una promesa que no se sostiene, y el comprador la ve sin contexto y sin haber pedido nada. La ficha es **información**: quien la abrió ya está mirando esa carta, y esconderle un dato que existe sería paternalista. Y un PSA 10 **por debajo del raw** no es un gancho débil — es la prueba de que **no hay gancho**: promocionarlo sería anunciar lo contrario de lo que promete la vitrina. La cota mira **hacia abajo** a propósito: el fallo típico —un valor en **dólares escrito como pesos**— aterriza **por debajo**, no por encima. |
+
+**Vocabulario — qué significa «rejilla» en §22 (nota de la revisión 2026-08-31).** R3, R4, R5 y R6 hablan
+de dos categorías, no de tres componentes: **ficha** (superficie de **información**) y **rejilla**
+(superficie de **promoción**). Desde el 2026-08-31 la rejilla tiene **tres** miembros y la regla se lee
+igual en todos:
+
+| Categoría | Superficies | Regla | Sección |
+|---|---|---|---|
+| **Ficha** (informa) | ficha de carta | pinta **lo que haya**; sin gate de ROI y sin la cota de magnitud | §22.3 |
+| **Rejilla** (promociona) | teja de Compra · vitrina «Joyas para gradear» · **carrusel «Piezas destacadas»** | llega **ya filtrada** por el backend: gate de ROI **y** gate de confianza (R6) | §22.5 · §22.6 · **§22.6b** |
+
+Donde el texto anterior de §22 diga «teja y vitrina» o «badge y vitrina», **léase «las tres superficies de
+rejilla»**. El carrusel **no estrena ninguna excepción**: mismo dato (`gradingHighlight` del
+`GroupedListingSummaryDTO`), mismo componente de badge, mismo micro-aviso obligatorio, misma nota al pie de
+página, misma ausencia total ante cualquier hueco. Lo único propio del carrusel es **cómo entra la burbuja
+en una teja con otra anatomía** (§22.6b).
 
 ### 22.1 Las dos voces del dinero aplicadas al gancho (matiz de §20.14)
 
@@ -5347,6 +5677,11 @@ página**.
 3. La nota cierra con un **enlace de regreso**: `↩ Volver al valor estimado`, mono 11px muted, apuntando al
    `id` de la llamada. El viaje es de ida **y de vuelta**; una nota al pie sin regreso deja al usuario
    varado al final de la página.
+   - **En páginas con varias superficies (el home, desde §22.6b), el regreso apunta a la PRIMERA que de
+     verdad pintó cifra**, no a una fija: vitrina «Joyas para gradear» si existe; si no, el carrusel
+     «Piezas destacadas». Un ancla fija a una sección que hoy puede no renderizarse deja el enlace de
+     regreso apuntando a la nada — y ese es exactamente el caso normal del carrusel (§22.6b). La sección
+     de destino lleva su `scroll-mt-[calc(var(--app-header-h,0px)+16px)]` como ya lo lleva la vitrina.
 4. `prefers-reduced-motion`: sin `scroll-behavior: smooth` (§8.2).
 
 **(b) La nota al pie — dónde vive y cómo se compone.**
@@ -5359,7 +5694,7 @@ contenedor de contenido:
 |---|---|---|
 | **Ficha de carta** | después de las pestañas Descripción/Condición | el bloque §22.3 se renderizó |
 | **Compra (catálogo)** | después del paginador (§20.12) | **la página actual** muestra ≥ 1 badge; al paginar se reevalúa |
-| **Home** | después de la última vitrina | la vitrina «Joyas para gradear» se renderizó |
+| **Home** | después de la última vitrina (antes de la banda de tinta del buylist) | el home muestra **≥ 1 cifra**, venga de **la vitrina «Joyas para gradear» o del carrusel «Piezas destacadas»** — la condición es la **unión** de ambas fuentes (§22.6b) |
 
 Composición — banda de ancho completo, `border-top: 1px solid var(--color-border)`, `padding: 28px 0 36px`
 (24/28 en móvil), con el `gutter` del sitio:
@@ -5519,6 +5854,32 @@ repetido.
 - El micro-aviso es **texto real**, no `aria-label`: el `sr-only` desaparece porque **ya no hace falta** —
   lo que se ve es lo que se lee.
 
+**`surface` — el ÚNICO eje configurable del badge (añadido 2026-08-31 por §22.6b).** El mismo
+`GradingEstimateBadge` sirve a las **tres superficies de rejilla**. Como sus tejas tienen anchos fijos
+distintos, la forma larga del copy no cabe en todas al mismo breakpoint, y **el breakpoint de viewport no
+predice el ancho de la teja** en el carrusel (la teja chica mide 160px hasta `lg`, aunque el viewport ya
+sea `sm`). Se resuelve con **un prop enumerado de tres valores**, no con `className` ni con tamaños libres:
+
+| `surface` | Dónde | Forma de la cifra | Tamaño de la cifra |
+|---|---|---|---|
+| `'grid'` *(default)* | teja de Compra (§22.5) y vitrina (§22.6) | `figureShort` `<sm` · **`figure`** `≥sm` | 11px · 12px `sm+` |
+| `'featuredLead'` | teja **grande** del carrusel (§22.6b) | `figureShort` `<lg` · **`figure`** `≥lg` | 11px · 12px `lg+` |
+| `'featuredRest'` | tejas **chicas** del carrusel (§22.6b) | **`figureShort` siempre** | 11px · 12px `lg+` |
+
+- **Qué NO puede hacer este prop, y es normativo:** no apaga el micro-aviso, no lo acorta, no lo cambia de
+  familia ni de tamaño, no cambia la regla superior, no suprime la llamada `*` y no baja ningún piso
+  tipográfico (§22.4d). Lo único que elige es **cuál de las dos formas de copy ya ratificadas** se pinta y
+  **a partir de qué breakpoint** — dos variantes que ya existían para móvil, no copy nuevo (§22.11).
+- **Añadir un cuarto valor es una decisión de diseño, no de implementación.** Si aparece una superficie con
+  otro ancho, se especifica aquí primero. Un `surface` libre —o un `figureForm` que acepte cualquier
+  cosa— reabriría por la puerta de atrás la posibilidad de una variante «ligera» sin aviso, que es
+  exactamente lo que R3 prohíbe.
+- **La cifra no crece con la teja.** `featuredLead` vive en una teja de 400px con un precio de 25px y aun
+  así mantiene **12px**: el tamaño del estimado es función de **su categoría** (dinero operativo, §22.1),
+  no del tamaño del contenedor. Efecto colateral deseable: en la teja grande la distancia con el precio
+  real es **mayor** que en Compra (25 vs 12px ≈ 2.1× frente a 17 vs 12px ≈ 1.4×), así que R2 se cumple con
+  más margen, no con menos.
+
 ### 22.6 Vitrina del home «Joyas para gradear» — `GradingGemsShelf`
 
 Reutiliza el patrón `Shelf` (§20.5 / `_home/GradedShelf`) **tal cual**, con las tejas de Compra:
@@ -5546,8 +5907,14 @@ Reutiliza el patrón `Shelf` (§20.5 / `_home/GradedShelf`) **tal cual**, con la
   filtro de confianza deciden **qué entra**, y el cliente recibe la lista resuelta sin ver ni un número del
   cálculo (R5). `grid-cols-2` (móvil, **4 visibles**) → `sm:grid-cols-3` → `lg:grid-cols-4` (las 8 en dos
   filas). Cada entrada es la **teja de Compra con su badge** (§22.5), sin variación.
-- **Sin numeración mono roja.** La de §20.3 («Piezas destacadas») es orientadora; aquí implicaría un
-  *ranking de mejores oportunidades*, que es justo la afirmación que §O prohíbe. Y sería un segundo rojo.
+- **Sin numeración mono roja** — y desde 2026-08-31 esto **ya no es una regla local de la vitrina**. La
+  redacción original citaba la numeración de §20.3 («Piezas destacadas») **por contraste**: allá es
+  orientadora, aquí implicaría un *ranking de mejores oportunidades* —la afirmación que §O prohíbe— y sería
+  un segundo rojo. Con la burbuja entrando también al carrusel, el contraste **se cae**: la misma
+  numeración quedaría junto a la misma cifra. Se **generaliza a invariante del sistema** y se traslada a
+  §22.6b: **numeración y cifra estimada no coexisten en ninguna superficie**. Para la vitrina no cambia
+  nada (nunca tuvo números); para el carrusel, la numeración es ahora **condicional a nivel de pista**
+  (§22.6b, «La numeración»).
 - **«Ver todas»:** se omite **mientras el contrato no exponga un filtro/orden de elegibles** — no se enlaza
   a una vista que no filtra lo que promete. Solicitud anotada en §22.12.
 - **Vacío / error:** la sección **no se renderiza** (ni encabezado, ni kicker, ni regla superior) y, si no
@@ -5557,9 +5924,283 @@ Reutiliza el patrón `Shelf` (§20.5 / `_home/GradedShelf`) **tal cual**, con la
   salto de layout exacto que R4 quiere evitar. Se prefiere **prefetch/SSR**; si se resuelve en cliente, el
   estado de carga es **nada**. (El resto de vitrinas conserva su skeleton de §18.6 sin cambios.)
 
+### 22.6b Carrusel «Piezas destacadas del catálogo» — la cuarta superficie (revisión 2026-08-31)
+
+> **Qué decidió el humano:** la burbuja del gancho («En PSA 10 vale ≈ MX$…») aparece **también** en el
+> carrusel del home, **conservando** la vitrina «Joyas para gradear» (§22.6). Las dos superficies
+> **conviven** en la misma página; ninguna sustituye a la otra.
+
+**Por qué esto se diseña y no se copia.** `FeaturedCarousel` **no usa `CatalogTile`**: tiene teja propia,
+con **dos anatomías** distintas —la **grande** (primera pieza) y las **chicas** (resto)—, **sin CTA**, sin
+el `mt-auto` que en Compra absorbe las diferencias de altura, con la **numeración mono roja** de §20.3
+encima y con **anchos fijos que no siguen al viewport** (la teja chica mide 160px aunque el viewport ya sea
+`sm`). La rejilla de Compra y la vitrina sí comparten `CatalogTile` —por eso la vitrina heredó el badge sin
+tocar nada—; el carrusel no. Cuatro cosas hay que resolver, y son las cuatro que siguen.
+
+**El contexto que manda sobre todo lo demás: aquí el caso disparejo es el NORMAL.** El carrusel ordena por
+**precio descendente** (las 8 más caras) y el **gate de ROI castiga precisamente a las caras**: cuanto más
+alto el raw, más difícil que el estimado lo justifique (R6 exige además `psa10 > raw`). Lo esperable es
+**cero burbujas**, y cuando las haya, **una o dos entre ocho**. Todo §22.6b está dimensionado para eso: la
+pista tiene que verse **bien** con siete tejas sin cifra y una con cifra, y **igual de bien** con ocho sin
+ninguna. La ausencia **no es un estado degradado** — es el estado por defecto de esta superficie.
+
+**(a) Teja GRANDE (primera pieza, `surface="featuredLead"`).**
+
+**Dónde va:** **debajo de toda la fila de datos**, como último bloque de la teja y **a todo el ancho de la
+teja** (no dentro de la columna derecha del precio). Orden de lectura obligatorio, idéntico al de §22.5:
+**nombre → set/# → acabado → precio real → stock → estimado → micro-aviso**. Separado por la misma **regla
+de 1px `--color-border`** con `mt-2.5 pt-2.5`.
+
+```
+┌──────────────────────────────────────────────────────────┐
+│                                                          │
+│                  ARTE (400px de ancho)                   │
+│                                                          │
+└──────────────────────────────────────────────────────────┘
+Charizard ex                                   MX$ 4,800.00   ← serif 26px  ⟷  precio sans 25px
+OBSIDIAN FLAMES · #223                            QUEDA 1     ← mono 11px muted ⟷ stock (§20.6)
+Holofoil
+──────────────────────────────────────────────────────────    ← border-t 1px --color-border (ancho completo)
+En PSA 10 vale ≈ MX$ 29,000.00                                ← mono 12px tinta, tabular (`figure`, lg+)
+Ilustrativo; no evaluamos esta carta.*                        ← sans 11px muted + llamada accent 13px
+```
+
+- **A todo el ancho y alineado a la izquierda, aunque el precio esté a la derecha.** La columna derecha del
+  precio es estrecha y va `text-right`; meter ahí una cifra `nowrap` de ~275px la reventaría, y el
+  micro-aviso —que es **prosa**— quedaría en bandera derecha a dos renglones, que se lee mal y contradice
+  §22.4c (es prosa, no una etiqueta). Abajo y a la izquierda, bajo una regla que cruza los 400px, el bloque
+  se lee como **pie de foto de la teja**, que es exactamente su rango.
+- **La regla superior hace el trabajo de R2.** Es lo que dice «lo de abajo es otra cosa». Es la misma
+  gramática de §20.8 y la misma que ya usa el badge de Compra: cero cajas, cero fondos, cero color.
+- **Copy:** `figure` («En PSA 10 vale ≈ …») a partir de **`lg`**, donde la teja mide 400px;
+  **`figureShort`** («PSA 10 ≈ …») por debajo, donde mide **236px** y la forma larga en EN («At PSA 10 it
+  is worth ≈ MX$ 999,999.00», ~274px a 12px mono) **no cabe**. Nótese que el corte es **`lg`, no `sm`**:
+  aquí el ancho de la teja no lo fija el viewport sino el carrusel (por eso existe el prop `surface`).
+- **Sin fecha, sin chip punteado, sin eyebrow** — igual que en Compra (§22.5). La fecha vive en la ficha.
+- **La teja grande será rara vez la que lleve burbuja**, porque es **la más cara de las ocho** y es la que
+  peor le va al gate. Se especifica igual y con el mismo cuidado: cuando ocurra, es la superficie más
+  visible del home.
+
+**(b) Tejas CHICAS (resto, `surface="featuredRest"`).**
+
+**Dónde va:** **después del `StockBadge`**, como último elemento de la teja, con la misma regla de 1px y el
+mismo `mt-2.5 pt-2.5`. Aquí el espacio manda, y el orden de las decisiones fue: **primero cabe el aviso,
+después la cifra** (R3.4 al pie de la letra).
+
+```
+┌────────────────────────┐
+│                        │
+│   ARTE (160–268px)     │
+│                        │
+└────────────────────────┘
+03  Umbreon VMAX              ← numeración: ver (c) — DESAPARECE si esta pista pinta cifras
+EVOLVING SKIES · #215
+Reverse Holo
+MX$ 1,950.00
+QUEDA 1
+────────────────────────      ← border-t 1px --color-border
+PSA 10 ≈ MX$ 29,000.00        ← mono 11px (12px lg+), tinta, tabular  (`figureShort`, SIEMPRE)
+Ilustrativo; no evaluamos     ← sans 11px muted; 2 renglones a 160px, 1 a 268px
+esta carta.*                     la llamada (*) cierra la frase, accent 13px
+```
+
+- **`figureShort` en todos los breakpoints, sin excepción.** La teja chica mide 268px en su mejor momento y
+  la forma larga en EN pide ~274px: **no cabe ni a `lg`**, y una cifra `nowrap` que desborda es peor que
+  una forma corta. `figureShort` mide ~152px (11px) / ~166px (12px) incluso con `MX$ 999,999.00`, así que
+  entra con holgura hasta en los 160px del móvil.
+- **La condicionalidad no se pierde por usar la forma corta.** La cargan el glifo `≈` y el **micro-aviso
+  inmediato**, exactamente como ya se ratificó para el móvil de Compra (§22.5). Sigue **prohibido**
+  «PSA 10: MX$ 29,000.00» — dos puntos afirman, `≈` estima.
+- **El micro-aviso cabe, y esta es la cuenta.** Sans 11px, ES 36 car. / EN 43 car. (§22.11): **2 renglones a
+  160px** en ambos idiomas, **1 renglón a 268px** en ES y **1–2 en EN**. Nunca llega a 3. Es decir: en el
+  carrusel **R3.4 no se dispara nunca por espacio**, así que no hay que elegir entre aviso y cifra. Si
+  alguna vez se disparara —copy más largo, idioma nuevo, teja más estrecha— **lo que se quita es la
+  cifra**, jamás el aviso, jamás un renglón del aviso, jamás un `line-clamp`.
+- **Piso de 11px, también aquí** (§22.4d). La teja chica es la superficie más apretada del sistema y aun así
+  el aviso **no baja de 11px** ni a 390px. Encoger el aviso «para que quepa» está prohibido; la salida
+  legítima es quitar la cifra.
+- **Coste en altura (cuantificado y aceptado):**
+
+| Teja | Ancho | Micro-aviso | Alto del bloque |
+|---|---|---|---|
+| Grande, `lg+` | 400px | 1 renglón (ES y EN) | **~46px** |
+| Grande, `<lg` | 236px | 1 renglón ES · 2 EN | ~46–58px |
+| Chica, `lg+` | 268px | 1 renglón ES · 1–2 EN | **~46–58px** |
+| Chica, móvil | 160px | 2 renglones (ES y EN) | **~70px** |
+
+  El coste **solo lo pagan las tejas elegibles**, que aquí son una o dos entre ocho. Y a diferencia de la
+  rejilla de Compra, **no compite con un CTA**: la teja del carrusel termina en el badge.
+
+**(c) La numeración `01 · 02 · 03` — decisión y por qué.**
+
+§22.6 citaba la numeración de §20.3 **por contraste** («allá es orientadora; aquí implicaría un ranking de
+oportunidades»). Ese contraste **deja de existir** en cuanto el carrusel muestra la cifra: quedarían el
+número rojo y el monto **en la misma teja**. Hay que decidir, y la decisión es:
+
+> **La numeración y la cifra estimada NO coexisten. Si el carrusel pinta al menos una cifra, la numeración
+> desaparece de TODA la pista** —de las ocho tejas, no solo de las que llevan burbuja—. Si ninguna teja es
+> elegible (el caso normal), el carrusel es **exactamente §20.3 de hoy**, numeración incluida.
+
+Las cuatro razones, en orden de peso:
+
+1. **`03` junto a un monto se lee como *ranking de oportunidad*.** Es literalmente la afirmación que §O
+   prohíbe y por la que §22.6 dejó la vitrina sin números. Que en §20.3 el número sea decorativo y
+   `aria-hidden` no protege de nada: el lector vidente no ve el `aria-hidden`, ve un ordinal rojo encima de
+   un «vale ≈ MX$29,000». Peor aún aquí, porque la pista **sí está ordenada por dinero** (precio desc), así
+   que la lectura «están rankeadas por valor» es correcta para el precio y **falsa** para el estimado.
+2. **Presupuesto de rojo.** §22.10 nº3 tolera **dos** elementos de acento por teja —`StockBadge` y el
+   asterisco de 6px— y ahí traza la raya. La numeración sería el **tercero**, en una teja de 160px, y el
+   único de los tres sin significado semántico (es decorativo por definición). El acento en este sistema es
+   escaso a propósito (§17.2).
+3. **Quitarla teja por teja rompe la alineación de la pista.** El número vive en la **fila del título**
+   (`flex items-baseline gap-2`) antes del nombre: si desaparece solo en las tejas con burbuja, **el nombre
+   de esas tejas arranca ~20px a la izquierda** que el de las vecinas, en una fila de tejas por lo demás
+   idénticas. Eso sí se lee como error de maquetación. Todo-o-nada por pista mantiene **todos los nombres
+   alineados al borde izquierdo de su teja**, que es como se ve hoy.
+4. **Una secuencia con hueco (`01 02 __ 04`) señala a la teja sin número.** Y como el hueco coincidiría
+   siempre con la burbuja, acabaría **subrayando** la pieza promocionada — el efecto contrario al buscado.
+
+**Cómo se implementa la condicionalidad, sin que se convierta en un parpadeo.** La pista se decide **una
+vez, con los datos ya resueltos**, con el mismo predicado que gobierna todo lo demás
+(`pageHasGradingFigures(featured)`): o hay numeración en las ocho, o no la hay en ninguna. **Nunca** se
+renumera para «tapar» el hueco (`01 02 03` saltándose la teja de la burbuja sería mentir sobre la
+posición), **nunca** se sustituye el número por otro glifo, y **nunca** queda un espacio reservado donde
+estaba. Mientras el carrusel está cargando no se pinta numeración provisional que luego desaparezca: la
+pista aparece resuelta (§8.1 sigue aplicando al **skeleton de la teja**, que no cambia — lo que no existe
+es un skeleton **del badge**, R4).
+
+**Lo que NO se hizo, y por qué:** *no* se repintó la numeración de rojo a muted (sería tocar la piel
+ratificada de §20.3 para todo el sitio por un caso minoritario), *no* se movió el número a otra posición
+(no hay ninguna en la que un ordinal deje de leerse como ordinal), y *no* se quitó la numeración de forma
+permanente del carrusel (cuando no hay burbujas no hay nada que reconciliar, y el elemento es parte del
+makeover aprobado).
+
+**La rotación automática (§23) NO afecta a nada de (c).** Es consecuencia directa de la regla dura de §23.2
+(*rota la ventana, nunca el rol*): la rotación **no reordena el DOM**, así que `02` sigue siendo la segunda
+teja del DOM en todo momento, la mire el usuario o no. El predicado sigue siendo `pageHasGradingFigures`,
+**evaluado una sola vez** con los datos ya resueltos, y su resultado **no puede cambiar por desplazarse**.
+En consecuencia queda **prohibido**: renumerar según lo visible («1 = la primera teja a la vista»), usar la
+numeración como **indicador de posición o de progreso** de la rotación, resaltar el número de la teja que
+acaba de entrar, y **añadir puntos, barras o cualquier paginador** al carrusel (§23.13 nº2 — duplicaría el
+trabajo del número, sería un tercer rojo e implicaría «páginas» que en un scroller continuo no existen).
+
+**(d) El caso disparejo — la retícula no se descuadra, y hay que saber por qué.**
+
+Con una o dos burbujas entre ocho, la pista tiene tejas de alturas distintas. **No se compensa nada.** Es
+correcto y es invisible, por construcción:
+
+- **El badge es el ÚLTIMO elemento de las dos tejas.** Nada de lo que está encima —arte, nombre, renglón
+  mono, acabado, precio, stock— se mueve un píxel por su presencia. Las **ocho imágenes siguen alineadas
+  por su borde superior**, que es el eje que el ojo usa en una pista horizontal, y todas las líneas de
+  texto siguen cayendo en las mismas alturas de teja a teja.
+- **Lo único que difiere es el borde inferior de la teja, que no está dibujado.** No hay caja, ni fondo, ni
+  regla de cierre (§2.1, §4.3): una teja más larga se lee como **una teja con más contenido**, no como una
+  desalineada. Este sistema puede permitírselo precisamente porque no dibuja cajas.
+- **Prohibido compensar:** nada de `min-height` en la teja, nada de `mt-auto` inventado, nada de espacio
+  reservado, nada de una regla o un guion en las tejas sin cifra «para que igualen», nada de un skeleton
+  del badge. Todo eso es exactamente el hueco que R4 prohíbe, y aquí además convertiría la ausencia —el
+  caso normal— en un elemento de UI.
+- **La pista crece de alto lo que crezca la teja más alta** (~46–70px según breakpoint) y ese aire cae
+  **debajo** de las tejas cortas. Se acepta tal cual. No se recorta el `pb` del scroller para compensarlo,
+  ni se cambia el tamaño de las flechas ni el `snap`.
+- **Prohibido reordenar la pista para agrupar las tejas con burbuja** (ni al principio, ni «las elegibles
+  primero»). El orden del carrusel es **precio descendente** y es un hecho del catálogo; reordenarlo por
+  elegibilidad lo convertiría en una **curaduría de oportunidades** —una segunda vitrina encubierta— y
+  filtraría el criterio del gate por la vía del orden (R5). Si un día se quiere esa lista, ya existe y se
+  llama «Joyas para gradear».
+
+**(e) El encabezado del carrusel NO cambia.** Sigue siendo **«Piezas destacadas del catálogo»** con su link
+«Ver todo el catálogo» y sus flechas (§20.3). **Prohibido** añadirle kicker, subtítulo, o cualquier mención
+al gradeo, al estimado o a la oportunidad. El carrusel **no es** una vitrina de gancho: es la pista de las
+piezas más caras, en la que **algunas** piezas resultan llevar además una cifra estimada. En cuanto el
+encabezado nombrara el gancho, la pista entera pasaría a **afirmar** algo sobre sus ocho piezas —incluidas
+las seis o siete que no califican— y eso sería falso. El kicker de la salvedad («ILUSTRATIVO · NO
+EVALUAMOS LA PIEZA») pertenece a la vitrina (§22.6), donde **todas** las tejas llevan cifra; aquí no
+aplica, y su trabajo lo hace el micro-aviso de cada teja, que es el que §O.5 exige de todos modos.
+
+> ~~**Precisión v2.6 (§23.4a), para que (e) no se lea mal:**~~ **RETIRADA en v2.7 — ya no hace falta.** La
+> v2.6 tuvo que aclarar que el **conmutador de reproducción** que §23.4 colocaba junto al H2 ocupaba el
+> *hueco estructural* del kicker sin ocupar su *rol semántico*. El dueño **retiró ese conmutador** (§23.4),
+> el hueco vuelve a estar vacío y **(e) aplica de nuevo tal cual, sin excepción ni matiz**: en este
+> encabezado no va kicker, ni subtítulo, ni etiqueta, ni control — nada más que el H2, el link y las
+> flechas (§20.3). Lo que (e) prohíbe sigue siendo, en el fondo, lo mismo: **kicker de contenido**,
+> cualquier texto que afirme algo sobre las piezas de la pista.
+
+**(f) Convivencia con la vitrina «Joyas para gradear» — las dos, en la misma página.**
+
+- **La vitrina se conserva íntegra** (§22.6): mismo encabezado, mismo kicker, mismas 8 tejas, misma
+  excepción de skeleton. El carrusel **no la sustituye ni la duplica**: son dos superficies con **dos
+  criterios de orden distintos** —el carrusel ordena por **precio**, la vitrina por **curaduría del
+  servidor** (`sort=grading_showcase`)— y eso es lo que las hace legítimas a la vez.
+- **Una carta puede salir en las dos, con su burbuja en ambas. No se deduplica.** Filtrar en el cliente la
+  pieza que ya salió arriba (o abajo) alteraría lo que el servidor curó, abriría un hueco en una pista
+  ordenada por precio y haría que el contenido de una sección dependiera de la otra. Se deja tal cual: que
+  una pieza cara además califique es un hecho, no un error de maquetación.
+- **Una sola nota al pie para todo el home** (§22.4b), al final del contenido y antes de la banda de tinta
+  del buylist. Dos superficies con cifras **no** son dos notas.
+- **El orden de la página no cambia:** carrusel (arriba, tras el hero) … vitrina (abajo, tras Gradeadas) …
+  nota al pie. La nota sigue estando **después de la última cifra** de la página, que es lo que exige el
+  patrón.
+
+**(g) Acoplamiento con la nota al pie (R3.3) — la trampa de esta entrega.**
+
+Hasta hoy el home hospedaba la nota **si y solo si la vitrina se renderizaba**. Con el carrusel como cuarta
+superficie eso deja de ser suficiente y se vuelve un **fallo silencioso**: en el caso normal —vitrina vacía,
+una burbuja en el carrusel— la página no hospedaría la nota, y como toda cifra es *fail-closed* sin nota
+(R3.3), **el carrusel no pintaría ninguna burbuja y nadie vería un error**. Regla:
+
+> **La condición de la nota al pie del home es la UNIÓN de sus superficies:** se renderiza si **la vitrina o
+> el carrusel** muestran al menos una cifra. El mismo booleano gobierna las dos cosas (nota + contexto que
+> habilita las cifras), y se deriva **del mismo predicado** para ambas fuentes — nunca de una regla copiada
+> ni de «si la vitrina existe».
+
+Corolarios que el frontend debe cumplir:
+
+- **La lista del carrusel se comparte** entre la sección que decide hospedar la nota y el propio carrusel
+  (misma consulta, deduplicada por su `queryKey`), igual que ya se hace con la vitrina. Dos consultas
+  distintas podrían divergir y volver a abrir el fallo silencioso.
+- **El ancla de regreso** de la nota apunta a la **primera superficie que de verdad pintó cifra**: vitrina
+  si existe, si no el carrusel (§22.4a). El carrusel necesita para eso un `id` propio y su
+  `scroll-mt-[calc(var(--app-header-h,0px)+16px)]`, como ya lo tiene la vitrina.
+- **Nada de esto es un caso raro que se pueda dejar para después:** dado el gate, «vitrina vacía + carrusel
+  con una burbuja» es un estado **frecuente**, no un borde.
+
+**(h) Accesibilidad propia del carrusel** (además de §22.9, que no cambia):
+
+- **La teja del carrusel es un `<a>` que envuelve todo**, a diferencia de la de Compra. En consecuencia el
+  badge queda **dentro** del enlace y su texto pasa a formar parte del **nombre accesible** de la teja: el
+  lector anuncia nombre, set, precio, stock, **la cifra y el micro-aviso completo**. Eso es **deseable** y
+  cumple §22.5 («el `aria-label` de la teja incluye el micro-aviso»). Por lo tanto: **prohibido ponerle un
+  `aria-label` al enlace de la teja**, porque sustituiría el contenido y **borraría el aviso** del árbol de
+  accesibilidad — que es justo el defecto bloqueante que §22.4c corrigió.
+- **La llamada `*` aquí NO es enlace** (`variant="plain"`): no se anida un ancla dentro del ancla de la
+  teja. El acceso al texto largo es doble, como en Compra: la nota al pie de esa misma página y la ficha, a
+  un clic de la teja.
+- **El glifo `≈` va `aria-hidden`** con su lectura en prosa, y **la numeración sigue `aria-hidden`** cuando
+  se pinta (§20.3): no forma parte del nombre accesible de la teja, ni antes ni ahora.
+- **Orden de DOM = orden visual = orden de lectura**: precio real → estimado → micro-aviso. El badge no es
+  focuseable.
+
+**(i) Qué NO hacer en esta superficie** (además de §22.10, que aplica entero):
+
+1. **No** mover la burbuja a la columna del precio de la teja grande, ni alinearla a la derecha, ni ponerla
+   sobre el arte, ni antes del precio real.
+2. **No** dejar la numeración roja en una teja que muestra cifra, ni quitarla solo en esas tejas, ni
+   renumerar para tapar el hueco.
+3. **No** cambiar el encabezado del carrusel ni añadirle kicker, subtítulo o mención al gradeo.
+4. **No** reordenar, agrupar ni «subir» las tejas elegibles; el orden es precio descendente.
+5. **No** igualar alturas: sin `min-height`, sin espacio reservado, sin regla ni guion de relleno en las
+   tejas sin cifra, sin skeleton del badge.
+6. **No** deduplicar contra la vitrina, ni condicionar una sección a la otra.
+7. **No** usar la forma larga del copy en la teja chica (desborda), ni encoger la cifra por debajo de 11px,
+   ni truncarla, ni abreviar el monto.
+8. **No** derivar el hospedaje de la nota al pie solo de la vitrina (§22.6b-g).
+9. **No** convertir el carrusel en una segunda vitrina de gancho por acumulación de pequeños cambios: si
+   algún día se quiere eso, se diseña como tal y se decide en `PROJECT.md`, no aquí.
+
 ### 22.7 Estados — qué se renderiza y qué no
 
-**Las tres superficies no se filtran igual — y hay TRES ejes independientes.** Es la consecuencia
+**Las superficies no se filtran igual — y hay TRES ejes independientes.** Es la consecuencia
 estructural del cambio 1 (el cálculo dejó de mostrarse y pasó a **seleccionar**) y de la condición que el
 humano puso al elegir el monto para la rejilla (R6).
 
@@ -5595,7 +6236,14 @@ humano puso al elegir el monto para la rejilla (R6).
   sin `title` que insinúe baja confianza: la cifra se pinta **igual que cualquier otra** o **no se pinta**.
   Un indicador de confianza sería el cálculo contado con palabras (R5).
 
-| Situación (evaluada **server-side**, §O.4) | Ficha | Teja | Vitrina |
+**La columna «Teja» gobierna las TRES superficies de rejilla** (teja de Compra, vitrina y carrusel «Piezas
+destacadas», §22.0/§22.6b): el dato que las tres leen es el mismo (`gradingHighlight` del
+`GroupedListingSummaryDTO`, ya gateado) y el predicado de render es el mismo. La columna «Vitrina» dice si
+la carta **entra en la lista curada** de §22.6, que es una pregunta distinta —de **pertenencia a esa
+sección**— y no aplica al carrusel: al carrusel se entra por **precio**, y una vez dentro, la burbuja se
+pinta o no exactamente con la regla de la columna «Teja».
+
+| Situación (evaluada **server-side**, §O.4) | Ficha | Teja (incl. carrusel) | Vitrina |
 |---|---|---|---|
 | PSA 10 + PSA 9, dato fresco, **gate cumplido**, cifra **confiable** | **Bloque, dos cifras** (§22.3) | **Badge** con PSA 10 (§22.5) | Entra |
 | PSA 10 + PSA 9, dato fresco, **gate NO cumplido** | **Bloque, dos cifras** (la ficha no está gateada) | **Nada** | No entra |
@@ -5643,7 +6291,7 @@ Reglas generales que siguen aplicando:
 - **«Nada» significa nada:** sin encabezado, sin regla superior huérfana, sin `<hr>`, sin celda vacía, sin
   espacio reservado y **sin el `PendingPriceLabel` de §7.3** — que sí es correcto en bóveda y back-office,
   pero está **prohibido** aquí (§O.4: «ni siquiera "pendiente"»).
-- **Verificación visual — cuatro estados que son correctos y suelen reportarse como bugs:**
+- **Verificación visual — siete estados que son correctos y suelen reportarse como bugs:**
   1. Carta no elegible y carta elegible producen tejas **idénticas** salvo el bloque del badge; sin
      diferencia de altura reservada, sin borde extra.
   2. **Ficha con bloque pero carta sin badge** (gate no cumplido): **normal y esperado**.
@@ -5651,6 +6299,15 @@ Reglas generales que siguen aplicando:
      casos sin badge ni entrada de vitrina.
   4. **Ficha con bloque y sin badge, con el gate CUMPLIDO** (la cifra no pasó el filtro de confianza, R6):
      **normal y esperado**, e **indistinguible** del caso 2 en pantalla.
+  5. **Carrusel «Piezas destacadas» con CERO burbujas**: **el caso normal**, no un fallo de datos. Ordena
+     por precio descendente y el gate castiga a las caras (§22.6b). Un carrusel entero sin cifras es la
+     expectativa por defecto.
+  6. **Carrusel con UNA teja con burbuja y siete sin ella, de alturas distintas**: **normal y esperado**.
+     Las ocho imágenes siguen alineadas por arriba; el borde inferior no está dibujado (§22.6b-d). No es un
+     descuadre y **no se compensa**.
+  7. **Carrusel sin numeración `01 · 02 · 03`**: **normal y esperado** siempre que la pista muestre al
+     menos una cifra — es la regla de §22.6b-c, todo-o-nada por pista. Lo que **sí** es un defecto es ver
+     numeración y burbuja **en la misma pista**, o un hueco en la secuencia.
 
 ### 22.8 Móvil 390px
 
@@ -5668,11 +6325,22 @@ props nuevas. Lo que queda por especificar es poco:
 | **Llamada `*`** | 13px accent | **13px accent** — no encoge nunca; es la señal del aviso |
 | **Nota al pie** | banda a ancho completo, cuerpo 13px, medida ~720px | igual, `padding` 24/28px; **cuerpo sigue en 13px** |
 | **Vitrina** | 4 columnas × 2 filas | 2 columnas, **4 tejas visibles** |
+| **Carrusel — teja grande** (§22.6b) | 236px hasta `lg`, **400px** desde `lg`. Copy largo **solo desde `lg`**; entre `sm` y `lg` sigue en `figureShort` 11px | 236px, `figureShort` **11px**, micro-aviso 1 renglón (ES) / 2 (EN); ~46–58px de bloque |
+| **Carrusel — teja chica** (§22.6b) | 160px hasta `lg`, **268px** desde `lg`. **`figureShort` siempre**; 12px desde `lg`, micro-aviso 1 renglón (ES) | 160px, `figureShort` **11px**, micro-aviso **2 renglones** (ES y EN); **~70px** de bloque |
+| **Numeración del carrusel** | presente **solo si la pista no muestra ninguna cifra** (§22.6b-c) | igual — la regla es por pista, no por breakpoint |
 
 Reglas de resistencia a cifras largas: todas las cifras llevan `tabular-nums` + `whitespace-nowrap`; la
 **etiqueta** es la que envuelve, nunca la cifra. Probar con `MX$ 999,999.00` en ES a 390px: la celda debe
 seguir cabiendo con la etiqueta en dos líneas. Si aun así la cifra chocara, baja un escalón de tamaño —
 **jamás** se trunca un monto ni se abrevia a «2.9k».
+
+**Precisión de la regla en el badge (2026-08-31, derivada de §22.6b).** En el badge la cifra no va sola: va
+dentro de una **frase** («En PSA 10 vale ≈ MX$ 29,000.00»). El `whitespace-nowrap` pertenece **al monto**,
+no a la frase entera: el **monto nunca se parte** —`MX$ 29,` / `000.00` sería un defecto de dinero— pero la
+frase **sí puede envolver** antes de él si el ancho aprieta. Poner el `nowrap` en el párrafo completo
+convierte cualquier estrechez en **desbordamiento fuera de la teja**, que es peor que un segundo renglón y
+además es invisible en revisión hasta que aparece un monto grande. Aplica a las tres superficies de
+rejilla; en el carrusel es lo que garantiza que ni siquiera un `MX$ 999,999.00` se salga de los 160px.
 
 ### 22.9 Accesibilidad y contraste
 
@@ -5709,6 +6377,10 @@ seguir cabiendo con la etiqueta en dos líneas. Si aun así la cifra chocara, ba
 - **Orden de tabulación y de DOM = orden visual** (precio real → estimado + llamada → CTA). El badge de la
   teja **no es focuseable** (no es interactivo; la teja entera ya es un enlace) — no se anida un control
   dentro del link.
+- **Si la teja entera es un `<a>` que envuelve el badge** (el carrusel, §22.6b-h), el nombre accesible del
+  enlace **incluye la cifra y el micro-aviso**, y así debe ser. Corolario duro: **prohibido `aria-label` en
+  ese enlace** — sustituiría el contenido y borraría el aviso del árbol de accesibilidad, reintroduciendo
+  el bloqueante que §22.4c corrigió.
 - **Sin información solo-hover:** el `title` es siempre redundante del texto visible, nunca su única vía.
 - El estimado **no se anuncia con `aria-live`**: no es un cambio de estado, es contenido estático.
 
@@ -5746,13 +6418,26 @@ seguir cabiendo con la etiqueta en dos líneas. Si aun así la cifra chocara, ba
     **no** truncarlo; **no** apagarlo por breakpoint, por densidad de retícula ni por prop. `PROJECT.md`
     §O.5: *«una cifra sin llamada/micro-aviso es un defecto bloqueante»*. Si no cabe, **se quita la cifra**.
 14. **No** llevar el estimado a superficies de dinero real: carrito, checkout, correos de confirmación,
-    bóveda, portafolio, cotizador de buylist ni back-office financiero. §22 vive **solo** en ficha, teja de
-    Compra y vitrina del home.
+    bóveda, portafolio, cotizador de buylist ni back-office financiero. §22 vive **solo** en la ficha, la
+    teja de Compra, la vitrina «Joyas para gradear» y el carrusel «Piezas destacadas» del home (§22.6b).
+    La lista es **cerrada**: sumar una quinta superficie es una decisión del humano, no de implementación.
 15. **No** delatar **por qué** una carta no se promociona: ni marca, ni versalita, ni tinta atenuada, ni
     `title`, ni `data-*` que distinga «gate no cumplido» de «cifra no confiable» (R5, R6). Y **no** inventar
     un distintivo sin cifra («Gradeable», «Candidata PSA») como premio de consolación cuando la cifra no es
     confiable: la teja se queda **exactamente como hoy** (R4). Tampoco **rotular el estimado con una
     versalita de `priceBasis`** (§22.3): un estimado no tiene base de precio.
+16. **No** dejar convivir una **numeración ordinal** con una cifra estimada en la misma superficie —ni la
+    `01 · 02 · 03` mono roja de §20.3, ni ninguna otra—, **ni** quitarla solo en las tejas con burbuja,
+    **ni** renumerar para tapar el hueco (§22.6b-c). Junto a un monto, un ordinal es un *ranking de
+    oportunidades*, y sería además el tercer rojo de la teja.
+17. **No** volver «promoción» una superficie que no lo es: **no** reordenar, agrupar ni adelantar las tejas
+    elegibles en el carrusel, **no** nombrar el gancho en su encabezado, kicker o subtítulo, y **no**
+    deduplicarlo contra la vitrina (§22.6b-d/e/f). El carrusel es la pista de las piezas **más caras**; que
+    alguna lleve cifra es un hecho de esa pieza, no una promesa de la sección.
+18. **No** ampliar el prop `surface` del badge (§22.5) con valores no especificados aquí, ni sustituirlo
+    por tamaños libres, `className` de tipografía o un `figureForm` abierto: es el único eje configurable
+    y su lista de valores es **cerrada por diseño**, porque es la puerta por la que volvería a colarse una
+    variante «ligera» sin micro-aviso.
 
 ### 22.11 i18n — claves nuevas (propiedad de frontend)
 
@@ -5777,8 +6462,17 @@ Convención §9.2, ES de referencia y EN obligatorio (§O.3 exige el disclaimer 
   está gradeada.»
 - `home.gradingGems.{title,kicker,lead}` (sin `viewAll` mientras no exista el filtro, §22.6).
 - **No hay clave para la confianza** (R6): no se rotula, no se explica y no se traduce lo que no se pinta.
+- **El carrusel «Piezas destacadas» (§22.6b) NO añade ni una clave.** Reutiliza tal cual
+  `catalog.gradingBadge.{figure,figureShort,microNotice,approx}` y `catalog.gradingNote.*`; lo único que
+  cambia entre superficies es **cuál de las dos formas ya existentes** se pinta y a qué breakpoint
+  (prop `surface`, §22.5). Tampoco se toca `home.featuredTitle` / `featuredTitleShort`: el encabezado del
+  carrusel no menciona el gancho (§22.6b-e). Si alguien propone una clave nueva para esta superficie, es
+  señal de que se está inventando copy que §22 no autoriza.
 - *Retiradas respecto a versiones anteriores de §22*: `rawLabel`, `rawNote`, `gainNote`, `basisLine`,
   `costTierNote`, `caveatMicro`, `srDisclaimer`, `gridNote`, `provenance`, `gradingBadge.eyebrow`.
+- **Las claves del back-office NO viven aquí.** §22.11 es **storefront**. El copy del dial de M10 —etiqueta,
+  nota persistente y los **dos** avisos del dial único— está en **§22.13(j)**, bajo `admin.m10.dials.*`, y
+  ahí consta también qué claves quedan **retiradas** (`admin.m10.dials.gradedEstimates.*`).
 
 **Textos propuestos para los dos `microNotice` (ES/EN)** — punto de partida tomado del propio §O.5; PO
 ratifica. Las **negritas** marcan las dos ideas obligatorias, que van en tinta 500 (§22.4c):
@@ -5892,11 +6586,2142 @@ El cuerpo de la nota es el texto más largo del sistema: debe poder envolver sin
    **sigue en su sitio**, después del `referenceExplainer` en su variante «sin mercado», y su retícula no
    hereda ningún divisor de la retícula de precio.
 
+**Notas añadidas por la revisión del 2026-08-31 (carrusel «Piezas destacadas», §22.6b):**
+
+9. **Arquitecto / backend — VERIFICACIÓN, no cambio de contrato (la más importante de esta revisión).**
+   §22.6b **no pide nada nuevo**: el carrusel ya consume `GET /catalog/cards` con `sort=price_desc` y
+   recibe `GroupedListingSummaryDTO`, que es exactamente donde v1.50.2 puso `gradingHighlight`. Pero todo
+   §22.6b depende de un supuesto que **el diseño no puede verificar y no debe asumir**: que
+   `gradingHighlight` se emite en **cualquier** respuesta de `/catalog/cards`, y **no solo** cuando se pasa
+   `?gradingHighlight=true`. La tabla de coste del contrato (+2 queries con el dial `on` en
+   `/catalog/cards`, sin el filtro) sugiere que sí, pero **hay que confirmarlo explícitamente**. Si
+   resultara que el campo solo se computa con el filtro activo, el carrusel **nunca** mostraría una burbuja
+   y —peor— el fallo sería **silencioso** (la teja se vería exactamente como hoy, que es lo que R4 manda
+   cuando no hay dato). No es un cambio de contrato: es una confirmación, o en el peor caso un ajuste de
+   emisión en backend. **Ninguna otra cosa se pide al contrato.**
+10. **Frontend — lo que §22.6b sí exige tocar, y el orden en que conviene hacerlo.** (a) El badge gana el
+    prop **`surface`** de tres valores cerrados (§22.5) — la teja de Compra y la vitrina se quedan en el
+    default `'grid'` y **no cambian**; (b) el `whitespace-nowrap` pasa del párrafo **al monto** (§22.8), lo
+    que también endurece la teja de Compra; (c) las dos tejas del carrusel montan el badge **como último
+    elemento**, la grande a ancho completo bajo la fila de datos y la chica tras el `StockBadge`; (d) la
+    **numeración del carrusel se vuelve condicional a nivel de pista** (§22.6b-c), decidida con el mismo
+    predicado que las cifras; (e) **la condición de la nota al pie del home pasa a ser la unión** vitrina ∪
+    carrusel (§22.6b-g) y la lista del carrusel se **comparte** con quien decide hospedarla — este punto es
+    el que, si se omite, hace que la feature «no funcione» sin que nada falle a la vista; (f) el carrusel
+    gana un `id` y su `scroll-mt` para poder ser destino del enlace de regreso. **Nada de esto abre la
+    puerta a variantes del micro-aviso**: sigue siendo un componente único, no configurable (§22.10 nº13).
+11. **Product-owner — la nota de ceguera de banner (§22.12 nº2) sube un escalón, sin cambiar la regla.**
+    Con la cuarta superficie, el home puede mostrar el mismo micro-aviso en **dos secciones distintas** de
+    la misma página (vitrina y carrusel) además de la nota al pie. **La regla no se toca y el diseño la
+    implementa entera**: `PROJECT.md` §O.5 manda y el aviso va en todas. Se deja constancia, igual que en
+    el nº2, de que la repetición sigue siendo el punto que —si alguna vez se revisa— debe decidir **PO +
+    legal**, nunca una optimización de layout. Mitigantes que ya operan aquí: el carrusel muestra **una o
+    dos** cifras entre ocho por efecto del gate, así que en la práctica el home rara vez pintará más de
+    tres avisos en total. **Nada que ratificar de copy: §22.6b no introduce texto nuevo** (§22.11).
+12. **Product-owner — el carrusel NO se convierte en superficie curada, y conviene que quede escrito.**
+    §22.6b lo trata como lo que es —las 8 piezas más caras, algunas de las cuales resultan llevar cifra— y
+    prohíbe expresamente reordenarlo por elegibilidad o nombrar el gancho en su encabezado (§22.10 nº17).
+    Si en algún momento el negocio quiere que el carrusel del home promocione **oportunidades de gradeo**,
+    eso es un **requisito distinto** (cambia el criterio de una sección existente) y debe entrar por
+    `PROJECT.md`, no por una edición de este documento.
+
+**Notas añadidas por la revisión del 2026-08-31 (dial único, §22.13):**
+
+13. **Frontend — lo que §22.13 exige tocar (y nada más).** (a) **Renombrar** el grupo de claves y la
+    etiqueta del dial (§22.13j); (b) montar el **segundo** `Banner` con la matriz de visibilidad de
+    §22.13(c) —hoy solo existe el de encendido—; (c) leer `ingestMaxCardsPerRun` reutilizando
+    `getGradedEstimateConfig` y la query key `['graded-estimates-config']` **que M2 ya usa** — es una query
+    read-only más en M10, **no un cambio de contrato**— y caer a `onNoFigures` si no está disponible;
+    (d) declarar `{perCard}` y `{runs}` como constantes en **un solo módulo**, nunca repartidas por el copy
+    ni por dos componentes; (e) dar un `id` (`gancho-revision`) y su `scroll-mt` a la sección de la **lista
+    de revisión** de M2, para que el enlace del aviso de apagado tenga destino real. Sin (e) el aviso
+    manda a una página que no lleva a ningún sitio, que es la forma más silenciosa de que la escalera de
+    remedios no se use. **Añadido v2.4:** (f) reescribir el valor de `…gradingHook.{on,onNoFigures,note}` y
+    añadir `…gradingHook.onMeasured` en ES **y** EN (§22.13d/j); (g) añadir al **mismo módulo único** de (d)
+    el selector `costBasis`, que hoy devuelve `'estimated'` fijo; (h) **cambiar la aserción del test** que
+    hoy fija `/1[.,\s]?000 créditos al día/` por la frase condicional completa (§22.13k m) — mientras esa
+    aserción exista, el copy corregido **no puede pasar CI sin tocarla**, así que va en el mismo cambio.
+
+**Notas añadidas por la corrección del 2026-08-31 (v2.5 — punteros que apuntaban a la nada):**
+
+15. **Frontend — §22.14 completa, y es lo que hace verdad el aviso.** (a) Pintar `ingestMaxCardsPerRun` en
+    `GradedEstimatesSection`, en **bloque propio** bajo la retícula de margen/frescura (§22.14b);
+    (b) añadirlo al payload del `PUT` —hoy `save()` manda solo tres campos— y validar `[1, 1000]` entero en
+    cliente, money-safe (vacío ≠ 0), con `rangeError`; (c) montar el `Banner` de créditos con
+    `warnTitleUp`/`warnTitleDown`/`warn` (§22.14c), **reutilizando `grading-hook-cost.ts`**, nunca una
+    aritmética propia; (d) claves nuevas `admin.m2.gradedEstimates.ingestCap.*` en ES **y** EN;
+    (e) retirar del aviso de apagado el escalón de «grados» (§22.13e) — **es copy, no código**, pero cae en
+    el mismo `messages/`. **Cero componentes nuevos, cero tokens nuevos, cero cambios de contrato**
+    (`GradedEstimateConfigInput.ingestMaxCardsPerRun` ya es opcional, `contract.ts:2598`).
+    **Orden de envío:** (e) y el copy de §22.13 pueden ir solos; **el puntero «se edita en M2» sólo es
+    verdad con (a)–(c) dentro** — si (a)–(c) se difieren, aplica el **plan B** de §22.13(d).
+16. **QA — el check que decide si esto bloquea.** El defecto no es «falta un campo»: es que **el aviso de
+    consentimiento nombra un remedio que no existe**. Con §22.14 en el mismo stream, el check es
+    §22.14(f)(f): guardar el tope en M2 mueve la cifra del aviso de M10. Sin §22.14, el check es que el
+    aviso **no** diga «se edita en M2» (plan B). **Cualquiera de las dos cierra el hallazgo; la tercera
+    —dejar el texto como está— no.**
+17. **Techlead / product-owner — el editor de «grados» queda fuera, y conviene que conste.** Se encontró en
+    la misma pasada: `grades` y `highlightGrades` son **read-only** en M2 (párrafo `text-xs muted`), igual
+    que `manualFreshnessDays`, `maxRawMultiple`, `minSampleCount` y `sourceStat` — éstos ya con deuda
+    registrada (**F-19**). El aviso de apagado dejó de nombrarlos (§22.13e), así que **ninguna pantalla
+    promete hoy algo que no se pueda hacer**. Darles editor es **una feature nueva** con invariantes propios
+    (`highlightGrades ⊆ grades`) y entra por `PROJECT.md`. Si PO la quiere, §22 le da sitio: sería un bloque
+    hermano del de §22.14 en la misma sección.
+14. **Arquitecto / product-owner — una petición abierta y dos constancias.** Hasta v2.3, §22.13 no necesitaba
+    ningún dato que el contrato no cubriera: el dial está en `SettingsDTO` (`gradingHookEnabled`) y el tope
+    en `GradedEstimateConfigDTO` (`ingestMaxCardsPerRun`). **La v2.4 abre una petición, y es la única.**
+    - **Petición (no bloqueante para implementar hoy): un canal para el COSTE MEDIDO.** §22.13(d) define
+      `onMeasured`, el texto que publica la cifra **medida** en vez de la nominal. Su fuente —la línea
+      `[VEREDICTO-PSA] COSTE MEDIDO:` de la sonda y su transcripción a `DEVOPS_NOTES.md`
+      (`ARCHITECTURE.md` §4.38r.3.1.1)— **no existe en ningún DTO**, así que la pantalla no puede
+      verificarla y `onMeasured` queda dormido. Si el arquitecto quiere que el aviso llegue a decir la
+      verdad medida, hace falta que `GET /admin/pricing/graded-estimates` (o donde él decida) exponga
+      **coste medido por día + fecha de la medición**. **No lo pide este documento como bloqueante** y
+      **ux-ui no diseña el DTO**: se anota para que la decisión sea suya y no una improvisación del
+      frontend el día del encendido. Mientras tanto, el aviso dice explícitamente que **no está medido**,
+      que es la verdad.
+    - Constancia (i): la **corrección de A-1** (§4.38r.3.1.0/.1) ya está aplicada al copy — el aviso **ya no
+      afirma «1 000 créditos al día» como hecho**. El **presupuesto medido** que §4.38(r.3.1.1) manda
+      publicar en `DEVOPS_NOTES.md` sigue siendo lo que da veracidad a la cifra; cuando exista, el copy
+      cambia **por selector e interpolación**, no por edición (§22.13d.1).
+    - Constancia (ii): el disclaimer de §O.5 **ya está aprobado por el dueño** (2026-08-31, con la marca
+      corregida a **TCG HUNT** en ES y EN), así que el aviso **ya no dice que falte su visto bueno** —
+      decirlo sería publicar en pantalla algo falso. Lo único que el aviso conserva de esa idea es que **no
+      ha habido revisión legal profesional**, y **esa cláusula se retira el día que un abogado revise el
+      texto**: es de PO/legal avisar cuándo. **La v2.4 no la toca.**
+    - Constancia (iii): **GU-9 cerrada** (el dueño aceptó los **60 días** de antigüedad máxima del dato
+      automático, §4.38r.3.1.2 nº3). Se revisó §22.13 completa: **ninguna superficie de M10 presentaba la
+      frescura como decisión pendiente**, así que no hubo nada que retirar. La única mención está en la nota
+      persistente (f), como ajuste editable en M2, y sigue siendo correcta.
+
 ---
 
-## 23. Ciclo de adquisición del buylist — ofertar, aceptar, guía y publicar (v2.3, §P de PROJECT)
+### 22.13 El dial único del gancho en M10 — dos avisos, uno por sentido (v2.5, `ARCHITECTURE.md` §4.38r)
 
-> **Origen:** **no hubo entrega de Claude Design** para esta feature. §23 se genera desde cero sobre la piel
+> **Corrección v2.5 (2026-08-31) — todos los punteros del copy, verificados uno por uno contra el código.**
+> Un aviso que nombra un control **tiene que poder llevarte a él**. Estado tras la revisión:
+>
+> | Puntero del copy | ¿Existe? | Evidencia | Acción |
+> |---|---|---|---|
+> | «lista de revisión» → `/admin/m2#gancho-revision` | ✅ | `GradedEstimateReviewSection.tsx:318` (`id`) + su test | ninguna |
+> | «margen mínimo» en M2 | ✅ | `GradedEstimatesSection.tsx:234` (`Input`) | ninguna |
+> | «Actualizar precios ahora» en M2 | ✅ | `admin.m2.priceIngest.trigger`, botón real | ninguna |
+> | «el tope se edita en M2» | ❌ | no se pinta ni se manda en el `PUT` | **§22.14: M2 gana el campo** |
+> | «un grado entero se quita de "grados" en M2» | ❌ | párrafo read-only, sin editor | **se retira del copy (e)** |
+
+> **Corrección v2.4 (2026-08-31) — A-1, el único bloqueante vivo del primer encendido.** El aviso de
+> encendido **afirmaba una cifra que nadie ha medido**. Se corrige en **(d)**, con la regla de redacción que
+> lo gobierna en **(d.1)**, la prohibición correspondiente en **(h)** y la verificación en **(k)**. El aviso
+> de **apagado (e)**, la nota **(f)**, la etiqueta **(g)**, la matriz **(c)** y el contraste **(i)** no
+> cambian salvo donde se indica. **Este § sigue siendo la única fuente del copy de M10.**
+
+> **Qué cambió.** El gancho pasa de **dos** interruptores a **uno** (`gradingHookEnabled`, M-46): el mismo
+> dial gobierna **exhibición Y obtención**. El dueño tenía razón —el segundo **nunca se dibujó en el
+> panel**, así que la única forma de tocarlo era `curl`—, y este § **no se disculpa por la simplificación**:
+> la da por buena y diseña lo único que ahora hace falta, que es **decir la verdad en los dos sentidos**.
+> Todo lo de §22.0–§22.12 (storefront) queda **intacto**: aquí solo se escribe el back-office de M10.
+>
+> **Cero componentes nuevos** (`Banner` §7.5 + `Switch` §6, ya montados en M10) y **cero tokens nuevos**
+> (R1 sigue rigiendo). **Cero cambios de contrato.**
+
+#### 22.13(a) Por qué DOS textos y no uno
+
+El dial dejó de ser simétrico, y esa asimetría —dictaminada en §4.38(r.2)— es la que ordena todo lo demás:
+
+| Sentido | Qué pasa de verdad | Qué tiene que hacer el texto | Variante |
+|---|---|---|---|
+| **Encender** | Publica una afirmación comercial **y** empieza a pedir datos a un proveedor **de paga**: consume créditos y escribe precios. **Una** escritura, dos consecuencias | Que **el gasto sea imposible de pasar por alto** — es la consecuencia nueva, la que nadie espera | **`Banner warning`** |
+| **Apagar** | Deja de publicar **y** deja de actualizar. Una escritura, dos consecuencias, **ninguna peligrosa** | Que el dueño **no apague la feature entera por una carta mal capturada**: enseñarle la escalera de remedios | **`Banner info`** |
+
+**Regla:** *el aviso lo elige el **sentido del cambio**, no el estado del dial.* Un solo texto tendría que
+advertir y tranquilizar a la vez, y no haría ninguna de las dos cosas. El encendido es hoy un **acto de
+dinero** (§4.38r.3) y el apagado es el **botón de pánico** que el gancho no tenía: tratarlos igual sería
+describir mal el producto.
+
+#### 22.13(b) Anatomía y ubicación — se reescribe lo que ya existe
+
+Los dos avisos son **el mismo `Banner` de §7.5** que M10 ya monta bajo la retícula de diales, en su
+contenedor, **después de la nota persistente** (f) y **antes** del botón «Guardar»:
+
+- Icono a la izquierda, **título** semibold, cuerpo. **Sin relleno de color** — icono y texto sobre papel,
+  mismo tratamiento que el aviso de §21.9c.
+- **Cuerpo en tinta**, no muted: es prosa que hay que leer. La muted queda para el icono, la regla y la
+  línea de bitácora.
+- **Las cifras de créditos van en mono `tabular-nums`** (§20.14, voz del dinero operativo): son una cuenta,
+  no una frase. Es el mismo criterio que separa precio de estimado en el storefront, aplicado aquí.
+- **El calificador viaja con la cifra, y con el mismo peso visual.** La condicional que la califica
+  («si cobra por petición…», «medido el {measuredOn}») va en **la misma frase, mismo tamaño, misma tinta**
+  que el número: nunca muted, nunca `text-xs`, nunca entre paréntesis al final del párrafo, nunca en un
+  `title`/tooltip. Una cifra en mono destaca sola; degradar su calificador la deja **leyéndose como un
+  hecho**, que es exactamente el defecto que (d.1) corrige.
+- **Los dos avisos nunca coexisten:** el estado efectivo es uno solo.
+
+#### 22.13(c) Matriz de visibilidad y ARIA
+
+«Efectivo» = el borrador si el dueño tocó el switch; si no, el valor guardado.
+
+| Guardado | Efectivo | Qué se pinta | `role` |
+|---|---|---|---|
+| `off` | `off` | solo la **nota persistente** (f) | — |
+| `off` | `on` (**lo acaba de encender**) | **Aviso de encendido** (d) | **`alert`** |
+| `on` | `on` | **Aviso de encendido** (d), como recordatorio de estado | `status` |
+| `on` | `off` (**lo acaba de apagar**) | **Aviso de apagado** (e) | `status` |
+
+- **`alert` solo en el flip a `on`:** ese es el momento de leerlo, **no después de guardar**. Es la conducta
+  que M10 ya tiene y se conserva, ahora con más razón: el flip es lo que autoriza el gasto.
+- **El aviso de encendido está redactado en presente de estado** («Con este dial encendido, la tienda
+  muestra… y el barrido pide…») para servir **igual** como advertencia previa y como recordatorio
+  permanente. **Un solo texto, dos usos**: no hay variante por momento, y así no puede desincronizarse una
+  con la otra.
+- **El aviso de apagado no sube a `alert`.** Interrumpir a quien está tomando la decisión segura es ruido.
+- **El banner no roba el foco:** lo conserva el switch, para poder revertir con la misma tecla.
+
+#### 22.13(d) Copy del ENCENDIDO — publica **y** gasta (cuánto, **medido o no**)
+
+**Tres entradillas, tres ideas, y la tercera es la que faltaba:** *publica* → *gasta* → **cuánto**. El cuerpo
+es **un solo texto** con **tres variantes** que se diferencian **únicamente en el tercer bloque** (el de
+«cuánto»); todo lo demás es literal idéntico entre las tres. La variante la elige `costBasis` (d.1).
+
+| Clave | Cuándo se pinta |
+|---|---|
+| `on` | **Por defecto y hoy siempre.** Hay tope de M2, **no hay coste medido** |
+| `onMeasured` | Hay tope de M2 **y** hay coste medido del entorno (§4.38r.3.1.1) — **previsto, dormido hasta que exista la fuente** |
+| `onNoFigures` | **No** hay tope de M2 (cargando, error, sin permiso) |
+
+**Título y línea de bitácora — comunes a las tres variantes** (el título no lleva cifra, así que **sigue
+siendo verdad también cuando el coste esté medido**; no se toca en v2.4):
+
+| Clave | ES | EN |
+|---|---|---|
+| `onTitle` | Encendido: publica cifras **y** consume créditos | On: publishes figures **and** spends credits |
+| `audit` | Solo súper-admin · queda en bitácora. | Super-admin only · recorded in the audit log. |
+
+**`on` — cuerpo completo (variante sin medir). ES:**
+
+> **Publica.** Con este dial encendido, la tienda muestra cifras estimadas de PSA 10 / PSA 9 sobre cartas sin
+> gradear, con su disclaimer (aprobado por el dueño; sin revisión legal profesional): es una afirmación
+> comercial de la tienda. **Y gasta.** El mismo dial autoriza al barrido diario a pedir esas cifras a un
+> proveedor **de paga** y a escribir precios estimados. **Cuánto gasta, todavía nadie lo ha medido.** Lo que
+> sí sabemos es el alcance: el barrido mira hasta **{maxCards} cartas tuyas** por corrida, **{runs} corridas
+> al día** (ese tope se edita en M2 · Catálogo y precios). Lo que no sabemos es **cómo factura el
+> proveedor**: si cobra por petición, el techo son **{credits} créditos al día** ({maxCards} × {perCard} ×
+> {runs}); si cobra por carta devuelta, cada petición pide el **set entero**, el barrido paga **todas** las
+> cartas de cada set que toque y la factura puede ser **varias veces** esa cifra. **La primera corrida lo
+> mide**; hasta entonces, {credits} es un techo bajo un supuesto, no un presupuesto. Los créditos gastados
+> no se recuperan al apagar. No cambia ningún precio de venta, valuación ni cotización: cambia lo que la
+> tienda afirma **y lo que cuesta**.
+
+**`on` — EN:**
+
+> **It publishes.** With this dial on, the storefront shows estimated PSA 10 / PSA 9 figures for ungraded
+> cards, with its disclaimer (approved by the owner; not reviewed by a lawyer): it is a commercial claim by
+> the store. **And it spends.** The same dial lets the daily sweep ask a **paid** provider for those figures
+> and write estimated prices. **How much it spends has not been measured yet.** What we do know is the
+> scope: the sweep looks at up to **{maxCards} of your cards** per run, **{runs} runs a day** (that cap is
+> edited in M2 · Catalog and pricing). What we do not know is **how the provider bills**: if it charges per
+> request, the ceiling is **{credits} credits a day** ({maxCards} × {perCard} × {runs}); if it charges per
+> returned card, each request asks for the **whole set**, the sweep pays for **every** card in each set it
+> touches, and the bill can be **several times** that figure. **The first run measures it**; until then,
+> {credits} is a ceiling under an assumption, not a budget. Credits spent are not recovered by turning it
+> off. It changes no sale price, valuation or quote: it changes what the store claims — **and what it
+> costs**.
+
+**`onMeasured` — idéntico a `on` salvo el tercer bloque, que pasa de hipótesis a medición:**
+
+| | ES | EN |
+|---|---|---|
+| Bloque «cuánto» | **Cuánto gasta, ya está medido.** El barrido mira hasta **{maxCards} cartas tuyas** por corrida, **{runs} corridas al día**, y la corrida medida el {measuredOn} gastó a razón de **{credits} créditos al día**. Es una medición, no un supuesto: si cambia el tope, el inventario o el proveedor, vuelve a medirse. | **How much it spends has been measured.** The sweep looks at up to **{maxCards} of your cards** per run, **{runs} runs a day**, and the run measured on {measuredOn} spent at a rate of **{credits} credits a day**. That is a measurement, not an assumption: if the cap, the inventory or the provider changes, it gets measured again. |
+
+**`onNoFigures` — idéntico a `on` salvo el tercer bloque, sin ninguna cifra:**
+
+| | ES | EN |
+|---|---|---|
+| Bloque «cuánto» | **Cuánto gasta, todavía nadie lo ha medido.** Consume créditos en cada corrida. El tope que fijaste en M2 · Catálogo y precios acota **cuántas cartas tuyas mira** el barrido, **no cuántas te cobra el proveedor**: cada petición pide el set entero. Cuánto cuesta de verdad lo mide la primera corrida. | **How much it spends has not been measured yet.** It consumes credits on every run. The cap you set in M2 · Catalog and pricing limits **how many of your cards** the sweep looks at, **not how many the provider bills you for**: each request asks for the whole set. What it really costs is measured by the first run. |
+
+- **Las tres entradillas —«Publica.» / «Y gasta.» / «Cuánto gasta…»— son el mecanismo, no adorno.** Es el
+  mismo recurso de §22.4b (entradilla en tinta 500 dentro del párrafo) y garantiza que **las consecuencias
+  se lean aunque nadie lea el párrafo**. Se marcan con **rich text de next-intl** (`<b>…</b>`), nunca
+  partiendo la frase en dos claves ni concatenando (§9.4). La tercera entradilla es nueva en v2.4: sin ella,
+  «cuánto» quedaba dentro de la segunda y **se leía como un dato cerrado**.
+- **Los números se interpolan; no se hardcodean** — convención del sistema («del dial, nunca hardcodeado»,
+  §15). `{maxCards}` = `ingestMaxCardsPerRun` (M2, `GET /admin/pricing/graded-estimates`); `{perCard}` y
+  `{runs}` son las constantes de coste del proveedor y de cadencia del cron, declaradas por frontend en
+  **un solo módulo**; `{credits}` llega **ya multiplicado** (ICU no multiplica).
+- **Lo que dan los topes de hoy.** `250 × 2 × 2 = 1 000` créditos/día **bajo el supuesto «por petición»**.
+  El máximo que un solo `PUT` puede autorizar bajó de **5 000 a 1 000** (I8, contrato **v1.51-a**,
+  §4.38r.3.4), así que el peor caso nominal por `PUT` es **4 000**/día y ya no 20 000 — pero **eso es antes
+  del factor de amplificación `A`**, que ningún dial acota. **Estrechar el tope no acota la factura**, y el
+  copy no debe insinuar que sí: por eso `onNoFigures` dice explícitamente qué acota el tope y qué no.
+- **«ese tope se edita en M2 · Catálogo y precios» — el puntero sólo puede viajar con §22.14.** Hoy M2
+  **no dibuja el campo** (verificado: `GradedEstimatesSection.tsx` no lo pinta ni lo manda en el `PUT`), así
+  que esa frase manda al dueño a un sitio donde no puede hacer lo que la pantalla le dice. **La salida
+  elegida es que el sitio exista** (§22.14), no suavizar la frase. Regla de envío, sin ambigüedad:
+  - **Si §22.14 entra en el mismo stream:** el texto de arriba queda **tal cual** y **no se toca nada** — el
+    puntero pasa a ser verdad el día que el campo se pinta. Es la salida preferida.
+  - **Plan B, sólo si QA bloquea el merge y §22.14 se difiere:** la frase entre paréntesis se sustituye por
+    **ES** «(ese tope es un ajuste del servidor y **hoy no se puede cambiar desde el panel**)» · **EN**
+    «(that cap is a server setting and **cannot be changed from the panel today**)», y §22.14 pasa a
+    `TECH_DEBT` como **deuda con fecha**. Es peor producto —le dice al dueño que no tiene palanca— pero es
+    **verdad**, que es el mínimo no negociable. Al entrar §22.14, esa cláusula **se borra** y vuelve el
+    puntero: es una sustitución de una cláusula entre paréntesis, no una reescritura del aviso.
+  - **Lo que NO es salida:** dejar el puntero y anotar la diferencia en un documento. Un aviso que describe
+    una pantalla que no existe es exactamente el defecto que §22.13 entera existe para no cometer.
+- **El aviso nunca espera a un número.** Si la config de M2 no está disponible (cargando, error, permiso),
+  se pinta `onNoFigures`, que conserva **las tres** ideas. Es la doctrina de **R3.4 llevada al back-office**:
+  **cede la cifra, nunca el aviso** — y, desde v2.4, **cede la cifra antes que el calificador**.
+- **`audit` es la última línea del banner**, mono 11px muted. §7.6 ya lo exige a las acciones de dinero
+  saliente («Solo súper-admin · queda en bitácora»); aquí aplica porque **encender es** una acción de
+  dinero.
+- **Corrección de hecho (2026-08-31, disclaimer).** La versión anterior de este aviso decía que el texto
+  legal *«todavía NO tiene el visto bueno del dueño (ni revisión legal)»*. **El dueño lo aprobó** —en la
+  misma sesión, con la marca corregida a **TCG HUNT**— así que esa frase **se retira**: escribirla hoy sería
+  **publicar en pantalla algo falso**, en la pantalla que precisamente existe para que nadie encienda esto a
+  ciegas. Se conserva lo único que sigue siendo verdad, **«sin revisión legal profesional»**, y esa cláusula
+  **se cae el día que un abogado revise el disclaimer** (§22.12 nº14). **La v2.4 no la afloja**: las tres
+  variantes la llevan literal.
+- **GU-9 está cerrada y este § nunca la mencionó.** El dueño aceptó los **60 días** de antigüedad del dato
+  automático (§4.38r.3.1.2 nº3). Se revisó §22.13 entera: **no hay ninguna frase que presente la frescura
+  como decisión pendiente** — (f) solo la nombra como un ajuste editable en M2, que sigue siendo cierto. No
+  hay nada que retirar, y queda constancia de que se buscó.
+
+#### 22.13(d.1) La regla de calificación — lo que sabemos, lo que no, y quién lo resuelve
+
+**Norma.** *Mientras el coste no se haya medido en el entorno que se enciende, el aviso **no puede presentar
+ninguna cifra de créditos sin decir, en la misma frase, bajo qué supuesto vale y qué la pondría en duda**.*
+
+Por qué, con los hechos delante (`ARCHITECTURE.md` §4.38r.3.1.0, verificado contra el código que corre):
+
+| | Qué es | Estado |
+|---|---|---|
+| `{maxCards}` cartas por corrida, `{runs}` corridas al día | **Alcance**: cuántas cartas **nuestras** entran. Sale de un dial que el dueño edita | ✅ **Lo sabemos** |
+| `{perCard}` créditos por carta | Tarifa publicada del proveedor | ✅ Lo sabemos |
+| **Qué cuenta el proveedor para cobrar** — cartas *en alcance* o cartas *devueltas* | La petición manda `fetchAllInSet=true`: pide **el set entero**. `ingestMaxCardsPerRun` acota el alcance, **no** lo devuelto. `A = devueltas / en alcance ≥ 1`, y **ningún dial lo acota** | ❌ **NO lo sabemos** |
+| `{credits}` = `{maxCards} × {perCard} × {runs}` | **Solo vale si se cobra por petición.** Si se cobra por carta devuelta, el techo es `{credits} × A` — 250 cartas en 20 sets de 200 dan `A = 16` ⇒ **16 000/día** frente a una cuota de 20 000 | ⚠️ **Hipótesis** |
+
+**El error que esto corrige no es de estilo: es de clase.** Una consecuencia **observable** del
+comportamiento del proveedor estaba escrita como si fuera una **decisión nuestra**. Y la pantalla donde
+estaba escrita es, literalmente, **la que existe para que nadie encienda esto a ciegas**: era el peor sitio
+posible para un número inventado. La diferencia entre los dos regímenes es la diferencia entre gastar el
+**5 %** y el **80 %** de la cuota diaria del dueño — no es un matiz de redacción.
+
+**Cómo se redacta la calificación (y por qué no basta con «aproximadamente»).**
+
+| Recurso | Veredicto |
+|---|---|
+| «aproximadamente **{credits}**», «~{credits}», «hasta unos {credits}» | ❌ **Prohibido.** Sugiere **error de redondeo** sobre un número correcto. El error posible es de **un factor de 16**, no de un decimal, y su causa no es la precisión sino **un supuesto de facturación sin observar** |
+| «puede variar», «estimado», «orientativo» | ❌ Insuficiente por lo mismo: no dice **qué** puede variar ni **quién** lo resuelve |
+| **Nombrar los dos regímenes, decir cuál asume la cuenta y decir que la primera corrida lo dirime** | ✅ **Es la forma exigida.** El dueño no tiene que creerse un número: tiene que poder decidir **con la incertidumbre a la vista y con la salida a la vista** |
+
+**Y la cifra no se borra.** Se consideró quitarla y dejar solo «consume créditos»: **se rechaza**. Un aviso
+de gasto sin orden de magnitud no permite decidir, y el dueño sí sabe cuántas cartas suyas entran — ocultarle
+la mitad que **sí** conocemos sería el error simétrico. Se publica **con su supuesto pegado**.
+
+**Selector `costBasis` — cómo se enciende el texto medido sin reescribir nada.**
+
+```
+costBasis = 'measured'   ⇒ onMeasured   (hay coste medido del entorno + fecha)
+costBasis = 'estimated'  ⇒ on           (hay tope de M2, no hay medición)  ← hoy, siempre
+(sin tope de M2)         ⇒ onNoFigures  (gana sobre las dos anteriores)
+```
+
+- El selector vive en **el mismo módulo único** donde ya viven `{perCard}` y `{runs}` (§22.12 nº13d). Hoy
+  devuelve `'estimated'` **de forma fija**, porque no hay fuente: el `COSTE MEDIDO` de §4.38(r.3.1.1) vive
+  en el log de la sonda y en `DEVOPS_NOTES.md`, **no en ningún DTO**.
+- **Las tres variantes se traducen y se montan ahora**, aunque `onMeasured` no se pinte todavía. Es
+  deliberado: el día que el número medido exista, publicarlo es **cambiar un selector**, no reabrir el copy
+  de una pantalla de consentimiento con prisa. Un aviso reescrito con prisa es cómo se coló el defecto que
+  este § corrige.
+- **Qué falta para encenderlo** — no lo decide ux-ui: hace falta que el coste medido llegue al frontend por
+  un canal del contrato. **Solicitud abierta al arquitecto/PO en §22.12 nº14.** Hasta entonces, `onMeasured`
+  **no se pinta** — y **no** se rellena a mano desde un `.env`, un literal ni una constante «temporal»: eso
+  sería volver a afirmar como medido algo que la pantalla no puede verificar.
+
+#### 22.13(e) Copy del APAGADO — deja de publicar **y** de actualizar
+
+El trabajo de este texto es **la puntería, no el miedo**: el dial es el **último escalón** (§4.38r.5), y sin
+decirlo el dueño apagará la feature entera por una carta mal capturada.
+
+| Clave | ES | EN |
+|---|---|---|
+| `offTitle` | Apagar también deja de actualizar | Turning it off also stops updating |
+| `off` | **Para las dos cosas a la vez.** Mientras esté apagado, la tienda no muestra ninguna cifra estimada y el barrido no pide ni escribe ninguna: no se gasta un crédito y los datos automáticos dejan de refrescarse. **Para una cifra concreta, este no es el remedio.** Una cifra rara se borra en la lista de revisión; si lo que sobra es la promoción, sube el margen mínimo en M2 y la ficha sigue informando. Apágalo cuando la duda sea de fondo: cambió el proveedor o las cifras dejaron de ser de fiar. Al reencender, la siguiente corrida repone las cifras automáticas; si tienes prisa, «Actualizar precios ahora» en M2. | **It stops both at once.** While off, the storefront shows no estimated figure and the sweep neither requests nor writes any: not a credit is spent, and automatic data stops being refreshed. **For one specific figure, this is not the remedy.** A wrong figure is deleted from the review list; if what’s excessive is the promotion, raise the minimum upside in M2 and the card page keeps informing. Turn it off when the doubt is systemic: the provider changed, or the figures are no longer trustworthy. When you turn it back on, the next run restores the automatic figures; if you’re in a hurry, “Refresh prices now” in M2. |
+
+- **Un solo enlace.** «lista de revisión» / «review list» va envuelta en el chunk `<review>…</review>` de
+  next-intl y se pinta como `<a>` a `/admin/m2#gancho-revision` (§9.4: la frase **no** se parte en dos
+  claves ni se concatena). El otro escalón se nombra **por su control** («margen mínimo»), que es como se
+  llama en M2: dos enlaces compitiendo convertirían el aviso en un menú.
+- **Corrección v2.5 — el escalón de «grados» SE RETIRA, porque tampoco existe.** La versión anterior decía
+  *«un grado entero se quita de "grados" en M2»*. **En M2 los grados son un párrafo read-only**, no un
+  control: `GradedEstimatesSection.tsx` los pinta con `server.grades.join(' · ')` dentro de un
+  `<p class="text-xs text-muted">`, y no hay editor en ninguna pantalla (verificado en todo `(admin)/`).
+  Era **el mismo defecto** que el del tope (§22.14), en el escalón de en medio. La regla que el propio (e)
+  ya declaraba —*«la pantalla muestra los tres escalones que el dueño puede accionar solo»*— resuelve el
+  caso sin inventar nada: si no lo puede accionar solo, **no es un escalón**, así que la escalera pasa a
+  **dos**, y los dos están verificados (`gancho-revision` existe con su ancla y su test; `minUpside` es un
+  `Input` real).
+- **Editar los grados NO se pide aquí.** A diferencia del tope, los grados **no son la palanca del gasto**
+  ni nada que el aviso prometa como remedio ya. Ponerles editor es una feature con sus propios invariantes
+  (`highlightGrades ⊆ grades`, gate siempre evaluado en PSA 9) y **entra por `PROJECT.md`**, no por una
+  edición de este documento. Queda anotado para PO/techlead en §22.12 nº15.
+- **La escalera va en prosa, no en tabla ni en viñetas.** Se lee en cinco segundos en el momento exacto de
+  la duda, y una tabla dentro de un `Banner` es un componente nuevo disfrazado. La escalera completa
+  —incluida la sonda, que es de devops— vive en `ARCHITECTURE.md` §4.38(r.5); la pantalla muestra **los
+  escalones que el dueño puede accionar solo** — desde v2.5, **dos**, y ni uno más del que no pueda.
+- **Cita el label literal del botón que existe** («Actualizar precios ahora» / «Refresh prices now»,
+  `admin.m2.priceIngest.trigger`): un aviso que nombra un botón inexistente es peor que no decir nada.
+- **Sin cifra de horas.** El «≤ 12 h» de §4.38(r.5) es la cadencia del cron, no un dato de pantalla: «la
+  siguiente corrida» es verdad hoy y lo seguirá siendo si el cron cambia.
+- **No promete que apagar arregle nada.** Dice qué detiene y qué no; el rancio al reencender se explica por
+  su remedio (la corrida siguiente), no como advertencia.
+
+#### 22.13(f) La nota persistente — siempre visible, bajo la retícula de diales
+
+`text-xs muted`, sin banner: es contexto, no aviso. Reescribe la nota que ya existe.
+
+| Clave | ES | EN |
+|---|---|---|
+| `note` | Un solo interruptor gobierna el gancho: encendido, la tienda publica las cifras estimadas **y** el barrido diario las trae de un proveedor de paga; apagado, no publica ninguna **y** tampoco actualiza ninguna. Los escalones de costo de gradeo, el margen mínimo, la frescura y el tope de cartas por corrida se editan en M2 · Catálogo y precios, junto con la lista de revisión — que es la herramienta para una cifra concreta. Ese tope acota **cuántas cartas tuyas mira** el barrido, no cuántas te cobra el proveedor. | A single switch governs the hook: on, the storefront publishes the estimated figures **and** the daily sweep fetches them from a paid provider; off, it publishes none **and** updates none. Grading cost tiers, minimum upside, freshness and the per-run card cap are edited in M2 · Catalog and pricing, along with the review list — the tool for a single figure. That cap limits **how many of your cards** the sweep looks at, not how many the provider bills you for. |
+
+La nota carga **la versión de una línea** de las dos ideas, para que estén presentes **también cuando el
+dial está apagado y no hay ningún banner**: es lo que impide que el dueño descubra la escalera solo en el
+momento de apagar.
+
+**Corregido v2.5 — «los grados» sale de la lista de lo editable.** La nota los enumeraba junto a los
+escalones y el margen mínimo, y **no son editables en ninguna pantalla** (párrafo read-only en M2,
+§22.13e). El tope **sí se queda** en la lista: §22.14 lo hace verdad. Si §22.14 se difiere (plan B de (d)),
+el tope sale de esta enumeración **también aquí** — la nota y el banner no pueden decir cosas distintas.
+
+**Añadido v2.4 — la última frase.** La nota es el sitio donde el dueño lee qué hace el tope de M2 **cuando
+va a editarlo**, que es justo cuando puede creer que está fijando un presupuesto. La frase es **verdad
+permanente** (no caduca cuando se mida el coste) y **no lleva ninguna cifra**, así que no compite con el
+banner ni hay que mantenerla en dos sitios. **No** se le añade nada sobre regímenes de cobro: eso es del
+aviso de encendido, y una nota persistente con la duda entera dentro se convierte en un segundo banner.
+
+#### 22.13(g) Etiqueta del dial
+
+`dials.labels.gradingHookEnabled` — ES **«Gancho de grading — publica y trae datos»** · EN **«Grading hook —
+publishes and fetches data»**.
+
+La etiqueta es lo primero que se lee junto al switch; que cargue **las dos** consecuencias es la advertencia
+más barata del panel. Sustituye a `gradedEstimatesEnabled` («Valor estimado si se gradea (gancho)»), que
+solo nombraba la mitad — el mismo defecto de nombre que §4.38(r.1) corrigió en la `SettingKey`.
+
+#### 22.13(h) Prohibiciones
+
+| Prohibido | Por qué |
+|---|---|
+| **Modal de confirmación para encender** | Se consideró y **se rechaza**. Ya hay dos actos deliberados (el flip, con su aviso `role="alert"` en pantalla, y el guardado explícito), y el banner **sigue ahí mientras decides**, que es más de lo que consigue un modal: el clic reflejo de un modal protege menos que un texto que no se va. Además introduciría un patrón que M10 no usa para ningún otro dial. |
+| **Cualquier fricción extra en el APAGADO** (modal, «escribe APAGAR», doble confirmación) | El apagado es el **botón de pánico** que el gancho no tenía (§4.38r.2). Poner fricción en la dirección segura se paga en el peor momento posible. |
+| **Pintar el apagado en `warning`/`danger`** (rojo) | Convertiría en «peligroso» el remedio correcto de la duda sistémica. `info` es **tinta muted sin color propio** (§2.3): informa, no alarma. |
+| **Ocultar el aviso de encendido porque falta el número de créditos** | Para eso existe `onNoFigures`. Cede la cifra, nunca el aviso. |
+| **Afirmar una cifra de créditos sin su calificador en la misma frase** | Es el defecto que la v2.4 corrige (d.1). El techo nominal supone que se cobra **por petición**; si se cobra por carta devuelta, la petición pide el **set entero** y el gasto real puede ser **varias veces** mayor. Escribirla desnuda es enseñarle al dueño una hipótesis con cara de medición, **en la pantalla que existe para que no encienda a ciegas**. |
+| **Calificarla solo con «aproximadamente», «~», «estimado» o «puede variar»** | Sugiere imprecisión de redondeo. El rango del error es un **factor**, no un decimal, y la causa es un **supuesto de facturación sin observar** (d.1). |
+| **Degradar el calificador** (muted, `text-xs`, paréntesis final, `title`/tooltip, «ver detalles») | La cifra va en mono y destaca sola; si su condición se lee más floja, el conjunto **se lee como un hecho**. Misma doctrina que R3: un texto que exigió un clic admite la réplica «nunca lo abrí». |
+| **Presentar `ingestMaxCardsPerRun` (ni su máximo de 1 000) como si acotara el gasto** | Acota las cartas **en alcance**, no las **devueltas**. Ningún dial acota el factor de amplificación. Decir «bajamos el tope, ya está acotado» crea una falsa sensación de cobertura — lo advierte §4.38(r.3.4) con esas palabras. |
+| **Pintar `onMeasured` con un número que no venga de una medición del entorno** (literal, `.env`, constante «temporal») | Sería exactamente el defecto original, con la palabra «medido» encima. Sin fuente en el contrato, `onMeasured` **no se pinta** (d.1). |
+| **Repetir aquí el disclaimer completo de §O.5** | El disclaimer es del **storefront** (§22.4). M10 solo dice que encender **lo publica**. |
+| **Decir que el disclaimer no está aprobado** | **Ya lo está** (§22.12 nº14). Una pantalla que afirma lo contrario de lo que el producto hace es exactamente el defecto que este § existe para no cometer. |
+| **Rotular estados que ya no existen** («parcial», «solo ingest», «modo prueba», «traer sin publicar») | Con un dial esos estados **no son expresables** (§4.38r.6.4). Nombrarlos en pantalla reabre el defecto que el dueño pidió cerrar. |
+| **Que el color sea el único canal** del estado | El switch lleva su texto «Encendido/Apagado» (`dials.onOff`) y el título del banner dice qué pasa (§2.4). |
+| **Ofrecer «apagar» como acción dentro del banner de encendido** | El control es el switch que está justo arriba. Un botón de apagado dentro del aviso duplica la palanca y desalinea el borrador con el guardado. |
+
+#### 22.13(i) Accesibilidad y contraste — todo con pares ya verificados (§10, §17.2/§20.15)
+
+| Elemento | Par | Ratio | Cumple |
+|---|---|---|---|
+| Cuerpo de los dos avisos | tinta `#1A1A18` sobre papel `#F4F1EA` | ~15.5:1 | AA/AAA |
+| Línea `audit` (mono 11px) | muted `#6E695E` sobre papel | ~4.8:1 | AA |
+| Icono/borde del aviso de **encendido** | accent `#B31217` sobre papel (§17.2) | ~6.2:1 | AA |
+| Icono/borde del aviso de **apagado** | `--color-info` = muted `#6E695E`, fondo `transparent` | ~4.8:1 | AA |
+| Enlace `<review>` + anillo de foco | accent sobre papel (§8.2) | ~6.2:1 | AA (≥3:1 UI) |
+
+- **Cero tokens nuevos**: el aviso de apagado no estrena color porque `info` **no tiene color propio**.
+- `role="alert"` **solo** en el flip a `on`; `status` en los demás (§22.13c).
+- El enlace es un `<a>` real con objetivo táctil **≥ 44×44**; su destino lleva
+  `scroll-margin-top: calc(var(--app-header-h,0px) + 16px)` (§4.5), como la nota al pie de §22.4a —
+  aterrizar bajo un header sticky es el fallo clásico de este patrón.
+- Los avisos son **texto renderizado**: nunca `title`, `tooltip` ni `<details>`. Misma doctrina que R3 en el
+  storefront, aplicada al back-office — un aviso que exigió un clic admite la réplica «nunca lo abrí».
+- El cambio de banner al mover el switch **no anima** y **no desplaza** el botón «Guardar» fuera de vista en
+  móvil: el aviso crece hacia abajo, el botón queda debajo del aviso, no encima.
+
+#### 22.13(j) i18n — claves nuevas y retiradas (propiedad de frontend)
+
+- **Nuevas:** `admin.m10.dials.labels.gradingHookEnabled` ·
+  `admin.m10.dials.gradingHook.{note,onTitle,on,onMeasured,onNoFigures,audit,offTitle,off}`.
+- **Retiradas:** `admin.m10.dials.labels.gradedEstimatesEnabled` ·
+  `admin.m10.dials.gradedEstimates.{note,warningTitle,warning}`.
+- **Cambia en v2.4 (reescritura de valor, no de nombre):** `…gradingHook.on` y `…gradingHook.onNoFigures`
+  (nuevo bloque «cuánto», (d)) · `…gradingHook.note` (frase final, (f)). **Nueva en v2.4:**
+  `…gradingHook.onMeasured`, con **un placeholder más**, `{measuredOn}` (fecha ya formateada por el
+  frontend; el ICU no formatea aquí para no duplicar la política de fechas de §9.3). Las claves
+  `onTitle`, `audit` y la etiqueta del dial **no cambian**.
+- **Cambia en v2.5:** `…gradingHook.off` (se retira el escalón de «grados», §22.13e) y `…gradingHook.note`
+  (se retira «los grados» de la enumeración, §22.13f). **`onTitle`, `audit` y `offTitle` siguen intactas.**
+  **Claves nuevas fuera de M10:** `admin.m2.gradedEstimates.ingestCap.{label,hint,warnTitleUp,warnTitleDown,warn,rangeError}`
+  (§22.14c) — son de M2, no del grupo `gradingHook`, porque viven en la pantalla que edita, no en la que
+  consiente.
+- **El grupo se renombra a `gradingHook`** por la misma razón por la que §4.38(r.1) renombró la `SettingKey`:
+  **el significado cambió, así que el nombre cambia**. Mantener un nombre viejo sobre semántica nueva es el
+  mecanismo exacto por el que esta feature ya acumuló divergencias en silencio.
+- **Longitudes (§9.4):** el cuerpo de encendido pasa en v2.4 de ~600 a **~980 caracteres en ES** (~960 EN)
+  por el bloque «cuánto»; `onMeasured` mide ~800/~790 y `onNoFigures` ~780/~770; el de apagado sigue en
+  ~570/~560. Es, con diferencia, el texto más largo del panel de M10: **debe envolver sin tocar tamaños** y
+  el banner **no lleva alto fijo, ni scroll interno, ni truncado**. En 390px ocupa varias pantallas de alto
+  y está bien: es un aviso de gasto, no una etiqueta. **Crecer no es el defecto** — el defecto era caber
+  diciendo algo falso.
+- ES es la referencia y **EN es obligatorio** (§9.2): un aviso de gasto que solo existe en un idioma es un
+  aviso que alguien no leerá.
+
+#### 22.13(k) QA visual sugerido
+
+(a) Con el dial guardado en `off`, la pantalla muestra **solo la nota**: ningún banner, ningún hueco
+reservado. (b) Mover el switch a `on` **sin guardar** ⇒ aparece el aviso de encendido con `role="alert"`, y
+revertir el switch lo **retira** sin dejar rastro. (c) Con el dial guardado en `on`, el mismo texto sigue
+visible como `status` — **no** desaparece tras guardar. (d) Mover el switch a `off` estando guardado en `on`
+⇒ aparece el aviso de apagado, **en muted, sin rojo**. (e) Los dos avisos **nunca** se ven a la vez.
+(f) Forzar el fallo de `GET /admin/pricing/graded-estimates` ⇒ el aviso de encendido **sigue apareciendo**
+en su variante `onNoFigures` (si desaparece, es el bloqueante), **y ese texto no insinúa que el tope acote el
+gasto**. (g) La cifra de créditos se mueve al cambiar
+`ingestMaxCardsPerRun` en M2 — si no se mueve, está hardcodeada. (h) El enlace de la lista de revisión
+**aterriza en la sección**, con su encabezado visible bajo el header sticky. (i) EN completo en los dos
+avisos, la nota y la etiqueta. (j) Lector de pantalla: al encender se **anuncia** el aviso; al apagar se
+anuncia sin interrumpir. (k) **Cero apariciones** de la frase «no tiene el visto bueno del dueño» en
+`messages/`.
+
+**Añadido v2.4 — la verificación de la calificación (es la que faltaba, y la que un test estaba impidiendo):**
+
+(l) **Ninguna cifra de créditos aparece sin su condición en la misma frase.** Se comprueba a ojo en pantalla
+y por búsqueda en `messages/`: cada `{credits}` de `on` va acompañado de «si cobra por petición» / «if it
+charges per request», y el párrafo dice «La primera corrida lo mide» / «The first run measures it».
+(m) **El test del frontend no puede fijar la cifra desnuda.** La aserción vigente
+`/1[.,\s]?000 créditos al día/` de `M10View.test.tsx` **fija la falsedad y la protege**: se sustituye por una
+que exija **la frase condicional completa** (cifra **+** régimen de cobro **+** «la primera corrida lo mide»).
+*Un test que fija un número sin su calificador convierte un error de producto en un invariante de CI* — es el
+mismo mecanismo por el que este defecto sobrevivió a una revisión. (n) **`onMeasured` sin fuente no se
+pinta:** forzar `costBasis = 'measured'` en el módulo de coste **cambia el texto al medido sin editar ni una
+cadena** (si hay que reescribir algo, el previsto no está previsto), y **fuera de esa prueba manual el
+selector devuelve `'estimated'`**. (o) **Búsqueda negativa en `messages/`:** cero apariciones de
+«aproximadamente {credits}», «~{credits}» o «{credits} créditos al día» sin condicional delante.
+(p) El calificador se renderiza con **la misma tinta y el mismo tamaño** que el resto del cuerpo: si se ve
+más claro o más pequeño que la cifra, es un fallo de (b).
+
+**Añadido v2.5 — cada puntero, contra el producto (no contra un documento):**
+
+(q) **Todo control que el copy nombre se abre y se usa.** Con el aviso delante: el enlace de la lista de
+revisión lleva a la sección, «margen mínimo» existe como campo en M2, «Actualizar precios ahora» es un botón
+real, y —con §22.14— «el tope» es un campo editable. **Si un nombre del copy no se puede seguir hasta un
+control, el copy está mal, no el producto.** (r) **Cero apariciones de «grados» como remedio** en
+`admin.m10.dials.gradingHook.{off,note}` de `messages/`: mientras no exista editor, nombrarlo es prometer
+una palanca inexistente. (s) Guardar el tope en M2 **mueve la cifra del aviso de M10** sin recargar
+(§22.14f f) — es el mismo check por los dos lados, y es el que demuestra que la palanca y el aviso son la
+misma feature.
+
+---
+
+### 22.14 El tope de cartas por corrida en M2 — la palanca que el aviso promete (v2.5, 2026-08-31)
+
+> **Por qué existe este §.** El aviso de §22.13(d) dice que el tope **«se edita en M2 · Catálogo y
+> precios»**. **M2 no dibuja ese campo.** Verificado contra el código que corre, no contra otro documento:
+> `GradedEstimatesSection.tsx` pinta escalones, `minUpsidePct`, `freshnessDays` y **dos párrafos read-only**
+> (`confidenceDials`, `grades`) — `ingestMaxCardsPerRun` **no aparece**, ni en un `Input` ni en el payload
+> del `PUT` (`save()` manda solo `gradingCostTiers`, `minUpsidePct`, `freshnessDays`). En todo el frontend
+> la clave sale **una vez** en un fixture de test y **una vez** en `M10View.tsx:218`, que la **lee**.
+>
+> **La falla es de la misma familia que la que corrigió la v2.4, y en el mismo párrafo.** Aquélla afirmaba
+> un número que nadie había medido; ésta manda al dueño a un sitio **donde no puede hacer lo que la pantalla
+> le acaba de decir que haga**. Y no es un puntero cualquiera: es **la única palanca que el propio aviso le
+> ofrece frente al gasto** — un dueño que lee el techo, quiere bajarlo antes de encender, va a M2 y no
+> encuentra nada.
+
+#### 22.14(a) La decisión: **M2 gana el campo** (opción 1), no se ablanda el copy
+
+Se evaluaron las dos salidas y **se elige que el sitio exista**, no que el texto lo esquive:
+
+| Salida | Coste | Veredicto |
+|---|---|---|
+| **(1) M2 dibuja el campo** | un `Input`, su validación `[1, 1000]`, un campo más en el payload y **un aviso de créditos nuevo** (redactado abajo) | ✅ **Elegida** |
+| (2) Ajustar el copy a que hoy no se puede | casi cero | ❌ Solo como **plan B** de QA (c) |
+
+**Las tres razones, en orden de peso:**
+
+1. **Es el dial del dinero.** `ARCHITECTURE.md` §4.38(r.3) lo declara **«la única cota entre un `PUT` y la
+   factura del proveedor»**. Que la única cota no tenga campo mientras `minUpsidePct` y `freshnessDays`
+   —que no gastan un peso— sí lo tienen, es la asimetría exactamente al revés.
+2. **El dueño ya rechazó este defecto una vez, en esta misma feature.** El gancho tenía dos interruptores y
+   el segundo **nunca se dibujó**: la única forma de tocarlo era `curl`. Eso costó el rediseño a dial único
+   (**M-46**, §4.38r.1). Dejar la palanca de gasto en el mismo estado —editable «por contrato», invisible en
+   el panel— es **enviar el mismo bug otra vez, una pantalla más allá**.
+3. **El aviso ya lo prometió.** Un consentimiento que ofrece un remedio inexistente no es un consentimiento
+   informado: es un formalismo. Corregir el copy hacia abajo lo arreglaría **para el documento** y lo
+   dejaría roto **para el dueño**.
+
+**No hay cambio de contrato:** `GradedEstimateConfigInput.ingestMaxCardsPerRun` ya es opcional
+(`contract.ts:2598`) y el `PUT` acepta campos parciales. **Verificado.**
+
+#### 22.14(b) Dónde vive dentro de la sección del gancho de M2
+
+La sección tiene hoy tres bloques (escalones · `minUpsidePct` + `freshnessDays` en retícula de 2 · párrafos
+read-only). El tope **no entra en la retícula de dos columnas**: entra en un **bloque propio**, separado por
+regla (`border-t border-border pt-4`), **debajo** de esa retícula y **encima** de los párrafos read-only.
+
+**Por qué bloque propio y no una tercera celda.** Los dos vecinos son **gates de publicación**: deciden qué
+se enseña. Éste decide **qué se gasta**. §7.6 ya separa las acciones de dinero saliente del resto del
+formulario, y meterlo como tercera celda lo haría leerse como **un ajuste más de presentación** — que es,
+literalmente, cómo se llegó hasta aquí. Encabezado `h3 text-sm font-semibold`, igual que «Escalones».
+
+| Elemento | Spec |
+|---|---|
+| `Input` | `type="text" inputMode="numeric"`, `className="w-32"`, `label` = `ingestCap.label`. Mismo componente y mismo ancho que `freshnessDays` — **cero componentes nuevos** |
+| Ayuda | `text-xs text-muted` bajo el input (`ingestCap.hint`), como los otros dos |
+| Aviso de créditos | `Banner` §7.5 **dentro del bloque**, inmediatamente bajo la ayuda. Solo cuando el borrador difiere del valor guardado (d) |
+| Estado guardado | **Sin cifra de créditos.** El bloque en reposo enseña el tope y su ayuda, nada más |
+
+**El estado en reposo no lleva créditos a propósito.** El techo permanente ya se le enseña al dueño en el
+aviso de M10, que es **la pantalla del consentimiento y del estado**; M2 es **la pantalla de la edición**, y
+aquí la cifra tiene que aparecer **en el momento en que el número cambia**, que es cuando decide. Es la misma
+doctrina de §22.13(c): *el aviso lo elige el momento del cambio*. Repetir el techo en reposo en las dos
+pantallas crea dos sitios que mantener y ninguno que mande.
+
+#### 22.14(c) Copy — etiqueta, ayuda y el aviso de créditos (I8-B2 del techlead)
+
+| Clave (`admin.m2.gradedEstimates.ingestCap.*`) | ES | EN |
+|---|---|---|
+| `label` | Tope de cartas por corrida | Per-run card cap |
+| `hint` | Cuántas cartas tuyas mira el barrido en cada corrida (1–1 000). Acota **el alcance**, no lo que el proveedor te cobra. | How many of your cards the sweep looks at on each run (1–1,000). It limits **scope**, not what the provider bills you. |
+| `warnTitleUp` | Estás subiendo el techo de gasto | You are raising the spending ceiling |
+| `warnTitleDown` | Estás bajando el techo de gasto | You are lowering the spending ceiling |
+| `warn` | Con **{maxCards} cartas** por corrida y **{runs} corridas al día**, el techo son **{credits} créditos al día** si el proveedor cobra por petición; si cobra por carta devuelta, cada petición pide el **set entero** y la factura puede ser **varias veces** esa cifra. Nadie lo ha medido todavía: la primera corrida lo mide. Guardar no cobra nada — se cobra en la siguiente corrida, y solo si el gancho está **encendido** en M10. | With **{maxCards} cards** per run and **{runs} runs a day**, the ceiling is **{credits} credits a day** if the provider charges per request; if it charges per returned card, each request asks for the **whole set** and the bill can be **several times** that figure. Nobody has measured it yet: the first run measures it. Saving costs nothing — the charge happens on the next run, and only if the hook is **on** in M10. |
+| `rangeError` | Un número entero entre 1 y 1 000. | A whole number between 1 and 1,000. |
+
+- **El aviso hereda la regla de calificación de §22.13(d.1) sin excepción.** Mismos dos regímenes, misma
+  frase «la primera corrida lo mide», mismo `{credits}` calculado por el **mismo módulo único**
+  (`grading-hook-cost.ts`) que ya usa M10. **Una sola aritmética en el producto**: si esta pantalla derivara
+  la suya, en la siguiente revisión dirían cosas distintas.
+- **La última frase —«Guardar no cobra nada»— es la que hace este aviso útil y no alarmista.** Sin ella, un
+  `Banner` de gasto al editar un número sugiere que el clic en «Guardar» mueve dinero, y el efecto es que el
+  dueño **no toca el tope**: justo lo contrario de lo que este § persigue. Y es verdad verificable: el ingest
+  corre por cron y sale antes de pedir nada si el gancho está apagado.
+- **Nombra M10 porque el interruptor está allí**, y M2 ya tiene el espejo read-only del maestro
+  (`masterSwitch` + `masterSwitchHint`) justo arriba: el puntero **existe en pantalla**. Verificado.
+- **`warnTitleUp` / `warnTitleDown`:** el cuerpo es el mismo; cambia el título. **Subir** usa
+  `Banner variant="warning"`, **bajar** usa `variant="info"`. El color **no es el único canal** (§2.4): el
+  título dice la dirección. **Cero tokens nuevos** — `warning` es el rojo de marca vía `--color-accent` y
+  `info` es muted sin color propio (§2.3).
+- **El aviso NO bloquea el guardado.** No es un error: es información en el momento de decidir. Lo único que
+  bloquea es el rango, con `rangeError` en el propio `Input` (patrón ya vigente en la sección).
+- **`role="status"`, nunca `alert`.** El dueño está tecleando en su propio borrador; interrumpir un campo
+  numérico en cada pulsación con una región asertiva es hostil con lector de pantalla. Mismo criterio que el
+  aviso de apagado de §22.13(c).
+
+#### 22.14(d) Estados y validación
+
+| Estado | Qué se pinta |
+|---|---|
+| En reposo (borrador = guardado) | Input + `hint`. **Sin banner** |
+| Borrador > guardado | Banner `warning`, título `warnTitleUp`, cuerpo `warn` con el valor **del borrador** |
+| Borrador < guardado | Banner `info`, título `warnTitleDown`, mismo cuerpo |
+| Fuera de `[1, 1000]` o vacío | `rangeError` en el `Input`, **guardado bloqueado**, y el banner **no muestra cifra** (no se calcula un techo con un número inválido) |
+| Config no disponible | El bloque entero no se pinta — lo cubre el `QueryState` que ya envuelve la sección |
+
+- **Rango `[1, 1000]`** — I8, contrato **v1.51-a**. **Nunca 5 000**: ese valor quedó fuera del contrato y
+  escribirlo en un `placeholder`, en un ejemplo o en un test es reintroducirlo por la puerta de atrás.
+- **Entero.** Se valida en cliente para **prevenir** el 422, no para sustituirlo: la fuente de verdad sigue
+  siendo el servidor, y un 422 se muestra tal cual (patrón ya vigente en la sección).
+- **Money-safe:** campo vacío **no se guarda como 0** ni como el default. Mismo criterio S-P1-1 que el costo
+  de gradeo — aquí un 0 no sería un cobro, sería un ingest que no mira nada, pero la dirección del fallo debe
+  ser explícita, no accidental.
+
+#### 22.14(e) Prohibiciones
+
+| Prohibido | Por qué |
+|---|---|
+| Meterlo como tercera celda de la retícula «margen mínimo / frescura» | Lo iguala visualmente a dos diales que no gastan (b). |
+| Pintar la cifra de créditos en reposo | Duplica el techo en dos pantallas; el estado es de M10, la edición es de M2 (b). |
+| Que el banner bloquee «Guardar» | No es un error. Bloquear la única palanca de contención es el peor resultado posible. |
+| Cifra de créditos **sin su calificador** | §22.13(d.1) aplica **igual** aquí. Es la misma cifra y la misma incertidumbre. |
+| Derivar el cálculo en esta pantalla | Un solo módulo, el de M10. Dos aritméticas divergen. |
+| Mostrar **5 000** en cualquier sitio (placeholder, ayuda, ejemplo, test) | Fuera del contrato desde v1.51-a. |
+| Un `confirm()` o modal al subir el tope | La sección no usa ese patrón para ningún otro dial, y guardar **no cobra**: la fricción iría en el sitio equivocado. |
+
+#### 22.14(f) QA visual
+
+(a) El campo **existe y se ve** en M2, en su bloque propio bajo la retícula. (b) Teclear un valor mayor ⇒
+banner `warning` con el título de subida y la cifra **del borrador**, no la guardada. (c) Teclear uno menor
+⇒ banner `info`, título de bajada. (d) Volver al valor guardado ⇒ el banner **desaparece**. (e) `0`, vacío,
+`1001` o `5000` ⇒ `rangeError` y «Guardar» deshabilitado; **sin cifra de créditos en pantalla**. (f) Guardar
+⇒ el número nuevo aparece en **el aviso de M10** sin recargar (misma `queryKey` `['graded-estimates-config']`
+que la sección ya usa — la invalidación existente lo cubre). **Este es el check que cierra el círculo: la
+palanca que el aviso promete mueve la cifra que el aviso enseña.** (g) EN completo. (h) Lector de pantalla:
+el banner se anuncia **sin** interrumpir la escritura. (i) Búsqueda en `messages/`: cero apariciones de
+`5000`/`5 000` en las claves del gancho.
+
+---
+
+## 23. Rotación automática del carrusel de destacadas (v2.6 — P-49)
+
+> **Procedencia:** decisión **del dueño** (P-49), tomada **después** de oír el análisis del frontend, que
+> recomendó no hacerlo. La decisión está tomada y esta sección **no la re-litiga**. Pero los tres argumentos
+> del frontend eran **hechos**, no opiniones, y un hecho no se resuelve ignorándolo: §23.1 reconcilia la
+> doctrina de movimiento de §17.3, §23.8 corrige la nota 2 de §20.16 y §23.7 cierra el hueco real de
+> `prefers-reduced-motion`. Superficie afectada: **una** (`FeaturedCarousel`, el estante «Piezas destacadas
+> del catálogo» de la home, §20.3). **Cero tokens nuevos, cero componentes de dominio nuevos, cero datos
+> nuevos, cero cambios de contrato ni de arquitectura.**
+
+> **Actualización v2.6.1 (2026-08-31) — precisión sobre evidencia medida, no cambio de rumbo.**
+> §23 se escribió leyendo código; el frontend la implementó **completa** (917 tests en verde, 8 pruebas en
+> navegador real, las siete reglas duras, el conmutador en su sitio, `prefers-reduced-motion` enforzado en la
+> lógica y escuchado en vivo) y midió **tres cosas que no se sostienen en el navegador**. Se corrigen aquí, y
+> son correcciones **de este documento**, no incumplimientos de la implementación:
+> 1. **§23.5** — la regla general de pausa pasa de «cualquier desplazamiento que el carrusel no haya
+>    originado» a **«desplazamiento atribuible a un acto del usuario»**. Tal como estaba, implementada
+>    literal, **mataba la función antes del primer tic** (el propio motor de `scroll-snap` emite `scroll`).
+> 2. **§23.3a** — R6 es **geométricamente imposible en el tope de la pista**. Queda como **límite aceptado**,
+>    acotado a dos posiciones, con la razón por la que no se remedia.
+> 3. **§23.8** — la promesa «sin JS se ven las ocho tejas completas» **ya era falsa antes de §23** (el
+>    contenido del estante lo resuelve react-query en el cliente). Se corrige a lo que es cierto hoy y la
+>    condición para que fuera verdad queda como **petición abierta al arquitecto** (§23.15 nº2).
+>
+> Ninguna de las tres invalida una decisión de diseño de §23: las siete reglas duras siguen en pie, el
+> conmutador sigue donde está, la cadencia no cambia y la excepción de movimiento de §23.1 no se amplía.
+
+> **Actualización v2.7 (2026-08-31) — decisión del dueño, tomada con la función ya publicada. Esta sección
+> la registra; no la re-discute.**
+> Dos cambios, y ninguno más:
+> 1. **Se retira el conmutador PAUSAR/REANUDAR/REPETIR.** No se mueve de sitio ni se sustituye por otra
+>    cosa: **desaparece**. Ni en el encabezado ni en ningún otro lugar del carrusel hay un control de
+>    reproducción. El hueco estructural del kicker vuelve a estar libre y la fila de §20.3 recupera su terna
+>    (§23.4).
+> 2. **La cadencia baja de 7 s a 5 s**, reposo inicial incluido. **Todo lo demás del tic sigue igual**: una
+>    teja por tic, ≈ 0,55 s de traslación con `ease-out`, aterrizaje en el `snap`, nada arranca hasta que la
+>    consulta resolvió y la imagen líder cargó, y los primeros segundos la home está quieta (§23.3).
+>
+> **Lo que NO cambia, y es lo que hay que leer con atención: los cinco frenos siguen todos.** Hover, foco de
+> teclado, **pausa permanente por intervención** (§23.5 y §23.5a, con su ventana de 1200 ms tal como quedó
+> corregida), suspensión por visibilidad y `prefers-reduced-motion` ⇒ **cero movimiento** con el
+> temporizador que no arranca. **Ninguno de los cinco dependía del botón** ni depende de él ahora. También
+> siguen intactas R1, R2, R4, R5, R6 y R7, §23.3a, §23.5a, §23.8a, la numeración de §23.10 y la excepción
+> **nominal y acotada** de §23.1, que **no se amplía**.
+>
+> **Y lo que sí se pierde está escrito, no callado:** sin control visible, quien no usa ratón ni teclado y
+> solo mira la pantalla se queda **sin forma explícita** de detener la rotación. Es el costo real de la
+> decisión y vive en **§23.16**, con nombre y apellido.
+>
+> **Nota de lectura para los recuadros de arriba.** Las notas de v2.6 y v2.6.1 se conservan como historia:
+> son ciertas en todo salvo donde dicen «el conmutador sigue donde está». Desde v2.7 **no hay conmutador**.
+
+> **Corrección v2.7.1 (2026-08-31) — precisión numérica señalada por QA y por techlead. No cambia ninguna
+> decisión de diseño.**
+> La duración de la pasada aparecía con **dos cifras** en el mismo apartado (≈ 39 s en §23.4.0 y §23.16;
+> ≈ 44 s en §23.3 y §23.14 ñ). Se resuelve así, y en **§23.3b** queda la aritmética completa:
+> 1. **Canónica: ≈ 39 s a 390 px**, medida **desde que la rotación se vuelve posible hasta que la pista
+>    queda quieta**, **reposo inicial incluido**. Los **≈ 44 s se retiran: eran un error de suma** (contaban
+>    el reposo inicial dos veces), no una segunda medida legítima.
+> 2. **La pasada dura menos cuanto más ancha es la ventana** — el número de tics no es una constante, es
+>    los que hagan falta para llegar al tope de la pista. Dos cotas: **≈ 39 s a 390 px** (cálculo) y
+>    **≈ 15 s en escritorio** (medido: 15,3 s frontend, ~14 s netos QA). Es la **misma función**, no un
+>    incumplimiento.
+> 3. **Ningún argumento de §23 se cae** con la cota corta: los tres que usan la cifra siguen en pie y en
+>    §23.3b (c) queda comprobado uno por uno, incluido el de WCAG 2.2.2 de §23.4.0 (a).
+
+### 23.0 Las siete reglas duras
+
+Si una sola de estas siete se incumple, la entrega está mal aunque «se vea bien»:
+
+| # | Regla | Dónde |
+|---|---|---|
+| R1 | **Rota la VENTANA, nunca el ROL.** El DOM del carrusel es inmutable: la teja líder sigue siendo la teja 1, con su imagen HD, su `priority` y su anatomía propia. Lo que se mueve es el `scrollLeft` de la pista | §23.2 |
+| R2 | **La rotación nunca coexiste con un estado de carga.** No arranca hasta que la consulta resolvió y la imagen de la teja líder cargó. Nada de rotar sobre skeletons | §23.1, §23.3 |
+| R3 | **v2.7 — Nunca hay movimiento sin frenos; lo que ya no hay es un control.** Los **cinco frenos** de §23.5 (hover · foco · intervención permanente · visibilidad · `prefers-reduced-motion`) son **obligatorios los cinco**: quitar uno rompe la entrega. Lo que **no** es obligatorio en este sistema es un **control explícito de reproducción** — el dueño lo retiró y §23.4 documenta por qué | §23.4, §23.5 |
+| R4 | **`prefers-reduced-motion` ⇒ movimiento CERO.** No «más lento», no «sin easing»: el temporizador no arranca y el scroll por JS es instantáneo | §23.7, §8.2 |
+| R5 | **La intervención del usuario gana para siempre** (en esa visita). Nada de reanudar solo tras N segundos. *«Intervención» = desplazamiento **atribuible a un acto del usuario**; el motor del navegador no es un usuario (§23.5)* | §23.5 |
+| R6 | **Un solo paso por tic: una teja**, aterrizando en su punto de `snap`. Ningún reposo deja una teja cortada por el **borde izquierdo** — **salvo el tope físico de la pista**, límite aceptado y acotado (§23.3a) | §23.3, §23.3a |
+| R7 | **Sin clones, sin bucle infinito, sin rebobinado.** La pista hace **una pasada** y se detiene. **v2.7: se detiene y ya** — no hay control que la reinicie y **no vuelve a rotar en esa visita**; volver al inicio es cosa de las flechas, a mano | §23.6 |
+
+### 23.1 Reconciliación con §17.3 — por qué este movimiento no es el movimiento prohibido
+
+El argumento del frontend era exacto: **§17.3 establece que en este sistema el movimiento no decorativo se
+lee como estado de carga** (por eso la mira no gira y por eso agregar al carrito no anima nada, §18.4). Un
+carrusel rotando en la primera pantalla, encima de imágenes que están cargando, se leería como «la página
+sigue trabajando». No se ignora: se resuelve en dos movimientos.
+
+**Primero, se precisa la doctrina.** §17.3a (nuevo) separa **movimiento-de-estado** (pulso, giro, brillo: en
+el sitio, indefinido, dentro del elemento que carga — **prohibido, sin excepciones**) de
+**movimiento-de-presentación** (traslación de un contenedor con destino y llegada, sobre contenido ya
+resuelto). La doctrina no se debilita: se enuncia con precisión. §18.4 y la prohibición de animar la mira
+**siguen intactas**.
+
+**Segundo, se paga el precio de la excepción.** Este carrusel cumple las cuatro condiciones de §17.3a, y las
+dos primeras son las que desactivan literalmente el argumento:
+
+1. **Nunca coexiste con carga (R2).** No hay ningún instante en que el usuario vea a la vez un skeleton y un
+   desplazamiento. La confusión que §17.3 teme requiere **simultaneidad**, y aquí es imposible por
+   construcción. Concretamente: mientras `QueryState` pinta el skeleton **no hay rotación**, y la rotación
+   tampoco arranca en el mismo fotograma en que la pista aparece — media un reposo de **5 s** (§23.3, v2.7;
+   eran 7 s) en el que la home está **completamente quieta**. Lo primero que ve cualquiera es una página en
+   reposo.
+2. **Traslada, no palpita.** Un spinner no tiene destino; esto sí, y cada llegada es una composición
+   completa. El ojo lee «el estante pasó de página», no «el sistema está pensando».
+3. **Reposo dominante:** ≈ 0,55 s de movimiento por cada 5,55 s ⇒ **≈ 10 % del tiempo** (v2.7; con la
+   cadencia de 7 s era ≈ 7 %). Un indicador de carga está en marcha el 100 %. Sigue siendo una diferencia
+   de categoría, no de grado — y **el 10 % es el techo que esta excepción acepta**: si alguna vez se pide
+   bajar más la cadencia, el reposo deja de ser dominante y esta condición **se incumple**, así que vuelve
+   a ux-ui (§23.13 nº25).
+4. **Tiene frenos** —los cinco de §23.5, todos automáticos, ninguno a descubrir—, es **acotada** (una sola
+   pasada, §23.6) y es **inexistente** con movimiento reducido (§23.7). *(v2.7: aquí decía «con el freno a
+   la vista». Ya no hay freno a la vista, porque no hay control; hay cinco frenos que actúan solos. Ver
+   §23.4 y el costo en §23.16.)*
+
+**Y hay una diferencia que ninguna condición captura pero que sostiene todo lo anterior:** un indicador de
+carga aparece **donde el usuario acaba de pedir algo** (el botón que pulsó, la teja que se está pintando).
+Este movimiento ocurre en un estante **que el usuario no ha tocado**, con contenido ya resuelto delante. El
+contexto desambigua antes que la forma.
+
+> **Consecuencia normativa:** ésta es la **única** excepción de movimiento-de-presentación del sistema y
+> está autorizada **solo aquí**. No es un precedente para animar transiciones de página, aparición de tejas,
+> gráficas, banners ni ningún otro estante (Sellado, Gradeadas, Bounties, «Joyas para gradear» **no rotan**).
+> Cualquier otro caso vuelve a §17.3a y debe pasar por ux-ui.
+
+### 23.2 Qué se mueve y qué NO — la ventana, nunca el rol (R1)
+
+**Restricción dura, heredada del análisis del frontend y no negociable.** La teja líder **no es solo más
+ancha**: usa `imageLargeUrl` (las demás la chica, a propósito), lleva `priority`/`fetchpriority=high` porque
+es **la candidata a LCP de la home**, y tiene otra tipografía (serif 26px vs. 16px), otra disposición
+(nombre y precio en fila `justify-between`, no apilados) y otro `surface` del badge de grading
+(`featuredLead` vs. `featuredRest`, §22.6b).
+
+> **Regla: el contenido NO rota entre tejas. La rotación desplaza la ventana sobre una pista inmutable.**
+
+Lo que esto prohíbe, y por qué cada cosa:
+
+| Prohibido | Qué pasaría |
+|---|---|
+| Que la teja 2 «ascienda» a líder en el tic | Cada tic **remaquetaría dos tejas** (400px⟷268px, serif 26⟷16, fila⟷columna) y **dispararía una descarga HD nueva cada 5 s** (v2.7; antes cada 7 s — la cadencia más rápida **agrava** este motivo, no lo alivia). Ocho descargas de ~734×1024 en la primera pantalla, en cascada |
+| Clonar tejas para simular un bucle | Duplica `key`s, duplica el **nombre accesible** de cada teja (que en esta pista incluye la cifra del gancho y el micro-aviso, §22.6b-h) y rompe «orden de DOM = orden de lectura» |
+| Reordenar el array entre tics | Mismo efecto que lo anterior + rompe el orden **precio descendente**, que es un hecho del catálogo (§22.6b-i nº4) |
+| Mover `priority` de teja en teja | Varias `fetchpriority=high` compitiendo: retrasa justo a la que importa |
+
+**Lo que sí ocurre:** la teja líder está en su sitio (primera de la pista) y, según avanza la ventana, sale
+por el borde izquierdo como cualquier otra. Eso **no** es «perder el rol»: sigue siendo la teja 1, con su HD
+ya descargada, y **vuelve a entrar intacta si el usuario retrocede con la flecha «anterior»** (v2.7: ése es
+ya el único camino de vuelta — el «Repetir» que aquí se citaba desapareció con el conmutador, §23.6). El LCP
+se mide en la carga, muy antes del primer tic.
+
+**Corolario de implementación (nivel diseño, no código):** el único estado que la rotación escribe es la
+**posición de scroll**. Si un tic obliga a re-renderizar una teja, el diseño se está implementando mal.
+
+### 23.3 Cadencia — **5 s** (v2.7), **una teja**, ≈ 550 ms
+
+> **Decisión del dueño (v2.7): el reposo entre tics baja de 7 s a 5 s.** Se aplica **también al reposo
+> inicial**: 5 s es *el* parámetro de cadencia del componente, no dos números distintos. Todo lo demás de
+> este apartado —una teja por tic, ≈ 550 ms, aterrizaje en el `snap`, precondiciones, cero tics
+> acumulados— **sigue exactamente igual**.
+
+**De dónde venía el 7, y qué se cede al bajar a 5.** El 7 no era arbitrario: salía de contar lo que hay que
+leer en la teja que **entra**. La cuenta no se borra, porque es la que dice **qué se está cediendo**:
+
+| Qué se lee en una teja | Coste | ¿Cabe en 5 s? |
+|---|---|---|
+| Nombre serif (2–3 palabras, en inglés) + renglón mono `SET · #NNN` + acabado + precio + distintivo de stock | ≈ 12 palabras ⇒ **≈ 3,6 s** a ~200 ppm de lectura silenciosa | **Sí** |
+| Adquirir la imagen (el arte es el héroe, §5: la mirada va primero ahí) | **≈ 0,8 s** | **Sí, justo** (3,6 + 0,8 = **4,4 s**) |
+| Burbuja del gancho cuando la teja la lleva (cifra + micro-aviso, §22.6b) | **≈ 1,2 s** | **No** — se cede |
+| Margen de seguridad (ES es ~25 % más largo que EN, §9.4) | **≈ 1,4 s** | **No** — se cede |
+| **Reposo v2.6** | **7 s** | — |
+| **Reposo v2.7 (decisión del dueño)** | **5 s** | Cubre el **núcleo** (nombre + datos + arte, 4,4 s) con ~0,6 s de sobra; **no** cubre burbuja ni margen de ES |
+
+**Qué significa eso en la práctica, dicho sin adornos:** con 5 s un lector medio alcanza a leer la teja que
+entra, pero **va justo**; en español, y en las **cero-a-dos tejas de ocho** que además llevan burbuja del
+gancho (§22.6b), la teja se va antes de haberla terminado de leer. **Es un coste aceptado, no un descuido**,
+y está mitigado por tres hechos que no cambian: (1) el paso es de **una** teja, así que 3 de 4 tejas visibles
+siguen ahí y **nada de lo que se estaba leyendo desaparece de golpe**; (2) la pista da **una sola pasada** y
+se queda quieta (§23.6), así que la teja se puede leer con calma cuando todo para; (3) **cualquier gesto del
+usuario la detiene** —para siempre— y las flechas siempre están (§23.5).
+
+**Dos notas sobre el 5, y la segunda importa más que la primera:**
+- **El reposo inicial es también de 5 s**, contados desde que la rotación se vuelve posible (§23.8). Nadie
+  ve moverse nada durante los primeros 5 s de vida del estante.
+- **Bajar a 5 s NO «libra» al carrusel de WCAG 2.2.2, y nadie debe escribir que sí.** El criterio mira
+  **cuánto dura el movimiento automático**, no el hueco entre dos tics: aquí la pasada completa dura
+  **≈ 39 s a 390 px** y **≈ 15 s en escritorio** (§23.3b), y **las dos cotas superan de sobra los 5 s** del
+  criterio. Que la cadencia sea de 5 s es una decisión de **ritmo de lectura**, y punto. La razón por la que
+  este carrusel no lleva mecanismo de pausa **no es el número**: es la decisión razonada de §23.4.
+
+**Duración total de la pasada (v2.7.1): `n × 5,55 s`, donde `n` es el número de tics — que depende de la
+anchura.** A 390 px, `n = 7` ⇒ **≈ 39 s** desde que la pista aparece hasta que la home queda quieta para
+siempre. La cuenta completa, la retirada de los ≈ 44 s y la dependencia de la anchura están en **§23.3b**,
+que es el único sitio donde se define esta cifra.
+
+**Cuánto avanza: exactamente UNA teja (R6).** No una «página».
+
+- Si avanzara una página (≈ 0,8 × ancho de la pista, que es lo que hacen las flechas), en `lg` cambiarían
+  **~3,5 tejas de golpe**: prácticamente todo lo visible. El usuario tendría que **releerlo todo cada 5 s**,
+  y los 5 s no dan ni para **una** teja con holgura, mucho menos para tres y media. Ése es exactamente el
+  patrón de cartel publicitario que la gente aprende a ignorar — **y con la cadencia de v2.7 el argumento
+  es más fuerte, no más débil**: cuanto más rápido el tic, más obligatorio es que el paso sea corto.
+- Con una teja por tic el usuario **conserva el contexto**: 3 de 4 tejas visibles siguen ahí, entra una
+  nueva por la derecha, sale una por la izquierda. La pista «respira»; no «cambia de anuncio».
+- **Las flechas no cambian** (§20.3): siguen moviendo una página. Es correcto que difieran — la flecha es una
+  orden explícita («llévame lejos»), el tic es un ofrecimiento («mira, hay más»).
+
+**Cómo avanza:** una sola traslación continua, con salida suave (`ease-out`), de **≈ 550 ms**
+(≈ 296px en `lg` = teja 268 + gap 28; ≈ 176px en móvil = 160 + 16). El `scroll` suave nativo del navegador
+es aceptable y **no** se le superpone ninguna transición CSS. Requisitos visuales del aterrizaje:
+
+- **Aterriza en el punto de `snap` de la teja entrante** (destino calculado desde el `offsetLeft` de la
+  teja, no `scrollBy(ancho × 0,8)`). Un tic que termina a mitad de teja deja **media teja cortada por el
+  borde izquierdo**, y eso no es una composición: es un error de maquetación.
+- Media teja cortada por el **borde derecho** es correcto y deseable — es la señal de «hay más».
+- **Ni un solo tic acumulado.** Si la rotación estuvo suspendida (pestaña oculta, puntero encima, fuera de
+  pantalla), al reanudar **no se recuperan** los tics perdidos: se reinicia el reposo de **5 s** completo.
+  Un carrusel que «se pone al día» de golpe es el peor movimiento posible en este sistema.
+
+**Cuándo puede arrancar (R2) — las cuatro precondiciones, todas:**
+1. El componente está **hidratado** (§23.8).
+2. La consulta **resolvió** y hay ≥ 1 teja (nada de rotar en `isLoading` ni en `isError` ni en vacío).
+3. La **imagen de la teja líder ha cargado** (`load`), o han pasado **3 s** desde que se resolvió el dato —
+   lo que ocurra antes. El tope evita que una imagen remota lenta deje el estante muerto para siempre.
+4. Ha pasado el **reposo inicial de 5 s** (v2.7).
+
+*(El tope de 3 s de la precondición 3 **no** se toca al cambiar la cadencia: es un tope de red, no de
+lectura, y no se deriva del número de la cadencia.)*
+
+### 23.3a R6 en el tope de la pista — **límite aceptado** (v2.6.1)
+
+> **R6 («ningún reposo deja una teja cortada por el borde izquierdo») es geométricamente imposible de
+> cumplir en la última posición de la pista. Se acepta el corte ahí, y no se remedia.**
+
+El tope físico de scroll es `scrollLeft = scrollWidth − clientWidth`: el navegador no puede ir más allá. En
+esa posición la **última** teja queda a ras del borde derecho y, salvo que el ancho visible resulte múltiplo
+exacto de (teja + gap) —lo que no ocurre en ninguna de las tres anchuras—, **la primera teja visible queda
+cortada por la izquierda**. No es un fallo de cálculo del destino: es aritmética del contenedor.
+
+**Alcance exacto, para que no se lea como una licencia general:**
+
+| Dónde ocurre | Estado |
+|---|---|
+| El **último tic** de la pasada (el que alcanza `TERMINADO`) | Corte por la izquierda **aceptado** |
+| La **última pulsación** de la flecha «siguiente» (mismo tope, §20.3) | Corte por la izquierda **aceptado** — y es el comportamiento que ya existía antes de §23 |
+| **Todos los demás reposos** de la pasada (siete a 390 px; **menos en pantallas anchas**, §23.3b) | **R6 se exige literal**: `snap` exacto, cero corte por la izquierda |
+
+**Por qué no se remedia.** La alternativa evaluada por el frontend —detener la pasada en el `snap` anterior,
+para que ningún reposo corte por la izquierda— **es peor**: dejaría la **última teja inalcanzable** por
+rotación *y* por flecha. R6 protege una composición; **nunca a costa de esconder una pieza del catálogo**.
+Entre «la teja de la izquierda se ve cortada» y «la teja de la derecha no se ve nunca», el sistema elige lo
+primero sin dudar — y además el corte por el borde derecho ya es, en el resto de la pasada, la señal
+deliberada de «hay más» (§23.3).
+
+**Prohibido «arreglarlo»** con padding de cola, tejas fantasma, un espaciador final o reduciendo el ancho de
+la última teja: cualquiera de esos remedios mete geometría inventada en la pista para tapar un hecho del
+contenedor, y los tres chocan con R1 (§23.2) o con la anatomía de teja de §22.6b.
+
+### 23.3b Duración de la pasada — **una sola definición, y depende de la anchura** (v2.7.1)
+
+> **Definición única. Cualquier cifra de duración que aparezca en §23 sale de aquí; ningún otro apartado la
+> vuelve a calcular.**
+>
+> **Pasada = `n × 5,55 s`**, contada **desde que la rotación se vuelve posible** (cumplidas las cuatro
+> precondiciones de §23.3) **hasta que la pista queda quieta en el tope** (`TERMINADO`, §23.6). **Incluye el
+> reposo inicial de 5 s.** `n` = número de tics, y **no es una constante del componente** (ver (b)).
+>
+> **A 390 px, `n = 7` ⇒ ≈ 39 s. Ésa es la cifra canónica** y es la que citan §23.4.0, §23.6 y §23.16.
+
+**(a) La cuenta, y por qué los ≈ 44 s se retiran.**
+
+| Tramo | Cuenta | A 390 px (`n = 7`) |
+|---|---|---|
+| Reposo **antes de cada tic** — el primero de esos reposos **es** el reposo inicial | `n × 5 s` | 35 s |
+| Traslaciones (≈ 0,55 s cada una) | `n × 0,55 s` | ≈ 3,9 s |
+| **Pasada completa** | **`n × 5,55 s`** | **≈ 38,9 s ⇒ ≈ 39 s** |
+
+> **Los ≈ 44 s quedan RETIRADOS, y conviene decir exactamente qué eran: un error de suma, no una segunda
+> medida legítima.** Salían de escribir «5 s de reposo inicial + 7 tics × (5 s + 0,55 s)», que **cuenta el
+> reposo inicial dos veces**: el reposo que precede al primer tic *es* el reposo inicial, no uno anterior a
+> él. No hay «una cifra con reposo inicial y otra sin él» — hay **una** pasada, dura **`n × 5,55 s`** y ya
+> lo lleva dentro. Quien cite ≈ 44 s (o los ≈ 60 s de la nota histórica de v2.6, que salían de la misma
+> suma; con cadencia de 7 s la pasada eran **≈ 53 s**) está citando la resta mal hecha.
+
+Si alguna vez hace falta una magnitud distinta de la pasada, se nombra explícitamente — **nunca se deja
+suelto un número sin decir qué mide**:
+
+| Magnitud | Qué mide | A 390 px |
+|---|---|---|
+| **Pasada** *(la canónica)* | rotación posible → `TERMINADO`, **reposo inicial incluido** | **≈ 39 s** |
+| Ventana de movimiento | arranque del **primer tic** → fin del último, **sin** el reposo inicial | ≈ 34 s |
+| Desplazamiento neto | solo las traslaciones (`n × 0,55 s`) | ≈ 3,9 s |
+
+**(b) La pasada dura MENOS cuanto más ancha es la ventana — y eso no es un defecto.** `n` es **el número de
+tics que hacen falta para alcanzar el tope de la pista** (§23.3a): las ocho tejas son siempre ocho, pero
+cuantas más caben a la vez, menos queda por recorrer. Mismo componente, misma cadencia, **distinta
+duración**:
+
+| Anchura | Tejas visibles | `n` | Pasada | Origen de la cifra |
+|---|---|---|---|---|
+| **390 px** (móvil) | ~2 | **7** | **≈ 39 s** | **Cálculo** con la geometría de §22.6b (teja 160 + gap 16 ⇒ paso 176px) |
+| **Escritorio** (`lg`+, ventana ancha) | 4 o más | **2–4** | **≈ 15 s** | **Medido**: 15,3 s (frontend) y ~14 s netos (QA); compatible con `n = 3` |
+
+> **Regla de lectura, para que la próxima medición no se lea como un incumplimiento:** **≈ 39 s es la cota
+> de móvil y ≈ 15 s la de escritorio. Son la misma función.** Una medición de escritorio que dé ~15 s **no
+> contradice** este documento, y una de 390 px que dé ~39 s tampoco. Lo que **sí** sería un defecto es que
+> el **reposo entre dos tics** no dé ≈ 5 s (§23.14 p) o que la pista **no llegue al tope** sin intervención
+> (§23.14 ñ).
+
+Dos precisiones de medición, para que nadie persiga décimas:
+
+- **El último tic se satura en el tope** (`scrollWidth − clientWidth`, §23.3a): recorre menos que un paso
+  completo, así que lo medido cae **algo por debajo** de `n × 5,55 s`. Tolerancia razonable: **± 1 tic
+  (≈ 5,5 s)**.
+- **Ninguna verificación debe asertar un número fijo de tics.** `n` se **deriva en la anchura en la que se
+  mida**; asertar «7 tics» en un viewport de escritorio es un test mal escrito, no un fallo del componente
+  (§23.14 ñ, corregido en v2.7.1).
+
+**(c) Qué argumentos de §23 dependen de esta cifra — comprobado uno por uno.** La cifra corta (≈ 15 s) es
+**tres veces menor** que la que traían §23.4.0 y §23.16, así que hay que verificar que ninguno de los
+razonamientos se sostuviera en el número grande:
+
+| Dónde | Qué afirma | ¿Sigue en pie con ≈ 15 s? |
+|---|---|---|
+| **§23.4.0 (a)** — WCAG 2.2.2 | el movimiento «dura más de 5 s» ⇒ el criterio **aplica** y la v2.7 **no lo cumple** | **Sí.** Necesita `> 5 s` y la cota **más corta** medida (≈ 15 s) lo triplica. Lo que cambia es el **margen** (era ~8×, ahora ~3× en escritorio), no la conclusión |
+| **§23.6 nº 4** — «acota el movimiento total» | una pasada única, finita, frente al movimiento perpetuo | **Sí, y sale reforzado**: cuanto más corta la pasada, más fuerte el argumento. Aquí **«acotado» significa finito, no breve** |
+| **§23.16 (c)** — «la más contenida posible» | mismo sentido que el anterior | **Sí, reforzado** por la misma razón |
+| **§23.16 (a)** — el costo de esperar | quien no puede parar la rotación «tiene que esperar a que termine sola» | **Sí, y la cifra correcta ahí es la de móvil (≈ 39 s)**: la persona afectada es exactamente la del teléfono táctil. Usar ≈ 15 s ahí **rebajaría el costo** que esa sección existe para no callar |
+
+> **§23.16 usa la duración en las dos direcciones —«es mucho esperar» (a) y «es contenido» (c)— y las dos
+> son ciertas a la vez.** No es una contradicción: (a) habla del **peor caso, en móvil**, y (c) de que el
+> movimiento **termina y no vuelve**, frente a un carrusel en bucle. Cada una cita su cota, y por eso ambas
+> llevan la anchura escrita al lado.
+
+> **Lo que NO se puede hacer con esta aritmética.** Alguien podría observar que el tiempo *literalmente* en
+> movimiento son solo `n × 0,55 s` (≈ 3,9 s a 390 px, ≈ 1,7 s en escritorio) y concluir que 2.2.2 no aplica
+> porque «no llega a 5 s». **Este documento rechaza esa lectura y prohíbe usarla para declarar
+> conformidad.** El criterio mira la **presentación en movimiento** —una secuencia intermitente que se
+> repite durante ≈ 15–39 s—, no la suma de fotogramas animados; y ante la duda, §23 se queda con la lectura
+> **conservadora**, que es la que protege al usuario. La postura de §23.4.0 (a) —**no cumplimos 2.2.2, y se
+> escribe así**— **no cambia**.
+
+### 23.4 El control de reproducción — **RETIRADO (v2.7, decisión del dueño)**
+
+> **Este carrusel no tiene control de reproducción.** Ni conmutador de texto, ni botón, ni icono, ni tercera
+> flecha, ni entrada de menú, ni atajo de teclado, ni un «toca para pausar» escrito en ningún sitio. El
+> encabezado de §20.3 vuelve a su **terna** (H2 ⟷ link ⟷ flechas) y el hueco estructural del kicker
+> **queda libre** — y prohibido, §22.6b-e sin excepciones.
+
+**Qué se retira, exactamente:** el `<button>` del conmutador y sus tres estados visibles
+(PAUSAR / REANUDAR / REPETIR), su glifo, su `min-width`, su área táctil, su hueco en la fila, su lugar en el
+orden de tabulación y sus **seis claves i18n** (§23.12). No queda de él ni una pieza «por si acaso»: un
+control latente, oculto o deshabilitado sería peor que no tenerlo (§8.2).
+
+**Qué NO se retira — y es lo que hay que leer dos veces.** La rotación **conserva sus cinco frenos**, y
+ninguno de los cinco pasaba nunca por el botón:
+
+| # | Freno | Qué hace | Dónde |
+|---|---|---|---|
+| **F1** | **Puntero encima** de la sección | Suspende mientras el puntero esté ahí; al salir, reposo completo de 5 s | §23.5 nivel 1 |
+| **F2** | **Foco de teclado** dentro de la sección | Suspende mientras el foco esté dentro | §23.5 nivel 1 |
+| **F3** | **Intervención del usuario** (swipe, arrastre, rueda/trackpad, flecha, llegada por ancla, o cualquier `scroll` **atribuible a un acto del usuario** dentro de la ventana de 1200 ms) | **Pausa PERMANENTE** el resto de la visita | §23.5 nivel 2, §23.5a |
+| **F4** | **Visibilidad** (pestaña oculta o < 50 % de la pista en el viewport) | Suspende; sin tics acumulados al volver | §23.5 nivel 1 |
+| **F5** | **`prefers-reduced-motion: reduce`** | **Movimiento CERO**: el temporizador **no arranca**; escuchado en vivo | §23.7, R4 |
+
+**Los cinco son obligatorios.** Quitar uno **sí** es un incumplimiento de esta sección (R3). Con el
+conmutador fuera, los frenos dejan de ser «la red de seguridad del control» y pasan a ser **el mecanismo
+entero**: son lo único que hay.
+
+#### 23.4.0 El estándar lo pedía; el dueño decidió no adoptarlo aquí, y ésta es la razón
+
+Esto es lo que la v2.6 **no distinguió**, y por eso hay que decirlo con precisión:
+
+**(a) Lo que dice el estándar, y sigue diciendo.** **WCAG 2.2.2 «Pause, Stop, Hide» (nivel A)** pide un
+mecanismo para pausar, detener u ocultar cualquier contenido en movimiento que **arranque solo**, dure más
+de 5 segundos y se presente junto a otro contenido. Este carrusel entra de lleno: arranca solo y su pasada
+dura **≈ 39 s a 390 px y ≈ 15 s en escritorio** —reposo inicial incluido, §23.3b—, de modo que **el criterio
+aplica en cualquier anchura**: hasta la cota más corta triplica los 5 s. **Medido contra WCAG, la
+implementación de v2.7 NO cumple 2.2.2.** No se maquilla: queda escrito así, en el documento de diseño, con
+esas palabras.
+
+*(Precisión de v2.7.1: aquí se citaba «≈ 39 s» a secas y §23.3 decía «≈ 44 s». **La cifra canónica es
+≈ 39 s** —los ≈ 44 s eran un error de suma, §23.3b (a)—, y va **siempre con la anchura al lado**, porque la
+pasada es más corta cuanto más ancha es la ventana. **El argumento no dependía del número grande**: aguanta
+con las dos cotas. Lo que **no** se acepta es la lectura de que solo cuentan los ≈ 4 s de traslación pura
+para declararse conforme — prohibida en §23.3b (c).)*
+
+**(b) Lo que WCAG NO es.** WCAG es una **recomendación técnica del W3C**, un consorcio industrial. **No es
+una ley** y el W3C no tiene potestad para imponerla. Se vuelve exigible solo cuando **una norma jurídica la
+adopta por referencia** para un sujeto obligado concreto.
+
+**(c) Si esa norma existe para esta tienda.** Hasta donde alcanza esta decisión, **no**:
+
+| Régimen | ¿Alcanza a TCG HUNT? |
+|---|---|
+| **México — accesibilidad web con dientes** | Las obligaciones exigibles apuntan a **entes públicos** (sitios y servicios digitales de **gobierno**). TCG HUNT es una **tienda privada**: **no es sujeto obligado** |
+| **Unión Europea — European Accessibility Act (Dir. 2019/882)** | **Sí** cubre el **comercio electrónico**… **pero solo para quien vende en la UE**. TCG HUNT vende en México (`MXN`, envíos nacionales): **no aplica hoy** |
+| **WCAG como estándar de oficio** | Se sigue **por criterio propio** en el resto del sistema (§8.2, §10, contraste AA, foco visible, nombre accesible). Aquí, en **un** punto, el dueño decidió no pagar el precio |
+
+**(d) La decisión, y cómo debe citarse.** El dueño vio la función publicada y decidió que el conmutador
+**no vale su coste** en su tienda: un control permanente en el encabezado de la home, con tres etiquetas y
+una máquina de estados detrás, para una rotación que ya se detiene sola en cuanto alguien la toca, la mira
+con el ratón, la tabula o pide menos movimiento. **Es una decisión suya y es legítima tomarla.** Lo que este
+documento fija es **cómo se dice**:
+
+> **Redacción canónica.** No se escribe «el control no es obligatorio» a secas, ni «cumplimos 2.2.2», ni
+> «WCAG no aplica». Se escribe: **«WCAG 2.2.2 (nivel A) pide un mecanismo de pausa; este carrusel no lo
+> lleva. No es una obligación legal para esta tienda —WCAG es un estándar del W3C, no ley; en México lo
+> exigible alcanza a sitios de gobierno, y la norma europea que cubre e-commerce solo aplicaría vendiendo a
+> la UE—, y el dueño decidió no adoptarlo aquí. Los frenos automáticos (§23.4 F1–F5) se conservan
+> íntegros.»** Esa frase completa —**estándar + no exigible aquí + decisión + frenos que sí hay**— es la
+> forma correcta de referirse a esto en cualquier documento, ticket o veredicto.
+
+**(e) Cuándo hay que volver a abrir esto.** No es «para siempre»: es «para este alcance». Se **revisa
+obligatoriamente** si ocurre cualquiera de estas tres cosas —y entonces vuelve a ux-ui y al dueño, no se
+resuelve citando esta sección:
+
+1. **La tienda empieza a vender fuera de México** (señaladamente a la UE: ahí el EAA sí cubre comercio
+   electrónico y el cálculo cambia de raíz).
+2. **Aparece un requisito contractual o de cliente** que exija conformidad WCAG AA (marketplaces, pasarelas,
+   convenios, licitaciones).
+3. **Se pide movimiento automático en una segunda superficie.** La excepción de §23.1 está autorizada
+   **solo** en este carrusel; con dos superficies moviéndose sola, «no hay control en ninguna» deja de ser
+   una renuncia acotada y pasa a ser una política.
+
+*(Nota de oficio: esto es criterio de diseño, no asesoría legal. Si alguna vez hace falta una respuesta
+jurídica firme —porque cambie el alcance de venta o llegue un requisito de un tercero—, la da un abogado, no
+este documento.)*
+
+#### 23.4a ~~La decisión: dónde vive el control~~ — **retirada (v2.7)**
+
+Aquí vivía la decisión de la v2.6: *«el control no es una tercera flecha; es un conmutador de texto mono,
+pegado al H2, en el hueco estructural del kicker, a la izquierda de la fila, en las tres anchuras»*, con sus
+tres razones (no es de la familia de las flechas · el lado izquierdo es el libre · orden de tabulación
+correcto). **Ya no aplica: no hay control que colocar.** Se conserva el registro porque, si alguna vez se
+reintroduce un control de reproducción (§23.4.0 e), **ése es el sitio ya resuelto** y no hay que volver a
+discutirlo.
+
+**Lo que sí sobrevive de §23.4a, y sigue vigente:** el hueco estructural del kicker en este encabezado está
+**libre y prohibido**. §22.6b-e vuelve a leerse literal, sin la precisión que la v2.6 tuvo que añadirle: en
+esta fila no va kicker, ni subtítulo, ni mención al gradeo, ni ninguna otra cosa.
+
+#### 23.4b ~~Anatomía del conmutador~~ — **retirada (v2.7)**
+
+Aquí vivía la anatomía al píxel del conmutador (glifo lucide 12/14px, palabra mono 10px `.eyebrow`, `gap`
+12/16px al H2, `min-width: 80px`, área táctil 44×44 por `::after` y no por `padding`, cero borde/fondo/radio/
+sombra). **Nada de eso se implementa.** El elemento no existe.
+
+Se guarda **un** aprendizaje, porque es de aplicación general y no era del conmutador: **cuando un control de
+texto pequeño necesita 44×44px de área táctil, se consigue con un pseudo-elemento (`::after`, `inset`), no
+con `padding`** — así el anillo de foco sigue **ciñendo la etiqueta** en vez de dibujar un halo de 44px
+alrededor de un texto de 12px. Vale para cualquier control de texto del sistema (§8.2).
+
+#### 23.4c ~~Estados del conmutador~~ — **retirada (v2.7)**
+
+Aquí vivía la tabla de estados (Reproduciendo/Pausado/Terminado × hover/focus, sin `disabled`, sin
+`loading`) y las reglas de nombre accesible. **No hay control, así que no hay estados de control.** Dos
+reglas que estaban enunciadas aquí **no son del conmutador y siguen vigentes en el sistema**:
+
+- **Nombre accesible que empieza por la palabra visible** (WCAG 2.5.3, «etiqueta en el nombre»): aplica a
+  todo control con texto visible del sistema, empezando por las flechas de §20.3.
+- **Nunca `disabled` ni `loading` en un control cuyo trabajo es detener algo**: si no puede funcionar, no se
+  pinta (§8.2). Hoy se cumple de la forma más fuerte posible.
+
+**Lo que sí desaparece del todo:** el patrón APG de «cambiar el nombre del botón en vez de usar
+`aria-pressed`». Aquí ya no hay botón que nombrar. El **único** canal por el que un lector de pantalla se
+entera de que la rotación se detuvo es ahora la línea `role="status"` de **§23.9(c)** — lo que la convierte
+en **obligatoria y no decorativa**, cosa que antes no era del todo cierta.
+
+#### 23.4d ~~Cuándo el control NO se renderiza~~ — **retirada (v2.7): nunca se renderiza**
+
+Los cinco casos que enumeraba (movimiento reducido · sin JS/antes de hidratar · pista que no desborda ·
+carga/error/vacío · una sola teja) **siguen siendo exactamente los casos en que NO hay rotación**, y como
+tales siguen descritos en §23.3 (precondiciones), §23.7 y §23.8. Lo que cambia es que ya no hay que decidir
+nada sobre un control: **no existe en ninguno de los cinco casos, ni en los demás.**
+
+#### 23.4e ~~Presupuesto de la fila~~ — **retirada (v2.7): la fila vuelve a su terna**
+
+La cuenta de anchuras existía para demostrar que un **cuarto** elemento cabía en la fila de §20.3. Ya no hay
+cuarto elemento, así que la fila vuelve **literalmente** a lo que §20.3 define: **H2 ⟷ link «Ver todo el
+catálogo» + dos flechas**, con su `flex-wrap` y su ocultamiento del link por debajo de `sm`, tal como estaba
+antes de la v2.6. **Se recuperan ~92px en el grupo izquierdo en móvil** (bloque de 80px + `gap` de 12px), que
+simplemente vuelven a ser aire.
+
+- **Nada se recoloca para «aprovechar» ese hueco.** Ni el H2 crece, ni el link vuelve antes de `sm`, ni las
+  flechas cambian de tamaño (§23.13 nº13). El encabezado queda **idéntico al de la v2.5**.
+- **Y el hueco no se rellena con nada**: §22.6b-e prohíbe kicker, subtítulo o mención al gancho en esta fila,
+  y ahora sin ninguna precisión que lo matice.
+
+### 23.5 Máquina de estados — suspensión temporal vs. pausa permanente
+
+Dos niveles, y no se mezclan. Ésta es la distinción que evita que el carrusel pelee con el usuario.
+
+> **v2.7 — esta sección es ahora el mecanismo completo, no la mitad automática de él.** Con el conmutador
+> retirado (§23.4), los dos niveles de abajo son **todo lo que detiene la rotación**. Ninguno cambia: se
+> conservan literalmente, incluida la ventana de 1200 ms de §23.5a. Lo único que se retira son las
+> menciones al control (la fila «Pulsar PAUSAR» y los cambios de etiqueta), que eran **consecuencias** del
+> botón, no causas de nada.
+
+**Nivel 1 — SUSPENSIÓN (temporal, silenciosa, reversible sola).** El modo sigue siendo «reproduciendo»; el
+temporizador simplemente no corre. **Nada cambia en pantalla** — y desde v2.7 esto es literal: no hay
+etiqueta que pudiera cambiar. Causas:
+
+| Causa | Se reanuda cuando |
+|---|---|
+| **Puntero encima** de la sección (`pointerenter`, incluye encabezado y pista) | El puntero sale |
+| **Foco de teclado dentro** de la sección (flechas, pista, cualquier teja) | El foco sale de la sección |
+| **Menos del 50 % de la pista visible** en el viewport | Vuelve a estar visible |
+| **Pestaña oculta** (`visibilityState !== 'visible'`) | La pestaña vuelve al frente |
+
+- **Es silenciosa a propósito**, y desde v2.7 no puede ser otra cosa. Al reanudar se **reinicia el reposo de
+  5 s** completo: nunca hay un tic inmediato al retirar el ratón. *(La razón original seguía en pie por sí
+  sola: cambiar una etiqueta en el encabezado porque el puntero está a cientos de píxeles, en la pista,
+  habría sido un parpadeo remoto y además una **mentira sobre el modo** — no se ha pausado nada; se está
+  esperando.)*
+- **En táctil, F1 también actúa.** En un dispositivo de dedo el puntero es transitorio: al apoyar el dedo
+  sobre la sección se dispara `pointerenter` y la rotación **se suspende mientras el dedo está apoyado**; al
+  levantarlo vuelve a contar los 5 s desde cero. **Un toque quieto suspende; un toque que arrastra la pista
+  un píxel pausa para siempre** (F3). Ver el costo real de esta diferencia en §23.16.
+- **La pausa por foco no es solo accesibilidad.** Sin ella, tabular por las tejas mientras la pista rota
+  produce una pelea: el navegador desplaza para traer el foco a la vista y el temporizador desplaza en
+  sentido contrario; el foco se pierde de la pantalla. Es un defecto funcional, no un detalle de A11y.
+- **La pista es un tope de tabulación con nombre.** Si lleva `tabindex="0"` para poder desplazarla con
+  teclado (recomendado), debe llevar además `role="group"` y `aria-label` propio (§23.9): un tope de foco
+  anónimo es peor que no tenerlo.
+
+**Nivel 2 — PAUSA PERMANENTE (para el resto de la visita — v2.7: *sin* «hasta que el usuario reanude»,
+porque ya no hay forma de reanudar).** El modo cambia a «pausado» y **no vuelve a rotar en esa visita**;
+la pista sigue siendo navegable a mano con las flechas y el dedo. Causas — todas son **actos deliberados**
+del usuario:
+
+| Causa | Nota |
+|---|---|
+| **Swipe / arrastre** sobre la pista | — |
+| **Rueda / trackpad** horizontal sobre la pista | — |
+| Pulsar una **flecha** (§20.3) | Así flechas y rotación no se disputan la pista |
+| **Cualquier desplazamiento de la pista atribuible a un acto del usuario** que el carrusel no haya originado — incluido el que provoca el navegador al tabular a una teja fuera de pantalla | Regla general acotada. **Corregida en v2.6.1**: leer el recuadro de abajo **antes** de implementarla |
+| Llegar a la sección por **ancla** (`#piezas-destacadas`, el regreso de la nota al pie del gancho, §22.4a) | Quien llega por el ancla viene a **inspeccionar algo concreto**. Que la ventana se le mueva bajo los ojos es el peor momento posible. **No se rebobina**: solo se detiene |
+
+> **Decisión: la intervención pausa PARA SIEMPRE, no «durante N segundos» (R5).** **v2.7: y ahora no hay
+> reanudación de ninguna clase** — ni automática ni pedida. Un carrusel que se reactiva a los 5–10 s le
+> arranca al usuario el control que acababa de tomar; es el comportamiento que hace que la gente odie los
+> carruseles. El coste —que alguien pause sin querer y no vuelva a ver rotación en esa visita— es
+> **barato**: el contenido sigue ahí entero y las flechas siguen funcionando. El coste contrario no lo es.
+>
+> **Y con el conmutador fuera, R5 se vuelve más importante, no menos.** Es el único freno que el usuario
+> puede accionar **a voluntad**: F1, F2, F4 y F5 se disparan por contexto o por preferencia del sistema;
+> F3 es el que responde a «quiero que esto pare». Debilitarlo —reanudar tras N segundos, «solo pausa si el
+> gesto fue grande», reactivar al salir de la sección— dejaría al usuario **sin ningún freno accionable**.
+> Ésa es hoy la peor regresión posible de esta sección (§23.13 nº24).
+
+#### 23.5a Corrección v2.6.1 — la regla general es **atribuible al usuario**, no «cualquier `scroll`»
+
+Este documento decía: *«cualquier desplazamiento que el carrusel no haya originado ⇒ pausa permanente»*. Es
+la corrección más importante de las tres, porque **implementada al pie de la letra deja la función muerta**:
+el carrusel se pausa solo **antes del primer tic**.
+
+**Evidencia medida (frontend, listener de captura en Chromium sobre la home real):** un único evento `scroll`
+a **t ≈ 999 ms**, en `#piezas-destacadas-pista`, con `scrollLeft: 32` — que es **el propio motor del
+navegador aplicando `scroll-snap`** y llevando la pista al gutter. Nadie tocó nada. En la primera corrida de
+E2E el conmutador —que entonces existía— ya decía **REANUDAR** con el usuario quieto. El error es mío:
+escribí la regla asumiendo
+que un `scroll` implica una mano, y en una pista con `scroll-snap` **el motor desplaza por su cuenta** — al
+asentar el snap, al restaurar la posición en una vuelta atrás, y al reajustar tras un reflow o un cambio de
+anchura.
+
+> **Enunciado que sustituye a la regla general.** Un `scroll` sobre la pista provoca **pausa permanente si y
+> solo si es atribuible a un acto del usuario**: existe un `pointerdown`, `touchstart`, `wheel`, `keydown` o
+> `focus` en la sección dentro de una ventana de **1200 ms** anterior al evento. Un `scroll` **sin ese
+> antecedente es del motor** y **no pausa nada**.
+>
+> **v2.7: esta regla se conserva palabra por palabra, ventana de 1200 ms incluida.** No la toca la retirada
+> del conmutador; al contrario, es la que **decide** si el único freno accionable del usuario (F3) dispara o
+> no. Si alguna vez se toca ese número, se toca aquí y con medición delante, no en el componente.
+
+Tres precisiones sobre ese enunciado:
+
+- **No afloja R5 ni ninguna de las causas ya enumeradas.** Todas siguen pausando para siempre, porque todas
+  tienen antecedente atribuible: swipe/arrastre (`pointerdown`/`touchstart`), rueda o trackpad (`wheel`),
+  flecha (`keydown`/`pointerdown`), y **el caso que yo mismo pedí cubrir** —el scroll que provoca el
+  navegador al tabular a una teja fuera de pantalla— entra por `keydown`/`focus`. La regla acotada cubre
+  exactamente lo que la regla amplia pretendía cubrir; lo único que deja fuera es **el reposo del motor**,
+  que nunca fue intervención de nadie.
+- **La ventana de 1200 ms es parte de la norma, no un detalle de implementación.** Tiene que sobrevivir a la
+  animación de asentamiento del snap posterior al gesto (un `scroll` que llega cientos de ms después de
+  soltar el dedo **sí** es del usuario).
+- **Los desplazamientos que el carrusel origina él mismo siguen sin pausar nada**, como siempre: el tic
+  *(v2.7: y ya no hay «REPETIR» que añadir a esta lista)*. Y la **llegada por ancla** conserva su propia
+  fila y su propio tratamiento —pausa permanente— porque no se detecta por el `scroll`, sino por **cómo se
+  entró a la sección**; no depende de esta regla.
+
+**Ni un solo falso positivo es aceptable, y un falso negativo tampoco.** Que el motor pause el carrusel lo
+rompe (es lo que se midió); que un swipe real **no** lo pause deja al usuario **sin su único freno
+accionable** (v2.7: antes le quedaba el botón; ahora no le queda nada). Por eso esto merece **test de
+regresión permanente** y check propio de QA (§23.14 ñ), **reescrito** en v2.7 porque el observable de aquel
+test era la etiqueta del conmutador y ya no existe.
+
+**Transiciones completas (v2.7 — sin REPETIR y sin vuelta atrás):**
+
+```
+   (arranque)
+  ─────────► REPRODUCIENDO ──── intervención del usuario ────► PAUSADO
+                 │  ▲            (swipe · rueda · flecha ·        (terminal:
+   suspensión ───┘  └─ fin        scroll atribuible · ancla)       no rota más
+   (hover/foco/       suspensión                                   en esta visita)
+    fuera de vista/
+    pestaña oculta)
+                 │
+                 │ llega al extremo derecho (7.º tic)
+                 ▼
+             TERMINADO   (terminal: la pista queda quieta; las flechas siguen)
+```
+
+**Los dos estados finales son absorbentes.** Ni `PAUSADO` ni `TERMINADO` vuelven a `REPRODUCIENDO`: en esa
+visita la rotación se acabó. Se conservan **separados** por una sola razón, y no es cosmética: **anuncian
+cosas distintas** a un lector de pantalla (§23.9c — «Rotación automática pausada.» vs. «Fin de las piezas
+destacadas.»). Para todo lo demás son el mismo reposo.
+
+### 23.6 Al llegar al final — **una pasada y para. Y para de verdad** (R7)
+
+> **Decisión (v2.6, intacta): la rotación hace UNA sola pasada. Al llegar al extremo derecho se detiene. No
+> hay bucle automático.**
+>
+> **Decisión nueva (v2.7): al terminar, la pista se queda quieta hasta que se recargue la página.** No hay
+> forma de volver a arrancarla. El «REPETIR» desapareció con el conmutador y **no se sustituye por nada**:
+> ni un enlace, ni un gesto secreto, ni «se reanuda al volver a la sección».
+
+**Por qué quieta y no reanudable, ya que había que elegir:**
+
+- **Es lo coherente con R5.** La regla más fuerte de esta sección es que **la intervención del usuario gana
+  para siempre**. Si el final de pasada sí ofreciera volver a arrancar, tendríamos una rotación que se
+  reactiva por un camino y no por otro, con dos reglas distintas para el mismo estante.
+- **La navegación a mano ya existe y no se ha tocado.** Las **flechas siguen ahí**, con su paso de página y
+  su apagado en los extremos (§20.3): quien quiera volver al principio pulsa «anterior» las veces que haga
+  falta, y quien quiera seguir mirando lo hace con el dedo o la rueda. **No se pierde acceso a ninguna
+  pieza del catálogo**; se pierde una animación que ya cumplió su trabajo.
+- **El trabajo de la rotación es revelar que hay más de lo que cabe.** Se hace **una vez**. Ofrecer repetirla
+  sería ofrecer que se repita un anuncio.
+- **Es lo más barato de implementar y de verificar**, y en una función que ya se detiene sola por cinco
+  caminos distintos, cada estado extra es una fuente de defectos.
+
+Cuatro razones (v2.6, siguen en pie) para que no haya bucle automático:
+
+1. **Coherencia con lo que ya hay.** Hoy las flechas se apagan en los extremos (§20.3) y no hay vuelta. Un
+   bucle automático introduciría un concepto —«la pista da la vuelta»— que **contradice** el apagado de las
+   flechas en el mismo componente: la flecha «siguiente» diría «no hay más» mientras el carrusel demuestra
+   lo contrario cada 5 s.
+2. **El rebobinado es el peor movimiento posible en este sistema.** Volver al inicio son ~2 000px. Animado
+   es un barrido de página entera que se lee como fallo o como carga (justo lo que §17.3 teme). Instantáneo
+   es un salto que se lee como error. No hay tercera forma decente.
+3. **La alternativa habitual —clonar tejas para un bucle infinito— está prohibida por R1** (§23.2):
+   duplicaría nombres accesibles que aquí incluyen la cifra del gancho y su micro-aviso.
+4. **Acota el movimiento total.** La pasada dura **≈ 39 s a 390 px** (siete tics) y **≈ 15 s en escritorio**
+   (§23.3b) y luego la home queda **completamente quieta** para siempre. *«Acotado» aquí significa **finito**,
+   no «breve»: el argumento es contra el bucle perpetuo, y por eso se sostiene igual con las dos cotas — la
+   corta solo lo refuerza.* El movimiento perpetuo en la primera pantalla es el verdadero
+   irritante; una pasada única cumple el objetivo (revelar que hay más de lo que cabe) y se retira. *(La
+   cadencia más rápida **acorta** la ventana de movimiento total: es el único efecto del cambio de v2.7 que
+   juega a favor de la doctrina de §17.3.)*
+
+Detalles:
+
+- **`TERMINADO` es el mismo predicado que apaga la flecha «siguiente»** (`canNext === false`). Se alcanza
+  igual si la rotación llegó sola o si el usuario llegó con las flechas: un solo criterio, cero
+  discrepancias.
+- **`TERMINADO` es terminal (v2.7).** La pista se queda donde está. No se rebobina —ni animado ni
+  instantáneo—, no se reordena, no se recarga nada y **el estado no vuelve a `REPRODUCIENDO`** en esa
+  visita. Recargar la página es el único reinicio, y es del navegador, no un control nuestro.
+- Si desde `TERMINADO` el usuario pulsa la flecha «anterior» o desplaza hacia atrás **con un desplazamiento
+  atribuible a él** (§23.5a), la pista se mueve como siempre y la rotación **sigue sin volver**. Manda la
+  regla de intervención (§23.5) y da igual desde qué estado terminal se llegue.
+- **Se emite «Fin de las piezas destacadas.»** una sola vez al alcanzar `TERMINADO` (§23.9c). Con el
+  conmutador retirado, ése es el único aviso de que la pasada acabó — para quien use lector de pantalla. En
+  pantalla, el aviso es que **deja de moverse**, que es suficiente y no necesita palabras.
+- **Nota de v2.6.1:** `TERMINADO` se alcanza en el tope físico de la pista, donde la teja de la izquierda
+  queda cortada. Eso es el límite aceptado de §23.3a, **no** un tic mal calculado.
+
+### 23.7 `prefers-reduced-motion` — **cero movimiento** (R4)
+
+El frontend verificó que la regla global de `globals.css` **solo neutraliza duraciones de CSS**: no cubre ni
+el scroll suave por JS ni un temporizador. Es cierto, y por eso esto se resuelve en la **lógica del
+componente**. Con la preferencia activa:
+
+| Qué | Comportamiento |
+|---|---|
+| Temporizador de rotación | **No arranca.** No es «arranca y salta»: no existe |
+| ~~Conmutador de reproducción~~ | **v2.7: no aplica — no hay conmutador en ningún caso** (§23.4) |
+| Flechas de §20.3 | **Siguen funcionando**, pero con `behavior: 'auto'` — **salto instantáneo**, no desplazamiento suave |
+| Ancla de regreso de la nota al pie | `scroll-behavior` instantáneo, igual criterio |
+| Resto del estante (tejas, imágenes, badges) | Idéntico. **No se degrada contenido**: la preferencia quita movimiento, no información |
+
+- **Prohibido «moverse más lento»**, «moverse sin `easing`», «rotar cada 15 s en vez de cada 5» o cualquier
+  otra media tinta. La preferencia significa *no me muevas la pantalla*, no *muévemela con calma*.
+- **Se escucha en vivo** (§8.2): activar la preferencia en el sistema operativo detiene la rotación **en ese
+  momento**, sin recargar. Desactivarla **no** rearranca la rotación de golpe a mitad de visita: se reanuda
+  con su reposo inicial de **5 s**.
+- **v2.7 — F5 es ahora el freno más importante de los cinco para quien lo necesita.** Con el conmutador
+  retirado, `prefers-reduced-motion` es la **única** forma de que el carrusel **nunca** se mueva, y es
+  además la única que **persiste entre visitas** (vive en el sistema operativo, no en la página). Por eso
+  R4 no admite ni un matiz: si esta preferencia dejara de enforzarse en la lógica del componente, la
+  retirada del control **sí** dejaría a alguien sin salida. Es el freno que no se toca jamás.
+- **`prefers-reduced-motion` gana sobre todo lo demás**, incluida una eventual preferencia guardada del
+  usuario. No hay ajuste en la app que la anule.
+
+### 23.8 Sin JS y antes de hidratar — el estado inicial, no un fallback
+
+Esto **corrige** la nota 2 de §20.16, que decía que el carrusel debía degradar a scroll-snap nativo sin JS.
+
+| Momento | Qué hay |
+|---|---|
+| **Marcado servido / sin JS** | La sección existe con su encabezado, pero **el contenido del estante no está**: hoy lo resuelve una consulta de react-query **en el cliente**, así que sin JS el estante se queda en su **estado de carga**. **No rota.** **No se pintan las flechas** *(v2.7: ni ningún conmutador, porque ya no existe en ningún estado)* |
+| **Hidratado** | Se resuelve la consulta, se pinta la pista de **scroll-snap nativa** con sus ocho tejas y aparecen las flechas. La rotación aún **no** arranca (faltan las precondiciones de §23.3) |
+| **Precondiciones cumplidas + 5 s de reposo** | Primer tic |
+
+#### 23.8a Corrección v2.6.1 — qué es cierto hoy y qué no
+
+Este documento afirmaba que sin JS se veían **«las ocho tejas completas»**. **Es falso**, y el frontend lo
+verificó con `javaScriptEnabled: false`: el contenido del estante lo trae **react-query en el cliente**, de
+modo que sin JS la home queda en estado de carga.
+
+- **Es preexistente. §23 no lo introduce ni lo empeora.** La rotación no cambió de dónde vienen los datos del
+  estante; lo que hizo mi texto fue **afirmar** algo que ya no era cierto cuando lo escribí. La corrección es
+  de este documento, no de la implementación.
+- **Lo que §23 sí aporta, y se cumple, verificado:** sin JS **no se pinta ni una flecha**, y sin JS tampoco
+  hay rotación. Movimiento y frenos nacen del mismo JS, en el mismo momento: no puede haber uno sin los
+  otros, ni un control muerto.
+
+**La frase «el contenido nunca depende del JS» queda condicionada:** hoy **sí depende**, en este estante. Para
+que vuelva a ser cierta hace falta que **la consulta del carrusel se resuelva en servidor** (render o
+prefetch en servidor, hidratación con los datos ya presentes). Eso **no es algo que el frontend deba
+arreglar por decisión propia** ni un requisito de §23: es una **petición abierta al arquitecto**, ya enrutada
+por separado y referenciada en **§23.15 nº2**. Mientras no se resuelva, este documento **no promete** las
+ocho tejas sin JS.
+
+#### 23.8b La regla de las dos mitades, reescrita (v2.7) — decía dos cosas y solo una era literal
+
+La v2.6 dejó aquí un enunciado que, en realidad, eran **dos** reglas atadas en un bicondicional: *«ningún
+control se pinta si no puede funcionar»* **y** *«no puede haber movimiento sin freno»*. Con el conmutador
+retirado (§23.4) la segunda mitad **deja de ser literal**, porque «freno» ahí quería decir «botón». No se
+borra: se dice bien, separando lo que sigue siendo cierto de lo que cambió de forma.
+
+> **(1) Ningún control del carrusel se pinta si no puede funcionar.** *Sin asteriscos, igual que en v2.6.*
+> Hoy se cumple en su forma máxima —no hay control de reproducción en ningún estado— y sigue gobernando las
+> **flechas**, que no se pintan antes de hidratar, sin JS, en carga/error/vacío ni cuando la pista no
+> desborda.
+>
+> **(2) Ningún movimiento automático existe sin frenos — pero un freno no es un botón.** El movimiento de
+> este carrusel **sí tiene frenos**: los **cinco** de §23.4 (hover · foco · intervención permanente ·
+> visibilidad · `prefers-reduced-motion`), todos automáticos, ninguno que el usuario tenga que descubrir.
+> Lo que ya **no** existe es un **control explícito**, y esa ausencia es una **decisión registrada y
+> razonada** (§23.4.0), no un descuido ni una consecuencia de esta regla.
+
+**El bicondicional que sí sigue siendo cierto**, y es el que hay que citar de aquí en adelante:
+
+> **Movimiento y frenos son inseparables: nacen del mismo JS, en el mismo momento, y mueren juntos.** Si por
+> cualquier razón los frenos no pueden estar activos —no hay JS, no hay hidratación, el componente falló—,
+> **tampoco puede haber movimiento**. Nunca al revés. Un carrusel que rota con F1–F5 caídos es un defecto
+> **bloqueante**, y es la única forma en que esta sección puede incumplirse de verdad.
+
+**Y lo que este documento ya NO afirma, para que nadie lo repita:** que el carrusel disponga de un
+«mecanismo de pausa» en el sentido de WCAG 2.2.2. No lo tiene. Ver §23.4.0 (a) y la redacción canónica de
+§23.4.0 (d).
+
+### 23.9 Anuncio a lectores de pantalla — patrón APG de carrusel
+
+Para que el frontend no improvise, esto es normativo:
+
+**(a) La región.** La `<section>` del estante (la que ya pinta `Shelf`) lleva:
+- `aria-roledescription="carrusel"` / `"carousel"` — **localizado**, clave i18n propia (§23.12). Con su
+  `aria-label` ya existente, el lector anuncia «Piezas destacadas del catálogo, carrusel».
+- Su `aria-label` **no cambia** y **no menciona** la rotación (§22.6b-e sigue vigente).
+
+**(b) La pista.** `id` propio, y **`aria-live` conmutando**:
+- `aria-live="off"` **mientras la rotación está corriendo de verdad**.
+- `aria-live="polite"` **en cuanto no corre**: pausada, terminada, suspendida por foco o por puntero, o con
+  movimiento reducido. Se ata a *«¿está corriendo el temporizador ahora mismo?»*, **no al modo** — así el
+  caso que importa (usuario de teclado navegando por la pista, que la suspende) queda siempre en `polite`.
+- Si la pista es focuseable (`tabindex="0"`), además `role="group"` + `aria-label` propio (§23.5).
+
+> **Honestidad sobre `aria-live` aquí:** esta pista es un **scroller con las ocho tejas presentes en el
+> DOM**; nada se añade ni se quita al rotar. Por lo tanto, en esta implementación **la región viva no tiene
+> nada que anunciar**. Se especifica igualmente porque es el patrón correcto, cuesta cero y protege el día
+> que alguien introduzca contenido dinámico. **Pero no es el canal de estado**: el canal de estado es (c).
+> Quien implemente esto **no debe dar por hecho** que el usuario de lector de pantalla se entera de algo por
+> el `aria-live`.
+
+**(c) El canal de estado real: una línea `role="status"` visualmente oculta**, propiedad del carrusel, vacía
+por defecto. Emite **solo** en dos transiciones:
+- La rotación **termina la pasada**: «Fin de las piezas destacadas.»
+- La rotación **se pausa por intervención** (swipe, rueda, flecha, ancla): «Rotación automática pausada.»
+
+> **v2.7 — (c) sube de categoría: pasa de refuerzo a ÚNICO canal, y es obligatoria.** Mientras existió el
+> conmutador, el cambio de su nombre accesible (PAUSAR ⟶ REANUDAR ⟶ REPETIR) ya contaba lo que pasaba, y
+> esta línea solo cubría las transiciones **no solicitadas**. Retirado el botón, **no queda ningún otro
+> elemento del árbol de accesibilidad que cambie** cuando la rotación se detiene: si esta línea no emite,
+> un usuario de lector de pantalla **no tiene forma de saber** que el estante se paró o que la pasada
+> terminó. Deja de ser un detalle fino y pasa a ser **requisito de la entrega**.
+
+**No emite** en suspensiones por hover/foco/visibilidad (sería charlatana y además la suspensión no es un
+cambio de modo), **no emite** dos veces la misma transición (`TERMINADO` y `PAUSADO` son terminales, §23.5:
+como mucho se oye **un** mensaje por visita), y **nunca** es `assertive` (§8.2 reserva `assertive` para
+errores de pago). *(La regla «no emite cuando el usuario pulsa el conmutador» se retira por falta de
+conmutador; su motivo —no decir dos veces lo mismo— sigue vivo en la regla de no repetir transición.)*
+
+**(d) Lo que NO cambia de §22.6b-h:** la teja sigue siendo un `<a>` que envuelve todo y **sigue prohibido**
+ponerle `aria-label` (borraría del árbol de accesibilidad la cifra y el micro-aviso). La numeración sigue
+`aria-hidden`. *(v2.7: la regla sobre el glifo del conmutador decae con el conmutador; el principio de §2.4
+—el texto es el portador, el icono acompaña— no.)*
+
+**(e) Teclado (v2.7).** El orden de tabulación del carrusel vuelve a ser el de §20.3: **link «Ver todo el
+catálogo» → flecha «anterior» → flecha «siguiente» → pista** (si es focuseable) **→ tejas**. Ya no hay un
+control de reproducción que preceda a lo que se mueve.
+
+- **Lo que un usuario de teclado puede hacer, y conviene tenerlo claro:** entrar en la sección **suspende**
+  la rotación mientras el foco esté dentro (F2), y **activar cualquiera de las dos flechas la pausa para
+  siempre** (F3). Es decir, sigue teniendo un modo de detenerla a voluntad — solo que ese modo es «navega tú
+  la pista» y no «pulsa el freno». No se le asigna atajo global, ni una tecla secreta: **inventar un atajo
+  no documentado sería peor que no tener control** (§23.13 nº23).
+- **Quien no puede hacerlo es quien no usa ni teclado ni ratón.** Ese hueco está descrito, con su nombre, en
+  **§23.16**.
+
+### 23.10 La numeración `01 · 02 · 03` — la rotación no la toca
+
+Consecuencia directa de R1: **la rotación no reordena el DOM**, así que `02` sigue siendo la segunda teja del
+DOM la mire quien la mire. La regla «todo o nada por pista» de §20.3 y §22.6b-c sigue **exactamente igual**,
+con el mismo predicado (`pageHasGradingFigures`) evaluado **una sola vez** con los datos resueltos: un
+resultado que **no puede cambiar por desplazarse**. Prohibido renumerar según lo visible, usar el número
+como indicador de progreso de la rotación, o resaltar la teja que acaba de entrar. Detalle completo y
+prohibiciones en §22.6b-c.
+
+### 23.11 Contraste — **v2.7: cero pares nuevos y cero elementos nuevos**
+
+La v2.6 verificaba aquí tres pares, y los tres eran **del conmutador** (palabra y glifo en tinta sobre
+papel ~15,5:1, anillo de foco rojo 6,2:1, subrayado de hover). **Retirado el conmutador, §23 no introduce
+ningún elemento visible**: la rotación desplaza tejas ya ratificadas y **no pinta ni un píxel propio**.
+
+| Qué verifica hoy §23 | Veredicto |
+|---|---|
+| Elementos visuales nuevos | **Ninguno.** Nada que medir |
+| Pares de color nuevos | **Cero** |
+| Tokens de color o tamaños tipográficos nuevos | **Cero** |
+| Elementos existentes que la rotación pudiera afectar (tejas §22.6b, flechas y numeración §20.3) | **Sin cambios**: la rotación mueve `scrollLeft`, no repinta nada (R1, §23.2) |
+
+- **Los tres pares que se verificaron en v2.6 siguen siendo válidos** para el resto del sistema (son los de
+  §10 y §17.2); simplemente ya no hay en este carrusel un elemento que los use.
+- **Un requisito de contraste que la rotación sí debe respetar, y es el único:** ningún reposo puede dejar
+  texto o cifra **parcialmente cortado** de forma que el usuario lea un número incompleto (R6, §23.3) —
+  salvo el tope de pista de §23.3a, donde el corte es de la teja completa, no de una cifra a medias.
+
+### 23.12 i18n — claves nuevas (propiedad de frontend)
+
+Convención `home.featured.*` (§20.16). ES de referencia; EN a cargo de frontend (§9).
+
+**Claves vigentes tras v2.7 — cuatro:**
+
+| Clave | ES | EN | Nota |
+|---|---|---|---|
+| `home.featured.roledescription` | `carrusel` | `carousel` | `aria-roledescription` |
+| `home.featured.trackAria` | `Piezas destacadas — pista desplazable` | `Featured pieces — scrollable track` | Solo si la pista es focuseable |
+| `home.featured.status.paused` | `Rotación automática pausada.` | `Automatic rotation paused.` | `role="status"` — **v2.7: canal único, obligatorio** (§23.9c) |
+| `home.featured.status.ended` | `Fin de las piezas destacadas.` | `End of featured pieces.` | `role="status"` — idem |
+
+**Claves RETIRADAS en v2.7 — seis. Se borran de `messages/{es,en}.json`, no se dejan huérfanas:**
+
+| Clave retirada | Era |
+|---|---|
+| `home.featured.playback.pause` | `Pausar` / `Pause` |
+| `home.featured.playback.resume` | `Reanudar` / `Resume` |
+| `home.featured.playback.replay` | `Repetir` / `Replay` |
+| `home.featured.playback.pauseAria` | `Pausar la rotación automática` |
+| `home.featured.playback.resumeAria` | `Reanudar la rotación automática` |
+| `home.featured.playback.replayAria` | `Repetir desde el principio` |
+
+- El **namespace `home.featured.playback.*` desaparece entero**. Los mensajes son propiedad de frontend
+  (§9); esta tabla es la instrucción de diseño, no el cambio.
+- **Decae también el recordatorio de §9.4** que fijaba el `min-width: 80px` del bloque por la longitud de
+  `REANUDAR` en ES: ya no hay bloque, ni ancho reservado, ni riesgo de que una traducción larga descuadre la
+  fila (§23.4e).
+- **Las dos claves de `status.*` NO se retiran ni se abrevian.** Con el conmutador fuera son el único texto
+  que informa del estado de la rotación a un lector de pantalla (§23.9c).
+
+### 23.13 Qué NO hacer
+
+| # | Prohibido | Por qué |
+|---|---|---|
+| 1 | Un **tercer cuadrado** de 32/38px en el grupo de las flechas | Mezcla navegación con estado; obliga a leer glifos donde hoy basta la forma; y es la anchura que no da (§23.4a). **v2.7: además no hay ningún control que colocar** — ver nº22 |
+| 2 | **Puntos, barras o paginador** bajo la pista | Duplica el trabajo de la numeración, sería un tercer acento e implica «páginas» que en un scroller continuo no existen (§22.6b-c) |
+| 3 | **Clonar tejas** / bucle infinito / reordenar el array | R1: duplica nombres accesibles (que aquí llevan la cifra y el micro-aviso) y rompe orden DOM = orden de lectura (§23.2) |
+| 4 | Que el **contenido rote entre tejas** y la 2 ascienda a líder | Remaqueta dos tejas por tic y dispara descargas HD sucesivas (§23.2) |
+| 5 | **v2.7 —** Reintroducir un control de reproducción **escondido**: tras `hover`, tras `focus`, dentro de un menú, en un tooltip o solo en escritorio | Es la peor de las dos opciones: se paga el elemento y no se cobra el beneficio. Si algún día vuelve el control, vuelve **a la vista** y con todo §23.4a — y esa decisión es del dueño, no de quien implementa (nº22) |
+| 6 | **Rebobinado animado** al inicio | ~2 000px de barrido: la lectura «cargando/roto» que §17.3 teme (§23.6) |
+| 7 | **Tics acumulados** al reanudar tras una suspensión | Un salto de varias tejas de golpe es indistinguible de un fallo (§23.3) |
+| 8 | Rotar **fuera de pantalla** o con la pestaña oculta | Mueve el contenido a espaldas del usuario y gasta batería sin que nadie mire |
+| 9 | **Reanudar solo** tras N segundos de la intervención del usuario | R5: le arranca el control al usuario justo después de que lo tomó (§23.5) |
+| 10 | Con `prefers-reduced-motion`: rotar más lento, sin `easing`, o «solo un poco» | R4: la preferencia es *no me muevas la pantalla* (§23.7) |
+| 11 | **Fundido, `cross-fade`, zoom o `scale`** entre tejas | Solo traslación (§17.3a, condición 2) |
+| 12 | Arrancar la rotación **sobre skeletons** o antes de que cargue la imagen líder | R2, y es la condición que desactiva el argumento de §17.3 (§23.1) |
+| 13 | Cambiar el paso, el apagado en los extremos o el tamaño de las **flechas** de §20.3 | §23 es aditiva; §20.3 no se toca |
+| 14 | ~~Que la suspensión por hover/foco cambie la etiqueta del conmutador~~ | **Decae en v2.7** (no hay etiqueta). Lo que sí sigue: la suspensión es **silenciosa** y no pinta ni anuncia nada (§23.5, §23.9c) |
+| 15 | Añadir **kicker, subtítulo, etiqueta o control** al encabezado | §22.6b-e vuelve a aplicar **sin excepción** en v2.7: el hueco del kicker está libre y se queda libre (§23.4e) |
+| 16 | Extender la rotación a **otros estantes** (Sellado, Gradeadas, Bounties, «Joyas para gradear») | §23.1: la excepción está autorizada **solo aquí** |
+| 17 | Un ajuste en la app que **anule** `prefers-reduced-motion` | La preferencia del sistema gana siempre (§23.7) |
+| 18 | **v2.6.1 —** Tratar **cualquier** evento `scroll` de la pista como intervención del usuario | El motor emite `scroll` por su cuenta al asentar `scroll-snap` (medido: t≈999 ms, `scrollLeft: 32`): el carrusel se autopausa antes del primer tic y la función queda muerta (§23.5a) |
+| 19 | **v2.6.1 —** Tapar el corte del **tope de la pista** con padding de cola, teja fantasma, espaciador o última teja más angosta | Geometría inventada para disimular un hecho del contenedor; choca con R1 y con la anatomía de teja. El corte en el tope es límite aceptado (§23.3a) |
+| 20 | **v2.6.1 —** Parar la pasada en el `snap` anterior al tope para «salvar» R6 | Dejaría la **última teja inalcanzable**: esconde contenido para salvar una alineación (§23.3a) |
+| 21 | **v2.6.1 —** Afirmar en producto, copy o docs que el estante **se lee sin JS** | Hoy es falso: la consulta se resuelve en cliente (§23.8a). Lo garantizado sin JS es *cero movimiento y cero controles muertos* |
+| 22 | **v2.7 —** **Reintroducir cualquier control de reproducción** (botón, icono, conmutador, ítem de menú) sin que lo pida el dueño | Su retirada fue **decisión suya**, tomada con la función publicada (§23.4.0 d). Volver a ponerlo «porque el estándar lo pide» es revertir una decisión de producto por vía técnica. Si cambia el alcance, se abre por §23.4.0 (e) y pasa por ux-ui |
+| 23 | **v2.7 —** Sustituir el control retirado por un **sucedáneo no descubrible**: atajo de teclado sin documentar, «toca dos veces para pausar», gesto secreto, o un cartel de instrucciones en el encabezado | Un mecanismo que hay que adivinar no es un mecanismo, y un cartel explicando cómo parar un carrusel es la confesión de que el carrusel estorba. El encabezado, además, está cerrado (nº15) |
+| 24 | **v2.7 —** **Debilitar cualquiera de los cinco frenos** F1–F5 (§23.4): reanudar tras N segundos, exigir que el gesto sea «grande», ignorar el foco, rotar fuera de pantalla, o dejar `prefers-reduced-motion` a la regla CSS global | Los cinco eran red de seguridad **y** ahora son el mecanismo entero. Tocar uno es la regresión más grave que admite esta sección; F5 y F3, las dos peores (§23.5, §23.7) |
+| 25 | **v2.7 —** Bajar la cadencia **por debajo de 5 s**, o «compensar» la falta de control acelerando/añadiendo tics | Por debajo de 5 s el reposo deja de ser dominante y **se incumple la condición 3 de §17.3a**: la excepción de movimiento deja de estar justificada. El 5 s es techo, no punto de partida |
+| 26 | **v2.7 —** Escribir en cualquier documento, ticket, veredicto o copy que el carrusel **«cumple WCAG 2.2.2»**, que **«WCAG no aplica»** o que **«el control no era obligatorio»** a secas | Las tres son falsas o incompletas. La forma correcta de decirlo está fijada literalmente en §23.4.0 (d) y se usa esa |
+| 27 | **v2.7 —** Añadir un ajuste **en la app** de «reducir movimiento» propio, o recordar la pausa en `localStorage` como sustituto del control retirado | Es reintroducir el control por la puerta de atrás y con peor ergonomía. La preferencia que manda es la **del sistema** (nº17, §23.7) |
+| 28 | **v2.7.1 —** **Recalcular la duración de la pasada en otro apartado**, o citarla **sin decir a qué anchura** («la pasada dura X s», a secas) | Así se produjo la divergencia 39/44 que hubo que corregir. La cifra se define **solo** en §23.3b (`n × 5,55 s`; ≈ 39 s a 390 px, ≈ 15 s en escritorio) y todo lo demás la **cita con su anchura**. Un número suelto vuelve a divergir a la primera |
+| 29 | **v2.7.1 —** Usar la cota **corta** (≈ 15 s de escritorio) para **rebajar** el costo de §23.16 (a), o el **desplazamiento neto** (≈ 4 s de traslación pura) para declararse conforme con 2.2.2 | Son las dos formas de maquillar con aritmética una decisión que este documento asume por escrito. El costo se cuenta **en la pantalla de quien lo paga** (móvil) y la conformidad se lee con el criterio **conservador** (§23.3b c, §23.4.0 a) |
+
+### 23.14 QA visual sugerido — **reescrito en v2.7**
+
+> **Aviso a QA antes de la lista: el observable principal desapareció.** Casi todos los checks de v2.6 se
+> verificaban **leyendo la etiqueta del conmutador** (PAUSAR / REANUDAR / REPETIR). Sin botón, el único
+> observable de estado es **el `scrollLeft` de la pista a lo largo del tiempo** (y, para lector de pantalla,
+> la línea `role="status"` de §23.9c). Los checks de abajo están reformulados en esos términos. **Es un
+> coste real de la decisión, y es de QA:** los tests que asertaban sobre el texto del botón —incluido el de
+> regresión del falso positivo— **hay que reescribirlos**, no borrarlos (§23.15 nº4).
+
+(a) **Reposo inicial:** cargar la home y cronometrar — nada se mueve durante los primeros **5 s** (v2.7), y
+no se mueve nada **mientras haya skeletons**. (b) **Paso:** un tic mueve **una** teja y ninguna teja queda
+cortada por el **borde izquierdo** en reposo — **excepto en el tope de la pista**, donde el corte es el
+límite aceptado de §23.3a y **no** es un defecto. (c) **Hover:** dejar el puntero sobre la pista ⇒ se
+detiene; al retirarlo pasan **5 s** completos antes del siguiente tic (no un tic inmediato).
+(d) **Foco:** tabular por las tejas ⇒ la pista no se mueve sola y **el foco nunca sale de la pantalla**.
+(e) **Intervención (v2.7, sin etiqueta que leer):** hacer un swipe (o pulsar una flecha) y luego **no tocar
+nada durante ≥ 30 s** ⇒ el `scrollLeft` **no cambia ni una vez**. La pausa es permanente y **no hay forma de
+reanudarla**: comprobar que en la sección **no existe ningún control** que lo ofrezca.
+(f) **La fila, en 390 / 640 / 1024 y en ES y EN (v2.7):** el encabezado tiene **exactamente tres elementos**
+—H2, link, dos flechas—, **no hay nada entre el H2 y el link**, y el comportamiento de envoltura y el
+ocultamiento del link por debajo de `sm` son los de §20.3, idénticos a antes de la v2.6.
+(g) **Movimiento reducido:** activar la preferencia del sistema **en caliente** ⇒ la rotación se detiene al
+momento y las flechas pasan a saltar sin animación. Recargar con la preferencia activa ⇒ **el `scrollLeft`
+no cambia nunca**, ni a los 5 s ni a los 60. (h) **Sin JS:** **no hay** flechas ni movimiento — *el estante
+queda en carga sin JS y eso es preexistente (§23.8a)*.
+(i) **Final (v2.7):** dejar correr la pasada entera ⇒ al llegar al extremo se detiene, la flecha «siguiente»
+queda apagada, y **se queda quieta indefinidamente** (esperar ≥ 60 s: cero tics más). En ese reposo final la
+teja izquierda **puede** verse cortada (§23.3a). Retroceder con la flecha «anterior» **no** rearranca la
+rotación.
+(j) **Lector de pantalla (v2.7, check de mayor peso que antes):** la sección se anuncia como «carrusel»; al
+terminar la pasada se oye «Fin de las piezas destacadas» **una sola vez**; tras un swipe se oye «Rotación
+automática pausada» **una sola vez**. Si no se oye ninguna de las dos, **no queda ningún otro canal** y el
+check falla (§23.9c).
+(k) **Numeración:** con la pista rotando, `01·02·03` **no cambia de teja** y no se resalta ninguna.
+(l) **Gancho:** con una teja con burbuja, la rotación no altera ni la burbuja, ni el micro-aviso, ni la regla
+todo-o-nada de la numeración, ni las alturas dispares (§22.6b-d). (m) **Rendimiento:** en el panel de red,
+**cero descargas de imagen nuevas** provocadas por los tics. (n) **Pestaña oculta:** cambiar de pestaña 1 min
+y volver ⇒ la pista está donde se dejó (sin tics acumulados).
+**(ñ) Falso positivo de pausa — reescrito (v2.7; cifras corregidas en v2.7.1).** Cargar la home y **no tocar
+nada**. Antes se leía la etiqueta; ahora se mide el movimiento: **el primer tic debe ocurrir a los ~5 s y la
+pista debe seguir ticando, sin intervención, hasta alcanzar el tope** (§23.3a). Si la pista da **cero tics**,
+o se detiene tras el primero sin que nadie haya intervenido, el asentamiento de `scroll-snap` del motor se
+está leyendo como intervención (§23.5a) — es el defecto que casi mata la función y **sigue siendo el check
+más importante de la lista**. Su recíproco, en la misma corrida: un swipe real **sí** pausa para siempre
+(check e).
+> **No asertar «7 tics» ni «≈ 44 s» — los dos números eran incorrectos aquí y por dos motivos distintos**
+> (§23.3b): los ≈ 44 s eran un **error de suma** (la pasada a 390 px es **≈ 39 s**), y **7 tics es la cuenta
+> de 390 px**, no una constante: en escritorio caben más tejas y la pasada se agota en **2–4 tics**
+> (**≈ 15 s** — 15,3 s medidos por frontend, ~14 s netos por QA). **El aserto correcto es «llega al tope sin
+> intervención», y el número de tics se deriva de la anchura en la que se corre el test** (tolerancia ± 1
+> tic). Un test que espere 7 tics en un viewport de escritorio falla por estar mal escrito, no por un
+> defecto del componente.
+**(o) Sin JS, la parte cierta:** con `javaScriptEnabled: false` verificar lo que §23 sí garantiza — **cero
+flechas, cero movimiento** (y cero controles de reproducción, que ya no existen en ningún estado). Que el
+estante quede en carga es un **hecho conocido y preexistente** (§23.8a), **no** un fallo de esta entrega.
+**(p) Cadencia, medida (v2.7):** cronometrar dos tics consecutivos sin interacción ⇒ **≈ 5 s** de reposo
+entre ellos (no 7). Y la traslación sigue durando **≈ 0,55 s**: si se acortó «para que se note menos», es un
+defecto — la cadencia cambió, el tic no.
+**(q) Ausencia del control (v2.7):** buscar en la sección, en las tres anchuras y en ES/EN, cualquier
+elemento que ofrezca pausar, reanudar o repetir — botón, icono, texto, ítem de menú o atajo documentado.
+**No debe haber ninguno.** Y en `messages/{es,en}.json` no debe quedar el namespace
+`home.featured.playback.*` (§23.12).
+
+### 23.15 Notas a otros roles (ninguna bloquea)
+
+1. **Product-owner:** P-49 no está registrado en `PROJECT.md`. Este documento lo referencia como decisión del
+   dueño; convendría anotarlo con su criterio de aceptación para que QA tenga contra qué verificar.
+   **Redacción sugerida, actualizada a v2.7** (la de v2.6 decía «con control de pausa visible» y **ya no
+   sirve**): *«el carrusel de destacadas rota solo, una teja cada 5 s, una sola pasada; se detiene al pasar
+   el puntero, al recibir foco, ante cualquier gesto del usuario —y entonces ya no vuelve a rotar en esa
+   visita— y no se mueve en absoluto con `prefers-reduced-motion`. **No lleva control de pausa visible**:
+   retirado por decisión del dueño, ver DESIGN_SYSTEM §23.4.0.»* **No bloquea el diseño ni la
+   implementación.**
+2. **Arquitecto:** la rotación **sigue sin necesitar** ningún dato nuevo, campo nuevo, endpoint ni cambio de
+   `API_CONTRACT.md`: se alimenta de la misma consulta compartida que ya usa el carrusel (§22.6b-g). Eso no
+   cambia con la v2.6.1. **Lo que sí queda como petición abierta** (ya enrutada por separado, solo referenciada
+   aquí): que la consulta del estante de destacadas **se resuelva en servidor** (render/prefetch en servidor,
+   hidratación con datos ya presentes), para que el **contenido** de la home deje de depender del JS del
+   cliente (§23.8a). **No bloquea §23 ni a frontend**, y frontend **no** debe abordarlo por decisión propia:
+   es una condición de arquitectura, y hasta que exista este documento no promete contenido sin JS.
+3. **Frontend (actualizado v2.7):** el destino del tic sigue calculándose desde el `offsetLeft` de la teja
+   entrante, no con `scrollBy(clientWidth × 0,8)` (que es el paso de las **flechas**), o se incumple R6 — con
+   la salvedad del tope de pista de **§23.3a**, donde el destino se satura en `scrollWidth − clientWidth` y
+   el corte por la izquierda es esperado. **Lo que decae:** la petición de v2.6 de ampliar `Shelf.kicker` de
+   `string` a `ReactNode` (o añadir un slot `titleAdjacent`) **ya no la necesita §23** — no hay nada que
+   meter en ese hueco. Si esa ampliación ya se hizo y queda sin usar, **retirarla o conservarla es decisión
+   de frontend/techlead** (código muerto vs. capacidad genérica ya pagada); este documento no la exige ni la
+   prohíbe. Lo que sí pide §23.12: **borrar el namespace `home.featured.playback.*`** de
+   `messages/{es,en}.json`.
+4. **QA (actualizado v2.7):** los checks (g) y (h) —movimiento reducido en caliente y sin JS— siguen siendo
+   los dos que un E2E olvida por defecto y merecen caso propio. **Lo nuevo, y no es menor:** el observable de
+   estado era la etiqueta del conmutador y **ya no existe**; los checks (e), (i), (ñ) y el **test de
+   regresión permanente del falso positivo** (§23.5a) **hay que reescribirlos contra el `scrollLeft` de la
+   pista y el tiempo**, no borrarlos. Un test que se borra porque «el botón ya no está» deja sin cubrir la
+   regla que casi mata la función. Checks nuevos: **(p)** cadencia medida ≈ 5 s y **(q)** ausencia total de
+   control. **De v2.7.1, y afecta directamente a un test existente:** el check **(ñ)** ya **no** debe
+   asertar «7 tics ≈ 44 s». Los ≈ 44 s eran un error de suma (la pasada a 390 px es **≈ 39 s**) y **el
+   número de tics depende de la anchura** — en escritorio son 2–4 y la pasada dura **≈ 15 s**, coherente con
+   lo que midieron frontend (15,3 s) y QA (~14 s netos). El aserto correcto es **«llega al tope sin
+   intervención»**, con `n` derivado del viewport y tolerancia ± 1 tic (§23.3b). *(De v2.6.1, siguen
+   vigentes y NO son incumplimientos de frontend: la pausa por desplazamiento
+   es **atribuible al usuario** (§23.5a); el corte de la teja izquierda **en el tope** es límite aceptado
+   (§23.3a); sin JS el estante queda **en carga**, hecho **preexistente** (§23.8a).)*
+5. **Techlead (actualizado v2.7):** §23.1 crea **una excepción nominal y acotada** a la doctrina de
+   movimiento de §17.3, cerrada a una superficie (§23.13 nº16). Si aparece una segunda petición de
+   movimiento, **no se resuelve citando §23**: vuelve a ux-ui — y ahora con más razón, porque «movimiento
+   automático sin control explícito» pasaría de ser **una renuncia acotada** a ser **una política del
+   sistema**, que es otra decisión y más grande (§23.4.0 e nº3). Dos apuntes de código: (i) la retirada del
+   conmutador debe dejar **cero código muerto** —estado `TERMINADO`/`PAUSADO` sigue vivo (§23.5), pero el
+   componente del botón, sus estados de etiqueta y sus claves i18n se van enteros—; (ii) **los cinco frenos
+   F1–F5 son la superficie crítica de esta feature**: cualquier refactor que los toque merece revisión
+   explícita, porque hoy no hay ningún control que compense su fallo.
+6. **Seguridad / pentester (informativo, v2.7):** nada de esto toca dinero, datos ni contrato. Se anota solo
+   para que no se reporte como hallazgo: la ausencia de mecanismo de pausa es **deliberada y documentada**
+   (§23.4.0), no un defecto de implementación.
+
+### 23.16 Lo que se perdió — el costo real de retirar el control (v2.7)
+
+Esto se escribe para quien lea §23 dentro de un año y se pregunte qué se dejó por el camino. La decisión es
+del dueño y es legítima; **lo que no sería legítimo es guardar silencio sobre su precio.**
+
+**(a) Quién se queda sin nada: el usuario táctil que solo mira.** Alguien que lee despacio, en un teléfono,
+sin ratón y sin teclado, y que **no toca la pantalla** mientras lee. Para esa persona:
+
+- **F1 (hover)** apenas actúa: en táctil el puntero es transitorio, existe mientras el dedo está apoyado.
+- **F2 (foco)** no actúa: no está tabulando.
+- **F3 (intervención)** no actúa hasta que toque y **mueva** la pista.
+- **F4 (visibilidad)** solo actúa si se va a otra pestaña o hace scroll y saca el estante de la vista — es
+  decir, si deja de mirarlo.
+- **F5 (`prefers-reduced-motion`)** actúa, y del todo — pero **solo si ya tenía la preferencia activada en
+  su sistema operativo**. Si no la conoce, o la conoce pero no quiere apagar el movimiento en **todas** sus
+  apps para leer una pista de ocho cartas, no le sirve.
+
+**Resultado, dicho sin rodeos: esa persona no tiene ninguna forma explícita de detener la rotación.** Le
+quedan dos caminos, y los dos son laterales: **tocar la pista y arrastrarla un poco** (lo que la pausa para
+siempre, F3 — funciona, pero **hay que descubrirlo por accidente**, porque nada en pantalla lo sugiere) o
+**esperar ≈ 39 s** a que la pasada termine sola —ésa es la duración **a 390 px**, que es justamente la
+anchura de esta persona (§23.3b); en una ventana ancha la misma pasada se agota en ≈ 15 s, pero **esa no es
+la pantalla de quien se queda sin nada**, así que aquí manda la cota de móvil—. Un toque **quieto**, sin
+arrastre, solo suspende mientras el dedo esté apoyado: **no** pausa para siempre.
+
+> **Precisión que hay que hacer, porque es fácil consolarse con una media verdad:** «tocar la pista la
+> detiene» es cierto **si el toque mueve la pista**. Un dedo apoyado y quieto **no** dispara F3 (§23.5a
+> exige un `scroll` atribuible). En la práctica casi cualquier contacto real desplaza la pista uno o dos
+> píxeles y la pausa se dispara; pero **no está garantizado**, y este documento no va a fingir que sí.
+
+**(b) Los tres daños menores, para que estén contados:**
+
+1. **Lector de pantalla:** se pierde el elemento cuyo **nombre accesible cambiaba** al cambiar el estado.
+   Queda un único canal, la línea `role="status"` (§23.9c), que **anuncia** pero no **ofrece**: informa de
+   que la rotación se detuvo; no da forma de detenerla.
+2. **Teclado:** sigue habiendo un modo de pararla a voluntad —activar una flecha (F3)—, pero **es implícito**:
+   nada dice que navegar la pista la pausa para siempre. Antes había un control que lo decía con una palabra.
+3. **Verificación:** desaparece el observable de estado más barato que tenía QA. Ahora el estado se infiere
+   midiendo `scrollLeft` en el tiempo (§23.14). Los tests son más largos, más lentos y más frágiles.
+
+**(c) Lo que NO se perdió, para que la lista no se lea peor de lo que es.** La rotación **sigue teniendo
+cinco frenos** y sigue siendo la más contenida posible: una teja por tic, **una sola pasada** —**≈ 39 s a
+390 px, ≈ 15 s en escritorio** (§23.3b), y lo que importa aquí es que **acaba**—, se
+detiene al primer gesto y **no vuelve**, no arranca sobre contenido en carga, y con `prefers-reduced-motion`
+**no existe**. El contenido está entero y accesible sin rotación alguna: las flechas, el dedo y la rueda
+llegan a las ocho tejas, siempre.
+
+**(d) La forma correcta de citar esto** está en §23.4.0 (d), y **cuándo hay que reabrirlo**, en §23.4.0 (e).
+
+---
+
+## 24. Logos de expansión en el índice de sets — la placa de tinta (v2.8, pedido del dueño)
+
+> **Origen:** pedido del dueño con **referencia visual** (no una entrega de Claude Design): retícula de 3
+> columnas, teja de fondo oscuro con esquinas redondeadas y borde sutil, **logo contenido** con aire
+> alrededor, **nombre debajo** en mono versalitas con tracking amplio, y un elemento destacado más grande
+> arriba con subrayado de acento. La referencia es **oscura, morada y neón**; este sitio es **papel y tinta**
+> (§17). Lo que se traslada es la **estructura** —la que hace que la retícula funcione—, no el acabado.
+> §24 **no cambia el contrato ni la arquitectura**, no introduce tokens de color/tipografía y **no bloquea**:
+> tiene un requisito de dato abierto (§24.13 nº1) y, sin él, la retícula sigue funcionando.
+
+### 24.0 Las cinco reglas duras
+
+Si algo de lo que sigue se contradice con el resto de §24, mandan estas cinco.
+
+| # | Regla |
+|---|---|
+| **R1** | **El logo va contenido en una caja de tamaño fijo, idéntica para todos los sets.** `object-contain`, nunca `cover`, nunca estirado, nunca recortado. Es lo que impide que la retícula se descuadre con logos de proporciones dispares. **Ésta es la idea estructural de la referencia y es innegociable.** |
+| **R2** | **El nombre en texto NO desaparece.** Vive debajo de la placa, siempre, tenga o no tenga logo el set. El logo es un **acelerador de reconocimiento**, nunca el portador del dato (mismo razonamiento que §2.4: el color no porta, el texto sí). |
+| **R3** | **El logo se pinta sobre una placa de tinta**, en el tema claro también (§24.2). No se recolorea, no se invierte, no se mezcla y no se inspecciona logo a logo. |
+| **R4** | **Sin logo no hay hueco ni pulso**: la placa lleva un monograma (§24.5). Precedente literal: `CardImage` deja el pozo **quieto** cuando no hay `src`, porque un `animate-pulse` eterno hace que un dato ausente legítimo parezca una app colgada (§5). |
+| **R5** | **Esta retícula vive en UNA superficie** (§24.1). Ninguna otra pantalla adopta la placa —ni suelta ni en masa— sin pasar por ux-ui. |
+
+### 24.1 Dónde vive esta retícula — y qué pasa con las otras superficies
+
+El dueño dijo «cuando seleccionamos set», y en la app hay cuatro sitios donde eso ocurre. **Se diseña para
+uno**, y los otros tres se quedan como están. La razón de fondo es que solo uno de ellos es un
+**escaparate para elegir** (se entra a mirar y se sale habiendo escogido); los demás son **controles de
+formulario** (se llega sabiendo lo que se busca y se quiere salir en dos teclas).
+
+| Superficie | Qué le pasa | Por qué |
+|---|---|---|
+| **`MasterSetIndex` — el índice de sets compartido** (`components/master-set/MasterSetIndex.tsx`) | **AQUÍ se diseña.** Adopta la retícula de placas en **sus cuatro modos**: `quoter` (cotizador `/buylist`, §18.1 nº3), `platform` (pestaña Master Set de M1, §16.1 nº4), `user_vault_self` y `user_vault_admin`. | Es la única superficie **de elección por exploración**: pantalla completa, una sola selección, ya es una retícula de 3 columnas paginada de 20, y al elegir se **sale** de ella hacia el binder. Es, literalmente, «cuando seleccionamos set». |
+| **Chips «Sets buscados» de la home** (§20.2 nº5) | **No cambia.** Siguen siendo chips de texto 13px con regla inferior. Queda **prohibido** pegar la retícula de placas dentro del hero. | (a) Viven en la **columna izquierda del hero**, compartiendo pliegue con el `h1` de 50px y con el panel Cotizador: cinco bloques de tinta ahí le disputarían la atención al titular y al único CTA de la home. (b) No son un selector de set: son **enlaces a facetas de Compra**. (c) El hero ya tiene su bloque de tinta (el CTA primario) y la regla es un bloque de tinta por composición. Si algún día el dueño quiere logos en la home, la pieza correcta es una **banda propia bajo el pliegue** (al estilo de §20.4), y eso es **un diseño nuevo, no una herencia**. |
+| **`SetFilter` de Compra** (§7.16b) | **No cambia.** Sigue siendo combobox con búsqueda sobre `facets.sets`, `"Surging Sparks (2024)"`, orden por año descendente. | (a) Es una **faceta de selección múltiple** en una columna estrecha: una retícula de imágenes no se teclea ni se marca con checkbox sin inventar un patrón nuevo (checkbox sobre imagen) que no existe en este sistema. (b) Con cientos de sets, **la búsqueda por texto ES la función**; sustituirla por mirar logos es un downgrade medible. (c) Un filtro sirve para **estrechar**, no para explorar. |
+| **Combobox de set del alta admin** (`AddItemModal` / `SealedAddFlow`, §16.5, §16.8a) | **No cambia.** | Es un **control de formulario dentro de un modal**, usado con prisa y a veces con guantes junto a las cajas (§1.4). Una retícula de placas empujaría el resto del formulario bajo el pliegue y cambiaría dos pulsaciones por un scroll. |
+
+**Sobre heredar en admin/bóveda (y por qué no se bifurca).** `MasterSetIndex` es **un solo componente con
+cuatro modos** y ya acumula deuda por ramificación (`SC-D4`). Darle a admin una piel distinta añadiría otra
+rama para empeorar su pantalla: el operador de M1 trabaja **con el producto físico en la mano**, y el logo
+que ve impreso en la caja o en el sobre es exactamente el que la placa le pinta. **Misma geometría, misma
+placa, mismo monograma en los cuatro modos**; lo único que sigue siendo condicional por modo es lo que ya lo
+era: completitud, barra de progreso y piezas **no se pintan en `quoter`** (§24.3), y el orden por
+completitud/piezas tampoco.
+
+**Sobre `images.symbol`.** El arquitecto está decidiendo en paralelo qué URLs se guardan. Para lo que este
+documento diseña, **el dato que carga el peso es el LOGO**; el **símbolo no se usa en ninguna superficie
+hoy**, y el sitio donde alguien lo pediría —un glifo de 20px dentro de las opciones del `SetFilter`— es
+justo donde la placa de tinta **no cabe** y donde el problema de §24.2 **no tiene solución**: un símbolo casi
+blanco a 20px sobre papel es un borrón, y una placa de tinta de 20px al lado de cada opción de un
+desplegable es absurda. **Si se guarda, se guarda para el futuro, no para esta versión**; su uso lo decide
+ux-ui cuando exista una superficie que lo justifique.
+
+### 24.2 La placa de tinta — por qué el fondo oscuro no es gusto
+
+**El problema, dicho en claro.** Los logos de expansión de pokemontcg.io son PNG con transparencia
+**dibujados para ir sobre arte de sobre y de caja**, es decir, sobre fondos de cualquier color y
+normalmente oscuros. Casi todos llevan **filete claro (blanco o casi blanco)** alrededor de las letras, y
+algunos son claros por dentro. Sobre el papel `#F4F1EA` de este sitio, ese filete **desaparece contra el
+fondo** y el logo pierde su contorno; los logos de relleno claro se van directamente a invisibles. **No se
+puede saber cuál es cuál sin mirarlos uno por uno**, y son **cientos**, vienen de un **tercero** y mañana
+puede haber más.
+
+**Lo que se descartó, y por qué:**
+
+| Opción | Por qué no |
+|---|---|
+| Logo suelto sobre papel | Es exactamente el fallo descrito. Además obliga a **verificar cada logo a mano**, para siempre, cada vez que el tercero añade sets. |
+| Placa blanca | Rompe §2.1 de raíz: en este sistema **no hay tarjetas blancas flotando** sobre el papel, y el blanco tampoco resuelve nada (el filete blanco sigue perdiéndose). |
+| Gris neutro medio | Es el peor de los dos mundos —contraste mediocre con logos claros **y** con oscuros— y además introduce un tono que **no existe en la paleta**: ni papel, ni pozo, ni tinta. |
+| Detectar la luminancia de cada logo y elegir fondo | Requiere un dato que **hoy no existe** (§24.13 nº2). Es la solución «correcta» en abstracto y la peor en la práctica: hace depender la legibilidad de un cómputo de ingesta que puede fallar en silencio. |
+| `filter: invert()` / `mix-blend-mode` | Destruye los logos en color (el 90 %) para salvar a unos pocos. **Prohibido** (§24.12). |
+
+**La decisión: placa de tinta, también en el tema claro.** El logo se pinta sobre un rectángulo
+`--color-ink` (`#1A1A18`). Y esto **no es importar el acabado de la referencia**: es el **panel de tinta que
+este sistema ya tiene y ya usa** —hero de auth, sidebar del back-office (§2.2: «bloque oscuro sobre papel
+claro»)— haciendo un trabajo funcional. Con tinta detrás, el filete claro que traen los logos **hace
+justo lo que fue dibujado para hacer**: recortar la silueta. En vocabulario del sistema, la placa es un
+**sello impreso** sobre la página; encaja con la metáfora editorial mejor que cualquier alternativa.
+
+**El seguro para el caso contrario: el contorno de seguridad.** Un logo **oscuro sin filete** (raros, pero
+existen: sets antiguos, logos en negro) se perdería sobre la tinta. Como no podemos saber cuáles son, la
+placa aplica al `<img>` un **contorno de 1px en papel sobre el canal alfa**:
+
+```css
+/* Dispositivo de LEGIBILIDAD, no de elevación (§4.3). Offset 0, sin desenfoque útil, sin color. */
+filter: drop-shadow(0 0 1px var(--color-on-ink)) drop-shadow(0 0 1px var(--color-on-ink));
+```
+
+- En un logo **claro** (el caso común) es **invisible**: el halo de papel queda debajo de su propio filete
+  blanco y se funde con él.
+- En un logo **oscuro** es lo que lo salva: le dibuja el contorno que el autor no le puso.
+- **Funciona sin saber cuál es cuál.** Ése es todo el punto, y por eso este dispositivo es **obligatorio**,
+  no opcional.
+- **No viola §4.3** por la misma razón que el anillo de foco no la viola: no comunica relieve ni jerarquía,
+  garantiza que algo se lea. Offset 0, radio 1px, color siempre `--color-on-ink`, **solo** dentro de la
+  placa. Fuera de la placa, la regla de sombras sigue siendo cero.
+- **Coste conocido y aceptado:** un logo que traiga una sombra oscura *horneada* en el PNG verá esa sombra
+  contorneada en papel. Es raro, es leve, y es infinitamente mejor que un logo invisible.
+- **Si en un móvil de gama baja se midiera jank** con 20 placas en pantalla, la palanca es bajar a **una
+  sola pasada** de `drop-shadow` (no quitarlo, no cambiar la placa).
+
+### 24.3 Anatomía de la teja
+
+Cada elemento de la retícula es **un solo `<button>`** (el que ya existe) que contiene, de arriba a abajo:
+
+```
+┌──────────────────────────────┐
+│                              │   ← PLACA: caja fija, tinta, aspect 3/2, radio 0, SIN borde
+│        [ logo contenido ]    │      padding 16 / 20 / 24 px · object-contain · contorno 1px papel
+│                              │
+└──────────────────────────────┘
+  Surging Sparks                   ← NOMBRE: serif 400, sobre PAPEL, lang="en"
+  SCARLET & VIOLET · 2024          ← META: mono 11px versalitas tracking .14em, muted
+  ─────────────────────────────    ← (solo admin/bóveda) completitud + barra + piezas, sin cambios
+```
+
+**La placa (`SetPlate`).**
+
+| | |
+|---|---|
+| Caja | **`aspect-[3/2]`**, ancho 100 % de la celda. **Idéntica para todos los sets**, sea cual sea la proporción del logo (R1). Se elige 3:2 porque los logos son abrumadoramente apaisados; uno cuadrado o vertical **se contiene igual**, simplemente ocupa menos ancho — eso es correcto, no un defecto. |
+| Fondo | `--color-ink` `#1A1A18`. |
+| Radio | **0** (§4.2). La esquina redondeada de la referencia **no se traslada**. |
+| Borde | **Ninguno.** En la referencia el borde existe porque la teja y la página son ambas oscuras; aquí la placa es tinta sobre papel y **ya está separada por 15,5:1**. Un borde sería un segundo marco sin trabajo. |
+| Aire interior | **16px** base · **20px** ≥`sm` · **24px** ≥`lg`. Regla dura: **el aire nunca baja del 10 % del lado corto** de la placa. |
+| Imagen | `object-contain`, `width/height: 100%`, centrada. **Nunca** `cover`, `fill`, `object-position` distinto del centro, ni escala en hover. |
+| Contorno | El de §24.2, obligatorio. |
+| Reserva | La caja se pinta con su relación de aspecto **antes** de que llegue la imagen ⇒ **cero CLS**. No hace falta que el contrato mande dimensiones. |
+
+**La leyenda (sobre papel, alineada a la izquierda, `margin-top: 12px`).**
+
+- **Nombre:** serif `Zen Old Mincho` 400 — **16px** base / **18px** ≥`sm` / **20px** (`text-h3`) ≥`lg`,
+  `line-height 1.25`, `text-wrap: balance`, `lang="en"`. **Reserva 2 líneas de alto** (para que las filas no
+  bailen) y **puede crecer a 3**; **nunca se trunca**: el nombre es el portador del dato (R2).
+- **Meta:** mono 11px `uppercase`, `tracking 0.14em`, `--color-text-muted`, `lang="en"`:
+  `SERIE · AÑO`. *(Matiz respecto a lo implementado hoy, que es mono `text-xs` en caja alta y baja: aquí es
+  donde **sí** aterriza la voz mono en versalitas de la referencia — en la etiqueta técnica, que es su
+  trabajo en este sistema (§3.1), no en el nombre propio.)*
+- **Badge `COMBINADO`** (master combinado, v1.33/P-27): **sin cambios**, junto al nombre.
+- **Solo `platform` / `user_vault_*`:** el bloque de completitud (`X/Y · N %`), la `ProgressBar` y las
+  piezas se conservan **exactamente como están**, debajo de la meta, con `margin-top: 12px`. En `quoter`
+  **no se pintan** (el cotizador no posee las cartas, solo las cotiza).
+
+**La teja completa ya no lleva ni fondo ni borde propios.** Hoy el botón es una tarjeta con
+`border-border` + `bg-surface` + hover `bg-surface-2`. Con la placa dentro, esa tarjeta sería **una caja
+alrededor de otra caja**; se retira. La teja queda: placa + texto sobre papel, separadas por aire — que es
+cómo este sistema separa cosas (§2.1, §4.3).
+
+### 24.4 Retícula y anchuras
+
+| Anchura | Columnas | Gap | Ancho de placa resultante | Alto de placa |
+|---|---|---|---|---|
+| **390px** (móvil) | **2** | `gap-x-6 gap-y-8` (24/32) | ~167px | ~111px |
+| **640px** (`sm`) | **3** | idem | ~181px | ~121px |
+| **1024px** (`lg`) | **4** | `gap-x-8 gap-y-10` (32/40) | ~216px | ~144px |
+| **1280px+** (`xl`, contenedor `max-w-7xl`) | **4** (tope) | idem | ~280px | ~187px |
+
+- **Sube de 1 a 2 columnas en móvil** (hoy es `grid-cols-1`): con placa, una columna daría tejas de 358px de
+  ancho y **dos sets y medio por pantalla** — 20 sets serían ocho scrolls.
+- **Se topa en 4 columnas.** No hay quinta en `xl` ni sexta en `2xl`. Con 4, la placa se mueve en una banda
+  estrecha y predecible de **167–280px** en todo el rango; con 5 la placa se encoge justo donde hay sitio de
+  sobra, y con 3 en escritorio se va a 400px, que es cartel, no índice. *(Nota: **no** es el mismo criterio
+  que §18.2 —2/3/4/5— porque allí la teja es **arte de carta**, que sí gana con cada píxel; un logo se
+  reconoce mucho antes de eso.)*
+- **Área táctil:** la teja **entera** (placa + leyenda) es el objetivo, y mide como mínimo ~167×180px a
+  390px — muy por encima de 44×44. La leyenda **no** es un objetivo aparte: hay **una** parada de tabulación
+  por set.
+- **Presupuesto de tinta.** Ésta es la única retícula del sistema autorizada a pintar **muchos** bloques de
+  tinta a la vez, y lo está porque la placa es un **soporte funcional** de arte de terceros, no decoración.
+  El tope de 20 tejas por página (§24.7) es también el tope de esa masa oscura. **Ninguna otra superficie
+  copia este patrón sin ux-ui** (R5).
+
+### 24.5 Cuando no hay logo — el monograma
+
+Habrá sets sin logo: promos, colecciones, sets viejos, y sets nuevos antes de que el tercero publique el
+arte. También habrá URLs que **fallen** (404, CDN caído). **La placa nunca queda vacía, nunca se rompe y
+nunca pulsa** (R4).
+
+**El relleno es un monograma serif sobre la tinta:**
+
+- **Contenido:** las **iniciales** de las palabras significativas del nombre del set, en mayúsculas, máximo
+  **3 caracteres** — `Surging Sparks` → `SS`, `Paldean Fates` → `PF`, `Journey Together` → `JT`. Se ignoran
+  `and`, `&`, `of`, `the`. Si el resultado tiene menos de 2 caracteres (nombres numéricos como `151`), se
+  usan los **3 primeros caracteres del nombre** (`151`).
+- **Regla de propiedad:** es una **derivación de presentación del front** (mismo estatuto que el mapa
+  rareza→grupo de §7.16a): no es un dato, no lo manda el backend, no cierra ninguna taxonomía. Que dos sets
+  compartan iniciales **da igual**: el nombre completo está justo debajo.
+- **Forma:** serif `Zen Old Mincho` 400, color `--color-on-ink` `#F4F1EA`, `tracking 0.06em`, centrado en
+  la placa, con tamaño proporcional a la placa (≈ **28px** a 167px de ancho, ≈ **44px** a 280px).
+- **Decorativo:** `aria-hidden="true"` (el nombre real ya está en el nombre accesible de la teja, §24.8).
+
+**Y además el monograma es el estado de carga.** Se pinta **desde el primer frame**, debajo del `<img>`;
+cuando la imagen llega, la imagen lo tapa **sin transición** (nada de `fade`: aquí el cross-fade mostraría
+las dos cosas superpuestas). Consecuencias, todas buenas:
+
+1. La placa **nunca** se ve vacía, ni un instante, ni con la red lenta.
+2. **No hay esqueleto ni pulso** en la placa. Un bloque de tinta latiendo se leería como error, y §17.3a lo
+   clasifica como *movimiento-de-estado*. El monograma no es un esqueleto: es **contenido final legítimo**
+   para un set sin logo y un suplente honesto mientras el logo viaja.
+3. **`onError` = `onLoad` para efectos de espera**: un 404 no deja a nadie esperando (mismo criterio que
+   `CardImage`). Al fallar, el `<img>` se retira y el monograma se queda. **Nunca un icono de imagen rota.**
+
+### 24.6 Estados
+
+| Estado | Tratamiento |
+|---|---|
+| **Reposo** | Placa de tinta + leyenda. Sin borde, sin fondo, sin sombra. |
+| **Hover** | El **nombre** gana subrayado **1px en tinta** (`text-underline-offset: 4px`). **La placa no cambia**: ni se aclara, ni se escala, ni el logo crece (§24.12). El cursor es `pointer`. |
+| **Foco (`:focus-visible`)** | Anillo estándar del sistema sobre **el botón completo**: `outline: 2px solid var(--color-focus-ring); outline-offset: 2px` (§4.3, §8.2). ⚠️ **El anillo va por fuera, sobre papel. Está PROHIBIDO dibujarlo dentro de la placa**: rojo `#B31217` sobre tinta es **2,5:1** (§17.2), un anillo de foco ilegible. |
+| **Seleccionado / actual** | `aria-current="true"` + el nombre con **subrayado 2px `--color-accent`** (el mismo idioma de la nav y las tabs del storefront, §20.1). Se distingue del hover por **grosor y color**, no solo por color. **Solo se pinta cuando el anfitrión sabe de verdad cuál es el set actual** (p. ej. se vuelve del binder con el set en la URL); no se inventa una selección que no existe. |
+| **Activo (`:active`)** | Sin tratamiento propio (no hay `translate` ni `scale` en este sistema). |
+| **Cargando la imagen** | Monograma (§24.5). Sin pulso. |
+| **Imagen fallida / sin logo** | Monograma, permanente. |
+| **Cargando la retícula** | El `QueryState` existente. Sin cambios. |
+| **Retícula vacía** | El `EmptyState` existente (`emptyIndexTitle`/`Body`). Sin cambios. |
+| **Error de la retícula** | `QueryState` con reintento. Sin cambios. |
+| **`disabled`** | **No existe**: un set del índice o se muestra o no se muestra. |
+
+### 24.7 Peso — cómo se cargan y cuántas se pintan
+
+Son imágenes remotas de un CDN de terceros (`images.pokemontcg.io`, el mismo del arte de catálogo, §5) y
+pueden ser muchas a la vez. Reglas:
+
+1. **Mecanismo: el mismo que `CardImage`** — `<img>` nativa, `loading="lazy"`, `decoding="async"`,
+   `object-contain`. No se introduce un mecanismo nuevo de imagen para esto.
+2. **`lazy` en TODAS, sin excepciones.** Esto ya significa «diferida salvo las primeras»: `lazy` **no
+   retrasa** lo que está en el viewport, solo lo que está fuera. La primera fila entra sola.
+3. **Prohibido `priority` / `fetchpriority="high"` aquí.** La regla de uso de `CardImage` es literal: *en
+   rejillas no se usa; varias `high` a la vez se compiten el ancho de banda entre sí*. Este es exactamente
+   ese caso, multiplicado por 20.
+4. **Tope de tejas pintadas a la vez: 20** (el `PAGE_SIZE` que el índice ya tiene) con **paginación
+   numerada**, no scroll infinito. **Queda prohibido** subir el tamaño de página por encima de **24** en
+   esta retícula, y queda prohibido convertirla en scroll infinito: el tope de peso **es** el tope de página.
+5. **Presupuesto medido en bytes:** un logo de pokemontcg.io ronda **60–120 KB**; 20 placas son **~1,2–2,4
+   MB** en el peor caso, y solo la primera fila entra en la carga inicial. **Si al medir se pasara de ~2 MB
+   por página**, la palanca es **bajar el tamaño de página de 20 a 12**, no tocar la placa, no quitar el
+   contorno y no recortar el logo.
+6. **Sin `srcset`.** No conocemos las dimensiones intrínsecas y el CDN sirve un solo tamaño; inventar
+   `srcset` sería adivinar. La caja fija ya evita el reflow.
+7. **El CDN es un tercero:** si está lento o caído, la retícula **sigue siendo completamente usable** —
+   monogramas, nombres, filtros y navegación intactos. Ninguna acción del usuario depende de que el logo
+   cargue.
+
+### 24.8 Accesibilidad
+
+- **Nombre accesible de la teja:** lo dan **el nombre visible + la meta**, que ya están en el DOM dentro del
+  `<button>`. No se añade `aria-label` (duplicaría y desalinearía ES/EN).
+- **El logo es decorativo: `alt=""` + `aria-hidden="true"`.** Es la regla clave que pide el dueño y la que
+  evita el doble anuncio *«logo de Surging Sparks, Surging Sparks»*. El logo **no aporta información que el
+  texto no tenga** (R2), que es la definición de imagen decorativa. El monograma, igual: `aria-hidden`.
+- **Regla derivada, para cualquier uso futuro de la placa:** **la placa NUNCA porta el nombre accesible.**
+  Si un anfitrión no tiene el nombre del set visible al lado, **no puede usar la placa**; usa texto.
+- **Orden de tabulación:** una parada por set, en orden del DOM = orden visual. La leyenda no es focusable.
+- `lang="en"` en nombre y meta (datos de catálogo en inglés, §9.2).
+- **Seleccionado con `aria-current="true"`**, y su canal visual es un **subrayado** (forma), no solo color.
+- **Sin movimiento:** esta retícula no anima nada, así que `prefers-reduced-motion` no tiene nada que
+  desactivar aquí.
+- **Contraste del logo: no es verificable y no hace falta que lo sea.** Es arte de un tercero, es
+  decorativo y el canal accesible es el texto. Lo que sí se verifica es todo lo demás (§24.9).
+
+### 24.9 Contraste (extensión normativa de §10)
+
+| Par | Ratio | Cumple |
+|---|---|---|
+| Monograma / texto de placa papel `#F4F1EA` sobre tinta `#1A1A18` | ~15,5:1 | AA/AAA |
+| Nombre del set tinta `#1A1A18` sobre papel `#F4F1EA` | ~15,5:1 | AA/AAA |
+| Meta `#6E695E` sobre papel | ~4,6:1 | AA (texto normal) |
+| Subrayado de seleccionado `#B31217` sobre papel | ~6,2:1 | AA (≥3:1 componente) |
+| Anillo de foco `#B31217` sobre papel | ~6,2:1 | AA (≥3:1 componente) |
+| `--color-on-ink-muted` `#8A857A` sobre tinta (si alguna vez hiciera falta un segundo renglón en placa) | ~4,7:1 | AA |
+| Placa de tinta contra el papel de la página (separación de superficies) | ~15,5:1 | muy por encima de 3:1 |
+| ⛔ `#B31217` sobre tinta | ~2,5:1 | **PROHIBIDO** — ni anillo de foco, ni subrayado, ni texto **dentro** de la placa |
+
+### 24.10 El destacado de la referencia — no va en el índice, va en el encabezado del binder
+
+La referencia pone arriba un elemento **más grande** con el set actual y su nombre subrayado en acento. **En
+el índice eso no tiene sentido**: el índice es un elegidor, y en cuanto eliges **te vas** — no hay «set
+actual» mientras lo miras. Forzarlo obligaría a inventar una jerarquía falsa y a romper la retícula pareja,
+que es justo lo que R1 protege.
+
+**Traducción correcta: el destacado es la confirmación de lo que elegiste, y vive en el encabezado del
+binder** (donde hoy solo hay texto):
+
+- **`SetPlate` tamaño `sm`:** caja fija **112×64** (`aspect-[7/4]`), padding interior 8px, mismas reglas de
+  §24.2 (tinta, contain, contorno) y mismo monograma de §24.5.
+- Va **a la izquierda del título del set**, `gap 16px`, centrada verticalmente. `alt=""` + `aria-hidden`
+  (el título es el nombre accesible).
+- **Se oculta por debajo de `sm`**: en móvil el título manda y el ancho es oro.
+- El **subrayado de acento** de la referencia ya existe en el sistema para «lo activo» (§20.1) y aquí no
+  hace falta: estar dentro del binder ya es el estado.
+
+Esto es **todo** lo que §24 toca del binder. Nada más de §16/§18 cambia.
+
+### 24.11 Lo que NO se traslada de la referencia (y por qué)
+
+El dueño mandó una referencia, no una orden de copiarla. Esto es lo que se deja fuera **a propósito**:
+
+| De la referencia | Qué pasa |
+|---|---|
+| **Morado, neón, brillos** | Fuera. La paleta es papel/tinta/rojo TCG HUNT (§17.2) y el acento se usa con avaricia. |
+| **Esquinas redondeadas** | Fuera: radios 0 en todo el sistema, decisión de estilo explícita (§4.2). |
+| **Borde sutil en la teja** | Fuera: en la referencia resuelve un problema (teja oscura sobre página oscura) que **aquí no existe**. Ver §24.3. |
+| **Nombre en mono versalitas con tracking amplio** | **Parcialmente.** El nombre va en **serif**: en este sistema mono+versalitas es la voz del **dato técnico** (§3.1), y un set es un **nombre propio de catálogo**; en versalitas además se lee peor en nombres largos y en ES. La voz mono de la referencia **sí** se conserva, en la **meta** (`SCARLET & VIOLET · 2024`), que es donde le toca. |
+| **Elemento destacado grande arriba de la retícula** | Fuera del índice; se traduce al encabezado del binder (§24.10). |
+| **Fondo oscuro de página** | Fuera. **Lo único oscuro es la placa**, y por la razón funcional de §24.2 — no por acabado. |
+| **Retícula de 3 columnas en escritorio** | Se traslada como **estructura** (retícula pareja de caja fija), no como número: aquí son 2/3/4 (§24.4). |
+
+### 24.12 Qué NO hacer
+
+1. **No recolorear el logo de un tercero**: nada de `filter: invert()`, `hue-rotate`, `grayscale`,
+   `mix-blend-mode`, ni «modo oscuro del logo».
+2. **No recortar ni estirar**: `object-fit: cover`, `fill` o un `aspect-ratio` aplicado al `<img>` en vez de
+   a la caja rompen R1 y descuadran la retícula. Ése era el fallo que la referencia resuelve.
+3. **No hacer la placa proporcional al logo.** Todas las placas miden lo mismo, siempre. Un logo estrecho
+   deja aire a los lados: **eso es correcto**.
+4. **No pulsar la placa** (`animate-pulse`) ni animar el logo (`scale` en hover, brillo, foil). §17.3a:
+   movimiento-de-estado, prohibido.
+5. **No poner el anillo de foco ni ningún acento dentro de la placa** (2,5:1, §24.9).
+6. **No usar la placa como enlace sin nombre visible** (§24.8).
+7. **No sustituir el nombre por el logo** en ninguna superficie, ni «cuando el logo se ve muy bien» (R2).
+8. **No llevar la retícula a la home, al `SetFilter` ni al modal de alta** (§24.1, R5).
+9. **No poner la mira de TCG HUNT como relleno de un set sin logo**: haría que cada set sin arte pareciera
+   un producto de la casa o un error (§17.3: la marca no se usa como comodín).
+10. **No subir el tamaño de página ni pasar a scroll infinito** para «ver más logos de un tirón» (§24.7).
+11. **No quitar el contorno de seguridad** porque «en los sets que miré no se nota». Ése es exactamente el
+    punto: no se nota, hasta el set en el que sí.
+
+### 24.13 Datos que hacen falta (peticiones al arquitecto — ninguna bloquea)
+
+1. **`logoUrl` por set en las cargas del índice.** Es el único dato nuevo que este diseño necesita:
+   `string | null`, URL absoluta del CDN, **`null` explícito cuando no hay logo** (nunca `""`, nunca una URL
+   de marcador de posición: un placeholder del tercero rompería §24.5 al pintarse como si fuera un logo). Se
+   necesita **en los dos caminos** que alimentan la misma retícula: el índice del admin/bóveda y la lista
+   pública que el cotizador compone en cliente. **Sin este campo, §24 se implementa igual** y la retícula
+   sale entera en monogramas — fea pero funcional; el logo es una mejora, no una precondición.
+2. **Luminancia del logo (`logoIsLight` o similar): NO se pide.** Se deja escrito para que nadie la
+   construya «por si acaso»: sería el dato necesario **solo** si algún día se quisiera una placa clara, y
+   §24.2 resuelve el problema **sin** él, a propósito, porque un cómputo de ingesta que falla en silencio es
+   peor que una placa que siempre funciona. Si alguna vez existe, vuelve a ux-ui **antes** de usarse.
+3. **`images.symbol`:** este diseño **no lo consume** (§24.1). Guardarlo o no es decisión del arquitecto; si
+   se guarda, queda sin superficie asignada hasta que ux-ui defina una.
+4. **Dimensiones intrínsecas del logo:** no se piden. La caja fija ya evita el reflow (§24.3).
+5. **Nota operativa (devops/arquitecto, informativa):** son imágenes hot-linked al mismo CDN que ya sirve el
+   arte de catálogo, así que no abren un origen nuevo. Cualquier decisión de caché/proxy es suya y **no
+   cambia nada de §24**.
+
+### 24.14 QA visual sugerido
+
+1. **Set con logo claro** (filete blanco): se lee limpio sobre la placa; el contorno de seguridad **no** se
+   percibe como halo.
+2. **Set con logo oscuro** (si se encuentra uno): se lee gracias al contorno. Si no aparece ninguno en el
+   catálogo real, **el seguro se queda igual** — está para el que llegue mañana.
+3. **Logo muy apaisado** (≈3:1) y **logo cuadrado** en la misma fila: **las placas miden exactamente lo
+   mismo** y ninguno se recorta ni se estira.
+4. **Set sin `logoUrl`:** monograma, sin pulso, sin icono roto, nombre completo debajo.
+5. **URL rota (404 forzado):** cae al monograma y **no deja la placa esperando**.
+6. **Red lenta (throttling):** la placa **nunca** se ve vacía; se ve monograma y luego logo.
+7. **390 / 640 / 1024 / 1440:** 2/3/4/4 columnas, placa entre ~167 y ~280px, nombre a 2 líneas sin baile de
+   filas, sin scroll horizontal.
+8. **Teclado:** una parada por teja; el anillo rojo se ve **por fuera** de la placa, nunca dentro.
+9. **Lector de pantalla:** cada teja se anuncia **una sola vez** con nombre + meta; el logo **no** se
+   anuncia.
+10. **Admin M1 / bóveda:** completitud, barra y piezas siguen presentes bajo la leyenda; en `quoter` **no**
+    aparecen.
+11. **Peso:** con la red en cascada, solo la primera fila se descarga al entrar; el resto entra al hacer
+    scroll.
+
+### 24.15 i18n
+
+**Cero claves nuevas.** El nombre, la serie y el año ya se pintan; el `alt` es vacío por diseño (§24.8) y el
+monograma se deriva del nombre, no se traduce. Las claves del índice (`masterSet.*`) siguen tal cual.
+
+---
+
+## 25. Ciclo de adquisición del buylist — ofertar, aceptar, guía y publicar (v3.0, §P de PROJECT)
+
+> **⚠ Esta sección se escribió en rama como «§23 / v2.3».** Al fusionar con `main`, §23 y §24 ya estaban
+> ocupadas y publicadas (rotación del carrusel, P-49; logos de expansión, P-54), así que **se renumeró lo
+> que aún no había entrado**: **§23 ⇒ §25** y **v2.3 ⇒ v3.0** (correcciones v2.3.1–v2.3.10 ⇒
+> v3.0.1–v3.0.10). Ver la **nota de reconciliación** en el changelog de la cabecera. **Ni una decisión de
+> diseño cambia.** Las citas externas a «`DESIGN_SYSTEM §23.x`» que hablen de buylist se refieren a esta
+> sección, y las actualiza cada rol dueño de su ruta.
+
+> **Origen:** **no hubo entrega de Claude Design** para esta feature. §25 se genera desde cero sobre la piel
 > ya ratificada (papel/tinta, radio 0, sombras 0 salvo el anillo de foco, las tres familias, cifras en mono
 > con `tabular-nums`) y **no introduce ni un token de color ni un tamaño tipográfico nuevo**.
 > **Normativo:** `PROJECT.md` §P (v2.1, aprobado, ocho fases y 40 decisiones) y `ARCHITECTURE.md` §4.39
@@ -5907,16 +8732,16 @@ El cuerpo de la nota es el texto más largo del sistema: debe poder envolver sin
 > *«un correo que anuncie $1,480 y termine en un depósito de $1,350 destruye exactamente la confianza que la
 > oferta vinculante venía a construir»*.
 
-### 23.0 Alcance y las SIETE reglas duras
+### 25.0 Alcance y las SIETE reglas duras
 
-**Qué diseña §23:** los **cinco correos** del ciclo (§23.4 — *eran cuatro hasta v2.3.3; la cancelación se
-separó, ver §23.4.4-bis*), la **nota de servicio del envío** en el
-cotizador (§23.3 — **sin cifras, v2.3.1/D43**; ~~el aviso con la resta hecha~~ quedó superado), los
-**cuatro estados nuevos** y el **stepper de ocho pasos** (§23.1, §23.2), la
-**pantalla del vendedor** que espeja el correo (§23.5), la **mesa de decisión** del admin (§23.6), el
-**tratamiento del conteo ausente** (§23.7) y las **colas nuevas de M5** (§23.8).
+**Qué diseña §25:** los **cinco correos** del ciclo (§25.4 — *eran cuatro hasta v3.0.3; la cancelación se
+separó, ver §25.4.4-bis*), la **nota de servicio del envío** en el
+cotizador (§25.3 — **sin cifras, v3.0.1/D43**; ~~el aviso con la resta hecha~~ quedó superado), los
+**cuatro estados nuevos** y el **stepper de ocho pasos** (§25.1, §25.2), la
+**pantalla del vendedor** que espeja el correo (§25.5), la **mesa de decisión** del admin (§25.6), el
+**tratamiento del conteo ausente** (§25.7) y las **colas nuevas de M5** (§25.8).
 
-**Qué NO diseña §23** *(se dice para que nadie lo dé por hecho)*: la **curva de compra** (§21 la cubre), la
+**Qué NO diseña §25** *(se dice para que nadie lo dé por hecho)*: la **curva de compra** (§21 la cubre), la
 **consola de precios** de M1/M2, la **cola de precio pendiente**, la **cola de pendientes de publicar** más
 allá de su enlace desde M5 (fase 8 vive en M1, §16), la **integración con paquetería** (no existe: la guía
 se compra a mano y se captura), y **ningún panel de bounties** (proyecto aparte del humano).
@@ -5931,24 +8756,24 @@ se compra a mano y se captura), y **ningún panel de bounties** (proyecto aparte
 | **R6** | **«En camino» y «comprometido» NO se suman jamás.** No existe subtotal, paréntesis, `+`, barra de progreso apilada ni etiqueta común que los agrupe en una cifra | Tienen **confianza distinta** y esa distinción **es** el punto de la pantalla. *«Contar promesas como inventario es exactamente el error que esta pantalla existe para evitar»* (§P.2) |
 | **R7** | **Un conteo ausente NO es un número.** Cuando el conteo no se pudo obtener, **desaparece la tira entera** y aparece una **frase**. Prohibidos `0`, `—`, `–`, `?`, `N/D`, celda vacía, gris de placeholder y skeleton permanente | Un cero que significa «no pude contar» *«es peor que no mostrar nada, porque se ve confiable»* y **empuja a comprar de más** (§P.8, §4.39f) |
 
-> **⚠ Precisión de R1 (v2.3.1, D43) — sin ella, §23.3 parecería violar la regla.** **R1 gobierna el dinero
+> **⚠ Precisión de R1 (v3.0.1, D43) — sin ella, §25.3 parecería violar la regla.** **R1 gobierna el dinero
 > de la OFERTA**, que es el único vinculante: ahí, y solo ahí, existen «bruto», «envío» y «neto», y ahí el
 > bruto nunca puede aparecer sin los otros dos. **El total del cotizador NO es un bruto**: es una cotización
 > **indicativa** sobre cartas que quizá no compremos, y por D43 **no tiene envío ni neto al lado** — por eso
 > el cotizador **no lo llama bruto, no lo presenta como base de una resta y no lo rotula como pago**
-> (§23.3c). Lejos de debilitar R1, D43 la refuerza: **la primera cifra que el vendedor ve rotulada como "lo
-> que recibes" es el NETO**, en el asunto del correo 1 (§23.4.7).
+> (§25.3c). Lejos de debilitar R1, D43 la refuerza: **la primera cifra que el vendedor ve rotulada como "lo
+> que recibes" es el NETO**, en el asunto del correo 1 (§25.4.7).
 
 ---
 
-### 23.1 Los cuatro estados nuevos — y el único enum que se pinta por su MOTIVO
+### 25.1 Los cuatro estados nuevos — y el único enum que se pinta por su MOTIVO
 
 **(a) Mapa canónico ampliado** (enmienda de §2.4; la tabla de §2.4 ya lo recoge). Versalitas ES/EN,
 `text-[11px]` mono `uppercase tracking-[0.06em]`, **sin caja** (los `*-bg` son `transparent`, §2.3):
 
 | Estado | Versalita ES / EN | Token | Qué significa para quien lo lee |
 |---|---|---|---|
-| `cotizada` | `COTIZADA` / `QUOTED` | neutral (`--color-text-muted`) | **Cambia de sentido en v2.3**: ya no es «llegó y algún día se verá», es **«te debemos una respuesta»** |
+| `cotizada` | `COTIZADA` / `QUOTED` | neutral (`--color-text-muted`) | **Cambia de sentido en v3.0**: ya no es «llegó y algún día se verá», es **«te debemos una respuesta»** |
 | **`ofertada`** | `OFERTADA` / `OFFER SENT` | `accent` | Hay una **oferta vinculante** afuera y **el reloj es del vendedor** |
 | **`aceptada`** | `ACEPTADA` / `ACCEPTED` | `accent` | Dijo que sí. **Nada viaja todavía** |
 | **`en_transito`** | `EN TRÁNSITO` / `IN TRANSIT` | `primary` (tinta) | Un paquete **viaja de verdad** |
@@ -5996,7 +8821,7 @@ PAQUETE REPORTADO · 2 sep, 4:10 p. m. ← renglón mono `text-[11px]` muted, SI
 
 ---
 
-### 23.2 `PipelineStepper` de OCHO pasos — y la rama de error que no es un paso
+### 25.2 `PipelineStepper` de OCHO pasos — y la rama de error que no es un paso
 
 **(a) El mapa.** Enmienda §7.9:
 
@@ -6027,7 +8852,7 @@ así el ciclo se cierra sin mentir sobre a quién pertenece el paso.
 
 **(d) La rama de error es un CIERRE, no un noveno paso.** Al llegar a una terminal el stepper **trunca**:
 se pintan los pasos realmente completados y, en lugar del siguiente nodo, un **cierre** con regla superior
-de tinta, la versalita del **motivo** (§23.1d) y la fecha:
+de tinta, la versalita del **motivo** (§25.1d) y la fecha:
 
 ```
 COTIZADA ✓ ── OFERTADA ✓ ── ACEPTADA ✓ ──┐
@@ -6041,7 +8866,7 @@ COTIZADA ✓ ──┐
 - **Prohibido** pintar los pasos no alcanzados como «fallidos», tacharlos o ponerles ✗. En `no_offer` el
   vendedor **no falló nada**; una cadena de cruces le imputaría un incumplimiento visual que el correo 4
   tiene prohibido decir con palabras.
-- **Prohibido** pintar el cierre `no_offer` en `danger`. Su token es **neutral** (§23.1d).
+- **Prohibido** pintar el cierre `no_offer` en `danger`. Su token es **neutral** (§25.1d).
 - `rechazada` por no responder ⇒ cierre en `danger` con versalita `RECHAZADA` colgando de `OFERTADA`.
 - `abandonada` ⇒ cierre neutral colgando del último paso físico alcanzado.
 
@@ -6051,15 +8876,15 @@ color **nunca** es el único indicador: versalita + timestamp + `aria-label`.
 
 ---
 
-### 23.3 El envío en el cotizador — una NOTA DE SERVICIO, sin cifras (v2.3.1 · D43)
+### 25.3 El envío en el cotizador — una NOTA DE SERVICIO, sin cifras (v3.0.1 · D43)
 
-> **⚠ Sección reescrita el 2026-09-01 por decisión del humano (D43).** Lo que v2.3 pedía aquí —**la resta
+> **⚠ Sección reescrita el 2026-09-01 por decisión del humano (D43).** Lo que v3.0 pedía aquí —**la resta
 > hecha y enseñada** dentro del bloque de dinero del carrito— queda **SUPERADO**. Se conserva en **(a)**,
 > marcado y sin borrar, porque el contraste entre las dos versiones **es** la lección. **Lo vigente empieza
-> en (b).** Si algo de §23 sigue asumiendo que el vendedor vio una cifra de envío antes de la oferta, manda
+> en (b).** Si algo de §25 sigue asumiendo que el vendedor vio una cifra de envío antes de la oferta, manda
 > esta sección.
 
-**(a) ⚠ SUPERADO — la «aritmética ya hecha» de v2.3. NO IMPLEMENTAR.**
+**(a) ⚠ SUPERADO — la «aritmética ya hecha» de v3.0. NO IMPLEMENTAR.**
 
 > ```
 > ┌ TU COTIZACIÓN ────────────────────────────────┐   ⚠ SUPERADO por D43 — NO IMPLEMENTAR
@@ -6073,7 +8898,7 @@ color **nunca** es el único indicador: versalita + timestamp + `aria-label`.
 > Quedan retirados: ~~la línea de envío~~, ~~la regla de la resta~~, ~~`RECIBIRÍAS ≈`~~, ~~el neto
 > estimado~~ y ~~la aparición conjunta de envío + neto al cruzar el mínimo~~.
 
-**Por qué se retira** (tres razones, y la segunda no estaba en v2.3):
+**Por qué se retira** (tres razones, y la segunda no estaba en v3.0):
 
 1. **El cotizador ya es indicativo.** Los precios se mueven y **puede que no compremos todas las líneas**.
    Restarle un envío exacto a un número que de todas formas va a cambiar es **precisión falsa**: le sugiere
@@ -6093,15 +8918,15 @@ color **nunca** es el único indicador: versalita + timestamp + `aria-label`.
 **(b) La decisión vigente (D43).** El cotizador **no menciona ningún monto de envío**: **sin cifra, sin
 resta, sin neto estimado, sin porcentaje**, y **sin expresar el faltante del mínimo en términos de envío**.
 Solo una **frase cualitativa**. La resta con los tres montos vive **exclusivamente en la oferta** —correo
-(§23.4.2) y portal (§23.5)—, autenticada y armada server-side con la tarifa **congelada**.
+(§25.4.2) y portal (§25.5)—, autenticada y armada server-side con la tarifa **congelada**.
 
 > **⚠ Consecuencia que hay que decir en voz alta, porque cambia el peso de otra pantalla:** **el correo de
 > oferta es ahora la PRIMERA vez que el vendedor ve el monto del envío.** Ya no confirma algo que vio en el
-> carrito: es **información nueva, en el momento exacto en que decide**. Ver §23.4.2 (enmienda v2.3.1) y la
+> carrito: es **información nueva, en el momento exacto en que decide**. Ver §25.4.2 (enmienda v3.0.1) y la
 > objeción registrada en (l).
 
 **(c) La forma: es una NOTA DE SERVICIO, no una advertencia y no letra chica.**
-No es un banner de aviso —eso ya se rechazó en v2.3 y **sigue rechazado**— ni una nota al pie. Es **un hecho
+No es un banner de aviso —eso ya se rechazó en v3.0 y **sigue rechazado**— ni una nota al pie. Es **un hecho
 del trato**, redactado como se redacta un hecho del trato: prosa corta, en tinta, **dentro del bloque de
 dinero**, con el mismo rango visual que la información de servicio de un pedido («llega en 3 días»).
 
@@ -6111,6 +8936,7 @@ dinero**, con el mismo rango visual que la información de servicio de un pedido
 | **Asterisco + nota al pie / `<details>` / tooltip / acordeón** | Es la definición de letra chica que §P.3 prohíbe. Y un tooltip **no existe en táctil**. La frase no se esconde: es corta **porque** tiene que estar a la vista |
 | **Porcentaje («−36%»)** | Invita a discutir el porcentaje en vez de leer el trato, y **cambia con cada carrito**. Sin cifras **y sin porcentajes** |
 | **Un renglón de envío con `—`, `?` o «según la oferta»** | Un hueco con forma de monto **se lee como monto** (misma doctrina que R7 y que §7.3). Si no hay cifra, **no hay renglón**: el bloque de dinero del cotizador tiene **exactamente un monto** |
+
 | **La cifra «solo en los requisitos de venta» o «solo en el FAQ del cotizador»** | Cumplimiento por reubicación. El panel de requisitos y el paso de crear **son el cotizador**. D43 no admite una puerta lateral |
 
 ```
@@ -6133,20 +8959,20 @@ dinero**, con el mismo rango visual que la información de servicio de un pedido
   y por debajo del mínimo**. Que se lea **antes** de agregar nada es justamente el punto: el trato se explica
   cuando todavía no cuesta nada cambiar de opinión.
   Al no llevar cifras **no depende de ningún estado**: no aparece, no desaparece, no se mueve. Eso mata de
-  raíz una clase entera de bugs que v2.3 sí tenía (el bloque que se materializaba al cruzar el mínimo).
+  raíz una clase entera de bugs que v3.0 sí tenía (el bloque que se materializaba al cruzar el mínimo).
 - **El total se rotula por lo que es:** `Valor de tus cartas`. **Prohibidos** `Total a recibir`, `Tu pago`,
   `Ganarías` o cualquier rótulo que prometa depósito (§7.3: money-safe también es no prometer).
 - **No es una región `aria-live`.** Es copy estático; anunciarla en cada cambio del carrito la convertiría
   en ruido y, peor, en alarma.
 
 **(c-bis) La regla que faltaba: un TOTAL rotulado no promete depósito; un precio POR CARTA sí puede decir
-«Pagamos» (v2.3.2).** §23.3c prohibía `Total a recibir`, `Tu pago` y `Ganarías`, pero lo hacía **como lista
+«Pagamos» (v3.0.2).** §25.3c prohibía `Total a recibir`, `Tu pago` y `Ganarías`, pero lo hacía **como lista
 de ejemplos**, y por eso `home.quoter.wePay` («Te pagamos») sobrevivió al pase de D43 en otra pantalla. La
 regla, ahora en forma general y verificable:
 
 | Superficie | ¿Puede rotularse como pago? | Por qué |
 |---|---|---|
-| **El TOTAL de un bloque de dinero del cotizador** (carrito, panel de escritorio, teaser del home, resumen del paso de crear) | **NO.** Solo `buylist.quote.money.cardsValue` — «Valor de tus cartas» / "Value of your cards" | Ese total **es la suma de las cartas**, no lo que se deposita: le falta la resta del envío y le sobran las líneas que quizá **no compremos** (§23.3a.2). Rotularlo «Te pagamos» **es** el daño *«dije $500 y llegaron menos»*, escrito antes de que exista una oferta |
+| **El TOTAL de un bloque de dinero del cotizador** (carrito, panel de escritorio, teaser del home, resumen del paso de crear) | **NO.** Solo `buylist.quote.money.cardsValue` — «Valor de tus cartas» / "Value of your cards" | Ese total **es la suma de las cartas**, no lo que se deposita: le falta la resta del envío y le sobran las líneas que quizá **no compremos** (§25.3a.2). Rotularlo «Te pagamos» **es** el daño *«dije $500 y llegaron menos»*, escrito antes de que exista una oferta |
 | **El precio de UNA carta** (teja de bounty, línea del carrito, ficha) | **SÍ**, `Pagamos` / "We pay" | Nombra una **tarifa por pieza**, no un importe a depositar. El descuento del envío es **por solicitud**, no por carta, así que no hay resta que omitir. `home.bounties.wePay` y `buylist.bounties.wePay` **se quedan como están** |
 
 - **Prueba de una línea:** *si el número es una **suma**, su rótulo no puede contener un verbo de pago.*
@@ -6167,7 +8993,7 @@ crear la solicitud, y que **no crea que ya sabe cuánto**. Ahí se juega todo el
 | 3 | **El alivio, DESPUÉS de la resta** | «: tú no pagas nada de tu bolsillo» | ": you pay nothing out of pocket" | Impide leerlo como castigo. Va **después**, nunca antes |
 | 4 | **La cita con el número** | «El monto exacto va en la oferta, antes de que aceptes.» | "The exact amount is in the offer, before you accept." | **Impide creer que ya sabe cuánto** y dice **dónde y cuándo** lo sabrá |
 
-**Texto completo (normativo; PO ratifica, §23.13.6):**
+**Texto completo (normativo; PO ratifica, §25.13.6):**
 - **ES** — *«Nosotros ponemos la guía de envío y su costo se descuenta siempre de lo que te pagamos: tú no
   pagas nada de tu bolsillo. El monto exacto va en la oferta, antes de que aceptes.»*
 - **EN** — *"We provide the shipping label and its cost is always deducted from what we pay you: you pay
@@ -6217,7 +9043,7 @@ servicio, y sin ella un «no» seco manda al vendedor a otro lado (criterio 132,
 └───────────────────────────────────────────────┘
 ```
 
-- **Queda retirada la regla de v2.3** que ataba la aparición del envío al cruce del mínimo («aparecen
+- **Queda retirada la regla de v3.0** que ataba la aparición del envío al cruce del mínimo («aparecen
   juntos, en el mismo instante»): **ya no hay nada de envío que aparezca**. Al cruzar el mínimo lo único que
   cambia es que **el faltante desaparece**.
 - El faltante y el mínimo son `details.shortfallCents` y `minimumRequestCents` **del servidor** (R4). La
@@ -6226,7 +9052,7 @@ servicio, y sin ella un «no» seco manda al vendedor a otro lado (criterio 132,
 - La transición al cruzar el mínimo sigue anunciándose con **`aria-live="polite"`**, y **el anuncio ya no
   menciona envío ni neto**: *«Ya alcanzaste el mínimo de MX$ 500.00.»*
 
-**(f-bis) ⚠ Con líneas sin precio, «Agrega otra carta» es el consejo EQUIVOCADO (v2.3.8).**
+**(f-bis) ⚠ Con líneas sin precio, «Agrega otra carta» es el consejo EQUIVOCADO (v3.0.8).**
 Con 999 cartas en `precio_pendiente`, el bloque decía *«TE FALTAN MX$ 500.00 para el mínimo de MX$ 500.00.
 **Agrega otra carta.**»* mientras el vendedor miraba **un carrito lleno**. Aritméticamente impecable; como
 consejo, **una cinta de correr**: puede agregar mil cartas más del mismo set y **seguir en cero**.
@@ -6240,7 +9066,7 @@ queda—, **solo la acción sugerida**:
 | Estado | Qué se pinta |
 |---|---|
 | Falta para el mínimo, **sin** líneas sin precio | faltante + mínimo + **`minimum.addAnother`** — «Agrega otra carta.» *(sin cambios)* |
-| Falta para el mínimo, **con** líneas sin precio | faltante + mínimo + **`minimum.addPricedCard`** — **«Agrega una carta que ya tenga precio.»** La explicación del **por qué** ya está encima, en `pendingLine.note` (§23.3h), y **no se repite aquí** |
+| Falta para el mínimo, **con** líneas sin precio | faltante + mínimo + **`minimum.addPricedCard`** — **«Agrega una carta que ya tenga precio.»** La explicación del **por qué** ya está encima, en `pendingLine.note` (§25.3h), y **no se repite aquí** |
 
 | Clave | ES | EN |
 |---|---|---|
@@ -6258,28 +9084,28 @@ queda—, **solo la acción sugerida**:
 **(g) Dónde se dice la regla, actualizado.** D31 exige tres superficies —**cotizador, correo de oferta y
 términos**—; **las tres siguen diciéndola**, y lo que cambia es **quién puede llevar la cifra**. El cotizador
 ocupa dos filas porque son dos pantallas (carrito y paso de crear); el **correo de oferta** es la cuarta fila
-y vive en §23.4.2:
+y vive en §25.4.2:
 
 | Superficie | Cuándo | Qué muestra | ⚠ |
 |---|---|---|---|
-| **0. Teaser del cotizador en el HOME** (`HomeQuoterPanel`) — **NUEVA v2.3.2** | **siempre**, en las **dos** instancias (columna del hero y sección móvil) y **con o sin líneas** | la frase de (d), **misma clave y mismo texto**; el total rotulado `cardsValue` (c-bis) | **NO cuelga de `withTrust`**: esa banda **no se pinta en móvil**, y móvil es donde vende la mayoría. Va en el **cuerpo del panel**, entre el bloque de dinero y el enlace «Continuar mi cotización» |
+| **0. Teaser del cotizador en el HOME** (`HomeQuoterPanel`) — **NUEVA v3.0.2** | **siempre**, en las **dos** instancias (columna del hero y sección móvil) y **con o sin líneas** | la frase de (d), **misma clave y mismo texto**; el total rotulado `cardsValue` (c-bis) | **NO cuelga de `withTrust`**: esa banda **no se pinta en móvil**, y móvil es donde vende la mayoría. Va en el **cuerpo del panel**, entre el bloque de dinero y el enlace «Continuar mi cotización» |
 | **1. Carrito del cotizador** (`SellCartDrawer` / panel fijo de escritorio, §18.4) | **siempre, incluso con el carrito vacío** | el bloque de (c): **un monto** (cuando hay líneas) + la frase de (d) | El `SellRequirementsPanel` del propio drawer **también es cotizador**: tampoco lleva cifras de envío |
-| **1-bis. Cabecera de `/buylist`** (bajo `payAfterReceipt`) — **NUEVA v2.3.2** | siempre | la frase de (d), **misma clave**, en **tinta `text-sm`** (no `muted`, no `rule-note`) | En **móvil el carrito es un drawer cerrado**: sin esta instancia, un vendedor puede recorrer toda la página sin leer la regla. **Sustituye** al retirado `buylist.trustShipping` (§23.14.2) |
+| **1-bis. Cabecera de `/buylist`** (bajo `payAfterReceipt`) — **NUEVA v3.0.2** | siempre | la frase de (d), **misma clave**, en **tinta `text-sm`** (no `muted`, no `rule-note`) | En **móvil el carrito es un drawer cerrado**: sin esta instancia, un vendedor puede recorrer toda la página sin leer la regla. **Sustituye** al retirado `buylist.trustShipping` (§25.14.2) |
 | **2. Paso de crear la solicitud** | antes del botón que crea | la **misma frase, carácter por carácter** + la condición NM + la dirección de origen elegida | Es el último momento antes de comprometer cartas: **misma frase, no una versión resumida** |
-| **2-bis. Guía de empaque, paso 4** (`SafeShippingGuide`, §7.13) — **NUEVA v2.3.2** | siempre que se pinte el componente (modal, sección inline, y los correos de §P) | **su propia redacción corta** (§23.14.1): quién pone la etiqueta + **que se descuenta** + qué no hacer | **Única excepción al «misma frase»**, y está acotada: es una **celda de retícula de ~13px**, no un bloque de dinero. Lo que **no** puede omitir es la resta (§23.14.3) |
+| **2-bis. Guía de empaque, paso 4** (`SafeShippingGuide`, §7.13) — **NUEVA v3.0.2** | siempre que se pinte el componente (modal, sección inline, y los correos de §P) | **su propia redacción corta** (§25.14.1): quién pone la etiqueta + **que se descuenta** + qué no hacer | **Única excepción al «misma frase»**, y está acotada: es una **celda de retícula de ~13px**, no un bloque de dinero. Lo que **no** puede omitir es la resta (§25.14.3) |
 | **3. Términos** (`offer.terms`, render del backend) | con la oferta | la regla **en prosa y CON la cifra congelada** | **Los términos NO son el cotizador**: viajan con la oferta, son autenticados y ahí el número **sí** es vinculante |
-| **4. Correo de oferta** (§23.4.2) | al emitir | la regla en prosa **con el envío Y el neto nombrados**, junto a la tabla de los tres montos | **Es la primera vez que el vendedor ve la tarifa** (v2.3.1). Ver la decisión 8 de §23.4.2 |
+| **4. Correo de oferta** (§25.4.2) | al emitir | la regla en prosa **con el envío Y el neto nombrados**, junto a la tabla de los tres montos | **Es la primera vez que el vendedor ve la tarifa** (v3.0.1). Ver la decisión 8 de §25.4.2 |
 
-> **⚠ Por qué la fila 0 entra y no es una amplificación (la pregunta correcta, después de §23.3a.3).** El
+> **⚠ Por qué la fila 0 entra y no es una amplificación (la pregunta correcta, después de §25.3a.3).** El
 > panel del home **se rotula a sí mismo «Cotizador»**, cotiza contra `POST /buylist/quote` y enseña un
 > total: **es el cotizador**, y es **la primera pantalla de dinero de todo el embudo**. D31 pide que la
-> regla se diga **en el cotizador**; incluirlo es **cumplimiento literal**. Lo que en v2.3 fue
-> amplificación fue meter **cifras**, y esta fila **no mete ninguna** (la frase es estática, §23.3k: no
+> regla se diga **en el cotizador**; incluirlo es **cumplimiento literal**. Lo que en v3.0 fue
+> amplificación fue meter **cifras**, y esta fila **no mete ninguna** (la frase es estática, §25.3k: no
 > depende de ningún dato, no se esqueletiza, no puede fallar). Dejarlo fuera sería dibujar la frontera de
 > D31 alrededor de **las superficies que yo ya había documentado** — que es, exactamente, el mecanismo por
 > el que estos tres textos sobrevivieron.
 
-**(g-bis) ⚠ EXACTAMENTE UNA nota visible por pantalla (v2.3.8).** La tabla de (g) dice **dónde puede** ir
+**(g-bis) ⚠ EXACTAMENTE UNA nota visible por pantalla (v3.0.8).** La tabla de (g) dice **dónde puede** ir
 la nota; le faltaba decir **cuántas se ven a la vez**. A 1280px `/buylist` acabó mostrando **dos párrafos
 idénticos de cuatro líneas** —cabecera y panel fijo del carrito—, porque autoricé cada fila por separado y
 **nunca miré las dos juntas**.
@@ -6296,29 +9122,29 @@ decisión:**
 | **Drawer abierto** (móvil) | **el bloque de dinero** del drawer | Tapa la página; la de la cabecera no está a la vista |
 | **Paso de crear** | **el suyo** | Es el último momento antes de comprometer cartas (fila 2) |
 
-- **Esto NO contradice §23.3c** («no aparece, no desaparece, no se mueve»): esa prohibición es sobre el
+- **Esto NO contradice §25.3c** («no aparece, no desaparece, no se mueve»): esa prohibición es sobre el
   **estado del carrito** —vacío/lleno, bajo/sobre el mínimo—, no sobre el **layout**. La invariante que
   ahora se pide es **más fuerte y más simple de comprobar**: *siempre visible exactamente una vez*, en vez
   de *al menos una vez*.
 - **Por qué dos copias idénticas sí son un defecto**, aunque el texto sea correcto: dos párrafos iguales
   a 600px de distancia y con el mismo peso visual son **la firma de un error de render** — el vendedor no
   concluye «esto es importante», concluye «esta página está rota». Y repetir **no** refuerza: es la misma
-  ceguera que §23.3c ya invocó para rechazar el banner.
+  ceguera que §25.3c ya invocó para rechazar el banner.
 - **Comprobable en una línea:** contar los nodos **visibles** de `BuylistShippingNote` en cada ancho ⇒
-  **exactamente 1**. Ver §23.14.6-6, que ya exige medir **visibilidad efectiva** y **desambiguar la
+  **exactamente 1**. Ver §25.14.6-6, que ya exige medir **visibilidad efectiva** y **desambiguar la
   instancia**.
 
-> **⚠ Dónde vive esta decisión — normativo (v2.3.9), porque repartirla es cómo se llegó a las dos copias.**
+> **⚠ Dónde vive esta decisión — normativo (v3.0.9), porque repartirla es cómo se llegó a las dos copias.**
 > La regla es **de pantalla**, así que **solo puede decidirla quien ve la pantalla entera**: la **vista**.
 > El carrito **recibe la orden y obedece**; **no decide si pinta la nota**. Es un acoplamiento
 > **deliberado**, y el implementador lo dejó documentado en el propio prop — bien hecho: sin esa nota, el
 > siguiente que pase lo lee como un acoplamiento sucio, se lo «devuelve» al componente **por higiene**, y
-> reintroduce el defecto exacto de v2.3.7. *Un componente que decide por su cuenta si muestra una regla de
+> reintroduce el defecto exacto de v3.0.7. *Un componente que decide por su cuenta si muestra una regla de
 > dinero **no puede saber** si otro ya la está mostrando: por construcción, o la duplica o la omite.*
 > **Prohibido** repartir esta decisión entre dos componentes, y **prohibido** derivarla de un media query
 > local: sale del mismo estado de layout que decide si el carrito es panel fijo o drawer.
 
-**(h) Líneas sin precio (`precio_pendiente`) — ⚠ REESCRITO v2.3.8: el problema no era la línea, era el
+**(h) Líneas sin precio (`precio_pendiente`) — ⚠ REESCRITO v3.0.8: el problema no era la línea, era el
 TOTAL.**
 
 > **La evidencia, y es de las mejores que ha dado este proyecto.** Un **test E2E** agregó cartas de un set
@@ -6329,13 +9155,13 @@ TOTAL.**
 > **El diagnóstico, en una frase:** *una pantalla aritméticamente correcta que no explica su propia
 > aritmética le enseña al usuario que está rota.* Es **R7 aplicada al total**: R7 dice que **un conteo
 > ausente no es un número**; aquí el espejo es que **un total de cero que significa «todavía no lo he
-> calculado» no es un cero**. §23.3h ya lo tenía bien **por línea** (`SIN PRECIO`, nunca `MX$ 0.00`); lo
+> calculado» no es un cero**. §25.3h ya lo tenía bien **por línea** (`SIN PRECIO`, nunca `MX$ 0.00`); lo
 > que faltaba era **decirlo del agregado**, que es lo único que el vendedor mira cuando tiene 999 líneas.
 
 **Por línea:** aportan **0** al total. Versalita **`SIN PRECIO` / `NO PRICE YET`** (`accent`, §7.3) **sin
 monto**. **Nunca `MX$ 0.00`**, nunca excluidas en silencio.
 
-> **⚠ v2.3.9 — el EN de la versalita, que §23 nunca fijó (a diferencia de `SIN ENVÍO`/`NOT SHIPPED`).**
+> **⚠ v3.0.9 — el EN de la versalita, que §25 nunca fijó (a diferencia de `SIN ENVÍO`/`NOT SHIPPED`).**
 > **ES `Sin precio` (10) · EN `No price yet` (12).** El frontend propuso `No price` (8) por una restricción
 > de layout real —la celda comparte sitio con un monto— y señaló que `No price yet` **también cabe**.
 > **Se toma el «yet», y los tres caracteres valen.**
@@ -6356,7 +9182,7 @@ monto**. **Nunca `MX$ 0.00`**, nunca excluidas en silencio.
 >   por el más largo, no por el idioma por defecto). Las versalitas **envuelven a dos líneas antes de
 >   truncarse**; **prohibido** `line-clamp` o elipsis sobre esta etiqueta.
 >
-> **Y lo que NO se toca** (§23.14.5): **`buylist.linePending`** («Precio pendiente» / "Price pending")
+> **Y lo que NO se toca** (§25.14.5): **`buylist.linePending`** («Precio pendiente» / "Price pending")
 > sigue vivo **fuera del cotizador**, en «Mis solicitudes», donde la línea **ya no es una cotización viva
 > sino el registro de una solicitud enviada**. El frontend hizo esa separación y la dejó escrita; **se
 > ratifica**. No es una segunda etiqueta para el mismo estado: es **el mismo hecho en dos momentos** del
@@ -6366,7 +9192,7 @@ monto**. **Nunca `MX$ 0.00`**, nunca excluidas en silencio.
 - **⚠ Se RETIRA la línea muted por ítem** (*«Todavía no tiene precio; no suma a tu total.»*). Con carritos
   de cientos de líneas, repetir la misma explicación N veces **es ruido, no información**, y empuja hacia
   abajo lo único que hay que leer. **La etiqueta se repite; la explicación, no.** *(Es el mismo criterio
-  por el que §23.4.3 prohíbe que el recordatorio repita el desglose.)*
+  por el que §25.4.3 prohíbe que el recordatorio repita el desglose.)*
 
 **En el bloque de dinero, UNA vez:** siempre que haya al menos una línea sin precio, se pinta
 **`buylist.quote.pendingLine.note`** —independiente del mínimo, del total y de si falta algo—:
@@ -6377,17 +9203,17 @@ monto**. **Nunca `MX$ 0.00`**, nunca excluidas en silencio.
 
 - **La segunda frase no es relleno: es la que evita que el vendedor las borre del carrito.** Sin ella,
   «no suman» se lee como «no las queremos», y la reacción racional es **quitarlas** — perdiendo justo las
-  cartas que más trabajo nos costó catalogar. Dice **qué pasa con ellas**, que es la doctrina de §23.3d
+  cartas que más trabajo nos costó catalogar. Dice **qué pasa con ellas**, que es la doctrina de §25.3d
   movimiento 4 aplicada aquí: *cuando no hay número, se dice qué va a pasar con el número*.
 - **En tinta `text-sm`**, no muted: §10 prohíbe el muted para información esencial, y esta explica **por
   qué el total no es lo que el vendedor esperaba**.
-- **No lleva ningún monto** ⇒ §23.3c sigue intacta: el bloque de dinero tiene **exactamente un monto**
-  (más el faltante y el mínimo cuando aplican, §23.3f). Un conteo de cartas **no es un monto**.
+- **No lleva ningún monto** ⇒ §25.3c sigue intacta: el bloque de dinero tiene **exactamente un monto**
+  (más el faltante y el mínimo cuando aplican, §25.3f). Un conteo de cartas **no es un monto**.
 - **Si TODAS las líneas están sin precio**, el total **no se pinta `MX$ 0.00`**: se pinta la versalita
   `SIN PRECIO` en lugar de la cifra (regla ya viva en el carrito) **y esta nota debajo**.
 
 **(i) NO hay casilla de «entiendo el descuento» al crear la solicitud — y con D43 menos que nunca.**
-El acto vinculante es **aceptar la oferta** (§23.5), y ahí sí hay confirmación, con el número enfrente.
+El acto vinculante es **aceptar la oferta** (§25.5), y ahí sí hay confirmación, con el número enfrente.
 Pedir consentimiento aquí produce dos daños: fricción donde no protege, y la falsa impresión de que el trato
 ya está cerrado. **Y ahora se agrega un tercero, decisivo:** una casilla que dice «entiendo el descuento»
 sobre un monto que **deliberadamente no estamos mostrando** extrae consentimiento **de algo desconocido** —
@@ -6407,7 +9233,7 @@ botón mudo (§15.9). Copy de por qué: *«La necesitamos para imprimir la guía
 |---|---|---|
 | La **frase** de (d) | **No necesita ningún dato.** Es copy estático de `messages/{es,en}.json` | No puede fallar. **No se esqueletiza, no se condiciona, no espera al servidor** |
 | `minimumRequestCents` (`GET /buylist/quote-policy`, D41) | **Sí**, para el faltante | **No se pinta el faltante y no se inventa ningún mínimo.** El CTA sigue vivo: la puerta real es el `422` del servidor, que trae el mínimo autoritativo y repinta |
-| `shippingFeeCents` | **⚠ Ya NO.** Ninguna superficie pública lo consume | — (ver **§23.13.1-bis**: se propone retirarlo del DTO público) |
+| `shippingFeeCents` | **⚠ Ya NO.** Ninguna superficie pública lo consume | — (ver **§25.13.1-bis**: se propone retirarlo del DTO público) |
 
 La regla 1 de §11.4 aplicada al dinero (R4) sigue en pie: **ninguna cifra de estas se hardcodea**. Lo que
 cambia es que **la cifra que más riesgo de hardcodeo tenía —la tarifa— ya no se pinta en ningún lado
@@ -6423,7 +9249,7 @@ refuerza—. Queda **una reserva acotada**, para que esté escrita y se pueda me
   **sí pierde tiempo y confianza**, y nosotros perdemos el trato con una oferta ya emitida.
 - **Lo que NO propongo:** volver a pintar la cifra en el cotizador. Ya vimos en (a.2) que el neto de esa
   pantalla es optimista por construcción; enseñarlo sería peor.
-- **Lo que propongo, y es de producto, no de diseño (§23.13.6-bis.b):** **medir el rechazo por tamaño de
+- **Lo que propongo, y es de producto, no de diseño (§25.13.6-bis.b):** **medir el rechazo por tamaño de
   oferta.**
   Si las ofertas chicas se rechazan sistemáticamente después del correo, el problema **no** es la
   divulgación: es **la proporción**. Y la proporción se arregla con **un dial** —subir el mínimo de compra
@@ -6431,30 +9257,30 @@ refuerza—. Queda **una reserva acotada**, para que esté escrita y se pueda me
 
 ---
 
-### 23.4 Los CINCO correos del ciclo
+### 25.4 Los CINCO correos del ciclo
 
 > Los correos son **el documento donde se cierra el trato**. `PROJECT.md` §P.3 los pone al mismo nivel que
 > una pantalla: la oferta **es** el correo. Aquí se define la **estructura, la jerarquía y el tono**; el
 > texto vive en las plantillas locales del módulo `buylist` (`buylist-mail.templates.ts`, bilingüe por
 > `User.locale`) y el **render es del backend**. La **redacción es de ux-ui** y se ratifica con PO.
 >
-> **⚠ v2.3.3 — SON CINCO, y «3c» ya no existe. Manda `ARCHITECTURE §4.39(n)`.** §23.4.4 trataba la
+> **⚠ v3.0.3 — SON CINCO, y «3c» ya no existe. Manda `ARCHITECTURE §4.39(n)`.** §25.4.4 trataba la
 > **cancelación de la oferta por nuestra parte** como una tercera variante del correo 3. **Es un correo
 > propio, el 5**, y el argumento no es de jerarquía documental sino de hechos: **3a y 3b dejan la solicitud
 > en un estado TERMINAL; la cancelación la deja `cotizada` y VIVA**, de vuelta en la fila con 7 días
 > hábiles completos (D38). Agruparlos era precisamente lo que **R3** prohíbe —*un correo por HECHO, no por
 > camino*— aplicado al revés: no fusioné dos caminos del mismo hecho, **fusioné dos hechos distintos**.
 > **El texto que escribí para «3c» es correcto y no se redacta nada nuevo**: cambia de número, de
-> subsección (**§23.4.4-bis**) y —lo que de verdad importa— **de prefijo de clave** (§23.12).
+> subsección (**§25.4.4-bis**) y —lo que de verdad importa— **de prefijo de clave** (§25.12).
 >
-> *(Nota de formato: §23.4 es la **única** sección del documento con cuatro niveles de encabezado. Son nueve
+> *(Nota de formato: §25.4 es la **única** sección del documento con cuatro niveles de encabezado. Son nueve
 > bloques hermanos —el medio, el esqueleto y los cinco correos con sus asuntos— y meterlos como negritas
 > dentro de un solo `###` los volvería inencontrables. No es un desliz.*
-> **La numeración `23.4.N` NO sigue al número del correo** y por eso el 5 entra como **§23.4.4-bis** en
+> **La numeración `25.4.N` NO sigue al número del correo** y por eso el 5 entra como **§25.4.4-bis** en
 > lugar de renumerar `.5/.6/.7`: hay referencias cruzadas vivas a esas tres subsecciones dentro y fuera de
-> §23, y **renumerarlas para ganar una coincidencia estética habría roto punteros reales**.)*
+> §25, y **renumerarlas para ganar una coincidencia estética habría roto punteros reales**.)*
 
-#### 23.4.0 El medio: papel y tinta en HTML de correo
+#### 25.4.0 El medio: papel y tinta en HTML de correo
 
 El correo no es la app y no puede fingir que lo es. Restricciones asumidas como **parte del diseño**:
 
@@ -6469,7 +9295,7 @@ El correo no es la app y no puede fingir que lo es. Restricciones asumidas como 
 | **Parte de texto plano** | **OBLIGATORIA** (`multipart/alternative`) y con **el mismo contenido sustantivo**: los tres montos, la condición por línea y el plazo. Un correo de dinero sin parte de texto es un correo que algunos clientes muestran mutilado |
 | **Prohibido en los CINCO** | **CLABE** (ni enmascarada), datos de terceros, montos de otras solicitudes, **cualquier cifra interna de la mesa** (posición, sugerencia, tope del operador, cuánto inventario tenemos), teléfono del vendedor, y cualquier enlace que **ejecute** una acción sin sesión. **En el correo 5 se añade `offerCancelReason`**: el motivo de la cancelación es de la bitácora, no del vendedor |
 
-#### 23.4.1 Esqueleto común
+#### 25.4.1 Esqueleto común
 
 ```
 ┌──────────────────────────────────────────────────────────┐  ← papel #F4F1EA, 600px
@@ -6496,7 +9322,7 @@ El correo no es la app y no puede fingir que lo es. Restricciones asumidas como 
   cifra, folio, fecha, versalita y etiqueta**. `tabular-nums` en toda columna de dinero.
 - **Folio siempre visible** en el eyebrow: es la llave con la que el vendedor va a escribir a soporte.
 
-#### 23.4.2 CORREO 1 — LA OFERTA (el crítico)
+#### 25.4.2 CORREO 1 — LA OFERTA (el crítico)
 
 **Orden de bloques, y el orden es la decisión.** La condición va **antes** de los montos y **dentro** de
 cada línea; los montos van **antes** del CTA; el plazo va **pegado** al CTA.
@@ -6539,7 +9365,7 @@ QUÉ PASA SI UNA CARTA NO LLEGA EN NEAR MINT           ← bloque sobre POZO #EF
  SE TE DEPOSITAN                        MX$   840.00  ← mono 22px peso 500, tinta
 
  Nosotros ponemos la guía de envío. Su costo,          ← sans 15px TINTA (no muted)
- MX$ 180.00, es una tarifa fija y SIEMPRE se            ⚠ v2.3.1: la prosa nombra
+ MX$ 180.00, es una tarifa fija y SIEMPRE se            ⚠ v3.0.1: la prosa nombra
  descuenta de lo que te pagamos: tú no pagas            TAMBIÉN el envío, no solo
  nada de tu bolsillo. La cifra que se te                el neto (ver decisión 8)
  deposita es MX$ 840.00.
@@ -6562,7 +9388,7 @@ QUÉ PASA SI UNA CARTA NO LLEGA EN NEAR MINT           ← bloque sobre POZO #EF
  verificar tus cartas.
 ```
 
-**Las OCHO decisiones que sostienen este correo** *(eran siete; la 8 entra en v2.3.1 con D43)*:
+**Las OCHO decisiones que sostienen este correo** *(eran siete; la 8 entra en v3.0.1 con D43)*:
 
 1. **La condición está EN LA LÍNEA, no en una leyenda.** `terms.perLineConditionLabel` se pinta en cada
    línea comprada, en **tinta** (no muted), **en el mismo renglón que el monto**, alineada a la izquierda
@@ -6585,23 +9411,23 @@ QUÉ PASA SI UNA CARTA NO LLEGA EN NEAR MINT           ← bloque sobre POZO #EF
 5. **La regla del descuento se escribe, no solo se resta** (D31), en **tinta y al lado de los montos**, y
    **repite en prosa el envío y el neto** («Su costo, MX$ 180.00… La cifra que se te deposita es
    MX$ 840.00»): quien lee en diagonal la tabla y quien lee la prosa se llevan **los mismos números**.
-   *(Ampliado en v2.3.1 — antes la prosa solo repetía el neto; ver la decisión 8.)*
+   *(Ampliado en v3.0.1 — antes la prosa solo repetía el neto; ver la decisión 8.)*
 6. **Plazo con fecha, hora, día de la semana y «días hábiles» entre paréntesis.** Nunca «en 2 días». La
    fecha llega **ya resuelta** del servidor (R4). Se dice **qué pasa si no responde** — que la oferta se
    cancela sola — porque el silencio también es una decisión y debe estar informada.
 7. **El CTA lleva al portal y lo dice.** «Entrarás con tu cuenta: esta oferta no se acepta desde un enlace
    del correo» convierte una restricción de seguridad en una **señal de seriedad**. No existe enlace
    tokenizado de aceptación.
-8. **⚠ NUEVA (v2.3.1, D43) — este correo es la PRIMERA vez que el vendedor ve el monto del envío.** Ya no
-   confirma nada que haya visto en el carrito (§23.3): **introduce un número nuevo en el momento en que
+8. **⚠ NUEVA (v3.0.1, D43) — este correo es la PRIMERA vez que el vendedor ve el monto del envío.** Ya no
+   confirma nada que haya visto en el carrito (§25.3): **introduce un número nuevo en el momento en que
    decide**. La consecuencia de diseño es una sola y es de **redundancia de canal**: **la cifra del envío se
    dice DOS VECES —en la tabla y en la prosa—**, igual que el neto. Antes bastaba con que la prosa repitiera
    el neto, porque el envío era un recordatorio; **un número que se estrena no puede vivir en una sola
    celda**, que es justo la celda que se salta quien lee en diagonal. Se añade `es una tarifa fija`: es un
    hecho de `PROJECT.md` (§P, D31) y **quita la sospecha** de un cargo variable calculado a nuestro gusto —
-   sin pedir disculpas y sin vender el descuento. *(Redacción sujeta a ratificación de PO, §23.13.6.)*
+   sin pedir disculpas y sin vender el descuento. *(Redacción sujeta a ratificación de PO, §25.13.6.)*
 
-**Lo que se revisó con esa lente y se decidió NO cambiar** *(v2.3.1 — se escribe para que nadie lo
+**Lo que se revisó con esa lente y se decidió NO cambiar** *(v3.0.1 — se escribe para que nadie lo
 «mejore» después)*:
 
 | Se consideró | Decisión | Por qué |
@@ -6616,12 +9442,12 @@ QUÉ PASA SI UNA CARTA NO LLEGA EN NEAR MINT           ← bloque sobre POZO #EF
 `MX$ 0.00` en cualquier línea · el bruto en el asunto o en el preheader (**R1**) · porcentajes · una
 condición en pie de página en vez de por línea · botones de «aceptar» / «rechazar» **dentro del correo** ·
 cualquier cifra de la mesa de decisión · prometer la guía como si ya existiera («tu guía está lista»: no se
-compra al ofertar, D21) · **⚠ (v2.3.1) cualquier fórmula que PRESUPONGA conocimiento previo del envío** —
+compra al ofertar, D21) · **⚠ (v3.0.1) cualquier fórmula que PRESUPONGA conocimiento previo del envío** —
 «como ya sabías», «como te habíamos dicho», «recuerda que», «el descuento habitual», «te confirmamos el
 envío de siempre»—: con D43 **es falso**, y un correo de dinero que le dice al vendedor que ya sabía algo
 que nunca vio **le enseña a desconfiar de todo lo demás que ese correo afirma**.
 
-#### 23.4.3 CORREO 2 — EL RECORDATORIO (uno por plazo, una sola vez)
+#### 25.4.3 CORREO 2 — EL RECORDATORIO (uno por plazo, una sola vez)
 
 **Dos variantes de la misma plantilla**, porque son el mismo hecho (*«te queda un día»*) con acciones
 distintas. **No** se convierten en dos correos: el esqueleto, el tono y el bloque congelado son idénticos.
@@ -6649,7 +9475,7 @@ TU OFERTA · BL-000123
   Enlace: «Ver el desglose completo» → portal.
 - **Mismos números, congelados.** Si el recordatorio muestra un monto o una fecha distintos de los del
   correo 1, es un **defecto bloqueante**, no una discrepancia menor.
-- **⚠ Revisado con la lente de D43 (v2.3.1) y NO cambia.** El bloque congelado sigue llevando **solo el
+- **⚠ Revisado con la lente de D43 (v3.0.1) y NO cambia.** El bloque congelado sigue llevando **solo el
   neto**, sin la resta. Es correcto por partida doble: el neto es **el único monto vinculante** (R1) y es
   **el único que el vendedor necesita para decidir** si acepta; y repetir la resta en un recordatorio lo
   convertiría en una **oferta nueva** (la propiedad que este ciclo más protege: hay **una** oferta y **no se
@@ -6664,12 +9490,12 @@ TU OFERTA · BL-000123
 - **No hay recordatorio del plazo de caducidad** (los 7 días hábiles nuestros). Correcto por diseño:
   avisarle al vendedor de un plazo que depende de nuestra carga de trabajo no le sirve de nada.
 
-#### 23.4.4 CORREO 3 — EXPIRACIÓN (⚠ DOS productores, y los dos son terminales)
+#### 25.4.4 CORREO 3 — EXPIRACIÓN (⚠ DOS productores, y los dos son terminales)
 
-> **⚠ v2.3.3 — esta subsección tenía TRES variantes y ahora tiene DOS.** La tercera (~~3c~~, «la cancelamos
-> nosotros») **salió de aquí** y es el **correo 5** (§23.4.4-bis). El criterio de corte es el estado que
+> **⚠ v3.0.3 — esta subsección tenía TRES variantes y ahora tiene DOS.** La tercera (~~3c~~, «la cancelamos
+> nosotros») **salió de aquí** y es el **correo 5** (§25.4.4-bis). El criterio de corte es el estado que
 > deja: **3a y 3b cierran la solicitud; la cancelación la devuelve viva a la fila.** ~~3c~~ **no vuelve a
-> nombrarse en §23**; si aparece en algún sitio, es una referencia sin actualizar.
+> nombrarse en §25**; si aparece en algún sitio, es una referencia sin actualizar.
 
 Dos productores distintos con el **mismo hecho de fondo** (*«se te venció un plazo y la solicitud queda
 cerrada»*) y dos acciones distintas ⇒ **una plantilla, dos variantes**. Es exactamente el reparto que pide
@@ -6684,7 +9510,7 @@ cerrada»*) y dos acciones distintas ⇒ **una plantilla, dos variantes**. Es ex
 estado** (folio, fecha del cierre, versalita del desenlace) + CTA. **Sin montos** ni siquiera en 3b, donde
 el monto ya no se va a pagar y mencionarlo solo duele: **ninguna de las dos variantes lleva montos.**
 
-**Copys (ES, con EN en §23.12):**
+**Copys (ES, con EN en §25.12):**
 
 - **3a** — Titular: «Tu oferta venció». Cuerpo: *«El plazo para responder terminó el {fecha} y la oferta ya
   no es válida. No se compró ninguna carta y no tienes nada pendiente.»* + *«Si sigues queriendo vender,
@@ -6694,9 +9520,9 @@ el monto ya no se va a pagar y mencionarlo solo duele: **ninguna de las dos vari
   sigue sin usar, ya no es válida.»* + la misma invitación. **Hechos y fechas, cero adjetivos**: ni
   «lamentablemente», ni «no cumpliste», ni «desafortunadamente».
 
-#### 23.4.4-bis CORREO 5 — CANCELAMOS LA OFERTA (⚠ el único desenlace que NO cierra nada)
+#### 25.4.4-bis CORREO 5 — CANCELAMOS LA OFERTA (⚠ el único desenlace que NO cierra nada)
 
-> **Era la «variante 3c» hasta v2.3.3.** El **texto no cambia una letra** —está ratificado y es correcto—;
+> **Era la «variante 3c» hasta v3.0.3.** El **texto no cambia una letra** —está ratificado y es correcto—;
 > cambian **el número, la subsección y el prefijo de su clave**. Se separa por dictamen del arquitecto
 > (`ARCHITECTURE §4.39(n)`, v1.51.4), y la razón vale la pena escribirla porque es una regla, no un caso:
 > **lo que agrupa correos es el HECHO y su desenlace, nunca el productor ni el `status`.**
@@ -6716,12 +9542,12 @@ el monto ya no se va a pagar y mencionarlo solo duele: **ninguna de las dos vari
    cotizar, el otro que **no** lo haga.
 2. **Contradice el estado.** 3a/3b sellan `closedAt`; el 5 deja la solicitud abierta. Una plantilla que
    comparte «bloque de estado» entre desenlaces terminales y no terminales **pinta un cierre que no
-   ocurrió** — y §23.2d ya trunca el stepper en un cierre para los terminales.
+   ocurrió** — y §25.2d ya trunca el stepper en un cierre para los terminales.
 3. **Y por eso el CTA es otro.** «Cotizar de nuevo» sobre una solicitud **viva** manda al vendedor a
    **duplicarla**. El 5 dice **«Ver mi solicitud»**. Un CTA equivocado no es un matiz de tono: **crea
    trabajo basura en la cola de M5**.
 
-**Copy (ES, con EN en §23.12) — sin cambios respecto de la ~~3c~~ ratificada:**
+**Copy (ES, con EN en §25.12) — sin cambios respecto de la ~~3c~~ ratificada:**
 
 - Titular: «Cancelamos la oferta que te mandamos». Cuerpo: *«La oferta del {fecha} ya no es válida:
   **la cancelamos nosotros**. No es nada de tu parte.»* + *«Tu solicitud sigue viva y volvemos a revisarla;
@@ -6739,9 +9565,9 @@ el monto ya no se va a pagar y mencionarlo solo duele: **ninguna de las dos vari
 
 > **Deuda de pantalla que este correo sigue teniendo (no la resuelve el renumerado):** tras la cancelación
 > el portal se queda **mudo** —`offer` vuelve a `null`— y el vendedor no ve rastro de la oferta que sí
-> recibió. **La pantalla contradice al correo.** La petición al arquitecto sigue abierta en **§23.13.3**.
+> recibió. **La pantalla contradice al correo.** La petición al arquitecto sigue abierta en **§25.13.3**.
 
-#### 23.4.5 CORREO 4 — «NO PROCEDEREMOS» (nadie ofertó, o el operador declinó)
+#### 25.4.5 CORREO 4 — «NO PROCEDEREMOS» (nadie ofertó, o el operador declinó)
 
 El más corto y el más fácil de arruinar. Su trabajo es **cerrar sin acusar y sin explicar**.
 
@@ -6776,7 +9602,7 @@ a cotizar cuando quieras.
 **Y la propiedad que lo hace verificable:** el correo 4 **no menciona ningún plazo**. Si en el texto aparece
 una fecha límite, un «7 días» o un «venció», el correo está mal.
 
-#### 23.4.6 (c) vs (d): la tabla que impide fusionarlos
+#### 25.4.6 (c) vs (d): la tabla que impide fusionarlos
 
 | | **Correo 3b — expiración** | **Correo 4 — no procederemos** |
 |---|---|---|
@@ -6794,7 +9620,7 @@ una fecha límite, un «7 días» o un «venció», el correo está mal.
 > Un `switch (status)` que caiga en el correo 3 por defecto **le imputa un incumplimiento a alguien a quien
 > nunca le ofertamos**. Es el riesgo que trae compartir `status` y por eso se escribe aquí también.
 
-#### 23.4.7 Asuntos y preheaders
+#### 25.4.7 Asuntos y preheaders
 
 **Regla R1 aplicada:** el **único monto** que puede aparecer en un asunto o preheader es el **neto**.
 
@@ -6810,16 +9636,16 @@ una fecha límite, un «7 días» o un «venció», el correo está mal.
 
 > **⚠ El asunto del 5 es el único de los cierres que NO puede empezar por «Tu oferta venció…».** Se lee
 > entero antes de abrir nada: **«Cancelamos»** pone el sujeto de la acción **en nosotros** en la primera
-> palabra, en los dos idiomas. Es la misma doctrina de §23.1d —*en un desenlace ambiguo el sistema no acusa
+> palabra, en los dos idiomas. Es la misma doctrina de §25.1d —*en un desenlace ambiguo el sistema no acusa
 > al cliente*— aplicada a la bandeja de entrada, que es donde más gente se queda.
 
-**Preheader del correo 1** (texto oculto, primera línea que ve la bandeja) — **⚠ corregido en v2.3.1**:
+**Preheader del correo 1** (texto oculto, primera línea que ve la bandeja) — **⚠ corregido en v3.0.1**:
 ES *«Compramos 2 de tus 3 cartas, siempre que lleguen en Near Mint. La guía la ponemos nosotros y se
 descuenta.»* · EN *"We'll buy 2 of your 3 cards, provided they arrive Near Mint. We provide the label and
 deduct it."*
 **El preheader del correo 1 lleva la condición** — es la primera superficie del trato y no puede omitirla.
 
-> **⚠ Por qué se corrigió** (v2.3.1, D43): ~~«El envío lo ponemos nosotros» / «Shipping is on us»~~ decía
+> **⚠ Por qué se corrigió** (v3.0.1, D43): ~~«El envío lo ponemos nosotros» / «Shipping is on us»~~ decía
 > **la mitad buena** del hecho y omitía la resta. Cuando el vendedor ya había visto la aritmética en el
 > carrito, esa media frase era taquigrafía inofensiva; **ahora es la primera cosa que lee sobre el envío en
 > todo el ciclo**, y «lo ponemos nosotros» a secas se lee como **«gratis»**. **Regla derivada, válida en
@@ -6834,19 +9660,19 @@ deduct it."*
 
 ---
 
-### 23.5 Portal del vendedor: la pantalla tiene que decir **exactamente** lo mismo que el correo
+### 25.5 Portal del vendedor: la pantalla tiene que decir **exactamente** lo mismo que el correo
 
 **(a) Regla de espejo.** El correo y la pantalla se pintan del **mismo `SellOfferPublicDTO`** y del mismo
 `offer.terms`. **La UI no calcula ninguno de los tres montos, ni el plazo, ni la resta** (R4). Si la pantalla
 y el correo dicen números distintos, **se rompe todo el ciclo**, no una pantalla.
 
-**(b) Anatomía** (bajo el `PipelineStepper` vertical, §23.2):
+**(b) Anatomía** (bajo el `PipelineStepper` vertical, §25.2):
 la **condición en un bloque sobre pozo** (mismo texto del correo) → la lista de líneas **compradas** con su
 condición por línea → las **no compradas** sin monto → el `AmountBreakdown` de los tres montos con el neto
 destacado → el plazo con fecha y hora → **dos acciones**.
 
-- **⚠ v2.3.1 (D43): el portal es el único sitio donde el vendedor puede RELEER la resta.** El correo la
-  estrena y el recordatorio no la repite (§23.4.3), así que aquí el `AmountBreakdown` de los **tres** montos
+- **⚠ v3.0.1 (D43): el portal es el único sitio donde el vendedor puede RELEER la resta.** El correo la
+  estrena y el recordatorio no la repite (§25.4.3), así que aquí el `AmountBreakdown` de los **tres** montos
   es **obligatorio** y va acompañado de la **misma frase en prosa del correo**, con el envío y el neto
   nombrados —no una versión abreviada, no solo el neto—. Un portal que muestre únicamente `SE TE DEPOSITAN`
   deja al vendedor **sin ningún lugar donde volver a ver de dónde salió**, salvo un correo que quizá borró.
@@ -6861,10 +9687,10 @@ destacado → el plazo con fecha y hora → **dos acciones**.
 - **Confirmación al aceptar** (§7.6, es dinero): repite **el neto** y **la condición**, y el botón dice el
   verbo con el monto: **«Aceptar y recibir mi guía»**. Sin cuenta atrás, sin urgencia artificial.
 
-  > **⚠ v2.3.7 — la frase se REENMARCA para que la condición se pueda CITAR en vez de reescribir.**
+  > **⚠ v3.0.7 — la frase se REENMARCA para que la condición se pueda CITAR en vez de reescribir.**
   > Aquí decía *«…2 cartas por MX$ 840.00, **siempre que lleguen** en Near Mint»* —plural—, pero el
   > servidor manda `offer.perLineCondition` **en singular** («siempre que **llegue** en Near Mint»), porque
-  > es **la condición de una línea** (§23.12). El frontend detectó el desajuste y **citó verbatim** en vez
+  > es **la condición de una línea** (§25.12). El frontend detectó el desajuste y **citó verbatim** en vez
   > de fabricar una segunda redacción. **Esa decisión se ratifica y es la correcta**: *la condición es
   > exactamente lo que el vendedor acepta (D30); tener DOS redacciones de ella —una en el correo y otra en
   > el diálogo— es el defecto que R2 existe para impedir, y una discordancia gramatical es un coste
@@ -6878,7 +9704,7 @@ destacado → el plazo con fecha y hora → **dos acciones**.
   > | **Ahora** | «Aceptas que te compremos {count, plural, one {# carta} other {# cartas}} por {netAmount}. **La condición es la misma para cada carta: {condition}.**» | "You accept that we buy {count, plural, one {# card} other {# cards}} from you for {netAmount}. **The condition is the same for every card: {condition}.**" |
   >
   > Con «cada carta» / "every card" el singular citado **lee correcto con cualquier conteo**, y la cita
-  > sigue siendo **una sola fuente**. El mismo marco se usa en el diálogo de rechazar (§23.5g-c), en
+  > sigue siendo **una sola fuente**. El mismo marco se usa en el diálogo de rechazar (§25.5g-c), en
   > pasado: *«La condición **era** la misma para cada carta»*.
   > **Regla general que se lleva de aquí:** *cuando un texto del servidor no encaje en el marco de la UI,
   > **se cambia el marco, no se duplica el texto**.*
@@ -6895,10 +9721,10 @@ destacado → el plazo con fecha y hora → **dos acciones**.
 **(d) Antes de que exista oferta**, la pantalla **no muestra guía, ni nuestra dirección, ni instrucciones de
 envío**, y **no ofrece** ninguna vía para decir «ya lo mandé» (criterio 114). Muestra: sus cartas, **su
 propia dirección de origen** (que es suya y tiene que poder verificarla), una frase clara —*«Todavía no
-mandes nada. Te escribimos con nuestra oferta.»*— y **la nota de servicio del envío de §23.3d, palabra por
+mandes nada. Te escribimos con nuestra oferta.»*— y **la nota de servicio del envío de §25.3d, palabra por
 palabra y SIN CIFRAS**.
 
-> **⚠ Corrección v2.3.1 (D43).** Aquí decía «el aviso de descuento de §23.3», que en v2.3 era **el bloque
+> **⚠ Corrección v3.0.1 (D43).** Aquí decía «el aviso de descuento de §25.3», que en v3.0 era **el bloque
 > con la resta**. Sería un error doble pintarlo: (1) D43 lo prohíbe en toda superficie previa a la oferta, y
 > (2) **antes de la oferta no existe tarifa congelada**, así que cualquier cifra que apareciera aquí sería
 > **la del dial de hoy**, capaz de no coincidir con la que se le ofertará mañana. La regla es limpia:
@@ -6909,7 +9735,7 @@ palabra y SIN CIFRAS**.
 **(e) La dirección de origen, con su ventana de corrección.** Mientras `guideSentAt === null`, junto a la
 dirección va **«Cambiar»** (`PATCH …/pickup-address`, elige otra de su libreta). Cuando ya hay guía, el
 enlace **desaparece** y en su lugar: *«Ya imprimimos la guía con esta dirección.»* — sin botón, porque no
-hay remedio self-service (§23.13.4).
+hay remedio self-service (§25.13.4).
 
 **(f) Cierre terminal.** Con la solicitud cerrada, la pantalla muestra el mismo mensaje que el correo, no un
 resumen genérico:
@@ -6917,28 +9743,28 @@ resumen genérico:
 | Desenlace | Qué se muestra | ⚠ |
 |---|---|---|
 | `pagada` | los tres montos, la fecha del SPEI y el desglose de aprobadas/rechazadas | — |
-| `rechazada` | **⚠ CORREGIDO v2.3.7:** ~~«La oferta venció el {fecha}»~~ ⇒ **«Esta oferta ya no está vigente.»** + CTA cotizar de nuevo | **`rechazada` tiene DOS causas y el DTO no las distingue**: el vendedor **pulsó rechazar**, o el barrido cerró por silencio. Decirle «venció» a quien **decidió** le niega su propio acto — es el mismo error que separó el correo 5 del 3. Ver §23.5g(e) |
+| `rechazada` | **⚠ CORREGIDO v3.0.7:** ~~«La oferta venció el {fecha}»~~ ⇒ **«Esta oferta ya no está vigente.»** + CTA cotizar de nuevo | **`rechazada` tiene DOS causas y el DTO no las distingue**: el vendedor **pulsó rechazar**, o el barrido cerró por silencio. Decirle «venció» a quien **decidió** le niega su propio acto — es el mismo error que separó el correo 5 del 3. Ver §25.5g(e) |
 | `expirada`+`not_shipped` | «Se venció el plazo para enviar» + CTA cotizar de nuevo | — |
 | `expirada`+`no_offer` | «No procedimos con la oferta» + CTA cotizar de nuevo | **⚠ Se OCULTA el total cotizado y toda cifra.** Una lista de cartas con «MX$ 1,200» al lado de «no procedimos» se lee como una deuda. Se listan las cartas **sin montos** |
 | `abandonada` | el estado y a quién escribir | — |
 
 ---
 
-### 23.5g Los estados del portal que §23 NO cubría (v2.3.7)
+### 25.5g Los estados del portal que §25 NO cubría (v3.0.7)
 
 > **Contexto.** El portal era un **404** hasta este pase — la pantalla a la que apunta el correo de oferta
-> no existía. §23.5 especificó **la oferta viva y los cierres**, pero **no** el rechazo confirmado, la
+> no existía. §25.5 especificó **la oferta viva y los cierres**, pero **no** el rechazo confirmado, la
 > oferta incompleta, el 404 ni la puerta de sesión. El frontend los construyó y **declaró** las claves que
 > tuvo que nombrar. **Aquí se ratifican, con tres correcciones.**
 
 **(a) ✅ Se ratifica el espacio de claves `buylist.offer.*` y su EN.** El inventario completo está en
-§23.12. Revisado contra R1, R2, R4 y D43: **ningún asunto ni titular lleva el bruto**, la condición viaja
+§25.12. Revisado contra R1, R2, R4 y D43: **ningún asunto ni titular lleva el bruto**, la condición viaja
 con todo monto, **la UI no calcula nada** y no hay ninguna cifra de envío fuera de la oferta. `grossLabel`,
 `shippingLabel` y `netLabel` coinciden con los del correo; `shippingLabel` («Envío que ponemos nosotros»)
-es la **excepción autorizada** de §23.4.7 — renglón corto **porque la resta está a la vista**.
+es la **excepción autorizada** de §25.4.7 — renglón corto **porque la resta está a la vista**.
 
 **(b) ⚠ CORRECCIÓN 1 — `offer.deadline` dice «se cancela sola», y «cancelar» ya significa otra cosa.**
-Tras v2.3.3, **«cancelar» es el verbo del correo 5: lo que hacemos NOSOTROS**. Una oferta que muere por
+Tras v3.0.3, **«cancelar» es el verbo del correo 5: lo que hacemos NOSOTROS**. Una oferta que muere por
 silencio **vence** (correo 3a, titular «Tu oferta venció»). Que la misma palabra nombre *«nosotros la
 retiramos»* y *«se te acabó el plazo»* reintroduce, en la pantalla, la fusión que acabamos de deshacer en
 los correos.
@@ -6962,7 +9788,7 @@ porque este es el último instante en que el vendedor puede saber **qué está s
 
 **Prohibido en este diálogo** —y la lista es el motivo por el que se escribe aquí—: **«¿Estás seguro?»**,
 cualquier cuenta atrás, **cualquier reencuadre del beneficio** («estás dejando ir…», «piénsalo»), el botón
-de rechazar en `destructive` (§23.5c: rechazar **es legítimo**) y **un segundo CTA de aceptar dentro del
+de rechazar en `destructive` (§25.5c: rechazar **es legítimo**) y **un segundo CTA de aceptar dentro del
 diálogo**. La salida es **«Cancelar»** —volver atrás—, nunca un embudo de aceptación. *Un diálogo de
 confirmación que argumenta ya no confirma: negocia.*
 
@@ -6977,11 +9803,12 @@ acierta en lo difícil: **no culpa a nadie, dice qué NO vamos a hacer y por qu�
 | `incompleteTitle` | No podemos mostrarte la oferta completa | We can't show you the full offer |
 | `incompleteBody` | Nos falta parte del desglose de esta oferta, así que no la mostramos a medias ni te dejamos aceptarla. Revisa el correo que te mandamos o escríbenos a {email}. | Part of this offer's breakdown is missing, so we won't show it half-way and we won't let you accept it. Check the email we sent you or write to us at {email}. |
 
-- **Mandar al correo es correcto y no es una excusa:** el correo **es el documento vinculante** (§23.4) y
+- **Mandar al correo es correcto y no es una excusa:** el correo **es el documento vinculante** (§25.4) y
   lleva el desglose completo. Es la única superficie que **sigue siendo verdad** cuando la proyección falla.
 - **Prohibido**: pintar el neto «aunque sea», un `AmountBreakdown` a medias, el plazo, el botón de aceptar
   en `disabled` (§15.9: un botón apagado y mudo es peor que ausente) y **cualquier código de error**.
-- **⚠ Riesgo que el copy NO puede resolver y que se enruta al arquitecto (§23.5g-f):** si el reloj del
+
+- **⚠ Riesgo que el copy NO puede resolver y que se enruta al arquitecto (§25.5g-f):** si el reloj del
   vendedor sigue corriendo mientras la oferta es inmostrable, **le vence un plazo por un fallo nuestro** —
   justo lo que §P.13 prohíbe. **El texto no promete nada sobre el plazo** (correcto), pero el problema es
   real y es de contrato.
@@ -7007,7 +9834,7 @@ en un **oráculo** de qué solicitudes existen.
 > entre «no existe» y «no es tuya».
 
 **(f) La frase neutra de `rechazada` — ratificada, y con el reparto que la hace correcta.**
-El DTO no dice **quién** cerró: si el vendedor pulsó rechazar o si el barrido cerró por silencio. §23.5f
+El DTO no dice **quién** cerró: si el vendedor pulsó rechazar o si el barrido cerró por silencio. §25.5f
 decía «La oferta venció el {fecha}» **para las dos**, y a quien **decidió** eso le niega su propio acto.
 
 | Clave | Cuándo | ES | EN |
@@ -7017,28 +9844,28 @@ decía «La oferta venció el {fecha}» **para las dos**, y a quien **decidió**
 
 - **El reparto es la parte buena de la solución**, y es del frontend: la frase neutra solo se usa donde la
   ignorancia es real. **No se degrada la información que sí tenemos.**
-- **No lleva fecha**, y no le hace falta: el **cierre del stepper** ya pinta versalita + fecha (§23.2d).
+- **No lleva fecha**, y no le hace falta: el **cierre del stepper** ya pinta versalita + fecha (§25.2d).
   Repetirla obligaría a redactar una causa que no conocemos.
 - **Es una solución puente, no el destino.** Con el discriminador en el contrato, `rechazada` vuelve a
-  hablar claro y **cada causa recupera su frase**. **Petición al arquitecto en §23.13.9.**
+  hablar claro y **cada causa recupera su frase**. **Petición al arquitecto en §25.13.9.**
 
 **(g) Detalles menores ratificados, para que nadie los «corrija» después:**
 
 | Clave | Veredicto |
 |---|---|
-| `acceptedNow` («Te mandamos la guía por correo») | **Correcto.** Es **secuencia logística**, no afirmación de coste ⇒ **no** le aplica la regla de §23.14.3, igual que a `buylist.created`. Y además la resta está en pantalla, a un scroll |
-| `reject` = «Rechazar» ES / "Decline" EN | **Correcto**, y la asimetría es deliberada: ES ya usa «Declinar» para **la acción del admin** (§23.8) y **ningún usuario ve las dos superficies**. "Decline" es más suave que "Reject", que sonaría a juzgar sus cartas |
-| `preOfferTitle` + `preOfferBody` | **Ajuste menor:** hoy repiten «Todavía no mandes nada» en los dos. **Título:** «Todavía no mandes nada» · **Cuerpo:** «Te escribimos con nuestra oferta.» Leídos juntos dan la frase de §23.5d **exacta**, sin eco |
-| `cancelledBanner` | **Ratificado** — es §23.13.3 implementada, y el texto coincide con el que pedí. **Sin monto de la oferta cancelada**, como se pidió |
-| `closedNoOffer` | **Ratificado**, con el recordatorio de §23.5f: en ese desenlace **se ocultan el total cotizado y toda cifra**. Las cartas se listan **sin montos** |
+| `acceptedNow` («Te mandamos la guía por correo») | **Correcto.** Es **secuencia logística**, no afirmación de coste ⇒ **no** le aplica la regla de §25.14.3, igual que a `buylist.created`. Y además la resta está en pantalla, a un scroll |
+| `reject` = «Rechazar» ES / "Decline" EN | **Correcto**, y la asimetría es deliberada: ES ya usa «Declinar» para **la acción del admin** (§25.8) y **ningún usuario ve las dos superficies**. "Decline" es más suave que "Reject", que sonaría a juzgar sus cartas |
+| `preOfferTitle` + `preOfferBody` | **Ajuste menor:** hoy repiten «Todavía no mandes nada» en los dos. **Título:** «Todavía no mandes nada» · **Cuerpo:** «Te escribimos con nuestra oferta.» Leídos juntos dan la frase de §25.5d **exacta**, sin eco |
+| `cancelledBanner` | **Ratificado** — es §25.13.3 implementada, y el texto coincide con el que pedí. **Sin monto de la oferta cancelada**, como se pidió |
+| `closedNoOffer` | **Ratificado**, con el recordatorio de §25.5f: en ese desenlace **se ocultan el total cotizado y toda cifra**. Las cartas se listan **sin montos** |
 
 ---
 
-### 23.5h ⚠ La prosa duplicada — decisión: SE PERMITE como puente, con tres condiciones
+### 25.5h ⚠ La prosa duplicada — decisión: SE PERMITE como puente, con tres condiciones
 
 > **Es la pregunta correcta y la respuesta no es obvia**, así que va con su razonamiento. El frontend
 > **copió `offer.ruleParagraph`** —la prosa del descuento con `{shippingAmount}` y `{netAmount}`— al
-> catálogo i18n, porque **solo existía dentro de la plantilla del correo** y §23.5b **obliga** al portal a
+> catálogo i18n, porque **solo existía dentro de la plantilla del correo** y §25.5b **obliga** al portal a
 > llevarla. Lo declaró como *«la única copia de copy que este pase se vio obligado a crear»*.
 
 **Veredicto: NO es bloqueante. Se permite, y por qué la alternativa era peor.**
@@ -7047,7 +9874,7 @@ Las opciones reales eran tres, y dos son inaceptables:
 
 | Opción | Consecuencia |
 |---|---|
-| **Portal sin la prosa**, solo el `AmountBreakdown` | **Viola §23.5b explícitamente.** Bajo D43 el portal es **el único sitio donde el vendedor puede releer la resta**: el correo la estrena y el recordatorio no la repite. Sin prosa, quien borró el correo **se queda sin ningún lugar donde ver de dónde salió el neto** |
+| **Portal sin la prosa**, solo el `AmountBreakdown` | **Viola §25.5b explícitamente.** Bajo D43 el portal es **el único sitio donde el vendedor puede releer la resta**: el correo la estrena y el recordatorio no la repite. Sin prosa, quien borró el correo **se queda sin ningún lugar donde ver de dónde salió el neto** |
 | **Bloquear el portal** hasta que el servidor mande la prosa | El portal era **un 404** al que apunta el correo de oferta. Bloquear = **seguir mandando ofertas vinculantes a una página que no existe** |
 | **Duplicar el string** *(elegida)* | Riesgo de **deriva** entre dos catálogos. Es un coste de **mantenimiento**, no una regresión para el vendedor |
 
@@ -7059,16 +9886,16 @@ que este ciclo lleva persiguiendo, donde el daño venía de textos **que nadie s
 **Las tres condiciones, y son obligatorias mientras dure el puente:**
 
 1. **La plantilla del correo es la FUENTE; el i18n es el ESPEJO.** Si divergen, **manda el correo** — es el
-   documento vinculante (§23.4). Toda edición de esa prosa **se hace primero en la plantilla** y después se
+   documento vinculante (§25.4). Toda edición de esa prosa **se hace primero en la plantilla** y después se
    copia. **Prohibido «mejorar» la copia del portal por su cuenta**: dos redacciones de la misma regla de
    dinero es el defecto, no la solución.
 2. **Verbatim, carácter por carácter, en ES y EN**, incluidos los dos placeholders. La comprobación (f) de
-   §23.13.8 —*«correo vs portal coinciden carácter por carácter»*— **se amplía a la prosa del descuento**,
+   §25.13.8 —*«correo vs portal coinciden carácter por carácter»*— **se amplía a la prosa del descuento**,
    que hasta hoy solo cubría montos, plazo y condición. **Es el único guardarraíl real que hay hoy**, y se
    dice sin adornos: *el guardián de esta copia es una revisión, no un test.*
 3. **Cuando el servidor mande la prosa, la clave i18n SE BORRA — no se deja de reserva.** Un *fallback*
    superviviente es exactamente cómo un texto viejo vuelve a producción (la lección de `expiry.*` y de las
-   tres claves retiradas de §23.12). **Cero coexistencia.**
+   tres claves retiradas de §25.12). **Cero coexistencia.**
 
 **Y el límite del permiso, para que no se generalice:** esto vale **para esta prosa y por este motivo** —
 una regla de dinero que el diseño **obliga** a mostrar en dos medios y que hoy **solo un medio produce**.
@@ -7078,7 +9905,7 @@ la que el vendedor lee en pantalla el mismo texto que aceptó en el correo**.
 
 ---
 
-### 23.6 La mesa de decisión (admin, M5) — cinco cifras leídas en dos tiempos
+### 25.6 La mesa de decisión (admin, M5) — cinco cifras leídas en dos tiempos
 
 > **El problema de diseño, dicho sin rodeos:** por cada línea hay que enseñar **cinco números** —en
 > inventario, verificando, en tránsito, comprometido y el objetivo— y una sugerencia, sobre una solicitud
@@ -7119,7 +9946,7 @@ La tira es una **retícula de anchos fijos** (`grid-template-columns` con tracks
 una columna («¿de cuáles tengo muchas?») en vez de leer 40 renglones. Es la propiedad que hace que el sitio
 «se lea como una tabla de precios» (§3.1) aplicada a la pantalla más densa del producto.
 
-**(d) Densidad — ⚠ REESCRITO v2.3.10: la compacta queda DIFERIDA y la frase del `< md` era mía y estaba
+**(d) Densidad — ⚠ REESCRITO v3.0.10: la compacta queda DIFERIDA y la frase del `< md` era mía y estaba
 mal.**
 
 | Densidad | Estado |
@@ -7129,7 +9956,7 @@ mal.**
 
 - **Por qué la compacta no solo es opcional sino que conviene aplazarla:** su ahorro es **scroll** en
   solicitudes largas; su coste es que **deja cuatro números desnudos en una fila**. La etiqueta por celda
-  es uno de los cuatro mecanismos que impiden que el ojo sume «en camino» + «comprometido» (R6, §23.6c-bis),
+  es uno de los cuatro mecanismos que impiden que el ojo sume «en camino» + «comprometido» (R6, §25.6c-bis),
   y **R6 es el valor de esta pantalla**. Cambiar una protección de dinero por menos scroll es un mal
   negocio, y más antes de saber si existen solicitudes de 40 líneas. *Si algún día se construye, la
   condición es que los **encabezados de grupo sigan siendo `<th>` reales** y que la **regla vertical**
@@ -7138,10 +9965,10 @@ mal.**
   §7.7 gobierna el `DataTable`, y **(e) dice explícitamente que la línea de la mesa NO es una fila de tabla
   de 9 columnas, sino una banda de dos renglones**. Una banda **no tiene que colapsar a card**: ya lo es.
   Arrastré la frase de §7.7 sin comprobar que aplicara. **El requisito móvil real es el que ya está en
-  §23.13.8(n) y no cambia:** a 390px **la tira se parte en dos renglones de dos, conservando el separador
+  §25.13.8(n) y no cambia:** a 390px **la tira se parte en dos renglones de dos, conservando el separador
   de grupos**, y ningún monto se trunca.
 
-**(c-bis) ⚠ Los CUATRO mecanismos que hacen R6 irrompible por descuido (normativo desde v2.3.10).**
+**(c-bis) ⚠ Los CUATRO mecanismos que hacen R6 irrompible por descuido (normativo desde v3.0.10).**
 R6 decía **qué** está prohibido —que «en camino» y «comprometido» se sumen— pero no **cómo** se impide.
 El implementador lo resolvió con cuatro barreras independientes y **se elevan a norma**, porque juntas
 convierten una regla de disciplina en una propiedad de la pantalla:
@@ -7154,7 +9981,7 @@ convierten una regla de disciplina en una propiedad de la pantalla:
 | **4** | **La AUSENCIA**: sin subtotal, sin `+`, sin paréntesis, sin barra apilada | Separación **estructural**: no hay ningún sitio donde la suma pueda aparecer |
 
 - **El mecanismo 4 es el único verificable por lo negativo, y por eso es el que se testea:** *la suma de
-  «en camino» + «comprometido» **no aparece en ninguna celda**.* Es la comprobación (h) de §23.13.8
+  «en camino» + «comprometido» **no aparece en ninguna celda**.* Es la comprobación (h) de §25.13.8
   convertida en aserción automática — y es la forma correcta de defender R6, porque **una prohibición que
   solo vive en la cabeza del que dibuja se rompe en el siguiente rediseño**.
 - **Los cuatro son independientes a propósito:** si alguien retira uno «por limpieza», quedan tres. Una
@@ -7204,7 +10031,7 @@ Sugerencia: no comprar — tope general (10). Este bounty no tiene objetivo; se 
 | **NUNCA gobierna el default de la casilla** | Ver (g) |
 | **NUNCA apaga un control** | Ver (h) |
 
-> **⚠ D6 tiene DOS puertas, no una (ratificado v2.3.10).** Este documento insistía en que la sugerencia
+> **⚠ D6 tiene DOS puertas, no una (ratificado v3.0.10).** Este documento insistía en que la sugerencia
 > **no apaga controles** (h) — la puerta visible. El implementador protegió además la **invisible**, y es
 > la que de verdad se cuela: **la selección por defecto no consulta la sugerencia ni una sola vez**.
 > Su formulación, que adopto: *si el default siguiera a la sugerencia, «no comprar» sería un **bloqueo
@@ -7228,7 +10055,7 @@ montos viven siempre a la vista** en la barra inferior (i), y hay acciones en lo
 | `suggestion.verdict === "do_not_buy"` | **NO. Nunca. Ni con confirmación extra** | El servidor **no** la valida (§4.39g). Endurecerla contradice `PROJECT.md` |
 | `totals.netBelowMinimum` | **SÍ** | El servidor responde `422 OFFER_NET_BELOW_MINIMUM`. Dejar el botón vivo es prometer una acción que va a fallar |
 | `pickupAddressMissing` | **SÍ** | Ídem: `422 PICKUP_ADDRESS_MISSING` |
-| `positionUnavailable` | **NO** | Se puede ofertar sin conteo; lo que falta es el **consejo**, no el permiso (§23.7) |
+| `positionUnavailable` | **NO** | Se puede ofertar sin conteo; lo que falta es el **consejo**, no el permiso (§25.7) |
 | `requiresAuthorization` | **NO** — pero **cambia la etiqueta del botón** | Ver (i) |
 
 **(i) Barra de totales sticky** (patrón §21.6, anclada con `--app-header-h` §4.5 al scroll):
@@ -7258,7 +10085,7 @@ montos viven siempre a la vista** en la barra inferior (i), y hay acciones en lo
 
 ---
 
-### 23.7 El conteo que no se pudo hacer (`positionUnavailable`) — R7
+### 25.7 El conteo que no se pudo hacer (`positionUnavailable`) — R7
 
 > **Por qué merece tratamiento propio:** un `0` que en realidad significa «no pude contar» **se ve
 > confiable** y empuja a comprar de más. Es el mismo fallo que §7.3 resuelve en el dinero (nunca `$0` para
@@ -7303,7 +10130,7 @@ ella**. Se reconoce a un metro de la pantalla y sobrevive a una captura en blanc
 **(d) Nivel de pantalla.** Si **alguna** línea llega con `positionUnavailable`, sobre la tabla aparece un
 `Banner` `warning` (§7.5, sin relleno) con `role="status"`:
 *«No pudimos contar el inventario de {n} de {N} cartas. Puedes ofertar igual, pero lo harás sin ver cuántas
-copias tenemos.»* + **Reintentar**. **No bloquea nada** (§23.6h).
+copias tenemos.»* + **Reintentar**. **No bloquea nada** (§25.6h).
 
 **(e) La línea sigue siendo operable.** Montos, override y casilla funcionan con normalidad, y
 `totals` sigue siendo válido (depende de montos, no del conteo). Lo que falta es el **consejo**, no el
@@ -7311,16 +10138,16 @@ permiso.
 
 ---
 
-### 23.8 Colas nuevas de M5 y «declinar ahora»
+### 25.8 Colas nuevas de M5 y «declinar ahora»
 
-> **⚠ v2.3.5 — §23.8 tenía un HUECO y el frontend lo tapó con criterio propio.** Esta sección especificó
+> **⚠ v3.0.5 — §25.8 tenía un HUECO y el frontend lo tapó con criterio propio.** Esta sección especificó
 > **las cuatro colas** (vistas con acción propia) pero **nunca las PESTAÑAS DE ETAPA** de M5, que son otra
 > cosa: la partición total de `SellRequestStatus` en la pantalla principal. Al crecer el enum en cuatro
 > valores, el frontend tuvo que inventar un rótulo (`ciclo`) **para que tres estados no desaparecieran de
 > la pantalla**, y lo declaró como decisión suya. Hizo bien las dos cosas: **taparlo** y **decirlo**.
-> **§23.8a llena el hueco.**
+> **§25.8a llena el hueco.**
 
-#### 23.8a Las pestañas de ETAPA de M5 — el eje es DE QUIÉN ES EL PENDIENTE
+#### 25.8a Las pestañas de ETAPA de M5 — el eje es DE QUIÉN ES EL PENDIENTE
 
 **El criterio de rotulación, que es lo que faltaba.** M5 es una **cola de trabajo**, así que sus pestañas
 tienen que contestar **«¿qué me toca?»**, no «¿en qué estado está el registro?». De ahí sale un eje único:
@@ -7330,7 +10157,7 @@ tienen que contestar **«¿qué me toca?»**, no «¿en qué estado está el reg
 | **El pendiente es NUESTRO** | hay una acción que solo nosotros podemos hacer, y normalmente **hay un reloj corriendo en contra nuestra** | **«Por + verbo»** — nombra la acción |
 | **El pendiente NO es nuestro** | ya hicimos lo que nos tocaba; aquí solo se **mira** | nombra **de quién depende**, nunca la acción |
 
-**Mapa normativo (enmienda: §23.8 antes no lo tenía).**
+**Mapa normativo (enmienda: §25.8 antes no lo tenía).**
 
 | Pestaña | Estados | Rótulo ES / EN | Pendiente |
 |---|---|---|---|
@@ -7342,7 +10169,7 @@ tienen que contestar **«¿qué me toca?»**, no «¿en qué estado está el reg
 | **6** *(transversal, ítems)* | *ítems* rechazados, no solicitudes | **«Piezas rechazadas» / "Rejected items"** ⚠ *(era «Rechazadas» / "Rejected")* | ninguno |
 
 **(a) «Por recibir» ⇒ «Por ofertar» — el rótulo describía lo que el estado ya NO significa.**
-**§23.1a lo dice con todas sus letras:** `cotizada` *«cambia de sentido en v2.3: ya no es "llegó y algún día
+**§25.1a lo dice con todas sus letras:** `cotizada` *«cambia de sentido en v3.0: ya no es "llegó y algún día
 se verá", es **"te debemos una respuesta"»***. El rótulo se quedó anclado al modelo viejo, en el que el
 vendedor mandaba el paquete primero y nosotros lo recibíamos. **Hoy en esa pestaña no hay nada que
 recibir**: hay **gente esperando nuestra oferta**.
@@ -7352,7 +10179,7 @@ recibir**: hay **gente esperando nuestra oferta**.
   corriendo en contra**, al final del cual la solicitud **caduca sola** y al vendedor le llega un *«no
   procederemos»* que **nadie decidió**. Un rótulo que induce a esperar es, literalmente, el
   comportamiento que hace que ese correo salga.
-- **Es el mismo patrón que ya cacé dos veces**: `expiry.*` en un correo donde no expiraba nada (§23.12) y
+- **Es el mismo patrón que ya cacé dos veces**: `expiry.*` en un correo donde no expiraba nada (§25.12) y
   «Guía de envío seguro» donde «guía» ya significaba otra cosa (§7.13). **Un nombre sobrevive al cambio de
   significado y sigue empujando a quien lo lee hacia el modelo mental viejo.** Es, con diferencia, la forma
   más común de deuda de copy en este proyecto — y la más barata de arreglar.
@@ -7366,10 +10193,10 @@ recibir**: hay **gente esperando nuestra oferta**.
 **Las dos decisiones del frontend eran correctas y quedan normadas:**
 
 1. **UNA pestaña y no tres.** Los tres estados son **monitoreo desde esta cola**; las colas con acción
-   propia (por autorizar, por confirmar envío, guías por cancelar) son **vistas aparte** (§23.8). Tres
+   propia (por autorizar, por confirmar envío, guías por cancelar) son **vistas aparte** (§25.8). Tres
    pestañas sin acción invitarían a buscar un botón que no existe en ninguna.
 2. **`aceptada` NUNCA bajo un rótulo que diga «en camino».** Aceptar **no mueve nada** (criterio 156,
-   §23.1e) y el único estado que significa «un paquete viaja» es `en_transito`. **Esta restricción sigue
+   §25.1e) y el único estado que significa «un paquete viaja» es `en_transito`. **Esta restricción sigue
    en pie con el rótulo nuevo** y es la que descarta a la mitad de los candidatos.
 
 **Por qué «Ciclo de oferta» no se queda**, aunque no esté mal: **(i)** es **jerga interna** —nombra una
@@ -7381,15 +10208,15 @@ enviar, su paquete— y **no se puede leer como «hay cartas llegando»**, que e
 > **⚠ Concesión consciente, para que no parezca descuido:** en `en_transito` el paquete lo tiene **la
 > paquetería**, no el vendedor. Se acepta porque **el fallo caro es el contrario** —creer que hay cartas en
 > casa cuando no las hay— y porque **la fila desambigua sola**: dentro de la pestaña, cada solicitud lleva
-> su badge (`OFERTADA` / `ACEPTADA` / `EN TRÁNSITO`, §23.1a). **La pestaña agrupa; el badge precisa.**
+> su badge (`OFERTADA` / `ACEPTADA` / `EN TRÁNSITO`, §25.1a). **La pestaña agrupa; el badge precisa.**
 > Y las llamadas al vendedor **no se sacan de aquí**: salen de la cola «vendedores con solicitudes vivas»
-> (§23.8), que existe justo para eso.
+> (§25.8), que existe justo para eso.
 
 **(c) «Rechazadas» ⇒ «Piezas rechazadas» — hallazgo del barrido: una MISMA palabra con dos significados en
 la MISMA pantalla.** Esta pestaña es **transversal y NO contiene solicitudes**: consume
 `GET /admin/buylist/rejected-items` y lista **ítems** (cartas/piezas) rechazados por no llegar en NM. Pero
 `rechazada` es **también un estado de solicitud** —el del vendedor que **no respondió la oferta**
-(§23.4.4-3a)— y ese vive en **«Cerradas»**.
+(§25.4.4-3a)— y ese vive en **«Cerradas»**.
 
 - **Consecuencia:** un operador que busca *«las solicitudes que se rechazaron»* pulsa **«Rechazadas»** y
   encuentra **cartas**. Y las solicitudes que buscaba están en otra pestaña, con la misma palabra pintada
@@ -7398,14 +10225,14 @@ la MISMA pantalla.** Esta pestaña es **transversal y NO contiene solicitudes**:
   «piezas» es el término que ya usan M1 y el inventario, y **cubre raw, sellado y gradeadas**, mientras que
   «cartas» dejaría fuera al sellado. Clave: `admin.m5.tabs.rechazadas` ⇒ **`admin.m5.tabs.piezas_rechazadas`**.
 
-**(d) Lo que NO se toca, y por qué se dice** (misma disciplina que §23.14.5: un barrido que cambia de más
+**(d) Lo que NO se toca, y por qué se dice** (misma disciplina que §25.14.5: un barrido que cambia de más
 hace daño nuevo):
 
 | Pestaña | Veredicto |
 |---|---|
-| **«Verificando»** | **Se queda.** D16/D31/D33 no la tocaron y sigue siendo cierta: agrupa `recibida` + `verificacion`, o sea *«está en casa y hay que revisarlo»*. Es un gerundio entre rótulos «Por X», pero **describe bien el trabajo real** — y §23.6 ya usa «EN NUESTRAS MANOS» para ese mismo tramo |
+| **«Verificando»** | **Se queda.** D16/D31/D33 no la tocaron y sigue siendo cierta: agrupa `recibida` + `verificacion`, o sea *«está en casa y hay que revisarlo»*. Es un gerundio entre rótulos «Por X», pero **describe bien el trabajo real** — y §25.6 ya usa «EN NUESTRAS MANOS» para ese mismo tramo |
 | **«Por pagar»** | **Se queda.** Nombra la acción y el pendiente es nuestro: encaja en el eje sin cambiar una letra |
-| **«Cerradas»** | **Se queda.** Los cuatro terminales, y `expirada` entre ellos. **Ojo:** su contenido incluye solicitudes con badge `RECHAZADA`, `SIN ENVÍO` y `NO PROCEDIÓ` (§23.1d) — el **motivo** lo pinta la fila, no la pestaña |
+| **«Cerradas»** | **Se queda.** Los cuatro terminales, y `expirada` entre ellos. **Ojo:** su contenido incluye solicitudes con badge `RECHAZADA`, `SIN ENVÍO` y `NO PROCEDIÓ` (§25.1d) — el **motivo** lo pinta la fila, no la pestaña |
 
 **(e) Accesibilidad y forma (§6.6, sin novedades).** Las pestañas son `role="tablist"` con
 `aria-selected`; **el rótulo es el único portador del significado** (ningún color distingue una pestaña de
@@ -7421,8 +10248,8 @@ columna `Vendedor` con nombre + teléfono en mono seleccionable, **jamás en sup
 | Cola | Columnas clave | Tratamiento propio |
 |---|---|---|
 | **Ofertas por autorizar** | vendedor · preparó · **bruto** · tope · exceso · **`caducityAt`** | La columna **«Muere el»** con la fecha en mono; a ≤ 1 día hábil, en `--color-accent` con la versalita `CADUCA HOY/MAÑANA`. *Una cola cuyas filas se mueren sin avisar se trabaja a ciegas* |
-| **Por confirmar envío** | vendedor · «ya lo mandé» el · guía · días esperando · plazo | `alert: true` (> 5 días hábiles) ⇒ versalita `ALERTA` en accent. **No expira ni mueve nada** (§23.1e) |
-| **Guías por cancelar** | vendedor · paquetería · **número de guía** · abierta el · por qué se cerró (**estado + motivo**, §23.1d) | **No desaparece sola**: solo sale con «Guía cancelada». Copy del vacío: *«Ninguna guía pendiente de cancelar»* (positivo) |
+| **Por confirmar envío** | vendedor · «ya lo mandé» el · guía · días esperando · plazo | `alert: true` (> 5 días hábiles) ⇒ versalita `ALERTA` en accent. **No expira ni mueve nada** (§25.1e) |
+| **Guías por cancelar** | vendedor · paquetería · **número de guía** · abierta el · por qué se cerró (**estado + motivo**, §25.1d) | **No desaparece sola**: solo sale con «Guía cancelada». Copy del vacío: *«Ninguna guía pendiente de cancelar»* (positivo) |
 | **Vendedores con solicitudes vivas** | vendedor · **teléfono** · cuántas vivas · la más antigua · último estado | Es *«la lista de gente a la que le debemos una respuesta»*. El orden por defecto es **la más antigua primero** |
 
 **«Declinar ahora» (D39).** Vive en la ficha de la solicitud `cotizada`, como acción **`secondary`**
@@ -7439,32 +10266,32 @@ Motivo (interno, queda en bitácora) [                          ]
 ```
 
 - El **motivo es interno** y así se rotula: *«El vendedor no lo verá.»* El correo 4 tiene **prohibido** decir
-  por qué (§23.4.5).
+  por qué (§25.4.5).
 - **El desenlace es idéntico al del barrido** y el diseño no lo distingue en ninguna superficie de cliente:
   mismo estado, mismo motivo, mismo correo. La distinción (`declinedBy`) vive **solo** en la bitácora y en
   reportes.
 
 ---
 
-### 23.9 Estados de carga, vacío y error (obligatorios, §8.1)
+### 25.9 Estados de carga, vacío y error (obligatorios, §8.1)
 
 | Superficie | Loading | Vacío | Error |
 |---|---|---|---|
-| **Mesa de decisión** | skeleton **con la retícula final** (§18.6): identidad, dos montos y **la tira de cuatro**, para que no salte al llegar el dato | no aplica (una solicitud siempre tiene líneas) | `Banner danger` + Reintentar. **Si falla el conteo, NO es error de pantalla**: es §23.7 |
+| **Mesa de decisión** | skeleton **con la retícula final** (§18.6): identidad, dos montos y **la tira de cuatro**, para que no salte al llegar el dato | no aplica (una solicitud siempre tiene líneas) | `Banner danger` + Reintentar. **Si falla el conteo, NO es error de pantalla**: es §25.7 |
 | **Colas de M5** | filas skeleton | mensaje positivo («Nada pendiente aquí») | banner + reintentar |
 | **Portal, oferta** | skeleton del bloque de montos con **la altura final** | — | banner persistente con el estado real |
-| **Cotizador** | ya definido en §18.6. **La nota de servicio del envío (§23.3d) se pinta desde el primer render**: es copy estático, no espera a ningún dato y **no se esqueletiza** | «Tu cotización está vacía» — **con la nota igualmente visible**: el trato se explica antes de que haya carrito | inline. **Si falla `quote-policy`**: no se pinta el faltante, no se inventa mínimo, **la nota sigue ahí** y el CTA sigue vivo (la puerta es el `422` del servidor) |
+| **Cotizador** | ya definido en §18.6. **La nota de servicio del envío (§25.3d) se pinta desde el primer render**: es copy estático, no espera a ningún dato y **no se esqueletiza** | «Tu cotización está vacía» — **con la nota igualmente visible**: el trato se explica antes de que haya carrito | inline. **Si falla `quote-policy`**: no se pinta el faltante, no se inventa mínimo, **la nota sigue ahí** y el CTA sigue vivo (la puerta es el `422` del servidor) |
 
 **Regla money-safe del skeleton:** ningún skeleton reserva el hueco de una cifra que puede **no existir**
 (§22 R4 aplicada aquí): la tira de posición se esqueletiza porque **siempre** hay respuesta —número o
 `positionUnavailable`—, pero el bloque de montos del portal **no se esqueletiza si no hay oferta**.
-**⚠ Y el bloque de dinero del cotizador no reserva altura para ninguna línea de envío ni de neto** (v2.3.1,
+**⚠ Y el bloque de dinero del cotizador no reserva altura para ninguna línea de envío ni de neto** (v3.0.1,
 D43): esas líneas **no existen en ningún estado**, así que un skeleton que las dibuje estaría prometiendo
-una cifra que jamás va a llegar — la misma mentira que §23.7 prohíbe en la tira de posición.
+una cifra que jamás va a llegar — la misma mentira que §25.7 prohíbe en la tira de posición.
 
 ---
 
-### 23.10 Accesibilidad (además de §8.2)
+### 25.10 Accesibilidad (además de §8.2)
 
 - **La tira de posición es una tabla real.** `<th colspan="2" scope="colgroup">` para los dos grupos
   (`EN NUESTRAS MANOS` / `TODAVÍA NO`) y `<th scope="col">` para cada sumando. El lector de pantalla anuncia
@@ -7479,7 +10306,7 @@ una cifra que jamás va a llegar — la misma mentira que §23.7 prohíbe en la 
   emitir. La barra sticky va al final del DOM y no rompe el orden.
 - **`aria-live="polite"`** en: totales de la mesa, cruce del mínimo en el cotizador, resultado de aceptar o
   rechazar. **`assertive`** solo para errores de emisión y de aceptación (dinero).
-  **⚠ v2.3.1 (D43):** el anuncio del cruce del mínimo **ya no menciona envío ni neto** (*«Ya alcanzaste el
+  **⚠ v3.0.1 (D43):** el anuncio del cruce del mínimo **ya no menciona envío ni neto** (*«Ya alcanzaste el
   mínimo de MX$ 500.00»*), y **la nota de servicio del envío NO va dentro de una región live**: es texto
   permanente, y repetirlo en cada cambio del carrito lo volvería ruido para quien navega con lector de
   pantalla. Se lee **una vez, en su orden del DOM** —inmediatamente después del monto—, que es exactamente
@@ -7493,11 +10320,11 @@ una cifra que jamás va a llegar — la misma mentira que §23.7 prohíbe en la 
 
 ---
 
-### 23.11 Contraste (verificación) — **cero pares nuevos**
+### 25.11 Contraste (verificación) — **cero pares nuevos**
 
-Todo lo que §23 usa ya está verificado en §10 y §17.2:
+Todo lo que §25 usa ya está verificado en §10 y §17.2:
 
-| Uso en §23 | Par | Ratio | Cumple |
+| Uso en §25 | Par | Ratio | Cumple |
 |---|---|---|---|
 | Cifras de posición, montos, titulares | tinta `#1A1A18` / papel `#F4F1EA` | ~15.5:1 | AA/AAA |
 | Bloque de consecuencia del correo | tinta / pozo `#EFEBE2` | ~14.7:1 | AA/AAA |
@@ -7510,8 +10337,8 @@ Todo lo que §23 usa ya está verificado en §10 y §17.2:
 | Reglas del correo (aplanadas) | `#D1CFC8` y `#AEACA7` sobre papel | UI decorativa | ok — **es el mismo token sin canal alfa**, no un token nuevo |
 
 **Reglas derivadas de esta sección:**
-1. **El muted no porta ninguna cifra ni ningún estado de §23.** Las cuatro cifras de la posición, la frase de
-   `SIN CONTEO` y **la nota de servicio del envío del cotizador** (§23.3d, v2.3.1) van en **tinta**. El muted
+1. **El muted no porta ninguna cifra ni ningún estado de §25.** Las cuatro cifras de la posición, la frase de
+   `SIN CONTEO` y **la nota de servicio del envío del cotizador** (§25.3d, v3.0.1) van en **tinta**. El muted
    queda para etiquetas y notas. **Con D43 esta regla pesa más, no menos:** la nota es ahora **lo único** que
    el vendedor lee sobre el envío antes de la oferta — degradarla a muted la convertiría en la letra chica
    que §P.3 prohíbe, por la puerta del color.
@@ -7522,9 +10349,9 @@ Todo lo que §23 usa ya está verificado en §10 y §17.2:
 
 ---
 
-### 23.12 i18n — claves nuevas (propiedad de frontend) y paridad ES/EN
+### 25.12 i18n — claves nuevas (propiedad de frontend) y paridad ES/EN
 
-Convención §9.2. **Todo lo de §23 existe en los dos idiomas** (el proyecto tiene test de paridad); los
+Convención §9.2. **Todo lo de §25 existe en los dos idiomas** (el proyecto tiene test de paridad); los
 **correos** se eligen por `User.locale`.
 
 **Estados y stepper**
@@ -7532,10 +10359,10 @@ Convención §9.2. **Todo lo de §23 existe en los dos idiomas** (el proyecto ti
   — **DIEZ claves para ONCE estados, y no es un olvido.**
 - `status.sellRequestExpiry.{not_shipped,no_offer,unknown}` — **tres**, incluido el fallback neutro.
 
-> **⚠ RÓTULOS DE ESTADO ≠ ESTADOS (v2.3.6). Nombrada aquí porque este es el sitio donde nace el desfase.**
+> **⚠ RÓTULOS DE ESTADO ≠ ESTADOS (v3.0.6). Nombrada aquí porque este es el sitio donde nace el desfase.**
 > `SellRequestStatus` tiene **ONCE** valores, pero `status.sellRequest.*` tiene **DIEZ** claves: **`expirada`
 > no tiene rótulo propio en ese espacio** porque **se pinta por su MOTIVO** —`status.sellRequestExpiry.*`,
-> la única excepción del sistema y obligatoria (§23.1d)—. Sumando los dos espacios hay **13 rótulos** para
+> la única excepción del sistema y obligatoria (§25.1d)—. Sumando los dos espacios hay **13 rótulos** para
 > **11 estados**, porque `expirada` aporta **tres**.
 >
 > | Se cuenta… | Cuántos | Dónde vale |
@@ -7547,19 +10374,19 @@ Convención §9.2. **Todo lo de §23 existe en los dos idiomas** (el proyecto ti
 >
 > **La regla:** *cuando cuentes, di **qué** estás contando.* Un «diez» a secas es ambiguo entre dos
 > magnitudes distintas de esta misma feature, y **ya viajó una vez** — de aquí, donde era cierto, a
-> §23.14.6-3bis, donde dejaba **un estado sin verificar**. **Ninguna afirmación de cobertura (particiones,
+> §25.14.6-3bis, donde dejaba **un estado sin verificar**. **Ninguna afirmación de cobertura (particiones,
 > mapas totales, reglas de QA) se escribe contra el conteo de CLAVES**: se escribe contra el **enum del
 > contrato**, que es la fuente. Si el número y la enumeración discrepan, **manda la enumeración** — es lo
-> que pasó aquí: la tabla de §23.8a estaba bien y el dígito estaba mal.
+> que pasó aquí: la tabla de §25.8a estaba bien y el dígito estaba mal.
   ES `SIN ENVÍO` / `NO PROCEDIÓ` / `EXPIRADA`; EN `NOT SHIPPED` / `NOT PURSUED` / `EXPIRED`.
 - `status.offerState.pending_authorization` — `POR AUTORIZAR` / `NEEDS APPROVAL` (**admin-only**).
 - `buylist.stepper.{1..8}.label` + `buylist.stepper.closed.{rechazada,not_shipped,no_offer,abandonada}`.
 - `buylist.shipDeclared.{label,at}` — `PAQUETE REPORTADO`.
 
-**Cotizador (§23.3)** — **⚠ reescrito en v2.3.1 (D43)**
+**Cotizador (§25.3)** — **⚠ reescrito en v3.0.1 (D43)**
 - `buylist.quote.money.cardsValue` — el **único** rótulo de monto del bloque («Valor de tus cartas» /
-  "Value of your cards"). **Prohibido** cambiarlo por uno que prometa pago (§23.3c).
-- **`buylist.quote.shippingNote`** — **la frase completa de §23.3d, UNA sola clave** (es **un párrafo**; el
+  "Value of your cards"). **Prohibido** cambiarlo por uno que prometa pago (§25.3c).
+- **`buylist.quote.shippingNote`** — **la frase completa de §25.3d, UNA sola clave** (es **un párrafo**; el
   patrón «una clave por párrafo» de §22.11 se cumple, no se trocea en cuatro para «armarla»: trocearla
   invitaría a que alguien pinte solo el movimiento 1 y se pierda la resta).
   **ES:** «Nosotros ponemos la guía de envío y su costo se descuenta siempre de lo que te pagamos: tú no
@@ -7568,21 +10395,21 @@ Convención §9.2. **Todo lo de §23 existe en los dos idiomas** (el proyecto ti
   nothing out of pocket. The exact amount is in the offer, before you accept."
   **Sin placeholders**: esta clave **no admite `{amount}`** — si alguien le añade uno, es el bug de D43.
 - `buylist.quote.minimum.{shortfall,minimumIs,addAnother,reachedAnnounce}` — con `{amount}` interpolado,
-  nunca concatenado. `reachedAnnounce` es el `aria-live` del cruce (§23.10) y **no nombra envío ni neto**.
-  - **⚠ v2.3.8 — clave NUEVA: `buylist.quote.minimum.addPricedCard`** («Agrega una carta que ya tenga
+  nunca concatenado. `reachedAnnounce` es el `aria-live` del cruce (§25.10) y **no nombra envío ni neto**.
+  - **⚠ v3.0.8 — clave NUEVA: `buylist.quote.minimum.addPricedCard`** («Agrega una carta que ya tenga
     precio.» / "Add a card that already has a price."). **Sustituye a `addAnother` cuando hay líneas sin
-    precio** (§23.3f-bis). `addAnother` **se queda** para el caso normal: son **dos consejos, no dos
+    precio** (§25.3f-bis). `addAnother` **se queda** para el caso normal: son **dos consejos, no dos
     redacciones del mismo** — con carrito lleno de pendientes, «agrega otra carta» es una **cinta de
     correr**.
-- `buylist.quote.pendingLine.{label,note}` — **⚠ v2.3.8: `note` CAMBIA de contenido y de sitio.** `label`
-  sigue siendo la versalita por línea: **`Sin precio` / `No price yet`** *(⚠ v2.3.9 — el EN se fija por fin;
-  §23 lo había dejado sin par, a diferencia de `SIN ENVÍO`/`NOT SHIPPED`. **EN es 2 caracteres más largo
-  que ES ⇒ la celda se dimensiona por EN**, §9.4; el porqué del «yet», en §23.3h)*. `note` **deja de pintarse por ítem** (con 999
+- `buylist.quote.pendingLine.{label,note}` — **⚠ v3.0.8: `note` CAMBIA de contenido y de sitio.** `label`
+  sigue siendo la versalita por línea: **`Sin precio` / `No price yet`** *(⚠ v3.0.9 — el EN se fija por fin;
+  §25 lo había dejado sin par, a diferencia de `SIN ENVÍO`/`NOT SHIPPED`. **EN es 2 caracteres más largo
+  que ES ⇒ la celda se dimensiona por EN**, §9.4; el porqué del «yet», en §25.3h)*. `note` **deja de pintarse por ítem** (con 999
   líneas era ruido) y pasa a pintarse **UNA vez en el bloque de dinero**, con **`{count}` interpolado** y
   la frase que dice **qué pasa con esas cartas** («las cotizamos a mano y te las incluimos en la oferta») —
   sin ella, «no suman» se lee como «no las queremos» y el vendedor **las borra**. Texto normativo ES/EN en
-  §23.3h.
-  **Sigue SIN IMPLEMENTARSE desde v2.3** *(alcance confirmado a frontend: `label` + `note` + `addPricedCard`)*.
+  §25.3h.
+  **Sigue SIN IMPLEMENTARSE desde v3.0** *(alcance confirmado a frontend: `label` + `note` + `addPricedCard`)*.
 - `buylist.request.address.{label,why,change,printed,missing}`.
 - **⚠ CLAVES RETIRADAS (no se implementan; si ya existen, se borran):**
   ~~`buylist.quote.money.shippingOnUs`~~ (el rótulo de la línea de envío), ~~`buylist.quote.money.youWouldGet`~~
@@ -7590,25 +10417,25 @@ Convención §9.2. **Todo lo de §23 existe en los dos idiomas** (el proyecto ti
   frase**: la nueva incorpora la cita con el número). **El test de paridad ES/EN debe quedar en verde con
   las tres ausentes en los dos idiomas** — una clave viva en un solo idioma es el modo típico en que una
   cifra retirada reaparece en producción.
-- **⚠ v2.3.2 — dos claves MÁS se retiran y dos se REUSAN fuera de su namespace (§23.14):**
+- **⚠ v3.0.2 — dos claves MÁS se retiran y dos se REUSAN fuera de su namespace (§25.14):**
   - ~~`home.quoter.wePay`~~ («Te pagamos» / "We pay you") — **retirada de los dos catálogos**. El total del
     teaser del home se rotula con **`buylist.quote.money.cardsValue`**, la misma clave del carrito. **No se
-    crea un duplicado en `home.*`** (§23.3c-bis).
+    crea un duplicado en `home.*`** (§25.3c-bis).
   - ~~`buylist.trustShipping`~~ — **retirada de los dos catálogos**. Su mitad falsa ya la había borrado
     frontend; la que quedaba **duplicaba `buylist.nmOnlyBody`** y su hueco **no podía llenarse ahí** (bloque
-    `muted`, prohibido por §23.3c). Ver §23.14.2b.
+    `muted`, prohibido por §25.3c). Ver §25.14.2b.
   - **`buylist.quote.shippingNote` se reusa en dos superficies nuevas** —el teaser del home y la cabecera de
     `/buylist`— **sin cambiar una letra** y **sin clave nueva**. Es el mismo párrafo, sin placeholders.
   - **Cambian de contenido, no de nombre:** `safeShipping.{title,intro,step3Body,step4Title,step4Body}`,
     `buylist.shippingGuideLink`, `buylist.estimateNote`, `buylist.trustValidity`, `buylist.created`; y
-    **opcionales** (PO decide): `buylist.subtitle`, `home.sellBody`. **Textos normativos en §23.14.1 y
-    §23.14.4.**
+    **opcionales** (PO decide): `buylist.subtitle`, `home.sellBody`. **Textos normativos en §25.14.1 y
+    §25.14.4.**
   - **Longitud (§9.4):** en `safeShipping.step4Body` **EN es más largo que ES** (≈155 vs ≈146) y es **el
     cuerpo más largo de la retícula 01–04**: la fila **no lleva alto fijo, ni `line-clamp`, ni «ver más»**.
 
 **Correos (`buylist.mail.*`)** — una clave **por párrafo** (nunca un solo string; §22.11 sentó el patrón):
 - `offer.{subject,preheader,eyebrow,headline,conditionIntro,buyGroup,skipGroup,skipLabel,consequenceTitle,consequenceBody,grossLabel,shippingLabel,netLabel,ruleParagraph,deadlineParagraph,cta,ctaNote,guideParagraph,addressParagraph,closingParagraph}`
-- **⚠ v2.3.1 (D43) — DOS claves del correo 1 cambian de CONTENIDO, ninguna de nombre:**
+- **⚠ v3.0.1 (D43) — DOS claves del correo 1 cambian de CONTENIDO, ninguna de nombre:**
   - `offer.ruleParagraph` gana **dos interpolaciones**: `{shippingAmount}` **y** `{netAmount}` (antes solo
     el neto). ES: *«Nosotros ponemos la guía de envío. Su costo, {shippingAmount}, es una tarifa fija y
     siempre se descuenta de lo que te pagamos: tú no pagas nada de tu bolsillo. La cifra que se te deposita
@@ -7616,7 +10443,7 @@ Convención §9.2. **Todo lo de §23 existe en los dos idiomas** (el proyecto ti
     is always deducted from what we pay you: you pay nothing out of pocket. The amount deposited to you is
     {netAmount}."* **Los dos montos llegan resueltos del servidor** (R4) y son los **congelados** de la
     oferta, no los diales de hoy.
-  - `offer.preheader` incorpora la resta (§23.4.7). **Regla de sistema, con el alcance que le da §23.4.7:**
+  - `offer.preheader` incorpora la resta (§25.4.7). **Regla de sistema, con el alcance que le da §25.4.7:**
     ninguna cadena **que viaje sola** —preheader, asunto, notificación, la nota del cotizador— puede decir
     «ponemos la guía» / "we provide the label" **sin** su «y se descuenta» / "and deduct it", **en ninguno de
     los dos idiomas**. Dentro del correo o del portal, donde la tabla de los tres montos está a la vista, un
@@ -7627,9 +10454,9 @@ Convención §9.2. **Todo lo de §23 existe en los dos idiomas** (el proyecto ti
 - `reminder.accept.{subject,headline,body,cta}` · `reminder.ship.{subject,headline,body,guideLabel,alreadyShipped,cta}`
   · `reminder.frozen.{cards,net,deadline}` (el bloque congelado, compartido).
 - `expiry.noResponse.{subject,headline,p1,p2,cta}` · `expiry.notShipped.{subject,headline,p1,p2,cta}` —
-  **DOS variantes del correo 3**, no tres (§23.4.4).
+  **DOS variantes del correo 3**, no tres (§25.4.4).
 - `notPursued.{subject,headline,p1,p2,p3,cta}` — el correo 4. **Sin ninguna clave de plazo, monto ni motivo.**
-- **⚠ v2.3.3 — `offerCancelled.{subject,headline,p1,p2,cta}` — el correo 5. CAMBIA DE PREFIJO, no de texto.**
+- **⚠ v3.0.3 — `offerCancelled.{subject,headline,p1,p2,cta}` — el correo 5. CAMBIA DE PREFIJO, no de texto.**
   ~~`expiry.cancelledByUs.*`~~ **se retira de los dos catálogos**; el contenido se mueve **carácter por
   carácter** a `offerCancelled.*`. **Este renombre es el punto importante del pase, más que el número.**
 
@@ -7637,7 +10464,7 @@ Convención §9.2. **Todo lo de §23 existe en los dos idiomas** (el proyecto ti
   > tabla y lo corrige. **Un prefijo que miente se propaga**, porque no se lee — se autocompleta. Quien
   > abra `expiry.cancelledByUs` dentro de seis meses leerá **«expiración»** antes de leer el texto, y la
   > deriva natural de ese texto es hacia «se te venció», que es **exactamente la frase prohibida** en este
-  > correo (§23.4.4-bis): la que **culpa al vendedor de un acto nuestro**. El árbol de claves es
+  > correo (§25.4.4-bis): la que **culpa al vendedor de un acto nuestro**. El árbol de claves es
   > documentación que el editor lee **primero y sin querer**; si el nodo padre afirma un hecho falso, cada
   > edición futura empuja el texto hacia la mentira. **El nombre viejo deja de existir: cero coexistencia.**
 
@@ -7651,8 +10478,8 @@ Convención §9.2. **Todo lo de §23 existe en los dos idiomas** (el proyecto ti
   > `POST …/offer/cancel`, `offerCancelReason`—. Una clave de correo que nombra **el mismo evento que el
   > schema** no se puede desincronizar por descuido, que es justo lo que le pasó a la anterior.
 
-**Portal del vendedor (`buylist.offer.*`) — ⚠ NUEVAS en el documento (v2.3.7, §23.5g).**
-Existían en el catálogo desde el pase del portal pero **§23.12 no las inventariaba**; se ratifican aquí.
+**Portal del vendedor (`buylist.offer.*`) — ⚠ NUEVAS en el documento (v3.0.7, §25.5g).**
+Existían en el catálogo desde el pase del portal pero **§25.12 no las inventariaba**; se ratifican aquí.
 **El espacio de claves y el EN quedan aprobados**, con **tres correcciones** y **un ajuste menor**:
 
 - **Oferta viva:** `offer.{eyebrow,headline,conditionIntro,buyGroup,skipGroup,skipLabel,consequenceTitle,grossLabel,shippingLabel,netLabel,ruleParagraph,deadline,cardsTitle}`
@@ -7664,29 +10491,30 @@ Existían en el catálogo desde el pase del portal pero **§23.12 no las inventa
 
 | ⚠ | Clave | Qué cambia |
 |---|---|---|
-| **C1** | `offer.deadline` | ~~«la oferta **se cancela** sola»~~ ⇒ **«la oferta vence»**. Tras v2.3.3 «cancelar» es **el verbo del correo 5** (lo que hacemos nosotros); una oferta que muere por silencio **vence** (§23.5g-b) |
-| **C2** | `offer.confirmRejectBody` | Gana **`{netAmount}`, `{count}` y `{condition}`**. R2 no admite excepción: si el diálogo nombra el neto, la condición va con él — y el neto **tiene que estar** (§23.5g-c) |
-| **C3** | `offer.confirmAcceptBody` | Se **reenmarca** para poder **citar** el singular del servidor: *«…por {netAmount}. La condición es la misma para cada carta: {condition}.»* (§23.5c) |
-| **m** | `offer.preOfferBody` | Deja de repetir el título: **cuerpo = «Te escribimos con nuestra oferta.»** (§23.5g-g) |
+| **C1** | `offer.deadline` | ~~«la oferta **se cancela** sola»~~ ⇒ **«la oferta vence»**. Tras v3.0.3 «cancelar» es **el verbo del correo 5** (lo que hacemos nosotros); una oferta que muere por silencio **vence** (§25.5g-b) |
+| **C2** | `offer.confirmRejectBody` | Gana **`{netAmount}`, `{count}` y `{condition}`**. R2 no admite excepción: si el diálogo nombra el neto, la condición va con él — y el neto **tiene que estar** (§25.5g-c) |
+
+| **C3** | `offer.confirmAcceptBody` | Se **reenmarca** para poder **citar** el singular del servidor: *«…por {netAmount}. La condición es la misma para cada carta: {condition}.»* (§25.5c) |
+| **m** | `offer.preOfferBody` | Deja de repetir el título: **cuerpo = «Te escribimos con nuestra oferta.»** (§25.5g-g) |
 
 > **⚠ `offer.ruleParagraph` es una COPIA DECLARADA de `buylist.mail.offer.ruleParagraph`, no una clave
 > nueva.** Mismo texto, mismos dos placeholders, en ES y EN. **La plantilla del correo es la fuente; el
 > i18n es el espejo**, y cuando el servidor mande la prosa **esta clave se borra, no se deja de reserva**.
-> Decisión completa, con sus tres condiciones y el motivo por el que **no es bloqueante**, en **§23.5h**.
+> Decisión completa, con sus tres condiciones y el motivo por el que **no es bloqueante**, en **§25.5h**.
 
-**Mesa de decisión — ⚠ el namespace correcto es `admin.m5.desk.*` (v2.3.10).**
+**Mesa de decisión — ⚠ el namespace correcto es `admin.m5.desk.*` (v3.0.10).**
 
-> **Manda el catálogo, no este documento.** §23.12 escribió `admin.buylist.desk.*`, pero **M5 vive en
+> **Manda el catálogo, no este documento.** §25.12 escribió `admin.buylist.desk.*`, pero **M5 vive en
 > `admin.m5.*`** y todo el admin está indexado por módulo (`admin.m1.*`, `admin.m2.*`, `admin.m8.*`…).
 > Mi ruta habría creado **el único namespace de admin que no sigue la convención**, a cambio de nada.
 > **No se renombra: se corrige el documento.**
-> **La regla que se deja escrita:** *§23.12 especifica **qué claves deben existir y qué dicen**, no dónde
+> **La regla que se deja escrita:** *§25.12 especifica **qué claves deben existir y qué dicen**, no dónde
 > vive el árbol del catálogo — ese archivo es de frontend. Cuando una ruta inventada aquí choca con una
 > convención ya establecida allí, **gana la convención**.* Es lo mismo que con `M5OpTab`: yo normo el
 > significado, el implementador norma su estructura.
 
-**Mesa de decisión (`admin.m5.desk.*`) — copy RATIFICADO con UNA corrección (v2.3.10).**
-§23.6 daba anatomía, versalitas y cuatro frases de ejemplo, **no las ~64 cadenas**, así que las redactó el
+**Mesa de decisión (`admin.m5.desk.*`) — copy RATIFICADO con UNA corrección (v3.0.10).**
+§25.6 daba anatomía, versalitas y cuatro frases de ejemplo, **no las ~64 cadenas**, así que las redactó el
 implementador. Revisadas contra R1–R7 y D6: **pasan**, con un fallo.
 
 | ⚠ | Clave | Qué pasa |
@@ -7702,7 +10530,7 @@ implementador. Revisadas contra R1–R7 y D6: **pasan**, con un fallo.
    **que el plazo se congela al emitir**, no cuántos días son. **Si (1) no está disponible hoy, se toma
    (2); no se deja el número a mano.**
 
-**Ratificado sin cambios todo lo demás**, incluidas las claves que el implementador **añadió** y que §23.12
+**Ratificado sin cambios todo lo demás**, incluidas las claves que el implementador **añadió** y que §25.12
 no preveía —y que hacían falta—: `suggestion.{reasonCapOk,reasonBountyOk}` (la sugerencia de **comprar**
 también necesita su porqué, criterio 144), `noPriceReason.{no_market,premium_at_floor,identity_drift}`,
 `totals.{previewNote,noLines}`, `override.{derived,noDerived}` y `desk.{sent,pendingAuthorization,readOnly}`.
@@ -7716,8 +10544,8 @@ Tres aciertos que merecen nombrarse:
 - **`confirm.body`** nombra **bruto, envío y neto juntos** ⇒ **R1 intacta** también en el admin.
 - **`desk.noPrice` = «Sin precio» / "No price"** *(sin «yet»)* **se queda así**: es **superficie de admin**,
   el mismo registro que `admin.*.colPending`, y **`noPriceReason.*` explica la causa al lado**. El «yet» de
-  §23.3h es para **el vendedor**, donde «no price» puede leerse como «no vale nada». **Un `grep` que
-  unifique las dos está mal calibrado** (§23.14.5).
+  §25.3h es para **el vendedor**, donde «no price» puede leerse como «no vale nada». **Un `grep` que
+  unifique las dos está mal calibrado** (§25.14.5).
 - `position.{title,ofTotal,groupInHouse,groupNotYet,stock,verifying,inTransit,committed,rule.bounty,rule.cap,aria}`
 - `position.unavailable.{tag,text,noSuggestion,banner,retry}` — `SIN CONTEO`.
 - `suggestion.{buy,doNotBuy,none,reasonCap,reasonBounty,legacyBountyNote}`
@@ -7726,18 +10554,18 @@ Tres aciertos que merecen nombrarse:
 - `pickupAddressMissing.{text,remedy}` · `decline.{action,title,body,reasonLabel,reasonHint,confirm}`
 - `queues.{pendingAuth,pendingShipment,pendingGuide,liveSellers}.*` + `queues.diesOn`, `queues.alert`.
 
-**Pestañas de etapa de M5 (`admin.m5.tabs.*`) — ⚠ NUEVAS en el documento (v2.3.5, §23.8a).**
-Existían en el catálogo pero **§23 nunca las especificó**; se normalizan aquí. **Dos cambian de rótulo Y de
+**Pestañas de etapa de M5 (`admin.m5.tabs.*`) — ⚠ NUEVAS en el documento (v3.0.5, §25.8a).**
+Existían en el catálogo pero **§25 nunca las especificó**; se normalizan aquí. **Dos cambian de rótulo Y de
 clave; tres no se tocan.**
 
 | Clave | Antes | Ahora | Nota |
 |---|---|---|---|
-| ~~`por_recibir`~~ ⇒ **`por_ofertar`** | «Por recibir» / "To receive" | **«Por ofertar» / "To offer"** | El rótulo describía lo que `cotizada` **ya no significa** (§23.1a). **Se renombra la clave**, no solo el texto |
-| ~~`ciclo`~~ ⇒ **`con_vendedor`** | «Ciclo de oferta» / "Offer cycle" | **«Con el vendedor» / "With the seller"** | Rótulo puesto por frontend ante el hueco de §23.8. **La estructura se ratifica**; cambia el nombre |
+| ~~`por_recibir`~~ ⇒ **`por_ofertar`** | «Por recibir» / "To receive" | **«Por ofertar» / "To offer"** | El rótulo describía lo que `cotizada` **ya no significa** (§25.1a). **Se renombra la clave**, no solo el texto |
+| ~~`ciclo`~~ ⇒ **`con_vendedor`** | «Ciclo de oferta» / "Offer cycle" | **«Con el vendedor» / "With the seller"** | Rótulo puesto por frontend ante el hueco de §25.8. **La estructura se ratifica**; cambia el nombre |
 | `verificando` | «Verificando» / "Verifying" | **sin cambio** | — |
 | `por_pagar` | «Por pagar» / "To pay" | **sin cambio** | — |
 | `cerradas` | «Cerradas» / "Closed" | **sin cambio** | — |
-| ~~`rechazadas`~~ ⇒ **`piezas_rechazadas`** | «Rechazadas» / "Rejected" | **«Piezas rechazadas» / "Rejected items"** | Colisionaba con el **estado** `rechazada` de solicitud, que vive en «Cerradas» (§23.8ac) |
+| ~~`rechazadas`~~ ⇒ **`piezas_rechazadas`** | «Rechazadas» / "Rejected" | **«Piezas rechazadas» / "Rejected items"** | Colisionaba con el **estado** `rechazada` de solicitud, que vive en «Cerradas» (§25.8ac) |
 
 - **Las dos claves viejas se retiran de los dos catálogos** (paridad estricta: `por_recibir`, `ciclo` y
   `rechazadas` **no existen en ES ni en EN**). Misma doctrina que `offerCancelled.*`: **cero coexistencia**.
@@ -7747,28 +10575,28 @@ clave; tres no se tocan.**
 **Notas de longitud (§9.4)**
 - `EN NUESTRAS MANOS` (17) vs `IN OUR HANDS` (12) y `COMPROMETIDO` (12) vs `COMMITTED` (9): **ES es el más
   largo en toda la tira** ⇒ los tracks de la retícula se dimensionan por ES y **no** se re-miden por idioma,
-  para que la alineación de columnas de §23.6c sea la misma en los dos.
+  para que la alineación de columnas de §25.6c sea la misma en los dos.
 - `SE TE DEPOSITAN` (15) vs `DEPOSITED TO YOU` (16): **aquí EN es más largo**. La celda de la etiqueta del
   neto se dimensiona por el **máximo de ambos**.
 - Las versalitas de estado **envuelven a dos líneas antes que truncarse** en columnas estrechas.
 - **Prohibido concatenar** para armar montos o plazos: interpolación con `{amount}` / `{date}`.
-- **`buylist.quote.shippingNote` (v2.3.1):** ~163 caracteres en ES y ~155 en EN ⇒ **4 líneas** en el drawer
+- **`buylist.quote.shippingNote` (v3.0.1):** ~163 caracteres en ES y ~155 en EN ⇒ **4 líneas** en el drawer
   de 400px y **3–4** en el paso de crear. El bloque de dinero **no lleva alto fijo** y la nota **no se
   trunca, no lleva `line-clamp`, no lleva «ver más»**: es corta a propósito **para caber entera**. Si en
   algún ancho no cupiera, se corrige el contenedor, **nunca el texto**.
 
 ---
 
-### 23.13 Notas a otros roles (solicitudes derivadas del diseño)
+### 25.13 Notas a otros roles (solicitudes derivadas del diseño)
 
 1. **✅ CERRADA — «el cotizador es PÚBLICO y necesita dos números de M10».** *(Se conserva el texto original
    abajo, tachado, porque el modo en que se cerró importa.)* **Se resolvió al revés de como este documento
    lo planteó: el humano quitó el requisito (D43) en vez de construir la superficie.** El cotizador **ya no
-   muestra ninguna cifra de envío** (§23.3 reescrita). El diagnóstico era correcto —hardcodear estaba
+   muestra ninguna cifra de envío** (§25.3 reescrita). El diagnóstico era correcto —hardcodear estaba
    prohibido— pero **la conclusión de que había que exponer la tarifa era mía, no de `PROJECT.md`**: D31
    pedía *decir la regla con todas sus letras*, no *hacer la resta*. **Sin deuda pendiente por este punto.**
    > ~~**⚠ Arquitecto — el cotizador es PÚBLICO y necesita dos números que hoy solo viven en M10 (la más
-   > importante).** §23.3 exige mostrar **la tarifa de envío** y **el mínimo de compra** *antes* de crear la
+   > importante).** §25.3 exige mostrar **la tarifa de envío** y **el mínimo de compra** *antes* de crear la
    > solicitud… **Petición:** que la respuesta del quote (o del batch) eche los dos montos, o que exista un
    > endpoint público de configuración del buylist.~~
    **1-bis. ⚠ Arquitecto — consecuencia directa: `shippingFeeCents` se quedó sin consumidor público.**
@@ -7781,16 +10609,16 @@ clave; tres no se tocan.**
    navegador, D43 deja de depender de la disciplina del frontend y pasa a ser imposible de violar por
    accidente.** Un dial publicado y sin uso es una cifra esperando a que alguien la pinte. **Decisión del
    arquitecto; no bloquea nada** (el frontend simplemente no lo lee).
-2. **✅ CERRADA (v2.3.3) — «el correo 3 tiene TRES productores y uno de ellos NO es terminal».**
+2. **✅ CERRADA (v3.0.3) — «el correo 3 tiene TRES productores y uno de ellos NO es terminal».**
    **El arquitecto resolvió el fondo, no la forma: la cancelación es un CORREO PROPIO, el 5**
-   (`ARCHITECTURE §4.39(n)`, v1.51.4), con **un solo productor**. §23 se alinea en v2.3.3: ~~3c~~ deja de
-   existir, el texto **no cambia una letra** y nace **§23.4.4-bis**. **La petición original —«confirmar que
+   (`ARCHITECTURE §4.39(n)`, v1.51.4), con **un solo productor**. §25 se alinea en v3.0.3: ~~3c~~ deja de
+   existir, el texto **no cambia una letra** y nace **§25.4.4-bis**. **La petición original —«confirmar que
    la plantilla se selecciona por productor»— queda sin objeto**: si cada hecho tiene su plantilla, no hay
    nada que discriminar en tiempo de render.
    **⚠ Y la parte que sí quedó como trabajo mío, porque era el riesgo real:** la clave se llamaba
    `expiry.cancelledByUs.*`. **El número mal puesto se nota; el prefijo que miente se propaga** — quien lo
    edite dentro de seis meses leerá «expiración» antes que el texto, y la deriva natural es hacia «se te
-   venció», la frase **prohibida** en este correo. Pasa a **`offerCancelled.*`** (§23.12), que es el
+   venció», la frase **prohibida** en este correo. Pasa a **`offerCancelled.*`** (§25.12), que es el
    vocabulario del propio contrato. **Lección de proceso, y me toca a mí:** agrupé dos hechos opuestos
    **porque compartían `status`** — exactamente lo que **R3** prohíbe, aplicado al revés de como lo escribí.
    > ~~**Petición:** confirmar que la plantilla del correo 3 se selecciona por **productor**, o formalizar
@@ -7803,23 +10631,23 @@ clave; tres no se tocan.**
    revisando tu solicitud otra vez»*. **No** se pide el monto de la oferta cancelada — eso sí conviene que
    desaparezca.
 4. **Arquitecto — corregir la dirección después de la guía no tiene remedio self-service.** `PATCH
-   …/pickup-address` exige `guideSentAt IS NULL`. §23.5e pinta *«Ya imprimimos la guía con esta
+   …/pickup-address` exige `guideSentAt IS NULL`. §25.5e pinta *«Ya imprimimos la guía con esta
    dirección»* **sin botón**, que es honesto pero deja al vendedor sin salida en la app. Si se quiere una,
    sería un canal de contacto (no una edición). **No bloquea el diseño**; se registra.
-9. **⚠ Arquitecto — TRES peticiones del portal (v2.3.7), y la segunda puede cobrarle un plazo al vendedor.**
+9. **⚠ Arquitecto — TRES peticiones del portal (v3.0.7), y la segunda puede cobrarle un plazo al vendedor.**
    **(a) Que el servidor mande la prosa del descuento.** Hoy `offer.ruleParagraph` **solo existe en la
-   plantilla del correo**, y §23.5b **obliga** al portal a mostrarla (bajo D43 es el único sitio donde la
+   plantilla del correo**, y §25.5b **obliga** al portal a mostrarla (bajo D43 es el único sitio donde la
    resta se puede releer). El frontend tuvo que **duplicarla** en i18n. **Permitido como puente** con tres
-   condiciones (§23.5h), pero **la solución correcta es que viaje resuelta en el DTO**, como ya viajan la
+   condiciones (§25.5h), pero **la solución correcta es que viaje resuelta en el DTO**, como ya viajan la
    condición y la consecuencia — que el portal **sí** pinta verbatim. Con eso, la copia **se borra**.
    **(b) ⚠ Un discriminador para `rechazada`.** El DTO no dice si cerró **el vendedor** (pulsó rechazar) o
    **el barrido** (silencio). Son **hechos distintos** —exactamente la distinción que obligó a separar el
-   correo 5 del 3— y sin el dato la pantalla **solo puede decir una frase neutra** (§23.5g-e). No es un
+   correo 5 del 3— y sin el dato la pantalla **solo puede decir una frase neutra** (§25.5g-e). No es un
    fallo del frontend: es **información que no llega**. Con un `closedBy` (o equivalente), cada causa
    recupera su frase y **dejamos de decirle «venció» a quien decidió**.
    **(c) ⚠ La oferta INCOMPLETA puede quemarle el plazo al vendedor — y esto sí es de dinero.** Si la
    oferta llega sin términos o con líneas sin decisión, el portal **se niega a pintarla** y el vendedor
-   **no puede aceptar** (§23.5g-d, R2 hasta el final). **Pero el reloj de aceptación sigue corriendo.**
+   **no puede aceptar** (§25.5g-d, R2 hasta el final). **Pero el reloj de aceptación sigue corriendo.**
    Resultado posible: la oferta **vence por un fallo NUESTRO de proyección**, y al vendedor le llega el
    correo 3a diciéndole que **no respondió**. Es literalmente lo que §P.13 prohíbe —*un plazo del vendedor
    solo puede vencer por algo que dependa del vendedor*— y es la misma injusticia que motivó D38.
@@ -7835,11 +10663,11 @@ clave; tres no se tocan.**
 6. **PO — ratificar textos.** `offer.perLineCondition`, el bloque `consequence`, los **dos** titulares del
    correo 3, el del **correo 5** y los tres párrafos del correo 4. Son el **documento vinculante** del
    ciclo; ux-ui propone la redacción, PO (y quien haga la revisión legal de los términos) la ratifica.
-   *(v2.3.3: el titular del correo 5 **ya estaba ratificado como «3c»** — cambió de número y de clave, no de
+   *(v3.0.3: el titular del correo 5 **ya estaba ratificado como «3c»** — cambió de número y de clave, no de
    texto. **No hay que volver a ratificarlo**; se lista para que el inventario cuadre.)*
-   **⚠ Se añaden tres textos de v2.3.1 (D43), y los tres son sensibles:** **(a)**
+   **⚠ Se añaden tres textos de v3.0.1 (D43), y los tres son sensibles:** **(a)**
    `buylist.quote.shippingNote` en ES y EN —**la única cosa que el vendedor lee sobre el envío antes de
-   comprometer sus cartas**, §23.3d—; **(b)** el `offer.ruleParagraph` ampliado, en particular la
+   comprometer sus cartas**, §25.3d—; **(b)** el `offer.ruleParagraph` ampliado, en particular la
    afirmación **«es una tarifa fija»** (sale de `PROJECT.md` §P/D31 — *«una tarifa fija de MX$180»*— y
    **conviene que PO confirme que se puede afirmar así frente al cliente**); **(c)** el preheader corregido
    del correo 1.
@@ -7851,29 +10679,30 @@ clave; tres no se tocan.**
    próximo que lea D31 y el criterio 132 va a reconstruir la resta del carrito **creyendo que corrige un
    olvido**. *(Recordatorio de la regla de conflicto: manda `PROJECT.md`; este documento se alinea, no al
    revés.)*
-   **(b) Medir lo que D43 traslada al correo** — es la mitigación que propuse en §23.3l, y es de producto:
+   **(b) Medir lo que D43 traslada al correo** — es la mitigación que propuse en §25.3l, y es de producto:
    **tasa de rechazo y de silencio por tamaño de oferta**, mirando en especial las ofertas cerca del mínimo,
    donde la tarifa fija pesa **~36%**. Si esas ofertas se caen sistemáticamente **después** del correo, el
-   problema **no es la divulgación** (enseñar en el cotizador un neto optimista sería peor, §23.3a.2): es
+   problema **no es la divulgación** (enseñar en el cotizador un neto optimista sería peor, §25.3a.2): es
    **la proporción**, y se corrige **con el dial del mínimo de compra**, que ya existe en M10. Es un
    experimento barato: el dato ya se registra por solicitud.
 7. **Frontend — qué hay que tocar y qué no.** **No** se pide ningún componente nuevo. Se **extienden** dos:
-   (a) `PipelineStepper` — ocho pasos, tres orientaciones (§23.2b) y **cierre terminal** en vez de noveno
+   (a) `PipelineStepper` — ocho pasos, tres orientaciones (§25.2b) y **cierre terminal** en vez de noveno
    nodo; (b) el mapa de badges — recibe `{status, expiredReason}` y resuelve `expirada` **por el motivo**,
    con fallback neutro. Todo lo demás se compone: `Badge` §7.2, `Banner` §7.5, `DataTable` §7.7,
    `AmountBreakdown` §7.12, `Select`/`Input`/`Textarea` §6.2–6.3, barra sticky §21.6, skeletons §18.6.
-   **La plantilla de correo es medio nuevo**, con su propia hoja de reglas (§23.4.0) y **su parte de texto
+   **La plantilla de correo es medio nuevo**, con su propia hoja de reglas (§25.4.0) y **su parte de texto
    plano obligatoria**.
-   **⚠ v2.3.1 (D43) — lo que cambia para frontend, y es sobre todo trabajo que se BORRA:** en el cotizador
+   **⚠ v3.0.1 (D43) — lo que cambia para frontend, y es sobre todo trabajo que se BORRA:** en el cotizador
    se retiran **la línea de envío, la regla de la resta y el neto estimado** (y sus tres claves i18n,
-   §23.12); el bloque de dinero queda con **un monto, el faltante cuando aplique y una frase estática**; el
+   §25.12); el bloque de dinero queda con **un monto, el faltante cuando aplique y una frase estática**; el
    cotizador **deja de leer `shippingFeeCents`** (solo necesita `minimumRequestCents`, y sabe vivir sin él,
-   §23.3k); el portal **antes de la oferta** pinta la frase, **no** el bloque de la resta (§23.5d). En el
+   §25.3k); el portal **antes de la oferta** pinta la frase, **no** el bloque de la resta (§25.5d). En el
    correo 1, la prosa pasa a interpolar **dos** montos. **Cero componentes nuevos y cero tokens nuevos**,
-   igual que el resto de §23.
+   igual que el resto de §25.
+
 8. **QA visual sugerido.**
    (a) **Correo 1 con imágenes bloqueadas y sin webfonts**: los tres montos, la condición por línea y el
-   plazo siguen legibles; el neto es la cifra más grande. **⚠ v2.3.1: la cifra del envío aparece DOS veces
+   plazo siguen legibles; el neto es la cifra más grande. **⚠ v3.0.1: la cifra del envío aparece DOS veces
    —tabla y prosa— y el neto también**; el correo **no contiene** «como ya sabías», «recuerda que» ni
    ninguna fórmula que presuponga que el vendedor ya conocía la tarifa.
    (b) **Ningún asunto ni preheader del sistema contiene el bruto** (R1) — buscar el bruto en **los cinco**.
@@ -7881,7 +10710,7 @@ clave; tres no se tocan.**
    recordatorio.
    (d) **El correo 4 no contiene**: ninguna fecha límite, ningún monto, ninguna palabra de causa, ninguna
    referencia al tiempo transcurrido.
-   (d-bis) **⚠ v2.3.3 — el correo 5, y es la prueba más barata del renumerado.** `grep` de `venció` /
+   (d-bis) **⚠ v3.0.3 — el correo 5, y es la prueba más barata del renumerado.** `grep` de `venció` /
    `expired` / `deadline` sobre la plantilla del **5** en ES y EN ⇒ **cero coincidencias**; **cero montos**;
    su CTA dice **«Ver mi solicitud»** y **no** «Cotizar de nuevo». Y la prueba de la clave: **el prefijo
    `expiry.cancelledByUs` no existe en ninguno de los dos catálogos** (el test de paridad debe quedar en
@@ -7903,8 +10732,8 @@ clave; tres no se tocan.**
    (j) `netBelowMinimum` y `pickupAddressMissing` apagan el botón **con texto asociado**; ninguno apagado y
    mudo.
    (k) `requiresAuthorization` ⇒ el botón dice **«Enviar a autorización»**, no «Emitir».
-   (l) **⚠ REESCRITA (v2.3.1, D43) — el cotizador no dice ninguna cifra de envío, en NINGÚN estado.**
-   Es la prueba más barata de todo §23 y se corre con un `grep` sobre el DOM y sobre `messages/{es,en}.json`:
+   (l) **⚠ REESCRITA (v3.0.1, D43) — el cotizador no dice ninguna cifra de envío, en NINGÚN estado.**
+   Es la prueba más barata de todo §25 y se corre con un `grep` sobre el DOM y sobre `messages/{es,en}.json`:
    　(l.1) En el **carrito, el panel de requisitos de venta y el paso de crear**, en **ES y EN**, por debajo
    y por encima del mínimo, con líneas `SIN PRECIO` y con el carrito vacío: **el único `MX$` que aparece es
    el valor de las cartas y, cuando aplique, el faltante y el mínimo**. Cero coincidencias de `180`, de
@@ -7926,17 +10755,17 @@ clave; tres no se tocan.**
 
 ---
 
-### 23.14 Barrido de copy vivo — las superficies que seguían contando el trato viejo (v2.3.2)
+### 25.14 Barrido de copy vivo — las superficies que seguían contando el trato viejo (v3.0.2)
 
-> **Por qué existe esta sección.** §23 diseñó **el ciclo nuevo**. Lo que **no** hizo —y es un fallo de este
+> **Por qué existe esta sección.** §25 diseñó **el ciclo nuevo**. Lo que **no** hizo —y es un fallo de este
 > documento, no del frontend— fue **auditar el copy que ya estaba en pantalla**. D16/D31 cambió **quién
 > pone el envío**; todo texto escrito antes de esa decisión quedó sospechoso por defecto, y tres de ellos
-> sobrevivieron al pase de D43 **porque §23 no los nombraba**. El frontend los encontró al implementar y
+> sobrevivieron al pase de D43 **porque §25 no los nombraba**. El frontend los encontró al implementar y
 > **no los tocó** (el copy es de ux-ui); aquí se resuelven, y el barrido completo encontró **cuatro más**.
 >
 > **La lección, escrita para que se pueda aplicar la próxima vez:** *cuando una decisión cambia **quién
 > paga algo**, el entregable no es la pantalla nueva — es **la lista de todo lo que afirmaba lo
-> contrario**.* §23.3g ahora es esa lista y por eso gana filas en vez de notas al pie.
+> contrario**.* §25.3g ahora es esa lista y por eso gana filas en vez de notas al pie.
 
 **Índice de lo que cambia.** «Contradicción viva» = un vendedor podía leerlo **hoy** y actuar mal.
 
@@ -7946,13 +10775,13 @@ clave; tres no se tocan.**
 | 2 | `safeShipping.intro` | idem | **Contradicción de dominio** + hueco de **AC 34** | §H / AC 34 |
 | 3 | `safeShipping.title` · `buylist.shippingGuideLink` | enlace del hero · título del modal · `h2` de la sección inline | **Ambigüedad creada por D16** | D16/D31 |
 | 4 | `safeShipping.step3Body` | idem | Mejora (rescata contenido del paso 4 viejo) | — |
-| 5 | `home.quoter.wePay` | teaser del cotizador del home (**dos instancias**: columna del hero y sección móvil) | **Contradicción viva — promete depósito** | §23.3c / D31 |
+| 5 | `home.quoter.wePay` | teaser del cotizador del home (**dos instancias**: columna del hero y sección móvil) | **Contradicción viva — promete depósito** | §25.3c / D31 |
 | 6 | `buylist.trustShipping` | bloque de confianza al pie de `/buylist` | **Recorte + duplicado** ⇒ **retirada** | D16/D31 y `nmOnlyBody` |
 | 7 | `buylist.estimateNote` | bloque de dinero del carrito (`SellCartContents`) | **Contradicción viva de dinero** | **D2/D9** |
 | 8 | `buylist.trustValidity` | pie de `/buylist` **y** resumen del paso de crear | **Contradicción viva de dinero** | **D2/D9** |
 | 9 | `buylist.created` | aviso `role="status"` tras crear la solicitud | **Contradicción viva — invita a enviar sin guía** | **D16** / §P.4 |
 | 10 | `buylist.subtitle` · `home.sellBody` | `h1` de `/buylist` · banda CTA «Vender mis cartas» del home | Mejora **opcional** (no contradice) | — |
-| 11 | ~~`buylist.totalPendingNote`~~ **RETIRADA** *(hallazgo del frontend, v2.3.9)* | bloque de dinero del carrito | **Contradicción viva** | **D2/D9 + §P.4** |
+| 11 | ~~`buylist.totalPendingNote`~~ **RETIRADA** *(hallazgo del frontend, v3.0.9)* | bloque de dinero del carrito | **Contradicción viva** | **D2/D9 + §P.4** |
 
 > **⚠ La 11 la encontró el frontend, no este barrido, y es la CUARTA vez que aparece el mismo patrón.**
 > `buylist.totalPendingNote` decía que las cartas sin precio se cotizan **«cuando las recibimos»**. Bajo el
@@ -7960,7 +10789,7 @@ clave; tres no se tocan.**
 > mande nada— y por eso **entran en la oferta que él acepta**. El texto era de la era en que el vendedor
 > enviaba primero y se cotizaba después; **sobrevivió al cambio de significado** igual que `expiry.*`,
 > «Guía de envío seguro» y «Por recibir». **Retiro ratificado**: su trabajo lo hace ahora
-> `buylist.quote.pendingLine.note` (§23.3h), que dice **la verdad nueva** — *«las cotizamos a mano y te las
+> `buylist.quote.pendingLine.note` (§25.3h), que dice **la verdad nueva** — *«las cotizamos a mano y te las
 > incluimos en la oferta»*.
 > **Nota de alcance:** `buylist.requestPendingNote` («El total mostrado no incluye las cartas con precio
 > pendiente») **se queda**: vive en «Mis solicitudes», es cierto y **no afirma cuándo** se cotizan. *Mejora
@@ -7968,13 +10797,13 @@ clave; tres no se tocan.**
 > ahí el vendedor **ya envió** y la pregunta «¿y estas se van a cotizar?» pesa más. **Lo dejo propuesto, no
 > mandado.**
 
-**Y lo que el barrido confirmó que NO se toca** (§23.14.5): `home.bounties.wePay`, `buylist.bounties.wePay`,
+**Y lo que el barrido confirmó que NO se toca** (§25.14.5): `home.bounties.wePay`, `buylist.bounties.wePay`,
 `nmOnlyBody`, `payAfterReceipt`, `trustPayment`, `cartFooterNote` y **todo** el envío del **comprador**
 (`withdrawals.*`, `checkout.*`) — que es **otro eje de dinero** y no lo toca D16.
 
 ---
 
-#### 23.14.1 La guía de empaque — el daño era mayor que el paso 4
+#### 25.14.1 La guía de empaque — el daño era mayor que el paso 4
 
 **Diagnóstico paso por paso.** Se revisaron los siete strings del componente. **Tres estaban mal, y solo
 uno se había reportado.**
@@ -7990,7 +10819,7 @@ uno se había reportado.**
 | `step4Title/Body` | **Se reescribe entero** | *«Asegura por el valor cotizado»* ⇒ bajo D16 **el vendedor paga dos veces por lo mismo**. Es la única línea del producto que le **cuesta dinero real** a quien la obedece |
 | `understood` | **Intacto** | — |
 
-**Copy normativo (ES y EN — paridad estricta; PO ratifica, §23.14.7).**
+**Copy normativo (ES y EN — paridad estricta; PO ratifica, §25.14.7).**
 
 | Clave | ES | EN |
 |---|---|---|
@@ -8013,7 +10842,7 @@ uno se había reportado.**
    label" corrige el error en el **encabezado**, que es lo único que se lee en una retícula de cuatro
    columnas si el vendedor va rápido. Un título como «Envío» habría dejado el arreglo escondido en el
    cuerpo.
-2. **La resta va en la misma frase que el ofrecimiento** (§23.14.3). No se puede partir en «te mandamos la
+2. **La resta va en la misma frase que el ofrecimiento** (§25.14.3). No se puede partir en «te mandamos la
    guía» aquí y «se descuenta» en otro lado: **este componente viaja solo** —el modal no tiene un bloque
    de dinero al lado, y `PROJECT.md` §P lo repite dentro de dos correos—.
 3. **Las tres prohibiciones son la parte operativa**, y están en orden de coste: **comprar** (paga dos
@@ -8021,7 +10850,7 @@ uno se había reportado.**
    **mandar antes de tener la etiqueta** (`PROJECT.md`: *«si aun así manda algo por su cuenta, esa pieza
    **no está comprada**»* — el peor desenlace posible del ciclo).
 4. **Sin cifras.** D43 alcanza aquí: ni monto, ni rango, ni «tarifa baja», ni `$0`. Y **sin «gratis»**: el
-   envío **no es gratis**, es **nuestro y descontado** (§23.3e).
+   envío **no es gratis**, es **nuestro y descontado** (§25.3e).
 
 > **Nota de tiempo verbal, porque el componente se pinta en dos momentos.** «Al aceptar la oferta…» /
 > "When you accept the offer…" funciona **antes** de que exista oferta (lo que va a pasar) y **después** de
@@ -8030,16 +10859,16 @@ uno se había reportado.**
 
 ---
 
-#### 23.14.2 Las dos superficies de dinero: el teaser del home y el recorte de `/buylist`
+#### 25.14.2 Las dos superficies de dinero: el teaser del home y el recorte de `/buylist`
 
 **(a) `home.quoter.wePay` — RETIRADA. La decisión es que el rótulo deje de prometer, Y que la superficie
-entre a §23.3g.** El encargo daba las dos salidas como alternativas; **se toman las dos**, porque
+entre a §25.3g.** El encargo daba las dos salidas como alternativas; **se toman las dos**, porque
 resuelven cosas distintas:
 
 | Qué | Decisión |
 |---|---|
 | **El rótulo** | `home.quoter.wePay` **se retira de los dos catálogos** y el total pasa a rotularse con **`buylist.quote.money.cardsValue`** — la **misma clave** que ya usan el carrito y el resumen del paso de crear. **No se crea `home.quoter.cardsValue`**: un segundo string con el mismo significado es el mecanismo exacto por el que este rótulo se desincronizó |
-| **La superficie** | El teaser **entra a §23.3g como fila 0** y pinta la **nota de servicio** (`buylist.quote.shippingNote`, componente `BuylistShippingNote` ya existente), **sin cifras** (D43 intacta) |
+| **La superficie** | El teaser **entra a §25.3g como fila 0** y pinta la **nota de servicio** (`buylist.quote.shippingNote`, componente `BuylistShippingNote` ya existente), **sin cifras** (D43 intacta) |
 
 - **Por qué el rótulo solo no bastaba.** Con «Valor de tus cartas» el teaser deja de **mentir**, pero sigue
   siendo **la primera pantalla de dinero del embudo** y **no dice el trato**. D31 pide la regla **en el
@@ -8052,7 +10881,7 @@ resuelven cosas distintas:
   renderiza en móvil** (`withTrust={false}` en la sección de 390px). Una regla de dinero que solo existe en
   escritorio **no es una regla**.
 - **Se renderiza siempre**, con cero líneas y con líneas, igual que en el carrito: la nota **no depende de
-  ningún dato** (§23.3k) y por tanto **no se esqueletiza, no aparece, no desaparece y no se mueve**.
+  ningún dato** (§25.3k) y por tanto **no se esqueletiza, no aparece, no desaparece y no se mueve**.
 - El rótulo se pinta con `.eyebrow` (mono, versalitas) en el teaser y en el carrito, y en sentence-case en
   el resumen del paso de crear. **Es el mismo string**; la caja alta la pone el CSS, **nunca el catálogo**.
 
@@ -8069,26 +10898,26 @@ razones independientes, y cualquiera de las dos bastaría:
    propio vecino: dice menos y ocupa un párrafo. Nadie lo habría escrito así a propósito — que es
    exactamente lo que el encargo sospechaba.
 2. **Y su hueco original —quién pone el envío— NO puede llenarse ahí.** Ese bloque es
-   `text-[13px] text-muted`. §23.3c es explícita: la regla de D16 va **en tinta, `text-sm`, nunca `muted`**,
+   `text-[13px] text-muted`. §25.3c es explícita: la regla de D16 va **en tinta, `text-sm`, nunca `muted`**,
    porque D31 la quiere *«al mismo nivel visual que los montos»* y **no en letra chica**. Reescribir
    `trustShipping` para que contara el trato nuevo habría **cumplido la letra y roto la norma**: la regla
    más importante del ciclo, degradada a gris de 13px, debajo de todo.
 
 **Qué queda en su lugar** (dos movimientos, **cero strings nuevos**):
 
-- **La nota de servicio sube a la cabecera de `/buylist`** (§23.3g, fila **1-bis**): `BuylistShippingNote`
+- **La nota de servicio sube a la cabecera de `/buylist`** (§25.3g, fila **1-bis**): `BuylistShippingNote`
   justo debajo de `payAfterReceipt`, en **tinta `text-sm`**, sin `rule-note`, sin caja. **Motivo decisivo:
   en móvil el carrito es un drawer cerrado**, así que hoy un vendedor puede recorrer `/buylist` entera —
   hero, bounties, binder, políticas, guía de empaque— **sin leer nunca la regla del envío**. La cabecera es
   el sitio donde ya viven los hechos del trato y es lo primero que se ve.
 - **El bloque de confianza del pie baja a dos párrafos**: `trustPayment` y `trustValidity` (este último
-  reescrito, §23.14.4). El bloque **no pierde información**: la del envío subió y la del NM ya estaba
+  reescrito, §25.14.4). El bloque **no pierde información**: la del envío subió y la del NM ya estaba
   arriba.
 
-> **⚠ CORREGIDO (v2.3.8) — aquí dije que la repetición era aceptable. Vista en pantalla, no lo es.**
+> **⚠ CORREGIDO (v3.0.8) — aquí dije que la repetición era aceptable. Vista en pantalla, no lo es.**
 > A 1280px `/buylist` muestra **dos párrafos idénticos de cuatro líneas** a la vez (cabecera + panel fijo
 > del carrito). Autoricé cada instancia **por separado** y **nunca miré las dos juntas**, que es el error
-> clásico de especificar por reglas y no por pantallas. La regla nueva está en **§23.3g-bis: EXACTAMENTE
+> clásico de especificar por reglas y no por pantallas. La regla nueva está en **§25.3g-bis: EXACTAMENTE
 > UNA nota visible por pantalla**, y la resuelve por construcción.
 > *Lo que sí sigue en pie de lo que escribí: **dos redacciones distintas de la misma regla** sería un
 > defecto mucho peor que dos copias idénticas. La corrección va de **cuántas se ven**, no de cuál es el
@@ -8096,9 +10925,9 @@ razones independientes, y cualquiera de las dos bastaría:
 
 ---
 
-#### 23.14.3 La regla de «la cadena que viaja sola», con su frontera dibujada
+#### 25.14.3 La regla de «la cadena que viaja sola», con su frontera dibujada
 
-§23.12 la enunció para los correos. Se **eleva a regla de sistema** y se le pone el límite que faltaba,
+§25.12 la enunció para los correos. Se **eleva a regla de sistema** y se le pone el límite que faltaba,
 porque sin límite habría obligado a meter la resta en cadenas donde no cabe ni hace falta:
 
 > **Toda cadena que afirme que el envío corre por nuestra cuenta debe decir, en la misma cadena, que su
@@ -8110,8 +10939,8 @@ porque sin límite habría obligado a meter la resta en cadenas donde no cabe ni
 |---|---|---|
 | «Nosotros ponemos la guía de envío» (nota del cotizador, teaser, cabecera) | **Sí** | Es una **afirmación sobre quién paga**. Sola, promete un beneficio y esconde su costo |
 | **Paso 4 de la guía de empaque** | **Sí** | Viaja en un **modal sin dinero al lado** y dentro de **dos correos** (§P). Por eso su cuerpo lleva «y su costo se descuenta de tu pago» aunque sea una celda de 13px |
-| `offer.guideParagraph` («al aceptar te mandamos la guía…») | **No** | La **tabla de los tres montos está en la misma pantalla**. La aritmética ya está a la vista (§23.12) |
-| **«Primero aceptas la oferta y después te llega la guía»** (`buylist.created`, §23.14.4) | **No** | Es una **secuencia**, no una afirmación de coste: no dice quién paga, no promete nada y no se puede leer como beneficio. **La regla muerde sobre las afirmaciones de coste, no sobre la logística** |
+| `offer.guideParagraph` («al aceptar te mandamos la guía…») | **No** | La **tabla de los tres montos está en la misma pantalla**. La aritmética ya está a la vista (§25.12) |
+| **«Primero aceptas la oferta y después te llega la guía»** (`buylist.created`, §25.14.4) | **No** | Es una **secuencia**, no una afirmación de coste: no dice quién paga, no promete nada y no se puede leer como beneficio. **La regla muerde sobre las afirmaciones de coste, no sobre la logística** |
 
 **Y su recíproca, que es la que falló aquí:** *ninguna cadena puede afirmar que **el vendedor** pone,
 compra, asegura o cubre el envío hacia nosotros.* **Cero excepciones** — la única cosa que sigue siendo
@@ -8120,7 +10949,7 @@ en **`nmOnlyBody`** y en la **`intro`** de la guía de empaque, en ningún otro 
 
 ---
 
-#### 23.14.4 Lo que el barrido encontró de más (fuera de los tres reportados)
+#### 25.14.4 Lo que el barrido encontró de más (fuera de los tres reportados)
 
 > **Estas cuatro no salen de D16/D31 sino de D2/D9 y de §P.4.** Se resuelven aquí porque **dos de ellas
 > son párrafos hermanos de los textos que sí me tocaba tocar** (`trustValidity` comparte `<div>` con
@@ -8136,9 +10965,9 @@ en **`nmOnlyBody`** y en la **`intro`** de la guía de empaque, en ningún otro 
   **D2** el precio ofertado es **vinculante desde que sale el correo** y bajo **D9** *«verificar tiene solo
   dos desenlaces: llega en NM y se paga lo ofertado, o no llega en NM y se rechaza»*. Este texto le dice al
   vendedor que **el número puede moverse después de que él ya mandó las cartas** — que es la ansiedad exacta
-  que §23 existe para matar, y además **regala** la mejor promesa del producto.
+  que §25 existe para matar, y además **regala** la mejor promesa del producto.
 - **Lo que sí es cierto y no estaba dicho:** el total es indicativo **porque los precios se mueven** *y*
-  **porque puede que no compremos todas las líneas** (§23.3a.2 identificó justamente ese cherry-pick como
+  **porque puede que no compremos todas las líneas** (§25.3a.2 identificó justamente ese cherry-pick como
   la razón por la que un neto en el cotizador sería optimista). Decirlo es lo honesto.
 
 | | ES | EN |
@@ -8176,9 +11005,9 @@ verificar tus cartas»*: mismo error que (a).
 |---|---|---|
 | **Nuevo** | ¡Solicitud creada! Te mandaremos una oferta por correo. No mandes tus cartas todavía: primero aceptas la oferta y después te llega la guía. | Request created! We'll email you an offer. Don't ship your cards yet: first you accept the offer, then the label reaches you. |
 
-- **Sin plazos.** No dice «en 7 días hábiles»: ese reloj es **nuestro**, y §23.4.3 ya razona que anunciarle
+- **Sin plazos.** No dice «en 7 días hábiles»: ese reloj es **nuestro**, y §25.4.3 ya razona que anunciarle
   al vendedor un plazo que depende de nuestra carga de trabajo no le sirve de nada.
-- **Sin cifras** y **sin la resta** — es una secuencia, no una afirmación de coste (§23.14.3).
+- **Sin cifras** y **sin la resta** — es una secuencia, no una afirmación de coste (§25.14.3).
 
 **(d) `buylist.subtitle` y `home.sellBody` — mejora OPCIONAL, no contradicción. Decide PO.**
 
@@ -8194,19 +11023,19 @@ tres tiempos *«tú X, nosotros Y y Z»* el primer tiempo se lee como **su parte
 | `home.sellBody` | Cotizamos tu lista con el valor de mercado del día. Nosotros autenticamos y pagamos. | We quote your list at the day's market value. We authenticate and pay. |
 
 > **Por qué NO se propone «Te mandamos la guía, autenticamos y pagamos»**, que sería la versión lucida: es
-> una cadena que **viaja sola** y diría «ponemos la guía» **sin** «y se descuenta» ⇒ §23.14.3 lo prohíbe, y
+> una cadena que **viaja sola** y diría «ponemos la guía» **sin** «y se descuenta» ⇒ §25.14.3 lo prohíbe, y
 > la resta **no cabe** en un subtítulo sin arruinarlo. **La regla tiene dientes también contra el copy que
 > nos favorece**, y se registra aquí como ejemplo. La salida correcta es **quitar el reparto**, no
 > reclamar el mérito a medias.
 
 ---
 
-#### 23.14.5 Lo que NO se toca (lista cerrada, para que nadie lo «arregle» de más)
+#### 25.14.5 Lo que NO se toca (lista cerrada, para que nadie lo «arregle» de más)
 
 | Clave / familia | Por qué se queda | ⚠ |
 |---|---|---|
-| `home.bounties.wePay` · `buylist.bounties.wePay` («Pagamos» / "We pay") | Es un **precio por carta**, no una suma: nombra una **tarifa**, y el envío se descuenta **por solicitud** (§23.3c-bis) | Si alguien las «corrige» a `cardsValue`, la teja de bounty deja de decir qué hace y el barrido habrá causado un daño nuevo |
-| `buylist.nmOnlyTitle` / `nmOnlyBody` | La devolución de una carta rechazada por no ser NM **sigue corriendo por cuenta del vendedor (7 días)**. **D16 no la tocó** | Es el **único** «a tu costo» legítimo del flujo del vendedor. Ver §23.14.3 |
+| `home.bounties.wePay` · `buylist.bounties.wePay` («Pagamos» / "We pay") | Es un **precio por carta**, no una suma: nombra una **tarifa**, y el envío se descuenta **por solicitud** (§25.3c-bis) | Si alguien las «corrige» a `cardsValue`, la teja de bounty deja de decir qué hace y el barrido habrá causado un daño nuevo |
+| `buylist.nmOnlyTitle` / `nmOnlyBody` | La devolución de una carta rechazada por no ser NM **sigue corriendo por cuenta del vendedor (7 días)**. **D16 no la tocó** | Es el **único** «a tu costo» legítimo del flujo del vendedor. Ver §25.14.3 |
 | `buylist.payAfterReceipt` · `buylist.cartFooterNote` · `buylist.trustPayment` | *«El pago se realiza después de recibir y verificar tus cartas»* **sigue siendo cierto**: el pago ocurre tras la verificación; lo que **no** ocurre es **repreciar** | No confundir *cuándo se paga* (cierto) con *cuándo se fija el monto* (la oferta) — la distinción que arregla (a) y (b) |
 | `home.bounties.subtitle` · `buylist.bounties.subtitle` | Misma frase, mismo motivo | — |
 | `withdrawals.*`, `checkout.*`, `shipmentStage.*` (envío del **comprador**) | Es **el otro eje de dinero**: ahí el comprador **sí** paga su envío y su seguro. D16 gobierna **el envío del vendedor hacia nosotros**, nada más | `withdrawals.shippingFee` («Tarifa de envío (con seguro)») es **legítima**; un `grep` de «envío» que la marque está mal calibrado |
@@ -8215,9 +11044,9 @@ tres tiempos *«tú X, nosotros Y y Z»* el primer tiempo se lee como **su parte
 
 ---
 
-#### 23.14.6 Verificación (QA visual · barato y `grep`-able)
+#### 25.14.6 Verificación (QA visual · barato y `grep`-able)
 
-> **Convención de las reglas de esta sección (v2.3.4, tras un falso positivo real).** Una regla `grep`
+> **Convención de las reglas de esta sección (v3.0.4, tras un falso positivo real).** Una regla `grep`
 > **nunca se escribe como «cero coincidencias» sobre un catálogo entero**. Se escribe de una de estas dos
 > formas, y las dos son a prueba de falsos positivos:
 > **(i) aserción positiva** —*«este rótulo resuelve a esta clave y a ninguna otra»*— que además atrapa
@@ -8229,17 +11058,17 @@ tres tiempos *«tú X, nosotros Y y Z»* el primer tiempo se lee como **su parte
 1. **`grep` de la afirmación prohibida** en `messages/{es,en}.json`: `cubres`, `tú cubres`, `por tu cuenta`,
    `a tu costo`, `you cover`, `at your cost`, `on you`. **Toda coincidencia superviviente debe estar en**
    `nmOnlyBody`, `safeShipping.intro`, `grading.*` o el eje del comprador. **Cualquier otra es el bug.**
-2. **La promesa de depósito sobre una suma — ⚠ REGLA RECALIBRADA (v2.3.4).**
+2. **La promesa de depósito sobre una suma — ⚠ REGLA RECALIBRADA (v3.0.4).**
    > **La versión anterior de esta regla estaba mal y hay que decir por qué.** Pedía *«`grep` de `Te
    > pagamos` / `We pay you` ⇒ **cero coincidencias** en `buylist.quote.*`»*, y eso marca
    > **`buylist.quote.shippingNote`**, que dice «se descuenta siempre de **lo que te pagamos**» / "deducted
-   > from **what we pay you**" **en los dos idiomas**. Es decir: **marcaba la cadena normativa que §23.3d
-   > acababa de bendecir**, y que este documento **cita literal en su propio mock-up** de §23.3c. También
+   > from **what we pay you**" **en los dos idiomas**. Es decir: **marcaba la cadena normativa que §25.3d
+   > acababa de bendecir**, y que este documento **cita literal en su propio mock-up** de §25.3c. También
    > marcaba `buylist.subtitle` ES («te pagamos por SPEI»), que es prosa.
    > **El defecto no es el patrón sino la FORMA de la regla:** usaba un **absoluto** («cero coincidencias»)
    > donde el criterio real es **fino** —*rótulo que promete depósito **sobre una suma***—, y
    > `shippingNote` **no es un rótulo y no cuelga de una suma**: es prosa explicativa, y «lo que te
-   > pagamos» es justo **el referente del descuento** (movimiento 2 de §23.3d). *La regla de QA se acota al
+   > pagamos» es justo **el referente del descuento** (movimiento 2 de §25.3d). *La regla de QA se acota al
    > copy; **el copy nunca se retuerce para satisfacer un `grep`**.*
    > **Y la forma correcta ya estaba escrita una regla más arriba:** la 1 **nombra a sus supervivientes
    > esperados** (`nmOnlyBody`, `grading.*`…) en vez de exigir cero — por eso la 1 **sí** aguanta que
@@ -8257,13 +11086,13 @@ tres tiempos *«tú X, nosotros Y y Z»* el primer tiempo se lee como **su parte
    clave del rótulo del total del teaser. **Ahí sí: cero coincidencias.**
    **2c — Supervivientes ESPERADOS fuera de ese ámbito** (si el `grep` se corre ancho, estas tres salen y
    **son correctas**; marcarlas es señal de que el `grep` está mal acotado, igual que con
-   `withdrawals.shippingFee` en §23.14.5):
+   `withdrawals.shippingFee` en §25.14.5):
 
    | Coincidencia legítima | Por qué se queda |
    |---|---|
-   | **`buylist.quote.shippingNote`** (ES «lo que te pagamos» · EN "what we pay you") | **Normativa e intocable** (§23.3d). Es **prosa**, no rótulo, y la frase **necesita** ese referente: sin él, «su costo se descuenta» no dice **de dónde** se descuenta |
-   | `home.bounties.wePay` · `buylist.bounties.wePay` | **Precio por carta**, no una suma (§23.3c-bis) |
-   | `buylist.subtitle` ES («te pagamos por SPEI») | **Prosa del `h1`**, no rótulo de monto. *(Si PO acepta la mejora opcional de §23.14.4d, desaparece sola; si no, **se queda y es correcta**.)* |
+   | **`buylist.quote.shippingNote`** (ES «lo que te pagamos» · EN "what we pay you") | **Normativa e intocable** (§25.3d). Es **prosa**, no rótulo, y la frase **necesita** ese referente: sin él, «su costo se descuenta» no dice **de dónde** se descuenta |
+   | `home.bounties.wePay` · `buylist.bounties.wePay` | **Precio por carta**, no una suma (§25.3c-bis) |
+   | `buylist.subtitle` ES («te pagamos por SPEI») | **Prosa del `h1`**, no rótulo de monto. *(Si PO acepta la mejora opcional de §25.14.4d, desaparece sola; si no, **se queda y es correcta**.)* |
 
    > **Por qué se gasta tinta en esto:** *una regla de QA que da falsos positivos se deja de correr*, y en
    > cuanto se deja de correr **muere la distinción que protege** — que aquí es exactamente la que costó
@@ -8271,8 +11100,8 @@ tres tiempos *«tú X, nosotros Y y Z»* el primer tiempo se lee como **su parte
    > que el sistema acaba de bendecir **entrena a ignorarla**.
 3. **Paridad estricta:** `home.quoter.wePay` y `buylist.trustShipping` **no existen en NINGUNO de los dos
    catálogos**. Una clave viva en un solo idioma es el modo típico en que un texto retirado revive.
-   **v2.3.5:** lo mismo para `admin.m5.tabs.{por_recibir,ciclo,rechazadas}` ⇒ sustituidas por
-   `{por_ofertar,con_vendedor,piezas_rechazadas}` (§23.8a).
+   **v3.0.5:** lo mismo para `admin.m5.tabs.{por_recibir,ciclo,rechazadas}` ⇒ sustituidas por
+   `{por_ofertar,con_vendedor,piezas_rechazadas}` (§25.8a).
 3-bis. **Pestañas de M5 — aserción positiva (patrón (i) de la convención de arriba).** El mapa
    `estado → pestaña` es **total**: los **ONCE** valores de `SellRequestStatus` tienen pestaña —
    `cotizada` en **«Por ofertar»**, los **tres** del tramo (`ofertada`/`aceptada`/`en_transito`) en **«Con
@@ -8280,11 +11109,11 @@ tres tiempos *«tú X, nosotros Y y Z»* el primer tiempo se lee como **su parte
    pagar» y los **cuatro** terminales en «Cerradas» ⇒ **1+3+2+1+4 = 11**. *Un estado sin pestaña **no
    falla, no avisa y desaparece del back-office**: por eso la comprobación es una partición total, no un
    `grep`.*
-   > **⚠ ERRATA CORREGIDA (v2.3.6) — aquí decía «los DIEZ valores», y el número importaba.** Son **once**
+   > **⚠ ERRATA CORREGIDA (v3.0.6) — aquí decía «los DIEZ valores», y el número importaba.** Son **once**
    > (`ARCHITECTURE`/contrato §Enums manda, y `SellRequestStatus` los lista). **El texto y la tabla de
-   > §23.8a siempre repartieron once**; el que mentía era **el número suelto**. Y el origen es exactamente
-   > la distinción de la nota de abajo: **§23.12 lista DIEZ claves bajo `status.sellRequest.*` y ahí el diez
-   > es correcto**, porque `expirada` **se rotula por su motivo** (§23.1d) y no tiene clave en ese espacio.
+   > §25.8a siempre repartieron once**; el que mentía era **el número suelto**. Y el origen es exactamente
+   > la distinción de la nota de abajo: **§25.12 lista DIEZ claves bajo `status.sellRequest.*` y ahí el diez
+   > es correcto**, porque `expirada` **se rotula por su motivo** (§25.1d) y no tiene clave en ese espacio.
    > **El diez viajó del sitio donde era cierto al sitio donde no lo es.**
    > **Por qué no era una errata cosmética:** el número vivía **dentro de una regla de verificación**, así
    > que un test escrito contra «diez» habría dejado **un estado sin comprobar** — y la regla existe
@@ -8300,15 +11129,15 @@ tres tiempos *«tú X, nosotros Y y Z»* el primer tiempo se lee como **su parte
    Mint**; los pasos 1 y 2 siguen diciendo **funda/sleeve** y **top loader** (AC 34).
 5. **La palabra «guía» en `/buylist`:** el enlace, el título del modal y el `h2` inline dicen **«Cómo
    empacar tus cartas»**. La palabra «guía» **solo** aparece donde significa **la etiqueta**.
-6. **Teaser del home, las DOS instancias** — ⚠ **REGLA AFINADA (v2.3.7): «presente» NO es el requisito;
+6. **Teaser del home, las DOS instancias** — ⚠ **REGLA AFINADA (v3.0.7): «presente» NO es el requisito;
    el requisito es VISIBLE.** En `lg` (columna del hero) **y** en 390px (sección propia,
    `withTrust={false}`), con **cero cartas** y con cartas, en ES y EN, el total se rotula **«Valor de tus
    cartas»** y la nota **se lee en pantalla**.
-   > **⚠ RECTIFICACIÓN (v2.3.8) — el defecto que motivó esta afinación NO EXISTÍA.** En v2.3.7 escribí
+   > **⚠ RECTIFICACIÓN (v3.0.8) — el defecto que motivó esta afinación NO EXISTÍA.** En v3.0.7 escribí
    > aquí que *«a 390px la nota está en el DOM pero `hidden`»*. **Es falso y se corrige en el sitio**:
-   > medido con navegador real, **hay una nota visible en los dos anchos** y **§23.14.2a estaba cumplida
+   > medido con navegador real, **hay una nota visible en los dos anchos** y **§25.14.2a estaba cumplida
    > desde el primer día**. Lo que fallaba era **la medición**: el home monta el panel del cotizador **dos
-   > veces** —columna del hero y sección móvil, §23.3g fila 0— **con el mismo identificador**, y la
+   > veces** —columna del hero y sección móvil, §25.3g fila 0— **con el mismo identificador**, y la
    > comprobación cogía **la copia de escritorio**, que a 390px está oculta *por diseño*.
    > **La regla afinada se queda igual y sigue valiendo** (visibilidad efectiva, no presencia en el DOM),
    > pero **no hay nada que arreglar en la pantalla**. Y la afinación gana una segunda mitad, que es la que
@@ -8319,16 +11148,16 @@ tres tiempos *«tú X, nosotros Y y Z»* el primer tiempo se lee como **su parte
    > escribí en el documento como hecho. **Un diagnóstico falso en la fuente de verdad se propaga igual que
    > un nombre falso** — que es justo lo que esta sección persigue. La corrección se deja **visible**, no
    > se borra.*
-   **Si a algún ancho no se ve ninguna nota, es el bug** (§23.14.2a).
-7. **`/buylist` — la nota se ve EXACTAMENTE UNA VEZ, a todos los anchos (§23.3g-bis, v2.3.8).**
+   **Si a algún ancho no se ve ninguna nota, es el bug** (§25.14.2a).
+7. **`/buylist` — la nota se ve EXACTAMENTE UNA VEZ, a todos los anchos (§25.3g-bis, v3.0.8).**
    Contar los nodos **visibles** de `BuylistShippingNote` ⇒ **1**, ni 0 ni 2:
    　(7.1) **390px, drawer cerrado** ⇒ la de **la cabecera**. Recorrer la página entera y confirmar que la
    regla del envío **se lee sin abrir el carrito**.
    　(7.2) **390px, drawer abierto** ⇒ la del **bloque de dinero**.
    　(7.3) **1280px** (panel fijo lateral) ⇒ la del **bloque de dinero**, y **la cabecera NO la monta**.
-   *Antes de v2.3.8 este caso daba **2** y nadie lo había mirado, porque cada instancia estaba autorizada
+   *Antes de v3.0.8 este caso daba **2** y nadie lo había mirado, porque cada instancia estaba autorizada
    en una sección distinta.*
-8. **Líneas sin precio — el carrito explica su propia aritmética (§23.3h / §23.3f-bis, v2.3.8).**
+8. **Líneas sin precio — el carrito explica su propia aritmética (§25.3h / §25.3f-bis, v3.0.8).**
    Con un carrito de **muchas** líneas en `precio_pendiente`, en ES y EN:
    　(8.1) La explicación aparece **UNA sola vez**, en el bloque de dinero, con el **conteo** interpolado —
    **no** una vez por ítem. Cada línea lleva su versalita **`SIN PRECIO`** y **ningún `MX$ 0.00`**.
@@ -8341,7 +11170,7 @@ tres tiempos *«tú X, nosotros Y y Z»* el primer tiempo se lee como **su parte
    cotizador no sumaba.*
    　(8.5) El bloque sigue teniendo **exactamente un monto** (más faltante y mínimo si aplican): el conteo
    de cartas **no es un monto** y no introduce uno.
-8. **D43 sigue intacta tras este pase:** repetir la prueba **(l.1)** y **(l.6)** de §23.13.8 sobre las
+8. **D43 sigue intacta tras este pase:** repetir la prueba **(l.1)** y **(l.6)** de §25.13.8 sobre las
    cadenas **nuevas** — ninguna contiene un monto, un rango ni un porcentaje de envío; la **primera**
    aparición de la tarifa en todo el ciclo sigue siendo **el correo 1**.
 9. **El aviso de solicitud creada** no contiene «recibamos tu carta» ni ningún plazo, y **sí** contiene la
@@ -8351,16 +11180,16 @@ tres tiempos *«tú X, nosotros Y y Z»* el primer tiempo se lee como **su parte
 
 ---
 
-#### 23.14.7 Notas a otros roles (derivadas de este barrido)
+#### 25.14.7 Notas a otros roles (derivadas de este barrido)
 
-1. **PO — ratificar siete textos, y tres son sensibles.** Todo §23.14.1 y §23.14.4 es **copy del trato**.
+1. **PO — ratificar siete textos, y tres son sensibles.** Todo §25.14.1 y §25.14.4 es **copy del trato**.
    Los tres que conviene mirar con calma: **(a)** `safeShipping.step4Body`, porque **sustituye una
    instrucción que le costaba dinero al vendedor** y ahora afirma la resta en una celda pequeña; **(b)**
    `estimateNote`, porque **admite en voz alta que puede que no compremos todas las líneas** —es honesto y
-   está respaldado por §23.3a.2, pero es una frase que un negocio puede querer matizar—; **(c)**
+   está respaldado por §25.3a.2, pero es una frase que un negocio puede querer matizar—; **(c)**
    `buylist.created`, porque **le dice explícitamente al vendedor que no mande nada todavía**.
-   El punto **(d)** de §23.14.4 (`subtitle`/`sellBody`) es **opcional** y no bloquea nada.
-2. **✅ RESUELTA (v2.3.3) — `buylist.adjust.*` NO se retira: sobrevive a una COHORTE.**
+   El punto **(d)** de §25.14.4 (`subtitle`/`sellBody`) es **opcional** y no bloquea nada.
+2. **✅ RESUELTA (v3.0.3) — `buylist.adjust.*` NO se retira: sobrevive a una COHORTE.**
    Yo lo planteé como *«¿vive o muere?»* y **la pregunta estaba mal formulada**. El arquitecto la corrigió:
    para el **ciclo nuevo** ese flujo es **inalcanzable por construcción** (D9/D30), pero **las solicitudes
    heredadas que estén en vuelo el día del cut-over lo necesitan** — retirar ese copy ese día dejaría a un
@@ -8368,24 +11197,24 @@ tres tiempos *«tú X, nosotros Y y Z»* el primer tiempo se lee como **su parte
    **Lo que aprendo y dejo escrito como regla de este documento:** *el copy de un flujo que se apaga no se
    retira cuando el flujo deja de crearse, sino cuando **la última instancia viva termina**.* Un catálogo
    de i18n **sirve a los datos que existen**, no al diseño vigente; borrar una clave es una **migración de
-   datos disfrazada de limpieza de texto**. Esa es la diferencia con las claves de §23.14: `wePay` y
+   datos disfrazada de limpieza de texto**. Esa es la diferencia con las claves de §25.14: `wePay` y
    `trustShipping` se retiran **hoy** porque **nada las necesita** —no hay cohorte detrás de un rótulo—,
    mientras que `adjust.*` tiene registros esperándola.
    **Estado:** se queda **tal cual, sin reescribir**, y **frontend ya tiene instrucción de no tocarla**. Su
    retiro va **con gate, no con fecha** (depende de cuándo se haga el cut-over), y el gate lo expresa el
    arquitecto. **Este documento no le pone plazo.**
-3. **✅ CERRADA (v2.3.3) — el conteo de correos: son CINCO y «3c» no existe.**
+3. **✅ CERRADA (v3.0.3) — el conteo de correos: son CINCO y «3c» no existe.**
    Manda `ARCHITECTURE §4.39(n)`, y **el argumento es de hechos, no de jerarquía documental**: la
    cancelación deja la solicitud **`cotizada` y viva**, mientras 3a y 3b dejan **terminales**. **No es una
-   variante del 3 — es otro desenlace.** §23 queda alineada: §23.4 dice **CINCO**, la cancelación es
-   **§23.4.4-bis / correo 5**, y **el texto no cambió una letra** (estaba bien; era renumerar).
+   variante del 3 — es otro desenlace.** §25 queda alineada: §25.4 dice **CINCO**, la cancelación es
+   **§25.4.4-bis / correo 5**, y **el texto no cambió una letra** (estaba bien; era renumerar).
    **Lo que sí era un defecto real y no el número: el prefijo de la clave.** ~~`expiry.cancelledByUs.*`~~ ⇒
-   **`offerCancelled.*`** (§23.12). *Un número mal puesto se nota; **un prefijo que miente se propaga**,
+   **`offerCancelled.*`** (§25.12). *Un número mal puesto se nota; **un prefijo que miente se propaga**,
    porque no se lee — se autocompleta.* **Frontend/backend: el nombre viejo deja de existir, sin
    coexistencia**, y el test de paridad debe pasar con la clave **ausente en los dos idiomas**.
    **Y la lección que me llevo, porque es de método:** agrupé dos hechos opuestos **porque compartían
    `status`**. Es literalmente lo que **R3** prohíbe (*un correo por HECHO, no por camino*), aplicado al
-   revés de como yo mismo lo escribí — la misma trampa que §23.4.6 documenta para `expirada`, en la que caí
+   revés de como yo mismo lo escribí — la misma trampa que §25.4.6 documenta para `expirada`, en la que caí
    **una subsección más arriba**.
 4. **Frontend — qué hay que tocar, y es poco.** **Cero componentes nuevos.** (i) `SafeShippingGuide`: solo
    copy (§7.13 reescrita para que el componente no vuelva a contar el trato viejo). (ii) `HomeQuoterPanel`:
@@ -8396,20 +11225,20 @@ tres tiempos *«tú X, nosotros Y y Z»* el primer tiempo se lee como **su parte
    **reutilizan dos que ya existen** (`buylist.quote.money.cardsValue`, `buylist.quote.shippingNote`).
 5. **Backend — recordatorio, no petición.** `PROJECT.md` §H manda repetir la guía de empaque **en el correo
    de aceptación y en el de la etiqueta**. Cuando esas plantillas se escriban, **el paso 4 va con su
-   resta** (§23.14.3): ahí la cadena viaja **sin** ninguna tabla de montos al lado.
-7. **✅ Frontend — ALCANCE CONFIRMADO para el siguiente pase (v2.3.8).** Sí, adelante, y es **pequeño**:
-   **(a)** implementar por fin `buylist.quote.pendingLine.{label,note}` — pendiente desde v2.3 — con la
+   resta** (§25.14.3): ahí la cadena viaja **sin** ninguna tabla de montos al lado.
+7. **✅ Frontend — ALCANCE CONFIRMADO para el siguiente pase (v3.0.8).** Sí, adelante, y es **pequeño**:
+   **(a)** implementar por fin `buylist.quote.pendingLine.{label,note}` — pendiente desde v3.0 — con la
    `note` **reescrita**: **una sola vez en el bloque de dinero**, con `{count}`, en **tinta `text-sm`**, y
-   **sin** la línea repetida por ítem (§23.3h); **(b)** la clave nueva
+   **sin** la línea repetida por ítem (§25.3h); **(b)** la clave nueva
    `buylist.quote.minimum.addPricedCard`, que **sustituye a `addAnother` solo cuando hay líneas sin
-   precio** (§23.3f-bis); **(c)** montar la nota del envío **condicionada al layout** para que se vea
-   **exactamente una vez** (§23.3g-bis) — la cabecera **no se monta** cuando el carrito es panel fijo.
+   precio** (§25.3f-bis); **(c)** montar la nota del envío **condicionada al layout** para que se vea
+   **exactamente una vez** (§25.3g-bis) — la cabecera **no se monta** cuando el carrito es panel fijo.
    **Cero componentes nuevos.** `BuylistShippingNote` ya existe; lo que cambia es **dónde se monta**.
-   **Y una petición de testabilidad, que es tuya y sale del falso positivo de v2.3.7:** el home monta el
+   **Y una petición de testabilidad, que es tuya y sale del falso positivo de v3.0.7:** el home monta el
    panel del cotizador **dos veces por diseño**; **dales identificadores distinguibles**. No es cosmético —
    con el mismo id, cualquier comprobación futura vuelve a medir el nodo equivocado, y esa fue la causa de
    que yo escribiera un defecto inexistente en este documento.
-6. **Frontend — pestañas de M5 (v2.3.5, §23.8a).** Tres rótulos y tres claves:
+6. **Frontend — pestañas de M5 (v3.0.5, §25.8a).** Tres rótulos y tres claves:
    `por_recibir`⇒`por_ofertar`, `ciclo`⇒`con_vendedor`, `rechazadas`⇒`piezas_rechazadas`, con las viejas
    **borradas de los dos catálogos**. **Tu estructura se ratifica sin cambios** —una pestaña para el tramo
    y `aceptada` fuera de todo rótulo de «en camino»—: lo que cambia es el texto, no el mapa. El

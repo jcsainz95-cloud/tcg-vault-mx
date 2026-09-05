@@ -146,7 +146,6 @@ const basePricing: VariantPricingDTO = {
 
 const estimateConfig: GradedEstimateConfigDTO = {
   enabled: true,
-  ingestEnabled: false,
   grades: ['10', '9'],
   highlightGrades: ['10'],
   freshnessDays: 30,

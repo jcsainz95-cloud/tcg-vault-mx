@@ -16,7 +16,7 @@ function fullEnv(overrides: Record<string, unknown> = {}): Record<string, unknow
     JWT_REFRESH_SECRET: 'b'.repeat(32),
     STRIPE_SECRET_KEY: 'sk_live_x',
     STRIPE_WEBHOOK_SECRET: 'whsec_x',
-    APP_BASE_URL: 'https://app.tcgvaultmx.com',
+    APP_BASE_URL: 'https://app.tcghunt.mx',
     RESEND_API_KEY: 're_live_x',
     ...overrides,
   };

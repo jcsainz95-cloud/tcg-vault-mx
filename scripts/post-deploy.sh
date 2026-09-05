@@ -364,13 +364,19 @@ EOF
 #   NO BLOQUEA el post-deploy: informa y sigue. Lo que bloquea el anuncio del
 #   release es que el operador lo resuelva (ver el resumen final).
 # -----------------------------------------------------------------------------
-log "PASO 8 — diales de v1.50.3 (§4.38p) — comparación SOLO-LECTURA, no escribe nada"
+# v1.51 (M-48, §4.38r): el mismo comparador reporta además el **DIAL ÚNICO** del gancho
+#   (`gradingHookEnabled`) y traduce `ingestMaxCardsPerRun` a créditos/día. El dial `on`
+#   NO cambia su código de salida: encenderlo es una decisión del DUEÑO (es un acto de
+#   gasto, §4.38r.3), no un fallo de deploy. Lo que sí para en seco (rc=2) es detectar un
+#   binario PRE-M-48, porque ahí el gasto lo gobierna otro dial. Ver DEVOPS_NOTES §32.12.
+log "PASO 8 — diales del gancho (§4.38p + dial único §4.38r) — SOLO-LECTURA, no escribe nada"
 DIALS_RC=0
 if [ "$HAS_ADMIN_HTTP" = 1 ]; then
   ADMIN_BASE_URL="$ADMIN_BASE_URL" ADMIN_JWT="$ADMIN_JWT" \
     bash "$REPO_ROOT/scripts/check-graded-estimate-dials.sh" || DIALS_RC=$?
   case "$DIALS_RC" in
-    0)  ok "Los 3 diales ya están en su valor de criterio en este entorno." ;;
+    0)  ok "Los 3 diales ya están en su valor de criterio en este entorno."
+        ok "El estado del DIAL ÚNICO del gancho está impreso arriba (off = oscuro; on = gastando)." ;;
     10) warn "Hay diales EN EL SEED VIEJO. El \`PUT\` está impreso arriba: lo ejecuta el OPERADOR." ;;
     20) warn "Hay diales que DIVERGEN: se PREGUNTA al dueño, NO se pisan (§11.0-3)." ;;
     *)  warn "El comparador de diales no pudo concluir (rc=$DIALS_RC). Revisar antes de anunciar." ;;

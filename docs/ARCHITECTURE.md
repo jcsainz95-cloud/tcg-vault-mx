@@ -4,6 +4,55 @@
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
 >
 > ---
+> **Rev v1.53 — FUSIÓN DE LAS DOS LÍNEAS QUE SALIERON DE v1.50.3-g** (2026-09-05, arquitecto; fusión de
+> `origin/main` **v1.52** dentro de `claude/buylist-inventory-workflow-hdnls3` **v1.51.20**).
+> **CERO DDL, CERO endpoints, CERO campos, CERO montos, CERO cambios de conducta.** Contrato en `API_CONTRACT.md`
+> **v1.53**. **Nada de ninguna de las dos líneas se descarta.**
+> ⚠️ **Las dos ramas salieron de `v1.50.3-g` y numeraron en paralelo sin saber la una de la otra.** El resultado es
+> **v1.53** y no «v1.52.1»: `1.51.20 < 1.52`, así que un `.1` dejaría la rama **debajo** de una versión que no la
+> contiene, y por esa puerta entrarían veinte revisiones, el ciclo de adquisición entero y **M-46**. **v1.53 es la
+> única cota por encima de las dos.**
+> 1. **⚠️ COLISIÓN 1 — `M-46` nombraba DOS migraciones. La del gancho de grading pasa a `M-48`.** La rama llamó
+>    `M-46` al **ciclo de adquisición** (DDL: 40 columnas + enums + backfill); `main` (v1.51-one-dial) llamó `M-46` al
+>    alta de **`grading_hook_enabled`** (DATA/seed, **sin DDL**). **Decide el artefacto, no la antigüedad:** existe en
+>    disco `backend/prisma/migrations/20260901120000_m46_buylist_acquisition_cycle/`, aplicada y registrada en
+>    `_prisma_migrations` — **renombrarla rompe `migrate deploy`**; el seed del gancho **no tiene artefacto** y su
+>    «M-46» era una etiqueta de prosa. ⇒ **ciclo = `M-46`, gancho = `M-48`, imágenes de set = `M-47` (intacta, también
+>    en disco).** Mismo criterio y mismo precedente que la renumeración `M-41 → M-42` del merge de v1.50.2 (§11).
+>    **⚠️ Por qué no era cosmético:** `DEVOPS_NOTES.md` §32.12 documenta un pase que dice *«M-46 es DATA/seed, sin DDL:
+>    `migrate deploy` no trae nada»*, y el `M-46` de la rama es **DDL real y pendiente**. Dos runbooks bajo un número,
+>    y uno autoriza a saltarse una migración de dinero. **La renumeración es de etiqueta: ninguna conducta cambia.**
+> 2. **⚠️ COLISIÓN 2 — `§4.39` nombraba DOS secciones de ESTE documento. Las IMÁGENES DE SET pasan a `§4.40`.** La
+>    rama usa `§4.39(a)`…`§4.39(t)` (ciclo de adquisición); `main` usaba **subapartado numérico** (logos de set). **Decide el
+>    radio de citación:** el primero se cita **cientos** de veces en siete documentos, en comentarios de código y en
+>    `PROJECT.md` §P; el segundo, **62** veces y **todas** con la forma `§4.39.N`. ⇒ **ciclo = `§4.39`; imágenes de set
+>    = `§4.40.1`–`§4.40.9`.** En este documento y en el contrato quedan reescritas todas las citas. **Una cita
+>    `§4.39.N` superviviente en documentos ajenos apunta a NADA —no a la sección equivocada— porque el `§4.39` vigente
+>    no tiene subsecciones numéricas**; se enruta a cada dueño como limpieza **NO bloqueante** y **no renumero rutas
+>    ajenas**.
+> 3. **DT-Gd (`TECH_DEBT.md`) — decidido: SÍ se nombran.** Nacen **`CardSetDTO`** (`GET /catalog/sets`, **sin**
+>    `logoUrl`) y **`BuylistSetDTO = CardSetDTO & { logoUrl: string | null }`** (`GET /buylist/sets`, clave **siempre
+>    presente**). **La causa raíz era mía:** el contrato definía las dos respuestas distintas pero las escribía como
+>    **shapes anónimos**, y *un shape sin nombre no tiene con qué estar en desacuerdo* ⇒ colapsarlos era gratis y el
+>    `logoUrl?` resultante **desactivó el invariante de §4.40.6**. Es **declaración, no cambio**: cero shapes, cero
+>    rutas, cero conducta. La corrección del tipo es de **frontend**. Contrato: `API_CONTRACT.md` v1.53(D).
+> 4. **Único punto donde una línea DEROGA a la otra: `gradedEstimateIngestEnabled`.** La rama lo trae vivo porque
+>    **nunca vio** v1.51-one-dial — no lo defendía, lo desconocía. **Manda `main`** (decisión del dueño, tomada y
+>    reafirmada) ⇒ **retirado**. Los **diez** diales del buylist son ortogonales y no se ven afectados.
+> 5. **Sigue vigente palabra por palabra todo lo demás de las dos líneas:** de la rama, las once enmiendas
+>    v1.51.9→v1.51.20 (**`422 ITEM_NOT_OFFERED`**, **`500 OFFERED_PRICE_MISSING`**, la **escalera de precedencia**, la
+>    forma única de `details` en `PICKUP_ADDRESS_*`, **`offerSentAt` como marca permanente** — BL-28 — y la **norma de
+>    cobertura §5.2** con sus cinco disparadores); de `main`, **P-54 entero** (M-47, `logoUrl` en `MasterSetSummaryDTO`
+>    y en `GET /buylist/sets`), **P-21**, §5.2/§5.3, §0-B y el dial único del gancho.
+>
+> ---
+> **NOTA DE LECTURA — este encabezado tiene DOS PILAS DE REVISIONES y las fechas no bajan de forma monótona.**
+> Debajo van primero las revisiones de la **rama** (v1.51.20 → v1.51, 2026-09-01/02) y después las de **`main`**
+> (v1.52-set-logos → v1.50.4-brand-domain, 2026-08-31). **Las dos arrancan en `v1.50.3-project-reconciliation` /
+> `v1.50.3-g`**, el antepasado común. ⚠️ **El «v1.51» de la rama (ciclo de adquisición) y el «v1.51-one-dial» de
+> `main` (gancho de grading) son cosas DISTINTAS que eligieron el mismo número en paralelo.**
+>
+> ---
 > **Rev v1.51.20 — CIERRE DE LAS TRES ESCALADAS DEL GATE + DOS REGISTROS + UNA NORMA DE COBERTURA** (2026-09-02,
 > arquitecto; rama `claude/buylist-inventory-workflow-hdnls3`). **CERO DDL, CERO endpoints, CERO campos nuevos.**
 > Contrato en `API_CONTRACT.md` **v1.51.20**. **Nada se borra; lo superado queda marcado.**
@@ -391,6 +440,180 @@
 > 11 quedan **tal cual se resolvieron**: el humano los adoptó.)*
 >
 > ---
+> ### ⬇️ A PARTIR DE AQUÍ, LA PILA DE `main` (v1.50.4-brand-domain → **v1.52-set-logos**, 2026-08-31)
+> *Rama paralela salida de v1.50.3, igual que la de arriba. Se conserva literal salvo las dos renumeraciones de
+> v1.53 (`§4.39.N → §4.40.N` y `M-46 → M-48`), que van marcadas en el sitio.*
+> ---
+>
+> **Rev v1.52-set-logos (2026-08-31, arquitecto — petición del DUEÑO: que al seleccionar un set se vea el LOGO de la
+> expansión, no solo su nombre. DISEÑO EN PAPEL; lo implementan BACKEND y FRONTEND. Base: v1.51-c, vigente entera.)**
+> **Cero rutas nuevas, cero códigos de error, cero montos, cero permisos. UNA migración, aditiva pura.**
+> 1. **§4.40 (nueva; *era §4.39 — renumerada en v1.53(2)*) — se persisten LAS DOS imágenes de set, no solo el logo.** `CardSet` gana `logoUrl` (el nombre
+>    dibujado → **la teja**, que es lo que el dueño pidió) y `symbolUrl` (el glifo cuadrado impreso en la carta → chips
+>    y filtros donde el logo no cabe). Vienen en **la misma respuesta** que ya vamos a leer: coste marginal **cero**.
+>    Persistir solo el logo ahorraría dos `String?` y **obligaría a otra migración + otro re-sync** el día del primer
+>    chip — peaje que este proyecto ya pagó con M-18. **`symbolUrl` se persiste y NO se expone** todavía.
+> 2. **`M-47` (§11) — ADITIVA PURA y sin ceremonia.** Dos columnas nullable; sin `DROP`, sin `NOT NULL`, sin default,
+>    sin tocar índices, **sin reescribir una fila**. **Money-safe por construcción:** `CardSet` no alimenta precio,
+>    referencia, regla ni curva. **No hay cut-over, ventana ni congelación** — dicho explícitamente para que nadie le
+>    prepare a M-47 la ceremonia que M-43/M-45 sí exigían.
+> 3. **RE-SYNC, no backfill. Cero endpoints nuevos, cero SQL de datos.** `upsertSet()` es el escritor **único** de
+>    metadata de set y ya es idempotente y auditado: en cuanto lea `images`, **cualquier** sync puebla las columnas.
+>    Los sets **nuevos** llegan poblados solos; los ya importados se rellenan con el **botón por set que M2 ya tiene**
+>    (`POST /admin/catalog/sync { setId }`), que es el bisturí. `sync-all { force:true }` es el martillo y **queda como
+>    opción del operador, no como paso obligatorio**. **Regla dura de escritor: NO DEGRADAR** — ausente ⇒ *no-op*,
+>    jamás `null` (si no, la vía «set anidado en carta» borra lo que escribió `GET /v2/sets` y el logo aparece y
+>    desaparece según qué botón se pulsó último). §4.40.4.
+> 4. **El contrato lo decidió un hallazgo de código, no la intuición: la retícula de tejas es UNA sola y compartida.**
+>    `MasterSetIndex` tiene **cuatro** modos que rinden el **mismo** `MasterSetSummaryDTO` (M1, bóveda-admin,
+>    bóveda-cliente, cotizador) y el modo `quoter` **no tiene endpoint propio**: compone sus tejas client-side desde
+>    `GET /buylist/sets`. Por eso `logoUrl` entra en **ese DTO (4 endpoints) + `GET /buylist/sets`**. Poner el campo en
+>    el sitio «obvio» (las facetas de Compra) habría dejado **sin logo justo la teja del cotizador**, y no habría
+>    parecido un bug de contrato. §4.40.1, §4.40.5.
+> 5. **Y NO entra donde no se va a usar (tan normativo como lo anterior):** ni en `GET /catalog/facets` ni en
+>    `GET /catalog/sets` (alimentan **chips y filtros de TEXTO**, no tejas; y la home **ya** carga imágenes de
+>    terceros — en este mismo ciclo se corrigió que pedía de más), ni en `CardDTO`/`setName` (sería multiplicar el
+>    mismo logo por 60 cartas de una rejilla), ni en `remote-sets`, ni en `SetRefDTO`. §4.40.5.
+> 6. **Nullable de verdad, con la doctrina de §5.2.9: clave SIEMPRE presente, ausencia como `null`** — nunca omitida,
+>    nunca `""`, nunca un placeholder del backend. Habrá sets sin logo (promos, sets viejos) **de forma permanente**:
+>    `logoUrl?: string` invita a `s.logoUrl!` y a descubrirlo en producción; `logoUrl: string | null` **obliga al
+>    compilador** a que alguien decida qué se pinta. Es la grieta exacta de `imageSmallUrl` (§5.2.1), cerrada por
+>    adelantado. **La retícula tendrá dos tipos de teja conviviendo para siempre**, y eso es diseño de ux-ui, no un
+>    estado transitorio que un re-sync arregle. §4.40.6.
+> 7. **§5.3 SÍ aplica y la respuesta la doy yo, no frontend: NIVEL B.** `<img>` crudo, sin `next/image`, sin `srcset`.
+>    Lo dicta la regla de coste 4 ya escrita («nada de nivel A dentro de listas o rejillas») + el perfil de cola larga
+>    + que el proveedor sirve **una sola URL** por imagen (no hay tamaño que elegir). **`remotePatterns` NO cambia:
+>    mismo host que ya sirve el arte de las cartas** ⇒ cero acción de devops y cero superficie nueva. §4.40.7.
+> 8. **§5.2 NO aplica, y lo digo para que nadie lo confunda:** esto es **catálogo vivo**, no un acta congelada. El
+>    corolario «no se congelan punteros de terceros en registros probatorios» sigue en pie y **no lo contradice**:
+>    guardar una URL de tercero en catálogo que el sync reescribe mañana es correcto; congelarla en un pedido no lo
+>    es. Lo único que cruza de §5.2 es el **criterio (F)/(P)** y la regla de degradación. **Contrato:
+>    `API_CONTRACT.md` v1.52.** §4.40.7.
+>
+> **Rev v1.51-c (2026-08-31, arquitecto — UNA decisión de precisión sobre §5.2, enrutada por el techlead (regla 9).
+> Base: v1.51-b, vigente entera. Cero migraciones, cero DDL, cero montos, cero rutas, CERO cambios de conducta.)**
+> 1. **§5.2.9 (nueva) — qué pasa cuando un HECHO CONGELADO se perdió.** El contrato v1.51-b prometía `cardId`, `name`,
+>    `number` y `productType` **requeridos**, pero `GET /orders/:orderId` lee una columna `Json` sin esquema escrita
+>    por versiones anteriores del código: **puede no traerlos**. Era **el mismo pecado que §5.2 vino a matar,
+>    invertido**. Se declara la **tolerancia** en el contrato (`HistoricalOrderItemCardDTO`, `Partial` de los hechos)
+>    y se **RECHAZA** que el backend «garantice un mínimo» rellenando desde el join: violaría §5.2.2 y cambiaría un
+>    hueco honesto por un **dato inventado en un registro probatorio**. Regla general: **(P) degrada a `null`, (F)
+>    degrada a AUSENTE; ninguna degrada jamás a otro valor.**
+> 2. **Money-safe explícito:** el dinero de la línea no vive en el blob (`unitPriceCents` es columna, el `breakdown`
+>    sale de `Order`) ⇒ un snapshot incompleto **no mueve un centavo**. Peor caso: cosmético, con honestidad.
+> 3. **`null` vs ausente alineado con la realidad** (`rawCondition`/`gradingCompany`/`gradeValue` viajan **`null` con
+>    clave presente**; solo `setName` se omite). Se corrige el **contrato**, no el código.
+> 4. **`GuestTrackingItemDTO` confirmado en su sitio:** cuarta superficie de imagen, otro DTO, join en vivo correcto,
+>    **no contradice §5.2.5** y **nadie debe uniformizarlo**. Su única deuda viva sigue siendo **D-IMG-2** (identidad),
+>    baja y no bloqueante. **Contrato: `API_CONTRACT.md` v1.51-c.**
+>
+> **Rev v1.51-b (2026-08-31, arquitecto — DOS DECISIONES DE DISEÑO, destapadas por un diagnóstico de imágenes.
+> DISEÑO EN PAPEL; lo implementan BACKEND, FRONTEND y DEVOPS. Base: v1.51-a, vigente entera.)**
+> **Cero migraciones, cero DDL, cero montos, cero rutas nuevas.**
+> 1. **§5.2 — DOCTRINA DEL SNAPSHOT CONGELADO (nueva, transversal).** El defecto visible (la miniatura que falta en
+>    carrito/checkout de invitado/detalle de pedido) ya estaba enrutado; lo que faltaba era la doctrina que explica
+>    **por qué nadie sabía dónde iba el campo**: `OrderItem.cardSnapshot` es un **JSON sin forma declarada**
+>    (`cardSnapshot: object` en backend, `"card": {}` en el contrato) que el frontend tipaba como **`CardDTO`
+>    completo**. Se declara: un snapshot congela **HECHOS DE LA TRANSACCIÓN** (clase F: qué se vendió, en qué
+>    estado, a qué precio) y **NUNCA presentación** (clase P: imagen y demás, que se **resuelve en lectura**).
+>    Criterio de clasificación en una pregunta, en §5.2.2.
+> 2. **Histórico: se elige la opción (ii), resolución en lectura — y se eleva de «fallback» a REGLA.** La imagen se
+>    resuelve **siempre** por join sobre el `cardId` ya congelado; **nunca** se lee del JSON. **Un solo cambio en el
+>    read path arregla los pedidos viejos y los nuevos a la vez.** Se **rechaza el backfill**: reescribir en sitio el
+>    JSON de líneas ya cobradas es una migración **no aditiva sobre filas dinero-adyacentes** cuyo beneficio es una
+>    miniatura y cuyo riesgo es el acta de una venta — y **no compraría nada**, porque congelar una **URL de tercero**
+>    (`images.pokemontcg.io`, CDN de TCGplayer; **sin copia propia**) congela una cadena, no unos bytes: se pudre.
+>    **Corolario general: no se congelan punteros a recursos de terceros dentro de registros probatorios.** §5.2.4.
+> 3. **§5.3 — `next/image`: ADOPCIÓN ACOTADA (nueva).** No es binaria. Se adopta **solo donde la imagen gobierna el
+>    LCP y el conjunto es acotado** (hero/teja líder de home + imagen principal de ficha); la **cola larga** del
+>    catálogo se queda en `<img>` **pidiendo la URL correcta**. Se **rechaza el `srcset` a mano**: con las dos únicas
+>    URLs del catálogo, en DPR≥2 el navegador pediría el `hires` en una caja de 160 px ⇒ **empeoraría los bytes en
+>    móvil**, que es justo lo que se quería arreglar. §5.3.2, §5.3.3.
+> 4. **Se CIERRA el comodín `hostname: '**'` de `remotePatterns`, ahora que es gratis.** Hoy es inerte; con
+>    `next/image` sería un **proxy de imágenes abierto**. La lista correcta **ya existe en el backend**
+>    (`SEALED_IMAGE_HOST_ALLOWLIST`): `remotePatterns` debe ser su **espejo**, nunca ir por delante. §5.3.4.
+> 5. **Precondición de coste (§5.3.5):** el nivel A no va a producción hasta que **devops confirme cuota y precio de
+>    transformaciones del plan de Vercel vigente** y lo deje fechado en `DEVOPS_NOTES.md`. Misma disciplina que
+>    §4.38(r.3): una función que consume recurso facturado no se enciende con una estimación. **No transcribo cifras
+>    de Vercel aquí** (§0-B: clase (B)).
+> 6. **Cinco desviaciones registradas y enrutadas, ninguna corregida por mí** (D-IMG-1..5, §9), incluida una nueva:
+>    el tracking de invitado y `shipments` resuelven **la identidad** por join en vivo en vez de leerla del registro
+>    congelado (baja, no bloqueante). **Contrato: `API_CONTRACT.md` v1.51-b** (declara `OrderItemCardDTO`).
+>
+> **Rev v1.51-a (2026-08-31, arquitecto — CIERRE DE A-1 (condición del techlead sobre ~~M-46~~ **M-48**, el dial del
+> gancho — *v1.53(1)*), CIERRE DE GU-9
+> (decisión del dueño) y UN CAMBIO DE INVARIANTE (I8). Base: v1.51-one-dial, que sigue vigente entera.)**
+> 1. **A-1 — el `COSTE MEDIDO` pasa a ser PRECONDICIÓN del primer `off → on`**, al mismo nivel que el veredicto de
+>    viabilidad. El banner de M10 le dice al dueño «hasta **1 000 créditos al día**» **sin calificador**, y esa
+>    aritmética **puede ser falsa hasta por ~16×**: `ingestMaxCardsPerRun` acota las cartas **en alcance**, pero la
+>    petición pide el **SET entero** (`fetchAllInSet=true`) ⇒ si PPT cobra por carta **DEVUELTA**, el techo real es
+>    `1 000 × A` con `A` **no acotado por ningún dial**. La instrumentación que lo mide **ya existe y ya se imprime**
+>    (`[VEREDICTO-PSA] COSTE MEDIDO:`); lo que faltaba era que el **consentimiento dependiera de ella**. §4.38(r.3.1),
+>    con **lista ejecutable** (1a–1e) y **regla de bloqueo**: `créditos/carta devuelta ≥ 0.5` ⇒ **flip BLOQUEADO** y
+>    escalada regla 9. **Es el único bloqueante vivo del encendido.**
+> 2. **I8 CAMBIA — `ingestMaxCardsPerRun` pasa de `[1, 5000]` a `[1, 1000]`** (decisión del arquitecto, delegada por el
+>    techlead). 5 000 × 2 × 2 = **20 000 créditos/día** = **la cuota diaria completa del dueño**, alcanzable con **un
+>    solo `PUT` válido**, sin redeploy y sin aprobación adicional: eso no es un tope, es un sello de goma. Estrechar es
+>    **fail-closed verificado** (un valor almacenado fuera de rango marca `ingestConfigInvalid` y el ingest **no pide
+>    nada**). El seed **250 no cambia**. §4.38(r.3.4). **Contrato: `API_CONTRACT.md` v1.51-a.**
+> 3. ✅ **GU-9 CERRADA — el dueño acepta los 60 días** (2026-08-31), con el mecanismo de los **dos relojes** explicado
+>    y tras preguntar por un umbral de una semana (7 daría 14). **⛔ NO es «poner 60 en un dial»:**
+>    `graded_estimate_freshness_days` **se queda en 30**; escribir 60 daría un peor caso de **120**. **Cero cambios de
+>    config y de código.** Cablear `evidenceDate` **sigue siendo deuda** (columna ya existe; faltan escritor y
+>    `stale()`), ahora de severidad **baja** y **no bloqueante**. §4.38(m.2.1).
+> 4. **Corrección de un HECHO en §4.38(r.6.1)** (hallazgo de QA): la frase que decía que el arnés E2E hace
+>    `PUT { gradedEstimatesEnabled: 'on' }` es **falsa desde `6418cb2`** — hoy pasa por `enableGradingHookGuarded` con
+>    `gradingHookEnabled`, y **no llega a hacer el `PUT` si detecta credencial viva**. **La norma no cambia** (ya se
+>    cumple y tiene test); envejeció la descripción. Caso de §0-B: clase (B) escrita como (A). Texto viejo conservado
+>    y rotulado como histórico.
+>
+> **Rev v1.51-one-dial (2026-08-31, arquitecto — DISEÑO EN PAPEL; lo implementan BACKEND + FRONTEND + DEVOPS).**
+> **El gancho de grading pasa de DOS interruptores a UNO. Decisión del DUEÑO, tomada y reafirmada; no se re-litiga.**
+> El segundo dial (`graded_estimate_ingest_enabled`) **nunca se dibujó en la UI** — solo se podía encender por `curl`,
+> que es exactamente lo que el **criterio 110(e)** no acepta. El reclamo era un defecto real, no una preferencia.
+> 1. **Se RETIRAN las dos claves** (`graded_estimates_enabled`, `graded_estimate_ingest_enabled`) y **nace UNA**:
+>    `grading_hook_enabled` (~~**M-46**~~ **M-48** *—renumerada en v1.53(1)—*, DATA/seed, sin DDL, seed **`off`**),
+>    DTO M10 `gradingHookEnabled`.
+>    **Es clave NUEVA a propósito:** ninguna base ya sembrada la tiene ⇒ **ningún valor almacenado puede armar el dial
+>    nuevo** y **el deploy del colapso no puede empezar a gastar créditos solo**. Consigue el efecto de «apagar todo en
+>    el deploy» **sin que el deploy escriba ningún dial** (§11.0). §4.38(r.1).
+> 2. **El colapso hace más peligroso el ENCENDIDO y más seguro el APAGADO.** Hoy apagar la exhibición **deja el ingest
+>    gastando**; con un dial, un `PUT` para las dos cosas. Todas las compensaciones se ponen del lado del encendido.
+>    §4.38(r.2).
+> 3. **Encender es un ACTO DE DINERO, con precondiciones verificables** (presupuesto de créditos declarado, veredicto
+>    de viabilidad de la sonda ya observado, GU-9 resuelta). §4.38(r.3).
+> 4. **Pase obligatorio con paso de verificación** — el hook queda oscuro entre el deploy y el flip del dueño; ese
+>    hueco es **el precio, elegido, de no arrancar gastando**. §4.38(r.4).
+> 5. **Apagar el dial DEJA DE SER el remedio de una cifra rara:** escalera de remedios por fila → por grado → por
+>    curaduría → dial. El coste de frescura al reencender está acotado a **una corrida del job**, no a la duración del
+>    apagón. §4.38(r.5).
+> 6. **La sonda NO se convierte en un segundo dial escondido** (se rechaza invertirla a opt-out): sería recrear el
+>    defecto que el dueño está señalando, movido de sitio. §4.38(r.3.3).
+> **Cero cambios de superficie pública, cero DDL, cero montos.** Contrato: `API_CONTRACT.md` v1.51-one-dial.
+> **Base previa:** v1.50.4-brand-domain.
+>
+> Rev **v1.50.4-brand-domain** (2026-08-31, arquitecto — CORRECCIÓN DOCUMENTAL + UNA NORMA NUEVA).
+> Este documento seguía escribiendo los dominios **muertos** `tcgvaultmx.com` / `tcgvault.mx` y la cadena
+> «TCG Vault MX» en 11 puntos. **No era cosmético:** por la regla de conflicto, este documento manda sobre el
+> código, así que un dominio muerto escrito aquí **autorizaba** a backend/frontend a reintroducirlo. Cambios:
+> 1. **Dominio canónico = `tcghunt.mx`; marca = «TCG HUNT».** Verificado **contra el producto**, no contra otra
+>    documentación: `frontend/messages/{es,en}.json` → `common.brand.name = "TCG HUNT"`,
+>    `common.brand.domain = "tcghunt.mx"`; copy con `soporte@`, `contacto@`, `facturacion@` ya en `@tcghunt.mx`.
+>    Buzones del producto: **`soporte@` · `contacto@` · `facturacion@` · `buylist@` · `no-reply@`**, todos
+>    `@tcghunt.mx`. Los buzones `@tcghunt.mx` **ya reciben** (confirmado por el humano 2026-08-31) — lo que
+>    desbloquea el tramo de correo de **P-21**.
+> 2. **NUEVA norma transversal §0-B «Fuentes de verdad ejecutables»:** qué documento puede *afirmar* un valor del
+>    producto y cuál debe **remitir a la fuente ejecutable**. Es la respuesta estructural a un patrón que ya se
+>    repitió cuatro veces (§9 «Desviaciones detectadas»).
+> 3. **`API_CONTRACT.md` deja de transcribir correos literales** (convención nueva en su §0): describe **forma y
+>    origen** del campo (`evidenceContact` = correo resuelto server-side desde configuración), no el valor.
+> **Cero cambios de diseño, de shape, de schema, de endpoints o de montos.** Lo único que cambia en el código es
+> **defaults de buzón** (backend, P-21) y **envs** (devops, P-21) — ninguno de los dos es alcance del arquitecto.
+>
+> ---
+> ### ⬇️ ANTEPASADO COMÚN — de aquí para abajo, las DOS pilas comparten historia
+> ---
+>
 > Rev **v1.50.3-project-reconciliation** (2026-08-28, rama `claude/psa-graded-card-value-gmhv5u`, arquitecto —
 > DISEÑO EN PAPEL; lo implementan BACKEND + FRONTEND). **Pase de reconciliación con `PROJECT.md` tras el rechazo de
 > QA + techlead.** No añade features: **cierra divergencias en las que el contrato/código se apartó de `PROJECT.md`
@@ -591,7 +814,9 @@
 > gate, que solo se exponen al admin en `.../graded-estimates/preview`; **sin escalón de costo no hay destacado**
 > (jamás costo $0 ni default silencioso); `source` **NO** viaja al cliente (garantía de indistinguibilidad **fase 1
 > manual ⇄ fase 2 ingest**). Feature flag `graded_estimates_enabled` **seed `off`** (fail-closed: el disclaimer §O.5 aún
-> espera el visto bueno legal del humano). Contrato en API_CONTRACT (Changelog
+> espera el visto bueno legal del humano). *(**Estado de 2026-08-23, conservado como historia**: el flag quedó retirado
+> en v1.51 y el disclaimer fue **aprobado por el dueño** el 2026-08-31 —**sin revisión legal profesional**—, así que
+> ese motivo ya no sostiene el seed `off`; ver §4.38(r) y GU-1.)* Contrato en API_CONTRACT (Changelog
 > v1.50-graded-estimate). Detalle normativo: §4.38, §10, §11. **Base previa:** v1.49-pricing-two-layers-merge.
 > Rev v1.47-manual-override-perennial-candidate (2026-08-24, rama `fix/variant-composition-regression`, arquitecto —
 > DISEÑO EN PAPEL; lo implementa BACKEND). **Re-gate seguridad + techlead sobre P47-2.** El re-gate halló que el
@@ -1471,7 +1696,8 @@
 >   verificación y envía el correo. El objeto `user` de `/auth/register|login|google` ahora incluye
 >   `emailVerified` (ya expuesto en `/users/me`). Ver `API_CONTRACT §1`.
 > - **Env nuevas:** `RESEND_API_KEY` (secreto, **requerida en no-local** — staging+prod), `MAIL_FROM`
->   (default `no-reply@tcgvaultmx.com`). En LOCAL_ENVS sin key → `NoopMailAdapter` (degrada con aviso). Ver §8.
+>   (remitente; **valor resuelto por entorno**, con default en código — dominio canónico `common.brand.domain`,
+>   p. ej. `no-reply@tcghunt.mx`). En LOCAL_ENVS sin key → `NoopMailAdapter` (degrada con aviso). Ver §8 y §0-B.
 > - **Migración M-17** (§11). Jobs: `auth-token-sweep` (limpia tokens expirados).
 >
 > **Changelog v1.4-finance (2026-08-16)** — **Costo real de paquetería en el P&L** (PROJECT.md requisito #3,
@@ -1560,6 +1786,92 @@ Puntos donde el diseño deja la puerta abierta a fase 2:
 - `InventoryItem.ownerType` (`platform|customer`) permite introducir `consignor` (C2C) sin migración estructural.
 - `PricingProvider` es una interfaz; subir a plan de pago = una implementación nueva + un dial en M10.
 - El dinero se maneja **por transacción**; NO existe entidad `Wallet`/`Balance`. Introducirla en fase 2 no rompe nada previo.
+
+---
+
+## 0-B. Fuentes de verdad ejecutables (norma transversal, v1.50.4)
+
+> **Norma.** Vinculante para todos los roles. Nace de un patrón reproducido **cuatro veces** en este proyecto
+> (inventario en §9): *una fuente afirma algo del producto, el producto dice otra cosa, y nadie lo coteja.*
+
+### 0-B.1 El problema, dicho con precisión
+
+La jerarquía del proyecto (`PROJECT.md` › `API_CONTRACT.md` › código) es una jerarquía de **autoridad para
+decidir**, y funciona. El error fue tratarla también como jerarquía de **autoridad para describir**. No lo es: un
+documento **decide** lo que aún no existe, pero **no puede saber** lo que ya existe — solo puede repetir lo que
+alguien creyó que existía cuando lo escribió. Cuando un documento *afirma* un valor que el producto ya tiene, esa
+afirmación no es una decisión: es una **copia sin fecha de caducidad**, y la jerarquía la convierte en orden.
+
+Concretamente: `PROJECT.md` afirmó que la marca comercial era «TCG Vault MX» y que ése era «el nombre que se usa en
+la interfaz». Era falso — `common.brand.name` decía «TCG HUNT» desde antes. Pero como `PROJECT.md` manda, el error
+se propagó **hacia abajo y con razón**: se escribió un descargo legal con la marca mala, y otro rol *«corrigió»* la
+metadata de los Excel **quitando la marca real**, citando `PROJECT.md` como autoridad. Ninguno de los dos se
+equivocó de proceso. **El proceso los mandó al error.** Y este mismo documento sostenía dominios muertos por la
+misma vía.
+
+### 0-B.2 Clasificación de afirmaciones
+
+Toda afirmación de un documento del proyecto cae en una de dos clases. **La clase determina quién manda.**
+
+| Clase | Qué es | Fuente de verdad | Qué escribe el documento |
+|---|---|---|---|
+| **(A) Decisión** | Regla, invariante, forma, política, plazo, código de error, precedencia money-safe, shape de DTO, decisión de negocio | **El documento** (por la jerarquía normal). El código la obedece; si diverge, el código está mal. | El texto completo de la regla. |
+| **(B) Descripción de un valor que ya vive en el producto** | Marca, dominio, buzones, defaults de env, textos de i18n, nombres de claves, versiones instaladas, contenido de seeds, rutas reales de archivos | **La fuente ejecutable** (i18n, env, seed, código). Si el documento y la fuente discrepan, **manda la fuente y se corrige el documento — nunca al revés**. | **Dónde leerlo** (la clave/env/archivo) y, opcionalmente, el valor **marcado como ilustrativo** (`p. ej.`). |
+
+**Regla operativa:** *una decisión se escribe; un valor se cita por su origen.* Si al escribir dudas de la clase,
+pregúntate: **«¿esto lo estoy decidiendo yo ahora, o lo estoy copiando de algo que ya corre?»** Si es lo segundo,
+es clase (B), y transcribir el literal es exactamente lo que hizo sobrevivir un dominio muerto a un rebrand.
+
+### 0-B.3 Reglas
+
+1. **Un documento NO afirma un valor de clase (B) como propio.** Remite a la fuente ejecutable. Formulación
+   canónica: *«la marca es el valor de `common.brand.name` (hoy, p. ej., “TCG HUNT”)»* — **no** *«la marca es
+   “TCG HUNT”»*. El paréntesis es una cortesía de lectura y **no es citable como autoridad**.
+2. **Verificación contra el producto, nunca contra otra documentación.** Un valor de clase (B) se comprueba
+   leyendo el artefacto que corre (`frontend/messages/*.json`, `backend/src/**`, `prisma/schema.prisma`, seeds,
+   `.env.example`). **Citar otro documento como evidencia no es verificación** — es cómo se propagó el error las
+   cuatro veces. Un `*_NOTES.md` **jamás** es fuente de un valor de clase (B): es una bitácora, y las bitácoras
+   envejecen.
+3. **Fuentes ejecutables canónicas de este proyecto** (clase B):
+   | Valor | Fuente ejecutable | Notas |
+   |---|---|---|
+   | Marca visible | `common.brand.name` en `frontend/messages/{es,en}.json` | Hoy `TCG HUNT`. |
+   | Dominio canónico | `common.brand.domain` | Hoy `tcghunt.mx`. |
+   | Razón social | `common.footer.legalEntity` | Hoy **pendiente**; el pie la omite mientras no exista. |
+   | Buzones que la API devuelve | env (`DISPUTE_EVIDENCE_CONTACT`, `SUPPORT_EMAIL`) con default en código | Ver §0-B.4 y `API_CONTRACT §0`. |
+   | Remitente de correo | env `MAIL_FROM` con default en código | Ver §8. |
+   | Buzones que el front muestra como copy | i18n (`frontend/messages/*.json`) | Propiedad de frontend/ux-ui. |
+4. **«TCG Vault MX» es el nombre del repositorio, no una marca.** Puede aparecer en rutas (`tcg-vault-mx/`),
+   nombres de host de infraestructura heredada y notas históricas. **No** puede aparecer en ninguna superficie que
+   el usuario vea o reciba (criterio 115 de `PROJECT.md`).
+5. **Quien detecte una discrepancia entre un documento y la fuente ejecutable NO la «arregla» en el producto.**
+   Reporta al dueño del documento. Un rol que cambia una cadena del producto citando un documento como autoridad
+   está invirtiendo la regla 2 — es literalmente lo que pasó con la metadata de los Excel.
+6. **Los dominios muertos permanecen vivos en un solo sitio: las guardias.** `security/scripts/_guard.sh` debe
+   seguir reconociendo `tcgvaultmx.com` **y** `tcghunt.mx` como producción mientras el redirect 301 exista.
+   Estrechar esa lista es un fallo de seguridad, no una limpieza de rebrand (alcance devops).
+
+### 0-B.4 Consecuencia para `API_CONTRACT.md`: forma y origen, no valor
+
+Un correo de contacto es **dato de infraestructura**: devops lo cambia por entorno sin redeploy. El contrato es
+**lo más caro de cambiar** del proyecto. Clavar el segundo con el primero es un error de acoplamiento, y además
+**el que produjo este incidente**: mientras el contrato dijera `soporte@tcgvaultmx.com`, cualquier implementación
+que lo obedeciera reintroducía el dominio muerto **legítimamente**.
+
+**Decisión (v1.50.4): el contrato describe la FORMA y el ORIGEN del campo, no transcribe el VALOR.** Norma completa
+y criterio generalizable en `API_CONTRACT §0` («Datos de contacto y valores de configuración»). En resumen:
+
+- `evidenceContact: string` — dirección de correo válida, **no vacía**, **resuelta server-side** desde
+  configuración (`DISPUTE_EVIDENCE_CONTACT`, override sin redeploy; default en código). Backend **nunca** la omite
+  ni la deja vacía (env definida pero vacía ⇒ cae al default: helper `envOr`, no `??`).
+- **Cambiar el valor no es un cambio de contrato** y no consume revisión.
+- **Frontend renderiza el valor que recibe.** Prohibido hardcodearlo, derivarlo o afirmarlo en un test de contrato;
+  un literal de fallback solo cabe en fixtures/mocks offline.
+
+**Criterio para las próximas** (esto es lo que hay que recordar, no la lista de correos): *si un valor puede
+cambiar por entorno o sin redeploy, el contrato norma su **forma, origen, obligatoriedad y quién lo resuelve** —
+nunca su contenido.* Aplica ya a correos, y por extensión a remitentes, teléfonos, URLs de soporte y cualquier
+identificador de contacto que se añada después.
 
 ---
 
@@ -2760,7 +3072,8 @@ el momento de cotizar, respetando rate-limit), es una **decisión de alcance** �
 
 Decisiones de producto **cerradas por el humano**: la verificación **bloquea acciones sensibles, no el login**;
 recuperación con **ambos** flujos (self-service por email **+** reset por admin existente). Proveedor de envío:
-**Resend** (`no-reply@tcgvaultmx.com`).
+**Resend**; remitente = env `MAIL_FROM` sobre el dominio canónico `common.brand.domain` (p. ej.
+`no-reply@tcghunt.mx` — valor ilustrativo, la fuente es la env; §0-B).
 
 #### a) Abstracción de correo — módulo `mail`
 Desacopla el dominio de Resend (mockeable en tests, intercambiable de proveedor):
@@ -3694,8 +4007,10 @@ hasta que el stream «Cuentas y acceso» la absorba en `MailService` — backend
   revierte ni falla el request. Sin cola de reintentos en MVP (parte de la misma deuda).
 - **Disparo:** SOLO en la transición a `rechazada` (re-`reject` idempotente ⇒ no re-envía).
 - **Minimización de datos:** el correo lleva carta (nombre/set/número), acabado, `reason` y los dos plazos con el
-  canal de coordinación (soporte@tcgvaultmx.com). **Prohibido:** CLABE (ni enmascarada), montos o estado de OTROS
-  ítems de la solicitud, cualquier dato de terceros.
+  **canal de coordinación** — buzón de soporte **resuelto por configuración**: `SUPPORT_EMAIL`, en cascada a
+  `DISPUTE_EVIDENCE_CONTACT`, con default en código (p. ej. `soporte@tcghunt.mx`; el valor lo fija devops por
+  entorno, §0-B). **Prohibido:** CLABE (ni enmascarada), montos o estado de OTROS ítems de la solicitud,
+  cualquier dato de terceros.
 
 **d) Identidad del vendedor en M5 (PII).** `seller: { id, name, email }` en `GET /admin/buylist`,
 `GET /admin/buylist/:id` y `rejected-items`. El correo del vendedor es **dato de contacto operativo** de un
@@ -5166,9 +5481,13 @@ por pieza física, unit-based).
   piezas disponibles del mismo grupo, más baratas primero) para que el comprador **elija cantidad** (el carrito es
   por-pieza: agrega hasta `availableCount` `inventoryItemId`s). Reusa `ListingDTO` (que para sellado ya lleva
   `referenceValue` = `sealedMarketRef` y `salePriceCents` = derivado/override).
-- **Call-out anti-buylist (mailto, front):** la ventana muestra el texto fijo *«¿Quieres revender tu sellado a TCG
-  Vault MX? Escríbenos a contacto@tcgvaultmx.com con fotos y lo cotizamos.»* — **no** es un endpoint; **no** hay
-  buylist de sellado (fuera de alcance, PROJECT).
+- **Call-out anti-buylist (mailto, front):** la ventana muestra un texto fijo que invita a revender el sellado
+  **fuera de la app**, con un `mailto` al buzón de contacto. **El texto y el buzón son copy del frontend**: viven
+  en i18n (`sealed.buylistCallout.{title,body,cta}` en `frontend/messages/{es,en}.json`) sobre la marca
+  `common.brand.name` y el dominio `common.brand.domain` — hoy, p. ej., *«¿Quieres revender tu sellado a
+  TCG HUNT? Escríbenos a contacto@tcghunt.mx con fotos y lo cotizamos.»* **La redacción exacta la fijan
+  ux-ui/frontend, no este documento** (§0-B: aquí se describe el mecanismo, no se transcribe el valor). **No** es
+  un endpoint; **no** hay buylist de sellado (fuera de alcance, PROJECT).
 
 #### (f) Destino (envío / bóveda) — reuso TOTAL del checkout existente
 
@@ -7686,7 +8005,9 @@ dos veces. Lo que sí debe hacer es **exigir que se declare la intención** al e
 // backend/src/common/graded-estimate.ts  (NUEVO — zona compartida common/)
 export interface GradingCostTier { minValueMxnCents: number; maxValueMxnCents: number | null; costMxnCents: number }
 export interface GradedEstimateConfig {
-  enabled: boolean;                 // dial M10 graded_estimates_enabled (fail-closed, seed off)
+  enabled: boolean;                 // v1.51: DIAL ÚNICO M10 grading_hook_enabled (fail-closed, seed off).
+                                    // Gobierna exhibición Y obtención. El gate del INGEST lee ESTE campo
+                                    // (el dial crudo), NUNCA estimatesEnabled/highlightEnabled (§4.38r).
   grades: string[];                 // grados que la FICHA expone            — seed ['10','9']
   highlightGrades: string[];        // grados que el BADGE pinta (⊆ grades)  — seed ['10']
   freshnessDays: number;            // seed 30      (filas AUTOMÁTICAS — ver (m))
@@ -7919,8 +8240,9 @@ redeploy**, validación total en el `PUT` con códigos de error propios.
 > ambiguo. Tampoco caben en `PUT /admin/settings`, que valida **key por key** y no puede expresar un invariante
 > **entre filas** con un error accionable (qué par de escalones no empalma).
 
-**DOCE claves de `ConfigSetting`** (M-42, DATA/seed, sin DDL). Las seis primeras son de v1.50; las seis últimas las
-añade v1.50.2 (gate de confianza (k) + ingest (h)):
+~~**DOCE claves de `ConfigSetting`**~~ **ONCE claves de `ConfigSetting`** *(v1.51: **10** de M2 + **1** de M10)*
+(M-42 + **M-48** *—era `M-46`; renumerada en v1.53(1)—*, DATA/seed, sin DDL). Las seis primeras son de v1.50; las seis siguientes las añade v1.50.2 (gate de
+confianza (k) + ingest (h)); **v1.51 retira las DOS de M10 y las sustituye por una** — §4.38(r):
 
 | Key | `SettingKey` | Tipo | Seed | Gobierna | Se edita en |
 |---|---|---|---|---|---|
@@ -7929,28 +8251,61 @@ añade v1.50.2 (gate de confianza (k) + ingest (h)):
 | `graded_estimate_freshness_days` | `GRADED_ESTIMATE_FRESHNESS_DAYS` | int | **30** | frescura de las filas **AUTOMÁTICAS** (ambas superficies) | **M2** (mismo `PUT`) |
 | `grading_cost_tiers` | `GRADING_COST_TIERS` | JSON array | tabla §O.2.1 (abajo) | **gate de curaduría** (solo rejilla/vitrina) | **M2** (mismo `PUT`) |
 | `grading_min_upside_pct` | `GRADING_MIN_UPSIDE_PCT` | number | **30** | **gate de curaduría** (solo rejilla/vitrina) | **M2** (mismo `PUT`) |
-| `graded_estimates_enabled` | `GRADED_ESTIMATES_ENABLED` | `'on' \| 'off'` | **`off`** (fail-closed) | **interruptor maestro** | **M10** `PUT /admin/settings` |
+| ~~`graded_estimates_enabled`~~ | ~~`GRADED_ESTIMATES_ENABLED`~~ | — | — | ⛔ **RETIRADA en v1.51** → la sustituye `grading_hook_enabled`, §4.38(r) | — |
 | `graded_estimate_manual_freshness_days` | `GRADED_ESTIMATE_MANUAL_FRESHNESS_DAYS` | int \| `null` | **30** *(v1.50.3; era `null`)* | decaimiento del **override manual** — criterio 109, (m). `null` = no decae ⇒ **desactiva el criterio 109**: decisión del humano + `warn` obligatorio | **M2** (mismo `PUT`) |
 | `graded_estimate_max_raw_multiple` | `GRADED_ESTIMATE_MAX_RAW_MULTIPLE` | number | **100** *(v1.50.3; era 50)* | cota **superior** de magnitud — (k) 3(b); = `maxGradedMultiple` de §O.7 | **M2** (mismo `PUT`) |
 | `graded_estimate_min_sample_count` | `GRADED_ESTIMATE_MIN_SAMPLE_COUNT` | int | **5** *(v1.50.3; era 3)* | muestra mínima del proveedor — (k) 2, aplicado en el **ingest**; = `minSalesSample` de §O.7 | **M2** (mismo `PUT`) |
 | `graded_estimate_source_stat` | `GRADED_ESTIMATE_SOURCE_STAT` | `'median'\|'average'\|'smart'` | **`median`** | cuál número del proveedor **es** el precio — (h) | **M2** (mismo `PUT`) |
 | `graded_estimate_ingest_max_cards_per_run` | `GRADED_ESTIMATE_INGEST_MAX_CARDS_PER_RUN` | int | **250** | tope **duro** de cuota por corrida — (h) | **M2** (mismo `PUT`) |
-| `graded_estimate_ingest_enabled` | `GRADED_ESTIMATE_INGEST_ENABLED` | `'on' \| 'off'` | **`off`** (fail-closed) | interruptor de la **fase 2** — (h) | **M10** `PUT /admin/settings` |
+| ~~`graded_estimate_ingest_enabled`~~ | ~~`GRADED_ESTIMATE_INGEST_ENABLED`~~ | — | — | ⛔ **RETIRADA en v1.51** — absorbida por el dial único, §4.38(r) | — |
+| **`grading_hook_enabled`** *(NUEVA v1.51-one-dial, **M-48** — era `M-46`, v1.53(1))* | `GRADING_HOOK_ENABLED` | `'on' \| 'off'` | **`off`** (fail-closed) | **DIAL ÚNICO del gancho: exhibición + obtención** | **M10** `PUT /admin/settings` |
 
-> **Por qué DOS interruptores y no uno.** `graded_estimates_enabled` gobierna la **exhibición** (¿el comprador ve la
-> cifra?); `graded_estimate_ingest_enabled` gobierna la **obtención** (¿gastamos créditos y escribimos filas?). Son
-> decisiones de dueño distintas y con riesgos distintos —una es legal/comercial, la otra es de **coste** y de calidad
-> de dato— y colapsarlas obligaría a elegir entre «no puedo probar el ingest sin publicar» y «no puedo publicar sin
-> encender el gasto». Con dos diales el operador puede **rodar el ingest en observación con la vitrina apagada**, que
-> es exactamente la secuencia de encendido que pide (h).
+> ⛔ **DEROGADO en v1.51 — «Por qué DOS interruptores y no uno».** El texto anterior decía: *«…colapsarlas obligaría a
+> elegir entre "no puedo probar el ingest sin publicar" y "no puedo publicar sin encender el gasto". Con dos diales el
+> operador puede rodar el ingest en observación con la vitrina apagada»*. **Se conserva para que el cambio sea legible,
+> y se deroga por dos motivos, en este orden:**
+> 1. **Decisión del dueño** (2026-08-31, reafirmada tras plantearle esta misma objeción): **un solo dial.**
+> 2. **El argumento ya estaba debilitado por el propio código:** la **sonda** `POKEMONPRICETRACKER_GRADED_PROBE`
+>    ((h.1-quater), fusionada en `d37c407`) hace el ingest de solo-lectura **por construcción**, así que «rodar en
+>    observación» dejó de depender de tener dos diales. Y el segundo dial **nunca se dibujó en la UI**: era gobernable
+>    solo por `curl`, que es lo que el criterio 110(e) rechaza.
+> **Norma vigente: §4.38(r).**
 
-**El flag `graded_estimates_enabled` (seed `off`) es una decisión deliberada, no un adorno.** Tres razones:
-(1) el **disclaimer de §O.5 aún NO tiene el visto bueno del humano** (pregunta abierta v2.0 #1, legal-comercial) — el
+**El dial único `grading_hook_enabled` (seed `off`) es una decisión deliberada, no un adorno.** ~~Tres razones~~
+**Tres razones heredadas + una nueva; de las heredadas, hoy sostienen dos** *(las tres se escribieron para el flag
+maestro de v1.50; ~~**vigentes tal cual** para el dial único de v1.51~~ — **la (1) CADUCÓ el 2026-08-31**, ver el
+recuadro inmediatamente debajo)*:
+(1) ~~el **disclaimer de §O.5 aún NO tiene el visto bueno del humano** (pregunta abierta v2.0 #1, legal-comercial) — el
 código puede desplegarse antes que el texto se apruebe **sin** que la afirmación comercial salga a producción por
-accidente; (2) da a QA el on/off que el **criterio 108** exige verificar («con la feature encendida y apagada, ningún
-precio de venta cambia»); (3) es el mismo patrón fail-closed ya vigente para `sealedValueTrend`/`sealedRestockAlerts`
-(§4.23h) y `sealedPriceSource` (§4.19e). Con `off` el backend **ni siquiera evalúa nada**: no emite `gradedEstimates`
-ni `gradingHighlight`, y `?gradingHighlight=true` devuelve `data: []`.
+accidente~~ ⛔ **CADUCADA (2026-08-31).** El disclaimer de §O.5 está **aprobado por el dueño** —aprobación dada en
+sesión, condicionada a la corrección de marca a **TCG HUNT** (decisión 58) que **ya se aplicó**— y **NO tiene revisión
+legal profesional**. Las dos mitades van siempre juntas y no se suavizan (`PROJECT.md` decisión **59** / criterio
+**117**; pregunta abierta 1 reescrita). Se conserva tachada porque explica por qué el flag **nació** en v1.50, no
+porque siga sosteniéndolo; (2) da a QA el on/off que el **criterio 108** exige verificar («con la feature encendida y
+apagada, ningún precio de venta cambia»); (3) es el mismo patrón fail-closed ya vigente para
+`sealedValueTrend`/`sealedRestockAlerts` (§4.23h) y `sealedPriceSource` (§4.19e); **(4) NUEVA en v1.51 y hoy la más
+fuerte de las cuatro: encender es un ACTO DE GASTO** contra un proveedor de paga, con sus precondiciones verificables
+— **(r.3)**. Con `off` el backend **ni siquiera evalúa nada**: no emite `gradedEstimates` ni `gradingHighlight`, y
+`?gradingHighlight=true` devuelve `data: []`.
+
+> **Qué pasa con esta justificación al caer la razón (1) — dicho, no disimulado.** La razón (1) era la que más se
+> citaba y es la que **envejeció**: describía un estado del mundo (*«el texto no está aprobado»*) que **cambió**, no
+> una regla que este documento decida. Es un caso de manual de **§0-B**: afirmación de **clase (B)** —descripción de
+> algo que ya vive en el producto (el copy i18n de §O.5 y su aprobación)— tratada como si fuera de clase (A). El
+> dial **no se debilita en la práctica**, y conviene ser exacto sobre por qué:
+> - **(2) criterio 108** es un criterio de aceptación **ya aprobado**: QA necesita el on/off para verificarlo. Nada
+>   que ver con el texto legal. **Intacta.**
+> - **(3) fail-closed** es patrón vigente en otras dos features. **Intacta.**
+> - **(4) gasto** es **más fuerte que la razón legal que sustituye**: con el dial único, `on` autoriza hasta
+>   ~1 000 créditos/día **nominales — techo bajo un supuesto de facturación aún NO observado; el real puede ser
+>   mayor por el factor de amplificación, §4.38(r.3.1.0)** — contra un proveedor de paga, y **los créditos gastados no
+>   se recuperan al apagar**
+>   (`PROJECT.md` decisión 60, §4.38r.3.1). Un argumento de *«no publiques un texto sin visto bueno»* se resolvía con
+>   una aprobación; éste **no caduca nunca** porque el gasto es estructural.
+> - **Lo que sí se pierde:** el dial **ya no retiene una afirmación comercial no aprobada**, porque no la hay. Quien
+>   busque en §4.38 el argumento «legal» para mantener `off` **no lo va a encontrar**, y está bien: lo que queda
+>   abierto es la **revisión legal profesional**, y ésa **no bloquea el encendido** (decisión 59). Bloquean las
+>   precondiciones de **(r.3.1)** y el pase de **(r.4)** — gasto y datos, no texto.
 
 > **Nota de separación de diales (importante para el operador):** `grading_cost_tiers` y `grading_min_upside_pct`
 > gobiernan **exclusivamente la CURADURÍA** (dónde promovemos). **No afectan a la ficha**: subir `minUpsidePct` vacía la
@@ -7986,7 +8341,7 @@ ni `gradingHighlight`, y `?gradingHighlight=true` devuelve `data: []`.
 | I5 | **último escalón abierto:** `tiers[n-1].maxValueMxnCents === null` y **ninguna otra** fila `null` | `422 GRADING_TIERS_NOT_OPEN_ENDED` |
 | I6 | `minUpsidePct` número en `[0, 1000]`; `freshnessDays` int en `[1, 365]` | `422 VALIDATION_ERROR` |
 | I7 | `grades` / `highlightGrades` ⊆ `{"10","9"}`, no vacíos, sin duplicados, y **`highlightGrades` ⊆ `grades`** | `422 VALIDATION_ERROR` |
-| **I8** | *(v1.50.2)* `manualFreshnessDays` **`null`** o int en `[1, 3650]`; `minSampleCount` int en `[1, 100]`; `sourceStat` ∈ `{median, average, smart}`; `ingestMaxCardsPerRun` int en `[1, 5000]` | `422 VALIDATION_ERROR` |
+| **I8** | *(v1.50.2; **`ingestMaxCardsPerRun` ESTRECHADO en v1.51-a**)* `manualFreshnessDays` **`null`** o int en `[1, 3650]`; `minSampleCount` int en `[1, 100]`; `sourceStat` ∈ `{median, average, smart}`; `ingestMaxCardsPerRun` int en **`[1, 1000]`** *(antes `[1, 5000]`; el máximo viejo autorizaba de un solo `PUT` la cuota diaria entera del dueño — §4.38(r.3.4))* | `422 VALIDATION_ERROR` |
 | **I9** | *(v1.50.2)* `maxRawMultiple` número **> 1** y ≤ `1000`. **El `> 1` no es cosmético:** con `≤ 1` la cota superior chocaría con la inferior (`psa10 > salePriceCents`) y **ninguna** carta podría destacarse jamás — una vitrina vacía permanente y sin explicación | `422 VALIDATION_ERROR` |
 
 - **`costMxnCents ≥ 1`, jamás 0** — es la misma regla L1 de dinero que ya aplica `OverrideDto` (`@Min(1)`,
@@ -8368,7 +8723,9 @@ puede ser generoso. *(Si con datos reales el 5 resulta ruidoso o corto, moverlo 
 no merece una clave de `ConfigSetting` una decisión que se toma una vez, al calibrar — mismo criterio que (k.1).)*
 
 **Lo que esta decisión NO cambia:** ni el contrato público, ni un solo DTO, ni el comportamiento de la fase 1 (manual),
-ni ningún monto. **No está vivo** (`graded_estimate_ingest_enabled` seed `off`). **Bloquea encender la fase 2** solo en
+ni ningún monto. ~~**No está vivo** (`graded_estimate_ingest_enabled` seed `off`).~~ *(v1.51-a: la clave está
+**RETIRADA** — §4.38(r.1). Lo que hoy lo mantiene apagado es el **dial único** `grading_hook_enabled`, seed `off`.)*
+**Bloquea encender la fase 2** solo en
 el escenario en que el proveedor resulte servir S2 — y en ese escenario lo que bloquea es correcto que se bloquee.
 - **Override del operador — MANDA sobre la autodetección.** Se conservan
   `POKEMONPRICETRACKER_GRADED_FORMAT` (`auto` **default** | `sales_by_grade` | `graded_prices`) y
@@ -8398,7 +8755,12 @@ clase de decisión que solo se puede afinar viendo datos reales.
 - **Tope duro adicional:** `graded_estimate_ingest_max_cards_per_run` (seed **250**). Un error de alcance no puede
   quemar la cuota del día.
 - **INV-FX (ver (a)) — el ingest escribe `priceUsdCents` + `fxRate`, JAMÁS el numeral USD en `priceMxnCents`.**
-- **Interruptor propio:** `graded_estimate_ingest_enabled` (**seed `off`**), independiente de la exhibición.
+- ~~**Interruptor propio:** `graded_estimate_ingest_enabled` (**seed `off`**), independiente de la exhibición.~~
+  ⛔ **DEROGADO en v1.51 (§4.38r):** el ingest se gatea con el **dial único** `grading_hook_enabled`. **El gate lee el
+  DIAL, no el `enabled` derivado:** `estimatesEnabled`/`highlightEnabled` doblan la validez de claves de **curaduría**
+  (`minUpsidePct`, `highlightGrades`, `maxRawMultiple`) y un dedazo en una de ellas **no puede** congelar la obtención
+  de datos. Los tres puntos fail-closed propios del ingest (`ingestConfigInvalid`, parser positivo, gate de evidencia)
+  **no se tocan**.
 
 ##### (h.4) Encendido y escaladas
 
@@ -9151,7 +9513,7 @@ equivocarse hacia «destruyo la referencia de una pieza en custodia» no lo es.
 
 **Severidad y disparador.** Coincido con la **Media** del blue team: exige `super_admin`, falla **cerrando** y es
 estrictamente mejor que antes de `M-43`. **No bloquea la fusión ni el encendido en staging con datos sintéticos.**
-**Sí es precondición de encender `gradedEstimatesEnabled` en cualquier entorno con inventario `graded` real** — de
+**Sí es precondición de encender el dial del gancho (v1.51: `gradingHookEnabled`) en cualquier entorno con inventario `graded` real** — de
 plataforma **o de custodia**, y esto último afila la condición **C2** del blue team: el disparador no es «que haya
 custodia», es «que haya piezas reales», porque el modo de fallo (pieza apagada en silencio, sin cola que la vea)
 aplica igual a las de plataforma. **Rol dueño: backend.**
@@ -9168,13 +9530,14 @@ caducidad.** Nada en el paso 6 lo decía.
 **Procedimiento correcto, en dos escenarios distintos — y elegir el escenario es la mitad del arreglo:**
 
 - **(A) URGENCIA (algo va mal y hay que apagarlo ya): la palanca es el DIAL, no el `git revert`.**
-  `gradedEstimatesEnabled = off` detiene la exhibición y —bajo (l.5)— la **creación** de estimados, es instantáneo,
+  `gradingHookEnabled = off` (v1.51) detiene la exhibición, **la obtención** y —bajo (l.5)— la **creación** de
+  estimados; es instantáneo,
   reversible y **deja `M-43` en pie**, o sea que el predicado de exclusión sigue protegiendo el dinero. **Revertir el
   código en caliente es la opción peor en casi todos los incidentes imaginables**, porque quita la protección justo
   cuando el sistema ya tiene filas de estimado escritas. Se declara aquí para que en el incidente no se decida.
 - **(B) RETIRADA ORDENADA de `M-43` (decisión de producto, con tiempo): precondición de CERO.** Antes de revertir el
   código hay que **dejar en cero** las filas `refKind='graded_estimate'` del entorno:
-  1. `gradedEstimatesEnabled = off` (que no entren más mientras se limpia).
+  1. `gradingHookEnabled = off` (que no entren más mientras se limpia — v1.51: **también** para el ingest).
   2. Para cada fila: **sin pieza física** de esa compañía+grado (cualquier `status`, cualquier `ownerType`) ⇒
      `DELETE /admin/pricing/graded-estimates/:cardId/:gradeValue`, que por (l.4.5) borra exactamente esa naturaleza.
      **Con pieza física** ⇒ `POST /admin/pricing/override` con `intent:"market"` al precio real (acto de dinero,
@@ -9248,7 +9611,7 @@ por qué bloquear un deploy.
 
 **No es la solución** (la solución es (l.4)); es el **mecanismo que hace exigible** el «no encender» del pentester, en
 lugar de dejarlo como nota de procedimiento. Consiste en **gatear la CREACIÓN de estimados por el interruptor
-maestro**: con `gradedEstimatesEnabled = off`, `POST /admin/pricing/override` con `intent:"graded_estimate"` responde
+maestro**: con el dial del gancho en `off` (v1.51: `gradingHookEnabled`), `POST /admin/pricing/override` con `intent:"graded_estimate"` responde
 **`409 GRADED_ESTIMATE_DISABLED`**, y el escritor de la fase 2 hace skip + traza.
 
 - **Qué compra:** con el dial `off` en producción **no se puede fabricar la precondición de GE-1** (una fila de
@@ -9356,7 +9719,11 @@ persistir la fecha de la evidencia sin DDL (`PriceReference` no cambia, (k.1)).
 **El fallo concreto que abre:** el proveedor deja de recibir ventas nuevas de una carta, pero **sigue sirviendo la
 misma mediana**; cada corrida del ingest reescribe la fila con `capturedDate = hoy` ⇒ **la cifra parece fresca para
 siempre**. Es literalmente el «feed rancio» contra el que el dial existe, disfrazado de fresco por nuestro propio job.
-*(No está vivo hoy: `graded_estimate_ingest_enabled` tiene seed `off`. Debe cerrarse **antes** de encenderlo.)*
+*(~~No está vivo hoy: `graded_estimate_ingest_enabled` tiene seed `off`.~~ **v1.51:** con el **dial único**
+`grading_hook_enabled`, encender la feature **es** encender el ingest ⇒ ~~esto pasa a ser **bloqueante del primer
+encendido en producción**~~ — §4.38(r.6.2), §9, GU-9. ✅ **v1.51-a: DEJA DE SER BLOQUEANTE.** El dueño aceptó el peor
+caso de 60 días el 2026-08-31, con el mecanismo de los dos relojes explicado. **Sin cambio de config ni de código** —
+(m.2.1).)*
 
 **Dictamen v1.50.3 — GATE DE EVIDENCIA EN LA ESCRITURA (misma técnica que `minSampleCount`, cero DDL).** El ingest
 **NO persiste** una fila cuya `lastSaleDate` de `ebay.salesByGrade` sea más vieja que `freshnessDays`:
@@ -9381,6 +9748,55 @@ Con eso `stale()` mide contra `evidenceDate ?? capturedDate` y el criterio 109 s
 tocar la unique ni requerir backfill. **Se recomienda meterla en la MISMA migración M-43** que ya va a decisión del
 humano por INV-D inverso ((l.3)): las dos son DDL aditivo sobre la misma tabla y no tiene sentido pagar dos ventanas
 de migración.
+
+###### (m.2.1) ✅ GU-9 CERRADA — el dueño acepta los 60 días de peor caso (decisión del DUEÑO, 2026-08-31)
+
+> **Ésta es la redacción canónica del cierre. Todo lo demás del documento la referencia y no la reescribe.**
+
+**Qué se le explicó antes de pedirle la decisión** —consta aquí porque una aceptación sin el mecanismo delante no vale
+como aceptación—: que hay **dos relojes que se SUMAN**, y por qué:
+
+| Reloj | Qué tolera | Dónde vive |
+|---|---|---|
+| **Al BAJAR el dato** | aceptamos una última venta de hasta `freshnessDays` de antigüedad | gate de evidencia del ingest, tabla de arriba |
+| **Al LEER el dato** | la fila vive otros `freshnessDays` desde su `capturedDate` antes de considerarse rancia | `stale()` de (c) |
+
+Se suman **porque `evidenceDate` no se persiste**: el lector no tiene la fecha de la venta, solo la de la captura, así
+que **no puede descontar** el tiempo que el dato ya traía encima. Con el seed vigente de **30**, el peor caso es **60**.
+
+**Qué preguntó y qué se le contestó.** Preguntó por *«máximo una semana»*. Se le dijo la verdad incómoda: **poner 7 no
+da 7, da 14**, y un 7 real exige cablear `evidenceDate` — la columna **ya existe** (M-43, verificado:
+`schema.prisma` `evidenceDate DateTime? @db.Date` y su migración aplicada), pero **el escritor y el `stale()` siguen
+sin cablearse** (el provider ya calcula la fecha y la lleva en su fila, y nadie la persiste), lo cual está anotado en
+`TECH_DEBT.md`. Y se le dijo el matiz que hace esto relevante en vez de teórico: **los 7 días no son retraso del
+proveedor, son cuánto lleva la carta sin venderse**, y eso golpea justo a las **caras y raras** — que son exactamente
+las que el gancho destaca. Un umbral corto no traería datos más frescos: **dejaría de mostrar precisamente las cartas
+del gancho**. **Con todo eso delante, eligió 60.**
+
+**⚠️ LO QUE ESTA DECISIÓN *NO* AUTORIZA — leer antes de tocar nada.** «Aceptar 60 días» **NO es** «poner 60 en un
+dial»:
+
+| | |
+|---|---|
+| **Lo aceptado** | El **peor caso de 60 días** que produce el mecanismo **ya vigente**, con `graded_estimate_freshness_days` en su seed de **30** |
+| **Cambio de configuración** | **NINGUNO.** El seed de **30 se queda tal cual**, en todos los entornos |
+| **Cambio de código** | **NINGUNO.** No hay nada que implementar por esta decisión. Backend no recibe trabajo de aquí |
+| **⛔ El error a evitar** | Escribir `graded_estimate_freshness_days = 60` «para reflejar la decisión». Eso **duplicaría la tolerancia a 120 días**, porque los dos relojes se suman: `60 + 60`. Sería **empeorar** exactamente lo que el dueño acaba de acotar |
+
+**Efecto sobre el calendario.** GU-9 **deja de bloquear** el primer `off → on`. De los dos bloqueantes que (r.6.2) y
+(r.3.1) ponían delante del paso 5 del pase, **queda vivo uno: A-1** (el `COSTE MEDIDO` de (r.3.1.1)).
+
+**Qué NO desaparece: cablear `evidenceDate` sigue siendo deuda.** Es lo que convertiría **dos relojes en uno** y lo que
+haría cumplible al pie de la letra el criterio 109 (y lo que haría posible un umbral corto de verdad, si algún día se
+quiere). **Lo que cambia es su carácter, no su existencia:** deja de ser **bloqueante de encendido** y pasa a ser
+**deuda técnica aceptada, con la aceptación fechada y con el número aceptado escrito** — que es justo la forma que el
+DoD admite. **Severidad: BAJA (antes: bloqueante).** El movimiento es legítimo porque lo que hacía grave a GU-9 no era
+la magnitud de la cota sino que **nadie la había aceptado**; ahora está aceptada con el mecanismo explicado. **La
+anotación en `docs/TECH_DEBT.md` la actualiza el rol dueño del código (backend), no el arquitecto** — y debe recoger
+las dos cosas: la severidad nueva y que la columna ya existe (falta escritor + `stale()`), para que nadie vuelva a
+presupuestar la migración.
+
+**Registro de la decisión en `PROJECT.md`:** lo lleva **product-owner**, no este documento.
 
 #### (n) LISTA DE REVISIÓN del back-office (v1.50.3, NORMATIVO) — la contrapartida que faltaba de (k.3)
 
@@ -9542,7 +9958,8 @@ siguiente— sino **emitir `reasons[]`** ((c)): se ataca la causa, no la instanc
 ##### (n.3) La lista funciona con la feature APAGADA — divergencia deliberada con el `preview`
 
 `evaluateGradingHighlight` corta en el paso 1 con `FEATURE_OFF`. **Este endpoint NO aplica ese corte**: evalúa la
-coherencia **aunque `graded_estimates_enabled` esté `off`**, y **echa el estado del dial en la respuesta**
+coherencia **aunque el dial del gancho esté `off`** (v1.51: `grading_hook_enabled`), y **echa el estado del dial en la
+respuesta**
 (`enabled: boolean`) para que el operador sepa que ahora mismo no se está publicando nada.
 
 **Por qué la asimetría es correcta y no un descuido:** el flag arranca en `off` (GU-A6) precisamente para poder
@@ -9801,6 +10218,459 @@ se publica**). Con `DELETE` disponible, un teardown puede además **retirar** lo
 teardown es de quien posee la suite** (frontend/backend), no mío; aquí solo consta que **la herramienta que faltaba
 para poder hacerlo ya está normada**. *(La mitigación vigente es correcta y no urge cambiarla: la huella no publica
 nada.)*
+
+#### (r) COLAPSO A UN SOLO DIAL (v1.51, decisión del DUEÑO, NORMATIVO) — deroga «Por qué DOS interruptores» de (d)
+
+> **Decisión del dueño, tomada y reafirmada (2026-08-31):** *«no tiene sentido tener dos dials»*, *«debería de ser solo
+> 1»*. La objeción del arquitecto —con dos se puede probar el ingest sin publicar— **le fue planteada y la reafirmó**.
+> **No se re-litiga.** Este § no evalúa si conviene: **diseña la forma más segura de cumplirlo.**
+
+**El reclamo tenía causa real.** `graded_estimate_ingest_enabled` **nunca se dibujó en `M10View.tsx`**; la única forma
+de encenderlo era `curl`. El comentario que el propio código pone sobre el **primer** dial dice, palabra por palabra,
+que eso es *«exactamente lo que el criterio 110(e) ("desde el back-office, sin redeploy, auditado") no acepta»*. El
+razonamiento se aplicó al primero y **se dejó a medias con el segundo**. Queda registrado en **§9** como desviación
+detectada, y este § es su cierre. *(No se «arregla» dibujando el segundo dial: el dueño pidió lo contrario, y dibujarlo
+habría convertido en gobernable —desde una pantalla, a un clic— la palanca que **gasta dinero**.)*
+
+##### (r.1) Forma del colapso — se RETIRAN las DOS claves y nace UNA nueva (**M-48**; era `M-46` — v1.53(1))
+
+| Clave | Estado tras v1.51 | Qué pasa con las bases ya sembradas |
+|---|---|---|
+| `graded_estimates_enabled` | ⛔ **RETIRADA** del contrato y del código (fuera de `SettingKey`, de `SETTING_DEFAULTS`, de los validadores y de `SETTING_DTO_MAP`) | La fila **sobrevive, huérfana e inerte**. Nadie la lee. Precedente: `rarity_map` (§M2 v1.32) y `stripe_fee_iva_pct` (§M10 v1.40). **No se borra** — ver abajo. |
+| `graded_estimate_ingest_enabled` | ⛔ **RETIRADA**, ídem | Ídem: fila huérfana e inerte. |
+| **`grading_hook_enabled`** (NUEVA, **M-48** *(era `M-46`; v1.53(1))*, DATA/seed, **sin DDL**) | **EL dial**: gobierna **exhibición Y obtención**. Seed **`off`** fail-closed. Editable en **M10** `PUT /admin/settings` (DTO `gradingHookEnabled`), auditado, sin redeploy | **No existe en ningún entorno.** Ausente ⇒ `SETTING_DEFAULTS` ⇒ **`off`**. |
+
+**Por qué una clave NUEVA y no reusar la que ya está en la UI — es la decisión de seguridad de todo este pase.**
+Reusar `graded_estimates_enabled` sería lo más barato en código y **lo único inaceptable en dinero**: en producción
+vale `"on"`, y el colapso **ensancharía el significado de un valor ya almacenado** («publica» → «publica **y gasta y
+escribe precios**»). El deploy siguiente empezaría a gastar **solo**, sin que nadie decidiera nada. Con una clave
+nueva, **ningún valor almacenado en ningún entorno puede armar el dial nuevo**: todos aterrizan en `off` por
+construcción, y existe **exactamente una** forma de encender el gancho — un `PUT` humano desde el back-office,
+auditado, después de leer el aviso. Dicho de otro modo: **el rename consigue el efecto de «apagarlo todo en el deploy»
+SIN que el deploy escriba ningún dial**, que es justo lo que §11.0 prohíbe.
+
+**Y hay una razón independiente de la seguridad: el nombre.** El significado cambió, así que el nombre debe cambiar.
+`graded_estimates_enabled` no dice «gasta créditos»; `graded_estimate_ingest_enabled` no dice «publica». Mantener un
+nombre viejo sobre semántica nueva es **el mecanismo exacto** por el que este mismo § ya acumuló divergencias en
+silencio (los tres seeds de v1.50.3, §4.38k.0). El nombre nuevo se lee como lo que es: **el gancho, encendido**.
+
+**Por qué las filas viejas NO se borran** (ni con `DELETE`, ni con `UPDATE`, ni con un script): borrar filas de
+`ConfigSetting` en producción es **escribir en la configuración** para conseguir **cero** efecto de comportamiento —el
+código nuevo ya no las lee— y §11.0 punto 4 prohíbe tocar la BD por fuera de la vía auditada. Además, si el deploy se
+revierte, **la fila es lo que mantiene fail-closed al código viejo** (encuentra `off` y no gasta). El coste de dejarla
+es que **miente al que lea la tabla a pelo**, y se compensa con una obligación explícita:
+
+> ⚠️ **OBLIGATORIO (backend + devops):** la **línea de inventario de config del arranque** ((i).7, §11.0) y el
+> comparador solo-lectura de devops (§4.38p paso 1) deben listar `graded_estimates_enabled` y
+> `graded_estimate_ingest_enabled` bajo un rótulo **«claves RETIRADAS presentes en la base (inertes, no se leen)»**.
+> Una clave retirada que aparece en la tabla sin ese rótulo es una **trampa de diagnóstico**: el día del incidente,
+> alguien leerá `graded_estimate_ingest_enabled = off` y concluirá que el ingest está apagado **mientras gasta**.
+
+**Lo que NO cambia:** ninguna superficie pública, ningún DTO de cliente, ningún monto, ninguna ruta, ningún código de
+error nuevo. `GradedEstimateConfigDTO` pierde `ingestEnabled` y conserva `enabled` como **espejo read-only del dial
+único**. Los **diez** diales de M2 (`graded-estimates`) y sus invariantes I1–I9 quedan **intactos**.
+
+##### (r.2) Qué se pierde y qué se gana del fail-closed — la asimetría que ordena todo lo demás
+
+Hoy hay **dos puertas independientes**; mañana **una**. El efecto **no es simétrico**, y verlo es lo que decide dónde
+poner las compensaciones:
+
+| | Antes (dos puertas) | Después (una puerta) | Veredicto |
+|---|---|---|---|
+| **Encender** | Publicar **no podía** gastar. Gastar **no podía** publicar. Hacían falta **dos** escrituras para llegar al dinero. | **Un** `PUT` publica, gasta créditos y escribe precios. | **PEOR.** Aquí van todas las compensaciones ((r.3), (r.4)). |
+| **Apagar** | Apagar la exhibición **dejaba el ingest gastando y escribiendo**. Apagar el ingest dejaba publicando dato que envejecía. Ningún dial era un botón de pánico completo. | Un `PUT` **para las dos cosas a la vez**. | **MEJOR.** El gancho gana el botón de pánico que no tenía. |
+| **Config corrupta** | Cada puerta fallaba cerrada por su lado. | Un valor presente-e-inválido apaga **todo** el gancho (`v === 'on'` estricto). | **Igual o mejor** (más cerrado). |
+| **Sesión `super_admin` comprometida** | Necesitaba dos escrituras para llegar al gasto. | Una. | **PEOR.** Mitigado por (r.3): el tope duro por corrida es ahora una **guarda de dinero**, no un dial de comodidad. |
+
+**Formulación normativa:** *el colapso hace más peligroso el **encendido** y más seguro el **apagado**.* Todo lo que
+sigue son compensaciones del lado del encendido. **Del lado del apagado no se compensa nada porque no hay nada que
+compensar** — y conviene decirlo en voz alta, porque es un punto a favor de la decisión del dueño que el diseño
+anterior había perdido de vista: *con dos diales, el dueño que ve una cifra rara y apaga la vitrina **sigue pagando y
+sigue escribiendo precios**, y no tiene por qué saberlo.*
+
+##### (r.3) NORMA DE ENCENDIDO — `on` es un acto de DINERO, no un ajuste de vitrina
+
+**Encender `grading_hook_enabled` deja de ser una decisión legal/comercial y pasa a ser, además, una decisión de
+gasto.** Se le aplica la doctrina de dinero: `super_admin`, **solo por back-office**, auditado (`AuditLog`
+`settings.update` con `before`/`after`), **jamás** por `UPDATE` a la BD (§11.0 punto 4). **No es decisión de devops.**
+
+###### (r.3.1) Precondiciones VERIFICABLES antes del primer `off → on` de un entorno
+
+> **⚠️ v1.51-a — la precondición 1 se REESCRIBE ENTERA (hallazgo A-1 del techlead sobre ~~M-46~~ **M-48**; condición de su
+> aprobación, exigible antes del primer `off → on`, no antes del merge).** La redacción anterior decía «presupuesto
+> **declarado**: 250 × 2 × 2 = **1 000 créditos/día**» **sin ningún calificador**, y de ahí bajó, literal y sin
+> calificador, al banner de consentimiento de M10 que el dueño lee **en el momento de firmar**. Esa aritmética
+> **puede ser falsa por un factor de hasta ~16×**, y el propio backend lo tiene escrito en dos sitios desde antes de
+> este pase. Lo que sigue no decide cuál de los dos regímenes de cobro es el real —**eso no lo decide un documento**—:
+> convierte **medirlo** en precondición del flip, al mismo nivel que el veredicto de viabilidad, que es exactamente lo
+> que pidió el techlead. **La instrumentación ya existe y ya imprime el número; lo que faltaba era que el
+> consentimiento dependiera de ella.**
+
+**Siguen siendo CUATRO**, y las cuatro se comprueban **antes** de tocar el dial. Estado a 2026-08-31:
+
+| # | Precondición | Estado | ¿Bloquea hoy? |
+|---|---|---|---|
+| **1** | **Presupuesto MEDIDO** (r.3.1.1) — reescrita por **A-1** | ⛔ **PENDIENTE** | ✅ **SÍ — el único** |
+| **2** | Viabilidad ya observada (veredicto de la sonda) | pendiente de correr la sonda en staging; **misma corrida que la 1** | ✅ sí |
+| **3** | GU-9 | ✅ **CUMPLIDA** (el dueño aceptó los 60 días, 2026-08-31; (m.2.1)) | ❌ **ya no** |
+| **4** | Aviso leído | pendiente del copy de ux-ui + su corrección por (r.3.1.1) | ✅ sí |
+
+**(r.3.1.0) Por qué «1 000 créditos/día» es una HIPÓTESIS y no un hecho — una afirmación de clase (B) rotulada como (A)**
+
+La aritmética `250 × 2 × 2` supone que **se cobra por carta EN ALCANCE**. Los dos hechos que la ponen en duda son
+**observables en el código** (§0-B.3 regla 2: verificado contra el artefacto que corre, no contra otro documento):
+
+| Hecho | Dónde se lee | Qué implica |
+|---|---|---|
+| `ingestMaxCardsPerRun` acota las cartas **en alcance** | `price-ingest.service.ts` — `published.map(...).slice(0, cfg.ingestMaxCardsPerRun)`, y `result.cardsInScope` se fija **a partir de ese slice** | El dial **no** acota lo que el proveedor devuelve |
+| La petición pide **el SET entero** | `pokemonpricetracker-bulk.provider.ts` — la query de graded lleva `fetchAllInSet: 'true'`, con hasta `maxPages` páginas **por set** | Las cartas **devueltas** son `Σ (tamaño de cada set tocado)` |
+
+Definimos el **factor de amplificación** `A = cartas DEVUELTAS / cartas EN ALCANCE`. **`A ≥ 1` y NINGÚN dial lo acota**:
+lo que manda es **cuántos SETS distintos** tocan las cartas en alcance, y eso no es configurable. 250 cartas repartidas
+en 20 sets de 200 devuelven **4 000** cartas ⇒ `A = 16`.
+
+De ahí salen **dos regímenes de cobro mutuamente excluyentes**, y **nadie ha observado en cuál está PPT**:
+
+| Régimen | Señal medible | Techo real/día con `ingestMaxCardsPerRun = 250` |
+|---|---|---|
+| **Por PETICIÓN** (el barrido por set no escala con el tamaño del set) | créditos por carta **devuelta** `≈ 0` | **1 000** — la cifra del banner es correcta |
+| **Por carta DEVUELTA** | créditos por carta **devuelta** `≈ 2` | **1 000 × A** — con `A = 16`, **16 000**; y `A` no tiene tope por dial |
+
+Contra la cuota diaria del plan del dueño (**valor de clase (B)**: se lee del panel de PPT, hoy 20 000 según
+`DEVOPS_NOTES.md` §32.12.1), la diferencia entre los dos regímenes es la diferencia entre gastar **el 5 %** y gastar
+**el 80 % o más**. **Ese es el rango del error que el banner de consentimiento oculta hoy.**
+
+> **Y el documento que autorizó ese banner es ÉSTE.** La cifra se escribió aquí como decisión (clase A) cuando es la
+> **consecuencia observable de un comportamiento del proveedor** (clase B). §0-B.3 regla 1 dice qué hacer: *no se
+> afirma el valor, se remite a la fuente ejecutable*. La fuente ejecutable **ya existe y ya lo imprime**: la línea
+> `[VEREDICTO-PSA] COSTE MEDIDO: …` (`graded-phase2-verdict.ts`, `renderLines`) reporta `créditos gastados`,
+> `cartas DEVUELTAS`, `cartas en alcance` y el cociente, y **emite su propio `⚠️` diciendo que la premisa "coste
+> proporcional al inventario real" no se sostiene** cuando el cociente `≥ 0.5`. El defecto no era de instrumentación:
+> era que **la pieza que mide corría después de pagar**.
+
+**(r.3.1.1) Precondición 1 — PRESUPUESTO MEDIDO (ya no «declarado»). EJECUTABLE.**
+
+Se ejecuta **en el entorno que se va a encender**, y produce artefactos que **otro rol puede volver a mirar y decir si
+se cumple o no**. No es una afirmación de intención:
+
+| Paso | Qué se ejecuta / lee | Artefacto | Condición de PASO |
+|---|---|---|---|
+| **1a** | La **misma corrida de sonda** de la precondición 2 (`POKEMONPRICETRACKER_GRADED_PROBE=on` + `POST /admin/jobs/price-ingest`). *Una corrida, dos lecturas: viabilidad y coste.* | Log con marca `grep VEREDICTO-PSA` | Existe una línea que empieza por **`COSTE MEDIDO:`**. Si en su lugar aparece `COSTE: el proveedor no expuso dailyRemaining` ⇒ **1a NO pasa** |
+| **1b** | Leer de esa línea los tres números que ya trae: `spent` (créditos), `D` (cartas **DEVUELTAS**), `S` (cartas **en alcance**), y el cociente `c = spent / D` que la línea calcula sola | La línea, pegada literal en el ticket | Los tres son legibles |
+| **1c** | Aritmética a mano con esos números: `A = D / S`; **`techo/día = ingestMaxCardsPerRun × A × c × 2 corridas`** | El cálculo escrito en el ticket, con los tres factores a la vista | El techo **cabe con margen** en la cuota diaria del plan (leída del panel de PPT **ese día**, no de un documento) |
+| **1d** | `GET /admin/pricing/graded-estimates` **del entorno que se enciende** | Respuesta pegada en el ticket | El `ingestMaxCardsPerRun` usado en 1c es **el de ese entorno**, no el seed de código (§11.0: el seed usa `update: {}`) |
+| **1e** | Publicar el resultado de 1c en `DEVOPS_NOTES.md` **y** comprobar que el número que el banner de M10 le pone delante al dueño **es ése** | Captura del banner + la línea de `DEVOPS_NOTES.md` | **Coinciden.** Un tope que nadie tradujo a créditos no es un presupuesto: es un número — y un presupuesto que no coincide con el que se le enseña al dueño **es peor que ninguno** |
+
+**Regla de bloqueo — sin ambigüedad, y es donde vive la condición del techlead:**
+
+- **`c ≥ 0.5`** (mismo umbral con el que el código emite su `⚠️`) ⇒ **régimen «por carta DEVUELTA» CONFIRMADO** ⇒
+  **el flip queda BLOQUEADO** y es **escalada al arquitecto (regla 9)**, no una decisión de operación ni de devops.
+  Es el mismo tipo de hallazgo que (h.4) ya declara escalable —*«un request por carta invalida el modelo de barrido por
+  set»*—; aquí lo que se invalida es el modelo de **presupuesto**, y el rediseño candidato es el mismo: **ingest curado
+  por lista** (solo las cartas gancho que el admin marque), con su propia curaduría y su propia cuota.
+- **`c < 0.5`** ⇒ régimen «por petición» ⇒ la aritmética del banner **queda confirmada por observación**, y el número
+  que se publica es **el medido**, no el estimado.
+- **1a no pasa (no se pudo medir)** ⇒ **NO se enciende.** *«No medible» no es «barato».* Vía de salida, la que el
+  propio código indica: devops anota el crédito del panel de PPT **antes y después** de la corrida y **esa captura
+  sustituye** a la línea, con los mismos pasos 1b–1e. Lo que **no** es vía de salida es encender para medir: eso es
+  pagar por descubrirlo, que es justo lo que la precondición 2 ya prohíbe para el shape.
+
+> ⚠️ **Obligación de redacción que nace de aquí — dueños: ux-ui (copy) + frontend (cálculo), NO el arquitecto.**
+> Mientras 1c no se haya ejecutado en el entorno, **el aviso de M10 no puede afirmar una cifra de créditos como
+> hecho**. O la dice como **techo nominal bajo un supuesto de facturación aún no observado** (con esas palabras o
+> equivalentes), o no la dice. **Hoy la dice sin calificador** — verificado contra el producto: `grading-hook-cost.ts`
+> deriva `250 × 2 × 2` y el copy de `frontend/messages/es.json` la presenta como cifra firme, y su propio test lo fija
+> (`M10View.test.tsx` afirma `/1[.,\s]?000 créditos al día/`). **Esto NO es cambio de contrato**: ningún DTO, ninguna
+> ruta y ningún código de error cambian — es copy y su fuente de cálculo. Enrutado por el orquestador a **ux-ui** y
+> **frontend**; el arquitecto no escribe el texto.
+
+**(r.3.1.2) Las demás precondiciones**
+
+2. **Viabilidad ya observada.** El entorno debe tener un **`VEREDICTO` de la sonda** registrado
+   (`VIABLE` / `NO_VIABLE` / `INDETERMINADO`, (h.1-quater)). **La sonda corre en staging ANTES del primer encendido**,
+   nunca «a ver qué pasa» en producción: encender sin haber observado el shape del proveedor es **pagar por
+   descubrirlo**. Con `NO_VIABLE`, la vía correcta **no es un dial**: es la escalada obligatoria de (h.1-bis) y, si el
+   dueño quiere seguir publicando la fase 1 manual mientras tanto, **retirar del entorno la credencial del proveedor**
+   (`POKEMONPRICETRACKER_API_KEY`) — sin llave el ingest de graded **no emite una sola petición y no escribe nada**
+   (verificado: `pokemonpricetracker-bulk.provider.ts` sale con `warn` antes de la primera llamada). Retirar una
+   **credencial** no es un feature flag escondido: quita una **capacidad de despliegue**, no gobierna la feature.
+   **Es la MISMA corrida que el paso 1a**: la sonda emite viabilidad y coste en el mismo bloque `VEREDICTO-PSA`. Se
+   ejecuta una vez y se leen las dos cosas; **aprobar la 2 e ignorar la 1 es el fallo que A-1 señala**.
+3. ✅ **GU-9 — CUMPLIDA el 2026-08-31, ya no bloquea.** *(Era: «se cierra con una de dos — el humano acepta por escrito
+   la cota conservadora `≤ 2 × freshnessDays` (**60 días** en vez de 30), o entra la columna `evidenceDate` de M-43».)*
+   **El dueño eligió la primera**, con el mecanismo de los **dos relojes** explicado delante y tras preguntar por un
+   umbral de una semana. **No hay nada que ejecutar en esta precondición y no hay ningún dial que tocar:**
+   `graded_estimate_freshness_days` **se queda en 30** — escribir 60 haría el peor caso **120**. Redacción canónica y
+   consecuencias: **(m.2.1)**. **Verificación de esta precondición:** que `graded_estimate_freshness_days` del entorno
+   siga siendo **30** (o el valor que el dueño haya fijado a propósito), **no 60**.
+4. **Aviso leído.** La pantalla de M10 debe decir, **antes de guardar**, que `on` publica **y** empieza a traer datos
+   de un proveedor **de paga**, escribiendo precios. La redacción es de **ux-ui** (`DESIGN_SYSTEM.md` §22); **la
+   obligación de que exista es de este documento**, y es la misma exigencia que el criterio 110(e) le puso al primer
+   dial: si la única forma de saber lo que hace es leer el código, la pantalla no cumple.
+
+###### (r.3.2) Secuencia recomendada de encendido (no normativa en su orden, sí en sus piezas)
+
+`sonda en staging (VIABLE)` → `dial ON en staging` → `revisar la lista de revisión (n) y la primera corrida` →
+`dial ON en producción` → `medir créditos de la primera corrida` → `revisar (n) otra vez`. La **lista de revisión**
+(`GET /admin/pricing/graded-estimates/review`) es la superficie de observación que sustituye al «rodar con la vitrina
+apagada»: **funciona con el dial encendido y apagado** ((n.3)) y ahora es **más** valiosa, no menos.
+
+###### (r.3.3) La sonda NO se convierte en un segundo dial escondido — se RECHAZA invertirla
+
+Se consideró y **se rechaza** invertir `POKEMONPRICETRACKER_GRADED_PROBE` a *opt-out* (que escribir exigiera una env
+explícita). Restauraría por construcción la separación gasto ⇄ publicación… **recreando exactamente el defecto que el
+dueño está señalando**: un segundo interruptor que él no ve, no gobierna y no puede encender — solo que ahora en un
+`.env` en vez de en un `curl`. **Peor que el original.** La sonda se queda como está: **modo de diagnóstico**,
+*opt-in*, propiedad de devops, con su invariante vigente intacto (*«la env solo QUITA capacidad de escribir, nunca la
+da»*). **NORMATIVO: la sonda no puede volverse prerrequisito para que el dial funcione.** Un dial que necesita que
+alguien más apruebe en otro sitio no es un dial.
+
+###### (r.3.4) DECISIÓN DEL ARQUITECTO — el máximo de `ingestMaxCardsPerRun` baja de **5 000** a **1 000** (cambio de I8)
+
+> **Es decisión mía, no del techlead** (él la planteó y la delegó explícitamente) y **no es la misma cosa que (r.3.1)**:
+> aquélla ata el **consentimiento** a una medición; ésta acota **cuánto puede autorizar un solo `PUT`**. Se decide
+> ahora, no después del encendido, porque **después del encendido el rango ya está autorizando**.
+
+**El problema, dicho con los números delante.** `PUT /admin/pricing/graded-estimates {"ingestMaxCardsPerRun": 5000}` es
+**hoy** una petición perfectamente válida: pasa I8, no requiere redeploy, no requiere aprobación adicional y no
+distingue un dedazo de una decisión. Su techo nominal es `5 000 × 2 × 2 = **20 000 créditos/día**` — **exactamente la
+cuota diaria completa del plan del dueño** (`DEVOPS_NOTES.md` §32.12.1 ya lo tiene escrito y probado como caso). Y eso
+**antes** de aplicar el factor de amplificación `A` de (r.3.1.0), que puede multiplicarlo otra vez.
+
+**Por qué eso no es un tope.** (r.3) declaró `ingestMaxCardsPerRun` **«la única cota entre un `PUT` y la factura del
+proveedor»**. Una cota cuyo valor máximo admisible **coincide con el presupuesto total** no es una cota: es un sello de
+goma. La doctrina propia de este documento ya lo dice para un caso gemelo — `GRADING_COST_MAX_CENTS` (I2) existe
+**«anti-typo»**, y un límite superior anti-typo se calibra contra **la magnitud plausible del uso real**, no contra el
+máximo representable. Contra el uso real, 5 000 es absurdo: el inventario RAW publicado hoy es de **unidades**
+(`DEVOPS_NOTES.md` mide un gasto real de ~28 créditos/día), y el seed son 250.
+
+**La decisión.**
+
+| | Antes | Después | Efecto |
+|---|---|---|---|
+| `GRADED_ESTIMATE_INGEST_MAX_CARDS_MAX` | `5000` | **`1000`** | Techo nominal máximo autorizable por un `PUT`: de **20 000** a **4 000** créditos/día |
+| Rango de I8 para `ingestMaxCardsPerRun` | `[1, 5000]` | **`[1, 1000]`** | Fuera de rango ⇒ `422 VALIDATION_ERROR` (sin código de error nuevo) |
+| Seed | `250` | **`250`** (sin cambio) | Deja **4× de holgura** sobre el seed para crecer sin volver a tocar el contrato |
+
+**Por qué 1 000 y no otro número.** Es el mayor valor que cumple las tres cosas a la vez: (i) deja el techo nominal en
+una **fracción** del presupuesto (~20 %) en vez de en su totalidad, de modo que un dedazo **duele pero no quema el
+día**; (ii) mantiene **4×** de holgura sobre el seed, así que el crecimiento previsible del inventario no obliga a un
+cambio de contrato; (iii) sigue siendo **140×** el inventario real de hoy, o sea no estorba a nadie. **No se elige un
+número «ajustado al inventario actual»** a propósito: un tope que hay que subir cada trimestre se acaba subiendo sin
+pensar, que es el fallo que este § intenta evitar.
+
+**Lo que este cambio NO pretende.** No cierra la amplificación `A`: si PPT cobra por carta **devuelta**, el coste lo
+manda el número de **sets** tocados y **ningún** valor de `ingestMaxCardsPerRun` lo acota. Eso lo cierra (r.3.1) —
+bloqueando el flip— o el rediseño a **ingest curado por lista**. Estrechar I8 reduce el **peor caso nominal**; no
+convierte el dial en un presupuesto. **Decirlo importa**: si alguien lee «bajamos el tope» como «ya está acotado el
+gasto», habremos cambiado un número para crear una falsa sensación de cobertura.
+
+**Compatibilidad y dirección del fallo — verificado, no supuesto.**
+
+- Es un **estrechamiento** de un rango aceptado: todo valor hoy almacenado `≤ 1 000` (incluido el seed **250** de todos
+  los entornos) **sigue siendo válido** y nada cambia de comportamiento. Solo `(1 000, 5 000]` pasa a `422`.
+- **Un valor almacenado dentro de `(1 000, 5 000]` NO se vuelve peligroso: se vuelve fail-closed.** El lector de config
+  marca `ingestConfigInvalid` cuando el validador de esa clave falla (`pricing.service.ts` compone
+  `ingestConfigInvalid` con el resultado de `ingestMaxRes`), y `runGradedEstimates` **sale antes de pedir nada**
+  (`price-ingest.service.ts`, guarda `if (cfg.ingestConfigInvalid)`). Es decir: el estrechamiento **apaga el ingest**
+  en vez de dejarlo gastando. **Es la dirección correcta del fallo**, y es lo que hace seguro hacerlo ahora.
+- **Consecuencia operativa que devops debe comprobar, no suponer** (entra en el paso 0 del pase, (r.4)): si algún
+  entorno tiene un valor almacenado `> 1 000`, tras el deploy ese entorno **no ingesta** hasta que alguien haga un
+  `PUT` válido. Se detecta con `GET /admin/pricing/graded-estimates` **antes** del deploy. *(No se conoce ningún
+  entorno en ese caso: el seed es 250 y el 5 000 aparece en `DEVOPS_NOTES.md` como caso de prueba del script, no como
+  valor almacenado — pero «no se conoce» no es «se verificó», y esta línea existe para que se verifique.)*
+
+**Enrutado (regla 8 — el arquitecto no implementa):**
+
+- **backend** — `common/graded-estimate.ts`: `GRADED_ESTIMATE_INGEST_MAX_CARDS_MAX = 1000`; el mensaje del validador ya
+  interpola la constante, así que se corrige solo. Actualizar los specs que fijen `5000` como válido.
+- **frontend** — si la UI de M2 pinta el rango o valida en cliente, pasa a `[1, 1000]`; el aviso de coste sigue siendo
+  el de (r.3.1).
+- **devops** — `scripts/check-graded-estimate-dials.sh` documenta hoy el caso «5000 → 20000 créditos/día» como *dentro
+  del rango*; tras este cambio ese valor es `422` y el caso debe reescribirse contra el nuevo máximo.
+- **QA** — `ingestMaxCardsPerRun: 1000` ⇒ `200`; `1001` y `5000` ⇒ **`422 VALIDATION_ERROR`**; y con un valor almacenado
+  fuera de rango, el ingest **no emite ni una petición** (la comprobación de fail-closed, que es la que importa).
+
+**Contrato:** sí cambia. `API_CONTRACT.md` I8 y la tabla de rangos de `GradedEstimateConfigDTO` — hecho en la misma
+revisión (`v1.51-a`). **Ningún shape, ninguna ruta y ningún código de error nuevos.**
+
+##### (r.4) EL PASE — cómo se despliega el colapso sin que nadie empiece a gastar (procedimiento + verificación)
+
+**El riesgo que este procedimiento existe para cerrar:** hoy producción tiene `graded_estimates_enabled = "on"`, y el
+ingest de graded cuelga del cron `price-ingest` (**2×/día**, `jobs/price-ingest.service.ts` → `runGradedEstimates`).
+Un colapso hecho «sobre la clave que ya está encendida» convierte el **siguiente tick del cron** —dentro de ≤12 h del
+deploy, sin intervención humana— en la primera factura del proveedor y en la primera escritura automática de precios.
+**Eso no puede pasar por accidente, y con (r.1) no puede pasar en absoluto:** la clave que gobierna es nueva y ninguna
+base la tiene.
+
+**Pasos (devops ejecuta; el dueño decide el paso 5):**
+
+| # | Paso | Quién | Verificación |
+|---|---|---|---|
+| 0 | **Anotar el estado previo** de `graded_estimates_enabled` y `graded_estimate_ingest_enabled` en **cada** entorno, con el comparador solo-lectura (§4.38p paso 1). *No para restaurarlo: para poder responder «¿qué había?» después.* **v1.51-a: anotar también `ingestMaxCardsPerRun` de cada entorno** — si alguno está `> 1 000`, tras el deploy ese entorno queda **fail-closed** (no ingesta) hasta un `PUT` válido, por (r.3.4). | devops | Los dos valores quedan en el ticket, **más** el `ingestMaxCardsPerRun` de cada entorno. |
+| 1 | **Deploy del código.** **Nada que migrar** (**M-48** —*era `M-46`, v1.53(1)*— es DATA/seed, sin DDL). El seed solo alcanza entornos nuevos (§11.0). ⚠️ **v1.53: esta frase se refiere a M-48 y SOLO a M-48.** El pase de **`M-46`** (ciclo de adquisición) **sí trae DDL** y **sí exige `migrate deploy`**: si tu release lleva los dos, `migrate deploy` **no** es no-op. | devops | `migrate deploy` sin cambios **por este pase**. |
+| 2 | **El gancho queda OSCURO, por construcción** — no por un paso que alguien podría olvidar. `grading_hook_enabled` ausente ⇒ `off` ⇒ ni se exhibe, ni se pide, ni se escribe. | *(automático)* | `GET /admin/settings` → `gradingHookEnabled: "off"`. **Línea de inventario del arranque** con las dos claves retiradas bajo su rótulo (r.1). |
+| 3 | **Verificación de que NO se gasta** — la que importa. Dejar pasar **un tick del cron** (o dispararlo a mano con `POST /admin/jobs/price-ingest`) y comprobar en el log: `enabled=false`, **cero peticiones al proveedor**, `written=0`, créditos del proveedor **sin moverse**. | devops | Es una verificación **positiva de ausencia de gasto**, no una inspección de config. Sin ella, «no gastó» es una suposición. |
+| 4 | **Verificación de que no se movió dinero** — re-`GET` de `/admin/pricing/graded-estimates`: los **diez** diales de M2 idénticos a antes del deploy; ninguna `PriceReference` nueva con `source='pokemonpricetracker'` y `gradeKey='graded:PSA:*'`. | devops + QA | El colapso **no toca ni un monto**; si toca alguno, se para y vuelve al arquitecto. |
+| 5 | **El dueño enciende** `gradingHookEnabled: "on"` desde M10, con las precondiciones de (r.3.1) cumplidas y el aviso delante. **v1.51-a: el `COSTE MEDIDO` de (r.3.1.1) es precondición al mismo nivel que el veredicto de viabilidad** — sin la línea `COSTE MEDIDO` leída y su aritmética hecha, el paso 5 **no se ejecuta**. | **el dueño** (no devops) | `AuditLog` `settings.update` con `before: "off"` / `after: "on"`, **y** en el ticket los artefactos 1a–1e de (r.3.1.1). |
+| 6 | **Medir la primera corrida**: créditos antes/después, `written`, motivos de salto por separado ((h.4)), y **revisar la lista de revisión** antes de dar el release por cerrado. | devops + QA | La factura de la primera corrida **cabe** en el presupuesto **medido** en (r.3.1.1). **Si NO cabe, se apaga el dial y se escala al arquitecto (regla 9)** — es la segunda oportunidad de detectar el régimen de cobro, no una formalidad. |
+
+> ⚠️ **El hueco oscuro es el precio, y es deliberado.** Entre el paso 1 y el paso 5, producción **deja de mostrar** las
+> cifras del gancho. **No hay tercera opción:** o el colapso deja un momento apagado, o el deploy arranca gastando
+> solo. La segunda es inaceptable por doctrina de dinero, así que se elige la primera y se **acorta**: el paso 5 va en
+> el mismo ticket del release, inmediatamente después del paso 4. **El apagón dura lo que tarde el dueño en decidir**,
+> que es exactamente de quién debe depender. *(Lo que **no** se hace: que el deploy escriba el dial por él para
+> «no notarse». Un deploy que enciende una afirmación comercial y una fuente de gasto en nombre del dueño es el
+> problema, no la solución — §11.0 y §4.38p ya lo prohíben.)*
+
+**Rollback.** Igual que §32.8 de `DEVOPS_NOTES.md`, con un matiz: revertir el deploy devuelve el código que lee
+`graded_estimates_enabled`, **cuya fila sigue ahí con su valor previo** (paso 0). Es decir: **el rollback reenciende la
+exhibición tal como estaba**, y el ingest vuelve a depender de su clave vieja (`off`). El rollback es **seguro y
+completo** — otra razón para no borrar las filas retiradas.
+
+##### (r.5) Apagar DEJA DE SER el remedio de una cifra rara — escalera de remedios, y el coste de frescura
+
+**El coste real que introduce el colapso:** con un dial, apagar la publicación **congela también la actualización de
+datos**, y si el apagón supera `freshnessDays` (30) las filas automáticas quedan **rancias** ⇒ al reencender **no se
+muestran** hasta que el ingest las refresque. **Se acepta**, con una mitigación y una norma:
+
+**1. La norma — el dial es el ÚLTIMO escalón, no el primero.** Apagar el gancho entero porque **una** cifra se ve rara
+es usar el interruptor general para cambiar un foco. La escalera, de lo más estrecho a lo más ancho, **ya existe
+entera en el producto** y pasa a ser **normativa**:
+
+| Síntoma | Remedio | Superficie |
+|---|---|---|
+| **Una** cifra rara | **Borrar esa fila** | `DELETE` del estimado ((q)) — no apaga nada más |
+| Varias filas malas del **mismo grado** | Quitar el grado de `grades` / `highlightGrades` | M2 `PUT /admin/pricing/graded-estimates` |
+| Se está **promocionando** lo que no debe (la ficha está bien) | Subir `minUpsidePct` | M2 — vacía vitrina y badges; **la ficha sigue** ((d) «Nota de separación de diales») |
+| Duda **sistémica** (el proveedor cambió, las cifras no son de fiar) | **Apagar el dial** | M10 — para publicación **y** gasto a la vez |
+| Sospecha de que el dato escrito está mal **pero** hay que seguir mirando | **Sonda** (`GRADED_PROBE=on`, devops) + lista de revisión | El ingest observa y **no escribe**; la ficha sigue publicando lo ya escrito |
+
+**Antes de bajar un escalón, el operador tiene la lista de revisión** ((n)): dice **qué** filas están mal, **por qué**,
+y —desde v1.50.3-c— si son **manuales** o **automáticas**, que es justo lo que decide el remedio.
+
+**2. La mitigación — el rancio está acotado a UNA corrida, no a la duración del apagón.** Reencender el dial reenciende
+**también** el ingest, así que la propia corrida que sigue al reencendido **repone** las filas automáticas. La cota no
+es «30 días de datos perdidos»: es **≤ 12 h** (el siguiente tick del cron) o **inmediata** si el operador dispara
+`POST /admin/jobs/price-ingest` desde M10-ops — que es lo que se **normaliza como parte del reencendido**. *(Con dos
+diales, un dueño que hubiera apagado los dos tenía exactamente el mismo rancio y **sin** reposición automática al
+volver: el colapso **paga su propio coste**.)* Los **overrides manuales no se ven afectados**: decaen contra su propia
+fecha de captura (`manualFreshnessDays`), no contra el apagón.
+
+##### (r.6) Consecuencias que hay que decir en voz alta
+
+###### (r.6.1) ⚠️ El arnés E2E enciende este dial en CADA corrida
+
+> **⚠️ v1.51-a — corrección de un HECHO, no de la norma (hallazgo de QA).** La frase que abría este § describía el
+> arnés **como era antes de `6418cb2`** (*«hace `PUT /admin/settings { gradedEstimatesEnabled: 'on' }`»*). **Es falsa
+> desde ese commit.** La norma que sigue **era y es correcta** y no se toca; lo que envejeció fue la descripción —
+> caso de manual de §0-B: una afirmación de **clase (B)** (qué hace un archivo que corre) escrita como si fuera
+> propiedad de este documento. **Estado verificado hoy contra el producto** (`frontend/e2e/utils/grading.ts`,
+> `frontend/e2e/utils/paid-provider-guard.ts`, y su test `src/test/e2e-paid-provider-guard.test.ts`): el arnés llama a
+> **`enableGradingHookGuarded`**, que (i) **evalúa primero la incapacidad de escritura** del entorno y **lanza sin
+> llegar a hacer el `PUT`** si detecta credencial viva del proveedor, y (ii) solo entonces emite el `PUT` con **la
+> clave nueva** `{ gradingHookEnabled: 'on' }` (`GRADING_HOOK_DIAL_KEY`). Es decir: **la norma de abajo ya está
+> implementada y tiene test que la fija.** Se conserva el texto original como nota histórica porque explica **por qué**
+> existe la norma.
+
+*(Redacción histórica, v1.51 — describe el estado previo a `6418cb2`:)* `frontend/e2e/utils/grading.ts` hacía
+`PUT /admin/settings { gradedEstimatesEnabled: 'on' }` al arrancar y lo restauraba
+en el `globalTeardown`. **Tras el colapso, ese mismo flip autoriza el ingest**: una suite E2E corriendo contra un
+entorno con credencial del proveedor **empezaría a gastar créditos y a escribir precios automáticos en cada corrida
+del gate de CI**, en silencio y sin que nadie lo pidiera. **NORMATIVO:** el entorno donde corre la suite E2E debe estar
+**incapacitado para escribir automático** — sin `POKEMONPRICETRACKER_API_KEY` (preferido: cero peticiones) **o** con
+`POKEMONPRICETRACKER_GRADED_PROBE=on` —, y el arnés debe **declararlo en su cabecera de huella** junto a las demás
+huellas que ya declara. **Dueños: frontend** (arnés y declaración) **+ devops** (env de CI/staging). Sin esto, el
+colapso convierte el gate de CI en un consumidor de la cuota de un proveedor de paga.
+
+###### (r.6.2) ~~GU-9 asciende de «no urge» a **bloqueante del primer encendido en producción**~~ ✅ **CERRADA (v1.51-a)**
+
+*(Redacción v1.51, conservada porque explica el camino:)* La desviación abierta de (m.2) —frescura del dato automático
+medida contra la **fecha de ingesta** y no contra la **evidencia**, permisiva— venía marcada como *«no está viva porque
+el ingest está `off`; debe cerrarse antes de encender la fase 2»*. **Con un dial, «encender la fase 2» y «encender la
+feature» son el mismo acto**, y producción quiere la feature encendida. La desviación **no cambia de gravedad; cambia
+de posición en el calendario**: pasa a estar delante del paso 5 de (r.4). Cierre: la cota `≤ 60 días` aceptada por
+escrito **o** `evidenceDate` (M-43). §9, §10 GU-9.
+
+> ✅ **v1.51-a (2026-08-31) — el dueño tomó la PRIMERA de las dos vías: acepta los 60 días.** Con el mecanismo de los
+> **dos relojes** explicado y tras haber preguntado por un umbral de una semana (al que se le contestó que 7 daría 14).
+> **GU-9 sale del camino crítico del paso 5.** **Sin cambio de config ni de código:** `graded_estimate_freshness_days`
+> **se queda en 30**; escribir 60 llevaría el peor caso a **120**. Cablear `evidenceDate` **sigue siendo deuda**
+> (severidad **baja**, ya no bloqueante) — la columna existe, faltan escritor y `stale()`. Redacción canónica y todas
+> las consecuencias: **(m.2.1)**.
+>
+> **Del par de bloqueantes que este § y (r.3.1) ponían delante del primer `off → on`, queda VIVO exactamente uno:
+> A-1 — el `COSTE MEDIDO` de (r.3.1.1).** Se dice aquí explícitamente para que nadie lea «GU-9 cerrada» como «ya se
+> puede encender».
+
+###### (r.6.3) El criterio 108 sigue cumpliéndose — pero su VERIFICACIÓN ya no es gratis
+
+El **criterio 108** («activar o desactivar la feature no cambia ningún precio de venta, valuación, buylist ni P&L»)
+**sigue satisfecho**: las filas PSA son informativas ((b)) y el único caso donde tocan dinero real —slab publicado—
+está cerrado por **INV-D** ((l)) y por `refKind` (M-43). Lo que cambia es el **método de verificación**: encender y
+apagar ahora **gasta créditos y escribe filas**, así que el test de 108 **deja de ser idempotente**. **NORMATIVO para
+QA:** el criterio 108 se verifica en un entorno **sin credencial del proveedor** o **con la sonda encendida**; nunca
+«apagando y encendiendo a ver» contra un entorno con llave viva.
+
+###### (r.6.4) Lo que el colapso NO recupera, y conviene no fingir que sí
+
+Con un dial **no existe** el estado «traer y escribir datos con la tienda callada». La sonda cubre *observar sin
+escribir*, y la ausencia de credencial cubre *publicar sin gastar*, pero **el rodaje en caliente —escribir filas
+automáticas y mirarlas antes de que se publiquen— ya no es expresable**. Su sustituto es **posterior en vez de
+previo**: la fila se escribe **ya filtrada** (muestra mínima, gate de evidencia, INV-D, gate de magnitud en la
+promoción), se **inspecciona** en la lista de revisión ((n)) y, si está mal, **se borra** ((q)). Es un modelo
+*detectar-y-retirar* en lugar de *retener-y-aprobar*. **Es una pérdida real**; queda declarada, no disimulada, y lo
+que la hace tolerable es que las cuatro guardas de escritura ya existían y **no se relajan ni un punto**.
+
+##### (r.7) Reparto (work stream «Catálogo y precios» — zonas compartidas, serializar)
+
+- **backend** (`modules/settings/settings.constants.ts`, `common/graded-estimate.ts`, `modules/pricing/`,
+  `modules/catalog/graded-estimates.controller.ts`, `prisma/seed.ts`): retirar las dos `SettingKey` (de `SettingKey`,
+  `SETTING_DEFAULTS`, validadores y `SETTING_DTO_MAP`) y añadir `GRADING_HOOK_ENABLED` con seed `off` y validador
+  `on|off`; **un solo** resolver de dial, consumido por el storefront **y** por el gate del ingest —que lee el **dial**,
+  no el `enabled` derivado ((h.3))—; `GradedEstimateConfig` pierde `ingestEnabled` (y `DISABLED_GRADED_ESTIMATE_CONFIG`
+  pierde su caso especial); `GradedEstimateConfigDTO` pierde `ingestEnabled`; **`GRADED_ESTIMATE_SETTING_KEYS` baja de
+  12 a 11 y su comentario —que declara el número como garantía de +1 query— se actualiza**; la línea de inventario del
+  arranque lista las claves **retiradas presentes** (r.1); actualizar el texto del veredicto de fase 2
+  (`graded-phase2-verdict.ts`, que hoy nombra `graded_estimates_enabled`) y los specs
+  (`graded-estimate.inv-fx.spec.ts`, `graded-estimate.probe.spec.ts`). **Y corregir `docs/BACKEND_NOTES.md`**: su guía
+  de la sonda manda encender el ingest con `PUT /admin/pricing/graded-estimates`, que **nunca fue** el endpoint de ese
+  dial (era M10) y que tras v1.51 ya no existe como instrucción.
+- **frontend** (`src/types/contract.ts`, `(admin)/admin/m10/M10View.tsx`, `messages/{es,en}.json`, `lib/mock/`,
+  `e2e/`): `SettingsDTO.gradedEstimatesEnabled` → **`gradingHookEnabled`**; `GradedEstimateConfigDTO` sin
+  `ingestEnabled`; etiqueta y **aviso** del dial según `DESIGN_SYSTEM.md` §22; fixtures del mock; **y (r.6.1): el arnés
+  E2E declara su huella nueva y no puede correr contra un entorno con capacidad de escritura automática.**
+- **ux-ui** (`DESIGN_SYSTEM.md` §22): el copy del dial único. Dos textos, no uno: **al encender** («publica las cifras
+  **y** empieza a traerlas de un proveedor de paga: consume créditos y escribe precios») y **al apagar** («además de
+  dejar de publicar, deja de actualizar; para una cifra concreta, el remedio es la lista de revisión, no este
+  interruptor»). El aviso legal del disclaimer §O.5 **se conserva**.
+- **devops** (`DEVOPS_NOTES.md` §32, scripts, envs de CI/staging): runbook de (r.4) con sus seis pasos y las dos
+  verificaciones; publicar el **presupuesto en créditos** de (r.3.1).1; el comparador solo-lectura debe reportar las
+  claves retiradas bajo su rótulo; **quitar la capacidad de escritura automática del entorno E2E/CI** (r.6.1); correr
+  la sonda en staging y registrar el veredicto.
+- **QA**: `PUT /admin/settings` con `gradedEstimatesEnabled` o `gradedEstimateIngestEnabled` ⇒ **`422
+  VALIDATION_ERROR`** (clave desconocida, precedente `stripeFeeIvaPct`); con el dial `off`, **cero peticiones** al
+  proveedor y `written=0`; criterio 108 verificado según (r.6.3); smoke de que apagar/encender no mueve ningún precio
+  de venta.
+- **product-owner / humano** (enrutado por el orquestador, **no lo escribe el arquitecto**): ver §10 GU-14.
+
+##### (r.8) ADENDA v1.51-a — trabajo NUEVO que sale de A-1, de I8 y del cierre de GU-9
+
+Todo esto es **adicional** a (r.7), que sigue vigente. Nada de aquí cambia un shape de DTO ni una ruta.
+
+| # | Trabajo | Dueño | Bloquea el `off → on`? |
+|---|---|---|---|
+| 1 | **Medir el coste antes de encender**: correr la sonda en staging y ejecutar 1a–1e de (r.3.1.1), dejando los artefactos en el ticket | **devops** (ejecuta) + **QA** (verifica que los artefactos existen y que la aritmética cuadra) | ✅ **SÍ — es el único bloqueante vivo** |
+| 2 | **El aviso de M10 deja de afirmar la cifra de créditos como hecho**: la dice como techo **nominal** bajo un supuesto de facturación no observado, o no la dice | **ux-ui** (copy, `DESIGN_SYSTEM.md` §22) + **frontend** (`grading-hook-cost.ts`, i18n y su test, que hoy **fija** la cifra sin calificador) | ✅ SÍ — es la superficie donde el dueño firma |
+| 3 | **I8: `GRADED_ESTIMATE_INGEST_MAX_CARDS_MAX` 5000 → 1000** (+ specs) | **backend** | ❌ No, pero **debe entrar en el mismo release**: después del encendido el rango ya está autorizando |
+| 4 | Rango `[1, 1000]` donde la UI de M2 lo pinte o valide | **frontend** | ❌ No |
+| 5 | Paso 0 del pase: anotar `ingestMaxCardsPerRun` **por entorno** y detectar valores `> 1 000` (quedarían fail-closed) | **devops** | ❌ No, pero antes del deploy |
+| 6 | `scripts/check-graded-estimate-dials.sh`: el caso «5000 → 20000 créditos/día» pasa a ser un `422`; y el presupuesto que publica debe ser el **medido**, no el nominal | **devops** | ❌ No |
+| 7 | Deuda `evidenceDate` (escritor + `stale()`): re-rotular a severidad **baja / no bloqueante**, dejando escrito que la **columna ya existe** | **backend** (en `docs/TECH_DEBT.md`, a petición del techlead) | ❌ No — GU-9 aceptada |
+| 8 | Registrar la decisión «acepto 60 días» del dueño | **product-owner** (en `PROJECT.md`) | ❌ No |
+
+> **Lo que NINGÚN rol debe hacer a raíz del cierre de GU-9:** tocar `graded_estimate_freshness_days`. Se queda en
+> **30**. Ver la tabla de (m.2.1).
 
 ---
 
@@ -15217,6 +16087,261 @@ offerReissueAlert  =  offerReissueCount >= buylistOfferReissueAlertCount        
 
 ---
 
+### 4.40 IMÁGENES DE SET — logo y símbolo de expansión persistidos en `CardSet` (v1.52-set-logos, M-47, NORMATIVO)
+
+> ⚠️ **v1.53 — esta sección era `§4.39` en la línea de `main` y se renumeró a `§4.40` al fusionar.** El `§4.39` de
+> arriba (ciclo de adquisición del buylist) llegó con el mismo número desde la otra rama y **se cita cientos de veces
+> con subapartados de letra** (`§4.39(a)`…`§4.39(t)`); ésta se citaba **62 veces y siempre con subapartado numérico**
+> (`§4.39.N`), así que **mueve la de menor radio**. Sus subapartados son ahora **`§4.40.1`–`§4.40.9`**. **Ninguna
+> decisión de esta sección cambia: solo su número.** Una cita `§4.39.N` en documentos de otros roles apunta **a nada**
+> —no a la sección equivocada—, porque `§4.39` no tiene subapartados numéricos. Ver el encabezado, **Rev v1.53(2)**.
+
+> **Origen.** El dueño pidió que **al seleccionar un set se vean los logos de las expansiones** en vez de solo el
+> nombre en texto (referencia visual: retícula de tejas uniformes, logo centrado, nombre debajo). **Hoy el sistema no
+> guarda ninguna imagen de set.** Esta sección decide **qué dato existe y cómo viaja**. **No decide cómo se ve**: la
+> presentación la define **ux-ui** en `DESIGN_SYSTEM.md`, y esta sección no la condiciona más allá de decir qué campos
+> existen y cuál es su peor caso.
+
+#### 4.40.1 Hechos verificados (clase (B) de §0-B — se citan por su origen, no por autoridad documental)
+
+| # | Hecho | Fuente ejecutable |
+|---|---|---|
+| 1 | `CardSet` tiene `externalId`, `name`, `series`, `releaseDate`, `printedTotal`, `ptcgoCode`, `pptSetId`, `tcgcsvGroupId`. **Ninguna columna de imagen.** | `backend/prisma/schema.prisma` (`model CardSet`) |
+| 2 | El tipo `RemoteCardSet` del cliente **no declara** `images`; por tanto el sync **no lo pide y no lo persiste**. Lo análogo para cartas **sí** existe desde siempre (`RemoteCard.images` → `Card.imageSmallUrl/imageLargeUrl`). | `backend/src/modules/catalog/pokemontcg-io.client.ts`; `catalog-sync.service.ts` (`upsertCards`) |
+| 3 | `upsertSet()` es el **único** escritor de metadata de set, es un `upsert` por `externalId` y lo alimentan **dos** vías: el objeto de `GET /v2/sets` y el objeto `set` **anidado** en cada carta (`first.data[0].set`). | `catalog-sync.service.ts` (`upsertSet`, `importSet`, `importSetByExternalId`) |
+| 4 | pokemontcg.io publica **dos** imágenes por set: `images.symbol` (glifo cuadrado, el impreso en la carta) e `images.logo` (el nombre dibujado, ancho y de **proporción muy variable**). | API del proveedor |
+| 5 | **La retícula de tejas de sets ya existe y es UNA sola, compartida**: `MasterSetIndex` (`grid` de tejas, click → binder), con **cuatro** modos que rinden el **mismo** `MasterSetIndexResponse` / `MasterSetSummaryDTO`. | `frontend/src/components/master-set/MasterSetIndex.tsx` |
+| 6 | Uno de esos cuatro modos (`quoter`) **no tiene endpoint de índice propio**: compone las tejas **client-side** desde `GET /buylist/sets`. | mismo archivo (`fetchQuoterIndex`) |
+| 7 | `images.pokemontcg.io` **ya** es un host admitido por el frontend y ya sirve el arte de todas las cartas. | `frontend/next.config.mjs`; §5.3.4 |
+
+**El hallazgo (5)+(6) es el que decide el contrato, y no era obvio.** «Dónde va el logo» parecía una pregunta de
+storefront; es una pregunta de **un DTO** (`MasterSetSummaryDTO`) que sirven **cuatro** endpoints, más **un quinto**
+del que uno de esos cuatro modos se alimenta a mano. Poner el campo en el sitio «obvio» (las facetas de Compra) habría
+dejado la teja del cotizador —la única que el visitante anónimo toca al vender— **sin logo**, y a nadie le habría
+parecido un bug de contrato.
+
+#### 4.40.2 DECISIÓN 1 — se persisten **LAS DOS** URLs, no solo el logo
+
+**`CardSet` gana dos columnas nullable: `logoUrl` y `symbolUrl`.**
+
+| | `logoUrl` (`images.logo`) | `symbolUrl` (`images.symbol`) |
+|---|---|---|
+| Qué es | El **nombre del set dibujado**. Ancho, de **proporción variable** entre sets | Glifo **cuadrado** pequeño, el mismo impreso en la carta |
+| Uso | **La teja de selección de set** — es exactamente lo que el dueño pidió | Chips, filtros, filas de tabla, encabezados compactos: **donde el logo no cabe** |
+
+**Por qué las dos y no solo el logo — tres razones, y la tercera es la que cierra:**
+1. **El coste marginal de la segunda es cero y el de añadirla después no lo es.** Vienen en el **mismo objeto de la
+   misma respuesta** que ya vamos a leer: cero requests extra, cero latencia, dos `String?` más. Decidir «solo logo»
+   hoy compra nada y **obliga a otra migración + otro re-sync** el día que aparezca el primer sitio donde el logo no
+   quepa. Este proyecto ya pagó ese peaje una vez (M-18, el re-sync de `availableFinishes`).
+2. **No son intercambiables, son complementarias.** El logo tiene **proporción variable** entre sets: sirve para una
+   teja con caja generosa, y es exactamente lo que **no** sirve para un chip de 20 px de alto. El símbolo es cuadrado
+   y estable: sirve para el chip y es pobre para la teja. Persistir solo uno garantiza que la mitad de las superficies
+   quede mal servida.
+3. **El símbolo es el único que también es un HECHO DE IDENTIDAD, no solo decoración.** Es el glifo **impreso en la
+   carta física**: es lo que un operador de bóveda mira para decidir de qué set es una carta que tiene en la mano. Esa
+   es una función de trabajo, no un adorno, y llegará. *(Declarado como uso previsto, no habilitado en este pase: hoy
+   `symbolUrl` **se persiste y no se expone** en ningún DTO — ver §4.40.5.)*
+
+**Lo que NO se hace, y por qué:**
+- **No se copian los bytes.** Se guardan **URLs de un CDN de tercero**, igual que el arte de las cartas.
+  `PROJECT.md` excluye fotos propias y acota el object storage a `kyc_ine`. Consecuencia asumida y declarada: si el CDN
+  del proveedor cae o rota una URL, el logo desaparece y la teja cae a su placeholder. Es el **mismo** riesgo que ya
+  corremos con **todas** las imágenes de carta del sitio; no introduce una clase de fallo nueva.
+- **No se inventan URLs por plantilla.** Prohibido construir `https://images.pokemontcg.io/{externalId}/logo.png` a
+  partir del `externalId`. Misma prohibición que §5.2.5 para las cartas y por la misma razón: sería un puntero **no
+  verificado** a un host de tercero, con apariencia de dato. **Solo se sirve lo que la columna contenga.**
+- **No se añade un tercer campo derivado** (proporción, color dominante, alto sugerido). El backend no mide imágenes;
+  la caja la resuelve ux-ui con CSS.
+
+#### 4.40.3 DECISIÓN 2 — `M-47`, y es **ADITIVA PURA**
+
+**`M-47` — dos columnas nullable en `CardSet`. Sin `DROP`, sin `NOT NULL`, sin default, sin tocar índices ni la
+`@@unique(externalId)`, sin reescribir una sola fila.** Ficha completa en §11.
+
+```prisma
+model CardSet {
+  // …campos vigentes, intactos…
+  logoUrl    String?   // M-47 (§4.40) — images.logo de pokemontcg.io. Presentación (clase P). null = el proveedor no lo publica.
+  symbolUrl  String?   // M-47 (§4.40) — images.symbol. Persistido en este pase; NO expuesto todavía (§4.40.5).
+}
+```
+
+**Confirmación explícita de que es aditiva pura**, en los términos que este proyecto exige (§11):
+- **Segura con la app corriendo.** Añadir columnas nullable no bloquea lecturas ni escrituras; el código vigente las
+  ignora porque no las selecciona.
+- **`money-safe` por construcción.** `CardSet` **no participa en ningún cálculo de dinero**: no hay precio, ni
+  referencia, ni regla, ni curva que lea metadata de set. Estas dos columnas son **display-only**, en la misma
+  categoría que `sealedImageUrl` (§4.34a). **Ningún importe puede moverse por esta migración**, ni siquiera por error
+  de implementación: no hay ruta de código que lo permita.
+- **Reversible sin ceremonia.** Revertir = revertir el código; las columnas pueden quedarse inertes. **No hay
+  procedimiento de cut-over, no hay ventana, no hay congelación.** (Contrastar con M-43/M-45, que sí la exigían
+  porque tocaban la clasificación de una fila de precio. Aquí no hay nada de eso, y lo digo para que nadie prepare
+  una ventana que no existe.)
+- **Sin backfill de datos.** No hay `UPDATE` masivo. Ver §4.40.4.
+
+#### 4.40.4 DECISIÓN 3 — **RE-SYNC, no backfill.** Cero endpoints nuevos, cero SQL de datos
+
+**Se reusa el sync existente. No se crea backfill propio, ni endpoint, ni job, ni script de datos.**
+
+El razonamiento es que el mecanismo correcto **ya existe, ya es idempotente y ya está auditado**: `upsertSet()` es el
+escritor único de metadata de set y corre en **todas** las vías de sync (§4.40.1 hecho 3). En cuanto lea `images`,
+**cualquier** sync puebla las columnas. Un backfill dedicado sería un segundo escritor de la misma columna —
+exactamente el patrón que produce divergencias— para una operación que se corre una vez.
+
+**Orden de ejecución operativa, del más barato al más caro. Se empieza por el primero y se para en cuanto se ve el
+logo donde el dueño lo pidió:**
+
+| Paso | Qué se corre | Alcance | Coste |
+|---|---|---|---|
+| **0** | **Nada.** Los sets **nuevos** llegan poblados desde el primer sync posterior al deploy | Sets futuros | Cero |
+| **1** | `POST /admin/catalog/sync { setId }` **por set**, desde el botón por fila que M2 **ya tiene** | Los sets que la UI **de verdad muestra** | Bajo. La retícula del storefront/cotizador se puebla con un puñado de llamadas |
+| **2** | `POST /admin/catalog/sync-all { force: true }` | **Todo** el catálogo | Alto: re-importa todas las cartas de todos los sets y re-corre el resolver estructural TCGCSV. **Es el martillo, no el bisturí** |
+
+**El paso 1 es el recomendado, y la razón es que el conjunto que importa es pequeño**: la retícula de tejas no lista
+«todos los sets que existen», lista los sets con inventario/cartas relevantes. El paso 2 es legítimo (es el mismo
+procedimiento que se usó para M-18) pero **no es necesario** para esta feature, y arrastra efectos que esta feature no
+pidió. **No se ordena un `sync-all {force:true}` como parte de este pase**; queda como opción del operador.
+
+**Regla dura del escritor — NO DEGRADAR (normativa, y es la parte fácil de equivocar):**
+
+> Cuando el objeto remoto **no trae** `images` (o no trae una de las dos), el `update` del upsert debe dejar la
+> columna **como está** — mapear ausente a *no-op*, **jamás a `null`**. En el `create` (set nuevo), ausente ⇒ `null`.
+
+Sin esta regla, la vía «set anidado en una carta» podría **borrar** valores que la vía `GET /v2/sets` ya había
+escrito, y el logo aparecería y desaparecería según qué botón de M2 se pulsó último. Es la misma clase de invariante
+que M-44 impuso sobre `PriceReference` (un escritor no degrada lo que otro afirmó), aquí en su versión barata:
+**cosmética, no dinero**, pero con el mismo modo de fallo silencioso.
+
+**Verificación que backend debe hacer ANTES de dar el paso por cerrado (§0-B, clase B):** confirmar contra una
+respuesta real que el objeto `set` **anidado en una carta** trae `images` igual que el de `GET /v2/sets`. Si **no** lo
+trae, la regla de no-degradación de arriba lo vuelve inofensivo (la vía por-carta simplemente no aporta el dato) pero
+entonces el paso 1 de la tabla **no basta por sí solo** para un set concreto y hay que decirlo en `BACKEND_NOTES.md`.
+**No lo doy por sabido y no lo escribo aquí como si lo fuera.**
+
+**Guardarraíl de ingesta (obligatorio, barato):** se persiste la URL **solo si** es absoluta y **`https:`**, y su host
+es el mismo que ya sirve el arte de las cartas de este proveedor. Cualquier otra cosa ⇒ **`null` + log**, nunca se
+persiste. Si el proveedor empezara a servir logos desde **otro** host, backend **no amplía nada por su cuenta**: lo
+reporta, y `remotePatterns` del frontend se amplía **detrás**, nunca por delante (§5.3.4). El caso normal es que **no
+haya nada que ampliar**: es el host que el frontend ya admite (hecho 7).
+
+#### 4.40.5 DECISIÓN 4 — dónde viaja: **un DTO, cuatro endpoints, más su fuente client-side**
+
+**Regla que gobierna la elección, para que no se re-litigue con cada superficie nueva:**
+
+> **La imagen de set viaja donde el SET es el objeto que se selecciona. No viaja donde el set es metadata incidental
+> de otra cosa.**
+
+**Entra (NORMATIVO):**
+
+| Superficie | Campo | Por qué |
+|---|---|---|
+| **`MasterSetSummaryDTO`** — servido por `GET /admin/inventory/master-sets`, `GET /admin/vaults/:userId/master-sets`, `GET /vault/master-sets` **y** heredado por el modo `platform` de M1 | `logoUrl` | **Es la teja.** Un solo DTO cubre los cuatro modos de la retícula; el contrato ya declara «mismo shape, distinto scope» (§4.20f) y **romper esa simetría sería el error** |
+| **`GET /buylist/sets`** → `data[]` | `logoUrl` | **Obligatorio, no opcional:** el modo `quoter` de la retícula se compone client-side desde aquí (hecho 6). Sin esto, la teja del cotizador es la **única** sin logo |
+
+**NO entra (deliberado, y esto es tan normativo como lo anterior):**
+
+| Superficie | Por qué NO |
+|---|---|
+| **`GET /catalog/facets` → `sets[]`** | Alimenta los **chips de texto** «Sets buscados» de la home y el **filtro de texto** de Compra (`ShopFilters`). Ninguno es una teja. La home **ya carga imágenes de terceros** y en este mismo ciclo se corrigió que pedía de más (§5.3.2, hallazgo 7): **no se le añade carga que nadie va a pintar** |
+| **`GET /catalog/sets`** | Mismo caso: hoy no alimenta ninguna retícula de tejas. Si mañana lo hace, es un aditivo de **una línea** |
+| **`card.setName` / `CardDTO`** | El set aquí es **metadata de una carta**. Meter un logo en cada carta de una rejilla de 60 cartas es multiplicar bytes por 60 para pintar el mismo logo 60 veces |
+| **`GET /admin/catalog/remote-sets`** | Es un espejo **del proveedor**, no una selección de set del producto. Su trabajo es decir qué falta por importar |
+| **`SetRefDTO`** (`value-history`) | Cabecera de una gráfica, no una teja |
+| **`symbolUrl` en cualquier DTO** | **Se persiste, no se expone.** Hoy no hay ninguna superficie que lo use, y §4.40.2 razón 1 solo justifica **guardarlo** barato — no publicarlo por si acaso. Exponerlo cuando exista el chip: aditivo, **sin migración**, sin re-sync |
+
+**Cómo se añade a otra superficie el día que haga falta** (para que no vuelva a pasar por un diseño largo): es un
+**aditivo de proyección** — el dato ya está en la columna. Cambia el DTO en `API_CONTRACT`, sube la rev, y backend lo
+selecciona. **Cero DDL, cero migración, cero re-sync.** Sí pasa por el arquitecto (regla 9), porque la regla de arriba
+—«el set es lo que se selecciona»— es lo que hay que verificar, no la disponibilidad del dato.
+
+#### 4.40.6 DECISIÓN 5 — la forma hace **imposible** asumir que siempre hay imagen
+
+**Habrá sets sin logo.** Promos, colecciones raras, sets viejos y cualquier cosa que el proveedor no haya ilustrado.
+No es un caso de borde: es un caso **normal y permanente**.
+
+**Se aplica la doctrina de §5.2.9 tal cual, clase (P) PRESENTACIÓN: clave SIEMPRE presente, ausencia expresada con
+`null`. Nunca omitida, nunca `""`, nunca una URL de placeholder.**
+
+```
+// Fragmento reusable. La clave está SIEMPRE; el valor puede ser null.
+SetImagesFragment = { logoUrl: string | null }     // + symbolUrl: string | null, cuando se exponga (§4.40.5)
+```
+
+**Por qué `null`-presente y no `logoUrl?`** — es la lección que este equipo ya pagó:
+1. **Un campo opcional se lee como «normalmente está».** Un cliente que ve `logoUrl?: string` escribe
+   `<img src={s.logoUrl!}>` o `s.logoUrl && …` sin pensarlo, y el caso vacío se descubre en producción con un set
+   promo. Un `logoUrl: string | null` **obliga al compilador** a que alguien decida qué se pinta cuando no hay.
+2. **Es exactamente la grieta de `imageSmallUrl`** (§5.2.1): un tipo de cliente prometiendo lo que el backend no
+   garantizaba. `null` explícito **no se puede ignorar**; una clave ausente sí.
+3. **`null` es un resultado ESPERADO, no un error.** No se registra incidente, no se reintenta, no se degrada la
+   respuesta, no bloquea nada. El cliente pinta lo que ux-ui haya definido para «sin logo» y sigue.
+
+**Consecuencia para la teja, dicha para que nadie la descubra tarde:** la retícula tendrá **dos tipos de teja
+conviviendo de forma permanente** — con logo y sin logo. **No es un estado transitorio que un re-sync arregle.** El
+diseño de ux-ui debe resolver el caso «sin logo» como un estado **de primera clase** (la teja mantiene su caja y su
+nombre; no colapsa, no salta, no muestra un icono roto). **Qué se pinta en ese hueco lo decide ux-ui, no yo.**
+
+Y hay un **segundo** estado, distinto y anterior: **set aún no re-sincronizado**. Su valor también es `null` y la
+teja se ve **idéntica** a la del set sin logo. **Es deliberado**: el cliente no tiene por qué distinguirlos y el
+contrato **no** los distingue. Quien necesita distinguirlos es el operador, y lo hace por el otro lado (§4.40.4).
+
+#### 4.40.7 Las dos doctrinas vigentes: cómo aplican aquí
+
+**§5.3 (imágenes en el frontend) — SÍ aplica, y la respuesta es NIVEL B. Lo digo yo para que frontend no lo decida
+por su cuenta:**
+
+> **Los logos de set son NIVEL B (§5.3.3): `<img>` crudo, URL tal cual, SIN `next/image`, SIN `srcset`.**
+
+Tres razones, y la primera es literalmente una regla ya escrita:
+1. **§5.3.3, regla de coste 4, es explícita: «Nada de nivel A dentro de listas o rejillas».** Una retícula de tejas
+   **es** una rejilla. La regla es **la forma de la superficie, no el gusto**. Si el nivel A entrara aquí, entraría
+   por la puerta que esa regla existe para cerrar.
+2. **El perfil de coste es el peor posible para el optimizador**: N logos distintos por pantalla, vistos pocas veces,
+   escalando con la **cobertura del catálogo** y no con el tráfico — la definición exacta de «cola larga» de §5.3.2.
+   Y un logo no gobierna el LCP de ninguna página: no es la imagen de entrada de la home ni la principal de la ficha.
+3. **El proveedor sirve una sola URL por imagen** (a diferencia de la carta, que tiene `small`/`large`): no hay
+   siquiera una elección de tamaño que hacer. La palanca de §5.3.2 —«pedir la URL correcta»— aquí no existe porque
+   solo hay una. `srcset` no tiene candidatos.
+
+**`remotePatterns` NO cambia** (§5.3.4): es el **mismo host** que ya sirve el arte de las cartas. **Cero acción de
+frontend sobre la config, cero acción de devops, cero superficie nueva para seguridad.**
+
+**§5.2 (snapshot congelado) — NO aplica aquí, y lo digo para que nadie lo confunda.** §5.2 gobierna
+`OrderItem.cardSnapshot`: un **acta congelada de una transacción**. `CardSet` es **catálogo vivo**: se re-escribe en
+cada sync **por diseño**, y que un logo mejore o cambie **no altera ningún hecho probatorio**. Aquí no hay nada que
+congelar ni nada que descongelar.
+
+Lo que **sí** cruza de §5.2 es **una** cosa, y es de criterio, no de mecanismo: la clasificación **(F)/(P)** de
+§5.2.2 y la regla de degradación de §5.2.9. Una imagen de set es **(P) presentación pura** —su peor caso es un hueco
+visual, jamás un dato erróneo— y por eso degrada a **`null` con clave presente** (§4.40.6). El **corolario** de
+§5.2.3 («no se congelan punteros a recursos de terceros dentro de registros probatorios») **también sigue en pie y no
+lo contradice esto**: `CardSet.logoUrl` **no es un registro probatorio**, es una fila de catálogo que el sync es
+libre de reescribir mañana. **Guardar una URL de tercero en catálogo vivo es correcto; congelarla en un acta no lo
+es.** Son dos cosas distintas y esta es la primera.
+
+#### 4.40.8 Encargo por rol (D-3)
+
+| Rol | Encargo | Puerta |
+|---|---|---|
+| **arquitecto** | ✅ Hecho en este pase: §4.40 *(era §4.39)*, ficha **M-47** en §11, y contrato **`API_CONTRACT.md` v1.52** (`logoUrl` en `MasterSetSummaryDTO` y en `GET /buylist/sets`, con la exclusión explícita de facetas/`/catalog/sets`/`CardDTO`). ✅ **v1.53:** renumeración §4.40 / **M-48**, y **`CardSetDTO` / `BuylistSetDTO` declarados** en el contrato (cierre de **DT-Gd** por el lado del contrato). | — |
+| **backend** | (a) **M-47**: dos columnas nullable en `CardSet` (§11). (b) `RemoteCardSet` gana `images?: { symbol?: string; logo?: string }` — hoy el tipo las descarta. (c) `upsertSet()` las persiste con la **regla de no-degradación** y el **guardarraíl `https:` + host** de §4.40.4. (d) Proyectar **`logoUrl`** en `MasterSetSummaryDTO` (los **cuatro** endpoints — es un read model único, §4.20f) y en `GET /buylist/sets`. **`symbolUrl` se persiste y NO se expone.** (e) **Verificar** el hecho pendiente de §4.40.4 (¿el `set` anidado en una carta trae `images`?) y anotarlo en `BACKEND_NOTES.md`. (f) ⛔ **Prohibido**: crear endpoint/job/script de backfill, y construir URLs por plantilla. | Antes del merge del stream «Catálogo y precios» |
+| **frontend** | (a) Consumir `logoUrl: string \| null` en la retícula `MasterSetIndex` — **los cuatro modos**, incluido `quoter` (que lo mapea desde `GET /buylist/sets` en `fetchQuoterIndex`; si no se mapea ahí, el logo **no llega** a esa teja). (b) **Nivel B** (§4.40.7): `<img>` crudo, sin `next/image`, sin `srcset`, con el `eslint-disable` ya documentado. (c) `null` es **caso normal** ⇒ el tratamiento «sin logo» que defina ux-ui, **sin error visible y sin salto de layout**. (d) ⛔ **Prohibido** rellenar el hueco construyendo la URL desde el `setId`. (e) `next.config.mjs` **no se toca**: mismo host. | Con el contrato v1.52 |
+| **ux-ui** | Define el aspecto de la teja **y del caso «sin logo»** como estado de primera clase (§4.40.6). El dato que existe es: **un logo o `null`**; sin proporción garantizada entre sets y **sin segundo tamaño**. `DESIGN_SYSTEM.md` es suyo; yo no entro. | Antes de que frontend pinte |
+| **devops** | Correr `M-47` con `migrate deploy` (aditiva pura, sin ventana, sin congelación, sin rollback especial). **Ninguna variable de entorno nueva, ningún cambio en CI, ninguna cuota que confirmar** — esto **no** es nivel A de §5.3.5. Tras el deploy, el paso 1 de §4.40.4 lo dispara un `super_admin` desde M2; **no requiere script**. | Deploy del stream |
+| **qa** | (a) Un set **con** logo y un set **sin** logo (`null`) en la misma retícula ⇒ `200`, ambas tejas se pintan, ninguna rompe el layout. (b) Regresión de la **no-degradación**: `sync-all` → `sync {setId}` → el `logoUrl` **sigue ahí** (si se borró, el `update` está escribiendo `null` donde debía no-operar). (c) Los **cuatro** modos de la retícula reciben el campo, **incluido el del cotizador** — es el que se cae solo. (d) La petición de red **no** pide logos en la home ni en el filtro de Compra (§4.40.5). | Gate por stream |
+| **seguridad / pentester** | Superficie nueva **mínima y declarada**: dos URLs de un host **ya admitido**, públicas, sin PII, sin dinero. Lo único que vale mirar es el **guardarraíl de ingesta** (§4.40.4): que no se persista una URL no-`https:` ni de host arbitrario venida del proveedor. | Gate por release |
+
+#### 4.40.9 Lo que esta sección NO hace
+
+- **No cambia el dinero.** `CardSet` no entra en ningún cálculo de precio. Cero montos, cero reglas, cero curva.
+- **No cambia ninguna ruta**, ningún código de error, ningún permiso, ningún rol.
+- **No decide la presentación.** Retícula, tamaños, encuadre, fondo y el tratamiento del «sin logo» son de **ux-ui**.
+- **No toca `frontend/`, `docs/DESIGN_SYSTEM.md` ni `docs/TECH_DEBT.md`** — zonas de otros agentes en este momento.
+- **No ordena un re-sync completo del catálogo.** §4.40.4 lo lista como opción del operador, no como paso obligatorio.
+
+---
+
 ## 5. Decisiones transversales
 
 - **Dinero sin balance:** no hay wallet ni saldo; cada movimiento de dinero es una transacción Stripe (ventas/reembolsos) o un pago SPEI manual (buylist). Ninguna vista de usuario muestra saldo.
@@ -15305,6 +16430,391 @@ dice «desconfía de los unitarios»; dice dónde NO son evidencia.**
 
 ---
 
+### 5.2 Doctrina del SNAPSHOT CONGELADO — qué se congela y qué se resuelve (v1.51-b, NORMATIVA, transversal)
+
+> **Origen.** Un diagnóstico encontró que `OrdersService.cardSnapshot()` no copia `imageSmallUrl` mientras
+> `ShipmentsService.toClientShipmentItem()` sí la incluye, y que el carrito, el checkout de invitado y el detalle de
+> pedido pintan un hueco gris. **Ese defecto ya está enrutado a backend como conformidad con el contrato y no se
+> decide aquí.** Lo que se decide aquí es lo que el defecto destapó: **nadie sabía dónde iba el campo, porque el
+> sistema nunca declaró qué significa «snapshot congelado».** Hoy conviven dos lecturas incompatibles y por eso el
+> campo cayó en la grieta. Esta sección cierra la grieta.
+
+#### 5.2.1 El hallazgo de fondo: el snapshot no tiene forma declarada
+
+Tres hechos, verificados contra el código (clase (B) de §0-B — se citan por su origen, no por autoridad documental):
+
+| # | Hecho | Dónde |
+|---|---|---|
+| 1 | El snapshot se persiste como **JSON sin tipo**: la línea de orden lo declara `cardSnapshot: object` | `backend/src/modules/orders/orders.service.ts` (tipo `OrderLineData`) |
+| 2 | El contrato **nunca declaró su forma**: `GET /orders/:orderId` documenta `"card": {}` y `OrderItemPreview` no tiene definición de campos | `API_CONTRACT §4` |
+| 3 | El frontend lo tipa como **`CardDTO` completo** (con `id`, `externalId`, `imageSmallUrl: string`, `imageLargeUrl: string`, `availableFinishes`…), que el backend **jamás** ha devuelto en esa posición | `frontend/src/types/contract.ts` (`OrderItemPreview.card: CardDTO`) |
+
+El hueco gris no es «se olvidó una línea». Es la consecuencia previsible de **un blob sin forma en un extremo y un
+tipo mentiroso en el otro**: el compilador de TypeScript afirmaba que `card.imageSmallUrl` existía y era `string`,
+así que el front lo pintó, y nada en la cadena podía desmentirlo. Cualquier campo futuro caerá en la misma grieta
+mientras el blob siga sin declarar. **Declarar la forma es el arreglo; añadir el campo es solo el síntoma.**
+
+#### 5.2.2 LA DOCTRINA — un snapshot congela HECHOS DE LA TRANSACCIÓN, no PRESENTACIÓN
+
+**Decisión.** En este sistema, `OrderItem.cardSnapshot` es **una foto probatoria del acto de compra**, no una caché
+de conveniencia. Toda información que viaje con una línea de orden cae en **una** de dos clases, y **la clase
+determina dónde vive**:
+
+| Clase | Qué es | Dónde vive | Regla |
+|---|---|---|---|
+| **(F) HECHO CONGELADO** | Qué se vendió y en qué estado: `cardId`, `name`, `setName`, `number`, `productType`, `rawCondition`, `gradingCompany`, `gradeValue`. Y, en columnas propias, el dinero: `unitPriceCents` + el quinteto de instrumentación de §N.8 (`marketMxnCents`, `priceBasis`, `marketBracket`, `finish`) | **Persistido** en `OrderItem` (JSON `cardSnapshot` + columnas) | **Inmutable.** Se escribe una vez, en la transacción del checkout. **Nunca** se re-deriva en lectura, **nunca** se reescribe, y **sobrevive** a que la entidad referida cambie, se renombre por un re-sync de catálogo o desaparezca. |
+| **(P) PRESENTACIÓN RESOLUBLE** | Cómo se dibuja: **imagen**, etiquetas legibles, traducciones, arte, cualquier cosa cuya ausencia produce un hueco visual y **nunca** un dato erróneo | **No se persiste.** Se resuelve **en lectura**, uniendo por el `cardId` que la clase (F) ya congeló | **Siempre fresca.** Su peor caso es `null` ⇒ el front pinta su placeholder. |
+
+**Criterio para clasificar, cuando aparezca el próximo campo dudoso — una sola pregunta:**
+
+> *Si este valor cambiara mañana y el pedido de ayer lo mostrara cambiado, ¿el comprador diría «esto no es lo que
+> compré», o solo «se ve distinto»?*
+
+«Esto no es lo que compré» ⇒ **clase (F)**, se congela. «Se ve distinto» ⇒ **clase (P)**, se resuelve. El nombre de
+la carta es (F): si un re-sync la renombra, el pedido de ayer debe seguir diciendo lo que decía cuando se cobró. La
+miniatura es (P): que la imagen del catálogo mejore no altera qué se compró.
+
+#### 5.2.3 Por qué la imagen es clase (P) — tres razones, y la tercera es la decisiva
+
+1. **No es identidad.** La identidad de lo vendido ya está completa sin ella: `cardId + name + setName + number +
+   productType + condición/grado`. Una miniatura no prueba nada que esos campos no prueben mejor; ninguna disputa
+   de §H se resuelve mirando el thumbnail.
+2. **La imagen ya se resuelve por join en la mayoría del sistema.** No estoy introduciendo un patrón nuevo: lo
+   estoy nombrando. `ShipmentsService.toClientShipmentItem()` y `GuestCheckoutService` (el `GuestOrderTrackingDTO`)
+   **ya** construyen sus ítems uniendo contra `inventoryItem.card` en vivo. La superficie que lee del JSON
+   congelado es **una sola**: `GET /orders/:orderId`. La lectura minoritaria era la del blob.
+3. **Congelar una URL de tercero no congela nada — congela una cadena, no unos bytes.** Este es el punto que
+   decide. Las URLs de imagen apuntan a CDNs que **no controlamos**: `images.pokemontcg.io` para cartas y el CDN de
+   TCGplayer para sellado (los hosts admisibles son los de `SEALED_IMAGE_HOST_ALLOWLIST` en
+   `backend/src/modules/inventory/sealed-image-host.ts`, más el de pokemontcg.io). **No hay copia propia**
+   (restricción explícita de `PROJECT.md`: «sin fotos propias»; el único object storage del MVP es `kyc_ine`).
+   Una URL de tercero congelada en un pedido de hace un año **puede estar muerta**, y entonces el snapshot
+   «inmutable» rinde un `404` en lugar de una imagen — es decir, **rinde peor que el join**, que al menos sigue lo
+   que el catálogo tenga hoy. Congelar un puntero ajeno da la **apariencia** de inmutabilidad con **ninguna** de sus
+   garantías. Un snapshot solo puede congelar lo que posee; de lo que no posee, solo puede congelar la promesa rota.
+
+> **Corolario general, para que no haya que re-litigarlo:** **en este sistema NO se congelan punteros a recursos de
+> terceros dentro de registros probatorios.** Si algún día el negocio exige que la imagen del pedido sea
+> literalmente la de la fecha de compra, eso **no** se consigue guardando la URL: se consigue **copiando los
+> bytes** a almacenamiento propio — lo que hoy `PROJECT.md` excluye del MVP. Mientras no haya copia propia, la
+> pregunta «¿congelamos la imagen?» está mal planteada.
+
+#### 5.2.4 DECISIÓN sobre las órdenes históricas: **opción (ii) — resolución en lectura**. Y no es un «fallback»
+
+**Se elige (ii), y se eleva de excepción a regla:** `imageSmallUrl` **no** se lee nunca del JSON —ni siquiera si
+algún día alguien la escribe ahí—; se resuelve **siempre** uniendo por `cardSnapshot.cardId`. No hay dos caminos, no
+hay «si el snapshot no la trae, entonces…». Hay **uno**.
+
+**La consecuencia que justifica la elección por sí sola:** como el histórico y el futuro pasan por el **mismo**
+código de lectura, **un solo cambio, en el read path, arregla los pedidos viejos y los nuevos a la vez**. No queda
+un histórico degradado que reparar después. Las otras dos opciones parten el problema en dos y dejan una mitad
+pendiente.
+
+**Rechazo de (i) — backfill de la columna JSON.** Cuatro motivos, en orden de peso:
+1. **Consagraría la doctrina equivocada.** Escribir presentación dentro del registro probatorio es exactamente el
+   error que esta sección corrige; hacerlo masivamente lo vuelve irreversible de facto.
+2. **No compra nada que (ii) no dé gratis.** El valor que el backfill escribiría *es* el que el join devuelve —
+   sale de la misma fila `Card`. La única diferencia es que el backfill **deja de actualizarse** y empieza a
+   pudrirse (§5.2.3-3), mientras el join sigue vivo.
+3. **Es una migración de datos NO aditiva sobre filas dinero-adyacentes.** Este proyecto prefiere migraciones
+   aditivas (§11), y aquí se trata de **reescribir en sitio el JSON de líneas de orden ya cobradas**. Un `UPDATE`
+   sobre una columna JSON no tiene rollback natural: si el mapeo se equivoca (una carta con `cardId` reasignado,
+   un blob con forma inesperada de una versión anterior del código), lo que se corrompe es el registro de qué se
+   vendió. **El beneficio es una miniatura; el riesgo es el acta de una venta.** La asimetría no admite discusión.
+4. **Ni siquiera sería suficiente.** Un backfill congela la URL *de hoy*; dentro de un año esas URLs pueden estar
+   muertas y habría que volver a correrlo. Una operación de riesgo que hay que repetir periódicamente para
+   sostener un beneficio cosmético no es una migración: es una deuda con calendario.
+
+**Rechazo de (iii) — aceptarlo como deuda.** No se acepta deuda por un defecto cuyo arreglo cuesta **una consulta
+por lectura de detalle de pedido y cero migraciones**. Aceptar deuda es para lo que es caro o arriesgado arreglar;
+esto no es ninguna de las dos.
+
+#### 5.2.5 Regla de resolución (normativa) — cómo se implementa, en firmas
+
+**Punto de unión: `cardSnapshot.cardId`. PROHIBIDO resolver por `OrderItem.inventoryItemId → InventoryItem.card`.**
+La pieza física cambia de titular, de estado y de bóveda a lo largo del ciclo `pending → settled` (§3.3); usarla
+como puente para pintar un pedido acopla la vista histórica a una entidad que sigue mutando. El `cardId` congelado
+es el **único** puente estable. (Esto no invalida `shipments`, que sí es una vista de piezas en curso, no del acta
+de compra — ver §5.2.7, D-IMG-2.)
+
+```
+// Estructura persistida — NO CAMBIA. Ni un campo nuevo, ni una migración.
+// v1.51-c: los tres últimos se congelan como `null` (columnas nullables de InventoryItem), NO omitidos;
+//          `setName` sí se OMITE cuando la carta no tenía set.
+FrozenCardFacts = { cardId, name, setName?, number, productType,
+                    rawCondition|null, gradingCompany|null, gradeValue|null }
+
+// Lo que se LEE de la columna `Json` de un pedido ya cobrado: NO hay garantía de esquema (§5.2.9).
+PersistedCardFacts = Partial<FrozenCardFacts>
+
+// Proyección de LECTURA (lo que viaja por el cable). Vive solo en memoria.
+// Preserva la completitud de su entrada: hechos completos ⇒ OrderItemCardDTO (quotes);
+// hechos parciales ⇒ HistoricalOrderItemCardDTO (GET /orders/:orderId). NUNCA rellena un hecho ausente.
+resolveOrderItemCard(facts: F, card: Card | null): F & { imageSmallUrl: string | null }
+  = { ...facts, imageSmallUrl: card?.imageSmallUrl ?? null }
+
+// Batched, nunca N+1: una sola consulta por detalle de pedido.
+loadCardsForSnapshots(snapshots) =
+  prisma.card.findMany({ where: { id: { in: distinct(snapshots.map(s => s.cardId)) } },
+                         select: { id: true, imageSmallUrl: true } })
+```
+
+Reglas duras:
+- **La clave `imageSmallUrl` está SIEMPRE presente** en la respuesta; su ausencia se expresa con **`null`**, nunca
+  omitiendo el campo. Shape estable (misma norma que `unavailableItems: []` de v1.21.3).
+- **`null` es un resultado legítimo y esperable**, por dos vías: la fila `Card` ya no existe, o existe con
+  `imageSmallUrl` nulo — **la columna es `String?` en `prisma/schema.prisma`**. El front pinta su placeholder; no es
+  un error, no se registra como incidente, no bloquea nada.
+- **Nunca inventar la URL.** Prohibido construirla por plantilla (`https://images.pokemontcg.io/{set}/{n}.png`) o
+  derivarla del `externalId`: sería reintroducir por la puerta de atrás un puntero no verificado a un host de
+  tercero. Solo se sirve lo que la columna contenga.
+- **En los dos QUOTE no hay consulta extra:** `POST /checkout/quote` y `POST /checkout/guest/quote` ya cargan
+  `card` en memoria (`include: { card: { include: { set: true } } }`); ahí la proyección se llena de ese objeto. La
+  consulta batcheada aplica **solo** a `GET /orders/:orderId`, que lee del histórico.
+- **Money-safe, explícito:** esta sección **no toca** ningún importe, ninguna precedencia de precio, ningún campo
+  del quinteto de instrumentación, ningún estado de orden. Es **display-only**, en la misma categoría que
+  `sealedImageUrl` (§4.34a).
+- **v1.51-c — la proyección NO rellena hechos.** `resolveOrderItemCard` añade la clase (P) y **nada más**: si el blob
+  histórico no trae `name`/`cardId`/`number`/`productType`, la salida tampoco los trae. **Prohibido completarlos
+  desde el join** (violaría §5.2.2). Forma tolerante y render degradado: **§5.2.9**.
+
+#### 5.2.6 Límite declarado: el sellado en el histórico de pedidos
+
+El snapshot congelado ancla **`cardId`**, no `sealedProductId`. Por lo tanto, en las líneas de pedido con
+`productType='sealed'`, la resolución de §5.2.5 rinde la imagen de la **carta ancla**, que es exactamente **la cola**
+de la cascada normada en §4.34a (`SealedProduct.imageUrl` → snapshot `sealedImageUrl` → `Card.imageSmallUrl` →
+`null`). **Los dos primeros peldaños no están disponibles desde el acta de compra.**
+
+Lo declaro en vez de resolverlo a medias: **mostrar la caja del sellado en el historial de pedidos requeriría
+congelar identidad de sellado en la línea de orden (clase (F), DDL aditivo), y eso es alcance de producto, no una
+corrección de lectura.** No lo decido por mi cuenta. Queda **enrutado**: si el dueño lo quiere, entra como petición
+al arquitecto (regla 9) y se diseña como campo (F) —identidad, no imagen—. Mientras tanto, es un límite conocido,
+no un bug, y **no** se compensa con un join oportunista a `InventoryItem` (prohibido por §5.2.5).
+
+#### 5.2.7 Encargo por rol (D-1)
+
+| Rol | Encargo | Puerta |
+|---|---|---|
+| **arquitecto** | ✅ Hecho en este pase: doctrina (F)/(P), decisión (ii), y **declaración de la forma** de `items[].card` como **`OrderItemCardDTO`** en `API_CONTRACT §4` (**rev v1.51-b**). El blob deja de no tener forma. | — |
+| **backend** | (a) Implementar §5.2.5 en las **tres** superficies: `POST /checkout/quote`, `POST /checkout/guest/quote` y `GET /orders/:orderId`. (b) **Tipar** `OrderLineData.cardSnapshot` con `FrozenCardFacts` en vez de `object` — sin el tipo, la grieta sigue abierta. (c) **No** añadir `imageSmallUrl` al objeto que se **persiste**: el arreglo va en la proyección de lectura, no en `cardSnapshot()`. (d) **Cero migraciones**: si el diseño exige una, es señal de que se desvió a la opción (i) y debe volver al arquitecto. | Antes del merge del stream «Órdenes y dinero» |
+| **frontend** | (a) Corregir `OrderItemPreview.card: CardDTO` → `OrderItemCardDTO` en `src/types/contract.ts` (hoy es un tipo falso: promete campos que el backend nunca envió). (b) Tratar `imageSmallUrl: null` como caso normal → placeholder de `CardImage`, sin error visible. (c) Alinear fixtures de mocks a la forma real. **⚠️ ACTUALIZADO en v1.51-c:** eso vale para los DOS quotes; **`GET /orders/:orderId` usa la forma TOLERANTE** (`HistoricalOrderItemCardDTO`) — encargo completo en **§5.2.9**. | Con el contrato v1.51-b |
+| **qa** | Un caso E2E que valga: **pedido creado ANTES del arreglo** (fila con JSON sin imagen) ⇒ `GET /orders/:id` devuelve `imageSmallUrl` poblada. Si eso pasa, la decisión (ii) quedó bien implementada; si solo pasan los pedidos nuevos, se implementó (i) disfrazada. | Gate por stream |
+| **devops** | Nada. **Esta decisión no tiene migración, ni env, ni paso de despliegue.** Se registra precisamente para que nadie prepare una ventana de migración que no existe. | — |
+
+#### 5.2.8 Lo que esta sección NO cambia
+
+- **No cambia qué se persiste.** `OrderItem.cardSnapshot` guarda hoy y seguirá guardando los mismos ocho campos.
+- **No cambia el dinero.** `unitPriceCents` y el quinteto de §N.8 siguen congelándose en la transacción de checkout,
+  con la misma inmutabilidad de siempre. La doctrina (F)/(P) **refuerza** esa regla al darle nombre.
+- **No cambia `shipments` ni el `GuestOrderTrackingDTO`** en su comportamiento de imagen (ya resolvían por join,
+  que es lo correcto para la imagen). Sí quedan con una observación por su resolución de **identidad**: §9, D-IMG-2.
+- **No toca `backend/src/modules/pricing/`** — zona de otro agente en este momento.
+
+#### 5.2.9 Qué pasa cuando un HECHO CONGELADO se perdió (v1.51-c, NORMATIVA)
+
+> **Origen.** El techlead detectó, sobre la implementación ya aprobada de §5.2, que el contrato v1.51-b declaraba
+> `cardId`, `name`, `number` y `productType` **requeridos** en las tres superficies, mientras el backend lee el
+> histórico con un `Partial` y **puede servir un `card` sin ellos** (conducta fijada por test, y correcta). Enrutado a
+> mí por regla 9. **Es el mismo defecto que §5.2 vino a matar, invertido:** un tipo de cliente prometiendo lo que el
+> backend puede no enviar — la grieta exacta por la que se cayó `imageSmallUrl`. Aquí se cierra por el otro lado.
+
+**El hecho de fondo.** `OrderItem.cardSnapshot` es una columna `Json`. **PostgreSQL no valida su esquema**, y el blob
+de un pedido antiguo lo escribió una versión anterior de nuestro propio código. Por tanto la forma de un snapshot
+histórico **no es una garantía del sistema: es una observación sobre datos que ya existen**. Cualquier tipo que
+afirme lo contrario es una promesa que la base no respalda.
+
+**Decisión: el contrato declara la TOLERANCIA; el backend NO rellena.** `GET /orders/:orderId` sirve
+`HistoricalOrderItemCardDTO = Partial<FrozenCardFacts> & { imageSmallUrl: string | null }` (API_CONTRACT §4). Los dos
+quotes conservan la forma **completa** `OrderItemCardDTO`, porque ahí los hechos **nacen en la misma petición** desde
+la pieza viva (`cardSnapshot(item)` sobre columnas `NOT NULL`) y sí están garantizados.
+
+**Rechazo de la alternativa (que el backend garantice un mínimo rellenando desde el join).** Tres motivos, y el
+primero basta:
+1. **Contradice §5.2.2 de frente.** Los hechos congelados **no se re-resuelven**. Rellenar `name`/`number` desde
+   `Card` es exactamente lo que el test «los hechos congelados sobreviven a un re-sync que renombró la carta»
+   existe para impedir. No se puede prohibir el re-resolver en el caso normal y autorizarlo en el caso degradado:
+   el caso degradado es **precisamente** donde el dato re-resuelto tiene más probabilidad de ser falso.
+2. **Cambia un hueco honesto por un dato inventado, dentro de un registro probatorio.** Un blob incompleto significa
+   «el acta no lo registró». Rellenarlo hace que el pedido **afirme** algo —con la misma tipografía que los hechos
+   reales— cuyo respaldo es el catálogo de hoy, no la venta de entonces. En una disputa (§H), eso es peor que el
+   hueco: el hueco se ve, el relleno no.
+3. **En el peor caso ni siquiera hay de dónde rellenar.** El blob incompleto más probable es el que **no trae
+   `cardId`** — y sin `cardId` no hay join. La «garantía» fallaría justo en el caso que decía cubrir.
+
+**La regla general que esto establece, para el próximo campo dudoso:**
+
+| Clase | Cuando no resuelve | Degrada a | Lo que el cliente dice |
+|---|---|---|---|
+| **(P) Presentación** | La fila `Card` no existe / columna nula / sin `cardId` | **`null`, clave presente** | «no hay imagen» ⇒ placeholder |
+| **(F) Hecho congelado** | El blob histórico no lo trae | **AUSENTE, clave omitida** | «no consta» ⇒ etiqueta neutra |
+
+**Ninguna de las dos degrada jamás a *otro valor*.** Esa es toda la doctrina: la ausencia se representa, no se
+sustituye. Y `null` (clase P) frente a ausente (clase F) **no es un detalle de estilo**: es la señal de cuál de las
+dos cosas pasó.
+
+**Money-safe, y es lo que acota el daño.** El dinero de la línea **no vive en el blob**: `unitPriceCents` es columna
+propia de `OrderItem` y el `breakdown` sale de columnas de `Order` (§5.1). Un snapshot incompleto **no puede mover un
+centavo** ni de lo que se muestra ni de lo que se cobró. El peor caso de T-3 es **cosmético con honestidad**: un
+pedido antiguo que dice menos de lo que hoy diríamos, con su importe intacto.
+
+**La tolerancia es de LECTURA. No relaja la ESCRITURA — invariante vigente:** el checkout persiste siempre los ocho
+hechos, con `cardId`, `name`, `number` y `productType` **no nulos**. Un pedido cobrado por el código vigente **nunca**
+produce un `card` incompleto; si lo produjera, es **defecto de backend**, no tolerancia. Y **no hay backfill**: §5.2.4
+sigue vigente, un blob incompleto no se repara, se muestra.
+
+**T-4 — `null` frente a ausente, alineado con lo que de verdad viaja.** `cardSnapshot()` congela `rawCondition`,
+`gradingCompany` y `gradeValue` **tal cual salen de columnas nullables** de `InventoryItem` ⇒ viajan como **`null` con
+la clave presente**, no omitidos. `setName` sale de `card.set?.name` ⇒ `undefined` ⇒ **omitido**. Se corrige **el
+contrato**, que los declaraba todos opcionales-ausentes. **Se rechaza pedirle al backend que omita los nulos:** sería
+cambio de conducta en el write path, produciría **divergencia entre blobs viejos y nuevos** (los ya persistidos
+seguirían con `null`) y no compra nada — `null` y ausente significan lo mismo aquí («no aplica»), y el discriminante
+real es `productType`.
+
+**Encargo por rol (D-1b, v1.51-c):**
+
+| Rol | Encargo | Puerta |
+|---|---|---|
+| **arquitecto** | ✅ Hecho en este pase: §5.2.9 y `API_CONTRACT` **v1.51-c** (dos formas, tolerancia declarada, `null` vs ausente, ejemplos reales, confirmación de alcance de `GuestTrackingItemDTO`). | — |
+| **backend** | **NADA que cambiar en conducta** — el contrato se alineó al código, no al revés. Solo, si quiere el cerrojo de compilación completo: **exportar el alias `HistoricalOrderItemCardDTO`** (= `PersistedCardFacts & { imageSmallUrl: string \| null }`, que es lo que `resolveOrderItemCard` ya devuelve para el histórico) y anotar con él el retorno de las líneas de `getOrder`. **Opcional, sin urgencia.** ⛔ **Prohibido** «garantizar un mínimo» rellenando hechos desde `Card`: violaría §5.2.2. | Sin puerta (no bloquea merge) |
+| **frontend** | (a) Tipar las líneas de **`GET /orders/:orderId`** con la forma **tolerante** (`HistoricalOrderItemCardDTO`: todo hecho congelado opcional), **no** con `OrderItemCardDTO`. Los dos quotes conservan la forma completa. (b) Render degradado por campo según API_CONTRACT §4 «Tolerancia del histórico», punto 4: etiqueta neutra de i18n para `name`, omisión de fragmentos para `number`/`setName`, sin badge si falta `productType`, sin enlace a ficha si falta `cardId`. (c) ⛔ **Prohibido rellenar el hueco** con `GET /catalog/cards/:cardId`: sería re-resolver un hecho congelado desde el cliente — la misma violación de §5.2.2, por la puerta de atrás. (d) `rawCondition`/`gradingCompany`/`gradeValue` llegan **`null`, no ausentes**: no usar `in` como discriminante. | Antes del merge del stream «Órdenes y dinero» |
+| **qa** | Un caso más sobre el existente: **pedido histórico con blob incompleto** (sin `cardId`/`name`) ⇒ `GET /orders/:id` responde **`200`**, la línea se pinta con etiqueta neutra + placeholder, y **`unitPriceCents` y el `breakdown` salen intactos**. Si la UI revienta, o si muestra un `name` que el blob no traía, hay hallazgo. | Gate por stream |
+| **devops / ux-ui** | Nada. Sin migración, sin env, sin cambio de diseño (la etiqueta neutra usa el mismo tratamiento tipográfico ya existente del placeholder). | — |
+
+---
+
+### 5.3 Doctrina de IMÁGENES en el frontend — ¿se adopta `next/image`? (v1.51-b, NORMATIVA)
+
+#### 5.3.1 Hechos verificados (clase (B) de §0-B)
+
+| # | Hecho | Fuente ejecutable |
+|---|---|---|
+| 1 | **Cero** usos de `next/image` en `frontend/src`. El envoltorio único renderiza `<img>` crudo con la regla `@next/next/no-img-element` **silenciada a propósito** | `frontend/src/components/ui/CardImage.tsx` |
+| 2 | Hay `<img>` crudos en **12 archivos** además de ese envoltorio (`PhotoUploader`, `CellDrawer`, `TopBountiesShelf`, `CardDetailModal`, `BountyBoard`, `SealedShelf`, y cinco vistas de `admin/m1` + `GradedTab`) | `rg '<img' frontend/src` |
+| 3 | `images.remotePatterns` declara `images.pokemontcg.io` **y un comodín `hostname: '**'`** | `frontend/next.config.mjs` |
+| 4 | Esa configuración **hoy está muerta**: sin `next/image`, nada pasa por `/_next/image` | consecuencia de (1) |
+| 5 | El frontend corre en **Vercel** (backend + Postgres + Redis en Railway) | `docs/DEVOPS_NOTES.md` §topología, marcada CONFIRMADA |
+| 6 | El catálogo ya publica **dos tamaños por carta**: `imageSmallUrl` e `imageLargeUrl` | `Card` en `prisma/schema.prisma`; `CardDTO` en `API_CONTRACT` |
+| 7 | La teja secundaria del carrusel pide `imageLargeUrl` para una caja de **160–268 px** | `_home/FeaturedCarousel.tsx` |
+
+#### 5.3.2 El eje que decide (y no es «rendimiento sí/no»)
+
+El optimizador de Next **no es gratis y no se paga en CPU de nuestro servidor**: en Vercel se factura por
+**transformación única** `(imagen origen × ancho × calidad × formato)`, cacheada tras la primera petición. De ahí
+sale el único eje que importa:
+
+> **La optimización de imágenes es barata cuando hay POCAS imágenes vistas MUCHAS veces, y cara cuando hay MUCHAS
+> imágenes vistas POCAS veces.**
+
+Este producto es **las dos cosas a la vez, en superficies distintas**, y ahí murió la discusión de «adoptar o no»
+como pregunta binaria:
+
+- **Cabeza (acotada, amortizable):** home/hero, carrusel destacado. Un puñado de imágenes curadas que **todos** los
+  visitantes ven ⇒ el coste de transformación se amortiza a prácticamente cero y el beneficio cae justo sobre el
+  **LCP** de la página de entrada.
+- **Cola larga (no acotada):** rejilla de Compra, binder de master set, tablas de M1, miniaturas de carrito, pedido
+  y bóveda. El catálogo está **preciado completo** (§4.13) y se navega por búsqueda y facetas ⇒ el número de
+  transformaciones distintas escala con **la cobertura del catálogo**, no con el tráfico. Cada miniatura genera su
+  propia transformación, se ve pocas veces, y el ahorro por unidad es de decenas de KB.
+
+**Y hay un contra-argumento que mata la alternativa intermedia.** La opción «`<img>` crudo + `srcset` a mano» suena
+gratis, pero con las dos únicas URLs que da el catálogo produce un `srcset` de dos candidatos: el pequeño
+(~245 px de ancho intrínseco) y el `hires` (~745 px) — *anchos ilustrativos; el frontend DEBE verificar los
+intrínsecos reales antes de escribir un descriptor `w`, porque un `w` mal declarado hace que el navegador elija
+mal*. En una caja de 160 px sobre una pantalla de DPR 2, el navegador pediría **el archivo grande**: hoy esa teja
+descarga la pequeña. Es decir, **añadir `srcset` a las miniaturas EMPEORA los bytes en móvil**, que es justo lo que
+se quería arreglar. Una optimización que aumenta la descarga en el peor dispositivo no es una optimización: es una
+preferencia disfrazada de métrica.
+
+**Lo que sí es gratis y sí funciona es más simple: pedir la URL correcta.** El hallazgo (7) —una caja de 160 px
+descargando el `hires`— **no se arregla con `next/image` ni con `srcset`: se arregla eligiendo `imageSmallUrl`**, y
+esa corrección ya está enrutada a frontend. El bug nunca fue la falta de optimizador; fue pedir el archivo
+equivocado.
+
+#### 5.3.3 DECISIÓN — adopción ACOTADA, en tres niveles
+
+**Se adopta `next/image`, pero SOLO donde la imagen gobierna el LCP.** Tres niveles, exhaustivos y excluyentes:
+
+| Nivel | Superficies | Estrategia | Por qué |
+|---|---|---|---|
+| **A — `next/image`** | (1) Teja **líder** del carrusel de home y cualquier imagen del **hero** de la home. (2) Imagen **principal de la ficha de carta** (y de la ficha de sellado). | `next/image` con `priority` en la líder de home, `sizes` **explícito y estrecho**, sin ladder ancho | Son **el LCP** de las dos páginas más vistas. La cabeza tiene conjunto acotado (amortización total). En la ficha es 1–2 transformaciones por carta visitada, sobre un archivo `hires` que es donde AVIF/WebP rinde de verdad (el origen solo sirve PNG). |
+| **B — `<img>` con la URL CORRECTA** | Rejilla de Compra, binder de master set, `TopBountiesShelf`, `BountyBoard`, `SealedShelf`, `CellDrawer`, `CardDetailModal`, miniaturas de carrito/checkout/pedido/bóveda, y **todas** las vistas de `admin/m1` | `<img>` crudo, **`imageSmallUrl` siempre**, `imageLargeUrl` **solo** si la caja renderizada supera ~300 px CSS. **Sin `srcset`.** | Cola larga: muchas transformaciones, beneficio pequeño por unidad, y el `srcset` de dos pasos **regresa** bytes en DPR≥2 (§5.3.2). La ganancia real ya la da elegir bien la URL, a coste cero. |
+| **C — ni una cosa ni otra** | `PhotoUploader` (previsualización local `blob:`/`data:`) | `<img>` crudo, sin tocar | No es una imagen remota; pasarla por el optimizador es imposible y absurdo. |
+
+**Reglas de coste, obligatorias donde se adopte el nivel A** (esto es lo que separa un coste acotado de una factura
+sorpresa, y casi nadie lo hace):
+1. **`sizes` explícito y estrecho, siempre.** Un `sizes` vago multiplica las transformaciones por carta. Prohibido
+   `sizes="100vw"` sin breakpoints reales.
+2. **Recortar `images.deviceSizes` / `images.imageSizes`** en `next.config.mjs` al conjunto mínimo que el diseño
+   usa de verdad. Es la palanca de mayor efecto sobre el multiplicador; los defaults de Next son generosos.
+3. **Subir `images.minimumCacheTTL`** para que la caché de transformaciones no se enfríe y se re-facture.
+4. **Nada de nivel A dentro de listas o rejillas.** Si una superficie de nivel A empieza a paginar o a mostrar N
+   elementos variables, deja de ser nivel A y baja a B. **La regla es la forma de la superficie, no el gusto.**
+
+**No se adopta un loader externo ni una copia propia de imágenes.** Sería alta de un servicio de infraestructura no
+previsto y chocaría con la restricción de `PROJECT.md` («sin fotos propias»; object storage **acotado a `kyc_ine`**).
+Si algún día el coste del nivel A lo justificara, **es decisión del dueño**, no del frontend.
+
+#### 5.3.4 El comodín `hostname: '**'` — se CIERRA ahora, aunque hoy sea inerte
+
+**Decisión: se retira el comodín y `remotePatterns` queda restringido a los hosts que el backend puede producir.**
+
+Justificación, y por qué es urgente **precisamente porque hoy no hace nada**:
+- Con `next/image`, `/_next/image?url=<host arbitrario>` convierte el optimizador en un **proxy de imágenes
+  abierto**: cualquiera en internet puede hacer que **nuestro** despliegue descargue, transforme y sirva imágenes de
+  **cualquier** host — quemando transformaciones facturables, ancho de banda y reputación de IP, y regalando un
+  laundering de origen para contenido ajeno. Es un patrón de abuso conocido, no una hipótesis.
+- **Hoy el cambio tiene riesgo funcional CERO** (nada pasa por el optimizador ⇒ narrowing inobservable). En cuanto
+  entre la primera línea del nivel A, deja de ser gratis y pasa a ser un cambio que hay que probar. **La ventana
+  barata es ahora.**
+- **La lista correcta ya existe en el backend y no hay que inventarla.** El servidor **ya** valida el host antes de
+  persistir cualquier URL de imagen de sellado, contra `SEALED_IMAGE_HOST_ALLOWLIST`
+  (`backend/src/modules/inventory/sealed-image-host.ts`), con `https:` obligatorio y sin credenciales embebidas.
+  **`remotePatterns` debe ser el ESPEJO de esa lista** más el host de las imágenes de carta. Cualquier host que
+  `remotePatterns` acepte y el backend no pueda producir es superficie regalada.
+  - Norma §0-B: **la lista se cita por su origen, no se transcribe aquí como autoridad.** Hoy son, ilustrativamente,
+    los dominios de TCGplayer y TCGCSV en esa constante, más `images.pokemontcg.io` de `Card.imageSmallUrl`. Si el
+    backend amplía su allowlist, `remotePatterns` se amplía **detrás**, nunca por delante.
+- **Solo `protocol: 'https'`.** Sin `http`, sin comodines de esquema.
+- **Verificación obligatoria antes de mergear:** los fixtures de mocks y el bundle E2E usan
+  `images.pokemontcg.io` (`frontend/src/lib/mock/fixtures.ts`), que queda dentro de la lista. Aun así frontend debe
+  confirmar que **ningún** host usado por fixtures o por Playwright caiga fuera: con `next/image`, un host no listado
+  **falla la petición**, y ese fallo debe verse en desarrollo, no en producción.
+
+#### 5.3.5 Precondición de coste (no la doy por sabida)
+
+**No transcribo aquí cuotas ni precios de Vercel** — son valores de clase (B) que cambian sin avisarnos y que este
+documento convertiría en orden (§0-B.1). Lo que sí es normativo:
+
+> **El nivel A no se despliega a producción hasta que devops confirme, contra la consola del plan vigente, el
+> número de transformaciones de imagen incluidas y el precio del excedente, y deje ese dato en
+> `docs/DEVOPS_NOTES.md` con fecha.**
+
+Es la misma disciplina que §4.38(r.3) exige para encender el gancho de grading: **una función que consume un
+recurso facturado no se enciende con una estimación**. Si al medirlo el nivel A resultara caro, la salida está
+predefinida y es barata: **se degrada la ficha al nivel B** (queda solo la home, que es el conjunto acotado) sin
+tocar nada más. La decisión está diseñada para poder retroceder por mitades.
+
+#### 5.3.6 Encargo por rol (D-2)
+
+| Rol | Encargo | Puerta |
+|---|---|---|
+| **frontend** | (a) **Cerrar el comodín** de `remotePatterns` (§5.3.4) — **primero, y solo eso, porque hoy es de riesgo cero**. (b) Nivel A en teja líder de home + imagen principal de ficha, con `sizes` estrecho, `deviceSizes`/`imageSizes` recortados y `minimumCacheTTL` subido. (c) Nivel B en el resto: **la regla es la URL correcta, NO añadir `srcset`** (§5.3.2). (d) `CardImage` sigue siendo el envoltorio **único**: la estrategia se elige por prop dentro del componente, **no** duplicando componentes. (e) El `eslint-disable` de `no-img-element` se **conserva** en los niveles B y C — es una excepción **decidida y documentada aquí**, no una regla evadida; anotar en el comentario que su autoridad es §5.3.3. | Antes del cierre del stream de frontend |
+| **devops** | (a) **Confirmar plan y cuota de transformaciones de imagen en Vercel** y anotarlo con fecha en `docs/DEVOPS_NOTES.md` — **precondición del nivel A en producción** (§5.3.5). (b) Alerta/observación de consumo antes de que el excedente sea una sorpresa en la factura. (c) Verificar que el build en Docker (`output: 'standalone'`, usado por el harness E2E) sigue verde tras el nivel A. | Antes de promover el nivel A a prod |
+| **qa** | (a) Con `remotePatterns` cerrado, verificar que **ninguna** imagen legítima se rompe (E2E con mocks y contra el stack real). (b) En las superficies de nivel B, comprobar que la petición de red pide la URL **pequeña** en cajas pequeñas — es el criterio observable del arreglo, y es medible en el panel de red. | Gate por stream |
+| **backend** | Nada. `SEALED_IMAGE_HOST_ALLOWLIST` **no se toca**; es la fuente que el frontend espeja. Si alguna vez se amplía, avisar para mover `remotePatterns` **después**. | — |
+| **ux-ui** | Sin cambio de diseño. El pozo de papel y el placeholder de `CardImage` se conservan; `imageSmallUrl: null` (§5.2.5) sigue cayendo en ese placeholder. | — |
+
+#### 5.3.7 Cuándo se revisita
+
+Esta decisión se reabre —y solo entonces— si ocurre **una** de estas tres:
+1. El catálogo empieza a servir **más de dos tamaños** por carta (desaparece la restricción que hace inútil el
+   `srcset` de dos pasos).
+2. Aparece **copia propia de imágenes** en almacenamiento nuestro (cambia a la vez §5.2.3-3 y el cálculo de coste).
+3. La medición de §5.3.5 muestra que el nivel A es **gratis en el plan vigente** con holgura ⇒ se puede evaluar
+   subir la rejilla de Compra al nivel A. **Con medición, no con intuición.**
+
+---
+
 ## 6. i18n (convención)
 
 - **UI 100% bilingüe ES/EN, default ES**, toggle a EN. Los copys viven en `frontend/src/i18n/messages/{es,en}.json` (propiedad de frontend/ux-ui).
@@ -15373,7 +16883,8 @@ Variables de entorno necesarias (sin valores; devops las gestiona):
 - FX (automático desde Banxico SIE): `BANXICO_SIE_TOKEN` (token de la API SIE); modo override manual vía dial M10 sin token
 - **Set destacado del hero (v1.9-set-chart):** `HOME_FEATURED_SET_ID` (**opcional**; id **nativo de pokemontcg.io** del `CardSet` a graficar en la home, ej. `sv8`). Si no se define o no resuelve a un `CardSet` local, aplica el fallback en cascada de §4.12b (mayor valor en el último snapshot → set más reciente por `releaseDate`). **El valor concreto lo fija devops/backend** por entorno; el arquitecto define solo el mecanismo. No es secreto. Reusa `POKEMONTCG_IO_API_KEY` para el `set-price-sync`.
 - **Auth Google:** `GOOGLE_CLIENT_ID` (backend, para validar `aud` del ID token) y `NEXT_PUBLIC_GOOGLE_CLIENT_ID` (frontend, Google Identity Services). Sin `client_secret` en el MVP (flujo de ID token, no code-exchange).
-- **Correo (v1.5-auth-email, Resend):** `RESEND_API_KEY` (secreto) y `MAIL_FROM` (default `no-reply@tcgvaultmx.com`).
+- **Correo (v1.5-auth-email, Resend):** `RESEND_API_KEY` (secreto) y `MAIL_FROM` (remitente; **valor por entorno**,
+  default en código sobre `common.brand.domain` — p. ej. `TCG HUNT <no-reply@tcghunt.mx>`; §0-B).
   - **Política (sigue el patrón `env.validation.ts` local/no-local):** `RESEND_API_KEY` se añade a la lista
     `required` → **obligatoria en NO-local (staging + prod)**; en LOCAL_ENVS (`development`/`test`/`local` o sin
     `NODE_ENV`) puede faltar y el sistema **degrada** a `NoopMailAdapter` (loguea el correo/link, no envía) para
@@ -15382,9 +16893,20 @@ Variables de entorno necesarias (sin valores; devops las gestiona):
     los usuarios locales nunca podrían verificar → quedarían bloqueados. Por eso en no-local (incl. **staging**,
     que debe probar el flujo real E2E) la key es dura. *(Decisión a confirmar por el humano: exigir key también en
     staging; ver §10.)*
-  - **Dominio remitente:** `tcgvaultmx.com` requiere SPF/DKIM/DMARC verificados en Resend (nota devops). El correo
-    de soporte de disputas es `soporte@tcgvaultmx.com` — **mismo dominio canónico** que el remitente; ver §10 v1.5-2
-    (**CERRADA** 2026-08-16: dominio unificado, ya no hay inconsistencia).
+  - **Dominio remitente — INVARIANTE, no un valor (v1.50.4):** el remitente (`MAIL_FROM`) y el buzón de soporte
+    (`DISPUTE_EVIDENCE_CONTACT`) **deben vivir en el MISMO dominio canónico**, y ese dominio es el de
+    `common.brand.domain` (§0-B). **Hoy: `tcghunt.mx`.** El dominio debe tener **SPF/DKIM/DMARC verificados** en
+    Resend antes de fijar `MAIL_FROM` (alcance devops). Ver §10 v1.5-2 (CERRADA).
+  - **Migración P-21 (correo) — desbloqueada 2026-08-31:** los buzones `@tcghunt.mx` **ya reciben** (confirmado por
+    el humano). Eso levanta la única condición que mantenía los defaults en el dominio viejo. Consecuencias, **cada
+    una en su dueño** (el arquitecto no las ejecuta):
+    - **devops:** fijar `MAIL_FROM` sobre `tcghunt.mx` **solo con el dominio Verified en Resend**, y
+      `DISPUTE_EVIDENCE_CONTACT` al buzón nuevo **solo tras probar recepción real**. Mantener el dominio viejo en
+      `APP_BASE_URL` (CORS) y en las **guardias anti-prod** mientras dure el redirect 301 (§0-B regla 6).
+    - **backend:** actualizar los **defaults de código** (`mail.module.ts`, `disputes.constants.ts`,
+      `buylist-mail.templates.ts`, `guest-checkout.constants.ts`) y sus tests. Deuda `BE-P21-2` (literal duplicado
+      en 3 archivos) sigue abierta y es el momento natural de cerrarla.
+    - **Orden seguro:** env primero (efecto inmediato, reversible), defaults de código después. Nunca al revés.
 - `APP_BASE_URL`, `DEFAULT_LOCALE=es` (`APP_BASE_URL` = base del frontend; también se usa para construir los
   links de verificación/reset del correo, §4.11).
 
@@ -15481,12 +17003,47 @@ Riesgos técnicos:
   | **BL-12** ⛔ **ABIERTA** *(v1.51.3 — dato faltante en filas vivas, no bug de código)* | Las `cotizada` **creadas antes de M-46** tienen `pickupAddressSnapshot = null` ⇒ **no se pueden ofertar** (`422 PICKUP_ADDRESS_MISSING`, §4.39h paso 1-bis). Sin remedio quedarían atoradas hasta caducar | backend (guarda + `PATCH`) · **operación (contactar al vendedor)** | **Se resuelve DENTRO del triage de BL-10**, que ya es paso obligatorio y ya toca estas mismas filas: por cada `cotizada` viva, o se le pide la dirección al vendedor (tiene `User.phone`, D11/D12) o se **declina a mano** (`POST …/decline`, D39). ⚠️ **No se rellena la dirección desde la libreta viva ni desde otro pedido**: sería inventarle al vendedor un origen que no confirmó (§4.39q.2) |
   | **BL-13** ⛔ **ABIERTA** *(v1.51.4 — **desenlace INCORRECTO documentado como remedio**; defecto de arquitectura, mío, no del código)* | (q.4) documenta que tras la guía *«el remedio es humano: cancelar la guía y re-emitir»*. **Ese remedio NO es ejecutable:** la cola «cancelar guía no usada» **solo se abre** si la solicitud con guía **expira o se cancela**, y una `aceptada` **no se cancela** (`409 OFFER_NOT_CANCELLABLE`). Con la dirección mal impresa, **la única salida hoy es dejar vencer el plazo de envío** ⇒ `expirada`+`not_shipped` ⇒ **correo 3b: «aceptaste y el paquete no salió»**. **Un typo NUESTRO acaba acusando al vendedor** — la misma injusticia que D38 quitó, por otra puerta | backend | **Con M-46, no después** (mismo módulo, mismo endpoint de guía). Cierre = §4.39(t): **`PATCH /admin/buylist/:id/pickup-address`** + **`409 GUIDE_CANCELLATION_PENDING`** en `POST …/guide` + congelar `shipDeadlineAt` **cuando es `null`**. ⚠️ **Los tres van juntos**: sin el tercero, una guía re-capturada deja la solicitud **sin plazo para siempre** |
   | **BL-10** ⛔ **ABIERTA** *(v1.51.1 — riesgo de CUT-OVER, no bug: correo saliente a personas reales)* | La **regla 7** del barrido (D33) se ancla en `createdAt`. En su **primera corrida** sobre datos históricos, **toda `cotizada` viva con más de 7 días hábiles caduca de golpe y cada una manda un correo real** de «no procederemos». El mensaje es **cierto**, pero debe salir **cuando alguien decidió**, no como efecto colateral de un deploy | backend (escribe la regla) · **devops (ejecuta el censo)** | **Antes de habilitar la regla 7 en producción.** Cierre = **censo de las `cotizada` vivas + triage manual** (ofertarlas o cerrarlas). **No se falsifica `createdAt`** ni se inventa una fecha ancla: el remedio es operativo, no de dato (§4.39j regla 7) |
+- **⚠️ NUEVAS (v1.51-b) — imágenes: una omisión, un tipo falso y un comodín cargado.** Ninguna corregida por mí.
+  *(⚠️ **v1.53 — llegan de la línea de `main`; conviven con las `BL-nn` de arriba sin colisión de espacio de nombres**
+  (`D-IMG-n` ≠ `BL-nn`). **`D-IMG-2` sigue abierta y aceptada**, y **DT-Gd** —el tipo único `CardSetDTO` para dos
+  endpoints que el contrato define distintos— **queda cerrada por el lado del contrato** en `API_CONTRACT.md` v1.53(D)
+  (nacen `CardSetDTO` y `BuylistSetDTO`); **falta el tipo del cliente, y es de frontend**.)*
+  Doctrina y encargos completos en **§5.2** (snapshot) y **§5.3** (`next/image`).
+  | # | Desviación | Evidencia | Dueño | Puerta |
+  |---|---|---|---|---|
+  | **D-IMG-1** | `OrdersService.cardSnapshot()` no proyecta `imageSmallUrl` aunque `item.card` viene cargado ⇒ hueco gris en carrito, checkout de invitado y detalle de pedido. **Omisión aislada, no criterio**: el mismo mapeo en `ShipmentsService.toClientShipmentItem()` sí la incluye | `orders.service.ts` (`cardSnapshot`) vs. `shipments.service.ts` (`toClientShipmentItem`) | backend | Ya enrutada (conformidad de contrato). Se implementa **en la proyección de lectura**, §5.2.5 |
+  | **D-IMG-2** | `GuestOrderTrackingDTO` y `ClientShipmentItemDTO` resuelven **la IDENTIDAD** (`name`, `setName`, `number`) por join contra `inventoryItem.card` **en vivo**, no desde el registro congelado ⇒ un re-sync de catálogo que renombre una carta **cambia lo que dice un pedido ya cobrado**. Para la **imagen** el join es correcto (§5.2.3); para la identidad está invertido | `guest-checkout.service.ts` (construcción de `items`), `shipments.service.ts` | backend | **Severidad baja, NO bloqueante.** Alinear a §5.2.2 en el próximo trabajo sobre esos módulos; no justifica un pase propio. **RATIFICADA v1.51-c** tras revisión del techlead: `guest-checkout.service.ts:545` (`imageSmallUrl: … ?? undefined`, vía `inventoryItem.card`) **NO es regresión y NO contradice §5.2.5** — es otro DTO, plano, **sin `cardId`** (prohibido por criterio 51, así que la unión de §5.2.5 le es estructuralmente inaccesible) y de una vista de **envío en curso**, no del acta de compra. **Prohibido «uniformizarlo» por iniciativa propia**; declarado en `API_CONTRACT §4-G` |
+  | **D-IMG-3** | `OrderLineData.cardSnapshot` está tipado como **`object`**: un blob probatorio sin forma en el backend | `orders.service.ts` (tipo `OrderLineData`) | backend | Con D-IMG-1. **Es la causa raíz**, no un detalle de estilo |
+  | **D-IMG-4** | `OrderItemPreview.card` se tipa como **`CardDTO` completo**, que el backend nunca devolvió en esa posición: el tipo **prometía** `imageSmallUrl: string` y por eso el front la pintó sin que nada lo desmintiera. Además `CardDTO.imageSmallUrl` es `string` (requerido) mientras la columna es **`String?`** en el schema | `frontend/src/types/contract.ts` vs. `prisma/schema.prisma` | frontend | Con el contrato **v1.51-b** (`OrderItemCardDTO`, imagen **nullable**) |
+  | **D-IMG-5** | `images.remotePatterns` incluye `hostname: '**'`. **Hoy inerte** (cero `next/image`), pero convierte el optimizador en **proxy de imágenes abierto** en cuanto se adopte. Es **más ancho que lo que el backend puede producir**, que ya valida host contra `SEALED_IMAGE_HOST_ALLOWLIST` | `frontend/next.config.mjs` vs. `backend/src/modules/inventory/sealed-image-host.ts` | frontend | **Cerrar YA**, mientras el cambio tiene riesgo funcional cero (§5.3.4) |
+
+- **⚠️ NUEVA (v1.50.4) — DESVIACIÓN DE PROCESO, no de código: «la fuente afirma, el producto contradice, nadie
+  coteja».** Es la desviación **más cara** registrada aquí, porque no vive en un archivo: vive en cómo el equipo
+  lee. Se ha reproducido **cuatro veces**, cada una en un rol distinto y cada una con el rol obedeciendo
+  correctamente el proceso. Inventario:
+  | # | Incidente | Qué afirmó la fuente | Qué decía el producto |
+  |---|---|---|---|
+  | 1 | **Sembrado** que no pisa lo existente | «el seed es idempotente / no destruye» | pisaba datos ya presentes |
+  | 2 | **Preflight** que aceptaba una clave falsa | «la verificación valida la credencial» | validaba el formato, no la credencial |
+  | 3 | **Despliegue verde sin desplegar** | «el pipeline desplegó» | el paso no corrió; el verde era del paso anterior |
+  | 4 | **Marca** (este pase) | `PROJECT.md`: «la marca comercial es TCG Vault MX» | `common.brand.name = "TCG HUNT"` desde antes |
+  **Denominador común:** en los cuatro, la afirmación era de **clase (B)** (§0-B.2) —descripción de algo que ya
+  existía— pero se leyó con la autoridad de una **clase (A)** (decisión). El daño del #4 es el más ilustrativo
+  porque fue **hacia abajo y con razón**: un rol escribió un descargo legal con la marca mala, y otro *«corrigió»*
+  la metadata de los Excel **quitando la marca real**, citando `PROJECT.md` como autoridad. **Ninguno violó el
+  proceso; el proceso los mandó al error.**
+  - **Dueño:** arquitecto (norma) — **CERRADA en este pase** con §0-B, que separa *decidir* de *describir* y obliga
+    a verificar contra el artefacto ejecutable, nunca contra otra documentación.
+  - **Lo que §0-B NO cierra:** es una norma, no un candado. Un chequeo mecánico (p. ej. CI que falle si `docs/` o el
+    copy contienen `TCG Vault MX` o los dominios muertos fuera de las guardias y las notas históricas) sería el
+    cierre duro. **No lo especifico aquí: es tooling de CI, alcance devops.** Queda enrutado como **sugerencia**,
+    no como requisito de arquitectura.
 
 - **⚠️ NUEVAS (v1.50.3-g) — desviaciones detectadas por el gate de seguridad, enrutadas, ninguna corregida por mí.**
   Dictamen completo en §4.38(l.4.10)-(l.4.13); aquí queda el registro con dueño y puerta:
   | # | Desviación | Dueño | Puerta |
   |---|---|---|---|
-  | **SEC-M43-1** | El escritor **humano** degrada una fila `market` a `graded_estimate` y le pisa el monto (la guarda `409` solo ve `platform+listed`) ⇒ pieza real apagada en silencio; **valuación de custodia a `pending`** | backend | **Antes de encender `gradedEstimatesEnabled` en un entorno con inventario `graded` real.** Cierre = **`M-44`** (§4.38l.4.10) |
+  | **SEC-M43-1** | El escritor **humano** degrada una fila `market` a `graded_estimate` y le pisa el monto (la guarda `409` solo ve `platform+listed`) ⇒ pieza real apagada en silencio; **valuación de custodia a `pending`** | backend | **Antes de encender ~~`gradedEstimatesEnabled`~~ `gradingHookEnabled` (clave renombrada en v1.51, §4.38r.1) en un entorno con inventario `graded` real.** Cierre = **`M-44`** (§4.38l.4.10) |
   | **SEC-M43-2** | Runbook de cut-over: censo-foto, backfill con el predicado equivocado, rollback que reabre GE-1 | devops (ejecuta) · backend (documento) | **Bloquea el cut-over de producción.** Cierre = **`M-45`** (§4.38l.4.7/l.4.11) |
   | **SEC-M43-3** | (l.4.4)A decía «un lector nuevo hereda el comportamiento seguro»: **falso a nivel de mecanismo** (en Prisma, omitir `refKind` **incluye** las dos naturalezas). Corregido el texto; falta el candado | backend | Próximo cambio en `pricing.service` |
   | **SEC-M43-4** | `OverrideDto`: `productType` libre ⇒ **`500`**; `cardId` inexistente ⇒ **`500`**; `graded:PSA:11` ⇒ `200`. **El contrato ya decía `422`** — desviación del código, no laguna del contrato | backend | Junto a C4 (un `500` espurio contamina la alerta de 401/403) |
@@ -15568,10 +17125,30 @@ Riesgos técnicos:
   (arquitecto, detectada en v1.50.3, §4.38(m.2)). Permisiva.** El **criterio 109** exige medir contra la **fecha de la
   última venta observada**; `stale()` mide contra `capturedDate`, que en una fila del ingest es la fecha en que se
   jaló el archivo ⇒ un proveedor que sirve la misma mediana sin ventas nuevas produce una cifra **perpetuamente
-  fresca**. **No está viva** (`graded_estimate_ingest_enabled` seed `off`), pero **debe cerrarse antes de encender la
-  fase 2**. **Mitigación normada para backend (sin DDL):** gate de evidencia **en la escritura** — el ingest no
-  persiste filas cuya `lastSaleDate` supere `freshnessDays`, y trata «ausente/no parseable» como **no fresco**. Deja
-  una cota honesta de **≤ 2 × freshnessDays**, no los 30 exactos. **Cierre exacto:** columna `evidenceDate` en M-43.
+  fresca**. ~~**No está viva** (`graded_estimate_ingest_enabled` seed `off`), pero **debe cerrarse antes de encender la
+  fase 2**.~~ ⚠️ **REPOSICIONADA en v1.51 (§4.38r.6.2): pasa a ser BLOQUEANTE del primer encendido en producción.** Con
+  el **dial único** (`grading_hook_enabled`), «encender la fase 2» y «encender la feature» son **el mismo acto**, y
+  producción quiere la feature encendida ⇒ esta desviación deja de estar detrás de un dial apagado. **No cambia de
+  gravedad; cambia de posición en el calendario.** **Mitigación normada para backend (sin DDL):** gate de evidencia
+  **en la escritura** — el ingest no persiste filas cuya `lastSaleDate` supere `freshnessDays`, y trata «ausente/no
+  parseable» como **no fresco**. Deja una cota honesta de **≤ 2 × freshnessDays**, no los 30 exactos. **Cierre exacto:**
+  columna `evidenceDate` en M-43. ~~**Decisión del humano pendiente: GU-9.**~~
+  ✅ **v1.51-a — DESVIACIÓN ACEPTADA, YA NO BLOQUEANTE.** El dueño **aceptó los 60 días** el 2026-08-31, con el
+  mecanismo de los **dos relojes** explicado (y tras que se le dijera que un umbral de 7 daría 14). **La desviación
+  sigue existiendo** —seguimos midiendo contra la ingesta— pero pasa de *«abierta, pendiente de decisión, bloqueante»*
+  a *«aceptada por el dueño, con el número aceptado escrito, deuda de severidad baja»*. **Sin cambio de config ni de
+  código: `graded_estimate_freshness_days` se queda en 30** (escribir 60 daría un peor caso de 120). El cierre exacto
+  —cablear `evidenceDate`, cuya **columna ya existe**; faltan escritor y `stale()`— **sigue siendo deuda** y lo anota
+  backend en `docs/TECH_DEBT.md`. Redacción canónica: **§4.38(m.2.1)**.
+- **⚠ DESVIACIÓN DETECTADA y CERRADA en el mismo pase — un dial de dinero que la UI nunca dibujó (arquitecto, v1.51,
+  §4.38r).** `graded_estimate_ingest_enabled` existía en el contrato y en el código desde v1.50.2, pero **nunca se
+  añadió a `M10View.tsx`**: la única forma de encenderlo era `curl`. El comentario del **primer** dial en ese mismo
+  archivo ya dice que eso es *«exactamente lo que el criterio 110(e) no acepta»* — el razonamiento se aplicó a uno y
+  **se dejó a medias con el otro**. **Nadie violó su rol:** frontend implementó el dial que el contrato le pidió
+  exponer, y el contrato pedía uno. **La omisión es del arquitecto** (§M10 de v1.50.2 describió el segundo dial sin
+  normar su superficie). **Cerrada por el colapso a un dial único**, no por dibujar el segundo. Lección normativa
+  transferible: *un dial que el contrato declara gobernable y la UI no expone es una desviación del criterio 110(e),
+  aunque el código sea correcto* — al declarar un dial, el contrato debe decir **dónde se ve**.
 - **GRADED-INTENT (backend, v1.50.2) — `POST /admin/pricing/override` gana un campo OBLIGATORIO en la rama graded.**
   Es un *breaking* pequeño y **deliberado** en ruta `super_admin` (§4.38(l.1)): sin `intent`, `422
   GRADED_INTENT_REQUIRED`. Cualquier llamador interno o script existente que escriba `productType:"graded"` **debe
@@ -15869,10 +17446,14 @@ este documento y con `API_CONTRACT.md`.
 - **GU-A5 — `sort=grading_showcase` exige `gradingHighlight=true`** (`400 GRADING_SORT_REQUIRES_FILTER`), fail-closed
   para que la vitrina no pueda paginar hacia grupos no destacados. El **nombre del sort es neutro a propósito** (no
   nombra el criterio) para que ajustar la política comercial no toque el contrato. §4.38(f).
-- **GU-A6 — feature flag `graded_estimates_enabled` con seed `off`.** No estaba pedido en `PROJECT.md`; se añade porque
-  (1) el disclaimer §O.5 **aún no tiene el visto bueno legal del humano** y el código no debe poder salir a producción
-  con la afirmación comercial encendida por accidente, y (2) el **criterio 108** exige poder verificar el sistema «con la
-  feature encendida y apagada». §4.38(d).
+- **GU-A6 — feature flag `graded_estimates_enabled` con seed `off`.** No estaba pedido en `PROJECT.md`; se añadió porque
+  (1) el disclaimer §O.5 **no tenía entonces —a 2026-08-23— el visto bueno del dueño** y el código no debía poder salir
+  a producción con la afirmación comercial encendida por accidente, y (2) el **criterio 108** exige poder verificar el
+  sistema «con la feature encendida y apagada». §4.38(d).
+  ⛔ **Actualización de hecho (2026-08-31), en dos planos:** el **flag** quedó **RETIRADO en v1.51** (lo sustituye el
+  dial único `grading_hook_enabled`, §4.38r), y el **motivo (1) CADUCÓ**: el disclaimer está **aprobado por el dueño**
+  y **sin revisión legal profesional** (`PROJECT.md` decisión 59 / criterio 117). La entrada se conserva como traza de
+  por qué el flag nació; lo que sostiene hoy al dial es (2), el patrón fail-closed y el **gasto** (§4.38r.3).
 - **GU-A7 — el diagnóstico `.../graded-estimates/preview` es de ADMIN, no público.** Es la contrapartida necesaria de un
   DTO público tan chico: sin él, «fijé el valor y la carta no salió destacada» sería una caja negra para el humano que
   **cura a mano** (§O.6). Reusa los `reason` de la misma función pura, sin duplicar lógica. §4.38(d).
@@ -15906,13 +17487,45 @@ este documento y con `API_CONTRACT.md`.
 
 **Para el humano (con default aplicado; responder cuando pueda):**
 
-- **GU-1 (la importante, legal) — texto del disclaimer §O.5 sin aprobar.** `PROJECT.md` marca la pregunta abierta #1 de
-  v2.0 como pendiente del visto bueno (idealmente con revisión legal). **Mitigación de arquitectura:** el flag
-  `graded_estimates_enabled` arranca en **`off`**; el equipo puede construir, testear y desplegar sin exponer la
-  afirmación. **Encenderlo en producción requiere el visto bueno del humano** — es una decisión de negocio/legal, no de
-  devops. **Nota para ux-ui:** con el patrón de **nota al pie** (asterisco junto a la cifra + texto al final de la
-  página) sigue habiendo **dos** textos —el completo de la ficha y el corto de rejilla/vitrina— y el criterio 103 exige
-  que **ninguna cifra aparezca sin al menos el corto**. Patrón definido en `DESIGN_SYSTEM.md` **§22**.
+- **GU-1 — disclaimer §O.5: APROBADO POR EL DUEÑO; SIN REVISIÓN LEGAL PROFESIONAL.**
+  ⚠️ **RECALIFICADA el 2026-08-31 — deja de ser bloqueante del encendido.** *(Antes decía «texto del disclaimer §O.5
+  sin aprobar» y se apoyaba en `PROJECT.md`, que ya cambió; ver «Por qué esta entrada estaba mal», abajo.)*
+  **La fórmula es obligatoria y no se suaviza en ninguna dirección — las dos mitades van siempre juntas:**
+  - **Aprobado por el dueño.** El texto ES/EN de §O.5 tiene el visto bueno del dueño, dado en sesión el **2026-08-31**
+    y condicionado a la **corrección de marca a TCG HUNT** (decisión 58) que **ya se aplicó**. `PROJECT.md`
+    decisión **59** y criterio **117**; `DESIGN_SYSTEM.md` **§22.13(h)** **prohíbe** afirmar en pantalla que el
+    disclaimer no está aprobado, con un check de QA de **cero apariciones**. **Ningún documento ni superficie de este
+    proyecto puede afirmar lo contrario**, este incluido.
+  - **Sin revisión legal profesional.** **Ningún abogado ha revisado ese texto.** Es lo **único** que sigue vivo de la
+    pregunta abierta 1, es **del dueño** (él contrata la revisión) y va idealmente junto con la **razón social**
+    (`common.footer.legalEntity`, hoy pendiente ⇒ el criterio **114** obliga a revisar §O.5 el día que se cargue).
+  - **Clasificación (esto es lo que cambia):** ⛔ **NO bloquea encender** `grading_hook_enabled`. La aprobación del
+    texto dejó de ser la puerta. Lo que **sí** condiciona el encendido está en otro sitio y **no es legal**: las
+    precondiciones verificables de **(r.3.1)** (presupuesto de créditos declarado, veredicto de la sonda) y el pase de
+    **(r.4)**. Sigue siendo cierto —por **gasto**, no por texto— que **encender no es decisión de devops**: es del
+    dueño, desde M10, auditado (§4.38r.3).
+  - **La mitigación de arquitectura se conserva, con otro motivo.** El dial arranca en **`off`** (fail-closed) y el
+    equipo puede construir, testear y desplegar sin exponer nada; pero hoy eso lo justifican el **criterio 108**, el
+    patrón fail-closed y el **gasto**, ya no la espera de una aprobación. Ver §4.38(r) y el recuadro «Qué pasa con
+    esta justificación al caer la razón (1)».
+  - ~~**⚠️ Tensión que el orquestador debe enrutar al humano/PO:** producción tiene hoy la exhibición **encendida**
+    mientras esta pregunta abierta sigue registrada como **pendiente**…~~ ✅ **DISUELTA, y en la dirección buena:**
+    no se estaba publicando una afirmación sin aprobar — **el visto bueno ya se había dado y la documentación estaba
+    atrasada**. `PROJECT.md` ya lo recogió (decisión 59). **Nada que enrutar.**
+  - **Riesgo residual, declarado y acotado (no se disimula):** una revisión de abogado **posterior** puede exigir
+    cambiar el texto con la feature ya encendida. **Coste del cambio:** el disclaimer es **copy i18n del front** y
+    **NO viaja por la API** (§4.38g) ⇒ se toca `frontend/messages/{es,en}.json` y nada más: **sin cambio de contrato,
+    sin schema, sin migración y sin apagar el dial**. Ése es exactamente el motivo por el que esta pregunta **puede**
+    quedar abierta sin bloquear.
+  - **Por qué esta entrada estaba mal (lección de §0-B, no anécdota):** afirmaba «sin aprobar» **citando otro
+    documento** como fuente. Eso es una afirmación de **clase (B)** —describe algo que ya vive en el producto (el
+    texto que hoy se muestra y su aprobación)— redactada como si fuera clase (A). Cuando la fuente cambió, la copia
+    se quedó atrás y **la jerarquía la convirtió en orden**: es el mismo mecanismo de la decisión 58. **Verificación
+    correcta:** contra el producto y contra `PROJECT.md` §O.5 vigente, nunca contra otro `*_NOTES.md`.
+  - **Nota para ux-ui (se conserva, sin cambios):** con el patrón de **nota al pie** (asterisco junto a la cifra +
+    texto al final de la página) sigue habiendo **dos** textos —el completo de la ficha y el corto de
+    rejilla/vitrina— y el criterio 103 exige que **ninguna cifra aparezca sin al menos el corto**. Patrón definido en
+    `DESIGN_SYSTEM.md` **§22**.
 - **GU-2 — valor usado para buscar el escalón** (§O.2.1, SUPUESTO del PO): se implementa el **estimado PSA 10** (el más
   conservador). Cambiarlo a PSA 9 o al precio raw es **una línea** de la función pura y **cero** cambio de contrato.
 - **GU-3 — base de comparación del gate** (pregunta abierta v2.0 #2): se implementa **precio de venta raw sin IVA y sin
@@ -15953,11 +17566,27 @@ este documento y con `API_CONTRACT.md`.
      **encender sigue requiriendo M-43**.
   2. **¿`evidenceDate` viaja en la misma migración?** (GU-9). **Sí, recomendado** (dos columnas aditivas, una sola
      ventana). Si solo se aprueba una, **entra `refKind`**: es la que bloquea el encendido de la fase 1.
-- **GU-9 — cierre exacto del criterio 109 para el dato automático** (§4.38m.2). El default aplicado (gate de evidencia
-  en la escritura, sin DDL) acota la antigüedad a **≤ 2 × freshnessDays = 60 días**, no a los **30** que dice el
-  criterio. **Decisión pedida:** ¿basta la cota conservadora, o se aprueba la columna `evidenceDate` (en M-43) para
-  cumplirlo al pie de la letra? **No urge hasta encender la fase 2** (`graded_estimate_ingest_enabled` seed `off`),
-  pero **debe estar resuelto antes** de encenderla.
+- ✅ **GU-9 — RESPONDIDA Y CERRADA (2026-08-31). Ya no está pendiente; se conserva como registro de la decisión.**
+  *(Era: «cierre exacto del criterio 109 para el dato automático» (§4.38m.2). El default aplicado —gate de evidencia en
+  la escritura, sin DDL— acota la antigüedad a **≤ 2 × freshnessDays = 60 días**, no a los **30** que dice el criterio.
+  **Decisión pedida:** ¿basta la cota conservadora, o se aprueba la columna `evidenceDate` (en M-43)? ~~No urge hasta
+  encender la fase 2~~ ⚠️ **URGÍA desde v1.51 (§4.38r.6.2)**: con el dial único pasó a estar delante del paso 5 del
+  pase.)*
+  **Respuesta del dueño: ACEPTA LOS 60 DÍAS.** No fue un «ok» genérico: se le explicó que hay **dos relojes que se
+  suman** (tolerancia al bajar el dato + tolerancia al leerlo, porque `evidenceDate` no se persiste y el lector mide
+  desde la captura), preguntó por *«máximo una semana»* y se le respondió que **7 no da 7, da 14**, y que un 7 real
+  exige cablear `evidenceDate` (columna ya creada en M-43; escritor y `stale()` sin cablear, en `TECH_DEBT.md`). Se le
+  dijo además que **esos días no son retraso del proveedor sino cuánto lleva la carta sin venderse**, y que por eso el
+  umbral corto golpearía justo a las caras y raras — las que el gancho destaca. **Con eso delante eligió 60.**
+  - ⛔ **Ojo con el error de lectura, que es el único riesgo que deja esta decisión:** aceptar «60 días» **NO** es
+    poner 60 en un dial. `graded_estimate_freshness_days` **se queda en 30**; escribir 60 duplicaría la tolerancia a
+    **120**. **Cero cambios de config y cero de código.**
+  - **GU-9 deja de bloquear** el primer `off → on`. **Sigue vivo A-1** (`COSTE MEDIDO`, §4.38r.3.1.1), que es ahora el
+    único bloqueante del encendido.
+  - **Cablear `evidenceDate` sigue siendo deuda** (severidad **baja**, ya no bloqueante): es lo que convertiría dos
+    relojes en uno. Lo anota **backend** en `docs/TECH_DEBT.md`.
+  - Redacción canónica y consecuencias completas: **§4.38(m.2.1)**. El registro en `PROJECT.md` lo lleva
+    **product-owner**.
 - **GU-10 (opcional, es un dial) — `maxGradedMultiple`: ¿100× o 50×?** Se sembró **100** porque es lo que dice §O.7 /
   criterio 111(c) y PROJECT manda. El arquitecto **preferiría 50** por money-safety en una superficie comercial, pero
   el número lo marcó el PO como **SUPUESTO revisable por el humano** y no es del arquitecto revisarlo. **Cambiarlo es
@@ -15976,6 +17605,28 @@ este documento y con `API_CONTRACT.md`.
   dial difiere de su seed viejo, señal de que **alguien lo ajustó**— decidir **clave por clave** si se adopta el nuevo
   default o se conserva el suyo. *(La regla general, para que esto no se redescubra en el siguiente cambio de dial,
   queda en §11.0.)*
+- **GU-14 (NUEVA v1.51 — nace de su decisión de dejar UN solo dial; §4.38r).** Su decisión está **acatada y diseñada**,
+  no re-litigada. Lo que necesita saber, en tres puntos, **antes** del pase:
+  1. **Encender el gancho pasa a costar dinero.** Con un dial, `on` publica **y** empieza a pedirle datos a un
+     proveedor **de paga**. ⚠️ **v1.51-a — corrección importante y es la que le afecta a usted:** la cifra que este
+     documento venía dando —**1 000 créditos/día** (250 cartas/corrida × 2 créditos × 2 corridas)— es un **techo
+     NOMINAL bajo un supuesto de facturación que nadie ha comprobado todavía**. Si el proveedor cobra por carta
+     **devuelta** en vez de por carta nuestra, el número real puede ser **varias veces mayor** (§4.38r.3.1.0). **Por
+     eso ya no basta con que devops le ponga el número delante: hay que MEDIRLO antes de encender**, y sin esa medición
+     el encendido está bloqueado (§4.38r.3.1.1). **Si prefiere otro techo, sigue siendo un dial de M2**
+     (`ingestMaxCardsPerRun`, se cambia sin deploy) — con un cambio: su **máximo admisible baja de 5 000 a 1 000**,
+     porque 5 000 autorizaba de un solo `PUT` su cuota diaria entera (§4.38r.3.4). Su valor actual (**250**) no cambia.
+  2. **Habrá un rato con las cifras apagadas.** El dial nuevo nace en `off` en todos los entornos **a propósito**: es
+     la única forma de que el deploy no empiece a gastar solo. Entre el deploy y el momento en que **usted** lo
+     enciende desde el panel, la tienda **no muestra** los estimados. **No hay tercera opción**: o hay un rato
+     apagado, o el deploy arranca gastando sin que nadie lo decida.
+  3. **Si ve una cifra rara, NO apague el gancho.** Bórrela (o quite ese grado). Apagar el interruptor general para
+     una cifra ahora **también congela la actualización de datos**. La escalera completa está en §4.38(r.5) y la UI se
+     lo dirá. *(Al reencender, los datos se reponen en la siguiente corrida —o de inmediato disparando el job—, así
+     que el coste está acotado; pero el remedio correcto sigue siendo el de la fila.)*
+  **Decisión pedida:** ratificar el pase de §4.38(r.4). ~~y responder **GU-9** (arriba), que ahora lo bloquea~~ ✅
+  **GU-9 respondida el 2026-08-31** («acepto 60»): ya no bloquea. **El bloqueante que queda es A-1** — medir el coste
+  real antes de encender (punto 1 de arriba).
 - **GU-12 — `manualFreshnessDays = null` deja de ser el default y pasa a ser decisión suya.** Si el humano decide que
   un override manual **no** debe caducar nunca (que era el comportamiento sembrado por v1.50.2), la vía correcta es
   **poner el dial en `null` explícitamente Y pedir a product-owner que enmiende el criterio 109** — no dejar el
@@ -16439,10 +18090,13 @@ este documento y con `API_CONTRACT.md`.
 > endpoints y el `EmailVerifiedGuard` con los defaults propuestos. El arquitecto **no asume** reglas de negocio.
 - **v1.5-1 — ¿Exigir `RESEND_API_KEY` en staging (además de prod)?** Default propuesto: **sí** (staging es
   no-local → key dura, para probar el flujo real E2E; degradación Noop solo en LOCAL_ENVS). Confirmar.
-- **v1.5-2 — Dominio remitente vs soporte. (CERRADA 2026-08-16)** El humano confirmó el dominio canónico único
-  `tcgvaultmx.com`: `MAIL_FROM` = `no-reply@**tcgvaultmx.com**` y soporte de disputas = `soporte@**tcgvaultmx.com**`
-  (**mismo dominio**, ya no hay inconsistencia). Pendiente operativo (no de arquitectura): verificar SPF/DKIM/DMARC
-  en Resend para `tcgvaultmx.com` (nota devops).
+- **v1.5-2 — Dominio remitente vs soporte. (CERRADA 2026-08-16; REEXPRESADA 2026-08-31, v1.50.4)** Lo que el humano
+  cerró fue el **invariante**, no un literal: **remitente y soporte comparten un único dominio canónico**, el de
+  `common.brand.domain`. **Hoy ese dominio es `tcghunt.mx`** y los buzones ya reciben (2026-08-31) — la versión
+  anterior de esta entrada escribía el dominio viejo `tcgvaultmx.com` como si fuera la decisión, y por la regla de
+  conflicto eso **autorizaba** a reintroducirlo: era el documento sosteniendo el error, no el código (§0-B).
+  Pendiente operativo (no de arquitectura, alcance devops): SPF/DKIM/DMARC verificados en Resend para el dominio
+  canónico **antes** de fijar `MAIL_FROM`.
 - **v1.5-3 — ¿El reset exitoso marca `emailVerified=true`?** Default propuesto: **sí** (clic en el link de reset
   prueba control del inbox). Si el humano prefiere separar ambos conceptos, se deja `emailVerified` intacto en el
   reset. Confirmar.
@@ -16772,6 +18426,49 @@ cambios de tipo**. Segura con la app corriendo. Spec completa en **§4.39**; con
 > Postgres sin recrear el tipo — por eso el rollback soportado es **revertir el deploy, no la migración**, y por eso el
 > DDL va **antes** que el código (si el código se revierte, ninguna fila habrá llegado a un estado nuevo salvo las que
 > el ciclo ya movió; esas requieren decisión manual y quedan enumeradas por `@@index([offerState])`).
+### v1.52-set-logos (nueva — **M-47**: imágenes de set en `CardSet` — **DDL ADITIVO PURO**, §4.40)
+
+⚠️ **`backend/prisma/schema.prisma` es ZONA COMPARTIDA:** el orquestador serializa **M-47** frente a cualquier otro
+stream que toque el schema. Es la migración **más barata de este documento**: dos columnas nullable en una tabla que
+**no participa en ningún cálculo de dinero**.
+
+| # | Modelo / artefacto | Cambio | Tipo | Nota |
+|---|---|---|---|---|
+| M-47 | `CardSet.logoUrl` (NUEVA columna) | `String?` | **DDL aditivo** | `images.logo` de pokemontcg.io — el nombre del set dibujado. **La teja de selección de set.** `null` legítimo y permanente (promos, sets viejos). Clase **(P) presentación** (§5.2.2) ⇒ viaja como **`null` con clave presente** (§4.40.6). |
+| M-47 | `CardSet.symbolUrl` (NUEVA columna) | `String?` | **DDL aditivo** | `images.symbol` — el glifo cuadrado impreso en la carta. **Se persiste y NO se expone** en ningún DTO de este pase (§4.40.5). Se guarda ahora porque viene en la misma respuesta a coste cero y evitarlo obligaría a **otra** migración + otro re-sync (§4.40.2). |
+| M-47 | `RemoteCardSet` (`pokemontcg-io.client.ts`) | Gana `images?: { symbol?: string; logo?: string }` | Código | El tipo hoy **no las declara**, por eso el sync las descarta. Cero requests extra: ya vienen en el JSON que se descarga. |
+| M-47 | `upsertSet()` (`catalog-sync.service.ts`) | Persiste ambas, con **no-degradación** y guardarraíl `https:` + host | Código | **Regla dura:** ausente ⇒ *no-op* en el `update` (nunca `null`), ausente ⇒ `null` en el `create`. Sin esto, la vía «set anidado en carta» **borra** lo que escribió la vía `GET /v2/sets`. §4.40.4. |
+| M-47 | Proyección `MasterSetSummaryDTO` (4 endpoints) + `GET /buylist/sets` | Emiten `logoUrl` | Código (contrato **v1.52**) | Read model único (§4.20f): los cuatro modos de la retícula, **más** `GET /buylist/sets` porque el modo `quoter` compone sus tejas desde ahí client-side. |
+| M-47 | Backfill de datos | **NINGUNO** | Data | **No hay `UPDATE`, no hay script, no hay endpoint nuevo.** Los sets ya importados se pueblan **re-corriendo el sync existente** (idempotente y auditado): `POST /admin/catalog/sync { setId }` por set — el botón de M2 que ya existe. `sync-all { force:true }` es opción del operador, **no un paso obligatorio de este pase**. §4.40.4. |
+
+> **Compat / reversibilidad — ADITIVA PURA, y sin ceremonia.** Sin `DROP`, sin `NOT NULL`, sin default, sin tocar
+> `@@unique(externalId)` ni ningún índice, **sin reescribir una sola fila**. Segura con la app corriendo (el código
+> vigente ignora las columnas porque no las selecciona). **Money-safe por construcción:** `CardSet` no alimenta
+> precio, referencia, regla ni curva — **ninguna ruta de código permite que esta migración mueva un centavo**, ni
+> siquiera por error de implementación. Revertir = revertir el código; las columnas pueden quedarse inertes. **No hay
+> cut-over, no hay ventana, no hay congelación y no hay orden de pasos que respetar** — se dice explícitamente para
+> que nadie prepare para M-47 la ceremonia que M-43/M-45 sí exigían.
+
+> **⚠️ v1.53 — LAS TRES MIGRACIONES ALTAS, DESAMBIGUADAS DE UNA VEZ (leer antes de preparar cualquier pase).**
+> Las dos ramas fusionadas bautizaron **`M-46`** dos veces. Vigente a partir de aquí, y **verificado contra el disco,
+> no contra documentación**:
+>
+> | # | Qué es | Tipo | Artefacto |
+> |---|---|---|---|
+> | **M-46** | **Ciclo de adquisición del buylist** (40 columnas + enums + backfill) | **DDL + Data** | `backend/prisma/migrations/20260901120000_m46_buylist_acquisition_cycle/` — **existe y está aplicada** |
+> | **M-47** | **Imágenes de set** (`CardSet.logoUrl` / `symbolUrl`) | **DDL aditivo puro** | `backend/prisma/migrations/20260902120000_m47_set_images/` — **existe** |
+> | **M-48** *(era `M-46` en la línea de `main`)* | **`grading_hook_enabled`**, el dial único del gancho de grading | **DATA/seed, SIN DDL** | **ninguno** — vive en `seed.ts`; su número era una etiqueta de prosa |
+>
+> **Por qué se movió ésa y no otra:** un nombre de migración aplicada está registrado en `_prisma_migrations` y
+> **renombrar la carpeta rompe `migrate deploy`**; una fila de seed no tiene nada que renombrar. Precedente idéntico y
+> ya vivido en este mismo documento: la renumeración **`M-41 → M-42`** del merge de v1.50.2, por esta misma clase de
+> colisión.
+> **⚠️ DEVOPS — ESTO ES LO QUE HACE QUE NO SEA COSMÉTICO.** `DEVOPS_NOTES.md` **§32.12** documenta un pase «M-46»
+> cuyo paso 1 dice *«nada que migrar, `migrate deploy` no trae nada»*: **ése es el M-48 de esta tabla**. El `M-46` de
+> la fusión es **DDL real**. Leídos bajo el mismo número, un operador podría **saltarse una migración de dinero**
+> creyendo que hace un pase de seed. **La actualización de `DEVOPS_NOTES.md` es de devops** (no es mi ruta); se enruta
+> como corrección **bloqueante del pase**, no de la fusión. **Ninguna conducta del sistema cambia por esta
+> renumeración.**
 
 ### v1.50-graded-estimate (nueva — M-42: diales del gancho de grading — DATA/seed, SIN DDL, §4.38)
 
@@ -16799,14 +18496,15 @@ de Prisma** (ni tablas, ni columnas, ni enums, ni `DROP`, ni backfill).
 | M-42 | `ConfigSetting['graded_estimate_freshness_days']` (NUEVO) | Seed **30** | Data/seed | Rango `[1, 365]`. Filas **AUTOMÁTICAS** (las manuales usan su propio dial, con el **mismo** seed 30 desde v1.50.3 — §4.38m). Gobierna además el **gate de evidencia del ingest** (§4.38m.2). Es dial (no constante) porque la pregunta abierta v2.0 #7 sigue viva (GU-4). |
 | M-42 | `ConfigSetting['grading_cost_tiers']` (NUEVO) | Seed de los **6 escalones** semiabiertos `[min,max)` de §4.38(d) | Data/seed | Cobertura contigua desde `0`, último `maxValueMxnCents: null`. `costMxnCents ≥ 1` **siempre**. Solo gate de curaduría. |
 | M-42 | `ConfigSetting['grading_min_upside_pct']` (NUEVO) | Seed **30** | Data/seed | Rango `[0, 1000]`. Solo gate de curaduría (no afecta la ficha). |
-| M-42 | `ConfigSetting['graded_estimates_enabled']` (NUEVO) | Seed **`'off'`** | Data/seed | **Fail-closed.** Editable en M10 (`PUT /admin/settings`), no en M2. Con `off` no se evalúa nada ni se emite ningún campo. |
+| M-42 | ~~`ConfigSetting['graded_estimates_enabled']`~~ | ~~Seed `'off'`~~ | Data/seed | ⛔ **RETIRADA en v1.51-one-dial (~~M-46~~ **M-48**, §4.38r).** La fila sobrevive **huérfana e inerte**; nadie la lee. La sustituye `grading_hook_enabled`. |
 | **M-42** | `ConfigSetting['graded_estimate_manual_freshness_days']` (NUEVO, v1.50.2) | Seed **30** *(**v1.50.3**; era `null`)* | Data/seed | El override manual **SÍ decae**, criterio 109 (§4.38m). Rango `null \| [1, 3650]` (I8); `null` desactiva el criterio ⇒ decisión del humano + `warn`. |
 | **M-42** | `ConfigSetting['graded_estimate_max_raw_multiple']` (NUEVO, v1.50.2) | Seed **100** *(**v1.50.3**; era 50)* | Data/seed | Cota **superior** de magnitud (§4.38k.2) = `maxGradedMultiple` de §O.7. **> 1** obligatorio (I9): con `≤ 1` la vitrina quedaría vacía para siempre. |
 | **M-42** | `ConfigSetting['graded_estimate_min_sample_count']` (NUEVO, v1.50.2) | Seed **5** *(**v1.50.3**; era 3)* | Data/seed | Muestra mínima del proveedor = `minSalesSample` de §O.7. Se aplica **en el ingest (escritura)**, no en lectura (§4.38k.1). Rango `[1, 100]`. |
 | **M-42** | `ConfigSetting['graded_estimate_source_stat']` (NUEVO, v1.50.2) | Seed **`'median'`** | Data/seed | Cuál número del proveedor **es** el precio (§4.38h.2). Enum `median\|average\|smart`. |
-| **M-42** | `ConfigSetting['graded_estimate_ingest_max_cards_per_run']` (NUEVO, v1.50.2) | Seed **250** | Data/seed | Tope **duro** de cuota por corrida (§4.38h.3). Rango `[1, 5000]`. |
-| **M-42** | `ConfigSetting['graded_estimate_ingest_enabled']` (NUEVO, v1.50.2) | Seed **`'off'`** | Data/seed | **Fail-closed.** Interruptor de la **fase 2**, independiente de la exhibición. Editable en **M10**. |
-| M-42 | `settings.constants.ts` | **12** keys + validadores (`validateGradingCostTiers` con I1–I5, `validateGradedEstimateGrades` con I7, **I8/I9** de v1.50.2; §4.38d) | Código (común) | Las **10** keys de M2 **NO** se editan por `PUT /admin/settings` (endpoint M2 dedicado); se validan igual, como los spreads del sellado. Las **2** de M10 (`graded_estimates_enabled`, `graded_estimate_ingest_enabled`) sí. |
+| **M-42** | `ConfigSetting['graded_estimate_ingest_max_cards_per_run']` (NUEVO, v1.50.2) | Seed **250** *(sin cambio)* | Data/seed | Tope **duro** de cuota por corrida (§4.38h.3). Rango ~~`[1, 5000]`~~ ⇒ **`[1, 1000]` desde v1.51-a** (§4.38r.3.4): el máximo viejo autorizaba de un solo `PUT` la cuota diaria entera. **El seed no cambia**, así que ningún entorno sembrado se ve afectado. |
+| **M-42** | ~~`ConfigSetting['graded_estimate_ingest_enabled']`~~ | ~~Seed `'off'`~~ | Data/seed | ⛔ **RETIRADA en v1.51-one-dial (~~M-46~~ **M-48**, §4.38r).** Fila huérfana e inerte. **Nunca se dibujó en la UI** — la desviación que originó el colapso (§9). |
+| **M-48** *(era `M-46`; renumerada en v1.53(1) — ver la tabla de desambiguación de §11)* | `ConfigSetting['grading_hook_enabled']` (**NUEVO, v1.51-one-dial**) | Seed **`'off'`** | Data/seed, **sin DDL** | **EL dial del gancho**: exhibición **+** obtención. Editable en **M10** (`PUT /admin/settings`, DTO `gradingHookEnabled`), auditado, sin redeploy. **Clave NUEVA a propósito:** ninguna base la tiene ⇒ el deploy del colapso **no puede empezar a gastar solo** (§4.38r.1). ⚠️ **v1.51-a: su primer `off → on` tiene precondiciones VERIFICABLES** — la viva es **A-1**, el `COSTE MEDIDO` de §4.38(r.3.1.1). Desplegar M-48 **no** autoriza encenderlo. ⚠️ **NO confundir con `M-46`, que es DDL del ciclo de adquisición y sí exige `migrate deploy`.** |
+| M-42 | `settings.constants.ts` | ~~**12**~~ **11** keys *(v1.51: −2 retiradas, +1 nueva)* + validadores (`validateGradingCostTiers` con I1–I5, `validateGradedEstimateGrades` con I7, **I8/I9** de v1.50.2; §4.38d) | Código (común) | Las **10** keys de M2 **NO** se editan por `PUT /admin/settings` (endpoint M2 dedicado); se validan igual, como los spreads del sellado. ~~Las **2** de M10 (`graded_estimates_enabled`, `graded_estimate_ingest_enabled`) sí.~~ **v1.51: la de M10 es UNA** — `grading_hook_enabled`. Las dos viejas salen de `SettingKey`, `SETTING_DEFAULTS`, validadores y `SETTING_DTO_MAP` ⇒ enviarlas en el `PUT` es **clave desconocida ⇒ `422`** (precedente `stripeFeeIvaPct`, §M10 v1.40). |
 
 > **Compat / reversibilidad:** las 12 claves son **nuevas**; ningún consumidor previo las lee. Revertir el deploy deja
 > filas `ConfigSetting` huérfanas e inertes (como `rarity_map`, §M2 v1.32) — **sin** riesgo de $0 ni ventana ciega,
@@ -16824,7 +18522,7 @@ aplicación literal del **criterio 55** de `PROJECT.md`.
 |---|---|---|---|---|
 | M-43 | `enum PriceRefKind` (NUEVO) | `market \| graded_estimate` | **DDL aditivo** | Enum nuevo; ningún consumidor previo lo lee. |
 | M-43 | `PriceReference.refKind` (NUEVA columna) | `PriceRefKind @default(market)` | **DDL aditivo** | **NO entra a la `@@unique`** (§4.38l.4.2). Default = toda fila existente conserva su significado ⇒ **la migración no puede mover ningún precio publicado**. |
-| M-43 | `PriceReference.evidenceDate` (NUEVA columna) | `DateTime? @db.Date` | **DDL aditivo** | (m.2): fecha de la **evidencia** (última venta del proveedor); `null` en la vía manual. `stale()` pasa a medir contra `evidenceDate ?? capturedDate`. **Empaquetada aquí por recomendación**; si el humano aprueba solo una columna, entra `refKind`. |
+| M-43 | `PriceReference.evidenceDate` (NUEVA columna) | `DateTime? @db.Date` | **DDL aditivo** | (m.2): fecha de la **evidencia** (última venta del proveedor); `null` en la vía manual. `stale()` pasa a medir contra `evidenceDate ?? capturedDate`. **Empaquetada aquí por recomendación**; si el humano aprueba solo una columna, entra `refKind`. ⚠️ **Estado real v1.51-a — la COLUMNA ya existe** (verificado: `schema.prisma` + la migración `20260829120000_m43_graded_estimate_kind`), pero **el escritor y el `stale()` NO están cableados**: el provider ya calcula la fecha y la lleva en su fila, y nadie la persiste. **Es deuda de backend, severidad BAJA y ya NO bloqueante**, porque el dueño aceptó el peor caso de 60 días (GU-9, §4.38m.2.1). Cablearla es lo que convertiría **dos relojes en uno**. |
 | M-43 | `MONEY_REF_WHERE` (NUEVO, `pricing.service.ts`) | `{ refKind: 'market' }` aplicado vía `AND` en **toda** lectura de dinero | Código (compartido) | Seams en §4.38(l.4.4)A. **Exclusión, no rango**: `isBetterRef`/`sourceRank`/§4.27f-2 **no se tocan**. |
 | M-43 | Escritores (`manualOverride`, `persistGradedEstimateReference`) | Fijan `refKind` **en `create` Y en `update`** | Código | Tabla de escritores en §4.38(l.4.3). El `update` que lo omita deja un `intent:"market"` clasificado como estimado. |
 | M-43 | `getGradedEstimatesBatch` / `preview` / `review` / `DELETE` | Lectura **inclusiva** (ambas naturalezas, menos slab publicado); el `DELETE` borra **solo** `graded_estimate` | Código | §4.38(l.4.4)B y (l.4.5). |

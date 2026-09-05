@@ -97,7 +97,7 @@ describe('resolveForSets — persiste, loguea no-mapeados, money-safe ante daily
     });
     const mapper = new PptSetMapper(prismaMock(), client);
     const out = await mapper.resolveForSets([localSet({ pptSetId: '1407' })]);
-    expect(out.get('local-1')).toBe('1407');
+    expect(out.get('local-1')).toEqual({ pptSetId: '1407' });
     expect((client.getJson as jest.Mock)).not.toHaveBeenCalled();
   });
 
@@ -109,16 +109,18 @@ describe('resolveForSets — persiste, loguea no-mapeados, money-safe ante daily
     }));
     const mapper = new PptSetMapper(prisma, client);
     const out = await mapper.resolveForSets([localSet()]);
-    expect(out.get('local-1')).toBe('1407');
+    expect(out.get('local-1')).toEqual({ pptSetId: '1407' });
     expect(prisma.cardSet.update).toHaveBeenCalledWith({ where: { id: 'local-1' }, data: { pptSetId: '1407' } });
   });
 
-  it('set sin match → null, NO persiste (queda para loguear)', async () => {
+  it('set sin match → `unmatched`, NO persiste (queda para loguear)', async () => {
     const prisma = prismaMock();
     const client = clientMock(async () => ({ body: { data: [] }, dailyRemaining: 1 }));
     const mapper = new PptSetMapper(prisma, client);
     const out = await mapper.resolveForSets([localSet()]);
-    expect(out.get('local-1')).toBeNull();
+    // R1-quater: el catálogo SÍ respondió ⇒ «no empata» es una afirmación que se sostiene, y por eso
+    // aguas abajo sí es legítimo mandar a mapear este set.
+    expect(out.get('local-1')).toEqual({ pptSetId: null, reason: 'unmatched' });
     expect(prisma.cardSet.update).not.toHaveBeenCalled();
   });
 
@@ -129,8 +131,32 @@ describe('resolveForSets — persiste, loguea no-mapeados, money-safe ante daily
     });
     const mapper = new PptSetMapper(prisma, client);
     const out = await mapper.resolveForSets([localSet(), localSet({ id: 'local-2', pptSetId: '55' })]);
-    expect(out.get('local-1')).toBeNull(); // no se pudo mapear esta corrida
-    expect(out.get('local-2')).toBe('55'); // ya cacheado se conserva
+    // ⛑️ R1-quater — LA DISTINCIÓN QUE FALTABA. Aquí el catálogo NO se pudo consultar, así que de
+    // `local-1` no sabemos si tiene mapeo o no. Devolver el mismo `null` que «se comprobó y no
+    // empata» hacía que el veredicto publicara «ve a mapear estos sets»: causa falsa (era la cuota),
+    // acción equivocada (no hay nada que mapear) y una cita a la línea «… sets SIN mapeo», que en
+    // esta rama no se emite.
+    expect(out.get('local-1')).toEqual({
+      pptSetId: null,
+      reason: 'mapper_unavailable',
+      cause: 'daily_limit',
+    });
+    expect(out.get('local-2')).toEqual({ pptSetId: '55' }); // ya cacheado se conserva
+    expect(prisma.cardSet.update).not.toHaveBeenCalled();
+  });
+
+  it('⛑️ un fallo NO-diario de `/sets` también es «no se pudo comprobar», no «sin mapeo»', async () => {
+    const prisma = prismaMock();
+    const client = clientMock(async () => {
+      throw new Error('ECONNRESET');
+    });
+    const mapper = new PptSetMapper(prisma, client);
+    const out = await mapper.resolveForSets([localSet()]);
+    expect(out.get('local-1')).toEqual({
+      pptSetId: null,
+      reason: 'mapper_unavailable',
+      cause: 'request_failed',
+    });
     expect(prisma.cardSet.update).not.toHaveBeenCalled();
   });
 

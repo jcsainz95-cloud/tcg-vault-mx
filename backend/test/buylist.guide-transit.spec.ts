@@ -215,7 +215,7 @@ describe('⚠️ El caso que motiva TODO el diseño: declara el día 3, confirma
   it('⚠️ la alerta NO expira, NO cancela y NO mueve el estado: solo hace visible el pendiente', async () => {
     // ⚠️ La fecha va DENTRO de los años que cubre la tabla de festivos: `business-days` LANZA fuera
     // de cobertura a propósito (degradar a «no hay festivos» adelantaría vencimientos). Ver la nota
-    // de alcance en BACKEND_NOTES §0.19.
+    // de alcance en BACKEND_NOTES §0.26 (era §0.19 antes del renumerado de la fusión).
     const hace20DiasHabiles = new Date('2026-01-05T00:00:00Z');
     const { svc, request } = build({
       sellerShippedDeclaredAt: hace20DiasHabiles,

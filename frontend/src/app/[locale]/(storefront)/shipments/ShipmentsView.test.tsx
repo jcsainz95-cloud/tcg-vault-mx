@@ -140,7 +140,9 @@ describe('ShipmentsView · disputas (F6)', () => {
       status: 'abierta',
       type: 'condition_raw',
       deadlineAt: '2026-08-24T00:00:00Z',
-      evidenceContact: 'soporte@tcgvaultmx.com',
+      // Ajeno a la marca a propósito: lo que se prueba es que la UI rinde el valor del 201,
+      // no que acierte un buzón (API_CONTRACT §0, cláusula 4).
+      evidenceContact: 'evidencias@ejemplo.test',
     });
     renderWithProviders(<ShipmentsView />, 'es');
 
@@ -161,7 +163,7 @@ describe('ShipmentsView · disputas (F6)', () => {
     );
     // Tras el 201 se muestra el contacto de soporte (evidenceContact) para enviar la evidencia.
     expect(await within(dialog).findByTestId('evidence-email')).toHaveTextContent(
-      'soporte@tcgvaultmx.com',
+      'evidencias@ejemplo.test',
     );
   });
 });

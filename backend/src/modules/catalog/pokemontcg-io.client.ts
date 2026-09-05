@@ -18,6 +18,16 @@ export interface RemoteCardSet {
   releaseDate?: string;
   printedTotal?: number;
   ptcgoCode?: string;
+  // v1.52-set-logos (M-47, §4.39.1 hecho 2/4): pokemontcg.io publica DOS imágenes por set y este tipo
+  // las descartaba, así que el sync no las persistía. `logo` = el nombre del set dibujado (ancho, de
+  // proporción MUY variable entre sets) — es la teja de selección de set. `symbol` = el glifo cuadrado
+  // impreso en la carta. SOLO ES TIPADO: `GET /v2/sets` ya traía este bloque en el JSON descargado ⇒
+  // CERO requests extra, cero latencia (mismo patrón que `RemoteCard.cardmarket`).
+  // ⚠️ SIN VERIFICAR (§4.39.4, egress bloqueado en este entorno): si el `set` ANIDADO en una carta trae
+  // o no `images`. Por eso ambas son opcionales y el ausente NO degrada (ver `upsertSet`): esa vía, si
+  // no lo trae, simplemente no aporta el dato — jamás borra el que escribió `GET /v2/sets`.
+  // Consecuencia OPERATIVA anotada en `docs/BACKEND_NOTES.md` §0.19.
+  images?: { symbol?: string; logo?: string };
 }
 
 export interface RemoteCard {

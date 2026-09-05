@@ -189,8 +189,8 @@ function wire(items: any[], refs: any[], config: Record<string, unknown> = {}) {
   return { catalog, pricing, prisma, priceRefFindMany, configStore, queryLog };
 }
 
-/** Dial maestro ENCENDIDO (en producción arranca en `off`, seed fail-closed). */
-const ON = { [SettingKey.GRADED_ESTIMATES_ENABLED]: 'on' };
+/** Dial ÚNICO del gancho ENCENDIDO (en producción arranca en `off`, seed fail-closed). */
+const ON = { [SettingKey.GRADING_HOOK_ENABLED]: 'on' };
 
 // ---------------------------------------------------------------- Escenarios
 
@@ -438,7 +438,7 @@ describe('INDISTINGUIBILIDAD fase 1 ⇄ fase 2 (§4.38g) — el criterio de éxi
   });
 });
 
-describe('Dial maestro `gradedEstimatesEnabled` (seed `off`, fail-closed) — §M10', () => {
+describe('Dial ÚNICO `gradingHookEnabled` (seed `off`, fail-closed) — §M10, v1.51', () => {
   it('con `off` no se emite NINGUNO de los dos campos y NO se consulta la tabla de estimados', async () => {
     const { catalog, priceRefFindMany } = wire(A_ITEMS, A_REFS); // sin ON: el seed manda (off)
     const ficha: any = await catalog.getCard('ca');
@@ -538,7 +538,6 @@ describe('GU-A8 — una clave corrupta apaga SOLO su superficie (§4.38d)', () =
       'grades',
       'gradingCostTiers',
       'highlightGrades',
-      'ingestEnabled',
       'ingestMaxCardsPerRun',
       'manualFreshnessDays',
       'maxRawMultiple',
@@ -652,7 +651,10 @@ describe('Vitrina «Joyas para gradear» — `GET /catalog/cards` filtrado (§4.
    * settings), no solo las de `productType='graded'`. Se mide como DELTA contra el mismo request con la
    * feature inexistente, que es la cifra que el contrato debe publicar.
    *
-   *   dial `off` ⇒ **+1** (la lectura de config: las 12 claves en UN `findMany`; cero queries de datos)
+   *   dial `off` ⇒ **+1** (la lectura de config: las **11** claves en UN `findMany`; cero queries de datos)
+   *   *(v1.51 las bajó de 12 a 11 al fundir los dos diales M10 en `grading_hook_enabled`; el número se
+   *   escribe porque su VALOR es la garantía, y `pricing.service.ts` avisa de que «un número que miente
+   *   es peor que no tenerlo» — así que aquí tampoco puede mentir.)*
    *   dial `on`  ⇒ **+3** (esa + `getGradedEstimatesBatch` + `getPublishedSlabGradesBatch`)
    *
    * Antes eran **+7** con `on` (1 `findUnique` del dial + 5 `getRaw()` sin caché + el batch), porque
@@ -678,7 +680,7 @@ describe('Vitrina «Joyas para gradear» — `GET /catalog/cards` filtrado (§4.
 
       const configOn = on.filter((k) => k.startsWith('configSetting')).length;
       const configOff = off.queryLog.filter((k) => k.startsWith('configSetting')).length;
-      // La config del gancho es UNA query en ambos estados (las 12 claves en un solo `findMany`).
+      // La config del gancho es UNA query en ambos estados (las **11** claves en un solo `findMany`).
       expect(on.filter((k) => k === 'configSetting.findMany')).toHaveLength(1);
       expect(off.queryLog.filter((k) => k === 'configSetting.findMany')).toHaveLength(1);
       expect(configOn).toBe(configOff);

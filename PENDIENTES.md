@@ -82,6 +82,85 @@ Doble veredicto por-stream aprobado; mergeado a `main` (`6c5763b`). Se despliega
 
 ## Abiertos
 
+### Diseñado y documentado pero SIN CONSTRUIR (2026-09-02)
+
+#### P-54 · 🎨 Logos de expansión en el índice de sets (en vez de los títulos en texto) — 0% implementado
+- **Pedido del humano:** que el índice de sets muestre **el logo de cada expansión**, no su nombre en texto.
+- **Lo que SÍ existe (todo documental, ya en `main` y desplegado como docs):**
+  - `docs/ARCHITECTURE.md` **§4.39** (v1.52-set-logos) — marcada **NORMATIVO**: persistir `CardSet.logoUrl`
+    y `symbolUrl`, migración **M-47 aditiva pura**, sin backfill (se puebla por re-sync), servidas desde el
+    mismo host que ya sirve el arte de las cartas ⇒ cero acción de devops.
+  - `docs/API_CONTRACT.md` **v1.52** — `logoUrl: string | null` declarado en el DTO de set y en 4 endpoints.
+  - `docs/DESIGN_SYSTEM.md` **§24** (v2.8) — la «placa de tinta» `#1A1A18`, con **monograma serif** cuando el
+    set no tiene logo (R4: sin logo no hay hueco ni pulso eterno).
+- **🔴 Lo que NO existe — nada de código:**
+  - `backend/prisma/schema.prisma` **no tiene** `logoUrl` ni `symbolUrl`. La última migración es `m43`;
+    **M-47 nunca se creó ni se aplicó**.
+  - `grep logoUrl backend/src frontend/src` ⇒ **cero coincidencias**. Ni ingesta, ni DTO, ni componente.
+- **⚠ Por qué esto importa más que un pendiente normal:** el contrato **declara un campo que la API no
+  devuelve**, y §4.39 está marcada NORMATIVO. Por la regla de conflicto del equipo el contrato manda sobre el
+  código, así que hoy cualquiera —humano o agente— que lea `API_CONTRACT v1.52` va a creer que `logoUrl`
+  existe. Es exactamente la clase de defecto que esta sesión persiguió todo el tiempo: **una afirmación más
+  fuerte que la realidad**. Mientras no se construya, o se construye o el contrato debe decir «declarado, no
+  implementado».
+- **Trabajo pendiente, por dueño:**
+  - **(backend)** migración M-47 (dos columnas nullable en `CardSet`) + persistir `images.logo`/`images.symbol`
+    en el sync de metadata + exponer `logoUrl` en los 4 endpoints del contrato v1.52. `symbolUrl` se persiste
+    y **no se expone** (§4.39.5).
+  - **(frontend)** la retícula de §24: placa de tinta, monograma serif de respaldo, sin pulso cuando no hay logo.
+  - **(devops)** nada. §4.39.7 lo deja explícito: mismo host de imágenes, cero superficie nueva.
+  - **Poblado:** por **re-sync**, no por backfill — no hay `UPDATE` masivo (§4.39.4).
+- **Riesgo de dinero:** ninguno. Es presentación (clase P); M-47 es aditiva pura, sin `DROP`, sin `NOT NULL`.
+- **Requisito abierto:** §24.13 nº1 — un dato que ux-ui dejó pedido al arquitecto. **No bloquea**: sin él la
+  retícula funciona con monogramas.
+
+### Infraestructura · Disco de la base de datos (2026-09-01)
+
+#### P-53 · 💾 El disco de Postgres se llena por el ritmo de escritura del historial de precios — MITIGADO, falta la cura
+- **Detectado por el humano:** alerta de Railway «High Volume Usage — postgres-volume is at 77% capacity».
+- **✅ Mitigación aplicada (humano, 2026-09-01):** volumen ampliado. **El reloj de saturación se detuvo.**
+  Queda pendiente anotar el tamaño nuevo y rehacer la proyección con él.
+- **Medición real en producción (solo lectura, consola de Railway):**
+  | Dato | Valor |
+  |---|---|
+  | Disco usado / disponible | 317 MB de 434 MB (75%) |
+  | `pgdata/base` (datos) | 171 MB |
+  | `pgdata/pg_wal` (bitácora) | **145 MB — 46% de lo ocupado** |
+  | Base de datos completa | 148 MB |
+  | `PriceReference` | **101 MB — 68% de la base** |
+  | Filas de `PriceReference` | 222,614 (2026-08-17 → 2026-09-01, 16 días) ⇒ ~476 B/fila |
+- **Causa raíz (confirmada por consulta, NO por hipótesis):** el **ingest de singles de TCGCSV** escribe
+  **una fila por producto por día**, se muevan o no los precios. El 2026-08-28 el ritmo saltó de **2,062 a
+  ~28,570 filas/día (×14)** y lleva 5 días sostenido — es el nuevo estado estable, no un pico.
+  Desglose del día 2026-09-01: `tcgcsv_singles/raw:NM/market` **28,559** · `pokemonpricetracker/graded:PSA:10`
+  12 · `graded:PSA:9` 6.
+  ⚠ **Corrección registrada:** el orquestador atribuyó primero el salto al pipeline PSA. **Era falso** —
+  el PSA aporta 18 filas de 28,577. La causa es el ingest de singles.
+- **Proyección que motivó la ampliación:** ~13 MB/día contra 107 MB libres ⇒ saturación ≈ **2026-09-09**.
+  Con el disco lleno Postgres **deja de aceptar escrituras** (sin pedidos, sin altas, sin capturas de
+  inventario) y compactar la tabla exige espacio libre ≈ su propio tamaño (101 MB): esperar cerraba la
+  puerta al arreglo, no solo al servicio.
+- **⚠ Una política de retención por antigüedad NO resuelve esto.** El historial completo son 16 días: hoy
+  «conservar 90 días» no borraría ni una fila. El problema es el **ritmo diario**, no la basura vieja.
+  (El orquestador propuso retención antes de medir; queda anotado para no repetir el camino.)
+- **Lo que sí queda por hacer:**
+  - **(devops) Acotar el WAL.** 145 MB de bitácora con **cero replication slots** (verificado: la consulta a
+    `pg_replication_slots` devolvió 0 filas ⇒ no hay fuga). Es Postgres con los valores de fábrica,
+    dimensionados para un disco mucho mayor. Bajar `max_wal_size` recupera del orden de **100 MB**. Requiere
+    reinicio de Postgres ⇒ **con respaldo y ventana**, no en caliente.
+  - **(arquitecto → backend) Escribir menos por día.** Palanca de fondo: hoy se guarda una fila diaria por
+    carta **aunque el precio no se haya movido**, y la mayoría no se mueve. Escribir solo ante cambio recorta
+    el volumen de forma drástica.
+    🔴 **Money-critical:** toca qué tan **fresco** se considera un precio (`capturedDate`/`evidenceDate`,
+    `stale()`) y roza la regla «no se fabrican puntos» de las series del portafolio y de los sets. Mal hecho,
+    una carta se queda con precio viejo **sin que nada avise**. Pasa por el **arquitecto** (regla 9) y exige
+    **triple veredicto (QA + techlead + seguridad)** antes de producción.
+  - **(devops) Vigilancia.** Hoy nos enteramos por la alerta de Railway al 77%. Falta un aviso propio del
+    crecimiento del disco y del ritmo de filas/día, para no volver a descubrirlo a 8 días del tope.
+- **Consultas de diagnóstico (solo lectura) para repetir la medición:** tamaño por tabla vía
+  `pg_total_relation_size`; `du -sh /var/lib/postgresql/data/pgdata/*`; `pg_replication_slots`;
+  `SELECT "capturedDate", count(*) FROM "PriceReference" GROUP BY 1 ORDER BY 1 DESC`.
+
 ### Encontrado en pruebas post-publicación (2026-08-23)
 
 #### P-47 · 💰 El mercado se aplana a todos los acabados (normal = reverse holo = holofoil) — EN CURSO

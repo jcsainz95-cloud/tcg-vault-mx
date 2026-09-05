@@ -95,3 +95,68 @@ describe('FeaturedCarousel · P-40 etiqueta de acabado', () => {
     expect(screen.getByText('Holofoil')).toBeInTheDocument();
   });
 });
+
+/**
+ * ─────────────────────────────────────────────────────────────────────────────────────────
+ * CANDADO de las dos mejoras de rendimiento de `171f24b` (M-1). Estaban BIEN, pero eran
+ * invisibles para la suite: QA revirtió las dos (teja secundaria a `imageLargeUrl`, y
+ * `priority` fuera de la líder) y la suite siguió verde. Una mejora sin test no es una
+ * mejora: es una conducta que el siguiente refactor puede deshacer sin enterarse.
+ * ─────────────────────────────────────────────────────────────────────────────────────────
+ */
+describe('FeaturedCarousel · PERF (candado)', () => {
+  /** Las tres secundarias de la pista de abajo: `[cardId, nombre]`. */
+  const SECONDARY: [string, string][] = [
+    ['c-2', 'Blastoise'],
+    ['c-3', 'Venusaur'],
+    ['c-4', 'Pikachu'],
+  ];
+
+  /** Líder + 3 secundarias, cada una con su par de URLs distinguible. */
+  function pista() {
+    mockCatalog([
+      grp({ card: card('c-hero', 'Charizard') }),
+      grp({ card: card('c-2', 'Blastoise') }),
+      grp({ card: card('c-3', 'Venusaur') }),
+      grp({ card: card('c-4', 'Pikachu') }),
+    ]);
+  }
+
+  it('las tejas SECUNDARIAS piden la imagen CHICA, nunca la grande', async () => {
+    pista();
+    renderWithProviders(<FeaturedCarousel />, 'es');
+    await screen.findByAltText('Charizard');
+
+    // Miden 160px (268px en lg): la grande (~734×1024) se descargaría entera para pintarse a
+    // menos de un tercio de su ancho, y son SIETE en el primer bloque con imágenes de la home.
+    for (const [id, name] of SECONDARY) {
+      const img = screen.getByAltText(name);
+      expect(img).toHaveAttribute('src', `https://img.example/${id}-small.png`);
+      expect(img.getAttribute('src')).not.toContain('-large');
+    }
+  });
+
+  it('la teja LÍDER conserva `priority`: eager + fetchpriority=high (candidata a LCP)', async () => {
+    pista();
+    renderWithProviders(<FeaturedCarousel />, 'es');
+
+    const lead = await screen.findByAltText('Charizard');
+    expect(lead).toHaveAttribute('loading', 'eager');
+    expect(lead).toHaveAttribute('fetchpriority', 'high');
+    // Sin fade-in: un `opacity-0` esperando al `onLoad` retrasa el PINTADO aunque los bytes
+    // ya estén — justo la métrica que `priority` viene a mejorar.
+    expect(lead.className).toContain('opacity-100');
+  });
+
+  it('`priority` es EXCLUSIVO de la líder: varias `high` a la vez se pelean el ancho de banda', async () => {
+    pista();
+    renderWithProviders(<FeaturedCarousel />, 'es');
+    await screen.findByAltText('Charizard');
+
+    for (const [, name] of SECONDARY) {
+      const img = screen.getByAltText(name);
+      expect(img).toHaveAttribute('loading', 'lazy');
+      expect(img).not.toHaveAttribute('fetchpriority');
+    }
+  });
+});

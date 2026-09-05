@@ -49,7 +49,11 @@ const DTO: GuestOrderTrackingDTO = {
   },
   payment: { brand: 'visa', last4: '4242' },
   claim: { available: true },
-  support: { evidenceContact: 'soporte@tcgvaultmx.com', disputeWindowDays: 7 },
+  // `evidenceContact` lo resuelve el SERVIDOR (API_CONTRACT §0, cláusula 4) y la UI solo lo
+  // rinde. El oráculo es una dirección **ajena a la marca** a propósito: si el componente
+  // derivara o hardcodeara el buzón, este test lo cazaría en vez de taparlo (y de paso no deja
+  // vivo un dominio retirado dentro de la suite).
+  support: { evidenceContact: 'evidencias@ejemplo.test', disputeWindowDays: 7 },
   tokenExpiresAt: '2026-11-14T18:20:00.000Z',
 };
 
@@ -137,6 +141,6 @@ describe('PublicOrderTracking · vista pública (criterios 50, 51)', () => {
 
   it('la disputa se atiende por correo a soporte citando el pedido (criterio 56b)', () => {
     renderTracking();
-    expect(screen.getByTestId('evidence-email')).toHaveTextContent('soporte@tcgvaultmx.com');
+    expect(screen.getByTestId('evidence-email')).toHaveTextContent('evidencias@ejemplo.test');
   });
 });

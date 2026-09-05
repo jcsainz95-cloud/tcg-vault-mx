@@ -2,7 +2,81 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-02 (rev **v1.51.20**).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-05 (rev **v1.53**).
+>
+> **Changelog v1.53 — FUSIÓN DE LAS DOS LÍNEAS QUE SALIERON DE v1.50.3-g (2026-09-05, arquitecto; **CERO endpoints,
+> CERO campos, CERO montos, CERO códigos de error nuevos, CERO DDL, CERO cambios de conducta**. DOS renumeraciones
+> forzadas por colisión y DOS nombres de DTO que se declaran. ARCHITECTURE rev **v1.53**):**
+> ⚠️ **Esto no es un pase de diseño: es el ACTA DE LA FUSIÓN.** `main` (**v1.52**, P-21 → P-54) y la rama del ciclo de
+> adquisición del buylist (**v1.51.20**, `claude/buylist-inventory-workflow-hdnls3`) **salieron las dos de v1.50.3-g**
+> y numeraron en paralelo sin saber la una de la otra. **Nada de ninguna de las dos se descarta.** Todo lo que sigue
+> vigente en cualquiera de las dos, sigue vigente aquí.
+>
+> **A. LA VERSIÓN RESULTANTE ES `v1.53`. No `v1.52.1`.** `v1.52.1` se lee como *«un parche encima de v1.52»* y
+> entrarían por esa puerta **veinte changelogs** (v1.51 → v1.51.20), el ciclo de adquisición entero y **M-46**. Además
+> `1.51.20 < 1.52` en cualquier lectura ordenada, así que un `.1` dejaría la rama **debajo** de una versión que no la
+> contiene. **`v1.53` es la única cota que está por encima de las dos**, y eso es exactamente lo que una fusión
+> produce.
+>
+> **B. ⚠️ COLISIÓN REAL 1 — `M-46` nombraba DOS migraciones distintas. La del GANCHO DE GRADING pasa a `M-48`.**
+> Las dos líneas bautizaron `M-46`: la rama, el **ciclo de adquisición** (DDL, 40 columnas + enums + backfill);
+> `main` (v1.51-one-dial), el alta de **`grading_hook_enabled`** (DATA/seed, **sin DDL**). **Se resuelve por el
+> artefacto, no por antigüedad:** existe en disco `backend/prisma/migrations/20260901120000_m46_buylist_acquisition_cycle/`
+> — una migración **aplicada** cuyo nombre está registrado en `_prisma_migrations` y **no se puede renombrar sin
+> romper `migrate deploy`**. El seed del gancho **no tiene artefacto ninguno**: su «M-46» era una etiqueta de prosa.
+> ⇒ **el ciclo conserva `M-46`; el dial único del gancho pasa a `M-48`** (DATA/seed, sin DDL, seed `off`), y `M-47`
+> (imágenes de set) **no se toca** — también existe en disco. Mismo criterio y mismo precedente que la renumeración
+> `M-41 → M-42` que este proyecto ya hizo en el merge de v1.50.2. **⚠️ Por qué NO era cosmético:** `DEVOPS_NOTES.md`
+> §32.12 tiene un runbook que dice *«M-46 es DATA/seed, sin DDL — `migrate deploy` no trae nada»*, y el `M-46` de la
+> rama es **DDL real y pendiente**. Dos runbooks bajo el mismo número, uno de los cuales autoriza a **saltarse una
+> migración de dinero**. **Ninguna conducta del sistema cambia: cambia una etiqueta.**
+>
+> **C. ⚠️ COLISIÓN REAL 2 — `§4.39` nombraba DOS secciones de ARCHITECTURE. Las IMÁGENES DE SET pasan a `§4.40`.**
+> La rama usa `§4.39(a)`…`§4.39(t)` para el ciclo de adquisición; `main` usa `§4.39.1`…`§4.39.9` para los logos de
+> set. **Se resuelve por radio de citación:** el `§4.39` de la rama se cita **cientos** de veces (siete documentos,
+> comentarios de código y `PROJECT.md` §P); el de `main`, **62** veces en total y **todas** con la forma `§4.39.N`,
+> mecánicamente reescribible. ⇒ **el ciclo conserva `§4.39`; las imágenes de set pasan a `§4.40.1`–`§4.40.9`.**
+> En este contrato quedan reescritas todas las citas. **Las citas `§4.39.N` que sobrevivan en documentos de otros
+> roles (`TECH_DEBT.md`, `BACKEND_NOTES.md`, `FRONTEND_NOTES.md`) apuntan a nada — no a la sección equivocada —
+> porque el `§4.39` vigente no tiene subsecciones numéricas.** Se enruta a cada dueño como limpieza **NO bloqueante**;
+> **no renumero documentos ajenos.**
+>
+> **D. DT-Gd — SÍ los nombro. Nacen `CardSetDTO` y `BuylistSetDTO`, y es DECLARACIÓN, no cambio.**
+> La ficha de `TECH_DEBT.md` observa que el cliente colapsó `GET /catalog/sets` y `GET /buylist/sets` en un tipo único
+> y que el `logoUrl?` resultante **desactiva el invariante que §4.40.6 existe para garantizar**. **La causa raíz es
+> mía:** este contrato definía las dos respuestas **distintas** pero las escribía como **shapes anónimos inline**, y
+> *un shape sin nombre no tiene con qué estar en desacuerdo* — colapsarlos era gratis y nada lo desmentía.
+> - **`CardSetDTO = { id, name, series?, releaseDate?, year?, partSetIds? }`** ⇒ `GET /catalog/sets`. **NO lleva
+>   `logoUrl`, y su ausencia es normativa** (§4.40.5).
+> - **`BuylistSetDTO = CardSetDTO & { logoUrl: string | null }`** ⇒ `GET /buylist/sets`. **`logoUrl` es de clave
+>   SIEMPRE presente**, porque es la fuente client-side de la teja del cotizador.
+> - **Cero cambios de shape, de ruta, de código de error y de conducta de backend: los dos cuerpos ya se emiten así.**
+>   Lo único que cambia es que **ahora tienen nombre**, y con nombre el colapso deja de compilar. La deuda pasa de
+>   *«el cliente eligió mal»* a *«el contrato ya lo dice»*. **La corrección del tipo la hace frontend, en su ruta.**
+>
+> **E. Lo que la fusión NO toca, dicho para que nadie lo dé por perdido.** Siguen vigentes **palabra por palabra** las
+> once enmiendas v1.51.9 → v1.51.20 de la rama —**`422 ITEM_NOT_OFFERED`** y **`500 OFFERED_PRICE_MISSING`**, la
+> **escalera de precedencia** (`409` del verbo sobre `422` del campo), la forma **única** de `details` en la familia
+> `PICKUP_ADDRESS_*` (`{ field: "addressId" }`), **`offerSentAt` como marca permanente** (BL-28) y la **norma de
+> cobertura §5.2 de ARCHITECTURE** con sus cinco disparadores— y sigue vigente **entero** P-54: `logoUrl` en
+> `MasterSetSummaryDTO` (cuatro endpoints) y en `GET /buylist/sets`, con sus exclusiones deliberadas. **Ningún
+> endpoint, ningún dial, ningún monto, ningún correo y ninguna regla del barrido cambian en este pase.**
+>
+> **F. Contradicciones de fondo entre las dos líneas: NINGUNA.** Las dos ramas tocan superficies disjuntas (catálogo
+> de sets vs. ciclo de adquisición) y las dos únicas colisiones fueron **de nombres**, resueltas en (B) y (C). El
+> único punto donde una línea deroga a la otra es **`gradedEstimateIngestEnabled`**: la rama lo conserva vivo porque
+> **nunca vio** v1.51-one-dial; **manda `main`** —es decisión del dueño, tomada y reafirmada— y el dial queda
+> **retirado**. La rama no lo defendía: lo desconocía.
+>
+> ---
+> **NOTA DE LECTURA — este changelog tiene DOS LINAJES, y por eso las fechas no bajan de forma monótona.**
+> Debajo van primero las **veinte** entradas de la rama (**v1.51 → v1.51.20**, 2026-09-01/02) y después las **seis**
+> de `main` (**v1.50.4-brand-domain → v1.52**, 2026-08-31). **Las dos pilas arrancan en `v1.50.3-g`**, que es el
+> antepasado común y la primera entrada que las dos comparten. ⚠️ **El `v1.51` de la rama (ciclo de adquisición) y el
+> `v1.51-one-dial` de `main` (gancho de grading) son cosas DISTINTAS que eligieron el mismo número en paralelo; no
+> hay derivación entre ellos.**
+>
+> ---
 >
 > **Changelog v1.51.20 — LAS TRES ESCALADAS DEL GATE, RESUELTAS (2026-09-02, arquitecto; **CERO DDL, CERO endpoints,
 > CERO campos**. DOS códigos de error nuevos. ARCHITECTURE §4.39(q.3), §4.39(i) **6-bis** y **6-ter**, §5.2 NUEVA,
@@ -1209,6 +1283,189 @@
 > cotizador público (`/buylist/quote`, `/quote/batch`), checkout, órdenes, disputas, gancho de grading, ninguna
 > superficie pública de catálogo.
 >
+> ---
+> ### ⬇️ A PARTIR DE AQUÍ, LA LÍNEA DE `main` (v1.50.4-brand-domain → **v1.52**, 2026-08-31)
+> *Rama paralela salida de **v1.50.3-g**, igual que la de arriba. Su cabecera decía «Fecha: 2026-08-31 (rev
+> **v1.52**)»; esa cabecera la sustituye la de **v1.53**. Todo lo demás se conserva literal.*
+> ---
+>
+> **Changelog v1.52 — la teja de set gana su LOGO (2026-08-31, arquitecto; petición del DUEÑO. Lo implementan
+> BACKEND y FRONTEND. ARCHITECTURE ~~§4.39~~ **§4.40** *(renumerada en v1.53(C))*, migración M-47).**
+> **Cero rutas nuevas, cero códigos de error nuevos, cero montos, cero permisos.** Base: v1.51-c, vigente entera.
+> Es **ADITIVO puro**: todo consumidor existente sigue funcionando sin cambios.
+> - **Qué se añade y DÓNDE — dos superficies, y la segunda es la que se olvida:**
+>   1. **`MasterSetSummaryDTO` gana `logoUrl: string | null`.** Lo sirven **cuatro** endpoints
+>      (`GET /admin/inventory/master-sets`, `GET /admin/vaults/:userId/master-sets`, `GET /vault/master-sets` y el
+>      índice M1), porque es **un read model único** (§4.20f). Es **la teja** de selección de set.
+>   2. **`GET /buylist/sets` → `data[]` gana `logoUrl: string | null`.** **No es opcional:** el modo `quoter` de esa
+>      misma retícula **no tiene endpoint de índice propio** y compone sus tejas *client-side* desde aquí. Sin este
+>      campo, la teja del cotizador sería **la única sin logo**.
+> - **Dónde NO se añade, deliberadamente (es tan normativo como lo anterior):** `GET /catalog/facets` → `sets[]` y
+>   `GET /catalog/sets` (alimentan **chips y filtros de TEXTO**, no tejas), `CardDTO`/`card.setName` (el set ahí es
+>   metadata de una carta: sería el mismo logo repetido por cada carta de la rejilla), `GET /admin/catalog/remote-sets`
+>   (espejo del proveedor, no una selección) y `SetRefDTO` (cabecera de gráfica). **Regla:** *la imagen de set viaja
+>   donde el SET es el objeto que se selecciona.* ARCHITECTURE §4.40.5 *(era §4.39.5; renumerada en v1.53(C))*.
+> - **`null` es un valor NORMAL y PERMANENTE, no un error ni un estado transitorio.** Clase **(P) presentación**
+>   (§5.2.2) ⇒ **clave SIEMPRE presente, ausencia como `null`** — nunca omitida, nunca `""`, nunca una URL de
+>   placeholder inventada por el backend. Hay sets que el proveedor **no ilustra** (promos, colecciones raras, sets
+>   viejos) y los seguirá sin ilustrar. Se declara `logoUrl: string | null` **y no `logoUrl?: string`** a propósito:
+>   el opcional se lee como «normalmente está» e invita a `s.logoUrl!`; el `null` explícito **obliga** a decidir qué se
+>   pinta cuando no hay. Es la grieta de `imageSmallUrl` (§5.2.1) cerrada por adelantado.
+> - **Un segundo origen del `null`, indistinguible a propósito:** un set **aún no re-sincronizado** también rinde
+>   `null`. El contrato **no** los distingue y el cliente **no** debe intentarlo: para el front, «sin logo» es un solo
+>   caso. Quien los distingue es el operador, por el lado del sync (ARCHITECTURE §4.40.4).
+> - **Origen del dato y su peor caso:** URL de un **CDN de tercero** (`images.pokemontcg.io`, el **mismo** host que ya
+>   sirve el arte de las cartas). **Sin copia propia.** Si el CDN cae, la teja cae a su placeholder — mismo riesgo que
+>   ya corre toda imagen de carta del sitio, no una clase de fallo nueva. **Prohibido construir la URL por plantilla**
+>   desde el `setId` (misma regla que §5.2.5 para cartas).
+> - **`symbolUrl` (el glifo cuadrado) SE PERSISTE pero NO SE EXPONE en este pase.** No aparece en ningún DTO: hoy no
+>   hay superficie que lo use. Exponerlo el día que exista el chip es **aditivo de proyección, sin migración y sin
+>   re-sync**. ARCHITECTURE §4.40.5.
+> - **Frontend, nivel de imagen decidido por el arquitecto (§5.3, ARCHITECTURE §4.40.7): NIVEL B** — `<img>` crudo,
+>   **sin `next/image`, sin `srcset`**. Una retícula es una rejilla y la regla de coste 4 de §5.3.3 lo prohíbe; además
+>   el proveedor sirve **una sola URL** por imagen. **`remotePatterns` no cambia** (mismo host).
+> - **Migración `M-47`** (ARCHITECTURE §11): dos columnas nullable en `CardSet`, **aditiva pura**, money-safe, sin
+>   ventana ni cut-over. **Sin backfill de datos**: los sets ya importados se pueblan re-corriendo el sync existente.
+> - **Base previa:** v1.51-c.
+>
+> **Changelog v1.51-c — el contrato deja de prometer lo que el histórico puede no traer (2026-08-31, arquitecto;
+> tres correcciones de PRECISIÓN enrutadas por el techlead. ARCHITECTURE §5.2.9).**
+> **Cero rutas, cero códigos de error, cero montos, cero migraciones y CERO cambios de conducta en backend.**
+> Base: v1.51-b, vigente entera. Es un pase de **documentación**: alinea el contrato con lo que el código ya sirve.
+> - **T-3 — la corrección que importa. `items[].card` pasa a ser DOS formas hermanas, no una.** v1.51-b declaró
+>   `cardId`, `name`, `number` y `productType` **requeridos** en las tres superficies. Pero `GET /orders/:orderId`
+>   **lee de una columna `Json`** que escribieron versiones anteriores del código: un blob histórico incompleto rinde
+>   un `card` **sin esos campos**, y eso ya es conducta probada y correcta del backend. **Era el mismo pecado que este
+>   pase vino a matar, invertido**: el tipo del cliente volviendo a prometer lo que el backend puede no enviar — la
+>   grieta exacta por la que se cayó `imageSmallUrl`. Se declara:
+>   - **`OrderItemCardDTO`** (hechos **completos**) ⇒ los DOS quotes, donde los hechos **nacen en la petición** desde
+>     la pieza viva y por tanto están garantizados.
+>   - **`HistoricalOrderItemCardDTO` = `Partial<FrozenCardFacts> & { imageSmallUrl: string | null }`** ⇒
+>     `GET /orders/:orderId`. **Toda** clave congelada puede faltar; `imageSmallUrl` **nunca** falta (se resuelve en
+>     lectura), su ausencia se expresa con `null`.
+>   - **Se RECHAZA la otra salida (que el backend rellene un mínimo desde el join):** violaría §5.2.2 —los hechos
+>     congelados **no se re-resuelven**— y cambiaría un hueco honesto por un dato **inventado dentro de un registro
+>     probatorio**. Un hecho congelado que se perdió **está perdido**; el acta dice que no consta. §5.2.9.
+>   - **La tolerancia es de LECTURA: no relaja la ESCRITURA.** El checkout sigue obligado a persistir los ocho hechos
+>     con `cardId`/`name`/`number`/`productType` no nulos. Un pedido nuevo incompleto sería **defecto**, no tolerancia.
+> - **T-4 — `null` ≠ ausente, y el contrato decía lo que no era.** `rawCondition`, `gradingCompany` y `gradeValue`
+>   viajan como **`null` con la clave presente** (así los congela el checkout desde columnas nullables); el contrato
+>   los declaraba `rawCondition?: RawCondition`, es decir **omitidos**. Se corrige **el contrato**, no el código:
+>   pedirle al backend que omita nulos sería cambio de conducta **y** divergencia entre blobs viejos y nuevos, por una
+>   ganancia nula. `setName` sigue siendo el único hecho que viaja **omitido**.
+> - **T-5 — mueren los ejemplos `"card": {}`.** Los ejemplos de `/checkout/quote`, `/checkout/guest/quote` y
+>   `GET /orders/:orderId` llevan ahora `card` **poblado y realista**; el del histórico incluye a propósito **una
+>   segunda línea con blob incompleto**, para que la forma tolerante se vea, no solo se lea.
+> - **Confirmación de alcance (no es cambio): `GuestTrackingItemDTO` se queda como está.** Es la cuarta superficie que
+>   emite imagen; resuelve por join en vivo desde `inventoryItem.card` y **no** por §5.2.5 — es otro DTO, plano, sin
+>   `cardId` (prohibido por criterio 51) y de una vista de envío en curso, no del acta de compra. **No es regresión y
+>   nadie debe uniformizarlo por iniciativa propia.** Su única deuda viva es **D-IMG-2** (identidad por join en vivo):
+>   baja, no bloqueante, dueño **backend**, se alinea en el próximo trabajo sobre ese módulo. Nota completa en §4-G.
+> - **Base previa:** v1.51-b.
+>
+> **Changelog v1.51-b — se DECLARA una forma que llevaba viva sin declarar: `OrderItemCardDTO` (2026-08-31,
+> arquitecto; lo implementan BACKEND y FRONTEND. ARCHITECTURE §5.2).**
+> **Cero rutas nuevas, cero códigos de error nuevos, cero montos, cero migraciones.** Base: v1.51-a, intacta.
+> - **El problema que cierra:** el objeto `items[].card` de `POST /checkout/quote`, `POST /checkout/guest/quote` y
+>   `GET /orders/:orderId` **nunca tuvo forma declarada** — este contrato lo escribía como `"card": {}` y nombraba
+>   `OrderItemPreview` sin definir sus campos. Con la forma sin declarar, el backend lo persiste como JSON `object`
+>   y el frontend lo tipó como **`CardDTO` completo**, prometiendo campos (`id`, `externalId`, `imageLargeUrl`,
+>   `availableFinishes`…) que **el backend nunca envió en esa posición**. De ahí el hueco gris de la miniatura: no
+>   fue un olvido de una línea, fue **un blob sin forma en un extremo y un tipo falso en el otro**.
+> - **Se declara `OrderItemCardDTO`** (abajo, §4). Es **la forma que ya se sirve** más **un campo**:
+>   **`imageSmallUrl: string | null`**. **NO es `CardDTO`** y no debe volver a tiparse como tal.
+> - **`imageSmallUrl` es NULLABLE y la clave está SIEMPRE presente** (`null`, nunca omitida — misma norma de shape
+>   estable que `unavailableItems: []`). `null` es resultado legítimo: la columna `Card.imageSmallUrl` es `String?`
+>   y la fila `Card` puede no existir. El front pinta placeholder; **no es error y no rompe ningún flujo**.
+> - **ORIGEN del campo, normativo (ARCHITECTURE §5.2.5): se resuelve EN LECTURA, uniendo por el `cardId` ya
+>   congelado en el snapshot. NO se persiste en `OrderItem.cardSnapshot` y NO se resuelve vía
+>   `inventoryItemId → InventoryItem.card`** (esa pieza sigue mutando de titular y estado; el `cardId` congelado es
+>   el único puente estable). Consecuencia buscada: **los pedidos históricos muestran miniatura sin migración
+>   alguna**, porque histórico y futuro pasan por el mismo código de lectura.
+> - **Lo que este changelog NO cambia:** la estructura **persistida** del snapshot (mismos ocho campos), ningún
+>   importe, ninguna precedencia de precio, ningún estado de orden, y **nada** de `GuestOrderTrackingDTO`
+>   (`GuestTrackingItemDTO.imageSmallUrl` ya existía) ni de `ClientShipmentItemDTO`. Es **display-only**.
+> - **Base previa:** v1.51-a.
+>
+> **Changelog v1.51-a — UN cambio de invariante y UNA nota normativa de lectura (2026-08-31, arquitecto;
+> lo implementa BACKEND, y FRONTEND solo si pinta el rango. ARCHITECTURE §4.38(r.3.1), §4.38(r.3.4), §4.38(m.2.1)).**
+> **Cero rutas, cero shapes de DTO, cero códigos de error nuevos, cero montos.** Base: v1.51-one-dial, intacta.
+> - **`ingestMaxCardsPerRun` estrecha su rango: `[1, 5000]` → `[1, 1000]`** (invariante **I8** del `PUT
+>   /admin/pricing/graded-estimates`). Fuera de rango ⇒ **`422 VALIDATION_ERROR`**, el mismo código de siempre.
+>   **Motivo:** `5 000 × 2 créditos × 2 corridas = 20 000 créditos/día` era **la cuota diaria completa del plan del
+>   proveedor**, autorizable con **un solo `PUT` válido**, sin redeploy y sin aprobación adicional. Un tope cuyo máximo
+>   admisible coincide con el presupuesto total no es un tope.
+>   - **Es un ESTRECHAMIENTO, y no rompe nada existente:** el seed **250 no cambia** y todo valor almacenado `≤ 1 000`
+>     sigue siendo válido. Solo `(1 000, 5 000]` pasa a `422`. Quedan **4× de holgura** sobre el seed.
+>   - **Un valor almacenado en `(1 000, 5 000]` no se vuelve peligroso: cae en la regla de `fail-closed on-read`** —
+>     se trata como **presente pero INVÁLIDA** y el ingest **no emite ninguna petición** al proveedor. Falla en la
+>     dirección correcta.
+> - **Nota normativa NUEVA sobre `ingestMaxCardsPerRun` (no cambia su forma):** acota las cartas **en ALCANCE**,
+>   **no** las que el proveedor devuelve ⇒ **cualquier traducción de este número a «créditos/día» es un techo NOMINAL
+>   bajo un supuesto de facturación aún no observado**, y un cliente de admin **no debe presentarlo como cifra firme
+>   sin ese calificador**. Detalle en la sección de `GradedEstimateConfigDTO`.
+> - **Lo que este changelog NO cambia, y conviene decirlo:** las precondiciones de encendido del dial
+>   (`gradingHookEnabled`) viven en `ARCHITECTURE.md`, **no aquí**; el cierre de **GU-9** (el dueño acepta 60 días de
+>   peor caso de frescura) **no toca el contrato en absoluto** — ni un rango, ni un seed, ni un campo:
+>   `freshnessDays` **se queda en 30**.
+> - **Base previa:** v1.51-one-dial.
+>
+> **Changelog v1.51-one-dial — el gancho de grading pasa de DOS interruptores a UNO (2026-08-31, arquitecto;
+> lo implementan BACKEND + FRONTEND. ARCHITECTURE §4.38(r), §9, §10 GU-14, §11 ~~M-46~~ **M-48**).**
+> *(⚠️ **v1.53(B): esta migración se renumeró de `M-46` a `M-48`.** `M-46` es la del ciclo de adquisición del buylist
+> —DDL aplicado en disco— y **no se puede renombrar**; ésta es DATA/seed sin artefacto. **Ninguna conducta cambia.**)*
+> ⚠️ **Decisión del DUEÑO, tomada y reafirmada. No se re-litiga.** Cero superficies públicas tocadas, cero DDL, cero
+> montos, cero códigos de error nuevos. **BREAKING chico en `super_admin`** (dos claves de M10 desaparecen y una nace).
+> - **`gradedEstimatesEnabled` y `gradedEstimateIngestEnabled` se RETIRAN de `GET/PUT /api/v1/admin/settings`.**
+>   Enviarlas en el `PUT` ⇒ **`422 VALIDATION_ERROR`** (clave desconocida; mismo precedente que `stripeFeeIvaPct`,
+>   v1.40). Las filas `ConfigSetting` que existan quedan **huérfanas e inertes** — nadie las lee, **no se borran**.
+> - **NACE `gradingHookEnabled`** (`grading_hook_enabled`, enum `on|off`, **seed `off` fail-closed**, **M-48**
+>   *(era `M-46`; v1.53(B))*,
+>   DATA/seed sin DDL): **el dial único** del gancho. Gobierna **exhibición Y obtención**: con `off` no se emite
+>   `gradedEstimates` ni `gradingHighlight`, `?gradingHighlight=true` devuelve `{ data: [], total: 0 }`, **y** el
+>   ingest de fase 2 **no pide nada al proveedor ni escribe ninguna fila**.
+> - **Por qué una clave NUEVA y no reusar la que ya estaba en la UI:** producción tiene `graded_estimates_enabled="on"`
+>   y reusarla **ensancharía el significado de un valor ya almacenado** ⇒ el deploy siguiente empezaría a **gastar
+>   créditos de un proveedor de paga y a escribir precios, solo**. Con clave nueva, **ningún valor almacenado puede
+>   armar el dial**: todos los entornos aterrizan en `off` y existe **exactamente una** forma de encender el gancho —
+>   un `PUT` humano, auditado, desde el back-office. ARCHITECTURE §4.38(r.1)/(r.4).
+> - **`GradedEstimateConfigDTO` pierde `ingestEnabled`** (§M2). `enabled` se conserva como **espejo read-only del dial
+>   único**. El `PUT` de M2 sigue **ignorando** ambos si vienen (no `422`, para no romper un cliente a medio deploy).
+> - **⚠️ Encender es ahora un ACTO DE DINERO** (publica **y** consume créditos **y** escribe precios). La UI **debe**
+>   advertirlo antes de guardar — criterio 110(e) aplicado al dial que sí gasta. Norma: ARCHITECTURE §4.38(r.3).
+> - **El origen del cambio era un defecto real:** `gradedEstimateIngestEnabled` se declaró gobernable en v1.50.2 y
+>   **nunca se expuso en la UI** — solo por `curl`, que es lo que el criterio 110(e) rechaza. Regla nueva de este
+>   contrato: **al declarar un dial, se dice DÓNDE se ve.** ARCHITECTURE §9.
+> - **Base previa:** v1.50.4-brand-domain.
+>
+> **Changelog v1.50.4-brand-domain — el contrato deja de transcribir correos (2026-08-31, arquitecto).**
+> ⚠️ **CERO cambios de shape, de rutas, de códigos de error y de montos. Ningún endpoint cambia. Ninguna
+> implementación existente se vuelve incorrecta.** Lo que cambia es **qué es normativo** en este documento.
+> - **Los dominios `tcgvaultmx.com` / `tcgvault.mx` están MUERTOS.** El dominio canónico es el de
+>   `common.brand.domain` — hoy **`tcghunt.mx`** — y la marca es `common.brand.name` — hoy **«TCG HUNT»**.
+>   Verificado **contra el producto** (`frontend/messages/{es,en}.json`, `backend/src/modules/mail/`), **no contra
+>   otra documentación**: cotejar documentos entre sí es exactamente cómo se propagó el error. Buzones del
+>   producto: **`soporte@` · `contacto@` · `facturacion@` · `buylist@` · `no-reply@`**, todos `@tcghunt.mx`.
+> - **Por qué esto NO era cosmético.** Por la regla de conflicto de `CLAUDE.md`, **este contrato manda sobre el
+>   código**. Mientras dijera `soporte@tcgvaultmx.com`, cualquier backend o frontend que lo obedeciera
+>   reintroducía el dominio muerto **legítimamente — y tendría razón**. Este documento era la autoridad que
+>   sostenía el error, no su víctima.
+> - **NUEVA convención transversal en §0: «Datos de contacto y valores de configuración».** El contrato norma la
+>   **forma, el origen, la obligatoriedad y quién resuelve** un valor de infraestructura; **no transcribe el
+>   valor**. `evidenceContact` pasa de `"soporte@…"` (literal, normativo) a `string` **resuelto server-side desde
+>   configuración**. **Cambiar el valor deja de ser un cambio de contrato.** Criterio generalizable — aplica a
+>   futuros remitentes, teléfonos y URLs de soporte.
+> - **Los correos que quedan en el cuerpo del documento son ILUSTRATIVOS** (marcados `p. ej.`) y **no son
+>   citables como autoridad**. Fundamento y norma de lectura: **ARCHITECTURE §0-B** («Fuentes de verdad
+>   ejecutables»), nueva en este pase.
+> - **Fuera de mi alcance, enrutado:** defaults de buzón en código (backend, P-21) y envs/redirects (devops,
+>   P-21). Los buzones `@tcghunt.mx` **ya reciben** (humano, 2026-08-31), lo que desbloquea ese tramo.
+> - **Base previa:** v1.50.3-g.
+>
+> ---
+> ### ⬇️ ANTEPASADO COMÚN — de aquí para abajo, las DOS líneas comparten historia
+> ---
+>
 > **Changelog v1.50.3-g — DICTAMEN del gate de seguridad / `M-44` + `M-45` (2026-08-29, arquitecto;
 > lo implementa BACKEND. ARCHITECTURE §4.38(l.4.10)–(l.4.13), §9, §11):**
 > ⚠️ **Cierra SEC-M43-1 (Media, reproducida en vivo por el blue team) y la mitad de contrato de SEC-M43-2.
@@ -1264,7 +1521,7 @@
 >   cualquier rango. Hacía falta **excluir**, no ordenar. ARCHITECTURE §4.38(l.4.1).
 > - **CONDICIONAL (solo si el humano ejerce la «vía B» de §4.38(l.5), es decir, fusionar antes de que M-43 esté
 >   desplegado): `409 GRADED_ESTIMATE_DISABLED`** en `POST /admin/pricing/override` con `intent:"graded_estimate"`
->   mientras `gradedEstimatesEnabled` esté `off`. **Transitorio**: se retira con M-43. Si M-43 entra en este mismo
+>   mientras el dial del gancho (v1.51: `gradingHookEnabled`) esté `off`. **Transitorio**: se retira con M-43. Si M-43 entra en este mismo
 >   pase, **este código nunca se emite** y desaparece del contrato en la siguiente rev.
 > - **GE-2 (Media, rechazos 401/403 sin fila en `AuditLog`): NO es cambio de contrato.** Dictamen en ARCHITECTURE §9:
 >   es **hardening del plano de observabilidad (devops)**, no requisito de la bitácora de negocio — el `401` no tiene
@@ -1454,11 +1711,17 @@
 >   que `sealed-spreads`/`tiers` (JSON en `ConfigSetting`, `super_admin`, **auditado**, **sin redeploy**), pero
 >   **recurso propio**: **no** se reusa `GET/PUT /admin/pricing/tiers`, cuya taxonomía es LOCKED de 5 filas nombradas
 >   con un invariante incompatible (ARCHITECTURE §4.38d / GU-A1). *(v1.50.2 añade 5 diales más a este recurso.)*
-> - **Dial M10 nuevo:** `gradedEstimatesEnabled` (`graded_estimates_enabled`, `on|off`, **seed `off` fail-closed**).
->   Con `off` el backend **ni siquiera evalúa nada**: no emite `gradedEstimates` ni `gradingHighlight`, y
->   `?gradingHighlight=true` devuelve `data: []`. Encenderlo en producción **requiere el visto bueno del humano** sobre
->   el texto del disclaimer (§O.5, pregunta abierta v2.0 #1). *(v1.50.2 añade un segundo dial M10,
->   `gradedEstimateIngestEnabled`, que gobierna la **obtención** y no la exhibición.)*
+> - **Dial M10 — UNO SOLO (v1.51):** `gradingHookEnabled` (`grading_hook_enabled`, `on|off`, **seed `off`
+>   fail-closed**). Con `off` el backend **ni siquiera evalúa nada**: no emite `gradedEstimates` ni `gradingHighlight`,
+>   `?gradingHighlight=true` devuelve `data: []`, **y el ingest no pide ni escribe nada**. Encenderlo **no es decisión
+>   de devops**: es un **acto de gasto** (créditos de un proveedor de paga) que además publica una afirmación
+>   comercial. *(Corrección de hecho 2026-08-31: este renglón decía que encender «requiere el visto bueno del humano
+>   sobre el disclaimer §O.5». **Ya lo tiene** — el disclaimer está **aprobado por el dueño**, **sin revisión legal
+>   profesional**, `PROJECT.md` decisión 59 / criterio 117. Lo que condiciona el encendido es el **gasto** y las
+>   precondiciones de ARCHITECTURE §4.38(r.3.1), no la aprobación del texto.)*
+>   ~~*(v1.50.2 añade un segundo dial M10, `gradedEstimateIngestEnabled`, que gobierna la obtención y no la
+>   exhibición.)*~~ ⛔ **DEROGADO en v1.51:** los dos diales de v1.50/v1.50.2 (`gradedEstimatesEnabled`,
+>   `gradedEstimateIngestEnabled`) quedan **RETIRADOS** — decisión del dueño, ARCHITECTURE §4.38(r).
 > - **Vitrina = `GET /catalog/cards` filtrado**, no endpoint nuevo: `?gradingHighlight=true&sort=grading_showcase`
 >   (orden server-side por **mayor ganancia neta sobre PSA 9**, el escenario realista). `data: []` **es** la señal de
 >   «no renderizar la vitrina completa». `sort=grading_showcase` sin el filtro ⇒ `400 GRADING_SORT_REQUIRES_FILTER`.
@@ -2915,7 +3178,8 @@
 > - **Modelo de tokens (`AuthToken`, MIGRACIÓN M-17):** un solo uso, `type` (`email_verification | password_reset`),
 >   **hash** en BD (nunca el claro), expira 24h / 1h. Ver ARCHITECTURE §3.2, §4.11 y §11.
 > - **Reset (self-service o admin) incrementa `User.tokenVersion`** → revoca sesiones (patrón existente).
-> - **Env nuevas:** `RESEND_API_KEY` (secreto, requerida en no-local), `MAIL_FROM` (default `no-reply@tcgvaultmx.com`).
+> - **Env nuevas:** `RESEND_API_KEY` (secreto, requerida en no-local), `MAIL_FROM` (remitente; **valor por
+>   entorno**, default en código sobre el dominio canónico `common.brand.domain` — p. ej. `no-reply@tcghunt.mx`).
 >   Los links de los correos apuntan al **frontend** (`${APP_BASE_URL}/<locale>/verify-email|reset-password?token=…`).
 >
 > **Changelog v1.2 / v1.2.1 (2026-08-14):** simplificación aprobada por el humano (PROJECT.md › "Simplificación
@@ -3000,6 +3264,36 @@
 - **Paginación:** query `?page=1&pageSize=20`; respuesta `{ data: [...], page, pageSize, total }`.
 - **Filtros de lista admin (`q`, `from`, `to`, `minCents`, `maxCents`) — CONVENCIÓN TRANSVERSAL (v1.25-buylist-orders-pagination):** nombres y semántica **idénticos** en `GET /admin/buylist` (§M5) y `GET /admin/orders` (§M3), y compatibles con los listados que ya los usaban parcialmente. Todos **opcionales**; omitir todos = listado como antes de v1.25. **`q`:** texto libre, `trim`, **case-insensitive**, contains, OR entre los campos definidos por endpoint; vacío/whitespace = ausente; **máx 200 chars**. **`from`/`to`:** ISO-8601 sobre `createdAt`, **`gte`/`lte`** (rango inclusivo por día; sólo `from` = desde, sólo `to` = hasta). **Semántica de borde de día (v1.25.1 — aclaración de semántica de fecha, aditiva):** un valor **date-only** (`YYYY-MM-DD`, sin componente horario — lo que emite un `<input type=date>`) se interpreta en el **borde del día en UTC**: **`from` = inicio de día (`00:00:00.000Z`)** y **`to` = fin de día INCLUSIVO (`23:59:59.999Z`)**. Un valor con **componente horario** (datetime ISO completo, p. ej. `2026-08-20T14:30:00Z`) se usa **tal cual** (`gte`/`lte` exactos, sin ajuste). Así `to=YYYY-MM-DD` **incluye** todo lo cerrado ese mismo día — sin la omisión silenciosa de tratar `to` date-only como medianoche UTC (que excluiría casi todo el día en una cola money-adjacent). El backend materializa este borde en su **helper de parseo** de fechas (mismo helper para ambos endpoints). Un **rango invertido** (`from` > `to`) simplemente devuelve **vacío** — no es error (no se exige validación `from ≤ to`). **`minCents`/`maxCents`:** enteros **≥ 0** sobre el campo de monto que cada endpoint declara (`quotedTotalCents` en buylist, `totalCents` en orders), `gte`/`lte`. **Validación → `400 VALIDATION_ERROR`** (mismo patrón que la paginación): `page`/`pageSize` no numéricos o `pageSize>100`, fecha no parseable, monto no entero o negativo, `maxCents < minCents`, `q` > 200 chars, o un token de `status` (CSV, §M5) que no sea enum válido (`details.invalidStatus`). **Seguridad:** estos filtros **sólo REDUCEN** el conjunto ya autorizado por rol admin — no habilitan IDOR ni enumeración cruzada, no cambian el shape ni la proyección PII por rol, y `q` **nunca** busca sobre CLABE/RFC/INE/datos de pago.
 - **i18n:** el contrato NO devuelve texto traducido. Devuelve **enums** y **`errorCode`**; el frontend traduce (ES/EN). Datos de catálogo en inglés por diseño.
+- **Datos de contacto y valores de configuración — el contrato describe la FORMA y el ORIGEN, no transcribe el
+  VALOR (convención transversal, v1.50.4).** Cuando un campo de respuesta transporta un **dato de infraestructura
+  configurable por entorno** —hoy: correos de contacto (`evidenceContact` y cualquier buzón que la API devuelva);
+  por extensión, cualquier valor que devops pueda cambiar **sin redeploy**— este contrato norma **cinco cosas y
+  ninguna más**:
+  1. **Tipo y forma:** `string`, dirección de correo válida (RFC 5322 `addr-spec`, opcionalmente con display name),
+     **no vacía**, **siempre presente** cuando el campo es requerido por el DTO.
+  2. **Origen:** **resuelto server-side** desde configuración de entorno, con **default en código**. El backend
+     **nunca** omite el campo ni lo devuelve vacío; una env **definida pero vacía o en blanco cae al default**
+     (helper `envOr`, **no** `??` — el `??` no cubre la cadena vacía y dejaría el campo en `""`).
+  3. **Estabilidad:** el **valor** puede cambiar por entorno y en el tiempo (rebrand, cambio de proveedor de
+     correo, buzón nuevo) **sin que este contrato cambie de revisión**. **Cambiar el valor NO es un cambio de
+     contrato** y no requiere pasar por el arquitecto (regla 9 de `CLAUDE.md`). Cambiar su **forma u origen**, sí.
+  4. **Obligación del consumidor (frontend):** **renderiza el valor que recibe**. **Prohibido** hardcodearlo,
+     derivarlo del dominio, o **afirmarlo en un test de contrato** (un test que asserta el literal convierte un
+     dato de infra en un candado de CI, y ese candado se vuelve en contra el día del rebrand). Un literal de
+     **fallback** solo se admite en fixtures/mocks offline y en el modo degradado sin API, y debe construirse
+     sobre el dominio de `common.brand.domain`, nunca sobre un literal copiado de este documento.
+  5. **Los valores que aparecen en este documento son ILUSTRATIVOS**, marcados `p. ej.`, y **no son citables como
+     autoridad**. La fuente ejecutable del dominio de marca es la clave i18n **`common.brand.domain`** (hoy
+     `tcghunt.mx`); la del valor efectivo de un campo es **su env** (`DISPUTE_EVIDENCE_CONTACT` para
+     `evidenceContact`, en cascada con `SUPPORT_EMAIL` donde aplique).
+
+  **Por qué (y el criterio que hay que recordar).** Un literal escrito en el contrato **sobrevive a un rebrand**:
+  como el contrato manda sobre el código, un dominio muerto escrito aquí **autoriza** a backend y frontend a
+  reintroducirlo, y ambos tendrían razón. Además acopla lo **más barato de cambiar** (una env) a lo **más caro**
+  (el contrato). Criterio generalizable, para las próximas: *si un valor puede cambiar por entorno o sin redeploy,
+  el contrato norma su **forma, origen, obligatoriedad y quién lo resuelve** — nunca su contenido.* Aplica ya a
+  correos y, por extensión, a remitentes, teléfonos, URLs de soporte y cualquier identificador de contacto futuro.
+  Fundamento completo y clasificación decisión-vs-descripción: **ARCHITECTURE §0-B**.
 - **Errores (shape estándar):**
 ```json
 { "error": { "code": "PRICE_PENDING", "message": "human-readable EN fallback", "details": {} } }
@@ -3372,6 +3666,15 @@ CardDTO      = { id, externalId, name, number, numberSort: number, numberPrefix:
                  rarity, supertype, subtypes: string[],
                  setId, setName, imageSmallUrl, imageLargeUrl,
                  availableFinishes: Finish[], displayFinishes: Finish[] }
+// v1.51-b — CUIDADO: el objeto `card` de una LÍNEA DE COMPRA (`/checkout/quote`, `/checkout/guest/quote`,
+//   `GET /orders/:orderId`) **NO es un CardDTO**: es un snapshot congelado de 8 campos + `imageSmallUrl:
+//   string | null` resuelta en lectura. Tiparlo como CardDTO es exactamente el defecto que v1.51-b corrige
+//   (prometía `id`/`imageLargeUrl`/`availableFinishes` que el backend nunca envió ahí).
+// v1.51-c — y son DOS formas, no una (ambas en §4): `OrderItemCardDTO` (hechos COMPLETOS) en los dos QUOTES, y
+//   `HistoricalOrderItemCardDTO` (`Partial` de los hechos) en `GET /orders/:orderId`, que lee del JSON persistido y
+//   **no puede garantizar** ni `name` ni `cardId`. Tipar el histórico con la forma completa es el MISMO pecado,
+//   invertido: el tipo del cliente volvería a prometer lo que el backend puede no enviar.
+//   Doctrina de qué se congela y qué se resuelve: ARCHITECTURE §5.2 y §5.2.9.
 // referenceValue = valor de mercado (referencia). salePriceCents = precio de venta = referencia × (1+markup) u override.
 // rawCondition solo aplica a productType=raw y su ÚNICO valor es "NM". El LABEL legible de NM
 // ("Casi nueva (Near Mint)" / "Near Mint" + descripción) vive en i18n del FRONT, NO en la API.
@@ -3578,18 +3881,22 @@ GroupedListingDetailResponse += { gradedEstimates?: GradedEstimateDTO[] }
 //   * `costMxnCents` entero >= 1 — JAMÁS 0 (un costo subestimado es exactamente lo que haría perder dinero al
 //     comprador). Semiabierto a propósito: con límites "$2,000 / $2,001" los centavos intermedios quedaban en un HUECO.
 GradingCostTierDTO = { minValueMxnCents: number, maxValueMxnCents: number | null, costMxnCents: number }
-// `enabled` / `ingestEnabled` = ESPEJOS READ-ONLY de los dos diales M10 (se editan en PUT /admin/settings, no aquí; si
-// vienen en el PUT se IGNORAN). `grades` = grados que la FICHA expone; `highlightGrades` ⊆ `grades` = grados que el
+// v1.51 — `enabled` = ESPEJO READ-ONLY del DIAL ÚNICO M10 `gradingHookEnabled` (se edita en PUT /admin/settings, no
+// aquí; si viene en el PUT se IGNORA). Gobierna exhibición Y obtención: `enabled:false` ⇒ nada se publica y el ingest
+// no pide ni escribe. `ingestEnabled` queda RETIRADO del DTO (ya no se emite; si viene en el PUT se IGNORA, no 422).
+// `grades` = grados que la FICHA expone; `highlightGrades` ⊆ `grades` = grados que el
 // BADGE pinta. `minUpsidePct` + `gradingCostTiers` = el gate de CURADURÍA (rejilla/vitrina), nunca la ficha.
 // v1.50.2 añade 5 campos editables: `manualFreshnessDays` (decaimiento del override manual), `maxRawMultiple`
 // (cota superior de magnitud), `minSampleCount` (muestra mínima, se aplica en el INGEST), `sourceStat` (qué número
 // del proveedor es el precio) y `ingestMaxCardsPerRun` (tope de cuota por corrida).
+// ⚠️ v1.51-a — `ingestMaxCardsPerRun`: rango [1, 1000] (antes [1, 5000]); seed 250 SIN cambio. Acota las cartas EN
+// ALCANCE, NO las que el proveedor devuelve ⇒ traducirlo a "créditos/día" da un techo NOMINAL, no un hecho. Ver §M2.
 // ⚠️ v1.50.3 — TRES SEEDS CORREGIDOS (solo el valor; el shape NO cambia), para alinear con PROJECT.md:
 //   manualFreshnessDays null -> 30 (criterio 109: el override manual SÍ caduca, contra su fecha de captura)
 //   minSampleCount        3  -> 5   (criterio 111a = `minSalesSample` de §O.7)
 //   maxRawMultiple       50  -> 100 (criterio 111c = `maxGradedMultiple` de §O.7)
 // Los NOMBRES no se renombran; la equivalencia con el vocabulario de PROJECT §O.7 está tabulada en §M2.
-GradedEstimateConfigDTO = { enabled: boolean, ingestEnabled: boolean, grades: string[] /* ["10","9"] */,
+GradedEstimateConfigDTO = { enabled: boolean, /* v1.51: `ingestEnabled` RETIRADO */ grades: string[] /* ["10","9"] */,
                             highlightGrades: string[] /* ["10"] */, freshnessDays: number,
                             minUpsidePct: number, gradingCostTiers: GradingCostTierDTO[],
                             manualFreshnessDays: number | null, maxRawMultiple: number,
@@ -3804,9 +4111,19 @@ BuylistBatchQuoteResponse = { results: BuylistBatchQuoteResultDTO[] }
 // v1.42 (BLOQ-3): el binder cuenta SOLO SINGLES → todas las agregaciones de este DTO (distinctCardsOwned, totalPieces,
 //   completionPct) EXCLUYEN `productType='sealed'` (alinea con H9; el sellado vive en la pestaña «Sellado», §sealed-sets).
 //   `catalogCardCount` (denominador = catálogo) NO cambia. Mismo filtro en el scope user_vault. Ver ARCHITECTURE §4.20b.
+// v1.52 (M-47, ARCHITECTURE §4.40 — era §4.39; renumerada en v1.53(C)): `logoUrl` = imagen del LOGO del set (`images.logo` de pokemontcg.io,
+//   persistida en `CardSet.logoUrl`). Es EL campo de la teja de selección de set.
+//   ⚠️ `string | null`, NO `logoUrl?`: la clave va SIEMPRE presente y la ausencia se expresa con `null`
+//   (clase (P) presentación, §5.2.2/§5.2.9). `null` es NORMAL y PERMANENTE — hay sets que el proveedor no
+//   ilustra (promos, colecciones raras, sets viejos) — y también es lo que rinde un set aún no re-sincronizado;
+//   el contrato NO distingue ambos orígenes y el cliente NO debe intentarlo. No es error, no se reintenta, no
+//   se registra incidente: el front pinta su estado «sin logo» (lo define ux-ui). ⛔ PROHIBIDO construir la URL
+//   por plantilla desde el `setId`. Nivel de imagen: **B** (`<img>` crudo, sin next/image, sin srcset — §5.3.3).
+//   NO existe `symbolUrl` en este DTO: se persiste en `CardSet` pero no se expone todavía (§4.40.5).
 MasterSetSummaryDTO = { setId: string, name: string, series?: string, releaseDate?: string, year?: number,
                         printedTotal?: number, catalogCardCount: number, distinctCardsOwned: number,
-                        completionPct: number | null, totalPieces: number }
+                        completionPct: number | null, totalPieces: number,
+                        logoUrl: string | null }                       // v1.52 (M-47)
 MasterSetIndexResponse = { data: MasterSetSummaryDTO[], page: number, pageSize: number, total: number }
 // Celda del binder (GET /admin/inventory/master-sets/:setId). Una por Card del catálogo del set. `number` es el
 // Card.number crudo (String, p. ej. "4", "SV107", "TG12"); `numberSort` es la CLAVE NUMÉRICA derivada server-side
@@ -4414,7 +4731,7 @@ Query: `?q=&setId=&rarity=&productType=&condition=&finish=&minPriceCents=&maxPri
   - **Tamaño de la vitrina** = `pageSize` (el front del home pide **8**, §O.3(3) SUPUESTO); el default del endpoint no
     cambia. **Cero cartas elegibles ⇒ `{ data: [], total: 0 }`, y ese `data: []` ES la señal normativa de «no renderizar
     la vitrina completa»** (criterio 101): sin encabezado, sin placeholder, sin «próximamente».
-  - **Dial `gradedEstimatesEnabled=off` (§M10, seed `off`)** ⇒ ningún grupo trae `gradingHighlight` ⇒
+  - **Dial `gradingHookEnabled=off` (§M10, seed `off`; v1.51)** ⇒ ningún grupo trae `gradingHighlight` ⇒
     `?gradingHighlight=true` devuelve `{ data: [], total: 0 }` (no es error: es la feature apagada).
   - **Sin N+1 — coste MEDIDO:** el listado ya materializa, filtra y pagina **en memoria**; el gancho añade un coste
     **constante** de **+1 query con el dial `off`** (la lectura memoizada de config, que corta antes de tocar precios)
@@ -4465,6 +4782,12 @@ Res `200`:
 - `sets`: `{ id, name, releaseDate, year }` con `year` **derivado** de `releaseDate`; solo sets con inventario publicado; **ordenados por año desc**. **v1.33 (P-27):** igual que `GET /catalog/sets`, un subset de un master combinado se **pliega** en su principal (Celebrations una vez) y la entrada gana `partSetIds?` (aditivo/opcional).
 - `productTypes` / `sealedSubtypes`: subconjuntos presentes en el inventario publicado.
 - `finishes` (v1.6-finish): `distinct` de `InventoryItem.finish` sobre el inventario publicado (subconjunto de `Finish`), para el filtro de acabado.
+- **⛔ v1.52 — `sets[]` NO lleva `logoUrl`, y es deliberado (ARCHITECTURE §4.40.5).** Esta faceta alimenta los **chips
+  de texto** «Sets buscados» de la home y el **filtro de texto** de Compra: ninguna de las dos es una teja con imagen,
+  y la home **ya** carga imágenes de terceros (en este mismo ciclo se corrigió que pedía de más). El logo vive en
+  `MasterSetSummaryDTO` y en `GET /buylist/sets`, que son las superficies donde **el set es el objeto que se
+  selecciona**. Si alguna de estas dos superficies pasara a ser una retícula de tejas, es un **aditivo de proyección**
+  (el dato ya está en `CardSet.logoUrl`: sin DDL, sin migración, sin re-sync) que **pasa por el arquitecto** (regla 9).
 
 ### GET /api/v1/catalog/cards/:cardId — `public`  (FICHA — aquí aplica la regla de visibilidad v2.0)
 Res `200` (**v1.38-grouped-listings, `GroupedListingDetailResponse`**): `{ card: CardDTO, listings: GroupedListingDTO[], units: ListingDTO[] }` **(+ v1.50, ADITIVO: `gradedEstimates?: GradedEstimateDTO[]`)**.
@@ -4525,7 +4848,7 @@ Res `200` (**v1.38-grouped-listings, `GroupedListingDetailResponse`**): `{ card:
     el patrón de presentación (nota al pie con llamada junto a la cifra) lo define **ux-ui** en `DESIGN_SYSTEM.md`
     **§22**.
   - **`gradedEstimates` NUNCA aparece** para una carta sin grupos **raw publicados**, para una **gradeada**, para un
-    **sellado** (§2-S), ni con el dial `gradedEstimatesEnabled=off` (§M10).
+    **sellado** (§2-S), ni con el dial `gradingHookEnabled=off` (§M10).
   - **v1.50.2 — el grado con SLAB PUBLICADO se OMITE** (INV-D, ARCHITECTURE §4.38l): si la carta tiene una pieza PSA 10
     publicada, su fila `graded:PSA:10` **es el precio de mercado real de esa pieza**, no un estimado, y esa pieza ya se
     lista con su propio precio. Los demás grados siguen apareciendo con normalidad.
@@ -4549,11 +4872,27 @@ Res `200`: `ListingDTO`. Err `404` (incluye el caso de un item no publicado / si
   **+ `referenceValue`**. Lo que se retira es la mitad que la UI tenía prohibido pintar.)*
 
 ### GET /api/v1/catalog/sets — `public`
-Res `200`: `{ data: [{ id, name, series, releaseDate, year }] }` (datos en inglés; `year` derivado de `releaseDate`, v1.1). Devuelve los sets con inventario publicado, ordenados por año desc.
+Res `200`: `{ data: CardSetDTO[] }` (datos en inglés; `year` derivado de `releaseDate`, v1.1). Devuelve los sets con inventario publicado, ordenados por año desc.
+```ts
+// v1.53 (DT-Gd) — se DECLARA con nombre la forma que este endpoint ya servía. Cero cambios de shape.
+CardSetDTO = { id: string, name: string, series?: string, releaseDate?: string, year?: number,
+               partSetIds?: string[] }              // ⛔ SIN logoUrl — la ausencia es NORMATIVA (§4.40.5)
+```
+- **⚠️ v1.53 (DT-Gd) — `CardSetDTO` y `BuylistSetDTO` son DOS tipos, y no se colapsan.** Este endpoint y
+  `GET /buylist/sets` se parecen y **el contrato los define distintos desde v1.52**: `logoUrl` **no entra aquí** y
+  **entra allí con clave siempre presente**. Mientras las dos respuestas se escribieron como **shapes anónimos
+  inline**, colapsarlas en el cliente era gratis y nada lo desmentía — y se colapsaron, con un `logoUrl?` que
+  **desactivó el invariante de §4.40.6** (`TECH_DEBT.md` **DT-Gd**). *Un shape sin nombre no tiene con qué estar en
+  desacuerdo.* Se declaran con nombre para que el colapso **deje de compilar**. **`BuylistSetDTO = CardSetDTO &
+  { logoUrl: string | null }`** — ver `GET /buylist/sets`. ⛔ **Un tipo único con `logoUrl?` NO es conforme**, aunque
+  hoy los bytes coincidan.
 - **v1.33 (P-27) — master set combinado:** un `setId` **subset** de un grupo (mapa `config/master-set-groups.ts`) se
   **pliega** en su **principal**: Celebrations aparece **una** sola vez (no dos entradas `cel25`/`cel25c`). La entrada
   combinada gana `partSetIds?: string[]` (los set-ids reales que agrupa) para que el front filtre por todas las partes.
   ADITIVO/opcional (los sets normales lo omiten). Solo presentación; el subset sigue siendo un `CardSet` real.
+- **⛔ v1.52 — este endpoint NO lleva `logoUrl`** (misma razón que `GET /catalog/facets`: hoy no alimenta ninguna
+  retícula de tejas). ARCHITECTURE §4.40.5. *(Nota para el master set combinado de P-27: cuando un subset se pliega en
+  su principal, la teja usa el logo **del principal** — el subset no aporta el suyo.)*
 
 ### GET /api/v1/catalog/featured-set/value-history — `public`  (v1.9-set-chart — gráfica del hero)
 Serie temporal del **valor de mercado agregado del set destacado** (estilo acciones), para el hero de la home
@@ -4605,8 +4944,9 @@ venir vacía (`points: []`) hasta que se les active la captura diaria.
 > Superficie propia del **producto cerrado** (front: `(storefront)/sellado`). Listado **agregado por producto** (agrupa
 > piezas idénticas → «N disponibles»), ficha con selección de cantidad, y dos endpoints **feature-flagged** (tendencia y
 > restock). El checkout/carrito **no cambia** (§4 / §4-G): se compra por `inventoryItemId` como cualquier pieza. **Solo
-> VENTA** — no hay buylist de sellado (la ventana muestra un call-out mailto a `contacto@tcgvaultmx.com`, es copy del
-> front, no un endpoint). Ver ARCHITECTURE §4.23e/§4.23h.
+> VENTA** — no hay buylist de sellado (la ventana muestra un call-out **mailto al buzón de contacto**; es **copy del
+> front**, vive en i18n sobre `common.brand.domain` —p. ej. `contacto@tcghunt.mx`—, **no es un endpoint** y este
+> contrato no lo norma). Ver ARCHITECTURE §4.23e/§4.23h.
 
 ### GET /api/v1/catalog/sealed — `public`
 Grid agregado del sellado publicado. Agrupa por producto+condición (`tcgplayerProductId` si mapeado, si no
@@ -4789,10 +5129,103 @@ Err `401`.
 
 ## 4. Compra, checkout y órdenes (Stripe)
 
+> **`items[].card` — DOS formas hermanas, no una (v1.51-c, NORMATIVA; ARCHITECTURE §5.2 y §5.2.9).**
+> Aplica a las **tres** superficies que sirven líneas de compra. Antes se escribía `"card": {}`; esa forma vacía
+> es lo que dejó caer `imageSmallUrl` en la grieta. **v1.51-c** corrige el error espejo: v1.51-b declaró **una sola**
+> forma con `cardId`/`name`/`number`/`productType` **requeridos**, y la superficie histórica **no puede garantizarlos**.
+>
+> **La forma depende de DÓNDE nacen los hechos:**
+>
+> | Superficie | Forma de `items[].card` | Origen de los hechos |
+> |---|---|---|
+> | `POST /checkout/quote` | **`OrderItemCardDTO`** (completa) | Construidos **en memoria, en esta misma petición**, desde la pieza viva |
+> | `POST /checkout/guest/quote` (§4-G.1) | **`OrderItemCardDTO`** (completa) | ídem |
+> | `GET /orders/:orderId` | **`HistoricalOrderItemCardDTO`** (tolerante) | **Leídos** del JSON persistido `OrderItem.cardSnapshot`, escrito al cobrar — quizá por una versión anterior del código |
+>
+> ```ts
+> // ---- (F) HECHOS CONGELADOS (clase F, §5.2.2) — persistidos en `OrderItem.cardSnapshot` al cobrar.
+> //      Inmutables: un re-sync de catálogo NO los cambia en un pedido ya cobrado.
+> FrozenCardFacts = {
+>   cardId: string,
+>   name: string,
+>   setName?: string,                       // AUSENTE (no `null`) si la carta no tenía set al congelar
+>   number: string,
+>   productType: ProductType,
+>   rawCondition: RawCondition | null,      // clave SIEMPRE presente; `null` fuera de raw (único valor "NM")
+>   gradingCompany: GradingCompany | null,  // clave SIEMPRE presente; `null` fuera de graded
+>   gradeValue: string | null               // clave SIEMPRE presente; `null` fuera de graded
+> }
+>
+> // ---- (P) PRESENTACIÓN RESUELTA EN LECTURA (clase P, §5.2.3) — NO se persiste.
+> //      Se resuelve por join sobre `cardId`. Clave SIEMPRE presente; `null` es legítimo.
+>
+> // Los DOS quotes: hechos COMPLETOS por construcción (nacen en la petición) + presentación resuelta.
+> OrderItemCardDTO = FrozenCardFacts & { imageSmallUrl: string | null }
+>
+> // `GET /orders/:orderId`: CUALQUIER hecho congelado puede FALTAR (blob histórico incompleto).
+> // `imageSmallUrl` NO puede faltar: se resuelve en lectura, así que su clave está siempre presente.
+> HistoricalOrderItemCardDTO = Partial<FrozenCardFacts> & { imageSmallUrl: string | null }
+> ```
+>
+> - **Ninguna de las dos es `CardDTO`.** No traen `id`, `externalId`, `imageLargeUrl`, `rarity`, `supertype`,
+>   `subtypes`, `setId`, `numberSort`, `numberPrefix`, `availableFinishes` ni `displayFinishes`. **Prohibido tiparlas
+>   como `CardDTO`** en el cliente: ese tipo falso es exactamente lo que hizo que el front pintara una imagen que el
+>   backend nunca enviaba. Quien necesite el `CardDTO` completo, lo pide por `GET /catalog/cards/:id` con el `cardId`.
+> - **`imageSmallUrl`: clave SIEMPRE presente, valor nullable, en las TRES superficies.** `null` cuando la fila `Card`
+>   ya no existe, cuando su columna (`String?`) es nula, o cuando el blob histórico no trae `cardId` con el que unir.
+>   El cliente **renderiza su placeholder**; no es error, no se reintenta, no bloquea el checkout ni el pedido.
+>   **Prohibido construir la URL por plantilla** o derivarla del `externalId` — solo se sirve lo que la columna
+>   contenga (§5.2.5).
+> - **`null` ≠ ausente, y aquí la diferencia es normativa (v1.51-c).** `rawCondition`, `gradingCompany` y `gradeValue`
+>   viajan como **`null` con la clave presente** (así los congela el checkout desde columnas nullables de
+>   `InventoryItem`), **no omitidas**. `setName` es el único hecho que viaja **omitido** cuando no aplica. Un cliente
+>   que valide `!('rawCondition' in card)` para «es sellado» está leyendo mal: el discriminante es `productType`.
+> - **`OrderItemPreview`** (nombre ya usado por los dos quotes) queda definido como:
+>   `{ inventoryItemId: string, card: OrderItemCardDTO, unitPriceCents: number }`.
+> - **`OrderItemDTO`** (líneas de `GET /orders/:orderId`) queda definido como:
+>   `{ inventoryItemId: string, card: HistoricalOrderItemCardDTO, unitPriceCents: number }`.
+> - **Sellado (`productType='sealed'`): límite declarado.** El snapshot ancla `cardId`, no `sealedProductId` ⇒ la
+>   imagen resuelta es la de la **carta ancla**, que es la **cola** de la cascada de §4.34a. Mostrar la caja en el
+>   historial exigiría congelar identidad de sellado en la línea (clase F, DDL aditivo) y es **alcance de producto**:
+>   pasa por el arquitecto (regla 9), no se compensa con un join a `InventoryItem`. Ver ARCHITECTURE §5.2.6.
+>
+> **TOLERANCIA DEL HISTÓRICO — qué puede faltar y cómo reacciona el cliente (v1.51-c, NORMATIVA).**
+> `OrderItem.cardSnapshot` es una columna `Json`: la base **no valida su esquema** y el blob de un pedido de 2024 lo
+> escribió una versión anterior del código. Por eso `GET /orders/:orderId` sirve la forma **tolerante**, y por eso el
+> contrato **no** promete lo que no puede entregar. Reglas:
+>
+> 1. **Puede faltar cualquiera de los ocho hechos**, incluidos `cardId`, `name`, `number` y `productType`. Un blob
+>    ausente, no-objeto o vacío rinde `card` **solo con `imageSmallUrl: null`**. Sigue siendo **`200`**, nunca `500`.
+> 2. **PROHIBIDO rellenar un hecho que falta.** Ni el backend ni el cliente pueden recuperar `name`/`number`/`setName`
+>    desde `Card` (ni por join, ni por un `GET /catalog/cards/:cardId` desde el front). Los hechos congelados **no se
+>    re-resuelven** (§5.2.2): el catálogo de hoy dice qué se llama esa carta **hoy**, no qué decía el pedido cuando se
+>    pagó. Rellenar convertiría un hueco honesto («el acta no lo registró») en un dato **inventado y presentado como
+>    probatorio** — que es peor, y en un registro dinero-adyacente. Fundamento en ARCHITECTURE §5.2.9.
+> 3. **Asimetría de peor caso, que es la regla de oro:** un campo de clase (P) que no resuelve degrada a `null` ⇒
+>    **hueco visual**. Un campo de clase (F) que se perdió degrada a **ausente** ⇒ **el cliente dice que no consta**.
+>    Ninguno de los dos degrada jamás a *otro valor*.
+> 4. **Deber del cliente (frontend), por campo:**
+>    - `name` ausente ⇒ etiqueta neutra desde i18n (p. ej. `orders.item.unknownCard`). **Nunca** cadena vacía,
+>      `"undefined"`, ni la línea desaparecida: la línea **se pinta igual**, porque tiene importe.
+>    - `number` / `setName` ausentes ⇒ se **omite** ese fragmento del subtítulo (nada de `«#»` ni `«· »` huérfanos).
+>    - `productType` ausente ⇒ **no se infiere**: se omiten los adornos que dependen de él (badge de sellado/graded).
+>    - `cardId` ausente ⇒ **no hay enlace** a la ficha de catálogo (el CTA «ver carta» no se pinta) y la imagen es
+>      `null` por construcción.
+>    - `rawCondition` / `gradingCompany` / `gradeValue` ausentes **o `null`** ⇒ se omite ese chip. Mismo render.
+> 5. **MONEY-SAFE, y esto cierra la preocupación de fondo:** el dinero de la línea **no vive en el blob**.
+>    `unitPriceCents` es **columna propia** de `OrderItem`, y el `breakdown` sale de columnas de `Order` (§5.1). Un
+>    snapshot incompleto **no puede alterar ni un centavo** de lo que el pedido muestra ni de lo que se cobró.
+> 6. **La tolerancia describe la LECTURA, no relaja la ESCRITURA.** Invariante del write path, vigente y no
+>    negociable: el checkout persiste siempre los ocho hechos, con `cardId`, `name`, `number` y `productType`
+>    **no nulos** (salen de columnas `NOT NULL` de `InventoryItem`/`Card`). Un pedido cobrado por el código vigente
+>    **nunca** produce un `card` incompleto. Si alguna vez lo produjera, es **defecto de backend**, no tolerancia.
+
 ### POST /api/v1/checkout/quote — `customer`  (v1.21.3-quote-prune: resolución POR ÍTEM)
 Calcula el desglose sin cobrar (para mostrar líneas en el checkout).
 Req: `{ inventoryItemIds: string[] }`  *(sin cambios)*
 Res `200`: `{ items: OrderItemPreview[], breakdown: BreakdownDTO, unavailableItems: UnavailableCartItemDTO[] }`
+*(v1.51-b: `items[].card` es **`OrderItemCardDTO`** — ver arriba. Aquí **no hay consulta extra**: la ruta ya carga
+`card` en memoria para preciar, así que la imagen sale del objeto ya cargado.)*
 
 **Poda amable (v1.21.3):** el quote resuelve **por ítem**, nunca revienta por una pieza muerta del carrito
 (`localStorage` puede traer ids de piezas ya vendidas/borradas):
@@ -4814,7 +5247,12 @@ Res `200`: `{ items: OrderItemPreview[], breakdown: BreakdownDTO, unavailableIte
 
 Ejemplo (una pieza vendida entre visitas, otra borrada):
 ```json
-{ "items": [{ "inventoryItemId": "a1…", "card": {}, "unitPriceCents": 12500 }],
+{ "items": [{ "inventoryItemId": "a1…",
+              "card": { "cardId": "card-1", "name": "Charizard", "setName": "Base",
+                        "number": "4", "productType": "raw",
+                        "rawCondition": "NM", "gradingCompany": null, "gradeValue": null,
+                        "imageSmallUrl": "https://images.pokemontcg.io/base1/4.png" },
+              "unitPriceCents": 12500 }],
   "breakdown": { "subtotalCents": 12500, "ivaCents": 2000, "ivaRatePct": 16,
                  "processingFeeCents": 700, "totalCents": 15200, "currency": "MXN" },
   "unavailableItems": [
@@ -4868,10 +5306,42 @@ Res `200`:
 ```json
 { "id": "…", "status": "settled", "createdAt": "…", "settledAt": "…",
   "breakdown": { "…": "BreakdownDTO" },
-  "items": [{ "inventoryItemId": "…", "card": {}, "unitPriceCents": 12500 }],
+  "items": [
+    { "inventoryItemId": "a1…",
+      "card": { "cardId": "card-1", "name": "Charizard", "setName": "Base",
+                "number": "4", "productType": "graded",
+                "rawCondition": null, "gradingCompany": "PSA", "gradeValue": "9",
+                "imageSmallUrl": "https://images.pokemontcg.io/base1/4.png" },
+      "unitPriceCents": 25000 },
+    { "inventoryItemId": "b2…",
+      "card": { "name": "Reliquia", "number": "1", "imageSmallUrl": null },
+      "unitPriceCents": 12500 }
+  ],
   "cfdiStatus": "registrado", "invoiceRequested": false, "stripePaymentIntentId": "pi_…" }
 ```
+> La **segunda línea del ejemplo es deliberada**: es un pedido antiguo cuyo blob quedó **incompleto** (sin `cardId`,
+> sin `setName`, sin `productType`, sin condición). Es un `200` **válido**, no un error, y su `unitPriceCents` está
+> intacto. Ver «TOLERANCIA DEL HISTÓRICO» al inicio de §4.
+
 Err `403/404`.
+
+> **v1.51-c — `items[].card` es `HistoricalOrderItemCardDTO`**, la forma **tolerante** (definida al inicio de §4;
+> v1.51-b la declaraba con `cardId`/`name`/`number`/`productType` **requeridos**, y esta superficie no puede
+> garantizarlos). **Ésta es la única superficie que lee del HISTÓRICO**, y por eso importa cómo se sirve:
+> - Los **hechos congelados** (clase F) salen de `OrderItem.cardSnapshot` tal cual se escribieron al cobrar. **No se
+>   re-derivan nunca**, ni siquiera si el catálogo cambió: el pedido dice lo que decía cuando se pagó. **Corolario
+>   incómodo pero correcto (v1.51-c): si el blob NO lo dice, la respuesta tampoco lo dice.** El hecho perdido se
+>   **omite**; jamás se sustituye por el valor que hoy tiene `Card`.
+> - **`imageSmallUrl` se resuelve en LECTURA**, con **una sola consulta batcheada** por los `cardId` distintos del
+>   pedido (`Card.findMany({ where: { id: { in: […] } }, select: { id, imageSmallUrl } })`). **Prohibido el N+1** y
+>   **prohibido** resolver vía `inventoryItemId → InventoryItem.card`. Una línea **sin `cardId`** no entra en el `in`
+>   (no se consulta por la nada) y resuelve a `imageSmallUrl: null`.
+> - **Efecto sobre pedidos anteriores a v1.51-b:** muestran miniatura **sin migración ni backfill**, porque el
+>   histórico y los pedidos nuevos comparten el mismo código de lectura. Si un pedido viejo siguiera sin imagen tras
+>   el cambio, la implementación se desvió de esta norma. Fundamento completo: ARCHITECTURE §5.2.4.
+> - **Un blob incompleto no es un incidente operable.** No produce `4xx`/`5xx`, no se registra como error de runtime
+>   y **no se repara** (no hay backfill; §5.2.4 sigue vigente). Es un dato histórico que dice menos de lo que hoy
+>   diríamos, y así se muestra.
 
 Tras `settled`, los items aparecen en la bóveda con `ownershipStatus=settled`. En `pending` ya están en la bóveda con `ownershipStatus=pending`.
 
@@ -4937,7 +5407,12 @@ constante de servidor, §4-G.10).
 Res `200` (v1.21.3-quote-prune: gana `unavailableItems`, **siempre presente**; v1.21.4-dual-breakdown:
 gana `vaultBreakdown`, **siempre presente** — ver abajo):
 ```json
-{ "items": [{ "inventoryItemId": "…", "card": {}, "unitPriceCents": 12500 }],
+{ "items": [{ "inventoryItemId": "a1…",
+              "card": { "cardId": "card-1", "name": "Charizard", "setName": "Base",
+                        "number": "4", "productType": "raw",
+                        "rawCondition": "NM", "gradingCompany": null, "gradeValue": null,
+                        "imageSmallUrl": "https://images.pokemontcg.io/base1/4.png" },
+              "unitPriceCents": 12500 }],
   "fulfillmentMode": "direct_ship",
   "breakdown": { "subtotalCents": 25000, "shippingFeeCents": 17500, "ivaCents": 6800,
                  "ivaRatePct": 16, "processingFeeCents": 1900, "totalCents": 51200, "currency": "MXN" },
@@ -4950,6 +5425,12 @@ gana `vaultBreakdown`, **siempre presente** — ver abajo):
 > **factura CFDI manual por correo** y el enlace a términos desde su i18n (criterio 48b). El **precio de venta es el
 > mismo** que para un usuario con cuenta (mismas reglas de venta por rareza/acabado; comprar como invitado no cambia
 > condiciones comerciales).
+> **v1.51-b:** `items[].card` es **`OrderItemCardDTO`** (la forma **completa**, definida al inicio de §4), con
+> `imageSmallUrl` incluida — el checkout de invitado pintaba el hueco gris por la misma causa que el de cuenta. Igual
+> que en `/checkout/quote`, **no hay consulta extra**: la ruta ya carga `card` en memoria para preciar. **La
+> tolerancia del histórico NO aplica aquí** (v1.51-c): un quote construye los hechos en la misma petición desde la
+> pieza viva, así que `cardId`/`name`/`number`/`productType` **siempre vienen**. Sin cambio en `GuestTrackingItemDTO`
+> (§4-G, que ya traía `imageSmallUrl` por join, y **es otro DTO** — ver su nota de alcance).
 
 **`vaultBreakdown` — desglose reactivo del destino (v1.21.4-dual-breakdown, N-12).** El quote devuelve **DOS
 desgloses en una sola respuesta** para que la UI conmute el resumen **al instante** al alternar el radio de destino
@@ -5099,7 +5580,9 @@ GuestOrderTrackingDTO = {
   shipping: GuestTrackingShippingDTO,
   payment?: GuestTrackingPaymentDTO,      // presente solo tras liquidar
   claim: { available: boolean },          // true si el pedido aún NO está vinculado a una cuenta (oferta de registro)
-  support: { evidenceContact: "soporte@tcgvaultmx.com",
+  support: { evidenceContact: string,       // correo de soporte RESUELTO SERVER-SIDE desde configuración (§0):
+                                            //   forma normada, valor NO normado. Siempre presente y no vacío.
+                                            //   El front lo RENDERIZA; no lo hardcodea ni lo assertá en contrato.
              disputeWindowDays: 7,
              disputeDeadlineAt?: string }, // presente solo si hay entrega (deliveredAt + 7d) — criterio 56b
   tokenExpiresAt: string                  // para que la UI avise "tu enlace caduca el …" y ofrezca reenvío
@@ -5109,7 +5592,7 @@ GuestTrackingItemDTO = {
   finish: Finish, productType: ProductType,
   rawCondition?: RawCondition, sealedSubtype?: SealedSubtype,
   gradingCompany?: GradingCompany, gradeValue?: string,
-  imageSmallUrl?: string,                              // imagen de catálogo remota (pokemontcg.io)
+  imageSmallUrl?: string,                              // imagen de catálogo remota (pokemontcg.io); AUSENTE, no null
   unitPriceCents: number
 }
 GuestTrackingShippingDTO = {
@@ -5121,6 +5604,27 @@ GuestTrackingShippingDTO = {
 }
 GuestTrackingPaymentDTO = { brand?: string, last4?: string }   // "visa", "4242" — NADA más
 ```
+
+> **⚠️ `GuestTrackingItemDTO` NO es `OrderItemCardDTO` ni su versión histórica, y NO debe «uniformizarse»
+> (v1.51-c, NORMATIVA — confirmación de alcance).** Es la **cuarta** superficie que emite una imagen de línea y es
+> **otro DTO, con otras reglas**, ya enrutado como **D-IMG-2** (ARCHITECTURE §9). Se declara aquí para que nadie lo
+> alinee por iniciativa propia creyendo que corrige una inconsistencia:
+> - **Es plano, no anidado:** los campos van al **nivel del ítem** (`name`, `imageSmallUrl`, …), **no** dentro de un
+>   objeto `card`. Además lleva `finish` y `sealedSubtype`, que `OrderItemCardDTO` **no** tiene, y **no lleva
+>   `cardId`** — está en la lista cerrada de campos **prohibidos** de este DTO (identificadores internos, criterio 51).
+>   Esa prohibición es la razón estructural por la que **no puede** usar la resolución de §5.2.5: la unión de §5.2.5
+>   es **por `cardId`**, y aquí `cardId` no puede ni existir en la respuesta.
+> - **`imageSmallUrl` se resuelve por join en vivo desde `inventoryItem.card`, y así se queda.** Es clase (P): el join
+>   es el camino correcto (§5.2.3). **No contradice §5.2.5**, cuya prohibición de pasar por `inventoryItemId` aplica
+>   al **acta de compra** (`GET /orders/:orderId`), no a esta vista de seguimiento de un envío en curso.
+> - **Ausente, no nulo:** aquí `imageSmallUrl` y las opcionales **se OMITEN** cuando no hay valor (`?? undefined`),
+>   al revés que en `OrderItemCardDTO`, donde `imageSmallUrl: null` con clave presente es obligatorio. **Las dos
+>   convenciones son correctas en su superficie**; unificarlas sería un cambio de forma en un DTO público y **pasa
+>   por el arquitecto** (regla 9). El cliente de tracking trata «ausente» exactamente como «sin imagen» ⇒ placeholder.
+> - **Lo que sí queda pendiente aquí, y solo eso:** este DTO resuelve la **IDENTIDAD** (`name`, `setName`, `number`)
+>   por join en vivo en lugar de leerla del registro congelado ⇒ un re-sync que renombre una carta cambia lo que dice
+>   un pedido ya cobrado. Es **D-IMG-2**, severidad **baja, no bloqueante**, **dueño: backend**, y se alinea a §5.2.2
+>   *en el próximo trabajo sobre este módulo*. **No justifica un pase propio y no se toca en este.**
 
 **Lo que este DTO NO expone (lista cerrada y normativa; cualquier campo fuera de la lista de arriba está prohibido):**
 
@@ -5673,8 +6177,24 @@ abierta 1** (pricing on-demand del cotizador) en ARCHITECTURE §10.
 #### GET /api/v1/buylist/sets — `public`  (v1.3)
 Sets que tienen **cartas importadas** (para poblar el dropdown de set del cotizador). A diferencia de
 `GET /catalog/sets` (solo sets con inventario publicado), aquí aparecen **todos** los sets del catálogo.
-Res `200`: `{ data: [{ id, name, series, releaseDate, year }] }` (datos en inglés; `year` derivado de
-`releaseDate`).
+Res `200`: `{ data: BuylistSetDTO[] }` (datos en inglés; `year` derivado de `releaseDate`).
+```ts
+// v1.53 (DT-Gd) — se DECLARA con nombre. Cero cambios de shape: es lo que este endpoint ya sirve desde v1.52.
+BuylistSetDTO = CardSetDTO & { logoUrl: string | null }   // logoUrl REQUERIDO (clave siempre presente), NO `logoUrl?`
+```
+- **⚠️ v1.53 (DT-Gd) — NO es `CardSetDTO`, y el `&` no es cosmético.** `GET /catalog/sets` sirve `CardSetDTO` **sin**
+  `logoUrl`; este sirve `BuylistSetDTO` **con** él y **de clave siempre presente**. **El `?` está prohibido**: un
+  `logoUrl?: string | null` hace que `fetchQuoterIndex` **compile igual si el campo desaparece** de la respuesta, que
+  es justo el invariante que §4.40.6 existe para garantizar. Fixtures/mocks: **uno por endpoint** — un mock compartido
+  que rinda `logoUrl` en `/catalog/sets` promete más que el backend real. `TECH_DEBT.md` **DT-Gd**; la corrección del
+  tipo es de **frontend**, en su ruta.
+- **`logoUrl: string | null` (v1.52, M-47, ADITIVO — ARCHITECTURE §4.40):** logo de la expansión
+  (`CardSet.logoUrl`). **No es decorativo aquí ni es opcional de implementar:** este endpoint es la **fuente
+  client-side de la retícula de tejas del cotizador** — el modo `quoter` de `MasterSetIndex` **no tiene endpoint de
+  índice propio** y construye sus `MasterSetSummaryDTO` a partir de esta respuesta. Si el campo no se emite (o el
+  front no lo mapea al componer las tejas), la teja del cotizador es **la única sin logo** de todo el producto.
+  **Clave SIEMPRE presente; `null` = el proveedor no publica logo para ese set, o el set aún no se re-sincronizó**
+  (indistinguibles a propósito). Caso **normal y permanente**, no error. Nivel de imagen **B** (§5.3.3).
 - **Ordenamiento NORMATIVO (v1.18-buylist-rejects):** por **`releaseDate` desc** usando la fecha **COMPLETA**
   (no solo el año: dos sets del mismo año quedan por fecha real, el más reciente primero); **desempate** (misma
   `releaseDate`) por **`name` asc**; los sets **sin `releaseDate`** (`null`) van **AL FINAL**, entre ellos por
@@ -6477,11 +6997,19 @@ Err: `401`, `404 NOT_FOUND`, `409 NOT_ACCEPTED`.
 
 Disputa de **condición** sobre un item **entregado** (ventana de 7 días desde la entrega). Cubre tanto **raw** como **sellado**; el tipo se conserva (`condition_raw | condition_sealed`, ver ARCHITECTURE §3.6 y §11 M-10). El **graded no** tiene disputa de condición.
 
-> **Evidencia por correo (v1.2):** la disputa **ya no acepta evidencia por archivo** en la app (se elimina el
-> propósito de upload `dispute_claim`). El cliente **envía la evidencia por correo al buzón de soporte**
-> (**soporte@tcgvaultmx.com** — *CONFIRMADO por el humano* 2026-08-16; dominio unificado `tcgvaultmx.com`). Este correo es un **dato
-> de contacto** que el front muestra en el flujo de disputa y en términos/FAQ; **no** es un endpoint. Ya **no
-> existe comparador de fotos de ingreso** en el back-office.
+> **Evidencia por correo (v1.2; norma de valor revisada en v1.50.4):** la disputa **ya no acepta evidencia por
+> archivo** en la app (se elimina el propósito de upload `dispute_claim`). El cliente **envía la evidencia por
+> correo al buzón de soporte**. Ese buzón es un **dato de contacto**, no un endpoint, y el contrato **no fija su
+> valor**: lo **resuelve el backend server-side** desde configuración (`DISPUTE_EVIDENCE_CONTACT`, overridable por
+> entorno **sin redeploy**, con default en código) y lo devuelve en `evidenceContact` para que el front **lo
+> muestre tal cual** en el flujo de disputa y en términos/FAQ. Hoy resuelve a un buzón del dominio canónico
+> `common.brand.domain` (p. ej. `soporte@tcghunt.mx`) — **valor ilustrativo, no normativo**; ver §0 «Datos de
+> contacto y valores de configuración» y ARCHITECTURE §0-B.
+> *(Lo que el humano confirmó el 2026-08-16 fue el **invariante**: un único buzón de soporte, en el mismo dominio
+> canónico que el remitente. La revisión anterior de este documento transcribía además el literal de entonces, y
+> ese literal **sobrevivió al rebrand** — con el contrato mandando sobre el código, autorizaba a reintroducir un
+> dominio muerto. Por eso ahora se norma la forma y el origen, no el valor.)*
+> Ya **no existe comparador de fotos de ingreso** en el back-office.
 
 ### POST /api/v1/disputes — `customer`
 El `type` de la disputa se **deriva server-side** del `productType` del `inventoryItemId` (el cliente **no** lo envía):
@@ -6489,7 +7017,8 @@ El `type` de la disputa se **deriva server-side** del `productType` del `invento
 - `productType=sealed` → `type="condition_sealed"`. Aplica a caja **dañada/equivocada** (sin "condición NM"). Ver ARCHITECTURE §3.6.
 - `productType=graded` → **no aplica**: `422 NOT_RAW`.
 Req: `{ inventoryItemId: string, description: string }`  (**sin** `claimPhotoUploadKeys`; la evidencia va por correo a soporte).
-Res `201`: `{ disputeId, status: "abierta", type: "condition_raw" | "condition_sealed", deadlineAt, evidenceContact: "soporte@tcgvaultmx.com" }`
+Res `201`: `{ disputeId, status: "abierta", type: "condition_raw" | "condition_sealed", deadlineAt, evidenceContact: string }`
+ - **`evidenceContact`**: correo de soporte **resuelto server-side desde configuración** (§0). **Siempre presente y no vacío**; el valor **no** lo fija este contrato (p. ej. `soporte@tcghunt.mx`). El front **renderiza lo que recibe**.
 Err: `422 DISPUTE_WINDOW_CLOSED` (fuera de 7 días desde entrega), `422 NOT_RAW` (item graded; el `code` se conserva por compatibilidad aunque hoy signifique "ni raw ni sellado"), `403`.
 
 **Resolución (back-office §M8):** idéntica política para raw y sellado — **VENTAS FINALES**. El súper-admin resuelve `reject` (`→rechazada`) o `repurchase` (`→resuelta_recompra`, money-out): **recompra al precio pagado**; el **cliente conserva el ítem** y el ítem **NO** regresa al inventario (sin `InventoryMovement`, sin revertir titularidad/stock). La resolución se apoya en: **gradeadas** → grado + `certNumber` del slab (verificable en la graduadora); **raw NM** → estándar/política de condición propio; la evidencia del cliente llegó **por correo a soporte** (fuera del sistema).
@@ -6686,6 +7215,11 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
     `partSetIds`; el subset **no** aparece como fila propia. La fila combinada trae `partSetIds` (§DTOs). Sigue O(1)
     queries (se agrupan por set-id canónico los resultados de las agregaciones ya existentes). **Money-safe:** solo
     lectura; ninguna escritura consulta el mapa.
+  - **v1.52 (M-47) — `logoUrl: string | null`.** Sale de la **misma** fila `CardSet` de la query (1): **cero queries
+    nuevas, cero N+1**. Aplica a los **cuatro** consumidores de `MasterSetSummaryDTO` (este índice, `GET
+    /admin/vaults/:userId/master-sets`, `GET /vault/master-sets` y el modo cotizador, que lo toma de
+    `GET /buylist/sets`) — es **un read model único** y romper esa simetría sería el error. Con el plegado P-27, la
+    fila combinada emite el logo **del principal**. Definición completa y semántica del `null` en §DTOs.
 - `GET /api/v1/admin/inventory/master-sets/:setId` — **(NUEVO)** binder del set: una celda por carta del catálogo.
   `:setId` = id LOCAL del `CardSet` (no `externalId`). Res `200` (`MasterSetBinderResponse`): `{ set, printedTotal,
   catalogCardCount, cells: MasterSetCardCellDTO[] }`, `cells` en **ORDEN NATURAL por número** (ver nota).
@@ -7151,7 +7685,7 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
     2. **Fijar este valor es ahora una AFIRMACIÓN COMERCIAL PÚBLICA**, no una anotación interna: sale en la **ficha**
        en cuanto la carta raw esté publicada y el dato esté fresco, y —si además pasa el **gate de ROI** y el **gate de
        confianza** (v1.50.2)— en la **rejilla de Compra** y la **vitrina del home**. Está gobernada por el disclaimer
-       obligatorio y por el dial `gradedEstimatesEnabled` (§M10, **seed `off`**), que es el interruptor maestro.
+       obligatorio y por el dial `gradingHookEnabled` (§M10, **seed `off`**; v1.51), que es el interruptor único.
     3. **No hace falta pieza física.** La FK de `PriceReference` es a `Card`: se puede fijar el estimado de una carta
        **raw** de la que **no tenemos ningún slab**. Eso es precisamente el caso de uso de la fase 1 (§O.6: el humano
        **cura a mano** sus cartas gancho) — y, por INV-D, es también **el único caso en que la captura del estimado
@@ -7365,10 +7899,10 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
         suele ser la única candidata de su clave). ARCHITECTURE §4.38(l.4.1).
     - **CONDICIONAL — `409 GRADED_ESTIMATE_DISABLED` (solo bajo la «vía B» de ARCHITECTURE §4.38l.5).** Si el humano
       decide fusionar **antes** de que M-43 esté desplegado, `intent:"graded_estimate"` responde `409` mientras
-      `gradedEstimatesEnabled` esté `off` (el `DELETE` y `/review` **siguen funcionando** con el dial apagado: se
+      `gradingHookEnabled` esté `off` (el `DELETE` y `/review` **siguen funcionando** con el dial apagado: se
       gatea **crear**, nunca limpiar ni diagnosticar). **Transitorio**: se retira al desplegar M-43. Si M-43 entra en
       este pase, este código **no llega a existir**.
-      Mensaje: «El gancho de grading está apagado (`gradedEstimatesEnabled=off`): no se pueden capturar estimados
+      Mensaje: «El gancho de grading está apagado (`gradingHookEnabled=off`): no se pueden capturar estimados
       hasta encenderlo.» `details: { cardId, gradeKey }`.
     - **Mensaje del `422`:** «Para `productType:"graded"` debes declarar `intent`: `"market"` (precio de mercado real
       de un slab publicado) o `"graded_estimate"` (valor estimado si se gradea).»
@@ -7415,7 +7949,7 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
     - **Efecto lateral consciente:** escribir aquí cambia también el `marketReferenceMxnCents` de M1 › Gradeadas (misma
       fila, dos lectores — ver la nota v1.50 en §M1); si la carta **raw** está publicada, **enciende los estimados en
       la ficha**; y si además **pasa el gate de ROI y el de confianza**, la **destaca** en la rejilla de Compra y en la
-      vitrina del home. Es una afirmación comercial: el dial `gradedEstimatesEnabled` (§M10) es el interruptor maestro,
+      vitrina del home. Es una afirmación comercial: el dial `gradingHookEnabled` (§M10) es el interruptor único,
       y `GET /admin/pricing/graded-estimates/preview` dice **por qué** una carta quedó (o no) destacada.
       **v1.50.3:** y `GET /admin/pricing/graded-estimates/review` dice **qué cartas hay que revisar** sin tener que
       preguntarlas una por una (criterio 111(e)).
@@ -8121,6 +8655,19 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
 
 #### Sync de catálogo desde pokemontcg.io (`super_admin`, auditado) — v1.1
 Ingesta de datos de catálogo (Card/CardSet en inglés). Ver ARCHITECTURE §4.8. Todas quedan en `AuditLog`.
+> **v1.52 (M-47) — el sync ahora persiste también las IMÁGENES DEL SET** (`CardSet.logoUrl` / `symbolUrl`, ARCHITECTURE
+> §4.40, *era §4.39; renumerada en v1.53(C)*). **Sin cambio de forma en ninguna request ni response de esta sección**: es un efecto del `upsert` de metadata.
+> Consecuencias operativas, porque **es el único mecanismo de relleno** (no hay endpoint de backfill y no lo habrá):
+> - Los sets **nuevos** llegan con logo desde el primer sync posterior al deploy. **No hay que hacer nada.**
+> - Los sets **ya importados** tienen `logoUrl = null` hasta que se les re-corra el sync. **Vía recomendada:
+>   `POST /admin/catalog/sync { setId }` por set** — el botón por fila que M2 ya tiene, y basta con los sets que la
+>   retícula muestra. `POST /admin/catalog/sync-all { force: true }` también los puebla, pero re-importa **todo** el
+>   catálogo y re-corre el resolver estructural TCGCSV: es el martillo, **no es un paso obligatorio de v1.52**.
+> - **Invariante del escritor (no-degradación):** si la respuesta remota no trae `images`, el `update` **deja la
+>   columna como está** — no la pone a `null`. Un `sync {setId}` **nunca** puede borrar un logo que un `sync-all` ya
+>   escribió. Es conducta verificable por QA (ARCHITECTURE §4.40.8).
+> - Se persiste solo si la URL es absoluta **`https:`** y de un host admisible; si no, **`null` + log**. El host es el
+>   mismo que ya sirve el arte de las cartas ⇒ **`remotePatterns` del frontend no cambia** (§5.3.4).
 - `GET /api/v1/admin/catalog/remote-sets` — consulta `/v2/sets` remoto.
   Res `200`: `{ data: [{ id, name, series, releaseDate, printedTotal, imported: boolean, cardCount: number }] }` ordenado por `releaseDate` **desc**. `imported` = si el `CardSet` ya existe local; `cardCount` = cartas locales del set.
 - `POST /api/v1/admin/catalog/sync` — importa/actualiza cartas.
@@ -8508,7 +9055,6 @@ Notas de seguridad: **host fijo** de pokemontcg.io (sin SSRF); `POKEMONTCG_IO_AP
   Res `200` (`GradedEstimateConfigDTO`):
   ```json
   { "enabled": false,
-    "ingestEnabled": false,
     "grades": ["10", "9"],
     "highlightGrades": ["10"],
     "freshnessDays": 30,
@@ -8527,10 +9073,10 @@ Notas de seguridad: **host fijo** de pokemontcg.io (sin SSRF); `POKEMONTCG_IO_AP
       { "minValueMxnCents": 5000000, "maxValueMxnCents": null,    "costMxnCents": 1200000 }
     ] }
   ```
-  - **`enabled` / `ingestEnabled`** = **espejos READ-ONLY** de los dos diales M10 (`gradedEstimatesEnabled` /
-    `gradedEstimateIngestEnabled`, ambos seed `off`); se editan en `PUT /admin/settings`, **no aquí**. Están en este
-    DTO para que el editor de M2 muestre si lo que se edita está vivo. *(`enabled` = ¿se **exhibe**? `ingestEnabled` =
-    ¿se **obtiene**? Ver §M10 para por qué son dos.)*
+  - **`enabled`** = **espejo READ-ONLY** del **dial único** M10 `gradingHookEnabled` (`grading_hook_enabled`, seed
+    `off`); se edita en `PUT /admin/settings`, **no aquí**. Está en este DTO para que el editor de M2 muestre si lo que
+    se edita está vivo. **v1.51: gobierna exhibición Y obtención** — con `enabled:false` no se publica nada **y** el
+    ingest de fase 2 no pide ni escribe nada. **`ingestEnabled` queda RETIRADO** del `GET` (ARCHITECTURE §4.38r).
   - **`grades`** = grados que la **FICHA** expone (seed `["10","9"]`, orden desc). **`highlightGrades` ⊆ `grades`** =
     grados que **el badge de rejilla/vitrina** pinta (seed `["10"]`, §O.3(2)). El **gate SIEMPRE se evalúa con PSA 9**
     aunque PSA 9 no se pinte en el badge.
@@ -8551,8 +9097,24 @@ Notas de seguridad: **host fijo** de pokemontcg.io (sin SSRF); `POKEMONTCG_IO_AP
     | `maxRawMultiple` | **100** | ~~50~~ | `(1, 1000]` | Cota **superior** de magnitud: se descarta si `psa10 > salePriceCents × maxRawMultiple`. Es el `maxGradedMultiple` de §O.7 / **criterio 111(c)** |
     | `minSampleCount` | **5** | ~~3~~ | `[1, 100]` | Muestra mínima del proveedor. Es el `minSalesSample` de §O.7 / **criterio 111(a)**. **Se aplica en el INGEST (escritura)**, no en lectura |
     | `sourceStat` | **`median`** | — | `median\|average\|smart` | Cuál número del proveedor **es** el precio (§4.38h.2) |
-    | `ingestMaxCardsPerRun` | **250** | — | `[1, 5000]` | Tope **duro** de cuota por corrida del ingest |
+    | `ingestMaxCardsPerRun` | **250** | — | **`[1, 1000]`** *(v1.51-a; antes `[1, 5000]`)* | Tope **duro** de cuota por corrida del ingest. ⚠️ Acota las cartas **en ALCANCE**, **no** las que el proveedor devuelve — ver la nota de coste abajo |
 
+    - **⚠️ v1.51-a — `ingestMaxCardsPerRun`: qué acota, qué NO acota, y por qué su máximo baja a 1 000.**
+      Es la clave que más se malinterpreta del DTO, y la malinterpretación cuesta dinero real:
+      - **Acota las cartas EN ALCANCE de una corrida** (las que el job mira). **NO acota lo que el proveedor
+        devuelve**: la petición del ingest de graded pide el **SET entero**, así que las cartas devueltas —y por tanto
+        el coste, **si el proveedor cobra por carta devuelta**— dependen de **cuántos SETS distintos** tocan esas
+        cartas, y eso **no es configurable por ninguna clave de este DTO**.
+      - Por eso **cualquier traducción de este número a «créditos/día» es un techo NOMINAL bajo un supuesto de
+        facturación que aún no se ha observado**. Un cliente de admin **no debe presentarlo al operador como cifra
+        firme** sin ese calificador. La medición y las precondiciones de encendido están en ARCHITECTURE §4.38(r.3.1);
+        **ningún campo, ruta ni código de error de este contrato depende de su resultado**.
+      - **Máximo `1 000` (antes `5 000`).** El máximo viejo permitía que **un solo `PUT` válido** —sin redeploy y sin
+        aprobación adicional— autorizara el equivalente a la **cuota diaria completa** del plan del proveedor. Es un
+        estrechamiento: **todo valor `≤ 1 000` ya almacenado sigue siendo válido** (el seed **250 no cambia**) y solo
+        `(1 000, 5 000]` pasa a `422`. **Un valor almacenado fuera del rango nuevo NO queda gastando: el lector lo trata
+        como config inválida y el ingest no emite ninguna petición** (fail-closed on-read, abajo). Razonamiento
+        completo: ARCHITECTURE §4.38(r.3.4).
     - **⚠️ GLOSARIO NORMATIVO de nombres (v1.50.3) — `PROJECT.md` y el contrato usan vocabularios distintos, y eso
       permitió que los VALORES divergieran en silencio.** Queda tabulado para que la equivalencia deje de ser
       folclore. **Los identificadores del contrato NO se renombran** (renombrar cuesta un breaking de admin + migrar
@@ -8583,7 +9145,8 @@ Notas de seguridad: **host fijo** de pokemontcg.io (sin SSRF); `POKEMONTCG_IO_AP
   Req: `{ grades?: string[], highlightGrades?: string[], freshnessDays?: number, minUpsidePct?: number,
   gradingCostTiers?: GradingCostTierDTO[], manualFreshnessDays?: number | null, maxRawMultiple?: number,
   minSampleCount?: number, sourceStat?: "median"|"average"|"smart", ingestMaxCardsPerRun?: number }`.
-  **`enabled` y `ingestEnabled` se IGNORAN** si vienen (se editan en M10).
+  **`enabled` se IGNORA** si viene (se edita en M10). **`ingestEnabled` también se IGNORA** — clave retirada en v1.51;
+  **se tolera en silencio a propósito** (no `422`), para que un cliente de admin a medio desplegar no rompa el `PUT`.
   - **Body vacío (`{}`, o sin ninguna clave reconocida) ⇒ `422 VALIDATION_ERROR`.** El body es parcial, pero **debe
     traer al menos un campo**: un `PUT` que no toca ninguna clave es casi siempre un bug del cliente (campo mal
     nombrado, serialización rota), y responder `200` con la config sin cambios le haría creer al operador que
@@ -8599,7 +9162,7 @@ Notas de seguridad: **host fijo** de pokemontcg.io (sin SSRF); `POKEMONTCG_IO_AP
     | I5 | **último escalón abierto:** `tiers[n-1].maxValueMxnCents === null` y **ninguna otra** fila `null` | `422 GRADING_TIERS_NOT_OPEN_ENDED` |
     | I6 | `minUpsidePct` número en `[0, 1000]`; `freshnessDays` int en `[1, 365]` | `422 VALIDATION_ERROR` |
     | I7 | `grades` / `highlightGrades` ⊆ `{"10","9"}`, no vacíos, sin duplicados, y **`highlightGrades` ⊆ `grades`** | `422 VALIDATION_ERROR` |
-    | **I8** *(v1.50.2)* | `manualFreshnessDays` **`null`** o int en `[1, 3650]`; `minSampleCount` int en `[1, 100]`; `sourceStat` ∈ `{median, average, smart}`; `ingestMaxCardsPerRun` int en `[1, 5000]` | `422 VALIDATION_ERROR` |
+    | **I8** *(v1.50.2; **`ingestMaxCardsPerRun` ESTRECHADO en v1.51-a**)* | `manualFreshnessDays` **`null`** o int en `[1, 3650]`; `minSampleCount` int en `[1, 100]`; `sourceStat` ∈ `{median, average, smart}`; `ingestMaxCardsPerRun` int en **`[1, 1000]`** *(antes `[1, 5000]`)* | `422 VALIDATION_ERROR` |
     | **I8-bis** *(v1.50.3, NO es validación: es OBSERVABILIDAD)* | `manualFreshnessDays === null` **se acepta** (sigue siendo un valor legal) pero **DEBE emitir `warn`** al izarse la config: desactiva el **criterio 109** para la vía manual, y una afirmación comercial no puede dejar de caducar **en silencio**. Misma doctrina que «la vitrina no puede vaciarse en silencio» | — *(no bloquea; `warn` obligatorio)* |
     | **I9** *(v1.50.2)* | `maxRawMultiple` número **> 1** y ≤ `1000`. **El `> 1` NO es cosmético:** con `≤ 1` la cota superior chocaría con la inferior (`psa10 > salePriceCents`) y **ninguna** carta podría destacarse jamás — vitrina vacía permanente y sin explicación | `422 VALIDATION_ERROR` |
   - **`costMxnCents ≥ 1`, JAMÁS 0** — misma guardia L1 de dinero que ya aplica `OverrideDto` (`@Min(1)`). Un costo de
@@ -8690,7 +9253,7 @@ Notas de seguridad: **host fijo** de pokemontcg.io (sin SSRF); `POKEMONTCG_IO_AP
   Res `200`:
   ```
   { data: GradedEstimateReviewItemDTO[], page, pageSize, total,
-    enabled: boolean,        // estado del dial M10 graded_estimates_enabled — ver abajo
+    enabled: boolean,        // v1.51: estado del DIAL ÚNICO M10 `gradingHookEnabled` — ver abajo
     scannedCards: number,    // tamaño del conjunto motor efectivamente evaluado
     truncated: boolean }     // true si el conjunto motor superó GRADED_REVIEW_MAX_SCAN
   ```
@@ -8763,7 +9326,7 @@ Notas de seguridad: **host fijo** de pokemontcg.io (sin SSRF); `POKEMONTCG_IO_AP
     **M-43** con `refKind`, no este endpoint; el `409` y este corolario **no cambian**.)*
   - **`404 NOT_FOUND` si no había nada que borrar** — **no** un `200` silencioso. Mismo criterio que el `PUT` con body
     vacío ⇒ `422`: responder éxito cuando no pasó nada le haría creer al operador que **limpió algo que no limpió**.
-  - **Funciona con `gradedEstimatesEnabled=off`** (mismo motivo que `/review`: hay que poder limpiar **antes** de
+  - **Funciona con `gradingHookEnabled=off`** (mismo motivo que `/review`: hay que poder limpiar **antes** de
     encender).
   - **NO** borra filas `raw` ni `sealed`, **no** despublica inventario, **no** encola `PendingPriceEntry` (la ausencia
     de estimado no es un «precio pendiente») y **no** toca `listPriceCents`.
@@ -9182,7 +9745,8 @@ Notas de seguridad: **host fijo** de pokemontcg.io (sin SSRF); `POKEMONTCG_IO_AP
   > - **Correo al vendedor (best-effort, POST-commit):** al transicionar a `rechazada` se envía correo al dueño de la
   >   solicitud (`User.email`, idioma por `User.locale` ES/EN) con: **qué carta** (nombre, set, número), **acabado**,
   >   **motivo** (`reason`) y **opciones con plazos**: devolución antes de `returnDeadlineAt` (a costo del usuario,
-  >   coordinada con soporte@tcgvaultmx.com) o abandono en `abandonDeadlineAt`. **PROHIBIDO** en el correo: CLABE (ni
+  >   coordinada con el **buzón de soporte resuelto por configuración** —`SUPPORT_EMAIL`, en cascada a
+  >   `DISPUTE_EVIDENCE_CONTACT`; p. ej. `soporte@tcghunt.mx`, §0) o abandono en `abandonDeadlineAt`. **PROHIBIDO** en el correo: CLABE (ni
   >   enmascarada), montos/estado de OTROS ítems, datos de terceros. **El fallo del envío NO revierte la decisión ni
   >   falla el request** (se loggea; sin reintento en MVP — deuda registrada). Mecanismo: `buylist` inyecta el puerto
   >   global `MAIL_PORT` con plantilla local al módulo (ARCHITECTURE §4.18; el módulo `mail` NO se toca).
@@ -10379,7 +10943,7 @@ Err `403`, `400 VALIDATION_ERROR`.
 ### M8 — Disputas (`vault_operator+`; recompra `super_admin`)
 - `GET /api/v1/admin/disputes` — cola `?status=&userId=&page=`
   - **`userId?` (v1.7-admin-users, NUEVO):** filtra por `Dispute.userId` (simetría con `GET /admin/orders`). Alimenta la ficha 360° del usuario. Paginado; mismo guard y misma proyección que sin filtro.
-- `GET /api/v1/admin/disputes/:id` — detalle: `{ item, order, description, type, deadlineAt, evidenceContact: "soporte@tcgvaultmx.com" }`. **Sin comparador de fotos de ingreso** (v1.2): la evidencia del cliente llega **por correo a soporte**, fuera del sistema. Para gradeadas el detalle expone `gradingCompany + gradeValue + certNumber` (verificable en la graduadora); la imagen del item es la de catálogo.
+- `GET /api/v1/admin/disputes/:id` — detalle: `{ item, order, description, type, deadlineAt, evidenceContact: string }` (mismo campo y misma norma que §7: **resuelto server-side desde configuración**, valor no fijado por el contrato). **Sin comparador de fotos de ingreso** (v1.2): la evidencia del cliente llega **por correo a soporte**, fuera del sistema. Para gradeadas el detalle expone `gradingCompany + gradeValue + certNumber` (verificable en la graduadora); la imagen del item es la de catálogo.
 - `POST /api/v1/admin/disputes/:id/resolve` — Req `{ resolution: "repurchase" | "reject", note }`. `repurchase` = **`super_admin`** (dinero saliente) → **compensación por disputa: recompra al precio pagado** (crea el pago de recompra), dispute `→resuelta_recompra`. Política VENTAS FINALES: el **cliente conserva la carta** y la carta **NO** regresa al inventario (no se re-agrega item, no se crea `InventoryMovement`). `reject` → `rechazada`.
 
 ### M9 — Reportes (`super_admin`)
@@ -10402,25 +10966,56 @@ Err `403`, `400 VALIDATION_ERROR`.
   es revertir el deploy (§ARCH 4.36.9d). **Los diales de la curva (piso, bin, puntos, escalera) NO se editan por
   `PUT /admin/settings`**: viven en su endpoint dedicado `PUT /admin/pricing/curve` (como los spreads del sellado),
   porque su validación es **cruzada y atómica** (§M2).
-- **v1.50-graded-estimate — un dial nuevo:** `gradedEstimatesEnabled` (`graded_estimates_enabled`, enum `on | off`,
-  **seed `off` fail-closed**) es el **interruptor maestro del «gancho de grading»** (§O, ARCHITECTURE §4.38). Con `off`
+- ⛔ **v1.51-one-dial — LOS DOS DIALES ANTERIORES QUEDAN RETIRADOS Y NACE UNO.** Decisión del **dueño**, tomada y
+  reafirmada (ARCHITECTURE §4.38r). **Lo que rige a partir de aquí:**
+  - **`gradingHookEnabled`** (`grading_hook_enabled`, enum `on | off`, **seed `off` fail-closed**, **M-48** *(era
+    `M-46`; renumerada en v1.53(B))*, DATA/seed
+    sin DDL) es **EL** interruptor del «gancho de grading». Se expone en el `GET` y se edita por este `PUT`
+    (patrón `sealedValueTrend`); validado contra el enum (`422 VALIDATION_ERROR`). **Solo el string `'on'` enciende**
+    (`true`, `'ON'`, `null` o basura ⇒ apagado).
+  - **Gobierna las DOS cosas:** la **exhibición** (`GET /catalog/cards*` no emite `gradingHighlight` ni
+    `gradedEstimates`; `?gradingHighlight=true` ⇒ `{ data: [], total: 0 }`) **y la obtención** (el ingest de fase 2 no
+    emite **ni una petición** al proveedor y **no escribe ninguna fila**).
+  - **`gradedEstimatesEnabled` y `gradedEstimateIngestEnabled` se RETIRAN** del `GET` y del `PUT`. Enviarlas ⇒
+    **`422 VALIDATION_ERROR`** (clave desconocida), igual que `stripeFeeIvaPct` desde v1.40. Las filas
+    `ConfigSetting` existentes quedan **huérfanas e inertes**; **no se borran** (precedente `rarity_map`) y **deben
+    aparecer rotuladas como RETIRADAS** en la línea de inventario de config del arranque, para que nadie lea
+    `graded_estimate_ingest_enabled = off` y concluya que el ingest está apagado **mientras gasta**.
+  - **⚠️ Encender `gradingHookEnabled` es un ACTO DE DINERO**, no un ajuste de vitrina: publica una afirmación
+    comercial **y** arranca un consumo de créditos de un proveedor de paga **y** empieza a escribir precios. **La UI de
+    M10 debe advertirlo antes de guardar** (dos textos: el de encender y el de apagar — `DESIGN_SYSTEM.md` §22). Es el
+    **criterio 110(e)** aplicado al dial que sí gasta: si la única forma de saber lo que hace es leer el código, la
+    pantalla no cumple. Precondiciones de encendido: ARCHITECTURE §4.38(r.3).
+  - **Apagarlo también congela la actualización de datos.** Para **una** cifra rara el remedio **no** es este
+    interruptor, sino el `DELETE` del estimado o la lista de revisión (§M2). Escalera completa: §4.38(r.5).
+- ~~**v1.50-graded-estimate — un dial nuevo:** `gradedEstimatesEnabled` (`graded_estimates_enabled`, enum `on | off`,
+  **seed `off` fail-closed**) es el **interruptor maestro del «gancho de grading»**~~ ⛔ **RETIRADO en v1.51; se
+  conserva el texto para que el cambio sea legible** (§O, ARCHITECTURE §4.38). Con `off`
   el backend **ni siquiera evalúa nada**: `GET /catalog/cards*` no emite `gradingHighlight` ni `gradedEstimates`, y
   `?gradingHighlight=true` devuelve `{ data: [], total: 0 }`. Se expone en el `GET` y se edita por este `PUT` (mismo
   patrón que `sealedValueTrend`/`sealedRestockAlerts`); validado contra el enum (`422 VALIDATION_ERROR`).
   **⚠ Encenderlo en producción NO es una decisión de devops:** publica una **afirmación comercial** cuyo **disclaimer
-  (§O.5) todavía espera el visto bueno del humano** (pregunta abierta v2.0 #1, legal-comercial). El seed `off` permite
+  (§O.5) todavía espera el visto bueno del humano** (pregunta abierta v2.0 #1, legal-comercial). *(**Texto retirado,
+  conservado literal para que el cambio sea legible — NO describe el estado de hoy.** A 2026-08-31 el disclaimer está
+  **aprobado por el dueño** y **sin revisión legal profesional**: `PROJECT.md` decisión 59 / criterio 117. La norma
+  vigente es la entrada v1.51 de arriba.)* El seed `off` permite
   construir, testear y desplegar sin exponerla, y da a QA el on/off que exige el **criterio 108** (verificar que
   encender/apagar la feature **no cambia ningún precio de venta, valuación de portafolio, cotización de buylist ni
   P&L**). **El resto de la config del gancho —escalones de costo, `minUpsidePct`, frescura, grados— NO se edita aquí:**
   vive en los endpoints M2 dedicados `GET/PUT /admin/pricing/graded-estimates` (como los spreads del sellado).
-- **v1.50.2 — un SEGUNDO dial de M10:** `gradedEstimateIngestEnabled` (`graded_estimate_ingest_enabled`, enum
-  `on | off`, **seed `off` fail-closed**) gobierna la **fase 2** (ingest automático PPT, ARCHITECTURE §4.38h). Mismo
-  patrón y misma validación que el anterior.
-  **Son DOS diales y no uno a propósito:** `gradedEstimatesEnabled` gobierna la **exhibición** (¿el comprador ve la
-  cifra? — decisión **legal/comercial**), `gradedEstimateIngestEnabled` gobierna la **obtención** (¿gastamos créditos
-  del proveedor y escribimos filas? — decisión de **coste** y de calidad de dato). Colapsarlos obligaría a elegir entre
-  «no puedo probar el ingest sin publicar» y «no puedo publicar sin encender el gasto». Con dos, el operador puede
-  **rodar el ingest en observación con la vitrina apagada**, que es la secuencia de encendido que pide §4.38(h).
+- ⛔ ~~**v1.50.2 — un SEGUNDO dial de M10:** `gradedEstimateIngestEnabled` … **Son DOS diales y no uno a propósito** …
+  Con dos, el operador puede **rodar el ingest en observación con la vitrina apagada**.~~
+  **RETIRADO en v1.51-one-dial** *(así se llamaba «v1.51» en la línea de `main`; **v1.53(A)** desambigua los dos
+  «v1.51» que existieron en paralelo)*. Dos motivos, en este orden: **(1)** decisión del dueño; **(2)** el argumento ya
+  estaba debilitado por el propio producto — la **sonda** `POKEMONPRICETRACKER_GRADED_PROBE` hace el ingest de
+  solo-lectura **por construcción**, así que «rodar en observación» dejó de depender de tener dos diales. Y este dial
+  **nunca se dibujó en la UI**: era gobernable solo por `curl`. **Lo que sí se pierde y queda declarado:** ya no existe
+  el estado «escribir datos automáticos con la tienda callada»; su sustituto es *detectar-y-retirar* (lista de revisión
+  + `DELETE` del estimado) en vez de *retener-y-aprobar*. ARCHITECTURE §4.38(r.2)/(r.6.4).
+  > ⚠️ **v1.53 — nota de fusión, para que no se lea como contradicción.** La rama del ciclo de adquisición llegó a la
+  > fusión con este dial **vivo** porque **nunca vio** el pase que lo retiró: no lo defendía, lo desconocía. **Manda
+  > `main`** (decisión del dueño, reafirmada) ⇒ **el dial queda retirado**. Los **diez** diales del buylist de la
+  > entrada de abajo son **ortogonales** a éste y **no se ven afectados**.
 - **v1.51 (M-46) — ~~OCHO~~ ~~NUEVE~~ **DIEZ** diales nuevos del CICLO DE ADQUISICIÓN DEL BUYLIST** (`PROJECT.md` §P.10,
   criterio 127; ⚠️ **v1.51.2 / D34: eran ocho** · ⚠️ **v1.51.4: eran nueve**). Se exponen en el `GET` y se editan por
   este `PUT` (mismo patrón que el resto
@@ -11477,8 +12072,11 @@ AdminCreatedUserDTO = { user: { id, email, name, role: Role, locale: Locale, sta
   pendientes y no tocan portafolio/buylist/P&L—, **salvo cuando existe un slab publicado de ese grado: ahí esa fila SÍ
   es dinero** (es la referencia de mercado real de esa pieza), y por eso `POST /admin/pricing/override` exige `intent`
   y devuelve **`409 GRADED_ESTIMATE_SLAB_PUBLISHED`** (INV-D). Diales en M2 (`graded-estimates`, **12 claves**) +
-  **dos** interruptores en M10 (`gradedEstimatesEnabled` para la exhibición y `gradedEstimateIngestEnabled` para la
-  obtención, ambos **seed `off`**; el primero hasta que el humano apruebe el disclaimer §O.5).
+  **UN** interruptor en M10 (**v1.51**: `gradingHookEnabled`, seed `off`, gobierna **exhibición Y obtención** —
+  ~~`gradedEstimatesEnabled` + `gradedEstimateIngestEnabled`, dos diales~~ ⛔ retirados por decisión del dueño,
+  ARCHITECTURE §4.38r). Encenderlo es un **acto de gasto** y **no es decisión de devops**. *(Corrección de hecho
+  2026-08-31: decía «requiere el visto bueno del disclaimer §O.5»; ese visto bueno **ya existe** — **aprobado por el
+  dueño**, **sin revisión legal profesional**, `PROJECT.md` decisión 59.)*
   **v1.50.3:** tres seeds del gate de confianza corregidos para alinear con `PROJECT.md` (`manualFreshnessDays` 30,
   `minSampleCount` 5, `maxRawMultiple` 100) y **un endpoint nuevo de back-office**,
   `GET /admin/pricing/graded-estimates/review` (la **lista de revisión** del criterio 111(e)). **⚠ Para

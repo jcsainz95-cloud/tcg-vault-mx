@@ -35,6 +35,7 @@ vi.mock('@/i18n/navigation', () => ({
 const set: MasterSetSummaryDTO = {
   setId: 'sv08',
   name: 'Surging Sparks',
+  logoUrl: null,
   catalogCardCount: 1,
   distinctCardsOwned: 1,
   completionPct: 50,

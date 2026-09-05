@@ -20,9 +20,37 @@
 #   antes de desplegar, con clave de PRUEBA de Stripe (no aceptación formal). Faltaba
 #   `guest-checkout.spec.ts` en el smoke: el gate cubría dos de los tres. Ya está.
 #   Los tres necesitan un proveedor de pago REAL: sin `sk_test_…` válido el backend
-#   responde 503 PAYMENT_PROVIDER_UNAVAILABLE, libera la reserva (money-safe) y los
-#   tres salen ROJOS. Eso es correcto y deliberado (frontend NO los salta): un smoke
-#   de dinero que se salta solo cuando no hay proveedor es la mentira que quitamos.
+#   responde 503 PAYMENT_PROVIDER_UNAVAILABLE y libera la reserva (money-safe).
+#
+# CORRECCIÓN 2026-08-30 — EL PREFLIGHT MENTÍA, Y ESTE WORKFLOW LLEVABA 13/13 ROJOS
+# (DEVOPS_NOTES §33). Dos defectos distintos, arreglados a la vez:
+#
+#   (a) FALSO VERDE DEL PREFLIGHT. El paso «¿hay clave de PRUEBA real?» comparaba
+#       contra el literal `sk_test_e2e_dummy` y nada más: comprobaba PRESENCIA, no
+#       VALIDEZ. Con el fallback puesto imprimía… bueno, el fallback lo cazaba; pero
+#       cualquier otro relleno con prefijo correcto (`sk_test_CHANGE_ME`, el valor que
+#       copie alguien del .env.example) pasaba por la rama `sk_test_*` y anunciaba en
+#       VERDE «los smokes de dinero son gate real». Ahora la clasificación es POR FORMA
+#       (prefijo + longitud + alfabeto + palabras de relleno) y vive en un script
+#       probable a mano: `scripts/stripe-test-key-preflight.sh`.
+#
+#   (b) ROJO DIARIO POR UNA DECISIÓN CONSCIENTE. El dueño NO ha configurado Stripe
+#       A PROPÓSITO y no lo hará hasta que la plataforma esté al 100%. Con los tres
+#       smokes de dinero obligatorios siempre, el nightly moría 3-failed/1-passed cada
+#       noche desde el primer día (13 corridas, 13 rojos, ninguna mirada). Un rojo que
+#       sale siempre no es una alarma: es ruido, y el ruido es exactamente lo que hizo
+#       que nadie viera el tablero. Ahora, SIN credencial utilizable, los tres se
+#       SALTAN de forma declarada —«no ejecutados, NO aprobados»— y el resto del E2E
+#       real vuelve a ser señal. La decisión y su porqué: DEVOPS_NOTES §33.2.
+#
+#   Lo que NO cambia, y es la mitad que sostiene la honestidad de (b):
+#     · Los tres specs siguen en `SMOKE_SPECS`, sin `.skip`, sin tocar `frontend/e2e/`.
+#       El salto lo decide el ENTORNO en tiempo de corrida, no el código fuente.
+#     · En cuanto los secrets existan con forma de credencial, los tres corren y son
+#       OBLIGATORIOS sin que nadie quite ninguna bandera. No hay interruptor que
+#       alguien tenga que acordarse de apagar (ese es el patrón que ya nos mordió).
+#     · La ruta de promoción a prod (`require_real_stripe: true`, deploy.yml) NO salta
+#       nada: ahí la falta de credencial es un ROJO INMEDIATO, en el segundo 0.
 #
 # E2E_REAL=1 EN EL PASO DE PLAYWRIGHT (2026-08-24):
 #   Antes este workflow fijaba `E2E_BASE_URL` y NO `E2E_REAL`. Con el helper viejo
@@ -82,6 +110,16 @@ on:
         type: boolean
         required: false
         default: false
+    outputs:
+      # Para que un caller (deploy.yml) pueda distinguir «verde con gate de dinero»
+      # de «verde sin gate de dinero» SIN leer logs. Hoy nadie lo consume: cablearlo
+      # en deploy.yml es decisión del coordinador con el dueño (DEVOPS_NOTES §33.4).
+      money_gate:
+        description: "on = los 3 smokes de dinero se ejecutaron; off = se saltaron por falta de credencial de Stripe."
+        value: ${{ jobs.e2e-real.outputs.money_gate }}
+      skipped_specs:
+        description: "Specs de dinero saltados por falta de credencial (vacío si money_gate=on)."
+        value: ${{ jobs.e2e-real.outputs.skipped_specs }}
 
 concurrency:
   group: e2e-real-${{ github.ref }}
@@ -94,6 +132,9 @@ jobs:
   e2e-real:
     runs-on: ubuntu-latest
     timeout-minutes: 40
+    outputs:
+      money_gate: ${{ steps.stripe.outputs.money_gate }}
+      skipped_specs: ${{ steps.stripe.outputs.skipped_specs }}
     env:
       # El compose de staging ya hornea NEXT_PUBLIC_USE_MOCKS=false en el frontend.
       COMPOSE: docker-compose.staging.yml
@@ -102,12 +143,79 @@ jobs:
       BACKEND_HEALTH: http://localhost:3011/api/v1/health
       # Smoke por defecto (workflow_call/dispatch lo pueden sobreescribir).
       SMOKE_SPECS: ${{ inputs.smoke_specs || 'checkout.spec.ts guest-checkout.spec.ts shipments.spec.ts buylist.spec.ts' }}
+      # Los specs que EXIGEN proveedor de pago real (abren el modal de Stripe). Fuente
+      # única de verdad, leída por scripts/stripe-test-key-preflight.sh. NO es una lista
+      # de "tests opcionales": es la lista de tests cuyo resultado depende de que exista
+      # credencial. Si aparece un cuarto flujo de dinero, se añade aquí.
+      MONEY_SPECS: "checkout.spec.ts guest-checkout.spec.ts shipments.spec.ts"
+      # ---------------------------------------------------------------------
+      # INCAPACITACIÓN FRENTE AL PROVEEDOR DE PAGA (ARCHITECTURE §4.38r.6.1)
+      #
+      # Desde v1.51 (M-48) hay UN SOLO dial: el `PUT /admin/settings
+      # {"gradingHookEnabled":"on"}` que el arnés E2E hace EN CADA CORRIDA ya no
+      # solo publica cifras — autoriza al barrido a pedir datos a
+      # PokemonPriceTracker (2 créditos/carta) y a escribir precios estimados.
+      # Sin estas dos líneas, este gate sería un consumidor silencioso de la
+      # cuota de un proveedor de paga.
+      #
+      # (1) La credencial va DECLARADA VACÍA, no omitida. Hasta hoy no estaba en
+      #     ningún workflow y eso parecía suficiente: no lo era. `docker-compose`
+      #     la interpola del entorno del runner, así que «no está» dependía de
+      #     que nadie la exportara. Declararla vacía convierte el día que alguien
+      #     quiera meterla en un cambio VISIBLE en el diff de este archivo.
+      #     Con la llave vacía, el proveedor sale con `warn` ANTES de la primera
+      #     petición: cero peticiones, cero escrituras, cero créditos.
+      # (2) La constancia de devops: cuando la API bajo prueba no corre en este
+      #     runner (staging), su entorno NO es observable desde aquí y el
+      #     guardarraíl del arnés (frontend/e2e/utils/paid-provider-guard.ts) se
+      #     NIEGA a encender el dial sin esta firma. La firma devops porque es
+      #     quien conoce ese entorno — y NO gana sobre la observación: contra un
+      #     backend local con llave viva, declararla no desbloquea nada.
+      # Verificado en CI por scripts/check-e2e-provider-incapacitation.sh (primer
+      # paso de este job). DEVOPS_NOTES §32.12.
+      # ---------------------------------------------------------------------
+      POKEMONPRICETRACKER_API_KEY: ''
+      E2E_GRADING_PROVIDER_INCAPACITATED: '1'
       # Stripe SIEMPRE en modo TEST en staging/E2E (nunca claves live).
       STRIPE_TEST_SECRET_KEY: ${{ secrets.STRIPE_TEST_SECRET_KEY || 'sk_test_e2e_dummy' }}
       STRIPE_TEST_PUBLISHABLE_KEY: ${{ secrets.STRIPE_TEST_PUBLISHABLE_KEY || 'pk_test_e2e_dummy' }}
       STRIPE_TEST_WEBHOOK_SECRET: ${{ secrets.STRIPE_TEST_WEBHOOK_SECRET || 'whsec_e2e_dummy' }}
     steps:
       - uses: actions/checkout@v4
+
+      # -----------------------------------------------------------------------
+      # GUARDA DE DINERO Nº0 — antes que el preflight de Stripe, porque este no
+      # necesita ni red: verifica que el YAML declare la incapacitación frente al
+      # proveedor de PAGA (§4.38r.6.1). Es estática a propósito. El guardarraíl
+      # vivo del arnés ya existe (frontend); esto impide que alguien lo deje sin
+      # su mitad de devops con un `env:` mal puesto y lo descubra en la factura.
+      # -----------------------------------------------------------------------
+      - name: Guarda — el entorno E2E no puede escribir contra el proveedor de paga
+        run: ./scripts/check-e2e-provider-incapacitation.sh
+
+      # -----------------------------------------------------------------------
+      # PREFLIGHT DE STRIPE — EL PRIMER PASO, ANTES DE CONSTRUIR NADA.
+      #
+      # Antes vivía en el paso 11, después de `docker compose up --build` y de
+      # `playwright install`: el job tardaba ~6 minutos en morir por algo que se
+      # sabía en el segundo 0. Y sobre todo, juzgaba por PRESENCIA («¿la variable
+      # está?») y no por VALIDEZ («¿esto es una credencial?»), que es lo que lo
+      # convertía en un falso verde dentro de la puerta de promoción a prod.
+      #
+      # La lógica vive en scripts/stripe-test-key-preflight.sh y no en un `case`
+      # incrustado aquí por una razón concreta: un `run:` de YAML no se puede
+      # ejecutar a mano, y un detector que nadie puede probar es exactamente el
+      # tipo de detector que se rompe en silencio. El script se prueba en local
+      # con una variable de entorno y devuelve el mismo veredicto que en CI.
+      # -----------------------------------------------------------------------
+      - name: Preflight Stripe — clasificar las claves de PRUEBA por su FORMA
+        id: stripe
+        env:
+          # En `schedule`/`workflow_dispatch` el contexto `inputs` no trae la clave:
+          # se resuelve a 'false' (nightly => se salta el dinero). En la llamada de
+          # deploy.yml llega 'true' (promoción => rojo inmediato si falta).
+          REQUIRE_REAL_STRIPE: ${{ inputs.require_real_stripe && 'true' || 'false' }}
+        run: ./scripts/stripe-test-key-preflight.sh
 
       - name: Guard scripts E2E — frontend debe exponer test:e2e
         run: |
@@ -236,46 +344,67 @@ jobs:
           echo "PLAYWRIGHT_CHROMIUM_PATH=$CHROMIUM_BIN" >> "$GITHUB_ENV"
           echo "Chromium instalado: $CHROMIUM_BIN"
 
-      # -----------------------------------------------------------------------
-      # Clasifica el proveedor de pago ANTES de correr, para que un rojo de los
-      # smokes de dinero sea diagnosticable en un vistazo y NUNCA se confunda con
-      # un bug de producto. `sk_test_e2e_dummy` es el fallback de este workflow:
-      # no es una clave de Stripe, así que `paymentIntents.create` falla -> 503.
-      # -----------------------------------------------------------------------
-      - name: Preflight — ¿hay clave de PRUEBA de Stripe real?
-        run: |
-          set -euo pipefail
-          case "$STRIPE_TEST_SECRET_KEY" in
-            sk_test_e2e_dummy)
-              if [ "${{ inputs.require_real_stripe }}" = "true" ]; then
-                echo "::error title=Falta STRIPE_TEST_SECRET_KEY::Esta corrida es el GATE de promoción a prod y exige clave de PRUEBA real (sk_test_…). Los tres smokes de dinero (comprar · invitado · retirar) no pueden pasar sin proveedor de pago: el backend responde 503 PAYMENT_PROVIDER_UNAVAILABLE y libera la reserva. Crea el secret STRIPE_TEST_SECRET_KEY (ver DEVOPS_NOTES §31.1). NUNCA una clave live."
-                exit 1
-              fi
-              echo "::warning title=Stripe en modo DUMMY::Sin secret STRIPE_TEST_SECRET_KEY. Los smokes de dinero (checkout · guest-checkout · shipments) saldrán ROJOS por FALTA DE PROVEEDOR, no por bug de producto (503 PAYMENT_PROVIDER_UNAVAILABLE). Ver DEVOPS_NOTES §31."
-              ;;
-            sk_live_*)
-              echo "::error title=CLAVE LIVE EN STAGING::STRIPE_TEST_SECRET_KEY empieza con sk_live_. Staging y E2E NUNCA usan claves live. Abortado."
-              exit 1
-              ;;
-            sk_test_*)
-              echo "::notice title=Stripe en modo TEST::Clave de prueba presente; los smokes de dinero son gate real."
-              ;;
-            *)
-              echo "::error title=STRIPE_TEST_SECRET_KEY con formato inesperado::Debe empezar con sk_test_. Abortado sin imprimir el valor."
-              exit 1
-              ;;
-          esac
-
+      # `EFFECTIVE_SMOKE_SPECS` lo fija el preflight: es `SMOKE_SPECS` tal cual cuando
+      # hay credencial de Stripe utilizable, y `SMOKE_SPECS` MENOS los de dinero cuando
+      # no la hay. Nunca al revés: el preflight no añade specs, sólo declara cuáles no
+      # se pueden probar hoy y por qué. Si no quedara ninguno, el preflight ya habrá
+      # abortado (un job vacío en verde sería el mismo falso verde con otra cara).
       - name: Playwright smoke — flujos críticos (REAL)
+        id: smoke
         working-directory: frontend
         env:
           E2E_BASE_URL: ${{ env.FRONTEND_URL }}
           # Alinea selección de specs, rama de asertos y autenticación. Ver cabecera.
           E2E_REAL: '1'
         run: |
-          echo "Smoke (real) specs: $SMOKE_SPECS"
+          echo "Smoke (real) specs: $EFFECTIVE_SMOKE_SPECS"
+          echo "Gate de dinero: $MONEY_GATE${MONEY_SKIPPED:+  ·  SALTADOS: $MONEY_SKIPPED}"
           # shellcheck disable=SC2086
-          npm run test:e2e -- $SMOKE_SPECS
+          npm run test:e2e -- $EFFECTIVE_SMOKE_SPECS
+
+      # -----------------------------------------------------------------------
+      # VEREDICTO EN UNA LÍNEA, EN LA PÁGINA DEL RUN.
+      # Requisito explícito: el estado «Stripe no configurado» tiene que ser de
+      # primera clase y legible SIN abrir logs. Hoy había que bajar 2 000 líneas
+      # para descubrir que la clave era de relleno. Esto sale en el *Summary* del
+      # run (primer bloque que se ve) y además como anotación.
+      # -----------------------------------------------------------------------
+      - name: Veredicto del run — qué se probó y qué NO
+        if: always()
+        env:
+          PW_OUTCOME: ${{ steps.smoke.outcome }}
+        run: |
+          set -uo pipefail
+          CORRIDOS=$(printf '%s' "${EFFECTIVE_SMOKE_SPECS:-}" | wc -w | tr -d ' ')
+          SALTADOS=$(printf '%s' "${MONEY_SKIPPED:-}" | wc -w | tr -d ' ')
+          [ "$CORRIDOS" = "1" ] && PLURAL="flujo" || PLURAL="flujos"
+          case "${PW_OUTCOME:-skipped}" in
+            success) ESTADO="PASARON" ;;
+            failure) ESTADO="FALLARON" ;;
+            *)       ESTADO="NO LLEGARON A CORRER (el job murió antes)" ;;
+          esac
+          {
+            echo ""
+            echo "## Veredicto del E2E real"
+            echo ""
+            if [ "${MONEY_GATE:-}" = "on" ]; then
+              echo "**Corrió $CORRIDOS $PLURAL · saltó 0 · gate de dinero ACTIVO.** Los smokes de dinero $ESTADO."
+            elif [ "${MONEY_GATE:-}" = "off" ]; then
+              echo "**Corrió $CORRIDOS $PLURAL · saltó $SALTADOS por credencial de Stripe ausente (decisión del dueño, DEVOPS_NOTES §33.2).** Los flujos ejecutados $ESTADO."
+              echo ""
+              echo "| | |"
+              echo "|---|---|"
+              echo "| Ejecutados | \`${EFFECTIVE_SMOKE_SPECS:-}\` |"
+              echo "| **Saltados — no ejecutados, NO aprobados** | \`${MONEY_SKIPPED:-}\` |"
+              echo "| Qué NO cubre este verde | comprar · comprar-como-invitado · retirar |"
+              echo "| Cómo se activan | crear los secrets \`STRIPE_TEST_SECRET_KEY\` + \`STRIPE_TEST_PUBLISHABLE_KEY\` (§31.1). **Nada más que tocar: no hay bandera que quitar.** |"
+            else
+              echo "**El preflight abortó: no se ejecutó ningún smoke.** Ver el bloque de arriba."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "${MONEY_GATE:-}" = "off" ]; then
+            echo "::warning title=Verde PARCIAL — $CORRIDOS $PLURAL corridos, $SALTADOS de dinero SALTADOS::Este run NO probó comprar, comprar-como-invitado ni retirar: no hay credencial de Stripe (ausencia deliberada, DEVOPS_NOTES 33.2). El verde de este workflow NO es un verde de dinero."
+          fi
 
       - name: Subir reporte Playwright
         if: always()

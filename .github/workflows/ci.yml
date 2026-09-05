@@ -168,7 +168,8 @@ jobs:
   # nada. Solo bloquea el diff que reformatea Y ADEMÁS cambia comportamiento,
   # porque ése es el que hace INVISIBLE una línea de dinero a la revisión del
   # techlead y de la fase de seguridad. El commit de SOLO formato pasa.
-  # Detalle del porqué y del algoritmo: scripts/check-format-mix.sh + §34.
+  # Detalle del porqué y del algoritmo: scripts/check-format-mix.sh + DEVOPS_NOTES
+  # §36 (era §34 antes de la fusión con main; ver la nota de renumeración de §35).
   # ---------------------------------------------------------------------------
   format-mix:
     runs-on: ubuntu-latest
@@ -210,22 +211,49 @@ jobs:
           esac
 
   # ---------------------------------------------------------------------------
+  # GUARDA DE DINERO (v1.51, M-48 · ARCHITECTURE §4.38r.6.1) — vive AQUÍ, en el
+  # workflow que corre en CADA push y PR, y no solo en los workflows de E2E.
+  #
+  # Motivo, sin adornos: `e2e-real.yml` solo corre nightly, por `workflow_dispatch`
+  # o llamado desde `deploy.yml` — y `deploy.yml` tiene su `workflow_run` COMENTADO
+  # y su `secrets-gate` salta todo cuando no hay secrets (la corrida #52 salió VERDE
+  # con sus 8 jobs saltados). Colgar esta verificación solo de ese pipeline sería
+  # colgarla de algo que casi nunca corre. Es barata (lee YAML, sin red) y aquí sí
+  # se ejecuta siempre.
+  # ---------------------------------------------------------------------------
+  e2e-provider-guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: El entorno E2E no puede escribir contra el proveedor de PAGA
+        run: ./scripts/check-e2e-provider-incapacitation.sh
+
+  # ---------------------------------------------------------------------------
   # Gate final: resume el estado. Verde también en greenfield (jobs saltados).
   # Útil como required check en la protección de rama.
   # ---------------------------------------------------------------------------
   ci-ok:
-    needs: [detect, backend, frontend, format-mix]
+    needs: [detect, backend, frontend, format-mix, e2e-provider-guard]
     if: always()
     runs-on: ubuntu-latest
     steps:
       - name: Verificar resultados
         run: |
-          echo "backend:    ${{ needs.backend.result }}"
-          echo "frontend:   ${{ needs.frontend.result }}"
-          echo "format-mix: ${{ needs.format-mix.result }}"
+          echo "backend:                  ${{ needs.backend.result }}"
+          echo "frontend:                 ${{ needs.frontend.result }}"
+          echo "format-mix:               ${{ needs.format-mix.result }}"
+          echo "guarda proveedor de paga: ${{ needs.e2e-provider-guard.result }}"
           # Falla solo si algún job que SÍ corrió terminó en failure.
           if [ "${{ needs.backend.result }}" = "failure" ] || [ "${{ needs.frontend.result }}" = "failure" ] || [ "${{ needs.format-mix.result }}" = "failure" ]; then
             echo "::error::Algún job de CI falló."
+            exit 1
+          fi
+          # La guarda de §4.38r.6.1 NO es opcional y NO se puede saltar: a diferencia
+          # de backend/frontend (que pueden no existir en greenfield), este job corre
+          # siempre. Cualquier resultado que no sea `success` es rojo — incluido
+          # `skipped`, que es justo la forma en que un gate deja de gatear sin avisar.
+          if [ "${{ needs.e2e-provider-guard.result }}" != "success" ]; then
+            echo "::error::La guarda del proveedor de paga no terminó en verde (resultado: ${{ needs.e2e-provider-guard.result }}). Ver DEVOPS_NOTES §32.12."
             exit 1
           fi
           echo "CI OK (los jobs saltados son esperados mientras no exista el código)."

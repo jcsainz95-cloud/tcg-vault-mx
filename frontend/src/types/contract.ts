@@ -417,6 +417,36 @@ export interface CardSetDTO {
   // (principal + subsets). Presente SOLO en masters combinados; el dropdown filtra por TODAS las partes.
   // Un set normal lo omite (comportamiento previo intacto).
   partSetIds?: string[];
+  // ⛔ v1.52 (M-47, ARCHITECTURE §4.40.5) — `CardSetDTO` **NO lleva `logoUrl`**, y la ausencia es
+  // NORMATIVA, no un olvido: `GET /catalog/sets` alimenta el dropdown/filtro de TEXTO de Compra,
+  // no una retícula de tejas, y §4.40.5 lo lista explícitamente en «NO entra». El endpoint que sí
+  // lo emite —`GET /buylist/sets`— tiene su propio tipo, `BuylistSetDTO` (abajo).
+  // *(DT-Gd, pagada: antes los dos endpoints compartían este tipo con `logoUrl?: string | null`, y
+  // ese `?` desactivaba en el cliente justo el invariante que §4.40.6 existe para garantizar — el
+  // cotizador compilaba igual si el campo desaparecía de la respuesta.)*
+}
+
+/**
+ * `GET /api/v1/buylist/sets` → `data[]` (contrato §GET /buylist/sets, v1.52 · M-47).
+ *
+ * **Es `CardSetDTO` MÁS el logo, y el logo es REQUERIDO.** Este endpoint es la **fuente
+ * client-side de la retícula de tejas del cotizador** (`MasterSetIndex mode="quoter"` no tiene
+ * endpoint de índice propio y compone sus `MasterSetSummaryDTO` desde aquí): si el campo no
+ * viaja, la teja del cotizador es la **única sin logo** de todo el producto.
+ *
+ * ⚠️ **`string | null` REQUERIDO, jamás `logoUrl?`** — es §4.40.6 literal, y el tipo es el único
+ * sitio donde ese invariante se puede hacer cumplir en el cliente:
+ * - la **clave va SIEMPRE presente**; la ausencia de logo se expresa con `null` (el proveedor no
+ *   publica logo para ese set, o el set aún no se re-sincronizó — indistinguibles a propósito y
+ *   caso **normal y permanente**, no error);
+ * - un `?` se lee como «normalmente está», invita a `s.logoUrl!` y **deja compilar** un cliente
+ *   que dejó de mapear el campo. Con el campo requerido, quitarlo **rompe el typecheck**, que es
+ *   exactamente lo que se quiere: es la grieta de `imageSmallUrl` (§5.2.1) otra vez.
+ *
+ * ⛔ PROHIBIDO construir la URL por plantilla desde el `id`.
+ */
+export interface BuylistSetDTO extends CardSetDTO {
+  logoUrl: string | null;
 }
 
 // v1.1: facetas dinámicas de "Compra" (contrato GET /catalog/facets).
@@ -637,11 +667,114 @@ export interface HoldingsResponse {
 }
 
 // ---- Checkout / órdenes (contrato §4) ----
+
+/**
+ * v1.51-c (contrato §4, NORMATIVO; ARCHITECTURE §5.2 y §5.2.9) — los HECHOS CONGELADOS
+ * (clase F, §5.2.2) de una línea de compra: se persisten en `OrderItem.cardSnapshot` al
+ * cobrar y un re-sync de catálogo NO los cambia. NO se re-derivan nunca.
+ *
+ * Este tipo no se usa suelto: se usa a través de sus dos formas hermanas de abajo. Cuál
+ * toca depende de DÓNDE nacen los hechos, y esa es toda la doctrina de §5.2.9:
+ *
+ *   - nacen en la misma petición (los dos quotes) ⇒ `OrderItemCardDTO`, completos;
+ *   - se LEEN del JSON persistido (`GET /orders/:orderId`) ⇒ `HistoricalOrderItemCardDTO`,
+ *     donde CUALQUIERA puede faltar, porque `cardSnapshot` es una columna `Json` que
+ *     PostgreSQL no valida y el blob de un pedido antiguo lo escribió una versión anterior
+ *     de nuestro propio código.
+ *
+ * NINGUNA de las dos es un `CardDTO` y está PROHIBIDO tiparlas como tal: no traen `id`,
+ * `externalId`, `imageLargeUrl`, `rarity`, `supertype`, `subtypes`, `setId`, `numberSort`,
+ * `numberPrefix`, `availableFinishes` ni `displayFinishes`. Ese tipo falso —prometer campos
+ * que el backend nunca envió en esa posición— es lo que dejó el hueco gris de la miniatura y
+ * escondió el sufijo de condición durante un release entero. Quien necesite el `CardDTO`
+ * completo lo pide por `GET /catalog/cards/:cardId` — PERO NUNCA para rellenar un hecho
+ * congelado que falta (§5.2.9(c)): eso es re-resolver desde el cliente, la misma violación
+ * de §5.2.2 por la puerta de atrás.
+ */
+export interface FrozenCardFacts {
+  cardId: string;
+  name: string;
+  /** AUSENTE (no `null`) si la carta no tenía set al congelar: sale de `card.set?.name`. */
+  setName?: string;
+  number: string;
+  /** OJO: `productType` y `rawCondition` viajan DENTRO de `card`, NO al nivel del ítem. */
+  productType: ProductType;
+  /**
+   * v1.51-c: clave SIEMPRE presente, valor `null` fuera de raw. El checkout los congela tal
+   * cual salen de columnas NULLABLES de `InventoryItem`, así que viajan como `null`, NO
+   * omitidos. PROHIBIDO usar `'rawCondition' in card` como discriminante de «es sellado»:
+   * el discriminante es `productType`. Único valor "NM"; el label legible vive en i18n.
+   */
+  rawCondition: RawCondition | null;
+  /** v1.51-c: clave SIEMPRE presente; `null` fuera de graded. */
+  gradingCompany: GradingCompany | null;
+  /** v1.51-c: clave SIEMPRE presente; `null` fuera de graded. */
+  gradeValue: string | null;
+}
+
+/**
+ * PRESENTACIÓN RESUELTA EN LECTURA (clase P, §5.2.3): NO se persiste, se resuelve por join
+ * sobre `cardId`. Clave SIEMPRE presente en las TRES superficies, valor NULLABLE. `null` es
+ * legítimo (la fila `Card` puede no existir, su columna ser nula, o el blob histórico no
+ * traer `cardId` con el que unir): el front pinta placeholder, no es error, no se reintenta
+ * y no bloquea el checkout ni el pedido. PROHIBIDO construir la URL por plantilla (§5.2.5).
+ */
+export interface ResolvedCardImage {
+  imageSmallUrl: string | null;
+}
+
+/**
+ * Forma COMPLETA (contrato §4). SOLO los dos quotes: `POST /checkout/quote` y
+ * `POST /checkout/guest/quote`. Ahí los ocho hechos están garantizados porque nacen en la
+ * misma petición desde la pieza viva (columnas `NOT NULL`), no se leen de un blob.
+ */
+export type OrderItemCardDTO = FrozenCardFacts & ResolvedCardImage;
+
+/**
+ * Forma TOLERANTE (contrato §4 «Tolerancia del histórico»; ARCHITECTURE §5.2.9). SOLO
+ * `GET /orders/:orderId`, la única superficie que lee del HISTÓRICO.
+ *
+ * CUALQUIERA de los ocho hechos puede faltar —incluidos `cardId`, `name`, `number` y
+ * `productType`—: un blob ausente, no-objeto o vacío rinde `card` con SOLO `imageSmallUrl:
+ * null`, y sigue siendo `200`. `imageSmallUrl` no puede faltar: se resuelve en lectura.
+ *
+ * Deber del cliente, por campo (contrato §4, punto 4) — implementado en
+ * `src/lib/historical-card.ts` y ejercido por `OrderDetailView`:
+ *   - `name` ausente ⇒ etiqueta neutra de i18n (`orders.item.unknownCard`). NUNCA cadena
+ *     vacía, ni `"undefined"`, ni la línea desaparecida: la línea SE PINTA IGUAL, porque
+ *     tiene importe (y el importe no vive en el blob: es columna propia de `OrderItem`).
+ *   - `number`/`setName` ausentes ⇒ se OMITE ese fragmento (nada de «#» ni «· » huérfanos).
+ *   - `productType` ausente ⇒ no se infiere; se omiten los adornos que dependen de él.
+ *   - `cardId` ausente ⇒ no hay enlace a la ficha, y la imagen es `null` por construcción.
+ *   - `rawCondition`/`gradingCompany`/`gradeValue` ausentes **o `null`** ⇒ se omite el chip.
+ *
+ * ⛔ PROHIBIDO rellenar un hueco con `GET /catalog/cards/:cardId` (ni con ninguna otra
+ * consulta): el catálogo dice cómo se llama esa carta HOY, no qué decía el pedido cuando se
+ * pagó. Un hueco honesto es preferible a un dato inventado dentro de un registro probatorio.
+ */
+export type HistoricalOrderItemCardDTO = Partial<FrozenCardFacts> & ResolvedCardImage;
+
+/**
+ * Línea de un QUOTE (contrato §4): `{ inventoryItemId, card: OrderItemCardDTO,
+ * unitPriceCents }` — TRES claves, ni una más. El backend lo fija con
+ * `expect(preview).not.toHaveProperty('productType')`. Forma COMPLETA: los quotes construyen
+ * los hechos en la misma petición.
+ */
 export interface OrderItemPreview {
   inventoryItemId: string;
-  card: CardDTO;
-  productType: ProductType;
-  rawCondition?: RawCondition;
+  card: OrderItemCardDTO;
+  unitPriceCents: number;
+}
+
+/**
+ * Línea de `GET /orders/:orderId` (contrato §4, v1.51-c). MISMAS tres claves que el quote,
+ * pero `card` es la forma TOLERANTE: esta superficie LEE del blob persistido y no puede
+ * prometer lo que el blob quizá no traiga. `unitPriceCents` NO vive en el blob (columna
+ * propia de `OrderItem`), así que un snapshot incompleto no mueve un centavo.
+ */
+export interface OrderItemDTO {
+  inventoryItemId: string;
+  card: HistoricalOrderItemCardDTO;
   unitPriceCents: number;
 }
 
@@ -686,7 +819,13 @@ export interface OrderDetailDTO {
   createdAt: string;
   settledAt?: string;
   breakdown: BreakdownDTO;
-  items: { inventoryItemId: string; card: CardDTO; unitPriceCents: number }[];
+  /**
+   * v1.51-c: NO es la forma del quote. `card` es `HistoricalOrderItemCardDTO` (tolerante):
+   * cualquier hecho congelado puede faltar. Tiparlo como `OrderItemPreview` era el mismo
+   * defecto del `CardDTO` falso, por el otro lado — un tipo de cliente prometiendo
+   * `name: string` cuando el backend puede no enviarlo (la línea salía MUDA: `[""]`).
+   */
+  items: OrderItemDTO[];
   cfdiStatus: CfdiStatus;
   invoiceRequested: boolean;
   stripePaymentIntentId?: string;
@@ -737,10 +876,15 @@ export interface ShipmentDTO {
   // WS-F F6: `productType` por ítem alimenta el UI-gate de disputa (graded NO aplica → 422 NOT_RAW).
   // v1.17: `finish` por ítem (acabado de la copia física). Opcional: el listado crudo puede omitir
   // `productType`/`finish`/`folio`/`card`; cuando falta, el backend es la autoridad.
+  // v1.51-b (misma doctrina, otro DTO): `card` de un envío es `ClientShipmentItemDTO.card`
+  // del contrato §5 —CINCO campos— y NO un `CardDTO`. Tiparlo como `CardDTO` prometía
+  // `imageLargeUrl`/`rarity`/`availableFinishes` que esta ruta nunca envía. Las vistas solo
+  // leen `name`/`setName`/`number`/`imageSmallUrl`, así que no había bug visible: se corrige
+  // el tipo para que no lo haya mañana.
   items: {
     inventoryItemId: string;
     folio: string;
-    card: CardDTO;
+    card: { id: string; name: string; setName: string; number: string; imageSmallUrl: string };
     productType?: ProductType;
     finish?: Finish;
   }[];
@@ -1187,6 +1331,17 @@ export interface MasterSetSummaryDTO {
   // `partSetIds` = los set-ids REALES plegados (principal + subsets); presente SOLO en masters
   // combinados. Un set normal lo omite. Sirve para que el front marque "combinado" / filtre por partes.
   partSetIds?: string[];
+  // ===== v1.52 (M-47, ARCHITECTURE §4.40, aditivo): logo de la expansión =====
+  // `string | null` REQUERIDO (no `logoUrl?`): la clave va SIEMPRE presente y la ausencia se
+  // expresa con `null` (clase (P) presentación, §5.2.9). `null` es NORMAL y PERMANENTE — hay sets
+  // que el proveedor no ilustra (promos, colecciones, sets viejos) y también lo rinde un set aún
+  // no re-sincronizado; el contrato NO distingue ambos orígenes y el cliente NO debe intentarlo.
+  // No es error: no se reintenta, no se registra incidente. Ser REQUERIDO es deliberado — obliga
+  // al compilador a que quien componga este DTO client-side (el modo `quoter`, que lo mapea desde
+  // `GET /buylist/sets`) decida el valor en vez de olvidarlo en silencio, que es como la teja del
+  // cotizador se quedaría sin logo. Lo pinta `MasterSetIndex` (DESIGN_SYSTEM §24: placa de tinta
+  // + monograma cuando es `null`). ⛔ PROHIBIDO construir la URL por plantilla desde el `setId`.
+  logoUrl: string | null;
 }
 
 // Ordenamiento del índice (contrato §M1). `release_desc` es el default.
@@ -3018,15 +3173,29 @@ export interface SettingsDTO {
   priceProvider?: PriceProvider;
   catalogSyncFromDate: string;
   /**
-   * v1.44-graded-estimate (§M10): **interruptor maestro del «gancho de grading»**
-   * (`graded_estimates_enabled`, enum `on | off`, **seed `off` fail-closed**). Con `off` el backend
-   * ni siquiera evalúa: `GET /catalog/cards*` no emite `gradingHighlight` ni `gradedEstimates`.
-   * Opcional en el tipo porque un backend anterior al v1.44 lo omite (la UI lo trata como `off`).
+   * v1.51-one-dial (§M10, M-46): **EL** —y único— interruptor del «gancho de grading»
+   * (`grading_hook_enabled`, enum `on | off`, **seed `off` fail-closed**).
    *
-   * **Encenderlo publica una afirmación comercial** cuyo disclaimer (§O.5) todavía espera el visto
-   * bueno del humano: la UI de M10 lo advierte de forma explícita antes de guardar.
+   * **Gobierna las DOS cosas** (ARCHITECTURE §4.38r):
+   *  - **Exhibición**: con `off`, `GET /catalog/cards*` no emite `gradingHighlight` ni
+   *    `gradedEstimates`, y `?gradingHighlight=true` devuelve `{ data: [], total: 0 }`.
+   *  - **Obtención**: con `off`, el ingest de fase 2 **no emite ni una petición** al proveedor de
+   *    paga y **no escribe ninguna fila**.
+   *
+   * Opcional en el tipo porque **ningún entorno tiene todavía la clave** (es nueva y sin migración:
+   * ausente ⇒ `SETTING_DEFAULTS` ⇒ `off`) y porque un backend anterior a v1.51 la omite. La UI trata
+   * la ausencia como `off` — fail-closed, igual que el seed.
+   *
+   * ⚠️ **Encenderlo es un ACTO DE DINERO**, no un ajuste de vitrina: publica una afirmación comercial
+   * **y** arranca consumo de créditos de un proveedor de paga **y** empieza a escribir precios. La UI
+   * de M10 lo advierte antes de guardar, en los dos sentidos (DESIGN_SYSTEM §22.13).
+   *
+   * ⛔ Sustituye a `gradedEstimatesEnabled` y a `gradedEstimateIngestEnabled`, **retirados en v1.51**:
+   * enviarlos en el `PUT` ⇒ `422 VALIDATION_ERROR` (clave desconocida). Es una clave NUEVA a propósito
+   * — reusar la vieja habría ensanchado el significado de un valor ya almacenado (`"on"` en
+   * producción) y el deploy siguiente habría empezado a gastar solo.
    */
-  gradedEstimatesEnabled?: OnOff;
+  gradingHookEnabled?: OnOff;
 }
 
 /** Diales de tipo interruptor del contrato (`on | off`). */
@@ -3052,14 +3221,17 @@ export interface GradingCostTierDTO {
  * Config completa del gancho. **Nada de esto viaja al cliente**: gobierna qué grados se muestran,
  * cuándo un dato deja de ser fresco y qué cartas se promocionan (gate de ROI sobre PSA 9).
  *
- * `enabled` es **espejo READ-ONLY** del dial M10 `gradedEstimatesEnabled` (se edita en
- * `PUT /admin/settings`, no aquí; el `PUT` de este recurso lo IGNORA si viene).
+ * `enabled` es **espejo READ-ONLY** del **dial único** M10 `gradingHookEnabled` (se edita en
+ * `PUT /admin/settings`, no aquí; el `PUT` de este recurso lo IGNORA si viene). **v1.51: gobierna
+ * exhibición Y obtención** — con `enabled:false` no se publica nada **y** el ingest no pide ni
+ * escribe nada.
+ *
+ * ⛔ **v1.51: `ingestEnabled` queda RETIRADO** del DTO (el backend ya no lo emite). El `PUT` de este
+ * recurso lo sigue tolerando **en silencio** si un cliente a medio desplegar lo manda: se ignora, no
+ * es `422`.
  */
 export interface GradedEstimateConfigDTO {
   enabled: boolean;
-  /** v1.50.2 — espejo READ-ONLY del SEGUNDO dial M10 (`gradedEstimateIngestEnabled`): gobierna la
-   *  OBTENCIÓN automática, no la exhibición. Se edita en M10, como `enabled`. */
-  ingestEnabled: boolean;
   grades: string[];
   highlightGrades: string[];
   freshnessDays: number;
@@ -3367,7 +3539,8 @@ export interface GuestCheckoutNotices {
 }
 
 export interface GuestCheckoutQuoteResponse {
-  items: { inventoryItemId: string; card: CardDTO; unitPriceCents: number }[];
+  /** v1.51-b: MISMA forma que §4; `card` es `OrderItemCardDTO` (no un `CardDTO`). */
+  items: OrderItemPreview[];
   fulfillmentMode: FulfillmentMode;
   breakdown: BreakdownDTO;
   /**

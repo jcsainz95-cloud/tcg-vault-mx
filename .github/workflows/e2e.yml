@@ -160,8 +160,17 @@ jobs:
       DEFAULT_LOCALE: es
       NODE_ENV: test
       SEED_MODE: synthetic
+      # §4.38(r.6.1) — este job levanta la app Nest EN PROCESO y sus specs de
+      # integración del gancho ENCIENDEN el dial único (`gradingHookEnabled`).
+      # Con v1.51 ese flip autoriza el ingest, así que la credencial del proveedor
+      # de paga se declara VACÍA aquí igual que en e2e-real.yml: sin llave, el
+      # proveedor sale con `warn` antes de la primera petición.
+      POKEMONPRICETRACKER_API_KEY: ''
     steps:
       - uses: actions/checkout@v4
+      - name: Guarda — el entorno E2E no puede escribir contra el proveedor de paga
+        run: ./scripts/check-e2e-provider-incapacitation.sh
+        working-directory: ${{ github.workspace }}
       - name: Guard — el script test:integration debe existir
         run: |
           if [ "${{ needs.detect.outputs.backend_e2e }}" = "missing" ]; then
@@ -219,6 +228,16 @@ jobs:
       STRIPE_TEST_PUBLISHABLE_KEY: ${{ secrets.STRIPE_TEST_PUBLISHABLE_KEY || 'pk_test_e2e_dummy' }}
       # NO se fija E2E_BASE_URL a propósito: así el playwright.config levanta su
       # propio webServer Next en modo mocks (NEXT_PUBLIC_USE_MOCKS=true).
+      # ---------------------------------------------------------------------
+      # §4.38(r.6.1) — incapacitación frente al proveedor de PAGA. Este job corre
+      # en modo MOCK y NO debería tocar API real… pero «no debería» es justo la
+      # clase de afirmación que este pase existe para no aceptar: basta con que
+      # alguien fije `E2E_BASE_URL` aquí (o que un spec lo haga) para que el arnés
+      # encienda el dial único contra un backend de verdad. Declarado, no omitido.
+      # Verificado por scripts/check-e2e-provider-incapacitation.sh.
+      # ---------------------------------------------------------------------
+      POKEMONPRICETRACKER_API_KEY: ''
+      E2E_GRADING_PROVIDER_INCAPACITATED: '1'
     steps:
       - uses: actions/checkout@v4
       - name: Guard — el script test:e2e debe existir

@@ -1,7 +1,7 @@
 {
   "common": {
     "appName": "TCG HUNT",
-    "tagline": "Marketplace de cartas Pokémon con bóveda",
+    "tagline": "Compra y vende cartas Pokémon en México, con bóveda",
     "brand": {
       "name": "TCG HUNT",
       "domain": "tcghunt.mx",
@@ -71,40 +71,46 @@
   },
   "home": {
     "heroKicker": "Cartas Pokémon · México",
-    "heroTitle": "Compra cartas Pokémon con precio real y guárdalas en la bóveda",
-    "heroSubtitle": "Autenticadas, con condición garantizada. Acumula tu colección y pide el envío cuando quieras.",
-    "ctaShop": "Ver el catálogo",
-    "ctaSealed": "Producto sellado",
+    "heroTitle": "Caza la carta. Nosotros la guardamos.",
+    "heroSubtitle": "Cartas autenticadas, con condición garantizada. Viven resguardadas en tu bóveda y salen en un solo envío, cuando tú digas.",
+    "ctaShop": "Explorar el catálogo",
+    "ctaSealed": "Ver producto sellado",
     "ctaBuylist": "Vender mis cartas",
-    "setsWanted": "Sets buscados",
-    "trustAuth": "Cada carta se autentica al ingresar",
-    "trustCustody": "Bóveda asegurada, sin envíos innecesarios",
-    "trustPrice": "Valor de mercado transparente en MXN",
-    "trustPayout": "Pago por transferencia tras verificar",
+    "setsWanted": "Sets en cacería",
+    "trustCustody": "Bóveda bajo resguardo: un solo envío para todo",
+    "trustPayout": "Te pagamos por transferencia tras recibir y verificar",
     "yourVault": "Tu bóveda",
     "vaultLink": "Ver mi bóveda",
     "vaultLabel": "Bóveda",
     "buylistLabel": "Buylist",
     "quoter": {
       "label": "Cotizador",
-      "title": "¿Cuánto vale lo que tienes?",
-      "subtitle": "Busca tus cartas, arma la lista y mira lo que pagamos hoy. Cotizar es gratis.",
+      "title": "¿Cuánto vale tu carpeta?",
+      "subtitle": "Arma tu lista y mira lo que te pagamos hoy. Gratis, sin cuenta y sin compromiso.",
       "searchLabel": "Busca una carta para cotizar",
       "searchPlaceholder": "Busca una carta…",
       "add": "Añadir",
-      "empty": "Aún no agregas cartas. Busca una para ver lo que pagamos hoy.",
+      "empty": "Busca tu primera carta y te decimos lo que pagamos por ella.",
       "pending": "Pendiente",
       "pendingNote": "{count, plural, one {# carta se cotiza al recibirla} other {# cartas se cotizan al recibirlas}}",
       "quoteError": "No se pudo cotizar",
       "remove": "Quitar {name}",
-      "continue": "Continuar mi cotización",
+      "continue": "Vender estas cartas",
       "viewMore": "Ver más en el cotizador"
     },
-    "featuredTitle": "Piezas destacadas del catálogo",
+    "featuredTitle": "Piezas destacadas",
     "featuredTitleShort": "Destacadas",
     "viewAllCatalog": "Ver todo el catálogo",
     "carouselPrev": "Anterior",
     "carouselNext": "Siguiente",
+    "featured": {
+      "roledescription": "carrusel",
+      "trackAria": "Piezas destacadas \u2014 pista desplazable",
+      "status": {
+        "paused": "Rotaci\u00f3n autom\u00e1tica pausada.",
+        "ended": "Fin de las piezas destacadas."
+      }
+    },
     "sealed": {
       "title": "Producto sellado",
       "viewAll": "Ver todo el sellado"
@@ -112,30 +118,30 @@
     "graded": {
       "title": "Cartas gradeadas",
       "companies": "PSA · CGC",
-      "subtitle": "Slab sellado, grado y número de certificado verificados contra el registro de la casa gradeadora.",
+      "subtitle": "Slab sellado. Grado y certificado verificables en el registro de PSA o CGC.",
       "viewAll": "Ver todas las gradeadas",
       "cert": "Cert {num}"
     },
     "bounties": {
       "title": "Top Bounties",
       "viewAll": "Ver la buylist completa",
-      "subtitle": "Estas son las cartas que mejor pagamos ahora mismo.",
+      "subtitle": "Las cartas que mejor pagamos ahora mismo. Si tienes una, tráela.",
       "wePay": "Pagamos",
       "badge": "Bounty"
     },
     "how": {
       "title": "Cómo funciona la bóveda",
-      "tag": "Custodia asegurada",
-      "step1Title": "Compras al precio del día",
-      "step1Body": "Cada carta lleva su condición verificada y su precio de mercado, sin sorpresas al pagar.",
-      "step2Title": "Se quedan en la bóveda",
-      "step2Body": "Guardadas y aseguradas. Ves el valor de tu colección actualizado, carta por carta.",
+      "tag": "Custodia en bóveda",
+      "step1Title": "Compras con las cuentas claras",
+      "step1Body": "Cada carta muestra su condición verificada y su precio de venta. En el checkout ves el desglose completo antes de pagar.",
+      "step2Title": "Se quedan en tu bóveda",
+      "step2Body": "Guardadas bajo resguardo, con el valor de tu colección actualizado carta por carta.",
       "step3Title": "Pides el envío cuando quieras",
-      "step3Body": "Un solo envío para todo lo acumulado, o vendes desde la bóveda sin moverla."
+      "step3Body": "Todo lo que acumulaste sale junto, en un solo envío."
     },
-    "sellTitle": "Vender mis cartas",
-    "sellBody": "Cotizamos tu lista con el valor de mercado del día. Tú envías, nosotros autenticamos y pagamos.",
-    "sellCta": "Cotizar mi lista",
+    "sellTitle": "Convierte tus repetidas en dinero",
+    "sellBody": "Cotizamos tu lista con el valor de mercado del día como referencia. Tú envías, nosotros autenticamos y te transferimos.",
+    "sellCta": "Cotizar mi lista gratis",
     "featuredSet": {
       "label": "Valor de mercado · Set destacado",
       "collectingTitle": "Recopilando historial",
@@ -145,7 +151,7 @@
     "gradingGems": {
       "title": "Joyas para gradear",
       "kicker": "ILUSTRATIVO · NO EVALUAMOS LA PIEZA",
-      "lead": "Cartas sin gradear cuyo valor de mercado ya gradeadas es muy superior."
+      "lead": "Cartas sin gradear cuyo valor de mercado, ya gradeadas, es muy superior."
     }
   },
   "catalog": {
@@ -186,14 +192,13 @@
     "rarityAria": "Rareza: {rarity}",
     "gradingEstimate": {
       "eyebrow": "VALOR ESTIMADO SI SE GRADEA",
-      "updatedAt": "ESTIMADO · {date}",
       "ifGradesLabel": "SI SALE",
       "microNotice": "<b>Cifra ilustrativa</b> de mercado (lo que se ha pagado por esa carta ya gradeada por terceros). <b>No evaluamos el estado de esta carta</b> ni garantizamos ningún grado; el gradeo y su costo corren por tu cuenta.",
       "hypotheticalGradeAria": "Grado hipotético: {company} {grade}. Esta carta no está gradeada."
     },
     "gradingBadge": {
-      "figure": "En {company} {grade} vale <approx>≈</approx> {amount}",
-      "figureShort": "{company} {grade} <approx>≈</approx> {amount}",
+      "figure": "En {company} {grade} vale <approx>≈</approx> <nb>{amount}</nb>",
+      "figureShort": "{company} {grade} <approx>≈</approx> <nb>{amount}</nb>",
       "microNotice": "<b>Ilustrativo</b>; <b>no evaluamos esta carta</b>.",
       "approx": "aproximadamente"
     },
@@ -204,8 +209,8 @@
       "p1": "<b>Las cifras de PSA 10 / PSA 9 son un dato de referencia de mercado sobre ese modelo de carta ya gradeado por terceros.</b> Se muestran para ilustrar cómo se comporta el mercado, nada más.",
       "p2": "<b>NO reflejan ni evalúan el estado de la carta que estás comprando.</b> No hemos inspeccionado, medido ni pre-evaluado esta pieza para efectos de gradeo —ni su centrado, ni su superficie, ni sus bordes, ni sus esquinas— y no opinamos sobre qué grado obtendría. Vendemos esta carta como raw (sin gradear) en Near Mint según nuestro propio estándar de condición, que es una cosa distinta de un grado de PSA.",
       "p3": "<b>NO garantizamos ningún grado.</b> El grado lo determina PSA, de forma independiente y bajo sus propios criterios. El resultado puede ser muy inferior al que aquí se ilustra, y la carta puede incluso no ser elegible para gradeo. Gradear es una apuesta y el riesgo es enteramente tuyo.",
-      "p4": "<b>Esto no es una oferta, ni una garantía de precio, ni un compromiso de recompra</b> por parte de TCG Vault MX. Si mandas la carta a gradear y el resultado no es el que esperabas, no hay reembolso, compensación ni devolución por ese motivo (aplica nuestra política de ventas finales).",
-      "p5": "<b>TCG Vault MX no gradea cartas ni intermedia el servicio de gradeo.</b> La cuota de PSA, el envío internacional, el retorno a México, los seguros y los tiempos de espera corren por tu cuenta.",
+      "p4": "<b>Esto no es una oferta, ni una garantía de precio, ni un compromiso de recompra</b> por parte de TCG HUNT. Si mandas la carta a gradear y el resultado no es el que esperabas, no hay reembolso, compensación ni devolución por ese motivo (aplica nuestra política de ventas finales).",
+      "p5": "<b>TCG HUNT no gradea cartas ni intermedia el servicio de gradeo.</b> La cuota de PSA, el envío internacional, el retorno a México, los seguros y los tiempos de espera corren por tu cuenta.",
       "p6": "<b>Los precios de mercado cambian todos los días</b> y este estimado puede quedar desactualizado en cualquier momento.",
       "back": "Volver al valor estimado"
     }
@@ -423,7 +428,7 @@
     "emptyTitle": "Aún no tienes cartas en tu bóveda",
     "emptyBody": "Explora la sección de Compra y empieza tu colección.",
     "emptyCta": "Ir a Compra",
-    "trustBanner": "Tus cartas están autenticadas y aseguradas en bóveda. Solo se envían cuando tú lo pides.",
+    "trustBanner": "Tus cartas están autenticadas y resguardadas en bóveda. Solo se envían cuando tú lo pides.",
     "withdraw": "Retirar",
     "withdrawSelected": "Retirar seleccionadas",
     "onlySettled": "Solo las piezas liquidadas y sin envío activo se pueden retirar.",
@@ -889,7 +894,11 @@
     "items": "Artículos",
     "requestInvoice": "Solicitar factura",
     "invoiceRequested": "Factura solicitada",
-    "cfdiStatusLabel": "Factura"
+    "cfdiStatusLabel": "Factura",
+    "item": {
+      "unknownCard": "Carta sin registro",
+      "unknownCardHint": "El registro de este pedido no guardó el nombre de esta carta. El importe cobrado no cambia."
+    }
   },
   "legal": {
     "title": "Términos y política",
@@ -1791,6 +1800,14 @@
           "label": "Frescura del dato",
           "hint": "Días tras los cuales un estimado se considera rancio y deja de mostrarse. Entero entre 1 y 365."
         },
+        "ingestCap": {
+          "label": "Tope de cartas por corrida",
+          "hint": "Cuántas cartas tuyas mira el barrido en cada corrida (1–1 000). Acota <b>el alcance</b>, no lo que el proveedor te cobra.",
+          "warnTitleUp": "Estás subiendo el techo de gasto",
+          "warnTitleDown": "Estás bajando el techo de gasto",
+          "warn": "Con <b><n>{maxCards, number}</n> cartas</b> por corrida y <b><n>{runs}</n> corridas al día</b>, el techo son <b><n>{credits, number}</n> créditos al día</b> si el proveedor cobra por petición; si cobra por carta devuelta, cada petición pide el <b>set entero</b> y la factura puede ser <b>varias veces</b> esa cifra. Nadie lo ha medido todavía: la primera corrida lo mide. Guardar no cobra nada — se cobra en la siguiente corrida, y solo si el gancho está <b>encendido</b> en M10.",
+          "rangeError": "Un número entero entre 1 y 1 000."
+        },
         "grades": "Grados que muestra la ficha: {grades}. Grados que pinta el badge de las tejas: {highlight}. El gate siempre se evalúa con PSA 9, aunque el badge muestre PSA 10.",
         "globalErrors": {
           "minUpside": "El margen mínimo debe ser un número entre 0 y 1000.",
@@ -2193,7 +2210,7 @@
           "pricingProviderGraded": "Proveedor de referencia por-carta (graded)",
           "pricingProviderSealed": "Proveedor de referencia por-carta (sellado)",
           "catalogSyncFromDate": "Frontera de sync de catálogo",
-          "gradedEstimatesEnabled": "Valor estimado si se gradea (gancho)"
+          "gradingHookEnabled": "Gancho de grading — publica y trae datos"
         },
         "units": {
           "cents": "en pesos MXN",
@@ -2206,10 +2223,15 @@
           "on": "Encendido",
           "off": "Apagado"
         },
-        "gradedEstimates": {
-          "note": "El interruptor maestro del «valor estimado si se gradea» vive aquí; los escalones de costo de gradeo, el margen mínimo, la frescura y los grados se editan en M2 · Catálogo y precios. Apagado, la tienda no muestra ninguna cifra estimada.",
-          "warningTitle": "Enciende una afirmación comercial",
-          "warning": "Con este dial encendido, la tienda publica cifras estimadas de PSA 10 / PSA 9 sobre cartas sin gradear, con su disclaimer. Ese texto legal todavía NO tiene el visto bueno del dueño (ni revisión legal). Enciéndelo solo si esa decisión ya se tomó: no cambia ningún precio de venta, valuación ni cotización, pero sí lo que la tienda afirma."
+        "gradingHook": {
+          "note": "Un solo interruptor gobierna el gancho: encendido, la tienda publica las cifras estimadas <b>y</b> el barrido diario las trae de un proveedor de paga; apagado, no publica ninguna <b>y</b> tampoco actualiza ninguna. Los escalones de costo de gradeo, el margen mínimo, la frescura y el tope de cartas por corrida se editan en M2 · Catálogo y precios, junto con la lista de revisión — que es la herramienta para una cifra concreta. Ese tope acota <b>cuántas cartas tuyas mira</b> el barrido, no cuántas te cobra el proveedor.",
+          "onTitle": "Encendido: publica cifras y consume créditos",
+          "on": "<b>Publica.</b> Con este dial encendido, la tienda muestra cifras estimadas de PSA 10 / PSA 9 sobre cartas sin gradear, con su disclaimer (aprobado por el dueño; sin revisión legal profesional): es una afirmación comercial de la tienda. <b>Y gasta.</b> El mismo dial autoriza al barrido diario a pedir esas cifras a un proveedor <b>de paga</b> y a escribir precios estimados. <b>Cuánto gasta, todavía nadie lo ha medido.</b> Lo que sí sabemos es el alcance: el barrido mira hasta <b><n>{maxCards, number}</n> cartas tuyas</b> por corrida, <b><n>{runs}</n> corridas al día</b> (ese tope se edita en M2 · Catálogo y precios). Lo que no sabemos es <b>cómo factura el proveedor</b>: si cobra por petición, el techo son <b><n>{credits, number}</n> créditos al día</b> (<n>{maxCards, number}</n> × <n>{perCard}</n> × <n>{runs}</n>); si cobra por carta devuelta, cada petición pide el <b>set entero</b>, el barrido paga <b>todas</b> las cartas de cada set que toque y la factura puede ser <b>varias veces</b> esa cifra. <b>La primera corrida lo mide</b>; hasta entonces, <n>{credits, number}</n> es un techo bajo un supuesto, no un presupuesto. Los créditos gastados no se recuperan al apagar. No cambia ningún precio de venta, valuación ni cotización: cambia lo que la tienda afirma <b>y lo que cuesta</b>.",
+          "onMeasured": "<b>Publica.</b> Con este dial encendido, la tienda muestra cifras estimadas de PSA 10 / PSA 9 sobre cartas sin gradear, con su disclaimer (aprobado por el dueño; sin revisión legal profesional): es una afirmación comercial de la tienda. <b>Y gasta.</b> El mismo dial autoriza al barrido diario a pedir esas cifras a un proveedor <b>de paga</b> y a escribir precios estimados. <b>Cuánto gasta, ya está medido.</b> El barrido mira hasta <b><n>{maxCards, number}</n> cartas tuyas</b> por corrida, <b><n>{runs}</n> corridas al día</b>, y la corrida medida el {measuredOn} gastó a razón de <b><n>{credits, number}</n> créditos al día</b>. Es una medición, no un supuesto: si cambia el tope, el inventario o el proveedor, vuelve a medirse. Los créditos gastados no se recuperan al apagar. No cambia ningún precio de venta, valuación ni cotización: cambia lo que la tienda afirma <b>y lo que cuesta</b>.",
+          "onNoFigures": "<b>Publica.</b> Con este dial encendido, la tienda muestra cifras estimadas de PSA 10 / PSA 9 sobre cartas sin gradear, con su disclaimer (aprobado por el dueño; sin revisión legal profesional): es una afirmación comercial de la tienda. <b>Y gasta.</b> El mismo dial autoriza al barrido diario a pedir esas cifras a un proveedor <b>de paga</b> y a escribir precios estimados. <b>Cuánto gasta, todavía nadie lo ha medido.</b> Consume créditos en cada corrida. El tope que fijaste en M2 · Catálogo y precios acota <b>cuántas cartas tuyas mira</b> el barrido, <b>no cuántas te cobra el proveedor</b>: cada petición pide el set entero. Cuánto cuesta de verdad lo mide la primera corrida. Los créditos gastados no se recuperan al apagar. No cambia ningún precio de venta, valuación ni cotización: cambia lo que la tienda afirma <b>y lo que cuesta</b>.",
+          "audit": "Solo súper-admin · queda en bitácora.",
+          "offTitle": "Apagar también deja de actualizar",
+          "off": "<b>Para las dos cosas a la vez.</b> Mientras esté apagado, la tienda no muestra ninguna cifra estimada y el barrido no pide ni escribe ninguna: no se gasta un crédito y los datos automáticos dejan de refrescarse. <b>Para una cifra concreta, este no es el remedio.</b> Una cifra rara se borra en la <review>lista de revisión</review>; si lo que sobra es la promoción, sube el margen mínimo en M2 y la ficha sigue informando. Apágalo cuando la duda sea de fondo: cambió el proveedor o las cifras dejaron de ser de fiar. Al reencender, la siguiente corrida repone las cifras automáticas; si tienes prisa, «Actualizar precios ahora» en M2."
         }
       },
       "ingest": {

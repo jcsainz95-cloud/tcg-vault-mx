@@ -8,7 +8,12 @@ import { Link } from '@/i18n/navigation';
 import { PortfolioGlance } from '@/components/domain/PortfolioTrendChart';
 import { EditorialLink } from './_shared/EditorialLink';
 import { useHomeQuoter, HomeQuoterPanel } from './_home/HomeQuoter';
-import { FeaturedCarousel } from './_home/FeaturedCarousel';
+import {
+  FEATURED_CAROUSEL_ID,
+  FeaturedCarousel,
+  featuredOf,
+  useFeaturedCatalog,
+} from './_home/FeaturedCarousel';
 import { SealedShelf } from './_home/SealedShelf';
 import { GradedShelf } from './_home/GradedShelf';
 import { BountyBoard } from './_home/BountyBoard';
@@ -59,15 +64,30 @@ export default function HomePage() {
   // y como sección propia (móvil) compartiendo las mismas líneas.
   const quoter = useHomeQuoter();
 
-  // «Gancho de grading» (§22.6): la MISMA consulta que alimenta la vitrina decide si el home
-  // hospeda la nota al pie (TanStack la dedupe por queryKey). Si la vitrina no se renderiza,
-  // tampoco la nota; y sin nota, ninguna cifra puede pintarse (R3.3).
+  /**
+   * «Gancho de grading» — el home tiene **DOS** superficies con cifra (§22.6b-f/g): la vitrina
+   * «Joyas para gradear» y el carrusel «Piezas destacadas». Las MISMAS consultas que las alimentan
+   * deciden si el home hospeda la nota al pie (TanStack las dedupe por `queryKey`, así que no hay
+   * peticiones extra y **no pueden divergir** de lo que cada sección pinta).
+   *
+   * **La condición es la UNIÓN, y omitirlo mata la feature en silencio.** Derivarla solo de la
+   * vitrina —como hasta hoy— rompe justo el caso NORMAL: vitrina vacía + una burbuja en el carrusel.
+   * Sin nota al pie, `fail-closed` (R3.3) apaga toda cifra, así que el carrusel **no pintaría nada y
+   * nadie vería un error**. Un solo booleano gobierna las dos cosas (nota + contexto que habilita las
+   * cifras) y sale del MISMO predicado para ambas fuentes.
+   */
   const gems = useGradingGems();
+  const featured = useFeaturedCatalog();
+  const gemsHaveFigures = pageHasGradingFigures(gemsOf(gems.data));
+  const carouselHasFigures = pageHasGradingFigures(featuredOf(featured.data));
 
   return (
     <GradingFootnoteBoundary
-      active={pageHasGradingFigures(gemsOf(gems.data))}
-      returnToId={GRADING_GEMS_ID}
+      active={gemsHaveFigures || carouselHasFigures}
+      // §22.4a: el regreso apunta a la PRIMERA superficie que de verdad pintó cifra —vitrina si
+      // existe, si no el carrusel—. Un ancla fija a una sección que hoy puede no renderizarse deja
+      // el enlace de regreso apuntando a la nada, y ese es el caso frecuente del carrusel.
+      returnToId={gemsHaveFigures ? GRADING_GEMS_ID : FEATURED_CAROUSEL_ID}
     >
     <div>
       {/* Banda del portafolio para sesión iniciada (funcionalidad conservada). */}

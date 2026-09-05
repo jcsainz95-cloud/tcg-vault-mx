@@ -157,5 +157,5 @@ note "  2. git commit -m '<tu cambio real>'"
 note "     -> solo la lógica, y el diff vuelve a ser revisable."
 note ""
 note "Si NO querías reformatear (te lo hizo un prettier ad-hoc): revierte el formato y"
-note "reaplica tu cambio a mano. Este árbol NO está formateado a propósito; ver DEVOPS_NOTES §34."
+note "reaplica tu cambio a mano. Este árbol NO está formateado a propósito; ver DEVOPS_NOTES §36."
 exit 1

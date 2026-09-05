@@ -40,7 +40,7 @@
 #                                         #   ⇒ el ÚNICO modo válido para una corrida de GATE
 #   ./scripts/stack-native.sh test:integration   # suite de integración del backend contra
 #                                         #   BD REAL, con el env exportado (15/15 · 183/183).
-#                                         #   NO uses `npm run test:integration` a secas: ver §35.
+#                                         #   NO uses `npm run test:integration` a secas: ver §37.
 #   ./scripts/stack-native.sh status      # qué está arriba y en qué puerto
 #   ./scripts/stack-native.sh down        # apaga backend y frontend (deja PG/Redis)
 #   ./scripts/stack-native.sh down --all  # + para Postgres y Redis
@@ -125,7 +125,7 @@ export REDIS_URL="${REDIS_URL:-redis://localhost:6379}"
 export APP_BASE_URL="${APP_BASE_URL:-http://localhost:$FRONTEND_PORT}"
 # CTA de los correos del buylist (v1.51). MISMA URL que APP_BASE_URL, leída con otro nombre por
 # `buylist.service.ts`. ACTIVA desde 2026-09-01: la pantalla `/{locale}/buylist/requests/<id>` ya
-# existe y se midió viva (DEVOPS_NOTES §33.4-bis). Espeja a APP_BASE_URL para que no puedan
+# existe y se midió viva (DEVOPS_NOTES §35.4-bis). Espeja a APP_BASE_URL para que no puedan
 # divergir. Para volver al degrade (botón -> instrucción de texto): APP_PUBLIC_URL= ./scripts/...
 export APP_PUBLIC_URL="${APP_PUBLIC_URL:-http://localhost:$FRONTEND_PORT}"
 export JWT_ACCESS_SECRET="${JWT_ACCESS_SECRET:-local_dev_only_access_secret_at_least_32_chars_long}"
@@ -508,7 +508,7 @@ case "${1:-up}" in
       echo "  DATABASE_URL: $(mask_url "$DATABASE_URL")"
       echo "  Tests de integración del backend (BD real):  ./scripts/stack-native.sh test:integration"
       echo "  (NO uses \`cd backend && npm run test:integration\` a secas: deja 1 suite de 15 en"
-      echo "   rojo por env, no por producto. El subcomando exporta el env correcto — ver §35.)"
+      echo "   rojo por env, no por producto. El subcomando exporta el env correcto — ver §37.)"
       exit 0
     fi
     start_backend
@@ -521,7 +521,7 @@ case "${1:-up}" in
   test:integration)
     shift || true
     # -------------------------------------------------------------------------
-    # POR QUÉ EXISTE ESTE SUBCOMANDO (medido el 2026-09-02 · DEVOPS_NOTES §35)
+    # POR QUÉ EXISTE ESTE SUBCOMANDO (medido el 2026-09-02 · DEVOPS_NOTES §37)
     #
     # `cd backend && npm run test:integration` A SECAS deja 1 suite de 15 en rojo, y ese
     # rojo NO es del producto: es fontanería de entorno.
@@ -554,7 +554,7 @@ case "${1:-up}" in
     warn "Esta suite ESCRIBE en la BD (resiembra el fixture). Si después vas a correr el gate"
     warn "E2E de Playwright, vuelve a sembrar:  ./scripts/stack-native.sh up --seed"
     # -------------------------------------------------------------------------
-    # NODE_ENV=test SE FIJA AQUÍ, Y NO ES OPCIONAL. (§35.3 — mismo footgun que §32.10)
+    # NODE_ENV=test SE FIJA AQUÍ, Y NO ES OPCIONAL. (§37.3 — mismo footgun que §32.10)
     #
     # La cabecera de este script exporta NODE_ENV=development PARA EL BACKEND que corre
     # como servidor. `export` alcanza a todo hijo, y jest solo pone NODE_ENV=test si NADIE

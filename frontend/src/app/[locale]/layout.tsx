@@ -83,6 +83,23 @@ export default async function LocaleLayout({
       lang={locale}
       className={`${serif.variable} ${sans.variable} ${mono.variable} ${brand.variable}`}
     >
+      <head>
+        {/* PERF — TODAS las imágenes de carta (catálogo, carrusel, carritos, bóveda, admin)
+            vienen de un TERCERO: images.pokemontcg.io. Sin esto, el navegador solo empieza el
+            DNS + TCP + TLS cuando descubre el primer <img> del HTML, y paga ese handshake
+            completo antes del primer byte de píxel. El `preconnect` lo adelanta al parseo del
+            <head>; el `dns-prefetch` es el respaldo para navegadores que ignoran el primero.
+            Van los DOS y en este orden — es el patrón canónico, no una redundancia.
+            Solo este dominio: `preconnect` a dominios que quizá no se usen desperdicia
+            conexiones. El CDN de sellado (tcgplayer-cdn.tcgplayer.com) NO entra: en la home
+            vive en SealedShelf, por DEBAJO del carrusel (bajo el pliegue), y ahí `lazy` +
+            conexión tardía es el comportamiento correcto.
+            SIN `crossOrigin`: un `<img>` normal no se pide en modo CORS, y un preconnect
+            `anonymous` abre una conexión de OTRA piscina que esas imágenes no reutilizarían
+            (sería trabajo de más y ahorro cero). El `crossorigin` es para fuentes/fetch CORS. */}
+        <link rel="preconnect" href="https://images.pokemontcg.io" />
+        <link rel="dns-prefetch" href="https://images.pokemontcg.io" />
+      </head>
       <body className="min-h-dvh bg-bg font-sans text-text antialiased">
         <NextIntlClientProvider messages={messages}>
           <Providers>{children}</Providers>

@@ -3027,9 +3027,14 @@ export class InventoryService {
     }
 
     const workbook = new ExcelJS.Workbook();
-    // H8 (deuda saldada, v1.36): marca VIGENTE del proyecto (PROJECT.md «Nombre comercial / marca:
-    // TCG Vault MX»); reemplaza la marca obsoleta 'TCG HUNT' en la metadata del .xlsx.
-    workbook.creator = 'TCG Vault MX';
+    // Marca visible = 'TCG HUNT' (DESIGN_SYSTEM §17.4: mayúsculas, con espacio; dominio tcghunt.mx).
+    // Esto SALE del sistema: es el autor que ve cualquiera en las propiedades del .xlsx, así que va
+    // la marca comercial, no el nombre interno. 'tcg-vault-mx' / 'TCG Vault MX' es el nombre del
+    // repo/proyecto y §17.4 es explícito en que el nombre interno NO cambia con el rebrand.
+    // Por qué estuvo al revés: H8 (v1.36) invirtió esta línea a 'TCG Vault MX' citando PROJECT.md,
+    // que tenía mal la marca; el humano lo confirmó («somos TCGHUNT.mx») y PROJECT.md se corrigió.
+    // La fuente de verdad de la marca es DESIGN_SYSTEM §17.4, no el nombre del repo. No invertir.
+    workbook.creator = 'TCG HUNT';
     workbook.created = new Date();
     const sheet = workbook.addWorksheet('Inventario');
     sheet.columns = INVENTORY_EXPORT_COLUMNS.map((c) => ({

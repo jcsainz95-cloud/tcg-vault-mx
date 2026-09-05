@@ -201,7 +201,7 @@ function wire(items: any[] = [], refs: any[] = [], config: Record<string, unknow
   return { ctrl, catalog, pricing, prisma, audit, upsert, configStore };
 }
 
-const ON = { [SettingKey.GRADED_ESTIMATES_ENABLED]: 'on' };
+const ON = { [SettingKey.GRADING_HOOK_ENABLED]: 'on' };
 const tier = (min: number, max: number | null, cost: number) => ({
   minValueMxnCents: min,
   maxValueMxnCents: max,
@@ -212,8 +212,7 @@ describe('GET /admin/pricing/graded-estimates', () => {
   it('devuelve la config EFECTIVA con el seed y `enabled` como espejo del dial M10', async () => {
     const { ctrl } = wire();
     expect(await ctrl.get()).toEqual({
-      enabled: false, // seed `off`, fail-closed
-      ingestEnabled: false, // v1.50.2: 2º dial M10 (la OBTENCIÓN), también fail-closed
+      enabled: false, // seed `off`, fail-closed (v1.51: dial ÚNICO — exhibición Y obtención)
       grades: ['10', '9'],
       highlightGrades: ['10'],
       freshnessDays: 30,
@@ -419,7 +418,7 @@ describe('PUT /admin/pricing/graded-estimates — invariantes I1–I7 (fail-clos
     const { ctrl, configStore } = wire();
     const after = await ctrl.put({ enabled: true, minUpsidePct: 40 }, 'admin');
     expect(after.enabled).toBe(false);
-    expect(configStore.has(SettingKey.GRADED_ESTIMATES_ENABLED)).toBe(false);
+    expect(configStore.has(SettingKey.GRADING_HOOK_ENABLED)).toBe(false);
   });
 
   it('el `PUT` de escalones es TOTAL: reemplaza el array completo', async () => {
@@ -442,6 +441,74 @@ describe('PUT /admin/pricing/graded-estimates — invariantes I1–I7 (fail-clos
     // …y la FICHA sigue mostrando sus cifras (partición §4.38-0: el dial de curaduría no la apaga).
     const ficha: any = await catalog.getCard('ca');
     expect(ficha.gradedEstimates).toHaveLength(2);
+  });
+});
+
+/**
+ * **v1.51-a — I8 ESTRECHADO: `ingestMaxCardsPerRun` pasa de `[1, 5000]` a `[1, 1000]`**
+ * (ARCHITECTURE §4.38r.3.4, API_CONTRACT v1.51-a). Es la PUERTA: lo que un `PUT` puede autorizar.
+ *
+ * ### Por qué el número viejo no era un tope
+ * `5 000 × 2 créditos × 2 corridas = 20 000 créditos/día` es **la cuota diaria completa** del plan del
+ * dueño, alcanzable con **un solo `PUT` válido**, sin redeploy y sin aprobación adicional. Una cota cuyo
+ * máximo admisible **coincide con el presupuesto total** no acota nada.
+ *
+ * ### ⛔ Lo que estos tests NO afirman
+ * **No** afirman que el gasto quede acotado. `ingestMaxCardsPerRun` acota las cartas **EN ALCANCE**, no
+ * las que el proveedor DEVUELVE (`fetchAllInSet=true` pide el SET entero): con un factor de
+ * amplificación `A = 16` —gobernado por el nº de sets, que **ningún dial configura**— 1 000 siguen
+ * siendo 16 000 créditos. Lo que se fija aquí es el **peor caso NOMINAL** que un `PUT` autoriza. Leer
+ * esto como «ya está acotado el gasto» sería falsa cobertura; el gasto lo acota la MEDICIÓN que
+ * §4.38(r.3.1) hace precondición del primer `off → on`.
+ *
+ * Los rangos NO se importan de `graded-estimate.ts` a propósito: se escriben los números del CONTRATO.
+ * Importar la constante haría que el test se moviera solo con ella y dejara de ser un candado.
+ */
+describe('PUT /admin/pricing/graded-estimates — I8 v1.51-a: `ingestMaxCardsPerRun` ∈ [1, 1000]', () => {
+  it('`1000` (el máximo NUEVO) ⇒ 200, persiste y se ve en el `GET`', async () => {
+    const { ctrl, configStore } = wire();
+    const after = await ctrl.put({ ingestMaxCardsPerRun: 1000 }, 'admin');
+    expect(after.ingestMaxCardsPerRun).toBe(1000);
+    expect(configStore.get(SettingKey.GRADED_ESTIMATE_INGEST_MAX_CARDS_PER_RUN)).toBe(1000);
+    expect(await ctrl.get()).toEqual(after);
+  });
+
+  it('el seed `250` y el mínimo `1` siguen siendo válidos (es un ESTRECHAMIENTO: nada de lo vigente se rompe)', async () => {
+    for (const v of [1, 250, 999]) {
+      const { ctrl } = wire();
+      expect((await ctrl.put({ ingestMaxCardsPerRun: v }, 'admin')).ingestMaxCardsPerRun).toBe(v);
+    }
+  });
+
+  it('`1001` y `5000` —que ANTES pasaban— ⇒ 422 VALIDATION_ERROR, con el rango nuevo en el mensaje', async () => {
+    for (const v of [1001, 2000, 5000]) {
+      const { ctrl, upsert } = wire();
+      await expect(ctrl.put({ ingestMaxCardsPerRun: v }, 'admin')).rejects.toMatchObject({
+        code: 'VALIDATION_ERROR',
+        // El mensaje interpola la constante: si alguien la sube, este texto cambia y el test cae.
+        message: 'ingestMaxCardsPerRun must be an integer in [1, 1000] (cards per run)',
+        details: { field: 'ingestMaxCardsPerRun' },
+      });
+      expect(upsert).not.toHaveBeenCalled(); // todo-o-nada: un body inválido no escribe NADA
+    }
+  });
+
+  it('los bordes de siempre siguen cerrados: `0`, negativos, no-enteros y strings ⇒ 422', async () => {
+    const { ctrl } = wire();
+    for (const v of [0, -1, 1.5, '250', null, NaN]) {
+      await expect(ctrl.put({ ingestMaxCardsPerRun: v } as never, 'admin')).rejects.toMatchObject({
+        code: 'VALIDATION_ERROR',
+      });
+    }
+  });
+
+  it('el rechazo de `5000` no arrastra al resto del body (ni el dial válido del mismo `PUT` se escribe)', async () => {
+    const { ctrl, upsert, configStore } = wire();
+    await expect(
+      ctrl.put({ minUpsidePct: 60, ingestMaxCardsPerRun: 5000 }, 'admin'),
+    ).rejects.toMatchObject({ code: 'VALIDATION_ERROR', details: { field: 'ingestMaxCardsPerRun' } });
+    expect(upsert).not.toHaveBeenCalled();
+    expect(configStore.has(SettingKey.GRADING_MIN_UPSIDE_PCT)).toBe(false);
   });
 });
 
@@ -524,7 +591,6 @@ describe('GET /admin/pricing/graded-estimates/preview — «¿por qué no está 
       'grades',
       'gradingCostTiers',
       'highlightGrades',
-      'ingestEnabled',
       'ingestMaxCardsPerRun',
       'manualFreshnessDays',
       'maxRawMultiple',
@@ -533,7 +599,14 @@ describe('GET /admin/pricing/graded-estimates/preview — «¿por qué no está 
       'sourceStat',
     ]);
     // Lo que NO puede filtrarse: los flags INTERNOS del resolver (GU-A8 + el del ingest de v1.50.2).
-    for (const interno of ['estimatesEnabled', 'highlightEnabled', 'ingestConfigInvalid']) {
+    for (const interno of [
+      'estimatesEnabled',
+      'highlightEnabled',
+      'ingestConfigInvalid',
+      // v1.51-b (R1): el detalle de QUÉ clave del ingest está corrupta es diagnóstico INTERNO (va al
+      // log del veredicto). Que exista no puede cambiar la forma del DTO del contrato.
+      'ingestInvalidKeys',
+    ]) {
       expect(res.config).not.toHaveProperty(interno);
     }
   });

@@ -31,6 +31,8 @@ import {
   respondToSellOffer,
   decideBuylistItem,
   getAdminRejectedBuylistItems,
+  getSets,
+  listBuylistSets,
 } from './api';
 import { getToken, setToken } from './api-client';
 import { config } from './config';
@@ -589,7 +591,9 @@ describe('api (rama REAL) · WS-F endpoints, headers y errores', () => {
         status: 'abierta',
         type: 'condition_raw',
         deadlineAt: '2026-08-24T00:00:00Z',
-        evidenceContact: 'soporte@tcgvaultmx.com',
+        // Dato de infraestructura: el cliente lo PROPAGA tal cual (por eso el aserto de abajo
+        // es sobre la forma, no sobre el buzón). API_CONTRACT §0, cláusula 4.
+        evidenceContact: 'evidencias@ejemplo.test',
       }),
     );
     const res = await createDispute({ inventoryItemId: 'inv-1', description: 'edge wear' });
@@ -800,4 +804,50 @@ describe('api · el ciclo de la oferta del buylist (contrato §6, v1.51)', () =>
       code: 'OFFER_NOT_PENDING',
     });
   }
+});
+/**
+ * **DT-Gd · el servidor falso no puede prometer más que el backend real** (ARCHITECTURE §4.40.5
+ * y §4.40.6, contrato `GET /catalog/sets` / `GET /buylist/sets`).
+ *
+ * `logoUrl` entra en **`GET /buylist/sets`** —clave SIEMPRE presente, `null` cuando el proveedor
+ * no publica logo— y **NO entra** en `GET /catalog/sets`. Los dos endpoints salían del MISMO
+ * `fx.mockSets`, así que en modo mock el catálogo rendía un campo que el backend real **nunca
+ * manda**: exactamente «el mock promete más que el backend», la clase de divergencia que ya costó
+ * un defecto en producción (§34).
+ *
+ * ⚠️ **Se comprueba con `in`, no con `?.` ni con `toBeUndefined()`, y es la parte que importa:**
+ * lo que el contrato distingue es **clave ausente** (catálogo) de **clave presente con valor
+ * nulo** (cotizador), y `undefined` los confunde a los dos. El tipo ya impide construirlos mal;
+ * esto defiende el RUNTIME del servidor falso, que es lo que el tipo no ve.
+ */
+describe('api (rama mock) · las DOS formas de set, una por endpoint (DT-Gd)', () => {
+  it('getSets (`/catalog/sets`) NO emite la clave `logoUrl` — §4.40.5 «NO entra»', async () => {
+    const sets = await getSets();
+    expect(sets.length).toBeGreaterThan(0);
+    expect(sets.every((s) => !('logoUrl' in s))).toBe(true);
+  });
+
+  it('listBuylistSets (`/buylist/sets`) emite `logoUrl` SIEMPRE, con `null` cuando no hay logo', async () => {
+    const sets = await listBuylistSets();
+    expect(sets.length).toBeGreaterThan(0);
+    // Clave presente en TODAS: es el invariante de §4.40.6 (nunca omitida, nunca `""`).
+    expect(sets.every((s) => 'logoUrl' in s)).toBe(true);
+    expect(sets.every((s) => typeof s.logoUrl === 'string' || s.logoUrl === null)).toBe(true);
+    expect(sets.every((s) => s.logoUrl !== '')).toBe(true);
+    // Y el fixture ejercita LOS DOS casos en la misma página: si todos tuvieran logo, el
+    // monograma de DESIGN_SYSTEM §24.5 no se vería jamás fuera de producción.
+    expect(sets.some((s) => s.logoUrl !== null)).toBe(true);
+    expect(sets.some((s) => s.logoUrl === null)).toBe(true);
+  });
+
+  it('el plegado del master combinado (P-27) conserva el logo DEL PRINCIPAL, no el del subset', async () => {
+    const sets = await listBuylistSets();
+    const celebrations = sets.find((s) => s.id === 'cel25');
+    expect(celebrations).toBeDefined();
+    // `cel25c` (Classic Collection, `logoUrl: null`) se pliega dentro de `cel25`…
+    expect(celebrations!.partSetIds).toEqual(['cel25', 'cel25c']);
+    expect(sets.some((s) => s.id === 'cel25c')).toBe(false);
+    // …y la teja usa el logo del principal (contrato `GET /catalog/sets`, nota de P-27).
+    expect(celebrations!.logoUrl).toBe('https://images.pokemontcg.io/cel25/logo.png');
+  });
 });

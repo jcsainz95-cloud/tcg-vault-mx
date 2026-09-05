@@ -89,46 +89,48 @@ function today(): Date {
 }
 
 /**
- * v1.44-graded-estimate (§4.38d) — las **12** claves del gancho: los DOS diales M10 (exhibición e
- * ingest) + las 10 de M2. Se leen TODAS en una sola query (`SettingsService.getRawMany`) para que la
- * config del gancho cueste **+1 query constante** por request en vez de 12 lecturas sueltas
- * (`SettingsService` no cachea).
+ * v1.44-graded-estimate (§4.38d), **v1.51 (M-46, §4.38r)** — las **11** claves del gancho: el **dial
+ * único** M10 (`grading_hook_enabled`, exhibición **Y** obtención) + las 10 de M2. Se leen TODAS en una
+ * sola query (`SettingsService.getRawMany`) para que la config del gancho cueste **+1 query constante**
+ * por request en vez de 11 lecturas sueltas (`SettingsService` no cachea).
  *
  * ⚠️ El número está escrito porque su VALOR es la garantía: añadir un dial y leerlo aparte devuelve el
  * coste a +N, que es exactamente la regresión que QA midió (+7). Si esta lista crece, crece AQUÍ.
+ * *(v1.51 la hizo DECRECER: 12 → 11, al fundir los dos diales M10 en uno. La garantía no cambia de
+ * naturaleza —una query— pero el número sí, y un número que miente es peor que no tenerlo.)*
  */
 const GRADED_ESTIMATE_SETTING_KEYS = [
-  SettingKey.GRADED_ESTIMATES_ENABLED,
+  SettingKey.GRADING_HOOK_ENABLED,
   SettingKey.GRADED_ESTIMATE_GRADES,
   SettingKey.GRADED_ESTIMATE_HIGHLIGHT_GRADES,
   SettingKey.GRADED_ESTIMATE_FRESHNESS_DAYS,
   SettingKey.GRADING_MIN_UPSIDE_PCT,
   SettingKey.GRADING_COST_TIERS,
-  // v1.50.2 — las 6 nuevas (5 de M2 + el 2º dial M10). Siguen yendo en la MISMA query: el coste de la
-  // config es +1 constante por request, y añadir diales no puede volver a convertirlo en +N (la
+  // v1.50.2 — las 5 de M2 del gate de confianza y del ingest. Siguen yendo en la MISMA query: el coste
+  // de la config es +1 constante por request, y añadir diales no puede volver a convertirlo en +N (la
   // regresión que QA midió como +7 fue exactamente eso: una lectura por clave).
   SettingKey.GRADED_ESTIMATE_MANUAL_FRESHNESS_DAYS,
   SettingKey.GRADED_ESTIMATE_MAX_RAW_MULTIPLE,
   SettingKey.GRADED_ESTIMATE_MIN_SAMPLE_COUNT,
   SettingKey.GRADED_ESTIMATE_SOURCE_STAT,
   SettingKey.GRADED_ESTIMATE_INGEST_MAX_CARDS_PER_RUN,
-  SettingKey.GRADED_ESTIMATE_INGEST_ENABLED,
 ] as const satisfies readonly SettingKeyType[];
 
 /**
- * Dial maestro M10 `graded_estimates_enabled` (seed `off`): SOLO el string `'on'` enciende. Clave
- * ausente, `null`, `true`, `'ON'` o basura ⇒ APAGADO (fail-closed por construcción).
+ * v1.51 (M-46, §4.38r) — **EL resolver del dial del gancho. Uno solo, y lo consumen los dos lados**:
+ * el storefront (vía `loadGradedEstimateConfig`) y el **gate del ingest** (vía
+ * `loadGradedEstimateConfigForAdmin` → `cfg.enabled`).
+ *
+ * Dial M10 `grading_hook_enabled` (seed `off`): SOLO el string `'on'` enciende. Clave ausente, `null`,
+ * `true`, `'ON'` o basura ⇒ APAGADO (fail-closed por construcción).
+ *
+ * ⚠️ Lo que este resolver **no** hace, y es la mitad de su valor: **no mira ninguna clave de
+ * curaduría**. `estimatesEnabled`/`highlightEnabled` sí (doblan la validez de `minUpsidePct`,
+ * `highlightGrades`, `maxRawMultiple`), y por eso el ingest **no puede** colgarse de ellos: un dedazo
+ * en un umbral de vitrina congelaría la obtención de datos (§4.38h.3).
  */
-function gradedEstimatesEnabledFrom(raw: Map<SettingKeyType, unknown>): boolean {
-  return featureDialOn(raw, SettingKey.GRADED_ESTIMATES_ENABLED);
-}
-
-/**
- * v1.50.2 — SEGUNDO dial M10 `graded_estimate_ingest_enabled` (seed `off`): gobierna la OBTENCIÓN
- * (créditos + escrituras), no la exhibición. Mismo fail-closed por construcción.
- */
-function gradedEstimateIngestEnabledFrom(raw: Map<SettingKeyType, unknown>): boolean {
-  return featureDialOn(raw, SettingKey.GRADED_ESTIMATE_INGEST_ENABLED);
+function gradingHookEnabledFrom(raw: Map<SettingKeyType, unknown>): boolean {
+  return featureDialOn(raw, SettingKey.GRADING_HOOK_ENABLED);
 }
 
 /** SOLO el string `'on'` enciende. Ausente, `null`, `true`, `'ON'` o basura ⇒ APAGADO. */
@@ -1223,8 +1225,9 @@ export class PricingService {
    * v1.44-graded-estimate (§4.38c/d) — CONFIG del «gancho de grading» izada UNA vez por request
    * (espejo de `loadSealedSpreads`, pago mínimo de BE-25). Lectura FAIL-CLOSED en dos niveles:
    *
-   * 1. **Dial maestro primero:** con `graded_estimates_enabled != 'on'` se devuelve la config APAGADA
-   *    (y el caller NO lee precios: con el dial `off` el backend «ni siquiera evalúa nada», §M10).
+   * 1. **Dial primero:** con `grading_hook_enabled != 'on'` (v1.51, dial ÚNICO) se devuelve la config
+   *    APAGADA (y el caller NO lee precios: con el dial `off` el backend «ni siquiera evalúa nada»,
+   *    §M10).
    * 2. **`AUSENTE ≠ INVÁLIDA` (GU-A8, v1.44.1).** Tres estados por clave, no dos:
    *
    *    | Estado | `grading_cost_tiers` | `minUpsidePct` / `freshnessDays` / `grades` / `highlightGrades` |
@@ -1246,7 +1249,7 @@ export class PricingService {
    * distinción que §4.38d exige. (En una BD sembrada — `prisma/seed.ts` escribe una fila por cada
    * `SETTING_DEFAULTS` — el comportamiento observable no cambia; lo que cambia es el caso degradado.)
    *
-   * **v1.44 IMPORTANTE-2 — coste real:** las **12** claves se leen en **UNA** query (antes: 1
+   * **v1.44 IMPORTANTE-2 — coste real:** las **11** claves (v1.51: eran 12) se leen en **UNA** query (antes: 1
    * `findUnique` del dial + N `getRaw()` sin caché). El coste del gancho por request queda en **+1
    * query con el dial `off`** y **+3 con `on`** (esta + el batch de estimados de §4.38c + el batch de
    * slabs publicados de INV-D §4.38l). Sigue siendo O(1) respecto del tamaño de la página.
@@ -1255,11 +1258,12 @@ export class PricingService {
     const raw = await this.settings.getRawMany(GRADED_ESTIMATE_SETTING_KEYS);
     // Config apagada INERTE — con `grades`/`gradingCostTiers` vacíos, las puras devuelven `[]` y
     // `FEATURE_OFF` aunque alguien las llamara por error.
-    if (!gradedEstimatesEnabledFrom(raw)) {
+    if (!gradingHookEnabledFrom(raw)) {
       // La constante compartida `DISABLED_GRADED_ESTIMATE_CONFIG` (common/) — una sola definición del
-      // estado apagado, para que añadir un dial no deje tres copias divergentes. `ingestEnabled` sigue
-      // reflejando el dial REAL: el ingest puede rodar en observación con la exhibición apagada (§4.38d).
-      return { ...DISABLED_GRADED_ESTIMATE_CONFIG, ingestEnabled: gradedEstimateIngestEnabledFrom(raw) };
+      // estado apagado, para que añadir un dial no deje tres copias divergentes.
+      // v1.51 (M-46): se devuelve TAL CUAL. Antes había que reinyectar `ingestEnabled` porque el ingest
+      // tenía dial propio; con un solo dial, apagado es apagado en las dos superficies.
+      return DISABLED_GRADED_ESTIMATE_CONFIG;
     }
     return this.buildGradedEstimateConfig(raw, true);
   }
@@ -1271,13 +1275,16 @@ export class PricingService {
    * tiene que poder explicar `FEATURE_OFF` mostrando la tabla vigente. `enabled` es el ESPEJO
    * READ-ONLY del dial M10 (se edita en `PUT /admin/settings`, no aquí).
    *
+   * **v1.51 (M-46, §4.38r.7): es también la vía del GATE DEL INGEST**, que lee `cfg.enabled` — el dial
+   * crudo — precisamente porque esta variante NO apaga por claves de curaduría corruptas.
+   *
    * Devuelve la config **EFECTIVA** (la misma que ve el resolver): si la fila de `grading_cost_tiers`
    * NO existe, el editor ve `[]` — que es exactamente lo que el gate aplicaría — y no una tabla
    * fantasma que nadie escribió nunca.
    */
   async loadGradedEstimateConfigForAdmin(): Promise<GradedEstimateConfig> {
     const raw = await this.settings.getRawMany(GRADED_ESTIMATE_SETTING_KEYS);
-    return this.buildGradedEstimateConfig(raw, gradedEstimatesEnabledFrom(raw));
+    return this.buildGradedEstimateConfig(raw, gradingHookEnabledFrom(raw));
   }
 
   /**
@@ -1386,6 +1393,15 @@ export class PricingService {
       );
     }
 
+    // v1.51-b (R1) — las claves del INGEST que están PRESENTES-e-INVÁLIDAS, por NOMBRE y en orden fijo.
+    // Son las mismas tres de siempre (`minSampleCount`, `sourceStat`, `ingestMaxCardsPerRun`); lo único
+    // nuevo es que el fail-closed deja de ser anónimo: el veredicto del ingest las imprime para que el
+    // operador sepa qué corregir en vez de mirar el dial —que está bien— y creer que ése es el problema.
+    const ingestInvalidKeys: string[] = [];
+    if (minSampleRes.invalid) ingestInvalidKeys.push(SettingKey.GRADED_ESTIMATE_MIN_SAMPLE_COUNT);
+    if (sourceStatRes.invalid) ingestInvalidKeys.push(SettingKey.GRADED_ESTIMATE_SOURCE_STAT);
+    if (ingestMaxRes.invalid) ingestInvalidKeys.push(SettingKey.GRADED_ESTIMATE_INGEST_MAX_CARDS_PER_RUN);
+
     const estimatesEnabled =
       enabled && !gradesRes.invalid && !freshRes.invalid && !manualFreshRes.invalid;
     const highlightEnabled =
@@ -1395,7 +1411,6 @@ export class PricingService {
       enabled,
       estimatesEnabled,
       highlightEnabled,
-      ingestEnabled: gradedEstimateIngestEnabledFrom(raw),
       grades,
       highlightGrades,
       freshnessDays: freshRes.value,
@@ -1406,7 +1421,11 @@ export class PricingService {
       minSampleCount: minSampleRes.value,
       sourceStat: sourceStatRes.value,
       ingestMaxCardsPerRun: ingestMaxRes.value,
-      ingestConfigInvalid: minSampleRes.invalid || sourceStatRes.invalid || ingestMaxRes.invalid,
+      // v1.51-b (R1): la MISMA composición de siempre —las 3 claves del ingest— pero conservando CUÁL
+      // falló. `ingestConfigInvalid` se deriva de la lista para que no puedan divergir: si mañana
+      // alguien recompone una y olvida la otra, la derivación lo impide por construcción.
+      ingestConfigInvalid: ingestInvalidKeys.length > 0,
+      ingestInvalidKeys,
       // v1.50.3 (§4.38n.3): se expone POR SEPARADO de `highlightEnabled` —que ya está apagado por tres
       // claves distintas— porque la LISTA DE REVISIÓN necesita poder NOMBRAR la clave corrupta en su
       // `409`. Un «algo está mal» no sirve en la superficie que existe para que el operador confíe.

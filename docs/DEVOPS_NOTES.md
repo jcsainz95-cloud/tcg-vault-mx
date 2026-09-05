@@ -48,6 +48,22 @@
 > `scripts/post-deploy.sh`. También ahí: **`next build` + `next start` para gates, nunca `next dev`**
 > (§32.6) y la confirmación de los dos huecos de entorno **abiertos** (§32.7).
 >
+> **⇒ Actualización 2026-08-31 (v1.51, M-48): NUEVA §32.12 — UN SOLO DIAL, y encenderlo es un ACTO DE
+> GASTO.** El dueño colapsó los dos interruptores del gancho de grading en **uno**
+> (`grading_hook_enabled`, seed `off`, DTO `gradingHookEnabled`): el mismo `PUT` **publica la afirmación
+> comercial Y autoriza al barrido diario a pedir datos a un proveedor de PAGA y a escribir precios**. Las
+> dos claves viejas quedan **retiradas del código y vivas en la tabla** —inertes— y por eso la línea de
+> inventario del arranque las lista bajo su rótulo: leer `graded_estimate_ingest_enabled = off` y concluir
+> «el ingest está apagado» es **la trampa de diagnóstico** de este pase. En **§32.12**: el **presupuesto en
+> créditos publicado ANTES del primer encendido** (**250 × 2 × 2 = 1 000 créditos/día**, y
+> `ingestMaxCardsPerRun` es **lo único entre un `PUT` y la factura**), el **runbook de 7 pasos** con sus
+> **dos verificaciones POSITIVAS de ausencia de gasto** —ejecutadas, con la salida real pegada—, el
+> comparador `check-graded-estimate-dials.sh` actualizado a v1.51, la **incapacitación del entorno E2E/CI**
+> frente al proveedor de paga (`docker-compose.yml` pasaba la credencial **sin default**: en CI quedaba
+> vacía por accidente, no por diseño) con su guarda nueva
+> `scripts/check-e2e-provider-incapacitation.sh` cableada en **`ci.yml`** —no en `deploy.yml`, que no
+> corre—, y el **veredicto de la sonda** registrado. **Encender el dial NO es de devops: es del dueño.**
+>
 > **⇒ Actualización 2026-08-28, 2ª ronda (rechazo de QA + revisión del techlead):**
 > **§32.10 — el arnés de gate no arrancaba.** `up --seed --gate` moría en el `next build` porque el
 > `NODE_ENV=development` que el backend necesita **se filtraba** al build del frontend (BLOQ-1 de QA).
@@ -239,7 +255,7 @@ antes de usar esas funciones:
 | `S3_*` (endpoint/bucket/keys/force-path-style) | **Object storage SOLO para la INE del buylist (`kyc_ine/`)**, cifrada + presigned PUT/GET. Local=MinIO (ya puesto); prod=R2/S3. v1.2.1: sin `S3_PUBLIC_BASE_URL` (no hay prefijo público) ni fotos de inventario/disputa. Nombres reales que consume el código: `S3_ENDPOINT`, `S3_REGION`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_FORCE_PATH_STYLE`. | Cloudflare R2 o AWS S3 |
 | `KYC_UPLOAD_MAX_BYTES` (opcional) | Tope en bytes del upload presignado de la INE (`kyc_ine`); se fija en la firma (`ContentLength`). Sin valor → backend usa **10 MiB** (10485760). | Sin acción salvo querer otro tope |
 | `GOOGLE_CLIENT_ID` (backend `[RW]`) + `NEXT_PUBLIC_GOOGLE_CLIENT_ID` (Vercel `[VC]`) | Login con Google (v1.2). **Mismo** OAuth 2.0 Client ID en ambas: backend valida `aud` del ID token; frontend lo usa en el botón. Sin `GOOGLE_CLIENT_ID` el backend rechaza el login con Google (email/password sigue OK). | Google Cloud Console > Credentials > OAuth client ID (Web) |
-| `DISPUTE_EVIDENCE_CONTACT` (backend `[RW]`) | Correo que el backend devuelve como `evidenceContact` para que el cliente envíe evidencia de disputa **por email** (v1.2: ya no se sube al bucket). Placeholder, override sin redeploy; default `soporte@tcgvaultmx.com`. | Correo de soporte del negocio |
+| `DISPUTE_EVIDENCE_CONTACT` (backend `[RW]`) | Correo que el backend devuelve como `evidenceContact` para que el cliente envíe evidencia de disputa **por email** (v1.2: ya no se sube al bucket). Placeholder, override sin redeploy; default `soporte@tcghunt.mx` (P-21, §34). | Correo de soporte del negocio |
 | `PII_ENCRYPTION_KEY`, `PII_HMAC_KEY` | Endurecimiento PII: cifrado AES-256 en reposo de CLABE/RFC + HMAC del blind index de CLABE (match sin descifrar). **Distintas entre sí**. Vacías OK en local (greenfield); **OBLIGATORIAS en no-local** (backend aborta si faltan). | Generar: `openssl rand -base64 32` (una por cada una); en prod, **KMS/secret manager** |
 | `INE_RETENTION_DAYS` | Días de retención de la INE del KYC (`kyc_ine/`). El backend borra; el bucket expira como capa extra. Igual al dial M10 (fuente de verdad). | Valor **legal/fiscal** — **fijado en 180 días** por decisión de negocio, alineado con el dial M10 del backend |
 | `FX_SOURCE=banxico`, `BANXICO_SIE_TOKEN` | Tipo de cambio USD→MXN automático (Banxico SIE) + colchón + override manual (M10). El backend lee `BANXICO_SIE_TOKEN` y, si falta, cae a `FX_API_KEY`, y si tampoco, a override manual / último FxRate. | Token SIE de Banxico (gratis en el portal SIE) |
@@ -583,6 +599,10 @@ Regla de oro del rollback: **datos primero** (snapshot antes de migrar), luego c
 | `scripts/dev-up.sh` / `dev-down.sh` | Levantar/apagar entorno local. |
 | `scripts/db-migrate.sh` / `seed.sh` | Migraciones y seed (delegan en los scripts npm de backend). |
 | `scripts/seed-synthetic.sh` | Seed sintético de staging (delega en backend; nunca datos reales). |
+| `scripts/check-graded-estimate-dials.sh` | Comparador **SOLO-LECTURA** del gancho de grading: el **dial único** `gradingHookEnabled` (v1.51), los 3 diales de v1.50.3 contra su default nuevo, el **presupuesto en créditos** del entorno, y la detección de binario **pre-M-48**. No escribe nada. §32.5 y §32.12.4. |
+| `scripts/check-e2e-provider-incapacitation.sh` | Guarda **estática** (lee YAML, sin red): los workflows E2E deben declarar `POKEMONPRICETRACKER_API_KEY: ''` y la constancia `E2E_GRADING_PROVIDER_INCAPACITATED`. Cableada en `ci.yml` (cada push/PR) y como primer paso de `e2e-real.yml`/`e2e.yml`. §32.12.5. |
+| `scripts/post-deploy.sh` | Orquestador idempotente post-deploy (§27, §29); su PASO 8 corre el comparador de diales y **bloquea el anuncio del release** si `rc != 0`. |
+| `scripts/stack-native.sh` | Stack REAL sin Docker (Postgres+Redis+Nest+Next nativos). Ruta soportada para gates y verificaciones cuando no hay demonio de Docker. §29.10. |
 
 > Los Dockerfiles viven en la **raíz** (no dentro de `backend/`/`frontend/`) para respetar la propiedad
 > de archivos de `CLAUDE.md`: devops no escribe en esas carpetas.
@@ -719,7 +739,7 @@ Validaciones estáticas corridas (reales):
       (**whsec_…**, se rellena en 11.G tras crear el webhook)
 - [ ] `GOOGLE_CLIENT_ID` (login con Google; **mismo** OAuth Client ID que `NEXT_PUBLIC_GOOGLE_CLIENT_ID`
       del front — [VC]. Sin él, el backend rechaza el login con Google)
-- [ ] `DISPUTE_EVIDENCE_CONTACT` (correo de contacto de evidencia de disputa; default `soporte@tcgvaultmx.com`)
+- [ ] `DISPUTE_EVIDENCE_CONTACT` (correo de contacto de evidencia de disputa; default `soporte@tcghunt.mx`, §34)
 - [ ] `POKEMONTCG_IO_API_KEY` (metadata del catálogo + ingest legacy/rollback `PRICE_PROVIDER=pokemontcg_io`);
       `POKEMONPRICETRACKER_API_KEY` (**proveedor de PAGA del ingest masivo WS-A** — requisito operativo cuando el
       dial `PRICE_PROVIDER=pokemonpricetracker`; **ya aprovisionada en Railway**, con cuota del plan de paga;
@@ -2532,7 +2552,19 @@ Diagnóstico **confirmado**:
 
 ## 25. P-21 — Rebrand a `tcghunt.mx`: infra, redirects 301 y runbook del switch (2026-08-21)
 
-> **Contexto:** el humano YA compró `tcghunt.mx` (PENDIENTES P-21). Hoy producción sirve en
+> ⚠️ **PARCIALMENTE SUPERADA POR §34 (2026-08-31). Lee §34 antes de ejecutar nada de aquí.**
+> Dos cosas de esta sección dejaron de ser ciertas:
+> 1. **La fila `MAIL_FROM` de §25.5 («sin fijar») NO es fiable**: se escribió sin evidencia y
+>    contradice a `HANDOFF.md` §3, que la da por fijada. §34.4 documenta la contradicción y cómo
+>    resolverla en 2 minutos.
+> 2. **El supuesto del 301 desde el dominio viejo (§25.2) decayó**: `PROJECT.md` decisión 58
+>    declara los dominios anteriores **retirados/inexistentes**. No hay dominio vivo que sirva un
+>    301, ni origen que allow-listear en CORS.
+>
+> El resto (inventario, DNS, Stripe, R2, OAuth, rollback) sigue siendo referencia válida.
+> Se conserva como registro histórico del plan; **§34 es la fuente de verdad del switch de correo**.
+
+> **Contexto (histórico, ago-2026):** el humano YA compró `tcghunt.mx` (PENDIENTES P-21). Hoy producción sirve en
 > `tcgvaultmx.com` (frontend en **Vercel**, canónico `www.tcgvaultmx.com`; apex redirige a `www`;
 > DNS en **Cloudflare, DNS only/nube gris** — HANDOFF §3). El backend vive en **Railway** con su
 > **propio dominio** `tcg-vault-mx-production.up.railway.app` (§23.2) — el rebrand **no** lo toca.
@@ -4291,6 +4323,17 @@ condiciones están resueltas, despliego, tageo y lo declaro listo. Antes no.
 
 ## 31. Clave de PRUEBA de Stripe: los tres flujos de dinero en navegador antes de prod — 2026-08-24
 
+> **⚠ LEER ANTES QUE ESTA SECCIÓN (añadido 2026-08-30, §33).** Dos afirmaciones de aquí abajo se han
+> quedado cortas o mezcladas:
+> 1. **§31.2 diagnostica el caso LOCAL** (egress a `api.stripe.com` bloqueado). **En CI la causa es
+>    otra**: la clave es de **relleno**. Mismo síntoma —los mismos 3 rojos—, dos causas que se arreglan
+>    con cosas distintas. La tabla que las separa está en **§33.5**.
+> 2. **El preflight de §31.4 comprobaba PRESENCIA, no VALIDEZ**, y podía anunciar en verde un gate de
+>    dinero inexistente. Corregido en **§33.2/§33.3**: ahora clasifica por FORMA y, sin credencial,
+>    **salta** los tres smokes declarándolo (la ruta de promoción sigue siendo rojo inmediato).
+> 3. La tabla «qué es gate y qué no» de §31.4 asume que `deploy.yml` es el camino de deploy. **No lo
+>    es** — ver **§33.4**.
+
 > **Decisión del dueño:** la condición #1 del DoD (§30.6) se resuelve **por la vía de la clave de prueba**,
 > no por aceptación formal. Los tres flujos de dinero —**comprar**, **comprar como invitado**,
 > **retirar**— se verifican **en navegador contra staging** antes de promover a prod. Eso convierte una
@@ -4651,6 +4694,13 @@ viejo» es prueba de nada — solo es lo bastante probable como para proponer el
 
 ### 32.5 Verificación de cierre — y el límite honesto del E2E (hallazgo de devops)
 
+> ⚠️ **ACTUALIZACIÓN v1.51 (M-48) — leer antes de correr el punto (3).** El spec del criterio 109
+> **enciende y apaga el dial del gancho**, y desde el colapso a **un solo dial** ese flip **también
+> autoriza el ingest de un proveedor de PAGA**. Consecuencia normativa (§4.38r.6.3): ese E2E —y
+> cualquier verificación del **criterio 108**— se corre **solo en un entorno sin credencial del
+> proveedor** o **con la sonda encendida**; nunca «apagando y encendiendo a ver» contra un entorno con
+> llave viva. El resto de esta §32.5 sigue vigente tal cual. Ver **§32.12**.
+
 Un `PUT` con HTTP 200 dice que **la escritura se aceptó**, no que **el criterio se cumple**. La
 verificación tiene tres piezas, y **no son intercambiables**:
 
@@ -4801,13 +4851,21 @@ quedarían rojos por timeout de red en vez de por falta de clave. **El gate vive
 
 ### 32.8 Rollback
 
+> ⚠️ **CORREGIDA POR M-48 (v1.51, 2026-08-31). El botón de pánico de esta sección CAMBIÓ DE CLAVE.**
+> Esta sección se escribió para el pase del 2026-08-28, cuando el gancho de grading tenía **dos**
+> diales. M-48 los colapsó en **uno** (`grading_hook_enabled`, DTO `gradingHookEnabled`) y **retiró**
+> `graded_estimates_enabled` y `graded_estimate_ingest_enabled` del código: siguen como filas en la
+> tabla, pero **son inertes y `PUT /admin/settings` las rechaza con 422**. La tercera fila de la tabla
+> de abajo ya viene corregida. **El rollback canónico de M-48 es §32.12.7 — léelo si el incidente es
+> del gancho de grading.**
+
 **El rollback de un dial NO es un rollback de deploy.** Los dos casos, y son distintos:
 
 | Escenario | Acción | Por qué |
 |---|---|---|
 | **El `PUT` de §32.2 se aplicó y hay que revertirlo** | **Otro `PUT`** con el valor anterior (que el comparador te imprimió antes de aplicar — **anótalo**). Efecto inmediato, **sin redeploy**. | Es un cambio de datos por la vía normal: queda **auditado en las dos direcciones** (`before`/`after`) y validado. Nunca un `UPDATE` ni un restore de base: para revertir **un valor** no se toca un backup. |
 | **Se revierte el DEPLOY de v1.50.3** | El código vuelve atrás; **las filas `ConfigSetting` NO vuelven atrás**. | Es el **corolario simétrico de §32.1**: igual que un deploy no cambia un dial, un rollback tampoco lo revierte. Las tres claves quedan **huérfanas e inertes** (precedente `rarity_map`, §M2 v1.32) — el código viejo no las lee. **Sin riesgo de $0 ni ventana ciega**: el flag arranca `off` y el resolver es fail-closed on-read. |
-| **La feature se comporta mal tras aplicar los diales** | **Apagarla con su dial M10**: `PUT /admin/settings { "gradedEstimatesEnabled": "off" }`. No requiere deploy ni tocar los tres diales. | Fail-closed: con `off` no se evalúa nada ni se emite ningún campo. Es el rollback **más barato y más rápido** de esta feature, y el que hay que intentar primero. |
+| **La feature se comporta mal tras aplicar los diales** | **Apagarla con su dial M10** — el **DIAL ÚNICO** desde v1.51: `PUT /admin/settings {"gradingHookEnabled":"off"}`. No requiere deploy ni tocar los tres diales. ⛔ **NO** `gradedEstimatesEnabled`: esa clave está **RETIRADA** y el endpoint la rechaza con **422 `VALIDATION_ERROR` / `"unknown setting key"`, 0 upserts** — el gancho se queda **encendido y facturando**. | Fail-closed: con `off` no se evalúa nada, no se emite ningún campo **y el ingest no pide nada al proveedor de paga** (cero créditos, cero escrituras). Es el rollback **más barato y más rápido** de esta feature, y el que hay que intentar primero. **Ejecutado de verdad**: 200 + dial en `off` + espejo `enabled:false` + ingest sin pedir nada — salida real en §32.8-bis. |
 
 ⚠ **Lo que el rollback de deploy NO deshace:** las filas `PriceReference` con `gradeKey='graded:PSA:*'`
 que el admin haya fijado **sobreviven** y siguen siendo lo que ya eran antes de v1.50 (el valor de
@@ -4819,7 +4877,113 @@ el comparador imprime en el paso 1. Sin ese apunte, el rollback del dial no tien
 
 ---
 
+#### 32.8-bis El botón de pánico, **EJECUTADO** — no «debería funcionar» (2026-08-31)
+
+QA rechazó M-48 porque §32.8 mandaba a una tecla muerta. **La corrección no se declara: se demuestra.**
+Stack nativo real (`stack-native.sh up --infra` + backend NestJS completo por `ts-node` en `:3099`,
+guards y pipes activos), `super_admin` autenticado de verdad. **Salida literal, pegada sin editar:**
+
+**A) El cuerpo que mandaba §32.8 hasta hoy — reproduce el fallo de QA, carácter por carácter:**
+
+```
+$ curl -X PUT :3099/api/v1/admin/settings -d '{ "gradedEstimatesEnabled": "off" }'
+{"error":{"code":"VALIDATION_ERROR","message":"Invalid settings payload",
+ "details":{"errors":{"gradedEstimatesEnabled":"unknown setting key"}}}}
+HTTP 422
+```
+
+**B) El incidente, simulado de verdad:** se **enciende** el gancho (`{"gradingHookEnabled":"on"}` →
+HTTP 200) y se confirma en la base que el gasto queda autorizado:
+
+```
+grading_hook_enabled = on
+```
+
+**C) El cuerpo NUEVO del runbook, contra el endpoint real:**
+
+```
+$ curl -X PUT :3099/api/v1/admin/settings -d '{"gradingHookEnabled":"off"}'
+gradingHookEnabled en la RESPUESTA = "off"
+HTTP 200
+
+$ curl -X GET :3099/api/v1/admin/settings          → gradingHookEnabled = "off"
+$ psql … WHERE key='grading_hook_enabled'          → grading_hook_enabled = off  (updatedBy=fb3567da-…)
+$ curl -X GET :3099/api/v1/admin/pricing/graded-estimates → enabled = false   (el espejo que lee el INGEST)
+```
+
+**D) Y el apagón APAGA el dinero, no solo la vitrina** — verificación positiva de ausencia de gasto:
+con el dial ya en `off` se dispara `POST /admin/jobs/price-ingest {}` (HTTP 202) y el log dice:
+
+```
+[PriceIngestService] graded-estimate-ingest: dial `grading_hook_enabled` = off → no se pide NADA al
+proveedor (cero créditos) y no se escribe NINGUNA fila.
+[PriceIngestService] [VEREDICTO-PSA] VEREDICTO: INDETERMINADO — No se preguntó nada.
+```
+
+**E) El rastro queda en las dos direcciones** (`AuditLog`, `action='settings.update'`), que es lo que
+hace auditable un rollback a posteriori:
+
+```
+2026-08-31 04:55:05 | settings.update | before.gradingHookEnabled=on  -> after.gradingHookEnabled=off
+2026-08-31 04:54:49 | settings.update | before.gradingHookEnabled=off -> after.gradingHookEnabled=on
+```
+
+> **Por qué esto era bloqueante y no cosmético.** El estado `on` de este dial gasta créditos de un
+> proveedor de paga en **cada tick del cron, 2×/día, sin humano delante**. Quien estuviera dentro de un
+> incidente siguiendo §32.8 recibía un 422, **0 upserts**, y se quedaba con el gancho **encendido y
+> facturando** mientras creía haberlo apagado. Un rollback que no ejecuta no es documentación
+> incompleta: es la mitad que falta del control de dinero que M-48 existe para construir.
+>
+> **Y es el mismo defecto que backend ya había cazado en su runbook (`fa2e3eb`).** Yo escribí el
+> runbook correcto —vive en §32.12.7— y aun así metí 447 líneas en este archivo **sin tocar §32.8**,
+> que no llevaba banner y por tanto se leía como vigente. La lección operativa, escrita para el
+> siguiente pase: **cuando se retira una clave de configuración, el trabajo no es documentar la nueva;
+> es barrer TODAS las instrucciones vigentes que nombran la vieja.** El barrido de este pase está en
+> §32.8-ter.
+
+---
+
+#### 32.8-ter Barrido de claves retiradas en este archivo — qué se corrigió y qué se conserva
+
+Patrón corrido sobre `docs/DEVOPS_NOTES.md` (las **cuatro** formas retiradas, no solo las dos que
+señaló QA — `graded_estimates_enabled` es tan tecla muerta como la del ingest):
+
+```bash
+grep -nE "graded_estimates_enabled|gradedEstimatesEnabled|\
+graded_estimate_ingest_enabled|gradedEstimateIngestEnabled" docs/DEVOPS_NOTES.md
+```
+
+**11 aciertos, revisados uno a uno a mano.** El criterio de corte es el que pidió QA: **una
+instrucción operativa vigente se corrige; una descripción histórica fechada se conserva y, si hace
+falta, se rotula.** Borrar las descripciones sería peor que inútil — son justamente lo que enseña la
+trampa de diagnóstico de §4.38(r.1).
+
+*(Las líneas son las del archivo **ANTES** de este arreglo — son las que citó QA. Tras las
+correcciones el archivo creció; la referencia estable es la **sección**.)*
+
+| Línea (pre-fix) | Sección | Qué es | Veredicto |
+|---|---|---|---|
+| 4839 | §32.8 | **INSTRUCCIÓN**: el `PUT` del botón de pánico | 🔴 **CORREGIDA** → `{"gradingHookEnabled":"off"}` + banner en §32.8 |
+| 4860 | §32.9 | **INSTRUCCIÓN**: ítem de checklist «la feature sigue APAGADA por su dial (`graded_estimates_enabled = off`)», para pegar en el ticket del release. **QA no lo señaló** — su patrón no cubría esta clave | 🔴 **CORREGIDA** → `grading_hook_enabled` + banner de supersesión en §32.9 |
+| 56 | índice | Descripción fechada de la **trampa** («leer `graded_estimate_ingest_enabled = off` y concluir …») | 🟢 Se conserva: **advierte** contra la clave muerta, no manda a ella |
+| 5057, 5110 | §32.12 | Por qué las dos claves quedan retiradas y vivas, y por qué la clave es NUEVA | 🟢 Se conserva: es la decisión de seguridad de M-48 |
+| 5204 | §32.12.3 | **Salida real pegada** de la línea de inventario del arranque | 🟢 Se conserva: es evidencia, no instrucción |
+| 5242, 5248, 5249, 5264 | §32.12.4 | Qué detecta el comparador sobre binarios PRE-M-48 y sus roturas demostradas | 🟢 Se conserva: nombrar la clave muerta **es** la función del check |
+| 5405 | §32.12.7 | Efecto de un rollback de **código**: el binario viejo vuelve a leer `graded_estimates_enabled` | 🟢 Se conserva: es correcto y es el motivo de no borrar las filas |
+
+**Fuera de este archivo:** el mismo patrón sobre `scripts/`, `.github/workflows/`, `docker-compose*.yml`
+y `.env.example` da **6 aciertos, todos en `scripts/check-graded-estimate-dials.sh`** (líneas 33, 37,
+152, 161, 215, 221) y **todos correctos**: ese script nombra las claves muertas **para detectarlas y
+gritar**, que es exactamente lo contrario de mandar a ellas. **Ninguno se toca.**
+
+---
+
 ### 32.9 Checklist del pase (§4.38p) — para pegar en el ticket del release
+
+> ⚠️ **CHECKLIST DEL PASE DEL 2026-08-28 (v1.50.3 / M-42). SUPERADA POR §32.12.9 para el pase de M-48.**
+> Se conserva porque los 3 diales de M2 siguen siendo los mismos, pero **el nombre del dial del
+> penúltimo punto cambió con M-48** y ya viene corregido abajo. Si el pase que estás preparando es el
+> de M-48 (v1.51), **la checklist que se pega en el ticket es la de §32.12.9**, no ésta.
 
 - [ ] `migrate deploy` — **nada nuevo por M-42** (es DATA/seed, sin DDL). M-41 (curva) ya está desplegada.
 - [ ] **Staging**: `check-graded-estimate-dials.sh` → anotar los 3 valores vigentes **antes** de tocar nada.
@@ -4828,8 +4992,11 @@ el comparador imprime en el paso 1. Sin ese apunte, el rollback del dial no tien
 - [ ] **Prod**: `check-graded-estimate-dials.sh` → anotar los 3 valores vigentes.
 - [ ] **Prod**: aplicar el `PUT` parcial. Divergentes → **preguntar al humano (GU-13)**, no sobrescribir.
 - [ ] **Prod**: re-`GET` (`rc=0`) + línea de inventario del arranque. **E2E 109 NO se corre aquí** (§32.5).
-- [ ] La feature sigue **APAGADA** por su dial (`graded_estimates_enabled = off`) hasta que el humano
-      apruebe el texto legal. **Encenderla no es decisión de devops** y **no es parte de este paso.**
+- [ ] La feature sigue **APAGADA** por su dial (**v1.51: `grading_hook_enabled = off`**, DTO
+      `gradingHookEnabled`; la vieja `graded_estimates_enabled` está **retirada e inerte** — verificarla
+      no prueba nada) hasta que el humano apruebe el texto legal. **Encenderla no es decisión de
+      devops** y **no es parte de este paso**; desde M-48 encenderla es además un **acto de gasto**
+      (§32.12.1).
 - [ ] Solo entonces: anunciar el release.
 
 > **El último punto no es una formalidad.** Los tres diales se alinean **con la feature apagada**. Eso es
@@ -5013,15 +5180,1025 @@ roles; el dato ya existe y ya es de solo-lectura.
 | **Contrapartida de cerrarlo del todo** | Un `super_admin` JWT de producción guardado en CI. **Decisión del humano, no de devops.** |
 | **Vía barata propuesta** | Job post-deploy con `railway logs` \| `grep 'config inventory'` — cero secretos nuevos. **Sin cablear** hasta poder probarla contra Railway. |
 | **Mejor solución** | Exponerlo en la UI de M2 (techlead). **Enrutado a frontend/backend.** |
+
 ---
 
-## 33. `APP_PUBLIC_URL` — el CTA de los correos del buylist: declarado, alineado y **todavía sin valor a propósito** (2026-09-01, stream `claude/buylist-inventory-workflow-hdnls3`)
+### 32.12 M-48 — **un solo dial**, y encenderlo es un acto de DINERO (v1.51, §4.38r) — 2026-08-31
+
+> **⚠️ RENUMERADA (v1.53(1), fusión 2026-09-05): esta sección era «M-46» y ahora es `M-48`.**
+> `M-46` nombraba **dos** migraciones distintas: la de esta sección (el dial del gancho de grading,
+> **DATA/seed, sin DDL**) y la del **ciclo de adquisición del buylist** (**DDL real**: 40 columnas +
+> enums + backfill, en disco como `20260901120000_m46_buylist_acquisition_cycle`). El arquitecto
+> resolvió la colisión por el artefacto —la del ciclo existe, está aplicada y registrada, y
+> renombrarla rompería `migrate deploy`— así que **el ciclo se queda con `M-46` y el gancho pasa a
+> `M-48`** (ARCHITECTURE §11, tabla de desambiguación).
+>
+> **Por qué esto no era cosmético, y léelo antes de correr el pase:** todo lo que sigue dice
+> *«nada que migrar»*. Eso es cierto **de `M-48` y solo de `M-48`**. Mientras la sección decía
+> «M-46», el mismo runbook parecía autorizar a saltarse `M-46` — que es **DDL de dinero y estaba
+> pendiente**. Si el release que preparas incluye el ciclo de adquisición, **`migrate deploy` SÍ
+> trae DDL**: no es este runbook el que te lo dice, es §37.
+>
+> Otras menciones de `M-46` en este documento (§37) hablan de la **migración DDL** y conservan su
+> número a propósito.
+
+> **Lo que cambia para operación, en una frase:** hasta ayer había un dial de **exhibición** que no
+> costaba dinero y un segundo dial de **obtención** que sí, y que nunca se dibujó en ninguna pantalla.
+> Desde hoy hay **uno solo** (`grading_hook_enabled`, seed `off`, DTO `gradingHookEnabled`), y ese
+> mismo `PUT` **publica una afirmación comercial Y autoriza al barrido diario a pedir datos a un
+> proveedor de paga y a escribir precios estimados**. No es un ajuste de vitrina: es una **firma de
+> gasto**. Norma: `ARCHITECTURE.md` §4.38(r); contrato v1.51-one-dial.
+
+**Las dos claves viejas —`graded_estimates_enabled` y `graded_estimate_ingest_enabled`— quedan
+RETIRADAS del código y VIVAS en la tabla**, huérfanas e inertes. No se borran (§4.38r.1: borrar
+config en producción para conseguir cero efecto es escribir en producción sin motivo, §11.0-4; y son
+lo que mantiene fail-closed al código viejo si hay rollback). El precio de dejarlas es que **mienten
+a quien lea la tabla a pelo**, y todo lo que sigue está construido alrededor de ese precio.
+
+---
+
+#### 32.12.1 EL PRESUPUESTO EN CRÉDITOS — publicado ANTES del primer encendido (§4.38r.3.1 punto 1)
+
+**Esto es lo primero de la sección a propósito.** §4.38(r.3.1) exige que devops publique el número
+**antes** de que el dueño toque el dial: *un tope que nadie tradujo a créditos no es un presupuesto,
+es un número*. Aquí está, con los tres factores a la vista y su procedencia:
+
+| Factor | Valor | De dónde sale (verificado, no supuesto) |
+|---|---|---|
+| Cartas por corrida | **250** | `graded_estimate_ingest_max_cards_per_run`, seed 250. Leído en vivo de la base local: `ingestMaxCardsPerRun: 250`. |
+| Créditos por carta | **2** | `includeEbay=true` cuesta 2 créditos/carta — `price-ingest.service.ts:919`, `ARCHITECTURE.md:7947` (§4.38h.3). |
+| Corridas por día | **2** | El cron `price-ingest` corre **2×/día** (§19.3). El ingest de graded cuelga de ese mismo tick. |
+
+> ## **250 × 2 × 2 = 1 000 créditos/día** (techo)
+> **500 créditos por corrida · ~30 000 créditos/mes de 30 días.**
+
+**Contra la cuota del dueño (20 000 créditos/día): el techo es el 5 %.** El otro 95 % queda sin usar,
+y **eso es correcto para el primer encendido**: el número que debe dimensionar el tope es el
+**MEDIDO** en la primera corrida real (cartas RAW publicadas y en alcance, cuántas traen bloque PSA,
+cuántas se descartan), **no una estimación hecha desde una hoja de cálculo**. Decisión del dueño,
+registrada: **no se sube el tope en este pase.** Cuando se suba, se sube contra la medición.
+
+**Por qué el techo NO es la previsión.** Solo se pide por cartas RAW **publicadas y en alcance**. En
+el stack local con el fixture sintético, la corrida real reportó **7 cartas en alcance** —o sea, un
+gasto real de `7 × 2 × 2 = 28` créditos/día, no 1 000—. El tope es una **cota superior**, y su
+utilidad es exactamente esa: acotar lo que no se puede prever.
+
+⚠️ **`ingestMaxCardsPerRun` es LO ÚNICO que hay entre un `PUT` y la factura del proveedor.** Dejó de
+ser un tope de comodidad. Consecuencias operativas que hay que tener escritas:
+
+- Se cambia **sin redeploy**, con `PUT /admin/pricing/graded-estimates {"ingestMaxCardsPerRun": N}`
+  (super_admin, auditado). Subirlo multiplica la factura por `N/250` **en la corrida siguiente**, sin
+  que nada más cambie y sin que nadie tenga que aprobar nada más.
+- **El tope máximo que el validador I8 admite es 5 000**, y `5 000 × 2 × 2 = **20 000 créditos/día**`:
+  exactamente **la cuota diaria completa del dueño**. Es decir: **un solo `PUT` de un número, dentro
+  del rango válido, puede consumir el 100 % de la cuota diaria.** No hay guarda por encima de esa.
+- Por eso el comparador imprime el presupuesto en cada corrida (§32.12.4) y por eso este número está
+  publicado aquí y no en la cabeza de nadie.
+- Los créditos gastados **no se recuperan apagando el dial**. Apagar detiene el siguiente gasto; no
+  devuelve el anterior.
+
+---
+
+#### 32.12.2 EL PASE — los 7 pasos de §4.38(r.4), con lo que cada uno verifica
+
+**El riesgo que este procedimiento existe para cerrar:** producción tiene hoy
+`graded_estimates_enabled = "on"`. Un colapso hecho *sobre la clave que ya está encendida* habría
+convertido el **siguiente tick del cron** —dentro de ≤12 h del deploy, sin intervención humana— en la
+primera factura del proveedor. Con la clave NUEVA eso **no puede pasar**: ninguna base la tiene,
+todas aterrizan en el default `off`.
+
+| # | Paso | Quién | Verificación (comando exacto) |
+|---|---|---|---|
+| **0** | **Anotar el estado previo** de las dos claves retiradas en **cada** entorno. No para restaurarlo: para poder responder «¿qué había?» después. | devops | Línea de inventario del arranque (§32.12.3-B). Los dos valores al ticket del release. |
+| **1** | **Deploy del código.** **Nada que migrar *por M-48*** (M-48 es DATA/seed, sin DDL). ⚠️ **Esto NO dice que el release no tenga migraciones:** si arrastra `M-46` (ciclo de adquisición) o `M-47` (imágenes de set), `migrate deploy` **sí** aplica DDL. Lee lo que devuelve el comando; no des por hecho el *«no pending»*. | devops | `npx prisma migrate deploy` → para un pase de **solo M-48**: *No pending migrations to apply.* (verificado en local: 34 migraciones, ninguna nueva). Si lista migraciones, es correcto: son las de otros pases. |
+| **2** | **El gancho queda OSCURO por construcción**, no por un paso que alguien pueda olvidar. | *(automático)* | `bash scripts/check-graded-estimate-dials.sh` → `gradingHookEnabled: off` + rótulo de retiradas. |
+| **3** | **VERIFICACIÓN POSITIVA Nº1 — no se PIDE nada.** Dejar pasar un tick del cron o dispararlo a mano y comprobar en el log: dial `off`, **cero peticiones al proveedor**, `written=0`. | devops | §32.12.3-A. |
+| **4** | **VERIFICACIÓN POSITIVA Nº2 — no se ESCRIBE nada.** Los 10 diales de M2 idénticos a antes del deploy y **ninguna `PriceReference` nueva** con `source='pokemonpricetracker'` y `gradeKey='graded:PSA:*'`. | devops + QA | §32.12.3-C. |
+| **5** | **EL DUEÑO enciende** `gradingHookEnabled: "on"` desde M10, con las precondiciones de §4.38(r.3.1) cumplidas y el aviso delante. **No es paso de devops y no se hace por SQL.** | **el dueño** | `AuditLog` `settings.update` con `before`/`after`. Verificado que existe: §32.12.3-D. |
+| **6** | **Medir la primera corrida**: créditos antes/después, `written`, motivos de salto, y **revisar la lista de revisión** (`GET /admin/pricing/graded-estimates/review`) antes de cerrar el release. | devops + QA | La factura de la primera corrida **cabe** en el presupuesto de §32.12.1. |
+
+> ⚠️ **El hueco oscuro entre el paso 1 y el paso 5 es el precio, y es deliberado.** Producción deja de
+> mostrar las cifras del gancho hasta que el dueño decida. **No hay tercera opción:** o el colapso deja
+> un momento apagado, o el deploy arranca gastando solo. Se elige lo primero y se **acorta** poniendo
+> el paso 5 en el mismo ticket, inmediatamente detrás del 4. Lo que **no** se hace: que el deploy
+> escriba el dial «para que no se note».
+
+**Precondiciones del paso 5 que NO son de devops y que hoy siguen abiertas** (§4.38r.3.1): el
+**presupuesto** (§32.12.1, ya publicado ✅), el **veredicto de la sonda en staging** (§32.12.6, ⛔
+pendiente), **GU-9** (la cota de frescura del dato automático, ⛔ decisión del humano) y el **aviso
+en pantalla** (ux-ui, `DESIGN_SYSTEM.md` §22, entregado ✅). **Tres de cuatro no bastan.**
+
+---
+
+#### 32.12.3 Las verificaciones, EJECUTADAS — no «debería funcionar»
+
+Todo lo de abajo se corrió el 2026-08-31 contra el **stack nativo** (`scripts/stack-native.sh`,
+Postgres 16 + Redis + backend Nest completo en `:3099`), sobre una base que reproduce **exactamente**
+el estado de producción tras el pase: las dos filas retiradas presentes con valor `"off"`, y el dial
+nuevo resolviendo a `off`.
+
+**A) Verificación positiva Nº1 — CERO PETICIONES AL PROVEEDOR (paso 3).**
+
+```bash
+curl -X POST "$ADMIN_BASE_URL/admin/jobs/price-ingest" \
+     -H "Authorization: Bearer $ADMIN_JWT" -H 'Content-Type: application/json' -d '{}'
+# → 202 {"job":"price-ingest","enqueued":true,"background":true,"alreadyRunning":false}
+grep -E 'graded-estimate-ingest|VEREDICTO-PSA' .native-stack/backend.log   # o `railway logs`
+```
+
+Salida **real** de esa corrida:
+
+```
+[PriceIngestService] graded-estimate-ingest: dial `grading_hook_enabled` = off → no se pide NADA al
+  proveedor (cero créditos) y no se escribe NINGUNA fila. Es el dial ÚNICO del gancho (v1.51, §4.38r)…
+[PriceIngestService] [VEREDICTO-PSA] VEREDICTO: INDETERMINADO — No se preguntó nada: el dial
+  `grading_hook_enabled` está en `off` (o la config del ingest es inválida).
+[PriceIngestService] [VEREDICTO-PSA] MODO: INGEST — 0 referencia(s) escritas. GRADED_FORMAT=auto
+```
+
+Y el contraste que la hace una verificación y no una lectura de config:
+`grep -c "PPT graded:" .native-stack/backend.log` → **0**. **Ni una línea del proveedor de paga en
+toda la corrida.**
+
+**A-bis) LA ROTURA DELIBERADA — para demostrar que esa línea MIDE el dial y no es un cartel fijo.**
+Con el mismo binario y el mismo entorno (**sin llave**, o sea incapacitado), se encendió el dial a
+propósito y se repitió la corrida:
+
+```bash
+curl -X PUT "$ADMIN_BASE_URL/admin/settings" … -d '{"gradingHookEnabled":"on"}'   # → 200
+curl -X POST "$ADMIN_BASE_URL/admin/jobs/price-ingest" … -d '{}'                  # → 202
+```
+
+La línea **cambió**, que es exactamente lo que tenía que pasar:
+
+```
+[PokemonPriceTrackerBulkProvider] PPT graded: falta POKEMONPRICETRACKER_API_KEY → no se ingesta (nada se escribe).
+[PriceIngestService] graded-estimate-ingest: 1 set(s), 7 carta(s) en alcance, 0 referencia(s) escritas, …
+[VEREDICTO-PSA] VEREDICTO: INDETERMINADO — Ninguna petición al proveedor llegó a responder OK…
+```
+
+**Qué demuestra, punto por punto:** (1) con el dial `off` el ingest **ni siquiera entra** al camino
+del proveedor —no hay set en alcance, no hay línea de PPT—; con el dial `on` **sí entra** (1 set, 7
+cartas) y lo único que lo detiene es la ausencia de credencial. La frase «no se pide NADA» del paso 3
+**mide el dial**. (2) Se ven **las dos capas** de defensa por separado: el **dial** (producto) y la
+**credencial** (despliegue). Con las dos puestas se gasta; con cualquiera de las dos quitada, no.
+El dial se devolvió a `off` inmediatamente después y se verificó (`comparador rc=0`,
+`GET /admin/settings → {"gradingHookEnabled":"off"}`).
+
+**B) La línea de inventario del arranque — donde SÍ se ven las claves retiradas (pasos 0 y 2).**
+
+```bash
+railway logs --service backend | grep 'config inventory'     # prod/staging
+grep 'config inventory' .native-stack/backend.log            # stack nativo
+```
+
+Salida **real** del arranque, con el rótulo que exige §4.38(r.1):
+
+```
+[SettingsService] config inventory: 2 clave(s) RETIRADAS presentes en la base (INERTES, NO SE LEEN)
+  → graded_estimate_ingest_enabled="off"; graded_estimates_enabled="off". (§4.38r.1: … su valor NO
+  gobierna nada … NO concluyas de estas filas que el ingest está apagado.)
+[SettingsService] config inventory: 1 de 35 clave(s) comparables DIFIEREN de su default de código → …
+```
+
+**Ésta es la única superficie donde se leen los valores de las claves retiradas**, y viene rotulada.
+El paso 0 del pase se resuelve con este `grep`, no con una consulta a la base de producción.
+
+**C) Verificación positiva Nº2 — CERO ESCRITURAS (paso 4).**
+
+```sql
+SELECT count(*) FROM "PriceReference"
+ WHERE source = 'pokemonpricetracker' AND "gradeKey" LIKE 'graded:PSA:%';
+```
+
+Medido **antes y después de CADA UNA de las cuatro corridas** de esta sesión (dial `off`, dial `on`
+sin llave, sonda sin `pptSetId`, sonda con `pptSetId`): **1 → 1 → 1 → 1 → 1**. La única fila
+preexistente es de `2026-08-31 03:47`, **anterior** a todas ellas. Ninguna corrida escribió.
+*(En prod, el `count(*)` de antes y el de después van al ticket del release: es la mitad del paso 4.
+La otra mitad es re-`GET` de los 10 diales de M2 y compararlos con los de antes del deploy —el
+comparador imprime los tres que importan.)*
+
+**D) El rastro del paso 5 existe.** Los dos flips de esta sesión quedaron en `AuditLog` con
+`action='settings.update'` y el snapshot completo en `before`, incluido `"gradingHookEnabled"`. O sea:
+cuando el dueño encienda, **queda escrito quién y cuándo**, y el paso 5 es verificable a posteriori.
+
+> **Por qué son DOS verificaciones y no una.** «No pidió» y «no escribió» son afirmaciones distintas
+> y fallan por motivos distintos: se puede pedir y no escribir (la sonda), y —en un binario
+> equivocado— se podría escribir desde otra fuente sin haber pedido nada aquí. Y **ninguna de las dos
+> es «no vimos cargos»**: la ausencia de una factura no observada no prueba nada, porque nadie estaba
+> mirando el panel del proveedor en el minuto exacto de la corrida.
+
+---
+
+#### 32.12.4 El comparador rotula lo retirado y **se niega a deducir del cadáver**
+
+`scripts/check-graded-estimate-dials.sh` (solo-lectura, sin una sola escritura) se actualizó a v1.51.
+**El hallazgo que se estaba buscando —«¿sigue consultando claves muertas?»— resultó NO estar ahí:** el
+script nunca leyó `graded_estimates_enabled` ni `graded_estimate_ingest_enabled` (solo miraba los tres
+diales de M2). Lo que **sí** faltaba es todo lo demás:
+
+| Añadido | Por qué |
+|---|---|
+| **PASO 0 — lee el DIAL ÚNICO** (`GET /admin/settings` → `gradingHookEnabled`) y lo reporta con su consecuencia de dinero. | El comparador hablaba de la config del gancho **sin mirar el interruptor que la gobierna**. |
+| **Detección de binario PRE-M-48**: si el DTO de M10 proyecta `gradedEstimatesEnabled`/`gradedEstimateIngestEnabled`, o el de M2 trae `ingestEnabled` ⇒ **rc=2, parada en seco**. | En ese código **hay dos diales** y el que gobierna el gasto no es el que el script lee. Cualquier conclusión sería sobre el dial equivocado. |
+| **Bloque explícito sobre las claves retiradas**: no se consultan, no se pueden consultar por API, y **«`graded_estimate_ingest_enabled = off`» NO significa que el ingest esté apagado**. Remite a la línea de inventario. | Es LA trampa de diagnóstico de §4.38(r.1), y el sitio donde se comete es exactamente éste. |
+| **Coherencia del espejo**: `enabled` del DTO de M2 debe reflejar el dial. Si discrepan ⇒ rc=2. | Dos superficies del mismo dial que no concuerdan no es un ajuste del operador: es incoherencia del binario. |
+| **PASO 3 — presupuesto en créditos** calculado desde el `ingestMaxCardsPerRun` **vigente en ese entorno**. | El presupuesto tiene que salir del entorno que se está mirando, no de un documento que puede estar rancio. |
+| Ausencia (`__ABSENT__`) distinguida de `null`. | `manualFreshnessDays: null` es un valor legítimo; una clave ausente es un binario distinto. Confundirlos era posible con el parseo anterior. |
+
+**Códigos de salida — sin cambios para `post-deploy.sh`** (`0` al día · `10` seed viejo · `20`
+diverge · `2` no sabemos qué corre). **El dial `on` NO cambia el código de salida**: encenderlo es una
+decisión legítima del dueño, y convertirla en rojo de CI habría sido devops vetando una decisión que
+no le toca. Se reporta a gritos, no se bloquea.
+
+**LAS ROTURAS, con su salida real.** Se levantó un servidor HTTP falso sirviendo DTOs fabricados y se
+corrió el comparador contra él:
+
+| Rotura | Resultado | Mensaje (recortado) |
+|---|---|---|
+| DTO **PRE-M-48**: `gradedEstimatesEnabled:"on"`, `gradedEstimateIngestEnabled:"off"`, `ingestEnabled:false` — **la trampa exacta**: la fila muerta dice `off` mientras la viva dice `on` | 🔴 **rc=2** | «El DTO de M10 todavía proyecta clave(s) que M-48 RETIRÓ… en ese código HAY DOS DIALES, y el que gobierna el gasto NO es el que este script lee» |
+| `gradingHookEnabled` **ausente** del DTO | 🔴 **rc=2** | «AUSENTE NO significa "apagado": significa que NO SABES en qué estado está el gancho» |
+| dial `on` pero espejo `enabled:false` | 🔴 **rc=2** | «INCOHERENCIA: dial `on` pero espejo `enabled`=false… hallazgo para BACKEND/arquitecto» |
+| dial con valor `"ON"` (mayúsculas, presente-e-inválido) | 🔴 **rc=20** | «Dial con valor INESPERADO… el código es fail-closed y ESTRICTO (`v === 'on'`)» |
+| DTO sin `ingestMaxCardsPerRun` | 🔴 **rc=2** | «no se puede calcular el presupuesto… encender el dial es autorizar un gasto de tope DESCONOCIDO» |
+| `ingestMaxCardsPerRun: 5000` (**era** el tope máximo válido — ver nota) | 🟢 rc=0 | «5000 × 2 × 2 = **20000 créditos/día**» — el aviso que hace visible que un número dentro del rango se come la cuota entera |
+
+> ⚠️ **Nota de 2026-08-31 (posterior a esta corrida):** el arquitecto cambió **I8** y `ingestMaxCardsPerRun`
+> pasó de `[1, 5000]` a **`[1, 1000]`** (`ARCHITECTURE.md` rev v1.51-a), justamente porque 20 000
+> créditos/día es la cuota diaria entera. **La corrida de arriba se conserva tal cual: es evidencia
+> fechada, no una instrucción.** El comparador **no hay que tocarlo**: no lleva el tope cableado, calcula
+> el presupuesto desde el `ingestMaxCardsPerRun` **vigente en el entorno** (`check-graded-estimate-dials.sh:306`),
+> así que sigue siendo correcto con el rango nuevo. **Quien valide el rango es backend** (validador de M2):
+> si `[1,1000]` no está aplicado en el DTO, el hallazgo es suyo, no de este script.
+| **Regresión** (que lo viejo siga funcionando): seed viejo `null`/`3`/`50` | 🟢 **rc=10** | imprime el `PUT` parcial exacto, igual que antes |
+| Contra el backend **real** en `:3099` | 🟢 **rc=0** | dial `off`, tres diales al día, presupuesto 1 000 créditos/día |
+
+---
+
+#### 32.12.5 El entorno de CI **no puede** escribir automático — y el agujero era real
+
+**El hallazgo, medido y no supuesto.** `docker-compose.yml:187` pasaba
+`POKEMONPRICETRACKER_API_KEY: ${POKEMONPRICETRACKER_API_KEY}` **sin default**. Eso significa: *toma la
+del `.env` o del entorno de quien levante el stack*. En CI quedaba vacía **por accidente, no por
+diseño**; en la máquina del dueño, donde la llave es real, una corrida de E2E —que enciende el dial
+**en cada arranque**— habría empezado a pedir y a escribir. La única protección viva era que el
+proveedor sale con `warn` sin llave: es decir, **dependíamos de que alguien se olvidara de exportar
+una variable**.
+
+**Lo arreglado (rutas devops, todo verificado corriéndolo):**
+
+| Archivo | Cambio | Verificación |
+|---|---|---|
+| `docker-compose.yml` | `${POKEMONPRICETRACKER_API_KEY:-}` + `POKEMONPRICETRACKER_GRADED_PROBE` explícita | `docker compose --profile apps config` → `POKEMONPRICETRACKER_API_KEY: ""` **y sin el warning de «variable is not set»** (que sí siguen emitiendo `POKETRACE_API_KEY` y `POKEMONTCG_IO_API_KEY`, sin tocar). Con `POKEMONPRICETRACKER_API_KEY=ppt_live_ABC123` exportada, el `config` la muestra: la llave **sigue llegando** cuando alguien la pone a propósito. |
+| `docker-compose.staging.yml` | comentario normativo + la sonda explícita (ya tenía `:-`) | ídem |
+| `.github/workflows/e2e-real.yml` | `POKEMONPRICETRACKER_API_KEY: ''` **declarada vacía** + `E2E_GRADING_PROVIDER_INCAPACITATED: '1'` en el `env:` del job + paso de guarda **antes** del preflight de Stripe | guarda en verde |
+| `.github/workflows/e2e.yml` | `POKEMONPRICETRACKER_API_KEY: ''` en `frontend-e2e` **y** en `backend-e2e` (este último levanta Nest en proceso y sus specs **encienden el dial** — `backend/test/graded-estimate.one-dial.spec.ts:117,210`); la **constancia** solo en `frontend-e2e` ⚠ *(corregido 2026-08-31: la redacción anterior decía «ídem» para los dos, y no era exacto — ver §32.12.5-bis, donde se explica por qué esa asimetría es CORRECTA y no un olvido)* | guarda en verde |
+| `.github/workflows/ci.yml` | job **`e2e-provider-guard`** + `ci-ok` lo exige y **falla si queda `skipped`** | ver abajo |
+| `.env.example` | `POKEMONPRICETRACKER_GRADED_PROBE` y `E2E_GRADING_PROVIDER_INCAPACITATED` documentadas | — |
+
+**Declarada vacía, no omitida — y la diferencia no es estética.** Que hoy no esté es una *casualidad*
+que se rompe sola. Declararla `''` convierte el día que alguien quiera conectar el secret en un
+**cambio visible en el diff** de un archivo que alguien revisa.
+
+**La constancia `E2E_GRADING_PROVIDER_INCAPACITATED=1` es MÍA (devops) y tiene un límite que conviene
+saber.** El guardarraíl de frontend (`frontend/e2e/utils/paid-provider-guard.ts`) **observa** el
+entorno cuando la API bajo prueba es local, y **solo** acepta la constancia cuando es remota (staging),
+porque entonces el entorno del backend no es observable desde el runner. **La constancia no gana sobre
+la observación**: contra un backend local con llave viva, declararla no desbloquea nada. Por eso en
+`.env.example` la variable se deja **vacía** — una constancia heredada por copiar-pegar no es una
+constancia.
+
+**La guarda nueva: `scripts/check-e2e-provider-incapacitation.sh`.** Estática (parsea YAML, sin red).
+Exige, en **cada JOB que corre E2E** —descubiertos, no listados a mano—: (1) que
+`POKEMONPRICETRACKER_API_KEY` **no** venga de `secrets.*` ni de un literal no vacío; (2) que esté
+**declarada vacía** en el env efectivo del job; (3) que la constancia esté puesta **en los jobs de
+arnés Playwright**; (4) que se haya descubierto **al menos un** job E2E.
+
+> ⚠️ **Este párrafo describe la v2.** La v1 miraba **dos archivos fijos** con `grep`, y por eso daba
+> verde en dos escenarios en los que no había verificado nada. Qué fallaba exactamente, y las roturas
+> que lo demuestran: **§32.12.5-bis**.
+
+**Dónde vive el enforcement, dicho explícitamente porque es fácil equivocarse aquí:**
+
+> ⚠️ **NO cuelga de `deploy.yml`, y es a propósito.** Ese workflow tiene su disparador `workflow_run`
+> **comentado** (solo queda `workflow_dispatch`) y un `secrets-gate` que **salta todos los jobs** —
+> incluidos los dos de promoción a producción— cuando no hay secrets: por eso su última corrida
+> terminó **verde con los 8 jobs saltados**. Un pipeline que sale verde sin hacer nada es peor que
+> uno rojo. Colgar esta guarda de ahí habría sido cablear un gate a algo que casi nunca corre (ya
+> documentado en §32.11 y §33.4). **Se cuelga de `ci.yml`, que corre en cada push y cada PR**, y
+> `ci-ok` la exige con `!= success` (no solo `== failure`): un `skipped` también es rojo, porque
+> «saltado» es justo la forma en que un gate deja de gatear sin avisar. `e2e-real.yml` y `e2e.yml`
+> la corren además como primer paso, donde ataja antes de construir nada.
+
+**LAS ROTURAS, con su salida real:**
+
+| Rotura | Resultado | Mensaje |
+|---|---|---|
+| **Estado del repo ANTES de tocar nada** (así se descubrió que hacía falta) | 🔴 **rc=1**, los dos workflows | «`POKEMONPRICETRACKER_API_KEY` NO está declarada… Que hoy no esté es una CASUALIDAD, no un diseño» + «Falta `E2E_GRADING_PROVIDER_INCAPACITATED`» |
+| Alguien «conecta» el secret: `POKEMONPRICETRACKER_API_KEY: ${{ secrets.POKEMONPRICETRACKER_API_KEY }}` en `e2e-real.yml` | 🔴 **rc=1** | «con valor NO vacío en la línea 177… Un entorno E2E con credencial viva PAGA CRÉDITOS en cada corrida del gate» |
+| Alguien borra la constancia de `e2e.yml` | 🔴 **rc=1** | «Falta `E2E_GRADING_PROVIDER_INCAPACITATED: '1'`… el guardarraíl del arnés SE NIEGA a encender el dial y el job muere a mitad» |
+| Se renombra un workflow (`WORKFLOWS=…/no-existe.yml`) | 🔴 **rc=1** | «No existe…» — *en la v2 ya no hay `DEFAULT_WORKFLOWS` que actualizar: un renombrado lo encuentra el descubrimiento solo. Ver §32.12.5-bis.* |
+| Repo ya arreglado | 🟢 **rc=0** | las tres declaraciones presentes en los dos workflows |
+
+> ⚠️ **Esta tabla es la de la v1 (2026-08-31, primera versión) y se conserva como registro.** Las
+> roturas de la **v2** —incluidas las dos que la v1 no detectaba— están en **§32.12.5-bis**.
+
+**Lo que esta guarda NO hace, para no venderla de más:** no mira el `.env` de nadie ni el entorno real
+de staging —eso **no es observable** desde CI, y fingir que sí lo es sería el falso verde que este
+pase viene a quitar—. Verifica **lo que está escrito en el repo**. La mitad viva la pone el arnés de
+frontend en tiempo de ejecución; la mitad de staging la pone quien configure staging.
+
+---
+
+#### 32.12.5-bis La guarda era **MÁS GRUESA QUE SU ENUNCIADO** — reescrita a v2 (2026-08-31)
+
+El techlead señaló dos defectos de la v1 del script. Los dos son de la **misma clase que el bloqueante
+de §32.8-bis**: algo que *decía* verificar y no verificaba. Los dos confirmados a mano antes de tocar
+nada; los dos **arreglados**, no anotados como deuda — son un script de shell en mi ruta, y aceptar
+deuda aquí habría sido aceptar exactamente el defecto del que va este pase.
+
+| # | Defecto de la v1 | Cómo producía VERDE sin verificar |
+|---|---|---|
+| **(a)** | `DEFAULT_WORKFLOWS` era un **literal de dos archivos** (`e2e-real.yml`, `e2e.yml`). | Un **tercer** workflow que corriera E2E no lo abría nadie, y nada avisaba de su existencia. |
+| **(b)** | El `grep` era **por ARCHIVO, no por JOB**. | En `e2e.yml`, `backend-e2e` declara la llave vacía pero **no** la constancia, y `frontend-e2e` declara las dos. El `grep` encontraba la constancia del **segundo** job y daba verde por el **primero**. |
+
+**(a) no era hipotético: el descubrimiento encontró un tercer workflow en la primera corrida.**
+`deploy.yml` tiene un job `e2e-real` que llama a la suite con `uses: ./.github/workflows/e2e-real.yml`
+(+ `secrets: inherit`). La v1 **no abría `deploy.yml` en ningún caso**. La v2 lo abre, resuelve el
+`uses:` local contra el conjunto ya verificado y lo aprueba **explicando por qué** `secrets: inherit`
+es inocuo aquí (heredar secretos no inyecta `env`; el riesgo sería que el llamado usara `secrets.*`, y
+no lo hace). Un `uses:` **remoto** que parezca E2E se reporta **NO VERIFICABLE y falla**, en vez de
+callar.
+
+**Qué hace la v2, y la precisión que la v1 no hacía.** Se parsea el YAML con un parser de verdad
+(PyYAML) y se evalúa el **env efectivo de cada job** (`env` del workflow < `env` del job < `env` del
+step). Y las dos exigencias **dejan de aplicarse en bloque**, porque no aplican a los mismos jobs:
+
+- La **llave vacía** se exige a **todo** job que corra E2E o integración: cualquiera levanta el backend
+  y un backend con credencial viva puede gastar. `backend-e2e` la tiene, y **hace falta** — sus specs
+  encienden el dial.
+- La **constancia** se exige **solo** a los jobs que corren el **arnés Playwright**, que es el único
+  código que la lee (`frontend/e2e/utils/paid-provider-guard.ts:63`) y el único que enciende el dial
+  desde el arnés. Exigírsela a `backend-e2e` sería pedir una firma que **nadie consume**: un rojo
+  falso, que es el otro modo de que un check deje de servir.
+
+Y un cuarto requisito nuevo, que es el que impide que el propio arreglo se degrade en silencio:
+**si el descubrimiento no encuentra NINGÚN job E2E, el resultado es rc=1, no rc=0.** Cero jobs no es
+«todo en orden»: es un check que no verificó nada. Por el mismo motivo, **si falta PyYAML el script
+sale rc=2 y lo dice, en vez de degradarse a `grep`** — que es de donde venía el defecto (b).
+
+**LAS ROTURAS DE LA v2, con su salida real.** Se copió el repo a un árbol de pruebas y se rompió a
+mano; ninguna de estas corridas tocó `.github/` del repo:
+
+| Rotura | v1 | v2 | Mensaje (recortado) |
+|---|---|---|---|
+| **El defecto (b) exacto**: se quita la constancia del job de **arnés** y se deja una en **otro** job del mismo archivo | 🟢 **VERDE (falso)** — `grep` la encuentra 1 vez en el archivo | 🔴 **rc=1** | «job «frontend-e2e» (ARNÉS Playwright) … ✖ Falta `E2E_GRADING_PROVIDER_INCAPACITATED: '1'` en el `env:` de **este job**» |
+| **El defecto (a) exacto**: aparece un `e2e-nightly-nuevo.yml` con `npm run test:e2e` y sin declarar nada | ⚫ **NI LO ABRE** | 🔴 **rc=1** | «job «nightly-e2e» (ARNÉS Playwright) … ✖ `POKEMONPRICETRACKER_API_KEY` NO está declarada en el env efectivo de este job» |
+| Alguien «conecta» el secret: `POKEMONPRICETRACKER_API_KEY: ${{ secrets.PPT_API_KEY }}` | 🔴 rc=1 | 🔴 **rc=1** (dos veces: por job y por la red de seguridad de archivo) | «con valor NO vacío en env del job «e2e-real»… PAGA CRÉDITOS en cada corrida» + «se alimenta de `secrets.*` (línea 177)» |
+| **Cero jobs E2E** en todo el repo (solo `ci.yml`) | 🟢 **VERDE** (no existía el caso) | 🔴 **rc=1** | «NO se descubrió NINGÚN job que corra E2E. Esto NO es un verde: es un check que no verificó nada» |
+| **Regresión** — repo real, intacto | 🟢 rc=0 (mirando 2 archivos) | 🟢 **rc=0** | «Los **3** job(s) E2E descubiertos declaran su incapacitación» — 3 jobs en **3** archivos, uno de ellos (`deploy.yml`) invisible para la v1 |
+
+> **Por qué esto se arregla y no se anota.** El techlead lo emparejó con la deuda ya registrada del
+> **modo `--gate` de `stack-native.sh`, que sirve el build con `next start` cuando producción arranca
+> por `node server.js` desde `.next/standalone`** (§32.10, «Divergencia conocida»). Tiene razón en que
+> son **la misma clase**: un check cuyo alcance real es menor que su enunciado. Pero la **respuesta
+> correcta no es la misma para los dos**, y conviene decir por qué:
+>
+> - La divergencia del `--gate` **está escrita, acotada y tiene un gate que sí cubre lo que falta**
+>   (`e2e-real.yml` corre contra la **imagen**). Cerrarla exigiría copiar `static/`+`public/` dentro de
+>   `.next/standalone` a mano: **más máquina y más formas de equivocarse que fidelidad ganada**. Sigue
+>   siendo deuda aceptada, y su enunciado ya dice lo que no cubre.
+> - El agujero de esta guarda **no tenía a nadie detrás**: era el único artefacto que miraba esos
+>   workflows, y su enunciado prometía «cada workflow que corre E2E» mientras leía dos archivos con
+>   `grep`. Cuando el enunciado promete cobertura que nadie más da, **la deuda no se acepta: se paga**.
+>
+> Leídos juntos, la regla que dejo escrita: **una deuda de alcance es aceptable cuando el enunciado
+> dice la verdad sobre su límite Y otro gate cubre el resto. Si falta cualquiera de las dos cosas, es
+> un falso verde con otro nombre.**
+
+---
+
+#### 32.12.6 La sonda: qué es, cómo se corre, y el VEREDICTO registrado
+
+**`POKEMONPRICETRACKER_GRADED_PROBE`** (`on|true|1|yes`) pone el ingest de graded en **modo sonda**:
+pregunta al proveedor, loguea la muestra cruda y **no escribe ni una fila**. Es de solo-lectura **por
+construcción** (en modo sonda el bucle ni siquiera llama al código capaz de fabricar una fila), no por
+disciplina. **Invariante (§4.38r.3.3): solo QUITA capacidad de escribir, nunca la da**, y **no puede
+volverse prerrequisito para que el dial funcione** — no es un segundo interruptor escondido.
+
+```bash
+# 1) el entorno debe tener llave del proveedor y sets con `pptSetId` mapeado
+# 2) arrancar el backend con la sonda puesta (el backend lee su entorno AL ARRANCAR)
+POKEMONPRICETRACKER_GRADED_PROBE=on <arranque normal del servicio>
+# 3) el dial tiene que estar ON — la sonda NO lo sustituye
+curl -X PUT "$ADMIN_BASE_URL/admin/settings" … -d '{"gradingHookEnabled":"on"}'
+curl -X POST "$ADMIN_BASE_URL/admin/jobs/price-ingest" … -d '{}'
+# 4) el veredicto sale entero de la PRIMERA corrida:
+grep 'VEREDICTO-PSA' <log>
+```
+
+**VEREDICTO REGISTRADO (2026-08-31, stack nativo local, no staging):**
+
+| Campo | Valor |
+|---|---|
+| Entorno | Stack nativo local (`:3099`), fixture sintético, llave **de relleno** (`ppt_fake_…`) |
+| Corrida | dial `on` + sonda `on` + un `pptSetId` mapeado a mano (y revertido a `NULL` al terminar) |
+| **VEREDICTO** | **`INDETERMINADO`** — *«Ninguna petición al proveedor llegó a responder OK (llave, red o pptSetId): no hubo observación.»* |
+| Causa exacta | `PPT graded: EL REQUEST FALLÓ … HTTP 403 … cuerpo: **Host not in allowlist: www.pokemonpricetracker.com**` |
+| Escrituras | **0** (`MODO: SONDA de SOLO LECTURA — cero escrituras en PriceReference`) |
+| Coste | 0 créditos (la petición nunca salió de la red del sandbox) |
+
+**Qué SÍ demuestra este veredicto** (que no es poco, y es la mitad que sí me tocaba): la sonda
+**engancha y se anuncia** (`SONDA pedida por el operador… NO se escribe absolutamente nada`), el
+veredicto **cambia de `MODO: INGEST` a `MODO: SONDA de SOLO LECTURA`** cuando de verdad opera, y una
+corrida en modo sonda **no escribió ni una fila**. O sea: la segunda forma admitida de incapacitar un
+entorno (§4.38r.6.1) **funciona y está verificada**, no supuesta.
+
+**Qué NO demuestra, y no lo voy a disfrazar:** **nada sobre el proveedor**. Este sandbox no tiene
+egress a `www.pokemonpricetracker.com` (403 del allowlist de red, pegado arriba) y aquí no hay
+credencial real. **La sonda contra STAGING sigue PENDIENTE** y es **bloqueante del paso 5** por
+§4.38(r.3.1) punto 2: encender sin haber observado el shape del proveedor es **pagar por
+descubrirlo**. La corre quien tenga egress + llave de staging, con el guion de arriba.
+
+**Dos preconditions de la sonda que se descubrieron corriéndola y que no estaban escritas en ningún
+sitio:**
+
+1. **Sin `pptSetId` mapeado en el set, la sonda no existe.** El proveedor sale **antes** de anunciarse
+   (`PPT graded: set … sin pptSetId → no se pide nada`), la corrida es un **no-op** y el veredicto
+   sale `MODO: INGEST` con 0 escritas. Un entorno sin mapear da un `INDETERMINADO` **de fontanería**,
+   no una observación — y cuesta 0 créditos, así que es fácil confundirlo con «ya lo probé».
+2. **`MODO: SONDA` solo aparece si el proveedor RESPONDIÓ a una petición de sonda.** Es deliberado en
+   el código (`probe: false` en el retorno vacío: *«no hubo llamada siquiera… decir lo contrario
+   contaminaría el veredicto»*) y es correcto. Consecuencia para quien lee el log: **la ausencia de
+   `MODO: SONDA` NO prueba que la sonda estuviera apagada.** Para saber si estaba pedida, la línea es
+   `PPT graded: SONDA pedida por el operador`.
+
+---
+
+#### 32.12.7 Rollback de este pase
+
+Igual que §32.8, con el matiz de §4.38(r.4) que conviene tener delante:
+
+| Qué se revierte | Cómo | Efecto |
+|---|---|---|
+| El **código** (M-48) | redeploy del commit anterior. **Sin migración que deshacer *por M-48*** (DATA/seed, sin DDL). ⚠️ Si el redeploy retrocede por detrás de **M-46** (ciclo de adquisición, DDL) o **M-47**, esas migraciones **ya están aplicadas** y este rollback no las revierte: un binario viejo contra un schema nuevo es otro escenario, y no es éste. | Vuelve el código que lee `graded_estimates_enabled`, **cuya fila sigue ahí con su valor previo**: el rollback **reenciende la exhibición tal como estaba** y el ingest vuelve a depender de su clave vieja (`off`). **Seguro y completo** — es la otra razón para no borrar las filas retiradas. |
+| El **dial encendido** (si ya se encendió) | `PUT /admin/settings {"gradingHookEnabled":"off"}` desde M10. **Nunca por SQL** (§11.0-4). | Para publicación **y** gasto a la vez, sin redeploy. Es el botón de pánico que el gancho no tenía con dos diales. |
+| Los cambios de **infra** de esta sección | `git revert` del commit de devops | Vuelve el `${VAR}` sin default y desaparece la guarda. **No hagas esto sin sustituirlo**: es lo único que impide que un runner con llave gaste. |
+
+⚠️ **Apagar el dial NO es el remedio de una cifra rara** (§4.38r.5): es el **último** escalón. Para
+una cifra concreta, se **borra esa fila** (`DELETE` del estimado); para un grado entero, se quita de
+`grades`; para la promoción, `minUpsidePct`. Apagar el dial **congela también la actualización**, y si
+el apagón supera `freshnessDays` (30) las filas automáticas quedan rancias — aunque el rancio está
+acotado a **≤12 h** (el siguiente tick) o a lo que tarde un `POST /admin/jobs/price-ingest` manual
+tras reencender, que **se normaliza como parte del reencendido**.
+
+---
+
+#### 32.12.8 Estado y qué queda en manos de otros
+
+| Punto | Estado | De quién |
+|---|---|---|
+| Presupuesto en créditos publicado antes del primer encendido | ✅ §32.12.1 | devops (hecho) |
+| Runbook del pase de 7 pasos con sus dos verificaciones positivas | ✅ §32.12.2–3, ejecutadas | devops (hecho) |
+| Comparador rotulando lo retirado y sin deducir de filas inertes | ✅ §32.12.4, roturas demostradas | devops (hecho) |
+| Entorno E2E/CI sin capacidad de escritura automática | ✅ §32.12.5, guarda cableada en `ci.yml` | devops (hecho) |
+| **Sonda en STAGING con veredicto `VIABLE`/`NO_VIABLE`** | ⛔ **PENDIENTE** — sin egress ni llave desde aquí (§32.12.6) | devops/humano **con acceso a staging** |
+| **GU-9** (frescura del dato automático: aceptar `≤ 60 días` por escrito **o** `evidenceDate` de M-43) | ⛔ **PENDIENTE, BLOQUEANTE del paso 5** (§4.38r.6.2) | **humano** (dos palabras bastan) |
+| **Encender el dial en producción** | ⛔ **No es de devops.** Paso 5, con las cuatro precondiciones cumplidas | **el dueño**, desde M10 |
+| Subir `ingestMaxCardsPerRun` por encima de 250 | ⛔ No en este pase: se dimensiona con el número **medido** en la primera corrida | dueño, tras el paso 6 |
+| Deploy real del código de M-48 a staging/prod | ⛔ Fuera de esta sesión (sin credenciales de plataforma) | devops **con acceso** |
+
+---
+
+#### 32.12.9 Checklist del pase M-48 — para pegar en el ticket del release
+
+```
+[ ] 0. Estado previo anotado en CADA entorno (dev/staging/prod):
+       railway logs --service backend | grep 'config inventory'
+       → copiar la línea «claves RETIRADAS presentes» con sus dos valores.
+[ ] 1. Deploy del código. `migrate deploy` no trae nada POR M-48 (es DATA/seed, sin DDL).
+       ⚠️ NO asumas «no pending»: si el release arrastra M-46 (ciclo de adquisición,
+       DDL) o M-47, el comando SÍ aplica DDL. Lee su salida y anótala en el ticket.
+[ ] 2. bash scripts/check-graded-estimate-dials.sh  → rc=0 y `gradingHookEnabled: off`
+       (si sale rc=2 «binario PRE-M-48», PARAR: el deploy no es el que creemos).
+[ ] 3. VERIFICACIÓN POSITIVA Nº1 (no se pide nada):
+       POST /admin/jobs/price-ingest {}  →  en el log:
+         · `graded-estimate-ingest: dial ... = off → no se pide NADA al proveedor`
+         · `[VEREDICTO-PSA] MODO: INGEST — 0 referencia(s) escritas`
+         · CERO líneas `PPT graded:`   (grep -c "PPT graded:" → 0)
+[ ] 4. VERIFICACIÓN POSITIVA Nº2 (no se escribe nada):
+       SELECT count(*) FROM "PriceReference"
+        WHERE source='pokemonpricetracker' AND "gradeKey" LIKE 'graded:PSA:%';
+       → mismo número ANTES y DESPUÉS. Y los 10 diales de M2 idénticos a antes del deploy.
+[ ] --- PRECONDICIONES DEL PASO 5 (§4.38r.3.1), las cuatro o ninguna ---
+       [x] presupuesto publicado (DEVOPS_NOTES §32.12.1 = 1 000 créditos/día)
+       [ ] veredicto de la SONDA en staging registrado (VIABLE / NO_VIABLE)
+       [ ] GU-9 cerrada por escrito (cota ≤60 días  o  evidenceDate de M-43)
+       [x] aviso de encendido en pantalla (M10, DESIGN_SYSTEM §22)
+[ ] 5. EL DUEÑO enciende desde M10 (no devops, no SQL):
+       PUT /admin/settings {"gradingHookEnabled":"on"}
+       → verificar AuditLog `settings.update` con before/after.
+[ ] 6. Medir la PRIMERA corrida: créditos del panel de PPT antes/después, `written`,
+       motivos de salto, y revisar GET /admin/pricing/graded-estimates/review.
+       → la factura CABE en el presupuesto declarado. Si no cabe, se para y se escala.
+```
+
+
+---
+
+## 33. El preflight de Stripe mentía: 13 corridas rojas y un verde que no era verde — 2026-08-30
+
+> **Resumen en una línea:** `e2e-real.yml` —el gate que decide la promoción a producción— llevaba
+> **13 corridas de 13 en rojo desde el día que existe** (2026-08-18), y el paso que debía explicarlo
+> comprobaba que la variable **existiera**, no que **sirviera**. Dos mentiras encadenadas: un rojo
+> diario que nadie miraba y un preflight capaz de decir «clave de prueba presente, los smokes de
+> dinero son gate real» sobre un relleno.
+
+### 33.1 Lo que se creía y lo que dice el registro
+
+Lo que §31 daba por hecho era que el nightly funcionaba y que sólo los tres smokes de dinero salían
+rojos «por falta de proveedor». La primera mitad es falsa. Consultado el historial del workflow
+(API de Actions, no memoria):
+
+| Corridas de `e2e-real.yml` | 13 (nº 1 el 2026-08-18, nº 13 el 2026-08-29) |
+|---|---|
+| Verdes | **0** |
+| Rojas | **13** |
+| Paso donde muere | **siempre** el mismo: `Playwright smoke — flujos críticos (REAL)` |
+
+No son «tres días sin mirar el tablero»: son **doce días y todas las corridas que ha habido**. El
+workflow nunca ha estado verde ni un solo día. Esto importa para el DoD, porque §31.4 lo declaraba
+gate de promoción — un gate que nunca ha pasado no ha bloqueado nada, ha sido decorativo.
+
+Del log de la corrida 13 (`33255299677`, job `99107828594`), el detalle que cierra el diagnóstico:
+
+```
+STRIPE_TEST_SECRET_KEY: sk_test_e2e_dummy
+STRIPE_TEST_PUBLISHABLE_KEY: pk_test_e2e_dummy
+STRIPE_TEST_WEBHOOK_SECRET: whsec_e2e_dummy
+→ 3 failed, 1 passed   (18 × "element(s) not found", 9 × toBeVisible failed)
+```
+
+### 33.2 El defecto real: presencia ≠ validez, y por qué se elige SALTAR
+
+El paso 11 se llamaba **«Preflight — ¿hay clave de PRUEBA de Stripe real?»** y su lógica era un `case`
+sobre el valor con una rama por el literal `sk_test_e2e_dummy`. Todo lo demás que empezara por
+`sk_test_` caía en la rama optimista e imprimía en verde *«Clave de prueba presente; los smokes de
+dinero son gate real»*. Es decir: `sk_test_CHANGE_ME` —**el valor que este mismo repo pone en
+`.env.example`**— habría anunciado un gate de dinero que no existía. **Es el patrón de §32 (el seed que
+no pisa lo existente) y el de §30.1 (el test que fijaba su propia configuración): un detector que se
+cree a sí mismo.**
+
+**Contexto que decide el diseño, y que hay que dejar escrito porque lo cambia todo:** el dueño **no ha
+configurado Stripe A PROPÓSITO** y no lo hará hasta que la plataforma esté al 100%. `sk_test_e2e_dummy`
+no es un olvido ni una credencial vencida: es un **estado deliberado y duradero** del proyecto.
+
+De las dos salidas honestas posibles, **se elige SALTAR** los tres smokes de dinero declarándolos
+saltados, y **no** fallar el preflight. El porqué, sin adornos:
+
+1. **Fallar sería gritar todos los días por una decisión consciente del dueño.** Un rojo que sale
+   siempre no es una alarma: es ruido. Y el ruido diario es *exactamente* el mecanismo por el que
+   nadie miró este tablero durante 12 días. Una alarma que suena siempre ya se apagó, sólo que en la
+   cabeza del equipo en vez de en el YAML.
+2. **Fallar tira la señal de lo que sí funciona.** Hoy el job tarda ~6 minutos en morir por algo que se
+   sabía en el segundo 0, y de paso pierde el resultado de los flujos no monetarios.
+3. **Saltar sólo es honesto si el salto es de primera clase**, y por eso viene con los cuatro
+   requisitos de abajo. Un salto silencioso sería peor que el rojo.
+
+Lo que **no** se negocia y está cableado así:
+
+| Requisito | Cómo se cumple |
+|---|---|
+| Los tres tests **nunca** se borran, ni se marcan `.skip`, ni salen de `SMOKE_SPECS` | El salto lo decide el **entorno en tiempo de corrida** (`scripts/stripe-test-key-preflight.sh` filtra la lista efectiva). `frontend/e2e/` no se toca: es del rol frontend. |
+| Vuelven a ser **obligatorios solos** cuando aparezca la credencial | La detección es **por forma del valor**. No hay bandera `skip_money=true` que alguien tenga que acordarse de quitar — ese es justo el patrón que ya nos mordió dos veces. |
+| El estado se lee **sin abrir logs** | Bloque en el *Summary* del run (primer paso del job) + veredicto final de una línea + anotación `::warning`. |
+| La promoción a prod **no salta nada** | `deploy.yml` llama con `require_real_stripe: true` → el preflight **falla en el segundo 0** con la variable nombrada, el motivo («valor de relleno») y dónde se pone la buena. |
+
+### 33.3 Cómo distingue «clave real» de «relleno» (y el falso positivo que evité)
+
+`scripts/stripe-test-key-preflight.sh` clasifica **por forma, en este orden**:
+
+| Regla | Qué caza | Falsos positivos |
+|---|---|---|
+| Prefijo `sk_live_`/`pk_live_` | clave live en staging → **aborta siempre** | ninguno |
+| Prefijo distinto de `sk_test_`/`rk_test_`/`pk_test_` | formato desconocido → **aborta** | ninguno |
+| **Longitud** del sufijo < 24 | `e2e_dummy` (9), `CHANGE_ME` (9), `xxx` | **imposible**: las claves de Stripe traen 24 (legacy) o ~99 (`sk_test_51…`) |
+| **Alfabeto** ≠ `[A-Za-z0-9]` | cualquier cosa con `_`, guion, espacio o comilla → la escribió una persona, no Stripe | **imposible** |
+| **Vocabulario** (`dummy`, `changeme`, `placeholder`, `example`, `fake`, `invalid`, …) y 4 caracteres idénticos seguidos | relleno largo y alfanumérico (`sk_test_dummydummydummy…`) | ~1e-4 |
+
+**El falso positivo que casi introduzco, porque es la misma clase de error que esta sección corrige.**
+Mi primera versión buscaba también tokens de 3 letras (`xxx`, `foo`, `bar`, `tbd`) como subcadena. Una
+clave **auténtica** es una cadena alfanumérica de ~99 caracteres: la probabilidad de que contenga por
+azar alguno de esos trigramas es **~2%**. Un preflight que declara «relleno» una clave buena una de
+cada cincuenta veces —y bloquea una promoción a prod por ello— es otro detector que miente, sólo que
+en la dirección contraria. Se quitaron: los rellenos cortos ya los cazan las dos reglas **exactas**
+(longitud y alfabeto), que no tienen falsos positivos posibles. **Dos reglas exactas y una heurística
+conservadora, en ese orden.**
+
+**Lo que este preflight promete, literalmente: «esto no es un relleno». Nada más.** No llama a
+`api.stripe.com` — (a) desde la máquina de trabajo el egress a Stripe está bloqueado (§31.2) y un
+preflight dependiente de red sería inestable; (b) una clave con forma real pero **revocada** la caza el
+propio smoke, que es donde debe caerse. Decirlo importa: prometer «clave válida» sería la tercera
+mentira de esta cadena.
+
+**Nunca imprime el valor.** Sólo prefijo (8 caracteres) y longitud total.
+
+### 33.4 `deploy.yml`: la puerta no se está saltando — **nunca estuvo en el camino**
+
+Pregunta del coordinador: si el E2E real no puede estar verde sin Stripe, ¿cómo se promovió la curva v2
+a producción el 28 de agosto? Respuesta, con el registro de Actions delante:
+
+**No se promovió por ahí. `deploy.yml` no corrió el 28 de agosto, ni el 27, ni ningún día desde el 25.**
+
+| Dato verificado | |
+|---|---|
+| Última corrida de `deploy.yml` | nº 52, **2026-08-25**, `workflow_dispatch`, conclusión **success** |
+| Qué hizo esa corrida «verde» | `secrets-gate` → `ready=false` (faltan los 6 secrets de deploy) → **`ci-ok`, `preflight`, `deploy-staging-*`, `e2e-real`, `dast-staging` y los dos `promote-production-*` quedaron TODOS en `skipped`** |
+| Corridas de `deploy.yml` el 26–30 de agosto | **ninguna** |
+| Camino real de los deploys | integraciones **nativas** push-to-deploy de Vercel/Railway (documentado en la cabecera de `deploy.yml`, líneas 34-48) |
+
+Conclusión, y es más grave que el falso verde que vine a arreglar:
+
+- **La puerta no se está esquivando: no existe en el camino que se usa.** El CD por Actions está
+  desactivado por diseño (`workflow_dispatch` only) y, sin los 6 secrets, se auto-salta. Vercel y
+  Railway despliegan al hacer push y **no consultan el resultado de ningún workflow de GitHub**. El
+  gate E2E real, el DAST de staging y la aprobación del *environment* `production` **no intervienen en
+  un solo deploy real**.
+- **Y esa corrida nº 52 es, ella misma, otro miembro de la familia:** un run llamado
+  «Deploy (staging → prod)» que terminó en **verde** habiendo desplegado **nada**. Jobs saltados cuentan
+  como neutrales, así que el check verde es indistinguible de un despliegue correcto.
+- Por tanto **la promoción a producción no está «estructuralmente bloqueada» por la falta de Stripe**.
+  Lo estaría si el camino pasara por `deploy.yml`; hoy no pasa.
+
+**No he tocado `deploy.yml`** (instrucción explícita del coordinador: la decisión de cómo cerrar esa
+puerta es suya con el dueño). Las tres opciones, con su contrapartida, para esa conversación:
+
+| Opción | Qué implica |
+|---|---|
+| Dejarlo como está y **decirlo en `deploy.yml` y en el DoD**: los gates son *advisory*, no bloqueantes | Cuesta cero. Pero el DoD dice «gate de seguridad y harness E2E cableados en CI» y hoy eso es cierto sólo en el papel del workflow, no en el camino real. |
+| **Branch protection** con `e2e-real` / SAST como *required status checks* de la rama que Vercel/Railway despliegan | Es el único punto donde un gate muerde el camino nativo: si no se puede mergear, no hay push que desplegar. No necesita los 6 secrets de deploy. |
+| Activar el CD por Actions (cargar los 6 secrets, quitar el push-to-deploy nativo) | Restaura la puerta entera tal como está escrita, pero cambia el modelo operativo del dueño. |
+
+Nota para la opción 2: con Stripe deliberadamente ausente, `e2e-real` como *required check* sólo tiene
+sentido **con el salto declarado de §33.2**; con el comportamiento anterior habría bloqueado todos los
+merges para siempre.
+
+### 33.5 Local vs CI: el mismo síntoma con dos causas distintas (corrige la lectura de §31)
+
+§31 metía los dos casos bajo la misma etiqueta y eso confunde el diagnóstico. Quedan separados:
+
+| | **Local** (stack nativo / docker en la máquina del equipo) | **CI** (`e2e-real.yml`, runner `ubuntu-latest`) |
+|---|---|---|
+| Causa de los 3 rojos | **Egress bloqueado**: `CONNECT api.stripe.com` → 403 (§31.2) | **Clave de relleno**: `sk_test_e2e_dummy` (fallback del workflow) |
+| ¿Se arregla con la clave? | **NO.** Con clave real seguiría rojo, ahora por timeout de red | **SÍ.** Es lo único que falta |
+| ¿Se arregla con egress? | Sí, más la clave | No aplica: el runner ya tiene salida |
+| Qué hace el preflight | No corre aquí | Lo detecta en el segundo 0 y salta los 3 declarándolo |
+
+Quien pruebe en local y vea los mismos tres rojos **no está viendo el mismo problema**: darle la clave
+al stack local no los pone en verde (§31.2). Es la advertencia que hace perder una tarde.
+
+### 33.6 Qué imprime ahora, en cada rama
+
+Probado con `scripts/stripe-test-key-preflight.sh` a mano (15 casos: fallback, secret ausente,
+`CHANGE_ME`, relleno alfanumérico largo, repeticiones, 23 caracteres, clave con forma real, `rk_test_`
+restringida, secret real + publicable de relleno, clave live, formato desconocido, promoción con y sin
+credencial, lista sólo-dinero, y specs con ruta `e2e/…`).
+
+**Rama A — relleno, nightly (`require_real_stripe: false`) → verde PARCIAL declarado, `exit 0`:**
+
+```
+| STRIPE_TEST_SECRET_KEY      | sk_test_… (17 caracteres en total) | VALOR DE RELLENO (no es una credencial) |
+| STRIPE_TEST_PUBLISHABLE_KEY | pk_test_… (17 caracteres en total) | VALOR DE RELLENO (no es una credencial) |
+
+Gate de dinero: INACTIVO — los smokes de dinero se SALTAN por falta de credencial.
+  Saltados (no ejecutados, NO aprobados): checkout.spec.ts guest-checkout.spec.ts shipments.spec.ts
+  Sí se ejecutan: buylist.spec.ts
+
+::warning title=SIN GATE DE DINERO — 3 smokes SALTADOS::…
+::warning title=Verde PARCIAL — 1 flujo corrido, 3 de dinero SALTADOS::Este run NO probó comprar,
+        comprar-como-invitado ni retirar…  El verde de este workflow NO es un verde de dinero.
+```
+
+**Rama B — clave con forma real → todo corre, gate ACTIVO, `exit 0` (comportamiento intacto):**
+
+```
+| STRIPE_TEST_SECRET_KEY | sk_test_… (58 caracteres en total) | clave con forma de credencial real |
+
+Gate de dinero: ACTIVO. …los tres smokes de dinero corren y son OBLIGATORIOS.
+  Specs que corren: checkout.spec.ts guest-checkout.spec.ts shipments.spec.ts buylist.spec.ts
+  Specs saltados: ninguno
+::notice title=Gate de dinero ACTIVO::…
+> Un rojo en checkout · guest-checkout · shipments a partir de aquí ES UN BUG DE PRODUCTO.
+```
+
+**Rama C — promoción a prod sin credencial (`require_real_stripe: true`) → `exit 1` en el segundo 0:**
+
+```
+::error title=Gate de promocion sin clave de PRUEBA real::STRIPE_TEST_SECRET_KEY: VALOR DE RELLENO
+        (no es una credencial); STRIPE_TEST_PUBLISHABLE_KEY: VALOR DE RELLENO… Pon los secrets
+        STRIPE_TEST_SECRET_KEY (sk_test_...) y STRIPE_TEST_PUBLISHABLE_KEY (pk_test_...) en
+        Settings > Secrets and variables > Actions. Ver DEVOPS_NOTES 31.1. Nunca una clave live.
+```
+
+Otros abortos duros, en cualquier rama: **clave live** (`sk_live_`/`pk_live_`), **formato desconocido**,
+y **«no queda ningún smoke que correr»** (si alguien invoca el workflow con una lista compuesta sólo de
+specs de dinero, saltarlos dejaría el job **vacío** — y un job vacío en verde es este mismo falso verde
+con otra cara).
+
+**Verificación del cambio:** `actionlint 1.7.7` + `shellcheck 0.10.0` sobre `e2e-real.yml` y sobre el
+script: **0 hallazgos**. El paso de veredicto se ejecutó fuera de CI con `GITHUB_STEP_SUMMARY` simulado
+en las tres combinaciones (gate on / gate off / Playwright rojo).
+
+### 33.7 Novedad importante: el **publicable** también es credencial
+
+El preflight exige que **las dos** claves tengan forma real. Sin `pk_test_…` el modal de Stripe **no
+monta en el navegador** aunque el backend cree la sesión: los tres smokes fallarían igual, y con el
+agravante de parecer un bug de producto (el backend responde 200 y la UI no muestra nada). §31.1 ya
+marcaba la publicable como obligatoria en prosa; ahora está **comprobado en el gate**.
+
+### 33.8 Limitación que dejo escrita en vez de esconder
+
+Con el gate de dinero apagado, el smoke por defecto se queda en **un solo spec** (`buylist.spec.ts`):
+3 de los 4 son de dinero. Es señal, y es más que el cero de hoy, pero **es delgada**.
+
+**No amplío la lista por defecto en este pase, y el motivo no es pereza:** los demás specs
+(`catalog`, `auth`, `vault`, `portfolio`, `admin`, …) **nunca han corrido en modo real**. Meterlos de
+golpe en el nightly tiene una probabilidad alta de reintroducir el rojo diario que esta sección viene a
+eliminar — cambiar un ruido por otro. El camino correcto es una corrida manual:
+
+```
+Actions → «E2E real (stack real)» → Run workflow →
+  smoke_specs: "buylist.spec.ts catalog.spec.ts auth.spec.ts vault.spec.ts portfolio.spec.ts"
+```
+
+y ampliar el default **sólo** con los que pasen. Queda como tarea abierta de devops, no como algo
+resuelto.
+
+### 33.9 Qué le queda al humano
+
+| Acción | Efecto | ¿Bloquea algo hoy? |
+|---|---|---|
+| **Nada, si la decisión sigue siendo no configurar Stripe** | El nightly queda **verde parcial declarado**: corre los flujos no monetarios y dice en el resumen que saltó 3 y por qué | No. Es el estado esperado y estable. |
+| Crear los secrets `STRIPE_TEST_SECRET_KEY` (`sk_test_…`) y `STRIPE_TEST_PUBLISHABLE_KEY` (`pk_test_…`) en *Settings > Secrets and variables > Actions* (§31.1) | Los tres smokes de dinero **se activan solos** y vuelven a ser obligatorios. Sin tocar código ni quitar banderas. | Es lo único que separa el gate de dinero de existir |
+| **Decidir con el coordinador qué hacer con §33.4** | Hoy ningún deploy real pasa por gate alguno | **Sí — es el hueco grande de este pase**, y no lo cierra devops en solitario |
+
+**Lo que sigue sin ser cierto, y no lo declaro cerrado:** los tres flujos de dinero **siguen sin
+verificarse en navegador** (condición #1 del DoD, §30.6/§31.5). Este pase **no** los verifica: hace que
+el sistema **diga la verdad** sobre que no están verificados, en vez de fingir un gate que no existía.
+Son dos cosas distintas y conviene no confundirlas al leer el tablero.
+
+---
+
+## 34. P-21 — Los buzones `@tcghunt.mx` ya reciben: switch de correo en PRODUCCIÓN (2026-08-31)
+
+> **Disparador cumplido.** El humano confirmó que los buzones `@tcghunt.mx` **ya reciben correo**
+> (Cloudflare Email Routing activo y probado). Ésa era exactamente la precondición que exigía la nota
+> de `.env.example` y el paso §25.6-A.8. Con ella se desbloquea la parte de **buzones que reciben**.
+> **NO desbloquea automáticamente el remitente** — ver §34.1, es la trampa de esta sección.
+>
+> **Autoridad:** `PROJECT.md` decisión 58 (2026-08-31) — el dominio del negocio es **uno**,
+> `tcghunt.mx`; los anteriores quedaron **retirados** (el documento los llama *inexistentes*). Eso
+> **deroga** el supuesto de §25.2 de un 301 servido por un dominio viejo que el negocio conserva:
+> si el dominio ya no existe, no hay 301 que valga y tampoco hay origen que allow-listear.
+
+### 34.0 Lo que cambió en el repo (este pase) y lo que NO cambia nada
+
+| Archivo | Cambio | ¿Surte efecto en prod al mergear? |
+|---|---|---|
+| `.env.example` (bloque `APP_BASE_URL`, `DISPUTE_EVIDENCE_CONTACT`, `SUPPORT_EMAIL`, bloque de correo Resend, índice `[RW]`, nota DAST) | Dominio migrado a `tcghunt.mx`; el bloque `MAIL_FROM` pasa de futuro a presente y separa las dos precondiciones (§34.1) | **NO.** Es una plantilla para devs; producción **no lee este archivo** |
+| `docker-compose.yml`, `docker-compose.staging.yml` | Comentario del default de `DISPUTE_EVIDENCE_CONTACT` | **NO.** Solo comentario; el valor sigue siendo `${DISPUTE_EVIDENCE_CONTACT:-}` |
+
+**Conclusión operativa, y es el punto entero de esta sección:** *ningún* archivo de este repo cambia
+el correo de producción. **El cambio real vive en Railway.** Mergear esta rama sin hacer §34.2 deja
+producción exactamente igual que antes.
+
+### 34.1 La distinción que hay que tener clara antes de tocar nada
+
+Son **dos precondiciones distintas** y confundirlas rompe el correo de toda la plataforma:
+
+| Variable | Qué es | Precondición | ¿Cumplida hoy? |
+|---|---|---|---|
+| `DISPUTE_EVIDENCE_CONTACT`, `SUPPORT_EMAIL` | Buzones que **RECIBEN** (se imprimen en correos y en la respuesta de disputa para que el cliente escriba) | Email Routing de `tcghunt.mx` activo → el buzón recibe | **SÍ** (confirmado por el humano) |
+| `MAIL_FROM` | Remitente que **ENVÍA** (lo pone Resend en el `From:`) | `tcghunt.mx` en estado **Verified** (SPF/DKIM) en el dashboard de **Resend** | **DESCONOCIDO — hay que mirarlo** (§34.2 paso 1) |
+
+Que un dominio **reciba** no implica que pueda **enviar**: son registros DNS distintos (MX/routing vs.
+SPF/DKIM) en productos distintos (Cloudflare vs. Resend). Si se fija `MAIL_FROM` con un dominio que
+Resend no tiene Verified, **Resend rechaza el 100% de los envíos** y el usuario no ve ningún error:
+simplemente nunca le llega la verificación de cuenta, el reset de contraseña ni la confirmación de
+pedido. Por eso `MAIL_FROM` es el **último** paso y tiene su propio gate.
+
+### 34.2 Procedimiento — Railway, paso a paso (lo ejecuta el HUMANO)
+
+**Dónde:** Railway → proyecto → servicio **`backend`** → environment **`production`** → pestaña
+**Variables**. Todas estas variables son **overrides de entorno**: no requieren merge, ni build, ni
+esperar a un despliegue de código. Al guardar, Railway **reinicia el contenedor** con el env nuevo
+(~1–2 min, arranque idempotente §11.F) — es un restart, no un deploy: el arte del contenedor no se
+reconstruye. Esa es la razón por la que esto puede hacerse **hoy**.
+
+> **Antes de empezar**, ten a mano una cuenta de correo tuya para las pruebas (Gmail personal sirve)
+> y **no** uses una cuenta que ya exista en la plataforma: el paso de verificación necesita registrar
+> una cuenta nueva.
+
+**Paso 1 — [GATE de `MAIL_FROM`] Resend: ¿`tcghunt.mx` está Verified?**
+Resend → **Domains**. Busca `tcghunt.mx`:
+- Estado **Verified** (verde) → sigue al paso 2 completo.
+- **No aparece / Pending / Failed** → **NO fijes `MAIL_FROM`**. Haz solo los pasos 2a y 3, y añade el
+  dominio en Resend (*Add Domain* → pega los TXT/CNAME que te dé en la zona de Cloudflare de
+  `tcghunt.mx` → *Verify*). Vuelve al paso 2b cuando esté verde (propagación: minutos a 1 h).
+
+**Paso 2 — Fijar las variables.** En este orden (las de recibir primero; el remitente al final):
+
+| # | Variable | Valor EXACTO a fijar | Gate |
+|---|---|---|---|
+| 2a | `DISPUTE_EVIDENCE_CONTACT` | `soporte@tcghunt.mx` | Buzón recibe — **cumplido** |
+| 2a | `SUPPORT_EMAIL` | `soporte@tcghunt.mx` *(opcional: solo si quieres un buzón distinto al de disputas; si no la fijas, hereda de `DISPUTE_EVIDENCE_CONTACT`)* | Buzón recibe — **cumplido** |
+| 2b | `MAIL_FROM` | `TCG HUNT <no-reply@tcghunt.mx>` *(con el nombre visible; comillas NO — Railway guarda el valor literal)* | **Solo si el paso 1 salió Verified** |
+
+> **`MAIL_FROM` puede existir ya o no** (§34.4): da igual. Si ya existe, **edítala**; si no aparece en
+> la lista, **créala** con *New Variable*. El resultado es el mismo y el procedimiento no cambia.
+
+**Paso 2c — `APP_BASE_URL` (revisar, y corregir si hace falta).** Mira su valor actual. Debe ser:
+
+```
+https://www.tcghunt.mx,https://tcghunt.mx,https://tcg-vault-mx.vercel.app
+```
+
+Dos cosas dependen de esto y conviene entender cuál es cuál:
+- **El PRIMER origen** arma los links de los correos (verificación, reset) y el `return_url` de Stripe.
+  Si el primero no es `https://www.tcghunt.mx`, los correos saldrán con links de otro dominio.
+- **Toda la lista** es la allow-list de CORS. Si `https://www.tcghunt.mx` **no** está en la lista, el
+  frontend servido en ese dominio **no puede hablar con el backend** (todo falla con error de CORS).
+  Si la web funciona hoy, es que ya está; verifícalo igual, cuesta 10 segundos.
+- Los dominios retirados **se quitan** de la lista: un origen que no existe no emite peticiones, así
+  que allow-listearlo no protege de nada y solo confunde el próximo runbook.
+
+**Paso 3 — Guardar y esperar el restart.** Railway muestra el servicio en *Deploying* → *Active*.
+Comprueba que arrancó:
+
+```bash
+curl -s -o /dev/null -w '%{http_code}\n' https://tcg-vault-mx-production.up.railway.app/api/v1/health
+# esperado: 200
+```
+
+Si no vuelve 200 en ~3 min, ve al rollback (§34.5) y reporta: es un fallo de arranque, no del correo.
+
+### 34.3 Verificación — fijar las variables NO es haber terminado
+
+Fijar una variable no prueba nada. Hay que comprobar las **dos direcciones** del correo por separado,
+porque fallan por causas distintas.
+
+**V1 — ENVÍO: ¿sale un correo real desde el remitente nuevo?** (prueba de extremo a extremo, 2 min)
+
+1. Ve a `https://www.tcghunt.mx` → **Crear cuenta** con una dirección tuya que no esté registrada.
+2. Espera el correo de verificación (< 1 min). **Revisa también SPAM.**
+3. En el correo recibido, abre **"Mostrar original"** (Gmail: menú ⋮ → *Mostrar original*) y confirma:
+   - `From:` → `TCG HUNT <no-reply@tcghunt.mx>` — **el nombre visible y el dominio nuevo**.
+   - `SPF: PASS` y `DKIM: PASS` para `tcghunt.mx`. Si alguno dice `FAIL`/`NEUTRAL`, el dominio no está
+     bien verificado en Resend: **haz rollback de `MAIL_FROM`** (§34.5) y termina la verificación en
+     Resend antes de reintentar. Con SPF/DKIM en rojo el correo acaba en spam aunque "llegue".
+   - El link de verificación apunta a `https://www.tcghunt.mx/...` (eso valida el paso 2c).
+4. Haz clic en el link: la cuenta debe quedar verificada.
+
+**Evidencia del lado servidor (obligatoria si V1 falla, y recomendable siempre):**
+
+- **Resend → Emails / Logs:** cada envío aparece con su estado. Busca el de tu prueba.
+  - `Delivered` → envío correcto.
+  - `Bounced` / `Failed` con mensaje tipo *"The domain is not verified"* o *"from address not allowed"*
+    → **el remitente no está verificado**. Es el fallo silencioso: la app no lo muestra al usuario.
+  - **Ningún registro** → el backend ni siquiera intentó enviar: mira los logs de Railway.
+- **Railway → servicio `backend` → Logs**, filtra por `MailModule`. Al arrancar imprime **el remitente
+  efectivo**, y es la forma más rápida de saber qué está usando de verdad:
+  - `Correo: ResendMailAdapter (from=TCG HUNT <no-reply@tcghunt.mx>).` → `MAIL_FROM` tomó efecto.
+  - Si el `from=` que imprime es otro, la variable no está donde crees (¿environment equivocado?
+    ¿servicio equivocado?).
+  - `RESEND_API_KEY ausente → NoopMailAdapter` → **no se está enviando nada en absoluto**; incidencia
+    aparte y grave (esto no debería poder pasar en prod: `env.validation.ts` lo exige).
+
+**V2 — RECEPCIÓN: ¿una respuesta al buzón nuevo llega a alguien?** (esto es lo que V1 no prueba)
+
+1. Desde tu correo personal, **responde** al correo de verificación que te llegó (va a `no-reply@`) y
+   además manda un correo directo a **`soporte@tcghunt.mx`**.
+2. Confirma que ambos aterrizan en el Gmail destino del Email Routing. `no-reply@` puede rebotar por
+   diseño (es un buzón de solo envío) — **lo que no puede fallar es `soporte@tcghunt.mx`**: ése es el
+   que la plataforma le da al cliente para mandar evidencia de una disputa. Si no llega, hay un cliente
+   con una disputa gritando al vacío.
+3. Comprueba que la API ya **devuelve** el buzón nuevo. `evidenceContact` no se expone en ningún
+   endpoint público sin datos (sale en la respuesta de disputa y en el seguimiento de pedido de
+   invitado, `POST /api/v1/orders/guest/track`, que exige nº de pedido + correo reales). Así que
+   verifícalo por la vía que tengas a mano:
+   - **Con un pedido real de prueba:** entra a *Seguimiento de pedido* en la web y confirma que el
+     correo de contacto que muestra es `soporte@tcghunt.mx`.
+   - **Sin pedido:** Railway → Variables → confirma que `DISPUTE_EVIDENCE_CONTACT` quedó guardada con
+     el valor exacto (sin espacios de más: `envOr` trata blanco como ausente y caería al default).
+
+**Criterio de aceptación del switch:** V1 con `From:` nuevo + SPF/DKIM PASS, **y** V2 con
+`soporte@tcghunt.mx` recibiendo, **y** `/health` en 200. Con eso el cambio surtió efecto de verdad.
+
+### 34.4 `MAIL_FROM` en producción: lo que el repo dice, y por qué no basta
+
+La pregunta —*¿está `MAIL_FROM` fijada hoy en prod?*— **no se puede contestar desde el repo**, y la
+documentación **se contradice**. Se deja escrito para que nadie vuelva a fiarse de ninguna de las dos:
+
+| Fuente | Qué afirma |
+|---|---|
+| `HANDOFF.md` §3 (inventario de variables de Railway) | `MAIL_FROM=no-reply@tcgvaultmx.com` — la lista la da por **FIJADA** |
+| `DEVOPS_NOTES.md` §25.5 (tabla del rebrand) | `MAIL_FROM` → *"sin fijar (default de código)"* — la da por **NO fijada** |
+
+Ninguna de las dos es una consulta en vivo a Railway: son notas escritas a mano en momentos distintos.
+**La §25.5 se escribió sin evidencia que la respaldara y contradice al HANDOFF; queda marcada como no
+fiable.** Esta sección la sustituye.
+
+**Lo que sí se puede afirmar, y es lo que importa:** el **remitente efectivo es el mismo en los dos
+escenarios**. Si `MAIL_FROM` está fijada, vale `no-reply@tcgvaultmx.com` (HANDOFF); si no lo está, el
+backend cae al default de código `DEFAULT_MAIL_FROM = 'no-reply@tcgvaultmx.com'`
+(`backend/src/modules/mail/mail.module.ts:13`). **En ambos casos producción está enviando desde el
+dominio retirado.** Por eso el procedimiento §34.2 no se ramifica: fijes o edites, el destino es el
+mismo valor.
+
+**El riesgo vivo, planteado como hipótesis y no como hecho:** `HANDOFF.md` §3 registra el dominio
+`tcgvaultmx.com` como **Verified** en Resend *en su momento*. Si ese dominio fue retirado y su zona DNS
+ya no publica los TXT/CNAME de SPF/DKIM, **Resend lo marca como no verificado y rechaza todo envío**
+desde él. En ese escenario la plataforma lleva **sin entregar ni un solo correo transaccional**
+—verificación de cuenta (que bloquea comprar/vender/retirar), reset de contraseña, confirmaciones de
+pedido, buylist y disputas— y **el fallo es silencioso**: la API responde 200 y nadie se entera.
+**No lo afirmo:** desde esta sesión no hay egress a producción ni acceso a los dashboards (§23.1,
+§26). Es una hipótesis con causa mecánica plausible, y **se confirma o se descarta en dos minutos**.
+
+**Comprobación del humano — 2 minutos, en este orden (para y arregla en el primer rojo):**
+
+1. **Resend → Domains** (15 s). ¿Qué estado tiene `tcgvaultmx.com`? Si dice **Failed / Pending / no
+   aparece**, la hipótesis está **confirmada**: el correo transaccional está caído ahora mismo → es un
+   **P0** y el arreglo es completar §34.2 (verificar `tcghunt.mx` + fijar `MAIL_FROM`) **hoy**.
+2. **Resend → Emails / Logs**, filtra por los últimos 7 días (45 s). Es la evidencia más directa:
+   - Envíos en `Delivered` → el correo **está saliendo**; no hay incendio, el switch es una mejora de
+     marca y se hace con calma.
+   - Todo en `Bounced`/`Failed`, o **la lista vacía pese a haber habido registros/pedidos** → caído.
+     Abre uno y lee el mensaje de error: ahí dice si es el dominio del remitente.
+3. **Railway → `backend` → Variables** (20 s). Busca `MAIL_FROM` en la lista: o está o no está. Eso
+   resuelve la contradicción del repo — **anota el resultado en `HANDOFF.md` §3** (lo escribe el rol
+   dueño de ese archivo), porque hoy hay dos documentos afirmando cosas opuestas.
+4. **Railway → `backend` → Logs**, filtra `MailModule` (20 s). La línea de arranque
+   `Correo: ResendMailAdapter (from=…)` dice **el remitente que se está usando de verdad**, sin
+   depender de lo que digan los dashboards ni los documentos. Es la fuente de verdad.
+
+Si el paso 2 sale verde (correos entregándose), el switch de §34.2 **no es urgente** pero sigue siendo
+necesario: se está enviando desde un dominio que ya no es del negocio y que puede dejar de verificar
+en cualquier momento, sin aviso.
+
+### 34.5 Rollback
+
+Cada variable es independiente y reversible **sin desplegar código** (mismo restart de ~1–2 min):
+
+| Si falla | Acción | Estado al que vuelve |
+|---|---|---|
+| `MAIL_FROM` (SPF/DKIM en rojo, Resend rechaza) | **Borra la variable** `MAIL_FROM` (no la vacíes… aunque vaciarla también sirve: `envOr` trata `''` y `'   '` como ausente y cae al default) | Remitente = default de código. **OJO:** ese default es el dominio retirado — si *ése* es el que no verifica, el rollback **no** arregla el envío; el único camino hacia adelante es verificar `tcghunt.mx` en Resend |
+| `DISPUTE_EVIDENCE_CONTACT` / `SUPPORT_EMAIL` | Borrar la variable (cae al default de código) o fijar el buzón anterior | Buzón anterior. Solo tiene sentido si el buzón viejo **sigue recibiendo**; si el dominio está retirado, **no lo hagas**: dejarías a los clientes escribiendo a un buzón muerto |
+| `APP_BASE_URL` | Restaurar el valor anterior (cópialo **antes** de editarlo) | Links y CORS previos |
+
+**Regla:** antes de tocar cualquiera de estas variables, **copia su valor actual a un bloc de notas**.
+Railway no ofrece historial de variables por valor y el rollback depende de que lo tengas apuntado.
+
+### 34.6 Lo que esta sección NO cierra (enrutado a sus roles)
+
+- **backend:** `DEFAULT_MAIL_FROM` (`mail.module.ts:13`) y los buzones por defecto de
+  `disputes.constants.ts`, `buylist-mail.templates.ts`, `guest-checkout.constants.ts` siguen con el
+  dominio retirado. Está en curso en paralelo. **Nota importante para no relajarse:** ese arreglo
+  cambia el *default de código*, que solo aplica cuando la env **no** está fijada — **no sustituye a
+  §34.2**. Producción se arregla fijando la variable, no mergeando el default.
+- **frontend:** buzones en `messages/{es,en}.json`, marca/metadata y `vercel.json` (§25.7). Con el
+  dominio viejo retirado, el 301 de §25.2 ya no es realizable: eso lo replantea el arquitecto/PO.
+- **humano:** todo §34.2 y §34.4 — nadie más tiene acceso a Railway ni a Resend.
+
+---
+
+> **Nota de fusión (2026-09-05).** Las tres secciones que siguen se escribieron en el stream
+> `claude/buylist-inventory-workflow-hdnls3` numeradas **§33 / §34 / §35**. Al absorber `origin/main`
+> chocaron con las §33 y §34 que ya vivían en el tronco, así que **se renumeraron aquí**:
+>
+> | Número en el stream | Número definitivo | Sección |
+> |---|---|---|
+> | §33 | **§35** | `APP_PUBLIC_URL` — CTA de los correos del buylist |
+> | §34 | **§36** | BL-27 — el gate `format-mix` de CI |
+> | §35 | **§37** | Stack nativo para el gate de QA |
+>
+> El tronco NO se renumeró (su §33 está referenciada desde `.github/workflows/e2e-real.yml`).
+> **Las 12 referencias que apuntaban al número viejo ya están corregidas** en el mismo pase:
+> `docker-compose.yml:223`, `docker-compose.staging.yml:210`, `scripts/stack-native.sh`
+> (43, 128, 511, 524, 557), `scripts/check-format-mix.sh:160` y `.env.example` (8, 41, 141, 670).
+> **No se tocaron** las que apuntan al §33/§34 del tronco —Stripe y switch de correo P-21—:
+> `.github/workflows/e2e-real.yml` (26, 44, 116, 393) y `.env.example` (98, 291, 324, 745).
+> La tabla se conserva porque los números viejos siguen citados en veredictos y tickets
+> anteriores a la fusión.
+
+---
+
+## 35. `APP_PUBLIC_URL` — el CTA de los correos del buylist: declarado, alineado y **todavía sin valor a propósito** (2026-09-01, stream `claude/buylist-inventory-workflow-hdnls3`)
 
 **El hueco lo levantó backend, no QA ni un incidente** (`BACKEND_NOTES` §0.18: *«`APP_PUBLIC_URL` no está
 en `.env.example` (archivo suyo) — se señala, no se toca»*). Es la manera correcta de enrutar un hallazgo
 de entorno y aquí queda cerrado por su dueño.
 
-### 33.1 Qué se tocó (todo dentro de rutas de devops)
+### 35.1 Qué se tocó (todo dentro de rutas de devops)
 
 | Archivo | Cambio |
 |---|---|
@@ -5030,9 +6207,9 @@ de entorno y aquí queda cerrado por su dueño.
 | `docker-compose.staging.yml` | `APP_PUBLIC_URL: ${STAGING_APP_PUBLIC_URL:-}` + `MAIL_FROM` + `SUPPORT_EMAIL`. |
 | `scripts/stack-native.sh` | `export APP_PUBLIC_URL="${APP_PUBLIC_URL:-}"` junto al de `APP_BASE_URL`. |
 
-**Ni una línea de `backend/` ni de `frontend/`.** Lo que sale de este pase y no es mío va enrutado en §33.4.
+**Ni una línea de `backend/` ni de `frontend/`.** Lo que sale de este pase y no es mío va enrutado en §35.4.
 
-### 33.2 No es una variable nueva: es `APP_BASE_URL` **con otro nombre**
+### 35.2 No es una variable nueva: es `APP_BASE_URL` **con otro nombre**
 
 El encargo era explícito —*si ya existe algo equivalente, alinea en vez de crear una segunda*—, y existe.
 `APP_BASE_URL` **ya es** «la URL pública del frontend con la que el backend arma los enlaces de los
@@ -5065,7 +6242,7 @@ usan `auth.service.ts` y `guest-order-mail.service.ts`. Con eso `APP_PUBLIC_URL`
 fuente de verdad** a un **override opcional**, y la divergencia deja de ser posible en vez de quedar
 prohibida por comentario. Son dos líneas y **es de backend**.
 
-### 33.3 Contrato de formato (de esto depende que el enlace se arme bien)
+### 35.3 Contrato de formato (de esto depende que el enlace se arme bien)
 
 El backend hace, literalmente: `` `${base.replace(/\/+$/, '')}/buylist/requests/${sellRequestId}` ``.
 De ahí salen las reglas — verificadas contra el código, no supuestas:
@@ -5079,7 +6256,7 @@ De ahí salen las reglas — verificadas contra el código, no supuestas:
 | `https://www.tcghunt.mx/es` (parche del locale) | el enlace sí resolvería… **congelando el idioma a ES** para todo vendedor, incluido el que tiene `locale=en` | ⛔ el locale es del path, no del origen |
 | **ausente / vacía / solo espacios** | `envOr` trata blanco como ausente ⇒ `portalUrl: undefined` ⇒ **la plantilla degrada el botón a una instrucción de texto**. **NO** falla el arranque: no está en `required` de `env.validation.ts` | ⚠️ red de seguridad, **no** estado deseado |
 
-### 33.4 ⛔ Por qué se declara **vacía**: el destino todavía no existe
+### 35.4 ⛔ Por qué se declara **vacía**: el destino todavía no existe
 
 Fijarla hoy **no enciende un enlace, enciende un 404**. Verificado en el árbol, no supuesto:
 
@@ -5122,7 +6299,7 @@ STAGING_APP_PUBLIC_URL=http://localhost:3010 docker compose -f docker-compose.st
 log del backend. Si en el log aparece la instrucción de texto en vez del botón, la variable no llegó.
 
 
-### 33.4-bis La puerta se cruzó, y se cruzó MIDIÉNDOLA (2026-09-01)
+### 35.4-bis La puerta se cruzó, y se cruzó MIDIÉNDOLA (2026-09-01)
 
 `APP_PUBLIC_URL` quedó **declarada pero sin valor** porque el destino no existía. Ya existe:
 `frontend/src/app/[locale]/(storefront)/buylist/requests/[id]/page.tsx`. La activación exigía un
@@ -5162,7 +6339,7 @@ ningún botón — por eso se activa ahora y el defecto queda abierto, no escond
 > cambio. **Enrutado a backend, no tocado.** La ruta del portal se verificó levantando solo el
 > frontend, que es lo que respondía la pregunta.
 
-### 33.5 La fontanería que faltaba (sin esto, declararla no habría servido de nada)
+### 35.5 La fontanería que faltaba (sin esto, declararla no habría servido de nada)
 
 `environment:` en compose es una **allow-list explícita**: lo que no se nombra, **no entra al contenedor**.
 `APP_PUBLIC_URL` no estaba nombrada en ningún sitio, así que **ponerla en `.env` no habría tenido ningún
@@ -5186,22 +6363,22 @@ docker compose -f docker-compose.yml         --profile apps config | grep -E 'AP
 docker compose -f docker-compose.staging.yml --profile apps config | grep -E 'APP_PUBLIC_URL|MAIL_FROM|SUPPORT_EMAIL|RESEND'
 ```
 
-### 33.6 El resto del ciclo (correos, plazos en días hábiles, cola): **revisado — no falta ninguna variable más**
+### 35.6 El resto del ciclo (correos, plazos en días hábiles, cola): **revisado — no falta ninguna variable más**
 
 Se revisó qué necesita el ciclo de adquisición para funcionar de punta a punta. Resultado, con evidencia:
 
 | Frente | Estado | Detalle |
 |---|---|---|
-| **Correo** (oferta, cancelación, recordatorio) | ✅ **Completo** | `RESEND_API_KEY` (obligatoria en no-local por `env.validation.ts`), `MAIL_FROM` (opcional, default en código) y `SUPPORT_EMAIL` (opcional, cadena de fallback) ya estaban declaradas; lo que faltaba era el **pass-through** de §33.5. |
+| **Correo** (oferta, cancelación, recordatorio) | ✅ **Completo** | `RESEND_API_KEY` (obligatoria en no-local por `env.validation.ts`), `MAIL_FROM` (opcional, default en código) y `SUPPORT_EMAIL` (opcional, cadena de fallback) ya estaban declaradas; lo que faltaba era el **pass-through** de §35.5. |
 | **Zona horaria** (`America/Mexico_City`) | ✅ **No necesita env, y es lo correcto** | `business-days.ts` y las plantillas usan `Intl` con `timeZone: 'America/Mexico_City'` **explícito**. No leen `process.env.TZ`. **Fijar un `TZ` en el contenedor no cambiaría ninguna fecha** — y por eso **no se añade**: una env que no hace nada es una env que alguien acabará creyendo que hace algo. La zona es parte de la definición del plazo (criterio 154), no configuración. |
 | **Formato de fecha en español** | ⚠️ **Sin acción, riesgo residual anotado** | Las plantillas piden `es-MX` con `dateStyle:'full'`. Eso necesita **ICU completo** en el runtime; con `small-icu` las fechas del correo saldrían **en inglés** (no rompe, *miente*). `node:20-alpine` trae full-icu por defecto desde Node 13, pero **no lo pude verificar aquí: no hay demonio de Docker en este entorno** (`docker info` falla). No cablé un gate de build sobre una suposición. **Verificación de un renglón** cuando haya Docker: `docker run --rm node:20-alpine node -p "new Intl.DateTimeFormat('es-MX',{dateStyle:'full'}).format(new Date())"` → debe salir en español. Si saliera en inglés, es mío y se arregla en `Dockerfile.backend`. |
 | **Barrido de plazos** (`buylist-sweep`) | ✅ **Ya cubierto** | Lo agenda el scheduler a `0 8 * * *` **UTC** = 02:00 CDMX. **Requiere `REDIS_URL`** — sin Redis **no se programa NINGÚN cron** (ya documentado en `.env.example` y §19). En Railway lo inyecta el add-on. **No hay env que declarar**: a diferencia de los crons de precios, este horario está **fijo en el código** (`scheduler.service.ts`). Si algún día hay que moverlo, hace falta que **backend** lo lea de una env; hoy no me consta que haga falta y **no invento la variable**. |
 | **Trabajo de cola** | ✅ **Ya cubierto** | Mismo `REDIS_URL` + `REDIS_FAMILY` (§20, la trampa IPv6 de Railway). Nada nuevo para el buylist. |
-| **Calendario de días hábiles** | ⚠️ **Ni env ni infra — pero SÍ operación** | `MX_HOLIDAYS` es una **tabla en código** (`backend/src/common/business-days.ts`) que cubre **2026–2030** y **falla ruidosamente** fuera de rango (`BusinessDaysCoverageError`), a propósito: degradar a «no hay festivos» **adelantaría vencimientos**. **Lo que verá devops** si nadie la extiende: el barrido **no expira nada** y loguea `error`. **Extenderla es de backend** (§33.7 lo deja como aviso con fecha, no como sorpresa). |
+| **Calendario de días hábiles** | ⚠️ **Ni env ni infra — pero SÍ operación** | `MX_HOLIDAYS` es una **tabla en código** (`backend/src/common/business-days.ts`) que cubre **2026–2030** y **falla ruidosamente** fuera de rango (`BusinessDaysCoverageError`), a propósito: degradar a «no hay festivos» **adelantaría vencimientos**. **Lo que verá devops** si nadie la extiende: el barrido **no expira nada** y loguea `error`. **Extenderla es de backend** (§35.7 lo deja como aviso con fecha, no como sorpresa). |
 
 **En una línea: para este ciclo faltaba `APP_PUBLIC_URL` y su fontanería. Lo demás ya estaba.**
 
-### 33.7 Dos avisos operativos que salen de esta revisión (ninguno bloquea)
+### 35.7 Dos avisos operativos que salen de esta revisión (ninguno bloquea)
 
 1. **Vigilancia del calendario (2030).** Cuando se acerque el cierre de 2030, el síntoma será
    *«el barrido del buylist no expira ofertas y loguea `BusinessDaysCoverageError`»*. **No es un fallo de
@@ -5217,7 +6394,7 @@ Se revisó qué necesita el ciclo de adquisición para funcionar de punta a punt
    *graded* y merecen leerse una por una antes de escribir su default en la plantilla. **Dueño: devops
    (yo), en un pase de plantilla del stream de precios.**
 
-### 33.8 Rollback
+### 35.8 Rollback
 
 **No hay rollback de deploy que hacer aquí: no hay código nuevo, no hay migración y no hay servicio nuevo.**
 
@@ -5228,11 +6405,11 @@ Se revisó qué necesita el ciclo de adquisición para funcionar de punta a punt
 | Hay que revertir el commit entero | `git revert` de este commit | Se pierde la declaración y el cableado; **el comportamiento de la app no cambia** (los defaults son vacíos y equivalen a la ausencia de las variables). |
 ---
 
-## 34. BL-27 — el formateador rompía la revisión por diff. Mecanismo elegido: **bloquear la mezcla, no formatear el árbol** (2026-09-01)
+## 36. BL-27 — el formateador rompía la revisión por diff. Mecanismo elegido: **bloquear la mezcla, no formatear el árbol** (2026-09-01)
 
 **El encargo llegó con dos salidas y la elección era mía.** La elijo con datos medidos, no por gusto.
 
-### 34.1 Lo que se midió antes de decidir (literal)
+### 36.1 Lo que se midió antes de decidir (literal)
 
 ```
 $ backend/node_modules/.bin/prettier --check "src/**/*.ts" "test/**/*.ts"
@@ -5260,7 +6437,7 @@ Y tres hechos sobre el formateador que cambian por completo la decisión:
    una reescritura del frontend entero con un estilo que nadie acordó. Solo `backend/.prettierrc`
    existe (`singleQuote`, `trailingComma: all`, `printWidth: 100`).
 
-### 34.2 Por qué NO cableo el formateador (la opción A), hoy
+### 36.2 Por qué NO cableo el formateador (la opción A), hoy
 
 Cablear `prettier --check` como gate exige **primero** un commit que formatee el árbol. Ese commit,
 medido, es de **13.746 líneas en 274 archivos**. Y ahí está la ironía que decide el asunto:
@@ -5273,10 +6450,10 @@ medido, es de **13.746 líneas en 274 archivos**. Y ahí está la ironía que de
 Súmese que **no sería un commit mío**: reformatear `backend/` y `frontend/` es escribir en rutas de
 otros roles. Yo no puedo hacerlo y no debo pedirlo en caliente.
 
-**No la descarto para siempre — la dejo costeada** (§34.5), que es lo que pedía el encargo: *saber el
+**No la descarto para siempre — la dejo costeada** (§36.5), que es lo que pedía el encargo: *saber el
 tamaño antes de llegar al gate*.
 
-### 34.3 Lo que SÍ cablé: la norma del arquitecto, ejecutable
+### 36.3 Lo que SÍ cablé: la norma del arquitecto, ejecutable
 
 > *Un diff no mezcla reformateo con lógica; si hay que reformatear, va en su propio commit sin un
 > solo cambio de comportamiento.*
@@ -5299,7 +6476,7 @@ no reformatea nada y no opina sobre comillas. Responde a una sola pregunta por a
 La versión de prettier va **clavada a 3.9.6** en el script. No es cosmético: si el comparador usara
 «la última», su veredicto cambiaría solo, sin que nadie tocara nada.
 
-### 34.4 Probado contra los cuatro casos, no solo contra el bueno
+### 36.4 Probado contra los cuatro casos, no solo contra el bueno
 
 Repo git sintético, con un archivo sin formatear como los 274 reales:
 
@@ -5318,7 +6495,7 @@ prettier por archivo **modificado**, no por archivo del repo.
 > (el `sed` ya no casaba tras el reformateo, así que no cambiaba nada). Se corrigió el test, no el
 > script. Un comparador que solo se prueba contra el caso que debe fallar no está probado.
 
-### 34.5 Si algún día se quiere la opción A (formatear el árbol), así se hace y esto cuesta
+### 36.5 Si algún día se quiere la opción A (formatear el árbol), así se hace y esto cuesta
 
 Queda **propuesta y costeada, sin cablear**. Orden obligatorio — y el primer punto no es negociable:
 
@@ -5336,7 +6513,7 @@ Queda **propuesta y costeada, sin cablear**. Orden obligatorio — y el primer p
 Mientras eso no ocurra, el estado correcto es el actual: **el árbol NO está formateado, y no pasa
 nada**, porque lo que se protege no es el estilo — es la revisabilidad del diff.
 
-### 34.6 Estado del gate de seguridad y del harness E2E (lo que pedía el encargo: el tamaño)
+### 36.6 Estado del gate de seguridad y del harness E2E (lo que pedía el encargo: el tamaño)
 
 Revisado archivo por archivo. **Cableado ≠ corriendo**, y la diferencia es justo donde está el hueco.
 
@@ -5356,7 +6533,7 @@ Eso último **no lo cierro yo solo**: o los deploys pasan por `deploy.yml`, o ha
 a un disparo post-deploy que bloquee la promoción. **Decisión del humano** (y del arquitecto si
 cambia el flujo).
 
-### 34.7 Rollback de BL-27
+### 36.7 Rollback de BL-27
 
 | Escenario | Acción |
 |---|---|
@@ -5366,7 +6543,7 @@ cambia el flujo).
 
 ---
 
-## 35. Stack nativo para el gate de QA del stream `buylist-inventory-workflow` — lo que arrancó, y el rojo que **no era del producto** (2026-09-02)
+## 37. Stack nativo para el gate de QA del stream `buylist-inventory-workflow` — lo que arrancó, y el rojo que **no era del producto** (2026-09-02)
 
 **Encargo:** QA no puede correr su gate sin un stack vivo y no tiene herramientas de escritura
 (es intencional). Levantar la ruta nativa y decir **exactamente** qué puede correr y qué no.
@@ -5374,7 +6551,7 @@ cambia el flujo).
 **Regla que gobierna esta sección:** todo número de aquí está **medido** sobre el árbol limpio en
 `claude/buylist-inventory-workflow-hdnls3` (commit `742ce51`). Donde no medí, lo digo.
 
-### 35.1 Punto de partida (confirmado, no asumido)
+### 37.1 Punto de partida (confirmado, no asumido)
 
 | Hecho | Comprobación |
 |---|---|
@@ -5385,7 +6562,7 @@ cambia el flujo).
 | Puertos 3000/3099 libres | `ss -ltnp` sin coincidencias |
 | `node_modules` presentes | backend 578 paquetes · frontend 447 |
 
-### 35.2 `./scripts/stack-native.sh up --seed --gate` — **exit 0**, literales
+### 37.2 `./scripts/stack-native.sh up --seed --gate` — **exit 0**, literales
 
 ```
 ▸ Postgres (16/main)          ✔ arriba.            (había un pid file rancio; el script lo purgó solo)
@@ -5430,7 +6607,7 @@ los 5 índices (`SellRequest_offerState_idx`, `SellRequest_status_offerAcceptDea
 Único aviso en el log: `pokemontcg.io … -> HTTP 403` (sin egress). **Esperado y money-safe**: deja los
 precios STALE, no borra ni escribe $0.
 
-### 35.3 El rojo de la suite de integración: **entorno, no producto** — y el footgun que casi me como
+### 37.3 El rojo de la suite de integración: **entorno, no producto** — y el footgun que casi me como
 
 El encargo pedía el literal de `cd backend && npm run test:integration`. Es éste:
 
@@ -5482,12 +6659,12 @@ cerrado por construcción y comentado en el propio script.
 
 | Archivo | Qué |
 |---|---|
-| `backend/.env` (**untracked**, `.gitignore`) | `DATABASE_URL`, `REDIS_URL`, `APP_BASE_URL`, `APP_PUBLIC_URL`, `JWT_*` de desarrollo. **Sin Stripe, sin Resend, sin S3, sin API keys de precios** — a propósito (§35.4). Con él, el comando literal pasa de 0 a **14/15 suites**. |
+| `backend/.env` (**untracked**, `.gitignore`) | `DATABASE_URL`, `REDIS_URL`, `APP_BASE_URL`, `APP_PUBLIC_URL`, `JWT_*` de desarrollo. **Sin Stripe, sin Resend, sin S3, sin API keys de precios** — a propósito (§37.4). Con él, el comando literal pasa de 0 a **14/15 suites**. |
 | `scripts/stack-native.sh` → `test:integration` | Exporta el mismo env que usa `up` **y fija `NODE_ENV=test`**. Comprueba que Postgres responda antes de correr. Da **15/15 · 183/183 · exit 0**. |
 | `scripts/stack-native.sh` → `migrate deploy` | El mensaje decía «incluida M-41» **desde M-41 hasta M-46**. Ahora el nombre se deriva del árbol: un mensaje que envejece en silencio es peor que no tenerlo, porque se cita en veredictos. |
 | `scripts/stack-native.sh` → `mask_url()` | Un solo sitio que enmascara la contraseña antes de imprimir una URL de conexión. |
 
-### 35.4 Qué puede correr QA y qué no
+### 37.4 Qué puede correr QA y qué no
 
 **✅ Sí, ahora mismo, sin tocar nada:**
 
@@ -5520,7 +6697,7 @@ cerrado por construcción y comentado en el propio script.
    `prisma migrate dev` querría generar una migración de rename. `backend/prisma/` es del rol
    **backend**; queda anotado, no tocado.
 
-### 35.5 Apagado y rollback
+### 37.5 Apagado y rollback
 
 | Escenario | Acción |
 |---|---|

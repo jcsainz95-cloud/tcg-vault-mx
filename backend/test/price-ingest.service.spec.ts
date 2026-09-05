@@ -59,7 +59,7 @@ function settingsMock(provider: string) {
 /** WS-A fix-ppt: mock del resolvedor de `pptSetId` (devuelve el ya cacheado del set). */
 function pptMapperMock() {
   return { resolveForSets: jest.fn(async (sets: Array<{ id: string; pptSetId?: string | null }>) =>
-    new Map(sets.map((s) => [s.id, s.pptSetId ?? '1234'])),
+    new Map(sets.map((s) => [s.id, { pptSetId: s.pptSetId ?? '1234' }])),
   ) };
 }
 

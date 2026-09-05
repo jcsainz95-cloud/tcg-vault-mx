@@ -5,8 +5,8 @@ import { ApiClientError } from '@/lib/api-client';
 import type {
   BuylistBatchQuoteResultDTO,
   BuylistQuoteItemDTO,
+  BuylistSetDTO,
   CardDTO,
-  CardSetDTO,
   InventoryAdjustmentRequest,
 } from '@/types/contract';
 import { MasterSetPanel } from './MasterSetPanel';
@@ -731,7 +731,14 @@ describe('Master Set · Modo user_vault_self (mi bóveda: faltantes comprables)'
  * nunca hueco para un acabado que no existe); clic = agrega al carrito de venta.
  */
 describe('Master Set · mode="quoter" (cotizador unificado con el binder de Master Set)', () => {
-  const QUOTER_SET: CardSetDTO = { id: 'set-quoter', name: 'Quoter Set', year: 2024 };
+  // `BuylistSetDTO`, no `CardSetDTO`: `GET /buylist/sets` es el único que emite `logoUrl`, y el
+  // campo es REQUERIDO (§4.40.6) — este literal no compila sin decidir si el set tiene logo.
+  const QUOTER_SET: BuylistSetDTO = {
+    id: 'set-quoter',
+    name: 'Quoter Set',
+    year: 2024,
+    logoUrl: null,
+  };
 
   function mockOneSet() {
     vi.spyOn(api, 'listBuylistSets').mockResolvedValue([QUOTER_SET]);
@@ -1260,6 +1267,7 @@ describe('Master Set · Multi-parte / master combinado (P-27, v1.33)', () => {
           name: 'Classic Collection',
           series: 'Sword & Shield',
           year: 2021,
+          logoUrl: null,
           catalogCardCount: 25,
           distinctCardsOwned: 0,
           completionPct: 0,

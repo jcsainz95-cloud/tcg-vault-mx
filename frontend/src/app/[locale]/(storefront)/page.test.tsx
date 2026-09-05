@@ -30,31 +30,31 @@ describe('HomePage · makeover 1a (hero + cotizador + estantes)', () => {
     expect(screen.getByText('Cartas Pokémon · México')).toBeInTheDocument();
     expect(
       screen.getByRole('heading', {
-        name: 'Compra cartas Pokémon con precio real y guárdalas en la bóveda',
+        name: 'Caza la carta. Nosotros la guardamos.',
       }),
     ).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Ver el catálogo' })).toHaveAttribute(
+    expect(screen.getByRole('link', { name: 'Explorar el catálogo' })).toHaveAttribute(
       'href',
       '/catalog',
     );
 
     // El cotizador se pinta DOS veces (columna del hero en lg + sección propia en móvil)
     // compartiendo estado; ambas arrancan con el estado vacío honesto.
-    expect(screen.getAllByText('¿Cuánto vale lo que tienes?')).toHaveLength(2);
+    expect(screen.getAllByText('¿Cuánto vale tu carpeta?')).toHaveLength(2);
     expect(
-      screen.getAllByText('Aún no agregas cartas. Busca una para ver lo que pagamos hoy.'),
+      screen.getAllByText('Busca tu primera carta y te decimos lo que pagamos por ella.'),
     ).toHaveLength(2);
 
     // Chips de sets REALES de las facetas del catálogo (mock).
-    expect(await screen.findByText('Sets buscados')).toBeInTheDocument();
+    expect(await screen.findByText('Sets en cacería')).toBeInTheDocument();
 
     // Piezas destacadas + banda de tinta con el CTA rojo del buylist.
-    expect(screen.getByText('Piezas destacadas del catálogo')).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Cotizar mi lista' })).toHaveAttribute(
+    expect(screen.getByText('Piezas destacadas')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Cotizar mi lista gratis' })).toHaveAttribute(
       'href',
       '/buylist',
     );
-    expect(screen.getAllByRole('link', { name: 'Continuar mi cotización' })[0]).toHaveAttribute(
+    expect(screen.getAllByRole('link', { name: 'Vender estas cartas' })[0]).toHaveAttribute(
       'href',
       '/buylist',
     );

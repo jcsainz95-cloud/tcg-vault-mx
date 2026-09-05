@@ -17,6 +17,9 @@ import { PptApiClient, PptDailyLimitError, PptHttpError, PptResponse } from './p
 // v1.50.3 (§4.38m.2): el gate de EVIDENCIA reusa el MISMO predicado de antigüedad que la lectura. Dos
 // implementaciones de «¿esto es viejo?» serían dos verdades sobre la frescura.
 import { isStaleEstimate } from '../../../common/graded-estimate';
+// v1.51-d (TL-GE7): las líneas de log que el VEREDICTO cita se declaran UNA vez. El emisor (aquí) y
+// el que las cita (`gradedPhase2Verdict`) leen la MISMA constante — nunca dos literales parecidos.
+import { GRADED_LOG_LINES, emitirLineaGraded } from '../graded-log-lines';
 
 /**
  * Formato de precio del proveedor de paga = **moneda + unidad**, FIJADO EXPLÍCITAMENTE por el
@@ -76,6 +79,13 @@ interface PricesPage {
   pagination: PageInfo | null;
   url: string;
   dailyRemaining: number | null;
+  /**
+   * v1.51-b (TL-GE1) — `metadata.apiCallsConsumed` **de ESTA respuesta**. `PptApiClient` ya lo extraía
+   * y este camino lo TIRABA, así que el único coste atribuible a la llamada se perdía y había que
+   * reconstruirlo restando el contador diario del singleton (que pisa cualquier otra respuesta de PPT).
+   * `null` = el proveedor no lo reportó ⇒ el gasto de esa página NO es atribuible.
+   */
+  apiCallsConsumed: number | null;
 }
 
 /** Motivos de OMISIÓN del mapeo (diagnóstico: distingue "no mapeó" de "falló el request"). */
@@ -108,6 +118,56 @@ type ZeroReason =
  * es seguro (la API key va en el header, jamás en la URL ni en el log, §4.15).
  */
 const GRADED_SAMPLE_TRUNCATE = 4000;
+
+/**
+ * v1.50.3-g (§4.38h.1-quater) — **la SONDA**. Marca fija con la que el dueño encuentra el reporte por
+ * set sin bucear en el log: `grep "PPT-GRADED-SONDA"`. Va en `warn` a propósito — no es ruido de
+ * rutina, es la respuesta a la pregunta que bloquea la fase 2.
+ */
+const GRADED_PROBE_TAG = 'PPT-GRADED-SONDA';
+/** Cuántos bloques de grados CRUDOS se logean por set. 3 basta para ver el shape; 200 sería ruido. */
+const GRADED_PROBE_MAX_BLOCK_SAMPLES = 3;
+
+// ⛔ v1.51-b (TL-GE1) — aquí vivía `creditsSpent(before, after)`, que restaba dos lecturas de
+// `PptApiClient.dailyRemaining()`. Se RETIRA a propósito y no se sustituye por otra resta: ese
+// contador es estado del singleton del proceso y lo pisa cualquier respuesta de PPT (el barrido de
+// precios RAW corre en la misma corrida), así que la resta atribuía a las llamadas graded créditos
+// que no eran suyos. El coste atribuible se suma de `metadata.apiCallsConsumed`, por llamada.
+
+/**
+ * SONDA, por entrada: **clasifica y nada más**. Su tipo de retorno NO contiene filas, así que ninguna
+ * ruta que pase por aquí puede persistir — la propiedad money-safe es del TIPO, no de la disciplina de
+ * quien la llame (que era lo frágil del viejo «sample-only»).
+ *
+ * Clasifica por **observación pura** (como si `GRADED_FORMAT=auto`), ignorando el override del
+ * operador: la pregunta de la sonda es *«¿qué sirve el proveedor?»* y un conteo filtrado por lo que
+ * nosotros le pedimos mirar no la contesta. El override sigue mandando —intacto— en el camino que
+ * escribe (`parseGradedEntry`), que es donde expresa una intención sobre el DINERO.
+ */
+function detectGradedShape(entry: unknown): {
+  shape: 's1' | 's2' | null;
+  sawGradedBlock: boolean;
+  externalId: string | null;
+  /** El bloque de grados CRUDO (truncado) — el insumo con el que un humano confirma el esquema. */
+  blockSample: string | null;
+} {
+  const none = { shape: null, sawGradedBlock: false, externalId: null, blockSample: null } as const;
+  if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return { ...none };
+  const e = entry as Record<string, unknown>;
+  const externalId = firstString(e, ['id', 'cardId']);
+  const salesByGrade = pickObject(pickObject(e['ebay']), 'salesByGrade');
+  const gradedPrices = pickObject(e, 'gradedPrices');
+  if (salesByGrade == null && gradedPrices == null) return { ...none, externalId };
+  return {
+    shape: salesByGrade != null ? 's1' : 's2',
+    sawGradedBlock: true,
+    externalId,
+    blockSample: truncate(
+      JSON.stringify(salesByGrade != null ? { salesByGrade } : { gradedPrices }),
+      GRADED_SAMPLE_TRUNCATE,
+    ),
+  };
+}
 
 /** Las dos hipótesis de shape que el parser SONDEA, en orden fijo (§4.38h.1). */
 export type GradedFormat = 'auto' | 'sales_by_grade' | 'graded_prices';
@@ -232,6 +292,12 @@ export interface GradedEstimateFetchResult {
   drops: GradedDropSample[];
   requestOk: boolean;
   dailyLimited: boolean;
+  /**
+   * Presupuesto diario VIVO tras la última respuesta (para decidir si queda cuota). ⚠️ v1.51-b
+   * (TL-GE1): es un contador GLOBAL del proceso, **no** el gasto de esta llamada — cualquier otra
+   * petición a PPT lo mueve. Para COSTE usa `gradedApiCallsConsumed`; restar dos lecturas de éste es
+   * exactamente el bug que se corrigió.
+   */
   dailyRemaining: number | null;
   /**
    * ⛔ **ESCALADA (regla 9)** — no es un error recuperable ni algo que el código deba «arreglar».
@@ -263,6 +329,44 @@ export interface GradedEstimateFetchResult {
    * `sawGradedBlock`: el provider solo ve UN set y no puede sostener ese veredicto solo.
    */
   shapeCounts: { s1: number; s2: number };
+  /**
+   * v1.50.3-g (§4.38h.1-quater) — **esta llamada fue una SONDA de solo lectura** (`writeFormat == null`):
+   * se consultó al proveedor, se logueó la muestra cruda y **`rows` es [] por construcción** (la sonda
+   * no ejecuta el parser, así que no existe el objeto que se persistiría). Viaja en el resultado porque
+   * el orquestador tiene que poder decir en el veredicto si la corrida OBSERVÓ o INGESTÓ: «0 escritas»
+   * significa cosas opuestas en cada modo.
+   */
+  probe: boolean;
+  /**
+   * v1.51-c (R1-ter) — **por qué NO se emitió NI UNA petición para este set**, o `null` si sí se
+   * emitió (haya respondido OK o no).
+   *
+   * ### El defecto que cierra
+   * `requestOk: false` significaba dos cosas incompatibles: «se pidió y falló» y «no se pidió». El
+   * veredicto solo podía leer la primera, así que ante los dos `return empty` de abajo —falta de
+   * `POKEMONPRICETRACKER_API_KEY` y set **sin `pptSetId`**, causas #4 y #5 del mapa
+   * (`BACKEND_NOTES.md` §0.16.2)— mandaba al operador a leer las líneas «PPT graded: EL REQUEST
+   * FALLÓ»… que en esos dos casos **no existen**, porque el `return` ocurre ANTES de llamar. Es el
+   * defecto (b) de R1 repetido, y en la causa que hoy más se sospecha de las cartas sin dato.
+   *
+   * El orquestador lo acumula (`GradedRequestTally`) y el veredicto manda a la línea que SÍ existe.
+   */
+  noRequestReason: 'missing_api_key' | 'set_without_ppt_set_id' | null;
+  /**
+   * v1.51-b (TL-GE1) — **COSTE ATRIBUIBLE a las llamadas graded de ESTE set**: la suma de
+   * `metadata.apiCallsConsumed` de sus respuestas. `null` = alguna respuesta no lo reportó ⇒ el gasto
+   * NO es atribuible y **no se reporta ningún número**.
+   *
+   * ### Por qué NO se usa el contador diario
+   * Aquí vivían `dailyRemainingBefore`/`dailyRemaining`, y la resta se presentaba como «COSTE MEDIDO».
+   * Pero ese contador es `PptApiClient.lastDailyRemaining`: **estado del singleton del proceso**, que
+   * pisa CUALQUIER respuesta de PPT — incluida la del barrido de precios RAW, que corre justo antes en
+   * la misma corrida (y, con Redis, en workers del mismo proceso). La resta le cobraba a esta sonda
+   * créditos ajenos, y con el umbral de `>= 0.5 crédito/carta` eso podía disparar una escalada de
+   * PRESUPUESTO falsa. Como la cifra es precondición del primer `off → on` (§4.38r.3.1.1), tiene que
+   * ser real o no estar: se prefiere una línea que diga «no se pudo aislar» a un número contaminado.
+   */
+  gradedApiCallsConsumed: number | null;
   /**
    * v1.50.3-c (techlead) — **qué le PEDIMOS mirar al proveedor en esta llamada**
    * (`POKEMONPRICETRACKER_GRADED_FORMAT`: `auto` | `sales_by_grade` | `graded_prices`).
@@ -660,30 +764,71 @@ export class PokemonPriceTrackerBulkProvider implements BulkPriceProvider, Fresh
       requestOk: false,
       dailyLimited: false,
       dailyRemaining: this.client.dailyRemaining(),
+      // Sin llamada no hay gasto: 0 es un dato ATRIBUIBLE y exacto, no una estimación.
+      gradedApiCallsConsumed: 0,
+      // `probe` describe si ESTA llamada pudo escribir. En `empty` no hubo llamada siquiera (sin key,
+      // sin pptSetId): no es una sonda, es un no-op — y decir lo contrario contaminaría el veredicto.
+      probe: false,
+      // R1-ter: `empty` se usa TAMBIÉN como base del rechazo de parámetro (donde SÍ hubo petición), así
+      // que el default es `null` = «hubo intento» y cada `return empty` sin llamada declara su motivo.
+      noRequestReason: null,
       escalate: null,
       sawGradedBlock: false,
       shapeCounts: { s1: 0, s2: 0 },
       forcedFormat: this.gradedFormatOverride(),
     };
     if (!this.client.apiKey()) {
-      this.logger.warn('PPT graded: falta POKEMONPRICETRACKER_API_KEY → no se ingesta (nada se escribe).');
-      return empty;
+      this.logger.warn(
+        `${emitirLineaGraded(GRADED_LOG_LINES.missingApiKey)} → no se ingesta (nada se escribe).`,
+      );
+      return { ...empty, noRequestReason: 'missing_api_key' };
     }
     if (!input.providerSetId) {
       this.logger.warn(
-        `PPT graded: set ${input.set.externalId} sin pptSetId → no se pide nada (jamás se cae al externalId).`,
+        `${emitirLineaGraded(GRADED_LOG_LINES.setWithoutPptSetId, input.set.externalId)} ` +
+          '(jamás se cae al externalId).',
       );
-      return empty;
+      return { ...empty, noRequestReason: 'set_without_ppt_set_id' };
     }
-    const format =
+    // ── v1.50.3-g (§4.38h.1-quater) — LA SONDA: sin formato NO se escribe, pero SÍ se PREGUNTA ──────
+    //
+    // Aquí vivía un `return empty` **antes** del bucle de fetch: el modo se llamaba «SAMPLE-ONLY» y su
+    // propio warn mandaba «inspecciona el log»… de una petición que ese mismo `return` impedía hacer.
+    // Era un no-op con nombre de diagnóstico: sin llamada, sin muestra, sin log, y por tanto **sin
+    // manera de saber qué sirve el proveedor** — justo el dato que la fase 2 necesita para existir.
+    //
+    // El camino de precios RAW (`fetchSingleSweep`) ya lo hacía bien y es el patrón que se copia:
+    // pide la página, **loguea la muestra cruda** y solo ENTONCES corta sin persistir. Eso es lo que
+    // P-6 pedía —«no construir un parser sobre un esquema no confirmado»—: la doctrina prohíbe
+    // **asumir** el esquema, no **observarlo**; observarlo es literalmente el remedio.
+    //
+    // La sonda es de SOLO LECTURA por CONSTRUCCIÓN, no por disciplina: cuando `writeFormat == null` el
+    // bucle ni siquiera llama a `parseGradedEntry` (el único código capaz de fabricar una
+    // `GradedEstimateSourceRow`), sino a `detectGradedShape`, cuyo tipo de retorno **no contiene filas**.
+    // No hay rama, dial ni env que pueda hacer que la sonda escriba: para escribir habría que cambiar
+    // el tipo. S2 sigue NO PERSISTIBLE (§4.38h.1-bis) y la sonda **tampoco lo relaja**: detecta y reporta.
+    const configuredFormat =
       parseMarketFormat(this.config.get<string>('POKEMONPRICETRACKER_GRADED_MARKET_FORMAT')) ??
       parseMarketFormat(this.config.get<string>('POKEMONPRICETRACKER_MARKET_FORMAT'));
-    if (!format) {
+    const probeRequested = this.gradedProbeRequested();
+    // `writeFormat == null` ⇔ SONDA. Dos entradas al mismo modo, y las dos fail-closed:
+    //  (1) NO hay formato de moneda ⇒ no se puede persistir dinero (candado histórico, se conserva);
+    //  (2) el operador PIDE la sonda (`POKEMONPRICETRACKER_GRADED_PROBE=on`) aunque el formato esté
+    //      fijado — es la 1ª corrida contra el proveedor real: se mira ANTES de escribir. Hace falta
+    //      porque el formato del graded se HEREDA de `POKEMONPRICETRACKER_MARKET_FORMAT`, que ya está
+    //      puesto para los precios raw: sin este interruptor, «observar primero» exigiría apagar los
+    //      precios de todo el catálogo.
+    const writeFormat: MarketFormat | null = probeRequested ? null : configuredFormat;
+    if (writeFormat == null) {
       this.logger.warn(
-        'PPT graded: sin POKEMONPRICETRACKER_MARKET_FORMAT (ni _GRADED_MARKET_FORMAT) → modo ' +
-          'SAMPLE-ONLY: NO se persiste ningún estimado. Fija el formato tras inspeccionar el log.',
+        probeRequested
+          ? 'PPT graded: SONDA pedida por el operador (POKEMONPRICETRACKER_GRADED_PROBE) → se CONSULTA ' +
+            'al proveedor, se LOGUEA la muestra cruda y NO se escribe absolutamente nada (cero filas ' +
+            'en PriceReference). Quita la env para que la corrida vuelva a ingestar.'
+          : 'PPT graded: sin POKEMONPRICETRACKER_MARKET_FORMAT (ni _GRADED_MARKET_FORMAT) → SONDA de ' +
+            'SOLO LECTURA: se consulta al proveedor y se loguea la muestra cruda, pero NO se persiste ' +
+            'ningún estimado (sin moneda declarada no se escribe dinero). Fija el formato tras leer el log.',
       );
-      return empty;
     }
 
     const forcedFormat = this.gradedFormatOverride();
@@ -698,16 +843,34 @@ export class PokemonPriceTrackerBulkProvider implements BulkPriceProvider, Fresh
     let sawGradedBlock = false;
     const shapeCounts = { s1: 0, s2: 0 };
     let sample: string | null = null;
+    /** Muestras CRUDAS del bloque de grados que la sonda encontró (las que contestan la pregunta). */
+    const probeBlocks: string[] = [];
+    // COSTE MEDIDO, no supuesto (§4.38h.5) y sobre todo **ATRIBUIBLE** (v1.51-b, TL-GE1). El diseño
+    // afirma que el coste es «proporcional al inventario real», pero la petición manda
+    // `fetchAllInSet=true` (= el SET entero). Si PPT cobra por carta DEVUELTA, la premisa es falsa.
+    //
+    // Se suma `metadata.apiCallsConsumed` de CADA respuesta graded — el único número que habla de
+    // ESTAS llamadas. La versión anterior restaba el contador diario del cliente (`dailyRemaining`
+    // antes/después), que es estado compartido del proceso: el barrido de precios RAW corre en la
+    // misma corrida y lo pisa, así que la resta le cobraba a la sonda créditos ajenos. Si alguna
+    // respuesta no trae el campo, el total deja de ser atribuible y se reporta `null` (sin número).
+    let gradedApiCalls = 0;
+    let gradedCostIsolated = true;
 
     try {
       let received = 0;
       let offset: number | null = null;
       for (let page = 0; page < this.maxPages; page++) {
-        const { entries, pagination, url, dailyRemaining } = await this.fetchGradedPage(
+        const { entries, pagination, url, dailyRemaining, apiCallsConsumed } = await this.fetchGradedPage(
           input.providerSetId,
           offset,
         );
         requestOk = true;
+        // El coste se acumula ANTES de cualquier `break`: una página que se pagó cuenta aunque su
+        // contenido no sirva. Una sola página sin el campo invalida la ATRIBUCIÓN del set entero — no
+        // se completa con el contador diario, que es justo el dato contaminado que se retiró.
+        if (apiCallsConsumed == null) gradedCostIsolated = false;
+        else gradedApiCalls += apiCallsConsumed;
         if (entries.length === 0) break;
         received += entries.length;
         fetchedRaw += entries.length;
@@ -720,12 +883,23 @@ export class PokemonPriceTrackerBulkProvider implements BulkPriceProvider, Fresh
           );
         }
         for (const entry of entries) {
+          // ── SONDA (solo lectura). `detectGradedShape` NO devuelve filas: no hay nada que persistir.
+          if (writeFormat == null) {
+            const seen = detectGradedShape(entry);
+            if (seen.sawGradedBlock) sawGradedBlock = true;
+            if (seen.shape === 's1') shapeCounts.s1 += 1;
+            else if (seen.shape === 's2') shapeCounts.s2 += 1;
+            if (seen.blockSample && probeBlocks.length < GRADED_PROBE_MAX_BLOCK_SAMPLES) {
+              probeBlocks.push(`${seen.externalId ?? 'n/d'} → ${seen.blockSample}`);
+            }
+            continue;
+          }
           const parsed = this.parseGradedEntry(entry, {
             grades: input.grades,
             stat,
             forcedFormat,
             minSampleCount: input.minSampleCount,
-            format,
+            format: writeFormat,
             evidenceField: this.gradedEvidenceField(),
             freshnessDays: input.freshnessDays,
             today: input.today,
@@ -736,13 +910,22 @@ export class PokemonPriceTrackerBulkProvider implements BulkPriceProvider, Fresh
           rows.push(...parsed.rows);
           drops.push(...parsed.drops);
         }
+        // ACOTA EL GASTO (§4.38h.5): la sonda se queda con la PRIMERA página. Su pregunta —«¿qué shape
+        // sirve PPT?»— la contesta la primera respuesta; paginar el set entero solo compraría más
+        // copias de la misma respuesta con el crédito del dueño.
+        if (writeFormat == null) break;
         if (!this.hasMorePages(pagination, received)) break;
         offset = received;
       }
     } catch (e) {
       if (e instanceof PptDailyLimitError) {
         dailyLimited = true;
-        this.logger.warn(`PPT graded: 429 DAILY en el set ${input.set.externalId} → PARADA. ${e.message}`);
+        // ⚠️ QA (v1.51-d): ESTA es la línea del 429 diario, y NO `requestFailed` (que es el `else` de
+        // abajo). El veredicto tiene que citar ésta cuando `dailyLimited`, o vuelve a mandar al
+        // operador a un `grep` que no devuelve nada.
+        this.logger.warn(
+          `${emitirLineaGraded(GRADED_LOG_LINES.dailyStop, input.set.externalId)} ${e.message}`,
+        );
       } else if (e instanceof PptHttpError && isParamRejection(e.status)) {
         // ⛔ ESCALADA: el proveedor RECHAZA la combinación `includeEbay=true` + `fetchAllInSet=true`.
         // NO se cae a «una petición por carta»: eso cambia el modelo de coste (2 créditos × carta) y
@@ -750,6 +933,9 @@ export class PokemonPriceTrackerBulkProvider implements BulkPriceProvider, Fresh
         return {
           ...empty,
           requestOk: false,
+          // Lo ya pagado antes del rechazo sigue contando (o `null` si no era atribuible): el `empty`
+          // de arriba dice 0 porque describe el caso «no hubo llamada», que aquí no aplica.
+          gradedApiCallsConsumed: gradedCostIsolated ? gradedApiCalls : null,
           escalate: {
             reason: 'ebay_not_supported_with_set_sweep',
             detail:
@@ -768,8 +954,8 @@ export class PokemonPriceTrackerBulkProvider implements BulkPriceProvider, Fresh
               ? ` → el pptSetId cacheado del set ${input.set.externalId} ya no existe en el proveedor; re-mapéalo.`
               : '';
         this.logger.warn(
-          `PPT graded: EL REQUEST FALLÓ para el set ${input.set.externalId}: ${(e as Error).message} ` +
-            `(no se escribe nada; los estimados previos quedan intactos).${pista}`,
+          `${emitirLineaGraded(GRADED_LOG_LINES.requestFailed)} para el set ${input.set.externalId}: ` +
+            `${(e as Error).message} (no se escribe nada; los estimados previos quedan intactos).${pista}`,
         );
       }
     }
@@ -795,6 +981,28 @@ export class PokemonPriceTrackerBulkProvider implements BulkPriceProvider, Fresh
           }
         : null;
 
+    // Reporte de la SONDA, por set: lo que se fue a averiguar, junto y en una línea grepeable. El
+    // veredicto de la CORRIDA lo emite el orquestador (`PriceIngestService`), que ve todos los sets.
+    if (writeFormat == null && requestOk) {
+      this.logger.warn(
+        `${GRADED_PROBE_TAG} set=${input.set.externalId} (pptSetId=${input.providerSetId}): ` +
+          `${fetchedRaw} carta(s) devueltas, ${shapeCounts.s1} con S1 (ebay.salesByGrade, PERSISTIBLE) / ` +
+          `${shapeCounts.s2} con S2 (gradedPrices escalar, NO persistible) / ` +
+          `${fetchedRaw - shapeCounts.s1 - shapeCounts.s2} sin bloque PSA. ` +
+          // TL-GE1: SOLO el gasto atribuible a estas llamadas. Antes se imprimía la resta del contador
+          // diario, que el barrido RAW de la misma corrida contamina: un Δ prestado, presentado como
+          // medición, gobernando una decisión de presupuesto.
+          `Créditos ATRIBUIBLES a estas llamadas (metadata.apiCallsConsumed): ${
+            gradedCostIsolated
+              ? gradedApiCalls
+              : 'NO SE PUDO AISLAR (el proveedor no lo reportó en alguna respuesta; el contador diario NO ' +
+                'sirve: lo pisa el barrido de precios RAW de esta misma corrida)'
+          }. ` +
+          'ESCRITURAS: 0 (la sonda no puede escribir: no construye filas). ' +
+          `Bloques crudos: ${probeBlocks.length > 0 ? probeBlocks.join(' | ') : `ninguno; entrada cruda: ${sample ?? 'n/d'}`}`,
+      );
+    }
+
     return {
       rows,
       fetchedRaw,
@@ -802,11 +1010,52 @@ export class PokemonPriceTrackerBulkProvider implements BulkPriceProvider, Fresh
       requestOk,
       dailyLimited,
       dailyRemaining: this.client.dailyRemaining(),
+      gradedApiCallsConsumed: gradedCostIsolated ? gradedApiCalls : null,
+      probe: writeFormat == null,
+      // R1-ter: se llegó al bucle de fetch ⇒ HUBO petición (respondiera OK o no). Las líneas «EL
+      // REQUEST FALLÓ» existen en el log de esta corrida si algo falló, así que el veredicto puede
+      // mandar a leerlas.
+      noRequestReason: null,
       escalate,
       sawGradedBlock,
       shapeCounts,
       forcedFormat,
     };
+  }
+
+  /**
+   * v1.50.3-g (§4.38h.1-quater) — `POKEMONPRICETRACKER_GRADED_PROBE`: **modo sonda a petición**.
+   *
+   * Existe porque el formato del graded se HEREDA de `POKEMONPRICETRACKER_MARKET_FORMAT`, que ya está
+   * fijado para los precios raw. Sin este interruptor, «mirar antes de escribir» obligaría a apagar el
+   * formato de TODO el catálogo — un remedio peor que la enfermedad, y la clase de fricción que hace
+   * que nadie observe y todos asuman (exactamente lo que P-6 quiere evitar).
+   *
+   * Sentido ÚNICO y fail-closed: solo puede **quitar** capacidad de escritura, nunca darla. No hay
+   * valor de esta env que haga persistir algo que hoy no persiste.
+   *
+   * ### v1.51-b (TL-GE3) — un valor no reconocido AVISA; ya no cae en silencio
+   * La SEMÁNTICA no cambia: la sonda se enciende **solo** con `on|true|1|yes`, y cualquier otra cosa
+   * la deja apagada (o sea, la corrida ESCRIBE). Lo que cambia es que un `POKEMONPRICETRACKER_GRADED_PROBE=onn`
+   * ya no se traga el typo: su hermana de nueve líneas más abajo (`gradedFormatOverride`) sí avisaba, y
+   * la asimetría era del peor signo — ésta falla hacia el lado que GASTA y ESCRIBE, así que su silencio
+   * costaba créditos y filas de dinero que el operador creía haber impedido.
+   */
+  private gradedProbeRequested(): boolean {
+    const raw = this.config.get<string>('POKEMONPRICETRACKER_GRADED_PROBE');
+    const v = raw?.trim().toLowerCase();
+    if (v == null || v === '') return false; // AUSENTE: el estado normal, no hay nada que avisar.
+    if (v === 'on' || v === 'true' || v === '1' || v === 'yes') return true;
+    // Negativos EXPLÍCITOS: son la forma natural de escribir «no» (y `off` es la pareja obvia de `on`).
+    // Devuelven lo mismo que cualquier otro valor —false—; se listan solo para no gritar por un valor
+    // que el operador escribió a propósito.
+    if (v === 'off' || v === 'false' || v === '0' || v === 'no') return false;
+    this.logger.warn(
+      `PPT graded: POKEMONPRICETRACKER_GRADED_PROBE="${raw}" no es on|true|1|yes (ni off|false|0|no) → ` +
+        'la SONDA queda APAGADA y la corrida SÍ pedirá y SÍ escribirá. Si querías observar sin escribir, ' +
+        'corrige el valor a `on`.',
+    );
+    return false;
   }
 
   /** `POKEMONPRICETRACKER_GRADED_FORMAT` (`auto` default). Valor desconocido ⇒ `auto` + `warn`. */
@@ -1067,6 +1316,7 @@ export class PokemonPriceTrackerBulkProvider implements BulkPriceProvider, Fresh
       pagination: this.extractPagination(res.body),
       url: res.url,
       dailyRemaining: res.dailyRemaining,
+      apiCallsConsumed: res.apiCallsConsumed,
     };
   }
 
@@ -1137,6 +1387,7 @@ export class PokemonPriceTrackerBulkProvider implements BulkPriceProvider, Fresh
       pagination: this.extractPagination(res.body),
       url: res.url,
       dailyRemaining: res.dailyRemaining,
+      apiCallsConsumed: res.apiCallsConsumed,
     };
   }
 

@@ -7,6 +7,7 @@ import type { BuylistQuoteResponse } from '@/types/contract';
 import type { SellRequirements } from '@/hooks/useSellRequirements';
 import { formatMoneyCents } from '@/lib/format';
 import { Button } from '@/components/ui/Button';
+import { CardImage } from '@/components/ui/CardImage';
 import { Link } from '@/i18n/navigation';
 import { FinishMark } from '@/components/domain/FinishMark';
 import { SellRequirementsPanel } from '@/components/domain/SellRequirementsPanel';
@@ -154,82 +155,107 @@ export function SellCartContents({
               const detailOpen = !!expandedLines[l.id];
               return (
                 <li key={l.id} className="border-b border-border py-3">
-                  <div className="flex items-baseline justify-between gap-3">
-                    <p lang="en" className="min-w-0 truncate text-sm text-text">
-                      {l.card.name}
-                    </p>
-                    <span className="tabular shrink-0 text-sm font-medium text-text">
-                      {/* Honesto: una línea pendiente NO muestra MX$0.00 — cero es un precio y
-                          aquí no hay precio (§23.3h). La versalita ocupa el sitio de la cifra. */}
-                      {pending ? <BuylistPendingLineLabel /> : formatMoneyCents(unitCents * l.quantity, locale)}
-                    </span>
-                  </div>
-                  <p className="mt-1 flex flex-wrap items-baseline gap-x-1.5 font-mono text-[10px] text-muted">
-                    <span className="text-muted">{t('cartItemEstimate')}:</span>
-                    {pending ? (
-                      <BuylistPendingLineLabel className="text-[10px]" />
-                    ) : (
-                      <span className="tabular">{formatMoneyCents(unitCents, locale)}</span>
-                    )}
-                    <span aria-hidden>·</span>
-                    {/* P-14 (§18.5): FinishMark compartido (banda 3px + etiqueta mono)
-                        en vez del texto plano del acabado — mismo lenguaje que la teja. */}
-                    <FinishMark finish={l.finish} className="translate-y-[1px]" />
-                    <span aria-hidden>·</span>
-                    <span>
-                      ×<span className="tabular">{l.quantity}</span>
-                    </span>
-                  </p>
-                  <div className="mt-2 flex items-center gap-4">
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        aria-label={t('decreaseQty')}
-                        disabled={l.quantity <= 1}
-                        onClick={() => onSetQuantity(l.id, l.quantity - 1)}
-                        className="font-mono text-sm text-muted hover:text-text disabled:opacity-40"
-                      >
-                        −
-                      </button>
-                      {/* Cantidad con input numérico: vender 20 iguales sin 20 clics. */}
-                      <input
-                        type="number"
-                        min={1}
-                        max={MAX_LINE_QUANTITY}
-                        inputMode="numeric"
-                        aria-label={t('quantityFor', { name: l.card.name })}
-                        value={l.quantity}
-                        // IMP-A: onSetQuantity clampa a [1, MAX_LINE_QUANTITY]; un valor
-                        // gigante ya no llega a `Array.from({ length })` ni revienta la página.
-                        onChange={(e) => onSetQuantity(l.id, Number.parseInt(e.target.value, 10))}
-                        className="w-14 border-b border-border-strong bg-transparent py-0.5 text-center font-mono text-xs text-text outline-none focus-visible:shadow-focus"
-                      />
-                      <button
-                        type="button"
-                        aria-label={t('increaseQty')}
-                        onClick={() => onSetQuantity(l.id, l.quantity + 1)}
-                        className="font-mono text-sm text-muted hover:text-text"
-                      >
-                        +
-                      </button>
+                  {/* FE-IMG: miniatura de la carta. El dato YA viajaba en la línea del carrito
+                      (`useSellCart.CartLine.card.imageSmallUrl`, poblado desde el binder y el
+                      picker de BuylistView): este era el único listado de piezas de la app que lo
+                      tenía y no lo pintaba. Mismo patrón que el checkout de compra (CheckoutView):
+                      columna fija a la izquierda y contenido en `min-w-0 flex-1` para que el nombre
+                      siga truncando en el ancho del drawer (400px).
+                      La columna se pinta SIEMPRE, también sin miniatura (`QuoterCardRef.
+                      imageSmallUrl` es OPCIONAL: el binder de Master Set puede no traerla). Antes se
+                      omitía entera, y la razón que lo justificaba —«un `CardImage` sin `src` deja el
+                      esqueleto pulsando para siempre»— dejó de ser cierta en `6396edb`: el
+                      esqueleto ya solo pulsa mientras hay una imagen EN VUELO, y sin `src` queda el
+                      pozo de papel quieto, que ES el placeholder del sistema. Omitirla dejaba dos
+                      geometrías de fila distintas en el mismo drawer (y distintas del checkout)
+                      según un dato que el usuario no controla. */}
+                  <div className="flex gap-3">
+                    <div className="w-12 shrink-0">
+                      <CardImage src={l.card.imageSmallUrl} alt={l.card.name} className="p-1" />
                     </div>
-                    {/* Detalle expandible: la transparencia de la cotización vive aquí
-                        (valor de referencia / regla aplicada / acabado / pendiente). */}
-                    <button
-                      type="button"
-                      aria-expanded={detailOpen}
-                      onClick={() => onToggleLineDetail(l.id)}
-                      className="font-mono text-[10px] uppercase tracking-[0.06em] text-muted hover:text-accent"
-                    >
-                      {detailOpen ? t('lineDetailHide') : t('lineDetailShow')}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => onRemoveLine(l.id)}
-                      className="ml-auto font-mono text-[10px] uppercase tracking-[0.06em] text-muted hover:text-accent"
-                    >
-                      {t('removeLine')}
-                    </button>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-baseline justify-between gap-3">
+                        <p lang="en" className="min-w-0 truncate text-sm text-text">
+                          {l.card.name}
+                        </p>
+                        <span className="tabular shrink-0 text-sm font-medium text-text">
+                          {/* Honesto: una línea pendiente NO muestra MX$0.00 — cero es un precio y
+                              aquí no hay precio (§23.3h). La versalita ocupa el sitio de la cifra. */}
+                          {pending ? (
+                            <BuylistPendingLineLabel />
+                          ) : (
+                            formatMoneyCents(unitCents * l.quantity, locale)
+                          )}
+                        </span>
+                      </div>
+                      <p className="mt-1 flex flex-wrap items-baseline gap-x-1.5 font-mono text-[10px] text-muted">
+                        <span className="text-muted">{t('cartItemEstimate')}:</span>
+                        {pending ? (
+                          <BuylistPendingLineLabel className="text-[10px]" />
+                        ) : (
+                          <span className="tabular">{formatMoneyCents(unitCents, locale)}</span>
+                        )}
+                        <span aria-hidden>·</span>
+                        {/* P-14 (§18.5): FinishMark compartido (banda 3px + etiqueta mono)
+                            en vez del texto plano del acabado — mismo lenguaje que la teja. */}
+                        <FinishMark finish={l.finish} className="translate-y-[1px]" />
+                        <span aria-hidden>·</span>
+                        <span>
+                          ×<span className="tabular">{l.quantity}</span>
+                        </span>
+                      </p>
+                      <div className="mt-2 flex items-center gap-4">
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            aria-label={t('decreaseQty')}
+                            disabled={l.quantity <= 1}
+                            onClick={() => onSetQuantity(l.id, l.quantity - 1)}
+                            className="font-mono text-sm text-muted hover:text-text disabled:opacity-40"
+                          >
+                            −
+                          </button>
+                          {/* Cantidad con input numérico: vender 20 iguales sin 20 clics. */}
+                          <input
+                            type="number"
+                            min={1}
+                            max={MAX_LINE_QUANTITY}
+                            inputMode="numeric"
+                            aria-label={t('quantityFor', { name: l.card.name })}
+                            value={l.quantity}
+                            // IMP-A: onSetQuantity clampa a [1, MAX_LINE_QUANTITY]; un valor
+                            // gigante ya no llega a `Array.from({ length })` ni revienta la página.
+                            onChange={(e) => onSetQuantity(l.id, Number.parseInt(e.target.value, 10))}
+                            className="w-14 border-b border-border-strong bg-transparent py-0.5 text-center font-mono text-xs text-text outline-none focus-visible:shadow-focus"
+                          />
+                          <button
+                            type="button"
+                            aria-label={t('increaseQty')}
+                            onClick={() => onSetQuantity(l.id, l.quantity + 1)}
+                            className="font-mono text-sm text-muted hover:text-text"
+                          >
+                            +
+                          </button>
+                        </div>
+                        {/* Detalle expandible: la transparencia de la cotización vive aquí
+                            (valor de referencia / regla aplicada / acabado / pendiente). */}
+                        <button
+                          type="button"
+                          aria-expanded={detailOpen}
+                          onClick={() => onToggleLineDetail(l.id)}
+                          className="font-mono text-[10px] uppercase tracking-[0.06em] text-muted hover:text-accent"
+                        >
+                          {detailOpen ? t('lineDetailHide') : t('lineDetailShow')}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => onRemoveLine(l.id)}
+                          className="ml-auto font-mono text-[10px] uppercase tracking-[0.06em] text-muted hover:text-accent"
+                        >
+                          {t('removeLine')}
+                        </button>
+                      </div>
+                    </div>
                   </div>
                   {detailOpen && (
                     <div className="mt-3 border-l border-border-strong pl-4">

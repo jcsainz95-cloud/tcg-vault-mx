@@ -8,15 +8,18 @@
  * portafolio. La vitrina de "Compra" (GET /catalog/cards) SOLO lista inventario
  * publicado con precio: los ítems "precio pendiente" no viven aquí.
  */
+import { brandEmail } from '../brand';
 import type {
   CardDTO,
   CardProductDTO,
   CardSetDTO,
+  BuylistSetDTO,
   Finish,
   ListingDTO,
   HoldingDTO,
   OrderSummaryDTO,
   OrderDetailDTO,
+  OrderItemCardDTO,
   SellRequestDTO,
   SellRequestDetailDTO,
   SellItemDTO,
@@ -125,19 +128,64 @@ function yearOf(releaseDate?: string): number | undefined {
   return m ? Number(m[1]) : undefined;
 }
 
-export const mockSets: CardSetDTO[] = [
-  { id: 'sv08', name: 'Surging Sparks', series: 'Scarlet & Violet', releaseDate: '2024/11/08', year: 2024 },
-  { id: 'sv06', name: 'Twilight Masquerade', series: 'Scarlet & Violet', releaseDate: '2024/05/24', year: 2024 },
-  { id: 'sv1', name: 'Scarlet & Violet', series: 'Scarlet & Violet', releaseDate: '2023/03/31', year: 2023 },
+/**
+ * ⚠️ **Fila mock, NO un DTO** — misma doctrina que `MockSellRequestRow`: `mockSets` es la
+ * **tabla `CardSet` del servidor falso**, y `logoUrl` es su **columna** (`CardSet.logoUrl`,
+ * M-47), no un campo de respuesta. Quién la ve y quién no lo deciden las **proyecciones** de
+ * abajo, igual que los `select` del backend real.
+ *
+ * La columna es `string | null` **requerida** (la fila siempre la tiene; el valor puede ser
+ * nulo), para que ninguna fixture pueda nacer sin decidir si ese set tiene logo o no.
+ */
+export type MockCardSetRow = CardSetDTO & { logoUrl: string | null };
+
+// v1.52 (M-47, ARCHITECTURE §4.40 · DESIGN_SYSTEM §24): `logoUrl` CONVIVE con `null` de forma
+// PERMANENTE — hay sets que el proveedor nunca ilustra (promos, colecciones, sets viejos). El mock
+// tiene que decir la verdad, así que la lista de abajo trae los DOS casos a propósito y en la misma
+// página del índice: CON logo (sv08, sv06, sv1, cel25) y SIN logo (cel25c, swsh1, base1 → `null`).
+// Si todos tuvieran logo, el monograma de §24.5 no se ejercitaría nunca en dev ni en Playwright y el
+// hueco solo aparecería en producción (es el modo exacto en que se escapó el bug de imagen del carrito).
+export const mockSets: MockCardSetRow[] = [
+  { id: 'sv08', name: 'Surging Sparks', series: 'Scarlet & Violet', releaseDate: '2024/11/08', year: 2024, logoUrl: 'https://images.pokemontcg.io/sv8/logo.png' },
+  { id: 'sv06', name: 'Twilight Masquerade', series: 'Scarlet & Violet', releaseDate: '2024/05/24', year: 2024, logoUrl: 'https://images.pokemontcg.io/sv6/logo.png' },
+  { id: 'sv1', name: 'Scarlet & Violet', series: 'Scarlet & Violet', releaseDate: '2023/03/31', year: 2023, logoUrl: 'https://images.pokemontcg.io/sv1/logo.png' },
   // v1.33-master-set-multipart (P-27): Celebrations es un master COMBINADO — principal `cel25`
   // (25 cartas) + subset `cel25c` "Classic Collection" (25 cartas) = 50. Ambos se importan como sets
   // REALES (el mapa es solo presentación); la numeración COLISIONA entre partes a propósito (dos "#1",
   // §4.31f) para ejercer el separador por bloque.
-  { id: 'cel25', name: 'Celebrations', series: 'Sword & Shield', releaseDate: '2021/10/08', year: 2021 },
-  { id: 'cel25c', name: 'Celebrations: Classic Collection', series: 'Sword & Shield', releaseDate: '2021/10/08', year: 2021 },
-  { id: 'swsh1', name: 'Sword & Shield', series: 'Sword & Shield', releaseDate: '2020/02/07', year: 2020 },
-  { id: 'base1', name: 'Base Set', series: 'Base', releaseDate: '1999/01/09', year: 1999 },
+  { id: 'cel25', name: 'Celebrations', series: 'Sword & Shield', releaseDate: '2021/10/08', year: 2021, logoUrl: 'https://images.pokemontcg.io/cel25/logo.png' },
+  // `logoUrl: null` (clave PRESENTE, valor nulo) = lo que manda el backend cuando el proveedor no
+  // publica logo. Nunca `""`, nunca una URL de marcador: un placeholder se pintaría como si fuera
+  // un logo y rompería §24.5.
+  { id: 'cel25c', name: 'Celebrations: Classic Collection', series: 'Sword & Shield', releaseDate: '2021/10/08', year: 2021, logoUrl: null },
+  { id: 'swsh1', name: 'Sword & Shield', series: 'Sword & Shield', releaseDate: '2020/02/07', year: 2020, logoUrl: null },
+  { id: 'base1', name: 'Base Set', series: 'Base', releaseDate: '1999/01/09', year: 1999, logoUrl: null },
 ].map((s) => ({ ...s, year: yearOf(s.releaseDate) }));
+
+/**
+ * **Proyección de `GET /catalog/sets` — SIN `logoUrl`, y el descarte es el punto** (DT-Gd).
+ *
+ * §4.40.5 lista `GET /catalog/sets` en «NO entra»: el backend real **no emite la clave**. Antes
+ * `getSets()` servía `mockSets` tal cual, así que en modo mock `/catalog/sets` **rendía un campo
+ * que el backend nunca manda** — «el mock promete más que el backend», la clase exacta de
+ * divergencia que ya costó un defecto en producción (§34). No basta con tipar la respuesta como
+ * `CardSetDTO[]`: TypeScript acepta la propiedad de más en un valor no-literal, así que la clave
+ * se **borra de verdad** aquí (mismo `Omit` por destructuring que `mockSellRequestDTO`).
+ */
+export function mockCatalogSetDTO(row: MockCardSetRow): CardSetDTO {
+  const { logoUrl: _logoUrl, ...dto } = row;
+  return dto;
+}
+
+/** Fixture de `GET /catalog/sets`: las filas SIN la columna del logo. */
+export const mockCatalogSets: CardSetDTO[] = mockSets.map(mockCatalogSetDTO);
+
+/**
+ * **Fixture de `GET /buylist/sets`: con `logoUrl` SIEMPRE presente** (contrato «obligatorio, no
+ * opcional»; §4.40.6). Es la fuente client-side de la retícula de tejas del cotizador, y el tipo
+ * `BuylistSetDTO` es lo que impide que la clave se caiga sin que nada falle.
+ */
+export const mockBuylistSets: BuylistSetDTO[] = mockSets.map((row): BuylistSetDTO => ({ ...row }));
 
 // ===== v1.33-master-set-multipart (P-27, §4.31a): mapa curado padre→subset (SOLO presentación) =====
 // Espeja `backend/src/config/master-set-groups.ts`. NUNCA es fuente de verdad: cada Card/pieza conserva
@@ -211,7 +259,7 @@ function partLabelOf(partSetId: string, group: MasterSetGroup): string {
  * (Celebrations aparece UNA sola vez) y esa entrada gana `partSetIds`. CA-71: si el principal no está
  * en el listado, el subset se conserva como su propia entrada. Un set normal pasa sin cambio.
  */
-export function foldSetsForDropdown(sets: CardSetDTO[]): CardSetDTO[] {
+export function foldSetsForDropdown<T extends CardSetDTO>(sets: T[]): T[] {
   const present = new Set(sets.map((s) => s.id));
   const droppedSubsets = new Set<string>();
   const partsByPrimary = new Map<string, string[]>();
@@ -325,6 +373,36 @@ function celebrationsCards(): CardDTO[] {
 }
 
 const cardById = (id: string) => mockCards.find((c) => c.id === id)!;
+
+/**
+ * MOCK v1.51-b — réplica del `card` que las TRES superficies de línea de compra sirven
+ * (`POST /checkout/quote`, `POST /checkout/guest/quote`, `GET /orders/:orderId`):
+ * `OrderItemCardDTO`, NO un `CardDTO`.
+ *
+ * Existe para que el simulador no vuelva a mentir. Antes el mock devolvía el `CardDTO`
+ * completo del fixture y el carrito se veía impecable en `dev` y en los e2e mientras en
+ * producción llegaba sin miniatura y sin sufijo de condición. Aquí se sirve EXACTAMENTE lo
+ * que el backend sirve: los ocho campos congelados + `imageSmallUrl` resuelta en lectura
+ * (clave siempre presente; `null` legítimo — lo modela `c-zapdos`, ver abajo).
+ */
+export function orderItemCard(l: ListingDTO): OrderItemCardDTO {
+  return {
+    cardId: l.card.id,
+    name: l.card.name,
+    setName: l.card.setName,
+    number: l.card.number,
+    productType: l.productType,
+    // v1.51-c: los tres viajan como `null` con la CLAVE PRESENTE (el checkout los congela
+    // tal cual salen de columnas nullables de `InventoryItem`), no omitidos. El fixture lo
+    // replica: si sirviera `undefined` volvería a divergir de lo que el backend manda.
+    rawCondition: l.rawCondition ?? null,
+    gradingCompany: l.gradingCompany ?? null,
+    gradeValue: l.gradeValue ?? null,
+    // El backend la resuelve por join sobre `cardId`; en el fixture el join siempre acierta.
+    // El caso `null` (fila `Card` inexistente o columna nula) lo ejercitan los tests de vista.
+    imageSmallUrl: l.card.imageSmallUrl ?? null,
+  };
+}
 
 /**
  * Valor de referencia de mercado por carta (MXN centavos) para el cotizador de
@@ -526,7 +604,6 @@ const mockGradingHighlightGrades = ['10'];
  */
 export let mockGradedEstimateConfig: GradedEstimateConfigDTO = {
   enabled: true,
-  ingestEnabled: false,
   grades: ['10', '9'],
   highlightGrades: [...mockGradingHighlightGrades],
   freshnessDays: 30,
@@ -560,7 +637,7 @@ export function setMockGradedEstimateConfig(patch: Partial<GradedEstimateConfigD
   mockGradedEstimateConfig = {
     ...mockGradedEstimateConfig,
     ...rest,
-    enabled: mockSettings.gradedEstimatesEnabled === 'on',
+    enabled: mockSettings.gradingHookEnabled === 'on',
   };
 }
 
@@ -929,6 +1006,11 @@ export const mockFeaturedSetHistoryNull: SetValueHistoryResponse = {
 export const mockOrders: OrderSummaryDTO[] = [
   { id: 'ord-9001', status: 'settled', totalCents: 168520, createdAt: '2026-08-10T18:20:00Z', settledAt: '2026-08-10T18:22:00Z' },
   { id: 'ord-9002', status: 'pending', totalCents: 58300, createdAt: '2026-08-13T09:05:00Z' },
+  // v1.51-c: pedido ANTIGUO cuyo `cardSnapshot` quedó incompleto (ver `mockOrderDetailLegacy`).
+  // Se sirve desde el mock para que el render degradado sea VISIBLE en `dev`/e2e, no solo en un
+  // test: la grieta anterior existió justamente porque el simulador servía datos más completos
+  // que el backend y todo se veía impecable en local.
+  { id: 'ord-9003', status: 'settled', totalCents: 79129, createdAt: '2024-11-02T17:40:00Z', settledAt: '2024-11-02T17:41:00Z' },
 ];
 
 export const mockOrderDetail: OrderDetailDTO = {
@@ -944,10 +1026,77 @@ export const mockOrderDetail: OrderDetailDTO = {
     totalCents: 168520,
     currency: 'MXN',
   },
-  items: [{ inventoryItemId: 'inv-1002', card: cardById('c-blastoise'), unitPriceCents: 140800 }],
+  // v1.51-b: la línea de un pedido NO trae un `CardDTO` — trae el snapshot congelado + la
+  // miniatura resuelta en lectura. El mock lo replica pieza por pieza.
+  items: [
+    {
+      inventoryItemId: 'inv-1002',
+      card: orderItemCard(mockListings.find((l) => l.inventoryItemId === 'inv-1002') ?? mockListings[0]),
+      unitPriceCents: 140800,
+    },
+  ],
   cfdiStatus: 'registrado',
   invoiceRequested: false,
   stripePaymentIntentId: 'pi_mock_123',
+};
+
+/**
+ * MOCK v1.51-c (contrato §4 «Tolerancia del histórico»; ARCHITECTURE §5.2.9) — el acta de un
+ * pedido ANTIGUO cuyo `OrderItem.cardSnapshot` quedó INCOMPLETO. No es un error del backend:
+ * `cardSnapshot` es una columna `Json` que PostgreSQL no valida y el blob lo escribió una
+ * versión anterior de nuestro propio código. `GET /orders/:orderId` responde `200` con
+ * `HistoricalOrderItemCardDTO` (todo hecho congelado opcional) y el front DEGRADA por campo.
+ *
+ * Las tres líneas son los tres casos que importan:
+ *  1. blob COMPLETO (lo que escribe el checkout vigente, invariante de escritura intacto);
+ *  2. blob PARCIAL: sin `setName` ni `productType` ⇒ el subtítulo se compone solo con `#4` y
+ *     no se pinta adorno de condición (no se infiere el tipo desde qué claves llegaron);
+ *  3. blob VACÍO: solo `imageSmallUrl: null` ⇒ etiqueta neutra + pozo de papel, SIN enlace a
+ *     ficha (no hay `cardId`) y sin miniatura (sin `cardId` no hay join que hacer).
+ *
+ * El `breakdown` sale de columnas de `Order` y `unitPriceCents` de columna propia de
+ * `OrderItem`: por eso los importes están INTACTOS aunque el blob no diga nada.
+ */
+export const mockOrderDetailLegacy: OrderDetailDTO = {
+  id: 'ord-9003',
+  status: 'settled',
+  createdAt: '2024-11-02T17:40:00Z',
+  settledAt: '2024-11-02T17:41:00Z',
+  breakdown: {
+    subtotalCents: 65500,
+    ivaCents: 10480,
+    ivaRatePct: 16,
+    processingFeeCents: 3149,
+    totalCents: 79129,
+    currency: 'MXN',
+  },
+  items: [
+    {
+      inventoryItemId: 'inv-legacy-1',
+      card: orderItemCard(mockListings[0]),
+      unitPriceCents: 45000,
+    },
+    {
+      inventoryItemId: 'inv-legacy-2',
+      card: {
+        cardId: 'c-pikachu',
+        name: 'Pikachu',
+        number: '58',
+        // sin `setName`, sin `productType`, sin condición: el acta no los registró.
+        imageSmallUrl: 'https://images.pokemontcg.io/base1/58.png',
+      },
+      unitPriceCents: 12500,
+    },
+    {
+      inventoryItemId: 'inv-legacy-3',
+      // El peor caso del contrato: blob ausente/no-objeto ⇒ `card` SOLO con `imageSmallUrl`.
+      card: { imageSmallUrl: null },
+      unitPriceCents: 8000,
+    },
+  ],
+  cfdiStatus: 'no_aplica',
+  invoiceRequested: false,
+  stripePaymentIntentId: 'pi_mock_legacy',
 };
 
 /**
@@ -1839,6 +1988,10 @@ export function mockMasterSetIndex(
       releaseDate: s.releaseDate,
       year: s.year,
       printedTotal: SET_PRINTED_TOTAL[s.id],
+      // v1.52 (M-47): la clave va SIEMPRE. Sin `?? null` a propósito (DT-Gd): la columna
+      // `MockCardSetRow.logoUrl` es `string | null` REQUERIDA, así que si desapareciera de la
+      // fila esto NO compilaría — que es justo el candado que el `??` desactivaba.
+      logoUrl: s.logoUrl,
       catalogCardCount,
       distinctCardsOwned,
       completionPct,
@@ -2501,9 +2654,12 @@ export const mockAdminOrders: AdminOrderDTO[] = [
   { id: 'ord-9003', userId: 'u-779', status: 'chargeback', totalCents: 231000, createdAt: '2026-08-09T12:00:00Z' },
 ];
 
-// MOCK: evidenceContact viene de la API (contrato §7/§M8). El correo es el placeholder
-// del contrato (soporte@tcgvaultmx.com, por confirmar por el humano); NO se hardcodea en la UI.
-const EVIDENCE_CONTACT = 'soporte@tcgvaultmx.com';
+// MOCK: `evidenceContact` viene de la API (contrato §7/§M8) y la UI **renderiza el que recibe**;
+// esto es solo el fallback offline del modo fixtures. Se compone sobre `common.brand.domain`
+// (API_CONTRACT §0 «Datos de contacto…», cláusula 4) en vez de copiar un literal de la
+// documentación: el literal anterior (`soporte@tcgvaultmx.com`) era el dominio RETIRADO en el
+// rebrand, y llegó aquí precisamente por copiarlo del contrato.
+const EVIDENCE_CONTACT = brandEmail('soporte');
 /** Correo de soporte que devuelve el backend en el 201 de POST /disputes (contrato §7). */
 export const DISPUTE_EVIDENCE_CONTACT = EVIDENCE_CONTACT;
 
@@ -2952,7 +3108,7 @@ export const mockAdminUsers: AdminUserSummaryDTO[] = [
   { id: 'u-777', email: 'ana@example.com', name: 'Ana López', role: 'customer', status: 'active', createdAt: '2026-08-01T10:00:00Z' },
   { id: 'u-778', email: 'bruno@example.com', name: 'Bruno Díaz', role: 'customer', status: 'active', createdAt: '2026-08-05T14:30:00Z' },
   { id: 'u-779', email: 'caro@example.com', name: 'Caro Ruiz', role: 'customer', status: 'blocked', createdAt: '2026-08-08T09:12:00Z' },
-  { id: 'u-op1', email: 'operador@tcgvaultmx.com', name: 'Operador Bóveda', role: 'vault_operator', status: 'active', createdAt: '2026-07-20T08:00:00Z' },
+  { id: 'u-op1', email: brandEmail('operador'), name: 'Operador Bóveda', role: 'vault_operator', status: 'active', createdAt: '2026-07-20T08:00:00Z' },
 ];
 
 export function mockAdminUserDetail(id: string): AdminUserDetailDTO {
@@ -3058,11 +3214,12 @@ export let mockSettings: SettingsDTO = {
   // v1.14-price-ingest: proveedor de la ingesta masiva. Seed recomendado por contrato §M10.
   priceProvider: 'pokemontcg_io',
   catalogSyncFromDate: '2024/01/01',
-  // v1.44-graded-estimate: interruptor maestro del gancho (contrato §M10; **seed real = `off`**,
-  // fail-closed). MOCK: el fixture lo representa YA ENCENDIDO —como un staging donde el dueño lo
-  // prendió— para poder ejercitar las tres superficies sin backend. El gate y el interruptor son
-  // SERVER-SIDE y no se simulan: apagarlo aquí desde M10 no apaga las cifras del mock.
-  gradedEstimatesEnabled: 'on',
+  // v1.51-one-dial (M-46): DIAL ÚNICO del gancho (contrato §M10; **seed real = `off`**, fail-closed,
+  // y la clave es NUEVA ⇒ ningún entorno la tiene). MOCK: el fixture lo representa YA ENCENDIDO
+  // —como un entorno donde el dueño lo prendió a mano— para poder ejercitar las tres superficies
+  // sin backend. El gate y el interruptor son SERVER-SIDE y no se simulan: apagarlo aquí desde M10
+  // no apaga las cifras del mock, y encenderlo aquí NO gasta un crédito (no hay ingest en el mock).
+  gradingHookEnabled: 'on',
 };
 export function setMockSettings(patch: Partial<SettingsDTO>) {
   mockSettings = { ...mockSettings, ...patch };
@@ -4172,7 +4329,7 @@ export function mockGradedEstimatePreview(
   if (!card) throw new ApiFixtureNotFound('card not found');
   const cfg: GradedEstimateConfigDTO = {
     ...mockGradedEstimateConfig,
-    enabled: mockSettings.gradedEstimatesEnabled === 'on',
+    enabled: mockSettings.gradingHookEnabled === 'on',
     gradingCostTiers: mockGradedEstimateConfig.gradingCostTiers.map((t) => ({ ...t })),
   };
   const estimates = mockGradedEstimatesByCardId[cardId] ?? [];
@@ -4449,7 +4606,7 @@ export function mockGradedEstimateReview(filters: {
     pageSize,
     total: filtered.length,
     // La lista evalúa AUNQUE el dial esté apagado (para poder limpiar antes de encender).
-    enabled: mockSettings.gradedEstimatesEnabled === 'on',
+    enabled: mockSettings.gradingHookEnabled === 'on',
     scannedCards: new Set(Object.keys(mockGradedEstimatesByCardId).concat(mockReviewRows.map((r) => r.cardId))).size,
     truncated: false,
   };

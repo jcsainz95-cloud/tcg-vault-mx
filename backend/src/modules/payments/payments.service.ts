@@ -5,6 +5,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { StripeService } from './stripe.service';
 import { GuestOrderMailService } from '../orders/guest-order-mail.service';
 import { AuditService } from '../audit/audit.service';
+import { readFrozenCardFacts } from '../orders/order-item-card';
 
 /**
  * PaymentsService — Manejo idempotente de webhooks Stripe. ARCHITECTURE §3.3, §4.3.
@@ -335,8 +336,13 @@ export class PaymentsService {
         guestEmail: order.guestEmail,
         locale: order.locale,
         totalCents: order.totalCents,
+        // v1.51-b (§5.2): se lee la clase (F) por el ÚNICO lector declarado del blob
+        // (`readFrozenCardFacts`) en vez de un cast ad-hoc con una forma paralela. Mismo
+        // comportamiento (los `?? ''` se conservan); lo que cambia es que ya no hay una segunda
+        // definición de «qué trae el snapshot» que pueda divergir de la del contrato.
+        // El correo NO lleva imagen: la clase (P) no entra aquí.
         items: order.items.map((oi) => {
-          const snap = (oi.cardSnapshot ?? {}) as { name?: string; setName?: string; number?: string };
+          const snap = readFrozenCardFacts(oi.cardSnapshot);
           return { name: snap.name ?? '', setName: snap.setName ?? '', number: snap.number ?? '' };
         }),
       })

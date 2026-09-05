@@ -310,7 +310,14 @@ export function GradedEstimateReviewSection() {
     confirmError.code === 'GRADED_ESTIMATE_SLAB_PUBLISHED';
 
   return (
-    <section className="flex flex-col gap-3">
+    // `id` + `scroll-mt`: es el DESTINO del enlace del aviso de apagado del dial de M10
+    // (DESIGN_SYSTEM §22.13e/§22.12 nº13.e). El `scroll-margin-top` se deriva de `--app-header-h`
+    // (§4.5) para no aterrizar debajo del header sticky — el fallo clásico de este patrón, y el que
+    // convertiría la escalera de remedios en un enlace que no lleva a ningún sitio.
+    <section
+      id="gancho-revision"
+      className="flex flex-col gap-3 scroll-mt-[calc(var(--app-header-h,0px)+16px)]"
+    >
       <h2 className="text-h2 font-semibold">{t('title')}</h2>
       <p className="text-sm text-muted">{t('subtitle')}</p>
 
