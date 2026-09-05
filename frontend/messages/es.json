@@ -877,7 +877,9 @@
     "dividerOr": "o",
     "google": {
       "cta": "Continuar con Google",
-      "connecting": "Conectando…"
+      "connecting": "Conectando…",
+      "unavailable": "No pudimos cargar el inicio de sesión de Google. Revisa tu conexión o si una extensión del navegador lo está bloqueando. Mientras tanto puedes entrar con tu correo y contraseña.",
+      "blocked": "No se abrió la ventana de Google. Es probable que tu navegador esté bloqueando el inicio de sesión con terceros: habilítalo desde el icono a la izquierda de la barra de direcciones, o entra con tu correo y contraseña."
     },
     "mustChangePassword": "Iniciaste sesión con una contraseña temporal. Debes cambiarla para proteger tu cuenta.",
     "mustChangeContinue": "Continuar",

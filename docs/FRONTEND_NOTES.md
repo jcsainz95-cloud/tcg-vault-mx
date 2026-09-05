@@ -10585,3 +10585,170 @@ Suites completas tras la corrección: **967 vitest verdes** · **20 E2E verdes**
 > reconstruye siempre; quien reutilice el servidor a mano (`E2E_BASE_URL` + `next start`) **tiene que
 > rebuildear primero**, o está midiendo el código de otro. Dicho de otro modo: aquellas 3 rojas eran
 > correctas — mis pruebas detectaron una mutación que yo no sabía que estaba puesta.
+
+---
+
+## §41 · «Continuar con Google» no hacía nada: de One Tap (`prompt`) al botón renderizado (`renderButton`) — 2026-09-05
+
+> Rama `claude/tcg-hunt-orchestrator-28p7z1`. Defecto **en producción** (`tcghunt.mx`): el dueño picaba el
+> botón y no pasaba nada — ni ventana de Google, ni error, ni mensaje. Backend descartado (el log de
+> Railway mostraba `Mapped {/api/v1/auth/google, POST}` sano y CORS con `tcghunt.mx` en la allow-list).
+> Solo se tocó `frontend/src/components/domain/GoogleSignInButton.tsx`, su test y `messages/*.json`
+> (aditivo). **No** se tocó `DESIGN_SYSTEM.md` (ver el punto 5: hay una consulta abierta para ux-ui).
+
+### 1. La evidencia: qué dice Google, no qué recordábamos
+
+La consola de producción entregó la prueba (`GSI_LOGGER`):
+
+```
+Your client application uses one of the Google One Tap prompt UI status methods that may stop
+functioning when FedCM becomes mandatory. … #display_moment … #skipped_moment
+FedCM was disabled either temporarily based on previous user action or permanently via site settings.
+FedCM get() rejects with NetworkError: Error retrieving a token.
+google.accounts.id.initialize() is called multiple times. … only the last initialized instance will be used.
+```
+
+`developers.google.com` **no es alcanzable** desde el entorno de trabajo (el proxy de egreso responde 403
+al CONNECT), así que la guía de migración no se pudo leer de primera mano. Lo que sí se pudo leer —y es
+más fuerte que la documentación, porque es el código que corre— es **la librería que Google sirve hoy**:
+`https://accounts.google.com/gsi/client` (descargada el 2026-09-05, 272 KB). De ahí sale todo lo de abajo.
+
+**(a) `prompt()` tiene un enfriamiento silencioso.** La rama que atiende `prompt()` consulta
+`disable_auto_prompt` en la cookie `g_state` con una escalera de `[0, 7200, 86400, 604800, 2419200]`
+segundos (2 h → 24 h → 7 d → 28 d) y, si aplica, registra *«User has closed One Tap before. Still in the
+cool down period.»* y emite un *display moment* con `isNotDisplayed() === true` /
+`suppressed_by_user`. Ese chequeo **no existe** en la rama del botón renderizado. *(El coordinador ya
+había descartado esta causa por medición — falló también en incógnito — pero la trampa sigue en el código
+y sigue siendo motivo para no usar `prompt()` en un botón.)*
+
+**(b) Bajo FedCM, `prompt()` deja de emitir el display moment.** La rama FedCM llama directo a
+`navigator.credentials.get()` y **nunca** invoca el emisor del momento «display»; solo el de «skipped», y
+solo en modo `widget`, con razón degradada a `unknown_reason`. Además, `iv()` (el predicado que decide si
+se usa FedCM para el prompt) contiene `if (disable_fedcm_opt_out && Chromium >= 142) return true` — es
+decir, **FedCM ya se fuerza** en Chromium moderno pese a `use_fedcm_for_prompt:false`. Ese es
+literalmente el «cuando FedCM sea obligatorio» del aviso.
+
+**(c) `renderButton()` es la cura, y se ve en el código.** El clic del botón dibujado entra por
+`tv → _.vv`, que bifurca a **FedCM en modo `active`** (`mode:"active"` en Chromium ≥131; el modo activo
+está pensado para gesto del usuario y no lo silencia el embargo pasivo) o, si FedCM no aplica, a la
+**ventana emergente** clásica. Ninguna de las dos consulta el enfriamiento.
+
+**(d) …pero el flujo de botón no reporta el fallo.** El manejador de rechazo de FedCM es
+`ma(a,b){ log("FedCM get() rejects with "+b); a==="widget" && emitirSkipped(...) }`: en modo **botón** no
+emite nada. Por eso el componente **necesita su propia red de seguridad**; `renderButton` por sí solo no
+cierra D-1.
+
+### 2. Los tres defectos cerrados
+
+**D-1 · Un clic siempre produce respuesta visible.** El `click_listener` de `renderButton` marca
+«Conectando…» en el acto (anunciado por `aria-live`), y arranca un temporizador de **6 s**: si no llegó
+credencial ni se abrió nada, sale `auth.google.blocked`, que dice **qué hacer** («tu navegador puede estar
+bloqueando el inicio de sesión con terceros: habilítalo desde el icono a la izquierda de la barra de
+direcciones, o entra con tu correo y contraseña»). No es un error genérico y no bloquea: si el usuario
+tardó y la credencial llega después, el login continúa y el aviso se limpia. Una respuesta **sin**
+`credential` ya no se traga: sale `error.GOOGLE_TOKEN_INVALID`.
+
+**D-2 · Migración a FedCM.** Se elimina `prompt()` y **todo** moment listener
+(`isNotDisplayed`/`isSkippedMoment`/`isDismissedMoment`): eso es exactamente lo que pide el aviso de GIS, y
+al dejar de pasar listener el aviso desaparece. El tipo local de `GoogleIdApi` **ya no declara `prompt`**,
+así que volver a usarlo es un error de compilación, no un descuido. Tampoco se fija
+`use_fedcm_for_button`: dejándolo en el default, si FedCM no aplica GIS cae a la ventana emergente, que
+funciona incluso con FedCM bloqueado por el navegador. Opt-in explícito sería *menos* robusto hoy.
+
+**D-3 · `initialize()` una sola vez por página.** El estado vivía en un `useRef` — o sea, **por
+instancia** — y `AuthForm` e `InlineAuthPanel` montan el mismo componente: dos inyecciones del script y
+dos `initialize()`, de los cuales GIS solo respeta el último; la credencial podía entregarse a un callback
+huérfano (login que falla en silencio). Ahora la carga y el `initialize` viven en **estado de módulo**
+(`gisLoad`, promesa única; `<script data-gsi-client>` único) con un **despachador estable**: `activeHandler`
+apunta a la instancia que originó el flujo (se fija en el clic) y, si no hay flujo activo, se reparte a las
+instancias montadas. `renderButton` sí es por instancia (dibuja en su propio contenedor, no pisa nada).
+**No hizo falta tocar `AuthForm.tsx` ni `InlineAuthPanel.tsx`.**
+
+### 3. El branch de MOCK ya no se activa por accidente
+
+Antes: `if (realMode && window.google) { … } else exchange('mock-google-id-token')`. Con `realMode` en
+`true` pero `window.google` ausente (bloqueador, CSP, red), caía al `else` y mandaba un **token falso al
+backend de producción**; el usuario veía «token inválido» en vez de la verdad. Ahora el modo es explícito:
+
+```
+mode = config.useMocks ? 'mock' : config.googleClientId ? 'real' : 'unconfigured'
+```
+
+`mock` **solo** con `NEXT_PUBLIC_USE_MOCKS=true`. Si la librería no carga (timeout de **10 s**, `error` del
+script, o `window.google.accounts.id` ausente tras el `load`) el estado es `failed`, y `failed` **no canjea
+nada**: muestra `auth.google.unavailable` **sin esperar a que el usuario pique**, y el botón de respaldo
+§6.7 repite el mensaje al clic. Falta de `NEXT_PUBLIC_GOOGLE_CLIENT_ID` en producción cae en el mismo sitio
+(`unconfigured`), en vez de convertirse en un modo mock encubierto.
+
+### 4. Claves i18n nuevas (aditivas, al final de `auth.google`)
+
+`auth.google.unavailable` y `auth.google.blocked`, en `es.json` y `en.json`. Solo adición al final de esa
+sección, sin reordenar ni reformatear el resto —`claude/buylist-inventory-workflow-hdnls3` tiene esos
+archivos abiertos—: el diff son **+2/-1 líneas por archivo**. Paridad ES/EN verde.
+
+### 5. ⚠️ Conflicto abierto con DESIGN_SYSTEM §6.7 — para ux-ui, no lo resuelve frontend
+
+`renderButton()` dibuja el botón **dentro de un iframe de `accounts.google.com`**: es contenido de otro
+origen y, además, la guía de marca de Google prohíbe restilizarlo. En modo real el botón visible ya no
+cumple §6.7 al pie:
+
+| §6.7 pide | `renderButton` da |
+|---|---|
+| radio 0 | `shape:'rectangular'` ≈ 4 px |
+| alto 48 px | `size:'large'` = 40 px |
+| borde `--color-border-strong`, texto `--color-text` | gris y tipografía de Google |
+| logo G + gap 8 px, contenido centrado | `logo_alignment:'center'`, `text:'continue_with'` |
+
+Se eligieron las opciones **más cercanas** a §6.7 (`outline` sobre papel, rectangular, grande, centrado,
+`continue_with` → «Continuar con Google», `locale` del `useLocale()`, `width` medido del contenedor y
+topado en los 400 px que acepta GIS, con `ResizeObserver` para redibujar) y el contenedor conserva la
+**ranura de 48 px** para no romper el ritmo vertical. El botón propio §6.7 **sigue vivo** en mock, durante
+la carga y como respaldo.
+
+Opciones para ux-ui (no se toma ninguna aquí): **(a)** aceptar el botón de Google en modo real y anotar la
+excepción en §6.7; **(b)** superponer el iframe transparente sobre el botón §6.7 — **desaconsejado**: rompe
+el foco de teclado, es frágil ante cambios de tamaño y huele a clickjacking; **(c)** volver a un botón
+propio, lo que exige un flujo que no existe sin cambiar el contrato (ver §6).
+
+**Descartado a propósito:** borrar la cookie `g_state` para saltarse el enfriamiento de One Tap. Es API no
+documentada y pisa una preferencia del usuario («ya cerré esto»), y ni así arregla el silencio de FedCM.
+
+### 6. Sin solicitudes al arquitecto
+
+`POST /auth/google` se sigue consumiendo **tal cual el contrato**: `{ idToken }` → `{ user, accessToken,
+refreshToken }`, con los errores `GOOGLE_TOKEN_INVALID` / `GOOGLE_EMAIL_UNVERIFIED` / `USER_BLOCKED`
+mostrados en `Banner danger`. Se evaluó `google.accounts.oauth2` (popup garantizado) y `ux_mode:'redirect'`
+y se **descartaron**: el primero devuelve access token / auth code, no un **ID token**, y el segundo exige
+un `POST` de formulario al backend — los dos serían cambio de contrato, y `renderButton` no lo necesita.
+
+### 7. Verificación
+
+10 pruebas en `GoogleSignInButton.test.tsx`, **verificadas por mutación** (7 mutantes, **7 muertos**):
+
+| Mutación | Muere en |
+|---|---|
+| El fallo de carga vuelve a caer a `exchange('mock-google-id-token')` | «librería ausente … NUNCA el token falso» |
+| Se quita el watchdog del clic (silencio ante rechazo de FedCM) | D-1b |
+| `initialize()` vuelve a ser por instancia | D-1a, D-1c, D-3 ×2 |
+| No se anuncia la indisponibilidad hasta el clic | «librería ausente» |
+| Respuesta sin `credential` → callar | D-1c |
+| No se engancha el `click_listener` | D-1a, D-1b, D-3 |
+| `renderButton` deja de llamarse | D-2 y otras 4 |
+
+Suite completa: **973 vitest verdes** (103 archivos), typecheck y lint limpios.
+
+**Lo que NO se pudo ejercitar aquí, y hay que comprobar en producción.** No hay egreso a
+`accounts.google.com` desde el navegador de pruebas ni cuenta de Google, así que **el flujo real —FedCM
+activo, ventana emergente, credencial de verdad— no se ejecutó**; lo que se ejercitó es el contrato del
+componente contra un GIS falso. Comprobación en 30 s sobre `tcghunt.mx`:
+
+1. Abre `/es/login` con la consola abierta. **No** debe aparecer el aviso de «One Tap prompt UI status
+   methods», ni el de `initialize() is called multiple times`; debe verse el botón de Google dibujado.
+2. Pica el botón: se abre el selector de cuentas de Google (o la ventana emergente). Esa es la prueba de
+   que ya no hay silencio.
+3. Para el caso del dueño (FedCM bloqueado para el sitio): bloquea el inicio de sesión de terceros desde el
+   icono a la izquierda de la barra de direcciones, recarga y pica. A los ~6 s debe salir **el mensaje de
+   `auth.google.blocked`** en vez de nada. Ese es el defecto que se cerró.
+4. Regresión del token falso: con un bloqueador que corte `accounts.google.com/gsi/client`, recarga; a los
+   ~10 s debe salir `auth.google.unavailable` y la pestaña **Network no debe mostrar ningún**
+   `POST /api/v1/auth/google`.

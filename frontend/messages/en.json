@@ -877,7 +877,9 @@
     "dividerOr": "or",
     "google": {
       "cta": "Continue with Google",
-      "connecting": "Connecting…"
+      "connecting": "Connecting…",
+      "unavailable": "We couldn't load Google sign-in. Check your connection or whether a browser extension is blocking it. In the meantime you can sign in with your email and password.",
+      "blocked": "Google's window didn't open. Your browser is likely blocking third-party sign-in: allow it from the icon to the left of the address bar, or sign in with your email and password."
     },
     "mustChangePassword": "You signed in with a temporary password. You must change it to protect your account.",
     "mustChangeContinue": "Continue",
