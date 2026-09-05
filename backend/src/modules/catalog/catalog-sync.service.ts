@@ -16,6 +16,16 @@ import { CardProductResolverService } from './card-product-resolver.service';
 export const SET_ID_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 /** Formato de fecha de pokemontcg.io (`yyyy/MM/dd`). */
 const DATE_PATTERN = /^\d{4}\/\d{2}\/\d{2}$/;
+/**
+ * v1.52-set-logos (M-47, §4.39.4) — ÚNICO host admitido para las imágenes de set. Es el MISMO que ya
+ * sirve el arte de todas las cartas del sitio ⇒ `remotePatterns` del frontend NO cambia (§5.3.4) y no
+ * hay superficie nueva para seguridad. NO se amplía sin pasar por arquitecto/frontend.
+ *
+ * Se compara contra `URL.host` (hostname **+ puerto**), no contra `hostname`: al no llevar puerto, esta
+ * constante solo empata con el puerto https por defecto (el WHATWG URL elide `:443`). Un
+ * `images.pokemontcg.io:8443` es OTRO endpoint y se rechaza.
+ */
+export const SET_IMAGE_HOST = 'images.pokemontcg.io';
 
 /**
  * CatalogSyncService — Ingesta de METADATA de catálogo desde pokemontcg.io (M2, ARCHITECTURE §4.8).
@@ -811,8 +821,31 @@ export class CatalogSyncService {
     return count;
   }
 
-  /** Upsert idempotente del set por externalId. */
+  /**
+   * Upsert idempotente del set por externalId.
+   *
+   * v1.52-set-logos (M-47, §4.39.4) — persiste también las IMÁGENES DEL SET (`logoUrl`/`symbolUrl`)
+   * con DOS reglas que se componen, y equivocarse en cualquiera de las dos falla en silencio:
+   *
+   *  1. **Guardarraíl de ingesta** (`sanitizeSetImageUrl`): solo se persiste una URL absoluta `https:`
+   *     del host que YA sirve el arte de las cartas. Cualquier otra cosa NO se persiste (+ log).
+   *  2. **NO-DEGRADACIÓN**: ausente (o rechazada por el guardarraíl) ⇒ **no-op** en el `update`, jamás
+   *     `null`; en el `create` (set nuevo) ⇒ `null`. Sin esto, la vía «set anidado en una carta»
+   *     borraría lo que la vía `GET /v2/sets` ya escribió, y el logo aparecería y desaparecería según
+   *     qué botón de M2 se pulsó último. Misma clase de invariante que M-44 impuso sobre
+   *     `PriceReference` (un escritor no degrada lo que otro afirmó), aquí en su versión barata:
+   *     cosmética, no dinero, pero con el mismo modo de fallo silencioso.
+   *
+   * La composición de (1) y (2) es deliberada: una URL rechazada se trata EXACTAMENTE como ausente. Si
+   * el `update` la mapeara a `null`, un glitch del proveedor (una URL `http:` un día) BORRARÍA un logo
+   * bueno — que es justo lo que la regla 2 existe para impedir. «Nunca se persiste una URL mala» y
+   * «nunca se borra una buena» se cumplen las dos a la vez solo así.
+   *
+   * Money-safe: `CardSet` no entra en ningún cálculo de precio (§4.39.9).
+   */
   private async upsertSet(rs: RemoteCardSet) {
+    const logoUrl = this.sanitizeSetImageUrl(rs.images?.logo, rs.id, 'logo');
+    const symbolUrl = this.sanitizeSetImageUrl(rs.images?.symbol, rs.id, 'symbol');
     // PROJECTION-EXEMPT: helper PRIVADO del sync (`upsertSet`); su resultado se consume dentro del
     // propio job para llavear las cartas. No lo devuelve ningún controller.
     return this.prisma.cardSet.upsert({
@@ -824,6 +857,9 @@ export class CatalogSyncService {
         releaseDate: rs.releaseDate,
         printedTotal: rs.printedTotal,
         ptcgoCode: rs.ptcgoCode,
+        // Set NUEVO: no hay nada que degradar ⇒ ausente/rechazada = `null` (§4.39.4).
+        logoUrl,
+        symbolUrl,
       },
       update: {
         name: rs.name,
@@ -831,8 +867,97 @@ export class CatalogSyncService {
         releaseDate: rs.releaseDate,
         printedTotal: rs.printedTotal,
         ptcgoCode: rs.ptcgoCode,
+        // NO-DEGRADACIÓN: la clave NI SIQUIERA VIAJA cuando no hay valor bueno ⇒ Prisma deja la
+        // columna intacta. (`logoUrl: undefined` también sería no-op, pero omitirla lo hace explícito.)
+        ...(logoUrl !== null ? { logoUrl } : {}),
+        ...(symbolUrl !== null ? { symbolUrl } : {}),
       },
     });
+  }
+
+  /**
+   * v1.52-set-logos (M-47, §4.39.4) — guardarraíl de ingesta de las **imágenes de SET**. Devuelve la
+   * URL **normalizada** (`URL.href`) SOLO si es absoluta, `https:`, **sin credenciales embebidas**, y
+   * cuyo **`host` COMPLETO** (hostname + puerto) es exactamente el del CDN del proveedor; cualquier
+   * otra cosa ⇒ `null` + log (nunca se persiste).
+   *
+   * **ALCANCE — leer esto antes de citarlo como postura de seguridad.** Esto cubre **las dos columnas
+   * que M-47 introduce** (`CardSet.logoUrl` / `symbolUrl`) y **nada más**. NO es «lo único que hay que
+   * mirar»: el **arte de carta** (`upsertCards` → `Card.imageSmallUrl` / `imageLargeUrl`, unas 90
+   * líneas más abajo) persiste `images.small`/`images.large` del **mismo proveedor SIN ninguna
+   * validación**, y ésas sí se renderizan en todo el sitio. Esa brecha es **anterior a M-47** y este
+   * pase **no la cierra a propósito** (unificar los tres criterios vigentes —éste, el del sellado en
+   * `inventory/sealed-image-host.ts`, y el ninguno del arte de carta— exige un helper en
+   * `backend/src/common/`, **zona compartida** que otra sesión tiene abierta). Registrada como **R1**
+   * en `docs/TECH_DEBT.md`, con disparador explícito.
+   *
+   * Rigor alineado con `sanitizeSealedImageUrl` (`inventory/sealed-image-host.ts`), que es el
+   * precedente de la casa para esta misma amenaza:
+   *  - **`host`, no `hostname`.** `hostname` DESCARTA el puerto ⇒ `https://images.pokemontcg.io:8443/x`
+   *    habría pasado. `host` lo incluye (y el WHATWG URL ya elide el `:443` por defecto).
+   *  - **Sin userinfo.** `https://evil@images.pokemontcg.io/logo.png` se rechaza: las credenciales
+   *    embebidas existen para confundir sobre quién es el host de verdad.
+   *  - **Se persiste `parsed.href`, no la cadena cruda.** `new URL` TOLERA espacios y caracteres de
+   *    control (C0) al borde y tabs/saltos interiores: los elimina o los percent-encodea. Guardar el
+   *    crudo metería en la BD exactamente lo que el parser acaba de perdonar. Para una URL limpia
+   *    `href === raw`, así que esto no reescribe nada legítimo.
+   *
+   * Si pokemontcg.io empezara a servir imágenes desde OTRO host, backend NO amplía esta lista por su
+   * cuenta: lo reporta, y `remotePatterns` del frontend se amplía DETRÁS, nunca por delante (§5.3.4).
+   */
+  private sanitizeSetImageUrl(
+    raw: string | undefined | null,
+    setExternalId: string,
+    kind: 'logo' | 'symbol',
+  ): string | null {
+    if (typeof raw !== 'string' || raw.trim() === '') return null;
+    let parsed: URL;
+    try {
+      parsed = new URL(raw);
+    } catch {
+      // N-3 — POR QUÉ ESTE LOG **NO** INTERPOLA `raw`, y por qué no es un descuido que arreglar
+      // devolviéndolo:
+      //  · En esta rama el parseo FALLÓ ⇒ no existe ninguna forma normalizada de la cadena. Volcarla
+      //    sería escribir en el log, verbatim, exactamente lo que se acaba de declarar NO CONFIABLE.
+      //  · Una cadena con `CRLF` puede **forjar líneas de log** (log injection): un atacante que
+      //    controle el upstream podría fabricar una línea que parezca de otro subsistema. `raw` viene
+      //    de un tercero, y ésta es la ÚNICA rama donde no ha pasado por el parser.
+      //  · `M47-D1` (docs/TECH_DEBT.md) se apoya en estos `warn` como **única señal** de que una URL
+      //    se está rechazando de forma indefinida ⇒ tienen que ser greppables y NO forjables. Un
+      //    prefijo estable (`upsertSet(<setId>): images.<kind>`) vale más que el contenido crudo.
+      //  · El diagnóstico queda REDUCIDO, no perdido: set + tipo de imagen + `length` (un número no
+      //    puede forjar una línea, y distingue «vino basura larga» de «vino un token corto»). Para ver
+      //    la cadena exacta está la respuesta del proveedor, no nuestro log.
+      this.logger.warn(
+        `upsertSet(${setExternalId}): images.${kind} no es una URL absoluta ` +
+          `(longitud=${raw.length}; se OMITE el valor crudo a propósito, ver N-3); NO se persiste (M-47).`,
+      );
+      return null;
+    }
+    // Credenciales embebidas: mismo rechazo que `sanitizeSealedImageUrl` (§4.32c) — `https://evil@host/`
+    // existe para que el host real pase desapercibido.
+    if (parsed.username !== '' || parsed.password !== '') {
+      // A DIFERENCIA de la rama de arriba, aquí `parsed` SÍ existe ⇒ sí se puede nombrar contra qué se
+      // rechazó. `URL.host` es un componente ya PARSEADO y normalizado: el WHATWG URL prohíbe C0/espacio
+      // en el host y elimina tab/CR/LF de la entrada antes de parsear ⇒ **no puede forjar una línea**.
+      // Es justo el dato diagnosticable (`…@evil.com` vs `evil@images.pokemontcg.io`), sin volcar la
+      // cadena no confiable. El userinfo NO se registra: es el material sensible del caso.
+      this.logger.warn(
+        `upsertSet(${setExternalId}): images.${kind} trae credenciales embebidas (userinfo) ` +
+          `sobre el host ${parsed.host}; NO se persiste (M-47, §4.39.4).`,
+      );
+      return null;
+    }
+    // `host` (hostname + puerto), NO `hostname`: un puerto no estándar es OTRO endpoint.
+    if (parsed.protocol !== 'https:' || parsed.host.toLowerCase() !== SET_IMAGE_HOST) {
+      this.logger.warn(
+        `upsertSet(${setExternalId}): images.${kind} fuera del guardarraíl https://${SET_IMAGE_HOST} ` +
+          `(${parsed.protocol}//${parsed.host}); NO se persiste (M-47, §4.39.4).`,
+      );
+      return null;
+    }
+    // Forma NORMALIZADA: lo que entra a la BD es lo que el parser validó, no la cadena cruda.
+    return parsed.href;
   }
 
   /**

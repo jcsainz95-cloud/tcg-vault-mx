@@ -13,6 +13,25 @@
 > validación de diales M10, y acotado por periodo de reportes) **ya están corregidos** con tests; no
 > figuran como deuda.
 
+### M47-R1 · TRES criterios distintos para la MISMA amenaza (URL de imagen de tercero que se persiste y se renderiza) (techlead R1, M-47/v1.52, 2026-09-02)
+- **Dueño:** backend. **Severidad:** Media (aceptada, **no bloqueante**). **⛔ NO ejecutar sin que el orquestador serialice `backend/src/common/`** — es zona compartida y otra sesión la tenía abierta cuando se detectó.
+- **Deuda:** hoy conviven **tres** criterios incompatibles para el mismo riesgo (persistir una URL de un tercero que luego sale como `<img src>`):
+  1. `CatalogSyncService.sanitizeSetImageUrl` (M-47, `catalog-sync.service.ts`) — **host EXACTO** (`URL.host`, con puerto), rechaza userinfo, persiste `URL.href` normalizado.
+  2. `sanitizeSealedImageUrl` (`src/modules/inventory/sealed-image-host.ts`, §4.32c) — **allowlist de dominios raíz** (host o subdominio), rechaza userinfo, persiste la cadena **cruda** (sin normalizar).
+  3. **Arte de carta** (`catalog-sync.service.ts`, `upsertCards` → `Card.imageSmallUrl` / `imageLargeUrl`) — **NINGÚN criterio**: `c.images?.small ?? null` entra a la BD sin validar esquema, host ni forma.
+- **Por qué importa:** (3) es la superficie **más renderizada del sitio** (toda rejilla de cartas, ficha, carrito, bóveda) y es la única sin guardarraíl. Y la asimetría entre (1) y (2) hace que «¿esto está validado?» dependa de qué archivo tocó quien lo escribió, que es justo el modo de fallo que este proyecto persigue. **La brecha de (3) es ANTERIOR a M-47**: M-47 no la introdujo ni la agravó (añadió el único de los tres que valida puerto y normaliza).
+- **Impacto hoy:** bajo pero real. El proveedor es el mismo host en la práctica y el front pinta `<img>` crudo (React escapa el atributo, no hay `dangerouslySetInnerHTML`), así que no hay XSS directo; el riesgo es **puntero a host arbitrario persistido** si el upstream se compromete o cambia, con exfiltración de referer/IP de cada visitante y contenido no controlado en la página.
+- **Cura (una sola, no tres parches):** helper ÚNICO en `backend/src/common/` **parametrizado por allowlist** (host exacto ∪ dominios raíz), que rechace no-`https:`, userinfo y puerto no estándar, y devuelva la forma **normalizada**. Los tres call-sites convergen en él, y el **arte de carta queda cubierto o declarado EXENTO por escrito** (con el motivo) — lo que no puede quedarse es el silencio actual.
+- **Disparador:** **el siguiente pase que toque ingesta de imágenes** (de carta, de sellado o de set), o antes si el pentester lo escala. Requiere ventana de `backend/src/common/` asignada por el orquestador. Ref: `BACKEND_NOTES.md` §0.19, ARCHITECTURE §4.39.4 / §4.32c.
+
+### M47-D1 · Una URL RECHAZADA por el guardarraíl se queda pegada para siempre, y la única señal es un `warn` (backend, M-47/v1.52, 2026-09-02)
+- **Dueño:** backend. **Severidad:** Baja (aceptada, **no bloqueante**; presentación pura, clase (P), cero dinero).
+- **Deuda:** es el **corolario correcto** de la decisión «URL rechazada ≡ AUSENTE» (§4.39.4 + regla de no-degradación): el `update` de `upsertSet` **no escribe `null`** cuando la URL viene mala, precisamente para que un glitch del proveedor no borre un logo bueno. La consecuencia es que si el proveedor **cambia de host** (o empieza a servir `http:`), `CardSet.logoUrl` conserva **punteros muertos** indefinidamente: ningún re-sync los limpia, porque el escritor está diseñado para no limpiar nunca.
+- **Por qué se acepta así:** la alternativa —degradar a `null` cuando la URL se rechaza— reintroduce exactamente el fallo silencioso que la regla existe para impedir (un `sync {setId}` borrando lo que un `sync-all` escribió), y lo hace en el caso **más frecuente** (dato ausente) para cubrir el **menos frecuente** (proveedor cambia de host). Se prefiere un logo obsoleto a un logo que parpadea.
+- **Impacto:** una teja pinta la imagen rota / el placeholder del navegador hasta que alguien mire los logs. **Cero efecto en dinero, inventario, pedidos o bóveda.** No hay alarma: la única traza es `logger.warn` en `upsertSet` («fuera del guardarraíl…»). **La FORMA de ese `warn` es parte de esta deuda** (N-3): prefijo estable `upsertSet(<setId>): images.<kind>` para poder greparlo, sin la cadena cruda (no forjable) y con el host ya parseado cuando existe. Fijada por tests; ver `BACKEND_NOTES.md` §0.19.
+- **Salida cuando toque:** una operación explícita de **invalidación** (no un backfill de datos: un `UPDATE … SET logoUrl = NULL WHERE logoUrl NOT LIKE …` disparado por el operador, o el helper de R1 emitiendo un contador). Cualquiera de las dos **pasa por el arquitecto** (§4.39.4 prohíbe endpoints/jobs/scripts de backfill en este pase).
+- **Disparador:** si aparece una **segunda** categoría de imagen de tercero persistida con este patrón, **o** cuando se monte alarma/aggregación sobre los logs de sync (lo que ocurra antes). Se resuelve gratis dentro de **M47-R1** si esa cura incluye el contador. Ref: `BACKEND_NOTES.md` §0.19.
+
 ### I8-B1 · `ingestConfigInvalid` NO cubre `grades` ni `freshnessDays`, y las dos viajan al proveedor (techlead B-1, v1.51-a, 2026-08-31)
 - **Dueño:** backend (si la salida elegida es ampliar el fail-closed, el alcance lo confirma el **arquitecto**: cambia qué apaga el ingest). **Severidad:** **Media** (aceptada, **no bloqueante hoy** porque `grading_hook_enabled` está `off` y con `off` no se pide ni se escribe nada).
 - **Deuda:** el gate de dinero del ingest sale por `cfg.ingestConfigInvalid` (`price-ingest.service.ts:1000`), que se compone con **tres** claves (`pricing.service.ts:1326`: `minSampleCount`, `sourceStat`, `ingestMaxCardsPerRun`). Pero al proveedor viajan **cinco**: `grades` (`price-ingest.service.ts:1095`) y `freshnessDays` (`:1102`) *(números de línea tras el pase v1.51-a; eran `:1087`/`:1094` en el reporte del techlead)* también se le pasan a `fetchGradedEstimatesForSet`, y **ninguna de las dos** marca `ingestConfigInvalid`. Con `graded_estimate_grades` corrupta, el resolver **apaga ficha y vitrina** (`estimatesEnabled=false`) y, en la misma corrida, el ingest **gasta créditos y ESCRIBE** usando el seed de esa misma clave — un valor que el resolver acaba de declarar no fiable.
@@ -4992,3 +5011,82 @@
 > **Cierra sin deuda residual.** Nota para quien lea la ficha original: el diagnóstico decía «hoy es
 > cierto, el riesgo es futuro». Era **optimista** — ya era falso al escribirlo, para el caso de bóveda.
 > Una ficha de acoplamiento no sustituye a verificar el valor contra el componente.
+
+---
+
+### Cierre del pase P-54 · logos de expansión en el índice de sets (§42) — rama `claude/tcg-hunt-orchestrator-28p7z1`, 2026-09-02 (dueño: **frontend**, no bloqueante)
+
+> Deuda anotada tras la **segunda** ronda de QA sobre el pase. Los dos **bloqueantes** de esa ronda
+> (B-1: la placa crecía con la proporción del logo y anulaba `aspect-[3/2]`; B-2: el monograma no se
+> retiraba y se transparentaba bajo el logo) **NO figuran aquí: se corrigieron en la rama**, con
+> medición de caja real en Chromium (`frontend/e2e/master-set-plate.spec.ts`) y verificados por
+> mutación. Ver `FRONTEND_NOTES.md` §43. Lo que sigue es lo que **queda abierto y aceptado**.
+
+#### DT-Ga · §24.10 — la placa `sm` del encabezado del binder está diseñada y no implementada (Baja, frontend)
+- **Dueño:** frontend. **Severidad:** Baja. **Estado: abierta, aceptada.**
+- **Deuda:** `DESIGN_SYSTEM.md` §24.10 define una `SetPlate` tamaño `sm` (112×64, `aspect-[7/4]`, padding
+  8px, mismas reglas de tinta/contain/contorno y mismo monograma) a la izquierda del título del set en el
+  **encabezado del binder**, oculta por debajo de `sm`. Este pase implementó **solo la teja del índice**:
+  el encargo acotaba el trabajo a `MasterSetIndex.tsx` y `MasterSetBinder.tsx` estaba fuera de alcance
+  (otra sesión trabajaba en paralelo sobre zonas vecinas).
+- **Impacto:** ninguno funcional. El binder sigue con su título en texto, que es lo que había antes de
+  §24; no hay hueco, no hay salto, no hay regresión. Es diseño **entregado y no consumido**.
+- **Dirección:** extraer `SetPlate` de `MasterSetIndex.tsx` con una prop `size` (`md` retícula / `sm`
+  encabezado) y montarla en el encabezado del binder. `MasterSetBinder` ya recibe el
+  `MasterSetSummaryDTO` **entero**, con `logoUrl` incluido: no hace falta contrato, ni endpoint, ni
+  prop nueva de datos. Coste estimado: pequeño.
+- **Disparador:** el siguiente pase que toque `frontend/src/components/master-set/MasterSetBinder.tsx`.
+
+#### DT-Gb · `currentSetId` es una prop sin consumidor (Baja, frontend)
+- **Dueño:** frontend. **Severidad:** Baja. **Estado: abierta, aceptada, con FECHA DE CADUCIDAD.**
+- **Deuda:** `MasterSetIndex` acepta `currentSetId?: string` para el estado «seleccionado / actual» de
+  §24.6 (`aria-current="true"` + subrayado 2px de acento). **Ningún anfitrión la pasa**: hoy, al abrir un
+  set, el índice se desmonta y no hay «set actual» que pintar. Se implementó porque §24.6 lo especifica y
+  porque prohíbe **inventar** una selección que no existe; queda lista para cuando el anfitrión sepa de
+  verdad cuál es (vuelta del binder con el set en la URL).
+- **Impacto:** código vivo que ninguna pantalla ejercita. Lo cubre una prueba unitaria, así que no puede
+  pudrirse en silencio — pero una prueba no es un consumidor.
+- **Dirección:** **cablearla o retirarla.** El sistema de diseño puede esperar; el código sin consumidor
+  no. Si se retira, §24.6 queda sin implementar y hay que decirlo en `FRONTEND_NOTES`.
+- **Disparador (duro):** si no se cablea en los **dos próximos pases** sobre `components/master-set/`,
+  **se retira**.
+
+#### DT-Gc · El monograma escala por unidades de contenedor, y §24.5 solo da dos puntos de referencia (Baja, frontend + ux-ui)
+- **Dueño:** frontend (la implementación), **ux-ui** (la norma). **Severidad:** Baja. **Estado: abierta, aceptada.**
+- **Contexto:** la primera versión ató el tamaño del monograma al **breakpoint del viewport**
+  (`text-[28px] lg:text-[44px]`). QA lo tumbó (I-2): en el cotizador la retícula vive en una columna
+  estrecha, así que en `lg` la placa mide ~116px —**más pequeña que en móvil**— y un monograma fijo de
+  44px la llenaba de borde a borde. Ya está corregido: `container-type: inline-size` en la placa +
+  `text-[16cqw]`, es decir **≈16 % del ancho de la placa**, medido y fijado en Playwright.
+- **Deuda residual:** §24.5 especifica el tamaño con **dos puntos** («≈28px a 167px de ancho, ≈44px a
+  280px»), que dan 16,8 % y 15,7 %. El 16 % implementado es una **interpolación del front**, no una regla
+  escrita: si ux-ui quiere una curva distinta (p. ej. tope máximo, o mínimo legible por debajo de cierto
+  ancho), hoy no está dicha en ningún sitio y el siguiente que la toque volverá a inventarla.
+- **Dirección:** que ux-ui fije el porcentaje —o el `clamp()`— en §24.5, y que el código lo cite.
+- **Disparador:** la respuesta de ux-ui a la consulta abierta de §24.4 sobre el ancho real de la
+  retícula en el cotizador (ver `FRONTEND_NOTES.md` §43), que es el mismo hilo.
+
+#### DT-Gd · `CardSetDTO` sirve a dos endpoints que el contrato define DISTINTOS, y el campo opcional desactiva el invariante de §4.39.6 (Media, frontend + arquitecto)
+- **Dueño:** frontend (el tipo), **arquitecto** si se decide que el contrato nombre dos DTOs.
+  **Severidad:** Media. **Estado: abierta, aceptada.**
+- **Deuda:** `GET /catalog/sets` y `GET /buylist/sets` comparten el tipo `CardSetDTO` en el cliente, pero
+  el contrato los define distintos: `logoUrl` **entra** en `/buylist/sets` (y ahí es de clave **siempre
+  presente**) y **NO entra** en `/catalog/sets` (§4.39.5). Colapsarlos obligó a declarar
+  `logoUrl?: string | null`, y ese `?` **desactiva en el cliente justo el invariante que §4.39.6 existe
+  para garantizar**: hoy `fetchQuoterIndex` **compila igual si el campo desaparece** de la respuesta del
+  cotizador. El campo requerido de `MasterSetSummaryDTO` sigue en pie y es el que atrapó los dos sitios
+  que construían el DTO a mano — pero el eslabón `/buylist/sets` → teja quedó sin candado de tipos.
+- **Por qué se hizo así:** `lib/api.ts` (donde vive `listBuylistSets`) estaba **tomado por otra rama**
+  durante el pase; partir el tipo exige tocarlo. La decisión local fue la correcta dada la contención;
+  el problema es el tipo único, no la decisión.
+- **Incluida en esta misma ficha (no es un ítem aparte, y anotarla suelta la haría parecer cosmética):**
+  la **divergencia del mock**. `lib/api.ts` sirve `getSets()` y `listBuylistSets()` del **mismo**
+  `fx.mockSets`, así que en modo mock `/catalog/sets` **también** rinde `logoUrl`, cosa que el backend
+  real no hace. Nadie lo consume hoy y el tipo opcional impide asumirlo, pero es exactamente la clase de
+  «el mock promete más que el backend» que ya costó un defecto en producción (§34). Se cierra con lo
+  mismo: dos tipos, dos fixtures.
+- **Dirección:** `BuylistSetDTO extends CardSetDTO { logoUrl: string | null }` (requerido) para
+  `listBuylistSets`, `CardSetDTO` **sin** `logoUrl` para `getSets`, y un fixture propio por endpoint.
+  Cero cambios de contrato; si el arquitecto prefiere nombrarlos en `API_CONTRACT.md`, mejor.
+- **Disparador (duro):** el **primer pase de frontend después de que `claude/buylist-inventory-workflow-hdnls3`
+  fusione** y `lib/api.ts` quede libre.

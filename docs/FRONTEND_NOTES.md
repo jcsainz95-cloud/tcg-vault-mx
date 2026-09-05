@@ -10243,3 +10243,345 @@ no es asegurar un *inventario en custodia*:
 > comprobar solo porque el barrido la clasificara como «legítima»: es legítima **si la póliza existe**.
 > Si no la hay, esa cadena necesita el mismo tratamiento. **Dueño de la respuesta: product-owner**
 > (es negocio/contrato con la paquetería, no copy).
+
+---
+
+## §42 · P-54: el índice de sets pinta el LOGO de la expansión — la placa de tinta (`DESIGN_SYSTEM.md` §24, contrato v1.52 / M-47, `ARCHITECTURE.md` §4.39) — 2026-09-02, rama `claude/tcg-hunt-orchestrator-28p7z1`
+
+> El diseño estaba **escrito** (ux-ui, §24 completa con cinco reglas duras R1–R5). Esto es su ejecución,
+> no una interpretación. Riesgo de dinero: **ninguno** — es presentación pura.
+
+### 1. Qué cambió, y por qué cabe en UN archivo
+
+`MasterSetIndex.tsx` es el índice **compartido por los cuatro modos** (`platform` de M1, `quoter` del
+cotizador, `user_vault_self`, `user_vault_admin`, §4.20f). La teja vive entera ahí, así que las cuatro
+pantallas anfitrionas reciben el cambio **sin tocarlas**: siguen invocando el mismo componente con su
+`mode`. Ese es el motivo de que §24.1 diseñe «para una superficie» y salgan cuatro gratis.
+
+La teja pasa de **tarjeta de texto** (borde + `bg-surface` + hover de fondo) a **placa + leyenda sobre
+papel**:
+
+| Pieza | Implementación |
+|---|---|
+| Placa (`SetPlate`) | `aspect-[3/2] w-full bg-ink`, radio 0, **sin borde**, aire 16/20/24px. ⚠️ **La primera versión de esta fila era FALSA**: decía «cero CLS» y la placa sí saltaba de alto al cargar, porque la `<img>` iba en flujo y anulaba la relación de aspecto. Corregido y **medido** en §43 (bloqueante B-1 de QA) |
+| Logo | `<img>` crudo (**nivel B**, §4.39.7): sin `next/image`, sin `srcset`, `loading="lazy"` en TODAS, `decoding="async"`, `object-contain` (R1) |
+| Contorno de seguridad | `filter: drop-shadow(0 0 1px var(--color-on-ink)) ×2` en línea. **Obligatorio** (§24.2): salva al logo oscuro sin filete *sin* tener que inspeccionar logo a logo |
+| Sin logo | **Monograma** serif sobre la tinta (§24.5), `aria-hidden`. ⚠️ La primera versión lo dejaba pintado **también con logo** (se transparentaba a través del PNG): corregido en §43 (bloqueante B-2) |
+| Leyenda | Nombre serif 16/18/20px con **2 líneas reservadas** (40/45/50px) y sin truncado; meta mono 11px versalitas `tracking-label` |
+| Retícula | `grid-cols-2 · sm:3 · lg:4`, gap 24/32 → 32/40. **Se topa en 4** |
+| Foco | El anillo **estándar** del sistema (`:focus-visible` global de `globals.css`: `outline 2px` + `offset 2px`). Se retiró el `focus-visible:shadow-focus focus-visible:outline-none` que traía la teja: el anillo tiene que caer **por fuera**, sobre papel — rojo sobre tinta es 2,5:1 (§24.9) |
+
+### 2. El monograma no es un esqueleto: es contenido final (R4)
+
+> ⚠️ **CORRECCIÓN (§43).** Este párrafo decía «la imagen lo tapa» y **no era cierto**: el monograma se
+> quedaba pintado debajo de un PNG con transparencia, así que se veía **a través** del logo, para
+> siempre. Hoy se **retira** al `onLoad`. Lo que sigue vale con esa corrección aplicada.
+
+Se pinta **desde el primer frame** y **se retira cuando la imagen carga**, sin transición. Consecuencia
+deliberada: **la placa no pulsa nunca**. Es el precedente literal de `CardImage`, que deja el pozo QUIETO
+cuando no hay `src` porque un `animate-pulse` eterno hace que un dato ausente **legítimo** parezca una app
+colgada. Y aquí `logoUrl: null` es legítimo, **normal y permanente** (§4.39.6): promos, colecciones y sets
+viejos no van a tener logo nunca, y un set aún no re-sincronizado se ve **idéntico** a propósito.
+
+`onError` retira el `<img>` y deja el monograma: un 404 del CDN **no deja a nadie esperando** y jamás se ve
+un icono de imagen rota. La placa va keyada por `logoUrl`, así que ni un fallo ni una carga previa se
+heredan al paginar **ni cuando un re-sync cambia el logo del mismo set** (§43).
+
+La derivación (`setMonogram`, exportada para poder probarla) es **presentación del front**, no un dato:
+iniciales de las palabras significativas, máximo 3, ignorando `and`/`&`/`of`/`the`, con caída a los 3
+primeros caracteres cuando el nombre es numérico (`151` → `151`). Que dos sets compartan iniciales da igual:
+el nombre completo está debajo.
+
+### 3. A11y: el logo es decorativo, el texto es el dato (R2)
+
+`alt=""` + `aria-hidden="true"` en el logo **y** en el monograma. El nombre accesible de la teja lo dan el
+nombre visible y la meta, que ya están dentro del `<button>`; no se añade `aria-label` (duplicaría y
+desalinearía ES/EN). Sin ese `aria-hidden`, un lector de pantalla anunciaría «BS, Base Set, Base 1999».
+Hay **una** parada de tabulación por set y `lang="en"` viaja ahora en el nombre y en la meta (antes envolvía
+también al badge `Combinado`, que es español).
+
+### 4. Contrato: `logoUrl` REQUERIDO donde llega, OPCIONAL donde no lo emiten
+
+- **`MasterSetSummaryDTO.logoUrl: string | null`** — requerido a propósito. Ser requerido es lo que obliga al
+  compilador a que quien compone el DTO **client-side** (el modo `quoter`, que lo arma desde
+  `GET /buylist/sets`) decida el valor en vez de olvidarlo. Sin eso, la teja del cotizador sería la única sin
+  logo de todo el producto y **nada** fallaría hasta verlo con los ojos. Al añadir el campo, el typecheck
+  señaló **exactamente** los dos sitios que lo construían a mano (dos fixtures de test) — que es el efecto
+  buscado.
+- **`CardSetDTO.logoUrl?: string | null`** — opcional, y no por descuido: el mismo tipo sirve a **dos**
+  endpoints y solo uno lo emite. `GET /buylist/sets` lo manda siempre; `GET /catalog/sets` **no**
+  (§4.39.5: alimenta dropdown y filtro de texto, no tejas). En esa respuesta la clave está **ausente de
+  verdad**, y el tipo lo dice.
+
+### 5. El mock dice la verdad — los dos casos, en la misma retícula
+
+Los fixtures traen sets **con** logo (`sv08`, `sv06`, `sv1`, `cel25`) y sets **sin** logo (`cel25c`,
+`swsh1`, `base1` → `logoUrl: null`, clave presente). Si todos tuvieran logo, el monograma **no se
+ejercitaría jamás** en dev ni en Playwright y el hueco solo aparecería en producción: es el modo exacto en
+que se escapó el bug de la imagen del carrito (§34). Hay un test dedicado a esto —«conviven tejas con logo
+y tejas sin logo»— que se pone **rojo** si alguien uniforma los fixtures en cualquiera de las dos
+direcciones.
+
+**Divergencia conocida y acotada:** `lib/api.ts` sirve `getSets()` (`/catalog/sets`) y `listBuylistSets()`
+(`/buylist/sets`) del **mismo** array `mockSets`, así que en modo mock `/catalog/sets` también rinde
+`logoUrl` aunque el backend real no lo emita ahí. No lo consume nadie (los chips de la home y el `SetFilter`
+son texto) y el tipo opcional impide asumirlo. Se deja anotado porque la separación limpia exige tocar
+`lib/api.ts`, que en este pase lo tenía otra rama.
+
+### 6. Verificación por mutación (no «los tests pasan»)
+
+13 pruebas nuevas en `MasterSetIndexPlate.test.tsx`. Cada una se comprobó **rompiendo a propósito** lo que
+afirma y confirmando que la suite se pone roja:
+
+| Mutación | Resultado |
+|---|---|
+| `fetchQuoterIndex` deja de mapear `logoUrl` | 2 rojas |
+| Se quita el `aria-hidden` del monograma | 1 roja (nombre accesible contaminado) |
+| `object-contain` → `object-cover` | 1 roja |
+| Se quita el contorno de seguridad | 1 roja |
+| Se quita el `onError` | 1 roja |
+| Se añade `animate-pulse` a la placa | 2 rojas |
+| Se quita el `aria-current` | 1 roja |
+| Retícula a 1 columna | 1 roja |
+| Monograma sin tope de 3 / sin stop-words / sin caída a 3 caracteres | 1 roja cada una |
+| La teja vuelve a ser tarjeta (`border` + `bg-surface`) | 1 roja |
+| Fixtures: **todos** con logo / **ninguno** con logo / el índice mock deja de proyectar el campo | 2, 4 y 4 rojas |
+
+Suite completa del front: **964 pruebas verdes**, typecheck y lint limpios.
+
+> ⚠️ **Y aun así el pase se rechazó.** Ninguna de esas 13 pruebas podía ver los dos bloqueantes: jsdom no
+> hace layout ni carga imágenes. La tabla de arriba es honesta sobre lo que mutó, pero **la cobertura que
+> yo creí tener no existía** — dos de esas pruebas afirmaban más de lo que verificaban. Ver §43.
+
+### 7. Lo que queda pendiente (y quién lo debe)
+
+1. **§24.10 — la placa `sm` (112×64) en el encabezado del binder.** Diseñada por ux-ui, **no
+   implementada** en este pase: el encargo acotaba el trabajo a la teja del índice y `MasterSetBinder.tsx`
+   estaba fuera de alcance. Es aditivo y pequeño (`MasterSetBinder` ya recibe el `MasterSetSummaryDTO`
+   entero, logo incluido). **Dueño: frontend, siguiente pase.**
+2. **`currentSetId`** existe como prop opcional del índice (§24.6) y **ningún anfitrión la pasa todavía**:
+   hoy, al abrir un set, el índice se desmonta y no hay «set actual» que pintar. Está para cuando el
+   anfitrión sepa de verdad cuál es (vuelta del binder con el set en la URL) — §24.6 prohíbe **inventar**
+   una selección que no existe.
+3. **Cero claves i18n nuevas**, tal como manda §24.15: el nombre, la serie y el año ya se pintaban, el
+   `alt` es vacío por diseño y el monograma se deriva del nombre — no se traduce. `messages/*.json` no se
+   tocó y la paridad ES/EN queda intacta.
+
+---
+
+## §43 · P-54, segunda ronda: los dos bloqueantes que 964 pruebas verdes no podían ver (rechazo de QA sobre §42) — 2026-09-02, rama `claude/tcg-hunt-orchestrator-28p7z1`
+
+> QA midió en **Chromium real** lo que mi suite medía en **jsdom**. Lo importante de este rechazo no es
+> que el componente estuviera mal: es que **yo creí que mis pruebas lo cubrían**. Dos de ellas afirmaban
+> más de lo que verificaban.
+
+### 1. B-1 · La placa NO era de tamaño fijo: crecía con la proporción del logo
+
+**El defecto.** La `<img>` iba **en flujo** con `h-full` (`height:100%`) dentro de un padre cuya altura la
+fijaba `aspect-ratio`. Esa altura **no es definida** para el hijo, así que `height:100%` resuelve a `auto`,
+la imagen toma su **proporción intrínseca**, y su alto pasa a ser el `min-content` del padre: el
+`aspect-[3/2]` queda **anulado**. Medido por QA a 1440 y reproducido por mí:
+
+| Proporción del logo | Placa que salía | Esperado |
+|---|---|---|
+| 1.92:1 | 180×120 ✅ | 180×120 |
+| **1.60:1** | **180×131** | 180×120 |
+| **1:1** | **180×180** | 180×120 |
+| **1:2** | **180×312** | 180×120 |
+
+Umbral ≈1.83:1 en `lg`: **cualquier logo menos apaisado que eso descuadraba la retícula**, y §4.39.2 dice
+que el logo es de «proporción MUY variable entre sets». Viola **R1**, §24.3 («uno cuadrado o vertical se
+contiene igual») y §24.12 nº3. Y además la placa **saltaba de alto al cargar la imagen** — CLS, lo que
+§4.39.8 encargo (c) prohíbe explícitamente y lo que §42 afirmaba, en falso, no tener.
+
+**El arreglo.** Los **dos** hijos de la placa pasan a **absolutos**: un hijo absoluto no contribuye a la
+altura del padre, así que la caja mide `width × 2/3` **siempre**, haya logo apaisado, cuadrado, vertical o
+ninguno. El aire interior (16/20/24px) se muda del padre a la **imagen** (`p-4 sm:p-5 lg:p-6`): para un
+hijo absoluto el bloque contenedor es la **caja de relleno** del padre, así que un `p-4` arriba no lo
+tocaría, y con `box-sizing:border-box` el `object-contain` encaja dentro de la caja de contenido — mismo
+aire, sin devolverle el alto a la imagen. Se añade `container-type: inline-size`, que además aísla el
+tamaño de la caja de su contenido.
+
+**Medido, no razonado** (viewport → ancho de placa, con logo cuadrado forzado):
+
+| Viewport | Placa | ¿3:2? |
+|---|---|---|
+| 390 | 163×109 | ✅ |
+| 640 | 181×121 | ✅ |
+| 1024 | 116×77 | ✅ |
+| 1280 / 1440 | 180×120 | ✅ |
+
+### 2. B-2 · El monograma nunca se ocultaba: se transparentaba bajo el logo
+
+**El defecto.** Había `onError` pero **no su contraparte al cargar**. El monograma se pintaba siempre, y
+§24.2 establece como hecho que los logos del proveedor son **PNG con transparencia**: `object-contain` no
+pinta fondo, así que el monograma se veía **a través** del logo, de forma permanente. Viola §24.5 («cuando
+la imagen llega, **la imagen lo tapa**») y §24.14 nº6.
+
+**El arreglo.** `SetPlate` pasa de un booleano a **tres estados** —`pending` · `loaded` · `failed`— y el
+monograma se **retira** en `loaded`, sin transición (un cross-fade mostraría justo las dos cosas
+superpuestas que se están corrigiendo). `failed` vuelve a mostrarlo, así que un fallo posterior a la carga
+tampoco deja la placa vacía.
+
+### 3. I-2 · El monograma estaba atado al breakpoint del VIEWPORT, no al ancho de la PLACA
+
+QA lo midió en `/es/buylist`: a viewport 1024 la placa del cotizador mide **116×77** —**más pequeña que en
+móvil**— y el monograma fijo de `lg:text-[44px]` la llenaba de borde a borde («CEL» desbordado).
+
+**El arreglo:** `container-type: inline-size` en la placa + `text-[16cqw]` en el monograma ⇒ el tamaño se
+mide contra **la placa**, que es la caja de la que depende de verdad. §24.5 pide ≈28px a 167px de ancho y
+≈44px a 280px, o sea 16,8 % y 15,7 %: **16 %** interpola los dos puntos. Medido después del arreglo, la
+proporción es **exactamente 0,16 en los cuatro viewports** (26,08/163 · 29,01/181 · 18,56/116 ·
+28,80/180). La curva exacta queda como consulta a ux-ui (`TECH_DEBT.md` DT-Gc).
+
+### 4. I-1 · La lección: la prueba que afirmaba más de lo que verificaba
+
+`expect(plate.className).toContain('aspect-[3/2]')` comprueba que **la cadena de clase está**, no que la
+caja mida 3:2. Con esa afirmación de más, B-1 pasó con **964 pruebas verdes**. Igual el caso R4: verificaba
+el monograma solo en la teja **sin** logo, nunca que **desapareciera** en la teja con logo — por eso B-2
+tampoco se vio. **Ninguna prueba de vitest puede cerrar esta clase**: jsdom no hace layout ni carga
+imágenes. La aserción de clase no se «arregla» afinándola; hay que **cambiar de instrumento**.
+
+Lo que se hizo, en dos frentes:
+
+**(a) En vitest se REBAJA la afirmación a lo que de verdad se verifica.** La prueba de geometría se
+sustituye por una de **estructura** —los dos hijos son absolutos, el aire vive en la imagen y no en el
+padre— que es la *causa* del defecto, y su comentario dice explícitamente que **no mide la caja** y dónde
+se mide. Se añaden dos pruebas de B-2 (el monograma se retira al `load`; y vuelve si la imagen falla
+después). Total: **16** pruebas, suite completa **967 verdes**.
+
+**(b) La geometría se mide en Chromium.** Nuevo `frontend/e2e/master-set-plate.spec.ts` (5 pruebas):
+
+1. **R1** — todas las placas de la retícula miden **exactamente lo mismo** y su alto es 2/3 de su ancho,
+   con logos interceptados de proporción **1.92:1, 1.60:1, 1:1 y 1:2** conviviendo en la misma página.
+   ⚠️ **CORRECCIÓN (§43.8, defecto N-2):** escrito así era **falso**. El reparto era un `hash(url) % 4`
+   y de los cuatro sets con logo del fixture **tres colisionaban en `1:1` y uno en `1:2`**: las dos
+   proporciones **apaisadas no se servían nunca**. Hoy el reparto es por índice de descubrimiento y la
+   propia prueba **afirma** qué se sirvió, así que la frase de arriba ya es cierta — y verificable.
+2. **Cero CLS** — se **retiene** la respuesta del logo, se mide la placa vacía, se libera y se vuelve a
+   medir: el alto no cambia. Sirve un logo **cuadrado** a propósito: con uno apaisado de 1.92:1 el defecto
+   no se manifestaba y la prueba habría pasado sin probar nada.
+3. **B-2** — hay exactamente **un monograma por placa sin logo, ni uno más**, y ninguna placa tiene
+   `<img>` y monograma a la vez (`imgs + monos === 1`).
+4. **404** — se descubre del DOM el primer logo con imagen, se le fuerza un 404 y se comprueba que esa
+   placa cae al monograma **y conserva su caja**.
+   ⚠️ **CORRECCIÓN (§43.8, defecto N-1):** «**esa** placa» era **falso** y era un **falso verde**. La
+   víctima se localizaba como «la primera teja SIN imagen», y el fixture trae **dos** sets legítimamente
+   sin logo: al borrar el `onError` del componente, la víctima conservaba su `<img>` rota y el selector
+   se iba a un set que nunca tuvo logo — la prueba pasaba **con la caída al monograma eliminada**. Hoy
+   la víctima se ata **por su identidad** y hay un **testigo** sano que impide el aprobado por
+   apagón general.
+5. **I-2** — el monograma guarda la misma proporción con su placa en dos anchos de placa muy distintos
+   (181px y 116px), y las letras nunca llenan la placa.
+
+**Verificación por mutación, esta vez en el navegador** (cada mutación = build de producción + suite):
+
+| Mutación | Resultado |
+|---|---|
+| B-1: la `<img>` vuelve al flujo con `h-full` y el aire al padre | **4 rojas**, con el mensaje `placa 1: 180×131 no es 3:2` — el número exacto que reportó QA |
+| B-2: el monograma se pinta siempre | **1 roja**, y solo esa: `Expected 2, Received 6` monogramas |
+| I-2: el monograma vuelve a `text-[28px] lg:text-[44px]` | **1 roja**: `monograma 44px sobre placa 116px` |
+| Sin mutar | **5 verdes** |
+
+⚠️ **CORRECCIÓN (§43.8):** en esta tabla **faltaba la mutación de `onError`**, y ésa es exactamente la
+razón por la que el falso verde N-1 no salió. La tabla completa —con `onError` dentro y con los dos
+defectos del propio spec— está en §43.8.
+
+### 5. Dos cosas más que se cerraron en esta ronda
+
+- **`SetPlate.failed` no se reiniciaba** si cambiaba el `logoUrl` del **mismo** `setId` (tras un re-sync,
+  la teja se quedaba en monograma hasta desmontarse). La placa ahora va keyada por `logoUrl`.
+- **Falso rojo propio, dejado escrito porque volverá a morder:** el primer intento del test del 404
+  localizaba la teja con `page.locator('li').filter({ hasText: 'Surging Sparks' })`, y `/es/buylist`
+  **también** pinta «Top Bounties», cuyas tarjetas mencionan ese set y llevan arte de carta. El test medía
+  una tarjeta de bounty. Se corrigió acotando a las `li` **que tienen placa**. Y de paso el spec se
+  reescribió **agnóstico**: cero nombres de set literales — la proporción se reparte por hash de la URL y
+  la víctima del 404 se descubre del DOM.
+  ⚠️ **CORRECCIÓN (§43.8):** esa segunda mitad envejeció mal en el mismo día. **El hash era N-2** y
+  **«se descubre del DOM» sin atarla era N-1**: al corregir un falso rojo metí un falso verde. El
+  objetivo (spec agnóstico) era correcto; el **mecanismo** no. Hoy: índice de descubrimiento e
+  identidad explícita de la víctima.
+
+### 6. Alcance del nuevo spec, dicho sin adornos
+
+Corre en **modo mock** y está marcado `needsSeed` contra el stack real, con su razón impresa: `logoUrl` es
+`null` en **todo** el catálogo real hasta que un operador re-sincronice (§4.39.4 — **no hay backfill**), así
+que en real no habría ninguna placa **con** logo que medir. No es «no supe escribirlo agnóstico»: el spec ya
+lo es, y el día que el seed E2E traiga un set con logo basta **borrar el guardarraíl**. Interceptar las
+imágenes no es la parte mock — la geometría es una propiedad del CSS y hay que forzar proporciones que un
+CDN de terceros no sirve a la carta.
+
+Verificado además que el pase **no rompe lo que ya existía**: `e2e/master-set.spec.ts` y
+`e2e/buylist.spec.ts` (los que recorren el índice del cotizador) pasan — **20 pruebas E2E verdes** en total.
+
+### 7. Consulta abierta para ux-ui (no toco §24)
+
+§24.4 declara para `lg` una placa de **~216×144**. En el cotizador sale de **116×77**, y a 640 sale de
+**181×121**: es decir, **en `lg` la placa es más pequeña que en móvil**. La causa no es la placa sino la
+retícula: el número de columnas está atado al **viewport** (`sm:grid-cols-3 lg:grid-cols-4`) mientras que
+la retícula del cotizador vive en una **columna estrecha** (~560px a viewport 1024), así que las 4 columnas
+entran donde §24.4 asumía 4 columnas de una página ancha. Las cifras de §24.4 describen el índice de M1 y
+la bóveda, no el cotizador.
+
+**No lo cambio yo.** La corrección natural sería contar columnas por **contenedor** en vez de por viewport
+(la placa ya usa `container-type` para su monograma), pero §24.4 está escrita en anchos de viewport y
+tocarlo es decisión de ux-ui. Queda como pregunta con las medidas encima de la mesa.
+
+### 8. Tercera ronda: los dos defectos que el propio spec traía dentro (N-1, N-2, N-4) — 2026-09-02
+
+QA aprobó los bloqueantes (los volvió a medir en navegador, incluido un caso que yo no había probado:
+**imagen en caché**, donde `onLoad` puede no dispararse — sin monograma pegado). Pero encontró **dos
+defectos en el spec que escribí para cerrar el falso verde anterior**. No se mergean: ese archivo es la
+única defensa de esta clase de defecto y **contenía otro**.
+
+**N-1 · La prueba del 404 era un FALSO VERDE.** QA borró el `onError` **entero** del componente y el spec
+dio **5 passed**. Causa: mi propia corrección del falso rojo de «Top Bounties». La víctima se elegía como
+*«la primera teja que no tiene imagen»* — pero el fixture ya trae **dos sets legítimamente sin logo**, así
+que sin `onError` la víctima conservaba su `<img>` rota y el selector se iba a *Sword & Shield*, que nunca
+tuvo logo: las tres aserciones pasaban **sin haber tocado a la víctima**. Acertaba solo por accidente
+(el primer set con logo era también el primero del DOM). **Cambié un falso rojo por un falso verde**, en
+la prueba que existe para impedirlos.
+
+**Arreglo:** la víctima se ata **por identidad**. Se descubren del DOM (a) la primera teja **con** logo —su
+nombre y su URL— y (b) un **testigo**: otra teja con logo que no se toca. Se rompe solo la URL de la
+víctima, se recarga, y se le exige el resultado **a ella, localizada por su nombre**:
+`toHaveCount(1)` sobre el nombre (si identificara dos tejas, falla en vez de elegir), `img → 0`,
+monograma visible. El **testigo** conserva su `<img>` y no tiene monograma: sin esa aserción, un apagón
+general de imágenes también aprobaría la prueba. Las dos acotaciones conviven —«solo `li` con placa»
+(falso rojo) e «identidad de la víctima» (falso verde)— porque ninguna sustituye a la otra.
+
+**N-2 · El spec servía 2 de las 4 proporciones que decía servir.** `shapeFor` era un `hash(url) % 4`, no
+un reparto cíclico. QA instrumentó mi función: `sv8 → 1:1`, `sv6 → 1:1`, `sv1 → 1:1`, `cel25 → 1:2`. Las
+**dos apaisadas no se servían nunca**, mientras el título del test, mi comentario y §43 afirmaban que sí.
+La colisión era benigna **por suerte** (caía en los dos peores casos); un cambio de ids del fixture podía
+mandarlas las cuatro a `1.92:1` —la única que **no** manifiesta B-1— y dejar el test insignia en verde
+permanente.
+
+**Arreglo:** reparto por **índice de descubrimiento** (cada URL distinta toma la siguiente forma de la
+lista) ⇒ con ≥4 logos se sirven **las cuatro, siempre, por construcción**, y sigue sin depender de qué ids
+traiga el catálogo, que era el objetivo del hash. Además el stub **devuelve el mapa** URL→forma y la prueba
+lo **afirma** (`Set(servidas) === Set(las cuatro)`) y lo **imprime**: la afirmación del título dejó de ser
+una suposición.
+
+**N-4 · La cabecera del archivo de vitest listaba «R1: caja de tamaño fijo»** entre lo que defiende, cuando
+el propio archivo declara que no puede medirla. Reescrita: ahora el **límite va arriba y en primer lugar**
+—jsdom no hace layout ni carga imágenes, aquí no se verifica NINGUNA geometría— y R1 aparece solo como
+«la ESTRUCTURA que lo hace posible», con el puntero al spec de Chromium.
+
+**Verificación de esta ronda** (las dos que pidió el coordinador, más las de regresión):
+
+| Mutación | Resultado |
+|---|---|
+| **`onError` BORRADO ENTERO** (la mutación con la que QA sacó el falso verde) | **1 roja, y solo esa**: el test del 404, `Expected 0, Received 1` — la víctima conserva su `<img>` rota. En vitest, **2 rojas** más |
+| **Reparto por hash** (se reintroduce N-2) | **1 roja**: el oráculo del stub. Reprodujo la instrumentación de QA clavada: `sv8 → 1:1, sv6 → 1:1, sv1 → 1:1, cel25 → 1:2` |
+| Sin mutar | **5 verdes**, con `[proporciones servidas] sv8 → 1.92:1 · sv6 → 1.60:1 · sv1 → 1:1 · cel25 → 1:2` impreso |
+
+Suites completas tras la corrección: **967 vitest verdes** · **20 E2E verdes** (`master-set-plate` +
+`master-set` + `buylist`) · typecheck y lint limpios.
+
+> **Nota de operación, porque me costó diez minutos de diagnóstico falso.** Al arrancar esta ronda el spec
+> dio 3 rojas contra un servidor que yo no había reconstruido: `.next-e2e-mock` **es un artefacto
+> compartido** y contenía todavía el build mutado de QA. El `webServer` de `playwright.config.ts` lo
+> reconstruye siempre; quien reutilice el servidor a mano (`E2E_BASE_URL` + `next start`) **tiene que
+> rebuildear primero**, o está midiendo el código de otro. Dicho de otro modo: aquellas 3 rojas eran
+> correctas — mis pruebas detectaron una mutación que yo no sabía que estaba puesta.

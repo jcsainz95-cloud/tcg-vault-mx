@@ -4,6 +4,181 @@
 > El contrato (`docs/API_CONTRACT.md`) manda sobre el código. Stack: NestJS + Prisma + PostgreSQL,
 > Redis/BullMQ (jobs), JWT + argon2, S3/MinIO (presigned URLs), Stripe.
 
+## 0.19 — **M-47: los logos de expansión se persisten y viajan** (2026-09-02, v1.52-set-logos, P-54)
+
+> Propiedad: **backend**. Implementa ARCHITECTURE **§4.39** completa y el contrato **v1.52** (que ya
+> declaraba `logoUrl` desde antes de que existiera el código: esto cierra esa brecha).
+> **Cero cambios de contrato**, **cero endpoints nuevos**, **cero scripts**, **cero montos tocados**.
+> Riesgo de dinero: **NINGUNO**. `CardSet` no entra en ningún cálculo de precio (§4.39.9).
+
+### Qué se construyó
+
+| Pieza | Archivo | Qué hace |
+|---|---|---|
+| **M-47** (DDL) | `backend/prisma/migrations/20260902120000_m47_set_images/migration.sql` | `ALTER TABLE "CardSet" ADD COLUMN "logoUrl" TEXT` + ídem `"symbolUrl"`. **Aditiva pura**: sin `DROP`, sin `NOT NULL`, sin default, sin índices, sin backfill |
+| Modelo | `backend/prisma/schema.prisma` (`model CardSet`, y **solo** ahí) | `logoUrl String?` / `symbolUrl String?` |
+| Tipo remoto | `backend/src/modules/catalog/pokemontcg-io.client.ts` | `RemoteCardSet.images?: { symbol?: string; logo?: string }` — el bloque **ya venía** en el JSON y se descartaba ⇒ **cero requests extra** |
+| Escritor | `backend/src/modules/catalog/catalog-sync.service.ts` (`upsertSet` + `sanitizeSetImageUrl`) | Persiste ambas con guardarraíl + no-degradación |
+| Proyección (1) | `backend/src/modules/inventory/master-set.service.ts` | `logoUrl` en `MasterSetSummaryDTO` (los **cuatro** modos) |
+| Proyección (2) | `backend/src/modules/catalog/catalog.service.ts` (`listSetsWithImportedCards`) | `logoUrl` en `GET /buylist/sets` → `data[]` |
+| Tests | `backend/test/set-images.m47.spec.ts` | 25 tests, ver abajo |
+
+### La parte fácil de equivocar: guardarraíl y no-degradación **se componen**
+
+Son dos reglas distintas de §4.39.4 y hay que decidir explícitamente qué pasa cuando chocan:
+
+1. **Guardarraíl de ingesta:** solo se persiste una URL **absoluta `https:`** cuyo host sea
+   `images.pokemontcg.io` (constante exportada `SET_IMAGE_HOST`, el **mismo** host que ya sirve el arte
+   de las cartas ⇒ `remotePatterns` del frontend **no cambia**). Cualquier otra cosa ⇒ **no se persiste
+   + `logger.warn`**.
+2. **No-degradación:** ausente ⇒ **no-op** en el `update` (la clave **ni siquiera viaja** al `upsert` de
+   Prisma), **`null`** en el `create`.
+
+**Decisión de implementación: una URL RECHAZADA se trata EXACTAMENTE como AUSENTE** (no-op en el
+`update`, `null` en el `create`). Si el `update` la mapeara a `null`, un glitch del proveedor —una URL
+`http:` un día— **borraría un logo bueno**, que es justo el modo de fallo que la regla 2 existe para
+impedir. Así se cumplen a la vez «nunca se persiste una URL mala» y «nunca se borra una buena». Está
+comentado en el código para que nadie lo «simplifique» después.
+
+Casos rechazados y probados: `http:`, host arbitrario `https:`, **subdominio parecido**
+(`images.pokemontcg.io.evil.com`), URL relativa, `javascript:`, `data:`, cadena vacía, no-string.
+
+### I-4 (gate de QA/seguridad) — el guardarraíl ahora sostiene lo que promete
+
+El primer pase dejaba tres agujeros. Los tres cerrados, alineados con el precedente de la casa
+`sanitizeSealedImageUrl` (`src/modules/inventory/sealed-image-host.ts`, §4.32c):
+
+| Agujero | Antes | Ahora |
+|---|---|---|
+| **Puerto** | comparaba `URL.hostname`, que **descarta el puerto** ⇒ `https://images.pokemontcg.io:8443/x.png` **pasaba** | compara `URL.host` (hostname **+ puerto**). El `:443` por defecto lo elide el propio WHATWG URL ⇒ se acepta y queda canónico |
+| **Userinfo** | `https://evil@images.pokemontcg.io/logo.png` **pasaba** | rechazado si `username`/`password` no están vacíos — las credenciales embebidas existen para confundir sobre quién es el host |
+| **Cadena cruda** | devolvía `raw`; `new URL` **tolera** espacios y C0 al borde y elimina tabs/saltos interiores ⇒ entraba a la BD lo que el parser acababa de perdonar | devuelve **`parsed.href`** (forma normalizada). Para una URL limpia `href === raw`, así que no reescribe nada legítimo |
+
+### N-3 — disciplina de log del guardarraíl (qué se registra al rechazar, y qué NO)
+
+`M47-D1` declara estos `warn` la **única señal** de que una URL se rechaza de forma indefinida ⇒ su forma
+es **contrato operativo**, no cosmética: tienen que ser **greppables** y **no forjables**. Por eso:
+
+- **La rama de PARSEO FALLIDO no interpola `raw`.** Ahí el parseo falló ⇒ no existe forma normalizada, y
+  volcar la cadena sería escribir verbatim en el log lo que se acaba de declarar no confiable. Una cadena
+  con `CRLF` puede **forjar líneas de log** (log injection) que parezcan de otro subsistema. El
+  diagnóstico queda **reducido, no perdido**: prefijo estable `upsertSet(<setId>): images.<kind>` +
+  **`longitud=`** (un número no puede forjar una línea, y distingue «basura larga» de «token corto»).
+  Para ver la cadena exacta está la respuesta del proveedor, no nuestro log.
+- **La rama de USERINFO sí nombra el host** (`parsed.host`): ahí `parsed` existe, y `URL.host` es un
+  componente **ya parseado** —el WHATWG URL prohíbe C0/espacio en el host y elimina tab/CR/LF de la
+  entrada antes de parsear ⇒ **no puede forjar una línea**. Es justo el dato diagnosticable
+  (`…@evil.com` vs `evil@images.pokemontcg.io`). **El userinfo NO se registra**: es el material sensible
+  del caso.
+- Las tres decisiones están **fijadas por tests** (`M-47 (A) — N-3`), no solo comentadas: si alguien
+  devuelve `raw` al log, o quita el host, o quita `longitud=`, la suite se pone roja.
+
+### ⚠️ Corrección a una frase de la primera versión de este pase
+
+El JSDoc de `sanitizeSetImageUrl` decía *«es lo único que seguridad tiene que mirar de este pase»*.
+Leída como «de este pase» era cierta; leída como **postura de seguridad** —que es como se lee a los seis
+meses— **es falsa en el mismo archivo**: `upsertCards` persiste `images.small`/`images.large` del **mismo
+proveedor SIN ninguna validación**, y ésas sí se renderizan en todo el sitio. **Esa brecha es anterior a
+M-47** y este pase **no la cierra a propósito** (la cura toca `backend/src/common/`, zona compartida).
+La frase está **acotada en el código** y la brecha registrada como **M47-R1** en `docs/TECH_DEBT.md`.
+
+### ⚠️ HECHO PENDIENTE de §4.39.4 — **NO SE PUDO VERIFICAR** (y qué implica)
+
+§4.39.8 encargo (e) pedía confirmar **contra una respuesta real** si el objeto `set` **anidado en una
+carta** trae `images` igual que el de `GET /v2/sets`. **No se pudo:** el egress a `api.pokemontcg.io`
+está **bloqueado por política del proxy** en este entorno (`CONNECT tunnel failed, response 403`;
+confirmado en `$HTTPS_PROXY/__agentproxy/status` → `connect_rejected`, `api.pokemontcg.io:443`). No hay
+ningún fixture de respuesta real en el repo con el que cerrarlo offline. **No lo doy por sabido.**
+
+**Qué implica, y por qué NO bloquea el merge:**
+- La **no-degradación lo vuelve inofensivo**: si el `set` anidado no trae `images`, esa vía simplemente
+  **no aporta el dato** y **no borra** el que la otra vía escribió. No hay riesgo de regresión.
+- Pero **sí cambia la operación**: `POST /admin/catalog/sync { setId }` (el paso 1 de §4.39.4, el botón
+  por fila de M2) usa **`importSetByExternalId` → `first.data[0].set`**, es decir **la vía anidada**. Si
+  el `set` anidado no trae `images`, **ese botón no puebla el logo** y el paso 1 **no basta por sí solo**:
+  habría que caer a `sync-all` (que sí pasa por `GET /v2/sets` en `remoteSets()`/`importSet`).
+- **Cómo cerrarlo en 30 segundos cuando haya egress** (para devops/QA en staging): correr
+  `POST /admin/catalog/sync { setId: "sv8" }` y consultar `GET /buylist/sets`; si `logoUrl` de `sv8`
+  sigue en `null` tras un sync exitoso, el `set` anidado **no** trae `images` ⇒ documentar que el paso 1
+  de §4.39.4 exige la vía `sync-all` (o que el arquitecto decida un fetch de `GET /v2/sets/{id}` en la
+  ruta single, que **sería cambio de diseño y pasa por él**, regla 9 — **no lo improvisé**).
+
+### Poblado: **RE-SYNC, no backfill** (§4.39.4)
+
+**No hay endpoint, ni job, ni script, ni `UPDATE` de datos, y no debe haberlo.** `upsertSet()` es el
+escritor único y ya es idempotente y auditado.
+- Sets **nuevos**: llegan poblados desde el primer sync posterior al deploy. Nada que hacer.
+- Sets **ya importados**: `logoUrl = null` hasta que se les re-corra el sync (ver el hecho pendiente de
+  arriba sobre cuál de las dos vías sirve). `null` es **respuesta válida**, no un error ni un incidente.
+
+### Lo que NO se expone (§4.39.5) — y está **probado** que no
+
+- **`symbolUrl` se persiste y NO se expone** en ningún DTO. Ni siquiera se **selecciona** en la query
+  del índice. Es deliberado: se guarda porque viene gratis en la misma respuesta y evitarlo obligaría a
+  otra migración + otro re-sync el día que exista el chip donde el logo no cabe.
+- **`logoUrl` NO entra** en `GET /catalog/facets`, `GET /catalog/sets`, `CardDTO`/`card.setName`,
+  `GET /admin/catalog/remote-sets` ni `SetRefDTO` (cabecera del binder).
+
+### Para frontend (nada que negociar, ya está en el contrato v1.52)
+
+- El campo es **`logoUrl: string | null`**, clave **SIEMPRE presente**. `null` es **normal y permanente**
+  (sets que el proveedor no ilustra) **y** es también lo que rinde un set aún no re-sincronizado: el
+  contrato **no distingue** ambos orígenes y el cliente **no debe intentarlo**.
+- Los **cuatro** modos de `MasterSetIndex` lo reciben. El modo `quoter` lo toma de `GET /buylist/sets`:
+  **si `fetchQuoterIndex` no lo mapea, el logo no llega a esa teja** (el backend ya lo emite).
+- **P-27 (master set combinado):** la fila plegada emite el logo **del principal**; el subset desaparece
+  como fila propia y su logo **no** se hereda ni se suma.
+- ⛔ **Prohibido** construir la URL por plantilla desde el `setId`. Solo se pinta lo que la columna traiga.
+
+### Tests — `backend/test/set-images.m47.spec.ts` (32 tests)
+
+Tres bloques, escritos para fallar **en ambas direcciones**:
+- **(A) persistencia:** create/update con las dos imágenes; ausencia ⇒ no-op; una sola de las dos;
+  regresión end-to-end de no-degradación (`sync` con logo → `sync` sin logo ⇒ el `update` no lo pisa);
+  8 casos de guardarraíl; y que la URL válida se persiste **tal cual** (no se reescribe).
+- **(B) exposición:** `logoUrl` en `MasterSetSummaryDTO` (scope `platform` y `user_vault`), `null` con
+  **clave presente**, `select.logoUrl` en la **misma** query (cero N+1), el pliegue P-27, y
+  `GET /buylist/sets`.
+- **(C) no-exposición:** los stubs de Prisma **devuelven** `logoUrl`/`symbolUrl` a propósito; si alguien
+  los proyecta «por si acaso» (o hace un spread de la fila), el test se pone rojo.
+
+**Verificación por MUTACIÓN** (se rompió a propósito y se confirmó el rojo):
+
+| Mutación | Resultado |
+|---|---|
+| Quitar `logoUrl` del DTO del índice | 🔴 suite no compila (`TS2739`) |
+| Quitar `logoUrl` de `GET /buylist/sets` | 🔴 suite no compila (`TS2339`) |
+| `update` escribe `logoUrl` siempre (rompe no-degradación) | 🔴 **11** tests |
+| Guardarraíl desactivado (`if (false)`) | 🔴 **5** tests |
+| Exponer `symbolUrl` en `MasterSetSummaryDTO` | 🔴 1 test |
+| Meter `logoUrl` en `GET /catalog/facets` | 🔴 1 test |
+| **I-4:** volver a `URL.hostname` (pierde el puerto) | 🔴 1 test |
+| **I-4:** quitar el rechazo de userinfo | 🔴 1 test |
+| **I-4:** volver a persistir la cadena cruda (`raw`) | 🔴 **3** tests |
+| **N-3:** devolver `raw` al log de parseo | 🔴 1 test |
+| **N-3:** quitar el host del log de userinfo | 🔴 1 test |
+| **N-3:** quitar `longitud=` del log de parseo | 🔴 1 test |
+
+### Deuda registrada (`docs/TECH_DEBT.md`, sección Backend)
+- **M47-R1** — tres criterios distintos para la misma amenaza (éste, el del sellado, y el **ninguno** del
+  arte de carta). Cura: helper único en `backend/src/common/` parametrizado por allowlist, con el arte de
+  carta cubierto **o declarado exento por escrito**. **Disparador: el siguiente pase que toque ingesta de
+  imágenes.** ⛔ Requiere que el orquestador serialice `backend/src/common/`.
+- **M47-D1** — una URL rechazada se queda pegada para siempre (corolario correcto de «rechazada ≡
+  ausente», pero silencioso: la única señal es un `logger.warn`). Disparador: segunda categoría de imagen
+  de tercero, o alarma sobre logs de sync.
+
+### Validación
+- `npx tsc --noEmit`: limpio · `npm run lint`: **0 errores** (2 warnings preexistentes, ajenos).
+- `npm test`: **2 724/2 724 en 208 suites** (baseline 2 692 en 207 + 32 nuevos, **0 regresiones**).
+- `npx prisma validate`: schema válido. `npm run test:integration` **no se corrió**: no hay Postgres
+  alcanzable en este entorno (`localhost:5432` sin respuesta) ⇒ **M-47 no se ha ejecutado contra una BD
+  real**. El DDL es un `ADD COLUMN TEXT` por columna, la misma forma que las ~30 migraciones aditivas ya
+  aplicadas del proyecto; **devops debe correr `migrate deploy` y QA verificar en staging**.
+- ⚠️ La carpeta de migración se numeró `20260902120000` para quedar **después** de
+  `20260901120000_m46_buylist_acquisition_cycle`, que **vive en otra rama** y aún no está aquí. Al
+  mergear, el orden queda M-46 → M-47 y **no hay conflicto** (columnas y tablas disjuntas).
+
 ## 0.18 — **El invariante «PROHIBIDO rellenar» ya tiene guardián, y el blob deja de salir verbatim** (2026-08-31, v1.51-e)
 
 > Propiedad: **backend**. Cierra los dos hallazgos que QA dejó como *condiciones* sobre `8c6f2ba`.

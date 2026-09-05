@@ -108,18 +108,29 @@ function yearOf(releaseDate?: string): number | undefined {
   return m ? Number(m[1]) : undefined;
 }
 
+// v1.52 (M-47, ARCHITECTURE §4.39 · DESIGN_SYSTEM §24): `logoUrl` CONVIVE con `null` de forma
+// PERMANENTE — hay sets que el proveedor nunca ilustra (promos, colecciones, sets viejos). El mock
+// tiene que decir la verdad, así que la lista de abajo trae los DOS casos a propósito y en la misma
+// página del índice: CON logo (sv08, sv06, sv1, cel25) y SIN logo (cel25c, swsh1, base1 → `null`).
+// Si todos tuvieran logo, el monograma de §24.5 no se ejercitaría nunca en dev ni en Playwright y el
+// hueco solo aparecería en producción (es el modo exacto en que se escapó el bug de imagen del carrito).
+// ⚠️ El backend NO emite `logoUrl` en `GET /catalog/sets` (§4.39.5): aquí sale en los dos porque
+// `lib/api.ts` sirve `getSets()` y `listBuylistSets()` del MISMO fixture. Ver FRONTEND_NOTES §42.
 export const mockSets: CardSetDTO[] = [
-  { id: 'sv08', name: 'Surging Sparks', series: 'Scarlet & Violet', releaseDate: '2024/11/08', year: 2024 },
-  { id: 'sv06', name: 'Twilight Masquerade', series: 'Scarlet & Violet', releaseDate: '2024/05/24', year: 2024 },
-  { id: 'sv1', name: 'Scarlet & Violet', series: 'Scarlet & Violet', releaseDate: '2023/03/31', year: 2023 },
+  { id: 'sv08', name: 'Surging Sparks', series: 'Scarlet & Violet', releaseDate: '2024/11/08', year: 2024, logoUrl: 'https://images.pokemontcg.io/sv8/logo.png' },
+  { id: 'sv06', name: 'Twilight Masquerade', series: 'Scarlet & Violet', releaseDate: '2024/05/24', year: 2024, logoUrl: 'https://images.pokemontcg.io/sv6/logo.png' },
+  { id: 'sv1', name: 'Scarlet & Violet', series: 'Scarlet & Violet', releaseDate: '2023/03/31', year: 2023, logoUrl: 'https://images.pokemontcg.io/sv1/logo.png' },
   // v1.33-master-set-multipart (P-27): Celebrations es un master COMBINADO — principal `cel25`
   // (25 cartas) + subset `cel25c` "Classic Collection" (25 cartas) = 50. Ambos se importan como sets
   // REALES (el mapa es solo presentación); la numeración COLISIONA entre partes a propósito (dos "#1",
   // §4.31f) para ejercer el separador por bloque.
-  { id: 'cel25', name: 'Celebrations', series: 'Sword & Shield', releaseDate: '2021/10/08', year: 2021 },
-  { id: 'cel25c', name: 'Celebrations: Classic Collection', series: 'Sword & Shield', releaseDate: '2021/10/08', year: 2021 },
-  { id: 'swsh1', name: 'Sword & Shield', series: 'Sword & Shield', releaseDate: '2020/02/07', year: 2020 },
-  { id: 'base1', name: 'Base Set', series: 'Base', releaseDate: '1999/01/09', year: 1999 },
+  { id: 'cel25', name: 'Celebrations', series: 'Sword & Shield', releaseDate: '2021/10/08', year: 2021, logoUrl: 'https://images.pokemontcg.io/cel25/logo.png' },
+  // `logoUrl: null` (clave PRESENTE, valor nulo) = lo que manda el backend cuando el proveedor no
+  // publica logo. Nunca `""`, nunca una URL de marcador: un placeholder se pintaría como si fuera
+  // un logo y rompería §24.5.
+  { id: 'cel25c', name: 'Celebrations: Classic Collection', series: 'Sword & Shield', releaseDate: '2021/10/08', year: 2021, logoUrl: null },
+  { id: 'swsh1', name: 'Sword & Shield', series: 'Sword & Shield', releaseDate: '2020/02/07', year: 2020, logoUrl: null },
+  { id: 'base1', name: 'Base Set', series: 'Base', releaseDate: '1999/01/09', year: 1999, logoUrl: null },
 ].map((s) => ({ ...s, year: yearOf(s.releaseDate) }));
 
 // ===== v1.33-master-set-multipart (P-27, §4.31a): mapa curado padre→subset (SOLO presentación) =====
@@ -1701,6 +1712,9 @@ export function mockMasterSetIndex(
       releaseDate: s.releaseDate,
       year: s.year,
       printedTotal: SET_PRINTED_TOTAL[s.id],
+      // v1.52 (M-47): la clave va SIEMPRE; `?? null` porque `CardSetDTO.logoUrl` es opcional
+      // (§4.39.5: `GET /catalog/sets` no lo emite) y este DTO lo declara requerido.
+      logoUrl: s.logoUrl ?? null,
       catalogCardCount,
       distinctCardsOwned,
       completionPct,
