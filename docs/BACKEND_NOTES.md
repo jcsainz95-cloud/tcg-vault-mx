@@ -4,6 +4,130 @@
 > El contrato (`docs/API_CONTRACT.md`) manda sobre el código. Stack: NestJS + Prisma + PostgreSQL,
 > Redis/BullMQ (jobs), JWT + argon2, S3/MinIO (presigned URLs), Stripe.
 
+## 0.20 — **M47-H2: el proveedor mudó de CDN; el guardarraíl de imágenes de set pasa a DOS hosts** (2026-09-05, v1.52-a)
+
+> Propiedad: **backend**. **Defecto EN PRODUCCIÓN**, corregido con evidencia dura.
+> **Cero cambios de contrato**, **cero endpoints**, **cero migraciones**, **cero montos**. Riesgo de
+> dinero: **NINGUNO** (`CardSet` no entra en ningún cálculo de precio, §4.39.9).
+> Alcance: **solo** imágenes de SET (`CardSet.logoUrl`/`symbolUrl`). El **arte de carta sigue sin
+> validar** — es la deuda **M47-R1**, serializada por el orquestador (ver §0.20.4).
+
+### 0.20.1 El defecto: el guardarraíl rechazaba logos LEGÍTIMOS
+
+Log de producción del **2026-09-05, 07:56–07:59** — **ocho líneas**, logo y símbolo de los **cuatro sets
+más recientes** (`me2pt5`, `me3`, `me4`, `me5`):
+
+```
+WARN [CatalogSyncService] upsertSet(me2pt5): images.logo fuera del guardarraíl
+  https://images.pokemontcg.io (https://images.scrydex.com); NO se persiste (M-47, §4.39.4).
+```
+
+El guardarraíl **hacía exactamente lo que se le pidió**: `SET_IMAGE_HOST` era **un** host y la URL venía
+de otro. Lo que había cambiado era el mundo: **el proveedor mudó su servidor de imágenes a mitad de
+catálogo** — los sets viejos siguen en `images.pokemontcg.io`, los nuevos llegan de
+`images.scrydex.com`. Combinado con la regla «URL rechazada ≡ AUSENTE» (§4.39.4, y su corolario
+**M47-D1**), esos cuatro sets quedaron **sin logo** en la retícula y **ningún re-sync los repara** hasta
+que el host se admite.
+
+### 0.20.2 Por qué el host nuevo es legítimo (prueba, no confianza)
+
+Conteo sobre la **BD de producción**, `Card.imageSmallUrl` agrupado por host:
+
+| servidor | count |
+|---|---|
+| `images.pokemontcg.io` | 19 818 |
+| `images.scrydex.com` | **661** |
+
+**661 cartas de la tienda YA sirven su arte desde `images.scrydex.com` hoy, en producción**, y las carga
+cada visitante en cada rejilla. Entraron por `upsertCards`, que **no valida nada** (deuda **M47-R1**). O
+sea: el host nuevo **no es un dominio desconocido** — es, de facto, el CDN vigente del proveedor, ya
+cargado por el navegador de todos los clientes. Admitirlo para los logos de set **no abre superficie
+nueva**: la **iguala** a la que el sitio ya tiene abierta desde antes.
+
+> Consulta de comprobación para la próxima vez (léase como el procedimiento, no como un dato de hoy):
+> `SELECT split_part(split_part("imageSmallUrl", '//', 2), '/', 1) AS servidor, count(*) FROM "Card" GROUP BY 1 ORDER BY 2 DESC;`
+
+### 0.20.3 La forma: lista, pero **conjunto CERRADO con comparación EXACTA**
+
+`SET_IMAGE_HOST` (constante de un host) → `SET_IMAGE_HOSTS` (**`ReadonlySet<string>`**), y la
+comparación pasa de `!==` a **`Set.has(parsed.host.toLowerCase())`**.
+
+**Lo que NO se hizo, a propósito:** *no* es una allowlist de **dominios raíz con comodín de subdominio**
+(el criterio de `sanitizeSealedImageUrl`, §4.32c). Ampliar el conjunto **no es aflojar el criterio**: la
+virtud del diseño original —que rechaza `images.pokemontcg.io.evil.com`, un sufijo que controla el
+atacante— se conserva intacta, y de paso `cdn.images.scrydex.com` también se rechaza (no es el endpoint
+que se verificó). «Es del proveedor» **no** es el criterio; «es el endpoint exacto que se verificó» sí.
+
+Todo lo demás de I-4 sigue **idéntico y verificado**: `host` (hostname **+ puerto**, no `hostname`),
+rechazo de **userinfo**, `https:` obligatorio, y se persiste **`parsed.href`** (forma normalizada).
+
+**El `warn` de rechazo ahora NOMBRA los dos hosts** (`https://images.pokemontcg.io | https://images.scrydex.com`).
+Eso es deliberado y está fijado por test: **M47-D1** declara ese `warn` la **única señal** de que una URL
+se rechaza indefinidamente, y un log que solo nombrara uno de los dos hosts admitidos mandaría al
+operador a diagnosticar el host equivocado — que es justo lo que pasó aquí.
+
+**Cómo se añade un TERCER host el día que el proveedor vuelva a mudarse** (procedimiento, escrito en el
+comentario de `SET_IMAGE_HOSTS` para que viva junto al código):
+1. **Evidencia primero**: `warn` «fuera del guardarraíl» repetido con un host nuevo + el conteo de la BD
+   de §0.20.2 (¿ese host ya sirve arte de carta en producción?).
+2. **Se añade el host EXACTO** a `SET_IMAGE_HOSTS` (una línea) con fecha y procedencia en el comentario.
+   Nunca un dominio raíz, nunca un comodín, **nunca** relajando `has` a `endsWith`/`includes`.
+3. **Backend no lo decide solo**: lo reporta al **arquitecto** (§4.39.7 acopla esto con `remotePatterns`
+   del frontend, §5.3.4). `remotePatterns` se amplía **detrás**, nunca por delante.
+4. **Re-sync forzado** para repoblar lo que la regla «rechazada ≡ ausente» dejó vacío: este escritor está
+   diseñado para **no limpiar nunca**, así que un host nuevo no repara nada por sí solo (**M47-D1**).
+
+### 0.20.4 ⚠️ Para el ARQUITECTO: **§4.39.7 quedó con una premisa FALSA** (no la toqué)
+
+`ARCHITECTURE.md` §4.39.7 dice hoy, textualmente:
+
+> «**`remotePatterns` NO cambia** (§5.3.4): es el **mismo host** que ya sirve el arte de las cartas.
+> **Cero acción de frontend sobre la config, cero acción de devops, cero superficie nueva para
+> seguridad.**»
+
+La premisa **«el mismo host»** es **falsa desde 2026-09**: hay **dos**. La conclusión operativa
+(«`remotePatterns` no cambia») **sigue siendo cierta por otra razón** —los logos de set son **Nivel B**
+(`<img>` crudo, sin `next/image`), y `remotePatterns` solo gobierna al optimizador— pero **el argumento
+que la sostenía ya no existe**, y un lector futuro que reaplique el razonamiento («mismo host ⇒ cero
+acción») en una superficie de **Nivel A** llegará a la conclusión contraria a la correcta.
+**Corregirlo es del arquitecto** (`ARCHITECTURE.md` y `API_CONTRACT.md` no los escribe backend). Enrutado
+en el resumen del pase con la redacción propuesta. **Nota adicional para ese pase:**
+`frontend/next.config.mjs` lleva hoy `{ protocol: 'https', hostname: '**' }` junto al host explícito, así
+que `remotePatterns` **no está acotando nada** en la práctica — dato de frontend/seguridad, **no** de
+backend, y no lo toqué.
+
+### 0.20.5 Tests (`backend/test/set-images.m47.spec.ts`, bloque `M47-H2`)
+
+Los **18 vectores de rechazo que QA verificó en M-47 siguen intactos y en verde** (no se editó ni una
+línea de los bloques `guardarraíl de ingesta`, `I-4` y `N-3`). Se **añadió** un bloque nuevo:
+
+| Test | Qué fija |
+|---|---|
+| `la lista es EXACTAMENTE estos dos hosts` | añadir/quitar un host **obliga** a tocar el test y por tanto a documentarlo |
+| `HOST NUEVO: images.scrydex.com se ACEPTA` | logo **y** symbol, en `create` **y** en `update` (el caso `me3`/`me4`/`me5`) |
+| `HOST HISTÓRICO … SIGUE aceptándose` | ampliar **no** sustituye |
+| `el host nuevo pasa por el MISMO rigor` | `:443` elidido + forma normalizada, para el host nuevo |
+| `vectoresPorHost` (**12 casos, derivados del propio `SET_IMAGE_HOSTS`**) | por **cada** host admitido: sufijo hostil `…​.evil.com`, subdominio `cdn.…`, `http:`, puerto `:8443`, userinfo, userinfo con password. Se derivan del conjunto ⇒ **un host que se añada mañana hereda los seis casos sin que nadie se acuerde** |
+| `noListados` (5 casos) | el conjunto es **cerrado**: `pokemontcg.io`, `scrydex.com`, `images2.scrydex.com`, `www.scrydex.com`, `api.scrydex.com` se rechazan |
+| `el warn NOMBRA los DOS hosts` | M47-D1: el log sigue siendo greppable, sigue diciendo contra qué se rechazó, y ya no miente sobre qué se admite |
+
+**Verificación por MUTACIÓN** (se mutó el código, se corrió la suite, se revirtió):
+
+| Mutación aplicada a `sanitizeSetImageUrl` | Resultado |
+|---|---|
+| **quitar `images.scrydex.com`** del conjunto | 🔴 **4 tests** rojos (`la lista es EXACTAMENTE…`, `HOST NUEVO…`, `MISMO rigor`, `el warn NOMBRA los DOS hosts`) |
+| `has(...)` → **`endsWith(host)`** | 🔴 **2 tests** rojos: `subdominio del host admitido` de **ambos** hosts (`cdn.images.…`) |
+| `has(...)` → **`includes(host)`** | 🔴 **8 tests** rojos, **incluido el vector original de QA `subdominio parecido` (`images.pokemontcg.io.evil.com`)** y el de puerto |
+| `has(...)` → **`startsWith(host)`** | 🔴 **6 tests** rojos, **incluido `subdominio parecido`** y el de puerto |
+
+Es decir: las tres formas de «aflojar la comparación» que un lector apurado escribiría se ponen rojas, y
+las dos que dejan pasar `images.pokemontcg.io.evil.com` (`includes`/`startsWith`) tumban **el vector que
+QA ya tenía**, no solo los nuevos.
+
+**Suite completa tras el cambio: 208 suites / 2 746 tests en verde.** `typecheck` limpio; `lint` con las
+**mismas 2 advertencias preexistentes** (`inventory.service.ts`, `sealed-product.service.ts`), ambas en
+archivos que este pase **no toca**.
+
 ## 0.19 — **M-47: los logos de expansión se persisten y viajan** (2026-09-02, v1.52-set-logos, P-54)
 
 > Propiedad: **backend**. Implementa ARCHITECTURE **§4.39** completa y el contrato **v1.52** (que ya
@@ -31,6 +155,10 @@ Son dos reglas distintas de §4.39.4 y hay que decidir explícitamente qué pasa
    `images.pokemontcg.io` (constante exportada `SET_IMAGE_HOST`, el **mismo** host que ya sirve el arte
    de las cartas ⇒ `remotePatterns` del frontend **no cambia**). Cualquier otra cosa ⇒ **no se persiste
    + `logger.warn`**.
+   > ⚠️ **SUPERADO por §0.20 (M47-H2, 2026-09-05):** el proveedor mudó de CDN. Hoy son **dos** hosts
+   > (`images.pokemontcg.io` ∪ `images.scrydex.com`) en un conjunto **cerrado** `SET_IMAGE_HOSTS`, con la
+   > **misma** comparación por host EXACTO. La frase «el mismo host que ya sirve el arte de las cartas»
+   > **ya no es cierta** — ver §0.20.2 (evidencia) y §0.20.4 (impacto en ARCHITECTURE §4.39.7).
 2. **No-degradación:** ausente ⇒ **no-op** en el `update` (la clave **ni siquiera viaja** al `upsert` de
    Prisma), **`null`** en el `create`.
 
