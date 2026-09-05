@@ -17,6 +17,7 @@ import { Select } from '@/components/ui/Select';
 import { Button } from '@/components/ui/Button';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { QueryState } from '@/components/ui/QueryState';
+import { cn } from '@/lib/cn';
 import type { MasterSetViewMode } from './mode';
 
 const SORTS: MasterSetSort[] = ['release_desc', 'completion_asc', 'pieces_desc'];
@@ -27,6 +28,136 @@ interface Props {
   /** Requerido en `user_vault_admin` (bóveda de ESE cliente). */
   userId?: string;
   onOpenSet: (set: MasterSetSummaryDTO) => void;
+  /**
+   * §24.6 «Seleccionado / actual»: set-id que el ANFITRIÓN sabe que es el actual (p. ej. se vuelve
+   * del binder con el set en la URL). Su teja gana `aria-current="true"` + subrayado 2px de acento.
+   * Se deja opcional a propósito: el índice **no inventa** una selección que no existe — mientras
+   * ningún anfitrión lo pase, ninguna teja está «actual», que es justo lo que dice §24.6.
+   */
+  currentSetId?: string;
+}
+
+// ===== DESIGN_SYSTEM §24.5 — el monograma (derivación de PRESENTACIÓN, no un dato) =====
+// Palabras que no aportan inicial. Se comparan en minúsculas.
+const MONOGRAM_STOP_WORDS = new Set(['and', 'of', 'the']);
+
+/**
+ * Iniciales de las palabras significativas del nombre del set, mayúsculas, máximo 3:
+ * `Surging Sparks` → `SS`, `Journey Together` → `JT`, `Scarlet & Violet` → `SV` (el `&` cae al
+ * quedarse sin letras). Si salen menos de 2 caracteres (nombres numéricos como `151`), se usan los
+ * 3 PRIMEROS caracteres del nombre.
+ *
+ * §24.5 «Regla de propiedad»: esto es una derivación del front (mismo estatuto que el mapa
+ * rareza→grupo de §7.16a). No es un dato, no lo manda el backend y **da igual que dos sets
+ * compartan iniciales**: el nombre completo va justo debajo (R2).
+ */
+export function setMonogram(name: string): string {
+  const words = name
+    .split(/\s+/)
+    // Se limpia la puntuación (`Celebrations:` → `Celebrations`, `&` → ``) y lo que quede vacío cae.
+    .map((w) => w.replace(/[^\p{L}\p{N}]/gu, ''))
+    .filter((w) => w.length > 0 && !MONOGRAM_STOP_WORDS.has(w.toLowerCase()));
+  const initials = words.map((w) => w[0]).join('').toUpperCase();
+  if (initials.length >= 2) return initials.slice(0, 3);
+  return name.trim().slice(0, 3).toUpperCase();
+}
+
+/**
+ * §24.2 — el CONTORNO DE SEGURIDAD. Dispositivo de LEGIBILIDAD, no de elevación (§4.3): offset 0,
+ * radio 1px, color siempre `--color-on-ink`, y SOLO dentro de la placa. En un logo claro (el caso
+ * común) es invisible; en un logo oscuro sin filete es lo único que lo salva sobre la tinta. Es
+ * OBLIGATORIO (§24.12 nº11): funciona sin saber cuál es cuál, que es todo el punto.
+ */
+const LOGO_SAFETY_OUTLINE =
+  'drop-shadow(0 0 1px var(--color-on-ink)) drop-shadow(0 0 1px var(--color-on-ink))';
+
+/**
+ * §24.2/§24.3 — LA PLACA DE TINTA. Caja de tamaño fijo (`aspect-[3/2]`) idéntica para todos los
+ * sets, radio 0, sin borde, con aire interior; el logo va `object-contain` (R1: nunca `cover`,
+ * nunca estirado, nunca recortado) sobre `--color-ink`, también en tema claro (R3).
+ *
+ * El MONOGRAMA se pinta desde el primer frame y **se retira cuando la imagen carga** (no se
+ * limita a quedar debajo: los PNG del proveedor tienen transparencia y se transparentaría a
+ * través del logo). La placa nunca se ve vacía y **nunca pulsa** (R4). Un `animate-pulse` eterno
+ * haría que un `logoUrl: null` —caso normal y permanente— pareciera una app colgada; es el
+ * precedente literal de `CardImage`, que deja el pozo QUIETO cuando no hay `src`.
+ *
+ * ⚠️ La GEOMETRÍA de esta caja (que mida lo mismo con cualquier proporción de logo) **no la puede
+ * verificar jsdom**: no hace layout ni carga imágenes. Su prueba vive en
+ * `e2e/master-set-plate.spec.ts`, midiendo cajas reales en Chromium. Lo que sí se prueba en
+ * vitest es la ESTRUCTURA que la hace posible (hijos absolutos, aire en la imagen).
+ *
+ * `onError` retira el `<img>` y deja el monograma: un 404 del CDN no deja a nadie esperando y
+ * jamás se ve un icono de imagen rota (§24.5 nº3).
+ *
+ * A11y (§24.8): el logo es DECORATIVO (`alt=""` + `aria-hidden`) y el monograma también. El nombre
+ * accesible de la teja lo dan el nombre visible + la meta, que ya están en el DOM dentro del
+ * `<button>` — sin esto un lector anunciaría «logo de Surging Sparks, Surging Sparks».
+ */
+function SetPlate({ name, logoUrl }: { name: string; logoUrl: string | null }) {
+  // Tres estados, no un booleano: `pending` (aún no llegó) · `loaded` (la imagen tapa al
+  // monograma) · `failed` (404/CDN caído ⇒ se retira el <img> y el monograma se queda).
+  const [state, setState] = useState<'pending' | 'loaded' | 'failed'>('pending');
+  const src = state === 'failed' ? null : logoUrl;
+  // §24.5: el monograma se pinta desde el primer frame y la imagen lo TAPA cuando llega. No basta
+  // con superponer: los logos del proveedor son PNG con transparencia y `object-contain` no pinta
+  // fondo, así que un monograma que sigue en el DOM se ve A TRAVÉS del logo, para siempre
+  // (bloqueante B-2 de QA). Se retira al `onLoad`, sin transición — un cross-fade mostraría las
+  // dos cosas superpuestas, que es justo lo que se está corrigiendo.
+  const showMonogram = !src || state !== 'loaded';
+  return (
+    // GEOMETRÍA (R1) — la caja es de tamaño FIJO y los dos hijos van ABSOLUTOS. Es la corrección
+    // del bloqueante B-1: con la <img> en FLUJO, `h-full` (height:100%) contra un padre cuya
+    // altura la fija `aspect-ratio` resuelve a `auto`, la imagen toma su proporción intrínseca y
+    // su alto pasa a ser el min-content del padre ⇒ el `aspect-[3/2]` queda ANULADO y la placa
+    // crece con cada logo (un logo cuadrado la hacía 180×180 en vez de 180×120), además de saltar
+    // de alto al cargar (CLS). Un hijo absoluto no contribuye al alto del padre, así que la placa
+    // mide lo mismo con logo apaisado, cuadrado, vertical o sin logo. `container-type:inline-size`
+    // refuerza esto (aísla el tamaño de la caja de su contenido) y, sobre todo, habilita las
+    // unidades `cqw` del monograma.
+    <div
+      data-testid="set-plate"
+      className="relative aspect-[3/2] w-full bg-ink [container-type:inline-size]"
+    >
+      {showMonogram && (
+        <span
+          data-testid="set-monogram"
+          aria-hidden="true"
+          // §24.5 pide el monograma PROPORCIONAL a la placa (≈28px a 167px de ancho, ≈44px a
+          // 280px ⇒ ≈16 % del ancho). Atarlo al breakpoint del VIEWPORT era el defecto I-2: en el
+          // cotizador la retícula vive en una columna estrecha, así que en `lg` la placa es MÁS
+          // pequeña que en móvil y un monograma fijo de 44px la desbordaba. `cqw` mide contra la
+          // PLACA, que es la caja de la que el tamaño depende de verdad.
+          className="absolute inset-0 flex items-center justify-center font-serif text-[16cqw] leading-none tracking-[0.06em] text-on-ink"
+        >
+          {setMonogram(name)}
+        </span>
+      )}
+      {src && (
+        // Nivel B (ARCHITECTURE §4.39.7): `<img>` crudo, sin next/image y sin `srcset` (no
+        // conocemos las dimensiones intrínsecas y el CDN sirve un solo tamaño).
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={src}
+          alt=""
+          aria-hidden="true"
+          // §24.7: `lazy` en TODAS, sin excepciones (`lazy` no retrasa lo que está en el viewport:
+          // la primera fila entra sola). PROHIBIDO `fetchpriority="high"` aquí — 20 imágenes
+          // compitiéndose el ancho de banda es lo contrario de lo que se busca.
+          loading="lazy"
+          decoding="async"
+          onLoad={() => setState('loaded')}
+          onError={() => setState('failed')}
+          // El aire interior (16/20/24px, §24.3) vive AQUÍ y no en el padre: para un hijo
+          // absoluto el bloque contenedor es la caja de relleno del padre, así que un `p-4`
+          // arriba no lo tocaría. Con `box-sizing:border-box`, `object-contain` encaja dentro
+          // de la caja de contenido ⇒ mismo aire, sin devolverle el alto a la imagen.
+          className="absolute inset-0 h-full w-full object-contain p-4 sm:p-5 lg:p-6"
+          style={{ filter: LOGO_SAFETY_OUTLINE }}
+        />
+      )}
+    </div>
+  );
 }
 
 /**
@@ -61,6 +192,10 @@ async function fetchQuoterIndex(filters: MasterSetIndexFilters): Promise<MasterS
     series: s.series,
     releaseDate: s.releaseDate,
     year: s.year,
+    // v1.52 (M-47): `GET /buylist/sets` trae el logo (contrato §GET /buylist/sets: «obligatorio, no
+    // opcional» — es la ÚNICA fuente de la teja del cotizador). Si no se mapeara aquí, ésta sería
+    // la única de las cuatro retículas sin logo, y nada fallaría hasta verlo con los ojos.
+    logoUrl: s.logoUrl ?? null,
     catalogCardCount: 0,
     distinctCardsOwned: 0,
     completionPct: null,
@@ -89,7 +224,7 @@ function fetchIndex(
  * (v1.20: distinctVariantsOwned / catalogVariantCount · variantCompletionPct — los
  * contadores «X/Y» cuentan variantes, no cartas) y conteo de piezas. Click → binder.
  */
-export function MasterSetIndex({ mode, userId, onOpenSet }: Props) {
+export function MasterSetIndex({ mode, userId, onOpenSet, currentSetId }: Props) {
   const t = useTranslations('masterSet');
   const [q, setQ] = useState('');
   const [sort, setSort] = useState<MasterSetSort>('release_desc');
@@ -157,59 +292,97 @@ export function MasterSetIndex({ mode, userId, onOpenSet }: Props) {
             <EmptyState title={t('emptyIndexTitle')} body={t('emptyIndexBody')} />
           ) : (
             <>
-              <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                {index.data.data.map((s) => (
-                  <li key={s.setId}>
-                    <button
-                      type="button"
-                      onClick={() => onOpenSet(s)}
-                      className="flex w-full flex-col gap-3 border border-border bg-surface p-4 text-left transition-colors hover:bg-surface-2 focus-visible:shadow-focus focus-visible:outline-none"
-                    >
-                      <div className="flex flex-col gap-0.5">
-                        <span lang="en" className="flex items-center gap-2 text-h3">
-                          {s.name}
-                          {/* v1.33 (P-27): master COMBINADO (principal + subset(s) plegados en UNA fila). */}
-                          {s.partSetIds && s.partSetIds.length > 1 && (
-                            <span className="border border-border-strong px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wide text-muted">
-                              {t('combinedBadge')}
+              {/* §24.4 — 2 / 3 / 4 columnas (se TOPA en 4: con 5 la placa se encoge justo donde
+                  sobra sitio). Gap 24/32 → 32/40 en `lg`. */}
+              <ul className="grid grid-cols-2 gap-x-6 gap-y-8 sm:grid-cols-3 lg:grid-cols-4 lg:gap-x-8 lg:gap-y-10">
+                {index.data.data.map((s) => {
+                  const isCurrent = currentSetId != null && s.setId === currentSetId;
+                  return (
+                    <li key={s.setId}>
+                      {/* §24.3 — la teja ya NO es una tarjeta: sin fondo, sin borde, sin sombra.
+                          Con la placa dentro, la tarjeta sería una caja alrededor de otra caja.
+                          El foco usa el anillo ESTÁNDAR del sistema (`:focus-visible` global:
+                          outline 2px + offset 2px), que cae POR FUERA, sobre papel — dibujarlo
+                          dentro de la placa sería rojo sobre tinta, 2,5:1 (§24.6, §24.9). */}
+                      <button
+                        type="button"
+                        onClick={() => onOpenSet(s)}
+                        aria-current={isCurrent ? 'true' : undefined}
+                        className="group flex w-full flex-col text-left"
+                      >
+                        {/* `key` por logo: si un re-sync cambia el `logoUrl` del MISMO set, la
+                            placa se remonta y el estado `failed`/`loaded` no se hereda (si no,
+                            una teja que falló se quedaría en monograma hasta desmontarse). */}
+                        <SetPlate key={s.logoUrl ?? 'no-logo'} name={s.name} logoUrl={s.logoUrl} />
+                        <div className="mt-3 flex flex-col gap-0.5">
+                          <span className="flex flex-wrap items-baseline gap-x-2">
+                            {/* §24.6 — hover: subrayado 1px en tinta. Seleccionado: 2px de acento
+                                (se distingue por GROSOR y color, no solo por color). La placa no
+                                cambia en hover: ni se aclara, ni escala, ni el logo crece. */}
+                            <span
+                              lang="en"
+                              className={cn(
+                                // Reserva 2 LÍNEAS de alto (40/45/50px = 2 × 1,25 de línea) para
+                                // que las filas no bailen; puede crecer a 3 y NUNCA se trunca: el
+                                // nombre es el portador del dato (R2).
+                                'min-h-[40px] font-serif text-base leading-[1.25] [text-wrap:balance] underline-offset-4 sm:min-h-[45px] sm:text-[18px] lg:min-h-[50px] lg:text-h3',
+                                isCurrent
+                                  ? // Actual: 2px de ACENTO. No se combina con el hover — si no,
+                                    // pasar el ratón lo adelgazaría a 1px y perdería su canal.
+                                    'underline decoration-accent decoration-2'
+                                  : 'group-hover:underline group-hover:decoration-1',
+                              )}
+                            >
+                              {s.name}
                             </span>
-                          )}
-                        </span>
-                        <span lang="en" className="font-mono text-xs text-muted">
-                          {[s.series, s.year].filter(Boolean).join(' · ')}
-                        </span>
-                      </div>
-                      {/* Completitud/piezas: conceptos de INVENTARIO/bóveda — no aplican en quoter
-                          (el cotizador no posee las cartas, solo las cotiza). */}
-                      {mode !== 'quoter' && (
-                        <div className="flex flex-col gap-2">
-                          {/* v1.20: completitud POR VARIANTE (carta+acabado), no por carta. */}
-                          <div className="flex items-baseline justify-between gap-2">
-                            <span className="font-mono text-xs uppercase tracking-wide text-muted">
-                              {t('completionLabel')}
-                            </span>
-                            <span className="font-mono tabular-nums text-sm">
-                              {t('completionValue', {
-                                owned: s.distinctVariantsOwned,
-                                total: s.catalogVariantCount,
-                                pct: s.variantCompletionPct ?? 0,
-                              })}
-                            </span>
-                          </div>
-                          <ProgressBar pct={s.variantCompletionPct ?? 0} />
-                          <div className="flex items-baseline justify-between gap-2">
-                            <span className="font-mono text-xs uppercase tracking-wide text-muted">
-                              {t('piecesLabel')}
-                            </span>
-                            <span className="font-mono tabular-nums text-sm">
-                              {t('piecesValue', { count: s.totalPieces })}
-                            </span>
-                          </div>
+                            {/* v1.33 (P-27): master COMBINADO (principal + subset(s) plegados en UNA fila). */}
+                            {s.partSetIds && s.partSetIds.length > 1 && (
+                              <span className="border border-border-strong px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wide text-muted">
+                                {t('combinedBadge')}
+                              </span>
+                            )}
+                          </span>
+                          {/* §24.3 — la META es donde aterriza la voz mono en versalitas: es la
+                              etiqueta técnica (§3.1), no el nombre propio. */}
+                          <span
+                            lang="en"
+                            className="font-mono text-[11px] uppercase tracking-label text-muted"
+                          >
+                            {[s.series, s.year].filter(Boolean).join(' · ')}
+                          </span>
                         </div>
-                      )}
-                    </button>
-                  </li>
-                ))}
+                        {/* Completitud/piezas: conceptos de INVENTARIO/bóveda — no aplican en quoter
+                            (el cotizador no posee las cartas, solo las cotiza). */}
+                        {mode !== 'quoter' && (
+                          <div className="mt-3 flex w-full flex-col gap-2">
+                            {/* v1.20: completitud POR VARIANTE (carta+acabado), no por carta. */}
+                            <div className="flex items-baseline justify-between gap-2">
+                              <span className="font-mono text-xs uppercase tracking-wide text-muted">
+                                {t('completionLabel')}
+                              </span>
+                              <span className="font-mono tabular-nums text-sm">
+                                {t('completionValue', {
+                                  owned: s.distinctVariantsOwned,
+                                  total: s.catalogVariantCount,
+                                  pct: s.variantCompletionPct ?? 0,
+                                })}
+                              </span>
+                            </div>
+                            <ProgressBar pct={s.variantCompletionPct ?? 0} />
+                            <div className="flex items-baseline justify-between gap-2">
+                              <span className="font-mono text-xs uppercase tracking-wide text-muted">
+                                {t('piecesLabel')}
+                              </span>
+                              <span className="font-mono tabular-nums text-sm">
+                                {t('piecesValue', { count: s.totalPieces })}
+                              </span>
+                            </div>
+                          </div>
+                        )}
+                      </button>
+                    </li>
+                  );
+                })}
               </ul>
 
               <div className="flex items-center justify-between">

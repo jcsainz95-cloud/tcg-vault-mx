@@ -467,6 +467,16 @@ model CardSet {
   // ⇒ fallback: `DISTINCT tcgplayerGroupId` de los items sellados YA mapeados del set. Solo lectura
   // de catálogo (resuelve el proxy); JAMÁS fija precio (money-safe). ARCHITECTURE §11 (M-37).
   tcgcsvGroupId Int?
+  // v1.52-set-logos (M-47, §4.39): IMÁGENES DE LA EXPANSIÓN publicadas por pokemontcg.io. Se guardan
+  // las URLs del CDN del proveedor (igual que el arte de las cartas), NUNCA los bytes, y JAMÁS se
+  // construyen por plantilla desde el `externalId` (§4.39.2). Clase (P) PRESENTACIÓN (§5.2.2): su peor
+  // caso es un hueco visual, jamás un dato erróneo. `CardSet` no entra en ningún cálculo de dinero ⇒
+  // money-safe por construcción. Escritor ÚNICO: `upsertSet()` (catalog-sync.service.ts), con la regla
+  // de NO-DEGRADACIÓN (ausente ⇒ no-op en el `update`, nunca `null`) y el guardarraíl `https:` + host.
+  // `null` = el proveedor no publica la imagen (promos/sets viejos) o el set aún no se re-sincronizó:
+  // el contrato NO distingue ambos orígenes (§4.39.6).
+  logoUrl       String? // images.logo — el nombre del set dibujado. EL campo de la teja de selección.
+  symbolUrl     String? // images.symbol — glifo cuadrado. Se PERSISTE y NO se expone en ningún DTO (§4.39.5).
   createdAt     DateTime @default(now())
 
   cards          Card[]
