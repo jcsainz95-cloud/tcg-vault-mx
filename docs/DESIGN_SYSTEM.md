@@ -8042,9 +8042,22 @@ llegan a las ocho tejas, siempre.
 
 ---
 
-## 24. Logos de expansión en el índice de sets — la placa de tinta (v2.8, pedido del dueño)
+## 24. Logos de expansión en el índice de sets — el pozo de papel (v2.10, decisión del dueño)
 
-> **Origen:** pedido del dueño con **referencia visual** (no una entrega de Claude Design): retícula de 3
+> **v2.10 (2026-09-05) — el fondo del logo deja de ser tinta y pasa a ser el tono de la página.** Petición
+> directa del dueño sobre la retícula **ya en producción**. Cambia el **acabado** del hueco del logo (fondo,
+> contorno, monograma, aire interior); **no** cambia la geometría (R1 intacta), ni la superficie, ni el
+> contrato, ni la accesibilidad, ni las claves i18n. El razonamiento de v2.8 **no se borra**: se conserva
+> en §24.2.a/§24.2.b marcado como superado, con qué sigue en pie y qué le faltaba. **Coste real, con nombre
+> y apellido, en §24.2.e** — no es un cambio gratis.
+>
+> **Nota de vocabulario.** El componente **sigue llamándose `SetPlate`** (no se renombra: está en producción
+> y el renombrado sería churn sin beneficio). En prosa, a partir de v2.10 la caja se llama **«el pozo»**;
+> donde alguna frase de v2.8 diga todavía «la placa» refiriéndose a la **geometría** (§24.4, §24.7, §24.8),
+> léase **el pozo** — el tamaño, la posición y las reglas de uso son exactamente los mismos, solo cambió el
+> acabado.
+>
+> **Origen (v2.8):** pedido del dueño con **referencia visual** (no una entrega de Claude Design): retícula de 3
 > columnas, teja de fondo oscuro con esquinas redondeadas y borde sutil, **logo contenido** con aire
 > alrededor, **nombre debajo** en mono versalitas con tracking amplio, y un elemento destacado más grande
 > arriba con subrayado de acento. La referencia es **oscura, morada y neón**; este sitio es **papel y tinta**
@@ -8060,9 +8073,9 @@ Si algo de lo que sigue se contradice con el resto de §24, mandan estas cinco.
 |---|---|
 | **R1** | **El logo va contenido en una caja de tamaño fijo, idéntica para todos los sets.** `object-contain`, nunca `cover`, nunca estirado, nunca recortado. Es lo que impide que la retícula se descuadre con logos de proporciones dispares. **Ésta es la idea estructural de la referencia y es innegociable.** |
 | **R2** | **El nombre en texto NO desaparece.** Vive debajo de la placa, siempre, tenga o no tenga logo el set. El logo es un **acelerador de reconocimiento**, nunca el portador del dato (mismo razonamiento que §2.4: el color no porta, el texto sí). |
-| **R3** | **El logo se pinta sobre una placa de tinta**, en el tema claro también (§24.2). No se recolorea, no se invierte, no se mezcla y no se inspecciona logo a logo. |
-| **R4** | **Sin logo no hay hueco ni pulso**: la placa lleva un monograma (§24.5). Precedente literal: `CardImage` deja el pozo **quieto** cuando no hay `src`, porque un `animate-pulse` eterno hace que un dato ausente legítimo parezca una app colgada (§5). |
-| **R5** | **Esta retícula vive en UNA superficie** (§24.1). Ninguna otra pantalla adopta la placa —ni suelta ni en masa— sin pasar por ux-ui. |
+| **R3** | **El logo se pinta sobre un pozo del tono de la página** (`--color-surface-2`) **con contorno de tinta obligatorio** sobre su canal alfa (§24.2). *(v2.10; hasta v2.8 el fondo era tinta.)* Lo que **no** cambia y es la parte dura de R3: **no se recolorea, no se invierte, no se mezcla y no se inspecciona logo a logo** — el dispositivo tiene que funcionar **sin saber cuál es cuál**. |
+| **R4** | **Sin logo no hay hueco ni pulso**: el pozo lleva un monograma (§24.5). Precedente literal: `CardImage` deja el pozo **quieto** cuando no hay `src`, porque un `animate-pulse` eterno hace que un dato ausente legítimo parezca una app colgada (§5). |
+| **R5** | **Esta retícula vive en UNA superficie** (§24.1). Ninguna otra pantalla adopta el pozo del logo —ni suelto ni en masa— sin pasar por ux-ui. |
 
 ### 24.1 Dónde vive esta retícula — y qué pasa con las otras superficies
 
@@ -8089,89 +8102,207 @@ completitud/piezas tampoco.
 **Sobre `images.symbol`.** El arquitecto está decidiendo en paralelo qué URLs se guardan. Para lo que este
 documento diseña, **el dato que carga el peso es el LOGO**; el **símbolo no se usa en ninguna superficie
 hoy**, y el sitio donde alguien lo pediría —un glifo de 20px dentro de las opciones del `SetFilter`— es
-justo donde la placa de tinta **no cabe** y donde el problema de §24.2 **no tiene solución**: un símbolo casi
-blanco a 20px sobre papel es un borrón, y una placa de tinta de 20px al lado de cada opción de un
-desplegable es absurda. **Si se guarda, se guarda para el futuro, no para esta versión**; su uso lo decide
-ux-ui cuando exista una superficie que lo justifique.
+justo donde el hueco del logo **no cabe** y donde el problema de §24.2 **no tiene solución**: un símbolo casi
+blanco a 20px sobre papel es un borrón —y el contorno de §24.2 a ese tamaño se come el glifo en vez de
+recortarlo—, mientras que un recuadro de 20px al lado de cada opción de un desplegable es absurdo.
+**Si se guarda, se guarda para el futuro, no para esta versión**; su uso lo decide ux-ui cuando exista una
+superficie que lo justifique.
 
-### 24.2 La placa de tinta — por qué el fondo oscuro no es gusto
+### 24.2 El pozo de papel — por qué el fondo dejó de ser tinta (v2.10)
 
-**El problema, dicho en claro.** Los logos de expansión de pokemontcg.io son PNG con transparencia
-**dibujados para ir sobre arte de sobre y de caja**, es decir, sobre fondos de cualquier color y
-normalmente oscuros. Casi todos llevan **filete claro (blanco o casi blanco)** alrededor de las letras, y
-algunos son claros por dentro. Sobre el papel `#F4F1EA` de este sitio, ese filete **desaparece contra el
-fondo** y el logo pierde su contorno; los logos de relleno claro se van directamente a invisibles. **No se
-puede saber cuál es cuál sin mirarlos uno por uno**, y son **cientos**, vienen de un **tercero** y mañana
-puede haber más.
+> **Cambio de decisión, no de criterio.** v2.8 puso el logo sobre una **placa de tinta** `#1A1A18` y esa
+> retícula lleva semanas en producción. Con ella delante, el dueño pidió que **el fondo del logo sea del
+> tono de la página**. La petición es legítima y además coincide con una regla del propio sistema que v2.8
+> forzó: el **panel de tinta es un recurso escaso** (§2.2 lo reserva al hero de auth y al sidebar del
+> back-office — dos sitios, no veinte rectángulos a la vez en una retícula). Cuatro bloques negros en fila
+> sobre papel hacen que un **índice** se lea como un tablero de *tiles*, no como una página.
+>
+> Esta sección se lee en dos tiempos: **§24.2.a/§24.2.b conservan el análisis de v2.8 tal cual se escribió**
+> (marcado como superado, **no borrado**), y **§24.2.c–e** dicen qué le faltaba, qué se decide ahora y **qué
+> se pierde**. La v2.8 no era falsa: optimizaba una sola variable (legibilidad logo a logo) y pesó de menos
+> el coste de composición. El dueño ha re-pesado. Esto no lo revierte todo: **conserva íntegras las cinco
+> reglas duras** y el criterio central de R3 (nada de inspección logo a logo).
 
-**Lo que se descartó, y por qué:**
+#### 24.2.a El problema (v2.8) — sigue siendo cierto, palabra por palabra
 
-| Opción | Por qué no |
-|---|---|
-| Logo suelto sobre papel | Es exactamente el fallo descrito. Además obliga a **verificar cada logo a mano**, para siempre, cada vez que el tercero añade sets. |
-| Placa blanca | Rompe §2.1 de raíz: en este sistema **no hay tarjetas blancas flotando** sobre el papel, y el blanco tampoco resuelve nada (el filete blanco sigue perdiéndose). |
-| Gris neutro medio | Es el peor de los dos mundos —contraste mediocre con logos claros **y** con oscuros— y además introduce un tono que **no existe en la paleta**: ni papel, ni pozo, ni tinta. |
-| Detectar la luminancia de cada logo y elegir fondo | Requiere un dato que **hoy no existe** (§24.13 nº2). Es la solución «correcta» en abstracto y la peor en la práctica: hace depender la legibilidad de un cómputo de ingesta que puede fallar en silencio. |
-| `filter: invert()` / `mix-blend-mode` | Destruye los logos en color (el 90 %) para salvar a unos pocos. **Prohibido** (§24.12). |
+**Dicho en claro.** Los logos de expansión de pokemontcg.io son PNG con transparencia **dibujados para ir
+sobre arte de sobre y de caja**, es decir, sobre fondos de cualquier color y normalmente oscuros. Casi
+todos llevan **filete claro (blanco o casi blanco)** alrededor de las letras, y algunos son claros por
+dentro. Sobre el papel `#F4F1EA` de este sitio, ese filete **desaparece contra el fondo** y el logo pierde
+su contorno; los logos de relleno claro se van directamente a invisibles. **No se puede saber cuál es cuál
+sin mirarlos uno por uno**, y son **cientos**, vienen de un **tercero** y mañana puede haber más.
 
-**La decisión: placa de tinta, también en el tema claro.** El logo se pinta sobre un rectángulo
-`--color-ink` (`#1A1A18`). Y esto **no es importar el acabado de la referencia**: es el **panel de tinta que
-este sistema ya tiene y ya usa** —hero de auth, sidebar del back-office (§2.2: «bloque oscuro sobre papel
-claro»)— haciendo un trabajo funcional. Con tinta detrás, el filete claro que traen los logos **hace
-justo lo que fue dibujado para hacer**: recortar la silueta. En vocabulario del sistema, la placa es un
-**sello impreso** sobre la página; encaja con la metáfora editorial mejor que cualquier alternativa.
+**Y está verificado en producción, no en teoría.** En la captura del dueño: **White Flare** (blanco y rosa
+claro) y **Phantasmal Flames** (morado/azul claro con brillo) se perderían o se lavarían sobre papel sin
+ayuda. Lo inverso también está verificado: **Black Bolt** (negro con filete blanco) se ve **mejor** sobre
+papel que sobre tinta. Es decir, el problema es real **en las dos direcciones**, y por eso ninguna de las
+dos decisiones —tinta o papel— es gratis.
 
-**El seguro para el caso contrario: el contorno de seguridad.** Un logo **oscuro sin filete** (raros, pero
-existen: sets antiguos, logos en negro) se perdería sobre la tinta. Como no podemos saber cuáles son, la
-placa aplica al `<img>` un **contorno de 1px en papel sobre el canal alfa**:
+#### 24.2.b Lo que v2.8 descartó — y en qué estado queda cada opción hoy
+
+| Opción | Por qué no (v2.8, sin cambios) | Estado en v2.10 |
+|---|---|---|
+| Logo suelto sobre papel | Es exactamente el fallo descrito. Además obliga a **verificar cada logo a mano**, para siempre, cada vez que el tercero añade sets. | **La evaluación era incompleta ⇒ superada.** v2.8 juzgó esta opción **sin contorno**. Con el contorno de tinta de §24.2.c ya no obliga a verificar nada logo a logo: es la base de la decisión nueva. |
+| Placa blanca | Rompe §2.1 de raíz: en este sistema **no hay tarjetas blancas flotando** sobre el papel, y el blanco tampoco resuelve nada (el filete blanco sigue perdiéndose). | **Sigue descartada, y v2.10 no la reabre.** El pozo `#EFEBE2` es **más oscuro** que el papel, nunca más claro: por construcción no puede leerse como la tarjeta blanca que §2.1 prohíbe. |
+| Gris neutro medio | Es el peor de los dos mundos —contraste mediocre con logos claros **y** con oscuros— y además introduce un tono que **no existe en la paleta**: ni papel, ni pozo, ni tinta. | **Sigue descartada.** Y el pozo **no es** un gris medio: es el papel un solo punto por debajo, **ya existe en la paleta** desde §2.2 y allí está definido literalmente como *«placeholder de imagen»*. |
+| Detectar la luminancia de cada logo y elegir fondo | Requiere un dato que **hoy no existe** (§24.13 nº2). Es la solución «correcta» en abstracto y la peor en la práctica: hace depender la legibilidad de un cómputo de ingesta que puede fallar en silencio. | **Sigue descartada**, y ahora con una razón más: «salvar» por luminancia devolvería el rectángulo negro **justo a los sets de la captura del dueño** (White Flare, Phantasmal Flames). Sería obedecer la letra de la petición rompiendo su intención. |
+| `filter: invert()` / `mix-blend-mode` | Destruye los logos en color (el 90 %) para salvar a unos pocos. **Prohibido** (§24.12). | **Sigue prohibida**, sin matices. |
+| **Placa de tinta `#1A1A18`** *(la decisión de v2.8)* | *(era la decisión, no una opción descartada)* | **Superada por decisión del dueño.** Hay que decir lo bueno que tenía: resolvía la legibilidad del logo claro **por completo y sin excepciones**, y la del oscuro con el contorno. Lo que pesó de menos: 20 bloques de tinta contradicen la escasez del panel oscuro (§2.2) y convierten el índice en tablero. |
+
+#### 24.2.c Lo que le faltaba al análisis de v2.8 — el contorno se podía dar la vuelta
+
+v2.8 **inventó** el dispositivo que resuelve el caso raro —contorno de **papel** sobre el alfa, para el logo
+oscuro sobre tinta— y **no lo giró**. El mismo dispositivo con el color invertido —**contorno de tinta sobre
+el alfa, sobre fondo claro**— hace el trabajo simétrico: le dibuja al logo claro la silueta que el papel le
+come. Y conserva la propiedad que R3 exige: **funciona sin saber cuál es cuál**. Eso es lo que hace la
+petición del dueño concedible sin romper R1 ni la legibilidad de la silueta.
+
+**Pero el intercambio no es simétrico, y hay que decirlo antes de seguir:**
+
+| | Contorno de papel sobre tinta (v2.8) | Contorno de tinta sobre papel (v2.10) |
+|---|---|---|
+| A quién rescata | al logo **oscuro** — el caso **raro** | al logo **claro** — el caso **común** |
+| ¿Se ve? | **Casi nunca.** En el logo claro (la mayoría) el halo de papel queda **debajo de su propio filete blanco** y se funde con él | **Casi siempre.** No hay filete oscuro horneado bajo el que esconderse |
+| Qué es, entonces | un **seguro silencioso** | un **elemento de diseño visible en cada teja** |
+| Si no basta | un logo raro se pierde en la tinta | un logo común se lee **hueco**: silueta sí, cuerpo no |
+
+Ése es el precio real. En un sistema de papel y tinta, un filete de tinta alrededor de cada logo es
+**defendible como acabado** —todo lo que hay en la página es tinta sobre papel, y ahora los logos también—,
+pero es un **acabado**, no un seguro invisible. El dueño lo va a ver, y por eso está escrito aquí.
+
+**Límite honesto del dispositivo — los bordes de alfa blandos.** `drop-shadow` traza el **canal alfa**. Con
+un borde de alfa **duro** (la mayoría de estos PNG) produce un filete limpio. Con un borde **difuminado**
+—logos con brillo/*glow* o sombra horneada, cuyo alfa se degrada poco a poco: el caso de **Phantasmal
+Flames**— no hay borde que trazar, y el resultado es una **mancha suave**, no un filete. **A ese logo el
+contorno le ayuda poco, y no hay forma de arreglarlo dentro de estas reglas** (arreglarlo exigiría tocar
+píxeles de un tercero). Queda escrito y se verifica en §24.14 nº2.
+
+#### 24.2.d La decisión — el pozo de papel, la repisa y el contorno de tinta
+
+**Mismo componente (`SetPlate`), misma geometría, misma API. Solo cambia el acabado.** Nada de R1 se mueve.
+
+**1 · El fondo: `--color-surface-2` `#EFEBE2` (el pozo).**
+
+- Es **el tono de la página, un punto por debajo** — que es lo que el dueño pidió. No es negro, no es una
+  «placa»: es el papel con una sombra de tono.
+- **No es un token nuevo.** §2.2 define el pozo literalmente como *«superficie elevada / hover row /
+  **placeholder de imagen**»*, y §5 ya lo usa como pozo del arte de carta. Con esto, **el hueco del logo y
+  el hueco de la carta son el mismo hueco** en todo el sistema.
+- **No puede convertirse en la tarjeta blanca que §2.1 prohíbe**, porque es más oscuro que el papel, no más
+  claro. No hay sombra, no hay relieve, no hay radio (§4.2).
+- **Contraste contra el papel: ~1,06:1.** Es decir: **casi invisible, y así debe ser.** No porta ninguna
+  información y no se le pide que se vea. Lo que sí se ve es la repisa.
+
+**2 · La repisa: `border-bottom: 1px solid var(--color-border)`.**
+
+- A ras del borde inferior del pozo, del ancho del pozo. **Sin borde superior, sin bordes laterales, sin
+  radio.** Un pozo con una sola regla inferior **no es una tarjeta**: es una banda con repisa, y la regla
+  es el único separador que este sistema admite (§2.1, §4.3).
+- Su trabajo es **dar al hueco un borde inferior perceptible** cuando el pozo, a 1,06:1, desaparece en una
+  pantalla atenuada, con brillo bajo o a la luz del sol.
+- **Lo que la repisa NO hace: cuadrar la retícula.** La retícula se cuadra porque la caja es de tamaño fijo
+  (R1) y la leyenda arranca a la misma altura en todas las tejas. Eso no depende de que se vea nada. La
+  repisa es legibilidad de la composición, **no** estructura — no se le atribuya un mérito que no tiene.
+
+**3 · El contorno de tinta (obligatorio, sustituye al de papel de v2.8):**
 
 ```css
-/* Dispositivo de LEGIBILIDAD, no de elevación (§4.3). Offset 0, sin desenfoque útil, sin color. */
-filter: drop-shadow(0 0 1px var(--color-on-ink)) drop-shadow(0 0 1px var(--color-on-ink));
+/* Dispositivo de LEGIBILIDAD, no de elevación (§4.3). Offset 0, radio 1px, sin color de marca.
+   No toca un solo píxel del logo: pinta DETRÁS, sobre el canal alfa. */
+filter:
+  drop-shadow(0 0 1px var(--color-ink))
+  drop-shadow(0 0 1px var(--color-ink))
+  drop-shadow(0 0 1px var(--color-ink));
 ```
 
-- En un logo **claro** (el caso común) es **invisible**: el halo de papel queda debajo de su propio filete
-  blanco y se funde con él.
-- En un logo **oscuro** es lo que lo salva: le dibuja el contorno que el autor no le puso.
-- **Funciona sin saber cuál es cuál.** Ése es todo el punto, y por eso este dispositivo es **obligatorio**,
-  no opcional.
-- **No viola §4.3** por la misma razón que el anillo de foco no la viola: no comunica relieve ni jerarquía,
-  garantiza que algo se lea. Offset 0, radio 1px, color siempre `--color-on-ink`, **solo** dentro de la
-  placa. Fuera de la placa, la regla de sombras sigue siendo cero.
-- **Coste conocido y aceptado:** un logo que traiga una sombra oscura *horneada* en el PNG verá esa sombra
-  contorneada en papel. Es raro, es leve, y es infinitamente mejor que un logo invisible.
-- **Si en un móvil de gama baja se midiera jank** con 20 placas en pantalla, la palanca es bajar a **una
-  sola pasada** de `drop-shadow` (no quitarlo, no cambiar la placa).
+- **Tres pasadas, radio 1px. Se implementa así, tal cual.** Cada pasada compone sobre el resultado de la
+  anterior: **sube el alfa del filete sin ensancharlo**. Subir el **radio** ensancharía el desenfoque y el
+  filete pasaría de línea a mancha — y una mancha oscura sobre papel se lee como **suciedad**, no como borde.
+- **La única palanca que QA puede mover es el NÚMERO de pasadas, en el rango 2–4** (y solo por los motivos
+  tasados de §24.14 nº2/nº3/nº16). **El radio se queda en 1px pase lo que pase**, y el color en
+  `var(--color-ink)`. Fuera de ese rango se escala a ux-ui.
+- **Por qué tres y no las dos de v2.8.** Un halo de papel al ~50 % **sobre tinta** ya salta a ~7:1 contra el
+  fondo: dos pasadas sobran. Un filete de tinta al ~50 % **sobre papel** compone hacia `#878577`, que contra
+  el papel da **~3,0:1** — el mínimo justo, y perceptualmente una sombra, no un borde. Con tres pasadas el
+  anillo interior sube a alfa alta (≈`#3E3C36`) y da **~8:1 contra el papel** y **~10:1 contra un relleno
+  blanco**: eso ya es un filete. *(Estos ratios son **cálculo de ingeniería sobre la composición esperada**,
+  no una medición sobre el render real; el logo es decorativo (§24.8) y WCAG 1.4.11 no le aplica — el 3:1 se
+  usa aquí como **vara**, no como requisito. La verificación real es ocular: §24.14.)*
+- **No viola §4.3**, por la misma razón que el anillo de foco no la viola: no comunica relieve ni jerarquía,
+  garantiza que algo se lea. Offset 0, radio 1px, color siempre `--color-ink`, **solo** sobre el `<img>` del
+  logo dentro del pozo. Fuera de ahí, la regla de sombras del sistema sigue siendo cero.
+- **No es «recolorear el logo» (§24.12 nº1).** Ésa es la distinción que hace legal a este dispositivo y a
+  ningún otro: `invert()`, `hue-rotate()`, `grayscale()` y `mix-blend-mode` **transforman los píxeles del
+  tercero**; `drop-shadow` **pinta detrás** y deja el arte intacto.
+
+**Costes conocidos del contorno de tinta (los dos, por delante):**
+
+1. **El filete despegado — el artefacto más probable de este cambio.** La mayoría de estos logos traen un
+   **filete claro horneado** en el PNG. El contorno traza el **borde exterior de ese filete**, no las
+   letras; y sobre papel el filete claro es invisible. Resultado posible: una línea de tinta fina
+   **separada del arte por un hueco claro de ~2–6px**, como un recorte mal registrado. Sobre tinta este
+   efecto **no existía** (allí el filete claro sí se veía y el contorno quedaba pegado por debajo).
+   **§24.14 nº3 existe para mirar exactamente esto.** Si se lee sucio, la palanca es **bajar a 2 pasadas**
+   (filete más tenue ⇒ artefacto más tenue), asumiendo que los blancos puros pierden algo de cuerpo. **No se
+   sube el radio y no se vuelve a la tinta por cuenta propia** (§24.2.e).
+2. **Sombra horneada.** Un logo con sombra oscura *horneada* verá esa sombra contorneada. Sobre papel se
+   nota **menos** que sobre tinta —v2.8 ya aceptaba el caso simétrico, que era peor—. Aceptado.
+
+**Rendimiento.** Tres `drop-shadow` estáticos sobre hasta 20 imágenes; no hay animación, así que se compone
+una vez. **Si en un móvil de gama baja se midiera jank**, la palanca es bajar a **2 pasadas** — no quitar el
+contorno, no cambiar el pozo, no reducir el tamaño de página por este motivo (§24.7 nº5 tiene su propio
+criterio, que es el peso en bytes).
+
+#### 24.2.e Qué gana y qué pierde cada logo — con nombre y apellido
+
+Los cuatro de la captura del dueño, que son los que hoy se ven en producción:
+
+| Logo | Sobre tinta (v2.8) | Sobre pozo de papel (v2.10) |
+|---|---|---|
+| **Black Bolt** — negro con filete blanco | Dependía **por entero** del contorno de papel: era justo el caso que el seguro rescataba | **Gana claramente.** Negro sobre claro es el contraste máximo disponible. Único riesgo: el filete despegado — y entre dos elementos oscuros ese hueco claro se lee como brillo, no como suciedad |
+| **Mega Evolution** — color saturado | Bien | **Bien.** Único riesgo: el filete despegado |
+| **White Flare** — blanco y rosa claro | Bien: leía como **letras macizas blancas** sobre el fondo | **Pierde cuerpo, con seguridad.** El contorno le devuelve la **silueta**, pero el relleno blanco queda a ~1,09:1 del papel: se leerá **al trazo, como letras huecas**. Reconocible por forma; más débil que hoy. **Es la pérdida segura de este cambio** |
+| **Phantasmal Flames** — claro, con brillo | Bien | **Es el riesgo abierto.** Su borde de alfa es **blando** (§24.2.c), así que el contorno le da poco filete. Puede quedar lavado incluso con 3 pasadas. **Verificación obligatoria antes de dar el cambio por bueno: §24.14 nº2** |
+
+**Si Phantasmal Flames (o cualquier otro de alfa blanda) no pasa la verificación, dentro de estas reglas no
+hay tercera opción.** O se acepta que uno o dos logos claros se lean tenues, o vuelve el fondo de tinta
+**para todos** —no se puede por logo sin inspeccionarlos, y eso es exactamente lo que R3 prohíbe—. **Esa
+elección es del dueño**, y esta sección existe para que la haga con el dato delante, no para tomarla por él.
+
+**Lo que se gana, dicho igual de claro:** desaparecen los veinte rectángulos negros; el índice vuelve a
+leerse como una página impresa; y el sistema **recupera la escasez del panel de tinta** (§2.2) que v2.8 tuvo
+que forzar — de hecho, §24.4 puede **retirar** la autorización especial de «presupuesto de tinta» que se
+había concedido a esta retícula y a ninguna otra.
 
 ### 24.3 Anatomía de la teja
 
 Cada elemento de la retícula es **un solo `<button>`** (el que ya existe) que contiene, de arriba a abajo:
 
 ```
-┌──────────────────────────────┐
-│                              │   ← PLACA: caja fija, tinta, aspect 3/2, radio 0, SIN borde
-│        [ logo contenido ]    │      padding 16 / 20 / 24 px · object-contain · contorno 1px papel
-│                              │
-└──────────────────────────────┘
+┊                              ┊   ← POZO: caja fija #EFEBE2, aspect 3/2, radio 0, SIN bordes laterales
+┊       [ logo contenido ]     ┊      (los ┊ solo marcan la extensión: no se pintan)
+┊                              ┊      padding 12 / 16 / 20 px · object-contain
+ ──────────────────────────────       contorno de TINTA, 3 pasadas de 1px (§24.2.d)
+                                   ← REPISA: 1px --color-border, único borde del pozo (sin esquinas)
   Surging Sparks                   ← NOMBRE: serif 400, sobre PAPEL, lang="en"
   SCARLET & VIOLET · 2024          ← META: mono 11px versalitas tracking .14em, muted
   ─────────────────────────────    ← (solo admin/bóveda) completitud + barra + piezas, sin cambios
 ```
 
-**La placa (`SetPlate`).**
+**El pozo del logo (`SetPlate` — mismo componente y mismo nombre que en v2.8; solo cambia el acabado).**
 
 | | |
 |---|---|
-| Caja | **`aspect-[3/2]`**, ancho 100 % de la celda. **Idéntica para todos los sets**, sea cual sea la proporción del logo (R1). Se elige 3:2 porque los logos son abrumadoramente apaisados; uno cuadrado o vertical **se contiene igual**, simplemente ocupa menos ancho — eso es correcto, no un defecto. |
-| Fondo | `--color-ink` `#1A1A18`. |
+| Caja | **`aspect-[3/2]`**, ancho 100 % de la celda. **Idéntica para todos los sets**, sea cual sea la proporción del logo (R1). Se elige 3:2 porque los logos son abrumadoramente apaisados; uno cuadrado o vertical **se contiene igual**, simplemente ocupa menos ancho — eso es correcto, no un defecto. **v2.10 no toca ni un píxel de esta fila.** |
+| Fondo | **`--color-surface-2` `#EFEBE2` (pozo)** — el tono de la página un punto por debajo (§24.2.d). *(v2.8: `--color-ink` `#1A1A18`.)* |
 | Radio | **0** (§4.2). La esquina redondeada de la referencia **no se traslada**. |
-| Borde | **Ninguno.** En la referencia el borde existe porque la teja y la página son ambas oscuras; aquí la placa es tinta sobre papel y **ya está separada por 15,5:1**. Un borde sería un segundo marco sin trabajo. |
-| Aire interior | **16px** base · **20px** ≥`sm` · **24px** ≥`lg`. Regla dura: **el aire nunca baja del 10 % del lado corto** de la placa. |
+| Borde | **Solo el inferior: la repisa**, `border-bottom: 1px solid var(--color-border)`, a ras y del ancho del pozo. **Sin borde superior ni laterales** — con los cuatro sería una tarjeta, y §2.1 no tiene tarjetas. *(v2.8: ninguno; con la placa de tinta el salto de 15,5:1 hacía el trabajo. Con un pozo a 1,06:1 no lo hace nadie, por eso ahora hay repisa.)* |
+| Aire interior | **12px** base · **16px** ≥`sm` · **20px** ≥`lg`. *(v2.8: 16/20/24.)* Se reduce un escalón a propósito: **el logo se pinta ~8–10 % más grande y eso es legibilidad gratis** justo para los logos claros que §24.2.e señala como frágiles, y sin campo oscuro detrás el logo ya no necesita despegarse de un canto duro. Se conserva la regla dura: **el aire nunca baja del 10 % del lado corto** (comprobado: 10,8 % a 390px, 13,2 % en `sm`, 13,9 % en `lg`, 10,7 % en `xl`). |
 | Imagen | `object-contain`, `width/height: 100%`, centrada. **Nunca** `cover`, `fill`, `object-position` distinto del centro, ni escala en hover. |
-| Contorno | El de §24.2, obligatorio. |
+| Contorno | El de §24.2.d: **tres pasadas de `drop-shadow(0 0 1px var(--color-ink))`**. Obligatorio. |
 | Reserva | La caja se pinta con su relación de aspecto **antes** de que llegue la imagen ⇒ **cero CLS**. No hace falta que el contrato mande dimensiones. |
 
-**La leyenda (sobre papel, alineada a la izquierda, `margin-top: 12px`).**
+**La leyenda (sobre papel, alineada a la izquierda, `margin-top: 12px` medidos desde la repisa).**
 
 - **Nombre:** serif `Zen Old Mincho` 400 — **16px** base / **18px** ≥`sm` / **20px** (`text-h3`) ≥`lg`,
   `line-height 1.25`, `text-wrap: balance`, `lang="en"`. **Reserva 2 líneas de alto** (para que las filas no
@@ -8185,10 +8316,12 @@ Cada elemento de la retícula es **un solo `<button>`** (el que ya existe) que c
   piezas se conservan **exactamente como están**, debajo de la meta, con `margin-top: 12px`. En `quoter`
   **no se pintan** (el cotizador no posee las cartas, solo las cotiza).
 
-**La teja completa ya no lleva ni fondo ni borde propios.** Hoy el botón es una tarjeta con
-`border-border` + `bg-surface` + hover `bg-surface-2`. Con la placa dentro, esa tarjeta sería **una caja
-alrededor de otra caja**; se retira. La teja queda: placa + texto sobre papel, separadas por aire — que es
-cómo este sistema separa cosas (§2.1, §4.3).
+**La teja completa sigue sin llevar fondo ni borde propios.** Antes de §24 el botón era una tarjeta con
+`border-border` + `bg-surface` + hover `bg-surface-2`. Con el pozo dentro, esa tarjeta sería **una caja
+alrededor de otra caja**; se retira. La teja queda: pozo + repisa + texto sobre papel, separados por aire —
+que es cómo este sistema separa cosas (§2.1, §4.3). **Ojo al detalle en v2.10:** el pozo usa `surface-2`,
+que es el tono de *hover row* del sistema; por eso el hover de la teja **no** puede aclarar ni oscurecer el
+pozo (no queda escalón disponible) y se resuelve en el nombre (§24.6).
 
 ### 24.4 Retícula y anchuras
 
@@ -8209,18 +8342,20 @@ cómo este sistema separa cosas (§2.1, §4.3).
 - **Área táctil:** la teja **entera** (placa + leyenda) es el objetivo, y mide como mínimo ~167×180px a
   390px — muy por encima de 44×44. La leyenda **no** es un objetivo aparte: hay **una** parada de tabulación
   por set.
-- **Presupuesto de tinta.** Ésta es la única retícula del sistema autorizada a pintar **muchos** bloques de
-  tinta a la vez, y lo está porque la placa es un **soporte funcional** de arte de terceros, no decoración.
-  El tope de 20 tejas por página (§24.7) es también el tope de esa masa oscura. **Ninguna otra superficie
-  copia este patrón sin ux-ui** (R5).
+- **Presupuesto de tinta — RETIRADO en v2.10.** v2.8 concedía a esta retícula, y solo a ella, permiso para
+  pintar **muchos bloques de tinta a la vez**. Con el pozo de papel (§24.2.d) **esta retícula ya no gasta
+  tinta**: el permiso especial se retira y §17.3/§2.2 vuelven a regir sin excepción — el panel oscuro es del
+  hero de auth y del sidebar, y de nadie más. El tope de 20 tejas por página (§24.7) sigue vigente, pero
+  ahora es un tope de **peso de red**, no de masa oscura. **Ninguna otra superficie copia este patrón sin
+  ux-ui** (R5), que también sigue vigente.
 
 ### 24.5 Cuando no hay logo — el monograma
 
 Habrá sets sin logo: promos, colecciones, sets viejos, y sets nuevos antes de que el tercero publique el
-arte. También habrá URLs que **fallen** (404, CDN caído). **La placa nunca queda vacía, nunca se rompe y
+arte. También habrá URLs que **fallen** (404, CDN caído). **El pozo nunca queda vacío, nunca se rompe y
 nunca pulsa** (R4).
 
-**El relleno es un monograma serif sobre la tinta:**
+**El relleno es un monograma serif sobre el pozo:**
 
 - **Contenido:** las **iniciales** de las palabras significativas del nombre del set, en mayúsculas, máximo
   **3 caracteres** — `Surging Sparks` → `SS`, `Paldean Fates` → `PF`, `Journey Together` → `JT`. Se ignoran
@@ -8229,16 +8364,31 @@ nunca pulsa** (R4).
 - **Regla de propiedad:** es una **derivación de presentación del front** (mismo estatuto que el mapa
   rareza→grupo de §7.16a): no es un dato, no lo manda el backend, no cierra ninguna taxonomía. Que dos sets
   compartan iniciales **da igual**: el nombre completo está justo debajo.
-- **Forma:** serif `Zen Old Mincho` 400, color `--color-on-ink` `#F4F1EA`, `tracking 0.06em`, centrado en
-  la placa, con tamaño proporcional a la placa (≈ **28px** a 167px de ancho, ≈ **44px** a 280px).
+- **Forma:** serif `Zen Old Mincho` 400, color **`--color-text-muted` `#6E695E`** *(v2.8: `--color-on-ink`
+  `#F4F1EA`, que sobre un pozo claro sería invisible)*, `tracking 0.06em`, centrado en el pozo, con tamaño
+  proporcional al pozo (≈ **28px** a 167px de ancho, ≈ **44px** a 280px). **Sin contorno**: el contorno de
+  §24.2 es para el arte de terceros, no para texto propio, y aquí sobra (4,6:1, §24.9).
+- **Por qué `text-muted` y no la tinta plena.** Con tinta plena, el monograma y el nombre del set —que está
+  justo debajo, también en tinta y también en serif— competirían y el suplente parecería contenido. En
+  muted se lee sin discusión (**~4,6:1 sobre pozo**, y a 28–44px está muy por encima del umbral de texto
+  grande) y **se comporta como lo que es**: un sustituto honesto. El portador del dato sigue siendo el
+  nombre (R2).
 - **Decorativo:** `aria-hidden="true"` (el nombre real ya está en el nombre accesible de la teja, §24.8).
 
-**Y además el monograma es el estado de carga.** Se pinta **desde el primer frame**, debajo del `<img>`;
-cuando la imagen llega, la imagen lo tapa **sin transición** (nada de `fade`: aquí el cross-fade mostraría
-las dos cosas superpuestas). Consecuencias, todas buenas:
+**Y además el monograma es el estado de carga.** Se pinta **desde el primer frame**, debajo del `<img>`; y
+**en `onLoad` se retira** (deja de renderizarse / `display:none`), **sin transición** — nada de `fade`: un
+cross-fade mostraría las dos cosas superpuestas.
 
-1. La placa **nunca** se ve vacía, ni un instante, ni con la red lenta.
-2. **No hay esqueleto ni pulso** en la placa. Un bloque de tinta latiendo se leería como error, y §17.3a lo
+> ⚠️ **Corrección de v2.8, y es un defecto real, no una reformulación.** v2.8 decía que «la imagen lo tapa».
+> **No lo tapa:** estos logos son PNG con alfa y tienen grandes zonas transparentes, así que un monograma
+> dejado debajo **se ve a través del logo** — pasaba igual sobre tinta y pasaría igual sobre el pozo. El
+> monograma **se retira en `onLoad`**, no se cubre. Implementación literal para frontend: `onLoad` ⇒ ocultar
+> el monograma; `onError` ⇒ retirar el `<img>` y **dejar** el monograma.
+
+Consecuencias, todas buenas:
+
+1. El pozo **nunca** se ve vacío, ni un instante, ni con la red lenta.
+2. **No hay esqueleto ni pulso** en el pozo. Un hueco latiendo se leería como error, y §17.3a lo
    clasifica como *movimiento-de-estado*. El monograma no es un esqueleto: es **contenido final legítimo**
    para un set sin logo y un suplente honesto mientras el logo viaja.
 3. **`onError` = `onLoad` para efectos de espera**: un 404 no deja a nadie esperando (mismo criterio que
@@ -8248,12 +8398,12 @@ las dos cosas superpuestas). Consecuencias, todas buenas:
 
 | Estado | Tratamiento |
 |---|---|
-| **Reposo** | Placa de tinta + leyenda. Sin borde, sin fondo, sin sombra. |
-| **Hover** | El **nombre** gana subrayado **1px en tinta** (`text-underline-offset: 4px`). **La placa no cambia**: ni se aclara, ni se escala, ni el logo crece (§24.12). El cursor es `pointer`. |
-| **Foco (`:focus-visible`)** | Anillo estándar del sistema sobre **el botón completo**: `outline: 2px solid var(--color-focus-ring); outline-offset: 2px` (§4.3, §8.2). ⚠️ **El anillo va por fuera, sobre papel. Está PROHIBIDO dibujarlo dentro de la placa**: rojo `#B31217` sobre tinta es **2,5:1** (§17.2), un anillo de foco ilegible. |
+| **Reposo** | Pozo `#EFEBE2` + repisa 1px + leyenda. Sin bordes laterales, sin sombra, sin radio. |
+| **Hover** | El **nombre** gana subrayado **1px en tinta** (`text-underline-offset: 4px`). **El pozo no cambia**: no cambia de tono, no se escala y el logo no crece (§24.12). Y no es solo estilo: `surface-2` **ya es** el tono de *hover row* del sistema, así que no queda escalón por encima ni por debajo que no invente un tono nuevo. El cursor es `pointer`. |
+| **Foco (`:focus-visible`)** | Anillo estándar del sistema sobre **el botón completo**: `outline: 2px solid var(--color-focus-ring); outline-offset: 2px` (§4.3, §8.2). **Sigue prohibido dibujar el anillo dentro del pozo, pero por otra razón que en v2.8:** ya **no** es por contraste (rojo `#B31217` sobre pozo `#EFEBE2` es **5,9:1**, §17.2 — perfectamente legible); es por **patrón**: hay **un** control por set, luego **un** anillo, y rodea la teja entera. El anillo tampoco debe quedar recortado por `overflow` del pozo. |
 | **Seleccionado / actual** | `aria-current="true"` + el nombre con **subrayado 2px `--color-accent`** (el mismo idioma de la nav y las tabs del storefront, §20.1). Se distingue del hover por **grosor y color**, no solo por color. **Solo se pinta cuando el anfitrión sabe de verdad cuál es el set actual** (p. ej. se vuelve del binder con el set en la URL); no se inventa una selección que no existe. |
 | **Activo (`:active`)** | Sin tratamiento propio (no hay `translate` ni `scale` en este sistema). |
-| **Cargando la imagen** | Monograma (§24.5). Sin pulso. |
+| **Cargando la imagen** | Monograma (§24.5), que se **retira** en `onLoad`. Sin pulso. |
 | **Imagen fallida / sin logo** | Monograma, permanente. |
 | **Cargando la retícula** | El `QueryState` existente. Sin cambios. |
 | **Retícula vacía** | El `EmptyState` existente (`emptyIndexTitle`/`Body`). Sin cambios. |
@@ -8301,19 +8451,28 @@ pueden ser muchas a la vez. Reglas:
   desactivar aquí.
 - **Contraste del logo: no es verificable y no hace falta que lo sea.** Es arte de un tercero, es
   decorativo y el canal accesible es el texto. Lo que sí se verifica es todo lo demás (§24.9).
+- **El contorno de tinta (§24.2.d) NO es un mecanismo de accesibilidad.** No lo era el de papel de v2.8 y
+  no lo es éste: sirve al **reconocimiento visual**, que es una mejora, no el canal. Si el contorno fallara
+  del todo en un logo, **no se pierde información** — el nombre y la meta siguen ahí (R2). Esto es lo que
+  permite aceptar el riesgo abierto de §24.2.e sin que sea un fallo de accesibilidad.
 
 ### 24.9 Contraste (extensión normativa de §10)
 
+Reescrita en v2.10: **en la teja ya no queda ninguna superficie de tinta**, así que los pares sobre tinta
+salen de la tabla y entran los del pozo.
+
 | Par | Ratio | Cumple |
 |---|---|---|
-| Monograma / texto de placa papel `#F4F1EA` sobre tinta `#1A1A18` | ~15,5:1 | AA/AAA |
+| Monograma `--color-text-muted` `#6E695E` sobre pozo `#EFEBE2` | ~4,6:1 | AA (texto normal) — y a 28–44px, AA-grande de sobra |
 | Nombre del set tinta `#1A1A18` sobre papel `#F4F1EA` | ~15,5:1 | AA/AAA |
 | Meta `#6E695E` sobre papel | ~4,6:1 | AA (texto normal) |
 | Subrayado de seleccionado `#B31217` sobre papel | ~6,2:1 | AA (≥3:1 componente) |
 | Anillo de foco `#B31217` sobre papel | ~6,2:1 | AA (≥3:1 componente) |
-| `--color-on-ink-muted` `#8A857A` sobre tinta (si alguna vez hiciera falta un segundo renglón en placa) | ~4,7:1 | AA |
-| Placa de tinta contra el papel de la página (separación de superficies) | ~15,5:1 | muy por encima de 3:1 |
-| ⛔ `#B31217` sobre tinta | ~2,5:1 | **PROHIBIDO** — ni anillo de foco, ni subrayado, ni texto **dentro** de la placa |
+| Anillo de foco `#B31217` **si llegara a rozar el pozo** `#EFEBE2` | ~5,9:1 (§17.2) | AA. La prohibición de v2.8 (2,5:1 sobre tinta) **queda sin objeto**; el anillo sigue rodeando la teja entera **por patrón**, no por contraste (§24.6) |
+| **Pozo `#EFEBE2` contra el papel de la página** | **~1,06:1** | **Decorativo — no porta información y no se le exige contraste.** Es exactamente por esto que existe la repisa (§24.2.d) |
+| **Repisa `--color-border` `rgba(26,26,24,0.16)` sobre papel** | ~1,35:1 | Es el valor de **todas** las reglas del sistema (§2.3): separador visual, no información. No se sube a `border-strong` para no meter 20 líneas pesadas en una página |
+| Contorno de tinta contra el papel (anillo interior, 3 pasadas) | ~8:1 **estimado** | **Cálculo, no medición.** El logo es decorativo (§24.8) y 1.4.11 no le aplica; el 3:1 se usa como vara. La verificación real es ocular (§24.14 nº1–4) |
+| ⛔ `#B31217` sobre tinta ~2,5:1 | — | **Ya no aplica dentro de §24** (no queda tinta en la teja). La prohibición general de §17.2 sigue vigente donde sí haya panel de tinta |
 
 ### 24.10 El destacado de la referencia — no va en el índice, va en el encabezado del binder
 
@@ -8325,8 +8484,13 @@ que es justo lo que R1 protege.
 **Traducción correcta: el destacado es la confirmación de lo que elegiste, y vive en el encabezado del
 binder** (donde hoy solo hay texto):
 
-- **`SetPlate` tamaño `sm`:** caja fija **112×64** (`aspect-[7/4]`), padding interior 8px, mismas reglas de
-  §24.2 (tinta, contain, contorno) y mismo monograma de §24.5.
+- **`SetPlate` tamaño `sm`:** caja fija **112×64** (`aspect-[7/4]`), padding interior **8px** (aquí **no**
+  baja: 8/64 = 12,5 % del lado corto, y por debajo se incumpliría la regla del 10 %), mismas reglas de
+  §24.2.d — **pozo `#EFEBE2`, `object-contain`, contorno de tinta de 3 pasadas** — y mismo monograma de
+  §24.5 en `--color-text-muted`.
+- **En `sm` NO se pinta la repisa.** Su trabajo (§24.2.d) es dar borde inferior a un hueco dentro de una
+  retícula; aquí el pozo va **en línea** junto a un título y una regla suelta se leería como el subrayado de
+  nada.
 - Va **a la izquierda del título del set**, `gap 16px`, centrada verticalmente. `alt=""` + `aria-hidden`
   (el título es el nombre accesible).
 - **Se oculta por debajo de `sm`**: en móvil el título manda y el ancho es oro.
@@ -8343,31 +8507,47 @@ El dueño mandó una referencia, no una orden de copiarla. Esto es lo que se dej
 |---|---|
 | **Morado, neón, brillos** | Fuera. La paleta es papel/tinta/rojo TCG HUNT (§17.2) y el acento se usa con avaricia. |
 | **Esquinas redondeadas** | Fuera: radios 0 en todo el sistema, decisión de estilo explícita (§4.2). |
-| **Borde sutil en la teja** | Fuera: en la referencia resuelve un problema (teja oscura sobre página oscura) que **aquí no existe**. Ver §24.3. |
+| **Borde sutil en la teja** | **Parcialmente (v2.10).** El marco de cuatro lados sigue **fuera**: sería una tarjeta y §2.1 no tiene tarjetas. Lo que sí hay desde v2.10 es **una sola regla inferior** (la repisa), que no es el borde de la referencia sino el separador propio de este sistema haciendo el trabajo que el pozo a 1,06:1 no puede hacer solo (§24.2.d, §24.3). |
 | **Nombre en mono versalitas con tracking amplio** | **Parcialmente.** El nombre va en **serif**: en este sistema mono+versalitas es la voz del **dato técnico** (§3.1), y un set es un **nombre propio de catálogo**; en versalitas además se lee peor en nombres largos y en ES. La voz mono de la referencia **sí** se conserva, en la **meta** (`SCARLET & VIOLET · 2024`), que es donde le toca. |
 | **Elemento destacado grande arriba de la retícula** | Fuera del índice; se traduce al encabezado del binder (§24.10). |
-| **Fondo oscuro de página** | Fuera. **Lo único oscuro es la placa**, y por la razón funcional de §24.2 — no por acabado. |
+| **Fondo oscuro de página** | Fuera — y desde **v2.10 no queda nada oscuro en la teja**: ni la página, ni el fondo del logo. Lo único de tinta son el **texto** y el **contorno** del logo (§24.2.d). |
 | **Retícula de 3 columnas en escritorio** | Se traslada como **estructura** (retícula pareja de caja fija), no como número: aquí son 2/3/4 (§24.4). |
 
 ### 24.12 Qué NO hacer
 
 1. **No recolorear el logo de un tercero**: nada de `filter: invert()`, `hue-rotate`, `grayscale`,
-   `mix-blend-mode`, ni «modo oscuro del logo».
+   `brightness`, `contrast`, `mix-blend-mode`, ni «modo oscuro del logo». *(El `drop-shadow` de §24.2.d no
+   entra aquí, y la distinción es la que hace legal a ese dispositivo y a ningún otro: los prohibidos
+   **transforman los píxeles** del tercero; `drop-shadow` **pinta detrás** y deja el arte intacto.)*
 2. **No recortar ni estirar**: `object-fit: cover`, `fill` o un `aspect-ratio` aplicado al `<img>` en vez de
    a la caja rompen R1 y descuadran la retícula. Ése era el fallo que la referencia resuelve.
-3. **No hacer la placa proporcional al logo.** Todas las placas miden lo mismo, siempre. Un logo estrecho
+3. **No hacer el pozo proporcional al logo.** Todos los pozos miden lo mismo, siempre. Un logo estrecho
    deja aire a los lados: **eso es correcto**.
-4. **No pulsar la placa** (`animate-pulse`) ni animar el logo (`scale` en hover, brillo, foil). §17.3a:
+4. **No pulsar el pozo** (`animate-pulse`) ni animar el logo (`scale` en hover, brillo, foil). §17.3a:
    movimiento-de-estado, prohibido.
-5. **No poner el anillo de foco ni ningún acento dentro de la placa** (2,5:1, §24.9).
-6. **No usar la placa como enlace sin nombre visible** (§24.8).
+5. **No poner el anillo de foco ni ningún acento dentro del pozo.** Desde v2.10 **la razón ya no es el
+   contraste** (rojo sobre pozo es 5,9:1): es que hay **un** control por set y **un** anillo, alrededor de
+   la teja completa (§24.6).
+6. **No usar el pozo como enlace sin nombre visible** (§24.8).
 7. **No sustituir el nombre por el logo** en ninguna superficie, ni «cuando el logo se ve muy bien» (R2).
 8. **No llevar la retícula a la home, al `SetFilter` ni al modal de alta** (§24.1, R5).
 9. **No poner la mira de TCG HUNT como relleno de un set sin logo**: haría que cada set sin arte pareciera
    un producto de la casa o un error (§17.3: la marca no se usa como comodín).
 10. **No subir el tamaño de página ni pasar a scroll infinito** para «ver más logos de un tirón» (§24.7).
-11. **No quitar el contorno de seguridad** porque «en los sets que miré no se nota». Ése es exactamente el
-    punto: no se nota, hasta el set en el que sí.
+11. **No quitar el contorno de tinta.** En v2.8 el argumento era «no se nota, hasta el set en el que sí»
+    (era un seguro silencioso). **Desde v2.10 es más fuerte:** sobre papel el contorno **es el mecanismo**
+    que sostiene la silueta de los logos claros, que son el caso común (§24.2.c). Quitarlo devuelve la
+    retícula al fallo original.
+12. **No subir el radio del contorno por encima de 1px** «para que se note más». Se **añaden pasadas**
+    (tope 4) y el radio no se toca: un contorno desenfocado sobre papel se lee como suciedad (§24.2.d).
+13. **No mantener una lista de sets con fondo especial** («solo para estos cuatro», «solo para los claros»).
+    Es inspección logo a logo con otro nombre: rompe **R3** y hereda un mantenimiento eterno contra un
+    catálogo de terceros que crece solo.
+14. **No devolver el fondo de tinta por iniciativa propia** si un logo se ve flojo. Es una decisión del
+    dueño y es **todo o nada** (§24.2.e); lo que sí puede hacer el implementador sin preguntar es mover el
+    número de pasadas dentro del rango 2–4.
+15. **No poner contorno al monograma ni al texto.** El contorno es para arte de terceros; sobre texto propio
+    sobra y ensucia (§24.5).
 
 ### 24.13 Datos que hacen falta (peticiones al arquitecto — ninguna bloquea)
 
@@ -8377,10 +8557,16 @@ El dueño mandó una referencia, no una orden de copiarla. Esto es lo que se dej
    necesita **en los dos caminos** que alimentan la misma retícula: el índice del admin/bóveda y la lista
    pública que el cotizador compone en cliente. **Sin este campo, §24 se implementa igual** y la retícula
    sale entera en monogramas — fea pero funcional; el logo es una mejora, no una precondición.
-2. **Luminancia del logo (`logoIsLight` o similar): NO se pide.** Se deja escrito para que nadie la
-   construya «por si acaso»: sería el dato necesario **solo** si algún día se quisiera una placa clara, y
-   §24.2 resuelve el problema **sin** él, a propósito, porque un cómputo de ingesta que falla en silencio es
-   peor que una placa que siempre funciona. Si alguna vez existe, vuelve a ux-ui **antes** de usarse.
+2. **Luminancia del logo (`logoIsLight` o similar): SIGUE SIN PEDIRSE — y en v2.10 hay que actualizar el
+   argumento, porque el de v2.8 ya no vale tal cual.** v2.8 escribió que ese dato haría falta *«solo si
+   algún día se quisiera una placa clara»*. **Ese día es hoy** (§24.2.d), así que la nota se reescribe en
+   vez de dejarla mintiendo. Sigue sin pedirse por tres razones, y ninguna es la de v2.8:
+   (a) un cómputo de ingesta que falla en silencio es peor que un acabado que siempre funciona igual;
+   (b) **R3** prohíbe la ramificación por logo, y este dato existe solo para ramificar;
+   (c) sobre todo, **usarlo daría el resultado opuesto al que pidió el dueño**: devolvería el rectángulo
+   negro precisamente a White Flare y Phantasmal Flames, que son dos de los cuatro logos de su captura.
+   Si alguna vez se construye, **vuelve a ux-ui y al dueño antes de usarse**; no lo enciende nadie por su
+   cuenta.
 3. **`images.symbol`:** este diseño **no lo consume** (§24.1). Guardarlo o no es decisión del arquitecto; si
    se guarda, queda sin superficie asignada hasta que ux-ui defina una.
 4. **Dimensiones intrínsecas del logo:** no se piden. La caja fija ya evita el reflow (§24.3).
@@ -8390,24 +8576,46 @@ El dueño mandó una referencia, no una orden de copiarla. Esto es lo que se dej
 
 ### 24.14 QA visual sugerido
 
-1. **Set con logo claro** (filete blanco): se lee limpio sobre la placa; el contorno de seguridad **no** se
-   percibe como halo.
-2. **Set con logo oscuro** (si se encuentra uno): se lee gracias al contorno. Si no aparece ninguno en el
-   catálogo real, **el seguro se queda igual** — está para el que llegue mañana.
-3. **Logo muy apaisado** (≈3:1) y **logo cuadrado** en la misma fila: **las placas miden exactamente lo
-   mismo** y ninguno se recorta ni se estira.
-4. **Set sin `logoUrl`:** monograma, sin pulso, sin icono roto, nombre completo debajo.
-5. **URL rota (404 forzado):** cae al monograma y **no deja la placa esperando**.
-6. **Red lenta (throttling):** la placa **nunca** se ve vacía; se ve monograma y luego logo.
-7. **390 / 640 / 1024 / 1440:** 2/3/4/4 columnas, placa entre ~167 y ~280px, nombre a 2 líneas sin baile de
-   filas, sin scroll horizontal.
-8. **Teclado:** una parada por teja; el anillo rojo se ve **por fuera** de la placa, nunca dentro.
-9. **Lector de pantalla:** cada teja se anuncia **una sola vez** con nombre + meta; el logo **no** se
-   anuncia.
-10. **Admin M1 / bóveda:** completitud, barra y piezas siguen presentes bajo la leyenda; en `quoter` **no**
-    aparecen.
-11. **Peso:** con la red en cascada, solo la primera fila se descarga al entrar; el resto entra al hacer
+**Reescrito en v2.10. Los cuatro primeros son los que deciden si el cambio de fondo se da por bueno; se
+verifican con los sets reales nombrados, a 390px y a 1440px, y con brillo de pantalla bajo.**
+
+1. **White Flare** (blanco y rosa claro) — **la pérdida conocida.** Debe leerse la **silueta** completa
+   gracias al contorno. Se acepta que el cuerpo se vea **al trazo** y no macizo. Se rechaza si ni siquiera
+   la silueta se distingue del papel.
+2. **Phantasmal Flames** (claro con brillo) — **el riesgo abierto y el caso más duro.** Su alfa es blanda,
+   así que el contorno le dará poco filete (§24.2.c). Si queda lavado: **subir a 4 pasadas** y volver a
+   mirar; si sigue lavado, **no se toca el radio y no se vuelve a la tinta** — se escala al dueño con
+   §24.2.e delante.
+3. **Black Bolt** (negro con filete blanco) — **debe verse mejor que hoy.** Y es el mejor sujeto para cazar
+   el **filete despegado**: mirar de cerca si la línea de tinta queda separada del arte por un hueco claro y
+   si eso se lee como brillo (aceptable) o como recorte sucio (bajar a 2 pasadas).
+4. **Mega Evolution** (color saturado) — el contorno **no** debe leerse como un trazo negro añadido ni
+   ensuciar los bordes de color.
+5. **Logo muy apaisado** (≈3:1) y **logo cuadrado** en la misma fila: **los pozos miden exactamente lo
+   mismo** y ninguno se recorta ni se estira (R1).
+6. **Set sin `logoUrl`:** monograma en **muted** sobre pozo, sin pulso, sin icono roto, nombre completo
+   debajo.
+7. **URL rota (404 forzado):** cae al monograma y **no deja el pozo esperando**.
+8. **Red lenta (throttling):** el pozo **nunca** se ve vacío; se ve monograma y luego logo — y **el
+   monograma NO se transparenta a través del logo** una vez cargado (§24.5, corrección de v2.8).
+9. **La repisa y el pozo:** con el brillo bajo o a la luz del sol, cada teja sigue teniendo un **borde
+   inferior visible** y la fila se lee alineada. El pozo puede resultar imperceptible: **eso es esperado**,
+   no un defecto.
+10. **390 / 640 / 1024 / 1440:** 2/3/4/4 columnas, pozo entre ~167 y ~280px, nombre a 2 líneas sin baile de
+    filas, sin scroll horizontal. **La geometría debe ser idéntica a la de v2.8** — si algo se movió, es un
+    defecto: v2.10 solo cambia acabado y aire interior.
+11. **Teclado:** una parada por teja; el anillo rojo se ve **por fuera** del pozo, entero, sin recortes.
+12. **Lector de pantalla:** cada teja se anuncia **una sola vez** con nombre + meta; el logo **no** se
+    anuncia.
+13. **Admin M1 / bóveda:** completitud, barra y piezas siguen presentes bajo la leyenda; en `quoter` **no**
+    aparecen. La repisa del pozo **no** se confunde con la `ProgressBar` (hay ~60px y dos lenguajes
+    distintos entre ellas).
+14. **Encabezado del binder (§24.10):** el `SetPlate sm` usa el mismo pozo y contorno, **sin repisa**, y
+    sigue oculto por debajo de `sm`.
+15. **Peso:** con la red en cascada, solo la primera fila se descarga al entrar; el resto entra al hacer
     scroll.
+16. **Gama baja:** con 20 tejas en pantalla, el scroll no arrastra por los tres `drop-shadow`. Si arrastra,
+    bajar a 2 pasadas (§24.2.d), nunca quitar el contorno.
 
 ### 24.15 i18n
 
