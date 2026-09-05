@@ -33,7 +33,12 @@ import { SELL_REQUEST_LIVE_ADJUSTMENT_STATES } from '../modules/buylist/buylist-
  * | 4 | `aceptada` a **1 día hábil** de vencer, sin recordatorio y sin señal | **correo 2b**, UNA vez |
  * | 5 | Ajuste sin responder a 7 días (**legacy, sin cambio**) | `rechazada` |
  * | 6 | Abandono a 30 días — **RE-ANCLADO en `receivedAt`** | `abandonada` |
- * | 7 | `cotizada` que **nadie ofertó** en 7 días hábiles | `expirada`/`no_offer` + **correo 4** + **anula la oferta pendiente** |
+ * | 7 | `cotizada` que **nadie ofertó** en 7 días hábiles ⚠️ **GATEADA** | `expirada`/`no_offer` + **correo 4** + **anula la oferta pendiente** |
+ *
+ * ### ⚠️ La regla 7 nace APAGADA (`buylist_no_offer_expiry_enabled`, seed `off`) — B-4
+ * Es la única de las siete cuyo despliegue depende de un **paso operativo previo obligatorio** (el
+ * censo/triage del paso 6 de M-46). Sin gate, la primera corrida tras el deploy manda correos
+ * terminales a vendedores con solicitudes viejas. Ver el docblock de `expireUnofferedRequests`.
  *
  * ### ⚠️ La regla 2 solo expira si NO hubo NINGUNA de las dos señales
  * Ni el «ya lo mandé» del vendedor ni la confirmación del operador. *Un plazo del vendedor solo puede
@@ -99,13 +104,20 @@ export class BuylistSweepJobService {
 
   /** Regla 1 (D3): `ofertada` con `offerAcceptDeadlineAt` vencido ⇒ `rechazada` + correo 3a. */
   private async expireUnansweredOffers(now: Date): Promise<number> {
+    // ⚠️ B-1: el predicado se declara UNA vez y lo llevan LAS DOS mitades (leer y escribir). Ver la
+    // nota de `closeWithGuideTask`.
+    const where: Prisma.SellRequestWhereInput = {
+      status: 'ofertada',
+      closedAt: null,
+      offerAcceptDeadlineAt: { lte: now },
+    };
     const rows = await this.prisma.sellRequest.findMany({
-      where: { status: 'ofertada', closedAt: null, offerAcceptDeadlineAt: { lte: now } },
+      where,
       include: { user: { select: { name: true, email: true, locale: true } } },
     });
     let n = 0;
     for (const req of rows) {
-      const moved = await this.closeWithGuideTask(req.id, now, {
+      const moved = await this.closeWithGuideTask(req.id, now, where, {
         status: 'rechazada',
         closedAt: now,
       });
@@ -126,24 +138,33 @@ export class BuylistSweepJobService {
    * Regla 2 (D4 × D20): `aceptada` con `shipDeadlineAt` vencido **y sin ninguna de las dos señales**
    * ⇒ `expirada` + `not_shipped` + correo 3b + **tarea de guía muerta**.
    *
-   * ⚠️ `sellerShippedDeclaredAt IS NULL` **está en el `where`**: es el candado que impide expirarle
-   * la venta a quien sí cumplió. Y `shipDeadlineAt IS NULL` (sin guía capturada) **no entra**: una
-   * `aceptada` sin etiqueta **no corre reloj**, porque la etiqueta depende de nosotros.
+   * ⚠️ `sellerShippedDeclaredAt IS NULL` **está en el `where` DE LAS DOS MITADES** — la que lee y la
+   * que escribe. Es el candado que impide expirarle la venta a quien sí cumplió, y **hasta v1.51.22
+   * solo estaba en la que lee**: `declareShipped` no toca `status` ni `closedAt` y **no tiene guarda
+   * de plazo a propósito**, así que un «ya lo mandé» que llegaba entre el `findMany` de las 08:00:00
+   * y el `updateMany` de las 08:00:00.5 **no impedía nada** — la solicitud se cerraba `expirada` /
+   * `not_shipped`, se sellaba `closedAt`, salía el correo de «no procederemos» y se abría la tarea de
+   * cancelar una guía **de un paquete que iba físicamente en el correo**. Y `expirada` **no está en
+   * `payableWhere()`**: a esa persona ya no se le podía pagar ni revivir la solicitud. Ver B-1.
+   *
+   * Y `shipDeadlineAt IS NULL` (sin guía capturada) **no entra**: una `aceptada` sin etiqueta **no
+   * corre reloj**, porque la etiqueta depende de nosotros.
    */
   private async expireUnshippedPackages(now: Date): Promise<number> {
+    const where: Prisma.SellRequestWhereInput = {
+      status: 'aceptada',
+      closedAt: null,
+      shipDeadlineAt: { not: null, lte: now },
+      sellerShippedDeclaredAt: null,
+      shipmentConfirmedAt: null,
+    };
     const rows = await this.prisma.sellRequest.findMany({
-      where: {
-        status: 'aceptada',
-        closedAt: null,
-        shipDeadlineAt: { not: null, lte: now },
-        sellerShippedDeclaredAt: null,
-        shipmentConfirmedAt: null,
-      },
+      where,
       include: { user: { select: { name: true, email: true, locale: true } } },
     });
     let n = 0;
     for (const req of rows) {
-      const moved = await this.closeWithGuideTask(req.id, now, {
+      const moved = await this.closeWithGuideTask(req.id, now, where, {
         status: 'expirada',
         expiredReason: SellRequestExpiryReason.not_shipped,
         closedAt: now,
@@ -274,19 +295,20 @@ export class BuylistSweepJobService {
   /** Regla 5 — ajuste enviado sin respuesta a los 7 días naturales. **Sin cambio**, sin correo. */
   private async expireUnansweredAdjustments(now: Date): Promise<number> {
     const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 3600 * 1000);
-    const rows = await this.prisma.sellRequest.findMany({
-      where: {
-        // §4.39c: el set del ajuste vivo sale de la constante, no de un literal.
-        status: { in: [...SELL_REQUEST_LIVE_ADJUSTMENT_STATES] },
-        closedAt: null,
-        adjustmentSentAt: { not: null, lte: sevenDaysAgo },
-      },
-      select: { id: true },
-    });
+    // ⚠️ B-1: el MISMO predicado lee y escribe. `closedAt: null` **solo** dejaba pasar la respuesta al
+    // ajuste que llegara entre las dos mitades: responder mueve `status` y `adjustmentSentAt`, no
+    // `closedAt`, así que la escritura la pisaba con un `rechazada` que ya no era cierto.
+    const where: Prisma.SellRequestWhereInput = {
+      // §4.39c: el set del ajuste vivo sale de la constante, no de un literal.
+      status: { in: [...SELL_REQUEST_LIVE_ADJUSTMENT_STATES] },
+      closedAt: null,
+      adjustmentSentAt: { not: null, lte: sevenDaysAgo },
+    };
+    const rows = await this.prisma.sellRequest.findMany({ where, select: { id: true } });
     let n = 0;
     for (const req of rows) {
       const res = await this.prisma.sellRequest.updateMany({
-        where: { id: req.id, closedAt: null },
+        where: { ...where, id: req.id },
         data: { status: 'rechazada', closedAt: now },
       });
       n += res.count;
@@ -304,18 +326,18 @@ export class BuylistSweepJobService {
    */
   private async abandonUnreturned(now: Date): Promise<number> {
     const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 3600 * 1000);
-    const rows = await this.prisma.sellRequest.findMany({
-      where: {
-        status: { in: ['recibida', 'verificacion', 'aprobada'] },
-        closedAt: null,
-        receivedAt: { not: null, lte: thirtyDaysAgo },
-      },
-      select: { id: true },
-    });
+    // ⚠️ B-1: el MISMO predicado lee y escribe. Sin `status` en la escritura, un `pagada` que
+    // commiteara entre las dos mitades quedaba **abandonada con `closedAt`** — encima del SPEI.
+    const where: Prisma.SellRequestWhereInput = {
+      status: { in: ['recibida', 'verificacion', 'aprobada'] },
+      closedAt: null,
+      receivedAt: { not: null, lte: thirtyDaysAgo },
+    };
+    const rows = await this.prisma.sellRequest.findMany({ where, select: { id: true } });
     let n = 0;
     for (const req of rows) {
       const res = await this.prisma.sellRequest.updateMany({
-        where: { id: req.id, closedAt: null },
+        where: { ...where, id: req.id },
         data: { status: 'abandonada', closedAt: now },
       });
       n += res.count;
@@ -346,11 +368,35 @@ export class BuylistSweepJobService {
    *
    * **`declinedBy` queda `null`**: lo cerró el barrido, no una persona — es el único discriminador
    * entre *«decidimos»* y *«dejamos vencer»*, y vive solo en la bitácora.
+   *
+   * ### ⚠️⚠️ B-4 — ESTA REGLA NACE APAGADA. El paso 6 de M-46 ahora tiene MECANISMO.
+   * La migración exige, **en mayúsculas y declarándolo NO OPCIONAL**, un censo y triage humano de las
+   * `cotizada` vivas **antes** de habilitar esta regla, «porque si no, la primera corrida del barrido
+   * manda correos reales a vendedores con solicitudes viejas». Hasta v1.51.22 **lo único que separaba
+   * el deploy de esos correos era ese comentario en un `.sql`**: no había flag, ni gate, ni kill
+   * switch, y el cron `'0 8 * * *'` corre **la primera mañana**.
+   *
+   * Ahora la regla se lee detrás de `buylist_no_offer_expiry_enabled`, **`off` por defecto**. Se
+   * enciende a mano DESPUÉS del triage. Las otras seis reglas **no** se gatean: ninguna de ellas
+   * depende de un paso operativo previo, y apagar el barrido entero para proteger a una sería dejar
+   * sin plazo a las cinco que sí están listas.
+   *
+   * ⚠️ **Sin `SettingsService` (tests unitarios que construyen el servicio a mano) la regla queda
+   * APAGADA**, no encendida con el default de 7 días. Es el mismo lado seguro que el fail-closed de
+   * calendario: *ante la duda, no se caduca y no sale correo.* Los tests que la ejercitan inyectan un
+   * `settings` que devuelve `'on'`, y esa inyección es lo que **hace visible** que la regla está
+   * gateada.
    */
   private async expireUnofferedRequests(now: Date): Promise<number> {
-    const days = this.settings
-      ? await this.settings.getNumber(SettingKey.BUYLIST_OFFER_ISSUE_DEADLINE_BUSINESS_DAYS)
-      : 7;
+    // El gate va PRIMERO: apagado ⇒ ni siquiera se lee la tabla. Un barrido que no puede escribir no
+    // tiene por qué barrer.
+    if (!this.settings) return 0;
+    const enabled = await this.settings.getString(SettingKey.BUYLIST_NO_OFFER_EXPIRY_ENABLED);
+    // SOLO el string `'on'` enciende. `null`, `true`, `'ON'` o basura ⇒ APAGADO (fail-closed).
+    if (enabled !== 'on') return 0;
+    const days = await this.settings.getNumber(
+      SettingKey.BUYLIST_OFFER_ISSUE_DEADLINE_BUSINESS_DAYS,
+    );
     const rows = await this.prisma.sellRequest.findMany({
       where: { status: 'cotizada', closedAt: null },
       include: { user: { select: { name: true, email: true, locale: true } } },
@@ -410,10 +456,34 @@ export class BuylistSweepJobService {
    * Cierra una solicitud **y abre la tarea de guía muerta si había etiqueta** — las **dos mitades de
    * D22 en la misma escritura**. *Una etiqueta comprada y olvidada es dinero tirado que nadie ve*, y
    * que sea cancelable no sirve si nadie avisa.
+   *
+   * ### ⚠️⚠️ B-1 — `guard` NO ES OPCIONAL, Y ES EL PARÁMETRO ENTERO DE ESTE MÉTODO
+   * `guard` es **el predicado con el que el llamador LEYÓ la fila**, reafirmado aquí en el `where` de
+   * la escritura. **La escritura de un barrido tiene que llevar el predicado de su lectura**, porque
+   * entre las dos hay una ventana en la que el mundo cambia y el barrido escribe **sobre lo que ya no
+   * es cierto**. Hasta v1.51.22 el `where` era `{ id, closedAt: null }` **y nada más**: bastaba con
+   * que la transición que ganaba la carrera **no tocara `closedAt`** —y ninguna de las del ciclo vivo
+   * lo toca— para que el barrido la pisara. El caso medido: el vendedor declara enviado medio segundo
+   * después del `findMany`, y la fila termina `expirada`/`not_shipped`, **terminal**, con correo de
+   * «no procederemos», con la tarea de cancelar una guía que va en el correo, y **fuera de
+   * `payableWhere()`** ⇒ imposible de pagar y de revivir.
+   *
+   * **La asimetría era el síntoma:** la regla 7 SÍ reafirmaba `status: 'cotizada'` en su propio
+   * `where` (sigue haciéndolo, inline, porque su `data` es condicional a la fila leída). Las reglas
+   * 1, 2, 5 y 6 no. Ahora las seis llevan el mismo régimen.
+   *
+   * **`count === 1` es el veredicto, no un detalle:** `false` ⇒ la fila se movió y **no se manda
+   * correo ni se cuenta**. Es el mismo patrón del sello del recordatorio.
+   *
+   * ⚠️ **Residual conocido y aceptado:** el `findUnique` de la etiqueta sigue siendo read-then-write.
+   * Su peor caso es **no abrir** una tarea operativa (fail-open sobre trabajo, no sobre dinero) y es
+   * casi inalcanzable —`shipDeadlineAt` solo existe si la guía YA se capturó—, así que no justifica
+   * partir la escritura en dos `updateMany`. Registrado en `docs/BACKEND_NOTES.md`.
    */
   private async closeWithGuideTask(
     id: string,
     now: Date,
+    guard: Prisma.SellRequestWhereInput,
     data: Prisma.SellRequestUpdateManyMutationInput,
   ): Promise<boolean> {
     const row = await this.prisma.sellRequest.findUnique({
@@ -421,7 +491,9 @@ export class BuylistSweepJobService {
       select: { shipmentTrackingNumber: true, guideCancellationDoneAt: true },
     });
     const res = await this.prisma.sellRequest.updateMany({
-      where: { id, closedAt: null },
+      // El predicado de la LECTURA, reafirmado en la ESCRITURA. `id` va después para que ningún
+      // fragmento del llamador pueda pisarlo.
+      where: { ...guard, id },
       data: {
         ...data,
         ...(row?.shipmentTrackingNumber != null && row.guideCancellationDoneAt == null

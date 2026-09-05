@@ -26,7 +26,7 @@ interface Rows {
   recibida?: Record<string, unknown>[];
 }
 
-function build(rows: Rows, opts: { mailFails?: boolean } = {}) {
+function build(rows: Rows, opts: { mailFails?: boolean; noOfferExpiry?: unknown } = {}) {
   const callOrder: string[] = [];
   const state = new Map<string, Record<string, unknown>>();
   for (const list of Object.values(rows)) {
@@ -78,7 +78,13 @@ function build(rows: Rows, opts: { mailFails?: boolean } = {}) {
       }),
     },
   };
-  const settings = { getNumber: jest.fn(async () => 7) } as unknown as SettingsService;
+  // ⚠️ v1.51.22 · B-4 — la regla 7 está **GATEADA** (`buylist_no_offer_expiry_enabled`, seed `off`).
+  // Este harness la enciende A PROPÓSITO para poder seguir aseverando su semántica; que haya que
+  // encenderla explícitamente ES lo que hace visible el gate. El bloque de abajo prueba el `off`.
+  const settings = {
+    getNumber: jest.fn(async () => 7),
+    getString: jest.fn(async () => ('noOfferExpiry' in opts ? opts.noOfferExpiry : 'on')),
+  } as unknown as SettingsService;
   const mail: MailPort = {
     send: jest.fn(async (m: any) => {
       callOrder.push('mail.send');
@@ -392,6 +398,100 @@ describe('⚠️ Regla 7 (D33/D38) — la solicitud que NADIE ofertó', () => {
       cotizada: [base({ status: 'cotizada', offerState: null, createdAt: new Date('2019-01-01T00:00:00Z') })],
     });
     const res = await svc.run(NOW);
+    expect(res.notPursued).toBe(0);
+    expect(state.get('sr-1')?.status).toBe('cotizada');
+  });
+});
+
+// =============================================================================================
+/**
+ * v1.51.22 · **B-4 — LA REGLA 7 NACE APAGADA, Y EL PASO 6 DE M-46 POR FIN TIENE MECANISMO.**
+ *
+ * La migración declara **en mayúsculas** que el censo y triage humano de las `cotizada` vivas va
+ * **antes** de habilitar esta regla, que **NO ES OPCIONAL**, y que sin él *«la primera corrida del
+ * barrido manda correos reales a vendedores con solicitudes viejas»*. Hasta este pase
+ * `expireUnofferedRequests` **no tenía flag, ni gate, ni kill switch**: corría con `'0 8 * * *'` la
+ * primera mañana tras el deploy. **Lo único que separaba el deploy de esos correos era un comentario
+ * en un `.sql`** — y un comentario no es un mecanismo.
+ *
+ * El dial es `buylist_no_offer_expiry_enabled` con **seed `off`**, del mismo género que
+ * `grading_hook_enabled`: **solo el string `'on'` enciende**.
+ */
+describe('⚠️ B-4 — el gate de la regla 7 (`buylist_no_offer_expiry_enabled`)', () => {
+  const VIEJA = {
+    cotizada: [
+      base({ status: 'cotizada', offerState: 'pending_authorization', createdAt: new Date('2026-08-20T00:00:00Z') }),
+    ],
+  };
+
+  it('⚠️ APAGADO (el seed) — no caduca, NO manda correo y NO anula la oferta pendiente', async () => {
+    const { svc, state, mail } = build(VIEJA, { noOfferExpiry: 'off' });
+    const res = await svc.run(NOW);
+    expect(res.notPursued).toBe(0);
+    expect(state.get('sr-1')?.status).toBe('cotizada');
+    expect(state.get('sr-1')?.closedAt).toBeNull();
+    expect(state.get('sr-1')?.offerState).toBe('pending_authorization');
+    expect(mail.send).not.toHaveBeenCalled();
+  });
+
+  it('apagado ⇒ NI SIQUIERA LEE la tabla: un barrido que no puede escribir no barre', async () => {
+    const { svc, prisma } = build(VIEJA, { noOfferExpiry: 'off' });
+    await svc.run(NOW);
+    // Ninguna de las consultas del pase pidió `cotizada` (las otras seis reglas sí corrieron).
+    const pedidas = (prisma.sellRequest.findMany as jest.Mock).mock.calls.map(
+      ([{ where }]: [{ where: { status?: unknown } }]) => where.status,
+    );
+    expect(pedidas).not.toContain('cotizada');
+  });
+
+  it('ENCENDIDO con el string exacto `on` ⇒ la regla 7 vuelve a ser la de siempre', async () => {
+    const { svc, state, mail } = build(VIEJA, { noOfferExpiry: 'on' });
+    const res = await svc.run(NOW);
+    expect(res.notPursued).toBe(1);
+    expect(state.get('sr-1')).toMatchObject({ status: 'expirada', expiredReason: 'no_offer' });
+    expect(mail.send).toHaveBeenCalled();
+  });
+
+  it.each([['off'], ['ON'], ['On'], ['true'], [''], [null], [true], [1], [undefined]])(
+    '⚠️ FAIL-CLOSED: %p NO enciende (solo el string `on`)',
+    async (valor) => {
+      // Un dial que decide si salen correos TERMINALES a vendedores reales no puede encenderse por
+      // un `true`, un `'ON'` o una fila con basura. Mismo régimen que `grading_hook_enabled`.
+      const { svc, state, mail } = build(VIEJA, { noOfferExpiry: valor });
+      const res = await svc.run(NOW);
+      expect(res.notPursued).toBe(0);
+      expect(state.get('sr-1')?.status).toBe('cotizada');
+      expect(mail.send).not.toHaveBeenCalled();
+    },
+  );
+
+  it('el gate NO toca las otras SEIS reglas: apagar la 7 no desarma el resto del barrido', async () => {
+    // Apagar el barrido entero para proteger a una regla dejaría sin plazo a las cinco que sí están
+    // listas. El gate es de la regla 7 y de nadie más.
+    const { svc, state } = build(
+      {
+        ...VIEJA,
+        ofertada: [
+          base({ id: 'sr-2', status: 'ofertada', offerAcceptDeadlineAt: new Date('2026-09-05T00:00:00Z') }),
+        ],
+      },
+      { noOfferExpiry: 'off' },
+    );
+    const res = await svc.run(NOW);
+    expect(res.notPursued).toBe(0);
+    expect(res.offersExpired).toBe(1);
+    expect(state.get('sr-2')?.status).toBe('rechazada');
+    expect(state.get('sr-1')?.status).toBe('cotizada');
+  });
+
+  it('SIN `SettingsService` la regla queda APAGADA, no encendida con el default de 7 días', async () => {
+    // Es el mismo lado seguro que el fail-closed de calendario: *ante la duda, no se caduca y no sale
+    // correo*. Un servicio construido a mano (tests, scripts) no puede acabar mandando correo real.
+    const { svc, state } = build(VIEJA);
+    const sinSettings = new BuylistSweepJobService(
+      (svc as unknown as { prisma: PrismaService }).prisma,
+    );
+    const res = await sinSettings.run(NOW);
     expect(res.notPursued).toBe(0);
     expect(state.get('sr-1')?.status).toBe('cotizada');
   });

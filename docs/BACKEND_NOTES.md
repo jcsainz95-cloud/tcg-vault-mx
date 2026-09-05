@@ -14296,3 +14296,190 @@ nuevos y de la precedencia invertida.
 - **`adjust` con monto ahora responde `409`, no `422`.** Si el front ramificaba por status, revisar.
 - **`reject` con `approvedPriceCents` en el body ahora es `422`** dentro del ciclo (antes se ignoraba
   el campo). Si alguna pantalla lo manda «por si acaso», hay que dejar de mandarlo.
+
+---
+
+# v1.51.22 — Los cinco hallazgos del rechazo QA/techlead (B-1 … B-5)
+
+QA y techlead rechazaron la rama con **cinco hallazgos, los cinco de backend**. No fue un rechazo de
+diseño: los guardarraíles de dinero de este ciclo aguantaron 12 de 13 mutaciones y BL-2 quedó
+genuinamente cerrado. Lo que sigue son **cinco huecos concretos**, cerrados, con el detalle que otros
+roles necesitan.
+
+## B-1 · El barrido escribía sin el predicado con el que había leído — `backend/src/jobs/buylist-sweep.service.ts`
+
+`closeWithGuideTask` escribía con `updateMany({ where: { id, closedAt: null }, … })` **y nada más**.
+El docblock de la regla 2 **afirmaba** que `sellerShippedDeclaredAt IS NULL` «está en el where»: lo
+estaba en el del `findMany`, **no en el de la escritura**. Reglas 5 y 6, igual. La **asimetría era el
+síntoma**: la regla 7, en el mismo fichero y el mismo pase, sí reafirmaba `status: 'cotizada'`.
+
+**El caso alcanzable, y lo que costaba.** El job lee a las 08:00:00; el vendedor pulsa «ya lo mandé» a
+las 08:00:00.5 — `declareShipped` escribe **solo** `sellerShippedDeclaredAt` (ni `status` ni
+`closedAt`) y **no tiene guarda de plazo, a propósito**; el job escribe a las 08:00:01 y su `where` de
+dos términos **sigue casando**. Resultado: `expirada`/`not_shipped`, **terminal**, `closedAt` sellado,
+correo de «no procederemos» y tarea de cancelar la guía — **sobre un paquete que va físicamente en el
+correo**. Y `expirada` **no está en `payableWhere()`**: a esa persona ya no se le podía pagar ni
+revivir la solicitud.
+
+**Cierre.** `closeWithGuideTask` recibe ahora un cuarto parámetro `guard` —**el predicado de la
+lectura**— y lo reafirma en el `where` (`{ ...guard, id }`). Las reglas 1, 2, 5 y 6 declaran su `where`
+**una sola vez** y lo pasan a las dos mitades. `count === 1` sigue siendo el veredicto: si la fila se
+movió, **no se escribe, no se manda correo y no se cuenta**.
+
+**Residual conocido y aceptado:** el `findUnique` de la etiqueta dentro de `closeWithGuideTask` sigue
+siendo read-then-write. Su peor caso es **no abrir** una tarea operativa (fail-open sobre trabajo, no
+sobre dinero) y es casi inalcanzable —`shipDeadlineAt` solo existe si la guía ya se capturó—, así que
+no justifica partir la escritura en dos `updateMany`. Queda escrito en el docblock del método.
+
+## B-2 · `paySpei` derivaba el importe de una lectura FUERA de la transacción — `backend/src/modules/buylist/buylist.service.ts`
+
+El `findUnique` de `req` ocurría **antes** del `$transaction`, con **otra ida y vuelta a la BD en
+medio** (`kycProfile.findUnique` + `adminCycleDials`), y dentro se usaba ese snapshot para **el bruto
+que se compara contra el tope AML** y **el neto que se deposita**. `payableWhere()` no lo tapaba: fija
+`status` y `verifiedAt`, y **ninguno de los dos se mueve cuando cambia el monto**. `itemDecision` es
+**legal concurrentemente** en `aprobada`/`verificacion` (BL-14 solo frena los terminales) y llama a
+`recomputeApprovedTotal`. Si una decisión por-ítem commitea en esa ventana, **el SPEI sale con un bruto
+superado y el chequeo AML compara contra la cifra vieja**.
+
+**Cierre, en dos piezas que NO son redundantes:**
+1. **Relectura dentro de la tx** (`select` de solo las cuatro columnas de dinero — también evita
+   traerse otra vez el snapshot cifrado de la CLABE, S49-M1). Corrige *qué número* se compara.
+2. **CAS sobre esas cuatro columnas** en el `where` del `updateMany` —los tres términos de
+   `brutoConsumado` **más** `offerShippingFeeCents`, que es lo que produce `payoutNetCents`—.
+   Garantiza que *ese mismo número* siga vigente al escribir. Es el hermano exacto del `offerSentAt`
+   que `itemDecision` mete en el `where` de todas sus escrituras.
+
+⚠️ **Por qué hacen falta las dos:** el SSI de Postgres solo arbitra entre transacciones que TAMBIÉN son
+`Serializable`, y `itemDecision` **no lo es**. Sin CAS, la relectura sola dejaría la ventana abierta.
+
+**`capPerMonth` se sigue leyendo FUERA de la tx, y es deliberado:** es una **política** (dial u
+override de KYC), no el importe de esta operación. Ir una llamada stale en una política es
+categóricamente distinto de ir stale en el monto que se está pagando, y meterla dentro alargaría la
+ventana de conflicto de un camino de dinero saliente sin cerrar ningún hueco.
+
+### ⚠️ PARA FRONTEND — `POST /admin/buylist/:id/pay-spei` puede devolver `409 CONFLICT`
+Cuando el CAS falla **pero la solicitud sigue siendo pagable**, lo que falló no fue la precondición de
+estado sino **el monto**. Devolver el `422` de siempre («el pago solo se permite tras
+recepción/verificación») sobre una fila **aprobada y verificada** mandaría al operador a revisar lo
+único que sí está bien.
+
+- **Código:** `409 CONFLICT` (código **COMÚN** del contrato §3, no uno inventado), con
+  `details.status` = el estado real releído.
+- **La acción correcta que el copy debe empujar:** *recargar la solicitud, mirar el monto NUEVO y
+  decidir otra vez*. No es un reintento ciego.
+- **Lo que NO cambia:** el `422 VALIDATION_ERROR` de precondición sigue tal cual cuando la solicitud
+  **no** es pagable, y el replay idempotente de una `pagada` sigue devolviendo `200` con su estado.
+
+## B-3 · Los dos puertos no acuerdan qué es una variante — ESCALADO AL ARQUITECTO
+
+**Medido:** `sealedProductId` aparece **2 veces** en `inventory-publish.port.ts` y **0** en
+`inventory-position.port.ts`. `onHandCountsFor` agrupa por `(cardId, productType, rawCondition,
+gradingCompany, gradeValue, finish, cardProductId)` — **sin `sealedProductId`** ⇒ dos `SealedProduct`
+de la misma `Card` **colapsan en un bucket**. Y en graduado es peor: el adaptador deriva `gradeKey` de
+cuatro campos; **`buylist` llama `gradeKeyFor({ productType, rawCondition })` con dos**, porque
+`SellRequestItem` **no tiene columnas de graduación** ⇒ `buildGradeKey` cae a sus defaults y **toda
+línea graduada se llavea `graded:PSA:10`**. El puerto solo empareja stock PSA 10; el resto es
+**invisible**, y un PSA 10 ajeno se cuenta como propio. **Las dos direcciones del error a la vez.**
+
+⚠️ **La norma de `variant-key.ts` no lo atrapa**: guarda **el FORMATO del string** y deja libre **la
+DERIVACIÓN de sus partes**. El drift ocurre una capa por debajo de donde vigila la norma.
+
+**Cierre elegido (vía b), y por qué.** `buylist` devuelve `positionUnavailable` para `graded` y
+`sealed`: el mecanismo honesto que la pantalla ya tenía y que el contrato **ordena** usar cuando el
+conteo no se puede obtener (*«PROHIBIDO devolver `0`»*, §M5). Es **por línea**: la línea `raw` de la
+misma solicitud conserva su posición completa, y **el dinero de la línea degradada se sigue emitiendo**
+(el contrato dice explícitamente que esos campos son válidos con `positionUnavailable`). Y no se le
+**pregunta** al puerto por una variante que la llave no sabe decir: preguntar y descartar dejaría la
+llave equivocada viva en el seam.
+
+> ### 🚩 DECISIÓN PENDIENTE DEL ARQUITECTO (regla 9)
+> La vía (a) —**que el `VariantPositionRef` cargue la identidad completa** (`gradingCompany`,
+> `gradeValue`, `sealedProductId`), y que el `groupBy` del adaptador agrupe por `sealedProductId`—
+> **cambia la forma de un puerto que declara y provee `inventory`**: es una interfaz **entre streams**,
+> y probablemente arrastre `SellRequestItem` (hoy no tiene dónde guardar la graduación que el vendedor
+> declara). **No lo decido yo.** La degradación de arriba es correcta y honesta, pero **cuesta
+> funcionalidad**: la mesa de decisión deja de dar posición en graduado y sellado, que es justamente
+> donde las piezas son más caras. Hay un test de forma (`buylist.position-identity.spec.ts`) que
+> **cae** el día que el ref gane esos campos, para que la degradación no se quede puesta por inercia.
+
+## B-4 · El paso 6 de M-46 era obligatorio y no tenía mecanismo
+
+La migración declara **en mayúsculas** que el censo y triage humano de las `cotizada` vivas va **antes**
+de habilitar la regla 7, que **NO ES OPCIONAL**, y que sin él «la primera corrida del barrido manda
+correos reales a vendedores con solicitudes viejas». Pero `expireUnofferedRequests` **no tenía flag, ni
+gate, ni kill switch**: corría con `'0 8 * * *'` **la primera mañana tras el deploy**. **Lo único que
+separaba el deploy de esos correos era un comentario en un `.sql`.**
+
+**Cierre:** dial nuevo **`buylist_no_offer_expiry_enabled`**, **seed `off`**, régimen `on|off` estricto
+(solo el string `'on'` enciende; `true`, `'ON'`, `null` o basura ⇒ **apagado**). El gate va **primero**:
+apagado, ni siquiera se lee la tabla. **Sin `SettingsService` la regla también queda apagada** — mismo
+lado seguro que el fail-closed de calendario. **Las otras seis reglas no se gatean**: ninguna depende de
+un paso operativo previo, y apagar el barrido entero dejaría sin plazo a las cinco que sí están listas.
+
+### ⚠️ PARA DEVOPS — orden de despliegue, y lo que queda pendiente
+1. Deploy (la migración ya siembra la fila en `off` vía `prisma/seed.ts`, que itera
+   `SETTING_DEFAULTS`; **verificado contra la BD viva: `buylist_no_offer_expiry_enabled = "off"`**).
+2. **Paso 6**: censo + triage humano (la consulta está al final de la migración de M-46).
+3. Encender **a mano**:
+   `UPDATE "ConfigSetting" SET "valueJson" = '"on"' WHERE key = 'buylist_no_offer_expiry_enabled';`
+
+⚠️ **NO se expone en `SETTING_DTO_MAP`** (§M10), y es deliberado: el contrato fija **DIEZ** diales del
+ciclo y hay un test-ancla que rompe con el onceavo «para que haya que decidirlo a propósito». Éste no es
+un dial de política de negocio sino un **gate de despliegue de una sola vez**, del mismo género que
+`sealed_spread_*` (que tampoco está en el mapa). **Exponerlo en M10 sería un cambio de contrato ⇒ lo
+decide el arquitecto.** Si se prefiere que el operador lo mueva desde la UI en vez de por SQL, es una
+petición para el arquitecto, no un cambio que yo pueda hacer.
+
+> ### 🚩 PENDIENTE DE DEVOPS — BL-11 sigue solo en prosa
+> La precedencia de release **«FRONTEND PRIMERO, backend después»** (`POST /buylist/requests` gana un
+> campo obligatorio `addressId` en un endpoint vivo; backend nuevo contra front viejo **rompe todas las
+> altas**) sigue viviendo **únicamente** en un comentario de la migración. **Cablearlo en CI es de
+> devops** (`.github/workflows/` no es mi ruta) y **no lo he tocado**. Es el mismo género de hallazgo
+> que B-4: un requisito de orden cuyo incumplimiento se paga en producción y cuyo único mecanismo es
+> un párrafo.
+
+## B-5 · El tope AML no tenía prueba en el borde
+
+`buylist.aml-payout-cap.spec.ts` probaba **MX$4,000** y **MX$2,000** contra un tope de **MX$3,000** —
+muy por encima y muy por debajo— más el borde exacto `== cap` **por el lado que pasa**. Faltaba **el
+filo por el lado que rechaza**: mutar `> capPerMonth` a `> capPerMonth + 1` dejaba **58/58 verde** en
+payout y **605/605** en intake. *Un off-by-one en un control antilavado se habría publicado en verde.*
+
+El spec es heredado, pero **esta rama cambió la cascada que lo alimenta** (`brutoConsumado` pasó de dos
+términos a tres, §4.39i.4-bis), así que el universo de montos que el control mide se movió. Ahora se
+prueban los **tres** puntos que fijan la comparación exacta —`cap-1` pasa, `cap` pasa, **`cap+1`
+frena**— y **con el término central de la cascada** (`offerGrossCents`), no solo con los dos viejos.
+Verificado: la mutación `> cap + 1` pone **5 tests en rojo** y la mutación `>= cap` pone **3**.
+
+## Verificación (literal)
+
+```
+npx tsc --noEmit -p tsconfig.json        →  sin salida (limpio)
+npx eslint "src/**/*.ts" "test/**/*.ts"  →  0 errores, 2 warnings PRE-EXISTENTES
+                                            (inventory.service.ts:628, sealed-product.service.ts:11 —
+                                             ficheros que este pase NO toca)
+npx jest                                 →  Test Suites: 235 passed, 235 total
+                                            Tests:       3341 passed, 3341 total
+npx jest --config test/jest-integration.config.js --runInBand
+                                         →  Test Suites: 16 passed, 16 total
+                                            Tests:       228 passed, 228 total
+```
+
+Respecto al pase anterior (232 suites / 3283 unitarios): **+3 suites y +58 tests**. Todos los nuevos se
+verificaron **por mutación**: se rompió el arreglo a propósito y se comprobó que caen (B-1: 10 de 11;
+B-2: 6 de 10; B-3: 6 de 10; B-5: 5 con el off-by-one y 3 con el `>=`). Los que quedan verdes bajo
+mutación son deliberados: documentan el drift o son guardas de no-regresión, no discriminadores.
+
+### ⚠️ La suite de integración se ejecutó, y M-46 se ensayó por primera vez
+Postgres y Redis estaban arriba y la BD **al día** (`prisma migrate status` → «Database schema is up to
+date!», 36 migraciones). **`buylist-cycle.e2e-spec.ts` (869 líneas, nunca ejecutado) pasa 45/45**,
+incluido el recorrido de punta a punta cotizar→ofertar→aceptar→guía→envío→confirmar→recibir→verificar→
+**pagar SPEI**. Ese paso 13 es lo que valida **el CAS de B-2 contra el motor real**: los cuatro términos
+del `where` con valores mezclados `null`/no-`null` casan y el pago prospera. Ningún spec de integración
+ejercita el barrido, así que el gate de B-4 no altera nada allí.
+
+### Reparto de cobertura de B-2, dicho explícitamente
+La ruta feliz del CAS está cubierta **contra Postgres real** (E2E paso 13). La ruta de **fallo** del CAS
+(`409 CONFLICT`) está cubierta **solo en unitario**: hacerla determinista en integración exigiría
+interceptar entre la relectura y la escritura dentro de la misma transacción, cosa que no se puede
+hacer por HTTP. Queda anotado para que QA no lo lea como un hueco olvidado.

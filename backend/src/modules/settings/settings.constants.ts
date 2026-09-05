@@ -204,6 +204,32 @@ export const SettingKey = {
   // hay identidad aritmética que preservar. *Meterlo «por simetría» sería inventar una relación entre
   // un número de veces y un monto.*
   BUYLIST_OFFER_REISSUE_ALERT_COUNT: 'buylist_offer_reissue_alert_count',
+
+  // ===========================================================================================
+  // ⚠️⚠️ NO ES EL DIAL 11. Es el INTERRUPTOR DEL PASO 6 DE M-46 (B-4).
+  // ===========================================================================================
+  // La migración de M-46 declara **en mayúsculas** que el CENSO Y TRIAGE HUMANO de las `cotizada`
+  // vivas va ANTES de habilitar la regla 7 del barrido, que **NO ES OPCIONAL**, y que sin él «la
+  // primera corrida del barrido manda correos reales a vendedores con solicitudes viejas».
+  //
+  // Hasta v1.51.22 **lo único que separaba el deploy de esos correos era ese comentario en un
+  // `.sql`**: `expireUnofferedRequests` no tenía flag, ni gate, ni kill switch, y corre con el cron
+  // `'0 8 * * *'` **la primera mañana después del deploy**. Un paso operativo obligatorio cuyo
+  // incumplimiento manda correo vinculante a terceros **no puede vivir en prosa**: necesita un
+  // mecanismo, y el mecanismo barato ya existía en este archivo (los feature flags `on|off`).
+  //
+  // **Semántica FAIL-CLOSED, y por eso el default es `off`:** la regla 7 CIERRA solicitudes en
+  // TERMINAL y manda correo. Un dial ausente, `null`, `true`, `'ON'` o basura ⇒ **APAGADO**. Solo el
+  // string `'on'` enciende. El orden correcto de despliegue es: deploy → censo/triage (paso 6) →
+  // `UPDATE "ConfigSetting" SET "valueJson" = '"on"' WHERE key = 'buylist_no_offer_expiry_enabled'`.
+  //
+  // ⚠️ **NO SE EXPONE EN `SETTING_DTO_MAP`, Y ES DELIBERADO.** §M10 del contrato fija DIEZ diales del
+  // ciclo y hay un test-ancla que rompe con el onceavo «para que haya que decidirlo a propósito».
+  // Éste **no es un dial de política de negocio**: es un gate de despliegue de una sola vez, del
+  // mismo género que `sealed_spread_*` (que tampoco está en el mapa). Exponerlo en M10 sería un
+  // cambio de contrato ⇒ **lo decide el arquitecto, no el backend** (regla 9). Se opera por fila de
+  // `ConfigSetting`, igual que el paso 6 se opera a mano.
+  BUYLIST_NO_OFFER_EXPIRY_ENABLED: 'buylist_no_offer_expiry_enabled',
 } as const;
 
 export type SettingKeyType = (typeof SettingKey)[keyof typeof SettingKey];
@@ -345,6 +371,10 @@ export const SETTING_DEFAULTS: Record<SettingKeyType, unknown> = {
   // número que el humano mueve no puede exigir un redeploy. *Una alerta de más cuesta un vistazo;
   // una de menos cuesta un vendedor.*
   [SettingKey.BUYLIST_OFFER_REISSUE_ALERT_COUNT]: 2,
+  // ⚠️ B-4 — el interruptor del PASO 6 de M-46 nace **APAGADO**, y ése ES el mecanismo. Un entorno
+  // recién desplegado NO caduca ninguna `cotizada` ni manda un solo correo de «no procederemos»
+  // hasta que un humano haya hecho el censo/triage y encienda esta fila a mano.
+  [SettingKey.BUYLIST_NO_OFFER_EXPIRY_ENABLED]: 'off',
 };
 
 /**
@@ -764,6 +794,11 @@ export const SETTING_VALIDATORS: Record<SettingKeyType, (v: unknown) => string |
   // ⚠️ Dial 9: `>= 1`. El `0` NO es legal — ver el docblock del validador.
   [SettingKey.BUYLIST_MINIMUM_OFFER_NET_CENTS]: validateBuylistMinimumOfferNetCents,
   [SettingKey.BUYLIST_OFFER_REISSUE_ALERT_COUNT]: validatePositiveIntDial('cancellations'),
+  // ⚠️ B-4 — interruptor del paso 6 (NO es el dial 11). `on|off` estricto, por el mismo motivo que
+  // `grading_hook_enabled`: que un `true` o un `'ON'` no queden guardados **pareciendo encendidos**
+  // en la fila que decide si se mandan correos terminales a vendedores reales.
+  [SettingKey.BUYLIST_NO_OFFER_EXPIRY_ENABLED]: (v) =>
+    typeof v === 'string' && FEATURE_FLAG_VALUES.includes(v) ? null : `must be one of ${FEATURE_FLAG_VALUES.join('|')}`,
   // Fecha `yyyy/MM/dd` (formato pokemontcg.io) para la frontera del sync de catálogo.
   [SettingKey.CATALOG_SYNC_FROM_DATE]: (v) =>
     typeof v === 'string' && /^\d{4}\/\d{2}\/\d{2}$/.test(v) ? null : 'must be a date string yyyy/MM/dd',

@@ -420,3 +420,61 @@ describe('M-46 §4.39l — la cruzada se evalúa sobre el ESTADO RESULTANTE, no 
     );
   });
 });
+
+// ============================================================================================
+/**
+ * v1.51.22 · **B-4 — EL INTERRUPTOR DEL PASO 6 DE M-46. NO ES EL DIAL 11.**
+ *
+ * La migración exige, **en mayúsculas y declarándolo NO OPCIONAL**, un censo y triage humano de las
+ * `cotizada` vivas **antes** de habilitar la regla 7 del barrido, «porque si no, la primera corrida
+ * manda correos reales a vendedores con solicitudes viejas». Hasta este pase **lo único que separaba
+ * el deploy de esos correos era un comentario en un `.sql`**.
+ *
+ * ⚠️ **Y por eso NO se expone en §M10:** el ancla de arriba («exactamente DIEZ claves `buylist*` del
+ * ciclo en el DTO») **sigue en diez**, a propósito. Éste no es un dial de política de negocio que el
+ * operador ajuste: es un **gate de despliegue de una sola vez**, del mismo género que
+ * `sealed_spread_*` (que tampoco está en el mapa). Meterlo en el DTO sería un cambio de contrato ⇒
+ * **lo decide el arquitecto** (regla 9).
+ */
+describe('B-4 — `buylist_no_offer_expiry_enabled` (gate del paso 6, NO un dial de M10)', () => {
+  it('⚠️ nace APAGADO: el seed es `off`, y ése ES el mecanismo', () => {
+    // Un gate cuyo default fuera `on` no protegería de nada: el entorno recién desplegado es
+    // exactamente el que todavía no hizo el censo.
+    expect(SETTING_DEFAULTS[SettingKey.BUYLIST_NO_OFFER_EXPIRY_ENABLED]).toBe('off');
+  });
+
+  it('tiene validador `on|off` estricto: un `true` o un `"ON"` NO quedan guardados', () => {
+    // Mismo régimen que `grading_hook_enabled`. Que la LECTURA sea fail-closed no basta: una fila con
+    // `true` **parece encendida** para quien mire la tabla a pelo, y esta fila decide si salen
+    // correos terminales a vendedores reales.
+    const v = SETTING_VALIDATORS[SettingKey.BUYLIST_NO_OFFER_EXPIRY_ENABLED];
+    expect(v('on')).toBeNull();
+    expect(v('off')).toBeNull();
+    for (const malo of ['ON', 'On', 'true', '', 'enabled', 1, true, null, undefined, {}]) {
+      expect(v(malo)).toMatch(/on\|off/);
+    }
+    // Y el seed pasa su propio validador (si no, el sistema arrancaría con algo irreponible).
+    expect(v(SETTING_DEFAULTS[SettingKey.BUYLIST_NO_OFFER_EXPIRY_ENABLED])).toBeNull();
+  });
+
+  it('⚠️ NO se expone en el DTO de M10 — el ancla de los DIEZ sigue cuadrando', () => {
+    expect(Object.values(SETTING_DTO_MAP)).not.toContain(
+      SettingKey.BUYLIST_NO_OFFER_EXPIRY_ENABLED,
+    );
+    expect(Object.keys(SETTING_DTO_MAP)).not.toContain('buylistNoOfferExpiryEnabled');
+    // El mismo conteo que el ancla de arriba, re-aseverado desde el lado del gate: añadirlo al DTO
+    // rompería LOS DOS tests, que es justo lo que obliga a decidirlo a propósito.
+    const delCiclo = Object.keys(SETTING_DTO_MAP).filter(
+      (k) => k.startsWith('buylist') && !k.startsWith('buylistCap'),
+    );
+    expect(delCiclo).toHaveLength(10);
+  });
+
+  it('pero SÍ existe como clave de primera clase: seed + validador (no es una constante escondida)', () => {
+    // Un gate que viviera en una constante de código exigiría redeploy para encenderse, y el paso 6
+    // se cierra un martes cualquiera cuando el humano termina el triage.
+    expect(SettingKey.BUYLIST_NO_OFFER_EXPIRY_ENABLED).toBe('buylist_no_offer_expiry_enabled');
+    expect(Object.keys(SETTING_DEFAULTS)).toContain('buylist_no_offer_expiry_enabled');
+    expect(Object.keys(SETTING_VALIDATORS)).toContain('buylist_no_offer_expiry_enabled');
+  });
+});

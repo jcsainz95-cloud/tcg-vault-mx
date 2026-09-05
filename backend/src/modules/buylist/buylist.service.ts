@@ -2269,8 +2269,12 @@ export class BuylistService implements OnModuleInit {
     const { lines, decisions, overrides } = await this.deriveOfferLinesBatch(items);
 
     // (4) LA POSICIÓN — cuatro sumandos, cuatro fuentes, UNA llave.
+    // ⚠️ B-3: **solo las líneas cuya identidad la llave puede expresar**. Las demás no reciben bucket
+    // y salen por el camino honesto que ya existe (`positionUnavailable`). Ver `positionIsKeyable`.
     const position = await this.positionFor(
-      lines.map((l) => ({ ...l.variant, cardProductId: l.cardProductId })),
+      lines
+        .filter((l) => BuylistService.positionIsKeyable(l.it.productType))
+        .map((l) => ({ ...l.variant, cardProductId: l.cardProductId })),
       req.id,
     );
 
@@ -2531,6 +2535,49 @@ export class BuylistService implements OnModuleInit {
    * `null` ⇒ **no se pudo contar**: el puerto falta (defecto de arranque) o falló. **JAMÁS se
    * degrada a ceros.**
    */
+  /**
+   * ⚠️⚠️ v1.51.22 · **B-3 — ¿PUEDE `VariantPositionRef` DECIR LA VERDAD SOBRE ESTA LÍNEA?**
+   *
+   * Solo `raw`. Y no es una restricción de producto: es que **para las otras dos la llave no
+   * distingue piezas que valen distinto**, y una posición que mezcla identidades es exactamente lo
+   * que §P.8 llama *«peor que no mostrar nada, porque se ve confiable»*. Medido:
+   *
+   * - **`graded` — el peor de los dos.** `gradeKeyFor` deriva la llave de
+   *   `(productType, rawCondition, gradingCompany, gradeValue)`, pero `SellRequestItem` **no tiene
+   *   columnas de graduación** (ni `gradingCompany` ni `gradeValue`), así que aquí solo se le pueden
+   *   pasar dos campos y `buildGradeKey` cae a sus defaults ⇒ **TODA línea graduada se llavea
+   *   `graded:PSA:10`**. El puerto entonces empareja únicamente stock PSA 10: un CGC 9.5 en la caja
+   *   es **invisible**, y un PSA 10 ajeno se cuenta como si fuera de esta línea. **Las dos
+   *   direcciones del error a la vez.**
+   * - **`sealed` — el conteo es un superconjunto.** El `groupBy` del adaptador agrupa por
+   *   `(cardId, productType, rawCondition, gradingCompany, gradeValue, finish, cardProductId)` —
+   *   **sin `sealedProductId`** —, así que **dos `SealedProduct` distintos de la misma `Card` caen en
+   *   UN bucket**. `sealedProductId` aparece 2 veces en `inventory-publish.port.ts` y **0** en
+   *   `inventory-position.port.ts`: los dos puertos **no acuerdan qué es una variante**.
+   *
+   * ⚠️ **La norma de `variant-key.ts` NO atrapa esto**, y conviene saber por qué antes de confiar en
+   * ella: guarda **el FORMATO del string** («prohibida la interpolación a mano») y deja libre **la
+   * DERIVACIÓN de sus partes**. El drift ocurre una capa por debajo, al construir `gradeKey`, donde
+   * los dos lados llaman a la misma función **con distinto número de argumentos**.
+   *
+   * ### Por qué se degrada en vez de arreglar la llave
+   * Arreglarla de verdad exige que el **ref cargue la identidad completa** (`gradingCompany`,
+   * `gradeValue`, `sealedProductId`) — y eso es **cambiar la forma de un puerto que declara y provee
+   * `inventory`**, o sea un cambio de interfaz entre streams: **lo decide el arquitecto** (regla 9).
+   * Está escalado. Mientras tanto, la respuesta correcta a un conteo que no se puede hacer bien es
+   * **decir que no se pudo**, que es el mecanismo que esta misma pantalla ya tiene y que el contrato
+   * exige usar aquí (*«PROHIBIDO devolver `0`»*): `position: null`, `positionUnavailable: true`,
+   * `suggestion.verdict: "none"`. El front pinta «SIN CONTEO» (DESIGN_SYSTEM §23.7).
+   *
+   * **NO se degrada la línea entera:** precio derivado, `quotedPriceCents`, `pendingReason` y los
+   * `totals` siguen siendo válidos y se siguen emitiendo — el contrato lo dice explícitamente
+   * («estos campos son válidos aun con `positionUnavailable`: dependen de montos, no del conteo»).
+   * *Lo único que se calla es lo único que no se sabe.*
+   */
+  private static positionIsKeyable(productType: ProductType): boolean {
+    return productType === 'raw';
+  }
+
   private async positionFor(
     refs: VariantPositionRef[],
     /** BL-16 (§4.39g.1): la solicitud EN PANTALLA, excluida de los tres sumandos de promesa. */
@@ -2616,6 +2663,12 @@ export class BuylistService implements OnModuleInit {
       });
     }
     for (const row of rows) {
+      // ⚠️ B-3: los sumandos de PROMESA se llavean con la MISMA derivación de dos campos que los
+      // refs, así que arrastran el mismo drift. La condición está aquí y no solo en el filtro de los
+      // refs porque **este bucle es la otra mitad de la misma llave**: si un día se ensancha lo que
+      // es llaveable, las dos mitades tienen que moverse juntas o vuelven a discrepar en silencio.
+      // (Hoy es redundante —sin ref no hay bucket— y esa redundancia es deliberada.)
+      if (!BuylistService.positionIsKeyable(row.productType)) continue;
       const key = variantPositionKey({
         cardId: row.cardId,
         productType: row.productType,
@@ -5685,12 +5738,40 @@ export class BuylistService implements OnModuleInit {
     const dials = await this.adminCycleDials();
     const paid = await this.prisma.$transaction(
       async (tx) => {
+        // ⚠️⚠️ v1.51.22 · **B-2 — EL IMPORTE SE RELEE DENTRO DE LA TRANSACCIÓN.**
+        //
+        // Hasta aquí el bruto salía del `req` de arriba, leído **fuera** del `$transaction` y con
+        // **otra ida y vuelta a la BD en medio** (`kycProfile.findUnique` + `adminCycleDials`). En esa
+        // ventana `itemDecision` es **legal concurrentemente** (`aprobada`/`verificacion` NO son
+        // terminales, así que BL-14 no la frena) y llama a `recomputeApprovedTotal`, que **reescribe
+        // `approvedTotalCents`**. Resultado medible: el SPEI salía con un bruto **ya superado** y el
+        // chequeo AML comparaba contra la **cifra vieja** — el tope mensual se evaluaba sobre un
+        // número que en el instante del `UPDATE` ya no existía.
+        //
+        // `payableWhere()` **no lo cubre**: fija `status` y `verifiedAt`, y ninguno de los dos se mueve
+        // cuando cambia el monto. *Una guarda que no mira el importe no protege el importe.*
+        //
+        // Se relee con `select` de **solo las columnas de dinero**: además de ser lo único que hace
+        // falta, evita traerse otra vez el snapshot cifrado de la CLABE (S49-M1).
+        const fresh = await tx.sellRequest.findUnique({
+          where: { id },
+          select: {
+            approvedTotalCents: true,
+            offerGrossCents: true,
+            quotedTotalCents: true,
+            offerShippingFeeCents: true,
+          },
+        });
+        // La fila desapareció bajo nosotros (imposible sin `onDelete`, pero el `null` es
+        // representable): NO se paga. Sale por el camino de `count !== 1`, que ya distingue el
+        // replay idempotente del choque real.
+        if (!fresh) return null;
         // v1.51.5 (§4.39i.4-bis) — SITIO (b): el término de la solicitud EN CURSO. Usa el MISMO
         // cuerpo que el acumulado de arriba (sitio (a)) porque son los dos lados de la misma
         // desigualdad `acumulado + enCurso > cap`: medir cada lado con una cascada distinta es
         // comparar dos cosas. Lo aprobado manda; sin decisiones por-ítem, **lo OFERTADO** (que es lo
         // vinculante, D2); y solo en filas pre-M-46, lo cotizado.
-        const payoutCents = brutoConsumado(req);
+        const payoutCents = brutoConsumado(fresh);
         const alreadyPaid = await this.monthCommittedGrossPaidCentsTx(tx, req.userId);
         if (alreadyPaid + payoutCents > capPerMonth) {
           throw BusinessException.validation('BUYLIST_LIMIT_EXCEEDED', 'Per-month payout cap exceeded', {
@@ -5705,7 +5786,28 @@ export class BuylistService implements OnModuleInit {
           // v1.51.8: el fragmento sale de `payableWhere()`, que es la traducción a `where` de
           // `isPayableSellRequest` — **los dos términos, la misma constante**. Hay un test que
           // asevera que el predicado y el `where` coinciden en TODO el enum × `verifiedAt`.
-          where: { id, ...this.payableWhere() },
+          //
+          // ⚠️⚠️ v1.51.22 · **B-2 — CAS SOBRE EL IMPORTE**, hermano exacto del `offerSentAt` que
+          // `itemDecision` mete en el `where` de todas sus escrituras «con el valor que se observó al
+          // resolver el monto». Aquí se afirman **las CUATRO columnas de las que sale el dinero**: los
+          // tres términos de la cascada `brutoConsumado` **y** la tarifa congelada que produce
+          // `payoutNetCents`. Si alguna se movió entre la relectura y esta escritura, `count !== 1` y
+          // **no sale un peso**.
+          //
+          // **La relectura y el CAS no son redundantes, y por eso van los dos:** la relectura corrige
+          // *qué número* se compara contra el tope; el CAS garantiza que *ese mismo número* siga
+          // siendo el vigente cuando se escribe. Y el CAS **no depende del nivel de aislamiento del
+          // otro lado**: el SSI de Postgres solo arbitra entre transacciones que TAMBIÉN son
+          // `Serializable`, y `itemDecision` no lo es — así que sin CAS la relectura sola dejaría la
+          // ventana abierta. *Un `updateMany` con predicado sí frena a cualquiera.*
+          where: {
+            id,
+            ...this.payableWhere(),
+            approvedTotalCents: fresh.approvedTotalCents,
+            offerGrossCents: fresh.offerGrossCents,
+            quotedTotalCents: fresh.quotedTotalCents,
+            offerShippingFeeCents: fresh.offerShippingFeeCents,
+          },
           // SEC-D2: `pagada` es terminal → sella closedAt (ancla la retención de INE al cierre real).
           data: {
             status: 'pagada',
@@ -5727,7 +5829,11 @@ export class BuylistService implements OnModuleInit {
             // `offerShippingFeeCents ?? 0`: en una fila **pre-M-46** no hay tarifa congelada porque
             // **no se le descontó ninguna**. Restar un dial vigente aquí sería cobrarle un envío que
             // nunca se le anunció — lo contrario de D25.
-            payoutNetCents: Math.max(0, payoutCents - (req.offerShippingFeeCents ?? 0)),
+            //
+            // ⚠️ B-2: la tarifa sale de `fresh`, **no** del `req` de fuera de la transacción. Los dos
+            // términos de esta resta tienen que venir de la MISMA lectura: mezclar un bruto releído
+            // con un envío viejo produciría un neto que no corresponde a ninguna versión de la fila.
+            payoutNetCents: Math.max(0, payoutCents - (fresh.offerShippingFeeCents ?? 0)),
           },
         });
         if (res.count !== 1) return null;
@@ -5744,6 +5850,20 @@ export class BuylistService implements OnModuleInit {
       const current = await this.prisma.sellRequest.findUnique({ where: { id } });
       // S49-M1: mismo motivo que la salida idempotente de arriba (fila cruda con la CLABE cifrada).
       if (current?.status === 'pagada') return this.adminSellRequestDTO(current, dials);
+      // ⚠️ v1.51.22 · **B-2 — el CAS del importe tiene su propia salida, y no es la de arriba.**
+      // Si la solicitud SIGUE siendo pagable, lo que falló no fue la precondición de estado: fue el
+      // CAS del monto. Decirle al operador *«el pago solo se permite tras recepción/verificación»*
+      // sobre una fila que está **aprobada y verificada** lo manda a revisar lo único que sí está
+      // bien, y la acción correcta —**volver a abrir la solicitud, ver el monto NUEVO y decidir de
+      // nuevo**— no se deduce de ese mensaje. `409 CONFLICT` es un código COMÚN del contrato (§3), no
+      // uno inventado para esto.
+      if (current && isPayableSellRequest(current)) {
+        throw BusinessException.conflict(
+          'CONFLICT',
+          'The approved amount changed while the payment was being processed; re-check the request before paying',
+          { status: current.status },
+        );
+      }
       throw BusinessException.validation(
         'VALIDATION_ERROR',
         'Payment allowed only after receipt/verification and approval',
