@@ -21,7 +21,8 @@ import { needsSeed } from './utils/auth';
  *  5. **§24.5 / I-2** — el monograma es proporcional a la PLACA, no al breakpoint del viewport.
  *
  * ALCANCE. El spec está escrito de forma AGNÓSTICA (no hay nombres de set literales: los logos se
- * interceptan por URL y el oráculo se descubre del DOM), pero hoy se marca `needsSeed` contra el
+ * interceptan por URL, las proporciones se reparten por índice de descubrimiento y el oráculo —la
+ * víctima del 404 y su testigo— se descubre del DOM), pero hoy se marca `needsSeed` contra el
  * stack real: `logoUrl` es `null` en TODO el catálogo hasta que un operador re-sincronice
  * (ARCHITECTURE §4.39.4 — no hay backfill), así que en real no habría ninguna placa CON logo que
  * medir. El día que el seed traiga un set con logo, este archivo corre tal cual: basta borrar el
@@ -31,10 +32,9 @@ import { needsSeed } from './utils/auth';
 
 /**
  * Proporciones INTRÍNSECAS deliberadamente dispares (§4.39.2: «proporción MUY variable entre
- * sets»). Se reparten CÍCLICAMENTE entre los sets que tengan logo, sea cual sea su id: así el
- * spec no depende de qué sets trae el catálogo — solo de que haya al menos uno con logo.
+ * sets»).
  *  · 1.92:1 es el único que el defecto B-1 NO manifestaba (por encima del umbral de ~1.83:1);
- *    los otros tres son los que descuadraban la retícula.
+ *    los otros tres son los que descuadraban la retícula. Servir SOLO ese equivaldría a no probar.
  */
 const LOGO_SHAPES = [
   { w: 480, h: 250, label: 'apaisado 1.92:1' },
@@ -43,32 +43,57 @@ const LOGO_SHAPES = [
   { w: 200, h: 400, label: 'vertical 1:2' },
 ];
 
-/** Reparto estable por URL: la misma imagen recibe siempre la misma proporción. */
-function shapeFor(url: string) {
-  let hash = 0;
-  for (const ch of url) hash = (hash * 31 + ch.charCodeAt(0)) % 9973;
-  return LOGO_SHAPES[hash % LOGO_SHAPES.length];
-}
-
 const svg = (w: number, h: number) =>
   `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">` +
   `<rect width="${w}" height="${h}" fill="#e8e4d8"/></svg>`;
 
 /**
- * Sirve un logo de proporción controlada. `broken` (URL exacta) fuerza un 404 en ESE logo.
+ * Stub de logos: proporción por **ÍNDICE DE DESCUBRIMIENTO**, no por hash de la URL.
+ *
+ * ⚠️ La versión anterior repartía con `hash(url) % 4` y lo llamaba «cíclico». No lo era: QA la
+ * instrumentó y de los cuatro sets con logo del fixture, **tres colisionaban en `cuadrado 1:1` y
+ * uno en `vertical 1:2`** — las dos proporciones APAISADAS no se servían nunca, mientras el título
+ * del test y las notas afirmaban que sí (defecto N-2). Hoy la colisión era benigna porque caía en
+ * los peores casos, pero era una lotería: un cambio de ids del fixture podía mandarlas las cuatro a
+ * `1.92:1`, justo la única que NO manifiesta B-1, y dejar el test insignia en verde permanente.
+ *
+ * Con índice de descubrimiento el reparto es **determinista por construcción**: cada URL distinta
+ * toma la siguiente forma de la lista, así que con ≥4 logos se sirven **las cuatro, siempre**, sin
+ * depender de qué ids traiga el catálogo (que es lo que se buscaba con el hash). El mapa `assigned`
+ * se devuelve para que la prueba pueda **afirmar** qué se sirvió de verdad, en vez de suponerlo.
+ *
  * Solo intercepta `**\/logo.png`: el arte de carta (otra ruta del mismo host) no se toca.
  */
-async function stubSetLogos(page: Page, broken?: string) {
+type LogoStub = {
+  /** URL del logo → forma que se le sirvió. Es el oráculo de «se sirvieron las cuatro». */
+  assigned: Map<string, (typeof LOGO_SHAPES)[number]>;
+  /** Rompe (404) ESA url a partir de la siguiente petición. Conserva el reparto ya hecho. */
+  breakUrl: (url: string) => void;
+};
+
+async function stubSetLogos(page: Page): Promise<LogoStub> {
+  const assigned = new Map<string, (typeof LOGO_SHAPES)[number]>();
+  let broken: string | null = null;
   await page.route('**/logo.png', (route) => {
     const url = route.request().url();
-    if (broken && url === broken) return route.fulfill({ status: 404, body: '' });
-    const shape = shapeFor(url);
+    if (broken !== null && url === broken) return route.fulfill({ status: 404, body: '' });
+    let shape = assigned.get(url);
+    if (!shape) {
+      shape = LOGO_SHAPES[assigned.size % LOGO_SHAPES.length];
+      assigned.set(url, shape);
+    }
     return route.fulfill({
       status: 200,
       contentType: 'image/svg+xml',
       body: svg(shape.w, shape.h),
     });
   });
+  return {
+    assigned,
+    breakUrl: (url: string) => {
+      broken = url;
+    },
+  };
 }
 
 /** Índice de sets del cotizador (`MasterSetIndex` mode="quoter"), sin auth. */
@@ -103,12 +128,24 @@ test.describe('§24 · la placa de tinta mide lo mismo con cualquier logo (R1)',
   test('todas las placas de la retícula son idénticas y 3:2, con logo apaisado, cuadrado, vertical y sin logo', async ({
     page,
   }) => {
-    await stubSetLogos(page);
+    const stub = await stubSetLogos(page);
     const plates = await openSetIndex(page);
     await settleLogos(page);
 
     const count = await plates.count();
     expect(count).toBeGreaterThanOrEqual(4); // hay retícula que medir
+
+    // (0) EL ORÁCULO DEL PROPIO STUB. El título dice «apaisado, cuadrado, vertical»: esto lo
+    //     comprueba en vez de suponerlo (defecto N-2). Con ≥4 logos tienen que estar las CUATRO
+    //     formas servidas; si el reparto vuelve a colisionar —o alguien reintroduce un hash—, esta
+    //     línea se pone roja antes de que la geometría dé un verde que no vale nada.
+    const servidas = [...stub.assigned.values()].map((f) => f.label);
+    // eslint-disable-next-line no-console
+    console.log(`[proporciones servidas] ${JSON.stringify([...stub.assigned].map(([u, f]) => [u.split('/').slice(-2)[0], f.label]))}`);
+    expect(stub.assigned.size, 'ningún logo servido: no hay nada que medir').toBeGreaterThan(0);
+    if (stub.assigned.size >= LOGO_SHAPES.length) {
+      expect(new Set(servidas)).toEqual(new Set(LOGO_SHAPES.map((f) => f.label)));
+    }
 
     const boxes = [];
     for (let i = 0; i < count; i += 1) {
@@ -195,36 +232,61 @@ test.describe('§24.5 · el monograma', () => {
   test('§24.5 nº3: un 404 del CDN cae al monograma — sin icono roto y sin dejar la placa esperando', async ({
     page,
   }) => {
-    // El set que se rompe se DESCUBRE (el primero con logo), no se escribe a mano: así el spec no
-    // depende de qué trae el catálogo.
-    await stubSetLogos(page);
+    // ─────────────────────────────────────────────────────────────────────────────────────
+    // LA VÍCTIMA SE ATA POR IDENTIDAD (defecto N-1). La versión anterior la localizaba como «la
+    // primera teja SIN imagen», y el fixture ya trae DOS sets legítimamente sin logo: al borrar el
+    // `onError` del componente, la víctima conservaba su <img> rota y el selector se iba a un set
+    // que NUNCA tuvo logo, así que las tres aserciones pasaban sin haber tocado a la víctima. Era
+    // un FALSO VERDE en la prueba que existe justamente para impedirlos. Ahora se recuerda QUIÉN es
+    // (su nombre, descubierto del DOM) y se le exige el resultado A ELLA.
+    // ─────────────────────────────────────────────────────────────────────────────────────
+    const stub = await stubSetLogos(page);
     await openSetIndex(page);
-    await settleLogos(page);
-    const victimUrl = await page.locator('[data-testid="set-plate"] img').first().getAttribute('src');
-    expect(victimUrl, 'no hay ninguna placa con logo que romper').not.toBeNull();
-
-    await page.unrouteAll();
-    await stubSetLogos(page, victimUrl!);
-    const plates = await openSetIndex(page);
     await settleLogos(page);
 
     // ⚠️ Se acota a las `li` que TIENEN placa: `/es/buylist` también pinta «Top Bounties», cuyas
-    // tarjetas llevan arte de carta. Sin este filtro la prueba mediría una tarjeta de bounty y
-    // fallaría por su `<img>` — un falso rojo, no un defecto del producto.
+    // tarjetas llevan arte de carta. Sin este filtro se mediría una tarjeta de bounty — el falso
+    // ROJO que se corrigió antes. Ninguna de las dos acotaciones sustituye a la otra.
     const tiles = page.locator('li').filter({ has: page.getByTestId('set-plate') });
-    const victimTile = tiles
-      .filter({ has: page.locator(`[data-testid="set-plate"]:not(:has(img))`) })
-      .first();
-    // La víctima ya no tiene imagen y SÍ tiene monograma (ni icono roto ni placa vacía).
+
+    // Se descubren la víctima (primera teja CON logo) y un TESTIGO sano (otra teja con logo).
+    const total = await tiles.count();
+    const conLogo: number[] = [];
+    for (let i = 0; i < total; i += 1) {
+      if ((await tiles.nth(i).locator('img').count()) > 0) conLogo.push(i);
+    }
+    expect(conLogo.length, 'hacen falta ≥2 placas con logo: una víctima y un testigo').toBeGreaterThanOrEqual(2);
+
+    const nameOf = (i: number) => tiles.nth(i).locator('[lang="en"]').first().innerText();
+    const victimName = (await nameOf(conLogo[0])).trim();
+    const witnessName = (await nameOf(conLogo[1])).trim();
+    const victimUrl = await tiles.nth(conLogo[0]).locator('img').getAttribute('src');
+    expect(victimUrl, 'no hay ninguna placa con logo que romper').not.toBeNull();
+    expect(victimName, 'la víctima no tiene nombre con el que identificarla').not.toBe('');
+    expect(witnessName).not.toBe(victimName);
+
+    // Se rompe SOLO esa URL y se recarga (el reparto de proporciones ya hecho se conserva).
+    stub.breakUrl(victimUrl!);
+    await openSetIndex(page);
+    await settleLogos(page);
+
+    // La víctima se localiza POR SU NOMBRE, no por «la primera que cumpla una condición».
+    const victimTile = tiles.filter({ hasText: victimName });
+    await expect(victimTile, `«${victimName}» tiene que identificar UNA sola teja`).toHaveCount(1);
+    // Ella —y no otra— perdió la imagen y se quedó con el monograma: ni icono roto ni placa vacía.
     await expect(victimTile.locator('img')).toHaveCount(0);
     await expect(victimTile.getByTestId('set-monogram')).toBeVisible();
-    // …y su caja sigue midiendo lo mismo que la de una placa sana.
-    const healthyPlate = page
-      .locator('[data-testid="set-plate"]')
-      .filter({ has: page.locator('img') })
-      .first();
+
+    // Y el TESTIGO, cuya URL no se tocó, SIGUE con su logo: prueba que lo que retiró la imagen fue
+    // el 404 y no una caída global (sin esto, «cero imágenes en la página» también pasaría).
+    const witnessTile = tiles.filter({ hasText: witnessName });
+    await expect(witnessTile).toHaveCount(1);
+    await expect(witnessTile.locator('img')).toHaveCount(1);
+    await expect(witnessTile.getByTestId('set-monogram')).toHaveCount(0);
+
+    // …y la caja de la víctima sigue midiendo lo mismo que la del testigo.
     const broken = (await victimTile.getByTestId('set-plate').boundingBox())!;
-    const healthy = (await healthyPlate.boundingBox())!;
+    const healthy = (await witnessTile.getByTestId('set-plate').boundingBox())!;
     expect(Math.abs(broken.height - healthy.height)).toBeLessThanOrEqual(1);
     expect(Math.abs(broken.width - healthy.width)).toBeLessThanOrEqual(1);
   });

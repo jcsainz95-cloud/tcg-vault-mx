@@ -6,13 +6,23 @@ import * as api from '@/lib/api';
 import { MasterSetIndex, setMonogram } from './MasterSetIndex';
 
 /**
- * P-54 · DESIGN_SYSTEM §24 — LA PLACA DE TINTA del índice de sets.
+ * P-54 · DESIGN_SYSTEM §24 — LA PLACA DE TINTA del índice de sets, en lo que jsdom SÍ puede ver.
  *
- * Lo que estas pruebas defienden, y por qué cada una puede ponerse ROJA:
- *  - R1: el logo va CONTENIDO en una caja de tamaño fijo (`aspect-[3/2]`, `object-contain`).
+ * ⚠️ LÍMITE DEL ARCHIVO, ARRIBA Y NO EN LETRA PEQUEÑA: jsdom **no hace layout ni carga imágenes**.
+ * Aquí no se verifica NINGUNA geometría —ni que la placa mida 3:2, ni que todas midan lo mismo, ni
+ * que no salte al cargar— ni nada que dependa de que una imagen llegue de la red. Eso se mide en
+ * Chromium: `e2e/master-set-plate.spec.ts`. La cabecera anterior listaba «R1: caja de tamaño fijo»
+ * entre lo defendido aquí, y era falso: ése fue el hueco por el que pasó el bloqueante B-1 con la
+ * suite en verde.
+ *
+ * Lo que estas pruebas SÍ defienden, y por qué cada una puede ponerse ROJA:
+ *  - R1 (solo la ESTRUCTURA que lo hace posible): la <img> no está en flujo y el aire vive en ella,
+ *    no en el padre. La medida de la caja NO está aquí.
  *  - R2: el nombre en texto NO desaparece — sigue siendo el nombre accesible de la teja.
- *  - R3: se pinta sobre tinta (`bg-ink`) con el contorno de seguridad de §24.2.
- *  - R4: SIN logo no hay hueco ni PULSO — monograma, y `onError` cae al monograma.
+ *  - R3: se pinta sobre tinta (`bg-ink`), con `object-contain` y el contorno de seguridad de §24.2
+ *    (atributos y estilo en línea, no su efecto visual).
+ *  - R4: SIN logo no hay hueco ni PULSO — monograma; `onLoad` lo retira y `onError` lo devuelve
+ *    (transiciones de estado del DOM, que jsdom sí puede simular con `fireEvent`).
  *  - §4.39.5 / contrato v1.52: el modo `quoter` mapea `logoUrl` desde `GET /buylist/sets`;
  *    si nadie lo mapea ahí, esa teja es la única sin logo de todo el producto.
  */

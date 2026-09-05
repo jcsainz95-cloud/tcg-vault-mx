@@ -10454,6 +10454,10 @@ después). Total: **16** pruebas, suite completa **967 verdes**.
 
 1. **R1** — todas las placas de la retícula miden **exactamente lo mismo** y su alto es 2/3 de su ancho,
    con logos interceptados de proporción **1.92:1, 1.60:1, 1:1 y 1:2** conviviendo en la misma página.
+   ⚠️ **CORRECCIÓN (§43.8, defecto N-2):** escrito así era **falso**. El reparto era un `hash(url) % 4`
+   y de los cuatro sets con logo del fixture **tres colisionaban en `1:1` y uno en `1:2`**: las dos
+   proporciones **apaisadas no se servían nunca**. Hoy el reparto es por índice de descubrimiento y la
+   propia prueba **afirma** qué se sirvió, así que la frase de arriba ya es cierta — y verificable.
 2. **Cero CLS** — se **retiene** la respuesta del logo, se mide la placa vacía, se libera y se vuelve a
    medir: el alto no cambia. Sirve un logo **cuadrado** a propósito: con uno apaisado de 1.92:1 el defecto
    no se manifestaba y la prueba habría pasado sin probar nada.
@@ -10461,6 +10465,12 @@ después). Total: **16** pruebas, suite completa **967 verdes**.
    `<img>` y monograma a la vez (`imgs + monos === 1`).
 4. **404** — se descubre del DOM el primer logo con imagen, se le fuerza un 404 y se comprueba que esa
    placa cae al monograma **y conserva su caja**.
+   ⚠️ **CORRECCIÓN (§43.8, defecto N-1):** «**esa** placa» era **falso** y era un **falso verde**. La
+   víctima se localizaba como «la primera teja SIN imagen», y el fixture trae **dos** sets legítimamente
+   sin logo: al borrar el `onError` del componente, la víctima conservaba su `<img>` rota y el selector
+   se iba a un set que nunca tuvo logo — la prueba pasaba **con la caída al monograma eliminada**. Hoy
+   la víctima se ata **por su identidad** y hay un **testigo** sano que impide el aprobado por
+   apagón general.
 5. **I-2** — el monograma guarda la misma proporción con su placa en dos anchos de placa muy distintos
    (181px y 116px), y las letras nunca llenan la placa.
 
@@ -10473,6 +10483,10 @@ después). Total: **16** pruebas, suite completa **967 verdes**.
 | I-2: el monograma vuelve a `text-[28px] lg:text-[44px]` | **1 roja**: `monograma 44px sobre placa 116px` |
 | Sin mutar | **5 verdes** |
 
+⚠️ **CORRECCIÓN (§43.8):** en esta tabla **faltaba la mutación de `onError`**, y ésa es exactamente la
+razón por la que el falso verde N-1 no salió. La tabla completa —con `onError` dentro y con los dos
+defectos del propio spec— está en §43.8.
+
 ### 5. Dos cosas más que se cerraron en esta ronda
 
 - **`SetPlate.failed` no se reiniciaba** si cambiaba el `logoUrl` del **mismo** `setId` (tras un re-sync,
@@ -10483,6 +10497,10 @@ después). Total: **16** pruebas, suite completa **967 verdes**.
   una tarjeta de bounty. Se corrigió acotando a las `li` **que tienen placa**. Y de paso el spec se
   reescribió **agnóstico**: cero nombres de set literales — la proporción se reparte por hash de la URL y
   la víctima del 404 se descubre del DOM.
+  ⚠️ **CORRECCIÓN (§43.8):** esa segunda mitad envejeció mal en el mismo día. **El hash era N-2** y
+  **«se descubre del DOM» sin atarla era N-1**: al corregir un falso rojo metí un falso verde. El
+  objetivo (spec agnóstico) era correcto; el **mecanismo** no. Hoy: índice de descubrimiento e
+  identidad explícita de la víctima.
 
 ### 6. Alcance del nuevo spec, dicho sin adornos
 
@@ -10508,3 +10526,62 @@ la bóveda, no el cotizador.
 **No lo cambio yo.** La corrección natural sería contar columnas por **contenedor** en vez de por viewport
 (la placa ya usa `container-type` para su monograma), pero §24.4 está escrita en anchos de viewport y
 tocarlo es decisión de ux-ui. Queda como pregunta con las medidas encima de la mesa.
+
+### 8. Tercera ronda: los dos defectos que el propio spec traía dentro (N-1, N-2, N-4) — 2026-09-02
+
+QA aprobó los bloqueantes (los volvió a medir en navegador, incluido un caso que yo no había probado:
+**imagen en caché**, donde `onLoad` puede no dispararse — sin monograma pegado). Pero encontró **dos
+defectos en el spec que escribí para cerrar el falso verde anterior**. No se mergean: ese archivo es la
+única defensa de esta clase de defecto y **contenía otro**.
+
+**N-1 · La prueba del 404 era un FALSO VERDE.** QA borró el `onError` **entero** del componente y el spec
+dio **5 passed**. Causa: mi propia corrección del falso rojo de «Top Bounties». La víctima se elegía como
+*«la primera teja que no tiene imagen»* — pero el fixture ya trae **dos sets legítimamente sin logo**, así
+que sin `onError` la víctima conservaba su `<img>` rota y el selector se iba a *Sword & Shield*, que nunca
+tuvo logo: las tres aserciones pasaban **sin haber tocado a la víctima**. Acertaba solo por accidente
+(el primer set con logo era también el primero del DOM). **Cambié un falso rojo por un falso verde**, en
+la prueba que existe para impedirlos.
+
+**Arreglo:** la víctima se ata **por identidad**. Se descubren del DOM (a) la primera teja **con** logo —su
+nombre y su URL— y (b) un **testigo**: otra teja con logo que no se toca. Se rompe solo la URL de la
+víctima, se recarga, y se le exige el resultado **a ella, localizada por su nombre**:
+`toHaveCount(1)` sobre el nombre (si identificara dos tejas, falla en vez de elegir), `img → 0`,
+monograma visible. El **testigo** conserva su `<img>` y no tiene monograma: sin esa aserción, un apagón
+general de imágenes también aprobaría la prueba. Las dos acotaciones conviven —«solo `li` con placa»
+(falso rojo) e «identidad de la víctima» (falso verde)— porque ninguna sustituye a la otra.
+
+**N-2 · El spec servía 2 de las 4 proporciones que decía servir.** `shapeFor` era un `hash(url) % 4`, no
+un reparto cíclico. QA instrumentó mi función: `sv8 → 1:1`, `sv6 → 1:1`, `sv1 → 1:1`, `cel25 → 1:2`. Las
+**dos apaisadas no se servían nunca**, mientras el título del test, mi comentario y §43 afirmaban que sí.
+La colisión era benigna **por suerte** (caía en los dos peores casos); un cambio de ids del fixture podía
+mandarlas las cuatro a `1.92:1` —la única que **no** manifiesta B-1— y dejar el test insignia en verde
+permanente.
+
+**Arreglo:** reparto por **índice de descubrimiento** (cada URL distinta toma la siguiente forma de la
+lista) ⇒ con ≥4 logos se sirven **las cuatro, siempre, por construcción**, y sigue sin depender de qué ids
+traiga el catálogo, que era el objetivo del hash. Además el stub **devuelve el mapa** URL→forma y la prueba
+lo **afirma** (`Set(servidas) === Set(las cuatro)`) y lo **imprime**: la afirmación del título dejó de ser
+una suposición.
+
+**N-4 · La cabecera del archivo de vitest listaba «R1: caja de tamaño fijo»** entre lo que defiende, cuando
+el propio archivo declara que no puede medirla. Reescrita: ahora el **límite va arriba y en primer lugar**
+—jsdom no hace layout ni carga imágenes, aquí no se verifica NINGUNA geometría— y R1 aparece solo como
+«la ESTRUCTURA que lo hace posible», con el puntero al spec de Chromium.
+
+**Verificación de esta ronda** (las dos que pidió el coordinador, más las de regresión):
+
+| Mutación | Resultado |
+|---|---|
+| **`onError` BORRADO ENTERO** (la mutación con la que QA sacó el falso verde) | **1 roja, y solo esa**: el test del 404, `Expected 0, Received 1` — la víctima conserva su `<img>` rota. En vitest, **2 rojas** más |
+| **Reparto por hash** (se reintroduce N-2) | **1 roja**: el oráculo del stub. Reprodujo la instrumentación de QA clavada: `sv8 → 1:1, sv6 → 1:1, sv1 → 1:1, cel25 → 1:2` |
+| Sin mutar | **5 verdes**, con `[proporciones servidas] sv8 → 1.92:1 · sv6 → 1.60:1 · sv1 → 1:1 · cel25 → 1:2` impreso |
+
+Suites completas tras la corrección: **967 vitest verdes** · **20 E2E verdes** (`master-set-plate` +
+`master-set` + `buylist`) · typecheck y lint limpios.
+
+> **Nota de operación, porque me costó diez minutos de diagnóstico falso.** Al arrancar esta ronda el spec
+> dio 3 rojas contra un servidor que yo no había reconstruido: `.next-e2e-mock` **es un artefacto
+> compartido** y contenía todavía el build mutado de QA. El `webServer` de `playwright.config.ts` lo
+> reconstruye siempre; quien reutilice el servidor a mano (`E2E_BASE_URL` + `next start`) **tiene que
+> rebuildear primero**, o está midiendo el código de otro. Dicho de otro modo: aquellas 3 rojas eran
+> correctas — mis pruebas detectaron una mutación que yo no sabía que estaba puesta.
