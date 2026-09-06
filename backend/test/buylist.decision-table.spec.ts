@@ -33,6 +33,12 @@ const pii = new PiiCryptoService(new ConfigService({}));
 
 const DIALS: Record<string, number> = {
   [SettingKey.BUYLIST_SHIPPING_FEE_CENTS]: 18000,
+  // v1.58 · §M5-A (BL-38) — los tres diales AML/INE que `adminOffer` lee desde v1.58. Van con sus
+  // DEFAULTS reales (`settings.constants.ts`): sin ellos el doble devuelve `0` para las tres claves y
+  // **toda** oferta rebotaría con `422 BUYLIST_LIMIT_EXCEEDED`.
+  [SettingKey.BUYLIST_CAP_PER_REQUEST_CENTS]: 300000,
+  [SettingKey.BUYLIST_CAP_PER_MONTH_CENTS]: 1000000,
+  [SettingKey.INE_THRESHOLD_CENTS]: 300000,
   [SettingKey.BUYLIST_MINIMUM_OFFER_NET_CENTS]: 20000,
   [SettingKey.BUYLIST_OPERATOR_OFFER_CAP_CENTS]: 150000,
   [SettingKey.BUYLIST_VARIANT_POSITION_CAP]: 10,
@@ -102,6 +108,9 @@ function build(opts: Opts) {
     });
 
   const prisma: any = {
+    // v1.58 · §M5-A.8 (BL-38) — la mesa lee el archivo de INE del VENDEDOR para `sellerIneOnFile`.
+    // `null` = sin INE en archivo, que es el caso por defecto de estos fixtures.
+    kycProfile: { findUnique: jest.fn(async () => null) },
     sellRequest: {
       findUnique: track('sellRequest.findUnique', async () => ({
         id: opts.sellRequestId ?? 'sr-1',
@@ -716,6 +725,9 @@ describe('Líneas de PRODUCTO SEPARADO (D7 / §4.29b) — el lote no cambia una 
     baseRefCents?: number;
   }) {
     const prisma: any = {
+      // v1.58 · §M5-A (BL-38) — el archivo de INE / los overrides de tope del VENDEDOR.
+      // `null` = sin overrides y sin INE, que es el caso por defecto de estos fixtures.
+      kycProfile: { findUnique: jest.fn(async () => null) },
       sellRequest: {
         findUnique: jest.fn(async () => ({
           id: 'sr-1',

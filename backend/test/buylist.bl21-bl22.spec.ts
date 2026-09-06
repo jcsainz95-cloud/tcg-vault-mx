@@ -116,8 +116,13 @@ describe('⚠️ BL-21 — el correo en inglés lleva el botón a la pantalla en
       ],
     };
     const prisma: any = {
+      // v1.58 · §M5-A (BL-38) — el archivo de INE / los overrides de tope del VENDEDOR.
+      kycProfile: { findUnique: jest.fn(async () => null) },
       sellRequest: {
         findUnique: jest.fn(async () => ({ ...request })),
+        // v1.58 · §M5-A.5 (BL-38) — el acumulado mensual de COMPROMISO, leído dentro de la tx.
+        // Devuelve la propia fila: es lo único que hay en la ventana de este fixture.
+        findMany: jest.fn(async () => [{ ...request }]),
         updateMany: jest.fn(async ({ data }: any) => {
           Object.assign(request, data);
           return { count: 1 };
@@ -151,6 +156,12 @@ describe('⚠️ BL-21 — el correo en inglés lleva el botón a la pantalla en
       getNumber: jest.fn(async (k: any) =>
         ({
           [SettingKey.BUYLIST_SHIPPING_FEE_CENTS]: 18000,
+          // v1.58 · §M5-A (BL-38) — los tres diales AML/INE que `adminOffer` lee desde v1.58. Van con
+          // sus DEFAULTS reales (`settings.constants.ts`): sin ellos el doble devuelve `0` para las
+          // tres claves y **toda** oferta rebotaría con `422 BUYLIST_LIMIT_EXCEEDED`.
+          [SettingKey.BUYLIST_CAP_PER_REQUEST_CENTS]: 300000,
+          [SettingKey.BUYLIST_CAP_PER_MONTH_CENTS]: 1000000,
+          [SettingKey.INE_THRESHOLD_CENTS]: 300000,
           [SettingKey.BUYLIST_MINIMUM_OFFER_NET_CENTS]: 20000,
           [SettingKey.BUYLIST_OPERATOR_OFFER_CAP_CENTS]: 150000,
           [SettingKey.BUYLIST_OFFER_ACCEPT_DEADLINE_BUSINESS_DAYS]: 2,

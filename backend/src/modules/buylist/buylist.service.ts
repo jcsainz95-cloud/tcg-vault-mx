@@ -68,7 +68,15 @@ import {
 // v1.51 (M-46, §4.39c sitios 2+3) — el acumulado mensual de compromiso, en un solo cuerpo.
 // v1.51.5 (§4.39i.4-bis) — `brutoConsumado`: CON QUÉ columna se mide el compromiso ya CONSUMADO.
 // ⚠️ Son DOS cascadas distintas a propósito (razonadas juntas en `buylist-aml.ts`): no se unifican.
-import { brutoConsumado, monthCommittedGrossCents, SellRequestReader } from '../../common/buylist-aml';
+import {
+  brutoConsumado,
+  monthCommittedGrossCents,
+  // ⚠️ v1.58 · §M5-A (BL-38): la MISMA ventana del acumulado, para saber si la fila propia está en
+  // ella antes de sustituir su bruto. Se importa el ancla existente en vez de recalcularla: *dos
+  // formas de derivar el inicio de mes son dos meses.*
+  monthStartUtc,
+  SellRequestReader,
+} from '../../common/buylist-aml';
 // P-30 H2 (§4.39e) — la llave canónica de variante. NO se interpola a mano.
 // M-46 (§4.39g) — `variantPositionKey` = la canónica + la identidad de producto (D7). La usan las
 // CUATRO fuentes de la posición de la mesa de decisión.
@@ -2499,6 +2507,14 @@ export class BuylistService implements OnModuleInit {
     });
     if (!req) throw BusinessException.notFound();
     const items = req.items ?? [];
+    // ⚠️ v1.58 · §M5-A.8 (BL-38) — el archivo de INE del VENDEDOR, para el aviso de la mesa. Se lee
+    // del `KycProfile` (la fuente autoritativa que usa la guarda de `POST …/offer`) y **no** de
+    // `SellRequest.ineProvided`, que es un snapshot del intake: el vendedor pudo subirlo después.
+    // *La mesa y la emisión miran el mismo archivo o el aviso miente.*
+    const kycIne = await this.prisma.kycProfile.findUnique({
+      where: { userId: req.userId },
+      select: { ineFrontKey: true, ineBackKey: true },
+    });
 
     // (2)+(3) LAS LLAVES Y EL DINERO EN LOTE — **el MISMO seam que usa la emisión de la oferta**
     // (§4.39e). La mesa previsualiza exactamente el número que `POST …/offer` va a congelar: si la
@@ -2598,6 +2614,21 @@ export class BuylistService implements OnModuleInit {
       // `422 PICKUP_ADDRESS_MISSING`. Es un BOOLEANO y no la dirección: la mesa es una pantalla de
       // decisión de compra, no de datos personales (la dirección vive en el detalle).
       pickupAddressMissing: req.pickupAddressSnapshot == null,
+      // ⚠️ v1.58 · §M5-A.8 (BL-38) — AVISO, no bloqueo: quien bloquea es `POST …/offer` con
+      // `422 INE_REQUIRED`. Existe por la MISMA razón que `pickupAddressMissing`: *el operador tiene
+      // que poder verlo ANTES de armar la oferta entera*; sin él monta el cherry-pick línea por línea
+      // y se lleva el `422` al final **por un motivo que no tiene nada que ver con las líneas**, y
+      // encima el remedio es una llamada telefónica —lo más lento del ciclo— que podría haber
+      // empezado media hora antes.
+      // ⛔ **NO lleva el umbral de INE, ni los topes AML, ni el acumulado del mes: la lista es
+      // CERRADA** (§M5-A.7). El operador **no es el sujeto** de la regla y el número no acota su
+      // acción. *Un cajón donde ya viaja un booleano de cumplimiento es exactamente donde alguien echa
+      // el umbral «porque ya había campo».*
+      // ⚠️ Va en la RAÍZ y **no en `totals`**: `totals` son montos de ESTA previsualización;
+      // `sellerIneOnFile` es un hecho del VENDEDOR, igual que `pickupAddressMissing` lo es de la
+      // SOLICITUD. **Clase de información ya existente**: `AdminKycProfileDTO.ineOnFile` expone este
+      // mismo booleano a admin.
+      sellerIneOnFile: kycIne?.ineFrontKey != null && kycIne?.ineBackKey != null,
     };
   }
 
@@ -3239,8 +3270,30 @@ export class BuylistService implements OnModuleInit {
    * 3  precio por línea (decideBuyLine)    ← OFFER_LINE_NOT_PRICEABLE / OVERRIDE_REASON_REQUIRED
    * 4-5 bruto → envío CONGELADO → neto
    * 6  OFFER_NET_BELOW_MINIMUM             ← ⚠️ ANTES del tope: nada inofertable llega a la cola
+   * 6-bis A1 BUYLIST_LIMIT_EXCEEDED (per_request_offer)  ← ⚠️ v1.58 §M5-A / BL-38
+   * 6-bis A2 INE_REQUIRED                                ← ⚠️ v1.58 §M5-A / BL-38
    * 7  tope del operador                   ← 200 (sale) | 202 (espera autorización)
+   * 8  [tx SERIALIZABLE] A3 BUYLIST_LIMIT_EXCEEDED (per_month_offer)  ← ⚠️ v1.58 §M5-A / BL-38
+   * 9  escrituras → guarda de proyección (500 OFFER_PROJECTION_INCOMPLETE)
    * ```
+   *
+   * ### ⚠️⚠️ v1.58 · **§M5-A / BL-38** — LOS TOPES AML Y EL INE SE EVALÚAN **AQUÍ**, SOBRE EL BRUTO
+   * OFERTADO. **DINERO COMPROMETIDO / AML-KYC.**
+   * `PROJECT.md:1127-1128` exige los topes **en los dos momentos** (al cotizar y al ofertar) y sobre
+   * el **bruto ofertado**. Hasta v1.58 este método **no referenciaba ninguno de los tres diales**:
+   * el tope por solicitud se juzgaba **exactamente una vez**, en el intake y sobre el **cotizado**.
+   * **Y la oferta es VINCULANTE (D2):** emitir por encima del tope significa *el vendedor acepta →
+   * manda sus cartas → al pagar no podemos*, y ahí **las dos salidas son malas** (incumplir la palabra
+   * dada, o subir el dial de AML para poder cumplirla). ⇒ **Doctrina:** *toda regla que puede impedir
+   * cumplir un compromiso se evalúa **donde el compromiso se contrae**, no donde se ejecuta.*
+   * - **El monto es `G = offerGrossCents`, NO `brutoConsumado(req)`** (§M5-A.2) — razonado en el
+   *   propio bloque 6-bis, donde está la trampa.
+   * - **Aplica a TODO actor, `super_admin` incluido**: *«oferta sin tope»* es el tope del OPERADOR
+   *   (delegación); el AML es **cumplimiento sobre el vendedor** y ningún rol lo levanta.
+   * - **`offer/authorize` NO reevalúa nada, y no le hace falta** (§M5-A.5, demostración por
+   *   inducción): el `202` **ya escribió `offerGrossCents`** sobre una fila que **ya está en el
+   *   acumulado** ⇒ el compromiso entra al acumulado **al PREPARAR**, no al autorizar. Reevaluar
+   *   compararía un **monto congelado** contra un **dial vivo**, el anti-patrón del criterio 157.
    *
    * ### Dos desenlaces, y la diferencia es la que importa
    * | Actor | Bruto | Resp. | Efecto |
@@ -3423,6 +3476,102 @@ export class BuylistService implements OnModuleInit {
       );
     }
 
+    // ---- 6-bis. ⚠️⚠️ §M5-A · BL-38 — LOS TOPES AML Y EL UMBRAL DE INE, SOBRE EL BRUTO OFERTADO ----
+    //
+    // `PROJECT.md:1127-1128`, literal: *«los topes se evalúan **en los dos momentos** (al cotizar y al
+    // ofertar), y el monto que los gobierna —y que gobierna el **KYC/INE**— es el **BRUTO OFERTADO**,
+    // es decir el valor comprometido con el vendedor»*. Hasta v1.58 este método **no referenciaba
+    // ninguno de los tres diales**: el tope por solicitud se juzgaba **una sola vez**, en el intake y
+    // sobre el **cotizado**, mientras el override de D26 llega a MX$10,000 por línea (`@Max`) contra
+    // un tope AML de MX$3,000. ⇒ **se emitía una oferta VINCULANTE por encima del tope** (D2, correo
+    // al vendedor) y el hueco se descubría **al pagar**, cuando el vendedor ya mandó sus cartas.
+    // *Un control que se descubre después de comprometer la palabra no controla: extorsiona.*
+    //
+    // ⚠️⚠️ **EL MONTO ES `G = offerGrossCents`, NO `brutoConsumado(req)` — y es la trampa de este
+    // apartado** (§M5-A.2 / §4.39x.3). `brutoConsumado` mide el compromiso **CONSUMADO** leyendo la
+    // fila persistida: `approvedTotalCents ?? offerGrossCents ?? quotedTotalCents ?? 0`. En este
+    // instante y sobre esta fila la precondición de arriba garantiza `offerState ∈ {null,'cancelled'}`
+    // y `offer/cancel` limpia `offerGrossCents` (`OFFER_FROZEN_NULL`) ⇒ **la cascada devolvería
+    // `quotedTotalCents`, que es JUSTO el número que no ve el override**. *Un término correcto para el
+    // compromiso CONSUMADO es el término equivocado para el que se está CONTRAYENDO, y los dos se
+    // llaman «bruto».* `G` es el mismo número que alimenta el piso de neto, el tope del operador, el
+    // correo y la columna: **un solo número gobierna la emisión entera.**
+    //
+    // ⚠️ **APLICA A TODO ACTOR, `super_admin` INCLUIDO** (§M5-A.3): *«el súper-admin oferta sin tope»*
+    // habla del **tope del OPERADOR**, que es **delegación**. El tope AML es **cumplimiento sobre el
+    // VENDEDOR** y **ningún rol lo levanta**: quien quiera moverlo mueve el dial (M10, auditado) o el
+    // override por KYC de ese vendedor — actos con nombre, no un privilegio implícito.
+    //
+    // **Van DESPUÉS del piso de neto y ANTES del tope del operador** (§M5-A.6): los tres necesitan
+    // `G`, y *nada inofertable llega a la cola de autorización* — una oferta que rompe el tope AML no
+    // puede quedar esperando a un súper-admin **que no tiene poder para levantarlo**.
+    const kycAml = await this.prisma.kycProfile.findUnique({
+      where: { userId: req.userId },
+      select: {
+        capPerRequestCentsOverride: true,
+        capPerMonthCentsOverride: true,
+        ineFrontKey: true,
+        ineBackKey: true,
+      },
+    });
+    const [capPerRequest, capPerMonth, ineThreshold] = [
+      kycAml?.capPerRequestCentsOverride ??
+        (await this.settings.getNumber(SettingKey.BUYLIST_CAP_PER_REQUEST_CENTS)),
+      kycAml?.capPerMonthCentsOverride ??
+        (await this.settings.getNumber(SettingKey.BUYLIST_CAP_PER_MONTH_CENTS)),
+      // ⚠️ El umbral de INE **NO tiene override por usuario, y no se le inventa uno** (§M5-A).
+      await this.settings.getNumber(SettingKey.INE_THRESHOLD_CENTS),
+    ];
+
+    // --- A1. Tope por solicitud. El borde es `>`: LA CIFRA EXACTA PASA. ---
+    // Mismo comparador y mismo sentido que el intake (`quotedTotalCents > capPerRequest`) y misma
+    // doctrina que los TRES bordes inclusivos del ciclo (v1.51.3/D40): *el error a evitar es
+    // implementar uno estricto y rechazar exactamente la cifra que prometimos.*
+    // Va antes que A2 porque su palanca es la que el operador ya tiene en la mano —bajar el bruto— y
+    // **hace inútil al resto**: si el monto es ilegal a ese tamaño, el INE no lo arregla.
+    if (offerGrossCents > capPerRequest) {
+      throw BusinessException.validation(
+        'BUYLIST_LIMIT_EXCEEDED',
+        'Per-request cap exceeded by the offered gross',
+        {
+          // ⚠️ `scope` NUEVO y NO se acuña un `OFFER_LIMIT_EXCEEDED`: es UN código para UN control
+          // —el tope AML— medido en CINCO momentos, y `scope` dice cuál. Un segundo nombre
+          // fragmentaría el control que más falta hace poder auditar entero.
+          scope: 'per_request_offer',
+          // §M5-A.7, rama del OPERADOR: el TOPE sí viaja (es la cota de su propia acción y le dice
+          // cuánto recortar); el UMBRAL DE INE no (ver A2).
+          capCents: capPerRequest,
+          wouldBeCents: offerGrossCents,
+        },
+      );
+    }
+
+    // --- A2. Umbral de INE. `>=`, y el archivo se RELEE del `KycProfile`. ---
+    // ⚠️ `ineProvided` NO se lee de la columna `SellRequest.ineProvided`: es un snapshot del intake y
+    // el vendedor pudo subir su INE **después**. *Negarle la oferta por leer un snapshot rancio sería
+    // rechazarle un documento que ya nos dio.*
+    const ineOnFile = kycAml?.ineFrontKey != null && kycAml?.ineBackKey != null;
+    // ⚠️ **`ineRequired` es MONÓTONA (`false → true`, jamás al revés)** (§M5-A.4): una oferta que cruza
+    // el umbral la ENCIENDE; una que queda por debajo **no la apaga**. Apagarla revertiría en silencio
+    // una decisión de cumplimiento ya tomada (el intake la enciende también por una línea en
+    // `precio_pendiente`) y no gana nada: si estaba encendida, el INE ya está en archivo.
+    const offerCrossesIneThreshold = offerGrossCents >= ineThreshold;
+    if (offerCrossesIneThreshold && !ineOnFile) {
+      throw BusinessException.validation(
+        'INE_REQUIRED',
+        'INE on file is required for the offered gross',
+        {
+          // ⛔ **SIN `thresholdCents`, y es deliberado** (§M5-A.7): el destinatario aquí es el
+          // OPERADOR, que **no es el sujeto** de la regla de INE y cuyas palancas son *conseguir el
+          // documento* o *no ofertar* — el número no acota su acción y sí añade superficie. El intake
+          // **sí** lo emite y **no se armoniza**: allá el destinatario es el VENDEDOR, que es el
+          // sujeto y tiene que saber por qué le pedimos su identificación.
+          sellRequestId: id,
+          grossCents: offerGrossCents,
+        },
+      );
+    }
+
     // ---- 7. Tope del operador (D13/D24). El borde es INCLUSIVO: $1,500 SALE. ----
     // El súper-admin oferta sin tope. El override no es puerta trasera: el tope mira el bruto
     // RESULTANTE, overrides incluidos.
@@ -3434,113 +3583,181 @@ export class BuylistService implements OnModuleInit {
       ? null
       : addBusinessDays(now, acceptDeadlineDays);
 
-    const updated = await this.prisma.$transaction(async (tx) => {
-      // La precondición vive en el `where` (patrón `count===1`): la exclusión la da el motor, no un
-      // `if` sobre la lectura de arriba, que una carrera puede invalidar.
-      const guard = await tx.sellRequest.updateMany({
-        where: {
-          id,
-          status: 'cotizada',
-          closedAt: null,
-          OR: [{ offerState: null }, { offerState: 'cancelled' }],
-        },
-        data: requiresAuthorization
-          ? {
-              // ⚠️ `status` SIGUE `cotizada`: el cliente NO debe enterarse de que existe (D13/D24).
-              offerState: 'pending_authorization',
-              offerPreparedBy: actor.id,
-              offerPreparedAt: now,
-              offerGrossCents,
-              offerShippingFeeCents: shippingFeeCents,
-              offerNetCents,
-              offerCancelledAt: null,
-              offerCancelReason: null,
-            }
-          : {
-              offerState: 'sent',
-              status: 'ofertada',
-              offerPreparedBy: actor.id,
-              offerPreparedAt: now,
-              offerSentAt: now,
-              offerAcceptDeadlineAt,
-              offerAcceptReminderSentAt: null,
-              offerGrossCents,
-              offerShippingFeeCents: shippingFeeCents,
-              offerNetCents,
-              offerCancelledAt: null,
-              offerCancelReason: null,
-            },
-      });
-      if (guard.count !== 1) {
-        const current = await tx.sellRequest.findUnique({
+    const updated = await this.prisma.$transaction(
+      async (tx) => {
+        // ---- A3. ⚠️⚠️ §M5-A · BL-38 — TOPE MENSUAL, DENTRO DE LA TRANSACCIÓN SERIALIZABLE ----
+        //
+        // *En un tope de dinero, la lectura y la escritura van en la misma transacción o el tope es
+        // decorativo.* Es el MISMO TOCTOU que ya cerraron el intake (SEC-A2) y `pay-spei` (AML-1): dos
+        // emisiones concurrentes del mismo vendedor leerían el mismo acumulado y **pasarían las dos**.
+        //
+        // **Se REUSA el acumulado del intake** (`monthCommittedGrossCents`, ancla `createdAt`, predicado
+        // por complemento sobre `NON_COMMITTING`): ⛔ no se crea un tercer acumulado ni se toca ninguna
+        // ancla. Lo único que cambia es **el bruto de ESTA fila**.
+        //
+        // ⚠️ **LA FILA PROPIA YA ESTÁ DENTRO ⇒ SE SUSTITUYE, NO SE SUMA.** Es `cotizada`, que **no** está
+        // en `NON_COMMITTING`, y hoy aporta `offerGrossCents ?? quotedTotalCents ?? 0` (con
+        // `offerGrossCents` nulo por la precondición ⇒ el cotizado). *Sumar `G` sin excluirse contaría
+        // el mismo compromiso dos veces y rechazaría ofertas legítimas: un tope que cuenta doble no es
+        // más seguro, es otro tope.*
+        //
+        // **La propiedad que lo hace verificable sin leer este código:** la guarda asevera exactamente
+        // el valor que `monthCommittedGrossCents` devolverá **el instante después de la escritura** —
+        // tras el `updateMany` la fila aporta `G` y su estado (`cotizada` en el `202`, `ofertada` en el
+        // `200`) sigue fuera de `NON_COMMITTING`. Un test lo comprueba llamando al acumulado antes y
+        // después.
+        //
+        // ⚠️ **RESIDUAL NOMBRADO — el cruce de mes** (§M5-A.5): una solicitud creada en un mes y ofertada
+        // en el siguiente **no está en la ventana** ⇒ su bruto ofertado no topa aquí. Es consecuencia del
+        // ancla `createdAt`, que esta norma **no cambia** (moverla movería el acumulado del intake, que
+        // hoy está bien). No queda descubierto en el dinero: al pagar, la fila entra al acumulado
+        // **consumado** del mes del pago y **ahí sí** se compara. *El compromiso puede cruzar el mes; el
+        // pago no.* NO bloqueante.
+        const monthCommittedNow = await monthCommittedGrossCents(tx, req.userId, now);
+        // El bruto que ESTA fila aporta HOY al acumulado, releído DENTRO de la transacción (no del `req`
+        // de arriba: la lectura previa vive fuera del boundary atómico).
+        const self = await tx.sellRequest.findUnique({
           where: { id },
-          select: { status: true, offerState: true },
+          select: { createdAt: true, offerGrossCents: true, quotedTotalCents: true },
         });
-        throw BusinessException.conflict('OFFER_NOT_ALLOWED', 'This sell request cannot be offered', {
-          status: current?.status,
-          offerState: current?.offerState,
-        });
-      }
-      // ---- Las líneas, en la MISMA transacción que el encabezado ----
-      // Las `skip` comparten `data` ⇒ una sola escritura. Las `buy` llevan cada una su monto, así
-      // que no hay forma de agruparlas: es una escritura por línea comprada, acotada por la
-      // solicitud (no crece con el catálogo).
-      const skipIds = resolved.filter((r) => r.decision === 'skip').map((r) => r.itemId);
-      if (skipIds.length > 0) {
-        await tx.sellRequestItem.updateMany({
-          where: { id: { in: skipIds }, sellRequestId: id },
-          data: { ...BuylistService.OFFER_LINE_NULL, offerDecision: 'skip' },
-        });
-      }
-      for (const r of buyLines) {
-        await tx.sellRequestItem.updateMany({
-          where: { id: r.itemId, sellRequestId: id },
+        // Si la fila no está en la ventana del mes, **no entra al acumulado ni antes ni después**: ni se
+        // resta su aporte de hoy ni se suma `G` (es exactamente el cruce de mes de arriba). Si
+        // desapareció bajo nosotros, el `updateMany` de abajo da el `409` honesto.
+        const selfInWindow = self != null && self.createdAt >= monthStartUtc(now);
+        const wouldBeCents =
+          monthCommittedNow -
+          (selfInWindow ? (self.offerGrossCents ?? self.quotedTotalCents ?? 0) : 0) +
+          (selfInWindow ? offerGrossCents : 0);
+        if (wouldBeCents > capPerMonth) {
+          // Si lanza, **la transacción se deshace entera**: no se persiste nada, no sale correo (va
+          // post-commit), `offerSentAt` no se sella y la solicitud sigue `cotizada` ⇒ la mira la regla 7
+          // del barrido (NUESTRO plazo), no la 1 (el suyo). *El defecto cae en nuestra cola y en nuestro
+          // reloj* (§P.13).
+          throw BusinessException.validation(
+            'BUYLIST_LIMIT_EXCEEDED',
+            'Per-month cap exceeded by the offered gross',
+            { scope: 'per_month_offer', capCents: capPerMonth, wouldBeCents },
+          );
+        }
+        // La precondición vive en el `where` (patrón `count===1`): la exclusión la da el motor, no un
+        // `if` sobre la lectura de arriba, que una carrera puede invalidar.
+        const guard = await tx.sellRequest.updateMany({
+          where: {
+            id,
+            status: 'cotizada',
+            closedAt: null,
+            OR: [{ offerState: null }, { offerState: 'cancelled' }],
+          },
           data: {
-            offerDecision: 'buy',
-            // ⚠️ INVARIANTE: una línea `buy` SIEMPRE lleva monto. Es lo que `convertToInventory`
-            // capitaliza como `acquisitionCostCents` (§4.39i.5).
-            offeredPriceCents: r.offeredPriceCents,
-            // Los TRES datos del override (criterio 148b): lo que dijo la curva, lo que se oferta y
-            // por qué — para que el delta sea visible SIN leer la bitácora.
-            offerDerivedPriceCents: r.derived?.quotedPriceCents ?? null,
-            offerOverrideReason: r.overrideReason,
-            // Enum EXISTENTE, sin valores nuevos: un override (y el rescate de un `precio_pendiente`)
-            // queda `override`.
-            offerPriceBasis: r.overrideReason != null ? 'override' : (r.derived?.priceBasis ?? null),
-            // Instrumentación §N.8 del momento de OFERTAR — NO se reusa la del quote: son dos
-            // decisiones en dos instantes, y la del quote ya está congelada.
-            offerMarketMxnCents: r.derived?.quote.marketMxnCents ?? null,
-            offerMarketBracket: marketBracketOf(r.derived?.quote.marketMxnCents ?? null),
+            // ⚠️ §M5-A.4 · BL-38 — `ineRequired` MONÓTONA: solo se ENCIENDE. Si el bruto ofertado cruza
+            // el umbral, la fila queda marcada (llegó aquí con el INE ya en archivo: A2 es la puerta).
+            // Si NO lo cruza, **la clave ni siquiera se emite** ⇒ un `true` del intake sobrevive. *Un
+            // `ineRequired: offerCrossesIneThreshold` la apagaría, revirtiendo en silencio una decisión
+            // de cumplimiento ya tomada.*
+            ...(offerCrossesIneThreshold ? { ineRequired: true } : {}),
+            ...(requiresAuthorization
+              ? {
+                  // ⚠️ `status` SIGUE `cotizada`: el cliente NO debe enterarse de que existe (D13/D24).
+                  offerState: 'pending_authorization',
+                  offerPreparedBy: actor.id,
+                  offerPreparedAt: now,
+                  offerGrossCents,
+                  offerShippingFeeCents: shippingFeeCents,
+                  offerNetCents,
+                  offerCancelledAt: null,
+                  offerCancelReason: null,
+                }
+              : {
+                  offerState: 'sent',
+                  status: 'ofertada',
+                  offerPreparedBy: actor.id,
+                  offerPreparedAt: now,
+                  offerSentAt: now,
+                  offerAcceptDeadlineAt,
+                  offerAcceptReminderSentAt: null,
+                  offerGrossCents,
+                  offerShippingFeeCents: shippingFeeCents,
+                  offerNetCents,
+                  offerCancelledAt: null,
+                  offerCancelReason: null,
+                }),
           },
         });
-      }
-      // PROJECTION-EXEMPT: fila cruda DENTRO de la tx; se proyecta abajo con `offerResponseShape`
-      // (lista blanca del contrato §M5) antes de devolverla. `updateMany` no devuelve filas.
-      const row = await tx.sellRequest.findUnique({
-        where: { id },
-        include: {
-          items: { include: { card: { include: { set: true } } } },
-          // El `locale` del VENDEDOR: es el que renderiza `terms`, y sin él la guarda validaría un
-          // texto que no es el que él va a leer.
-          user: { select: { locale: true } },
-        },
-      });
-      if (!row) throw BusinessException.notFound();
-      // ---- 7-bis. ⚠️⚠️ GUARDA DE PROYECCIÓN (v1.51.16 · BL-24) — ÚLTIMO PASO ANTES DEL COMMIT ----
-      // Va **dentro** de la transacción y **después** de las escrituras a propósito: así valida la
-      // fila REAL que `GET /buylist/requests/:id` leería, no una simulación armada a mano — y al
-      // lanzar, **la transacción se deshace entera**. Consecuencia exacta y buscada: **no se emite,
-      // no se persiste, NO sale correo** (va post-commit) y **`offerSentAt` nunca se sella**, así que
-      // el plazo del vendedor **nunca se congela** y la solicitud se queda `cotizada` ⇒ la mira la
-      // **regla 7 del barrido (NUESTRO plazo)**, no la 1 (el suyo). *El defecto cae en nuestra cola y
-      // en nuestro reloj, que es donde §P.13 dice que tiene que caer.*
-      this.assertOfferProjectionComplete(
-        id,
-        { ...row, locale: row.user?.locale ?? null },
-        now,
-      );
-      return row;
-    });
+        if (guard.count !== 1) {
+          const current = await tx.sellRequest.findUnique({
+            where: { id },
+            select: { status: true, offerState: true },
+          });
+          throw BusinessException.conflict('OFFER_NOT_ALLOWED', 'This sell request cannot be offered', {
+            status: current?.status,
+            offerState: current?.offerState,
+          });
+        }
+        // ---- Las líneas, en la MISMA transacción que el encabezado ----
+        // Las `skip` comparten `data` ⇒ una sola escritura. Las `buy` llevan cada una su monto, así
+        // que no hay forma de agruparlas: es una escritura por línea comprada, acotada por la
+        // solicitud (no crece con el catálogo).
+        const skipIds = resolved.filter((r) => r.decision === 'skip').map((r) => r.itemId);
+        if (skipIds.length > 0) {
+          await tx.sellRequestItem.updateMany({
+            where: { id: { in: skipIds }, sellRequestId: id },
+            data: { ...BuylistService.OFFER_LINE_NULL, offerDecision: 'skip' },
+          });
+        }
+        for (const r of buyLines) {
+          await tx.sellRequestItem.updateMany({
+            where: { id: r.itemId, sellRequestId: id },
+            data: {
+              offerDecision: 'buy',
+              // ⚠️ INVARIANTE: una línea `buy` SIEMPRE lleva monto. Es lo que `convertToInventory`
+              // capitaliza como `acquisitionCostCents` (§4.39i.5).
+              offeredPriceCents: r.offeredPriceCents,
+              // Los TRES datos del override (criterio 148b): lo que dijo la curva, lo que se oferta y
+              // por qué — para que el delta sea visible SIN leer la bitácora.
+              offerDerivedPriceCents: r.derived?.quotedPriceCents ?? null,
+              offerOverrideReason: r.overrideReason,
+              // Enum EXISTENTE, sin valores nuevos: un override (y el rescate de un `precio_pendiente`)
+              // queda `override`.
+              offerPriceBasis: r.overrideReason != null ? 'override' : (r.derived?.priceBasis ?? null),
+              // Instrumentación §N.8 del momento de OFERTAR — NO se reusa la del quote: son dos
+              // decisiones en dos instantes, y la del quote ya está congelada.
+              offerMarketMxnCents: r.derived?.quote.marketMxnCents ?? null,
+              offerMarketBracket: marketBracketOf(r.derived?.quote.marketMxnCents ?? null),
+            },
+          });
+        }
+        // PROJECTION-EXEMPT: fila cruda DENTRO de la tx; se proyecta abajo con `offerResponseShape`
+        // (lista blanca del contrato §M5) antes de devolverla. `updateMany` no devuelve filas.
+        const row = await tx.sellRequest.findUnique({
+          where: { id },
+          include: {
+            items: { include: { card: { include: { set: true } } } },
+            // El `locale` del VENDEDOR: es el que renderiza `terms`, y sin él la guarda validaría un
+            // texto que no es el que él va a leer.
+            user: { select: { locale: true } },
+          },
+        });
+        if (!row) throw BusinessException.notFound();
+        // ---- 7-bis. ⚠️⚠️ GUARDA DE PROYECCIÓN (v1.51.16 · BL-24) — ÚLTIMO PASO ANTES DEL COMMIT ----
+        // Va **dentro** de la transacción y **después** de las escrituras a propósito: así valida la
+        // fila REAL que `GET /buylist/requests/:id` leería, no una simulación armada a mano — y al
+        // lanzar, **la transacción se deshace entera**. Consecuencia exacta y buscada: **no se emite,
+        // no se persiste, NO sale correo** (va post-commit) y **`offerSentAt` nunca se sella**, así que
+        // el plazo del vendedor **nunca se congela** y la solicitud se queda `cotizada` ⇒ la mira la
+        // **regla 7 del barrido (NUESTRO plazo)**, no la 1 (el suyo). *El defecto cae en nuestra cola y
+        // en nuestro reloj, que es donde §P.13 dice que tiene que caer.*
+        this.assertOfferProjectionComplete(
+          id,
+          { ...row, locale: row.user?.locale ?? null },
+          now,
+        );
+        return row;
+      },
+      // ⚠️ §M5-A.5 · BL-38 — **SERIALIZABLE**, por la MISMA razón que el intake (SEC-A2) y `pay-spei`
+      // (AML-1): el tope mensual se lee y se escribe en el mismo boundary o dos emisiones concurrentes
+      // del mismo vendedor leen el mismo acumulado y **las dos pasan**.
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    );
     if (!updated) throw BusinessException.notFound();
 
     // ---- Correo POST-COMMIT, best-effort, y SOLO si la oferta salió ----

@@ -30,6 +30,23 @@ const pii = new PiiCryptoService(new ConfigService({}));
 
 const DIALS: Record<string, number> = {
   [SettingKey.BUYLIST_SHIPPING_FEE_CENTS]: 18000,
+  // ⚠️ v1.58 · §M5-A (BL-38) — los tres diales AML/INE que `adminOffer` lee desde v1.58, **elevados a
+  // propósito por encima de todos los fixtures de ESTE archivo** (el mayor es un bruto de MX$9,000).
+  //
+  // **Por qué elevados y no con sus defaults reales (MX$3,000 / MX$10,000 / MX$3,000):** el eje que
+  // mide esta suite es **el tope del OPERADOR** —delegación: quién puede emitir sin que otro lo mire—
+  // más el correo y los plazos. El **tope AML** es **otro eje** (cumplimiento sobre el vendedor) y con
+  // los defaults **dispararía primero**, dejando estos asserts pasando por el motivo equivocado o sin
+  // llegar nunca a su sujeto. *Un test cuyo caso rebota en una guarda anterior no prueba la guarda que
+  // dice probar.* El contrato hace la misma distinción explícita en §M5-A.10 assert 2: *«son dos topes
+  // distintos y el assert es sobre el de AML»*.
+  //
+  // ⛔ **Esto NO relaja la norma en ninguna parte:** el eje AML tiene su propia suite con los defaults
+  // REALES y todos los asserts de §M5-A.10 — `test/buylist.m5a-offer-aml.spec.ts`, incluido el que
+  // cruza los dos topes (*nada inofertable llega a la cola de autorización*).
+  [SettingKey.BUYLIST_CAP_PER_REQUEST_CENTS]: 2000000,
+  [SettingKey.BUYLIST_CAP_PER_MONTH_CENTS]: 10000000,
+  [SettingKey.INE_THRESHOLD_CENTS]: 2000000,
   [SettingKey.BUYLIST_MINIMUM_OFFER_NET_CENTS]: 20000,
   [SettingKey.BUYLIST_OPERATOR_OFFER_CAP_CENTS]: 150000,
   [SettingKey.BUYLIST_OFFER_ACCEPT_DEADLINE_BUSINESS_DAYS]: 2,

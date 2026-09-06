@@ -76,6 +76,12 @@ const pii = new PiiCryptoService(new ConfigService({}));
 
 const DIALS: Record<string, number> = {
   [SettingKey.BUYLIST_SHIPPING_FEE_CENTS]: 18000,
+  // v1.58 · §M5-A (BL-38) — los tres diales AML/INE que `adminOffer` lee desde v1.58. Van con sus
+  // DEFAULTS reales (`settings.constants.ts`): sin ellos el doble devuelve `0` para las tres claves y
+  // **toda** oferta rebotaría con `422 BUYLIST_LIMIT_EXCEEDED`.
+  [SettingKey.BUYLIST_CAP_PER_REQUEST_CENTS]: 300000,
+  [SettingKey.BUYLIST_CAP_PER_MONTH_CENTS]: 1000000,
+  [SettingKey.INE_THRESHOLD_CENTS]: 300000,
   [SettingKey.BUYLIST_MINIMUM_OFFER_NET_CENTS]: 20000,
   [SettingKey.BUYLIST_OPERATOR_OFFER_CAP_CENTS]: 150000,
   [SettingKey.BUYLIST_VARIANT_POSITION_CAP]: 3,
