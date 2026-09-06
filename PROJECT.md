@@ -22,7 +22,76 @@
 > documentación. Cualquier cadena «TCG Vault MX» que siga viva en `docs/` o en código es un **residuo a
 > corregir**, no una fuente válida.
 >
-> **ESTADO AL 2026-09-06 (11ª ronda del bloque v2.1 — DECISIÓN DE PRODUCTO DEL HUMANO — LEER PRIMERO):**
+> **ESTADO AL 2026-09-06 (12ª ronda del bloque v2.1 — DECISIÓN DE PRODUCTO DEL HUMANO — LEER PRIMERO;
+> ESTA ES LA MÁS RECIENTE Y MANDA SOBRE LA 11ª):**
+> **Esto no cambia una regla: PONE A EXISTIR UNA QUE ESTE DOCUMENTO LLEVABA AÑOS PROMETIENDO.** Al declarar
+> D46/D47 el arquitecto midió el **cotejo INE ↔ titular de la CLABE** —la frase *«el INE se verifica contra el
+> nombre de la CLABE»*, viva en este documento **desde v1.1** y repetida, **contadas una por una, en dieciocho
+> sitios** (§E, §P.2.1, §P.2.2, §P.11, M6, M10, restricciones técnicas ×2, criterios 14 y 178, la bandera AML
+> ×3, las decisiones 23, 108 y 109, y la pregunta 29)— y encontró que
+> **no existe**. Registro **`BL-41`** (§M5-K del contrato). **Lo verifiqué yo, y es correcto**, en tres piezas:
+> **`legalName`** —el campo donde viviría el nombre— **no tiene ningún escritor que le ponga un nombre** (su
+> único escritor lo pone a `null`, en la anonimización del borrado de cuenta); **`kycStatus`** se escribe desde
+> el panel de admin pero **ninguna precondición de dinero lo lee**; y **`CLABE_NOT_OWN_NAME`**, que por su
+> nombre parecía el cotejo, **compara la CLABE entrante contra la CLABE de archivo** por blind index —**no
+> compara ningún nombre**—.
+> **Por qué importa AHORA y no antes**: **D46 hace que pidamos el INE antes y a más gente, para una
+> verificación que no ocurre.** Todo el costo de privacidad y de fricción, **cero del control que lo
+> justifica**. *(No lo rompió D46: llevaba así desde antes. D46 lo volvió indefendible.)*
+> **(1) D48 — EL VEREDICTO DE KYC SE EXIGE ANTES DE EMITIR LA OFERTA, NO SOLO EN EL PAGO.** El remedio que
+> declaró el arquitecto ponía el término **solo en `pay-spei`**. Con eso, la secuencia real sería: *cotiza →
+> sube su INE → recibe una oferta **vinculante** → acepta → **nos manda sus cartas** → y ahí descubrimos que no
+> le podemos pagar.* **Es la misma trampa que este stream lleva cerrando cuatro veces** (P1, BL-38, BL-40,
+> BL-43): **comprometerse antes de comprobar.** El dato ya está: con **D46** el INE llega en la cotización y
+> **la CLABE ya era requisito de creación** (ver el punto 4), así que **al ir a ofertar los dos datos
+> existen**.
+> **(2) LA COMPROBACIÓN DEL PAGO SE CONSERVA COMO ÚLTIMA RED — SON DOS PUNTOS, NO UNA MUDANZA.** Exactamente
+> igual que las **dos compuertas de D46**: el veredicto **empieza a exigirse al ofertar** y **sigue exigiéndose
+> al pagar**. **Si esto se leyera como mudanza, el término de `pay-spei` se retiraría y se perdería la red** —y
+> el pago es **el único punto por donde sale el dinero**—. **Adelantar un control no es moverlo.**
+> **(3) D49 — CUANDO EL NOMBRE NO COINCIDE: SE LE PIDE CORREGIR Y LA SOLICITUD QUEDA BLOQUEADA, NO RECHAZADA.**
+> Un solo mensaje al vendedor: **la cuenta tiene que estar a su nombre; corrige la CLABE o sube el INE
+> correcto**. El humano **descartó a sabiendas** el **rechazo directo** (pierde al vendedor legítimo que puso
+> mal un apellido o tiene la cuenta a nombre de casada) y la **cola de revisión manual** (pide back-office
+> nuevo). **El mensaje tiene que cubrir el error honesto sin regalarle información a quien esté probando**: la
+> redacción y sus prohibiciones son **requisito**, no diseño — ver **§P.2.3** y criterio **181**.
+> **(4) ⚠ CORRECCIÓN DE HECHO A ESTE DOCUMENTO: LA CLABE **SÍ** ES REQUISITO DE CREACIÓN, Y LO ERA DESDE
+> v1.15.** Este documento afirmaba en **§P.2.1** y en la **pregunta 29** que *«la CLABE se pide en el paso de
+> pago»* y que *«lo único que bloquea la creación es el celular, el mínimo y la dirección»*. **Es falso**, y lo
+> medí: `POST /buylist/requests` **devuelve `422 CLABE_REQUIRED`** sin CLABE en el body ni en archivo, **el
+> contrato lo declara desde v1.15**, y **§P.1 de este mismo documento ya lo decía bien** (*«aquí se piden la
+> CLABE y la DIRECCIÓN de origen»*). **El documento se contradecía a sí mismo.** Se corrige la afirmación
+> falsa; **no se mueve la CLABE** —no hace falta: ya estaba ahí—. **Consecuencia**: se retira el argumento de
+> que *«el cotejo tiene que vivir en el pago porque la CLABE aún no existe al crear»*. **Nunca fue cierto.**
+> **(5) D50 — NINGUNA SOLICITUD SE QUEDA BLOQUEADA PARA SIEMPRE SOSTENIENDO UNA IDENTIFICACIÓN OFICIAL.**
+> El arquitecto encontró (**`BL-42`**) que el **reloj de retención del INE no nace con la imagen: nace con el
+> cierre de una solicitud**, y dejó **un camino abierto a propósito**: *una `cotizada` que nunca muere*. **D49
+> lo agrava**, porque ahora hay **dos** motivos de bloqueo indefinido (**falta de INE** y **nombre que no
+> coincide**). **Lo medí y el mecanismo es peor de lo que suena**: el barrido salta al perfil entero con
+> `openCount > 0`, así que **UNA sola solicitud viva para siempre congela la purga de TODAS las INE de esa
+> persona** —incluidas las de solicitudes ya cerradas—; y la regla que cerraría esas `cotizada` **nace
+> apagada** (`buylist_no_offer_expiry_enabled = 'off'`, fail-closed). **Resultado hoy: identificaciones
+> oficiales guardadas sin caducidad** — justo lo que señala la bandera legal.
+> **Qué se decide**: una solicitud bloqueada **sigue viva mientras corre el plazo que le debemos al vendedor**,
+> pero **después de haberle pedido lo que falta** se cierra por el camino que **ya existe** (`expirada` +
+> `no_offer`). **§E no se contradice**: lo que §E prohíbe es que caduque **por un documento que nunca le
+> pedimos** — y aquí **sí se le pidió**. **No se crea estado ni motivo nuevo, no se toca la retención.**
+> **(6) LO QUE ESTA RONDA NO TOCA**: **no** cambia los **topes** (MX$3,000 por solicitud —hoy **umbral**—,
+> MX$10,000 mensual —**rechazo**—), **no** cambia la **retención** (**180 días**), **no** cambia **D16**, **no**
+> cambia **D46/D47** y **no** mueve la **CLABE**.
+> **⚠ LO QUE EL EQUIPO NO DEBE LEER DE MÁS, y va aquí porque es la parte que más fácil se exagera**: el
+> veredicto **NO es una comparación automática de nombres**. **Nadie en este sistema compara nombres.** Lo que
+> se exige es que **un humano haya hecho el cotejo y su veredicto esté registrado**. **«Verificado» significa
+> «una persona dijo que cuadra», no «el sistema comprobó que cuadra»** — y la **bandera AML debe leerse con esa
+> precisión**. Por eso **el paso humano tiene que existir de verdad**: quién, cuándo y **con qué criterio**
+> decide *«coincide»* está en **§P.2.3**, porque **sin criterio escrito cada operador decide distinto**.
+> **Preguntas: se abren la 40, 41, 42 y 43**, todas **con supuesto tomado**. **La 29 se corrige** (su premisa
+> era falsa) y **queda abierta solo en lo que sigue siendo decisión del humano**. **La 36, la 37 y la 39 siguen
+> abiertas sin cambio.** Ver §E, §P.1, §P.2.1, §P.2.2, **§P.2.3** (nueva), M5, M6, criterios **14**, **178**,
+> **180**, **181** y **182**, y decisiones **110**, **111** y **112**.
+>
+> **ESTADO AL 2026-09-06 (11ª ronda del bloque v2.1 — DECISIÓN DE PRODUCTO DEL HUMANO — VIGENTE; el cotejo y
+> el veredicto de KYC se rigen por el bloque de arriba):**
 > **Esto SÍ cambia una regla escrita.** Nace de la fase de seguridad: **BL-38** encontró que los **topes AML y
 > el umbral de INE no se evaluaban al ofertar**, aunque §E ya lo exigía. Al taparlo apareció el hueco de
 > producto: *¿qué pasa si vamos a emitir una oferta sobre el umbral y el vendedor no tiene INE?* Se le
@@ -33,6 +102,9 @@
 > en el paso de pago del buylist»*— **queda derogada en su parte de CUÁNDO**. Lo demás de esa línea **sigue
 > vigente sin cambio**: **para qué sirve** (verificarlo contra el **nombre de la CLABE**) y **cómo se guarda**
 > (**imagen cifrada en R2**, retención `INE_RETENTION_DAYS`, default **180**).
+> *(**⚠ 12ª ronda, D48**: ese **«para qué sirve» se declaraba y no se ejecutaba en ningún punto** — `BL-41`.
+> **Sigue vigente como requisito** y **ahora tiene momento, responsable y consecuencia**: ver el bloque de
+> arriba y **§P.2.3**. **El «cómo se guarda» sí era cierto y no cambia.**)*
 > **(2) «DESDE» SIGNIFICA «DESDE», NO «SOLO EN»: SON DOS COMPUERTAS, NO UNA MUDANZA.** El requisito **empieza**
 > en la cotización y **sigue vigente aguas abajo**. **Compuerta 1 (NUEVA)**: sin INE **no se crea la
 > solicitud**. **Compuerta 2 (YA IMPLEMENTADA, no se toca)**: sin INE **no se emite la oferta**. **El trabajo
@@ -346,6 +418,10 @@
 > almacenamiento del INE** (imagen cifrada en R2, retención 180 días, cotejo contra el nombre de la CLABE, R2
 > acotado a `kyc_ine`). **Lo único derogado es el «pedido en el paso de pago»**: el INE se pide **desde la
 > cotización** (§E, §P.2.2, criterio 178). **Cuándo se pide ≠ para qué sirve y cómo se guarda.**
+> **⚠ Nota de vigencia (12ª ronda, D48)**: de esa lista, **el «cotejo contra el nombre de la CLABE» estaba
+> escrito y NO se ejecutaba en ningún punto** (`BL-41`, medido). **Sigue vigente como requisito** —nunca se
+> derogó— y **desde D48 tiene por fin momento, responsable y consecuencia**: **veredicto humano registrado**,
+> exigido **antes de ofertar** y **al pagar** (§P.2.3, criterios 180/181). **El almacenamiento no cambia.**
 > **Requisito v1.3 (2026-08-16, EN REVISIÓN por el humano — reabre preguntas):** el pago del buylist deja de
 > calcularse por **3 categorías hardcodeadas** (común/reverse/EX+) y pasa a una **tabla de precio por rareza
 > oficial de Pokémon**, donde **cada rareza** tiene una regla **fijo (MX$)** o **porcentaje (% de la
@@ -1191,6 +1267,13 @@ de autenticidad/condición y precios opacos. Este marketplace resuelve:
       derogó de esa frase y **sigue vigente sin cambio**: el INE se **verifica contra el nombre de la CLABE**
       y su **imagen se almacena cifrada en R2 con retención** (`INE_RETENTION_DAYS`, default **180**); la
       **CLABE se guarda cifrada en BD**.
+      **⚠⚠ 12ª ronda (D48) — ESA VERIFICACIÓN NO EXISTÍA, Y ESTA ES LA RONDA EN QUE SE PONE A EXISTIR**
+      *(hallazgo `BL-41` del arquitecto, medido y confirmado)*: la frase *«se verifica contra el nombre de la
+      CLABE»* **estaba escrita desde v1.1 y no la imponía nada** —no hay ningún campo con el nombre del
+      titular, `kycStatus` no se leía en ningún camino de dinero y `CLABE_NOT_OWN_NAME` **compara CLABEs, no
+      nombres**—. **Desde D48**: **el cotejo es un paso HUMANO obligatorio**, su **veredicto se registra**, y
+      **sin veredicto favorable no se emite la oferta ni sale el pago** (ver los dos bullets nuevos abajo y
+      **§P.2.3**). **Lo que sigue sin existir, y hay que decirlo**: **nadie compara nombres automáticamente**.
       (Ver soporte AML en "Riesgos y banderas para el humano".)
       *(Actualizado 2ª ronda v2.1, D16 — cierra el supuesto del primer pase)*: los topes se evalúan **en los
       dos momentos** (al cotizar y al ofertar), y el monto que los gobierna —y que gobierna el **KYC/INE**—
@@ -1252,6 +1335,97 @@ de autenticidad/condición y precios opacos. Este marketplace resuelve:
         que ya se usó para el cambio de domicilio tardío (pregunta 28). **Un correo automático de «necesitamos
         tu INE para continuar» + subida desde el portal sería ALCANCE NUEVO** y el humano no lo pidió. Se
         estima **raro**: exige a la vez cotización bajo el umbral, override al alza y cruce del tope.)*
+- [ ] **EL COTEJO INE ↔ TITULAR DE LA CLABE: QUÉ ES, Y QUE NADIE LO LEA COMO MÁS DE LO QUE ES** *(NUEVO 12ª
+      ronda, D48; nace del hallazgo `BL-41`)*: **tener el INE no es haberlo verificado.** El control que este
+      documento promete —*«el dinero llega a su titular, no a un tercero»*— **exige que una persona abra la
+      identificación, la contraste con el titular de la cuenta CLABE a la que vamos a depositar, y **registre
+      su veredicto**.
+      - **Es un PASO HUMANO, no una comparación del sistema.** **No hay comparación automática de nombres y
+        este documento no la promete.** Lo que el sistema hace cumplir es que **el veredicto exista** antes de
+        comprometerse y antes de pagar. **«Verificado» significa «una persona dijo que cuadra».**
+      - **Solo aplica a las solicitudes sujetas a identificación** (las que cruzaron el umbral, `INE`
+        requerido). **Por debajo del umbral no hay nada que cotejar y no cambia absolutamente nada** — *un
+        control de KYC aplicado a quien no está sujeto a KYC no es más seguro: es una cola*.
+      - **Quién lo hace, cuándo y con qué criterio decidir «coincide»**: **§P.2.3** (nueva). **No es
+        presentación: sin criterio escrito, cada operador decide distinto** — y las dos formas de equivocarse
+        cuestan cosas muy distintas.
+- [ ] **CUÁNDO se exige el veredicto: ANTES DE EMITIR LA OFERTA — y sigue exigiéndose AL PAGAR** *(NUEVO 12ª
+      ronda, D48)*: **son DOS puntos, y las dos son bloqueantes y server-side. No es una mudanza.**
+      - **Punto 1 — AL EMITIR LA OFERTA (NUEVO)**: si la solicitud está **sujeta a identificación**, **sin
+        veredicto favorable registrado no se emite la oferta**. **Ninguna autorización lo abre** —ni el
+        override (D24/D26), ni el súper-admin—, **exactamente por la misma razón que la compuerta 2 de D46**:
+        *un override es ofertar un número a mano, y no puede ser una puerta trasera al KYC*.
+      - **Punto 2 — AL PAGAR (SE CONSERVA, NO SE TOCA)**: sin veredicto favorable **no sale el SPEI**. **Es la
+        última red y es la que protege el único punto por donde sale dinero.**
+      **⚠ Por qué se dice explícito que son DOS**: leer D48 como *«el veredicto se pide al ofertar»* **haría
+      retirar la comprobación del pago** y volveríamos a tener **dinero saliendo sin control** — la misma
+      forma que ya nos pasó con BL-38 y que D46 tuvo que decir con las mismas palabras. **Adelantar un control
+      no es moverlo.**
+      **POR QUÉ ANTES DE OFERTAR, dicho sin adornos**: la oferta es **vinculante** (§P.3). Con la comprobación
+      **solo en el pago**, la secuencia es *cotiza → sube su INE → recibe oferta vinculante → acepta → **manda
+      sus cartas** → y ahí descubrimos que no le podemos pagar*. **Es la trampa que este stream lleva cerrando
+      cuatro veces** (P1, BL-38, BL-40, BL-43): **comprometerse antes de comprobar**. **Al ofertar los dos
+      datos ya existen** —el INE por D46, la CLABE porque **es requisito de creación desde v1.15** (§P.2.1)—,
+      así que **no hay ninguna excusa de dato faltante**.
+      **⚠ LO QUE ESTO NOS CUESTA A NOSOTROS, y es un costo nuestro, no del vendedor**: aparece **un paso
+      humano obligatorio dentro de los 7 días hábiles** que tenemos para ofertar (D33). **El reloj del vendedor
+      NO se pausa por nuestra verificación** (§P.13: *nadie pierde su venta por una demora nuestra*): si no
+      verificamos a tiempo, **perdemos la compra**, y eso es exactamente lo que debe doler para que el paso se
+      haga. **Prohibido inventar una pausa del plazo para tapar nuestra propia cola.**
+- [ ] **SI EL NOMBRE NO COINCIDE: SE LE PIDE CORREGIR Y LA SOLICITUD QUEDA BLOQUEADA — NO RECHAZADA** *(NUEVO
+      12ª ronda, D49)*: un veredicto desfavorable **no mata la solicitud**.
+      - **Qué pasa**: la solicitud **sigue viva y bloqueada** —**sin estado nuevo y sin motivo nuevo**, igual
+        que el bloqueo por falta de INE (D46)—, **no se emite la oferta**, y **se le pide al vendedor que
+        corrija**.
+      - **Cómo se desbloquea**: **corrigiendo la CLABE** por una cuenta a su nombre, **o** **subiendo de nuevo
+        su identificación**. Cualquiera de las dos **reabre el cotejo**: la corrección **no se auto-aprueba**,
+        **vuelve a requerir un veredicto humano**. *(Si una corrección del vendedor bastara por sí sola para
+        pasar, el control sería un trámite: bastaría reintentar.)*
+      - **Por qué bloquear y no rechazar** *(el humano descartó el rechazo a sabiendas)*: el caso mayoritario
+        de «no coincide» **no es fraude**, es **un apellido mal escrito, una cuenta a nombre de casada o un
+        INE viejo**. **Rechazar de golpe pierde al vendedor legítimo**, y es **irreversible para él** (una
+        solicitud terminal no se revive, §P.1: tendría que cotizar de nuevo con el mercado ya movido).
+      - **La asimetría que justifica todo lo anterior, y que también fija el default ante la duda**: **el
+        bloqueo es reversible; el pago no.** Un bloqueo equivocado **cuesta un mensaje y unos días**; un
+        *«coincide»* equivocado **paga a un tercero y no se deshace**.
+      - **QUÉ VE EL VENDEDOR — el mensaje es requisito, no redacción de pantalla**: tiene que **servirle al
+        error honesto sin regalarle información a quien esté probando**. **Texto, prohibiciones y canal en
+        §P.2.3 y criterio 181.**
+      - **Lo que NO se decide aquí**: la **cola de revisión manual** con back-office propio **queda
+        descartada** por el humano (pide construir superficie nueva). El veredicto se registra **donde el INE
+        ya vive** (**M6**).
+- [ ] **UNA SOLICITUD BLOQUEADA NO SE QUEDA VIVA PARA SIEMPRE — pero tampoco muere en silencio** *(NUEVO 12ª
+      ronda, D50; cierra el camino 3 de `BL-42`, que el arquitecto dejó abierto a propósito por ser decisión de
+      producto)*: desde D49 hay **DOS motivos** por los que una solicitud puede quedarse bloqueada
+      indefinidamente —**falta de INE** (D46) y **nombre que no coincide** (D49)— y **las dos sostienen una
+      identificación oficial que nunca se purga**.
+      **El mecanismo, medido, es peor de lo que suena**: el reloj de retención **no nace con la imagen: nace
+      con el cierre de una solicitud**, y el barrido **salta el perfil entero mientras el usuario tenga
+      cualquier solicitud viva**. ⇒ **UNA sola solicitud bloqueada para siempre congela la purga de TODAS las
+      identificaciones de esa persona**, incluidas las de solicitudes **ya cerradas y pagadas**.
+      **La regla que se decide**:
+      - **Mientras corra el plazo que le debemos al vendedor, la solicitud sigue VIVA y bloqueada.** Sin
+        cambios: es D46/D49.
+      - **Ese plazo empieza CUANDO LE PEDIMOS LO QUE FALTA**, no antes. **Si no le hemos pedido nada, no corre
+        nada** — esa es exactamente la protección de §E/D46 y **no se toca**.
+      - **Si el plazo vence sin que corrija, la solicitud CIERRA por el camino que YA EXISTE**: **`expirada` +
+        motivo `no_offer`**, con **su correo de siempre** (§P.3.1). **No se crea estado nuevo ni motivo nuevo**
+        —el criterio 178 lo prohíbe y no hace falta—, y **al cerrar nace el ancla de retención**, así que **la
+        purga vuelve a funcionar sola**.
+      **⚠ Por qué esto NO contradice a §E**, que es la objeción obvia: §E prohíbe que la solicitud **«caduque
+      en silencio»**, y define el mal con precisión — *«le imputa al vendedor un desenlace nuestro cuando la
+      causa fue **un documento que nunca le pedimos**»*. **Aquí sí se le pidió.** Un plazo que **empieza con
+      nuestra petición** y vence sin respuesta **es del vendedor**, igual que el de `not_shipped`. **Lo que
+      sigue prohibido —y sigue prohibido sin excepción— es cerrar una solicitud bloqueada a la que nunca le
+      dijimos qué le faltaba.**
+      *(**SUPUESTO — pregunta abierta 42**: el plazo son los **mismos 7 días hábiles** que ya rigen *«nadie
+      ofertó»* (D33), contados **desde que le pedimos la corrección**. **No se inventa un dial nuevo** y **no
+      se toca la retención de 180 días**, que es otra cosa y no cambia en esta ronda.)*
+      *(**⚠ Señalado para devops/arquitecto, no es decisión de producto**: la regla del barrido que cierra las
+      `cotizada` **nace apagada** (`buylist_no_offer_expiry_enabled = 'off'`, fail-closed y con censo previo
+      obligatorio). **Mientras esté apagada, ninguna solicitud cierra sola y ninguna identificación se purga
+      jamás.** Esta decisión **necesita esa regla encendida para tener efecto**; encenderla tiene su propio
+      procedimiento y **no se hace por escribirlo aquí**.)*
 ### E.1 Precio de buylist por rareza (configurable desde admin) — NUEVO (v1.3)
 > **⚠ SUPERSEDED por §N (v2.0, LOCKED):** el precio de compra **ya no depende de la rareza ni del acabado**.
 > Desaparecen la tabla por rareza, los tiers, las reglas por acabado y la distinción `fixed`/`pct`: queda
@@ -1415,8 +1589,20 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
       contra el nombre de la CLABE), límites, **bloquear**.
       *(**11ª ronda, D46**)*: **el INE del vendedor se captura DESDE LA COTIZACIÓN** —al crear la solicitud,
       solo **sobre el tope**— y **no en el paso de pago** (§E, §P.2.2, criterio 178). **M6 sigue siendo donde
-      el INE VIVE y se consulta**; lo que cambió es **en qué momento del ciclo entra**. El **cotejo contra el
-      nombre de la CLABE** se hace **cuando ambos datos existen**. *(v2.1, D11)*: el **celular es obligatorio en el
+      el INE VIVE y se consulta**; lo que cambió es **en qué momento del ciclo entra**. ~~El **cotejo contra el
+      nombre de la CLABE** se hace **cuando ambos datos existen**.~~
+      *(**⚠ 12ª ronda, D48 — esa frase era verdadera y VACÍA, y por eso se reemplaza**)*: *«cuando ambos datos
+      existen»* **no nombraba ningún momento, ningún responsable y ninguna consecuencia** — y **medido, el
+      cotejo no ocurría en ningún lado** (`BL-41`). **Ahora M6 es donde el cotejo SE REGISTRA**: el veredicto
+      (**coincide / no coincide**) es **un acto humano, auditado —quién y cuándo—**, y **es precondición de
+      dinero en dos puntos**: **sin veredicto favorable no se emite la oferta ni sale el SPEI** (§E, §P.2.3,
+      criterios **180**/**181**). **La ficha 360° tiene que dejar hacer ese cotejo**: ver la identificación y
+      el titular de la cuenta **lado a lado**, y registrar el veredicto **sin salir de ahí**.
+      *(**SUPUESTO — pregunta abierta 41**: el veredicto lo registra el **súper-admin** —es quien hoy puede
+      tocar el KYC—, aunque el cotejo lo prepare un operador. **Es un cuello de botella conocido**: cada compra
+      grande espera al dueño, y **un cuello de botella en un control de AML se convierte en un sello de goma**
+      si el volumen crece.)*
+      *(v2.1, D11)*: el **celular es obligatorio en el
       alta de usuario que hace el admin**, y la ficha 360° muestra **el teléfono** y **las solicitudes de
       venta vivas** del usuario.
 - [ ] **M7 — Finanzas**: **P&L** (ingresos + envío − costo de lo vendido − comisiones Stripe = ganancia),
@@ -3374,7 +3560,7 @@ gananciaNeta  =  estimadoPSA9 − (precioVentaRaw + gradingCost)      ← SOLO p
 | # | Fase | Estado al terminar | Quién actúa | Qué cambia respecto a hoy |
 |---|---|---|---|---|
 | 1 | **Cotiza** | `cotizada` | Cliente | **Igual que hoy** (cotizador público, monto derivado server-side, §E) + **mínimo de MX$500** (D18). *(5ª ronda, D33)*: **caduca a los 7 días hábiles** si nadie la oferta (§P.3.1). *(**7ª ronda, D36/D37**)*: **aquí se piden la CLABE y la DIRECCIÓN de origen** —de la **libreta que ya existe**—, y **sin dirección no se crea la solicitud** (§P.2.1). *(**11ª ronda, D46**)*: **aquí también se pide el INE**, pero **solo si el TOTAL COTIZADO supera el tope** (MX$3,000): **sin INE no se crea esa solicitud** (§P.2.2). **Por debajo del tope no se pide nada de esto**. *(**11ª ronda, D47**)*: el tope de MX$3,000 **identifica, no rechaza** —arriba **se compra con INE**—; **el único rechazo por monto es el tope MENSUAL** (MX$10,000), y **se evalúa ANTES**, así que **a quien se va a rechazar NUNCA se le pide el INE** (criterios 14/179) |
-| 2 | **Ofertamos** | `ofertada` | Súper-admin, **u operador hasta su tope** (D13) | **NUEVO** — se decide línea por línea y **sale el correo con desglose, bruto/envío/neto y fecha límite** |
+| 2 | **Ofertamos** | `ofertada` | Súper-admin, **u operador hasta su tope** (D13) | **NUEVO** — se decide línea por línea y **sale el correo con desglose, bruto/envío/neto y fecha límite**. *(**11ª ronda, D46**)*: si el **bruto ofertado** supera el tope, **sin INE en archivo NO se emite** — y **ninguna autorización lo abre**. *(**12ª ronda, D48**)*: además, en las solicitudes **sujetas a identificación**, **sin veredicto de KYC favorable registrado tampoco se emite** — **el cotejo INE ↔ titular de la CLABE va ANTES del compromiso**, porque la oferta es **vinculante** y después de ella el vendedor **ya manda sus cartas**. *(**12ª ronda, D49**)*: un veredicto *«no coincide»* **bloquea la emisión y NO rechaza la solicitud**: se le pide corregir y **sigue viva** (§P.2.3). **Nuestro plazo de 7 días hábiles NO se pausa por nuestra verificación** (§P.13) |
 | 3 | **El cliente acepta** | `aceptada` | Cliente | **NUEVO** — dijo que sí, pero **todavía no hay nada en camino** |
 | 4 | **Sale el paquete** | `en_transito` | **Operador** (confirma el envío, D20) | **NUEVO** — **la guía la ponemos nosotros SIEMPRE** *(5ª ronda, D31 — ~~arriba del umbral~~)* y **se compra AL ACEPTAR** (D21) |
 | 5 | **Recibimos** | `recibida` | Admin / operador | Igual que hoy, ahora **conciliando contra la guía** |
@@ -3630,34 +3816,35 @@ NUEVA)**
 - [ ] **Lo que este requisito NO hace**: **no** cambia el **mínimo de compra**, **no** cambia **quién paga el
       envío** (nosotros, siempre — D31), **no** agrega un dial, **no** agrega un correo y **no** agrega un
       estado. **Es un dato de entrada que faltaba**, no una fase nueva del ciclo.
-- [ ] **⚠ CONTRADICCIÓN SEÑALADA — «igual que hoy pasa con la CLABE» no describe lo que este documento dice
-      hoy** *(7ª ronda; se señala en vez de asumirla, y **no se cambia el comportamiento de la CLABE**)*: la
-      decisión D36 se apoya en que **la CLABE ya bloquea la creación de la solicitud**. **En este documento
-      no es así**: la ~~**CLABE y el INE se piden**~~ **CLABE se pide en el PASO DE PAGO del buylist**
-      —criterio **14**, §E, **M6**—, **no al crear**. Lo único que hoy bloquea la creación es el **celular**
-      (D11), el **mínimo** (D18) y, desde ahora, la **dirección** (D36).
-      **⚠ ACTUALIZADO en la 11ª ronda (D46) — la mitad del INE de esta contradicción YA NO EXISTE**: el
-      **INE se adelantó a la creación por decisión del humano** y **ya no viaja con la CLABE** (§E, §P.2.2).
-      Así que **la lista de bloqueos de creación ahora es**: **celular**, **mínimo**, **dirección** y —**solo
-      sobre el tope**— **INE**. **La CLABE es lo ÚNICO que sigue en el paso de pago**, y **por eso la
-      pregunta 29 sigue abierta**, ahora **más chica**: ya no arrastra al INE.
-      **Qué se hizo con eso**: **la dirección se redacta como el humano la decidió** —**bloqueante al
-      crear**—, y **la CLABE se deja EXACTAMENTE como está**, porque **moverla al momento de creación sería
-      alcance nuevo** que él no pidió explícitamente (y tiene efectos: pedir datos bancarios antes de saber
-      si le compramos, y una interacción con el KYC/INE que hoy vive en el pago).
-      **Lo que el humano tiene que confirmar** —**pregunta abierta 29**—: **(a)** que era solo una analogía
-      y la CLABE **se queda en el pago**; o **(b)** que también quiere **la CLABE al crear la solicitud**.
-      ~~en cuyo caso **hay que decidir qué pasa con el INE**, que hoy viaja con ella.~~ **⚠ Esa coletilla
-      queda SUPERADA por D46**: el **INE ya no depende de esta pregunta** —se pide al crear, sobre el tope—,
-      así que la 29 **decide solo sobre la CLABE**.
-      *(**SUPUESTO tomado**: **(a)** — la CLABE **no se mueve**.)*
-      **⚠ Consecuencia NUEVA de D46 que el arquitecto necesita ver** *(no es alcance nuevo, es una
-      dependencia de orden)*: el INE se **pide al crear** pero se **verifica contra el nombre de la CLABE**, y
-      **la CLABE todavía no existe en ese momento**. **Las dos cosas conviven sin conflicto** porque son
-      preguntas distintas: **la captura** ocurre en la creación (compuerta de D46) y **el cotejo
-      nombre-INE ↔ nombre-CLABE** ocurre **cuando ambos datos existen** — hoy, en el **paso de pago**. Ver
-      §E y **criterio 178(f)**. *(Si la pregunta 29 se resolviera por **(b)**, el cotejo simplemente se
-      adelanta a la creación; **D46 no cambia** en ninguno de los dos escenarios.)*
+- [ ] ~~**⚠ CONTRADICCIÓN SEÑALADA — «igual que hoy pasa con la CLABE» no describe lo que este documento dice
+      hoy**~~ **⚠⚠ FALSA ALARMA: LA CONTRADICCIÓN NO EXISTÍA. LA ANALOGÍA DE D36 ERA CORRECTA Y ESTE
+      DOCUMENTO ESTABA MAL** *(**corregido en la 12ª ronda**; el error lo destapó el arquitecto al declarar
+      `BL-41` y **lo verifiqué yo antes de escribirlo**)*.
+      **Lo que este documento afirmaba durante cinco rondas**: que *«la CLABE se pide en el PASO DE PAGO del
+      buylist»* y que *«lo único que hoy bloquea la creación es el celular (D11), el mínimo (D18) y la
+      dirección (D36)»*. **Las dos afirmaciones son falsas.**
+      **Lo medido**: `POST /buylist/requests` **exige la CLABE ANTES de cotizar las líneas** y **sin CLABE en
+      el cuerpo ni en archivo devuelve `422 CLABE_REQUIRED`**; **el contrato lo declara desde v1.15**; y la
+      solicitud **nace con la CLABE congelada y cifrada**. ⇒ **La CLABE bloquea la creación, y lo hace desde
+      mucho antes de D36.**
+      **Y el documento se contradecía a sí mismo, no solo al código**: **§P.1 (fase 1, «Cotiza») lleva desde la
+      7ª ronda diciéndolo bien** —*«aquí se piden la CLABE y la DIRECCIÓN de origen»*—. **Convivían la frase
+      correcta y la falsa a doce páginas de distancia**, y **nadie las leyó juntas**.
+      **La lista de bloqueos de creación, ahora correcta**: **celular** (D11), **mínimo** (D18), **dirección**
+      (D36), **CLABE** (v1.15) y —**solo sobre el tope**— **INE** (D46).
+      **Qué cambia de comportamiento: NADA.** **La CLABE no se mueve** —**no hace falta moverla: ya estaba
+      donde D36 suponía**—. Lo único que cambia es **que este documento deja de describir mal su propio
+      producto**.
+      **⚠ LO QUE SÍ SE CAE CON ESTA CORRECCIÓN, y es lo importante**: el argumento —repetido en **§E**, **M6**,
+      la **decisión 108** y las **restricciones técnicas**— de que *«el cotejo INE ↔ titular de la CLABE solo
+      puede ocurrir en el paso de pago **porque la CLABE todavía no existe al crear**»*. **Esa imposibilidad
+      nunca fue cierta.** Los dos datos —INE y CLABE— **existen en el mismo instante: la creación**. ⇒ **el
+      cotejo no estaba en el pago por falta de un dato; no estaba en ninguna parte** (`BL-41`), y **desde D48
+      se exige ANTES DE OFERTAR** y **también al pagar** (§E, **§P.2.3**, criterios **180**/**181**).
+      **Qué le queda a la pregunta 29** *(ver su entrada, también corregida)*: **ya no pregunta «¿movemos la
+      CLABE?»** —está donde tiene que estar—. **Queda solo la mitad honesta**: confirmar que **está bien
+      pedirle sus datos bancarios antes de saber si le compramos**, que es **el mismo trato que ya se aceptó
+      para la dirección y el INE** y que **lleva vigente desde v1.15 sin que nadie lo notara**.
 
 **P.2.2 — El INE del vendedor: se pide AL CREAR la solicitud, solo sobre el tope, y NUNCA desnudo (D46 — 11ª
 ronda; NUEVA)**
@@ -3716,6 +3903,10 @@ ronda; NUEVA)**
       MX$3,000 por solicitud»* — **la razón es AML y el pago a particulares**, y se dice;
       **(b)** **PARA QUÉ SIRVE**: que se **coteja contra el nombre de la cuenta CLABE** a la que se deposita —
       es decir, **protege que el dinero llegue a su titular**, no es un trámite decorativo;
+      *(**⚠ 12ª ronda, D48 — esta promesa dejó de ser gratis**: hasta ahora la pantalla decía esto y **el
+      cotejo no ocurría en ningún lado** (`BL-41`). **Decirle al vendedor que cotejamos y no cotejar es
+      mentirle**, y por eso D48 pone el paso humano a existir con dos precondiciones de dinero. **La frase de
+      la pantalla no cambia; lo que cambia es que ahora es verdad.** Ver §P.2.3.)*
       **(c)** **QUÉ HACEMOS CON ÉL**: se **guarda cifrado**, con **retención limitada** (`INE_RETENTION_DAYS`,
       default **180 días**) y **se purga** con la solicitud (§P.1). **Sin promesas que no podamos sostener**;
       **(d)** **QUÉ SIGUE — y ESTA ES LA QUE IMPIDE QUE SE LEA COMO «dame tu INE y ya veremos»**: que
@@ -3741,6 +3932,114 @@ ronda; NUEVA)**
       cambia **quién paga el envío**, **no** agrega un **estado**, **no** agrega un **correo** y **no** mueve
       la **CLABE**. **Es un requisito de creación más** —el cuarto, junto a celular, mínimo y dirección— que
       **solo se activa sobre el tope**.
+
+**P.2.3 — El cotejo INE ↔ titular de la CLABE: quién lo hace, cuándo, con qué criterio, y qué ve el vendedor
+si no cuadra (D48/D49 — 12ª ronda; NUEVA)**
+> **El hueco que cierra**: este documento prometía desde **v1.1** que *«el INE se verifica contra el nombre de
+> la CLABE»* — **en dieciocho sitios, contados uno por uno**. **Medido (`BL-41`): no existía.** No hay ningún campo con el nombre del
+> titular, `kycStatus` no se leía en ningún camino de dinero, y el error que parecía el cotejo
+> (`CLABE_NOT_OWN_NAME`) **compara CLABEs, no nombres**. **§E dice la regla; esta sección dice CÓMO SE HACE**,
+> porque **un control que no tiene responsable, momento ni criterio no es un control: es una frase**.
+
+- [ ] **LO PRIMERO, PORQUE TODO LO DEMÁS DEPENDE DE ESTO: ESTO ES UN PASO HUMANO Y SEGUIRÁ SIÉNDOLO.** **El
+      sistema no compara nombres y este documento no promete que lo haga.** Lo que el sistema hace cumplir es
+      que **el veredicto de una persona exista y esté registrado** antes de comprometerse y antes de pagar.
+      **Cuando este documento, el contrato o una pantalla digan «verificado», hay que leer «una persona dijo
+      que cuadra»** — no *«el sistema comprobó que cuadra»*. **La bandera AML se lee con esa precisión.**
+- [ ] **QUIÉN**: el cotejo lo **prepara** quien ya está trabajando la solicitud en la **mesa** (M5) y el
+      **veredicto lo registra un súper-admin** en la **ficha del usuario** (M6), que es donde el INE vive.
+      **Queda auditado quién y cuándo**, como todo acto de dinero.
+      *(**SUPUESTO — pregunta 41**: que el veredicto sea **solo del súper-admin**. **Se dice el costo**: cada
+      compra grande **espera al dueño**, y **un cuello de botella en un control de AML termina en sello de
+      goma**. La alternativa es **dejarlo al operador** con la misma auditoría.)*
+- [ ] **CUÁNDO**: **antes de emitir la oferta** (D48), y **el veredicto se vuelve a exigir al pagar** (§E). **No
+      es una revisión que el vendedor espere sabiéndolo**: para él, **es el tiempo de respuesta de siempre**.
+      **Nuestro plazo de 7 días hábiles para ofertar no se pausa por esto** (§P.13).
+- [ ] **⚠ CONTRA QUÉ NOMBRE SE COTEJA — el hueco real, dicho antes que el criterio, porque sin esto el criterio
+      no se puede aplicar**: para comparar hacen falta **dos nombres**, y **el sistema solo tiene uno**. El INE
+      trae un nombre; **la CLABE es un número de 18 dígitos y no trae ninguno**. **Medido**: el campo donde
+      viviría el nombre del titular (`legalName`) **no tiene ningún flujo que lo escriba**.
+      *(**SUPUESTO — pregunta 40**: el nombre del titular **se obtiene del banco**, en el momento en que el
+      operador **da de alta / valida la CLABE como cuenta beneficiaria** en el portal bancario — **una acción
+      que no mueve dinero** y que hoy ya hay que hacer antes del primer SPEI. **Se registra el veredicto, no el
+      nombre**, para no acumular más PII de la necesaria. **La alternativa es capturar el nombre del titular**
+      —más auditable, más dato personal, **campo nuevo = alcance nuevo**—.)*
+      **⚠ Lo que hay que confirmar con el banco antes de dar esto por bueno**: **que el nombre del titular sea
+      visible ANTES de transferir**. Si resultara que solo se ve **al ejecutar el SPEI**, entonces **el cotejo
+      de verdad solo puede ocurrir en el pago** y D48 se quedaría en *«el INE está y alguien lo miró»* — que
+      **sigue siendo más de lo que hay hoy**, pero **es menos de lo que esta sección promete**.
+- [ ] **EL CRITERIO PARA DECIDIR «COINCIDE» — se escribe porque sin él cada operador decide distinto**, y
+      porque **con nombres mexicanos «coincide» no es obvio**: hay **nombres de casada**, **apellidos
+      abreviados**, **segundos nombres que aparecen y desaparecen** y **acentos que los bancos comen**.
+      **Antes de comparar, se normaliza**: **mayúsculas**, **sin acentos**, **sin puntos ni comas**, **espacios
+      colapsados**, y las **partículas** (`DE`, `DEL`, `LA`, `LAS`, `LOS`, `Y`) **no cuentan por sí solas** —
+      pero **sí cuentan las palabras que unen** (`DE LA CRUZ` es el apellido `CRUZ`, no una partícula suelta).
+      **Después, tres preguntas en este orden**:
+      **(1) ¿Los APELLIDOS son los mismos?** Un apellido **distinto** ⇒ **NO COINCIDE**. Un apellido
+      **ausente** no es un apellido distinto (ver 3).
+      **(2) ¿El PRIMER NOMBRE DE PILA es el mismo, o una abreviatura evidente de él?** `MA.` = `MARÍA`,
+      `GPE.` = `GUADALUPE`, `FCO.` = `FRANCISCO`, `J. GUADALUPE` con INE `JOSÉ GUADALUPE`. Un nombre de pila
+      **distinto** ⇒ **NO COINCIDE**.
+      **(3) ¿Lo único que sobra o falta son nombres de pila adicionales, o el apellido materno?** ⇒
+      **COINCIDE**. `JUAN CARLOS PÉREZ LÓPEZ` vs `JUAN PÉREZ LÓPEZ` ⇒ **coincide**. `MARÍA LÓPEZ` vs
+      `MARÍA LÓPEZ GARCÍA` ⇒ **coincide**. **Omitir no es cambiar.**
+      **Y el caso que el humano nombró explícitamente — NOMBRE DE CASADA**: un `DE <APELLIDO>` **añadido al
+      final** (`MARÍA LÓPEZ DE PÉREZ` en el banco, `MARÍA LÓPEZ GARCÍA` en el INE) **se ignora para comparar**
+      y **coincide**. **Es el caso legítimo más común y perderlo sería perder a la vendedora.**
+      **⚠ LA REGLA DE ORO ANTE LA DUDA, y no es simetría — es la asimetría que manda**: **si el operador duda,
+      NO marca «coincide».** **Marcar «no coincide» cuesta un mensaje y unos días, y se deshace; marcar
+      «coincide» por mal saca el dinero a un tercero y no se deshace.** **D49 es lo que hace barato equivocarse
+      por el lado prudente**: el vendedor **no pierde su solicitud**, la corrige.
+      **Lo que NO es motivo de «no coincide»** *(para que el criterio no se use de más)*: acentos, `Ñ`/`N`,
+      guiones, mayúsculas/minúsculas, orden `nombre apellido` vs `apellido nombre`, o que el banco **trunque**
+      el nombre por largo.
+- [ ] **QUÉ VE EL VENDEDOR CUANDO NO CUADRA — el mensaje de D49, y esto es requisito, no copy** *(el humano
+      pidió **un solo mensaje**: *«la cuenta debe estar a tu nombre; corrige la CLABE o súbenos el INE
+      correcto»*)*. **La tensión que hay que resolver, dicha entera**: un mensaje que diga *«el nombre de tu
+      INE no coincide con el titular de la cuenta»* **le confirma a quien esté probando exactamente qué
+      falló**; uno que diga *«hubo un problema»* **deja tirada a la señora que abrevió su apellido**.
+      **Cómo se resuelve: se le dice LA REGLA, nunca EL RESULTADO DE LA COMPROBACIÓN.** La regla **ya es
+      pública** (*«solo pagamos por SPEI a una cuenta a nombre del propio usuario»*, §E y términos), así que
+      **repetirla no informa a nadie de nada nuevo**; y **le dice al vendedor honesto exactamente dónde
+      mirar**, porque **los dos datos son suyos y los conoce**.
+      **Redacción de referencia (ES; paridad ES/EN)**:
+      > **«Para pagarte, la cuenta CLABE tiene que estar a tu nombre —el mismo de tu identificación—. Revisa
+      > los dos datos y corrige el que haga falta: puedes cambiar la CLABE por una cuenta tuya o volver a
+      > subir tu identificación. Tu solicitud sigue abierta mientras tanto.»**
+      **Por qué esta redacción cumple las dos cosas**: **enuncia la regla** (no el veredicto), **da las dos
+      salidas**, **no dice cuál de los dos datos consideramos mal**, y **cierra con lo único que de verdad
+      calma a un vendedor legítimo**: *su solicitud no se cayó*.
+- [ ] **PROHIBICIONES DEL MENSAJE — son la mitad del requisito**:
+      - **Prohibido decir CUÁL de los dos datos falló.** Es lo que convierte el mensaje en un manual de
+        instrucciones para quien está probando.
+      - **Prohibido citar NINGÚN nombre** — ni el del INE ni el del titular de la cuenta. Devolverle el nombre
+        del titular a quien mandó la CLABE **sería filtrarle el nombre de un tercero**, que es exactamente el
+        daño que este control existe para evitar.
+      - **Prohibido variar el texto según la causa.** **Si el mensaje cambia, el cambio ES la información**: el
+        mensaje **es el mismo** para nombre que no cuadra, identificación vencida o veredicto que el operador
+        no pudo sostener.
+      - **Prohibido dar veredicto instantáneo al subir.** El resultado **llega como llega cualquier revisión
+        nuestra**, no como respuesta inmediata a la subida: **un «coincide / no coincide» al instante es un
+        oráculo que se puede consultar todas las veces que haga falta.** *(Esto ya se cumple solo, porque el
+        veredicto es humano — pero se escribe para que nadie lo «mejore» con feedback inmediato.)*
+      - **Prohibido redactarlo como rechazo** (*«no podemos procesar tu solicitud»*): **es una puerta, no un
+        muro** — mismo espíritu que la separación de mensajes de D47 (§P.2.2).
+      - **La ÚNICA variante admitida** es la que **no dice nada del cotejo**: si la imagen **no se puede leer**
+        (borrosa, cortada, ilegible), se le pide **una foto mejor**, **sin mencionar nombres ni titulares**.
+        **Esa variante habla del archivo, no de la comparación**, y por eso no filtra el resultado.
+- [ ] **DÓNDE se le dice**: en **la ficha de su solicitud en el portal**, que es **la superficie que ya muestra
+      el estado y el motivo** de cada solicitud (criterio 169(d)). **No se inventa superficie nueva.**
+      *(**SUPUESTO — pregunta 43**: **además** se le manda **correo**. **El costo está contado**: el ciclo
+      tiene **cinco correos** (criterio 173) y este sería **el sexto** — la misma objeción por la que la
+      pregunta 36 se resolvió como operación manual. **Pero aquí pesa distinto**, y por eso el supuesto va al
+      revés: **de este mensaje depende que el vendedor sepa que tiene que hacer algo**, y **de que lo sepa
+      depende que su solicitud no se cierre por D50**. **Cerrar una solicitud por no responder a un mensaje que
+      solo estaba en una pantalla que quizá no visitó es la versión educada de cerrarla en silencio.**)*
+- [ ] **CÓMO SE DESBLOQUEA, y qué NO se le promete**: corrige **la CLABE** o **la identificación**, y **el
+      cotejo se vuelve a hacer** — **por una persona, otra vez**. **La corrección no se auto-aprueba**: si
+      bastara con reintentar, el control sería un trámite. **Y no se le promete una oferta**: sigue vigente lo
+      que ya dice §P.2.2(d) —*enviar la solicitud no es la venta*—, así que **desbloquear no es «ya te
+      compramos»**, es **volver a la fila**.
 
 **P.3 — La oferta, el correo y la aceptación (D1, D2, D3; AMPLIADA en la 4ª ronda por D30 — la oferta es
 condicional a NM línea por línea)**
@@ -3984,6 +4283,24 @@ ronda; NUEVA)**
 - [ ] **Terminal es terminal, también aquí** (§P.1): sobre una solicitud que **caducó** —**por barrido o por
       «declinar ahora»**— **no se re-oferta**;
       si el vendedor sigue interesado, **cotiza de nuevo** (y el correo se lo dice).
+- [ ] **⚠ LA EXCEPCIÓN DE LAS SOLICITUDES BLOQUEADAS: MISMA DURACIÓN, ANCLA DISTINTA** *(NUEVO 12ª ronda,
+      D50; **hay que decirlo aquí o esta sección se contradice con §E**)*: el plazo de arriba se cuenta
+      **desde la creación** y **corre contra NOSOTROS**. **Para una solicitud bloqueada** —por **falta de INE**
+      (D46) o por un veredicto ***«no coincide»*** (D49)— **ese ancla no aplica**, y la razón es la que §E ya
+      dio: **cerrarla a los 7 días de creada le imputaría al vendedor un desenlace nuestro por un documento
+      que nunca le pedimos**.
+      **La regla para esas**: el reloj **empieza cuando le pedimos la corrección**, no cuando creó la
+      solicitud. **Antes de pedírsela, NO corre ningún plazo y la solicitud no caduca** *(hoy tampoco lo
+      haría: la regla del barrido nace apagada)*.
+      **Qué NO cambia**: **la duración** *(**supuesto, pregunta 42**: los mismos **7 días hábiles**)*, el
+      **estado y motivo terminales** (**`expirada` + `no_offer`**), el **correo** y que **terminal es
+      terminal**. **Lo único distinto es desde cuándo se cuenta** — y **eso convierte un plazo nuestro en un
+      plazo suyo**, que es lo que lo vuelve legítimo.
+      **⚠ Lo que este documento acepta a cambio, dicho para que no sorprenda en los reportes**: al reusar el
+      motivo `no_offer`, **M9 no podrá separar *«decidimos no comprar»* de *«el vendedor no completó su
+      identificación»***. **Se acepta a propósito**: distinguirlas pide **un motivo nuevo**, que el criterio
+      178 prohíbe y que **el humano no pidió**. *(Si esa métrica llegara a importar para AML, **es alcance
+      nuevo y hay que pedirlo** — ver pregunta 42.)*
 - [ ] **Qué pasa con una oferta que estaba esperando autorización** *(~~SUPUESTO~~ **CONFIRMADO en la 6ª
       ronda por el arquitecto**)*: si el operador preparó una oferta arriba de su tope y **el súper-admin no
       la autorizó dentro del plazo**, **la solicitud caduca igual** —**el cliente sigue esperando, y el
@@ -4504,9 +4821,37 @@ en la 6ª — origen único de los números)**
 > operador ve **la causa real** (*falta INE*), no un error genérico.
 > **(3) El caso que NO debe pedir nada** — cotiza **MX$2,900** y se oferta **MX$2,400** tras descartar una
 > línea: **en ningún momento se le pide INE**, y **el ciclo corre completo hasta `pagada`**.
-> **Y el borde del cotejo**: en (1), el INE se **capturó al crear**, pero el **cotejo contra el nombre de la
+> ~~**Y el borde del cotejo**: en (1), el INE se **capturó al crear**, pero el **cotejo contra el nombre de la
 > CLABE** ocurre **donde la CLABE existe** — verificable con un INE **a nombre distinto**: **la operación se
-> detiene**, igual que antes de D46.
+> detiene**, igual que antes de D46.~~ **⚠ ESE BORDE NO ERA EJECUTABLE Y SE RETIRA (12ª ronda, `BL-41`)**: con
+> un INE a nombre distinto **la operación NO se detenía**, ni después de D46 ni antes. **Su reemplazo
+> verificable es el flujo de D48/D49 de abajo.**
+>
+> **Flujo crítico — el cotejo INE ↔ titular de la CLABE existe, bloquea antes de ofertar y no filtra (D48/D49):**
+> cuatro recorridos:
+> **(1) Sin veredicto no hay oferta** — un vendedor **con INE subido** cotiza **MX$4,000** y **nadie ha
+> verificado su identidad**: **la oferta NO se emite**, ni con **súper-admin**. La solicitud **sigue viva** y
+> el operador ve **la causa real** (*falta el veredicto de identidad*). **Este es el recorrido que impide que
+> el vendedor mande sus cartas contra una oferta que no vamos a poder pagar.**
+> **(2) La última red sigue puesta** — la misma solicitud, **ya ofertada y aceptada**, con el veredicto
+> **revertido** antes del pago: **el SPEI no sale**. *(Si este falla, D48 se leyó como mudanza y volvimos a
+> BL-38.)*
+> **(3) «No coincide» bloquea, no rechaza, y el mensaje no enseña nada** — veredicto desfavorable: la solicitud
+> **sigue viva**, el vendedor recibe **un mensaje que enuncia la regla** (*la cuenta tiene que estar a tu
+> nombre*) **sin decir cuál dato falló y sin citar ningún nombre**; **corrige la CLABE** —o **vuelve a subir su
+> INE**— y **vuelve a requerir veredicto humano**: **no se auto-aprueba**. **Verificable además comparando el
+> texto** contra el de una identificación **vencida**: **es el mismo mensaje**.
+> **(4) Nada de esto le pasa al caso mayoritario** — cotiza **MX$2,900**: **no hay veredicto, ni espera, ni
+> mensaje**, y el ciclo corre **completo hasta `pagada`**.
+>
+> **Flujo crítico — una solicitud bloqueada ni muere en silencio ni vive para siempre (D50):** dos recorridos
+> **que tienen que dar resultados opuestos**:
+> **(1) No le pedimos nada ⇒ no cierra** — una solicitud bloqueada a la que **nunca le dijimos qué le
+> faltaba** **sigue viva** pasado el plazo. **Es la protección de §E y no se toca.**
+> **(2) Le pedimos y no corrigió ⇒ cierra, y la purga vuelve a correr** — tras pedirle la corrección y vencer
+> el plazo, cierra como **`expirada` + `no_offer`** con **su correo de siempre**. **Y el punto que de verdad
+> importa**: ese mismo usuario tenía **otra solicitud pagada hace más de 180 días** cuya identificación
+> **no se estaba purgando** por culpa de la bloqueada — **al cerrar, se purga**.
 >
 > **Flujo crítico — los dos topes se comportan al revés, y el orden importa (D47):** tres recorridos:
 > **(1) El tope de solicitud ya NO es techo** — un usuario **con INE** cotiza **MX$4,500** ⇒ **la solicitud se
@@ -5140,9 +5485,15 @@ ronda por D31**)**
   (sobre el tope)~~ **⚠ 11ª ronda, D46: el INE se pide DESDE LA COTIZACIÓN** —al **crear la solicitud**, y de
   nuevo como compuerta **al emitir la oferta**—, siempre **solo sobre el tope** (§E, §P.2.2, criterio 178).
   **Lo que no cambió**: su **imagen se almacena cifrada en R2 con retención** (`INE_RETENTION_DAYS`, default
-  **180**), **verificada contra el nombre de la CLABE** —cotejo que ocurre **cuando la CLABE existe**, hoy en
-  el **paso de pago**—. La **CLABE sigue guardándose cifrada en la base de datos** (sin cambio, y **no se
+  **180**), **verificada contra el nombre de la CLABE** ~~—cotejo que ocurre **cuando la CLABE existe**, hoy en
+  el **paso de pago**—~~. La **CLABE sigue guardándose cifrada en la base de datos** (sin cambio, y **no se
   movió de momento**: ver pregunta 29). Ver bandera AML en "Riesgos y banderas para el humano".
+  **⚠⚠ 12ª ronda (D48/D49) — DOS correcciones a este punto**: **(1)** el cotejo **no ocurría «en el paso de
+  pago»: no ocurría en ninguna parte** (`BL-41`). Ahora es **un veredicto humano registrado**, exigido **antes
+  de emitir la oferta** y **otra vez al pagar**; si el veredicto es *«no coincide»*, **la solicitud queda
+  bloqueada —no rechazada— y se le pide corregir** (§P.2.3, criterios 180/181). **(2)** la premisa *«cuando la
+  CLABE existe»* daba a entender que la CLABE llega tarde: **es falso**, **la CLABE es requisito de creación
+  desde v1.15** (§P.2.1). **Los dos datos existen en el mismo instante.**
 - **Política de reembolsos — VENTAS FINALES**: no hay reembolso voluntario tras la compra (en bóveda o
   enviada); aplica a **todos los tipos de producto sin excepción** (raw, sellado y gradeadas). **Dos
   excepciones**: (1) **disputa de condición** por carta **dañada/equivocada** (ventana de **7 días contados
@@ -5163,6 +5514,9 @@ ronda por D31**)**
 - **Pago de buylist**: solo **SPEI** a cuenta a nombre del propio usuario (sin otros métodos). La **CLABE**
   se guarda **cifrada en BD**; el **INE se almacena cifrado en R2 con retención** (`INE_RETENTION_DAYS`,
   default 180) y se **verifica contra el nombre de la CLABE**.
+  *(**⚠ 12ª ronda, D48**: esa verificación **es un veredicto humano registrado**, **no** una comparación
+  automática de nombres, y es **precondición de dos puntos**: **emitir la oferta** y **pagar**. Antes de esta
+  ronda **no se hacía en ningún punto** — `BL-41`. Ver §P.2.3 y criterio 180.)*
 - **Ciclo de adquisición del buylist** *(v2.1, §P; actualizado en la 2ª ronda por D13–D23; **6ª ronda**)*: el
   pipeline es
   `cotizada → ofertada → aceptada → en_transito → recibida → verificación → aprobada → pagada`, con **cuatro
@@ -5337,6 +5691,10 @@ ronda por D31**)**
     usuario**; la imagen del INE se **almacena cifrada en R2 con retención** (`INE_RETENTION_DAYS`, default
     180) y se **verifica contra el nombre de la CLABE**; la **CLABE se guarda cifrada en BD**. **Ambos topes
     se siguen midiendo en BRUTOS** (criterios **136**/**155**, sin cambio).
+    **⚠ 12ª ronda (D48)**: de esa lista, *«se verifica contra el nombre de la CLABE»* **era la única que no se
+    cumplía** —**el cotejo no existía**, `BL-41`—. **Ahora se cumple así**: **un veredicto humano registrado**,
+    **exigido antes de emitir la oferta y otra vez antes de pagar** (§E, §P.2.3, criterios **180**/**181**).
+    **Sigue sin haber comparación automática de nombres.** Lo demás del (e) **no se toca**.
     **⚠ CONSECUENCIA PARA EL ARQUITECTO Y PARA BACKEND, dicha explícita porque HAY CÓDIGO QUE LA CONTRADICE**:
     al cerrar **BL-38** backend implementó **`bruto > tope por solicitud ⇒ rechazo`**
     (`422 BUYLIST_LIMIT_EXCEEDED`). **Con D47 ese caso deja de ser rechazo y pasa a ser exigencia de
@@ -7088,10 +7446,17 @@ de este documento (v2.1, D41 + D42; §E/§H/§P.3/§P.11)**
     debajo** del umbral y cuyo **bruto ofertado queda por encima** (pasa la 1, la para la 2) y con el caso
     inverso —**cotizada por encima**, **ofertada por debajo** tras un recorte línea por línea— donde **el INE
     ya se pidió al crear y no se devuelve ni se borra por eso**;
-    **(g)** **el cotejo contra el nombre de la CLABE NO se perdió al adelantar la captura**: el INE se
+    **(g)** ~~**el cotejo contra el nombre de la CLABE NO se perdió al adelantar la captura**: el INE se
     **captura al crear** y se **coteja contra el titular de la CLABE cuando ambos datos existen** (hoy, el
     **paso de pago**). Verificable con un INE **a nombre distinto** del de la CLABE: **la operación se
-    detiene**, exactamente igual que antes de D46;
+    detiene**, exactamente igual que antes de D46;~~
+    **⚠⚠ ESTE PUNTO ERA FALSO Y NO ERA VERIFICABLE — CORREGIDO EN LA 12ª RONDA (D48, hallazgo `BL-41`)**: decía
+    *«exactamente igual que antes de D46»*, y **antes de D46 tampoco pasaba**: **el cotejo no existía en
+    ninguna parte**, así que **con un INE a nombre distinto la operación NO se detenía**. **No lo rompió D46 —
+    llevaba así desde v1.1—**, pero **este criterio afirmaba una verificación que ningún QA podía ejecutar**, y
+    esa es precisamente la forma de `BL-38`. **Su redacción correcta y verificable es el criterio 180**;
+    lo que **sí** se sostiene de este punto (g) es **la mitad de la captura**: **adelantar el INE a la creación
+    no perdió nada**, porque **no había nada que perder**;
     **(h)** **el guardado no cambió**: la imagen va **cifrada a R2**, con retención `INE_RETENTION_DAYS`
     (**180**), y **se purga con la solicitud terminal** —incluidas las **`expirada`** por sus **dos motivos**
     (criterio 169(e))—, **también cuando nunca le compramos nada**;
@@ -7127,6 +7492,78 @@ de este documento (v2.1, D41 + D42; §E/§H/§P.3/§P.11)**
     solicitud»*. Ese desenlace **desaparece del producto** — el único rechazo por monto que queda es **el
     mensual**. *(Es el punto que atrapa la implementación vieja de BL-38 si sobrevive: ver criterio 14.)*
 
+**Ciclo de adquisición del buylist — 12ª ronda: el cotejo INE ↔ titular de la CLABE pasa de frase a control
+(v2.1, D48/D49/D50; §E/§P.1/§P.2.1/§P.2.3/M5/M6)**
+> **⚠ Estos tres criterios NO derogan el 178 ni el 179.** D46 (cuándo se **captura** el INE) y D47 (qué hace
+> cada tope) **siguen vigentes tal cual**. Lo que se añade es **qué pasa con el documento una vez capturado**:
+> hasta ahora, **nada**.
+
+180. **D48 — SIN VEREDICTO DE KYC NO SE OFERTA, Y TAMPOCO SE PAGA (12ª ronda; sustituye al criterio 178(g),
+    que no era verificable)**: verificable en **ocho** puntos:
+    **(a)** **por debajo del umbral no cambia NADA** —guarda de regresión y caso mayoritario—: una solicitud
+    **no sujeta a identificación** se oferta y se paga **sin ningún veredicto de KYC**, **sin paso extra** y
+    **sin espera**;
+    **(b)** **sobre el umbral, sin veredicto favorable NO SE EMITE LA OFERTA**: un vendedor **con su INE
+    subido** pero **sin que nadie lo haya verificado** ⇒ **la emisión se bloquea**, y **el operador ve la
+    causa real** (*falta el veredicto de identidad*), **no un error genérico**;
+    **(c)** **ninguna autorización lo abre**: ni el **override** (D24/D26), ni la **autorización de
+    súper-admin** por monto. **Verificable intentándolo con el rol más alto** — igual que 178(e);
+    **(d)** **el veredicto SIGUE exigiéndose al pagar, y esto es lo que prueba que no fue una mudanza**: con
+    una solicitud **ya ofertada y aceptada** cuyo veredicto **se revierte** antes del pago, **el SPEI no
+    sale**. *(Si este punto falla, se perdió la última red y volvimos a BL-38 por la puerta de atrás.)*
+    **(e)** **un veredicto NEGATIVO bloquea igual que la ausencia de veredicto** — *«no coincide»* es
+    **precisamente el caso que este control existe para detener**, así que **no puede comportarse como
+    «pendiente»** en ningún punto;
+    **(f)** **está registrado quién y cuándo** emitió el veredicto: es un **acto humano auditado**, y
+    **verificable en la bitácora** (M10);
+    **(g)** **nuestro plazo NO se pausa por nuestra cola**: una solicitud sujeta a identificación **caduca a
+    los 7 días hábiles igual que cualquier otra** si no la ofertamos (D33). **Verificable por lo que NO
+    existe**: **ninguna pausa, extensión ni «reloj detenido por verificación»**;
+    **(h)** ⚠ **verificable por lo que este criterio NO afirma**: **en ningún punto el sistema compara dos
+    nombres**. Un test que pretenda probar *«el sistema detectó que los nombres difieren»* **está probando algo
+    que no existe** — lo que se prueba es **que sin veredicto humano registrado no hay oferta ni dinero**.
+
+181. **D49 — «NO COINCIDE» BLOQUEA Y PIDE CORREGIR; NO RECHAZA, Y EL MENSAJE NO FILTRA (12ª ronda)**:
+    verificable en **siete** puntos:
+    **(a)** **la solicitud NO muere**: tras un veredicto *«no coincide»* sigue **viva**, **sin estado nuevo y
+    sin motivo nuevo**, y **el vendedor no tiene que volver a cotizar**;
+    **(b)** **se desbloquea por los DOS caminos**: **corrigiendo la CLABE** o **volviendo a subir la
+    identificación**. Verificable con los dos, **por separado**;
+    **(c)** **la corrección NO se auto-aprueba**: tras corregir, la solicitud **vuelve a requerir veredicto
+    humano** y **sigue sin poder ofertarse** hasta que lo haya. *(Si reintentar bastara, el control sería un
+    trámite.)*;
+    **(d)** **el mensaje NO dice cuál de los dos datos falló** y **NO contiene ningún nombre** —ni el del INE
+    ni el del titular—. **Verificable leyendo el texto**: si aparece un nombre, **estamos filtrando el de un
+    tercero**;
+    **(e)** **el mensaje es EL MISMO** para nombre que no cuadra, identificación vencida o veredicto que el
+    operador no pudo sostener. **Verificable comparando los tres casos byte a byte**: *si el texto cambia, el
+    cambio es la información*. **La única variante admitida es la de imagen ilegible**, que **habla del
+    archivo y no menciona titulares**;
+    **(f)** **no hay veredicto instantáneo al subir**: la pantalla **no responde «coincide / no coincide»** en
+    el momento de la subida. **Verificable por lo que NO pasa** — *un resultado inmediato es un oráculo
+    consultable sin límite*;
+    **(g)** **no se lee como rechazo**: el texto **no dice** *«no podemos procesar tu solicitud»* y **sí dice**
+    que **su solicitud sigue abierta**. Misma separación que D47 exige entre *«te pedimos identificación»* y
+    *«no podemos comprarte»* (§P.2.2).
+
+182. **D50 — NINGUNA SOLICITUD BLOQUEADA SE QUEDA VIVA PARA SIEMPRE, Y NINGUNA MUERE SIN QUE LE HAYAMOS
+    PEDIDO LO QUE FALTA (12ª ronda; cierra el camino 3 de `BL-42`)**: verificable en **seis** puntos:
+    **(a)** **una solicitud bloqueada a la que NO le hemos pedido nada NO cierra jamás por el barrido** —es la
+    protección de §E/D46 y **no se toca**. Verificable dejándola correr más allá del plazo: **sigue viva**;
+    **(b)** **el plazo arranca con NUESTRA petición**, no con la creación de la solicitud. Verificable en dos
+    solicitudes creadas el mismo día a las que se les pide la corrección **en días distintos**: **cierran en
+    días distintos**;
+    **(c)** **vencido el plazo sin corrección, cierra como `expirada` + `no_offer`**, con **el correo que ya
+    existe** (§P.3.1) — **sin estado nuevo y sin motivo nuevo**;
+    **(d)** **al cerrar, la identificación vuelve a ser purgable**: verificable comprobando que el perfil
+    **entra al barrido de retención** después del cierre, **cuando antes no entraba**;
+    **(e)** ⚠ **el caso que hace falta probar de verdad, porque es el que hoy rompe todo**: un usuario con
+    **una solicitud pagada hace más de 180 días** y **otra bloqueada indefinidamente** ⇒ **hoy no se le purga
+    NADA** (el barrido salta el perfil entero mientras tenga cualquier solicitud viva). Tras D50, **al cerrar
+    la bloqueada, se purga**. *Es el punto que demuestra que el problema no era una solicitud: era el perfil.*
+    **(f)** **verificable por lo que NO cambió**: **la retención sigue siendo `INE_RETENTION_DAYS` = 180 días**
+    y **se sigue contando desde el cierre**. **D50 no acorta la retención: hace que el cierre ocurra.**
+
 ## Riesgos y banderas para el humano
 > No bloquean el desarrollo técnico del MVP, pero deben resolverse antes de operar con público real.
 - **Negocio — el vendedor cerca del mínimo se entera del ~36% HASTA el correo de oferta** *(NUEVA 8ª ronda,
@@ -7156,6 +7593,25 @@ de este documento (v2.1, D41 + D42; §E/§H/§P.3/§P.11)**
   (`INE_RETENTION_DAYS`, default 180), ~~pedido en el paso de pago del buylist sobre el tope~~ **pedido DESDE
   LA COTIZACIÓN sobre el tope (11ª ronda, D46)** y verificado contra
   el nombre de la CLABE. Esto da **soporte documental / control AML** para el pago SPEI a particulares.
+  **⚠⚠ CORRECCIÓN DE LA 12ª RONDA QUE CAMBIA CÓMO SE LEE ESTA BANDERA ENTERA — hay que leerla ANTES que lo de
+  abajo**: la frase *«y verificado contra el nombre de la CLABE»* **describía un control que NO EXISTÍA**
+  (`BL-41`, medido y confirmado). **Durante toda la vida de este documento, esta bandera se apoyó en una
+  mitigación imaginaria.** Con **D48** el control **pasa a existir**, pero **hay que decirle al abogado
+  exactamente qué es y qué no es**:
+  - **Lo que es**: **un paso humano obligatorio** —una persona abre la identificación, la contrasta con el
+    titular de la cuenta y **registra su veredicto**— que es **precondición de dos cosas**: **emitir la
+    oferta** y **pagar**. **Auditado: quién y cuándo.**
+  - **Lo que NO es**: **una comprobación automática de nombres**. **Nadie en este sistema compara nombres.**
+    **«Verificado» significa «una persona dijo que cuadra».** Si al abogado o al contador se le presenta como
+    *«el sistema valida que la cuenta sea del titular»*, **se le está describiendo mal el control**.
+  - **El criterio con el que esa persona decide** —normalización, apellidos, nombres de casada, abreviaturas y
+    **la regla de que ante la duda NO se aprueba**— está escrito en **§P.2.3**, porque **un control humano sin
+    criterio escrito no es un control: es el juicio de quien esté de turno**.
+  - ⚠ **Y queda una dependencia externa sin confirmar** (**pregunta 40**): **de dónde sale el nombre del
+    titular de la cuenta**. **El sistema no lo tiene** (`legalName` no lo escribe ningún flujo) y **una CLABE
+    no lo trae**. El supuesto es **obtenerlo del banco al dar de alta la cuenta beneficiaria**; **si el banco
+    no lo mostrara antes de transferir, el cotejo real solo podría ocurrir en el pago** y lo que queda antes de
+    ofertar es *«el documento está y alguien lo miró»*.
   **Validar con contador/abogado** el **periodo de retención** adecuado, la **base legal de tratamiento** del
   documento de identidad y las **obligaciones de protección de datos personales** (guarda, acceso y borrado al
   vencer la retención). La **CLABE se sigue guardando cifrada en BD** (sin cambio).
@@ -7164,17 +7620,39 @@ de este documento (v2.1, D41 + D42; §E/§H/§P.3/§P.11)**
   personas a las que NUNCA le compró nada** —solicitudes que **caducan**, que el operador **declina** (D39) o
   que el **piso de neto** bloquea (D34)—. Antes, el INE **solo existía si había pago**. **Es un costo aceptado
   a ojos abiertos** (§P.2.2), **el mismo trato que ya se aceptó para el domicilio** (D36), pero **un domicilio
-  y una identificación oficial no pesan igual ante protección de datos**. **Lo que lo contiene ya está
+  y una identificación oficial no pesan igual ante protección de datos**. ~~**Lo que lo contiene ya está
   escrito**: la **purga al llegar a estado terminal** (criterio 169(e), criterio 178(h)) y la **retención de
-  180 días**. **Lo que el humano debe validar con abogado es exactamente esto**: si la **base legal** aguanta
+  180 días**.~~ **Lo que el humano debe validar con abogado es exactamente esto**: si la **base legal** aguanta
   recabar identificación **antes** de que exista una operación, o si conviene **purgar antes** en las
   solicitudes que nunca llegaron a `pagada`. *(**No se cambió la retención en esta ronda**: no se pidió.)*
+  **⚠⚠ 12ª RONDA — ESA CONTENCIÓN TAMPOCO ERA LO QUE PARECÍA, Y ESTE ES EL PUNTO MÁS GRAVE DE LA BANDERA**
+  *(hallazgo `BL-42` del arquitecto; **el mecanismo lo medí yo y es peor de lo que su enunciado sugiere**)*:
+  *«se purga al llegar a estado terminal»* **es cierto y es insuficiente**, porque **el reloj de retención no
+  nace con la imagen: nace con el cierre de una solicitud**. Consecuencias medidas:
+  - **El barrido salta el PERFIL ENTERO mientras el usuario tenga cualquier solicitud viva.** ⇒ **UNA sola
+    solicitud que no cierre nunca congela la purga de TODAS las identificaciones de esa persona**, incluidas
+    las de solicitudes **ya cerradas y pagadas hace años**. **No es «una solicitud retiene su INE»: es «una
+    solicitud retiene al usuario».**
+  - **D46 y D49 fabrican justamente esas solicitudes eternas**: una **bloqueada por falta de INE** y otra
+    **bloqueada porque el nombre no coincide** — y **§E prohíbe (con razón) que caduquen en silencio**.
+  - **La regla del barrido que cerraría esas `cotizada` nace APAGADA** (fail-closed, con censo previo
+    obligatorio). **Mientras siga apagada, ninguna cierra sola y NINGUNA identificación se purga jamás.**
+  - **Resultado hoy, dicho sin adornos: identificaciones oficiales guardadas sin caducidad.** **Es exactamente
+    lo que esta bandera escaló, y no era un riesgo teórico: era el comportamiento.**
+  **Lo que se decide en esta ronda (D50) y lo que NO**: se decide que **una solicitud bloqueada cierra tras un
+  plazo que empieza cuando le pedimos al vendedor lo que falta** ⇒ **el ancla de retención vuelve a existir y
+  la purga vuelve a funcionar sola**. **NO se cambia la retención (180 días)**, **no se acorta nada** y **no se
+  purga por antigüedad del documento**. ⇒ **Lo que el abogado tiene que validar sigue siendo lo mismo**, más
+  **una pregunta nueva**: si **180 días contados desde el cierre** es defendible **para el documento de alguien
+  a quien nunca le compramos nada** (**pregunta 42**).
   **⚠ SEGUNDO CAMBIO DE POSTURA AML EN LA MISMA RONDA (D47) — es el que más pesa de los dos, y va aquí para
   que no se lea solo en el criterio 14**: **el tope por solicitud dejó de rechazar**. Antes, la exposición
   estaba acotada **dos veces** (por operación **y** por mes); ahora **el único techo de dinero es el tope
   MENSUAL de MX$10,000**, y por operación **no hay techo: hay identificación**. **Dicho sin adornos: una sola
-  compra de MX$9,000 a un particular es ahora posible** —con INE, cotejado contra el titular de la CLABE—
-  **cuando antes era imposible**. **Es lo que el humano eligió a sabiendas** (descartó renunciar a las compras
+  compra de MX$9,000 a un particular es ahora posible** —con INE, ~~cotejado contra el titular de la CLABE~~
+  **⚠ 12ª ronda: cuando se escribió esta frase, ese cotejo NO EXISTÍA** (`BL-41`); **desde D48 existe como
+  veredicto humano registrado**, exigido **antes de ofertar** y **al pagar**, **sin comparación automática de
+  nombres**— **cuando antes era imposible**. **Es lo que el humano eligió a sabiendas** (descartó renunciar a las compras
   grandes), pero **cambia el perfil de riesgo que hay que llevarle al abogado/contador**: ya no basta con
   validar la retención del documento, hay que validar **si un techo mensual de MX$10,000 con identificación
   por operación es una postura AML suficiente** para comprar a particulares por SPEI.
@@ -7184,6 +7662,13 @@ de este documento (v2.1, D41 + D42; §E/§H/§P.3/§P.11)**
   **(3)** el **cotejo INE ↔ titular de la CLABE**, que impide pagar a un tercero; **(4)** que el pago **solo**
   sale por **SPEI a cuenta del propio usuario**; y **(5)** que **cada oferta la emite una persona** con tope
   de autorización (D13). **Lo que ya NO contiene nada**: el tope por solicitud.
+  **⚠ 12ª ronda — hay que corregir esa lista, porque se escribió contando una mitigación que no existía**: el
+  punto **(3)** —*«el cotejo INE ↔ titular de la CLABE, que impide pagar a un tercero»*— **no contenía nada**
+  cuando se escribió: **el cotejo no existía** (`BL-41`). ⇒ **cuando D47 abrió la compra de MX$9,000 a un
+  particular, la lista de contenciones que se le presentó al humano tenía un elemento imaginario, y era
+  precisamente el único que apuntaba al riesgo de pagarle al tercero equivocado.** **Con D48 el (3) pasa a
+  contener algo real** —**un veredicto humano registrado, exigido al ofertar y al pagar**—, **con el límite
+  dicho arriba: no es una comparación automática de nombres.** **Los puntos (1), (2), (4) y (5) no cambian.**
 - **Fiscal — IVA/CFDI**: cobrar IVA 16% obliga a **emitir CFDI** y a manejar régimen fiscal, RFC del
   cliente y timbrado (PAC). En el MVP la factura es **manual por correo** (el cliente envía sus datos
   fiscales) y solo se **registra el IVA cobrado**; el **timbrado automatizado con PAC es fase 2**. Validar
@@ -7417,6 +7902,9 @@ El MVP se considera "lanzado" cuando, en una **beta cerrada**, se cumple en un p
    COTIZACIÓN sobre el tope — corregido por D46, decisión 106** y **verificado contra el nombre
    de la CLABE** (soporte AML). La **CLABE sigue guardándose cifrada en BD** (sin cambio). **Bandera para
    contador/abogado**: validar el **periodo de retención** y las obligaciones de protección de datos.
+   *(**⚠ 12ª ronda, D48 — decisión 110**: ese *«verificado contra el nombre de la CLABE»* **no se ejecutaba en
+   ningún punto del producto** (`BL-41`). **Sigue siendo requisito** y ahora es **un veredicto humano
+   registrado**, exigido **antes de ofertar** y **al pagar**. **Sin comparación automática de nombres.**)*
    *(Revierte la decisión v1.2 de "INE no almacenado", restaurando el comportamiento de v1.1.)*
 24. **Object storage / R2 DENTRO del MVP pero acotado SOLO al INE del buylist** (`kyc_ine`) → hay bucket
    únicamente para la imagen del INE (cifrada, con retención); **NO** hay fotos de producto/inventario ni de
@@ -8288,8 +8776,14 @@ ux-ui; ver §E/§H/§P.3/§P.3.1/§P.5.1/§P.12/M5 y criterios 173–175):**
    **177(c)**—. Ver **§P.2.2** y criterio **178**.
    **Qué se separó y por qué importa**: la regla vieja mezclaba **cuándo se pide** con **para qué sirve y cómo
    se guarda**. **Solo se derogó el CUÁNDO.** El **cotejo contra el nombre de la CLABE** y el **almacenamiento
-   cifrado en R2 con retención de 180 días** **siguen vigentes sin tocar** — con la consecuencia de orden de
-   que **la captura** ocurre al crear y **el cotejo** cuando la CLABE existe (hoy, el paso de pago).
+   cifrado en R2 con retención de 180 días** **siguen vigentes sin tocar** — ~~con la consecuencia de orden de
+   que **la captura** ocurre al crear y **el cotejo** cuando la CLABE existe (hoy, el paso de pago)~~.
+   **⚠⚠ CORREGIDO EN LA 12ª RONDA (D48, `BL-41`) — esa coletilla decía dos cosas falsas**: **(1)** el cotejo
+   **no ocurría en el paso de pago ni en ningún otro: no existía**; y **(2)** *«cuando la CLABE existe»*
+   sugería que la CLABE llega después, cuando **es requisito de creación desde v1.15** (§P.2.1). ⇒ **al separar
+   «cuándo se pide» de «para qué sirve», se dio por vigente un «para qué sirve» que nadie ejecutaba.** **La
+   parte de almacenamiento sí era cierta y sigue igual.** El cotejo pasa a ser **veredicto humano registrado**,
+   exigido **antes de ofertar** y **al pagar** (decisión 110).
    **Coste aceptado a ojos abiertos**: pasaremos a **guardar identificaciones oficiales de gente a la que nunca
    le compramos**. Es **el mismo trato que ya se aceptó para el domicilio** (D36), **con más peso**: lo contiene
    la **purga al llegar a estado terminal** y la **retención de 180 días**, y **queda escalado a abogado** en
@@ -8329,6 +8823,12 @@ ux-ui; ver §E/§H/§P.3/§P.3.1/§P.5.1/§P.12/M5 y criterios 173–175):**
    particular es ahora posible cuando antes era imposible.** **Lo que sigue conteniendo**: el mensual (que
    suma **brutos**), el INE obligatorio **desde la cotización**, el **cotejo INE ↔ titular de la CLABE**, el
    **SPEI solo a cuenta propia** y el **tope de autorización del operador** (D13). Ver «Riesgos y banderas».
+   **⚠⚠ 12ª ronda — hay que corregir esta lista, y la corrección es incómoda**: cuando se le presentó al humano
+   esta contención para justificar abrir la compra grande, **el «cotejo INE ↔ titular de la CLABE» NO
+   EXISTÍA** (`BL-41`). ⇒ **de las cinco contenciones que respaldaron D47, la que apuntaba justo al riesgo de
+   pagarle al tercero equivocado era imaginaria.** **No invalida D47** —el humano eligió con las otras cuatro
+   reales y el tope mensual intacto—, pero **sí obliga a que D48 exista**: es lo que pone esa quinta pata a
+   sostener algo. Ver decisión **110**.
    **⚠ QUÉ TIENE QUE REHACERSE, dicho para que el arquitecto lo declare bien (regla 9)**: al cerrar **BL-38**,
    backend implementó **`bruto > tope por solicitud ⇒ rechazo`** (`422 BUYLIST_LIMIT_EXCEEDED`). **Ese caso
    pasa a ser exigencia de identificación** (`422 INE_REQUIRED`, que ya existe); **el rechazo se conserva solo
@@ -8337,6 +8837,91 @@ ux-ui; ver §E/§H/§P.3/§P.3.1/§P.5.1/§P.12/M5 y criterios 173–175):**
    **Qué NO cambia**: los **valores** de los dos topes, la **retención** (180 días), **D16** (topes por el
    bruto, SPEI por el neto), **D46** (el INE se pide desde la cotización) y la **CLABE** (pregunta 29).
    Ver §E, M10, criterios **14**, **136**, **178** y **179**, y preguntas **38** (cerrada) y **39**.
+
+**Decisiones v2.1 — buylist, DUODÉCIMA ronda del humano (2026-09-06): el cotejo que este documento prometía
+desde v1.1 y que no existía:**
+
+110. **D48 — El veredicto de KYC se exige ANTES DE EMITIR LA OFERTA, y se CONSERVA en el pago. ⚠ Pone a
+   existir un control que este documento declaraba desde v1.1.**
+   **De dónde sale**: al declarar D46/D47 el arquitecto midió el **cotejo INE ↔ titular de la CLABE**
+   (`BL-41`) y encontró que **no existe**, en tres piezas: **`legalName` no tiene ningún escritor que le ponga
+   un nombre** (su único escritor lo pone a `null`, en la anonimización del borrado de cuenta); **`kycStatus`
+   se escribe desde el panel pero ninguna precondición de dinero lo lee**; y **`CLABE_NOT_OWN_NAME` compara
+   CLABEs por blind index, no nombres** —y **sin CLABE previa acepta la primera que mande cualquiera**—.
+   **Lo verifiqué antes de escribir esto.** **No lo rompió D46: llevaba así desde v1.1.** Lo que hizo D46 fue
+   volverlo **indefendible**: **pedimos el INE antes y a más gente para una verificación que no ocurre** —todo
+   el costo de privacidad y fricción, **cero del control que lo justifica**—.
+   **El remedio del arquitecto y su límite, dicho por él**: `pay-spei` gana un término (`422
+   KYC_NOT_VERIFIED`), y **fue honesto: no compara nombres, solo impone que alguien haya mirado**. **El cotejo
+   real es un paso humano.**
+   **Qué decidió el humano**: **el veredicto se exige ANTES DE EMITIR LA OFERTA**, no solo en el pago.
+   **Su razón**: con la comprobación solo en el pago, la secuencia es *cotiza → sube INE → recibe oferta
+   **vinculante** → acepta → **manda sus cartas** → y ahí descubrimos que no le podemos pagar*. **Es la misma
+   trampa que este stream lleva cerrando cuatro veces** (P1, BL-38, BL-40, BL-43): **comprometerse antes de
+   comprobar**. **Y el dato ya está**: con D46 el INE llega en la cotización y **la CLABE era requisito de
+   creación desde v1.15**, así que **al ofertar los dos datos existen**.
+   **⚠ LA COMPROBACIÓN DEL PAGO SE CONSERVA — son DOS puntos, no una mudanza.** Igual que las dos compuertas
+   de D46, y **se dice explícito por la misma razón**: **si esto se leyera como mudanza, el término de
+   `pay-spei` se retiraría y se perdería la última red** sobre **el único punto por donde sale dinero**.
+   **⚠ Lo que NO se debe leer de más**: **el sistema no compara nombres.** **«Verificado» = «una persona dijo
+   que cuadra».** El **quién, cuándo y con qué criterio** está en **§P.2.3** — **sin criterio escrito, cada
+   operador decide distinto**.
+   **Coste aceptado**: **un paso humano obligatorio dentro de nuestros 7 días hábiles para ofertar**, que **no
+   pausa el reloj del vendedor** (§P.13). **Si no verificamos a tiempo, perdemos la compra** — y eso es lo que
+   debe doler para que el paso se haga.
+   **Qué NO cambia**: **topes** (MX$3,000 / MX$10,000), **retención** (180 días), **D16**, **D46**, **D47** y
+   la **CLABE**. Ver §E, §P.2.3, M5, M6, criterios **14**, **178(g)** (corregido) y **180**.
+
+111. **D49 — Cuando el nombre no coincide: se le pide corregir y la solicitud queda BLOQUEADA, no rechazada.**
+   **Qué decidió el humano**: **un solo mensaje** al vendedor —*la cuenta debe estar a tu nombre; corrige la
+   CLABE o súbenos el INE correcto*— y **la solicitud sigue viva**.
+   **Qué descartó a sabiendas**: **(a)** el **rechazo directo** —pierde al **vendedor legítimo** que puso mal
+   un apellido o **tiene la cuenta a nombre de casada**, y para él es **irreversible**: una solicitud terminal
+   no se revive—; y **(b)** la **cola de revisión manual** —**pide back-office nuevo**—.
+   **La asimetría que lo sostiene**: **el bloqueo se deshace; el pago no.** Un bloqueo equivocado **cuesta un
+   mensaje y unos días**; un *«coincide»* equivocado **paga a un tercero y no se deshace**. **Por eso el
+   criterio de §P.2.3 puede permitirse ser prudente ante la duda**: D49 hace **barata** la prudencia.
+   **⚠ EL PUNTO FINO, y es el que hay que redactar bien**: el mensaje tiene que **cubrir el error honesto sin
+   regalarle información a quien esté probando**. *«El nombre de tu INE no coincide con el titular»* **le
+   confirma al defraudador exactamente qué falló**; *«hubo un problema»* **deja tirada a la señora que abrevió
+   su apellido**. **Se resuelve enunciando LA REGLA, nunca EL RESULTADO**: la regla **ya es pública** (*solo
+   pagamos a una cuenta a nombre del propio usuario*), así que **repetirla no informa a nadie**, y **le dice al
+   vendedor honesto dónde mirar, porque los dos datos son suyos**. **Texto, prohibiciones y canal: §P.2.3 y
+   criterio 181.** **Tres prohibiciones que son la mitad del requisito**: **no decir cuál dato falló**, **no
+   citar ningún nombre** —devolverle el del titular sería **filtrarle el de un tercero**— y **no variar el
+   texto según la causa**, porque **si el mensaje cambia, el cambio es la información**.
+   **Cómo se desbloquea**: corrige **CLABE** o **identificación** ⇒ **vuelve a requerir veredicto humano**.
+   **No se auto-aprueba**: si reintentar bastara, el control sería un trámite.
+   Ver §E, §P.2.3, criterio **181**, y preguntas **40** y **43**.
+
+112. **D50 — Ninguna solicitud bloqueada se queda viva para siempre sosteniendo una identificación oficial —
+   pero ninguna muere sin que le hayamos pedido lo que falta.**
+   **De dónde sale**: el arquitecto encontró (`BL-42`) que **el reloj de retención del INE no nace con la
+   imagen: nace con el cierre de una solicitud**, y dejó **un camino abierto a propósito** —*una `cotizada`
+   que nunca muere*— diciendo que **las salidas son de producto o legales** y que **§E prohíbe** que una
+   solicitud bloqueada por falta de INE caduque en silencio. **D49 lo agrava**: ahora hay **dos** motivos de
+   bloqueo indefinido.
+   **Lo que medí, y es peor que su enunciado**: el barrido **salta el perfil entero mientras el usuario tenga
+   cualquier solicitud viva** ⇒ **UNA sola solicitud eterna congela la purga de TODAS las identificaciones de
+   esa persona**, incluidas las de solicitudes **ya cerradas y pagadas**. **No es «una solicitud retiene su
+   INE»: es «una solicitud retiene al usuario».** Y la regla que cerraría esas `cotizada` **nace apagada**
+   (fail-closed) ⇒ **hoy no cierra ninguna y no se purga nada**.
+   **Qué se decide**: la solicitud bloqueada **sigue viva mientras corre el plazo que le debemos al
+   vendedor**; **ese plazo empieza CUANDO LE PEDIMOS lo que falta**; y **si vence sin corrección, cierra por
+   el camino que ya existe** —**`expirada` + `no_offer`**, con su correo de siempre—. **Al cerrar nace el ancla
+   y la purga vuelve a funcionar sola.**
+   **⚠ Por qué NO contradice a §E**: §E prohíbe que caduque **«por un documento que nunca le pedimos»**. **Aquí
+   sí se le pidió.** Un plazo que **empieza con nuestra petición** y vence sin respuesta **es del vendedor**,
+   igual que el de `not_shipped`. **Lo que sigue prohibido sin excepción es cerrar una solicitud bloqueada a la
+   que nunca le dijimos qué le faltaba.**
+   **Las tres salidas que el arquitecto enumeró y por qué esta no es ninguna de las tres**: **no** enciende el
+   barrido a ciegas (el plazo **nace de nuestra petición**, no de la creación), **no** crea estado ni motivo
+   nuevo (criterio 178 lo prohíbe) y **no** purga por antigüedad del documento (**no cambia qué significa
+   `INE_RETENTION_DAYS`**). **Hace que el cierre ocurra, que es lo que faltaba.**
+   **Qué NO cambia**: la **retención** (180 días), los **topes** y el **significado del ancla**.
+   *(**SUPUESTO — pregunta 42**: el plazo son los **mismos 7 días hábiles** de D33, contados **desde la
+   petición**. **No se inventa dial nuevo.**)*
+   Ver §E, §P.1, criterio **182**, la bandera **AML** y preguntas **42** y **43**.
 
 ---
 
@@ -9347,22 +9932,28 @@ backend/arquitecto al implementar, sin decisión de producto adicional).
    **hasta la aceptación**—, y después **es un caso de operación manual**, no un flujo del MVP.
    **Por qué no bloquea**: el **camino feliz** está completo y el dato existe desde el día 1; esto solo fija
    **el borde**. **Costo de equivocarse**: bajo y acotado a **una etiqueta**.
-29. **[ABIERTA — no bloqueante] «Igual que hoy pasa con la CLABE»: ¿la CLABE se queda en el paso de PAGO, o
-   también se mueve a la creación de la solicitud?** *(**contradicción señalada**, no asumida; nace de
-   **D36**, §P.2.1)*
-   **La contradicción, dicha tal cual**: la decisión D36 se apoya en que **la CLABE ya bloquea la creación de
+29. **[REFORMULADA en la 12ª ronda — su premisa era FALSA y se retira; queda abierta solo la mitad honesta]
+   La CLABE ya es requisito de creación desde v1.15. ¿Se confirma pedirla antes de saber si le compramos?**
+   *(nace de **D36**, §P.2.1; **corregida por el hallazgo `BL-41`**)*
+   ~~**La contradicción, dicha tal cual**: la decisión D36 se apoya en que **la CLABE ya bloquea la creación de
    la solicitud**. **En este documento no es así**: la **CLABE y el INE se piden en el PASO DE PAGO del
    buylist** (criterio **14**, §E, **M6**). Lo único que hoy bloquea la creación es el **celular** (D11), el
-   **mínimo** (D18) y, desde esta ronda, la **dirección** (D36).
-   **Qué se hizo**: **la dirección se redactó como el humano la decidió** (bloqueante al crear) y **la CLABE
-   se dejó EXACTAMENTE como está**, porque moverla **sería alcance nuevo** que él no pidió explícitamente.
-   **Qué debe confirmar el humano**: **(a)** era **solo una analogía** y la CLABE **se queda en el pago**
-   —**supuesto tomado**—; **o (b)** también quiere **la CLABE al crear la solicitud**, y entonces hay que
-   decidir **qué pasa con el INE**, que hoy viaja con ella (se pide **sobre el tope**, en el pago, y **se
-   verifica contra el nombre de la CLABE**).
-   **Por qué importa aunque no bloquee**: si la respuesta es **(b)**, cambia **cuándo se piden datos
-   bancarios** —antes de saber si le compramos— y **toca el flujo de KYC/AML**, que es de los pocos con
-   implicación legal. Si es **(a)**, **no hay nada que hacer**: el documento ya está correcto.
+   **mínimo** (D18) y, desde esta ronda, la **dirección** (D36).~~
+   **⚠⚠ ESO ERA FALSO Y ESTUVO ESCRITO CINCO RONDAS.** **Medido**: `POST /buylist/requests` **exige la CLABE
+   antes de cotizar las líneas** y **sin ella devuelve `422 CLABE_REQUIRED`**; **el contrato lo declara desde
+   v1.15**; y **§P.1 de este mismo documento ya lo decía bien**. ⇒ **la analogía de D36 era correcta y el
+   documento estaba mal**; **el documento se contradecía a sí mismo** a doce páginas de distancia.
+   **Qué desaparece de esta pregunta**: **la opción (b) —«mover la CLABE a la creación»— ya no existe: la CLABE
+   YA está en la creación.** **No hay nada que mover.**
+   **Qué desaparece además, y es lo importante**: el argumento de que *«el cotejo INE ↔ titular de la CLABE
+   solo puede ocurrir en el pago porque la CLABE no existe al crear»*. **Nunca fue cierto**, y era el argumento
+   que sostenía dónde vivía el cotejo. Ver **D48** (decisión 110).
+   **Lo que queda por confirmar, que sigue siendo decisión suya**: que está bien **pedirle sus datos bancarios
+   antes de saber si le compramos**. **Supuesto tomado**: **sí** — es **el mismo trato ya aceptado** para la
+   **dirección** (D36) y el **INE** (D46), y **lleva vigente desde v1.15 sin que nadie lo notara ni se quejara**.
+   **Si el humano dijera que no**, eso **sí** sería un cambio real (mover la CLABE **hacia adelante**, al pago),
+   y **arrastraría al cotejo con ella**.
+   **Por qué no bloquea**: el comportamiento de hoy **no cambia en ninguno de los dos casos** mientras decide.
 
 **Los tres huecos de la octava ronda (30–32) — con supuesto tomado; ⚠ la 31 quedó CERRADA en la 9ª ronda,
 la 30 y la 32 siguen abiertas:**
@@ -9587,3 +10178,76 @@ la 30 y la 32 siguen abiertas:**
    **Por qué no bloquea**: con **(a)** el sistema es **más restrictivo**, nunca menos —**rechaza de más, no de
    menos**—, así que **no hay fuga de dinero** mientras el humano decide. **Costo de equivocarse**: perder
    alguna compra grande puntual, **recuperable** con un cambio de dial.
+
+**Las cuatro preguntas de la 12ª ronda (40–43) — nacen de D48/D49/D50; la 40 es la que tiene filo, porque de
+ella depende que el cotejo sea un cotejo:**
+
+40. **[ABIERTA — con SUPUESTO TOMADO] ¿DE DÓNDE sale el nombre del titular de la cuenta CLABE?** *(nace de
+   **D48**, §P.2.3; es **la condición de existencia** del cotejo, igual que la 38 lo fue de D46)*
+   **El hueco, dicho sin rodeos**: para cotejar hacen falta **dos nombres**. El INE trae uno. **La CLABE es un
+   número de 18 dígitos y no trae ninguno**, y **el campo donde viviría el nombre del titular (`legalName`) no
+   tiene ningún flujo que lo escriba** —medido; su único escritor lo pone a `null`—. ⇒ **hoy no existe el
+   segundo nombre que hay que comparar.** **Sin resolver esto, «el operador coteja» no describe una acción
+   posible.**
+   **Supuesto tomado**: el nombre **se obtiene del BANCO**, cuando el operador **da de alta / valida la CLABE
+   como cuenta beneficiaria** en el portal bancario —**una acción que no mueve dinero**— y **se registra solo
+   el veredicto, no el nombre**, para no acumular más datos personales de los necesarios.
+   **Qué confirmar**: **(a)** el banco **sí muestra el titular antes de transferir** ⇒ **supuesto válido y el
+   cotejo antes de ofertar es real**; **(b)** el banco **solo lo muestra al ejecutar el SPEI** ⇒ **el cotejo de
+   verdad solo cabe en el pago**, y lo que D48 exige antes de ofertar se queda en *«el documento está y alguien
+   lo miró»* —**más de lo que hay hoy, menos de lo que §P.2.3 promete**—; **(c)** capturar el **nombre del
+   titular** como dato del vendedor ⇒ **más auditable**, pero **campo nuevo = ALCANCE NUEVO** y **más PII**.
+   **Por qué importa aunque no bloquee la construcción**: las **dos precondiciones de dinero de D48 se pueden
+   construir hoy** —lo que exigen es **un veredicto registrado**—. Lo que esta pregunta decide es **si ese
+   veredicto se apoya en algo o es una firma**. **Costo de equivocarse: alto** — es la diferencia entre un
+   control AML y un sello.
+
+41. **[ABIERTA — no bloqueante, con SUPUESTO TOMADO] ¿Quién registra el veredicto: solo el súper-admin, o
+   también el operador?** *(nace de **D48**, §P.2.3/M6)*
+   **El hueco**: el cotejo lo **prepara** quien trabaja la solicitud en la mesa (M5), pero **tocar el KYC es
+   hoy cosa del súper-admin**. Con D48, **eso se vuelve precondición para ofertar** ⇒ **cada compra grande
+   espera al dueño**.
+   **Supuesto tomado**: **solo el súper-admin**, por ser un veredicto de **AML** y porque **el volumen es bajo**
+   (solo sobre MX$3,000).
+   **Qué confirmar**: **(a)** solo súper-admin —**supuesto**—; **o (b)** también el **operador**, con la misma
+   auditoría de quién y cuándo.
+   **Por qué se pregunta y no se asume en silencio**: **un cuello de botella en un control de AML no lo
+   elimina: lo convierte en un sello de goma.** Si el dueño acaba aprobando en lote para no frenar las ventas,
+   **el control existe en el papel y no en los hechos** — y **eso es exactamente lo que acabamos de descubrir
+   que llevaba años pasando** con la frase del cotejo.
+
+42. **[ABIERTA — no bloqueante, con SUPUESTO TOMADO] ¿Cuánto dura una solicitud bloqueada antes de cerrar, y
+   desde cuándo se cuenta?** *(nace de **D50**, §E; el documento **no norma ningún plazo** para esto)*
+   **El hueco**: D50 dice que la solicitud bloqueada **cierra tras un plazo que empieza cuando le pedimos lo
+   que falta**, pero **`PROJECT.md` no tiene ese plazo escrito en ninguna parte** — y **no lo invento**.
+   **Supuesto tomado**: **7 días hábiles**, los **mismos** que ya rigen *«nadie ofertó»* (D33), contados
+   **desde la petición** (no desde la creación). **Se reutiliza un plazo existente en vez de inventar un dial.**
+   **Qué confirmar**: **(a)** 7 días hábiles desde la petición —**supuesto**—; **(b)** **otro plazo**, si al
+   abogado le parece que **180 días de retención contados desde el cierre** es demasiado **para el documento de
+   alguien a quien nunca le compramos nada** (en cuyo caso lo que se acorta es **este** plazo, **no** la
+   retención, que esta ronda no toca); **o (c)** **no cierra nunca** y se acepta que **esas identificaciones se
+   conserven indefinidamente** — **opción que este documento desaconseja explícitamente**, porque **es el
+   comportamiento de hoy y es justo lo que la bandera legal señala**.
+   **Por qué no bloquea la construcción pero sí urge**: **hoy el resultado es identificaciones oficiales
+   guardadas sin caducidad**, y eso **no mejora solo con el tiempo: empeora**.
+   **⚠ Un efecto lateral que se acepta y conviene que vea**: al cerrar estas solicitudes con el motivo que ya
+   existe (`no_offer`), **los reportes de M9 no podrán separar *«decidimos no comprar»* de *«el vendedor no
+   completó su identificación»***. **Se aceptó a propósito** —distinguirlas pide **un motivo nuevo**, que el
+   criterio 178 prohíbe—. **Si para AML necesita esa separación, dígalo: es alcance nuevo y pequeño**, pero
+   **no se asume**.
+
+43. **[ABIERTA — no bloqueante, con SUPUESTO TOMADO] El mensaje de D49, ¿va solo en el portal o también por
+   correo?** *(nace de **D49** × **D50**, §P.2.3)*
+   **La tensión**: el ciclo tiene **cinco correos** contados con cuidado (criterio 173), y **meter un sexto no
+   es gratis** — es la misma objeción por la que la **pregunta 36** se resolvió como **operación manual por
+   soporte**.
+   **Supuesto tomado — y aquí va al revés que en la 36, a propósito**: **sí se le manda correo**, además de la
+   ficha de su solicitud en el portal. **La razón**: **de este mensaje depende que el vendedor sepa que tiene
+   que hacer algo**, y **de que lo sepa depende que su solicitud no se cierre por D50**. **Cerrar una solicitud
+   porque no respondió a un aviso que solo estaba en una pantalla que quizá nunca visitó es la versión educada
+   de cerrarla en silencio** — exactamente lo que §E prohíbe.
+   **Qué confirmar**: **(a)** portal **+ correo** —**supuesto**—; **o (b)** **solo portal**, y entonces **hay
+   que decir cómo se entera** el vendedor, o **D50 no puede cerrarle la solicitud** (las dos cosas van juntas:
+   **no se puede tener el cierre por silencio sin el aviso que lo hace justo**).
+   **Costo de equivocarse**: con **(a)**, un correo de más en un caso poco frecuente. Con **(b)** sin resolver
+   el aviso, **le cerramos solicitudes a vendedores que nunca supieron que tenían que corregir algo**.
