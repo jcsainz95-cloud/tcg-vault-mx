@@ -5,6 +5,7 @@ import { PricingService } from '../src/modules/pricing/pricing.service';
 import { SettingsService } from '../src/modules/settings/settings.service';
 import { UsersService } from '../src/modules/users/users.service';
 import { PiiCryptoService } from '../src/common/crypto/pii-crypto.service';
+import { Role } from '@prisma/client';
 
 /**
  * v1.51.4 — **BL-13 (`PATCH …/pickup-address`)**, **D31 (`awaitingGuide`)** y **BL-15 (el teléfono en
@@ -55,6 +56,11 @@ function build(opts: Opts = {}) {
     if (c !== null && typeof c === 'object' && !(c instanceof Date)) {
       const o = c as Record<string, unknown>;
       if ('not' in o) return !matches(v, o.not);
+      // ⚠️ v1.58 · BL-36: el `where` de las DOS rutas incorpora ahora `...liveRequestWhere()`, que
+      // aporta `status: { notIn: SELL_REQUEST_TERMINAL_STATES }`. El doble lo evalúa **de verdad**:
+      // si solo lo tolerara, «el término está» y «el término no está» darían el mismo resultado.
+      if ('notIn' in o) return !(o.notIn as unknown[]).includes(v);
+      if ('in' in o) return (o.in as unknown[]).includes(v);
       throw new Error('cond no soportada');
     }
     return v === c;
@@ -213,6 +219,131 @@ describe('⚠️ BL-13 — corregir la dirección DESPUÉS de la guía', () => {
     expect(res.auditAddressIds).toEqual({ before: 'addr-vieja', after: 'addr-buena' });
     // Un domicilio en la bitácora es PII que nadie va a purgar.
     expect(JSON.stringify(res.auditAddressIds)).not.toMatch(/Calle|Av\.|06000/);
+  });
+});
+
+// =============================================================================================
+/**
+ * ⚠️⚠️ v1.58 · **BL-36 (API_CONTRACT §M5-T, GRUPO B) — LA FÓRMULA GANA EL TÉRMINO DE ESTADO.**
+ * *(NO bloqueante: no hay dinero. Es higiene de expediente.)*
+ *
+ * ### El hueco, y por qué el código no lo cerró antes
+ * Los dos `where` decían `closedAt IS NULL` con el comentario **«no se toca una terminal»** al lado:
+ * **no eran lo mismo**. Una fila **legacy anterior a M-19** es **terminal con `closedAt = null`** —el
+ * schema lo declara: *«Nullable (filas legacy usan fallback)»*— y, **por ser también pre-M-46**,
+ * tiene `guideSentAt`, `shipmentConfirmedAt` y `sellerShippedDeclaredAt` **nulos** ⇒ **pasaba las DOS
+ * guardas ENTERAS**. Es la discrepancia **inversa** a la de P1 (allí `closedAt` sellado con `status`
+ * vivo).
+ *
+ * **Backend lo midió (0 filas locales) y NO tocó el código**, porque el término que faltaba estaba en
+ * **una fórmula que el contrato declara**: moverlo desde aquí habría sido el código mandando sobre el
+ * contrato. El arquitecto normó la fórmula en v1.58 y **entonces** el código la siguió.
+ * ***Cero local no es cero: la cohorte es posible POR CONSTRUCCIÓN.***
+ *
+ * ### Qué se evita, sin inflarlo
+ * Re-congelar el snapshot de una solicitud **ya cerrada**: **PII fresca sobre un expediente terminal**
+ * camino de la purga, y una bitácora que dice que la dirección de origen cambió en una operación que
+ * acabó hace meses. **No mueve dinero, no imprime papel y no reabre nada.**
+ *
+ * | Mutación | Test que cae |
+ * |---|---|
+ * | quitar el término de estado de la ruta de **admin** | «⭐ la cohorte legacy … (admin)» |
+ * | quitar el término de estado de la ruta de **cliente** | «⭐ la cohorte legacy … (cliente)» |
+ * | sustituir `closedAt` por el término de estado (en vez de sumarlo) | «`closedAt` sellado con `status` vivo …» |
+ * | sustituir `guideSentAt` por el término de estado (cliente) | «el término NO sustituye a `guideSentAt`» |
+ * | una guarda que **rechace siempre** (el falso verde) | «el camino feliz sigue …» |
+ * | aplicarle T a `guide/cancellation-done` | «⛔ la excepción NOMBRADA …» |
+ */
+describe('⚠️⚠️ BL-36 — «no se toca una terminal», ahora DICHO en las dos fórmulas', () => {
+  /** Los CUATRO terminales de `PROJECT.md` §P.1 / criterio 113. */
+  const TERMINALES = ['pagada', 'rechazada', 'abandonada', 'expirada'] as const;
+
+  it.each(TERMINALES)(
+    '⭐ la cohorte legacy pre-M-19 (`%s` con `closedAt` NULO) ⇒ `409 PICKUP_ADDRESS_LOCKED` (admin)',
+    async (status) => {
+      // Antes de v1.58 esta fila pasaba la guarda ENTERA: terminal, pero con los CUATRO términos que
+      // el `where` miraba en `null`.
+      const { svc, request } = build({
+        status,
+        closedAt: null,
+        guideSentAt: null,
+        shipmentConfirmedAt: null,
+        sellerShippedDeclaredAt: null,
+      });
+      await expect(svc.adminUpdatePickupAddress('sr-1', 'addr-buena')).rejects.toMatchObject({
+        code: 'PICKUP_ADDRESS_LOCKED',
+        status: 409,
+        // Cero vocabulario nuevo: `details.status` ya viajaba, y es justo el campo que explica el
+        // rechazo nuevo ⇒ **cero impacto de cliente**.
+        details: { status },
+      });
+      expect((request.pickupAddressSnapshot as Record<string, unknown>).line1).toBe('Calle Vieja 1');
+    },
+  );
+
+  it.each(TERMINALES)(
+    '⭐ la cohorte legacy pre-M-19 (`%s` con `closedAt` NULO) ⇒ `409 PICKUP_ADDRESS_LOCKED` (cliente)',
+    async (status) => {
+      const { svc, request } = build({ status, closedAt: null, guideSentAt: null });
+      await expect(svc.updatePickupAddress('u-1', 'sr-1', 'addr-buena')).rejects.toMatchObject({
+        code: 'PICKUP_ADDRESS_LOCKED',
+        status: 409,
+        details: { status },
+      });
+      expect((request.pickupAddressSnapshot as Record<string, unknown>).line1).toBe('Calle Vieja 1');
+    },
+  );
+
+  it('`closedAt` sellado con `status` VIVO sigue dando `409`: el término NO sustituye a `closedAt`', async () => {
+    // La discrepancia de P1, por el otro lado. Son DOS ejes y hacen falta LOS DOS: una guarda que se
+    // apoye en el invariante que el bug rompió no guarda nada.
+    const admin = build({ status: 'aceptada', closedAt: new Date('2026-09-05T00:00:00Z') });
+    await expect(admin.svc.adminUpdatePickupAddress('sr-1', 'addr-buena')).rejects.toMatchObject({
+      code: 'PICKUP_ADDRESS_LOCKED',
+    });
+    const cliente = build({ status: 'aceptada', closedAt: new Date('2026-09-05T00:00:00Z') });
+    await expect(
+      cliente.svc.updatePickupAddress('u-1', 'sr-1', 'addr-buena'),
+    ).rejects.toMatchObject({ code: 'PICKUP_ADDRESS_LOCKED' });
+  });
+
+  it('el término NO sustituye a `guideSentAt` en la ruta de cliente: viva CON papel sigue bloqueada', async () => {
+    // Dos ejes distintos —«ya cerró» y «ya hay papel»— y el de v1.58 solo añade el primero.
+    const { svc } = build({ status: 'aceptada', guideSentAt: new Date('2026-09-02T00:00:00Z') });
+    await expect(svc.updatePickupAddress('u-1', 'sr-1', 'addr-buena')).rejects.toMatchObject({
+      code: 'PICKUP_ADDRESS_LOCKED',
+    });
+  });
+
+  it('el camino feliz sigue: sobre una solicitud VIVA las dos rutas re-congelan el snapshot', async () => {
+    // *Sin este assert, todos los anteriores los pasa una guarda que rechaza siempre.*
+    const admin = build({ status: 'aceptada', guideSentAt: new Date('2026-09-02T00:00:00Z') });
+    await expect(admin.svc.adminUpdatePickupAddress('sr-1', 'addr-buena')).resolves.toBeDefined();
+    expect((admin.request.pickupAddressSnapshot as Record<string, unknown>).line1).toBe(
+      'Av. Correcta 456',
+    );
+
+    const cliente = build({ status: 'aceptada', guideSentAt: null });
+    await expect(cliente.svc.updatePickupAddress('u-1', 'sr-1', 'addr-buena')).resolves.toBeDefined();
+    expect((cliente.request.pickupAddressSnapshot as Record<string, unknown>).line1).toBe(
+      'Av. Correcta 456',
+    );
+  });
+
+  it('⛔ la excepción NOMBRADA: `guide/cancellation-done` NO gana el término y opera sobre CERRADAS', async () => {
+    // Su trabajo legítimo ocurre **sobre solicitudes cerradas**: la tarea de guía muerta NACE de un
+    // cierre. Exigirle una fila viva la volvería incerrable y **la etiqueta se perdería del P&L**
+    // (D22, criterio 139). *Una invariante con una excepción escrita es una invariante; una con una
+    // excepción tácita es un bug esperando.*
+    const { svc } = build({
+      status: 'expirada',
+      closedAt: new Date('2026-09-05T00:00:00Z'),
+      guideCancellationPendingAt: new Date('2026-09-04T00:00:00Z'),
+      guideCancellationDoneAt: null,
+    });
+    await expect(
+      svc.adminGuideCancellationDone('sr-1', { id: 'op-1', role: Role.vault_operator }, 18000),
+    ).resolves.toBeDefined();
   });
 });
 

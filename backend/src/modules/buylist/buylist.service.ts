@@ -4411,9 +4411,16 @@ export class BuylistService implements OnModuleInit {
    * ### La precondición, NORMATIVA y evaluada en el motor
    * ```
    * legal ⇔ la solicitud es del usuario autenticado
+   *       ∧ status ∉ SELL_REQUEST_TERMINAL_STATES  // ⚠️ NUEVO v1.58 (BL-36) — el comentario, DICHO
    *       ∧ closedAt    IS NULL      // no se toca una terminal
    *       ∧ guideSentAt IS NULL      // ⚠️ NO HAY PAPEL IMPRESO TODAVÍA
    * ```
+   * ⚠️ **v1.58 · `BL-36` — el término de estado ENTRÓ A LA FÓRMULA, y entró por el CONTRATO.** Este
+   * `where` decía `closedAt` y su comentario decía *«no se toca una terminal»*: **no eran lo mismo**
+   * para la cohorte legacy pre-M-19. Cuando lo medí (0 filas locales) **no toqué el código**, porque
+   * el término que faltaba estaba en **una fórmula que el contrato declara** y moverlo desde aquí
+   * habría sido el código mandando sobre el contrato. El arquitecto normó la fórmula en v1.58 y
+   * **entonces** el código la sigue. *Cero local no es cero: la cohorte es posible POR CONSTRUCCIÓN.*
    * **Se evalúa en el `updateMany` con el patrón `count === 1`**, no en un `if` sobre la lectura
    * previa: la carrera real es *«el operador captura la guía mientras el vendedor guarda la
    * corrección»*, y ahí tiene que ganar el motor, no el orden de llegada. `userId` va **también** en
@@ -4450,7 +4457,19 @@ export class BuylistService implements OnModuleInit {
       // La dirección se resuelve contra la libreta DEL PROPIO usuario autenticado.
       const snapshot = await this.resolvePickupAddressSnapshot(userId, addressId);
       const guard = await tx.sellRequest.updateMany({
-        where: { id, userId, closedAt: null, guideSentAt: null },
+        // ⚠️⚠️ v1.58 · **BL-36 (§M5-T, GRUPO B)** — `...liveRequestWhere()` aporta los DOS ejes de
+        // «viva»: `status ∉ SELL_REQUEST_TERMINAL_STATES` **y** `closedAt IS NULL`. El comentario
+        // *«no se toca una terminal»* llevaba desde v1.51.3 al lado de un término que **no lo decía**:
+        // una fila **legacy anterior a M-19** es terminal con `closedAt = null` (el schema lo declara:
+        // *«Nullable (filas legacy usan fallback)»*) y, **por ser también pre-M-46**, tiene
+        // `guideSentAt` nulo ⇒ **pasaba la guarda entera**.
+        // ⚠️ **El término NO sustituye a `guideSentAt`: se SUMA.** Son dos ejes —*«ya cerró»* y *«ya
+        // hay papel»*— y hacen falta los dos, exactamente como en §M5-T.
+        // ⛔ **Jamás un literal de estados** (§4.39c sitio 8): el helper ya existe y el día que
+        // `SELL_REQUEST_TERMINAL_STATES` gane un valor, los dos `where` se mueven **juntos o ninguno**.
+        // **Cero vocabulario nuevo y cero cambio de shape:** `409 PICKUP_ADDRESS_LOCKED` con
+        // `details.status` ya estaba declarado, y `status` es justo el campo que explica el rechazo.
+        where: { id, userId, ...this.liveRequestWhere(), guideSentAt: null },
         data: { pickupAddressSnapshot: snapshot },
       });
       if (guard.count !== 1) {
@@ -4491,10 +4510,18 @@ export class BuylistService implements OnModuleInit {
    *
    * ### La guarda, y por qué cada condición
    * ```
-   * legal ⇔ closedAt                IS NULL   // no se toca una terminal
+   * legal ⇔ status ∉ SELL_REQUEST_TERMINAL_STATES  // ⚠️ NUEVO v1.58 (BL-36) — el comentario, DICHO
+   *       ∧ closedAt                IS NULL   // no se toca una terminal
    *       ∧ shipmentConfirmedAt     IS NULL   // el paquete ya viaja: corregir el papel no lo desvía
    *       ∧ sellerShippedDeclaredAt IS NULL   // él dice que YA lo depositó ⇒ la etiqueta está USADA
    * ```
+   * ⚠️ **v1.58 · `BL-36` — LOS DOS TÉRMINOS, PORQUE PUEDEN DISCREPAR.** Es la discrepancia **inversa**
+   * a la de P1: allí `closedAt` sellado con `status` vivo; **aquí `status` terminal con `closedAt`
+   * nulo** — la cohorte de las filas que se volvieron terminales **antes de M-19**, que el propio
+   * schema declara (*«Nullable (filas legacy usan fallback)»*) y que `jobs/ine-retention.service.ts`
+   * ya contempla. **Y toda fila pre-M-19 es también pre-M-46** ⇒ `guideSentAt`,
+   * `shipmentConfirmedAt` y `sellerShippedDeclaredAt` son **null en ella**: **pasaba las DOS guardas
+   * enteras**, la de cliente y ésta.
    * ⚠️ **La tercera se rechaza a propósito y hay que decirlo en voz alta:** si el vendedor ya
    * depositó, el papel **no está impreso: está en manos de una paquetería**. Cambiar la fila **no
    * mueve la caja**, y dejarlo pasar **crearía la ilusión de que sí**. Ahí el remedio es humano de
@@ -4546,9 +4573,23 @@ export class BuylistService implements OnModuleInit {
       const hadGuide = before.guideSentAt != null;
       const guard = await tx.sellRequest.updateMany({
         // Guarda del MOTOR (`count === 1`), no un `if` sobre la lectura de arriba.
+        // ⚠️⚠️ v1.58 · **BL-36 (§M5-T, GRUPO B)** — mismo hueco que en la ruta de cliente y misma
+        // forma: `...liveRequestWhere()` = `status ∉ TERMINAL ∧ closedAt IS NULL`. Una fila legacy
+        // **pre-M-19** es terminal con `closedAt = null` y, por ser también **pre-M-46**, tiene los
+        // **otros tres términos nulos** ⇒ **pasaba entera**.
+        // **Qué se evita, sin inflarlo:** re-congelar el `pickupAddressSnapshot` de una solicitud **ya
+        // cerrada** — escribir **PII fresca sobre un expediente terminal** que va camino de la purga,
+        // y dejar una bitácora que dice que la dirección de origen cambió en una operación que acabó
+        // hace meses. **No mueve dinero, no imprime papel y no reabre nada:** es higiene de
+        // expediente, y por eso es Baja y no Alta.
+        // **Ningún trabajo legítimo se pierde**, comprobado verbo por verbo: matar una etiqueta y
+        // comprar otra solo tiene sentido sobre una solicitud viva, y el `hadGuide` que reabre la
+        // tarea de guía muerta **no puede disparar en esta cohorte** (`guideSentAt` es `null` en ella).
+        // La tarea de guía muerta tiene **su propio endpoint**, que es la excepción NOMBRADA de §M5-T
+        // y **no se toca**.
         where: {
           id,
-          closedAt: null,
+          ...this.liveRequestWhere(),
           shipmentConfirmedAt: null,
           sellerShippedDeclaredAt: null,
         },
