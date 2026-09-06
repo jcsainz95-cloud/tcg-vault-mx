@@ -2,7 +2,90 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-06 (rev **v1.58**).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-06 (rev **v1.59**).
+>
+> **Changelog v1.59 — D46/D47: EL INE SE EXIGE DESDE LA CREACIÓN, EL TOPE POR SOLICITUD DEJA DE RECHAZAR, Y EL QUE
+> RECHAZA SE EVALÚA ANTES QUE EL QUE IDENTIFICA (2026-09-06, arquitecto; **CERO endpoints nuevos, CERO DDL**. UN dial
+> que se FUNDE con otro, DOS valores de `scope` que se RETIRAN, UN campo de DTO que se RENOMBRA, UNA entrada de DTO
+> que se RETIRA, DOS secuencias normativas que cambian de ORDEN, y TRES caminos de purga sin ancla que se nombran.
+> ARCHITECTURE rev **v1.59**, §4.39(aa)/(ab)/(ac); registros **BL-41**, **BL-42**, **BL-43**):**
+> ⚠️ **Origen: `PROJECT.md` — decisiones del humano D46 y D47** (11ª ronda, commits `b63fefb` y `6b7d3b3`), aterrizadas
+> por product-owner en el **criterio 14** (reescrito entero), **§P.2.2** (nueva), **criterios 178/179** y **decisiones
+> 108/109**. **Esto no se discute: se declara.** `PROJECT.md` manda sobre este contrato, y **v1.58 §M5-A queda
+> parcialmente invalidada por D47** — se retro-edita aquí, en su sitio, y **no se disimula**.
+> **Todo lo que afirmo abajo sobre el código lo medí yo** (`Grep`/`Read` sobre `backend/src`, 2026-09-06, rama
+> `claude/buylist-inventory-workflow-hdnls3`, HEAD `6b7d3b3`); **lo no medido va marcado**.
+>
+> **A. ⚠️⚠️ D47 — `BUYLIST_LIMIT_EXCEEDED` SE QUEDA SOLO PARA EL MENSUAL. EL TOPE POR SOLICITUD YA NO RECHAZA.**
+> `PROJECT.md` criterio **14(a)**: *«Tope por solicitud (default MX$3,000) — **YA NO RECHAZA: DISPARA LA
+> IDENTIFICACIÓN**. Por encima de él **sí se compra**, pero **solo con INE**»*; criterio **179(g)**: *«verificable por
+> lo que YA NO existe: **ningún** rechazo cuyo motivo sea “excede el tope por solicitud”»*.
+> ⇒ **`scope: "per_request"` (intake) y `scope: "per_request_offer"` (emisión, ⚠️ NUEVO EN v1.58) se RETIRAN del
+> vocabulario.** Lo que aquellos dos rechazaban pasa a ser `422 INE_REQUIRED`, **que ya existe en las dos puertas**.
+> **No es defecto de backend:** implementó el criterio 14 tal como estaba escrito, y **el criterio era el que estaba
+> mal**. Norma completa: [`§M5-A`](#M5-A) (retro-editada) y [`§M5-I`](#M5-I) (nueva).
+>
+> **B. ⚠️⚠️ D46 — EL INE ES COMPUERTA DE CREACIÓN, Y ESA COMPUERTA **YA ESTABA EN EL CÓDIGO**.**
+> **Medido, y corrige la premisa con la que llegué a este pase:** `createRequest` **ya exige el INE en el intake**
+> (`buylist.service.ts:1564-1581`, `ineRequired = quotedTotalCents >= ineThreshold ∨ hayLínea('precio_pendiente')`).
+> **D46 no crea la compuerta 1: la ELEVA a norma y le pone orden.** Lo que sí es nuevo es (i) que el criterio 14 ya no
+> la deja inalcanzable, (ii) el **orden** frente al tope mensual y (iii) **qué ve el vendedor** (§P.2.2). **La
+> compuerta 2 (emisión) NO se toca en su existencia** — solo en su orden y en la muerte de A1.
+>
+> **C. ⚠️⚠️ EL INCISO 14(c) — EL QUE RECHAZA VA ANTES QUE EL QUE IDENTIFICA. CAMBIAN LAS DOS SECUENCIAS.**
+> *«Pedir una identificación oficial para una operación que de todas formas vamos a rehusar es indefendible, y además
+> regala un documento a cambio de nada»* (criterio 14(c), 179(e)).
+> **Medido — hoy las dos secuencias lo hacen AL REVÉS:** en el intake el `INE_REQUIRED` (`:1577`) y **la escritura del
+> INE en `KycProfile` (`:1588`)** ocurren **antes** del tope mensual (`:1612`, dentro de la tx); en la emisión, `A2
+> INE_REQUIRED` (`:3559`) ocurre **antes** de `A3 per_month_offer` (`:3631`). ⇒ **hoy le pedimos —y le GUARDAMOS— la
+> identificación a un vendedor que vamos a rechazar en el paso siguiente.** Se invierte el orden en las dos.
+> ⚠️ **Y en el intake no basta con reordenar dos `if`:** la escritura del INE **está fuera de la transacción** que
+> evalúa el tope mensual ⇒ **el rollback no la deshace**. La norma exige **un solo boundary atómico** (§M5-I.4).
+>
+> **D. ⚠️ LOS DOS DIALES SE FUNDEN, Y SOBREVIVE `ine_threshold_cents`.** `PROJECT.md` criterio 14 lo deja **señalado
+> sin decidir** y me lo delega literal: *«se deja señalado para que el arquitecto lo resuelva al declarar»*.
+> **Decisión: `BUYLIST_CAP_PER_REQUEST_CENTS` se retira de las CUATRO estructuras** de `settings.constants.ts`; la
+> clave de BD queda **deprecada e inerte, sin migración** (precedente exacto: `STRIPE_FEE_IVA_PCT`, v1.40/P-37,
+> `settings.constants.ts:45-47`). **El valor no cambia:** MX$3,000 sigue vivo en `ine_threshold_cents`, que ya vale
+> `300000`. ⚠️ **Y `KycProfile.capPerRequestCentsOverride` muere con él, y ésa es la mitad importante de la decisión:**
+> si el tope sobreviviera **apuntando al umbral**, su override por usuario se convertiría en **una exención de KYC por
+> vendedor** — exactamente lo que §M5-A.4 se negó a inventar (`:3522`) y lo que el criterio **178(e)** prohíbe.
+> ***Renombrar un tope como umbral convierte una excepción comercial en una exención de cumplimiento.*** Norma:
+> [`§M5-D`](#M5-D).
+>
+> **E. ⚠️⚠️ `BL-41` — EL COTEJO INE ↔ TITULAR DE LA CLABE NO TIENE TÉRMINO EN NINGUNA PARTE. Lo encontré midiendo.**
+> El criterio **14(e)** y el **178(g)** afirman que el INE *«se verifica contra el nombre de la CLABE»* y que con un
+> nombre distinto *«la operación se detiene»*. **Medido:** `kycStatus` se **escribe** (intake ⇒ `'pending'`, `:1595`;
+> `PATCH /admin/users/:id/kyc` ⇒ `'verified'|'rejected'`, `admin.service.ts:624-648`) y **NO SE LEE COMO PRECONDICIÓN
+> EN NINGÚN CAMINO DE DINERO** — 0 lectores en todo `backend/src`. `KycProfile.legalName` **no lo escribe ningún
+> flujo**. Y **`CLABE_NOT_OWN_NAME` no compara ningún nombre**: es un match de **blind index** de la CLABE contra la de
+> archivo (`:1385-1391`), y **si no hay CLABE en archivo acepta cualquiera**. ⇒ **el cotejo es hoy un juicio humano que
+> nada consume.** Se le declara término en `pay-spei` — **mismo patrón que `BL-38`**. Norma: [`§M5-K`](#M5-K).
+>
+> **F. ⚠️⚠️ `BL-42` — TRES CAMINOS DEJAN EL INE SIN ANCLA DE PURGA, Y D46 CONVIERTE DOS DE ELLOS EN EL CASO NORMAL.**
+> La retención se ancla en *«sin solicitudes abiertas ∧ última cerrada + `INE_RETENTION_DAYS`»*
+> (`jobs/ine-retention.service.ts:57-73`). **Medido, los tres caminos que no llegan nunca a ese ancla:** (1) INE
+> escrito en `KycProfile` y **solicitud no creada** (el `upsert` de `:1588` commitea fuera de la tx de `:1609`) ⇒
+> `lastClosed = null` ⇒ `continue` **para siempre**; (2) el objeto en R2 subido por `POST /uploads` **antes** del
+> intake, cuando el intake falla ⇒ **objeto huérfano que ninguna fila referencia** y que el job **ni siquiera
+> escanea**; (3) una `cotizada` que **no muere**: la regla 7 del barrido nace **`off`**
+> (`BUYLIST_NO_OFFER_EXPIRY_ENABLED`, seed `'off'`, `settings.constants.ts:377`) **y §E prohíbe que la `cotizada`
+> bloqueada por la compuerta 2 caduque en silencio** ⇒ `openCount > 0` **para siempre**. Norma y remedios:
+> [`§M5-N`](#M5-N). **Es un hallazgo, va nombrado, y no lo cierro yo.**
+>
+> **G. LO QUE CAMBIA PARA CADA ROL.** **Backend:** cinco cierres (§M5-I, §M5-A retro-editada, §M5-D, §M5-K, §M5-N),
+> **dos con conteo pre-merge obligatorio**. **Frontend:** **UN cambio obligatorio** (`GET /users/me/kyc`:
+> `capPerRequestCents` → `ineThresholdCents`) y **dos códigos que dejan de llegarle** (`per_request`,
+> `per_request_offer`); gana la comparación autorizada del umbral (§M5-I.6). **ux-ui:** **§P.2.2 es requisito, no
+> copy** — el aviso del cotizador va **en palabras y SIN cifra** y la cifra **solo** con sesión. **QA:** los siete
+> puntos del criterio 179 y los nueve del 178 son asserts; el 179(e) y el 179(g) son **verificables por lo que NO
+> pasa**. **devops:** la regla del bucket de §M5-N.3 es suya.
+>
+> **H. LO QUE NO CAMBIA, Y SE DICE PORQUE LA TENTACIÓN DE «APROVECHAR EL PASE» ES REAL.** **Los VALORES de los topes**
+> (MX$3,000 umbral, MX$10,000 mensual) y **la retención** (180 días) **no se tocan**: el humano no los cambió. **D16
+> intacto** (SPEI por el NETO, topes por el BRUTO; criterios 136/155). **La CLABE no se mueve** (pregunta 29, supuesto
+> (a)). **El veto de `GET /buylist/quote-policy` sigue INTACTO y no gana ni un campo.** **`offer/authorize` sigue sin
+> reevaluar nada** (§M5-A.5). **Ningún correo nuevo, ningún estado nuevo, ningún motivo nuevo, ningún DDL.**
 >
 > **Changelog v1.58 — INVARIANTE A («no se compromete lo que no se puede cumplir») e INVARIANTE R («no se aprueba lo
 > que no ha llegado»), y la FÓRMULA de `pickup-address` gana su término (2026-09-06, arquitecto; **CERO endpoints
@@ -3747,6 +3830,15 @@
     satisfacer un test). Su cobertura es **unitaria**, ensanchando la lista en un mock.
 - **`403 EMAIL_NOT_VERIFIED` (v1.5):** un `customer` autenticado con `emailVerified=false` intenta una **acción sensible** (comprar / retirar / vender). El front muestra el banner "verifica tu correo" y ofrece reenviar; el bloqueo lo aplica **siempre** el backend (`EmailVerifiedGuard`, ARCHITECTURE §4.11). Endpoints afectados: `POST /checkout/session`, `POST /shipments`, `POST /buylist/requests`.
 - **`422 CLABE_REQUIRED` (v1.15):** `POST /buylist/requests` **sin** `clabe` en el body **y sin** CLABE en archivo (`KycProfile.clabeEnc` vacío). El front debe pedir la CLABE (o registrarla en KYC) antes de reintentar. Distinto de `422 CLABE_INVALID` (formato incorrecto) y de `422 CLABE_NOT_OWN_NAME` (no coincide con la de archivo). Ver §6 y ARCHITECTURE §4.16a.
+- **⚠️⚠️ `422 KYC_NOT_VERIFIED` (v1.59, `BL-41` — norma completa en [`§M5-K`](#M5-K)).** `POST /admin/buylist/:id/pay-spei`
+  sobre una solicitud con **`ineRequired = true`** cuyo **`KycProfile.kycStatus != 'verified'`**. `details: { kycStatus }`.
+  **Es el término que le faltaba al cotejo INE ↔ titular de la CLABE**, que `PROJECT.md` declara desde v1.1 (criterio
+  **14(e)**, **178(g)**) y que **medido no existía en ninguna parte**: `kycStatus` se escribía y **no lo leía ningún
+  camino de dinero**. **Remedio:** `PATCH /admin/users/:id/kyc` con `kycStatus: "verified"` (`super_admin`, auditado)
+  **después** de cotejar el INE contra el titular de la CLABE. ⛔ **`'rejected'` bloquea igual que `'pending'`** —el
+  veredicto negativo es justo el caso que hay que detener— y **por debajo del umbral no aplica**: sin INE no hay nada
+  que cotejar. ⚠️ **Introduce un paso humano obligatorio antes de pagar sobre el umbral**: coste, alcance y **conteo
+  pre-merge obligatorio** en §M5-K.4.
 - **⚠️ LA FAMILIA `PICKUP_ADDRESS_*` (v1.51.3, D36/D37 — ARCHITECTURE §4.39q).** Cuatro códigos, **cuatro remedios
   distintos**; se declaran juntos porque hablan del mismo dato y separarlos en la cabeza del que integra es la mitad
   del valor. **El dato es la DIRECCIÓN DE ORIGEN del vendedor**, tomada de su propia libreta `Address` y **congelada**
@@ -3813,6 +3905,12 @@
   > puerta (motivo auditado de D26, tope del operador con escalación y **el tope AML al ofertar**, [`§M5-A`](#M5-A)).
   > **Sin esa corrección, un override legítimo por encima del doble de la cotización producía una oferta VINCULANTE
   > que después no se podía aprobar ni pagar — y sin remedio posible para el vendedor.** Ver §M5.
+  > **⚠️⚠️ v1.59 (`BL-43`) — `capAML` CAMBIA DE ANCLA: pasa del tope por solicitud al tope MENSUAL**
+  > (`capPerMonthCentsOverride ?? buylist_cap_per_month_cents`, MX$10,000). **La forma no cambia; el número sí.**
+  > **Por qué:** con **D47** la emisión **ya no topa por solicitud**, así que la premisa de v1.58 —*«tras §M5-A no
+  > puede disparar sobre una fila que pasó la emisión»*— **dejó de ser cierta**, y una línea de **MX$4,500** —el caso
+  > que el criterio **179(a)** declara legal y exige que llegue a `pagada`— **se quedaba sin poder aprobarse.** Ficha
+  > completa en §M5 y en §M5-D.4. ⛔ **El shape del error no cambia.**
 - **`500 OFFERED_PRICE_MISSING` (v1.51.20 — NUEVO; BACKSTOP, no error de cliente):** mismo endpoint, `approve` sobre
   una línea **`offerDecision='buy'` cuyo `offeredPriceCents` es `null`**. `details: { itemId }`. **No escribe nada y
   no paga.**
@@ -5132,7 +5230,16 @@ Req: `{ name?, phone?, locale? }` → Res `200`: user.
 - `PUT /api/v1/users/me/billing-profile` — `customer` — Req: `{ rfc, razonSocial, regimenFiscal, usoCfdi, postalCode, email }` (el RFC se recibe en claro y se cifra en reposo; ver ARCHITECTURE §3.4).
 
 ### KYC (buylist)
-- `GET /api/v1/users/me/kyc` — `customer` → `{ kycStatus, clabeMasked?, clabeOnFile: boolean, ineOnFile: boolean, capPerRequestCents, capPerMonthCents, monthUsedCents }`. La CLABE se devuelve **enmascarada** (`clabeMasked` = `****1234`); nunca en claro por este endpoint.
+- `GET /api/v1/users/me/kyc` — `customer` → `{ kycStatus, clabeMasked?, clabeOnFile: boolean, ineOnFile: boolean, ineThresholdCents, capPerMonthCents, monthUsedCents }`. La CLABE se devuelve **enmascarada** (`clabeMasked` = `****1234`); nunca en claro por este endpoint.
+  > ⚠️⚠️ **v1.59 (D47, [`§M5-D.5`](#M5-D)) — `capPerRequestCents` SE RETIRA y en su lugar va `ineThresholdCents`.**
+  > **Es un RENAME, no un aditivo: frontend tiene que tocarlo.** Es **el mismo número** (`ine_threshold_cents`,
+  > MX$3,000 por defecto) con el nombre que corresponde a lo único que hace tras D47: **disparar la identificación**.
+  > **`ineThresholdCents` es GLOBAL y no tiene override por usuario** — el override por-KYC del viejo tope **se retira
+  > entero** (§M5-D.3), porque un umbral de KYC por vendedor **sería la exención que el criterio 178(e) prohíbe**.
+  > **`capPerMonthCents` y `monthUsedCents` no cambian**: el mensual sigue rechazando y su consumo se sigue midiendo
+  > en **brutos** (criterio 155). ⛔ **No se deja alias `capPerRequestCents`:** conservar el nombre sería conservar la
+  > mentira. **Uso autorizado en el front: UNA comparación** (`totalCarrito >= ineThresholdCents`) para pedir el INE
+  > **en el mismo paso** en que se captura la dirección (§P.2.2) — nunca desde una superficie anónima (§M5-I.6).
   - **`ineOnFile: boolean`** (ya existente) = hay imagen de INE (frente+reverso) en archivo. El front lo usa para **ocultar los uploaders de INE** y **omitir `ineUploadKeys`** en `POST /buylist/requests`; el backend ya trata el INE en archivo como "provisto" para el umbral AML (no re-pide INE si ya está).
   - **`clabeOnFile: boolean`** (**NUEVO v1.15**) = hay CLABE cifrada en archivo (`Boolean(KycProfile.clabeEnc)`). Booleano **limpio y simétrico** a `ineOnFile`. El front lo usa para ofrecer el atajo "usar mi CLABE ****1234" (= **omitir** `clabe` en `POST /buylist/requests`, resuelto server-side; ver §6) y, junto con `clabeMasked`, pintar el label. Si `clabeOnFile=false`, el front pide la CLABE.
 - `PUT /api/v1/users/me/kyc` — `customer` — Req: `{ clabe?, ineFrontUploadKey?, ineBackUploadKey? }` (keys de presign). La CLABE se recibe en claro (18 dígitos), se **cifra en reposo** y debe ser **a nombre del propio usuario** (declarado). Err `422 CLABE_INVALID`.
@@ -6714,7 +6821,7 @@ Res `200` (`BuylistQuotePolicyDTO`, §11):
 > | `buylistShipmentConfirmAlertBusinessDays` (8) | Reloj de **nuestra** cola interna |
 > | `buylistMinimumOfferNetCents` (9) | Se evalúa sobre el **neto OFERTADO** (post cherry-pick), **al EMITIR**, sobre algo que **el visitante no controla ni conoce**; y la validación cruzada garantiza que **no puede chocar por el total cotizado** |
 > | `buylistOfferReissueAlertCount` (10) | Mide **nuestra** conducta (§M5-ciclo) |
-> | **Topes AML + `ineThresholdCents`** | ⚠️⚠️ **VETO DURO PERMANENTE.** Publicar el umbral de INE y los topes AML **es publicar el manual de cómo estructurar por debajo de ellos**: un control de cumplimiento **pierde eficacia al ser conocido**. **Ningún cambio futuro los mueve aquí sin decisión explícita del humano y revisión de `seguridad`** |
+> | **Topes AML + `ineThresholdCents`** | ⚠️⚠️ **VETO DURO PERMANENTE.** Publicar el umbral de INE y los topes AML **es publicar el manual de cómo estructurar por debajo de ellos**: un control de cumplimiento **pierde eficacia al ser conocido**. **Ningún cambio futuro los mueve aquí sin decisión explícita del humano y revisión de `seguridad`** · ⚠️⚠️ **v1.59 — D46/§P.2.2 NO ABREN ESTE VETO, y se dice porque parece que sí.** §P.2.2 exige un **aviso previo en el cotizador** de que *«en las ventas de mayor monto te pediremos una identificación oficial»*. **Ese aviso es COPY ESTÁTICO i18n del front, sin cifra y sin campo nuevo** — **patrón D43 exacto**, el mismo con el que el envío se dice en palabras y su tarifa no viaja. **La cifra solo aparece con SESIÓN** (`GET /users/me/kyc`, §M5-D.5) y **reactivamente** (`422 INE_REQUIRED`). **Este DTO sigue teniendo UN campo.** *El día que alguien proponga `ineThresholdCents` aquí «para que el cotizador avise mejor», la respuesta ya está escrita: el aviso no necesita el número, y por eso se redactó sin él* |
 > | Todo lo demás de `GET /admin/settings` | Ni siquiera es del buylist |
 > | `binding:false` / `isIndicative` / `disclaimer` | **Booleano de un solo valor** — exactamente lo que D31 retiró de `SellOfferPublicDTO` (`shippingPaidByUs`): *no es información, es la invitación a que alguien lo ponga en `false`* |
 > | `currency` | Todo monto de este contrato es **entero en centavos MXN** (§0). Un campo de un solo valor, otra vez |
@@ -7128,28 +7235,39 @@ Err:
   `CardProduct.finishes` si el item trae `productId`)
 - **`422 PRODUCT_NOT_FOUND`** (v1.30 — algún `productId` no existe)
 - **`422 PRODUCT_CARD_MISMATCH`** (v1.30 — algún `productId` no cuelga del `cardId` de su item)
-- `422 BUYLIST_LIMIT_EXCEEDED` (details: `{ scope: "per_request" | "per_month", capCents, wouldBeCents }`)
-- `422 INE_REQUIRED` (supera el tope configurado y no hay INE ni en el request ni en archivo)
-  > ### ⚠️⚠️ v1.58 — VOCABULARIO COMPLETO DE `scope`, Y EL INTAKE **NO SE TOCA**. ([`§M5-A`](#M5-A))
-  > **`BUYLIST_LIMIT_EXCEEDED` es UN código para UN control —el tope AML— medido en CINCO momentos**, y `scope` dice
-  > cuál. **No se acuña un `OFFER_LIMIT_EXCEEDED`:** sería un segundo nombre para la misma regla y **fragmentaría el
-  > control que más falta hace poder auditar entero**. *La misma doctrina que mantuvo `422 VALIDATION_ERROR` en
-  > `pay-spei` al añadirle el tercer término: es la misma pregunta con el término que le faltaba.*
+- `422 BUYLIST_LIMIT_EXCEEDED` (details: `{ scope: "per_month", capCents, wouldBeCents }`) — ⚠️ **v1.59 (D47): SOLO
+  el MENSUAL.** `scope: "per_request"` **se retira** (ver tabla)
+- `422 INE_REQUIRED` (`details: { thresholdCents }`) — el **total cotizado** alcanza el **umbral de INE** (`>=`) **o**
+  hay alguna línea en `precio_pendiente`, y **no hay INE ni en el request ni en archivo**. ⚠️ **v1.59: es la
+  COMPUERTA 1 de D46** — norma completa en [`§M5-I`](#M5-I). **Se evalúa DESPUÉS del tope mensual** (criterio 14(c))
+  y **dentro del mismo boundary atómico** que la creación (§M5-I.4)
+  > ### ⚠️⚠️ v1.59 — VOCABULARIO DE `scope`: SE RETIRAN LOS DOS «per_request» (D47). ([`§M5-A`](#M5-A), [`§M5-I`](#M5-I))
+  > **`BUYLIST_LIMIT_EXCEEDED` es UN código para UN control**, y `scope` dice en qué momento. **Tras D47 ese control
+  > es UNO SOLO: el tope MENSUAL.** *«Verificable por lo que YA NO existe: **ningún** rechazo cuyo motivo sea “excede
+  > el tope por solicitud”»* — criterio **179(g)**. **No se acuña un `OFFER_LIMIT_EXCEEDED`** (sería un segundo nombre
+  > para la misma regla).
   >
   > | `scope` | Momento | Base | Estado |
   > |---|---|---|---|
-  > | `per_request` | intake (`POST /buylist/requests`) | `quotedTotalCents`, **`>`** | vivo, **sin cambios** |
-  > | `per_month` | intake, dentro de la tx `SERIALIZABLE` | acumulado de **compromiso vivo** + cotizado | vivo, **sin cambios** |
-  > | **`per_request_offer`** | **emisión** (`POST …/offer`) | **`offerGrossCents`**, **`>`** | ⚠️ **NUEVO v1.58** |
-  > | **`per_month_offer`** | **emisión**, dentro de la tx `SERIALIZABLE` | acumulado de **compromiso vivo** con **esta fila ya sustituida** por su bruto ofertado | ⚠️ **NUEVO v1.58** |
-  > | `per_month_payout` | pago (`POST …/pay-spei`) | acumulado **consumado** (`paidAt`) + `brutoConsumado` | ⚠️ **vivo en el código y NO estaba declarado: se declara aquí** (misma clase que `BUYLIST_LINE_NOT_KEYABLE`, v1.55.1) |
+  > | ~~`per_request`~~ | ~~intake~~ | ~~`quotedTotalCents`, `>`~~ | ⛔ **RETIRADO v1.59 (D47).** Su caso pasa a `422 INE_REQUIRED` |
+  > | ~~`per_request_offer`~~ | ~~emisión~~ | ~~`offerGrossCents`, `>`~~ | ⛔ **RETIRADO v1.59 (D47), y solo vivió una rev.** Su caso pasa a `422 INE_REQUIRED` (`A2`) |
+  > | `per_month` | intake, **dentro de la tx `SERIALIZABLE`** | acumulado de **compromiso vivo** + cotizado | ✅ vivo. ⚠️ **v1.59: se evalúa ANTES del INE** (§M5-I.3) |
+  > | `per_month_offer` | **emisión**, dentro de la tx `SERIALIZABLE` | acumulado de **compromiso vivo** con **esta fila ya sustituida** por su bruto ofertado | ✅ vivo. ⚠️ **v1.59: se evalúa ANTES del INE** (§M5-A.6) |
+  > | `per_month_payout` | pago (`POST …/pay-spei`) | acumulado **consumado** (`paidAt`) + `brutoConsumado` | ✅ vivo, **sin cambios** |
   >
-  > **⛔ EL INTAKE NO SE ARMONIZA, y se dice porque la simetría es tentadora.** Sigue midiendo sobre
-  > `quotedTotalCents` —que es **el único bruto que existe cuando se crea la solicitud**— y sus `details` siguen
-  > llevando `capCents`/`wouldBeCents`, y `INE_REQUIRED` su `thresholdCents`. **No es una fuga:** el vendedor es **el
-  > sujeto** de la regla y tiene que saber **por qué** le pedimos su identificación o por qué no le compramos más; un
-  > rechazo sin cifra lo manda a adivinar. **El veto de `GET /buylist/quote-policy` es sobre publicación PROACTIVA a
-  > una superficie ANÓNIMA y sigue intacto.** Regla de las tres ramas en **§M5-A.7**.
+  > **⚠️ CONSECUENCIA AML QUE HAY QUE LEER ENTERA, y `PROJECT.md` la escribe así:** *«el techo real del buylist pasa a
+  > ser el tope MENSUAL, y nada más; el de solicitud dejó de acotar exposición y pasó a ser el umbral de KYC»*
+  > (criterio 14). **Una sola compra de MX$9,000 a un particular es ahora posible cuando antes era imposible** —con
+  > INE—. **Es lo que el humano eligió a sabiendas** (decisión 109). **Lo que sigue conteniendo:** el mensual (que
+  > suma **brutos**), el INE obligatorio desde la creación, el cotejo INE↔titular de la CLABE ([`§M5-K`](#M5-K)), el
+  > SPEI **solo a cuenta propia** y el tope de autorización del operador (D13).
+  >
+  > **⛔ EL INTAKE SIGUE SIN ARMONIZARSE en su MONTO:** mide sobre `quotedTotalCents` —**el único bruto que existe
+  > cuando se crea la solicitud** (criterio 14, *«contra qué monto»*)— y sus `details` siguen llevando
+  > `capCents`/`wouldBeCents` en el mensual y `thresholdCents` en el INE. **No es una fuga:** el vendedor es **el
+  > sujeto** de la regla y **§P.2.2 lo eleva a requisito** (*«callar el número justo ahí es lo que vuelve arbitraria
+  > la petición»*). **El veto de `GET /buylist/quote-policy` es sobre publicación PROACTIVA a una superficie ANÓNIMA
+  > y sigue intacto.** Regla de las cinco ramas en **§M5-A.7**.
 - **`422 CLABE_REQUIRED`** (v1.15 — sin `clabe` en el body y sin CLABE en archivo)
 - **`422 PICKUP_ADDRESS_REQUIRED` (v1.51.3, D36/D37)** — **sin `addressId` en el body.** `details: { field:
   "addressId" }`. ***Sin dirección de origen no se crea la solicitud***: sin ella no se puede imprimir la etiqueta que
@@ -10277,10 +10395,34 @@ hoy no exista.
 
 ---
 
-#### <a id="M5-A"></a>⚠️⚠️ §M5-A — INVARIANTE A: **no se compromete lo que no se puede cumplir** (v1.58 — NORMATIVA, **DINERO COMPROMETIDO / AML-KYC**)
+#### <a id="M5-A"></a>⚠️⚠️ §M5-A — INVARIANTE A: **no se compromete lo que no se puede cumplir** (v1.58, **RETRO-EDITADA en v1.59 por D47** — NORMATIVA, **DINERO COMPROMETIDO / AML-KYC**)
 
 > *«Un control que llega después de que le escribimos al vendedor no controla: extorsiona. O incumplimos la palabra
 > que ya dimos, o alguien sube el dial para poder cumplirla.»* — cierre de `BL-38`.
+
+> ### ⚠️⚠️ v1.59 — QUÉ DE ESTA SECCIÓN INVALIDA D47, Y QUÉ SOBREVIVE INTACTO
+> **`PROJECT.md` manda sobre este contrato.** El criterio **14** fue **reescrito entero** por **D47** y **la mitad de
+> `A1` deja de ser cierta**. Se dice aquí, arriba del todo, porque **backend implementó `A1` al pie de la letra y lo
+> hizo bien**: el defecto estaba en el criterio, no en el código.
+>
+> | Pieza de v1.58 | v1.59 |
+> |---|---|
+> | **`A1` — `G > capPerRequest ⇒ 422 BUYLIST_LIMIT_EXCEEDED (per_request_offer)`** | ⛔ **SE RETIRA ENTERA.** El tope por solicitud **ya no rechaza: identifica** (criterio 14(a), 179(g)). Lo que `A1` rechazaba **lo cubre `A2`**, que ya existe. **`scope: "per_request_offer"` se retira del vocabulario** |
+> | **`A.3`** (el borde `>` del tope por solicitud, y «aplica a todo actor») | El **borde `>` muere con `A1`**. **La doctrina de «ningún rol lo levanta» NO muere: se hereda a `A2`** y se refuerza — criterio **178(e)**: *«ni el override, ni la autorización de súper-admin, ni la edición manual del bruto permiten emitir una oferta sobre el umbral sin INE»* |
+> | **Orden `A1 → A2 → tope del operador → [tx] A3`** | ⛔ **SE INVIERTE:** **`[tx] A3 → A2 → tope del operador → escrituras`**. Criterio **14(c)**: *el que RECHAZA se evalúa ANTES que el que IDENTIFICA.* Ver **A.6** |
+> | **`A2`** (umbral de INE, `>=`, relee `KycProfile`, `ineRequired` monótona) | ✅ **INTACTA**, y **pasa a ser el único término por-solicitud**. Su `details` **no gana el umbral** (A.7 sigue mandando) |
+> | **`A3`** (mensual, acumulado vivo, `SERIALIZABLE`, la fila propia sustituida, el cruce de mes) | ✅ **INTACTA en su cuerpo**; **solo cambia de sitio** (sube a ser el primero de los tres). **Es ahora el ÚNICO `BUYLIST_LIMIT_EXCEEDED` de la emisión** |
+> | **`A.4`** (la derivación del INE al ofertar) | ✅ **RATIFICADA POR EL HUMANO Y DEJA DE SER DERIVACIÓN.** Era *«la única pieza derivada de v1.58»*; **D46 la convierte en cita**: criterio **178(d)** la nombra *«regresión directa de BL-38»*. **La coletilla «si el humano prefiere la otra lectura» se BORRA: el humano ya eligió, y eligió antes** |
+> | **`A.5`** (`offer/authorize` no reevalúa; el cruce de mes) | ✅ **INTACTA.** La demostración por inducción **sigue en pie con un término menos** |
+> | **`A.7`** (divulgación en tres ramas) | ✅ **INTACTA en las tres ramas**, con **una fila que se reescribe**: la del intake ya no habla de un rechazo por tope de solicitud. Ver **A.7** y §P.2.2 |
+> | **`A.8`** (`sellerIneOnFile` en la mesa) | ✅ **INTACTA, y sube de importancia**: con `A1` muerta, **el único motivo AML por el que una emisión puede fallar por-solicitud es el INE**, y el booleano es lo que deja al operador verlo antes de armar la oferta |
+> | **`A.9`** (conteo pre-merge) | ⚠️ **La consulta (i) SE RETIRA** —ya no hay daño que contar por el tope de solicitud— y **la (ii) SE QUEDA y sube de prioridad**. Ver **A.9** |
+>
+> **Lo que NO cambia y se dice para cerrar la puerta:** el **monto** sigue siendo `G = offerGrossCents` (**A.2**, la
+> trampa sigue siendo la trampa), la **doctrina** (*el control se evalúa donde el compromiso se contrae*) sigue siendo
+> la razón de existir de toda la sección, y **la compuerta de la emisión NO se debilita ni un milímetro** — leer D46
+> como *«el INE solo se pide al cotizar»* **devolvería `BL-38` por la puerta de atrás**, y `PROJECT.md` lo prohíbe con
+> esas palabras (criterio 178(d), decisión 108(a)).
 
 **La cláusula que manda, literal — `PROJECT.md:1127-1128`:**
 > *(Actualizado 2ª ronda v2.1, D16 — cierra el supuesto del primer pase)*: los topes se evalúan **en los dos momentos**
@@ -10295,20 +10437,30 @@ momentos, y el monto es el bruto ofertado—; lo que no existe es **el término 
 momento**. Por la **regla de conflicto** (`PROJECT.md` > contrato > código), toca **hacerla cumplir**. *(La única
 pieza que **derivo** en vez de citar va marcada como derivación en **A.4**, con su alternativa y su coste.)*
 
-**Definición — TRES términos, evaluados AL EMITIR, todos sobre el mismo monto:**
+**Definición — ~~TRES~~ DOS términos (v1.59, D47), evaluados AL EMITIR, ambos sobre el mismo monto, EN ESTE ORDEN:**
 ```
 G = offerGrossCents            // el bruto que ESTA emisión va a congelar (Σ offeredPriceCents de las líneas `buy`)
 
-A1  tope por solicitud :  G  >  capPerRequest(vendedor)                       ⇒ 422 BUYLIST_LIMIT_EXCEEDED
-A2  umbral de INE      :  G >= ineThreshold  ∧  ¬ineEnArchivo(vendedor)       ⇒ 422 INE_REQUIRED
-A3  tope mensual       :  comprometidoTrasEstaOferta(vendedor)  >  capPerMonth(vendedor)
+A3  tope mensual  (RECHAZA)  :  comprometidoTrasEstaOferta(vendedor)  >  capPerMonth(vendedor)
                                                                               ⇒ 422 BUYLIST_LIMIT_EXCEEDED
+                                                                                 details.scope = "per_month_offer"
+A2  umbral de INE (IDENTIFICA):  G >= ineThreshold  ∧  ¬ineEnArchivo(vendedor) ⇒ 422 INE_REQUIRED
 
-capPerRequest(u) = KycProfile.capPerRequestCentsOverride(u) ?? buylist_cap_per_request_cents
-capPerMonth(u)   = KycProfile.capPerMonthCentsOverride(u)   ?? buylist_cap_per_month_cents
-ineThreshold     = ine_threshold_cents          // ⚠️ NO tiene override por usuario, y no se le inventa uno
+capPerMonth(u)   = KycProfile.capPerMonthCentsOverride(u) ?? buylist_cap_per_month_cents
+ineThreshold     = ine_threshold_cents   // ⚠️ NO tiene override por usuario, y no se le inventa uno (§M5-D)
 ineEnArchivo(u)  = KycProfile.ineFrontKey != null ∧ KycProfile.ineBackKey != null
+
+⛔ RETIRADO en v1.59 (D47):
+   A1  tope por solicitud :  G > capPerRequest(vendedor)  ⇒  422 BUYLIST_LIMIT_EXCEEDED (per_request_offer)
+   capPerRequest(u)       :  el dial y su override por-KYC se retiran enteros — ver §M5-D
 ```
+> **⚠️ EL ORDEN ES PARTE DE LA DEFINICIÓN, NO DEL ESTILO.** `A3` **antes** de `A2` porque **A3 rechaza y A2
+> identifica**, y el criterio **14(c)** lo manda: *«no se pide una identificación oficial por una operación que de
+> todas formas vamos a rehusar»*. **Aquí, en la emisión, el `422 INE_REQUIRED` va al OPERADOR y no sube ningún
+> archivo** — pero **el daño del orden invertido es el mismo, una capa más allá**: el operador ve *«falta INE»*,
+> **llama al vendedor a pedirle su identificación** (es literalmente la ruta operativa que declara **A.4**, y la
+> pregunta abierta **36** la ratifica como *«operación manual por soporte»*) y **después** el mensual rehúsa la
+> operación. ***Un humano pidiendo un documento por cuenta de una guarda mal ordenada pide el documento igual.***
 
 **A.1 — Lo MEDIDO, separado de lo deducido** *(por el arquitecto, `Grep`/`Read` sobre `backend/src`, 2026-09-06)*:
 
@@ -10330,16 +10482,25 @@ explota.* **El monto es `G`, el bruto que esta llamada acaba de calcular y está
 alimenta `offerNetCents`, el correo y `offerGrossCents`. **Un solo número gobierna el piso de neto, el tope del
 operador, los tres términos de A y lo que se le escribe al vendedor.**
 
-**A.3 — Tope por solicitud (A1). El borde es `>`: la cifra exacta PASA.**
-`G = capPerRequest` **se oferta**; `G = capPerRequest + 1` no. **Mismo comparador y mismo sentido que el intake**
-(medido: `quotedTotalCents > capPerRequest`, `:1547`) y misma doctrina que los **tres bordes inclusivos** del ciclo
-(v1.51.3/D40: *el error a evitar es implementar uno estricto y rechazar exactamente la cifra que prometimos*).
-- **`details: { scope: "per_request_offer", capCents, wouldBeCents: G }`.**
-- ⚠️ **APLICA A TODO ACTOR, `super_admin` INCLUIDO — y hay que decirlo o alguien lo leerá al revés.** *«El súper-admin
-  oferta sin tope»* habla del **tope del OPERADOR**, que es **delegación**: cuánto puede comprometer alguien sin que
-  otro lo mire. **El tope AML es un límite de cumplimiento sobre el VENDEDOR**, no un permiso del actor: **nadie lo
-  levanta con su rol**. Quien quiera moverlo mueve el **dial** (M10, auditado) o el **override por KYC** de ese
-  vendedor (`PATCH /admin/users/:id/kyc`, `super_admin`) — **actos con nombre, no un privilegio implícito**.
+**A.3 — ⛔ ~~Tope por solicitud (A1). El borde es `>`: la cifra exacta PASA.~~ RETIRADO EN v1.59 (D47). Lo que
+sobrevive es la doctrina del actor, y se HEREDA A `A2`.**
+
+~~`G = capPerRequest` se oferta; `G = capPerRequest + 1` no… `details: { scope: "per_request_offer", … }`~~ —
+**retirado entero**: el tope por solicitud **ya no rechaza** (criterio 14(a)) y **no existe ningún rechazo cuyo motivo
+sea «excede el tope por solicitud»** (criterio 179(g)). *Un comparador sin regla que comparar no es un borde: es un
+resto.*
+
+⚠️ **LO QUE NO SE RETIRA, Y AHORA VIVE EN `A2`: NINGÚN ROL LEVANTA LA COMPUERTA.** *«El súper-admin oferta sin tope»*
+habla del **tope del OPERADOR**, que es **delegación**: cuánto puede comprometer alguien sin que otro lo mire. **El
+umbral de INE es un límite de cumplimiento sobre el VENDEDOR**, no un permiso del actor.
+- **Criterio 178(e), literal:** *«ni el **override** (D24/D26), ni la **autorización de súper-admin** por monto, ni la
+  edición manual del bruto **permiten emitir** una oferta sobre el umbral sin INE. Verificable intentándolo **con el
+  rol más alto**.»*
+- **Y v1.59 le quita la última rendija:** en v1.58 esta doctrina admitía *«quien quiera moverlo mueve el dial (M10,
+  auditado) **o el override por KYC de ese vendedor**»*. **El override por-KYC del tope por solicitud SE RETIRA**
+  (§M5-D) ⇒ **la única palanca que queda es el dial global `ine_threshold_cents`**, que es **global, de `super_admin`
+  y auditado**. ***Bajar el umbral para un solo vendedor era la puerta trasera al KYC que 178(e) prohíbe; ahora no
+  existe la puerta.***
 
 **A.4 — Umbral de INE (A2). ⚠️ ÉSTA ES LA PIEZA DERIVADA, y va marcada como tal.**
 `PROJECT.md` dice **dos cosas** que hay que leer juntas: *«el **INE se pide en el paso de pago del buylist** (sobre el
@@ -10406,26 +10567,46 @@ comprometidoTrasEstaOferta(u, now) =
   `capPerMonth`. ⇒ **El compromiso puede cruzar el mes; el pago no.** **NO bloqueante. Disparador para reabrirlo:**
   que alguien mida solicitudes ofertadas sistemáticamente a caballo del cambio de mes.
 
-**A.6 — DÓNDE va en la secuencia normativa de `POST …/offer`, y por qué exactamente ahí.**
+**A.6 — DÓNDE va en la secuencia normativa de `POST …/offer`, y por qué exactamente ahí. ⚠️ REORDENADA en v1.59.**
 ```
 precondición → PICKUP_ADDRESS_MISSING (1-bis) → OFFER_LINES_MISMATCH
   → precio por línea (OFFER_LINE_NOT_PRICEABLE / OVERRIDE_REASON_REQUIRED)
   → cálculo de bruto/envío/neto
   → OFFER_NET_BELOW_MINIMUM
-  → ⚠️ A1  BUYLIST_LIMIT_EXCEEDED (per_request_offer)          ← v1.58
-  → ⚠️ A2  INE_REQUIRED                                        ← v1.58
-  → tope del operador (200 | 202)
-  → [tx SERIALIZABLE]  ⚠️ A3  BUYLIST_LIMIT_EXCEEDED (per_month_offer)  ← v1.58
-  → escrituras → guarda de proyección (500 OFFER_PROJECTION_INCOMPLETE)
+  → HOISTED (fuera de la tx): diales, KycProfile del vendedor, calendario de días hábiles
+  → [tx SERIALIZABLE] ┐
+      ⚠️ A3  BUYLIST_LIMIT_EXCEEDED (per_month_offer)   ← RECHAZA      (v1.58, reordenado v1.59)
+      ⚠️ A2  INE_REQUIRED                               ← IDENTIFICA   (v1.58, reordenado v1.59)
+      tope del operador (200 | 202)  ─ cálculo puro, sin I/O
+      escrituras
+                     ┘
+  → guarda de proyección (500 OFFER_PROJECTION_INCOMPLETE)
+⛔ RETIRADO v1.59:  A1  BUYLIST_LIMIT_EXCEEDED (per_request_offer)
 ```
-- **Después del cálculo** porque los tres necesitan `G`. **Antes del tope del operador** por la razón que ya está
+- **Después del cálculo** porque los dos necesitan `G`. **Antes del tope del operador** por la razón que ya está
   escrita para el piso de neto: ***nada inofertable llega a la cola de autorización***. Una oferta que rompe el tope
-  AML no puede quedar esperando a un súper-admin **que no tiene poder para levantarlo** (A.3).
-- **A1 antes que A2** porque su palanca es la misma que el operador ya tiene en la mano (bajar el bruto) y **hace
-  inútil** al resto: si el monto es ilegal a ese tamaño, el INE no lo arregla.
-- **A3 dentro de la transacción** por A.5. **Si lanza, la transacción se deshace entera** ⇒ **no se persiste nada, no
-  sale correo, `offerSentAt` no se sella y la solicitud sigue `cotizada`** — exactamente la propiedad que hace justa
-  la guarda de proyección (§P.13: el defecto cae en **nuestra** cola y en **nuestro** reloj).
+  mensual —o que no tiene INE— no puede quedar esperando a un súper-admin **que no tiene poder para levantar ninguno
+  de los dos** (A.3).
+- ⚠️ **`A3` ANTES QUE `A2`, Y ES EL CAMBIO DE v1.59** (criterio **14(c)**, **179(e)**). En v1.58 el argumento del orden
+  era *«A1 antes que A2 porque su palanca hace inútil al resto»*; **muerta A1, la palanca ya no decide el orden: lo
+  decide qué le cuesta al vendedor**. **El que rechaza va primero.** *Si el orden se invirtiera, el operador saldría
+  a pedirle su identificación a alguien a quien vamos a rehusar en la línea siguiente — y en el mundo real ese
+  documento llega por correo o por WhatsApp antes de que nadie vuelva a llamar al endpoint.*
+- ⚠️ **`A2` SE MUEVE DENTRO DE LA TRANSACCIÓN, y no es cosmético.** `A3` **tiene** que estar dentro (`SERIALIZABLE`,
+  A.5); si `A2` se quedara fuera **se evaluaría antes por construcción** y el orden sería letra muerta. **El boundary
+  crece lo mínimo:** dentro van **el acumulado, las dos comparaciones y las escrituras**; **fuera** van *todas* las
+  lecturas que las alimentan —diales, `KycProfile`, calendario— siguiendo la regla que `pay-spei` ya declara
+  (`buylist.service.ts:6927-6930`: *«los diales se leen ANTES de la transacción SERIALIZABLE: una query dentro
+  alargaría la ventana de conflicto de un camino de dinero sin aportar a ninguna precondición»*). **El tope del
+  operador es cálculo puro** (`addBusinessDays` es en memoria; medido, `common/business-days.ts:208-220`) ⇒ **entra
+  sin añadir I/O**.
+- ⚠️ **`ineEnArchivo` se lee FUERA de la transacción, y se dice por qué no es incoherente:** una lectura rancia solo
+  puede fallar **hacia el lado seguro** (creer que **no** hay INE cuando acaba de subirse ⇒ un `422` de más que el
+  operador reintenta). *Lo que no puede pasar es lo contrario, y no puede: `ineFrontKey`/`ineBackKey` solo se apagan
+  por la purga de retención, que exige que no haya solicitudes abiertas.*
+- **Si `A3` o `A2` lanzan, la transacción se deshace entera** ⇒ **no se persiste nada, no sale correo, `offerSentAt` no
+  se sella y la solicitud sigue `cotizada`** — exactamente la propiedad que hace justa la guarda de proyección (§P.13:
+  el defecto cae en **nuestra** cola y en **nuestro** reloj).
 
 **A.7 — NORMA DE DIVULGACIÓN DE LOS DIALES AML/INE (cierra la pregunta antes de que alguien la abra en el PR).**
 El **VETO DURO PERMANENTE** de `GET /buylist/quote-policy` sigue **intacto** y esta norma no lo toca. Lo que se fija
@@ -10434,8 +10615,10 @@ es la regla completa, en tres ramas con tres razones:
 | A quién | Cuándo | ¿Viaja el número? |
 |---|---|---|
 | Superficie **pública / anónima**, **proactivamente** | nunca | ⛔ **JAMÁS.** *Publicar el umbral es publicar el manual de cómo estructurar por debajo de él.* **Veto vigente, sin cambios** |
-| **Al vendedor** (el **sujeto** de la regla), **reactivamente**, cuando la regla lo alcanza | `POST /buylist/requests` | ✅ **Sí, y se conserva tal cual** (`capCents`/`wouldBeCents` y `thresholdCents`). **No es una fuga: es la explicación de por qué le pedimos su identificación o por qué no le compramos más.** Un rechazo sin cifra lo manda a adivinar |
-| **Al operador** (no es el sujeto; es quien actúa) | `POST …/offer` | ✅ **el TOPE sí** (`capCents`/`wouldBeCents`): es la **cota de su propia acción**, es la que le dice cuánto recortar, y ya la ve por `AdminKycProfileOperatorDTO` cuando hay override · ⛔ **el UMBRAL DE INE no**: **no acota su acción** —sus palancas son *conseguir el documento* o *no ofertar*—, así que el número no le añade nada y sí añade superficie |
+| **Al vendedor** (el **sujeto** de la regla), **reactivamente**, cuando la regla lo alcanza | `POST /buylist/requests` | ✅ **Sí** — `thresholdCents` en el `INE_REQUIRED` y `capCents`/`wouldBeCents` en el `BUYLIST_LIMIT_EXCEEDED` **mensual** (el de solicitud ya no existe). **No es una fuga: es la explicación de por qué le pedimos su identificación o por qué no le compramos más.** Un rechazo sin cifra lo manda a adivinar. ⚠️ **v1.59: `PROJECT.md` lo eleva de «se conserva» a REQUISITO** — §P.2.2 y pregunta **37**: *«callar el número justo ahí es lo que vuelve arbitraria la petición»* |
+| **Al vendedor**, **PROACTIVAMENTE**, con **sesión iniciada**, sobre **su propia** solicitud | `GET /users/me/kyc` | ✅ **Sí — `ineThresholdCents`** (v1.59; **es el número que ya viajaba** como `capPerRequestCents`, con el nombre corregido). **Clase de información: ya existente**, no ampliada. Habilita **UNA** comparación autorizada en el front (§M5-I.6) para que **§P.2.2 pueda pedir el INE en el mismo paso en que el vendedor captura su dirección**, y **no como un `422` sorpresa al final** |
+| **Superficie pública del cotizador**, el **aviso previo** de §P.2.2 | `GET /buylist/quote-policy` y el cotizador | ⛔ **LA CIFRA NO VIAJA — el veto es INTACTO y el DTO NO gana campos.** El aviso va **EN PALABRAS Y SIN CIFRA**, y es **copy estático i18n del front**, **no un dato del backend** — **patrón D43 exacto**: *decir la regla no exige publicar el número* (criterio **177(c)/(d)**). ⚠️ **Que el aviso sea obligatorio (§P.2.2) NO es una excepción al veto:** una frase no es un dial |
+| **Al operador** (no es el sujeto; es quien actúa) | `POST …/offer` | ⛔ **v1.59: YA NO VIAJA NINGÚN NÚMERO POR-SOLICITUD.** El `capCents`/`wouldBeCents` que sí viajaba era el de `A1`, **que se retiró**; el **umbral de INE sigue sin viajar** (sus palancas son *conseguir el documento* o *no ofertar*). **Lo que sí viaja es el MENSUAL** (`per_month_offer`: `capCents`/`wouldBeCents`), que **sí acota su acción**: le dice que con ese vendedor **no hay oferta posible este mes**, a ningún monto |
 
 **A.8 — Aviso en la mesa de decisión: UN booleano, y ninguno más.**
 `GET /admin/buylist/:id/decision-table` gana **`sellerIneOnFile: boolean`** (**aditivo**, derivado server-side =
@@ -10446,31 +10629,44 @@ lleva el `422` al final **por un motivo que no tiene nada que ver con las línea
 - **Clase de información: ya existente.** `AdminKycProfileDTO.ineOnFile` expone exactamente este booleano a admin.
 - **Frontend puede ignorarlo sin romper nada** (aditivo). **Su uso es de ux-ui.**
 
-**A.9 — ⚠️ CONTEO PRE-MERGE OBLIGATORIO (no es opcional y no lo puedo hacer yo).**
+**A.9 — ⚠️ CONTEO PRE-MERGE OBLIGATORIO (no es opcional y no lo puedo hacer yo). ⚠️ REDUCIDO en v1.59.**
 Backend cuenta, en el entorno disponible, **antes** de mergear:
 ```sql
--- (i) filas VIVAS ya ofertadas por encima del tope efectivo: el daño que esta guarda no puede deshacer
+-- ⛔ (i) RETIRADA en v1.59 (D47): «filas vivas ofertadas por encima del tope por solicitud» ya no es un daño,
+--        es el caso legal. No hay nada que contar.
+-- (ii) ⚠️ SE QUEDA Y SUBE DE PRIORIDAD — ahora es el ÚNICO control por-solicitud que existe:
+--      filas VIVAS ofertadas por encima del umbral de INE cuyo vendedor NO tiene INE en archivo.
 SELECT count(*) FROM "SellRequest" s
  WHERE s."offerGrossCents" IS NOT NULL
    AND s.status NOT IN ('pagada','rechazada','abandonada','expirada')
-   AND s."offerGrossCents" > COALESCE((SELECT k."capPerRequestCentsOverride" FROM "KycProfile" k
-                                        WHERE k."userId" = s."userId"), <buylist_cap_per_request_cents>);
--- (ii) las mismas, por encima del umbral de INE y sin INE en archivo
+   AND s."offerGrossCents" >= <ine_threshold_cents>
+   AND NOT EXISTS (SELECT 1 FROM "KycProfile" k
+                    WHERE k."userId" = s."userId"
+                      AND k."ineFrontKey" IS NOT NULL AND k."ineBackKey" IS NOT NULL);
+-- (iii) ⚠️ NUEVA en v1.59 (§M5-N / BL-42): INE en archivo SIN NINGUNA solicitud terminal
+--       ⇒ el job de retención hace `continue` sobre ellas PARA SIEMPRE.
+SELECT count(*) FROM "KycProfile" k
+ WHERE (k."ineFrontKey" IS NOT NULL OR k."ineBackKey" IS NOT NULL)
+   AND NOT EXISTS (SELECT 1 FROM "SellRequest" s
+                    WHERE s."userId" = k."userId"
+                      AND s.status IN ('pagada','rechazada','abandonada','expirada'));
 ```
-**Si (i) o (ii) dan `> 0` ⇒ SE ESCALA AL ARQUITECTO** (regla 9). ⛔ **No se añade excepción legacy por cuenta
+**Si (ii) o (iii) dan `> 0` ⇒ SE ESCALA AL ARQUITECTO** (regla 9). ⛔ **No se añade excepción legacy por cuenta
 propia** — misma norma y misma razón que §M5-P: *la cohorte que no se puede distinguir del abuso no se exceptúa; se
-remedia*, y aquí el remedio tiene nombre (`offer/cancel` + re-emitir dentro del tope, o `decline`). ⚠️ **Y sobre una
-oferta YA ENVIADA no hay remedio unilateral: es vinculante.** Por eso el conteo va **antes**, no después.
+remedia*, y aquí el remedio tiene nombre (`offer/cancel` + re-emitir dentro del umbral, conseguir el INE, o
+`decline`). ⚠️ **Y sobre una oferta YA ENVIADA no hay remedio unilateral: es vinculante.** Por eso el conteo va
+**antes**, no después. **(iii) no bloquea el merge**, pero **es el número que mide `BL-42` en vivo** y va en
+`docs/BACKEND_NOTES.md`.
 
-**A.10 — QA: asserts exigibles (normativos), sobre el stack corriendo.**
-1. **Tope por solicitud:** override al alza que deje `G = capPerRequest + 1` ⇒ **`422 BUYLIST_LIMIT_EXCEEDED`**
-   (`scope: "per_request_offer"`), **cero escritura** (`offerGrossCents`, `offerState`, `offerSentAt` intactos) y
-   **ningún correo**.
-2. **El borde:** `G = capPerRequest` exacto ⇒ **NO da `422` por A1** (con los defaults, `super_admin` ⇒ `200`;
-   `vault_operator` ⇒ `202`, porque `G` también rebasa **su** tope — **son dos topes distintos y el assert es sobre
-   el de AML**). *Sin este assert, el anterior lo pasa una guarda estricta de más que rechaza justo la cifra legal.*
-3. **El súper-admin no lo levanta:** el mismo caso (1) como `super_admin` ⇒ **el mismo `422`**. ⭐ **Éste es el assert
-   que distingue un tope de cumplimiento de un tope de delegación.**
+**A.10 — QA: asserts exigibles (normativos), sobre el stack corriendo. ⚠️ REESCRITOS en v1.59.**
+1. ⛔ **RETIRADO** (~~override al alza a `capPerRequest + 1` ⇒ `422 … per_request_offer`~~). **Su sustituto es el
+   contra-assert del criterio 179(g):** un `G` **muy por encima** del antiguo tope por solicitud, con **INE en
+   archivo** ⇒ **la oferta SALE**. **Y en ninguna respuesta del sistema aparece `scope: "per_request_offer"` ni
+   `"per_request"`.** ⭐ *Éste es el assert que atrapa la implementación vieja si sobrevive.*
+2. ⛔ **RETIRADO** (~~el borde `>` de A1~~). **Muerto el término, muerto el borde.**
+3. **Ningún rol levanta la compuerta del INE:** `G >= ineThreshold` sin INE en archivo, ejecutado como **`super_admin`**
+   ⇒ **`422 INE_REQUIRED`** igual que como `vault_operator`. ⭐ **Éste es el assert que distingue un control de
+   cumplimiento de un permiso de rol** (criterio **178(e)**), y **es el que hereda el papel del viejo (3)**.
 4. **INE:** vendedor **sin** INE en archivo y `G = ineThreshold` ⇒ **`422 INE_REQUIRED`**, sin escritura y sin correo;
    sube el INE por `PUT /users/me/kyc`, se reintenta ⇒ **la oferta SALE** y la fila queda con `ineRequired: true`.
 5. **Monotonía:** solicitud con `ineRequired: true` de intake cuya oferta queda **por debajo** del umbral ⇒
@@ -10479,10 +10675,449 @@ oferta YA ENVIADA no hay remedio unilateral: es vinculante.** Por eso el conteo 
    deja el total por encima de `capPerMonth` ⇒ **`422`** (`scope: "per_month_offer"`). **Y el contra-caso que prueba
    que no hay doble conteo:** una **sola** solicitud cuyo `G` **por sí solo** cabe en el tope **se oferta**, aunque su
    `quotedTotalCents` ya estuviera en el acumulado.
-7. **Nada inofertable en la cola:** el caso (1) como `vault_operator` con `G > buylistOperatorOfferCapCents` ⇒ **`422`,
-   NO `202`** — la fila **no** queda `pending_authorization`.
-8. **Camino feliz intacto:** oferta dentro de los tres términos ⇒ `200`|`202` como hoy, correo, plazo congelado.
-   *Sin este assert, los siete anteriores los pasa un endpoint que no oferta nunca.*
+7. **Nada inofertable en la cola:** `G` que rompe el **mensual** y además supera `buylistOperatorOfferCapCents` como
+   `vault_operator` ⇒ **`422`, NO `202`** — la fila **no** queda `pending_authorization`.
+8. ⚠️ **NUEVO — EL ORDEN (criterio 14(c) / 179(e)), y es verificable POR LO QUE NO PASA.** Vendedor **sin INE en
+   archivo**, con el **mensual ya rebasado** por compromisos previos, y una oferta cuyo `G` **también** cruza el
+   umbral de INE ⇒ **la respuesta es `422 BUYLIST_LIMIT_EXCEEDED` (`per_month_offer`)**, **jamás `INE_REQUIRED`**.
+   *Los dos términos disparan; el que contesta es el que rechaza.*
+9. **Camino feliz intacto:** oferta dentro de los dos términos ⇒ `200`|`202` como hoy, correo, plazo congelado.
+   *Sin este assert, los ocho anteriores los pasa un endpoint que no oferta nunca.*
+10. ⚠️ **NUEVO — la línea cara llega a `pagada` (criterio 179(a), y es el que atrapa `BL-43`).** Vendedor **con INE**,
+    **una sola línea** ofertada por **MX$4,500** ⇒ la oferta sale, se acepta, se recibe, **`approve` NO da
+    `422 APPROVED_PRICE_CAP_EXCEEDED`** y `pay-spei` liquida. ⭐ *Sin este assert, D47 «funciona» hasta el paso en que
+    de verdad se paga.* Ver **§M5-D.4**.
+
+---
+
+#### <a id="M5-I"></a>⚠️⚠️ §M5-I — LA COMPUERTA DE LA CREACIÓN: el INE desde la cotización, y el que rechaza antes que el que identifica (v1.59 — NORMATIVA, **AML-KYC / PII**; cierre de **D46 compuerta 1** y **criterio 14(c)**)
+
+> *«Pedir una identificación oficial por una operación que de todas formas vamos a rehusar es indefendible, y además
+> regala un documento a cambio de nada.»* — `PROJECT.md`, criterio **14(c)**.
+
+**La cláusula que manda, literal — `PROJECT.md` criterio 14(d) y §E:**
+> *«El **INE se pide DESDE LA COTIZACIÓN** —al crear la solicitud— y **se vuelve a exigir AL EMITIR LA OFERTA**.»*
+> *«Son **DOS compuertas**, y las dos son bloqueantes y server-side. **Compuerta 1 — AL CREAR LA SOLICITUD (NUEVA)**:
+> si el **total cotizado** supera el tope por solicitud, **sin INE en archivo no se crea la solicitud**. Es
+> **requisito de creación**, exactamente igual que el **celular** (D11), el **mínimo** (D18) y la **dirección**
+> (D36).»*
+
+**I.1 — ⚠️ RECTIFICACIÓN DE MI PROPIA PREMISA: la compuerta 1 YA ESTABA EN EL CÓDIGO.**
+Llegué a este pase creyendo que D46 pedía una guarda nueva. **Medido, no es así:**
+
+| | |
+|---|---|
+| **Medido** | `createRequest` **ya exige el INE en el intake**: `ineRequired = quotedTotalCents >= ineThreshold ∨ hayLínea('precio_pendiente')`; si `ineRequired ∧ ¬ineProvided` ⇒ `422 INE_REQUIRED` con `thresholdCents` (`buylist.service.ts:1564-1581`). **Y el contrato lo declara desde antes** (`POST /buylist/requests`, `422 INE_REQUIRED`) |
+| **Medido** | `ineProvided = (body.ineUploadKeys.front ∧ .back) ∨ (KycProfile.ineFrontKey ∧ .ineBackKey)` — **el archivo cuenta igual que la subida de este request** |
+| **Medido** | La fila nace con `ineRequired` e `ineProvided` **persistidos** (`:1627-1628`) y el `201` devuelve `ineRequired` |
+| **Medido** | **El endurecimiento por `precio_pendiente` es real y NO es de D46:** una línea sin referencia aporta **0** al total, así que sin él una carta cara sin precio colaría por debajo del umbral. **Se conserva sin tocar** |
+
+⇒ **Lo que D46 aporta no es la guarda: es (a) volverla ALCANZABLE** —hasta D47 el tope por solicitud rechazaba antes,
+con los dos diales en el mismo número, así que **`INE_REQUIRED` del intake era código inalcanzable con los
+defaults**—, **(b) el ORDEN frente al mensual** y **(c) qué ve el vendedor (§P.2.2)**.
+⚠️ **Dicho sin adornos: la compuerta que el humano acaba de pedir llevaba meses escrita y muerta.** *Una guarda que no
+se puede alcanzar no es una guarda: es una intención.*
+
+**I.2 — Definición — DOS términos, evaluados AL CREAR, EN ESTE ORDEN, cada uno con SU monto:**
+```
+T = quotedTotalCents           // el ÚNICO bruto que existe al crear (derivado server-side, §E/§N)
+
+I3  tope mensual  (RECHAZA)   :  monthCommittedGrossCents(vendedor) + T  >  capPerMonth(vendedor)
+                                                             ⇒ 422 BUYLIST_LIMIT_EXCEEDED
+                                                                details.scope = "per_month"
+                                 // MISMO cuerpo que la emisión (§M5-A.5): `common/buylist-aml.ts`,
+                                 // ancla `createdAt`, complemento sobre NON_COMMITTING. NO se crea otro.
+I2  umbral de INE (IDENTIFICA):  ( T >= ineThreshold  ∨  ∃ línea en `precio_pendiente` )
+                                 ∧ ¬ineProvided       ⇒ 422 INE_REQUIRED  details = { thresholdCents }
+
+⛔ RETIRADO en v1.59 (D47):
+   I1  tope por solicitud :  T > capPerRequest  ⇒  422 BUYLIST_LIMIT_EXCEEDED (per_request)
+```
+- ⚠️ **Aquí `T` SE SUMA; en la emisión la fila propia SE SUSTITUYE (§M5-A.5). No es una inconsistencia: es la misma
+  regla en dos instantes.** Al crear, **la fila todavía no existe** ⇒ no está en el acumulado ⇒ **sumar es lo
+  correcto**. Al ofertar **ya está dentro aportando su cotizado** ⇒ **sumar `G` contaría el mismo compromiso dos
+  veces**. *El acumulado es el mismo cuerpo; lo que cambia es si la fila propia ya entró.*
+- **`T` y no el bruto ofertado, y `PROJECT.md` lo cierra explícito** (criterio 14, *«contra qué monto»*): *«cada
+  compuerta juzga con el monto que existe en su momento. Al crear la solicitud ⇒ **TOTAL COTIZADO**… Al emitir la
+  oferta ⇒ **BRUTO OFERTADO** (D16, criterios 136/155, **sin cambio**)»*. **Esto no deroga D16: lo completa** —D16
+  mandaba evaluar «en los dos momentos» pero nombraba **un solo monto que al cotizar no existe**.
+- ⛔ **`T` NO entra a ninguna medida:** *«el total cotizado no sustituye al bruto en ninguna medida ni reporte: no
+  entra al acumulado mensual, no entra a M7 y no es un compromiso — es **solo el número que dispara la compuerta 1**»*.
+  ⚠️ **Con UNA excepción que ya existe y que no se toca:** `acumuladoVivo` **sí** usa `quotedTotalCents` como aporte de
+  una fila `cotizada` sin oferta (medido, `common/buylist-aml.ts` · `monthCommittedGrossCents`, y §M5-A.5 lo declara).
+  **Son cosas distintas:** `T` no es un compromiso **por sí mismo**; la **fila** sí lo es en cuanto existe.
+- **El comparador de `I2` es `>=` y NO se armoniza a `>`**, aunque el criterio 14(a) diga *«por encima»*. **Razón:**
+  es un umbral de **identificación**, no una promesa de dinero — la doctrina de los bordes inclusivos del ciclo
+  (*«no rechazar exactamente la cifra que prometimos»*) **protege al vendedor de un “no”**, y aquí el borde inclusivo
+  **pide un documento de más, nunca compra de menos**. *Errar hacia identificar es el único lado del que se puede
+  volver.* ⚠️ **Y con la fusión de diales (§M5-D) el problema desaparece de raíz:** hasta v1.58 el **mismo número**
+  se comparaba con `>` (tope) y con `>=` (INE) en el mismo método; **ahora hay un número y un comparador.**
+
+**I.3 — ⚠️ EL ORDEN, Y ES LA MITAD NORMATIVA DE ESTA SECCIÓN.**
+**Medido — hoy el intake evalúa al revés:** mínimo (`:1530`) → **tope por solicitud** (`:1555`) → **`INE_REQUIRED`**
+(`:1577`) → **`kycProfile.upsert` que ESCRIBE `ineFrontKey`/`ineBackKey`** (`:1588-1602`) → **`$transaction`
+SERIALIZABLE** con el **tope mensual** (`:1609-1618`).
+⇒ **A un vendedor que vamos a rechazar por el mensual le pedimos hoy su INE, y se lo GUARDAMOS, antes de decirle que
+no.** Criterio **179(e)** lo prohíbe con esas palabras: *«no hay pantalla de INE, no se sube ningún archivo y **no se
+almacena nada** para una operación que se va a rehusar»*.
+
+**Secuencia normativa de `POST /buylist/requests` (v1.59):**
+```
+PUERTA 1  celular (D11)                                   → 422 PHONE_REQUIRED
+PUERTA 2+3 dirección de origen (D36/D37)                  → 422 PICKUP_ADDRESS_REQUIRED | _NOT_FOUND
+PUERTA 3-bis CLABE (v1.15)                                → 422 CLABE_INVALID | CLABE_NOT_OWN_NAME | CLABE_REQUIRED
+bucle de líneas (política + derivación server-side)       → BUYLIST_RAW_ONLY / FINISH_NOT_AVAILABLE /
+                                                            PRODUCT_NOT_FOUND / PRODUCT_CARD_MISMATCH /
+                                                            500 BUYLIST_LINE_NOT_KEYABLE
+PUERTA 4  mínimo de compra (D18)                          → 422 BUYLIST_MINIMUM_NOT_MET
+────────── [tx SERIALIZABLE] ──────────────────────────────────────────────────────────────────────
+   ⚠️ I3  tope MENSUAL          (RECHAZA)                 → 422 BUYLIST_LIMIT_EXCEEDED (per_month)
+   ⚠️ I2  umbral de INE         (IDENTIFICA)              → 422 INE_REQUIRED
+   ⚠️ persistencia de KYC (CLABE + keys de INE)
+   creación de la SellRequest
+────────────────────────────────────────────────────────────────────────────────────────────────────
+⛔ RETIRADO v1.59:  I1  tope por solicitud (per_request)
+```
+- **El mínimo sigue ANTES de los dos, y la razón ya estaba escrita y sigue siendo buena:** *«te faltan $120» es
+  accionable para el vendedor y «superaste el tope» no lo es*. **El mínimo no es un rechazo por conducta: es una
+  instrucción.** *(Y no le pide ningún documento a nadie, que es lo que 14(c) protege.)*
+- **`I3` antes que `I2`** — criterio **14(c)**, verificable con el caso del criterio **179(d)/(e)**: cotización de
+  **MX$12,000** de un usuario **sin consumo previo del mes** ⇒ **se rechaza por el mensual** y **en ningún momento se
+  le pide el INE**.
+
+**I.4 — ⚠️⚠️ REORDENAR DOS `if` NO BASTA: LA ESCRITURA DEL INE ESTÁ FUERA DE LA TRANSACCIÓN.**
+**Medido:** `kycProfile.upsert` (`:1588`) usa **`this.prisma`**, no el `tx` de la `$transaction` de `:1609` ⇒ **es un
+commit independiente**. Si el tope mensual lanza dentro de la transacción, **el `create` de la solicitud se deshace y
+la escritura del INE NO** — *«se deshizo la operación y nos quedamos con el documento»* es exactamente el resultado
+que 179(e) nombra.
+- **NORMA: `I3`, `I2`, la persistencia de KYC y la creación de la `SellRequest` van en UN SOLO boundary atómico
+  `SERIALIZABLE`.** El aislamiento **ya es obligatorio** por SEC-A2 (TOCTOU del acumulado mensual): **no se añade una
+  transacción, se le mete dentro lo que estaba fuera**.
+- **`this.pii.encrypt(...)` puede quedar fuera** (CPU pura, sin I/O). **Lo que entra es la escritura.**
+- ⚠️ **CONSECUENCIA ACEPTADA Y DICHA: si la creación se rehúsa, TAMPOCO se persiste la CLABE.** Hoy sí se persiste. Es
+  una regresión menor de comodidad (el vendedor la recaptura, o la guarda por `PUT /users/me/kyc`, que **existe y es
+  el sitio para eso**) a cambio de la propiedad que el criterio exige. ***Un “no” no debería dejarnos datos nuevos de
+  quien lo recibió.***
+- ⚠️ **RESIDUAL NOMBRADO — el objeto en R2 ya existe antes de esta llamada.** `ineUploadKeys` son **keys de un objeto
+  ya subido** por `POST /uploads` (`purpose: 'kyc_ine'`, medido: `uploads.service.ts:15,64-66`). **Esta norma impide
+  que la BD lo referencie; no borra el objeto.** Cerrarlo del todo es §M5-N.2, **y es un hallazgo aparte**.
+
+**I.5 — El cruce tardío: la solicitud NO muere en silencio (criterio 178, D46(c)).**
+Una cotización **bajo** el umbral puede volverse una oferta **sobre** el umbral por el override al alza (`PROJECT.md`
+mide **MX$300 → MX$1,000**, deriva de **3.3×**). **Manda la compuerta 2 (§M5-A `A2`): no se emite.** Y:
+- **La solicitud sigue VIVA y bloqueada, no muerta:** queda **`cotizada`**, **sin estado nuevo y sin motivo nuevo**
+  (criterio 178, §E). **El contrato NO gana ningún estado, motivo, correo ni endpoint por esto.**
+- **Las dos salidas son las que ya existen:** emitir con un bruto que **no cruce** el umbral (*jamás recortar una
+  oferta para esquivar el KYC*), o **`POST …/decline`** (D39, motivo `no_offer`).
+- **Cómo se le pide el INE en ese punto: `PROJECT.md` lo resuelve como OPERACIÓN MANUAL por soporte** (pregunta
+  abierta **36**, supuesto tomado). ⛔ **No se declara un sexto correo, ni subida guiada, ni reloj propio: sería
+  alcance nuevo y el humano no lo pidió.** El aviso es **la llamada del operador**, con `sellerIneOnFile` (§M5-A.8) y
+  `seller.phone` en la mesa.
+- ⚠️ **Y lo que este contrato SÍ tiene que decir, porque es su consecuencia técnica:** una `cotizada` bloqueada aquí
+  **puede quedarse viva indefinidamente**, y eso **le quita el ancla de purga al INE**. Ver **§M5-N.3**.
+
+**I.6 — Qué puede hacer el frontend, y la asimetría es la misma que con el mínimo.**
+§P.2.2 exige que el INE se pida **en el mismo paso en que el vendedor ya está capturando sus datos** (dirección),
+**antes del botón de enviar** — no como un `422` al final. Para eso, y **solo** para eso:
+- ✅ **AUTORIZADA UNA sola comparación:** `pedirINE = totalCarrito >= ineThresholdCents`, con `ineThresholdCents` de
+  **`GET /users/me/kyc`** (autenticado). **Misma forma y misma justificación que la resta autorizada del mínimo**
+  (`quote-policy`): *el número viene del servidor, no de una constante del front* (R4 de `DESIGN_SYSTEM.md` §23).
+- ⛔ **PROHIBIDO** pedir ese número desde una superficie **anónima**, cachearlo entre sesiones o pintarlo en el
+  cotizador público. **En el cotizador el aviso va EN PALABRAS Y SIN CIFRA** (§M5-A.7, criterio 177(c), patrón D43).
+- ⛔ **La comparación del front NO es la autoridad:** el `422 INE_REQUIRED` del servidor **manda siempre**, y el
+  criterio **178(b)** exige verificarlo **saltándose la pantalla**. *El front decide qué enseña; el servidor decide
+  qué se crea.*
+- **Y no cubre el `precio_pendiente`:** el front **no puede** saber que una línea quedará sin referencia ⇒ **ese caso
+  llega como `422` y está bien** — es raro y su remedio (subir el INE y reintentar) es el mismo.
+
+**I.7 — QA: asserts exigibles (normativos).**
+1. **Regresión mayoritaria (criterio 178(a)):** cotización de **MX$800** ⇒ se crea **sin INE, sin campo, sin aviso
+   bloqueante**, y su oferta **se emite sin INE**. *Sin este assert, todo lo demás lo pasa un intake que pide INE
+   siempre.*
+2. **Sobre el umbral, sin INE (178(b)):** **MX$3,400** sin INE en archivo ⇒ **`422 INE_REQUIRED`** con
+   `details.thresholdCents`, **y se verifica saltándose la pantalla** (llamada directa al endpoint).
+3. **Con INE, la misma solicitud SÍ se crea (178(c)):** *la compuerta pide identificación, no prohíbe vender.*
+4. ⚠️ **EL ORDEN (14(c), 179(d), 179(e)) — verificable por lo que NO pasa:** **MX$12,000** de un usuario **sin consumo
+   previo** y **sin INE en archivo** ⇒ **`422 BUYLIST_LIMIT_EXCEEDED` (`scope: "per_month"`)**, **jamás
+   `INE_REQUIRED`**.
+5. ⚠️ **NADA SE ALMACENA (179(e)), y es el assert que atrapa I.4:** en el caso (4), **con `ineUploadKeys` en el
+   body**, tras el `422` se consulta `KycProfile` del usuario ⇒ **`ineFrontKey` y `ineBackKey` siguen como estaban**
+   (`null` si no tenía). ⭐ *Éste no lo pasa un reordenamiento de `if`: solo lo pasa el boundary atómico.*
+6. **179(g) — por lo que ya no existe:** **ninguna** respuesta del sistema, en ningún camino, lleva
+   `details.scope === "per_request"`. **Cotización de MX$4,500 con INE ⇒ 201.**
+7. **El endurecimiento por `precio_pendiente` sigue vivo:** solicitud con **una línea sin referencia** y total
+   **por debajo** del umbral ⇒ **`422 INE_REQUIRED`** igual.
+8. **El mínimo sigue primero:** total **por debajo del mínimo** y **por encima del mensual** a la vez ⇒
+   **`BUYLIST_MINIMUM_NOT_MET`**, no el otro.
+
+---
+
+#### <a id="M5-D"></a>⚠️⚠️ §M5-D — LOS DOS DIALES SE FUNDEN EN UNO, Y EL OVERRIDE POR-KYC MUERE CON EL TOPE (v1.59 — NORMATIVA, **CONFIGURACIÓN / AML-KYC**)
+
+> **`PROJECT.md` criterio 14 me lo delega literal:** *«el **tope por solicitud** y el **umbral de INE** dejan de ser
+> dos cosas… Hoy son **dos diales de M10 con el mismo default** y **eso invita a que diverjan**: si alguien los
+> configura distintos, **el documento no dice qué pasa en la banda intermedia** porque **ya no hay dos
+> comportamientos que repartir**. **No se toca ningún dial en esta ronda**; se deja señalado **para que el arquitecto
+> lo resuelva al declarar**.»*
+
+**D.1 — La decisión: SOBREVIVE `ine_threshold_cents`. `buylist_cap_per_request_cents` se retira.**
+
+| | |
+|---|---|
+| **Medido** | Los dos diales valen **lo mismo**: `SETTING_DEFAULTS[BUYLIST_CAP_PER_REQUEST_CENTS] = 300000` y `[INE_THRESHOLD_CENTS] = 300000, // = tope por solicitud` (`settings.constants.ts:246-248`). **El comentario ya decía que eran el mismo número** |
+| **Medido** | `BUYLIST_CAP_PER_REQUEST_CENTS` tiene **CUATRO lectores** en `backend/src`: `buylist.service.ts:1547` (intake, muere por D47), `:3519` (emisión `A1`, muere por D47), `:6293` (**cota por ÍTEM en `approve`** — ver **D.4**) y `users.service.ts:164` (**display** en `GET /users/me/kyc`) |
+| **Medido** | `KycProfile.capPerRequestCentsOverride` se **lee** en `buylist.service.ts:1546`, `:3518`, `:6292` y `users.service.ts:163`, y se **escribe** en `admin.service.ts:637/644` (`PATCH /admin/users/:id/kyc`) |
+| **Medido** | Las **cuatro estructuras paralelas**: `SettingKey` (`:48-50`), `SETTING_DEFAULTS` (`:246-248`), `SETTING_VALIDATORS` (`:718-720`), `SETTING_DTO_MAP` (`:817-819`) |
+
+**Por qué sobrevive el umbral y no el tope — dos razones, y la segunda es la que decide:**
+1. **El nombre.** Tras D47 ese número **solo** dispara la identificación. `ine_threshold_cents` **dice lo que hace**;
+   `buylist_cap_per_request_cents` diría **lo contrario de lo que hace**. *Este proyecto ya tiene un accidente famoso
+   por un término que se llamaba como otra cosa —`brutoConsumado` (§M5-A.2)—; no se fabrica el segundo a propósito.*
+2. ⚠️⚠️ **EL OVERRIDE POR USUARIO, y es la razón dura.** Si sobreviviera el **tope**, su override
+   (`capPerRequestCentsOverride`) pasaría a ser **un umbral de INE por vendedor**: subirlo para una persona sería
+   **eximirla del KYC**. Eso es **exactamente** lo que §M5-A.4 se negó a inventar (medido, `:3522`: *«el umbral de INE
+   NO tiene override por usuario, y no se le inventa uno»*) y lo que el criterio **178(e)** prohíbe. ***Fundir en el
+   dial equivocado no habría sido un cambio de nombre: habría creado, sin que nadie lo pidiera, la puerta trasera al
+   KYC que dos documentos prohíben.***
+
+**D.2 — Qué se retira, EN LAS CUATRO ESTRUCTURAS (y por qué se dice «en las cuatro»).**
+`SettingKey` → `SETTING_DEFAULTS` → `SETTING_VALIDATORS` → `SETTING_DTO_MAP` son **cuatro tablas paralelas sin
+acoplamiento de tipos entre sí**: **una clave presente en tres de las cuatro compila y falla en runtime.** Por eso:
+- ⛔ **`BUYLIST_CAP_PER_REQUEST_CENTS` sale de las CUATRO.**
+- **La clave de BD `buylist_cap_per_request_cents` queda DEPRECADA E INERTE. SIN MIGRACIÓN.** **Precedente exacto,
+  citado:** `STRIPE_FEE_IVA_PCT` (v1.40/P-37) — *«la clave de BD queda deprecada e inerte (nadie la lee); sin
+  migración»* (`settings.constants.ts:45-47`). **Cero DDL, cero backfill.**
+- **`GET /admin/settings` deja de exponer `buylistCapPerRequestCents`; `PUT /admin/settings` con esa key ⇒ `422`
+  como cualquier key desconocida** (mismo comportamiento que `stripeFeeIvaPct`).
+- **`INE_THRESHOLD_CENTS` no cambia de valor ni de validador.** `PROJECT.md`: *«no cambian los VALORES de los topes»*
+  — **y no cambian: MX$3,000 sigue vivo, con un solo nombre.**
+
+**D.3 — `KycProfile.capPerRequestCentsOverride`: INERTE. Es una CAPACIDAD QUE SE RETIRA, y se dice.**
+- **La columna se queda** (cero DDL) y **nadie la lee**.
+- **`PATCH /admin/users/:id/kyc` deja de aceptar `capPerRequestCents`** (⇒ `422`, key desconocida) y
+  **`AdminKycProfileDTO` / `AdminKycProfileOperatorDTO` dejan de exponerlo**.
+- **`capPerMonthCentsOverride` SE QUEDA ENTERO**, en lectura y en escritura: **el mensual sigue rechazando**, y
+  elevarlo para un vendedor verificado es una **decisión comercial legítima, auditada y con nombre**.
+- ⚠️ **Sí, esto le quita al `super_admin` algo que hoy puede hacer.** Lo que puede hacer hoy es **subirle el tope
+  por solicitud a un vendedor**; tras D47 **ese tope no rechaza a nadie**, así que la capacidad **ya no significa
+  nada** — salvo la única cosa que **no** puede significar (bajar el KYC de una persona). **Retirarla es una mejora
+  de seguridad neta, no una pérdida de funcionalidad.**
+
+**D.4 — ⚠️⚠️ `BL-43` — EL TERCER LECTOR, Y ROMPE D47 EN EL PASO EN QUE DE VERDAD SE PAGA.**
+**Medido:** `itemDecision` acota el precio aprobado con `cap = min(relativeCap, amlCap)`, donde
+`amlCap = capPerRequestCentsOverride ?? buylist_cap_per_request_cents` (`:6287-6293`) y, **dentro del ciclo de
+oferta**, `relativeCapApplies = false` ⇒ `relativeCap = amlCap` ⇒ **`cap = MX$3,000` con los defaults**
+(`assertApprovedPriceWithinCap`, `:5543-5563`).
+⇒ **Una sola línea ofertada por MX$4,500 —el caso legal y explícito del criterio 179(a)— pasa la emisión, el vendedor
+manda la carta, y `approve` la rechaza con `422 APPROVED_PRICE_CAP_EXCEEDED`.** **Es `BL-40` otra vez, por la misma
+puerta, con el otro término.** *La oferta es vinculante: aquí tampoco hay remedio para el vendedor.*
+- **NORMA: la cota absoluta por ítem se RE-ANCLA al ÚNICO techo de dinero que queda — el MENSUAL.**
+  `amlCap = KycProfile.capPerMonthCentsOverride(u) ?? buylist_cap_per_month_cents` (**MX$10,000** por defecto).
+  **`cap = min(relativeCap, amlCap)` no cambia de forma**, y **fuera del ciclo el término relativo (`quoted × 2`)
+  sigue intacto** — que es donde el monto lo teclea alguien (`adjust`), y donde `BL-40` decidió conservarlo.
+- **Por qué el mensual y no un dial nuevo:** *«ningún dial nuevo»* es requisito de este pase, y **el mensual es
+  literalmente lo que `PROJECT.md` declara como techo** (criterio 14(b): *«es el único techo de dinero que queda»*).
+  Una línea **no puede** valer más que el techo del mes entero **sin haber roto ya el mensual aguas arriba**: la cota
+  sigue siendo **defensa en profundidad** y **deja de poder disparar sobre una fila que pasó la emisión**, que es
+  exactamente lo que `BL-40` exigió de ella.
+- **`APPROVED_PRICE_CAP_EXCEEDED` no cambia de forma:** `details: { approvedPriceCents, quotedPriceCents, cap }`.
+  **Cambia de qué está hecho `cap`, no el contrato del error.**
+- ⚠️ **Este es el hallazgo del pase que NADIE reportó**, y sale de medir el tercer lector en vez de asumir que los
+  lectores del dial eran los dos obvios. **Assert: §M5-A.10 punto 10.**
+
+**D.5 — Renombrado en `GET /users/me/kyc` (⚠️ ÚNICO cambio obligatorio para frontend).**
+```
+ANTES:  { kycStatus, clabeMasked?, clabeOnFile, ineOnFile, capPerRequestCents, capPerMonthCents, monthUsedCents }
+AHORA:  { kycStatus, clabeMasked?, clabeOnFile, ineOnFile, ineThresholdCents,  capPerMonthCents, monthUsedCents }
+```
+- **`ineThresholdCents` = `ine_threshold_cents`, GLOBAL, sin override por usuario** (D.1).
+- ⛔ **`capPerRequestCents` se RETIRA. No se deja como alias:** dejarlo sería **conservar el nombre que miente**, que
+  es justo lo que D.1 evita. **Es un rename, no un aditivo: frontend tiene que tocarlo.**
+- **`capPerMonthCents` y `monthUsedCents` se quedan**: siguen siendo un tope que rechaza y su consumo.
+- ⚠️ **Residual de divulgación, nombrado:** este endpoint entrega el umbral a **cualquier usuario autenticado**, no
+  solo a uno que esté vendiendo. **No es nuevo** —el mismo número ya viajaba como `capPerRequestCents` desde v1.15— y
+  **§M5-A.7 lo admite** (rama «al sujeto, con sesión»), pero **conviene que `seguridad` lo lea así y no como un
+  hallazgo nuevo**: *el cambio de nombre no amplía la audiencia; la hace visible.*
+
+---
+
+#### <a id="M5-K"></a>⚠️⚠️ §M5-K — `BL-41`: EL COTEJO INE ↔ TITULAR DE LA CLABE. Dónde vive, y el término que le faltaba (v1.59 — NORMATIVA, **DINERO SALIENTE / AML-KYC**)
+
+> *«El INE se **verifica contra el nombre de la CLABE**»* — criterio **14(e)**, vigente **sin cambio** desde v1.1 y
+> **explícitamente NO derogado por D46** (decisión 108: *«solo se derogó el CUÁNDO»*).
+
+**K.1 — ⚠️ PRIMERO, UNA CORRECCIÓN AL ENCARGO, PORQUE LA PREMISA NO SE SOSTIENE AL MEDIRLA.**
+El brief y `PROJECT.md` §P.2.1 dan por hecho que *«la **CLABE todavía no existe** en el momento de la creación»* y que
+por eso el cotejo *«solo puede ocurrir… hoy, el paso de pago»*. **Medido, y es al revés:**
+
+| | |
+|---|---|
+| **Medido** | **La CLABE es requisito de CREACIÓN desde v1.15.** `createRequest` la resuelve **antes** de cotizar líneas: con `clabe` en el body la valida y la compara por blind index contra la de archivo; **sin `clabe` y sin CLABE en archivo ⇒ `422 CLABE_REQUIRED`** (`buylist.service.ts:1378-1404`) |
+| **Medido** | **El contrato ya lo declara**: `POST /buylist/requests` lista `422 CLABE_REQUIRED` (v1.15) — *«sin `clabe` en el body y sin CLABE en archivo»* |
+| **Medido** | La solicitud nace con `clabeSnapshotEnc` **cifrado** (`:1585`, `:1626`) |
+⇒ **El INE y la CLABE existen en el MISMO instante: la creación.** La premisa de `PROJECT.md` §P.2.1 (*«lo único que
+hoy bloquea la creación es el celular, el mínimo y la dirección»*) **describe mal el código y el contrato**.
+**No cambio la CLABE de sitio** —la pregunta **29** es del humano y su supuesto (a) es *«la CLABE no se mueve»*, y
+**no se mueve: ya estaba aquí**— pero **sí retiro el argumento de imposibilidad**: *el cotejo no está en el pago
+porque la CLABE falte al crear; está donde está por otra razón, y esa razón hay que decirla.*
+
+**K.2 — ⚠️⚠️ LA RAZÓN REAL: EL COTEJO NO ESTÁ EN NINGUNA PARTE. NO TIENE TÉRMINO.**
+
+| | |
+|---|---|
+| **Medido** | **`kycStatus` no se lee como precondición en ningún camino de dinero.** Se **escribe** en dos sitios (intake ⇒ `'pending'`, `:1595`; `PATCH /admin/users/:id/kyc` ⇒ `'verified'\|'rejected'`, `admin.service.ts:624-648`) y **se lee solo para PROYECTARLO** a DTOs (`users.service.ts:78,170`; `admin.service.ts:206,504`). **Cero lectores en `paySpei`, en `adminOffer` y en `createRequest`** |
+| **Medido** | **`KycProfile.legalName` NO TIENE NINGÚN ESCRITOR QUE LE PONGA UN NOMBRE.** En todo `backend/src` solo se **lee** (`ADMIN_KYC_SELECT` y dos DTOs) y su **único escritor** es la anonimización del **soft-delete** (`admin.service.ts:759-769`), que lo pone **a `null`**. ⇒ **no existe ninguna fuente del nombre del titular de la CLABE en el sistema**, ni capturada ni consultada a un tercero |
+| **Medido** | **`CLABE_NOT_OWN_NAME` NO COMPARA NINGÚN NOMBRE.** Es un match de **blind index HMAC** de la CLABE entrante contra la de archivo (`:1385-1391`); **si el usuario no tiene CLABE en archivo, acepta cualquiera y la persiste**. *El código honra el nombre del error solo por costumbre.* |
+⇒ **El criterio 178(g) —*«con un INE a nombre distinto del de la CLABE la operación se detiene»*— no es verificable
+hoy: no hay nada que la detenga.** **Y esto NO lo rompió D46: llevaba así desde antes.** **Es exactamente la forma de
+`BL-38`** —una regla que `PROJECT.md` declara, que el código no impone y que nada comprobaba—, con el agravante de
+que **es la única mitigación de la bandera AML que impide pagarle a un tercero**.
+
+**K.3 — NORMA: el cotejo vive donde vive el dinero. `pay-spei` gana un CUARTO término.**
+**No se puede comparar dos nombres automáticamente** (no hay fuente del titular de la CLABE, y `legalName` no se
+captura). **Lo que sí se puede hacer cumplir es que el cotejo se HAYA HECHO y su veredicto esté registrado**, que es
+la única forma auditable de una verificación documental:
+```
+K   cotejo INE↔CLABE :  SellRequest.ineRequired = true  ∧  KycProfile.kycStatus != 'verified'
+                        ⇒ 422 KYC_NOT_VERIFIED   details: { kycStatus }
+```
+- **Va en `POST /admin/buylist/:id/pay-spei`**, **después** de `isPayableSellRequest` y **antes** de la transacción
+  `SERIALIZABLE` — **junto a la lectura de `KycProfile` que ya se hace ahí** (`buylist.service.ts:6914`): **cero
+  queries nuevas**.
+- **Por qué en el pago y no antes:** *el cotejo protege que **el dinero llegue a su titular*** (§P.2.2(b)). Los
+  invariantes de este ciclo van **donde se contrae el compromiso** (§M5-A) o **donde sale el dinero** (§M5-P); **este
+  es del segundo tipo**: bloquear la **creación** por un cotejo que un humano aún no ha hecho convertiría una revisión
+  interna en una **espera del vendedor**, y `PROJECT.md` no pide eso en ninguna parte.
+- **Alcance ACOTADO — solo `ineRequired = true`.** Por debajo del umbral **no hay INE que cotejar** y el pago **no
+  cambia en nada**. *Un control de KYC que se aplica a quien no está sujeto a KYC no es más seguro: es una cola.*
+- **`ineRequired` de la FILA y no un recálculo:** es **monótona** (§M5-A.4) y **es el registro de que esta operación
+  quedó sujeta a identificación**. Recalcularlo contra el dial vivo sería comparar **monto congelado contra dial
+  vivo**, el anti-patrón del criterio 157.
+- **El remedio existe y NO es una superficie nueva:** `PATCH /admin/users/:id/kyc` con `kycStatus: "verified"`
+  (`super_admin`, ya auditado, `verifiedBy`/`verifiedAt` ya se sellan). **Es la misma forma que `PICKUP_ADDRESS_MISSING`
+  y que `INE_REQUIRED` al ofertar: la respuesta correcta a un dato que falta es pedirlo, no adivinarlo.**
+- ⚠️ **`kycStatus: 'rejected'` bloquea igual que `'pending'`**, y es deliberado: **el veredicto negativo del cotejo es
+  precisamente el caso que 178(g) quiere detener.**
+
+**K.4 — ⚠️ COSTE OPERATIVO, DICHO ENTERO Y SIN DISIMULAR.**
+Este término **introduce un paso humano obligatorio** entre la recepción y el pago **para toda solicitud sobre el
+umbral**: alguien tiene que **abrir el INE, mirar la CLABE y marcar `verified`**. **Hoy ese paso no existe en ninguna
+cola**, y con `INE_REQUIRED` adelantado a la creación (D46) **la población afectada crece**.
+- **No lo puedo resolver yo, y no lo invento:** *quién* lo hace y *en qué pantalla* es **operación** (M6/M10) y
+  **ux-ui**; el contrato solo fija **que sin veredicto no sale dinero**.
+- ⚠️ **CONTEO PRE-MERGE OBLIGATORIO** (misma disciplina que §M5-A.9):
+  ```sql
+  -- filas PAGABLES o ya PAGADAS con ineRequired=true cuyo KycProfile NO está 'verified'
+  SELECT count(*) FROM "SellRequest" s
+   WHERE s."ineRequired" = true
+     AND NOT EXISTS (SELECT 1 FROM "KycProfile" k
+                      WHERE k."userId" = s."userId" AND k."kycStatus" = 'verified');
+  ```
+  **Si da `> 0` ⇒ SE ESCALA AL ARQUITECTO antes de mergear** (regla 9): con una cohorte grande, este término
+  **congela pagos legítimos el día del deploy**, y esa decisión —desplegar con la cola, o desplegar tras un barrido
+  de verificación— **es del humano, no mía**.
+- ⛔ **No se añade excepción legacy por cuenta propia.** Misma norma que §M5-P.
+
+**K.5 — Lo que este término NO hace, y hay que decirlo o se leerá como más de lo que es.**
+- **No compara nombres.** **Nadie en este sistema compara nombres.** Lo que impone es que **exista un veredicto humano
+  registrado** antes de pagar. *Es el mínimo honesto: convierte una promesa de tres documentos en una precondición.*
+- **No captura `legalName`** ni pide una fuente del titular de la CLABE. **Eso sería alcance nuevo** y no se asume.
+  ⚠️ **Queda REGISTRADO como el hueco que sigue abierto:** mientras `legalName` no se capture, *«verificado»*
+  significa **«un humano dijo que cuadra»**, no **«el sistema comprobó que cuadra»**. **La bandera AML de
+  `PROJECT.md` debe leerse con esa precisión.**
+- **No mueve la CLABE** (pregunta 29) **ni cambia `CLABE_NOT_OWN_NAME`**, cuyo nombre sigue siendo peor que su
+  conducta. *Renombrarlo es deuda cosmética; cambiarlo ahora rompería a frontend por nada.*
+
+---
+
+#### <a id="M5-N"></a>⚠️⚠️ §M5-N — `BL-42`: LOS TRES CAMINOS QUE DEJAN EL INE SIN ANCLA DE PURGA (v1.59 — NORMATIVA, **PII / LFPDPPP**)
+
+> **La pregunta que me hizo el orquestador, y la respuesta corta es: SÍ, hay caminos sin ancla, y son tres.**
+> `PROJECT.md` lo contiene con dos frases —*«la purga al llegar a estado terminal»* (criterio 169(e), 178(h)) y *«la
+> retención de 180 días»*— **y ninguna de las dos cubre a una solicitud que nunca llega a un estado terminal, ni a un
+> INE que nunca llegó a colgar de una solicitud.**
+
+**N.1 — El ancla, medida.** `IneRetentionJobService.run()` (`jobs/ine-retention.service.ts`) recorre **los
+`KycProfile` con keys** y purga si y solo si:
+```
+(1) openCount == 0        // ninguna SellRequest del usuario en estado NO terminal      (:57-63)
+(2) lastClosed != null    // existe al menos UNA SellRequest en estado terminal          (:66-70)
+(3) closureDate(lastClosed) <= now - INE_RETENTION_DAYS                                  (:72-73)
+```
+⇒ **el reloj de retención NO nace con la imagen: nace con el cierre de una solicitud.** *No hay purga por antigüedad
+del documento; solo por antigüedad del cierre.* **Los tres caminos de abajo son exactamente los que nunca satisfacen
+(1) o (2).**
+
+**N.2 — CAMINO 1 y CAMINO 2: el INE que nunca llegó a colgar de una solicitud.**
+
+| # | Camino | Medido | Estado tras esta rev |
+|---|---|---|---|
+| **1** | **INE escrito en `KycProfile`, solicitud NO creada.** El `upsert` de `:1588` **commitea fuera** de la tx de `:1609`; si el tope mensual lanza dentro, **la solicitud se deshace y las keys se quedan** ⇒ `lastClosed = null` ⇒ **`continue` para siempre** | `buylist.service.ts:1588` vs `:1609`; `ine-retention.service.ts:70` | ✅ **CERRADO por §M5-I.4** (boundary atómico). ⚠️ **Las filas que ya existan NO se arreglan solas** ⇒ conteo **(iii)** de §M5-A.9 |
+| **2** | **Objeto en R2 sin ninguna referencia en BD.** El INE se sube por `POST /uploads` (`purpose: 'kyc_ine'`) **antes** del intake; si el intake falla —o el usuario abandona la pantalla— **el objeto queda en el bucket y ninguna fila lo nombra**. El job **solo escanea `KycProfile`** ⇒ **ni siquiera lo ve** | `uploads.service.ts:15,64-66`; `dto/buylist.dto.ts:146`; `ine-retention.service.ts:50-52` | ⚠️ **ABIERTO — y §M5-I.4 lo hace MÁS frecuente**, porque ahora ningún rechazo persiste las keys. **Requiere el barrido de huérfanos de N.4** |
+
+⚠️ **El camino 2 no es teórico y no lo inventa D46: existe desde v1.2.** Lo que cambia es **la frecuencia**: con el
+INE pedido **en el paso de pago**, casi todo el que subía un INE terminaba pagado; con el INE pedido **al crear**,
+*«también le pediremos el INE a gente a la que al final NO le compraremos»* es **texto de `PROJECT.md`** (§P.2.2), y
+cada uno de esos casos que falle al enviar **deja un objeto huérfano**.
+
+**N.3 — ⚠️⚠️ CAMINO 3: la `cotizada` que no muere. Y aquí `PROJECT.md` se pisa a sí mismo.**
+- **Medido:** la **regla 7 del barrido** —la única que cierra una `cotizada` que nadie ofertó— **nace APAGADA**:
+  `BUYLIST_NO_OFFER_EXPIRY_ENABLED`, **seed `'off'`** (`settings.constants.ts:377`; `buylist-sweep.service.ts:38,
+  379-394`). **Con la configuración de fábrica, una `cotizada` no expira nunca.**
+- **Y aunque se encienda**, §E/D46(c) **prohíbe expresamente** que la `cotizada` **bloqueada por la compuerta 2**
+  caduque en silencio: *«lo que este documento NO permite es que caduque en silencio: dejar que el barrido de 7 días
+  hábiles la cierre como “no procederemos” le imputa al vendedor un desenlace nuestro… cuando la causa fue **un
+  documento que nunca le pedimos**»* (criterio 178, §E). Y la pregunta **36** resuelve su salida como **operación
+  manual**.
+⇒ **La consecuencia técnica, dicha sin rodeos: existe un estado de diseño —`cotizada` viva indefinidamente, esperando
+que un humano llame por teléfono— en el que `openCount > 0` para siempre y el INE de esa persona NO SE PURGA
+NUNCA.** *La retención de 180 días no aplica: no hay de qué contarlos.*
+- ⚠️ **`PROJECT.md` no es incoherente aquí, pero sí está incompleto**, y **es un hallazgo del arquitecto, no una
+  decisión que yo tome**: la bandera AML pide validar *«si conviene **purgar antes** en las solicitudes que nunca
+  llegaron a `pagada`»*. **Esa es exactamente la pregunta que este camino obliga a contestar**, y contestarla
+  **cambia el significado de `INE_RETENTION_DAYS`**, así que **no la contesto yo**.
+- ⛔ **Lo que NO se hace, y se dice para que nadie lo «arregle» por su cuenta:** **no** se enciende la regla 7 (es un
+  dial operativo con censo previo obligatorio, B-4), **no** se le inventa un estado nuevo a la `cotizada` bloqueada
+  (criterio 178 lo prohíbe) y **no** se toca la retención (**el humano no la cambió**).
+
+**N.4 — NORMA: el barrido de huérfanos de `kyc_ine` (cierra el camino 2; el 3 queda escalado).**
+El job de retención **gana un segundo barrido**, independiente del primero y **anclado en el objeto, no en la
+solicitud**:
+```
+Para cada objeto bajo el prefijo `kyc_ine/` del bucket:
+   si  antigüedad(objeto) > KYC_UPLOAD_ORPHAN_HOURS            (dial NUEVO, default 24)
+   y   NO existe KycProfile con ineFrontKey = key ∨ ineBackKey = key
+   ⇒ borrar el objeto  +  AuditLog(action: 'kyc.ine_orphan_purged', metadata: { key })
+```
+- **Por qué un ancla propia:** *un objeto que ninguna fila nombra no puede heredar el reloj de ninguna fila.* **Es el
+  único camino de salida que le queda a ese dato.**
+- ✅ **La primitiva ya existe y ya se usa bien en otro sitio, así que esto NO es superficie nueva** (medido): el
+  **soft-delete de usuario** llama `purgeIne` ⇒ `uploads.deleteObject(key)` **antes** de anular las columnas
+  (`admin.service.ts:702-714`, `:748`). **Ése es el patrón correcto y es el modelo:** *borrar el objeto y después la
+  referencia, no solo la referencia.* **El camino 1 hacía exactamente lo contrario** —dejaba la referencia sin objeto
+  que la justificara—; **el camino 2 deja el objeto sin referencia**. **`purgeIne` es la prueba de que el equipo ya
+  sabe cuál es el orden**: lo que falta es un barrido que alcance a los objetos que nunca tuvieron referencia.
+- **Por qué 24 h y no minutos:** el vendedor puede subir el INE, **irse a buscar una carta** y volver a enviar la
+  solicitud. **24 h es holgado y sigue siendo dos órdenes de magnitud menos que 180 días.**
+- ⚠️ **Dial NUEVO, y es el único de este pase.** `KYC_UPLOAD_ORPHAN_HOURS` **va en las CUATRO estructuras**
+  (`SettingKey`, `SETTING_DEFAULTS = 24`, `SETTING_VALIDATORS` = entero ≥ 1, `SETTING_DTO_MAP` =
+  `kycUploadOrphanHours`). *Se dice completo a propósito: en tres de las cuatro compila y falla en runtime.*
+  **Se compensa con creces:** este pase **retira** `buylist_cap_per_request_cents` (§M5-D) ⇒ **saldo neto de diales:
+  cero.**
+- **Segunda capa (devops, ya declarada en ARCHITECTURE §3.4(d)):** **regla de lifecycle del bucket** sobre el prefijo
+  `kyc_ine/`. *Si el job no corre, el bucket sigue siendo la red.* **Esto no la sustituye: la hace alcanzable**, porque
+  la regla de lifecycle **no sabe distinguir un huérfano de un INE vivo** y por eso su expiración tiene que ser larga.
+
+**N.5 — QA / seguridad: asserts exigibles.**
+1. **Camino 1 cerrado:** el assert **5 de §M5-I.7** (rechazo por mensual con `ineUploadKeys` en el body ⇒ `KycProfile`
+   intacto) **es el mismo assert**.
+2. **Camino 2:** subir un INE por `POST /uploads`, **no** crear la solicitud, correr el job con el reloj adelantado
+   `KYC_UPLOAD_ORPHAN_HOURS + 1` ⇒ **el objeto ya no está en el bucket** y hay `AuditLog`.
+3. **Contra-caso obligatorio del 2:** un INE **vivo** (referenciado por un `KycProfile`) **NO se borra**, por antiguo
+   que sea el objeto. ⭐ *Sin este assert, el barrido de huérfanos es un borrador de INEs.*
+4. **Camino 3 — se MIDE, no se cierra:** con la regla 7 apagada, una `cotizada` de más de `INE_RETENTION_DAYS` con INE
+   ⇒ **el job NO purga** (`openCount > 0`). **Es el comportamiento esperado hoy** y **el número que hay que llevarle
+   al humano**: `SELECT count(*)` de la consulta **(iii)** de §M5-A.9 más las `cotizada` vivas con INE.
 
 ---
 
@@ -10953,6 +11588,34 @@ lleva `@HttpCode` explícito en cada ruta.
   > - **QA:** línea cotizada MX$300 ofertada con override motivado a MX$1,000 ⇒ **la oferta sale** (bruto bajo el
   >   tope) **y `approve` responde `200`**. **Contracaso legacy** (`offerSentAt IS NULL`): `approvedPriceCents =
   >   MX$1,000` sobre una línea cotizada en MX$300 ⇒ **sigue dando `422`, exactamente como hoy**.
+  >
+  > ### ⚠️⚠️ v1.59 · `BL-43` — **`capAML` CAMBIA DE ANCLA. La premisa que v1.58 le dio se la quitó D47.**
+  > **Lo que v1.58 escribió aquí, tres bullets más arriba:** *«tras §M5-A **no puede disparar** sobre una fila que pasó
+  > la emisión —cada línea ≤ el bruto ≤ el tope—»*. **Esa frase se apoyaba en que la EMISIÓN topaba por solicitud.**
+  > **Con D47 la emisión ya no topa por solicitud** (§M5-A `A1` retirada) ⇒ **la cadena `línea ≤ bruto ≤ tope` se
+  > rompe por el último eslabón, y el backstop pasa a disparar sobre filas perfectamente legales.**
+  > **Medido:** `amlCap = capPerRequestCentsOverride ?? buylist_cap_per_request_cents` (`buylist.service.ts:6287-6293`)
+  > y, dentro del ciclo, `relativeCapApplies = false` ⇒ `relativeCap = amlCap` ⇒ **cota efectiva MX$3,000**
+  > (`assertApprovedPriceWithinCap`, `:5543-5563`).
+  > ⇒ **una sola línea ofertada por MX$4,500 —el caso EXPLÍCITO del criterio 179(a), que exige que ese ciclo llegue a
+  > `pagada`— pasa la emisión, el vendedor manda la carta y `approve` la rechaza.** **Es este mismo defecto otra vez,
+  > por la misma puerta, con el otro término** — y **tampoco tiene remedio para el vendedor**.
+  > **NORMA (v1.59):**
+  > ```
+  > capAML  =  KycProfile.capPerMonthCentsOverride(u) ?? buylist_cap_per_month_cents     // MX$10,000 por defecto
+  > offerSentAt IS NOT NULL   ⇒   cota = capAML                        // sin cambios de FORMA (v1.58)
+  > offerSentAt IS NULL       ⇒   cota = min(quotedPriceCents × 2, capAML)      // legacy, sin cambios de FORMA
+  > ```
+  > - **Por qué el MENSUAL:** es **literalmente** *«el único techo de dinero que queda»* (criterio 14(b)). **Ningún
+  >   dial nuevo** —requisito de este pase— y **el backstop recupera su propiedad**: una línea **no puede** valer más
+  >   que el techo del mes entero **sin haber roto ya el mensual aguas arriba**, así que **vuelve a no poder disparar
+  >   sobre una fila que pasó la emisión**. *No se revierte la conclusión de `BL-40`: se le repara la premisa.*
+  > - **Fuera del ciclo, el término relativo (`× 2`) queda INTACTO** — ahí el monto **lo teclea alguien** (`adjust`),
+  >   que es exactamente donde `BL-40` decidió conservarlo.
+  > - **El shape del error NO cambia.** Cambia **de qué está hecho `cap`**, no el contrato.
+  > - **QA:** el assert es **§M5-A.10 punto 10** — una línea de **MX$4,500** con INE en archivo recorre
+  >   `offer → accept → receive → verify → approve → pay-spei` **sin `422`**. ⭐ *Sin él, D47 «funciona» hasta el paso
+  >   en que de verdad se paga.*
   > **⚠️⚠️ v1.51.5 — GUARDA DE TERMINAL (NUEVA, NORMATIVA, DINERO). Se evalúa ANTES que todo lo demás de este
   > endpoint, incluida la del ciclo de oferta. Desviación BL-14 (ARCHITECTURE §9).**
   > Si `SellRequest.status` es **terminal** (`pagada` · `rechazada` · `expirada` · `abandonada`) ⇒
@@ -11184,6 +11847,7 @@ lleva `@HttpCode` explícito en cada ruta.
   Res `200`: la `SellRequest` actualizada (mismo shape que `GET /admin/buylist/:id`: `status="rechazada"`, `closedAt` sellado, `seller`, `items` con sus campos de rechazo).
   Err: `403 FORBIDDEN` (cliente), `404 NOT_FOUND` (solicitud inexistente), `422 REQUEST_HAS_NON_REJECTED_ITEMS` (queda ítem vivo), `409 CONFLICT` (solicitud en otro estado terminal `pagada`/`abandonada`).
 - `POST /api/v1/admin/buylist/:id/pay-spei` — **`super_admin`** — Req `{ speiReference }` + `Idempotency-Key` → registra pago manual, request `→pagada`. **Res `200`** *(v1.57, §M5-C — hoy responde `201`; ver `BL-37`)*. Err `403 MONEY_OUT_FORBIDDEN`. **Precondición: [`§M5-P`](#M5-P) — `status ∈ {aprobada, verificacion}` ∧ `receivedAt IS NOT NULL` ∧ `verifiedAt IS NOT NULL`** (pago **tras** recepción **y** verificación, `PROJECT.md:1107`).
+  **⚠️⚠️ v1.59 — CUARTO TÉRMINO: `422 KYC_NOT_VERIFIED`** (`details: { kycStatus }`) si **`SellRequest.ineRequired = true` ∧ `KycProfile.kycStatus != 'verified'`**. **Es el cotejo INE ↔ titular de la CLABE, que hasta hoy no tenía término en ninguna parte** (`BL-41`): norma completa, alcance, remedio y **conteo pre-merge obligatorio** en [`§M5-K`](#M5-K). ⛔ **Solo aplica sobre el umbral** (`ineRequired`): por debajo, el pago **no cambia en nada**. **`'rejected'` bloquea igual que `'pending'`** — el veredicto negativo es justo el caso que hay que detener.
   > ### ⚠️⚠️ v1.57 — EL TERCER TÉRMINO: **`receivedAt IS NOT NULL`**. (DINERO, NORMATIVO. Cierre de `BL-35` eje 2.)
   > **La precondición que este endpoint declara en prosa desde siempre —*«pago tras recepción/verificación»*— y que
   > su propio mensaje de error dice literal (`'Payment allowed only after receipt/verification and approval'`)
@@ -11646,12 +12310,19 @@ Req: `{ lines: [{ itemId: string, decision: "buy" | "skip", overridePriceCents?:
   > **⚠️ ORDEN DE EVALUACIÓN — el piso va ANTES del tope del operador.** Si fuera al revés, una oferta por debajo del
   > piso pero por encima del tope **entraría a la cola de autorización** y el súper-admin se toparía con el `422` al
   > autorizar: una fila muerta en una cola que existe para trabajarse. **Nada inofertable llega a la cola.** Secuencia
-  > normativa *(v1.51.3 añade el paso 1-bis al principio; **v1.58 añade los TRES términos de [`§M5-A`](#M5-A)**)*:
+  > normativa *(v1.51.3 añade el paso 1-bis al principio; v1.58 añadió los tres términos de [`§M5-A`](#M5-A);
+  > **⚠️ v1.59 (D47) RETIRA uno de los tres y REORDENA los otros dos**)*:
   > precondición → **`PICKUP_ADDRESS_MISSING`** →
   > `OFFER_LINES_MISMATCH` → precio por línea (`OFFER_LINE_NOT_PRICEABLE` / `OVERRIDE_REASON_REQUIRED`) → cálculo de
-  > bruto/envío/neto → **`OFFER_NET_BELOW_MINIMUM`** → **⚠️ `BUYLIST_LIMIT_EXCEEDED` (`per_request_offer`)** →
-  > **⚠️ `INE_REQUIRED`** → tope del operador (`200`|`202`) → **⚠️ [tx SERIALIZABLE] `BUYLIST_LIMIT_EXCEEDED`
-  > (`per_month_offer`)** → **⚠️ guarda de proyección (`500 OFFER_PROJECTION_INCOMPLETE`, v1.51.16 — ver abajo)**.
+  > bruto/envío/neto → **`OFFER_NET_BELOW_MINIMUM`** → **⚠️ [tx SERIALIZABLE]** ⟨ **`BUYLIST_LIMIT_EXCEEDED`
+  > (`per_month_offer`) → `INE_REQUIRED` → tope del operador (`200`|`202`) → escrituras** ⟩ →
+  > **⚠️ guarda de proyección (`500 OFFER_PROJECTION_INCOMPLETE`, v1.51.16 — ver abajo)**.
+  > ⛔ **RETIRADO v1.59: `BUYLIST_LIMIT_EXCEEDED (per_request_offer)`** — el tope por solicitud **ya no rechaza**
+  > (criterio 14(a), 179(g)).
+  > ⚠️ **Y el criterio del orden CAMBIA de razón:** ya no es *«el término más barato primero»* sino **criterio 14(c):
+  > el que RECHAZA va antes que el que IDENTIFICA** — *no se sale a pedir una identificación oficial por una operación
+  > que de todas formas vamos a rehusar*. Por eso `per_month_offer` sube y `INE_REQUIRED` baja, y por eso **`A2` entra
+  > a la transacción** (si se quedara fuera se evaluaría antes por construcción). Detalle en **§M5-A.6**.
   >
   > ### ⚠️⚠️ v1.51.16 — GUARDA DE PROYECCIÓN: **no se emite una oferta que el portal no podría mostrar.** (BL-24)
   > *(Hallazgo de **ux-ui**, y es de **dinero y de justicia**, no de copy.)*
@@ -11710,21 +12381,30 @@ Req: `{ lines: [{ itemId: string, decision: "buy" | "skip", overridePriceCents?:
   > cherry-pick a **$400 de bruto** (neto $220) **sale sin bloqueo** aunque esté por debajo de los $500. *Lo que sí
   > cambia es el **ejemplo** del criterio 158(c) (bruto $200 ⇒ neto $20), que ahora se bloquea* — señalado en
   > ARCHITECTURE §4.39(o.17), enrutado al product-owner.
-- **⚠️⚠️ TOPES AML Y UMBRAL DE INE — SE EVALÚAN AQUÍ, SOBRE EL BRUTO OFERTADO. NORMA COMPLETA EN [`§M5-A`](#M5-A)
-  (v1.58 / `BL-38`; `PROJECT.md:1127-1128`, criterios 136/155).** Los **tres** términos, en este orden, **después**
-  del piso de neto y **antes** del tope del operador:
+- **⚠️⚠️ TOPE MENSUAL Y UMBRAL DE INE — SE EVALÚAN AQUÍ, SOBRE EL BRUTO OFERTADO. NORMA COMPLETA EN
+  [`§M5-A`](#M5-A)** (v1.58 / `BL-38`, **⚠️ retro-editada en v1.59 por D47**; `PROJECT.md` criterios **14**, 136/155,
+  **178**, **179**). ~~Los tres términos~~ **Los DOS términos**, **en este orden** —**el que rechaza antes que el que
+  identifica**, criterio **14(c)**—, **después** del piso de neto, **dentro** de la transacción `SERIALIZABLE` y
+  **antes** del tope del operador:
   ```
   G = offerGrossCents                                                   // el bruto que ESTA emisión va a congelar
-  G  >  capPerRequest(vendedor)                        ⇒ 422 BUYLIST_LIMIT_EXCEEDED  scope:"per_request_offer"
-  G >= ineThreshold ∧ ¬ineEnArchivo(vendedor)          ⇒ 422 INE_REQUIRED             details:{sellRequestId,grossCents}
-  comprometidoTrasEstaOferta(vendedor) > capPerMonth   ⇒ 422 BUYLIST_LIMIT_EXCEEDED  scope:"per_month_offer"
+  ── [tx SERIALIZABLE] ───────────────────────────────────────────────────────────────────────────────────────
+  A3  comprometidoTrasEstaOferta(vendedor) > capPerMonth  ⇒ 422 BUYLIST_LIMIT_EXCEEDED  scope:"per_month_offer"
+  A2  G >= ineThreshold ∧ ¬ineEnArchivo(vendedor)         ⇒ 422 INE_REQUIRED   details:{sellRequestId,grossCents}
+  ────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  ⛔ RETIRADO v1.59 (D47):  G > capPerRequest  ⇒ 422 BUYLIST_LIMIT_EXCEEDED scope:"per_request_offer"
   ```
   > **⚠️ El monto es `G`, NO `brutoConsumado(sr)`** — sobre esta fila y en este instante esa cascada devolvería
-  > `quotedTotalCents`, que es **justo el número que no ve el override** (§M5-A.2).
+  > `quotedTotalCents`, que es **justo el número que no ve el override** (§M5-A.2). **Esto NO cambia con D47.**
+  > **⚠️ El tope por solicitud ya no rechaza: identifica** (criterio 14(a)) ⇒ **el único `BUYLIST_LIMIT_EXCEEDED` de
+  > esta ruta es el MENSUAL**, y **el único control por-solicitud que queda es el INE**.
   > **⚠️ Aplica a TODO actor, `super_admin` incluido:** *«el súper-admin oferta sin tope»* habla del **tope del
-  > operador**, que es **delegación**; el tope AML es **cumplimiento sobre el vendedor** y **ningún rol lo levanta**
-  > (§M5-A.3). **El tope mensual se lee DENTRO de la transacción, y la transacción es `SERIALIZABLE`** (§M5-A.5).
-  > **`offer/authorize` no reevalúa nada** y **no le hace falta** — demostración en §M5-A.5.
+  > operador**, que es **delegación**; **el umbral de INE es cumplimiento sobre el vendedor y ningún rol lo levanta**
+  > (§M5-A.3, criterio **178(e)**) — **y desde v1.59 tampoco lo levanta un override por-KYC, porque ese override se
+  > retira** (§M5-D.3). **La transacción es `SERIALIZABLE`** (§M5-A.5) y **ahora contiene también `A2` y el tope del
+  > operador**; **las lecturas que los alimentan van FUERA** (§M5-A.6).
+  > **`offer/authorize` no reevalúa nada** y **no le hace falta** — demostración en §M5-A.5, **válida con un término
+  > menos**.
 - **⚠️ TOPE DEL OPERADOR — DOS DESENLACES, DOS CÓDIGOS DE ÉXITO DISTINTOS (D13/D24, criterios 143/147):**
 
   | Actor | Bruto | Respuesta | Efecto |
@@ -11770,7 +12450,7 @@ Res `200` | `202`: `{ sellRequestId, status, offerState, offerSentAt: string | n
 > por un decorador estático. **El `202` es un estado real** (`offerState='pending_authorization'`, `status` sigue
 > `cotizada`, **ningún correo**), no un matiz de transporte.
 *(v1.51.1: **sin** `offerShippingPaidByUs`. v1.51.2: **sin cambio de shape** — el piso no añade campos a la respuesta de éxito; su número vive en el `details` del error y en `decision-table`.)*
-Err: `403`, `404 NOT_FOUND`, `409 OFFER_NOT_ALLOWED`, `409 OFFER_ALREADY_SENT`, **`422 PICKUP_ADDRESS_MISSING`** (v1.51.3), `422 OFFER_LINES_MISMATCH`, `422 OFFER_LINE_NOT_PRICEABLE`, `422 OVERRIDE_REASON_REQUIRED`, **`422 OFFER_NET_BELOW_MINIMUM`** (v1.51.2; ~~`422 OFFER_NET_NOT_POSITIVE`~~ de v1.51.1 **NO existe**), **`422 BUYLIST_LIMIT_EXCEEDED`** *(v1.58, §M5-A — `scope: "per_request_offer" | "per_month_offer"`)*, **`422 INE_REQUIRED`** *(v1.58, §M5-A — `details: { sellRequestId, grossCents }`, **sin `thresholdCents`**, §M5-A.7)*, `400 VALIDATION_ERROR`, **`500 OFFER_PROJECTION_INCOMPLETE`** *(v1.51.16 — **añadido a esta línea en v1.51.17**: la prosa normativa ya lo fijaba en la secuencia y **esta línea lo omitía**. Backend implementó según la prosa, que es lo correcto: **la secuencia manda sobre el resumen**)*.
+Err: `403`, `404 NOT_FOUND`, `409 OFFER_NOT_ALLOWED`, `409 OFFER_ALREADY_SENT`, **`422 PICKUP_ADDRESS_MISSING`** (v1.51.3), `422 OFFER_LINES_MISMATCH`, `422 OFFER_LINE_NOT_PRICEABLE`, `422 OVERRIDE_REASON_REQUIRED`, **`422 OFFER_NET_BELOW_MINIMUM`** (v1.51.2; ~~`422 OFFER_NET_NOT_POSITIVE`~~ de v1.51.1 **NO existe**), **`422 BUYLIST_LIMIT_EXCEEDED`** *(v1.58, §M5-A — ⚠️ **v1.59/D47: `scope: "per_month_offer"` y NADA MÁS**; ~~`per_request_offer`~~ **retirado**, el tope por solicitud ya no rechaza)*, **`422 INE_REQUIRED`** *(v1.58, §M5-A — `details: { sellRequestId, grossCents }`, **sin `thresholdCents`**, §M5-A.7; ⚠️ **v1.59: se evalúa DESPUÉS del mensual**, criterio 14(c))*, `400 VALIDATION_ERROR`, **`500 OFFER_PROJECTION_INCOMPLETE`** *(v1.51.16 — **añadido a esta línea en v1.51.17**: la prosa normativa ya lo fijaba en la secuencia y **esta línea lo omitía**. Backend implementó según la prosa, que es lo correcto: **la secuencia manda sobre el resumen**)*.
 
 > ### ⚠️⚠️ v1.51.13 — LA URL DEL CTA DE LOS CORREOS DEL CICLO (NORMATIVA; interfaz backend↔frontend). BL-21.
 > *(Este contrato **no fijaba la forma del enlace en ninguna parte** — el hueco es mío. Lo levantó **devops** al ir a
@@ -12235,7 +12915,17 @@ Err `403`, `400 VALIDATION_ERROR`.
 - `GET /api/v1/admin/users/:id` — **ficha 360°** (compras, bóveda, buylist, disputas, KYC). La CLABE y el RFC se devuelven **enmascarados también para `super_admin`** (`clabeMasked` = `****1234`, `rfcMasked` = parcial); la CLABE en claro solo por `reveal-clabe`. Para `vault_operator` se mantiene la proyección reducida de SEC-A4 (sin CLABE/RFC/INE keys ni billing profile; `ineOnFile` booleano).
   > **F1 (v1.7):** la ficha `getUser` **no se engorda**. El historial completo se arma por **reuso** de los listados admin ya paginados con `?userId=` (envíos §M4, buylist §M5, disputas §M8, órdenes §M3 — todos con `?userId=`) + el nuevo `GET /admin/users/:id/audit` (abajo). `getUser` sigue trayendo solo las últimas 20 de orders/sellRequests/disputes + bóveda como resumen.
   > **BE-10 (v1.8-ronda-c):** la bóveda resumen (`ownedItems: AdminUserOwnedItemRef[]`) gana **`finish: Finish`** y **`referenceValue: PriceInfo`** por ítem, para que la pestaña "Bóveda" muestre acabado y valor (antes solo carta + folio + titularidad). El backend puebla `referenceValue` **reusando la misma valuación por-acabado** del `HoldingDTO` del cliente (`getReference(cardId, productType, gradeKey, finish)`, §3); los items sin precio del día llevan `referenceValue.status="pending"` (no se excluyen — es vista 360°, no un total de portafolio). Es un **enriquecimiento de proyección** (sin migración); ver `AdminUserOwnedItemRef` en §11.
-- `PATCH /api/v1/admin/users/:id/kyc` — **`super_admin`** — Req `{ kycStatus, capPerRequestCents?, capPerMonthCents? }`.
+- `PATCH /api/v1/admin/users/:id/kyc` — **`super_admin`** — Req `{ kycStatus, capPerMonthCents? }`.
+  > ⚠️⚠️ **v1.59 (D47, [`§M5-D.3`](#M5-D)) — `capPerRequestCents` SE RETIRA del body** (una key `capPerRequestCents`
+  > cae en `422` como cualquier key desconocida) y `KycProfile.capPerRequestCentsOverride` queda **INERTE**: la
+  > columna se conserva (**cero DDL**) y **nadie la lee**. **Es una capacidad que se retira a propósito**: tras D47 el
+  > tope por solicitud **no rechaza a nadie**, así que subirlo por usuario **solo podría significar la única cosa que
+  > no puede significar — bajarle el KYC a una persona**, que es lo que el criterio **178(e)** y §M5-A.4 prohíben.
+  > **`capPerMonthCents` se queda entero**: el mensual sigue siendo el único techo de dinero y elevarlo para un
+  > vendedor verificado es una decisión comercial legítima, con nombre y auditada.
+  > ⚠️ **Y este endpoint gana peso, no lo pierde:** `kycStatus: "verified"` es ahora **precondición de dinero
+  > saliente** para toda solicitud sobre el umbral (`422 KYC_NOT_VERIFIED`, [`§M5-K`](#M5-K)). *Deja de ser un campo
+  > de ficha y pasa a ser el registro del cotejo INE ↔ titular de la CLABE.*
 - `PATCH /api/v1/admin/users/:id/status` — **`super_admin`** — Req `{ status: "active" | "blocked" }`.
 
 #### Alta de usuario por rol desde admin (v1.7-admin-users — NUEVO backend)
@@ -12426,7 +13116,26 @@ Err `403`, `400 VALIDATION_ERROR`.
 
 ### M10 — Config (diales) y bitácora (`super_admin`)
 > **Estado v1.3: YA EXISTE en backend** (`SettingsController`: `GET/PUT /admin/settings`, `GET /admin/audit-log`). No requiere backend nuevo; falta **consumo de frontend** (M10 es `ModuleTodo` en UI). **La edición de diales es `PUT /admin/settings` con body parcial** (solo las keys a cambiar) — **no** existe ni se añade `PATCH/PUT /admin/settings/:key`; el front edita enviando el subconjunto de keys modificadas. Cada `PUT` queda en `AuditLog` (`action: settings.update`, con `before`/`after`).
-- `GET /api/v1/admin/settings` → todos los diales `{ shippingFeeCents, aportacionPct, ivaPct, salesMarkupPct, stripeFeePct, stripeFeeFixedCents, buylistCapPerRequestCents, buylistCapPerMonthCents, ineThresholdCents, repoCapPerCardCents, fxBufferPct, fxManualOverrideRate?, pricingProviderRaw, pricingProviderGraded, pricingProviderSealed, priceProvider, sealedPriceSource, sealedValueTrend, sealedRestockAlerts, catalogSyncFromDate }`. **v1.40 (Enmienda A, P-37): `stripeFeeIvaPct` se RETIRA de este DTO.** Ya no se expone en `GET` ni se acepta en `PUT` (una key `stripeFeeIvaPct` en el body de `PUT` cae en `422 VALIDATION_ERROR` como cualquier key desconocida). El IVA que Stripe MX cobra sobre su comisión **se deriva de `ivaPct`** (`ivaPct/100`) dentro del gross-up (fuente única del IVA; ver ARCHITECTURE §5.1). La clave de BD `stripe_fee_iva_pct` queda **deprecada e inerte** (no se lee); no hay migración. **Frontend M10: se elimina el dial `stripeFeeIvaPct` de la UI de settings.** `catalogSyncFromDate` (string `yyyy/MM/dd`, default **`"2024/01/01"`**) = frontera por defecto del sync de catálogo M2 (ver `POST /admin/catalog/sync`); editable sin redeploy. **Es una `ConfigSetting` de primera clase** (ARCHITECTURE §3.6), por lo que se expone aquí como los demás diales. Nota: `ine_retention_days` **no** se expone en este DTO (dial interno de retención/legal, fuera de la lista `ConfigSetting`). **v1.13-sales-pricing:** `salesMarkupPct` (markup GLOBAL de venta) queda **DEPRECADO** — la ruta de venta ya no lo lee (la reemplaza la tabla por rareza `SALES_PRICE_RULES`, §M2 › "Precio de VENTA por RAREZA"). Se conserva en el DTO como **palanca de rollback** (decisión abierta v1.13-3); su retiro es follow-up. Las tablas de venta/buylist por rareza **no** se editan por este `PUT /admin/settings` sino por sus endpoints dedicados de M2. **v1.14-price-ingest / reconciliado v1.48:** `priceProvider` (`price_provider`, enum **`tcgcsv_singles | pokemonpricetracker | pokemontcg_io`**, valor vigente **`tcgcsv_singles`** desde P-47/v1.44) selecciona el **proveedor de la ingesta masiva de precios** (WS-A, ARCHITECTURE §4.15/§4.35); editable sin redeploy → palanca de **rollback money-safe** del proveedor. Validado contra el enum del backend (**`PRICE_PROVIDER_VALUES = ['pokemontcg_io','pokemonpricetracker','tcgcsv_singles']`**); `422 VALIDATION_ERROR` si es otro valor. **Semántica de los tres valores (P-47/v1.44, ARCHITECTURE §4.35):** `tcgcsv_singles` = **provider PRIMARIO** del precio **por-acabado** diario (reprecia desde TCGCSV, FX Banxico, respeta `isManualOverride`, no escribe estructura); `pokemontcg_io` = **legacy/rollback money-safe** (fuente previa, congelable sin escritura de estructura); `pokemonpricetracker` (PPT bulk) = **fallback**. **Nota histórica:** el seed original v1.14 era `pokemontcg_io` con flip previsto a `pokemonpricetracker` (decisión abierta v1.14-1/v1.14-4); ese flip quedó **superado** por el switch a `tcgcsv_singles` (P-47/v1.44), hoy el provider primario del barrido. **v1.19-sealed-tcgcsv:** `sealedPriceSource` (`sealed_price_source`, enum `SealedPriceSource = tcgcsv | off`, **seed `off`** fail-closed) enciende/apaga la **ingesta de la referencia de mercado del SELLADO** vía TCGCSV (job `sealed-price-ingest`, §M10-ops; ARCHITECTURE §4.19e). Con `off` el job es no-op; los `PriceReference` ya escritos permanecen (informativos e inertes). Editable sin redeploy; validado contra el enum (`422 VALIDATION_ERROR`). El flip a `tcgcsv` se hace tras validar el esquema real en staging (1ª corrida manual con `groupId`; runbook devops). **v1.23-sealed-sales: `sealedPriceSource=tcgcsv` deja de ser solo informativo — es el prerequisito para que el sellado se auto-precie** (`mercado × spread`) **con la fuente AUTOMÁTICA de mercado (ingest TCGCSV)**; con `off`, la ingesta automática no aporta mercado, pero el sellado **sigue vendible con un override manual** — el override de VENTA por pieza (`InventoryItem.listPriceCents`) **o** el **override manual de MERCADO** (`PriceReference isManualOverride=true`, «FIJAR PRECIO»), ambos **NO gateados por el dial** (v1.43/IMP-C; ARCHITECTURE §4.23a). El dial `off` es fail-closed **solo para la fuente automática**, no para una decisión manual explícita. **v1.23 — cuatro diales nuevos** (feature flags seed `off` los dos últimos): `sealedValueTrend` (`sealed_value_trend`, `on|off`, seed **off**) y `sealedRestockAlerts` (`sealed_restock_alerts`, `on|off`, seed **off**) gobiernan los endpoints feature-flagged de §2-S (con `off` → `404 FEATURE_DISABLED`). Los **spreads** del sellado (`sealed_spread_pct_by_subtype`, `sealed_spread_fallback_pct`) **NO** se exponen en este DTO ni se editan por `PUT /admin/settings`: se editan por los endpoints M2 dedicados `GET/PUT /admin/pricing/sealed-spreads` (como las reglas de venta/buylist por rareza). Ver ARCHITECTURE §4.23c/§4.23h.
+- `GET /api/v1/admin/settings` → todos los diales `{ shippingFeeCents, aportacionPct, ivaPct, salesMarkupPct, stripeFeePct, stripeFeeFixedCents, buylistCapPerMonthCents, ineThresholdCents, kycUploadOrphanHours, repoCapPerCardCents, fxBufferPct, fxManualOverrideRate?, pricingProviderRaw, pricingProviderGraded, pricingProviderSealed, priceProvider, sealedPriceSource, sealedValueTrend, sealedRestockAlerts, catalogSyncFromDate }`. **v1.40 (Enmienda A, P-37): `stripeFeeIvaPct` se RETIRA de este DTO.** Ya no se expone en `GET` ni se acepta en `PUT` (una key `stripeFeeIvaPct` en el body de `PUT` cae en `422 VALIDATION_ERROR` como cualquier key desconocida). El IVA que Stripe MX cobra sobre su comisión **se deriva de `ivaPct`** (`ivaPct/100`) dentro del gross-up (fuente única del IVA; ver ARCHITECTURE §5.1). La clave de BD `stripe_fee_iva_pct` queda **deprecada e inerte** (no se lee); no hay migración. **Frontend M10: se elimina el dial `stripeFeeIvaPct` de la UI de settings.** `catalogSyncFromDate` (string `yyyy/MM/dd`, default **`"2024/01/01"`**) = frontera por defecto del sync de catálogo M2 (ver `POST /admin/catalog/sync`); editable sin redeploy. **Es una `ConfigSetting` de primera clase** (ARCHITECTURE §3.6), por lo que se expone aquí como los demás diales. Nota: `ine_retention_days` **no** se expone en este DTO (dial interno de retención/legal, fuera de la lista `ConfigSetting`). **v1.13-sales-pricing:** `salesMarkupPct` (markup GLOBAL de venta) queda **DEPRECADO** — la ruta de venta ya no lo lee (la reemplaza la tabla por rareza `SALES_PRICE_RULES`, §M2 › "Precio de VENTA por RAREZA"). Se conserva en el DTO como **palanca de rollback** (decisión abierta v1.13-3); su retiro es follow-up. Las tablas de venta/buylist por rareza **no** se editan por este `PUT /admin/settings` sino por sus endpoints dedicados de M2. **v1.14-price-ingest / reconciliado v1.48:** `priceProvider` (`price_provider`, enum **`tcgcsv_singles | pokemonpricetracker | pokemontcg_io`**, valor vigente **`tcgcsv_singles`** desde P-47/v1.44) selecciona el **proveedor de la ingesta masiva de precios** (WS-A, ARCHITECTURE §4.15/§4.35); editable sin redeploy → palanca de **rollback money-safe** del proveedor. Validado contra el enum del backend (**`PRICE_PROVIDER_VALUES = ['pokemontcg_io','pokemonpricetracker','tcgcsv_singles']`**); `422 VALIDATION_ERROR` si es otro valor. **Semántica de los tres valores (P-47/v1.44, ARCHITECTURE §4.35):** `tcgcsv_singles` = **provider PRIMARIO** del precio **por-acabado** diario (reprecia desde TCGCSV, FX Banxico, respeta `isManualOverride`, no escribe estructura); `pokemontcg_io` = **legacy/rollback money-safe** (fuente previa, congelable sin escritura de estructura); `pokemonpricetracker` (PPT bulk) = **fallback**. **Nota histórica:** el seed original v1.14 era `pokemontcg_io` con flip previsto a `pokemonpricetracker` (decisión abierta v1.14-1/v1.14-4); ese flip quedó **superado** por el switch a `tcgcsv_singles` (P-47/v1.44), hoy el provider primario del barrido. **v1.19-sealed-tcgcsv:** `sealedPriceSource` (`sealed_price_source`, enum `SealedPriceSource = tcgcsv | off`, **seed `off`** fail-closed) enciende/apaga la **ingesta de la referencia de mercado del SELLADO** vía TCGCSV (job `sealed-price-ingest`, §M10-ops; ARCHITECTURE §4.19e). Con `off` el job es no-op; los `PriceReference` ya escritos permanecen (informativos e inertes). Editable sin redeploy; validado contra el enum (`422 VALIDATION_ERROR`). El flip a `tcgcsv` se hace tras validar el esquema real en staging (1ª corrida manual con `groupId`; runbook devops). **v1.23-sealed-sales: `sealedPriceSource=tcgcsv` deja de ser solo informativo — es el prerequisito para que el sellado se auto-precie** (`mercado × spread`) **con la fuente AUTOMÁTICA de mercado (ingest TCGCSV)**; con `off`, la ingesta automática no aporta mercado, pero el sellado **sigue vendible con un override manual** — el override de VENTA por pieza (`InventoryItem.listPriceCents`) **o** el **override manual de MERCADO** (`PriceReference isManualOverride=true`, «FIJAR PRECIO»), ambos **NO gateados por el dial** (v1.43/IMP-C; ARCHITECTURE §4.23a). El dial `off` es fail-closed **solo para la fuente automática**, no para una decisión manual explícita. **v1.23 — cuatro diales nuevos** (feature flags seed `off` los dos últimos): `sealedValueTrend` (`sealed_value_trend`, `on|off`, seed **off**) y `sealedRestockAlerts` (`sealed_restock_alerts`, `on|off`, seed **off**) gobiernan los endpoints feature-flagged de §2-S (con `off` → `404 FEATURE_DISABLED`). Los **spreads** del sellado (`sealed_spread_pct_by_subtype`, `sealed_spread_fallback_pct`) **NO** se exponen en este DTO ni se editan por `PUT /admin/settings`: se editan por los endpoints M2 dedicados `GET/PUT /admin/pricing/sealed-spreads` (como las reglas de venta/buylist por rareza). Ver ARCHITECTURE §4.23c/§4.23h.
+- ⚠️⚠️ **v1.59 (D47 / §M5-D) — `buylistCapPerRequestCents` se RETIRA de este DTO, y `kycUploadOrphanHours` entra.**
+  **Saldo neto de diales de este pase: CERO.**
+  - ⛔ **`buylistCapPerRequestCents` FUERA.** Tras **D47** el tope por solicitud **no rechaza nada**: **es** el umbral
+    de INE, y ese ya tiene dial propio con el **mismo valor** (`ineThresholdCents` = MX$3,000). **Dos diales para un
+    solo comportamiento solo pueden hacer una cosa: divergir hacia una banda que ningún documento define.** Ya no se
+    expone en `GET` ni se acepta en `PUT` (`422` como cualquier key desconocida). **La clave de BD
+    `buylist_cap_per_request_cents` queda deprecada e inerte; sin migración** — **mismo trato que `stripeFeeIvaPct`**.
+    **Frontend M10: se elimina ese dial de la UI de settings**, exactamente como se hizo con `stripeFeeIvaPct`.
+  - ✅ **`ineThresholdCents` es ahora el ÚNICO dial del umbral**, **global y sin override por usuario** (§M5-D.1). Su
+    **valor no cambia** (MX$3,000): *`PROJECT.md` no cambió ningún valor en esta ronda, y este pase tampoco.*
+  - ✅ **`buylistCapPerMonthCents` se queda y sube de rango: es el ÚNICO techo de dinero del buylist** (criterio
+    14(b)). ⚠️ **Al contador/abogado hay que llevarle ESTE número, no el de MX$3,000** — lo dice la bandera fiscal de
+    `PROJECT.md` con esas palabras.
+  - ⚠️ **`kycUploadOrphanHours` (NUEVO, default `24`, entero ≥ 1)** — antigüedad tras la cual el barrido borra un
+    objeto `kyc_ine/` **que ninguna fila referencia** ([`§M5-N.4`](#M5-N)). **Es el único ancla de purga que puede
+    tener un INE que nunca llegó a colgar de una solicitud.** ⚠️ **Va en las CUATRO estructuras de
+    `settings.constants.ts`** (`SettingKey`, `SETTING_DEFAULTS`, `SETTING_VALIDATORS`, `SETTING_DTO_MAP`): *en tres de
+    las cuatro compila y falla en runtime.*
+  - **`ine_retention_days` sigue SIN exponerse aquí** (dial interno de retención/legal) y **su valor no cambia** (180).
 - **v2.0 (P-48) — `salesMarkupPct` queda RETIRADO de la ruta de venta, sin sustituto en este DTO.** El precio de venta
   sale de la **curva** (`pricing_curve`, §M2), no de un markup global ni de una tabla por rareza. El dial puede
   conservarse en el DTO como palanca inerte durante la transición, pero **nada lo lee** — la palanca de rollback real
@@ -13259,9 +13968,14 @@ AddressDTO = { id: string, line1: string, line2?: string, neighborhood?: string,
 //   ⛔ `buylistMinimumOfferNetCents`: se evalúa sobre el NETO OFERTADO (post cherry-pick), al EMITIR, sobre algo que el
 //      visitante no controla ni conoce; y la validación cruzada garantiza que no puede chocar por el total cotizado.
 //   ⛔ `buylistOfferReissueAlertCount`: mide NUESTRA conducta.
-//   ⛔⛔ VETO DURO PERMANENTE: `buylistCapPerRequestCents`, `buylistCapPerMonthCents`, `ineThresholdCents` — publicar el
-//      umbral de INE y los topes AML es publicar EL MANUAL DE CÓMO ESTRUCTURAR POR DEBAJO. Ningún cambio futuro los
-//      mueve aquí sin decisión explícita del humano y revisión de `seguridad`.
+//   ⛔⛔ VETO DURO PERMANENTE: `buylistCapPerMonthCents`, `ineThresholdCents` — publicar el umbral de INE y los topes
+//      AML es publicar EL MANUAL DE CÓMO ESTRUCTURAR POR DEBAJO. Ningún cambio futuro los mueve aquí sin decisión
+//      explícita del humano y revisión de `seguridad`.
+//      (v1.59: `buylistCapPerRequestCents` sale de esta lista porque SALE DEL SISTEMA — §M5-D. El veto sobre el
+//       umbral NO se debilita: es el mismo número, con un solo nombre.)
+//      ⚠️⚠️ v1.59 — §P.2.2 exige un AVISO PREVIO en el cotizador («en las ventas de mayor monto te pediremos una
+//      identificación oficial»). Ese aviso es COPY ESTÁTICO i18n del front, EN PALABRAS Y SIN CIFRA — patrón D43.
+//      NO es un campo de este DTO, y pedirlo aquí sería exactamente la fuga que el veto existe para impedir.
 //   ⛔ Todo lo demás de `GET /admin/settings`: ni siquiera es del buylist.
 BuylistQuotePolicyDTO = { minimumRequestCents: number }
 
@@ -13375,14 +14089,18 @@ AdminUserDetailOperatorDTO = {    // ← `vault_operator` (SEC-A4: rol de menor 
 // por `GET /admin/buylist/:id/reveal-clabe` (money-out, auditado). ⛔ NUNCA: `clabeEnc`, `rfcEnc` (blobs cifrados)
 // ni `clabeHmac` (blind index — es una clave de CORRELACIÓN entre cuentas; publicarla permite empatar titulares
 // sin descifrar nada).
+// ⚠️⚠️ v1.59 (D47, §M5-D.3): `capPerRequestCents` SE RETIRA de los DOS DTOs. El override por-KYC del tope por
+// solicitud queda INERTE (columna conservada, cero DDL, cero lectores). `capPerMonthCents` se queda: es el único
+// techo de dinero que queda y su override sigue siendo una decisión comercial legítima y auditada.
+// ⚠️ `kycStatus` DEJA DE SER INFORMATIVO: con `ineRequired = true` es precondición de `pay-spei` (§M5-K).
 AdminKycProfileDTO = { id: string, userId: string, legalName?: string, kycStatus: KycStatus,
                        clabeMasked?: string, rfcMasked?: string, ineOnFile: boolean,
                        ineFrontKey?: string, ineBackKey?: string,   // solo super_admin: sirven el presigned GET
-                       capPerRequestCents?: number, capPerMonthCents?: number,
+                       capPerMonthCents?: number,
                        verifiedBy?: string, verifiedAt?: string, createdAt: string, updatedAt: string }
 AdminKycProfileOperatorDTO = { id: string, userId: string, legalName?: string, kycStatus: KycStatus,
                                clabeMasked?: string, ineOnFile: boolean,
-                               capPerRequestCents?: number, capPerMonthCents?: number,
+                               capPerMonthCents?: number,
                                verifiedAt?: string }
 AdminBillingProfileDTO = { id: string, userId: string, rfcMasked: string, razonSocial: string,
                            regimenFiscal: string, usoCfdi: string, postalCode: string, email: string,
