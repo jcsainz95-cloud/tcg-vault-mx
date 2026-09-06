@@ -5806,6 +5806,10 @@ export class BuylistService implements OnModuleInit {
     approvedPriceCents: number | undefined,
     line: { id: string; offerDecision: BuyDecision | null; offeredPriceCents: number | null },
     status: SellRequestStatus,
+    // ⚠️ v1.58 · §M5-R (BL-39) — la solicitud padre, para el peldaño de la RECEPCIÓN. Se pasa en vez
+    // de leerse porque este cuerpo **es síncrono y no toca la BD**: es lo que permite que los DOS
+    // llamadores —el pre-check y la relectura de la carrera— evalúen **la misma escalera**.
+    parent: { id: string; receivedAt: Date | null },
   ): void {
     // --- Peldaño 2: anula el ACTO ENTERO -----------------------------------------------------
     // `adjust` no existe en el ciclo, nunca (criterio 150 por lo negativo).
@@ -5825,6 +5829,11 @@ export class BuylistService implements OnModuleInit {
         { itemId: line.id, offerDecision: line.offerDecision },
       );
     }
+    // ⚠️ v1.58 · §M5-R (BL-39) — la RECEPCIÓN, en su peldaño exacto: **después** de `ITEM_NOT_OFFERED`
+    // (que es irreparable por definición: ninguna recepción arregla una línea que no compramos) y
+    // **antes** de `OFFER_PRICE_IMMUTABLE` (que solo objeta un campo del body, mientras esto anula el
+    // acto entero). El cuerpo es el mismo que corre fuera del ciclo: una sola regla, dos entradas.
+    this.assertRequestReceived(decision, parent, status);
 
     // --- Peldaño 3: objeta un CAMPO. CUALQUIER `decision`, `reject` incluido ------------------
     if (approvedPriceCents != null) {
@@ -5848,6 +5857,75 @@ export class BuylistService implements OnModuleInit {
         { itemId: line.id },
       );
     }
+  }
+
+  /**
+   * ⚠️⚠️ v1.58 · **§M5-R / BL-39 — INVARIANTE R: «NO SE APRUEBA LO QUE NO HA LLEGADO».**
+   * **MERCANCÍA AJENA.** *P y R son la misma frase sobre los dos lados del trato: **P** mira el
+   * dinero que sale, **R** la mercancía que entra.*
+   *
+   * ### El defecto que cierra, medido
+   * `convertToInventory` gatea **solo** con `itemStatus === 'aprobada'` —su `findUnique` ni siquiera
+   * incluye `sellRequest`— y la escalera de `itemDecision` (terminal → ciclo de oferta → cota de
+   * precio) **no miraba `receivedAt` en ningún punto** ⇒ **una línea de una solicitud que nunca
+   * recibimos podía quedar `aprobada` y de ahí convertirse en pieza de inventario**, con su costo
+   * capitalizado en el P&L de M7.
+   *
+   * ### ⚠️ POR QUÉ VA EN `approve` Y NO EN LA CONVERSIÓN
+   * La forma obvia —`receivedAt: { not: null }` en el `where` de `convert-to-inventory`— **cierra el
+   * síntoma en el sitio equivocado**, y la razón ya estaba escrita en v1.51.20 para el caso gemelo de
+   * la línea `skip`: *«`convert-to-inventory` NO gana una segunda guarda: con esta norma una `skip`
+   * jamás alcanza `aprobada`, así que `ITEM_NOT_APPROVED` sigue bastando. Duplicar la guarda
+   * duplicaría la regla, y la copia se desfasa.»* **Se hace INALCANZABLE el estado, y entonces la
+   * guarda única del consumidor vuelve a ser suficiente.** ⇒ *Una invariante se cierra en el verbo que
+   * PRODUCE el estado, no en cada verbo que lo consume* — la versión contraria escala con el número
+   * de consumidores y **garantiza** que el día que aparezca el tercero alguien olvide la copia, que
+   * es literalmente **cómo `receive`/`verify` se quedaron sin guarda** (P1).
+   *
+   * ### `receivedAt` y no `status = 'recibida'`, por la misma razón que §M5-P
+   * Es un **HECHO**, no un estado de origen: **no enumera predecesores** ⇒ cerrar esto **no exige la
+   * matriz** que `PROJECT.md` no declara, y **la cohorte legacy lo satisface** (llega a
+   * `recibida`/`verificacion` sin pasar por `en_transito`, pero **sí pasando por `receive`**).
+   * Propiedades del ancla, ya medidas en §M5-P: **un solo escritor** (`receive` vía `sealOnceTx`),
+   * **una sola vez**, **ninguna ruta lo limpia**, **columna desde la migración inicial**.
+   * ⛔ **Prohibido deducir de aquí una matriz de predecesores.**
+   *
+   * ### SOLO `approve`, y el residual se nombra
+   * `approve` es la **única** decisión que **crea valor** (pone el monto, vuelve la línea pagable y
+   * convertible) y la única que **afirma un hecho físico** —*«esta carta llegó y está NM»*
+   * (`PROJECT.md:1088-1090`, D30)— sobre una carta que no está en nuestras manos. **`reject` NO se
+   * gatea**: es la dirección **segura** (quita el monto, cierra solicitudes, desatasca filas) y
+   * gatearlo **dejaría filas sin salida**, daño real a cambio de ninguno evitado. **`adjust` no
+   * aplica**: dentro del ciclo no existe (`409 ADJUST_NOT_ALLOWED_IN_OFFER_CYCLE`) y fuera es cohorte
+   * legacy que no se retro-edita.
+   * ⚠️ **RESIDUAL NOMBRADO:** `reject` pre-recepción sigue siendo llamable, **sella `rejectedAt`**
+   * —ancla de los plazos de §H— y **manda correo**, así que puede arrancar un reloj de devolución
+   * sobre una carta que no tenemos. **Sin dinero y sin mercancía ⇒ NO bloqueante** (familia de
+   * `BL-35` eje 2-b). **Disparador para cerrarlo:** que aparezca cualquier consecuencia de dinero
+   * colgada de `rejectedAt`.
+   *
+   * ### Aplica DENTRO y FUERA del ciclo
+   * **No es una regla del ciclo de oferta: es una afirmación sobre mercancía física.** Por eso este
+   * cuerpo se invoca desde los dos caminos (dentro, como peldaño de `assertOfferCycleAllows`; fuera,
+   * directamente) en vez de escribirse dos veces. *Un solo cuerpo, muchos lectores* (§4.39c).
+   *
+   * ⚠️ **Esto es el AVISO honesto; la guarda REAL es el `where` del `updateMany`**
+   * (`sellRequest: { receivedAt: { not: null } }`) con `count === 1`. Un `if` sobre la lectura previa
+   * es read-then-write y esto decide si una carta ajena entra al inventario.
+   */
+  private assertRequestReceived(
+    decision: 'approve' | 'adjust' | 'reject',
+    parent: { id: string; receivedAt: Date | null },
+    status: SellRequestStatus,
+  ): void {
+    if (decision !== 'approve' || parent.receivedAt != null) return;
+    throw BusinessException.validation(
+      'REQUEST_NOT_RECEIVED',
+      'This sell request has no record of receipt: its lines cannot be approved',
+      // Nombra la SOLICITUD, no la línea, porque el remedio es sobre la solicitud: `POST …/receive`.
+      // *El error nombra la palanca.*
+      { sellRequestId: parent.id, status },
+    );
   }
 
   /**
@@ -5880,19 +5958,30 @@ export class BuylistService implements OnModuleInit {
     const sellRequestId = item.sellRequestId;
     const current = await db.sellRequest.findUnique({
       where: { id: sellRequestId },
-      select: { status: true, offerSentAt: true },
+      // ⚠️ v1.58 · §M5-R (BL-39): `receivedAt` entra al `select` **por la misma razón** por la que
+      // `status` entró en BL-14 y `offerSentAt` en BL-27 — sin leerlo, el error honesto de esta
+      // carrera **no podría existir aunque estuviera escrito en el contrato**.
+      select: { status: true, offerSentAt: true, receivedAt: true },
     });
-    if (current != null && !isTerminalSellRequestStatus(current.status) && current.offerSentAt != null) {
-      const fresh = await db.sellRequestItem.findUnique({
-        where: { id: item.id },
-        select: { id: true, offerDecision: true, offeredPriceCents: true },
-      });
-      this.assertOfferCycleAllows(
-        decision,
-        approvedPriceCents,
-        fresh ?? { id: item.id, offerDecision: null, offeredPriceCents: item.offeredPriceCents },
-        current.status,
-      );
+    if (current != null && !isTerminalSellRequestStatus(current.status)) {
+      const parent = { id: sellRequestId, receivedAt: current.receivedAt };
+      if (current.offerSentAt != null) {
+        const fresh = await db.sellRequestItem.findUnique({
+          where: { id: item.id },
+          select: { id: true, offerDecision: true, offeredPriceCents: true },
+        });
+        this.assertOfferCycleAllows(
+          decision,
+          approvedPriceCents,
+          fresh ?? { id: item.id, offerDecision: null, offeredPriceCents: item.offeredPriceCents },
+          current.status,
+          parent,
+        );
+      } else {
+        // ⚠️ v1.58 · §M5-R (BL-39) — **FUERA del ciclo la escalera del ciclo no corre, pero R sí**:
+        // no es una regla del ciclo de oferta, es una afirmación sobre mercancía física. Mismo cuerpo.
+        this.assertRequestReceived(decision, parent, current.status);
+      }
     }
     // Terminal (o cualquier otra desaparición de la fila): el `409` de siempre, con su relectura.
     return this.throwTerminalConflict(db, sellRequestId);
@@ -5952,6 +6041,27 @@ export class BuylistService implements OnModuleInit {
    * `409 NO_LIVE_ADJUSTMENT` **gana** sobre las dos. *Una solicitud cerrada no se discute por el
    * monto: no se toca.* Por eso el pre-check de terminal va **primero** y este bloque **después**.
    *
+   * ### ⚠️⚠️ v1.58 · **§M5-R / BL-39 — LA RECEPCIÓN ES PRECONDICIÓN DE `approve`.** MERCANCÍA AJENA.
+   * `decision:"approve"` exige **`sellRequest.receivedAt IS NOT NULL`** ⇒ si no,
+   * **`422 REQUEST_NOT_RECEIVED`** (`details: { sellRequestId, status }`) y **cero escritura**. Sin
+   * ese término, **una carta que nunca recibimos podía quedar `aprobada`** —el único estado que
+   * `convert-to-inventory` admite— **y entrar al inventario vendible**. La norma completa, con el
+   * porqué de que vaya AQUÍ y no en la conversión, vive en `assertRequestReceived`.
+   * ⛔ **`convert-to-inventory` NO se toca:** con esto `aprobada` es **inalcanzable** sin recepción y
+   * `422 ITEM_NOT_APPROVED` **vuelve a bastar**.
+   *
+   * **La escalera COMPLETA, en este orden exacto (§M5-R.4 · §4.39i.6-ter):**
+   * ```
+   * 409 NO_LIVE_ADJUSTMENT            (terminal — anula el ACTO y gana a todo)
+   *   → 409 ADJUST_NOT_ALLOWED_IN_OFFER_CYCLE
+   *   → 422 ITEM_NOT_OFFERED          (aprobar lo que no compramos: ninguna recepción lo arregla)
+   *   → 422 REQUEST_NOT_RECEIVED      ← ⚠️ v1.58
+   *   → 422 OFFER_PRICE_IMMUTABLE     (peldaño 3: objeta un CAMPO, no el acto)
+   *   → 500 OFFERED_PRICE_MISSING     (backstop)
+   * ```
+   * **`ITEM_NOT_OFFERED` gana** porque es irreparable por definición; **`REQUEST_NOT_RECEIVED` gana a
+   * `OFFER_PRICE_IMMUTABLE`** porque anula el acto entero y el otro solo objeta un campo del body.
+   *
    * **Y la guarda vive también en el MOTOR**, no solo en el `if`: cada escritura lleva
    * `offerSentAt` en su `where` **con el valor que se observó al resolver el monto**
    * (`{ not: null }` si el precio salió de la oferta, `null` si salió del body/cotización). Si una
@@ -5980,6 +6090,10 @@ export class BuylistService implements OnModuleInit {
             // sin leerlo, ni `OFFER_PRICE_IMMUTABLE` ni `ADJUST_NOT_ALLOWED_IN_OFFER_CYCLE` podían
             // existir aunque estuvieran escritos en el contrato.
             offerSentAt: true,
+            // ⚠️ v1.58 (§M5-R / BL-39): la CONSTANCIA DE RECEPCIÓN. **Tercera vez el mismo agujero,
+            // tercer eje**: sin leerlo, `REQUEST_NOT_RECEIVED` no podía existir aunque el contrato lo
+            // declarara — igual que pasó con `status` (BL-14) y con `offerSentAt` (BL-27).
+            receivedAt: true,
             // v1.18: destinatario/idioma del correo de rechazo (dueño de la solicitud).
             user: { select: { email: true, name: true, locale: true } },
           },
@@ -6006,14 +6120,34 @@ export class BuylistService implements OnModuleInit {
     // normativa: `NO_LIVE_ADJUSTMENT` gana) y ANTES de cualquier escritura. La guarda REAL —la del
     // motor— está en el `where` de cada escritura de abajo.
     const inOfferCycle = item.sellRequest.offerSentAt != null;
+    // ⚠️ v1.58 · §M5-R (BL-39) — la solicitud padre que necesita el peldaño de la RECEPCIÓN.
+    const parentRequest = { id: item.sellRequestId, receivedAt: item.sellRequest.receivedAt };
     if (inOfferCycle) {
-      this.assertOfferCycleAllows(decision, approvedPriceCents, item, item.sellRequest.status);
+      this.assertOfferCycleAllows(
+        decision,
+        approvedPriceCents,
+        item,
+        item.sellRequest.status,
+        parentRequest,
+      );
+    } else {
+      // ⚠️ v1.58 · §M5-R (BL-39) — **R aplica DENTRO y FUERA del ciclo**: no es una regla del ciclo de
+      // oferta, es una afirmación sobre mercancía física. Dentro va como peldaño de la escalera del
+      // ciclo (su sitio es entre `ITEM_NOT_OFFERED` y `OFFER_PRICE_IMMUTABLE`); fuera, sola. **El
+      // cuerpo es el mismo** — una regla con dos entradas, no dos reglas.
+      this.assertRequestReceived(decision, parentRequest, item.sellRequest.status);
     }
     // El `where` de TODAS las escrituras afirma el eje del ciclo TAL COMO SE OBSERVÓ al resolver el
     // monto. Si cambia bajo nuestros pies, `count !== 1` y no se escribe nada.
     const offerCycleWhere: Prisma.SellRequestWhereInput = {
       offerSentAt: inOfferCycle ? { not: null } : null,
     };
+    // ⚠️⚠️ v1.58 · §M5-R (BL-39) — **LA GUARDA REAL: el `where` del `updateMany`, con `count === 1`.**
+    // El pre-check de arriba da el error honesto; **lo que impide que una carta ajena llegue a
+    // `aprobada` es esto**. Solo `approve`: `reject` (que tiene su propio `updateMany` más abajo) es
+    // la dirección segura y `adjust` no lo gana — R.3.
+    const receivedWhere: Prisma.SellRequestWhereInput =
+      decision === 'approve' ? { receivedAt: { not: null } } : {};
 
     // ------- v1.18-buylist-rejects: semántica COMPLETA de `reject` (API_CONTRACT §M5) -------
     if (decision === 'reject') {
@@ -6120,7 +6254,10 @@ export class BuylistService implements OnModuleInit {
     // carrera pueda separar.*
     const updated = await this.prisma.$transaction(async (tx) => {
       const guard = await tx.sellRequestItem.updateMany({
-        where: { id: itemId, sellRequest: { ...this.notTerminalWhere(), ...offerCycleWhere } },
+        where: {
+          id: itemId,
+          sellRequest: { ...this.notTerminalWhere(), ...offerCycleWhere, ...receivedWhere },
+        },
         data: data as Prisma.SellRequestItemUpdateManyMutationInput,
       });
       if (guard.count !== 1) {

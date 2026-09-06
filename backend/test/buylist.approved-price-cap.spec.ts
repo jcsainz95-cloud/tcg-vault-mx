@@ -29,7 +29,14 @@ function buildService(item: any, settings = buildSettings()) {
   // un `updateMany` guardado (`count === 1`) seguido de una relectura.
   const withRel = {
     ...item,
-    sellRequest: { userId: item.userId ?? 'u1', status: item.requestStatus ?? 'verificacion' },
+    sellRequest: {
+      userId: item.userId ?? 'u1',
+      status: item.requestStatus ?? 'verificacion',
+      // ⚠️ v1.58 · §M5-R (BL-39): la constancia de RECEPCIÓN. Estos fixtures deciden líneas de una
+      // solicitud VIVA con la carta ya en nuestras manos; sin este dato describirían un escenario
+      // imposible. El caso contrario es el sujeto de `buylist.m5r-received-approve.spec.ts`.
+      receivedAt: item.receivedAt === undefined ? new Date('2026-09-02T00:00:00Z') : item.receivedAt,
+    },
   };
   const live: any = { ...item };
   const prisma: any = {

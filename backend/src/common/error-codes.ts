@@ -292,6 +292,32 @@ export const ErrorCode = {
   // **Hermano de `ITEM_NOT_APPROVED`, y no el mismo:** aquél dice «esta línea aún no está aprobada»;
   // éste dice **«esta línea no se puede aprobar: no la compramos»**.
   ITEM_NOT_OFFERED: 'ITEM_NOT_OFFERED',
+  // ⚠️⚠️ v1.58 · **§M5-R / BL-39 — «NO SE APRUEBA LO QUE NO HA LLEGADO». MERCANCÍA AJENA.**
+  // `PATCH /admin/buylist/items/:itemId/decision` con **`decision:"approve"`** sobre una línea cuya
+  // SOLICITUD PADRE no tiene constancia de recepción (**`sellRequest.receivedAt IS NULL`**).
+  // `details: { sellRequestId, status }`. **No escribe nada.** 422.
+  //
+  // **Qué cierra:** `aprobada` es el **único** estado que `convert-to-inventory` admite ⇒ sin este
+  // término **una carta que nunca recibimos podía quedar aprobada y entrar al inventario vendible**,
+  // con su costo capitalizado en el P&L de M7. Es **el espejo de §M5-P** por el lado de la mercancía:
+  // allá el dinero que sale, aquí la mercancía que entra, **y el mismo ancla** (`receivedAt`: un
+  // escritor, una vez, nadie lo limpia, columna desde la migración inicial).
+  //
+  // **Nombra la SOLICITUD, no la línea, porque el remedio es sobre la solicitud:** `POST …/receive`,
+  // el acto nombrado, idempotente y auditado. *El error nombra la palanca* (misma disciplina que
+  // `grossShortfallCents`).
+  //
+  // **`422` y no `409`:** no es un choque de concurrencia ni una fila cerrada; es una **precondición
+  // que falta con remedio a un clic**. Misma familia que `ITEM_NOT_OFFERED`/`OFFER_PRICE_IMMUTABLE`.
+  //
+  // ⛔ **`convert-to-inventory` NO gana una segunda guarda:** con esto `aprobada` se vuelve
+  // **inalcanzable** sin recepción y `422 ITEM_NOT_APPROVED` **vuelve a bastar** — literalmente lo que
+  // v1.51.20 decidió para el caso gemelo de la línea `skip`. *Una invariante se cierra en el verbo que
+  // PRODUCE el estado, no en cada verbo que lo consume; duplicar la guarda duplica la regla, y la
+  // copia se desfasa.*
+  // ⛔ **Solo `approve`:** `reject` es la dirección segura (quita el monto, cierra solicitudes,
+  // desatasca filas) y gatearlo dejaría filas sin salida; `adjust` no existe en el ciclo.
+  REQUEST_NOT_RECEIVED: 'REQUEST_NOT_RECEIVED',
   // ⚠️ v1.51.20 — **BACKSTOP, no error de cliente.** `approve` sobre una línea `offerDecision='buy'`
   // cuyo `offeredPriceCents` es `null`: viola el invariante que la emisión garantiza **sin excepción**
   // (`buy ⇒ offeredPriceCents IS NOT NULL`). `details: { itemId }`. **No escribe nada y no paga.** 500.

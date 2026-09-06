@@ -64,6 +64,10 @@ function fakeDb(opts: {
     id: 'sr-1',
     userId: 'u1',
     status: opts.requestStatus,
+    // ⚠️ v1.58 · §M5-R (BL-39): la constancia de RECEPCIÓN. El eje que mide esta suite es la guarda de
+    // TERMINAL y `brutoConsumado`; sin este dato las decisiones por-ítem rebotarían antes de llegar a
+    // su sujeto. El eje de la recepción tiene su propia suite.
+    receivedAt: new Date('2026-09-02T00:00:00Z'),
     approvedTotalCents: opts.approvedTotalCents,
     quotedTotalCents: 50_000,
     offerGrossCents: null,
@@ -101,6 +105,10 @@ function fakeDb(opts: {
                 // BL-27: el discriminador del ciclo entra al `select` de producción, así que el
                 // fake tiene que emitirlo o el pre-check leería `undefined`.
                 offerSentAt: request.offerSentAt,
+                // ⚠️ v1.58 · §M5-R (BL-39): la constancia de RECEPCIÓN entra al mismo `select` — y por
+                // la misma razón: sin emitirla, el pre-check leería `undefined` y `approve` rebotaría
+                // antes de llegar al eje que esta suite mide.
+                receivedAt: request.receivedAt,
                 user: { email: 's@e.mx', name: 'Ash', locale: 'es' },
               },
               card: { name: 'Pidgey', number: '16', set: { name: 'Base Set' } },

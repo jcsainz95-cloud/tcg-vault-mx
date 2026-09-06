@@ -69,6 +69,10 @@ function fakeDb(opts: {
     id: 'sr-1',
     userId: 'u1',
     status: opts.status ?? 'verificacion',
+    // ⚠️ v1.58 · §M5-R (BL-39): la constancia de RECEPCIÓN. El eje que mide esta suite es el CICLO DE
+    // OFERTA; una fila viva en verificación tiene la carta en nuestras manos. El eje de la recepción
+    // tiene su propia suite: `buylist.m5r-received-approve.spec.ts`.
+    receivedAt: new Date('2026-09-02T00:00:00Z'),
     approvedTotalCents: null,
     quotedTotalCents: 50_000,
     adjustmentSentAt: null,
@@ -104,6 +108,10 @@ function fakeDb(opts: {
                   opts.staleOfferSentAtForRead !== undefined
                     ? opts.staleOfferSentAtForRead
                     : request.offerSentAt,
+                // ⚠️ v1.58 · §M5-R (BL-39): la constancia de RECEPCIÓN entra al mismo `select` de
+                // producción — sin emitirla el fake haría rebotar `approve` antes de llegar al eje
+                // que esta suite mide (el CICLO DE OFERTA).
+                receivedAt: request.receivedAt,
                 user: { email: 's@e.mx', name: 'Ash', locale: 'es' },
               },
               card: { name: 'Pidgey', number: '16', set: { name: 'Base Set' } },

@@ -55,6 +55,11 @@ function build(itemOverrides: Record<string, unknown> = {}, mail: MailPort | und
       // v1.51.5 · BL-14: el `include` ahora trae el ESTADO de la solicitud — sin él la guarda de
       // terminal no podría comprobarse. `verificacion` = viva, el escenario de estos tests.
       status: 'verificacion',
+      // ⚠️ v1.58 · §M5-R (BL-39): la constancia de RECEPCIÓN. Estos tests deciden líneas de una
+      // solicitud **en verificación**, o sea con la carta YA en nuestras manos: sin este dato el
+      // fixture describiría un escenario imposible. El caso contrario —`receivedAt: null`— es el
+      // sujeto de `buylist.m5r-received-approve.spec.ts`.
+      receivedAt: new Date('2026-09-02T00:00:00Z'),
       user: { email: 'seller@example.com', name: 'Ash', locale: 'es' },
     },
     card: { name: 'Pidgey', number: '16', set: { name: 'Base Set' } },

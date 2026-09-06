@@ -41,7 +41,14 @@ describe('itemDecision — RB-6 approvedTotalCents + RB-3 cap por-KYC', () => {
     const current: any = { ...opts.item };
     const withRel = {
       ...current,
-      sellRequest: { userId: 'u1', status: opts.requestStatus ?? 'verificacion' },
+      sellRequest: {
+        userId: 'u1',
+        status: opts.requestStatus ?? 'verificacion',
+        // ⚠️ v1.58 · §M5-R (BL-39): la constancia de RECEPCIÓN. Estos fixtures deciden líneas de una
+        // solicitud VIVA con la carta ya en nuestras manos; sin este dato describirían un escenario
+        // imposible. El caso contrario es el sujeto de `buylist.m5r-received-approve.spec.ts`.
+        receivedAt: new Date('2026-09-02T00:00:00Z'),
+      },
     };
     const sellRequestUpdates: any[] = [];
     const prisma: any = {
