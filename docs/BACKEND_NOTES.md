@@ -28,6 +28,199 @@
 > §0.22 de este documento son de `main` y NO se movieron**: son M47-H2, v1.53 (buylist raw-only) y
 > v1.53-b. Un informe de QA/techlead anterior al 2026-09-06 puede usar la numeración vieja.
 
+## 0.43 — **v1.58: las CUATRO invariantes del pase — §M5-A, §M5-R, BL-40 y BL-36** (2026-09-06, rama `claude/buylist-inventory-workflow-hdnls3`, **CUATRO commits separados**)
+
+> Propiedad: **backend**. Contra el contrato **v1.58** (**§M5-A**, **§M5-R**, §M5 `APPROVED_PRICE_CAP_EXCEEDED`,
+> §M5-T grupo B) y `ARCHITECTURE` §4.39(x)/(y)/(z). **Cero endpoints nuevos, cero DDL. Un campo aditivo
+> de DTO.** Los cuatro van **en commits separados** (norma **BL-27**) y ninguno se mezcla con la
+> alineación cosmética de BL-37: *el gate de seguridad y el techlead revisan por diff.*
+
+### 0.43.1 ⚠️⚠️ LOS DOS CONTEOS PRE-MERGE — hechos ANTES de correr una sola suite
+
+**§M5-A.9 y §M5-R.5 exigen contar antes de mergear, y el orden importa:** `npm run test:integration`
+corre `seedE2E`, que **borra filas**. La medición que vale es la de **antes**. Se hizo con `psql`
+directo contra la BD local, **antes** de tocar el código y **antes** de la primera corrida de tests.
+*Devops puso una guarda en `--seed`; no cubre las suites.*
+
+| Conteo | Qué mide | Resultado |
+|---|---|---|
+| **§M5-A.9 (i)** | filas VIVAS ya ofertadas por encima del tope efectivo | **0** |
+| **§M5-A.9 (ii)** | las mismas, sobre el umbral de INE y sin INE en archivo | **0** |
+| **§M5-R.5 (i)** | líneas `aprobada`/`convertida_inventario` **sin constancia de recepción** | **0** |
+| **§M5-R.5 (ii)** | solicitudes vivas sin recibir (*informativo*) | **2** |
+
+**Ninguno escala.** El de R.5(i) es el que habría exigido decisión operativa —piezas de inventario que
+puede que nunca hayan existido, y eso **no lo arregla un `where`**—: dio **0**. El (ii) es informativo y
+**no justifica excepción**: una solicitud viva sin recibir **es** el caso que la invariante frena.
+⛔ **Ningún `where` lleva excepción legacy.**
+
+⚠️ **Alcance honesto de la medición:** es la BD **local**. **No está medido en producción.** *Cero
+local no es cero* — el conteo va antes del merge precisamente porque **sobre una oferta ya enviada no
+hay remedio unilateral: es vinculante.**
+
+### 0.43.2 `BL-38` / §M5-A — los topes AML y el INE, **al ofertar**
+
+`POST /admin/buylist/:id/offer` gana **tres términos**, todos sobre `G = offerGrossCents`:
+
+```
+A1  G  >  capPerRequest                          ⇒ 422 BUYLIST_LIMIT_EXCEEDED  scope:"per_request_offer"
+A2  G >= ineThreshold ∧ ¬ineEnArchivo            ⇒ 422 INE_REQUIRED  details:{sellRequestId,grossCents}
+A3  Σ(compromiso vivo, ESTA fila sustituida) > capPerMonth
+                                                 ⇒ 422 BUYLIST_LIMIT_EXCEEDED  scope:"per_month_offer"
+```
+
+**Dónde:** A1 y A2 **después** del piso de neto y **antes** del tope del operador (*nada inofertable
+llega a la cola de autorización*); A3 **dentro** de la transacción, y la transacción pasó a
+**`SERIALIZABLE`** — mismo TOCTOU que ya cerraron el intake (SEC-A2) y `pay-spei` (AML-1).
+
+⚠️ **EL MONTO ES `G`, Y NO `brutoConsumado(req)` — es la trampa del apartado y la medí antes de
+escribir.** En ese instante y sobre esa fila la precondición garantiza `offerState ∈ {null,'cancelled'}`
+y `offer/cancel` limpia `offerGrossCents` (`OFFER_FROZEN_NULL`, verificado en el código) ⇒ la cascada
+`approvedTotalCents ?? offerGrossCents ?? quotedTotalCents` **devolvería `quotedTotalCents`, que es
+justo el número que no ve el override**. *Un término correcto para el compromiso CONSUMADO es el
+término equivocado para el que se está CONTRAYENDO, y los dos se llaman «bruto».*
+
+**A3 se implementa por SUSTITUCIÓN, no por suma** (`Σ − aporte_actual_de_esta_fila + G`), y la fila
+propia solo entra si está en la ventana del mes. Se reusa `monthCommittedGrossCents` —el cuerpo del
+intake, misma ancla `createdAt`, mismo predicado por complemento—: ⛔ **no hay un tercer acumulado.**
+La propiedad verificable sin leer el código: **la guarda asevera el valor que el acumulado devolverá el
+instante después de la escritura**, y hay un test que lo comprueba llamándolo antes y después.
+
+**Otros hechos que otros roles necesitan:**
+- **Aplica a TODO actor, `super_admin` incluido.** *«El súper-admin oferta sin tope»* es el tope del
+  **operador** (delegación); el AML es **cumplimiento sobre el vendedor** y ningún rol lo levanta. Se
+  mueve con el dial (M10) o con el **override por KYC** de ese vendedor.
+- **`ineProvided` se relee del `KycProfile`**, no de la columna `SellRequest.ineProvided` (snapshot del
+  intake). **`ineRequired` es MONÓTONA**: la clave solo se emite cuando la oferta cruza el umbral, así
+  que un `true` del intake **nunca se apaga**.
+- **`INE_REQUIRED` de esta ruta NO lleva `thresholdCents`** (§M5-A.7): el destinatario es el operador,
+  que no es el sujeto de la regla. **El intake no se armoniza** y sigue emitiéndolo: allá el
+  destinatario es el vendedor.
+- **`offer/authorize` NO reevalúa nada** y no le hace falta: el `202` ya escribió `offerGrossCents`
+  sobre una fila que ya está en el acumulado ⇒ el compromiso entra **al preparar**.
+- **Residual nombrado, NO bloqueante — el cruce de mes:** una solicitud creada en un mes y ofertada en
+  el siguiente no está en la ventana del acumulado ⇒ su bruto no topa **al comprometer**. No queda
+  descubierta en el dinero: al pagar entra al acumulado consumado del mes del pago. *El compromiso
+  puede cruzar el mes; el pago no.*
+
+**Frontend (aditivo, opcional):** `GET /admin/buylist/:id/decision-table` emite
+**`sellerIneOnFile: boolean`** en la **raíz** (no en `totals`), derivado de
+`KycProfile.ineFrontKey != null ∧ ineBackKey != null`. Es **aviso, no bloqueo**. ⛔ **La lista es
+CERRADA**: no lleva el umbral, ni los topes, ni el acumulado del mes. Ignorarlo no rompe nada.
+
+### 0.43.3 `BL-39` / §M5-R — la recepción es precondición de `approve`
+
+`PATCH /admin/buylist/items/:itemId/decision` con `decision:"approve"` exige
+**`sellRequest.receivedAt IS NOT NULL`** ⇒ **`422 REQUEST_NOT_RECEIVED`**
+(`details: { sellRequestId, status }`), cero escritura.
+
+⚠️ **El término va en `approve`, y NO en `convert-to-inventory`, que es donde yo lo había propuesto.**
+El arquitecto me corrigió con su propio argumento de v1.51.20 (el caso gemelo de la línea `skip`):
+*«duplicar la guarda duplicaría la regla, y la copia se desfasa»*. Con `approve` guardado, **`aprobada`
+se vuelve inalcanzable sin recepción** y `422 ITEM_NOT_APPROVED` **vuelve a bastar** ⇒
+⛔ **`convert-to-inventory` NO SE TOCA** (misma respuesta, mismo `details`, misma idempotencia). Hay un
+test —unitario y de integración— que lo **prueba** en vez de afirmarlo.
+
+**Forma:** la guarda REAL vive en el `where` del `updateMany` con `count === 1`; el pre-check da el
+error honesto y **evita gastar un intento de escritura**. Los dos hacen falta, y hay un test por capa.
+**Un solo cuerpo (`assertRequestReceived`) con DOS entradas:** dentro del ciclo va como peldaño de
+`assertOfferCycleAllows` (entre `ITEM_NOT_OFFERED` y `OFFER_PRICE_IMMUTABLE`); fuera del ciclo, directo.
+**R aplica dentro y fuera:** no es una regla del ciclo de oferta, es una afirmación sobre mercancía
+física.
+
+**Escalera de precedencia (normativa, con test por peldaño):**
+`409 NO_LIVE_ADJUSTMENT` → `409 ADJUST_NOT_ALLOWED_IN_OFFER_CYCLE` → `422 ITEM_NOT_OFFERED` →
+**`422 REQUEST_NOT_RECEIVED`** → `422 OFFER_PRICE_IMMUTABLE` → `500 OFFERED_PRICE_MISSING`.
+
+**Solo `approve`.** `reject` es la dirección **segura** —quita el monto, cierra solicitudes, desatasca
+filas— y gatearlo **dejaría filas sin salida**. **Residual nombrado, NO bloqueante:** `reject`
+pre-recepción sella `rejectedAt`, que ancla los plazos de §H, y manda correo ⇒ puede arrancar un reloj
+de devolución sobre una carta que no tenemos. **Disparador para reabrirlo:** que aparezca cualquier
+consecuencia de **dinero** colgada de `rejectedAt`.
+
+⚠️ **Para QA y para quien escriba fixtures:** varias suites describían solicitudes **en verificación
+sin `receivedAt`** — un escenario que ahora es imposible. Los fixtures ganaron el dato; **eso no relaja
+nada**: el caso contrario tiene suite propia (`buylist.m5r-received-approve.spec.ts`).
+
+### 0.43.4 `BL-40` — la cota que rechazaba lo que ya habíamos prometido
+
+```
+offerSentAt IS NOT NULL   ⇒   cota = capAML                            // v1.58
+offerSentAt IS NULL       ⇒   cota = min(quotedPriceCents × 2, capAML) // legacy, SIN CAMBIOS
+```
+
+**Lo encontró el arquitecto midiendo BL-38, y el comentario del propio código lo delataba:** aplicábamos
+una cota de *«defensa en profundidad, no confianza en el origen»* **sobre un monto que nosotros mismos
+ya prometimos por correo**. Con números ordinarios —cotizada **MX$300**, override motivado a
+**MX$1,000**, bruto muy por debajo del tope AML— **la oferta salía, el vendedor mandaba la carta, y
+`approve` la rechazaba contra MX$600**. Es la única de las cuatro **sin remedio posible para el
+vendedor**: ya se desprendió de su carta.
+
+- **Por qué se retira dentro del ciclo:** ahí el monto **no es entrada del operador**; es la cifra
+  congelada y vinculante que ya pasó **su propia** puerta (motivo auditado de D26, tope del operador con
+  escalación y, desde v1.58, el tope AML al ofertar).
+- ⛔ **NO se resuelve al revés** (imponer el `×2` al ofertar): sería inventarle al negocio una cota que
+  `PROJECT.md` no tiene, y mataría el caso que el override existe para atender.
+- **El término `capAML` SE QUEDA** dentro del ciclo (backstop para filas legacy y malformadas), con test
+  que comprueba que sigue vivo.
+- **Forma:** `assertApprovedPriceWithinCap` gana un parámetro **obligatorio y sin default**
+  (`{ relativeCapApplies }`). *Un opcional dejaría que un llamador futuro heredara la cota relativa sin
+  decidirlo, que es exactamente cómo se coló el defecto.*
+- **`APPROVED_PRICE_CAP_EXCEEDED` ya vivía en el código sin estar declarado**; v1.58 lo declara. El
+  shape de `details` **no cambia**.
+
+### 0.43.5 `BL-36` — la fórmula gana su término, y este es el pase en el que entra
+
+Los dos `where` de `pickup-address` (cliente y admin) ganan `status ∉ SELL_REQUEST_TERMINAL_STATES` vía
+**`...liveRequestWhere()`** — el helper que ya existe, ⛔ **jamás un literal de estados** (§4.39c sitio
+8). **Cero vocabulario nuevo y cero cambio de shape:** `409 PICKUP_ADDRESS_LOCKED` con `details.status`
+ya estaba declarado en las dos rutas ⇒ **frontend no toca nada**.
+
+**El término NO sustituye a `closedAt` ni a `guideSentAt`: se SUMA.** Son ejes distintos («ya cerró»,
+«ya hay papel») y hacen falta todos.
+
+⚠️ **Por qué entra ahora y no en el pase anterior (§0.42.1):** cuando lo medí —**0 filas locales**— no
+toqué el código, porque el término que faltaba estaba en **una fórmula que el contrato declara**, y
+moverlo desde el código habría sido el código mandando sobre el contrato (regla 9). El arquitecto normó
+la fórmula en v1.58 y **entonces** el código la sigue. **Y añadió la medición que cierra el argumento:
+toda fila pre-M-19 es también pre-M-46** ⇒ `guideSentAt`, `shipmentConfirmedAt` y
+`sellerShippedDeclaredAt` son **nulos en ella**: **pasaba las DOS guardas enteras.**
+
+**Ningún trabajo legítimo se pierde**, comprobado verbo por verbo: el `hadGuide` que reabre la tarea de
+guía muerta **no puede disparar en esa cohorte** (`guideSentAt` es nulo), y la tarea tiene **su propio
+endpoint**, que es la **excepción NOMBRADA** de §M5-T y **no se toca** — con un test que lo asevera por
+el contrario: sobre una solicitud **cerrada** tiene que responder `200`.
+
+### 0.43.6 Verificación, y qué mutaciones se probaron
+
+| | Antes | Después |
+|---|---|---|
+| Unitarios | 246 suites / 3.553 | **248 suites / 3.609** |
+| Integración | 17 suites / 252 | **17 suites / 264** |
+| `typecheck` | limpio | **limpio** |
+| `lint` | 0 errores + 2 warnings preexistentes | **igual** |
+
+**Suites nuevas:** `test/buylist.m5a-offer-aml.spec.ts` (26) y
+`test/buylist.m5r-received-approve.spec.ts` (13); bloques nuevos en
+`buylist.approved-price-cap.spec.ts` (BL-40) y `buylist.pickup-address.spec.ts` (BL-36); y el bloque
+v1.58 de `test/integration/buylist-cycle.e2e-spec.ts` (12 casos por HTTP contra Postgres real).
+
+**28 mutaciones probadas sobre los términos nuevos; las 28 mueren** — cada una está listada, con el test
+que la mata, en la cabecera de su suite. Incluyen los **bordes** (`>` de A1, `>=` de A2, el inclusivo
+del AML), **medir con `brutoConsumado` en vez de `G`**, **sumar en vez de sustituir** en A3, **sacar A3
+de la `SERIALIZABLE`**, **mover el peldaño de R** arriba o abajo en la escalera, **extenderlo a
+`reject`**, **revertir BL-40** y **quitarle a BL-36 cada uno de sus términos**.
+
+⚠️ **Y en cada bloque hay un CAMINO FELIZ explícito** (la oferta sale, `approve` responde `200`, la
+conversión crea la pieza, las dos rutas de `pickup-address` re-congelan). *Sin él, los asserts negativos
+los pasa igual un endpoint que rechaza siempre* — y es el assert más fácil de olvidar.
+
+**Sobre `sellerIneOnFile` y §4.39(z):** el campo es el único sitio de este pase donde afirmo que *«esto
+ahora falla en compilación»*, y **lo medí con los dos controles**: con el campo, la suite compila y pasa
+(positivo); al quitarlo del servicio, `tsc` rechaza el test con `TS2339` y **la suite no llega a correr**
+(negativo). *Un tipo que nombra la intención no la impone; lo que la impone es una prueba que falla al
+relajarlo.*
+
 ## 0.42 — **§M5-C / BL-37: los nueve `201` que el contrato declara `200`** (2026-09-06, rama `claude/buylist-inventory-workflow-hdnls3`, **commit APARTE, sin una línea de lógica**)
 
 > Propiedad: **backend**. Contra **§M5-C** (contrato v1.57). **No bloqueante.** Va en su propio commit
