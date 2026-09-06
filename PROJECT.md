@@ -22,7 +22,61 @@
 > documentación. Cualquier cadena «TCG Vault MX» que siga viva en `docs/` o en código es un **residuo a
 > corregir**, no una fuente válida.
 >
-> **ESTADO AL 2026-09-01 (9ª ronda del bloque v2.1 — CIERRE DE DOCUMENTACIÓN — LEER PRIMERO):**
+> **ESTADO AL 2026-09-06 (10ª ronda del bloque v2.1 — RESOLUCIÓN DE UNA DIVERGENCIA — APROBADA POR EL HUMANO
+> — LEER PRIMERO):**
+> **Esto NO es alcance nuevo: es una CORRECCIÓN A ESTE DOCUMENTO.** QA encontró que **el criterio 127 y el
+> contrato se contradicen**, y por la regla de conflicto (`PROJECT.md` > contrato > código) **el que tenía que
+> moverse era este documento**. **No es defecto de backend: el código implementa el contrato correctamente.**
+> **El humano respondió las dos preguntas de esta ronda (34 y 35) y ambas quedan CERRADAS**; lo de abajo es
+> **regla vigente**, no propuesta.
+> **(1) D44 — LA VALIDACIÓN ENTRE DIALES DEL CRITERIO 127 PASA DE DOS TÉRMINOS A TRES.**
+> ~~`tarifa < mínimo`~~ ⇒ **`tarifa de envío del buylist` + `neto mínimo para emitir` ≤ `mínimo de compra`**
+> (hoy **MX$180 + MX$200 = MX$380 ≤ MX$500**). **La causa del desajuste, dicha sin adornos: la validación se
+> escribió con DOS diales y la 6ª ronda (D34) metió un TERCERO en la misma aritmética sin re-derivarla.** La
+> regla de dos términos **no queda derogada: queda contenida** en la de tres.
+> **Qué protege que antes no**: que una combinación de diales **legales por separado** deje la **solicitud
+> mínima que prometemos comprar** en un estado donde **no se puede ni ofertar** — el vendedor cotiza
+> exactamente la cifra prometida, espera **7 días hábiles** y recibe un *«no procederemos»* **que no decidió
+> ninguna persona**. *Que un trato no pague nada era una **oferta rota**; que ni siquiera se pueda formular es
+> una **promesa rota**.*
+> **(2) EL 167(d) SE PRECISA, Y SU ESPINA DORSAL NO SE TOCA.** El **bloqueo por oferta sigue viviendo SOLO en
+> la emisión**, sigue siendo `neto < piso` y sigue siendo **inclusivo en MX$200**. Lo único que se corrige es
+> la frase *«la pantalla de diales guarda MX$200 sin validarlo contra nada»*, que **prohibía más de lo que su
+> propia razón justifica**: que **M10 no vea el recorte del operador** descarta validar el **neto de una
+> oferta**, pero **no** descarta validar la **combinación de diales**, que M10 **sí ve porque son suyos**.
+> **Dos guardas, dos bases, cero solapamiento: M10 protege del DIAL MAL PUESTO; la emisión, de la OFERTA MAL
+> ARMADA.**
+> **(3) QUÉ CAMBIA DE COMPORTAMIENTO OBSERVABLE: UNA SOLA CELDA.** De los cuatro intentos de M10 del criterio
+> 127, **solo `tarifa = MX$499` cambia de resultado** (antes *«guarda»*, ahora *«NO guarda»*). Los otros tres
+> (**MX$180** guarda; **MX$500** y **MX$600** no guardan) **quedan idénticos**, y **ningún flujo de cara al
+> vendedor cambia**: esta regla **solo restringe lo que un súper-admin puede configurar**.
+> **⚠ Consecuencia operativa**: con `mínimo = MX$500` y `neto mínimo = MX$200`, **la tarifa más alta
+> configurable pasa de MX$499 a MX$300**.
+> **(4) POR QUÉ SE RATIFICA Y NO SE REVIERTE** *(la alternativa era quitarle la guarda al código)*: la guarda
+> implementada es **más estricta** que el criterio —rechaza de más, nunca de menos—, **no es una fuga viva**
+> (con los defaults ni siquiera dispara; hace falta configurar mal tres diales a la vez), y **mover una guarda
+> de dinero dos veces es peor que sostenerla una vez con dueño**.
+> **(5) D45 — EL CERO DEJA DE SER UN VALOR LEGAL DEL DIAL «NETO MÍNIMO PARA EMITIR».** *(Cierra la pregunta
+> 35, un hallazgo que NO reportó QA: lo encontré releyendo el criterio 167 entero.)* **El criterio se
+> contradecía a sí mismo**: el **167(a)** fija el bloqueo en **`neto < piso`** (D40) y el **167(f)** decía que
+> bajarlo a cero *«se comporta como el `neto ≤ 0` que ya existía»* — **falso**: con el piso en cero, `neto < 0`
+> **nunca se cumple** y **saldría la oferta de MX$0** que el **167(b)** prohíbe.
+> **Qué se decide**: **el valor mínimo legal del dial es MX$0.01 (un centavo)**; **MX$0 se rechaza al
+> guardar**. Con un centavo, `neto < MX$0.01` **es exactamente** `neto ≤ MX$0` ⇒ **la guarda vieja no se
+> perdió: se convirtió en el suelo del dial**. **Se corrige el (f); el (a) NO se toca** —`neto < piso` es D40 y
+> el humano lo confirmó sin cambio—.
+> **⚠ EL PORQUÉ VA PEGADO AL CUÁNTO, y es lo más importante de este punto**: ese suelo **no es un rango
+> arbitrario**, existe **para que sea imposible emitir una oferta de MX$0**. **Quien lo baje, desarma el
+> 167(b)** — no está aflojando una validación de forma.
+> **Coste aceptado a ojos abiertos** *(se ofreció la alternativa de un invariante independiente del dial —
+> «jamás se emite una oferta de MX$0, esté como esté configurado»— y el humano eligió esta, más simple y más
+> directa)*: **la protección vive en la validación del dial**, así que **si alguien la relaja, el agujero
+> vuelve**. Por eso queda escrita aquí y en el criterio **167(f)**, con su razón al lado.
+> **Preguntas: la 34 y la 35 quedan CERRADAS** (en «Preguntas abiertas — ciclo de adquisición del buylist»).
+> **No se abre ninguna nueva.**
+>
+> **ESTADO AL 2026-09-01 (9ª ronda del bloque v2.1 — CIERRE DE DOCUMENTACIÓN — VIGENTE salvo lo que la 10ª
+> corrige arriba):**
 > **No entra alcance nuevo, no se abre ninguna pregunta y no se toca ninguna regla vigente.** Esta ronda
 > **formaliza como requisito de negocio las DOS decisiones que vivían solo en documentos del arquitecto**
 > (**D41** y **D42** — era la **pregunta 31**, que el humano contestó: *sí, van en este documento*) y
@@ -940,8 +994,10 @@ de autenticidad/condición y precios opacos. Este marketplace resuelve:
       se puede. *(**⚠ 8ª ronda, D43 — esto NO se toca**: el faltante del mínimo **se sigue pintando con su
       cifra**. Lo que sale del cotizador son **los montos de ENVÍO**, que es otra cosa; y **queda prohibido
       expresar este faltante en términos de envío** — §H, criterios 132 y 174.)* Es un **dial de M10**, ~~distinto del umbral de guía~~ **distinto de la tarifa de envío**
-      *(5ª ronda, D31: **el umbral de guía ya no existe**; los dos diales de monto que quedan son el **mínimo**
-      y la **tarifa**, y **una validación bloqueante los relaciona**: `tarifa < mínimo`, criterio 127)*.
+      *(5ª ronda, D31: **el umbral de guía ya no existe**; ~~los dos diales de monto que quedan son el
+      **mínimo** y la **tarifa**~~ **los diales de monto son TRES desde D34** —mínimo, tarifa y **neto mínimo
+      para emitir**—, y **una validación bloqueante los relaciona**: ~~`tarifa < mínimo`~~
+      `tarifa + neto mínimo ≤ mínimo` **(10ª ronda, D44)**, criterio 127)*.
       *(**⚠ 9ª ronda, D41** — de esos **dos diales de monto**, **el mínimo es el ÚNICO que la pantalla
       pública conoce**: el cotizador **necesita el mínimo vigente** para poder decir *«te faltan $120»* sin
       quemar el número en el código, y **no necesita —ni recibe— la tarifa de envío**. Ver §H y criterio
@@ -1296,10 +1352,15 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
       *(3ª ronda, P18)*: **cada dial de plazo y la tarifa de envío se CONGELAN por solicitud** en el momento
       en que se fijan — cambiar el dial **solo afecta a las solicitudes nuevas** y **nunca** mueve una fecha
       o un monto ya comunicados por correo.
-      *(validación entre diales — **reformulada en la 4ª ronda (D30) y RE-ANCLADA en la 5ª (D31)**)*: M10
-      **impide** guardar una combinación donde la **tarifa de envío del buylist** sea **igual o mayor que el
-      MÍNIMO DE COMPRA** —hoy **MX$180 < MX$500**—, porque el mínimo es **inclusivo** y ahí **la solicitud más
-      chica que aceptamos, con TODO aprobado, depositaría MX$0** (§P.12, criterio 127).
+      *(validación entre diales — **reformulada en la 4ª ronda (D30), RE-ANCLADA en la 5ª (D31) y
+      RE-DERIVADA a TRES TÉRMINOS en la 10ª (D44)**)*: ~~M10 **impide** guardar una combinación donde la
+      **tarifa de envío del buylist** sea **igual o mayor que el MÍNIMO DE COMPRA**~~ — **esa forma se escribió
+      antes de que existiera el neto mínimo (D34) y se quedó corta**. **Regla vigente: M10 impide guardar una
+      combinación donde `tarifa de envío del buylist` + `neto mínimo para emitir` sea MAYOR que el `mínimo de
+      compra`** —hoy **MX$180 + MX$200 = MX$380 ≤ MX$500**—, porque el mínimo es **inclusivo** y ahí **la
+      solicitud más chica que aceptamos, con TODO aprobado, o depositaría MX$0 o no se podría ni ofertar**
+      (§P.12, criterio 127). **Esto NO mueve el piso de neto a M10**: el bloqueo por oferta sigue viviendo en
+      la emisión (criterio 167d) — **M10 solo hace aritmética entre sus propios diales**.
       ~~4ª ronda: que la tarifa no fuera igual o mayor que el **umbral de guía** (**MX$1,000**).~~ **Ese dial
       dejó de existir con D31**, así que la validación se **re-ancla** en el dial que sí quedó. ~~Y antes de
       eso: que la tarifa no superara `umbral de guía × (1 − umbral de recorte material)` —hoy **$800**.~~
@@ -3939,12 +4000,17 @@ quedan SUPERADAS; cierra la pregunta 16)**
       ~~**La relación que SÍ sigue siendo cierta**: la **tarifa de envío** debe ser **estrictamente menor que
       el UMBRAL DE GUÍA** —**MX$180 < MX$1,000**—.~~ **⚠ RE-ANCLADA en la 5ª ronda (D31)**: **el umbral de
       guía también dejó de existir**, así que la validación se muda al dial que sí quedó.
-      **Regla vigente (5ª ronda): la `tarifa de envío del buylist` debe ser ESTRICTAMENTE MENOR que el
-      `mínimo de compra`** —hoy **MX$180 < MX$500**—. **La propiedad money-safe es la misma de siempre**: el
-      mínimo es **inclusivo** (§P.12), así que **la solicitud más chica que aceptamos vale exactamente el
-      mínimo**; si la tarifa lo igualara o lo superara, **una operación con TODO aprobado depositaría MX$0**,
-      y le estaríamos ofreciendo a alguien un trato que **no le paga nada aunque cumpla perfecto**. Eso no es
-      un piso de seguridad: es **una oferta rota**.
+      ~~**Regla vigente (5ª ronda): la `tarifa de envío del buylist` debe ser ESTRICTAMENTE MENOR que el
+      `mínimo de compra`** —hoy **MX$180 < MX$500**—.~~ **⚠ RE-DERIVADA en la 10ª ronda (D44) a TRES
+      TÉRMINOS**, porque **D34 metió un tercer dial en la misma aritmética y esta frase no se actualizó**:
+      **`tarifa de envío del buylist` + `neto mínimo para emitir` ≤ `mínimo de compra`** —hoy
+      **MX$180 + MX$200 = MX$380 ≤ MX$500**—. **La propiedad money-safe es la misma de siempre, extendida un
+      escalón en la MISMA dirección**: el mínimo es **inclusivo** (§P.12), así que **la solicitud más chica que
+      aceptamos vale exactamente el mínimo**; si la tarifa lo igualara o lo superara, **una operación con TODO
+      aprobado depositaría MX$0** —un trato que **no le paga nada a alguien que cumplió perfecto**: una
+      **oferta rota**—; y si la **suma** supera el mínimo, esa misma operación **no se podría ni EMITIR** —una
+      **promesa rota**, peor todavía, porque le prometimos comprar desde una cifra que el sistema después no
+      puede ofertar—. **La regla vieja queda CONTENIDA en la nueva**, no derogada.
       *(La **pregunta 24** —cuánto colchón— **queda CERRADA por D31**: el humano **aceptó a ojos abiertos**
       que en el piso de $500 el envío pese **36%**, o sea **ningún colchón adicional**; la validación queda en
       **estrictamente menor**. **Tarifa y mínimo siguen siendo diales**: si duele, se mueven.)*
@@ -3960,17 +4026,20 @@ quedan SUPERADAS; cierra la pregunta 16)**
       NO puede ocurrir**: con el **piso de neto de MX$200** (D34), **ninguna oferta con neto MX$0 —ni MX$20—
       llega a emitirse**, así que **el escenario «cherry-pick por debajo de MX$180 ⇒ neto MX$0 con todo
       aprobado» dejó de ser posible**. **Lo que SÍ sigue vigente de ese párrafo**: **la validación entre
-      diales (`tarifa < mínimo`) efectivamente NO cubre la oferta recortada** —esa es su limitación real y no
-      cambió— y **el mínimo de compra sigue sin re-aplicarse a la oferta** (criterio 158c, **regla intacta**).
+      diales efectivamente NO cubre la oferta recortada** —esa es su limitación real y **no la cambia D44**,
+      que solo le añadió un término (~~`tarifa < mínimo`~~ ⇒ `tarifa + neto mínimo ≤ mínimo`) **sin darle
+      visión de ninguna oferta**— y **el mínimo de compra sigue sin re-aplicarse a la oferta** (criterio 158c,
+      **regla intacta**).
       **Lo que ya no se puede citar como válido**: **cualquier ejemplo cuyo desenlace sea un neto de MX$20 o
       de MX$0 al EMITIR** — hoy eso **se bloquea**.
       **⚠ CERRADO en la 6ª ronda (D34): SÍ hay piso, y es MX$200 de NETO.** El hueco **no se tapa aquí** —la
       validación entre diales **sigue sin poder verlo**, porque **M10 no conoce el recorte del operador**—:
       se tapa **en la emisión de la oferta** (§P.2, criterio **167**). **Los dos mecanismos conviven y
-      cubren cosas distintas**: `tarifa < mínimo` protege **la solicitud completa** *(«ninguna solicitud
-      aceptable puede depositar cero si todo llega en NM»)*; el **piso de neto de MX$200** protege **la
-      oferta recortada** *(«ninguna oferta se emite si no vale la pena para nadie»)*. **La pregunta 25 queda
-      CERRADA.**
+      cubren cosas distintas**: la **validación entre diales** —~~`tarifa < mínimo`~~
+      **`tarifa + neto mínimo ≤ mínimo`**, D44— protege **la solicitud completa** *(«ninguna combinación de
+      diales puede dejar la solicitud mínima sin poder depositar ni poder ofertarse»)*; el **piso de neto de
+      MX$200** protege **la oferta recortada** *(«ninguna oferta se emite si no vale la pena para nadie»)*.
+      **La pregunta 25 queda CERRADA.**
       **Sigue siendo una validación BLOQUEANTE de la pantalla de diales (M10), no una nota al pie** —
       criterio **127**.
 
@@ -4128,16 +4197,27 @@ en la 6ª — origen único de los números)**
       `umbral de guía × (1 − umbral de pregunta)` —**$800**—~~ *(fórmula retirada: citaba el dial de D28)*;
       ~~ni ser **igual o mayor que el umbral de guía** —**MX$1,000**—~~ *(retirada en la 5ª: **ese dial
       también dejó de existir**, D31)*.
-      **Regla vigente**: la **tarifa de envío del buylist** debe ser **estrictamente menor que el MÍNIMO DE
-      COMPRA** —hoy **MX$180 < MX$500**—, porque el mínimo es **inclusivo** y **la solicitud más chica que
-      aceptamos vale exactamente el mínimo**: si la tarifa lo igualara, **una operación con todo aprobado
-      depositaría MX$0**. M10 debe **impedir** esa combinación, **no solo advertirla**.
-      *(**Colchón: ninguno** —estrictamente menor—. **Cerrado por el humano en la 5ª ronda**: aceptó a ojos
-      abiertos que en el piso de $500 el envío pese **36%**; con eso la **pregunta 24 queda cerrada**.)*
+      ~~**Regla vigente**: la **tarifa de envío del buylist** debe ser **estrictamente menor que el MÍNIMO DE
+      COMPRA** —hoy **MX$180 < MX$500**—~~ **⚠ RE-DERIVADA por TERCERA vez en la 10ª ronda (D44) — ahora con
+      TRES términos**: **`tarifa de envío del buylist` + `neto mínimo para emitir` ≤ `mínimo de compra`**
+      —hoy **MX$180 + MX$200 = MX$380 ≤ MX$500**—, porque el mínimo es **inclusivo** y **la solicitud más chica
+      que aceptamos vale exactamente el mínimo**: si la tarifa lo igualara, **una operación con todo aprobado
+      depositaría MX$0**; y si la **suma** lo supera, esa operación **no se podría ni ofertar**. M10 debe
+      **impedir** esa combinación, **no solo advertirla**. **La forma de dos términos queda contenida en la de
+      tres**, no derogada. Bordes verificables y consecuencias: **criterio 127**.
+      *(**Colchón: ninguno** —la validación no añade margen propio—. **Cerrado por el humano en la 5ª ronda**:
+      aceptó a ojos abiertos que en el piso de $500 el envío pese **36%**; con eso la **pregunta 24 queda
+      cerrada**. **D44 añade holgura DE HECHO** —MX$120 entre MX$380 y MX$500— pero **no la exige**: si el
+      humano quiere un colchón explícito, es **un número que fija él**.)*
       *(**⚠ Lo que NO cubre**: la **oferta recortada por cherry-pick** puede quedar por debajo de la tarifa y
       depositar **MX$0** — se señalaba en §P.12 y §P.5.1 como **pregunta abierta 25**. **⚠ CERRADO en la 6ª
       ronda por D34**: eso lo cubre **otro dial y en otro momento** — el **neto mínimo para emitir**, en la
-      **emisión**. **Esta validación no cambia**: sigue siendo `tarifa < mínimo`, bloqueante, en M10.)*
+      **emisión**. ~~**Esta validación no cambia**: sigue siendo `tarifa < mínimo`, bloqueante, en M10.~~
+      **⚠ Esa última frase es la que D44 corrige**: **lo que NO cambia es el REPARTO** —el cherry-pick se
+      sigue cubriendo **solo en la emisión**, porque **M10 no ve el recorte**—, pero **la validación de M10 sí
+      cambia de forma**, porque el neto mínimo **también es un dial** y M10 **sí ve sus propios diales**.
+      **Dos guardas, dos bases, cero solapamiento: M10 protege del DIAL MAL PUESTO; la emisión, de la OFERTA
+      MAL ARMADA.**)*
 
 | Dial del ciclo | Default | Qué gobierna |
 |---|---|---|
@@ -4145,7 +4225,7 @@ en la 6ª — origen único de los números)**
 | **Plazo para que el paquete salga** (D4/D14/D21) | **3 días hábiles** | Sin envío ⇒ **`expirada`** (§P.4). Se **congela** al entregar la guía |
 | **Plazo de caducidad de la solicitud sin oferta** (**D33**) | **7 días hábiles** | *(NUEVO 5ª ronda)* Sin que **nadie oferte**, la solicitud queda **`expirada` con motivo `no_offer`** *(6ª ronda — ~~`caducada`~~)* y sale el correo de **«no procederemos»** (§P.3.1). Se cuenta **desde la creación** y **se congela** ahí; ~~**NO se reinicia** si se cancela una oferta *(6ª ronda)*~~ **⚠ CORREGIDO en la 7ª ronda (D38): SÍ se reinicia — cancelar una oferta emitida devuelve la solicitud a la fila con los 7 días hábiles COMPLETOS** (§P.3.1, criterio 172). **Es el único plazo que corre contra NOSOTROS** y **no lleva recordatorio al cliente**. *(7ª ronda, D39: **no hace falta agotarlo** — el operador puede **declinar ahora** y cerrar la solicitud el día 1, con el mismo correo y el mismo estado terminal)* |
 | **Mínimo de compra** (D18) | **MX$500** *(inclusivo)* | Por debajo, **no se crea la solicitud** (§P.12). **Desde él, la guía va por nuestra cuenta** (D31). Se juzga sobre el **total cotizado**, **al crear** |
-| **Neto mínimo para EMITIR la oferta** (**D34**) | **MX$200** *(inclusivo)* | *(NUEVO 6ª ronda; **borde confirmado en la 7ª, D40**: **MX$200 exactos SÍ se emiten** — la condición de bloqueo es **`neto < 200`**)* Por debajo, **la oferta NO se emite y el correo NO se manda** — el operador **compra más líneas o no oferta** (§P.2). Se juzga sobre el **neto** (`bruto ofertado − tarifa congelada`), **al emitir**, contra el resultado del **cherry-pick**. **Único dial que NO se evalúa en M10 ni en un barrido.** **Sube a MX$200** el bloqueo de `neto ≤ 0` que ya existía. **No toca** el piso de cero al pagar (criterio 152) |
+| **Neto mínimo para EMITIR la oferta** (**D34**) | **MX$200** *(inclusivo)* · **⚠ mínimo legal: MX$0.01 — el 0 se rechaza (D45)** | *(NUEVO 6ª ronda; **borde confirmado en la 7ª, D40**: **MX$200 exactos SÍ se emiten** — la condición de bloqueo es **`neto < 200`**)* Por debajo, **la oferta NO se emite y el correo NO se manda** — el operador **compra más líneas o no oferta** (§P.2). Se juzga sobre el **neto** (`bruto ofertado − tarifa congelada`), **al emitir**, contra el resultado del **cherry-pick**. ~~**Único dial que NO se evalúa en M10 ni en un barrido.**~~ **⚠ 10ª ronda (D44): su BLOQUEO POR OFERTA sigue siendo solo de la emisión, pero el dial SÍ participa como término en la validación entre diales de M10** (criterio 127). **Sube a MX$200** el bloqueo de `neto ≤ 0` que ya existía. **⚠ Y por eso NO puede valer 0 (D45): con el piso en 0 la condición `neto < 0` nunca se cumple y volvería a ser emitible la oferta de MX$0.** El suelo de **un centavo** existe **para impedir esa oferta**, no como rango arbitrario: `neto < MX$0.01` **es exactamente** `neto ≤ MX$0` — **la guarda vieja convertida en el suelo del dial**. **Quien baje ese suelo desarma el criterio 167(b).** **No toca** el piso de cero al pagar (criterio 152) |
 | ~~**Umbral de guía a nuestro costo** (D18b)~~ | ~~**MX$1,000** *(inclusivo)*~~ | **⚠ RETIRADO en la 5ª ronda (D31): dial SIN OBJETO.** **La guía la ponemos SIEMPRE**, desde el mínimo, así que **no hay umbral que configurar** (§P.4, §P.12). **No se implementa** |
 | **Tope de oferta del operador** (D13/**D24**) | **MX$1,500** | Bruto por encima del cual la oferta **la autoriza el súper-admin** (§P.2). Incluye los **overrides** (D26) |
 | **Tope general de piezas por variante** (D15/**D29**) | **10 piezas** | Dispara **«no comprar»** en cartas **sin bounty**; **nunca bloquea** (§P.2). *(5ª ronda, D32: con el **objetivo del bounty obligatorio**, **siempre hay contra qué comparar**; **6ª ronda, D35**: ese objetivo tiene **default 2** y **los bounties viejos se llenan con 2** — el default **NO es un dial de M10**, es el valor inicial de un campo editable por bounty, §N.6)* |
@@ -4371,9 +4451,11 @@ en la 6ª — origen único de los números)**
 > oferta con MX$0** ni se publica; **operador** intentando ofertar **por encima de su tope** → la oferta **no
 > sale** y **queda esperando la autorización del súper-admin** (D13); **operador** intentando **pagar** →
 > **bloqueado y registrado**; cambio de los **plazos o de los umbrales en M10** → surte efecto **sin
-> redeploy**, queda **auditado** y **no acorta** fechas ya comunicadas; **intentar guardar en M10 una tarifa de
-> envío del buylist igual o mayor que el MÍNIMO DE COMPRA** (p. ej. **$500** o **$600** con mínimo de
-> **$500**) → **NO se guarda** y el error dice **por qué** (criterio 127, **re-anclado por D31**); **buscar en
+> redeploy**, queda **auditado** y **no acorta** fechas ya comunicadas; **intentar guardar en M10 una
+> combinación de diales donde `tarifa de envío del buylist` + `neto mínimo para emitir` SUPERE el MÍNIMO DE
+> COMPRA** (p. ej. **$500** o **$600** de tarifa con mínimo de **$500** — **los dos siguen sin guardarse**, y
+> con **D44** tampoco guarda **$499**) → **NO se guarda** y el error dice **por qué** (criterio 127,
+> **re-anclado por D31, re-derivado a tres términos por D44**); **buscar en
 > M10 el dial de «umbral de recorte material»** → **no existe** (D28 quedó sin objeto); **buscar en M10 el
 > dial de «umbral de guía»** → **no existe** (D31 lo dejó sin objeto) y **ninguna conducta del sistema depende
 > de él**; **crear un bounty sin capturar su objetivo** → **no se guarda** (D32) —aunque en la práctica **el campo
@@ -4437,7 +4519,8 @@ ronda por D31**)**
       viven en M10 como dos números independientes.~~ **⚠ SUPERSEDED por D31 (5ª ronda)**: **el umbral de guía
       se retira**. Los **dos diales de monto** que quedan son el **mínimo de compra** y la **tarifa de envío
       del buylist**; **mover uno no mueve el otro** (aunque **una validación bloqueante los relaciona**:
-      `tarifa < mínimo`, criterio 127).
+      ~~`tarifa < mínimo`~~ **`tarifa + neto mínimo para emitir ≤ mínimo`** —**10ª ronda, D44**; el tercer
+      dial de monto entró con D34—, criterio 127).
 - [ ] **UN solo borde, y es INCLUSIVO** *(3ª ronda, pregunta 19; **simplificado en la 5ª por D31**)*:
       - **$500 inclusivo**: una solicitud de **exactamente MX$500 SÍ se crea** **y SÍ lleva guía nuestra**.
       - ~~**$1,000 inclusivo**: una oferta de exactamente MX$1,000 SÍ lleva guía nuestra.~~ **⚠ SIN OBJETO
@@ -5794,7 +5877,9 @@ ronda por D31**)**
     mercado** queda en **«precio pendiente»**, **no se publica** y **se escala al dueño** — **nunca** hereda
     el precio de compra ni sale a la venta con MX$0.
 127. **Los diales del ciclo son editables y auditados (D8, ampliado 2ª ronda, completado en la 3ª,
-    **corregido en la 4ª por D30**, **en la 5ª por D31/D33** y **en la 6ª por D34**)**: el súper-admin edita
+    **corregido en la 4ª por D30**, **en la 5ª por D31/D33**, **en la 6ª por D34** y **en la 10ª por D44/D45
+    — la validación entre diales pasa a TRES términos y el neto mínimo gana un suelo legal; APROBADO por el
+    humano, preguntas 34 y 35 CERRADAS**)**: el súper-admin edita
     en **M10** los **NUEVE diales de §P.10** — plazo de aceptación (**2 días hábiles**), plazo de envío
     (**3 días hábiles**), **plazo de caducidad de la solicitud sin oferta (7 días hábiles — D33)**, mínimo de
     compra (**MX$500**), tope de oferta del operador (**MX$1,500**), tope de piezas por variante (**10**),
@@ -5809,31 +5894,98 @@ ronda por D31**)**
     M10 **ni ninguna conducta del sistema que dependa de ellos**. ~~**La cuenta se mantiene en OCHO** porque
     **salió el umbral de guía y entró el plazo de caducidad**.~~ **⚠ 6ª ronda: la cuenta sube a NUEVE** —
     entra el **neto mínimo para emitir** (D34) y **no sale ninguno**.
-    **⚠ Dónde se evalúa cada dial, dicho aquí porque es lo que se implementa mal** *(6ª ronda)*: **ocho** de
-    los nueve se evalúan en **barridos** o en **la propia pantalla de diales**; el **noveno —el neto mínimo
-    para emitir— se evalúa en la EMISIÓN de la oferta** (criterio **167**). **M10 configura su número pero no
-    lo valida contra nada**, porque **M10 no ve el recorte que hizo el operador**. Verificable: **no existe**
-    en M10 ninguna validación cruzada que involucre al neto mínimo, **y sí existe** el bloqueo al emitir.
-    **Validación entre diales — REFORMULADA en la 4ª, RE-ANCLADA en la 5ª** *(D30 → D31)*: ~~M10 rechaza una
+    **⚠ Dónde se evalúa cada dial, dicho aquí porque es lo que se implementa mal** *(6ª ronda; **PRECISADO en
+    la 10ª por D44**)*: **ocho** de los nueve se evalúan en **barridos** o en **la propia pantalla de
+    diales**; el **noveno —el neto mínimo para emitir— se evalúa en la EMISIÓN de la oferta** (criterio
+    **167**). **El BLOQUEO POR OFERTA no vive en M10**, porque **M10 no ve el recorte que hizo el operador**
+    — esa razón es cierta y **no se toca**.
+    ~~**M10 configura su número pero no lo valida contra nada.** Verificable: **no existe** en M10 ninguna
+    validación cruzada que involucre al neto mínimo, **y sí existe** el bloqueo al emitir.~~
+    **⚠ CORREGIDO en la 10ª ronda (D44) — la frase tachada prohibía MÁS de lo que su propia razón
+    justifica.** Que M10 **no vea el recorte** descarta **exactamente una cosa**: validar el **neto de una
+    oferta concreta**. **No** descarta validar la **combinación de diales**, que M10 **sí ve, porque son sus
+    propios valores** y no hay ninguna oferta de por medio. **Regla vigente: el neto mínimo SÍ participa —como
+    término— en la validación cruzada de diales** (abajo); **lo que no existe** es una validación de M10 sobre
+    el neto de **una oferta**. **Verificable en dos mitades**: **(i)** en M10 **no aparece** ningún campo,
+    pantalla ni mensaje de error que mencione una **oferta**, un **bruto ofertado** o un **recorte** —la
+    validación solo habla de diales—; **(ii)** **y sí existe** el bloqueo al emitir (criterio 167).
+    *(**Esto es una PRECISIÓN, no una reversión**: los **dos** bloqueos siguen existiendo, con **bases
+    distintas y cero solapamiento** — **M10 protege del DIAL MAL PUESTO; la emisión protege de la OFERTA MAL
+    ARMADA**.)*
+    **Validación entre diales — REFORMULADA en la 4ª, RE-ANCLADA en la 5ª, RE-DERIVADA A TRES TÉRMINOS en la
+    10ª** *(D30 → D31 → D44)*: ~~M10 rechaza una
     tarifa de envío mayor a `umbral de guía × (1 − umbral de recorte material)` (**MX$800**)~~; ~~M10 rechaza
     una tarifa **igual o mayor que el umbral de guía** (**MX$1,000**)~~ — **ambas fórmulas citan diales que
-    dejaron de existir**. **Regla vigente: M10 rechaza guardar una `tarifa de envío del buylist` que sea
-    IGUAL O MAYOR que el `mínimo de compra`.** Razón: el mínimo es **inclusivo** (criterio 158), así que **la
-    solicitud más chica que aceptamos vale exactamente el mínimo**; si la tarifa lo igualara, **una operación
-    con TODO aprobado depositaría MX$0** — una oferta que no paga nada aunque el vendedor cumpla perfecto.
-    Verificable en M10 con **cuatro intentos** contra `mínimo = MX$500`: `tarifa = MX$180` ⇒ **guarda**;
-    `tarifa = MX$499` ⇒ **guarda**; `tarifa = MX$500` (igual) ⇒ **NO guarda**; `tarifa = MX$600` (mayor) ⇒
-    **NO guarda**, y el error dice **por qué**. La validación es **bloqueante**, no una advertencia, y aplica
-    **en los dos sentidos** (bajar el **mínimo de compra** por debajo de la tarifa **también se rechaza**).
+    dejaron de existir**. ~~**Regla vigente: M10 rechaza guardar una `tarifa de envío del buylist` que sea
+    IGUAL O MAYOR que el `mínimo de compra`.**~~ **⚠ TERCERA re-derivación, 10ª ronda (D44): la regla de DOS
+    términos se quedó corta cuando D34 metió un tercer dial en la misma aritmética.** No es que estuviera mal:
+    es que **se escribió antes de que existiera el neto mínimo** y nadie la re-derivó al añadirlo.
+    **REGLA VIGENTE (tres términos): M10 rechaza guardar una combinación de diales en la que
+    `tarifa de envío del buylist` + `neto mínimo para emitir` sea MAYOR que el `mínimo de compra`.**
+    Dicho en una frase: **el bruto mínimo OFERTABLE nunca puede superar el mínimo de COMPRA** — o sea,
+    **nunca prometemos comprar desde una cifra que después el sistema no podría ni ofertar**.
+    **Razón — es la MISMA de siempre, con el dial que faltaba**: el mínimo es **inclusivo** (criterio 158), así
+    que **la solicitud más chica que aceptamos vale exactamente el mínimo**. Si la tarifa lo igualara, esa
+    operación **con TODO aprobado depositaría MX$0** (el fallo viejo). Y si `tarifa + neto mínimo` lo supera,
+    aparece un fallo **peor**: esa misma solicitud **no se puede ni EMITIR** — el vendedor cotiza **exactamente
+    la cifra que le prometimos**, crea su solicitud, espera **7 días hábiles** y recibe un *«no procederemos»*
+    **que no decidió ninguna persona, sino una combinación de diales**. *Un trato que no le paga nada a quien
+    cumplió perfecto era una **oferta rota**; un trato que ni siquiera se puede formular es una **promesa
+    rota**.*
+    **La regla vieja no se pierde: queda CONTENIDA en la nueva** — y **desde D45 esto está GARANTIZADO, no
+    supuesto**: como el neto mínimo **nunca puede valer 0** (su suelo legal es **MX$0.01**, criterio 167f),
+    `tarifa + neto ≤ mínimo` **siempre implica** `tarifa < mínimo`. *(Sin ese suelo, un neto mínimo de 0
+    degeneraría la regla nueva en `tarifa ≤ mínimo` y **dejaría pasar el `tarifa = mínimo` que la vieja
+    rechazaba** — o sea, el suelo del dial también sostiene esta contención.)*
+    **Por eso SUSTITUYE y no se apila**: conservar las dos
+    dejaría una regla que **no puede disparar nunca**, y una regla que nunca dispara es la que el primer
+    refactor borra *«porque no hace nada»*.
+    **¿Por qué `≤` y no `<`? Porque la igualdad es SANA**: con `tarifa + neto mínimo = mínimo`, la solicitud
+    mínima aprobada entera produce un neto **exactamente igual al piso**, y el bloqueo de emisión es
+    `neto < piso` (criterio 167a) ⇒ **la oferta sale**. Rechazar la igualdad prohibiría una configuración que
+    **funciona**.
+    **Verificable en M10 con estos intentos, contra `mínimo de compra = MX$500` y `neto mínimo = MX$200`**
+    *(los dos primeros y los dos últimos son los «cuatro intentos» de la 6ª ronda; **solo uno cambia de
+    resultado**)*:
+    | Intento | `tarifa + neto mínimo` vs `mínimo` | ¿Guarda? |
+    |---|---|---|
+    | `tarifa = MX$180` **(default)** | `380 ≤ 500` | **sí** — con MX$120 de holgura |
+    | `tarifa = MX$300` | `500 ≤ 500` | **sí** — ⚠ **la igualdad es legal**; es el **techo exacto** de la tarifa con estos diales |
+    | `tarifa = MX$300.01` | `500.01 > 500` | **NO** — un centavo más y la solicitud mínima deja de ser ofertable |
+    | `tarifa = MX$499` | `699 > 500` | **NO** — ⚠ **ESTE ES EL ÚNICO RESULTADO QUE CAMBIA en la 10ª ronda** *(antes decía «guarda»)* |
+    | `tarifa = MX$500` (igual al mínimo) | `700 > 500` | **NO** — *sin cambio* |
+    | `tarifa = MX$600` (mayor al mínimo) | `800 > 500` | **NO** — *sin cambio* |
+    **Y dos intentos más, que prueban que la regla nueva no perdió nada ni inventó nada**:
+    | Intento | Suma vs `mínimo` | ¿Guarda? | Qué demuestra |
+    |---|---|---|---|
+    | `tarifa = MX$499.99`, `neto mínimo = MX$0.01` | `500 ≤ 500` | **sí** | con el neto mínimo en su **valor mínimo legal** (**MX$0.01**, D45), **la regla nueva reproduce EXACTAMENTE la vieja** (`MX$499.99 < MX$500` guardaba) |
+    | `tarifa = MX$180`, **`neto mínimo = MX$0`** | *(no se evalúa)* | **NO** | **el 0 se rechaza por sí solo** (**D45**, criterio 167f): **no es un valor legal del dial**, con independencia de la suma |
+    | `tarifa = MX$200`, `neto mínimo = MX$350` | `550 > 500` | **NO** | **tres diales legales por separado** que juntos rompen la promesa — el caso que la regla de dos términos dejaba pasar |
+    En todos los rechazos **el error dice por qué**, nombrando **los tres números** (tarifa, neto mínimo y
+    mínimo de compra). La validación es **bloqueante**, no una advertencia; se evalúa sobre el **estado
+    resultante** (M10 guarda parcial: hay que validar los valores **vigentes más los que vienen en el
+    cambio**, o se rompe el invariante mandando una sola clave); y **aplica en los TRES sentidos** —~~los dos
+    sentidos~~—: **subir la tarifa**, **subir el neto mínimo** o **bajar el mínimo de compra** se rechazan
+    **igual**. *(Eran dos sentidos con dos términos; con tres términos son tres.)*
+    **⚠ Consecuencia operativa para el súper-admin, dicha en voz alta porque es la que se va a sentir**: con
+    `mínimo = MX$500` y `neto mínimo = MX$200`, **la tarifa más alta configurable es MX$300**, no MX$499. Si
+    hace falta una tarifa mayor, **primero se sube el mínimo de compra o se baja el neto mínimo**, y luego la
+    tarifa — el orden importa porque cada guardado se valida entero.
     *(**Colchón: ninguno.** **Pregunta 24 CERRADA en la 5ª ronda**: el humano aceptó a ojos abiertos que en el
-    piso de MX$500 el envío pese **36%**.)*
+    piso de MX$500 el envío pese **36%**. **D44 no reabre esa pregunta**: con los defaults **aparece holgura
+    DE HECHO** —MX$120 entre MX$380 y MX$500— pero **la validación no exige ninguna**; si el humano quiere un
+    colchón explícito, es **un número que fija él**.)*
     *(**⚠ Alcance de la garantía, dicho explícitamente**: esta validación protege la **solicitud completa**,
     **no** la **oferta recortada por cherry-pick** —el mínimo **no se re-aplica a la oferta**, criterio 158c—.
     Un bruto ofertado por debajo de MX$180 **sí** podía depositar MX$0 con todo aprobado; el vendedor **no
     queda debiendo** (criterio 152) y **ve el neto antes de aceptar** (criterio 163). ~~**Pregunta abierta
     25**.~~ **⚠ CERRADO en la 6ª ronda (D34)**: **ese hueco lo tapa el criterio 167**, no este. **Los dos
-    conviven**: **127** = *«ninguna solicitud aceptable puede depositar cero si todo llega en NM»*;
-    **167** = *«ninguna oferta se emite si su neto no llega a MX$200»*.)*
+    conviven**, y **la frase del 127 se actualiza en la 10ª ronda (D44)** para decir lo que ahora garantiza:
+    **127** = ~~*«ninguna solicitud aceptable puede depositar cero si todo llega en NM»*~~ *«**ninguna
+    combinación de diales puede dejar la solicitud mínima sin poder depositar ni poder ofertarse**»*;
+    **167** = *«ninguna oferta se emite si su neto no llega a MX$200»*.
+    **Dicho con la distinción que importa: el 127 mira SOLO DIALES y actúa al GUARDARLOS; el 167 mira UNA
+    OFERTA y actúa al EMITIRLA. Ninguno de los dos anula ni duplica al otro.**)*
 128. **Celular obligatorio en los tres puntos (D11)** *(⚠ **PRECISADO 2026-09-05**, a raíz de un hallazgo de
     QA: los tres incisos decían **dónde** se exige el celular pero no **a quién**, y esa ambigüedad se
     resolvió sola en la implementación. **Se precisa el sujeto; no se cambia el requisito.** Ver (f))*:
@@ -6306,14 +6458,43 @@ solicitud que caduca (v2.1, D31–D33; §E/§H/§N.6/§P.1/§P.2/§P.3/§P.3.1/�
     ni de **MX$20**;
     **(c)** **el mensaje de rechazo dice por qué y cuánto falta** —bruto actual, envío, neto y la
     diferencia—, igual que el cotizador le dice al vendedor cuánto le falta para el mínimo (criterio 158);
-    **(d)** **el bloqueo vive en la EMISIÓN**: **no** es una validación de M10 (criterio 127) **ni** de la
-    aceptación. Verificable: la pantalla de diales **guarda MX$200 sin validarlo contra nada**, y **el
-    bloqueo aparece al emitir**;
+    **(d)** **el bloqueo POR OFERTA vive en la EMISIÓN**: **no** lo aplica M10 **ni** la aceptación *(10ª
+    ronda: se añade «por oferta» porque M10 **sí** tiene una validación **entre diales** —criterio 127—, que
+    es **otra cosa y no mira ninguna oferta**)*.
+    ~~Verificable: la pantalla de diales **guarda MX$200 sin validarlo contra nada**, y **el
+    bloqueo aparece al emitir**.~~ **⚠ PRECISADO en la 10ª ronda (D44) — la espina dorsal de este inciso NO
+    cambia** (*el bloqueo por oferta sigue siendo de la emisión, sigue siendo `neto < piso` y sigue siendo
+    inclusivo en MX$200*); **lo que se corrige es el «sin validarlo contra nada», que decía de más**.
+    **Verificable así**: la pantalla de diales **guarda MX$200 validando ÚNICAMENTE que la combinación de
+    diales deje ofertable la solicitud mínima** (`tarifa + neto mínimo ≤ mínimo de compra`, criterio 127), y
+    **el bloqueo por oferta aparece al emitir**. **Verificable además por lo que NO hace**: al guardar el
+    dial, M10 **no consulta ninguna solicitud, ninguna oferta ni ningún bruto ofertado** —solo sus propios
+    tres números—, y **mover el dial no bloquea, desbloquea ni recalcula ninguna oferta ya emitida**;
     **(e)** **no se puede saltar**: se rechaza también **directo contra el servidor**, y también cuando el
     neto baja del piso **por un override manual** (D26);
-    **(f)** **es un dial** (§P.10, el noveno): editable en M10 sin redeploy, **auditado** y **congelado por
-    solicitud**. Bajarlo a **MX$0** hace que **el bloqueo se comporte como el `neto ≤ 0` que ya existía** —
-    **D34 es ese mismo bloqueo con número**, no uno nuevo;
+    **(f)** **es un dial CON SUELO** (§P.10, el noveno): editable en M10 sin redeploy, **auditado** y
+    **congelado por solicitud**, **pero NUNCA por debajo de MX$0.01 (un centavo)** *(**10ª ronda, D45** —
+    cierra la pregunta 35)*.
+    ~~Bajarlo a **MX$0** hace que **el bloqueo se comporte como el `neto ≤ 0` que ya existía**.~~
+    **⚠ CORREGIDO: eso era FALSO y por eso el cero deja de ser legal.** El bloqueo es **`neto < piso`**
+    (inciso **a**, D40). Con el piso en **MX$0** la condición es `neto < 0`, que **NUNCA se cumple** ⇒ **una
+    oferta de neto MX$0 SÍ se emitiría**, y con ella **el correo que el inciso (b) prohíbe**. *Poner el dial en
+    cero no era «apagar el piso»: era **abrir el agujero** que D34 vino a cerrar.*
+    **⚠ POR QUÉ EL SUELO ES ESE NÚMERO — se escribe PEGADO al número, a propósito, y no se toca sin releer
+    esto**: el suelo **no es un rango arbitrario ni una validación de forma**. Existe **para una sola cosa:
+    que sea imposible emitir una oferta de MX$0**. Con **un centavo**, `neto < MX$0.01` **es exactamente**
+    `neto ≤ MX$0` ⇒ **la guarda vieja no se perdió: se convirtió en el SUELO del dial**, y por eso el suelo
+    **no puede bajar más**. **Quien lo relaje está desarmando el inciso (b), no aflojando un rango.**
+    **⚠ Y el coste que el humano aceptó a ojos abiertos, dicho aquí para que quede con dueño**: se ofreció la
+    alternativa de **un invariante independiente del dial** —*«jamás se emite una oferta de MX$0, esté como
+    esté configurado»*— y **se eligió esta**, más simple y más directa. La contrapartida es que **toda la
+    protección vive en la validación del dial**: **si alguien la relaja, el agujero vuelve**. No hay una
+    segunda red debajo.
+    **Verificable en tres intentos**: `piso = MX$0` ⇒ **NO se guarda** y el error dice **por qué**;
+    `piso = MX$0.01` ⇒ **se guarda** (es el valor más chico legal) y entonces una oferta de **neto MX$0 no se
+    emite** mientras que una de **neto MX$0.01 sí**; `piso = MX$200` (default) ⇒ **se guarda**.
+    **Lo que NO cambia**: **D34 sigue siendo el mismo bloqueo con número**, no uno nuevo, y el borde sigue
+    siendo **inclusivo** (inciso **a**);
     **(g)** **el cherry-pick sobre lotes grandes sigue siendo posible**: una solicitud cotizada en
     **MX$3,000** recortada a un bruto de **MX$600** (neto **MX$420**) **se emite sin fricción**. El piso
     **no** es «el mínimo de compra otra vez» (criterio 158c sigue vigente: el mínimo **no** se re-aplica).
@@ -7218,7 +7399,9 @@ El MVP se considera "lanzado" cuando, en una **beta cerrada**, se cumple en un p
    la garantía se ancla en el **mínimo de compra** — **la tarifa de envío es estrictamente menor que el
    mínimo** (**MX$180 < MX$500**) y el mínimo es **inclusivo**, de modo que **una SOLICITUD COMPLETA con todo
    aprobado nunca deposita cero**. **M10 protege esa relación con una validación bloqueante** (§P.10,
-   criterio 127). **Lo que la garantía NO cubre y antes sí quedaba cubierto de hecho**: una **oferta recortada
+   criterio 127). *(**10ª ronda, D44**: esa validación ahora protege **algo más fuerte** —que la solicitud
+   mínima no solo **deposite**, sino que además **se pueda OFERTAR**: `tarifa + neto mínimo ≤ mínimo`—. **La
+   garantía de este bullet queda contenida en la nueva y no cambia**.)* **Lo que la garantía NO cubre y antes sí quedaba cubierto de hecho**: una **oferta recortada
    por cherry-pick** puede quedar por debajo de la tarifa y **depositar MX$0 con todo aprobado**, porque el
    mínimo **no se re-aplica a la oferta** (criterio 158c). Antes de D31 eso no podía ocurrir, porque en esa
    zona de monto **el vendedor pagaba su propio envío y no había nada que descontarle**. **El invariante de
@@ -7607,9 +7790,77 @@ ux-ui; ver §E/§H/§P.3/§P.3.1/§P.5.1/§P.12/M5 y criterios 173–175):**
    descuenta no requiere saber cuánto es**— y **los tres montos siguen en la oferta**. **No cierra la
    pregunta 30**: los **términos** son otra superficie. Ver §E, §H y criterio **177**.
 
+**Decisiones v2.1 — décima ronda (2026-09-06) — APROBADAS POR EL HUMANO:**
+
+106. **D44 — La validación entre diales del criterio 127 pasa a TRES términos. ⚠ CORRIGE a este documento.**
+   **De dónde sale, y por qué no es un defecto de nadie**: QA ejercitó los **cuatro intentos** del criterio
+   127 contra el sistema vivo y **uno falló** — con `mínimo = MX$500`, una `tarifa = MX$499` **no se guarda**,
+   aunque el criterio decía *«guarda»*. El **arquitecto** verificó que **el código implementa el contrato al
+   pie de la letra** y que **el contrato es el que discrepa de este documento**; por la regla de conflicto
+   (**`PROJECT.md` > contrato > código**) **el que tenía que moverse era este documento**, y se negó —con
+   razón— a ratificarlo él: **es decisión de producto**.
+   **Qué se decide**: ~~`tarifa de envío` < `mínimo de compra`~~ ⇒ **`tarifa de envío del buylist` +
+   `neto mínimo para emitir` ≤ `mínimo de compra`**, bloqueante, en M10, evaluada sobre el **estado
+   resultante** y **en los tres sentidos**.
+   **Por qué se RATIFICA la regla de tres términos en vez de revertir el código**, en cuatro razones:
+   **(a) La causa del desajuste es un descuido de este documento, no una invención de ingeniería.** La
+   validación se escribió con **dos** diales; la **6ª ronda (D34)** metió un **tercero** —el neto mínimo— en
+   **la misma aritmética** y **nadie la re-derivó**. Es la **tercera** vez que esta validación se re-ancla
+   (D30, D31, D44) y las tres veces por lo mismo: **cambió el juego de diales**.
+   **(b) La razón declarada del 127 no alcanza a prohibir lo que su frase prohibía.** *«M10 no ve el recorte
+   que hizo el operador»* es **cierto** y descarta **exactamente una cosa**: validar el **neto de una oferta
+   concreta**. Pero la frase además prohibía validar **la combinación de diales**, que M10 **sí ve porque son
+   sus propios valores**. **Se corrige una frase cuyo alcance excedía a su justificación** — es una
+   **precisión**, no una reversión.
+   **(c) La regla nueva protege una promesa pública.** Sin ella queda **configurable** una combinación de
+   diales legales por separado —p. ej. `tarifa = MX$200`, `neto mínimo = MX$350`, `mínimo = MX$500`— en la que
+   **prometemos comprar desde MX$500 y después ninguna oferta de esa solicitud se puede emitir**: el vendedor
+   espera **7 días hábiles** y recibe un *«no procederemos»* **que no decidió ninguna persona**.
+   **(d) El coste de revertir es peor que el de ratificar.** La guarda implementada es **la más estricta de
+   las dos** —rechaza de más, nunca de menos—, **no es una fuga viva** (con los defaults **no dispara**; hace
+   falta configurar mal tres diales a la vez) y **mover una guarda de dinero dos veces es peor que sostenerla
+   una vez con dueño**.
+   **Qué NO cambia, y conviene subrayarlo**: **la espina dorsal del criterio 167 se queda intacta** —el
+   **bloqueo por oferta** sigue viviendo **solo en la emisión**, sigue siendo `neto < piso` y sigue siendo
+   **inclusivo en MX$200**—; **ningún flujo de cara al vendedor se mueve**; y **de los cuatro intentos de M10,
+   solo `MX$499` cambia de resultado**. Esta regla **solo restringe lo que un súper-admin puede configurar**.
+   **Lo que sí se siente**: con los defaults, **la tarifa más alta configurable pasa de MX$499 a MX$300**.
+   **⚠ RESPUESTA DEL HUMANO (2026-09-06): RATIFICA.** Aceptó **con el número delante** que la tarifa máxima
+   configurable baje de **MX$499 a MX$300**, y confirmó el supuesto de fondo: **prefiere que el sistema no se
+   pueda configurar hacia una promesa rota, aunque cueste libertad de configuración**. **Cierra sin tocar
+   código** —el código ya implementa la de tres—; **el contrato recupera su vigencia sin cambiar una línea**.
+   Ver §F/M10, §H, §P.10 y criterios **127** y **167(d)**.
+
+107. **D45 — El CERO deja de ser un valor legal del dial «neto mínimo para emitir». Suelo: MX$0.01.**
+   **De dónde sale**: **hallazgo NUEVO que no reportó QA** — apareció al releer el criterio 167 completo para
+   redactar D44. **El criterio se contradecía a sí mismo**: el **167(a)** fija el bloqueo en **`neto < piso`**
+   (D40, confirmado por el humano **sin cambio**) y el **167(f)** afirmaba que bajarlo a cero *«se comporta
+   como el `neto ≤ 0` que ya existía»*. **Es falso**: con el piso en **MX$0** la condición es `neto < 0`, que
+   **nunca se cumple**, así que **saldría la oferta de MX$0** que el **167(b)** prohíbe expresamente.
+   **Qué se decide**: **el valor mínimo legal del dial es MX$0.01 (un centavo)**; **MX$0 se rechaza al
+   guardar**, con error que dice **por qué**. **Se corrige el (f). El (a) NO se toca.**
+   **Por qué un centavo y no otra cifra** *(el valor lo fija producto, y esta es la razón)*: es **el número más
+   chico que hace el trabajo, y ni uno más**. Con un centavo, `neto < MX$0.01` **es exactamente** `neto ≤ MX$0`
+   ⇒ **la guarda vieja no se perdió: se convirtió en el suelo del dial**. Cualquier cifra **mayor** sería
+   **inventar una política** sobre cuánto debe valer una oferta mínima — y para eso **ya está el dial**, que
+   hoy vale **MX$200** y **el humano puede mover**. *El suelo no opina sobre el negocio; solo impide el cero.*
+   **⚠ EL PORQUÉ VIVE PEGADO AL CUÁNTO — y esto es parte de la decisión, no adorno**: el suelo **no es un
+   rango arbitrario**. Existe **para que sea imposible emitir una oferta de MX$0**, y así queda escrito **en el
+   propio criterio 167(f)**, junto al número. **Quien lo baje está desarmando el 167(b)**, no aflojando una
+   validación de forma. *Un límite que no dice de qué protege deja de protegerse a sí mismo* — es el mismo
+   patrón que esta ronda ya cazó en la validación entre diales.
+   **⚠ Alternativa descartada y COSTE ACEPTADO A OJOS ABIERTOS**: se le ofrecieron **dos** formas de cerrarlo
+   — **(i)** un **invariante independiente del dial** (*«jamás se emite una oferta de MX$0, esté como esté
+   configurado»*), o **(ii)** **prohibir el cero en el propio dial**. **Eligió la (ii)**, más simple y más
+   directa. **La contrapartida, dicha sin adornos: toda la protección vive en la validación del dial, así que
+   si mañana alguien la relaja, el agujero vuelve. No hay una segunda red debajo.** Queda registrado aquí y en
+   el criterio para que esa decisión tenga dueño y fecha.
+   **Qué NO cambia**: el borde sigue **inclusivo** (`neto < piso`, D40), el default sigue en **MX$200**, y
+   **D34 sigue siendo el mismo bloqueo con número**, no uno nuevo. Ver §P.10 y criterio **167(f)**.
+
 ---
 
-> **↑ Termina el hilo v2.1 (buylist, 56–105 · D1–D43) · ↓ Reanuda el hilo v2.0 (gancho de grading), que
+> **↑ Termina el hilo v2.1 (buylist, 56–107 · D1–D45) · ↓ Reanuda el hilo v2.0 (gancho de grading), que
 > venía de la «cuarta ronda» de más arriba.**
 > **Los números 56–64 que siguen son del hilo v2.0 y NO son los mismos 56–64 de arriba.** Cítense como
 > **`decisión NN (v2.0)`**. Ver el aviso de numeración al inicio del bloque v2.1.
@@ -8294,6 +8545,20 @@ backend/arquitecto al implementar, sin decisión de producto adicional).
 > Abajo se conservan **las veintisiete preguntas con su desenlace** —qué se cerró, con qué decisión y si
 > **corrigió** el supuesto que yo había tomado—.
 >
+> ## **ESTADO (2026-09-06, 10ª ronda — RESOLUCIÓN DE DIVERGENCIA): se abrieron DOS (34 y 35) y las DOS quedaron CERRADAS el mismo día. NO queda ninguna abierta de esta ronda.**
+> **La 34 llegó a bloquear el cierre del proyecto** —no por lo que preguntaba, sino porque **el criterio 127
+> no se cumplía** y **127 es un criterio de aceptación**—. **El humano RATIFICÓ D44**, así que **deja de
+> bloquear el DoD** y **el supuesto que yo había tomado queda confirmado, no corregido**. Aceptó el coste con
+> el número delante: **la tarifa máxima configurable baja de MX$499 a MX$300**. **Cierra sin tocar código.**
+> **La 35 era un hallazgo nuevo que no reportó QA** —lo vi al releer el criterio 167 entero— y la dejé **sin
+> supuesto a propósito**, sin tocar el 167(f). **El humano decidió (D45): el `0` deja de ser un valor legal
+> del dial; el suelo queda en MX$0.01**, y **eligió esa vía sobre un invariante independiente del dial**,
+> aceptando a ojos abiertos que **si alguien relaja esa validación, el agujero vuelve**.
+> **Ninguna de las dos re-litigó nada cerrado**: la 34 corrigió una frase que **se quedó rancia cuando D34
+> añadió un dial**, y la 35 corrigió una **inconsistencia aritmética** dentro del propio criterio 167.
+> **Dos supuestos míos, dos desenlaces**: el de la 34 **confirmado**; la 35 **no llevaba supuesto** — la
+> decidió el humano de cero.
+>
 > ## **ESTADO (2026-09-01, 7ª ronda — CORRECTIVA FINAL): las 27 anteriores siguen CERRADAS; se abren DOS nuevas (28 y 29), ninguna bloqueante.**
 > **Lo que cerró esta ronda sin preguntar nada**: **(D36/D37)** la **dirección del vendedor** —el **hueco
 > BLOQUEANTE** que hacía que **D16 no fuera ejecutable**: **no hay etiqueta sin domicilio de origen**—, que
@@ -8690,3 +8955,52 @@ la 30 y la 32 siguen abiertas:**
    obligatorio, si se valida y si se puede cambiar solo).
    **Por qué no bloquea**: **el (c) del criterio 128 ya cierra el hueco de negocio** —nadie llega a vender
    sin teléfono— y **ninguna cuenta de staff vende**. Es un dato de conveniencia interna, no de dinero.
+
+34. **✅ CERRADA (2026-09-06) — RATIFICADA. Dejó de bloquear el DoD.** *(Nació **BLOQUEANTE**: era la
+   aprobación o el rechazo de **D44**.)*
+   **Lo que preguntaba**: ¿ratificar la validación entre diales de **TRES términos**, o hacer que el código
+   volviera a los **dos** términos que decía el criterio 127?
+   *(nace de una divergencia que QA midió contra el sistema vivo, 2026-09-06 — ver **D44**)*
+   **El hueco**: **este documento y el contrato decían cosas distintas**, y la regla del proyecto es que
+   **manda este documento** — así que **el que tenía que moverse era este documento**, no el código.
+   **Supuesto que tomé**: **ratificar**. Motivo: la regla de dos términos **se escribió antes de que existiera
+   el neto mínimo (D34)** y nunca se re-derivó; la de tres **contiene** a la vieja, **no cambia ningún flujo
+   de cara al vendedor** y **solo restringe lo que un súper-admin puede configurar**.
+   **Qué decidió el humano**: **RATIFICAR — el supuesto queda CONFIRMADO, no corregido.** Aceptó **con el
+   número delante** que **la tarifa de envío más alta configurable baje de MX$499 a MX$300** (con
+   `mínimo = MX$500` y `neto mínimo = MX$200`), y confirmó la razón de fondo: **prefiere que el sistema no se
+   pueda configurar hacia una promesa rota, aunque cueste libertad de configuración**. Si algún día hace falta
+   una tarifa mayor, **primero se sube el mínimo de compra o se baja el neto mínimo**.
+   **Cómo cierra**: **sin tocar código** —el código ya implementaba la de tres— y **sin cambiar una línea del
+   contrato**, que recupera su vigencia. Lo que se movió fue **este documento**: criterios **127** y
+   **167(d)**, más §F/M10, §H, §P.10 y el flujo negativo de §E.
+
+35. **✅ CERRADA (2026-09-06) por D45 — no era bloqueante.**
+   **Lo que preguntaba**: ¿es **MX$0** un valor legal del dial «neto mínimo para emitir»?
+   *(⚠ **hallazgo NUEVO, no reportado por QA** — lo encontré al revisar el criterio 167 completo para redactar
+   D44, 2026-09-06)*
+   **El hueco**: el **criterio 167(f)** decía que bajar el dial a **MX$0** hace que *«el bloqueo se comporte
+   como el `neto ≤ 0` que ya existía»*. **Eso no cuadraba con la aritmética del propio criterio 167(a)**, que
+   fija el bloqueo en **`neto < piso`**: con el piso en **0**, la condición es `neto < 0` y **una oferta con
+   neto de exactamente MX$0 SÍ se emitiría** — justamente el correo que el **167(b)** prohíbe (*«no existe
+   ningún correo de oferta que anuncie un depósito de MX$0»*). El documento del arquitecto había llegado a la
+   conclusión contraria a la del 167(f): que **el `0` no debe ser un valor legal del dial**.
+   **Supuesto tomado**: **ninguno** — la dejé **sin supuesto a propósito**, porque si `0` es legal o no **es
+   una decisión de producto que nadie había tomado**, y **no modifiqué el 167(f)** mientras estuvo abierta.
+   **Qué decidió el humano (2026-09-06) — D45**: **(a)** — **el `0` deja de ser un valor legal del dial**, y
+   **el valor mínimo legal queda en MX$0.01 (un centavo)**, que fijó producto. Con un centavo,
+   `neto < MX$0.01` **es exactamente** `neto ≤ MX$0` ⇒ **la guarda vieja no se perdió: se convirtió en el
+   suelo del dial**. **Se corrigió el 167(f); el 167(a) NO se tocó** —`neto < piso` es D40 y el humano lo
+   había confirmado sin cambio—.
+   **⚠ Alternativa descartada, con su coste aceptado a ojos abiertos**: se le ofrecieron **dos** salidas — un
+   **invariante independiente del dial** (*«jamás se emite una oferta de MX$0, esté como esté configurado»*)
+   o **prohibir el cero en el propio dial**. **Eligió la segunda**, más simple y más directa. **La
+   contrapartida: toda la protección vive en la validación del dial, así que si alguien la relaja, el agujero
+   vuelve — no hay una segunda red debajo.**
+   **Por qué el «porqué» quedó pegado al número en el criterio**: para que el próximo que revise rangos **sepa
+   qué está desarmando**. El suelo **no es un rango arbitrario**: existe **para impedir la oferta de MX$0**, y
+   así está escrito **dentro del 167(f)**, junto a la cifra. *Un límite que no dice de qué protege deja de
+   protegerse a sí mismo.*
+   **Por qué no bloqueaba**: el dial vive en **MX$200** y **nadie pidió bajarlo**. El agujero **solo se abría
+   si alguien ponía el dial en 0** — pero si se abría, **salía dinero mal anunciado**, y por eso quedó escrito
+   y no en la cabeza de nadie.
