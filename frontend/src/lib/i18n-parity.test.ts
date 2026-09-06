@@ -1,4 +1,6 @@
 import { describe, it, expect } from 'vitest';
+import { readFileSync, readdirSync } from 'node:fs';
+import { join } from 'node:path';
 import es from '../../messages/es.json';
 import en from '../../messages/en.json';
 import { getBadgeSpec, type StatusDomain } from './status-map';
@@ -206,5 +208,231 @@ describe('status-map ↔ i18n coverage', () => {
         expect(enFlat.has(spec.i18nKey), `EN missing ${spec.i18nKey}`).toBe(true);
       }
     }
+  });
+});
+
+/*
+ * ─────────────────────────────────────────────────────────────────────────────
+ * P-55 — LA CLASE QUE FALLÓ: paridad ≠ existencia.
+ *
+ * Qué pasó: `error.BUYLIST_RAW_ONLY` se documentó como añadida (FRONTEND_NOTES §44.4/§44.6) pero
+ * NUNCA existió. La cadena de nivel-request se pegó DENTRO de
+ * `masterSet.separateProductErrorCode`, dejando **dos claves con el mismo nombre en el mismo
+ * objeto**. Efecto en la pantalla del dinero: el `422` de `POST /buylist/requests` caía al
+ * fallback de `useErrorMessage` y pintaba el mensaje EN crudo del servidor — y en modo mock,
+ * donde `api.ts` manda `message: res.code`, el literal `BUYLIST_RAW_ONLY`. Segundo efecto: como
+ * en un duplicado **gana la última**, la teja de producto separado pintaba la frase larga en un
+ * caption de 10px.
+ *
+ * Por qué NINGÚN candado lo vio, y es lo que estos dos tests arreglan:
+ *   1. `keyPaths` recorre el objeto YA PARSEADO, y `JSON.parse` colapsa el duplicado antes de que
+ *      cualquier test mire.
+ *   2. El error estaba IGUAL en los dos idiomas ⇒ la paridad es↔en pasaba en verde.
+ *
+ * El candado de arriba mide SIMETRÍA entre idiomas. Estos miden EXISTENCIA de lo que el código
+ * busca: van contra el CONTRATO y contra el TEXTO del JSON, que son las dos cosas que la paridad
+ * no puede ver.
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+
+/** Todos los `.ts`/`.tsx` de PRODUCCIÓN bajo `src/` (sin tests, sin `node_modules`/`.next`). */
+function productionSources(dir: string, acc: string[] = []): string[] {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const full = join(dir, entry.name);
+    if (entry.isDirectory()) {
+      if (entry.name === 'node_modules' || entry.name === '.next') continue;
+      productionSources(full, acc);
+    } else if (/\.tsx?$/.test(entry.name) && !/\.test\.tsx?$/.test(entry.name)) {
+      acc.push(full);
+    }
+  }
+  return acc;
+}
+
+/**
+ * Unión de literales MAYÚSCULA_CON_GUIONES: `'A' | 'B' | 'C'`. Se exige ≥2 miembros a propósito —
+ * una sola constante suelta no es una unión de códigos de contrato.
+ */
+const CODE_UNION = String.raw`(?:\|\s*)?'[A-Z][A-Z0-9_]{2,}'(?:\s*\|\s*'[A-Z][A-Z0-9_]{2,}')+`;
+
+/**
+ * Códigos de error que el CLIENTE DECLARA poder recibir: una unión de literales colgada de una
+ * propiedad `code:` (los DTO de error del contrato) o de un alias `type …Error… =` (los del mock).
+ * Es deliberadamente ESTRECHO: no basta con nombrar un código en cualquier parte del código —
+ * `FILE_TOO_LARGE`, `VAULT_REQUIRES_ACCOUNT`, `INSUFFICIENT_STOCK` y compañía se manejan con UI
+ * propia en su `catch` y nunca pasan por `error.<CODE>`. Lo que entra aquí es lo que el cliente
+ * declaró como el conjunto de códigos de UNA superficie del contrato.
+ */
+function declaredContractErrorCodes(source: string): string[] {
+  const declaration = new RegExp(
+    String.raw`(?:\bcode\??\s*:\s*|\btype\s+\w*(?:Error|Code)\w*\s*=\s*)(${CODE_UNION})`,
+    'g',
+  );
+  const codes: string[] = [];
+  for (const match of source.matchAll(declaration)) {
+    for (const literal of match[1].matchAll(/'([A-Z][A-Z0-9_]{2,})'/g)) codes.push(literal[1]);
+  }
+  return codes;
+}
+
+/**
+ * Claves duplicadas dentro del MISMO objeto, leídas del TEXTO del JSON.
+ *
+ * `JSON.parse` (y por tanto el `import` del catálogo, y por tanto `keyPaths`) colapsa el duplicado
+ * —gana la última— ANTES de que ningún test pueda mirarlo. Tokenizar el texto es la ÚNICA forma de
+ * verlas. El escáner consume los literales de cadena enteros (con sus escapes), así que una llave,
+ * una coma o un corchete DENTRO de un texto traducido no lo descuadran.
+ */
+function duplicateKeyPaths(text: string): string[] {
+  const duplicates: string[] = [];
+  // Pila de contenedores abiertos. `keys` solo se usa en objetos; `key` es la clave en curso de
+  // ese objeto, y sirve para reconstruir la ruta del duplicado.
+  const stack: { isObject: boolean; keys: Set<string>; key: string }[] = [];
+  let expectKey = false;
+
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i];
+
+    if (char === '"') {
+      let j = i + 1;
+      let raw = '';
+      while (j < text.length && text[j] !== '"') {
+        if (text[j] === '\\') {
+          raw += text[j] + text[j + 1];
+          j += 2;
+          continue;
+        }
+        raw += text[j];
+        j += 1;
+      }
+      const literal = JSON.parse(`"${raw}"`) as string;
+      const top = stack[stack.length - 1];
+      if (top?.isObject && expectKey) {
+        // La ruta del objeto CONTENEDOR: las claves de los ancestros, sin la del propio `top`.
+        const container = stack
+          .slice(0, -1)
+          .filter((frame) => frame.isObject)
+          .map((frame) => frame.key)
+          .filter(Boolean)
+          .join('.');
+        if (top.keys.has(literal)) {
+          duplicates.push(container ? `${container}.${literal}` : literal);
+        }
+        top.keys.add(literal);
+        top.key = literal;
+        expectKey = false;
+      }
+      i = j;
+      continue;
+    }
+
+    if (char === '{') {
+      stack.push({ isObject: true, keys: new Set(), key: '' });
+      expectKey = true;
+    } else if (char === '[') {
+      stack.push({ isObject: false, keys: new Set(), key: '' });
+      expectKey = false;
+    } else if (char === '}' || char === ']') {
+      stack.pop();
+      expectKey = false;
+    } else if (char === ',') {
+      expectKey = stack[stack.length - 1]?.isObject ?? false;
+    }
+  }
+  return duplicates;
+}
+
+describe('códigos de error del contrato ↔ catálogo (candado de EXISTENCIA, no de simetría)', () => {
+  const declared = [
+    ...new Set(
+      productionSources(join(__dirname, '..')).flatMap((file) =>
+        declaredContractErrorCodes(readFileSync(file, 'utf8')),
+      ),
+    ),
+  ].sort();
+
+  /*
+   * Anti-vacuidad. Sin esto, reformatear `contract.ts` (partir una unión, renombrar un alias)
+   * dejaría la extracción en cero y el candado aprobaría MIRANDO AL VACÍO — que es justo el modo
+   * de fallo que se está corrigiendo. Los cinco anclas son la unión por-ítem de
+   * `BuylistBatchQuoteResultDTO` (contrato §6): si el candado deja de verlos, se pone rojo aquí.
+   */
+  it('la extracción encuentra de verdad las uniones de código del contrato', () => {
+    for (const anchor of [
+      'NOT_FOUND',
+      'FINISH_NOT_AVAILABLE',
+      'PRODUCT_NOT_FOUND',
+      'PRODUCT_CARD_MISMATCH',
+      'BUYLIST_RAW_ONLY',
+    ]) {
+      expect(declared, `la unión por-ítem de /buylist/quote/batch ya no se detecta`).toContain(
+        anchor,
+      );
+    }
+  });
+
+  /*
+   * EL CANDADO. `useErrorMessage` (`components/ui/QueryState.tsx`) resuelve `error.<CODE>` y, si no
+   * existe, cae a `apiError.message` — el texto EN crudo del servidor. Todo código que el cliente
+   * declara poder recibir tiene que existir en LOS DOS idiomas: no basta con que es y en coincidan,
+   * porque coincidían perfectamente en el defecto que originó este test.
+   */
+  it.each([
+    ['es', es],
+    ['en', en],
+  ])('%s traduce TODO código de error que el cliente declara recibir', (locale, catalog) => {
+    const keys = new Set(keyPaths(catalog));
+    const missing = declared.filter((code) => !keys.has(`error.${code}`));
+    expect(missing, `${locale}: sin \`error.<CODE>\` para ${missing.join(', ')}`).toEqual([]);
+  });
+
+  /*
+   * La otra mitad de la misma superficie: `MasterSetBinder` interpola el código por-ítem del batch
+   * DIRECTO en `t(\`separateProductErrorCode.${quoteError}\`)`. Una clave que falte ahí no cae a
+   * ningún fallback: next-intl tira `MISSING_MESSAGE`. Se limita a los códigos por-ítem del batch
+   * (los únicos que esa teja puede recibir), no a la unión entera.
+   */
+  const PER_ITEM_BATCH_CODES = [
+    'NOT_FOUND',
+    'FINISH_NOT_AVAILABLE',
+    'PRODUCT_NOT_FOUND',
+    'PRODUCT_CARD_MISMATCH',
+    'BUYLIST_RAW_ONLY',
+  ];
+  it.each([
+    ['es', es],
+    ['en', en],
+  ])('%s tiene teja legible para cada código por-ítem de /buylist/quote/batch', (locale, catalog) => {
+    const keys = new Set(keyPaths(catalog));
+    const missing = PER_ITEM_BATCH_CODES.filter(
+      (code) => !keys.has(`masterSet.separateProductErrorCode.${code}`),
+    );
+    expect(missing, `${locale}: MISSING_MESSAGE en la teja para ${missing.join(', ')}`).toEqual([]);
+  });
+});
+
+describe('catálogos i18n: claves duplicadas (se leen del TEXTO, no del objeto parseado)', () => {
+  it.each([['es'], ['en']])(
+    '%s no define dos veces la misma clave en el mismo objeto',
+    (locale) => {
+      const text = readFileSync(join(__dirname, '..', '..', 'messages', `${locale}.json`), 'utf8');
+      const duplicates = duplicateKeyPaths(text);
+      expect(
+        duplicates,
+        `${locale}.json: clave duplicada (gana la última, y el resto del catálogo no se entera): ${duplicates.join(', ')}`,
+      ).toEqual([]);
+    },
+  );
+
+  /*
+   * El escáner tiene que ser capaz de VER un duplicado, no solo de no encontrarlo. Sin esta prueba,
+   * un bug en el tokenizador convertiría el candado de arriba en un verde permanente.
+   */
+  it('el escáner detecta un duplicado real y no se confunde con llaves dentro de un texto', () => {
+    expect(duplicateKeyPaths('{"a":{"b":"1","b":"2"}}')).toEqual(['a.b']);
+    expect(duplicateKeyPaths('{"a":{"b":"1"},"c":{"b":"2"}}')).toEqual([]);
+    // Llaves, comas y comillas escapadas DENTRO de un valor traducido: no son estructura.
+    expect(duplicateKeyPaths('{"a":"{ \\"b\\": 1, }","b":"x"}')).toEqual([]);
+    expect(duplicateKeyPaths('{"a":[{"x":"1"},{"x":"2"}],"a":"dup"}')).toEqual(['a']);
   });
 });

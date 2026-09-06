@@ -10711,6 +10711,12 @@ Se fueron con su código: `selectType`, `productType.{raw,graded,sealed}`, `filt
 `masterSet.separateProductErrorCode.BUYLIST_RAW_ONLY`. ES y EN en paridad
 (`src/lib/i18n-parity.test.ts` lo exige).
 
+> ⚠️ **Esta afirmación fue FALSA hasta §44.10, y conviene que quede escrito.** En el pase original
+> solo entró **una** de las dos claves: la de nivel-request se pegó dentro de
+> `masterSet.separateProductErrorCode`, de modo que ese objeto tenía **dos claves con el mismo
+> nombre** y `error.BUYLIST_RAW_ONLY` **no existía en ningún idioma**. El documento aseguraba un
+> hecho que el código no tenía. Corregido en §44.10; la frase de arriba ya es cierta.
+
 Cuidado a la vista: `admin.m1.filterBySet` / `admin.m1.searchCards` / `catalog.searchPlaceholder` son
 claves **distintas** con el mismo nombre de hoja en otro namespace — no se tocaron.
 
@@ -10778,13 +10784,96 @@ primera teja habilitada (pendiente es money-safe: lo fija la plataforma al recib
 >    `.next` con ESTE código** o medirá lo de la otra rama — es la misma lección de §43, ahora en
 >    `.next` en vez de `.next-e2e-mock`.
 
+### 44.10 La clave duplicada: por qué 965 pruebas verdes no la vieron (condición del techlead)
+
+**El defecto.** `messages/{es,en}.json` tenían esto, idéntico en los dos idiomas:
+
+```json
+      "BUYLIST_RAW_ONLY": "Solo compramos cartas sueltas (raw).",
+    "BUYLIST_RAW_ONLY": "Solo compramos cartas sueltas (raw) en Near Mint; …",
+```
+
+Dos claves con el mismo nombre **en el mismo objeto**. La segunda —la que §44.4 destinaba a
+`error.BUYLIST_RAW_ONLY`, nivel request— se quedó dentro de `masterSet.separateProductErrorCode`.
+Resultado: `error.BUYLIST_RAW_ONLY` **no existía en ningún idioma**.
+
+**Los dos daños, y el primero es en la pantalla del dinero:**
+
+1. El `422` de `POST /buylist/requests` caía al fallback de `useErrorMessage`
+   (`components/ui/QueryState.tsx`: si no hay `error.<CODE>`, devuelve `apiError.message`) y pintaba
+   el **texto EN crudo del servidor**. En modo mock es peor: `lib/api.ts:1372` manda
+   `message: res.code`, así que se renderizaba **el literal `BUYLIST_RAW_ONLY`**. Es exactamente lo
+   que §44.4 dice que la clave se añadió para evitar.
+2. En un duplicado **gana la última**, así que la teja de producto separado pintaba la frase larga
+   en el caption de `text-[10px]` de `MasterSetBinder.tsx:1013`, en vez de la corta escrita para ese
+   hueco.
+
+**Arreglo:** la corta se queda en `masterSet.separateProductErrorCode`; la larga pasa a `error.`,
+junto a `BUYLIST_LIMIT_EXCEEDED` (el otro código de buylist del namespace).
+
+#### Lo que importa: la CLASE que falló, no el caso
+
+`i18n-parity.test.ts` era **estructuralmente ciego** a esto, por dos razones que se acumulan:
+
+1. `keyPaths` recorre el objeto **ya parseado**, y `JSON.parse` **colapsa el duplicado antes de que
+   el test mire**. Ninguna prueba que importe el catálogo como módulo puede ver una clave repetida.
+2. El error estaba **igual en los dos idiomas**, así que la paridad es↔en pasaba en verde.
+
+**El guardarraíl medía SIMETRÍA es↔en; no medía EXISTENCIA de las claves que el código busca.** Un
+candado de simetría aprueba cualquier defecto que se cometa dos veces con disciplina.
+
+Se añaden dos candados que atacan esa clase, no ese caso:
+
+| Candado | Contra qué mide | Qué lo pone rojo |
+|---|---|---|
+| `%s traduce TODO código de error que el cliente declara recibir` | el **contrato** (no el otro idioma) | quitar `error.<CODE>` de un código declarado — **aunque se quite de los dos idiomas** |
+| `%s no define dos veces la misma clave en el mismo objeto` | el **texto** del JSON | reintroducir cualquier clave duplicada, en cualquier namespace |
+
+El primero extrae del **fuente de producción** las uniones de literales que el cliente declara como
+códigos de error de contrato (`code: 'A' | 'B'…` y `type …Error… = 'A' | 'B'…`) y exige
+`error.<CODE>` en los dos locales. Es deliberadamente **estrecho**: no basta con nombrar un código
+en cualquier parte. `FILE_TOO_LARGE`, `VAULT_REQUIRES_ACCOUNT`, `INSUFFICIENT_STOCK`,
+`CANNOT_DELETE_SELF`, `CLABE_REQUIRED` y `FEATURE_DISABLED` se manejan con UI propia en su `catch` y
+**nunca** pasan por `error.<CODE>`; exigirles traducción sería ruido, y un candado ruidoso se
+desactiva. Hoy la extracción da 7 códigos y los 7 tienen traducción.
+
+El segundo **tokeniza el texto** del JSON (consume los literales de cadena enteros, con sus escapes,
+para que una llave o una coma dentro de un texto traducido no lo descuadre). Es la única forma de
+ver un duplicado: cualquier ruta que pase por `JSON.parse` llega tarde.
+
+Dos detalles que evitan que los candados se vuelvan decorativos:
+
+- **Anti-vacuidad.** Si alguien reformatea `contract.ts` y la extracción deja de reconocer las
+  uniones, el candado aprobaría **mirando al vacío** — el mismo modo de fallo que se está
+  corrigiendo. Una prueba aparte exige que la extracción siga encontrando los cinco códigos
+  por-ítem de `BuylistBatchQuoteResultDTO`. Verificado: al reformatear la unión, se pone roja.
+- **El escáner se prueba a sí mismo.** Un bug en el tokenizador convertiría el candado de duplicados
+  en un verde permanente, así que hay casos que exigen que **detecte** un duplicado real y que **no**
+  confunda con estructura las llaves y comas dentro de un valor traducido.
+
+Se añade además un tercer candado en la misma tanda: los cinco códigos por-ítem del batch tienen que
+tener `masterSet.separateProductErrorCode.<CODE>`. Ahí no hay fallback que valga —
+`MasterSetBinder` interpola el código **directo** en `t(...)` y next-intl tira `MISSING_MESSAGE`.
+
+#### Prueba de que los candados sirven (mutación, no fe)
+
+No basta con que pasen; tienen que **ponerse rojos** al reintroducir el defecto. Verificado una por
+una, restaurando el árbol después de cada mutación:
+
+| Mutación | Resultado |
+|---|---|
+| Borrar `error.BUYLIST_RAW_ONLY` de **los dos** idiomas (el defecto original, simétrico) | 🔴 2 rojas. **La paridad es↔en siguió verde** — la demostración de que era ciega |
+| Reintroducir la clave duplicada tal cual estaba | 🔴 2 rojas, señalando la ruta `masterSet.separateProductErrorCode.BUYLIST_RAW_ONLY` |
+| Reformatear la unión para que la extracción no la vea | 🔴 1 roja (anti-vacuidad) |
+
 ### 44.9 Alcance de este pase
 
 **Tocado:** `frontend/src/app/[locale]/(storefront)/buylist/{BuylistView.tsx, BuylistView.test.tsx,
 useSellCart.ts}`, `frontend/src/components/domain/BuylistKycForm.tsx`,
 `frontend/src/components/master-set/MasterSet.test.tsx` (una prueba nueva),
 `frontend/src/types/contract.ts`, `frontend/src/lib/api.ts`, `frontend/messages/{es,en}.json`,
-`frontend/e2e/buylist.spec.ts`, y este documento.
+`frontend/e2e/buylist.spec.ts`, y este documento. **§44.10 añade** `frontend/src/lib/i18n-parity.test.ts`
+(tres candados nuevos + las pruebas del propio escáner).
 
 **No tocado:** `backend/` (la guarda server-side y el retiro del default `?? 'PSA' / ?? '10'` son de
 backend, §4.40.9), `docs/API_CONTRACT.md`, `docs/ARCHITECTURE.md`, `docs/DESIGN_SYSTEM.md`, y **toda

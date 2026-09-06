@@ -555,7 +555,6 @@
       "PRODUCT_NOT_FOUND": "Este producto ya no existe en el catálogo.",
       "PRODUCT_CARD_MISMATCH": "Este producto no corresponde a esta carta.",
       "BUYLIST_RAW_ONLY": "Solo compramos cartas sueltas (raw).",
-    "BUYLIST_RAW_ONLY": "Solo compramos cartas sueltas (raw) en Near Mint; las gradeadas y el sellado no entran al cotizador.",
       "FINISH_NOT_AVAILABLE": "Ese acabado no está disponible para este producto.",
       "NOT_FOUND": "No encontramos esta carta."
     },
@@ -2532,6 +2531,7 @@
     "ADDRESS_NOT_MX": "Solo enviamos a direcciones dentro de México.",
     "ITEM_IN_ANOTHER_SHIPMENT": "Esta carta ya está en otro envío.",
     "BUYLIST_LIMIT_EXCEEDED": "Superas el tope permitido de buylist.",
+    "BUYLIST_RAW_ONLY": "Solo compramos cartas sueltas (raw) en Near Mint; las gradeadas y el sellado no entran al cotizador.",
     "INE_REQUIRED": "Necesitas subir tu INE para continuar.",
     "CLABE_NOT_OWN_NAME": "La CLABE debe estar a tu nombre.",
     "CLABE_INVALID": "La CLABE no es válida.",
