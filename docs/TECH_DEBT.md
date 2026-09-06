@@ -5385,3 +5385,73 @@
   que M-49** (`ARCHITECTURE` §4.40.7, la forma reservada del buylist de graduadas) — es ahí donde el dato
   pasaría a **firmar dinero de entrada** y el fail-closed dejaría de bastar.
 - **Disparador (duro):** la autorización de **M-49** por el dueño. Antes de eso, no tocar.
+
+---
+
+### Cierre de BL-35 eje 2-a · el tercer término de `isPayable` — rama `claude/buylist-inventory-workflow-hdnls3`, 2026-09-06 (dueño: **backend**, no bloqueante)
+
+> Fichas pedidas por el **techlead** al aprobar el pase de P1, más lo que salió del **barrido de eje 2**
+> que el orquestador encargó. Implementación y mediciones en `docs/BACKEND_NOTES.md` **§0.41**.
+> **Ninguna de estas fichas bloquea el merge.** Las dos de una línea que el techlead pidió *hacer* —el
+> JSDoc falso de `monthCommittedGrossPaidCentsTx` y la firma de `sealOnceTx`— **no** están aquí: se
+> hicieron en el commit del dinero, siguiendo el precedente §0.39.1 (*se arregla el comentario, no se
+> ficha*).
+
+#### BL35-D1 · La obligación T sigue siendo **opt-in**: `liveRequestWhere()` unificó el contenido, no el mecanismo (Media, backend)
+- **Dueño:** backend (`buylist.service.ts`). **Severidad:** Media (dinero **indirecto**: el modo de fallo es un verbo nuevo que revive una fila cerrada). **No bloqueante.**
+- **La deuda:** §M5-T obliga a que **todo** verbo de transición del ciclo lleve la guarda de vida en el `where`. `liveRequestWhere()` garantiza que los que la llevan digan **lo mismo**; **no** garantiza que el próximo la **llame**. Nada impide que un `updateMany` nuevo escriba `status` con un `where` de `{ id }` a secas — que es **literalmente** el defecto que P1 explotó en `receive`/`verify`, y que sobrevivió N versiones precisamente porque *«no llamar al helper»* no falla en ninguna parte.
+- **Dirección (dos formas, cualquiera sirve):**
+  - **(a) Test-censo sobre el módulo:** *todo `updateMany`/`update` de `sellRequest` cuyo `data` incluya `status` lleva el helper en el `where`*. Barato, y falla en el sitio correcto (el pase que introduce el verbo). Precedente en este repo: los guards de texto de `test/sell-request-states.spec.ts`.
+  - **(b) `transitionSellRequestTx()` como punto de paso** — la guarda deja de ser un spread que se puede omitir y pasa a ser **la única puerta**. Más caro (toca los ~8 verbos) y más definitivo.
+- **Impacto hoy: cero medible.** Los verbos actuales están todos guardados (auditado en el pase de P1: seis sitios en el servicio, cinco en el barrido).
+- **Disparador:** **el próximo verbo que escriba `SellRequest.status`.** Ref: `BACKEND_NOTES.md` §0.41.1 y §0.41.8.
+
+#### BL35-D2 · «Viva» con dos ortografías: `liveRequestWhere()` vs. tres literales inline en `adminLiveSellers` (Baja, backend)
+- **Dueño:** backend (`buylist.service.ts:4836`, `:4846`, `:4863` — líneas post-arreglo del tercer término). **Severidad:** Baja. **No bloqueante.**
+- **La deuda:** la misma idea —*«solicitud viva»*— se escribe de dos maneras en el mismo archivo. Es la doctrina de §4.39c sitio 8 sin aplicar: *dos literales de estados es la forma más barata de que una edición mueva uno y no el otro*.
+- **⚠️ Por qué es Baja y no Media, dicho para que nadie la suba sin releer esto:** los tres inline son de **LECTURA** (una cola del back-office), **no** condicionan ninguna escritura y **no tocan dinero**. Si divergen, la cola muestra de más o de menos; no se paga nada mal. *La gravedad de una copia la fija lo que la copia gobierna.*
+- **Dirección:** apuntarlas al helper **o** dejar escrito por qué no (p. ej. si la cola quiere deliberadamente un conjunto distinto del de las guardas). Las dos son respuestas válidas; lo que no vale es que coincidan por casualidad.
+- **Disparador:** **oportunista** — cualquier pase que abra `adminLiveSellers`.
+
+#### BL35-D3 · `paySpei`: la escalera de pre-checks y la del `!paid` son **dos copias a mano de la misma precedencia**, a 200 líneas (Media, backend)
+- **Dueño:** backend (`buylist.service.ts`, `paySpei`). **Severidad:** Media. **No bloqueante.**
+- **La deuda, con el énfasis del techlead:** *no es el NÚMERO de guardas lo que se va a pudrir, son esas dos escaleras.* Hoy son cinco condiciones en el mismo orden a los dos lados —`pagada` → `paidAt` → `closedAt` → no-pagable (que ya son **tres** términos) → CAS del importe— y **nada las ata**: no hay tipo, ni test, ni tabla que falle si alguien añade una guarda arriba y olvida su espejo abajo. El modo de fallo no es un `500`: es que el súper-admin **oiga el mensaje equivocado** sobre una fila de dinero y actúe en consecuencia (mandarlo a *«revisa el monto»* cuando lo que pasa es que ya cobró lo empuja justo hacia el acto que la guarda existe para impedir).
+- **⚠️ Este pase la EMPEORÓ a propósito y hay que decirlo:** el tercer término entró por el cuerpo compartido, así que **no** añadió un peldaño… pero el pase **sí** añadió el test que fija el orden (`el ORDEN de los pre-checks es la norma`), y eso ancla **una** de las dos escaleras. La otra sigue suelta.
+- **Dirección:** `classifyUnpayable(row): 'already_paid' | 'closed' | 'not_payable' | null`, **dos lectores**, uno por escalera. El `409`/`422` y sus `details` salen de la clasificación, no de dos cadenas de `if`.
+- **Disparador:** ⚠️ **ANTES de añadir la próxima guarda a `paySpei`** — no después. Ref: `BACKEND_NOTES.md` §0.41.7.
+
+#### BL35-D4 · `receive`/`verify`: `adminGet` se llama por su `404` y se tira entero (Baja, backend)
+- **Dueño:** backend (`buylist.service.ts`, `receive`/`verify`). **Severidad:** Baja (rendimiento y ruido, **sin** efecto de conducta). **No bloqueante.**
+- **La deuda:** los dos verbos empiezan con `await this.adminGet(id)` y **descartan el resultado**: lo único que se aprovecha es su `404`. Por el camino se pagan los `include` (usuario + ítems), **dos** queries de settings y un **descifrado AES** del snapshot de CLABE. Además los diales se leen **dos veces por llamada** (una en el `adminGet` tirado, otra al proyectar) y la proyección corre **fuera** de la transacción.
+- **Dirección:** izar los diales y proyectar **dentro** de la tx —patrón que `paySpei` ya usa (`:6482` iza los diales, `:6613` proyecta dentro de la tx)— y sacar el `404` de `throwRequestClosedConflict`, que ya relee la fila y ya distingue *«no existe»* de *«está cerrada»*.
+- **⚠️ Lo que NO se puede perder al hacerlo:** el `404` **antes** de la guarda. Si desaparece, una solicitud inexistente pasa a responder `409 CONFLICT` con `details: { status: undefined }` — un cambio de conducta observable sobre un endpoint ya aprobado.
+- **Disparador:** **oportunista**, o el día que la cola de recepción se vuelva un cuello de botella.
+
+#### BL35-D5 · Contrato vs. código: el `200` de `receive`/`verify`/`pay-spei` no lleva `items` (Media, backend) — ⚠️ **REQUIERE AL ARQUITECTO**
+- **Dueño:** backend, **pero la decisión es del arquitecto** (regla 9). **Severidad:** Media (contrato incumplido; **sin** dinero de por medio). **No bloqueante.**
+- **La deuda:** el contrato declara que el `Res 200` de `receive`/`verify` es *«el mismo shape que `GET /admin/buylist/:id`»* — con `items`, `seller` y `pickupAddress`. El código devuelve un `findUnique` **sin `include`**, así que esos campos salen vacíos o ausentes. Su hermano `reject` **sí** cumple. Lo mismo en `pay-spei`.
+- **⚠️ Y no se «arregla» por iniciativa del backend:** el contrato manda sobre el código ⇒ lo que toca es **emitir** lo declarado. Pero si el shape estrecho fuese el correcto —porque `receive`/`verify` son verbos de cola y no de detalle—, **eso lo decide el arquitecto**, no quien implementa. *Un contrato incumplido se cumple o se enmienda; no se reinterpreta desde el código.*
+- **Impacto hoy:** el frontend no consume esos campos de la respuesta de mutación (relee el detalle), así que no hay pantalla rota. Es incumplimiento latente.
+- **Disparador:** preexistente, sin dinero ⇒ **el próximo pase que abra estos tres endpoints**, o antes si frontend decide consumir la respuesta de la mutación.
+
+#### BL35-D6 · **Eje 2-b — el residual sin dinero: `verify` sigue saltándose fases** (Media, backend) — ⚠️ **REQUIERE DECISIÓN DE PRODUCTO**
+- **Dueño:** backend para implementar; **la matriz la declara el arquitecto** (contrato v1.57 §C lo deja **abierto y nombrado**). **Severidad:** Media. **No bloqueante.**
+- **La deuda:** el tercer término cierra **la salida de dinero** (eje 2-a). **No** cierra que un `vault_operator` llame `verify` sobre una `cotizada`/`ofertada`/`aceptada`: la fila salta fases y **`verifiedAt` entra al `max(...)` que fija la purga del INE**, así que adelantar el sello **adelanta una obligación de retención de PII** (familia de BL-3, LFPDPPP). Ya no paga; sí desordena.
+- **⚠️ Y el matiz que evita que alguien crea que el tercer término hace más de lo que hace:** `receive` es el **único** escritor de `receivedAt`, así que un operador todavía puede **declarar** que el paquete llegó. Lo que cambia es que deja de ser **efecto lateral silencioso** de `verify` y pasa a ser **acto declarativo con actor, fecha y bitácora**. *El control no impide el fraude interno: le quita el anonimato.*
+- **Dirección:** una matriz de predecesores por verbo. ⛔ **No se inventa desde el backend:** `PROJECT.md` §P.1 fija las ocho fases pero **no** norma qué predecesores acepta cada verbo, y una matriz mal puesta **rompe la cohorte pre-M-46** (`offerSentAt IS NULL`), que alcanza `recibida`/`verificacion` sin pasar por `en_transito`.
+- **Disparador:** cuando el arquitecto/el humano declare la matriz. Ref: contrato v1.57 §C, `SECURITY_NOTES.md` §2.
+
+#### BL35-D7 · **Del barrido de eje 2: los topes AML y el umbral de INE NO se evalúan al OFERTAR** (Media, backend) — ⚠️ **ESCALADO AL ARQUITECTO**
+- **Dueño:** backend para implementar; **el contrato tiene que declarar el error primero** (regla 9). **Severidad:** Media (dinero **comprometido**, no salido). **No bloqueante.**
+- **Lo medido, no deducido:** `PROJECT.md:1127-1128` dice literal que *«los topes se evalúan **en los dos momentos** (al cotizar y al ofertar), y el monto que los gobierna —y que gobierna el **KYC/INE**— es el **BRUTO OFERTADO**»*. En el código, `BUYLIST_CAP_PER_REQUEST_CENTS`, `BUYLIST_CAP_PER_MONTH_CENTS` e `INE_THRESHOLD_CENTS` se leen **solo** en `createRequest` y **sobre `quotedTotalCents`**. `adminOffer` tiene **cero** referencias a los tres: sus pasos 1→7 evalúan dirección, cobertura de líneas, precio por línea, piso de neto y **tope del operador** — ninguno es el tope AML.
+- **Por qué el hueco es alcanzable:** el override al alza (D26) llega a **`MAX_APPROVED_PRICE_CENTS` = MX$10,000 por línea** contra un tope AML por solicitud de **MX$3,000** (default). Una oferta por encima del tope **se emite y es VINCULANTE** (D2, correo al vendedor); el tope solo aparece **después**, al aprobar por-ítem (`assertApprovedPriceWithinCap`) o al pagar (tope mensual de `paySpei`). Resultado: o **incumplimos la promesa** que ya mandamos por correo, o alguien **sube el dial** para poder cumplirla. *Un control que se descubre después de comprometer la palabra no controla: extorsiona.*
+- **⚠️ Es la MISMA forma que eje 2** (una regla que `PROJECT.md` exige y a la que le falta el término en el sitio donde se decide), por eso sale del barrido y no de un pase de features.
+- **Por qué NO se implementó aquí:** el contrato **no declara** `BUYLIST_LIMIT_EXCEEDED` ni `INE_REQUIRED` en `POST /admin/buylist/:id/offer` (solo en `POST /buylist/requests` y, para el mensual, en `pay-spei`). Añadir un error a un endpoint es contrato ⇒ **regla 9**. *No se «arregla» el contrato desde el código.*
+- **Disparador:** decisión del arquitecto. Es el candidato natural del próximo pase de dinero del ciclo.
+
+#### BL35-D8 · **Del barrido de eje 2: se puede convertir a inventario VENDIBLE una carta que nunca recibimos** (Media, backend) — ⚠️ **ESCALADO AL ARQUITECTO**
+- **Dueño:** backend para implementar; el gate nuevo es contrato. **Severidad:** Media (**no** es dinero saliente: es mercancía **entrante** que no existe). **No bloqueante.**
+- **Lo medido:** `convertToInventory` gatea **solo** con `item.itemStatus === 'aprobada'`. Y `itemDecision` con `decision:'approve'` **no tiene ninguna precondición sobre el `itemStatus` actual** (el `where` solo lleva `id` + la guarda de la solicitud): una línea `cotizada` de una solicitud **nunca recibida** se aprueba directamente y de ahí se convierte. Es **el espejo de eje 2 por el lado de la mercancía**: allá salía dinero por una carta que no llegó; aquí entra al inventario vendible una carta que no llegó.
+- **Atenuante real (por eso es Media y no Alta):** la pieza nace **sin ubicación** y cae en `pending-publish`, que es una cola que un operador trabaja; y el folio es rastreable. No se vende sola.
+- **Dirección:** el término análogo al de §M5-P —`sellRequest.receivedAt IS NOT NULL`— en el `where` de la conversión, con su propio código declarado. ⛔ **No se implementa sin contrato:** sería un `422` nuevo en un endpoint aprobado.
+- **Disparador:** decisión del arquitecto; natural de agrupar con **BL35-D7**.

@@ -52,7 +52,7 @@ function sellRequestRow(over: Record<string, unknown> = {}) {
     paidBy: null,
     paidAt: null,
     createdAt: new Date('2026-08-01T00:00:00Z'),
-    receivedAt: null,
+    receivedAt: new Date('2026-08-01T12:00:00Z'), // v1.57 · §M5-P: el tercer término de `isPayable`
     verifiedAt: new Date('2026-08-02T00:00:00Z'),
     approvedAt: null,
     adjustmentSentAt: null,

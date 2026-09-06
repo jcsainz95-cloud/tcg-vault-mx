@@ -112,8 +112,45 @@ export const SELL_REQUEST_PAYABLE_STATES = [
  * atómica de `paySpei`. **Tres lectores, una regla.**
  *
  * ```
- * isPayable = status ∈ SELL_REQUEST_PAYABLE_STATES  ∧  verifiedAt IS NOT NULL
+ * isPayable = status ∈ SELL_REQUEST_PAYABLE_STATES  ∧  receivedAt IS NOT NULL  ∧  verifiedAt IS NOT NULL
+ *                                                      └──────── v1.57 ────────┘
  * ```
+ *
+ * ### ⚠️⚠️ v1.57 · **§M5-P / BL-35 eje 2 — «NO SE PAGA LO QUE NO HA LLEGADO».**
+ *
+ * **El tercer término, y por qué faltaba.** La fórmula tenía **dos** términos, y `verify` es **el
+ * único verbo que escribe `verifiedAt`** — así que alcanzarlo **desde cualquier estado vivo** volvía
+ * pagable la solicitud. Medido en vivo por **dos roles independientes**: seguridad liquidó **SPEI
+ * real por MX$320** sobre una `ofertada` (`acceptedAt = null`, `receivedAt = null`) tras un `verify`
+ * de `vault_operator`; QA lo reprodujo desde una `cotizada` recién creada (`QA-BL35-EJE2`).
+ * **La mercancía nunca llegó y el dinero salió.**
+ *
+ * ### No es una regla nueva: es el término que hacía cierta a una que ya estaba escrita en TRES sitios
+ * - `PROJECT.md:1107`, **en negrita**, como **una de las CUATRO promesas al vendedor**: *«**(b) el pago
+ *   se realiza DESPUÉS de que recibimos y verificamos la carta** (nunca por adelantado)»*.
+ * - `API_CONTRACT` §M5 `pay-spei`, en prosa: *«Precondición: `aprobada` + verificada (pago **tras**
+ *   recepción/verificación)»*, y elevada a norma en **§M5-P** (contrato v1.57 §B).
+ * - **El mensaje de error de este mismo código**: `'Payment allowed only after receipt/verification
+ *   and approval'`. *El servidor ya afirmaba la regla en su respuesta; lo que no hacía era cumplirla.*
+ *
+ * ### ⚠ `receivedAt`, MEDIDO antes de ponerlo (no supuesto) — y por eso NO hay cohorte legacy
+ * - **UN solo escritor en todo el backend**: `receive()` vía `sealOnceTx(tx, id, 'receivedAt')`
+ *   (`buylist.service.ts`). **Ninguna ruta lo limpia** — misma propiedad que hace de `paidAt` y de
+ *   `offerSentAt` anclas fiables (BL-28, §M5-T). *El invariante se ancla en el hecho menos reescrito.*
+ * - **La columna existe desde la migración inicial** ⇒ no hay filas anteriores a su existencia.
+ * - **BD local, medida**: las **únicas** filas con `verifiedAt IS NOT NULL ∧ receivedAt IS NULL` son
+ *   **exactamente los dos PoC** (`SPEI-EJE2-NEVER-ARRIVED-001`, `QA-BL35-EJE2`); **cero** filas vivas
+ *   en estado pagable sin recepción. **Este término no puede volver impagable a nadie legítimo.**
+ * - ⛔ **NO se añade `acceptedAt` como cuarto término**, aunque los dos PoC también lo tengan nulo:
+ *   la cohorte **pre-M-46** (`offerSentAt IS NULL`) llega a `recibida`/`verificacion` **sin aceptación
+ *   registrada** —es la misma cohorte que `brutoConsumado` contempla con su rama `quotedTotalCents`—
+ *   y ese término **sí** la dejaría impagable. *El contrato lo dice explícito: no se inventa la matriz
+ *   de predecesores* (v1.57 §C). Lo que se cierra aquí es **la salida de dinero**, no el eje entero.
+ *
+ * ### ⚠ Qué NO cierra
+ * `verify` **sigue siendo llamable desde cualquier estado vivo** y sigue sellando `verifiedAt`: lo
+ * que deja de poder hacer es **pagar**. El residual sin dinero (adelanto de estado) queda nombrado
+ * con dueño en `docs/TECH_DEBT.md` (**BL-35 eje 2-b**), **no bloqueante**.
  *
  * ### Por qué existe, y por qué NO bastaba con que el cliente copiara bien
  * `M5View.tsx` tenía `canPay = isSuperAdmin && (status === 'aprobada' || status === 'verificacion')`:
@@ -122,9 +159,11 @@ export const SELL_REQUEST_PAYABLE_STATES = [
  * *precisamente por ser dinero* — y ésta vive en **otro lenguaje, otro paquete y otro ciclo de
  * release**, así que ni el compilador ni un test de backend la ven.
  *
- * ⚠️ **Y estaba INCOMPLETA:** la precondición del servidor son **DOS** términos y el cliente replicaba
- * **solo el primero**, así que **la UI habilitaba el pago en solicitudes donde el servidor responde
- * `422`**. *No era una copia fiel que pudiera desincronizarse algún día: ya lo estaba.*
+ * ⚠️ **Y estaba INCOMPLETA:** la precondición del servidor son **TRES** términos (**DOS** cuando se
+ * escribió esto; v1.57 añadió `receivedAt`) y el cliente replicaba **solo el primero**, así que **la UI
+ * habilitaba el pago en solicitudes donde el servidor responde `422`**. *No era una copia fiel que
+ * pudiera desincronizarse algún día: ya lo estaba.* **Y ésa es justamente la razón de que el término
+ * nuevo se añada AQUÍ y en ningún otro sitio**: el cliente hereda la corrección sin tocar una línea.
  *
  * El remedio **no** es que el cliente replique las dos condiciones —eso sería duplicar **dos** reglas
  * en vez de una y meter `verifiedAt` en la lógica de una pantalla—. *La copia se cura eliminando la
@@ -144,10 +183,13 @@ export const SELL_REQUEST_PAYABLE_STATES = [
  */
 export function isPayableSellRequest(sr: {
   status: SellRequestStatus;
+  receivedAt: Date | null;
   verifiedAt: Date | null;
 }): boolean {
   return (
     (SELL_REQUEST_PAYABLE_STATES as readonly SellRequestStatus[]).includes(sr.status) &&
+    // ⚠️ v1.57 · §M5-P — **el término que faltaba**: la carta está EN NUESTRAS MANOS.
+    sr.receivedAt != null &&
     sr.verifiedAt != null
   );
 }

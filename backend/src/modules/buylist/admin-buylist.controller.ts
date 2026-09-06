@@ -627,13 +627,30 @@ export class AdminBuylistController {
     @Headers('idempotency-key') _idempotencyKey?: string,
   ) {
     const res = await this.buylist.paySpei(id, dto.speiReference, user.id);
+    // ⚠️ v1.57 · **SEC-B1** (`docs/SECURITY_NOTES.md` §6) — **SE AUDITA LA REFERENCIA EFECTIVA, NO LA
+    // INTENTADA.** Medido por seguridad: un segundo `pay-spei` sobre una fila ya `pagada` sale por el
+    // corto-circuito idempotente **sin asentar nada**, y esto emitía igual un `sellrequest.pay_spei`
+    // con la ref del body (`SPEI-BLUE-VERIFY-999`) mientras en BD seguía la primera
+    // (`SPEI-DOUBLESPEND-777`). *Cero impacto de dinero, pero la bitácora afirmaba una liquidación que
+    // nunca ocurrió* — y una bitácora de dinero que registra referencias fantasma es exactamente la
+    // que no sirve el día que hay que reconstruir qué se pagó.
+    //
+    // **La forma: se dice la verdad completa, no se calla el intento.** Sale la ref que quedó en la
+    // fila y, cuando difiere de la del body, se marca `applied: false` con la intentada al lado — el
+    // intento sí ocurrió y borrarlo sería el error simétrico. Contraste con `receive`/`verify`, que
+    // auditan **después** de pasar su guarda (el `409` lanza antes del `audit.log`): aquí no se puede
+    // hacer lo mismo porque la salida idempotente es un `200` legítimo, no un rechazo.
+    const applied = res.speiReference === dto.speiReference;
     await this.audit.log({
       actorUserId: user.id,
       actorRole: user.role,
       action: 'sellrequest.pay_spei',
       entityType: 'SellRequest',
       entityId: id,
-      after: { speiReference: dto.speiReference },
+      after: {
+        speiReference: res.speiReference,
+        ...(applied ? {} : { applied: false, attemptedSpeiReference: dto.speiReference }),
+      },
     });
     return res;
   }

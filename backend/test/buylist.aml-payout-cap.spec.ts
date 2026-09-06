@@ -71,6 +71,8 @@ const APROBADA = (over: Record<string, unknown> = {}) => ({
   id: 'sr-1',
   userId: 'u1',
   status: 'aprobada',
+  // ⚠️ v1.57 · §M5-P — «pagable» son TRES términos: sin `receivedAt` esta fila ya no lo es.
+  receivedAt: new Date(),
   verifiedAt: new Date(),
   quotedTotalCents: 0,
   // v1.51.22 (B-5): el término CENTRAL de la cascada, explícito. Sin él en la fila base, ninguna

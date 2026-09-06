@@ -28,6 +28,230 @@
 > §0.22 de este documento son de `main` y NO se movieron**: son M47-H2, v1.53 (buylist raw-only) y
 > v1.53-b. Un informe de QA/techlead anterior al 2026-09-06 puede usar la numeración vieja.
 
+## 0.41 — **§M5-P / BL-35 eje 2: el tercer término de `isPayable` — «no se paga lo que no ha llegado»** (2026-09-06, rama `claude/buylist-inventory-workflow-hdnls3`, **MONEY · contrato v1.57**)
+
+> Propiedad: **backend**. Cierra **BL-35 eje 2-a**, el único hallazgo que hizo que **seguridad
+> RECHAZARA** el pase v1.56 (`docs/SECURITY_NOTES.md` §2). Contra la enmienda **v1.57** del contrato
+> (**§M5-P**, `ARCHITECTURE` §4.39(w)). **Cero endpoints nuevos, cero campos de DTO, cero DDL.**
+
+### 0.41.1 La fórmula, y en qué sitios quedó
+
+```
+isPayable  ⇔  status ∈ SELL_REQUEST_PAYABLE_STATES  ∧  receivedAt IS NOT NULL  ∧  verifiedAt IS NOT NULL
+                                                       └──────── v1.57 ────────┘
+```
+
+**El término se ESCRIBE en dos sitios y lo LEEN cuatro.** Esa asimetría es el diseño, no un descuido:
+
+| # | Sitio | Qué es | Cómo obtiene el término |
+|---|---|---|---|
+| **E1** | `common/sell-request-states.ts` · `isPayableSellRequest()` | el **cuerpo** | **escrito** |
+| **E2** | `buylist.service.ts` · `payableWhere()` | su traducción a `where` de Prisma | **escrito** (un `where` es declarativo: no puede *invocar* el predicado) |
+| L1 | `paySpei` pre-check | ahorra la transacción SERIALIZABLE | **hereda** de E1 |
+| L2 | `paySpei` CAS (`updateMany`) | **la guarda real** | **hereda** de E2 |
+| L3 | `adminSellRequestDTO` · `isPayable` | **gobierna el botón de pagar en M5** | **hereda** de E1 |
+| L4 | `paySpei` backstop del `!paid` | distingue *«el monto se movió»* de *«no es pagable»* | **hereda** de E1 |
+
+**L4 no estaba en el encargo: apareció al medir.** El orquestador pidió tres lectores; son cuatro. Lo
+verifiqué como se me pidió —*si algún lector no hereda, ése es el defecto*— y **hereda**: el backstop
+relee la fila entera y pasa el objeto completo. **Y está probado por mutación**, no por lectura: si se
+le inlinea la fórmula vieja, sobre la fila del PoC el súper-admin oiría *«el monto cambió; revísalo
+antes de pagar»* — que lo manda a revisar lo único que sí está bien **y lo empuja a reintentar el pago
+que la guarda existe para impedir**. Ese es el test `⚠️ LA CARRERA`.
+
+⚠️ **El punto entero de que dos de los cuatro hereden:** `isPayable` **gobierna el botón** de M5.
+Arreglar la guarda y no la señal no es medio arreglo — es el defecto de §4.39c sitio 10 otra vez: deja
+al `super_admin` que autoriza tomando la decisión **con información falsa**.
+
+### 0.41.2 Por qué `receivedAt` y no `status='recibida'` ni `acceptedAt` — con la medición delante
+
+- **`receivedAt` es un HECHO, no un estado de origen.** No enumera predecesores ⇒ cerrar el dinero **no
+  exige la matriz** que `PROJECT.md` no declara. (Misma razón que da el contrato en §M5-P.)
+- **UN solo escritor en todo el backend**, medido: `receive()` → `sealOnceTx(tx, id, 'receivedAt')`.
+  **Ninguna ruta lo limpia.** Misma propiedad que hace de `paidAt` (§M5-T) y `offerSentAt` (BL-28)
+  anclas fiables. *El invariante se ancla en el hecho menos reescrito que exista.*
+- **La columna existe desde la migración inicial** (`0000000000000_init`) ⇒ no hay filas anteriores a
+  su existencia.
+- ⛔ **`acceptedAt` NO entra como cuarto término**, aunque los dos PoC también lo tengan nulo: la
+  cohorte **pre-M-46** (`offerSentAt IS NULL`) alcanza `recibida`/`verificacion` **sin aceptación
+  registrada** —es la misma que `brutoConsumado` contempla con su rama `quotedTotalCents`— y ese
+  término la dejaría **impagable**. Hay un test que lo fija para que nadie lo «complete» por simetría.
+
+### 0.41.3 ⚠️ CONTEO PRE-MERGE OBLIGATORIO (§M5-P) — cohorte legacy: **0**
+
+El contrato normó las filas legacy **sin excepción** (*«la cohorte que no se puede distinguir del abuso
+no se exceptúa, se remedia»*) y a cambio obliga a **contar antes del merge**. Medido contra la BD local
+`tcg_marketplace`:
+
+```sql
+SELECT count(*) FROM "SellRequest"
+ WHERE status IN ('aprobada','verificacion') AND "receivedAt" IS NULL;   -- ⇒ 0
+```
+
+**Resultado: 0.** No hay ninguna fila viva que este término vuelva impagable ⇒ **no se escala** y **no
+se añade cláusula de excepción**.
+
+**Y lo medí DOS veces, en dos estados distintos de la BD, porque el segundo estado no vale solo:**
+
+| Momento | Estado de la BD | `aprobada`/`verificacion` ∧ `receivedAt IS NULL` |
+|---|---|---|
+| **Antes de correr nada** (datos del pase de seguridad) | 9 filas: 2 `cotizada`, 1 `recibida`, 4 `pagada`, 1 `rechazada`, 1 `expirada` | **0** — *no existía ninguna fila en estado pagable* |
+| Después de la suite de integración | 16 filas, re-sembradas | **0** |
+
+En el primer estado, las **únicas** filas con `verifiedAt IS NOT NULL ∧ receivedAt IS NULL` eran
+**exactamente los dos PoC** (`SPEI-EJE2-NEVER-ARRIVED-001` de seguridad y `QA-BL35-EJE2` de QA); las dos
+liquidaciones legítimas (`SPEI-DOUBLESPEND-777`, `QA-LIVE-SPEI-0001`) **sí** tenían `receivedAt`. Eso
+coincide con lo que había medido el orquestador y **es la confirmación por el lado del código**: un solo
+escritor, ninguna ruta que lo limpie, columna desde el init.
+
+> ⚠️ **AVISO PARA EL SIGUIENTE PASE — la evidencia forense NO sobrevive a `npm run test:integration`.**
+> Ese comando corre `seedE2E`, que **re-siembra la BD local compartida**. Al ejecutarlo desapareció la
+> fila del PoC de seguridad (`SPEI-EJE2-NEVER-ARRIVED-001`), la de QA (`QA-BL35-EJE2`) y la de
+> `QA-LIVE-SPEI-0001`. **Lo digo yo porque lo hice yo**, y por eso la medición que vale es la de la
+> primera fila de la tabla, tomada **antes**. Es hermano operativo de SEC-OPS-1 (el gate auditando un
+> binario viejo) y va **a devops**: si la BD local es a la vez entorno de pruebas y almacén de evidencia
+> de un pase de seguridad, cualquier `test:integration` la borra sin preguntar.
+
+### 0.41.4 Los dos arreglos de una línea del techlead — **HECHOS, no fichados** (precedente §0.39.1)
+
+**(a) El JSDoc de `monthCommittedGrossPaidCentsTx` afirmaba lo contrario de lo que hay.** Decía que el
+`where` *«conserva `status:'pagada'` … no se reapunta a ninguna constante»*. **Es falso desde mi propio
+commit anterior**: hoy es `{ userId, paidAt: { gte: start } }` — el término de estado **cayó** en v1.56.
+Y describía **exactamente la conducta pre-P1 que P1 evadía**, en el predicado del **tope AML**. Se
+sustituye por un párrafo que dice qué decía, por qué dejó de ser cierto y que **la cifra no cambió en
+ninguno de los dos pases**. *Quien audite el tope en seis meses ya no concluye lo contrario de lo que hay.*
+
+**(b) `sealOnceTx` ya no acepta `PrismaService` — y la forma que pedía el techlead NO lo conseguía.**
+- **El diagnóstico era correcto:** `SellRequestReader = Pick<Prisma.TransactionClient,'sellRequest'>` lo
+  satisface `PrismaService`, así que `sealOnceTx(this.prisma, …)` compilaba y **anulaba en silencio el
+  argumento de seguridad del propio docstring** (lo que hace aceptable que sea silenciosa es que el
+  llamador **mantiene el row lock dentro de la transacción**).
+- ⚠️ **Pero el remedio propuesto —`Prisma.TransactionClient`— tampoco rechaza a `PrismaService`, y lo
+  medí con una sonda antes de escribir nada** (`conTxClient(p)` compila; control negativo falla). Razón:
+  `TransactionClient = Omit<PrismaClient, ITXClientDenyList>`, y en tipado **estructural** un supertipo
+  con miembros **de más** sigue siendo asignable a un `Omit`. *La firma habría cambiado sin cambiar nada.*
+- **Lo implementado cumple la INTENCIÓN (que romperlo falle en compilación, la jugada de BL-25):**
+  ```ts
+  export type TransactionOnlyClient = Prisma.TransactionClient & { $transaction?: never };
+  ```
+  El cliente transaccional real **carece** de `$transaction` (satisface el opcional); `PrismaService`
+  **lo tiene** (falla). Verificado en los dos sentidos con una **guarda de tipos** que corre en `tsc`
+  (`NoAsignable<PrismaService, …>` / `SiAsignable<Prisma.TransactionClient, …>`): si alguien relaja el
+  tipo, **cae el typecheck**, no una revisión.
+- Se declara **local al módulo** y **no** en `common/buylist-aml.ts`: `SellRequestReader` es zona
+  compartida, expresa *«esto solo LEE»* y lo usan helpers que corren con y sin transacción. Éste dice
+  *«esto ESCRIBE y necesita el row lock del llamador»*. **Son dos afirmaciones distintas y no se funden.**
+
+### 0.41.5 SEC-B1 (Baja) — la bitácora deja de registrar referencias fantasma
+
+El `pay-spei` idempotente audita ahora la referencia **efectiva** (la que quedó en la fila) y, cuando
+difiere de la del body, marca `applied: false` con `attemptedSpeiReference` al lado. Antes emitía un
+`sellrequest.pay_spei` con una `speiReference` **que nunca se asentó**. Cero dinero movido; el daño era
+que *una bitácora de dinero que registra referencias fantasma es la que no sirve el día que hay que
+reconstruir qué se pagó*. **El intento no se calla** —ocurrió— pero deja de leerse como liquidación.
+
+⛔ **El `201`→`200` de SEC-B1 NO va aquí.** El contrato (v1.57 §E) lo agrupa con otros ocho en **BL-37**
+y dice literal que **no va en el commit del dinero**. Va en su propio commit; ver §0.41.8.
+
+### 0.41.6 El barrido de eje 2 — *«¿a qué otra señal o guarda le falta un término que `PROJECT.md` exige?»*
+
+Barrí las superficies de dinero y las señales derivadas del backend, no solo el reporte. **Dos
+hallazgos**, los dos con la **misma forma** que eje 2 (una regla escrita en `PROJECT.md` a la que le
+falta el término en el sitio donde se decide), y los dos **escalados**: cerrarlos exige declarar un
+error nuevo en un endpoint aprobado ⇒ **regla 9**. Fichados como **BL35-D7** y **BL35-D8**.
+
+1. **⚠️ Los topes AML y el umbral de INE NO se evalúan al OFERTAR** (`adminOffer`). `PROJECT.md:1127-1128`
+   dice literal *«los topes se evalúan **en los dos momentos** (al cotizar y al ofertar), y el monto que
+   los gobierna —y que gobierna el **KYC/INE**— es el **BRUTO OFERTADO**»*. Medido: los tres diales
+   (`BUYLIST_CAP_PER_REQUEST_CENTS`, `BUYLIST_CAP_PER_MONTH_CENTS`, `INE_THRESHOLD_CENTS`) se leen
+   **solo** en `createRequest`, **sobre `quotedTotalCents`**; `adminOffer` tiene **cero** referencias a
+   ninguno (sus siete pasos evalúan dirección, cobertura de líneas, precio, piso de neto y **tope del
+   operador**, que es otro control). El override al alza llega a **MX$10,000 por línea** contra un tope
+   por solicitud de **MX$3,000**: la oferta sale, **es vinculante** (D2, correo al vendedor) y el tope
+   solo aparece **después**, al aprobar o al pagar. *Un control que se descubre después de comprometer
+   la palabra no controla.*
+2. **⚠️ Se puede convertir a inventario VENDIBLE una carta que nunca recibimos.** `convertToInventory`
+   gatea **solo** con `itemStatus === 'aprobada'`, y `itemDecision` con `approve` **no tiene ninguna
+   precondición sobre el `itemStatus` actual**: una línea `cotizada` de una solicitud nunca recibida se
+   aprueba y se convierte. Es **el espejo de eje 2 por el lado de la mercancía**. Atenuante medido: la
+   pieza nace sin ubicación y cae en `pending-publish`, que es una cola que alguien trabaja.
+
+**No-hallazgos, dichos para que nadie los vuelva a barrer:**
+- `reveal-clabe` **no tiene precondición de estado — y el contrato lo declara así explícitamente**
+  (§ línea 758). No es un hueco: es una decisión escrita.
+- Promesa (a) de `PROJECT.md:1107` (*«el neto anunciado es el que se deposita»*): **cubierta** por BL-27
+  (`OFFER_PRICE_IMMUTABLE` / `ADJUST_NOT_ALLOWED_IN_OFFER_CYCLE`) y por el CAS del importe de B-2.
+- `isTerminal`: un solo término por definición; nada que le falte.
+- **Fuera de mi stream, sin tocar:** `orders/:id/refund` decide con un `if` sobre una lectura previa y
+  escribe con `update({where:{id}})` — read-then-write clásico. Hoy tiene red (Stripe deduplica por
+  `Idempotency-Key` derivada), pero un cliente que mande **dos claves distintas** en paralelo pasa las
+  dos veces. Es del stream **«Órdenes y dinero»** ⇒ lo señalo para que el orquestador lo enrute, junto
+  con `disputes` (ya señalado en §0.40.7).
+
+### 0.41.7 Cobertura, y la mutación de cada lector
+
+**Test nuevo:** `test/buylist.m5p-received-guard.spec.ts` (18 tests) — hermana de
+`buylist.m5t-terminal-guard.spec.ts`, con el **mismo arnés que evalúa el `where` de verdad**. Un doble
+que responde `{count:1}` a cualquier `updateMany` pasa igual con la guarda puesta y quitada.
+
+⚠️ **Un detalle del arnés que corregí a media escritura y vale la pena decir:** el simulador de carrera
+(`staleFirstRead`) deja la fila **vieja solo en la PRIMERA lectura**. Al principio la dejaba en *todas*,
+y con eso el backstop del `!paid` también veía la fila vieja y respondía *«el monto cambió»* — **un
+falso verde que escondía justo el lector que había que probar** (L4). *Un arnés que miente sobre el
+orden de las lecturas prueba otra cosa.*
+
+**PoC reproducido de punta a punta contra Postgres real** en `test/integration/buylist-cycle.e2e-spec.ts`
+(18)-(21): `verify` sobre una solicitud viva nunca recibida sigue dando `200` (**eje 2-b, abierto**),
+`isPayable` sale **`false`**, `pay-spei` da **422** y la fila queda **sin `paidAt`, sin `speiReference`,
+sin `payoutNetCents` y sin `closedAt`**; y **(21) el remedio**: `receive` → `verify` → **paga**.
+
+**El camino feliz, que es el assert que el contrato subraya** (*sin él, los tres anteriores los pasa
+igual un endpoint que no paga nunca*): cubierto **dos veces** — unitario encadenando los tres verbos
+sobre el arnés, y (11)/(13) del E2E contra Postgres, que ya deposita el neto anunciado.
+
+**Mutación — se quitó el término de CADA lector por separado, sobre las 245 suites completas. Cero supervivientes:**
+
+| Mutación | Suites/tests que caen | Un test que muere |
+|---|---|---|
+| **E1** — quitar `receivedAt` de `isPayableSellRequest` | 4 suites / **12** tests | «estado pagable `verificacion` + `verifiedAt` sellado + `receivedAt` NULO ⇒ 422 y CERO escritura» |
+| **E2** — quitar `receivedAt: {not:null}` de `payableWhere()` | 4 suites / **7** tests | «⚠️ LA CARRERA: … la GUARDA sola lo frena (sin el pre-check)» |
+| **L3** — regresar la proyección a la fórmula de dos términos | 3 suites / **4** tests | «⚠️⚠️ EL PoC DE EJE 2 EN LA PROYECCIÓN: `verify` SIN recepción NO enciende el botón» |
+| **L4** — que el backstop deje de heredar | 1 suite / **1** test | «⚠️ LA CARRERA …» (el `code` esperado pasa de `VALIDATION_ERROR` a `CONFLICT`) |
+
+**Y el mutante equivalente que QA encontró, cubierto** (borró el pre-check de `paidAt` y las 244 suites
+siguieron verdes). No había bug —el CAS produce el mismo `409` con los mismos `details`— pero *una capa
+de defensa en profundidad podía desaparecer sin que nada avisara*. Lo que sí es observable **es la razón
+documentada del pre-check**: no gastar una transacción **SERIALIZABLE** ni una lectura de KYC en una
+fila que ya sabemos que no se paga. Cinco tests fijan eso (`$transaction` y `kycProfile.findUnique`
+**no llamados**) para `paidAt`, `closedAt`, `receivedAt`, `verifiedAt` y estado no pagable, más uno que
+fija **el orden** (`paidAt` gana sobre `closedAt` y sobre el estado). *Se cubre el efecto que el
+pre-check tiene, no el que comparte con el CAS.*
+
+**Fixtures ajustados (8 suites), y una lección:** ocho suites se pusieron rojas al añadir el término —
+todas por fixtures que se declaraban «pagables» con dos términos. Se les añadió `receivedAt`, **no se
+relajó la guarda**. Dos merecen mención:
+- `buylist.guide-transit.spec.ts` tenía un test llamado *«`verify` es LA transición que lo vuelve
+  verdadero»*. **Era cierto desde cualquier estado vivo — y eso ERA el bug.** Se reescribió a *«…pero
+  SOLO sobre una solicitud YA RECIBIDA»* y se le añadió el contraste (el PoC en la proyección).
+- La integración (17) (tope AML) sembraba la fila pagable **por la puerta de atrás** sin `receivedAt`:
+  sin el arreglo del fixture habría medido **la guarda nueva en vez del acumulado**, que es su asunto.
+  *Una precondición nueva no puede secuestrar un test viejo.*
+
+### 0.41.8 ⚠️ Lo que NO cerré, y por qué
+
+1. **Eje 2-b (`verify` salta fases).** Cerrado **parcialmente y así está normado** (contrato v1.57 §C):
+   el tercer término cierra **la salida de dinero**. `verify` sigue llamable desde cualquier estado vivo
+   y sigue sellando `verifiedAt`, que entra al `max(...)` de la purga del INE. **No lo cierro por
+   iniciativa propia**: exige la matriz de predecesores, que `PROJECT.md` no declara. Ficha **BL35-D6**.
+   ⚠️ **Y el matiz que evita que alguien crea que el término hace más de lo que hace:** `receive` es el
+   único escritor de `receivedAt`, así que un operador todavía puede **declarar** que el paquete llegó.
+   Lo que cambia es que deja de ser **efecto lateral silencioso de `verify`** y pasa a ser **acto
+   declarativo con actor, fecha y bitácora**. *El control no impide el fraude interno: le quita el anonimato.*
+2. **BL-37 (nueve `201` que deben ser `200`)** y **BL-36 (los dos `pickup-address`)**: van en **commits
+   separados**, como ordena la norma BL-27 y como pidió el arquitecto. Ver §0.42 y §0.43.
+3. **BL35-D7 y BL35-D8** (los dos hallazgos del barrido): **escalados al arquitecto**, no implementados.
+   Añadir un error a un endpoint aprobado es contrato.
+
 ## 0.40 — **§M5-T / BL-35: la Invariante T cableada, y el cierre de la CRÍTICA P1 (doble pago SPEI)** (2026-09-06, rama `claude/buylist-inventory-workflow-hdnls3`, **MONEY · contrato v1.56**)
 
 > Propiedad: **backend**. Cierra **P1 [CRÍTICA]** de `docs/PENTEST_NOTES.md` (pase v1.55) contra la

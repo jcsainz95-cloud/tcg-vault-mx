@@ -645,7 +645,15 @@ describe('E2E — Ciclo de adquisición del buylist (§6 · §M5)', () => {
         // ACUMULADO, no el recorrido — ése ya lo cubren (1)-(13) por HTTP.
         await h.prisma.sellRequest.update({
           where: { id: otraId },
-          data: { status: 'verificacion', verifiedAt: new Date(), approvedTotalCents: 10000 },
+          data: {
+            status: 'verificacion',
+            // ⚠️ v1.57 · §M5-P — el tercer término. Sin `receivedAt` el pre-check de recepción
+            // rechaza ANTES de llegar al tope, y este test mediría la guarda nueva en vez del
+            // ACUMULADO, que es su asunto. *Una precondición nueva no puede secuestrar un test viejo.*
+            receivedAt: new Date(),
+            verifiedAt: new Date(),
+            approvedTotalCents: 10000,
+          },
         });
 
         const previo = await h.prisma.configSetting.findUnique({ where: { key: CAP_KEY } });
@@ -677,6 +685,101 @@ describe('E2E — Ciclo de adquisición del buylist (§6 · §M5)', () => {
             await h.prisma.configSetting.delete({ where: { key: CAP_KEY } }).catch(() => undefined);
           }
         }
+      });
+    });
+
+    // =========================================================================================
+    // ⚠️⚠️ (18)-(20) — **BL-35 EJE 2** (`docs/SECURITY_NOTES.md` §2), REPRODUCIDO ENTERO.
+    //
+    // El PoC del blue team, por HTTP: un `vault_operator` llama `verify` sobre una solicitud que
+    // **nunca recibimos** —el PoC salió de una `ofertada`; QA lo repitió desde una `cotizada`—, la
+    // fila queda en `verificacion` con `verifiedAt` sellado, `isPayable` se pone `true` y un
+    // `super_admin` que trabaja su cola **liquida SPEI real por mercancía que nunca llegó**
+    // (MX$320, `SPEI-EJE2-NEVER-ARRIVED-001`).
+    //
+    // ⚠️ **Vive aquí y no en un unitario por la misma razón que (14)-(17):** lo que frena el pago es
+    // el `where` del `updateMany`, y un doble de Prisma que no lo evalúa devuelve `count: 1` con la
+    // guarda puesta **y quitada**. El motor solo está aquí.
+    //
+    // ⚠️ **Y el camino feliz ya está probado arriba** —(11) `receive` → `verify` con
+    // `isPayable: true`, (13) el SPEI que deposita el neto—: sin ese contraste, estos tres los pasa
+    // igual un endpoint que no pague nunca.
+    // =========================================================================================
+    describe('⚠️ BL-35 eje 2 · §M5-P — no se paga lo que no ha llegado', () => {
+      let nuncaRecibidaId: string;
+
+      it('(18) `verify` sobre una solicitud viva NUNCA RECIBIDA sigue siendo `200`… (eje 2-b, abierto)', async () => {
+        // ⚠️ El tercer término **no cierra el eje entero y así está normado** (contrato v1.57 §C):
+        // `verify` sigue siendo llamable desde cualquier estado vivo porque estrecharlo exigiría una
+        // matriz de predecesores que `PROJECT.md` no declara y que rompería la cohorte legacy.
+        const creada = await createRequest(validBody());
+        expect(creada.status).toBe(201);
+        nuncaRecibidaId = creada.body.sellRequestId;
+
+        const ver = await h.api('POST', `/admin/buylist/${nuncaRecibidaId}/verify`, {
+          token: operatorToken,
+        });
+        expect(ver.status).toBe(200);
+        expect(ver.body.status).toBe('verificacion');
+
+        // …y **`verifiedAt` SÍ queda sellado**: es el hecho que la volvía pagable.
+        const row = await h.prisma.sellRequest.findUnique({ where: { id: nuncaRecibidaId } });
+        expect(row!.verifiedAt).toBeTruthy();
+        expect(row!.receivedAt).toBeNull();
+      });
+
+      it('(19) ⚠️ LA SEÑAL DEJA DE MENTIR: `isPayable` es `false` sobre la fila nunca recibida', async () => {
+        // `isPayable` **gobierna el botón de pagar en M5**. Arreglar la guarda y no la señal dejaría
+        // al súper-admin autorizando con la pantalla diciéndole que la carta llegó.
+        const dto = await h.api('GET', `/admin/buylist/${nuncaRecibidaId}`, { token: adminToken });
+        expect(dto.status).toBe(200);
+        expect(dto.body.status).toBe('verificacion');
+        expect(dto.body.isPayable).toBe(false);
+      });
+
+      it('(20) ⚠️⚠️ EL DAÑO: `pay-spei` sobre ella ⇒ 422 y NO SALE UN PESO', async () => {
+        const res = await h.api('POST', `/admin/buylist/${nuncaRecibidaId}/pay-spei`, {
+          token: adminToken,
+          json: { speiReference: 'SPEI-EJE2-NEVER-ARRIVED-001' },
+        });
+        expect(res.status).toBe(422);
+        expect(res.body.error.code).toBe('VALIDATION_ERROR');
+
+        // ⚠️ LAS ASERCIONES QUE VALEN, contra la BD: ni referencia, ni fecha de pago, ni cierre.
+        const row = await h.prisma.sellRequest.findUnique({ where: { id: nuncaRecibidaId } });
+        expect(row!.paidAt).toBeNull();
+        expect(row!.speiReference).toBeNull();
+        expect(row!.payoutNetCents).toBeNull();
+        expect(row!.status).toBe('verificacion');
+        expect(row!.closedAt).toBeNull();
+      });
+
+      it('(21) y el remedio es el paso que faltaba: `receive` la vuelve pagable, y paga', async () => {
+        // *La cohorte que no se puede distinguir del abuso no se exceptúa: se remedia* — con
+        // `POST …/receive`, que sella `receivedAt`, es idempotente y **queda auditado con actor y
+        // fecha**. El control no vuelve imposible declarar una recepción falsa; le quita el
+        // anonimato: deja de ser efecto lateral silencioso de `verify` y pasa a ser un acto firmado.
+        const rec = await h.api('POST', `/admin/buylist/${nuncaRecibidaId}/receive`, {
+          token: operatorToken,
+        });
+        expect(rec.status).toBe(200);
+        expect(rec.body.isPayable).toBe(false); // `receive` deja el status en `recibida`, que NO es pagable
+
+        const ver = await h.api('POST', `/admin/buylist/${nuncaRecibidaId}/verify`, {
+          token: operatorToken,
+        });
+        expect(ver.status).toBe(200);
+        expect(ver.body.isPayable).toBe(true);
+
+        const paid = await h.api('POST', `/admin/buylist/${nuncaRecibidaId}/pay-spei`, {
+          token: adminToken,
+          json: { speiReference: 'SPEI-EJE2-REMEDIADA' },
+        });
+        expect([200, 201]).toContain(paid.status);
+        const row = await h.prisma.sellRequest.findUnique({ where: { id: nuncaRecibidaId } });
+        expect(row!.status).toBe('pagada');
+        expect(row!.speiReference).toBe('SPEI-EJE2-REMEDIADA');
+        expect(row!.receivedAt).toBeTruthy();
       });
     });
   });

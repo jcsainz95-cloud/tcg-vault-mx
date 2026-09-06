@@ -217,8 +217,8 @@ describe('closedAt — SEC-D2 sella el cierre en transiciones terminales', () =>
       sellRequest: {
         findUnique: jest
           .fn()
-          .mockResolvedValueOnce({ id: 'sr', status: 'aprobada', verifiedAt: new Date() })
-          .mockResolvedValue({ id: 'sr', status: 'pagada', verifiedAt: new Date() }),
+          .mockResolvedValueOnce({ id: 'sr', status: 'aprobada', receivedAt: new Date(), verifiedAt: new Date() })
+          .mockResolvedValue({ id: 'sr', status: 'pagada', receivedAt: new Date(), verifiedAt: new Date() }),
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
         findMany: jest.fn().mockResolvedValue([]), // AML-1: pagos previos del mes (ninguno).
       },

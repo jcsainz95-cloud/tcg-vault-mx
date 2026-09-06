@@ -283,7 +283,7 @@ describe('BuylistService.paySpei — SEC-M5 idempotencia + guardia de estado', (
       // Sin KYC override y sin pagos previos del mes, el control es no-op y el pago procede.
       kycProfile: { findUnique: jest.fn().mockResolvedValue(null) },
       sellRequest: {
-        findUnique: jest.fn().mockResolvedValue({ id: 'sr', status: 'pagada', verifiedAt: new Date() }),
+        findUnique: jest.fn().mockResolvedValue({ id: 'sr', status: 'pagada', receivedAt: new Date(), verifiedAt: new Date() }),
         updateMany: jest.fn(),
         update: jest.fn(),
         findMany: jest.fn().mockResolvedValue([]), // AML-1: pagos previos del mes (ninguno).
@@ -303,8 +303,8 @@ describe('BuylistService.paySpei — SEC-M5 idempotencia + guardia de estado', (
       sellRequest: {
         findUnique: jest
           .fn()
-          .mockResolvedValueOnce({ id: 'sr', status: 'aprobada', verifiedAt: new Date() })
-          .mockResolvedValue({ id: 'sr', status: 'pagada', verifiedAt: new Date() }),
+          .mockResolvedValueOnce({ id: 'sr', status: 'aprobada', receivedAt: new Date(), verifiedAt: new Date() })
+          .mockResolvedValue({ id: 'sr', status: 'pagada', receivedAt: new Date(), verifiedAt: new Date() }),
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
         findMany: jest.fn().mockResolvedValue([]), // AML-1: pagos previos del mes (ninguno).
       },
@@ -318,6 +318,9 @@ describe('BuylistService.paySpei — SEC-M5 idempotencia + guardia de estado', (
     expect(res).toMatchObject({ status: 'pagada' });
     const call = prisma.sellRequest.updateMany.mock.calls[0][0];
     expect(call.where.status.in).toEqual(expect.arrayContaining(['aprobada', 'verificacion']));
+    // ⚠️ v1.57 · §M5-P — el `where` afirma los TRES términos. `receivedAt` es el que cierra BL-35
+    // eje 2 (se pagó MX$320 reales por una carta nunca recibida).
+    expect(call.where.receivedAt).toEqual({ not: null });
     expect(call.where.verifiedAt).toEqual({ not: null });
   });
 });

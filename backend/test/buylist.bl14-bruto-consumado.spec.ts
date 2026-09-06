@@ -282,6 +282,8 @@ function fakePayDb(opts: {
     id: 'sr-1',
     userId: 'u1',
     status: 'aprobada',
+    // ⚠️ v1.57 · §M5-P — «pagable» son TRES términos: sin `receivedAt` esta fila ya no lo es.
+    receivedAt: new Date('2026-08-01T12:00:00Z'),
     verifiedAt: new Date('2026-08-02T00:00:00Z'),
     approvedTotalCents: null,
     offerGrossCents: null,

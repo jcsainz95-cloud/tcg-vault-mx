@@ -116,6 +116,25 @@ const BOUNTY_CANDIDATE_CAP = 500;
  * hasta que alguien la añada aquí a propósito — y ese alguien está mirando este comentario.
  * `reveal-clabe` sigue siendo el ÚNICO punto autorizado para la CLABE (con `@MoneyOut()` + auditoría).
  */
+/**
+ * ⚠️ v1.57 · **BL-25 aplicado a la firma: «SOLO DENTRO DE UNA TRANSACCIÓN», comprobado por el compilador.**
+ *
+ * Un parámetro tipado `Prisma.TransactionClient` **NO** rechaza a `PrismaService`: ese alias es
+ * `Omit<PrismaClient, ITXClientDenyList>` y, en tipado estructural, un supertipo con miembros **de
+ * más** sigue siendo asignable a un `Omit`. **Medido con una sonda antes de escribir esto**, no
+ * deducido. El añadido `$transaction?: never` es lo que discrimina: el cliente transaccional real
+ * **carece** de `$transaction` (satisface el opcional) y `PrismaService` **lo tiene** (falla).
+ *
+ * Se declara **local al módulo** y no en `common/buylist-aml.ts` a propósito: `SellRequestReader` es
+ * **zona compartida** y la restricción solo la necesita quien escribe **dentro** de un boundary
+ * atómico. Mismo criterio que ya usa `throwItemDecisionConflict` al ampliar el lector localmente.
+ *
+ * **No sustituye a `SellRequestReader`**: aquél expresa *«esto solo LEE `sellRequest`»* y lo usan
+ * helpers que corren con y sin transacción (`throwTerminalConflict`, los acumulados AML). Éste
+ * expresa *«esto ESCRIBE y necesita el row lock del llamador»*. Son dos afirmaciones distintas.
+ */
+export type TransactionOnlyClient = Prisma.TransactionClient & { $transaction?: never };
+
 type SellRequestBaseRow = {
   id: string;
   userId: string;
@@ -1661,9 +1680,15 @@ export class BuylistService implements OnModuleInit {
    * envío caro **bajaría** el acumulado y alguien pasaría el tope sin que se note; si la caja sumara
    * brutos, **M7 reportaría una salida de dinero que nunca ocurrió**. *Los nombres deben decirlo.*
    *
-   * El `where` **conserva `status:'pagada'`** —es un literal legítimo, un estado concreto y no un
-   * subconjunto del enum— así que **no se reapunta a ninguna constante**: no es una de las copias del
-   * set terminal. **La cifra que devuelve no cambia en este pase.**
+   * ### ⚠️ v1.57 — ESTE PÁRRAFO DESCRIBÍA LA CONDUCTA **PRE-P1**, Y LLEVABA UN COMMIT SIENDO FALSO
+   * Decía: *«el `where` **conserva `status:'pagada'`** … así que **no se reapunta a ninguna
+   * constante**»*. **Dejó de ser cierto en el mismo commit que cerró P1** (v1.56, §M5-T): el `where`
+   * de abajo es hoy `{ userId, paidAt: { gte: start } }` — **el término de estado CAYÓ** y el
+   * acumulado se ancla **solo en `paidAt`** (el porqué, con su demostración de equivalencia, está en
+   * el propio `where`). *Un comentario que afirma lo contrario de lo que hay, en el predicado del
+   * tope AML, es peor que ninguno: quien audite el tope dentro de seis meses concluiría que la fila
+   * reactivada sigue saliendo del acumulado — que es exactamente el agujero que P1 explotó.*
+   * ⚠️ **La cifra no cambió en ninguno de los dos pases**; lo que cambió es de qué hecho cuelga.
    *
    * **Por qué no basta el acumulado de intake** (`monthUsedCentsTx`): el
    * tope se evaluaba sobre la COTIZACIÓN de entrada, pero el dinero sale en la APROBACIÓN. Una línea
@@ -5336,9 +5361,27 @@ export class BuylistService implements OnModuleInit {
    *
    * ⚠ **`count === 0` NO es un error aquí**: significa *«ya estaba sellada»*, que es precisamente el
    * caso idempotente. La guarda de vida ya se evaluó **antes**, en la transición.
+   *
+   * ### ⚠️⚠️ v1.57 — LA FIRMA ES `TransactionOnlyClient`, Y ES LA MITAD DEL ARGUMENTO DE ARRIBA
+   * Lo que hace **aceptable** que este método sea silencioso (`count === 0` ⇒ no pasa nada) es que
+   * **el llamador mantiene el row lock dentro de la transacción**: el sellado va pegado a la guarda
+   * de vida que acaba de casar, en el mismo boundary. Llamarlo con `this.prisma` —fuera de toda
+   * transacción— convertiría el silencio en un fallo invisible sobre una fila que nadie sujeta.
+   *
+   * La firma anterior (`SellRequestReader = Pick<Prisma.TransactionClient,'sellRequest'>`) **también
+   * la satisface `PrismaService`**, así que `sealOnceTx(this.prisma, …)` compilaba y **anulaba en
+   * silencio el argumento de seguridad de este mismo docstring**. Es la jugada de **BL-25**: que
+   * romper la invariante **falle en COMPILACIÓN**, no en una revisión.
+   *
+   * ⚠️ **`Prisma.TransactionClient` a secas NO lo consigue, y lo medí antes de escribirlo**:
+   * `TransactionClient = Omit<PrismaClient, ITXClientDenyList>`, y en tipado **estructural** un
+   * supertipo con miembros **de más** sigue siendo asignable a un `Omit` — `PrismaService` pasa.
+   * Por eso `TransactionOnlyClient` marca la deny-list como `?: never`: el cliente transaccional real
+   * **no tiene** `$transaction` (lo satisface), y `PrismaService` **sí** (falla). *Una firma que no
+   * rechaza al impostor no es una firma: es un comentario con paréntesis.*
    */
   private async sealOnceTx(
-    tx: SellRequestReader,
+    tx: TransactionOnlyClient,
     id: string,
     field: 'receivedAt' | 'verifiedAt',
   ): Promise<void> {
@@ -5423,15 +5466,27 @@ export class BuylistService implements OnModuleInit {
 
   /**
    * v1.51.8 (§4.39c **sitio 10**) — **`isPayableSellRequest` traducido a `where` de Prisma**: los
-   * **DOS** términos, derivados de la misma constante y del mismo campo.
+   * **TRES** términos (v1.51.8: dos; **v1.57 · §M5-P**: el de la recepción), derivados de la misma
+   * constante y de los mismos campos.
    *
    * Existe porque un `where` es declarativo y no puede *invocar* el predicado; lo que sí puede es
    * **no repetir la constante**. Que las dos formas digan lo mismo lo asevera un test que las cruza
-   * sobre **todo el enum × `verifiedAt ∈ {null, fecha}`** — si alguien mueve una y no la otra, ese
-   * test cae. *La guarda del motor y el aviso de la UI no pueden discrepar en una ruta de dinero.*
+   * sobre **todo el enum × `receivedAt ∈ {null,fecha}` × `verifiedAt ∈ {null,fecha}`** — si alguien
+   * mueve una y no la otra, ese test cae. *La guarda del motor y el aviso de la UI no pueden
+   * discrepar en una ruta de dinero.*
+   *
+   * ⚠️⚠️ **v1.57 · §M5-P / BL-35 eje 2 — `receivedAt: { not: null }`.** Es **la guarda**, no el aviso:
+   * el pre-check evita gastar una transacción SERIALIZABLE, pero lo que impide que salga un peso por
+   * una carrera es **este `where`**. El PoC pagó **MX$320 reales** por una carta nunca recibida
+   * porque este fragmento tenía dos términos y la promesa (b) de `PROJECT.md:1107` exige tres.
+   * **Ni un peso sale de una fila con `receivedAt IS NULL`.**
    */
   private payableWhere(): Prisma.SellRequestWhereInput {
-    return { status: { in: [...SELL_REQUEST_PAYABLE_STATES] }, verifiedAt: { not: null } };
+    return {
+      status: { in: [...SELL_REQUEST_PAYABLE_STATES] },
+      receivedAt: { not: null },
+      verifiedAt: { not: null },
+    };
   }
 
   /**
@@ -6396,7 +6451,10 @@ export class BuylistService implements OnModuleInit {
     // **Una sola constante, los dos sitios.**
     // v1.51.8 (**SITIO 10**): y ahora son **TRES** lectores con **UN** cuerpo — el tercero es
     // `AdminBuylistDTO.isPayable`, que es lo que gobierna el botón de pagar en M5. La condición
-    // completa (los DOS términos) vive en `isPayableSellRequest`; aquí solo se invoca.
+    // completa (v1.57 · §M5-P: los **TRES** términos) vive en `isPayableSellRequest`; aquí solo
+    // se invoca. ⚠️ **Que el término nuevo entrara por el cuerpo compartido y no por un `if` local
+    // es el punto entero**: `isPayable` gobierna el botón de pagar en M5, así que una guarda sin
+    // señal dejaría al súper-admin autorizando con la pantalla diciéndole que la carta llegó.
     if (!isPayableSellRequest(req)) {
       throw BusinessException.validation(
         'VALIDATION_ERROR',
@@ -6434,8 +6492,9 @@ export class BuylistService implements OnModuleInit {
         // chequeo AML comparaba contra la **cifra vieja** — el tope mensual se evaluaba sobre un
         // número que en el instante del `UPDATE` ya no existía.
         //
-        // `payableWhere()` **no lo cubre**: fija `status` y `verifiedAt`, y ninguno de los dos se mueve
-        // cuando cambia el monto. *Una guarda que no mira el importe no protege el importe.*
+        // `payableWhere()` **no lo cubre**: fija `status`, `receivedAt` y `verifiedAt`, y ninguno de
+        // los tres se mueve cuando cambia el monto. *Una guarda que no mira el importe no protege
+        // el importe.*
         //
         // Se relee con `select` de **solo las columnas de dinero**: además de ser lo único que hace
         // falta, evita traerse otra vez el snapshot cifrado de la CLABE (S49-M1).
@@ -6470,8 +6529,10 @@ export class BuylistService implements OnModuleInit {
           // §4.39c sitio 8: la MISMA constante que el pre-check de arriba. Ésta es la guarda real
           // (patrón `count===1`): la del motor, no la de la aplicación.
           // v1.51.8: el fragmento sale de `payableWhere()`, que es la traducción a `where` de
-          // `isPayableSellRequest` — **los dos términos, la misma constante**. Hay un test que
-          // asevera que el predicado y el `where` coinciden en TODO el enum × `verifiedAt`.
+          // `isPayableSellRequest` — **los TRES términos (v1.57), la misma constante**. Hay un test
+          // que asevera que el predicado y el `where` coinciden en TODO el enum × `receivedAt` ×
+          // `verifiedAt`, y una mutación que verifica que quitar el término de CUALQUIERA de los
+          // tres lectores mata algo.
           //
           // ⚠️⚠️ v1.51.22 · **B-2 — CAS SOBRE EL IMPORTE**, hermano exacto del `offerSentAt` que
           // `itemDecision` mete en el `where` de todas sus escrituras «con el valor que se observó al

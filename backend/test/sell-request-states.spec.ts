@@ -292,14 +292,20 @@ describe('§4.39c — los NUEVE sitios: guard de RESIDUO (ninguno vuelve a codif
     expect(buylist?.text).not.toMatch(/toCustomerSellRequestDTO[\s\S]{0,600}toAdminSellRequestDTO\(r\)/);
   });
 
-  it('sitio 10 — `isPayableSellRequest` coincide con la constante Y exige `verifiedAt`', () => {
+  it('sitio 10 — `isPayableSellRequest` coincide con la constante Y exige `receivedAt` + `verifiedAt`', () => {
+    const fecha = new Date();
     for (const s of Object.values(SellRequestStatus)) {
       const enElSet = (SELL_REQUEST_PAYABLE_STATES as readonly SellRequestStatus[]).includes(s);
-      // Con fecha: manda el set.
-      expect(isPayableSellRequest({ status: s, verifiedAt: new Date() })).toBe(enElSet);
-      // ⚠️ Sin fecha: NUNCA, ni siquiera en un estado del set. Éste es el término que el cliente no
-      // replicaba, y por el que la UI ofrecía un pago que el servidor rechaza con 422.
-      expect(isPayableSellRequest({ status: s, verifiedAt: null })).toBe(false);
+      // Con LAS DOS fechas: manda el set.
+      expect(isPayableSellRequest({ status: s, receivedAt: fecha, verifiedAt: fecha })).toBe(enElSet);
+      // ⚠️ Sin `verifiedAt`: NUNCA, ni siquiera en un estado del set. Éste es el término que el
+      // cliente no replicaba, y por el que la UI ofrecía un pago que el servidor rechaza con 422.
+      expect(isPayableSellRequest({ status: s, receivedAt: fecha, verifiedAt: null })).toBe(false);
+      // ⚠️⚠️ v1.57 · §M5-P / BL-35 eje 2 — **sin `receivedAt`: NUNCA.** Es exactamente la fila del
+      // PoC (`ofertada`/`cotizada` + `verify` ⇒ `verifiedAt` sellado, carta nunca recibida) sobre la
+      // que salió un SPEI real de MX$320. `PROJECT.md:1107` (b): *el pago es DESPUÉS de recibir*.
+      expect(isPayableSellRequest({ status: s, receivedAt: null, verifiedAt: fecha })).toBe(false);
+      expect(isPayableSellRequest({ status: s, receivedAt: null, verifiedAt: null })).toBe(false);
     }
   });
 

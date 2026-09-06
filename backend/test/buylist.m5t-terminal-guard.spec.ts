@@ -242,8 +242,16 @@ describe('§M5-T · `receive`/`verify` — la guarda lleva LOS DOS términos, en
 
 // =================================================================================================
 describe('§M5-T · `pay-spei` — la SEGUNDA red: `paidAt IS NULL` ∧ `closedAt IS NULL` en el CAS', () => {
+  // ⚠️ v1.57 · §M5-P — «pagable» son **TRES** términos desde BL-35 eje 2: la fila del fixture lleva
+  // `receivedAt` sellado porque, sin él, esta suite dejaría de probar la red de `paidAt`/`closedAt`
+  // (todo caería antes, por la guarda de recepción) y el «camino feliz» sería un falso verde.
   const PAGABLE = (over: Row = {}) =>
-    baseRow({ status: 'verificacion', verifiedAt: new Date('2026-09-03T00:00:00Z'), ...over });
+    baseRow({
+      status: 'verificacion',
+      receivedAt: new Date('2026-09-02T00:00:00Z'),
+      verifiedAt: new Date('2026-09-03T00:00:00Z'),
+      ...over,
+    });
 
   it('el `where` del `updateMany` afirma `paidAt: null` y `closedAt: null`', async () => {
     const h = harness(PAGABLE({ approvedTotalCents: 40_000 }));

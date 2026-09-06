@@ -115,7 +115,12 @@ function build(opts: Opts = {}) {
 
 // =============================================================================================
 describe('⚠️ BL-20 — `isPayable` en TODA proyección admin, y en NINGUNA de cliente', () => {
-  const pagable = { status: 'aprobada', verifiedAt: new Date('2026-08-05T00:00:00Z') };
+  // ⚠️ v1.57 · §M5-P — «pagable» son TRES términos: `receivedAt` entra al fixture o nada lo es.
+  const pagable = {
+    status: 'aprobada',
+    receivedAt: new Date('2026-08-04T00:00:00Z'),
+    verifiedAt: new Date('2026-08-05T00:00:00Z'),
+  };
 
   it.each([['receive'], ['verify'], ['reject']])(
     'la respuesta de mutación `%s` incluye `isPayable`',
@@ -130,8 +135,13 @@ describe('⚠️ BL-20 — `isPayable` en TODA proyección admin, y en NINGUNA d
     },
   );
 
-  it('⚠️ `verify` es la transición que lo vuelve VERDADERO: antes false, después true', async () => {
+  it('⚠️ `verify` lo vuelve VERDADERO — pero SOLO sobre una solicitud YA RECIBIDA (v1.57 · §M5-P)', async () => {
+    // ⚠️ **La premisa de este test cambió con BL-35 eje 2, y el cambio es el hallazgo.** Antes decía
+    // *«`verify` es LA transición que lo vuelve verdadero»* — y era cierto **desde cualquier estado
+    // vivo**, que es exactamente por lo que se pagó una carta que nunca llegó. Ahora `verify` es la
+    // transición que lo vuelve verdadero **sobre una fila recibida**; sobre una sin recibir, no.
     const { svc, request } = build({ status: 'verificacion' });
+    request.receivedAt = new Date('2026-08-04T00:00:00Z');
     // Sin `verifiedAt`, `isPayable` es false aunque el estado esté en el set pagable.
     const antes: any = await svc.adminGet('sr-1');
     expect(antes.isPayable).toBe(false);
@@ -140,6 +150,17 @@ describe('⚠️ BL-20 — `isPayable` en TODA proyección admin, y en NINGUNA d
     const despues: any = await svc.adminGet('sr-1');
     // …y quien lea `res.isPayable` justo después obtiene la verdad, no un `false` silencioso.
     expect(despues.isPayable).toBe(true);
+  });
+
+  it('⚠️⚠️ EL PoC DE EJE 2 EN LA PROYECCIÓN: `verify` SIN recepción NO enciende el botón', async () => {
+    // El contraste que hace verdadero al test de arriba. `verify` es el único verbo que sella
+    // `verifiedAt`, así que con dos términos alcanzarlo desde cualquier estado vivo pintaba la fila
+    // como lista para pagar. `isPayable` gobierna el botón de M5: mentía a quien autoriza.
+    const { svc, request } = build({ status: 'verificacion' });
+    expect(request.receivedAt).toBeNull();
+    request.verifiedAt = new Date();
+    const res: any = await svc.adminGet('sr-1');
+    expect(res.isPayable).toBe(false);
   });
 
   it('⚠️ LA OTRA MITAD: la proyección de CLIENTE **no contiene la clave** `isPayable`', async () => {

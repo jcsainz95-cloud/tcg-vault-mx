@@ -34,6 +34,9 @@ function row(over: Record<string, unknown> = {}) {
     userId: 'u1',
     user: { id: 'u1', name: 'Ash', email: 'ash@e.mx' },
     status: 'aprobada' as SellRequestStatus,
+    // ⚠️ v1.57 · §M5-P — la fila por defecto es una fila **SANA**: recibida Y verificada. Sin
+    // `receivedAt` ninguna sería pagable y media suite pasaría por la razón equivocada.
+    receivedAt: new Date('2026-08-01T12:00:00Z'),
     verifiedAt: new Date('2026-08-02T00:00:00Z'),
     quotedTotalCents: 50_000,
     approvedTotalCents: 40_000,
@@ -96,7 +99,7 @@ const universo = ALL_STATUSES.map((status) => row({ id: `sr-${status}`, status }
 // =============================================================================================
 // BL-17 — `isPayable`
 // =============================================================================================
-describe('⚠️ BL-17 · `isPayable` — los DOS términos, no uno', () => {
+describe('⚠️ BL-17 / §M5-P · `isPayable` — los TRES términos (v1.51.8: dos; v1.57: la recepción)', () => {
   it('⚠️ EL CASO: estado pagable pero `verifiedAt` NULO ⇒ `isPayable: false`', async () => {
     // Es exactamente la fila que hoy la UI pinta como pagable y el servidor rechaza con 422.
     for (const status of SELL_REQUEST_PAYABLE_STATES) {
@@ -118,19 +121,50 @@ describe('⚠️ BL-17 · `isPayable` — los DOS términos, no uno', () => {
     }
   });
 
-  it('la tabla de verdad COMPLETA: todo el enum × `verifiedAt ∈ {null, fecha}`', async () => {
+  /**
+   * ⚠️⚠️ **LECTOR 3 — LA PROYECCIÓN.** Éste es el test que cae si alguien «arregla» la guarda y deja
+   * la señal con la fórmula vieja (o vuelve a inlinearla aquí en vez de invocar el cuerpo común):
+   * `isPayable` **gobierna el botón de pagar en M5**, así que una señal desactualizada deja al
+   * `super_admin` que autoriza decidiendo con información falsa — «lista para pagar» una carta que
+   * nunca llegó. *Arreglar la guarda y no la señal no es medio arreglo: es el defecto de §4.39c
+   * sitio 10 otra vez.*
+   */
+  it('la tabla de verdad COMPLETA: todo el enum × `receivedAt` × `verifiedAt` ∈ {null, fecha}', async () => {
+    const recibida = new Date('2026-08-01T12:00:00Z');
+    const verificada = new Date('2026-08-02T00:00:00Z');
     for (const status of ALL_STATUSES) {
-      for (const verifiedAt of [null, new Date('2026-08-02T00:00:00Z')]) {
-        const { svc } = buildList([row({ status, verifiedAt })]);
-        const res = await svc.adminList(undefined, 1, 20);
-        const esperado =
-          (SELL_REQUEST_PAYABLE_STATES as readonly string[]).includes(status) && verifiedAt != null;
-        expect({ status, verifiedAt: !!verifiedAt, isPayable: res.data[0].isPayable }).toEqual({
-          status,
-          verifiedAt: !!verifiedAt,
-          isPayable: esperado,
-        });
+      for (const receivedAt of [null, recibida]) {
+        for (const verifiedAt of [null, verificada]) {
+          const { svc } = buildList([row({ status, receivedAt, verifiedAt })]);
+          const res = await svc.adminList(undefined, 1, 20);
+          const esperado =
+            (SELL_REQUEST_PAYABLE_STATES as readonly string[]).includes(status) &&
+            receivedAt != null &&
+            verifiedAt != null;
+          expect({
+            status,
+            receivedAt: !!receivedAt,
+            verifiedAt: !!verifiedAt,
+            isPayable: res.data[0].isPayable,
+          }).toEqual({
+            status,
+            receivedAt: !!receivedAt,
+            verifiedAt: !!verifiedAt,
+            isPayable: esperado,
+          });
+        }
       }
+    }
+  });
+
+  it('⚠️ v1.57 · EL CASO DE EJE 2: pagable + verificada pero SIN recepción ⇒ `isPayable: false`', async () => {
+    // La fila del PoC: `verify` sobre una solicitud viva selló `verifiedAt` y dejó el estado en
+    // `verificacion`, con la carta **nunca recibida**. La proyección la pintaba lista para pagar.
+    for (const status of SELL_REQUEST_PAYABLE_STATES) {
+      const { svc } = buildList([row({ status, receivedAt: null })]);
+      const res = await svc.adminList(undefined, 1, 20);
+      expect(res.data[0].isPayable).toBe(false);
+      expect(res.data[0]).toHaveProperty('isPayable');
     }
   });
 
@@ -153,27 +187,40 @@ describe('⚠️ BL-17 · el aviso de la UI y la guarda del servidor NO pueden d
    * `where` que gobierna la escritura tienen que decir **lo mismo**, sobre **todo** el espacio de
    * entrada. Si alguien mueve uno y no el otro, esto cae.
    */
-  it('`isPayableSellRequest` ≡ el `where` de la guarda atómica, en TODO el enum × `verifiedAt`', () => {
+  it('`isPayableSellRequest` ≡ el `where` de la guarda atómica, en TODO el enum × `receivedAt` × `verifiedAt`', () => {
     const svc = buildList([]).svc as unknown as {
-      payableWhere(): { status: { in: string[] }; verifiedAt: { not: null } };
+      payableWhere(): {
+        status: { in: string[] };
+        receivedAt: { not: null };
+        verifiedAt: { not: null };
+      };
     };
     const w = svc.payableWhere();
     for (const status of ALL_STATUSES) {
-      for (const verifiedAt of [null, new Date()]) {
-        const porElWhere = matchesStatus(status, w.status) && verifiedAt !== null;
-        expect({ status, v: !!verifiedAt, r: porElWhere }).toEqual({
-          status,
-          v: !!verifiedAt,
-          r: isPayableSellRequest({ status, verifiedAt }),
-        });
+      for (const receivedAt of [null, new Date()]) {
+        for (const verifiedAt of [null, new Date()]) {
+          const porElWhere =
+            matchesStatus(status, w.status) &&
+            // Se leen del `where` REAL (no se dan por hechos): si el término desaparece, `w.receivedAt`
+            // es `undefined` y esta rama deja de exigir nada ⇒ el cruce discrepa y el test cae.
+            (w.receivedAt === undefined || receivedAt !== null) &&
+            (w.verifiedAt === undefined || verifiedAt !== null);
+          expect({ status, r: !!receivedAt, v: !!verifiedAt, porElWhere }).toEqual({
+            status,
+            r: !!receivedAt,
+            v: !!verifiedAt,
+            porElWhere: isPayableSellRequest({ status, receivedAt, verifiedAt }),
+          });
+        }
       }
     }
   });
 
-  it('el `where` de la guarda lleva LOS DOS términos (no solo el estado)', () => {
+  it('el `where` de la guarda lleva LOS TRES términos (no solo el estado)', () => {
     const svc = buildList([]).svc as unknown as { payableWhere(): Record<string, unknown> };
     expect(svc.payableWhere()).toEqual({
       status: { in: [...SELL_REQUEST_PAYABLE_STATES] },
+      receivedAt: { not: null },
       verifiedAt: { not: null },
     });
   });

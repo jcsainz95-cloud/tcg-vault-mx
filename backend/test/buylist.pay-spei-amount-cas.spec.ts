@@ -16,7 +16,7 @@ import { ConfigService } from '@nestjs/config';
  * snapshot para las dos cosas que mueven dinero: el **bruto** que se compara contra el tope AML
  * (`brutoConsumado(req)`) y el **neto** que se deposita (`payoutCents − req.offerShippingFeeCents`).
  *
- * `payableWhere()` **no lo tapaba**: fija `status` y `verifiedAt`, y **ninguno de los dos se mueve
+ * `payableWhere()` **no lo tapaba**: fija `status`, `receivedAt` y `verifiedAt`, y **ninguno se mueve
  * cuando cambia el monto**. Y `itemDecision` es **legal concurrentemente** en `aprobada`/
  * `verificacion` (BL-14 solo frena los TERMINALES) y llama a `recomputeApprovedTotal`, que reescribe
  * `approvedTotalCents`. Si una decisión por-ítem commitea en esa ventana, **el SPEI sale con un bruto
@@ -91,6 +91,9 @@ const PAGABLE = (over: Row = {}): Row => ({
   id: 'sr-1',
   userId: 'u1',
   status: 'aprobada',
+  // ⚠️ v1.57 · §M5-P — «pagable» son TRES términos: sin `receivedAt` esta fila ya no lo es, y esta
+  // suite dejaría de probar el CAS del importe (todo caería antes, en la guarda de recepción).
+  receivedAt: new Date(),
   verifiedAt: new Date(),
   quotedTotalCents: 100_000,
   offerGrossCents: null,
@@ -167,8 +170,9 @@ describe('B-2 — el CAS sobre el importe vive en el `where` del motor', () => {
     await h.svc.paySpei('sr-1', 'SPEI-1', 'admin');
     expect(h.writes[0].where).toMatchObject({
       id: 'sr-1',
-      // Los DOS términos de `payableWhere()` siguen ahí: el CAS AMPLÍA la guarda, no la sustituye.
+      // Los TRES términos de `payableWhere()` siguen ahí: el CAS AMPLÍA la guarda, no la sustituye.
       status: { in: expect.any(Array) },
+      receivedAt: { not: null },
       verifiedAt: { not: null },
       // Los TRES términos de `brutoConsumado` + la tarifa que produce `payoutNetCents`.
       approvedTotalCents: 120_000,
