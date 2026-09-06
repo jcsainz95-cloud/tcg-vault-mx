@@ -4,6 +4,40 @@
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
 >
 > ---
+> **Rev v1.55.1 — RATIFICO EL BACKSTOP DE LA SEGUNDA PREGUNTA, Y NORMO LA DURABILIDAD DE SU GUARDA** (2026-09-06,
+> arquitecto; **CERO DDL, CERO endpoints, CERO campos, CERO cambios de conducta**. **UN código de error que se
+> DECLARA** —no que se crea— y **UNA norma de CI** que no es mía de ejecutar. Contrato en `API_CONTRACT.md`
+> **v1.55.1**).
+> ⚠️ **Ninguno de los dos puntos es un defecto de nadie.** El primero es un hueco **de mi documento**: backend
+> implementó la doctrina que yo normé en **§4.40.4** y, al hacerlo, creó el código de error que esa doctrina exige —y
+> **lo escaló en sus notas en vez de tocar mi contrato** (regla 9), que es exactamente lo que debía hacer—. El segundo
+> es una **advertencia del techlead sobre el modo de fallo de una guarda de compilación**, y tiene razón en que
+> merece quedar escrita.
+>
+> **A. `500 BUYLIST_LINE_NOT_KEYABLE` — RATIFICADO CON SU NOMBRE. §4.39(f.4).**
+> Es el **backstop de la pregunta 2** de la conjunción que normé en **(f.3)**: `llaveable = ACEPTADO ∧ CLAVABLE`. La
+> forma implementada —**la lista de política sigue siendo UNA y lo que faltaba era la segunda pregunta**, con un
+> `switch` exhaustivo que **produce el input** en vez de autorizar un literal— es la que fija (f.3), y **la respeta al
+> pie**. **No se rebautiza:** el nombre ya obedece las convenciones del contrato y **nombra exactamente el eje que hay
+> que poder distinguir** (`RAW_ONLY` = política, dueño producto; `NOT_KEYABLE` = capacidad técnica, dueño backend).
+> *Renombrar sería tocar un módulo de dinero a cambio de cero semántica.* **Hoy es inalcanzable** (`['raw']`) ⇒
+> **cero divergencia observable**; se declara porque **el contrato manda sobre el código** y un código vivo que el
+> contrato no nombra es una divergencia aunque nadie pueda verla.
+> - **Y con la ratificación va la norma que faltaba:** *el DINERO lanza, la LECTURA degrada — y **la lectura degrada
+>   por el DATO que conoce (`gradeKey == null`), jamás por el código de excepción que atrapó**.* Es la generalización
+>   de un defecto **real** que backend cazó con el test escrito para el día de `M-49`, no una precaución teórica.
+>
+> **B. ⚠️ LA GUARDA `never` DEL `switch` SOLO EXISTE SI EL TYPECHECK CORRE, Y ESO HOY NO ESTÁ NORMADO. §4.39(f.4.2).**
+> El techlead avisa: *si el pipeline pasara algún día a compilar sin verificar tipos, la guarda se evapora en silencio
+> y nada lo avisa*. **Verificado en el árbol: hoy la guarda es REAL** (`ci.yml` corre `prisma generate` **antes** de
+> `npm run typecheck` → `tsc --noEmit`). Pero **su vigencia no está escrita en ninguna parte**, y tiene **dos modos de
+> fallo silencioso** concretos —el `--if-present` que convierte un script ausente en un paso verde, y un cliente Prisma
+> **rancio** que deja el `switch` exhaustivo sobre un enum que ya tiene un valor más—. ⇒ **NORMA en (f.4.2)**, y
+> **`BL-34`** en §9 con dueño **devops**: *cablearlo es de su ruta, no de la mía.* **No bloqueante** — la guarda de
+> compilación es **la primera de tres redes**, y las otras dos (el grito de `onModuleInit` y este mismo `500`) siguen
+> en pie aunque se evapore.
+>
+> ---
 > **Rev v1.55 — LOS DOS CONFLICTOS DE CONTRATO QUE QA ME ENRUTÓ, Y LA MITAD `sealed` QUE CIERRO** (2026-09-06,
 > arquitecto; **UNA columna nueva** en `M-46` —aditiva, nullable, sin backfill—, **CERO endpoints, CERO campos de DTO,
 > CERO códigos de error nuevos, CERO cambios de forma en ningún puerto**. Contrato en `API_CONTRACT.md` **v1.55**).
@@ -13529,6 +13563,103 @@ lo que encaje con `common/business-rules.ts`): lo normativo es que **ensanchar u
   ficha**. *Dos hechos que hoy dan el mismo resultado no son un hecho.*
 - **Cero cambio de conducta hoy** (`ACCEPTED = CLAVABLE = ['raw']`) ⇒ **no bloqueante**, y **no reabre el gate**.
 
+**(f.4) ⚠️ v1.55.1 — EL BACKSTOP DE LA PREGUNTA 2: `500 BUYLIST_LINE_NOT_KEYABLE`. RATIFICADO, con su nombre.**
+
+**Cómo llegó, porque el trámite importa.** (f.3) normó la conjunción y dejó explícito que *«la forma exacta la elige
+backend»*. Backend la implementó y, al hacerlo, **la pregunta 2 necesitó una respuesta en el camino del dinero** —una
+línea que no se puede llavear no puede cotizarse— y creó un código de error para darla. **No tocó mi contrato: lo
+escaló en `BACKEND_NOTES` §0.38.6** (regla 9). El **techlead** verificó que el código existe
+(`common/error-codes.ts:230`) y que **ni este documento ni `API_CONTRACT.md` lo declaraban**. *Aquí se declara.*
+
+**Qué es, en una línea:** el `productType` de la fila **pasó la pregunta 1** (la política lo compra) y **falla la
+pregunta 2** (la derivación no sabe expresar su identidad sin mentir) ⇒ en el camino del **dinero**, **se lanza**.
+
+| | Pregunta 1 — **ACEPTADO** | Pregunta 2 — **CLAVABLE** |
+|---|---|---|
+| Qué afirma | política de **PRODUCTO**: *¿el negocio lo compra?* | capacidad **TÉCNICA**: *¿la llave dice la identidad sin mentir?* |
+| Dueño | **producto** (`PROJECT.md` §E/§K/criterio 61) | **backend** (este documento + la derivación) |
+| Cómo se contesta | `BUYLIST_ACCEPTED_PRODUCT_TYPES` — **una** lista, literal | `switch` exhaustivo que **produce el input** |
+| Código en el dinero | **`422 BUYLIST_RAW_ONLY`** — accionable (manda `raw`) | **`500 BUYLIST_LINE_NOT_KEYABLE`** — **no accionable por nadie de fuera** |
+| Cuándo cierra para `graded` | con **`M-49`** (decisión del dueño) | con **`M-49`** (la identidad del slab en la fila) |
+| Cuándo cierra para `sealed` | con una decisión de producto que **no existe** (criterio 61) | con **`BL-33`** + una columna que la fila no tiene |
+
+**(f.4.1) Las cuatro decisiones que ratifico, con su porqué:**
+
+1. **El NOMBRE se conserva.** Obedece las convenciones del contrato pieza por pieza (prefijo `BUYLIST_*`, sujeto
+   `LINE`, forma `NOT_<capacidad>`) y **nombra el eje exacto**. Las alternativas que consideré o **desdibujan** el eje
+   (`GRADE_KEY_*` habla de la clave, no de la línea) o **colisionan** con `GRADE_IDENTITY_REQUIRED` (§4.40.7), que es
+   de `M-49` y es un **`422` del cliente**: confundir *«no capturaste el grado»* con *«nuestra configuración se
+   contradice»* sería el error caro. *La obligación del contrato es declarar lo que existe, no rebautizarlo.*
+2. **`500` y no `422`.** Idéntica doctrina a `OFFER_PROJECTION_INCOMPLETE` (§4.39h.1) y `OFFERED_PRICE_MISSING`: **el
+   actor no lo causó y no puede corregirlo**. El disparo solo es posible si **alguien ensanchó la lista sin escribir
+   la derivación** — defecto **de despliegue nuestro**. Si dispara, **se arregla el bug**; ⛔ **jamás se «rescata»
+   llaveando la línea como `raw`** (eso es el default silencioso de §4.40.4 con otra sintaxis).
+3. **LANZA, no degrada — porque vive en el camino del DINERO.** Es la otra mitad literal de §4.40.4(b): *una lectura
+   puede decir «no sé contar»; una cotización no puede poner un número sobre una identidad que no sabe expresar.*
+4. **En `/quote/batch` NO entra al allowlist por-ítem.** ⛔ Prohibido. Criterio generalizable, y es lo que hay que
+   recordar: **se degrada por-ítem lo que es del ÍTEM; no se degrada lo que es del DESPLIEGUE.** `BUYLIST_RAW_ONLY`
+   describe la línea que mandó el cliente (las otras 49 son legítimas); éste describe una contradicción **nuestra**
+   que sería **idéntica en las 50 líneas de ese tipo**, y repartirla en 50 `ok:false` dentro de un `200` la **esconde**
+   justo cuando hay que verla.
+
+**(f.4.2) ⚠️ LA NORMA QUE FALTABA, y no es sobre el código sino sobre DÓNDE degrada: la lectura degrada por el DATO.**
+
+El test que backend escribió **para el día de `M-49`** —ensanchando la lista de verdad en un mock, en vez de razonar
+sobre ella— encontró un defecto que la lectura del código no veía: `derivedLine` degradaba **por el CÓDIGO de la
+excepción** (`BUYLIST_RAW_ONLY` en su allowlist), no por el dato. Ensanchada la lista, la guarda de política deja de
+disparar y **el que lanza es este backstop, que no está en ese allowlist** ⇒ **una fila legacy tumbaría la mesa
+entera**, que es literalmente lo que toda la degradación existe para impedir.
+
+> **NORMA (general, no solo para esta pantalla): una superficie de LECTURA decide su degradación mirando el DATO que
+> conoce —aquí `gradeKey == null`, y la línea NI ENTRA al cuerpo del dinero—, JAMÁS el código de excepción que
+> atrapó.** *Un `catch` con allowlist de códigos es una lista que hay que acordarse de actualizar; una guarda sobre el
+> dato no se puede olvidar, porque no hay nada que recordar.* Corolario para la mesa: `positionUnavailable: true` +
+> el par **`(derivedPriceCents: null, pendingReason: null)`** —la tercera combinación legal de v1.51.6—, y la emisión
+> la rechaza con **`422 OFFER_LINE_NOT_PRICEABLE`** (remedio: `skip` u override motivado, §4.39e).
+
+**(f.4.3) ⚠️ LA DURABILIDAD DE LA GUARDA `never` — punto del techlead, y lo normo porque tiene razón.**
+
+La derivación se protege con un `const unreachable: never` en el `default` del `switch`: **un `ProductType` nuevo en
+el schema rompe la COMPILACIÓN** en vez de caer en una rama silenciosa. **Es una buena guarda y hoy es real** —
+verificado en el árbol: `.github/workflows/ci.yml` corre **`prisma generate` y después `npm run typecheck`**
+(`tsc --noEmit`), en ese orden. Pero **su vigencia no estaba escrita en ninguna parte**, y una guarda cuya existencia
+depende de que nadie toque un YAML **no es una guarda: es una costumbre**.
+
+> **NORMA — para que la guarda sea una propiedad y no una suerte. Dueño: `devops` (`BL-34`, §9); NO BLOQUEANTE.**
+> 1. **El typecheck del backend corre en CI en cada PR que toque `backend/`, y corre DESPUÉS de `prisma generate`
+>    sobre el schema de ESE commit.** El orden **no es cosmético**: `ProductType` es un tipo **generado**, así que un
+>    cliente **rancio** deja el `switch` exhaustivo **sobre un enum que ya tiene un valor más** — la guarda pasa en
+>    verde **mientras el schema tiene cuatro valores y la derivación cubre tres**. *Ése es el modo de fallo silencioso,
+>    y no es «que falte el typecheck»: es que corra contra el enum de ayer.*
+> 2. **El paso NO puede pasar en verde por ausencia.** Hoy es `npm run typecheck --if-present`: si alguien renombra o
+>    borra ese script en `backend/package.json`, **el paso se salta y el job queda verde**. Para una guarda de dinero
+>    eso es exactamente al revés de lo que hace falta: **la ausencia del verificador tiene que fallar, no aprobar.**
+>    *(El mecanismo lo elige devops — quitar el `--if-present`, un job dedicado, o una aserción de que el script
+>    existe. Las tres cierran el hueco y **la elección es de su ruta, no mía**; mismo trato que `BL-27`.)*
+> 3. **Ninguna guarda de compilación es la ÚNICA red de un invariante de dinero.** Aquí no lo es, y por eso esto no
+>    bloquea: hay **tres redes anidadas**, cada una con su alcance, y las tres siguen valiendo si una cae.
+>
+> | # | Red | Cuándo dispara | Qué caso cubre | Si se evapora… |
+> |---|---|---|---|---|
+> | 1 | **`never` del `switch`** | **compilación** | un **`ProductType` nuevo en el schema** sin rama escrita | quedan la 2 y la 3, pero el defecto **entra al repo** |
+> | 2 | **grito de `onModuleInit`** | **arranque** | la **lista ensanchada** sin rama escrita | quedaría solo la 3, y **el aviso llega por petición, no por despliegue** |
+> | 3 | **`500 BUYLIST_LINE_NOT_KEYABLE`** | **petición** | la misma, en el camino del dinero | **no se evapora**: es la última y **no depende de tooling** |
+>
+> **Y el eslabón que hace que las redes 2 y 3 sí lleguen a enterarse:** la rama `default` del `switch` **devuelve
+> `null` en runtime** (no cae en silencio ni inventa una clave). Así, un `ProductType` que llegara sin rama escrita
+> —enum por delante del código, fila casteada— **degrada en lectura y dispara este `500` en el dinero**, que es
+> justamente lo que convierte «la guarda se evaporó» en un fallo **ruidoso y money-safe** en vez de un cheque firmado.
+>
+> *Que la red 3 exista es justamente lo que hace que la 1 pueda romperse sin que se firme un cheque al grado
+> equivocado. Por eso `BL-34` es no bloqueante — y por eso no es despreciable: sin la 1, el defecto llega a
+> producción y se descubre por un `500`, que es la forma más cara de descubrirlo.*
+
+**(f.4.4) Lo que esta subsección NO hace.**
+- **No crea nada.** El código, el `switch`, el grito de arranque y sus tests **ya existen y pasaron los dos gates**.
+  Esto es **declaración**, y por eso **no reabre el gate ni pide una línea de código a backend**.
+- **No decide si compramos graduadas** (sigue siendo §4.40.6, del dueño), ni ensancha ninguna lista, ni toca `M-49`.
+- **No toca CI.** `.github/workflows/` es de **devops**; aquí va la **norma**, no el YAML.
+
 ---
 
 #### (g) La mesa de decisión: la **posición** son cuatro sumandos, y «en camino» es **uno solo** de ellos
@@ -17150,6 +17281,18 @@ inventado.** Es literalmente el principio money-safe que `PROJECT.md` §E.1 decl
 de pricing (*«sin dato ⇒ precio pendiente, jamás MX$0 ni precio inventado»*) y que §4.36 reafirma para la curva
 (*«SIN DATO DE MERCADO ⇒ pendiente»*).
 
+> **⚠️ v1.55.1 — ESTA REGLA GANÓ UN CÓDIGO EN EL LADO DEL DINERO: `500 BUYLIST_LINE_NOT_KEYABLE`.** La mitad
+> *«el dinero LANZA»* de esta tabla, aplicada al **buylist**, necesita decir **con qué código** lanza cuando la línea
+> **no se puede llavear**. Ese código existe, está implementado y **queda ratificado en §4.39(f.4)** y en
+> `API_CONTRACT.md` §0 «Errores». **Hoy es inalcanzable** (`BUYLIST_ACCEPTED_PRODUCT_TYPES = ['raw']`) y **nada de
+> esta sección cambia**. Dos precisiones que se leen desde aquí:
+> - **La derivación del buylist ya no autoriza un literal: lo PRODUCE.** `llaveable = ACEPTADO ∧ CLAVABLE` (§4.39f.3)
+>   — la lista de política sigue siendo **una**; lo que faltaba era **la segunda pregunta**. Ensanchar la lista
+>   **obliga a visitar la derivación**, y un `ProductType` nuevo **rompe la compilación**.
+> - **Y la mitad *«la lectura DEGRADA»* se afinó:** degrada **por el DATO** (`gradeKey == null`), **jamás por el
+>   código de excepción que atrapó** (§4.39f.4.2). *Un `catch` con allowlist de códigos hay que acordarse de
+>   actualizarlo; una guarda sobre el dato, no.*
+
 **(c) Efecto lateral que es, en realidad, la mitad del arreglo.** Las piezas ya convertidas del eslabón 6 —graduadas
 con identidad nula— **dejan de resolverse como PSA 10 y pasan a `pending`**. No es una regresión: es que **por
 primera vez dicen la verdad**. Un `pending` visible entra a la cola del dueño y se repara; un PSA 10 silencioso no se
@@ -17975,8 +18118,22 @@ Riesgos técnicos:
   > **QA enrutó BL-31 y BL-32 al arquitecto por la regla 9, y fue lo correcto**: los dos son la interfaz, no la
   > implementación. **BL-33 llegó como «cambio de forma de un puerto» y no lo era** — ver §4.39(f.2).
 
+  > ### ⚠️ v1.55.1 — UNA FILA MÁS (**BL-34**), y tampoco es un defecto de backend: es **TOOLING**, dueño **devops**.
+  > *(Punto del **techlead**. Su hermana de familia es `BL-27`: una norma que solo puede vivir en la ruta de devops, y
+  > que el arquitecto **norma pero no cablea**.)*
+  > **Lo que el techlead trajo eran DOS cosas y solo una abre fila:**
+  > | Hallazgo | Qué era | Dónde queda |
+  > |---|---|---|
+  > | `BUYLIST_LINE_NOT_KEYABLE` vivo en el código y **ausente del contrato** | **hueco de MI documento** — backend lo escaló bien (regla 9) y **no tocó el contrato** | **Cerrado en este mismo pase**: ratificado en `API_CONTRACT` §0 «Errores» y en §4.39(f.4). ⇒ **no abre fila**: no queda nada que nadie tenga que hacer |
+  > | La guarda `never` **solo protege si el typecheck corre en CI tras `prisma generate`** | **riesgo de tooling vivo**, con dueño y con dos modos de fallo silencioso | **`BL-34`**, abajo — **hay algo que hacer y no es mío** |
+  > **⚠️ El primero NO se registra como desviación a propósito, y conviene decir por qué:** §9 describe divergencias
+  > **abiertas** entre los documentos y el código vivo. Una divergencia que **se cierra en el mismo pase que la
+  > detecta** y que **no deja tarea a nadie** no es una fila de este registro: sería una fila que nace `✅`, y este
+  > registro ya aprendió (v1.51.10) que **una marca que no puede cambiar de estado no es un estado**.
+
   | # | Desviación | Dueño | Puerta |
   |---|---|---|---|
+  | **BL-34** ⛔ **ABIERTA — NO BLOQUEANTE; es TOOLING, no código de producto** *(v1.55.1 — lo levantó el **techlead** sobre el modo de fallo de una guarda de compilación de **dinero**; hermana de `BL-27`)* | La exhaustividad de la derivación de identidad del buylist se sostiene con un **`const unreachable: never`** en el `default` del `switch` (`buylist.service.ts:2931-2938`): un `ProductType` nuevo en el schema **rompe la compilación** en vez de caer en una rama muda. ⚠️ **Esa guarda solo existe mientras el typecheck corra en CI**, y **su vigencia no estaba escrita en ninguna parte**. **Hoy es real y verificado** (`.github/workflows/ci.yml:114-125`: `prisma generate` → `npm run typecheck` → `tsc --noEmit`), pero tiene **dos modos de fallo SILENCIOSO**: **(1)** el paso es `npm run typecheck --if-present` ⇒ **renombrar o borrar el script deja el job en verde** (*la ausencia del verificador **aprueba** en vez de fallar*); **(2)** un cliente Prisma **rancio** deja el `switch` exhaustivo **sobre el enum de ayer** ⇒ verde con el schema ya en cuatro valores y la derivación cubriendo tres. *No es «que falte el typecheck»: es que corra contra el enum equivocado, que no se ve* | **devops** (herramienta) | **Norma (arquitecto), §4.39(f.4.3):** el typecheck del backend **corre en cada PR que toque `backend/`**, **después** de `prisma generate` sobre el schema de **ese** commit, y **no puede pasar en verde por ausencia del script**. **El mecanismo lo elige devops** —quitar el `--if-present`, job dedicado, o asertar que el script existe—: las tres cierran el hueco y **la elección es de su ruta**. ⚠️ **NO BLOQUEANTE, y con motivo escrito:** la guarda de compilación es **la PRIMERA de tres redes** (compilación → grito de `onModuleInit` → **`500 BUYLIST_LINE_NOT_KEYABLE`** en petición) y el `default` **degrada en runtime** (`return null`), así que aunque se evapore **no se firma un cheque al grado equivocado**: se descubre por un `500`. *Que sea recuperable es lo que lo hace no bloqueante; que se descubra en producción es lo que lo hace real* |
   | **BL-31** ⛔ **ABIERTA** *(v1.55 — **defecto del CONTRATO, mío**; la midió **QA** en la corrida conjunta que exige el criterio **176(d)**, que es la única forma de verla)* | La proyección de `lastOfferCancelledAt` (§4.39s.1, contrato §6/D42) discrimina por **`offerSentAt IS NOT NULL`**, que es **marca permanente de la SOLICITUD** (BL-28), no de la **oferta** que se está cancelando. Con una oferta **enviada-y-cancelada previa**, cancelar después una **`pending_authorization`** deja el correo ✔ y el reloj ✔ correctos y **el portal pintando una fecha que el vendedor nunca supo**, **contradiciendo su correo 5**. ⚠️ **Y el VALOR también estaba mal**: `offerCancelledAt` se **sobrescribe** en las tres ramas ⇒ *«la cancelación que él vio»* **deja de existir en la fila**. Por eso **cambiar solo el discriminador a `offerReissueCount > 0` NO alcanza**: abre la puerta correcta y **sigue pintando la fecha equivocada** | **arquitecto** (norma ✅ hecha en v1.55) → **backend** (implementar) | **Cierre = §4.39(s.1-bis) / D44:** `M-46` gana **`offerSentCancelledAt DateTime?`**, escrita por **el mismo `if`** que ya escribe el reloj, el conteo y el correo 5 ⇒ **las TRES consecuencias de 176(d) pasan a ser cuatro efectos de un predicado** y la propiedad de `PROJECT.md` (*«no pueden desincronizarse»*) vuelve a ser estructural. ⚠️ **El DTO no cambia** (`lastOfferCancelledAt`, mismo nombre y shape) ⇒ **frontend no toca nada**. ⚠️ **`offerCancelledAt` NO se toca**: su `write` incondicional (`buylist.service.ts:3436`) **es correcto para lo que esa columna significa** — *no se arregla el escritor, se arregla el lector*. **Zona compartida** (`prisma/`): el orquestador serializa |
   | **BL-32** ⏸️ **EN CONFLICTO — NO ES DEFECTO DE BACKEND** *(v1.55 — **contrato × `PROJECT.md`**; el segundo ejemplar de la familia de `D-BG-5`, y por segunda vez **el que estaba mal es el contrato**)* | `settings.constants.ts:683-702` implementa la validación cruzada de M10 con **tres** términos (`tarifa + pisoNeto ≤ mínimo`), que es **exactamente lo que dicen `API_CONTRACT.md:1099` y §4.39(l)**. Choca con **tres afirmaciones** de `PROJECT.md`: criterio **127** (`tarifa = MX$499` con mínimo 500 ⇒ *«**guarda**»*, y *«**no existe** en M10 ninguna validación cruzada que involucre al neto mínimo»*) y **167(d)** (*«la pantalla guarda MX$200 **sin validarlo contra nada**»*). ⚠️ **El código obedeció su fuente de verdad**: enrutarlo a backend sería pedirle que desobedezca el contrato | **product-owner** (redacta `PROJECT.md`; **el humano aprueba**) · arquitecto (contrato) · backend **solo en la salida 2** | **Yo no puedo ratificarme.** §4.39(l.1) deja **las dos salidas con su coste** y el **redline exacto** de 127/167(d) para el PO. **Recomendación: RATIFICAR** — la prohibición del 127 es **más ancha que su propia razón** (*«M10 no ve el recorte»* descarta validar **una oferta**, no la **combinación de diales**, que M10 sí ve). ⚠️ **Entretanto el código NO se toca**: la guarda implementada es **la más estricta**, con los defaults **no dispara** (`380 ≤ 500`) y el hueco exige **configurar mal tres diales** — *guardarraíl de misconfiguración, no fuga viva*. **Mover una guarda de dinero dos veces es peor que sostenerla una con dueño.** ⚠️ **QA: el cuarto intento del criterio 127 va a fallar, y es correcto que falle** — divergencia **conocida, documentada y con dueño**, no defecto |
   | **BL-33** ⏳ **DIFERIDA, NO BLOQUEANTE — con disparador** *(v1.55 — **no es alcanzable hoy**; llegó escalada como «cambio de forma de un puerto entre streams» y **no lo es**)* | `inventory-position.adapter.ts` agrupa **sin** discriminar el producto sellado ⇒ **dos `SealedProduct` de la misma `Card` colapsan en un bucket**. ⚠️ **No lo lee nadie**: el **único** consumidor de `INVENTORY_POSITION_PORT` es `buylist`, que es **raw-only** (§4.40.3) y **no puede construir una ref `sealed`**. La causa es que el adaptador usa el literal colapsado **`'sealed'`** —que es, por diseño, **la clave del override MANUAL del admin** (§4.40.4)— en vez de la clave canónica por producto **`sealedMarketGradeKey()` → `sealed:tcg:<id>`**, que existe desde v1.19 (§4.19d) | **backend** (stream «Inventario y vault») | **⚠️ `VariantPositionRef` NO gana `sealedProductId` — CERRADO, §4.39(f.2).** La identidad **ya cabe** en `gradeKey`, así que **no hay cambio de interfaz entre streams y nunca hubo nada que esperar del arquitecto**: es un defecto **de un solo stream**. Añadir el campo habría sido **el buylist de sellado por la puerta de atrás** (lo mismo que §4.40.7(4) rechazó para `M-49`). **Disparador: el día que CUALQUIER consumidor pida una ref `sealed`, pasa a bloqueante y se cierra ANTES de esa ref** — con la precondición de las piezas legacy sin mapear, que si no se leerían como **`0`, el valor prohibido** (§4.39f.2-bis) |

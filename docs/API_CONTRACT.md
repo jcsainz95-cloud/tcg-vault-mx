@@ -2,7 +2,59 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-06 (rev **v1.55**).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-06 (rev **v1.55.1**).
+>
+> **Changelog v1.55.1 — RATIFICACIÓN DE `500 BUYLIST_LINE_NOT_KEYABLE` (2026-09-06, arquitecto; **CERO endpoints,
+> CERO campos de DTO, CERO cambios de shape, CERO cambios de conducta, CERO DDL**. UN código de error que se
+> **DECLARA**, no que se crea. ARCHITECTURE rev **v1.55.1**):**
+> ⚠️ **Esto no añade nada al sistema: pone en el contrato algo que ya vive en el código.** Lo levantó el **techlead**
+> y el orquestador lo confirmó: el código declara `BUYLIST_LINE_NOT_KEYABLE` (`common/error-codes.ts:230`) y **este
+> documento no lo nombraba**. En este proyecto **el contrato manda sobre el código**, así que un código de error vivo
+> que el contrato no declara es una divergencia — aunque **hoy sea inalcanzable** y por tanto **no observable**.
+> **Backend hizo lo correcto: lo escaló en sus notas (§0.38.6) en vez de tocar mi documento** (regla 9).
+>
+> **A. SE RATIFICA EL NOMBRE: `BUYLIST_LINE_NOT_KEYABLE`. No se rebautiza.** Tres razones, y ninguna es inercia:
+> - **Ya obedece las convenciones de este documento**, pieza por pieza: prefijo de dominio `BUYLIST_*` (como
+>   `BUYLIST_RAW_ONLY`, `BUYLIST_MINIMUM_NOT_MET`, `BUYLIST_LIMIT_EXCEEDED`), sujeto `LINE` (como
+>   `OFFER_LINE_NOT_PRICEABLE`) y la forma `NOT_<capacidad>` que este contrato ya usa para *«esta fila no admite la
+>   operación»* (`ITEM_NOT_PUBLISHABLE`, `ITEM_NOT_ADJUSTABLE`, `ITEM_NOT_OFFERED`). *No hay nada que corregir.*
+> - **Nombra exactamente la segunda pregunta**, que es lo que hay que poder distinguir —`llaveable = ACEPTADO ∧
+>   CLAVABLE`—: `RAW_ONLY` contesta la primera (política); `NOT_KEYABLE` contesta la segunda (capacidad técnica).
+>   Cualquier nombre alternativo que probé —`GRADE_KEY_*`, `VARIANT_IDENTITY_*`— o **desdibuja** el eje (habla de la
+>   clave, no de la línea) o **se confunde** con `GRADE_IDENTITY_REQUIRED`, que es de `M-49` y es un **`422` del
+>   cliente**. Confundir esos dos sería precisamente el error caro.
+> - **Renombrar costaría un cambio en un módulo de dinero a cambio de cero semántica.** El código está implementado,
+>   anclado y con los dos gates aprobados. *La obligación del contrato aquí es declarar lo que existe, no rebautizarlo
+>   para dejar mi huella.*
+>
+> **B. LO QUE SE DECLARA** (ficha completa en §0 «Errores», junto a `BUYLIST_RAW_ONLY` — son las dos mitades de la
+> misma conjunción): **`500`**, `details: { productType }`, en las **tres rutas del dinero** del buylist
+> (`POST /buylist/quote`, `POST /buylist/quote/batch`, `POST /buylist/requests`). **Misma doctrina que
+> `OFFER_PROJECTION_INCOMPLETE` (v1.51.17) y `OFFERED_PRICE_MISSING`:** el actor **no lo causó y no puede
+> corregirlo**; un `422` le pediría que arregle un bug nuestro. **Hoy es INALCANZABLE** (con
+> `BUYLIST_ACCEPTED_PRODUCT_TYPES = ['raw']` política y derivación coinciden) ⇒ **ninguna respuesta cambia y nada que
+> QA pueda medir por el borde HTTP se mueve.**
+>
+> **C. ⚠️ LA ASIMETRÍA CON `BUYLIST_RAW_ONLY` EN `/quote/batch` ES NORMATIVA, no un olvido.** `BUYLIST_RAW_ONLY`
+> **degrada por-ítem** (`ok:false`, HTTP `200`); `BUYLIST_LINE_NOT_KEYABLE` **NO**: es un `500` de request completo.
+> ⛔ **Prohibido meterlo en el allowlist de degradación por-ítem del batch.** El criterio, generalizable: **se degrada
+> por-ítem lo que es del ÍTEM; no se degrada lo que es del DESPLIEGUE.** `RAW_ONLY` es una propiedad de la línea que
+> el cliente mandó —las otras 49 son legítimas y tienen que cotizar—; `NOT_KEYABLE` es una contradicción **nuestra**
+> entre la lista de política y la derivación: **sería idéntica en las 50 líneas de ese tipo**, y repartirla en 50
+> `ok:false` dentro de un `200` la **esconde** justo cuando hay que verla.
+>
+> **D. Y DÓNDE NO PUEDE APARECER, que es la otra mitad de la norma.** En las superficies de **LECTURA** una línea sin
+> llave **degrada y no lanza**: la mesa de decisión la pinta **SIN PRECIO + SIN CONTEO** (`positionUnavailable`,
+> `derivedPriceCents: null`) y la **emisión** de oferta la rechaza con **`422 OFFER_LINE_NOT_PRICEABLE`** (remedio:
+> `skip` u override motivado, §4.39e). **NORMA: la lectura degrada por el DATO que conoce (`gradeKey == null`), jamás
+> por el código de error que atrapó.** *Una pantalla que decide según qué excepción le lanzaron se rompe el día que
+> le lanzan otra* — que es exactamente el defecto que backend cazó con el test escrito para el día de `M-49`.
+>
+> **E. Consumidores, dicho explícito porque frontend y QA trabajan en paralelo.** **Frontend: cero.** Es de la clase
+> `500`/infra (error genérico, «algo salió mal»), **nunca** copy por-línea, y **no lleva fila en `DESIGN_SYSTEM.md`**.
+> **QA:** es **correcto** que **ningún test de contrato pueda producirlo por el borde HTTP** hoy, y ⛔ **no se
+> ensancha la lista de política para "poder probarlo"** — eso sería construir el buylist de graduadas para satisfacer
+> un test. Su prueba vive donde backend ya la puso: **unitaria, ensanchando la lista en un mock**.
 >
 > **Changelog v1.55 — LOS DOS CONFLICTOS QUE QA ENRUTÓ AL ARQUITECTO POR LA REGLA 9 (2026-09-06, arquitecto;
 > **CERO endpoints, CERO campos de DTO, CERO códigos de error nuevos, CERO cambios de shape**. UNA columna nueva en
@@ -3438,6 +3490,47 @@
 - **`422 BUYLIST_RAW_ONLY` (v1.53 — MONEY, ARCHITECTURE §4.40):** se envió `productType` distinto de `"raw"` a una ruta de buylist. **El cotizador y el pipeline de compra son solo raw** (`PROJECT.md` §E, §K LOCKED, criterio 61). Afecta `POST /buylist/quote`, `POST /buylist/quote/batch` y `POST /buylist/requests`. `details: { index?: number, productType: "graded" | "sealed" }` (`index` solo en las rutas con `items[]`, para que el front señale la línea).
   - **Por qué es un `422` de negocio y no el `400 VALIDATION_ERROR` de un `@IsIn`:** en **`/quote/batch` degrada POR-ÍTEM** (`ok:false`, HTTP `200`, correlación por `index`), igual que `NOT_FOUND` / `FINISH_NOT_AVAILABLE` / `PRODUCT_NOT_FOUND` / `PRODUCT_CARD_MISMATCH`. Un rechazo de forma en el `ValidationPipe` tumbaría el request completo y con él **las demás líneas raw legítimas** del grid. En `POST /buylist/quote` y `POST /buylist/requests` es un `422` de request completo (y en `requests`, **la solicitud no se crea**).
   - **Guardarraíl money-safe, no cosmética:** sin él, una línea graduada se cotiza contra `graded:PSA:10` —**el grado más caro**— porque el grado real **nunca se captura**. El bloqueo lo aplica **siempre el backend**; el selector del cotizador es solo UI (SEC-A1).
+- **`500 BUYLIST_LINE_NOT_KEYABLE` (v1.55.1 — RATIFICADO; BACKSTOP, no error de cliente; MONEY, ARCHITECTURE
+  §4.39(f.4) y §4.40.4):** el `productType` de la línea **está autorizado** por la política de compra
+  (`BUYLIST_ACCEPTED_PRODUCT_TYPES`) pero la derivación de identidad **no sabe llavear esa variante sin mentir**.
+  `details: { productType }`. **No cotiza, no persiste y no crea nada.** Afecta las **tres rutas del dinero**:
+  `POST /buylist/quote`, `POST /buylist/quote/batch` y `POST /buylist/requests`.
+  - **⚠️ HOY ES INALCANZABLE, y se declara igual.** Con la lista vigente (`['raw']`) la política y la derivación
+    **coinciden**, así que ninguna petición puede producirlo. Se declara porque **el código lo tiene vivo**
+    (`common/error-codes.ts`) y en este proyecto **el contrato manda sobre el código**: un código no declarado es una
+    divergencia aunque nadie pueda verla. *Mismo precedente y mismo trámite que `OFFER_PROJECTION_INCOMPLETE`, que
+    v1.51.17 añadió a su línea `Err:` por la misma razón.*
+  - **Es la SEGUNDA de dos preguntas, y por eso no es `BUYLIST_RAW_ONLY` con otro nombre.** `llaveable = ACEPTADO ∧
+    CLAVABLE`. **(1) ACEPTADO** — *¿el negocio compra este tipo de producto?* → política, dueño **producto**
+    (`PROJECT.md` §E/§K/criterio 61) ⇒ **`422 BUYLIST_RAW_ONLY`**, accionable por el cliente (manda `raw`).
+    **(2) CLAVABLE** — *¿la llave puede decir la identidad de esta fila sin mentir?* → capacidad técnica, dueño
+    **backend** ⇒ **este `500`**, **no accionable por nadie de fuera**. **Cierran en fechas distintas y por dueños
+    distintos** (`graded` con **`M-49`**; `sealed` con **`BL-33`**), y por eso son dos códigos y no uno.
+  - **Por qué `500` y no `422`** (idéntica doctrina a `OFFER_PROJECTION_INCOMPLETE` y `OFFERED_PRICE_MISSING`): el
+    disparo solo es posible si **alguien ensanchó la lista de política sin escribir la derivación** — un defecto de
+    **despliegue nuestro**. Un `422` le pediría al vendedor que arregle nuestro bug. **Si dispara, se arregla el bug**:
+    se escribe la rama de derivación (o se saca el tipo de la lista). ⛔ **Jamás se «rescata» llaveando la línea como
+    `raw`**: eso es exactamente el default silencioso que §4.40 retiró, con otra sintaxis.
+  - **⚠️ EN `/quote/batch` NO DEGRADA POR-ÍTEM — y es normativo.** ⛔ **Prohibido añadirlo al allowlist por-ítem**
+    (donde sí están `NOT_FOUND`, `FINISH_NOT_AVAILABLE`, `PRODUCT_NOT_FOUND`, `PRODUCT_CARD_MISMATCH` y
+    `BUYLIST_RAW_ONLY`). Es un **`500` de request completo**. *Criterio generalizable: **se degrada por-ítem lo que es
+    del ÍTEM; no se degrada lo que es del DESPLIEGUE.*** `BUYLIST_RAW_ONLY` describe la línea **que mandó el cliente**
+    y las otras 49 son legítimas; `BUYLIST_LINE_NOT_KEYABLE` describe una **contradicción de configuración nuestra**
+    que sería idéntica en las 50 líneas de ese tipo — repartirla en 50 `ok:false` dentro de un `200` la **esconde**
+    justo cuando hay que verla.
+  - **⚠️ DÓNDE NO PUEDE APARECER (la otra mitad de la norma):** en **LECTURA** una línea sin llave **degrada, no
+    lanza**. La **mesa de decisión** (`GET /admin/buylist/:id/decision-table`, §M5-ciclo) la pinta **SIN PRECIO + SIN
+    CONTEO** — `positionUnavailable: true` + el par **`(derivedPriceCents: null, pendingReason: null)`**, que es
+    exactamente la **tercera combinación legal** ya normada en v1.51.6/(C): *«deriva de identidad, el mercado ni se
+    consultó»*— y **la EMISIÓN** la rechaza con **`422 OFFER_LINE_NOT_PRICEABLE`** (remedio: **`skip` u override
+    motivado**, §4.39e; *jamás MX$0 y jamás un grado inventado*). **NORMA: la lectura degrada por el DATO que conoce
+    (`gradeKey == null`), nunca por el código de excepción que atrapó.** *Una pantalla que decide según qué error le
+    lanzaron se rompe el día que le lanzan otro* — y esa es la puerta por la que una fila legacy tumbaría la mesa
+    entera el día de `M-49`, cuando el que lance deje de ser `BUYLIST_RAW_ONLY` y pase a ser **éste**.
+  - **Frontend: nada que hacer.** Clase `500`/infra (error genérico), **nunca** copy por-línea; **no lleva fila de
+    copy en `DESIGN_SYSTEM.md`**. **QA:** es **correcto** que ningún test de contrato pueda producirlo por el borde
+    HTTP; ⛔ **no se ensancha la lista de política para poder probarlo** (sería construir el buylist de graduadas para
+    satisfacer un test). Su cobertura es **unitaria**, ensanchando la lista en un mock.
 - **`403 EMAIL_NOT_VERIFIED` (v1.5):** un `customer` autenticado con `emailVerified=false` intenta una **acción sensible** (comprar / retirar / vender). El front muestra el banner "verifica tu correo" y ofrece reenviar; el bloqueo lo aplica **siempre** el backend (`EmailVerifiedGuard`, ARCHITECTURE §4.11). Endpoints afectados: `POST /checkout/session`, `POST /shipments`, `POST /buylist/requests`.
 - **`422 CLABE_REQUIRED` (v1.15):** `POST /buylist/requests` **sin** `clabe` en el body **y sin** CLABE en archivo (`KycProfile.clabeEnc` vacío). El front debe pedir la CLABE (o registrarla en KYC) antes de reintentar. Distinto de `422 CLABE_INVALID` (formato incorrecto) y de `422 CLABE_NOT_OWN_NAME` (no coincide con la de archivo). Ver §6 y ARCHITECTURE §4.16a.
 - **⚠️ LA FAMILIA `PICKUP_ADDRESS_*` (v1.51.3, D36/D37 — ARCHITECTURE §4.39q).** Cuatro códigos, **cuatro remedios
@@ -6469,6 +6562,10 @@ Req: `{ cardId: string, productType: "raw", rawCondition?: RawCondition, finish?
 > compra de **raw** a usuarios»), §K **LOCKED** («el cotizador y el pipeline de buylist siguen siendo **solo para
 > raw**») y el **criterio 61** nunca autorizaron comprar graduadas ni sellado por el cotizador.
 > - `productType ∈ {"graded","sealed"}` ⇒ **`422 BUYLIST_RAW_ONLY`**.
+> - **v1.55.1 — y el backstop de la otra pregunta: `500 BUYLIST_LINE_NOT_KEYABLE`.** Si un día la lista de política
+>   autorizara un `productType` cuya identidad la derivación **no sabe expresar**, esta ruta **lanza** en vez de
+>   inventar una clave. **Hoy es inalcanzable** (`['raw']`) y **no cambia ninguna respuesta**; ficha completa en §0
+>   «Errores». *La declaración es del contrato; el disparo, imposible con la lista vigente.*
 > - **Por qué importa y no es burocracia:** ningún DTO de buylist tiene —ni tuvo nunca— dónde capturar **qué grado
 >   es** el slab, así que el backend resolvía la referencia con un default silencioso a **`graded:PSA:10`**, el grado
 >   **más caro**. Toda graduada se cotizaba como si fuera un PSA 10. La guarda es **server-side**: el selector del
@@ -6605,7 +6702,16 @@ global es `200`. `index` = posición 0-based en `items[]` (llave de correlación
   aplicable), PRODUCT_NOT_FOUND (v1.30 — productId inexistente), PRODUCT_CARD_MISMATCH (v1.30 — productId no cuelga del
   cardId), **BUYLIST_RAW_ONLY** (v1.53 — `productType` distinto de `"raw"`; el buylist es solo raw, §4.40) }`, con `message` EN de fallback. Son los mismos códigos que el endpoint por-carta devolvería como
   `404`/`422`, aquí **por-ítem**.
-Err (nivel request, no por-ítem): `400 VALIDATION_ERROR` (items vacío / > 50 / ítem malformado), `429 RATE_LIMITED`.
+Err (nivel request, no por-ítem): `400 VALIDATION_ERROR` (items vacío / > 50 / ítem malformado), `429 RATE_LIMITED`,
+**`500 BUYLIST_LINE_NOT_KEYABLE`** *(v1.55.1 — ratificación; **hoy inalcanzable**)*.
+> **⚠️ `500 BUYLIST_LINE_NOT_KEYABLE` va EN ESTA LÍNEA y NO en la lista `ok:false` de arriba, y es normativo.** Es el
+> **único** código del buylist que **no degrada por-ítem**: tumba el request entero. ⛔ **Prohibido añadirlo al
+> allowlist por-ítem.** El criterio: **se degrada por-ítem lo que es del ÍTEM; no se degrada lo que es del
+> DESPLIEGUE.** `BUYLIST_RAW_ONLY` describe **la línea que mandó el cliente** —las otras 49 son legítimas y tienen que
+> cotizar—; `BUYLIST_LINE_NOT_KEYABLE` describe una **contradicción de configuración NUESTRA** (la lista de política
+> autoriza un tipo que la derivación no sabe llavear) que **sería idéntica en las 50 líneas de ese tipo**: repartirla
+> en 50 `ok:false` dentro de un `200` la **esconde** justo cuando hay que verla. **Hoy no puede dispararse**
+> (`['raw']`): política y derivación coinciden. Ficha completa en §0 «Errores»; doctrina en ARCHITECTURE §4.39(f.4).
 Nota: el batch es **anónimo/público** como el quote por-carta; la creación de la solicitud (con topes/KYC/CLABE)
 sigue siendo el paso autenticado `POST /buylist/requests`.
 
@@ -6776,6 +6882,12 @@ Res `201`: `{ sellRequestId, status: "cotizada", quotedTotalCents, ineRequired: 
 Err:
 - **`403 EMAIL_NOT_VERIFIED`** (v1.5 — vender es acción sensible; el cotizador público `POST /buylist/quote` y `POST /buylist/quote/batch` **no** se bloquean)
 - **`422 BUYLIST_RAW_ONLY`** (v1.53 — algún item trae `productType` distinto de `"raw"`; `details: { index, productType }`. **La solicitud no se crea**)
+- **`500 BUYLIST_LINE_NOT_KEYABLE`** *(v1.55.1 — **RATIFICADO, backstop, HOY INALCANZABLE**)* — el `productType` de
+  alguna línea **está autorizado** por la política pero la derivación **no sabe llavear esa variante**.
+  `details: { productType }`. **La solicitud no se crea y no se congela ningún monto.** **`500` y no `422`** porque
+  **el vendedor no lo causó y no puede corregirlo** (misma doctrina que `OFFER_PROJECTION_INCOMPLETE`): es un defecto
+  de **despliegue nuestro** —lista de política ensanchada sin escribir la derivación— y **se arregla escribiendo la
+  rama, jamás llaveando la línea como `raw`**. Con `['raw']` **no puede dispararse**. Ficha completa en §0 «Errores».
 - **`422 FINISH_NOT_AVAILABLE`** (v1.6 — algún `finish` no está en la whitelist aplicable: `Card.availableFinishes`, o
   `CardProduct.finishes` si el item trae `productId`)
 - **`422 PRODUCT_NOT_FOUND`** (v1.30 — algún `productId` no existe)
