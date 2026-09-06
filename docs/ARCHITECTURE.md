@@ -3,6 +3,44 @@
 > Propiedad: **arquitecto**. Fuente de verdad de decisiones técnicas y modelo de datos.
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
 >
+> **Rev v1.53-buylist-graded-identity (2026-09-05, arquitecto — DEFECTO DE DINERO VIVO EN PRODUCCIÓN, reproducido de
+> punta a punta en `main` `4b1db96` antes de decidir. Rama propia `claude/buylist-graded-identity`, publicable sin
+> esperar al ciclo de adquisición. Base: v1.52, vigente entera.)**
+> **CERO migraciones, CERO DDL, CERO columnas nuevas, CERO backfill.** Una regla de negocio, un código de error y el
+> retiro de dos `??`.
+> 1. **El defecto, en una frase: cualquier carta graduada se cotiza contra `graded:PSA:10` —el grado más caro— porque
+>    nadie pregunta qué grado es.** El cotizador **ofrece** «graduada» (`BuylistView.tsx:57`), ningún DTO ni
+>    `SellRequestItem` tiene **dónde** capturar el grado, y `buildGradeKey` (`pricing.types.ts:571`) **rellena el
+>    hueco**: `` `graded:${gradingCompany ?? 'PSA'}:${gradeValue ?? '10'}` ``. Muerde solo donde exista referencia
+>    `graded:PSA:10` — o sea, **en las cartas populares, que son las caras**. §4.40.1.
+> 2. **Un sexto eslabón que no venía en el encargo: el defecto NO se detiene en la cotización, se PERSISTE en la
+>    pieza.** `convertToInventory` crea el `InventoryItem` **sin** empresa, grado ni certificado —no puede, el origen
+>    no los tiene— y desde ahí **todos** los lectores (bóveda, catálogo, **precio de venta**, valor de custodia, P&L,
+>    `price-sync`) la vuelven a resolver como PSA 10, para siempre. §4.40.1 (eslabón 6), §9 **D-BG-3**.
+> 3. **El hallazgo que reordena el encargo: `PROJECT.md` dice que esta superficie NO debería existir.** §E se titula
+>    «compra de **raw**»; §K **LOCKED** dice *«el cotizador y el pipeline de buylist siguen siendo **solo para raw**»*;
+>    el **criterio 61** declara que el buylist de sellado **no existe, ni cotizador ni pipeline**. Añadir columnas de
+>    graduación a `SellRequestItem` **no sería arreglar el defecto: sería construir el buylist de graduadas**, que es
+>    decisión de producto y está fuera de alcance. Por la regla de conflicto (`PROJECT.md` > contrato > código),
+>    **se cierra la superficie**. §4.40.2.
+> 4. **DECISIÓN 1 — raw-only, server-side, con `422 BUYLIST_RAW_ONLY`.** Lista blanca **literal** en
+>    `common/business-rules.ts` (§4.37: *«¿qué valores EXISTEN?» vs. «¿cuáles ACEPTAMOS?»*). `422` de negocio y **no**
+>    el `400` del `@IsIn`, por una razón medible: en `/quote/batch` los errores son **por-ítem**, y un fallo de pipe
+>    **tumbaría las otras 49 líneas raw** del grid. Es **breaking** en un endpoint público y se acepta — misma
+>    doctrina ya escrita para `GRADED_INTENT_REQUIRED`. §4.40.3.
+> 5. **DECISIÓN 2 (la de fondo) — `buildGradeKey` deja de rellenar; el TIPO lo impone.** Unión discriminada donde
+>    `graded` **exige** `gradingCompany` y `gradeValue`, más un `tryBuildGradeKey` tolerante para las rutas de
+>    lectura. **Money lanza; lectura degrada a `null` ⇒ `precio_pendiente`.** Jamás un default, jamás MX$0. Arreglar
+>    solo a los llamadores dejaría **la mina armada para el siguiente**. §4.40.4.
+> 6. **DECISIÓN 3 — las filas vivas no se reparan inventando un grado.** Las solicitudes graduadas abiertas **no se
+>    pueden cotizar automáticamente**: van a decisión manual del dueño. Las piezas ya convertidas caen a `pending`
+>    —que es **la verdad**— y se reparan con la carta física en la mano. Se pide un **censo read-only** para
+>    dimensionar la exposición, no un backfill. §4.40.5, §4.40.8.
+> 7. **`M-49` queda DISEÑADA y NO PROGRAMADA** (`gradingCompany` + `gradeValue` + **`certNumber`**; `sealedProductId`
+>    **rechazado**). Se especifica ahora para que `claude/buylist-inventory-workflow-hdnls3` **no tenga que
+>    renegociar la forma**, y se ejecuta solo si el dueño responde «sí» a §4.40.6. **Contrato: `API_CONTRACT.md`
+>    v1.53.** §4.40.7.
+>
 > **Rev v1.52-set-logos (2026-08-31, arquitecto — petición del DUEÑO: que al seleccionar un set se vea el LOGO de la
 > expansión, no solo su nombre. DISEÑO EN PAPEL; lo implementan BACKEND y FRONTEND. Base: v1.51-c, vigente entera.)**
 > **Cero rutas nuevas, cero códigos de error, cero montos, cero permisos. UNA migración, aditiva pura.**
@@ -1710,6 +1748,14 @@ Núcleo del sistema. Una fila = una carta/producto físico.
   la cotización v1.3.1 ya **no** la lee ni la escribe (se conserva solo por retención de filas históricas). El
   enum `BuylistCategory` permanece en el schema por compatibilidad, marcado deprecado; nada nuevo lo usa.
 - **v1.2: sin `photoKeys`** — el buylist no sube fotos de la carta (no hay upload salvo `kyc_ine`); la verificación NM se hace contra la carta física recibida y la imagen de catálogo. El campo `photoKeys` queda eliminado/sin uso (M-13).
+- **⚠️ v1.53 (§4.40, MONEY) — `productType` en esta tabla es, por regla de negocio, `raw` y solo `raw`.** No hay
+  columnas de graduación (`gradingCompany`/`gradeValue`/`certNumber`) **y no es un olvido**: `PROJECT.md` §E («compra
+  de **raw**»), §K/LOCKED («el cotizador y el pipeline de buylist siguen siendo **solo para raw**») y el criterio 61
+  ponen el buylist de graduadas/sellado fuera de alcance. La guarda es **server-side** en las tres rutas de §6
+  (`422 BUYLIST_RAW_ONLY`), no la UI. **Filas legacy con `productType ∈ {graded, sealed}` existen** (la superficie
+  estuvo abierta en producción): su `quotedPriceCents` está congelado contra un grado **inventado** y **no se
+  re-cotiza automáticamente** — se resuelve a mano (§4.40.5a). La forma que tendrían estas columnas **si** algún día
+  se autoriza la compra de graduadas está reservada en **`M-49`** (§4.40.7); hasta entonces **no se crean**.
 
 #### Dispute (M8 — condición raw/sellado)
 - `id`, `userId`, `inventoryItemId` (o vía `orderItemId`), `type` (`condition_raw | condition_sealed`), `status` (`abierta | en_revision | resuelta_recompra | rechazada`).
@@ -12148,6 +12194,292 @@ es.** Son dos cosas distintas y esta es la primera.
 
 ---
 
+### 4.40 IDENTIDAD DE GRADUACIÓN EN EL BUYLIST — el cotizador vuelve a ser RAW-ONLY y `buildGradeKey` deja de inventar el grado (v1.53-buylist-graded-identity, NORMATIVO, **MONEY**)
+
+> **Defecto vivo en producción, verificado de punta a punta en `main` (`4b1db96`) antes de escribir esta sección.**
+> Es un defecto de **dinero saliente**. Se corrige **en rama propia** (`claude/buylist-graded-identity`) y **por
+> separado** del ciclo de adquisición (`claude/buylist-inventory-workflow-hdnls3`), porque esa rama **retira la red
+> que hoy lo amortigua**: cuando la oferta pase a ser **vinculante desde el correo** y deje de repreciarse al
+> verificar, este defecto deja de ser un *error corregible* y pasa a ser un **compromiso firmado**.
+>
+> **Cero migraciones. Cero DDL. Cero columnas nuevas.** Esta sección **no** añade schema — y esa es la decisión, no
+> una omisión. Ver §4.40.3.
+
+#### 4.40.1 La cadena, reproducida (no de oídas)
+
+Cinco eslabones, cada uno verificado en el árbol de `main`:
+
+| # | Eslabón | Evidencia | Qué hace |
+|---|---|---|---|
+| 1 | El cotizador **ofrece** graduada y sellada | `frontend/…/buylist/BuylistView.tsx:57` — `PRODUCT_TYPES: ProductType[] = ['raw','graded','sealed']`, servido por el selector de `:512` | El vendedor puede elegir «graduada» |
+| 2 | **Nadie pregunta QUÉ grado es** | `buylist/dto/buylist.dto.ts` — `PublicQuoteDto` / `BuylistQuoteItemDto` / `RequestItemDto` **no declaran** `gradingCompany` ni `gradeValue`; `frontend/src/types/contract.ts` tampoco; el front manda `rawCondition: undefined` (`BuylistView.tsx:288, :416`) | No hay dónde capturarlo |
+| 3 | El servicio pide la clave con **dos** campos | `buylist.service.ts:340, :494, :765, :1854` — `gradeKeyFor({ productType, rawCondition })` | Los campos de grado llegan `undefined` |
+| 4 | **`buildGradeKey` rellena el hueco** | `pricing/pricing.types.ts:571` — `` return `graded:${input.gradingCompany ?? 'PSA'}:${input.gradeValue ?? '10'}` `` | Toda graduada se valúa contra **`graded:PSA:10`** |
+| 5 | La línea se **congela** sin grado | `prisma/schema.prisma:1136` — `SellRequestItem` tiene `productType`, `rawCondition`, `finish`, `cardProductId` y **ninguna columna de graduación** | El `quotedPriceCents` firmado es un precio de PSA 10 |
+
+**Resultado:** *cualquier* carta graduada se cotiza contra la referencia del **grado más caro que existe**, sea un PSA 6
+o un CGC 8. **Alcance real, sin inflarlo:** solo muerde donde exista una fila `graded:PSA:10` para esa carta; si no,
+la línea sale `precio_pendiente` y no suma. Es decir: **muerde exactamente en las cartas populares, que son las caras.**
+
+**Un sexto eslabón que no estaba en el encargo y que hay que registrar: el defecto NO se detiene en la cotización —
+se PERSISTE en la pieza.** `buylist.service.ts:1690` (`convertToInventory`) crea el `InventoryItem` copiando
+`cardId`, `productType`, `rawCondition` y `finish`, y **no escribe `gradingCompany`, `gradeValue` ni `certNumber`**
+—no puede: el origen no los tiene—. La pieza nace `productType='graded'` con **identidad de grado nula**, y desde ahí
+**todo** lector la vuelve a resolver como PSA 10, porque todos llaman al mismo `gradeKeyFor(item)`: `vault.service.ts`
+(`:155`, `:423`), `catalog.service.ts` (`:532`, `:546`, `:647`…), `orders.service.ts:137` (**precio de venta**),
+`admin.service.ts` (`:580`, `:918`, `:940` — valor de custodia y P&L), `jobs/price-sync.service.ts:44` y
+`price-ingest.service.ts` (`:752`, `:765`). No hallé guarda que impida publicarla: `PUBLISHABLE_ORIGIN_STATUSES`
+(`inventory.service.ts:193`) solo mira el `status`, no la identidad del slab. **La compra mal cotizada se convierte en
+inventario mal valuado y potencialmente publicado sin empresa, grado ni certificado** — lo que además contradice
+`PROJECT.md` §H («el **slab** es la garantía: empresa + grado + número de certificado, verificable en la graduadora»).
+
+#### 4.40.2 El hallazgo que reordena el encargo: `PROJECT.md` dice que esto **no debería existir**
+
+El encargo llegó formulado como «hay que capturar el grado». Antes de diseñar la captura verifiqué contra la fuente
+que manda (CLAUDE.md: *`PROJECT.md` manda sobre el contrato, y el contrato sobre el código*), y la fuente dice otra
+cosa, **más fuerte y ya decidida**:
+
+- **`PROJECT.md` §E** se titula, literal: **«Buylist — compra de *raw* a usuarios (cotizador público + solicitud)»**.
+  Todo su cuerpo es raw NM: *«la **condición es fija en Near Mint (NM)**, único grado que compramos»*.
+- **`PROJECT.md` §K, LOCKED** (líneas 801-804): *«El sellado es **solo venta**… **No hay buylist de sellado**… El
+  **cotizador y el pipeline de buylist siguen siendo solo para raw (§E)**.»*
+- **Criterio de aceptación 61** (línea 2587): *«El sellado es solo venta: **no existe** flujo de buylist de sellado
+  (**ni cotizador ni pipeline**)»*.
+- **«Fuera de alcance»** (línea 2123): *«Un buylist de sellado sería **fase 2 si se decide**.»*
+
+Y **`graded` no está autorizado en ninguna parte**: §E es raw por título y por cuerpo, y la frase *«solo para raw»*
+de §K cubre **el cotizador entero**, no solo el sellado.
+
+**Conclusión, y es la decisión de fondo de este pase:** el `PRODUCT_TYPES` de tres valores **no es una funcionalidad a
+la que le falta un campo — es una superficie que `PROJECT.md` nunca autorizó y que hoy está viva en producción.**
+Añadir `gradingCompany`/`gradeValue` a `SellRequestItem` **no sería arreglar el defecto: sería construir el buylist de
+graduadas**, que es una decisión de producto que no me corresponde tomar y que el documento que manda pone fuera de
+alcance. La regla de conflicto de CLAUDE.md no me deja elegir: **se cierra la superficie.**
+
+> ⚠️ **Lo que SÍ necesita al humano, dicho sin rodeos.** No asumo que la respuesta sea «no para siempre». El **código
+> dice que sí** compramos graduadas (lleva meses ofreciéndolo) y **`PROJECT.md` dice que no**. Eso es una divergencia
+> de producto real, no un typo, y quien la resuelve es el dueño — no el arquitecto. Mientras no la resuelva, manda
+> `PROJECT.md`. Lo que **no** es defendible en ninguna de las dos lecturas es la situación actual: **firmar cheques de
+> PSA 10 por cartas cuyo grado nunca preguntamos.** Ver §4.40.6 (pregunta abierta) y §4.40.7 (`M-49`, la forma
+> reservada por si la respuesta es «sí»).
+
+#### 4.40.3 DECISIÓN 1 — Cerrar la superficie. **Sin migración.**
+
+**El cotizador y el pipeline de buylist aceptan `productType='raw'` y solo `raw`.**
+
+1. **Regla de negocio, no espejo del schema.** La lista blanca se declara **literal** en
+   `backend/src/common/business-rules.ts` —no se deriva de `PRODUCT_TYPE_VALUES`— con su cita al lado:
+
+   ```ts
+   /** PROJECT.md §E + §K (LOCKED) + criterio 61: el cotizador y el pipeline de buylist son SOLO raw. */
+   export const BUYLIST_ACCEPTED_PRODUCT_TYPES = ['raw'] as const;
+   ```
+
+   Esto es **exactamente** el caso para el que §4.37 creó ese archivo: *«`enum-values.ts` responde «¿qué valores
+   EXISTEN?»; `business-rules.ts` responde «¿cuáles ACEPTAMOS?»»*. Derivarla del enum es lo que rompería la regla el
+   día que alguien añada un `ProductType`.
+2. **La autoridad es el servidor.** El `PRODUCT_TYPES` del front es **cosmética**: quitarlo mejora la UI y **no
+   arregla nada** (el endpoint es público y anónimo; un `curl` sigue pasando). La guarda vive **server-side** en las
+   tres superficies —`POST /buylist/quote`, `POST /buylist/quote/batch`, `POST /buylist/requests`— igual que SEC-A1
+   exige para todo lo que decide dinero.
+3. **Código: `422 BUYLIST_RAW_ONLY`** (nuevo, en `common/error-codes.ts`). **Por qué `422` de negocio y no el `400`
+   del `@IsIn` del pipe**, que sería el atajo obvio y **está mal** por una razón concreta y medible: en
+   `/quote/batch` los errores son **por-ítem** (`ok:false`, HTTP 200, `buylist.service.ts:400-428`); un `@IsIn` que
+   falle en el `ValidationPipe` **tumba el request entero con `400`** y se lleva por delante **las otras 49 líneas
+   raw legítimas** del grid. Un rechazo de regla de negocio degrada por-ítem; uno de forma, no. Por eso
+   `BUYLIST_RAW_ONLY` entra al allowlist de degradación por-ítem del batch, junto a `NOT_FOUND`,
+   `FINISH_NOT_AVAILABLE`, `PRODUCT_NOT_FOUND` y `PRODUCT_CARD_MISMATCH`.
+4. **Sí, es BREAKING para el endpoint público — y se acepta, con precedente en casa.** El único cliente es nuestro
+   propio front, el endpoint es anónimo y read-only, y la alternativa es seguir emitiendo compromisos de dinero al
+   grado equivocado. Es **la misma doctrina ya escrita** en `common/error-codes.ts:109-113` para
+   `GRADED_INTENT_REQUIRED`: *«un default sería FAIL-OPEN… se acepta un breaking chico a cambio de que la ambigüedad
+   sea imposible de expresar»*. Aquí el fail-open es peor: no elige «una» ruta de dinero, elige **la más cara**.
+5. **Cero migraciones.** No hay columna nueva, no hay `ALTER`, no hay backfill, no hay ventana. Por eso este pase
+   **puede publicarse hoy** sin esperar al ciclo de adquisición, que es justo lo que se pidió.
+
+#### 4.40.4 DECISIÓN 2 — `buildGradeKey` deja de rellenar. **El tipo lo impone; el runtime no inventa.**
+
+Esta es la decisión de fondo, y coincido con el planteamiento que me llegó: **arreglar solo a los llamadores deja la
+mina armada para el siguiente.** El `?? 'PSA'` / `?? '10'` es un **default silencioso que elige el grado más caro**, y
+eso no es defendible en ninguna variante. Se retira. Forma exacta:
+
+**(a) El input pasa a ser una unión discriminada** — el compilador impide expresar una graduada sin grado:
+
+```ts
+export type GradeKeyInput =
+  | { productType: 'raw';    rawCondition?: RawCondition | null }
+  | { productType: 'graded'; gradingCompany: GradingCompany; gradeValue: string }   // ← AMBOS obligatorios
+  | { productType: 'sealed' };                                                       // ← sin campos de grado
+```
+
+**Qué rompe, a propósito, y por qué eso es la señal y no el daño:**
+- `buylist.service.ts` (`:340`, `:494`, `:765`, `:1854`) pasa `{ productType, rawCondition }` con
+  `productType: ProductType` (unión que incluye `graded`) ⇒ **deja de compilar**. Es la alarma que queremos: la mina
+  no se puede volver a armar en silencio. Con §4.40.3 esos call-sites ya solo ven `raw`, así que el arreglo es
+  estrechar el tipo, no añadir campos.
+- Los llamadores de **inventario** pasan filas de `InventoryItem`, donde las columnas son `GradingCompany | null` y
+  `String | null` ⇒ **también dejan de compilar**. Y eso **también es correcto**: son precisamente las filas que
+  pueden venir nulas (§4.40.1, eslabón 6). Hoy «funcionan» porque el default les tapa el hueco. Que el compilador
+  les exija decidir es el objetivo, no un daño colateral.
+
+**(b) Dos funciones, y la regla de cuál usa quién.** Un `throw` desde un constructor de claves puro, llamado en
+bucles de listado, convertiría un dato incompleto en un **500 en una página que hoy renderiza**. Eso sería cambiar un
+error de dinero por una caída de servicio. Por eso:
+
+| Función | Firma | Ante `graded` con identidad incompleta | La usan |
+|---|---|---|---|
+| `buildGradeKey` | `(GradeKeyInput) => string` | **`throw IncompleteGradeIdentityError`** | Rutas que **escriben** o **deciden dinero**: cotización, creación de solicitud, alta/edición de inventario, override de precio |
+| `tryBuildGradeKey` | `(GradeKeyInput) => string \| null` | **`null`** | Rutas de **lectura/valuación** que deben pintar: bóveda, catálogo, agregados de admin, `price-sync`, `price-ingest` |
+
+**Regla dura: `null` ⇒ NO HAY REFERENCIA ⇒ `precio_pendiente` / `—`. Jamás un default, jamás MX$0, jamás un precio
+inventado.** Es literalmente el principio money-safe que `PROJECT.md` §E.1 declara superviviente de toda la refactor
+de pricing (*«sin dato ⇒ precio pendiente, jamás MX$0 ni precio inventado»*) y que §4.36 reafirma para la curva
+(*«SIN DATO DE MERCADO ⇒ pendiente»*).
+
+**(c) Efecto lateral que es, en realidad, la mitad del arreglo.** Las piezas ya convertidas del eslabón 6 —graduadas
+con identidad nula— **dejan de resolverse como PSA 10 y pasan a `pending`**. No es una regresión: es que **por
+primera vez dicen la verdad**. Un `pending` visible entra a la cola del dueño y se repara; un PSA 10 silencioso no se
+descubre nunca. Ver §4.40.5(b).
+
+**(d) `sealed` no cambia de valor y su hueco tampoco se tapa aquí.** `buildGradeKey({productType:'sealed'})` sigue
+devolviendo `'sealed'`: **es, por diseño, la clave del override MANUAL del admin** (§4.19d), y la clave de mercado por
+producto ya existe y es `sealedMarketGradeKey()` → `sealed:tcg:<productId>`. Lo único que cambia es que el tipo ya no
+admite campos de grado en la rama `sealed`. La colisión «dos sellados de la misma `Card` colapsan en `'sealed'`» es
+**real y está documentada desde v1.19**, pero **deja de ser alcanzable desde el buylist** en cuanto se cierra la
+superficie (§4.40.3), que es el único sitio donde firmaba dinero de compra.
+
+#### 4.40.5 DECISIÓN 3 — Las filas que ya existen. **Ninguna se repara inventando un grado.**
+
+Tres poblaciones, tres tratamientos distintos. **Ninguna lleva backfill de datos**, y eso es deliberado: no existe
+ningún dato del que se pueda derivar el grado real de una carta cuyo grado nunca se preguntó. Inventarlo sería repetir
+el defecto con otra sintaxis.
+
+**(a) `SellRequestItem` con `productType ∈ {graded, sealed}` en estado no terminal.** Su `quotedPriceCents` está
+congelado contra `graded:PSA:10` (o el `'sealed'` colapsado). **Decisión: NO se re-cotizan, NO se auto-aprueban y NO
+se convierten a inventario.** La respuesta honesta es la que ya se sospechaba en el encargo: **esas líneas no se
+pueden cotizar automáticamente.** Se resuelven **a mano** por la vía que ya existe —la decisión carta-por-carta
+con `approve | adjust | reject`, donde el monto lo escribe el dueño y el rechazo exige motivo (§M5)—. Lo único que
+este pase pide es un **censo read-only** (§4.40.8) para que el dueño **sepa cuánta exposición hay** antes de decidir.
+Sin `UPDATE`, sin script, sin endpoint nuevo.
+> **Ruta exacta de la salida manual (verificada, §M5):** `PATCH /api/v1/admin/buylist/items/:itemId/decision` con
+> `{ decision: "approve" | "adjust" | "reject", approvedPriceCents?, reason? }`. El `reject` **exige motivo** (3–500
+> chars) y ancla los plazos en `rejectedAt` (§4.18a). Es decir: **la vía para cerrar estas líneas ya existe y está
+> auditada; no hay que construir nada.**
+
+**(b) `InventoryItem` con `productType='graded'` y `gradingCompany`/`gradeValue` nulos.** Se reparan **solas** en el
+sentido que importa: con §4.40.4 dejan de valuarse a PSA 10 y caen a `pending`. La reparación real —decir qué slab
+es— la hace el operador con la carta física en la mano, por `PATCH /admin/inventory/items/:id`.
+> ⛔ **Y ahí hay un hueco que este pase abre en el contrato porque si no, la reparación es imposible:**
+> `UpdateItemDto` (`inventory.dto.ts:123-130`) acepta `certNumber`, `gradeValue`, `sealedSubtype`, `listPriceCents` y
+> `status` — pero **NO `gradingCompany`**. Es decir: hoy el operador puede corregir el grado pero **no la empresa
+> graduadora**. Se añade al contrato (v1.53, §M1). Aditivo, opcional, aplica solo a `productType='graded'`.
+
+**(c) Piezas graduadas ya `listed` con identidad nula.** Violan `PROJECT.md` §H (el slab se muestra con empresa +
+grado + certificado). Con (b) caen a `pending` y por tanto **no pueden re-publicarse con precio derivado** hasta que
+se reparen. **No se despublican automáticamente** —eso es una decisión de operación con impacto en el escaparate, no
+del arquitecto—; entran al mismo censo (§4.40.8) y el dueño decide reparar o retirar.
+
+#### 4.40.6 Pregunta abierta para el humano (bloquea `M-49`, **no** bloquea este pase)
+
+> **¿Compramos cartas graduadas por el cotizador?**
+> - **El código dice que sí** desde hace meses (`PRODUCT_TYPES` incluye `graded`; hay solicitudes reales).
+> - **`PROJECT.md` dice que no**: §E es «compra de **raw**», §K/LOCKED dice «el cotizador y el pipeline de buylist
+>   siguen siendo **solo para raw**», y el criterio 61 lo declara inexistente para sellado.
+>
+> **Mientras no haya respuesta manda `PROJECT.md`** y la superficie queda cerrada (§4.40.3). Si la respuesta es
+> **«sí, queremos comprar graduadas»**, eso es una **funcionalidad nueva** con su propio pase: `product-owner`
+> actualiza `PROJECT.md`, y solo entonces se programa **`M-49`** (§4.40.7), que ya está diseñada para que ese día no
+> haya nada que renegociar. **Lo que no vuelve en ningún escenario es el default silencioso.**
+>
+> **Sub-pregunta, porque salió en el encargo y la respuesta es «hoy no»:** se mencionó *«un PSA 6 o un **BGS** 8»*.
+> **`BGS` no existe en el sistema**: `enum GradingCompany { PSA, CGC }` (`schema.prisma:104`). Aceptar BGS es
+> **otra** decisión de producto (`ALTER TYPE ADD VALUE`, aditivo pero no gratis: toca el `isCanonicalGradeKey` de
+> §M2, los estimados de §4.38 y la UI). No se asume aquí.
+
+#### 4.40.7 `M-49` — la forma RESERVADA (**diseñada, NO programada**), pensada para los DOS consumidores
+
+Se me pidió explícitamente definir la forma «pensando en los dos consumidores, para que la otra rama no tenga que
+renegociarla». Aquí está, **completa y estable**, con la condición de arranque escrita al lado: **`M-49` no se ejecuta
+hasta que §4.40.6 se responda «sí» en `PROJECT.md`.** Diseñarla ahora cuesta cero y evita que
+`claude/buylist-inventory-workflow-hdnls3` invente una forma distinta; ejecutarla ahora sería construir una
+funcionalidad no autorizada.
+
+```prisma
+model SellRequestItem {
+  // M-49 (§4.40.7) — RESERVADO. Identidad del slab en la LÍNEA de compra. Aditivo, nullable, sin backfill.
+  // Regla de APLICACIÓN (no constraint de BD), idéntica a como InventoryItem ya trata estas columnas:
+  // los tres se pueblan JUNTOS y SOLO cuando productType='graded'; null en raw/sealed y en filas < M-49.
+  gradingCompany GradingCompany?  // PSA | CGC (BGS NO existe hoy — §4.40.6)
+  gradeValue     String?          // canónico: 10 | 9.5 | 9 | … | 1  (CANONICAL_GRADE_VALUE, §M2)
+  certNumber     String?          // nº de certificado del slab — IDENTIDAD física, ver abajo
+}
+```
+
+**Las cuatro decisiones de forma, con su porqué:**
+
+1. **Nullable y aditiva, sin backfill.** Hay filas vivas sin estos datos y **no hay de dónde derivarlos** (§4.40.5a).
+   Mismo precedente que `finish` (M-18), `cardProductId` (M-32) y los campos de rechazo (M-22).
+2. **`certNumber` entra, y no es un extra.** El encargo pedía «como mínimo compañía y grado»; el mínimo **no
+   alcanza**, por dos razones concretas: (i) `PROJECT.md` §H exige que una graduada se muestre con **empresa + grado
+   + número de certificado** para poder publicarla, y `convertToInventory` no puede poblar
+   `InventoryItem.certNumber` desde una fuente que no lo tiene; (ii) sin cert, **dos PSA 9 distintos de la misma
+   carta son indistinguibles** dentro de una solicitud, y el modelo del buylist es **una línea = una carta física**
+   (§4.16b). Compañía + grado identifican un *precio*; el cert identifica una *pieza*.
+3. **`gradeValue` es `String` (como en `InventoryItem`) pero se valida contra la regla canónica.** La columna queda
+   libre por simetría con el schema existente; la **regla** es `CANONICAL_GRADE_VALUE` (`pricing.types.ts:593`,
+   `^(?:10|[1-9](?:\.5)?)$`), que hoy solo custodia el endpoint de override. Se **promueve a
+   `common/business-rules.ts`** para que la use también el DTO de compra. *(Desviación relacionada: hoy el alta de
+   inventario acepta `gradeValue` como `@IsString()` libre — ver §9, **D-BG-4**.)*
+4. **`sealedProductId` NO entra.** Se preguntó explícitamente y la respuesta es **no**: añadirlo sería construir el
+   **buylist de sellado**, que el criterio 61 declara inexistente y «Fuera de alcance» pone en fase 2. El problema
+   del sellado colapsado es real (§4.40.4d) pero **deja de ser alcanzable desde el buylist** al cerrar la superficie,
+   y su cura fuera del buylist ya existe (`sealedMarketGradeKey`, §4.19d).
+
+**Obligatoriedad en el DTO, el día que `M-49` arranque** (queda escrita ahora para que no se renegocie): con
+`productType='graded'`, `gradingCompany` y `gradeValue` son **obligatorios** vía `@ValidateIf` —el mismo patrón que
+`ItemDecisionDto.reason` ya usa para `decision==='reject'`—, y su ausencia es **`422 GRADE_IDENTITY_REQUIRED`**, no
+un `400` de forma, por la razón de §4.40.3(3): en el batch debe degradar **por-ítem**. **Nunca** un default.
+
+#### 4.40.8 Censo (read-only) — para dimensionar, no para reparar
+
+Tres consultas de **solo lectura**, sin `UPDATE`, sin script de datos, sin endpoint nuevo. Su único propósito es que
+el dueño vea la exposición antes de decidir en §4.40.5(a) y §4.40.6:
+
+1. `SellRequestItem` con `productType != 'raw'`, agrupado por `itemStatus`, con `sum(quotedPriceCents)` y
+   `sum(approvedPriceCents)` — **cuánto dinero está comprometido** contra un grado que nunca se preguntó.
+2. `InventoryItem` con `productType='graded'` y (`gradingCompany IS NULL` **OR** `gradeValue IS NULL`), separando
+   `acquisitionType='buylist'` del resto — cuántas piezas quedan en `pending` tras §4.40.4.
+3. El subconjunto de (2) con `status='listed'` — las que están **publicadas** sin identidad de slab (§4.40.5c).
+
+**Dueño de la ejecución: backend** (lo anota en `docs/BACKEND_NOTES.md`). **No** es un paso de despliegue ni bloquea
+el merge; bloquea la **decisión del dueño** sobre las filas vivas.
+
+#### 4.40.9 Encargo por rol
+
+| Rol | Encargo | Puerta |
+|---|---|---|
+| **arquitecto** | ✅ Hecho en este pase: §4.40, fichas en §9 (D-BG-1…5) y §11 (**sin migración** + `M-49` reservada), y contrato **`API_CONTRACT.md` v1.53** (`422 BUYLIST_RAW_ONLY`, raw-only en las tres rutas de §6, `gradingCompany` en el `PATCH` de M1). | — |
+| **backend** | (a) `BUYLIST_ACCEPTED_PRODUCT_TYPES = ['raw']` en `common/business-rules.ts` **con la cita de `PROJECT.md` al lado** (§4.40.3.1). (b) Guarda server-side en las **tres** rutas → **`422 BUYLIST_RAW_ONLY`**; en `/quote/batch` **degrada por-ítem** (`ok:false`), no tumba el request (§4.40.3.3). (c) `buildGradeKey` con **unión discriminada** + `tryBuildGradeKey` tolerante; **retirar `?? 'PSA'` y `?? '10'`** (§4.40.4). (d) Repartir los ~30 call-sites de `gradeKeyFor` entre las dos funciones según la tabla de §4.40.4(b) — **money ⇒ la que lanza; lectura ⇒ la que devuelve `null` ⇒ `pending`**. (e) Aceptar `gradingCompany` en `UpdateItemDto` (§4.40.5b). (f) Censo de §4.40.8 → `BACKEND_NOTES.md`. (g) ⛔ **Prohibido**: crear columnas de graduación en `SellRequestItem`, escribir backfill que invente un grado, o dejar cualquier `??` que rellene identidad de grado. | Antes del merge de `claude/buylist-graded-identity` |
+| **frontend** | (a) `PRODUCT_TYPES` → `['raw']` en `BuylistView.tsx:57` y **retirar el selector de tipo** (`:512`) — con un solo valor, el control sobra. (b) Limpiar las ramas `productType !== 'raw'` que quedan muertas (`:212`, `:267`, `:274`, `:407`, `:470`). (c) `contract.ts`: los DTOs de buylist declaran `productType: 'raw'`. (d) Manejar **`BUYLIST_RAW_ONLY`** como error **por-ítem** en el batch (no como fallo global). (e) ⛔ **Prohibido** «arreglarlo» añadiendo un selector de grado: eso es §4.40.6, decisión del dueño. | Con el contrato v1.53 |
+| **devops** | **Nada que correr.** Cero migraciones, cero DDL, cero variables de entorno, cero ventana, cero cut-over. El rollback es el rollback normal de la rama. Dicho explícitamente para que nadie prepare la ceremonia de M-43/M-45 para un pase que no la necesita. | — |
+| **qa** | (a) **El caso del dinero, reproducido:** cotizar una carta con `graded` vía `POST /buylist/quote` ⇒ **`422 BUYLIST_RAW_ONLY`**, y **jamás** un monto derivado de `graded:PSA:10`. (b) **El caso que se cae solo:** un batch de 50 líneas con **una** `graded` ⇒ **`200`**, esa línea `ok:false`, **las otras 49 cotizan** (si el batch entero da `400`, la guarda se puso en el pipe y no en el servicio). (c) `POST /buylist/requests` con una línea `graded` ⇒ `422`, **y no se crea la solicitud**. (d) `sealed` se comporta igual que `graded` en las tres rutas (criterio 61). (e) **Regresión de la mitad persistida:** una pieza `graded` con `gradingCompany`/`gradeValue` nulos se valúa **`pending`**, no PSA 10, en bóveda, catálogo, admin y `price-sync`. (f) Una pieza `graded` **con** identidad completa sigue valuándose **exactamente igual que antes** (el cambio no debe mover ningún precio legítimo). | Gate por stream |
+| **techlead** | El punto de diseño a juzgar es §4.40.4: si el reparto de los ~30 call-sites entre `buildGradeKey`/`tryBuildGradeKey` respeta «money lanza, lectura degrada a `pending`», o si backend tomó el atajo de usar la tolerante en todas partes —que reintroduciría el fail-open con otro nombre—. | Gate por stream |
+| **seguridad / pentester** | Superficie que **se cierra**, no que se abre. Vale la pena confirmar por el borde HTTP (no por la UI) que `graded`/`sealed` no pasan en **ninguna** de las tres rutas, y que no queda ninguna vía que produzca un `gradeKey` de grado no capturado. | Gate por release |
+
+#### 4.40.10 Lo que esta sección NO hace
+
+- **No añade schema.** Cero columnas, cero migraciones, cero backfill. `M-49` está **diseñada y no programada**.
+- **No decide si compramos graduadas.** Eso es del dueño vía `product-owner` (§4.40.6). Aquí solo se deja de firmar
+  cheques al grado más caro mientras no se decida.
+- **No repara filas vivas.** Las inventaria (§4.40.8) y las enruta a decisión manual; **no inventa un grado**.
+- **No toca la mesa de decisión ni el puerto de posición** de `claude/buylist-inventory-workflow-hdnls3` — **no
+  existen en `main`** y no son de este pase. Esa rama consume la forma de §4.40.7 tal cual, sin renegociarla.
+- **No despublica** inventario por su cuenta (§4.40.5c) ni cambia el precio de ninguna pieza graduada **bien**
+  capturada.
+- **No toca `backend/`, `frontend/`, `docs/DESIGN_SYSTEM.md` ni `docs/TECH_DEBT.md`.**
+
+---
+
 ## 5. Decisiones transversales
 
 - **Dinero sin balance:** no hay wallet ni saldo; cada movimiento de dinero es una transacción Stripe (ventas/reembolsos) o un pago SPEI manual (buylist). Ninguna vista de usuario muestra saldo.
@@ -12682,6 +13014,17 @@ Riesgos técnicos:
 > (backend). Estado del código revisado el **2026-08-16** (plataforma ya en producción; back-office M1–M10 con
 > backend en su mayoría implementado; **M7 ya tiene UI consumidora real** —`admin/m7/M7View.tsx`—, el resto de
 > módulos sigue con UI en `ModuleTodo` pendiente de consumir).
+
+- **⚠️ NUEVAS (v1.53) — BUYLIST DE GRADUADAS: una superficie no autorizada y un default que elige el grado más caro.**
+  **Es dinero saliente y está VIVO EN PRODUCCIÓN.** Reproducidas de punta a punta en `main` (`4b1db96`) antes de
+  documentarlas; ninguna corregida por mí. Dictamen completo en **§4.40**.
+  | # | Desviación | Evidencia | Dueño | Puerta |
+  |---|---|---|---|---|
+  | **D-BG-1** | **El cotizador ofrece un producto que `PROJECT.md` no autoriza.** `PRODUCT_TYPES = ['raw','graded','sealed']` contra §E («compra de **raw**»), §K/LOCKED («el cotizador y el pipeline de buylist siguen siendo **solo para raw**») y el **criterio 61** («no existe flujo de buylist de sellado, **ni cotizador ni pipeline**»). **Es una violación de criterio de aceptación, no un detalle de UI** | `frontend/…/buylist/BuylistView.tsx:57` y `:512` vs. `PROJECT.md` §E/§K/criterio 61 | frontend (UI) · **backend (la guarda real)** | **Bloqueante de este pase.** §4.40.3 |
+  | **D-BG-2** | **`buildGradeKey` inventa la identidad de grado y elige el grado MÁS CARO.** `` `graded:${gradingCompany ?? 'PSA'}:${gradeValue ?? '10'}` `` ⇒ toda graduada se cotiza contra **PSA 10**. Fail-open de dinero: el default no es neutro, es el máximo | `pricing/pricing.types.ts:571`, alcanzado desde `buylist.service.ts:340, 494, 765, 1854` vía `gradeKeyFor` | backend | **Bloqueante.** §4.40.4. **Causa raíz**: mientras el `??` exista, cerrar la superficie solo desarma *este* llamador |
+  | **D-BG-3** | **El defecto se PERSISTE en la pieza, no solo en la cotización.** `convertToInventory` crea el `InventoryItem` **sin** `gradingCompany`/`gradeValue`/`certNumber` (no puede: el origen no los tiene) ⇒ la pieza queda `graded` con identidad nula y **todo** lector la re-resuelve como PSA 10 (bóveda, catálogo, **precio de venta**, valor de custodia, P&L, `price-sync`). No hallé guarda que impida **publicarla** así, lo que además contradice `PROJECT.md` §H (el slab se muestra con empresa + grado + cert) | `buylist.service.ts:1690` vs. `schema.prisma:669` (`InventoryItem`) y `:1136` (`SellRequestItem`); lectores en `vault.service.ts:155/423`, `catalog.service.ts:532/546/647`, `orders.service.ts:137`, `admin.service.ts:580/918/940`, `jobs/price-sync.service.ts:44`; `PUBLISHABLE_ORIGIN_STATUSES` en `inventory.service.ts:193` solo mira `status` | backend | **NO estaba en el encargo.** Se cura sola con §4.40.4 (cae a `pending`); las filas vivas, en §4.40.5(b)/(c) |
+  | **D-BG-4** | **El operador no puede reparar lo que se le pide reparar.** `UpdateItemDto` acepta `gradeValue` y `certNumber` pero **NO `gradingCompany`** ⇒ una pieza graduada con empresa nula es **incorregible** por la vía normal. Además `gradeValue` es `@IsString()` **libre**: el alta admite `"banana"` ⇒ `graded:PSA:banana`, una clave que `isCanonicalGradeKey` rechazaría en el override pero que el alta acepta | `inventory/dto/inventory.dto.ts:123-130` y `:89`, `:167`, `:256` vs. `CANONICAL_GRADE_VALUE` en `pricing/pricing.types.ts:593` | backend | `gradingCompany` **con este pase** (contrato v1.53, §4.40.5b). La validación canónica de `gradeValue`, **con `M-49`** o antes si backend la toma de paso |
+  | **D-BG-5** | **El contrato contradecía a `PROJECT.md`, y por eso el código tenía razón.** Las tres rutas de §6 declaraban `productType: ProductType` —los tres valores— cuando §E/§K/criterio 61 dicen «solo raw». **Backend y frontend implementaron exactamente lo que el contrato pedía**: la desviación **no es suya**. Por la regla de conflicto (`PROJECT.md` > contrato > código) el que estaba mal era el contrato. *(Nota de precisión: la frase «para graded/sealed, tabla `BUYLIST_PRICE_RULES` (se reutiliza)» del changelog v1.6-finish es **histórica**, no normativa, y no autorizaba nada por sí sola — la autorización de facto era la firma `productType: ProductType`.)* | `API_CONTRACT.md` §6 (`Req` de `/buylist/quote`, `/quote/batch` y `/buylist/requests`) vs. `PROJECT.md` §E/§K/criterio 61 | **arquitecto** | ✅ **CERRADA en este pase** (contrato v1.53) |
 
 - **⚠️ NUEVAS (v1.51-b) — imágenes: una omisión, un tipo falso y un comodín cargado.** Ninguna corregida por mí.
   Doctrina y encargos completos en **§5.2** (snapshot) y **§5.3** (`next/image`).
@@ -13880,6 +14223,38 @@ propia configuración para ser determinista deja, **por construcción**, de ser 
 > —correctamente— para fijar el dial antes de asertar, **el detector accidental desapareció**, y con él habría
 > desaparecido en silencio la única verificación que yo había previsto. **Una coincidencia no es una garantía**, y el
 > remedio no es preservar la coincidencia: es sustituirla por un detector diseñado para eso. De ahí el punto 5.
+
+### v1.53-buylist-graded-identity — **SIN MIGRACIÓN** (y `M-49` queda RESERVADA, §4.40)
+
+> **Este pase no tiene migración, y decirlo es parte de la decisión.** El encargo pedía «migración aditiva y columnas
+> nullable» para meter identidad de graduación en `SellRequestItem`. Al verificar contra `PROJECT.md` resultó que esas
+> columnas **darían soporte a una funcionalidad que el documento que manda pone fuera de alcance** (§E, §K/LOCKED,
+> criterio 61: *«el cotizador y el pipeline de buylist siguen siendo solo para raw»*). Añadirlas no sería arreglar el
+> defecto de dinero: sería **construir el buylist de graduadas**. El defecto se cierra sin tocar el schema — cerrando
+> la superficie (§4.40.3) y retirando el default que elige el grado más caro (§4.40.4).
+
+| # | Modelo / artefacto | Cambio | Tipo | Nota |
+|---|---|---|---|---|
+| — | `backend/prisma/schema.prisma` | **NINGUNO** | — | **Cero DDL.** `prisma/` es zona compartida y este pase **no la toca**: no hay nada que serializar frente a otros streams. |
+| — | Datos existentes | **NINGÚN backfill** | Data | No existe dato del que derivar el grado de una carta cuyo grado **nunca se preguntó**. Inventarlo sería repetir el defecto con otra sintaxis. Las filas vivas se **inventarían** (censo read-only, §4.40.8) y se resuelven **a mano** (§4.40.5). |
+| — | `common/business-rules.ts` | Gana `BUYLIST_ACCEPTED_PRODUCT_TYPES = ['raw']` | Código | Regla de negocio **literal, no derivada del enum** — el caso exacto de §4.37. Con la cita de `PROJECT.md` al lado. |
+| — | `common/error-codes.ts` | Gana `BUYLIST_RAW_ONLY` | Código (contrato **v1.53**) | `422` de negocio, **no** `400` de forma: debe degradar **por-ítem** en `/quote/batch` (§4.40.3.3). |
+| — | `pricing/pricing.types.ts` | `buildGradeKey` con **unión discriminada** + `tryBuildGradeKey`; **se retiran `?? 'PSA'` y `?? '10'`** | Código | **La causa raíz.** Rompe la compilación en los call-sites que hoy pasan identidad incompleta — esa es la señal buscada (§4.40.4). |
+| — | `inventory/dto/inventory.dto.ts` | `UpdateItemDto` gana `gradingCompany?` | Código (contrato **v1.53**) | Sin esto, una pieza graduada con empresa nula es **incorregible** por la vía normal (D-BG-4, §4.40.5b). |
+
+#### `M-49` — RESERVADA, **no programada** (§4.40.7)
+
+> **Condición de arranque: que `PROJECT.md` responda «sí» a §4.40.6** («¿compramos cartas graduadas por el
+> cotizador?»), vía `product-owner`. **Hasta entonces no se ejecuta.** Se deja diseñada —y no solo mencionada— para
+> que `claude/buylist-inventory-workflow-hdnls3` tenga una forma estable que consumir y **no invente otra**.
+
+| # | Modelo / artefacto | Cambio | Tipo | Nota |
+|---|---|---|---|---|
+| M-49 | `SellRequestItem.gradingCompany` | `GradingCompany?` | **DDL aditivo** (reservado) | `PSA \| CGC`. **`BGS` no existe en el enum** — añadirlo es otra decisión de producto (§4.40.6). |
+| M-49 | `SellRequestItem.gradeValue` | `String?` | **DDL aditivo** (reservado) | Validado contra `CANONICAL_GRADE_VALUE` (`^(?:10\|[1-9](?:\.5)?)$`), promovida a `common/business-rules.ts`. |
+| M-49 | `SellRequestItem.certNumber` | `String?` | **DDL aditivo** (reservado) | **No es un extra:** `PROJECT.md` §H exige empresa + grado + **cert** para publicar una graduada, y sin él dos PSA 9 de la misma carta son indistinguibles en una solicitud one-line-per-card (§4.16b). Se propaga a `InventoryItem.certNumber` al convertir. |
+| M-49 | `SellRequestItem.sealedProductId` | **NO ENTRA** | — | Se evaluó y se **rechaza**: sería el **buylist de sellado**, inexistente por criterio 61 y «fase 2» por «Fuera de alcance». §4.40.7(4). |
+| M-49 | Backfill | **NINGUNO** | Data | Nullable puro; filas < M-49 quedan en `null`. Mismo precedente que `finish` (M-18), `cardProductId` (M-32) y los campos de rechazo (M-22). |
 
 ### v1.52-set-logos (nueva — **M-47**: imágenes de set en `CardSet` — **DDL ADITIVO PURO**, §4.39)
 

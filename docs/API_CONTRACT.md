@@ -2,7 +2,39 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-08-31 (rev **v1.52**).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-05 (rev **v1.53**).
+>
+> **Changelog v1.53 — EL COTIZADOR VUELVE A SER RAW-ONLY (2026-09-05, arquitecto; DEFECTO DE DINERO vivo en
+> producción, reproducido en `main` `4b1db96`. Lo implementan BACKEND y FRONTEND. ARCHITECTURE §4.40. **Sin
+> migración.**).**
+> **Cero rutas nuevas, cero montos, cero permisos, cero migraciones.** Base: v1.52, vigente entera.
+> ⚠️ **NO es aditivo: RESTRINGE tres endpoints.** Es el único cambio breaking de este pase y es deliberado.
+>
+> - **El defecto que cierra.** `POST /buylist/quote`, `/quote/batch` y `POST /buylist/requests` aceptan hoy
+>   `productType: ProductType` —los tres valores— pero **ningún DTO tiene dónde capturar el grado**. El backend
+>   rellena el hueco con `` `graded:${gradingCompany ?? 'PSA'}:${gradeValue ?? '10'}` `` ⇒ **toda carta graduada se
+>   cotiza contra la referencia de PSA 10, el grado más caro que existe**, sea un PSA 6 o un CGC 8. Es dinero
+>   saliente y hoy solo lo amortigua que el precio se corrige al verificar — red que el ciclo de adquisición retira.
+> - **Este contrato era la causa, no la víctima.** Backend implementó exactamente lo que aquí decía. `PROJECT.md` §E
+>   («Buylist — compra de **raw**»), §K **LOCKED** («el cotizador y el pipeline de buylist siguen siendo **solo para
+>   raw**») y el **criterio 61** («no existe flujo de buylist de sellado, **ni cotizador ni pipeline**) dicen otra
+>   cosa. Por la regla de conflicto —**`PROJECT.md` manda sobre este contrato**— se corrige el contrato.
+> - **`productType` en las tres rutas de §6 pasa a ser `"raw"` y solo `"raw"`.** `graded` y `sealed` ⇒ **nuevo
+>   `422 BUYLIST_RAW_ONLY`**.
+> - **Es `422` de negocio y NO el `400 VALIDATION_ERROR` del `@IsIn`, por una razón concreta:** en `/quote/batch` los
+>   errores son **por-ítem** (`ok:false`, HTTP `200`). Un rechazo en el `ValidationPipe` devolvería **`400` para el
+>   request entero** y se llevaría por delante **las otras 49 líneas raw legítimas** del grid. `BUYLIST_RAW_ONLY`
+>   entra al allowlist de degradación por-ítem junto a `NOT_FOUND`, `FINISH_NOT_AVAILABLE`, `PRODUCT_NOT_FOUND` y
+>   `PRODUCT_CARD_MISMATCH`. En `/quote` y `/requests` es un `422` de request completo.
+> - **`PATCH /admin/inventory/items/:id` gana `gradingCompany?` (ADITIVO).** Hoy acepta `gradeValue` y `certNumber`
+>   pero **no la empresa graduadora**, lo que vuelve **incorregible** una pieza graduada con empresa nula — y hay
+>   piezas así, creadas por la conversión de buylist (ARCHITECTURE §9 **D-BG-3/D-BG-4**).
+> - **Lo que NO cambia:** ningún monto, ninguna curva, ningún `priceBasis`, ningún tope AML, ningún rol. Una línea
+>   **raw** se cotiza **exactamente igual que antes**. `SellItemDTO` no cambia de forma.
+> - **Sin migración y sin backfill.** No se añaden columnas de graduación a `SellRequestItem`: eso sería **construir
+>   el buylist de graduadas**, que `PROJECT.md` pone fuera de alcance. La forma queda **reservada** en `M-49`
+>   (ARCHITECTURE §4.40.7) por si el dueño lo autoriza.
+> - **Base previa:** v1.52.
 >
 > **Changelog v1.52 — la teja de set gana su LOGO (2026-08-31, arquitecto; petición del DUEÑO. Lo implementan
 > BACKEND y FRONTEND. ARCHITECTURE §4.39, migración M-47).**
@@ -2006,6 +2038,9 @@
 ```
 - **Códigos comunes:** `400 VALIDATION_ERROR`, `401 UNAUTHENTICATED`, `403 FORBIDDEN`, `404 NOT_FOUND`, `409 CONFLICT`, `422` (regla de negocio), `429 RATE_LIMITED`, `500 INTERNAL`.
 - **`422 FINISH_NOT_AVAILABLE` (v1.6-finish):** el `finish` enviado (cotizador, alta de inventario, solicitud) **no** está en `Card.availableFinishes`. Guardarraíl SEC-A1: el cliente no puede cotizar/vender un acabado inexistente para pagar de más. Afecta `POST /buylist/quote`, `POST /buylist/requests`, `POST /admin/inventory/items`.
+- **`422 BUYLIST_RAW_ONLY` (v1.53 — MONEY, ARCHITECTURE §4.40):** se envió `productType` distinto de `"raw"` a una ruta de buylist. **El cotizador y el pipeline de compra son solo raw** (`PROJECT.md` §E, §K LOCKED, criterio 61). Afecta `POST /buylist/quote`, `POST /buylist/quote/batch` y `POST /buylist/requests`. `details: { index?: number, productType: "graded" | "sealed" }` (`index` solo en las rutas con `items[]`, para que el front señale la línea).
+  - **Por qué es un `422` de negocio y no el `400 VALIDATION_ERROR` de un `@IsIn`:** en **`/quote/batch` degrada POR-ÍTEM** (`ok:false`, HTTP `200`, correlación por `index`), igual que `NOT_FOUND` / `FINISH_NOT_AVAILABLE` / `PRODUCT_NOT_FOUND` / `PRODUCT_CARD_MISMATCH`. Un rechazo de forma en el `ValidationPipe` tumbaría el request completo y con él **las demás líneas raw legítimas** del grid. En `POST /buylist/quote` y `POST /buylist/requests` es un `422` de request completo (y en `requests`, **la solicitud no se crea**).
+  - **Guardarraíl money-safe, no cosmética:** sin él, una línea graduada se cotiza contra `graded:PSA:10` —**el grado más caro**— porque el grado real **nunca se captura**. El bloqueo lo aplica **siempre el backend**; el selector del cotizador es solo UI (SEC-A1).
 - **`403 EMAIL_NOT_VERIFIED` (v1.5):** un `customer` autenticado con `emailVerified=false` intenta una **acción sensible** (comprar / retirar / vender). El front muestra el banner "verifica tu correo" y ofrece reenviar; el bloqueo lo aplica **siempre** el backend (`EmailVerifiedGuard`, ARCHITECTURE §4.11). Endpoints afectados: `POST /checkout/session`, `POST /shipments`, `POST /buylist/requests`.
 - **`422 CLABE_REQUIRED` (v1.15):** `POST /buylist/requests` **sin** `clabe` en el body **y sin** CLABE en archivo (`KycProfile.clabeEnc` vacío). El front debe pedir la CLABE (o registrarla en KYC) antes de reintentar. Distinto de `422 CLABE_INVALID` (formato incorrecto) y de `422 CLABE_NOT_OWN_NAME` (no coincide con la de archivo). Ver §6 y ARCHITECTURE §4.16a.
 - **`422 ITEM_NOT_PUBLISHABLE` (v1.16.1):** en `POST /admin/inventory/items/bulk-publish`, la pieza está en un status de origen **no publicable**. Solo `{in_stock, listed}` son publicables (`in_stock` → publica; `listed` → no-op idempotente). Cualquier otro (`reserved | in_custody | picking | shipped | delivered | lost | damaged | withdrawn`) → **`ITEM_NOT_PUBLISHABLE`** por-línea. **Guardarraíl anti double-sell:** una pieza reservada/vendida/en-custodia/enviada no puede re-listarse. Distinto de `PRICE_PENDING` (precio no resuelto). Ver §M1 y ARCHITECTURE §4.17b.
@@ -4787,7 +4822,18 @@ Cotizador público (stateless). Muestra el mensaje de "pago tras recepción y ve
 > resultado sea `precio_pendiente` (se retiró el `escalatePending` de Fase 0.2; cierra BE-16). Con el catálogo ya
 > priceado (§4.13a), el `referencePrice` casi siempre sale `priced`. La escalada a `PendingPriceEntry` ocurre solo en
 > `POST /buylist/requests` (autenticado). Mismo shape que antes.
-Req: `{ cardId: string, productType: ProductType, rawCondition?: RawCondition, finish?: Finish, productId?: number }`
+Req: `{ cardId: string, productType: "raw", rawCondition?: RawCondition, finish?: Finish, productId?: number }`
+> **⚠️ v1.53 (MONEY, BREAKING, ARCHITECTURE §4.40) — `productType` es `"raw"` y solo `"raw"`.** Antes se declaraba
+> `productType: ProductType` (los tres valores) y **eso era un error de este contrato**: `PROJECT.md` §E («Buylist —
+> compra de **raw** a usuarios»), §K **LOCKED** («el cotizador y el pipeline de buylist siguen siendo **solo para
+> raw**») y el **criterio 61** nunca autorizaron comprar graduadas ni sellado por el cotizador.
+> - `productType ∈ {"graded","sealed"}` ⇒ **`422 BUYLIST_RAW_ONLY`**.
+> - **Por qué importa y no es burocracia:** ningún DTO de buylist tiene —ni tuvo nunca— dónde capturar **qué grado
+>   es** el slab, así que el backend resolvía la referencia con un default silencioso a **`graded:PSA:10`**, el grado
+>   **más caro**. Toda graduada se cotizaba como si fuera un PSA 10. La guarda es **server-side**: el selector del
+>   front es solo UI y un `curl` la esquivaría (SEC-A1).
+> - **`rawCondition` sigue siendo `"NM"`** (único valor, §3.5) y `finish` sigue capturándose para elegir **de qué
+>   variante** se lee el mercado (§4.36). **Nada del cálculo de una línea raw cambia.**
 - **`finish` (v1.6-finish, opcional, default `normal`):** debe pertenecer a `Card.availableFinishes`; si no →
   `422 FINISH_NOT_AVAILABLE`. El front lo puebla del `CardDTO.availableFinishes` de la carta elegida.
 - **`productId` (v1.30, opcional, ADITIVO):** cuando el vendedor cotiza un **producto separado** (`separateProducts`
@@ -4866,8 +4912,16 @@ referencia **por acabado** (el acabado elige de qué variante se lee el mercado)
 **Un solo cuerpo compartido, prohibido duplicarlo** (`quoteAcquisitionFromCurve`). ~~rareza+acabado server-side, gate
 premium, `BUYLIST_PRICE_RULES` + fallback~~ ⛔ retirados. SEC-A1 intacto: el monto se deriva del dato real de la
 variante, jamás del DTO. **READ-ONLY** (no escala pendientes, v1.12).
-Req: `{ items: BuylistQuoteItemDTO[] }` donde `BuylistQuoteItemDTO = { cardId, productType, rawCondition?, finish?, productId? }`
+Req: `{ items: BuylistQuoteItemDTO[] }` donde `BuylistQuoteItemDTO = { cardId, productType: "raw", rawCondition?, finish?, productId? }`
 (mismos campos que el quote por-carta; **sin `qty`** — el modelo es una línea por carta física, ARCHITECTURE §4.16b).
+> **⚠️ v1.53 (MONEY, BREAKING, ARCHITECTURE §4.40) — `productType` es `"raw"` y solo `"raw"`**, igual que en el quote
+> por-carta y por el mismo motivo (`PROJECT.md` §E, §K LOCKED, criterio 61; sin captura de grado el backend caía al
+> default `graded:PSA:10`, el grado más caro).
+> **Aquí el matiz que decide la implementación: `BUYLIST_RAW_ONLY` es un error POR-ÍTEM, no del request.** Un ítem
+> `graded` o `sealed` sale **`ok:false`** con `error.code="BUYLIST_RAW_ONLY"` y el HTTP global sigue siendo **`200`**:
+> **las demás líneas raw se cotizan normalmente.** Si la guarda se implementa como `@IsIn` en el `ValidationPipe`, el
+> request entero devuelve `400` y **se pierden hasta 49 cotizaciones legítimas** — eso sería un defecto, no una
+> alternativa. Ver §4.40.3 y la ficha del código en «Errores».
 - **Límites:** `items` **no vacío**; **máx `50`** ítems por request (`BUYLIST_QUOTE_BATCH_MAX`). Vacío o sobre-cap →
   `400 VALIDATION_ERROR`. Cuenta como **1** request contra el throttle público.
 - **`finish?`** (default `normal`): se valida por-ítem contra `Card.availableFinishes` (o `CardProduct.finishes` si el
@@ -4908,7 +4962,7 @@ global es `200`. `index` = posición 0-based en `items[]` (llave de correlación
   **nunca** se muestra como precio al comprador — aquí es un vendedor cotizando.
 - **`ok:false`** → `error.code ∈ { NOT_FOUND (carta inexistente), FINISH_NOT_AVAILABLE (acabado fuera de la whitelist
   aplicable), PRODUCT_NOT_FOUND (v1.30 — productId inexistente), PRODUCT_CARD_MISMATCH (v1.30 — productId no cuelga del
-  cardId) }`, con `message` EN de fallback. Son los mismos códigos que el endpoint por-carta devolvería como
+  cardId), **BUYLIST_RAW_ONLY** (v1.53 — `productType` distinto de `"raw"`; el buylist es solo raw, §4.40) }`, con `message` EN de fallback. Son los mismos códigos que el endpoint por-carta devolvería como
   `404`/`422`, aquí **por-ítem**.
 Err (nivel request, no por-ítem): `400 VALIDATION_ERROR` (items vacío / > 50 / ítem malformado), `429 RATE_LIMITED`.
 Nota: el batch es **anónimo/público** como el quote por-carta; la creación de la solicitud (con topes/KYC/CLABE)
@@ -4950,7 +5004,18 @@ Res `200` (`PublicBountiesResponse`): `{ data: PublicBountyDTO[] }`
 
 ### POST /api/v1/buylist/requests — `customer`
 Crea la solicitud; valida topes/KYC.
-Req: `{ items: [{ cardId, productType, rawCondition?, finish?, productId? }], clabe?: string, ineUploadKeys?: { front, back } }`
+Req: `{ items: [{ cardId, productType: "raw", rawCondition?, finish?, productId? }], clabe?: string, ineUploadKeys?: { front, back } }`
+> **⚠️ v1.53 (MONEY, BREAKING, ARCHITECTURE §4.40) — `productType` es `"raw"` y solo `"raw"`.** Cualquier ítem con
+> `graded` o `sealed` ⇒ **`422 BUYLIST_RAW_ONLY`** con `details: { index, productType }`, y **la solicitud NO se
+> crea** (a diferencia de `/quote/batch`, aquí **no hay degradación por-ítem**: `createRequest` es todo-o-nada porque
+> congela dinero en una transacción). `PROJECT.md` §E, §K LOCKED y criterio 61: el pipeline de compra es solo raw.
+> **Por qué es de dinero:** `SellRequestItem` **no tiene columnas de graduación**, así que una línea `graded` congela
+> un `quotedPriceCents` derivado del default `graded:PSA:10` —**el grado más caro**— sobre una carta cuyo grado nunca
+> se preguntó. Con el ciclo de adquisición (oferta **vinculante desde el correo**, sin repreciar) eso deja de ser un
+> error corregible y pasa a ser un **compromiso firmado**.
+> **Filas legacy:** existen solicitudes vivas con líneas `graded`/`sealed` creadas antes de esta guarda. **No se
+> re-cotizan ni se auto-aprueban**: se resuelven a mano por `PATCH /admin/buylist/items/:itemId/decision` (§M5), con el
+> monto escrito por el dueño. **No hay backfill que invente un grado** (ARCHITECTURE §4.40.5a).
 > **v1.15 — `clabe` OPCIONAL + fallback server-side (PII):** `clabe` deja de ser obligatoria. Resolución server-side:
 > - **`clabe` presente** → comportamiento actual: valida formato (18 dígitos → `422 CLABE_INVALID`) y **nombre propio**
 >   contra la CLABE en archivo por blind-index (`422 CLABE_NOT_OWN_NAME` si no coincide); se cifra/persiste.
@@ -4989,6 +5054,7 @@ Req: `{ items: [{ cardId, productType, rawCondition?, finish?, productId? }], cl
 Res `201`: `{ sellRequestId, status: "cotizada", quotedTotalCents, ineRequired: boolean, items: SellItemDTO[] }` (**no** incluye la CLABE, ni enmascarada ni en claro).
 Err:
 - **`403 EMAIL_NOT_VERIFIED`** (v1.5 — vender es acción sensible; el cotizador público `POST /buylist/quote` y `POST /buylist/quote/batch` **no** se bloquean)
+- **`422 BUYLIST_RAW_ONLY`** (v1.53 — algún item trae `productType` distinto de `"raw"`; `details: { index, productType }`. **La solicitud no se crea**)
 - **`422 FINISH_NOT_AVAILABLE`** (v1.6 — algún `finish` no está en la whitelist aplicable: `Card.availableFinishes`, o
   `CardProduct.finishes` si el item trae `productId`)
 - **`422 PRODUCT_NOT_FOUND`** (v1.30 — algún `productId` no existe)
@@ -5151,6 +5217,16 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
     autorizado por rol.
 - `GET /api/v1/admin/inventory/items/:id` — detalle + historial de movimientos.
 - `PATCH /api/v1/admin/inventory/items/:id` — editar (grado, `certNumber`, `sealedSubtype`, `listPriceCents` manual, ubicación, etc.). **No** hay campos de foto de producto (v1.2). **No** edita el mapeo TCGCSV (v1.19; ver abajo).
+  > **⚠️ v1.53 (ADITIVO, ARCHITECTURE §4.40.5b) — gana `gradingCompany?: GradingCompany` (`PSA | CGC`).** Hasta v1.52
+  > el `PATCH` aceptaba `gradeValue` y `certNumber` **pero no la empresa graduadora**, de modo que una pieza
+  > `productType='graded'` con `gradingCompany` nula era **incorregible por la vía normal**. Y esas piezas existen:
+  > la conversión de buylist (`convert-to-inventory`, M5) las crea **sin identidad de slab**, porque
+  > `SellRequestItem` nunca la capturó (ARCHITECTURE §9 **D-BG-3**). Con la retirada del default `graded:PSA:10`
+  > (§4.40.4) esas piezas pasan a valuarse **`pending`** —que es la verdad— y este campo es lo que permite repararlas
+  > con el slab físico en la mano.
+  > **Solo aplica a `productType='graded'`** (se ignora en `raw`/`sealed`, misma semántica que `gradeValue`/`certNumber`).
+  > **No cambia ningún precio por sí mismo**: al completar la identidad, la pieza pasa a resolver la referencia del
+  > grado **que realmente es**.
 - **Sellado — referencia de mercado TCGCSV (v1.19, READ-ONLY en M1):** para items `productType=sealed`, `GET /admin/inventory/items` (cada fila) y `GET .../items/:id` exponen además:
   - `tcgplayerProductId?: number` y `tcgplayerGroupId?: number` — mapeo curado al producto de TCGplayer/TCGCSV (`null`/omitidos si no mapeado; M-23).
   - `sealedMarketRef?: PriceInfo` — **valor de referencia de mercado** del producto sellado (`source: "tcgcsv"`, MXN con FX+colchón, `capturedDate` del último ingest). `null`/omitido si el item no está mapeado o aún no hay ingest. En listados se resuelve por lote (`getReferencesBatch`, sin N+1).
