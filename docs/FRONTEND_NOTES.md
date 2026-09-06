@@ -10585,3 +10585,207 @@ Suites completas tras la corrección: **967 vitest verdes** · **20 E2E verdes**
 > reconstruye siempre; quien reutilice el servidor a mano (`E2E_BASE_URL` + `next start`) **tiene que
 > rebuildear primero**, o está midiendo el código de otro. Dicho de otro modo: aquellas 3 rojas eran
 > correctas — mis pruebas detectaron una mutación que yo no sabía que estaba puesta.
+
+---
+
+## §44 · v1.53 — El cotizador vuelve a comprar RAW y solo raw (contrato v1.53 §6, `ARCHITECTURE.md` §4.40) — 2026-09-06, rama `claude/buylist-graded-identity`
+
+> **Defecto de dinero SALIENTE vivo en producción.** No es un ajuste de UI: la pantalla ofrecía
+> comprar cartas graduadas sin preguntar nunca **qué grado** son, y el backend rellenaba el hueco con
+> `graded:PSA:10` —el grado **más caro** que existe—. O sea: el cotizador prometía el precio de un
+> PSA 10 por un PSA 6. Encargo del arquitecto en §4.40.9, fila **frontend**.
+
+### 44.1 Qué se retiró, y por qué NO fue una decisión de diseño mía
+
+`BuylistView.tsx:57` declaraba `const PRODUCT_TYPES: ProductType[] = ['raw', 'graded', 'sealed']` y
+el `<Select>` de `:512` los servía los tres. **La fuente que manda dice que esa superficie nunca
+debió existir**, y lo dice tres veces:
+
+- `PROJECT.md` §E — el título del capítulo es «Buylist — compra de **raw** a usuarios»; el cuerpo
+  fija la condición en Near Mint, *«único grado que compramos»*.
+- `PROJECT.md` §K (**LOCKED**) — *«el cotizador y el pipeline de buylist siguen siendo **solo para
+  raw**»*.
+- Criterio de aceptación **61** — el sellado *«no existe»* como flujo de buylist, «ni cotizador ni
+  pipeline».
+
+Por la regla de conflicto de `CLAUDE.md` (`PROJECT.md` manda sobre el contrato y el contrato sobre el
+código), aquí no había nada que sopesar: `PRODUCT_TYPES → ['raw']`.
+
+**El selector se retira, no se deja con una opción.** Con un solo valor el control no ofrece
+elección: es ruido que además **sigue insinuando** que compramos slabs y sellado, que es justo el
+mensaje falso que este pase borra. La pantalla no pierde ninguna capacidad: los dos controles de
+búsqueda que el cotizador usa de verdad —«Buscar set» y «Buscar carta»— ya los trae el binder de
+Master Set (`mode="quoter"`), que era el grid de `raw` desde v1.21.
+
+⛔ **Lo que este pase NO hace, y es deliberado:** *no* añade un selector de grado. El humano puede
+querer comprar graduadas —§4.40.6 lo deja como pregunta abierta— pero eso es una **funcionalidad
+nueva** que arranca con `product-owner` cambiando `PROJECT.md`, con su migración (`M-49`, reservada
+y no programada). Aquí se cierra la puerta; abrirla bien viene después.
+
+### 44.2 Las ramas muertas que cayeron con el selector (y las que NO se tocaron)
+
+Con `productType` fijo en `'raw'`, todo lo que colgaba de `productType !== 'raw'` quedó inalcanzable.
+Se retiró **entero**, no comentado:
+
+| Qué | Dónde vivía | Por qué era solo de graded/sealed |
+|---|---|---|
+| El `<Select>` «Tipo de producto» | `BuylistView.tsx:509-520` | servía los tres valores |
+| Barra de filtros plana (set + texto + «Buscar») | `:470-508`, envuelta en `{productType !== 'raw' && …}` | literalmente no se pintaba en raw |
+| **Grid plano** (`cardsResult`, tejas, filas por acabado) | rama `else` del ternario `productType === 'raw' ? <MasterSetPanel/> : …` | en raw siempre ganaba el binder |
+| `gridBatchItems` + `gridQuotes` + `quoteFor` + `FinishEstimate` | `:205-259`, `:90-110` | el batch del grid plano; el binder tiene el suyo |
+| **Bulk** (multi-selección, `addSelectedToCart`, 4 estados y 6 cadenas) | `:385-428`, `:563-599` | el binder agrega de un clic por casilla, sin paso de selección |
+| `tileFinishes` / `rowLabel` / `addFromGrid` / `firstAvailableFinish` / `quoteMapKey` | helpers del grid plano | — |
+| `CardDetailModal` de la vista | `:875-882` | el del binder lo pinta cada teja (`QuoterTile`) |
+| `useSellCart.addLines` | hook | su único consumidor era el bulk |
+
+**Lo que NO se tocó, y es la mitad importante del encargo:** graduadas y sellado **existen y se
+venden**. Catálogo (`CatalogView`, `ShopFilters`, `StoreTabs`, `ListingSpec`, `RarityLabel`), ficha,
+bóveda (`vault/*`), admin M1/M2 y el `ProductType` de `contract.ts` siguen **exactamente igual**. Lo
+que se cerró es **la superficie de COMPRA**, no la de venta ni la de custodia.
+
+Efecto secundario que sí es una mejora: la identidad de línea del carrito (`useSellCart`) pierde
+`productType` de la llave de dedup —era una constante en los dos lados de la igualdad— y `isInCart`
+queda con la **misma firma** que el binder ya declaraba (`(cardId, finish, productId?)`), así que
+desapareció el adaptador `isInCartRaw`.
+
+### 44.3 Tipos: el compilador cierra la puerta, pero la autoridad es el servidor
+
+`frontend/src/types/contract.ts` (y sus dos espejos en `lib/api.ts` y `BuylistKycForm.tsx`):
+
+```ts
+// antes                              // v1.53
+productType: ProductType;      →      productType: 'raw';
+```
+
+Cubre `BuylistQuoteItemDTO` (batch), `BuylistQuoteInput` (quote por-carta),
+`CreateSellRequestInput['items'][n]` y `BuylistRequestItem` (el DTO del carrito). Con eso, **volver a
+mandar `graded` no compila**.
+
+Dicho sin adornarlo: **esto no es la guarda.** El endpoint es público y anónimo; un `curl` se salta
+cualquier tipo de TypeScript. La guarda que decide dinero es la server-side (`422 BUYLIST_RAW_ONLY`,
+SEC-A1). Lo del front es (a) que la UI deje de ofrecerlo y (b) que un descuido no lo reintroduzca.
+
+### 44.4 `BUYLIST_RAW_ONLY` es un error **POR ÍTEM**, y eso decidió dónde ponerlo
+
+El contrato §6 lo pone en la lista de errores por-ítem del batch **a propósito** (§4.40.3.3): un lote
+de 50 con **una** línea no-raw debe devolver `200` con esa línea `ok:false` y **las otras 49
+cotizadas**. Si se pintara como fallo global, un solo ítem malo dejaría el grid entero sin una sola
+teja agregable — que es exactamente el daño que ese diseño evita.
+
+Implementación:
+- El código entra a la **unión de `error.code`** de `BuylistBatchQuoteResultDTO`, no a un manejo
+  aparte. El binder ya degrada por-ítem para *cualquier* código (`variant.quote = null` ⇒ teja
+  «Precio pendiente» con su «Agregar» inhábil; `SeparateProductTile` ⇒ error de línea legible), así
+  que el código nuevo hereda el camino correcto por construcción.
+- Nueva cadena `masterSet.separateProductErrorCode.BUYLIST_RAW_ONLY` (es/en). Sin ella, next-intl
+  tira `MISSING_MESSAGE` en la teja de producto separado — se detectó por el `stderr` de vitest, no
+  por una roja.
+- `error.BUYLIST_RAW_ONLY` (es/en) para el **nivel request**: `POST /buylist/requests` es
+  todo-o-nada y su 422 llega por `useErrorMessage` → `error.<CODE>`.
+
+**Por qué se codifica un error que el front ya no puede provocar:** un bundle viejo en caché, o una
+pestaña abierta desde antes del deploy, sí puede recibirlo. La alternativa —no mapearlo— es enseñar
+un texto en inglés crudo del servidor justo en la pantalla del dinero.
+
+### 44.5 Los mocks espejan la guarda del servidor, no el tipo del cliente
+
+`lib/api.ts` es el servidor del modo mock (y del build que corre la suite E2E). `mockResolveQuoteItem`
+recibe `productType?: string` **a propósito** —no `'raw'`— para poder rechazar un payload fuera de
+tipo, igual que el backend rechaza un `curl`:
+
+- `/quote/batch` → `ok:false` **por ítem**, HTTP 200, el resto cotiza.
+- `/quote` por-carta → `422`.
+- `/buylist/requests` → `422` con `details: { index, productType }` y **la solicitud no se crea**
+  (todo-o-nada; el mock corta antes de mapear un solo ítem).
+
+Si el mock heredara el tipo estrecho, el modo mock afirmaría que la guarda existe **sin tener
+ninguna**, que es la clase de falso verde que ya nos costó una ronda en §43.
+
+### 44.6 i18n: 22 entradas de `buylist.` borradas (24 hojas), 2 añadidas
+
+Se fueron con su código: `selectType`, `productType.{raw,graded,sealed}`, `filterBySet`, `allSets`,
+`searchCards`, `searchPlaceholder`, `searchAction`, `searchResults`, `noResults`, `searchHint`,
+`gridEstimateLegend`, `gridQuotesFailed`, `gridQuoteError`, `addFinishAria`, `bulkSelect`,
+`bulkAddCta`, `bulkClear`, `bulkAdded`, `bulkAddedPartial`, `bulkAddError`, `viewDetailAria`,
+`tileInCart` (todas bajo `buylist.`). Añadidas: `error.BUYLIST_RAW_ONLY` y
+`masterSet.separateProductErrorCode.BUYLIST_RAW_ONLY`. ES y EN en paridad
+(`src/lib/i18n-parity.test.ts` lo exige).
+
+Cuidado a la vista: `admin.m1.filterBySet` / `admin.m1.searchCards` / `catalog.searchPlaceholder` son
+claves **distintas** con el mismo nombre de hoja en otro namespace — no se tocaron.
+
+### 44.7 Pruebas: el candado, no el registro del cambio
+
+Los 6 casos del bloque `graded/sealed (grid plano…)` de `BuylistView.test.tsx` describían una
+superficie que ya no existe. **No se «arreglaron»: se sustituyeron** por 4 que fallan si alguien la
+reabre.
+
+| Prueba | Qué se rompe si vuelve el defecto |
+|---|---|
+| `NO existe selector de tipo de producto` | remontar el `<Select>` (aunque sea con una opción) |
+| `NO existe la barra de filtros del grid plano` | reintroducir el grid plano |
+| `todo item de la solicitud creada viaja con productType "raw"` | que una línea salga con otro tipo hacia `POST /buylist/requests` |
+| `BUYLIST_RAW_ONLY es error POR ÍTEM…` | tratarlo como fallo global (el carrito se quedaría en 0 líneas) |
+
+Más `MasterSet.test.tsx` › *«v1.53 (§4.40): BUYLIST_RAW_ONLY es error POR ÍTEM»*: el lote trae una
+línea rechazada y **la otra sigue cotizando y agregándose** — con el `onAdd` contado antes y después
+de clicar la inhábil, para que la prueba no pase por omisión.
+
+En E2E (`e2e/buylist.spec.ts`): se borró el `describe` del grid plano graded (2 casos) y se añadió
+*«v1.53: la página de venta NO ofrece gradeada ni sellado»*, que mide el candado **en navegador** y
+no en jsdom.
+
+**El smoke `@real` de VENDER se tuvo que migrar, y conviene saber por qué:** `addFirstSellableCard`
+descubría la carta por el **grid plano GRADED** — justo la superficie que este pase cierra. Ahora es
+`addCheapestSellableCard`, que recorre el binder quoter: filtra las tejas cuyo `aria-label` trae
+`MX$` (las de «Precio pendiente» quedan fuera sin nombrarlas) y clica **la más barata**. Se conserva
+íntegro el motivo money del helper original: contra el stack real una carta cara empuja la solicitud
+por encima del **tope AML** y la UI exige INE antes de confirmar — el smoke quiere recorrer VENDER,
+no pelearse con un control de lavado de dinero. Si el set no tuviera ninguna cotizada, cae a la
+primera teja habilitada (pendiente es money-safe: lo fija la plataforma al recibir).
+
+### 44.8 Verificación
+
+| Comando | Resultado |
+|---|---|
+| `npm test` (vitest) | **103 archivos · 965 pruebas · verdes** |
+| `npx tsc --noEmit` | **limpio (EXIT=0)** con `.next/types` de otra rama fuera de en medio — ver la nota de abajo |
+| `npm run lint` | **`✔ No ESLint warnings or errors`** |
+| `E2E_MOCK_PORT=3100 npx playwright test` | **115 pasadas · 3 saltadas · EXIT=0** (las 3 saltadas son `@real` de `grading-estimate`, `realOnly` en modo mock) |
+
+> ⚠️ **Nota de operación — dos trampas del entorno, ambas reales, ambas costaron tiempo.**
+>
+> 1. **El puerto 3000 estaba ocupado por el stack de otra rama.** La suite de mocks levanta su propio
+>    servidor ahí y aborta con `http://localhost:3000/es is already used`. Se corre con
+>    `E2E_MOCK_PORT=3100` (el dial existe justo para esto).
+> 2. **`frontend/.next` era el build de la OTRA rama y envenenaba el typecheck Y el build de la
+>    suite.** `tsconfig.json` incluye `.next/types/**/*.ts`, y ese árbol traía los tipos generados de
+>    una ruta que en esta rama **no existe** (`(storefront)/buylist/requests/[id]/page`) ⇒ errores
+>    `TS2307` en `npx tsc --noEmit` **y** `Failed to compile` en el `next build` de Playwright, sin
+>    una sola línea de código nuestro implicada. Se resolvió apartando `.next/types` (artefacto
+>    generado; `next start` no lo lee, el stack siguió sirviendo en 3000) y se **restauró tal cual al
+>    terminar** — o sea que el árbol queda como lo encontré, con la mina puesta:
+>
+>    ```
+>    .next/types/app/[locale]/(storefront)/buylist/requests/[id]/page.ts(2,24): error TS2307: …
+>    .next/types/app/[locale]/(storefront)/buylist/requests/[id]/page.ts(5,29): error TS2307: …
+>    .next/types/validator.ts(204,39): error TS2307: …
+>    ```
+>
+>    Los tres apuntan a `.next/`, **ninguno a código versionado**. (`.next-e2e-mock` tenía las mismas
+>    tres y se limpiaron solas al reconstruirlo la suite E2E con este código, que es la prueba de que
+>    son artefacto y no fuente.) Quien corra los gates sobre este árbol tiene que **rebuildear
+>    `.next` con ESTE código** o medirá lo de la otra rama — es la misma lección de §43, ahora en
+>    `.next` en vez de `.next-e2e-mock`.
+
+### 44.9 Alcance de este pase
+
+**Tocado:** `frontend/src/app/[locale]/(storefront)/buylist/{BuylistView.tsx, BuylistView.test.tsx,
+useSellCart.ts}`, `frontend/src/components/domain/BuylistKycForm.tsx`,
+`frontend/src/components/master-set/MasterSet.test.tsx` (una prueba nueva),
+`frontend/src/types/contract.ts`, `frontend/src/lib/api.ts`, `frontend/messages/{es,en}.json`,
+`frontend/e2e/buylist.spec.ts`, y este documento.
+
+**No tocado:** `backend/` (la guarda server-side y el retiro del default `?? 'PSA' / ?? '10'` son de
+backend, §4.40.9), `docs/API_CONTRACT.md`, `docs/ARCHITECTURE.md`, `docs/DESIGN_SYSTEM.md`, y **toda
+la superficie de VENTA de graduadas/sellado** (catálogo, ficha, bóveda, admin M1/M2).

@@ -913,7 +913,16 @@ export interface BuylistQuoteResponse {
 // UNA línea por carta física (ARCHITECTURE §4.16b). Mismos campos que el quote por-carta.
 export interface BuylistQuoteItemDTO {
   cardId: string;
-  productType: ProductType;
+  /**
+   * ⚠️ v1.53 (MONEY, BREAKING — contrato §6, ARCHITECTURE §4.40): `"raw"` y SOLO `"raw"`.
+   * El buylist compra raw NM (`PROJECT.md` §E; §K LOCKED: «el cotizador y el pipeline de buylist
+   * siguen siendo solo para raw»; criterio 61). Ningún DTO de buylist tuvo NUNCA dónde capturar
+   * QUÉ grado es un slab, así que el backend resolvía la referencia con un default silencioso a
+   * `graded:PSA:10` —el grado MÁS CARO— y cotizaba cualquier graduada a ese precio. El tipo
+   * literal cierra la puerta en compilación; la guarda que manda es server-side
+   * (`422 BUYLIST_RAW_ONLY`, por-ítem en el batch).
+   */
+  productType: 'raw';
   rawCondition?: RawCondition;
   finish?: Finish;
   // v1.30 (§4.29, ADITIVO): el TCGplayer `productId` (== `CardProduct.tcgplayerProductId`, el MISMO
@@ -945,7 +954,14 @@ export interface BuylistQuotePayload {
 // lote → HTTP 200). `index` = posición 0-based en el request items[] (llave de correlación robusta
 // ante cardId+finish+productId repetidos); `cardId` se ecoa. Errores por-ítem: NOT_FOUND |
 // FINISH_NOT_AVAILABLE | PRODUCT_NOT_FOUND (v1.30: productId inexistente) | PRODUCT_CARD_MISMATCH
-// (v1.30: productId no cuelga del cardId → rechazo validado, NUNCA fusión silenciosa con el set_base).
+// (v1.30: productId no cuelga del cardId → rechazo validado, NUNCA fusión silenciosa con el set_base)
+// | BUYLIST_RAW_ONLY (v1.53: productType != "raw", ARCHITECTURE §4.40).
+//
+// ⚠️ v1.53 — `BUYLIST_RAW_ONLY` es un error POR ÍTEM, NO del request. El contrato (§6) lo pone
+// aquí a propósito: un lote de 50 con UNA línea no-raw devuelve HTTP 200 con esa línea `ok:false`
+// y las otras 49 cotizadas. Pintarlo como fallo global anularía la razón de ese diseño. El front
+// ya no puede emitirlo (`BuylistQuoteItemDTO.productType` es `"raw"`), pero un bundle viejo en
+// caché o una línea legacy sí puede recibirlo: degrada por-línea como cualquier otro código.
 export type BuylistBatchQuoteResultDTO =
   | ({ index: number; cardId: string; ok: true } & BuylistQuotePayload)
   | {
@@ -953,7 +969,12 @@ export type BuylistBatchQuoteResultDTO =
       cardId: string;
       ok: false;
       error: {
-        code: 'NOT_FOUND' | 'FINISH_NOT_AVAILABLE' | 'PRODUCT_NOT_FOUND' | 'PRODUCT_CARD_MISMATCH';
+        code:
+          | 'NOT_FOUND'
+          | 'FINISH_NOT_AVAILABLE'
+          | 'PRODUCT_NOT_FOUND'
+          | 'PRODUCT_CARD_MISMATCH'
+          | 'BUYLIST_RAW_ONLY';
         message: string;
       };
     };

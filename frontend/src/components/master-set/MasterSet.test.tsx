@@ -1073,6 +1073,91 @@ describe('Master Set · mode="quoter" (cotizador unificado con el binder de Mast
     expect(onAddProduct).not.toHaveBeenCalled();
   });
 
+  it('v1.53 (§4.40): BUYLIST_RAW_ONLY es error POR ÍTEM — la línea cae sola y el resto del lote cotiza', async () => {
+    // El contrato lo declara por-ítem A PROPÓSITO (§4.40.3.3): un lote de 50 con una línea no-raw
+    // debe dar 49 cotizaciones vivas, no un 400 que se lleve el grid entero. El binder ya degrada
+    // por-ítem para cualquier código; este caso lo fija para el código nuevo, que es el que un
+    // bundle viejo en caché puede recibir cuando el backend ya cerró la superficie.
+    mockOneSet();
+    const twoCards: CardDTO[] = [
+      {
+        id: 'c-ok',
+        externalId: 'quoter-ok',
+        name: 'Quotable Card',
+        number: '1',
+        rarity: 'Rare',
+        supertype: 'Pokémon',
+        subtypes: [],
+        setId: 'set-quoter',
+        setName: 'Quoter Set',
+        imageSmallUrl: '',
+        imageLargeUrl: '',
+        availableFinishes: ['normal'],
+      },
+      {
+        id: 'c-rejected',
+        externalId: 'quoter-rejected',
+        name: 'Rejected Card',
+        number: '2',
+        rarity: 'Rare',
+        supertype: 'Pokémon',
+        subtypes: [],
+        setId: 'set-quoter',
+        setName: 'Quoter Set',
+        imageSmallUrl: '',
+        imageLargeUrl: '',
+        availableFinishes: ['normal'],
+      },
+    ];
+    vi.spyOn(api, 'searchBuylistCards').mockResolvedValue({
+      data: twoCards,
+      page: 1,
+      pageSize: 50,
+      total: 2,
+    });
+    vi.spyOn(api, 'batchQuote').mockImplementation(async (items: BuylistQuoteItemDTO[]) => ({
+      results: items.map((it, index): BuylistBatchQuoteResultDTO => {
+        if (it.cardId === 'c-rejected') {
+          return {
+            index,
+            cardId: it.cardId,
+            ok: false,
+            error: { code: 'BUYLIST_RAW_ONLY', message: 'The buylist only accepts raw cards' },
+          };
+        }
+        return {
+          index,
+          cardId: it.cardId,
+          ok: true,
+          rarity: 'Rare',
+          finish: it.finish ?? 'normal',
+          priceBasis: 'market' as const,
+          quote: { status: 'cotizada', quotedPriceCents: 10000, currency: 'MXN' },
+          referencePrice: { status: 'priced', priceMxnCents: 25000 },
+          paymentNotice: 'PAY_AFTER_RECEIPT',
+        };
+      }),
+    }));
+    const onAdd = vi.fn();
+
+    await openQuoterSet({ onAddToSellCart: onAdd });
+
+    // La otra línea cotiza y sigue siendo agregable (el lote NO se cayó)…
+    const ok = await screen.findByRole('button', {
+      name: 'Agregar Quotable Card (Normal) a la venta · MX$100.00',
+    });
+    fireEvent.click(ok);
+    expect(onAdd).toHaveBeenCalledTimes(1);
+
+    // …y la rechazada se marca SOLO a sí misma: sin precio inventado y con su «Agregar» inhábil.
+    const rejected = screen.getByRole('button', {
+      name: 'Agregar Rejected Card (Normal) a la venta · Precio pendiente',
+    });
+    expect(rejected).toBeDisabled();
+    fireEvent.click(rejected);
+    expect(onAdd).toHaveBeenCalledTimes(1);
+  });
+
   it('un set con 120 cartas (bug P-4a: el cotizador cortaba en 20 sin control) muestra TODAS, no solo la primera página', async () => {
     mockOneSet();
     const cards: CardDTO[] = Array.from({ length: 120 }, (_, i) => ({

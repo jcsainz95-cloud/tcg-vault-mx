@@ -554,6 +554,8 @@
     "separateProductErrorCode": {
       "PRODUCT_NOT_FOUND": "This product no longer exists in the catalog.",
       "PRODUCT_CARD_MISMATCH": "This product doesn't belong to this card.",
+      "BUYLIST_RAW_ONLY": "We only buy raw cards.",
+    "BUYLIST_RAW_ONLY": "We only buy raw cards in Near Mint; graded slabs and sealed product are not quoted here.",
       "FINISH_NOT_AVAILABLE": "That finish isn't available for this product.",
       "NOT_FOUND": "We couldn't find this card."
     },
@@ -664,7 +666,6 @@
     "verticalLabel": "Buylist",
     "title": "Sell my cards",
     "subtitle": "We quote your list at today's market value. You ship, we authenticate and pay you by SPEI.",
-    "selectType": "Product type",
     "referencePrice": "Reference value",
     "payAfterReceipt": "Payment is made after we receive and verify your cards.",
     "shippingGuideLink": "Safe shipping guide",
@@ -705,30 +706,7 @@
     "submitting": "Submitting…",
     "requestError": "We couldn't create the request. Check the details and try again.",
     "created": "Request created! We'll let you know when we receive your card.",
-    "filterBySet": "Filter by set",
-    "allSets": "All sets",
-    "searchCards": "Search card",
-    "searchPlaceholder": "Name or number",
-    "searchAction": "Search",
-    "searchResults": "Results",
-    "noResults": "No cards match that filter. Try another set or term.",
-    "searchHint": "Filter by set or search by name to browse the catalog with its estimated buy price.",
-    "gridEstimateLegend": "Estimated buy price per finish (NM for raw); one click adds it to the cart.",
-    "gridQuotesFailed": "We couldn't load the buy estimates.",
-    "addFinishAria": "Add {name} ({finish}) to cart",
     "addedLine": "{name} ({finish}) added to the cart.",
-    "bulkSelect": "Select {name}",
-    "bulkAddCta": "Add selected ({count})",
-    "bulkClear": "Clear selection",
-    "bulkAdded": "{count} card(s) added to the cart.",
-    "bulkAddedPartial": "{added} card(s) added; {failed} unavailable.",
-    "bulkAddError": "We couldn't quote the selected cards. Try again.",
-    "gridQuoteError": "Unavailable",
-    "productType": {
-      "raw": "Single (raw)",
-      "graded": "Graded",
-      "sealed": "Sealed"
-    },
     "rarityLabel": "Rarity",
     "cartTitle": "Your list",
     "cartCount": "{count} card(s)",
@@ -779,9 +757,7 @@
       "wePay": "We pay",
       "cta": "Quote this card",
       "badge": "Bounty"
-    },
-    "viewDetailAria": "View {name} details",
-    "tileInCart": "In cart"
+    }
   },
   "finish": {
     "label": "Finish",

@@ -1249,7 +1249,11 @@ export async function searchBuylistCards(
 
 export interface BuylistQuoteInput {
   cardId: string;
-  productType: ProductType;
+  /**
+   * ⚠️ v1.53 (MONEY, BREAKING — contrato §6, ARCHITECTURE §4.40): `"raw"` y SOLO `"raw"`.
+   * `graded`/`sealed` ⇒ `422 BUYLIST_RAW_ONLY` server-side (`PROJECT.md` §E, §K LOCKED, criterio 61).
+   */
+  productType: 'raw';
   rawCondition?: RawCondition;
   /** v1.6-finish: acabado a cotizar; default `normal`. Debe pertenecer a card.availableFinishes. */
   finish?: Finish;
@@ -1300,8 +1304,13 @@ function mockRuleQuote(
   };
 }
 
-/** Códigos de error POR-ÍTEM del contrato (§6/§4.29) que el mock puede emitir. */
-type MockQuoteItemError = 'NOT_FOUND' | 'FINISH_NOT_AVAILABLE' | 'PRODUCT_NOT_FOUND' | 'PRODUCT_CARD_MISMATCH';
+/** Códigos de error POR-ÍTEM del contrato (§6/§4.29/§4.40) que el mock puede emitir. */
+type MockQuoteItemError =
+  | 'NOT_FOUND'
+  | 'FINISH_NOT_AVAILABLE'
+  | 'PRODUCT_NOT_FOUND'
+  | 'PRODUCT_CARD_MISMATCH'
+  | 'BUYLIST_RAW_ONLY';
 
 /**
  * MOCK v1.30 (§4.29): resuelve UN ítem de cotización (carta BASE o PRODUCTO SEPARADO por
@@ -1312,12 +1321,23 @@ type MockQuoteItemError = 'NOT_FOUND' | 'FINISH_NOT_AVAILABLE' | 'PRODUCT_NOT_FO
  * set_base). Sin `productId`: comportamiento v1.29 (set_base por (cardId, finish)).
  */
 function mockResolveQuoteItem(
-  item: { cardId: string; finish?: Finish; productId?: number },
+  // `productType` se tipa aquí como `string` A PROPÓSITO: los DTOs ya lo estrechan a `"raw"`, pero
+  // el mock hace de SERVIDOR y la guarda de v1.53 es server-side (§4.40.3.2) — tiene que poder
+  // rechazar un payload que llegue fuera de tipo (JS crudo, bundle viejo en caché), igual que el
+  // backend rechaza un `curl`.
+  item: { cardId: string; productType?: string; finish?: Finish; productId?: number },
   // El batch valida el acabado base ∈ availableFinishes (SEC-A1, por-ítem); el quote por-carta NO lo
   // hacía (retrocompat de mock) — se preserva ese matiz con este flag. La whitelist del PRODUCTO
   // separado (CardProduct.finishes) SIEMPRE se valida (contrato §4.29, ambos endpoints).
   opts: { validateBaseFinish?: boolean } = {},
 ): { ok: true; payload: BuylistQuoteResponse } | { ok: false; code: MockQuoteItemError } {
+  // v1.53 (§4.40) — el buylist compra raw y solo raw (`PROJECT.md` §E, §K LOCKED, criterio 61).
+  // Se evalúa ANTES que la existencia de la carta: es una regla de negocio sobre la línea, no una
+  // búsqueda. En el batch el llamador lo convierte en `ok:false` POR ÍTEM (HTTP 200); en el quote
+  // por-carta y en la solicitud, en `422`.
+  if (item.productType !== undefined && item.productType !== 'raw') {
+    return { ok: false, code: 'BUYLIST_RAW_ONLY' };
+  }
   const card = fx.mockCards.find((c) => c.id === item.cardId);
   if (!card) return { ok: false, code: 'NOT_FOUND' };
   const rarity = card.rarity ?? '';
@@ -1386,6 +1406,7 @@ export async function batchQuote(items: BuylistQuoteItemDTO[]): Promise<BuylistB
     FINISH_NOT_AVAILABLE: 'Finish is not available for this card',
     PRODUCT_NOT_FOUND: 'Product not found',
     PRODUCT_CARD_MISMATCH: 'Product does not belong to this card',
+    BUYLIST_RAW_ONLY: 'The buylist only accepts raw cards',
   };
   const results: BuylistBatchQuoteResultDTO[] = items.map((item, index) => {
     // v1.30 (§4.29): resuelve base O producto separado por-ítem; errores por-ítem NO tumban el lote.
@@ -1414,7 +1435,13 @@ export interface CreateSellRequestInput {
   // se snapshotea en SellRequestItem.finish y se propaga al InventoryItem al convertir (M5).
   items: {
     cardId: string;
-    productType: ProductType;
+    /**
+     * ⚠️ v1.53 (MONEY, BREAKING — contrato §6, ARCHITECTURE §4.40): `"raw"` y SOLO `"raw"`.
+     * Aquí NO hay degradación por-ítem (a diferencia de `/quote/batch`): un item `graded`/`sealed`
+     * ⇒ `422 BUYLIST_RAW_ONLY` y **la solicitud no se crea** (`createRequest` congela dinero en una
+     * transacción, es todo-o-nada).
+     */
+    productType: 'raw';
     rawCondition?: RawCondition;
     finish?: Finish;
     // v1.30 (§4.29): TCGplayer `productId` cuando el ítem es un PRODUCTO SEPARADO
@@ -1444,6 +1471,18 @@ export async function createSellRequest(input: CreateSellRequestInput): Promise<
     // lleva y el backend hace el fallback server-side a la CLABE del propio usuario (§6). Sin flags
     // de cliente: el contrato ya soporta el shape directo.
     return apiRequest<SellRequestDTO>('/buylist/requests', { method: 'POST', body: input });
+  }
+  // MOCK v1.53 (§4.40) — el pipeline de compra es raw-only y aquí, a diferencia del batch, es
+  // TODO-O-NADA: `createRequest` congela dinero en una transacción, así que un solo item no-raw
+  // aborta la solicitud entera con `422 BUYLIST_RAW_ONLY` + `details: { index, productType }`
+  // (contrato §6). Ninguna línea se crea.
+  const badIndex = input.items.findIndex((it) => (it.productType as string) !== 'raw');
+  if (badIndex >= 0) {
+    throw new ApiClientError(422, {
+      code: 'BUYLIST_RAW_ONLY',
+      message: 'The buylist only accepts raw cards',
+      details: { index: badIndex, productType: input.items[badIndex].productType },
+    });
   }
   // MOCK: replica el shape de la respuesta del contrato (SellRequestDTO). El monto se resuelve por
   // la REGLA de la rareza (v1.3.1), igual que el cotizador; v1.30 (§4.29): con `productId` la línea
