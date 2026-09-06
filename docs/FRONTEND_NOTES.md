@@ -10585,3 +10585,143 @@ Suites completas tras la corrección: **967 vitest verdes** · **20 E2E verdes**
 > reconstruye siempre; quien reutilice el servidor a mano (`E2E_BASE_URL` + `next start`) **tiene que
 > rebuildear primero**, o está midiendo el código de otro. Dicho de otro modo: aquellas 3 rojas eran
 > correctas — mis pruebas detectaron una mutación que yo no sabía que estaba puesta.
+
+---
+## §44 · La placa de los logos deja la tinta y pasa al papel: el pozo, la repisa y el contorno girado (`DESIGN_SYSTEM.md` §24 v2.10, petición del dueño) — 2026-09-05, rama `claude/tcg-hunt-orchestrator-28p7z1`
+
+**Qué pidió el dueño y qué se ejecutó.** §24 v2.10 gira el acabado del hueco del logo del índice de sets:
+el fondo deja de ser la placa de tinta `#1A1A18` de v2.8 y pasa a **`--color-surface-2` `#EFEBE2`** (el
+pozo), aparece una **repisa** inferior, el contorno del logo **cambia de color** (papel → tinta) y **de dos
+pasadas a tres**, el monograma pasa de `on-ink` a **muted**, y el aire interior baja un escalón. **No se
+tocó ni un píxel de la geometría** (R1) ni del contrato ni de las claves i18n: §24.14 nº10 dice literalmente
+que si la geometría se movió, es un defecto — y se verificó midiéndola, no razonándola.
+
+### 44.1 Qué se tocó (cuatro pantallas, ningún anfitrión editado)
+
+| Archivo | Qué |
+|---|---|
+| `frontend/src/components/master-set/SetPlate.tsx` | **Nuevo.** El pozo (`SetPlate`) y `setMonogram` salen de `MasterSetIndex.tsx` a su propio módulo. Aquí vive todo el cambio de acabado. |
+| `frontend/src/components/master-set/MasterSetIndex.tsx` | Importa `SetPlate`; se actualizan los comentarios de §24.6 (el foco y el hover cambian de RAZÓN, no de comportamiento). |
+| `frontend/src/components/master-set/MasterSetBinder.tsx` | Monta el `SetPlate size="sm"` del encabezado (§24.10) — **salda DT-Ga**. |
+| `MasterSetIndexPlate.test.tsx` · `MasterSetBinder.test.tsx` · `e2e/master-set-plate.spec.ts` | Pruebas: acabado nuevo, pozo `sm`, y el spec de navegador ahora **mide colores computados** además de cajas. |
+
+Las **cuatro** superficies (`quoter`, `platform`, `user_vault_self`, `user_vault_admin`) reciben el cambio
+sin editarlas: todas montan el mismo `MasterSetIndex`.
+
+**Por qué el pozo se extrajo a su propio módulo** (y no se dejó exportado desde `MasterSetIndex`): el
+encabezado del binder lo necesita, y hacer que `MasterSetBinder` importara de `MasterSetIndex` le colgaba
+encima el índice entero —con sus cuatro llamadas a `@/lib/api`— para pintar una caja de 112×64. Con módulo
+propio, la dependencia va de los dos consumidores a la pieza, que es la dirección correcta. Es un
+**movimiento**, no una reescritura: el cuerpo del componente es el mismo salvo el acabado.
+
+### 44.2 Los valores, tal cual §24 los fija (no se negoció ninguno)
+
+- **Fondo:** `bg-surface-2` (`#EFEBE2`), radio 0, sin bordes laterales ni superior.
+- **Repisa:** `border-b border-border` (1px sólido `rgba(26,26,24,0.16)`), a ras y del ancho del pozo. Va en
+  **la misma caja** que el `aspect-[3/2]`: con `box-sizing: border-box` la relación de aspecto se aplica a
+  la caja de **borde**, así que la repisa **no añade 1px de alto** y la geometría de v2.8 queda intacta.
+  Verificado en Chromium, no deducido (el spec mide 3:2 con tolerancia 1px y sigue verde).
+- **Contorno:** `drop-shadow(0 0 1px var(--color-ink))` **× 3**. Está escrito como
+  `LOGO_OUTLINE_PASS` + `LOGO_OUTLINE_PASSES = 3` a propósito: §24.2.d dice que **la única palanca es el
+  número de pasadas (2–4)**, así que la palanca es una constante con nombre y el radio/color no son
+  editables sin tocar la cadena. Las pruebas afirman las tres pasadas **y** el rango 2–4.
+- **Monograma:** `text-muted` (`#6E695E`), serif, **sin contorno ni text-shadow** (§24.12 nº15).
+- **Aire interior:** `p-3 sm:p-4 lg:p-5` (12/16/20), y **8px** (`p-2`) en el pozo `sm`.
+- **Foco:** sin cambios de comportamiento — sigue rodeando la teja entera con el anillo estándar. Lo que
+  cambió es el comentario: ya no es «rojo sobre tinta da 2,5:1», es «un control por set ⇒ un anillo».
+- **Hover:** sigue resolviéndose en el nombre. Y ahora, además, **no podría ser de otra forma**:
+  `surface-2` ya **es** el tono de *hover row* del sistema, así que no queda escalón que usar.
+
+### 44.3 §24.10 — el pozo `sm` del binder (DT-Ga saldada)
+
+Se implementó porque el cambio resultó **local a la placa**: `PLATE_SIZE` gana la entrada `sm`
+(`aspect-[7/4] w-28`, `p-2`, **sin repisa**, `hidden sm:block`) y el encabezado del binder monta
+`<SetPlate size="sm" name={title} logoUrl={set.logoUrl} />` a la izquierda del `<h2>`, con `gap 16px`.
+Ni una prop de datos nueva, ni contrato, ni endpoint: `MasterSetBinder` ya recibía el
+`MasterSetSummaryDTO` entero. El pozo `sm` lleva **`data-testid="set-plate-sm"`** para que los specs del
+índice (que cuentan tejas por `set-plate`) no lo capturen nunca por accidente.
+
+**Matiz que queda anotado, no resuelto:** si se abre el binder por un **subset** de un master combinado, el
+título se canoniza al principal (`canonicalSetId`) pero el `logoUrl` sigue siendo el del DTO con el que se
+entró. `MasterSetBinderResponse.set` es un `SetRefDTO` y **no trae logo**, así que hoy no hay de dónde
+sacar el del principal. Impacto: en ese caso concreto el pozo puede pintar el logo del subset junto al
+nombre del principal — o su monograma, que se deriva del **título ya canonizado** y por tanto es correcto.
+No se inventa nada; si alguna vez molesta, es una petición al arquitecto (ver 44.6).
+
+### 44.4 Verificación — qué corrí y con qué resultado
+
+Todo esto corrió **en esta máquina**, no está razonado:
+
+| Comprobación | Resultado |
+|---|---|
+| `npm run typecheck` | limpio |
+| `npm run lint` | `✔ No ESLint warnings or errors` |
+| `npm test` (vitest, suite completa) | **977 pruebas / 103 archivos, todas verdes** |
+| `npx playwright test e2e/master-set-plate.spec.ts` (Chromium, build de producción + mocks) | **8 verdes** (5 de geometría, 3 nuevas de acabado) |
+
+**El spec de navegador se actualizó, no solo se dejó pasar.** Antes asumía placa de tinta; ahora sigue
+midiendo lo de siempre (R1: misma caja con logo apaisado/cuadrado/vertical/sin logo · cero CLS · monograma
+retirado en `onLoad` · 404 → monograma · monograma proporcional al pozo) **y además** lee estilos
+computados: fondo `rgb(239,235,226)` y **no** la tinta, repisa `1px solid rgba(26,26,24,0.16)`, cero borde
+en los otros tres lados, radio 0, `filter` con **tres** `drop-shadow(rgb(26,26,24) 0px 0px 1px)` y ningún
+filtro que transforme píxeles del tercero, y monograma en `rgb(110,105,94)` sin filtro ni sombra. Eso es lo
+que jsdom no puede dar: allí `var()` no se resuelve y no hay layout.
+
+### 44.5 Verificación por MUTACIÓN — cada una tiene que poner algo en rojo
+
+Cada mutación se aplicó sobre `SetPlate.tsx`, se corrieron las dos suites y se revirtió:
+
+| Mutación | vitest | Playwright | Mensaje que delata |
+|---|---|---|---|
+| **Devolver el fondo a tinta** (`bg-surface-2` → `bg-ink`) | 2 rojas | **1 roja** | `pozo 0: fondo` — esperado `rgb(239, 235, 226)`, recibido la tinta |
+| **Quitar la repisa** (`border-b border-border` fuera) | 1 roja | **1 roja** | `pozo 0: repisa` — esperado `1px solid rgba(26, 26, 24, 0.16)` |
+| **Quitar el contorno** (fuera el `filter`) | 2 rojas | **1 roja** | `logo 0: pasadas del contorno · none` |
+| **Quitar UNA pasada** (3 → 2) | 2 rojas | **1 roja** | `logo 0: pasadas del contorno · drop-shadow(...) drop-shadow(...)` (dos) |
+| **Devolver la `<img>` al flujo** (`h-full` y el aire al padre) | 2 rojas | **4 rojas** | `placa 1: 180×129 no es 3:2` · CLS · 404 · `estrecho: monograma 12.16px sobre placa 116px` |
+
+Ninguna mutación pasó desapercibida, y la del flujo sigue reventando por donde reventó el bloqueante B-1 de
+QA (R1), que era el punto de tener un spec que **mide** en vez de leer cadenas de clase.
+
+*(Detalle honesto del proceso: el primer intento de la mutación «quitar el contorno» dejó la constante sin
+usar y añadí un `eslint-disable` de una regla que este proyecto no carga ⇒ `next build` falló y Playwright
+no llegó a arrancar. Se repitió la mutación limpia —fuera el `filter` **y** las constantes— y ahí sí midió
+lo que tenía que medir. Lo cuento porque una mutación que no compila no es una mutación verificada.)*
+
+### 44.6 Lo que NO pude verificar aquí — y es justo lo que el dueño va a mirar
+
+**No hay verificación ocular.** No corrí un navegador con los logos reales del CDN ni saqué capturas: el
+harness sirve **SVG grises generados**, elegidos para forzar proporciones (apaisado/cuadrado/vertical), no
+para parecerse a un logo. Todo lo de arriba es **estructura y color computado**, no «se ve bien». §24.14
+nº1–4 (White Flare, Phantasmal Flames, Black Bolt, Mega Evolution, a 390 y 1440, con brillo bajo) **sigue
+pendiente y es del dueño / QA visual**. Estas son las dos observaciones que sí puedo aportar, y son
+**razonamiento sobre cómo compone `drop-shadow`**, no medición:
+
+1. **White Flare — la pérdida es real y era predecible.** El contorno traza el **canal alfa**, así que le
+   devuelve la **silueta**; pero el relleno blanco queda a ~1,09:1 del pozo y no hay nada en este
+   dispositivo que le dé cuerpo (el contorno no entra hacia dentro del glifo). Se leerá **al trazo**, como
+   letras huecas. §24.2.e ya lo llama «la pérdida segura» y lo acepta; lo confirmo desde el lado de la
+   implementación: no hay palanca dentro de §24 que lo mejore — subir pasadas engorda el **borde**, no el
+   interior, y subir el radio está prohibido (y lo empeoraría: mancharía el hueco).
+2. **Phantasmal Flames — el riesgo abierto es el más serio, y las tres pasadas ayudan menos de lo que
+   parece.** `drop-shadow` no dibuja un contorno geométrico: **desenfoca la máscara alfa y la pinta
+   detrás**. Con un alfa de borde duro, el desenfoque de 1px produce un anillo estrecho de alfa alta ⇒
+   filete. Con un alfa **degradado** (brillo/glow horneado) el resultado del desenfoque es **otro
+   degradado igual de suave**: componerlo tres veces sube su opacidad, pero **sigue siendo un halo, no una
+   línea** — y un halo de tinta bajo un logo claro sobre papel se lee como **suciedad/sombra**, que es
+   justo lo que §24.2.d quiere evitar. Consecuencia práctica: si al mirarlo queda lavado, **subir a 4
+   pasadas puede empeorarlo** (más mancha) en vez de mejorarlo. Yo escalaría al dueño con §24.2.e delante
+   antes de gastar la palanca. **No lo he visto; esto es cómo funciona el filtro, no un veredicto.**
+
+Tampoco pude medir **rendimiento en gama baja** (§24.14 nº16) ni el **peso real en bytes** (§24.14 nº5):
+aquí no hay CDN de terceros ni dispositivo lento.
+
+### 44.7 Deuda
+
+- **DT-Ga (pozo `sm` del binder): implementada.** Queda a quien corresponda cerrarla en `TECH_DEBT.md`;
+  este rol no escribe ese archivo sin petición del techlead.
+- **DT-Gb (`currentSetId` sin consumidor): sigue abierta e intacta.** Este pase no la cablea ni la retira;
+  ojo a su fecha de caducidad («dos pases sobre `components/master-set/`»): éste cuenta como uno.
+- **DT-Gc (el 16 % del monograma sin fijar en §24.5): sigue abierta.** v2.10 no la toca.
+- **DT-Gd (separar `CardSetDTO`): NO ejecutada**, sigue diferida por instrucción.
+- **Nada nuevo que registrar.** El único apunte de este pase es el del logo del subset en el encabezado
+  (44.3), y no es deuda de código: es un dato que el contrato no da y que hoy no molesta a nadie.

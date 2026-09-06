@@ -1,5 +1,5 @@
 import { Logger } from '@nestjs/common';
-import { CatalogSyncService } from '../src/modules/catalog/catalog-sync.service';
+import { CatalogSyncService, SET_IMAGE_HOSTS } from '../src/modules/catalog/catalog-sync.service';
 import { CatalogService, toCardDTO } from '../src/modules/catalog/catalog.service';
 import { MasterSetService } from '../src/modules/inventory/master-set.service';
 import { PrismaService } from '../src/prisma/prisma.service';
@@ -213,6 +213,136 @@ describe('M-47 (A) — I-4: puerto, userinfo y NORMALIZACIÓN de la cadena persi
     const args = await upsertArgsFor({ ...baseSet, images: { logo: `${HOST}/sv8/lo go.png` } });
     expect(args.create.logoUrl).toBe(`${HOST}/sv8/lo%20go.png`);
     expect(args.create.logoUrl).not.toContain(' ');
+  });
+});
+
+/**
+ * M47-H2 (v1.52-a, 2026-09-05) — EL GUARDARRAÍL ADMITE DOS HOSTS, Y SIGUE COMPARANDO POR IGUALDAD EXACTA.
+ *
+ * **Defecto de producción que motiva este bloque.** El proveedor mudó su CDN de imágenes a mitad de
+ * catálogo. Log de prod del 2026-09-05 (07:56–07:59), ocho líneas — logo y símbolo de `me2pt5`, `me3`,
+ * `me4`, `me5`:
+ *
+ *     WARN [CatalogSyncService] upsertSet(me2pt5): images.logo fuera del guardarraíl
+ *     https://images.pokemontcg.io (https://images.scrydex.com); NO se persiste (M-47, §4.39.4).
+ *
+ * El host nuevo es legítimo, y la prueba es la propia BD de producción (`Card.imageSmallUrl` por host):
+ * `images.pokemontcg.io` 19 818 / `images.scrydex.com` 661 ⇒ 661 cartas de la tienda YA sirven su arte
+ * desde ese host hoy, cargado por cada visitante (entraron por `upsertCards`, que no valida nada —
+ * deuda M47-R1). Los cuatro sets nuevos se quedaban sin logo por la regla «rechazada ≡ ausente».
+ *
+ * Estos tests fijan LAS DOS MITADES, y están escritos para ponerse rojos en las dos direcciones:
+ *  (1) el host nuevo se ACEPTA y el viejo SIGUE aceptándose (quitar cualquiera de los dos ⇒ rojo);
+ *  (2) ampliar NO significa aflojar: la comparación sigue siendo por **host exacto** contra un conjunto
+ *      CERRADO. Verificado por MUTACIÓN sobre `sanitizeSetImageUrl`:
+ *        · `has` → `includes`/`startsWith` ⇒ 🔴 incluido el vector de M-47 `subdominio parecido`
+ *          (`images.pokemontcg.io.evil.com`), que es sufijo controlado por el atacante;
+ *        · `has` → `endsWith` (allowlist de dominio raíz) ⇒ 🔴 `subdominio del host admitido`
+ *          (`cdn.images.…`), un endpoint que nadie verificó;
+ *        · quitar `images.scrydex.com` del conjunto ⇒ 🔴 los cuatro tests de aceptación del host nuevo.
+ */
+describe('M47-H2 — dos hosts admitidos, conjunto CERRADO y comparación EXACTA (§4.39.4)', () => {
+  const SCRYDEX = 'https://images.scrydex.com';
+
+  it('la lista es EXACTAMENTE estos dos hosts (añadir/quitar uno obliga a documentarlo aquí)', () => {
+    expect([...SET_IMAGE_HOSTS].sort()).toEqual(['images.pokemontcg.io', 'images.scrydex.com']);
+  });
+
+  it('HOST NUEVO: images.scrydex.com se ACEPTA en logo y symbol, en create Y en update (caso me3/me4/me5)', async () => {
+    const logo = `${SCRYDEX}/pokemon/me5/logo.png`;
+    const symbol = `${SCRYDEX}/pokemon/me5/symbol.png`;
+    const args = await upsertArgsFor({ ...baseSet, images: { logo, symbol } });
+    expect(args.create.logoUrl).toBe(logo);
+    expect(args.create.symbolUrl).toBe(symbol);
+    expect(args.update.logoUrl).toBe(logo);
+    expect(args.update.symbolUrl).toBe(symbol);
+  });
+
+  it('HOST HISTÓRICO: images.pokemontcg.io SIGUE aceptándose (ampliar no sustituye)', async () => {
+    const args = await upsertArgsFor({ ...baseSet, images: { logo: LOGO, symbol: SYMBOL } });
+    expect(args.create.logoUrl).toBe(LOGO);
+    expect(args.create.symbolUrl).toBe(SYMBOL);
+  });
+
+  it('el host nuevo pasa por el MISMO rigor: `:443` se elide y se persiste la forma NORMALIZADA', async () => {
+    const conPuerto = await upsertArgsFor({
+      ...baseSet,
+      images: { logo: 'https://images.scrydex.com:443/pokemon/me5/logo.png' },
+    });
+    expect(conPuerto.create.logoUrl).toBe(`${SCRYDEX}/pokemon/me5/logo.png`);
+
+    const sucia = await upsertArgsFor({
+      ...baseSet,
+      images: { logo: `  ${SCRYDEX}/pokemon/me5/lo\tgo.png\n ` },
+    });
+    expect(sucia.create.logoUrl).toBe(`${SCRYDEX}/pokemon/me5/logo.png`);
+    expect(sucia.create.logoUrl).not.toMatch(/[\s]/);
+  });
+
+  /**
+   * MUTACIÓN DIRIGIDA — esta tabla se DERIVA del propio `SET_IMAGE_HOSTS`, así que cubre cualquier host
+   * que se añada mañana sin que nadie tenga que acordarse de copiar los casos. Cambiar la igualdad
+   * exacta por `endsWith('.pokemontcg.io')` (o por una allowlist de dominios raíz) pone en rojo las
+   * filas «sufijo hostil» y «subdominio del host admitido».
+   */
+  const vectoresPorHost = [...SET_IMAGE_HOSTS].flatMap((host) => [
+    [`${host} — sufijo hostil`, `https://${host}.evil.com/logo.png`],
+    [`${host} — subdominio del host admitido`, `https://cdn.${host}/logo.png`],
+    [`${host} — http (no cifrado)`, `http://${host}/logo.png`],
+    [`${host} — puerto no estándar`, `https://${host}:8443/logo.png`],
+    [`${host} — userinfo`, `https://evil@${host}/logo.png`],
+    [`${host} — userinfo con password`, `https://user:pass@${host}/logo.png`],
+  ]) as Array<[string, string]>;
+
+  it.each(vectoresPorHost)('rechaza %s ⇒ create null y update NO-OP', async (_label, url) => {
+    const args = await upsertArgsFor({ ...baseSet, images: { logo: url, symbol: url } });
+    expect(args.create.logoUrl).toBeNull();
+    expect(args.create.symbolUrl).toBeNull();
+    expect('logoUrl' in args.update).toBe(false);
+    expect('symbolUrl' in args.update).toBe(false);
+  });
+
+  /**
+   * CONJUNTO CERRADO: hosts del MISMO proveedor que NO están en la lista se rechazan igual. «Es del
+   * proveedor» no es el criterio; «es el endpoint exacto que se verificó» sí lo es. Un host nuevo entra
+   * por la lista y con evidencia, nunca por parecido.
+   */
+  const noListados: Array<[string, string]> = [
+    ['dominio raíz del CDN viejo', 'https://pokemontcg.io/logo.png'],
+    ['dominio raíz del CDN nuevo', 'https://scrydex.com/logo.png'],
+    ['host hermano no verificado', 'https://images2.scrydex.com/logo.png'],
+    ['www del CDN nuevo', 'https://www.scrydex.com/logo.png'],
+    ['api del proveedor (no es el CDN de imágenes)', 'https://api.scrydex.com/logo.png'],
+  ];
+
+  it.each(noListados)('rechaza %s (no está en el conjunto cerrado)', async (_label, url) => {
+    const args = await upsertArgsFor({ ...baseSet, images: { logo: url } });
+    expect(args.create.logoUrl).toBeNull();
+    expect('logoUrl' in args.update).toBe(false);
+  });
+
+  it('el `warn` de rechazo NOMBRA los DOS hosts admitidos (M47-D1: el log es la única señal)', async () => {
+    const spy = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    try {
+      const svc = new CatalogSyncService(
+        syncPrisma() as PrismaService,
+        clientForSet({ ...baseSet, images: { logo: 'https://evil.example.com/logo.png' } }),
+        syncSettings(),
+        reconciler(),
+      );
+      await svc.sync('sv8');
+      const w = spy.mock.calls
+        .map((c) => String(c[0]))
+        .find((m) => m.includes('fuera del guardarraíl'));
+      expect(w).toBeDefined();
+      expect(w).toContain('https://images.pokemontcg.io');
+      expect(w).toContain('https://images.scrydex.com');
+      // Sigue nombrando contra qué host se rechazó, y sigue siendo greppable por prefijo estable.
+      expect(w).toContain('https://evil.example.com');
+      expect(w).toContain('upsertSet(sv8): images.logo');
+    } finally {
+      spy.mockRestore();
+    }
   });
 });
 

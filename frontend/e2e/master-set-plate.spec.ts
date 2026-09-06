@@ -3,7 +3,10 @@ import { t } from './utils/i18n';
 import { needsSeed } from './utils/auth';
 
 /**
- * P-54 · DESIGN_SYSTEM §24 — GEOMETRÍA REAL de la placa de tinta, medida en Chromium.
+ * P-54 · DESIGN_SYSTEM §24 — GEOMETRÍA REAL del pozo del logo, medida en Chromium.
+ * (v2.10: el fondo dejó de ser tinta y pasó al tono del papel. La GEOMETRÍA no se movió — §24.14
+ * nº10 lo dice literalmente: «si algo se movió, es un defecto» —, así que las medidas de abajo son
+ * las mismas de v2.8 y el acabado se comprueba aparte, en el bloque §24.2.d del final.)
  *
  * POR QUÉ ESTE ARCHIVO EXISTE. La suite de vitest **no puede** cerrar esta clase de defecto:
  * jsdom no hace layout ni carga imágenes, así que `expect(plate.className).toContain('aspect-[3/2]')`
@@ -19,6 +22,11 @@ import { needsSeed } from './utils/auth';
  *     transparentes: si se queda, se ve a través del logo).
  *  4. **§24.5 nº3** — un 404 cae al monograma, sin icono roto.
  *  5. **§24.5 / I-2** — el monograma es proporcional a la PLACA, no al breakpoint del viewport.
+ *  6. **§24.2.d (v2.10)** — el ACABADO: el fondo es el POZO CLARO (`--color-surface-2`) y no la
+ *     tinta de v2.8; existe la REPISA (`border-bottom` 1px `--color-border`) **y solo ella**; el
+ *     contorno del logo son **tres** `drop-shadow` de 1px en TINTA; el monograma va en muted y sin
+ *     contorno. Esto sí se puede medir aquí y no en jsdom: `getComputedStyle` resuelve las `var()`
+ *     y el `filter` real, que es lo que ve el ojo.
  *
  * ALCANCE. El spec está escrito de forma AGNÓSTICA (no hay nombres de set literales: los logos se
  * interceptan por URL, las proporciones se reparten por índice de descubrimiento y el oráculo —la
@@ -123,7 +131,7 @@ const NEEDS_LOGO =
   '(ARCHITECTURE §4.39.4: no hay backfill) ⇒ no habría placa CON logo que medir. ' +
   'Borrar este guardarraíl en cuanto el seed E2E traiga un set con logo.';
 
-test.describe('§24 · la placa de tinta mide lo mismo con cualquier logo (R1)', () => {
+test.describe('§24 · el pozo mide lo mismo con cualquier logo (R1)', () => {
   test.beforeEach(() => needsSeed(NEEDS_LOGO));
   test('todas las placas de la retícula son idénticas y 3:2, con logo apaisado, cuadrado, vertical y sin logo', async ({
     page,
@@ -345,5 +353,102 @@ test.describe('§24.5 · el monograma', () => {
         m.box.width * 0.8,
       );
     }
+  });
+});
+
+
+/**
+ * §24.2.d (v2.10) — EL ACABADO DEL POZO. Este bloque es nuevo en v2.10 y existe porque el cambio
+ * del dueño es, entero, de acabado: si solo se midiera la geometría, devolver el fondo a tinta o
+ * borrar la repisa dejaría la suite en verde. Se leen COLORES COMPUTADOS (con las `var()` ya
+ * resueltas), que es lo único que jsdom no puede dar.
+ */
+test.describe('§24.2.d · el acabado: pozo de papel, repisa y contorno de tinta', () => {
+  test.beforeEach(() => needsSeed(NEEDS_LOGO));
+
+  const PAPER_WELL = 'rgb(239, 235, 226)'; // --color-surface-2 #EFEBE2
+  const INK = 'rgb(26, 26, 24)'; //           --color-ink       #1A1A18
+  const MUTED = 'rgb(110, 105, 94)'; //       --color-text-muted #6E695E
+  const RULE = 'rgba(26, 26, 24, 0.16)'; //   --color-border
+
+  test('el fondo es el POZO CLARO (no la tinta de v2.8) y lleva repisa inferior — y SOLO la inferior', async ({
+    page,
+  }) => {
+    await stubSetLogos(page);
+    const plates = await openSetIndex(page);
+    await settleLogos(page);
+
+    const count = await plates.count();
+    expect(count).toBeGreaterThanOrEqual(4);
+
+    for (let i = 0; i < count; i += 1) {
+      const box = await plates.nth(i).evaluate((el) => {
+        const cs = getComputedStyle(el);
+        return {
+          bg: cs.backgroundColor,
+          radius: cs.borderTopLeftRadius,
+          bottom: [cs.borderBottomWidth, cs.borderBottomStyle, cs.borderBottomColor].join(' '),
+          sides: [cs.borderTopWidth, cs.borderLeftWidth, cs.borderRightWidth].join(' '),
+        };
+      });
+      // 1 · El fondo del pozo. Si alguien devuelve `bg-ink`, esta línea se pone roja en la teja 0.
+      expect(box.bg, `pozo ${i}: fondo`).toBe(PAPER_WELL);
+      expect(box.bg, `pozo ${i}: sigue siendo la placa de tinta de v2.8`).not.toBe(INK);
+      // 2 · La repisa: 1px sólido del color de regla del sistema, a ras del pozo.
+      expect(box.bottom, `pozo ${i}: repisa`).toBe(`1px solid ${RULE}`);
+      // 3 · …y NINGÚN otro borde: con los cuatro sería una tarjeta, y §2.1 no tiene tarjetas.
+      expect(box.sides, `pozo ${i}: bordes laterales/superior`).toBe('0px 0px 0px');
+      // 4 · Radio 0 (§4.2): la esquina redondeada de la referencia no se traslada.
+      expect(box.radius, `pozo ${i}: radio`).toBe('0px');
+    }
+  });
+
+  test('el logo lleva el contorno de TINTA de tres pasadas de 1px (§24.12 nº11/nº12)', async ({
+    page,
+  }) => {
+    await stubSetLogos(page);
+    const plates = await openSetIndex(page);
+    await settleLogos(page);
+
+    const imgs = page.locator('[data-testid="set-plate"] img');
+    const total = await imgs.count();
+    expect(total, 'no hay ningún logo al que mirarle el contorno').toBeGreaterThan(0);
+
+    for (let i = 0; i < total; i += 1) {
+      // `filter` computado: Chromium resuelve la `var()` a color y normaliza el orden de los
+      // argumentos (`drop-shadow(rgb(26, 26, 24) 0px 0px 1px)`).
+      const filter = await imgs.nth(i).evaluate((el) => getComputedStyle(el).filter);
+      const passes = filter.match(/drop-shadow\((?:[^()]|\([^()]*\))*\)/g) ?? [];
+      // Tres pasadas: es lo que sube el alfa del filete sin ensancharlo (§24.2.d). El rango que
+      // §24.2.d autoriza a mover es 2–4; cero pasadas o un radio distinto NO están autorizados.
+      expect(passes, `logo ${i}: pasadas del contorno · ${filter}`).toHaveLength(3);
+      for (const pass of passes) {
+        expect(pass, `logo ${i}: color del contorno`).toContain(INK);
+        expect(pass, `logo ${i}: radio del contorno`).toContain('1px');
+        // Offset 0: es un contorno, no una sombra de elevación (§4.3).
+        expect(pass, `logo ${i}: offset del contorno`).toContain('0px 0px 1px');
+      }
+      // Y NINGÚN filtro que transforme los píxeles del tercero (§24.12 nº1).
+      expect(filter).not.toMatch(/invert|hue-rotate|grayscale|brightness|contrast/);
+    }
+  });
+
+  test('el monograma va en muted sobre el pozo y SIN contorno (§24.5, §24.12 nº15)', async ({
+    page,
+  }) => {
+    await stubSetLogos(page);
+    await openSetIndex(page);
+    await settleLogos(page);
+
+    const monogram = page.getByTestId('set-monogram').first();
+    await expect(monogram).toBeVisible();
+    const style = await monogram.evaluate((el) => {
+      const cs = getComputedStyle(el);
+      return { color: cs.color, filter: cs.filter, shadow: cs.textShadow };
+    });
+    // v2.8 lo pintaba en `--color-on-ink` (#F4F1EA): sobre el pozo claro sería invisible.
+    expect(style.color).toBe(MUTED);
+    expect(style.filter).toBe('none');
+    expect(style.shadow).toBe('none');
   });
 });
