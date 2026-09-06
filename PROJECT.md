@@ -22,8 +22,46 @@
 > documentación. Cualquier cadena «TCG Vault MX» que siga viva en `docs/` o en código es un **residuo a
 > corregir**, no una fuente válida.
 >
+> **ESTADO AL 2026-09-06 (11ª ronda del bloque v2.1 — DECISIÓN DE PRODUCTO DEL HUMANO — LEER PRIMERO):**
+> **Esto SÍ cambia una regla escrita.** Nace de la fase de seguridad: **BL-38** encontró que los **topes AML y
+> el umbral de INE no se evaluaban al ofertar**, aunque §E ya lo exigía. Al taparlo apareció el hueco de
+> producto: *¿qué pasa si vamos a emitir una oferta sobre el umbral y el vendedor no tiene INE?* Se le
+> ofrecieron al humano **tres momentos** —al emitir, al aceptar, o al pagar (lo que decía §E)— y **eligió uno
+> distinto y anterior a los tres**: *«Desde que quiere mandarnos las cartas que quiere vender **desde que nos
+> cotiza** pues.»*
+> **(1) D46 — EL INE SE EXIGE DESDE LA COTIZACIÓN, NO EN EL PASO DE PAGO.** La regla vieja —*«el INE se pide
+> en el paso de pago del buylist»*— **queda derogada en su parte de CUÁNDO**. Lo demás de esa línea **sigue
+> vigente sin cambio**: **para qué sirve** (verificarlo contra el **nombre de la CLABE**) y **cómo se guarda**
+> (**imagen cifrada en R2**, retención `INE_RETENTION_DAYS`, default **180**).
+> **(2) «DESDE» SIGNIFICA «DESDE», NO «SOLO EN»: SON DOS COMPUERTAS, NO UNA MUDANZA.** El requisito **empieza**
+> en la cotización y **sigue vigente aguas abajo**. **Compuerta 1 (NUEVA)**: sin INE **no se crea la
+> solicitud**. **Compuerta 2 (YA IMPLEMENTADA, no se toca)**: sin INE **no se emite la oferta**. **El trabajo
+> de backend por BL-38 NO se tira: se le antepone un momento.** *(Si esto se leyera como «solo al cotizar», la
+> compuerta 2 se caería y volvería BL-38 por la puerta de atrás — por eso se dice explícito.)*
+> **(3) CADA COMPUERTA JUZGA CON EL MONTO QUE EXISTE EN SU MOMENTO.** Al **cotizar** todavía **no existe el
+> bruto ofertado**: existe el **total cotizado**, y **ese** gobierna la compuerta 1. Al **ofertar** existe el
+> **bruto ofertado**, y **ese** gobierna la compuerta 2 — **D16 y los criterios 136/155 no se tocan**.
+> **(4) EL CRUCE TARDÍO ES UN CASO REAL Y TIENE DUEÑO.** Una cotización **bajo** el umbral puede volverse una
+> oferta **sobre** el umbral por el **override al alza** (se midió una cotización de **MX$300** con oferta de
+> **MX$1,000**: deriva de **3.3×**). Ahí **manda la compuerta 2**: **no se emite**. **Nunca se emite una oferta
+> sobre el umbral sin INE en archivo**, y **la solicitud no muere en silencio** por eso.
+> **(5) LO QUE ESTO LE CUESTA AL VENDEDOR, DICHO SIN ADORNOS.** Sobre el tope, **se le pide su identificación
+> oficial ANTES de saber cuánto le vamos a ofrecer**. Aplica **solo sobre MX$3,000 por solicitud**, así que la
+> mayoría **no lo ve nunca** — pero **quien lo ve es justo el vendedor de mayor valor**. Es **el mismo costo
+> aceptado que la DIRECCIÓN** (D36, §P.2.1): se le piden datos a gente a la que **quizá no le compremos**. Por
+> eso el **cómo se le pide es requisito**, no diseño: ver **§P.2.2** y el criterio **178**.
+> **(6) LO QUE ESTA RONDA NO TOCA**: **no** cambia los **topes** (MX$3,000/solicitud, MX$10,000/mes), **no**
+> cambia la **retención** (180 días), **no** cambia que el **umbral de INE = el tope**, **no** cambia **D16**
+> (SPEI por el neto, topes por el bruto) y **no** mueve la **CLABE** —que sigue donde estaba, con su
+> **pregunta 29 abierta**—.
+> **Preguntas: se cierra la MITAD DE INE de la 29** (el INE ya no «viaja con la CLABE»: se adelanta solo). **Se
+> abren la 36 y la 37** (**no bloqueantes, con supuesto tomado**) **y la 38, que es la única con filo**: al
+> reconciliar el criterio 14 apareció que **dice dos cosas que no conviven con los defaults actuales**, y de su
+> respuesta depende que **D46 sea ejecutable o letra muerta**. Ver §E, §P.1, §P.2.2, M6, M10,
+> criterio **14**, criterio **178** y decisión **108**.
+>
 > **ESTADO AL 2026-09-06 (10ª ronda del bloque v2.1 — RESOLUCIÓN DE UNA DIVERGENCIA — APROBADA POR EL HUMANO
-> — LEER PRIMERO):**
+> — VIGENTE; el INE se rige por el bloque de arriba):**
 > **Esto NO es alcance nuevo: es una CORRECCIÓN A ESTE DOCUMENTO.** QA encontró que **el criterio 127 y el
 > contrato se contradicen**, y por la regla de conflicto (`PROJECT.md` > contrato > código) **el que tenía que
 > moverse era este documento**. **No es defecto de backend: el código implementa el contrato correctamente.**
@@ -288,6 +326,10 @@
 > **object storage / R2 vuelve al alcance del MVP acotado SOLO al INE** (`kyc_ine`). **Todo lo demás de la
 > v1.2 permanece intacto** (producto sin fotos, gradeadas = empresa+grado+`certNumber`, raw NM sin foto,
 > disputa por correo a soporte, CLABE cifrada en BD).
+> **⚠ Nota de vigencia (11ª ronda, D46)**: de estos dos bloques v1.2/v1.2.1 sigue vigente **TODO lo de
+> almacenamiento del INE** (imagen cifrada en R2, retención 180 días, cotejo contra el nombre de la CLABE, R2
+> acotado a `kyc_ine`). **Lo único derogado es el «pedido en el paso de pago»**: el INE se pide **desde la
+> cotización** (§E, §P.2.2, criterio 178). **Cuándo se pide ≠ para qué sirve y cómo se guarda.**
 > **Requisito v1.3 (2026-08-16, EN REVISIÓN por el humano — reabre preguntas):** el pago del buylist deja de
 > calcularse por **3 categorías hardcodeadas** (común/reverse/EX+) y pasa a una **tabla de precio por rareza
 > oficial de Pokémon**, donde **cada rareza** tiene una regla **fijo (MX$)** o **porcentaje (% de la
@@ -1120,9 +1162,11 @@ de autenticidad/condición y precios opacos. Este marketplace resuelve:
       porque ese es el momento en que el vendedor empaqueta. Es **información**, no un paso bloqueante.
 - [ ] **Límites anti-fraude/KYC** (defaults configurables en M10): tope por solicitud **MX$3,000** y por
       mes **MX$10,000**; pago solo por SPEI a una cuenta **a nombre del propio usuario**; **INE** requerido
-      cuando se supera el tope. El **INE se pide en el paso de pago del buylist** (sobre el tope), se
-      **verifica contra el nombre de la CLABE** y su **imagen se almacena cifrada en R2 con retención**
-      (`INE_RETENTION_DAYS`, default **180**); la **CLABE se guarda cifrada en BD**.
+      cuando se supera el tope. ~~El **INE se pide en el paso de pago del buylist** (sobre el tope)~~
+      **⚠ DEROGADO en la 11ª ronda (D46) — ver el bullet «CUÁNDO se pide el INE» abajo.** Lo que **NO** se
+      derogó de esa frase y **sigue vigente sin cambio**: el INE se **verifica contra el nombre de la CLABE**
+      y su **imagen se almacena cifrada en R2 con retención** (`INE_RETENTION_DAYS`, default **180**); la
+      **CLABE se guarda cifrada en BD**.
       (Ver soporte AML en "Riesgos y banderas para el humano".)
       *(Actualizado 2ª ronda v2.1, D16 — cierra el supuesto del primer pase)*: los topes se evalúan **en los
       dos momentos** (al cotizar y al ofertar), y el monto que los gobierna —y que gobierna el **KYC/INE**—
@@ -1134,7 +1178,56 @@ de autenticidad/condición y precios opacos. Este marketplace resuelve:
       suma BRUTOS**, por la misma razón (es un **tope de compromiso**, misma base que AML/INE). En paralelo,
       el **acumulado de dinero pagado** —el que reporta M7— se mide en **NETOS**, porque es **lo que
       realmente salió por SPEI**. **Son dos medidas distintas y ambas conviven**; no se sustituyen.
-
+- [ ] **CUÁNDO se pide el INE: DESDE LA COTIZACIÓN — y «desde» no es «solo en»** *(NUEVO 11ª ronda, D46;
+      **deroga** «se pide en el paso de pago» y **nace del hallazgo de seguridad BL-38**)*: el requisito de
+      **INE empieza en el momento en que el vendedor crea la solicitud** y **sigue vigente aguas abajo**. En
+      palabras del humano: *«desde que quiere mandarnos las cartas que quiere vender, desde que nos cotiza»*.
+      **Son DOS compuertas, y las dos son bloqueantes y server-side**:
+      - **Compuerta 1 — AL CREAR LA SOLICITUD (NUEVA)**: si el **total cotizado** supera el tope por
+        solicitud, **sin INE en archivo no se crea la solicitud**. Es **requisito de creación**, exactamente
+        igual que el **celular** (D11), el **mínimo** (D18) y la **dirección** (D36) — y se valida **en el
+        servidor**, no en la pantalla (criterios 128/158/170).
+      - **Compuerta 2 — AL EMITIR LA OFERTA (YA VIGENTE; NO SE TOCA)**: si el **bruto ofertado** supera el
+        tope, **sin INE en archivo no se emite la oferta**. **Esta compuerta ya está implementada** (es lo que
+        cerró BL-38) y **D46 no la debilita ni la sustituye: le antepone la compuerta 1.**
+      **Por qué se dice explícito que son dos y no una mudanza**: leer D46 como *«el INE solo se pide al
+      cotizar»* **desarmaría la compuerta 2** y devolvería **BL-38** —una oferta sobre el umbral emitida sin
+      identificación— por la puerta de atrás. **Adelantar un control no es moverlo.**
+- [ ] **CONTRA QUÉ MONTO se juzga el INE en cada compuerta** *(NUEVO 11ª ronda, D46 — cierra la incoherencia
+      que D16 dejaba viva)*: **D16 ya decía que los topes se evalúan «en los dos momentos», pero nombraba un
+      solo monto —el BRUTO OFERTADO— que AL COTIZAR TODAVÍA NO EXISTE.** Se resuelve así, y la regla es de una
+      línea: **cada compuerta juzga con el monto que existe en su momento**.
+      - **Al crear la solicitud ⇒ TOTAL COTIZADO** (la suma de la cotización derivada server-side, §E/§N). Es
+        **el único monto que existe ahí** y es **la mejor estimación disponible del compromiso**.
+      - **Al emitir la oferta ⇒ BRUTO OFERTADO** (D16, criterios **136**/**155**, **sin cambio**). Es el
+        **valor realmente comprometido** y **sigue siendo el que manda** para topes, umbral de INE y cuota
+        mensual.
+      **Lo que NO cambia**: el **SPEI se sigue ejecutando por el NETO** y el **neto nunca gobierna** el umbral
+      (D16). El **total cotizado no sustituye al bruto** en ninguna medida ni reporte: **no entra al acumulado
+      mensual, no entra a M7 y no es un compromiso** — es **solo el número que dispara la compuerta 1**.
+- [ ] **Si la solicitud CRUZA el umbral DESPUÉS: manda la compuerta 2 y la solicitud NO muere en silencio**
+      *(NUEVO 11ª ronda, D46 — es el caso medido, no hipotético)*: una cotización **por debajo** del umbral
+      puede convertirse en una oferta **por encima** por el **override al alza** (§P.2, D24/D26). **Se midió
+      una cotización de MX$300 con oferta de MX$1,000 — una deriva de 3.3×**, así que una cotización de
+      MX$1,000 puede terminar en una oferta sobre MX$3,000. Reglas:
+      - **La compuerta 2 NO se relaja jamás**: **no se emite** una oferta cuyo **bruto** supere el umbral si el
+        vendedor **no tiene INE en archivo**. **No hay override, autorización de súper-admin ni excepción que
+        la abra** — un override es *ofertar un número a mano*, y **no puede ser una puerta trasera al KYC**,
+        exactamente por la misma razón por la que ya no es una puerta trasera al tope (§P.2).
+      - **La solicitud sigue VIVA y bloqueada, no muerta**: queda en **`cotizada`**, **sin estado nuevo y sin
+        motivo nuevo**. El operador ve **por qué** no puede emitir (falta INE, no «error»).
+      - **Las dos salidas que ya existen** y no inventan nada: **(i)** emitir la oferta **con un bruto que no
+        cruce el umbral** —legítimo solo si es el precio que de verdad se quiere pagar; **jamás se recorta una
+        oferta para esquivar el KYC**, eso sería el mismo fraude que D16 previene, al revés—, o **(ii)**
+        **declinar** (D39), con su correo y su motivo `no_offer`.
+      - **⚠ Lo que este documento NO permite es que caduque en silencio**: dejar que el barrido de 7 días
+        hábiles la cierre como *«no procederemos»* **le imputa al vendedor un desenlace nuestro** —es
+        literalmente el argumento de D33— cuando la causa fue **un documento que nunca le pedimos**.
+      - *(**SUPUESTO — pregunta abierta 36**: pedirle el INE al vendedor **en este punto** se resuelve como
+        **operación manual por soporte** (`soporte@tcghunt.mx`), **no como flujo del MVP** — mismo criterio
+        que ya se usó para el cambio de domicilio tardío (pregunta 28). **Un correo automático de «necesitamos
+        tu INE para continuar» + subida desde el portal sería ALCANCE NUEVO** y el humano no lo pidió. Se
+        estima **raro**: exige a la vez cotización bajo el umbral, override al alza y cruce del tope.)*
 ### E.1 Precio de buylist por rareza (configurable desde admin) — NUEVO (v1.3)
 > **⚠ SUPERSEDED por §N (v2.0, LOCKED):** el precio de compra **ya no depende de la rareza ni del acabado**.
 > Desaparecen la tabla por rareza, los tiers, las reglas por acabado y la distinción `fixed`/`pct`: queda
@@ -1295,7 +1388,11 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
       por carta y pagando lo aprobado** (§P.5.1).
 - [ ] **M6 — Usuarios / KYC ligero**: **ficha 360°** del usuario, **CLABE** (guardada **cifrada en BD**),
       **INE** (imagen **almacenada cifrada en R2 con retención** `INE_RETENTION_DAYS`, default 180; verificado
-      contra el nombre de la CLABE), límites, **bloquear**. *(v2.1, D11)*: el **celular es obligatorio en el
+      contra el nombre de la CLABE), límites, **bloquear**.
+      *(**11ª ronda, D46**)*: **el INE del vendedor se captura DESDE LA COTIZACIÓN** —al crear la solicitud,
+      solo **sobre el tope**— y **no en el paso de pago** (§E, §P.2.2, criterio 178). **M6 sigue siendo donde
+      el INE VIVE y se consulta**; lo que cambió es **en qué momento del ciclo entra**. El **cotejo contra el
+      nombre de la CLABE** se hace **cuando ambos datos existen**. *(v2.1, D11)*: el **celular es obligatorio en el
       alta de usuario que hace el admin**, y la ficha 360° muestra **el teléfono** y **las solicitudes de
       venta vivas** del usuario.
 - [ ] **M7 — Finanzas**: **P&L** (ingresos + envío − costo de lo vendido − comisiones Stripe = ganancia),
@@ -3247,7 +3344,7 @@ gananciaNeta  =  estimadoPSA9 − (precioVentaRaw + gradingCost)      ← SOLO p
 
 | # | Fase | Estado al terminar | Quién actúa | Qué cambia respecto a hoy |
 |---|---|---|---|---|
-| 1 | **Cotiza** | `cotizada` | Cliente | **Igual que hoy** (cotizador público, monto derivado server-side, §E) + **mínimo de MX$500** (D18). *(5ª ronda, D33)*: **caduca a los 7 días hábiles** si nadie la oferta (§P.3.1). *(**7ª ronda, D36/D37**)*: **aquí se piden la CLABE y la DIRECCIÓN de origen** —de la **libreta que ya existe**—, y **sin dirección no se crea la solicitud** (§P.2.1) |
+| 1 | **Cotiza** | `cotizada` | Cliente | **Igual que hoy** (cotizador público, monto derivado server-side, §E) + **mínimo de MX$500** (D18). *(5ª ronda, D33)*: **caduca a los 7 días hábiles** si nadie la oferta (§P.3.1). *(**7ª ronda, D36/D37**)*: **aquí se piden la CLABE y la DIRECCIÓN de origen** —de la **libreta que ya existe**—, y **sin dirección no se crea la solicitud** (§P.2.1). *(**11ª ronda, D46**)*: **aquí también se pide el INE**, pero **solo si el TOTAL COTIZADO supera el tope** (MX$3,000): **sin INE no se crea esa solicitud** (§P.2.2). **Por debajo del tope no se pide nada de esto** |
 | 2 | **Ofertamos** | `ofertada` | Súper-admin, **u operador hasta su tope** (D13) | **NUEVO** — se decide línea por línea y **sale el correo con desglose, bruto/envío/neto y fecha límite** |
 | 3 | **El cliente acepta** | `aceptada` | Cliente | **NUEVO** — dijo que sí, pero **todavía no hay nada en camino** |
 | 4 | **Sale el paquete** | `en_transito` | **Operador** (confirma el envío, D20) | **NUEVO** — **la guía la ponemos nosotros SIEMPRE** *(5ª ronda, D31 — ~~arriba del umbral~~)* y **se compra AL ACEPTAR** (D21) |
@@ -3507,17 +3604,99 @@ NUEVA)**
 - [ ] **⚠ CONTRADICCIÓN SEÑALADA — «igual que hoy pasa con la CLABE» no describe lo que este documento dice
       hoy** *(7ª ronda; se señala en vez de asumirla, y **no se cambia el comportamiento de la CLABE**)*: la
       decisión D36 se apoya en que **la CLABE ya bloquea la creación de la solicitud**. **En este documento
-      no es así**: la **CLABE y el INE se piden en el PASO DE PAGO del buylist** —criterio **14**, §E, **M6**—,
-      **no al crear**. Lo único que hoy bloquea la creación es el **celular** (D11), el **mínimo** (D18) y,
-      desde ahora, la **dirección** (D36).
+      no es así**: la ~~**CLABE y el INE se piden**~~ **CLABE se pide en el PASO DE PAGO del buylist**
+      —criterio **14**, §E, **M6**—, **no al crear**. Lo único que hoy bloquea la creación es el **celular**
+      (D11), el **mínimo** (D18) y, desde ahora, la **dirección** (D36).
+      **⚠ ACTUALIZADO en la 11ª ronda (D46) — la mitad del INE de esta contradicción YA NO EXISTE**: el
+      **INE se adelantó a la creación por decisión del humano** y **ya no viaja con la CLABE** (§E, §P.2.2).
+      Así que **la lista de bloqueos de creación ahora es**: **celular**, **mínimo**, **dirección** y —**solo
+      sobre el tope**— **INE**. **La CLABE es lo ÚNICO que sigue en el paso de pago**, y **por eso la
+      pregunta 29 sigue abierta**, ahora **más chica**: ya no arrastra al INE.
       **Qué se hizo con eso**: **la dirección se redacta como el humano la decidió** —**bloqueante al
       crear**—, y **la CLABE se deja EXACTAMENTE como está**, porque **moverla al momento de creación sería
       alcance nuevo** que él no pidió explícitamente (y tiene efectos: pedir datos bancarios antes de saber
       si le compramos, y una interacción con el KYC/INE que hoy vive en el pago).
       **Lo que el humano tiene que confirmar** —**pregunta abierta 29**—: **(a)** que era solo una analogía
-      y la CLABE **se queda en el pago**; o **(b)** que también quiere **la CLABE al crear la solicitud**, en
-      cuyo caso **hay que decidir qué pasa con el INE**, que hoy viaja con ella.
+      y la CLABE **se queda en el pago**; o **(b)** que también quiere **la CLABE al crear la solicitud**.
+      ~~en cuyo caso **hay que decidir qué pasa con el INE**, que hoy viaja con ella.~~ **⚠ Esa coletilla
+      queda SUPERADA por D46**: el **INE ya no depende de esta pregunta** —se pide al crear, sobre el tope—,
+      así que la 29 **decide solo sobre la CLABE**.
       *(**SUPUESTO tomado**: **(a)** — la CLABE **no se mueve**.)*
+      **⚠ Consecuencia NUEVA de D46 que el arquitecto necesita ver** *(no es alcance nuevo, es una
+      dependencia de orden)*: el INE se **pide al crear** pero se **verifica contra el nombre de la CLABE**, y
+      **la CLABE todavía no existe en ese momento**. **Las dos cosas conviven sin conflicto** porque son
+      preguntas distintas: **la captura** ocurre en la creación (compuerta de D46) y **el cotejo
+      nombre-INE ↔ nombre-CLABE** ocurre **cuando ambos datos existen** — hoy, en el **paso de pago**. Ver
+      §E y **criterio 178(f)**. *(Si la pregunta 29 se resolviera por **(b)**, el cotejo simplemente se
+      adelanta a la creación; **D46 no cambia** en ninguno de los dos escenarios.)*
+
+**P.2.2 — El INE del vendedor: se pide AL CREAR la solicitud, solo sobre el tope, y NUNCA desnudo (D46 — 11ª
+ronda; NUEVA)**
+> **El hueco que cierra**: §E exigía INE «en el paso de pago», y **BL-38** demostró que sobre el umbral eso
+> llega **tardísimo** — el compromiso con el vendedor se firma **al ofertar**, no al pagar. El humano lo
+> movió **más atrás todavía**: *«desde que nos cotiza»*. **La regla de negocio está en §E; esta sección dice
+> QUÉ VE EL VENDEDOR**, porque pedir una identificación oficial **antes de decir cuánto vamos a pagar** es
+> **un momento delicado y no se resuelve solo**.
+- [ ] **A quién le pasa esto, dicho primero para no exagerar el alcance**: **solo** a quien **cotiza por
+      encima del tope por solicitud** (**MX$3,000**, dial de M10). **Por debajo del tope el vendedor no ve
+      absolutamente nada de esto** — ni campo, ni aviso, ni paso extra. **La mayoría no lo verá nunca.** Pero
+      **quien lo ve es el vendedor de mayor valor del negocio**, y es exactamente al que **no** nos podemos
+      dar el lujo de espantar con una pantalla mal escrita.
+- [ ] **Vender ya exige cuenta, así que esto NO le cae a un anónimo** *(no es regla nueva, se recuerda porque
+      cambia cómo se lee todo lo demás)*: el **cotizador es público**, pero **crear la solicitud requiere
+      cuenta** (§J, «Fuera de alcance — buylist como invitado»). El INE **no se le pide a un visitante que
+      está tanteando precios**: se le pide **a un usuario identificado que está a punto de mandarnos cartas**.
+- [ ] **AVISO PREVIO — el vendedor se entera ANTES de armar la solicitud, y es REQUISITO, no cortesía**: en el
+      **cotizador**, el vendedor debe poder saber que **una venta grande va a requerir identificación oficial**
+      **antes** de invertir el trabajo de armar el carrito. **Sin este aviso, el INE aparece como una
+      emboscada** en el último paso.
+      **⚠ Y aquí hay una regla vigente que lo restringe, así que se dice cómo se cumplen las dos**: el
+      criterio **177(c)** prohíbe que los **topes** viajen a la **pantalla pública** (ahí **solo** es público
+      el **mínimo de compra**, D41). Por eso:
+      - **En el cotizador (público) el aviso va EN PALABRAS, SIN CIFRA** — mismo patrón que **D43** ya usa
+        para el envío: *decir la regla no exige publicar el número*. Redacción de referencia (ES): **«En las
+        ventas de mayor monto te pediremos una identificación oficial (INE) al enviar tu solicitud. Te
+        diremos si aplica antes de enviarla.»** Paridad **ES/EN**.
+      - **En la creación de la solicitud (con sesión) SÍ se le dice el número**, porque ahí **ya no es un dial
+        interno: es un hecho sobre SU solicitud** —*«tu cotización es de MX$3,400 y supera el tope de
+        MX$3,000 por solicitud»*—. **Callar el número justo ahí es lo que vuelve arbitraria la petición.**
+        *(**SUPUESTO — pregunta abierta 37**: que decírselo al usuario autenticado **sobre su propia
+        solicitud** no viola el 177(c), cuyo objeto es la **superficie pública**. Alternativa si el humano
+        prefiere blindarlo: decir *«supera el tope por solicitud»* **sin la cifra**. **Se recomienda la
+        cifra**: sin ella la petición parece discrecional, y *«te pedimos identificación porque sí»* es
+        justamente lo que hay que evitar.)*
+- [ ] **LO QUE LA PANTALLA DEBE DECIR AL PEDIRLO — son CINCO cosas, y ninguna es letra chica**. El INE se pide
+      **en el mismo paso en que el vendedor ya está capturando sus datos** (dirección, D36), **no en una
+      pantalla aparte**, y el bloque que lo pide contiene:
+      **(a)** **POR QUÉ**: *«te lo pedimos porque te vamos a pagar por SPEI y esta compra supera el tope de
+      MX$3,000 por solicitud»* — **la razón es AML y el pago a particulares**, y se dice;
+      **(b)** **PARA QUÉ SIRVE**: que se **coteja contra el nombre de la cuenta CLABE** a la que se deposita —
+      es decir, **protege que el dinero llegue a su titular**, no es un trámite decorativo;
+      **(c)** **QUÉ HACEMOS CON ÉL**: se **guarda cifrado**, con **retención limitada** (`INE_RETENTION_DAYS`,
+      default **180 días**) y **se purga** con la solicitud (§P.1). **Sin promesas que no podamos sostener**;
+      **(d)** **QUÉ SIGUE — y ESTA ES LA QUE IMPIDE QUE SE LEA COMO «dame tu INE y ya veremos»**: que
+      **enviar la solicitud NO es la venta**, que **responderemos con una oferta en un plazo de hasta 7 días
+      hábiles**, que **puede que decidamos no comprar** y que, si ofertamos, **él decide si acepta o rechaza**
+      y **no manda ninguna carta hasta entonces**. **El vendedor tiene que salir de esa pantalla sabiendo
+      exactamente qué compró con su INE: una respuesta, no una promesa de compra.**
+      **(e)** **QUÉ NO PASA SI NO LO SUBE**: que **puede cotizar por debajo del tope sin identificación** —es
+      información verdadera y útil, no un empujón—. **No se le miente diciendo que «no puede vender».**
+- [ ] **Prohibiciones de redacción** *(mismo espíritu que el criterio 175(b), aplicado aquí)*: **prohibido**
+      pedir el INE **sin razón visible** en la misma pantalla; **prohibido** insinuar que subirlo **mejora la
+      oferta o la asegura** (es falso: el monto lo decide §N y la mesa, §P.2); **prohibido** llamarlo
+      *«verificación de tu cuenta»* o cualquier eufemismo que **oculte que es un requisito de AML**; y
+      **prohibido** enterrarlo en términos o en un tooltip: **va en el flujo, a la vista, antes del botón de
+      enviar**.
+- [ ] **Costo aceptado a ojos abiertos, igual que con la dirección (D36)**: **también le pediremos el INE a
+      gente a la que al final NO le compraremos** —la solicitud puede caducar, el operador puede declinar
+      (D39) o el piso de neto puede bloquear la oferta (D34)—. **Es el mismo trato que ya se aceptó para el
+      domicilio** (§P.2.1), **con una diferencia que no se disimula**: un domicilio y una **identificación
+      oficial** no pesan igual. **Por eso la retención y la purga son parte del requisito, no un detalle de
+      implementación**, y por eso esto está en «Riesgos y banderas para el humano».
+- [ ] **Lo que este requisito NO hace**: **no** cambia los **topes**, **no** cambia la **retención**, **no**
+      cambia **quién paga el envío**, **no** agrega un **estado**, **no** agrega un **correo** y **no** mueve
+      la **CLABE**. **Es un requisito de creación más** —el cuarto, junto a celular, mínimo y dirección— que
+      **solo se activa sobre el tope**.
 
 **P.3 — La oferta, el correo y la aceptación (D1, D2, D3; AMPLIADA en la 4ª ronda por D30 — la oferta es
 condicional a NM línea por línea)**
@@ -4265,6 +4444,26 @@ en la 6ª — origen único de los números)**
 > 9. Las piezas caen a la **cola de pendientes de publicar**; el operador les **captura ubicación**, la curva
 >    de §N les **fija precio** y **se publican solas** en Compra. **Fin del ciclo.**
 >
+> *(**11ª ronda, D46 — por qué el camino feliz NO cambió ni una línea**: cotiza **MX$1,200**, **por debajo del
+> tope de MX$3,000**, así que **no se le pide INE en ningún punto**. **Ese es el caso mayoritario y tiene que
+> seguir siendo así de corto** — si el camino feliz creciera, la decisión estaría mal aterrizada.)*
+>
+> **Flujo crítico — el INE sobre el tope: se pide al COTIZAR y se vuelve a exigir al OFERTAR (D46):** tres
+> recorridos que se prueban juntos porque **cada uno cae en una compuerta distinta**:
+> **(1) Bloqueo al crear** — un usuario **sin INE** cotiza **MX$3,400**: **la solicitud no se crea**, y el
+> rechazo **es del servidor** (se reproduce **saltándose la pantalla**). La pantalla le explica **por qué**,
+> **para qué sirve**, **qué guardamos**, **qué sigue** y **que puede vender por debajo del tope sin INE**;
+> sube su INE y **la misma solicitud se crea**.
+> **(2) Bloqueo al ofertar (regresión de BL-38)** — un usuario **sin INE** cotiza **MX$1,000** (pasa la
+> compuerta 1 legítimamente) y el operador aplica un **override al alza** que deja el **bruto en MX$3,300**:
+> **la oferta NO se emite**, ni siquiera con **súper-admin**. La solicitud **sigue viva en `cotizada`** y el
+> operador ve **la causa real** (*falta INE*), no un error genérico.
+> **(3) El caso que NO debe pedir nada** — cotiza **MX$2,900** y se oferta **MX$2,400** tras descartar una
+> línea: **en ningún momento se le pide INE**, y **el ciclo corre completo hasta `pagada`**.
+> **Y el borde del cotejo**: en (1), el INE se **capturó al crear**, pero el **cotejo contra el nombre de la
+> CLABE** ocurre **donde la CLABE existe** — verificable con un INE **a nombre distinto**: **la operación se
+> detiene**, igual que antes de D46.
+>
 > **Flujo crítico — nadie manda cartas sin un sí:** una solicitud recién creada **no ofrece** ninguna forma de
 > marcarse en tránsito ni de avisar «ya lo mandé»; la pantalla del cliente **no muestra** guía, dirección ni
 > instrucciones de envío hasta que **hay oferta aceptada**. *(**Precisión de la 7ª ronda, para que D36 no se
@@ -4882,10 +5081,13 @@ ronda por D31**)**
   storage** por ser un **número cifrado en BD**, no un archivo.
 - **Gradeadas (PSA/CGC)**: se persiste **empresa + grado + `certNumber`**; el slab (verificable en la
   graduadora) es la garantía de condición, sin foto propia.
-- **KYC del buylist — INE almacenado (soporte AML)**: el **INE se pide en el paso de pago del buylist** (sobre
-  el tope) y su **imagen se almacena cifrada en R2 con retención** (`INE_RETENTION_DAYS`, default **180**),
-  **verificada contra el nombre de la CLABE**. La **CLABE sigue guardándose cifrada en la base de datos** (sin
-  cambio). Ver bandera AML en "Riesgos y banderas para el humano".
+- **KYC del buylist — INE almacenado (soporte AML)**: ~~el **INE se pide en el paso de pago del buylist**
+  (sobre el tope)~~ **⚠ 11ª ronda, D46: el INE se pide DESDE LA COTIZACIÓN** —al **crear la solicitud**, y de
+  nuevo como compuerta **al emitir la oferta**—, siempre **solo sobre el tope** (§E, §P.2.2, criterio 178).
+  **Lo que no cambió**: su **imagen se almacena cifrada en R2 con retención** (`INE_RETENTION_DAYS`, default
+  **180**), **verificada contra el nombre de la CLABE** —cotejo que ocurre **cuando la CLABE existe**, hoy en
+  el **paso de pago**—. La **CLABE sigue guardándose cifrada en la base de datos** (sin cambio, y **no se
+  movió de momento**: ver pregunta 29). Ver bandera AML en "Riesgos y banderas para el humano".
 - **Política de reembolsos — VENTAS FINALES**: no hay reembolso voluntario tras la compra (en bóveda o
   enviada); aplica a **todos los tipos de producto sin excepción** (raw, sellado y gradeadas). **Dos
   excepciones**: (1) **disputa de condición** por carta **dañada/equivocada** (ventana de **7 días contados
@@ -5063,9 +5265,16 @@ ronda por D31**)**
     siempre cotizan).
 14. El sistema bloquea solicitudes que excedan el **tope por solicitud** (default MX$3,000) o el **tope
     mensual** (default MX$10,000) del usuario, exige **INE** cuando se supera el tope configurado, y solo
-    permite registrar pago SPEI a una CLABE a nombre del propio usuario. El **INE se pide en el paso de pago
-    del buylist** (sobre el tope), su **imagen se almacena cifrada en R2 con retención** (`INE_RETENTION_DAYS`,
+    permite registrar pago SPEI a una CLABE a nombre del propio usuario. ~~El **INE se pide en el paso de pago
+    del buylist** (sobre el tope)~~ **⚠ CORREGIDO en la 11ª ronda (D46): el INE se pide DESDE LA COTIZACIÓN
+    —al crear la solicitud— y se vuelve a exigir AL EMITIR LA OFERTA; ver §E, §P.2.2 y el criterio 178.**
+    Lo que **sigue igual**: su **imagen se almacena cifrada en R2 con retención** (`INE_RETENTION_DAYS`,
     default 180) y se **verifica contra el nombre de la CLABE**; la **CLABE se guarda cifrada en BD**.
+    **⚠ AMBIGÜEDAD DETECTADA EN ESTE CRITERIO, señalada y NO asumida en silencio (pregunta abierta 38)**:
+    este criterio dice **las dos cosas a la vez** —*«bloquea solicitudes que excedan el tope»* **y** *«exige
+    INE cuando se supera el tope»*— y con los **defaults iguales** (`umbral de INE = el tope`, M10) **no
+    pueden convivir**: si nada por encima de MX$3,000 se acepta jamás, **la exigencia de INE nunca se
+    dispara** y **D46 sería letra muerta**. Ver la pregunta 38 para el supuesto tomado.
 15. **Cherry-pick carta por carta — AL OFERTAR y al verificar** *(actualizado v2.1, D1/D9)*: el dueño decide
     **línea por línea qué compra** **en la fase de oferta** (antes de que el vendedor mande nada), y lo que
     resulta de esa decisión **es la oferta**. En la **verificación** la decisión carta por carta sigue
@@ -6767,6 +6976,47 @@ de este documento (v2.1, D41 + D42; §E/§H/§P.3/§P.11)**
     mínimo** es del **arquitecto**; lo que este documento exige es que **D43 no dependa de que el frontend se
     porte bien**: **lo que no llega a la pantalla no se puede pintar por error**, ni hoy ni en un rediseño.
 
+**Ciclo de adquisición del buylist — 11ª ronda: el INE se adelanta a la cotización (v2.1, D46; §E/§P.1/§P.2.2)**
+> **⚠ Este criterio NO deroga el 136 ni el 155.** Los dos siguen vigentes **tal cual** para el momento de la
+> oferta: **el bruto ofertado** es el que gobierna topes, umbral de INE y cuota mensual. Lo que el 178 añade
+> es **una compuerta ANTERIOR** con **su propio monto**, porque **al cotizar el bruto ofertado no existe**.
+
+178. **D46 — EL INE SE EXIGE DESDE LA COTIZACIÓN, Y SIGUE EXIGIÉNDOSE AL OFERTAR (11ª ronda; cierra el hueco
+    de producto que destapó BL-38)**: verificable en **nueve** puntos:
+    **(a)** **por debajo del tope no cambia NADA** —guarda de regresión, y es el caso mayoritario—: una
+    solicitud cotizada en **MX$800** se crea **sin pedir INE**, **sin campo**, **sin aviso bloqueante** y
+    **sin paso extra**; y su oferta **se emite sin INE**;
+    **(b)** **sobre el tope, sin INE no hay solicitud**: con una cotización de **MX$3,400** y un usuario **sin
+    INE en archivo**, **la creación se rechaza** — y **se rechaza en el SERVIDOR**, verificable **saltándose
+    la pantalla** (igual que el mínimo, criterio 158, la dirección, criterio 170, y el celular, criterio 128);
+    **(c)** **con INE en archivo, esa misma solicitud SÍ se crea** — la compuerta **pide identificación, no
+    prohíbe vender**;
+    **(d)** **la compuerta de la OFERTA sigue viva (regresión directa de BL-38)**: una solicitud creada **por
+    debajo** del tope, cuya oferta se empuja **por encima** con un **override al alza**, **NO se puede
+    emitir** si el vendedor no tiene INE. **Este es el punto que prueba que «desde» no se leyó como «solo
+    al cotizar».**
+    **(e)** **ninguna autorización abre esa compuerta**: ni el **override** (D24/D26), ni la **autorización
+    de súper-admin** por monto, ni la edición manual del bruto **permiten emitir** una oferta sobre el umbral
+    sin INE. Verificable intentándolo **con el rol más alto**;
+    **(f)** **cada compuerta usa SU monto**: se prueba con una solicitud cuyo **total cotizado queda por
+    debajo** del umbral y cuyo **bruto ofertado queda por encima** (pasa la 1, la para la 2) y con el caso
+    inverso —**cotizada por encima**, **ofertada por debajo** tras un recorte línea por línea— donde **el INE
+    ya se pidió al crear y no se devuelve ni se borra por eso**;
+    **(g)** **el cotejo contra el nombre de la CLABE NO se perdió al adelantar la captura**: el INE se
+    **captura al crear** y se **coteja contra el titular de la CLABE cuando ambos datos existen** (hoy, el
+    **paso de pago**). Verificable con un INE **a nombre distinto** del de la CLABE: **la operación se
+    detiene**, exactamente igual que antes de D46;
+    **(h)** **el guardado no cambió**: la imagen va **cifrada a R2**, con retención `INE_RETENTION_DAYS`
+    (**180**), y **se purga con la solicitud terminal** —incluidas las **`expirada`** por sus **dos motivos**
+    (criterio 169(e))—, **también cuando nunca le compramos nada**;
+    **(i)** **el vendedor no recibe una petición desnuda** (§P.2.2): en el **cotizador público** existe el
+    **aviso en palabras y SIN cifra** —verificable **por debajo del píxel**: el **tope no viaja a la
+    superficie pública**, criterio **177(c)**— y en la **pantalla de creación** el bloque que pide el INE
+    contiene **las cinco cosas**: **por qué**, **para qué sirve**, **qué hacemos con él**, **qué sigue**
+    —*«esto no es la venta; te responderemos con una oferta y tú decides»*— y **qué pasa si no lo sube**.
+    Verificable además **por lo que NO dice**: **no** promete que subirlo **mejore o asegure** la oferta, y
+    **no** lo disfraza de *«verificación de tu cuenta»*.
+
 ## Riesgos y banderas para el humano
 > No bloquean el desarrollo técnico del MVP, pero deben resolverse antes de operar con público real.
 - **Negocio — el vendedor cerca del mínimo se entera del ~36% HASTA el correo de oferta** *(NUEVA 8ª ronda,
@@ -6789,11 +7039,22 @@ de este documento (v2.1, D41 + D42; §E/§H/§P.3/§P.11)**
   (comprobación, retenciones, límites). Validar con contador; los topes por solicitud/mes y el requisito
   de INE son mitigaciones iniciales, no una postura fiscal completa.
 - **AML / KYC — INE almacenado (soporte AML)**: el **INE se almacena como imagen cifrada en R2 con retención**
-  (`INE_RETENTION_DAYS`, default 180), pedido en el paso de pago del buylist sobre el tope y verificado contra
+  (`INE_RETENTION_DAYS`, default 180), ~~pedido en el paso de pago del buylist sobre el tope~~ **pedido DESDE
+  LA COTIZACIÓN sobre el tope (11ª ronda, D46)** y verificado contra
   el nombre de la CLABE. Esto da **soporte documental / control AML** para el pago SPEI a particulares.
   **Validar con contador/abogado** el **periodo de retención** adecuado, la **base legal de tratamiento** del
   documento de identidad y las **obligaciones de protección de datos personales** (guarda, acceso y borrado al
   vencer la retención). La **CLABE se sigue guardando cifrada en BD** (sin cambio).
+  **⚠ AGRAVANTE NUEVO QUE INTRODUCE D46, y hay que decirlo aquí porque cambia el tamaño de esta bandera**:
+  al adelantar el INE a la **cotización**, la plataforma pasa a **almacenar identificaciones oficiales de
+  personas a las que NUNCA le compró nada** —solicitudes que **caducan**, que el operador **declina** (D39) o
+  que el **piso de neto** bloquea (D34)—. Antes, el INE **solo existía si había pago**. **Es un costo aceptado
+  a ojos abiertos** (§P.2.2), **el mismo trato que ya se aceptó para el domicilio** (D36), pero **un domicilio
+  y una identificación oficial no pesan igual ante protección de datos**. **Lo que lo contiene ya está
+  escrito**: la **purga al llegar a estado terminal** (criterio 169(e), criterio 178(h)) y la **retención de
+  180 días**. **Lo que el humano debe validar con abogado es exactamente esto**: si la **base legal** aguanta
+  recabar identificación **antes** de que exista una operación, o si conviene **purgar antes** en las
+  solicitudes que nunca llegaron a `pagada`. *(**No se cambió la retención en esta ronda**: no se pidió.)*
 - **Fiscal — IVA/CFDI**: cobrar IVA 16% obliga a **emitir CFDI** y a manejar régimen fiscal, RFC del
   cliente y timbrado (PAC). En el MVP la factura es **manual por correo** (el cliente envía sus datos
   fiscales) y solo se **registra el IVA cobrado**; el **timbrado automatizado con PAC es fase 2**. Validar
@@ -7020,7 +7281,8 @@ El MVP se considera "lanzado" cuando, en una **beta cerrada**, se cumple en un p
    **ventas finales** (recompra/compensación, el cliente conserva la carta, no revierte inventario) **no
    cambia** (ver decisión 12). El correo de evidencia se documenta como dato de contacto.
 23. **KYC del buylist** → el **INE SÍ se almacena** como **imagen cifrada en R2 con retención**
-   (`INE_RETENTION_DAYS`, default 180), pedido en el paso de pago sobre el tope y **verificado contra el nombre
+   (`INE_RETENTION_DAYS`, default 180), ~~pedido en el paso de pago sobre el tope~~ **⚠ pedido DESDE LA
+   COTIZACIÓN sobre el tope — corregido por D46, decisión 106** y **verificado contra el nombre
    de la CLABE** (soporte AML). La **CLABE sigue guardándose cifrada en BD** (sin cambio). **Bandera para
    contador/abogado**: validar el **periodo de retención** y las obligaciones de protección de datos.
    *(Revierte la decisión v1.2 de "INE no almacenado", restaurando el comportamiento de v1.1.)*
@@ -7858,9 +8120,55 @@ ux-ui; ver §E/§H/§P.3/§P.3.1/§P.5.1/§P.12/M5 y criterios 173–175):**
    **Qué NO cambia**: el borde sigue **inclusivo** (`neto < piso`, D40), el default sigue en **MX$200**, y
    **D34 sigue siendo el mismo bloqueo con número**, no uno nuevo. Ver §P.10 y criterio **167(f)**.
 
+**Decisiones v2.1 — buylist, 11ª ronda (2026-09-06): el INE se adelanta a la cotización**
+
+108. **D46 — El INE se pide DESDE LA COTIZACIÓN, no en el paso de pago. ⚠ DEROGA una regla escrita.**
+   **De dónde sale**: la fase de seguridad cerró **BL-38** —*«los topes AML y el umbral de INE no se evaluaban
+   al ofertar»*, aunque §E lo exigía literal—. Al taparlo, el arquitecto **tuvo que deducir** una pieza que
+   este documento no decía con esas palabras: *¿qué pasa si se va a emitir una oferta sobre el umbral y el
+   vendedor no tiene INE?* **Él declaró «bloquea la emisión», lo marcó como su única derivación (no cita) y lo
+   enrutó al humano** — que es exactamente lo que debía hacer.
+   **Qué se le preguntó y qué contestó**: se le ofrecieron **tres momentos** —**al emitir** la oferta, **al
+   aceptarla** (antes de mandar las cartas) o **al pagar** (lo que decía la regla vieja)—. **Eligió ninguno de
+   los tres: lo quiere antes.** Cita literal: *«Desde que quiere mandarnos las cartas que quiere vender **desde
+   que nos cotiza** pues.»*
+   **Qué se decide, en cuatro piezas**:
+   **(a) CUÁNDO** — el INE se exige **desde la creación de la solicitud** y **sigue exigiéndose al emitir la
+   oferta**. **«Desde» se leyó como «desde», no como «solo en»**: son **dos compuertas**, no una mudanza. *(Si
+   fuera «solo al cotizar», la compuerta de la oferta desaparecería y **BL-38 volvería** por la puerta de
+   atrás. Por eso se dice explícito, y por eso **el trabajo de backend por BL-38 no se tira**.)*
+   **(b) CONTRA QUÉ MONTO** — **cada compuerta juzga con el monto que existe en su momento**: **total
+   cotizado** al crear, **bruto ofertado** al ofertar. Esto **cierra una incoherencia que D16 dejó viva**:
+   D16 ya mandaba evaluar «en los dos momentos» pero nombraba **un solo monto —el bruto ofertado— que al
+   cotizar todavía no existe**. **D16 no se deroga: se completa.** Los criterios **136** y **155** siguen
+   intactos.
+   **(c) EL CRUCE TARDÍO** — una cotización **bajo** el umbral puede volverse oferta **sobre** el umbral por el
+   **override al alza** (se midió **MX$300 → MX$1,000**, deriva de **3.3×**). Ahí **manda la compuerta 2: no se
+   emite**, y **ninguna autorización la abre** —un override **no puede ser puerta trasera al KYC**, igual que
+   ya no lo es al tope—. **Y la solicitud no muere en silencio**: dejar que caduque como *«no procederemos»*
+   **le imputaría al vendedor un desenlace nuestro** por **un documento que nunca le pedimos** (es el argumento
+   de D33).
+   **(d) QUÉ VE EL VENDEDOR** — es **la mitad del requisito, no su presentación**. Pedir una **identificación
+   oficial antes de decir cuánto vamos a pagar** se lee como *«dame tu INE y ya veremos»* **salvo que la
+   pantalla diga cinco cosas**: por qué, para qué sirve, qué hacemos con él, **qué sigue** (*«esto no es la
+   venta: te responderemos con una oferta y tú decides»*) y qué pasa si no lo sube. Más un **aviso previo en el
+   cotizador, en palabras y sin cifra** —porque el **tope no puede viajar a la superficie pública**, criterio
+   **177(c)**—. Ver **§P.2.2** y criterio **178**.
+   **Qué se separó y por qué importa**: la regla vieja mezclaba **cuándo se pide** con **para qué sirve y cómo
+   se guarda**. **Solo se derogó el CUÁNDO.** El **cotejo contra el nombre de la CLABE** y el **almacenamiento
+   cifrado en R2 con retención de 180 días** **siguen vigentes sin tocar** — con la consecuencia de orden de
+   que **la captura** ocurre al crear y **el cotejo** cuando la CLABE existe (hoy, el paso de pago).
+   **Coste aceptado a ojos abiertos**: pasaremos a **guardar identificaciones oficiales de gente a la que nunca
+   le compramos**. Es **el mismo trato que ya se aceptó para el domicilio** (D36), **con más peso**: lo contiene
+   la **purga al llegar a estado terminal** y la **retención de 180 días**, y **queda escalado a abogado** en
+   «Riesgos y banderas».
+   **Qué NO cambia**: **topes** (MX$3,000/solicitud, MX$10,000/mes), **retención** (180 días), **umbral de INE =
+   el tope**, **D16** (SPEI por el neto, topes por el bruto) y la **CLABE**, que **no se movió** (pregunta 29).
+   Ver §E, §P.1, §P.2.2, M6, M10, criterios **14** y **178**.
+
 ---
 
-> **↑ Termina el hilo v2.1 (buylist, 56–107 · D1–D45) · ↓ Reanuda el hilo v2.0 (gancho de grading), que
+> **↑ Termina el hilo v2.1 (buylist, 56–108 · D1–D46) · ↓ Reanuda el hilo v2.0 (gancho de grading), que
 > venía de la «cuarta ronda» de más arriba.**
 > **Los números 56–64 que siguen son del hilo v2.0 y NO son los mismos 56–64 de arriba.** Cítense como
 > **`decisión NN (v2.0)`**. Ver el aviso de numeración al inicio del bloque v2.1.
@@ -9004,3 +9312,64 @@ la 30 y la 32 siguen abiertas:**
    **Por qué no bloqueaba**: el dial vive en **MX$200** y **nadie pidió bajarlo**. El agujero **solo se abría
    si alguien ponía el dial en 0** — pero si se abría, **salía dinero mal anunciado**, y por eso quedó escrito
    y no en la cabeza de nadie.
+
+**Las tres preguntas de la 11ª ronda (36–38) — nacen de D46; la 38 es la que tiene filo:**
+
+36. **[ABIERTA — no bloqueante] Cuando una solicitud CRUZA el umbral después (cotizó bajo, se oferta alto):
+   ¿le pedimos el INE por dentro del producto, o es operación manual?** *(nace de **D46(c)**, §E/§P.2.2)*
+   **El hueco**: la **compuerta 2 bloquea la emisión** —eso está decidido y no se re-litiga—. Lo que **no**
+   está decidido es **cómo sale de ahí el vendedor**. Hoy tiene **dos salidas que ya existen**: ofertar sin
+   cruzar el umbral, o **declinar** (D39). **Ninguna de las dos le pide el documento**, así que el caso normal
+   sería *«no te compramos»* a alguien **al que nunca le dijimos qué le faltaba**.
+   **Supuesto tomado**: se resuelve como **operación manual por soporte** (`soporte@tcghunt.mx`), **no como
+   flujo del MVP** — **mismo criterio** que ya se aplicó al cambio de domicilio tardío (pregunta 28).
+   **La alternativa, que es ALCANCE NUEVO y por eso no se asumió**: un **sexto correo** (*«necesitamos tu INE
+   para continuar»*) **+ subida desde el portal + un reloj propio**. Son **tres piezas**, no una, y **el humano
+   no lo pidió**. *(Nótese que el ciclo tiene hoy **cinco correos** contados con cuidado, criterio 173: meter
+   un sexto no es gratis.)*
+   **Por qué no bloquea**: exige **tres cosas a la vez** —cotización bajo el umbral, **override al alza** y
+   que el cruce sea del umbral de INE—, así que es **raro**. **Costo de equivocarse**: bajo y acotado a
+   **perder una compra grande ocasional**, que es justo la que más duele — por eso se pregunta.
+
+37. **[ABIERTA — no bloqueante] Al pedirle el INE, ¿se le dice la CIFRA del tope, o solo que «lo superó»?**
+   *(nace de **D46(d)** × criterio **177(c)**, §P.2.2)*
+   **La tensión, dicha entera**: el criterio **177(c)** prohíbe que los **topes** viajen a la **pantalla
+   pública** (ahí solo es público el **mínimo**, D41). Pero la pantalla que pide el INE **no es pública**: es
+   el paso de **creación de la solicitud**, **con sesión iniciada**, y el número no sería un dial suelto sino
+   **un hecho sobre SU propia cotización** (*«tu cotización es de MX$3,400 y supera el tope de MX$3,000»*).
+   **Supuesto tomado**: **sí se le dice la cifra ahí**, porque **177(c) protege la superficie pública** y
+   porque **callar el número vuelve arbitraria la petición** — y *«te pedimos identificación porque sí»* es
+   exactamente la lectura que §P.2.2 existe para impedir.
+   **Qué confirmar**: **(a)** se le dice la cifra —**supuesto**—; **o (b)** solo *«supera el tope por
+   solicitud»*, **sin número**, blindando el 177(c) al precio de que la petición se vea discrecional.
+   **Lo que NO está en duda en ninguno de los dos casos**: en el **cotizador público** el aviso va **en
+   palabras y SIN cifra**. Eso **no se toca** — el 177(c) manda ahí sin discusión.
+
+38. **[ABIERTA — ⚠ la de mayor filo: de esto depende que D46 sea EJECUTABLE o LETRA MUERTA] Por encima de
+   MX$3,000 por solicitud, ¿NO compramos nunca, o compramos CON INE?** *(**contradicción que encontré al
+   reconciliar el criterio 14**; **no** la asumí en silencio)*
+   **La contradicción, dicha tal cual**: el **criterio 14** afirma **las dos cosas en la misma frase** —
+   *«el sistema **bloquea solicitudes que excedan el tope por solicitud** (default MX$3,000)»* **y** *«exige
+   **INE** cuando se supera el tope configurado»*—, y **M10 sella el empate**: **`umbral de INE = el tope`**.
+   Con los **defaults**, las dos reglas **no pueden convivir**: si **nada** por encima de MX$3,000 se acepta
+   jamás, entonces **la exigencia de INE no se dispara nunca** y **la compuerta 1 de D46 es inalcanzable**.
+   **Por qué es esta ronda y no antes**: mientras el INE vivía **en el paso de pago** la incoherencia era
+   **inerte** —nadie llegaba ahí—. **D46 la vuelve estructural**: es **la condición de existencia** de lo que
+   el humano acaba de decidir.
+   **Supuesto tomado** *(el único que hace ejecutable la decisión del humano, y el que se desprende de cómo
+   la formuló)*: **son dos diales distintos con papeles distintos** — el **umbral de INE** es un **umbral que
+   el INE DESBLOQUEA** (*sobre el umbral se vende, pero solo con identificación*), y el **tope** es el
+   **techo**. **Con los defaults iguales, sobre MX$3,000 se compra CON INE.** Se toma así porque el humano
+   razonó todo el tiempo sobre **vendedores que sí nos mandan cartas caras** (*«desde que quiere mandarnos las
+   cartas»*), no sobre vendedores a los que rechazamos de entrada.
+   **Qué debe confirmar el humano — son tres opciones, no dos**:
+   **(a)** **sobre el tope se compra con INE** —**supuesto tomado**—; el «bloqueo» del criterio 14 es
+   *«bloquea hasta que haya INE»*;
+   **(b)** **el tope es un techo duro** (arriba **no compramos jamás**) y el **umbral de INE es un dial
+   aparte que hay que bajar** (p. ej. MX$1,500) para que sirva de algo — en cuyo caso **hay que elegir ese
+   número** y **D46 no muerde hasta entonces**;
+   **(c)** **las dos cosas**: umbral de INE **abajo** (exige identificación) y tope **arriba** (techo duro),
+   con **dos cifras distintas** que hoy no existen.
+   **Por qué no la declaré yo**: **cambia cuánto dinero entra por el buylist**, y eso es **decisión de negocio
+   del dueño**, no de redacción. **Costo de equivocarse: alto** — con la lectura (b) y los defaults de hoy,
+   **el equipo construiría una compuerta que nunca se ejecuta**.
