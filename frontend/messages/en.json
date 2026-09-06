@@ -2784,6 +2784,7 @@
     "FORBIDDEN": "You don't have permission for this action.",
     "NOT_FOUND": "We couldn't find what you were looking for.",
     "CONFLICT": "There was a conflict with the current state.",
+    "CONFLICT_WITH_DETAILS": "{closed, select, yes {This request is already closed (it ended in “{status}”), so this action no longer applies.} other {This action doesn’t apply to the request’s current status (“{status}”).}} This isn’t an app failure and retrying won’t change it: refresh the view to see the real status.",
     "RATE_LIMITED": "Too many requests, try again later.",
     "INTERNAL": "Server error. Please try again.",
     "PRICE_PENDING": "This card has a pending price and can't be purchased yet.",

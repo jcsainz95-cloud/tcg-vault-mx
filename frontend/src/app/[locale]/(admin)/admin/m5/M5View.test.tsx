@@ -81,6 +81,82 @@ describe('M5View · Buylist admin end-to-end', () => {
     expect(await screen.findByText('Verificación iniciada.')).toBeInTheDocument();
   });
 
+  /*
+   * ⚠️ v1.56 · §M5-T (MENOR-2 de QA) — `receive`/`verify` ganaron un `409 CONFLICT` al cerrarse la
+   * CRÍTICA del doble pago SPEI. Ese `409` NO puede llegarle al operador como «Hubo un conflicto
+   * con el estado actual»: en una cola de back-office un genérico se lee como *«la app falló»* y
+   * se reintenta, y el dato que hace inútil el reintento —**la solicitud ya cerró**— se queda en
+   * el `details` sin usar. El contrato manda **dos** términos (`{ status, closedAt }`) y los dos
+   * se miden aquí, incluido el que motivó el segundo: `status` NO terminal con `closedAt` sellado.
+   */
+  it('409 CONFLICT (§M5-T): dice el estado y que la solicitud YA CERRÓ, no el genérico', async () => {
+    vi.spyOn(api, 'verifyBuylistRequest').mockRejectedValue(
+      new ApiClientError(409, {
+        code: 'CONFLICT',
+        message: 'Sell request is terminal or closed',
+        details: { status: 'pagada', closedAt: '2026-09-01T18:03:00.000Z' },
+      }),
+    );
+    renderWithProviders(<M5View />, 'es');
+    await openStage('Verificando');
+    fireEvent.click(await screen.findByRole('button', { name: 'Iniciar verificación' }));
+
+    const msg = await screen.findByText(/ya está cerrada/);
+    // El estado va con su RÓTULO del sistema, nunca el enum crudo (DESIGN_SYSTEM §9.2).
+    expect(msg.textContent).toContain('Pagada');
+    // Y el genérico desaparece: era exactamente lo que se leía como «la app falló».
+    expect(screen.queryByText('Hubo un conflicto con el estado actual.')).toBeNull();
+    // ⚠️ Ni marca de tiempo ni cifras internas: `closedAt` decide la FRASE, no se pinta.
+    expect(msg.textContent).not.toMatch(/2026-09-01|18:03/);
+  });
+
+  it('409 CONFLICT con `status` NO terminal y `closedAt` sellado: también dice que ya cerró (el caso de P1)', async () => {
+    vi.spyOn(api, 'verifyBuylistRequest').mockRejectedValue(
+      new ApiClientError(409, {
+        code: 'CONFLICT',
+        message: 'Sell request is terminal or closed',
+        details: { status: 'verificacion', closedAt: '2026-09-01T18:03:00.000Z' },
+      }),
+    );
+    renderWithProviders(<M5View />, 'es');
+    await openStage('Verificando');
+    fireEvent.click(await screen.findByRole('button', { name: 'Iniciar verificación' }));
+
+    const msg = await screen.findByText(/ya está cerrada/);
+    // El segundo término manda aunque el `status` no sea terminal: es el caso que el PoC fabricó.
+    expect(msg.textContent).toContain('En verificación');
+  });
+
+  it('409 CONFLICT en EN: misma frase enriquecida (paridad ES/EN del copy nuevo)', async () => {
+    vi.spyOn(api, 'verifyBuylistRequest').mockRejectedValue(
+      new ApiClientError(409, {
+        code: 'CONFLICT',
+        message: 'Sell request is terminal or closed',
+        details: { status: 'pagada', closedAt: '2026-09-01T18:03:00.000Z' },
+      }),
+    );
+    renderWithProviders(<M5View />, 'en');
+    await openStage('Verifying');
+    fireEvent.click(await screen.findByRole('button', { name: 'Start verification' }));
+
+    const msg = await screen.findByText(/already closed/);
+    expect(msg.textContent).toContain('Paid');
+    expect(screen.queryByText('There was a conflict with the current state.')).toBeNull();
+  });
+
+  it('409 CONFLICT SIN `details`: cae al copy base y no se inventa ningún estado', async () => {
+    vi.spyOn(api, 'verifyBuylistRequest').mockRejectedValue(
+      new ApiClientError(409, { code: 'CONFLICT', message: 'Sell request is terminal or closed' }),
+    );
+    renderWithProviders(<M5View />, 'es');
+    await openStage('Verificando');
+    fireEvent.click(await screen.findByRole('button', { name: 'Iniciar verificación' }));
+
+    expect(await screen.findByText('Hubo un conflicto con el estado actual.')).toBeInTheDocument();
+    // Sin `details` NO hay nada que enriquecer: ni frase de cierre, ni un placeholder crudo.
+    expect(screen.queryByText(/ya está cerrada|\{status\}/)).toBeNull();
+  });
+
   it('Aprobar un ítem llama a la decisión approve y confirma', async () => {
     const spy = vi.spyOn(api, 'decideBuylistItem').mockResolvedValue({
       id: 'sri-1',

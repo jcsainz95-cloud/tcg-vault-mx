@@ -5,6 +5,7 @@ import { Banner } from './Banner';
 import { Button } from './Button';
 import { ApiClientError } from '@/lib/api-client';
 import { gradeLabelFromKey } from '@/lib/gradeKey';
+import { getBadgeSpec } from '@/lib/status-map';
 
 export interface QueryStateProps {
   isLoading: boolean;
@@ -27,13 +28,46 @@ export interface QueryStateProps {
  */
 const DETAILED_ERRORS: Record<
   string,
-  (details: Record<string, unknown>) => Record<string, string | number> | null
+  (
+    details: Record<string, unknown>,
+    t: ReturnType<typeof useTranslations>,
+  ) => Record<string, string | number> | null
 > = {
   GRADED_ESTIMATE_SLAB_PUBLISHED: (d) => {
     const count = d.publishedSlabCount;
     const grade = typeof d.gradeKey === 'string' ? gradeLabelFromKey(d.gradeKey) : null;
     if (typeof count !== 'number' || !Number.isFinite(count) || !grade) return null;
     return { count, grade };
+  },
+
+  /**
+   * `409 CONFLICT` de los verbos que transicionan una solicitud de buylist (contrato **§M5-T**):
+   * el servidor rechaza escribir sobre una fila **terminal o cerrada** y manda
+   * `details: { status, closedAt }` — los **dos** términos, porque pueden discrepar (una fila con
+   * `closedAt` sellado y `status` NO terminal es justo el caso que motivó la invariante).
+   *
+   * Sin esto el operador leía solo *«Hubo un conflicto con el estado actual»*: en una cola de
+   * back-office un genérico se lee como *«la app falló»* y se reintenta. El copy enriquecido dice
+   * **en qué estado quedó** la solicitud y, cuando el servidor manda `closedAt`, que **ya cerró**.
+   *
+   * ⚠️ El rótulo del estado sale del MISMO mapa que pinta el badge (`status-map`), no de una tabla
+   * nueva ni de un literal: DESIGN_SYSTEM §9.2 prohíbe pintar el enum crudo, y una segunda tabla
+   * sería otra copia del vocabulario de estado que §M5-T/criterio 129 vinieron a borrar. Si el
+   * valor no tiene rótulo —enum desconocido, o un `409` de otra superficie cuyo `details.status` no
+   * es un estado de solicitud— se devuelve `null` y se usa el copy base: **no se inventa nada**.
+   * ⚠️ Solo el ESTADO. Ni la marca de tiempo, ni montos, ni identidades: el mensaje explica qué
+   * pasó, no vuelca la fila (regla de PII/cifras internas de `PROJECT.md`, toda superficie).
+   */
+  CONFLICT: (d, t) => {
+    if (typeof d.status !== 'string' || d.status === '') return null;
+    const labelKey = getBadgeSpec('sellRequest', d.status).i18nKey;
+    if (!t.has(labelKey)) return null;
+    return {
+      status: t(labelKey),
+      // `closedAt` es OPCIONAL en la práctica (§4.18f lo declara aditivo ahí): su ausencia no
+      // degrada el mensaje, solo le quita la frase de «ya cerró».
+      closed: typeof d.closedAt === 'string' && d.closedAt !== '' ? 'yes' : 'no',
+    };
   },
 };
 
@@ -48,7 +82,7 @@ export function useErrorMessage() {
   return (error: unknown): string => {
     const apiError = error instanceof ApiClientError ? error : null;
     const code = apiError?.code ?? 'INTERNAL';
-    const detailed = apiError?.details ? DETAILED_ERRORS[code]?.(apiError.details) : null;
+    const detailed = apiError?.details ? DETAILED_ERRORS[code]?.(apiError.details, t) : null;
     const detailedKey = `error.${code}_WITH_DETAILS`;
     if (detailed && t.has(detailedKey)) return t(detailedKey, detailed);
     const key = `error.${code}`;

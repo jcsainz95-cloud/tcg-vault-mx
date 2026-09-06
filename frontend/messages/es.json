@@ -2784,6 +2784,7 @@
     "FORBIDDEN": "No tienes permiso para esta acción.",
     "NOT_FOUND": "No encontramos lo que buscabas.",
     "CONFLICT": "Hubo un conflicto con el estado actual.",
+    "CONFLICT_WITH_DETAILS": "{closed, select, yes {Esta solicitud ya está cerrada (quedó en «{status}»), así que esta acción ya no aplica.} other {Esta acción no aplica al estado actual de la solicitud («{status}»).}} No es un fallo de la aplicación y reintentar no lo cambia: actualiza la vista para ver el estado real.",
     "RATE_LIMITED": "Demasiadas solicitudes, intenta más tarde.",
     "INTERNAL": "Error del servidor. Intenta de nuevo.",
     "PRICE_PENDING": "Esta carta tiene precio pendiente y aún no se puede comprar.",

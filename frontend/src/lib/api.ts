@@ -3253,10 +3253,16 @@ export async function verifyBuylistRequest(id: string): Promise<AdminBuylistDTO>
  *
  * Retorno (hallazgo QA de P-4): la Res 200 es la SOLICITUD actualizada, «mismo shape que
  * `GET /admin/buylist/:id`» (contrato §M5) — el DETALLE admin con `id`/`userId`/`seller`/`status`/
- * `items` con sus campos de rechazo. En este front ese detalle SE MODELA con `AdminBuylistDTO`
- * (idéntico shape que devuelven `receive`/`verify`/`paySpei` y cada fila de `getAdminBuylist`); NO
+ * `items` con sus campos de rechazo. En este front ese detalle SE MODELA con `AdminBuylistDTO`; NO
  * con el DTO de CLIENTE `SellRequestDTO` (`sellRequestId`/`ineRequired`, sin `seller`), que sería
  * incorrecto para un endpoint de back-office. Por eso el tipo correcto del detalle es `AdminBuylistDTO`.
+ *
+ * ⚠️ **CORRECCIÓN 2026-09-06 (medida, techlead).** Este bloque afirmaba que ése es «idéntico shape
+ * que devuelven `receive`/`verify`/`paySpei`». **No lo es hoy:** los tres responden desde un
+ * `findUnique` **sin `include`**, o sea **sin `items`, sin `seller` y sin `pickupAddress`**; el que
+ * sí cumple es este `reject`, que devuelve `adminGet(id)`. Su tipado `AdminBuylistDTO` se mantiene
+ * **porque lo manda el contrato**, no porque se haya observado en la respuesta — quien está desviado
+ * es el backend (deuda suya, D5). Ver `docs/FRONTEND_NOTES.md` §49.
  */
 export async function rejectBuylistRequest(
   id: string,

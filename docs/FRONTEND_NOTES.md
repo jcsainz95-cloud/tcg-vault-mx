@@ -5618,10 +5618,18 @@ respuesta `{ data, page, pageSize, total }`. Omitir params = comportamiento de H
   romper los tests que dependen de él.
 - **Hallazgo MENOR QA de P-4 (tipo de `rejectBuylistRequest`):** verificado — el retorno ya es
   `AdminBuylistDTO`, que **es** el tipo del DETALLE de `GET /admin/buylist/:id` en este front (mismo
-  shape con `id`/`userId`/`seller`/`items`, idéntico a lo que devuelven `receive`/`verify`/`paySpei` y
-  cada fila de `getAdminBuylist`). El DTO de **cliente** `SellRequestDTO` (`sellRequestId`/`ineRequired`,
-  sin `seller`) sería **incorrecto** para un endpoint de back-office. Se dejó el tipo como está y se
-  documentó la alineación en el docstring de la función (no había regresión que corregir).
+  shape con `id`/`userId`/`seller`/`items`). El DTO de **cliente** `SellRequestDTO`
+  (`sellRequestId`/`ineRequired`, sin `seller`) sería **incorrecto** para un endpoint de back-office.
+  Se dejó el tipo como está y se documentó la alineación en el docstring de la función (no había
+  regresión que corregir).
+  > ⚠️ **CORRECCIÓN (2026-09-06, ver §49).** Este bullet añadía *«idéntico a lo que devuelven
+  > `receive`/`verify`/`paySpei` y cada fila de `getAdminBuylist`»* **y presentaba eso como
+  > verificado. No se midió, y de las dos mitades una es falsa:** `receive`/`verify`/`pay-spei`
+  > responden desde un `findUnique` **sin `include`** ⇒ **sin `items`, sin `seller` y sin
+  > `pickupAddress`**. El único hermano que sí cumple es `reject`, que devuelve `adminGet(id)`.
+  > El tipado `AdminBuylistDTO` de esas tres llamadas **no cambia y sigue siendo el correcto**, pero
+  > se apoya en el **contrato** (§M5: *«la solicitud actualizada, mismo shape que
+  > `GET /admin/buylist/:id` (`AdminBuylistDTO` con `items`)»*), **no** en la respuesta observada.
 
 **M5 «Cerradas» (`M5View.tsx`):** migrada a server-side siguiendo el patrón de «Rechazadas». Query
 dedicada `['admin-buylist-closed', page, q, from, to, min, max]` → `getAdminBuylist({ status:
@@ -13091,3 +13099,151 @@ atrás**, y un mock que contradice al componente al que alimenta produce rojos q
 `skip`** (`needsSeed`/`mockOnly` de datos que el modo mock no tiene) · `tsc --noEmit` limpio · `lint`
 limpio. E2E en `E2E_MOCK_PORT=3100`: el `:3000` lo ocupa el `next start` del stack real de devops —
 y por lo mismo **no se borró `.next`**, que es suyo y estaba en uso.
+
+---
+
+## §49 · Cierre de seguridad del stream: una nota mía que afirmaba sin medir, y el `409` nuevo que el operador leía como «la app falló» (2026-09-06, rama `claude/buylist-inventory-workflow-hdnls3`)
+
+**Contexto.** Se cerró la CRÍTICA **P1** (doble pago SPEI): `receive`/`verify` ganaron guarda de
+estado (**§M5-T**, contrato v1.56), con ella un **`409 CONFLICT` nuevo**, y su respuesta pasó de
+`201` a **`200`**. **El frontend no fue causa de nada y no necesitó ningún arreglo funcional por
+eso**, y eso lo midió QA fichero a fichero; re-medido aquí antes de escribirlo: `api-client.ts`
+ramifica por `res.ok` (`:196`, `:266`), `401` (`:246`) y `204` (`:263`) y **nunca por el código
+exacto**; **ninguna comparación contra `201`** en `frontend/src`, `frontend/e2e` ni `security/` (las
+apariciones de la cadena «201» son números ajenos —CLABEs de prueba, folios `INV-000201`, ms— y un
+comentario en `types/contract.ts`); y el `409` cae en el `onError` de las mutaciones de `M5View`. Este pase son **dos cosas
+pequeñas**, ninguna de ellas un arreglo de regresión.
+
+### 1. La afirmación que estaba en estas notas **como hallazgo verificado** y no se había medido
+
+El bloque de **P-5** decía que `receive`/`verify`/`paySpei` devuelven *«mismo shape con
+`id`/`userId`/`seller`/`items`»*. **Es falso hoy**, y la corrección queda escrita **en el propio
+bullet** (arriba, sección P-5) además de aquí, porque ésa es la línea que otros roles leen como
+medida.
+
+**Qué se midió, cuándo y sobre qué** (2026-09-06, HEAD `3b2fc87`, lectura directa de
+`backend/src/modules/buylist/buylist.service.ts` — el backend es de otro rol y sólo se leyó):
+
+| Verbo | Cómo construye la respuesta | Lleva `items` / `seller` / `pickupAddress` |
+|---|---|---|
+| `receive` (`:5168`) | `tx.sellRequest.findUnique({ where: { id } })` → `adminSellRequestDTO(row, …)` | **NO** |
+| `verify` (`:5196`) | idéntico a `receive` | **NO** |
+| `pay-spei` (`:6365`, `:6567`, `:6575`) | `findUnique({ where: { id } })` en las **tres** ramas (idempotente, éxito y relectura) → `adminSellRequestDTO(…)` | **NO** |
+| `reject` | devuelve `adminGet(id)` | **SÍ** |
+
+La diferencia es de una línea: `adminGet` (`:2393`) hace el `findUnique` **con `include`** y encima
+del proyectado añade `seller`, `pickupAddress`, `items` y `clabeMasked`; los otros tres devuelven
+`adminSellRequestDTO` **a secas**, que es sólo la cabecera de la fila. **La proyección compartida no
+es el problema** — `isPayable` y los campos del ciclo sí viajan en las cuatro (BL-20); lo que falta
+es el **`include` de la lectura**.
+
+**Consecuencias, y por qué NO se cambia el tipado:**
+- **Hoy no rompe nada, y se sabe por qué:** `M5View` **refetchea después de mutar** — `onSuccess` →
+  `ok()` → `refresh()` → `invalidateQueries(['admin-buylist'])`, y la pantalla se repinta con la
+  fila completa del listado. **El valor devuelto por la mutación no se lee en ningún sitio**: las
+  tres son las únicas consumidoras de esas funciones en producción (`M5View.tsx:233`, `:238`,
+  `:382`) y las tres descartan el dato — `onSuccess: (_d, id) => ok(id, …)` en `receive`/`verify` y
+  `onSuccess: (_d, vars) => { …; ok(vars.requestId, …) }` en `pay-spei`.
+- **El tipado `AdminBuylistDTO` de esas tres llamadas se mantiene y es el correcto**, pero **la
+  justificación cambia**: se apoya en el **contrato** (§M5: *«la solicitud actualizada, mismo shape
+  que `GET /admin/buylist/:id` (`AdminBuylistDTO` con `items`)»*), **no** en la respuesta observada.
+  Quien está desviado del contrato es el backend, no este tipo; si el backend corrige, el tipado ya
+  es el bueno. Dueño de la desviación: **backend (D5)**.
+- La **misma frase falsa** vivía en el docstring de `rejectBuylistRequest` (`src/lib/api.ts`).
+  Corregida ahí también, **sólo el comentario**: ninguna firma, ningún tipo, ningún runtime.
+
+**La lección, que es la de BL-20 otra vez:** *«idéntico a lo que devuelven X e Y»* es una afirmación
+sobre **código que no abrí**. Si no se midió, se escribe lo que el contrato declara y se dice que es
+el contrato quien lo declara. Una nota que suena a medición vale menos que ninguna nota.
+
+### 2. MENOR-2 (QA): el `409` nuevo se le mostraba al operador como texto genérico
+
+El backend responde `409 CONFLICT` con **`details: { status, closedAt }`** — los dos campos a
+propósito: el caso que motivó el segundo término es una fila con `status` **no terminal** y
+`closedAt` **sellado** (el PoC de P1). Pero `error.CONFLICT` decía sólo *«Hubo un conflicto con el
+estado actual.»*: `details` **no se usaba** y el operador **no se enteraba de que la solicitud ya
+cerró**. En una cola de back-office eso se lee como *«la app falló»* y se reintenta — y reintentar
+sobre una fila cerrada no puede funcionar nunca.
+
+**Qué se hizo — el mecanismo que ya existía, no uno nuevo.** `useErrorMessage`
+(`src/components/ui/QueryState.tsx`) ya tenía la tabla `DETAILED_ERRORS` + la variante
+`error.<CODE>_WITH_DETAILS` (la estrenó `GRADED_ESTIMATE_SLAB_PUBLISHED`). Se le añade la entrada
+`CONFLICT`:
+
+- **El rótulo del estado sale de `status-map` (`getBadgeSpec('sellRequest', status).i18nKey`)**, el
+  MISMO mapa que pinta el badge. Ni una tabla nueva ni un literal: DESIGN_SYSTEM §9.2 prohíbe pintar
+  el enum crudo, y una segunda tabla sería otra copia del vocabulario de estado que §M5-T y el
+  criterio 129 vinieron a borrar. De regalo cubre `expirada`, cuyo rótulo **no** vive en
+  `status.sellRequest.*` sino en `status.sellRequestExpiry.*` (§23.1d) — el mapa ya lo sabe.
+- **Si no hay rótulo, no hay mensaje enriquecido:** enum desconocido, o un `409` de otra superficie
+  cuyo `details.status` no es un estado de solicitud ⇒ la entrada devuelve `null` y se usa el copy
+  base. **No se inventa nada.** Inventario de los `409 CONFLICT` vivos del front, abierto uno por
+  uno: transición ilegal de envío (`api.ts:1193`), disputa ya resuelta (`:3612`) y grupo ya enlazado
+  (`fixtures.ts:4213`) **no mandan `details`** ⇒ quedan **byte a byte como estaban**. El **cuarto sí
+  cambia, y para bien**: el `409` de `rejectBuylistRequest` (`:3283`) ya mandaba
+  `details: { status }` por contrato (§4.18f) y pasa a leerse *«esta acción no aplica al estado
+  actual de la solicitud («Pagada»)»* dentro de su modal, en vez del genérico. Sin `closedAt` toma
+  la rama no-cerrada, que es exactamente lo que ese `409` significa.
+- **`closedAt` decide la FRASE, no se pinta.** El copy es un `select` ICU de dos ramas: cerrada
+  («esta solicitud ya está cerrada, quedó en «X»») vs. no cerrada («esta acción no aplica al estado
+  actual: «X»»), y las dos cierran con *«no es un fallo de la aplicación y reintentar no lo cambia»*.
+  ⚠️ **Ni marca de tiempo, ni montos, ni identidades**: el mensaje explica **qué pasó**, no vuelca la
+  fila (regla de PII/cifras internas de `PROJECT.md`, que aplica a toda superficie — también a
+  back-office). Hay test que lo fija.
+- **Los dos idiomas**, `error.CONFLICT_WITH_DETAILS` en `messages/{es,en}.json`. El candado de
+  paridad ES/EN sigue verde.
+
+**Lo que deliberadamente NO se tocó:** `fail()` **no invalida la query** (sólo `ok()` lo hace) y se
+deja igual — cambiar eso es comportamiento, no copy, y el stream está a punto de fusionarse. Por eso
+el mensaje termina en *«actualiza la vista para ver el estado real»* en vez de prometer un refresco
+automático que la vista no hace. Si el PO lo quiere automático, es un cambio de una línea en
+`M5View.fail()` y se puede pedir aparte.
+
+**Tests (+4 en `M5View.test.tsx`, sobre el `409` de `verify`):** (a) terminal + `closedAt` ⇒ dice que
+**ya cerró**, nombra **«Pagada»** con su rótulo, el genérico desaparece y **no aparece la marca de
+tiempo**; (b) **`status: 'verificacion'` con `closedAt` sellado** ⇒ también dice que ya cerró (el
+caso exacto que P1 fabricó y que un guard de un solo término deja pasar); (c) **EN**, misma frase
+enriquecida; (d) `409` **sin `details`** ⇒ copy base, sin frase de cierre y sin placeholder crudo.
+
+### 3. Ficheros tocados
+
+`src/components/ui/QueryState.tsx` (entrada `CONFLICT` en `DETAILED_ERRORS`; la tabla pasa a recibir
+`t` como segundo argumento para poder traducir el rótulo del estado — el consumidor existente lo
+ignora) · `messages/es.json` y `messages/en.json` (`error.CONFLICT_WITH_DETAILS`) ·
+`src/app/[locale]/(admin)/admin/m5/M5View.test.tsx` (+4) · `src/lib/api.ts` (**sólo un docstring**) ·
+este fichero. **Nada en `backend/`, nada en el contrato, ningún tipo compartido.**
+
+### 4. Verificación
+
+`npx vitest run` → **113 ficheros / 1166 tests verdes** (la rama traía 1162; el delta son los 4
+nuevos) · `npx tsc --noEmit` → limpio · `npx next lint` de los ficheros tocados → sin warnings ·
+`i18n-parity` (27 tests, incluido el candado de paridad ES/EN y el de claves duplicadas) → verde.
+
+### 5. El contrato pasó a **v1.57** a mitad de este pase: qué revisé antes de cerrar
+
+`af31349` publicó v1.57 (§M5-P, §M5-C) mientras corrían mis suites. Re-leído lo que toca a este
+delta, **nada de lo anterior se cae**:
+
+- **§M5-T sigue diciendo lo mismo donde importa:** el rechazo canónico sigue siendo `409 CONFLICT`
+  con **`details: { status, closedAt }`**, y `receive`/`verify` siguen en el **GRUPO A**. Lo que
+  v1.57 cambió ahí es la **tabla de verbos** (se parte en A/B porque la de v1.56 listaba verbos que
+  no escriben `status`) — corrección de documento, no de forma del error. El copy nuevo es correcto
+  tal cual.
+- **§M5-C (`BL-37`, códigos de éxito): cero impacto de frontend, por la misma razón de siempre.**
+  Nueve endpoints del ciclo responden `201` donde el contrato declara `200`; `apiRequest` ramifica
+  por `res.ok`, así que ni el desvío ni su corrección se ven desde aquí. Dueño: backend.
+- **§M5-P (`isPayable` gana un TERCER término, `receivedAt IS NOT NULL`): tampoco toca código de
+  frontend** — el booleano es **derivado server-side** y aquí sólo se consume
+  (`isSuperAdmin && req.isPayable === true`), que es exactamente el punto de que exista. **Pero deja
+  un documento mío desactualizado:** el docstring de `isPayable` en `src/types/contract.ts:2371-2378`
+  transcribe la fórmula de **DOS** términos. **No lo toco en este pase** (`types/contract.ts` es zona
+  compartida, el brief pedía cambio mínimo y hay un pase v1.57 en vuelo); queda **pedido explícito**
+  para quien tome v1.57 en el frontend. Sin impacto funcional: no hay ninguna copia de la fórmula en
+  código, sólo en el comentario.
+
+### 6. Solicitudes al arquitecto
+
+**Ninguna.** Todo lo consumido está en el contrato (§M5-T declara `409 CONFLICT` con
+`details: { status, closedAt }`; §M5 declara el shape de la respuesta de `receive`/`verify`). La
+única desviación medida es del **backend** (respuesta de `receive`/`verify`/`pay-spei` sin `items`/
+`seller`/`pickupAddress` frente a lo que §M5 declara) y su dueño ya la tiene registrada como D5.
