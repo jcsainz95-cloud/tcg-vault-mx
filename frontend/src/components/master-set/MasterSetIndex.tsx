@@ -19,6 +19,9 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { QueryState } from '@/components/ui/QueryState';
 import { cn } from '@/lib/cn';
 import type { MasterSetViewMode } from './mode';
+// §24 — el POZO del logo vive en su propio módulo: lo consumen la retícula (tamaño `md`) y el
+// encabezado del binder (tamaño `sm`, §24.10), y así el binder no arrastra el índice entero.
+import { SetPlate } from './SetPlate';
 
 const SORTS: MasterSetSort[] = ['release_desc', 'completion_asc', 'pieces_desc'];
 const PAGE_SIZE = 20;
@@ -35,129 +38,6 @@ interface Props {
    * ningún anfitrión lo pase, ninguna teja está «actual», que es justo lo que dice §24.6.
    */
   currentSetId?: string;
-}
-
-// ===== DESIGN_SYSTEM §24.5 — el monograma (derivación de PRESENTACIÓN, no un dato) =====
-// Palabras que no aportan inicial. Se comparan en minúsculas.
-const MONOGRAM_STOP_WORDS = new Set(['and', 'of', 'the']);
-
-/**
- * Iniciales de las palabras significativas del nombre del set, mayúsculas, máximo 3:
- * `Surging Sparks` → `SS`, `Journey Together` → `JT`, `Scarlet & Violet` → `SV` (el `&` cae al
- * quedarse sin letras). Si salen menos de 2 caracteres (nombres numéricos como `151`), se usan los
- * 3 PRIMEROS caracteres del nombre.
- *
- * §24.5 «Regla de propiedad»: esto es una derivación del front (mismo estatuto que el mapa
- * rareza→grupo de §7.16a). No es un dato, no lo manda el backend y **da igual que dos sets
- * compartan iniciales**: el nombre completo va justo debajo (R2).
- */
-export function setMonogram(name: string): string {
-  const words = name
-    .split(/\s+/)
-    // Se limpia la puntuación (`Celebrations:` → `Celebrations`, `&` → ``) y lo que quede vacío cae.
-    .map((w) => w.replace(/[^\p{L}\p{N}]/gu, ''))
-    .filter((w) => w.length > 0 && !MONOGRAM_STOP_WORDS.has(w.toLowerCase()));
-  const initials = words.map((w) => w[0]).join('').toUpperCase();
-  if (initials.length >= 2) return initials.slice(0, 3);
-  return name.trim().slice(0, 3).toUpperCase();
-}
-
-/**
- * §24.2 — el CONTORNO DE SEGURIDAD. Dispositivo de LEGIBILIDAD, no de elevación (§4.3): offset 0,
- * radio 1px, color siempre `--color-on-ink`, y SOLO dentro de la placa. En un logo claro (el caso
- * común) es invisible; en un logo oscuro sin filete es lo único que lo salva sobre la tinta. Es
- * OBLIGATORIO (§24.12 nº11): funciona sin saber cuál es cuál, que es todo el punto.
- */
-const LOGO_SAFETY_OUTLINE =
-  'drop-shadow(0 0 1px var(--color-on-ink)) drop-shadow(0 0 1px var(--color-on-ink))';
-
-/**
- * §24.2/§24.3 — LA PLACA DE TINTA. Caja de tamaño fijo (`aspect-[3/2]`) idéntica para todos los
- * sets, radio 0, sin borde, con aire interior; el logo va `object-contain` (R1: nunca `cover`,
- * nunca estirado, nunca recortado) sobre `--color-ink`, también en tema claro (R3).
- *
- * El MONOGRAMA se pinta desde el primer frame y **se retira cuando la imagen carga** (no se
- * limita a quedar debajo: los PNG del proveedor tienen transparencia y se transparentaría a
- * través del logo). La placa nunca se ve vacía y **nunca pulsa** (R4). Un `animate-pulse` eterno
- * haría que un `logoUrl: null` —caso normal y permanente— pareciera una app colgada; es el
- * precedente literal de `CardImage`, que deja el pozo QUIETO cuando no hay `src`.
- *
- * ⚠️ La GEOMETRÍA de esta caja (que mida lo mismo con cualquier proporción de logo) **no la puede
- * verificar jsdom**: no hace layout ni carga imágenes. Su prueba vive en
- * `e2e/master-set-plate.spec.ts`, midiendo cajas reales en Chromium. Lo que sí se prueba en
- * vitest es la ESTRUCTURA que la hace posible (hijos absolutos, aire en la imagen).
- *
- * `onError` retira el `<img>` y deja el monograma: un 404 del CDN no deja a nadie esperando y
- * jamás se ve un icono de imagen rota (§24.5 nº3).
- *
- * A11y (§24.8): el logo es DECORATIVO (`alt=""` + `aria-hidden`) y el monograma también. El nombre
- * accesible de la teja lo dan el nombre visible + la meta, que ya están en el DOM dentro del
- * `<button>` — sin esto un lector anunciaría «logo de Surging Sparks, Surging Sparks».
- */
-function SetPlate({ name, logoUrl }: { name: string; logoUrl: string | null }) {
-  // Tres estados, no un booleano: `pending` (aún no llegó) · `loaded` (la imagen tapa al
-  // monograma) · `failed` (404/CDN caído ⇒ se retira el <img> y el monograma se queda).
-  const [state, setState] = useState<'pending' | 'loaded' | 'failed'>('pending');
-  const src = state === 'failed' ? null : logoUrl;
-  // §24.5: el monograma se pinta desde el primer frame y la imagen lo TAPA cuando llega. No basta
-  // con superponer: los logos del proveedor son PNG con transparencia y `object-contain` no pinta
-  // fondo, así que un monograma que sigue en el DOM se ve A TRAVÉS del logo, para siempre
-  // (bloqueante B-2 de QA). Se retira al `onLoad`, sin transición — un cross-fade mostraría las
-  // dos cosas superpuestas, que es justo lo que se está corrigiendo.
-  const showMonogram = !src || state !== 'loaded';
-  return (
-    // GEOMETRÍA (R1) — la caja es de tamaño FIJO y los dos hijos van ABSOLUTOS. Es la corrección
-    // del bloqueante B-1: con la <img> en FLUJO, `h-full` (height:100%) contra un padre cuya
-    // altura la fija `aspect-ratio` resuelve a `auto`, la imagen toma su proporción intrínseca y
-    // su alto pasa a ser el min-content del padre ⇒ el `aspect-[3/2]` queda ANULADO y la placa
-    // crece con cada logo (un logo cuadrado la hacía 180×180 en vez de 180×120), además de saltar
-    // de alto al cargar (CLS). Un hijo absoluto no contribuye al alto del padre, así que la placa
-    // mide lo mismo con logo apaisado, cuadrado, vertical o sin logo. `container-type:inline-size`
-    // refuerza esto (aísla el tamaño de la caja de su contenido) y, sobre todo, habilita las
-    // unidades `cqw` del monograma.
-    <div
-      data-testid="set-plate"
-      className="relative aspect-[3/2] w-full bg-ink [container-type:inline-size]"
-    >
-      {showMonogram && (
-        <span
-          data-testid="set-monogram"
-          aria-hidden="true"
-          // §24.5 pide el monograma PROPORCIONAL a la placa (≈28px a 167px de ancho, ≈44px a
-          // 280px ⇒ ≈16 % del ancho). Atarlo al breakpoint del VIEWPORT era el defecto I-2: en el
-          // cotizador la retícula vive en una columna estrecha, así que en `lg` la placa es MÁS
-          // pequeña que en móvil y un monograma fijo de 44px la desbordaba. `cqw` mide contra la
-          // PLACA, que es la caja de la que el tamaño depende de verdad.
-          className="absolute inset-0 flex items-center justify-center font-serif text-[16cqw] leading-none tracking-[0.06em] text-on-ink"
-        >
-          {setMonogram(name)}
-        </span>
-      )}
-      {src && (
-        // Nivel B (ARCHITECTURE §4.39.7): `<img>` crudo, sin next/image y sin `srcset` (no
-        // conocemos las dimensiones intrínsecas y el CDN sirve un solo tamaño).
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={src}
-          alt=""
-          aria-hidden="true"
-          // §24.7: `lazy` en TODAS, sin excepciones (`lazy` no retrasa lo que está en el viewport:
-          // la primera fila entra sola). PROHIBIDO `fetchpriority="high"` aquí — 20 imágenes
-          // compitiéndose el ancho de banda es lo contrario de lo que se busca.
-          loading="lazy"
-          decoding="async"
-          onLoad={() => setState('loaded')}
-          onError={() => setState('failed')}
-          // El aire interior (16/20/24px, §24.3) vive AQUÍ y no en el padre: para un hijo
-          // absoluto el bloque contenedor es la caja de relleno del padre, así que un `p-4`
-          // arriba no lo tocaría. Con `box-sizing:border-box`, `object-contain` encaja dentro
-          // de la caja de contenido ⇒ mismo aire, sin devolverle el alto a la imagen.
-          className="absolute inset-0 h-full w-full object-contain p-4 sm:p-5 lg:p-6"
-          style={{ filter: LOGO_SAFETY_OUTLINE }}
-        />
-      )}
-    </div>
-  );
 }
 
 /**
@@ -300,10 +180,13 @@ export function MasterSetIndex({ mode, userId, onOpenSet, currentSetId }: Props)
                   return (
                     <li key={s.setId}>
                       {/* §24.3 — la teja ya NO es una tarjeta: sin fondo, sin borde, sin sombra.
-                          Con la placa dentro, la tarjeta sería una caja alrededor de otra caja.
+                          Con el pozo dentro, la tarjeta sería una caja alrededor de otra caja.
                           El foco usa el anillo ESTÁNDAR del sistema (`:focus-visible` global:
-                          outline 2px + offset 2px), que cae POR FUERA, sobre papel — dibujarlo
-                          dentro de la placa sería rojo sobre tinta, 2,5:1 (§24.6, §24.9). */}
+                          outline 2px + offset 2px) y rodea la TEJA ENTERA. El comportamiento no
+                          cambia en v2.10, pero la razón sí: ya NO es contraste (rojo sobre el
+                          pozo claro es 5,9:1, perfectamente legible), es PATRÓN — hay un control
+                          por set, luego un anillo, y ninguno se dibuja dentro del pozo
+                          (§24.6, §24.9, §24.12 nº5). */}
                       <button
                         type="button"
                         onClick={() => onOpenSet(s)}
@@ -317,8 +200,10 @@ export function MasterSetIndex({ mode, userId, onOpenSet, currentSetId }: Props)
                         <div className="mt-3 flex flex-col gap-0.5">
                           <span className="flex flex-wrap items-baseline gap-x-2">
                             {/* §24.6 — hover: subrayado 1px en tinta. Seleccionado: 2px de acento
-                                (se distingue por GROSOR y color, no solo por color). La placa no
-                                cambia en hover: ni se aclara, ni escala, ni el logo crece. */}
+                                (se distingue por GROSOR y color, no solo por color). El pozo no
+                                cambia en hover: ni se aclara, ni escala, ni el logo crece — y en
+                                v2.10 tampoco PUEDE: `surface-2` YA es el tono de hover row del
+                                sistema, así que no queda escalón que usar sin inventar un tono. */}
                             <span
                               lang="en"
                               className={cn(

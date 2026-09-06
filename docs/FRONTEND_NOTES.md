@@ -10588,14 +10588,155 @@ Suites completas tras la corrección: **967 vitest verdes** · **20 E2E verdes**
 
 ---
 
-## §44 · v1.53 — El cotizador vuelve a comprar RAW y solo raw (contrato v1.53 §6, `ARCHITECTURE.md` §4.40) — 2026-09-06, rama `claude/buylist-graded-identity`
+## §44 · La placa de los logos deja la tinta y pasa al papel: el pozo, la repisa y el contorno girado (`DESIGN_SYSTEM.md` §24 v2.10, petición del dueño) — 2026-09-05, rama `claude/tcg-hunt-orchestrator-28p7z1`
+
+**Qué pidió el dueño y qué se ejecutó.** §24 v2.10 gira el acabado del hueco del logo del índice de sets:
+el fondo deja de ser la placa de tinta `#1A1A18` de v2.8 y pasa a **`--color-surface-2` `#EFEBE2`** (el
+pozo), aparece una **repisa** inferior, el contorno del logo **cambia de color** (papel → tinta) y **de dos
+pasadas a tres**, el monograma pasa de `on-ink` a **muted**, y el aire interior baja un escalón. **No se
+tocó ni un píxel de la geometría** (R1) ni del contrato ni de las claves i18n: §24.14 nº10 dice literalmente
+que si la geometría se movió, es un defecto — y se verificó midiéndola, no razonándola.
+
+### 44.1 Qué se tocó (cuatro pantallas, ningún anfitrión editado)
+
+| Archivo | Qué |
+|---|---|
+| `frontend/src/components/master-set/SetPlate.tsx` | **Nuevo.** El pozo (`SetPlate`) y `setMonogram` salen de `MasterSetIndex.tsx` a su propio módulo. Aquí vive todo el cambio de acabado. |
+| `frontend/src/components/master-set/MasterSetIndex.tsx` | Importa `SetPlate`; se actualizan los comentarios de §24.6 (el foco y el hover cambian de RAZÓN, no de comportamiento). |
+| `frontend/src/components/master-set/MasterSetBinder.tsx` | Monta el `SetPlate size="sm"` del encabezado (§24.10) — **salda DT-Ga**. |
+| `MasterSetIndexPlate.test.tsx` · `MasterSetBinder.test.tsx` · `e2e/master-set-plate.spec.ts` | Pruebas: acabado nuevo, pozo `sm`, y el spec de navegador ahora **mide colores computados** además de cajas. |
+
+Las **cuatro** superficies (`quoter`, `platform`, `user_vault_self`, `user_vault_admin`) reciben el cambio
+sin editarlas: todas montan el mismo `MasterSetIndex`.
+
+**Por qué el pozo se extrajo a su propio módulo** (y no se dejó exportado desde `MasterSetIndex`): el
+encabezado del binder lo necesita, y hacer que `MasterSetBinder` importara de `MasterSetIndex` le colgaba
+encima el índice entero —con sus cuatro llamadas a `@/lib/api`— para pintar una caja de 112×64. Con módulo
+propio, la dependencia va de los dos consumidores a la pieza, que es la dirección correcta. Es un
+**movimiento**, no una reescritura: el cuerpo del componente es el mismo salvo el acabado.
+
+### 44.2 Los valores, tal cual §24 los fija (no se negoció ninguno)
+
+- **Fondo:** `bg-surface-2` (`#EFEBE2`), radio 0, sin bordes laterales ni superior.
+- **Repisa:** `border-b border-border` (1px sólido `rgba(26,26,24,0.16)`), a ras y del ancho del pozo. Va en
+  **la misma caja** que el `aspect-[3/2]`: con `box-sizing: border-box` la relación de aspecto se aplica a
+  la caja de **borde**, así que la repisa **no añade 1px de alto** y la geometría de v2.8 queda intacta.
+  Verificado en Chromium, no deducido (el spec mide 3:2 con tolerancia 1px y sigue verde).
+- **Contorno:** `drop-shadow(0 0 1px var(--color-ink))` **× 3**. Está escrito como
+  `LOGO_OUTLINE_PASS` + `LOGO_OUTLINE_PASSES = 3` a propósito: §24.2.d dice que **la única palanca es el
+  número de pasadas (2–4)**, así que la palanca es una constante con nombre y el radio/color no son
+  editables sin tocar la cadena. Las pruebas afirman las tres pasadas **y** el rango 2–4.
+- **Monograma:** `text-muted` (`#6E695E`), serif, **sin contorno ni text-shadow** (§24.12 nº15).
+- **Aire interior:** `p-3 sm:p-4 lg:p-5` (12/16/20), y **8px** (`p-2`) en el pozo `sm`.
+- **Foco:** sin cambios de comportamiento — sigue rodeando la teja entera con el anillo estándar. Lo que
+  cambió es el comentario: ya no es «rojo sobre tinta da 2,5:1», es «un control por set ⇒ un anillo».
+- **Hover:** sigue resolviéndose en el nombre. Y ahora, además, **no podría ser de otra forma**:
+  `surface-2` ya **es** el tono de *hover row* del sistema, así que no queda escalón que usar.
+
+### 44.3 §24.10 — el pozo `sm` del binder (DT-Ga saldada)
+
+Se implementó porque el cambio resultó **local a la placa**: `PLATE_SIZE` gana la entrada `sm`
+(`aspect-[7/4] w-28`, `p-2`, **sin repisa**, `hidden sm:block`) y el encabezado del binder monta
+`<SetPlate size="sm" name={title} logoUrl={set.logoUrl} />` a la izquierda del `<h2>`, con `gap 16px`.
+Ni una prop de datos nueva, ni contrato, ni endpoint: `MasterSetBinder` ya recibía el
+`MasterSetSummaryDTO` entero. El pozo `sm` lleva **`data-testid="set-plate-sm"`** para que los specs del
+índice (que cuentan tejas por `set-plate`) no lo capturen nunca por accidente.
+
+**Matiz que queda anotado, no resuelto:** si se abre el binder por un **subset** de un master combinado, el
+título se canoniza al principal (`canonicalSetId`) pero el `logoUrl` sigue siendo el del DTO con el que se
+entró. `MasterSetBinderResponse.set` es un `SetRefDTO` y **no trae logo**, así que hoy no hay de dónde
+sacar el del principal. Impacto: en ese caso concreto el pozo puede pintar el logo del subset junto al
+nombre del principal — o su monograma, que se deriva del **título ya canonizado** y por tanto es correcto.
+No se inventa nada; si alguna vez molesta, es una petición al arquitecto (ver 44.6).
+
+### 44.4 Verificación — qué corrí y con qué resultado
+
+Todo esto corrió **en esta máquina**, no está razonado:
+
+| Comprobación | Resultado |
+|---|---|
+| `npm run typecheck` | limpio |
+| `npm run lint` | `✔ No ESLint warnings or errors` |
+| `npm test` (vitest, suite completa) | **977 pruebas / 103 archivos, todas verdes** |
+| `npx playwright test e2e/master-set-plate.spec.ts` (Chromium, build de producción + mocks) | **8 verdes** (5 de geometría, 3 nuevas de acabado) |
+
+**El spec de navegador se actualizó, no solo se dejó pasar.** Antes asumía placa de tinta; ahora sigue
+midiendo lo de siempre (R1: misma caja con logo apaisado/cuadrado/vertical/sin logo · cero CLS · monograma
+retirado en `onLoad` · 404 → monograma · monograma proporcional al pozo) **y además** lee estilos
+computados: fondo `rgb(239,235,226)` y **no** la tinta, repisa `1px solid rgba(26,26,24,0.16)`, cero borde
+en los otros tres lados, radio 0, `filter` con **tres** `drop-shadow(rgb(26,26,24) 0px 0px 1px)` y ningún
+filtro que transforme píxeles del tercero, y monograma en `rgb(110,105,94)` sin filtro ni sombra. Eso es lo
+que jsdom no puede dar: allí `var()` no se resuelve y no hay layout.
+
+### 44.5 Verificación por MUTACIÓN — cada una tiene que poner algo en rojo
+
+Cada mutación se aplicó sobre `SetPlate.tsx`, se corrieron las dos suites y se revirtió:
+
+| Mutación | vitest | Playwright | Mensaje que delata |
+|---|---|---|---|
+| **Devolver el fondo a tinta** (`bg-surface-2` → `bg-ink`) | 2 rojas | **1 roja** | `pozo 0: fondo` — esperado `rgb(239, 235, 226)`, recibido la tinta |
+| **Quitar la repisa** (`border-b border-border` fuera) | 1 roja | **1 roja** | `pozo 0: repisa` — esperado `1px solid rgba(26, 26, 24, 0.16)` |
+| **Quitar el contorno** (fuera el `filter`) | 2 rojas | **1 roja** | `logo 0: pasadas del contorno · none` |
+| **Quitar UNA pasada** (3 → 2) | 2 rojas | **1 roja** | `logo 0: pasadas del contorno · drop-shadow(...) drop-shadow(...)` (dos) |
+| **Devolver la `<img>` al flujo** (`h-full` y el aire al padre) | 2 rojas | **4 rojas** | `placa 1: 180×129 no es 3:2` · CLS · 404 · `estrecho: monograma 12.16px sobre placa 116px` |
+
+Ninguna mutación pasó desapercibida, y la del flujo sigue reventando por donde reventó el bloqueante B-1 de
+QA (R1), que era el punto de tener un spec que **mide** en vez de leer cadenas de clase.
+
+*(Detalle honesto del proceso: el primer intento de la mutación «quitar el contorno» dejó la constante sin
+usar y añadí un `eslint-disable` de una regla que este proyecto no carga ⇒ `next build` falló y Playwright
+no llegó a arrancar. Se repitió la mutación limpia —fuera el `filter` **y** las constantes— y ahí sí midió
+lo que tenía que medir. Lo cuento porque una mutación que no compila no es una mutación verificada.)*
+
+### 44.6 Lo que NO pude verificar aquí — y es justo lo que el dueño va a mirar
+
+**No hay verificación ocular.** No corrí un navegador con los logos reales del CDN ni saqué capturas: el
+harness sirve **SVG grises generados**, elegidos para forzar proporciones (apaisado/cuadrado/vertical), no
+para parecerse a un logo. Todo lo de arriba es **estructura y color computado**, no «se ve bien». §24.14
+nº1–4 (White Flare, Phantasmal Flames, Black Bolt, Mega Evolution, a 390 y 1440, con brillo bajo) **sigue
+pendiente y es del dueño / QA visual**. Estas son las dos observaciones que sí puedo aportar, y son
+**razonamiento sobre cómo compone `drop-shadow`**, no medición:
+
+1. **White Flare — la pérdida es real y era predecible.** El contorno traza el **canal alfa**, así que le
+   devuelve la **silueta**; pero el relleno blanco queda a ~1,09:1 del pozo y no hay nada en este
+   dispositivo que le dé cuerpo (el contorno no entra hacia dentro del glifo). Se leerá **al trazo**, como
+   letras huecas. §24.2.e ya lo llama «la pérdida segura» y lo acepta; lo confirmo desde el lado de la
+   implementación: no hay palanca dentro de §24 que lo mejore — subir pasadas engorda el **borde**, no el
+   interior, y subir el radio está prohibido (y lo empeoraría: mancharía el hueco).
+2. **Phantasmal Flames — el riesgo abierto es el más serio, y las tres pasadas ayudan menos de lo que
+   parece.** `drop-shadow` no dibuja un contorno geométrico: **desenfoca la máscara alfa y la pinta
+   detrás**. Con un alfa de borde duro, el desenfoque de 1px produce un anillo estrecho de alfa alta ⇒
+   filete. Con un alfa **degradado** (brillo/glow horneado) el resultado del desenfoque es **otro
+   degradado igual de suave**: componerlo tres veces sube su opacidad, pero **sigue siendo un halo, no una
+   línea** — y un halo de tinta bajo un logo claro sobre papel se lee como **suciedad/sombra**, que es
+   justo lo que §24.2.d quiere evitar. Consecuencia práctica: si al mirarlo queda lavado, **subir a 4
+   pasadas puede empeorarlo** (más mancha) en vez de mejorarlo. Yo escalaría al dueño con §24.2.e delante
+   antes de gastar la palanca. **No lo he visto; esto es cómo funciona el filtro, no un veredicto.**
+
+Tampoco pude medir **rendimiento en gama baja** (§24.14 nº16) ni el **peso real en bytes** (§24.14 nº5):
+aquí no hay CDN de terceros ni dispositivo lento.
+
+### 44.7 Deuda
+
+- **DT-Ga (pozo `sm` del binder): implementada.** Queda a quien corresponda cerrarla en `TECH_DEBT.md`;
+  este rol no escribe ese archivo sin petición del techlead.
+- **DT-Gb (`currentSetId` sin consumidor): sigue abierta e intacta.** Este pase no la cablea ni la retira;
+  ojo a su fecha de caducidad («dos pases sobre `components/master-set/`»): éste cuenta como uno.
+- **DT-Gc (el 16 % del monograma sin fijar en §24.5): sigue abierta.** v2.10 no la toca.
+- **DT-Gd (separar `CardSetDTO`): NO ejecutada**, sigue diferida por instrucción.
+- **Nada nuevo que registrar.** El único apunte de este pase es el del logo del subset en el encabezado
+  (44.3), y no es deuda de código: es un dato que el contrato no da y que hoy no molesta a nadie.
+
+---
+
+## §45 · v1.53 — El cotizador vuelve a comprar RAW y solo raw (contrato v1.53 §6, `ARCHITECTURE.md` §4.40) — 2026-09-06, rama `claude/buylist-graded-identity`
 
 > **Defecto de dinero SALIENTE vivo en producción.** No es un ajuste de UI: la pantalla ofrecía
 > comprar cartas graduadas sin preguntar nunca **qué grado** son, y el backend rellenaba el hueco con
 > `graded:PSA:10` —el grado **más caro** que existe—. O sea: el cotizador prometía el precio de un
 > PSA 10 por un PSA 6. Encargo del arquitecto en §4.40.9, fila **frontend**.
 
-### 44.1 Qué se retiró, y por qué NO fue una decisión de diseño mía
+### 45.1 Qué se retiró, y por qué NO fue una decisión de diseño mía
 
 `BuylistView.tsx:57` declaraba `const PRODUCT_TYPES: ProductType[] = ['raw', 'graded', 'sealed']` y
 el `<Select>` de `:512` los servía los tres. **La fuente que manda dice que esa superficie nunca
@@ -10622,7 +10763,7 @@ querer comprar graduadas —§4.40.6 lo deja como pregunta abierta— pero eso e
 nueva** que arranca con `product-owner` cambiando `PROJECT.md`, con su migración (`M-49`, reservada
 y no programada). Aquí se cierra la puerta; abrirla bien viene después.
 
-### 44.2 Las ramas muertas que cayeron con el selector (y las que NO se tocaron)
+### 45.2 Las ramas muertas que cayeron con el selector (y las que NO se tocaron)
 
 Con `productType` fijo en `'raw'`, todo lo que colgaba de `productType !== 'raw'` quedó inalcanzable.
 Se retiró **entero**, no comentado:
@@ -10648,7 +10789,7 @@ Efecto secundario que sí es una mejora: la identidad de línea del carrito (`us
 queda con la **misma firma** que el binder ya declaraba (`(cardId, finish, productId?)`), así que
 desapareció el adaptador `isInCartRaw`.
 
-### 44.3 Tipos: el compilador cierra la puerta, pero la autoridad es el servidor
+### 45.3 Tipos: el compilador cierra la puerta, pero la autoridad es el servidor
 
 `frontend/src/types/contract.ts` (y sus dos espejos en `lib/api.ts` y `BuylistKycForm.tsx`):
 
@@ -10665,7 +10806,7 @@ Dicho sin adornarlo: **esto no es la guarda.** El endpoint es público y anónim
 cualquier tipo de TypeScript. La guarda que decide dinero es la server-side (`422 BUYLIST_RAW_ONLY`,
 SEC-A1). Lo del front es (a) que la UI deje de ofrecerlo y (b) que un descuido no lo reintroduzca.
 
-### 44.4 `BUYLIST_RAW_ONLY` es un error **POR ÍTEM**, y eso decidió dónde ponerlo
+### 45.4 `BUYLIST_RAW_ONLY` es un error **POR ÍTEM**, y eso decidió dónde ponerlo
 
 El contrato §6 lo pone en la lista de errores por-ítem del batch **a propósito** (§4.40.3.3): un lote
 de 50 con **una** línea no-raw debe devolver `200` con esa línea `ok:false` y **las otras 49
@@ -10687,7 +10828,7 @@ Implementación:
 pestaña abierta desde antes del deploy, sí puede recibirlo. La alternativa —no mapearlo— es enseñar
 un texto en inglés crudo del servidor justo en la pantalla del dinero.
 
-### 44.5 Los mocks espejan la guarda del servidor, no el tipo del cliente
+### 45.5 Los mocks espejan la guarda del servidor, no el tipo del cliente
 
 `lib/api.ts` es el servidor del modo mock (y del build que corre la suite E2E). `mockResolveQuoteItem`
 recibe `productType?: string` **a propósito** —no `'raw'`— para poder rechazar un payload fuera de
@@ -10701,7 +10842,7 @@ tipo, igual que el backend rechaza un `curl`:
 Si el mock heredara el tipo estrecho, el modo mock afirmaría que la guarda existe **sin tener
 ninguna**, que es la clase de falso verde que ya nos costó una ronda en §43.
 
-### 44.6 i18n: 22 entradas de `buylist.` borradas (24 hojas), 2 añadidas
+### 45.6 i18n: 22 entradas de `buylist.` borradas (24 hojas), 2 añadidas
 
 Se fueron con su código: `selectType`, `productType.{raw,graded,sealed}`, `filterBySet`, `allSets`,
 `searchCards`, `searchPlaceholder`, `searchAction`, `searchResults`, `noResults`, `searchHint`,
@@ -10711,16 +10852,16 @@ Se fueron con su código: `selectType`, `productType.{raw,graded,sealed}`, `filt
 `masterSet.separateProductErrorCode.BUYLIST_RAW_ONLY`. ES y EN en paridad
 (`src/lib/i18n-parity.test.ts` lo exige).
 
-> ⚠️ **Esta afirmación fue FALSA hasta §44.10, y conviene que quede escrito.** En el pase original
+> ⚠️ **Esta afirmación fue FALSA hasta §45.10, y conviene que quede escrito.** En el pase original
 > solo entró **una** de las dos claves: la de nivel-request se pegó dentro de
 > `masterSet.separateProductErrorCode`, de modo que ese objeto tenía **dos claves con el mismo
 > nombre** y `error.BUYLIST_RAW_ONLY` **no existía en ningún idioma**. El documento aseguraba un
-> hecho que el código no tenía. Corregido en §44.10; la frase de arriba ya es cierta.
+> hecho que el código no tenía. Corregido en §45.10; la frase de arriba ya es cierta.
 
 Cuidado a la vista: `admin.m1.filterBySet` / `admin.m1.searchCards` / `catalog.searchPlaceholder` son
 claves **distintas** con el mismo nombre de hoja en otro namespace — no se tocaron.
 
-### 44.7 Pruebas: el candado, no el registro del cambio
+### 45.7 Pruebas: el candado, no el registro del cambio
 
 Los 6 casos del bloque `graded/sealed (grid plano…)` de `BuylistView.test.tsx` describían una
 superficie que ya no existe. **No se «arreglaron»: se sustituyeron** por 4 que fallan si alguien la
@@ -10750,7 +10891,7 @@ por encima del **tope AML** y la UI exige INE antes de confirmar — el smoke qu
 no pelearse con un control de lavado de dinero. Si el set no tuviera ninguna cotizada, cae a la
 primera teja habilitada (pendiente es money-safe: lo fija la plataforma al recibir).
 
-### 44.8 Verificación
+### 45.8 Verificación
 
 | Comando | Resultado |
 |---|---|
@@ -10784,7 +10925,7 @@ primera teja habilitada (pendiente es money-safe: lo fija la plataforma al recib
 >    `.next` con ESTE código** o medirá lo de la otra rama — es la misma lección de §43, ahora en
 >    `.next` en vez de `.next-e2e-mock`.
 
-### 44.10 La clave duplicada: por qué 965 pruebas verdes no la vieron (condición del techlead)
+### 45.10 La clave duplicada: por qué 965 pruebas verdes no la vieron (condición del techlead)
 
 **El defecto.** `messages/{es,en}.json` tenían esto, idéntico en los dos idiomas:
 
@@ -10793,7 +10934,7 @@ primera teja habilitada (pendiente es money-safe: lo fija la plataforma al recib
     "BUYLIST_RAW_ONLY": "Solo compramos cartas sueltas (raw) en Near Mint; …",
 ```
 
-Dos claves con el mismo nombre **en el mismo objeto**. La segunda —la que §44.4 destinaba a
+Dos claves con el mismo nombre **en el mismo objeto**. La segunda —la que §45.4 destinaba a
 `error.BUYLIST_RAW_ONLY`, nivel request— se quedó dentro de `masterSet.separateProductErrorCode`.
 Resultado: `error.BUYLIST_RAW_ONLY` **no existía en ningún idioma**.
 
@@ -10803,7 +10944,7 @@ Resultado: `error.BUYLIST_RAW_ONLY` **no existía en ningún idioma**.
    (`components/ui/QueryState.tsx`: si no hay `error.<CODE>`, devuelve `apiError.message`) y pintaba
    el **texto EN crudo del servidor**. En modo mock es peor: `lib/api.ts:1372` manda
    `message: res.code`, así que se renderizaba **el literal `BUYLIST_RAW_ONLY`**. Es exactamente lo
-   que §44.4 dice que la clave se añadió para evitar.
+   que §45.4 dice que la clave se añadió para evitar.
 2. En un duplicado **gana la última**, así que la teja de producto separado pintaba la frase larga
    en el caption de `text-[10px]` de `MasterSetBinder.tsx:1013`, en vez de la corta escrita para ese
    hueco.
@@ -10866,13 +11007,13 @@ una, restaurando el árbol después de cada mutación:
 | Reintroducir la clave duplicada tal cual estaba | 🔴 2 rojas, señalando la ruta `masterSet.separateProductErrorCode.BUYLIST_RAW_ONLY` |
 | Reformatear la unión para que la extracción no la vea | 🔴 1 roja (anti-vacuidad) |
 
-### 44.9 Alcance de este pase
+### 45.9 Alcance de este pase
 
 **Tocado:** `frontend/src/app/[locale]/(storefront)/buylist/{BuylistView.tsx, BuylistView.test.tsx,
 useSellCart.ts}`, `frontend/src/components/domain/BuylistKycForm.tsx`,
 `frontend/src/components/master-set/MasterSet.test.tsx` (una prueba nueva),
 `frontend/src/types/contract.ts`, `frontend/src/lib/api.ts`, `frontend/messages/{es,en}.json`,
-`frontend/e2e/buylist.spec.ts`, y este documento. **§44.10 añade** `frontend/src/lib/i18n-parity.test.ts`
+`frontend/e2e/buylist.spec.ts`, y este documento. **§45.10 añade** `frontend/src/lib/i18n-parity.test.ts`
 (tres candados nuevos + las pruebas del propio escáner).
 
 **No tocado:** `backend/` (la guarda server-side y el retiro del default `?? 'PSA' / ?? '10'` son de

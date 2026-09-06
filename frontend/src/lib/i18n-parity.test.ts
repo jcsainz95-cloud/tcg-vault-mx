@@ -215,7 +215,7 @@ describe('status-map ↔ i18n coverage', () => {
  * ─────────────────────────────────────────────────────────────────────────────
  * P-55 — LA CLASE QUE FALLÓ: paridad ≠ existencia.
  *
- * Qué pasó: `error.BUYLIST_RAW_ONLY` se documentó como añadida (FRONTEND_NOTES §44.4/§44.6) pero
+ * Qué pasó: `error.BUYLIST_RAW_ONLY` se documentó como añadida (FRONTEND_NOTES §45.4/§45.6) pero
  * NUNCA existió. La cadena de nivel-request se pegó DENTRO de
  * `masterSet.separateProductErrorCode`, dejando **dos claves con el mismo nombre en el mismo
  * objeto**. Efecto en la pantalla del dinero: el `422` de `POST /buylist/requests` caía al

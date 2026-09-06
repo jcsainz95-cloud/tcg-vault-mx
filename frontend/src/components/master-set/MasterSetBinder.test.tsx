@@ -278,3 +278,51 @@ describe('MasterSetBinder · badge de bounty rebasado (P-48, §21.9c)', () => {
     expect(within(tile).getByText('MX$950.00')).toBeInTheDocument();
   });
 });
+
+/**
+ * DESIGN_SYSTEM §24.10 (deuda DT-Ga, saldada en el pase de v2.10). El «destacado» de la referencia
+ * no va arriba del índice —allí no hay set actual: en cuanto eliges, te vas— sino aquí, como
+ * confirmación de lo elegido. Estas pruebas defienden el CABLEADO (que el encabezado lo monta, con
+ * qué datos y sin robarle el nombre accesible al título); el acabado del pozo lo cubre
+ * `MasterSetIndexPlate.test.tsx` y su geometría, Chromium.
+ */
+describe('MasterSetBinder · §24.10 el pozo del set en el encabezado', () => {
+  beforeEach(() => {
+    vi.mocked(getMasterSetBinder).mockReset();
+    vi.mocked(getMasterSetBinder).mockResolvedValue(response);
+  });
+
+  it('monta el `SetPlate sm` junto al título, alimentado con el `logoUrl` del set (sin dato nuevo ni prop nueva)', async () => {
+    renderWithProviders(
+      <MasterSetBinder
+        mode="platform"
+        set={{ ...set, logoUrl: 'https://images.pokemontcg.io/sv8/logo.png' }}
+        onBack={() => {}}
+        onOpenCell={() => {}}
+      />,
+    );
+
+    await screen.findAllByText('Spinarak');
+    const plate = screen.getByTestId('set-plate-sm');
+    // El logo sale del DTO que el anfitrión ya pasa. ⛔ Nunca de una plantilla sobre el setId.
+    expect(plate.querySelector('img')).toHaveAttribute(
+      'src',
+      'https://images.pokemontcg.io/sv8/logo.png',
+    );
+    // §24.10/§24.8: decorativo — el nombre accesible es el título, que sigue en el DOM.
+    expect(plate.querySelector('img')).toHaveAttribute('alt', '');
+    expect(plate.querySelector('img')).toHaveAttribute('aria-hidden', 'true');
+    expect(screen.getByRole('heading', { name: 'Surging Sparks' })).toBeInTheDocument();
+  });
+
+  it('sin logo el encabezado pinta el monograma, nunca un hueco (R4)', async () => {
+    renderWithProviders(
+      <MasterSetBinder mode="platform" set={set} onBack={() => {}} onOpenCell={() => {}} />,
+    );
+
+    await screen.findAllByText('Spinarak');
+    const plate = screen.getByTestId('set-plate-sm');
+    expect(plate.querySelector('img')).toBeNull();
+    expect(within(plate).getByTestId('set-monogram')).toHaveTextContent('SS');
+  });
+});
