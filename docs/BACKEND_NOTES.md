@@ -257,10 +257,24 @@ y con eso el backstop del `!paid` también veía la fila vieja y respondía *«e
 falso verde que escondía justo el lector que había que probar** (L4). *Un arnés que miente sobre el
 orden de las lecturas prueba otra cosa.*
 
-**PoC reproducido de punta a punta contra Postgres real** en `test/integration/buylist-cycle.e2e-spec.ts`
-(18)-(21): `verify` sobre una solicitud viva nunca recibida sigue dando `200` (**eje 2-b, abierto**),
-`isPayable` sale **`false`**, `pay-spei` da **422** y la fila queda **sin `paidAt`, sin `speiReference`,
-sin `payoutNetCents` y sin `closedAt`**; y **(21) el remedio**: `receive` → `verify` → **paga**.
+**Los CINCO asserts normativos de §M5-P, cubiertos y mapeados** (`test/integration/buylist-cycle.e2e-spec.ts`
+(18)-(21), contra Postgres real):
+
+| Assert §M5-P | Dónde |
+|---|---|
+| 1 · desde una **`ofertada`** (el PoC de **seguridad**) ⇒ `isPayable: false` | **(18-bis)** — hace la oferta de verdad y comprueba `acceptedAt`/`receivedAt` nulos antes de verificar |
+| 2 · misma fila → `pay-spei` ⇒ `422` y **cero escritura** | (18-bis) y **(20)** — `paidAt`, `speiReference`, `payoutNetCents` y `closedAt` intactos |
+| 3 · desde una **`cotizada`** recién creada (el PoC de **QA**) | **(18)**-(20) |
+| 4 · **camino feliz intacto**: `receive` → `verify` → `pay-spei` **paga** | **(21)**, más (11)/(13) del recorrido completo, más la cadena unitaria |
+| 5 · **paridad predicado ↔ `where`** sobre todo el enum × `receivedAt` × `verifiedAt` | `buylist.is-payable-live.spec.ts` y `m5p-received-guard.spec.ts` (dos formas de leer el `where`) |
+
+⚠️ **(18) y (18-bis) NO son el mismo test aunque converjan.** Los dos PoC parten de estados distintos y
+acaban en la misma fila post-`verify` —que es justamente por lo que el término correcto es un **hecho**
+(`receivedAt`) y no un estado de origen—, pero *un test que asume la convergencia no la prueba*, y el
+contrato exige los dos. Se dejan los dos.
+
+Y **(18) fija también el residual**: `verify` sobre una solicitud viva nunca recibida **sigue dando
+`200`** (**eje 2-b, abierto y normado**).
 
 **El camino feliz, que es el assert que el contrato subraya** (*sin él, los tres anteriores los pasa
 igual un endpoint que no paga nunca*): cubierto **dos veces** — unitario encadenando los tres verbos

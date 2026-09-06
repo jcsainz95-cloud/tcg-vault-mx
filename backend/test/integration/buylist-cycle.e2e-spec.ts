@@ -728,6 +728,44 @@ describe('E2E — Ciclo de adquisición del buylist (§6 · §M5)', () => {
         expect(row!.receivedAt).toBeNull();
       });
 
+      it('(18-bis) ⚠️ EL PoC DE SEGURIDAD, LITERAL: desde una `ofertada` — el mismo `false`, el mismo `422`', async () => {
+        // §M5-P assert 1. (18) reproduce el PoC de **QA** (desde una `cotizada` recién creada); éste
+        // reproduce el de **seguridad**, que partió de una **`ofertada`** (`acceptedAt = null`,
+        // `receivedAt = null`) y liquidó **MX$320 reales**. Los dos caminos convergen en la misma
+        // fila post-`verify`, y por eso el término es un **hecho** y no un estado de origen — pero el
+        // contrato exige los dos asserts, y un test que asume la convergencia no la prueba.
+        const creada = await createRequest(validBody());
+        expect(creada.status).toBe(201); // el ÚNICO 201 del ciclo: crear la SellRequest (§M5-C)
+        const id = creada.body.sellRequestId;
+        const item = await h.prisma.sellRequestItem.findFirst({ where: { sellRequestId: id } });
+
+        const oferta = await h.api('POST', `/admin/buylist/${id}/offer`, {
+          token: operatorToken,
+          json: { lines: [{ itemId: item!.id, decision: 'buy' }] },
+        });
+        expect(oferta.status).toBe(200);
+        const ofertada = await h.prisma.sellRequest.findUnique({ where: { id } });
+        expect(ofertada!.status).toBe('ofertada');
+        expect(ofertada!.acceptedAt).toBeNull();
+        expect(ofertada!.receivedAt).toBeNull();
+
+        // El paso del PoC: `vault_operator` verifica una solicitud que el vendedor ni siquiera aceptó.
+        const ver = await h.api('POST', `/admin/buylist/${id}/verify`, { token: operatorToken });
+        expect(ver.status).toBe(200);
+        expect(ver.body.isPayable).toBe(false); // ⚠️ assert 1 de §M5-P
+
+        const pago = await h.api('POST', `/admin/buylist/${id}/pay-spei`, {
+          token: adminToken,
+          json: { speiReference: 'SPEI-EJE2-OFERTADA' },
+        });
+        expect(pago.status).toBe(422);
+        const row = await h.prisma.sellRequest.findUnique({ where: { id } });
+        expect(row!.paidAt).toBeNull();
+        expect(row!.speiReference).toBeNull();
+        expect(row!.payoutNetCents).toBeNull();
+        expect(row!.closedAt).toBeNull();
+      });
+
       it('(19) ⚠️ LA SEÑAL DEJA DE MENTIR: `isPayable` es `false` sobre la fila nunca recibida', async () => {
         // `isPayable` **gobierna el botón de pagar en M5**. Arreglar la guarda y no la señal dejaría
         // al súper-admin autorizando con la pantalla diciéndole que la carta llegó.
