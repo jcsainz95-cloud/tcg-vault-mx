@@ -2,7 +2,55 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-06 (rev **v1.54**).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-06 (rev **v1.55**).
+>
+> **Changelog v1.55 — LOS DOS CONFLICTOS QUE QA ENRUTÓ AL ARQUITECTO POR LA REGLA 9 (2026-09-06, arquitecto;
+> **CERO endpoints, CERO campos de DTO, CERO códigos de error nuevos, CERO cambios de shape**. UNA columna nueva en
+> `M-46` que **no asoma al contrato**. ARCHITECTURE rev **v1.55**):**
+> ⚠️ **Los dos hallazgos son de ESTE documento, no del código.** Backend implementó lo que aquí estaba escrito; QA los
+> enrutó al arquitecto **correctamente** (regla 9 de `CLAUDE.md`). **Uno lo cierro yo; el otro no puedo cerrarlo yo.**
+>
+> **A. D44 — `lastOfferCancelledAt` SE DISCRIMINA POR OFERTA, NO POR SOLICITUD. El DTO no cambia; la fuente sí.**
+> La regla de proyección de v1.51.4 (**§6/D42**) usa **`offerSentAt IS NOT NULL`**, que es **marca permanente de la
+> SOLICITUD** (BL-28: *«ninguna ruta lo limpia jamás»*). A partir de la **segunda** cancelación ya no contesta la
+> pregunta que se le hizo. QA lo midió en la corrida conjunta que exige el criterio **176(d)**: con una oferta
+> **enviada-y-cancelada** previa, cancelar una **`pending_authorization`** deja **el correo bien** ✔ y **el reloj
+> bien** ✔ y **el portal pintando una fecha de cancelación que el vendedor nunca supo**, **que contradice su correo
+> 5** ✘. *Dos consecuencias del mismo hecho aguantaron; la tercera se soltó — que es justo lo que 176(d) manda cazar.*
+> - ⚠️ **El VALOR también estaba mal, y por eso el arreglo obvio no sirve:** `offerCancelledAt` **se sobrescribe** en
+>   las tres ramas (`sent`, `pending_authorization` y la anulación del barrido) ⇒ *«la cancelación que él vio»*
+>   **deja de existir en la fila**. Cambiar solo el discriminador a `offerReissueCount > 0` **abre la puerta correcta
+>   y sigue pintando la fecha equivocada**.
+> - **Norma nueva (§6/D42, reescrita abajo):** la fuente pasa a ser **`SellRequest.offerSentCancelledAt`** (`M-46`,
+>   columna nueva), escrita por **el mismo `if`** que ya escribe el reloj (D38), el conteo (`offerReissueCount`) y el
+>   **correo 5**. **La proyección colapsa a UN término de oferta.**
+> - ⚠️ **`lastOfferCancelledAt` NO CAMBIA: mismo nombre, mismo tipo (`string | null`), misma superficie (solo el
+>   detalle), misma frase habilitada, misma tabla de minimización.** **Frontend no toca nada** — se dice explícito
+>   porque está trabajando en paralelo. *Cambia de dónde sale el dato, no qué lee el vendedor.*
+>
+> **B. ⏸️ LA VALIDACIÓN CRUZADA DE M10 PIERDE EL `✅ VIGENTE`: CONTRADICE A `PROJECT.md`.**
+> El tercer término de D34 —**`buylistShippingFeeCents + buylistMinimumOfferNetCents ≤ buylistMinimumRequestCents`**,
+> declarado aquí en el punto **(A)** de v1.51.2 y en **§M10**— choca con el criterio **127** (`tarifa = MX$499` con
+> mínimo 500 ⇒ *«**guarda**»*; *«**no existe** en M10 ninguna validación cruzada que involucre al neto mínimo»*) y con
+> el **167(d)** (*«la pantalla guarda MX$200 **sin validarlo contra nada**»*). **Manda `PROJECT.md`.**
+> - **`settings.constants.ts:683-702` NO es un defecto de backend: implementa este contrato.** Es el segundo ejemplar
+>   de `D-BG-5` y, por segunda vez, **el que estaba mal es el contrato**.
+> - **No lo ratifico yo.** `PROJECT.md` es del **product-owner** y lo aprueba el **humano**. La cláusula queda
+>   **`⏸️ EN CONFLICTO`** con dueño; **ARCHITECTURE §4.39(l.1)** deja **las dos salidas con su coste** y el **redline
+>   exacto** de 127/167(d) para que el PO no tenga que reconstruirlo. **Recomendación: ratificar** — la prohibición
+>   del 127 es **más ancha que su propia razón** (*«M10 no ve el recorte»* descarta validar **una oferta**, no la
+>   **combinación de diales**, que M10 sí ve).
+> - ⚠️ **Entretanto NADA cambia en el código ni en `details.rule`.** `buylist_fee_plus_min_net_le_min_request` **sigue
+>   siendo el nombre que QA debe asertar** hasta que el humano decida. La guarda implementada es **la más estricta**,
+>   con los defaults **no dispara** (`38000 ≤ 50000`) y el desacuerdo **exige configurar mal tres diales**. *Es un
+>   guardarraíl de misconfiguración, no una fuga viva* — y por eso se puede esperar la ratificación en vez de
+>   improvisarla. **QA: el cuarto intento del criterio 127 va a fallar y es CORRECTO que falle** (`BL-32`, §9).
+>
+> **C. Lo que NO toca este pase, dicho para que nadie lo dé por abierto.** Sigue vigente **entero** todo lo de v1.54 y
+> anteriores. **Ningún endpoint, ningún dial, ningún monto, ningún correo, ninguna regla del barrido, ningún código de
+> error y ningún shape de DTO cambian.** La mitad `sealed` del desacuerdo entre puertos **se cierra sin tocar el
+> contrato**: `VariantPositionRef` **no gana `sealedProductId`** (ARCHITECTURE §4.39f.2) — es un puerto **interno**
+> backend↔backend y **nunca fue superficie de este documento**.
 >
 > **Changelog v1.54 — LA FUSIÓN DE LAS DOS LÍNEAS, EN SU SEGUNDA VUELTA (2026-09-06, arquitecto; **CERO endpoints,
 > CERO campos, CERO montos, CERO códigos de error nuevos, CERO DDL, CERO cambios de conducta**. TRES renumeraciones
@@ -954,9 +1002,10 @@
 >
 > **B. D42 — `GET /buylist/requests/:id` gana `lastOfferCancelledAt: string | null`. CERO DDL.**
 > - Tras cancelar, el portal se quedaba **mudo** y **contradecía al correo**. Ahora dice *qué pasó y cuándo*.
-> - Presente **solo** con `closedAt IS NULL ∧ status='cotizada' ∧ offerSentAt IS NOT NULL ∧ offerCancelledAt IS NOT
+> - ~~Presente **solo** con `closedAt IS NULL ∧ status='cotizada' ∧ offerSentAt IS NOT NULL ∧ offerCancelledAt IS NOT
 >   NULL`. **⚠️ El término `offerSentAt IS NOT NULL` es el que impide contarle una oferta `pending_authorization` que
->   NUNCA supo que existía.**
+>   NUNCA supo que existía.**~~ ⏸️ **SUPERSEDED por D44 (v1.55):** el término era **por solicitud** y el valor se
+>   **sobrescribía** ⇒ a la segunda cancelación el portal contradecía al correo 5. Regla vigente y su porqué, en §6.
 > - **Minimización:** **NO** viajan el motivo interno, **NO** los montos cancelados, **NO** cuántas veces.
 >
 > **C. ⚠️ CIERRE `no_offer`: los MONTOS dejan de viajar al cliente. Es REGLA DE PROYECCIÓN, no pintado.**
@@ -1101,6 +1150,11 @@
 >   ofertar**. **Sustituye** a la de v1.51.1 (la implica), sigue **BLOQUEANTE**, ahora en **TRES sentidos** y sobre el
 >   **estado resultante**. ⚠️ **`details.rule` cambia de nombre otra vez** →
 >   **`buylist_fee_plus_min_net_le_min_request`**.
+>   > ⏸️ **v1.55 — ESTA CLÁUSULA PIERDE EL `✅ VIGENTE`: CONTRADICE `PROJECT.md` 127 y 167(d).** No es defecto de
+>   > backend —`settings.constants.ts` implementa esto— sino **contrato × `PROJECT.md`**, y manda `PROJECT.md`. La
+>   > ratificación la pide el **product-owner**; las dos salidas, su coste y el redline exacto están en ARCHITECTURE
+>   > **§4.39(l.1)**; el registro con dueño, en **§9 `BL-32`**. **Hasta que el humano decida no cambia nada**: el
+>   > `details.rule` sigue siendo `buylist_fee_plus_min_net_le_min_request` y **es el que QA debe asertar**.
 > - **⚠️ FRONTERA MONEY-SAFE: el piso gobierna la EMISIÓN, JAMÁS el pago.** `payoutNetCents` **no tiene piso** más que
 >   el cero: un rechazo parcial que deje $40 (o $0) **se paga igual** (criterios 140/152). **Ninguna ruta** puede usar
 >   este dial para retener un SPEI.
@@ -6880,20 +6934,58 @@ Err:
 > - **`lastOfferCancelledAt: string | null`** (ISO). **Regla de proyección NORMATIVA — no es `offerCancelledAt` tal
 >   cual:**
 >   ```
+>   ⛔ v1.51.4 — SUPERSEDED por D44 (v1.55). Se conserva porque el contrato no borra reglas publicadas:
 >   lastOfferCancelledAt = offerCancelledAt  ⇔  closedAt         IS NULL      // la solicitud sigue VIVA
 >                                            ∧  status           = 'cotizada' // volvió a la fila
 >                                            ∧  offerSentAt      IS NOT NULL  // ⚠️ hubo una oferta que él VIO
 >                                            ∧  offerCancelledAt IS NOT NULL
 >                                          ;  null en cualquier otro caso
 >   ```
-> - **⚠️ El término que hace todo el trabajo es `offerSentAt IS NOT NULL`.** `offerCancelledAt` **también** se sella al
->   cancelar una **`pending_authorization`** y cuando el barrido anula la oferta al caducar. Sin ese término el portal
->   diría *«te mandamos una oferta y la cancelamos»* **sobre una oferta que NUNCA EXISTIÓ para él** — la misma fuga que
->   `offerState` es admin-only para impedir. **Funciona porque `offerSentAt` NO se limpia al cancelar** (decisión
->   deliberada de ARCHITECTURE §4.39i.6, que lo usa como discriminador del ciclo).
-> - **No hay columna nueva.** Una `lastOfferCancelledAt` en el schema sería **duplicado exacto** de `offerCancelledAt`
->   en la rama `sent` — el mismo error que D39 rechazó con `declinedAt` vs `closedAt`. **El nombre del campo del DTO ≠
->   el de la columna, y está bien:** el DTO nombra **lo que el vendedor lee**; la columna nombra **el hecho**.
+> - ~~**⚠️ El término que hace todo el trabajo es `offerSentAt IS NOT NULL`.**~~ ⛔ **v1.55/D44 — FALSO A PARTIR DE LA
+>   SEGUNDA CANCELACIÓN.** El *razonamiento* sigue siendo correcto (una `pending_authorization` cancelada **no puede**
+>   pintar nada, y ésa es la fuga que `offerState` es admin-only para impedir); lo que falla es que **`offerSentAt` no
+>   contesta esa pregunta**: contesta *«¿esta SOLICITUD entró al ciclo?»* —marca **permanente**, BL-28— y no *«¿la
+>   oferta que acabo de cancelar había llegado a sus manos?»*.
+> - ~~**No hay columna nueva.** Una `lastOfferCancelledAt` en el schema sería **duplicado exacto** de
+>   `offerCancelledAt` en la rama `sent`…~~ ⛔ **RETIRADO (D44): la premisa era falsa.** **No es duplicado: es el dato
+>   que se pierde.** `offerCancelledAt` **se sobrescribe** en cada cancelación —las **dos** ramas y **también** la
+>   anulación del barrido— así que el instante que el vendedor conoce **desaparece de la fila** en cuanto hay una
+>   segunda. *La frase que sí sobrevive entera —y es la que ahora obliga a la columna— es la otra: **el DTO nombra lo
+>   que el vendedor lee; la columna nombra el hecho**. Lo que faltaba era una columna que nombrara **ese** hecho.*
+>
+> **⚠️ v1.55 (D44) — REGLA DE PROYECCIÓN VIGENTE. Un solo término de oferta, y cuelga del mismo `if` que el correo.**
+> **El defecto que cierra, medido por QA en la corrida conjunta del criterio 176(d):** con una oferta **enviada y
+> cancelada** previa, cancelar después una **`pending_authorization`** dejaba **el correo bien** (no sale) ✔, **el
+> reloj bien** (no se mueve) ✔ y **el portal pintando la fecha de la segunda cancelación** ✘ — una fecha **que el
+> vendedor nunca supo** y que **contradice la de su correo 5**. `PROJECT.md` §E exige lo contrario con todas sus
+> letras: *«un solo hecho —¿le llegó o no le llegó?— gobierna las TRES (correo, reloj y pantalla), así que no pueden
+> desincronizarse»*. **Hasta v1.54 el correo y el reloj colgaban del mismo `if` y la pantalla colgaba de otra columna:
+> la propiedad se sostenía por coincidencia.**
+> ```
+> // ARCHITECTURE §4.39(s.1-bis). M-46 gana SellRequest.offerSentCancelledAt DateTime? (nullable, sin backfill).
+> POST …/offer/cancel, rama offerState == 'sent'  ⇒  offerIssueClockStartedAt = now()   // D38   · reloj
+>                                                    offerReissueCount        += 1      // (u)   · alerta admin
+>                                                    offerSentCancelledAt     = now()   // D44   · PANTALLA
+>                                                    + correo 5                         // (n)   · bandeja
+> rama 'pending_authorization' y anulación del barrido  ⇒  ninguno de los cuatro
+>
+> lastOfferCancelledAt = offerSentCancelledAt  ⇔  closedAt             IS NULL      // la solicitud sigue VIVA
+>                                              ∧  status               = 'cotizada' // volvió a la fila
+>                                              ∧  offerSentCancelledAt IS NOT NULL  // ⚠️ ÚNICO término de oferta
+>                                            ;  null en cualquier otro caso
+> ```
+> - **⚠️ Las TRES consecuencias de 176(d) pasan a ser CUATRO efectos de UN predicado**, sellados con **el mismo
+>   `now()` en la misma transacción**. *«No pueden desincronizarse»* deja de ser una afirmación y vuelve a ser una
+>   propiedad estructural. **Invariante que QA asevera con una query:**
+>   `offerReissueCount > 0 ⇔ offerIssueClockStartedAt IS NOT NULL ⇔ offerSentCancelledAt IS NOT NULL`.
+> - ⛔ **Por qué NO basta `offerReissueCount > 0` como discriminador** (el arreglo que parece obvio): en el caso
+>   medido **vale 1**, así que **la puerta se abre correctamente** y el valor seguiría siendo `offerCancelledAt`, o
+>   sea **la fecha de la cancelación que él nunca vio**. Arregla *cuándo* se pinta, **no** *qué* se pinta.
+> - ⚠️ **`offerCancelledAt` NO cambia de conducta ni se le pone condición al `write`.** Sigue siendo *«el hecho de la
+>   cancelación»* en las tres ramas y sigue siendo **admin-only**. *No se arregla el escritor: se arregla el lector, y
+>   se le da la columna que sí contesta su pregunta.*
+> - ⚠️ **NADA de esto asoma al DTO.** `lastOfferCancelledAt` conserva **nombre, tipo, superficie, frase y tabla de
+>   minimización**. **Frontend: cero cambios.** **Backend: una columna y un `if` que ya existe.**
 > - **Habilita exactamente una frase** (§23.5, redacción de ux-ui): *«Te mandamos una oferta y la cancelamos el
 >   {fecha}; estamos revisando tu solicitud otra vez.»* **El badge no cambia:** sigue `COTIZADA`, que desde §23.1
 >   significa *«te debemos una respuesta»* — coherente con el hecho y con el **correo 5**.
@@ -11266,13 +11358,16 @@ Err `403`, `400 VALIDATION_ERROR`.
     **existente**). **Devops no necesita un paso de despliegue extra para estos ocho.**
 
 - **⚠️ VALIDACIÓN CRUZADA ENTRE DIALES, BLOQUEANTE (criterio 127) — RE-REFORMULADA en v1.51.2 por D34.**
+  **⏸️ v1.55: `EN CONFLICTO` con `PROJECT.md` — ver el recuadro al final de este bloque antes de tocar nada.**
   *(Es su **tercera** reformulación: las previas fueron de D30 y D31. Se documenta el historial porque el
   `details.rule` cambia de nombre **otra vez** y QA necesita saber cuál espera.)*
   ```
   ⛔ v1.51   (SUPERSEDED):  buylistShippingFeeCents                                <  buylistShippingThresholdCents
   ⛔ v1.51.1 (SUPERSEDED):  buylistShippingFeeCents                                <  buylistMinimumRequestCents
-  ✅ v1.51.2 (VIGENTE):     buylistShippingFeeCents + buylistMinimumOfferNetCents  ≤  buylistMinimumRequestCents
+  ⏸️ v1.51.2 (EN CONFLICTO):buylistShippingFeeCents + buylistMinimumOfferNetCents  ≤  buylistMinimumRequestCents
                             //  18000 + 20000 = 38000  ≤  50000     ⇒  guarda (defaults)
+                            //  ⚠️ v1.55: PIERDE el ✅ VIGENTE — contradice PROJECT.md 127 y 167(d).
+                            //  Es lo IMPLEMENTADO y NO se toca hasta que el product-owner cierre. BL-32.
   ```
   **En una frase: *el bruto mínimo OFERTABLE nunca puede superar el mínimo de COMPRA*** — o sea, **nunca prometemos
   comprar desde una cifra que el sistema después no podría ofertar**.
@@ -11320,6 +11415,26 @@ Err `403`, `400 VALIDATION_ERROR`.
     ⚠️ **La `rule` CAMBIA DE NOMBRE POR SEGUNDA VEZ, a propósito:** la anterior describe una relación de **dos**
     términos que ya no es la regla, y un `details.rule` que miente es peor que uno ausente. **QA debe asertar el
     nombre nuevo.**
+  - > ### ⏸️ v1.55 — **ESTA VALIDACIÓN ESTÁ `EN CONFLICTO` CON `PROJECT.md`. Pierde el `✅ VIGENTE`.**
+    > **El choque, medido por QA contra `settings.constants.ts:683-702`:** `tarifa = MX$499` con mínimo `MX$500` y
+    > piso `MX$200` ⇒ el código **rechaza** (`699 > 500`), pero el criterio **127** lista ese borde como
+    > *«⇒ **guarda**»*; y el mismo criterio afirma que *«**no existe** en M10 ninguna validación cruzada que involucre
+    > al neto mínimo»*, mientras el **167(d)** dice que *«la pantalla guarda MX$200 **sin validarlo contra nada**»*.
+    > **⚠️ El código NO está mal: implementa este contrato.** Por la regla de conflicto (**`PROJECT.md` > contrato >
+    > código**) **el que está mal es el contrato** — segundo ejemplar de `D-BG-5`.
+    > **No lo ratifica el arquitecto:** `PROJECT.md` es del **product-owner** y lo aprueba el **humano**. Las **dos
+    > salidas con su coste** y el **redline exacto de 127/167(d)** están en ARCHITECTURE **§4.39(l.1)**; el registro
+    > con dueño, en **§9 `BL-32`**. *(Recomendación del arquitecto: **ratificar** — la prohibición del 127 es más
+    > ancha que su propia razón: *«M10 no ve el recorte»* descarta validar **una oferta**, no la **combinación de
+    > diales**, que M10 sí ve.)*
+    > **⚠️ HASTA ENTONCES NO CAMBIA NADA.** La guarda implementada es **la más estricta**, con los defaults **no
+    > dispara** y el desacuerdo **exige configurar mal tres diales** — *guardarraíl de misconfiguración, no fuga
+    > viva*. **`details.rule` sigue siendo `buylist_fee_plus_min_net_le_min_request`** y **es el que QA debe
+    > asertar**. **La tabla de abajo describe el código tal cual está** y sirve para verificarlo; **quedará vigente o
+    > se reescribirá entera** según la salida que elija el humano.
+    > ⚠️ **QA: el cuarto intento del criterio 127 (`tarifa = MX$499` ⇒ guarda) VA A FALLAR, y es correcto que falle.**
+    > Se registra como **divergencia conocida con dueño (product-owner)**, **no** como defecto de backend.
+
   - **Bordes verificables (criterio 127), RE-DERIVADOS** — `(tarifa, piso, mínimo)`:
 
     | Caso | Suma vs mínimo | ¿Guarda? | Qué demuestra |
