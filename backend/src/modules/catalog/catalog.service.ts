@@ -568,21 +568,35 @@ export class CatalogService {
   }
 
   /**
-   * v1.53 (§4.40.4b, MONEY) — **clave de variante de LECTURA.** `null` cuando la pieza es `graded`
-   * sin identidad de slab (`gradingCompany`/`gradeValue` nulos, §9 D-BG-3): sin clave no hay
-   * referencia ni override ⇒ la pieza cae a `pending` y NO se publica. Es lo correcto: antes esa
-   * misma pieza se resolvía contra `graded:PSA:10`, el grado más caro.
+   * v1.53 (§4.40.4b, MONEY) — **las DOS claves de LECTURA de una pieza, o `null`.** `null` cuando la
+   * pieza es `graded` sin identidad de slab (`gradingCompany`/`gradeValue` nulos, §9 D-BG-3): sin
+   * clave no hay referencia ni override ⇒ la pieza cae a `pending` y NO se publica. Es lo correcto:
+   * antes esa misma pieza se resolvía contra `graded:PSA:10`, el grado más caro.
+   *
+   * v1.53-b (I-2): devuelve **también el `gradeKey`**, no sólo la clave de variante que lo contiene.
+   * `buildGroups` necesita el `gradeKey` para el DTO del grupo y antes lo **recalculaba** con un `!`
+   * («ya lo filtró el bucle de arriba»). Devolver los dos juntos convierte esa afirmación en un
+   * hecho del flujo de datos: si esta función devolvió algo, `gradeKey` es un `string`, y el
+   * compilador lo sabe sin que nadie tenga que creerse un comentario.
    */
-  private lookupKeyOf(item: ItemWithCard): string | null {
-    const gk = this.pricing.tryGradeKeyFor(item);
-    return gk == null
+  private lookupKeysOf(item: ItemWithCard): { gradeKey: string; variantKey: string } | null {
+    const gradeKey = this.pricing.tryGradeKeyFor(item);
+    return gradeKey == null
       ? null
-      : variantKey({
-          cardId: item.cardId,
-          productType: item.productType,
-          gradeKey: gk,
-          finish: item.finish,
-        });
+      : {
+          gradeKey,
+          variantKey: variantKey({
+            cardId: item.cardId,
+            productType: item.productType,
+            gradeKey,
+            finish: item.finish,
+          }),
+        };
+  }
+
+  /** Clave de variante sola (referencias/overrides del lote); `null` sin identidad de slab. */
+  private lookupKeyOf(item: ItemWithCard): string | null {
+    return this.lookupKeysOf(item)?.variantKey ?? null;
   }
 
   /** Override M-30 de la pieza dentro del lote; `null` sin clave (§4.40.4b). */
@@ -885,22 +899,34 @@ export class CatalogService {
     // `gradingHighlight` (dial off, o superficie que no lo compone) — el DTO sale EXACTAMENTE como hoy.
     grading?: GradingContext | null,
   ) {
-    const groups = new Map<string, typeof rows>();
+    const groups = new Map<string, { gradeKey: string; members: typeof rows }>();
     for (const r of rows) {
       // v1.53 (§4.40.4b, MONEY) — la clave de AGRUPACIÓN **es** la clave de PRECIO (§P-30). Una pieza
       // `graded` sin identidad de slab no tiene clave, así que **no forma publicación agrupada**: no
       // se le puede poner un `gradeKey` en el DTO sin inventarle un grado, y eso es exactamente el
-      // defecto que este pase retira. En la práctica no llega ninguna —publicar una graduada exige
-      // `certNumber` (`assertPublishableGuards` / `updateItem`) y las piezas sin identidad las creó
-      // `convertToInventory`, que tampoco escribe cert (§9 D-BG-3)—; se filtra por defensa, y esas
-      // piezas quedan inventariadas en el censo §4.40.8 para que el dueño repare o retire.
-      const k = this.lookupKeyOf(r.item);
-      if (k == null) continue;
-      const arr = groups.get(k);
-      if (arr) arr.push(r);
-      else groups.set(k, [r]);
+      // defecto que este pase retira.
+      //
+      // ⚠️ v1.53-b (I-2) — **este filtro SÍ recibe piezas: no es decorativo.** La versión anterior de
+      // este comentario decía «en la práctica no llega ninguna, porque publicar una graduada exige
+      // `certNumber`», y eso engañó a un revisor. El cert nunca fue suficiente: `fetchSellable` filtra
+      // por `dto.sellable && salePriceCents != null` y **no mira el `gradeKey`**, así que una graduada
+      // con cert, precio MANUAL y `listed` llega hasta aquí con identidad nula. Medido ejecutando la
+      // cadena, no razonando sobre ella: `catalog.group-identity-gap.spec.ts`.
+      //
+      // Desde v1.53-b la RAÍZ está cerrada aguas arriba —`assertPublishableGuards` exige ya
+      // empresa+grado, no sólo cert (M-1)—, así que por la puerta de publicación no entran nuevas.
+      // Este `continue` se queda para las filas **legacy** anteriores a esa guarda, que es lo que un
+      // storefront de LECTURA debe hacer con ellas: no publicarlas y no inventarles un grado.
+      //
+      // Y por eso el DTO de abajo no necesita ningún `!`: el `gradeKey` que emite es **este mismo**,
+      // transportado, no recalculado. Esas piezas quedan en el censo §4.40.8 para reparar o retirar.
+      const keys = this.lookupKeysOf(r.item);
+      if (keys == null) continue;
+      const g = groups.get(keys.variantKey);
+      if (g) g.members.push(r);
+      else groups.set(keys.variantKey, { gradeKey: keys.gradeKey, members: [r] });
     }
-    return [...groups.values()].map((members) => {
+    return [...groups.values()].map(({ gradeKey, members }) => {
       // Representante = pieza vendible MÁS BARATA (el precio del grupo = su salePriceCents = mínimo).
       const cheapest = [...members].sort(
         (a, b) => (a.dto.salePriceCents ?? 0) - (b.dto.salePriceCents ?? 0),
@@ -939,9 +965,11 @@ export class CatalogService {
         finish: item.finish,
         // rawCondition SOLO en raw; gradingCompany/gradeValue SOLO en graded (identidad de GRADO del grupo).
         rawCondition: item.rawCondition ?? undefined,
-        // v1.53 (§4.40.4b): el `!` es SEGURO — el bucle de arriba ya descartó las piezas sin clave,
-        // así que todo miembro de un grupo la tiene (y todos comparten la MISMA: es la clave del grupo).
-        gradeKey: this.pricing.tryGradeKeyFor(item)!,
+        // v1.53-b (I-2): es la clave del GRUPO, transportada desde el `Map` de arriba — la misma con
+        // la que se agrupó, no una recalculada. Antes esto era `tryGradeKeyFor(item)!`, y el `!` sólo
+        // se sostenía por un `continue` a 45 líneas de distancia acoplado por `tryGradeKeyFor`: un
+        // invariante NO LOCAL que el lector tenía que creerse. Ahora el tipo lo garantiza solo.
+        gradeKey,
         gradingCompany: item.gradingCompany ?? undefined,
         gradeValue: item.gradeValue ?? undefined,
         stockCount: members.length,

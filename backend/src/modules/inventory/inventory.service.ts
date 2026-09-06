@@ -1229,7 +1229,9 @@ export class InventoryService {
    *  - solo inventario de PLATAFORMA;
    *  - [MONEY · WS-E] status de ORIGEN ∈ {in_stock, listed} (anti-double-sell: publicar una
    *    reserved/in_custody/lost/... la re-abriría a un segundo checkout);
-   *  - gradeada exige `certNumber` para publicarse (v1.2/M-12).
+   *  - gradeada exige `certNumber` para publicarse (v1.2/M-12);
+   *  - gradeada exige **IDENTIDAD DE SLAB** (`gradingCompany` + `gradeValue`) para publicarse
+   *    (v1.53-b, M-1 — ver abajo).
    */
   private assertPublishableGuards(item: PublishableItem): void {
     if (item.ownerType !== 'platform') {
@@ -1246,6 +1248,34 @@ export class InventoryService {
       throw BusinessException.validation(
         'VALIDATION_ERROR',
         'graded items require certNumber to be published',
+      );
+    }
+    // v1.53-b (M-1, **MONEY**) — **publicar un slab exige saber QUÉ GRADO ES.**
+    //
+    // Hasta aquí el único requisito de graduación para publicar era `certNumber`, y eso dejaba un
+    // hueco REAL, no teórico: `resolvePublishSalePrice` corta con `if (manual != null) return` en su
+    // PRIMERA línea, **antes** de su propia comprobación de identidad de slab. Así que una graduada
+    // con `listPriceCents` manual nunca llegaba a esa comprobación y se publicaba con
+    // `gradingCompany`/`gradeValue` nulos — quedaba `listed` + `sellable`, comprable por
+    // `inventoryItemId`, y sin `gradeKey` que emitir (la raíz de I-2 en `catalog.buildGroups`).
+    //
+    // El monto NO estaba inventado (es el override explícito del admin), así que esto no era una
+    // fuga de dinero; lo que se publicaba era una pieza **cuya identidad el sistema no conoce**, en
+    // un marketplace donde el grado ES el producto. `createItem` ya exige los tres campos para
+    // `graded` (`validateProductShape`, API_CONTRACT §M1 alta); esto cierra la misma invariante en
+    // la otra puerta, y su forma es la del cert: mismo código, mismo `422`, misma degradación
+    // por-línea en `bulkPublish`/`publishAll` (una línea inválida no tumba las demás).
+    //
+    // Efecto práctico: las piezas que nacen sin identidad (`convertToInventory`, §9 D-BG-3) dejan de
+    // poder llegar a `listed` por precio manual. La reparación es capturar empresa+grado por
+    // `PATCH /admin/inventory/items/:id` (§4.40.5b) y volver a publicar.
+    if (
+      item.productType === 'graded' &&
+      (!item.gradingCompany || !item.gradeValue || item.gradeValue.trim() === '')
+    ) {
+      throw BusinessException.validation(
+        'VALIDATION_ERROR',
+        'graded items require gradingCompany and gradeValue to be published',
       );
     }
   }

@@ -5090,3 +5090,88 @@
   Cero cambios de contrato; si el arquitecto prefiere nombrarlos en `API_CONTRACT.md`, mejor.
 - **Disparador (duro):** el **primer pase de frontend después de que `claude/buylist-inventory-workflow-hdnls3`
   fusione** y `lib/api.ts` quede libre.
+
+### Cierre de la ronda v1.53-b (I-2 / M-1 / M-2) — rama `claude/buylist-graded-identity`, 2026-09-06 (dueño: **backend**, no bloqueante)
+
+> Enrutado por el **techlead** tras el doble veredicto APROBADO de v1.53 (`6db0a78`). Implementación y
+> mediciones en `docs/BACKEND_NOTES.md` **§0.21**. Ninguna de estas fichas bloquea el merge.
+
+#### DT-M1 · La premisa que hace neutro al `?? 'NM'` no estaba anclada (Media, backend) — **ANCLADA (2026-09-06)**
+- **Dueño:** backend. **Severidad:** Media (money-adyacente). **Estado: ancla puesta; la DECISIÓN sigue pendiente para el día que dispare.**
+- **Deuda:** `buildGradeKey` y `tryBuildGradeKey` conservan `` `raw:${input.rawCondition ?? 'NM'}` ``. El
+  argumento de que ese default **no inventa identidad** (a diferencia de los `?? 'PSA'` / `?? '10'` que
+  este pase retiró) es correcto **hoy y sólo hoy**: se apoya en que `enum RawCondition` tiene **un único
+  valor**, así que el default no puede *elegir* entre condiciones — no hay entre qué elegir.
+- **Por qué el ancla que ya existía NO cubría esto:** `enum-values-parity.spec.ts` fija
+  `ACCEPTED_RAW_CONDITIONS === ['NM']`, que es la lista de **negocio**. El día que el schema gane
+  `LP`/`MP` —`business-rules.ts` lo llama literalmente *«un cambio probable, no hipotético»*, p. ej. para
+  registrar una devolución no-NM sin publicarla— esa lista **puede seguir siendo `['NM']`** y el test
+  seguiría verde, mientras los dos `??` pasarían **en silencio** a valuar una carta cuya condición NO se
+  capturó **como si fuera la mejor**: el defecto de esta rama con otra sintaxis, en el otro eje.
+- **Lo hecho:** ancla en `backend/test/pricing.grade-key-identity.spec.ts` sobre la **CARDINALIDAD DEL
+  SCHEMA** (`Object.values(RawCondition)`), no sobre la lista de negocio, y que además fija que los dos
+  `?? 'NM'` siguen siendo exactamente dos y nombra dónde viven.
+- **Dirección (la decisión que el ancla fuerza):** cuando rompa, **no** actualizar el número. Decidir si
+  `rawCondition = null` debe seguir significando `NM` o pasar a significar «condición no capturada ⇒
+  `pending`», igual que se hizo con el grado. Es decisión de **producto**, no de código.
+- **Disparador (duro):** el primer `LP`/`MP` en el enum `RawCondition` del schema. El test rompe solo.
+
+#### DT-M2 · Una graduada `listed` sin `certNumber` NO admite reparar `gradingCompany` por PATCH (Media, backend + **arquitecto**) — **ABIERTA, ESCALADA**
+- **Dueño:** **arquitecto** (es tensión de contrato), backend ejecuta. **Severidad:** Media. **Estado: abierta, NO corregida a propósito.**
+- **Deuda:** `updateItem` revalida el estado RESULTANTE del PATCH y rechaza con `422 VALIDATION_ERROR`
+  toda pieza `graded` que quede `listed` sin `certNumber`. Consecuencia: en una pieza **ya** `listed` sin
+  cert, **cualquier** PATCH se rechaza —incluido el que sólo intenta poner `gradingCompany`— salvo que se
+  mande `certNumber` en el mismo request o se despublique primero.
+- **Por qué importa:** el contrato v1.53 justifica el campo nuevo diciendo, literal, que es *«lo que
+  permite repararlas con el slab físico en la mano»* (§M1, `PATCH /admin/inventory/items/:id`). Hay piezas
+  donde no permite repararlas.
+- **Por qué NO se corrigió en este pase:** son **dos reglas del contrato en tensión**, no un defecto de
+  implementación: M-12 dice «una graduada publicada exige `certNumber`» y v1.53 dice «este campo es la vía
+  de reparación». Relajar la invariante deja una pieza `listed` sin cert —que el contrato prohíbe— y
+  endurecerla deja la reparación bloqueada. **Elegir es decisión del arquitecto**, y el rol backend no
+  «arregla» el contrato por su cuenta.
+- **Alcance real medido:** el estado requiere `listed` + `graded` + sin cert, que **post-M-12 ya no se
+  puede crear** (`createItem` y `bulkPublish` lo impiden, y `convertToInventory` nace `in_stock`, donde la
+  invariante **no** dispara y la reparación **sí** funciona). Es dato **legacy** anterior a M-12; el censo
+  §4.40.8 midió **0 filas**. Además, **DT-M1 no aplica aquí y M-1 lo estrecha más**: tras M-1 una graduada
+  sin identidad ya no puede llegar a `listed` por ninguna puerta.
+- **Dirección propuesta (a criterio del arquitecto):** una de estas dos, escrita en el contrato —
+  (a) permitir el PATCH cuando **no empeora** una violación preexistente y no toca `status`; o
+  (b) declarar explícitamente que la vía de reparación de una pieza legacy `listed` es *despublicar →
+  reparar → republicar*, y decirlo en §M1 para que nadie vuelva a leer el campo como una promesa que no es.
+- **Disparador:** la próxima revisión del arquitecto sobre §M1 / §4.40.5b.
+
+#### DT-M3 · `admin.custodyValue` omite en silencio: la pieza desaparece del pasivo sin señal (Media, backend)
+- **Dueño:** backend. **Severidad:** Media (es un **pasivo con el cliente**). **Estado: abierta, aceptada. NO es regresión de v1.53.**
+- **Deuda:** `admin.service.ts` (`custodyValue`) hace `if (gradeKey == null) continue;` y devuelve
+  **`{ totalCustodyValueCents }` y nada más**: no hay `pendingPriceCount`, ni contador, ni log. Una pieza
+  en custodia sin identidad de slab **sale del total sin dejar rastro**. Lo mismo ocurre, de hecho, con la
+  pieza que **sí** tiene clave pero cuya referencia está `pending` — el método no distingue «vale 0» de
+  «no se pudo valuar», y eso ya era así antes de este pase.
+- **La nota estaba MAL, y se corrigió:** `BACKEND_NOTES` §0.20 agrupaba `ownedItemRefs`, `inventoryValue`
+  y `custodyValue` en una fila que decía «suman a `pendingPriceCount`». **Es falso para `custodyValue`.**
+  La tabla ahora tiene **tres filas** con los tres comportamientos reales (`pending` visible por pieza /
+  `pendingPriceCount` / omisión silenciosa).
+- **Por qué no se arregló aquí:** añadir `pendingPriceCount` a la respuesta de `custodyValue` **cambia la
+  forma de un DTO del contrato** (§M9 dashboard), y eso pasa por el arquitecto (regla 9). Un contador en
+  log sí sería unilateral, pero dejaría la mitad del problema (el número del dashboard sigue mintiendo por
+  omisión) y da falsa sensación de cerrado.
+- **Dirección:** que `custodyValue` devuelva `pendingPriceCount` en paridad con `inventoryValue` — que ya
+  resolvió exactamente este problema y es el precedente a copiar. Requiere visto bueno de contrato.
+- **Disparador:** el siguiente cambio de contrato que toque el dashboard de admin (§M9), o el primer
+  reporte de descuadre del valor de custodia.
+
+#### DT-M4 · `gradeValue` sigue siendo `@IsString()` libre (Baja, backend) — anclada a **M-49**
+- **Dueño:** backend. **Severidad:** Baja. **Estado: abierta, ACEPTADA por el techlead.**
+- **Deuda:** `gradeValue` se valida como string libre, no contra un conjunto de grados. Se puede capturar
+  `'11'`, `'diez'` o `'  9,5 '` y el sistema construye con ello una clave de precio (`graded:PSA:11`).
+- **Por qué se acepta (clasificación que el techlead confirmó):** es **fail-closed de verdad**. Un
+  `gradeValue` basura produce una clave que **no casa con ninguna `PriceReference`** ⇒ la pieza cae a
+  `pending` y **no se publica**. El daño posible es una pieza que no se vende, nunca una que se vende al
+  precio equivocado — que es el eje que §4.40.4 protege. Lo contrario (un enum incompleto) sería peor:
+  bloquearía grados legítimos que hoy sí se capturan (CGC con medios puntos, etiquetas especiales).
+- **Se anota aquí y no sólo en `BACKEND_NOTES`** a petición del techlead: la deuda vive donde se revisa.
+- **Dirección:** normalizar y validar `gradeValue` contra el conjunto por graduadora **en el mismo pase
+  que M-49** (`ARCHITECTURE` §4.40.7, la forma reservada del buylist de graduadas) — es ahí donde el dato
+  pasaría a **firmar dinero de entrada** y el fail-closed dejaría de bastar.
+- **Disparador (duro):** la autorización de **M-49** por el dueño. Antes de eso, no tocar.

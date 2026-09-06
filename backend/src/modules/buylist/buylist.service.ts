@@ -1936,6 +1936,13 @@ export class BuylistService {
       string,
       { cardId: string; productType: ProductType; gradeKey: string; finish: Finish; qty: number }
     >();
+    // v1.53-b (residuo del gate techlead): el `continue` de abajo era SILENCIOSO. `price-sync`, con
+    // MENOS en juego (un barrido nocturno), sí cuenta y loguea sus omisiones — y esto corre dentro de
+    // la transacción del PAGO. Si una línea legacy se salta el contador de bounty, el `bountyAcquiredQty`
+    // de esa variante queda por debajo de la realidad y el auto-apagado del bounty se retrasa: es poco,
+    // pero es dinero, y hasta ahora no dejaba rastro. Mismo patrón que `price-sync.service.ts`:
+    // contador + UNA línea de log al final, nunca por-fila (esto está en la ruta caliente del pago).
+    let skippedNoGradeIdentity = 0;
     for (const it of bountyItems) {
       // v1.53 (§4.40.4b, MONEY) — clave TOLERANTE, y a propósito: esto corre DENTRO de la transacción
       // del PAGO y sólo lleva un CONTADOR de bounty. Un `throw` aquí tumbaría un pago por una fila
@@ -1947,12 +1954,22 @@ export class BuylistService {
         productType: it.productType,
         rawCondition: it.rawCondition,
       });
-      if (gradeKey == null) continue;
+      if (gradeKey == null) {
+        skippedNoGradeIdentity += 1;
+        continue;
+      }
       const finish = (it.finish ?? 'normal') as Finish;
       const key = `${it.cardId}|${it.productType}|${gradeKey}|${finish}`;
       const prev = byKey.get(key);
       if (prev) prev.qty += 1;
       else byKey.set(key, { cardId: it.cardId, productType: it.productType, gradeKey, finish, qty: 1 });
+    }
+    if (skippedNoGradeIdentity > 0) {
+      // Observabilidad, no control de flujo: el pago sigue su curso exactamente igual.
+      this.logger.warn(
+        `bounty counter: ${skippedNoGradeIdentity} línea(s) de la solicitud ${sellRequestId} omitidas ` +
+          'por identidad de grado incompleta (§4.40.4b); su `bountyAcquiredQty` NO se incrementó.',
+      );
     }
     for (const g of byKey.values()) {
       const uniqueKey = {

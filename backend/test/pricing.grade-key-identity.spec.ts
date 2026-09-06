@@ -1,5 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { RawCondition } from '@prisma/client';
+import { ACCEPTED_RAW_CONDITIONS } from '../src/common/business-rules';
 import {
   buildGradeKey,
   tryBuildGradeKey,
@@ -94,6 +96,41 @@ describe('buildGradeKey — la variante que LANZA (camino del DINERO)', () => {
     expect(buildGradeKey({ productType: 'raw' })).toBe('raw:NM');
     expect(buildGradeKey({ productType: 'raw', rawCondition: null })).toBe('raw:NM');
     expect(buildGradeKey({ productType: 'raw', rawCondition: 'NM' })).toBe('raw:NM');
+  });
+
+  /**
+   * v1.53-b — **EL ANCLA DE LA PREMISA** (petición del techlead sobre el `?? 'NM'`).
+   *
+   * El argumento «`?? 'NM'` no inventa identidad» es correcto **hoy**, y sólo hoy: se apoya en que
+   * `enum RawCondition` tiene **un único valor**, así que el default no puede *elegir* entre
+   * condiciones — no hay entre qué elegir. Esa premisa no estaba fijada en ningún sitio.
+   *
+   * `enum-values-parity.spec.ts` ancla `ACCEPTED_RAW_CONDITIONS === ['NM']` (la lista de NEGOCIO),
+   * pero eso **no cubre este caso**: el día que el schema gane `LP`/`MP` —`business-rules.ts` lo
+   * llama *«un cambio probable, no hipotético»*, por ejemplo para registrar una devolución no-NM sin
+   * publicarla— la lista de negocio puede seguir siendo `['NM']` y ese test seguiría en verde,
+   * mientras los dos `?? 'NM'` de aquí pasarían **en silencio** a valuar una carta cuya condición NO
+   * se capturó **como si fuera la mejor** — el defecto de `?? 'PSA'`/`?? '10'` que este pase acaba de
+   * retirar, con otra sintaxis y en el otro eje.
+   *
+   * Por eso el ancla mira la **CARDINALIDAD DEL SCHEMA**, no la lista de negocio. Si rompe, la
+   * decisión no es actualizar el número: es **volver a mirar los dos `??`** y decidir si `null` debe
+   * seguir significando `NM` o pasar a significar «sin condición capturada ⇒ `pending`», igual que
+   * el grado.
+   */
+  it('ANCLA: `RawCondition` tiene UN valor — la premisa que hace neutro al `?? \'NM\'`', () => {
+    const schemaValues = Object.values(RawCondition) as string[];
+    expect(schemaValues).toEqual(['NM']);
+    // Y la lista de negocio coincide con él: hoy «lo que existe» y «lo que aceptamos» son lo mismo,
+    // que es exactamente la condición bajo la cual el default no puede elegir el mejor grado.
+    expect([...ACCEPTED_RAW_CONDITIONS]).toEqual(schemaValues);
+    // Los dos sitios que dependen de esta premisa, nombrados para que el que rompa esto los encuentre:
+    // `buildGradeKey` y `tryBuildGradeKey`, rama `case 'raw'` de `pricing.types.ts`.
+    const src = readFileSync(
+      join(__dirname, '..', 'src', 'modules', 'pricing', 'pricing.types.ts'),
+      'utf8',
+    );
+    expect(src.match(/return `raw:\$\{input\.rawCondition \?\? 'NM'\}`;/g) ?? []).toHaveLength(2);
   });
 
   it('`sealed` sigue valiendo `\'sealed\'` — es la clave del override MANUAL (§4.40.4d)', () => {

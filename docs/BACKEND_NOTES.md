@@ -4,6 +4,130 @@
 > El contrato (`docs/API_CONTRACT.md`) manda sobre el código. Stack: NestJS + Prisma + PostgreSQL,
 > Redis/BullMQ (jobs), JWT + argon2, S3/MinIO (presigned URLs), Stripe.
 
+## 0.21 — **v1.53-b: el comentario que engañó a un gate, y las dos raíces que lo hacían posible** (2026-09-06, rama `claude/buylist-graded-identity`, **MONEY-adyacente**)
+
+> Propiedad: **backend**. Ronda de corrección posterior al doble veredicto APROBADO de v1.53 (`6db0a78`).
+> **Cero migraciones, cero endpoints nuevos, cero cambios de contrato.** Un cambio de comportamiento
+> (M-1) que **cierra** una puerta de publicación, y tres correcciones de honestidad.
+
+### I-2 — el `!` de `catalog.service.ts:944`: los dos gates discreparon, y los dos tenían media razón
+
+El código emitía el `gradeKey` del grupo así:
+
+```ts
+// v1.53 (§4.40.4b): el `!` es SEGURO — el bucle de arriba ya descartó las piezas sin clave,
+// así que todo miembro de un grupo la tiene (y todos comparten la MISMA: es la clave del grupo).
+gradeKey: this.pricing.tryGradeKeyFor(item)!,
+```
+
+El techlead lo descartó como falso positivo; QA trazó la cadena y dijo que había hueco. **Se midió
+ejecutando la cadena, no razonando sobre ella** (`backend/test/catalog.group-identity-gap.spec.ts`), y
+el resultado reparte la razón:
+
+| Afirmación | Veredicto medido |
+|---|---|
+| «Una graduada legacy sin identidad **llega** a `buildGroups`» (QA) | ✅ **CIERTA.** `fetchSellable` filtra por `dto.sellable && salePriceCents != null` y **no mira `gradeKey`**; `sellable` es `salePriceCents > 0 && status === 'listed'` y **tampoco**; y la rama de precio manual fija el precio **sin** consultar la identidad. Medido: la pieza sale `sellable:true`, con precio, en `units[]` |
+| «El `!` produce `gradeKey: undefined` en el cable» (QA) | ❌ **FALSA.** `buildGroups` tenía **su propio** `continue` sobre `lookupKeyOf`. La pieza se atajaba ahí: `listings` sale `[]`, y en la rejilla tampoco aparece |
+| «El `!` es seguro» (techlead) | ✅ **CIERTA**, pero por un invariante **no local**: se sostenía en un `continue` a 45 líneas de distancia, acoplado sólo por que ambos llamaban a `tryGradeKeyFor` |
+| «El bucle de arriba ya descartó las piezas sin clave» (el comentario) | ⚠️ **AMBIGUA hasta el punto de engañar.** Hay dos bucles candidatos y el lector natural es el de `fetchSellable`, que **no** filtra por clave. Ahí se partió el veredicto |
+
+**Lo que se hizo, y por qué no fue «reforzar el comentario».** El comentario ya afirmaba lo correcto
+(«todos comparten la MISMA: es la clave del grupo»); lo que fallaba es que el **código no lo hacía**:
+recalculaba la clave con un `!` en vez de transportar la que ya había calculado para agrupar. Así que
+se cambió el código para que la afirmación deje de ser una afirmación:
+
+- `lookupKeyOf` → **`lookupKeysOf`**, que devuelve `{ gradeKey, variantKey } | null` (las dos claves de
+  una vez; `lookupKeyOf` queda como envoltorio de un campo para los otros dos call-sites).
+- el `Map` de grupos pasa de `Map<string, rows>` a **`Map<string, { gradeKey, members }>`**: la clave
+  de grado viaja **dentro del grupo**, que es lo que el comentario decía que era.
+- el DTO emite **`gradeKey,`** — sin `!`, sin recálculo, sin invariante que creerse. Si el `continue`
+  desapareciera mañana, ya no compilaría en silencio.
+
+**Y por qué ningún test lo veía:** `catalog.group-dto-shape.spec.ts` **mockea `tryGradeKeyFor`** con un
+stub que devuelve `'graded:PSA:10'` para toda graduada ⇒ en ese spec el `null` **no es representable**.
+El spec nuevo usa el cuerpo REAL (`PricingService.prototype.tryGradeKeyFor`).
+
+> **Verificación negativa (obligatoria, por el precedente de N-1/N-2):** se simuló la regresión
+> (quitar el `continue`, volver al `!`) y el spec nuevo **falla 4/5**, con el DTO serializado
+> **literalmente sin la clave `gradeKey`** en la salida del error. El test no aprueba sin el código
+> que prueba.
+
+### M-1 — **publicar un slab exigía cert, pero no saber qué grado es.** Corregido (cambio de comportamiento)
+
+Es la **raíz** de I-2, y el hueco era alcanzable de verdad:
+
+1. `assertPublishableGuards` exigía `certNumber` para `graded` — **pero no `gradingCompany`/`gradeValue`**.
+2. La comprobación de identidad sí existía… en `resolvePublishSalePrice`, **después** de su primera línea:
+   `if (manual != null) return { ok:true, salePriceCents: manual, priceSource:'manual' }`.
+3. ⇒ con `listPriceCents` manual (de la **línea** o de la **pieza**) el flujo **retornaba antes** de
+   llegar a la comprobación, y la graduada sin identidad **se publicaba**: `listed`, `sellable`,
+   comprable por `inventoryItemId`.
+
+**No era una fuga de dinero** —el monto es el override EXPLÍCITO del admin, no una referencia de
+`graded:PSA:10` inventada (ese defecto lo cerró §4.40.4)—, pero publicaba una pieza **cuya identidad el
+sistema no conoce**, en un marketplace donde el grado *es* el producto.
+
+**El arreglo** tiene la forma del `certNumber` que ya vivía al lado: `422 VALIDATION_ERROR`, **por
+línea**, con la misma degradación en `bulkPublish`/`publishAll` (una línea inválida no tumba las demás).
+`createItem` ya exigía los tres campos para `graded` (`validateProductShape`, contrato §M1 alta): esto
+cierra la misma invariante en la otra puerta.
+
+**Impacto operativo:** las piezas nacidas sin identidad (`convertToInventory`, §9 D-BG-3) **ya no pueden
+llegar a `listed` por precio manual**. La reparación sigue siendo `PATCH /admin/inventory/items/:id`
+(§4.40.5b) y luego publicar. El censo §4.40.8 midió **0 filas** en este estado, así que el cambio no
+retira nada publicado hoy.
+
+> **Verificación negativa:** con la guarda retirada, el spec nuevo falla **6/7** — y `publishAll`
+> publica **2 de 2** en vez de 1. Es la medición de que el hueco era real, no teórico.
+
+### Residuo del gate — el `continue` del contador de bounties ya no es silencioso
+
+`countBountyAcquisitionsTx` corre **dentro de la transacción del pago** y saltaba las líneas sin clave
+**sin dejar rastro**, mientras `price-sync` —con mucho menos en juego— sí cuenta y loguea. Si una línea
+legacy se salta el contador, el `bountyAcquiredQty` de esa variante queda por debajo de la realidad y el
+auto-apagado del bounty se retrasa: es poco, pero es dinero. Ahora lleva contador y **una** línea de
+`logger.warn` al final (nunca por-fila: es ruta caliente de pago). El flujo del pago **no cambia**.
+
+### `test/integration/setup.ts` — el aviso que gritaba en toda corrida verde
+
+Su docstring afirmaba que «si `DATABASE_URL` falta, la suite fallará explícitamente». **No fallaba: sólo
+hacía `console.warn`.** Y el aviso saltaba **siempre**, incluso con Postgres levantado, porque el archivo
+leía `process.env.DATABASE_URL` **antes** de que `@prisma/client` cargara `.env` por su cuenta ⇒ las 16
+suites imprimían «la suite de integración requiere Postgres real» mientras corrían en verde **contra
+Postgres real**. Eso entrena a ignorar el aviso, y el día que la infra falte de verdad la señal es
+indistinguible del ruido. Arreglado en las dos puntas: `setup.ts` carga `.env` igual que la CLI de
+Prisma, y el docstring dice lo que el código hace.
+
+> Comprobado que la suite **sí** exige infra: apuntada a un Postgres inexistente, `infra-smoke`
+> falla **3/3** en el `$connect()`. Los 194 tests verdes son contra Postgres real.
+
+### Lo que NO se tocó, y por qué
+
+- **M-2 (`updateItem` bloquea reparar `gradingCompany` en una graduada ya `listed` sin `certNumber`)
+  queda ABIERTO y escalado al arquitecto.** Es una tensión entre **dos reglas del contrato**, no un
+  defecto de implementación, y resolverla es decisión de contrato (ver `TECH_DEBT` **DT-M2** y el
+  resumen del pase). No se «arregla» por cuenta propia.
+- **`frontend/`** — intacto (rama en paralelo).
+- **`docs/API_CONTRACT.md` / `docs/ARCHITECTURE.md`** — intactos.
+
+### Verificación de este pase (comandos literales)
+
+| Comando | Resultado |
+|---|---|
+| `npx tsc --noEmit -p tsconfig.json` | **limpio** (exit 0, sin salida) |
+| `npx jest` | **214 suites / 2779 tests, todos verdes** (antes: 2766 ⇒ **+13**) |
+| `npm run lint` | **0 errores**, 2 warnings **preexistentes** (`inventory.service.ts:452` `actorUserId`, `sealed-product.service.ts:11` `normalizeSetName`) — confirmado que ya estaban en `HEAD` |
+| `npm run test:integration` | **16 suites / 194 tests, todos verdes** (exit 0). El script **sí existe y corre**: `prisma migrate deploy && jest --config test/jest-integration.config.js --runInBand`, con «35 migrations found / No pending migrations to apply» contra `tcg_marketplace` en `localhost:5432` |
+
+**Tests nuevos (13):**
+
+| Archivo | Tests | Qué ancla |
+|---|---|---|
+| `backend/test/catalog.group-identity-gap.spec.ts` | 5 | I-2: la cadena existe (la pieza es vendible y viaja en `units[]`), **no** forma grupo, el filtro no se come lo legítimo, y **en el cable** todo grupo trae `gradeKey` string no vacío |
+| `backend/test/inventory.publish-slab-identity.spec.ts` | 7 | M-1: rechazo con precio manual en pieza y en línea, `''`/`'   '` como ausencia, **no regresión** de la graduada completa, degradación por-línea, y `publishAll` |
+| `backend/test/pricing.grade-key-identity.spec.ts` (+1) | 1 | El **ancla de la premisa** del `?? 'NM'`: cardinalidad del enum `RawCondition`, no la lista de negocio (ver `TECH_DEBT` DT-M1) |
+
+
 ## 0.20 — **v1.53: el buylist vuelve a ser RAW-ONLY y `buildGradeKey` deja de inventar el grado** (2026-09-05, rama `claude/buylist-graded-identity`, **MONEY**)
 
 > Propiedad: **backend**. Implementa ARCHITECTURE **§4.40** y el contrato **v1.53** (`f3fef40`).
@@ -69,7 +193,9 @@ REFERENCIA ⇒ `precio_pendiente` / «—». Jamás un default, jamás MX$0.**
 | `inventory.service.ts:exportGradeKey` (XLSX) | `tryBuildGradeKey` | Lectura pura: columnas de mercado/compra/venta **vacías** |
 | `catalog.service.ts` (7 sitios: lote de refs, lote de overrides, `refFromBatch`, `toListingDTO`, `buildGroups`) | `tryGradeKeyFor` (vía `lookupKeyOf`/`variantOverrideOf`) | Storefront público: `pending` ⇒ `sellable:false` |
 | `vault.service.ts` (`holdings`, `holdingDetail`) · `admin-vaults.service.ts` | `tryGradeKeyFor` | Patrimonio del cliente: `pending` y **excluido del total**, contado en `pendingPriceCount` |
-| `admin.service.ts` (`ownedItemRefs`, `inventoryValue` ×2, `custodyValue`) | `tryGradeKeyFor` | Agregados: suman a `pendingPriceCount`, **no** a `atReferenceCents` |
+| `admin.service.ts:ownedItemRefs` | `tryGradeKeyFor` | La fila sale con `referenceValue: {status:'pending'}` — **visible por pieza** en el DTO |
+| `admin.service.ts:inventoryValue` (×2) | `tryGradeKeyFor` | Suma a `pendingPriceCount`, **no** a `atReferenceCents` |
+| `admin.service.ts:custodyValue` | `tryGradeKeyFor` | ⚠️ **OMITE EN SILENCIO** (`continue`): la pieza **desaparece del pasivo sin dejar señal**. Ver la corrección de abajo y `TECH_DEBT` DT-M3 |
 | `master-set.service.ts` (binder) · `price-ingest.service.ts` ×2 · `jobs/price-sync.service.ts` | `tryGradeKeyFor` | Lectura/valuación y barridos; sin clave ⇒ se omite (con contador en el log de `price-sync`) |
 | `sealed-graded.service.ts:gradedIndex` | `tryGradeKeyFor` | Un grupo sin identidad sale con `marketReferenceMxnCents: null` |
 | `buylist.service.ts:countBountyAcquisitionsTx` | `tryGradeKeyFor` | Ver el apartado siguiente |
@@ -86,9 +212,13 @@ REFERENCIA ⇒ `precio_pendiente` / «—». Jamás un default, jamás MX$0.**
    `if (res.count === 0) continue` que ya vivía ahí. Sin clave no hay `VariantPriceOverride` que casar,
    así que no se incrementa nada.
 3. **`catalog.buildGroups` descarta las filas sin clave** en vez de inventarles un `gradeKey` para el
-   DTO. En la práctica no llega ninguna: publicar una graduada exige `certNumber`
-   (`assertPublishableGuards` y `updateItem`) y las piezas sin identidad las creó `convertToInventory`,
-   que tampoco escribe cert.
+   DTO.
+
+   > ⚠️ **CORREGIDO en v1.53-b (hallazgo I-2).** La frase que seguía aquí —«en la práctica no llega
+   > ninguna: publicar una graduada exige `certNumber`»— **era falsa**, y engañó a un revisor. Sí
+   > llegan: `assertPublishableGuards` exigía `certNumber` pero **no** empresa+grado, y
+   > `resolvePublishSalePrice` retorna en su primera línea con un precio manual, **antes** de su
+   > comprobación de identidad. La cadena completa y su medición están en la sección **§0.21**.
 
 ### Lo que NO se hizo, y por qué (prohibiciones del encargo, §4.40.9g)
 
