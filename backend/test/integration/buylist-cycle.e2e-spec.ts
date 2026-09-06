@@ -864,9 +864,100 @@ describe('E2E — Ciclo de adquisición del buylist (§6 · §M5)', () => {
       // Y el contador de re-emisiones SÍ subió, pero solo en la superficie de admin.
       const admin = await h.api('GET', `/admin/buylist/${srId}`, { token: operatorToken });
       expect(admin.body.offerReissueCount).toBe(1);
-      // Invariante de §11: `offerReissueCount > 0 ⇔ offerIssueClockStartedAt IS NOT NULL`.
+      // Invariante de §11 (v1.55/D44: son TRES columnas y un solo predicado).
       const row = await h.prisma.sellRequest.findUnique({ where: { id: srId } });
       expect(row!.offerIssueClockStartedAt).not.toBeNull();
+      expect(row!.offerSentCancelledAt).not.toBeNull();
+      // Mismo `now()`, misma transacción: no son dos relojes que casualmente coinciden.
+      expect(row!.offerSentCancelledAt).toEqual(row!.offerIssueClockStartedAt);
+      // Y el portal pinta EXACTAMENTE ese instante: la pantalla dice lo que dice el correo 5.
+      expect(new Date(portal.body.lastOfferCancelledAt as string)).toEqual(row!.offerSentCancelledAt);
+    });
+
+    /**
+     * ⚠️⚠️ **v1.55 · D44 / BL-31 — LA CORRIDA CONJUNTA DEL CRITERIO 176(d).**
+     *
+     * Hasta v1.54 la proyección discriminaba por `offerSentAt IS NOT NULL` (marca **permanente de la
+     * solicitud**, BL-28) y pintaba `offerCancelledAt` (que se **sobrescribe** en las tres ramas).
+     * Con **una** cancelación las dos columnas daban la respuesta correcta **por coincidencia**; con
+     * **dos** se soltaba: el correo ✔, el reloj ✔ y **el portal pintando una fecha que el vendedor
+     * nunca supo**, contradiciendo su correo 5.
+     *
+     * ⚠️ **Solo se ve corriendo las tres consecuencias JUNTAS y cancelando DOS veces** — que es
+     * exactamente lo que 176(d) manda hacer. Por eso vive aquí y no en un unitario de proyección: el
+     * `offerCancelledAt` que se sobrescribe lo escribe el motor, en su propia transacción.
+     */
+    it('⚠️⚠️ 176(d) — con una enviada-y-cancelada previa, cancelar una `pending_authorization` NO mueve la pantalla', async () => {
+      const port = h.app.get<MailPort>(MAIL_PORT);
+      const enviados: MailMessage[] = [];
+      const spy = jest.spyOn(port, 'send').mockImplementation(async (msg: MailMessage) => {
+        enviados.push(msg);
+        return { id: 'e2e-mail' };
+      });
+      try {
+        const created = await createRequest(validBody());
+        const srId = created.body.sellRequestId as string;
+        const detail = await h.api('GET', `/admin/buylist/${srId}`, { token: operatorToken });
+
+        // (1) Oferta ENVIADA y cancelada: el vendedor recibe el correo 5 con SU fecha.
+        await h.api('POST', `/admin/buylist/${srId}/offer`, {
+          token: operatorToken,
+          json: { lines: [{ itemId: detail.body.items[0].id, decision: 'buy' }] },
+        });
+        const primera = await h.api('POST', `/admin/buylist/${srId}/offer/cancel`, {
+          token: operatorToken,
+          json: { reason: 'me equivoqué en un número' },
+        });
+        expect(primera.status).toBe(201);
+        const correos = enviados.length; // 1 (la oferta) + 1 (la cancelación)
+        const tras1 = await h.prisma.sellRequest.findUnique({ where: { id: srId } });
+        const laQueElVio = tras1!.offerSentCancelledAt!;
+        expect(laQueElVio).not.toBeNull();
+
+        // (2) Se prepara otra oferta que NO llega a enviarse. El estado se MONTA por `h.prisma`
+        //     (la API no fabrica un `pending_authorization` sin superar el tope del operador) y la
+        //     conducta se prueba **por la puerta**, que es la norma de esta suite.
+        await h.prisma.sellRequest.update({
+          where: { id: srId },
+          data: { offerState: 'pending_authorization' },
+        });
+        const segunda = await h.api('POST', `/admin/buylist/${srId}/offer/cancel`, {
+          token: operatorToken,
+          json: { reason: 'la preparada tampoco servía' },
+        });
+        expect(segunda.status).toBe(201);
+
+        // Correo ✔: esa oferta NUNCA existió para el vendedor ⇒ no sale ni uno más.
+        expect(enviados).toHaveLength(correos);
+
+        const tras2 = await h.prisma.sellRequest.findUnique({ where: { id: srId } });
+        // Reloj ✔ y conteo ✔: no se mueven (el candado estructural de D38 sigue en pie).
+        expect(tras2!.offerIssueClockStartedAt).toEqual(laQueElVio);
+        expect(tras2!.offerReissueCount).toBe(1);
+        // ⚠️ `offerCancelledAt` SÍ se sobrescribió — y está BIEN: es «el hecho de la cancelación»,
+        // admin-only, y lo leen la bitácora y M10. *No se arregla el escritor, se arregla el lector.*
+        expect(tras2!.offerCancelledAt).not.toEqual(laQueElVio);
+        // ⚠️⚠️ Y LA PANTALLA, que es lo que se soltaba: sigue diciendo lo que dice su correo 5.
+        expect(tras2!.offerSentCancelledAt).toEqual(laQueElVio);
+        const portal = await h.api('GET', `/buylist/requests/${srId}`, { token: customerToken });
+        expect(new Date(portal.body.lastOfferCancelledAt as string)).toEqual(laQueElVio);
+      } finally {
+        spy.mockRestore();
+      }
+    });
+
+    it('⚠️ INVARIANTE DESPLEGABLE, medido sobre TODA la tabla con una query', async () => {
+      // §11 (M-46, delta v1.55): `offerReissueCount > 0 ⇔ offerIssueClockStartedAt IS NOT NULL ⇔
+      // offerSentCancelledAt IS NOT NULL`, más la igualdad de instante entre las dos fechas. Es la
+      // misma consulta que devops puede correr tras el deploy, y aquí corre contra la BD real con
+      // todas las filas que esta suite ha ido dejando.
+      const desajuste = await h.prisma.$queryRawUnsafe<{ n: bigint }[]>(
+        `SELECT count(*)::bigint AS n FROM "SellRequest"
+           WHERE ("offerReissueCount" > 0) IS DISTINCT FROM ("offerIssueClockStartedAt" IS NOT NULL)
+              OR ("offerReissueCount" > 0) IS DISTINCT FROM ("offerSentCancelledAt" IS NOT NULL)
+              OR "offerSentCancelledAt" IS DISTINCT FROM "offerIssueClockStartedAt"`,
+      );
+      expect(Number(desajuste[0].n)).toBe(0);
     });
   });
 

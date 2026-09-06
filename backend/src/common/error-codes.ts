@@ -221,7 +221,15 @@ export const ErrorCode = {
   // actor: dispara solo si `BUYLIST_ACCEPTED_PRODUCT_TYPES` autoriza un `productType` para el que
   // `BuylistService.gradeKeyInputFor` **no sabe derivar la identidad de la variante** (p. ej. añadir
   // `'graded'` a la lista **sin** hacer `M-49`, que es quien captura la identidad del slab). Con la
-  // lista vigente (`['raw']`) **no puede dispararse**: la contradicción se grita además al arrancar.
+  // lista vigente (`['raw']`) **no puede dispararse**.
+  //
+  // ⚠️ **v1.55 — ATRIBUCIÓN CORREGIDA.** Este comentario decía que *«la contradicción se grita además
+  // al arrancar»* y se leía como si el arranque la **detuviera**. **`BuylistService.onModuleInit`
+  // hace `logger.error` y la app arranca igual**: un despliegue con la lista ensanchada y la rama sin
+  // escribir **sube en verde**. El que de verdad frena el desajuste es
+  // **`test/buylist.grade-key-derivation.spec.ts`**, que ensancha la lista viva (helper
+  // `withAcceptedProductTypes`) y **rompe el build**; el aviso de arranque es la segunda línea, y
+  // ESTE código es la tercera —la única que actúa por petición—.
   //
   // **500 y no 422** (misma doctrina que `OFFER_PROJECTION_INCOMPLETE` / `OFFERED_PRICE_MISSING`): el
   // cliente no lo causó y **no hay nada que pueda corregir**. Y **lanza en vez de degradar** porque

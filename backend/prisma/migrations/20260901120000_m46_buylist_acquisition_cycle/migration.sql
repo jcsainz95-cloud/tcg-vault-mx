@@ -2,10 +2,18 @@
 -- M-46 — «v1.51-buylist-acquisition-cycle»: CICLO DE ADQUISICIÓN DEL BUYLIST
 -- ARCHITECTURE §11 (M-46) + §4.39 · API_CONTRACT v1.51.4 · PROJECT §P v2.1 (criterios 113–161)
 --
--- ⚠️ M-46 SE ENMENDÓ EN EL SITIO CUATRO VECES (v1.51.1 D31/D32/D33 + cierre de (o.1); v1.51.2
--- D34/D35; v1.51.3 D36–D40; v1.51.4 D42/D43 + fricciones). NO existen M-47/M-48/M-49/M-50: el
--- arquitecto editó ESTA migración porque era PAPEL (nunca se ejecutó en ningún entorno). Este
--- archivo es la PRIMERA ejecución, y ya nace con las cuatro enmiendas aplicadas.
+-- ⚠️ M-46 SE ENMENDÓ EN EL SITIO CINCO VECES (v1.51.1 D31/D32/D33 + cierre de (o.1); v1.51.2
+-- D34/D35; v1.51.3 D36–D40; v1.51.4 D42/D43 + fricciones; **v1.55 D44**). NO existen
+-- M-49/M-50 por esto: el arquitecto edita ESTA migración porque el ciclo NO ha salido a ningún
+-- entorno con datos (§11, delta de v1.55). Este archivo nace con las CINCO enmiendas aplicadas.
+--
+-- ⚠️⚠️ NOTA OPERATIVA v1.55 — LA PREMISA «nunca se ejecutó en ningún entorno» YA NO ES CIERTA
+-- del todo: este archivo **sí se ejecutó en el Postgres LOCAL/CI** (`_prisma_migrations` guarda su
+-- checksum). Editarlo en el sitio es lo que manda §11, y en un entorno **limpio** (CI, staging,
+-- prod) `migrate deploy` lo aplica entero sin nada que reconciliar. En una BD **local que ya lo
+-- tenía aplicado**, `migrate deploy` avisa del checksum: se resuelve con `prisma migrate reset` o
+-- aplicando a mano el `ALTER` del bloque 5 y refrescando el checksum. **Ninguna fila cambia de
+-- valor**: la columna nueva nace `NULL` y `NULL` es la verdad.
 --   · v1.51.1 RETIRA `SellRequest.offerShippingPaidByUs` ⇒ NO SE CREA (con una sola banda no hay
 --     `fee = 0` que desambiguar, y un booleano de un solo valor invita a resucitar la banda).
 --     AÑADE `expiredReason` + `enum SellRequestExpiryReason` y `guideActualCostCents`.
@@ -13,6 +21,7 @@
 --     BACKFILL del paso 4).
 --   · v1.51.3 AÑADE `pickupAddressSnapshot`, `offerIssueClockStartedAt`, `declinedBy`.
 --   · v1.51.4 AÑADE `offerReissueCount Int NOT NULL DEFAULT 0`.
+--   · v1.55 (D44) AÑADE `offerSentCancelledAt TIMESTAMP(3)` — QUINTA enmienda, §4.39(s.1-bis).
 --
 -- ADITIVA PURA Y SEGURA CON LA APP CORRIENDO: cuatro valores de enum + tres enums nuevos + columnas
 -- todas NULLABLE (o `NOT NULL` con default) + cinco índices + dos backfills IDEMPOTENTES.
@@ -123,6 +132,13 @@ ALTER TABLE "SellRequest" ADD COLUMN "offerIssueClockStartedAt"  TIMESTAMP(3);
 -- (`count >= dial 10`) y NO se persiste. Invariante verificable, escrito por el MISMO `if`:
 --   `offerReissueCount > 0  ⇔  offerIssueClockStartedAt IS NOT NULL`
 ALTER TABLE "SellRequest" ADD COLUMN "offerReissueCount"         INTEGER NOT NULL DEFAULT 0;
+-- ⚠️ v1.55 · D44 (§4.39s.1-bis) — LA PANTALLA. Instante en que se canceló una oferta que el vendedor
+-- VIO. La escribe el MISMO `if` que repone el reloj, incrementa el conteo y manda el correo 5 (mismo
+-- `now()`, misma transacción). NO es duplicado de `offerCancelledAt`: aquélla se SOBRESCRIBE en las
+-- tres ramas y pierde el instante que el vendedor conoce. Nullable puro ⇒ CERO BACKFILL (`NULL` es la
+-- verdad: ninguna oferta enviada se ha cancelado jamás). Sin índice: se lee por PK, en el detalle.
+--   `offerReissueCount > 0  ⇔  offerIssueClockStartedAt IS NOT NULL  ⇔  offerSentCancelledAt IS NOT NULL`
+ALTER TABLE "SellRequest" ADD COLUMN "offerSentCancelledAt"      TIMESTAMP(3);
 
 -- ---------------------------------------------------------------------------------------------
 -- BLOQUE 6 — `SellRequest`: el domicilio de ORIGEN congelado (D36/D37, §4.39q).

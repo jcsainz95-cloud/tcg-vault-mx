@@ -259,19 +259,59 @@ describe('⚠️⚠️ (2) LO PROHIBIDO, BUSCADO EN LOS CINCO (criterio 173h)', 
 });
 
 // =============================================================================================
-describe('⚠️⚠️ (3) EL PRODUCTOR: se emite una oferta REAL y se lee lo que salió por el puerto', () => {
-  /** Emite la oferta con un snapshot de dirección COMPLETO y devuelve el correo enviado. */
-  async function emitirOferta(): Promise<MailMessage> {
-    const card = {
-      id: 'card-1',
-      name: 'Charizard VMAX',
-      number: '020',
-      rarity: 'Rare Holo',
-      rarityCanonical: 'rare',
-      subtypes: null,
-      availableFinishes: ['normal'],
-      set: { id: 'swsh3', name: 'Darkness Ablaze' },
-    };
+/**
+ * ⚠️⚠️ **(3) LOS PRODUCTORES — se emiten los correos DE VERDAD y se lee lo que salió por el puerto.**
+ *
+ * ### Por qué este bloque cubre TRES correos y no uno (QA, gate de v1.55)
+ * El barrido de arriba renderiza las **plantillas** con parámetros de fixture. Eso es exactamente la
+ * forma que **dejó vivir el hallazgo original 3 420 tests**: los specs pasaban
+ * `pickupAddressLine: null` y el bloque se apagaba en vez de mirarse. **Un fixture no es una
+ * aserción** — la aserción es *«el servicio, con el snapshot CARGADO en el scope, no lo mete en el
+ * cuerpo»*.
+ *
+ * QA lo demostró **por mutación** sobre una copia desechable:
+ * - **Mutación A** (reintroducir la fuga original en el correo 1): **ni compila** — `TS2345`, el campo
+ *   salió del tipo. El arreglo estructural aguanta.
+ * - **⚠️ Mutación B**: añadir a `sellOfferCancelledTemplate` (correo 5) un campo **opcional**
+ *   interpolado en el cuerpo **compilaba y pasaba los 18 tests**. El reparto de protección no era
+ *   uniforme, y el hueco estaba justo donde el snapshot está en scope.
+ *
+ * ### El reparto, dicho explícitamente (es la razón de que sean estos tres)
+ * | Correo | Productor | Snapshot en scope | Cobertura |
+ * |---|---|---|---|
+ * | **1** oferta | `adminOffer` (servicio) | **sí** | tipo + **productor** + escaneo |
+ * | **2** recordatorio | barrido | **no** | seguro **por construcción** + escaneo |
+ * | **3** expiración | barrido | **no** | seguro **por construcción** + escaneo |
+ * | **4** no procederemos | `adminDecline` (servicio) **y** barrido | **sí** en el servicio | tipo + **productor** + escaneo |
+ * | **5** cancelamos | `adminOfferCancel` (servicio) | **sí** | tipo + **productor** + escaneo |
+ *
+ * Los correos **2 y 3** no ganan test de productor porque **no lo necesitan**: su único emisor es
+ * `buylist-sweep.service.ts`, que **nunca carga el snapshot**. Eso no se afirma de palabra — se
+ * comprueba estructuralmente en `(3-bis)`, y el día que el barrido lo cargue, ese test cae y hay que
+ * escribirles su productor.
+ */
+describe('⚠️⚠️ (3) LOS PRODUCTORES: se emiten los correos REALES y se lee lo que salió por el puerto', () => {
+  const card = {
+    id: 'card-1',
+    name: 'Charizard VMAX',
+    number: '020',
+    rarity: 'Rare Holo',
+    rarityCanonical: 'rare',
+    subtypes: null,
+    availableFinishes: ['normal'],
+    set: { id: 'swsh3', name: 'Darkness Ablaze' },
+  };
+
+  /**
+   * Un servicio con **el snapshot de dirección COMPLETO** en la fila y la CLABE cifrada en KYC: los
+   * dos datos que, de colarse, este spec ve. `escenario` fija la esquina del ciclo desde la que se
+   * emite cada correo.
+   */
+  function servicio(escenario: {
+    status: string;
+    offerState: string | null;
+    offerSentAt?: Date | null;
+  }) {
     const items = [
       {
         id: 'it-1',
@@ -296,14 +336,15 @@ describe('⚠️⚠️ (3) EL PRODUCTOR: se emite una oferta REAL y se lee lo qu
       id: 'sr-1',
       userId: 'u-1',
       user: { id: 'u-1', name: NOMBRE, email: 'ash@example.mx', locale: 'es' },
-      status: 'cotizada',
-      offerState: null,
+      status: escenario.status,
+      offerState: escenario.offerState,
       closedAt: null,
       quotedTotalCents: 90000,
+      approvedTotalCents: null,
       createdAt: new Date('2026-08-01T00:00:00Z'),
       // ⚠️ EL SNAPSHOT COMPLETO. Éste es el dato que se colaba al correo.
       pickupAddressSnapshot: { ...DOMICILIO },
-      offerSentAt: null,
+      offerSentAt: escenario.offerSentAt ?? null,
       offerAcceptDeadlineAt: null,
       offerGrossCents: null,
       offerShippingFeeCents: null,
@@ -311,6 +352,11 @@ describe('⚠️⚠️ (3) EL PRODUCTOR: se emite una oferta REAL y se lee lo qu
       offerIssueClockStartedAt: null,
       offerReissueCount: 0,
       offerCancelledAt: null,
+      offerSentCancelledAt: null,
+      expiredReason: null,
+      declinedBy: null,
+      shipmentTrackingNumber: null,
+      guideCancellationDoneAt: null,
       ineRequired: false,
       ineProvided: false,
     };
@@ -336,14 +382,13 @@ describe('⚠️⚠️ (3) EL PRODUCTOR: se emite una oferta REAL y se lee lo qu
           _count: { approvedPriceCents: 0 },
         })),
       },
-      // La CLABE del vendedor existe y está cifrada: si algún día el correo la tocara, el barrido
-      // de prohibidos la vería.
-      kycProfile: jest.fn,
+      // La CLABE del vendedor existe y está cifrada: si algún día un correo la tocara, el barrido de
+      // prohibidos la vería.
+      kycProfile: {
+        findUnique: jest.fn(async () => ({ userId: 'u-1', clabeEnc: pii.encrypt(CLABE) })),
+      },
       inventoryItem: { groupBy: jest.fn(async () => []) },
       $transaction: jest.fn(async (cb: any) => cb(prisma)),
-    };
-    prisma.kycProfile = {
-      findUnique: jest.fn(async () => ({ userId: 'u-1', clabeEnc: pii.encrypt(CLABE) })),
     };
 
     const pricing = {
@@ -362,6 +407,8 @@ describe('⚠️⚠️ (3) EL PRODUCTOR: se emite una oferta REAL y se lee lo qu
       [SettingKey.BUYLIST_SHIPPING_FEE_CENTS]: 18000,
       [SettingKey.BUYLIST_MINIMUM_OFFER_NET_CENTS]: 20000,
       [SettingKey.BUYLIST_OFFER_ACCEPT_DEADLINE_BUSINESS_DAYS]: 2,
+      [SettingKey.BUYLIST_OFFER_ISSUE_DEADLINE_BUSINESS_DAYS]: 7,
+      [SettingKey.BUYLIST_OFFER_REISSUE_ALERT_COUNT]: 2,
     };
     const settings = { getNumber: jest.fn(async (k: any) => DIALS[k as string] ?? 0) };
     const enviados: MailMessage[] = [];
@@ -379,25 +426,98 @@ describe('⚠️⚠️ (3) EL PRODUCTOR: se emite una oferta REAL y se lee lo qu
       pii,
       mail,
     );
-    await svc.adminOffer('sr-1', { id: 'sa-1', role: 'super_admin' as never }, [
-      { itemId: 'it-1', decision: 'buy' },
-    ]);
-    expect(enviados).toHaveLength(1);
-    return enviados[0];
+    return { svc, enviados, request, items };
   }
 
-  it('⚠️ el correo de oferta REALMENTE emitido no lleva NADA del snapshot de dirección', async () => {
-    const msg = await emitirOferta();
-    expect(prohibidosEn(msg.subject, msg.html, msg.text)).toEqual([]);
+  const ACTOR = { id: 'sa-1', role: 'super_admin' as never };
+
+  /**
+   * ⚠️ **Los TRES productores que tienen el snapshot en scope.** Cada entrada ejecuta el endpoint de
+   * verdad y devuelve **el correo que salió por `MAIL_PORT`** — no el que devuelve la plantilla.
+   */
+  const PRODUCTORES: { correo: string; emitir: () => Promise<MailMessage> }[] = [
+    {
+      correo: '1 · LA OFERTA (POST …/offer)',
+      emitir: async () => {
+        const { svc, enviados } = servicio({ status: 'cotizada', offerState: null });
+        await svc.adminOffer('sr-1', ACTOR, [{ itemId: 'it-1', decision: 'buy' }]);
+        expect(enviados).toHaveLength(1);
+        return enviados[0];
+      },
+    },
+    {
+      correo: '4 · NO PROCEDEREMOS (POST …/decline)',
+      emitir: async () => {
+        const { svc, enviados } = servicio({ status: 'cotizada', offerState: null });
+        await svc.adminDecline('sr-1', ACTOR);
+        expect(enviados).toHaveLength(1);
+        return enviados[0];
+      },
+    },
+    {
+      correo: '5 · CANCELAMOS LA OFERTA (POST …/offer/cancel)',
+      emitir: async () => {
+        const { svc, enviados } = servicio({
+          status: 'ofertada',
+          offerState: 'sent',
+          offerSentAt: new Date('2026-08-10T15:00:00Z'),
+        });
+        await svc.adminOfferCancel('sr-1', ACTOR, 'me equivoqué en un número');
+        expect(enviados).toHaveLength(1);
+        return enviados[0];
+      },
+    },
+  ];
+
+  for (const { correo, emitir } of PRODUCTORES) {
+    it(`⚠️ el correo ${correo} REALMENTE emitido no lleva NADA del snapshot de dirección`, async () => {
+      const msg = await emitir();
+      expect(prohibidosEn(msg.subject, msg.html, msg.text)).toEqual([]);
+    });
+  }
+
+  it('⚠️ EXHAUSTIVIDAD DEL REPARTO: todo correo del ciclo tiene productor propio o razón estructural', () => {
+    // La misma disciplina que `(1)`: no se cierra el hueco tapando el correo que apareció, se cierra
+    // obligando a clasificar el siguiente. Un correo nuevo del ciclo **rompe este test** hasta que
+    // alguien diga si su productor carga el snapshot (⇒ test de productor) o no (⇒ razón estructural,
+    // verificada en `(3-bis)`).
+    const conProductor = PRODUCTORES.map((p) => p.correo.split(' · ')[0]).sort();
+    const porConstruccion = ['2', '3']; // único emisor: el barrido, que no carga el snapshot
+    expect([...conProductor, ...porConstruccion].sort()).toEqual(Object.keys(CICLO).map((k) => k.split(' · ')[0]).sort());
   });
 
-  it('y sí lleva lo que le corresponde: los tres montos y el plazo (la resta se ENSEÑA)', async () => {
-    // Contrapeso deliberado: un correo vacío también pasaría el barrido de PII. Éste comprueba que
-    // lo que se quitó fue el domicilio y **no** la información vinculante (criterio 134).
-    const msg = await emitirOferta();
-    expect(msg.text).toContain('Valor de las cartas');
-    expect(msg.text).toContain('Envío que ponemos nosotros');
-    expect(msg.text).toContain('SE TE DEPOSITAN');
+  it('y sí llevan lo que les corresponde: el 1 los tres montos, el 4 sin cifras, el 5 sin plazos', async () => {
+    // Contrapeso deliberado: un correo VACÍO también pasaría el barrido de PII. Esto comprueba que
+    // lo que se quitó fue el domicilio y **no** la información que cada correo debe llevar.
+    const oferta = await PRODUCTORES[0].emitir();
+    expect(oferta.text).toContain('Valor de las cartas');
+    expect(oferta.text).toContain('Envío que ponemos nosotros');
+    expect(oferta.text).toContain('SE TE DEPOSITAN');
+
+    const noProcede = await PRODUCTORES[1].emitir();
+    expect(noProcede.text).toMatch(/no vamos a proceder/i);
+    expect(noProcede.text).not.toMatch(/MX\$/); // el 4 tiene PROHIBIDO cualquier monto
+
+    const cancelada = await PRODUCTORES[2].emitir();
+    expect(cancelada.text).toMatch(/la cancelamos nosotros/i);
+    expect(cancelada.text).not.toMatch(/venci[óo]|vence/i); // no venció nada: cancelamos NOSOTROS
+    expect(cancelada.text).not.toMatch(/MX\$/);
+  });
+});
+
+// =============================================================================================
+describe('⚠️ (3-bis) los correos 2 y 3 son seguros POR CONSTRUCCIÓN, y eso se comprueba', () => {
+  it('⚠️ el barrido —su ÚNICO productor— no nombra el snapshot de dirección (código, sin comentarios)', () => {
+    // Es la razón por la que 2 y 3 no llevan test de productor. **No es una afirmación de prosa:** si
+    // alguien hace que el barrido cargue `pickupAddressSnapshot`, este test cae y hay que escribirles
+    // su productor —o quitar el dato—. La misma disciplina de `(4)`, aplicada al otro emisor.
+    const ruta = join(__dirname, '..', 'src', 'jobs', 'buylist-sweep.service.ts');
+    const codigo = readFileSync(ruta, 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/\/\/.*$/gm, '');
+    for (const campo of ['pickupAddress', 'postalCode', 'neighborhood', 'clabe']) {
+      expect(codigo.toLowerCase()).not.toContain(campo.toLowerCase());
+    }
   });
 });
 

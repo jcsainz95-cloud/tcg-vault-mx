@@ -11,8 +11,16 @@ import { MailMessage } from '../mail/mail.port';
  * stream «Cuentas y acceso» toque `mail/`.
  *
  * MINIMIZACIÓN DE DATOS (norma §4.18c): el correo lleva SOLO la carta (nombre/set/número), acabado,
- * motivo y los dos plazos con el canal de coordinación. PROHIBIDO: CLABE (ni enmascarada),
- * montos/estado de OTROS ítems, datos de terceros.
+ * motivo y los dos plazos con el canal de coordinación.
+ *
+ * ⚠️ **PROHIBIDO — LA LISTA CANÓNICA DE LOS CINCO** (`PROJECT.md` §P.3, criterio **173(h)**), la misma
+ * en todo correo que salga de este fichero: **(1) domicilio**, **(2) CLABE (ni enmascarada)**,
+ * **(3) datos de terceros**, **(4) montos/estado de OTRAS solicitudes u OTROS ítems** y **(5) cifras
+ * internas de la mesa** (posición, sugerencia, topes del operador).
+ * **Esta cabecera nombraba TRES.** Se completa por la misma razón que la del ciclo: *una lista que
+ * dice tres de cinco deja de vigilarse a sí misma* — quien la lee para saber qué NO puede escribir se
+ * lleva una autorización tácita sobre los dos que faltan. **La regla nunca dependió del número**, y el
+ * barrido que la hace cumplir en los cinco correos del ciclo es `test/buylist.cycle-mail-pii.spec.ts`.
  */
 
 type Locale = 'es' | 'en';
@@ -167,8 +175,14 @@ export function sellItemRejectedTemplate(
  * de la fila **elegiría mal**. Cada endpoint llama a la plantilla que le corresponde y a ninguna otra.
  *
  * **MINIMIZACIÓN (norma §4.18c/§4.39n), en los dos:** solo las cartas de ESTA solicitud, sus montos y
- * los plazos. **PROHIBIDO**: CLABE (ni enmascarada), datos de terceros, montos de otras solicitudes y
- * **cualquier cifra interna de la mesa** (posición, sugerencia, tope del operador).
+ * los plazos. **PROHIBIDO — LOS CINCO** (`PROJECT.md` §P.3, criterio **173(h)**): **domicilio**,
+ * **CLABE (ni enmascarada)**, **datos de terceros**, **montos de OTRAS solicitudes** y **cualquier
+ * cifra interna de la mesa** (posición, sugerencia, tope del operador).
+ * **⚠️ v1.55 — este banner nombraba CUATRO, y gobierna literalmente el correo que fugó** (el 1, B-1):
+ * quien lo leyera para saber qué no podía escribir **no encontraba el domicilio en la lista**. *Una
+ * lista que dice cuatro de cinco deja de vigilarse a sí misma.* La lista completa se declara además en
+ * la cabecera de este fichero y se hace cumplir, en los cinco correos a la vez, en
+ * `test/buylist.cycle-mail-pii.spec.ts`.
  * **S15-B1:** todo valor dinámico pasa por `escapeHtml`.
  */
 

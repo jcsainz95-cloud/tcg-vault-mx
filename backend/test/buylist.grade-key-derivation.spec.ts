@@ -6,16 +6,19 @@ import { ProductType } from '@prisma/client';
 // intercepta con un GETTER para poder ensanchar la lista **dentro de un test** y observar qué hace
 // el código el día de `M-49`. Sin esto, «qué pasa cuando la lista cambie» solo se puede razonar, y
 // razonar es exactamente lo que falló: el predicado y la derivación parecían moverse juntos.
-let mockAcceptedTypes: readonly ProductType[] | null = null;
-jest.mock('../src/common/business-rules', () => {
-  const actual = jest.requireActual('../src/common/business-rules');
-  return {
-    ...actual,
-    get BUYLIST_ACCEPTED_PRODUCT_TYPES() {
-      return mockAcceptedTypes ?? actual.BUYLIST_ACCEPTED_PRODUCT_TYPES;
-    },
-  };
-});
+//
+// ⚠️ v1.55 — **el truco ya no vive aquí**: se movió a `test/helpers/widen-list.ts` para que lo reuse
+// quien toque **cualquier lista de política de esta clase** (una `readonly T[]` exportada que un
+// `switch`, una guarda o un barrido consuman). Encontró dos defectos en dos pases; no es una
+// curiosidad de este archivo. `require` y no `import` porque el factory de `jest.mock` se iza por
+// encima de los imports.
+jest.mock('../src/common/business-rules', () =>
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  require('./helpers/widen-list').widenableModule(
+    jest.requireActual('../src/common/business-rules'),
+    'BUYLIST_ACCEPTED_PRODUCT_TYPES',
+  ),
+);
 
 import { BuylistService } from '../src/modules/buylist/buylist.service';
 import { PrismaService } from '../src/prisma/prisma.service';
@@ -28,6 +31,7 @@ import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
 import { SettingKey } from '../src/modules/settings/settings.constants';
 import { variantKey, variantPositionKey } from '../src/common/variant-key';
 import { BUYLIST_ACCEPTED_PRODUCT_TYPES } from '../src/common/business-rules';
+import { resetLists, setList } from './helpers/widen-list';
 import {
   InventoryPositionPort,
   VariantPositionRef,
@@ -264,8 +268,13 @@ const K_RAW = variantPositionKey({
   cardProductId: null,
 });
 
+/** Ensancha (o estrecha) la lista de política VIVA durante el test. Tipada a `ProductType`. */
+const widenAcceptedTypes = (types: readonly ProductType[]) =>
+  setList('BUYLIST_ACCEPTED_PRODUCT_TYPES', types);
+
 afterEach(() => {
-  mockAcceptedTypes = null;
+  // ⚠️ El override es estado GLOBAL del helper: sin esto se filtra al siguiente test.
+  resetLists();
   jest.restoreAllMocks();
 });
 
@@ -275,14 +284,14 @@ describe('(0-bis) son DOS preguntas, y las dos están vivas', () => {
   // la mueve el dueño del producto (`M-49`); la capacidad técnica la movemos nosotros (`BL-33` y la
   // captura de identidad). Que hoy las dos digan «no» a lo mismo es coincidencia, no equivalencia.
   it('la POLÍTICA sola no basta: con la lista ensanchada, `graded` es aceptado y aun así NO se llavea', () => {
-    mockAcceptedTypes = ['raw', 'graded'];
+    widenAcceptedTypes(['raw', 'graded']);
     expect(isPurchasableProductType('graded')).toBe(true); // pregunta 1: sí
     expect(identityGradeKeyInput({ productType: 'graded' })).toBeNull(); // pregunta 2: no
     expect(gradeKeyInputFor({ productType: 'graded' })).toBeNull(); // conjunción: no
   });
 
   it('la CAPACIDAD sola no basta: con la lista vacía, `raw` es clavable y aun así NO se llavea', () => {
-    mockAcceptedTypes = [];
+    widenAcceptedTypes([]);
     expect(identityGradeKeyInput({ productType: 'raw' })).not.toBeNull(); // pregunta 2: sí
     expect(isPurchasableProductType('raw')).toBe(false); // pregunta 1: no
     expect(gradeKeyInputFor({ productType: 'raw' })).toBeNull(); // conjunción: no
@@ -348,7 +357,7 @@ describe('⚠️⚠️ (1) EL DÍA DE M-49: se ensancha la lista de negocio y NA
   const WIDENED: readonly ProductType[] = ['raw', 'graded'];
 
   it('la mesa NO le pregunta al puerto por la graduada, y JAMÁS con la llave `raw:NM`', async () => {
-    mockAcceptedTypes = WIDENED;
+    widenAcceptedTypes(WIDENED);
     const { svc, seenRefs } = build({
       lines: [
         { id: 'it-raw', productType: 'raw' },
@@ -368,7 +377,7 @@ describe('⚠️⚠️ (1) EL DÍA DE M-49: se ensancha la lista de negocio y NA
   });
 
   it('⚠️ EL CERO PROHIBIDO NO APARECE: la graduada sale SIN CONTEO, no con `stock: 0`', async () => {
-    mockAcceptedTypes = WIDENED;
+    widenAcceptedTypes(WIDENED);
     const { svc } = build({ lines: [{ id: 'it-grd', productType: 'graded' }], refCents: 200000 });
     const res = await svc.adminDecisionTable('sr-1', OPERATOR);
     const line = res.lines[0];
@@ -382,7 +391,7 @@ describe('⚠️⚠️ (1) EL DÍA DE M-49: se ensancha la lista de negocio y NA
   });
 
   it('⚠️ y NO se le pone precio derivado: sin identidad no hay referencia, aunque el mercado exista', async () => {
-    mockAcceptedTypes = WIDENED;
+    widenAcceptedTypes(WIDENED);
     const { svc } = build({ lines: [{ id: 'it-grd', productType: 'graded' }], refCents: 200000 });
     const res = await svc.adminDecisionTable('sr-1', OPERATOR);
     expect(res.lines[0].derivedPriceCents).toBeNull();
@@ -397,7 +406,7 @@ describe('⚠️⚠️ (1) EL DÍA DE M-49: se ensancha la lista de negocio y NA
     // pasar la graduada ajena y la llaveaba `raw:NM`, así que **sumaba al bucket de la raw** e inflaba
     // el total contra el que se juzga el tope. Un `do_not_buy` inventado es dinero que NO se gana; el
     // mismo error al revés es dinero que se paga de más.
-    mockAcceptedTypes = WIDENED;
+    widenAcceptedTypes(WIDENED);
     const { svc } = build({
       lines: [{ id: 'it-raw', productType: 'raw' }],
       otherLines: [
@@ -420,7 +429,7 @@ describe('⚠️⚠️ (1) EL DÍA DE M-49: se ensancha la lista de negocio y NA
   });
 
   it('⚠️ el COTIZADOR PÚBLICO se niega en vez de cotizar contra la referencia raw (el dinero LANZA)', async () => {
-    mockAcceptedTypes = WIDENED;
+    widenAcceptedTypes(WIDENED);
     const { svc, pricing } = build({ lines: [{ id: 'it-1' }], refCents: 200000 });
     // La guarda de negocio YA no protege: la lista dice que las graduadas se compran.
     await expect(svc.publicQuote('card-1', 'graded' as ProductType)).rejects.toMatchObject({
@@ -441,12 +450,27 @@ describe('⚠️⚠️ (1) EL DÍA DE M-49: se ensancha la lista de negocio y NA
   });
 
   it('⚠️ y el desajuste se GRITA AL ARRANCAR: ensanchar la lista sin escribir la rama es un defecto de despliegue', async () => {
-    mockAcceptedTypes = WIDENED;
+    widenAcceptedTypes(WIDENED);
     const error = jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
     const { svc } = build({ lines: [{ id: 'it-1' }] });
     svc.onModuleInit();
     expect(error).toHaveBeenCalledWith(expect.stringContaining('graded'));
     expect(error).toHaveBeenCalledWith(expect.stringContaining('identityGradeKeyInput'));
+  });
+
+  it('⚠️⚠️ v1.55 — pero el arranque NO ES EL DETECTOR: avisa y la app SUBE IGUAL', async () => {
+    // Atribución corregida (techlead, gate de v1.55). Varios comentarios vendían `onModuleInit` como
+    // *el* mecanismo que frena el desajuste. **No frena nada**: hace `logger.error` y devuelve. Un
+    // despliegue con la lista ensanchada y la rama sin escribir **sube en verde**, y el aviso queda en
+    // una línea de log.
+    //
+    // **El detector real es ESTE archivo**: ensancha la lista VIVA (`test/helpers/widen-list.ts`) y
+    // rompe el build antes de que nada se despliegue. Se asevera aquí, y no en un comentario, para
+    // que la atribución no pueda volver a torcerse en silencio.
+    widenAcceptedTypes(WIDENED);
+    jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+    const { svc } = build({ lines: [{ id: 'it-1' }] });
+    expect(() => svc.onModuleInit()).not.toThrow();
   });
 
   it('con la lista sana, el arranque NO grita por la derivación', async () => {

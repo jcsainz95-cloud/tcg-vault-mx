@@ -28,6 +28,220 @@
 > §0.22 de este documento son de `main` y NO se movieron**: son M47-H2, v1.53 (buylist raw-only) y
 > v1.53-b. Un informe de QA/techlead anterior al 2026-09-06 puede usar la numeración vieja.
 
+## 0.39 — **D44 (la pantalla de la oferta cancelada), las dos listas que decían menos de cinco y las atribuciones corregidas** (2026-09-06, rama `claude/buylist-inventory-workflow-hdnls3`, **PII + contrato v1.55**)
+
+> Propiedad: **backend**. Cierra **D44 / BL-31** (arquitecto → backend), la **cura de QA** sobre el
+> ancla de PII, y los dos arreglos de comentario que el techlead pidió hacer **en vez de** anotar.
+> **UNA columna en `M-46`** (`prisma/`, zona compartida abierta por el orquestador). **Cero
+> endpoints, cero códigos de error, cero cambios de forma en ningún DTO ⇒ frontend: cero.**
+> Tres fichas nuevas en `TECH_DEBT.md` (**INV-D8**, **B1-D3**, **M46-D3**).
+
+### 0.39.1 **Las dos listas de prohibiciones que decían menos de cinco** (techlead, arreglo directo)
+
+El diagnóstico de **B-1** —*«una lista que dice cuatro de cinco deja de vigilarse a sí misma»*— se
+había aplicado a **una** de las **tres** listas del fichero. Verificado y corregido en
+`backend/src/modules/buylist/buylist-mail.templates.ts`:
+
+| Sitio | Decía | Ahora |
+|---|---|---|
+| docstring del correo 1 (la oferta) | los **cinco** ✔ (v1.54) | sin cambios |
+| **banner de los correos 1 y 5** | **cuatro** ✘ | los **cinco** |
+| **cabecera del fichero** | **tres** ✘ | los **cinco** |
+
+⚠️ **La de `:169` gobierna literalmente el correo que fugó.** Quien la leyera para saber qué no podía
+escribir **no encontraba el domicilio en la lista**. La lista canónica —**domicilio · CLABE (ni
+enmascarada) · datos de terceros · montos de OTRAS solicitudes/ítems · cifras internas de la mesa**—
+queda escrita **entera** en los tres sitios, con puntero al ancla que la hace cumplir.
+
+*No va a `TECH_DEBT.md`: anotarlo cuesta más que arreglarlo.*
+
+### 0.39.2 **El ancla de PII no protegía igual a los cinco — la cura de QA, implementada**
+
+**Lo que QA midió por mutación** sobre una copia desechable del ancla (`test/buylist.cycle-mail-pii.spec.ts`):
+
+| Mutación | Resultado ANTES | Resultado AHORA |
+|---|---|---|
+| **A** — reintroducir la fuga original (correo 1) | **no compila** (`TS2345`: el campo salió del tipo) ✔ | igual ✔ |
+| **B** — campo **opcional** interpolado en el cuerpo de `sellOfferCancelledTemplate` (correo 5), cableado desde el servicio | **compila y pasa los 18 tests** ✘ | **cae** ✔ |
+| **B′** — lo mismo sobre `sellRequestNotPursuedTemplate` (correo 4) | pasaría ✘ | **cae** ✔ |
+
+**Por qué el reparto no era uniforme, que es lo que importa:** el barrido de los cinco renderiza
+**plantillas con parámetros de fixture**, y *un fixture no es una aserción* — **es la misma forma que
+dejó vivir el hallazgo original 3 420 tests** (`pickupAddressLine: null` **apagaba** el bloque en vez
+de mirarlo). Solo el correo 1 tenía **test de productor**.
+
+**El reparto real, ahora declarado y verificado en el propio spec:**
+
+| Correo | Productor | ¿Snapshot en scope? | Cobertura |
+|---|---|---|---|
+| **1** oferta | `adminOffer` (servicio) | **sí** | tipo + **productor** + escaneo |
+| **2** recordatorio | barrido | **no** | **por construcción** + escaneo |
+| **3** expiración | barrido | **no** | **por construcción** + escaneo |
+| **4** no procederemos | `adminDecline` (servicio) y barrido | **sí** en el servicio | tipo + **productor** + escaneo |
+| **5** cancelamos | `adminOfferCancel` (servicio) | **sí** | tipo + **productor** + escaneo |
+
+- **`(3)` pasa de un productor a TRES.** Cada uno ejecuta el endpoint de verdad con el
+  `pickupAddressSnapshot` **lleno** y la CLABE cifrada en KYC, y lee **el correo que salió por
+  `MAIL_PORT`** — no el que devuelve la plantilla.
+- **`(3)` gana un test de EXHAUSTIVIDAD del reparto:** un correo nuevo del ciclo **rompe el spec**
+  hasta que alguien diga si su productor carga el snapshot (⇒ productor) o no (⇒ razón estructural).
+  *No se cierra el hueco tapando el correo que apareció, se cierra obligando a clasificar el siguiente.*
+- **`(3-bis)` es NUEVO y convierte «seguros por construcción» en una aserción:** el código de
+  `buylist-sweep.service.ts` (sin comentarios) **no nombra** `pickupAddress`/`postalCode`/
+  `neighborhood`/`clabe`. El día que el barrido cargue el snapshot, **ese test cae** y los correos 2 y
+  3 necesitan productor. Registrado como **`B1-D3`** en `TECH_DEBT.md`: la protección de 2 y 3 es de
+  **otra clase** que la de los otros tres, y eso se dice en voz alta.
+
+### 0.39.3 **D44 / BL-31 — `lastOfferCancelledAt` se discrimina por OFERTA, no por solicitud**
+
+Implementa **API_CONTRACT v1.55 (A)** y **ARCHITECTURE §4.39(s.1-bis)**. **El DTO no cambia** —mismo
+nombre, mismo tipo, misma superficie (solo el detalle), misma frase habilitada, misma tabla de
+minimización— ⇒ **frontend no toca nada**.
+
+**El defecto, en una línea:** la proyección discriminaba por `offerSentAt IS NOT NULL` (marca
+**permanente de la SOLICITUD**, BL-28) y pintaba `offerCancelledAt` (que **se sobrescribe** en las
+tres ramas). Con **una** cancelación las dos daban la respuesta correcta **por coincidencia**; con
+**dos**, el portal pintaba **una fecha que el vendedor nunca supo**, contradiciendo su **correo 5**.
+
+**Lo implementado:**
+
+```
+POST …/offer/cancel, rama offerState == 'sent'  ⇒  offerIssueClockStartedAt = now()   // D38 · reloj
+                                                   offerReissueCount        += 1      // (u)  · alerta
+                                                   offerSentCancelledAt     = now()   // D44 · PANTALLA
+                                                   + correo 5                         // (n)  · bandeja
+rama 'pending_authorization' · decline · anulación del barrido  ⇒  ninguno de los cuatro
+
+lastOfferCancelledAt = offerSentCancelledAt  ⇔  closedAt             IS NULL
+                                             ∧  status               = 'cotizada'
+                                             ∧  offerSentCancelledAt IS NOT NULL   // ÚNICO término
+```
+
+- **`SellRequest.offerSentCancelledAt DateTime?`** — `M-46` editada **en el sitio** (§11, delta
+  v1.55). **Nullable puro, CERO backfill, cero índices, cero enums, cero FK.**
+- **El escritor es el `if` que ya existía**, con **el mismo `now()` y la misma transacción**: *las
+  TRES consecuencias de 176(d) pasan a ser CUATRO efectos de un predicado.* La propiedad de
+  `PROJECT.md` §E (*«no pueden desincronizarse»*) vuelve a ser **estructural**, no una promesa.
+- **⚠️ `offerCancelledAt` NO se toca.** Su escritura **incondicional** es correcta para lo que esa
+  columna significa (*el hecho de la cancelación*, admin-only, lo que leen la bitácora y M10). *No se
+  arregla el escritor: se arregla el lector, y se le da la columna que sí contesta su pregunta.*
+- **⛔ Por qué NO bastaba `offerReissueCount > 0`**, medido y anclado en un test propio: en el caso de
+  176(d) vale **1**, así que **la puerta se abre correctamente y el valor sigue siendo el equivocado**.
+  *Arregla cuándo se pinta, no qué se pinta.*
+- **Comentarios que quedaron falsos y se corrigieron en el mismo pase:** el bloque **BL-30** de
+  `adminOfferCancel` justificaba que `offerSentAt` no se limpiara **en parte** porque la proyección lo
+  exigía; ese motivo **caducó** (la proyección ya no lo mira) y se declara. **El otro motivo sigue
+  vivo y basta solo**, que es la razón de que la línea no vuelva.
+
+**Invariante, asertado en unitario Y contra Postgres real** (la misma query que devops puede correr
+tras el deploy):
+
+```sql
+SELECT count(*) FROM "SellRequest"
+ WHERE ("offerReissueCount" > 0) IS DISTINCT FROM ("offerIssueClockStartedAt" IS NOT NULL)
+    OR ("offerReissueCount" > 0) IS DISTINCT FROM ("offerSentCancelledAt"    IS NOT NULL)
+    OR "offerSentCancelledAt" IS DISTINCT FROM "offerIssueClockStartedAt";   -- ⇒ 0
+```
+
+**⚠️ Nota operativa para devops/QA — la migración se editó y la BD local ya la tenía aplicada.**
+`M-46` está en `_prisma_migrations` del Postgres local/CI. Editarla **no rompe** `migrate deploy`
+(Prisma 5 no re-verifica checksums de migraciones aplicadas): **es peor, no dice nada** —
+`migrate status` respondió *«Database schema is up to date!»* con la columna **inexistente**. En un
+entorno **limpio** (CI, staging, prod) `migrate deploy` aplica el archivo entero y la columna nace
+bien. En una BD local que ya la tenía se reconcilia con `prisma migrate reset` **o**, sin perder
+datos, con:
+
+```sql
+ALTER TABLE "SellRequest" ADD COLUMN IF NOT EXISTS "offerSentCancelledAt" TIMESTAMP(3);
+-- y refrescar el checksum de esa fila con el sha256sum del migration.sql nuevo
+UPDATE _prisma_migrations SET checksum = '<sha256sum del archivo>'
+ WHERE migration_name = '20260901120000_m46_buylist_acquisition_cycle';
+```
+
+Es lo que se hizo aquí. La tensión de fondo —**§11 dice «edítala», `M46-D2` dice «no se edita una
+migración aplicada»**— es **decisión del arquitecto** y queda registrada como **`M46-D3`**.
+
+### 0.39.4 **Las dos atribuciones corregidas** (techlead)
+
+**(1) `onModuleInit` NO es el detector del desajuste lista/derivación.** Hace `logger.error` y **la
+app arranca igual**: un despliegue con `BUYLIST_ACCEPTED_PRODUCT_TYPES` ensanchada y la rama del
+`switch` sin escribir **sube en verde**. Varios comentarios lo vendían como *el* mecanismo
+(`buylist.service.ts:764`, `common/error-codes.ts:224`) y **un mantenedor futuro se lo iba a creer**.
+Corregido en los tres sitios, con las **tres capas** nombradas por lo que cada una hace:
+
+| Capa | Qué es | ¿Frena? |
+|---|---|---|
+| `test/buylist.grade-key-derivation.spec.ts` | **ensancha la lista VIVA** e itera la real | **sí — rompe el build** |
+| `BuylistService.onModuleInit` | `logger.error` al izar | **no** (aviso; cubre el deploy que se salta CI) |
+| `purchasableGradeKeyInput` | `500 BUYLIST_LINE_NOT_KEYABLE` | **sí, por petición** |
+
+Y **la atribución se asevera**, no solo se comenta: hay un test nuevo que comprueba que
+`onModuleInit()` **no lanza** con la lista ensanchada.
+
+**(2) El truco que encontró los dos defectos se MUEVE, no se argumenta.** El getter que intercepta una
+constante de módulo para **ensanchar la lista de verdad dentro de un test** vivía enterrado en un
+spec. Ahora es **`backend/test/helpers/widen-list.ts`** (`widenableModule` / `setList` / `resetLists` /
+`withList`), documentado con la clase de problema que resuelve: *toda lista de política que un
+`switch`, una guarda o un barrido consuman tiene el mismo agujero — el día que crezca, ¿qué hace el
+consumidor?—, y la respuesta solo es fiable si se ensancha la lista real.*
+`buylist.grade-key-derivation.spec.ts` pasa a consumirlo (17 → 18 tests, todos verdes).
+
+### 0.39.5 **Dos cosas verificadas que conviene que consten**
+
+- **⚠️ El `never` de `identityGradeKeyInput` depende de una pieza FUERA del fichero:** solo protege si
+  el typecheck corre **después** de `prisma generate` (el enum `ProductType` lo emite el cliente
+  generado). **Verificado en `.github/workflows/ci.yml`**: el job de backend hace `npm ci` →
+  `prisma generate` + `migrate deploy` → **lint → typecheck → test → build**. El orden es correcto
+  **hoy**. Si el pipeline pasara a compilar sin verificar tipos, **la guarda se evapora en silencio** —
+  y el aviso queda aquí porque el fichero que la contiene no puede decirlo.
+- **La doctrina del `switch` exhaustivo NO se aplicó al gemelo de `inventory`**, y sus dos catch-alls
+  **se contradicen** (`gradeKeyInputOfDto` trata lo desconocido como **raw**; `validateProductShape`,
+  como **graded**). Hoy no dispara. **Anotado como `INV-D8`** — no se corrige aquí porque
+  `inventory.service.ts` es de otro stream y este pase no tiene esa ventana.
+
+### 0.39.6 **Qué cambió, por archivo**
+
+| Archivo | Cambio |
+|---|---|
+| `backend/prisma/schema.prisma` | **+ `SellRequest.offerSentCancelledAt DateTime?`** |
+| `backend/prisma/migrations/20260901120000_m46_buylist_acquisition_cycle/migration.sql` | **+ `ALTER TABLE … ADD COLUMN`** (bloque 5) + nota operativa sobre la premisa «es papel» |
+| `backend/src/modules/buylist/buylist.service.ts` | escritor (`adminOfferCancel`), lector (`lastOfferCancelledAtOf`), tipo de fila, y las atribuciones de `onModuleInit` |
+| `backend/src/modules/buylist/buylist-mail.templates.ts` | **solo comentarios**: las dos listas de prohibiciones, completas |
+| `backend/src/common/error-codes.ts` | **solo comentario**: atribución de `BUYLIST_LINE_NOT_KEYABLE` |
+| `backend/test/helpers/widen-list.ts` | **NUEVO** — el ensanche de listas de política, reutilizable |
+| `backend/test/buylist.cycle-mail-pii.spec.ts` | productores 4 y 5, exhaustividad del reparto, `(3-bis)` |
+| `backend/test/buylist.offer-cycle.spec.ts` | los **cuatro** efectos + bloque D44 / 176(d) (7 tests) |
+| `backend/test/buylist.grade-key-derivation.spec.ts` | consume el helper + test de atribución de `onModuleInit` |
+| `backend/test/integration/buylist-cycle.e2e-spec.ts` | 176(d) por HTTP contra Postgres + invariante desplegable |
+
+### 0.39.7 **Verificación (literal)**
+
+```
+npx tsc --noEmit -p tsconfig.json        →  sin salida (limpio)
+npx eslint "src/**/*.ts" "test/**/*.ts"  →  0 errores, 2 warnings PRE-EXISTENTES
+                                            (inventory.service.ts:638, sealed-product.service.ts:11 —
+                                             ficheros que este pase NO toca)
+npx jest                                 →  Test Suites: 243 passed, 243 total
+                                            Tests:       3477 passed, 3477 total
+npx jest --config test/jest-integration.config.js --runInBand
+                                         →  Test Suites: 17 passed, 17 total
+                                            Tests:       242 passed, 242 total
+```
+
+Respecto al pase anterior (**243 / 3465** unitarios y **17 / 240** de integración): **+12 unitarios**
+y **+2 de integración**, **sin suites nuevas**. Todos los nuevos se verificaron **por mutación**:
+
+| Mutación aplicada | Tests que caen |
+|---|---|
+| lector de D44 revertido al de v1.51.4 (`offerSentAt` + `offerCancelledAt`) | **3** unitarios + **1** de integración |
+| escritor sin `offerSentCancelledAt` en el `if` | **4** unitarios |
+| **Mutación B de QA** (campo opcional en el correo 5, cableado desde el servicio) | **1** — y **compila**, que es el punto |
+| lo mismo sobre el correo 4 | **1** — y **compila** |
+
+El fallo de integración bajo mutación es literal y merece leerse, porque es **el defecto exacto** que
+D44 cierra: `Expected: 2026-09-06T06:45:02.735Z` / `Received: 2026-09-06T06:45:02.754Z` — **la
+pantalla pintando la segunda cancelación, 19 ms después de la que el vendedor tiene en su correo**.
+
 ## 0.38 — **Los tres bloqueantes del gate de v1.54: la PII del correo, el objetivo del bounty y la derivación de la llave** (2026-09-06, rama `claude/buylist-inventory-workflow-hdnls3`, **PII + MONEY**)
 
 > Propiedad: **backend**. Cierra **B-1** (QA/seguridad), **B-2** (QA) y **B-3** (techlead), más los tres

@@ -166,6 +166,10 @@ type SellRequestCycleRow = Partial<{
   declinedBy: string | null;
   offerReissueCount: number | null;
   offerCancelledAt: Date | null;
+  // ⚠️ v1.55 · D44 (§4.39s.1-bis) — la ÚNICA fuente de `lastOfferCancelledAt`. Ver
+  // `lastOfferCancelledAtOf`: `offerCancelledAt` sigue en el tipo porque la proyección ADMIN la
+  // publica, pero **la de cliente ya no la mira**.
+  offerSentCancelledAt: Date | null;
   payoutNetCents: number | null;
   offerIssueClockStartedAt: Date | null;
 }>;
@@ -233,30 +237,51 @@ function toSellRequestBaseDTO(r: SellRequestBaseRow) {
 }
 
 /**
- * ⚠️ v1.51.4 (D42, §6) — **`lastOfferCancelledAt`: REGLA DE PROYECCIÓN, no la columna tal cual.**
+ * ⚠️⚠️ v1.55 · **D44** (§4.39(s.1-bis), contrato §6/D42) — **`lastOfferCancelledAt`: UN SOLO TÉRMINO
+ * DE OFERTA, y cuelga del MISMO `if` que el correo 5 y el reloj.**
  * ```
- * lastOfferCancelledAt = offerCancelledAt  ⇔  closedAt         IS NULL      // la solicitud sigue VIVA
- *                                          ∧  status           = 'cotizada' // volvió a la fila
- *                                          ∧  offerSentAt      IS NOT NULL  // ⚠️ hubo una oferta que él VIO
- *                                          ∧  offerCancelledAt IS NOT NULL
- *                                        ;  null en cualquier otro caso
+ * lastOfferCancelledAt = offerSentCancelledAt  ⇔  closedAt             IS NULL      // sigue VIVA
+ *                                              ∧  status               = 'cotizada' // volvió a la fila
+ *                                              ∧  offerSentCancelledAt IS NOT NULL  // ⚠️ ÚNICO término
+ *                                            ;  null en cualquier otro caso
  * ```
- * **El término que hace todo el trabajo es `offerSentAt IS NOT NULL`.** `offerCancelledAt` también se
- * sella al cancelar una **`pending_authorization`** y cuando el barrido anula la oferta al caducar:
- * sin ese término el portal diría *«te mandamos una oferta y la cancelamos»* **sobre una oferta que
- * NUNCA EXISTIÓ para él** — la misma fuga que `offerState` es admin-only para impedir. Funciona
- * porque `offerSentAt` **no se limpia** al cancelar (§4.39i.6, que lo usa como discriminador).
  *
- * **No hay columna nueva** y el nombre del DTO ≠ el de la columna, y está bien: el DTO nombra **lo
- * que el vendedor lee**; la columna nombra **el hecho**.
+ * ### El defecto que cierra (BL-31, medido por QA en la corrida conjunta del criterio 176(d))
+ * La regla de v1.51.4 discriminaba por **`offerSentAt IS NOT NULL`** y pintaba **`offerCancelledAt`**.
+ * Las dos columnas contestan **otra pregunta**:
+ * - **`offerSentAt` es marca permanente de la SOLICITUD** (BL-28: ninguna ruta lo limpia jamás) ⇒
+ *   contesta *«¿esta solicitud entró al ciclo?»*, no *«¿la oferta que acabo de cancelar llegó a sus
+ *   manos?»*. A partir de la **segunda** cancelación la puerta se abre cuando no debe.
+ * - **`offerCancelledAt` se SOBRESCRIBE** en las tres ramas (`sent`, `pending_authorization` y la
+ *   anulación del barrido) ⇒ *«la cancelación que él vio»* **deja de existir en la fila**.
+ *
+ * Medido: con una oferta **enviada-y-cancelada** previa, cancelar después una
+ * **`pending_authorization`** dejaba el **correo bien** (no sale) ✔, el **reloj bien** (no se mueve) ✔
+ * y **el portal pintando la fecha de la segunda cancelación** ✘ — una fecha **que el vendedor nunca
+ * supo** y que **contradice su correo 5**, que es justo lo que D42 vino a cerrar.
+ *
+ * ⛔ **Por qué NO bastaba `offerReissueCount > 0`** (el arreglo que parece obvio): en ese caso vale
+ * **1**, así que la puerta se abre correctamente **y el valor seguiría siendo la fecha equivocada**.
+ * *Arregla cuándo se pinta, no qué se pinta.*
+ *
+ * ⚠️ **`offerCancelledAt` NO se toca:** su escritura incondicional es **correcta para lo que esa
+ * columna significa** (*el hecho de la cancelación*, admin-only, lo que leen la bitácora y M10).
+ * *No se arregla el escritor: se arregla el lector, y se le da la columna que sí contesta su
+ * pregunta.* El DTO nombra **lo que el vendedor lee**; la columna nombra **el hecho** — lo que
+ * faltaba era una columna que nombrara **ese** hecho.
+ *
+ * ⚠️ **El DTO no cambia**: mismo nombre, mismo tipo, misma superficie (solo el detalle), misma frase
+ * habilitada y la misma tabla de minimización. **Frontend: cero.**
  */
 function lastOfferCancelledAtOf(r: SellRequestBaseRow & SellRequestCycleRow): Date | null {
-  const cancelledAt = r.offerCancelledAt ?? null;
-  if (cancelledAt == null) return null;
+  // ⚠️ El ÚNICO término de oferta. `offerSentCancelledAt` solo lo escribe la rama `sent` de
+  // `offer/cancel`, en la misma transacción y con el mismo `now()` que el reloj, el conteo y el
+  // correo 5 ⇒ si está poblado, **hubo un correo 5 con esta fecha exacta en la bandeja del vendedor**.
+  const sentCancelledAt = r.offerSentCancelledAt ?? null;
+  if (sentCancelledAt == null) return null;
   if (r.closedAt != null) return null;
   if (r.status !== 'cotizada') return null;
-  if ((r.offerSentAt ?? null) == null) return null;
-  return cancelledAt;
+  return sentCancelledAt;
 }
 
 /**
@@ -587,8 +612,17 @@ export class BuylistService implements OnModuleInit {
     // La lista (`BUYLIST_ACCEPTED_PRODUCT_TYPES`) y el `switch` (`gradeKeyInputFor`) son piezas
     // distintas a propósito —una decide qué se compra, el otro con qué identidad se llavea—, y esa
     // separación abre un desajuste posible: ensanchar la lista **sin** escribir la rama. Es un
-    // defecto de DESPLIEGUE, no de petición, así que se grita **al izar** y no en cada request; en
+    // defecto de DESPLIEGUE, no de petición, así que se avisa **al izar** y no en cada request; en
     // request lo ataja `purchasableGradeKeyInput` con un 500 de código estable.
+    //
+    // ⚠️⚠️ **v1.55 — QUÉ ES Y QUÉ NO ES ESTE BLOQUE.** Es un **AVISO**: hace `logger.error` y **la app
+    // arranca igual**. **NO es el mecanismo que frena el desajuste**, y varios comentarios lo vendían
+    // como si lo fuera. Lo que de verdad lo frena es
+    // **`test/buylist.grade-key-derivation.spec.ts`**, que **ensancha la lista viva** (helper
+    // `withAcceptedProductTypes`, `test/helpers/widen-list.ts`) e itera la lista real ⇒ el desajuste
+    // **rompe el build**. Si alguien quiere que esto ABORTE el arranque, es una decisión de
+    // disponibilidad (tirar el servicio entero por una línea que hoy no existe) y hay que tomarla a
+    // propósito, no heredarla de un comentario optimista.
     const underivable = BUYLIST_ACCEPTED_PRODUCT_TYPES.filter(
       (t) => BuylistService.identityGradeKeyInput({ productType: t }) == null,
     );
@@ -760,9 +794,22 @@ export class BuylistService implements OnModuleInit {
    * **Y aquí el `null` NO degrada: LANZA.** Es la otra mitad de *«el dinero lanza, la lectura
    * degrada»* (§4.40.4b): la lectura puede decir *«no sé contar esta línea»* y seguir pintando; una
    * cotización **no puede** decir *«no sé qué es»* y aun así poner un número. El caso solo existe si
-   * alguien ensancha la lista de negocio **sin** escribir la derivación —contradicción que se grita
-   * además al arrancar (`onModuleInit`)—, así que es un **defecto NUESTRO**, no del actor: `500` con
-   * código estable, nunca un `422` que le pida al cliente arreglar nuestro bug.
+   * alguien ensancha la lista de negocio **sin** escribir la derivación, así que es un **defecto
+   * NUESTRO**, no del actor: `500` con código estable, nunca un `422` que le pida al cliente arreglar
+   * nuestro bug.
+   *
+   * ### ⚠️ v1.55 — ATRIBUCIÓN CORREGIDA: quién detecta el desajuste, de verdad
+   * Este docblock decía que la contradicción *«se grita al arrancar (`onModuleInit`)»* y se leía como
+   * si eso la **atajara**. **No la ataja: `onModuleInit` hace `logger.error` y sigue arrancando** — un
+   * despliegue con la lista ensanchada y la rama sin escribir **sube igual, en verde**, y el aviso
+   * queda en una línea de log que nadie mira.
+   * - **El detector REAL es el test**: `test/buylist.grade-key-derivation.spec.ts` **ensancha la lista
+   *   de verdad** (con el helper `withAcceptedProductTypes`, `test/helpers/widen-list.ts`) e itera la
+   *   lista viva ⇒ el desajuste **rompe el build antes del despliegue**, que es donde tiene arreglo.
+   * - **`onModuleInit` es un AVISO en runtime**, valioso pero de segunda línea: cubre el caso de que
+   *   alguien despliegue saltándose CI.
+   * - **Y este `throw` es el atajo por-petición**: lo único que impide que una línea sin identidad
+   *   derivable acabe con un precio. *Tres capas, y solo dos frenan algo.*
    */
   private purchasableGradeKeyInput(it: {
     productType: ProductType;
@@ -1840,7 +1887,10 @@ export class BuylistService implements OnModuleInit {
       // ⚠️ Viaja el **SNAPSHOT**, que puede diferir de la libreta si la editó después. **Es la
       // propiedad, no un defecto.** Y NO existe `pickupAddressId`, ni en el DTO ni en el schema.
       pickupAddress: req.pickupAddressSnapshot ?? null,
-      // ⚠️ v1.51.4 (D42) — regla de proyección, no la columna (ver `lastOfferCancelledAtOf`).
+      // ⚠️ v1.51.4 (D42) + **v1.55 (D44)** — regla de proyección, no la columna (ver
+      // `lastOfferCancelledAtOf`). Desde D44 su ÚNICA fuente es `offerSentCancelledAt`, escrita por
+      // el mismo `if` que manda el correo 5: *la pantalla no puede pintar una fecha que el vendedor
+      // no tenga en su bandeja.*
       // Cierra el defecto de que `offer/cancel` limpiaba los campos congelados y el vendedor **que
       // acababa de recibir el correo de cancelación** entraba al portal y **no veía rastro**: la
       // pantalla contradecía al correo, que es justo lo que §23.5a prohíbe.
@@ -3552,11 +3602,19 @@ export class BuylistService implements OnModuleInit {
    * oferta que el vendedor ya tiene en su bandeja*. La solicitud vuelve a **`cotizada`** y los campos
    * congelados se **limpian**; la oferta anterior **sobrevive íntegra en `AuditLog`**.
    *
-   * ### ⚠️ Los TRES efectos de D38/v1.51.4 cuelgan del MISMO `if`, y eso es la garantía
+   * ### ⚠️ Los CUATRO efectos (D38 / v1.51.4 / **v1.55·D44**) cuelgan del MISMO `if`, y eso es la garantía
    * ```
-   * offerState == 'sent'                  ⇒ offerIssueClockStartedAt = now  ∧  offerReissueCount += 1  ∧  CORREO 5
+   * offerState == 'sent'                  ⇒ offerIssueClockStartedAt = now   // D38  · reloj
+   *                                       ∧ offerReissueCount        += 1    // (u)  · alerta admin
+   *                                       ∧ offerSentCancelledAt     = now   // D44  · PANTALLA
+   *                                       ∧ CORREO 5                         // (n)  · bandeja
    * offerState == 'pending_authorization' ⇒ nada de lo anterior — NI UN CORREO
    * ```
+   * ⚠️ **v1.55 · D44 — el cuarto efecto entró aquí porque la PANTALLA colgaba de otra columna.**
+   * Hasta v1.54, `lastOfferCancelledAt` se derivaba de `offerCancelledAt` + `offerSentAt`, que se
+   * escriben en **las dos** ramas y sobreviven a todo: con **dos** cancelaciones el portal pintaba una
+   * fecha **que el vendedor nunca supo**, contradiciendo su correo 5 (BL-31, criterio 176(d)). *Las
+   * tres consecuencias pasan a ser cuatro efectos de un predicado, con el mismo `now()`.*
    * **Por qué reinicia el reloj:** la regla 7 medía desde `createdAt` y la cancelación no lo tocaba,
    * así que cancelar en el día 7 **para corregir un error nuestro** devolvía la solicitud a la fila
    * **con cero días** y el barrido de esa madrugada le mandaba un *«no procederemos»*. **El vendedor
@@ -3600,10 +3658,13 @@ export class BuylistService implements OnModuleInit {
           // §6/D42, que apoya `lastOfferCancelledAt` **explícitamente** en que sobreviva.
           //
           // **Lo que rompía, medido por HTTP contra BD real:**
-          // - **`lastOfferCancelledAt` salía SIEMPRE `null`** (su regla exige `offerSentAt IS NOT
-          //   NULL`) ⇒ el vendedor que **acababa de recibir el correo 5** entraba al portal y **no
-          //   veía rastro** ni de la oferta ni de la cancelación: **la pantalla contradecía al
-          //   correo**, que es justo lo que §23.5a prohíbe y lo que D42 vino a cerrar.
+          // - **`lastOfferCancelledAt` salía SIEMPRE `null`** (su regla de entonces exigía
+          //   `offerSentAt IS NOT NULL`) ⇒ el vendedor que **acababa de recibir el correo 5** entraba
+          //   al portal y **no veía rastro** ni de la oferta ni de la cancelación: **la pantalla
+          //   contradecía al correo**, que es justo lo que §23.5a prohíbe y lo que D42 vino a cerrar.
+          //   ⚠️ **v1.55/D44: esa proyección ya NO mira `offerSentAt`** (mira `offerSentCancelledAt`),
+          //   así que **este motivo caducó**. El OTRO sigue vivo y basta por sí solo, que es la razón
+          //   por la que esta línea no vuelve.
           // - **La solicitud SALÍA del ciclo de oferta a ojos de las guardas.** `respond` e
           //   `itemDecision(adjust)` discriminan por `offerSentAt`, así que una solicitud cuya
           //   oferta se canceló volvía a admitir la vía de AJUSTE — la que el criterio 150 declara
@@ -3618,11 +3679,19 @@ export class BuylistService implements OnModuleInit {
           // {null, cancelled}`), así que **se puede volver a ofertar sin cambiar nada**.
           offerCancelledAt: now,
           offerCancelReason: reason?.trim() ? reason.trim() : null,
-          // D38 + v1.51.4: los TRES efectos, bajo la MISMA condición.
+          // D38 + v1.51.4 + ⚠️ v1.55/D44: los CUATRO efectos, bajo la MISMA condición y con el MISMO
+          // `now()`. El cuarto —`offerSentCancelledAt`, LA PANTALLA— entra aquí y no en otro sitio
+          // porque hasta v1.54 el correo y el reloj colgaban de este `if` **y la pantalla colgaba de
+          // una columna ajena** (`offerCancelledAt`, que se escribe abajo en las DOS ramas): la
+          // propiedad de `PROJECT.md` §E —*«un solo hecho gobierna las TRES, así que no pueden
+          // desincronizarse»*— se sostenía **por coincidencia**, y la segunda cancelación la deshizo
+          // (BL-31). Ahora son **cuatro efectos de un predicado**, y el invariante es asertable:
+          //   `offerReissueCount > 0 ⇔ offerIssueClockStartedAt IS NOT NULL ⇔ offerSentCancelledAt IS NOT NULL`
           ...(wasSent
             ? {
                 offerIssueClockStartedAt: now,
                 offerReissueCount: { increment: 1 },
+                offerSentCancelledAt: now,
               }
             : {}),
           // D22: si había guía emitida, se abre la tarea «cancelar guía no usada» — no desaparece

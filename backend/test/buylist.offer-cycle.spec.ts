@@ -55,6 +55,7 @@ interface Opts {
   offerAcceptDeadlineAt?: Date | null;
   shipmentTrackingNumber?: string | null;
   offerReissueCount?: number;
+  offerSentCancelledAt?: Date | null;
   now?: Date;
 }
 
@@ -107,6 +108,9 @@ function build(opts: Opts = {}) {
     offerIssueClockStartedAt: null,
     offerReissueCount: opts.offerReissueCount ?? 0,
     offerCancelledAt: null,
+    // ⚠️ v1.55 · D44 — la ÚNICA fuente de `lastOfferCancelledAt`. Arranca `null` (nadie ha cancelado
+    // una oferta que el vendedor viera) y solo la escribe la rama `sent` de `offer/cancel`.
+    offerSentCancelledAt: opts.offerSentCancelledAt ?? null,
     acceptedAt: null,
     shipDeadlineAt: null,
     sellerShippedDeclaredAt: null,
@@ -722,7 +726,10 @@ describe('Cancelar la oferta (criterio 145, D38, v1.51.4)', () => {
     // *el reinicio no ocurre sin que al vendedor le llegue un correo.*
   });
 
-  it('los TRES efectos cuelgan del MISMO `if`: o van los tres, o no va ninguno', async () => {
+  it('⚠️ v1.55/D44 — los CUATRO efectos cuelgan del MISMO `if`: o van los cuatro, o no va ninguno', async () => {
+    // Eran TRES (reloj, conteo, correo) y la PANTALLA colgaba de `offerCancelledAt`, una columna que
+    // se escribe en las DOS ramas: la propiedad de `PROJECT.md` §E se sostenía **por coincidencia**.
+    // Con `offerSentCancelledAt` son cuatro efectos de un predicado, y este bucle lo mide.
     for (const [offerState, esperado] of [
       ['sent', true],
       ['pending_authorization', false],
@@ -735,12 +742,16 @@ describe('Cancelar la oferta (criterio 145, D38, v1.51.4)', () => {
       await svc.adminOfferCancel('sr-1', OPERATOR);
       const reloj = request.offerIssueClockStartedAt != null;
       const conteo = (request.offerReissueCount as number) > 0;
+      const pantalla = request.offerSentCancelledAt != null;
       const correo = (mail.send as jest.Mock).mock.calls.length > 0;
-      expect({ reloj, conteo, correo }).toEqual({
+      expect({ reloj, conteo, pantalla, correo }).toEqual({
         reloj: esperado,
         conteo: esperado,
+        pantalla: esperado,
         correo: esperado,
       });
+      // Y el MISMO `now()`: no son dos relojes que casualmente coinciden.
+      expect(request.offerSentCancelledAt).toEqual(request.offerIssueClockStartedAt);
     }
   });
 
@@ -787,6 +798,174 @@ describe('Cancelar la oferta (criterio 145, D38, v1.51.4)', () => {
     expect(res.response.offerState).toBe('sent');
     expect(request.status).toBe('ofertada');
     expect(mail.send).toHaveBeenCalledTimes(1);
+  });
+});
+
+// =============================================================================================
+/**
+ * ⚠️⚠️ v1.55 · **D44 / BL-31 — LA PANTALLA NO PUEDE PINTAR UNA FECHA QUE EL VENDEDOR NO TENGA EN SU
+ * BANDEJA.** Criterio **176(d)**, contrato §6/D42 (regla vigente), ARCHITECTURE §4.39(s.1-bis).
+ *
+ * ### El defecto que este bloque ancla
+ * La proyección de v1.51.4 discriminaba por `offerSentAt IS NOT NULL` y pintaba `offerCancelledAt`.
+ * **Ninguna de las dos columnas contesta la pregunta que se les hacía:**
+ * - `offerSentAt` es marca **permanente de la SOLICITUD** (BL-28) ⇒ una vez que hubo UNA oferta
+ *   enviada, la puerta queda abierta para siempre.
+ * - `offerCancelledAt` **se sobrescribe** en las tres ramas ⇒ el instante que el vendedor conoce
+ *   **desaparece de la fila** en cuanto hay una segunda cancelación.
+ *
+ * Con las dos juntas: **una `pending_authorization` cancelada después de una enviada-y-cancelada**
+ * dejaba el correo ✔ y el reloj ✔ correctos, y **el portal pintando una fecha que el vendedor nunca
+ * supo**, contradiciendo su correo 5. *Dos consecuencias del mismo hecho aguantaron; la tercera se
+ * soltó — que es justo lo que 176(d) manda cazar corriéndolas JUNTAS.*
+ *
+ * ### Por qué la corrida tiene que ser CONJUNTA
+ * Cada consecuencia por separado pasaba. El defecto **solo existe en la conjunción**, y solo a partir
+ * de la **segunda** cancelación: un spec que cancele una vez está verde con el bug dentro.
+ */
+describe('⚠️⚠️ D44 (criterio 176d) — `lastOfferCancelledAt`: la pantalla, el correo y el reloj JUNTOS', () => {
+  const enviada = {
+    status: 'ofertada',
+    offerState: 'sent',
+    offerSentAt: new Date('2026-08-10T00:00:00Z'),
+    offerAcceptDeadlineAt: new Date('2026-08-12T00:00:00Z'),
+  };
+
+  /** Lo que el vendedor ve en SU detalle. */
+  const portal = async (svc: BuylistService) =>
+    (await svc.getMine('u-1', 'sr-1')) as unknown as { lastOfferCancelledAt: Date | null };
+
+  /**
+   * ⚠️ Las dos cancelaciones tienen que caer en instantes DISTINGUIBLES, o la aserción central
+   * —«`offerCancelledAt` se sobrescribió y la pantalla no»— pasaría por empate de milisegundo en vez
+   * de por la propiedad que se quiere probar. Reloj falso, y devuelto siempre.
+   */
+  async function conRelojFalso(fn: (avanzarA: (iso: string) => void) => Promise<void>): Promise<void> {
+    jest.useFakeTimers();
+    try {
+      await fn((iso) => jest.setSystemTime(new Date(iso)));
+    } finally {
+      jest.useRealTimers();
+    }
+  }
+
+  it('cancelar una ENVIADA: el portal pinta EXACTAMENTE el instante del correo 5', async () => {
+    const { svc, request, mail } = build(enviada);
+    await svc.adminOfferCancel('sr-1', OPERATOR);
+    expect(mail.send).toHaveBeenCalledTimes(1);
+    const sellado = request.offerSentCancelledAt as Date;
+    expect(sellado).toBeInstanceOf(Date);
+    expect((await portal(svc)).lastOfferCancelledAt).toEqual(sellado);
+  });
+
+  it('⚠️⚠️ LA CORRIDA CONJUNTA: una `pending_authorization` cancelada DESPUÉS no mueve la pantalla', async () => {
+    await conRelojFalso(async (avanzarA) => {
+      const { svc, request, mail } = build(enviada);
+
+      // (1) Primera cancelación: la oferta que el vendedor VIO. Correo 5 + reloj + pantalla.
+      avanzarA('2026-08-11T10:00:00Z');
+      await svc.adminOfferCancel('sr-1', OPERATOR, 'me equivoqué en un número');
+      const laQueElVio = request.offerSentCancelledAt as Date;
+      expect(mail.send).toHaveBeenCalledTimes(1);
+      expect(laQueElVio).toEqual(new Date('2026-08-11T10:00:00Z'));
+      expect((await portal(svc)).lastOfferCancelledAt).toEqual(laQueElVio);
+
+      // (2) Se prepara otra oferta que NO llega a enviarse (queda esperando autorización) y se
+      //     cancela DÍAS DESPUÉS. Para el vendedor esa oferta **nunca existió**: ni correo, ni
+      //     reloj, ni pantalla.
+      request.offerState = 'pending_authorization';
+      avanzarA('2026-08-14T18:30:00Z');
+      await svc.adminOfferCancel('sr-1', OPERATOR);
+
+      // Correo ✔ (sigue habiendo UNO, el de la primera) y reloj ✔ (no se movió).
+      expect(mail.send).toHaveBeenCalledTimes(1);
+      expect(request.offerIssueClockStartedAt).toEqual(laQueElVio);
+      expect(request.offerReissueCount).toBe(1);
+
+      // ⚠️ Y LA PANTALLA, que es lo que se soltaba: sigue diciendo lo que dice su correo.
+      expect((await portal(svc)).lastOfferCancelledAt).toEqual(laQueElVio);
+
+      // La prueba de que el arreglo NO es cosmético: `offerCancelledAt` SÍ se sobrescribió —y está
+      // BIEN que lo haga: es «el hecho de la cancelación» y es admin-only—. El lector dejó de mirarla.
+      expect(request.offerCancelledAt).toEqual(new Date('2026-08-14T18:30:00Z'));
+      expect(request.offerSentCancelledAt).toEqual(laQueElVio);
+    });
+  });
+
+  it('⛔ `offerReissueCount > 0` NO habría bastado: abre la puerta correcta y pinta la fecha equivocada', async () => {
+    // El arreglo que parece obvio, medido. Tras la segunda cancelación el conteo vale 1, así que un
+    // discriminador `offerReissueCount > 0` habría dejado pasar la proyección **y el valor seguiría
+    // siendo `offerCancelledAt`**, o sea la cancelación que él nunca vio.
+    await conRelojFalso(async (avanzarA) => {
+      const { svc, request } = build(enviada);
+      avanzarA('2026-08-11T10:00:00Z');
+      await svc.adminOfferCancel('sr-1', OPERATOR);
+      const laQueElVio = request.offerSentCancelledAt as Date;
+      request.offerState = 'pending_authorization';
+      avanzarA('2026-08-14T18:30:00Z');
+      await svc.adminOfferCancel('sr-1', OPERATOR);
+      expect(request.offerReissueCount).toBe(1); // la puerta se habría abierto…
+      expect(request.offerCancelledAt).not.toEqual(laQueElVio); // …con la fecha equivocada
+      expect((await portal(svc)).lastOfferCancelledAt).toEqual(laQueElVio); // y la vigente acierta
+    });
+  });
+
+  it('⚠️ EL LECTOR YA NO MIRA `offerSentAt` NI PINTA `offerCancelledAt` (la fuga vieja, reconstruida)', async () => {
+    // Fila que reproduce EXACTAMENTE la premisa vieja: hubo una oferta enviada alguna vez
+    // (`offerSentAt` poblado, marca permanente) y hay una cancelación sellada (`offerCancelledAt`),
+    // pero NINGUNA de ellas fue de una oferta que el vendedor viera cancelar.
+    const { svc, request } = build({ status: 'cotizada', offerState: 'cancelled' });
+    request.offerSentAt = new Date('2026-08-10T00:00:00Z');
+    request.offerCancelledAt = new Date('2026-08-15T00:00:00Z');
+    request.offerSentCancelledAt = null;
+    expect((await portal(svc)).lastOfferCancelledAt).toBeNull();
+  });
+
+  it('los otros dos términos siguen vivos: cerrada ⇒ `null`; fuera de `cotizada` ⇒ `null`', async () => {
+    const cerrada = build({ status: 'cotizada', offerSentCancelledAt: new Date('2026-08-15T00:00:00Z') });
+    cerrada.request.closedAt = new Date('2026-08-20T00:00:00Z');
+    expect((await portal(cerrada.svc)).lastOfferCancelledAt).toBeNull();
+
+    const ofertada = build({
+      ...enviada,
+      offerSentCancelledAt: new Date('2026-08-15T00:00:00Z'),
+    });
+    // Volvió a haber oferta viva: el mensaje de «la cancelamos» ya no es el estado de la solicitud.
+    expect((await portal(ofertada.svc)).lastOfferCancelledAt).toBeNull();
+  });
+
+  it('⚠️ INVARIANTE de despliegue, sobre las TRES ramas de escritura', async () => {
+    // `offerReissueCount > 0 ⇔ offerIssueClockStartedAt IS NOT NULL ⇔ offerSentCancelledAt IS NOT NULL`
+    const casos: { nombre: string; opts: Opts; esperado: boolean }[] = [
+      { nombre: 'cancelar una ENVIADA', opts: enviada, esperado: true },
+      {
+        nombre: 'cancelar una `pending_authorization`',
+        opts: { status: 'cotizada', offerState: 'pending_authorization' },
+        esperado: false,
+      },
+    ];
+    for (const c of casos) {
+      const { svc, request } = build(c.opts);
+      await svc.adminOfferCancel('sr-1', OPERATOR);
+      const conteo = (request.offerReissueCount as number) > 0;
+      const reloj = request.offerIssueClockStartedAt != null;
+      const pantalla = request.offerSentCancelledAt != null;
+      expect({ caso: c.nombre, conteo, reloj, pantalla }).toEqual({
+        caso: c.nombre,
+        conteo: c.esperado,
+        reloj: c.esperado,
+        pantalla: c.esperado,
+      });
+    }
+  });
+
+  it('⚠️ y `decline` (que anula una `pending_authorization`) tampoco toca la columna de la pantalla', async () => {
+    // Tercera rama: `adminDecline` sella `offerCancelledAt` sobre una oferta preparada. Esa oferta
+    // nunca existió para el vendedor, y su correo es el 4 («no procederemos»), no el 5.
+    const { svc, request } = build({ status: 'cotizada', offerState: 'pending_authorization' });
+    await svc.adminDecline('sr-1', OPERATOR);
+    expect(request.offerCancelledAt).toBeInstanceOf(Date);
+    expect(request.offerSentCancelledAt).toBeNull();
   });
 });
 

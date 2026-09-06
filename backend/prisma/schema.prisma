@@ -1239,6 +1239,19 @@ model SellRequest {
   // `NOT NULL` con default ⇒ CERO BACKFILL (y `0` es la verdad: ninguna oferta se ha cancelado).
   // La ALERTA (`count >= dial 10`) es DERIVADA y NO se persiste. Admin-only.
   offerReissueCount        Int       @default(0)
+  // ⚠️ v1.55 · **D44** (§4.39(s.1-bis) · contrato §6/D42) — la TERCERA consecuencia de cancelar una
+  // oferta **ENVIADA**: **LA PANTALLA**. Instante en que se canceló una oferta **que el vendedor VIO**.
+  // La escribe el MISMO `if` que repone `offerIssueClockStartedAt`, incrementa `offerReissueCount` y
+  // manda el **correo 5** — **mismo `now()`, misma transacción** ⇒ invariante verificable:
+  //   `offerReissueCount > 0 ⇔ offerIssueClockStartedAt IS NOT NULL ⇔ offerSentCancelledAt IS NOT NULL`
+  // ⚠️ **NO es duplicado de `offerCancelledAt`**: aquélla se SOBRESCRIBE en las tres ramas (las dos de
+  // `offer/cancel` y la anulación del barrido), así que el instante que el vendedor conoce DESAPARECE
+  // de la fila en cuanto hay una segunda cancelación. Es la **ÚNICA** fuente de `lastOfferCancelledAt`.
+  // ⚠️ **NO se reusa `offerIssueClockStartedAt`** aunque hoy valga lo mismo: aquél es NUESTRO SLA y
+  // re-anclarlo por otro motivo movería **en silencio** la fecha de un correo ya enviado.
+  // **CERO BACKFILL** (nullable puro; `null` es la verdad). Admin invisible: solo alimenta el DTO de
+  // cliente, y **jamás** se escribe en la rama `pending_authorization` ni en la anulación del barrido.
+  offerSentCancelledAt     DateTime?
 
   // --- El domicilio de ORIGEN, congelado (D36/D37, §4.39q) ---
   // SNAPSHOT copiado de la libreta `Address` del propio vendedor al CREAR la solicitud.
