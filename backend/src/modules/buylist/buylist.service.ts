@@ -5462,14 +5462,51 @@ export class BuylistService implements OnModuleInit {
    * RB-3 (v1.8-ronda-c): el cap AML se recibe YA resuelto por el llamador honrando el
    * `kyc.capPerRequestCentsOverride` del usuario (misma fuente que `createRequest`), no el dial
    * global a secas. Así un usuario con override más alto no ve rechazada una aprobación legítima.
+   *
+   * ### ⚠️⚠️ v1.58 · **BL-40 — DENTRO DEL CICLO EL TÉRMINO RELATIVO NO APLICA.** DINERO.
+   * ```
+   * offerSentAt IS NOT NULL   ⇒   cota = capAML                            // v1.58
+   * offerSentAt IS NULL       ⇒   cota = min(quotedPriceCents × 2, capAML) // legacy, SIN CAMBIOS
+   * ```
+   * **El defecto, y es de la familia de `BL-38`:** dentro del ciclo `approve` **no acepta monto**, lo
+   * **deriva** de `offeredPriceCents` (D2, inmutable) — **y aun así lo pasaba por la cota relativa**.
+   * ⇒ un override al alza por encima del DOBLE de la cotización de esa línea —que es **exactamente lo
+   * que D26 autoriza**— producía una oferta **VINCULANTE** que después **NO SE PODÍA APROBAR**, y por
+   * tanto no se podía pagar. Con números ordinarios: línea cotizada **MX$300**, override motivado a
+   * **MX$1,000**, bruto MX$1,000 (muy por debajo del tope AML de MX$3,000) ⇒ **la oferta sale, el
+   * vendedor manda la carta y `approve` la rechaza contra una cota de MX$600.**
+   * ***Y a diferencia del INE, aquí no hay documento que lo arregle: el vendedor no tiene ninguna
+   * acción posible — ya se desprendió de su carta.***
+   *
+   * **Por qué se retira DENTRO del ciclo:** ahí el monto **no es entrada libre del operador**; es la
+   * cifra **congelada y vinculante** que ya pasó **su propia** puerta — motivo obligatorio y auditado
+   * (D26), tope del operador con escalación al súper-admin, y **desde v1.58 el tope AML sobre el bruto
+   * de la oferta** (§M5-A). *La cota relativa estaba haciendo de guardia de un dato que ya no viene de
+   * fuera.*
+   *
+   * ⛔ **Por qué NO se resuelve al revés** (imponer el `× 2` al OFERTAR, que era la otra salida): sería
+   * **inventarle al negocio una cota que `PROJECT.md` no tiene**. D26 acota el override por el **tope
+   * del operador** y por **motivo auditado**, no por un factor; y un factor mataría el caso que el
+   * override existe para atender —**rescatar una línea en `precio_pendiente`** y repreciar una carta
+   * que la curva subvalora—. *No se cierra un agujero poniéndole al negocio un límite que nadie
+   * escribió.*
+   *
+   * **El término `capAML` SE QUEDA** (defensa en profundidad). Tras §M5-A **no puede disparar** sobre
+   * una fila que pasó la emisión —cada línea ≤ el bruto ≤ el tope—, así que su valor es cubrir **filas
+   * legacy y malformadas**, que es para lo que sirve un backstop.
+   *
+   * ⚠️ **`relativeCapApplies` es un parámetro OBLIGATORIO y sin default, a propósito:** un opcional
+   * dejaría que un llamador futuro heredara la cota relativa **sin decidirlo**, que es exactamente
+   * cómo se coló el defecto. *Quien aprueba dinero elige su cota explícitamente o no compila.*
    */
   private async assertApprovedPriceWithinCap(
     effectiveCents: number,
     quotedPriceCents: number | null,
     amlCap: number,
+    opts: { relativeCapApplies: boolean },
   ): Promise<void> {
     const relativeCap =
-      quotedPriceCents != null && quotedPriceCents > 0
+      opts.relativeCapApplies && quotedPriceCents != null && quotedPriceCents > 0
         ? quotedPriceCents * BuylistService.APPROVED_PRICE_UPLIFT_FACTOR
         : amlCap;
     const cap = Math.min(relativeCap, amlCap);
@@ -5477,6 +5514,8 @@ export class BuylistService implements OnModuleInit {
       throw BusinessException.validation(
         'APPROVED_PRICE_CAP_EXCEEDED',
         'Approved price exceeds the allowed cap for this item',
+        // Shape declarado en §M5 (v1.58): el que ya emitía el código, sin tocarlo. `quotedPriceCents`
+        // sigue viajando aunque dentro del ciclo no gobierne la cota — es el dato que explica el caso.
         { approvedPriceCents: effectiveCents, quotedPriceCents, cap },
       );
     }
@@ -6231,13 +6270,27 @@ export class BuylistService implements OnModuleInit {
         : (approvedPriceCents ?? item.quotedPriceCents ?? 0);
       // B-4: cota server-side de dinero saliente (además del @Max del DTO). Se aplica TAMBIÉN al
       // monto derivado de la oferta: defensa en profundidad, no confianza en el origen.
-      await this.assertApprovedPriceWithinCap(effective, item.quotedPriceCents, amlCap);
+      //
+      // ⚠️⚠️ v1.58 · **BL-40 — DENTRO DEL CICLO LA COTA ES `capAML` A SECAS.** El comentario de arriba
+      // decía *«defensa en profundidad, no confianza en el origen»*… **sobre un monto que nosotros
+      // mismos ya le prometimos al vendedor por correo.** El término relativo (`× 2` sobre la
+      // cotización) convertía **el caso que D26 existe para atender** —un override motivado por encima
+      // del doble— en una oferta VINCULANTE **imposible de aprobar y por tanto de pagar**, sin ningún
+      // remedio para el vendedor, que ya mandó la carta. La norma completa está en el helper.
+      await this.assertApprovedPriceWithinCap(effective, item.quotedPriceCents, amlCap, {
+        relativeCapApplies: !inOfferCycle,
+      });
       data.approvedPriceCents = effective;
     } else {
       itemStatus = 'ajustada';
       const effective = approvedPriceCents ?? 0;
       // B-4: cota server-side de dinero saliente (además del @Max del DTO).
-      await this.assertApprovedPriceWithinCap(effective, item.quotedPriceCents, amlCap);
+      // ⚠️ `adjust` **solo existe FUERA del ciclo** (dentro es `409 ADJUST_NOT_ALLOWED_IN_OFFER_CYCLE`)
+      // y su monto **sí viene del body**: la cota relativa es exactamente lo que tiene que acotarlo.
+      // *BL-40 retira el término donde el monto es NUESTRO, no donde lo teclea alguien.*
+      await this.assertApprovedPriceWithinCap(effective, item.quotedPriceCents, amlCap, {
+        relativeCapApplies: true,
+      });
       data.approvedPriceCents = effective;
     }
     data.itemStatus = itemStatus;
