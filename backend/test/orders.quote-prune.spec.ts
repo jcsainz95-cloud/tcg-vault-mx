@@ -60,6 +60,7 @@ describe('OrdersService — quote con poda por ítem (v1.21.3-quote-prune)', () 
       // puede divergir de producción ni reimplementar la matemática.
       decideSalePrice: jest.fn(PricingService.prototype.decideSalePrice),
       gradeKeyFor: jest.fn(() => 'NM'),
+      tryGradeKeyFor: jest.fn(() => 'NM'),
       getReference: jest.fn(async () => ({ status: 'pending', referenceMxnCents: null })),
       // v2.1.1: el seam single delega en `decideSalePrice` y en `loadPricingCurve` del propio mock;
       // se usa el CUERPO REAL para que el test no reimplemente la precedencia de venta.

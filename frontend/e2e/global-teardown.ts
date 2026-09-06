@@ -9,7 +9,7 @@ import { restoreGradingDial } from './utils/grading';
  *
  * Hace dos cosas, y el orden importa:
  *
- *  1. **Apaga el dial `gradingHookEnabled`** (v1.51, M-46) que el arnés del gancho de grading
+ *  1. **Apaga el dial `gradingHookEnabled`** (v1.51, M-48) que el arnés del gancho de grading
  *     enciende para poder probar la feature contra el stack real (ver `e2e/utils/grading.ts`). Sólo
  *     aplica en modo real; en mock no hay nada que deshacer. **Apaga, no restaura**: desde el
  *     colapso a un solo dial, `on` publica **y** autoriza gasto en un proveedor de paga, así que

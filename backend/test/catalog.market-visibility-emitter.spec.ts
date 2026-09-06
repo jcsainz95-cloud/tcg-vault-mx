@@ -95,6 +95,7 @@ function pricingMock(ref: Record<string, unknown> | undefined = MARKET_REF) {
     getVariantOverridesBatch: jest.fn(async () => new Map()),
     getVariantOverride: jest.fn(async () => null),
     gradeKeyFor: () => 'raw:NM',
+    tryGradeKeyFor: () => 'raw:NM',
     sealedMarketGradeKeyForItem: (i: { tcgplayerProductId: number | null }) =>
       i.tcgplayerProductId != null ? `sealed:tcg:${i.tcgplayerProductId}` : null,
     // La matemática REAL de la curva (no una mock que invente basis): lo que se está verificando es

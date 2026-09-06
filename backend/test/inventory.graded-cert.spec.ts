@@ -20,6 +20,7 @@ function buildPricing() {
     // puede divergir de producción ni reimplementar la matemática.
     decideSalePrice: jest.fn(PricingService.prototype.decideSalePrice),
     gradeKeyFor: jest.fn().mockReturnValue('graded:PSA:10'),
+    tryGradeKeyFor: jest.fn().mockReturnValue('graded:PSA:10'),
     // v2.0 (§4.36.5c): el MISMO seam escala Y cierra la cola.
     settlePendingForVariant: jest.fn(async () => undefined),
     escalatePending: jest.fn().mockResolvedValue(undefined),
@@ -135,6 +136,11 @@ describe('InventoryService.updateItem — gradeada (certNumber)', () => {
   // inventario de PLATAFORMA y **precio resoluble**. Una pieza sin ninguna de las dos ya no se
   // publica por esta puerta — que es exactamente el bypass que se cerró. El `listPriceCents` es el
   // override manual por pieza de M1, que D10 **no retira**.
+  // ⚠️ v1.53 (§4.40.5, MONEY) — el fixture gana además la IDENTIDAD DEL SLAB. Tampoco es maquillaje:
+  // `assertPublishableGuards` exige ahora `gradingCompany` + `gradeValue` para publicar una gradeada,
+  // por el mismo motivo que el cert — sin ellos no hay clave de precio y la pieza se publicaría al
+  // precio de un `graded:PSA:10`. Una gradeada REAL a la venta los tiene los dos; el caso sin ellos
+  // tiene su propio test justo debajo.
   const gradedInStock = {
     id: 'inv-10',
     cardId: 'c1',
@@ -144,10 +150,30 @@ describe('InventoryService.updateItem — gradeada (certNumber)', () => {
     ownerType: 'platform',
     status: 'in_stock',
     certNumber: null,
+    gradingCompany: 'PSA',
+    gradeValue: '10',
     listPriceCents: 500000,
     sealedProductId: null,
     locationId: 'loc-1',
   };
+
+  it('⚠️ v1.53 — PATCH que publica una gradeada SIN identidad de slab → 422 VALIDATION_ERROR', async () => {
+    // La composición de dos cambios de esta fusión: el PATCH corre el pipeline completo (v1.51 fase
+    // 8) y el pipeline exige empresa+grado (v1.53 §4.40.5). Antes, una pieza nacida en
+    // `convertToInventory` (§9 D-BG-3) podía llegar a `listed` por esta puerta y se publicaba al
+    // precio del grado más caro. La reparación es capturar empresa+grado por este mismo PATCH.
+    const prisma = buildUpdatePrisma({
+      ...gradedInStock,
+      certNumber: 'PSA-12345678',
+      gradingCompany: null,
+      gradeValue: null,
+    });
+    const svc = new InventoryService(prisma as PrismaService, buildPricing(), settings);
+    await expect(
+      svc.updateItem('inv-10', { status: 'listed' } as UpdateItemDto),
+    ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+    expect(prisma.inventoryItem.updateMany).not.toHaveBeenCalled();
+  });
 
   it('PATCH que publica una gradeada SIN certNumber → 422 VALIDATION_ERROR', async () => {
     const prisma = buildUpdatePrisma(gradedInStock);

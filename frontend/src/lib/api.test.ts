@@ -806,8 +806,8 @@ describe('api · el ciclo de la oferta del buylist (contrato §6, v1.51)', () =>
   }
 });
 /**
- * **DT-Gd · el servidor falso no puede prometer más que el backend real** (ARCHITECTURE §4.40.5
- * y §4.40.6, contrato `GET /catalog/sets` / `GET /buylist/sets`).
+ * **DT-Gd · el servidor falso no puede prometer más que el backend real** (ARCHITECTURE §4.41.5
+ * y §4.41.6, contrato `GET /catalog/sets` / `GET /buylist/sets`).
  *
  * `logoUrl` entra en **`GET /buylist/sets`** —clave SIEMPRE presente, `null` cuando el proveedor
  * no publica logo— y **NO entra** en `GET /catalog/sets`. Los dos endpoints salían del MISMO
@@ -821,7 +821,7 @@ describe('api · el ciclo de la oferta del buylist (contrato §6, v1.51)', () =>
  * esto defiende el RUNTIME del servidor falso, que es lo que el tipo no ve.
  */
 describe('api (rama mock) · las DOS formas de set, una por endpoint (DT-Gd)', () => {
-  it('getSets (`/catalog/sets`) NO emite la clave `logoUrl` — §4.40.5 «NO entra»', async () => {
+  it('getSets (`/catalog/sets`) NO emite la clave `logoUrl` — §4.41.5 «NO entra»', async () => {
     const sets = await getSets();
     expect(sets.length).toBeGreaterThan(0);
     expect(sets.every((s) => !('logoUrl' in s))).toBe(true);
@@ -830,7 +830,7 @@ describe('api (rama mock) · las DOS formas de set, una por endpoint (DT-Gd)', (
   it('listBuylistSets (`/buylist/sets`) emite `logoUrl` SIEMPRE, con `null` cuando no hay logo', async () => {
     const sets = await listBuylistSets();
     expect(sets.length).toBeGreaterThan(0);
-    // Clave presente en TODAS: es el invariante de §4.40.6 (nunca omitida, nunca `""`).
+    // Clave presente en TODAS: es el invariante de §4.41.6 (nunca omitida, nunca `""`).
     expect(sets.every((s) => 'logoUrl' in s)).toBe(true);
     expect(sets.every((s) => typeof s.logoUrl === 'string' || s.logoUrl === null)).toBe(true);
     expect(sets.every((s) => s.logoUrl !== '')).toBe(true);

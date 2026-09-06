@@ -73,6 +73,7 @@ function svcWith(opts: {
     // puede divergir de producción ni reimplementar la matemática.
     decideSalePrice: jest.fn(PricingService.prototype.decideSalePrice),
     gradeKeyFor: jest.fn().mockReturnValue('raw:NM'),
+    tryGradeKeyFor: jest.fn().mockReturnValue('raw:NM'),
     findCardProductByTcgId: jest.fn(async (tcgId: number) => products[tcgId] ?? null),
     getReferenceByCardProduct: jest.fn(async (cpId: string, _pt: any, _gk: any, finish: string) => {
       const cents = productRefs[`${cpId}|${finish}`];
@@ -297,6 +298,7 @@ describe('M-32 createRequest — snapshot + escalada de pendiente con cardProduc
       // puede divergir de producción ni reimplementar la matemática.
       decideSalePrice: jest.fn(PricingService.prototype.decideSalePrice),
       gradeKeyFor: jest.fn().mockReturnValue('raw:NM'),
+      tryGradeKeyFor: jest.fn().mockReturnValue('raw:NM'),
       findCardProductByTcgId: jest.fn(async (tcgId: number) => opts.products[tcgId] ?? null),
       getReferenceByCardProduct: jest.fn(async (cpId: string, _pt: any, _gk: any, finish: string) => {
         const cents = opts.productRefs[`${cpId}|${finish}`];

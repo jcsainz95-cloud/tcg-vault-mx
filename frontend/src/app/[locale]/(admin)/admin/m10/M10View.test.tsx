@@ -63,7 +63,7 @@ describe('M10View · Config y bitácora', () => {
   /**
    * D2 (techlead): sin este dial en la UI, encender la feature exigía `curl` — y el criterio 110(e)
    * pide «desde el back-office, sin redeploy, auditado». El PUT parcial de M10 ya es auditado.
-   * v1.51 (M-46): el dial es UNO SOLO y su etiqueta carga LAS DOS consecuencias (§22.13g).
+   * v1.51 (M-48 —era `M-46`, v1.54(1)): el dial es UNO SOLO y su etiqueta carga LAS DOS consecuencias (§22.13g).
    */
   it('v1.51 · el gancho de grading tiene UN dial, y su etiqueta dice que publica Y trae datos', async () => {
     renderWithProviders(<M10View />, 'es');

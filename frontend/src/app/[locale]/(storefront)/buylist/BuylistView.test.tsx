@@ -446,84 +446,77 @@ describe('BuylistView · carrito de venta', () => {
 });
 
 /**
- * v1.21: el multi-selección (bulk) del grid plano queda para graded/sealed — el binder
- * Master Set (raw) agrega de un clic por casilla y no tiene checkboxes de selección múltiple
- * (cada casilla YA es su propia acción, sin necesitar un paso de selección previo).
+ * ⚠️ v1.53 (MONEY — contrato §6, ARCHITECTURE §4.40): EL COTIZADOR ES RAW-ONLY.
+ *
+ * Lo que se retiró (y por qué estos tests lo AFIRMAN en negativo): el selector «Tipo de producto»
+ * ofrecía `raw | graded | sealed`, pero ningún DTO de buylist tuvo nunca dónde capturar QUÉ grado
+ * es un slab — el backend caía a `graded:PSA:10`, el grado más caro, y cotizaba cualquier graduada
+ * a ese precio. `PROJECT.md` §E, §K LOCKED y el criterio 61 nunca autorizaron esa compra. Con el
+ * selector se fueron el grid plano de graded/sealed, su barra de filtros (set + texto) y el bulk.
+ *
+ * Estos casos son el CANDADO: si alguien vuelve a montar el selector (o el grid plano), se ponen
+ * rojos. La guarda que manda sigue siendo server-side (`422 BUYLIST_RAW_ONLY`); esto es la UI.
  */
-describe('BuylistView · graded/sealed (grid plano, sin variantes por acabado)', () => {
-  function selectGraded() {
-    fireEvent.change(screen.getByLabelText('Tipo de producto'), { target: { value: 'graded' } });
-  }
-
-  /** Busca por texto en la barra de filtros (graded/sealed conservan el grid plano). */
-  function searchFor(term: string) {
-    fireEvent.change(screen.getByLabelText('Buscar carta'), { target: { value: term } });
-    fireEvent.click(screen.getByRole('button', { name: 'Buscar' }));
-  }
-
-  it('las etiquetas de tipo de producto están traducidas (no raw/graded/sealed crudos)', () => {
+describe('BuylistView · v1.53 el cotizador compra RAW y solo raw (§4.40)', () => {
+  it('NO existe selector de tipo de producto (con una sola opción, el control sobra)', async () => {
     renderWithProviders(<BuylistView />, 'es');
-    expect(screen.getByRole('option', { name: 'Suelta (raw)' })).toBeInTheDocument();
-    expect(screen.getByRole('option', { name: 'Gradeada' })).toBeInTheDocument();
-    expect(screen.getByRole('option', { name: 'Sellado' })).toBeInTheDocument();
+    await screen.findByLabelText('Buscar set');
+    expect(screen.queryByLabelText('Tipo de producto')).not.toBeInTheDocument();
+    // Y ninguna de sus opciones queda suelta en la página (ni la de sueltas).
+    expect(screen.queryByRole('option', { name: 'Gradeada' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('option', { name: 'Sellado' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('option', { name: 'Suelta (raw)' })).not.toBeInTheDocument();
   });
 
-  it('en tipo Gradeada cada carta cotiza como gradeada (una sola fila, sin acabados raw) y conserva "Filtrar por set"/"Buscar carta"', async () => {
+  it('NO existe la barra de filtros del grid plano: la búsqueda es la del binder', async () => {
     renderWithProviders(<BuylistView />, 'es');
-    selectGraded();
-    expect(screen.getByLabelText('Filtrar por set')).toBeInTheDocument();
-    searchFor('Charizard');
-
-    const row = await screen.findByRole('button', { name: 'Agregar Charizard (Gradeada) al carrito' });
-    await waitFor(() => expect(row).toBeEnabled());
-    expect(
-      screen.queryByRole('button', { name: 'Agregar Charizard (Normal) al carrito' }),
-    ).not.toBeInTheDocument();
+    // La que SÍ existe: «Buscar set» del índice de Master Set (mode="quoter").
+    expect(await screen.findByLabelText('Buscar set')).toBeInTheDocument();
+    // Las que se fueron con el grid plano de graded/sealed.
+    expect(screen.queryByLabelText('Filtrar por set')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Buscar carta')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Buscar' })).not.toBeInTheDocument();
   });
 
-  it('filtra por set y muestra las cartas de ese set', async () => {
-    renderWithProviders(<BuylistView />, 'es');
-    selectGraded();
-
-    await screen.findByRole('option', { name: /Base Set/ });
-    fireEvent.change(screen.getByLabelText('Filtrar por set'), { target: { value: 'base1' } });
-
-    expect(
-      (await screen.findAllByRole('button', { name: /Agregar Pikachu/ })).length,
-    ).toBeGreaterThan(0);
-  });
-
-  it('selecciona varias cartas del grid y las agrega al carrito de golpe (bulk)', async () => {
+  it('todo item de la solicitud creada viaja con productType "raw" (nunca graded/sealed)', async () => {
     asVerifiedCustomer();
+    const spy = vi.spyOn(api, 'createSellRequest');
     renderWithProviders(<BuylistView />, 'es');
-    selectGraded();
-
-    await screen.findByRole('option', { name: /Base Set/ });
-    fireEvent.change(screen.getByLabelText('Filtrar por set'), { target: { value: 'base1' } });
-
-    fireEvent.click(await screen.findByRole('checkbox', { name: 'Seleccionar Charizard' }));
-    fireEvent.click(screen.getByRole('checkbox', { name: 'Seleccionar Pikachu' }));
-    const addBtn = screen.getByRole('button', { name: 'Agregar seleccionadas (2)' });
-    await waitFor(() => expect(addBtn).toBeEnabled());
-    fireEvent.click(addBtn);
-
-    expect(await screen.findByText('2 carta(s) agregada(s) al carrito.')).toBeInTheDocument();
+    await addCard('Charizard');
+    await addCard('Pikachu');
     openCart();
-    expect(screen.getByRole('button', { name: 'Enviar solicitud (2)' })).toBeInTheDocument();
-    expect(screen.getAllByRole('button', { name: 'Quitar' })).toHaveLength(2);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Enviar solicitud (2)' }));
+    fireEvent.change(await screen.findByLabelText(/CLABE/), {
+      target: { value: '002010077777777771' },
+    });
+    // v1.51.3 (D36/D37): crear exige `addressId` — se espera a que la libreta preseleccione.
+    await pickAddress();
+    fireEvent.click(screen.getByRole('button', { name: 'Confirmar y enviar' }));
+
+    await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
+    const items = spy.mock.calls[0][0].items;
+    expect(items).toHaveLength(2);
+    expect(items.every((i) => i.productType === 'raw')).toBe(true);
   });
 
-  it('tolerante por-ítem: una carta inválida NO tumba el lote (batch parcial → aviso parcial)', async () => {
+  it('BUYLIST_RAW_ONLY es error POR ÍTEM: una línea caída no tumba las cotizaciones vivas', async () => {
     asVerifiedCustomer();
-    // El batch responde 200 con errores POR-ÍTEM: Eevee sale ok:false y no tira el resto.
+    // El backend degrada por-ítem (HTTP 200): la línea de Charizard sale ok:false con el código
+    // nuevo y TODAS las demás cotizan. Si el front lo tratara como fallo global, el binder se
+    // quedaría sin una sola teja agregable — que es justo la razón por la que el contrato lo puso
+    // por-ítem (§4.40.3.3: un lote de 50 con una mala debe dar 49 cotizaciones vivas).
     vi.spyOn(api, 'batchQuote').mockImplementation(async (items: BuylistQuoteItemDTO[]) => ({
       results: items.map((it, index) =>
-        it.cardId === 'c-eevee'
+        it.cardId === 'c-charizard'
           ? {
               index,
               cardId: it.cardId,
               ok: false as const,
-              error: { code: 'NOT_FOUND' as const, message: 'Card not found' },
+              error: {
+                code: 'BUYLIST_RAW_ONLY' as const,
+                message: 'The buylist only accepts raw cards',
+              },
             }
           : {
               index,
@@ -539,66 +532,28 @@ describe('BuylistView · graded/sealed (grid plano, sin variantes por acabado)',
       ),
     }));
     renderWithProviders(<BuylistView />, 'es');
-    selectGraded();
+    await openBaseSet();
 
-    await screen.findByRole('option', { name: /Base Set/ });
-    fireEvent.change(screen.getByLabelText('Filtrar por set'), { target: { value: 'base1' } });
-
-    fireEvent.click(await screen.findByRole('checkbox', { name: 'Seleccionar Charizard' }));
-    fireEvent.click(screen.getByRole('checkbox', { name: 'Seleccionar Eevee' }));
-    const addBtn = screen.getByRole('button', { name: 'Agregar seleccionadas (2)' });
-    await waitFor(() => expect(addBtn).toBeEnabled());
-    fireEvent.click(addBtn);
-
-    // Aviso parcial (1 agregada, 1 no disponible) y la válida SÍ entró (1 línea "Quitar").
-    expect(await screen.findByText('1 carta(s) agregada(s); 1 no disponible(s).')).toBeInTheDocument();
-    openCart();
-    expect(screen.getAllByRole('button', { name: 'Quitar' })).toHaveLength(1);
-    // Las filas de Eevee muestran su error por-ítem sin romper el grid.
-    expect(screen.getAllByText('No disponible').length).toBeGreaterThan(0);
-  });
-
-  it('limpiar selección desmarca sin agregar nada', async () => {
-    renderWithProviders(<BuylistView />, 'es');
-    selectGraded();
-
-    await screen.findByRole('option', { name: /Base Set/ });
-    fireEvent.change(screen.getByLabelText('Filtrar por set'), { target: { value: 'base1' } });
-
-    fireEvent.click(await screen.findByRole('checkbox', { name: 'Seleccionar Charizard' }));
-    expect(screen.getByRole('button', { name: 'Agregar seleccionadas (1)' })).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole('button', { name: 'Limpiar selección' }));
-    expect(screen.queryByRole('button', { name: /Agregar seleccionadas/ })).not.toBeInTheDocument();
-    expect((screen.getByRole('checkbox', { name: 'Seleccionar Charizard' }) as HTMLInputElement).checked).toBe(false);
-  });
-
-  it('el finish (siempre "Gradeada", sin variantes) viaja en los items de la solicitud creada', async () => {
-    asVerifiedCustomer();
-    const spy = vi.spyOn(api, 'createSellRequest');
-    renderWithProviders(<BuylistView />, 'es');
-    selectGraded();
-    searchFor('Charizard');
-    const row = await screen.findByRole('button', { name: 'Agregar Charizard (Gradeada) al carrito' });
-    await waitFor(() => expect(row).toBeEnabled());
-    fireEvent.click(row);
-    openCart();
-
-    fireEvent.click(screen.getByRole('button', { name: 'Enviar solicitud (1)' }));
-    fireEvent.change(await screen.findByLabelText(/CLABE/), {
-      target: { value: '002010077777777771' },
+    // La teja viva se cotiza y se puede agregar…
+    const pikachu = await screen.findByRole('button', {
+      name: /^Agregar Pikachu \(Normal\) a la venta/,
     });
-    await pickAddress();
-    fireEvent.click(screen.getByRole('button', { name: 'Confirmar y enviar' }));
+    await waitFor(() => expect(pikachu).toBeEnabled());
+    fireEvent.click(pikachu);
+    openCart();
+    expect(screen.getByRole('button', { name: 'Enviar solicitud (1)' })).toBeInTheDocument();
 
-    await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
-    expect(spy.mock.calls[0][0].items.every((i) => i.finish === 'normal')).toBe(true);
+    // …y la caída se marca SOLO a sí misma: su teja queda inhábil, sin precio inventado.
+    expect(
+      screen.getByRole('button', { name: /^Agregar Charizard \(Normal\) a la venta/ }),
+    ).toBeDisabled();
+    expect(screen.getAllByText('No disponible').length).toBeGreaterThan(0);
   });
 });
 
 /**
  * v1.6-finish: acabados por carta (una casilla agregable por acabado, binder Master Set) y
- * dedup del carrito por (cardId + productType + finish).
+ * dedup del carrito por (cardId + finish).
  */
 describe('BuylistView · acabado (finish, raw)', () => {
   it('dedup: agregar la MISMA (carta, tipo, acabado) incrementa la cantidad, no duplica la línea', async () => {

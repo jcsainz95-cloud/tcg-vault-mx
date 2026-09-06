@@ -29,6 +29,7 @@ function pricingPending(): PricingService {
     // puede divergir de producción ni reimplementar la matemática.
     decideSalePrice: jest.fn(PricingService.prototype.decideSalePrice),
     gradeKeyFor: jest.fn().mockReturnValue('raw:NM'),
+    tryGradeKeyFor: jest.fn().mockReturnValue('raw:NM'),
     // v2.0 (P-48): con la curva, SIN mercado la línea queda `precio_pendiente` (el bin no gana) y eso
     // dispara el gate de INE de Fase 0.3 — ruido ajeno a lo que este spec verifica (CLABE/PII).
     getReference: jest.fn().mockResolvedValue({ status: 'priced', referenceMxnCents: 12500 }),

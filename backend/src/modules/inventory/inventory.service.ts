@@ -20,7 +20,7 @@ import {
 import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/business.exception';
 import { PriceInfo, PricingService } from '../pricing/pricing.service';
-import { buildGradeKey, sealedMarketGradeKey } from '../pricing/pricing.types';
+import { tryBuildGradeKey, GradeKeyInput, sealedMarketGradeKey } from '../pricing/pricing.types';
 import * as ExcelJS from 'exceljs';
 import { SettingsService } from '../settings/settings.service';
 import { SettingKey } from '../settings/settings.constants';
@@ -344,8 +344,18 @@ type PublishPriceDerivation =
   | {
       ok: false;
       message: string;
-      /** Clave de la variante con la que se escala/consulta la cola de precio pendiente. */
-      pendingKey: PendingVariantKey;
+      /**
+       * Clave de la variante con la que se escala/consulta la cola de precio pendiente.
+       *
+       * ⚠️ v1.53 (§4.40.4c) — **`null` ⇒ NO se encola, y no es lo mismo que «no hay precio».** La
+       * cola de M2 es POR VARIANTE (`cardId|productType|gradeKey|finish`); una `graded` sin
+       * identidad de slab **no tiene variante**, así que no hay entrada que abrir ni que cerrar.
+       * Lo que le falta no es un precio: es saber **QUÉ SLAB ES**. Encolarla bajo una clave
+       * inventada metería en la cola del dueño un aviso de mercado sobre una pieza cuyo mercado
+       * nadie puede consultar. Se repara capturando empresa+grado (§4.40.5b) y entra al censo
+       * §4.40.8.
+       */
+      pendingKey: PendingVariantKey | null;
       /** `null` para sellado (su escalada no lleva razón de curva). */
       pendingReason: PendingReason | null;
     };
@@ -668,7 +678,12 @@ export class InventoryService {
     // Para raw se valida contra card.availableFinishes (SEC-A1); fuera de la lista → 422.
     const finish = this.resolveFinish(dto, card.availableFinishes as Finish[]);
 
-    const gradeKey = this.pricing.gradeKeyFor(dto);
+    // v1.53 (§4.40.4, MONEY) — camino que ESCRIBE dinero: la clave se pide con la variante que LANZA.
+    // `validateProductShape` (arriba) ya rechazó con 422 una graduada sin `gradingCompany`/`gradeValue`;
+    // `gradeKeyInputOfDto` sólo se lo dice al compilador y vuelve a comprobarlo por si algún día
+    // aparece un alta que no valide. Aquí NO puede haber default: un `?? 'PSA'` / `?? '10'` valuaría
+    // el alta contra el grado más caro.
+    const gradeKey = this.pricing.gradeKeyFor(this.gradeKeyInputOfDto(dto));
     let acquisitionCostCents =
       ('acquisitionCostCents' in dto ? dto.acquisitionCostCents : undefined) ?? null;
     let acquisitionPct = dto.acquisitionPct ?? null;
@@ -1383,7 +1398,10 @@ export class InventoryService {
           const gk = this.pricing.sealedMarketGradeKeyForItem(i);
           return gk ? [{ cardId: i.cardId, productType: 'sealed', gradeKey: gk, finish: 'normal' }] : [];
         }
-        return [{ cardId: i.cardId, productType: i.productType, gradeKey: this.pricing.gradeKeyFor(i), finish: i.finish }];
+        // v1.53 (§4.40.4b, MONEY): sin identidad de slab no hay clave que precargar. Abajo, esa pieza
+        // cae a `PRICE_PENDING` y ESCALA a la cola en vez de publicarse al precio de un PSA 10.
+        const gk = this.pricing.tryGradeKeyFor(i);
+        return gk ? [{ cardId: i.cardId, productType: i.productType, gradeKey: gk, finish: i.finish }] : [];
       });
     const refs = await this.pricing.getReferencesBatch(derivable);
     const variantOverrides = await this.pricing.getVariantOverridesBatch(
@@ -1397,7 +1415,9 @@ export class InventoryService {
    *  - solo inventario de PLATAFORMA;
    *  - [MONEY · WS-E] status de ORIGEN ∈ {in_stock, listed} (anti-double-sell: publicar una
    *    reserved/in_custody/lost/... la re-abriría a un segundo checkout);
-   *  - gradeada exige `certNumber` para publicarse (v1.2/M-12).
+   *  - gradeada exige `certNumber` para publicarse (v1.2/M-12);
+   *  - gradeada exige **IDENTIDAD DE SLAB** (`gradingCompany` + `gradeValue`) para publicarse
+   *    (v1.53-b, M-1 — ver abajo).
    */
   private assertPublishableGuards(item: PublishableItem): void {
     if (item.ownerType !== 'platform') {
@@ -1414,6 +1434,34 @@ export class InventoryService {
       throw BusinessException.validation(
         'VALIDATION_ERROR',
         'graded items require certNumber to be published',
+      );
+    }
+    // v1.53-b (M-1, **MONEY**) — **publicar un slab exige saber QUÉ GRADO ES.**
+    //
+    // Hasta aquí el único requisito de graduación para publicar era `certNumber`, y eso dejaba un
+    // hueco REAL, no teórico: `resolvePublishSalePrice` corta con `if (manual != null) return` en su
+    // PRIMERA línea, **antes** de su propia comprobación de identidad de slab. Así que una graduada
+    // con `listPriceCents` manual nunca llegaba a esa comprobación y se publicaba con
+    // `gradingCompany`/`gradeValue` nulos — quedaba `listed` + `sellable`, comprable por
+    // `inventoryItemId`, y sin `gradeKey` que emitir (la raíz de I-2 en `catalog.buildGroups`).
+    //
+    // El monto NO estaba inventado (es el override explícito del admin), así que esto no era una
+    // fuga de dinero; lo que se publicaba era una pieza **cuya identidad el sistema no conoce**, en
+    // un marketplace donde el grado ES el producto. `createItem` ya exige los tres campos para
+    // `graded` (`validateProductShape`, API_CONTRACT §M1 alta); esto cierra la misma invariante en
+    // la otra puerta, y su forma es la del cert: mismo código, mismo `422`, misma degradación
+    // por-línea en `bulkPublish`/`publishAll` (una línea inválida no tumba las demás).
+    //
+    // Efecto práctico: las piezas que nacen sin identidad (`convertToInventory`, §9 D-BG-3) dejan de
+    // poder llegar a `listed` por precio manual. La reparación es capturar empresa+grado por
+    // `PATCH /admin/inventory/items/:id` (§4.40.5b) y volver a publicar.
+    if (
+      item.productType === 'graded' &&
+      (!item.gradingCompany || !item.gradeValue || item.gradeValue.trim() === '')
+    ) {
+      throw BusinessException.validation(
+        'VALIDATION_ERROR',
+        'graded items require gradingCompany and gradeValue to be published',
       );
     }
   }
@@ -1446,33 +1494,37 @@ export class InventoryService {
       return { ok: true, salePriceCents: derived.salePriceCents, priceSource: derived.priceSource };
     }
     const k = derived.pendingKey;
+    // v1.53 (§4.40.4c): sin variante NO se toca la cola. La pieza no se publica igual (`ok:false`),
+    // pero el aviso que se abriría sería sobre un mercado que nadie puede consultar.
     const pendingPriceEntryId =
-      k.productType === 'sealed'
-        ? // v1.42 (BLOQ-2b): `sealedProductId` de la pieza a la clave de la cola (ETB y blíster no colapsan).
-          await this.pricing.escalatePending(
-            k.cardId,
-            'sealed',
-            k.gradeKey,
-            'inventory',
-            undefined,
-            'normal',
-            null,
-            k.sealedProductId ?? null,
-          )
-        : // ④ + §4.36.5c: escala con el gradeKey server-side + acabado del item (la cola es POR
-          // acabado, M-19) y con la RAZÓN, que es lo que hace triable la cola en M2.
-          await this.pricing.settlePendingForVariant(
-            derived.pendingReason ?? 'no_market',
-            {
-              cardId: k.cardId,
-              productType: k.productType,
-              gradeKey: k.gradeKey,
-              finish: k.finish,
-              // R3: money-safe — una promo y su set base son entradas SEPARADAS de la cola.
-              cardProductId: k.cardProductId ?? null,
-            },
-            'inventory',
-          );
+      k == null
+        ? undefined
+        : k.productType === 'sealed'
+          ? // v1.42 (BLOQ-2b): `sealedProductId` de la pieza a la clave de la cola (ETB y blíster no colapsan).
+            await this.pricing.escalatePending(
+              k.cardId,
+              'sealed',
+              k.gradeKey,
+              'inventory',
+              undefined,
+              'normal',
+              null,
+              k.sealedProductId ?? null,
+            )
+          : // ④ + §4.36.5c: escala con el gradeKey server-side + acabado del item (la cola es POR
+            // acabado, M-19) y con la RAZÓN, que es lo que hace triable la cola en M2.
+            await this.pricing.settlePendingForVariant(
+              derived.pendingReason ?? 'no_market',
+              {
+                cardId: k.cardId,
+                productType: k.productType,
+                gradeKey: k.gradeKey,
+                finish: k.finish,
+                // R3: money-safe — una promo y su set base son entradas SEPARADAS de la cola.
+                cardProductId: k.cardProductId ?? null,
+              },
+              'inventory',
+            );
     return { ok: false, message: derived.message, pendingPriceEntryId };
   }
 
@@ -1507,13 +1559,20 @@ export class InventoryService {
       const sale = this.pricing.resolveSealedSalePrice(item, ref, ctx.sealed);
       if (sale.salePriceCents == null) {
         // ④: escala con el gradeKey de MERCADO; sellado no mapeado cae al gradeKey estructural.
+        // v1.51 (fase 8, §4.39m.1): este cuerpo YA NO escala — es puro y devuelve la `pendingKey`;
+        // quien escribe en la cola es `resolvePublishSalePrice` (el `escalatePending` con el
+        // `sealedProductId` de la pieza, v1.42/BLOQ-2b, vive allí).
         return {
           ok: false,
           message: 'No resolvable sale price for sealed (no override and no market); not published',
           pendingKey: {
             cardId: item.cardId,
             productType: 'sealed',
-            gradeKey: gk ?? this.pricing.gradeKeyFor(item),
+            // v1.53 (§4.40.4d): la rama `sealed` del constructor NO admite campos de grado y
+            // devuelve siempre `'sealed'` (la clave del override MANUAL del admin, §4.19d) — aquí
+            // va literal, no derivado de la fila, porque estamos DENTRO del
+            // `if (productType === 'sealed')`.
+            gradeKey: gk ?? this.pricing.gradeKeyFor({ productType: 'sealed' }),
             finish: 'normal',
             sealedProductId: item.sealedProductId,
           },
@@ -1533,7 +1592,24 @@ export class InventoryService {
     // MERCADO del acabado de ESTA pieza. Ya no depende de la rareza ni del acabado (criterio 84); el
     // sellOverride de la variante (M-30) pisa la curva (misma precedencia que storefront/checkout).
     // SIN dato de mercado ⇒ PRICE_PENDING y escala a la cola: el PISO NO gana (decisión LOCKED).
-    const gradeKey = this.pricing.gradeKeyFor(item);
+    // v1.53 (§4.40.4, MONEY) — PUBLICACIÓN: sin identidad de slab NO hay clave de precio, así que la
+    // pieza **no se publica**. Y NO se escala a la cola de precios: la cola es por VARIANTE
+    // (`cardId|productType|gradeKey|finish`) y aquí no hay variante que encolar — lo que falta no es
+    // un precio, es saber QUÉ SLAB ES. La reparación es capturar empresa+grado por
+    // `PATCH /admin/inventory/items/:id` (§4.40.5b); entra al censo §4.40.8.
+    // Antes esta pieza se publicaba al precio de un `graded:PSA:10`, el grado más caro.
+    const gradeKey = this.pricing.tryGradeKeyFor(item);
+    if (gradeKey == null) {
+      return {
+        ok: false,
+        message:
+          'Graded item has no slab identity (grading company / grade value); not published — capture it first (PATCH /admin/inventory/items/:id)',
+        // v1.51 (fase 8, §4.39m.1) + v1.53 (§4.40.4c): este cuerpo es PURO, así que «no se escala»
+        // se dice con la clave en `null` en vez de con un `return` que se salta el efecto.
+        pendingKey: null,
+        pendingReason: null,
+      };
+    }
     const key = `${item.cardId}|${item.productType}|${gradeKey}|${item.finish}`;
     const ref = ctx.refs.get(key);
     const refCents = ref && ref.status === 'priced' ? (ref.referenceMxnCents ?? null) : null;
@@ -1617,7 +1693,11 @@ export class InventoryService {
       missing,
       // La llave viaja para que el deep-link se empareje con la entrada REAL de la cola de M2, sin
       // recalcular la derivación ni inventar una llave en el sitio.
-      pendingQueueKey: pendingQueueKey(derived.pendingKey),
+      // v1.53 (§4.40.4c): sin variante no hay entrada en la cola a la que enlazar ⇒ la clave se OMITE
+      // (`?? null` abajo, §11) en vez de fabricarse. La fila sigue saliendo en `pending-publish` con
+      // `missing: ['price']`: la pieza se ve, lo que no se inventa es el deep-link.
+      pendingQueueKey:
+        derived.pendingKey == null ? undefined : pendingQueueKey(derived.pendingKey),
       resolvedSalePriceCents: null,
       // `pending` NO es «no sé»: es el veredicto explícito de que la variante no tiene precio
       // publicable. El storefront ya lo trata así (§N.5) y la cola dice lo mismo, no otra cosa.
@@ -2023,6 +2103,29 @@ export class InventoryService {
    * el raw solo NM; el graded exige compañía+grado. Rechaza combinaciones inválidas con
    * 422 VALIDATION_ERROR (API_CONTRACT §M1).
    */
+  /**
+   * v1.53 (§4.40.4, **MONEY**) — el DTO del alta, ya pasado por `validateProductShape`, estrechado al
+   * input ESTRICTO de `buildGradeKey` (unión discriminada). Es el puente explícito entre «forma
+   * validada» y «el compilador lo sabe»: no hay `as`, no hay `??` que rellene identidad de grado.
+   *
+   * El `throw` de la rama `graded` es, por la vía normal, inalcanzable (`validateProductShape` ya
+   * exige empresa+grado) y es DELIBERADO: si mañana aparece un camino de alta que no valide, revienta
+   * aquí —con 422 y mensaje— antes de escribir un precio contra `graded:PSA:10`.
+   */
+  private gradeKeyInputOfDto(dto: CreateItemDto | BatchInventoryItemInput): GradeKeyInput {
+    if (dto.productType === 'sealed') return { productType: 'sealed' };
+    if (dto.productType === 'graded') {
+      if (!dto.gradingCompany || !dto.gradeValue) {
+        throw BusinessException.validation(
+          'VALIDATION_ERROR',
+          'graded items require gradingCompany and gradeValue',
+        );
+      }
+      return { productType: 'graded', gradingCompany: dto.gradingCompany, gradeValue: dto.gradeValue };
+    }
+    return { productType: 'raw', rawCondition: dto.rawCondition ?? null };
+  }
+
   private validateProductShape(dto: CreateItemDto | BatchInventoryItemInput) {
     if (dto.productType === 'sealed') {
       if (dto.rawCondition || dto.gradingCompany || dto.gradeValue) {
@@ -2192,6 +2295,20 @@ export class InventoryService {
         'graded items require certNumber to be published',
       );
     }
+    // v1.53 (§4.40.5b · API_CONTRACT §M1) — `gradingCompany` es la reparación de la IDENTIDAD DEL
+    // SLAB y sólo tiene sentido en `productType='graded'`: en `raw`/`sealed` se IGNORA (el contrato lo
+    // declara así de forma explícita para el campo nuevo). Se descarta aquí, no en el DTO, porque el
+    // tipo de la pieza vive en BD y no en el body — SEC-A1.
+    //
+    // ⚠️ **Se sanea UNA vez y ARRIBA, antes de bifurcar.** Este PATCH tiene ahora DOS caminos de
+    // escritura (el plano y el de publicación, v1.51 fase 8) y además alimenta el `resulting` sobre el
+    // que corren las guardas: con un solo punto de saneo, ninguno de los tres puede quedarse con el
+    // campo colado. Todo lo que sigue lee `patch`, nunca `dto`.
+    const { gradingCompany, ...rest } = dto;
+    const patch: UpdateItemDto =
+      current.productType === 'graded' && gradingCompany !== undefined
+        ? { ...rest, gradingCompany }
+        : rest;
     // ⚠️ v1.51 (fase 8, ARCHITECTURE §4.39m.4 · desviación INV-P1) — **SE CIERRA EL BYPASS DE
     // PUBLICACIÓN.** Hasta aquí este `PATCH` era un `update` plano: validaba el `certNumber` de una
     // gradeada **y nada más**. **No** corría `assertPublishableGuards`, **no** resolvía precio y
@@ -2213,13 +2330,13 @@ export class InventoryService {
     if (!publishing) {
       // S49-R4: proyectado (antes devolvía la entidad `InventoryItem` cruda).
       return toAdminInventoryItemRow(
-        await this.prisma.inventoryItem.update({ where: { id }, data: dto }),
+        await this.prisma.inventoryItem.update({ where: { id }, data: patch }),
       );
     }
     // ⚠️ Las guardas corren sobre el estado **RESULTANTE**, en memoria y ANTES de escribir nada: una
     // gradeada que gana su `certNumber` en ESTE mismo PATCH debe poder publicarse, y una que falle
     // **no debe dejar a medias** el resto de los campos.
-    const { status: _status, ...fields } = dto;
+    const { status: _status, ...fields } = patch;
     // ⚠️ La fila CRUDA (con su `card`), no la proyección de `getItem`: el pipeline de publicación
     // trabaja sobre columnas del modelo, y la proyección de M1 es una lista blanca de presentación.
     const raw = await this.prisma.inventoryItem.findUnique({
@@ -2230,7 +2347,7 @@ export class InventoryService {
     const resulting: PublishableItem = { ...raw, ...fields };
     this.assertPublishableGuards(resulting);
     const ctx = await this.loadPublishPricingCtx([resulting]);
-    const resolved = await this.resolvePublishSalePrice(resulting, dto.listPriceCents ?? null, ctx);
+    const resolved = await this.resolvePublishSalePrice(resulting, patch.listPriceCents ?? null, ctx);
     if (!resolved.ok) {
       // El `PRICE_PENDING` **no es un rechazo seco**: `resolvePublishSalePrice` YA escaló a la cola
       // de M2, así que la pieza **queda visible** donde se trabaja. *Es un pendiente visible, no una
@@ -2243,7 +2360,7 @@ export class InventoryService {
     if (Object.keys(fields).length > 0) {
       await this.prisma.inventoryItem.update({ where: { id }, data: fields });
     }
-    await this.claimListed(resulting, dto.listPriceCents);
+    await this.claimListed(resulting, patch.listPriceCents);
     return toAdminInventoryItemRow({ ...resulting, status: 'listed' });
   }
 
@@ -2397,11 +2514,18 @@ export class InventoryService {
           sealedProductId: true,
         },
       });
-      // PASO 2 — el `gradeKey` se DERIVA aquí, en memoria, con `buildGradeKey`: la misma función que
-      // usa el resto del sistema. Si un día cambia, cambia en un sitio.
+      // PASO 2 — el `gradeKey` se DERIVA aquí, en memoria, con `tryBuildGradeKey`: la misma función
+      // que usa el resto de las LECTURAS. Si un día cambia, cambia en un sitio.
+      // ⚠️ v1.53 (§4.40.4b) — **la TOLERANTE, y esto es un disparador, no un pago.** Una pieza
+      // `graded` sin identidad de slab (`convertToInventory`, §9 D-BG-3) no tiene clave ⇒ **no casa
+      // con ninguna variante** y no entra al lote. Es lo correcto por partida doble: no puede casar
+      // (no hay clave que comparar) y **tampoco podría publicarse** — `derivePublishSalePrice` la
+      // rechaza igual. Con la variante que LANZA, un solo slab incompleto en la BD tumbaría el
+      // barrido entero y con él la publicación de todas las demás piezas del disparo.
       for (const c of candidates) {
-        const piece = { ...c, gradeKey: buildGradeKey(c) };
-        if (variants.some((v) => variantPublishMatches(v, piece))) ids.push(c.id);
+        const gradeKey = tryBuildGradeKey(c);
+        if (gradeKey == null) continue;
+        if (variants.some((v) => variantPublishMatches(v, { ...c, gradeKey }))) ids.push(c.id);
       }
     }
     // PASO 3 — el MISMO cuerpo. Nada de lo de arriba decide si se publica: solo QUÉ se mira.
@@ -3000,18 +3124,16 @@ export class InventoryService {
     });
 
     // Referencias de mercado EN LOTE (sin N+1) — misma llave que getReferencesBatch.
-    const refKeyOf = (i: {
-      cardId: string;
-      productType: ProductType;
-      finish: Finish;
-      gradeKey: string;
-    }) => `${i.cardId}|${i.productType}|${i.gradeKey}|${i.finish}`;
-    const refReqs = items.map((it) => ({
-      cardId: it.cardId,
-      productType: it.productType,
-      finish: it.finish,
-      gradeKey: this.exportGradeKey(it),
-    }));
+    // v1.53 (§4.40.4b, MONEY): `null` = pieza `graded` sin identidad de slab ⇒ NO entra al lote de
+    // referencias y sus columnas de dinero salen vacías. Se calcula UNA vez, alineado por índice con
+    // `items` (antes se recalculaba dos veces por fila).
+    const gradeKeys = items.map((it) => this.exportGradeKey(it));
+    const refReqs = items.flatMap((it, i) => {
+      const gk = gradeKeys[i];
+      return gk == null
+        ? []
+        : [{ cardId: it.cardId, productType: it.productType, finish: it.finish, gradeKey: gk }];
+    });
     const refs = refReqs.length
       ? await this.pricing.getReferencesBatch(refReqs)
       : new Map<string, PriceInfo>();
@@ -3046,8 +3168,12 @@ export class InventoryService {
 
     for (let idx = 0; idx < items.length; idx++) {
       const it = items[idx];
-      const market = refs.get(refKeyOf(refReqs[idx]));
-      const ov = ovByKey.get(`${it.cardId}|${it.productType}|${this.exportGradeKey(it)}|${it.finish}`);
+      // v1.53 (§4.40.4b): sin clave no hay mercado ni override que casar — las columnas salen vacías,
+      // que es la verdad. Antes salían con el valor de un PSA 10.
+      const gk = gradeKeys[idx];
+      const refKey = gk == null ? null : `${it.cardId}|${it.productType}|${gk}|${it.finish}`;
+      const market = refKey == null ? undefined : refs.get(refKey);
+      const ov = refKey == null ? undefined : ovByKey.get(refKey);
       const marketCents =
         market && market.status === 'priced' ? market.referenceMxnCents ?? null : null;
       const buyCents = ov?.buyOverrideCents ?? null;
@@ -3088,11 +3214,13 @@ export class InventoryService {
     gradingCompany: string | null;
     gradeValue: string | null;
     tcgplayerProductId: number | null;
-  }): string {
+  }): string | null {
     if (it.productType === 'sealed' && it.tcgplayerProductId != null) {
       return sealedMarketGradeKey(it.tcgplayerProductId);
     }
-    return buildGradeKey(it);
+    // v1.53 (§4.40.4b, MONEY) — EXPORT = lectura pura: sin identidad de slab no hay clave y las
+    // columnas de mercado/compra/venta salen vacías. Antes salían con el valor de un PSA 10.
+    return tryBuildGradeKey(it);
   }
 
   /** Condición legible por tipo: raw→rawCondition, sealed→sealedCondition, graded→empresa+grado. */

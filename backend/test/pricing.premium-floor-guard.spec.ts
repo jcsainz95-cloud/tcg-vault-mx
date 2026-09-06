@@ -255,6 +255,7 @@ function listingHarness(rarity: string | null, referenceMxnCents: number | null)
     // puede divergir de producción ni reimplementar la matemática.
     decideSalePrice: jest.fn(PricingService.prototype.decideSalePrice),
     gradeKeyFor: jest.fn(() => 'raw:NM'),
+    tryGradeKeyFor: jest.fn(() => 'raw:NM'),
     getReference: jest.fn(async () =>
       referenceMxnCents == null ? { status: 'pending' } : { status: 'priced', referenceMxnCents },
     ),
@@ -353,6 +354,7 @@ describe('E4 — guardarraíl del eje de COMPRA (§4.36.5, simetría money-safe)
       // puede divergir de producción ni reimplementar la matemática.
       decideSalePrice: jest.fn(PricingService.prototype.decideSalePrice),
       gradeKeyFor: jest.fn(() => 'raw:NM'),
+      tryGradeKeyFor: jest.fn(() => 'raw:NM'),
       getReference: jest.fn(async () =>
         referenceMxnCents == null ? { status: 'pending' } : { status: 'priced', referenceMxnCents },
       ),

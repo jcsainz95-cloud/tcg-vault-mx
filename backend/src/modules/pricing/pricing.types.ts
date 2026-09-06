@@ -1,4 +1,4 @@
-import { Card, CardSet, Finish, PriceSource, ProductType } from '@prisma/client';
+import { Card, CardSet, Finish, GradingCompany, PriceSource, ProductType, RawCondition } from '@prisma/client';
 import { orderFinishes } from '../../common/card-order';
 import { ACCEPTED_RAW_CONDITIONS } from '../../common/business-rules';
 import { GRADING_COMPANY_VALUES } from '../../common/enum-values';
@@ -557,22 +557,128 @@ export function sealedMarketGradeKey(tcgplayerProductId: number): string {
   return `sealed:tcg:${tcgplayerProductId}`;
 }
 
-/** Normaliza el gradeKey usado en PriceReference (ARCHITECTURE §3.2). */
-export function buildGradeKey(input: {
+/**
+ * v1.53 (§4.40.4, **MONEY**) — **input ESTRICTO de `buildGradeKey`: unión discriminada.**
+ *
+ * El compilador es la primera de las dos guardas: con esta forma **no se puede expresar** una
+ * graduada sin empresa y sin grado. La rama `graded` exige los DOS campos (no opcionales, no
+ * nullable) y la rama `sealed` **no admite** campos de grado.
+ *
+ * ⚠️ `rawCondition` sí sigue siendo opcional y su `?? 'NM'` se conserva: **no es identidad
+ * inventada**, es el único valor que el negocio acepta (`ACCEPTED_RAW_CONDITIONS`, `PROJECT.md` §E
+ * «la condición es fija en Near Mint (NM), único grado que compramos»). Lo que se retira es el
+ * `?? 'PSA'` / `?? '10'`, que elegía **el grado más caro** por una carta cuyo grado nunca se preguntó.
+ */
+export type GradeKeyInput =
+  | { productType: 'raw'; rawCondition?: RawCondition | string | null }
+  | { productType: 'graded'; gradingCompany: GradingCompany | string; gradeValue: string }
+  | { productType: 'sealed' };
+
+/**
+ * v1.53 (§4.40.4) — forma **CRUDA** tal y como sale de la BD: en `InventoryItem` las columnas de
+ * graduación son `GradingCompany | null` / `String | null`, así que una fila **puede** no tener
+ * identidad de slab (las creó `convertToInventory`, §9 D-BG-3). Es el input de `tryBuildGradeKey`:
+ * el único sitio donde esa incompletitud es representable, y siempre con salida `null`.
+ */
+export type LooseGradeKeyInput = {
   productType: ProductType;
   rawCondition?: string | null;
   gradingCompany?: string | null;
   gradeValue?: string | null;
-}): string {
+};
+
+/**
+ * v1.53 (§4.40.4, **MONEY**) — se intentó construir la clave de precio de una carta **graduada**
+ * cuya identidad de slab (empresa + grado) no está capturada.
+ *
+ * **Por qué es un `throw` y no un default.** Hasta v1.52 esta función rellenaba el hueco con
+ * `` `graded:${gradingCompany ?? 'PSA'}:${gradeValue ?? '10'}` ``, o sea que **toda** graduada sin
+ * identidad se valuaba contra `graded:PSA:10` — **el grado más caro que existe**. Un default aquí no
+ * es neutro: es fail-open, y elige el máximo. Misma doctrina que `GRADED_INTENT_REQUIRED`
+ * (`common/error-codes.ts`): *un default sería FAIL-OPEN… se acepta un breaking chico a cambio de
+ * que la ambigüedad sea imposible de expresar.*
+ *
+ * No es una `BusinessException`: `pricing.types.ts` es un módulo puro (sin Nest). Si esto escapa por
+ * HTTP es un **500 honesto** — señal de que un camino de dinero recibió una identidad incompleta que
+ * su propia validación debió rechazar antes. Los caminos de LECTURA no deben verla nunca: usan
+ * `tryBuildGradeKey` y degradan a `precio_pendiente`.
+ */
+export class IncompleteGradeIdentityError extends Error {
+  constructor(readonly gradingCompany?: string | null, readonly gradeValue?: string | null) {
+    super(
+      'Cannot build a grade key for a graded item without grading company and grade value ' +
+        '(ARCHITECTURE §4.40.4): a default would price it as PSA 10, the most expensive grade.',
+    );
+    this.name = 'IncompleteGradeIdentityError';
+  }
+}
+
+/** `''` / `'   '` / `null` / `undefined` son todos AUSENCIA de identidad (D-BG-4: la columna es texto libre). */
+function presentIdentity(v?: string | null): v is string {
+  return typeof v === 'string' && v.trim() !== '';
+}
+
+/**
+ * Normaliza el gradeKey usado en PriceReference (ARCHITECTURE §3.2).
+ *
+ * v1.53 (§4.40.4, **MONEY**) — **la variante que LANZA. Es la del camino del dinero**: cotización de
+ * buylist, creación de solicitud, alta/edición de inventario y override de precio. Antes rellenaba
+ * empresa y grado con `PSA`/`10` cuando no venían; ese default se retiró (ver
+ * `IncompleteGradeIdentityError`).
+ *
+ * Para leer/pintar (bóveda, catálogo, agregados de admin, `price-sync`, `price-ingest`, export) la
+ * función es **`tryBuildGradeKey`**, que devuelve `null` ⇒ **sin referencia ⇒ `precio_pendiente`**.
+ * Jamás un default, jamás MX$0, jamás un precio inventado (`PROJECT.md` §E.1, §4.36).
+ */
+export function buildGradeKey(input: GradeKeyInput): string {
+  switch (input.productType) {
+    case 'raw':
+      // `?? 'NM'`: único valor aceptado por el negocio, no identidad inventada (ver `GradeKeyInput`).
+      return `raw:${input.rawCondition ?? 'NM'}`;
+    case 'graded':
+      // Segunda guarda, en RUNTIME: el tipo ya lo impide, pero una fila de BD casteada o un caller
+      // en JS sí pueden traer `null`. Se cae con nombre y apellido en vez de firmar un PSA 10.
+      if (!presentIdentity(input.gradingCompany) || !presentIdentity(input.gradeValue)) {
+        throw new IncompleteGradeIdentityError(input.gradingCompany, input.gradeValue);
+      }
+      return `graded:${input.gradingCompany}:${input.gradeValue}`;
+    case 'sealed':
+      // §4.40.4(d): `'sealed'` sigue siendo, por diseño, la clave del override MANUAL del admin
+      // (§4.19d). La clave de MERCADO por producto es `sealedMarketGradeKey()`.
+      return 'sealed';
+    default:
+      return 'unknown';
+  }
+}
+
+/**
+ * v1.53 (§4.40.4, **MONEY**) — **la variante TOLERANTE. Es la del camino de LECTURA**, y su `null`
+ * tiene un significado normativo único: **NO HAY REFERENCIA ⇒ `precio_pendiente` / «—»**.
+ *
+ * **Por qué existe** (y por qué no basta con `buildGradeKey`): un `throw` desde un constructor de
+ * claves puro, llamado en bucles de listado (catálogo, bóveda, dashboards de admin, `price-sync`),
+ * convertiría un dato incompleto en un **500 en una página que hoy renderiza** — cambiaría un error
+ * de dinero por una caída de servicio. §4.40.4(b).
+ *
+ * **Lo que un caller NO puede hacer con el `null`**: rellenarlo. Ni con `?? 'PSA'`, ni con
+ * `?? 'graded:PSA:10'`, ni con MX$0. `null` ⇒ la pieza no tiene precio derivable y se dice.
+ *
+ * **Efecto deliberado** (§4.40.4c): las piezas graduadas nacidas sin identidad de slab
+ * (`convertToInventory`, §9 D-BG-3) dejan de valuarse como PSA 10 y pasan a `pending`. No es una
+ * regresión: es que **por primera vez dicen la verdad**, y un `pending` visible entra a la cola del
+ * dueño mientras un PSA 10 silencioso no se descubre nunca.
+ */
+export function tryBuildGradeKey(input: LooseGradeKeyInput): string | null {
   switch (input.productType) {
     case 'raw':
       return `raw:${input.rawCondition ?? 'NM'}`;
     case 'graded':
-      return `graded:${input.gradingCompany ?? 'PSA'}:${input.gradeValue ?? '10'}`;
+      if (!presentIdentity(input.gradingCompany) || !presentIdentity(input.gradeValue)) return null;
+      return `graded:${input.gradingCompany}:${input.gradeValue}`;
     case 'sealed':
       return 'sealed';
     default:
-      return 'unknown';
+      return null;
   }
 }
 

@@ -44,6 +44,7 @@ function buildPricing(over: any = {}) {
     getSeparateProductsByCard: jest.fn(async () => new Map()),
     getPricedRawFinishesBatch: jest.fn().mockResolvedValue(new Map()),
     gradeKeyFor: jest.fn().mockReturnValue('raw_NM'),
+    tryGradeKeyFor: jest.fn().mockReturnValue('raw_NM'),
     getVariantOverridesBatch: jest.fn(async () => new Map()),
     getVariantOverride: jest.fn(async () => null),
     ...over,

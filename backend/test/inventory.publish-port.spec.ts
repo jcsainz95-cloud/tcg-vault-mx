@@ -84,6 +84,9 @@ function build(items: ReturnType<typeof item>[]) {
     loadSealedSpreads: jest.fn(async () => ({ spreadPctBySubtype: {}, fallbackPct: 0, sourceOn: false })),
     decideSalePrice: jest.fn(PricingService.prototype.decideSalePrice),
     gradeKeyFor: jest.fn(() => 'raw:NM'),
+    // v1.53 (§4.40.4b): la PUBLICACIÓN llavea con la TOLERANTE — sin identidad de slab no hay
+    // clave y la pieza no se publica (en vez de publicarse al precio de un `graded:PSA:10`).
+    tryGradeKeyFor: jest.fn(() => 'raw:NM'),
     getReferencesBatch: jest.fn(async (list: any[]) => {
       const m = new Map();
       for (const d of list) {

@@ -95,6 +95,9 @@ function build(rows: ReturnType<typeof piece>[]) {
     loadSealedSpreads: jest.fn(async () => ({ spreadPctBySubtype: {}, fallbackPct: 0, sourceOn: false })),
     decideSalePrice: jest.fn(PricingService.prototype.decideSalePrice),
     gradeKeyFor: jest.fn(PricingService.prototype.gradeKeyFor),
+    // v1.53 (§4.40.4b): la PUBLICACIÓN llavea con la TOLERANTE — sin identidad de slab no hay
+    // clave y la pieza no se publica (en vez de publicarse al precio de un `graded:PSA:10`).
+    tryGradeKeyFor: jest.fn(PricingService.prototype.tryGradeKeyFor),
     getReferencesBatch: jest.fn(async (list: any[]) => {
       const m = new Map();
       for (const d of list) {
@@ -142,13 +145,21 @@ describe('⚠️⚠️ (1) la resolución vive DENTRO de `inventory` — ni SQL 
     expect(JSON.stringify(sel)).not.toContain('gradeValue');
   });
 
-  it('⚠️ y el filtro usa `buildGradeKey`, la función de su dueño (no un literal copiado)', () => {
+  it('⚠️ y el filtro usa `tryBuildGradeKey`, la función de su dueño (no un literal copiado)', () => {
+    // v1.53 (§4.40.4b): la función cambió de variante —de la que LANZA a la TOLERANTE— y el ancla la
+    // sigue. **Lo que ancla no es el nombre: es que la clave salga de la función del dueño y no de
+    // un literal copiado.** Un `graded:${c.gradingCompany}:${c.gradeValue}` a mano aquí volvería a
+    // partir en dos la definición de variante, que es lo que este test existe para impedir.
     const src = fs.readFileSync(
       path.join(__dirname, '..', 'src', 'modules', 'inventory', 'inventory.service.ts'),
       'utf8',
     );
     const body = src.slice(src.indexOf('async reevaluateVariantsForPublication('));
-    expect(body.slice(0, body.indexOf('\n  }\n'))).toContain('buildGradeKey(c)');
+    const cuerpo = body.slice(0, body.indexOf('\n  }\n'));
+    expect(cuerpo).toContain('tryBuildGradeKey(c)');
+    // Y ni una interpolación de clave a mano dentro del cuerpo.
+    expect(cuerpo).not.toContain('`graded:');
+    expect(cuerpo).not.toContain('`raw:');
   });
 
   it('el candidato se acota por la ENTRADA (cardIds concretos), no por el catálogo', async () => {

@@ -8,6 +8,7 @@ import { PiiCryptoService } from '../src/common/crypto/pii-crypto.service';
 import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
 import { SettingKey } from '../src/modules/settings/settings.constants';
 import { variantKey, variantPositionKey } from '../src/common/variant-key';
+import { IncompleteGradeIdentityError } from '../src/modules/pricing/pricing.types';
 import {
   InventoryPositionPort,
   VariantPositionRef,
@@ -22,11 +23,11 @@ import {
  * - `onHandCountsFor` agrupa por `(cardId, productType, rawCondition, gradingCompany, gradeValue,
  *   finish, cardProductId)` — **sin `sealedProductId`** ⇒ **dos `SealedProduct` de la misma `Card`
  *   colapsan en UN bucket**.
- * - **Y en graduado es peor:** el adaptador deriva `gradeKey` de `(productType, rawCondition,
+ * - **Y en graduado era peor:** el adaptador deriva `gradeKey` de `(productType, rawCondition,
  *   gradingCompany, gradeValue)`; **`buylist` llama `gradeKeyFor({ productType, rawCondition })`** —
- *   **dos** campos. Como `SellRequestItem` **no tiene columnas de graduación**, todo cae a los
- *   defaults de `buildGradeKey` ⇒ **toda línea graduada se llavea `graded:PSA:10`**. El puerto
- *   entonces solo empareja stock PSA 10; el resto es **invisible**.
+ *   **dos** campos. Como `SellRequestItem` **no tiene columnas de graduación**, todo caía a los
+ *   defaults de `buildGradeKey` ⇒ **toda línea graduada se llaveaba `graded:PSA:10`**. El puerto
+ *   entonces solo emparejaba stock PSA 10; el resto era **invisible**.
  *
  * Consecuencia: **la mesa de decisión le enseñaba al operador una posición falsa, y él compraba
  * contra ella.** Las dos direcciones del error a la vez: un CGC 9.5 en la caja no se veía, y un
@@ -42,6 +43,28 @@ import {
  * La otra vía —que **el ref cargue la identidad completa** (`gradingCompany`, `gradeValue`,
  * `sealedProductId`)— **cambia la interfaz de un puerto que declara y provee `inventory`**, o sea un
  * cambio entre streams: **lo decide el arquitecto** (regla 9), y está escalado.
+ *
+ * ---
+ * ## ⚠️ v1.53 — POR QUÉ ESTE SPEC SIGUE EN PIE, Y QUÉ CAMBIÓ DE ÉL
+ *
+ * v1.53 tapió la puerta por la que estas líneas ENTRABAN: la guarda **raw-only** (`422
+ * BUYLIST_RAW_ONLY`, §4.40.3) rechaza `graded`/`sealed` en las tres superficies del buylist, y
+ * `buildGradeKey` **perdió sus defaults** (§4.40.4) — el `graded:PSA:10` silencioso ya no existe.
+ *
+ * **Lo que NO cambió es la base de datos.** La guarda es una validación de ESCRITURA, no una
+ * constraint: las `SellRequestItem` no-raw **creadas antes de v1.53 siguen ahí**, y la mesa de
+ * decisión es precisamente la pantalla que el operador abre sobre solicitudes viejas. Este spec pasa
+ * a guardar **eso**: que esa pantalla se abra, no reviente y no invente un conteo.
+ *
+ * Dos aserciones cambian de contenido, y conviene saber cuál es cuál:
+ * 1. **§(0) ya no mide el default** —no hay default que medir—: mide que el constructor de claves
+ *    **se niega** a producir una para dos campos, que es lo que hace obligatoria la degradación.
+ * 2. **§(2) ya no espera `derivedPriceCents` en una línea graduada.** Antes salía con monto porque
+ *    el buylist cotizaba graduadas; hoy **no las compra**, así que sale `null` (`SIN PRECIO`). La
+ *    cláusula del contrato que dice *«estos campos son válidos aun con `positionUnavailable`»* sigue
+ *    guardada, pero **donde de verdad aplica**: una línea **raw** con el puerto de posición caído.
+ *    *No es la misma afirmación con otro fixture: es que la afirmación vieja dejó de ser cierta y la
+ *    que la sustituye prueba lo que la cláusula siempre quiso decir.*
  */
 
 const pii = new PiiCryptoService(new ConfigService({}));
@@ -70,6 +93,9 @@ function build(opts: {
   lines: FakeLine[];
   onHand?: Record<string, number>;
   otherLines?: OtherLine[];
+  /** v1.53: el puerto REVIENTA ⇒ `positionUnavailable` en una línea **raw**, que es donde la
+   *  cláusula del contrato («estos campos son válidos aun con `positionUnavailable`») aplica. */
+  portThrows?: boolean;
 }) {
   const cardOf = (id: string) => ({
     id,
@@ -145,6 +171,7 @@ function build(opts: {
   const port: InventoryPositionPort = {
     onHandCountsFor: jest.fn(async (refs: VariantPositionRef[]) => {
       seenRefs.push(refs);
+      if (opts.portThrows) throw new Error('inventory position port down');
       const m = new Map<string, number>();
       for (const r of refs) {
         const n = (opts.onHand ?? {})[variantPositionKey(r)];
@@ -178,12 +205,17 @@ const K_RAW = variantPositionKey({
 
 // =============================================================================================
 describe('B-3 (0) — el DRIFT existe, y se mide antes de taparlo', () => {
-  it('⚠️ TODA línea graduada se llavearía `graded:PSA:10`: la llave no distingue grados', () => {
-    // `buylist` solo puede pasar DOS campos porque `SellRequestItem` no tiene los otros dos. Un PSA
-    // 10, un CGC 9.5 y un BGS 8 producen LA MISMA clave. *Un conteo que mezcla piezas que valen
-    // distinto es peor que no mostrar nada, porque se ve confiable* (§P.8).
+  it('⚠️ con DOS campos no hay llave que decir: el constructor se NIEGA (y antes decía `graded:PSA:10`)', () => {
+    // `buylist` solo puede pasar DOS campos porque `SellRequestItem` no tiene los otros dos.
+    // Hasta v1.52 eso producía `graded:PSA:10` para un PSA 10, un CGC 9.5 y un BGS 8 por igual
+    // —*un conteo que mezcla piezas que valen distinto es peor que no mostrar nada, porque se ve
+    // confiable* (§P.8)—. v1.53 retiró el default: hoy la MISMA llamada **lanza**.
     const g = PricingService.prototype.gradeKeyFor;
-    expect(g({ productType: 'graded', rawCondition: null })).toBe('graded:PSA:10');
+    expect(() => g({ productType: 'graded' } as never)).toThrow(IncompleteGradeIdentityError);
+    // Y la variante de LECTURA no lanza: devuelve `null`, que es «no hay clave», no «PSA 10».
+    expect(PricingService.prototype.tryGradeKeyFor({ productType: 'graded' })).toBeNull();
+    // ⚠️ Ninguna de las dos respuestas sirve para pintar la mesa: una la tumba, la otra no llavea.
+    // POR ESO la degradación de B-3 sigue siendo necesaria para las filas legacy.
     // Y así lo llavea el otro lado cuando la pieza SÍ tiene identidad: sólo casan las PSA 10.
     expect(g({ productType: 'graded', gradingCompany: 'PSA', gradeValue: '10' })).toBe('graded:PSA:10');
     expect(g({ productType: 'graded', gradingCompany: 'CGC', gradeValue: '9.5' })).toBe('graded:CGC:9.5');
@@ -273,16 +305,40 @@ describe('B-3 (2) — la degradación es POR LÍNEA, y no se lleva por delante n
     expect(grd.position).toBeNull();
   });
 
-  it('⚠️ el DINERO de la línea degradada se sigue emitiendo: solo se calla el conteo', async () => {
+  it('⚠️ el DINERO se sigue emitiendo cuando lo que falla es el CONTEO: línea raw, puerto caído', async () => {
     // El contrato es explícito: «estos campos son válidos aun con `positionUnavailable`: dependen de
-    // montos, no del conteo de inventario». Una línea sin posición **sigue siendo ofertable**.
-    const { svc } = build({ lines: [{ id: 'it-1', productType: 'graded' }] });
+    // montos, no del conteo de inventario». **Éste es el fixture donde esa cláusula aplica**: la
+    // línea es comprable (raw) y lo único roto es el puerto de posición. Una avería de conteo NO
+    // puede apagar el precio ni el aviso del piso.
+    const { svc } = build({ lines: [{ id: 'it-1', productType: 'raw' }], portThrows: true });
     const res = await svc.adminDecisionTable('sr-1', OPERATOR);
     const line = res.lines[0];
+    expect(line.positionUnavailable).toBe(true);
+    expect(line.position).toBeNull();
     expect(line.quotedPriceCents).toBe(90000);
     expect(line.derivedPriceCents).not.toBeNull();
     expect(res.totals.buyableGrossCents).toBe(line.derivedPriceCents);
     expect(res.totals.shippingFeeCents).toBe(18000);
+  });
+
+  it('⚠️ v1.53 — una línea LEGACY graduada sale SIN precio y SIN conteo, y la mesa igual se abre', async () => {
+    // Cambio de conducta deliberado del merge de v1.53, y hay que decirlo con todas las letras: la
+    // guarda raw-only (§4.40.3) **no compra graduadas**, así que el precio derivado de una fila
+    // histórica sale `null` — el front pinta `SIN PRECIO`, jamás `MX$ 0.00`. Lo que NO se pierde es
+    // lo que sí se sabe: el `quotedPriceCents` congelado el día que se cotizó, y los totales.
+    const { svc } = build({ lines: [{ id: 'it-1', productType: 'graded' }] });
+    const res = await svc.adminDecisionTable('sr-1', OPERATOR);
+    const line = res.lines[0];
+    expect(line.derivedPriceCents).toBeNull();
+    expect(line.priceBasis).toBe('pending');
+    expect(line.positionUnavailable).toBe(true);
+    // El snapshot histórico NO se toca: es lo que se le prometió al vendedor aquel día.
+    expect(line.quotedPriceCents).toBe(90000);
+    // Contrato §mesa: `buyableGrossCents = Σ derivedPriceCents de las líneas con valor`. Ninguna.
+    expect(res.totals.buyableGrossCents).toBe(0);
+    expect(res.totals.shippingFeeCents).toBe(18000);
+    // ⚠️ Y el neto NUNCA es negativo (invariante i.1, criterio 152).
+    expect(res.totals.netCents).toBe(0);
   });
 
   it('los sumandos de PROMESA tampoco se cuelan: una línea graduada ajena no suma a ningún bucket', async () => {

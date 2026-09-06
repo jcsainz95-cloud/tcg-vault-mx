@@ -1,14 +1,13 @@
 'use client';
 
 import { useCallback, useMemo, useState } from 'react';
-import type { ProductType, RawCondition, Finish, BuylistQuoteResponse } from '@/types/contract';
+import type { RawCondition, Finish, BuylistQuoteResponse } from '@/types/contract';
 import type { BuylistRequestItem } from '@/components/domain/BuylistKycForm';
 
 /**
- * Referencia mínima de carta que necesita el carrito (nombre + id para el submit). `raw`
- * la puebla desde `MasterSetCardCellDTO` (binder de Master Set, sin los campos de catálogo
- * que no usa el carrito: setName/rarity/subtypes/…); graded/sealed siguen viniendo del
- * `CardDTO` completo del picker plano — un `CardDTO` cumple esta forma sin cambios.
+ * Referencia mínima de carta que necesita el carrito (nombre + id para el submit). La puebla
+ * `MasterSetCardCellDTO` (binder de Master Set, sin los campos de catálogo que no usa el
+ * carrito: setName/rarity/subtypes/…); un `CardDTO` cumple esta forma sin cambios.
  */
 export interface QuoterCardRef {
   id: string;
@@ -23,19 +22,24 @@ export interface QuoterCardRef {
  * backend al crear la solicitud (SEC-A1). `quantity` se expande a N entradas de
  * `items` al enviar (el modelo es 1 item por carta física).
  *
- * v1.6-finish: la IDENTIDAD de línea es (cardId + productType + finish): la MISMA
- * carta en distinto acabado es una línea distinta; la MISMA (carta, tipo, acabado)
- * incrementa la cantidad en vez de duplicar (dedup — hallazgo menor de QA).
+ * v1.6-finish: la IDENTIDAD de línea es (cardId + finish): la MISMA carta en distinto
+ * acabado es una línea distinta; la MISMA (carta, acabado) incrementa la cantidad en vez
+ * de duplicar (dedup — hallazgo menor de QA).
  *
- * v1.30 (§4.29): la identidad gana `productId` → (cardId + productType + finish + productId ?? base).
+ * v1.30 (§4.29): la identidad gana `productId` → (cardId + finish + productId ?? base).
  * Un PRODUCTO SEPARADO (deck_exclusive/promo) es su propia línea con su propio precio: dos líneas
  * con el mismo (cardId, finish) pero distinto `productId` son DISTINTAS y NO se fusionan; una carta
  * base (sin productId) sigue igual que hoy. `card.name` guarda el nombre del PRODUCTO cuando aplica.
+ *
+ * v1.53 (§4.40): `productType` sale de la LLAVE de identidad porque ya no discrimina nada — el
+ * cotizador compra raw y solo raw. El campo se conserva (viaja en el DTO de la solicitud) pero con
+ * tipo literal `'raw'`.
  */
 export interface CartLine {
   id: string;
   card: QuoterCardRef;
-  productType: ProductType;
+  /** v1.53 (§4.40, contrato §6): el buylist es raw-only. Viaja tal cual a POST /buylist/requests. */
+  productType: 'raw';
   rawCondition?: RawCondition;
   finish: Finish;
   /**
@@ -69,16 +73,15 @@ export function clampQuantity(quantity: number): number {
 let lineSeq = 0;
 
 /**
- * Merge con dedup por (cardId + productType + finish + productId ?? base): la misma línea suma
- * cantidad, una combinación nueva agrega línea. v1.30 (§4.29): dos líneas con el mismo
- * (cardId, finish) pero distinto `productId` NO se fusionan (producto separado = línea propia).
- * Reusado por el add por-acabado y por el bulk.
+ * Merge con dedup por (cardId + finish + productId ?? base): la misma línea suma cantidad, una
+ * combinación nueva agrega línea. v1.30 (§4.29): dos líneas con el mismo (cardId, finish) pero
+ * distinto `productId` NO se fusionan (producto separado = línea propia). v1.53 (§4.40):
+ * `productType` sale de la llave — con raw-only era una constante en ambos lados de la igualdad.
  */
 function mergeCartLine(prev: CartLine[], line: NewCartLine): CartLine[] {
   const idx = prev.findIndex(
     (l) =>
       l.card.id === line.card.id &&
-      l.productType === line.productType &&
       l.finish === line.finish &&
       (l.productId ?? null) === (line.productId ?? null),
   );
@@ -105,11 +108,6 @@ export function useSellCart() {
 
   const addLine = useCallback((line: NewCartLine) => {
     setCart((prev) => mergeCartLine(prev, line));
-  }, []);
-
-  /** Bulk: agrega varias líneas de golpe (mismo dedup, un solo setState). */
-  const addLines = useCallback((lines: NewCartLine[]) => {
-    setCart((prev) => lines.reduce((acc, l) => mergeCartLine(acc, l), prev));
   }, []);
 
   const setQuantity = useCallback((lineId: string, quantity: number) => {
@@ -157,19 +155,17 @@ export function useSellCart() {
   const cartCount = useMemo(() => cart.reduce((n, l) => n + l.quantity, 0), [cart]);
 
   // P-42 · sombreado del grid: llaves de identidad (misma que el dedup, sin la cantidad) de lo que
-  // YA está en el carro. El grid pregunta `isInCart(cardId, productType, finish, productId?)` para
-  // destacar la carta ya agregada. Incluye productType para no cruzar una línea raw:normal con una
-  // graded (que comparten cardId+finish) y productId para distinguir un producto separado.
+  // YA está en el carro. El binder pregunta `isInCart(cardId, finish, productId?)` para destacar la
+  // teja ya agregada; `productId` distingue un producto separado de la carta base. v1.53 (§4.40):
+  // `productType` sale de la llave (era `raw` en los dos lados) y la firma queda IDÉNTICA a la que
+  // el binder ya declara (`MasterSetPanel`/`MasterSetBinder`), sin adaptador intermedio.
   const inCartKeys = useMemo(
-    () =>
-      new Set(
-        cart.map((l) => `${l.card.id}::${l.productType}::${l.finish}::${l.productId ?? ''}`),
-      ),
+    () => new Set(cart.map((l) => `${l.card.id}::${l.finish}::${l.productId ?? ''}`)),
     [cart],
   );
   const isInCart = useCallback(
-    (cardId: string, productType: ProductType, finish: Finish, productId?: number) =>
-      inCartKeys.has(`${cardId}::${productType}::${finish}::${productId ?? ''}`),
+    (cardId: string, finish: Finish, productId?: number) =>
+      inCartKeys.has(`${cardId}::${finish}::${productId ?? ''}`),
     [inCartKeys],
   );
 
@@ -196,7 +192,6 @@ export function useSellCart() {
     cart,
     expandedLines,
     addLine,
-    addLines,
     setQuantity,
     removeLine,
     clearCart,

@@ -19,6 +19,7 @@ describe('CatalogService.listCards — saneo de filtros enum', () => {
       // puede divergir de producción ni reimplementar la matemática.
       decideSalePrice: jest.fn(PricingService.prototype.decideSalePrice),
       gradeKeyFor: jest.fn().mockReturnValue('raw:NM'),
+      tryGradeKeyFor: jest.fn().mockReturnValue('raw:NM'),
       getReference: jest.fn(async () => ({ status: 'priced', referenceMxnCents: 10000 })),
       // v2.1.1: el seam single delega en `decideSalePrice` y en `loadPricingCurve` del propio mock;
       // se usa el CUERPO REAL para que el test no reimplemente la precedencia de venta.

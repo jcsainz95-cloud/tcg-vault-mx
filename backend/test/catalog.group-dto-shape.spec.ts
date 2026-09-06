@@ -100,6 +100,10 @@ function pricingMock() {
     gradeKeyFor: jest.fn((i: { productType: string; rawCondition?: string }) =>
       i.productType === 'raw' ? `raw:${i.rawCondition ?? 'NM'}` : 'graded:PSA:10',
     ),
+    // v1.53 (§4.40.4b): el catálogo LEE ⇒ variante tolerante; mismo stub que la estricta.
+    tryGradeKeyFor: jest.fn((i: { productType: string; rawCondition?: string }) =>
+      i.productType === 'raw' ? `raw:${i.rawCondition ?? 'NM'}` : 'graded:PSA:10',
+    ),
     getReference: jest.fn(async () => ({ status: 'priced', referenceMxnCents: MARKET })),
     getReferencesBatch: jest.fn(async (items: Array<Record<string, unknown>>) => {
       const m = new Map<string, unknown>();

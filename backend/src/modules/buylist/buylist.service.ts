@@ -34,6 +34,9 @@ import {
   marketBracketOf,
   resolvePendingReason,
 } from '../../common/pricing-curve';
+// v1.53 (§4.40.3.1, MONEY): la lista blanca del buylist es una DECISIÓN DE PRODUCTO declarada
+// literal (`PROJECT.md` §E/§K LOCKED/criterio 61), NO un espejo de `PRODUCT_TYPE_VALUES`.
+import { BUYLIST_ACCEPTED_PRODUCT_TYPES } from '../../common/business-rules';
 import { MAIL_PORT, MailPort } from '../mail/mail.port';
 import {
   offerTermsCopy,
@@ -452,7 +455,15 @@ export type BuylistBatchQuoteResult =
       // v1.30 (§4.29c): `code` gana PRODUCT_NOT_FOUND (productId inexistente) y PRODUCT_CARD_MISMATCH
       // (productId que no cuelga del cardId) — errores POR-ÍTEM (no tumban el lote).
       error: {
-        code: 'NOT_FOUND' | 'FINISH_NOT_AVAILABLE' | 'PRODUCT_NOT_FOUND' | 'PRODUCT_CARD_MISMATCH';
+        // v1.53 (§4.40.3.3, MONEY): `code` gana BUYLIST_RAW_ONLY (`productType` != 'raw'). Es un error
+        // POR-ÍTEM a propósito: como `@IsIn` del pipe tumbaría el request entero con 400 y se llevaría
+        // las otras 49 líneas raw legítimas del grid.
+        code:
+          | 'NOT_FOUND'
+          | 'FINISH_NOT_AVAILABLE'
+          | 'PRODUCT_NOT_FOUND'
+          | 'PRODUCT_CARD_MISMATCH'
+          | 'BUYLIST_RAW_ONLY';
         message: string;
       };
     };
@@ -513,10 +524,19 @@ interface DecisionLine {
     finish: Finish | null;
     quotedPriceCents: number | null;
   };
-  /** La llave canónica de la variante, ya resuelta (`variantKey` la consume tal cual). */
-  variant: { cardId: string; productType: ProductType; gradeKey: string; finish: Finish };
+  /**
+   * La llave canónica de la variante, ya resuelta (`variantKey` la consume tal cual).
+   *
+   * ⚠️ v1.53 (§4.40.4b · B-3) — **`gradeKey: null` ⇒ esta línea NO tiene llave de variante.** Solo
+   * le pasa a las filas LEGACY no-raw (ver `lineIsKeyable`): `SellRequestItem` no guarda identidad de
+   * slab, así que una línea `graded` histórica no puede producir una llave que diga la verdad. El
+   * `null` es el mismo contrato que el de `tryBuildGradeKey`: **no hay clave ⇒ no hay override, no
+   * hay referencia, no hay conteo** — nunca un default.
+   */
+  variant: { cardId: string; productType: ProductType; gradeKey: string | null; finish: Finish };
   cardProductId: number | null;
 }
+
 
 @Injectable()
 export class BuylistService implements OnModuleInit {
@@ -669,9 +689,54 @@ export class BuylistService implements OnModuleInit {
     return {
       cardId: it.cardId,
       productType: it.productType,
-      gradeKey: this.pricing.gradeKeyFor({ productType: it.productType, rawCondition: it.rawCondition }),
+      gradeKey: this.pricing.gradeKeyFor(this.rawGradeKeyInput(it)),
       finish: it.finish ?? 'normal',
     };
+  }
+
+  /**
+   * v1.53 (§4.40.3, **MONEY**) — **la guarda RAW-ONLY del buylist, server-side.**
+   *
+   * `PROJECT.md` §E («Buylist — compra de **raw** a usuarios»), §K **LOCKED** («el cotizador y el
+   * pipeline de buylist siguen siendo **solo para raw**») y el **criterio 61** («no existe flujo de
+   * buylist de sellado, **ni cotizador ni pipeline**»). La lista blanca es literal y vive en
+   * `common/business-rules.ts`; aquí sólo se aplica.
+   *
+   * **Por qué está en el SERVICIO y no en un `@IsIn` del DTO** (§4.40.3.3): el `ValidationPipe`
+   * devuelve **400 para el request entero**, y en `/quote/batch` eso se llevaría por delante **las
+   * otras 49 líneas raw legítimas** del grid. Aquí es un `422` de negocio que el batch **degrada
+   * por-ítem** (`ok:false`, HTTP 200) y que en `/quote` y `/requests` sí tumba el request.
+   *
+   * **Por qué está en el servidor y no en el front:** el selector del cotizador es cosmética; el
+   * endpoint es público y anónimo, y un `curl` lo esquiva (SEC-A1).
+   *
+   * @param index posición 0-based en `items[]`; sólo en las rutas con lote, para que el front señale
+   *              la línea (`details.index`).
+   */
+  private assertBuylistProductType(productType: ProductType, index?: number): void {
+    if (BUYLIST_ACCEPTED_PRODUCT_TYPES.includes(productType)) return;
+    throw BusinessException.validation(
+      'BUYLIST_RAW_ONLY',
+      `Buylist accepts raw cards only; productType '${productType}' is not purchasable`,
+      { ...(index != null ? { index } : {}), productType },
+    );
+  }
+
+  /**
+   * v1.53 (§4.40.3 + §4.40.4, **MONEY**) — puente entre la línea de buylist y el input ESTRICTO de
+   * `buildGradeKey`. Tras la guarda raw-only una línea de compra **siempre** es `raw`, así que el
+   * estrechamiento es legítimo — y la guarda se re-aplica aquí (defensa en profundidad) para que
+   * ninguna ruta futura llegue al constructor de claves con un tipo que el negocio no compra.
+   *
+   * Esto es exactamente lo que antes tapaba el default: con `productType='graded'` la clave salía
+   * `graded:PSA:10` —**el grado más caro**— sobre una carta cuyo grado nunca se preguntó.
+   */
+  private rawGradeKeyInput(it: { productType: ProductType; rawCondition?: RawCondition | null }): {
+    productType: 'raw';
+    rawCondition?: RawCondition | null;
+  } {
+    this.assertBuylistProductType(it.productType);
+    return { productType: 'raw', rawCondition: it.rawCondition ?? null };
   }
 
   /** Cotizador público (stateless). API_CONTRACT §6 (v1.6-finish: por RAREZA + ACABADO). */
@@ -683,6 +748,10 @@ export class BuylistService implements OnModuleInit {
     // v1.30 (§4.29): productId TCGplayer OPCIONAL. Presente ⇒ la línea es ESE CardProduct separado.
     productId?: number,
   ): Promise<BuylistQuotePayload> {
+    // v1.53 (§4.40.3, MONEY) — RAW-ONLY, y ANTES de tocar nada: `overrideKeyOf` ya construye la clave
+    // de precio, y con `graded` esa clave era `graded:PSA:10` (el grado MÁS CARO). 422 de request
+    // completo: en el quote por-carta no hay nada que degradar por-ítem.
+    this.assertBuylistProductType(productType);
     // v2.0 (P-48, §4.36.2): iza la CURVA UNA vez y delega en el núcleo compartido (el mismo del batch).
     const curve = await this.pricing.loadPricingCurve();
     // v1.28 (P-18): control por variante (bounty/override pisan la regla, §4.26b). Un solo ítem ⇒
@@ -713,11 +782,21 @@ export class BuylistService implements OnModuleInit {
   async batchQuote(items: QuoteItemInput[]): Promise<{ results: BuylistBatchQuoteResult[] }> {
     const curve = await this.pricing.loadPricingCurve();
     // v1.28 (P-18): overrides por variante leídos EN LOTE (UNA query por request, §4.26b — sin N+1).
-    const overrides = await this.pricing.getVariantOverridesBatch(items.map((it) => this.overrideKeyOf(it)));
+    // v1.53 (§4.40.3.3, MONEY): el lote se arma SOLO con las líneas aceptadas. Un ítem `graded`/`sealed`
+    // no tiene clave de variante que buscar (su gradeKey no existe sin identidad de grado) y, sobre
+    // todo, no puede reventar aquí: eso tumbaría el request entero y con él las demás líneas raw.
+    const overrides = await this.pricing.getVariantOverridesBatch(
+      items
+        .filter((it) => BUYLIST_ACCEPTED_PRODUCT_TYPES.includes(it.productType))
+        .map((it) => this.overrideKeyOf(it)),
+    );
     const results: BuylistBatchQuoteResult[] = [];
     for (let index = 0; index < items.length; index++) {
       const it = items[index];
       try {
+        // v1.53 (§4.40.3.3, MONEY): DENTRO del try ⇒ degrada a `ok:false` POR-ÍTEM. Las otras 49
+        // líneas raw del grid se cotizan normalmente y el HTTP global sigue siendo 200.
+        this.assertBuylistProductType(it.productType, index);
         const k = this.overrideKeyOf(it);
         const payload = await this.quoteCardForFinish(
           it.cardId,
@@ -739,7 +818,10 @@ export class BuylistService implements OnModuleInit {
             e.code === 'FINISH_NOT_AVAILABLE' ||
             // v1.30 (§4.29c): errores del producto separado también degradan a ok:false por-ítem.
             e.code === 'PRODUCT_NOT_FOUND' ||
-            e.code === 'PRODUCT_CARD_MISMATCH')
+            e.code === 'PRODUCT_CARD_MISMATCH' ||
+            // v1.53 (§4.40.3.3, MONEY): la guarda raw-only entra al allowlist POR-ÍTEM. Es la razón
+            // por la que es un 422 de negocio y no el 400 de un `@IsIn`.
+            e.code === 'BUYLIST_RAW_ONLY')
         ) {
           const body = e.getResponse() as { message?: string };
           results.push({
@@ -751,7 +833,8 @@ export class BuylistService implements OnModuleInit {
                 | 'NOT_FOUND'
                 | 'FINISH_NOT_AVAILABLE'
                 | 'PRODUCT_NOT_FOUND'
-                | 'PRODUCT_CARD_MISMATCH',
+                | 'PRODUCT_CARD_MISMATCH'
+                | 'BUYLIST_RAW_ONLY',
               message: typeof body?.message === 'string' ? body.message : e.code,
             },
           });
@@ -832,7 +915,10 @@ export class BuylistService implements OnModuleInit {
     prefetched?: BuyLinePrefetch;
   }): Promise<BuyLineDecision> {
     const { card, productType, rawCondition, finish, curve, productId, prefetched } = input;
-    const gradeKey = this.pricing.gradeKeyFor({ productType, rawCondition });
+    // v1.53 (§4.40.3/§4.40.4, MONEY): cuerpo COMPARTIDO por las tres superficies ⇒ la guarda raw-only
+    // se re-aplica aquí dentro. Antes, con `graded`, esta línea producía `graded:PSA:10` — el grado
+    // más caro — para una carta cuyo grado nunca se preguntó.
+    const gradeKey = this.pricing.gradeKeyFor(this.rawGradeKeyInput({ productType, rawCondition }));
 
     let f: Finish;
     let referenceMxnCents: number | null;
@@ -1115,6 +1201,15 @@ export class BuylistService implements OnModuleInit {
     // y se conteste con el código que el contrato nombra.
     addressId?: string,
   ) {
+    // v1.53 (§4.40.3, MONEY) — RAW-ONLY, y lo PRIMERO de todo: `createRequest` es TODO-O-NADA (congela
+    // dinero en una transacción), así que aquí NO hay degradación por-ítem — un solo ítem `graded`/
+    // `sealed` aborta la solicitud entera con 422 y **la solicitud no se crea**. Va antes de leer la
+    // KYC/CLABE para no tocar PII por una petición que no puede prosperar.
+    // Sin esta guarda, `SellRequestItem` congelaba un `quotedPriceCents` derivado de `graded:PSA:10`
+    // sobre una carta cuyo grado nunca se preguntó — y con la oferta vinculante desde el correo eso
+    // deja de ser un error corregible y pasa a ser un compromiso firmado.
+    items.forEach((it, index) => this.assertBuylistProductType(it.productType, index));
+
     // SEC/PII: la KYC se lee SIEMPRE por el `userId` autenticado (nunca la de otro usuario).
     const kyc = await this.prisma.kycProfile.findUnique({ where: { userId } });
 
@@ -1254,13 +1349,12 @@ export class BuylistService implements OnModuleInit {
             // P-30 H2 (§4.39e): la llave se CONSTRUYE con el helper, nunca con un template. Esta era
             // la peor de las cuatro: cuatro componentes interpolados en una sola línea de 190
             // caracteres, con el `gradeKey` resuelto EN MEDIO de la expresión.
+            // v1.53 (§4.40.3/§4.40.4, MONEY): el `gradeKey` pasa por `rawGradeKeyInput` — la guarda
+            // raw-only re-aplicada — en vez de ir directo al constructor de claves.
             variantKey({
               cardId: it.cardId,
               productType: it.productType,
-              gradeKey: this.pricing.gradeKeyFor({
-                productType: it.productType,
-                rawCondition: it.rawCondition,
-              }),
+              gradeKey: this.pricing.gradeKeyFor(this.rawGradeKeyInput(it)),
               finish: (it.finish ?? 'normal') as Finish,
             }),
           ) ?? null,
@@ -2270,11 +2364,14 @@ export class BuylistService implements OnModuleInit {
 
     // (4) LA POSICIÓN — cuatro sumandos, cuatro fuentes, UNA llave.
     // ⚠️ B-3: **solo las líneas cuya identidad la llave puede expresar**. Las demás no reciben bucket
-    // y salen por el camino honesto que ya existe (`positionUnavailable`). Ver `positionIsKeyable`.
+    // y salen por el camino honesto que ya existe (`positionUnavailable`). Ver `lineIsKeyable`.
+    // v1.53: el filtro es sobre la llave YA resuelta —`gradeKey != null` es el mismo predicado, pero
+    // el compilador lo estrecha— en vez de re-preguntar por el `productType`.
     const position = await this.positionFor(
-      lines
-        .filter((l) => BuylistService.positionIsKeyable(l.it.productType))
-        .map((l) => ({ ...l.variant, cardProductId: l.cardProductId })),
+      lines.flatMap((l) => {
+        const gradeKey = l.variant.gradeKey;
+        return gradeKey == null ? [] : [{ ...l.variant, gradeKey, cardProductId: l.cardProductId }];
+      }),
       req.id,
     );
 
@@ -2295,8 +2392,11 @@ export class BuylistService implements OnModuleInit {
       // El override M-30 se llavea SIN `cardProductId`, así que mapea a la variante de SET_BASE. En
       // una línea de producto separado se IGNORA —igual que en el precio (§4.29b)—: aplicarlo sería
       // fusionar dos identidades, que es el error que §P.8 llama «peor que no mostrar nada».
+      // v1.53 (§4.40.4b): una línea LEGACY sin llave de variante no tiene override que mirar.
       const override =
-        l.cardProductId == null ? (overrides.get(variantKey(l.variant)) ?? null) : null;
+        l.cardProductId == null && l.variant.gradeKey != null
+          ? (overrides.get(variantKey({ ...l.variant, gradeKey: l.variant.gradeKey })) ?? null)
+          : null;
 
       const decision = decisions.get(it.id) ?? null;
       const derivedPriceCents = decision?.quotedPriceCents ?? null;
@@ -2375,7 +2475,7 @@ export class BuylistService implements OnModuleInit {
   private async deriveOfferLinesBatch(
     items: (DecisionLine['it'] & { cardProductId: number | null })[],
   ): Promise<{
-    lines: (DecisionLine & { positionKey: string })[];
+    lines: (DecisionLine & { positionKey: string | null })[];
     decisions: Map<string, BuyLineDecision | null>;
     overrides: Map<string, VariantPriceOverride>;
   }> {
@@ -2383,30 +2483,50 @@ export class BuylistService implements OnModuleInit {
     // los dos mapas de dinero. `variantKey()` / `variantPositionKey()`, NUNCA una interpolación a
     // mano: si una fuente llaveara distinto, las cifras se desalinearían EN SILENCIO.
     const lines = items.map((it) => {
-      const gradeKey = this.pricing.gradeKeyFor({
-        productType: it.productType,
-        rawCondition: it.rawCondition,
-      });
+      // ⚠️ v1.53 (§4.40.4b, doctrina «el dinero LANZA, la lectura DEGRADA») — este seam lo comparten
+      // la MESA (previsualización) y la EMISIÓN, y lee filas **históricas**: la guarda raw-only cerró
+      // la puerta de entrada (§4.40.3), **no la tabla**. Una solicitud `graded` creada antes de v1.53
+      // sigue en BD y el operador tiene que poder ABRIRLA. Por eso aquí no se llama al constructor
+      // que lanza: se pregunta primero si la línea es llaveable (`lineIsKeyable`) y, si no lo es, la
+      // llave vale `null` — sin override, sin referencia y sin bucket de posición.
+      const gradeKey = BuylistService.lineIsKeyable(it.productType)
+        ? // Narrowing legítimo: `lineIsKeyable` ⇔ `productType ∈ BUYLIST_ACCEPTED_PRODUCT_TYPES` = `['raw']`.
+          this.pricing.gradeKeyFor({ productType: 'raw', rawCondition: it.rawCondition })
+        : null;
       const finish = (it.finish ?? 'normal') as Finish;
       const variant = { cardId: it.cardId, productType: it.productType, gradeKey, finish };
       return {
         it,
         variant,
         cardProductId: it.cardProductId ?? null,
-        positionKey: variantPositionKey({ ...variant, cardProductId: it.cardProductId ?? null }),
+        // Sin llave de variante no hay llave de posición: el `null` viaja hasta
+        // `positionAndSuggestion`, que lo traduce a `positionUnavailable` (jamás a un 0).
+        positionKey:
+          gradeKey == null
+            ? null
+            : variantPositionKey({ ...variant, gradeKey, cardProductId: it.cardProductId ?? null }),
       };
     });
 
     const curve = await this.pricing.loadPricingCurve();
-    const overrides = await this.pricing.getVariantOverridesBatch(lines.map((l) => l.variant));
+    // v1.53 (§4.40.4b): las líneas SIN llave no entran a ningún lote. No es una optimización — es que
+    // no hay nada que buscar: preguntarle a los mapas por una clave inventada devolvería el precio de
+    // OTRA variante. Es el mismo filtro que `batchQuote` aplica a los overrides (§4.40.3.3).
+    // `flatMap` y no `filter`, porque además del filtro hace el ESTRECHAMIENTO: lo que sale ya tiene
+    // `gradeKey: string` por tipo, sin un `!` que un refactor futuro pueda dejar mintiendo.
+    const keyed = lines.flatMap((l) => {
+      const gradeKey = l.variant.gradeKey;
+      return gradeKey == null ? [] : [{ ...l, variant: { ...l.variant, gradeKey } }];
+    });
+    const overrides = await this.pricing.getVariantOverridesBatch(keyed.map((l) => l.variant));
     const baseRefs = await this.pricing.getReferencesBatch(
-      lines.filter((l) => l.cardProductId == null).map((l) => l.variant),
+      keyed.filter((l) => l.cardProductId == null).map((l) => l.variant),
     );
     const products = await this.pricing.findCardProductsByTcgIds(
-      lines.filter((l) => l.cardProductId != null).map((l) => l.cardProductId as number),
+      keyed.filter((l) => l.cardProductId != null).map((l) => l.cardProductId as number),
     );
     const productRefs = await this.pricing.getReferencesByCardProductBatch(
-      lines
+      keyed
         .filter((l) => l.cardProductId != null)
         .map((l) => {
           const cp = products.get(l.cardProductId as number);
@@ -2426,8 +2546,11 @@ export class BuylistService implements OnModuleInit {
     for (const l of lines) {
       // El override M-30 se llavea SIN `cardProductId` ⇒ describe la variante de SET_BASE. En una
       // línea de producto separado se IGNORA (§4.39g.2): aplicarlo sería fusionar dos identidades.
+      // v1.53: sin llave tampoco hay override que buscar (§4.40.4b).
       const override =
-        l.cardProductId == null ? (overrides.get(variantKey(l.variant)) ?? null) : null;
+        l.cardProductId == null && l.variant.gradeKey != null
+          ? (overrides.get(variantKey({ ...l.variant, gradeKey: l.variant.gradeKey })) ?? null)
+          : null;
       decisions.set(
         l.it.id,
         await this.derivedLine(l, curve, override, baseRefs, products, productRefs),
@@ -2460,30 +2583,34 @@ export class BuylistService implements OnModuleInit {
   ): Promise<BuyLineDecision | null> {
     const { it } = l;
     const cp = l.cardProductId != null ? (products.get(l.cardProductId) ?? null) : null;
-    const gradeKey = this.pricing.gradeKeyFor({
-      productType: it.productType,
-      rawCondition: it.rawCondition,
-    });
+    // ⚠️ v1.53 (§4.40.4b): la llave se REUSA de `l.variant`, no se vuelve a derivar. Antes se
+    // reconstruía aquí con una segunda llamada a `gradeKeyFor` — dos derivaciones de la misma clave
+    // en el mismo seam, exactamente el drift que `variant-key.ts` vino a cerrar una capa más arriba.
+    // `null` (línea legacy no-raw) ⇒ no hay referencia que buscar: `pending`, y `decideBuyLine` la
+    // rechazará abajo con `BUYLIST_RAW_ONLY`.
+    const gradeKey = l.variant.gradeKey;
     const reference =
-      l.cardProductId == null
-        ? (baseRefs.get(
-            variantKey({
-              cardId: it.cardId,
-              productType: it.productType,
-              gradeKey,
-              finish: l.variant.finish,
-            }),
-          ) ?? { status: 'pending' })
-        : (cp
-            ? productRefs.get(
-                cardProductRefKey({
-                  cardProductId: cp.id,
-                  productType: it.productType,
-                  gradeKey,
-                  finish: l.variant.finish,
-                }),
-              )
-            : null) ?? { status: 'pending' };
+      gradeKey == null
+        ? { status: 'pending' }
+        : l.cardProductId == null
+          ? (baseRefs.get(
+              variantKey({
+                cardId: it.cardId,
+                productType: it.productType,
+                gradeKey,
+                finish: l.variant.finish,
+              }),
+            ) ?? { status: 'pending' })
+          : (cp
+              ? productRefs.get(
+                  cardProductRefKey({
+                    cardProductId: cp.id,
+                    productType: it.productType,
+                    gradeKey,
+                    finish: l.variant.finish,
+                  }),
+                )
+              : null) ?? { status: 'pending' };
     try {
       return await this.decideBuyLine({
         card: it.card,
@@ -2505,7 +2632,14 @@ export class BuylistService implements OnModuleInit {
         e instanceof BusinessException &&
         (e.code === 'FINISH_NOT_AVAILABLE' ||
           e.code === 'PRODUCT_NOT_FOUND' ||
-          e.code === 'PRODUCT_CARD_MISMATCH')
+          e.code === 'PRODUCT_CARD_MISMATCH' ||
+          // ⚠️ v1.53 (§4.40.3.3 + §4.40.4b): la guarda raw-only entra al allowlist POR EL MISMO
+          // motivo que en `batchQuote`, y aquí importa más: la mesa se abre sobre solicitudes
+          // HISTÓRICAS, y una línea `graded` creada antes de la guarda tumbaría **la pantalla
+          // entera** —con sus otras líneas raw perfectamente ofertables— por un dato viejo.
+          // Degradar aquí NO afloja el dinero: `derived = null` ⇒ la emisión exige override
+          // explícito con motivo o `skip` (`422 OFFER_LINE_NOT_PRICEABLE`).
+          e.code === 'BUYLIST_RAW_ONLY')
       ) {
         this.logger.warn(
           `decision-table: línea ${it.cardId} sin precio derivable (${e.code}); se emite SIN monto y sin motivo de mercado`,
@@ -2536,29 +2670,46 @@ export class BuylistService implements OnModuleInit {
    * degrada a ceros.**
    */
   /**
-   * ⚠️⚠️ v1.51.22 · **B-3 — ¿PUEDE `VariantPositionRef` DECIR LA VERDAD SOBRE ESTA LÍNEA?**
+   * ⚠️⚠️ v1.51.22 · **B-3 — ¿PUEDE ESTA LÍNEA LLAVEARSE SIN MENTIR?** (revisado en v1.53, §4.40.3)
    *
-   * Solo `raw`. Y no es una restricción de producto: es que **para las otras dos la llave no
-   * distingue piezas que valen distinto**, y una posición que mezcla identidades es exactamente lo
-   * que §P.8 llama *«peor que no mostrar nada, porque se ve confiable»*. Medido:
+   * Solo `raw`. Gobierna las DOS llaves de la mesa: la de **variante** (`gradeKey` ⇒ referencia y
+   * override) y la de **posición** (`variantPositionKey` ⇒ los cuatro sumandos del conteo). Y no es
+   * una restricción de producto: es que **para las otras dos la llave no distingue piezas que valen
+   * distinto**, y una posición que mezcla identidades es exactamente lo que §P.8 llama *«peor que no
+   * mostrar nada, porque se ve confiable»*.
    *
-   * - **`graded` — el peor de los dos.** `gradeKeyFor` deriva la llave de
-   *   `(productType, rawCondition, gradingCompany, gradeValue)`, pero `SellRequestItem` **no tiene
-   *   columnas de graduación** (ni `gradingCompany` ni `gradeValue`), así que aquí solo se le pueden
-   *   pasar dos campos y `buildGradeKey` cae a sus defaults ⇒ **TODA línea graduada se llavea
-   *   `graded:PSA:10`**. El puerto entonces empareja únicamente stock PSA 10: un CGC 9.5 en la caja
-   *   es **invisible**, y un PSA 10 ajeno se cuenta como si fuera de esta línea. **Las dos
-   *   direcciones del error a la vez.**
-   * - **`sealed` — el conteo es un superconjunto.** El `groupBy` del adaptador agrupa por
-   *   `(cardId, productType, rawCondition, gradingCompany, gradeValue, finish, cardProductId)` —
+   * ### ⚠️ Qué cambió en v1.53, y por qué esto NO sobra
+   * Cuando esto se escribió, la puerta estaba abierta por los dos lados: el cotizador aceptaba
+   * `graded`/`sealed` **y** `buildGradeKey` rellenaba el hueco con `?? 'PSA'` / `?? '10'`. v1.53
+   * cerró los dos:
+   *
+   * 1. **La guarda raw-only** (`assertBuylistProductType`, §4.40.3) impide que una línea no-raw
+   *    **entre** al buylist: `422 BUYLIST_RAW_ONLY` en las tres superficies.
+   * 2. **`buildGradeKey` perdió sus defaults** (§4.40.4): ya no existe el `graded:PSA:10` silencioso.
+   *
+   * Lo que **no** cambió es la BD: la guarda es una validación de ESCRITURA, no una constraint. Las
+   * `SellRequestItem` no-raw **creadas antes de v1.53 siguen ahí**, y la mesa de decisión es
+   * precisamente la pantalla que el operador abre sobre solicitudes viejas. Este predicado es lo que
+   * hace que esa pantalla **se abra y diga la verdad** en vez de reventar o inventar un conteo. Su
+   * justificación ya no es *«el default elige el grado más caro»* —ese default no existe—: es
+   * **defender las filas legacy que la guarda no puede alcanzar hacia atrás**.
+   *
+   * ### Y lo medido sigue siendo cierto para esas filas
+   * - **`graded`** — `SellRequestItem` **no tiene columnas de graduación** (ni `gradingCompany` ni
+   *   `gradeValue`). Antes eso producía `graded:PSA:10` para TODA línea graduada (stock PSA 10 ajeno
+   *   contado como propio, CGC 9.5 propio invisible: las dos direcciones del error a la vez). Hoy
+   *   produciría un `IncompleteGradeIdentityError`. **Ninguna de las dos cosas es lo que el operador
+   *   necesita ver**, y la tercera —`gradeKey: null` ⇒ SIN CONTEO— sí lo es.
+   * - **`sealed` — el defecto es AJENO a v1.53 y sigue abierto.** El `groupBy` del adaptador agrupa
+   *   por `(cardId, productType, rawCondition, gradingCompany, gradeValue, finish, cardProductId)` —
    *   **sin `sealedProductId`** —, así que **dos `SealedProduct` distintos de la misma `Card` caen en
    *   UN bucket**. `sealedProductId` aparece 2 veces en `inventory-publish.port.ts` y **0** en
-   *   `inventory-position.port.ts`: los dos puertos **no acuerdan qué es una variante**.
+   *   `inventory-position.port.ts`: los dos puertos **no acuerdan qué es una variante**. Eso no lo
+   *   tocó la guarda raw-only y no lo arregla `buildGradeKey`.
    *
    * ⚠️ **La norma de `variant-key.ts` NO atrapa esto**, y conviene saber por qué antes de confiar en
    * ella: guarda **el FORMATO del string** («prohibida la interpolación a mano») y deja libre **la
-   * DERIVACIÓN de sus partes**. El drift ocurre una capa por debajo, al construir `gradeKey`, donde
-   * los dos lados llaman a la misma función **con distinto número de argumentos**.
+   * DERIVACIÓN de sus partes**. El drift ocurre una capa por debajo, al construir `gradeKey`.
    *
    * ### Por qué se degrada en vez de arreglar la llave
    * Arreglarla de verdad exige que el **ref cargue la identidad completa** (`gradingCompany`,
@@ -2569,13 +2720,19 @@ export class BuylistService implements OnModuleInit {
    * exige usar aquí (*«PROHIBIDO devolver `0`»*): `position: null`, `positionUnavailable: true`,
    * `suggestion.verdict: "none"`. El front pinta «SIN CONTEO» (DESIGN_SYSTEM §23.7).
    *
-   * **NO se degrada la línea entera:** precio derivado, `quotedPriceCents`, `pendingReason` y los
-   * `totals` siguen siendo válidos y se siguen emitiendo — el contrato lo dice explícitamente
-   * («estos campos son válidos aun con `positionUnavailable`: dependen de montos, no del conteo»).
-   * *Lo único que se calla es lo único que no se sabe.*
+   * **NO se degrada la línea entera:** `quotedPriceCents` (el snapshot congelado) y los `totals`
+   * siguen siendo válidos y se siguen emitiendo — el contrato lo dice explícitamente («estos campos
+   * son válidos aun con `positionUnavailable`: dependen de montos, no del conteo»). El
+   * `derivedPriceCents` de una línea legacy no-raw sí sale `null` (`SIN PRECIO`), y eso es la guarda
+   * raw-only hablando, no esta degradación. *Lo único que se calla es lo único que no se sabe.*
+   *
+   * ⚠️ **La lista es UNA** (`BUYLIST_ACCEPTED_PRODUCT_TYPES`, `common/business-rules.ts`), la misma
+   * que usa la guarda. Deliberado: si algún día se decide comprar graduadas (§4.40.6 + `M-49`, que es
+   * quien capturaría la identidad del slab), este predicado y la guarda se ensanchan **a la vez** o
+   * no se ensanchan. Dos listas que hoy coinciden serían dos listas que mañana no.
    */
-  private static positionIsKeyable(productType: ProductType): boolean {
-    return productType === 'raw';
+  private static lineIsKeyable(productType: ProductType): boolean {
+    return BUYLIST_ACCEPTED_PRODUCT_TYPES.includes(productType);
   }
 
   private async positionFor(
@@ -2668,15 +2825,13 @@ export class BuylistService implements OnModuleInit {
       // refs porque **este bucle es la otra mitad de la misma llave**: si un día se ensancha lo que
       // es llaveable, las dos mitades tienen que moverse juntas o vuelven a discrepar en silencio.
       // (Hoy es redundante —sin ref no hay bucket— y esa redundancia es deliberada.)
-      if (!BuylistService.positionIsKeyable(row.productType)) continue;
+      if (!BuylistService.lineIsKeyable(row.productType)) continue;
       const key = variantPositionKey({
         cardId: row.cardId,
         productType: row.productType,
-        // MISMA función canónica que llavea el resto de las fuentes.
-        gradeKey: this.pricing.gradeKeyFor({
-          productType: row.productType,
-          rawCondition: row.rawCondition,
-        }),
+        // MISMA función canónica que llavea el resto de las fuentes. El `continue` de arriba ya
+        // estrechó a `raw`, así que el input ESTRICTO de v1.53 (§4.40.4) se satisface sin default.
+        gradeKey: this.pricing.gradeKeyFor({ productType: 'raw', rawCondition: row.rawCondition }),
         finish: row.finish,
         cardProductId: row.cardProductId ?? null,
       });
@@ -2715,7 +2870,8 @@ export class BuylistService implements OnModuleInit {
    */
   private positionAndSuggestion(
     position: PositionMap | null,
-    positionKey: string,
+    /** v1.53 (§4.40.4b): `null` ⇒ la línea no tiene llave de posición (legacy no-raw) ⇒ SIN CONTEO. */
+    positionKey: string | null,
     override: VariantPriceOverride | null,
     decision: BuyLineDecision | null,
     variantPositionCap: number,
@@ -2727,7 +2883,7 @@ export class BuylistService implements OnModuleInit {
       override.bountyCompletedAt == null &&
       isBountyEffective(override.bountyPriceCents ?? null, decision?.quote.curveQuoteCents ?? null);
 
-    const bucket = position?.get(positionKey) ?? null;
+    const bucket = positionKey == null ? null : (position?.get(positionKey) ?? null);
     if (position == null || bucket == null) {
       // ⚠️ `position: null`, NO ceros. Un cero que significa «no pude contar» se ve confiable y
       // empuja a comprar de más (§P.8). El front pinta «SIN CONTEO» y no infiere nada.
@@ -5911,11 +6067,28 @@ export class BuylistService implements OnModuleInit {
       string,
       { cardId: string; productType: ProductType; gradeKey: string; finish: Finish; qty: number }
     >();
+    // v1.53-b (residuo del gate techlead): el `continue` de abajo era SILENCIOSO. `price-sync`, con
+    // MENOS en juego (un barrido nocturno), sí cuenta y loguea sus omisiones — y esto corre dentro de
+    // la transacción del PAGO. Si una línea legacy se salta el contador de bounty, el `bountyAcquiredQty`
+    // de esa variante queda por debajo de la realidad y el auto-apagado del bounty se retrasa: es poco,
+    // pero es dinero, y hasta ahora no dejaba rastro. Mismo patrón que `price-sync.service.ts`:
+    // contador + UNA línea de log al final, nunca por-fila (esto está en la ruta caliente del pago).
+    let skippedNoGradeIdentity = 0;
     for (const it of bountyItems) {
-      const gradeKey = this.pricing.gradeKeyFor({
+      // v1.53 (§4.40.4b, MONEY) — clave TOLERANTE, y a propósito: esto corre DENTRO de la transacción
+      // del PAGO y sólo lleva un CONTADOR de bounty. Un `throw` aquí tumbaría un pago por una fila
+      // LEGACY (creada antes de la guarda raw-only, §4.40.5a) — la misma doctrina que el
+      // `if (res.count === 0) continue` de abajo: «fila desaparecida ⇒ nada que contar, el pago NO se
+      // cae». No es fail-open: sin clave no hay `VariantPriceOverride` que casar, así que no se
+      // incrementa nada. Antes, una línea graduada casaba con la fila `graded:PSA:10`, si existía.
+      const gradeKey = this.pricing.tryGradeKeyFor({
         productType: it.productType,
         rawCondition: it.rawCondition,
       });
+      if (gradeKey == null) {
+        skippedNoGradeIdentity += 1;
+        continue;
+      }
       const finish = (it.finish ?? 'normal') as Finish;
       // P-30 H2 (§4.39e): agrupación por la MISMA llave que usan pricing/catálogo. Si esta se
       // construyera distinto, el bounty contaría piezas de una variante contra el objetivo de otra.
@@ -5923,6 +6096,13 @@ export class BuylistService implements OnModuleInit {
       const prev = byKey.get(key);
       if (prev) prev.qty += 1;
       else byKey.set(key, { cardId: it.cardId, productType: it.productType, gradeKey, finish, qty: 1 });
+    }
+    if (skippedNoGradeIdentity > 0) {
+      // Observabilidad, no control de flujo: el pago sigue su curso exactamente igual.
+      this.logger.warn(
+        `bounty counter: ${skippedNoGradeIdentity} línea(s) de la solicitud ${sellRequestId} omitidas ` +
+          'por identidad de grado incompleta (§4.40.4b); su `bountyAcquiredQty` NO se incrementó.',
+      );
     }
     for (const g of byKey.values()) {
       const uniqueKey = {

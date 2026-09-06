@@ -64,6 +64,7 @@ function buildPricing(opts: {
     // puede divergir de producción ni reimplementar la matemática.
     decideSalePrice: jest.fn(PricingService.prototype.decideSalePrice),
     gradeKeyFor: jest.fn(({ rawCondition }: { rawCondition?: string }) => `raw:${rawCondition ?? 'NM'}`),
+    tryGradeKeyFor: jest.fn(({ rawCondition }: { rawCondition?: string }) => `raw:${rawCondition ?? 'NM'}`),
     getReference: jest.fn(async () =>
       opts.referenceMxnCents == null
         ? { status: 'pending' }

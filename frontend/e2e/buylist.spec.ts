@@ -1,50 +1,31 @@
 import { test, expect, type Locator, type Page } from '@playwright/test';
 import { t } from './utils/i18n';
-import { loginAs, mockOnly, needsSeed, MONEY_RE } from './utils/auth';
+import { loginAs, mockOnly } from './utils/auth';
 
 /**
  * Flujo: buylist (PROJECT §E / AC 12, 13, 33, 34; contrato §6).
  *
- * v1.21-cotizador-master-set: en `raw` (default) el grid YA NO es el buscador plano —
- * es el binder COMPARTIDO de Master Set (mode="quoter"): primero se elige un set en
- * «Buscar set» y cada carta pinta UNA teja por acabado real con su estimado y su botón
- * «Agregar … a la venta». El grid plano (set + búsqueda por texto, filas de acabado,
- * bulk) queda para `graded`/`sealed` (sin variantes por acabado).
+ * v1.21-cotizador-master-set: el grid del cotizador es el binder COMPARTIDO de Master Set
+ * (mode="quoter"): primero se elige un set en «Buscar set» y cada carta pinta UNA teja por
+ * acabado real con su estimado y su botón «Agregar … a la venta».
  *
- * SC-D2 (ronda TL Stream C): los 8 casos que asumían el grid plano en `raw` (pre-v1.21,
- * helpers searchFor/addCard sobre «Buscar carta» del filtro plano) se migraron — los de
- * comportamiento del grid plano/bulk a `graded` (seleccionan tipo de producto primero) y
- * los de acabados raw al binder quoter (mismos fixtures Base Set). Cero rojos de reposo.
+ * ⚠️ v1.53 (MONEY — contrato §6, ARCHITECTURE §4.40): EL COTIZADOR COMPRA RAW Y SOLO RAW.
+ * Se retiró el selector «Tipo de producto» y, con él, el grid plano de `graded`/`sealed` (barra de
+ * filtros set+texto y bulk) — junto con los dos casos que lo ejercitaban aquí. Motivo, y no es
+ * cosmético: ningún DTO de buylist tuvo jamás dónde capturar QUÉ grado es un slab, así que el
+ * backend caía a `graded:PSA:10` —el grado más caro— y el cotizador ofrecía ese precio por
+ * cualquier graduada. `PROJECT.md` §E, §K LOCKED y el criterio 61 nunca autorizaron esa compra.
+ * El smoke @real de VENDER se migró a este mismo binder (ver `addCheapestSellableCard`).
  *
  * Cotizador v2 (Stream C, P-16 — DESIGN_SYSTEM §18.4): el carrito vive en un DRAWER
  * flotante disparado por el FAB (`sell-cart-fab`). Agregar desde la grilla NO abre el
  * drawer — los asserts sobre líneas/total/CTA de enviar deben abrirlo con `openCart(page)`.
  */
 
-/** Cambia el tipo de producto a Gradeada (el grid plano solo existe en graded/sealed). */
-async function selectGraded(page: Page) {
-  await page.getByLabel(t('es', 'buylist.selectType')).selectOption('graded');
-}
-
-/** Busca una carta por texto en la barra de filtros del grid plano (requiere graded/sealed). */
-async function searchFor(page: Page, term: string) {
-  await page.getByLabel(t('es', 'buylist.searchCards')).fill(term);
-  await page.getByRole('button', { name: t('es', 'buylist.searchAction') }).click();
-}
-
-/** Etiqueta de fila del grid plano en graded (rowLabel = tipo de producto, no acabado). */
-const GRADED_LABEL = t('es', 'buylist.productType.graded');
-
-/** Agrega una carta al carrito desde el grid plano GRADED (clic en la fila = directo al carrito). */
-async function addGradedCard(page: Page, term: string) {
-  await selectGraded(page);
-  await searchFor(page, term);
-  await page
-    .getByRole('button', { name: t('es', 'buylist.addFinishAria', { name: term, finish: GRADED_LABEL }) })
-    .click();
-}
-
-/** Abre el binder quoter de Base Set (raw default; fixtures Charizard/Pikachu/Zapdos/Eevee). No-op si ya está abierto. */
+/**
+ * Abre el binder quoter de Base Set. Env-agnóstico a propósito: «Base» filtra el índice tanto en
+ * mock (`Base Set`) como contra el seed real (`E2E Base Set`, §4.22e). No-op si ya está abierto.
+ */
 async function openBaseSet(page: Page) {
   const searchSet = page.getByLabel(t('es', 'masterSet.searchSet'));
   if ((await searchSet.count()) === 0) return; // binder ya abierto
@@ -175,102 +156,89 @@ async function choosePickupAddress(scope: Locator) {
 }
 
 /**
- * Descubre y agrega la carta GRADED **más barata que de verdad tiene precio**, sin hardcodear
- * nombre, set ni monto.
+ * Descubre y agrega una carta cotizable del BINDER QUOTER sin hardcodear nombre/id ni monto.
  *
- * ⚠️ **Por qué recorre TODOS los sets en vez de coger el primero — y por qué esto fallaba.**
- * La versión anterior seleccionaba `option[1]`, «el primer set real» del dropdown. El dropdown
- * viene ordenado por AÑO DESCENDENTE, así que `option[1]` es **el set más nuevo**… que es
- * exactamente el que **no tiene referencia de precio en graded**: todas sus filas salen en
- * `precio_pendiente`. Y el bucle de «la más barata» le asignaba `MAX_SAFE_INTEGER` a una fila sin
- * precio pero **la aceptaba igual** en la primera vuelta (`!best || …`), así que agregaba una
- * carta **sin precio**.
+ * v1.53 (§4.40): antes esto pasaba por el grid plano GRADED —el único con «Filtrar por set» y
+ * filas de una línea—, que era precisamente la superficie que este pase cierra. Ahora recorre el
+ * mismo binder raw que usa el resto del cotizador.
  *
- * A partir de ahí el fallo era inevitable y engañoso: una línea en `precio_pendiente` **no suma
- * al total por diseño** (§23.3h), de modo que `ensureMinimumReached` subía la cantidad hasta 999
- * y el total seguía en cero — y el rojo parecía decir «el cotizador no suma» cuando el cotizador
- * estaba haciendo justo lo correcto (no inventar un precio que el backend todavía no tiene).
- * **Medido:** en el set más nuevo hay 8 filas y **0 con precio**; el único set con precios reales
- * tiene 10, la más barata a MX$37.36 — con la que el mínimo se cruza subiendo la cantidad a 14.
+ * Se elige la teja cotizable MÁS BARATA, no la primera. Motivo money: contra el stack real la curva
+ * de compra cotiza de verdad, y una carta cara empuja la solicitud por encima del TOPE AML — la UI
+ * entonces exige INE (anverso y reverso) antes de confirmar, que es el guardarraíl AML-1 haciendo
+ * su trabajo. El smoke quiere recorrer VENDER de punta a punta, no pelearse con un control de
+ * lavado de dinero; la más barata lo deja del lado correcto del tope SIN hardcodear ningún monto.
  *
- * Devuelve `false` si NINGÚN set tiene una carta graded con precio: eso es **falta de dato**, no
- * un defecto del producto, y el test lo dice en vez de morir once pasos más adelante.
+ * El precio viaja en el `aria-label` de la teja (`quoterAddAria`: «Agregar X (Normal) a la venta ·
+ * MX$…»), así que filtrar por `MX$` deja fuera —sin nombrarlas— las tejas en «Precio pendiente»,
+ * que son agregables pero no aportan total. Si el set no tuviera NINGUNA cotizada (posible contra
+ * un seed sin referencias de mercado), se cae a la primera teja habilitada: money-safe igual
+ * (pendiente ⇒ lo fija la plataforma al recibir).
+ *
+ * ⚠️ **Devuelve si la carta agregada TIENE PRECIO**, y el llamador lo necesita desde v1.51.4 (D43):
+ * con el mínimo de compra, una línea en `precio_pendiente` **no suma al total por diseño** (§23.3h
+ * — no se inventa precio ni se pinta `MX$0.00`), así que `cantidad × 0 = 0` por muchas veces que
+ * `ensureMinimumReached` suba la cantidad, el CTA se queda apagado y el rojo aparece nueve pasos
+ * más tarde disfrazado de «el cotizador no suma». Falta de DATO ≠ defecto de producto: el smoke se
+ * salta cuando no hay ninguna teja con precio, en vez de morir lejos de la causa.
  */
-async function addFirstSellableCard(page: Page): Promise<boolean> {
-  await selectGraded(page);
-  const setSelect = page.getByLabel(t('es', 'buylist.filterBySet'));
-  // El dropdown se llena por red (GET /buylist/sets): sin esta espera se lee un `<select>` con
-  // solo el placeholder y el helper «descubre» que no hay sets.
-  await expect
-    .poll(() => setSelect.locator('option').count(), { timeout: 30_000 })
-    .toBeGreaterThan(1);
-  const setValues: string[] = await setSelect
-    .locator('option')
-    .evaluateAll((opts) => opts.map((o) => (o as HTMLOptionElement).value).filter(Boolean));
+async function addCheapestSellableCard(page: Page): Promise<boolean> {
+  await openBaseSet(page);
 
-  // ⚠️ Acotado a los botones de AGREGAR por su nombre accesible. Un `getByRole('button',
-  // { disabled: false })` a secas también casaba con el «Ver detalle de …» de cada fila (P-43),
-  // que está siempre habilitado: el helper abría el pop-up de detalle y NO agregaba nada.
-  const addPrefix = t('es', 'buylist.addFinishAria', { name: '\u0000', finish: '\u0000' }).split(
-    '\u0000',
-  )[0];
-  const list = page.getByRole('list', { name: t('es', 'buylist.searchResults') });
-  const addBtn = (row: Locator) =>
-    row.getByRole('button', { name: new RegExp(`^${addPrefix}`), disabled: false });
+  // `disabled: false` en ambos: una teja sin cotización resuelta queda inhábil y clicarla haría
+  // que Playwright esperase a que se habilitara hasta agotar el timeout (mide el arnés, no el
+  // producto). El precio va en el `aria-label`, así que el filtro por `MX$` es también el filtro
+  // «esta sí cotizó».
+  const priced = page.getByRole('button', { name: /a la venta · MX\$/, disabled: false });
+  const anyTile = page.getByRole('button', { name: / a la venta · /, disabled: false });
+  // El batch de estimados del binder tiene que resolver antes de leer nada: `count()` NO
+  // auto-espera (lee el DOM del instante), así que se espera a la primera teja explícitamente.
+  await expect(anyTile.first()).toBeVisible({ timeout: 30_000 });
 
-  // Una fila ya RESUELTA muestra su monto **o** el rótulo de precio pendiente. Esperar a
-  // «cualquiera de las dos» es lo que distingue «este set no tiene precios» de «el batch de
-  // estimados todavía no llegó» — sin esa distinción habría que dormir un tiempo fijo por set, y
-  // el recorrido de N sets se comería el presupuesto del test.
-  const settledRow = list
-    .getByRole('listitem')
-    .filter({ hasText: new RegExp(`${MONEY_RE.source}|${t('es', 'buylist.linePending')}`) });
-
-  for (const value of setValues) {
-    await setSelect.selectOption(value);
-    const settled = await settledRow
-      .first()
-      .waitFor({ state: 'visible', timeout: 8_000 })
-      .then(() => true, () => false);
-    if (!settled) continue; // set sin filas cotizables: al siguiente, sin fallar
-
-    // Solo interesan las filas que MUESTRAN UN MONTO. Aquí `count()` ya es seguro: el grid está
-    // resuelto. Un set sin precios de graded es normal, no un error.
-    const priced = list.getByRole('listitem').filter({ hasText: MONEY_RE });
-    if ((await priced.count()) === 0) continue;
-
-    // Se elige la MÁS BARATA, no la primera. Motivo money: contra el stack real la curva de compra
-    // cotiza de verdad, y una carta cara empuja la solicitud por encima del TOPE AML — la UI
-    // entonces exige INE antes de confirmar, que es el guardarraíl AML-1 haciendo su trabajo. El
-    // smoke quiere recorrer VENDER de punta a punta, no pelearse con un control de lavado de
-    // dinero; la más barata lo deja del lado correcto del tope sin hardcodear ningún monto.
-    const texts = await priced.allInnerTexts();
-    const ranked = texts
-      .map((raw, index) => {
-        const m = raw.replace(/\s+/g, ' ').match(/MX\$([\d,]+)\.(\d{2})/);
-        return m
-          ? { index, cents: Number(m[1].replace(/,/g, '')) * 100 + Number(m[2]) }
-          : null;
-      })
-      .filter((x): x is { index: number; cents: number } => x !== null)
-      .sort((a, b) => a.cents - b.cents);
-
-    for (const { index } of ranked) {
-      const btn = addBtn(priced.nth(index));
-      // Una carta puede tener precio y aun así no ser agregable (p. ej. FINISH_NOT_AVAILABLE
-      // por-ítem deja la fila deshabilitada sin tumbar el grid): se prueba la siguiente.
-      if ((await btn.count()) === 0) continue;
-      await btn.first().click();
-      return true;
-    }
+  if ((await priced.count()) === 0) {
+    await anyTile.first().click();
+    return false;
   }
-  return false;
+
+  const labels = await priced.evaluateAll((els) =>
+    els.map((el) => el.getAttribute('aria-label') ?? ''),
+  );
+  let bestIndex = 0;
+  let bestCents = Number.MAX_SAFE_INTEGER;
+  labels.forEach((label, i) => {
+    const m = label.match(/MX\$([\d,]+)\.(\d{2})/);
+    if (!m) return;
+    const cents = Number(m[1].replace(/,/g, '')) * 100 + Number(m[2]);
+    if (cents < bestCents) {
+      bestCents = cents;
+      bestIndex = i;
+    }
+  });
+  await priced.nth(bestIndex).click();
+  return true;
 }
 
 test.describe('buylist · raw = binder Master Set (mode="quoter") + drawer del carrito', () => {
   test('banner persistente "pago tras recepción"', async ({ page }) => {
     await page.goto('/es/buylist');
     await expect(page.getByText(t('es', 'buylist.payAfterReceipt')).first()).toBeVisible();
+  });
+
+  /**
+   * v1.53 (§4.40) — CANDADO de la superficie cerrada, medido en el navegador y no en jsdom.
+   * La página de venta NO ofrece elegir tipo de producto: no hay selector, ni opción «Gradeada»
+   * ni «Sellado». Si alguien lo remonta, este test se pone rojo antes de que el cotizador vuelva
+   * a prometer un precio de PSA 10 por un slab cuyo grado nunca preguntamos.
+   */
+  test('v1.53: la página de venta NO ofrece gradeada ni sellado (superficie raw-only)', async ({
+    page,
+  }) => {
+    await page.goto('/es/buylist');
+    // El binder (la única búsqueda del cotizador) ya está en pantalla…
+    await expect(page.getByLabel(t('es', 'masterSet.searchSet'))).toBeVisible();
+    // …y el selector de tipo, con sus dos opciones prohibidas, no existe en ninguna forma.
+    await expect(page.getByLabel('Tipo de producto')).toHaveCount(0);
+    await expect(page.getByRole('option', { name: 'Gradeada' })).toHaveCount(0);
+    await expect(page.getByRole('option', { name: 'Sellado' })).toHaveCount(0);
   });
 
   test('clic en una teja de acabado agrega DIRECTO al carrito; el detalle expandible muestra la referencia', async ({
@@ -537,53 +505,6 @@ test.describe('buylist · el total sin precios se EXPLICA (§23.3h / §23.3f-bis
   });
 });
 
-test.describe('buylist · graded/sealed: grid plano (set + búsqueda + bulk)', () => {
-  test('el grid lista cada carta con su estimado (una fila por tipo, sin panel COTIZACIÓN)', async ({ page }) => {
-    // Doble dependencia, verificada contra el stack vivo: (a) el botón se llama «Agregar E2E
-    // Charizard…» con el seed real; (b) la gradeada del seed NO tiene referencia de mercado, así
-    // que el grid pinta «Precio pendiente» — que es el comportamiento money-safe CORRECTO, no un
-    // fallo: sin dato no se inventa cifra. Por eso no hay importe que afirmar.
-    mockOnly('nombre literal «Charizard» + gradeada sin referencia en el seed (estimado pendiente)');
-    await page.goto('/es/buylist');
-    await selectGraded(page);
-    await searchFor(page, 'Charizard');
-
-    // Leyenda del grid + estimado con formato MXN dentro de la lista de resultados,
-    // SIN seleccionar nada (el batch cotiza cada carta de la página).
-    //
-    // ⚠️ Se afirma el FORMATO (`MONEY_RE`), NO el monto. En modo mock el estimado lo produce
-    // `fx.mockDemoBuyQuote` —una aproximación de demo de la curva de compra, sin interpolar ni
-    // redondear—, así que un assert de monto exacto aquí NO verificaría el precio del producto:
-    // verificaría el mock. Las cifras de la curva se comprueban contra el backend real
-    // (`E2E_REAL=1`) y en los unitarios del dry-run.
-    await expect(page.getByText(t('es', 'buylist.gridEstimateLegend'))).toBeVisible();
-    await expect(
-      page.getByRole('list', { name: t('es', 'buylist.searchResults') }).getByText(MONEY_RE).first(),
-    ).toBeVisible();
-    // Una sola fila agregable por carta (graded no tiene variantes por acabado).
-    await expect(
-      page.getByRole('button', {
-        name: t('es', 'buylist.addFinishAria', { name: 'Charizard', finish: GRADED_LABEL }),
-      }),
-    ).toBeVisible();
-  });
-
-  test('bulk: multi-selección en el grid y agregar varias de golpe', async ({ page }) => {
-    mockOnly('set literal `base1` y cartas «Charizard»/«Pikachu» del fixture');
-    await page.goto('/es/buylist');
-    await selectGraded(page);
-    await page.getByLabel(t('es', 'buylist.filterBySet')).selectOption('base1');
-
-    await page.getByRole('checkbox', { name: t('es', 'buylist.bulkSelect', { name: 'Charizard' }) }).check();
-    await page.getByRole('checkbox', { name: t('es', 'buylist.bulkSelect', { name: 'Pikachu' }) }).check();
-    await page.getByRole('button', { name: t('es', 'buylist.bulkAddCta', { count: 2 }) }).click();
-
-    await expect(page.getByText(t('es', 'buylist.bulkAdded', { count: 2 }))).toBeVisible();
-    await openCart(page);
-    await expect(page.getByText(t('es', 'buylist.quote.money.cardsValue'))).toBeVisible();
-  });
-});
-
 test.describe('buylist · cotizador v2: FAB + drawer del carrito (Stream C, P-14/P-16 — §18.11.3)', () => {
   // El FAB + drawer es la encarnación MÓVIL del carrito: arriba de 1024px el carrito es el
   // `<aside>` fijo y el FAB ni se monta (`isDesktopCart`, mitigación H1). Este bloque describe
@@ -670,27 +591,28 @@ test.describe('buylist · solicitud con KYC/INE (AC 14; contrato §6/§8)', () =
   });
 
   /**
-   * SMOKE @real — VENDER: descubre la primera carta cotizable (grid plano GRADED,
-   * env-agnóstico), la agrega desde su fila y crea la solicitud (`POST /buylist/requests`):
+   * SMOKE @real — VENDER: descubre la carta cotizable más barata del binder quoter (raw,
+   * env-agnóstico), la agrega desde su teja y crea la solicitud (`POST /buylist/requests`):
    *  - real: el cliente del seed suele traer CLABE/INE en archivo → el modal usa el atajo
    *    "usar mi CLABE" y se envía directo. Si el backend pidiera CLABE, se captura una válida.
    *  - mock: los fixtures no traen CLABE en archivo → se captura la CLABE en el modal.
    * Viewport alto para que el CTA del modal quede en pantalla (el modal no scrollea internamente).
    */
   test('@real vender: crea la solicitud de venta y muestra confirmación', async ({ page }) => {
-    // Descubrir la carta recorriendo TODOS los sets cuesta más que coger el primero a ciegas —
-    // ese es el precio de no hardcodear nada, y se paga con presupuesto, no con un helper frágil.
+    // Descubrir la teja más barata exige esperar a que el batch de estimados del binder resuelva
+    // el set entero — ese es el precio de no hardcodear ningún monto, y se paga con presupuesto.
     test.slow();
     await page.setViewportSize({ width: 1280, height: 2000 });
     await loginAs(page, 'customer');
     await page.goto('/es/buylist');
 
-    // El clic en la fila del grid agrega DIRECTO al carrito (auto-espera al estimado).
-    // Falta de DATO, no defecto de producto: si ningún set tiene una carta graded con precio de
-    // referencia, este smoke no tiene qué vender y lo dice — en vez de fallar once pasos después
-    // en el bloque del mínimo, que fue exactamente cómo se disfrazó el defecto anterior.
-    const added = await addFirstSellableCard(page);
-    test.skip(!added, 'ningún set tiene una carta GRADED con precio de referencia que agregar');
+    // El clic en la teja del binder agrega DIRECTO al carrito (auto-espera al estimado).
+    // Falta de DATO, no defecto de producto: si ninguna teja del set trae precio de referencia, la
+    // línea entra en `precio_pendiente`, NO suma al total por diseño (§23.3h) y el mínimo de D43 no
+    // se puede cruzar subiendo la cantidad — este smoke no tiene qué vender y lo dice, en vez de
+    // fallar nueve pasos después en el bloque del mínimo, que fue cómo se disfrazó el rojo anterior.
+    const priced = await addCheapestSellableCard(page);
+    test.skip(!priced, 'ninguna teja del binder tiene precio de referencia que agregar');
 
     // Estructura: el carrito (drawer, P-16) suma un total ESTIMADO (no un monto de fixture).
     await openCart(page);

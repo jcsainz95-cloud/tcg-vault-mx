@@ -152,14 +152,15 @@ export class VaultService {
     // sin tipo una rama podía perder un requerido y la otra no — y el test solo mira la que eligió.
     const data: HoldingDTO[] = [];
     for (const item of items) {
-      const gradeKey = this.pricing.gradeKeyFor(item);
+      // v1.53 (§4.40.4b, MONEY) — BÓVEDA (lectura): sin identidad de slab NO HAY REFERENCIA ⇒ el
+      // holding sale `pending` y NO suma al valor de la bóveda. Antes se valuaba como un PSA 10, lo
+      // que inflaba el patrimonio que el cliente ve y el pasivo de custodia que el admin agrega.
+      const gradeKey = this.pricing.tryGradeKeyFor(item);
       // v1.6-finish: valúa contra la referencia del ACABADO del holding (no un precio único por carta).
-      const referenceValue = await this.pricing.getReference(
-        item.cardId,
-        item.productType,
-        gradeKey,
-        item.finish,
-      );
+      const referenceValue: PriceInfo =
+        gradeKey == null
+          ? { status: 'pending' }
+          : await this.pricing.getReference(item.cardId, item.productType, gradeKey, item.finish);
       if (referenceValue.status === 'priced' && referenceValue.referenceMxnCents != null) {
         totalValueMxnCents += referenceValue.referenceMxnCents;
       } else {
@@ -420,14 +421,13 @@ export class VaultService {
     });
     if (!item) throw BusinessException.notFound();
     if (item.ownerUserId !== userId) throw BusinessException.forbidden('FORBIDDEN');
-    const gradeKey = this.pricing.gradeKeyFor(item);
+    // v1.53 (§4.40.4b, MONEY) — mismo criterio que el listado: sin identidad de slab, `pending`.
+    const gradeKey = this.pricing.tryGradeKeyFor(item);
     // v1.6-finish: valúa contra la referencia del ACABADO del holding.
-    const referenceValue = await this.pricing.getReference(
-      item.cardId,
-      item.productType,
-      gradeKey,
-      item.finish,
-    );
+    const referenceValue: PriceInfo =
+      gradeKey == null
+        ? { status: 'pending' }
+        : await this.pricing.getReference(item.cardId, item.productType, gradeKey, item.finish);
     // v1.22-2 / N-15 (§4.22a-6): displayFinishes del detalle usa los acabados priceados de la carta.
     const pricedByCard = await this.pricing.getPricedRawFinishesBatch([item.cardId]);
     return {

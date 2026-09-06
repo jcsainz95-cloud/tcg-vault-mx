@@ -6,7 +6,7 @@ import { useLocale, useTranslations } from 'next-intl';
 import { ShieldCheck } from 'lucide-react';
 import { createSellRequest } from '@/lib/api';
 import { ApiClientError } from '@/lib/api-client';
-import type { ProductType, RawCondition, Finish } from '@/types/contract';
+import type { RawCondition, Finish } from '@/types/contract';
 import type { AppLocale } from '@/i18n/routing';
 import { formatMoneyCents } from '@/lib/format';
 import { useSession } from '@/lib/session';
@@ -29,7 +29,12 @@ import { BuylistPickupAddressField } from './BuylistPickupAddressField';
  */
 export interface BuylistRequestItem {
   cardId: string;
-  productType: ProductType;
+  /**
+   * ⚠️ v1.53 (MONEY — contrato §6, ARCHITECTURE §4.40): el pipeline de buylist es raw-only
+   * (`PROJECT.md` §E, §K LOCKED, criterio 61). Un item `graded`/`sealed` ⇒ `422 BUYLIST_RAW_ONLY`
+   * y la solicitud NO se crea (todo-o-nada, sin degradación por-ítem).
+   */
+  productType: 'raw';
   rawCondition?: RawCondition;
   finish?: Finish;
   // v1.30 (§4.29): productId de un PRODUCTO SEPARADO (deck_exclusive/promo). Ausente = set_base.

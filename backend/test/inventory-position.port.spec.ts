@@ -46,6 +46,9 @@ function build(rows: Row[] | Error) {
   const prisma = { inventoryItem: { groupBy } } as unknown as PrismaService;
   const pricing = {
     gradeKeyFor: jest.fn(PricingService.prototype.gradeKeyFor),
+    // v1.53 (§4.40.4b): el CONTEO es lectura ⇒ el adaptador llavea con la TOLERANTE. Cuerpo REAL
+    // (es puro y no toca `this`) para que el test no pueda divergir de producción.
+    tryGradeKeyFor: jest.fn(PricingService.prototype.tryGradeKeyFor),
   } as unknown as PricingService;
   return { adapter: new InventoryPositionAdapter(prisma, pricing), groupBy };
 }

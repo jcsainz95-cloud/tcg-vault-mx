@@ -189,6 +189,24 @@ export const ErrorCode = {
   ITEM_IN_ANOTHER_SHIPMENT: 'ITEM_IN_ANOTHER_SHIPMENT',
 
   // Buylist
+  // v1.53 (§4.40.3.3 · API_CONTRACT §Errores, **MONEY**): se envió `productType` distinto de `"raw"` a
+  // una ruta de buylist. **El cotizador y el pipeline de compra son SOLO raw** (`PROJECT.md` §E, §K
+  // LOCKED, criterio 61). Afecta `POST /buylist/quote`, `POST /buylist/quote/batch` y
+  // `POST /buylist/requests`. `details: { index?, productType }` (`index` sólo en las rutas con
+  // `items[]`, para que el front señale la línea).
+  //
+  // **Por qué es un 422 de NEGOCIO y no el 400 de un `@IsIn` en el ValidationPipe** — la razón es
+  // concreta y medible: en `/quote/batch` los errores son POR-ÍTEM (`ok:false`, HTTP 200). Un `@IsIn`
+  // que falle en el pipe **tumba el request entero con 400** y se lleva por delante **las otras 49
+  // líneas raw legítimas** del grid. Un rechazo de regla de negocio degrada por-ítem; uno de forma,
+  // no. Por eso este código entra al allowlist de degradación por-ítem del batch junto a `NOT_FOUND`,
+  // `FINISH_NOT_AVAILABLE`, `PRODUCT_NOT_FOUND` y `PRODUCT_CARD_MISMATCH`. En `/quote` y `/requests`
+  // es un 422 de request completo (y en `requests`, la solicitud NO se crea).
+  //
+  // **Guardarraíl de dinero, no cosmética:** sin él una línea graduada se cotizaba contra
+  // `graded:PSA:10` —el grado MÁS CARO— porque el grado real nunca se captura. El bloqueo lo aplica
+  // SIEMPRE el backend; el selector del cotizador es sólo UI (SEC-A1).
+  BUYLIST_RAW_ONLY: 'BUYLIST_RAW_ONLY',
   BUYLIST_LIMIT_EXCEEDED: 'BUYLIST_LIMIT_EXCEEDED',
   INE_REQUIRED: 'INE_REQUIRED',
   CLABE_NOT_OWN_NAME: 'CLABE_NOT_OWN_NAME',

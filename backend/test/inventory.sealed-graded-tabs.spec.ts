@@ -2,7 +2,7 @@ import { SealedGradedInventoryService } from '../src/modules/inventory/sealed-gr
 import { PrismaService } from '../src/prisma/prisma.service';
 import { PricingService } from '../src/modules/pricing/pricing.service';
 import { NOT_ON_HAND } from '../src/modules/inventory/master-set.service';
-import { buildGradeKey } from '../src/modules/pricing/pricing.types';
+import { buildGradeKey, tryBuildGradeKey } from '../src/modules/pricing/pricing.types';
 import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
 
 /**
@@ -41,6 +41,7 @@ function buildPricing(refsByKey: Record<string, { cents: number; capturedDate?: 
       // puede divergir de producción ni reimplementar la matemática.
       decideSalePrice: jest.fn(PricingService.prototype.decideSalePrice),
       gradeKeyFor: (i: any) => buildGradeKey(i),
+      tryGradeKeyFor: (i: any) => tryBuildGradeKey(i),
       getReferencesBatch,
     } as unknown as PricingService,
     getReferencesBatch,

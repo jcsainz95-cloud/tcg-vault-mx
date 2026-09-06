@@ -39,6 +39,7 @@ function buildPricing(refs: Map<string, PriceInfo>) {
       getSeparateProductsByCard: jest.fn(async () => new Map()),
       getPricedRawFinishesBatch: jest.fn().mockResolvedValue(new Map()),
       gradeKeyFor: jest.fn().mockReturnValue('raw:NM'),
+      tryGradeKeyFor: jest.fn().mockReturnValue('raw:NM'),
       // v1.28 (P-18): controles por variante — sin filas M-30 por default (comportamiento previo).
       getVariantOverridesBatch: jest.fn(async () => new Map()),
       getVariantOverride: jest.fn(async () => null),

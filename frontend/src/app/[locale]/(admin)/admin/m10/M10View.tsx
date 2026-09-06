@@ -87,7 +87,7 @@ const DIALS: DialSpec[] = [
   { key: 'pricingProviderGraded', kind: 'provider' },
   { key: 'pricingProviderSealed', kind: 'provider' },
   { key: 'catalogSyncFromDate', kind: 'text' },
-  // v1.51-one-dial (§M10, M-46): el DIAL ÚNICO del «gancho de grading». Seed `off` fail-closed, y la
+  // v1.51-one-dial (§M10, M-48 —era `M-46`, v1.54(1)): el DIAL ÚNICO del «gancho de grading». Seed `off` fail-closed, y la
   // clave es NUEVA ⇒ ningún entorno la trae encendida. Gobierna exhibición Y obtención: sin él en la
   // UI, la única forma de tocarlo sería `curl` — exactamente lo que el criterio 110(e) («desde el
   // back-office, sin redeploy, auditado») no acepta. Ese fue el defecto real del segundo dial

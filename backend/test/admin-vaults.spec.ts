@@ -39,6 +39,7 @@ function build(over: {
     // puede divergir de producción ni reimplementar la matemática.
     decideSalePrice: jest.fn(PricingService.prototype.decideSalePrice),
     gradeKeyFor: jest.fn().mockReturnValue('raw_NM'),
+    tryGradeKeyFor: jest.fn().mockReturnValue('raw_NM'),
     getReferencesBatch: jest.fn().mockResolvedValue(over.refs ?? new Map()),
   } as unknown as PricingService;
   // VaultService solo lo usa `AdminVaultsService.sealed` (no `list`); stub vacío para estos tests.

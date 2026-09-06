@@ -4,14 +4,26 @@
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
 >
 > ---
-> **Rev v1.53 — FUSIÓN DE LAS DOS LÍNEAS QUE SALIERON DE v1.50.3-g** (2026-09-05, arquitecto; fusión de
-> `origin/main` **v1.52** dentro de `claude/buylist-inventory-workflow-hdnls3` **v1.51.20**).
-> **CERO DDL, CERO endpoints, CERO campos, CERO montos, CERO cambios de conducta.** Contrato en `API_CONTRACT.md`
-> **v1.53**. **Nada de ninguna de las dos líneas se descarta.**
-> ⚠️ **Las dos ramas salieron de `v1.50.3-g` y numeraron en paralelo sin saber la una de la otra.** El resultado es
-> **v1.53** y no «v1.52.1»: `1.51.20 < 1.52`, así que un `.1` dejaría la rama **debajo** de una versión que no la
-> contiene, y por esa puerta entrarían veinte revisiones, el ciclo de adquisición entero y **M-46**. **v1.53 es la
-> única cota por encima de las dos.**
+> **Rev v1.54 — LA FUSIÓN DE LAS DOS LÍNEAS, EN SU SEGUNDA VUELTA** (2026-09-06, arquitecto; absorción de
+> `origin/main` **v1.53-buylist-graded-identity** —sobre base **v1.52-b**— dentro de
+> `claude/buylist-inventory-workflow-hdnls3`, que en el pase anterior ya había absorbido **v1.52**).
+> **CERO DDL, CERO endpoints, CERO campos, CERO montos, CERO códigos de error nuevos, CERO cambios de conducta.**
+> Contrato en `API_CONTRACT.md` **v1.54**. **Nada de ninguna de las dos líneas se descarta.**
+>
+> **0. ⚠️ POR QUÉ ESTA ENTRADA SE LLAMA `v1.54` Y ABSORBE A LA QUE LA RAMA LLAMABA «v1.53».**
+>    El pase anterior de esta rama etiquetó su fusión (rama **v1.51.20** + `main` **v1.52**) como **«v1.53»**. **Esa
+>    etiqueta NUNCA ENTRÓ A `main`**, y mientras tanto `main` publicó **su propio `v1.53`**
+>    (`v1.53-buylist-graded-identity`, el buylist raw-only, ya mergeado). **Dos revisiones distintas bajo el mismo
+>    número** es exactamente el defecto que este documento lleva dos pases corrigiendo ⇒ se aplica **el precedente
+>    vigente, sin excepción: se renumera lo que aún NO ha entrado, nunca lo publicado.**
+>    ⇒ **la fusión de la rama pasa a `v1.54`, y ESTA entrada la contiene entera**: sus cinco puntos siguen vigentes
+>    **palabra por palabra** (abajo, 1 → 5), más los cuatro que añade esta vuelta (**6 → 9**). **No se pierde ni una
+>    línea de changelog: se pierde una etiqueta duplicada.**
+>    **`v1.54` y no `v1.53.1`:** un `.1` se lee como *parche encima del raw-only*, y de aquí cuelgan **veintiuna
+>    revisiones**, el ciclo de adquisición entero y **M-46**. **`v1.54` es la única cota por encima de las dos.**
+>    *(Mismo razonamiento con el que el pase anterior descartó «v1.52.1». Lo único que cambió es el techo.)*
+> ⚠️ **Las dos ramas salieron de `v1.50.3-g` y numeraron en paralelo sin saber la una de la otra**, y lo siguen
+> haciendo: `main` ya va por **tres** revisiones que esta rama no vio (**v1.52**, **v1.52-b**, **v1.53**).
 > 1. **⚠️ COLISIÓN 1 — `M-46` nombraba DOS migraciones. La del gancho de grading pasa a `M-48`.** La rama llamó
 >    `M-46` al **ciclo de adquisición** (DDL: 40 columnas + enums + backfill); `main` (v1.51-one-dial) llamó `M-46` al
 >    alta de **`grading_hook_enabled`** (DATA/seed, **sin DDL**). **Decide el artefacto, no la antigüedad:** existe en
@@ -22,35 +34,106 @@
 >    **⚠️ Por qué no era cosmético:** `DEVOPS_NOTES.md` §32.12 documenta un pase que dice *«M-46 es DATA/seed, sin DDL:
 >    `migrate deploy` no trae nada»*, y el `M-46` de la rama es **DDL real y pendiente**. Dos runbooks bajo un número,
 >    y uno autoriza a saltarse una migración de dinero. **La renumeración es de etiqueta: ninguna conducta cambia.**
-> 2. **⚠️ COLISIÓN 2 — `§4.39` nombraba DOS secciones de ESTE documento. Las IMÁGENES DE SET pasan a `§4.40`.** La
->    rama usa `§4.39(a)`…`§4.39(t)` (ciclo de adquisición); `main` usaba **subapartado numérico** (logos de set). **Decide el
->    radio de citación:** el primero se cita **cientos** de veces en siete documentos, en comentarios de código y en
->    `PROJECT.md` §P; el segundo, **62** veces y **todas** con la forma `§4.39.N`. ⇒ **ciclo = `§4.39`; imágenes de set
->    = `§4.40.1`–`§4.40.9`.** En este documento y en el contrato quedan reescritas todas las citas. **Una cita
->    `§4.39.N` superviviente en documentos ajenos apunta a NADA —no a la sección equivocada— porque el `§4.39` vigente
->    no tiene subsecciones numéricas**; se enruta a cada dueño como limpieza **NO bloqueante** y **no renumero rutas
->    ajenas**.
+> 2. **⚠️ COLISIÓN 2 — `§4.39` nombraba DOS secciones de ESTE documento.** La rama usa `§4.39(a)`…`§4.39(t)` (ciclo de
+>    adquisición); `main` usaba **subapartado numérico** (logos de set). **Decide el radio de citación:** el primero se
+>    cita **cientos** de veces en siete documentos, en comentarios de código y en `PROJECT.md` §P; el segundo, **62**
+>    veces y **todas** con la forma `§4.39.N`. ⇒ **el ciclo conserva `§4.39`; las imágenes de set se van.**
+>    ⛔ **~~«imágenes de set = `§4.40.1`–`§4.40.9`»~~ SUPERADO en esta vuelta: son `§4.41.1`–`§4.41.9` — ver el punto
+>    6.** El destino cambió; la decisión de **sacarlas de `§4.39`** no.
+>    **Una cita `§4.39.N` superviviente en documentos ajenos apunta a NADA —no a la sección equivocada— porque el
+>    `§4.39` vigente no tiene subsecciones numéricas**; se enruta a cada dueño como limpieza **NO bloqueante** y **no
+>    renumero rutas ajenas**. *(⚠️ **La cita `§4.40.N` superviviente NO tiene esa suerte: ver el punto 6.**)*
 > 3. **DT-Gd (`TECH_DEBT.md`) — decidido: SÍ se nombran.** Nacen **`CardSetDTO`** (`GET /catalog/sets`, **sin**
 >    `logoUrl`) y **`BuylistSetDTO = CardSetDTO & { logoUrl: string | null }`** (`GET /buylist/sets`, clave **siempre
 >    presente**). **La causa raíz era mía:** el contrato definía las dos respuestas distintas pero las escribía como
 >    **shapes anónimos**, y *un shape sin nombre no tiene con qué estar en desacuerdo* ⇒ colapsarlos era gratis y el
->    `logoUrl?` resultante **desactivó el invariante de §4.40.6**. Es **declaración, no cambio**: cero shapes, cero
->    rutas, cero conducta. La corrección del tipo es de **frontend**. Contrato: `API_CONTRACT.md` v1.53(D).
+>    `logoUrl?` resultante **desactivó el invariante de §4.41.6** *(era §4.40.6; renumerado en el punto 6)*. Es
+>    **declaración, no cambio**: cero shapes, cero rutas, cero conducta. La corrección del tipo es de **frontend**.
+>    Contrato: `API_CONTRACT.md` **v1.54(D)**.
 > 4. **Único punto donde una línea DEROGA a la otra: `gradedEstimateIngestEnabled`.** La rama lo trae vivo porque
 >    **nunca vio** v1.51-one-dial — no lo defendía, lo desconocía. **Manda `main`** (decisión del dueño, tomada y
 >    reafirmada) ⇒ **retirado**. Los **diez** diales del buylist son ortogonales y no se ven afectados.
 > 5. **Sigue vigente palabra por palabra todo lo demás de las dos líneas:** de la rama, las once enmiendas
 >    v1.51.9→v1.51.20 (**`422 ITEM_NOT_OFFERED`**, **`500 OFFERED_PRICE_MISSING`**, la **escalera de precedencia**, la
 >    forma única de `details` en `PICKUP_ADDRESS_*`, **`offerSentAt` como marca permanente** — BL-28 — y la **norma de
->    cobertura §5.2** con sus cinco disparadores); de `main`, **P-54 entero** (M-47, `logoUrl` en `MasterSetSummaryDTO`
->    y en `GET /buylist/sets`), **P-21**, §5.2/§5.3, §0-B y el dial único del gancho.
+>    cobertura §5.4** *(era §5.2; renumerada en el punto 7)* con sus cinco disparadores); de `main`, **P-54 entero**
+>    (M-47, `logoUrl` en `MasterSetSummaryDTO` y en `GET /buylist/sets`), **P-21**, §5.2/§5.3, §0-B y el dial único del
+>    gancho. **Y ahora también, entero y sin recortes: `v1.52-b`** (dos hosts de imagen, `SET_IMAGE_HOSTS`, la tabla
+>    **S-1…S-4** del gate, **D-PROC-5** y la **regla de la cita** de §0-B.3 regla 7) **y `v1.53`** (**`422
+>    BUYLIST_RAW_ONLY`**, la unión discriminada de `buildGradeKey`, **D-BG-1…5**, `M-49` reservada).
+>
+> **⬇️ LO QUE AÑADE ESTA SEGUNDA VUELTA (6 → 9).**
+>
+> 6. **⚠️ COLISIÓN 3 — `§4.40` nombraba DOS secciones. Las IMÁGENES DE SET pasan (otra vez) a `§4.41`.**
+>    El pase anterior movió los logos de set de `§4.39.N` a `§4.40.N`; **mientras tanto `main` creó su propio `§4.40`**
+>    (identidad de graduación en el buylist, v1.53) **y lo mergeó**. ⇒ **precedente aplicado sin matices: se renumera
+>    lo que aún no ha entrado.** El `§4.40` de graduación **está en `main`**; el `§4.40` de imágenes de set **solo
+>    existía en esta rama**. **⇒ graduación = `§4.40.1`–`§4.40.8`; imágenes de set = `§4.41.1`–`§4.41.9`.**
+>    **Los números lo confirman, y por eso no hace falta creerme:** `§4.40` se cita **308 veces en 42 ficheros** —
+>    `common/business-rules.ts`, `common/error-codes.ts`, `pricing.types.ts`, `buylist.service.ts`, siete suites de
+>    prueba, dos e2e y cinco documentos—, **todas vivas en `main`**; las citas de imágenes de set en documentos ajenos
+>    siguen escritas **`§4.39.N`** (102 ocurrencias en 14 ficheros): **ya estaban rancias antes de este pase, así que
+>    moverlas a `§4.41` no rompe nada que no estuviera roto.** Renumerar la graduación, en cambio, habría partido
+>    citas **vivas y de dinero**.
+>    ⚠️ **PERO HAY UN CASO PEOR QUE «RANCIA», Y ES NUEVO — lo señalo con nombre y apellidos porque no es simétrico:**
+>    el **frontend YA ADOPTÓ** la renumeración del pase anterior y hoy cita **`§4.40.5` / `§4.40.6` / `§4.40.7`
+>    hablando de LOGOS DE SET** (`types/contract.ts:420-437`, `lib/api.ts:360`/`:1213`, `components/master-set/
+>    MasterSetIndex.tsx:141`, `MasterSetIndexPlate.test.tsx`, `lib/mock/fixtures.ts`, `e2e/master-set-plate.spec.ts`).
+>    Con el `§4.40` de graduación en su sitio, **esas citas ya no apuntan a nada: apuntan a la sección EQUIVOCADA, y la
+>    equivocada es de DINERO** (`§4.40.5` = reparación de piezas graduadas; `§4.40.6` = «¿compramos graduadas?»).
+>    *Una cita muerta la detecta quien la sigue; una cita que aterriza en otra sección plausible se cree.*
+>    ⇒ **limpieza `§4.40.N → §4.41.N` en `frontend/`, dueño FRONTEND, y NO la clasifico como cosmética: entra en el
+>    gate por-stream de frontend.** **Yo no renumero rutas ajenas** (CLAUDE.md); en **este** documento y en el contrato
+>    ya está hecho. Las citas `§4.39.N` de `backend/` y de las `*_NOTES.md` siguen siendo limpieza **NO bloqueante**.
+> 7. **⚠️ COLISIÓN 4 — `§5.2` nombraba DOS secciones, y ésta venía de antes: la NORMA DE COBERTURA pasa a `§5.4`.**
+>    La rama creó en v1.51.20 una **`§5.2` «Qué exige cobertura de INTEGRACIÓN y no unitaria»**; `main` tiene desde
+>    v1.51-b una **`§5.2` «Doctrina del SNAPSHOT CONGELADO»** con subsecciones `§5.2.1`–`§5.2.9`. **El pase anterior no
+>    la vio** —las dos secciones quedaron una debajo de la otra, con el mismo número, y `git` no marcó conflicto porque
+>    el texto no se solapaba—. **Mismo precedente, mismo resultado:** el snapshot **está publicado y se cita desde
+>    `backend/`, `frontend/` y cuatro documentos**; la norma de cobertura **solo se citaba en mis dos ficheros** (cinco
+>    veces). ⇒ **snapshot = `§5.2` (intacta); norma de cobertura = `§5.4`.** **`§5.4` estaba libre** y las cinco citas
+>    quedan reescritas aquí y en el contrato. **Coste externo: cero.**
+> 8. **⚠️ LA TENSIÓN DE FONDO — `v1.53` tapió la puerta de las graduadas. NINGUNA norma de `§4.39` cambia; DOS cambian
+>    de clientela. Lo escribo para que nadie lo re-litigue en la implementación.**
+>    El ciclo se diseñó cuando el cotizador aceptaba `raw | graded | sealed`; v1.53 lo deja en **`raw` y solo `raw`**
+>    (`422 BUYLIST_RAW_ONLY`). **Verificado apartado por apartado: `§4.39` no contiene ni una regla que dependa del
+>    `productType`** — la máquina de estados, los diales, el barrido, los correos, los plazos y el dinero son
+>    **ciegos al tipo de producto**. Lo que cambia es **a quién defienden** dos reglas que ya existían:
+>    - **`§4.39(e)` — *«línea sin dato de mercado ⇒ `skip` u override con motivo; JAMÁS MX$0 ni cifra de respaldo»*.**
+>      Era la regla del **hueco de mercado**; pasa a ser también **la vía normal de toda línea `graded`/`sealed`
+>      legacy** que siga viva, porque con `buildGradeKey` sin defaults esas líneas **ya no tienen precio derivable**.
+>      **La regla no se toca: se cumple más veces.** Y encaja exacta con `§4.40.4` de `main` (*«money lanza; lectura
+>      degrada a `null` ⇒ `precio_pendiente`»*): **las dos prohíben lo mismo —inventar un número— desde los dos lados.**
+>    - **`§4.39(f)`/`(g)` — la degradación a `positionUnavailable`.** Se normó para **el puerto que no responde**, no
+>      para el tipo de producto; **eso no cambia**. Lo que sí es nuevo: `VariantPositionRef.gradeKey` sale de
+>      `gradeKeyFor`, y en una fila `graded` legacy **sin identidad de slab** ese valor ya **no se puede construir**.
+>      **La respuesta ya está escrita y no hace falta inventar política:** se aplica `(k.1)` —*«se degrada ESA fila, se
+>      pinta el resto, jamás se inventa un número»*— con `position: null` + `positionUnavailable: true` y
+>      `suggestion.verdict = "none"`, que es el lado al que `(k.1)` manda fallar **todo flag que aconseja un acto**.
+>      **Prohibido el `0`** (§P.8) y **prohibido que una fila tumbe la mesa**. **Es derivación, no regla nueva.**
+>    - **Consecuencia de proceso, y es la única acción real:** *«la degradación defiende filas legacy, no el caso
+>      normal»* **es cierto, y por eso el triage de cut-over deja de ser dos censos.** **`BL-10` (censo + triage de las
+>      `cotizada` vivas) y el censo read-only de `§4.40.8` recorren LAS MISMAS FILAS** — igual que `BL-12` ya se
+>      absorbió ahí. **Se hace UNA sola pasada** que por cada `cotizada` viva resuelve las tres preguntas: *¿tiene
+>      dirección?* (BL-12), *¿lleva más de 7 días hábiles?* (BL-10) y *¿tiene líneas no-`raw`?* (§4.40.5a). **Sigue
+>      siendo el paso 6 del despliegue y sigue siendo bloqueante.**
+> 9. **⚠️ CONTENCIÓN DE ZONAS COMPARTIDAS — aviso al orquestador, no norma nueva.** `v1.53` toca
+>    `backend/src/common/business-rules.ts` y `error-codes.ts`; **M-46 toca `common/sell-request-states.ts`,
+>    `common/business-days.ts` y `common/variant-key.ts`**; y la deuda **M47-R1** (Alta, abierta) está diferida
+>    *justamente* por contención de `backend/src/common/`. **Son la misma zona: los tres se SERIALIZAN, no corren en
+>    paralelo.** Y hay un solape más fino que conviene ver antes de programarlo: **`BL-8`** migró **cuatro** call-sites
+>    a `variantKey()` y **`D-BG-2`** reescribe `buildGradeKey` **en esos mismos cuatro** (`batchQuote`, vitrina de
+>    bounties, `createRequest`, `countBountyAcquisitionsTx`). *Dos pases correctos sobre las mismas cuatro líneas, en
+>    paralelo, producen un merge que nadie diseñó.*
 >
 > ---
 > **NOTA DE LECTURA — este encabezado tiene DOS PILAS DE REVISIONES y las fechas no bajan de forma monótona.**
 > Debajo van primero las revisiones de la **rama** (v1.51.20 → v1.51, 2026-09-01/02) y después las de **`main`**
-> (v1.52-set-logos → v1.50.4-brand-domain, 2026-08-31). **Las dos arrancan en `v1.50.3-project-reconciliation` /
-> `v1.50.3-g`**, el antepasado común. ⚠️ **El «v1.51» de la rama (ciclo de adquisición) y el «v1.51-one-dial» de
-> `main` (gancho de grading) son cosas DISTINTAS que eligieron el mismo número en paralelo.**
+> (**v1.53-buylist-graded-identity** → v1.50.4-brand-domain, 2026-09-05 → 2026-08-31). **Las dos arrancan en
+> `v1.50.3-project-reconciliation` / `v1.50.3-g`**, el antepasado común. ⚠️ **El «v1.51» de la rama (ciclo de
+> adquisición) y el «v1.51-one-dial» de `main` (gancho de grading) son cosas DISTINTAS que eligieron el mismo número
+> en paralelo**, y lo mismo pasó con **«v1.53»**: el de la pila de abajo es el **raw-only de `main`**; el que esta
+> rama llamó así es **esta cabecera, hoy `v1.54`** (punto 0).
 >
 > ---
 > **Rev v1.51.20 — CIERRE DE LAS TRES ESCALADAS DEL GATE + DOS REGISTROS + UNA NORMA DE COBERTURA** (2026-09-02,
@@ -65,7 +148,8 @@
 > 4. **§9** — **BL-25** y **BL-26** pasan a **🔧 RESUELTA EN RAMA**; entra **BL-28** (`offer/cancel` limpiaba
 >    `offerSentAt`); y se declara a quién pertenece el espacio de nombres `BL-nn`, que tres documentos usan para tres
 >    cosas distintas.
-> 5. **§5.2 NUEVA** — **qué exige cobertura de integración y no unitaria.** Cinco disparadores, derivados de los ocho
+> 5. **§5.4 NUEVA** *(nació como «§5.2»; renumerada en v1.54(7) por colisión con la doctrina del snapshot congelado)* —
+>    **qué exige cobertura de integración y no unitaria.** Cinco disparadores, derivados de los ocho
 >    bloqueantes que 4.171 pruebas en verde no podían ver.
 >
 > ---
@@ -440,15 +524,118 @@
 > 11 quedan **tal cual se resolvieron**: el humano los adoptó.)*
 >
 > ---
-> ### ⬇️ A PARTIR DE AQUÍ, LA PILA DE `main` (v1.50.4-brand-domain → **v1.52-set-logos**, 2026-08-31)
-> *Rama paralela salida de v1.50.3, igual que la de arriba. Se conserva literal salvo las dos renumeraciones de
-> v1.53 (`§4.39.N → §4.40.N` y `M-46 → M-48`), que van marcadas en el sitio.*
+> ### ⬇️ A PARTIR DE AQUÍ, LA PILA DE `main` (v1.50.4-brand-domain → **v1.53-buylist-graded-identity**, 2026-08-31 → 2026-09-05)
+> *Rama paralela salida de v1.50.3, igual que la de arriba. Se conserva literal salvo las renumeraciones de la fusión
+> —`M-46 → M-48` (v1.54 punto 1), `§4.39.N → §4.41.N` (puntos 2 y 6)—, que van marcadas en el sitio. **El `§4.40` que
+> aparece de aquí para abajo en la entrada `v1.53-buylist-graded-identity` es el de GRADUACIÓN y NO se renumera.***
 > ---
+> **Rev v1.53-buylist-graded-identity (2026-09-05, arquitecto — DEFECTO DE DINERO VIVO EN PRODUCCIÓN, reproducido de
+> punta a punta en `main` `4b1db96` antes de decidir. Rama propia `claude/buylist-graded-identity`, publicable sin
+> esperar al ciclo de adquisición. Base: **v1.52-b**, vigente entera — ver «Nota de fusión» al cierre de esta
+> revisión.)**
+> **CERO migraciones, CERO DDL, CERO columnas nuevas, CERO backfill.** Una regla de negocio, un código de error y el
+> retiro de dos `??`.
+> 1. **El defecto, en una frase: cualquier carta graduada se cotiza contra `graded:PSA:10` —el grado más caro— porque
+>    nadie pregunta qué grado es.** El cotizador **ofrece** «graduada» (`BuylistView.tsx:57`), ningún DTO ni
+>    `SellRequestItem` tiene **dónde** capturar el grado, y `buildGradeKey` (`pricing.types.ts:571`) **rellena el
+>    hueco**: `` `graded:${gradingCompany ?? 'PSA'}:${gradeValue ?? '10'}` ``. Muerde solo donde exista referencia
+>    `graded:PSA:10` — o sea, **en las cartas populares, que son las caras**. §4.40.1.
+> 2. **Un sexto eslabón que no venía en el encargo: el defecto NO se detiene en la cotización, se PERSISTE en la
+>    pieza.** `convertToInventory` crea el `InventoryItem` **sin** empresa, grado ni certificado —no puede, el origen
+>    no los tiene— y desde ahí **todos** los lectores (bóveda, catálogo, **precio de venta**, valor de custodia, P&L,
+>    `price-sync`) la vuelven a resolver como PSA 10, para siempre. §4.40.1 (eslabón 6), §9 **D-BG-3**.
+> 3. **El hallazgo que reordena el encargo: `PROJECT.md` dice que esta superficie NO debería existir.** §E se titula
+>    «compra de **raw**»; §K **LOCKED** dice *«el cotizador y el pipeline de buylist siguen siendo **solo para raw**»*;
+>    el **criterio 61** declara que el buylist de sellado **no existe, ni cotizador ni pipeline**. Añadir columnas de
+>    graduación a `SellRequestItem` **no sería arreglar el defecto: sería construir el buylist de graduadas**, que es
+>    decisión de producto y está fuera de alcance. Por la regla de conflicto (`PROJECT.md` > contrato > código),
+>    **se cierra la superficie**. §4.40.2.
+> 4. **DECISIÓN 1 — raw-only, server-side, con `422 BUYLIST_RAW_ONLY`.** Lista blanca **literal** en
+>    `common/business-rules.ts` (§4.37: *«¿qué valores EXISTEN?» vs. «¿cuáles ACEPTAMOS?»*). `422` de negocio y **no**
+>    el `400` del `@IsIn`, por una razón medible: en `/quote/batch` los errores son **por-ítem**, y un fallo de pipe
+>    **tumbaría las otras 49 líneas raw** del grid. Es **breaking** en un endpoint público y se acepta — misma
+>    doctrina ya escrita para `GRADED_INTENT_REQUIRED`. §4.40.3.
+> 5. **DECISIÓN 2 (la de fondo) — `buildGradeKey` deja de rellenar; el TIPO lo impone.** Unión discriminada donde
+>    `graded` **exige** `gradingCompany` y `gradeValue`, más un `tryBuildGradeKey` tolerante para las rutas de
+>    lectura. **Money lanza; lectura degrada a `null` ⇒ `precio_pendiente`.** Jamás un default, jamás MX$0. Arreglar
+>    solo a los llamadores dejaría **la mina armada para el siguiente**. §4.40.4.
+> 6. **DECISIÓN 3 — las filas vivas no se reparan inventando un grado.** Las solicitudes graduadas abiertas **no se
+>    pueden cotizar automáticamente**: van a decisión manual del dueño. Las piezas ya convertidas caen a `pending`
+>    —que es **la verdad**— y se reparan con la carta física en la mano. Se pide un **censo read-only** para
+>    dimensionar la exposición, no un backfill. §4.40.5, §4.40.8.
+> 7. **`M-49` queda DISEÑADA y NO PROGRAMADA** (`gradingCompany` + `gradeValue` + **`certNumber`**; `sealedProductId`
+>    **rechazado**). Se especifica ahora para que `claude/buylist-inventory-workflow-hdnls3` **no tenga que
+>    renegociar la forma**, y se ejecuta solo si el dueño responde «sí» a §4.40.6. **Contrato: `API_CONTRACT.md`
+>    v1.53.** §4.40.7.
+>
+> **Nota de fusión (2026-09-06, arquitecto — absorción de `origin/main` en `claude/buylist-graded-identity`, previa al
+> merge hacia `main`).** Esta revisión se redactó sobre **v1.52**; al fusionar, `main` ya traía **v1.52-b**
+> (`23b1c39`). **Versión resultante del documento: `v1.53-buylist-graded-identity`, sobre base `v1.52-b`.** Las dos
+> revisiones quedan **vigentes enteras** y ninguna deroga a la otra: el conflicto fue **de proximidad textual** —dos
+> revisiones nuevas encabezando la misma pila— y no de norma. Lo comprobado, explícito para que nadie lo repita:
+> 1. **Sin colisión de numeración.** `main` **retoca** §4.39 (imágenes de set, M-47 → M47-H2); esta rama **crea**
+>    §4.40 (identidad de graduación en el buylist). §4.40 no existía en `main`, y la §4.39 que `main` corrige es la
+>    misma que esta rama conoce y **no** modifica. **No hubo que renumerar nada:** el precedente vigente («se renumera
+>    lo que aún no ha entrado, nunca lo publicado») queda **sin aplicar en este pase, no derogado**.
+>    > ⚠️ **PUNTUALIZACIÓN v1.54 (§0-B.3 regla 7, aplicada a esta misma frase).** *«§4.40 no existía en `main`»* **era
+>    > cierto el 2026-09-05 y dejó de serlo al fusionar el ciclo de adquisición**: la otra línea ya había movido las
+>    > imágenes de set de `§4.39.N` a `§4.40.N` en su propio pase, **sin que `main` pudiera verlo**. El precedente que
+>    > este punto declaró «sin aplicar» **se aplicó en v1.54 (punto 6)**, y en la dirección que este párrafo predice:
+>    > **el `§4.40` de graduación —publicado en `main`— se queda; las imágenes de set pasan a `§4.41`.** *La frase no
+>    > era falsa cuando se escribió; el mundo cambió debajo — que es exactamente la distinción que v1.52-b(2) pidió
+>    > conservar.*
+> 2. **Sin contradicción normativa: dominios disjuntos.** v1.52-b gobierna hosts de imagen, guardarraíl de ingesta y
+>    `remotePatterns` (Nivel B, catálogo, **cero dinero**); v1.53 gobierna el **dinero del buylist**
+>    (`BUYLIST_RAW_ONLY`, `buildGradeKey`, **cero imágenes**). Ninguna afirmación de §4.40 se apoya en §4.39, y ningún
+>    deber de §4.39 alcanza al cotizador. En §9 conviven sin solaparse **D-BG-1…5** (v1.53) y **D-PROC-5** (v1.52-b);
+>    en §11 conviven `M-47` (aditiva, aplicada) y la entrada **sin migración** de v1.53 con `M-49` **reservada**.
+> 3. **El contrato NO se reconcilia porque no había nada que reconciliar.** `API_CONTRACT.md` queda en **v1.53 sobre
+>    base v1.52**, y es correcto: v1.52-b declara explícitamente que **no toca el contrato** (el DTO no cambia), así
+>    que no existe un «contrato v1.52-b» del que colgar. Contrato y arquitectura divergen aquí **a propósito**.
+>    *(⚠️ **v1.54:** al fusionarse con la línea del ciclo, el contrato pasa a **`v1.54`** —ver la cabecera—; esta
+>    afirmación queda como **registro de aquel pase**, no como estado actual.)*
+> 4. **§0-B.3 regla 7 (REGLA DE LA CITA) aplicada a su primer caso real, que es esta misma fusión.** Releídas las
+>    secciones que §4.40 cita: la única afirmación que la fusión volvía falsa era **«Base: v1.52, vigente entera»** de
+>    esta propia cabecera, corregida arriba a **v1.52-b**. La cita de `main` `4b1db96` **se conserva a propósito**: es
+>    un hecho fechado —dónde se reprodujo el defecto— y no una afirmación sobre el estado actual de `main`.
+> 5. **Aviso de contención al orquestador (no es norma nueva).** M47-H2 aterrizó en `catalog/catalog-sync.service.ts`,
+>    zona **no** compartida, y por eso no chocó con nada de v1.53. Pero la deuda **M47-R1** (validación del arte de
+>    carta, severidad **Alta**, abierta) está diferida **justamente por contención de `backend/src/common/`** —la zona
+>    que v1.53 va a tocar (`business-rules.ts`, `error-codes.ts`)—. El stream que cierre M47-R1 debe **serializarse**
+>    contra este, no correr en paralelo.
+>
+> **Rev v1.52-b (2026-09-05, arquitecto — CORRECCIÓN DE PREMISA enrutada por el techlead (regla 9) tras un hecho
+> nuevo verificado en producción. Base: v1.52-set-logos, vigente entera salvo lo que se marca aquí. Cero cambios de
+> contrato, cero DDL, cero endpoints, cero montos, cero rutas. `API_CONTRACT.md` NO se toca: el DTO no cambia.)**
+> 1. **El proveedor de imágenes MUDÓ DE SERVIDOR a mitad de catálogo.** Ya no hay «un host»: hay **dos**
+>    (histórico + el de los sets recientes), y el backend los admite como **conjunto CERRADO de hosts EXACTOS**
+>    (`SET_IMAGE_HOSTS`). Ampliar el conjunto **no aflojó** el criterio: sigue siendo igualdad exacta. §4.41.4
+>    *(era §4.39.4; renumerada en v1.54(2)/(6))*.
+> 2. **Se corrigen tres frases que quedaron FALSAS** —§4.41.1 h.7, §4.41.7 y §4.41.8—, **sin borrar el razonamiento
+>    anterior**: queda citado y marcado como superado, con qué cambió y por qué. *No eran falsas cuando se
+>    escribieron; el mundo cambió debajo, y esa distinción importa para quien lea mañana.*
+> 3. **`remotePatterns` sigue sin cambiar, pero POR OTRA RAZÓN.** No por «mismo host» (son dos), sino porque los
+>    logos de set son **Nivel B** y `remotePatterns` solo gobierna al optimizador de Next. **Corolario normativo:** si
+>    una superficie de imagen de set subiera a **Nivel A**, `remotePatterns` **sí** se amplía, y con **los dos**
+>    hosts. §4.41.7, §5.3.4.
+> 4. **🔴 El gate de seguridad tenía su alcance mal declarado.** «Cero superficie nueva / un host ya admitido» habría
+>    hecho que el pentester **no mirara el host nuevo**. Alcance vigente = tabla **S-1…S-4** de §4.41.7: **(S-1)** un
+>    host de terceros **nunca auditado** sirviendo imágenes en producción; **(S-2)** el **arte de carta (~20 000 URLs)
+>    entra SIN NINGUNA validación** (`upsertCards`) — deuda **M47-R1**, severidad **Alta**, **diferida, no aceptada**;
+>    (S-3) el guardarraíl de set; (S-4) **D-IMG-5** (`hostname: '**'`), abierto.
+> 5. **`remotePatterns` no es hoy un control: es un comodín.** Todo deber redactado sobre él («se amplía detrás, nunca
+>    por delante») se escribe con la condición **«cuando D-IMG-5 esté cerrado»** explícita, en vez de afirmar un
+>    acoplamiento inexistente. §4.41.4 paso 3, §5.3.4.
+> 6. **§0-B.3 regla 7 (nueva) — la REGLA DE LA CITA**, propuesta por el techlead y adoptada: *quien cita un `§x.y`
+>    verifica que la cita siga siendo verdadera después de su cambio, y si no lo es abre la solicitud al dueño del
+>    documento **en el mismo pase**.* La origina la lección más cara del día: **el procedimiento que exige avisar al
+>    arquitecto se incumplió en el mismo commit que lo citó**, con QA y techlead en verde. Registrada como **D-PROC-5**
+>    en §9.
 >
 > **Rev v1.52-set-logos (2026-08-31, arquitecto — petición del DUEÑO: que al seleccionar un set se vea el LOGO de la
 > expansión, no solo su nombre. DISEÑO EN PAPEL; lo implementan BACKEND y FRONTEND. Base: v1.51-c, vigente entera.)**
 > **Cero rutas nuevas, cero códigos de error, cero montos, cero permisos. UNA migración, aditiva pura.**
-> 1. **§4.40 (nueva; *era §4.39 — renumerada en v1.53(2)*) — se persisten LAS DOS imágenes de set, no solo el logo.** `CardSet` gana `logoUrl` (el nombre
+> 1. **§4.41 (nueva; *era §4.39, luego §4.40 — renumerada en v1.54(2)/(6)*) — se persisten LAS DOS imágenes de set, no solo el logo.** `CardSet` gana `logoUrl` (el nombre
 >    dibujado → **la teja**, que es lo que el dueño pidió) y `symbolUrl` (el glifo cuadrado impreso en la carta → chips
 >    y filtros donde el logo no cabe). Vienen en **la misma respuesta** que ya vamos a leer: coste marginal **cero**.
 >    Persistir solo el logo ahorraría dos `String?` y **obligaría a otra migración + otro re-sync** el día del primer
@@ -463,32 +650,37 @@
 >    (`POST /admin/catalog/sync { setId }`), que es el bisturí. `sync-all { force:true }` es el martillo y **queda como
 >    opción del operador, no como paso obligatorio**. **Regla dura de escritor: NO DEGRADAR** — ausente ⇒ *no-op*,
 >    jamás `null` (si no, la vía «set anidado en carta» borra lo que escribió `GET /v2/sets` y el logo aparece y
->    desaparece según qué botón se pulsó último). §4.40.4.
+>    desaparece según qué botón se pulsó último). §4.41.4.
 > 4. **El contrato lo decidió un hallazgo de código, no la intuición: la retícula de tejas es UNA sola y compartida.**
 >    `MasterSetIndex` tiene **cuatro** modos que rinden el **mismo** `MasterSetSummaryDTO` (M1, bóveda-admin,
 >    bóveda-cliente, cotizador) y el modo `quoter` **no tiene endpoint propio**: compone sus tejas client-side desde
 >    `GET /buylist/sets`. Por eso `logoUrl` entra en **ese DTO (4 endpoints) + `GET /buylist/sets`**. Poner el campo en
 >    el sitio «obvio» (las facetas de Compra) habría dejado **sin logo justo la teja del cotizador**, y no habría
->    parecido un bug de contrato. §4.40.1, §4.40.5.
+>    parecido un bug de contrato. §4.41.1, §4.41.5.
 > 5. **Y NO entra donde no se va a usar (tan normativo como lo anterior):** ni en `GET /catalog/facets` ni en
 >    `GET /catalog/sets` (alimentan **chips y filtros de TEXTO**, no tejas; y la home **ya** carga imágenes de
 >    terceros — en este mismo ciclo se corrigió que pedía de más), ni en `CardDTO`/`setName` (sería multiplicar el
->    mismo logo por 60 cartas de una rejilla), ni en `remote-sets`, ni en `SetRefDTO`. §4.40.5.
+>    mismo logo por 60 cartas de una rejilla), ni en `remote-sets`, ni en `SetRefDTO`. §4.41.5.
 > 6. **Nullable de verdad, con la doctrina de §5.2.9: clave SIEMPRE presente, ausencia como `null`** — nunca omitida,
 >    nunca `""`, nunca un placeholder del backend. Habrá sets sin logo (promos, sets viejos) **de forma permanente**:
 >    `logoUrl?: string` invita a `s.logoUrl!` y a descubrirlo en producción; `logoUrl: string | null` **obliga al
 >    compilador** a que alguien decida qué se pinta. Es la grieta exacta de `imageSmallUrl` (§5.2.1), cerrada por
 >    adelantado. **La retícula tendrá dos tipos de teja conviviendo para siempre**, y eso es diseño de ux-ui, no un
->    estado transitorio que un re-sync arregle. §4.40.6.
+>    estado transitorio que un re-sync arregle. §4.41.6.
 > 7. **§5.3 SÍ aplica y la respuesta la doy yo, no frontend: NIVEL B.** `<img>` crudo, sin `next/image`, sin `srcset`.
 >    Lo dicta la regla de coste 4 ya escrita («nada de nivel A dentro de listas o rejillas») + el perfil de cola larga
->    + que el proveedor sirve **una sola URL** por imagen (no hay tamaño que elegir). **`remotePatterns` NO cambia:
->    mismo host que ya sirve el arte de las cartas** ⇒ cero acción de devops y cero superficie nueva. §4.40.7.
+>    + que el proveedor sirve **una sola URL** por imagen (no hay tamaño que elegir). **`remotePatterns` NO cambia**
+>    — ~~«mismo host que ya sirve el arte de las cartas ⇒ cero acción de devops y cero superficie nueva»~~
+>    **SUPERADO el 2026-09-05 (v1.52-b): son DOS hosts, y hay superficie que auditar.** La conclusión sobrevive por
+>    otra razón: los logos son **Nivel B** y `remotePatterns` solo gobierna al optimizador de Next. §4.41.7.
 > 8. **§5.2 NO aplica, y lo digo para que nadie lo confunda:** esto es **catálogo vivo**, no un acta congelada. El
 >    corolario «no se congelan punteros de terceros en registros probatorios» sigue en pie y **no lo contradice**:
 >    guardar una URL de tercero en catálogo que el sync reescribe mañana es correcto; congelarla en un pedido no lo
 >    es. Lo único que cruza de §5.2 es el **criterio (F)/(P)** y la regla de degradación. **Contrato:
->    `API_CONTRACT.md` v1.52.** §4.40.7.
+>    `API_CONTRACT.md` v1.52.** §4.41.7.
+>    *(⚠️ **v1.54 — precisión de cita, no de norma:** el «§5.2» de este punto es la **doctrina del SNAPSHOT
+>    CONGELADO**, que conserva su número. La **norma de cobertura** de la otra línea, que también se llamaba §5.2,
+>    es hoy **§5.4** — v1.54(7).)*
 >
 > **Rev v1.51-c (2026-08-31, arquitecto — UNA decisión de precisión sobre §5.2, enrutada por el techlead (regla 9).
 > Base: v1.51-b, vigente entera. Cero migraciones, cero DDL, cero montos, cero rutas, CERO cambios de conducta.)**
@@ -541,7 +733,7 @@
 >    congelado (baja, no bloqueante). **Contrato: `API_CONTRACT.md` v1.51-b** (declara `OrderItemCardDTO`).
 >
 > **Rev v1.51-a (2026-08-31, arquitecto — CIERRE DE A-1 (condición del techlead sobre ~~M-46~~ **M-48**, el dial del
-> gancho — *v1.53(1)*), CIERRE DE GU-9
+> gancho — *v1.54(1)*), CIERRE DE GU-9
 > (decisión del dueño) y UN CAMBIO DE INVARIANTE (I8). Base: v1.51-one-dial, que sigue vigente entera.)**
 > 1. **A-1 — el `COSTE MEDIDO` pasa a ser PRECONDICIÓN del primer `off → on`**, al mismo nivel que el veredicto de
 >    viabilidad. El banner de M10 le dice al dueño «hasta **1 000 créditos al día**» **sin calificador**, y esa
@@ -572,7 +764,7 @@
 > El segundo dial (`graded_estimate_ingest_enabled`) **nunca se dibujó en la UI** — solo se podía encender por `curl`,
 > que es exactamente lo que el **criterio 110(e)** no acepta. El reclamo era un defecto real, no una preferencia.
 > 1. **Se RETIRAN las dos claves** (`graded_estimates_enabled`, `graded_estimate_ingest_enabled`) y **nace UNA**:
->    `grading_hook_enabled` (~~**M-46**~~ **M-48** *—renumerada en v1.53(1)—*, DATA/seed, sin DDL, seed **`off`**),
+>    `grading_hook_enabled` (~~**M-46**~~ **M-48** *—renumerada en v1.54(1)—*, DATA/seed, sin DDL, seed **`off`**),
 >    DTO M10 `gradingHookEnabled`.
 >    **Es clave NUEVA a propósito:** ninguna base ya sembrada la tiene ⇒ **ningún valor almacenado puede armar el dial
 >    nuevo** y **el deploy del colapso no puede empezar a gastar créditos solo**. Consigue el efecto de «apagar todo en
@@ -1850,6 +2042,30 @@ es clase (B), y transcribir el literal es exactamente lo que hizo sobrevivir un 
 6. **Los dominios muertos permanecen vivos en un solo sitio: las guardias.** `security/scripts/_guard.sh` debe
    seguir reconociendo `tcgvaultmx.com` **y** `tcghunt.mx` como producción mientras el redirect 301 exista.
    Estrechar esa lista es un fallo de seguridad, no una limpieza de rebrand (alcance devops).
+7. **⭐ REGLA DE LA CITA (añadida 2026-09-05, v1.52-b). Quien cita un documento normativo, verifica que la cita
+   siga siendo verdadera DESPUÉS de su cambio — y si no lo es, abre la solicitud al dueño del documento EN EL MISMO
+   PASE.** Formulación operativa, en tres partes, porque la primera sin las otras dos no se cumple:
+   - **Disparador mecánico, no de criterio:** si tu cambio (código, config, test, migración, log) **menciona un
+     `§x.y`**, esa mención es tu lista de lectura obligatoria. **Se releen las secciones citadas**, no se asume que
+     dicen lo que uno recuerda.
+   - **Qué se busca:** afirmaciones de **clase (B)** (§0-B.2) que tu cambio acaba de volver falsas — «es el mismo
+     host», «hoy no hay ninguno», «cero superficie nueva», «el caso normal es que no haya nada que hacer». **Un
+     cambio aprobado por QA y por techlead puede dejar un documento mintiendo**: los gates verifican el código, no
+     las premisas de la prosa que el código cita.
+   - **Qué se hace:** se **enruta al dueño del documento en el mismo pase** (regla 9 de `CLAUDE.md`), con la frase
+     literal, su ubicación y qué la volvió falsa. **No se corrige el documento ajeno** (regla 5) y **no se aplaza al
+     pase siguiente**: aplazarlo es lo que deja la ventana en la que otro rol lee la frase muerta y decide con ella.
+   **Por qué es norma y no consejo:** el caso que la origina (§4.41.4 *—era §4.39.4—*, recuadro de registro) es el peor posible —
+   **el procedimiento que exige avisar al arquitecto se incumplió en el mismo commit que lo citó**, con QA y techlead
+   en verde, y la premisa falsa que quedó (**«un host ya admitido, cero superficie nueva»**) es **el texto que el gate
+   de seguridad lee para decidir cuánto mirar**. El daño no fue el host: fue que durante un release el pentester
+   habría leído «nada que ver aquí» sobre un tercero recién llegado. **Esta regla es la misma familia que 1–5** —el
+   proyecto ya pagó cuatro veces por «la fuente afirma, el producto contradice, nadie coteja» (§9)—; lo que añade es
+   el **momento** en que se coteja: *al escribir la cita*, que es el único instante en que alguien tiene delante a la
+   vez el cambio y el texto que el cambio invalida.
+   - **Límite deliberado:** es una **norma, no un candado**. El cierre duro sería mecánico (CI que, ante un `§x.y` en
+     un diff, exija marcar «releído» o abrir la solicitud). **No lo especifico aquí: es tooling, alcance devops**, y
+     queda como **sugerencia** — igual que el chequeo de dominios muertos de §9.
 
 ### 0-B.4 Consecuencia para `API_CONTRACT.md`: forma y origen, no valor
 
@@ -2183,6 +2399,14 @@ Núcleo del sistema. Una fila = una carta/producto físico.
   la cotización v1.3.1 ya **no** la lee ni la escribe (se conserva solo por retención de filas históricas). El
   enum `BuylistCategory` permanece en el schema por compatibilidad, marcado deprecado; nada nuevo lo usa.
 - **v1.2: sin `photoKeys`** — el buylist no sube fotos de la carta (no hay upload salvo `kyc_ine`); la verificación NM se hace contra la carta física recibida y la imagen de catálogo. El campo `photoKeys` queda eliminado/sin uso (M-13).
+- **⚠️ v1.53 (§4.40, MONEY) — `productType` en esta tabla es, por regla de negocio, `raw` y solo `raw`.** No hay
+  columnas de graduación (`gradingCompany`/`gradeValue`/`certNumber`) **y no es un olvido**: `PROJECT.md` §E («compra
+  de **raw**»), §K/LOCKED («el cotizador y el pipeline de buylist siguen siendo **solo para raw**») y el criterio 61
+  ponen el buylist de graduadas/sellado fuera de alcance. La guarda es **server-side** en las tres rutas de §6
+  (`422 BUYLIST_RAW_ONLY`), no la UI. **Filas legacy con `productType ∈ {graded, sealed}` existen** (la superficie
+  estuvo abierta en producción): su `quotedPriceCents` está congelado contra un grado **inventado** y **no se
+  re-cotiza automáticamente** — se resuelve a mano (§4.40.5a). La forma que tendrían estas columnas **si** algún día
+  se autoriza la compra de graduadas está reservada en **`M-49`** (§4.40.7); hasta entonces **no se crean**.
 
 #### Dispute (M8 — condición raw/sellado)
 - `id`, `userId`, `inventoryItemId` (o vía `orderItemId`), `type` (`condition_raw | condition_sealed`), `status` (`abierta | en_revision | resuelta_recompra | rechazada`).
@@ -8241,7 +8465,7 @@ redeploy**, validación total en el `PUT` con códigos de error propios.
 > **entre filas** con un error accionable (qué par de escalones no empalma).
 
 ~~**DOCE claves de `ConfigSetting`**~~ **ONCE claves de `ConfigSetting`** *(v1.51: **10** de M2 + **1** de M10)*
-(M-42 + **M-48** *—era `M-46`; renumerada en v1.53(1)—*, DATA/seed, sin DDL). Las seis primeras son de v1.50; las seis siguientes las añade v1.50.2 (gate de
+(M-42 + **M-48** *—era `M-46`; renumerada en v1.54(1)—*, DATA/seed, sin DDL). Las seis primeras son de v1.50; las seis siguientes las añade v1.50.2 (gate de
 confianza (k) + ingest (h)); **v1.51 retira las DOS de M10 y las sustituye por una** — §4.38(r):
 
 | Key | `SettingKey` | Tipo | Seed | Gobierna | Se edita en |
@@ -8258,7 +8482,7 @@ confianza (k) + ingest (h)); **v1.51 retira las DOS de M10 y las sustituye por u
 | `graded_estimate_source_stat` | `GRADED_ESTIMATE_SOURCE_STAT` | `'median'\|'average'\|'smart'` | **`median`** | cuál número del proveedor **es** el precio — (h) | **M2** (mismo `PUT`) |
 | `graded_estimate_ingest_max_cards_per_run` | `GRADED_ESTIMATE_INGEST_MAX_CARDS_PER_RUN` | int | **250** | tope **duro** de cuota por corrida — (h) | **M2** (mismo `PUT`) |
 | ~~`graded_estimate_ingest_enabled`~~ | ~~`GRADED_ESTIMATE_INGEST_ENABLED`~~ | — | — | ⛔ **RETIRADA en v1.51** — absorbida por el dial único, §4.38(r) | — |
-| **`grading_hook_enabled`** *(NUEVA v1.51-one-dial, **M-48** — era `M-46`, v1.53(1))* | `GRADING_HOOK_ENABLED` | `'on' \| 'off'` | **`off`** (fail-closed) | **DIAL ÚNICO del gancho: exhibición + obtención** | **M10** `PUT /admin/settings` |
+| **`grading_hook_enabled`** *(NUEVA v1.51-one-dial, **M-48** — era `M-46`, v1.54(1))* | `GRADING_HOOK_ENABLED` | `'on' \| 'off'` | **`off`** (fail-closed) | **DIAL ÚNICO del gancho: exhibición + obtención** | **M10** `PUT /admin/settings` |
 
 > ⛔ **DEROGADO en v1.51 — «Por qué DOS interruptores y no uno».** El texto anterior decía: *«…colapsarlas obligaría a
 > elegir entre "no puedo probar el ingest sin publicar" y "no puedo publicar sin encender el gasto". Con dos diales el
@@ -10232,13 +10456,13 @@ razonamiento se aplicó al primero y **se dejó a medias con el segundo**. Queda
 detectada, y este § es su cierre. *(No se «arregla» dibujando el segundo dial: el dueño pidió lo contrario, y dibujarlo
 habría convertido en gobernable —desde una pantalla, a un clic— la palanca que **gasta dinero**.)*
 
-##### (r.1) Forma del colapso — se RETIRAN las DOS claves y nace UNA nueva (**M-48**; era `M-46` — v1.53(1))
+##### (r.1) Forma del colapso — se RETIRAN las DOS claves y nace UNA nueva (**M-48**; era `M-46` — v1.54(1))
 
 | Clave | Estado tras v1.51 | Qué pasa con las bases ya sembradas |
 |---|---|---|
 | `graded_estimates_enabled` | ⛔ **RETIRADA** del contrato y del código (fuera de `SettingKey`, de `SETTING_DEFAULTS`, de los validadores y de `SETTING_DTO_MAP`) | La fila **sobrevive, huérfana e inerte**. Nadie la lee. Precedente: `rarity_map` (§M2 v1.32) y `stripe_fee_iva_pct` (§M10 v1.40). **No se borra** — ver abajo. |
 | `graded_estimate_ingest_enabled` | ⛔ **RETIRADA**, ídem | Ídem: fila huérfana e inerte. |
-| **`grading_hook_enabled`** (NUEVA, **M-48** *(era `M-46`; v1.53(1))*, DATA/seed, **sin DDL**) | **EL dial**: gobierna **exhibición Y obtención**. Seed **`off`** fail-closed. Editable en **M10** `PUT /admin/settings` (DTO `gradingHookEnabled`), auditado, sin redeploy | **No existe en ningún entorno.** Ausente ⇒ `SETTING_DEFAULTS` ⇒ **`off`**. |
+| **`grading_hook_enabled`** (NUEVA, **M-48** *(era `M-46`; v1.54(1))*, DATA/seed, **sin DDL**) | **EL dial**: gobierna **exhibición Y obtención**. Seed **`off`** fail-closed. Editable en **M10** `PUT /admin/settings` (DTO `gradingHookEnabled`), auditado, sin redeploy | **No existe en ningún entorno.** Ausente ⇒ `SETTING_DEFAULTS` ⇒ **`off`**. |
 
 **Por qué una clave NUEVA y no reusar la que ya está en la UI — es la decisión de seguridad de todo este pase.**
 Reusar `graded_estimates_enabled` sería lo más barato en código y **lo único inaceptable en dinero**: en producción
@@ -10508,7 +10732,7 @@ base la tiene.
 | # | Paso | Quién | Verificación |
 |---|---|---|---|
 | 0 | **Anotar el estado previo** de `graded_estimates_enabled` y `graded_estimate_ingest_enabled` en **cada** entorno, con el comparador solo-lectura (§4.38p paso 1). *No para restaurarlo: para poder responder «¿qué había?» después.* **v1.51-a: anotar también `ingestMaxCardsPerRun` de cada entorno** — si alguno está `> 1 000`, tras el deploy ese entorno queda **fail-closed** (no ingesta) hasta un `PUT` válido, por (r.3.4). | devops | Los dos valores quedan en el ticket, **más** el `ingestMaxCardsPerRun` de cada entorno. |
-| 1 | **Deploy del código.** **Nada que migrar** (**M-48** —*era `M-46`, v1.53(1)*— es DATA/seed, sin DDL). El seed solo alcanza entornos nuevos (§11.0). ⚠️ **v1.53: esta frase se refiere a M-48 y SOLO a M-48.** El pase de **`M-46`** (ciclo de adquisición) **sí trae DDL** y **sí exige `migrate deploy`**: si tu release lleva los dos, `migrate deploy` **no** es no-op. | devops | `migrate deploy` sin cambios **por este pase**. |
+| 1 | **Deploy del código.** **Nada que migrar** (**M-48** —*era `M-46`, v1.54(1)*— es DATA/seed, sin DDL). El seed solo alcanza entornos nuevos (§11.0). ⚠️ **v1.54: esta frase se refiere a M-48 y SOLO a M-48.** El pase de **`M-46`** (ciclo de adquisición) **sí trae DDL** y **sí exige `migrate deploy`**: si tu release lleva los dos, `migrate deploy` **no** es no-op. | devops | `migrate deploy` sin cambios **por este pase**. |
 | 2 | **El gancho queda OSCURO, por construcción** — no por un paso que alguien podría olvidar. `grading_hook_enabled` ausente ⇒ `off` ⇒ ni se exhibe, ni se pide, ni se escribe. | *(automático)* | `GET /admin/settings` → `gradingHookEnabled: "off"`. **Línea de inventario del arranque** con las dos claves retiradas bajo su rótulo (r.1). |
 | 3 | **Verificación de que NO se gasta** — la que importa. Dejar pasar **un tick del cron** (o dispararlo a mano con `POST /admin/jobs/price-ingest`) y comprobar en el log: `enabled=false`, **cero peticiones al proveedor**, `written=0`, créditos del proveedor **sin moverse**. | devops | Es una verificación **positiva de ausencia de gasto**, no una inspección de config. Sin ella, «no gastó» es una suposición. |
 | 4 | **Verificación de que no se movió dinero** — re-`GET` de `/admin/pricing/graded-estimates`: los **diez** diales de M2 idénticos a antes del deploy; ninguna `PriceReference` nueva con `source='pokemonpricetracker'` y `gradeKey='graded:PSA:*'`. | devops + QA | El colapso **no toca ni un monto**; si toca alguno, se para y vuelve al arquitecto. |
@@ -16087,14 +16311,40 @@ offerReissueAlert  =  offerReissueCount >= buylistOfferReissueAlertCount        
 
 ---
 
-### 4.40 IMÁGENES DE SET — logo y símbolo de expansión persistidos en `CardSet` (v1.52-set-logos, M-47, NORMATIVO)
+### 4.41 IMÁGENES DE SET — logo y símbolo de expansión persistidos en `CardSet` (v1.52-set-logos, M-47, NORMATIVO)
 
-> ⚠️ **v1.53 — esta sección era `§4.39` en la línea de `main` y se renumeró a `§4.40` al fusionar.** El `§4.39` de
-> arriba (ciclo de adquisición del buylist) llegó con el mismo número desde la otra rama y **se cita cientos de veces
-> con subapartados de letra** (`§4.39(a)`…`§4.39(t)`); ésta se citaba **62 veces y siempre con subapartado numérico**
-> (`§4.39.N`), así que **mueve la de menor radio**. Sus subapartados son ahora **`§4.40.1`–`§4.40.9`**. **Ninguna
-> decisión de esta sección cambia: solo su número.** Una cita `§4.39.N` en documentos de otros roles apunta **a nada**
-> —no a la sección equivocada—, porque `§4.39` no tiene subapartados numéricos. Ver el encabezado, **Rev v1.53(2)**.
+> ⚠️ **RENUMERADA DOS VECES, y las dos por colisión de fusión. Se dice aquí porque las citas viejas siguen vivas ahí
+> fuera.** Nació como **`§4.39.N`** (v1.52, línea de `main`); el pase de fusión anterior la movió a **`§4.40.N`**
+> porque el ciclo de adquisición ya usaba `§4.39(a)`–`§4.39(t)`; y **v1.54(6)** la mueve a **`§4.41.N`** porque
+> `main` publicó su propio **`§4.40`** (identidad de graduación en el buylist). **El precedente es el mismo las dos
+> veces: se renumera lo que aún no ha entrado a `main`, nunca lo publicado.**
+> - Una cita **`§4.39.N`** superviviente (`backend/`, `*_NOTES.md`, `PENDIENTES.md`) **apunta a nada** — el `§4.39`
+>   vigente no tiene subsecciones numéricas. Limpieza **NO bloqueante**, dueño de cada ruta.
+> - ⚠️ Una cita **`§4.40.N`** superviviente (hoy: **`frontend/`**) **apunta a la sección EQUIVOCADA, y esa sección es
+>   de DINERO**. Limpieza **obligatoria antes de cerrar el stream de frontend** — v1.54(6).
+>
+> **Nota de ordenación física:** en el fichero, esta `§4.41` va **antes** que `§4.40` porque la fusión renumeró **sin
+> mover texto** —mover 400 líneas de una sección normativa para satisfacer un orden es riesgo sin beneficio—. **El
+> número manda sobre la posición**; el índice de §4 y las citas son la vía de navegación.
+
+> ⚠️ **(Nota del pase anterior, conservada y SUPERADA en su destino.)** *«Esta sección era `§4.39` en la línea de
+> `main` y se renumeró a `§4.40` al fusionar. El `§4.39` de arriba (ciclo de adquisición del buylist) llegó con el
+> mismo número desde la otra rama y se cita cientos de veces con subapartados de letra (`§4.39(a)`…`§4.39(t)`); ésta
+> se citaba 62 veces y siempre con subapartado numérico (`§4.39.N`), así que **mueve la de menor radio**.»*
+> **El razonamiento sigue siendo el correcto y por eso se conserva; lo que caducó es el destino:**
+> ~~«Sus subapartados son ahora `§4.40.1`–`§4.40.9`»~~ ⇒ **son `§4.41.1`–`§4.41.9`** (v1.54(6), porque `main` publicó
+> su propio `§4.40`). **Ninguna decisión de esta sección cambia: solo su número, dos veces.**
+
+> **⚠️ REVISIÓN v1.52-b (2026-09-05) — léase antes que el resto de la sección.** El proveedor **mudó su CDN de
+> imágenes a mitad de catálogo**. La sección se escribió el 2026-09-02 sobre una premisa que era **cierta entonces**
+> —«hay **un** host de imágenes y el frontend ya lo admite»— y que **dejó de serlo**. Se han revisado **§4.41.1
+> (hechos 7 y 8)**, **§4.41.4 (guardarraíl y procedimiento de ampliación)**, **§4.41.7 (`remotePatterns` y superficie
+> de seguridad)** y **§4.41.8 (encargos de frontend y de seguridad/pentester)**. **El razonamiento anterior no se
+> borra: queda marcado como superado, con qué cambió y por qué.** Las decisiones 1, 2, 4 y 5 (§4.41.2, §4.41.3,
+> §4.41.5, §4.41.6), el contrato **v1.52** y la migración **M-47** **no cambian**: cero DDL, cero endpoints, cero
+> cambios de DTO, cero montos. **Si vienes del gate de seguridad, tu alcance es la tabla S-1…S-4 de §4.41.7, no la
+> frase «cero superficie nueva» que este documento sostuvo hasta el 2026-09-05.**
+> *(Esta nota se escribió citando `§4.39.N`; va reescrita a `§4.41.N` por v1.54(6). **Ninguna afirmación cambia.**)*
 
 > **Origen.** El dueño pidió que **al seleccionar un set se vean los logos de las expansiones** en vez de solo el
 > nombre en texto (referencia visual: retícula de tejas uniformes, logo centrado, nombre debajo). **Hoy el sistema no
@@ -16102,7 +16352,7 @@ offerReissueAlert  =  offerReissueCount >= buylistOfferReissueAlertCount        
 > presentación la define **ux-ui** en `DESIGN_SYSTEM.md`, y esta sección no la condiciona más allá de decir qué campos
 > existen y cuál es su peor caso.
 
-#### 4.40.1 Hechos verificados (clase (B) de §0-B — se citan por su origen, no por autoridad documental)
+#### 4.41.1 Hechos verificados (clase (B) de §0-B — se citan por su origen, no por autoridad documental)
 
 | # | Hecho | Fuente ejecutable |
 |---|---|---|
@@ -16112,7 +16362,8 @@ offerReissueAlert  =  offerReissueCount >= buylistOfferReissueAlertCount        
 | 4 | pokemontcg.io publica **dos** imágenes por set: `images.symbol` (glifo cuadrado, el impreso en la carta) e `images.logo` (el nombre dibujado, ancho y de **proporción muy variable**). | API del proveedor |
 | 5 | **La retícula de tejas de sets ya existe y es UNA sola, compartida**: `MasterSetIndex` (`grid` de tejas, click → binder), con **cuatro** modos que rinden el **mismo** `MasterSetIndexResponse` / `MasterSetSummaryDTO`. | `frontend/src/components/master-set/MasterSetIndex.tsx` |
 | 6 | Uno de esos cuatro modos (`quoter`) **no tiene endpoint de índice propio**: compone las tejas **client-side** desde `GET /buylist/sets`. | mismo archivo (`fetchQuoterIndex`) |
-| 7 | `images.pokemontcg.io` **ya** es un host admitido por el frontend y ya sirve el arte de todas las cartas. | `frontend/next.config.mjs`; §5.3.4 |
+| 7 | ~~`images.pokemontcg.io` **ya** es un host admitido por el frontend y ya sirve el arte de **todas** las cartas.~~ **SUPERADO el 2026-09-05 — ver hecho 8.** Era cierto el 2026-09-02, cuando se escribió; hoy «todas» es falso. Y la primera mitad («host admitido por el frontend») **no acota nada hoy**: `remotePatterns` lleva además un comodín `hostname: '**'` (**D-IMG-5**, §5.3.4, **abierto**), así que el frontend admite *cualquier* host. | `frontend/next.config.mjs`; §5.3.4 |
+| 8 | **(2026-09-05)** El proveedor sirve arte de carta desde **DOS** hosts: `images.pokemontcg.io` (catálogo histórico) e `images.scrydex.com` (sets recientes). El reparto se **lee de la BD**, no de aquí (clase (B)): al 2026-09-05, ilustrativamente, ~19 818 vs. **661** filas de `Card.imageSmallUrl`. **Ninguna de las dos entró por una validación**: `upsertCards` no valida host, esquema ni forma (deuda **M47-R1**, severidad **Alta**). | `SELECT split_part("imageSmallUrl",'/',3), count(*) FROM "Card" GROUP BY 1;` · `catalog-sync.service.ts` (`upsertCards`) · `TECH_DEBT.md` M47-R1 · `BACKEND_NOTES.md` §0.20.2 |
 
 **El hallazgo (5)+(6) es el que decide el contrato, y no era obvio.** «Dónde va el logo» parecía una pregunta de
 storefront; es una pregunta de **un DTO** (`MasterSetSummaryDTO`) que sirven **cuatro** endpoints, más **un quinto**
@@ -16120,7 +16371,7 @@ del que uno de esos cuatro modos se alimenta a mano. Poner el campo en el sitio 
 dejado la teja del cotizador —la única que el visitante anónimo toca al vender— **sin logo**, y a nadie le habría
 parecido un bug de contrato.
 
-#### 4.40.2 DECISIÓN 1 — se persisten **LAS DOS** URLs, no solo el logo
+#### 4.41.2 DECISIÓN 1 — se persisten **LAS DOS** URLs, no solo el logo
 
 **`CardSet` gana dos columnas nullable: `logoUrl` y `symbolUrl`.**
 
@@ -16141,7 +16392,7 @@ parecido un bug de contrato.
 3. **El símbolo es el único que también es un HECHO DE IDENTIDAD, no solo decoración.** Es el glifo **impreso en la
    carta física**: es lo que un operador de bóveda mira para decidir de qué set es una carta que tiene en la mano. Esa
    es una función de trabajo, no un adorno, y llegará. *(Declarado como uso previsto, no habilitado en este pase: hoy
-   `symbolUrl` **se persiste y no se expone** en ningún DTO — ver §4.40.5.)*
+   `symbolUrl` **se persiste y no se expone** en ningún DTO — ver §4.41.5.)*
 
 **Lo que NO se hace, y por qué:**
 - **No se copian los bytes.** Se guardan **URLs de un CDN de tercero**, igual que el arte de las cartas.
@@ -16154,7 +16405,7 @@ parecido un bug de contrato.
 - **No se añade un tercer campo derivado** (proporción, color dominante, alto sugerido). El backend no mide imágenes;
   la caja la resuelve ux-ui con CSS.
 
-#### 4.40.3 DECISIÓN 2 — `M-47`, y es **ADITIVA PURA**
+#### 4.41.3 DECISIÓN 2 — `M-47`, y es **ADITIVA PURA**
 
 **`M-47` — dos columnas nullable en `CardSet`. Sin `DROP`, sin `NOT NULL`, sin default, sin tocar índices ni la
 `@@unique(externalId)`, sin reescribir una sola fila.** Ficha completa en §11.
@@ -16162,8 +16413,8 @@ parecido un bug de contrato.
 ```prisma
 model CardSet {
   // …campos vigentes, intactos…
-  logoUrl    String?   // M-47 (§4.40) — images.logo de pokemontcg.io. Presentación (clase P). null = el proveedor no lo publica.
-  symbolUrl  String?   // M-47 (§4.40) — images.symbol. Persistido en este pase; NO expuesto todavía (§4.40.5).
+  logoUrl    String?   // M-47 (§4.41) — images.logo de pokemontcg.io. Presentación (clase P). null = el proveedor no lo publica.
+  symbolUrl  String?   // M-47 (§4.41) — images.symbol. Persistido en este pase; NO expuesto todavía (§4.41.5).
 }
 ```
 
@@ -16178,14 +16429,14 @@ model CardSet {
   procedimiento de cut-over, no hay ventana, no hay congelación.** (Contrastar con M-43/M-45, que sí la exigían
   porque tocaban la clasificación de una fila de precio. Aquí no hay nada de eso, y lo digo para que nadie prepare
   una ventana que no existe.)
-- **Sin backfill de datos.** No hay `UPDATE` masivo. Ver §4.40.4.
+- **Sin backfill de datos.** No hay `UPDATE` masivo. Ver §4.41.4.
 
-#### 4.40.4 DECISIÓN 3 — **RE-SYNC, no backfill.** Cero endpoints nuevos, cero SQL de datos
+#### 4.41.4 DECISIÓN 3 — **RE-SYNC, no backfill.** Cero endpoints nuevos, cero SQL de datos
 
 **Se reusa el sync existente. No se crea backfill propio, ni endpoint, ni job, ni script de datos.**
 
 El razonamiento es que el mecanismo correcto **ya existe, ya es idempotente y ya está auditado**: `upsertSet()` es el
-escritor único de metadata de set y corre en **todas** las vías de sync (§4.40.1 hecho 3). En cuanto lea `images`,
+escritor único de metadata de set y corre en **todas** las vías de sync (§4.41.1 hecho 3). En cuanto lea `images`,
 **cualquier** sync puebla las columnas. Un backfill dedicado sería un segundo escritor de la misma columna —
 exactamente el patrón que produce divergencias— para una operación que se corre una vez.
 
@@ -16219,13 +16470,82 @@ trae, la regla de no-degradación de arriba lo vuelve inofensivo (la vía por-ca
 entonces el paso 1 de la tabla **no basta por sí solo** para un set concreto y hay que decirlo en `BACKEND_NOTES.md`.
 **No lo doy por sabido y no lo escribo aquí como si lo fuera.**
 
-**Guardarraíl de ingesta (obligatorio, barato):** se persiste la URL **solo si** es absoluta y **`https:`**, y su host
-es el mismo que ya sirve el arte de las cartas de este proveedor. Cualquier otra cosa ⇒ **`null` + log**, nunca se
-persiste. Si el proveedor empezara a servir logos desde **otro** host, backend **no amplía nada por su cuenta**: lo
-reporta, y `remotePatterns` del frontend se amplía **detrás**, nunca por delante (§5.3.4). El caso normal es que **no
-haya nada que ampliar**: es el host que el frontend ya admite (hecho 7).
+**Guardarraíl de ingesta (obligatorio, barato) — REVISADO el 2026-09-05 (M47-H2). Un host pasó a ser un conjunto
+CERRADO de dos.**
 
-#### 4.40.5 DECISIÓN 4 — dónde viaja: **un DTO, cuatro endpoints, más su fuente client-side**
+> **Norma vigente.** Se persiste la URL **solo si** es absoluta, **`https:`**, **sin userinfo**, y su **host exacto**
+> (hostname **+ puerto**, comparado por **igualdad**, en minúsculas) pertenece a un **conjunto CERRADO** de hosts
+> **verificados uno por uno**. Cualquier otra cosa ⇒ **no se persiste + `warn`**, y «rechazada ≡ **ausente**» (no-op
+> en el `update`, `null` en el `create` — corolario **M47-D1**). Se persiste la forma **normalizada**, no la cruda.
+
+El conjunto vive en el código (`SET_IMAGE_HOSTS`, `catalog-sync.service.ts`) y es **clase (B) de §0-B**: *la lista se
+cita por su origen, no se transcribe aquí como autoridad*. Hoy son, ilustrativamente, `images.pokemontcg.io` ∪
+`images.scrydex.com`.
+
+**Ampliar el conjunto NO es aflojar el criterio, y la distinción es toda la decisión.** La comparación sigue siendo
+**igualdad exacta**, así que lo que se rechazaba se sigue rechazando: `images.pokemontcg.io.evil.com` (sufijo que
+controla el atacante), `cdn.images.scrydex.com` (subdominio del host bueno, que **no** es el endpoint verificado),
+`:8443`, `http:` y credenciales embebidas. **Prohibido** convertir el conjunto en allowlist de **dominio raíz** o
+relajar la pertenencia a `endsWith`/`includes`/`startsWith`: eso sería otro criterio —el de §4.32c para el sellado— y
+aquí **no** se adopta. *«Es del proveedor» no es el criterio; «es el endpoint exacto que se verificó» sí.*
+
+**Lo que este párrafo decía antes, y por qué dejó de ser cierto** *(no se borra: no era falso, el mundo cambió
+debajo)*. Hasta el 2026-09-05 decía que el host tenía que ser **«el mismo que ya sirve el arte de las cartas»** y
+remataba: **«el caso normal es que no haya nada que ampliar»**. Era **verdad el 2026-09-02**: el proveedor servía
+todo su arte desde un único host, y sobre esa premisa se construyeron tres conclusiones (una regla de ingesta, la
+inacción de `remotePatterns` en §4.41.7, y el encargo de seguridad de §4.41.8). El 2026-09-05 el proveedor **mudó su
+CDN a mitad de catálogo**: los sets viejos siguen en el host histórico y los nuevos llegan del nuevo. El guardarraíl
+hizo **exactamente** lo que se le pidió y rechazó **logos legítimos** de los cuatro sets más recientes (ocho `warn`
+entre 07:56 y 07:59; `BACKEND_NOTES.md` §0.20.1), y por «rechazada ≡ ausente» esas tejas quedaron sin logo **sin que
+ningún re-sync las repare**. La premisa murió; la regla no. **La forma de la regla —host exacto, conjunto cerrado— es
+justo lo que convirtió una mudanza de CDN en un ticket con hora y nombre en vez de en un cambio silencioso.**
+
+**Por tanto, el «caso normal» se declara al revés (NORMATIVO):** que el proveedor mude o añada CDN es un evento
+**esperado y recurrente**, no una excepción. Ampliar el conjunto es una **operación con procedimiento**, no una
+sorpresa:
+
+1. **Evidencia primero, no confianza.** El `warn` «fuera del guardarraíl» repetido con un host nuevo, **más** el
+   conteo sobre la BD de producción (¿ese host ya sirve arte de carta a nuestros visitantes?). Un host que ya carga
+   el navegador de todos los clientes es un hecho medible; «parece del proveedor» no lo es.
+2. **Se añade el host EXACTO**, una línea, con fecha y procedencia en el comentario. Nunca un dominio raíz, nunca un
+   comodín.
+3. **Backend NO lo decide solo: lo reporta al ARQUITECTO en el mismo pase** (regla 9 de `CLAUDE.md`). El motivo
+   **no** es `remotePatterns` (ver abajo): es que **un host nuevo es un tercero nuevo dentro del navegador de
+   nuestros clientes**, y quien decide si eso se audita —y quién lo audita— es esta sección, no el commit.
+4. **Re-sync forzado** de lo que la regla «rechazada ≡ ausente» dejó vacío. Un host nuevo **no repara nada por sí
+   solo**: este escritor está diseñado para no limpiar nunca (M47-D1).
+
+**Sobre el paso 3, corrección de un acoplamiento que hoy NO existe (decisión de este pase).** La versión anterior
+justificaba el aviso al arquitecto diciendo que «`remotePatterns` del frontend se amplía **detrás**, nunca por
+delante (§5.3.4)». **Ese ordenamiento es correcto como norma y se conserva, pero hoy es decorativo y hay que decirlo
+para que nadie lo cite como control existente:** (a) `frontend/next.config.mjs` lleva `{ protocol: 'https',
+hostname: '**' }` —**D-IMG-5**, §5.3.4, con veredicto «cerrar YA» y **abierto**—, así que `remotePatterns` no acota
+ningún host; y (b) aunque estuviera cerrado, los logos de set son **Nivel B** (`<img>` crudo) y `remotePatterns`
+**solo gobierna al optimizador de Next** (§4.41.7). Es decir: **hoy `remotePatterns` no puede ir «por delante» ni
+«por detrás» de nada en esta superficie.** La obligación de avisar al arquitecto **no depende** de ese acoplamiento —
+se sostiene por el paso 3 tal como está redactado arriba— y **recupera** su dependencia de `remotePatterns` en el
+momento en que se cierre D-IMG-5 **y** alguna superficie de imagen de set suba a Nivel A. Formular un deber sobre un
+control inerte es cómo un deber se incumple sin que nadie lo note; y es lo que pasó (ver el recuadro siguiente).
+
+> **⚠️ REGISTRO — el paso 3 ya aplicó una vez y NO llegó al arquitecto (2026-09-05).** El pase que amplió el conjunto
+> a dos hosts **citó esta sección** (`§4.39.4` aparece en el propio texto del `warn` — **hoy `§4.41.4`; el literal
+> del código conserva el número viejo y entra en la limpieza de citas de v1.54(6)**), pasó QA (mutaciones de borrado
+> del guardarraíl reproducidas, **ninguna sobrevive**) y techlead, **y dejó falsas tres frases de este documento**
+> (§4.41.1 hecho 7, §4.41.7 y
+> §4.41.8) sin abrir la solicitud al arquitecto en el mismo pase. Lo correcto se hizo **después**, por escrito y con
+> evidencia (`BACKEND_NOTES.md` §0.20.4), y por eso esta corrección existe. **No se enruta como falta del rol: se
+> enruta como defecto del procedimiento**, porque el procedimiento pedía avisar sin decir **cuándo** ni **qué había
+> que releer**. La regla general que cierra esta clase entera está en **§0-B.3 regla 7**.
+
+**Y lo que este pase NO arregla, dicho aquí para que no se lea de menos:** el guardarraíl de arriba cubre **solo las
+imágenes de SET**. El **arte de carta** —las ~20 000 URLs que carga cada visitante en cada rejilla— entra por
+`upsertCards` **sin ninguna validación de host, esquema ni forma**. Es la deuda **M47-R1** (severidad **Alta**,
+diferida por contención de `backend/src/common/`), no la introdujo M-47 y M47-H2 no la cerró. En el mismo `for` del
+mismo archivo conviven hoy **dos políticas opuestas a ~90 líneas de distancia**. Consecuencia medida: la mudanza de
+CDN se detectó **por el lado que sí tiene guardarraíl** (ocho `warn` con hora), mientras el lado que sirve 20 000
+imágenes la aceptó **en silencio y sin traza**. Ver §4.41.7 «Superficie real para el gate de seguridad».
+
+#### 4.41.5 DECISIÓN 4 — dónde viaja: **un DTO, cuatro endpoints, más su fuente client-side**
 
 **Regla que gobierna la elección, para que no se re-litigue con cada superficie nueva:**
 
@@ -16248,14 +16568,14 @@ haya nada que ampliar**: es el host que el frontend ya admite (hecho 7).
 | **`card.setName` / `CardDTO`** | El set aquí es **metadata de una carta**. Meter un logo en cada carta de una rejilla de 60 cartas es multiplicar bytes por 60 para pintar el mismo logo 60 veces |
 | **`GET /admin/catalog/remote-sets`** | Es un espejo **del proveedor**, no una selección de set del producto. Su trabajo es decir qué falta por importar |
 | **`SetRefDTO`** (`value-history`) | Cabecera de una gráfica, no una teja |
-| **`symbolUrl` en cualquier DTO** | **Se persiste, no se expone.** Hoy no hay ninguna superficie que lo use, y §4.40.2 razón 1 solo justifica **guardarlo** barato — no publicarlo por si acaso. Exponerlo cuando exista el chip: aditivo, **sin migración**, sin re-sync |
+| **`symbolUrl` en cualquier DTO** | **Se persiste, no se expone.** Hoy no hay ninguna superficie que lo use, y §4.41.2 razón 1 solo justifica **guardarlo** barato — no publicarlo por si acaso. Exponerlo cuando exista el chip: aditivo, **sin migración**, sin re-sync |
 
 **Cómo se añade a otra superficie el día que haga falta** (para que no vuelva a pasar por un diseño largo): es un
 **aditivo de proyección** — el dato ya está en la columna. Cambia el DTO en `API_CONTRACT`, sube la rev, y backend lo
 selecciona. **Cero DDL, cero migración, cero re-sync.** Sí pasa por el arquitecto (regla 9), porque la regla de arriba
 —«el set es lo que se selecciona»— es lo que hay que verificar, no la disponibilidad del dato.
 
-#### 4.40.6 DECISIÓN 5 — la forma hace **imposible** asumir que siempre hay imagen
+#### 4.41.6 DECISIÓN 5 — la forma hace **imposible** asumir que siempre hay imagen
 
 **Habrá sets sin logo.** Promos, colecciones raras, sets viejos y cualquier cosa que el proveedor no haya ilustrado.
 No es un caso de borde: es un caso **normal y permanente**.
@@ -16265,7 +16585,7 @@ No es un caso de borde: es un caso **normal y permanente**.
 
 ```
 // Fragmento reusable. La clave está SIEMPRE; el valor puede ser null.
-SetImagesFragment = { logoUrl: string | null }     // + symbolUrl: string | null, cuando se exponga (§4.40.5)
+SetImagesFragment = { logoUrl: string | null }     // + symbolUrl: string | null, cuando se exponga (§4.41.5)
 ```
 
 **Por qué `null`-presente y no `logoUrl?`** — es la lección que este equipo ya pagó:
@@ -16284,9 +16604,9 @@ nombre; no colapsa, no salta, no muestra un icono roto). **Qué se pinta en ese 
 
 Y hay un **segundo** estado, distinto y anterior: **set aún no re-sincronizado**. Su valor también es `null` y la
 teja se ve **idéntica** a la del set sin logo. **Es deliberado**: el cliente no tiene por qué distinguirlos y el
-contrato **no** los distingue. Quien necesita distinguirlos es el operador, y lo hace por el otro lado (§4.40.4).
+contrato **no** los distingue. Quien necesita distinguirlos es el operador, y lo hace por el otro lado (§4.41.4).
 
-#### 4.40.7 Las dos doctrinas vigentes: cómo aplican aquí
+#### 4.41.7 Las dos doctrinas vigentes: cómo aplican aquí — **y la superficie real para el gate de seguridad (S-1…S-4)**
 
 **§5.3 (imágenes en el frontend) — SÍ aplica, y la respuesta es NIVEL B. Lo digo yo para que frontend no lo decida
 por su cuenta:**
@@ -16304,8 +16624,44 @@ Tres razones, y la primera es literalmente una regla ya escrita:
    siquiera una elección de tamaño que hacer. La palanca de §5.3.2 —«pedir la URL correcta»— aquí no existe porque
    solo hay una. `srcset` no tiene candidatos.
 
-**`remotePatterns` NO cambia** (§5.3.4): es el **mismo host** que ya sirve el arte de las cartas. **Cero acción de
-frontend sobre la config, cero acción de devops, cero superficie nueva para seguridad.**
+**`remotePatterns` NO cambia** (§5.3.4) — **pero NO por «el mismo host»: son DOS.** *(Revisado el 2026-09-05,
+M47-H2. La conclusión sobrevive; el argumento que la sostenía, no.)*
+
+> ~~«es el **mismo host** que ya sirve el arte de las cartas. **Cero acción de frontend sobre la config, cero acción
+> de devops, cero superficie nueva para seguridad.**»~~ — **SUPERADO.** Escrito el 2026-09-02, cuando era cierto.
+
+Desde 2026-09 el proveedor sirve desde **dos** hosts —el histórico para el catálogo viejo y uno nuevo para los sets
+recientes— y el backend los admite como **conjunto cerrado de hosts exactos** (`SET_IMAGE_HOSTS`, §4.41.4). Lo que
+hace irrelevante a `remotePatterns` **aquí** no es el host: es que los logos de set son **Nivel B** (`<img>` crudo,
+sin `next/image`) y **`remotePatterns` solo gobierna al optimizador de Next**. Es decir: **cero acción de frontend y
+cero acción de devops por el NIVEL DE RENDER, no por el host.**
+
+**Corolario normativo (esto es lo que había que escribir la primera vez):**
+- Si alguna superficie de imagen de **set** subiera al **Nivel A**, `remotePatterns` **sí** tendría que ampliarse, y
+  con **los dos** hosts —el espejo es del conjunto entero, no del host que uno recuerde (§5.3.4).
+- **«Mismo host ⇒ cero acción» no es una regla y nunca lo fue.** La regla es: *el nivel de render decide si
+  `remotePatterns` importa; el conjunto de hosts decide qué se escribe en él.* Un lector que reaplicara la frase vieja
+  sobre una superficie de Nivel A llegaría a la conclusión **contraria** a la correcta, y ése es exactamente el modo
+  de fallo que §0-B existe para impedir: una **descripción** de clase (B) que la jerarquía convirtió en orden.
+- Hoy, además, `remotePatterns` **no acota nada en absoluto**: lleva un comodín `hostname: '**'` (**D-IMG-5**,
+  §5.3.4, **abierto**, veredicto «cerrar YA»). Cualquier razonamiento que lo use como control **está razonando sobre
+  un control que no existe**.
+
+**Superficie real para el gate de seguridad — REESCRITO (2026-09-05). Esto reemplaza a «cero superficie nueva».**
+
+Hay **superficie nueva y hay superficie vieja nunca mirada**, y el gate tiene que saber distinguirlas:
+
+| # | Qué | Estado | Qué mirar |
+|---|---|---|---|
+| **S-1** | **Host de terceros nuevo, `images.scrydex.com`** (o el que figure hoy en `SET_IMAGE_HOSTS`), sirviendo imágenes al navegador de **todos** los visitantes | **NUNCA AUDITADO.** Entró en producción **sin revisión de seguridad**, por la brecha S-2, antes de que nadie lo admitiera formalmente | Es un **tercero nuevo dentro de nuestras páginas**: TLS/cert, quién lo controla, si el dominio es del proveedor de verdad, fuga de `Referer`/IP de cada visitante hacia un origen no evaluado, y qué pasa si se compromete o expira |
+| **S-2** | **Arte de carta sin validación alguna** (`upsertCards` → `Card.imageSmallUrl`/`imageLargeUrl`): ~**20 000** URLs persistidas y renderizadas en toda rejilla, ficha, carrito y bóveda | **Brecha ABIERTA**, anterior a M-47. Deuda **M47-R1**, severidad **Alta**, diferida por contención de `backend/src/common/` — **diferida, no cerrada, y no aceptada como residual** | Que **661 filas de un host que nadie autorizó** entraran sin traza es la prueba ejecutada del riesgo, no la hipótesis. Evaluar: puntero a host arbitrario persistido, exfiltración pasiva por carga de imagen, y **ausencia total de señal** (no hay `warn`, no hay contador, no hay fecha de inicio) |
+| **S-3** | **Guardarraíl de ingesta de imágenes de SET** (§4.41.4) | Implementado y con tests de mutación | Que no se persista una URL no-`https:`, con userinfo, de host no listado, con puerto, ni de subdominio/sufijo del host bueno. **Y que la pertenencia siga siendo igualdad exacta** — `endsWith`/`includes`/`startsWith`/dominio raíz son regresiones de seguridad, no simplificaciones |
+| **S-4** | `remotePatterns` con `hostname: '**'` (**D-IMG-5**) | **Abierto.** Inerte **solo mientras** no exista una sola línea de `next/image` | En cuanto entre el Nivel A, el optimizador es un **proxy de imágenes abierto**. El gate debe verificar la **coexistencia**: ¿hay ya `next/image` en el árbol? Si la hay y el comodín sigue, es hallazgo **alto**, no deuda |
+
+**Lo que sigue siendo verdad y no hay que re-litigar:** las imágenes de set son **públicas, sin PII y sin dinero**
+(`CardSet` no entra en ningún cálculo, §4.41.9). El riesgo de esta familia entera **no es de importe ni de datos
+personales**: es **contenido de tercero que nuestras páginas cargan y nuestra BD persiste**. Que no toque dinero es
+razón para no bloquear un release por S-1/S-2; **no** es razón para no mirarlos.
 
 **§5.2 (snapshot congelado) — NO aplica aquí, y lo digo para que nadie lo confunda.** §5.2 gobierna
 `OrderItem.cardSnapshot`: un **acta congelada de una transacción**. `CardSet` es **catálogo vivo**: se re-escribe en
@@ -16314,31 +16670,323 @@ congelar ni nada que descongelar.
 
 Lo que **sí** cruza de §5.2 es **una** cosa, y es de criterio, no de mecanismo: la clasificación **(F)/(P)** de
 §5.2.2 y la regla de degradación de §5.2.9. Una imagen de set es **(P) presentación pura** —su peor caso es un hueco
-visual, jamás un dato erróneo— y por eso degrada a **`null` con clave presente** (§4.40.6). El **corolario** de
+visual, jamás un dato erróneo— y por eso degrada a **`null` con clave presente** (§4.41.6). El **corolario** de
 §5.2.3 («no se congelan punteros a recursos de terceros dentro de registros probatorios») **también sigue en pie y no
 lo contradice esto**: `CardSet.logoUrl` **no es un registro probatorio**, es una fila de catálogo que el sync es
 libre de reescribir mañana. **Guardar una URL de tercero en catálogo vivo es correcto; congelarla en un acta no lo
 es.** Son dos cosas distintas y esta es la primera.
 
-#### 4.40.8 Encargo por rol (D-3)
+#### 4.41.8 Encargo por rol (D-3)
 
 | Rol | Encargo | Puerta |
 |---|---|---|
-| **arquitecto** | ✅ Hecho en este pase: §4.40 *(era §4.39)*, ficha **M-47** en §11, y contrato **`API_CONTRACT.md` v1.52** (`logoUrl` en `MasterSetSummaryDTO` y en `GET /buylist/sets`, con la exclusión explícita de facetas/`/catalog/sets`/`CardDTO`). ✅ **v1.53:** renumeración §4.40 / **M-48**, y **`CardSetDTO` / `BuylistSetDTO` declarados** en el contrato (cierre de **DT-Gd** por el lado del contrato). | — |
-| **backend** | (a) **M-47**: dos columnas nullable en `CardSet` (§11). (b) `RemoteCardSet` gana `images?: { symbol?: string; logo?: string }` — hoy el tipo las descarta. (c) `upsertSet()` las persiste con la **regla de no-degradación** y el **guardarraíl `https:` + host** de §4.40.4. (d) Proyectar **`logoUrl`** en `MasterSetSummaryDTO` (los **cuatro** endpoints — es un read model único, §4.20f) y en `GET /buylist/sets`. **`symbolUrl` se persiste y NO se expone.** (e) **Verificar** el hecho pendiente de §4.40.4 (¿el `set` anidado en una carta trae `images`?) y anotarlo en `BACKEND_NOTES.md`. (f) ⛔ **Prohibido**: crear endpoint/job/script de backfill, y construir URLs por plantilla. | Antes del merge del stream «Catálogo y precios» |
-| **frontend** | (a) Consumir `logoUrl: string \| null` en la retícula `MasterSetIndex` — **los cuatro modos**, incluido `quoter` (que lo mapea desde `GET /buylist/sets` en `fetchQuoterIndex`; si no se mapea ahí, el logo **no llega** a esa teja). (b) **Nivel B** (§4.40.7): `<img>` crudo, sin `next/image`, sin `srcset`, con el `eslint-disable` ya documentado. (c) `null` es **caso normal** ⇒ el tratamiento «sin logo» que defina ux-ui, **sin error visible y sin salto de layout**. (d) ⛔ **Prohibido** rellenar el hueco construyendo la URL desde el `setId`. (e) `next.config.mjs` **no se toca**: mismo host. | Con el contrato v1.52 |
-| **ux-ui** | Define el aspecto de la teja **y del caso «sin logo»** como estado de primera clase (§4.40.6). El dato que existe es: **un logo o `null`**; sin proporción garantizada entre sets y **sin segundo tamaño**. `DESIGN_SYSTEM.md` es suyo; yo no entro. | Antes de que frontend pinte |
-| **devops** | Correr `M-47` con `migrate deploy` (aditiva pura, sin ventana, sin congelación, sin rollback especial). **Ninguna variable de entorno nueva, ningún cambio en CI, ninguna cuota que confirmar** — esto **no** es nivel A de §5.3.5. Tras el deploy, el paso 1 de §4.40.4 lo dispara un `super_admin` desde M2; **no requiere script**. | Deploy del stream |
-| **qa** | (a) Un set **con** logo y un set **sin** logo (`null`) en la misma retícula ⇒ `200`, ambas tejas se pintan, ninguna rompe el layout. (b) Regresión de la **no-degradación**: `sync-all` → `sync {setId}` → el `logoUrl` **sigue ahí** (si se borró, el `update` está escribiendo `null` donde debía no-operar). (c) Los **cuatro** modos de la retícula reciben el campo, **incluido el del cotizador** — es el que se cae solo. (d) La petición de red **no** pide logos en la home ni en el filtro de Compra (§4.40.5). | Gate por stream |
-| **seguridad / pentester** | Superficie nueva **mínima y declarada**: dos URLs de un host **ya admitido**, públicas, sin PII, sin dinero. Lo único que vale mirar es el **guardarraíl de ingesta** (§4.40.4): que no se persista una URL no-`https:` ni de host arbitrario venida del proveedor. | Gate por release |
+| **arquitecto** | ✅ Hecho en este pase: §4.41 *(era §4.39, luego §4.40)*, ficha **M-47** en §11, y contrato **`API_CONTRACT.md` v1.52** (`logoUrl` en `MasterSetSummaryDTO` y en `GET /buylist/sets`, con la exclusión explícita de facetas/`/catalog/sets`/`CardDTO`). ✅ **v1.54:** renumeración **§4.41** / **M-48**, y **`CardSetDTO` / `BuylistSetDTO` declarados** en el contrato (cierre de **DT-Gd** por el lado del contrato). | — |
+| **backend** | (a) **M-47**: dos columnas nullable en `CardSet` (§11). (b) `RemoteCardSet` gana `images?: { symbol?: string; logo?: string }` — hoy el tipo las descarta. (c) `upsertSet()` las persiste con la **regla de no-degradación** y el **guardarraíl `https:` + host** de §4.41.4. (d) Proyectar **`logoUrl`** en `MasterSetSummaryDTO` (los **cuatro** endpoints — es un read model único, §4.20f) y en `GET /buylist/sets`. **`symbolUrl` se persiste y NO se expone.** (e) **Verificar** el hecho pendiente de §4.41.4 (¿el `set` anidado en una carta trae `images`?) y anotarlo en `BACKEND_NOTES.md`. (f) ⛔ **Prohibido**: crear endpoint/job/script de backfill, y construir URLs por plantilla. | Antes del merge del stream «Catálogo y precios» |
+| **frontend** | (a) Consumir `logoUrl: string \| null` en la retícula `MasterSetIndex` — **los cuatro modos**, incluido `quoter` (que lo mapea desde `GET /buylist/sets` en `fetchQuoterIndex`; si no se mapea ahí, el logo **no llega** a esa teja). (b) **Nivel B** (§4.41.7): `<img>` crudo, sin `next/image`, sin `srcset`, con el `eslint-disable` ya documentado. (c) `null` es **caso normal** ⇒ el tratamiento «sin logo» que defina ux-ui, **sin error visible y sin salto de layout**. (d) ⛔ **Prohibido** rellenar el hueco construyendo la URL desde el `setId`. (e) `next.config.mjs` **no se toca por esta feature** — ~~«mismo host»~~ **(razón superada 2026-09-05: son dos hosts)**; la razón vigente es que los logos son **Nivel B** y `remotePatterns` solo gobierna al optimizador (§4.41.7). Ojo: eso **no** exime del encargo independiente de §5.3.6(a), **cerrar D-IMG-5** (`hostname: '**'`), que sigue **abierto** y cuyo espejo debe incluir **los dos** hosts. **(f) ⚠️ v1.54 — LIMPIEZA DE CITAS, OBLIGATORIA EN ESTE STREAM:** `frontend/` cita hoy **`§4.40.5` / `§4.40.6` / `§4.40.7`** hablando de logos de set (`types/contract.ts`, `lib/api.ts`, `components/master-set/*`, `lib/mock/fixtures.ts`, `e2e/master-set-plate.spec.ts`); con el `§4.40` de graduación publicado en `main`, **esas citas apuntan a la sección equivocada, y la equivocada es de dinero**. Reescribir a **`§4.41.N`**. *(Cero cambio de conducta; es un comentario. Pero no es cosmético: una cita que aterriza en otra sección plausible se cree.)* | Con el contrato **v1.54** |
+| **ux-ui** | Define el aspecto de la teja **y del caso «sin logo»** como estado de primera clase (§4.41.6). El dato que existe es: **un logo o `null`**; sin proporción garantizada entre sets y **sin segundo tamaño**. `DESIGN_SYSTEM.md` es suyo; yo no entro. | Antes de que frontend pinte |
+| **devops** | Correr `M-47` con `migrate deploy` (aditiva pura, sin ventana, sin congelación, sin rollback especial). **Ninguna variable de entorno nueva, ningún cambio en CI, ninguna cuota que confirmar** — esto **no** es nivel A de §5.3.5. Tras el deploy, el paso 1 de §4.41.4 lo dispara un `super_admin` desde M2; **no requiere script**. | Deploy del stream |
+| **qa** | (a) Un set **con** logo y un set **sin** logo (`null`) en la misma retícula ⇒ `200`, ambas tejas se pintan, ninguna rompe el layout. (b) Regresión de la **no-degradación**: `sync-all` → `sync {setId}` → el `logoUrl` **sigue ahí** (si se borró, el `update` está escribiendo `null` donde debía no-operar). (c) Los **cuatro** modos de la retícula reciben el campo, **incluido el del cotizador** — es el que se cae solo. (d) La petición de red **no** pide logos en la home ni en el filtro de Compra (§4.41.5). | Gate por stream |
+| **seguridad / pentester** | ⚠️ **REESCRITO 2026-09-05 — la versión anterior decía «dos URLs de un host ya admitido» y «superficie nueva mínima», y ESO YA NO ES CIERTO.** *(Texto superado, conservado para el lector: «Superficie nueva mínima y declarada: dos URLs de un host ya admitido, públicas, sin PII, sin dinero. Lo único que vale mirar es el guardarraíl de ingesta».)* **Alcance vigente: los cuatro ítems S-1…S-4 de la tabla de §4.41.7.** Los dos que el texto viejo ocultaba: **(S-1)** hay un **host de terceros NUEVO** —`images.scrydex.com`— sirviendo imágenes en producción que **nadie ha auditado nunca**; y **(S-2)** el **arte de carta (~20 000 URLs)** entra por `upsertCards` **sin ninguna validación** de host, esquema ni forma (**M47-R1**, severidad **Alta**, **diferida, no aceptada**) — por ahí entraron 661 filas del host nuevo sin traza ni autorización. **No leer esta fila como «cero superficie».** Sigue siendo cierto que aquí no hay PII ni dinero. | Gate por release |
 
-#### 4.40.9 Lo que esta sección NO hace
+#### 4.41.9 Lo que esta sección NO hace
 
 - **No cambia el dinero.** `CardSet` no entra en ningún cálculo de precio. Cero montos, cero reglas, cero curva.
 - **No cambia ninguna ruta**, ningún código de error, ningún permiso, ningún rol.
 - **No decide la presentación.** Retícula, tamaños, encuadre, fondo y el tratamiento del «sin logo» son de **ux-ui**.
 - **No toca `frontend/`, `docs/DESIGN_SYSTEM.md` ni `docs/TECH_DEBT.md`** — zonas de otros agentes en este momento.
-- **No ordena un re-sync completo del catálogo.** §4.40.4 lo lista como opción del operador, no como paso obligatorio.
+- **No ordena un re-sync completo del catálogo.** §4.41.4 lo lista como opción del operador, no como paso obligatorio.
+
+---
+
+### 4.40 IDENTIDAD DE GRADUACIÓN EN EL BUYLIST — el cotizador vuelve a ser RAW-ONLY y `buildGradeKey` deja de inventar el grado (v1.53-buylist-graded-identity, NORMATIVO, **MONEY**)
+
+> ⚠️ **ESTE `§4.40` ES EL BUENO Y NO SE RENUMERA (v1.54(6)).** Está **publicado en `main`** y se cita **308 veces en
+> 42 ficheros**, incluidos `common/business-rules.ts`, `common/error-codes.ts`, `pricing.types.ts`,
+> `buylist.service.ts` y siete suites. **Las IMÁGENES DE SET, que ocuparon este número durante un pase de fusión, son
+> hoy `§4.41`.** Si has llegado aquí siguiendo una cita `§4.40.5` / `§4.40.6` / `§4.40.7` que hablaba de **logos de
+> expansión**, la cita está **rancia**: tu destino es **`§4.41`**.
+>
+> **Defecto vivo en producción, verificado de punta a punta en `main` (`4b1db96`) antes de escribir esta sección.**
+> Es un defecto de **dinero saliente**. Se corrige **en rama propia** (`claude/buylist-graded-identity`) y **por
+> separado** del ciclo de adquisición (`claude/buylist-inventory-workflow-hdnls3`), porque esa rama **retira la red
+> que hoy lo amortigua**: cuando la oferta pase a ser **vinculante desde el correo** y deje de repreciarse al
+> verificar, este defecto deja de ser un *error corregible* y pasa a ser un **compromiso firmado**.
+>
+> **Cero migraciones. Cero DDL. Cero columnas nuevas.** Esta sección **no** añade schema — y esa es la decisión, no
+> una omisión. Ver §4.40.3.
+
+#### 4.40.1 La cadena, reproducida (no de oídas)
+
+Cinco eslabones, cada uno verificado en el árbol de `main`:
+
+| # | Eslabón | Evidencia | Qué hace |
+|---|---|---|---|
+| 1 | El cotizador **ofrece** graduada y sellada | `frontend/…/buylist/BuylistView.tsx:57` — `PRODUCT_TYPES: ProductType[] = ['raw','graded','sealed']`, servido por el selector de `:512` | El vendedor puede elegir «graduada» |
+| 2 | **Nadie pregunta QUÉ grado es** | `buylist/dto/buylist.dto.ts` — `PublicQuoteDto` / `BuylistQuoteItemDto` / `RequestItemDto` **no declaran** `gradingCompany` ni `gradeValue`; `frontend/src/types/contract.ts` tampoco; el front manda `rawCondition: undefined` (`BuylistView.tsx:288, :416`) | No hay dónde capturarlo |
+| 3 | El servicio pide la clave con **dos** campos | `buylist.service.ts:340, :494, :765, :1854` — `gradeKeyFor({ productType, rawCondition })` | Los campos de grado llegan `undefined` |
+| 4 | **`buildGradeKey` rellena el hueco** | `pricing/pricing.types.ts:571` — `` return `graded:${input.gradingCompany ?? 'PSA'}:${input.gradeValue ?? '10'}` `` | Toda graduada se valúa contra **`graded:PSA:10`** |
+| 5 | La línea se **congela** sin grado | `prisma/schema.prisma:1136` — `SellRequestItem` tiene `productType`, `rawCondition`, `finish`, `cardProductId` y **ninguna columna de graduación** | El `quotedPriceCents` firmado es un precio de PSA 10 |
+
+**Resultado:** *cualquier* carta graduada se cotiza contra la referencia del **grado más caro que existe**, sea un PSA 6
+o un CGC 8. **Alcance real, sin inflarlo:** solo muerde donde exista una fila `graded:PSA:10` para esa carta; si no,
+la línea sale `precio_pendiente` y no suma. Es decir: **muerde exactamente en las cartas populares, que son las caras.**
+
+**Un sexto eslabón que no estaba en el encargo y que hay que registrar: el defecto NO se detiene en la cotización —
+se PERSISTE en la pieza.** `buylist.service.ts:1690` (`convertToInventory`) crea el `InventoryItem` copiando
+`cardId`, `productType`, `rawCondition` y `finish`, y **no escribe `gradingCompany`, `gradeValue` ni `certNumber`**
+—no puede: el origen no los tiene—. La pieza nace `productType='graded'` con **identidad de grado nula**, y desde ahí
+**todo** lector la vuelve a resolver como PSA 10, porque todos llaman al mismo `gradeKeyFor(item)`: `vault.service.ts`
+(`:155`, `:423`), `catalog.service.ts` (`:532`, `:546`, `:647`…), `orders.service.ts:137` (**precio de venta**),
+`admin.service.ts` (`:580`, `:918`, `:940` — valor de custodia y P&L), `jobs/price-sync.service.ts:44` y
+`price-ingest.service.ts` (`:752`, `:765`). No hallé guarda que impida publicarla: `PUBLISHABLE_ORIGIN_STATUSES`
+(`inventory.service.ts:193`) solo mira el `status`, no la identidad del slab. **La compra mal cotizada se convierte en
+inventario mal valuado y potencialmente publicado sin empresa, grado ni certificado** — lo que además contradice
+`PROJECT.md` §H («el **slab** es la garantía: empresa + grado + número de certificado, verificable en la graduadora»).
+
+#### 4.40.2 El hallazgo que reordena el encargo: `PROJECT.md` dice que esto **no debería existir**
+
+El encargo llegó formulado como «hay que capturar el grado». Antes de diseñar la captura verifiqué contra la fuente
+que manda (CLAUDE.md: *`PROJECT.md` manda sobre el contrato, y el contrato sobre el código*), y la fuente dice otra
+cosa, **más fuerte y ya decidida**:
+
+- **`PROJECT.md` §E** se titula, literal: **«Buylist — compra de *raw* a usuarios (cotizador público + solicitud)»**.
+  Todo su cuerpo es raw NM: *«la **condición es fija en Near Mint (NM)**, único grado que compramos»*.
+- **`PROJECT.md` §K, LOCKED** (líneas 801-804): *«El sellado es **solo venta**… **No hay buylist de sellado**… El
+  **cotizador y el pipeline de buylist siguen siendo solo para raw (§E)**.»*
+- **Criterio de aceptación 61** (línea 2587): *«El sellado es solo venta: **no existe** flujo de buylist de sellado
+  (**ni cotizador ni pipeline**)»*.
+- **«Fuera de alcance»** (línea 2123): *«Un buylist de sellado sería **fase 2 si se decide**.»*
+
+Y **`graded` no está autorizado en ninguna parte**: §E es raw por título y por cuerpo, y la frase *«solo para raw»*
+de §K cubre **el cotizador entero**, no solo el sellado.
+
+**Conclusión, y es la decisión de fondo de este pase:** el `PRODUCT_TYPES` de tres valores **no es una funcionalidad a
+la que le falta un campo — es una superficie que `PROJECT.md` nunca autorizó y que hoy está viva en producción.**
+Añadir `gradingCompany`/`gradeValue` a `SellRequestItem` **no sería arreglar el defecto: sería construir el buylist de
+graduadas**, que es una decisión de producto que no me corresponde tomar y que el documento que manda pone fuera de
+alcance. La regla de conflicto de CLAUDE.md no me deja elegir: **se cierra la superficie.**
+
+> ⚠️ **Lo que SÍ necesita al humano, dicho sin rodeos.** No asumo que la respuesta sea «no para siempre». El **código
+> dice que sí** compramos graduadas (lleva meses ofreciéndolo) y **`PROJECT.md` dice que no**. Eso es una divergencia
+> de producto real, no un typo, y quien la resuelve es el dueño — no el arquitecto. Mientras no la resuelva, manda
+> `PROJECT.md`. Lo que **no** es defendible en ninguna de las dos lecturas es la situación actual: **firmar cheques de
+> PSA 10 por cartas cuyo grado nunca preguntamos.** Ver §4.40.6 (pregunta abierta) y §4.40.7 (`M-49`, la forma
+> reservada por si la respuesta es «sí»).
+
+#### 4.40.3 DECISIÓN 1 — Cerrar la superficie. **Sin migración.**
+
+**El cotizador y el pipeline de buylist aceptan `productType='raw'` y solo `raw`.**
+
+1. **Regla de negocio, no espejo del schema.** La lista blanca se declara **literal** en
+   `backend/src/common/business-rules.ts` —no se deriva de `PRODUCT_TYPE_VALUES`— con su cita al lado:
+
+   ```ts
+   /** PROJECT.md §E + §K (LOCKED) + criterio 61: el cotizador y el pipeline de buylist son SOLO raw. */
+   export const BUYLIST_ACCEPTED_PRODUCT_TYPES = ['raw'] as const;
+   ```
+
+   Esto es **exactamente** el caso para el que §4.37 creó ese archivo: *«`enum-values.ts` responde «¿qué valores
+   EXISTEN?»; `business-rules.ts` responde «¿cuáles ACEPTAMOS?»»*. Derivarla del enum es lo que rompería la regla el
+   día que alguien añada un `ProductType`.
+2. **La autoridad es el servidor.** El `PRODUCT_TYPES` del front es **cosmética**: quitarlo mejora la UI y **no
+   arregla nada** (el endpoint es público y anónimo; un `curl` sigue pasando). La guarda vive **server-side** en las
+   tres superficies —`POST /buylist/quote`, `POST /buylist/quote/batch`, `POST /buylist/requests`— igual que SEC-A1
+   exige para todo lo que decide dinero.
+3. **Código: `422 BUYLIST_RAW_ONLY`** (nuevo, en `common/error-codes.ts`). **Por qué `422` de negocio y no el `400`
+   del `@IsIn` del pipe**, que sería el atajo obvio y **está mal** por una razón concreta y medible: en
+   `/quote/batch` los errores son **por-ítem** (`ok:false`, HTTP 200, `buylist.service.ts:400-428`); un `@IsIn` que
+   falle en el `ValidationPipe` **tumba el request entero con `400`** y se lleva por delante **las otras 49 líneas
+   raw legítimas** del grid. Un rechazo de regla de negocio degrada por-ítem; uno de forma, no. Por eso
+   `BUYLIST_RAW_ONLY` entra al allowlist de degradación por-ítem del batch, junto a `NOT_FOUND`,
+   `FINISH_NOT_AVAILABLE`, `PRODUCT_NOT_FOUND` y `PRODUCT_CARD_MISMATCH`.
+4. **Sí, es BREAKING para el endpoint público — y se acepta, con precedente en casa.** El único cliente es nuestro
+   propio front, el endpoint es anónimo y read-only, y la alternativa es seguir emitiendo compromisos de dinero al
+   grado equivocado. Es **la misma doctrina ya escrita** en `common/error-codes.ts:109-113` para
+   `GRADED_INTENT_REQUIRED`: *«un default sería FAIL-OPEN… se acepta un breaking chico a cambio de que la ambigüedad
+   sea imposible de expresar»*. Aquí el fail-open es peor: no elige «una» ruta de dinero, elige **la más cara**.
+5. **Cero migraciones.** No hay columna nueva, no hay `ALTER`, no hay backfill, no hay ventana. Por eso este pase
+   **puede publicarse hoy** sin esperar al ciclo de adquisición, que es justo lo que se pidió.
+
+#### 4.40.4 DECISIÓN 2 — `buildGradeKey` deja de rellenar. **El tipo lo impone; el runtime no inventa.**
+
+Esta es la decisión de fondo, y coincido con el planteamiento que me llegó: **arreglar solo a los llamadores deja la
+mina armada para el siguiente.** El `?? 'PSA'` / `?? '10'` es un **default silencioso que elige el grado más caro**, y
+eso no es defendible en ninguna variante. Se retira. Forma exacta:
+
+**(a) El input pasa a ser una unión discriminada** — el compilador impide expresar una graduada sin grado:
+
+```ts
+export type GradeKeyInput =
+  | { productType: 'raw';    rawCondition?: RawCondition | null }
+  | { productType: 'graded'; gradingCompany: GradingCompany; gradeValue: string }   // ← AMBOS obligatorios
+  | { productType: 'sealed' };                                                       // ← sin campos de grado
+```
+
+**Qué rompe, a propósito, y por qué eso es la señal y no el daño:**
+- `buylist.service.ts` (`:340`, `:494`, `:765`, `:1854`) pasa `{ productType, rawCondition }` con
+  `productType: ProductType` (unión que incluye `graded`) ⇒ **deja de compilar**. Es la alarma que queremos: la mina
+  no se puede volver a armar en silencio. Con §4.40.3 esos call-sites ya solo ven `raw`, así que el arreglo es
+  estrechar el tipo, no añadir campos.
+- Los llamadores de **inventario** pasan filas de `InventoryItem`, donde las columnas son `GradingCompany | null` y
+  `String | null` ⇒ **también dejan de compilar**. Y eso **también es correcto**: son precisamente las filas que
+  pueden venir nulas (§4.40.1, eslabón 6). Hoy «funcionan» porque el default les tapa el hueco. Que el compilador
+  les exija decidir es el objetivo, no un daño colateral.
+
+**(b) Dos funciones, y la regla de cuál usa quién.** Un `throw` desde un constructor de claves puro, llamado en
+bucles de listado, convertiría un dato incompleto en un **500 en una página que hoy renderiza**. Eso sería cambiar un
+error de dinero por una caída de servicio. Por eso:
+
+| Función | Firma | Ante `graded` con identidad incompleta | La usan |
+|---|---|---|---|
+| `buildGradeKey` | `(GradeKeyInput) => string` | **`throw IncompleteGradeIdentityError`** | Rutas que **escriben** o **deciden dinero**: cotización, creación de solicitud, alta/edición de inventario, override de precio |
+| `tryBuildGradeKey` | `(GradeKeyInput) => string \| null` | **`null`** | Rutas de **lectura/valuación** que deben pintar: bóveda, catálogo, agregados de admin, `price-sync`, `price-ingest` |
+
+**Regla dura: `null` ⇒ NO HAY REFERENCIA ⇒ `precio_pendiente` / `—`. Jamás un default, jamás MX$0, jamás un precio
+inventado.** Es literalmente el principio money-safe que `PROJECT.md` §E.1 declara superviviente de toda la refactor
+de pricing (*«sin dato ⇒ precio pendiente, jamás MX$0 ni precio inventado»*) y que §4.36 reafirma para la curva
+(*«SIN DATO DE MERCADO ⇒ pendiente»*).
+
+**(c) Efecto lateral que es, en realidad, la mitad del arreglo.** Las piezas ya convertidas del eslabón 6 —graduadas
+con identidad nula— **dejan de resolverse como PSA 10 y pasan a `pending`**. No es una regresión: es que **por
+primera vez dicen la verdad**. Un `pending` visible entra a la cola del dueño y se repara; un PSA 10 silencioso no se
+descubre nunca. Ver §4.40.5(b).
+
+**(d) `sealed` no cambia de valor y su hueco tampoco se tapa aquí.** `buildGradeKey({productType:'sealed'})` sigue
+devolviendo `'sealed'`: **es, por diseño, la clave del override MANUAL del admin** (§4.19d), y la clave de mercado por
+producto ya existe y es `sealedMarketGradeKey()` → `sealed:tcg:<productId>`. Lo único que cambia es que el tipo ya no
+admite campos de grado en la rama `sealed`. La colisión «dos sellados de la misma `Card` colapsan en `'sealed'`» es
+**real y está documentada desde v1.19**, pero **deja de ser alcanzable desde el buylist** en cuanto se cierra la
+superficie (§4.40.3), que es el único sitio donde firmaba dinero de compra.
+
+#### 4.40.5 DECISIÓN 3 — Las filas que ya existen. **Ninguna se repara inventando un grado.**
+
+Tres poblaciones, tres tratamientos distintos. **Ninguna lleva backfill de datos**, y eso es deliberado: no existe
+ningún dato del que se pueda derivar el grado real de una carta cuyo grado nunca se preguntó. Inventarlo sería repetir
+el defecto con otra sintaxis.
+
+**(a) `SellRequestItem` con `productType ∈ {graded, sealed}` en estado no terminal.** Su `quotedPriceCents` está
+congelado contra `graded:PSA:10` (o el `'sealed'` colapsado). **Decisión: NO se re-cotizan, NO se auto-aprueban y NO
+se convierten a inventario.** La respuesta honesta es la que ya se sospechaba en el encargo: **esas líneas no se
+pueden cotizar automáticamente.** Se resuelven **a mano** por la vía que ya existe —la decisión carta-por-carta
+con `approve | adjust | reject`, donde el monto lo escribe el dueño y el rechazo exige motivo (§M5)—. Lo único que
+este pase pide es un **censo read-only** (§4.40.8) para que el dueño **sepa cuánta exposición hay** antes de decidir.
+Sin `UPDATE`, sin script, sin endpoint nuevo.
+> **Ruta exacta de la salida manual (verificada, §M5):** `PATCH /api/v1/admin/buylist/items/:itemId/decision` con
+> `{ decision: "approve" | "adjust" | "reject", approvedPriceCents?, reason? }`. El `reject` **exige motivo** (3–500
+> chars) y ancla los plazos en `rejectedAt` (§4.18a). Es decir: **la vía para cerrar estas líneas ya existe y está
+> auditada; no hay que construir nada.**
+
+**(b) `InventoryItem` con `productType='graded'` y `gradingCompany`/`gradeValue` nulos.** Se reparan **solas** en el
+sentido que importa: con §4.40.4 dejan de valuarse a PSA 10 y caen a `pending`. La reparación real —decir qué slab
+es— la hace el operador con la carta física en la mano, por `PATCH /admin/inventory/items/:id`.
+> ⛔ **Y ahí hay un hueco que este pase abre en el contrato porque si no, la reparación es imposible:**
+> `UpdateItemDto` (`inventory.dto.ts:123-130`) acepta `certNumber`, `gradeValue`, `sealedSubtype`, `listPriceCents` y
+> `status` — pero **NO `gradingCompany`**. Es decir: hoy el operador puede corregir el grado pero **no la empresa
+> graduadora**. Se añade al contrato (v1.53, §M1). Aditivo, opcional, aplica solo a `productType='graded'`.
+
+**(c) Piezas graduadas ya `listed` con identidad nula.** Violan `PROJECT.md` §H (el slab se muestra con empresa +
+grado + certificado). Con (b) caen a `pending` y por tanto **no pueden re-publicarse con precio derivado** hasta que
+se reparen. **No se despublican automáticamente** —eso es una decisión de operación con impacto en el escaparate, no
+del arquitecto—; entran al mismo censo (§4.40.8) y el dueño decide reparar o retirar.
+
+#### 4.40.6 Pregunta abierta para el humano (bloquea `M-49`, **no** bloquea este pase)
+
+> **¿Compramos cartas graduadas por el cotizador?**
+> - **El código dice que sí** desde hace meses (`PRODUCT_TYPES` incluye `graded`; hay solicitudes reales).
+> - **`PROJECT.md` dice que no**: §E es «compra de **raw**», §K/LOCKED dice «el cotizador y el pipeline de buylist
+>   siguen siendo **solo para raw**», y el criterio 61 lo declara inexistente para sellado.
+>
+> **Mientras no haya respuesta manda `PROJECT.md`** y la superficie queda cerrada (§4.40.3). Si la respuesta es
+> **«sí, queremos comprar graduadas»**, eso es una **funcionalidad nueva** con su propio pase: `product-owner`
+> actualiza `PROJECT.md`, y solo entonces se programa **`M-49`** (§4.40.7), que ya está diseñada para que ese día no
+> haya nada que renegociar. **Lo que no vuelve en ningún escenario es el default silencioso.**
+>
+> **Sub-pregunta, porque salió en el encargo y la respuesta es «hoy no»:** se mencionó *«un PSA 6 o un **BGS** 8»*.
+> **`BGS` no existe en el sistema**: `enum GradingCompany { PSA, CGC }` (`schema.prisma:104`). Aceptar BGS es
+> **otra** decisión de producto (`ALTER TYPE ADD VALUE`, aditivo pero no gratis: toca el `isCanonicalGradeKey` de
+> §M2, los estimados de §4.38 y la UI). No se asume aquí.
+
+#### 4.40.7 `M-49` — la forma RESERVADA (**diseñada, NO programada**), pensada para los DOS consumidores
+
+Se me pidió explícitamente definir la forma «pensando en los dos consumidores, para que la otra rama no tenga que
+renegociarla». Aquí está, **completa y estable**, con la condición de arranque escrita al lado: **`M-49` no se ejecuta
+hasta que §4.40.6 se responda «sí» en `PROJECT.md`.** Diseñarla ahora cuesta cero y evita que
+`claude/buylist-inventory-workflow-hdnls3` invente una forma distinta; ejecutarla ahora sería construir una
+funcionalidad no autorizada.
+
+```prisma
+model SellRequestItem {
+  // M-49 (§4.40.7) — RESERVADO. Identidad del slab en la LÍNEA de compra. Aditivo, nullable, sin backfill.
+  // Regla de APLICACIÓN (no constraint de BD), idéntica a como InventoryItem ya trata estas columnas:
+  // los tres se pueblan JUNTOS y SOLO cuando productType='graded'; null en raw/sealed y en filas < M-49.
+  gradingCompany GradingCompany?  // PSA | CGC (BGS NO existe hoy — §4.40.6)
+  gradeValue     String?          // canónico: 10 | 9.5 | 9 | … | 1  (CANONICAL_GRADE_VALUE, §M2)
+  certNumber     String?          // nº de certificado del slab — IDENTIDAD física, ver abajo
+}
+```
+
+**Las cuatro decisiones de forma, con su porqué:**
+
+1. **Nullable y aditiva, sin backfill.** Hay filas vivas sin estos datos y **no hay de dónde derivarlos** (§4.40.5a).
+   Mismo precedente que `finish` (M-18), `cardProductId` (M-32) y los campos de rechazo (M-22).
+2. **`certNumber` entra, y no es un extra.** El encargo pedía «como mínimo compañía y grado»; el mínimo **no
+   alcanza**, por dos razones concretas: (i) `PROJECT.md` §H exige que una graduada se muestre con **empresa + grado
+   + número de certificado** para poder publicarla, y `convertToInventory` no puede poblar
+   `InventoryItem.certNumber` desde una fuente que no lo tiene; (ii) sin cert, **dos PSA 9 distintos de la misma
+   carta son indistinguibles** dentro de una solicitud, y el modelo del buylist es **una línea = una carta física**
+   (§4.16b). Compañía + grado identifican un *precio*; el cert identifica una *pieza*.
+3. **`gradeValue` es `String` (como en `InventoryItem`) pero se valida contra la regla canónica.** La columna queda
+   libre por simetría con el schema existente; la **regla** es `CANONICAL_GRADE_VALUE` (`pricing.types.ts:593`,
+   `^(?:10|[1-9](?:\.5)?)$`), que hoy solo custodia el endpoint de override. Se **promueve a
+   `common/business-rules.ts`** para que la use también el DTO de compra. *(Desviación relacionada: hoy el alta de
+   inventario acepta `gradeValue` como `@IsString()` libre — ver §9, **D-BG-4**.)*
+4. **`sealedProductId` NO entra.** Se preguntó explícitamente y la respuesta es **no**: añadirlo sería construir el
+   **buylist de sellado**, que el criterio 61 declara inexistente y «Fuera de alcance» pone en fase 2. El problema
+   del sellado colapsado es real (§4.40.4d) pero **deja de ser alcanzable desde el buylist** al cerrar la superficie,
+   y su cura fuera del buylist ya existe (`sealedMarketGradeKey`, §4.19d).
+
+**Obligatoriedad en el DTO, el día que `M-49` arranque** (queda escrita ahora para que no se renegocie): con
+`productType='graded'`, `gradingCompany` y `gradeValue` son **obligatorios** vía `@ValidateIf` —el mismo patrón que
+`ItemDecisionDto.reason` ya usa para `decision==='reject'`—, y su ausencia es **`422 GRADE_IDENTITY_REQUIRED`**, no
+un `400` de forma, por la razón de §4.40.3(3): en el batch debe degradar **por-ítem**. **Nunca** un default.
+
+#### 4.40.8 Censo (read-only) — para dimensionar, no para reparar
+
+Tres consultas de **solo lectura**, sin `UPDATE`, sin script de datos, sin endpoint nuevo. Su único propósito es que
+el dueño vea la exposición antes de decidir en §4.40.5(a) y §4.40.6:
+
+1. `SellRequestItem` con `productType != 'raw'`, agrupado por `itemStatus`, con `sum(quotedPriceCents)` y
+   `sum(approvedPriceCents)` — **cuánto dinero está comprometido** contra un grado que nunca se preguntó.
+2. `InventoryItem` con `productType='graded'` y (`gradingCompany IS NULL` **OR** `gradeValue IS NULL`), separando
+   `acquisitionType='buylist'` del resto — cuántas piezas quedan en `pending` tras §4.40.4.
+3. El subconjunto de (2) con `status='listed'` — las que están **publicadas** sin identidad de slab (§4.40.5c).
+
+**Dueño de la ejecución: backend** (lo anota en `docs/BACKEND_NOTES.md`). **No** es un paso de despliegue ni bloquea
+el merge; bloquea la **decisión del dueño** sobre las filas vivas.
+
+#### 4.40.9 Encargo por rol
+
+| Rol | Encargo | Puerta |
+|---|---|---|
+| **arquitecto** | ✅ Hecho en este pase: §4.40, fichas en §9 (D-BG-1…5) y §11 (**sin migración** + `M-49` reservada), y contrato **`API_CONTRACT.md` v1.53** (`422 BUYLIST_RAW_ONLY`, raw-only en las tres rutas de §6, `gradingCompany` en el `PATCH` de M1). | — |
+| **backend** | (a) `BUYLIST_ACCEPTED_PRODUCT_TYPES = ['raw']` en `common/business-rules.ts` **con la cita de `PROJECT.md` al lado** (§4.40.3.1). (b) Guarda server-side en las **tres** rutas → **`422 BUYLIST_RAW_ONLY`**; en `/quote/batch` **degrada por-ítem** (`ok:false`), no tumba el request (§4.40.3.3). (c) `buildGradeKey` con **unión discriminada** + `tryBuildGradeKey` tolerante; **retirar `?? 'PSA'` y `?? '10'`** (§4.40.4). (d) Repartir los ~30 call-sites de `gradeKeyFor` entre las dos funciones según la tabla de §4.40.4(b) — **money ⇒ la que lanza; lectura ⇒ la que devuelve `null` ⇒ `pending`**. (e) Aceptar `gradingCompany` en `UpdateItemDto` (§4.40.5b). (f) Censo de §4.40.8 → `BACKEND_NOTES.md`. (g) ⛔ **Prohibido**: crear columnas de graduación en `SellRequestItem`, escribir backfill que invente un grado, o dejar cualquier `??` que rellene identidad de grado. | Antes del merge de `claude/buylist-graded-identity` |
+| **frontend** | (a) `PRODUCT_TYPES` → `['raw']` en `BuylistView.tsx:57` y **retirar el selector de tipo** (`:512`) — con un solo valor, el control sobra. (b) Limpiar las ramas `productType !== 'raw'` que quedan muertas (`:212`, `:267`, `:274`, `:407`, `:470`). (c) `contract.ts`: los DTOs de buylist declaran `productType: 'raw'`. (d) Manejar **`BUYLIST_RAW_ONLY`** como error **por-ítem** en el batch (no como fallo global). (e) ⛔ **Prohibido** «arreglarlo» añadiendo un selector de grado: eso es §4.40.6, decisión del dueño. | Con el contrato v1.53 |
+| **devops** | **Nada que correr.** Cero migraciones, cero DDL, cero variables de entorno, cero ventana, cero cut-over. El rollback es el rollback normal de la rama. Dicho explícitamente para que nadie prepare la ceremonia de M-43/M-45 para un pase que no la necesita. | — |
+| **qa** | (a) **El caso del dinero, reproducido:** cotizar una carta con `graded` vía `POST /buylist/quote` ⇒ **`422 BUYLIST_RAW_ONLY`**, y **jamás** un monto derivado de `graded:PSA:10`. (b) **El caso que se cae solo:** un batch de 50 líneas con **una** `graded` ⇒ **`200`**, esa línea `ok:false`, **las otras 49 cotizan** (si el batch entero da `400`, la guarda se puso en el pipe y no en el servicio). (c) `POST /buylist/requests` con una línea `graded` ⇒ `422`, **y no se crea la solicitud**. (d) `sealed` se comporta igual que `graded` en las tres rutas (criterio 61). (e) **Regresión de la mitad persistida:** una pieza `graded` con `gradingCompany`/`gradeValue` nulos se valúa **`pending`**, no PSA 10, en bóveda, catálogo, admin y `price-sync`. (f) Una pieza `graded` **con** identidad completa sigue valuándose **exactamente igual que antes** (el cambio no debe mover ningún precio legítimo). | Gate por stream |
+| **techlead** | El punto de diseño a juzgar es §4.40.4: si el reparto de los ~30 call-sites entre `buildGradeKey`/`tryBuildGradeKey` respeta «money lanza, lectura degrada a `pending`», o si backend tomó el atajo de usar la tolerante en todas partes —que reintroduciría el fail-open con otro nombre—. | Gate por stream |
+| **seguridad / pentester** | Superficie que **se cierra**, no que se abre. Vale la pena confirmar por el borde HTTP (no por la UI) que `graded`/`sealed` no pasan en **ninguna** de las tres rutas, y que no queda ninguna vía que produzca un `gradeKey` de grado no capturado. | Gate por release |
+
+#### 4.40.10 Lo que esta sección NO hace
+
+- **No añade schema.** Cero columnas, cero migraciones, cero backfill. `M-49` está **diseñada y no programada**.
+- **No decide si compramos graduadas.** Eso es del dueño vía `product-owner` (§4.40.6). Aquí solo se deja de firmar
+  cheques al grado más caro mientras no se decida.
+- **No repara filas vivas.** Las inventaria (§4.40.8) y las enruta a decisión manual; **no inventa un grado**.
+- **No toca la mesa de decisión ni el puerto de posición** de `claude/buylist-inventory-workflow-hdnls3` — **no
+  existen en `main`** y no son de este pase. Esa rama consume la forma de §4.40.7 tal cual, sin renegociarla.
+- **No despublica** inventario por su cuenta (§4.40.5c) ni cambia el precio de ninguna pieza graduada **bien**
+  capturada.
+- **No toca `backend/`, `frontend/`, `docs/DESIGN_SYSTEM.md` ni `docs/TECH_DEBT.md`.**
 
 ---
 
@@ -16383,50 +17031,9 @@ processingFeeCents = totalCents − baseCents
   - `catalog-price-sync` **2×/día** (v1.12-catalog-pricing, §4.13c; crons sugeridos `0 12` y `0 0` UTC = **06:00 y 18:00 CDMX**, dueño devops): **importa sets nuevos** y **refresca precios de TODO el catálogo**. Como pokemontcg.io no tiene bulk de solo-precios, refrescar precios ⇒ **re-sync completo** (`syncAll({force:true})`): `upsertCards` repuebla cartas + `PriceReference` por acabado (1.1) con el FX del día. Secuencial (respeta backoff 429 del cliente), single-flight (`syncAllStatus.running`), idempotente (upsert). Requiere `POKEMONTCG_IO_API_KEY` para la cuota (§8). **Nuevo respecto al `price-sync` de bóveda:** este SÍ precia el catálogo completo (no filtra por `InventoryItem`).
 - **Validaciones duras:** dirección de envío/retiro **debe ser MX** (rechazo si no); retiro solo sobre `settled`; carta "precio pendiente" **no comprable**; topes de buylist (por solicitud/mes) e INE sobre tope.
 
-### 5.2 Qué exige cobertura de INTEGRACIÓN y no unitaria (v1.51.20, NORMATIVO, transversal)
-
-> **De dónde sale esta norma, porque no es una preferencia.** El gate del ciclo de adquisición cerró con **4.171
-> pruebas en verde** (cifra de QA) **y ocho bloqueantes vivos**. El diagnóstico de QA fue el correcto y es el que
-> convierte esto en una decisión de arquitectura: *no es que la suite fallara en avisar — está construida para no
-> poder*. Los ocho los encontró **ejercitando los endpoints por HTTP contra el stack real**, y **ninguno era sutil**:
-> rutas que devolvían `404` por su orden de declaración, un campo que el `ValidationPipe` descartaba en silencio,
-> veintiún campos que el DTO no proyectaba, una guarda de dinero que no existía. **Un mock de Prisma confirma la
-> forma del CÓDIGO, no la del SISTEMA**, y las cuatro cosas de arriba viven **fuera** del código que el unitario
-> ejecuta. Así que la norma no es «más pruebas»: es **qué clase de defecto tiene que poder hacer fallar la suite**.
-
-**REGLA.** Exige **al menos un caso de integración por HTTP contra base de datos real** todo lo que cumpla
-**cualquiera** de estos cinco. No es una escala de calidad ni una recomendación de cobertura: es la lista de
-**lugares donde el unitario es ciego por construcción**.
-
-| # | Dispara si el código… | Por qué el unitario no puede verlo | Bloqueante que lo probó |
-|---|---|---|---|
-| **1. DINERO** | escribe o decide un monto, o **gatea** una escritura de dinero (precondición de pago, tope, guarda de inmutabilidad) | el mock devuelve lo que le pidas: el peso que no debía salir **sale igual, y en verde** | `adjust` sobre una oferta **aceptada** ⇒ `200` ⇒ **el vendedor aceptó MX$500 y cobró MX$0** |
-| **2. La regla vive en el MOTOR** | `updateMany` condicional, guarda en el `where`, `@@unique`, transacción serializable | **el mock evalúa el `where` que TÚ escribiste, no el que la BD aplica** — y si lo evalúa de verdad es porque alguien **reimplementó el motor dentro del test**, que es la misma copia de la regla por otra puerta | ídem: la guarda del ciclo no existía y nada lo delataba |
-| **3. Es una PROYECCIÓN** | un DTO decide **qué viaja y qué no** (campos admin-only, redacciones, PII) | una prueba de **escritura no ve un campo que no se proyecta**: los datos estaban en la BD y el DTO emitía **2 de 26** | las dos proyecciones de `SellRequest`, y la de cliente definida **por resta** |
-| **4. Es superficie HTTP** | ruta y **orden de declaración**, `ValidationPipe`/whitelist, guards de rol, código y forma del error | el unitario **llama al servicio**: no pasa por el router ni por el pipe. Un campo descartado por la whitelist **no existe** para él | dos colas devolviendo `404`; `addressId` **descartado en silencio** |
-| **5. Cruza un módulo o un puerto** | cableado del contenedor DI, adaptadores, puertos entre módulos | `@Optional()` + `catch` **compila, pasa la suite entera y apaga la función en producción**, con un `warn` como único síntoma | el puerto de publicación (R1/R2 del techlead) |
-
-**Y su recíproco, que importa lo mismo:** lo que **no** toca ninguno de los cinco —lógica pura: interpolación de la
-curva, `business-days`, formatos, `money.ts`, derivaciones sin BD— **se prueba unitariamente y punto**. Subirlo a
-integración es lento y no descubre nada: *ahí el unitario no es ciego, es el instrumento correcto*. **Esta norma no
-dice «desconfía de los unitarios»; dice dónde NO son evidencia.**
-
-**Consecuencias operativas (las cuatro son normativas):**
-- **Régimen del archivo de integración — norma de backend, la adopto y la generalizo:** **nada de mocks de Prisma
-  ahí**. Si un caso necesita un estado que la API no puede fabricar, se **siembra por el cliente de BD** y se
-  **ejercita por HTTP**. *Un mock dentro de la suite de integración reintroduce exactamente la ceguera que esa suite
-  existe para eliminar, y encima con su nombre puesto.*
-- **El flujo crítico de punta a punta es UN caso, no N.** El smoke del ciclo (cotizar → ofertar → aceptar → guía →
-  declarar → confirmar → recibir → verificar → aprobar → pagar) vale **porque termina en una aserción de dinero** —
-  `payoutNetCents === offerNetCents`, el invariante que el bug rompía. **Un recorrido que no asevera un invariante es
-  una demo**, y una demo en verde es peor que ninguna prueba porque ocupa su sitio.
-- **El semillero es parte del contrato de la suite.** Si el arnés **no puede fabricar** un estado desde la UI —una
-  oferta emitida, por ejemplo—, las pruebas que lo necesitan **se saltan para siempre y en verde**: doce del portal
-  llevaban así todo el pase. *Una prueba que se salta sola es una prueba que no existe, y no lo parece.* **Todo
-  estado que un flujo crítico atraviesa tiene que ser fabricable por el seed.**
-- **⚠️ Dónde NO se aplica esta norma: como porcentaje.** **No hay número de cobertura objetivo y no lo habrá.** El
-  pase que se rechazó con ocho bloqueantes tenía **el mejor número de la historia del repo**. Cobertura no es cuánto
-  código se ejecutó: es **qué defectos pueden hacer fallar la suite**, y eso no se mide con un porcentaje.
+> **↪ La norma de cobertura de integración que aquí nació como «§5.2» vive ahora en `§5.4`** (renumerada en v1.54(7)
+> por colisión con la doctrina del snapshot congelado, que es la sección de abajo y **conserva el número por estar
+> publicada**). **Su contenido se movió íntegro, sin cambiar una palabra.**
 
 ---
 
@@ -16772,8 +17379,29 @@ Justificación, y por qué es urgente **precisamente porque hoy no hace nada**:
   **`remotePatterns` debe ser el ESPEJO de esa lista** más el host de las imágenes de carta. Cualquier host que
   `remotePatterns` acepte y el backend no pueda producir es superficie regalada.
   - Norma §0-B: **la lista se cita por su origen, no se transcribe aquí como autoridad.** Hoy son, ilustrativamente,
-    los dominios de TCGplayer y TCGCSV en esa constante, más `images.pokemontcg.io` de `Card.imageSmallUrl`. Si el
-    backend amplía su allowlist, `remotePatterns` se amplía **detrás**, nunca por delante.
+    los dominios de TCGplayer y TCGCSV en esa constante, más **los hosts de arte de carta** de `Card.imageSmallUrl`.
+    Si el backend amplía su allowlist, `remotePatterns` se amplía **detrás**, nunca por delante.
+  - **⚠️ ACTUALIZACIÓN 2026-09-05 (M47-H2) — el espejo tiene ahora DOS fuentes y el arte de carta ya no es UN host.**
+    Lo que había que corregir aquí es que este párrafo daba por sentado **un solo** host de arte de carta
+    (`images.pokemontcg.io`). **Son dos**: el proveedor mudó de CDN a mitad de catálogo y los sets recientes llegan de
+    otro origen (§4.41.1 hecho 8). Por tanto, cuando se cierre el comodín, `remotePatterns` debe espejar **tres**
+    orígenes, no dos: **(i)** `SEALED_IMAGE_HOST_ALLOWLIST` (`inventory/sealed-image-host.ts`), **(ii)**
+    `SET_IMAGE_HOSTS` (`catalog/catalog-sync.service.ts`, conjunto **cerrado** de hosts exactos, §4.41.4), y
+    **(iii)** los hosts que de hecho aparecen en `Card.imageSmallUrl`/`imageLargeUrl` — que **no** son una allowlist
+    sino **lo que `upsertCards` haya dejado pasar sin validar** (deuda **M47-R1**). Los tres se **leen de su fuente**
+    (clase (B)); ninguno se transcribe aquí.
+  - **Consecuencia incómoda de (iii), y hay que decirla:** mientras M47-R1 siga abierta, **no existe una lista
+    autoritativa de hosts de arte de carta** — solo un `SELECT … GROUP BY host` sobre producción, que es una foto, no
+    una política. Espejar una foto es frágil: el día que el proveedor mude otra vez, `remotePatterns` (ya cerrado)
+    **romperá imágenes legítimas** sin que nadie lo haya decidido. **Salida preferida, y es la de M47-R1:** que el
+    arte de carta pase por el mismo helper de allowlist que el resto, para que el espejo tenga **un original**. **Este
+    documento no ordena el orden de esos dos trabajos**; solo declara que cerrar D-IMG-5 con (iii) sin resolver es
+    aceptar un modo de fallo conocido, y que quien lo cierre debe verificar el `GROUP BY` del día, no el literal de
+    este párrafo.
+  - **Estado de D-IMG-5 (§9): ABIERTO.** Mientras lo esté, **ninguna sección de este documento puede citar
+    `remotePatterns` como control efectivo** — no acota nada. Cualquier deber redactado sobre él («se amplía detrás,
+    nunca por delante») es correcto como **orden futuro** y **decorativo hoy**; escríbase siempre con la condición
+    *«cuando D-IMG-5 esté cerrado»* explícita, como se hizo en §4.41.4 paso 3.
 - **Solo `protocol: 'https'`.** Sin `http`, sin comodines de esquema.
 - **Verificación obligatoria antes de mergear:** los fixtures de mocks y el bundle E2E usan
   `images.pokemontcg.io` (`frontend/src/lib/mock/fixtures.ts`), que queda dentro de la lista. Aun así frontend debe
@@ -16812,6 +17440,67 @@ Esta decisión se reabre —y solo entonces— si ocurre **una** de estas tres:
 2. Aparece **copia propia de imágenes** en almacenamiento nuestro (cambia a la vez §5.2.3-3 y el cálculo de coste).
 3. La medición de §5.3.5 muestra que el nivel A es **gratis en el plan vigente** con holgura ⇒ se puede evaluar
    subir la rejilla de Compra al nivel A. **Con medición, no con intuición.**
+
+---
+
+### 5.4 Qué exige cobertura de INTEGRACIÓN y no unitaria (v1.51.20, NORMATIVO, transversal)
+
+> ⚠️ **NACIÓ COMO «§5.2» Y HOY ES `§5.4` — renumerada en v1.54(7), y aquí queda dicho por qué.** La línea del ciclo de
+> adquisición la creó como `§5.2` **sin poder ver** que la línea de `main` ya tenía una `§5.2` publicada (la
+> **doctrina del snapshot congelado**, con subsecciones `§5.2.1`–`§5.2.9` citadas desde `backend/`, `frontend/` y
+> cuatro documentos). **Precedente aplicado: se renumera lo que aún no ha entrado.** Esta norma solo se citaba en
+> `ARCHITECTURE.md` y `API_CONTRACT.md`, así que **el coste externo de moverla es cero**. **Ni una palabra de su
+> contenido cambia.** *Si vienes de una cita «§5.2» que hablaba de **pruebas**, tu destino es ésta; si hablaba de
+> **snapshots de pedido**, es §5.2.*
+
+> **De dónde sale esta norma, porque no es una preferencia.** El gate del ciclo de adquisición cerró con **4.171
+> pruebas en verde** (cifra de QA) **y ocho bloqueantes vivos**. El diagnóstico de QA fue el correcto y es el que
+> convierte esto en una decisión de arquitectura: *no es que la suite fallara en avisar — está construida para no
+> poder*. Los ocho los encontró **ejercitando los endpoints por HTTP contra el stack real**, y **ninguno era sutil**:
+> rutas que devolvían `404` por su orden de declaración, un campo que el `ValidationPipe` descartaba en silencio,
+> veintiún campos que el DTO no proyectaba, una guarda de dinero que no existía. **Un mock de Prisma confirma la
+> forma del CÓDIGO, no la del SISTEMA**, y las cuatro cosas de arriba viven **fuera** del código que el unitario
+> ejecuta. Así que la norma no es «más pruebas»: es **qué clase de defecto tiene que poder hacer fallar la suite**.
+
+**REGLA.** Exige **al menos un caso de integración por HTTP contra base de datos real** todo lo que cumpla
+**cualquiera** de estos cinco. No es una escala de calidad ni una recomendación de cobertura: es la lista de
+**lugares donde el unitario es ciego por construcción**.
+
+| # | Dispara si el código… | Por qué el unitario no puede verlo | Bloqueante que lo probó |
+|---|---|---|---|
+| **1. DINERO** | escribe o decide un monto, o **gatea** una escritura de dinero (precondición de pago, tope, guarda de inmutabilidad) | el mock devuelve lo que le pidas: el peso que no debía salir **sale igual, y en verde** | `adjust` sobre una oferta **aceptada** ⇒ `200` ⇒ **el vendedor aceptó MX$500 y cobró MX$0** |
+| **2. La regla vive en el MOTOR** | `updateMany` condicional, guarda en el `where`, `@@unique`, transacción serializable | **el mock evalúa el `where` que TÚ escribiste, no el que la BD aplica** — y si lo evalúa de verdad es porque alguien **reimplementó el motor dentro del test**, que es la misma copia de la regla por otra puerta | ídem: la guarda del ciclo no existía y nada lo delataba |
+| **3. Es una PROYECCIÓN** | un DTO decide **qué viaja y qué no** (campos admin-only, redacciones, PII) | una prueba de **escritura no ve un campo que no se proyecta**: los datos estaban en la BD y el DTO emitía **2 de 26** | las dos proyecciones de `SellRequest`, y la de cliente definida **por resta** |
+| **4. Es superficie HTTP** | ruta y **orden de declaración**, `ValidationPipe`/whitelist, guards de rol, código y forma del error | el unitario **llama al servicio**: no pasa por el router ni por el pipe. Un campo descartado por la whitelist **no existe** para él | dos colas devolviendo `404`; `addressId` **descartado en silencio** |
+| **5. Cruza un módulo o un puerto** | cableado del contenedor DI, adaptadores, puertos entre módulos | `@Optional()` + `catch` **compila, pasa la suite entera y apaga la función en producción**, con un `warn` como único síntoma | el puerto de publicación (R1/R2 del techlead) |
+
+**Y su recíproco, que importa lo mismo:** lo que **no** toca ninguno de los cinco —lógica pura: interpolación de la
+curva, `business-days`, formatos, `money.ts`, derivaciones sin BD— **se prueba unitariamente y punto**. Subirlo a
+integración es lento y no descubre nada: *ahí el unitario no es ciego, es el instrumento correcto*. **Esta norma no
+dice «desconfía de los unitarios»; dice dónde NO son evidencia.**
+
+**Consecuencias operativas (las cuatro son normativas):**
+- **Régimen del archivo de integración — norma de backend, la adopto y la generalizo:** **nada de mocks de Prisma
+  ahí**. Si un caso necesita un estado que la API no puede fabricar, se **siembra por el cliente de BD** y se
+  **ejercita por HTTP**. *Un mock dentro de la suite de integración reintroduce exactamente la ceguera que esa suite
+  existe para eliminar, y encima con su nombre puesto.*
+- **El flujo crítico de punta a punta es UN caso, no N.** El smoke del ciclo (cotizar → ofertar → aceptar → guía →
+  declarar → confirmar → recibir → verificar → aprobar → pagar) vale **porque termina en una aserción de dinero** —
+  `payoutNetCents === offerNetCents`, el invariante que el bug rompía. **Un recorrido que no asevera un invariante es
+  una demo**, y una demo en verde es peor que ninguna prueba porque ocupa su sitio.
+- **El semillero es parte del contrato de la suite.** Si el arnés **no puede fabricar** un estado desde la UI —una
+  oferta emitida, por ejemplo—, las pruebas que lo necesitan **se saltan para siempre y en verde**: doce del portal
+  llevaban así todo el pase. *Una prueba que se salta sola es una prueba que no existe, y no lo parece.* **Todo
+  estado que un flujo crítico atraviesa tiene que ser fabricable por el seed.**
+- **⚠️ Dónde NO se aplica esta norma: como porcentaje.** **No hay número de cobertura objetivo y no lo habrá.** El
+  pase que se rechazó con ocho bloqueantes tenía **el mejor número de la historia del repo**. Cobertura no es cuánto
+  código se ejecutó: es **qué defectos pueden hacer fallar la suite**, y eso no se mide con un porcentaje.
+
+> **⚠️ v1.54 — el disparador 1 gana un caso concreto que la fusión hace obligatorio, y NO es norma nueva:** la guarda
+> **`422 BUYLIST_RAW_ONLY`** (§4.40.3) cae de lleno en los disparadores **1** (gatea una escritura de dinero) y **4**
+> (superficie HTTP, con **degradación por-ítem** en `/quote/batch` y **todo-o-nada** en `/buylist/requests`), y su
+> comportamiento **es distinto según la ruta**. *Un unitario del servicio no puede ver la diferencia: la decide el
+> pipe y el envoltorio de la respuesta.* Integración por HTTP en **las tres** rutas.
 
 ---
 
@@ -17003,11 +17692,29 @@ Riesgos técnicos:
   | **BL-12** ⛔ **ABIERTA** *(v1.51.3 — dato faltante en filas vivas, no bug de código)* | Las `cotizada` **creadas antes de M-46** tienen `pickupAddressSnapshot = null` ⇒ **no se pueden ofertar** (`422 PICKUP_ADDRESS_MISSING`, §4.39h paso 1-bis). Sin remedio quedarían atoradas hasta caducar | backend (guarda + `PATCH`) · **operación (contactar al vendedor)** | **Se resuelve DENTRO del triage de BL-10**, que ya es paso obligatorio y ya toca estas mismas filas: por cada `cotizada` viva, o se le pide la dirección al vendedor (tiene `User.phone`, D11/D12) o se **declina a mano** (`POST …/decline`, D39). ⚠️ **No se rellena la dirección desde la libreta viva ni desde otro pedido**: sería inventarle al vendedor un origen que no confirmó (§4.39q.2) |
   | **BL-13** ⛔ **ABIERTA** *(v1.51.4 — **desenlace INCORRECTO documentado como remedio**; defecto de arquitectura, mío, no del código)* | (q.4) documenta que tras la guía *«el remedio es humano: cancelar la guía y re-emitir»*. **Ese remedio NO es ejecutable:** la cola «cancelar guía no usada» **solo se abre** si la solicitud con guía **expira o se cancela**, y una `aceptada` **no se cancela** (`409 OFFER_NOT_CANCELLABLE`). Con la dirección mal impresa, **la única salida hoy es dejar vencer el plazo de envío** ⇒ `expirada`+`not_shipped` ⇒ **correo 3b: «aceptaste y el paquete no salió»**. **Un typo NUESTRO acaba acusando al vendedor** — la misma injusticia que D38 quitó, por otra puerta | backend | **Con M-46, no después** (mismo módulo, mismo endpoint de guía). Cierre = §4.39(t): **`PATCH /admin/buylist/:id/pickup-address`** + **`409 GUIDE_CANCELLATION_PENDING`** en `POST …/guide` + congelar `shipDeadlineAt` **cuando es `null`**. ⚠️ **Los tres van juntos**: sin el tercero, una guía re-capturada deja la solicitud **sin plazo para siempre** |
   | **BL-10** ⛔ **ABIERTA** *(v1.51.1 — riesgo de CUT-OVER, no bug: correo saliente a personas reales)* | La **regla 7** del barrido (D33) se ancla en `createdAt`. En su **primera corrida** sobre datos históricos, **toda `cotizada` viva con más de 7 días hábiles caduca de golpe y cada una manda un correo real** de «no procederemos». El mensaje es **cierto**, pero debe salir **cuando alguien decidió**, no como efecto colateral de un deploy | backend (escribe la regla) · **devops (ejecuta el censo)** | **Antes de habilitar la regla 7 en producción.** Cierre = **censo de las `cotizada` vivas + triage manual** (ofertarlas o cerrarlas). **No se falsifica `createdAt`** ni se inventa una fecha ancla: el remedio es operativo, no de dato (§4.39j regla 7) |
+- **⚠️ NUEVAS (v1.53) — BUYLIST DE GRADUADAS: una superficie no autorizada y un default que elige el grado más caro.**
+  **Es dinero saliente y está VIVO EN PRODUCCIÓN.** Reproducidas de punta a punta en `main` (`4b1db96`) antes de
+  documentarlas; ninguna corregida por mí. Dictamen completo en **§4.40**.
+  *(⚠️ **v1.54 — cómo conviven con las `BL-nn` de arriba, para que nadie las trabaje por separado:** los espacios de
+  nombres **no colisionan** (`D-BG-n` ≠ `BL-nn`) y los dominios son distintos —la identidad del slab vs. el ciclo de
+  adquisición—, **pero comparten dos cosas concretas**: **(1)** `D-BG-2` reescribe `buildGradeKey` en **los mismos
+  cuatro call-sites** que `BL-8` acaba de migrar a `variantKey()` ⇒ **se serializan**; y **(2) `D-BG-3`/`§4.40.5a` y
+  `BL-10`/`BL-12` recorren LAS MISMAS FILAS** —las `cotizada` vivas— ⇒ **un solo censo y un solo triage**, el paso 6
+  del despliegue de M-46. Ver cabecera **v1.54(8)** y **v1.54(9)**.)*
+  | # | Desviación | Evidencia | Dueño | Puerta |
+  |---|---|---|---|---|
+  | **D-BG-1** | **El cotizador ofrece un producto que `PROJECT.md` no autoriza.** `PRODUCT_TYPES = ['raw','graded','sealed']` contra §E («compra de **raw**»), §K/LOCKED («el cotizador y el pipeline de buylist siguen siendo **solo para raw**») y el **criterio 61** («no existe flujo de buylist de sellado, **ni cotizador ni pipeline**»). **Es una violación de criterio de aceptación, no un detalle de UI** | `frontend/…/buylist/BuylistView.tsx:57` y `:512` vs. `PROJECT.md` §E/§K/criterio 61 | frontend (UI) · **backend (la guarda real)** | **Bloqueante de este pase.** §4.40.3 |
+  | **D-BG-2** | **`buildGradeKey` inventa la identidad de grado y elige el grado MÁS CARO.** `` `graded:${gradingCompany ?? 'PSA'}:${gradeValue ?? '10'}` `` ⇒ toda graduada se cotiza contra **PSA 10**. Fail-open de dinero: el default no es neutro, es el máximo | `pricing/pricing.types.ts:571`, alcanzado desde `buylist.service.ts:340, 494, 765, 1854` vía `gradeKeyFor` | backend | **Bloqueante.** §4.40.4. **Causa raíz**: mientras el `??` exista, cerrar la superficie solo desarma *este* llamador |
+  | **D-BG-3** | **El defecto se PERSISTE en la pieza, no solo en la cotización.** `convertToInventory` crea el `InventoryItem` **sin** `gradingCompany`/`gradeValue`/`certNumber` (no puede: el origen no los tiene) ⇒ la pieza queda `graded` con identidad nula y **todo** lector la re-resuelve como PSA 10 (bóveda, catálogo, **precio de venta**, valor de custodia, P&L, `price-sync`). No hallé guarda que impida **publicarla** así, lo que además contradice `PROJECT.md` §H (el slab se muestra con empresa + grado + cert) | `buylist.service.ts:1690` vs. `schema.prisma:669` (`InventoryItem`) y `:1136` (`SellRequestItem`); lectores en `vault.service.ts:155/423`, `catalog.service.ts:532/546/647`, `orders.service.ts:137`, `admin.service.ts:580/918/940`, `jobs/price-sync.service.ts:44`; `PUBLISHABLE_ORIGIN_STATUSES` en `inventory.service.ts:193` solo mira `status` | backend | **NO estaba en el encargo.** Se cura sola con §4.40.4 (cae a `pending`); las filas vivas, en §4.40.5(b)/(c) |
+  | **D-BG-4** | **El operador no puede reparar lo que se le pide reparar.** `UpdateItemDto` acepta `gradeValue` y `certNumber` pero **NO `gradingCompany`** ⇒ una pieza graduada con empresa nula es **incorregible** por la vía normal. Además `gradeValue` es `@IsString()` **libre**: el alta admite `"banana"` ⇒ `graded:PSA:banana`, una clave que `isCanonicalGradeKey` rechazaría en el override pero que el alta acepta | `inventory/dto/inventory.dto.ts:123-130` y `:89`, `:167`, `:256` vs. `CANONICAL_GRADE_VALUE` en `pricing/pricing.types.ts:593` | backend | `gradingCompany` **con este pase** (contrato v1.53, §4.40.5b). La validación canónica de `gradeValue`, **con `M-49`** o antes si backend la toma de paso |
+  | **D-BG-5** | **El contrato contradecía a `PROJECT.md`, y por eso el código tenía razón.** Las tres rutas de §6 declaraban `productType: ProductType` —los tres valores— cuando §E/§K/criterio 61 dicen «solo raw». **Backend y frontend implementaron exactamente lo que el contrato pedía**: la desviación **no es suya**. Por la regla de conflicto (`PROJECT.md` > contrato > código) el que estaba mal era el contrato. *(Nota de precisión: la frase «para graded/sealed, tabla `BUYLIST_PRICE_RULES` (se reutiliza)» del changelog v1.6-finish es **histórica**, no normativa, y no autorizaba nada por sí sola — la autorización de facto era la firma `productType: ProductType`.)* | `API_CONTRACT.md` §6 (`Req` de `/buylist/quote`, `/quote/batch` y `/buylist/requests`) vs. `PROJECT.md` §E/§K/criterio 61 | **arquitecto** | ✅ **CERRADA en este pase** (contrato v1.53) |
+
 - **⚠️ NUEVAS (v1.51-b) — imágenes: una omisión, un tipo falso y un comodín cargado.** Ninguna corregida por mí.
-  *(⚠️ **v1.53 — llegan de la línea de `main`; conviven con las `BL-nn` de arriba sin colisión de espacio de nombres**
-  (`D-IMG-n` ≠ `BL-nn`). **`D-IMG-2` sigue abierta y aceptada**, y **DT-Gd** —el tipo único `CardSetDTO` para dos
-  endpoints que el contrato define distintos— **queda cerrada por el lado del contrato** en `API_CONTRACT.md` v1.53(D)
-  (nacen `CardSetDTO` y `BuylistSetDTO`); **falta el tipo del cliente, y es de frontend**.)*
+  *(⚠️ **v1.54 — llegan de la línea de `main`; conviven con las `BL-nn` y las `D-BG-n` de arriba sin colisión de
+  espacio de nombres** (`D-IMG-n` ≠ `BL-nn` ≠ `D-BG-n`). **`D-IMG-2` sigue abierta y aceptada**, y **DT-Gd** —el tipo
+  único `CardSetDTO` para dos endpoints que el contrato define distintos— **queda cerrada por el lado del contrato**
+  en `API_CONTRACT.md` **v1.54(D)** *(era «v1.53(D)»; renumerado)* (nacen `CardSetDTO` y `BuylistSetDTO`); **falta el
+  tipo del cliente, y es de frontend**.)*
   Doctrina y encargos completos en **§5.2** (snapshot) y **§5.3** (`next/image`).
   | # | Desviación | Evidencia | Dueño | Puerta |
   |---|---|---|---|---|
@@ -17016,6 +17723,24 @@ Riesgos técnicos:
   | **D-IMG-3** | `OrderLineData.cardSnapshot` está tipado como **`object`**: un blob probatorio sin forma en el backend | `orders.service.ts` (tipo `OrderLineData`) | backend | Con D-IMG-1. **Es la causa raíz**, no un detalle de estilo |
   | **D-IMG-4** | `OrderItemPreview.card` se tipa como **`CardDTO` completo**, que el backend nunca devolvió en esa posición: el tipo **prometía** `imageSmallUrl: string` y por eso el front la pintó sin que nada lo desmintiera. Además `CardDTO.imageSmallUrl` es `string` (requerido) mientras la columna es **`String?`** en el schema | `frontend/src/types/contract.ts` vs. `prisma/schema.prisma` | frontend | Con el contrato **v1.51-b** (`OrderItemCardDTO`, imagen **nullable**) |
   | **D-IMG-5** | `images.remotePatterns` incluye `hostname: '**'`. **Hoy inerte** (cero `next/image`), pero convierte el optimizador en **proxy de imágenes abierto** en cuanto se adopte. Es **más ancho que lo que el backend puede producir**, que ya valida host contra `SEALED_IMAGE_HOST_ALLOWLIST` | `frontend/next.config.mjs` vs. `backend/src/modules/inventory/sealed-image-host.ts` | frontend | **Cerrar YA**, mientras el cambio tiene riesgo funcional cero (§5.3.4) |
+
+- **⚠️ NUEVA (v1.52-b, 2026-09-05) — DESVIACIÓN DE PROCESO: «el commit cita la regla y la deja falsa».** Quinto
+  ejemplar de la familia de abajo, con una vuelta de tuerca: aquí la fuente no se contradijo con el producto por
+  descuido — **fue el propio cambio el que volvió falsa la sección que estaba citando**, y pasó **QA en verde y
+  techlead en verde**.
+  | # | Qué pasó | Qué quedó afirmando el documento | Qué era cierto tras el cambio |
+  |---|---|---|---|
+  | **D-PROC-5** | El proveedor mudó de CDN; backend amplió el guardarraíl de §4.41.4 a **dos** hosts exactos (correcto, con evidencia y tests de mutación) y **citó `§4.39.4` en el propio `warn`** *(numeración de entonces; hoy §4.41.4 — el literal del código entra en la limpieza de v1.54(6))* | §4.41.1 h.7 «el arte de **todas** las cartas»; §4.41.7 «el **mismo host** … **cero superficie nueva para seguridad**»; §4.41.8 «dos URLs de un host **ya admitido**» | Dos hosts, uno de ellos **nunca auditado**, ya sirviendo ~661 imágenes en producción entradas **sin validación** (M47-R1) |
+  - **Impacto real, y es el que la hace grave:** el texto invalidado es **el que el gate de seguridad lee por release
+    para dimensionar su alcance**. Un pentester obediente habría leído «cero superficie nueva» y **no habría mirado
+    el host nuevo**. No es un error de redacción: es un **control de seguridad desactivado por una frase caducada**.
+  - **No se enruta como falta de rol.** El pase hizo lo difícil bien (evidencia de producción, conjunto cerrado,
+    mutación) y **reportó por escrito** en `BACKEND_NOTES.md` §0.20.4 — por eso esta corrección existe. Lo que falló
+    es el **procedimiento**: pedía «avisar al arquitecto» sin decir **cuándo** ni **qué releer**, y apoyaba ese deber
+    en un acoplamiento (`remotePatterns`) **hoy inerte** por D-IMG-5.
+  - **Dueño:** arquitecto (norma) — **CERRADA en este pase** con **§0-B.3 regla 7** (la *regla de la cita*, propuesta
+    por el techlead) + la corrección de §4.41.4/§4.41.7/§4.41.8. **Cierre duro pendiente:** un chequeo de CI sobre
+    `§x.y` en el diff — **sugerencia, alcance devops**, no requisito de arquitectura.
 
 - **⚠️ NUEVA (v1.50.4) — DESVIACIÓN DE PROCESO, no de código: «la fuente afirma, el producto contradice, nadie
   coteja».** Es la desviación **más cara** registrada aquí, porque no vive en un archivo: vive en cómo el equipo
@@ -18426,7 +19151,40 @@ cambios de tipo**. Segura con la app corriendo. Spec completa en **§4.39**; con
 > Postgres sin recrear el tipo — por eso el rollback soportado es **revertir el deploy, no la migración**, y por eso el
 > DDL va **antes** que el código (si el código se revierte, ninguna fila habrá llegado a un estado nuevo salvo las que
 > el ciclo ya movió; esas requieren decisión manual y quedan enumeradas por `@@index([offerState])`).
-### v1.52-set-logos (nueva — **M-47**: imágenes de set en `CardSet` — **DDL ADITIVO PURO**, §4.40)
+
+### v1.53-buylist-graded-identity — **SIN MIGRACIÓN** (y `M-49` queda RESERVADA, §4.40)
+
+> **Este pase no tiene migración, y decirlo es parte de la decisión.** El encargo pedía «migración aditiva y columnas
+> nullable» para meter identidad de graduación en `SellRequestItem`. Al verificar contra `PROJECT.md` resultó que esas
+> columnas **darían soporte a una funcionalidad que el documento que manda pone fuera de alcance** (§E, §K/LOCKED,
+> criterio 61: *«el cotizador y el pipeline de buylist siguen siendo solo para raw»*). Añadirlas no sería arreglar el
+> defecto de dinero: sería **construir el buylist de graduadas**. El defecto se cierra sin tocar el schema — cerrando
+> la superficie (§4.40.3) y retirando el default que elige el grado más caro (§4.40.4).
+
+| # | Modelo / artefacto | Cambio | Tipo | Nota |
+|---|---|---|---|---|
+| — | `backend/prisma/schema.prisma` | **NINGUNO** | — | **Cero DDL.** `prisma/` es zona compartida y este pase **no la toca**: no hay nada que serializar frente a otros streams. |
+| — | Datos existentes | **NINGÚN backfill** | Data | No existe dato del que derivar el grado de una carta cuyo grado **nunca se preguntó**. Inventarlo sería repetir el defecto con otra sintaxis. Las filas vivas se **inventarían** (censo read-only, §4.40.8) y se resuelven **a mano** (§4.40.5). |
+| — | `common/business-rules.ts` | Gana `BUYLIST_ACCEPTED_PRODUCT_TYPES = ['raw']` | Código | Regla de negocio **literal, no derivada del enum** — el caso exacto de §4.37. Con la cita de `PROJECT.md` al lado. |
+| — | `common/error-codes.ts` | Gana `BUYLIST_RAW_ONLY` | Código (contrato **v1.53**) | `422` de negocio, **no** `400` de forma: debe degradar **por-ítem** en `/quote/batch` (§4.40.3.3). |
+| — | `pricing/pricing.types.ts` | `buildGradeKey` con **unión discriminada** + `tryBuildGradeKey`; **se retiran `?? 'PSA'` y `?? '10'`** | Código | **La causa raíz.** Rompe la compilación en los call-sites que hoy pasan identidad incompleta — esa es la señal buscada (§4.40.4). |
+| — | `inventory/dto/inventory.dto.ts` | `UpdateItemDto` gana `gradingCompany?` | Código (contrato **v1.53**) | Sin esto, una pieza graduada con empresa nula es **incorregible** por la vía normal (D-BG-4, §4.40.5b). |
+
+#### `M-49` — RESERVADA, **no programada** (§4.40.7)
+
+> **Condición de arranque: que `PROJECT.md` responda «sí» a §4.40.6** («¿compramos cartas graduadas por el
+> cotizador?»), vía `product-owner`. **Hasta entonces no se ejecuta.** Se deja diseñada —y no solo mencionada— para
+> que `claude/buylist-inventory-workflow-hdnls3` tenga una forma estable que consumir y **no invente otra**.
+
+| # | Modelo / artefacto | Cambio | Tipo | Nota |
+|---|---|---|---|---|
+| M-49 | `SellRequestItem.gradingCompany` | `GradingCompany?` | **DDL aditivo** (reservado) | `PSA \| CGC`. **`BGS` no existe en el enum** — añadirlo es otra decisión de producto (§4.40.6). |
+| M-49 | `SellRequestItem.gradeValue` | `String?` | **DDL aditivo** (reservado) | Validado contra `CANONICAL_GRADE_VALUE` (`^(?:10\|[1-9](?:\.5)?)$`), promovida a `common/business-rules.ts`. |
+| M-49 | `SellRequestItem.certNumber` | `String?` | **DDL aditivo** (reservado) | **No es un extra:** `PROJECT.md` §H exige empresa + grado + **cert** para publicar una graduada, y sin él dos PSA 9 de la misma carta son indistinguibles en una solicitud one-line-per-card (§4.16b). Se propaga a `InventoryItem.certNumber` al convertir. |
+| M-49 | `SellRequestItem.sealedProductId` | **NO ENTRA** | — | Se evaluó y se **rechaza**: sería el **buylist de sellado**, inexistente por criterio 61 y «fase 2» por «Fuera de alcance». §4.40.7(4). |
+| M-49 | Backfill | **NINGUNO** | Data | Nullable puro; filas < M-49 quedan en `null`. Mismo precedente que `finish` (M-18), `cardProductId` (M-32) y los campos de rechazo (M-22). |
+
+### v1.52-set-logos (nueva — **M-47**: imágenes de set en `CardSet` — **DDL ADITIVO PURO**, §4.41 *(era §4.39, luego §4.40 — v1.54(6))*)
 
 ⚠️ **`backend/prisma/schema.prisma` es ZONA COMPARTIDA:** el orquestador serializa **M-47** frente a cualquier otro
 stream que toque el schema. Es la migración **más barata de este documento**: dos columnas nullable en una tabla que
@@ -18434,12 +19192,12 @@ stream que toque el schema. Es la migración **más barata de este documento**: 
 
 | # | Modelo / artefacto | Cambio | Tipo | Nota |
 |---|---|---|---|---|
-| M-47 | `CardSet.logoUrl` (NUEVA columna) | `String?` | **DDL aditivo** | `images.logo` de pokemontcg.io — el nombre del set dibujado. **La teja de selección de set.** `null` legítimo y permanente (promos, sets viejos). Clase **(P) presentación** (§5.2.2) ⇒ viaja como **`null` con clave presente** (§4.40.6). |
-| M-47 | `CardSet.symbolUrl` (NUEVA columna) | `String?` | **DDL aditivo** | `images.symbol` — el glifo cuadrado impreso en la carta. **Se persiste y NO se expone** en ningún DTO de este pase (§4.40.5). Se guarda ahora porque viene en la misma respuesta a coste cero y evitarlo obligaría a **otra** migración + otro re-sync (§4.40.2). |
+| M-47 | `CardSet.logoUrl` (NUEVA columna) | `String?` | **DDL aditivo** | `images.logo` de pokemontcg.io — el nombre del set dibujado. **La teja de selección de set.** `null` legítimo y permanente (promos, sets viejos). Clase **(P) presentación** (§5.2.2) ⇒ viaja como **`null` con clave presente** (§4.41.6). |
+| M-47 | `CardSet.symbolUrl` (NUEVA columna) | `String?` | **DDL aditivo** | `images.symbol` — el glifo cuadrado impreso en la carta. **Se persiste y NO se expone** en ningún DTO de este pase (§4.41.5). Se guarda ahora porque viene en la misma respuesta a coste cero y evitarlo obligaría a **otra** migración + otro re-sync (§4.41.2). |
 | M-47 | `RemoteCardSet` (`pokemontcg-io.client.ts`) | Gana `images?: { symbol?: string; logo?: string }` | Código | El tipo hoy **no las declara**, por eso el sync las descarta. Cero requests extra: ya vienen en el JSON que se descarga. |
-| M-47 | `upsertSet()` (`catalog-sync.service.ts`) | Persiste ambas, con **no-degradación** y guardarraíl `https:` + host | Código | **Regla dura:** ausente ⇒ *no-op* en el `update` (nunca `null`), ausente ⇒ `null` en el `create`. Sin esto, la vía «set anidado en carta» **borra** lo que escribió la vía `GET /v2/sets`. §4.40.4. |
+| M-47 | `upsertSet()` (`catalog-sync.service.ts`) | Persiste ambas, con **no-degradación** y guardarraíl `https:` + host | Código | **Regla dura:** ausente ⇒ *no-op* en el `update` (nunca `null`), ausente ⇒ `null` en el `create`. Sin esto, la vía «set anidado en carta» **borra** lo que escribió la vía `GET /v2/sets`. §4.41.4. |
 | M-47 | Proyección `MasterSetSummaryDTO` (4 endpoints) + `GET /buylist/sets` | Emiten `logoUrl` | Código (contrato **v1.52**) | Read model único (§4.20f): los cuatro modos de la retícula, **más** `GET /buylist/sets` porque el modo `quoter` compone sus tejas desde ahí client-side. |
-| M-47 | Backfill de datos | **NINGUNO** | Data | **No hay `UPDATE`, no hay script, no hay endpoint nuevo.** Los sets ya importados se pueblan **re-corriendo el sync existente** (idempotente y auditado): `POST /admin/catalog/sync { setId }` por set — el botón de M2 que ya existe. `sync-all { force:true }` es opción del operador, **no un paso obligatorio de este pase**. §4.40.4. |
+| M-47 | Backfill de datos | **NINGUNO** | Data | **No hay `UPDATE`, no hay script, no hay endpoint nuevo.** Los sets ya importados se pueblan **re-corriendo el sync existente** (idempotente y auditado): `POST /admin/catalog/sync { setId }` por set — el botón de M2 que ya existe. `sync-all { force:true }` es opción del operador, **no un paso obligatorio de este pase**. §4.41.4. |
 
 > **Compat / reversibilidad — ADITIVA PURA, y sin ceremonia.** Sin `DROP`, sin `NOT NULL`, sin default, sin tocar
 > `@@unique(externalId)` ni ningún índice, **sin reescribir una sola fila**. Segura con la app corriendo (el código
@@ -18449,8 +19207,8 @@ stream que toque el schema. Es la migración **más barata de este documento**: 
 > cut-over, no hay ventana, no hay congelación y no hay orden de pasos que respetar** — se dice explícitamente para
 > que nadie prepare para M-47 la ceremonia que M-43/M-45 sí exigían.
 
-> **⚠️ v1.53 — LAS TRES MIGRACIONES ALTAS, DESAMBIGUADAS DE UNA VEZ (leer antes de preparar cualquier pase).**
-> Las dos ramas fusionadas bautizaron **`M-46`** dos veces. Vigente a partir de aquí, y **verificado contra el disco,
+> **⚠️ v1.54 — LAS CUATRO MIGRACIONES ALTAS, DESAMBIGUADAS DE UNA VEZ (leer antes de preparar cualquier pase).**
+> Las ramas fusionadas bautizaron **`M-46`** dos veces. Vigente a partir de aquí, y **verificado contra el disco,
 > no contra documentación**:
 >
 > | # | Qué es | Tipo | Artefacto |
@@ -18458,6 +19216,11 @@ stream que toque el schema. Es la migración **más barata de este documento**: 
 > | **M-46** | **Ciclo de adquisición del buylist** (40 columnas + enums + backfill) | **DDL + Data** | `backend/prisma/migrations/20260901120000_m46_buylist_acquisition_cycle/` — **existe y está aplicada** |
 > | **M-47** | **Imágenes de set** (`CardSet.logoUrl` / `symbolUrl`) | **DDL aditivo puro** | `backend/prisma/migrations/20260902120000_m47_set_images/` — **existe** |
 > | **M-48** *(era `M-46` en la línea de `main`)* | **`grading_hook_enabled`**, el dial único del gancho de grading | **DATA/seed, SIN DDL** | **ninguno** — vive en `seed.ts`; su número era una etiqueta de prosa |
+> | **M-49** | **Identidad de graduación en `SellRequestItem`** (`gradingCompany` + `gradeValue` + `certNumber`) | **DDL aditivo — RESERVADA, NO PROGRAMADA** | **ninguno, y es correcto**: no se ejecuta hasta que `PROJECT.md` responda «sí» a §4.40.6 (v1.53) |
+>
+> **⚠️ `M-49` no colisiona con nada, y conviene decirlo porque el texto de M-46 la menciona.** La cabecera de M-46
+> escribe *«se edita M-46, NO se crean M-47/M-48/**M-49**/M-50»* — eso es una **declaración de lo que ese pase NO
+> hace**, no una reserva de número. El único `M-49` con contenido es el de esta tabla (v1.53, `main`).
 >
 > **Por qué se movió ésa y no otra:** un nombre de migración aplicada está registrado en `_prisma_migrations` y
 > **renombrar la carpeta rompe `migrate deploy`**; una fila de seed no tiene nada que renombrar. Precedente idéntico y
@@ -18503,7 +19266,7 @@ de Prisma** (ni tablas, ni columnas, ni enums, ni `DROP`, ni backfill).
 | **M-42** | `ConfigSetting['graded_estimate_source_stat']` (NUEVO, v1.50.2) | Seed **`'median'`** | Data/seed | Cuál número del proveedor **es** el precio (§4.38h.2). Enum `median\|average\|smart`. |
 | **M-42** | `ConfigSetting['graded_estimate_ingest_max_cards_per_run']` (NUEVO, v1.50.2) | Seed **250** *(sin cambio)* | Data/seed | Tope **duro** de cuota por corrida (§4.38h.3). Rango ~~`[1, 5000]`~~ ⇒ **`[1, 1000]` desde v1.51-a** (§4.38r.3.4): el máximo viejo autorizaba de un solo `PUT` la cuota diaria entera. **El seed no cambia**, así que ningún entorno sembrado se ve afectado. |
 | **M-42** | ~~`ConfigSetting['graded_estimate_ingest_enabled']`~~ | ~~Seed `'off'`~~ | Data/seed | ⛔ **RETIRADA en v1.51-one-dial (~~M-46~~ **M-48**, §4.38r).** Fila huérfana e inerte. **Nunca se dibujó en la UI** — la desviación que originó el colapso (§9). |
-| **M-48** *(era `M-46`; renumerada en v1.53(1) — ver la tabla de desambiguación de §11)* | `ConfigSetting['grading_hook_enabled']` (**NUEVO, v1.51-one-dial**) | Seed **`'off'`** | Data/seed, **sin DDL** | **EL dial del gancho**: exhibición **+** obtención. Editable en **M10** (`PUT /admin/settings`, DTO `gradingHookEnabled`), auditado, sin redeploy. **Clave NUEVA a propósito:** ninguna base la tiene ⇒ el deploy del colapso **no puede empezar a gastar solo** (§4.38r.1). ⚠️ **v1.51-a: su primer `off → on` tiene precondiciones VERIFICABLES** — la viva es **A-1**, el `COSTE MEDIDO` de §4.38(r.3.1.1). Desplegar M-48 **no** autoriza encenderlo. ⚠️ **NO confundir con `M-46`, que es DDL del ciclo de adquisición y sí exige `migrate deploy`.** |
+| **M-48** *(era `M-46`; renumerada en v1.54(1) — ver la tabla de desambiguación de §11)* | `ConfigSetting['grading_hook_enabled']` (**NUEVO, v1.51-one-dial**) | Seed **`'off'`** | Data/seed, **sin DDL** | **EL dial del gancho**: exhibición **+** obtención. Editable en **M10** (`PUT /admin/settings`, DTO `gradingHookEnabled`), auditado, sin redeploy. **Clave NUEVA a propósito:** ninguna base la tiene ⇒ el deploy del colapso **no puede empezar a gastar solo** (§4.38r.1). ⚠️ **v1.51-a: su primer `off → on` tiene precondiciones VERIFICABLES** — la viva es **A-1**, el `COSTE MEDIDO` de §4.38(r.3.1.1). Desplegar M-48 **no** autoriza encenderlo. ⚠️ **NO confundir con `M-46`, que es DDL del ciclo de adquisición y sí exige `migrate deploy`.** |
 | M-42 | `settings.constants.ts` | ~~**12**~~ **11** keys *(v1.51: −2 retiradas, +1 nueva)* + validadores (`validateGradingCostTiers` con I1–I5, `validateGradedEstimateGrades` con I7, **I8/I9** de v1.50.2; §4.38d) | Código (común) | Las **10** keys de M2 **NO** se editan por `PUT /admin/settings` (endpoint M2 dedicado); se validan igual, como los spreads del sellado. ~~Las **2** de M10 (`graded_estimates_enabled`, `graded_estimate_ingest_enabled`) sí.~~ **v1.51: la de M10 es UNA** — `grading_hook_enabled`. Las dos viejas salen de `SettingKey`, `SETTING_DEFAULTS`, validadores y `SETTING_DTO_MAP` ⇒ enviarlas en el `PUT` es **clave desconocida ⇒ `422`** (precedente `stripeFeeIvaPct`, §M10 v1.40). |
 
 > **Compat / reversibilidad:** las 12 claves son **nuevas**; ningún consumidor previo las lee. Revertir el deploy deja

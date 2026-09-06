@@ -417,12 +417,12 @@ export interface CardSetDTO {
   // (principal + subsets). Presente SOLO en masters combinados; el dropdown filtra por TODAS las partes.
   // Un set normal lo omite (comportamiento previo intacto).
   partSetIds?: string[];
-  // ⛔ v1.52 (M-47, ARCHITECTURE §4.40.5) — `CardSetDTO` **NO lleva `logoUrl`**, y la ausencia es
+  // ⛔ v1.52 (M-47, ARCHITECTURE §4.41.5) — `CardSetDTO` **NO lleva `logoUrl`**, y la ausencia es
   // NORMATIVA, no un olvido: `GET /catalog/sets` alimenta el dropdown/filtro de TEXTO de Compra,
-  // no una retícula de tejas, y §4.40.5 lo lista explícitamente en «NO entra». El endpoint que sí
+  // no una retícula de tejas, y §4.41.5 lo lista explícitamente en «NO entra». El endpoint que sí
   // lo emite —`GET /buylist/sets`— tiene su propio tipo, `BuylistSetDTO` (abajo).
   // *(DT-Gd, pagada: antes los dos endpoints compartían este tipo con `logoUrl?: string | null`, y
-  // ese `?` desactivaba en el cliente justo el invariante que §4.40.6 existe para garantizar — el
+  // ese `?` desactivaba en el cliente justo el invariante que §4.41.6 existe para garantizar — el
   // cotizador compilaba igual si el campo desaparecía de la respuesta.)*
 }
 
@@ -434,7 +434,7 @@ export interface CardSetDTO {
  * endpoint de índice propio y compone sus `MasterSetSummaryDTO` desde aquí): si el campo no
  * viaja, la teja del cotizador es la **única sin logo** de todo el producto.
  *
- * ⚠️ **`string | null` REQUERIDO, jamás `logoUrl?`** — es §4.40.6 literal, y el tipo es el único
+ * ⚠️ **`string | null` REQUERIDO, jamás `logoUrl?`** — es §4.41.6 literal, y el tipo es el único
  * sitio donde ese invariante se puede hacer cumplir en el cliente:
  * - la **clave va SIEMPRE presente**; la ausencia de logo se expresa con `null` (el proveedor no
  *   publica logo para ese set, o el set aún no se re-sincronizó — indistinguibles a propósito y
@@ -960,7 +960,16 @@ export interface BuylistQuoteResponse {
 // UNA línea por carta física (ARCHITECTURE §4.16b). Mismos campos que el quote por-carta.
 export interface BuylistQuoteItemDTO {
   cardId: string;
-  productType: ProductType;
+  /**
+   * ⚠️ v1.53 (MONEY, BREAKING — contrato §6, ARCHITECTURE §4.40): `"raw"` y SOLO `"raw"`.
+   * El buylist compra raw NM (`PROJECT.md` §E; §K LOCKED: «el cotizador y el pipeline de buylist
+   * siguen siendo solo para raw»; criterio 61). Ningún DTO de buylist tuvo NUNCA dónde capturar
+   * QUÉ grado es un slab, así que el backend resolvía la referencia con un default silencioso a
+   * `graded:PSA:10` —el grado MÁS CARO— y cotizaba cualquier graduada a ese precio. El tipo
+   * literal cierra la puerta en compilación; la guarda que manda es server-side
+   * (`422 BUYLIST_RAW_ONLY`, por-ítem en el batch).
+   */
+  productType: 'raw';
   rawCondition?: RawCondition;
   finish?: Finish;
   // v1.30 (§4.29, ADITIVO): el TCGplayer `productId` (== `CardProduct.tcgplayerProductId`, el MISMO
@@ -992,7 +1001,14 @@ export interface BuylistQuotePayload {
 // lote → HTTP 200). `index` = posición 0-based en el request items[] (llave de correlación robusta
 // ante cardId+finish+productId repetidos); `cardId` se ecoa. Errores por-ítem: NOT_FOUND |
 // FINISH_NOT_AVAILABLE | PRODUCT_NOT_FOUND (v1.30: productId inexistente) | PRODUCT_CARD_MISMATCH
-// (v1.30: productId no cuelga del cardId → rechazo validado, NUNCA fusión silenciosa con el set_base).
+// (v1.30: productId no cuelga del cardId → rechazo validado, NUNCA fusión silenciosa con el set_base)
+// | BUYLIST_RAW_ONLY (v1.53: productType != "raw", ARCHITECTURE §4.40).
+//
+// ⚠️ v1.53 — `BUYLIST_RAW_ONLY` es un error POR ÍTEM, NO del request. El contrato (§6) lo pone
+// aquí a propósito: un lote de 50 con UNA línea no-raw devuelve HTTP 200 con esa línea `ok:false`
+// y las otras 49 cotizadas. Pintarlo como fallo global anularía la razón de ese diseño. El front
+// ya no puede emitirlo (`BuylistQuoteItemDTO.productType` es `"raw"`), pero un bundle viejo en
+// caché o una línea legacy sí puede recibirlo: degrada por-línea como cualquier otro código.
 export type BuylistBatchQuoteResultDTO =
   | ({ index: number; cardId: string; ok: true } & BuylistQuotePayload)
   | {
@@ -1000,7 +1016,12 @@ export type BuylistBatchQuoteResultDTO =
       cardId: string;
       ok: false;
       error: {
-        code: 'NOT_FOUND' | 'FINISH_NOT_AVAILABLE' | 'PRODUCT_NOT_FOUND' | 'PRODUCT_CARD_MISMATCH';
+        code:
+          | 'NOT_FOUND'
+          | 'FINISH_NOT_AVAILABLE'
+          | 'PRODUCT_NOT_FOUND'
+          | 'PRODUCT_CARD_MISMATCH'
+          | 'BUYLIST_RAW_ONLY';
         message: string;
       };
     };
@@ -1331,7 +1352,7 @@ export interface MasterSetSummaryDTO {
   // `partSetIds` = los set-ids REALES plegados (principal + subsets); presente SOLO en masters
   // combinados. Un set normal lo omite. Sirve para que el front marque "combinado" / filtre por partes.
   partSetIds?: string[];
-  // ===== v1.52 (M-47, ARCHITECTURE §4.40, aditivo): logo de la expansión =====
+  // ===== v1.52 (M-47, ARCHITECTURE §4.41, aditivo): logo de la expansión =====
   // `string | null` REQUERIDO (no `logoUrl?`): la clave va SIEMPRE presente y la ausencia se
   // expresa con `null` (clase (P) presentación, §5.2.9). `null` es NORMAL y PERMANENTE — hay sets
   // que el proveedor no ilustra (promos, colecciones, sets viejos) y también lo rinde un set aún
@@ -3173,7 +3194,7 @@ export interface SettingsDTO {
   priceProvider?: PriceProvider;
   catalogSyncFromDate: string;
   /**
-   * v1.51-one-dial (§M10, M-46): **EL** —y único— interruptor del «gancho de grading»
+   * v1.51-one-dial (§M10, M-48 —era `M-46`, v1.54(1)): **EL** —y único— interruptor del «gancho de grading»
    * (`grading_hook_enabled`, enum `on | off`, **seed `off` fail-closed**).
    *
    * **Gobierna las DOS cosas** (ARCHITECTURE §4.38r):

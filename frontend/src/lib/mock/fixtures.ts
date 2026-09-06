@@ -139,7 +139,7 @@ function yearOf(releaseDate?: string): number | undefined {
  */
 export type MockCardSetRow = CardSetDTO & { logoUrl: string | null };
 
-// v1.52 (M-47, ARCHITECTURE §4.40 · DESIGN_SYSTEM §24): `logoUrl` CONVIVE con `null` de forma
+// v1.52 (M-47, ARCHITECTURE §4.41 · DESIGN_SYSTEM §24): `logoUrl` CONVIVE con `null` de forma
 // PERMANENTE — hay sets que el proveedor nunca ilustra (promos, colecciones, sets viejos). El mock
 // tiene que decir la verdad, así que la lista de abajo trae los DOS casos a propósito y en la misma
 // página del índice: CON logo (sv08, sv06, sv1, cel25) y SIN logo (cel25c, swsh1, base1 → `null`).
@@ -165,7 +165,7 @@ export const mockSets: MockCardSetRow[] = [
 /**
  * **Proyección de `GET /catalog/sets` — SIN `logoUrl`, y el descarte es el punto** (DT-Gd).
  *
- * §4.40.5 lista `GET /catalog/sets` en «NO entra»: el backend real **no emite la clave**. Antes
+ * §4.41.5 lista `GET /catalog/sets` en «NO entra»: el backend real **no emite la clave**. Antes
  * `getSets()` servía `mockSets` tal cual, así que en modo mock `/catalog/sets` **rendía un campo
  * que el backend nunca manda** — «el mock promete más que el backend», la clase exacta de
  * divergencia que ya costó un defecto en producción (§34). No basta con tipar la respuesta como
@@ -182,7 +182,7 @@ export const mockCatalogSets: CardSetDTO[] = mockSets.map(mockCatalogSetDTO);
 
 /**
  * **Fixture de `GET /buylist/sets`: con `logoUrl` SIEMPRE presente** (contrato «obligatorio, no
- * opcional»; §4.40.6). Es la fuente client-side de la retícula de tejas del cotizador, y el tipo
+ * opcional»; §4.41.6). Es la fuente client-side de la retícula de tejas del cotizador, y el tipo
  * `BuylistSetDTO` es lo que impide que la clave se caiga sin que nada falle.
  */
 export const mockBuylistSets: BuylistSetDTO[] = mockSets.map((row): BuylistSetDTO => ({ ...row }));
@@ -3214,7 +3214,7 @@ export let mockSettings: SettingsDTO = {
   // v1.14-price-ingest: proveedor de la ingesta masiva. Seed recomendado por contrato §M10.
   priceProvider: 'pokemontcg_io',
   catalogSyncFromDate: '2024/01/01',
-  // v1.51-one-dial (M-46): DIAL ÚNICO del gancho (contrato §M10; **seed real = `off`**, fail-closed,
+  // v1.51-one-dial (M-48 —era `M-46`, v1.54(1)): DIAL ÚNICO del gancho (contrato §M10; **seed real = `off`**, fail-closed,
   // y la clave es NUEVA ⇒ ningún entorno la tiene). MOCK: el fixture lo representa YA ENCENDIDO
   // —como un entorno donde el dueño lo prendió a mano— para poder ejercitar las tres superficies
   // sin backend. El gate y el interruptor son SERVER-SIDE y no se simulan: apagarlo aquí desde M10
@@ -4989,6 +4989,27 @@ const MOCK_SELLER: AdminSellerRef = {
   email: 'ash@example.com',
 };
 
+/**
+ * Instante que cae, **sin ambigüedad**, en el día `offsetDays` respecto de HOY en
+ * `America/Mexico_City`.
+ *
+ * ⚠️ Sustituye a `Date.now() + 20 h`, que **dejó de ser determinista** cuando `caducityTone`
+ * (`BuylistCycleQueues.tsx`) pasó de una ventana rodante de horas al **día del calendario**:
+ * veinte horas caen hoy o mañana según la hora a la que corra la suite, así que el smoke E2E que
+ * afirma «Caduca hoy» solo pasaba si el arranque era antes de las 04:00 de CDMX. El unitario ya
+ * había resuelto esto con este mismo helper; el servidor falso se había quedado atrás — y un mock
+ * que contradice al componente al que alimenta produce rojos que no son del producto.
+ */
+function caducityOnMxDay(offsetDays: number): string {
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Mexico_City' }).format(
+    new Date(Date.now()),
+  );
+  const day = new Date(`${today}T00:00:00Z`);
+  day.setUTCDate(day.getUTCDate() + offsetDays);
+  // Mediodía de CDMX (UTC−6 todo el año desde 2022): lejos de cualquier borde de medianoche.
+  return new Date(`${day.toISOString().slice(0, 10)}T12:00:00-06:00`).toISOString();
+}
+
 export function mockPendingOfferAuthorizations(): Paginated<PendingOfferAuthorizationRowDTO> {
   const rows: PendingOfferAuthorizationRowDTO[] = [
     {
@@ -5002,7 +5023,9 @@ export function mockPendingOfferAuthorizations(): Paginated<PendingOfferAuthoriz
       lineCount: 4,
       buyLineCount: 3,
       // ⚠️ Se muere sola: si nadie autoriza antes de esta fecha, el barrido caduca la solicitud.
-      caducityAt: new Date(Date.now() + 20 * 60 * 60 * 1000).toISOString(),
+      // HOY en el calendario de CDMX — que es lo que `caducityTone` compara y lo que el rótulo
+      // «Caduca hoy» significa para quien lee la cola.
+      caducityAt: caducityOnMxDay(0),
     },
   ];
   return { data: rows, page: 1, pageSize: 20, total: rows.length };

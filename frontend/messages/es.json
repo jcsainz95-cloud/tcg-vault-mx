@@ -553,6 +553,7 @@
     "separateProductErrorCode": {
       "PRODUCT_NOT_FOUND": "Este producto ya no existe en el catálogo.",
       "PRODUCT_CARD_MISMATCH": "Este producto no corresponde a esta carta.",
+      "BUYLIST_RAW_ONLY": "Solo compramos cartas sueltas (raw).",
       "FINISH_NOT_AVAILABLE": "Ese acabado no está disponible para este producto.",
       "NOT_FOUND": "No encontramos esta carta."
     },
@@ -663,7 +664,6 @@
     "verticalLabel": "Buylist",
     "title": "Vender mis cartas",
     "subtitle": "Cotizamos tu lista con el valor de mercado del día. Tú envías, nosotros autenticamos y te pagamos por SPEI.",
-    "selectType": "Tipo de producto",
     "referencePrice": "Valor de referencia",
     "payAfterReceipt": "El pago se realiza después de recibir y verificar tus cartas.",
     "shippingGuideLink": "Cómo empacar tus cartas",
@@ -712,30 +712,7 @@
     "submitting": "Enviando…",
     "requestError": "No se pudo crear la solicitud. Revisa los datos e inténtalo de nuevo.",
     "created": "¡Solicitud creada! Te mandaremos una oferta por correo. No mandes tus cartas todavía: primero aceptas la oferta y después te llega la guía.",
-    "filterBySet": "Filtrar por set",
-    "allSets": "Todos los sets",
-    "searchCards": "Buscar carta",
-    "searchPlaceholder": "Nombre o número",
-    "searchAction": "Buscar",
-    "searchResults": "Resultados",
-    "noResults": "No encontramos cartas con ese filtro. Prueba otro set o término.",
-    "searchHint": "Filtra por set o busca por nombre para ver el catálogo con su precio de compra estimado.",
-    "gridEstimateLegend": "Estimado de compra por acabado (NM en sueltas); un clic agrega al carrito.",
-    "gridQuotesFailed": "No pudimos cargar los estimados de compra.",
-    "addFinishAria": "Agregar {name} ({finish}) al carrito",
     "addedLine": "{name} ({finish}) agregada al carrito.",
-    "bulkSelect": "Seleccionar {name}",
-    "bulkAddCta": "Agregar seleccionadas ({count})",
-    "bulkClear": "Limpiar selección",
-    "bulkAdded": "{count} carta(s) agregada(s) al carrito.",
-    "bulkAddedPartial": "{added} carta(s) agregada(s); {failed} no disponible(s).",
-    "bulkAddError": "No pudimos cotizar las cartas seleccionadas. Inténtalo de nuevo.",
-    "gridQuoteError": "No disponible",
-    "productType": {
-      "raw": "Suelta (raw)",
-      "graded": "Gradeada",
-      "sealed": "Sellado"
-    },
     "rarityLabel": "Rareza",
     "quote": {
       "money": {
@@ -843,9 +820,7 @@
       "wePay": "Pagamos",
       "cta": "Cotizar esta carta",
       "badge": "Bounty"
-    },
-    "viewDetailAria": "Ver detalle de {name}",
-    "tileInCart": "En el carrito"
+    }
   },
   "finish": {
     "label": "Acabado",
@@ -2817,6 +2792,7 @@
     "ADDRESS_NOT_MX": "Solo enviamos a direcciones dentro de México.",
     "ITEM_IN_ANOTHER_SHIPMENT": "Esta carta ya está en otro envío.",
     "BUYLIST_LIMIT_EXCEEDED": "Superas el tope permitido de buylist.",
+    "BUYLIST_RAW_ONLY": "Solo compramos cartas sueltas (raw) en Near Mint; las gradeadas y el sellado no entran al cotizador.",
     "INE_REQUIRED": "Necesitas subir tu INE para continuar.",
     "CLABE_NOT_OWN_NAME": "La CLABE debe estar a tu nombre.",
     "CLABE_INVALID": "La CLABE no es válida.",

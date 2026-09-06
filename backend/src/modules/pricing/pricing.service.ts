@@ -29,6 +29,9 @@ import {
   PricingProvider,
   PriceSourceStr,
   buildGradeKey,
+  tryBuildGradeKey,
+  GradeKeyInput,
+  LooseGradeKeyInput,
   sealedMarketGradeKey,
 } from './pricing.types';
 import {
@@ -2753,12 +2756,32 @@ export class PricingService {
     return this.decideSalePrice({ ...input, curve });
   }
 
-  gradeKeyFor(item: {
-    productType: ProductType;
-    rawCondition?: string | null;
-    gradingCompany?: string | null;
-    gradeValue?: string | null;
-  }): string {
+  /**
+   * v1.53 (§4.40.4, **MONEY**) — **la que LANZA.** Delegación pura a `buildGradeKey`: input estricto
+   * (unión discriminada) ⇒ una graduada sin empresa+grado **no compila**, y si aun así llega en
+   * runtime (fila casteada) revienta con `IncompleteGradeIdentityError` en vez de firmar un PSA 10.
+   *
+   * **Úsala SOLO en caminos que ESCRIBEN o DECIDEN dinero**: cotización de buylist, creación de
+   * solicitud, alta/edición de inventario, override de precio. Para leer/pintar, `tryGradeKeyFor`.
+   */
+  gradeKeyFor(item: GradeKeyInput): string {
     return buildGradeKey(item);
+  }
+
+  /**
+   * v1.53 (§4.40.4, **MONEY**) — **la TOLERANTE.** Devuelve `null` cuando la fila es `graded` sin
+   * identidad de slab (`gradingCompany`/`gradeValue` nulos — las que creó `convertToInventory`,
+   * §9 D-BG-3).
+   *
+   * **Contrato del `null`, no negociable: NO HAY REFERENCIA ⇒ `precio_pendiente` / «—».** Jamás un
+   * default, jamás MX$0, jamás un precio inventado (`PROJECT.md` §E.1). Rellenar este `null` con
+   * cualquier `??` reintroduce el defecto con otra sintaxis.
+   *
+   * La usan las rutas de **lectura/valuación que deben pintar**: bóveda, catálogo, agregados de
+   * admin, `price-sync`, `price-ingest` y el export. Ahí un `throw` sería un 500 en una página que
+   * hoy renderiza — cambiar un error de dinero por una caída de servicio (§4.40.4b).
+   */
+  tryGradeKeyFor(item: LooseGradeKeyInput): string | null {
+    return tryBuildGradeKey(item);
   }
 }

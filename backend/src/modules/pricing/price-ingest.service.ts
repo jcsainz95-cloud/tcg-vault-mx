@@ -847,12 +847,14 @@ export class PriceIngestService {
       if (items.length === 0) return;
       // Pago mínimo BE-25: curva izada UNA vez; referencias y overrides EN LOTE (sin N+1 por pieza).
       const curve = await this.pricing.loadPricingCurve();
-      const keys = items.map((it) => ({
-        cardId: it.cardId,
-        productType: it.productType,
-        gradeKey: this.pricing.gradeKeyFor(it),
-        finish: it.finish,
-      }));
+      // v1.53 (§4.40.4b, MONEY) — `price-ingest` es camino de LECTURA/valuación ⇒ clave TOLERANTE.
+      // Hoy el `where` de arriba ya acota a `productType:'raw'` (nunca hay `null`), pero se pide con
+      // la tolerante a propósito: si mañana el barrido se ensancha a graduadas, una pieza sin
+      // identidad de slab se OMITE en vez de barrerse contra `graded:PSA:10`.
+      const keys = items.flatMap((it) => {
+        const gk = this.pricing.tryGradeKeyFor(it);
+        return gk ? [{ cardId: it.cardId, productType: it.productType, gradeKey: gk, finish: it.finish }] : [];
+      });
       const refs = await this.pricing.getReferencesBatch(keys);
       const overrides = await this.pricing.getVariantOverridesBatch(keys);
       let opened = 0;
@@ -863,7 +865,10 @@ export class PriceIngestService {
         // entrar al barrido. Con el `!= null` de antes se saltaba y NUNCA se reconciliaba — el mismo
         // hueco de D5, recién abierto por este bucle.
         if (hasManualPrice(item)) continue;
-        const gradeKey = this.pricing.gradeKeyFor(item);
+        // v1.53 (§4.40.4b): sin clave no hay variante que reconciliar — se omite (no se abre ni se
+        // cierra cola con una clave inventada).
+        const gradeKey = this.pricing.tryGradeKeyFor(item);
+        if (gradeKey == null) continue;
         const key = `${item.cardId}|${item.productType}|${gradeKey}|${item.finish}`;
         const ref = refs.get(key);
         const refCents = ref && ref.status === 'priced' ? (ref.referenceMxnCents ?? null) : null;

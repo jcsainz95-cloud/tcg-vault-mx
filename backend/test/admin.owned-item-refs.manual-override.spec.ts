@@ -83,6 +83,7 @@ describe('AdminService.ownedItemRefs — override manual durable gana a la autom
     };
     const pricing = {
       gradeKeyFor: jest.fn().mockReturnValue('raw:NM'),
+      tryGradeKeyFor: jest.fn().mockReturnValue('raw:NM'),
       fxSnapshotSafe: jest.fn().mockResolvedValue(null),
       liveMxnCents: (ref: { priceMxnCents: number }) => ref.priceMxnCents,
     } as unknown as PricingService;

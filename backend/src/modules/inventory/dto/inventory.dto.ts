@@ -125,6 +125,21 @@ export class UpdateItemDto {
   @IsOptional() @IsString() certNumber?: string;
   @IsOptional() @IsIn(SEALED_SUBTYPE_VALUES) sealedSubtype?: SealedSubtype;
   @IsOptional() @IsString() gradeValue?: string;
+  /**
+   * v1.53 (ADITIVO, §4.40.5b · API_CONTRACT §M1 · §9 **D-BG-4**) — **la empresa graduadora, que
+   * faltaba.** Hasta v1.52 el `PATCH` aceptaba `gradeValue` y `certNumber` pero **no** la empresa, de
+   * modo que una pieza `productType='graded'` con `gradingCompany` nula era **incorregible por la vía
+   * normal**. Y esas piezas existen: las crea la conversión de buylist (`convertToInventory`), que no
+   * tiene de dónde sacar la identidad del slab (§9 D-BG-3).
+   *
+   * Con la retirada del default `graded:PSA:10` (§4.40.4) esas piezas pasan a valuarse **`pending`**
+   * —que es la verdad— y este campo es lo que permite repararlas con el slab físico en la mano.
+   * **No cambia ningún precio por sí mismo**: al completar la identidad, la pieza pasa a resolver la
+   * referencia del grado **que realmente es**.
+   *
+   * Sólo aplica a `productType='graded'`; el servicio lo IGNORA en `raw`/`sealed`.
+   */
+  @IsOptional() @IsIn(GRADING_COMPANY_VALUES) gradingCompany?: GradingCompany;
   @IsOptional() @IsInt() @Min(1) @Max(MAX_LIST_PRICE_CENTS) listPriceCents?: number;
   @IsOptional() @IsIn(['in_stock', 'listed']) status?: 'in_stock' | 'listed';
 }

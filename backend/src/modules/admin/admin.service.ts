@@ -578,8 +578,13 @@ export class AdminService {
     // precios nativos en MXN quedan congelados (los distingue `liveMxnCents`).
     const fx = await this.pricing.fxSnapshotSafe();
     return items.map((item) => {
-      const gradeKey = this.pricing.gradeKeyFor(item);
-      const r = latest.get(`${item.cardId}|${item.productType}|${gradeKey}|${item.finish}`);
+      // v1.53 (§4.40.4b, MONEY) — LECTURA: sin identidad de slab no hay clave, y sin clave no hay
+      // referencia ⇒ `pending`. Antes la fila se resolvía como `graded:PSA:10` y el admin veía el
+      // valor del grado MÁS CARO para una pieza cuyo grado nunca se capturó.
+      const gradeKey = this.pricing.tryGradeKeyFor(item);
+      const r = gradeKey
+        ? latest.get(`${item.cardId}|${item.productType}|${gradeKey}|${item.finish}`)
+        : undefined;
       const referenceValue: PriceInfo = r
         ? {
             status: 'priced',
@@ -876,12 +881,18 @@ export class AdminService {
         if (gk) keys.push({ cardId: item.cardId, productType: 'sealed', gradeKey: gk, finish: 'normal' });
         keys.push({ cardId: item.cardId, productType: 'sealed', gradeKey: 'sealed', finish: 'normal' });
       } else {
-        keys.push({
-          cardId: item.cardId,
-          productType: item.productType,
-          gradeKey: this.pricing.gradeKeyFor(item),
-          finish: item.finish,
-        });
+        // v1.53 (§4.40.4b, MONEY) — LECTURA agregada: una graduada sin identidad de slab NO aporta
+        // clave al lote (mismo idioma que el sellado no mapeado, justo arriba). Abajo cae a
+        // `pendingPriceCount`, que es la verdad: no se puede valuar lo que no se sabe qué grado es.
+        const gk = this.pricing.tryGradeKeyFor(item);
+        if (gk) {
+          keys.push({
+            cardId: item.cardId,
+            productType: item.productType,
+            gradeKey: gk,
+            finish: item.finish,
+          });
+        }
       }
     }
     const refs = keys.length ? await this.pricing.getReferencesBatch(keys) : new Map<string, PriceInfo>();
@@ -916,7 +927,9 @@ export class AdminService {
           refCentsOf(item.cardId, 'sealed', 'sealed', 'normal');
       } else {
         // v1.6-finish: valúa contra la referencia del ACABADO del item.
-        cents = refCentsOf(item.cardId, item.productType, this.pricing.gradeKeyFor(item), item.finish);
+        // v1.53 (§4.40.4b): sin clave ⇒ `null` ⇒ suma a `pendingPriceCount`, jamás a `atReferenceCents`.
+        const gk = this.pricing.tryGradeKeyFor(item);
+        cents = gk ? refCentsOf(item.cardId, item.productType, gk, item.finish) : null;
       }
       if (cents != null) bucket.atReferenceCents += cents;
       else bucket.pendingPriceCount += 1;
@@ -938,7 +951,11 @@ export class AdminService {
     });
     let totalCustodyValueCents = 0;
     for (const item of items) {
-      const gradeKey = this.pricing.gradeKeyFor(item);
+      // v1.53 (§4.40.4b, MONEY) — VALOR DE CUSTODIA: sin identidad de slab la pieza no se valúa (no
+      // suma). Sumarla al precio de un PSA 10 inflaría el pasivo con el cliente por una carta cuyo
+      // grado nunca se preguntó; no sumarla es honesto y entra al censo §4.40.8.
+      const gradeKey = this.pricing.tryGradeKeyFor(item);
+      if (gradeKey == null) continue;
       // v1.6-finish: valúa contra la referencia del ACABADO del item.
       const ref = await this.pricing.getReference(item.cardId, item.productType, gradeKey, item.finish);
       if (ref.status === 'priced' && ref.referenceMxnCents != null) {

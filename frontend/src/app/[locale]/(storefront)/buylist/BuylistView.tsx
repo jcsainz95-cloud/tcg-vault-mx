@@ -1,17 +1,13 @@
 'use client';
 
-import { useCallback, useMemo, useRef, useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useCallback, useRef, useState } from 'react';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
-import { batchQuote, BUYLIST_QUOTE_BATCH_MAX, listBuylistSets, searchBuylistCards } from '@/lib/api';
+import { batchQuote } from '@/lib/api';
 import type {
-  ProductType,
-  CardDTO,
   CardProductDTO,
-  RawCondition,
   Finish,
   BuylistQuoteResponse,
-  BuylistQuoteItemDTO,
   BuylistBatchQuoteResultDTO,
   MasterSetCardCellDTO,
   MasterSetVariantDTO,
@@ -19,10 +15,6 @@ import type {
 } from '@/types/contract';
 import type { AppLocale } from '@/i18n/routing';
 import { formatMoneyCents } from '@/lib/format';
-import { CardImage } from '@/components/ui/CardImage';
-import { Select } from '@/components/ui/Select';
-import { Input } from '@/components/ui/Input';
-import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
 import { SafeShippingGuide } from '@/components/domain/SafeShippingGuide';
 import { BuylistKycForm } from '@/components/domain/BuylistKycForm';
@@ -33,17 +25,10 @@ import {
 } from '@/components/domain/BuylistPendingLinesNote';
 import { useSellRequirements } from '@/hooks/useSellRequirements';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
-import { RarityLabel } from '@/components/domain/RarityLabel';
-import { CardDetailModal, type CardDetailModalCard } from '@/components/domain/CardDetailModal';
-import { EmptyState } from '@/components/ui/EmptyState';
-import { QueryState } from '@/components/ui/QueryState';
-import { CardSkeleton } from '@/components/ui/Skeleton';
-import { FINISH_ORDER } from '@/lib/finish';
-import { cn } from '@/lib/cn';
-// v1.21-cotizador-master-set: en `raw` el grid es el binder COMPARTIDO de Master Set
+// v1.21-cotizador-master-set: el grid del cotizador es el binder COMPARTIDO de Master Set
 // (§4.20f, mode="quoter") — casillas de imagen por acabado real de la carta, nunca un chip
-// de texto ni una casilla para un acabado que la carta no tiene. graded/sealed (sin variantes
-// por acabado: cotizan siempre en `normal`) conservan el grid plano existente.
+// de texto ni una casilla para un acabado que la carta no tiene. v1.53 (§4.40): es el ÚNICO
+// grid del cotizador — el grid plano de graded/sealed se retiró con la superficie que servía.
 import { MasterSetPanel } from '@/components/master-set/MasterSetPanel';
 // v1.28 (P-22): vitrina «Top Bounties» arriba de la página Vender, antes del selector de set.
 import { TopBountiesShelf } from '@/components/domain/TopBountiesShelf';
@@ -62,18 +47,6 @@ import { useQuotePolicy } from './useQuotePolicy';
 import { MyRequestsSection } from './MyRequestsSection';
 import { EditorialLink } from '../_shared/EditorialLink';
 
-const PRODUCT_TYPES: ProductType[] = ['raw', 'graded', 'sealed'];
-
-const QUOTE_STALE_MS = 5 * 60_000;
-
-/** Primer acabado disponible de la carta (normal va primero por convención del catálogo). */
-function firstAvailableFinish(card: CardDTO): Finish {
-  return FINISH_ORDER.find((f) => card.availableFinishes.includes(f)) ?? 'normal';
-}
-
-/** Llave del índice de cotizaciones del grid: una entrada por (carta, acabado). */
-const quoteMapKey = (cardId: string, finish: Finish) => `${cardId}:${finish}`;
-
 /**
  * Convierte un resultado batch `ok:true` en el `BuylistQuoteResponse` que consume el carrito.
  * (En el batch `rarity` es `string | null`; el carrito lo normaliza a string.)
@@ -90,47 +63,29 @@ function batchResultToQuote(r: Extract<BuylistBatchQuoteResultDTO, { ok: true }>
 }
 
 /**
- * Estimado de compra de UNA fila de acabado del grid (SEC-A1: el monto viene SIEMPRE del
- * server vía `POST /buylist/quote/batch`; la UI no calcula nada). Tolerante a errores
- * por-ítem: un acabado `ok:false` (NOT_FOUND / FINISH_NOT_AVAILABLE) muestra su error
- * sin afectar a las demás filas.
- */
-function FinishEstimate({
-  result,
-  loading,
-}: {
-  result?: BuylistBatchQuoteResultDTO;
-  loading: boolean;
-}) {
-  const t = useTranslations('buylist');
-  const locale = useLocale() as AppLocale;
-  if (loading) return <span className="text-muted">…</span>;
-  if (!result) return null;
-  if (!result.ok) return <span className="text-accent">{t('gridQuoteError')}</span>;
-  if (result.quote.status === 'precio_pendiente') {
-    // §23.3h: versalita `SIN PRECIO`, sin monto y nunca `MX$ 0.00`.
-    return <BuylistPendingLineLabel />;
-  }
-  return (
-    <span className="tabular text-text">
-      {formatMoneyCents(result.quote.quotedPriceCents ?? 0, locale)}
-    </span>
-  );
-}
-
-/**
  * Rediseño "grid protagonista" (2026-08-17):
- * - El grid de resultados usa TODO el ancho/alto disponible (scroll natural de página,
- *   sin scroll interno artificial); los filtros (set + búsqueda + tipo) viven en una
- *   barra encima y el carrito de venta en un drawer flotante (P-16, §18.4).
+ * - El grid usa TODO el ancho/alto disponible (scroll natural de página, sin scroll interno
+ *   artificial) y el carrito de venta vive en un drawer flotante (P-16, §18.4).
  * - Ya NO hay panel "COTIZACIÓN" ni selección intermedia: cada carta lista sus ACABADOS
  *   (`availableFinishes`) con su estimado server-side, y el clic en un acabado la agrega
  *   DIRECTO al carrito. La transparencia vive en el detalle expandible de cada línea
- *   (valor de referencia / regla aplicada / acabado / pendiente).
- * - El bulk (multi-selección) se conserva: agrega las seleccionadas (acabado por defecto)
- *   reusando las cotizaciones ya cargadas del grid (cero requests extra).
+ *   (valor de referencia / acabado / pendiente).
  * - "Mis solicitudes" nunca muestra error sin sesión: sin sesión la sección invita a
  *   iniciar sesión en tono informativo (y no consulta el endpoint) — ver MyRequestsSection.
+ *
+ * ⚠️ v1.53 (MONEY — contrato §6, ARCHITECTURE §4.40): EL COTIZADOR ES RAW-ONLY.
+ * `PRODUCT_TYPES` ofrecía `['raw','graded','sealed']` y el selector de tipo servía esos tres
+ * valores, pero NINGÚN DTO de buylist tuvo jamás dónde capturar QUÉ grado es un slab: el backend
+ * resolvía la referencia con un default silencioso a `graded:PSA:10` —el grado MÁS CARO— y firmaba
+ * el estimado de cualquier graduada a ese precio. `PROJECT.md` §E («compra de **raw**»), §K LOCKED
+ * («el cotizador y el pipeline de buylist siguen siendo solo para raw») y el criterio 61 nunca
+ * autorizaron esa superficie. Aquí se cierra: un solo valor ⇒ el selector se retira (un control
+ * con una sola opción no es una elección, es ruido), y con él se van el grid plano, su barra de
+ * filtros y el bulk, que solo existían para graded/sealed. El grid del cotizador queda siendo el
+ * binder de Master Set, que ya era el de `raw`.
+ * ⛔ NO se "arregla" añadiendo un selector de GRADO: comprar graduadas es una decisión de producto
+ * abierta (§4.40.6) que empieza por `product-owner` en `PROJECT.md`, no aquí.
+ * La autoridad es el servidor (`422 BUYLIST_RAW_ONLY`); esto es la mitad de UI.
  *
  * TL-C3 (FE-13): esta vista quedó como ORQUESTADOR — el estado del carrito vive en
  * `useSellCart`, el contenido del drawer en `SellCartContents` y "Mis solicitudes" en
@@ -139,16 +94,9 @@ function FinishEstimate({
  */
 export function BuylistView() {
   const t = useTranslations('buylist');
-  const tCommon = useTranslations('common');
   const tFinish = useTranslations('finish');
   const locale = useLocale() as AppLocale;
   const queryClient = useQueryClient();
-
-  // --- Barra de filtros: búsqueda real sobre TODO el catálogo (contrato §6, v1.3) ---
-  const [setId, setSetId] = useState('');
-  const [searchInput, setSearchInput] = useState('');
-  const [searchQuery, setSearchQuery] = useState('');
-  const [productType, setProductType] = useState<ProductType>('raw');
 
   const [guideOpen, setGuideOpen] = useState(false);
   const [requestOpen, setRequestOpen] = useState(false);
@@ -162,7 +110,6 @@ export function BuylistView() {
     cart,
     expandedLines,
     addLine,
-    addLines,
     setQuantity,
     removeLine,
     clearCart,
@@ -221,130 +168,11 @@ export function BuylistView() {
       ? 'cart'
       : 'header';
 
-  // P-43 · carta seleccionada para el pop-up de detalle del GRID PLANO (graded/sealed). El grid del
-  // cotizador raw (binder Master Set) maneja su propio modal por teja (QuoterTile).
-  const [detailCard, setDetailCard] = useState<
-    { card: CardDetailModalCard; finish?: Finish; priceCents?: number | null; pending?: boolean } | null
-  >(null);
-
-  // P-42 · sombreado del grid raw (binder): la identidad del carrito es (cardId, 'raw', finish, productId).
-  const isInCartRaw = useCallback(
-    (cardId: string, finish: Finish, productId?: number) => isInCart(cardId, 'raw', finish, productId),
-    [isInCart],
-  );
-
-  // --- Bulk: multi-selección en los resultados de búsqueda ---
-  const [bulkSelected, setBulkSelected] = useState<Record<string, CardDTO>>({});
-  const [bulkNotice, setBulkNotice] = useState<'added' | 'partial' | 'error' | null>(null);
-  const [bulkAddedCount, setBulkAddedCount] = useState(0);
-  const [bulkFailedCount, setBulkFailedCount] = useState(0);
-
-  const sets = useQuery({ queryKey: ['buylist-sets'], queryFn: listBuylistSets });
-
-  // Solo se busca cuando hay set o texto (evita traer todo el catálogo sin filtro).
-  const hasSearch = setId !== '' || searchQuery.trim() !== '';
-  const cardsResult = useQuery({
-    queryKey: ['buylist-cards', setId, searchQuery],
-    queryFn: () => searchBuylistCards({ setId: setId || undefined, q: searchQuery || undefined }),
-    enabled: hasSearch,
-  });
-
-  /**
-   * Ítems del batch del grid: en raw, UNA entrada por (carta × acabado disponible) — así
-   * cada acabado del grid tiene su propio estimado; en graded/sealed una entrada por carta
-   * (cotizan siempre en `normal`, contrato §I).
-   */
-  const gridBatchItems: BuylistQuoteItemDTO[] = useMemo(() => {
-    const cards = cardsResult.data?.data ?? [];
-    if (productType !== 'raw') {
-      return cards.map((c) => ({ cardId: c.id, productType, finish: 'normal' as Finish }));
-    }
-    return cards.flatMap((c) =>
-      FINISH_ORDER.filter((f) => c.availableFinishes.includes(f)).map((f) => ({
-        cardId: c.id,
-        productType: 'raw' as ProductType,
-        rawCondition: 'NM' as RawCondition,
-        finish: f,
-      })),
-    );
-  }, [cardsResult.data, productType]);
-
-  /**
-   * Cotización del grid POR ACABADO en el mínimo de llamadas. Restricción no obvia:
-   * `POST /buylist/quote/batch` acepta máx 50 ítems y tiene throttle 12/min, y una página
-   * de 20 cartas × hasta 4 acabados puede llegar a 80 ítems → se TROCEA en llamadas de ≤50
-   * (típico: 1 llamada; peor caso de página: 2) y react-query cachea 5 min por
-   * (búsqueda × tipo), así que navegar de vuelta no re-consume el throttle.
-   */
-  const gridQuotes = useQuery({
-    queryKey: [
-      'buylist-quote-batch',
-      productType,
-      gridBatchItems.map((i) => `${i.cardId}:${i.finish}`).join('|'),
-    ],
-    queryFn: async () => {
-      const chunks: BuylistQuoteItemDTO[][] = [];
-      for (let i = 0; i < gridBatchItems.length; i += BUYLIST_QUOTE_BATCH_MAX) {
-        chunks.push(gridBatchItems.slice(i, i + BUYLIST_QUOTE_BATCH_MAX));
-      }
-      const responses = await Promise.all(chunks.map((items) => batchQuote(items)));
-      // `index` es 0-based DENTRO de cada chunk → se re-mapea al (cardId, finish) pedido.
-      const byKey: Record<string, BuylistBatchQuoteResultDTO> = {};
-      responses.forEach((res, ci) => {
-        for (const r of res.results) {
-          const requested = chunks[ci][r.index];
-          if (requested) byKey[quoteMapKey(requested.cardId, requested.finish ?? 'normal')] = r;
-        }
-      });
-      return byKey;
-    },
-    enabled: gridBatchItems.length > 0,
-    staleTime: QUOTE_STALE_MS,
-  });
-
-  const quoteFor = (cardId: string, finish: Finish): BuylistBatchQuoteResultDTO | undefined =>
-    gridQuotes.data?.[quoteMapKey(cardId, finish)];
-
-  function runSearch() {
-    setSearchQuery(searchInput.trim());
-  }
-
-  /** Acabados a listar por carta: en raw, todos los disponibles; en graded/sealed, normal. */
-  function tileFinishes(card: CardDTO): Finish[] {
-    if (productType !== 'raw') return ['normal'];
-    const rows = FINISH_ORDER.filter((f) => card.availableFinishes.includes(f));
-    return rows.length > 0 ? rows : ['normal'];
-  }
-
-  /** Etiqueta de la fila: el acabado en raw; el tipo de producto en graded/sealed. */
-  function rowLabel(finish: Finish): string {
-    return productType === 'raw' ? tFinish(finish) : t(`productType.${productType}`);
-  }
-
-  /**
-   * Clic en un acabado del grid → agrega DIRECTO al carrito con el estimado que ya
-   * cotizó el batch (una sola cotización; sin panel intermedio). El acabado autoritativo
-   * es el que ecoa el server en el resultado.
-   */
-  function addFromGrid(card: CardDTO, finish: Finish) {
-    const result = quoteFor(card.id, finish);
-    if (!result?.ok) return;
-    addLine({
-      card,
-      productType,
-      rawCondition: productType === 'raw' ? 'NM' : undefined,
-      finish: result.finish,
-      quote: batchResultToQuote(result),
-    });
-    setLastAdded({ name: card.name, label: rowLabel(finish) });
-    setBulkNotice(null);
-  }
-
   /**
    * Clic en una casilla del binder Master Set (mode="quoter", raw): la variante YA trae su
    * cotización resuelta (`variant.quote`, batch client-side de MasterSetBinder) — se agrega
-   * DIRECTO al carrito, mismo patrón que `addFromGrid`. Casillas sin cotización resuelta
-   * quedan deshabilitadas en el binder (nunca deberían disparar este handler).
+   * DIRECTO al carrito, sin panel intermedio. Casillas sin cotización resuelta quedan
+   * deshabilitadas en el binder (nunca deberían disparar este handler).
    * SC-D3: `useCallback` (los handlers del hook ya son estables) para no regalarle al binder
    * una identidad nueva por render — prepara el `memo` de tiles si algún día hace falta.
    */
@@ -367,7 +195,6 @@ export function BuylistView() {
         quote,
       });
       setLastAdded({ name: cell.name, label: tFinish(variant.finish) });
-      setBulkNotice(null);
     },
     [addLine, tFinish],
   );
@@ -389,7 +216,6 @@ export function BuylistView() {
         quote,
       });
       setLastAdded({ name: product.name, label: tFinish(finish) });
-      setBulkNotice(null);
     },
     [addLine, tFinish],
   );
@@ -397,8 +223,9 @@ export function BuylistView() {
   /**
    * v1.28 (P-22) · CTA «Cotizar esta carta» de un BountyCard: cotiza ESA (carta, acabado)
    * server-side (SEC-A1 — el monto autoritativo lo deriva el quote, no el card de la vitrina)
-   * y la agrega al carrito de venta con el cotizador en `raw` y el carrito abierto. Si el
-   * quote falla, no agrega nada (el flujo normal del cotizador sigue disponible).
+   * y la agrega al carrito de venta, abriendo el drawer. Si el quote falla, no agrega nada
+   * (el flujo normal del cotizador sigue disponible). v1.53 (§4.40): ya no hace falta forzar
+   * el tipo a `raw` antes de agregar — es el único que existe.
    */
   const bountyQuote = useMutation({
     mutationFn: async (b: PublicBountyDTO) => {
@@ -409,7 +236,6 @@ export function BuylistView() {
     },
     onSuccess: ({ bounty, result }) => {
       if (!result?.ok) return;
-      setProductType('raw');
       addLine({
         card: {
           id: bounty.cardId,
@@ -425,54 +251,8 @@ export function BuylistView() {
       // Excepción de §18.4a: el CTA de bounty SÍ abre el drawer (intención explícita).
       setDrawerOpen(true);
       setLastAdded({ name: bounty.name, label: tFinish(bounty.finish) });
-      setBulkNotice(null);
     },
   });
-
-  function toggleBulk(card: CardDTO) {
-    setBulkNotice(null);
-    setBulkSelected((prev) => {
-      const next = { ...prev };
-      if (next[card.id]) delete next[card.id];
-      else next[card.id] = card;
-      return next;
-    });
-  }
-
-  /**
-   * Bulk: agrega TODAS las seleccionadas de golpe (acabado por defecto) REUSANDO las
-   * cotizaciones ya cargadas del grid — cero requests extra (el batch del grid ya cotizó
-   * cada acabado). Tolerante por-ítem: las `ok:false` se cuentan aparte sin bloquear.
-   */
-  function addSelectedToCart() {
-    const cards = Object.values(bulkSelected);
-    const quotes = gridQuotes.data;
-    if (cards.length === 0 || !quotes) return;
-    const okEntries: { card: CardDTO; result: Extract<BuylistBatchQuoteResultDTO, { ok: true }> }[] = [];
-    let failed = 0;
-    for (const card of cards) {
-      const defaultFinish = productType === 'raw' ? firstAvailableFinish(card) : 'normal';
-      const r = quotes[quoteMapKey(card.id, defaultFinish)];
-      if (r?.ok) okEntries.push({ card, result: r });
-      else failed += 1;
-    }
-    addLines(
-      okEntries.map(({ card, result }) => ({
-        card,
-        productType,
-        rawCondition: productType === 'raw' ? ('NM' as RawCondition) : undefined,
-        finish: result.finish,
-        quote: batchResultToQuote(result),
-      })),
-    );
-    setBulkAddedCount(okEntries.length);
-    setBulkFailedCount(failed);
-    setBulkNotice(failed === 0 ? 'added' : okEntries.length > 0 ? 'partial' : 'error');
-    setBulkSelected({});
-    setLastAdded(null);
-  }
-
-  const bulkCount = Object.keys(bulkSelected).length;
 
   // Gating de cuenta ANTES de llenar todo (guards del contrato §6): sesión, correo
   // verificado, CLABE registrada e INE esperado por topes. El bloqueo real es server-side;
@@ -516,69 +296,17 @@ export function BuylistView() {
           </EditorialLink>
         </div>
 
-        {/* v1.28 (P-22): Top Bounties ARRIBA, antes del selector de set. Se oculta sola si
-            no hay bounties activos o el endpoint falla (vitrina, no bloquea la venta). */}
+        {/* v1.28 (P-22): Top Bounties ARRIBA, antes del binder. Se oculta sola si no hay
+            bounties activos o el endpoint falla (vitrina, no bloquea la venta). */}
         <TopBountiesShelf onQuote={(b) => bountyQuote.mutate(b)} />
 
-        {/* Barra de filtros ADELGAZADA (P-16, §18.1.3): el toggle textual del carrito
-            desaparece (lo sustituye el FAB §18.4). En `raw` el binder Master Set
-            (mode="quoter") trae SU PROPIO "Buscar set" (índice) y "Buscar carta" (dentro
-            del set elegido) — ver MasterSetIndex/MasterSetBinder; este filtro plano de
-            set+texto queda para graded/sealed (sin variantes por acabado, fuera del modelo
-            de casillas de Master Set). */}
-        <div className="gutter flex flex-wrap items-end gap-x-8 gap-y-6 border-b border-border pb-7 pt-6">
-          {productType !== 'raw' && (
-            <>
-              <div className="w-full sm:w-64">
-                <Select
-                  label={t('filterBySet')}
-                  placeholder={t('allSets')}
-                  options={(sets.data ?? []).map((s) => ({
-                    value: s.id,
-                    label: s.year ? `${s.name} (${s.year})` : s.name,
-                  }))}
-                  value={setId}
-                  onChange={(e) => {
-                    setSetId(e.target.value);
-                    // Filtrar por set dispara la búsqueda aunque no haya texto.
-                  }}
-                />
-              </div>
-              <div className="flex min-w-[240px] flex-1 items-end gap-4">
-                <div className="min-w-0 flex-1">
-                  <Input
-                    label={t('searchCards')}
-                    placeholder={t('searchPlaceholder')}
-                    value={searchInput}
-                    onChange={(e) => setSearchInput(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') runSearch();
-                    }}
-                  />
-                </div>
-                <button
-                  type="button"
-                  onClick={runSearch}
-                  className="shrink-0 pb-3 text-xs font-medium text-accent hover:text-text"
-                >
-                  {t('searchAction')}
-                </button>
-              </div>
-            </>
-          )}
-          <div className="w-full sm:w-44">
-            <Select
-              label={t('selectType')}
-              options={PRODUCT_TYPES.map((p) => ({ value: p, label: t(`productType.${p}`) }))}
-              value={productType}
-              onChange={(e) => {
-                setProductType(e.target.value as ProductType);
-                setBulkNotice(null);
-                setLastAdded(null);
-              }}
-            />
-          </div>
-        </div>
+        {/* v1.53 (§4.40) — SIN barra de filtros propia. Antes vivían aquí (a) el selector «Tipo de
+            producto» y (b) un filtro plano set+texto que solo se pintaba con graded/sealed. Cerrada
+            la superficie a raw, el selector quedaba con UNA opción (un control que no ofrece
+            elección: ruido que además insinuaba que compramos slabs) y el filtro plano, sin grid
+            que filtrar. Los dos controles de búsqueda que el cotizador SÍ necesita ya los trae el
+            binder de Master Set: «Buscar set» (MasterSetIndex) y «Buscar carta» dentro del set
+            elegido (MasterSetBinder). Una sola barra de búsqueda, la del grid que se usa. */}
 
         {/* P-42 · en DESKTOP el grid y el carrito conviven en 2 columnas persistentes (el carrito
             fijo a la derecha, a la par del grid); en móvil el grid ocupa todo el ancho y el carrito
@@ -601,220 +329,18 @@ export function BuylistView() {
                 {t('addedLine', { name: lastAdded.name, finish: lastAdded.label })}
               </p>
             )}
-            {productType === 'raw' ? (
-              // v1.21: binder COMPARTIDO de Master Set — casillas de imagen por acabado real
-              // de la carta (nunca chip de texto/casilla vacía), con "Cargar más" propio para
-              // sets >20 cartas (fetchQuoterBinder en MasterSetBinder.tsx pagina internamente).
-              <MasterSetPanel
-                mode="quoter"
-                onAddToSellCart={addFromMasterSet}
-                onAddProductToSellCart={addFromMasterSetProduct}
-                isInCart={isInCartRaw}
-              />
-            ) : !hasSearch ? (
-              <EmptyState title={t('searchHint')} />
-            ) : (
-              <>
-                <div className="flex flex-wrap items-baseline justify-between gap-3">
-                  <p className="eyebrow">{t('searchResults')}</p>
-                  <p className="font-mono text-[11px] text-muted">{t('gridEstimateLegend')}</p>
-                </div>
-
-                {/* Barra de bulk: agrega todas las seleccionadas en un clic (acabado por
-                    defecto), reusando las cotizaciones del grid. */}
-                {bulkCount > 0 && (
-                  <div className="mt-4 flex flex-wrap items-center gap-5">
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      disabled={gridQuotes.isLoading}
-                      onClick={addSelectedToCart}
-                    >
-                      {t('bulkAddCta', { count: bulkCount })}
-                    </Button>
-                    <button
-                      type="button"
-                      onClick={() => setBulkSelected({})}
-                      className="font-mono text-[10px] uppercase tracking-[0.06em] text-muted hover:text-accent"
-                    >
-                      {t('bulkClear')}
-                    </button>
-                  </div>
-                )}
-                {bulkNotice === 'added' && (
-                  <p role="status" className="mt-3 font-mono text-[11px] text-success">
-                    {t('bulkAdded', { count: bulkAddedCount })}
-                  </p>
-                )}
-                {bulkNotice === 'partial' && (
-                  /* Tolerante por-ítem: algunas entraron, otras no (errores por-ítem del batch). */
-                  <p role="status" className="mt-3 font-mono text-[11px] text-accent">
-                    {t('bulkAddedPartial', { added: bulkAddedCount, failed: bulkFailedCount })}
-                  </p>
-                )}
-                {bulkNotice === 'error' && (
-                  <p role="alert" className="mt-3 font-mono text-[11px] text-accent">
-                    {t('bulkAddError')}
-                  </p>
-                )}
-
-                {/* Falla del batch de estimados: aviso con reintento, sin tumbar el grid. */}
-                {gridQuotes.isError && (
-                  <p role="alert" className="mt-3 font-mono text-[11px] text-accent">
-                    {t('gridQuotesFailed')}{' '}
-                    <button
-                      type="button"
-                      onClick={() => gridQuotes.refetch()}
-                      className="underline hover:text-text"
-                    >
-                      {tCommon('retry')}
-                    </button>
-                  </p>
-                )}
-
-                <div className="mt-6">
-                  <QueryState
-                    isLoading={cardsResult.isLoading}
-                    isError={cardsResult.isError}
-                    error={cardsResult.error}
-                    onRetry={() => cardsResult.refetch()}
-                    /* §18.6: skeletons con la MISMA retícula final; sin spinner de página. */
-                    loading={
-                      <div className="grid grid-cols-2 gap-x-6 gap-y-8 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
-                        {Array.from({ length: 10 }, (_, i) => (
-                          <CardSkeleton key={i} />
-                        ))}
-                      </div>
-                    }
-                  >
-                    {cardsResult.data &&
-                      (cardsResult.data.data.length === 0 ? (
-                        <EmptyState title={t('noResults')} />
-                      ) : (
-                        <ul
-                          aria-label={t('searchResults')}
-                          /* §18.2: el grid plano de graded/sealed se ALINEA a la escala del
-                             binder M1 (2→3→4→5); se retira el 2xl:6 y md:4/xl:5 pasa a
-                             lg:4/xl:5 — la teja grande ES el objetivo, no meter columnas. */
-                          className="grid grid-cols-2 gap-x-6 gap-y-8 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5"
-                        >
-                          {cardsResult.data.data.map((card) => {
-                            const finishes = tileFinishes(card);
-                            // P-42: la teja se destaca si CUALQUIER acabado de esta carta ya está en el carro.
-                            const anyInCart = finishes.some((f) => isInCart(card.id, productType, f));
-                            // P-43: al clicar el arte, el detalle muestra el acabado/precio SOLO cuando la
-                            // carta tiene un único acabado (graded/sealed cotizan siempre en `normal`); con
-                            // varios acabados el detalle queda a nivel carta (los precios ya están en las filas).
-                            const soleFinish = finishes.length === 1 ? finishes[0] : undefined;
-                            const soleResult = soleFinish ? quoteFor(card.id, soleFinish) : undefined;
-                            return (
-                            <li
-                              key={card.id}
-                              data-in-cart={anyInCart ? 'true' : undefined}
-                              className={cn(
-                                'relative min-w-0',
-                                anyInCart && 'bg-surface-2 shadow-[inset_0_0_0_1px_var(--color-border-strong)]',
-                              )}
-                            >
-                              {/* Multi-selección (bulk): checkbox FUERA de las filas de acabado. */}
-                              <input
-                                type="checkbox"
-                                aria-label={t('bulkSelect', { name: card.name })}
-                                checked={!!bulkSelected[card.id]}
-                                onChange={() => toggleBulk(card)}
-                                className="absolute left-1.5 top-1.5 z-10 h-4 w-4 accent-accent focus-visible:shadow-focus"
-                              />
-                              {/* P-43: el arte abre el pop-up de detalle (imagen grande + datos);
-                                  AGREGAR sigue siendo su propia acción (las filas de abajo). */}
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  setDetailCard({
-                                    card: {
-                                      name: card.name,
-                                      setName: card.setName,
-                                      number: card.number,
-                                      rarity: card.rarity,
-                                      productType,
-                                      imageLargeUrl: card.imageLargeUrl,
-                                      imageSmallUrl: card.imageSmallUrl,
-                                    },
-                                    finish: soleFinish,
-                                    priceCents:
-                                      soleResult?.ok && soleResult.quote.status !== 'precio_pendiente'
-                                        ? soleResult.quote.quotedPriceCents
-                                        : undefined,
-                                    pending: soleResult?.ok
-                                      ? soleResult.quote.status === 'precio_pendiente'
-                                      : undefined,
-                                  })
-                                }
-                                aria-label={t('viewDetailAria', { name: card.name })}
-                                className="block w-full focus-visible:shadow-focus focus-visible:outline-none"
-                              >
-                                <CardImage src={card.imageSmallUrl} alt={card.name} className="p-1.5" />
-                              </button>
-                              <p lang="en" className="mt-2.5 truncate text-[13px] text-text">
-                                {card.name}
-                              </p>
-                              <p lang="en" className="mt-1 truncate font-mono text-[10px] text-muted">
-                                {card.setName}
-                                {card.number && ` · #${card.number}`}
-                              </p>
-                              {/* P-44: rareza junto al acabado (se omite sola en sellado o sin rareza). */}
-                              <RarityLabel rarity={card.rarity} productType={productType} className="mt-1 block" />
-                              {anyInCart && (
-                                <p className="mt-1 font-mono text-[10px] uppercase tracking-[0.06em] text-success">
-                                  {t('tileInCart')}
-                                </p>
-                              )}
-                              {/* Una fila por acabado disponible: estimado propio y agregable
-                                  por separado (clic = directo al carrito). */}
-                              <ul className="mt-2.5">
-                                {finishes.map((finish) => {
-                                  const result = quoteFor(card.id, finish);
-                                  const finishInCart = isInCart(card.id, productType, finish);
-                                  return (
-                                    <li key={finish}>
-                                      <button
-                                        type="button"
-                                        disabled={!result?.ok}
-                                        onClick={() => addFromGrid(card, finish)}
-                                        aria-label={t('addFinishAria', {
-                                          name: card.name,
-                                          finish: rowLabel(finish),
-                                        })}
-                                        className={cn(
-                                          'group flex w-full items-center justify-between gap-2 border-b border-border py-2 text-left disabled:cursor-not-allowed',
-                                          finishInCart && 'bg-surface-2',
-                                        )}
-                                      >
-                                        <span className="truncate font-mono text-[10px] uppercase tracking-[0.06em] text-muted group-hover:text-text">
-                                          {rowLabel(finish)}
-                                        </span>
-                                        <span className="flex shrink-0 items-center gap-2 font-mono text-[11px]">
-                                          <FinishEstimate result={result} loading={gridQuotes.isLoading} />
-                                          <span
-                                            aria-hidden
-                                            className={cn('text-accent', !result?.ok && 'opacity-40')}
-                                          >
-                                            {finishInCart ? '✓' : '+'}
-                                          </span>
-                                        </span>
-                                      </button>
-                                    </li>
-                                  );
-                                })}
-                              </ul>
-                            </li>
-                            );
-                          })}
-                        </ul>
-                      ))}
-                  </QueryState>
-                </div>
-              </>
-            )}
+            {/* v1.21 / v1.53: el binder COMPARTIDO de Master Set es EL grid del cotizador —
+                casillas de imagen por acabado real de la carta (nunca chip de texto ni casilla
+                vacía), con "Cargar más" propio para sets >20 cartas (fetchQuoterBinder pagina
+                internamente). Ya no hay ternario por tipo de producto: el buylist es raw-only
+                (§4.40), así que el grid plano de graded/sealed —y su barra de filtros y su bulk—
+                se fueron con la superficie que servían. */}
+            <MasterSetPanel
+              mode="quoter"
+              onAddToSellCart={addFromMasterSet}
+              onAddProductToSellCart={addFromMasterSetProduct}
+              isInCart={isInCart}
+            />
         </main>
 
         {/* P-42 · DESKTOP: carrito de venta como PANEL FIJO a la derecha, pegajoso, a la par del
@@ -942,16 +468,9 @@ export function BuylistView() {
         <SafeShippingGuide onUnderstood={() => setGuideOpen(false)} />
       </Modal>
 
-      {/* P-43 · pop-up de detalle del GRID PLANO (graded/sealed): imagen grande + datos. Cierra
-          por backdrop/Esc (Modal §7.6). El grid raw (binder) tiene su propio modal por teja. */}
-      <CardDetailModal
-        open={detailCard != null}
-        onClose={() => setDetailCard(null)}
-        card={detailCard?.card ?? null}
-        finish={detailCard?.finish}
-        priceCents={detailCard?.priceCents}
-        pricePending={detailCard?.pending}
-      />
+      {/* P-43 · el pop-up de detalle de la carta lo pinta cada teja del binder (QuoterTile /
+          SeparateProductTile, con su propio CardDetailModal). Aquí vivía el del GRID PLANO de
+          graded/sealed, que se retiró con él (v1.53, §4.40). */}
 
       <Modal open={requestOpen} onClose={() => setRequestOpen(false)} title={t('requestTitle')}>
         {requestItems.length > 0 && (

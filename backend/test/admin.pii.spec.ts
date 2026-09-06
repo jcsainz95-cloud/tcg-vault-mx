@@ -86,6 +86,7 @@ describe('AdminService.getUser — PII cifrada + enmascarado por rol', () => {
       // puede divergir de producción ni reimplementar la matemática.
       decideSalePrice: jest.fn(PricingService.prototype.decideSalePrice),
       gradeKeyFor: jest.fn().mockReturnValue('raw:NM'),
+      tryGradeKeyFor: jest.fn().mockReturnValue('raw:NM'),
       fxSnapshotSafe: jest.fn().mockResolvedValue(null),
       liveMxnCents: (ref: { priceMxnCents: number }) => ref.priceMxnCents,
     } as unknown as PricingService;

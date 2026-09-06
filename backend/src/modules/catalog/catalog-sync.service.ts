@@ -17,15 +17,74 @@ export const SET_ID_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 /** Formato de fecha de pokemontcg.io (`yyyy/MM/dd`). */
 const DATE_PATTERN = /^\d{4}\/\d{2}\/\d{2}$/;
 /**
- * v1.52-set-logos (M-47, §4.39.4) — ÚNICO host admitido para las imágenes de set. Es el MISMO que ya
- * sirve el arte de todas las cartas del sitio ⇒ `remotePatterns` del frontend NO cambia (§5.3.4) y no
- * hay superficie nueva para seguridad. NO se amplía sin pasar por arquitecto/frontend.
+ * v1.52-set-logos (M-47, §4.39.4) — CONJUNTO CERRADO de hosts admitidos para las imágenes de set.
+ * v1.52-a (M47-H2, 2026-09-05): pasó de **un** host a **dos**. Lee esto antes de tocarlo.
  *
- * Se compara contra `URL.host` (hostname **+ puerto**), no contra `hostname`: al no llevar puerto, esta
- * constante solo empata con el puerto https por defecto (el WHATWG URL elide `:443`). Un
- * `images.pokemontcg.io:8443` es OTRO endpoint y se rechaza.
+ * ## Por qué hay DOS hosts (evidencia, no afirmación)
+ *
+ * El proveedor **mudó su CDN de imágenes a mitad de catálogo**: los sets viejos siguen sirviéndose
+ * desde `images.pokemontcg.io` y los nuevos llegan desde `images.scrydex.com`. Dos hechos duros:
+ *
+ *  1. **Log de producción (2026-09-05, 07:56–07:59)** — ocho líneas, logo y símbolo de los cuatro sets
+ *     más recientes (`me2pt5`, `me3`, `me4`, `me5`), TODAS de esta misma función:
+ *
+ *         WARN [CatalogSyncService] upsertSet(me2pt5): images.logo fuera del guardarraíl
+ *         https://images.pokemontcg.io (https://images.scrydex.com); NO se persiste (M-47, §4.39.4).
+ *
+ *     Es decir: el guardarraíl estaba haciendo su trabajo, pero contra un host **legítimo**, y por la
+ *     regla «rechazada ≡ ausente» (§4.39.4) esos cuatro sets se quedaron **sin logo** en la retícula.
+ *  2. **Conteo sobre la BD de producción** (`Card.imageSmallUrl`, agrupado por host):
+ *
+ *         images.pokemontcg.io | 19818
+ *         images.scrydex.com   |   661
+ *
+ *     661 cartas de la tienda **ya sirven su arte desde `images.scrydex.com` hoy, en producción**, y las
+ *     carga cada visitante. Entraron por `upsertCards`, que no valida NADA (deuda **M47-R1**). O sea: el
+ *     host nuevo no es un dominio desconocido — es, de facto, el CDN vigente del proveedor. Admitirlo
+ *     para los logos de set **no abre superficie nueva**: la iguala a la que el sitio ya tiene abierta.
+ *
+ * ## Cómo se añade un TERCER host el día que el proveedor vuelva a mudarse
+ *
+ * NO se «arregla» aflojando la comparación (ver abajo). El procedimiento es:
+ *  1. **Evidencia primero.** El síntoma es exactamente el de arriba: `warn` «fuera del guardarraíl» con
+ *     un host nuevo repetido en varios sets. Confirmarlo contra la BD (¿ese host ya sirve arte de carta
+ *     en producción?, `SELECT split_part(split_part("imageSmallUrl",'//',2),'/',1), count(*) …`).
+ *  2. **Se añade el host EXACTO a esta lista** (una línea), con la fecha y la evidencia en el comentario
+ *     de la entrada. Nunca un dominio raíz, nunca un comodín.
+ *  3. **Backend NO lo hace por su cuenta**: lo reporta al arquitecto, que decide (§4.39.7 describe el
+ *     acoplamiento con `remotePatterns` del frontend, §5.3.4). `remotePatterns` se amplía DETRÁS del
+ *     backend, nunca por delante.
+ *  4. **Re-sync forzado** para repoblar los logos que la regla «rechazada ≡ ausente» dejó vacíos: este
+ *     escritor está diseñado para no limpiar nunca, así que un host nuevo no repara nada por sí solo
+ *     (deuda **M47-D1**).
+ *
+ * ## Lo que NO se puede relajar al ampliar (es la mitad del valor de este guardarraíl)
+ *
+ *  - **Conjunto CERRADO, comparación por host EXACTO** (`Set.has`), **NO** una allowlist de dominios raíz
+ *    con comodín de subdominio. Verificado por MUTACIÓN (se mutó, se corrió la suite, se revirtió):
+ *      · `has` → `includes` o `startsWith` ⇒ pasa `images.pokemontcg.io.evil.com` (sufijo que controla
+ *        el ATACANTE). Ponen en rojo el vector `subdominio parecido`, que existe desde M-47.
+ *      · `has` → `endsWith` (o allowlist de dominio raíz) ⇒ pasa `cdn.images.pokemontcg.io`: cualquier
+ *        subdominio que el proveedor —o quien tome uno suyo— levante, sin que nadie verifique ese
+ *        endpoint. Pone en rojo el vector `subdominio del host admitido`.
+ *    Las tres formas de «aflojar» están cubiertas por tests; ninguna es un atajo aceptable para admitir
+ *    un host nuevo. Para eso está el procedimiento de arriba.
+ *  - **`host`, no `hostname`**: incluye el puerto. Como las entradas no lo llevan, solo empatan con el
+ *    puerto https por defecto (el WHATWG URL elide `:443`); `images.scrydex.com:8443` es OTRO endpoint.
+ *  - **`https:` obligatorio**, **userinfo rechazado**, y se persiste **`parsed.href`** (normalizado).
+ *
+ * Cada entrada, con su procedencia:
  */
-export const SET_IMAGE_HOST = 'images.pokemontcg.io';
+export const SET_IMAGE_HOSTS: ReadonlySet<string> = new Set([
+  // CDN histórico: sirve el arte de ~19 818 cartas y los logos de todos los sets hasta 2026-08.
+  'images.pokemontcg.io',
+  // CDN vigente desde 2026-09 (sets `me2pt5`/`me3`/`me4`/`me5` en adelante). Ya servía el arte de 661
+  // cartas EN PRODUCCIÓN antes de admitirse aquí — ver evidencia (2) arriba.
+  'images.scrydex.com',
+]);
+
+/** Forma legible del conjunto para el `warn` de rechazo (M47-D1: estos logs son contrato operativo). */
+const SET_IMAGE_HOSTS_LABEL = [...SET_IMAGE_HOSTS].map((h) => `https://${h}`).join(' | ');
 
 /**
  * CatalogSyncService — Ingesta de METADATA de catálogo desde pokemontcg.io (M2, ARCHITECTURE §4.8).
@@ -878,8 +937,11 @@ export class CatalogSyncService {
   /**
    * v1.52-set-logos (M-47, §4.39.4) — guardarraíl de ingesta de las **imágenes de SET**. Devuelve la
    * URL **normalizada** (`URL.href`) SOLO si es absoluta, `https:`, **sin credenciales embebidas**, y
-   * cuyo **`host` COMPLETO** (hostname + puerto) es exactamente el del CDN del proveedor; cualquier
-   * otra cosa ⇒ `null` + log (nunca se persiste).
+   * cuyo **`host` COMPLETO** (hostname + puerto) empata por **igualdad EXACTA** con una de las entradas
+   * de `SET_IMAGE_HOSTS` (conjunto CERRADO, hoy **dos** CDNs del proveedor); cualquier otra cosa ⇒
+   * `null` + log (nunca se persiste). **El porqué de los dos hosts, con la evidencia de producción, y el
+   * procedimiento para añadir un tercero, están en el comentario de `SET_IMAGE_HOSTS`** (arriba del
+   * archivo) — no se duplican aquí para que no diverjan.
    *
    * **ALCANCE — leer esto antes de citarlo como postura de seguridad.** Esto cubre **las dos columnas
    * que M-47 introduce** (`CardSet.logoUrl` / `symbolUrl`) y **nada más**. NO es «lo único que hay que
@@ -902,8 +964,10 @@ export class CatalogSyncService {
    *    crudo metería en la BD exactamente lo que el parser acaba de perdonar. Para una URL limpia
    *    `href === raw`, así que esto no reescribe nada legítimo.
    *
-   * Si pokemontcg.io empezara a servir imágenes desde OTRO host, backend NO amplía esta lista por su
-   * cuenta: lo reporta, y `remotePatterns` del frontend se amplía DETRÁS, nunca por delante (§5.3.4).
+   * Si el proveedor empieza a servir imágenes desde OTRO host, backend NO amplía `SET_IMAGE_HOSTS` por
+   * su cuenta: lo reporta al arquitecto, y `remotePatterns` del frontend se amplía DETRÁS, nunca por
+   * delante (§5.3.4). Y **jamás** se «arregla» aflojando la comparación a sufijo/comodín: eso deja pasar
+   * `images.pokemontcg.io.evil.com`, que es el vector que este guardarraíl existe para parar.
    */
   private sanitizeSetImageUrl(
     raw: string | undefined | null,
@@ -948,10 +1012,11 @@ export class CatalogSyncService {
       );
       return null;
     }
-    // `host` (hostname + puerto), NO `hostname`: un puerto no estándar es OTRO endpoint.
-    if (parsed.protocol !== 'https:' || parsed.host.toLowerCase() !== SET_IMAGE_HOST) {
+    // `host` (hostname + puerto) contra el conjunto CERRADO, por igualdad EXACTA (`Set.has`): NO
+    // `endsWith`, NO sufijo de dominio raíz. `images.pokemontcg.io.evil.com` debe seguir cayendo aquí.
+    if (parsed.protocol !== 'https:' || !SET_IMAGE_HOSTS.has(parsed.host.toLowerCase())) {
       this.logger.warn(
-        `upsertSet(${setExternalId}): images.${kind} fuera del guardarraíl https://${SET_IMAGE_HOST} ` +
+        `upsertSet(${setExternalId}): images.${kind} fuera del guardarraíl ${SET_IMAGE_HOSTS_LABEL} ` +
           `(${parsed.protocol}//${parsed.host}); NO se persiste (M-47, §4.39.4).`,
       );
       return null;

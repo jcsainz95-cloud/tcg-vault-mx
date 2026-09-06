@@ -59,16 +59,19 @@ export class InventoryPositionAdapter implements InventoryPositionPort {
     });
 
     for (const r of rows) {
+      // ⚠️ v1.53 (§4.40.4b) — **la TOLERANTE: esto es un CONTEO, o sea lectura.** Una fila `graded`
+      // sin identidad de slab (`convertToInventory`, §9 D-BG-3) no tiene clave ⇒ **no se cuenta en
+      // ninguna variante**. Antes se llaveaba `graded:PSA:10` y se sumaba al bucket del grado más
+      // caro: stock ajeno contado como propio, justo en la cifra con la que el operador decide
+      // cuánto comprar. Y con la variante que LANZA, **un solo slab incompleto dejaría la mesa
+      // entera sin conteo** (`positionUnavailable`) — cambiar un dato mal por una pantalla ciega.
+      const gradeKey = this.pricing.tryGradeKeyFor(r);
+      if (gradeKey == null) continue;
       const key = variantPositionKey({
         cardId: r.cardId,
         productType: r.productType,
         // MISMA función canónica que usa `buylist` para llavear la línea.
-        gradeKey: this.pricing.gradeKeyFor({
-          productType: r.productType,
-          rawCondition: r.rawCondition,
-          gradingCompany: r.gradingCompany,
-          gradeValue: r.gradeValue,
-        }),
+        gradeKey,
         finish: r.finish,
         cardProductId: r.cardProductId,
       });

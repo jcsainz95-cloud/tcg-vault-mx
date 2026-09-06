@@ -14,15 +14,24 @@
 > figuran como deuda.
 
 ### M47-R1 · TRES criterios distintos para la MISMA amenaza (URL de imagen de tercero que se persiste y se renderiza) (techlead R1, M-47/v1.52, 2026-09-02)
-- **Dueño:** backend. **Severidad:** Media (aceptada, **no bloqueante**). **⛔ NO ejecutar sin que el orquestador serialice `backend/src/common/`** — es zona compartida y otra sesión la tenía abierta cuando se detectó.
+- **Dueño:** backend. **Severidad:** ⬆️ **Alta** (subida desde Media el **2026-09-05**, M47-H2: la brecha **ya se materializó en producción** — ver «Evidencia nueva» abajo). Sigue **no bloqueante** (cero dinero) pero deja de ser hipotética. **⛔ NO ejecutar sin que el orquestador serialice `backend/src/common/`** — es zona compartida y otra sesión la tenía abierta cuando se detectó.
 - **Deuda:** hoy conviven **tres** criterios incompatibles para el mismo riesgo (persistir una URL de un tercero que luego sale como `<img src>`):
-  1. `CatalogSyncService.sanitizeSetImageUrl` (M-47, `catalog-sync.service.ts`) — **host EXACTO** (`URL.host`, con puerto), rechaza userinfo, persiste `URL.href` normalizado.
+  1. `CatalogSyncService.sanitizeSetImageUrl` (M-47, `catalog-sync.service.ts`) — **host EXACTO** (`URL.host`, con puerto) contra el **conjunto CERRADO** `SET_IMAGE_HOSTS` (**dos** entradas desde M47-H2, 2026-09-05: `images.pokemontcg.io` ∪ `images.scrydex.com`), rechaza userinfo, persiste `URL.href` normalizado.
   2. `sanitizeSealedImageUrl` (`src/modules/inventory/sealed-image-host.ts`, §4.32c) — **allowlist de dominios raíz** (host o subdominio), rechaza userinfo, persiste la cadena **cruda** (sin normalizar).
   3. **Arte de carta** (`catalog-sync.service.ts`, `upsertCards` → `Card.imageSmallUrl` / `imageLargeUrl`) — **NINGÚN criterio**: `c.images?.small ?? null` entra a la BD sin validar esquema, host ni forma.
 - **Por qué importa:** (3) es la superficie **más renderizada del sitio** (toda rejilla de cartas, ficha, carrito, bóveda) y es la única sin guardarraíl. Y la asimetría entre (1) y (2) hace que «¿esto está validado?» dependa de qué archivo tocó quien lo escribió, que es justo el modo de fallo que este proyecto persigue. **La brecha de (3) es ANTERIOR a M-47**: M-47 no la introdujo ni la agravó (añadió el único de los tres que valida puerto y normaliza).
-- **Impacto hoy:** bajo pero real. El proveedor es el mismo host en la práctica y el front pinta `<img>` crudo (React escapa el atributo, no hay `dangerouslySetInnerHTML`), así que no hay XSS directo; el riesgo es **puntero a host arbitrario persistido** si el upstream se compromete o cambia, con exfiltración de referer/IP de cada visitante y contenido no controlado en la página.
+- **Impacto hoy:** ⬆️ **medio (revisado 2026-09-05).** La frase anterior decía «el proveedor es el mismo host en la práctica», y **eso ya no es cierto**: son dos, y el segundo entró por esta brecha sin que nadie lo autorizara (661 filas). El front pinta `<img>` crudo (React escapa el atributo, no hay `dangerouslySetInnerHTML`), así que no hay XSS directo; el riesgo es **puntero a host arbitrario persistido** si el upstream se compromete o cambia, con exfiltración de referer/IP de cada visitante y contenido no controlado en la página.
 - **Cura (una sola, no tres parches):** helper ÚNICO en `backend/src/common/` **parametrizado por allowlist** (host exacto ∪ dominios raíz), que rechace no-`https:`, userinfo y puerto no estándar, y devuelva la forma **normalizada**. Los tres call-sites convergen en él, y el **arte de carta queda cubierto o declarado EXENTO por escrito** (con el motivo) — lo que no puede quedarse es el silencio actual.
-- **Disparador:** **el siguiente pase que toque ingesta de imágenes** (de carta, de sellado o de set), o antes si el pentester lo escala. Requiere ventana de `backend/src/common/` asignada por el orquestador. Ref: `BACKEND_NOTES.md` §0.19, ARCHITECTURE §4.39.4 / §4.32c.
+- **🔴 EVIDENCIA NUEVA (2026-09-05, M47-H2) — esto ya dejó de ser teórico y por eso sube a Alta.** El proveedor **cambió de servidor de imágenes** y el conteo sobre la **BD de producción** (`Card.imageSmallUrl` por host) es:
+
+  | servidor | count |
+  |---|---|
+  | `images.pokemontcg.io` | 19 818 |
+  | `images.scrydex.com` | **661** |
+
+  Es decir: **la brecha (3) ya dejó pasar 661 URLs de un host que nadie autorizó**, y esas 661 imágenes las carga **cada visitante** hoy en producción. Nadie lo aprobó, nadie lo revisó, y **no hay ninguna traza** de cuándo empezó: `upsertCards` no valida ni registra. El cambio de CDN se detectó **por el lado que SÍ tiene guardarraíl** — el `warn` de `sanitizeSetImageUrl` sobre los logos de `me2pt5`/`me3`/`me4`/`me5` (`BACKEND_NOTES.md` §0.20.1) —, no por el lado que sirve 20 000 imágenes. **Ese contraste es la deuda entera, medida:** el criterio (1) convirtió la mudanza en un ticket con nombre y hora; el criterio (3) la convirtió en 661 filas silenciosas. Si el próximo host no fuera el CDN legítimo del proveedor sino uno comprometido, **(1) lo habría parado y (3) lo habría persistido igual**.
+- **Nota de alcance — M47-H2 NO cerró nada de esto y no lo intentó.** Ese pase solo amplió el guardarraíl de **imágenes de SET** a dos hosts, manteniendo la comparación exacta. **La asimetría quedó MÁS visible, no menos:** hoy los logos de set pasan por un conjunto cerrado de dos hosts verificados **mientras el arte de carta del mismo `for` del mismo archivo acepta cualquier cosa** que venga en `c.images.small`. Quien lea `catalog-sync.service.ts` verá las dos políticas a ~90 líneas de distancia.
+- **Disparador:** ⚠️ **YA SE CUMPLIÓ dos veces.** (a) La condición original —«el siguiente pase que toque ingesta de imágenes»— se cumplió con **M47-H2 (2026-09-05)**, que **no pudo tomarlo** porque `backend/src/common/` seguía serializado por el orquestador (rama `claude/buylist-inventory-workflow-hdnls3` viva). (b) La condición de fondo —«que la brecha deje pasar algo»— se cumplió en producción con las **661 filas** de arriba. **Lo único que falta es la ventana de `backend/src/common/`**: en cuanto el orquestador la asigne, esto se toma antes que el resto de la cola de M-47. Ref: `BACKEND_NOTES.md` §0.19 y §0.20, ARCHITECTURE §4.39.4 / §4.32c.
 
 ### M47-D1 · Una URL RECHAZADA por el guardarraíl se queda pegada para siempre, y la única señal es un `warn` (backend, M-47/v1.52, 2026-09-02)
 - **Dueño:** backend. **Severidad:** Baja (aceptada, **no bloqueante**; presentación pura, clase (P), cero dinero).
@@ -5161,8 +5170,11 @@
 - **Disparador:** cuando el inventario de plataforma pase de ~5.000 piezas o la cola tarde >2 s.
 
 #### BLC-D3 · Interpolaciones a mano de la llave de variante, vivas en camino de dinero (Media, backend)
-- **Dónde (SOLO lo de este stream):** `inventory.service.ts:1506` (sellado),
-  `inventory.service.ts:1537` (raw/graded) y `price-ingest.service.ts:839`.
+- **Dónde (SOLO lo de este stream):** `inventory.service.ts:1558` (sellado),
+  `inventory.service.ts:1613` (raw/graded) y `price-ingest.service.ts:872`.
+  > **Números refrescados en la fusión con v1.53 (2026-09-06).** Eran `:1506`, `:1537` y `:839`; el
+  > código se movió, la deuda **no**: las tres siguen construyendo la llave a mano. Se re-anotan
+  > porque una ficha que apunta a la línea equivocada es una ficha que el siguiente pase no encuentra.
 - **Qué pasa:** P-30 H2 (§4.39e) dejó `variantKey()` como **la** forma canónica de construir
   `cardId|productType|gradeKey|finish`, precisamente porque un template a mano **no falla en
   compilación cuando el orden o un componente cambian**: falla devolviendo `undefined` de un `Map`,
@@ -5177,11 +5189,15 @@
 - **Disparador:** al tocar cualquiera de los tres por otro motivo, sustituir por `variantKey()`.
   Es un cambio de una línea con test existente que lo cubre.
 
-#### BLC-D4 · `BuylistService` = **5.742 líneas / 68 métodos** (Media, backend)
+#### BLC-D4 · `BuylistService` = **6.154 líneas / 79 métodos** (Media, backend)
 - **Dónde:** `backend/src/modules/buylist/buylist.service.ts`.
 - **Qué pasa:** el archivo concentra **cinco responsabilidades** que no comparten estado: cotización,
   ciclo de oferta, colas de back-office, correos y pago. Este pase lo **hizo crecer** (+626 líneas:
   la puerta, las guardas y la proyección unificada), así que la nota se re-anota con el número real.
+  > **Re-medido en la fusión con v1.53 (2026-09-06): 5.742 → 6.154 líneas / 68 → 79 métodos.** El
+  > delta lo aporta `main` (la guarda raw-only, `rawGradeKeyInput` y la degradación por-ítem del
+  > lote), no la rama. Se re-anota por la misma razón que se anotó: **la cifra es el disparador**, y
+  > una cifra vieja hace parecer que la deuda no se mueve.
 - **Impacto:** mantenibilidad y superficie de conflicto entre streams. **No es un riesgo de dinero**:
   las reglas críticas ya viven en cuerpos únicos y con guardas de residuo (`sell-request-states`,
   `buylist-aml`, `variant-key`).
@@ -5210,3 +5226,100 @@
   invirtiendo la herencia — la proyección de cliente sale ahora de una **base compartida** que **no
   lee** `closedAt`, `paidBy`, `isPayable` ni ninguna de las 21 columnas del ciclo. Hay guard de
   residuo (`test/buylist.projection-and-queue-key.spec.ts`).
+
+---
+
+### Cierre de la ronda v1.53-b (I-2 / M-1 / M-2) — rama `claude/buylist-graded-identity`, 2026-09-06 (dueño: **backend**, no bloqueante)
+
+> Enrutado por el **techlead** tras el doble veredicto APROBADO de v1.53 (`6db0a78`). Implementación y
+> mediciones en `docs/BACKEND_NOTES.md` **§0.22**. Ninguna de estas fichas bloquea el merge.
+
+#### DT-M1 · La premisa que hace neutro al `?? 'NM'` no estaba anclada (Media, backend) — **ANCLADA (2026-09-06)**
+- **Dueño:** backend. **Severidad:** Media (money-adyacente). **Estado: ancla puesta; la DECISIÓN sigue pendiente para el día que dispare.**
+- **Deuda:** `buildGradeKey` y `tryBuildGradeKey` conservan `` `raw:${input.rawCondition ?? 'NM'}` ``. El
+  argumento de que ese default **no inventa identidad** (a diferencia de los `?? 'PSA'` / `?? '10'` que
+  este pase retiró) es correcto **hoy y sólo hoy**: se apoya en que `enum RawCondition` tiene **un único
+  valor**, así que el default no puede *elegir* entre condiciones — no hay entre qué elegir.
+- **Por qué el ancla que ya existía NO cubría esto:** `enum-values-parity.spec.ts` fija
+  `ACCEPTED_RAW_CONDITIONS === ['NM']`, que es la lista de **negocio**. El día que el schema gane
+  `LP`/`MP` —`business-rules.ts` lo llama literalmente *«un cambio probable, no hipotético»*, p. ej. para
+  registrar una devolución no-NM sin publicarla— esa lista **puede seguir siendo `['NM']`** y el test
+  seguiría verde, mientras los dos `??` pasarían **en silencio** a valuar una carta cuya condición NO se
+  capturó **como si fuera la mejor**: el defecto de esta rama con otra sintaxis, en el otro eje.
+- **Lo hecho:** ancla en `backend/test/pricing.grade-key-identity.spec.ts` sobre la **CARDINALIDAD DEL
+  SCHEMA** (`Object.values(RawCondition)`), no sobre la lista de negocio, y que además fija que los dos
+  `?? 'NM'` siguen siendo exactamente dos y nombra dónde viven.
+- **Dirección (la decisión que el ancla fuerza):** cuando rompa, **no** actualizar el número. Decidir si
+  `rawCondition = null` debe seguir significando `NM` o pasar a significar «condición no capturada ⇒
+  `pending`», igual que se hizo con el grado. Es decisión de **producto**, no de código.
+- **Disparador (duro):** el primer `LP`/`MP` en el enum `RawCondition` del schema. El test rompe solo.
+
+#### DT-M2 · Una graduada `listed` sin `certNumber` NO admite reparar `gradingCompany` por PATCH (Media, backend + **arquitecto**) — **ABIERTA, ESCALADA**
+- **Dueño:** **arquitecto** (es tensión de contrato), backend ejecuta. **Severidad:** Media. **Estado: abierta, NO corregida a propósito.**
+- **Deuda:** `updateItem` revalida el estado RESULTANTE del PATCH y rechaza con `422 VALIDATION_ERROR`
+  toda pieza `graded` que quede `listed` sin `certNumber`. Consecuencia: en una pieza **ya** `listed` sin
+  cert, **cualquier** PATCH se rechaza —incluido el que sólo intenta poner `gradingCompany`— salvo que se
+  mande `certNumber` en el mismo request o se despublique primero.
+- **Por qué importa:** el contrato v1.53 justifica el campo nuevo diciendo, literal, que es *«lo que
+  permite repararlas con el slab físico en la mano»* (§M1, `PATCH /admin/inventory/items/:id`). Hay piezas
+  donde no permite repararlas.
+- **Por qué NO se corrigió en este pase:** son **dos reglas del contrato en tensión**, no un defecto de
+  implementación: M-12 dice «una graduada publicada exige `certNumber`» y v1.53 dice «este campo es la vía
+  de reparación». Relajar la invariante deja una pieza `listed` sin cert —que el contrato prohíbe— y
+  endurecerla deja la reparación bloqueada. **Elegir es decisión del arquitecto**, y el rol backend no
+  «arregla» el contrato por su cuenta.
+- **Alcance real medido:** el estado requiere `listed` + `graded` + sin cert, que **post-M-12 ya no se
+  puede crear** (`createItem` y `bulkPublish` lo impiden, y `convertToInventory` nace `in_stock`, donde la
+  invariante **no** dispara y la reparación **sí** funciona). Es dato **legacy** anterior a M-12; el censo
+  §4.40.8 midió **0 filas**. Además, **DT-M1 no aplica aquí y M-1 lo estrecha más**: tras M-1 una graduada
+  sin identidad ya no puede llegar a `listed` por ninguna puerta.
+- **Dirección propuesta (a criterio del arquitecto):** una de estas dos, escrita en el contrato —
+  (a) permitir el PATCH cuando **no empeora** una violación preexistente y no toca `status`; o
+  (b) declarar explícitamente que la vía de reparación de una pieza legacy `listed` es *despublicar →
+  reparar → republicar*, y decirlo en §M1 para que nadie vuelva a leer el campo como una promesa que no es.
+- **Disparador:** la próxima revisión del arquitecto sobre §M1 / §4.40.5b.
+- **Re-verificada en la fusión con el ciclo de adquisición (2026-09-06): SIGUE EXACTA, y el motivo
+  conviene dejarlo escrito.** La rama convirtió este `PATCH` en el pipeline completo de publicación
+  (`BACKEND_NOTES` §0.34, desviación INV-P1), lo que podría hacer pensar que la tensión cambió de
+  forma. **No cambia:** ese pipeline solo corre cuando el PATCH **transiciona** a `listed`
+  (`resultingStatus === 'listed' && current.status !== 'listed'`), y el caso de esta ficha es una
+  pieza **ya** `listed` — que va por el camino plano y choca con la misma revalidación del cert. Lo
+  que la fusión sí añade es una **tercera** puerta en el otro caso: una `in_stock` que se publica en
+  el mismo PATCH necesita ahora empresa **y** grado (`assertPublishableGuards`, §4.40.5), lo que
+  **estrecha** el hueco en la dirección correcta y no lo abre por ningún lado nuevo. Anclado en
+  `test/inventory.graded-cert.spec.ts`.
+
+#### DT-M3 · `admin.custodyValue` omite en silencio: la pieza desaparece del pasivo sin señal (Media, backend)
+- **Dueño:** backend. **Severidad:** Media (es un **pasivo con el cliente**). **Estado: abierta, aceptada. NO es regresión de v1.53.**
+- **Deuda:** `admin.service.ts` (`custodyValue`) hace `if (gradeKey == null) continue;` y devuelve
+  **`{ totalCustodyValueCents }` y nada más**: no hay `pendingPriceCount`, ni contador, ni log. Una pieza
+  en custodia sin identidad de slab **sale del total sin dejar rastro**. Lo mismo ocurre, de hecho, con la
+  pieza que **sí** tiene clave pero cuya referencia está `pending` — el método no distingue «vale 0» de
+  «no se pudo valuar», y eso ya era así antes de este pase.
+- **La nota estaba MAL, y se corrigió:** `BACKEND_NOTES` §0.21 agrupaba `ownedItemRefs`, `inventoryValue`
+  y `custodyValue` en una fila que decía «suman a `pendingPriceCount`». **Es falso para `custodyValue`.**
+  La tabla ahora tiene **tres filas** con los tres comportamientos reales (`pending` visible por pieza /
+  `pendingPriceCount` / omisión silenciosa).
+- **Por qué no se arregló aquí:** añadir `pendingPriceCount` a la respuesta de `custodyValue` **cambia la
+  forma de un DTO del contrato** (§M9 dashboard), y eso pasa por el arquitecto (regla 9). Un contador en
+  log sí sería unilateral, pero dejaría la mitad del problema (el número del dashboard sigue mintiendo por
+  omisión) y da falsa sensación de cerrado.
+- **Dirección:** que `custodyValue` devuelva `pendingPriceCount` en paridad con `inventoryValue` — que ya
+  resolvió exactamente este problema y es el precedente a copiar. Requiere visto bueno de contrato.
+- **Disparador:** el siguiente cambio de contrato que toque el dashboard de admin (§M9), o el primer
+  reporte de descuadre del valor de custodia.
+
+#### DT-M4 · `gradeValue` sigue siendo `@IsString()` libre (Baja, backend) — anclada a **M-49**
+- **Dueño:** backend. **Severidad:** Baja. **Estado: abierta, ACEPTADA por el techlead.**
+- **Deuda:** `gradeValue` se valida como string libre, no contra un conjunto de grados. Se puede capturar
+  `'11'`, `'diez'` o `'  9,5 '` y el sistema construye con ello una clave de precio (`graded:PSA:11`).
+- **Por qué se acepta (clasificación que el techlead confirmó):** es **fail-closed de verdad**. Un
+  `gradeValue` basura produce una clave que **no casa con ninguna `PriceReference`** ⇒ la pieza cae a
+  `pending` y **no se publica**. El daño posible es una pieza que no se vende, nunca una que se vende al
+  precio equivocado — que es el eje que §4.40.4 protege. Lo contrario (un enum incompleto) sería peor:
+  bloquearía grados legítimos que hoy sí se capturan (CGC con medios puntos, etiquetas especiales).
+- **Se anota aquí y no sólo en `BACKEND_NOTES`** a petición del techlead: la deuda vive donde se revisa.
+- **Dirección:** normalizar y validar `gradeValue` contra el conjunto por graduadora **en el mismo pase
+  que M-49** (`ARCHITECTURE` §4.40.7, la forma reservada del buylist de graduadas) — es ahí donde el dato
+  pasaría a **firmar dinero de entrada** y el fail-closed dejaría de bastar.
+- **Disparador (duro):** la autorización de **M-49** por el dueño. Antes de eso, no tocar.

@@ -2,21 +2,27 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-05 (rev **v1.53**).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-06 (rev **v1.54**).
 >
-> **Changelog v1.53 — FUSIÓN DE LAS DOS LÍNEAS QUE SALIERON DE v1.50.3-g (2026-09-05, arquitecto; **CERO endpoints,
-> CERO campos, CERO montos, CERO códigos de error nuevos, CERO DDL, CERO cambios de conducta**. DOS renumeraciones
-> forzadas por colisión y DOS nombres de DTO que se declaran. ARCHITECTURE rev **v1.53**):**
-> ⚠️ **Esto no es un pase de diseño: es el ACTA DE LA FUSIÓN.** `main` (**v1.52**, P-21 → P-54) y la rama del ciclo de
-> adquisición del buylist (**v1.51.20**, `claude/buylist-inventory-workflow-hdnls3`) **salieron las dos de v1.50.3-g**
-> y numeraron en paralelo sin saber la una de la otra. **Nada de ninguna de las dos se descarta.** Todo lo que sigue
-> vigente en cualquiera de las dos, sigue vigente aquí.
+> **Changelog v1.54 — LA FUSIÓN DE LAS DOS LÍNEAS, EN SU SEGUNDA VUELTA (2026-09-06, arquitecto; **CERO endpoints,
+> CERO campos, CERO montos, CERO códigos de error nuevos, CERO DDL, CERO cambios de conducta**. TRES renumeraciones
+> forzadas por colisión y DOS nombres de DTO que se declaran. ARCHITECTURE rev **v1.54**):**
+> ⚠️ **Esto no es un pase de diseño: es el ACTA DE LA FUSIÓN.** `main` y la rama del ciclo de adquisición del buylist
+> (`claude/buylist-inventory-workflow-hdnls3`) **salieron las dos de v1.50.3-g** y numeraron en paralelo sin saber la
+> una de la otra. **Nada de ninguna de las dos se descarta.** Todo lo que sigue vigente en cualquiera de las dos,
+> sigue vigente aquí. En el pase anterior la rama absorbió **v1.52**; en éste absorbe **v1.52-b** y **v1.53**.
 >
-> **A. LA VERSIÓN RESULTANTE ES `v1.53`. No `v1.52.1`.** `v1.52.1` se lee como *«un parche encima de v1.52»* y
-> entrarían por esa puerta **veinte changelogs** (v1.51 → v1.51.20), el ciclo de adquisición entero y **M-46**. Además
-> `1.51.20 < 1.52` en cualquier lectura ordenada, así que un `.1` dejaría la rama **debajo** de una versión que no la
-> contiene. **`v1.53` es la única cota que está por encima de las dos**, y eso es exactamente lo que una fusión
-> produce.
+> **A. LA VERSIÓN RESULTANTE ES `v1.54`, y absorbe la que la rama llamaba «v1.53».**
+> El pase anterior etiquetó la fusión (rama **v1.51.20** + `main` **v1.52**) como **«v1.53»**. **Esa etiqueta nunca
+> entró a `main`**, y `main` publicó entretanto **su propio `v1.53`** (el cotizador raw-only). **Dos changelogs
+> distintos bajo el mismo número no pueden convivir en la fuente de verdad de una interfaz**, así que se aplica el
+> precedente vigente —**se renumera lo que aún no ha entrado, nunca lo publicado**— y aquella entrada **pasa a ser
+> ésta**: sus puntos A → F siguen vigentes palabra por palabra, más los que añade esta vuelta (**G → J**).
+> **`v1.54` y no `v1.53.1`:** un `.1` se lee como *parche encima del raw-only*, y por esa puerta entrarían **veintiún
+> changelogs** (v1.51 → v1.51.20 + la fusión), el ciclo de adquisición entero y **M-46**. **`v1.54` es la única cota
+> por encima de las dos.** *(Mismo razonamiento con el que se descartó «v1.52.1»; lo que cambió es el techo.)*
+> **⚠️ Ninguna versión de API cambia: la superficie sigue siendo `v1` y el prefijo `/api/v1`.** Lo que se numera aquí
+> es **la revisión del documento**, no el contrato de red.
 >
 > **B. ⚠️ COLISIÓN REAL 1 — `M-46` nombraba DOS migraciones distintas. La del GANCHO DE GRADING pasa a `M-48`.**
 > Las dos líneas bautizaron `M-46`: la rama, el **ciclo de adquisición** (DDL, 40 columnas + enums + backfill);
@@ -31,11 +37,13 @@
 > rama es **DDL real y pendiente**. Dos runbooks bajo el mismo número, uno de los cuales autoriza a **saltarse una
 > migración de dinero**. **Ninguna conducta del sistema cambia: cambia una etiqueta.**
 >
-> **C. ⚠️ COLISIÓN REAL 2 — `§4.39` nombraba DOS secciones de ARCHITECTURE. Las IMÁGENES DE SET pasan a `§4.40`.**
+> **C. ⚠️ COLISIÓN REAL 2 — `§4.39` nombraba DOS secciones de ARCHITECTURE. Las IMÁGENES DE SET salen de ahí.**
 > La rama usa `§4.39(a)`…`§4.39(t)` para el ciclo de adquisición; `main` usa `§4.39.1`…`§4.39.9` para los logos de
 > set. **Se resuelve por radio de citación:** el `§4.39` de la rama se cita **cientos** de veces (siete documentos,
 > comentarios de código y `PROJECT.md` §P); el de `main`, **62** veces en total y **todas** con la forma `§4.39.N`,
-> mecánicamente reescribible. ⇒ **el ciclo conserva `§4.39`; las imágenes de set pasan a `§4.40.1`–`§4.40.9`.**
+> mecánicamente reescribible. ⇒ **el ciclo conserva `§4.39`; las imágenes de set se mueven.**
+> ⛔ **~~«pasan a `§4.40.1`–`§4.40.9`»~~ SUPERADO en esta vuelta: pasan a `§4.41.1`–`§4.41.9`** — ver **(G)**. El
+> destino cambió; la decisión de sacarlas de `§4.39` no.
 > En este contrato quedan reescritas todas las citas. **Las citas `§4.39.N` que sobrevivan en documentos de otros
 > roles (`TECH_DEBT.md`, `BACKEND_NOTES.md`, `FRONTEND_NOTES.md`) apuntan a nada — no a la sección equivocada —
 > porque el `§4.39` vigente no tiene subsecciones numéricas.** Se enruta a cada dueño como limpieza **NO bloqueante**;
@@ -43,11 +51,11 @@
 >
 > **D. DT-Gd — SÍ los nombro. Nacen `CardSetDTO` y `BuylistSetDTO`, y es DECLARACIÓN, no cambio.**
 > La ficha de `TECH_DEBT.md` observa que el cliente colapsó `GET /catalog/sets` y `GET /buylist/sets` en un tipo único
-> y que el `logoUrl?` resultante **desactiva el invariante que §4.40.6 existe para garantizar**. **La causa raíz es
+> y que el `logoUrl?` resultante **desactiva el invariante que §4.41.6 existe para garantizar**. **La causa raíz es
 > mía:** este contrato definía las dos respuestas **distintas** pero las escribía como **shapes anónimos inline**, y
 > *un shape sin nombre no tiene con qué estar en desacuerdo* — colapsarlos era gratis y nada lo desmentía.
 > - **`CardSetDTO = { id, name, series?, releaseDate?, year?, partSetIds? }`** ⇒ `GET /catalog/sets`. **NO lleva
->   `logoUrl`, y su ausencia es normativa** (§4.40.5).
+>   `logoUrl`, y su ausencia es normativa** (§4.41.5).
 > - **`BuylistSetDTO = CardSetDTO & { logoUrl: string | null }`** ⇒ `GET /buylist/sets`. **`logoUrl` es de clave
 >   SIEMPRE presente**, porque es la fuente client-side de la teja del cotizador.
 > - **Cero cambios de shape, de ruta, de código de error y de conducta de backend: los dos cuerpos ya se emiten así.**
@@ -58,29 +66,67 @@
 > once enmiendas v1.51.9 → v1.51.20 de la rama —**`422 ITEM_NOT_OFFERED`** y **`500 OFFERED_PRICE_MISSING`**, la
 > **escalera de precedencia** (`409` del verbo sobre `422` del campo), la forma **única** de `details` en la familia
 > `PICKUP_ADDRESS_*` (`{ field: "addressId" }`), **`offerSentAt` como marca permanente** (BL-28) y la **norma de
-> cobertura §5.2 de ARCHITECTURE** con sus cinco disparadores— y sigue vigente **entero** P-54: `logoUrl` en
-> `MasterSetSummaryDTO` (cuatro endpoints) y en `GET /buylist/sets`, con sus exclusiones deliberadas. **Ningún
-> endpoint, ningún dial, ningún monto, ningún correo y ninguna regla del barrido cambian en este pase.**
+> cobertura §5.4 de ARCHITECTURE** *(era §5.2; renumerada en (H))* con sus cinco disparadores— y sigue vigente
+> **entero** P-54: `logoUrl` en `MasterSetSummaryDTO` (cuatro endpoints) y en `GET /buylist/sets`, con sus exclusiones
+> deliberadas. **Y sigue vigente entero `v1.53`**: `422 BUYLIST_RAW_ONLY` en las tres rutas de §6, `productType`
+> `"raw"` y solo `"raw"`, y `gradingCompany?` en `PATCH /admin/inventory/items/:id`. **Ningún endpoint, ningún dial,
+> ningún monto, ningún correo y ninguna regla del barrido cambian en este pase.**
 >
 > **F. Contradicciones de fondo entre las dos líneas: NINGUNA.** Las dos ramas tocan superficies disjuntas (catálogo
-> de sets vs. ciclo de adquisición) y las dos únicas colisiones fueron **de nombres**, resueltas en (B) y (C). El
+> de sets vs. ciclo de adquisición) y las colisiones fueron **de nombres**, resueltas en (B), (C), (G) y (H). El
 > único punto donde una línea deroga a la otra es **`gradedEstimateIngestEnabled`**: la rama lo conserva vivo porque
 > **nunca vio** v1.51-one-dial; **manda `main`** —es decisión del dueño, tomada y reafirmada— y el dial queda
 > **retirado**. La rama no lo defendía: lo desconocía.
 >
+> **⬇️ LO QUE AÑADE ESTA SEGUNDA VUELTA (G → J).**
+>
+> **G. ⚠️ COLISIÓN REAL 3 — `§4.40` de ARCHITECTURE nombraba DOS secciones. Las IMÁGENES DE SET pasan a `§4.41`.**
+> El pase anterior movió los logos de set a `§4.40`; entretanto `main` **creó y mergeó su propio `§4.40`** (identidad
+> de graduación en el buylist, el raw-only). ⇒ **precedente sin matices: se renumera lo que aún no ha entrado.**
+> **Graduación = `§4.40.1`–`§4.40.8`** (publicada, **308 citas en 42 ficheros**, incluidas `common/business-rules.ts`,
+> `common/error-codes.ts`, `pricing.types.ts` y `buylist.service.ts`); **imágenes de set = `§4.41.1`–`§4.41.9`**.
+> **En este contrato quedan reescritas todas las citas de imágenes de set.**
+> ⚠️ **Y hay un caso que NO es «cita rancia» y que enruto explícitamente:** `frontend/` **ya había adoptado** la
+> renumeración anterior y cita `§4.40.5`/`§4.40.6`/`§4.40.7` **hablando de logos** (`types/contract.ts`, `lib/api.ts`,
+> `components/master-set/*`, `lib/mock/fixtures.ts`, `e2e/`). **Esas citas ahora aterrizan en la sección de
+> graduación, que es de dinero.** Reescribir a `§4.41.N`: **dueño frontend, dentro de su gate de stream.**
+>
+> **H. ⚠️ COLISIÓN REAL 4 — `§5.2` de ARCHITECTURE nombraba DOS secciones. La NORMA DE COBERTURA pasa a `§5.4`.**
+> La rama creó `§5.2 «Qué exige cobertura de integración»`; `main` tenía desde v1.51-b `§5.2 «Doctrina del snapshot
+> congelado»`, con `§5.2.1`–`§5.2.9` citadas desde código y cuatro documentos. **Publicada gana:** el snapshot
+> conserva `§5.2`; la cobertura pasa a **`§5.4`**. **Coste externo cero**: solo se citaba en `ARCHITECTURE.md` y en
+> este documento. En este contrato quedan reescritas las **tres** citas.
+>
+> **I. La tensión de fondo raw-only × ciclo de adquisición: NINGUNA norma de §4.39 cambia.**
+> El ciclo se diseñó cuando el cotizador aceptaba `raw | graded | sealed`; `v1.53` lo cierra a **`raw`**. Verificado
+> apartado por apartado: **`§4.39` no tiene una sola regla que dependa del `productType`**. Lo que cambia es **a quién
+> defienden** dos reglas ya escritas: **(1)** *«línea sin dato de mercado ⇒ `skip` u override con motivo; jamás MX$0»*
+> (§4.39e) pasa a ser también **la vía de toda línea `graded`/`sealed` legacy** —encaja exacta con `§4.40.4`, *«money
+> lanza; lectura degrada a `null` ⇒ `precio_pendiente`»*: **las dos prohíben inventar un número**—; y **(2)** la
+> degradación a `positionUnavailable` **defiende ahora filas legacy**, no el caso normal, y se aplica **por fila**
+> (§4.39k.1) cuando el `gradeKey` de una graduada sin identidad **no se puede construir**: `position: null` +
+> `positionUnavailable: true` + `verdict: "none"`. **Prohibido el `0`. Es derivación, no regla nueva** — escrito aquí
+> para que no se re-litigue en la implementación.
+>
+> **J. Consecuencia operativa única: UN censo, no dos.** El **triage de cut-over de `BL-10`/`BL-12`** (las `cotizada`
+> vivas) y el **censo read-only de `§4.40.8`** (líneas no-`raw`) **recorren las mismas filas**. Se hacen en **una sola
+> pasada**, que por fila contesta: *¿tiene dirección?*, *¿lleva más de 7 días hábiles?*, *¿tiene líneas no-`raw`?*
+> Sigue siendo el **paso 6** del despliegue de M-46 y **sigue siendo bloqueante**.
+>
 > ---
 > **NOTA DE LECTURA — este changelog tiene DOS LINAJES, y por eso las fechas no bajan de forma monótona.**
-> Debajo van primero las **veinte** entradas de la rama (**v1.51 → v1.51.20**, 2026-09-01/02) y después las **seis**
-> de `main` (**v1.50.4-brand-domain → v1.52**, 2026-08-31). **Las dos pilas arrancan en `v1.50.3-g`**, que es el
+> Debajo van primero las **veinte** entradas de la rama (**v1.51 → v1.51.20**, 2026-09-01/02) y después las de `main`
+> (**v1.50.4-brand-domain → v1.53**, 2026-08-31 → 2026-09-05). **Las dos pilas arrancan en `v1.50.3-g`**, que es el
 > antepasado común y la primera entrada que las dos comparten. ⚠️ **El `v1.51` de la rama (ciclo de adquisición) y el
 > `v1.51-one-dial` de `main` (gancho de grading) son cosas DISTINTAS que eligieron el mismo número en paralelo; no
-> hay derivación entre ellos.**
+> hay derivación entre ellos** — y con **«v1.53»** pasó lo mismo: el de la pila de abajo es **el raw-only de `main`**;
+> el que la rama llamó así es **esta cabecera, hoy `v1.54`** (punto A).
 >
 > ---
 >
 > **Changelog v1.51.20 — LAS TRES ESCALADAS DEL GATE, RESUELTAS (2026-09-02, arquitecto; **CERO DDL, CERO endpoints,
-> CERO campos**. DOS códigos de error nuevos. ARCHITECTURE §4.39(q.3), §4.39(i) **6-bis** y **6-ter**, §5.2 NUEVA,
-> §9 con **BL-28**):**
+> CERO campos**. DOS códigos de error nuevos. ARCHITECTURE §4.39(q.3), §4.39(i) **6-bis** y **6-ter**, **§5.4 NUEVA**
+> *(nació como «§5.2»; renumerada en v1.54(H))*, §9 con **BL-28**):**
 > ⚠️ **Las tres las levantó backend tras cerrar los once hallazgos del gate, y en las tres implementó lo que este
 > contrato dice en vez de decidir por su cuenta. Es lo correcto, y las tres eran defectos MÍOS** — dos huecos de
 > declaración y una fuente de monto sin caso de ausencia. **La racha de señalar-en-vez-de-inventar sigue intacta.**
@@ -131,9 +177,11 @@
 > ciclo**; lo vivo lo dice **`offerState`**; **ninguna ruta lo limpia jamás**. Y se declara que el espacio de nombres
 > **`BL-nn` pertenece a §9** (hoy tres documentos lo usan para tres cosas distintas).
 >
-> **E. Norma de cobertura (ARCHITECTURE §5.2 NUEVA).** Cinco disparadores que exigen **integración por HTTP contra BD
-> real**: dinero · regla en el motor · proyección · superficie HTTP · cableado entre módulos. **No hay porcentaje
-> objetivo**: el pase rechazado tenía el mejor número del repo.
+> **E. Norma de cobertura (ARCHITECTURE §5.4 NUEVA** *—nació como «§5.2»; renumerada en v1.54(H)—***).** Cinco
+> disparadores que exigen **integración por HTTP contra BD real**: dinero · regla en el motor · proyección ·
+> superficie HTTP · cableado entre módulos. **No hay porcentaje objetivo**: el pase rechazado tenía el mejor número
+> del repo. *(v1.54: `422 BUYLIST_RAW_ONLY` cae en los disparadores 1 y 4 y **se comporta distinto según la ruta** —
+> por-ítem en `/quote/batch`, todo-o-nada en `/buylist/requests`— ⇒ integración por HTTP en **las tres**.)*
 >
 > **F. Sin cambios.** Ni endpoints, ni campos, ni diales, ni DDL. Los **cinco** correos, las **siete** reglas del
 > barrido, los **cuatro** terminales, el mínimo, la tarifa, los pisos, SEC-A1 y la curva **intactos**.
@@ -1284,13 +1332,46 @@
 > superficie pública de catálogo.
 >
 > ---
-> ### ⬇️ A PARTIR DE AQUÍ, LA LÍNEA DE `main` (v1.50.4-brand-domain → **v1.52**, 2026-08-31)
-> *Rama paralela salida de **v1.50.3-g**, igual que la de arriba. Su cabecera decía «Fecha: 2026-08-31 (rev
-> **v1.52**)»; esa cabecera la sustituye la de **v1.53**. Todo lo demás se conserva literal.*
+> ### ⬇️ A PARTIR DE AQUÍ, LA LÍNEA DE `main` (v1.50.4-brand-domain → **v1.53**, 2026-08-31 → 2026-09-05)
+> *Rama paralela salida de **v1.50.3-g**, igual que la de arriba. Su cabecera decía «Fecha: 2026-09-05 (rev
+> **v1.53**)»; esa cabecera la sustituye la de **v1.54**. Todo lo demás se conserva literal, salvo las renumeraciones
+> de la fusión (`§4.39.N → §4.41.N`), marcadas en el sitio. **⚠️ El `§4.40` que aparece en la entrada
+> `v1.53` de aquí abajo es el de GRADUACIÓN y NO se renumera.***
 > ---
+> **Changelog v1.53 — EL COTIZADOR VUELVE A SER RAW-ONLY (2026-09-05, arquitecto; DEFECTO DE DINERO vivo en
+> producción, reproducido en `main` `4b1db96`. Lo implementan BACKEND y FRONTEND. ARCHITECTURE §4.40. **Sin
+> migración.**).**
+> **Cero rutas nuevas, cero montos, cero permisos, cero migraciones.** Base: v1.52, vigente entera.
+> ⚠️ **NO es aditivo: RESTRINGE tres endpoints.** Es el único cambio breaking de este pase y es deliberado.
+>
+> - **El defecto que cierra.** `POST /buylist/quote`, `/quote/batch` y `POST /buylist/requests` aceptan hoy
+>   `productType: ProductType` —los tres valores— pero **ningún DTO tiene dónde capturar el grado**. El backend
+>   rellena el hueco con `` `graded:${gradingCompany ?? 'PSA'}:${gradeValue ?? '10'}` `` ⇒ **toda carta graduada se
+>   cotiza contra la referencia de PSA 10, el grado más caro que existe**, sea un PSA 6 o un CGC 8. Es dinero
+>   saliente y hoy solo lo amortigua que el precio se corrige al verificar — red que el ciclo de adquisición retira.
+> - **Este contrato era la causa, no la víctima.** Backend implementó exactamente lo que aquí decía. `PROJECT.md` §E
+>   («Buylist — compra de **raw**»), §K **LOCKED** («el cotizador y el pipeline de buylist siguen siendo **solo para
+>   raw**») y el **criterio 61** («no existe flujo de buylist de sellado, **ni cotizador ni pipeline**) dicen otra
+>   cosa. Por la regla de conflicto —**`PROJECT.md` manda sobre este contrato**— se corrige el contrato.
+> - **`productType` en las tres rutas de §6 pasa a ser `"raw"` y solo `"raw"`.** `graded` y `sealed` ⇒ **nuevo
+>   `422 BUYLIST_RAW_ONLY`**.
+> - **Es `422` de negocio y NO el `400 VALIDATION_ERROR` del `@IsIn`, por una razón concreta:** en `/quote/batch` los
+>   errores son **por-ítem** (`ok:false`, HTTP `200`). Un rechazo en el `ValidationPipe` devolvería **`400` para el
+>   request entero** y se llevaría por delante **las otras 49 líneas raw legítimas** del grid. `BUYLIST_RAW_ONLY`
+>   entra al allowlist de degradación por-ítem junto a `NOT_FOUND`, `FINISH_NOT_AVAILABLE`, `PRODUCT_NOT_FOUND` y
+>   `PRODUCT_CARD_MISMATCH`. En `/quote` y `/requests` es un `422` de request completo.
+> - **`PATCH /admin/inventory/items/:id` gana `gradingCompany?` (ADITIVO).** Hoy acepta `gradeValue` y `certNumber`
+>   pero **no la empresa graduadora**, lo que vuelve **incorregible** una pieza graduada con empresa nula — y hay
+>   piezas así, creadas por la conversión de buylist (ARCHITECTURE §9 **D-BG-3/D-BG-4**).
+> - **Lo que NO cambia:** ningún monto, ninguna curva, ningún `priceBasis`, ningún tope AML, ningún rol. Una línea
+>   **raw** se cotiza **exactamente igual que antes**. `SellItemDTO` no cambia de forma.
+> - **Sin migración y sin backfill.** No se añaden columnas de graduación a `SellRequestItem`: eso sería **construir
+>   el buylist de graduadas**, que `PROJECT.md` pone fuera de alcance. La forma queda **reservada** en `M-49`
+>   (ARCHITECTURE §4.40.7) por si el dueño lo autoriza.
+> - **Base previa:** v1.52.
 >
 > **Changelog v1.52 — la teja de set gana su LOGO (2026-08-31, arquitecto; petición del DUEÑO. Lo implementan
-> BACKEND y FRONTEND. ARCHITECTURE ~~§4.39~~ **§4.40** *(renumerada en v1.53(C))*, migración M-47).**
+> BACKEND y FRONTEND. ARCHITECTURE ~~§4.39~~ ~~§4.40~~ **§4.41** *(renumerada en v1.54(C)/(G))*, migración M-47).**
 > **Cero rutas nuevas, cero códigos de error nuevos, cero montos, cero permisos.** Base: v1.51-c, vigente entera.
 > Es **ADITIVO puro**: todo consumidor existente sigue funcionando sin cambios.
 > - **Qué se añade y DÓNDE — dos superficies, y la segunda es la que se olvida:**
@@ -1304,7 +1385,7 @@
 >   `GET /catalog/sets` (alimentan **chips y filtros de TEXTO**, no tejas), `CardDTO`/`card.setName` (el set ahí es
 >   metadata de una carta: sería el mismo logo repetido por cada carta de la rejilla), `GET /admin/catalog/remote-sets`
 >   (espejo del proveedor, no una selección) y `SetRefDTO` (cabecera de gráfica). **Regla:** *la imagen de set viaja
->   donde el SET es el objeto que se selecciona.* ARCHITECTURE §4.40.5 *(era §4.39.5; renumerada en v1.53(C))*.
+>   donde el SET es el objeto que se selecciona.* ARCHITECTURE §4.41.5 *(era §4.39.5, luego §4.40.5; v1.54(C)/(G))*.
 > - **`null` es un valor NORMAL y PERMANENTE, no un error ni un estado transitorio.** Clase **(P) presentación**
 >   (§5.2.2) ⇒ **clave SIEMPRE presente, ausencia como `null`** — nunca omitida, nunca `""`, nunca una URL de
 >   placeholder inventada por el backend. Hay sets que el proveedor **no ilustra** (promos, colecciones raras, sets
@@ -1313,15 +1394,15 @@
 >   pinta cuando no hay. Es la grieta de `imageSmallUrl` (§5.2.1) cerrada por adelantado.
 > - **Un segundo origen del `null`, indistinguible a propósito:** un set **aún no re-sincronizado** también rinde
 >   `null`. El contrato **no** los distingue y el cliente **no** debe intentarlo: para el front, «sin logo» es un solo
->   caso. Quien los distingue es el operador, por el lado del sync (ARCHITECTURE §4.40.4).
+>   caso. Quien los distingue es el operador, por el lado del sync (ARCHITECTURE §4.41.4).
 > - **Origen del dato y su peor caso:** URL de un **CDN de tercero** (`images.pokemontcg.io`, el **mismo** host que ya
 >   sirve el arte de las cartas). **Sin copia propia.** Si el CDN cae, la teja cae a su placeholder — mismo riesgo que
 >   ya corre toda imagen de carta del sitio, no una clase de fallo nueva. **Prohibido construir la URL por plantilla**
 >   desde el `setId` (misma regla que §5.2.5 para cartas).
 > - **`symbolUrl` (el glifo cuadrado) SE PERSISTE pero NO SE EXPONE en este pase.** No aparece en ningún DTO: hoy no
 >   hay superficie que lo use. Exponerlo el día que exista el chip es **aditivo de proyección, sin migración y sin
->   re-sync**. ARCHITECTURE §4.40.5.
-> - **Frontend, nivel de imagen decidido por el arquitecto (§5.3, ARCHITECTURE §4.40.7): NIVEL B** — `<img>` crudo,
+>   re-sync**. ARCHITECTURE §4.41.5.
+> - **Frontend, nivel de imagen decidido por el arquitecto (§5.3, ARCHITECTURE §4.41.7): NIVEL B** — `<img>` crudo,
 >   **sin `next/image`, sin `srcset`**. Una retícula es una rejilla y la regla de coste 4 de §5.3.3 lo prohíbe; además
 >   el proveedor sirve **una sola URL** por imagen. **`remotePatterns` no cambia** (mismo host).
 > - **Migración `M-47`** (ARCHITECTURE §11): dos columnas nullable en `CardSet`, **aditiva pura**, money-safe, sin
@@ -1412,7 +1493,7 @@
 >
 > **Changelog v1.51-one-dial — el gancho de grading pasa de DOS interruptores a UNO (2026-08-31, arquitecto;
 > lo implementan BACKEND + FRONTEND. ARCHITECTURE §4.38(r), §9, §10 GU-14, §11 ~~M-46~~ **M-48**).**
-> *(⚠️ **v1.53(B): esta migración se renumeró de `M-46` a `M-48`.** `M-46` es la del ciclo de adquisición del buylist
+> *(⚠️ **v1.54(B): esta migración se renumeró de `M-46` a `M-48`.** `M-46` es la del ciclo de adquisición del buylist
 > —DDL aplicado en disco— y **no se puede renombrar**; ésta es DATA/seed sin artefacto. **Ninguna conducta cambia.**)*
 > ⚠️ **Decisión del DUEÑO, tomada y reafirmada. No se re-litiga.** Cero superficies públicas tocadas, cero DDL, cero
 > montos, cero códigos de error nuevos. **BREAKING chico en `super_admin`** (dos claves de M10 desaparecen y una nace).
@@ -1420,7 +1501,7 @@
 >   Enviarlas en el `PUT` ⇒ **`422 VALIDATION_ERROR`** (clave desconocida; mismo precedente que `stripeFeeIvaPct`,
 >   v1.40). Las filas `ConfigSetting` que existan quedan **huérfanas e inertes** — nadie las lee, **no se borran**.
 > - **NACE `gradingHookEnabled`** (`grading_hook_enabled`, enum `on|off`, **seed `off` fail-closed**, **M-48**
->   *(era `M-46`; v1.53(B))*,
+>   *(era `M-46`; v1.54(B))*,
 >   DATA/seed sin DDL): **el dial único** del gancho. Gobierna **exhibición Y obtención**: con `off` no se emite
 >   `gradedEstimates` ni `gradingHighlight`, `?gradingHighlight=true` devuelve `{ data: [], total: 0 }`, **y** el
 >   ingest de fase 2 **no pide nada al proveedor ni escribe ninguna fila**.
@@ -3300,6 +3381,9 @@
 ```
 - **Códigos comunes:** `400 VALIDATION_ERROR`, `401 UNAUTHENTICATED`, `403 FORBIDDEN`, `404 NOT_FOUND`, `409 CONFLICT`, `422` (regla de negocio), `429 RATE_LIMITED`, `500 INTERNAL`.
 - **`422 FINISH_NOT_AVAILABLE` (v1.6-finish):** el `finish` enviado (cotizador, alta de inventario, solicitud) **no** está en `Card.availableFinishes`. Guardarraíl SEC-A1: el cliente no puede cotizar/vender un acabado inexistente para pagar de más. Afecta `POST /buylist/quote`, `POST /buylist/requests`, `POST /admin/inventory/items`.
+- **`422 BUYLIST_RAW_ONLY` (v1.53 — MONEY, ARCHITECTURE §4.40):** se envió `productType` distinto de `"raw"` a una ruta de buylist. **El cotizador y el pipeline de compra son solo raw** (`PROJECT.md` §E, §K LOCKED, criterio 61). Afecta `POST /buylist/quote`, `POST /buylist/quote/batch` y `POST /buylist/requests`. `details: { index?: number, productType: "graded" | "sealed" }` (`index` solo en las rutas con `items[]`, para que el front señale la línea).
+  - **Por qué es un `422` de negocio y no el `400 VALIDATION_ERROR` de un `@IsIn`:** en **`/quote/batch` degrada POR-ÍTEM** (`ok:false`, HTTP `200`, correlación por `index`), igual que `NOT_FOUND` / `FINISH_NOT_AVAILABLE` / `PRODUCT_NOT_FOUND` / `PRODUCT_CARD_MISMATCH`. Un rechazo de forma en el `ValidationPipe` tumbaría el request completo y con él **las demás líneas raw legítimas** del grid. En `POST /buylist/quote` y `POST /buylist/requests` es un `422` de request completo (y en `requests`, **la solicitud no se crea**).
+  - **Guardarraíl money-safe, no cosmética:** sin él, una línea graduada se cotiza contra `graded:PSA:10` —**el grado más caro**— porque el grado real **nunca se captura**. El bloqueo lo aplica **siempre el backend**; el selector del cotizador es solo UI (SEC-A1).
 - **`403 EMAIL_NOT_VERIFIED` (v1.5):** un `customer` autenticado con `emailVerified=false` intenta una **acción sensible** (comprar / retirar / vender). El front muestra el banner "verifica tu correo" y ofrece reenviar; el bloqueo lo aplica **siempre** el backend (`EmailVerifiedGuard`, ARCHITECTURE §4.11). Endpoints afectados: `POST /checkout/session`, `POST /shipments`, `POST /buylist/requests`.
 - **`422 CLABE_REQUIRED` (v1.15):** `POST /buylist/requests` **sin** `clabe` en el body **y sin** CLABE en archivo (`KycProfile.clabeEnc` vacío). El front debe pedir la CLABE (o registrarla en KYC) antes de reintentar. Distinto de `422 CLABE_INVALID` (formato incorrecto) y de `422 CLABE_NOT_OWN_NAME` (no coincide con la de archivo). Ver §6 y ARCHITECTURE §4.16a.
 - **⚠️ LA FAMILIA `PICKUP_ADDRESS_*` (v1.51.3, D36/D37 — ARCHITECTURE §4.39q).** Cuatro códigos, **cuatro remedios
@@ -4111,7 +4195,7 @@ BuylistBatchQuoteResponse = { results: BuylistBatchQuoteResultDTO[] }
 // v1.42 (BLOQ-3): el binder cuenta SOLO SINGLES → todas las agregaciones de este DTO (distinctCardsOwned, totalPieces,
 //   completionPct) EXCLUYEN `productType='sealed'` (alinea con H9; el sellado vive en la pestaña «Sellado», §sealed-sets).
 //   `catalogCardCount` (denominador = catálogo) NO cambia. Mismo filtro en el scope user_vault. Ver ARCHITECTURE §4.20b.
-// v1.52 (M-47, ARCHITECTURE §4.40 — era §4.39; renumerada en v1.53(C)): `logoUrl` = imagen del LOGO del set (`images.logo` de pokemontcg.io,
+// v1.52 (M-47, ARCHITECTURE §4.41 — era §4.39, luego §4.40; v1.54(C)/(G)): `logoUrl` = imagen del LOGO del set (`images.logo` de pokemontcg.io,
 //   persistida en `CardSet.logoUrl`). Es EL campo de la teja de selección de set.
 //   ⚠️ `string | null`, NO `logoUrl?`: la clave va SIEMPRE presente y la ausencia se expresa con `null`
 //   (clase (P) presentación, §5.2.2/§5.2.9). `null` es NORMAL y PERMANENTE — hay sets que el proveedor no
@@ -4119,7 +4203,7 @@ BuylistBatchQuoteResponse = { results: BuylistBatchQuoteResultDTO[] }
 //   el contrato NO distingue ambos orígenes y el cliente NO debe intentarlo. No es error, no se reintenta, no
 //   se registra incidente: el front pinta su estado «sin logo» (lo define ux-ui). ⛔ PROHIBIDO construir la URL
 //   por plantilla desde el `setId`. Nivel de imagen: **B** (`<img>` crudo, sin next/image, sin srcset — §5.3.3).
-//   NO existe `symbolUrl` en este DTO: se persiste en `CardSet` pero no se expone todavía (§4.40.5).
+//   NO existe `symbolUrl` en este DTO: se persiste en `CardSet` pero no se expone todavía (§4.41.5).
 MasterSetSummaryDTO = { setId: string, name: string, series?: string, releaseDate?: string, year?: number,
                         printedTotal?: number, catalogCardCount: number, distinctCardsOwned: number,
                         completionPct: number | null, totalPieces: number,
@@ -4782,7 +4866,7 @@ Res `200`:
 - `sets`: `{ id, name, releaseDate, year }` con `year` **derivado** de `releaseDate`; solo sets con inventario publicado; **ordenados por año desc**. **v1.33 (P-27):** igual que `GET /catalog/sets`, un subset de un master combinado se **pliega** en su principal (Celebrations una vez) y la entrada gana `partSetIds?` (aditivo/opcional).
 - `productTypes` / `sealedSubtypes`: subconjuntos presentes en el inventario publicado.
 - `finishes` (v1.6-finish): `distinct` de `InventoryItem.finish` sobre el inventario publicado (subconjunto de `Finish`), para el filtro de acabado.
-- **⛔ v1.52 — `sets[]` NO lleva `logoUrl`, y es deliberado (ARCHITECTURE §4.40.5).** Esta faceta alimenta los **chips
+- **⛔ v1.52 — `sets[]` NO lleva `logoUrl`, y es deliberado (ARCHITECTURE §4.41.5).** Esta faceta alimenta los **chips
   de texto** «Sets buscados» de la home y el **filtro de texto** de Compra: ninguna de las dos es una teja con imagen,
   y la home **ya** carga imágenes de terceros (en este mismo ciclo se corrigió que pedía de más). El logo vive en
   `MasterSetSummaryDTO` y en `GET /buylist/sets`, que son las superficies donde **el set es el objeto que se
@@ -4876,13 +4960,13 @@ Res `200`: `{ data: CardSetDTO[] }` (datos en inglés; `year` derivado de `relea
 ```ts
 // v1.53 (DT-Gd) — se DECLARA con nombre la forma que este endpoint ya servía. Cero cambios de shape.
 CardSetDTO = { id: string, name: string, series?: string, releaseDate?: string, year?: number,
-               partSetIds?: string[] }              // ⛔ SIN logoUrl — la ausencia es NORMATIVA (§4.40.5)
+               partSetIds?: string[] }              // ⛔ SIN logoUrl — la ausencia es NORMATIVA (§4.41.5)
 ```
 - **⚠️ v1.53 (DT-Gd) — `CardSetDTO` y `BuylistSetDTO` son DOS tipos, y no se colapsan.** Este endpoint y
   `GET /buylist/sets` se parecen y **el contrato los define distintos desde v1.52**: `logoUrl` **no entra aquí** y
   **entra allí con clave siempre presente**. Mientras las dos respuestas se escribieron como **shapes anónimos
   inline**, colapsarlas en el cliente era gratis y nada lo desmentía — y se colapsaron, con un `logoUrl?` que
-  **desactivó el invariante de §4.40.6** (`TECH_DEBT.md` **DT-Gd**). *Un shape sin nombre no tiene con qué estar en
+  **desactivó el invariante de §4.41.6** (`TECH_DEBT.md` **DT-Gd**). *Un shape sin nombre no tiene con qué estar en
   desacuerdo.* Se declaran con nombre para que el colapso **deje de compilar**. **`BuylistSetDTO = CardSetDTO &
   { logoUrl: string | null }`** — ver `GET /buylist/sets`. ⛔ **Un tipo único con `logoUrl?` NO es conforme**, aunque
   hoy los bytes coincidan.
@@ -4891,7 +4975,7 @@ CardSetDTO = { id: string, name: string, series?: string, releaseDate?: string, 
   combinada gana `partSetIds?: string[]` (los set-ids reales que agrupa) para que el front filtre por todas las partes.
   ADITIVO/opcional (los sets normales lo omiten). Solo presentación; el subset sigue siendo un `CardSet` real.
 - **⛔ v1.52 — este endpoint NO lleva `logoUrl`** (misma razón que `GET /catalog/facets`: hoy no alimenta ninguna
-  retícula de tejas). ARCHITECTURE §4.40.5. *(Nota para el master set combinado de P-27: cuando un subset se pliega en
+  retícula de tejas). ARCHITECTURE §4.41.5. *(Nota para el master set combinado de P-27: cuando un subset se pliega en
   su principal, la teja usa el logo **del principal** — el subset no aporta el suyo.)*
 
 ### GET /api/v1/catalog/featured-set/value-history — `public`  (v1.9-set-chart — gráfica del hero)
@@ -6185,10 +6269,10 @@ BuylistSetDTO = CardSetDTO & { logoUrl: string | null }   // logoUrl REQUERIDO (
 - **⚠️ v1.53 (DT-Gd) — NO es `CardSetDTO`, y el `&` no es cosmético.** `GET /catalog/sets` sirve `CardSetDTO` **sin**
   `logoUrl`; este sirve `BuylistSetDTO` **con** él y **de clave siempre presente**. **El `?` está prohibido**: un
   `logoUrl?: string | null` hace que `fetchQuoterIndex` **compile igual si el campo desaparece** de la respuesta, que
-  es justo el invariante que §4.40.6 existe para garantizar. Fixtures/mocks: **uno por endpoint** — un mock compartido
+  es justo el invariante que §4.41.6 existe para garantizar. Fixtures/mocks: **uno por endpoint** — un mock compartido
   que rinda `logoUrl` en `/catalog/sets` promete más que el backend real. `TECH_DEBT.md` **DT-Gd**; la corrección del
   tipo es de **frontend**, en su ruta.
-- **`logoUrl: string | null` (v1.52, M-47, ADITIVO — ARCHITECTURE §4.40):** logo de la expansión
+- **`logoUrl: string | null` (v1.52, M-47, ADITIVO — ARCHITECTURE §4.41):** logo de la expansión
   (`CardSet.logoUrl`). **No es decorativo aquí ni es opcional de implementar:** este endpoint es la **fuente
   client-side de la retícula de tejas del cotizador** — el modo `quoter` de `MasterSetIndex` **no tiene endpoint de
   índice propio** y construye sus `MasterSetSummaryDTO` a partir de esta respuesta. Si el campo no se emite (o el
@@ -6325,7 +6409,18 @@ Cotizador público (stateless). Muestra el mensaje de "pago tras recepción y ve
 > resultado sea `precio_pendiente` (se retiró el `escalatePending` de Fase 0.2; cierra BE-16). Con el catálogo ya
 > priceado (§4.13a), el `referencePrice` casi siempre sale `priced`. La escalada a `PendingPriceEntry` ocurre solo en
 > `POST /buylist/requests` (autenticado). Mismo shape que antes.
-Req: `{ cardId: string, productType: ProductType, rawCondition?: RawCondition, finish?: Finish, productId?: number }`
+Req: `{ cardId: string, productType: "raw", rawCondition?: RawCondition, finish?: Finish, productId?: number }`
+> **⚠️ v1.53 (MONEY, BREAKING, ARCHITECTURE §4.40) — `productType` es `"raw"` y solo `"raw"`.** Antes se declaraba
+> `productType: ProductType` (los tres valores) y **eso era un error de este contrato**: `PROJECT.md` §E («Buylist —
+> compra de **raw** a usuarios»), §K **LOCKED** («el cotizador y el pipeline de buylist siguen siendo **solo para
+> raw**») y el **criterio 61** nunca autorizaron comprar graduadas ni sellado por el cotizador.
+> - `productType ∈ {"graded","sealed"}` ⇒ **`422 BUYLIST_RAW_ONLY`**.
+> - **Por qué importa y no es burocracia:** ningún DTO de buylist tiene —ni tuvo nunca— dónde capturar **qué grado
+>   es** el slab, así que el backend resolvía la referencia con un default silencioso a **`graded:PSA:10`**, el grado
+>   **más caro**. Toda graduada se cotizaba como si fuera un PSA 10. La guarda es **server-side**: el selector del
+>   front es solo UI y un `curl` la esquivaría (SEC-A1).
+> - **`rawCondition` sigue siendo `"NM"`** (único valor, §3.5) y `finish` sigue capturándose para elegir **de qué
+>   variante** se lee el mercado (§4.36). **Nada del cálculo de una línea raw cambia.**
 - **`finish` (v1.6-finish, opcional, default `normal`):** debe pertenecer a `Card.availableFinishes`; si no →
   `422 FINISH_NOT_AVAILABLE`. El front lo puebla del `CardDTO.availableFinishes` de la carta elegida.
 - **`productId` (v1.30, opcional, ADITIVO):** cuando el vendedor cotiza un **producto separado** (`separateProducts`
@@ -6404,8 +6499,16 @@ referencia **por acabado** (el acabado elige de qué variante se lee el mercado)
 **Un solo cuerpo compartido, prohibido duplicarlo** (`quoteAcquisitionFromCurve`). ~~rareza+acabado server-side, gate
 premium, `BUYLIST_PRICE_RULES` + fallback~~ ⛔ retirados. SEC-A1 intacto: el monto se deriva del dato real de la
 variante, jamás del DTO. **READ-ONLY** (no escala pendientes, v1.12).
-Req: `{ items: BuylistQuoteItemDTO[] }` donde `BuylistQuoteItemDTO = { cardId, productType, rawCondition?, finish?, productId? }`
+Req: `{ items: BuylistQuoteItemDTO[] }` donde `BuylistQuoteItemDTO = { cardId, productType: "raw", rawCondition?, finish?, productId? }`
 (mismos campos que el quote por-carta; **sin `qty`** — el modelo es una línea por carta física, ARCHITECTURE §4.16b).
+> **⚠️ v1.53 (MONEY, BREAKING, ARCHITECTURE §4.40) — `productType` es `"raw"` y solo `"raw"`**, igual que en el quote
+> por-carta y por el mismo motivo (`PROJECT.md` §E, §K LOCKED, criterio 61; sin captura de grado el backend caía al
+> default `graded:PSA:10`, el grado más caro).
+> **Aquí el matiz que decide la implementación: `BUYLIST_RAW_ONLY` es un error POR-ÍTEM, no del request.** Un ítem
+> `graded` o `sealed` sale **`ok:false`** con `error.code="BUYLIST_RAW_ONLY"` y el HTTP global sigue siendo **`200`**:
+> **las demás líneas raw se cotizan normalmente.** Si la guarda se implementa como `@IsIn` en el `ValidationPipe`, el
+> request entero devuelve `400` y **se pierden hasta 49 cotizaciones legítimas** — eso sería un defecto, no una
+> alternativa. Ver §4.40.3 y la ficha del código en «Errores».
 - **Límites:** `items` **no vacío**; **máx `50`** ítems por request (`BUYLIST_QUOTE_BATCH_MAX`). Vacío o sobre-cap →
   `400 VALIDATION_ERROR`. Cuenta como **1** request contra el throttle público.
 - **`finish?`** (default `normal`): se valida por-ítem contra `Card.availableFinishes` (o `CardProduct.finishes` si el
@@ -6446,7 +6549,7 @@ global es `200`. `index` = posición 0-based en `items[]` (llave de correlación
   **nunca** se muestra como precio al comprador — aquí es un vendedor cotizando.
 - **`ok:false`** → `error.code ∈ { NOT_FOUND (carta inexistente), FINISH_NOT_AVAILABLE (acabado fuera de la whitelist
   aplicable), PRODUCT_NOT_FOUND (v1.30 — productId inexistente), PRODUCT_CARD_MISMATCH (v1.30 — productId no cuelga del
-  cardId) }`, con `message` EN de fallback. Son los mismos códigos que el endpoint por-carta devolvería como
+  cardId), **BUYLIST_RAW_ONLY** (v1.53 — `productType` distinto de `"raw"`; el buylist es solo raw, §4.40) }`, con `message` EN de fallback. Son los mismos códigos que el endpoint por-carta devolvería como
   `404`/`422`, aquí **por-ítem**.
 Err (nivel request, no por-ítem): `400 VALIDATION_ERROR` (items vacío / > 50 / ítem malformado), `429 RATE_LIMITED`.
 Nota: el batch es **anónimo/público** como el quote por-carta; la creación de la solicitud (con topes/KYC/CLABE)
@@ -6509,9 +6612,15 @@ Res `200` (`PublicBountiesResponse`): `{ data: PublicBountyDTO[] }`
 
 ### POST /api/v1/buylist/requests — `customer`
 Crea la solicitud; valida topes/KYC.
-Req: `{ items: [{ cardId, productType, rawCondition?, finish?, productId? }], addressId: string, clabe?: string, ineUploadKeys?: { front, back } }`
-> ⚠️ **`addressId` es OBLIGATORIO desde v1.51.3** (D36/D37) — el único campo obligatorio nuevo de todo el ciclo, y el
-> único cambio **breaking sobre un endpoint vivo**. Detalle inmediatamente abajo.
+Req: `{ items: [{ cardId, productType: "raw", rawCondition?, finish?, productId? }], addressId: string, clabe?: string, ineUploadKeys?: { front, back } }`
+> ⚠️ **DOS restricciones conviven en este `Req`, y vienen de las dos líneas fusionadas (v1.54):**
+> **(1) `productType` es `"raw"` y solo `"raw"`** (v1.53, MONEY) y **(2) `addressId` es OBLIGATORIO** (v1.51.3,
+> D36/D37). **Son independientes y las dos aplican**: una acota el **qué** se compra, la otra exige el **de dónde**
+> sale el paquete. **Las dos son breaking sobre un endpoint vivo** y las dos tienen su bloque abajo.
+> **Precedencia entre ellas, para que backend no la invente:** `422 BUYLIST_RAW_ONLY` es una objeción sobre **un
+> ítem** y `422 PICKUP_ADDRESS_REQUIRED` sobre **un campo del sobre**; por la **escalera de precedencia** de
+> §4.39(i) 6-ter (lo que anula el acto va antes que lo que objeta un campo) **se evalúan primero los ítems**. En
+> cualquier caso **la solicitud no se crea**, así que el orden solo decide **qué código ve el cliente**, no el efecto.
 
 > ### ⚠️ v1.51.3 (D36/D37) — `addressId` OBLIGATORIO. **BREAKING sobre un endpoint VIVO.** ARCHITECTURE §4.39(q)
 > **El hueco que cierra, y era BLOQUEANTE:** hasta v1.51.2 **nada en el contrato pedía el domicilio del vendedor**, y
@@ -6557,6 +6666,23 @@ Req: `{ items: [{ cardId, productType, rawCondition?, finish?, productId? }], ad
 > contra front viejo rompe TODAS las altas**. El fallo, además, es **limpio**: un cliente desactualizado recibe un
 > `422` con código propio, **no una solicitud a medias**. *Que el peor caso del desfase sea «no se creó» y no «se creó
 > mal» es exactamente por lo que el campo es obligatorio en el servidor y no «opcional con relleno».*
+
+> ### ⚠️ v1.53 (MONEY, BREAKING) — `productType` es `"raw"` y solo `"raw"`. ARCHITECTURE §4.40
+> Cualquier ítem con `graded` o `sealed` ⇒ **`422 BUYLIST_RAW_ONLY`** con `details: { index, productType }`, y **la solicitud NO se
+> crea** (a diferencia de `/quote/batch`, aquí **no hay degradación por-ítem**: `createRequest` es todo-o-nada porque
+> congela dinero en una transacción). `PROJECT.md` §E, §K LOCKED y criterio 61: el pipeline de compra es solo raw.
+> **Por qué es de dinero:** `SellRequestItem` **no tiene columnas de graduación**, así que una línea `graded` congela
+> un `quotedPriceCents` derivado del default `graded:PSA:10` —**el grado más caro**— sobre una carta cuyo grado nunca
+> se preguntó. Con el ciclo de adquisición (oferta **vinculante desde el correo**, sin repreciar) eso deja de ser un
+> error corregible y pasa a ser un **compromiso firmado**.
+> **Filas legacy:** existen solicitudes vivas con líneas `graded`/`sealed` creadas antes de esta guarda. **No se
+> re-cotizan ni se auto-aprueban**: se resuelven a mano por `PATCH /admin/buylist/items/:itemId/decision` (§M5), con el
+> monto escrito por el dueño. **No hay backfill que invente un grado** (ARCHITECTURE §4.40.5a).
+> **⚠️ v1.54 — INTERACCIÓN CON EL CICLO DE ADQUISICIÓN, dicha aquí para que no se descubra tarde.** Esas mismas filas
+> legacy son **las que el triage de cut-over de `BL-10`/`BL-12` ya tiene que recorrer** (`cotizada` vivas). **Es un
+> solo censo**, no dos. Y al decidirlas a mano rige §4.39(e): **una línea sin monto derivable se marca `skip` o se
+> rescata con override motivado — jamás MX$0 y jamás un grado inventado.** *(ARCHITECTURE v1.54(8)/(9).)*
+
 > **v1.15 — `clabe` OPCIONAL + fallback server-side (PII):** `clabe` deja de ser obligatoria. Resolución server-side:
 > - **`clabe` presente** → comportamiento actual: valida formato (18 dígitos → `422 CLABE_INVALID`) y **nombre propio**
 >   contra la CLABE en archivo por blind-index (`422 CLABE_NOT_OWN_NAME` si no coincide); se cifra/persiste.
@@ -6595,6 +6721,7 @@ Req: `{ items: [{ cardId, productType, rawCondition?, finish?, productId? }], ad
 Res `201`: `{ sellRequestId, status: "cotizada", quotedTotalCents, ineRequired: boolean, items: SellItemDTO[] }` (**no** incluye la CLABE, ni enmascarada ni en claro).
 Err:
 - **`403 EMAIL_NOT_VERIFIED`** (v1.5 — vender es acción sensible; el cotizador público `POST /buylist/quote` y `POST /buylist/quote/batch` **no** se bloquean)
+- **`422 BUYLIST_RAW_ONLY`** (v1.53 — algún item trae `productType` distinto de `"raw"`; `details: { index, productType }`. **La solicitud no se crea**)
 - **`422 FINISH_NOT_AVAILABLE`** (v1.6 — algún `finish` no está en la whitelist aplicable: `Card.availableFinishes`, o
   `CardProduct.finishes` si el item trae `productId`)
 - **`422 PRODUCT_NOT_FOUND`** (v1.30 — algún `productId` no existe)
@@ -7191,6 +7318,19 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
   > **Alcance (D10): SOLO VISIBILIDAD.** Esta cola **no captura precios de venta**, no los sugiere y no los hereda del
   > costo de compra.
   Err: `403`, `400 VALIDATION_ERROR`.
+
+- **`PATCH /api/v1/admin/inventory/items/:id` — campo aditivo de v1.53** *(va aquí, sobre el mismo endpoint del que
+  cuelga el bloque de v1.51 de arriba; las dos notas son independientes y las dos aplican)*:
+  > **⚠️ v1.53 (ADITIVO, ARCHITECTURE §4.40.5b) — gana `gradingCompany?: GradingCompany` (`PSA | CGC`).** Hasta v1.52
+  > el `PATCH` aceptaba `gradeValue` y `certNumber` **pero no la empresa graduadora**, de modo que una pieza
+  > `productType='graded'` con `gradingCompany` nula era **incorregible por la vía normal**. Y esas piezas existen:
+  > la conversión de buylist (`convert-to-inventory`, M5) las crea **sin identidad de slab**, porque
+  > `SellRequestItem` nunca la capturó (ARCHITECTURE §9 **D-BG-3**). Con la retirada del default `graded:PSA:10`
+  > (§4.40.4) esas piezas pasan a valuarse **`pending`** —que es la verdad— y este campo es lo que permite repararlas
+  > con el slab físico en la mano.
+  > **Solo aplica a `productType='graded'`** (se ignora en `raw`/`sealed`, misma semántica que `gradeValue`/`certNumber`).
+  > **No cambia ningún precio por sí mismo**: al completar la identidad, la pieza pasa a resolver la referencia del
+  > grado **que realmente es**.
 - **Sellado — referencia de mercado TCGCSV (v1.19, READ-ONLY en M1):** para items `productType=sealed`, `GET /admin/inventory/items` (cada fila) y `GET .../items/:id` exponen además:
   - `tcgplayerProductId?: number` y `tcgplayerGroupId?: number` — mapeo curado al producto de TCGplayer/TCGCSV (`null`/omitidos si no mapeado; M-23).
   - `sealedMarketRef?: PriceInfo` — **valor de referencia de mercado** del producto sellado (`source: "tcgcsv"`, MXN con FX+colchón, `capturedDate` del último ingest). `null`/omitido si el item no está mapeado o aún no hay ingest. En listados se resuelve por lote (`getReferencesBatch`, sin N+1).
@@ -8656,7 +8796,7 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
 #### Sync de catálogo desde pokemontcg.io (`super_admin`, auditado) — v1.1
 Ingesta de datos de catálogo (Card/CardSet en inglés). Ver ARCHITECTURE §4.8. Todas quedan en `AuditLog`.
 > **v1.52 (M-47) — el sync ahora persiste también las IMÁGENES DEL SET** (`CardSet.logoUrl` / `symbolUrl`, ARCHITECTURE
-> §4.40, *era §4.39; renumerada en v1.53(C)*). **Sin cambio de forma en ninguna request ni response de esta sección**: es un efecto del `upsert` de metadata.
+> §4.41, *era §4.39, luego §4.40; renumerada en v1.54(C)/(G)*). **Sin cambio de forma en ninguna request ni response de esta sección**: es un efecto del `upsert` de metadata.
 > Consecuencias operativas, porque **es el único mecanismo de relleno** (no hay endpoint de backfill y no lo habrá):
 > - Los sets **nuevos** llegan con logo desde el primer sync posterior al deploy. **No hay que hacer nada.**
 > - Los sets **ya importados** tienen `logoUrl = null` hasta que se les re-corra el sync. **Vía recomendada:
@@ -8665,9 +8805,13 @@ Ingesta de datos de catálogo (Card/CardSet en inglés). Ver ARCHITECTURE §4.8.
 >   catálogo y re-corre el resolver estructural TCGCSV: es el martillo, **no es un paso obligatorio de v1.52**.
 > - **Invariante del escritor (no-degradación):** si la respuesta remota no trae `images`, el `update` **deja la
 >   columna como está** — no la pone a `null`. Un `sync {setId}` **nunca** puede borrar un logo que un `sync-all` ya
->   escribió. Es conducta verificable por QA (ARCHITECTURE §4.40.8).
-> - Se persiste solo si la URL es absoluta **`https:`** y de un host admisible; si no, **`null` + log**. El host es el
->   mismo que ya sirve el arte de las cartas ⇒ **`remotePatterns` del frontend no cambia** (§5.3.4).
+>   escribió. Es conducta verificable por QA (ARCHITECTURE §4.41.8).
+> - Se persiste solo si la URL es absoluta **`https:`** y de un host admisible; si no, **`null` + log**.
+>   ⚠️ **v1.54 (corrección de premisa traída de `main` v1.52-b, ARCHITECTURE §4.41.4):** ~~«el host es el mismo que ya
+>   sirve el arte de las cartas»~~ **ya no es cierto — son DOS hosts** (`SET_IMAGE_HOSTS`, conjunto **cerrado** de
+>   hosts **exactos**). **`remotePatterns` del frontend sigue sin cambiar**, pero **por otra razón**: los logos de set
+>   son **Nivel B** y `remotePatterns` solo gobierna al optimizador de Next (§5.3.4, §4.41.7). *La conclusión
+>   sobrevive; el argumento que la sostenía, no.*
 - `GET /api/v1/admin/catalog/remote-sets` — consulta `/v2/sets` remoto.
   Res `200`: `{ data: [{ id, name, series, releaseDate, printedTotal, imported: boolean, cardCount: number }] }` ordenado por `releaseDate` **desc**. `imported` = si el `CardSet` ya existe local; `cardCount` = cartas locales del set.
 - `POST /api/v1/admin/catalog/sync` — importa/actualiza cartas.
@@ -10969,7 +11113,7 @@ Err `403`, `400 VALIDATION_ERROR`.
 - ⛔ **v1.51-one-dial — LOS DOS DIALES ANTERIORES QUEDAN RETIRADOS Y NACE UNO.** Decisión del **dueño**, tomada y
   reafirmada (ARCHITECTURE §4.38r). **Lo que rige a partir de aquí:**
   - **`gradingHookEnabled`** (`grading_hook_enabled`, enum `on | off`, **seed `off` fail-closed**, **M-48** *(era
-    `M-46`; renumerada en v1.53(B))*, DATA/seed
+    `M-46`; renumerada en v1.54(B))*, DATA/seed
     sin DDL) es **EL** interruptor del «gancho de grading». Se expone en el `GET` y se edita por este `PUT`
     (patrón `sealedValueTrend`); validado contra el enum (`422 VALIDATION_ERROR`). **Solo el string `'on'` enciende**
     (`true`, `'ON'`, `null` o basura ⇒ apagado).
@@ -11005,7 +11149,7 @@ Err `403`, `400 VALIDATION_ERROR`.
   vive en los endpoints M2 dedicados `GET/PUT /admin/pricing/graded-estimates` (como los spreads del sellado).
 - ⛔ ~~**v1.50.2 — un SEGUNDO dial de M10:** `gradedEstimateIngestEnabled` … **Son DOS diales y no uno a propósito** …
   Con dos, el operador puede **rodar el ingest en observación con la vitrina apagada**.~~
-  **RETIRADO en v1.51-one-dial** *(así se llamaba «v1.51» en la línea de `main`; **v1.53(A)** desambigua los dos
+  **RETIRADO en v1.51-one-dial** *(así se llamaba «v1.51» en la línea de `main`; **v1.54(A)** desambigua los dos
   «v1.51» que existieron en paralelo)*. Dos motivos, en este orden: **(1)** decisión del dueño; **(2)** el argumento ya
   estaba debilitado por el propio producto — la **sonda** `POKEMONPRICETRACKER_GRADED_PROBE` hace el ingest de
   solo-lectura **por construcción**, así que «rodar en observación» dejó de depender de tener dos diales. Y este dial

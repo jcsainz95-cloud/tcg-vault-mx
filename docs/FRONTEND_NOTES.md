@@ -4,13 +4,15 @@
 > Fecha: 2026-08-13. Branch: `claude/tcg-cards-marketplace-oijthj`.
 > El contrato (`docs/API_CONTRACT.md`) y el sistema de diseño (`docs/DESIGN_SYSTEM.md`) mandan.
 
-## §44 · El ciclo de compra entra al gate real: 23 pruebas que nadie corría, el `total` que se tiraba y un rótulo que prometía la regla del servidor (2026-09-02)
+## §46 · El ciclo de compra entra al gate real: 23 pruebas que nadie corría, el `total` que se tiraba y un rótulo que prometía la regla del servidor (2026-09-02)
 
-> **Renumerada de §27 a §44 al absorber `main` (2026-09-05).** La rama la había abierto como «§27»
-> cuando §27 era el último número del fichero; `main` traía **§28…§43** ya escritas, así que «§27»
-> pasó a resolver a **dos** secciones distintas. Se conserva arriba —el orden físico del fichero es
-> el que había— y solo cambia el número. El §27 original (cierre del stream de grading, 2026-08-29)
-> es el de más abajo y no se toca.
+> **Renumerada DOS veces, y el motivo es el mismo las dos: §27 → §44 (2026-09-05) → §46 (2026-09-06).**
+> La rama la abrió como «§27» cuando ése era el último número del fichero; al absorber `main` llegaron
+> **§28…§43** y «§27» pasó a resolver a dos secciones, así que se movió a §44. En la fusión siguiente
+> `main` traía ya **§44** (la placa de papel) y **§45** (el cotizador raw-only) **publicadas**, de modo
+> que §44 volvía a estar ocupado — y **el que cede es el de la rama, nunca lo publicado**. Se conserva
+> arriba (el orden físico del fichero es el que había) y solo cambia el número. El §27 original
+> (cierre del stream de grading, 2026-08-29) es el de más abajo y no se toca.
 
 > Rama `claude/buylist-inventory-workflow-hdnls3`, sobre `235b7f9`. Tres encargos del cierre del
 > stream: **(1)** taguear `@real` las pruebas de UI del ciclo ahora que la semilla tiene dato,
@@ -10422,7 +10424,7 @@ no es asegurar un *inventario en custodia*:
 
 ---
 
-## §42 · P-54: el índice de sets pinta el LOGO de la expansión — la placa de tinta (`DESIGN_SYSTEM.md` §24, contrato v1.52 / M-47, `ARCHITECTURE.md` §4.40) — 2026-09-02, rama `claude/tcg-hunt-orchestrator-28p7z1`
+## §42 · P-54: el índice de sets pinta el LOGO de la expansión — la placa de tinta (`DESIGN_SYSTEM.md` §24, contrato v1.52 / M-47, `ARCHITECTURE.md` §4.41) — 2026-09-02, rama `claude/tcg-hunt-orchestrator-28p7z1`
 
 > El diseño estaba **escrito** (ux-ui, §24 completa con cinco reglas duras R1–R5). Esto es su ejecución,
 > no una interpretación. Riesgo de dinero: **ninguno** — es presentación pura.
@@ -10440,7 +10442,7 @@ papel**:
 | Pieza | Implementación |
 |---|---|
 | Placa (`SetPlate`) | `aspect-[3/2] w-full bg-ink`, radio 0, **sin borde**, aire 16/20/24px. ⚠️ **La primera versión de esta fila era FALSA**: decía «cero CLS» y la placa sí saltaba de alto al cargar, porque la `<img>` iba en flujo y anulaba la relación de aspecto. Corregido y **medido** en §43 (bloqueante B-1 de QA) |
-| Logo | `<img>` crudo (**nivel B**, §4.40.7): sin `next/image`, sin `srcset`, `loading="lazy"` en TODAS, `decoding="async"`, `object-contain` (R1) |
+| Logo | `<img>` crudo (**nivel B**, §4.41.7): sin `next/image`, sin `srcset`, `loading="lazy"` en TODAS, `decoding="async"`, `object-contain` (R1) |
 | Contorno de seguridad | `filter: drop-shadow(0 0 1px var(--color-on-ink)) ×2` en línea. **Obligatorio** (§24.2): salva al logo oscuro sin filete *sin* tener que inspeccionar logo a logo |
 | Sin logo | **Monograma** serif sobre la tinta (§24.5), `aria-hidden`. ⚠️ La primera versión lo dejaba pintado **también con logo** (se transparentaba a través del PNG): corregido en §43 (bloqueante B-2) |
 | Leyenda | Nombre serif 16/18/20px con **2 líneas reservadas** (40/45/50px) y sin truncado; meta mono 11px versalitas `tracking-label` |
@@ -10456,7 +10458,7 @@ papel**:
 Se pinta **desde el primer frame** y **se retira cuando la imagen carga**, sin transición. Consecuencia
 deliberada: **la placa no pulsa nunca**. Es el precedente literal de `CardImage`, que deja el pozo QUIETO
 cuando no hay `src` porque un `animate-pulse` eterno hace que un dato ausente **legítimo** parezca una app
-colgada. Y aquí `logoUrl: null` es legítimo, **normal y permanente** (§4.40.6): promos, colecciones y sets
+colgada. Y aquí `logoUrl: null` es legítimo, **normal y permanente** (§4.41.6): promos, colecciones y sets
 viejos no van a tener logo nunca, y un set aún no re-sincronizado se ve **idéntico** a propósito.
 
 `onError` retira el `<img>` y deja el monograma: un 404 del CDN **no deja a nadie esperando** y jamás se ve
@@ -10486,7 +10488,7 @@ también al badge `Combinado`, que es español).
   buscado.
 - **`CardSetDTO.logoUrl?: string | null`** — opcional, y no por descuido: el mismo tipo sirve a **dos**
   endpoints y solo uno lo emite. `GET /buylist/sets` lo manda siempre; `GET /catalog/sets` **no**
-  (§4.40.5: alimenta dropdown y filtro de texto, no tejas). En esa respuesta la clave está **ausente de
+  (§4.41.5: alimenta dropdown y filtro de texto, no tejas). En esa respuesta la clave está **ausente de
   verdad**, y el tipo lo dice.
 
 ### 5. El mock dice la verdad — los dos casos, en la misma retícula
@@ -10565,10 +10567,10 @@ la imagen toma su **proporción intrínseca**, y su alto pasa a ser el `min-cont
 | **1:1** | **180×180** | 180×120 |
 | **1:2** | **180×312** | 180×120 |
 
-Umbral ≈1.83:1 en `lg`: **cualquier logo menos apaisado que eso descuadraba la retícula**, y §4.40.2 dice
+Umbral ≈1.83:1 en `lg`: **cualquier logo menos apaisado que eso descuadraba la retícula**, y §4.41.2 dice
 que el logo es de «proporción MUY variable entre sets». Viola **R1**, §24.3 («uno cuadrado o vertical se
 contiene igual») y §24.12 nº3. Y además la placa **saltaba de alto al cargar la imagen** — CLS, lo que
-§4.40.8 encargo (c) prohíbe explícitamente y lo que §42 afirmaba, en falso, no tener.
+§4.41.8 encargo (c) prohíbe explícitamente y lo que §42 afirmaba, en falso, no tener.
 
 **El arreglo.** Los **dos** hijos de la placa pasan a **absolutos**: un hijo absoluto no contribuye a la
 altura del padre, así que la caja mide `width × 2/3` **siempre**, haya logo apaisado, cuadrado, vertical o
@@ -10681,7 +10683,7 @@ defectos del propio spec— está en §43.8.
 ### 6. Alcance del nuevo spec, dicho sin adornos
 
 Corre en **modo mock** y está marcado `needsSeed` contra el stack real, con su razón impresa: `logoUrl` es
-`null` en **todo** el catálogo real hasta que un operador re-sincronice (§4.40.4 — **no hay backfill**), así
+`null` en **todo** el catálogo real hasta que un operador re-sincronice (§4.41.4 — **no hay backfill**), así
 que en real no habría ninguna placa **con** logo que medir. No es «no supe escribirlo agnóstico»: el spec ya
 lo es, y el día que el seed E2E traiga un set con logo basta **borrar el guardarraíl**. Interceptar las
 imágenes no es la parte mock — la geometría es una propiedad del CSS y hay que forzar proporciones que un
@@ -10761,6 +10763,440 @@ Suites completas tras la corrección: **967 vitest verdes** · **20 E2E verdes**
 > reconstruye siempre; quien reutilice el servidor a mano (`E2E_BASE_URL` + `next start`) **tiene que
 > rebuildear primero**, o está midiendo el código de otro. Dicho de otro modo: aquellas 3 rojas eran
 > correctas — mis pruebas detectaron una mutación que yo no sabía que estaba puesta.
+
+---
+
+## §44 · La placa de los logos deja la tinta y pasa al papel: el pozo, la repisa y el contorno girado (`DESIGN_SYSTEM.md` §24 v2.10, petición del dueño) — 2026-09-05, rama `claude/tcg-hunt-orchestrator-28p7z1`
+
+**Qué pidió el dueño y qué se ejecutó.** §24 v2.10 gira el acabado del hueco del logo del índice de sets:
+el fondo deja de ser la placa de tinta `#1A1A18` de v2.8 y pasa a **`--color-surface-2` `#EFEBE2`** (el
+pozo), aparece una **repisa** inferior, el contorno del logo **cambia de color** (papel → tinta) y **de dos
+pasadas a tres**, el monograma pasa de `on-ink` a **muted**, y el aire interior baja un escalón. **No se
+tocó ni un píxel de la geometría** (R1) ni del contrato ni de las claves i18n: §24.14 nº10 dice literalmente
+que si la geometría se movió, es un defecto — y se verificó midiéndola, no razonándola.
+
+### 44.1 Qué se tocó (cuatro pantallas, ningún anfitrión editado)
+
+| Archivo | Qué |
+|---|---|
+| `frontend/src/components/master-set/SetPlate.tsx` | **Nuevo.** El pozo (`SetPlate`) y `setMonogram` salen de `MasterSetIndex.tsx` a su propio módulo. Aquí vive todo el cambio de acabado. |
+| `frontend/src/components/master-set/MasterSetIndex.tsx` | Importa `SetPlate`; se actualizan los comentarios de §24.6 (el foco y el hover cambian de RAZÓN, no de comportamiento). |
+| `frontend/src/components/master-set/MasterSetBinder.tsx` | Monta el `SetPlate size="sm"` del encabezado (§24.10) — **salda DT-Ga**. |
+| `MasterSetIndexPlate.test.tsx` · `MasterSetBinder.test.tsx` · `e2e/master-set-plate.spec.ts` | Pruebas: acabado nuevo, pozo `sm`, y el spec de navegador ahora **mide colores computados** además de cajas. |
+
+Las **cuatro** superficies (`quoter`, `platform`, `user_vault_self`, `user_vault_admin`) reciben el cambio
+sin editarlas: todas montan el mismo `MasterSetIndex`.
+
+**Por qué el pozo se extrajo a su propio módulo** (y no se dejó exportado desde `MasterSetIndex`): el
+encabezado del binder lo necesita, y hacer que `MasterSetBinder` importara de `MasterSetIndex` le colgaba
+encima el índice entero —con sus cuatro llamadas a `@/lib/api`— para pintar una caja de 112×64. Con módulo
+propio, la dependencia va de los dos consumidores a la pieza, que es la dirección correcta. Es un
+**movimiento**, no una reescritura: el cuerpo del componente es el mismo salvo el acabado.
+
+### 44.2 Los valores, tal cual §24 los fija (no se negoció ninguno)
+
+- **Fondo:** `bg-surface-2` (`#EFEBE2`), radio 0, sin bordes laterales ni superior.
+- **Repisa:** `border-b border-border` (1px sólido `rgba(26,26,24,0.16)`), a ras y del ancho del pozo. Va en
+  **la misma caja** que el `aspect-[3/2]`: con `box-sizing: border-box` la relación de aspecto se aplica a
+  la caja de **borde**, así que la repisa **no añade 1px de alto** y la geometría de v2.8 queda intacta.
+  Verificado en Chromium, no deducido (el spec mide 3:2 con tolerancia 1px y sigue verde).
+- **Contorno:** `drop-shadow(0 0 1px var(--color-ink))` **× 3**. Está escrito como
+  `LOGO_OUTLINE_PASS` + `LOGO_OUTLINE_PASSES = 3` a propósito: §24.2.d dice que **la única palanca es el
+  número de pasadas (2–4)**, así que la palanca es una constante con nombre y el radio/color no son
+  editables sin tocar la cadena. Las pruebas afirman las tres pasadas **y** el rango 2–4.
+- **Monograma:** `text-muted` (`#6E695E`), serif, **sin contorno ni text-shadow** (§24.12 nº15).
+- **Aire interior:** `p-3 sm:p-4 lg:p-5` (12/16/20), y **8px** (`p-2`) en el pozo `sm`.
+- **Foco:** sin cambios de comportamiento — sigue rodeando la teja entera con el anillo estándar. Lo que
+  cambió es el comentario: ya no es «rojo sobre tinta da 2,5:1», es «un control por set ⇒ un anillo».
+- **Hover:** sigue resolviéndose en el nombre. Y ahora, además, **no podría ser de otra forma**:
+  `surface-2` ya **es** el tono de *hover row* del sistema, así que no queda escalón que usar.
+
+### 44.3 §24.10 — el pozo `sm` del binder (DT-Ga saldada)
+
+Se implementó porque el cambio resultó **local a la placa**: `PLATE_SIZE` gana la entrada `sm`
+(`aspect-[7/4] w-28`, `p-2`, **sin repisa**, `hidden sm:block`) y el encabezado del binder monta
+`<SetPlate size="sm" name={title} logoUrl={set.logoUrl} />` a la izquierda del `<h2>`, con `gap 16px`.
+Ni una prop de datos nueva, ni contrato, ni endpoint: `MasterSetBinder` ya recibía el
+`MasterSetSummaryDTO` entero. El pozo `sm` lleva **`data-testid="set-plate-sm"`** para que los specs del
+índice (que cuentan tejas por `set-plate`) no lo capturen nunca por accidente.
+
+**Matiz que queda anotado, no resuelto:** si se abre el binder por un **subset** de un master combinado, el
+título se canoniza al principal (`canonicalSetId`) pero el `logoUrl` sigue siendo el del DTO con el que se
+entró. `MasterSetBinderResponse.set` es un `SetRefDTO` y **no trae logo**, así que hoy no hay de dónde
+sacar el del principal. Impacto: en ese caso concreto el pozo puede pintar el logo del subset junto al
+nombre del principal — o su monograma, que se deriva del **título ya canonizado** y por tanto es correcto.
+No se inventa nada; si alguna vez molesta, es una petición al arquitecto (ver 44.6).
+
+### 44.4 Verificación — qué corrí y con qué resultado
+
+Todo esto corrió **en esta máquina**, no está razonado:
+
+| Comprobación | Resultado |
+|---|---|
+| `npm run typecheck` | limpio |
+| `npm run lint` | `✔ No ESLint warnings or errors` |
+| `npm test` (vitest, suite completa) | **977 pruebas / 103 archivos, todas verdes** |
+| `npx playwright test e2e/master-set-plate.spec.ts` (Chromium, build de producción + mocks) | **8 verdes** (5 de geometría, 3 nuevas de acabado) |
+
+**El spec de navegador se actualizó, no solo se dejó pasar.** Antes asumía placa de tinta; ahora sigue
+midiendo lo de siempre (R1: misma caja con logo apaisado/cuadrado/vertical/sin logo · cero CLS · monograma
+retirado en `onLoad` · 404 → monograma · monograma proporcional al pozo) **y además** lee estilos
+computados: fondo `rgb(239,235,226)` y **no** la tinta, repisa `1px solid rgba(26,26,24,0.16)`, cero borde
+en los otros tres lados, radio 0, `filter` con **tres** `drop-shadow(rgb(26,26,24) 0px 0px 1px)` y ningún
+filtro que transforme píxeles del tercero, y monograma en `rgb(110,105,94)` sin filtro ni sombra. Eso es lo
+que jsdom no puede dar: allí `var()` no se resuelve y no hay layout.
+
+### 44.5 Verificación por MUTACIÓN — cada una tiene que poner algo en rojo
+
+Cada mutación se aplicó sobre `SetPlate.tsx`, se corrieron las dos suites y se revirtió:
+
+| Mutación | vitest | Playwright | Mensaje que delata |
+|---|---|---|---|
+| **Devolver el fondo a tinta** (`bg-surface-2` → `bg-ink`) | 2 rojas | **1 roja** | `pozo 0: fondo` — esperado `rgb(239, 235, 226)`, recibido la tinta |
+| **Quitar la repisa** (`border-b border-border` fuera) | 1 roja | **1 roja** | `pozo 0: repisa` — esperado `1px solid rgba(26, 26, 24, 0.16)` |
+| **Quitar el contorno** (fuera el `filter`) | 2 rojas | **1 roja** | `logo 0: pasadas del contorno · none` |
+| **Quitar UNA pasada** (3 → 2) | 2 rojas | **1 roja** | `logo 0: pasadas del contorno · drop-shadow(...) drop-shadow(...)` (dos) |
+| **Devolver la `<img>` al flujo** (`h-full` y el aire al padre) | 2 rojas | **4 rojas** | `placa 1: 180×129 no es 3:2` · CLS · 404 · `estrecho: monograma 12.16px sobre placa 116px` |
+
+Ninguna mutación pasó desapercibida, y la del flujo sigue reventando por donde reventó el bloqueante B-1 de
+QA (R1), que era el punto de tener un spec que **mide** en vez de leer cadenas de clase.
+
+*(Detalle honesto del proceso: el primer intento de la mutación «quitar el contorno» dejó la constante sin
+usar y añadí un `eslint-disable` de una regla que este proyecto no carga ⇒ `next build` falló y Playwright
+no llegó a arrancar. Se repitió la mutación limpia —fuera el `filter` **y** las constantes— y ahí sí midió
+lo que tenía que medir. Lo cuento porque una mutación que no compila no es una mutación verificada.)*
+
+### 44.6 Lo que NO pude verificar aquí — y es justo lo que el dueño va a mirar
+
+**No hay verificación ocular.** No corrí un navegador con los logos reales del CDN ni saqué capturas: el
+harness sirve **SVG grises generados**, elegidos para forzar proporciones (apaisado/cuadrado/vertical), no
+para parecerse a un logo. Todo lo de arriba es **estructura y color computado**, no «se ve bien». §24.14
+nº1–4 (White Flare, Phantasmal Flames, Black Bolt, Mega Evolution, a 390 y 1440, con brillo bajo) **sigue
+pendiente y es del dueño / QA visual**. Estas son las dos observaciones que sí puedo aportar, y son
+**razonamiento sobre cómo compone `drop-shadow`**, no medición:
+
+1. **White Flare — la pérdida es real y era predecible.** El contorno traza el **canal alfa**, así que le
+   devuelve la **silueta**; pero el relleno blanco queda a ~1,09:1 del pozo y no hay nada en este
+   dispositivo que le dé cuerpo (el contorno no entra hacia dentro del glifo). Se leerá **al trazo**, como
+   letras huecas. §24.2.e ya lo llama «la pérdida segura» y lo acepta; lo confirmo desde el lado de la
+   implementación: no hay palanca dentro de §24 que lo mejore — subir pasadas engorda el **borde**, no el
+   interior, y subir el radio está prohibido (y lo empeoraría: mancharía el hueco).
+2. **Phantasmal Flames — el riesgo abierto es el más serio, y las tres pasadas ayudan menos de lo que
+   parece.** `drop-shadow` no dibuja un contorno geométrico: **desenfoca la máscara alfa y la pinta
+   detrás**. Con un alfa de borde duro, el desenfoque de 1px produce un anillo estrecho de alfa alta ⇒
+   filete. Con un alfa **degradado** (brillo/glow horneado) el resultado del desenfoque es **otro
+   degradado igual de suave**: componerlo tres veces sube su opacidad, pero **sigue siendo un halo, no una
+   línea** — y un halo de tinta bajo un logo claro sobre papel se lee como **suciedad/sombra**, que es
+   justo lo que §24.2.d quiere evitar. Consecuencia práctica: si al mirarlo queda lavado, **subir a 4
+   pasadas puede empeorarlo** (más mancha) en vez de mejorarlo. Yo escalaría al dueño con §24.2.e delante
+   antes de gastar la palanca. **No lo he visto; esto es cómo funciona el filtro, no un veredicto.**
+
+Tampoco pude medir **rendimiento en gama baja** (§24.14 nº16) ni el **peso real en bytes** (§24.14 nº5):
+aquí no hay CDN de terceros ni dispositivo lento.
+
+### 44.7 Deuda
+
+- **DT-Ga (pozo `sm` del binder): implementada.** Queda a quien corresponda cerrarla en `TECH_DEBT.md`;
+  este rol no escribe ese archivo sin petición del techlead.
+- **DT-Gb (`currentSetId` sin consumidor): sigue abierta e intacta.** Este pase no la cablea ni la retira;
+  ojo a su fecha de caducidad («dos pases sobre `components/master-set/`»): éste cuenta como uno.
+- **DT-Gc (el 16 % del monograma sin fijar en §24.5): sigue abierta.** v2.10 no la toca.
+- **DT-Gd (separar `CardSetDTO`): NO ejecutada**, sigue diferida por instrucción.
+- **Nada nuevo que registrar.** El único apunte de este pase es el del logo del subset en el encabezado
+  (44.3), y no es deuda de código: es un dato que el contrato no da y que hoy no molesta a nadie.
+
+---
+
+## §45 · v1.53 — El cotizador vuelve a comprar RAW y solo raw (contrato v1.53 §6, `ARCHITECTURE.md` §4.40) — 2026-09-06, rama `claude/buylist-graded-identity`
+
+> **Defecto de dinero SALIENTE vivo en producción.** No es un ajuste de UI: la pantalla ofrecía
+> comprar cartas graduadas sin preguntar nunca **qué grado** son, y el backend rellenaba el hueco con
+> `graded:PSA:10` —el grado **más caro** que existe—. O sea: el cotizador prometía el precio de un
+> PSA 10 por un PSA 6. Encargo del arquitecto en §4.40.9, fila **frontend**.
+
+### 45.1 Qué se retiró, y por qué NO fue una decisión de diseño mía
+
+`BuylistView.tsx:57` declaraba `const PRODUCT_TYPES: ProductType[] = ['raw', 'graded', 'sealed']` y
+el `<Select>` de `:512` los servía los tres. **La fuente que manda dice que esa superficie nunca
+debió existir**, y lo dice tres veces:
+
+- `PROJECT.md` §E — el título del capítulo es «Buylist — compra de **raw** a usuarios»; el cuerpo
+  fija la condición en Near Mint, *«único grado que compramos»*.
+- `PROJECT.md` §K (**LOCKED**) — *«el cotizador y el pipeline de buylist siguen siendo **solo para
+  raw**»*.
+- Criterio de aceptación **61** — el sellado *«no existe»* como flujo de buylist, «ni cotizador ni
+  pipeline».
+
+Por la regla de conflicto de `CLAUDE.md` (`PROJECT.md` manda sobre el contrato y el contrato sobre el
+código), aquí no había nada que sopesar: `PRODUCT_TYPES → ['raw']`.
+
+**El selector se retira, no se deja con una opción.** Con un solo valor el control no ofrece
+elección: es ruido que además **sigue insinuando** que compramos slabs y sellado, que es justo el
+mensaje falso que este pase borra. La pantalla no pierde ninguna capacidad: los dos controles de
+búsqueda que el cotizador usa de verdad —«Buscar set» y «Buscar carta»— ya los trae el binder de
+Master Set (`mode="quoter"`), que era el grid de `raw` desde v1.21.
+
+⛔ **Lo que este pase NO hace, y es deliberado:** *no* añade un selector de grado. El humano puede
+querer comprar graduadas —§4.40.6 lo deja como pregunta abierta— pero eso es una **funcionalidad
+nueva** que arranca con `product-owner` cambiando `PROJECT.md`, con su migración (`M-49`, reservada
+y no programada). Aquí se cierra la puerta; abrirla bien viene después.
+
+### 45.2 Las ramas muertas que cayeron con el selector (y las que NO se tocaron)
+
+Con `productType` fijo en `'raw'`, todo lo que colgaba de `productType !== 'raw'` quedó inalcanzable.
+Se retiró **entero**, no comentado:
+
+| Qué | Dónde vivía | Por qué era solo de graded/sealed |
+|---|---|---|
+| El `<Select>` «Tipo de producto» | `BuylistView.tsx:509-520` | servía los tres valores |
+| Barra de filtros plana (set + texto + «Buscar») | `:470-508`, envuelta en `{productType !== 'raw' && …}` | literalmente no se pintaba en raw |
+| **Grid plano** (`cardsResult`, tejas, filas por acabado) | rama `else` del ternario `productType === 'raw' ? <MasterSetPanel/> : …` | en raw siempre ganaba el binder |
+| `gridBatchItems` + `gridQuotes` + `quoteFor` + `FinishEstimate` | `:205-259`, `:90-110` | el batch del grid plano; el binder tiene el suyo |
+| **Bulk** (multi-selección, `addSelectedToCart`, 4 estados y 6 cadenas) | `:385-428`, `:563-599` | el binder agrega de un clic por casilla, sin paso de selección |
+| `tileFinishes` / `rowLabel` / `addFromGrid` / `firstAvailableFinish` / `quoteMapKey` | helpers del grid plano | — |
+| `CardDetailModal` de la vista | `:875-882` | el del binder lo pinta cada teja (`QuoterTile`) |
+| `useSellCart.addLines` | hook | su único consumidor era el bulk |
+
+**Lo que NO se tocó, y es la mitad importante del encargo:** graduadas y sellado **existen y se
+venden**. Catálogo (`CatalogView`, `ShopFilters`, `StoreTabs`, `ListingSpec`, `RarityLabel`), ficha,
+bóveda (`vault/*`), admin M1/M2 y el `ProductType` de `contract.ts` siguen **exactamente igual**. Lo
+que se cerró es **la superficie de COMPRA**, no la de venta ni la de custodia.
+
+Efecto secundario que sí es una mejora: la identidad de línea del carrito (`useSellCart`) pierde
+`productType` de la llave de dedup —era una constante en los dos lados de la igualdad— y `isInCart`
+queda con la **misma firma** que el binder ya declaraba (`(cardId, finish, productId?)`), así que
+desapareció el adaptador `isInCartRaw`.
+
+### 45.3 Tipos: el compilador cierra la puerta, pero la autoridad es el servidor
+
+`frontend/src/types/contract.ts` (y sus dos espejos en `lib/api.ts` y `BuylistKycForm.tsx`):
+
+```ts
+// antes                              // v1.53
+productType: ProductType;      →      productType: 'raw';
+```
+
+Cubre `BuylistQuoteItemDTO` (batch), `BuylistQuoteInput` (quote por-carta),
+`CreateSellRequestInput['items'][n]` y `BuylistRequestItem` (el DTO del carrito). Con eso, **volver a
+mandar `graded` no compila**.
+
+Dicho sin adornarlo: **esto no es la guarda.** El endpoint es público y anónimo; un `curl` se salta
+cualquier tipo de TypeScript. La guarda que decide dinero es la server-side (`422 BUYLIST_RAW_ONLY`,
+SEC-A1). Lo del front es (a) que la UI deje de ofrecerlo y (b) que un descuido no lo reintroduzca.
+
+### 45.4 `BUYLIST_RAW_ONLY` es un error **POR ÍTEM**, y eso decidió dónde ponerlo
+
+El contrato §6 lo pone en la lista de errores por-ítem del batch **a propósito** (§4.40.3.3): un lote
+de 50 con **una** línea no-raw debe devolver `200` con esa línea `ok:false` y **las otras 49
+cotizadas**. Si se pintara como fallo global, un solo ítem malo dejaría el grid entero sin una sola
+teja agregable — que es exactamente el daño que ese diseño evita.
+
+Implementación:
+- El código entra a la **unión de `error.code`** de `BuylistBatchQuoteResultDTO`, no a un manejo
+  aparte. El binder ya degrada por-ítem para *cualquier* código (`variant.quote = null` ⇒ teja
+  «Precio pendiente» con su «Agregar» inhábil; `SeparateProductTile` ⇒ error de línea legible), así
+  que el código nuevo hereda el camino correcto por construcción.
+- Nueva cadena `masterSet.separateProductErrorCode.BUYLIST_RAW_ONLY` (es/en). Sin ella, next-intl
+  tira `MISSING_MESSAGE` en la teja de producto separado — se detectó por el `stderr` de vitest, no
+  por una roja.
+- `error.BUYLIST_RAW_ONLY` (es/en) para el **nivel request**: `POST /buylist/requests` es
+  todo-o-nada y su 422 llega por `useErrorMessage` → `error.<CODE>`.
+
+**Por qué se codifica un error que el front ya no puede provocar:** un bundle viejo en caché, o una
+pestaña abierta desde antes del deploy, sí puede recibirlo. La alternativa —no mapearlo— es enseñar
+un texto en inglés crudo del servidor justo en la pantalla del dinero.
+
+### 45.5 Los mocks espejan la guarda del servidor, no el tipo del cliente
+
+`lib/api.ts` es el servidor del modo mock (y del build que corre la suite E2E). `mockResolveQuoteItem`
+recibe `productType?: string` **a propósito** —no `'raw'`— para poder rechazar un payload fuera de
+tipo, igual que el backend rechaza un `curl`:
+
+- `/quote/batch` → `ok:false` **por ítem**, HTTP 200, el resto cotiza.
+- `/quote` por-carta → `422`.
+- `/buylist/requests` → `422` con `details: { index, productType }` y **la solicitud no se crea**
+  (todo-o-nada; el mock corta antes de mapear un solo ítem).
+
+Si el mock heredara el tipo estrecho, el modo mock afirmaría que la guarda existe **sin tener
+ninguna**, que es la clase de falso verde que ya nos costó una ronda en §43.
+
+### 45.6 i18n: 22 entradas de `buylist.` borradas (24 hojas), 2 añadidas
+
+Se fueron con su código: `selectType`, `productType.{raw,graded,sealed}`, `filterBySet`, `allSets`,
+`searchCards`, `searchPlaceholder`, `searchAction`, `searchResults`, `noResults`, `searchHint`,
+`gridEstimateLegend`, `gridQuotesFailed`, `gridQuoteError`, `addFinishAria`, `bulkSelect`,
+`bulkAddCta`, `bulkClear`, `bulkAdded`, `bulkAddedPartial`, `bulkAddError`, `viewDetailAria`,
+`tileInCart` (todas bajo `buylist.`). Añadidas: `error.BUYLIST_RAW_ONLY` y
+`masterSet.separateProductErrorCode.BUYLIST_RAW_ONLY`. ES y EN en paridad
+(`src/lib/i18n-parity.test.ts` lo exige).
+
+> ⚠️ **Esta afirmación fue FALSA hasta §45.10, y conviene que quede escrito.** En el pase original
+> solo entró **una** de las dos claves: la de nivel-request se pegó dentro de
+> `masterSet.separateProductErrorCode`, de modo que ese objeto tenía **dos claves con el mismo
+> nombre** y `error.BUYLIST_RAW_ONLY` **no existía en ningún idioma**. El documento aseguraba un
+> hecho que el código no tenía. Corregido en §45.10; la frase de arriba ya es cierta.
+
+Cuidado a la vista: `admin.m1.filterBySet` / `admin.m1.searchCards` / `catalog.searchPlaceholder` son
+claves **distintas** con el mismo nombre de hoja en otro namespace — no se tocaron.
+
+### 45.7 Pruebas: el candado, no el registro del cambio
+
+Los 6 casos del bloque `graded/sealed (grid plano…)` de `BuylistView.test.tsx` describían una
+superficie que ya no existe. **No se «arreglaron»: se sustituyeron** por 4 que fallan si alguien la
+reabre.
+
+| Prueba | Qué se rompe si vuelve el defecto |
+|---|---|
+| `NO existe selector de tipo de producto` | remontar el `<Select>` (aunque sea con una opción) |
+| `NO existe la barra de filtros del grid plano` | reintroducir el grid plano |
+| `todo item de la solicitud creada viaja con productType "raw"` | que una línea salga con otro tipo hacia `POST /buylist/requests` |
+| `BUYLIST_RAW_ONLY es error POR ÍTEM…` | tratarlo como fallo global (el carrito se quedaría en 0 líneas) |
+
+Más `MasterSet.test.tsx` › *«v1.53 (§4.40): BUYLIST_RAW_ONLY es error POR ÍTEM»*: el lote trae una
+línea rechazada y **la otra sigue cotizando y agregándose** — con el `onAdd` contado antes y después
+de clicar la inhábil, para que la prueba no pase por omisión.
+
+En E2E (`e2e/buylist.spec.ts`): se borró el `describe` del grid plano graded (2 casos) y se añadió
+*«v1.53: la página de venta NO ofrece gradeada ni sellado»*, que mide el candado **en navegador** y
+no en jsdom.
+
+**El smoke `@real` de VENDER se tuvo que migrar, y conviene saber por qué:** `addFirstSellableCard`
+descubría la carta por el **grid plano GRADED** — justo la superficie que este pase cierra. Ahora es
+`addCheapestSellableCard`, que recorre el binder quoter: filtra las tejas cuyo `aria-label` trae
+`MX$` (las de «Precio pendiente» quedan fuera sin nombrarlas) y clica **la más barata**. Se conserva
+íntegro el motivo money del helper original: contra el stack real una carta cara empuja la solicitud
+por encima del **tope AML** y la UI exige INE antes de confirmar — el smoke quiere recorrer VENDER,
+no pelearse con un control de lavado de dinero. Si el set no tuviera ninguna cotizada, cae a la
+primera teja habilitada (pendiente es money-safe: lo fija la plataforma al recibir).
+
+### 45.8 Verificación
+
+| Comando | Resultado |
+|---|---|
+| `npm test` (vitest) | **103 archivos · 965 pruebas · verdes** |
+| `npx tsc --noEmit` | **limpio (EXIT=0)** con `.next/types` de otra rama fuera de en medio — ver la nota de abajo |
+| `npm run lint` | **`✔ No ESLint warnings or errors`** |
+| `E2E_MOCK_PORT=3100 npx playwright test` | **115 pasadas · 3 saltadas · EXIT=0** (las 3 saltadas son `@real` de `grading-estimate`, `realOnly` en modo mock) |
+
+> ⚠️ **Nota de operación — dos trampas del entorno, ambas reales, ambas costaron tiempo.**
+>
+> 1. **El puerto 3000 estaba ocupado por el stack de otra rama.** La suite de mocks levanta su propio
+>    servidor ahí y aborta con `http://localhost:3000/es is already used`. Se corre con
+>    `E2E_MOCK_PORT=3100` (el dial existe justo para esto).
+> 2. **`frontend/.next` era el build de la OTRA rama y envenenaba el typecheck Y el build de la
+>    suite.** `tsconfig.json` incluye `.next/types/**/*.ts`, y ese árbol traía los tipos generados de
+>    una ruta que en esta rama **no existe** (`(storefront)/buylist/requests/[id]/page`) ⇒ errores
+>    `TS2307` en `npx tsc --noEmit` **y** `Failed to compile` en el `next build` de Playwright, sin
+>    una sola línea de código nuestro implicada. Se resolvió apartando `.next/types` (artefacto
+>    generado; `next start` no lo lee, el stack siguió sirviendo en 3000) y se **restauró tal cual al
+>    terminar** — o sea que el árbol queda como lo encontré, con la mina puesta:
+>
+>    ```
+>    .next/types/app/[locale]/(storefront)/buylist/requests/[id]/page.ts(2,24): error TS2307: …
+>    .next/types/app/[locale]/(storefront)/buylist/requests/[id]/page.ts(5,29): error TS2307: …
+>    .next/types/validator.ts(204,39): error TS2307: …
+>    ```
+>
+>    Los tres apuntan a `.next/`, **ninguno a código versionado**. (`.next-e2e-mock` tenía las mismas
+>    tres y se limpiaron solas al reconstruirlo la suite E2E con este código, que es la prueba de que
+>    son artefacto y no fuente.) Quien corra los gates sobre este árbol tiene que **rebuildear
+>    `.next` con ESTE código** o medirá lo de la otra rama — es la misma lección de §43, ahora en
+>    `.next` en vez de `.next-e2e-mock`.
+
+### 45.10 La clave duplicada: por qué 965 pruebas verdes no la vieron (condición del techlead)
+
+**El defecto.** `messages/{es,en}.json` tenían esto, idéntico en los dos idiomas:
+
+```json
+      "BUYLIST_RAW_ONLY": "Solo compramos cartas sueltas (raw).",
+    "BUYLIST_RAW_ONLY": "Solo compramos cartas sueltas (raw) en Near Mint; …",
+```
+
+Dos claves con el mismo nombre **en el mismo objeto**. La segunda —la que §45.4 destinaba a
+`error.BUYLIST_RAW_ONLY`, nivel request— se quedó dentro de `masterSet.separateProductErrorCode`.
+Resultado: `error.BUYLIST_RAW_ONLY` **no existía en ningún idioma**.
+
+**Los dos daños, y el primero es en la pantalla del dinero:**
+
+1. El `422` de `POST /buylist/requests` caía al fallback de `useErrorMessage`
+   (`components/ui/QueryState.tsx`: si no hay `error.<CODE>`, devuelve `apiError.message`) y pintaba
+   el **texto EN crudo del servidor**. En modo mock es peor: `lib/api.ts:1372` manda
+   `message: res.code`, así que se renderizaba **el literal `BUYLIST_RAW_ONLY`**. Es exactamente lo
+   que §45.4 dice que la clave se añadió para evitar.
+2. En un duplicado **gana la última**, así que la teja de producto separado pintaba la frase larga
+   en el caption de `text-[10px]` de `MasterSetBinder.tsx:1013`, en vez de la corta escrita para ese
+   hueco.
+
+**Arreglo:** la corta se queda en `masterSet.separateProductErrorCode`; la larga pasa a `error.`,
+junto a `BUYLIST_LIMIT_EXCEEDED` (el otro código de buylist del namespace).
+
+#### Lo que importa: la CLASE que falló, no el caso
+
+`i18n-parity.test.ts` era **estructuralmente ciego** a esto, por dos razones que se acumulan:
+
+1. `keyPaths` recorre el objeto **ya parseado**, y `JSON.parse` **colapsa el duplicado antes de que
+   el test mire**. Ninguna prueba que importe el catálogo como módulo puede ver una clave repetida.
+2. El error estaba **igual en los dos idiomas**, así que la paridad es↔en pasaba en verde.
+
+**El guardarraíl medía SIMETRÍA es↔en; no medía EXISTENCIA de las claves que el código busca.** Un
+candado de simetría aprueba cualquier defecto que se cometa dos veces con disciplina.
+
+Se añaden dos candados que atacan esa clase, no ese caso:
+
+| Candado | Contra qué mide | Qué lo pone rojo |
+|---|---|---|
+| `%s traduce TODO código de error que el cliente declara recibir` | el **contrato** (no el otro idioma) | quitar `error.<CODE>` de un código declarado — **aunque se quite de los dos idiomas** |
+| `%s no define dos veces la misma clave en el mismo objeto` | el **texto** del JSON | reintroducir cualquier clave duplicada, en cualquier namespace |
+
+El primero extrae del **fuente de producción** las uniones de literales que el cliente declara como
+códigos de error de contrato (`code: 'A' | 'B'…` y `type …Error… = 'A' | 'B'…`) y exige
+`error.<CODE>` en los dos locales. Es deliberadamente **estrecho**: no basta con nombrar un código
+en cualquier parte. `FILE_TOO_LARGE`, `VAULT_REQUIRES_ACCOUNT`, `INSUFFICIENT_STOCK`,
+`CANNOT_DELETE_SELF`, `CLABE_REQUIRED` y `FEATURE_DISABLED` se manejan con UI propia en su `catch` y
+**nunca** pasan por `error.<CODE>`; exigirles traducción sería ruido, y un candado ruidoso se
+desactiva. Hoy la extracción da 7 códigos y los 7 tienen traducción.
+
+El segundo **tokeniza el texto** del JSON (consume los literales de cadena enteros, con sus escapes,
+para que una llave o una coma dentro de un texto traducido no lo descuadre). Es la única forma de
+ver un duplicado: cualquier ruta que pase por `JSON.parse` llega tarde.
+
+Dos detalles que evitan que los candados se vuelvan decorativos:
+
+- **Anti-vacuidad.** Si alguien reformatea `contract.ts` y la extracción deja de reconocer las
+  uniones, el candado aprobaría **mirando al vacío** — el mismo modo de fallo que se está
+  corrigiendo. Una prueba aparte exige que la extracción siga encontrando los cinco códigos
+  por-ítem de `BuylistBatchQuoteResultDTO`. Verificado: al reformatear la unión, se pone roja.
+- **El escáner se prueba a sí mismo.** Un bug en el tokenizador convertiría el candado de duplicados
+  en un verde permanente, así que hay casos que exigen que **detecte** un duplicado real y que **no**
+  confunda con estructura las llaves y comas dentro de un valor traducido.
+
+Se añade además un tercer candado en la misma tanda: los cinco códigos por-ítem del batch tienen que
+tener `masterSet.separateProductErrorCode.<CODE>`. Ahí no hay fallback que valga —
+`MasterSetBinder` interpola el código **directo** en `t(...)` y next-intl tira `MISSING_MESSAGE`.
+
+#### Prueba de que los candados sirven (mutación, no fe)
+
+No basta con que pasen; tienen que **ponerse rojos** al reintroducir el defecto. Verificado una por
+una, restaurando el árbol después de cada mutación:
+
+| Mutación | Resultado |
+|---|---|
+| Borrar `error.BUYLIST_RAW_ONLY` de **los dos** idiomas (el defecto original, simétrico) | 🔴 2 rojas. **La paridad es↔en siguió verde** — la demostración de que era ciega |
+| Reintroducir la clave duplicada tal cual estaba | 🔴 2 rojas, señalando la ruta `masterSet.separateProductErrorCode.BUYLIST_RAW_ONLY` |
+| Reformatear la unión para que la extracción no la vea | 🔴 1 roja (anti-vacuidad) |
+
+### 45.9 Alcance de este pase
+
+**Tocado:** `frontend/src/app/[locale]/(storefront)/buylist/{BuylistView.tsx, BuylistView.test.tsx,
+useSellCart.ts}`, `frontend/src/components/domain/BuylistKycForm.tsx`,
+`frontend/src/components/master-set/MasterSet.test.tsx` (una prueba nueva),
+`frontend/src/types/contract.ts`, `frontend/src/lib/api.ts`, `frontend/messages/{es,en}.json`,
+`frontend/e2e/buylist.spec.ts`, y este documento. **§45.10 añade** `frontend/src/lib/i18n-parity.test.ts`
+(tres candados nuevos + las pruebas del propio escáner).
+
+**No tocado:** `backend/` (la guarda server-side y el retiro del default `?? 'PSA' / ?? '10'` son de
+backend, §4.40.9), `docs/API_CONTRACT.md`, `docs/ARCHITECTURE.md`, `docs/DESIGN_SYSTEM.md`, y **toda
+la superficie de VENTA de graduadas/sellado** (catálogo, ficha, bóveda, admin M1/M2).
 
 ---
 
@@ -12421,7 +12857,7 @@ pudimos calcular cuánto. Las dos piden lo mismo»*). Los tres explican **por qu
 comporta así, que es lo que evita que alguien la «arregle».
 ---
 
-## §45 · La fusión de `main` en el stream del buylist, y **DT-Gd pagada**: dos DTOs de set, dos fixtures y un candado que ahora sí muerde (2026-09-05, rama `claude/buylist-inventory-workflow-hdnls3`)
+## §47 · La fusión de `main` en el stream del buylist, y **DT-Gd pagada**: dos DTOs de set, dos fixtures y un candado que ahora sí muerde (2026-09-05, rama `claude/buylist-inventory-workflow-hdnls3`)
 
 > Pase de absorción de `origin/main` (83 commits, con **P-54** entero — logos de expansión) hacia la
 > rama del ciclo de buylist. Tres ficheros míos en conflicto y, en el mismo pase, la ficha **DT-Gd**
@@ -12435,13 +12871,13 @@ comporta así, que es lo que evita que alguien la «arregle».
 |---|---|---|---|
 | `SellCartContents.tsx` | §34: la **miniatura** de la carta en la línea del carrito de venta (`CardImage` + columna `w-12` fija + `min-w-0 flex-1`) | §23.3h: la **versalita** `BuylistPendingLineLabel` en vez del rótulo largo `linePending`, por línea y por unidad | **Las dos.** Se toma la estructura de `main` (la que reindenta la fila) y dentro van las dos sustituciones de la rama. Ninguna toca a la otra: una es la caja, la otra es lo que se pinta cuando **no hay precio** |
 | `fixtures.ts` | `mockOrderDetailLegacy` (v1.51-c, el acta histórica con `cardSnapshot` incompleto — la consume `getOrderDetail`) | `MockSellRequestRow` + las proyecciones del servidor falso (`mockSellRequestDTO`, `mockSellOffer`, `mockAdminBuylistDTO`, …) | **Las dos.** El choque era de posición, no de sentido: los dos lados abrían un bloque justo detrás de `mockOrderDetail`. `mockSellRequests` conserva el tipo de la rama (`MockSellRequestRow[]`) |
-| `FRONTEND_NOTES.md` | §28…§43 | las secciones tituladas por versión del ciclo del buylist | **Las dos, íntegras.** Primero el bloque de `main` (continúa la numeración que el fichero dejaba en §27), después el de la rama. **Y una renumeración:** la rama había abierto un segundo «§27» cuando ése era el último número libre; con §28…§43 dentro, «§27» resolvía a dos secciones. Pasa a **§44** (ver la nota en su cabecera) |
+| `FRONTEND_NOTES.md` | §28…§43 | las secciones tituladas por versión del ciclo del buylist | **Las dos, íntegras.** Primero el bloque de `main` (continúa la numeración que el fichero dejaba en §27), después el de la rama. **Y una renumeración:** la rama había abierto un segundo «§27» cuando ése era el último número libre; con §28…§43 dentro, «§27» resolvía a dos secciones. Pasa a **§44** — y de ahí a **§46** en la fusión siguiente, cuando `main` publicó su propio §44 (ver la nota en su cabecera y §48) |
 
 ### 2. DT-Gd — el problema no era el campo opcional, era que **el opcional apagaba el candado**
 
 La ficha lo dice en sus términos y no lo repito: `GET /catalog/sets` y `GET /buylist/sets`
 compartían `CardSetDTO`, pero el contrato **los define distintos** — `logoUrl` entra en el del
-cotizador (clave **siempre presente**, ARCHITECTURE §4.40.6) y **no** en el de catálogo (§4.40.5
+cotizador (clave **siempre presente**, ARCHITECTURE §4.41.6) y **no** en el de catálogo (§4.41.5
 «NO entra»). Colapsarlos obligó a `logoUrl?: string | null`, y **ese `?` era el daño**: no por
 feo, sino porque una respuesta del cotizador **sin** el campo seguía siendo un `CardSetDTO`
 perfectamente válido, y `fetchQuoterIndex` la absorbía con `s.logoUrl ?? null` **compilando en
@@ -12514,6 +12950,13 @@ entrando con sus propias suites (P-54 y demás) **más las 3 de DT-Gd**; no baj�
 
 ### 6. El contrato **v1.53** aterrizó mientras esto se escribía, y coincide nombre por nombre
 
+> ⚠️ **Esa etiqueta es hoy `v1.54`** (`ARCHITECTURE.md` / `API_CONTRACT.md`, punto 0 de la cabecera).
+> `main` publicó **su propio v1.53** —`v1.53-buylist-graded-identity`, el cotizador raw-only— antes de que
+> el acta de fusión de la rama entrara, así que el arquitecto renumeró **la que aún no había entrado**:
+> mismo precedente que aplico yo en las secciones de este fichero. En los tres párrafos siguientes
+> «v1.53» significa **el acta de fusión de la rama, hoy v1.54**; el «v1.53» del resto del documento
+> (y de `frontend/`) significa **raw-only** y no se toca.
+
 Empecé el pase asumiendo lo que dice la ficha: *«cero cambios de contrato; si el arquitecto prefiere
 nombrarlos, mejor»*. Al terminar, `API_CONTRACT.md` ya traía la **rev v1.53 (acta de la fusión)** con
 el punto **D**: *«DT-Gd — SÍ los nombro. Nacen `CardSetDTO` y `BuylistSetDTO`, y es DECLARACIÓN, no
@@ -12525,12 +12968,126 @@ el cliente eligiera mal, fue que **las dos respuestas se escribían como shapes 
 
 **Y la limpieza que v1.53 punto C enruta a los dueños, hecha en mis rutas.** La fusión encontró que
 `§4.39` nombraba **dos** secciones de `ARCHITECTURE.md`: el ciclo de adquisición (`§4.39(a)`…`§4.39(t)`,
-de la rama) y las imágenes de set (`§4.39.1`…`§4.39.9`, de `main`). Manda el ciclo por radio de
+de la rama) y las imágenes de set (`§4.41.1`…`§4.41.9`, de `main`). Manda el ciclo por radio de
 citación, y **las imágenes de set pasan a `§4.40.1`–`§4.40.9`**. Reescritas las **30** citas de la
 forma `§4.39.N` que vivían en `frontend/` y en este fichero, **más las 4 con `§4.39` a secas que
 hablaban de M-47** (`contract.ts`, `fixtures.ts`, `MasterSetIndexPlate.test.tsx` y la cabecera de
 §42). ⚠️ **Las `§4.39c` / `§4.39(x)` NO se tocaron**: ésas son del ciclo de adquisición y siguen
 apuntando donde deben. Después de la reescritura no queda ninguna cita `§4.39.N` en mis rutas.
 
+> ⛔ **SUPERADO en la fusión siguiente — ver §48.4.** Este párrafo dio por bueno mover las imágenes
+> de set a `§4.40.x` «por radio de citación», y la premisa se cayó al día siguiente: `main` publicó
+> **`§4.40` = identidad de graduación / cotizador raw-only**. Con las dos numeraciones en el mismo
+> árbol `§4.40` nombraba dos cosas —incluso dentro del MISMO fichero (`lib/api.ts`)—, y la que
+> perdía era **la guarda del dinero**. Lo resolvió **el arquitecto**, que es de quien es: `§4.39`
+> queda para el **ciclo de adquisición**, `§4.40` para **graduación/raw-only** (308 citas vivas en
+> `main`) y **las imágenes de set se mudan a `§4.41.1`–`§4.41.9`**. Mis 31 citas `§4.39.N`/`§4.40.N`
+> de logos —y las 4 con `§4.39` a secas— quedan reescritas a `§4.41.N`. **Las `§4.39c` / `§4.39(x)`
+> siguen sin tocarse: ésas son del ciclo y ahora apuntan donde deben sin mover nada.**
+
 **Para el arquitecto — nada pendiente de DT-Gd.** El único punto que quedaba abierto (nombrar los dos
 DTOs) lo cerró v1.53 y el cliente ya está alineado.
+
+---
+
+## §48 · Segunda fusión de `main` en el stream del buylist: el cotizador **sigue siendo raw-only** y el ciclo entero entra encima (2026-09-06, rama `claude/buylist-inventory-workflow-hdnls3`)
+
+> Absorción de `origin/main` (70 commits del ciclo de adquisición contra la rama hermana **v1.53
+> raw-only** + la **placa de papel** de §24 v2.10). **Siete conflictos míos**, y uno de ellos era el
+> duro de verdad: `main` **podó `BuylistView.tsx` de 964 a 484 líneas** y la rama había reescrito ese
+> mismo fichero a fondo. Los dos lados tenían razón; ninguno se elige, se integran.
+
+### 1. `BuylistView.tsx` — la poda de `main` MANDA, y el ciclo entra dentro
+
+Lo que `main` retiró **se queda retirado**, y no es una preferencia de diseño: el selector «Tipo de
+producto» ofrecía `raw | graded | sealed` sobre unos DTOs de buylist que **nunca tuvieron dónde
+capturar QUÉ grado es un slab**, así que el backend resolvía la referencia con un default silencioso a
+`graded:PSA:10` —**el grado más caro**— y el cotizador firmaba ese precio por cualquier graduada.
+Estaba **vivo en producción**. Con el selector se fueron el grid plano, su barra de filtros, el bulk,
+`FinishEstimate`, `addFromGrid`, `quoteFor`, `isInCartRaw` y el `CardDetailModal` del grid plano.
+
+⚠️ **Nada de lo que reapareciera ahí sería “restaurar una función”: sería reabrir un agujero de
+dinero.** Los candados que lo impiden son de `main` y **corrieron en verde en este árbol**: el unitario
+`BuylistView.test.tsx › «v1.53 el cotizador compra RAW y solo raw (§4.40)»` (tres casos en negativo) y
+el E2E `buylist.spec.ts › «v1.53: la página de venta NO ofrece gradeada ni sellado»`, que lo mide **en
+navegador**. **Viajaron y muerden**; no hizo falta reponer ninguno.
+
+Y lo que la rama trae entra **encima** de esa estructura, entero: `shippingNoteHost` (§23.3g-bis, la
+decisión de *exactamente una* nota de envío por pantalla), `useQuotePolicy` + `minimumRequestCents`,
+`showShippingNote` en los dos montajes del carrito, `BuylistPendingLineLabel` /
+`BuylistPendingLinesNote` en el paso de crear, `quote.money.cardsValue`, la dirección de recogida y el
+aviso de solicitud creada que ya no se lee como permiso para enviar.
+
+| Fichero | Lado `main` | Lado rama | Resolución |
+|---|---|---|---|
+| `BuylistView.tsx` | poda raw-only (§4.40): fuera selector, grid plano, filtros, bulk | ciclo: nota de envío, mínimo, líneas sin precio, dirección | **Estructura de `main` + añadidos de la rama.** Del conflicto 1 (`FinishEstimate`) gana `main`: esa función **solo** pintaba filas del grid plano. Del conflicto 2 se conserva **solo** `shippingNoteHost` |
+| `BuylistView.test.tsx` | los tres casos del candado raw-only | `pickAddress()` antes de cada «Confirmar y enviar» | **Las dos.** Y el caso de `main` que **sí** crea solicitud (`productType "raw"`) **necesita `pickAddress()`**: con D36/D37 el `addressId` es obligatorio, y sin esperar a que la libreta preseleccione el submit no llega a `createSellRequest` |
+| `lib/api.ts` | guarda `422 BUYLIST_RAW_ONLY` en el mock de `createSellRequest` (todo-o-nada) | guardas `PICKUP_ADDRESS_REQUIRED` / `PICKUP_ADDRESS_NOT_FOUND` | **Las tres.** Raw-only **primero**: el contrato §6 la lista antes que las demás 422 y no hay que mirar la dirección de una compra que no hacemos |
+| `MasterSetIndex.tsx` | §24 v2.10: `SetPlate` sale a su propio módulo (pozo de papel) | DT-Gd: `logoUrl: s.logoUrl` **sin `?? null`** | **Las dos.** Se toma la extracción de `main` (el `SetPlate` inline muere con ella) y se conserva el mapeo sin `??`, que es el candado de compilación de DT-Gd |
+| `messages/{es,en}.json` | `error.BUYLIST_RAW_ONLY` + retirada de las claves del grid plano | `created` reescrito (§23.14.4c) + claves del ciclo | **Las dos.** Se conserva el `created` de la rama (el de `main` es el texto viejo) y se van las 24 claves del grid plano/bulk/`productType` |
+| `e2e/buylist.spec.ts` | `addCheapestSellableCard` (binder raw) sustituye al helper del grid GRADED; candado en navegador | `ensureMinimumReached`, `choosePickupAddress`, `cartPanel` con `:not(button)`, `openCart` que persigue el estado final | **Las dos** (ver §48.2) |
+| `FRONTEND_NOTES.md` | §44 (placa de papel) y §45 (raw-only) | el bloque del ciclo + su §45 | **Las dos**, y **renumeración de lo de la rama** (§48.3) |
+
+### 2. El smoke `@real` de VENDER: el helper de `main` tenía que aprender el mínimo de la rama
+
+`main` migró el descubrimiento de carta al binder raw (`addCheapestSellableCard`) porque el grid
+GRADED que usaba antes **es justo la superficie que se cerró**. Perfecto — salvo por un detalle que
+solo existe cuando las dos líneas conviven: su rama de respaldo clica **la primera teja habilitada**
+cuando ninguna tiene precio, y con el mínimo de compra (D43) una línea en `precio_pendiente` **no suma
+al total por diseño** (§23.3h). `cantidad × 0 = 0` por muchas veces que `ensureMinimumReached` suba la
+cantidad ⇒ CTA apagado ⇒ rojo nueve pasos más tarde, disfrazado de *«el cotizador no suma»*. Es
+**literalmente** el diagnóstico falso que la rama ya había pagado una vez y dejado escrito.
+
+Integración: `addCheapestSellableCard` **devuelve si la carta agregada tiene precio**, y el smoke hace
+`test.skip(!priced, …)`. **Falta de dato ≠ defecto de producto**, y se dice donde se detecta.
+
+### 3. Numeración de secciones de este fichero — tercera colisión, mismo criterio
+
+`main` publicó **§44** (placa de papel) y **§45** (raw-only). La rama traía **§44** (el gate real del
+ciclo, ya renumerado una vez desde §27) y **§45** (la fusión anterior). **Cede lo de la rama, nunca lo
+publicado:** §44→**§46** y §45→**§47**; esta sección es la **§48**. Corregidas las referencias cruzadas
+de las dos, incluida la tabla de §47 que apuntaba al §44 viejo.
+
+⚠️ **La cita de `i18n-parity.test.ts` a «FRONTEND_NOTES §45.4/§45.6» NO se toca**: es de `main` y
+apunta a **su** §45 (raw-only), que conserva el número.
+
+### 4. Las citas a `ARCHITECTURE.md` — el arquitecto deshizo mi primera corrección, y tenía razón
+
+`§4.40` acabó nombrando **dos** secciones en el mismo árbol: las imágenes de set (renumeradas por la
+rama en la fusión anterior, §47) y **la identidad de graduación / raw-only** de `main`. Que un fichero
+—`lib/api.ts`— tuviera las dos acepciones a la vez no es cosmético: **no es que la cita no apunte a
+nada, es que apunta a una sección que existe y habla de otra cosa**, y la otra cosa es la guarda del
+dinero. Un lector que la siga cree haber verificado algo que no miró.
+
+Resolución **del arquitecto** (v1.54, no mía): `§4.39` = ciclo de adquisición · `§4.40` =
+graduación/raw-only (308 citas vivas en `main`) · **imágenes de set → `§4.41.1`–`§4.41.9`**. En mis
+rutas quedan reescritas **31 citas `§4.39.N`/`§4.40.N` de logos + 4 con `§4.39` a secas**
+(`types/contract.ts`, `lib/api.ts`, `lib/api.test.ts`, `lib/mock/fixtures.ts`,
+`master-set/SetPlate.tsx`, `MasterSetIndexPlate.test.tsx`, `MasterSet.test.tsx`,
+`e2e/master-set-plate.spec.ts` y este fichero). **Las `§4.39c` / `§4.39(x)` no se tocan**: son del
+ciclo y ya apuntan donde deben.
+
+**Y la hermana de esa colisión, que estaba en mis rutas y nadie había mirado:** `M-46` también nombraba
+**dos** migraciones. El arquitecto resolvió *ciclo = `M-46`, dial del gancho de grading = `M-48`*
+(v1.54 punto 1). Reetiquetadas **las 9 citas del DIAL** —`contract.ts`, `M10View.tsx`,
+`M10View.test.tsx`, `e2e-paid-provider-guard.test.ts`, `fixtures.ts`, `e2e/utils/paid-provider-guard.ts`,
+`e2e/utils/grading.ts`, `e2e/global-teardown.ts`— dejando intactas las del ciclo. Importa por lo mismo:
+el dial gobierna **la obtención desde un proveedor de PAGA**, así que confundir su migración con la del
+ciclo manda a un revisor a leer la ficha equivocada.
+
+### 5. Un rojo del E2E que la fusión destapó, y **no** lo trajo la fusión
+
+`admin.spec.ts › «la cola de autorización avisa de que la fila SE MUERE SOLA»` salió en rojo
+esperando «Caduca hoy». No es del merge: `caducityTone` pasó a comparar el **día del calendario** de
+CDMX y el fixture se quedó en `Date.now() + 20 h`, **una ventana rodante**. Veinte horas caen hoy o
+mañana según la hora: el caso solo pasaba si la suite arrancaba antes de las **04:00** de CDMX. El
+unitario ya lo había resuelto con un helper (`caducityOnMxDay`); **el servidor falso se había quedado
+atrás**, y un mock que contradice al componente al que alimenta produce rojos que no son del producto.
+`mockPendingOfferAuthorizations` usa ahora el mismo helper (mediodía de CDMX del día `0`).
+
+### 6. Verificación
+
+`1162 vitest` verdes en 113 ficheros (la rama traía 1152; `main`, 977) · **145 E2E: 142 pasan, 3
+`skip`** (`needsSeed`/`mockOnly` de datos que el modo mock no tiene) · `tsc --noEmit` limpio · `lint`
+limpio. E2E en `E2E_MOCK_PORT=3100`: el `:3000` lo ocupa el `next start` del stack real de devops —
+y por lo mismo **no se borró `.next`**, que es suyo y estaba en uso.
