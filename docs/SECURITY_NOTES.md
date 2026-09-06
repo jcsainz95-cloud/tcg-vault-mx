@@ -1,4 +1,349 @@
 # SECURITY_NOTES.md — Seguridad (blue team) · consolidación y veredicto
+
+<!-- ════════════════════════════════════════════════════════════════════════════════════════
+     PASE v1.56 — RELEASE · stream «buylist / inventory workflow» — se antepone.
+     Consolida el pase de pentest v1.55 (P1..P3) + verificación propia en vivo del arreglo de P1.
+     Todo lo anterior (grading×M-43, P-47/curva v2, v2.1.9, P-48, histórico) se conserva íntegro abajo.
+     ════════════════════════════════════════════════════════════════════════════════════════ -->
+
+# GATE DE SEGURIDAD · doble-pago SPEI (P1) + residual de dinero saliente (BL-35 eje 2) · 2026-09-06 · seguridad (blue team)
+
+> **Árbol auditado:** rama `claude/buylist-inventory-workflow-hdnls3`, HEAD **`3b2fc87`**
+> (`fix(backend): la invariante que faltaba en dos verbos…`). Contrato **v1.56** (§M5-T).
+> **Insumo del red team:** `docs/PENTEST_NOTES.md` § «PASE v1.55» (P1 CRÍTICA, P2 Media, P3 Baja, 14 positivos).
+> **Dictamen del arquitecto:** `docs/ARCHITECTURE.md` §4.39(v) + §9 (BL-35, ejes 1 y 2). **Backend:** `docs/BACKEND_NOTES.md` §0.40.
+> **Modo:** consolidación del pentest + **revisión estática dirigida del diff** + **verificación EN VIVO** contra el stack
+> local autorizado (`http://localhost:3099/api/v1`, Postgres `tcg_marketplace`, Redis) + `npm audit` (backend/frontend) +
+> ejecución de la suite `buylist.m5t-terminal-guard`. **No se corrigió código** (regla del rol); todo hallazgo va enrutado
+> al **rol dueño según la tabla de `CLAUDE.md`** (no según a quién lo asignó el pentester).
+> **Etiquetas:** `[LIVE]` = disparado por HTTP con tokens reales + verificado en Postgres · `[código]` = lectura estática ·
+> `[dep]` = `npm audit` · `[inferido]` = deducido de hechos medidos, no disparado. **Lo que no medí, lo digo.**
+
+> ⚠️⚠️ **HALLAZGO OPERATIVO PRIMERO — el binario vivo estaba DESACTUALIZADO al empezar (repite el patrón SEC-M43-6).**
+> El backend que corría al abrir el pase se arrancó a las **15:04:03**; el commit del arreglo `3b2fc87` es de las
+> **16:16:31** y el `mtime` de `buylist.service.ts` es **16:18:15** ⇒ **el stack vivo NO tenía el arreglo de P1.** Una
+> primera medición contra ese proceso habría «confirmado» el doble-pago que ya está arreglado. **Reinicié el stack**
+> (`stack-native.sh down` + `up`, **sin `--seed`** para conservar la evidencia sembrada) y repetí **todo** contra el
+> binario correcto (PID nuevo, arrancado **16:21:42**, posterior al arreglo). **Cualquier medición en vivo de este pase
+> que no venga de ese reinicio es inválida.** *(Deuda operativa recurrente para **devops**: el gate no reinicia el stack
+> antes de la fase de seguridad; dos pases seguidos casi firman un veredicto contra el binario viejo — ver SEC-OPS-1.)*
+
+---
+
+## 0. VEREDICTO: ⛔ **RECHAZADO**
+
+| | |
+|---|---|
+| **Críticos abiertos** | **0** — **P1 (doble-pago SPEI) queda CERRADA y verificada EN VIVO** contra el binario con el arreglo (§1). |
+| **Altos abiertos** | **1** — **BL-35 eje 2** (§2): `verify` vuelve **pagable** una solicitud **pre-recepción** y `pay-spei` **liquida SPEI real** por mercancía que **nunca llegó**. **El pentester lo dejó `[inferido]`; yo lo MEDÍ EN VIVO** (MX$320 pagados sobre una solicitud `ofertada`, sin aceptar, sin recibir). **Es dinero saliente y bloquea.** |
+| **Medias** | **P2** (deps dev/test del frontend — aceptada, §4) · **DISP-1** (patrón P1 en `disputes.resolve`/deadline job — **cross-stream**, §3). |
+| **Bajas / Info** | **P3** (deps runtime backend, 0 crit/high — aceptada, §5) · **SEC-B1** (`pay-spei` idempotente responde `201` y audita la ref no aplicada — §6). |
+| **Criterio del DoD** | «sin hallazgos **críticos o altos** abiertos» ⇒ **SE DISPARA EL RECHAZO por 1 ALTO abierto (BL-35 eje 2).** |
+| **Mínimo para APROBAR** | Cerrar **BL-35 eje 2** (§2.4): decisión del humano/product-owner sobre la regla de recepción/predecesores **+** guarda de backend (p. ej. `pay-spei` afirma `receivedAt IS NOT NULL` en su CAS) **o** aceptación formal del humano con control compensatorio documentado. Re-verificación en vivo. **Nada más bloquea.** |
+
+**Lectura de una línea:** el arreglo de la CRÍTICA es **correcto, completo y lo reproduje en vivo** — la clase entera del
+doble-pago está cerrada, y con más profundidad de la que pedía el PoC (cuatro verbos endurecidos, no dos, más dos redes
+en `pay-spei`). Pero **el mismo hilo del que colgaba P1 —`isPayable` sin exigir recepción— sigue tenso en el eje 2**, y
+ahí **el dinero sí sale**: pagué en vivo una solicitud que el vendedor **ni siquiera aceptó**. El arquitecto lo dejó
+abierto como `[inferido]` y lo enrutó al humano; mi trabajo era **pesarlo**, y pesa **ALTO**. Por eso el gate **no pasa
+todavía** — falta una decisión de negocio y una guarda, no un rediseño.
+
+---
+
+## 1. P1 · [CRÍTICA] · Doble-pago SPEI por reactivación de estado terminal · **CERRADA · VERIFICADA EN VIVO** ✅
+
+**Dictamen: el hallazgo del red team era real, la severidad CRÍTICA era correcta, y el commit `3b2fc87` lo cierra. No me
+apoyo en el mensaje de commit ni en el resumen del orquestador: lo REPRODUJE contra el stack reiniciado.**
+
+### 1.1 El PoC del pentester, re-disparado contra el binario con el arreglo `[LIVE]`
+
+Fila de evidencia sembrada por el red team: `SellRequest afc4ab63-4633-4b3f-80ab-2d98234f1719` (ya `pagada`,
+doble-pagada por el PoC v1.55; `speiReference=SPEI-DOUBLESPEND-777`, `paidAt=15:22:13`). Estado de partida confirmado en
+BD y por el DTO admin: `status:"pagada"`, `isTerminal:true`, `isPayable:false`, `closedAt` y `paidAt` sellados.
+
+| Paso del PoC | v1.55 (sin arreglo) | **v1.56 medido por mí `[LIVE]`** |
+|---|---|---|
+| `POST …/verify` como **`vault_operator`** sobre la fila `pagada` | **201** · revivía a `verificacion`, `closedAt` seguía sellado | **`409 CONFLICT`** · `details:{status:"pagada", closedAt:"…15:22:13.537Z"}` · **no revive** |
+| `POST …/receive` como `vault_operator` sobre la fila `pagada` | (habilitador alterno) | **`409 CONFLICT`** · mismo `details` · **no revive** |
+| `POST …/pay-spei` como `super_admin` con **ref nueva** `SPEI-BLUE-VERIFY-999` | 201 · **segunda liquidación real** | **corto-circuito idempotente** · devuelve la PRIMERA liquidación (`SPEI-DOUBLESPEND-777`) · **la ref nueva se descarta** |
+| Fila en BD tras los tres intentos | dos `paidAt`/dos refs | **byte-idéntica**: `SPEI-DOUBLESPEND-777`, `paidAt=15:22:13.537` — **cero segundo peso** |
+
+**Conclusión: el PoC de P1 YA NO se reproduce en vivo.** El paso habilitador (`verify`/`receive` sobre terminal) devuelve
+`409` con `details:{status,closedAt}` y **no escribe nada**; el segundo pago no liquida. Medido contra Postgres real, no
+fixtures.
+
+### 1.2 El arreglo, revisado en el código — completo y con defensa en profundidad `[código]`
+
+- **Guarda atómica en `receive`/`verify`** (`buylist.service.ts:5148-5211`): `updateMany` con `{ id, ...liveRequestWhere() }`
+  + `count===1` + relectura, en un solo boundary `$transaction`. `liveRequestWhere()` (`:5275`) = `{ ...notTerminalWhere(),
+  closedAt: null }` — **los DOS términos**. El `409` (`throwRequestClosedConflict`) relee dentro de la tx. El movimiento
+  de ítems va **DESPUÉS** de la guarda (una transición ilegítima no mueve ni un ítem).
+- **`closedAt: null` NO es redundante — VERIFICADO en vivo:** el `409` de mi paso 1 llevó `closedAt` **poblado con
+  `status:"pagada"`**, exactamente la fila que el bug fabricaba; con solo el término de estado esa fila coherente ya no
+  existiría, pero la incoherente (la de P1) pasaría. La otra mitad de la guarda hace el trabajo real.
+- **Idempotencia `200` + no re-sellado:** `@HttpCode(OK)` en el controller (`admin-buylist.controller.ts:513,528`); la fecha
+  se sella en su **propio** `updateMany` con `[field]: null` en el `where` (`sealOnceTx :5340`) ⇒ un reintento **no corre**
+  el plazo de abandono a 30 días ni la purga del INE. Correcto.
+- **`pay-spei` — DOS redes nuevas** (`:6378-6392`, `:6501-6510`): pre-check `paidAt != null ⇒ 409` / `closedAt != null ⇒ 409`
+  (la «huella de un rollback», ruidosa a propósito) **y** el CAS del `updateMany` gana `paidAt: null` ∧ `closedAt: null`
+  además de las 4 columnas de dinero. Defensa en profundidad: aunque una puerta futura reviviera un estado, el pago no sale.
+- **Tope AML anclado en `paidAt`** (`:1691`, `common/buylist-aml.ts`): cae el término `status:'pagada'`; el acumulado
+  cuenta `paidAt >= inicioDeMes` **y nada más**. Es un **superconjunto estricto** del predicado viejo (`paidAt>=x` ya excluye
+  los `null`) ⇒ **cero regresión**, y cierra el bypass del tope que P1 abría (la fila reactivada salía del acumulado).
+  Verifiqué la premisa: `paidAt` tiene **un único escritor** en el backend, en el mismo `data` que `status:'pagada'`.
+- **El barrido tocó CUATRO verbos, no dos:** `rejectRequest` (`:6042`) y `maybeAutoRejectRequest` (`:5966`) llevaban solo el
+  término de estado y habrían **auto-rechazado una fila ya pagada**; ahora usan `liveRequestWhere()`. Y `recomputeApprovedTotal`
+  (`:5922`) —el TERCER `update({where:{id}})`, que **no transiciona pero escribe dinero** (`approvedTotalCents`)— también gana
+  el segundo término (`count!==1 ⇒ warn`, best-effort deliberado, no lanza): cierra la ventana en que reescribía el bruto de
+  una fila ya `pagada`/cerrada y con ello **alteraba retroactivamente el acumulado AML**. **El arreglo excede el PoC**, que es
+  la dirección correcta.
+
+### 1.3 Tests — la batería distingue el guard bueno del malo `[LIVE/código]`
+
+`npx jest buylist.m5t-terminal-guard.spec.ts` → **41/41 verdes** (corrido por mí). Inspeccioné el doble de Prisma:
+**evalúa el `where` de cada `updateMany` contra una fila mutable** (`:87-100`, `count` = resultado real de esa evaluación,
+no una constante), así que un guard sin el término `closedAt` **falla** los casos «`closedAt` sellado ∧ status vivo ⇒ 409»
+(`:158,169,270`). La batería de mutación del header (`:32-35`) documenta exactamente eso. **Es un test resistente a
+mutación real, no un `count:1` a ciegas** — valida estructuralmente la afirmación del brief («quitarle `closedAt` mata 6»).
+
+---
+
+## 2. ⛔ BL-35 eje 2 · [ALTA · ABIERTA · BLOQUEANTE] · `verify` vuelve pagable una solicitud PRE-RECEPCIÓN y `pay-spei` liquida SPEI real por mercancía que nunca llegó · **[LIVE — MEDIDO POR MÍ]**
+
+**El arquitecto lo dejó como `[inferido]`, no disparado (§4.39(v.5)). Yo lo DISPARÉ. Es real, y sale dinero.**
+
+### 2.1 La cadena, medida en vivo `[LIVE]`
+
+`isPayable = status ∈ {aprobada, verificacion} ∧ verifiedAt IS NOT NULL` (`common/sell-request-states.ts:145`). `verify`
+escribe `status='verificacion'` **y sella `verifiedAt`**, y su guarda es `liveRequestWhere()` (no-terminal ∧ no-cerrada) —
+**no exige recepción ni un predecesor**. Consecuencia, medida sobre `SellRequest b6e3b8e0-…` (estado `ofertada`: oferta
+enviada, **`acceptedAt=null`**, **`receivedAt=null`**):
+
+1. `POST …/verify` como **`vault_operator`** → **HTTP 200**; `status: ofertada → verificacion`, `verifiedAt` sellado,
+   **`isPayable: true`**, `receivedAt` **sigue `null`**. *(El rol habilitador es el de MENOR confianza del back-office —
+   confirmado: mi token de `operator` lo ejecutó, y la clase del controller es `@Roles(vault_operator, super_admin)` sin
+   override en `verify`.)*
+2. `POST …/pay-spei` como `super_admin` con `SPEI-EJE2-NEVER-ARRIVED-001` → **HTTP 201**, `status:"pagada"`,
+   **`payoutNetCents:32000`** (bruto ofertado 50000 − envío 18000), `closedAt` sellado. **BD: la liquidación quedó
+   asentada** con `receivedAt=null` y `acceptedAt=null`.
+
+**En prod con egress esto es una transferencia SPEI real de MX$320 a un vendedor que NUNCA aceptó la oferta y del que
+NUNCA llegó ninguna carta.** No hay guarda aguas abajo en `pay-spei` (no comprueba `receivedAt` ni `acceptedAt`).
+
+### 2.2 Por qué es ALTA y no Media (mi calificación, la que el humano pidió para decidir el timing)
+
+- **Es dinero saliente REAL, medido en vivo** — la operación más sensible del sistema, sobre un negocio de **custodia de
+  bienes**. Pagar **antes de recibir la mercancía** es un vector de pérdida directo y no acotado (el vendedor cobra y no
+  envía nada). No es fuga de información ni un DoS: **es plata que se va.**
+- **`isPayable` —la señal PROPIA del sistema de «¿está en condición de pagarse?»— responde `true` para una solicitud
+  pre-recepción.** El `super_admin` que trabaja la cola de pago se apoya en esa señal (para eso existe, §4.39c sitio 10);
+  la señal está **mal**, así que el control activo **desinforma al que autoriza el dinero**. No es «el operador debería
+  fijarse»: el sistema le dice que sí pague.
+- **El paso habilitador lo alcanza el `vault_operator`** (misma estructura de privilegio que P1: operador habilita,
+  super_admin paga; y un solo `super_admin` hace el ciclo completo). Aparece en la cola de pago **sin señal de que no se
+  recibió**.
+- **Funciona incluso desde `ofertada`** —antes de que el vendedor **acepte**—, que es la forma más cruda: cobra por una
+  oferta que pudo declinar y cartas que nunca acordó mandar.
+
+**Atenuantes reales (por los que no lo subo a Crítica):** el pago final **sigue exigiendo `super_admin` + `MoneyOutGuard`
++ auditoría** (no es autoservicio); **NO evade el tope AML** (la fila queda `pagada` y cuenta en el acumulado anclado en
+`paidAt`) y **NO duplica** el pago (una sola liquidación); `receivedAt=null`/`acceptedAt=null` **sí son visibles** en el
+DTO admin (es una entrada prematura a la cola, no un drenaje invisible). Aun así, «pagar por mercancía nunca recibida,
+habilitado por el rol de menor confianza, con la señal de pagabilidad mintiendo» es **ALTA** para una plataforma de dinero.
+
+### 2.3 Por qué §M5-T (el arreglo de P1) no lo cubre — y está bien que no `[código]`
+
+§M5-T es deliberadamente una guarda de **terminalidad** (no-terminal ∧ no-cerrada). `ofertada`/`cotizada`/`aceptada`
+**no son terminales**, así que la guarda de P1 los deja transicionar — **correctamente**, porque cerrar esto **es** declarar
+una **matriz de predecesores** (qué estado previo acepta cada verbo), y el arquitecto documentó (§4.39(v.4)) que
+`PROJECT.md` §P.1 **fija las fases, no la legalidad por-verbo**, y que una matriz mal puesta **rompería la cohorte legacy**.
+Es una **decisión de negocio ausente**, no un bug de la guarda de terminalidad. Por eso el dueño del arreglo **no es solo
+backend**.
+
+### 2.4 Cierre requerido — rol dueño y forma
+
+- **Rol dueño (eje 2): product-owner / humano** (declarar la regla: ¿`pay-spei` exige `receivedAt IS NOT NULL`? ¿`verify`
+  exige un predecesor post-recepción? ¿respetando qué cohorte legacy?) **+ backend** (implementar la guarda y re-verificar).
+- **Forma mínima probable (a validar por el humano contra datos legacy de PROD, que NO es mi blanco):** un CAS de defensa
+  en profundidad en `pay-spei` —`receivedAt IS NOT NULL` en el `where` del `updateMany`, hermano exacto de los `paidAt/
+  closedAt` que P1 acaba de añadir— cierra el desembolso sin declarar la matriz completa. *La doctrina que P1 dejó escrita
+  (§4.39(v.6): «un invariante de dinero se ancla en el hecho menos reescrito») aplica igual aquí: el hecho es «la
+  mercancía llegó» = `receivedAt`.*
+- **Alternativa:** el humano **acepta formalmente** el riesgo con control compensatorio (política operativa + aviso visible
+  en la cola de pago cuando `receivedAt=null` + attestation de recepción obligatoria antes de `pay-spei`) y lo registra
+  aquí como aceptado. Hasta esa decisión + (si es código) implementación + re-verificación, **el gate no pasa**.
+- ⚠️ **El eje 2 NO reabre el eje 1:** son defensas de ejes distintos (terminalidad vs. predecesores). P1 sigue cerrada.
+
+---
+
+## 3. DISP-1 · [MEDIA · CROSS-STREAM] · El patrón de P1 en `disputes.resolve()` y en el job de deadline — misma clase, sin guarda ni idempotencia · **[código + confirmado en vivo que NO auto-desembolsa]**
+
+**Backend lo señaló de pasada y dijo que no lo verificó a fondo. Lo verifiqué. Es la MISMA clase estructural que P1, pero
+NO mueve dinero por sí solo — por eso Media, no Alta.**
+
+- **Ubicación:** `backend/src/modules/disputes/disputes.service.ts:208-238` (`resolve()`) y
+  `backend/src/jobs/dispute-deadline.service.ts:19-23` (`run()`).
+- **El defecto `[código]`:** `resolve()` hace `findUnique` (solo existencia, como el viejo `adminGet` de P1) y luego
+  `dispute.update({ where: { id }, … })` **sin guarda de estado atómica y sin idempotencia**, tanto para `reject`
+  (`status:'rechazada'`) como para `repurchase` (`status:'resuelta_recompra'`, que es la rama de **dinero saliente**). Puede
+  **re-resolver una disputa ya resuelta**, **voltear** `rechazada ↔ resuelta_recompra`, y **reescribir**
+  `resolvedBy`/`resolvedAt`/el importe snapshot. El job de deadline hace `findMany({status:'abierta'})` y luego
+  `update({where:{id}})` **sin CAS** (read-then-write): una `resolve()` concurrente puede quedar **pisada** de vuelta a
+  `en_revision`.
+- **Por qué NO es Alta (medido, no asumido) `[código+LIVE]`:** `resolve('repurchase')` **NO desembolsa** — escribe estado y
+  registra el importe en el campo de texto `resolution` para conciliación M7; **no crea PaymentIntent, ni refund, ni ref
+  SPEI**. Confirmé que **`repurchaseOrderId` solo se LEE/proyecta, nunca se escribe** desde `resolve()`, y que **ningún**
+  `paymentIntent.create`/`createRefund` cuelga de la resolución de disputa (grep en `disputes/`, `payments/`, `jobs/`). El
+  comentario del propio código (`:200-202`) lo dice: «El desembolso (SPEI/refund) es money-out del super_admin, ya
+  autorizado» — un paso **separado**. Así que **re-llamar `resolve()` NO produce un segundo pago real**; el «doble-SPEI» de
+  P1 **no** se replica aquí.
+- **Daños concretos (por los que sí es Media):** corrupción del libro de conciliación M7 (importe/`resolvedBy`/`resolvedAt`
+  reescribibles), **volteo de una disputa ya decidida** (`reject` lo alcanza `vault_operator`), y un **hilo latente de
+  doble-desembolso** *si* el money-out externo se dispara por el estado de la disputa **sin idempotencia propia** — seam de
+  diseño que **no puedo medir** (ese código no está aquí) pero que hay que cerrar con el mismo patrón.
+- **Rol dueño:** **backend**, **stream «Órdenes y dinero»** (NO este stream). Aplicar la MISMA guarda atómica que sus
+  hermanos (`updateMany` con `{ id, status: <no-terminal-de-disputa> }` + `count===1`; el job con CAS de `status:'abierta'`
+  en su `where`). **No bloquea la fusión de ESTE stream** (buylist/inventory) porque es código de otro stream y no mueve
+  dinero directo; **sí debe cerrarse antes de que el stream de disputas se despache** — lo enruto como referral prioritario.
+
+---
+
+## 4. P2 · [MEDIA · ACEPTADA] · Deps dev/test del frontend con CVE crítico/alto (vitest 9.8, vite path-traversal) · [dep]
+
+**La rebaja del pentester a Media se sostiene — la verifiqué, no la asumí. Aceptada como deuda de tooling. Dueño: frontend
+(NO devops).**
+
+- **Confirmado `[dep]`:** `frontend/ npm audit` → 1 crítica (`vitest` GHSA-5xrq-8626-4rwp, CVSS 9.8), 1 alta (`vite`
+  path-traversal), 3 moderate. Coincide con el pentester.
+- **Por qué la rebaja aguanta (medido):** `npm audit --omit=dev` → **0 vulnerabilidades** (ni una llega al árbol de
+  producción). `vitest` es `devDependencies` (^2.1.3); `vite` es transitiva vía vitest — **ninguna en el bundle de Next.js**.
+  El vector 9.8 **exige la UI de Vitest escuchando** (`vitest --ui`), y **grep en todo el repo → 0 usos de `--ui`**; el
+  script de test es `vitest run` (headless, sin dev-server). El path-traversal de `vite` exige el dev-server alcanzable;
+  prod usa `next build`/`next start`, no el dev-server de vite.
+- **CI ya lo trata como pide el pentester `[código]`:** `.github/workflows/security-sast.yml:146-156` — el gate BLOQUEANTE
+  (`audit-npm.sh`, `--omit=dev`, nivel `high`) es runtime-only (limpio); los criticals de devDeps se reportan
+  **informativo, `continue-on-error`, no bloqueante** («deuda aceptada» de supply-chain de tooling, SEC-C2). El release **no
+  está bloqueado por el gate de deps**, correctamente.
+- **Corrección de propiedad (⚠ el pentester lo puso a devops):** la tabla de `CLAUDE.md` dice `frontend/` → **frontend**.
+  El bump de `vitest`/`vite` es una edición de `frontend/package.json` ⇒ **dueño: frontend**. (devops solo cablea el gate CI,
+  ya hecho.)
+- **Aceptada · disparador:** bumpear `vitest` a rango parcheado (≥ el fix de GHSA-5xrq-8626-4rwp) y `vite` a rango
+  parcheado en la próxima ventana de mantenimiento; **obligatorio ANTES** de cualquier flujo que corra `vitest --ui` o
+  exponga un dev-server en una interfaz de CI/compartida. **NO bloquea** (no es crit/high sobre superficie de producción ni
+  alcanzable).
+
+---
+
+## 5. P3 · [BAJA · ACEPTADA] · Deps runtime del backend con CVE moderate (`@nestjs/core` CWE-74, `qs`, `ajv`) · [dep]
+
+- **Confirmado `[dep]`:** `backend/ npm audit` → **0 crítica / 0 alta**, 12 moderate, 1 low. `--omit=dev` → **0 crit/high**,
+  5 moderate runtime (`@nestjs/core` GHSA-36xv-jgw5-4q75 injection CWE-74, `@nestjs/platform-express`, `body-parser`,
+  `express`, `qs`). **Bajo el umbral de bloqueo del DoD (crítico/alto).**
+- **Corrección de propiedad:** el pentester lo puso a devops; la tabla dice `backend/` → **backend** (el bump de
+  `@nestjs/core`/`express`/`qs` es edición de `backend/package.json`).
+- **Aceptada · disparador:** subir `@nestjs/core` al rango parcheado (bump mayor ya anotado como pendiente en pases previos)
+  y refrescar `express`/`qs` transitivos en la próxima ventana de mantenimiento de dependencias. **NO bloquea.**
+
+---
+
+## 6. Nits menores (no bloquean) · [LIVE]
+
+- **SEC-B1 [Baja/Info] · `pay-spei` idempotente responde `201` (no `200`) y audita la ref NO aplicada.** Medido: el 2º
+  `pay-spei` sobre una fila `pagada` devolvió **201** con la PRIMERA liquidación (el `@HttpCode(200)` que sí tienen
+  `receive`/`verify` **falta** en `pay-spei`), y **emitió un `AuditLog` `sellrequest.pay_spei` con la ref intentada
+  `SPEI-BLUE-VERIFY-999`** aunque en BD **no se asentó** (quedó `SPEI-DOUBLESPEND-777`). Cero impacto de dinero (nada se
+  movió), pero un auditor leería un `pay_spei` con una ref que nunca se liquidó. Contraste: `receive`/`verify` auditan
+  **después** de pasar la guarda (el `409` lanza antes del `audit.log`), así que un rechazo no deja bitácora fantasma;
+  `pay-spei` audita tras el retorno idempotente. **Rol dueño: backend** (añadir `@HttpCode(200)` al `pay-spei` y/o auditar la
+  ref **efectiva**, no la intentada). Ya señalado como discrepancia de contrato 201→200 en pases previos del pentester.
+
+---
+
+## 7. Positivos re-verificados EN VIVO por mí (no asumidos del pentester) · [LIVE]
+
+Con el stack reiniciado y tokens del seed (`operator@e2e.local`/`admin@e2e.local`/`customer@e2e.local`), disparé por HTTP:
+
+1. **`MoneyOutGuard` SÓLIDO + auditado** — `pay-spei` como `vault_operator` → **403 `MONEY_OUT_FORBIDDEN`**, y el intento
+   quedó en `AuditLog` (`money_out.blocked`, `actorRole=vault_operator`). Solo `super_admin` liquida.
+2. **Authz por-rol** — `customer` → **403 FORBIDDEN** en `GET /admin/buylist/:id` y en `/reveal-clabe`. `reveal-clabe`
+   gated a `super_admin`.
+3. **IDOR/enumeración** — `customer` sobre la solicitud de otro usuario (`/buylist/requests/:id`) → **404 `NOT_FOUND`** con
+   `details:{}` — sin señal de existencia.
+4. **Flujo legítimo intacto (no regresión del arreglo)** — `verify` sobre una solicitud **viva** (`ofertada`) → **200** y
+   transicionó (es, de hecho, el paso 1 del PoC de eje 2): confirma que la guarda «por exclusión» **no rompe** el trabajo
+   legítimo, solo bloquea lo terminal/cerrado. La dirección del arquitecto (§4.39(v.3)) es la correcta.
+
+El resto de los 14 positivos del pentester (webhook Stripe con firma+idempotencia, JWT HS256 fijo, whitelist/anti mass-
+assignment, `$queryRaw` parametrizado, PII limpia en correo/bitácoras, proyección lista-blanca al vendedor) los **acepto
+como leídos**: son `[código]` o superficies que el pentester ya disparó y que este pase no toca; no encontré motivo para
+refutarlos y no los dupliqué.
+
+---
+
+## 8. Lo que NO se pudo atacar — constancia honesta (rol dueño del cierre)
+
+| Superficie | Estado | Por qué | Cierre / dueño |
+|---|---|---|---|
+| **5 correos reales en bandeja** (oferta, expiración, plazos de envío/abandono) | **NO ejercitado** | Sin egress (`NoopMailAdapter`); solo el de oferta se validó por log (v1.55) | DAST/staging con SMTP de prueba · **devops** |
+| **Barridos con reloj adelantado** (expiración de oferta, plazos de envío, abandono 30d, purga de INE) | **NO ejercitado** | No hay control de reloj en local; `sealOnceTx` (que ancla esos relojes) sí lo verifiqué `[código]` como sella-una-vez | Test de tiempo controlado · **backend** (suite) / **qa** |
+| **Subida de INE de punta a punta** | **NO ejercitado** | Sin MinIO/R2 en el stack nativo | Ruta Docker/staging · **devops** + **qa** |
+| **Carrera real del tope AML entre solicitudes distintas del mismo vendedor** | **NO forzada** (ni por el red team ni por mí) | El diseño (`SERIALIZABLE` + acumulado `paidAt`) es correcto `[código]`, pero **la carrera concurrente no se disparó** | Test de concurrencia dirigido o ventana de carga · **backend** (suite) / **qa** |
+| **DAST (ZAP/nuclei) contra staging** | **Pendiente de ventana** | Producción/staging no autorizados en este pase; blanco = solo local | Gate DAST del CI · **devops** |
+
+Ninguna de estas abre un hallazgo nuevo por sí sola; quedan como **cobertura pendiente**, no como riesgo aceptado ciego.
+
+---
+
+## 9. Banderas para el humano
+
+- **BL-35 eje 2 es TU decisión y bloquea (§2.4).** Necesito que declares la regla de recepción/predecesores (o aceptes el
+  riesgo con control compensatorio) para que backend cierre y yo re-verifique. **No fusiones dinero saliente con esto
+  abierto.**
+- **Antes de operar con DINERO REAL (recomendación de blue team, no bloqueante del DoD de este stream):** **pentest de
+  tercero + programa de bug bounty** sobre las rutas SPEI/refund/webhook, y **DAST contra staging** con egress de prueba.
+  La superficie de dinero es sólida en lo medido, pero dos de sus verbos ocultaban P1 y eje 2 — la clase «guarda que nadie
+  recordó aplicar dos veces» pide un par de ojos externos antes de mover pesos de verdad.
+- **Validaciones legales de custodia/PII (LFPDPPP):** los relojes de retención del INE (`ine-retention`) y de abandono los
+  verifiqué en código como sella-una-vez, **pero no ejercité los barridos con reloj**. La purga real de INE y la retención
+  legal deben validarse en un entorno con reloj controlado antes de prod.
+- **SEC-OPS-1 (deuda operativa recurrente, devops):** por segundo pase consecutivo el stack vivo estaba **más viejo que el
+  commit a auditar** (SEC-M43-6 la vez pasada; hoy otra vez). El gate de seguridad debe **reiniciar el stack contra el HEAD
+  a auditar** antes de la fase, o cablear un check de «binario == HEAD» que falle ruidoso. Casi se firman veredictos contra
+  binarios viejos.
+
+---
+
+## 10. Estado de la BD al cerrar — PURGAR antes de cualquier snapshot (dueño: backend/devops del seed)
+
+Datos sintéticos que dejé/toqué en `tcg_marketplace` local (blanco autorizado; el pentester ya había sembrado la mayor
+parte):
+- **`SellRequest afc4ab63-…`** (evidencia de P1): intacta tras mis probes — sigue `pagada`, `SPEI-DOUBLESPEND-777`,
+  `paidAt=15:22:13`. Mis intentos de revivirla/re-pagarla **no la cambiaron** (esa es la prueba).
+- **`SellRequest b6e3b8e0-…`** (PoC de eje 2 mío): quedó `pagada` con `SPEI-EJE2-NEVER-ARRIVED-001`, `payoutNetCents=32000`,
+  **`receivedAt=null`** — la fila que demuestra el pago sin recepción. **Purgar.**
+- Usuarios `redteam.*@e2e.local` del pentester: **no pude loguearme con ellos** (el password `*Pass123!` del brief **no
+  casa** con el hash argon2 en BD — `INVALID_CREDENTIALS`, cuenta activa; no es lockout). Usé los usuarios deterministas del
+  seed (`*@e2e.local`, `e2e-fixtures.ts`), que sí funcionan, para todas mis mediciones. *(Nota menor para el pentester: la
+  credencial documentada de los usuarios sembrados no reproduce; no afecta mis hallazgos.)*
+
+---
+
+## 11. VEREDICTO CITABLE (para el DoD)
+
+> **Fase de seguridad (blue team), pase v1.56, rama `claude/buylist-inventory-workflow-hdnls3` HEAD `3b2fc87`: ⛔ RECHAZADO.**
+> **La CRÍTICA P1 (doble-pago SPEI) está CERRADA y verificada EN VIVO** (`verify`/`receive` sobre terminal → `409` sin
+> revivir; segundo `pay-spei` no liquida; fila en BD byte-idéntica; guard spec 41/41 con mock que evalúa el `where`). **Pero
+> hay UN hallazgo ALTO abierto: BL-35 eje 2** — `verify` (alcanzable por `vault_operator`) vuelve **pagable** una solicitud
+> **pre-recepción** y `pay-spei` **liquidó SPEI real (MX$320) en vivo** por mercancía que **nunca se recibió ni se aceptó**;
+> el arquitecto lo dejó `[inferido]` y yo lo **medí**. Por el criterio del DoD («sin hallazgos críticos o altos abiertos»),
+> **el gate NO pasa**. **Mínimo para aprobar:** cerrar BL-35 eje 2 —decisión del humano/product-owner sobre la regla de
+> recepción/predecesores **+** guarda de backend (p. ej. `pay-spei` afirma `receivedAt IS NOT NULL`), o aceptación formal
+> con control compensatorio— y re-verificación en vivo. **Aceptadas (no bloquean):** P2 (deps dev/test frontend, `--omit=dev`
+> limpio) y P3 (deps runtime backend, 0 crit/high). **Referral cross-stream:** DISP-1 (Media) en `disputes` — mismo patrón
+> que P1, no mueve dinero directo, va al stream «Órdenes y dinero».
+
+---
+
 <!-- ════════════════════════════════════════════════════════════════════════════════════════
      GATE DE SEGURIDAD — FEATURE «gancho de grading» × M-43 (2026-08-29) — se antepone.
      Todo lo anterior (P-47/curva v2, v2.1.9, P-48, histórico) se conserva íntegro abajo.
