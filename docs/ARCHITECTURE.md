@@ -3,6 +3,33 @@
 > Propiedad: **arquitecto**. Fuente de verdad de decisiones técnicas y modelo de datos.
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
 >
+> **Rev v1.52-b (2026-09-05, arquitecto — CORRECCIÓN DE PREMISA enrutada por el techlead (regla 9) tras un hecho
+> nuevo verificado en producción. Base: v1.52-set-logos, vigente entera salvo lo que se marca aquí. Cero cambios de
+> contrato, cero DDL, cero endpoints, cero montos, cero rutas. `API_CONTRACT.md` NO se toca: el DTO no cambia.)**
+> 1. **El proveedor de imágenes MUDÓ DE SERVIDOR a mitad de catálogo.** Ya no hay «un host»: hay **dos**
+>    (histórico + el de los sets recientes), y el backend los admite como **conjunto CERRADO de hosts EXACTOS**
+>    (`SET_IMAGE_HOSTS`). Ampliar el conjunto **no aflojó** el criterio: sigue siendo igualdad exacta. §4.39.4.
+> 2. **Se corrigen tres frases que quedaron FALSAS** —§4.39.1 h.7, §4.39.7 y §4.39.8—, **sin borrar el razonamiento
+>    anterior**: queda citado y marcado como superado, con qué cambió y por qué. *No eran falsas cuando se
+>    escribieron; el mundo cambió debajo, y esa distinción importa para quien lea mañana.*
+> 3. **`remotePatterns` sigue sin cambiar, pero POR OTRA RAZÓN.** No por «mismo host» (son dos), sino porque los
+>    logos de set son **Nivel B** y `remotePatterns` solo gobierna al optimizador de Next. **Corolario normativo:** si
+>    una superficie de imagen de set subiera a **Nivel A**, `remotePatterns` **sí** se amplía, y con **los dos**
+>    hosts. §4.39.7, §5.3.4.
+> 4. **🔴 El gate de seguridad tenía su alcance mal declarado.** «Cero superficie nueva / un host ya admitido» habría
+>    hecho que el pentester **no mirara el host nuevo**. Alcance vigente = tabla **S-1…S-4** de §4.39.7: **(S-1)** un
+>    host de terceros **nunca auditado** sirviendo imágenes en producción; **(S-2)** el **arte de carta (~20 000 URLs)
+>    entra SIN NINGUNA validación** (`upsertCards`) — deuda **M47-R1**, severidad **Alta**, **diferida, no aceptada**;
+>    (S-3) el guardarraíl de set; (S-4) **D-IMG-5** (`hostname: '**'`), abierto.
+> 5. **`remotePatterns` no es hoy un control: es un comodín.** Todo deber redactado sobre él («se amplía detrás, nunca
+>    por delante») se escribe con la condición **«cuando D-IMG-5 esté cerrado»** explícita, en vez de afirmar un
+>    acoplamiento inexistente. §4.39.4 paso 3, §5.3.4.
+> 6. **§0-B.3 regla 7 (nueva) — la REGLA DE LA CITA**, propuesta por el techlead y adoptada: *quien cita un `§x.y`
+>    verifica que la cita siga siendo verdadera después de su cambio, y si no lo es abre la solicitud al dueño del
+>    documento **en el mismo pase**.* La origina la lección más cara del día: **el procedimiento que exige avisar al
+>    arquitecto se incumplió en el mismo commit que lo citó**, con QA y techlead en verde. Registrada como **D-PROC-5**
+>    en §9.
+>
 > **Rev v1.52-set-logos (2026-08-31, arquitecto — petición del DUEÑO: que al seleccionar un set se vea el LOGO de la
 > expansión, no solo su nombre. DISEÑO EN PAPEL; lo implementan BACKEND y FRONTEND. Base: v1.51-c, vigente entera.)**
 > **Cero rutas nuevas, cero códigos de error, cero montos, cero permisos. UNA migración, aditiva pura.**
@@ -40,8 +67,10 @@
 >    estado transitorio que un re-sync arregle. §4.39.6.
 > 7. **§5.3 SÍ aplica y la respuesta la doy yo, no frontend: NIVEL B.** `<img>` crudo, sin `next/image`, sin `srcset`.
 >    Lo dicta la regla de coste 4 ya escrita («nada de nivel A dentro de listas o rejillas») + el perfil de cola larga
->    + que el proveedor sirve **una sola URL** por imagen (no hay tamaño que elegir). **`remotePatterns` NO cambia:
->    mismo host que ya sirve el arte de las cartas** ⇒ cero acción de devops y cero superficie nueva. §4.39.7.
+>    + que el proveedor sirve **una sola URL** por imagen (no hay tamaño que elegir). **`remotePatterns` NO cambia**
+>    — ~~«mismo host que ya sirve el arte de las cartas ⇒ cero acción de devops y cero superficie nueva»~~
+>    **SUPERADO el 2026-09-05 (v1.52-b): son DOS hosts, y hay superficie que auditar.** La conclusión sobrevive por
+>    otra razón: los logos son **Nivel B** y `remotePatterns` solo gobierna al optimizador de Next. §4.39.7.
 > 8. **§5.2 NO aplica, y lo digo para que nadie lo confunda:** esto es **catálogo vivo**, no un acta congelada. El
 >    corolario «no se congelan punteros de terceros en registros probatorios» sigue en pie y **no lo contradice**:
 >    guardar una URL de tercero en catálogo que el sync reescribe mañana es correcto; congelarla en un pedido no lo
@@ -1402,6 +1431,30 @@ es clase (B), y transcribir el literal es exactamente lo que hizo sobrevivir un 
 6. **Los dominios muertos permanecen vivos en un solo sitio: las guardias.** `security/scripts/_guard.sh` debe
    seguir reconociendo `tcgvaultmx.com` **y** `tcghunt.mx` como producción mientras el redirect 301 exista.
    Estrechar esa lista es un fallo de seguridad, no una limpieza de rebrand (alcance devops).
+7. **⭐ REGLA DE LA CITA (añadida 2026-09-05, v1.52-b). Quien cita un documento normativo, verifica que la cita
+   siga siendo verdadera DESPUÉS de su cambio — y si no lo es, abre la solicitud al dueño del documento EN EL MISMO
+   PASE.** Formulación operativa, en tres partes, porque la primera sin las otras dos no se cumple:
+   - **Disparador mecánico, no de criterio:** si tu cambio (código, config, test, migración, log) **menciona un
+     `§x.y`**, esa mención es tu lista de lectura obligatoria. **Se releen las secciones citadas**, no se asume que
+     dicen lo que uno recuerda.
+   - **Qué se busca:** afirmaciones de **clase (B)** (§0-B.2) que tu cambio acaba de volver falsas — «es el mismo
+     host», «hoy no hay ninguno», «cero superficie nueva», «el caso normal es que no haya nada que hacer». **Un
+     cambio aprobado por QA y por techlead puede dejar un documento mintiendo**: los gates verifican el código, no
+     las premisas de la prosa que el código cita.
+   - **Qué se hace:** se **enruta al dueño del documento en el mismo pase** (regla 9 de `CLAUDE.md`), con la frase
+     literal, su ubicación y qué la volvió falsa. **No se corrige el documento ajeno** (regla 5) y **no se aplaza al
+     pase siguiente**: aplazarlo es lo que deja la ventana en la que otro rol lee la frase muerta y decide con ella.
+   **Por qué es norma y no consejo:** el caso que la origina (§4.39.4, recuadro de registro) es el peor posible —
+   **el procedimiento que exige avisar al arquitecto se incumplió en el mismo commit que lo citó**, con QA y techlead
+   en verde, y la premisa falsa que quedó (**«un host ya admitido, cero superficie nueva»**) es **el texto que el gate
+   de seguridad lee para decidir cuánto mirar**. El daño no fue el host: fue que durante un release el pentester
+   habría leído «nada que ver aquí» sobre un tercero recién llegado. **Esta regla es la misma familia que 1–5** —el
+   proyecto ya pagó cuatro veces por «la fuente afirma, el producto contradice, nadie coteja» (§9)—; lo que añade es
+   el **momento** en que se coteja: *al escribir la cita*, que es el único instante en que alguien tiene delante a la
+   vez el cambio y el texto que el cambio invalida.
+   - **Límite deliberado:** es una **norma, no un candado**. El cierre duro sería mecánico (CI que, ante un `§x.y` en
+     un diff, exija marcar «releído» o abrir la solicitud). **No lo especifico aquí: es tooling, alcance devops**, y
+     queda como **sugerencia** — igual que el chequeo de dominios muertos de §9.
 
 ### 0-B.4 Consecuencia para `API_CONTRACT.md`: forma y origen, no valor
 
@@ -11902,6 +11955,16 @@ verificable con inventario**.
 
 ### 4.39 IMÁGENES DE SET — logo y símbolo de expansión persistidos en `CardSet` (v1.52-set-logos, M-47, NORMATIVO)
 
+> **⚠️ REVISIÓN v1.52-b (2026-09-05) — léase antes que el resto de la sección.** El proveedor **mudó su CDN de
+> imágenes a mitad de catálogo**. La sección se escribió el 2026-09-02 sobre una premisa que era **cierta entonces**
+> —«hay **un** host de imágenes y el frontend ya lo admite»— y que **dejó de serlo**. Se han revisado **§4.39.1
+> (hechos 7 y 8)**, **§4.39.4 (guardarraíl y procedimiento de ampliación)**, **§4.39.7 (`remotePatterns` y superficie
+> de seguridad)** y **§4.39.8 (encargos de frontend y de seguridad/pentester)**. **El razonamiento anterior no se
+> borra: queda marcado como superado, con qué cambió y por qué.** Las decisiones 1, 2, 4 y 5 (§4.39.2, §4.39.3,
+> §4.39.5, §4.39.6), el contrato **v1.52** y la migración **M-47** **no cambian**: cero DDL, cero endpoints, cero
+> cambios de DTO, cero montos. **Si vienes del gate de seguridad, tu alcance es la tabla S-1…S-4 de §4.39.7, no la
+> frase «cero superficie nueva» que este documento sostuvo hasta el 2026-09-05.**
+
 > **Origen.** El dueño pidió que **al seleccionar un set se vean los logos de las expansiones** en vez de solo el
 > nombre en texto (referencia visual: retícula de tejas uniformes, logo centrado, nombre debajo). **Hoy el sistema no
 > guarda ninguna imagen de set.** Esta sección decide **qué dato existe y cómo viaja**. **No decide cómo se ve**: la
@@ -11918,7 +11981,8 @@ verificable con inventario**.
 | 4 | pokemontcg.io publica **dos** imágenes por set: `images.symbol` (glifo cuadrado, el impreso en la carta) e `images.logo` (el nombre dibujado, ancho y de **proporción muy variable**). | API del proveedor |
 | 5 | **La retícula de tejas de sets ya existe y es UNA sola, compartida**: `MasterSetIndex` (`grid` de tejas, click → binder), con **cuatro** modos que rinden el **mismo** `MasterSetIndexResponse` / `MasterSetSummaryDTO`. | `frontend/src/components/master-set/MasterSetIndex.tsx` |
 | 6 | Uno de esos cuatro modos (`quoter`) **no tiene endpoint de índice propio**: compone las tejas **client-side** desde `GET /buylist/sets`. | mismo archivo (`fetchQuoterIndex`) |
-| 7 | `images.pokemontcg.io` **ya** es un host admitido por el frontend y ya sirve el arte de todas las cartas. | `frontend/next.config.mjs`; §5.3.4 |
+| 7 | ~~`images.pokemontcg.io` **ya** es un host admitido por el frontend y ya sirve el arte de **todas** las cartas.~~ **SUPERADO el 2026-09-05 — ver hecho 8.** Era cierto el 2026-09-02, cuando se escribió; hoy «todas» es falso. Y la primera mitad («host admitido por el frontend») **no acota nada hoy**: `remotePatterns` lleva además un comodín `hostname: '**'` (**D-IMG-5**, §5.3.4, **abierto**), así que el frontend admite *cualquier* host. | `frontend/next.config.mjs`; §5.3.4 |
+| 8 | **(2026-09-05)** El proveedor sirve arte de carta desde **DOS** hosts: `images.pokemontcg.io` (catálogo histórico) e `images.scrydex.com` (sets recientes). El reparto se **lee de la BD**, no de aquí (clase (B)): al 2026-09-05, ilustrativamente, ~19 818 vs. **661** filas de `Card.imageSmallUrl`. **Ninguna de las dos entró por una validación**: `upsertCards` no valida host, esquema ni forma (deuda **M47-R1**, severidad **Alta**). | `SELECT split_part("imageSmallUrl",'/',3), count(*) FROM "Card" GROUP BY 1;` · `catalog-sync.service.ts` (`upsertCards`) · `TECH_DEBT.md` M47-R1 · `BACKEND_NOTES.md` §0.20.2 |
 
 **El hallazgo (5)+(6) es el que decide el contrato, y no era obvio.** «Dónde va el logo» parecía una pregunta de
 storefront; es una pregunta de **un DTO** (`MasterSetSummaryDTO`) que sirven **cuatro** endpoints, más **un quinto**
@@ -12025,11 +12089,79 @@ trae, la regla de no-degradación de arriba lo vuelve inofensivo (la vía por-ca
 entonces el paso 1 de la tabla **no basta por sí solo** para un set concreto y hay que decirlo en `BACKEND_NOTES.md`.
 **No lo doy por sabido y no lo escribo aquí como si lo fuera.**
 
-**Guardarraíl de ingesta (obligatorio, barato):** se persiste la URL **solo si** es absoluta y **`https:`**, y su host
-es el mismo que ya sirve el arte de las cartas de este proveedor. Cualquier otra cosa ⇒ **`null` + log**, nunca se
-persiste. Si el proveedor empezara a servir logos desde **otro** host, backend **no amplía nada por su cuenta**: lo
-reporta, y `remotePatterns` del frontend se amplía **detrás**, nunca por delante (§5.3.4). El caso normal es que **no
-haya nada que ampliar**: es el host que el frontend ya admite (hecho 7).
+**Guardarraíl de ingesta (obligatorio, barato) — REVISADO el 2026-09-05 (M47-H2). Un host pasó a ser un conjunto
+CERRADO de dos.**
+
+> **Norma vigente.** Se persiste la URL **solo si** es absoluta, **`https:`**, **sin userinfo**, y su **host exacto**
+> (hostname **+ puerto**, comparado por **igualdad**, en minúsculas) pertenece a un **conjunto CERRADO** de hosts
+> **verificados uno por uno**. Cualquier otra cosa ⇒ **no se persiste + `warn`**, y «rechazada ≡ **ausente**» (no-op
+> en el `update`, `null` en el `create` — corolario **M47-D1**). Se persiste la forma **normalizada**, no la cruda.
+
+El conjunto vive en el código (`SET_IMAGE_HOSTS`, `catalog-sync.service.ts`) y es **clase (B) de §0-B**: *la lista se
+cita por su origen, no se transcribe aquí como autoridad*. Hoy son, ilustrativamente, `images.pokemontcg.io` ∪
+`images.scrydex.com`.
+
+**Ampliar el conjunto NO es aflojar el criterio, y la distinción es toda la decisión.** La comparación sigue siendo
+**igualdad exacta**, así que lo que se rechazaba se sigue rechazando: `images.pokemontcg.io.evil.com` (sufijo que
+controla el atacante), `cdn.images.scrydex.com` (subdominio del host bueno, que **no** es el endpoint verificado),
+`:8443`, `http:` y credenciales embebidas. **Prohibido** convertir el conjunto en allowlist de **dominio raíz** o
+relajar la pertenencia a `endsWith`/`includes`/`startsWith`: eso sería otro criterio —el de §4.32c para el sellado— y
+aquí **no** se adopta. *«Es del proveedor» no es el criterio; «es el endpoint exacto que se verificó» sí.*
+
+**Lo que este párrafo decía antes, y por qué dejó de ser cierto** *(no se borra: no era falso, el mundo cambió
+debajo)*. Hasta el 2026-09-05 decía que el host tenía que ser **«el mismo que ya sirve el arte de las cartas»** y
+remataba: **«el caso normal es que no haya nada que ampliar»**. Era **verdad el 2026-09-02**: el proveedor servía
+todo su arte desde un único host, y sobre esa premisa se construyeron tres conclusiones (una regla de ingesta, la
+inacción de `remotePatterns` en §4.39.7, y el encargo de seguridad de §4.39.8). El 2026-09-05 el proveedor **mudó su
+CDN a mitad de catálogo**: los sets viejos siguen en el host histórico y los nuevos llegan del nuevo. El guardarraíl
+hizo **exactamente** lo que se le pidió y rechazó **logos legítimos** de los cuatro sets más recientes (ocho `warn`
+entre 07:56 y 07:59; `BACKEND_NOTES.md` §0.20.1), y por «rechazada ≡ ausente» esas tejas quedaron sin logo **sin que
+ningún re-sync las repare**. La premisa murió; la regla no. **La forma de la regla —host exacto, conjunto cerrado— es
+justo lo que convirtió una mudanza de CDN en un ticket con hora y nombre en vez de en un cambio silencioso.**
+
+**Por tanto, el «caso normal» se declara al revés (NORMATIVO):** que el proveedor mude o añada CDN es un evento
+**esperado y recurrente**, no una excepción. Ampliar el conjunto es una **operación con procedimiento**, no una
+sorpresa:
+
+1. **Evidencia primero, no confianza.** El `warn` «fuera del guardarraíl» repetido con un host nuevo, **más** el
+   conteo sobre la BD de producción (¿ese host ya sirve arte de carta a nuestros visitantes?). Un host que ya carga
+   el navegador de todos los clientes es un hecho medible; «parece del proveedor» no lo es.
+2. **Se añade el host EXACTO**, una línea, con fecha y procedencia en el comentario. Nunca un dominio raíz, nunca un
+   comodín.
+3. **Backend NO lo decide solo: lo reporta al ARQUITECTO en el mismo pase** (regla 9 de `CLAUDE.md`). El motivo
+   **no** es `remotePatterns` (ver abajo): es que **un host nuevo es un tercero nuevo dentro del navegador de
+   nuestros clientes**, y quien decide si eso se audita —y quién lo audita— es esta sección, no el commit.
+4. **Re-sync forzado** de lo que la regla «rechazada ≡ ausente» dejó vacío. Un host nuevo **no repara nada por sí
+   solo**: este escritor está diseñado para no limpiar nunca (M47-D1).
+
+**Sobre el paso 3, corrección de un acoplamiento que hoy NO existe (decisión de este pase).** La versión anterior
+justificaba el aviso al arquitecto diciendo que «`remotePatterns` del frontend se amplía **detrás**, nunca por
+delante (§5.3.4)». **Ese ordenamiento es correcto como norma y se conserva, pero hoy es decorativo y hay que decirlo
+para que nadie lo cite como control existente:** (a) `frontend/next.config.mjs` lleva `{ protocol: 'https',
+hostname: '**' }` —**D-IMG-5**, §5.3.4, con veredicto «cerrar YA» y **abierto**—, así que `remotePatterns` no acota
+ningún host; y (b) aunque estuviera cerrado, los logos de set son **Nivel B** (`<img>` crudo) y `remotePatterns`
+**solo gobierna al optimizador de Next** (§4.39.7). Es decir: **hoy `remotePatterns` no puede ir «por delante» ni
+«por detrás» de nada en esta superficie.** La obligación de avisar al arquitecto **no depende** de ese acoplamiento —
+se sostiene por el paso 3 tal como está redactado arriba— y **recupera** su dependencia de `remotePatterns` en el
+momento en que se cierre D-IMG-5 **y** alguna superficie de imagen de set suba a Nivel A. Formular un deber sobre un
+control inerte es cómo un deber se incumple sin que nadie lo note; y es lo que pasó (ver el recuadro siguiente).
+
+> **⚠️ REGISTRO — el paso 3 ya aplicó una vez y NO llegó al arquitecto (2026-09-05).** El pase que amplió el conjunto
+> a dos hosts **citó esta sección** (`§4.39.4` aparece en el propio texto del `warn`), pasó QA (mutaciones de borrado
+> del guardarraíl reproducidas, **ninguna sobrevive**) y techlead, **y dejó falsas tres frases de este documento**
+> (§4.39.1 hecho 7, §4.39.7 y
+> §4.39.8) sin abrir la solicitud al arquitecto en el mismo pase. Lo correcto se hizo **después**, por escrito y con
+> evidencia (`BACKEND_NOTES.md` §0.20.4), y por eso esta corrección existe. **No se enruta como falta del rol: se
+> enruta como defecto del procedimiento**, porque el procedimiento pedía avisar sin decir **cuándo** ni **qué había
+> que releer**. La regla general que cierra esta clase entera está en **§0-B.3 regla 7**.
+
+**Y lo que este pase NO arregla, dicho aquí para que no se lea de menos:** el guardarraíl de arriba cubre **solo las
+imágenes de SET**. El **arte de carta** —las ~20 000 URLs que carga cada visitante en cada rejilla— entra por
+`upsertCards` **sin ninguna validación de host, esquema ni forma**. Es la deuda **M47-R1** (severidad **Alta**,
+diferida por contención de `backend/src/common/`), no la introdujo M-47 y M47-H2 no la cerró. En el mismo `for` del
+mismo archivo conviven hoy **dos políticas opuestas a ~90 líneas de distancia**. Consecuencia medida: la mudanza de
+CDN se detectó **por el lado que sí tiene guardarraíl** (ocho `warn` con hora), mientras el lado que sirve 20 000
+imágenes la aceptó **en silencio y sin traza**. Ver §4.39.7 «Superficie real para el gate de seguridad».
 
 #### 4.39.5 DECISIÓN 4 — dónde viaja: **un DTO, cuatro endpoints, más su fuente client-side**
 
@@ -12092,7 +12224,7 @@ Y hay un **segundo** estado, distinto y anterior: **set aún no re-sincronizado*
 teja se ve **idéntica** a la del set sin logo. **Es deliberado**: el cliente no tiene por qué distinguirlos y el
 contrato **no** los distingue. Quien necesita distinguirlos es el operador, y lo hace por el otro lado (§4.39.4).
 
-#### 4.39.7 Las dos doctrinas vigentes: cómo aplican aquí
+#### 4.39.7 Las dos doctrinas vigentes: cómo aplican aquí — **y la superficie real para el gate de seguridad (S-1…S-4)**
 
 **§5.3 (imágenes en el frontend) — SÍ aplica, y la respuesta es NIVEL B. Lo digo yo para que frontend no lo decida
 por su cuenta:**
@@ -12110,8 +12242,44 @@ Tres razones, y la primera es literalmente una regla ya escrita:
    siquiera una elección de tamaño que hacer. La palanca de §5.3.2 —«pedir la URL correcta»— aquí no existe porque
    solo hay una. `srcset` no tiene candidatos.
 
-**`remotePatterns` NO cambia** (§5.3.4): es el **mismo host** que ya sirve el arte de las cartas. **Cero acción de
-frontend sobre la config, cero acción de devops, cero superficie nueva para seguridad.**
+**`remotePatterns` NO cambia** (§5.3.4) — **pero NO por «el mismo host»: son DOS.** *(Revisado el 2026-09-05,
+M47-H2. La conclusión sobrevive; el argumento que la sostenía, no.)*
+
+> ~~«es el **mismo host** que ya sirve el arte de las cartas. **Cero acción de frontend sobre la config, cero acción
+> de devops, cero superficie nueva para seguridad.**»~~ — **SUPERADO.** Escrito el 2026-09-02, cuando era cierto.
+
+Desde 2026-09 el proveedor sirve desde **dos** hosts —el histórico para el catálogo viejo y uno nuevo para los sets
+recientes— y el backend los admite como **conjunto cerrado de hosts exactos** (`SET_IMAGE_HOSTS`, §4.39.4). Lo que
+hace irrelevante a `remotePatterns` **aquí** no es el host: es que los logos de set son **Nivel B** (`<img>` crudo,
+sin `next/image`) y **`remotePatterns` solo gobierna al optimizador de Next**. Es decir: **cero acción de frontend y
+cero acción de devops por el NIVEL DE RENDER, no por el host.**
+
+**Corolario normativo (esto es lo que había que escribir la primera vez):**
+- Si alguna superficie de imagen de **set** subiera al **Nivel A**, `remotePatterns` **sí** tendría que ampliarse, y
+  con **los dos** hosts —el espejo es del conjunto entero, no del host que uno recuerde (§5.3.4).
+- **«Mismo host ⇒ cero acción» no es una regla y nunca lo fue.** La regla es: *el nivel de render decide si
+  `remotePatterns` importa; el conjunto de hosts decide qué se escribe en él.* Un lector que reaplicara la frase vieja
+  sobre una superficie de Nivel A llegaría a la conclusión **contraria** a la correcta, y ése es exactamente el modo
+  de fallo que §0-B existe para impedir: una **descripción** de clase (B) que la jerarquía convirtió en orden.
+- Hoy, además, `remotePatterns` **no acota nada en absoluto**: lleva un comodín `hostname: '**'` (**D-IMG-5**,
+  §5.3.4, **abierto**, veredicto «cerrar YA»). Cualquier razonamiento que lo use como control **está razonando sobre
+  un control que no existe**.
+
+**Superficie real para el gate de seguridad — REESCRITO (2026-09-05). Esto reemplaza a «cero superficie nueva».**
+
+Hay **superficie nueva y hay superficie vieja nunca mirada**, y el gate tiene que saber distinguirlas:
+
+| # | Qué | Estado | Qué mirar |
+|---|---|---|---|
+| **S-1** | **Host de terceros nuevo, `images.scrydex.com`** (o el que figure hoy en `SET_IMAGE_HOSTS`), sirviendo imágenes al navegador de **todos** los visitantes | **NUNCA AUDITADO.** Entró en producción **sin revisión de seguridad**, por la brecha S-2, antes de que nadie lo admitiera formalmente | Es un **tercero nuevo dentro de nuestras páginas**: TLS/cert, quién lo controla, si el dominio es del proveedor de verdad, fuga de `Referer`/IP de cada visitante hacia un origen no evaluado, y qué pasa si se compromete o expira |
+| **S-2** | **Arte de carta sin validación alguna** (`upsertCards` → `Card.imageSmallUrl`/`imageLargeUrl`): ~**20 000** URLs persistidas y renderizadas en toda rejilla, ficha, carrito y bóveda | **Brecha ABIERTA**, anterior a M-47. Deuda **M47-R1**, severidad **Alta**, diferida por contención de `backend/src/common/` — **diferida, no cerrada, y no aceptada como residual** | Que **661 filas de un host que nadie autorizó** entraran sin traza es la prueba ejecutada del riesgo, no la hipótesis. Evaluar: puntero a host arbitrario persistido, exfiltración pasiva por carga de imagen, y **ausencia total de señal** (no hay `warn`, no hay contador, no hay fecha de inicio) |
+| **S-3** | **Guardarraíl de ingesta de imágenes de SET** (§4.39.4) | Implementado y con tests de mutación | Que no se persista una URL no-`https:`, con userinfo, de host no listado, con puerto, ni de subdominio/sufijo del host bueno. **Y que la pertenencia siga siendo igualdad exacta** — `endsWith`/`includes`/`startsWith`/dominio raíz son regresiones de seguridad, no simplificaciones |
+| **S-4** | `remotePatterns` con `hostname: '**'` (**D-IMG-5**) | **Abierto.** Inerte **solo mientras** no exista una sola línea de `next/image` | En cuanto entre el Nivel A, el optimizador es un **proxy de imágenes abierto**. El gate debe verificar la **coexistencia**: ¿hay ya `next/image` en el árbol? Si la hay y el comodín sigue, es hallazgo **alto**, no deuda |
+
+**Lo que sigue siendo verdad y no hay que re-litigar:** las imágenes de set son **públicas, sin PII y sin dinero**
+(`CardSet` no entra en ningún cálculo, §4.39.9). El riesgo de esta familia entera **no es de importe ni de datos
+personales**: es **contenido de tercero que nuestras páginas cargan y nuestra BD persiste**. Que no toque dinero es
+razón para no bloquear un release por S-1/S-2; **no** es razón para no mirarlos.
 
 **§5.2 (snapshot congelado) — NO aplica aquí, y lo digo para que nadie lo confunda.** §5.2 gobierna
 `OrderItem.cardSnapshot`: un **acta congelada de una transacción**. `CardSet` es **catálogo vivo**: se re-escribe en
@@ -12132,11 +12300,11 @@ es.** Son dos cosas distintas y esta es la primera.
 |---|---|---|
 | **arquitecto** | ✅ Hecho en este pase: §4.39, ficha **M-47** en §11, y contrato **`API_CONTRACT.md` v1.52** (`logoUrl` en `MasterSetSummaryDTO` y en `GET /buylist/sets`, con la exclusión explícita de facetas/`/catalog/sets`/`CardDTO`). | — |
 | **backend** | (a) **M-47**: dos columnas nullable en `CardSet` (§11). (b) `RemoteCardSet` gana `images?: { symbol?: string; logo?: string }` — hoy el tipo las descarta. (c) `upsertSet()` las persiste con la **regla de no-degradación** y el **guardarraíl `https:` + host** de §4.39.4. (d) Proyectar **`logoUrl`** en `MasterSetSummaryDTO` (los **cuatro** endpoints — es un read model único, §4.20f) y en `GET /buylist/sets`. **`symbolUrl` se persiste y NO se expone.** (e) **Verificar** el hecho pendiente de §4.39.4 (¿el `set` anidado en una carta trae `images`?) y anotarlo en `BACKEND_NOTES.md`. (f) ⛔ **Prohibido**: crear endpoint/job/script de backfill, y construir URLs por plantilla. | Antes del merge del stream «Catálogo y precios» |
-| **frontend** | (a) Consumir `logoUrl: string \| null` en la retícula `MasterSetIndex` — **los cuatro modos**, incluido `quoter` (que lo mapea desde `GET /buylist/sets` en `fetchQuoterIndex`; si no se mapea ahí, el logo **no llega** a esa teja). (b) **Nivel B** (§4.39.7): `<img>` crudo, sin `next/image`, sin `srcset`, con el `eslint-disable` ya documentado. (c) `null` es **caso normal** ⇒ el tratamiento «sin logo» que defina ux-ui, **sin error visible y sin salto de layout**. (d) ⛔ **Prohibido** rellenar el hueco construyendo la URL desde el `setId`. (e) `next.config.mjs` **no se toca**: mismo host. | Con el contrato v1.52 |
+| **frontend** | (a) Consumir `logoUrl: string \| null` en la retícula `MasterSetIndex` — **los cuatro modos**, incluido `quoter` (que lo mapea desde `GET /buylist/sets` en `fetchQuoterIndex`; si no se mapea ahí, el logo **no llega** a esa teja). (b) **Nivel B** (§4.39.7): `<img>` crudo, sin `next/image`, sin `srcset`, con el `eslint-disable` ya documentado. (c) `null` es **caso normal** ⇒ el tratamiento «sin logo» que defina ux-ui, **sin error visible y sin salto de layout**. (d) ⛔ **Prohibido** rellenar el hueco construyendo la URL desde el `setId`. (e) `next.config.mjs` **no se toca por esta feature** — ~~«mismo host»~~ **(razón superada 2026-09-05: son dos hosts)**; la razón vigente es que los logos son **Nivel B** y `remotePatterns` solo gobierna al optimizador (§4.39.7). Ojo: eso **no** exime del encargo independiente de §5.3.6(a), **cerrar D-IMG-5** (`hostname: '**'`), que sigue **abierto** y cuyo espejo debe incluir **los dos** hosts. | Con el contrato v1.52 |
 | **ux-ui** | Define el aspecto de la teja **y del caso «sin logo»** como estado de primera clase (§4.39.6). El dato que existe es: **un logo o `null`**; sin proporción garantizada entre sets y **sin segundo tamaño**. `DESIGN_SYSTEM.md` es suyo; yo no entro. | Antes de que frontend pinte |
 | **devops** | Correr `M-47` con `migrate deploy` (aditiva pura, sin ventana, sin congelación, sin rollback especial). **Ninguna variable de entorno nueva, ningún cambio en CI, ninguna cuota que confirmar** — esto **no** es nivel A de §5.3.5. Tras el deploy, el paso 1 de §4.39.4 lo dispara un `super_admin` desde M2; **no requiere script**. | Deploy del stream |
 | **qa** | (a) Un set **con** logo y un set **sin** logo (`null`) en la misma retícula ⇒ `200`, ambas tejas se pintan, ninguna rompe el layout. (b) Regresión de la **no-degradación**: `sync-all` → `sync {setId}` → el `logoUrl` **sigue ahí** (si se borró, el `update` está escribiendo `null` donde debía no-operar). (c) Los **cuatro** modos de la retícula reciben el campo, **incluido el del cotizador** — es el que se cae solo. (d) La petición de red **no** pide logos en la home ni en el filtro de Compra (§4.39.5). | Gate por stream |
-| **seguridad / pentester** | Superficie nueva **mínima y declarada**: dos URLs de un host **ya admitido**, públicas, sin PII, sin dinero. Lo único que vale mirar es el **guardarraíl de ingesta** (§4.39.4): que no se persista una URL no-`https:` ni de host arbitrario venida del proveedor. | Gate por release |
+| **seguridad / pentester** | ⚠️ **REESCRITO 2026-09-05 — la versión anterior decía «dos URLs de un host ya admitido» y «superficie nueva mínima», y ESO YA NO ES CIERTO.** *(Texto superado, conservado para el lector: «Superficie nueva mínima y declarada: dos URLs de un host ya admitido, públicas, sin PII, sin dinero. Lo único que vale mirar es el guardarraíl de ingesta».)* **Alcance vigente: los cuatro ítems S-1…S-4 de la tabla de §4.39.7.** Los dos que el texto viejo ocultaba: **(S-1)** hay un **host de terceros NUEVO** —`images.scrydex.com`— sirviendo imágenes en producción que **nadie ha auditado nunca**; y **(S-2)** el **arte de carta (~20 000 URLs)** entra por `upsertCards` **sin ninguna validación** de host, esquema ni forma (**M47-R1**, severidad **Alta**, **diferida, no aceptada**) — por ahí entraron 661 filas del host nuevo sin traza ni autorización. **No leer esta fila como «cero superficie».** Sigue siendo cierto que aquí no hay PII ni dinero. | Gate por release |
 
 #### 4.39.9 Lo que esta sección NO hace
 
@@ -12529,8 +12697,29 @@ Justificación, y por qué es urgente **precisamente porque hoy no hace nada**:
   **`remotePatterns` debe ser el ESPEJO de esa lista** más el host de las imágenes de carta. Cualquier host que
   `remotePatterns` acepte y el backend no pueda producir es superficie regalada.
   - Norma §0-B: **la lista se cita por su origen, no se transcribe aquí como autoridad.** Hoy son, ilustrativamente,
-    los dominios de TCGplayer y TCGCSV en esa constante, más `images.pokemontcg.io` de `Card.imageSmallUrl`. Si el
-    backend amplía su allowlist, `remotePatterns` se amplía **detrás**, nunca por delante.
+    los dominios de TCGplayer y TCGCSV en esa constante, más **los hosts de arte de carta** de `Card.imageSmallUrl`.
+    Si el backend amplía su allowlist, `remotePatterns` se amplía **detrás**, nunca por delante.
+  - **⚠️ ACTUALIZACIÓN 2026-09-05 (M47-H2) — el espejo tiene ahora DOS fuentes y el arte de carta ya no es UN host.**
+    Lo que había que corregir aquí es que este párrafo daba por sentado **un solo** host de arte de carta
+    (`images.pokemontcg.io`). **Son dos**: el proveedor mudó de CDN a mitad de catálogo y los sets recientes llegan de
+    otro origen (§4.39.1 hecho 8). Por tanto, cuando se cierre el comodín, `remotePatterns` debe espejar **tres**
+    orígenes, no dos: **(i)** `SEALED_IMAGE_HOST_ALLOWLIST` (`inventory/sealed-image-host.ts`), **(ii)**
+    `SET_IMAGE_HOSTS` (`catalog/catalog-sync.service.ts`, conjunto **cerrado** de hosts exactos, §4.39.4), y
+    **(iii)** los hosts que de hecho aparecen en `Card.imageSmallUrl`/`imageLargeUrl` — que **no** son una allowlist
+    sino **lo que `upsertCards` haya dejado pasar sin validar** (deuda **M47-R1**). Los tres se **leen de su fuente**
+    (clase (B)); ninguno se transcribe aquí.
+  - **Consecuencia incómoda de (iii), y hay que decirla:** mientras M47-R1 siga abierta, **no existe una lista
+    autoritativa de hosts de arte de carta** — solo un `SELECT … GROUP BY host` sobre producción, que es una foto, no
+    una política. Espejar una foto es frágil: el día que el proveedor mude otra vez, `remotePatterns` (ya cerrado)
+    **romperá imágenes legítimas** sin que nadie lo haya decidido. **Salida preferida, y es la de M47-R1:** que el
+    arte de carta pase por el mismo helper de allowlist que el resto, para que el espejo tenga **un original**. **Este
+    documento no ordena el orden de esos dos trabajos**; solo declara que cerrar D-IMG-5 con (iii) sin resolver es
+    aceptar un modo de fallo conocido, y que quien lo cierre debe verificar el `GROUP BY` del día, no el literal de
+    este párrafo.
+  - **Estado de D-IMG-5 (§9): ABIERTO.** Mientras lo esté, **ninguna sección de este documento puede citar
+    `remotePatterns` como control efectivo** — no acota nada. Cualquier deber redactado sobre él («se amplía detrás,
+    nunca por delante») es correcto como **orden futuro** y **decorativo hoy**; escríbase siempre con la condición
+    *«cuando D-IMG-5 esté cerrado»* explícita, como se hizo en §4.39.4 paso 3.
 - **Solo `protocol: 'https'`.** Sin `http`, sin comodines de esquema.
 - **Verificación obligatoria antes de mergear:** los fixtures de mocks y el bundle E2E usan
   `images.pokemontcg.io` (`frontend/src/lib/mock/fixtures.ts`), que queda dentro de la lista. Aun así frontend debe
@@ -12692,6 +12881,24 @@ Riesgos técnicos:
   | **D-IMG-3** | `OrderLineData.cardSnapshot` está tipado como **`object`**: un blob probatorio sin forma en el backend | `orders.service.ts` (tipo `OrderLineData`) | backend | Con D-IMG-1. **Es la causa raíz**, no un detalle de estilo |
   | **D-IMG-4** | `OrderItemPreview.card` se tipa como **`CardDTO` completo**, que el backend nunca devolvió en esa posición: el tipo **prometía** `imageSmallUrl: string` y por eso el front la pintó sin que nada lo desmintiera. Además `CardDTO.imageSmallUrl` es `string` (requerido) mientras la columna es **`String?`** en el schema | `frontend/src/types/contract.ts` vs. `prisma/schema.prisma` | frontend | Con el contrato **v1.51-b** (`OrderItemCardDTO`, imagen **nullable**) |
   | **D-IMG-5** | `images.remotePatterns` incluye `hostname: '**'`. **Hoy inerte** (cero `next/image`), pero convierte el optimizador en **proxy de imágenes abierto** en cuanto se adopte. Es **más ancho que lo que el backend puede producir**, que ya valida host contra `SEALED_IMAGE_HOST_ALLOWLIST` | `frontend/next.config.mjs` vs. `backend/src/modules/inventory/sealed-image-host.ts` | frontend | **Cerrar YA**, mientras el cambio tiene riesgo funcional cero (§5.3.4) |
+
+- **⚠️ NUEVA (v1.52-b, 2026-09-05) — DESVIACIÓN DE PROCESO: «el commit cita la regla y la deja falsa».** Quinto
+  ejemplar de la familia de abajo, con una vuelta de tuerca: aquí la fuente no se contradijo con el producto por
+  descuido — **fue el propio cambio el que volvió falsa la sección que estaba citando**, y pasó **QA en verde y
+  techlead en verde**.
+  | # | Qué pasó | Qué quedó afirmando el documento | Qué era cierto tras el cambio |
+  |---|---|---|---|
+  | **D-PROC-5** | El proveedor mudó de CDN; backend amplió el guardarraíl de §4.39.4 a **dos** hosts exactos (correcto, con evidencia y tests de mutación) y **citó `§4.39.4` en el propio `warn`** | §4.39.1 h.7 «el arte de **todas** las cartas»; §4.39.7 «el **mismo host** … **cero superficie nueva para seguridad**»; §4.39.8 «dos URLs de un host **ya admitido**» | Dos hosts, uno de ellos **nunca auditado**, ya sirviendo ~661 imágenes en producción entradas **sin validación** (M47-R1) |
+  - **Impacto real, y es el que la hace grave:** el texto invalidado es **el que el gate de seguridad lee por release
+    para dimensionar su alcance**. Un pentester obediente habría leído «cero superficie nueva» y **no habría mirado
+    el host nuevo**. No es un error de redacción: es un **control de seguridad desactivado por una frase caducada**.
+  - **No se enruta como falta de rol.** El pase hizo lo difícil bien (evidencia de producción, conjunto cerrado,
+    mutación) y **reportó por escrito** en `BACKEND_NOTES.md` §0.20.4 — por eso esta corrección existe. Lo que falló
+    es el **procedimiento**: pedía «avisar al arquitecto» sin decir **cuándo** ni **qué releer**, y apoyaba ese deber
+    en un acoplamiento (`remotePatterns`) **hoy inerte** por D-IMG-5.
+  - **Dueño:** arquitecto (norma) — **CERRADA en este pase** con **§0-B.3 regla 7** (la *regla de la cita*, propuesta
+    por el techlead) + la corrección de §4.39.4/§4.39.7/§4.39.8. **Cierre duro pendiente:** un chequeo de CI sobre
+    `§x.y` en el diff — **sugerencia, alcance devops**, no requisito de arquitectura.
 
 - **⚠️ NUEVA (v1.50.4) — DESVIACIÓN DE PROCESO, no de código: «la fuente afirma, el producto contradice, nadie
   coteja».** Es la desviación **más cara** registrada aquí, porque no vive en un archivo: vive en cómo el equipo
