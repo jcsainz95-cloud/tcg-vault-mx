@@ -188,6 +188,11 @@ jobs:
   deploy-staging-backend:
     needs: [preflight]
     runs-on: ubuntu-latest
+    outputs:
+      # Instante ANTERIOR al deploy. El gate de procedencia (job `staging-serves-head`)
+      # exige que el proceso que responde en staging haya NACIDO después de esto.
+      # Ver SEC-OPS-1 · DEVOPS_NOTES §38.5.
+      deploy_epoch: ${{ steps.mark.outputs.epoch }}
     environment:
       # NOTA: `environment.url` NO admite el contexto `secrets` (solo env/github/
       # inputs/needs/vars…). Ponerlo ahí hace que GitHub rechace el workflow al
@@ -196,6 +201,9 @@ jobs:
       name: staging
     steps:
       - uses: actions/checkout@v4
+      - id: mark
+        name: Marcar el instante ANTES del deploy (procedencia)
+        run: echo "epoch=$(date +%s)" >> "$GITHUB_OUTPUT"
       - name: Instalar Railway CLI
         run: npm i -g @railway/cli@latest
       - name: Deploy backend a Railway (staging)
@@ -241,11 +249,83 @@ jobs:
       # DAST usa STAGING_BASE_URL (dominio estable), no la URL efímera del deploy.
 
   # ---------------------------------------------------------------------------
+  # GATE DE PROCEDENCIA — SEC-OPS-1 (docs/SECURITY_NOTES.md §9, DEVOPS_NOTES §38.5)
+  #
+  # EL AGUJERO QUE CIERRA: `dast-staging` escanea `STAGING_BASE_URL`, un dominio
+  # ESTABLE. `needs: [deploy-staging-*]` garantiza el ORDEN de los jobs, no que el
+  # rollout de Railway/Vercel haya TOMADO EFECTO. Si el rollout va lento, o falló y
+  # la plataforma dejó en pie la revisión anterior, ZAP y nuclei escanean el binario
+  # VIEJO — y su verde promueve a producción un commit que nadie escaneó.
+  # Es el mismo fallo que se comió el gate de seguridad dos veces en local
+  # (backend de las 15:04 auditando el arreglo de las 16:16), con el mismo sentido
+  # peligroso: aprobar lo que no se probó.
+  #
+  # CÓMO SE PRUEBA: `GET /api/v1/health` devuelve `uptime` = `process.uptime()`
+  # (medido en health.service.ts). De ahí sale el instante REAL de arranque del
+  # proceso que atiende. Si ese instante es ANTERIOR al inicio del deploy, el
+  # rollout no tomó efecto. Bajo `concurrency: deploy-*` (un deploy a la vez), la
+  # cadena «desplegué este commit» + «el proceso vivo nació después» ⇒ «staging
+  # sirve este commit».
+  #
+  # LO QUE **NO** PRUEBA: no es una firma del artefacto. El cierre definitivo es que
+  # `/health` devuelva el commit — eso es `backend/src/modules/health/`, rol BACKEND,
+  # y está pedido en DEVOPS_NOTES §38.6. Mientras tanto, esto.
+  #
+  # STAGING_API_URL: base del backend de staging (p. ej. https://api-staging.tcghunt.mx/api/v1).
+  # NO está en la lista de `secrets-gate` a propósito — añadirla allí rompería el
+  # pipeline de quien ya lo tenía configurado. En su lugar: sin ella el gate AVISA,
+  # y si se está promoviendo a producción, FALLA. Un DAST que no puede decir qué
+  # binario escaneó no puede ser la puerta de prod.
+  # ---------------------------------------------------------------------------
+  staging-serves-head:
+    needs: [deploy-staging-backend, deploy-staging-frontend]
+    runs-on: ubuntu-latest
+    env:
+      STAGING_API_URL: ${{ secrets.STAGING_API_URL }}
+      DEPLOY_EPOCH: ${{ needs.deploy-staging-backend.outputs.deploy_epoch }}
+      # MISMA expresión que el `if:` de los dos jobs `promote-production-*` (abajo),
+      # a propósito: si ellos consideran que esto es una promoción, este gate también.
+      # Si se divergen, este gate deja de cubrir la ruta que importa.
+      PROMOTING: ${{ github.event_name == 'workflow_run' || inputs.promote_to_prod == true }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: ¿Staging sirve el commit que se va a promover?
+        run: |
+          if [ -z "$STAGING_API_URL" ]; then
+            MSG="No hay STAGING_API_URL: NO se puede comprobar que staging sirva ${GITHUB_SHA}. El DAST de abajo escaneará un binario de procedencia DESCONOCIDA."
+            if [ "$PROMOTING" = "true" ]; then
+              echo "::error::$MSG Se ABORTA la promoción a producción (SEC-OPS-1). Carga STAGING_API_URL — ver DEVOPS_NOTES §38.5."
+              exit 1
+            fi
+            echo "::warning::$MSG No bloquea porque no se está promoviendo a prod, pero el resultado del DAST NO es citable como gate."
+            echo "- ⚠️ procedencia de staging **no verificada** (falta \`STAGING_API_URL\`)" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          # El rollout tarda; se le da margen antes de declararlo obsoleto.
+          for i in $(seq 1 40); do
+            if ./scripts/assert-serving-head.sh \
+                 --url "${STAGING_API_URL%/}/health" \
+                 --label "staging (commit $GITHUB_SHA)" \
+                 --newer-than "$DEPLOY_EPOCH" \
+                 --quiet; then
+              echo "Staging sirve un proceso nacido de ESTE deploy."
+              echo "- ✅ staging sirve el proceso desplegado en este run (\`$GITHUB_SHA\`)" >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            echo "Rollout aún no visible en staging... ($i/40)"; sleep 15
+          done
+          echo "::error::Tras ~10min, staging SIGUE sirviendo un proceso anterior a este deploy. El rollout no tomó efecto (o falló y quedó la revisión previa). Escanear ahora daría un veredicto sobre el binario EQUIVOCADO — SEC-OPS-1. Se ABORTA."
+          ./scripts/assert-serving-head.sh --url "${STAGING_API_URL%/}/health" --label "staging" --newer-than "$DEPLOY_EPOCH" || true
+          exit 1
+
+  # ---------------------------------------------------------------------------
   # DAST contra STAGING: ZAP baseline + nuclei. GATE de promoción a prod.
   # Necesita STAGING_BASE_URL en vivo (el frontend/back de staging ya desplegados).
+  # Corre DESPUÉS de `staging-serves-head`: sin saber QUÉ binario hay enfrente, un
+  # DAST verde no significa nada (SEC-OPS-1).
   # ---------------------------------------------------------------------------
   dast-staging:
-    needs: [deploy-staging-backend, deploy-staging-frontend]
+    needs: [deploy-staging-backend, deploy-staging-frontend, staging-serves-head]
     runs-on: ubuntu-latest
     outputs:
       critical: ${{ steps.gate.outputs.critical }}

@@ -104,6 +104,26 @@
 > cablé el gate que bloquea **la mezcla** de reformateo con lógica y **deja pasar** el commit de solo
 > formato (`scripts/check-format-mix.sh` + job `format-mix`, probado contra 4 casos). **§34.6** tiene el
 > estado real del gate de seguridad y el harness E2E: **no falta construir, falta encender**.
+>
+> **⇒ Actualización 2026-09-06 — NUEVA §38: SEC-OPS-1 (el gate auditaba un binario más viejo que el
+> código auditado) + el mecanismo de purga de los datos del PoC.** Seguridad reportó que **por segundo
+> pase consecutivo** el backend vivo era **más viejo que el commit a auditar**, y que las dos veces lo
+> cazó una persona mirando la **hora de un PID**. La causa eran cuatro líneas de `start_backend()`:
+> «¿responde? ⇒ reutilízalo», sin preguntar **qué código** servía. Ahora **`up` comprueba-o-reinicia y
+> termina PROBÁNDOLO** (`verify_head`), hay verbo de solo-lectura **`stack-native.sh verify:head`** para
+> QA/seguridad/pentester, el arranque **dice qué commit sirve**, y está cableado en **`e2e-real.yml`**,
+> en **`deploy.yml`** (job nuevo `staging-serves-head`, del que ahora **depende el DAST**) y en
+> **`ci.yml`** (guarda anti-regresión). **Reiniciar para auditar NO cuesta la evidencia**: `up` nunca
+> siembra, y está medido que **`--seed` sí habría destruido 2 de las 3 filas del PoC** (§38.4). Al
+> cablearlo, el comprobador **cazó el mismo fallo por tercera vez, en vivo** (§38.2). La **purga**
+> (`scripts/purge-synthetic-poc-data.sh`) está lista, medida y **NO ejecutada**: la dispara el humano
+> cuando backend confirme que ya no necesita esas filas (§38.7).
+> **⚠️ Y mientras se escribía esto, a las 17:14, una resiembra de una corrida de integración borró DOS
+> de las tres filas de evidencia de BL-35 eje 2** (§38.4-bis, con la cadena de relojes). El `--seed` de
+> este script ahora **se planta** ante filas de PoC; las suites de integración no las cubro yo (llaman
+> a `seedE2E()` directamente — rol **backend**). Lección que hay que decidir (**QA/seguridad/backend**):
+> **la BD del fixture no es un sitio donde guardar evidencia de una auditoría** — el PoC va como
+> **spec**, no como fila.
 
 ---
 
@@ -602,7 +622,10 @@ Regla de oro del rollback: **datos primero** (snapshot antes de migrar), luego c
 | `scripts/check-graded-estimate-dials.sh` | Comparador **SOLO-LECTURA** del gancho de grading: el **dial único** `gradingHookEnabled` (v1.51), los 3 diales de v1.50.3 contra su default nuevo, el **presupuesto en créditos** del entorno, y la detección de binario **pre-M-48**. No escribe nada. §32.5 y §32.12.4. |
 | `scripts/check-e2e-provider-incapacitation.sh` | Guarda **estática** (lee YAML, sin red): los workflows E2E deben declarar `POKEMONPRICETRACKER_API_KEY: ''` y la constancia `E2E_GRADING_PROVIDER_INCAPACITATED`. Cableada en `ci.yml` (cada push/PR) y como primer paso de `e2e-real.yml`/`e2e.yml`. §32.12.5. |
 | `scripts/post-deploy.sh` | Orquestador idempotente post-deploy (§27, §29); su PASO 8 corre el comparador de diales y **bloquea el anuncio del release** si `rc != 0`. |
-| `scripts/stack-native.sh` | Stack REAL sin Docker (Postgres+Redis+Nest+Next nativos). Ruta soportada para gates y verificaciones cuando no hay demonio de Docker. §29.10. |
+| `scripts/stack-native.sh` | Stack REAL sin Docker (Postgres+Redis+Nest+Next nativos). Ruta soportada para gates y verificaciones cuando no hay demonio de Docker. §29.10. Desde §38: **garantiza que lo vivo es el árbol de ahora** (`up` comprueba-o-reinicia; `verify:head` lo verifica sin tocar nada). |
+| `scripts/assert-serving-head.sh` | **SEC-OPS-1.** ¿El binario VIVO es el commit que se va a auditar? Solo lee; exit 1 ruidoso si no. Datar el proceso sale del `uptime` de `/health` (`process.uptime()`), no de un fichero. Lo usan `stack-native.sh`, `e2e-real.yml` y `deploy.yml`. §38.2. |
+| `scripts/check-provenance-gate.sh` | Guarda **estática** de que el comprobador de procedencia **sigue cableado** en los tres puntos. Cableada en `ci.yml` (cada push/PR). Sin ella, borrar el arreglo de SEC-OPS-1 no daría un rojo: daría un verde que no significa nada. §38.5. |
+| `scripts/purge-synthetic-poc-data.sh` | Purga de los datos sembrados por el red team y los PoC (ARCHITECTURE §9 «purgar antes de cualquier snapshot»). **Simulacro por defecto**, `--apply` para borrar. Idempotente, transaccional, lista blanca de objetivo. **No lo llama nadie automáticamente.** §38.7. |
 
 > Los Dockerfiles viven en la **raíz** (no dentro de `backend/`/`frontend/`) para respetar la propiedad
 > de archivos de `CLAUDE.md`: devops no escribe en esas carpetas.
@@ -6706,3 +6729,335 @@ cerrado por construcción y comentado en el propio script.
 | BD envenenada por una corrida | `./scripts/stack-native.sh up --seed --infra` (el seed es **idempotente**: lo prueba `seed-idempotency.e2e-spec.ts`) |
 | Revertir lo de esta sección | Borrar `backend/.env` y revertir `scripts/stack-native.sh`. Se pierde el 15/15 (vuelve a 14/15 por `DATABASE_URL`); **nada más**: no toca `backend/`, ni `frontend/`, ni migraciones, ni datos |
 | El subcomando molesta | `cd backend && NODE_ENV=test DATABASE_URL=… npm run test:integration` hace lo mismo a mano |
+
+---
+
+## 38. SEC-OPS-1 — el gate auditaba un binario más viejo que el código auditado. Y la purga de los datos del PoC (2026-09-06, stream `claude/buylist-inventory-workflow-hdnls3`)
+
+> **Regla que gobierna esta sección:** todo número de aquí está **medido** en esta máquina,
+> contra el stack vivo y la BD local. Donde no medí, lo digo con esas palabras. Lo que
+> queda pendiente de otro rol va nombrado con su rol.
+
+### 38.0 El hallazgo, en una línea
+
+Seguridad (pase v1.56, `SECURITY_NOTES.md` §9) reportó que **por segundo pase consecutivo** el
+backend vivo era **más viejo que el commit a auditar**, y que las dos veces lo cazó una persona
+mirando la **hora de un PID**:
+
+| Pase | Backend vivo arrancó | Commit a auditar | Consecuencia |
+|---|---|---|---|
+| 2026-08-29 (SEC-M43-6) | 20:10 | `1f73654` de 21:34 | La 1ª corrida del PoC devolvió el default de la columna; **casi se firma un ALTO abierto que ya estaba cerrado** |
+| 2026-09-06 (v1.56) | 15:04:03 | `3b2fc87` de 16:16:31 | El stack servía el código **vulnerable**; seguridad reinició (`down` + `up`, **sin `--seed`**) y remidió contra un proceso de 16:21:42 |
+
+**Es mío y es de proceso, no de código.** Y lo peor no es el rojo falso: es el **verde falso**
+simétrico — un stack viejo puede dar por buena una guarda que el binario no tiene, y entonces se
+promueve a producción algo que nadie probó.
+
+### 38.1 La causa, en cuatro líneas de `stack-native.sh`
+
+No hubo misterio. `start_backend()` decía, literalmente:
+
+```bash
+if curl -sf "$BACKEND_HEALTH_URL"; then
+  ok "ya respondía en :$BACKEND_PORT."
+  return 0        # ← reutiliza SIN preguntar qué código está sirviendo
+fi
+```
+
+El **frontend** ya tenía la guarda equivalente desde hace tiempo («NO REUTILIZAR UN SERVIDOR AJENO
+EN MODO GATE», por el episodio de `reuseExistingServer` de §32.6). El backend no la tenía. La
+asimetría es exactamente el agujero.
+
+### 38.2 El mecanismo: `scripts/assert-serving-head.sh`
+
+**Qué evidencia usa.** La única señal de procedencia que el proceso emite hoy es el `uptime` de
+`GET /api/v1/health`, y **es `process.uptime()`** — verificado leyendo
+`backend/src/modules/health/health.service.ts` (`uptime: Math.round(process.uptime())`), no
+`os.uptime()`. De ahí sale el instante real de arranque del proceso que atiende el puerto:
+
+```
+arranque_vivo = ahora − uptime
+```
+
+Eso **no se puede falsificar con un fichero rancio**: si otro proceso tomó el puerto, su uptime no
+cuadra. Comprobación en vivo contra el stack de esta máquina: el script dató el arranque en
+**16:21:43**; seguridad había anotado a mano **16:21:42**. Un segundo de redondeo.
+
+**Los cuatro asertos** (todos opcionales, se activan por bandera):
+
+| # | Bandera | Qué afirma | De dónde sale |
+|---|---|---|---|
+| 1 | `--newer-than EPOCH` | el proceso nació **después** de EPOCH | proceso (`uptime`) |
+| 2 | `--source RUTA` | ningún fichero de fuente es **más nuevo** que el proceso | proceso + `mtime` |
+| 3 | `--stamp FICHERO` | el sello escrito al arrancar habla de **este** proceso | proceso + sello |
+| 4 | `--sha` / HEAD | el commit sellado es el esperado | sello + `git rev-parse` |
+
+El **aserto 2 es el que reproduce a máquina lo que seguridad vio a mano**: `ts-node --transpile-only`
+compila **al arrancar** y Nest requiere el árbol entero en el boot, así que un fichero editado
+después **no está** en lo que se sirve. No necesita ni sello ni git: sale del proceso.
+
+**Lo que NO prueba, dicho de frente.** No hay prueba criptográfica de que el artefacto contenga el
+SHA: **el backend no expone commit/version en `/health`** (medido: la respuesta es
+`{status,uptime,timestamp,db,redis}` y nada más). La cadena es «arranqué X» + «el proceso vivo
+nació de ese arranque» ⇒ «sirve X». Es sólida, no es una firma. El cierre definitivo está en §38.6
+y **es del rol backend**.
+
+**Matriz de prueba (medida, 7 casos + 1 detección real):**
+
+| Caso | Resultado | Exit |
+|---|---|---|
+| sello coherente + fuentes viejas | ✔ pasa | 0 |
+| SHA del sello ≠ HEAD | ⛔ «COMMIT DISTINTO» | 1 |
+| sello de otro proceso (6000 s de desfase) | ⛔ «hay OTRO sirviendo el puerto» | 1 |
+| fuente editado después del arranque | ⛔ lista los ficheros | 1 |
+| `--newer-than` con proceso viejo | ⛔ «sirviendo el binario ANTERIOR» | 1 |
+| `--newer-than` satisfecho | ✔ pasa | 0 |
+| servicio caído | ✖ error de uso, no «obsoleto» | **2** |
+| **detección real, en vivo** | ⛔ **cazó el caso de verdad** — ver abajo | 1 |
+
+**La detección real.** Al cablearlo, el comprobador encontró **el mismo fallo, por tercera vez**,
+esta vez sin que nadie lo buscara: el backend de `:3099` (arrancado 16:21:42) **no incluye**
+`backend/src/modules/buylist/buylist.service.ts` ni `backend/src/common/sell-request-states.ts`,
+que backend está editando ahora mismo para cerrar BL-35 eje 2. **Cualquier medición en vivo contra
+`:3099` hecha después de esas ediciones y antes de un reinicio es inválida.** Aviso para **QA** y
+**seguridad**: antes de la re-verificación de BL-35 eje 2, corran `verify:head` (§38.3).
+
+### 38.3 Local — `stack-native.sh` ya no puede servir algo distinto del árbol
+
+| Comando | Qué garantiza ahora |
+|---|---|
+| `./scripts/stack-native.sh up` | **No reutiliza** un backend vivo sin comprobar la procedencia. Si no sirve el árbol de ahora, **lo reinicia** (banner ruidoso) y **termina probándolo** con `verify_head` — `up` ya no *afirma* que está al día, lo *prueba*. |
+| `./scripts/stack-native.sh verify:head [<sha>]` | **Solo lee.** Exit 1 ruidoso si lo vivo no es lo que se va a auditar. **Este es el comando que QA / seguridad / el pentester corren antes de su primera medición.** Con argumento: «quiero auditar exactamente `3b2fc87`». |
+| `./scripts/stack-native.sh status` | Dice **qué commit sirve cada proceso** y desde cuándo. Sin sello ⇒ lo dice: «procedencia DESCONOCIDA». |
+
+**Observabilidad.** El arranque ahora **imprime el commit que sirve** (`✔ sirviendo commit
+7e56e374f42d …  · arrancado 16:21:42`) y deja un **sello** en `.native-stack/backend.stamp`:
+
+```
+sha=7e56e374f42d2d62a199a7145acfbde1c7ab0d04
+started_at=1788711703
+started_h=2026-09-06T16:21:43
+dirty=16                       ← ficheros sin commitear al arrancar (HEAD no cuenta toda la historia)
+pid=999
+port=3099
+db=postgresql://tcg:****@localhost:5432/tcg_marketplace?schema=public   ← ENMASCARADA
+```
+
+Dos decisiones que no son cosméticas:
+
+- **El `started_at` del sello se deriva del proceso, no de mi reloj.** Se escribe *después* de que
+  el servicio esté sano, con el `ahora − uptime` del propio proceso. Así el desfase sello↔proceso es
+  **cero por construcción** y cualquier diferencia futura significa de verdad «hay otro proceso en
+  el puerto», no «se me fue el reloj entre el `nohup` y el `node`».
+- **Solo se reutiliza un backend que arrancó este script.** Uno levantado a mano no tiene sello ⇒
+  procedencia desconocida ⇒ se reinicia. Eso cierra de paso el riesgo «commit correcto, **base
+  equivocada**»: el sello registra a qué BD apuntaba.
+
+**Si el puerto no se libera, el script se planta** (`die`) en vez de seguir: mientras haya un proceso
+ajeno vivo, nadie puede afirmar qué se está midiendo, y ése es justo el estado que esto existe para
+hacer imposible.
+
+### 38.4 Reiniciar para auditar **no cuesta la evidencia** — y esto está medido
+
+Seguridad reinició **deliberadamente sin `--seed`** para conservar las filas del PoC. Tenía razón, y
+ahora es una propiedad del arnés en vez de un acto de memoria:
+
+- `stop_backend_only()` **no** para Postgres, **no** para Redis, **no** siembra, **no** borra una
+  fila. Reinicia procesos y nada más.
+- **El único camino que toca datos es `--seed` EXPLÍCITO** — y sí es destructivo. **Medido en el
+  código, no supuesto:** `backend/prisma/seed-e2e.ts:129` hace
+  `prisma.sellRequest.deleteMany({ where: { userId: { in: ids } } })` sobre los usuarios
+  deterministas del fixture. Y **dos de las tres filas de evidencia** (`b6e3b8e0…` y `1f151cea…`)
+  cuelgan de `customer@e2e.local`, que **está** en ese conjunto.
+
+> **Conclusión medible: `up --seed` habría destruido 2 de las 3 filas del PoC. `up` a secas no toca
+> ninguna.** Por eso el reinicio automático de §38.3 nunca siembra, y `--seed` sigue siendo algo que
+> se escribe a mano.
+
+#### 38.4-bis — Y no era hipotético: **pasó, mientras escribía esta sección**
+
+A las **17:14:09** del 2026-09-06 una resiembra borró **dos de las tres filas de evidencia**:
+`b6e3b8e0…` (`SPEI-EJE2-NEVER-ARRIVED-001`) y `1f151cea…` (`QA-BL35-EJE2`), ambas de
+`customer@e2e.local`. Sobrevivió `afc4ab63…` (`SPEI-DOUBLESPEND-777`), cuyo dueño es
+`redteam.victim@e2e.local` — **que no está en el fixture**. Exactamente la predicción del párrafo
+anterior, cumplida en menos de una hora.
+
+**No fui yo, y lo puedo acotar:** todas mis operaciones sobre la BD fueron `ROLLBACK` y verifiqué las
+3 filas intactas después de cada una. La cadena, con relojes:
+
+| Hora | Hecho | Cómo lo sé |
+|---|---|---|
+| 17:13:49 | `backend/test/integration/buylist-cycle.e2e-spec.ts` modificado | `mtime` |
+| 17:14:09 | fixture reescrito; desaparecen las 2 filas | `max(SellRequest.createdAt)` de `customer@e2e.local` y `max(AuditLog.createdAt)` |
+| 17:14:08 | aparece `e2e3a3c5…` `SPEI-EJE2-REMEDIADA` | fila nueva de `customer@e2e.local` |
+| — | ese spec llama a `seedE2E()` en su arranque (`:63`); **12** specs de integración lo hacen | `grep` |
+| ahora | `jest` corriendo | `pgrep` |
+
+Es una resiembra de una corrida de integración de **backend**, que es trabajo legítimo y esperable
+(el propio `test:integration` de este script ya avisa: «esta suite ESCRIBE en la BD»). No es un
+error de nadie: es que **la BD del fixture no es un sitio donde se pueda guardar evidencia de una
+auditoría**, y hasta hoy nadie lo había dicho en voz alta.
+
+**Lo que hice con lo que controlo.** `--seed` de este script ahora **se planta** si detecta filas con
+marca de PoC: las lista, explica que el seed borra, y ofrece las tres salidas (no sembrar · purgar ·
+`SEED_OVER_EVIDENCE=1` para hacerlo a propósito). **Cubre mi bandera, no las suites**: los 12 specs
+llaman a `seedE2E()` directamente y eso es `backend/test/` — **rol backend**.
+
+**Lo que NO es mío y hay que decidir** (va a **QA / seguridad / backend**, no lo cierro yo): si un
+hallazgo abierto necesita evidencia reproducible, esa evidencia **no puede vivir solo en filas de la
+BD compartida**. O se guarda el PoC como **spec** (que es lo que backend acaba de hacer:
+`buylist.m5p-received-guard.spec.ts`, `SPEI-EJE2-REMEDIADA`), o se dumpea aparte antes de tocar el
+fixture. **Recomendación de devops: la primera.** Un test que reproduce el hallazgo es evidencia que
+ninguna resiembra puede borrar.
+
+### 38.5 CI — dónde se cableó y dónde no
+
+| Sitio | Qué se añadió | Por qué ahí |
+|---|---|---|
+| `.github/workflows/e2e-real.yml` | Marca de epoch **antes** de `docker compose up`, y gate `--newer-than` tras la salud del backend. Deja el commit medido en el *step summary*. | El riesgo aquí es menor (`up -d --build` ya reconstruye desde el checkout: la estrategia «reconstruir siempre») pero no nulo: un contenedor superviviente, un `--build` que falla y deja el anterior en pie, o un runner reutilizado dan el mismo verde falso. **Se comprueba en vez de suponerse.** |
+| `.github/workflows/deploy.yml` | **Job nuevo `staging-serves-head`**, entre el deploy de staging y el DAST. `dast-staging` ahora **depende de él**. | **Éste era el agujero de verdad en CI.** `dast-staging` escanea `STAGING_BASE_URL`, un dominio **estable**; `needs:` garantizaba el **orden de los jobs**, no que el rollout hubiera **tomado efecto**. Si el rollout va lento —o falla y la plataforma deja en pie la revisión anterior— ZAP y nuclei escanean el binario **viejo**, y su verde promueve a prod un commit que **nadie escaneó**. Mismo fallo, mismo sentido peligroso. |
+| `.github/workflows/ci.yml` | Job `provenance-gate` → `scripts/check-provenance-gate.sh`, y suma en `ci-ok`. | SEC-OPS-1 **ya se repitió dos veces**: el arreglo es fácil de borrar sin querer y su ausencia **no produce un rojo, produce un verde que no significa nada**. Guarda estática, barata, en el workflow que corre en **cada push y PR** — mismo criterio que `e2e-provider-guard` (§32.12). |
+| `security-sast.yml` | **Nada, a propósito.** | Semgrep/gitleaks/trivy-fs/npm-audit son **estáticos sobre el checkout**: analizan el árbol, no un proceso. No hay binario vivo que pueda quedarse viejo. `trivy-image` construye la imagen en el propio job. **Aquí no hay nada que arreglar** y añadir un check sería teatro. |
+
+**`STAGING_API_URL` (secret nuevo, lo debe cargar el humano).** Base del **backend** de staging con
+`/api/v1` (p. ej. `https://api-staging.tcghunt.mx/api/v1`). Es lo que permite leer el `uptime`.
+**No** se metió en `secrets-gate` para no romper pipelines ya configurados; en su lugar:
+
+- sin ella y **sin promover a prod** → `::warning::` y el DAST queda marcado como **no citable**;
+- sin ella y **promoviendo a prod** → **falla**. Un DAST que no sabe qué binario escaneó no puede
+  ser la puerta de producción.
+
+Documentada en `.env.example` (bloque `[GH]`).
+
+**Estado honesto de lo cableado en CI: escrito y validado como YAML (los 6 workflows parsean y el
+grafo de jobs es el esperado), NO ejecutado.** Aquí no hay demonio de Docker, ni secrets de deploy,
+ni staging: `deploy.yml` sigue desactivado por defecto (§ cabecera del propio workflow). Lo que sí
+se ejecutó y midió es todo lo local de §38.2–38.4 y `check-provenance-gate.sh`.
+
+**La guarda se probó por mutación** (no basta con que dé verde hoy): quitándole a `start_backend()`
+la llamada al comprobador → **rojo**; quitándole a `dast-staging` la dependencia de
+`staging-serves-head` → **rojo**. La primera versión del propio check tenía un rango `awk` mal
+puesto que lo daba por bueno mirando el fichero entero; se corrigió a mirar **el `needs:` del job**,
+que era el enunciado.
+
+### 38.6 Lo que queda abierto, y de quién es
+
+| # | Qué | Rol dueño |
+|---|---|---|
+| **SEC-OPS-1-R1** | **`GET /api/v1/health` no devuelve el commit.** Con un campo `commit` (o `version`) en la respuesta, la procedencia pasa de «cadena de inferencias sólida» a **dato verificable en una petición**, y `--stamp` deja de hacer falta. Es `backend/src/modules/health/health.service.ts` + el DTO del contrato. **Petición, no exigencia**: lo de hoy funciona sin ello. | **backend** (+ **arquitecto** si toca el contrato) |
+| **SEC-OPS-1-R2** | El frontend no tiene `/health` con `uptime`, así que su sello se apoya en el reloj del script y en que el pid siga vivo — **evidencia más débil**, y `verify:head` lo etiqueta como tal. En modo `dev` directamente no se puede fechar lo que sirve (recompila bajo demanda); por eso un gate es siempre `up --gate`. | **devops** (si algún día hace falta), **frontend** si expusiera un endpoint |
+
+### 38.7 Purga de datos sintéticos — `scripts/purge-synthetic-poc-data.sh`
+
+`ARCHITECTURE.md` §9 (fila BL-35) lo pide con estas palabras: «el pentester dejó filas sintéticas
+doble-pagadas en la BD local — **purgar antes de cualquier snapshot**». QA lo levantó como MENOR-3.
+
+> ⚠️ **NO SE HA CORRIDO. El mecanismo está listo; la ejecución la dispara el humano.** Estas filas
+> son la **evidencia** de un hallazgo abierto (BL-35 eje 2) y **backend las puede necesitar** para su
+> test de regresión. Por eso el modo por defecto **no borra**, y no hay ningún gancho que lo llame
+> solo: `stack-native.sh` **no** lo invoca.
+
+**Cómo se dispara:**
+
+```bash
+# 1) SOLO CONTAR (no simula ni borra)
+./scripts/purge-synthetic-poc-data.sh --census
+
+# 2) SIMULACRO — modo por defecto. Ejecuta el borrado DE VERDAD dentro de una
+#    transacción y la DESHACE. Los números que imprime son los reales.
+./scripts/purge-synthetic-poc-data.sh
+
+# 3) BORRAR DE VERDAD — una transacción, con verificación de cierre dentro
+./scripts/purge-synthetic-poc-data.sh --apply
+```
+
+> ⚠️ **La cohorte es DINÁMICA, no la lista congelada de tres ids de `SECURITY_NOTES` §10.** El script
+> selecciona **por marca** (`speiReference` con prefijo `SPEI-DOUBLESPEND|SPEI-EJE2|QA-BL35|PENTEST-|
+> POC-|REDTEAM-`) además de por los tres ids. Es deliberado: así **sigue siendo correcto** cuando
+> aparecen filas de PoC nuevas. Y aparecen: mientras escribía esto salió `SPEI-EJE2-REMEDIADA`, la
+> prueba del arreglo. **Corre `--census` antes de decidir; no te fíes de los números de abajo, que
+> son una foto.**
+
+**Foto de las 17:22** (dos censos distintos en una hora — ver §38.4-bis):
+
+| Cohorte | 17:05 | 17:22 |
+|---|---|---|
+| usuarios `redteam.*@e2e.local` | 4 | 4 |
+| `SellRequest` de PoC | **3** | **2** ← una resiembra se llevó 2 y backend creó 1 |
+| `SellRequestItem` (cascada) | 6 | 5 |
+| `AuditLog` del PoC | 23 | 23 |
+| **simulacro, total borrado** | **36** | **35** |
+
+Desglose del simulacro de las 17:22 (borra y deshace): `AuditLog` 23 · `SellRequest` 2 (+items en
+cascada) · `KycProfile` 1 (CLABE/INE sintéticos de la víctima) · `Address` 1 · `AuthToken` 4 ·
+`User` 4. Comprobado tras cada simulacro: las filas **siguen ahí**.
+
+Las filas de dinero que se irían **a las 17:22**, tal como las devuelve el script:
+
+```
+afc4ab63-…  pagada  SPEI-DOUBLESPEND-777   paid 15:22:13  recv 15:21:36  redteam.victim@e2e.local
+e2e3a3c5-…  pagada  SPEI-EJE2-REMEDIADA    paid 17:14:08  …             customer@e2e.local
+```
+
+Y las que **ya no están** porque una resiembra las borró a las 17:14 (§38.4-bis):
+`b6e3b8e0…` (`SPEI-EJE2-NEVER-ARRIVED-001`) y `1f151cea…` (`QA-BL35-EJE2`). **Sus 17 filas de
+`AuditLog` sobreviven** —`AuditLog` no tiene FK— lo que ilustra por qué la purga tiene que borrarlo
+explícitamente: si no, el rastro del pago falso dura más que el pago falso.
+
+**Decisiones de diseño que importan:**
+
+- **`AuditLog` entra en la purga.** No tiene FK a `User` (verificado en `pg_constraint`), así que sin
+  un borrado explícito **el libro de caja falso sobrevive a la purga de usuarios**. 23 filas, entre
+  ellas **tres `sellrequest.pay_spei` sobre la misma solicitud** — el rastro del doble pago.
+- **Las dos filas de `customer@e2e.local` se borran por MARCA (`speiReference`), nunca por usuario.**
+  `customer@e2e.local` es fixture, no contaminación: borrarlo rompería el seed.
+- **Orden de borrado dictado por los FK reales** (medidos, no supuestos): `Dispute`/`Order`/
+  `SellRequest`/`ShipmentRequest` → `User` son **RESTRICT** ⇒ van antes; `SellRequestItem`,
+  `OrderItem`, `OrderAccessToken`, `ShipmentItem` son **CASCADE**.
+- **No usa la API, va por SQL.** Además de ser más rápido, esquiva un hecho que midió seguridad
+  (`SECURITY_NOTES` §10): **los usuarios `redteam.*` no loguean** con el `*Pass123!` que documentó el
+  pentester (el hash argon2 no casa; `INVALID_CREDENTIALS`, cuenta activa, sin lockout). Un script
+  que dependiera de esas credenciales no funcionaría. Éste no las necesita.
+- **Idempotente — medido, no prometido.** Ejecutando el bloque de borrado **dos veces dentro de una
+  misma transacción**: pasada 1 → **36 filas**, pasada 2 → **0 filas**. Y el script lleva dentro una
+  verificación de cierre que **aborta la transacción** si algo de la cohorte sobrevive (mismo
+  criterio que el `down` del stack nativo: informar éxito por haber lanzado los `DELETE` no es
+  informar éxito).
+- **Se planta antes que corromper.** `RAISE EXCEPTION` (transacción abortada) si: un usuario redteam
+  posee piezas de `InventoryItem` (el FK es **SET NULL** ⇒ borrarlo convertiría bóveda de un cliente
+  en **stock de plataforma** en silencio); si alguna pieza apunta a items de las solicitudes a purgar
+  (`InventoryItem.sourceSellRequestItemId` **no tiene FK** ⇒ quedaría colgando); o si la base **no
+  contiene usuarios `@e2e.local`** ⇒ no es una base de fixtures y el script no pinta ahí. Hoy los tres
+  contadores dan **0**, así que no bloquean.
+- **Guardas de objetivo, probadas las tres:** host `db.railway.internal` → rechazado; base
+  `produccion` → rechazada; `NODE_ENV=production` → rechazado. Lista **blanca** (no negra): solo
+  `localhost`/`127.0.0.1`/`::1` y `tcg_marketplace{,_test,_e2e}`.
+- **`lock_timeout=5s` / `statement_timeout=60s`:** si backend está escribiendo en esas filas, falla en
+  segundos en vez de quedarse bloqueando su transacción.
+
+**Nota aparte (no es del PoC, no se purga):** la BD local tiene **53** usuarios `@e2e.local`, de los
+que ~45 son `new_<hash>@e2e.local` y `qa_*@e2e.local` — basura acumulada de corridas E2E, no cohorte
+del pentest. Está **fuera del alcance** de este script a propósito. Si molesta para un snapshot, es
+un `up --seed` (que sí los deja fuera del fixture) o una limpieza aparte que hay que diseñar.
+
+### 38.8 Rollback de esta sección
+
+| Escenario | Acción |
+|---|---|
+| Volver al comportamiento anterior de `up` | `git revert` del commit de esta sección. Se pierde la garantía de procedencia; **no** se pierde ningún dato ni cambia el arranque en lo demás. |
+| El comprobador da un rojo que crees falso | No lo desactives: córrelo sin `--quiet`, imprime el bloque de procedencia entero y **contrasta** (`ps -o lstart -p <pid>` y `ls -l --time-style=full-iso` del fichero que señala). Si de verdad es falso, el bug es mío y va a `docs/TECH_DEBT.md`. |
+| La guarda de CI estorba | Es un `if` de `ci-ok`. Si se quita, **que se diga en este documento y lo firme quien acepte el riesgo** de volver a auditar un binario viejo (§38.5). |
+| La purga borró de más | **No hay marcha atrás**: es un `DELETE` commiteado. Por eso el modo por defecto es simulacro y hay que escribir `--apply`. Para volver a un fixture limpio: `./scripts/stack-native.sh up --seed`. |
+
+### 38.9 Lo mío que sigue pendiente de antes (orden propuesto)
+
+Ninguno bloquea el DoD de este stream; los ordeno por **coste de equivocarse**, no por esfuerzo:
+
+1. **`SELECT` del censo humano del cut-over (paso 6 de §29)** — hoy vive solo como comentario en la
+   migración. Es el que más pesa: sin él, el runbook de cut-over tiene un paso que **depende de que
+   alguien escriba la consulta bien bajo presión**, y el cut-over mueve precios. **Primero éste.**
+2. **Smoke de MinIO que se auto-salta con 403** — un test que se salta solo es un test que miente
+   sobre su cobertura (misma familia que SEC-OPS-1: verde que no significa nada). Pero su alcance es
+   la subida del INE, no dinero saliente, y **no es reparable en esta máquina** (sin Docker, sin
+   MinIO): pide entorno. **Segundo.**
+3. **SEC-OPS-1-R1** (commit en `/health`, §38.6) — es de **backend**, y lo de hoy funciona sin ello.

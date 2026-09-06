@@ -41,9 +41,20 @@
 #   ./scripts/stack-native.sh test:integration   # suite de integración del backend contra
 #                                         #   BD REAL, con el env exportado (15/15 · 183/183).
 #                                         #   NO uses `npm run test:integration` a secas: ver §37.
-#   ./scripts/stack-native.sh status      # qué está arriba y en qué puerto
+#   ./scripts/stack-native.sh verify:head # ¿el stack VIVO sirve el árbol de ahora?
+#                                         #   SOLO LEE. Exit 1 si no. CÓRRELO ANTES de
+#                                         #   cualquier medición que vayas a citar en un
+#                                         #   veredicto (SEC-OPS-1). Admite un SHA:
+#                                         #   `verify:head 3b2fc87` = «quiero auditar ÉSE».
+#   ./scripts/stack-native.sh status      # qué está arriba, en qué puerto y QUÉ COMMIT sirve
 #   ./scripts/stack-native.sh down        # apaga backend y frontend (deja PG/Redis)
 #   ./scripts/stack-native.sh down --all  # + para Postgres y Redis
+#
+# GARANTÍA DE PROCEDENCIA (SEC-OPS-1 · docs/SECURITY_NOTES.md §9 · DEVOPS_NOTES §38):
+#   `up` NO reutiliza un backend vivo sin comprobar antes que sirve el árbol de ahora;
+#   si no lo sirve, lo REINICIA (y `up` termina probándolo con `verify:head`, no
+#   afirmándolo). Reiniciar NO cuesta datos: no se para Postgres/Redis y NO se
+#   resiembra — resembrar es SIEMPRE `--seed` explícito, y sí borra (§38.4).
 #
 # QUIÉN LO CORRE: **QA** (ejecuta la suite) y cualquier rol que necesite el stack vivo.
 #   devops CABLEA el camino; NO ejecuta la suite E2E (CLAUDE.md: las suites las escriben
@@ -57,6 +68,10 @@
 #                           PARA GATES: SIEMPRE `build`. Ver DEVOPS_NOTES §32.6.
 #                           El NODE_ENV del frontend lo fija el modo (build→production),
 #                           NO se hereda el `development` del backend. Ver §32.10.
+#   SEED_OVER_EVIDENCE  (sin default) — `1` deja que `--seed` borre filas de evidencia
+#                           de PoC/pentest si las hay. Sin él, `--seed` SE PLANTA y las
+#                           lista. No es celo: el 2026-09-06 una resiembra se llevó dos
+#                           filas que probaban un hallazgo abierto. Ver DEVOPS_NOTES §38.4.
 #   PG_CLUSTER     16/main
 #   DATABASE_URL   postgresql://tcg:tcg_local_dev_password@localhost:5432/tcg_marketplace
 #                  (credenciales de DESARROLLO LOCAL, las mismas de `.env.example`; jamás
@@ -132,6 +147,79 @@ export JWT_ACCESS_SECRET="${JWT_ACCESS_SECRET:-local_dev_only_access_secret_at_l
 export JWT_REFRESH_SECRET="${JWT_REFRESH_SECRET:-local_dev_only_refresh_secret_at_least_32_chars_different}"
 
 mkdir -p "$RUN_DIR"
+
+# =============================================================================
+# PROCEDENCIA DEL BINARIO VIVO — SEC-OPS-1 (docs/SECURITY_NOTES.md §9)
+# =============================================================================
+# El modo de fallo, DOS veces seguidas, fue éste y sólo éste: `start_backend()`
+# preguntaba «¿responde algo en :3099?» y, si sí, REUTILIZABA ese proceso sin
+# preguntar QUÉ código estaba sirviendo. Un backend arrancado a las 15:04 siguió
+# atendiendo el gate del commit de las 16:16. La vez anterior, 20:10 vs 21:34.
+# Las dos veces lo cazó una persona mirando la hora de un PID.
+#
+# El frontend YA tenía la guarda equivalente («NO REUTILIZAR UN SERVIDOR AJENO EN
+# MODO GATE», más abajo). El backend no. Ahora la tiene, y es MÁS fuerte: en vez de
+# negarse, REINICIA — porque reiniciar aquí no cuesta nada que importe (ver el
+# recuadro de `stop_backend_only`), y una guarda que sólo se puede satisfacer
+# acordándose de un comando extra acaba desactivada.
+#
+# CONTRATO DE DATOS (esto es lo que hace que reiniciar sea gratis):
+#   `up` NO resiembra. Nunca. La única forma de tocar los datos es `--seed`
+#   EXPLÍCITO, y eso es destructivo de verdad (MEDIDO: `prisma/seed-e2e.ts:129`
+#   hace `sellRequest.deleteMany({ where: { userId: { in: ids } } })` sobre los
+#   usuarios deterministas del fixture). Seguridad reinició a mano SIN `--seed`
+#   justamente por eso, y tenía razón. Ver DEVOPS_NOTES §38.4.
+BACKEND_HEALTH_URL="http://localhost:$BACKEND_PORT/api/v1/health"
+BACKEND_STAMP="$RUN_DIR/backend.stamp"
+FRONTEND_STAMP="$RUN_DIR/frontend.stamp"
+ASSERT_HEAD="$SCRIPT_DIR/assert-serving-head.sh"
+
+# Rutas cuyo mtime decide si el proceso vivo sirve o no el árbol de ahora.
+# `ts-node --transpile-only` compila AL ARRANCAR y Nest requiere el árbol entero en
+# el boot: un fichero editado después NO está en lo que se sirve.
+#   · `src`      — el código.
+#   · `prisma`   — schema y migraciones (cambian el contrato con la BD).
+#   · `package.json` — dependencias y scripts.
+# `node_modules`, `dist`, `coverage` y `*.log` los excluye el propio assert.
+BACKEND_SOURCE_ARGS=(--source "$BACKEND_DIR/src" --source "$BACKEND_DIR/prisma" --source "$BACKEND_DIR/package.json")
+
+head_sha() { git -C "$ROOT_DIR" rev-parse HEAD 2>/dev/null || echo ""; }
+short_sha() { printf '%s' "${1:0:12}"; }
+
+# Ficheros de `backend/` con cambios sin commitear. NO es un fallo (aquí se trabaja
+# con el árbol sucio todo el rato); se REGISTRA en el sello para que el siguiente
+# auditor sepa que «HEAD» no cuenta la historia completa.
+dirty_count() { git -C "$ROOT_DIR" status --porcelain -- backend frontend 2>/dev/null | wc -l | tr -d ' '; }
+
+# Instante REAL de arranque del proceso que responde en el puerto, derivado de
+# `process.uptime()` que expone `/health` (health.service.ts). Misma derivación que
+# `assert-serving-head.sh`; se repite aquí (5 líneas) para que aquel script siga
+# siendo autónomo y utilizable desde CI sin este.
+live_started_epoch() {
+  local url="$1" now body up
+  now="$(date +%s)"
+  body="$(curl -sS -m 5 "$url" 2>/dev/null)" || return 1
+  up="$(printf '%s' "$body" | sed -nE 's/.*"uptime"[[:space:]]*:[[:space:]]*([0-9]+).*/\1/p' | head -1)"
+  case "$up" in ''|*[!0-9]*) return 1 ;; esac
+  printf '%s' "$(( now - up ))"
+}
+
+# Sello de procedencia. Se escribe DESPUÉS de que el servicio esté sano y, para el
+# backend, con el epoch DERIVADO DEL PROCESO (no con la hora a la que lancé el
+# comando): así el sello y `/health` hablan del mismo instante y una diferencia
+# significa «hay OTRO proceso en el puerto», no «se me fue el reloj».
+write_stamp() {
+  local file="$1" started="$2" pid="${3:-}" extra="${4:-}"
+  {
+    printf 'sha=%s\n'        "$(head_sha)"
+    printf 'started_at=%s\n' "$started"
+    printf 'started_h=%s\n'  "$(date -d "@$started" '+%Y-%m-%dT%H:%M:%S' 2>/dev/null || echo "@$started")"
+    printf 'dirty=%s\n'      "$(dirty_count)"
+    printf 'pid=%s\n'        "$pid"
+    printf 'stamped_by=%s\n' "stack-native.sh"
+    [ -z "$extra" ] || printf '%s\n' "$extra"
+  } > "$file"
+}
 
 # -----------------------------------------------------------------------------
 # Infra: Postgres + Redis (tolerante a que ya estén arriba)
@@ -227,26 +315,91 @@ SQL
 # -----------------------------------------------------------------------------
 # Backend nativo: el stack Nest COMPLETO por ts-node (no un arnés recortado)
 # -----------------------------------------------------------------------------
+# -----------------------------------------------------------------------------
+# Apagar SOLO el backend, para poder relanzarlo contra el árbol de ahora.
+#
+# ⚠️ LO QUE ESTA FUNCIÓN **NO** HACE, Y ES EL PUNTO ENTERO:
+#   · NO para Postgres. NO para Redis. NO corre el seed. NO borra una sola fila.
+#   Reiniciar para auditar NO PUEDE COSTAR LA EVIDENCIA QUE SE ESTÁ AUDITANDO.
+#   Es exactamente lo que hizo seguridad a mano en el pase v1.56 (`down` + `up`
+#   deliberadamente SIN `--seed`, para conservar las filas del PoC); aquí queda
+#   cableado en vez de depender de que el siguiente auditor lo recuerde.
+#   El único camino que toca datos sigue siendo `--seed` EXPLÍCITO.
+# -----------------------------------------------------------------------------
+stop_backend_only() {
+  if [ -f "$RUN_DIR/backend.pid" ]; then
+    local pid; pid="$(cat "$RUN_DIR/backend.pid")"
+    kill "$pid" 2>/dev/null || true
+    rm -f "$RUN_DIR/backend.pid"
+  fi
+  pkill -f 'ts-node --transpile-only src/main.ts' 2>/dev/null || true
+  rm -f "$BACKEND_STAMP"
+  for i in $(seq 1 20); do
+    curl -sf -m 2 "$BACKEND_HEALTH_URL" >/dev/null 2>&1 || { ok "backend obsoleto detenido."; return 0; }
+    sleep 1
+  done
+  # Si no se libera el puerto NO se puede garantizar qué se está sirviendo, y ése es
+  # justo el estado que este script existe para hacer imposible. Se para en seco.
+  die "No pude apagar el backend obsoleto de :$BACKEND_PORT (sigue respondiendo tras 20s).
+     Hay un proceso que NO lancé yo. Identifícalo ANTES de matarlo — puede ser el stack
+     de otro rol:   pgrep -af 'ts-node|node .*main.ts'
+     Mientras siga vivo, NADIE puede afirmar qué commit se está midiendo (SEC-OPS-1)."
+}
+
 start_backend() {
   log "Backend NestJS nativo (ts-node) en :$BACKEND_PORT"
-  if curl -sf -m 3 "http://localhost:$BACKEND_PORT/api/v1/health" >/dev/null 2>&1; then
-    ok "ya respondía en :$BACKEND_PORT."
-    return 0
+
+  # -------------------------------------------------------------------------
+  # SEC-OPS-1 — NO REUTILIZAR UN BACKEND SIN SABER QUÉ SIRVE.
+  # Aquí es donde se firmaron (casi) dos veredictos contra binarios viejos: la
+  # versión anterior de estas 4 líneas era «responde ⇒ ok, return 0».
+  # Ahora responder no basta: hay que PROBAR la procedencia.
+  # -------------------------------------------------------------------------
+  if curl -sf -m 3 "$BACKEND_HEALTH_URL" >/dev/null 2>&1; then
+    if "$ASSERT_HEAD" --url "$BACKEND_HEALTH_URL" --label "backend :$BACKEND_PORT" \
+         --stamp "$BACKEND_STAMP" "${BACKEND_SOURCE_ARGS[@]}" \
+         --remedy "Lo reinicio yo ahora mismo. Postgres/Redis y los datos NO se tocan." --quiet; then
+      ok "ya respondía en :$BACKEND_PORT y SIRVE el árbol de ahora ($(short_sha "$(head_sha)")) — se reutiliza."
+      return 0
+    fi
+    warn "El backend vivo NO sirve el árbol de ahora (arriba está el detalle). Lo reinicio."
+    warn "Los datos NO se tocan: no se para Postgres/Redis y NO se resiembra."
+    stop_backend_only
   fi
+
   [ -d "$BACKEND_DIR/node_modules" ] || die "Falta $BACKEND_DIR/node_modules. Corre: cd backend && npm ci"
   ( cd "$BACKEND_DIR" && nohup npx ts-node --transpile-only src/main.ts \
       > "$RUN_DIR/backend.log" 2>&1 & echo $! > "$RUN_DIR/backend.pid" )
   # El arranque compila TS en caliente: dale margen (observado ~45-60s en frío).
   for i in $(seq 1 60); do
-    curl -sf -m 3 "http://localhost:$BACKEND_PORT/api/v1/health" >/dev/null 2>&1 && break
+    curl -sf -m 3 "$BACKEND_HEALTH_URL" >/dev/null 2>&1 && break
     kill -0 "$(cat "$RUN_DIR/backend.pid")" 2>/dev/null || {
       tail -40 "$RUN_DIR/backend.log"; die "El backend murió al arrancar. Log: $RUN_DIR/backend.log
      Si es un error de código y no de entorno, el hallazgo es del rol BACKEND (devops no lo corrige)."; }
     sleep 3
   done
-  curl -sf -m 3 "http://localhost:$BACKEND_PORT/api/v1/health" >/dev/null 2>&1 \
+  curl -sf -m 3 "$BACKEND_HEALTH_URL" >/dev/null 2>&1 \
     || { tail -40 "$RUN_DIR/backend.log"; die "Sin salud tras ~3min. Log: $RUN_DIR/backend.log"; }
-  ok "salud: $(curl -sS -m 5 "http://localhost:$BACKEND_PORT/api/v1/health")"
+
+  # Sello CON EL EPOCH DERIVADO DEL PROCESO (no con `date` de cuando lancé el nohup):
+  # el `npx` tarda un par de segundos en llegar al `node`, y si el sello guardara mi
+  # reloj en vez del del proceso, la comprobación posterior arrastraría un desfase
+  # constante y la tolerancia tendría que taparlo. Así el desfase es CERO por
+  # construcción, y cualquier diferencia futura significa de verdad «otro proceso».
+  local started; started="$(live_started_epoch "$BACKEND_HEALTH_URL" || true)"
+  [ -n "$started" ] || started="$(date +%s)"
+  # La BD va en el sello (ENMASCARADA — nunca la contraseña). Un backend puede servir
+  # el commit correcto contra la base EQUIVOCADA, y eso también invalida una medición.
+  # Sólo se reutiliza un backend que arrancó ESTE script, así que el env es el de la
+  # cabecera; el sello deja constancia para que el auditor no tenga que confiar.
+  write_stamp "$BACKEND_STAMP" "$started" "$(cat "$RUN_DIR/backend.pid" 2>/dev/null || echo '')" \
+    "port=$BACKEND_PORT
+db=$(mask_url "$DATABASE_URL")"
+
+  ok "salud: $(curl -sS -m 5 "$BACKEND_HEALTH_URL")"
+  # OBSERVABILIDAD (SEC-OPS-1): que el arranque DIGA qué commit sirve, para que el
+  # siguiente auditor no tenga que deducirlo de la hora de un PID.
+  ok "sirviendo commit $(short_sha "$(head_sha)")$( [ "$(dirty_count)" != "0" ] && printf ' + %s fichero(s) sin commitear' "$(dirty_count)" )  ·  arrancado $(date -d "@$started" '+%H:%M:%S' 2>/dev/null || echo "@$started")"
   warn "Al arrancar, el catch-up de \`price-ingest\` intenta salir a pokemontcg.io y aquí da 403."
   warn "Es ESPERADO sin egress y es money-safe: deja los precios STALE, no borra ni escribe \$0."
 }
@@ -348,20 +501,144 @@ start_frontend() {
          nohup npx next dev -p "$FRONTEND_PORT" > "$RUN_DIR/frontend.log" 2>&1 & echo $! > "$RUN_DIR/frontend.pid" )
   fi
 
+  # Instante de lanzamiento del servidor (para el sello). El frontend NO expone un
+  # `/health` con `uptime`, así que aquí NO hay ancla derivada del proceso como en el
+  # backend: el sello del frontend se apoya en ESTE reloj y en que el pid siga vivo.
+  # Es más débil, y se dice: `verify:head` lo etiqueta como tal.
+  local fe_started; fe_started="$(date +%s)"
+
   for i in $(seq 1 40); do
     curl -sf -m 15 "http://localhost:$FRONTEND_PORT/es" >/dev/null 2>&1 && break
     sleep 3
   done
   curl -sf -m 15 "http://localhost:$FRONTEND_PORT/es" >/dev/null 2>&1 \
     || { tail -40 "$RUN_DIR/frontend.log"; die "El frontend no respondió. Log: $RUN_DIR/frontend.log"; }
+  write_stamp "$FRONTEND_STAMP" "$fe_started" "$(cat "$RUN_DIR/frontend.pid" 2>/dev/null || echo '')" "mode=$FRONTEND_MODE
+port=$FRONTEND_PORT"
   ok "arriba en http://localhost:$FRONTEND_PORT (modo $FRONTEND_MODE)"
+  ok "sirviendo commit $(short_sha "$(head_sha)")  ·  arrancado $(date -d "@$fe_started" '+%H:%M:%S' 2>/dev/null || echo "@$fe_started")"
   if [ "$FRONTEND_MODE" = "dev" ]; then
     warn "Modo \`next dev\`: compila BAJO DEMANDA y se DEGRADA tras varias recompilaciones."
     warn "Sirve para desarrollar. Para un GATE usa 'up --gate' (next build + next start)."
   fi
 }
 
+# -----------------------------------------------------------------------------
+# verify:head — ¿lo que está vivo es lo que voy a auditar?  (SEC-OPS-1)
+#
+# SOLO LEE. No arranca, no para, no siembra, no escribe una fila. Pensado para que
+# QA / seguridad / el pentester lo corran ANTES de la primera medición y DESPUÉS de
+# la última, y para que CI lo use como paso bloqueante.
+# Exit 0 = puedes medir.  Exit 1 = lo que midas no vale.
+# -----------------------------------------------------------------------------
+verify_head() {
+  local rc=0 expected; expected="${1:-$(head_sha)}"
+
+  "$ASSERT_HEAD" --url "$BACKEND_HEALTH_URL" --label "backend :$BACKEND_PORT" \
+      --stamp "$BACKEND_STAMP" --sha "$expected" "${BACKEND_SOURCE_ARGS[@]}" || rc=1
+
+  # --- Frontend: mismo criterio, evidencia más débil (no hay uptime que consultar) --
+  echo ""
+  echo "──────────────────────────────────────────────────────────────────────────────"
+  echo " PROCEDENCIA DEL BINARIO VIVO — frontend :$FRONTEND_PORT"
+  echo "──────────────────────────────────────────────────────────────────────────────"
+  if ! curl -sf -m 15 "http://localhost:$FRONTEND_PORT/es" >/dev/null 2>&1; then
+    echo "  no responde: no hay nada que verificar."
+  elif [ ! -f "$FRONTEND_STAMP" ]; then
+    echo "  ⚠ responde pero NO hay sello ($FRONTEND_STAMP): procedencia DESCONOCIDA."
+    echo "    Para un gate eso es tan inválido como un binario viejo. Vuelve a levantarlo:"
+    echo "      ./scripts/stack-native.sh down && ./scripts/stack-native.sh up --gate"
+    rc=1
+  else
+    local f_sha f_started f_mode f_pid
+    f_sha="$(grep -E '^sha='        "$FRONTEND_STAMP" | cut -d= -f2- || true)"
+    f_started="$(grep -E '^started_at=' "$FRONTEND_STAMP" | cut -d= -f2- || true)"
+    f_mode="$(grep -E '^mode='      "$FRONTEND_STAMP" | cut -d= -f2- || true)"
+    f_pid="$(grep -E '^pid='        "$FRONTEND_STAMP" | cut -d= -f2- || true)"
+    echo "  commit servido      : ${f_sha:-?}"
+    echo "  arrancado           : $(date -d "@${f_started:-0}" '+%Y-%m-%d %H:%M:%S' 2>/dev/null || echo "@$f_started")  (modo ${f_mode:-?})"
+    if [ -n "$f_pid" ] && ! kill -0 "$f_pid" 2>/dev/null; then
+      echo "  ⚠ el pid del sello ($f_pid) ya NO existe: quien responde en el puerto NO es"
+      echo "    el proceso sellado. Procedencia DESCONOCIDA."
+      rc=1
+    fi
+    if [ "$f_mode" = "build" ]; then
+      # Solo en modo build el artefacto está horneado y puede quedarse viejo.
+      # `next dev` recompila bajo demanda, así que un fuente más nuevo NO implica
+      # que se esté sirviendo código viejo (sí implica que no es un gate — eso ya
+      # lo dice `up --gate`).
+      if [ "$f_sha" != "$expected" ]; then
+        echo "  ⛔ COMMIT DISTINTO: horneado \`$(short_sha "$f_sha")\`, esperado \`$(short_sha "$expected")\`."
+        rc=1
+      fi
+      local newer
+      newer="$(find "$FRONTEND_DIR/src" "$FRONTEND_DIR/messages" "$FRONTEND_DIR/package.json" \
+                 \( -name node_modules -o -name .next -o -name coverage \) -prune -o \
+                 -type f ! -name '*.log' -newermt "@${f_started:-0}" -print 2>/dev/null | head -8 || true)"
+      if [ -n "$newer" ]; then
+        echo "  ⛔ hay fuente MÁS NUEVO que el build horneado ⇒ el bundle NO lo incluye:"
+        printf '%s\n' "$newer" | sed 's#^#       · #'
+        rc=1
+      fi
+      [ "$rc" = 1 ] || echo "  ✔ el bundle horneado corresponde al árbol de ahora."
+    else
+      echo "  ⚠ modo \`dev\`: recompila bajo demanda, así que no se puede fechar lo que sirve."
+      echo "    NO es un artefacto de gate. Para un gate: 'up --gate'."
+    fi
+  fi
+
+  echo ""
+  if [ "$rc" = 0 ]; then
+    ok "VERIFICADO: lo que está vivo es el árbol de ahora ($(short_sha "$expected")). Puedes medir."
+  else
+    die "NO VERIFICADO (SEC-OPS-1): lo que midas contra este stack NO vale.
+     Arréglalo con:   ./scripts/stack-native.sh up          (reinicia apps, NO toca datos)
+     Para un gate:    ./scripts/stack-native.sh up --gate   (además hornea el frontend)"
+  fi
+}
+
 seed_synthetic() {
+  # ---------------------------------------------------------------------------
+  # GUARDA DE EVIDENCIA (§38.4). El seed NO es «recargar datos de prueba»: es
+  # DESTRUCTIVO por diseño. `prisma/seed-e2e.ts:129` hace
+  #   sellRequest.deleteMany({ where: { userId: { in: ids } } })
+  # sobre los usuarios deterministas del fixture. Si en ese momento hay filas de
+  # PoC/pentest colgando de uno de ellos, el seed se las lleva por delante.
+  #
+  # NO ES HIPOTÉTICO: el 2026-09-06 a las 17:14 una resiembra borró DOS de las tres
+  # filas que probaban BL-35 eje 2 (`SPEI-EJE2-NEVER-ARRIVED-001` y `QA-BL35-EJE2`,
+  # ambas de `customer@e2e.local`). Sobrevivió solo la del usuario redteam, que no
+  # está en el fixture. Ver §38.4.
+  #
+  # Esta guarda cubre lo que yo controlo: el `--seed` de este script. NO cubre las
+  # suites de integración, que llaman a `seedE2E()` directamente en su `beforeAll`
+  # (12 specs lo hacen). Eso es `backend/test/` — rol BACKEND. Consecuencia que
+  # conviene tener presente: **la BD del fixture no es un sitio seguro para guardar
+  # evidencia de una auditoría.**
+  # ---------------------------------------------------------------------------
+  local ev=""
+  if command -v psql >/dev/null 2>&1; then
+    ev="$(psql "${DATABASE_URL%%\?*}" -X -q -A -t -c \
+      "SELECT count(*) FROM \"SellRequest\" WHERE \"speiReference\" ~ '^(SPEI-DOUBLESPEND|SPEI-EJE2|QA-BL35|PENTEST-|POC-|REDTEAM-)'" 2>/dev/null || true)"
+  fi
+  if [ -n "$ev" ] && [ "$ev" != "0" ] && [ "${SEED_OVER_EVIDENCE:-0}" != "1" ]; then
+    psql "${DATABASE_URL%%\?*}" -X -c \
+      "SELECT sr.id, sr.status, sr.\"speiReference\", sr.\"paidAt\", u.email
+         FROM \"SellRequest\" sr LEFT JOIN \"User\" u ON u.id = sr.\"userId\"
+        WHERE sr.\"speiReference\" ~ '^(SPEI-DOUBLESPEND|SPEI-EJE2|QA-BL35|PENTEST-|POC-|REDTEAM-)'" 2>/dev/null || true
+    die "HAY $ev FILA(S) DE EVIDENCIA DE PoC EN LA BD y \`--seed\` LAS BORRARÍA.
+     El seed no recarga: BORRA el estado transaccional de los usuarios del fixture
+     (seed-e2e.ts:129). Ya pasó una vez (§38.4) y se perdieron dos filas de un
+     hallazgo abierto.
+
+     Elige a conciencia:
+       · Conservarlas  → NO siembres. \`./scripts/stack-native.sh up\` (sin --seed)
+                         reinicia las apps sin tocar un solo dato.
+       · Purgarlas     → ./scripts/purge-synthetic-poc-data.sh          (simulacro)
+                         ./scripts/purge-synthetic-poc-data.sh --apply  (de verdad)
+       · Sembrar igual → SEED_OVER_EVIDENCE=1 ./scripts/stack-native.sh up --seed
+                         (dilo en voz alta: estás destruyendo evidencia a propósito)"
+  fi
   log "Seed sintético (datos E2E deterministas, NUNCA datos reales de clientes)"
   ( cd "$BACKEND_DIR" && npm run seed:synthetic )
   ok "Seed cargado."
@@ -392,6 +669,12 @@ stop_apps() {
   # `bash -c` que esté ejecutando este mismo `down` desde una sesión de agente. Probado:
   # se suicidó (exit 144). El proceso real se llama literalmente «next-server (v15.5.23)».
   pkill -f "^next-server "                        2>/dev/null || true
+
+  # Los sellos de procedencia mueren con los procesos que describen. Un sello
+  # huérfano no puede engañar al comprobador (compara contra el uptime del proceso
+  # vivo, no contra el fichero), pero un fichero que dice «sirvo 3b2fc87» junto a un
+  # puerto muerto invita a leerlo mal. Se borran.
+  rm -f "$BACKEND_STAMP" "$FRONTEND_STAMP"
 
   # Verificación de que el apagado APAGÓ. Sin esto, `down` informa éxito por haber
   # ejecutado los kills, no por haber liberado el puerto: el mismo «enforcement de
@@ -483,6 +766,16 @@ print_e2e_instructions() {
 EOF
 }
 
+# -----------------------------------------------------------------------------
+# El dispatcher SOLO corre si el script se EJECUTA. Si alguien lo `source`ea (para
+# reutilizar una función, o por accidente en un shell interactivo), sin esto se
+# ejecutaría `up` sin haberlo pedido —el `${1:-up}` de abajo toma `up` por defecto—
+# y le reiniciaría el stack en la cara. Idioma estándar, aquí con motivo.
+# -----------------------------------------------------------------------------
+if [ "${BASH_SOURCE[0]}" != "${0}" ]; then
+  return 0 2>/dev/null || true
+fi
+
 case "${1:-up}" in
   up)
     shift || true
@@ -513,6 +806,15 @@ case "${1:-up}" in
     fi
     start_backend
     start_frontend
+    # -------------------------------------------------------------------------
+    # AUTOCOMPROBACIÓN DE CIERRE (SEC-OPS-1). `up` no AFIRMA que sirve el árbol de
+    # ahora: lo PRUEBA, con el mismo comprobador que usará el auditor. Si entre el
+    # arranque del backend y este punto alguien tocó el fuente (pasa: el frontend
+    # tarda minutos en hornear), el `up` termina en ROJO en vez de dejar un stack
+    # que parece bueno.
+    # -------------------------------------------------------------------------
+    log "Autocomprobación: ¿el stack vivo sirve el árbol de ahora? (SEC-OPS-1)"
+    verify_head
     warn "SIN MinIO/R2: la subida del INE del buylist (sobre el tope AML) NO se cubre por esta ruta."
     warn "Junto con la falta de STRIPE_TEST_SECRET_KEY son los DOS huecos de entorno que dejan"
     warn "4 smokes de dinero sin verificar en navegador. Ambos siguen ABIERTOS — DEVOPS_NOTES §31/§32.7."
@@ -584,6 +886,13 @@ case "${1:-up}" in
       ( cd "$BACKEND_DIR" && NODE_ENV=test npm run test:integration )
     fi
     ;;
+  verify:head)
+    shift || true
+    # `verify:head [<sha>]` — SOLO LEE. Sin argumento compara contra `git rev-parse HEAD`.
+    # Con argumento, contra el SHA que se le pase (útil para «auditar exactamente 3b2fc87»).
+    log "Verificación de procedencia del stack vivo (SEC-OPS-1)"
+    verify_head "${1:-}"
+    ;;
   status)
     log "Estado del stack nativo"
     pg_isready 2>&1 | sed 's/^/  postgres: /'
@@ -598,6 +907,21 @@ case "${1:-up}" in
     # confirma con `pgrep -af "next dev"` y `tail .native-stack/frontend.log` ANTES de
     # relanzar nada (puede haber otro rol trabajando contra el stack).
     printf '  frontend: %s (:%s)\n' "$(curl -sS -m 15 -o /dev/null -w '%{http_code}' "http://localhost:$FRONTEND_PORT/es" 2>/dev/null; true)" "$FRONTEND_PORT"
+    # PROCEDENCIA (SEC-OPS-1): «arriba» no es una respuesta útil si nadie sabe QUÉ está
+    # arriba. `status` dice el commit servido sin que haya que deducirlo de un PID.
+    # Ojo: esto INFORMA; el que VERIFICA (y falla) es `verify:head`.
+    printf '  HEAD del árbol:  %s%s\n' "$(short_sha "$(head_sha)")" \
+      "$( [ "$(dirty_count)" != "0" ] && printf ' (+%s fichero(s) sin commitear en backend/frontend)' "$(dirty_count)" )"
+    for svc in backend frontend; do
+      st="$RUN_DIR/$svc.stamp"
+      if [ -f "$st" ]; then
+        printf '  %s sirve:   %s  (arrancado %s)\n' "$svc" \
+          "$(short_sha "$(grep -E '^sha=' "$st" | cut -d= -f2-)")" \
+          "$(grep -E '^started_h=' "$st" | cut -d= -f2-)"
+      else
+        printf '  %s sirve:   ¿? sin sello — procedencia DESCONOCIDA (./scripts/stack-native.sh verify:head)\n' "$svc"
+      fi
+    done
     ;;
   down)
     log "Apagando apps"
@@ -611,6 +935,6 @@ case "${1:-up}" in
     fi
     ;;
   *)
-    die "Uso: $0 {up [--infra|--seed|--gate] | test:integration [args de jest] | status | down [--all]}"
+    die "Uso: $0 {up [--infra|--seed|--gate] | test:integration [args de jest] | verify:head [<sha>] | status | down [--all]}"
     ;;
 esac
