@@ -50,15 +50,31 @@
 > mayoría **no lo ve nunca** — pero **quien lo ve es justo el vendedor de mayor valor**. Es **el mismo costo
 > aceptado que la DIRECCIÓN** (D36, §P.2.1): se le piden datos a gente a la que **quizá no le compremos**. Por
 > eso el **cómo se le pide es requisito**, no diseño: ver **§P.2.2** y el criterio **178**.
-> **(6) LO QUE ESTA RONDA NO TOCA**: **no** cambia los **topes** (MX$3,000/solicitud, MX$10,000/mes), **no**
-> cambia la **retención** (180 días), **no** cambia que el **umbral de INE = el tope**, **no** cambia **D16**
-> (SPEI por el neto, topes por el bruto) y **no** mueve la **CLABE** —que sigue donde estaba, con su
-> **pregunta 29 abierta**—.
-> **Preguntas: se cierra la MITAD DE INE de la 29** (el INE ya no «viaja con la CLABE»: se adelanta solo). **Se
-> abren la 36 y la 37** (**no bloqueantes, con supuesto tomado**) **y la 38, que es la única con filo**: al
-> reconciliar el criterio 14 apareció que **dice dos cosas que no conviven con los defaults actuales**, y de su
-> respuesta depende que **D46 sea ejecutable o letra muerta**. Ver §E, §P.1, §P.2.2, M6, M10,
-> criterio **14**, criterio **178** y decisión **108**.
+> **(6) D47 — EL TOPE POR SOLICITUD DEJA DE SER TECHO: PASA A SER EL DISPARADOR DE LA IDENTIFICACIÓN.**
+> *(Cierra la **pregunta 38**, que era **la condición de existencia de D46**.)* Al reconciliar el **criterio
+> 14** apareció que **decía dos cosas incompatibles sobre el mismo número** —*«bloquea solicitudes que excedan
+> el tope por solicitud»* **y** *«exige INE cuando se supera el tope»*—, con los **diales sellando el empate**
+> (`BUYLIST_CAP_PER_REQUEST_CENTS` = `INE_THRESHOLD_CENTS` = **MX$3,000**). Con la lectura de «techo duro»,
+> **la exigencia de INE no se disparaba nunca y D46 era letra muerta**. **El humano decidió**: ***«el INE
+> desbloquea: sobre el tope se compra con identificación»***. Descartó **a sabiendas** renunciar a las compras
+> grandes y **partir los números** en dos cifras.
+> **Qué queda entonces, dicho como regla**: **el tope por solicitud IDENTIFICA; el tope MENSUAL RECHAZA.** Y
+> **el que rechaza se evalúa ANTES que el que identifica**, porque **pedir una identificación oficial por una
+> operación que igual vamos a rehusar es indefendible**.
+> **⚠ Esto cambia la postura AML y hay que decirlo**: **el techo real del buylist pasa a ser el tope MENSUAL
+> (MX$10,000)**. El de solicitud **ya no acota exposición**: la acota **el mensual, solo**.
+> **⚠ Y obliga a rehacer parte de BL-38**: backend implementó **`bruto > tope por solicitud ⇒ rechazo`**
+> (`422 BUYLIST_LIMIT_EXCEEDED`). **Ese caso pasa a ser exigencia de identificación**; el rechazo se conserva
+> **solo para el mensual**. **No fue defecto de backend: implementó el criterio 14 tal como estaba escrito.**
+> **(7) LO QUE ESTA RONDA NO TOCA**: **no** cambia los **valores** de los topes (MX$3,000/solicitud,
+> MX$10,000/mes) —cambia **qué hace** el de solicitud, no cuánto vale—, **no** cambia la **retención** (180
+> días), **no** cambia **D16** (SPEI por el neto, topes por el bruto) y **no** mueve la **CLABE** —que sigue
+> donde estaba, con su **pregunta 29 abierta**—.
+> **Preguntas: se cierra la MITAD DE INE de la 29** (el INE ya no «viaja con la CLABE»: se adelanta solo) y
+> **se cierra la 38** (ratificada por D47). **Quedan abiertas con supuesto tomado la 36, la 37 y la 39** —esta
+> última **la abrió D47**: si el tope por solicitud ya no rechaza, **¿el mensual rechaza incluso a una sola
+> solicitud?** **Supuesto: sí, y el INE no lo desbloquea.** Ver §E, §P.1, §P.2.2, M6, M10, criterios **14**,
+> **178** y **179**, y decisiones **108** y **109**.
 >
 > **ESTADO AL 2026-09-06 (10ª ronda del bloque v2.1 — RESOLUCIÓN DE UNA DIVERGENCIA — APROBADA POR EL HUMANO
 > — VIGENTE; el INE se rige por el bloque de arriba):**
@@ -1162,7 +1178,15 @@ de autenticidad/condición y precios opacos. Este marketplace resuelve:
       porque ese es el momento en que el vendedor empaqueta. Es **información**, no un paso bloqueante.
 - [ ] **Límites anti-fraude/KYC** (defaults configurables en M10): tope por solicitud **MX$3,000** y por
       mes **MX$10,000**; pago solo por SPEI a una cuenta **a nombre del propio usuario**; **INE** requerido
-      cuando se supera el tope. ~~El **INE se pide en el paso de pago del buylist** (sobre el tope)~~
+      cuando se supera el tope.
+      **⚠ LOS DOS TOPES NO HACEN LO MISMO — 11ª ronda, D47** *(cierra la pregunta 38; **antes esta línea se
+      contradecía**)*: el **tope por SOLICITUD ya no rechaza nada — IDENTIFICA**: por encima de MX$3,000 **sí
+      se compra, pero solo con INE**. El **tope MENSUAL sí RECHAZA**: por encima de MX$10,000 **no se compra,
+      con INE o sin él** *(**SUPUESTO — pregunta 39**: aplica **también a una sola solicitud** que ya nazca
+      por encima del mensual)*. **El que rechaza se evalúa ANTES que el que identifica** (criterio 14(c)).
+      **Consecuencia AML que hay que leer entera**: **el techo real del buylist es ahora el tope MENSUAL, y
+      nada más**; el de solicitud **dejó de acotar exposición** y pasó a ser **el umbral de KYC**.
+      ~~El **INE se pide en el paso de pago del buylist** (sobre el tope)~~
       **⚠ DEROGADO en la 11ª ronda (D46) — ver el bullet «CUÁNDO se pide el INE» abajo.** Lo que **NO** se
       derogó de esa frase y **sigue vigente sin cambio**: el INE se **verifica contra el nombre de la CLABE**
       y su **imagen se almacena cifrada en R2 con retención** (`INE_RETENTION_DAYS`, default **180**); la
@@ -1411,7 +1435,12 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
 - [ ] **M10 — Config y bitácora**: **diales editables sin deploy** + **auditoría global** (quién / qué / cuándo).
       Diales con **valores por defecto** (todos configurables): **markup de precio de venta** (% sobre la
       referencia), tarifa de envío **MX$175**, % de aportación en especie **70%**, IVA **16%**, tope de
-      buylist **MX$3,000/solicitud** y **MX$10,000/mes**, umbral de **INE = el tope**, **retención del INE**
+      buylist **MX$3,000/solicitud** y **MX$10,000/mes**, umbral de **INE = el tope**
+      *(**11ª ronda, D47**: los **valores no cambian**, pero **el de solicitud ya no rechaza — identifica**, y
+      **solo el mensual rechaza**. Como el tope por solicitud **no tiene otra función** que disparar el INE,
+      **es** el umbral de INE: **dos diales con el mismo default y el mismo trabajo**. ⚠ **Señalado para el
+      arquitecto**: si alguien los configura distintos, **este documento no define ninguna banda intermedia**,
+      porque **ya no hay dos comportamientos que repartir** — ver criterio **14**)*, **retención del INE**
       `INE_RETENTION_DAYS` (default **180**), **tope de reposición por carta** (definido por el dueño), tipo
       de cambio USD→MXN con colchón, selección de **`PricingProvider`** por tipo de producto, y *(NUEVO v2.1,
       D8)* los **dos plazos del ciclo de buylist** *(**⚠ son TRES desde la 5ª ronda** — ver el bloque de D33
@@ -3344,7 +3373,7 @@ gananciaNeta  =  estimadoPSA9 − (precioVentaRaw + gradingCost)      ← SOLO p
 
 | # | Fase | Estado al terminar | Quién actúa | Qué cambia respecto a hoy |
 |---|---|---|---|---|
-| 1 | **Cotiza** | `cotizada` | Cliente | **Igual que hoy** (cotizador público, monto derivado server-side, §E) + **mínimo de MX$500** (D18). *(5ª ronda, D33)*: **caduca a los 7 días hábiles** si nadie la oferta (§P.3.1). *(**7ª ronda, D36/D37**)*: **aquí se piden la CLABE y la DIRECCIÓN de origen** —de la **libreta que ya existe**—, y **sin dirección no se crea la solicitud** (§P.2.1). *(**11ª ronda, D46**)*: **aquí también se pide el INE**, pero **solo si el TOTAL COTIZADO supera el tope** (MX$3,000): **sin INE no se crea esa solicitud** (§P.2.2). **Por debajo del tope no se pide nada de esto** |
+| 1 | **Cotiza** | `cotizada` | Cliente | **Igual que hoy** (cotizador público, monto derivado server-side, §E) + **mínimo de MX$500** (D18). *(5ª ronda, D33)*: **caduca a los 7 días hábiles** si nadie la oferta (§P.3.1). *(**7ª ronda, D36/D37**)*: **aquí se piden la CLABE y la DIRECCIÓN de origen** —de la **libreta que ya existe**—, y **sin dirección no se crea la solicitud** (§P.2.1). *(**11ª ronda, D46**)*: **aquí también se pide el INE**, pero **solo si el TOTAL COTIZADO supera el tope** (MX$3,000): **sin INE no se crea esa solicitud** (§P.2.2). **Por debajo del tope no se pide nada de esto**. *(**11ª ronda, D47**)*: el tope de MX$3,000 **identifica, no rechaza** —arriba **se compra con INE**—; **el único rechazo por monto es el tope MENSUAL** (MX$10,000), y **se evalúa ANTES**, así que **a quien se va a rechazar NUNCA se le pide el INE** (criterios 14/179) |
 | 2 | **Ofertamos** | `ofertada` | Súper-admin, **u operador hasta su tope** (D13) | **NUEVO** — se decide línea por línea y **sale el correo con desglose, bruto/envío/neto y fecha límite** |
 | 3 | **El cliente acepta** | `aceptada` | Cliente | **NUEVO** — dijo que sí, pero **todavía no hay nada en camino** |
 | 4 | **Sale el paquete** | `en_transito` | **Operador** (confirma el envío, D20) | **NUEVO** — **la guía la ponemos nosotros SIEMPRE** *(5ª ronda, D31 — ~~arriba del umbral~~)* y **se compra AL ACEPTAR** (D21) |
@@ -3642,6 +3671,21 @@ ronda; NUEVA)**
       absolutamente nada de esto** — ni campo, ni aviso, ni paso extra. **La mayoría no lo verá nunca.** Pero
       **quien lo ve es el vendedor de mayor valor del negocio**, y es exactamente al que **no** nos podemos
       dar el lujo de espantar con una pantalla mal escrita.
+- [ ] **«TE PEDIMOS TU INE» y «NO PODEMOS COMPRARTE ESTO» son DOS MENSAJES DISTINTOS, y no se confunden**
+      *(NUEVO, D47 — 11ª ronda)*: desde D47 hay **dos umbrales que se comportan al revés** y **el vendedor
+      tiene que poder distinguirlos sin ayuda**:
+      - **Sobre el tope por solicitud (MX$3,000) ⇒ identificación**: el mensaje es ***«para continuar
+        necesitamos tu identificación»***. **Es una puerta, no un muro**: el vendedor **sube su INE y sigue**.
+        **Prohibido redactarlo como un rechazo** —nada de *«no podemos procesar esta solicitud»*—, porque
+        **sí podemos**, y decirle lo contrario **nos cuesta la compra más grande del mes**.
+      - **Sobre el tope mensual (MX$10,000) ⇒ rechazo**: el mensaje es ***«no podemos comprarte más este
+        mes»***, y **el INE no lo cambia**. **Prohibido redactarlo como si le faltara un documento**, porque
+        **no le falta ninguno**: **mandarlo a subir su INE para después rehusarle es la peor versión de esta
+        pantalla**. Se le dice **cuánto lleva comprometido en el mes** y **que puede volver el mes que
+        entra** — es información verdadera y es lo único accionable que tiene.
+      - **El orden lo garantiza el sistema, no la redacción** (criterio 14(c), criterio 179(e)): **si va a
+        ser rechazado por el mensual, nunca llega a la pantalla del INE**. **Que las dos pantallas existan no
+        basta: la de identificación no se muestra jamás para una operación que ya está rehusada.**
 - [ ] **Vender ya exige cuenta, así que esto NO le cae a un anónimo** *(no es regla nueva, se recuerda porque
       cambia cómo se lee todo lo demás)*: el **cotizador es público**, pero **crear la solicitud requiere
       cuenta** (§J, «Fuera de alcance — buylist como invitado»). El INE **no se le pide a un visitante que
@@ -4464,6 +4508,17 @@ en la 6ª — origen único de los números)**
 > CLABE** ocurre **donde la CLABE existe** — verificable con un INE **a nombre distinto**: **la operación se
 > detiene**, igual que antes de D46.
 >
+> **Flujo crítico — los dos topes se comportan al revés, y el orden importa (D47):** tres recorridos:
+> **(1) El tope de solicitud ya NO es techo** — un usuario **con INE** cotiza **MX$4,500** ⇒ **la solicitud se
+> crea**, se oferta y **llega a `pagada`**. **No aparece ningún rechazo por monto en todo el ciclo.**
+> **(2) El tope mensual SÍ es techo, y el INE no lo abre** — el mismo usuario, **con INE** y **MX$9,000 de
+> brutos ya comprometidos en el mes**, cotiza **MX$2,000** ⇒ **rechazo por el mensual**. El mensaje dice
+> **«no podemos comprarte más este mes»**, **no** le pide ningún documento.
+> **(3) El orden — y se verifica POR LO QUE NO PASA** — un usuario **sin INE** y **sin consumo del mes** cotiza
+> **MX$12,000** ⇒ **se rechaza por el mensual** y **nunca se le pide el INE**: **no hay pantalla de subida, no
+> se sube ningún archivo y no se almacena nada**. *(Si el orden estuviera invertido, le habríamos pedido su
+> identificación oficial **para después decirle que no**, y nos habríamos quedado con el documento.)*
+>
 > **Flujo crítico — nadie manda cartas sin un sí:** una solicitud recién creada **no ofrece** ninguna forma de
 > marcarse en tránsito ni de avisar «ya lo mandé»; la pantalla del cliente **no muestra** guía, dirección ni
 > instrucciones de envío hasta que **hay oferta aceptada**. *(**Precisión de la 7ª ronda, para que D36 no se
@@ -5263,18 +5318,46 @@ ronda por D31**)**
 13. Una carta de buylist con regla de **porcentaje** pero **sin precio de referencia** entra a la **cola de
     precio pendiente** y no se cotiza automáticamente hasta que el dueño fija su precio (las de regla **fijo**
     siempre cotizan).
-14. El sistema bloquea solicitudes que excedan el **tope por solicitud** (default MX$3,000) o el **tope
-    mensual** (default MX$10,000) del usuario, exige **INE** cuando se supera el tope configurado, y solo
-    permite registrar pago SPEI a una CLABE a nombre del propio usuario. ~~El **INE se pide en el paso de pago
-    del buylist** (sobre el tope)~~ **⚠ CORREGIDO en la 11ª ronda (D46): el INE se pide DESDE LA COTIZACIÓN
-    —al crear la solicitud— y se vuelve a exigir AL EMITIR LA OFERTA; ver §E, §P.2.2 y el criterio 178.**
-    Lo que **sigue igual**: su **imagen se almacena cifrada en R2 con retención** (`INE_RETENTION_DAYS`,
-    default 180) y se **verifica contra el nombre de la CLABE**; la **CLABE se guarda cifrada en BD**.
-    **⚠ AMBIGÜEDAD DETECTADA EN ESTE CRITERIO, señalada y NO asumida en silencio (pregunta abierta 38)**:
-    este criterio dice **las dos cosas a la vez** —*«bloquea solicitudes que excedan el tope»* **y** *«exige
-    INE cuando se supera el tope»*— y con los **defaults iguales** (`umbral de INE = el tope`, M10) **no
-    pueden convivir**: si nada por encima de MX$3,000 se acepta jamás, **la exigencia de INE nunca se
-    dispara** y **D46 sería letra muerta**. Ver la pregunta 38 para el supuesto tomado.
+14. **LOS DOS TOPES HACEN COSAS DISTINTAS: el de SOLICITUD identifica, el MENSUAL rechaza** *(**REESCRITO
+    ENTERO en la 11ª ronda por D47** — cierra la **pregunta 38**; la redacción anterior **se contradecía a sí
+    misma** y queda abajo como historial)*:
+    **(a)** **Tope por solicitud (default MX$3,000) — YA NO RECHAZA: DISPARA LA IDENTIFICACIÓN.** Por encima
+    de él **sí se compra**, pero **solo con INE**. Es **el umbral de KYC**, no un techo.
+    **(b)** **Tope mensual (default MX$10,000) — SIGUE SIENDO RECHAZO DURO.** Por encima de él **no se compra**,
+    **con INE o sin él**: la identificación **no lo desbloquea**. Es **el único techo de dinero que queda**.
+    **(c)** **Orden de evaluación — el que RECHAZA se evalúa ANTES que el que IDENTIFICA.** Si una solicitud
+    va a ser rechazada por el tope mensual, **no se le pide el INE**: **pedir una identificación oficial para
+    una operación que de todas formas vamos a rehusar es indefendible**, y además regala un documento a cambio
+    de nada. Verificable con una cotización de **MX$12,000** de un usuario sin consumo previo del mes: **se
+    rechaza por el mensual** y **en ningún momento se le pide INE**.
+    **(d)** **El INE se pide DESDE LA COTIZACIÓN** —al crear la solicitud— y **se vuelve a exigir AL EMITIR LA
+    OFERTA** (**D46**; ver §E, §P.2.2 y criterio **178**). ~~El **INE se pide en el paso de pago del
+    buylist**~~ **derogado**.
+    **(e)** **Lo que no cambió**: solo se permite registrar pago **SPEI a una CLABE a nombre del propio
+    usuario**; la imagen del INE se **almacena cifrada en R2 con retención** (`INE_RETENTION_DAYS`, default
+    180) y se **verifica contra el nombre de la CLABE**; la **CLABE se guarda cifrada en BD**. **Ambos topes
+    se siguen midiendo en BRUTOS** (criterios **136**/**155**, sin cambio).
+    **⚠ CONSECUENCIA PARA EL ARQUITECTO Y PARA BACKEND, dicha explícita porque HAY CÓDIGO QUE LA CONTRADICE**:
+    al cerrar **BL-38** backend implementó **`bruto > tope por solicitud ⇒ rechazo`**
+    (`422 BUYLIST_LIMIT_EXCEEDED`). **Con D47 ese caso deja de ser rechazo y pasa a ser exigencia de
+    identificación** (el `422 INE_REQUIRED` que ya existe). **El rechazo `BUYLIST_LIMIT_EXCEEDED` se conserva,
+    pero SOLO para el tope MENSUAL.** No es defecto de backend: **implementó el criterio 14 tal como estaba
+    escrito** — y el criterio era el que estaba mal. **La declaración formal la hace el arquitecto (regla 9);
+    esto solo dice qué comportamiento debe quedar.**
+    **⚠ OBSERVACIÓN QUE ESTE DOCUMENTO SEÑALA, no un pendiente del humano**: con D47, el **tope por
+    solicitud** y el **umbral de INE** **dejan de ser dos cosas** — el tope por solicitud **no tiene ninguna
+    otra función** que disparar la identificación, así que **es** el umbral de INE. Hoy son **dos diales de
+    M10 con el mismo default** (**MX$3,000**, `umbral de INE = el tope`) y **eso invita a que diverjan**: si
+    alguien los configura distintos, **el documento no dice qué pasa en la banda intermedia** porque **ya no
+    hay dos comportamientos que repartir**. **No se toca ningún dial en esta ronda** (no se pidió); se deja
+    señalado para que el arquitecto lo resuelva al declarar.
+    ~~*(Redacción anterior, contradictoria, conservada como historial)*: «El sistema bloquea solicitudes que
+    excedan el **tope por solicitud** (default MX$3,000) o el **tope mensual** (default MX$10,000) del
+    usuario, exige **INE** cuando se supera el tope configurado…»~~ — **decía las dos cosas a la vez**
+    (*«bloquea»* y *«exige INE»*) sobre **el mismo número**, y con los defaults **no podían convivir**: si
+    nada por encima de MX$3,000 se aceptaba jamás, **la exigencia de INE no se disparaba nunca**. **La
+    incoherencia llevaba ahí desde antes de este stream**, inerte solo porque el INE vivía en el paso de pago;
+    **D46 la volvió estructural y D47 la resuelve**.
 15. **Cherry-pick carta por carta — AL OFERTAR y al verificar** *(actualizado v2.1, D1/D9)*: el dueño decide
     **línea por línea qué compra** **en la fase de oferta** (antes de que el vendedor mande nada), y lo que
     resulta de esa decisión **es la oferta**. En la **verificación** la decisión carta por carta sigue
@@ -6308,6 +6391,9 @@ ronda por D31**)**
     ya no es construible (D31): el envío es nuestro en todas.**
 136. **Topes y KYC sobre el BRUTO; SPEI por el NETO (D16)**: los **topes por solicitud y mensual** y el
     **umbral de INE** se evalúan sobre el **bruto ofertado**, mientras que el pago se ejecuta por el **neto**.
+    *(**11ª ronda**: **este criterio no cambia** — sigue fijando **sobre qué MONTO** se miden. Lo que cambió
+    es **qué HACE cada tope** cuando se supera: el de solicitud **identifica**, el mensual **rechaza** (D47,
+    criterio 14) — y **con qué monto en cada momento** del ciclo (D46, criterio 178).)*
     Verificable con una oferta cuyo **bruto queda arriba del umbral de INE** y cuyo **neto queda abajo**:
     **el INE se sigue exigiendo**. Descontar el envío **no puede** colar una operación por debajo del umbral.
 137. **La guía se compra AL ACEPTAR y es manual (D19/D21)**: mientras la solicitud está **`ofertada`** **no
@@ -7017,6 +7103,30 @@ de este documento (v2.1, D41 + D42; §E/§H/§P.3/§P.11)**
     Verificable además **por lo que NO dice**: **no** promete que subirlo **mejore o asegure** la oferta, y
     **no** lo disfraza de *«verificación de tu cuenta»*.
 
+179. **D47 — EL TOPE POR SOLICITUD IDENTIFICA; EL MENSUAL RECHAZA (11ª ronda; cierra la pregunta 38 y hace
+    EJECUTABLE al 178)**: verificable en **siete** puntos:
+    **(a)** **sobre el tope por solicitud SÍ se compra**: un usuario **con INE** cotiza **MX$4,500** ⇒ **la
+    solicitud se crea**, **se oferta** y **el ciclo llega a `pagada`**. **No aparece ningún rechazo por
+    monto.** *(Este punto es el que prueba que el tope dejó de ser techo.)*;
+    **(b)** **sin INE, ese mismo caso NO se rechaza: se identifica** — el desenlace es **«súbenos tu INE»**,
+    **no** «no podemos comprarte». Verificable en el **mensaje** y en que **subir el INE deja pasar la misma
+    solicitud sin volver a cotizar**;
+    **(c)** **el tope MENSUAL sí rechaza, y el INE no lo desbloquea**: un usuario **con INE en archivo** y
+    **MX$9,000 de brutos ya comprometidos en el mes** cotiza **MX$2,000** ⇒ **se rechaza por el mensual**,
+    **aunque tenga INE** y **aunque cada solicitud por separado esté bajo el tope de solicitud**;
+    **(d)** **una sola solicitud por encima del mensual también se rechaza** *(**SUPUESTO — pregunta 39**)*:
+    **MX$12,000** de un usuario **sin consumo previo del mes** ⇒ **rechazo**, con INE o sin él;
+    **(e)** **ORDEN: el que rechaza va ANTES que el que identifica** — en el caso (d), **en ningún momento se
+    le pide el INE**. Verificable **por lo que NO pasa**: **no hay pantalla de INE**, **no se sube ningún
+    archivo** y **no se almacena nada** para una operación que se va a rehusar. *(Si el orden se invirtiera,
+    le pediríamos su identificación oficial **para después decirle que no** — y nos quedaríamos con el
+    documento.)*;
+    **(f)** **los dos topes se siguen midiendo en BRUTOS** (criterios 136/155, sin cambio): un envío caro
+    **no baja** el acumulado mensual ni cuela una operación bajo el umbral de identificación;
+    **(g)** **verificable por lo que YA NO existe**: **ningún** rechazo cuyo motivo sea *«excede el tope por
+    solicitud»*. Ese desenlace **desaparece del producto** — el único rechazo por monto que queda es **el
+    mensual**. *(Es el punto que atrapa la implementación vieja de BL-38 si sobrevive: ver criterio 14.)*
+
 ## Riesgos y banderas para el humano
 > No bloquean el desarrollo técnico del MVP, pero deben resolverse antes de operar con público real.
 - **Negocio — el vendedor cerca del mínimo se entera del ~36% HASTA el correo de oferta** *(NUEVA 8ª ronda,
@@ -7038,6 +7148,10 @@ de este documento (v2.1, D41 + D42; §E/§H/§P.3/§P.11)**
 - **Fiscal — buylist**: comprar cartas a particulares y pagar por SPEI tiene implicaciones fiscales
   (comprobación, retenciones, límites). Validar con contador; los topes por solicitud/mes y el requisito
   de INE son mitigaciones iniciales, no una postura fiscal completa.
+  **⚠ ACTUALIZADO (11ª ronda, D47)**: de esas mitigaciones, **el tope por solicitud dejó de ser una de ellas**
+  —**ya no limita cuánto compramos en una operación, solo exige identificarla**—. **La única que sigue
+  limitando el monto es el tope MENSUAL (MX$10,000).** Al validar con el contador, **ese es el número que hay
+  que llevarle**, no el de MX$3,000.
 - **AML / KYC — INE almacenado (soporte AML)**: el **INE se almacena como imagen cifrada en R2 con retención**
   (`INE_RETENTION_DAYS`, default 180), ~~pedido en el paso de pago del buylist sobre el tope~~ **pedido DESDE
   LA COTIZACIÓN sobre el tope (11ª ronda, D46)** y verificado contra
@@ -7055,6 +7169,21 @@ de este documento (v2.1, D41 + D42; §E/§H/§P.3/§P.11)**
   180 días**. **Lo que el humano debe validar con abogado es exactamente esto**: si la **base legal** aguanta
   recabar identificación **antes** de que exista una operación, o si conviene **purgar antes** en las
   solicitudes que nunca llegaron a `pagada`. *(**No se cambió la retención en esta ronda**: no se pidió.)*
+  **⚠ SEGUNDO CAMBIO DE POSTURA AML EN LA MISMA RONDA (D47) — es el que más pesa de los dos, y va aquí para
+  que no se lea solo en el criterio 14**: **el tope por solicitud dejó de rechazar**. Antes, la exposición
+  estaba acotada **dos veces** (por operación **y** por mes); ahora **el único techo de dinero es el tope
+  MENSUAL de MX$10,000**, y por operación **no hay techo: hay identificación**. **Dicho sin adornos: una sola
+  compra de MX$9,000 a un particular es ahora posible** —con INE, cotejado contra el titular de la CLABE—
+  **cuando antes era imposible**. **Es lo que el humano eligió a sabiendas** (descartó renunciar a las compras
+  grandes), pero **cambia el perfil de riesgo que hay que llevarle al abogado/contador**: ya no basta con
+  validar la retención del documento, hay que validar **si un techo mensual de MX$10,000 con identificación
+  por operación es una postura AML suficiente** para comprar a particulares por SPEI.
+  **Lo que sigue conteniendo la exposición** (para que la bandera no se lea peor de lo que es): **(1)** el
+  **tope mensual**, que **rechaza** y **suma BRUTOS** —descontar envíos no lo baja, criterio 155—; **(2)** la
+  **identificación obligatoria** sobre MX$3,000, ahora **desde la cotización** (D46) y **también al ofertar**;
+  **(3)** el **cotejo INE ↔ titular de la CLABE**, que impide pagar a un tercero; **(4)** que el pago **solo**
+  sale por **SPEI a cuenta del propio usuario**; y **(5)** que **cada oferta la emite una persona** con tope
+  de autorización (D13). **Lo que ya NO contiene nada**: el tope por solicitud.
 - **Fiscal — IVA/CFDI**: cobrar IVA 16% obliga a **emitir CFDI** y a manejar régimen fiscal, RFC del
   cliente y timbrado (PAC). En el MVP la factura es **manual por correo** (el cliente envía sus datos
   fiscales) y solo se **registra el IVA cobrado**; el **timbrado automatizado con PAC es fase 2**. Validar
@@ -7228,6 +7357,9 @@ El MVP se considera "lanzado" cuando, en una **beta cerrada**, se cumple en un p
 5. **Tarifa de envío** → default **MX$175** (configurable en M10).
 6. **Costo de aportación en especie** → default **70%** (configurable).
 7. **Topes de buylist** → **MX$3,000/solicitud**, **MX$10,000/mes**, **INE sobre el tope** (configurables).
+   *(**⚠ PRECISADO en la 11ª ronda por D47 — decisión 109**: los **montos siguen iguales**, pero **hacen cosas
+   distintas**: el de **solicitud IDENTIFICA** (arriba se compra **con INE**) y el **MENSUAL RECHAZA** (arriba
+   no se compra, con INE o sin él). **El techo real del buylist es el mensual.**)*
 8. **Tope de reposición por carta** → **configurable por el dueño** en M10.
 
 **Decisiones post-arquitectura:**
@@ -8162,13 +8294,53 @@ ux-ui; ver §E/§H/§P.3/§P.3.1/§P.5.1/§P.12/M5 y criterios 173–175):**
    le compramos**. Es **el mismo trato que ya se aceptó para el domicilio** (D36), **con más peso**: lo contiene
    la **purga al llegar a estado terminal** y la **retención de 180 días**, y **queda escalado a abogado** en
    «Riesgos y banderas».
-   **Qué NO cambia**: **topes** (MX$3,000/solicitud, MX$10,000/mes), **retención** (180 días), **umbral de INE =
-   el tope**, **D16** (SPEI por el neto, topes por el bruto) y la **CLABE**, que **no se movió** (pregunta 29).
-   Ver §E, §P.1, §P.2.2, M6, M10, criterios **14** y **178**.
+   **Qué NO cambia**: los **valores** de los topes (MX$3,000/solicitud, MX$10,000/mes), la **retención** (180
+   días), **D16** (SPEI por el neto, topes por el bruto) y la **CLABE**, que **no se movió** (pregunta 29).
+   **⚠ Lo que sí cambió, pero por D47 y no por D46**: **qué HACE el tope por solicitud** —**identifica, ya no
+   rechaza**— y que **el único techo de dinero pasa a ser el mensual**. **D46 dice CUÁNDO se pide el INE; D47
+   dice QUÉ PASA cuando se supera el tope.** Son dos decisiones distintas de la misma ronda, y **la 38 fue el
+   puente**: sin la respuesta de D47, la compuerta 1 de D46 era inalcanzable.
+   Ver §E, §P.1, §P.2.2, M6, M10, criterios **14**, **178** y **179**, y decisión **109**.
+
+109. **D47 — El tope por solicitud deja de ser techo y pasa a ser el disparador del INE. El mensual queda como
+   único techo. ⚠ CORRIGE a este documento Y obliga a rehacer parte de BL-38.**
+   **De dónde sale**: al reconciliar el **criterio 14** para escribir D46 apareció que **decía dos cosas
+   incompatibles sobre el mismo número** —*«bloquea solicitudes que excedan el tope por solicitud»* **y**
+   *«exige INE cuando se supera el tope»*—. **No era ambigüedad de redacción: estaba sellada en los diales**
+   (`BUYLIST_CAP_PER_REQUEST_CENTS` = `INE_THRESHOLD_CENTS` = **MX$3,000**, con el comentario
+   `// = tope por solicitud`). **Llevaba ahí desde antes de este stream**, **inerte** solo porque el INE vivía
+   en el paso de pago. **D46 la volvió estructural**: con la lectura de «techo duro», **la compuerta que el
+   humano acababa de pedir era inalcanzable**.
+   **Qué decidió el humano**: ***«el INE desbloquea: sobre el tope se compra con identificación».*** Se le
+   ofrecieron **tres salidas** y **descartó dos a sabiendas**: **no quiere renunciar a las compras grandes**
+   y **no quiso partir los números** en dos cifras distintas.
+   **Qué se decide, en tres piezas**:
+   **(a) EL TOPE POR SOLICITUD IDENTIFICA** — por encima de **MX$3,000** **sí se compra**, pero **solo con
+   INE**. **Deja de existir el rechazo por «excede el tope por solicitud».**
+   **(b) EL TOPE MENSUAL RECHAZA** — por encima de **MX$10,000** **no se compra**, **con INE o sin él**
+   *(**supuesto, pregunta 39**: aplica también a **una sola solicitud** que ya nazca por encima)*.
+   **(c) ORDEN DE EVALUACIÓN: primero el que rechaza, después el que identifica** — **no se pide una
+   identificación oficial por una operación que de todas formas vamos a rehusar**. Es una regla de producto,
+   no de implementación: **el costo de invertirla lo paga el vendedor con su documento**, y nos quedaríamos
+   con él a cambio de un «no».
+   **⚠ LA CONSECUENCIA QUE HAY QUE LEER ENTERA — cambia la postura AML**: **el techo real del buylist pasa a
+   ser el tope MENSUAL, y nada más.** Antes la exposición estaba acotada **dos veces** (por operación y por
+   mes); ahora **por operación no hay techo: hay identificación**. **Una sola compra de MX$9,000 a un
+   particular es ahora posible cuando antes era imposible.** **Lo que sigue conteniendo**: el mensual (que
+   suma **brutos**), el INE obligatorio **desde la cotización**, el **cotejo INE ↔ titular de la CLABE**, el
+   **SPEI solo a cuenta propia** y el **tope de autorización del operador** (D13). Ver «Riesgos y banderas».
+   **⚠ QUÉ TIENE QUE REHACERSE, dicho para que el arquitecto lo declare bien (regla 9)**: al cerrar **BL-38**,
+   backend implementó **`bruto > tope por solicitud ⇒ rechazo`** (`422 BUYLIST_LIMIT_EXCEEDED`). **Ese caso
+   pasa a ser exigencia de identificación** (`422 INE_REQUIRED`, que ya existe); **el rechazo se conserva solo
+   para el mensual**. **No es defecto de backend: implementó el criterio 14 tal como estaba escrito** — el
+   criterio era el que estaba mal, y **por la regla de conflicto el que se movió fue este documento**.
+   **Qué NO cambia**: los **valores** de los dos topes, la **retención** (180 días), **D16** (topes por el
+   bruto, SPEI por el neto), **D46** (el INE se pide desde la cotización) y la **CLABE** (pregunta 29).
+   Ver §E, M10, criterios **14**, **136**, **178** y **179**, y preguntas **38** (cerrada) y **39**.
 
 ---
 
-> **↑ Termina el hilo v2.1 (buylist, 56–108 · D1–D46) · ↓ Reanuda el hilo v2.0 (gancho de grading), que
+> **↑ Termina el hilo v2.1 (buylist, 56–109 · D1–D47) · ↓ Reanuda el hilo v2.0 (gancho de grading), que
 > venía de la «cuarta ronda» de más arriba.**
 > **Los números 56–64 que siguen son del hilo v2.0 y NO son los mismos 56–64 de arriba.** Cítense como
 > **`decisión NN (v2.0)`**. Ver el aviso de numeración al inicio del bloque v2.1.
@@ -9345,9 +9517,28 @@ la 30 y la 32 siguen abiertas:**
    **Lo que NO está en duda en ninguno de los dos casos**: en el **cotizador público** el aviso va **en
    palabras y SIN cifra**. Eso **no se toca** — el 177(c) manda ahí sin discusión.
 
-38. **[ABIERTA — ⚠ la de mayor filo: de esto depende que D46 sea EJECUTABLE o LETRA MUERTA] Por encima de
-   MX$3,000 por solicitud, ¿NO compramos nunca, o compramos CON INE?** *(**contradicción que encontré al
-   reconciliar el criterio 14**; **no** la asumí en silencio)*
+38. **✅ CERRADA (2026-09-06) por D47 — el supuesto quedó RATIFICADO.** *(Nació como **la de mayor filo**: de
+   esto dependía que **D46** fuera **ejecutable o letra muerta**.)*
+   **Lo que preguntaba**: por encima de **MX$3,000 por solicitud**, ¿**no compramos nunca**, o **compramos
+   CON INE**?
+   **Qué contestó el humano**: **(a)** — ***«el INE desbloquea: sobre el tope se compra con
+   identificación»***. **Descartó las otras dos a sabiendas**: **no quiere renunciar a las compras grandes**
+   (opción b) y **no quiso partir los números** en dos cifras distintas (opción c).
+   **Verificación previa a preguntárselo** *(la hizo el orquestador y queda registrada porque es el patrón que
+   este stream persigue)*: la contradicción **no era de redacción, estaba sellada en los diales** —
+   `BUYLIST_CAP_PER_REQUEST_CENTS: 300000` e `INE_THRESHOLD_CENTS: 300000`, **el mismo número**, con el
+   comentario `// = tope por solicitud` al lado. **Llevaba ahí desde antes de este stream**, inerte **solo
+   porque el INE vivía en el paso de pago**.
+   **Qué se hizo con la respuesta**: **criterio 14 REESCRITO ENTERO** (el de solicitud identifica, el mensual
+   rechaza, con orden de evaluación), **criterio 179 nuevo**, **decisión 109 (D47)** y barrido de las
+   **repeticiones** que seguían diciendo *«bloquea»* sobre el tope por solicitud.
+   **⚠ Lo que esta respuesta ABRIÓ y quedó decidido por SUPUESTO — ver pregunta 39**: si el tope por solicitud
+   deja de rechazar, **el techo real pasa a ser el mensual**, y había un caso que nadie normaba: **una sola
+   solicitud por encima del mensual**.
+
+   ~~**[ABIERTA] Por encima de MX$3,000 por solicitud, ¿NO compramos nunca, o compramos CON INE?**~~
+   *(**contradicción que encontré al reconciliar el criterio 14**; **no** la asumí en silencio — texto
+   original conservado abajo como historial de por qué se preguntó)*
    **La contradicción, dicha tal cual**: el **criterio 14** afirma **las dos cosas en la misma frase** —
    *«el sistema **bloquea solicitudes que excedan el tope por solicitud** (default MX$3,000)»* **y** *«exige
    **INE** cuando se supera el tope configurado»*—, y **M10 sella el empate**: **`umbral de INE = el tope`**.
@@ -9356,20 +9547,43 @@ la 30 y la 32 siguen abiertas:**
    **Por qué es esta ronda y no antes**: mientras el INE vivía **en el paso de pago** la incoherencia era
    **inerte** —nadie llegaba ahí—. **D46 la vuelve estructural**: es **la condición de existencia** de lo que
    el humano acaba de decidir.
-   **Supuesto tomado** *(el único que hace ejecutable la decisión del humano, y el que se desprende de cómo
-   la formuló)*: **son dos diales distintos con papeles distintos** — el **umbral de INE** es un **umbral que
-   el INE DESBLOQUEA** (*sobre el umbral se vende, pero solo con identificación*), y el **tope** es el
-   **techo**. **Con los defaults iguales, sobre MX$3,000 se compra CON INE.** Se toma así porque el humano
-   razonó todo el tiempo sobre **vendedores que sí nos mandan cartas caras** (*«desde que quiere mandarnos las
-   cartas»*), no sobre vendedores a los que rechazamos de entrada.
-   **Qué debe confirmar el humano — son tres opciones, no dos**:
-   **(a)** **sobre el tope se compra con INE** —**supuesto tomado**—; el «bloqueo» del criterio 14 es
-   *«bloquea hasta que haya INE»*;
-   **(b)** **el tope es un techo duro** (arriba **no compramos jamás**) y el **umbral de INE es un dial
-   aparte que hay que bajar** (p. ej. MX$1,500) para que sirva de algo — en cuyo caso **hay que elegir ese
-   número** y **D46 no muerde hasta entonces**;
-   **(c)** **las dos cosas**: umbral de INE **abajo** (exige identificación) y tope **arriba** (techo duro),
-   con **dos cifras distintas** que hoy no existen.
+   **Supuesto que se tomó y que el humano RATIFICÓ** *(el único que hacía ejecutable la decisión, y el que se
+   desprendía de cómo la formuló)*: el **umbral es un umbral que el INE DESBLOQUEA** (*sobre él se vende, pero
+   solo con identificación*). Se tomó así porque el humano razonó todo el tiempo sobre **vendedores que sí nos
+   mandan cartas caras** (*«desde que quiere mandarnos las cartas»*), no sobre vendedores a los que
+   rechazamos de entrada.
+   **Las tres opciones que se le ofrecieron** *(la (c) la añadió el orquestador)*:
+   **(a)** **sobre el tope se compra con INE** — **ELEGIDA**; el «bloqueo» del criterio 14 era *«bloquea hasta
+   que haya INE»*;
+   **(b)** ~~el tope es un techo duro y el umbral de INE es un dial aparte que hay que bajar~~ — **descartada
+   a sabiendas**: implicaba **renunciar a las compras grandes**;
+   **(c)** ~~las dos cosas: umbral de INE abajo y tope duro arriba, con dos cifras distintas~~ — **descartada
+   a sabiendas**: **no quiso partir los números**.
    **Por qué no la declaré yo**: **cambia cuánto dinero entra por el buylist**, y eso es **decisión de negocio
    del dueño**, no de redacción. **Costo de equivocarse: alto** — con la lectura (b) y los defaults de hoy,
-   **el equipo construiría una compuerta que nunca se ejecuta**.
+   **el equipo habría construido una compuerta que nunca se ejecuta**.
+
+39. **[ABIERTA — no bloqueante, con SUPUESTO TOMADO] Una sola solicitud por encima del tope MENSUAL: ¿la
+   rechaza el mensual, o el INE también la desbloquea?** *(nace de **D47**: es el hueco que abrió la respuesta
+   a la 38)*
+   **Por qué existe esta pregunta**: hasta D47 había **dos topes que rechazaban**. Ahora **el de solicitud
+   identifica**, así que **el mensual quedó siendo el único techo de dinero**. Y el documento **nunca normó**
+   qué pasa con **una sola solicitud que ya nace por encima del mensual** (p. ej. **MX$12,000** de un usuario
+   sin consumo previo del mes): el criterio 14 lo decía **en la misma frase contradictoria** que D47 acaba de
+   desmontar, así que **no hay norma limpia que heredar**.
+   **Supuesto tomado**: **el tope MENSUAL sigue siendo RECHAZO DURO** — **el INE no lo desbloquea**, ni
+   siquiera cuando la solicitud es una sola. **Tres razones**: **(1)** el humano **solo habló del tope por
+   solicitud**, y extender su respuesta al mensual sería **ponerle palabras que no dijo**; **(2)** si el INE
+   desbloqueara también el mensual, **el buylist se quedaría literalmente sin techo de dinero** —solo con
+   identificación—, que es **una postura AML distinta** de la que él eligió; **(3)** los dos topes pasan a
+   tener **trabajos distintos y complementarios** (uno **identifica**, otro **acota exposición**), que es
+   justamente lo que los vuelve dos diales con razón de ser.
+   **Consecuencia que se escribió junto al supuesto** (criterio 14(c), criterio 179): **el tope que rechaza se
+   evalúa ANTES que el que identifica**, para **no pedir una identificación oficial por una operación que de
+   todas formas vamos a rehusar**.
+   **Qué confirmar**: **(a)** el mensual **rechaza siempre**, con INE o sin él —**supuesto**—; **o (b)** el
+   INE **también** lo desbloquea, en cuyo caso **hay que decir cuál es el techo real** (¿ninguno?) y
+   **rehacer la bandera AML**.
+   **Por qué no bloquea**: con **(a)** el sistema es **más restrictivo**, nunca menos —**rechaza de más, no de
+   menos**—, así que **no hay fuga de dinero** mientras el humano decide. **Costo de equivocarse**: perder
+   alguna compra grande puntual, **recuperable** con un cambio de dial.
