@@ -28,6 +28,63 @@
 > §0.22 de este documento son de `main` y NO se movieron**: son M47-H2, v1.53 (buylist raw-only) y
 > v1.53-b. Un informe de QA/techlead anterior al 2026-09-06 puede usar la numeración vieja.
 
+## 0.42 — **§M5-C / BL-37: los nueve `201` que el contrato declara `200`** (2026-09-06, rama `claude/buylist-inventory-workflow-hdnls3`, **commit APARTE, sin una línea de lógica**)
+
+> Propiedad: **backend**. Contra **§M5-C** (contrato v1.57). **No bloqueante.** Va en su propio commit
+> por la norma **BL-27**: *un diff no mezcla alineación de códigos con lógica, porque el gate de
+> seguridad y el techlead revisan por diff.*
+
+**La norma:** en el ciclo de buylist, **`201` es exclusivamente del endpoint que CREA una `SellRequest`**
+(`POST /buylist/requests`). **Todo verbo que opera sobre una solicitud existente responde `200`.**
+
+Se añadió `@HttpCode(HttpStatus.OK)` a los **nueve** de la tabla de §M5-C: `offer/authorize`,
+`offer/cancel`, `guide`, `confirm-shipment`, `guide/cancellation-done`, `decline`, `reject`,
+`items/:itemId/convert-to-inventory` y `pay-spei`. **Ni una línea de lógica.**
+
+⚠️ **El defecto no era un código mal escrito: era un código NO escrito.** Un `@Post` sin `@HttpCode`
+hereda el `201` del framework **en silencio** — no se ve en el diff, no lo ve el compilador, y solo
+aparece disparando el endpoint. Nueve lo acumularon durante versiones. Por eso el pase **no se queda en
+poner los decoradores**: añade `test/buylist.m5c-success-codes.spec.ts`, que **lee los decoradores
+reales** (`HTTP_CODE_METADATA`) en vez de una lista a mano, y **exige `200` a todo `POST` del
+controller**. El décimo endpoint nace cubierto.
+
+**La única excepción va nombrada con su razón** (`POST :id/offer`, que fija `200`|`202` **por
+resultado** vía `@Res`): una excepción anónima es la puerta por la que entra la siguiente.
+
+**Nueve aserciones de integración pasaron de `201` a `200`** (7 en `buylist-cycle.e2e-spec.ts`, 2 en
+`buylist.e2e-spec.ts`). *Pinneaban la conducta vieja; el contrato manda sobre el código.* **Frontend:
+cero cambios** — `apiRequest` ramifica por `res.ok` (medido por el arquitecto en v1.56).
+
+### 0.42.1 ⚠️ BL-36 — medido, y **NO lo toco: es una fórmula DECLARADA en el contrato**
+
+El arquitecto me enrutó BL-36 (*los dos `pickup-address` se apoyan solo en `closedAt`, así que una fila
+terminal con `closedAt` nulo pasa*) marcándolo **no medido** y pidiéndome medirlo antes de decidir la
+forma. **Medido, y la respuesta cambia el dueño:**
+
+1. **La cohorte no existe hoy en la BD local:** `0` filas terminales con `closedAt IS NULL` (5
+   terminales, todas selladas), y `0` filas no-terminales con `closedAt` poblado.
+2. **Pero es posible POR CONSTRUCCIÓN, y lo dice el propio schema:** `closedAt` nació en v1.8-ronda-c /
+   SEC-D2 (M-19) y su comentario declara *«Nullable (filas legacy usan fallback)»* ⇒ **toda fila que se
+   volvió terminal ANTES de M-19 tiene `closedAt` nulo**. En una BD de producción de largo recorrido la
+   cohorte **sí** puede existir. *Cero local no es cero.*
+3. **⚠️ Y aquí está lo que cambia quién decide: el contrato NO dice «no terminal», dice la FÓRMULA.**
+   - Cliente (§ línea 1273): *«re-congela el snapshot mientras no haya papel (**`closedAt IS NULL ∧
+     guideSentAt IS NULL`**)»*.
+   - Admin (§ línea 11492): un bloque `legal ⇔ …` con **`∧ closedAt IS NULL`** y, al lado, el
+     comentario **`// no se toca una terminal`**.
+
+   **Es EXACTAMENTE la forma de eje 2 en miniatura:** la intención escrita (*«una terminal»*) y el
+   término declarado (`closedAt`) **divergen justo en la fila legacy**. Y por eso mismo **no lo arreglo
+   yo**: en eje 2 el término faltante estaba en una fórmula declarada, y el cierre correcto fue que el
+   **arquitecto enmendara el contrato** (v1.57, regla 9) y luego yo implementara. Cambiar aquí una
+   fórmula que el contrato escribe con sus términos sería hacer justo lo que ese precedente prohíbe.
+   *Aplicar la disciplina solo cuando es cómoda no es disciplina.*
+
+**Escalado al arquitecto** con la medición y la forma propuesta (`liveRequestWhere()` en los dos
+`where`, que es literalmente §M5-T ya escrita). Fichado como **BL35-D9**. **No bloqueante**: el impacto
+es que un vendedor pueda re-congelar la dirección de una solicitud legacy ya terminal — **no mueve
+dinero, no imprime papel y no reabre nada**.
+
 ## 0.41 — **§M5-P / BL-35 eje 2: el tercer término de `isPayable` — «no se paga lo que no ha llegado»** (2026-09-06, rama `claude/buylist-inventory-workflow-hdnls3`, **MONEY · contrato v1.57**)
 
 > Propiedad: **backend**. Cierra **BL-35 eje 2-a**, el único hallazgo que hizo que **seguridad

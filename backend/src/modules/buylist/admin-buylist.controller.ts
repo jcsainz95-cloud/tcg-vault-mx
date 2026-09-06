@@ -303,6 +303,7 @@ export class AdminBuylistController {
    * La bitácora registra los dos **por separado** (criterio 147).
    */
   @Post(':id/offer/authorize')
+  @HttpCode(HttpStatus.OK) // v1.57 · §M5-C (BL-37): opera sobre una solicitud EXISTENTE ⇒ 200, no 201.
   @Roles(Role.super_admin)
   async offerAuthorize(@Param('id') id: string, @CurrentUser() user: { id: string; role: Role }) {
     const { response } = await this.buylist.adminOfferAuthorize(id, user);
@@ -330,6 +331,7 @@ export class AdminBuylistController {
    * `PROJECT.md` exige y lo que hace revisable la corrección.
    */
   @Post(':id/offer/cancel')
+  @HttpCode(HttpStatus.OK) // v1.57 · §M5-C (BL-37): opera sobre una solicitud EXISTENTE ⇒ 200, no 201.
   async offerCancel(
     @Param('id') id: string,
     @Body() dto: OfferCancelDto,
@@ -356,6 +358,7 @@ export class AdminBuylistController {
    * 157). Auditado `buylist.tracking.capture`.
    */
   @Post(':id/guide')
+  @HttpCode(HttpStatus.OK) // v1.57 · §M5-C (BL-37): opera sobre una solicitud EXISTENTE ⇒ 200, no 201.
   async guide(
     @Param('id') id: string,
     @Body() dto: GuideDto,
@@ -386,6 +389,7 @@ export class AdminBuylistController {
    * la confirmación no devuelve el paquete — pero el caso queda contado (fail-visible).
    */
   @Post(':id/confirm-shipment')
+  @HttpCode(HttpStatus.OK) // v1.57 · §M5-C (BL-37): opera sobre una solicitud EXISTENTE ⇒ 200, no 201.
   async confirmShipment(
     @Param('id') id: string,
     @Body() dto: ConfirmShipmentDto,
@@ -416,6 +420,7 @@ export class AdminBuylistController {
    * ⚠️ **No toca `payoutNetCents`**: es reporte, no pago.
    */
   @Post(':id/guide/cancellation-done')
+  @HttpCode(HttpStatus.OK) // v1.57 · §M5-C (BL-37): opera sobre una solicitud EXISTENTE ⇒ 200, no 201.
   async guideCancellationDone(
     @Param('id') id: string,
     @Body() dto: GuideCancellationDoneDto,
@@ -473,6 +478,7 @@ export class AdminBuylistController {
   }
 
   @Post(':id/decline')
+  @HttpCode(HttpStatus.OK) // v1.57 · §M5-C (BL-37): opera sobre una solicitud EXISTENTE ⇒ 200, no 201.
   async decline(
     @Param('id') id: string,
     @Body() dto: DeclineDto,
@@ -547,6 +553,7 @@ export class AdminBuylistController {
    * Idempotente: ya `rechazada` → 200 sin re-auditar como cambio (`transitioned=false`).
    */
   @Post(':id/reject')
+  @HttpCode(HttpStatus.OK) // v1.57 · §M5-C (BL-37): opera sobre una solicitud EXISTENTE ⇒ 200, no 201.
   async reject(
     @Param('id') id: string,
     @Body() dto: RejectRequestDto,
@@ -599,6 +606,7 @@ export class AdminBuylistController {
   }
 
   @Post('items/:itemId/convert-to-inventory')
+  @HttpCode(HttpStatus.OK) // v1.57 · §M5-C (BL-37): opera sobre una solicitud EXISTENTE ⇒ 200, no 201.
   async convert(
     @Param('itemId') itemId: string,
     // v1.51.18 (fase 8, §4.39m.3): `locationId` OPCIONAL — se ofrece, no se exige. Body vacío `{}`
@@ -619,6 +627,7 @@ export class AdminBuylistController {
   }
 
   @Post(':id/pay-spei')
+  @HttpCode(HttpStatus.OK) // v1.57 · §M5-C (BL-37): opera sobre una solicitud EXISTENTE ⇒ 200, no 201.
   @MoneyOut()
   async paySpei(
     @Param('id') id: string,

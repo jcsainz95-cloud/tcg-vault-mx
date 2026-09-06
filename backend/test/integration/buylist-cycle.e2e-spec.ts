@@ -397,7 +397,7 @@ describe('E2E — Ciclo de adquisición del buylist (§6 · §M5)', () => {
         token: operatorToken,
         json: { carrier: 'Estafeta', trackingNumber: 'E2E-TRACK-0001' },
       });
-      expect(res.status).toBe(201);
+      expect(res.status).toBe(200); // v1.57 · §M5-C (BL-37)
       expect(res.body.shipmentCarrier).toBe('Estafeta');
       expect(res.body.shipmentTrackingNumber).toBe('E2E-TRACK-0001');
       expect(res.body.shipDeadlineAt).toBeTruthy();
@@ -433,7 +433,7 @@ describe('E2E — Ciclo de adquisición del buylist (§6 · §M5)', () => {
         token: operatorToken,
         json: {},
       });
-      expect(res.status).toBe(201);
+      expect(res.status).toBe(200); // v1.57 · §M5-C (BL-37)
       const row = await h.prisma.sellRequest.findUnique({ where: { id: srId } });
       expect(row!.status).toBe('en_transito');
       expect(row!.shipmentConfirmedAt).not.toBeNull();
@@ -509,7 +509,7 @@ describe('E2E — Ciclo de adquisición del buylist (§6 · §M5)', () => {
         token: adminToken,
         json: { speiReference: 'SPEI-CYCLE-1' },
       });
-      expect(paid.status).toBe(201);
+      expect(paid.status).toBe(200); // v1.57 · §M5-C (BL-37)
       const row = await h.prisma.sellRequest.findUnique({ where: { id: srId } });
       expect(row!.status).toBe('pagada');
       // ⚠️ **LA ASERCIÓN QUE JUSTIFICA TODO EL RECORRIDO.** El vendedor aceptó MX$320 netos y
@@ -1086,7 +1086,7 @@ describe('E2E — Ciclo de adquisición del buylist (§6 · §M5)', () => {
         token: operatorToken,
         json: { reason: 'no encaja con el inventario objetivo' },
       });
-      expect(res.status).toBe(201);
+      expect(res.status).toBe(200); // v1.57 · §M5-C (BL-37)
       expect(res.body.status).toBe('expirada');
       // ⚠️ Los DOS campos son lo único que distingue «lo decidimos» de «se nos venció» (D39), y una
       // mutación TERMINAL que no los devuelve obliga a releer para saber qué acaba de pasar.
@@ -1149,7 +1149,7 @@ describe('E2E — Ciclo de adquisición del buylist (§6 · §M5)', () => {
         token: operatorToken,
         json: { reason: 'error de captura interno' },
       });
-      expect(cancel.status).toBe(201);
+      expect(cancel.status).toBe(200); // v1.57 · §M5-C (BL-37)
 
       const portal = await h.api('GET', `/buylist/requests/${srId}`, { token: customerToken });
       // El vendedor acaba de recibir el correo 5. Sin este campo entraba al portal y **no veía
@@ -1208,7 +1208,7 @@ describe('E2E — Ciclo de adquisición del buylist (§6 · §M5)', () => {
           token: operatorToken,
           json: { reason: 'me equivoqué en un número' },
         });
-        expect(primera.status).toBe(201);
+        expect(primera.status).toBe(200); // v1.57 · §M5-C (BL-37)
         const correos = enviados.length; // 1 (la oferta) + 1 (la cancelación)
         const tras1 = await h.prisma.sellRequest.findUnique({ where: { id: srId } });
         const laQueElVio = tras1!.offerSentCancelledAt!;
@@ -1225,7 +1225,7 @@ describe('E2E — Ciclo de adquisición del buylist (§6 · §M5)', () => {
           token: operatorToken,
           json: { reason: 'la preparada tampoco servía' },
         });
-        expect(segunda.status).toBe(201);
+        expect(segunda.status).toBe(200); // v1.57 · §M5-C (BL-37)
 
         // Correo ✔: esa oferta NUNCA existió para el vendedor ⇒ no sale ni uno más.
         expect(enviados).toHaveLength(correos);

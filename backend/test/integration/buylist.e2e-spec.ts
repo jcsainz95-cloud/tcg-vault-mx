@@ -208,7 +208,7 @@ describe('E2E — Buylist (cotizador + pipeline + pago SPEI)', () => {
       const convert = await h.api('POST', `/admin/buylist/items/${itemId}/convert-to-inventory`, {
         token: operatorToken,
       });
-      expect(convert.status).toBe(201);
+      expect(convert.status).toBe(200); // v1.57 · §M5-C (BL-37)
       expect(typeof convert.body.inventoryItemId).toBe('string');
       const created = await h.prisma.inventoryItem.findUnique({ where: { id: convert.body.inventoryItemId } });
       expect(created!.acquisitionType).toBe('buylist');
@@ -226,7 +226,7 @@ describe('E2E — Buylist (cotizador + pipeline + pago SPEI)', () => {
         token: adminToken,
         json: { speiReference: 'SPEI-TEST-1' },
       });
-      expect(paid.status).toBe(201);
+      expect(paid.status).toBe(200); // v1.57 · §M5-C (BL-37)
       const req = await h.prisma.sellRequest.findUnique({ where: { id: sellRequestId } });
       expect(req!.status).toBe('pagada');
       expect(req!.speiReference).toBe('SPEI-TEST-1');
