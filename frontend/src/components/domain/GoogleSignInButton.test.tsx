@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { act, screen, fireEvent, waitFor } from '@testing-library/react';
+import { act, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { renderWithProviders } from '@/test/render';
 import { GoogleSignInButton, __resetGoogleIdentityForTests } from './GoogleSignInButton';
 import { getToken, setToken } from '@/lib/api-client';
@@ -31,16 +31,24 @@ describe('GoogleSignInButton (§6.7, rama mock explícita)', () => {
 });
 
 /*
- * D-1 / D-2 / D-3 (defecto de producción, 2026-09-05).
+ * D-1 / D-2 / D-3 (defecto de producción, 2026-09-05) y los bloqueantes B-1…B-8 del
+ * rechazo de QA/techlead sobre ese pase (2026-09-06).
  *
- * Síntoma: el dueño picaba «Continuar con Google» y no pasaba NADA. La consola de
+ * Síntoma original: el dueño picaba «Continuar con Google» y no pasaba NADA. La consola de
  * producción mostraba `FedCM get() rejects with NetworkError` + el aviso de GIS de que
  * los métodos de estado del prompt de One Tap dejan de funcionar con FedCM, y en
- * pantalla no aparecía ni un mensaje. Estas pruebas fijan las tres curas:
+ * pantalla no aparecía ni un mensaje. Estas pruebas fijan las curas:
  *
  *  D-1  un clic SIEMPRE produce respuesta visible (ventana de Google, o mensaje nuestro).
  *  D-2  se usa `renderButton()` (flujo de botón), no `prompt()` (One Tap) ni moment listeners.
  *  D-3  el script y `initialize()` ocurren UNA vez por página, no por instancia montada.
+ *  B-1  la credencial NUNCA se entrega a una instancia desmontada.
+ *  B-2  con GIS cargado que no dibuja, hay botón propio y mensaje: nunca cero.
+ *  B-3  un `renderButton` que LANZA no deja la página en blanco.
+ *  B-4  un fallo de RED no se reporta como token inválido.
+ *  B-6  una credencial sin flujo activo produce UN canje, no uno por instancia.
+ *  B-7  el clic de una instancia apaga el vigilante de la otra (no miente a los 6 s).
+ *  B-8  la carga se memoiza POR client id y no acumula listeners en el reintento.
  *
  * Y el defecto que venía de antes: si la librería de Google no cargó, JAMÁS se manda
  * `mock-google-id-token` al backend real.
@@ -48,32 +56,57 @@ describe('GoogleSignInButton (§6.7, rama mock explícita)', () => {
 type GsiSpies = {
   initialize: ReturnType<typeof vi.fn>;
   renderButton: ReturnType<typeof vi.fn>;
+  /** B-5: el doble SÍ expone `prompt`, para que «no se usa One Tap» pueda fallar. */
+  prompt: ReturnType<typeof vi.fn>;
   /** Dispara la credencial como lo haría GIS. */
   emit: (credential?: string) => void;
-  /** Dispara el `click_listener` del botón dibujado por Google. */
-  click: () => void;
+  /** Dispara el `click_listener` del botón dibujado por Google (índice de instancia). */
+  click: (index?: number) => void;
+  /** Cuántos `click_listener` se engancharon (uno por render de botón). */
+  clickListeners: () => number;
 };
 
-function installFakeGis(): GsiSpies {
+/**
+ * Doble de GIS. `draw` decide qué hace `renderButton`:
+ *  - `button`  (default): mete un <button> en el contenedor, como GIS sano.
+ *  - `nothing`: carga bien pero NO dibuja — origen JavaScript no autorizado / CSP (B-2).
+ *  - `throw`  : lanza, como hace GIS ante un origen no autorizado (B-3).
+ */
+function installFakeGis(opts: { draw?: 'button' | 'nothing' | 'throw' } = {}): GsiSpies {
+  const draw = opts.draw ?? 'button';
   let callback: ((r: { credential?: string }) => void) | undefined;
-  let clickListener: (() => void) | undefined;
-  const initialize = vi.fn((opts: { callback: (r: { credential?: string }) => void }) => {
-    callback = opts.callback;
+  const clickListeners: Array<(() => void) | undefined> = [];
+  const initialize = vi.fn((o: { client_id: string; callback: (r: { credential?: string }) => void }) => {
+    callback = o.callback;
   });
-  const renderButton = vi.fn((parent: HTMLElement, opts: { click_listener?: () => void }) => {
-    clickListener = opts.click_listener;
+  const prompt = vi.fn();
+  const renderButton = vi.fn((parent: HTMLElement, o: { click_listener?: () => void }) => {
+    clickListeners.push(o.click_listener);
+    if (draw === 'throw') throw new Error('The given origin is not allowed for the given client ID');
+    if (draw === 'nothing') return;
     const b = document.createElement('button');
     b.textContent = 'google-rendered-button';
     parent.appendChild(b);
   });
-  (window as { google?: unknown }).google = { accounts: { id: { initialize, renderButton } } };
+  (window as { google?: unknown }).google = { accounts: { id: { initialize, renderButton, prompt } } };
   return {
     initialize,
     renderButton,
+    prompt,
     emit: (credential?: string) => act(() => callback?.({ credential })),
-    click: () => act(() => clickListener?.()),
+    click: (index = -1) =>
+      act(() => {
+        const l = index < 0 ? clickListeners[clickListeners.length + index] : clickListeners[index];
+        l?.();
+      }),
+    clickListeners: () => clickListeners.length,
   };
 }
+
+const okLogin = () =>
+  vi
+    .spyOn(api, 'loginWithGoogle')
+    .mockResolvedValue({ user: { role: 'customer' } } as Awaited<ReturnType<typeof api.loginWithGoogle>>);
 
 describe('GoogleSignInButton (§6.7, rama real GIS con renderButton)', () => {
   const original = { useMocks: config.useMocks, googleClientId: config.googleClientId };
@@ -93,7 +126,7 @@ describe('GoogleSignInButton (§6.7, rama real GIS con renderButton)', () => {
     delete (window as { google?: unknown }).google;
   });
 
-  it('D-2: dibuja el botón oficial de Google (renderButton) y NO usa prompt/One Tap', async () => {
+  it('D-2/B-5: dibuja el botón oficial (renderButton) y NO llama a prompt() ni con el clic', async () => {
     const gis = installFakeGis();
     renderWithProviders(<GoogleSignInButton onSuccess={() => {}} />, 'es');
 
@@ -102,18 +135,18 @@ describe('GoogleSignInButton (§6.7, rama real GIS con renderButton)', () => {
     const parent = gis.renderButton.mock.calls[0][0] as HTMLElement;
     expect(parent).toBe(screen.getByTestId('google-gsi-button'));
     expect(parent.querySelector('button')).not.toBeNull();
-    // ...y el componente ya no depende de `prompt()` ni de los moment listeners
-    // (`isNotDisplayed`/`isSkippedMoment`), que GIS declara en vía de extinción con FedCM.
-    const id = (window.google as unknown as Record<string, never>) as unknown as {
-      accounts: { id: Record<string, unknown> };
-    };
-    expect(id.accounts.id.prompt).toBeUndefined();
+
+    // ...y el componente no toca One Tap. El doble SÍ define `prompt` (antes esta prueba
+    // asertaba `prompt === undefined` sobre un fake que nunca lo definía: comprobaba su
+    // propio fixture y no podía ponerse roja jamás).
+    gis.click();
+    expect(gis.prompt).not.toHaveBeenCalled();
+    // Tampoco se pasan moment listeners: `initialize` recibe solo client_id + callback.
+    expect(Object.keys(gis.initialize.mock.calls[0][0]).sort()).toEqual(['callback', 'client_id']);
   });
 
   it('D-1a: clic con la librería presente → se invoca el camino real y llega el ID token de Google al backend', async () => {
-    const spy = vi
-      .spyOn(api, 'loginWithGoogle')
-      .mockResolvedValue({ user: { role: 'customer' } } as Awaited<ReturnType<typeof api.loginWithGoogle>>);
+    const spy = okLogin();
     const gis = installFakeGis();
     const onSuccess = vi.fn();
     renderWithProviders(<GoogleSignInButton onSuccess={onSuccess} />, 'es');
@@ -223,23 +256,8 @@ describe('GoogleSignInButton (§6.7, rama real GIS con renderButton)', () => {
   });
 
   it('D-3: con dos instancias, la credencial va a la que originó el flujo', async () => {
-    vi.spyOn(api, 'loginWithGoogle').mockResolvedValue({
-      user: { role: 'customer' },
-    } as Awaited<ReturnType<typeof api.loginWithGoogle>>);
-    let clickSecond: (() => void) | undefined;
-    let callback: ((r: { credential?: string }) => void) | undefined;
-    (window as { google?: unknown }).google = {
-      accounts: {
-        id: {
-          initialize: vi.fn((o: { callback: (r: { credential?: string }) => void }) => {
-            callback = o.callback;
-          }),
-          renderButton: vi.fn((_p: HTMLElement, o: { click_listener?: () => void }) => {
-            clickSecond = o.click_listener; // se queda con el del último render
-          }),
-        },
-      },
-    };
+    okLogin();
+    const gis = installFakeGis();
     const first = vi.fn();
     const second = vi.fn();
     renderWithProviders(
@@ -249,14 +267,232 @@ describe('GoogleSignInButton (§6.7, rama real GIS con renderButton)', () => {
       </>,
       'es',
     );
-    await waitFor(() => expect(clickSecond).toBeDefined());
+    await waitFor(() => expect(gis.renderButton).toHaveBeenCalledTimes(2));
 
-    act(() => clickSecond?.());
-    await act(async () => {
-      callback?.({ credential: 'tok' });
-    });
+    gis.click(1); // pica la SEGUNDA instancia
+    gis.emit('tok');
 
     await waitFor(() => expect(second).toHaveBeenCalled());
     expect(first).not.toHaveBeenCalled();
+  });
+
+  /*
+   * B-1 (bloqueante de QA). Escenario real: el usuario pica Google en el panel del
+   * checkout, el panel se cierra y Google contesta después. La credencial se entregaba a
+   * la instancia MUERTA (login silencioso que no hace nada) porque la limpieza del
+   * desmontaje comparaba dos referencias que nunca eran la misma.
+   *
+   * Mutación que esta prueba tiene que matar: `if (activeInstance === self)` → `if (false)`.
+   */
+  it('B-1: clic → desmontaje → otra instancia monta → la credencial la recibe la instancia VIVA, no la muerta', async () => {
+    const spy = okLogin();
+    const gis = installFakeGis();
+    const dead = vi.fn();
+    const alive = vi.fn();
+
+    const firstMount = renderWithProviders(<GoogleSignInButton onSuccess={dead} />, 'es');
+    await waitFor(() => expect(gis.renderButton).toHaveBeenCalledTimes(1));
+    gis.click(0); // la instancia que se va a desmontar es la que originó el flujo
+    firstMount.unmount();
+
+    renderWithProviders(<GoogleSignInButton onSuccess={alive} />, 'es');
+    await waitFor(() => expect(gis.renderButton).toHaveBeenCalledTimes(2));
+
+    // Google contesta tarde, con el panel ya cerrado.
+    gis.emit('late.google.id.token');
+
+    await waitFor(() => expect(alive).toHaveBeenCalledWith('customer'));
+    expect(dead).not.toHaveBeenCalled();
+    expect(spy).toHaveBeenCalledTimes(1);
+  });
+
+  /*
+   * B-2 (bloqueante de QA). `sdk === 'ready'` pero GIS no dibuja nada (origen JavaScript no
+   * autorizado en la consola de Google, o CSP): antes quedaban CERO botones, un contenedor
+   * vacío de 48px y ningún mensaje. El vigilante de 6 s no podía ayudar: no había qué picar.
+   */
+  it('B-2: GIS carga pero no dibuja → queda un botón pulsable y un mensaje, nunca cero', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const spy = vi.spyOn(api, 'loginWithGoogle');
+    const gis = installFakeGis({ draw: 'nothing' });
+    renderWithProviders(<GoogleSignInButton onSuccess={() => {}} />, 'es');
+
+    await waitFor(() => expect(gis.renderButton).toHaveBeenCalled());
+    expect(screen.getByTestId('google-gsi-button').childElementCount).toBe(0);
+
+    await act(async () => {
+      vi.advanceTimersByTime(1_500);
+    });
+
+    // Hay algo pulsable...
+    const fallback = screen.getByRole('button', { name: /Continuar con Google/ });
+    expect(fallback).toBeEnabled();
+    // ...y el mensaje dice la verdad, sin canjear ningún token inventado.
+    fireEvent.click(fallback);
+    expect(await screen.findByRole('alert')).toHaveTextContent(/no pudo dibujar su botón/i);
+    expect(spy).not.toHaveBeenCalled();
+    // El hueco vacío se retira del DOM: `hidden` no lo escondía (Tailwind: `.flex` gana).
+    expect(screen.queryByTestId('google-gsi-button')).toBeNull();
+  });
+
+  /*
+   * B-3 (importante). GIS LANZA ante un origen no autorizado. Sin `try/catch`, el throw
+   * sale en fase de commit y —no hay ningún error boundary en `frontend/src/`— deja la
+   * página de login EN BLANCO. Mutación a matar: quitar el try/catch de `renderButton`.
+   */
+  it('B-3: si renderButton LANZA, la pantalla sobrevive con botón de respaldo y mensaje', async () => {
+    const gis = installFakeGis({ draw: 'throw' });
+    renderWithProviders(<GoogleSignInButton onSuccess={() => {}} />, 'es');
+
+    await waitFor(() => expect(gis.renderButton).toHaveBeenCalled());
+
+    const fallback = await screen.findByRole('button', { name: /Continuar con Google/ });
+    expect(fallback).toBeEnabled();
+    fireEvent.click(fallback);
+    expect(await screen.findByRole('alert')).toHaveTextContent(/no pudo dibujar su botón/i);
+  });
+
+  /*
+   * B-4 (menor). `ApiClientError` solo se lanza para respuestas HTTP; un `fetch` que rechaza
+   * por red da `TypeError`. Decirle «no pudimos validar tu sesión de Google» a quien se quedó
+   * sin conexión lo manda a diagnosticar la cosa equivocada.
+   */
+  it('B-4: un fallo de RED se reporta como problema de conexión, no como token inválido', async () => {
+    vi.spyOn(api, 'loginWithGoogle').mockRejectedValue(new TypeError('Failed to fetch'));
+    const gis = installFakeGis();
+    renderWithProviders(<GoogleSignInButton onSuccess={() => {}} />, 'es');
+    await waitFor(() => expect(gis.renderButton).toHaveBeenCalled());
+
+    gis.click();
+    gis.emit('tok');
+
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent(/No pudimos conectar con el servidor/i);
+    expect(screen.queryByText(/No pudimos validar tu sesión de Google/i)).toBeNull();
+  });
+
+  /*
+   * B-6 (techlead). Credencial sin flujo activo: el despachador la repartía a TODAS las
+   * instancias montadas ⇒ dos `POST /auth/google` en paralelo con el mismo idToken, dos
+   * `persistSession` compitiendo y dos `onSuccess` navegando.
+   */
+  it('B-6: una credencial sin flujo activo produce UN canje, no uno por instancia montada', async () => {
+    const spy = okLogin();
+    const gis = installFakeGis();
+    const first = vi.fn();
+    const second = vi.fn();
+    renderWithProviders(
+      <>
+        <GoogleSignInButton onSuccess={first} />
+        <GoogleSignInButton onSuccess={second} />
+      </>,
+      'es',
+    );
+    await waitFor(() => expect(gis.renderButton).toHaveBeenCalledTimes(2));
+
+    // Nadie picó: la credencial llega sola.
+    gis.emit('tok');
+
+    await waitFor(() => expect(second).toHaveBeenCalledTimes(1));
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(first).not.toHaveBeenCalled();
+  });
+
+  /*
+   * B-7 (menor, techlead). El clic de la segunda instancia no cancelaba el vigilante de la
+   * primera: a los 6 s la primera afirmaba «tu navegador está bloqueando…», que es mentira.
+   */
+  it('B-7: el clic de una instancia apaga el vigilante de la otra (un solo aviso, y del que picó)', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const gis = installFakeGis();
+    renderWithProviders(
+      <>
+        <div data-testid="panel-a">
+          <GoogleSignInButton onSuccess={() => {}} />
+        </div>
+        <div data-testid="panel-b">
+          <GoogleSignInButton onSuccess={() => {}} />
+        </div>
+      </>,
+      'es',
+    );
+    await waitFor(() => expect(gis.renderButton).toHaveBeenCalledTimes(2));
+
+    gis.click(0); // arranca el vigilante de A
+    gis.click(1); // B toma el flujo: el de A ya no puede afirmar nada
+    await act(async () => {
+      vi.advanceTimersByTime(6_000);
+    });
+
+    expect(await screen.findAllByRole('alert')).toHaveLength(1);
+    expect(within(screen.getByTestId('panel-a')).queryByRole('alert')).toBeNull();
+    expect(within(screen.getByTestId('panel-b')).getByRole('alert')).toHaveTextContent(
+      /bloqueando el inicio de sesión con terceros/i,
+    );
+  });
+
+  /*
+   * B-8a (menor, techlead). La memoización ignoraba el `clientId`: con el id cambiado se
+   * devolvía la promesa vieja y el singleton de GIS seguía inicializado con el id anterior.
+   */
+  it('B-8a: si cambia el client id, se vuelve a initialize() con el nuevo', async () => {
+    const gis = installFakeGis();
+    const firstMount = renderWithProviders(<GoogleSignInButton onSuccess={() => {}} />, 'es');
+    await waitFor(() => expect(gis.initialize).toHaveBeenCalledTimes(1));
+    expect(gis.initialize.mock.calls[0][0].client_id).toBe('test-client-id');
+    firstMount.unmount();
+
+    config.googleClientId = 'otro-client-id';
+    renderWithProviders(<GoogleSignInButton onSuccess={() => {}} />, 'es');
+
+    await waitFor(() => expect(gis.initialize).toHaveBeenCalledTimes(2));
+    expect(gis.initialize.mock.calls[1][0].client_id).toBe('otro-client-id');
+  });
+
+  /*
+   * B-8b (menor, techlead). En el reintento tras el timeout se volvían a enganchar
+   * `load`/`error` sobre el MISMO <script> sin soltar los anteriores: los listeners se
+   * acumulaban montaje tras montaje.
+   */
+  it('B-8b: el reintento tras el timeout no acumula listeners en el <script>', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const added: string[] = [];
+    const removed: string[] = [];
+    vi.spyOn(document.head, 'appendChild').mockImplementation(((node: Node) => {
+      const el = Node.prototype.appendChild.call(document.head, node) as Node;
+      const script = el as HTMLScriptElement;
+      if (script.dataset?.gsiClient === 'true') {
+        const add = script.addEventListener.bind(script);
+        const remove = script.removeEventListener.bind(script);
+        script.addEventListener = ((...args: Parameters<typeof add>) => {
+          added.push(String(args[0]));
+          return add(...args);
+        }) as typeof script.addEventListener;
+        script.removeEventListener = ((...args: Parameters<typeof remove>) => {
+          removed.push(String(args[0]));
+          return remove(...args);
+        }) as typeof script.removeEventListener;
+      }
+      return el;
+    }) as typeof document.head.appendChild);
+
+    // Primer intento: se inyecta el script y la librería nunca llega.
+    const firstMount = renderWithProviders(<GoogleSignInButton onSuccess={() => {}} />, 'es');
+    expect(added).toEqual(['load', 'error']);
+    await act(async () => {
+      vi.advanceTimersByTime(10_000);
+    });
+    expect(removed).toEqual(['load', 'error']);
+    firstMount.unmount();
+
+    // Reintento sobre el MISMO <script> (ya está en el head): se enganchan otra vez...
+    renderWithProviders(<GoogleSignInButton onSuccess={() => {}} />, 'es');
+    expect(added).toHaveLength(4);
+    await act(async () => {
+      vi.advanceTimersByTime(10_000);
+    });
+    // ...y se sueltan otra vez: nunca queda un listener colgado.
+    expect(removed).toHaveLength(4);
+    expect(document.querySelectorAll('script[data-gsi-client="true"]')).toHaveLength(1);
   });
 });

@@ -94,6 +94,12 @@ const GSI_SRC = 'https://accounts.google.com/gsi/client';
 const GSI_LOAD_TIMEOUT_MS = 10_000;
 /** Tras un clic sin ventana ni credencial, se explica qué hacer en vez de callar. */
 const CLICK_FEEDBACK_MS = 6_000;
+/**
+ * Gracia que se le da a `renderButton()` para meter algo en el contenedor. Si al
+ * vencer sigue VACÍO, GIS cargó pero no dibujó (origen JavaScript no autorizado en
+ * la consola de Google, CSP) y se degrada al botón propio + mensaje (B-2).
+ */
+const GSI_DRAW_GRACE_MS = 1_500;
 /** GIS acepta `width` en px y lo topa en 400. */
 const GSI_BUTTON_MAX_WIDTH = 400;
 const GSI_BUTTON_FALLBACK_WIDTH = 320;
@@ -110,37 +116,87 @@ const GSI_BUTTON_FALLBACK_WIDTH = 320;
 
 type CredentialHandler = (r: GoogleCredentialResponse) => void;
 
+/**
+ * Una instancia montada del botón, vista por el despachador de módulo.
+ *
+ * La **identidad del objeto** es la llave: se crea UNA vez por instancia (`useRef`),
+ * se registra al montar, se guarda en `activeInstance` al hacer clic y se compara al
+ * desmontar. Antes se registraba un **envoltorio** (`(r) => handleCredential(r)`) y se
+ * guardaba `handleCredential` **crudo**: dos referencias distintas, así que la limpieza
+ * `if (activeInstance === self)` nunca era cierta y la credencial se entregaba a la
+ * instancia desmontada (B-1). Los métodos leen refs, así que la identidad no depende de
+ * que los callbacks sean estables.
+ */
+type Instance = {
+  /** Entrega la credencial a esta instancia. */
+  deliver: CredentialHandler;
+  /** Apaga el vigilante de 6 s de ESTA instancia, si lo tuviera (B-7). */
+  cancelWatch: () => void;
+};
+
 let gisLoad: Promise<GoogleIdApi> | null = null;
+/** Client id con el que se memoizó `gisLoad`: si cambia, hay que reinicializar (B-8). */
+let gisLoadClientId: string | null = null;
 /** Instancia que originó el flujo en curso (la que hizo clic). */
-let activeHandler: CredentialHandler | null = null;
-/** Todas las instancias montadas, por si la credencial llega sin flujo activo. */
-const mountedHandlers = new Set<CredentialHandler>();
+let activeInstance: Instance | null = null;
+/** Todas las instancias montadas, en orden de montaje (Set conserva el orden). */
+const mountedInstances = new Set<Instance>();
+
+function warn(message: string) {
+  if (typeof console !== 'undefined') console.warn(`[GoogleSignInButton] ${message}`);
+}
 
 function dispatchCredential(r: GoogleCredentialResponse) {
-  const target = activeHandler;
-  activeHandler = null;
+  const target = activeInstance;
+  activeInstance = null;
   if (target) {
-    target(r);
+    target.deliver(r);
     return;
   }
-  mountedHandlers.forEach((h) => h(r));
+  /*
+   * Credencial sin flujo activo (la instancia que picó se desmontó, o GIS entregó por su
+   * cuenta). Se entrega a UNA sola instancia — la última montada, que es la que el usuario
+   * tiene delante — y el resto se descarta con log. Repartirla a todas disparaba un
+   * `POST /auth/google` por instancia con el MISMO idToken, dos `persistSession`
+   * compitiendo y dos `onSuccess` navegando (B-6).
+   */
+  const live = Array.from(mountedInstances);
+  const last = live[live.length - 1];
+  if (!last) {
+    warn('llegó una credencial sin ninguna instancia montada: se descarta');
+    return;
+  }
+  if (live.length > 1) {
+    warn(
+      `credencial sin flujo activo: se entrega a la última instancia montada y se descartan ${live.length - 1}`,
+    );
+  }
+  last.deliver(r);
 }
 
 function loadGoogleIdentity(clientId: string): Promise<GoogleIdApi> {
-  if (gisLoad) return gisLoad;
+  // La memoización es POR client id: con el id cambiado hay que volver a `initialize()`,
+  // porque el singleton de GIS quedaría inicializado con el id anterior (B-8).
+  if (gisLoad && gisLoadClientId === clientId) return gisLoad;
+  gisLoadClientId = clientId;
   gisLoad = new Promise<GoogleIdApi>((resolve, reject) => {
     if (typeof window === 'undefined' || typeof document === 'undefined') {
       reject(new Error('GIS_NO_DOM'));
       return;
     }
     let settled = false;
+    let detach = () => {};
     const finish = (api: GoogleIdApi | undefined) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      // Los listeners se sueltan SIEMPRE: en el reintento tras timeout se vuelven a
+      // enganchar sobre el mismo <script>, y sin esto se acumulaban (B-8).
+      detach();
       if (!api) {
         // Permite reintentar en un remontaje posterior (p. ej. el bloqueador se apagó).
         gisLoad = null;
+        gisLoadClientId = null;
         reject(new Error('GIS_LOAD_FAILED'));
         return;
       }
@@ -148,7 +204,6 @@ function loadGoogleIdentity(clientId: string): Promise<GoogleIdApi> {
       resolve(api);
     };
     const timer = setTimeout(() => finish(undefined), GSI_LOAD_TIMEOUT_MS);
-    const ready = () => finish(window.google?.accounts?.id ? window.google : undefined);
 
     if (window.google?.accounts?.id) {
       finish(window.google);
@@ -163,8 +218,15 @@ function loadGoogleIdentity(clientId: string): Promise<GoogleIdApi> {
       script.dataset.gsiClient = 'true';
       document.head.appendChild(script);
     }
-    script.addEventListener('load', ready);
-    script.addEventListener('error', () => finish(undefined));
+    const onLoad = () => finish(window.google?.accounts?.id ? window.google : undefined);
+    const onError = () => finish(undefined);
+    const el = script;
+    detach = () => {
+      el.removeEventListener('load', onLoad);
+      el.removeEventListener('error', onError);
+    };
+    el.addEventListener('load', onLoad);
+    el.addEventListener('error', onError);
   });
   return gisLoad;
 }
@@ -204,8 +266,9 @@ function OwnButton({
 /** Solo para pruebas: limpia el singleton de módulo entre casos. */
 export function __resetGoogleIdentityForTests() {
   gisLoad = null;
-  activeHandler = null;
-  mountedHandlers.clear();
+  gisLoadClientId = null;
+  activeInstance = null;
+  mountedInstances.clear();
 }
 
 /**
@@ -215,7 +278,9 @@ export function __resetGoogleIdentityForTests() {
  */
 type Mode = 'mock' | 'real' | 'unconfigured';
 type SdkState = 'loading' | 'ready' | 'failed';
-type Notice = 'unavailable' | 'blocked';
+/** Qué pasó con `renderButton()`: `failed` = GIS cargó pero no hay botón que picar. */
+type DrawState = 'pending' | 'drawn' | 'failed';
+type Notice = 'unavailable' | 'blocked' | 'notDrawn' | 'network';
 
 export interface GoogleSignInButtonProps {
   /** Se invoca tras un login exitoso con el `role` del usuario (para redirigir). */
@@ -227,7 +292,8 @@ export interface GoogleSignInButtonProps {
  * - Modo real: Google dibuja su propio botón (`renderButton`) y al recibir el
  *   `credential` (ID token) se llama `POST /auth/google` (API_CONTRACT §auth).
  * - Modo mocks (`NEXT_PUBLIC_USE_MOCKS=true`): botón propio §6.7 que simula el canje.
- * - Sin librería o sin client id: botón propio §6.7 + mensaje honesto, nunca token falso.
+ * - Sin librería, sin client id, o con GIS que no dibuja: botón propio §6.7 + mensaje
+ *   honesto, nunca token falso y nunca cero botones.
  * Email/contraseña sigue siendo la acción primaria; este botón es alternativa neutra.
  */
 export function GoogleSignInButton({ onSuccess }: GoogleSignInButtonProps) {
@@ -235,9 +301,11 @@ export function GoogleSignInButton({ onSuccess }: GoogleSignInButtonProps) {
   const tErr = useTranslations('error');
   const locale = useLocale();
 
-  const mode: Mode = config.useMocks ? 'mock' : config.googleClientId ? 'real' : 'unconfigured';
+  const clientId = config.googleClientId;
+  const mode: Mode = config.useMocks ? 'mock' : clientId ? 'real' : 'unconfigured';
 
   const [sdk, setSdk] = useState<SdkState>('loading');
+  const [draw, setDraw] = useState<DrawState>('pending');
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<Notice | null>(null);
   const [errorCode, setErrorCode] = useState<string | null>(null);
@@ -262,8 +330,15 @@ export function GoogleSignInButton({ onSuccess }: GoogleSignInButtonProps) {
         const res = await loginWithGoogle(idToken);
         onSuccessRef.current(res.user.role);
       } catch (e) {
-        const code = e instanceof ApiClientError ? e.code : 'GOOGLE_TOKEN_INVALID';
-        setErrorCode(code);
+        if (e instanceof ApiClientError) {
+          setErrorCode(e.code);
+        } else {
+          // B-4: `fetch` solo lanza `ApiClientError` para respuestas HTTP. Un fallo de RED
+          // rechaza con `TypeError`, y llamarlo "token inválido" manda al usuario a
+          // diagnosticar la cosa equivocada: se dice que es la conexión.
+          setErrorCode(null);
+          setNotice('network');
+        }
       } finally {
         setBusy(false);
       }
@@ -287,24 +362,50 @@ export function GoogleSignInButton({ onSuccess }: GoogleSignInButtonProps) {
     [clearFeedbackTimer, exchange],
   );
 
+  /** Otra instancia tomó el flujo: este vigilante ya no puede afirmar nada (B-7). */
+  const cancelWatch = useCallback(() => {
+    if (!feedbackTimer.current) return;
+    clearFeedbackTimer();
+    setBusy(false);
+  }, [clearFeedbackTimer]);
+
+  // Refs para que la identidad de `self` (abajo) no dependa de callbacks estables.
+  const deliverRef = useRef(handleCredential);
+  deliverRef.current = handleCredential;
+  const cancelWatchRef = useRef(cancelWatch);
+  cancelWatchRef.current = cancelWatch;
+
+  /** Identidad de ESTA instancia ante el despachador. Se crea una vez y no cambia. */
+  const selfRef = useRef<Instance | null>(null);
+  if (selfRef.current === null) {
+    selfRef.current = {
+      deliver: (r) => deliverRef.current(r),
+      cancelWatch: () => cancelWatchRef.current(),
+    };
+  }
+  const self = selfRef.current;
+
   // Registro de la instancia en el despachador de módulo.
   useEffect(() => {
-    const handler: CredentialHandler = (r) => handleCredential(r);
-    mountedHandlers.add(handler);
+    mountedInstances.add(self);
     return () => {
-      mountedHandlers.delete(handler);
-      if (activeHandler === handler) activeHandler = null;
+      mountedInstances.delete(self);
+      // B-1: si esta instancia originó el flujo, la credencial NO puede entregarse a su
+      // callback muerto. Es la MISMA referencia que se guardó en el clic, así que la
+      // comparación sí es cierta (antes se comparaban envoltorio vs. función cruda).
+      if (activeInstance === self) activeInstance = null;
     };
-  }, [handleCredential]);
+  }, [self]);
 
   useEffect(() => clearFeedbackTimer, [clearFeedbackTimer]);
 
-  // Carga (única por página) de Google Identity Services, solo en modo real.
+  // Carga (única por página y por client id) de Google Identity Services, solo en modo real.
   useEffect(() => {
     if (mode !== 'real') return;
     let cancelled = false;
     setSdk('loading');
-    loadGoogleIdentity(config.googleClientId).then(
+    setDraw('pending');
+    loadGoogleIdentity(clientId).then(
       (api) => {
         if (cancelled) return;
         apiRef.current = api;
@@ -320,7 +421,7 @@ export function GoogleSignInButton({ onSuccess }: GoogleSignInButtonProps) {
     return () => {
       cancelled = true;
     };
-  }, [mode]);
+  }, [mode, clientId]);
 
   /**
    * Todo clic sobre el botón de Google arranca aquí: feedback inmediato y red
@@ -331,14 +432,19 @@ export function GoogleSignInButton({ onSuccess }: GoogleSignInButtonProps) {
     setErrorCode(null);
     setNotice(null);
     setBusy(true);
-    activeHandler = handleCredential;
+    // El flujo de cualquier otra instancia queda superado: su vigilante diría a los 6 s
+    // «tu navegador está bloqueando…», que sería mentira (B-7).
+    mountedInstances.forEach((other) => {
+      if (other !== self) other.cancelWatch();
+    });
+    activeInstance = self;
     clearFeedbackTimer();
     feedbackTimer.current = setTimeout(() => {
       feedbackTimer.current = null;
       setBusy(false);
       setNotice('blocked');
     }, CLICK_FEEDBACK_MS);
-  }, [clearFeedbackTimer, handleCredential]);
+  }, [clearFeedbackTimer, self]);
 
   // Dibuja (y redibuja al cambiar el ancho) el botón oficial de Google.
   useEffect(() => {
@@ -348,33 +454,84 @@ export function GoogleSignInButton({ onSuccess }: GoogleSignInButtonProps) {
     if (!parent || !api) return;
 
     let lastWidth = -1;
+    let graceTimer: ReturnType<typeof setTimeout> | null = null;
+    let stopped = false;
+    let ro: ResizeObserver | null = null;
+
+    /** GIS cargó pero no hay botón: se degrada al botón propio y se dice por qué (B-2/B-3). */
+    const giveUp = () => {
+      if (stopped) return;
+      stopped = true;
+      ro?.disconnect();
+      setDraw('failed');
+      setNotice('notDrawn');
+    };
+
     const draw = () => {
+      if (stopped) return;
       const measured = Math.round(parent.getBoundingClientRect().width) || GSI_BUTTON_FALLBACK_WIDTH;
       const width = Math.min(GSI_BUTTON_MAX_WIDTH, measured);
       if (width === lastWidth) return;
       lastWidth = width;
       parent.replaceChildren();
-      api.accounts.id.renderButton(parent, {
-        type: 'standard',
-        theme: 'outline',
-        size: 'large',
-        shape: 'rectangular',
-        text: 'continue_with',
-        logo_alignment: 'center',
-        locale,
-        width,
-        click_listener: onGoogleButtonClick,
-      });
+      try {
+        api.accounts.id.renderButton(parent, {
+          type: 'standard',
+          theme: 'outline',
+          size: 'large',
+          shape: 'rectangular',
+          text: 'continue_with',
+          logo_alignment: 'center',
+          locale,
+          width,
+          click_listener: onGoogleButtonClick,
+        });
+      } catch {
+        // B-3: un origen JavaScript no autorizado hace que GIS LANCE. Sin este catch el
+        // throw sale en fase de commit y, como no hay error boundary, deja la página de
+        // login en blanco: peor que el silencio que este componente vino a cerrar.
+        giveUp();
+        return;
+      }
+      if (parent.childElementCount > 0) {
+        if (graceTimer) {
+          clearTimeout(graceTimer);
+          graceTimer = null;
+        }
+        setDraw('drawn');
+        return;
+      }
+      // Contenedor vacío: se le da una gracia por si GIS inserta tarde y, si sigue vacío,
+      // se degrada. Antes esto era CERO botones y ningún mensaje (B-2).
+      if (!graceTimer) {
+        graceTimer = setTimeout(() => {
+          graceTimer = null;
+          if (parent.childElementCount > 0) setDraw('drawn');
+          else giveUp();
+        }, GSI_DRAW_GRACE_MS);
+      }
     };
     draw();
 
-    if (typeof ResizeObserver === 'undefined') return;
-    const ro = new ResizeObserver(() => draw());
-    ro.observe(parent);
-    return () => ro.disconnect();
+    if (typeof ResizeObserver !== 'undefined') {
+      ro = new ResizeObserver(() => draw());
+      ro.observe(parent);
+    }
+    return () => {
+      stopped = true;
+      if (graceTimer) clearTimeout(graceTimer);
+      ro?.disconnect();
+    };
   }, [mode, sdk, locale, onGoogleButtonClick]);
 
-  const googleUnavailable = mode === 'unconfigured' || (mode === 'real' && sdk === 'failed');
+  /** El botón visible lo dibuja Google (y existe de verdad). */
+  const gisButtonVisible = mode === 'real' && sdk === 'ready' && draw !== 'failed';
+  /** Hay que ofrecer el botón propio porque Google no puede: nunca se queda la pantalla sin nada. */
+  const degraded =
+    mode === 'unconfigured' ||
+    (mode === 'real' && sdk === 'failed') ||
+    (mode === 'real' && sdk === 'ready' && draw === 'failed');
+  const degradedNotice: Notice = mode === 'real' && sdk === 'ready' ? 'notDrawn' : 'unavailable';
   const ownLabel = busy ? t('connecting') : t('cta');
 
   return (
@@ -386,18 +543,20 @@ export function GoogleSignInButton({ onSuccess }: GoogleSignInButtonProps) {
 
       {mode === 'real' && sdk === 'loading' && <OwnButton label={ownLabel} busy={busy} disabled />}
 
-      {googleUnavailable && (
-        // Sin librería: el clic informa; jamás canjea un idToken inventado.
-        <OwnButton label={ownLabel} busy={busy} disabled={busy} onClick={() => setNotice('unavailable')} />
+      {degraded && (
+        // Sin librería o sin botón dibujado: el clic informa; jamás canjea un idToken inventado.
+        <OwnButton label={ownLabel} busy={busy} disabled={busy} onClick={() => setNotice(degradedNotice)} />
       )}
 
-      {mode === 'real' && (
+      {gisButtonVisible && (
         // Contenedor del botón oficial de Google. Conserva la ranura de 48px de §6.7
         // aunque el botón que dibuja Google mida menos (ver FRONTEND_NOTES).
+        // Se monta/desmonta en vez de usar `hidden`: con Tailwind, `[hidden]{display:none}`
+        // (capa base) pierde contra `.flex` (capa utilities), así que el atributo era
+        // inerte y dejaba ~56px de hueco en la ruta degradada.
         <div
           ref={containerRef}
           data-testid="google-gsi-button"
-          hidden={sdk !== 'ready'}
           className="flex min-h-[48px] w-full items-center justify-center"
         />
       )}
@@ -409,21 +568,17 @@ export function GoogleSignInButton({ onSuccess }: GoogleSignInButtonProps) {
       */}
       <p
         className={
-          busy && mode === 'real' && sdk === 'ready'
-            ? 'flex items-center justify-center gap-2 text-xs text-muted'
-            : 'sr-only'
+          busy && gisButtonVisible ? 'flex items-center justify-center gap-2 text-xs text-muted' : 'sr-only'
         }
         aria-live="polite"
         role="status"
       >
-        {busy && mode === 'real' && sdk === 'ready' && (
-          <Loader2 size={14} className="animate-spin" aria-hidden />
-        )}
+        {busy && gisButtonVisible && <Loader2 size={14} className="animate-spin" aria-hidden />}
         {busy ? t('connecting') : ''}
       </p>
 
       {notice && (
-        <Banner variant={notice === 'unavailable' ? 'danger' : 'warning'} role="alert">
+        <Banner variant={notice === 'blocked' ? 'warning' : 'danger'} role="alert">
           {t(notice)}
         </Banner>
       )}

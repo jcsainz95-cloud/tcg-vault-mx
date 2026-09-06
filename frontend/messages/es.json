@@ -879,7 +879,9 @@
       "cta": "Continuar con Google",
       "connecting": "Conectando…",
       "unavailable": "No pudimos cargar el inicio de sesión de Google. Revisa tu conexión o si una extensión del navegador lo está bloqueando. Mientras tanto puedes entrar con tu correo y contraseña.",
-      "blocked": "No se abrió la ventana de Google. Es probable que tu navegador esté bloqueando el inicio de sesión con terceros: habilítalo desde el icono a la izquierda de la barra de direcciones, o entra con tu correo y contraseña."
+      "blocked": "No se abrió la ventana de Google. Es probable que tu navegador esté bloqueando el inicio de sesión con terceros: habilítalo desde el icono a la izquierda de la barra de direcciones, o entra con tu correo y contraseña.",
+      "notDrawn": "Google cargó, pero no pudo dibujar su botón en esta página. Es una configuración de nuestro lado; entra con tu correo y contraseña mientras la corregimos.",
+      "network": "No pudimos conectar con el servidor para validar tu sesión de Google. Revisa tu conexión e inténtalo de nuevo."
     },
     "mustChangePassword": "Iniciaste sesión con una contraseña temporal. Debes cambiarla para proteger tu cuenta.",
     "mustChangeContinue": "Continuar",

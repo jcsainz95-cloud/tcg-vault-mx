@@ -3854,6 +3854,13 @@ rama real (`apiRequest`) y rama mock (fixtures) para funcionar en Vercel sin bac
   determinista que termina en el valor actual del portafolio.
 
 ### 6. Login con Google (`GoogleSignInButton`, §6.7)
+
+> ⛔ **DEROGADO el 2026-09-05 — no se implementa desde aquí.** Lo que sigue en este bloque (el `prompt()`
+> de One Tap, los *moment listeners* `isDismissedMoment`/`isSkippedMoment`/`isNotDisplayed` y el
+> `PROMPT_TIMEOUT_MS` de 60 s) describe un diseño **retirado**: era justo lo que hacía que el botón no
+> hiciera nada en producción. El diseño **vigente** es `renderButton()` sin `prompt` ni moment listeners,
+> con vigilante de clic de 6 s y despachador de módulo: **ver §44**. Se conserva el texto como registro
+> histórico del defecto D6, no como especificación.
 - `src/components/domain/GoogleSignInButton.tsx`: botón neutro `secondary` full-width con logo "G" oficial.
   En modo real (client id + sin mocks) carga **Google Identity Services**, y al recibir el `credential` llama
   `POST /auth/google`; en modo mock simula el canje sin backend. Estados loading ("Conectando…", `aria-busy`)
@@ -10588,7 +10595,7 @@ Suites completas tras la corrección: **967 vitest verdes** · **20 E2E verdes**
 
 ---
 
-## §41 · «Continuar con Google» no hacía nada: de One Tap (`prompt`) al botón renderizado (`renderButton`) — 2026-09-05
+## §44 · «Continuar con Google» no hacía nada: de One Tap (`prompt`) al botón renderizado (`renderButton`) — 2026-09-05, ampliado 2026-09-06 (rama `fix/google-signin`)
 
 > Rama `claude/tcg-hunt-orchestrator-28p7z1`. Defecto **en producción** (`tcghunt.mx`): el dueño picaba el
 > botón y no pasaba nada — ni ventana de Google, ni error, ni mensaje. Backend descartado (el log de
@@ -10723,6 +10730,12 @@ un `POST` de formulario al backend — los dos serían cambio de contrato, y `re
 
 ### 7. Verificación
 
+> ⚠️ **Corrección del 2026-09-06.** Este apartado afirmaba «7 mutantes, 7 muertos». Era **incompleto**:
+> los 7 mutantes elegidos tocaban mecanismos que las pruebas sí miraban, y ninguno tocó la limpieza del
+> desmontaje ni el caso «GIS cargó y no dibujó». QA mutó `if (activeInstance === handler)` a `if (false)`
+> y **las 10 pruebas siguieron verdes**. La tabla de abajo queda como está —es lo que se midió— pero la
+> medición vigente es la de **§44.8**, con 18 pruebas y 11 mutantes.
+
 10 pruebas en `GoogleSignInButton.test.tsx`, **verificadas por mutación** (7 mutantes, **7 muertos**):
 
 | Mutación | Muere en |
@@ -10735,7 +10748,7 @@ un `POST` de formulario al backend — los dos serían cambio de contrato, y `re
 | No se engancha el `click_listener` | D-1a, D-1b, D-3 |
 | `renderButton` deja de llamarse | D-2 y otras 4 |
 
-Suite completa: **973 vitest verdes** (103 archivos), typecheck y lint limpios.
+Suite completa: **973 vitest verdes** (103 archivos), typecheck y lint limpios. *(Cifra del pase del 2026-09-05; la vigente está en §44.8.)*
 
 **Lo que NO se pudo ejercitar aquí, y hay que comprobar en producción.** No hay egreso a
 `accounts.google.com` desde el navegador de pruebas ni cuenta de Google, así que **el flujo real —FedCM
@@ -10752,3 +10765,117 @@ componente contra un GIS falso. Comprobación en 30 s sobre `tcghunt.mx`:
 4. Regresión del token falso: con un bloqueador que corte `accounts.google.com/gsi/client`, recarga; a los
    ~10 s debe salir `auth.google.unavailable` y la pestaña **Network no debe mostrar ningún**
    `POST /api/v1/auth/google`.
+
+### 8. Rechazo de QA + techlead sobre este mismo pase (2026-09-06, rama `fix/google-signin`)
+
+QA sacó este cambio del lote: **los dos bloqueantes eran exactamente los defectos que el commit afirmaba
+haber curado**. Se arreglaron en la misma rama, cada uno con una prueba que muere si se borra el mecanismo.
+Alcance tocado: `GoogleSignInButton.tsx`, su test y `messages/*.json` (aditivo). Nada de `lib/`, `AuthForm`,
+`InlineAuthPanel`, `backend/` ni de los documentos de arquitectura/diseño.
+
+**B-1 · La credencial se entregaba a la instancia DESMONTADA.** El registro guardaba un **envoltorio**
+(`const handler = (r) => handleCredential(r)`) y el clic guardaba `handleCredential` **crudo**: dos
+referencias que **nunca** son la misma, así que `if (activeHandler === handler) activeHandler = null` era
+código muerto y la limpieza jamás corría. Escenario del usuario: pica Google en el panel del checkout, el
+panel se cierra, Google contesta ⇒ se invocaba el `onSuccess` de la instancia muerta y la viva no recibía
+nada (login silencioso). **Cura:** cada instancia crea **una sola vez** (`useRef`) un objeto `Instance`
+—`{ deliver, cancelWatch }`, cuyos métodos leen refs— y **esa misma referencia** es la que se registra, la
+que se guarda en `activeInstance` al hacer clic y la que se compara al desmontar. La identidad ya no
+depende de que un `useCallback` sea estable.
+**A propósito NO hay segundo candado** (p. ej. `mountedInstances.has(target)` en el despachador): dos
+mecanismos redundantes se tapan entre sí y ninguno se puede poner rojo — que es justo cómo nació este
+bloqueante. La limpieza es el único mecanismo, y la prueba B-1 lo demuestra muriendo con `if (false)`.
+
+**B-2 · Silencio con `sdk === 'ready'` y GIS que no dibuja.** Con origen JavaScript no autorizado en la
+consola de Google o CSP, GIS carga pero `renderButton` no pinta nada: el respaldo de `sdk === 'loading'` ya
+no aplicaba, `googleUnavailable` era `false` (el estado es `ready`, no `failed`) y quedaba **un contenedor
+vacío de 48 px y cero botones**. El vigilante de 6 s no podía ayudar: no había nada que picar. **Cura:**
+estado nuevo `DrawState` (`pending`/`drawn`/`failed`). Tras cada `renderButton` se mira si el contenedor
+recibió algo; si está vacío se le da una gracia de **1.5 s** (`GSI_DRAW_GRACE_MS`) por si GIS inserta tarde
+y, si sigue vacío, se degrada al **botón propio §6.7 + `auth.google.notDrawn`**. Nunca cero.
+
+**B-3 · `renderButton` que lanza dejaba la página en blanco.** Un origen no autorizado hace que GIS
+**lance**, y el throw salía en fase de commit dentro del efecto. **No existe ningún error boundary en
+`frontend/src/`** (ni `error.tsx`, ni `global-error.tsx`, ni `componentDidCatch`), así que la pantalla de
+login se quedaba en blanco: peor que el silencio original. **Cura:** `try/catch` alrededor de
+`renderButton` que cae al mismo camino degradado de B-2. *(El boundary de aplicación sigue faltando y no
+se toca aquí: está fuera del alcance de esta rama — ver «pendientes» abajo.)*
+
+**B-4 · Un error de red se reportaba como token inválido.** `ApiClientError` solo se lanza para respuestas
+HTTP; un `fetch` que rechaza por red da `TypeError`, y el `else` decía `GOOGLE_TOKEN_INVALID` («No pudimos
+validar tu sesión de Google») a quien simplemente se quedó sin conexión — el mismo pecado que este commit
+condena en el log del backend. **Cura:** solo `ApiClientError` fija `errorCode`; cualquier otro rechazo
+muestra `auth.google.network` («No pudimos conectar con el servidor…»).
+
+**B-5 · La prueba tautológica.** `expect(id.accounts.id.prompt).toBeUndefined()` se ejecutaba sobre un
+doble que **nunca definía `prompt`**: comprobaba su propio fixture y no podía ponerse roja. **Cura:** el
+doble **sí** expone `prompt: vi.fn()`, y la prueba asserta `expect(gis.prompt).not.toHaveBeenCalled()`
+(después de un clic, no solo tras el render) más que `initialize` recibe exactamente
+`{ client_id, callback }` — o sea, tampoco moment listeners. Mutante M9 (el componente vuelve a llamar
+`prompt()`) la mata.
+
+**B-6 · El despachador multiplicaba.** Sin flujo activo hacía broadcast a **todas** las instancias vivas:
+con `AuthForm` + `InlineAuthPanel` montados eran dos `POST /auth/google` en paralelo con el **mismo**
+idToken, dos `persistSession` compitiendo y dos `onSuccess` navegando. **Cura:** se entrega a **una** —la
+**última montada**, que es la que el usuario tiene delante— y el resto se descarta con `console.warn`.
+
+**B-7 · El vigilante que mentía.** El clic de una segunda instancia no cancelaba el temporizador de la
+primera, así que a los 6 s la primera pintaba `auth.google.blocked` («tu navegador está bloqueando…»)
+siendo falso. **Cura:** el clic recorre `mountedInstances` y llama `cancelWatch()` en las demás (apaga el
+temporizador y baja `busy` **solo** si tenían uno pendiente; una instancia a mitad de canje no se toca).
+
+**B-8 · Memoización e listeners.** (a) `loadGoogleIdentity` memoizaba ignorando `clientId`: ahora la
+promesa se guarda **junto al client id** (`gisLoadClientId`) y un id distinto vuelve a `initialize()`.
+(b) En el reintento tras timeout se re-enganchaban `load`/`error` sobre el mismo `<script>` sin soltar los
+anteriores: ahora `finish()` siempre hace `detach()` (`removeEventListener` de ambos).
+
+**`hidden` era inerte (techlead).** `[hidden]{display:none}` (capa `base`) y `.flex{display:flex}` (capa
+`utilities`) tienen la misma especificidad y **gana `utilities`**, así que `hidden={sdk !== 'ready'}` no
+escondía nada y dejaba ~56 px de hueco bajo el botón de respaldo. **Cura:** el contenedor se **monta y
+desmonta** (`{gisButtonVisible && …}`) en vez de taparse con un atributo. Regla general para este
+repositorio: con Tailwind v3 y `@layer`, **`hidden` no oculta un elemento que además lleva una utilidad de
+`display`**; o se quita la utilidad, o se desmonta el nodo.
+
+#### Verificación (esta es la vigente)
+
+**18 pruebas** en `GoogleSignInButton.test.tsx` (antes 10). Suite completa: **981 vitest verdes** (103
+archivos), `typecheck` y `lint` limpios. **11 mutantes, 11 muertos**, y cada uno muere en la prueba que le
+toca (verificado leyendo el nombre del caso rojo, no solo el conteo):
+
+| # | Mutación | Muere en |
+|---|---|---|
+| M1 | `if (activeInstance === self)` → `if (false)` — **la mutación de QA** | B-1 |
+| M2 | No se detecta el contenedor vacío (se da por dibujado) | B-2 |
+| M3 | Se quita el `try/catch` de `renderButton` | B-3 |
+| M4 | El fallo de red vuelve a llamarse `GOOGLE_TOKEN_INVALID` | B-4 |
+| M5 | El despachador vuelve a repartir a todas las instancias | B-6 |
+| M6 | El clic no apaga el vigilante de las demás instancias | B-7 |
+| M7 | La memoización vuelve a ignorar el client id | B-8a |
+| M8 | `finish()` deja de soltar los listeners del `<script>` | B-8b |
+| M9 | El componente reincide y llama a `prompt()` | D-2/B-5 |
+| M10 | Se deja de enganchar el `click_listener` | D-1a, D-1b, D-3 |
+| M11 | El contenedor vuelve a `hidden` en vez de desmontarse | B-2 |
+
+#### Lo que sigue SIN poder ejercitarse aquí
+
+- **El flujo real de Google.** Sigue sin haber egreso a `accounts.google.com` ni cuenta de Google: FedCM
+  activo, ventana emergente y credencial de verdad **no se ejecutan**. Lo que se prueba es el contrato del
+  componente contra un doble de GIS. La comprobación manual en `tcghunt.mx` de §44.7 sigue vigente, más
+  este paso nuevo: **quitar el origen `https://tcghunt.mx` de la consola de Google** y recargar `/es/login`
+  — debe salir el botón propio + `auth.google.notDrawn` a los ~1.5 s, y **nunca** una pantalla en blanco.
+- **GIS que dibuja un envoltorio de 0 px.** La detección de B-2 mira si el contenedor recibió **algún
+  elemento**. Si GIS insertara un `<div>` vacío de altura 0, el componente lo daría por dibujado y volvería
+  el silencio. Medir altura no sirve en jsdom (todo mide 0), así que ese caso **no está cubierto**; se
+  detectaría en la comprobación manual de arriba.
+- **Error boundary de aplicación.** `frontend/src/` sigue sin `error.tsx`/`global-error.tsx`: cualquier
+  throw de otro componente en fase de commit sigue dejando pantalla en blanco. Está fuera del alcance de
+  esta rama (toca `app/`), y queda como pendiente para el próximo pase de frontend.
+
+#### Sigue abierto para ux-ui (no lo resuelve frontend)
+
+El **conflicto con `DESIGN_SYSTEM` §6.7** de §44.5 sigue **abierto tal cual**: en modo real el botón lo
+dibuja Google dentro de un iframe de otro origen y no se puede restilizar (radio ≈4 px en vez de 0, alto
+40 px en vez de 48, tipografía y gris de Google). Este pase **no** lo tocó. Con B-2/B-3 la ruta degradada
+—que sí es el botón §6.7— aparece en más casos que antes (GIS que no dibuja o que lanza), así que la
+decisión de ux-ui entre (a) aceptar y anotar la excepción, (b) superponer —desaconsejado— o (c) rehacer el
+flujo, sigue siendo necesaria.
