@@ -11,6 +11,7 @@ import {
   BUYLIST_REJECT_ABANDON_WINDOW_DAYS,
   rejectDeadlines,
 } from '../src/modules/buylist/buylist-reject.constants';
+import { SELL_REQUEST_TERMINAL_STATES } from '../src/common/sell-request-states';
 
 const pii = new PiiCryptoService(new ConfigService({}));
 
@@ -91,6 +92,9 @@ function build(itemOverrides: Record<string, unknown> = {}, mail: MailPort | und
         return {};
       }),
       // v1.24-buylist-request-reject: guarda atómica «no pisar terminal» de la auto-transición.
+      // ⚠ v1.56 (§M5-T/BL-35): y AHORA TAMBIÉN el recompute del total aprobado, que hasta este pase era
+      // el tercer `update({where:{id}})` sin guarda del módulo — un MONTO escrito sobre una fila que
+      // `paySpei` podía haber cerrado en la ventana. Se distinguen por el `data`, no por el verbo.
       updateMany: jest.fn(async () => {
         callOrder.push('sellRequest.updateMany');
         return { count: 1 };
@@ -180,8 +184,15 @@ describe('itemDecision(reject) — efectos persistidos (BL-1 + rejectedAt)', () 
       }),
     );
     // Y el total derivado (null: ningún otro ítem aprobado) se escribe en la solicitud.
-    expect(prisma.sellRequest.update).toHaveBeenCalledWith({
-      where: { id: 'sr-1' },
+    // ⚠ v1.56 (§M5-T/BL-35): con la guarda de vida en el `where` (los DOS ejes). Se afirma el `where`
+    // COMPLETO, no un `objectContaining`: si alguien le quita el término de terminal o el
+    // `closedAt`, este test cae — que es exactamente lo que tiene que hacer.
+    expect(prisma.sellRequest.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: 'sr-1',
+        status: { notIn: [...SELL_REQUEST_TERMINAL_STATES] },
+        closedAt: null,
+      },
       data: { approvedTotalCents: null },
     });
   });

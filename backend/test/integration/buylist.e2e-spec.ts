@@ -183,10 +183,13 @@ describe('E2E — Buylist (cotizador + pipeline + pago SPEI)', () => {
     });
 
     it('el operador recibe y verifica (hasta verificación)', async () => {
+      // v1.56 (§M5 `receive`/`verify`, punto 4): **`200`, no el `201` del default de `POST` de Nest**.
+      // El contrato nunca declaró `201`, ningún verbo de transición hermano lo usa, y la repetición
+      // idempotente (que la misma versión declara) no puede ser honestamente un `201`: no crea nada.
       const recv = await h.api('POST', `/admin/buylist/${sellRequestId}/receive`, { token: operatorToken });
-      expect(recv.status).toBe(201);
+      expect(recv.status).toBe(200);
       const ver = await h.api('POST', `/admin/buylist/${sellRequestId}/verify`, { token: operatorToken });
-      expect(ver.status).toBe(201);
+      expect(ver.status).toBe(200);
       const req = await h.prisma.sellRequest.findUnique({ where: { id: sellRequestId } });
       expect(req!.status).toBe('verificacion');
       expect(req!.verifiedAt).not.toBeNull();

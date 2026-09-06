@@ -28,6 +28,152 @@
 > §0.22 de este documento son de `main` y NO se movieron**: son M47-H2, v1.53 (buylist raw-only) y
 > v1.53-b. Un informe de QA/techlead anterior al 2026-09-06 puede usar la numeración vieja.
 
+## 0.40 — **§M5-T / BL-35: la Invariante T cableada, y el cierre de la CRÍTICA P1 (doble pago SPEI)** (2026-09-06, rama `claude/buylist-inventory-workflow-hdnls3`, **MONEY · contrato v1.56**)
+
+> Propiedad: **backend**. Cierra **P1 [CRÍTICA]** de `docs/PENTEST_NOTES.md` (pase v1.55) contra la
+> enmienda **v1.56** del contrato: **§M5-T** (invariante nueva y normativa), §M5 `receive`/`verify`
+> (guarda + idempotencia + `200`) y §M5 `pay-spei` (CAS + ancla del acumulado AML).
+> **Cero DDL, cero endpoints nuevos, cero códigos de error nuevos.**
+
+### 0.40.1 Qué era P1, en una frase
+
+`receive()` y `verify()` eran **los dos únicos verbos de transición del ciclo que escribían con
+`update({ where: { id } })` sin guarda de estado** (todos sus hermanos usan `updateMany` con la
+precondición en el `where` + `count===1`). `adminGet()`, que ambos llamaban primero, solo hace
+`findUnique` + `notFound`: **autoriza al actor, no protege la fila**. Con eso, un `vault_operator`
+—el rol de menor confianza del back-office— devolvía una solicitud **`pagada`** a `verificacion`, y
+como la idempotencia de `paySpei` colgaba entera de `if (status === 'pagada')`, **el segundo SPEI
+salía**. Verificado en vivo por el red team: dos `speiReference` y dos `paidAt` sobre la misma fila.
+
+### 0.40.2 Lo que cambió, endpoint por endpoint
+
+| Endpoint | Antes | Ahora |
+|---|---|---|
+| `POST /admin/buylist/:id/receive` | `201`, `update({where:{id}})`, **re-sella `receivedAt`** | **`200`**, `updateMany` con `legalT` + `count===1`; fecha sellada **solo si es `null`**; terminal/cerrada ⇒ **`409 CONFLICT`** `details:{status,closedAt}` |
+| `POST /admin/buylist/:id/verify` | ídem, con `verifiedAt` | ídem |
+| `POST /admin/buylist/:id/pay-spei` | CAS de estado + `verifiedAt` + 4 columnas de dinero | **+ `paidAt: null` + `closedAt: null`**; `status≠pagada ∧ paidAt≠null` ⇒ **`409`**, nunca el `200` idempotente |
+| `POST /admin/buylist/:id/reject` | guard de **un** término (`status notIn TERMINAL`) | **los dos** (`liveRequestWhere`). `details` sin cambios (§M5-T: aditivo y opcional aquí) |
+| *(interno)* auto-rechazo por ítems y recálculo de `approvedTotalCents` | ver 0.40.4 | guardados |
+
+**⚠️ El `201 → 200` es lo único que un consumidor puede notar**, y el arquitecto midió el impacto en
+frontend: **cero** (`apiRequest` ramifica por `res.ok`, no por el código exacto). Los dos tests de
+integración que aseveraban `201` se actualizaron.
+
+### 0.40.3 Las dos decisiones de implementación que conviene conocer
+
+**(a) `liveRequestWhere()` es un helper NUEVO, y no toca a `notTerminalWhere()`.**
+`liveRequestWhere()` **se construye encima** de `notTerminalWhere()` (BL-14) — `{ ...notTerminal,
+closedAt: null }` — en vez de escribir otro literal de estados: la doctrina del *sitio 8* de §4.39c
+no admite una segunda lista, y así el día que `SELL_REQUEST_TERMINAL_STATES` gane un valor los dos
+`where` se mueven juntos o ninguno. **`notTerminalWhere()` se deja intacto** y con sus tres
+llamadores: allí la precondición que el contrato declara es *terminal* a secas (§4.18f de
+`items/:itemId/decision`), y ampliarla «por consistencia» cambiaría el `409` de un endpoint que hoy
+está bien y que §M5-T dice expresamente que **no se retro-edita**.
+
+**(b) La fecha se sella en su PROPIO `updateMany` (`sealOnceTx`), con la fecha en el `where`.**
+El contrato lo pide literal: *«la fecha entra al `data` solo si aún es `null`, no un `if` de
+aplicación que una carrera pueda saltar»*. Con `receivedAt: null` en el `where`, dos llamadas
+concurrentes compiten **en el motor** y solo una sella. Es el patrón exacto de `declare-shipped`.
+⚠️ **Y el `updateMany` de ítems se movió DESPUÉS de la guarda**: corría antes, así que una solicitud
+`pagada` ya podía quedarse con el `itemStatus` de sus cartas movido aunque la transición fallara.
+
+### 0.40.4 **El barrido: cuántos verbos había sin guarda, de verdad**
+
+El pentester reportó **dos**. Barriendo `backend/src/modules/buylist/` y `backend/src/jobs/` con el
+criterio de §M5-T (*si escribe `SellRequest.status`, obedece T*, **con los dos términos**):
+
+| Sitio | Diagnóstico | Acción |
+|---|---|---|
+| `receive` · `verify` | los dos del hallazgo: **sin guarda ninguna** | **arreglados** |
+| `rejectRequest` (§4.18f) | escribe `status`, guard de **un** término | **+`closedAt: null`** |
+| `maybeAutoRejectRequest` | escribe `status`, guard de **un** término | **+`closedAt: null`** |
+| `recomputeApprovedTotal` | **no** transiciona, pero escribe un **MONTO** con `update({where:{id}})` | **guardado** (ver abajo) |
+| `sellRequestItem.update` de `convert-to-inventory` | nivel ítem; su exclusión real es el **índice único** en `sourceSellRequestItemId` (SEC-A3), y convertir sobre una `pagada` es el flujo normal | sin cambio |
+| `jobs/buylist-sweep` (reglas 2·5·6·7) | ya llevan `closedAt: null` en el `where` que **lee y escribe** (B-1) | verificado, sin cambio |
+
+⇒ **cuatro** verbos que escriben `status` estaban por debajo de la norma, no dos. Los dos que el
+pentester encontró no tenían guarda **ninguna**; los otros dos tenían **la mitad** — que es
+exactamente lo que §M5-T existe para hacer visible.
+
+**`recomputeApprovedTotal` merece su párrafo.** No mueve `status`, y su única entrada (`itemDecision`)
+ya está guardada por BL-14 — pero la guarda del llamador **no cubre esta escritura**: entre el commit
+de la decisión por-ítem y el recálculo hay una ventana en la que `paySpei` puede commitear `pagada`,
+y entonces se reescribe `approvedTotalCents` **sobre una fila ya pagada y cerrada**. El orden inverso
+sí estaba cubierto (el CAS de B-2 lo frena), y por eso no se veía. El daño no es el depósito —ya
+salió, correcto— sino el **acumulado AML**, que mide `brutoConsumado` sobre las filas pagadas: mover
+el bruto de una pagada **cambia retroactivamente cuánta cuota consumió**, a la baja. §4.18f ancla su
+norma en que *«`approvedTotalCents` es FINAL en `pagada`»*. Ahora lo es. **No lanza**: es un derivado
+best-effort post-commit; el no-op **es** el resultado correcto (el total congelado es el que se pagó)
+y se registra en el log para que la carrera sea visible.
+
+### 0.40.5 **El acumulado AML deja de exigir `status='pagada'`** (§M5 → «Los TRES sitios», sitio 1)
+
+`monthCommittedGrossPaidCentsTx` ancla ahora **solo en `paidAt`**. Era el **segundo impacto** de P1:
+durante la reactivación la fila no está `pagada` ⇒ **salía del acumulado** y cada re-pago se medía
+contra una cifra que no incluía el dinero ya entregado.
+
+> **⚠️ La precondición del arquitecto la verifiqué en el código antes de tocarlo, porque una guarda
+> mal puesta aquí rechaza pagos buenos:** `SellRequest.paidAt` tiene **un único escritor en todo el
+> backend** —el `data` de la transición de `paySpei`, en el mismo objeto literal que
+> `status: 'pagada'`—, **no tiene default en el schema**, ningún seed lo pobla y **no hay SQL crudo
+> que toque `SellRequest`**. ⇒ ningún flujo legítimo deja `paidAt` sellado con `status != 'pagada'`,
+> y el predicado nuevo es un **superconjunto estricto** del viejo (`paidAt >= inicio de mes` ya
+> excluía los `null`). **Cero regresión en fila sana; falla cerrado en la defectuosa.**
+>
+> **NO se tocó el acumulado de COMPROMISO VIVO** (`monthCommittedGrossCents`, ancla `createdAt` sobre
+> estados no terminales): mide **promesa**, no caja, y su ancla correcta **sí** es el estado.
+
+### 0.40.6 Para QA — qué mirar, y cómo se midió
+
+- **Reproducción del PoC completo, por HTTP y contra Postgres real:**
+  `backend/test/integration/buylist-cycle.e2e-spec.ts` **(14)-(17)**, dentro del recorrido
+  `(1)-(13)` — *la fila que se ataca es exactamente la que el ciclo legítimo produce*. Cubre: `verify`
+  y `receive` sobre `pagada` ⇒ `409` **y cero escritura** (columna por columna, ítems incluidos), la
+  cadena `verify → pay-spei` con ref nueva ⇒ **una sola liquidación**, y la **no evasión del tope
+  AML**. **(11-bis)** cubre la idempotencia y el no-re-sellado de fechas.
+- **Forma de la guarda y mutación:** `backend/test/buylist.m5t-terminal-guard.spec.ts` (41 casos).
+  Su Prisma de mentira **evalúa el `where`** contra una fila mutable en vez de devolver `count: 1` a
+  ciegas: *un doble que no mira el `where` pasa igual con la guarda puesta y quitada.*
+- **Verificado que el test falla contra el código de HOY:** revirtiendo `backend/src/`, la aserción
+  de dinero de (16) falla con **`Received: "SPEI-DOUBLESPEND-777"`** — el doble pago del PoC,
+  reproducido. *(Y (16) se hizo autocontenido —hace su propio `verify` antes del pago— porque
+  dependiendo del `receive` de (15) fallaba con un `422` por la ruta equivocada: el propio pentester
+  anotó que ese camino no llega al doble pago.)*
+- **Batería de mutación: 13 mutantes, 13 muertos, 0 supervivientes.** Cada término de la guarda
+  (terminal · `closedAt`), `count !== 1 → count < 1` en los dos verbos, el `[field]: null` de
+  `sealOnceTx`, los dos términos del CAS de `pay-spei`, el ancla del AML, el `details.closedAt`, la
+  guarda del recompute, la de `rejectRequest`, la de `maybeAutoRejectRequest` y el `@HttpCode(200)`.
+
+### 0.40.7 ⚠️ Lo que NO cerré, y por qué (para el arquitecto / el humano)
+
+1. **BL-35 eje 2 — `verify` vuelve pagable una solicitud viva pre-recepción.** El arquitecto lo dejó
+   abierto a propósito: T no lo cubre (esos estados no son terminales) y cerrarlo exige declarar la
+   **matriz de predecesores**, que `PROJECT.md` no norma. **Mi arreglo no lo toca ni lo empeora**: el
+   guardado es por exclusión, tal como §M5-T ordena. Sigue abierto.
+2. **Tres verbos de §M5-T que NO escriben `status` y quedan por debajo de los dos términos.** No los
+   toqué porque la definición operativa de la norma es *«si escribe `SellRequest.status`»*, y en un
+   caso aplicarla **rompería trabajo legítimo**:
+   - `pickup-address` (cliente y admin): llevan `closedAt: null`, sin término de estado.
+   - **`guide/cancellation-done`: no lleva ninguno de los dos, y creo que debe quedarse así.** La
+     tarea de guía muerta **sobrevive a propósito al cierre de la solicitud**: existe para que la
+     etiqueta tirada entre al P&L (D22), y una solicitud puede expirar/rechazarse y aun así hacer
+     falta registrar que se mató la guía y cuánto costó. Aplicarle T **perdería ese dinero del
+     reporte**. Aparece en la tabla de verbos gobernados de §M5-T, lo cual **contradice la definición
+     por escritura de `status`** de la misma sección: **eso es una discrepancia del contrato y la
+     decide el arquitecto**, no yo.
+3. **Fuera de mi work stream, sin verificar en profundidad: el mismo patrón vive en `disputes`.**
+   `disputes.service.ts` `resolve()` hace `dispute.update({ where: { id } })` para `rechazada` y
+   **`resuelta_recompra` (money-out: es una compensación al cliente)**, sin guarda de estado ni
+   idempotencia — un re-`POST` reescribe `resolution`/`resolvedAt`. Y `jobs/dispute-deadline.service.ts`
+   hace read-then-write (`findMany status:'abierta'` → `update({where:{id}})`), así que una disputa
+   resuelta en la ventana vuelve a `en_revision`. **Es el módulo del stream «Órdenes y dinero», no del
+   mío**: lo dejo señalado para que el orquestador lo enrute, sin tocarlo.
+4. **Datos sintéticos de P1 en la BD local.** `SellRequest afc4ab63-4633-4b3f-80ab-2d98234f1719`
+   sigue con `speiReference=SPEI-DOUBLESPEND-777` y los usuarios `redteam.*@e2e.local`. **No los
+   purgué**: es la evidencia del hallazgo y borrar datos no es una decisión de código. Con el arreglo
+   puesto esa fila ya es inerte (es terminal y coherente), pero conviene limpiarla antes de cualquier
+   snapshot, como pidió el pentester.
+
 ## 0.39 — **D44 (la pantalla de la oferta cancelada), las dos listas que decían menos de cinco y las atribuciones corregidas** (2026-09-06, rama `claude/buylist-inventory-workflow-hdnls3`, **PII + contrato v1.55**)
 
 > Propiedad: **backend**. Cierra **D44 / BL-31** (arquitecto → backend), la **cura de QA** sobre el

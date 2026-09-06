@@ -139,9 +139,28 @@ describe('AML-1 — el pago SPEI re-verifica el tope MENSUAL contra lo aprobado'
     const h = harness({ request: APROBADA({ approvedTotalCents: 1000 }) });
     await h.svc.paySpei('sr-1', 'SPEI-1', 'admin');
     // Una solicitud de diciembre pagada en enero consume tope de ENERO, que es cuando sale el dinero.
-    expect(h.seen[0]).toMatchObject({ userId: 'u1', status: 'pagada' });
+    expect(h.seen[0]).toMatchObject({ userId: 'u1' });
     expect(h.seen[0]).toHaveProperty('paidAt');
     expect(h.seen[0]).not.toHaveProperty('createdAt');
+  });
+
+  /**
+   * ⚠️⚠️ v1.56 · **§M5-T / BL-35 — EL SEGUNDO IMPACTO DE LA CRÍTICA P1, EN UN ASSERT.**
+   *
+   * El acumulado exigía **`status='pagada'`**, así que durante la reactivación del PoC la fila
+   * **salía del acumulado**: cada re-pago se evaluaba contra una cifra **que no incluía el dinero ya
+   * entregado**, y el tope mensual se podía rebasar sin que ningún control lo notara.
+   *
+   * Se afirma la **AUSENCIA** del término, que es lo que la regresión traería de vuelta: un
+   * `toMatchObject` con `paidAt` pasaría igual con el `status` puesto. `paidAt >= inicio de mes` ya
+   * excluye los `null`, así que quitarlo es un **superconjunto estricto** — cero regresión sobre fila
+   * sana, y sobre la fila defectuosa **cuenta el dinero que de verdad salió** (falla cerrado).
+   */
+  it('⚠️ P1: el acumulado NO exige `status:"pagada"` — una fila revivida NO puede salirse del tope', async () => {
+    const h = harness({ request: APROBADA({ approvedTotalCents: 1000 }) });
+    await h.svc.paySpei('sr-1', 'SPEI-1', 'admin');
+    expect(h.seen[0]).not.toHaveProperty('status');
+    expect(Object.keys(h.seen[0]).sort()).toEqual(['paidAt', 'userId']);
   });
 
   it('el override de KYC del VENDEDOR manda sobre el dial global (mismo criterio que el intake)', async () => {

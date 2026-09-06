@@ -3,6 +3,7 @@ import {
   Controller,
   Get,
   Headers,
+  HttpCode,
   HttpStatus,
   Param,
   Patch,
@@ -489,7 +490,27 @@ export class AdminBuylistController {
     return res;
   }
 
+  /**
+   * ⚠️ v1.56 (§M5 `receive`/`verify`, punto 4) — **`200`, NO el `201` del default de `POST` de Nest.**
+   *
+   * El contrato **nunca declaró `201`** para estos dos: era el default del decorador. Ningún verbo de
+   * transición hermano lo usa (`confirm-shipment`, `declare-shipped`, `offer-response`, `reject`:
+   * todos `200`), y sobre todo **la repetición idempotente no puede ser honestamente un `201`** — no
+   * crea nada, devuelve un hecho ya registrado.
+   *
+   * Aquí `@HttpCode` **sí** es correcto (a diferencia de `POST :id/offer`, que fija el código por
+   * `@Res` porque **depende del resultado**): estos dos responden `200` en **los dos** caminos de
+   * éxito —transición e idempotente—, así que el código es propiedad de la RUTA, no del resultado.
+   * El `409` de la guarda de §M5-T lo emite la excepción, que gana sobre `@HttpCode`.
+   *
+   * ⚠️ **La bitácora se escribe SOLO si el servicio no lanzó.** Sobre una fila terminal/cerrada el
+   * `409` sale de `receive()`/`verify()` **antes** de este `audit.log`, así que un intento rechazado
+   * **no deja un `buylist.receive` en la bitácora afirmando una recepción que no ocurrió**. *La
+   * bitácora del ciclo registra hechos, no intentos* — el registro de intentos bloqueados es de
+   * `MoneyOutGuard`, y ése es otro control con otro propósito.
+   */
   @Post(':id/receive')
+  @HttpCode(HttpStatus.OK)
   async receive(@Param('id') id: string, @CurrentUser() user: { id: string; role: Role }) {
     const res = await this.buylist.receive(id);
     await this.audit.log({
@@ -502,7 +523,9 @@ export class AdminBuylistController {
     return res;
   }
 
+  /** v1.56 (§M5 punto 4): `200` por el mismo motivo que `receive`. Ver el bloque de arriba. */
   @Post(':id/verify')
+  @HttpCode(HttpStatus.OK)
   async verify(@Param('id') id: string, @CurrentUser() user: { id: string; role: Role }) {
     const res = await this.buylist.verify(id);
     await this.audit.log({

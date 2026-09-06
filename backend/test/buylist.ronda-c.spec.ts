@@ -5,6 +5,7 @@ import { PricingService } from '../src/modules/pricing/pricing.service';
 import { SettingsService } from '../src/modules/settings/settings.service';
 import { UsersService } from '../src/modules/users/users.service';
 import { PiiCryptoService } from '../src/common/crypto/pii-crypto.service';
+import { SELL_REQUEST_TERMINAL_STATES } from '../src/common/sell-request-states';
 
 const pii = new PiiCryptoService(new ConfigService({}));
 
@@ -72,7 +73,15 @@ describe('itemDecision — RB-6 approvedTotalCents + RB-3 cap por-KYC', () => {
           return {};
         }),
         // v1.24-buylist-request-reject: guarda atómica «no pisar terminal» de la auto-transición.
-        updateMany: jest.fn(async () => ({ count: 1 })),
+        // ⚠ v1.56 (§M5-T/BL-35): **el recompute del total también pasa por aquí ahora.** Dejó de ser un
+        // `update({where:{id}})` a secas —escribía un MONTO sobre una fila que podía estar ya
+        // pagada y cerrada— y es un `updateMany` guardado como sus hermanos. Se recogen las dos
+        // formas en la MISMA lista para que las aserciones de abajo sigan mirando *la escritura*,
+        // no *el verbo de Prisma*.
+        updateMany: jest.fn(async (args: any) => {
+          sellRequestUpdates.push(args);
+          return { count: 1 };
+        }),
         findMany: jest.fn().mockResolvedValue([]), // AML-1: pagos previos del mes (ninguno).
       },
       kycProfile: {
@@ -109,7 +118,15 @@ describe('itemDecision — RB-6 approvedTotalCents + RB-3 cap por-KYC', () => {
     );
     expect(totalUpdate).toBeDefined();
     expect(totalUpdate.data.approvedTotalCents).toBe(8000);
-    expect(totalUpdate.where).toEqual({ id: 'sr-1' });
+    // ⚠ v1.56 (§M5-T/BL-35): el `where` ya no es `{id}` a secas. Lleva la guarda de vida en LOS DOS ejes
+    // (no-terminal **y** `closedAt: null`), porque este `update` escribe un MONTO y la ventana entre
+    // el commit de la decisión por-ítem y este recálculo permite que `paySpei` cierre la fila en
+    // medio: reescribir el bruto de una `pagada` mueve retroactivamente el acumulado AML del mes.
+    expect(totalUpdate.where).toEqual({
+      id: 'sr-1',
+      status: { notIn: [...SELL_REQUEST_TERMINAL_STATES] },
+      closedAt: null,
+    });
   });
 
   it('RB-6: sin ítems aprobados, approvedTotalCents = null (distingue "sin aprobar" de "cero")', async () => {

@@ -1696,7 +1696,28 @@ export class BuylistService implements OnModuleInit {
       // Ancla en `paidAt` (cuándo salió el dinero), no en `createdAt` (cuándo entró la solicitud):
       // una solicitud de diciembre que se paga en enero consume tope de ENERO, que es el mes en que
       // el dinero sale.
-      where: { userId, status: 'pagada', paidAt: { gte: start } },
+      //
+      // ⚠️⚠️ v1.56 · **§M5-T / BL-35 — CAE EL TÉRMINO `status: 'pagada'`. EL ACUMULADO SE ANCLA
+      // SOLO EN `paidAt`.** (§M5 `pay-spei` → «Los TRES sitios», sitio 1.)
+      //
+      // **Segundo impacto de la CRÍTICA P1:** durante una reactivación la fila **no está `pagada`**,
+      // así que **salía del acumulado** y cada re-pago se medía contra una cifra **que no incluía el
+      // dinero ya entregado** ⇒ se podía pagar muy por encima de `buylist_cap_per_month_cents`.
+      //
+      // **Conducta IDÉNTICA en toda fila sana, y es demostrable, no una apuesta:** `paidAt >= start`
+      // **ya excluye los `null`**, así que el predicado nuevo es un **superconjunto estricto** del
+      // viejo. La diferencia son **exactamente** las filas con `paidAt` poblado y `status` distinto
+      // de `pagada` — que en un sistema sano no existen: **medido, `paidAt` tiene UN solo escritor en
+      // todo el backend** (el `data` de la transición de abajo, en el mismo objeto que
+      // `status: 'pagada'`), sin default en el schema y sin SQL crudo que lo toque.
+      //
+      // **Falla CERRADO en la fila defectuosa:** cuenta **el dinero que de verdad salió** en vez de
+      // olvidarlo. *Un tope que se olvida de lo que ya pagó no es un tope.*
+      //
+      // ⚠️ **NO se toca el acumulado de COMPROMISO VIVO** (`monthCommittedGrossCents`, ancla
+      // `createdAt` sobre estados no terminales): ése mide **promesa**, no caja, y su ancla correcta
+      // **sí** es el estado. Dos preguntas distintas, dos predicados distintos.
+      where: { userId, paidAt: { gte: start } },
       // v1.51.5: el término CENTRAL (`offerGrossCents`) entra al `select` — sin leerlo, la cascada
       // no puede aplicarse aunque esté escrita.
       select: { approvedTotalCents: true, offerGrossCents: true, quotedTotalCents: true },
@@ -5063,37 +5084,120 @@ export class BuylistService implements OnModuleInit {
     return { sellRequestId: id, clabe };
   }
 
+  /**
+   * ⚠⚠ v1.56 · **§M5-T / BL-35 (P1 de `docs/PENTEST_NOTES.md`) — LOS DOS ÚNICOS VERBOS DE TRANSICIÓN QUE
+   * ESCRIBÍAN SIN GUARDA, Y POR AHÍ SE PAGABA DOS VECES.**
+   *
+   * ### El defecto, medido en vivo (no deducido)
+   * `receive`/`verify` hacían `update({ where: { id } })` a secas: **`adminGet` solo comprueba que la
+   * fila EXISTA** (`findUnique` + `notFound`), no que esté viva. Con eso, un `vault_operator` —el rol
+   * de MENOR confianza del back-office (S49-M1)— podía hacer `POST /verify` sobre una solicitud
+   * **`pagada`** y devolverla a `verificacion` **con el `closedAt` todavía sellado**. A partir de ahí:
+   * `verifiedAt` re-fijado + `verificacion ∈ SELL_REQUEST_PAYABLE_STATES` ⇒ `isPayable` **true otra
+   * vez**; la idempotencia de `paySpei` (anclada **solo** en `status === 'pagada'`) **no dispara**; y
+   * el CAS de las cuatro columnas de dinero **coincide** (ni `receive` ni `verify` tocan montos) ⇒
+   * `count === 1` ⇒ **SEGUNDA LIQUIDACIÓN SPEI**. Verificado en BD: dos `speiReference` y dos `paidAt`
+   * distintos sobre la misma solicitud, con la primera liquidación **ya sin rastro en la fila**.
+   *
+   * Y el daño no se agota en el doble depósito: **el tope AML mensual se evade** (el acumulado de
+   * `monthCommittedGrossPaidCentsTx` cuenta solo `status:'pagada'`, así que la fila reactivada **sale
+   * del acumulado** y cada re-pago se mide contra una cifra que no lo incluye) y **el libro de caja
+   * queda corrupto** (la fila conserva solo la ÚLTIMA referencia). El paso habilitador lo alcanza el
+   * operador; el pago exige `super_admin`, pero la reactivación **re-mete la solicitud en la cola de
+   * «listas para pagar» sin ninguna señal de que ya se pagó** ⇒ se vuelve a pagar **sin colusión**.
+   *
+   * ### La guarda: la MISMA que sus hermanos, ni una forma nueva
+   * `updateMany` con la precondición **en el `where`** + `count === 1` + relectura para responder
+   * (`updateMany` no devuelve filas) — idéntico a `respond` (BL-2), `offerResponse`, `declare-shipped`,
+   * `confirm-shipment`, `adminDecline` y `paySpei`. **La exclusión la da el motor, no un `if` sobre una
+   * lectura previa que una carrera invalida.**
+   *
+   * ### ⚠ Por EXCLUSIÓN (no-terminal), no una matriz de predecesores exactos
+   * El mínimo que cierra el agujero es *«no se transiciona lo cerrado»*. Apretar a «solo desde X»
+   * sería inventar una máquina de estados que la mesa **no** usa hoy: en el propio PoC `receive` y
+   * `verify` se dispararon **en cadena** justo tras `confirm-shipment`, y la bitácora real muestra
+   * `receive`→`verify` con 20 ms de diferencia. *Una guarda que rompe el trabajo legítimo del día
+   * siguiente no es más segura: es la que alguien acaba desactivando.* Es la misma dirección del
+   * criterio 129 (`SELL_REQUEST_LIVE_STATES` por complemento): olvidarse falla hacia el lado seguro.
+   *
+   * ### ⚠ `closedAt: null` es la OTRA MITAD de la guarda, y no es redundante
+   * En el código, **toda** escritura de `closedAt` va acompañada de un estado terminal (los seis
+   * sitios del servicio y los cinco del barrido), así que sobre una fila SANA los dos términos dicen
+   * lo mismo. Pero **hay filas que no lo son**: este mismo defecto dejó en BD solicitudes con
+   * `closedAt` sellado y `status` no-terminal, y sobre ésas el término de estado **por sí solo dejaría
+   * pasar la transición**. *Una guarda no puede apoyarse en el invariante que el bug rompió.*
+   *
+   * ⚠ **La transición y el movimiento de ítems van en UN SOLO boundary atómico, y la guarda va
+   * PRIMERO.** Antes, los ítems se movían **antes** de escribir la solicitud: sobre una fila cerrada
+   * eso dejaba los ítems en `recibida`/`verificacion` aunque la transición no prosperase. Misma
+   * lección que BL-14 con `adjustmentSentAt`: *una precondición y su efecto son una operación del
+   * motor, no dos pasos que una carrera pueda separar.*
+   *
+   * ### ⚠ IDEMPOTENCIA — `200`, y **la fecha NO se re-sella** (§M5 `receive`/`verify`, punto 3)
+   * | Entrada | Respuesta |
+   * |---|---|
+   * | `legalT` ∧ `status ≠` destino | `200` · transiciona · sella la fecha (**primera vez**) |
+   * | `legalT` ∧ `status =` destino | `200` idempotente · estado actual · ⛔ **NO re-fija la fecha** |
+   * | terminal ∨ `closedAt ≠ null` | **`409 CONFLICT`** · `details: { status, closedAt }` · cero escritura |
+   *
+   * **T GANA SOBRE LA IDEMPOTENCIA:** una fila con `closedAt` sellado y `status='verificacion'` da
+   * `409`, **no** `200` — *es el caso que P1 fabricó, y el único que distingue un guard de dos
+   * términos de uno de uno.* Sale solo de la construcción: el `where` lleva los dos términos, así que
+   * esa fila **no matchea** y cae en el `count !== 1`.
+   *
+   * El no-re-sellado vive en `sealOnceTx` (su bloque explica los dos relojes que el re-sellado
+   * movía). **Y `200`, no el `201` del default de `POST` de Nest** (`@HttpCode` en el controller):
+   * ningún verbo de transición hermano usa `201`, y **una repetición idempotente no crea nada**.
+   */
   async receive(id: string) {
     await this.adminGet(id);
-    await this.prisma.sellRequestItem.updateMany({
-      where: { sellRequestId: id, itemStatus: { in: ['cotizada', 'precio_pendiente'] } },
-      data: { itemStatus: 'recibida' },
+    const row = await this.prisma.$transaction(async (tx) => {
+      const guard = await tx.sellRequest.updateMany({
+        where: { id, ...this.liveRequestWhere() },
+        data: { status: 'recibida' },
+      });
+      if (guard.count !== 1) await this.throwRequestClosedConflict(tx, id);
+      await this.sealOnceTx(tx, id, 'receivedAt');
+      // DESPUÉS de la guarda, a propósito: una transición ilegítima no debe mover ni un ítem.
+      await tx.sellRequestItem.updateMany({
+        where: { sellRequestId: id, itemStatus: { in: ['cotizada', 'precio_pendiente'] } },
+        data: { itemStatus: 'recibida' },
+      });
+      // PROJECTION-EXEMPT: fila cruda DENTRO de la tx; se proyecta abajo con la lista blanca admin.
+      // `updateMany` no devuelve filas ⇒ la relectura es la única forma de responder lo ya escrito.
+      return tx.sellRequest.findUnique({ where: { id } });
     });
+    if (!row) throw BusinessException.notFound();
     // S49-M1: proyección admin (sin `clabeSnapshotEnc`). Ruta alcanzable por `vault_operator`, que
     // es justamente el rol de MENOR confianza del back-office (SEC-A4) — no debe ver PII bancaria.
-    return this.adminSellRequestDTO(
-      await this.prisma.sellRequest.update({
-        where: { id },
-        data: { status: 'recibida', receivedAt: new Date() },
-      }),
-      await this.adminCycleDials(),
-    );
+    return this.adminSellRequestDTO(row, await this.adminCycleDials());
   }
 
+  /**
+   * ⚠⚠ v1.56 · **§M5-T / BL-35** — hermano exacto de `receive`, y **el verbo del PoC**: `verify` es el que
+   * vuelve `isPayable` verdadero (fija `verifiedAt` y deja el `status` en `verificacion`, que está en
+   * `SELL_REQUEST_PAYABLE_STATES`), así que era **el camino más corto de «pagada» a «pagable otra
+   * vez»**. Misma guarda, mismo boundary atómico, mismo `409`. Ver el bloque de `receive`.
+   */
   async verify(id: string) {
     await this.adminGet(id);
-    await this.prisma.sellRequestItem.updateMany({
-      where: { sellRequestId: id, itemStatus: 'recibida' },
-      data: { itemStatus: 'verificacion' },
+    const row = await this.prisma.$transaction(async (tx) => {
+      const guard = await tx.sellRequest.updateMany({
+        where: { id, ...this.liveRequestWhere() },
+        data: { status: 'verificacion' },
+      });
+      if (guard.count !== 1) await this.throwRequestClosedConflict(tx, id);
+      await this.sealOnceTx(tx, id, 'verifiedAt');
+      await tx.sellRequestItem.updateMany({
+        where: { sellRequestId: id, itemStatus: 'recibida' },
+        data: { itemStatus: 'verificacion' },
+      });
+      // PROJECTION-EXEMPT: fila cruda DENTRO de la tx; se proyecta abajo con la lista blanca admin.
+      return tx.sellRequest.findUnique({ where: { id } });
     });
+    if (!row) throw BusinessException.notFound();
     // S49-M1: proyección admin (sin `clabeSnapshotEnc`), igual que `receive`.
-    return this.adminSellRequestDTO(
-      await this.prisma.sellRequest.update({
-        where: { id },
-        data: { status: 'verificacion', verifiedAt: new Date() },
-      }),
-      await this.adminCycleDials(),
-    );
+    return this.adminSellRequestDTO(row, await this.adminCycleDials());
   }
 
   /**
@@ -5146,6 +5250,102 @@ export class BuylistService implements OnModuleInit {
    */
   private notTerminalWhere(): Prisma.SellRequestWhereInput {
     return { status: { notIn: [...SELL_REQUEST_TERMINAL_STATES] } };
+  }
+
+  /**
+   * ⚠⚠ v1.56 · **§M5-T / BL-35 (P1)** — **«viva» en LOS DOS EJES**: no-terminal **y** sin cerrar.
+   *
+   * Se construye **encima** de `notTerminalWhere()` (BL-14) en vez de escribir otro literal de
+   * estados: la doctrina del **sitio 8** de §4.39c no admite una segunda lista, y el día que
+   * `SELL_REQUEST_TERMINAL_STATES` gane un valor los dos `where` se mueven **juntos o ninguno**.
+   *
+   * ### Por qué `closedAt: null` NO es redundante con el término de estado
+   * Sobre una fila **sana** los dos dicen lo mismo: en todo el backend, cada escritura de `closedAt`
+   * va en el MISMO `data` que un estado terminal (seis sitios en este servicio, cinco en el barrido;
+   * medido, no supuesto). Pero **P1 fabricó filas que no son sanas** — solicitudes con `closedAt`
+   * sellado y `status` no-terminal, precisamente porque revivía el estado sin tocar el cierre— y
+   * sobre ésas el término de estado, **solo**, deja pasar la escritura. *Una guarda que se apoya en
+   * el invariante que el bug rompió no guarda nada.* Es también la lección del propio P1 aplicada un
+   * nivel arriba: anclar una precondición de dinero en **un solo campo** es lo que falló.
+   *
+   * ⚠ **NO sustituye a `notTerminalWhere()`** ni se mete en sus tres llamadores (las escrituras
+   * por-ítem de BL-14/BL-27): allí la precondición declarada por el contrato es *terminal*, y
+   * ampliarla «por consistencia» cambiaría el `409` de un endpoint que hoy está bien.
+   */
+  private liveRequestWhere(): Prisma.SellRequestWhereInput {
+    return { ...this.notTerminalWhere(), closedAt: null };
+  }
+
+  /**
+   * ⚠ v1.56 · **§M5-T / BL-35 (P1)** — el `409` de *«esta solicitud ya cerró: no se transiciona»*, con el
+   * estado **releído** (dentro de la transacción cuando la hay, para que `details.status` diga el
+   * estado REAL contra el que se chocó, no el de una lectura vieja que la carrera invalidó).
+   *
+   * **Código `CONFLICT`, no uno inventado** (§N.2): es un código COMÚN del contrato (§3) y hay
+   * precedente literal para EXACTAMENTE esta invariante — §4.18f, `POST /admin/buylist/:id/reject`
+   * sobre otro terminal: *«se rechaza el cierre con `409 CONFLICT` (`details.status`) por invariante
+   * “no pisar terminal”»*. **Misma invariante, mismo código, misma forma de `details`.**
+   *
+   * Hermano exacto de `throwTerminalConflict`, y **no se funde con él a propósito**: aquél dice *«los
+   * ÍTEMS de esta solicitud ya no se deciden»* (`NO_LIVE_ADJUSTMENT`, §4.18f de `items/:itemId/
+   * decision`) y éste dice *«la SOLICITUD ya no transiciona»*. Son dos endpoints, dos códigos ya
+   * declarados y dos conductas distintas del back-office; un solo cuerpo tendría que mentir en uno.
+   */
+  private async throwRequestClosedConflict(
+    db: SellRequestReader,
+    sellRequestId: string,
+  ): Promise<never> {
+    const current = await db.sellRequest.findUnique({
+      where: { id: sellRequestId },
+      select: { status: true, closedAt: true },
+    });
+    throw BusinessException.conflict(
+      'CONFLICT',
+      'This sell request is terminal or closed and can no longer be transitioned',
+      // ⚠ §M5-T: `details` lleva **LOS DOS** campos, y por el mismo motivo que la guarda lleva los
+      // dos términos: con solo `status` el operador no puede distinguir *«ya cerró por el camino
+      // normal»* de *«el status miente y lo que la bloquea es el `closedAt`»* — que es exactamente
+      // la fila que P1 fabricó. `details` tiene que poder explicar el rechazo que la guarda produce.
+      { status: current?.status, closedAt: current?.closedAt ?? null },
+    );
+  }
+
+  /**
+   * ⚠⚠ v1.56 · **§M5-T / BL-35 — «SELLA LA FECHA SOLO SI TODAVÍA ES `null`», EN EL MOTOR.**
+   *
+   * `receive`/`verify` son **idempotentes por contrato** (`200` con el estado actual cuando el
+   * `status` ya es el destino) **y no pueden re-fijar su fecha**. Hasta v1.55 la fecha iba en el
+   * mismo `data` que el `status`, así que **cada `POST` repetido la movía hacia adelante**.
+   *
+   * ### Eso no era cosmético: corría DOS relojes reales
+   * - **`receivedAt` ancla el abandono a 30 días** del barrido (`jobs/buylist-sweep.service.ts`,
+   *   regla 6: `receivedAt: { not: null, lte: thirtyDaysAgo }`) ⇒ un doble clic **posponía una
+   *   transición TERMINAL** sobre mercancía de otra persona.
+   * - **`receivedAt` y `verifiedAt` entran al `max(...)`** que fija la purga del INE mientras
+   *   `closedAt` es `null` (`jobs/ine-retention.service.ts`) ⇒ cada repetición **posponía una
+   *   obligación de retención de PII** (LFPDPPP, misma familia que BL-3).
+   *
+   * ***Un reintento de red no puede correr un plazo legal.***
+   *
+   * ### ⚠ Por qué es un `updateMany` propio y no un `if` que compone el `data`
+   * El contrato lo dice literal: *«la fecha entra al `data` solo si aún es `null`, no un `if` de
+   * aplicación que una carrera pueda saltar»*. Con `receivedAt: null` **en el `where`**, dos llamadas
+   * concurrentes compiten en el motor y **solo una sella**; con un `if` sobre una lectura previa, las
+   * dos leen `null` y las dos escriben. Es el mismo patrón exacto de `declare-shipped`
+   * (`sellerShippedDeclaredAt: null` en su `where`) — **el precedente que el contrato cita**.
+   *
+   * ⚠ **`count === 0` NO es un error aquí**: significa *«ya estaba sellada»*, que es precisamente el
+   * caso idempotente. La guarda de vida ya se evaluó **antes**, en la transición.
+   */
+  private async sealOnceTx(
+    tx: SellRequestReader,
+    id: string,
+    field: 'receivedAt' | 'verifiedAt',
+  ): Promise<void> {
+    await tx.sellRequest.updateMany({
+      where: { id, [field]: null },
+      data: { [field]: new Date() },
+    });
   }
 
   /**
@@ -5698,10 +5898,37 @@ export class BuylistService implements OnModuleInit {
       _count: { approvedPriceCents: true },
     });
     const approvedTotalCents = agg._count.approvedPriceCents > 0 ? (agg._sum.approvedPriceCents ?? 0) : null;
-    await this.prisma.sellRequest.update({
-      where: { id: sellRequestId },
+    // ⚠⚠ v1.56 · **§M5-T / BL-35 (P1) — EL TERCER `update({where:{id}})`, Y SÍ ESCRIBE DINERO.**
+    //
+    // No es un verbo de transición (no mueve `status`), y su ÚNICA entrada —`itemDecision`— ya está
+    // guardada por BL-14. Pero la guarda del llamador **no cubre esta escritura**: entre el `commit`
+    // de la decisión por-ítem y este recálculo hay una ventana en la que `paySpei` puede commitear
+    // `pagada`, y entonces esto **reescribe `approvedTotalCents` sobre una fila YA PAGADA Y CERRADA**.
+    //
+    // **El orden inverso sí está cubierto y por eso este no se veía:** si el recálculo commitea
+    // ANTES, el CAS de las cuatro columnas de `paySpei` falla y no sale un peso. Lo que queda abierto
+    // es *después*, y ahí el daño no es el depósito (ya salió, correcto) sino **el acumulado AML**:
+    // `monthCommittedGrossPaidCentsTx` mide `brutoConsumado` sobre las filas `pagada`, así que mover
+    // el bruto de una fila pagada **cambia retroactivamente cuánta cuota mensual consumió** — a la
+    // baja, liberando tope. Es literalmente lo que el contrato afirma que no puede pasar: §4.18f
+    // ancla la norma de `brutoConsumado` en que **`approvedTotalCents` es FINAL en `pagada`**.
+    //
+    // ⚠ **No lanza, y es deliberado.** Es un derivado best-effort que corre **post-commit** de una
+    // decisión que ya prosperó legítimamente; un `409` aquí le devolvería un error al operador por
+    // una escritura que el contrato ni siquiera le promete, y encima **después** de haber movido el
+    // ítem. El no-op ES el resultado correcto: sobre una fila cerrada el total ya no se recalcula
+    // porque **el total congelado es exactamente el que se pagó**. Se registra para que la carrera
+    // sea VISIBLE (§4.39k.1: se degrada lo que se muestra, nunca lo que se compromete).
+    const guard = await this.prisma.sellRequest.updateMany({
+      where: { id: sellRequestId, ...this.liveRequestWhere() },
       data: { approvedTotalCents },
     });
+    if (guard.count !== 1) {
+      this.logger.warn(
+        `recomputeApprovedTotal: ${sellRequestId} ya no está viva; el total aprobado NO se reescribe ` +
+          '(§M5-T/BL-35: en una solicitud cerrada el bruto es final — es el que se pagó).',
+      );
+    }
   }
 
   /**
@@ -5731,8 +5958,12 @@ export class BuylistService implements OnModuleInit {
         if (nonRejectedCount > 0) return; // aún hay ítems no-rechazados → no se auto-rechaza.
         // Transición con guardia «no pisar terminal» (patrón updateMany de paySpei). Si la solicitud
         // ya es terminal (pagada/rechazada/abandonada) el updateMany no matchea → no-op.
+        // ⚠️ v1.56 · **§M5-T** — el guard pasa a los **DOS** términos (`liveRequestWhere`). Escribe
+        // `status`, luego obedece T; y llevaba **solo el de estado**, así que sobre la fila que P1
+        // fabrica (`closedAt` sellado ∧ `status` no terminal) **auto-rechazaba una solicitud ya
+        // pagada** — reescribiendo a `rechazada` una fila cuyo dinero ya salió.
         await tx.sellRequest.updateMany({
-          where: { id: sellRequestId, status: { notIn: [...SELL_REQUEST_TERMINAL_STATES] } },
+          where: { id: sellRequestId, ...this.liveRequestWhere() },
           data: { status: 'rechazada', closedAt: new Date() },
         });
       },
@@ -5798,8 +6029,17 @@ export class BuylistService implements OnModuleInit {
         }
         // Efecto ÚNICO: status → rechazada + closedAt=now(). Guard atómico «no pisar terminal»
         // (patrón updateMany de paySpei) por si una transición concurrente ganó la carrera.
+        // ⚠️ v1.56 · **§M5-T** — este endpoint es **el PRECEDENTE** de la invariante (§4.18f), y su
+        // guard llevaba **un solo término**. Se le añade el segundo (`closedAt: null`, vía
+        // `liveRequestWhere`) porque el precedente tiene que cumplir la norma que inspiró: sin él, la
+        // fila con `closedAt` sellado ∧ `status` no terminal —la que P1 fabrica— pasaba el guard y se
+        // reescribía a `rechazada` **encima de un SPEI ya liquidado**.
+        // ⚠️ El `details` **no se toca**: §M5-T declara el segundo campo **aditivo y opcional aquí**
+        // («§4.18f NO se retro-edita»), y la salida idempotente de abajo tampoco cambia — sobre una
+        // fila sana los dos términos excluyen exactamente lo mismo, así que el `count === 0` llega a
+        // la misma rama que hoy. Lo único nuevo es que la fila INCOHERENTE cae en el `409`.
         const res = await tx.sellRequest.updateMany({
-          where: { id, status: { notIn: [...SELL_REQUEST_TERMINAL_STATES] } },
+          where: { id, ...this.liveRequestWhere() },
           data: { status: 'rechazada', closedAt: new Date() },
         });
         // count===0 ⇒ una transición concurrente cerró la solicitud entre la lectura inicial y el
@@ -6119,6 +6359,36 @@ export class BuylistService implements OnModuleInit {
     if (req.status === 'pagada') {
       return this.adminSellRequestDTO(req, await this.adminCycleDials());
     }
+    // ⚠️⚠️ v1.56 · **§M5-T / BL-35 — LA HUELLA DACTILAR DE UN ROLLBACK, Y TIENE QUE SER RUIDOSA.**
+    //
+    // Va **inmediatamente después** del corto-circuito idempotente y **antes** de todo lo demás: el
+    // orden ES la norma. `status === 'pagada'` ⇒ `200` con la PRIMERA liquidación (reintento, hoy
+    // intacto). Pero **`paidAt` poblado con `status` distinto de `pagada`** no es un reintento: es
+    // una fila que **ya cobró y a la que alguien le movió el estado hacia atrás**. Devolverle el
+    // `200` idempotente **escondería exactamente lo que P1 enseñó a buscar** — *la idempotencia
+    // existe para absorber un reintento, no para normalizar una incoherencia.*
+    //
+    // Y `closedAt` poblado con `status` no terminal es la otra mitad de la misma huella (§M5-T: los
+    // dos términos, porque se midió que discrepan).
+    //
+    // ⚠️ **Es un PRE-CHECK, no la guarda.** La guarda real son los dos términos nuevos del `where`
+    // del `updateMany` de abajo, que es lo que una carrera no puede saltar; esto solo evita gastar
+    // una transacción SERIALIZABLE y una lectura de KYC en una fila que ya sabemos que no se paga, y
+    // permite dar el `details` correcto (`paidAt` vs `closedAt`) en vez del genérico del CAS.
+    if (req.paidAt != null) {
+      throw BusinessException.conflict(
+        'CONFLICT',
+        'This sell request already has a settlement on record; it cannot be paid again',
+        { status: req.status, paidAt: req.paidAt },
+      );
+    }
+    if (req.closedAt != null) {
+      throw BusinessException.conflict(
+        'CONFLICT',
+        'This sell request is closed and can no longer be paid',
+        { status: req.status, closedAt: req.closedAt },
+      );
+    }
     // v1.51 (M-46, §4.39c **SITIO 8**) — el «estado pagable» estaba escrito INLINE **dos veces en
     // este mismo método**: aquí (pre-check) y en el `where` del `updateMany` de abajo (la guarda
     // atómica real). Dos literales en un método de DINERO SALIENTE es la forma más barata de que una
@@ -6216,9 +6486,30 @@ export class BuylistService implements OnModuleInit {
           // otro lado**: el SSI de Postgres solo arbitra entre transacciones que TAMBIÉN son
           // `Serializable`, y `itemDecision` no lo es — así que sin CAS la relectura sola dejaría la
           // ventana abierta. *Un `updateMany` con predicado sí frena a cualquiera.*
+          //
+          // ⚠⚠ v1.56 · **§M5-T / BL-35 (P1) — DEFENSA EN PROFUNDIDAD: `paidAt IS NULL` Y `closedAt IS NULL`.**
+          //
+          // **La lección de P1 no es «faltaba una guarda en `verify`»: es que anclar la idempotencia
+          // de un pago en UN SOLO campo (`status`) es frágil.** El corto-circuito de arriba mira
+          // `status === 'pagada'` y el `where` miraba `status ∈ PAYABLE`; bastó con que **otro** verbo
+          // moviera ese único campo hacia atrás para que las dos puertas se abrieran a la vez. Aquí
+          // se afirman además **los dos hechos que NO se pueden deshacer moviendo un estado**: que
+          // este dinero **no ha salido** (`paidAt`) y que la solicitud **no está cerrada**
+          // (`closedAt`). Con esto, un rollback futuro **por CUALQUIER vía** —una guarda nueva que
+          // alguien olvide, una migración, un script de soporte— deja de re-habilitar el pago.
+          //
+          // ⚠ **MEDIDO antes de ponerlo, no asumido** (rompería pagos buenos si algún flujo sellara
+          // esos campos antes de pagar): `paidAt` lo escribe **un solo sitio en todo el backend** —
+          // este mismo `data`, junto con `status:'pagada'`— y **todas** las escrituras de `closedAt`
+          // (seis en este servicio, cinco en `jobs/buylist-sweep`) van en el MISMO `data` que un
+          // estado **terminal**. ⇒ En una fila legítimamente pagable (`aprobada`/`verificacion`) los
+          // dos son `null` **por construcción**, y estos dos términos **no pueden rechazar un pago
+          // legítimo**: solo rechazan una fila que ya cobró o que ya cerró.
           where: {
             id,
             ...this.payableWhere(),
+            paidAt: null,
+            closedAt: null,
             approvedTotalCents: fresh.approvedTotalCents,
             offerGrossCents: fresh.offerGrossCents,
             quotedTotalCents: fresh.quotedTotalCents,
@@ -6273,6 +6564,28 @@ export class BuylistService implements OnModuleInit {
       // bien, y la acción correcta —**volver a abrir la solicitud, ver el monto NUEVO y decidir de
       // nuevo**— no se deduce de ese mensaje. `409 CONFLICT` es un código COMÚN del contrato (§3), no
       // uno inventado para esto.
+      // ⚠️⚠️ v1.56 · **§M5-T / BL-35 (P1)** — el mismo par de casos que el pre-check de arriba, aquí
+      // como **backstop de CARRERA**: si la reactivación (o el pago de otro hilo) ocurrió *después*
+      // de aquella lectura, el CAS de `paidAt`/`closedAt` es quien lo frena y esta rama es la que le
+      // pone nombre. **Van ANTES del `409` del CAS del importe** porque son hechos distintos con
+      // conductas distintas: aquél dice *«el monto se movió, vuelve a mirarlo y decide»*; éstos dicen
+      // *«esto ya se pagó / ya cerró: NO lo vuelvas a pagar»*. Mandar a un súper-admin a
+      // «re-verificar el monto» de una solicitud que ya cobró lo empuja justo hacia el acto que este
+      // bloqueo existe para impedir.
+      if (current?.paidAt != null) {
+        throw BusinessException.conflict(
+          'CONFLICT',
+          'This sell request already has a settlement on record; it cannot be paid again',
+          { status: current.status, paidAt: current.paidAt },
+        );
+      }
+      if (current?.closedAt != null) {
+        throw BusinessException.conflict(
+          'CONFLICT',
+          'This sell request is closed and can no longer be paid',
+          { status: current.status, closedAt: current.closedAt },
+        );
+      }
       if (current && isPayableSellRequest(current)) {
         throw BusinessException.conflict(
           'CONFLICT',

@@ -138,13 +138,15 @@ export async function monthCommittedGrossCents(
  *
  * - **Miden preguntas distintas.** Arriba: *«¿cuánto sigue COMPROMETIDO este mes?»* (ancla
  *   `createdAt`, sobre solicitudes **vivas** + `pagada`). Aquí: *«¿cuánto compromiso se CONSUMÓ este
- *   mes?»* (ancla `paidAt`, **solo `pagada`**).
+ *   mes?»* (ancla `paidAt` **y NADA MÁS** — v1.56/§M5-T: el término `status='pagada'` se cayó porque
+ *   durante la reactivación de P1 la fila salía del acumulado; ver `monthCommittedGrossPaidCentsTx`).
  * - **En una solicitud VIVA `approvedTotalCents` es PARCIAL**, y por eso no puede liderar allí: el
  *   recompute corre en **cada** decisión por-ítem, así que durante la verificación el número **sube
  *   desde `null`** conforme se deciden líneas. Un acumulado AML que puede **BAJAR** mientras la
  *   operación avanza es exactamente el bypass que el invariante 4 describe. **El compromiso se
  *   mantiene en el bruto ofertado hasta que la solicitud cierra.**
- * - **Aquí la solicitud es TERMINAL**, así que el aprobado es final y puede liderar.
+ * - **Aquí el dinero YA SALIÓ** (`paidAt` poblado), así que el aprobado es final y puede liderar.
+ *   *(v1.56: se dice por el HECHO —`paidAt`— y no por el estado, que es justo lo que P1 reescribía.)*
  *
  * ⚠️ **No añadir `approvedTotalCents` a la de arriba «por consistencia».**
  */

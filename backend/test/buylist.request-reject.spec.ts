@@ -96,6 +96,24 @@ function buildForItemDecision(nonRejectedRemaining: number) {
   return { svc, prisma };
 }
 
+/**
+ * ⚠️ v1.56 (§M5-T/BL-35) — **las aserciones miran LA ESCRITURA, no el verbo de Prisma.**
+ *
+ * `recomputeApprovedTotal` dejó de ser un `update({where:{id}})` sin guarda (escribía un MONTO sobre
+ * una fila que `paySpei` podía haber cerrado en la ventana) y ahora es un `updateMany` guardado como
+ * sus hermanos. Eso hace que `sellRequest.updateMany` reciba **dos clases** de llamada en el mismo
+ * flujo: el recálculo del total y la transición de estado. Un `toHaveBeenCalledWith` posicional —o
+ * un `not.toHaveBeenCalled()`— confundiría una con otra y afirmaría lo que no toca.
+ */
+const statusWrites = (m: jest.Mock) =>
+  m.mock.calls.map(([a]) => a).filter((a: any) => a?.data && 'status' in a.data);
+
+/** El `where` canónico de la Invariante T (§M5-T): LOS DOS términos, desde la constante compartida. */
+const LEGAL_T = {
+  status: { notIn: [...SELL_REQUEST_TERMINAL_STATES] },
+  closedAt: null,
+};
+
 describe('itemDecision(reject) — auto-transición de la SOLICITUD (regla f)', () => {
   it('todos los ítems rechazados (último ítem no-rechazado) ⇒ solicitud a `rechazada` + `closedAt`', async () => {
     const { svc, prisma } = buildForItemDecision(0); // ∅ ítems no-rechazados restantes.
@@ -104,21 +122,27 @@ describe('itemDecision(reject) — auto-transición de la SOLICITUD (regla f)', 
     expect(prisma.sellRequestItem.count).toHaveBeenCalledWith({
       where: { sellRequestId: 'sr-1', itemStatus: { not: 'rechazada' } },
     });
-    // Transición atómica con guarda «no pisar terminal» + closedAt sellado (Date).
-    expect(prisma.sellRequest.updateMany).toHaveBeenCalledWith({
-      // v1.51 (M-46, §4.39c sitio 7): el set terminal es el COMPARTIDO, no un literal del test.
-      // Eran tres; con `expirada` son CUATRO. Escribirlo a mano aquí reproduciría en el test la
-      // misma copia que la migración vino a borrar del código.
-      where: { id: 'sr-1', status: { notIn: [...SELL_REQUEST_TERMINAL_STATES] } },
-      data: { status: 'rechazada', closedAt: expect.any(Date) },
-    });
+    // Transición atómica con la guarda de §M5-T + closedAt sellado (Date).
+    // v1.51 (M-46, §4.39c sitio 7): el set terminal es el COMPARTIDO, no un literal del test.
+    // v1.56 (§M5-T): y el `where` lleva **los DOS términos** — sin `closedAt: null`, esta misma
+    // auto-transición reescribía a `rechazada` la fila que P1 fabrica (cerrada, status no terminal),
+    // o sea una solicitud cuyo dinero YA SALIÓ.
+    expect(statusWrites(prisma.sellRequest.updateMany)).toEqual([
+      {
+        where: { id: 'sr-1', ...LEGAL_T },
+        data: { status: 'rechazada', closedAt: expect.any(Date) },
+      },
+    ]);
   });
 
   it('queda ≥1 ítem no-rechazado (p. ej. otro `aprobada` o `convertida_inventario`) ⇒ NO auto-rechaza', async () => {
     const { svc, prisma } = buildForItemDecision(1); // 1 ítem vivo restante.
     await svc.itemDecision('sri-1', 'reject', undefined, 'no es NM: edge nicks');
     expect(prisma.sellRequestItem.count).toHaveBeenCalled();
-    expect(prisma.sellRequest.updateMany).not.toHaveBeenCalled();
+    // v1.56: «no transiciona» = cero escrituras de `status`. El recompute del total SÍ corre (y ahora
+    // también pasa por `updateMany`), así que afirmar `not.toHaveBeenCalled()` sobre el verbo mediría
+    // otra cosa.
+    expect(statusWrites(prisma.sellRequest.updateMany)).toEqual([]);
   });
 
   it('re-reject sobre ítem YA rechazada = no-op: NO cuenta ítems ni transiciona (idempotencia v1.18)', async () => {
@@ -205,11 +229,10 @@ describe('rejectRequest — cierre explícito (regla g)', () => {
     // El `reason` del body es material de auditoría del controller — el servicio ya no lo recibe.
     const res = await svc.rejectRequest('sr-1');
     expect(res.transitioned).toBe(true);
+    // v1.56 (§M5-T): `POST …/reject` es EL PRECEDENTE de la invariante y su guard llevaba un solo
+    // término. Ahora lleva los dos, como todo verbo que escribe `status`.
     expect(prisma.sellRequest.updateMany).toHaveBeenCalledWith({
-      // v1.51 (M-46, §4.39c sitio 7): el set terminal es el COMPARTIDO, no un literal del test.
-      // Eran tres; con `expirada` son CUATRO. Escribirlo a mano aquí reproduciría en el test la
-      // misma copia que la migración vino a borrar del código.
-      where: { id: 'sr-1', status: { notIn: [...SELL_REQUEST_TERMINAL_STATES] } },
+      where: { id: 'sr-1', ...LEGAL_T },
       data: { status: 'rechazada', closedAt: expect.any(Date) },
     });
   });

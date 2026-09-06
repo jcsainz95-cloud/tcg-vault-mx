@@ -439,12 +439,49 @@ describe('E2E — Ciclo de adquisición del buylist (§6 · §M5)', () => {
       expect(row!.shipmentConfirmedAt).not.toBeNull();
     });
 
-    it('(11) recepción y verificación', async () => {
-      expect((await h.api('POST', `/admin/buylist/${srId}/receive`, { token: operatorToken })).status).toBe(201);
+    it('(11) recepción y verificación — `200` (v1.56, §M5 punto 4), no el `201` del default de Nest', async () => {
+      const rec = await h.api('POST', `/admin/buylist/${srId}/receive`, { token: operatorToken });
+      expect(rec.status).toBe(200);
       const ver = await h.api('POST', `/admin/buylist/${srId}/verify`, { token: operatorToken });
-      expect(ver.status).toBe(201);
+      expect(ver.status).toBe(200);
       // ⚠️ `verify` es JUSTAMENTE la transición que vuelve `isPayable` verdadero: omitirlo en esta
       // respuesta daría un `false` silencioso en superficie de dinero (BL-20).
+      expect(ver.body.isPayable).toBe(true);
+    });
+
+    /**
+     * ⚠️⚠️ v1.56 (§M5 `receive`/`verify`, punto 3) — **LA IDEMPOTENCIA, Y SOBRE TODO LA FECHA.**
+     *
+     * Hasta v1.55 la fecha iba en el mismo `data` que el `status`, así que **cada `POST` repetido la
+     * movía hacia adelante**. No era cosmético: `receivedAt` ancla el **abandono a 30 días** del
+     * barrido (regla 6) y las dos fechas entran al `max(...)` que fija la **purga del INE**. Un doble
+     * clic posponía una transición terminal sobre mercancía ajena y una obligación de retención de
+     * PII. ***Un reintento de red no puede correr un plazo legal.***
+     *
+     * Va **por HTTP contra el motor**: la forma correcta —`receivedAt: null` en el `where`— solo se
+     * distingue de un `if` de aplicación cuando escribe una BD de verdad.
+     */
+    it('(11-bis) repetir `receive`/`verify` ⇒ `200` idempotente y ⛔ la fecha NO se re-sella', async () => {
+      const antes = await h.prisma.sellRequest.findUnique({ where: { id: srId } });
+      expect(antes!.receivedAt).toBeTruthy();
+      expect(antes!.verifiedAt).toBeTruthy();
+
+      // `verify` sobre una ya `verificacion`: el estado YA es el destino ⇒ `200`, no `409`.
+      const reVer = await h.api('POST', `/admin/buylist/${srId}/verify`, { token: operatorToken });
+      expect(reVer.status).toBe(200);
+      expect(reVer.body.status).toBe('verificacion');
+      // `receive` desde `verificacion` transiciona hacia atrás (legal: el guardado es por EXCLUSIÓN,
+      // no por matriz de predecesores — §M5-T punto 2) pero **tampoco re-sella `receivedAt`**.
+      const reRec = await h.api('POST', `/admin/buylist/${srId}/receive`, { token: operatorToken });
+      expect(reRec.status).toBe(200);
+
+      const despues = await h.prisma.sellRequest.findUnique({ where: { id: srId } });
+      expect(despues!.receivedAt).toEqual(antes!.receivedAt);
+      expect(despues!.verifiedAt).toEqual(antes!.verifiedAt);
+
+      // Se deja la solicitud como estaba para que (12)/(13) sigan el camino feliz.
+      const ver = await h.api('POST', `/admin/buylist/${srId}/verify`, { token: operatorToken });
+      expect(ver.status).toBe(200);
       expect(ver.body.isPayable).toBe(true);
     });
 
@@ -481,6 +518,166 @@ describe('E2E — Ciclo de adquisición del buylist (§6 · §M5)', () => {
       // se puede comprobar es al final de un ciclo completo contra la BD real.
       expect(row!.payoutNetCents).toBe(32000);
       expect(row!.payoutNetCents).toBe(row!.offerNetCents);
+    });
+
+    // =========================================================================================
+    // ⚠️⚠️ (14)-(17) — LA CRÍTICA **P1** (`docs/PENTEST_NOTES.md`), REPRODUCIDA ENTERA.
+    //
+    // El PoC del red team, paso por paso y por HTTP: `vault_operator` hace `POST …/verify` sobre la
+    // solicitud que acaba de quedar **`pagada`**, la fila vuelve a `verificacion` con `closedAt`
+    // todavía sellado, `isPayable` se pone `true` otra vez y un `super_admin` que trabaja su cola
+    // **vuelve a liquidar con una referencia nueva**. En BD quedaron dos `speiReference` y dos
+    // `paidAt` distintos sobre la misma solicitud: **dos SPEI reales al vendedor**.
+    //
+    // ⚠️ **Esto NO se puede probar con un doble de Prisma**, y por eso vive aquí: el `updateMany`
+    // guardado devuelve `count: 1` en cualquier mock que no evalúe el `where`, así que un unitario
+    // con un fake pasaría **igual de verde con la guarda quitada**. Lo que distingue el código
+    // arreglado del roto es **el motor**, y el motor solo está aquí.
+    //
+    // El estado de partida no se siembra: **sale del recorrido (1)-(13) de arriba**, que es el ciclo
+    // legítimo completo. *La fila que se ataca es exactamente la que el sistema produce.*
+    // =========================================================================================
+    describe('⚠️ P1 · §M5-T — una solicitud PAGADA no se revive, y no se paga dos veces', () => {
+      it('(14) `verify` sobre una `pagada` ⇒ 409 CONFLICT con `details.status` y `details.closedAt`', async () => {
+        const before = await h.prisma.sellRequest.findUnique({ where: { id: srId } });
+        expect(before!.status).toBe('pagada'); // precondición: el paso (13) la dejó liquidada.
+
+        // El PASO HABILITADOR del PoC, con el rol que lo alcanzaba: `vault_operator`, el de MENOR
+        // confianza del back-office. Antes devolvía **201**.
+        const res = await h.api('POST', `/admin/buylist/${srId}/verify`, { token: operatorToken });
+        expect(res.status).toBe(409);
+        expect(res.body.error.code).toBe('CONFLICT');
+        // §M5-T: `details` lleva LOS DOS campos. Con solo `status`, el operador no puede distinguir
+        // «cerró por el camino normal» de «el status miente y lo que la bloquea es el closedAt».
+        expect(res.body.error.details.status).toBe('pagada');
+        expect(res.body.error.details.closedAt).toBeTruthy();
+
+        // «Cero escritura» es normativo, así que se afirma columna por columna — no basta el 409.
+        const after = await h.prisma.sellRequest.findUnique({ where: { id: srId } });
+        expect(after!.status).toBe('pagada');
+        expect(after!.verifiedAt).toEqual(before!.verifiedAt);
+        expect(after!.closedAt).toEqual(before!.closedAt);
+        expect(after!.paidAt).toEqual(before!.paidAt);
+        expect(after!.speiReference).toBe(before!.speiReference);
+        expect(after!.receivedAt).toEqual(before!.receivedAt);
+        expect(after!.payoutNetCents).toBe(before!.payoutNetCents);
+      });
+
+      it('(15) `receive` sobre una `pagada` ⇒ 409 y los ÍTEMS tampoco se mueven', async () => {
+        // La otra mitad del hueco. Y se mira el nivel ÍTEM porque el `updateMany` de ítems corría
+        // **antes** del update de la solicitud: una `pagada` ya podía quedarse con las cartas
+        // movidas de `itemStatus` aunque la transición de la solicitud no prosperara.
+        const itemsBefore = await h.prisma.sellRequestItem.findMany({
+          where: { sellRequestId: srId },
+          orderBy: { id: 'asc' },
+          select: { id: true, itemStatus: true },
+        });
+        const res = await h.api('POST', `/admin/buylist/${srId}/receive`, { token: operatorToken });
+        expect(res.status).toBe(409);
+        expect(res.body.error.code).toBe('CONFLICT');
+        expect(res.body.error.details.status).toBe('pagada');
+
+        const itemsAfter = await h.prisma.sellRequestItem.findMany({
+          where: { sellRequestId: srId },
+          orderBy: { id: 'asc' },
+          select: { id: true, itemStatus: true },
+        });
+        expect(itemsAfter).toEqual(itemsBefore);
+        const row = await h.prisma.sellRequest.findUnique({ where: { id: srId } });
+        expect(row!.receivedAt).toBeTruthy();
+        expect(row!.status).toBe('pagada');
+      });
+
+      /**
+       * ⚠️⚠️ **EL REMATE DEL PoC, Y ES AUTOCONTENIDO A PROPÓSITO.**
+       *
+       * La cadena `verify → pay-spei` va **dentro de este mismo test**, sin `receive` en medio, y eso
+       * NO es estilo: es la diferencia entre medir el agujero y medir otra cosa. El propio pentester
+       * lo anotó — *«si entre `verify` y el 2º pago se llama `receive`, la solicitud cae a `recibida`
+       * (no pagable) y el 2º pago da 422; por eso el camino limpio es `verify` → `pay-spei`
+       * directo»*. Si este test dependiera del `receive` del caso (15), contra el código SIN arreglar
+       * fallaría con un `422` **por la ruta equivocada** y parecería que detecta el defecto cuando en
+       * realidad estaría detectando un accidente de orden. *Un test que falla por la razón
+       * equivocada no prueba nada el día que la razón cambie.*
+       *
+       * Contra el código sin arreglar, aquí salía: `verify` **201**, `pay-spei` **201** con
+       * `speiReference=SPEI-DOUBLESPEND-777` y `paidAt` avanzado — **dos transferencias reales**.
+       */
+      it('(16) ⚠️ EL DAÑO: `verify` → 2º `pay-spei` con ref NUEVA no liquida — una sola salida de dinero', async () => {
+        const before = await h.prisma.sellRequest.findUnique({ where: { id: srId } });
+        expect(before!.status).toBe('pagada');
+        expect(before!.speiReference).toBe('SPEI-CYCLE-1');
+
+        // Paso habilitador (vault_operator) e intento de cobro (super_admin), encadenados.
+        const revive = await h.api('POST', `/admin/buylist/${srId}/verify`, { token: operatorToken });
+        expect(revive.status).toBe(409);
+        const res = await h.api('POST', `/admin/buylist/${srId}/pay-spei`, {
+          token: adminToken,
+          json: { speiReference: 'SPEI-DOUBLESPEND-777' },
+        });
+        // El rollback no ocurrió ⇒ sigue `pagada` ⇒ salida IDEMPOTENTE con la PRIMERA liquidación.
+        expect(res.body.speiReference).toBe('SPEI-CYCLE-1');
+
+        const after = await h.prisma.sellRequest.findUnique({ where: { id: srId } });
+        // ⚠️ LAS ASERCIONES QUE VALEN, y no dependen del código HTTP: la fila conserva la PRIMERA
+        // referencia y el PRIMER `paidAt`. *Dos referencias distintas sobre la misma solicitud son
+        // dos transferencias reales al vendedor, y la primera se quedaría sin rastro en la fila.*
+        expect(after!.speiReference).toBe('SPEI-CYCLE-1');
+        expect(after!.paidAt).toEqual(before!.paidAt);
+        expect(after!.payoutNetCents).toBe(32000);
+        expect(after!.closedAt).toEqual(before!.closedAt);
+      });
+
+      it('(17) ⚠️ AML: la solicitud pagada SIGUE consumiendo tope del mes (no se sale del acumulado)', async () => {
+        // El SEGUNDO impacto de P1: el acumulado exigía `status='pagada'`, así que la fila revivida
+        // **salía de la suma** y cada re-pago se medía contra una cifra que no incluía el dinero ya
+        // entregado. Ahora ancla en `paidAt` a secas.
+        //
+        // Se mide POR CONDUCTA, no leyendo un privado: se baja el tope mensual por debajo de lo ya
+        // pagado y se comprueba que una solicitud NUEVA del mismo vendedor es rechazada por el tope.
+        const CAP_KEY = 'buylist_cap_per_month_cents';
+        // La solicitud se crea ANTES de bajar el dial: el mismo tope gobierna el INTAKE, así que
+        // crearla después la rechazaría por la puerta de entrada y el test mediría otro control.
+        const otra = await createRequest(validBody());
+        expect(otra.status).toBe(201);
+        const otraId = otra.body.sellRequestId;
+        // Se lleva a un estado PAGABLE por la puerta de atrás (la BD): lo que se prueba aquí es el
+        // ACUMULADO, no el recorrido — ése ya lo cubren (1)-(13) por HTTP.
+        await h.prisma.sellRequest.update({
+          where: { id: otraId },
+          data: { status: 'verificacion', verifiedAt: new Date(), approvedTotalCents: 10000 },
+        });
+
+        const previo = await h.prisma.configSetting.findUnique({ where: { key: CAP_KEY } });
+        try {
+          await h.prisma.configSetting.upsert({
+            where: { key: CAP_KEY },
+            update: { valueJson: 40000 }, // MX$400 — por debajo de los MX$500 brutos ya pagados.
+            create: { key: CAP_KEY, valueJson: 40000 },
+          });
+          const res = await h.api('POST', `/admin/buylist/${otraId}/pay-spei`, {
+            token: adminToken,
+            json: { speiReference: 'SPEI-AML-GUARD' },
+          });
+          expect(res.status).toBe(422);
+          expect(res.body.error.code).toBe('BUYLIST_LIMIT_EXCEEDED');
+          // ⚠️ `wouldBeCents` INCLUYE los MX$500 de la solicitud YA PAGADA: ésa es la prueba de que
+          // la fila liquidada **no desapareció del acumulado**. Con el término `status='pagada'` que
+          // P1 explotaba, una fila revivida se restaba de esta cifra y el tope dejaba pasar el pago.
+          expect(res.body.error.details.wouldBeCents).toBeGreaterThanOrEqual(50000);
+          const sigueSinPagar = await h.prisma.sellRequest.findUnique({ where: { id: otraId } });
+          expect(sigueSinPagar!.paidAt).toBeNull();
+        } finally {
+          if (previo) {
+            await h.prisma.configSetting.update({
+              where: { key: CAP_KEY },
+              data: { valueJson: previo.valueJson as never },
+            });
+          } else {
+            await h.prisma.configSetting.delete({ where: { key: CAP_KEY } }).catch(() => undefined);
+          }
+        }
+      });
     });
   });
 
