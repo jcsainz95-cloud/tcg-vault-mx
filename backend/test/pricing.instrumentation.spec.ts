@@ -54,6 +54,7 @@ describe('E6 — instrumentación de VENTA: se congela con `unitPriceCents` (che
       // puede divergir de producción ni reimplementar la matemática.
       decideSalePrice: jest.fn(PricingService.prototype.decideSalePrice),
       gradeKeyFor: jest.fn(() => 'raw:NM'),
+      tryGradeKeyFor: jest.fn(() => 'raw:NM'),
       getReference: jest.fn(async () =>
         referenceMxnCents == null ? { status: 'pending' } : { status: 'priced', referenceMxnCents },
       ),
@@ -147,6 +148,7 @@ describe('E6 — instrumentación de COMPRA: se congela con `quotedPriceCents` (
       // puede divergir de producción ni reimplementar la matemática.
       decideSalePrice: jest.fn(PricingService.prototype.decideSalePrice),
       gradeKeyFor: jest.fn(() => 'raw:NM'),
+      tryGradeKeyFor: jest.fn(() => 'raw:NM'),
       getReference: jest.fn(async () =>
         referenceMxnCents == null ? { status: 'pending' } : { status: 'priced', referenceMxnCents },
       ),

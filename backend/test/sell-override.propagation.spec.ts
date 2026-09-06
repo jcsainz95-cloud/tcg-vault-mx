@@ -88,6 +88,7 @@ function buildPricing(opts: { referenceMxnCents?: number | null; override?: unkn
     // puede divergir de producción ni reimplementar la matemática.
     decideSalePrice: jest.fn(PricingService.prototype.decideSalePrice),
     gradeKeyFor: jest.fn(() => 'raw:NM'),
+    tryGradeKeyFor: jest.fn(() => 'raw:NM'),
     getReference: jest.fn(async () => ref),
     getReferencesBatch: jest.fn(async (keys: { cardId: string; productType: string; gradeKey: string; finish: string }[]) => {
       const m = new Map<string, PriceInfo>();

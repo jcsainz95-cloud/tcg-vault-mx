@@ -986,12 +986,12 @@ export class MasterSetService implements OnModuleInit {
     const derivableKeys = candidates
       // H-1 (E5-bis): `<= 0` es AUSENTE ⇒ esas piezas también derivan precio.
       .filter((i) => !hasManualPrice(i))
-      .map((i) => ({
-        cardId: i.cardId,
-        productType: i.productType,
-        gradeKey: this.pricing.gradeKeyFor(i),
-        finish: i.finish,
-      }));
+      // v1.53 (§4.40.4b, MONEY) — LECTURA: una graduada sin identidad de slab no aporta clave; abajo
+      // cae al `continue` (no comprable), que es lo correcto. Antes se ofrecía al precio de un PSA 10.
+      .flatMap((i) => {
+        const gk = this.pricing.tryGradeKeyFor(i);
+        return gk ? [{ cardId: i.cardId, productType: i.productType, gradeKey: gk, finish: i.finish }] : [];
+      });
     const refs = await this.pricing.getReferencesBatch(derivableKeys);
     // v1.28 (P-18, §4.26b) · v2.0 (§4.36): el `buyable` del binder cobra EXACTAMENTE lo que el
     // storefront — misma CURVA, mismo sellOverride de variante (mismo cuerpo único; lote sin N+1).
@@ -1002,7 +1002,9 @@ export class MasterSetService implements OnModuleInit {
       if (hasManualPrice(item)) {
         salePriceCents = item.listPriceCents; // override manual POR PIEZA gana siempre (§4.9/§4.26b)
       } else {
-        const gradeKey = this.pricing.gradeKeyFor(item);
+        // v1.53 (§4.40.4b): sin clave no hay referencia ⇒ `null` ⇒ `continue` de abajo (no buyable).
+        const gradeKey = this.pricing.tryGradeKeyFor(item);
+        if (gradeKey == null) continue;
         const key = `${item.cardId}|${item.productType}|${gradeKey}|${item.finish}`;
         const ref = refs.get(key);
         const refCents = ref && ref.status === 'priced' ? (ref.referenceMxnCents ?? null) : null;

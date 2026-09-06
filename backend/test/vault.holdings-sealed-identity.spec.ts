@@ -37,6 +37,7 @@ describe('VaultService.holdings — identidad de sellado (BLOQ-2a)', () => {
       // puede divergir de producción ni reimplementar la matemática.
       decideSalePrice: jest.fn(PricingService.prototype.decideSalePrice),
       gradeKeyFor: jest.fn().mockReturnValue('sealed:tcg:42'),
+      tryGradeKeyFor: jest.fn().mockReturnValue('sealed:tcg:42'),
       getReference: jest
         .fn()
         .mockResolvedValue({ status: 'priced', referenceMxnCents: 92681, capturedDate: '2026-08-13' }),

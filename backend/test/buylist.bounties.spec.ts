@@ -5,7 +5,7 @@ import { PricingService } from '../src/modules/pricing/pricing.service';
 import { SettingsService } from '../src/modules/settings/settings.service';
 import { UsersService } from '../src/modules/users/users.service';
 import { PiiCryptoService } from '../src/common/crypto/pii-crypto.service';
-import { buildGradeKey } from '../src/modules/pricing/pricing.types';
+import { buildGradeKey, tryBuildGradeKey } from '../src/modules/pricing/pricing.types';
 import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
 
 const pii = new PiiCryptoService(new ConfigService({}));
@@ -33,6 +33,7 @@ const svcOf = (prisma: any, refsByKey: Record<string, number> = {}) =>
     prisma as PrismaService,
     {
       gradeKeyFor: (i: any) => buildGradeKey(i),
+      tryGradeKeyFor: (i: any) => tryBuildGradeKey(i),
       loadPricingCurve: jest.fn(async () => DEFAULT_PRICING_CURVE),
       // v2.1.1 (§4.36.5b): el seam de VENTA devuelve una DECISIÓN (monto + veredicto). El mock usa
       // el CUERPO REAL (`PricingService.prototype`): es puro y no toca `this`, así que el test no

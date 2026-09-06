@@ -65,6 +65,7 @@ function buildPricing(pricedByCard: Map<string, Set<Finish>>): PricingService {
     getPricedRawFinishesBatch: jest.fn().mockResolvedValue(pricedByCard),
     getSeparateProductsByCard: jest.fn(async () => new Map()),
     gradeKeyFor: jest.fn().mockReturnValue('raw:NM'),
+    tryGradeKeyFor: jest.fn().mockReturnValue('raw:NM'),
     getVariantOverridesBatch: jest.fn(async () => new Map()),
     getVariantOverride: jest.fn(async () => null),
   } as unknown as PricingService;

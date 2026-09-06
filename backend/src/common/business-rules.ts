@@ -1,4 +1,4 @@
-import { RawCondition } from '@prisma/client';
+import { ProductType, RawCondition } from '@prisma/client';
 
 /**
  * business-rules.ts — **listas que son una DECISIÓN DE PRODUCTO, no un espejo del schema.**
@@ -42,3 +42,35 @@ import { RawCondition } from '@prisma/client';
  * cartas que la política prohíbe — sin código nuevo y sin que ningún test lo notara.
  */
 export const ACCEPTED_RAW_CONDITIONS: readonly RawCondition[] = ['NM'];
+
+/**
+ * v1.53 (§4.40.3.1, **MONEY**) — **tipos de producto que el BUYLIST acepta: sólo `raw`.**
+ *
+ * `PROJECT.md` §E se titula, literal, **«Buylist — compra de *raw* a usuarios»**, y su cuerpo entero
+ * es raw NM: *«la condición es fija en Near Mint (NM), **único grado que compramos**»*. §K está
+ * **LOCKED**: *«El sellado es solo venta… No hay buylist de sellado… El **cotizador y el pipeline de
+ * buylist siguen siendo solo para raw (§E)**»*. Y el **criterio de aceptación 61**: *«no existe flujo
+ * de buylist de sellado, **ni cotizador ni pipeline**»*.
+ *
+ * ### El defecto de DINERO que esta lista cierra (§4.40.1)
+ * El cotizador ofrecía `graded` y `sealed`, pero **ningún DTO de buylist tiene —ni tuvo nunca— dónde
+ * capturar QUÉ grado es el slab**, y `buildGradeKey` rellenaba el hueco con
+ * `` `graded:${gradingCompany ?? 'PSA'}:${gradeValue ?? '10'}` `` ⇒ **toda carta graduada se cotizaba
+ * contra la referencia de PSA 10, el grado más caro que existe**, fuera un PSA 6 o un CGC 8. Con la
+ * oferta vinculante desde el correo eso deja de ser un error corregible y pasa a ser un compromiso
+ * firmado.
+ *
+ * ⚠️ **NO la sustituyas por `PRODUCT_TYPE_VALUES`.** Es exactamente el caso para el que existe este
+ * archivo: `enum-values.ts` responde «¿qué valores EXISTEN?», éste responde «¿cuáles ACEPTAMOS?».
+ * Derivarla del enum haría que el día que alguien añada un `ProductType` el buylist empiece a
+ * comprarlo **sin que nadie lo decida**.
+ *
+ * ⚠️ **Ensancharla NO es una tarea de backend.** Comprar graduadas es una decisión de producto
+ * (§4.40.6): la responde el dueño, `product-owner` actualiza `PROJECT.md`, y sólo entonces se
+ * programa `M-49` (§4.40.7) para capturar la identidad del slab. Añadir `'graded'` aquí sin esas dos
+ * cosas devuelve el default silencioso por la puerta de atrás.
+ *
+ * La guarda que usa esta lista es **server-side** (`buylist.service.ts` → `422 BUYLIST_RAW_ONLY`): el
+ * selector del cotizador es sólo UI y un `curl` la esquivaría (SEC-A1).
+ */
+export const BUYLIST_ACCEPTED_PRODUCT_TYPES: readonly ProductType[] = ['raw'];

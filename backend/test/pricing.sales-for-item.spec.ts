@@ -132,6 +132,7 @@ function pricingMock(referenceMxnCents: number | null): PricingService {
   return {
     loadPricingCurve: jest.fn(async () => DEFAULT_PRICING_CURVE),
     gradeKeyFor: jest.fn().mockReturnValue('raw:NM'),
+    tryGradeKeyFor: jest.fn().mockReturnValue('raw:NM'),
     getReference: jest.fn(async () =>
       referenceMxnCents == null ? { status: 'pending' } : { status: 'priced', referenceMxnCents },
     ),

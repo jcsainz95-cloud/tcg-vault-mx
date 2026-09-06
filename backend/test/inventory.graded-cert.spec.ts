@@ -20,6 +20,7 @@ function buildPricing() {
     // puede divergir de producción ni reimplementar la matemática.
     decideSalePrice: jest.fn(PricingService.prototype.decideSalePrice),
     gradeKeyFor: jest.fn().mockReturnValue('graded:PSA:10'),
+    tryGradeKeyFor: jest.fn().mockReturnValue('graded:PSA:10'),
     // v2.0 (§4.36.5c): el MISMO seam escala Y cierra la cola.
     settlePendingForVariant: jest.fn(async () => undefined),
     escalatePending: jest.fn().mockResolvedValue(undefined),

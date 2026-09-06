@@ -13,6 +13,7 @@ import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
 function pricing(): PricingService {
   return {
     gradeKeyFor: jest.fn().mockReturnValue('raw:NM'),
+    tryGradeKeyFor: jest.fn().mockReturnValue('raw:NM'),
     getReference: jest.fn(async () => ({ status: 'priced', referenceMxnCents: 10000 })),
     getPricedRawFinishesBatch: jest.fn(async () => new Map()),
     // v2.0 (P-48): la CURVA sustituye a las reglas de venta/compra; UN solo loader (§4.36.2).

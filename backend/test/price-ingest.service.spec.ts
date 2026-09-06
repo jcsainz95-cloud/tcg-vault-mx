@@ -733,6 +733,7 @@ describe('PriceIngestService — E4-ter: el barrido ABRE la cola, no solo la cie
       persistMarketReference: jest.fn(async () => {}),
       loadPricingCurve: jest.fn(async () => DEFAULT_PRICING_CURVE),
       gradeKeyFor: jest.fn(() => 'raw:NM'),
+      tryGradeKeyFor: jest.fn(() => 'raw:NM'),
       getReferencesBatch: jest.fn(async () =>
         referenceMxnCents == null
           ? new Map()

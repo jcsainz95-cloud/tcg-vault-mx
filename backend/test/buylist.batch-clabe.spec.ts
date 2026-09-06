@@ -50,6 +50,7 @@ describe('createRequest — CLABE opcional + fallback server-side (§4.16a)', ()
       // puede divergir de producción ni reimplementar la matemática.
       decideSalePrice: jest.fn(PricingService.prototype.decideSalePrice),
       gradeKeyFor: jest.fn().mockReturnValue('raw:NM'),
+      tryGradeKeyFor: jest.fn().mockReturnValue('raw:NM'),
       // v2.0 (P-48): el monto sale de la CURVA sobre el mercado. Sin referencia la línea quedaría
       // `precio_pendiente` (el BIN no gana) y dispararía el gate de INE de Fase 0.3, que NO es lo que
       // estos casos verifican (CLABE/PII). Se le da mercado para que la línea COTICE.
@@ -223,6 +224,7 @@ describe('batchQuote — errores por-ítem (§4.16b)', () => {
       // puede divergir de producción ni reimplementar la matemática.
       decideSalePrice: jest.fn(PricingService.prototype.decideSalePrice),
       gradeKeyFor: jest.fn().mockReturnValue('raw:NM'),
+      tryGradeKeyFor: jest.fn().mockReturnValue('raw:NM'),
       getReference: jest.fn(async (cardId: string) =>
         cardId === 'c-ok'
           ? { status: 'priced', referenceMxnCents: 12500 }

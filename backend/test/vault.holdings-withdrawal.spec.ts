@@ -55,6 +55,7 @@ describe('VaultService.holdings — estado de retiro (v1.17)', () => {
       // puede divergir de producción ni reimplementar la matemática.
       decideSalePrice: jest.fn(PricingService.prototype.decideSalePrice),
       gradeKeyFor: jest.fn().mockReturnValue('raw:NM'),
+      tryGradeKeyFor: jest.fn().mockReturnValue('raw:NM'),
       getReference: jest
         .fn()
         .mockResolvedValue({ status: 'priced', referenceMxnCents: 12500, capturedDate: '2026-08-13' }),

@@ -15,6 +15,7 @@ import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
 function pricing(): PricingService {
   return {
     gradeKeyFor: jest.fn().mockReturnValue('raw:NM'),
+    tryGradeKeyFor: jest.fn().mockReturnValue('raw:NM'),
     // Item con listPriceCents fijado → salePrice = listPrice; sin él y pending → no sellable.
     getReference: jest.fn(async (cardId: string) =>
       cardId === 'pending' ? { status: 'pending' } : { status: 'priced', referenceMxnCents: 10000 },
@@ -249,6 +250,8 @@ describe('CatalogService — publicación ÚNICA por carta/variante/condición c
     (p as any).gradeKeyFor = jest.fn((it: any) =>
       it.productType === 'graded' ? `graded:${it.gradingCompany}:${it.gradeValue}` : 'raw:NM',
     );
+    // v1.53 (§4.40.4b): el catálogo LEE, así que pasa por la variante tolerante — mismo stub.
+    (p as any).tryGradeKeyFor = (p as any).gradeKeyFor;
     const items = [
       itemOf({ id: 'r1', productType: 'raw', listPriceCents: 12000 }),
       itemOf({ id: 'g1', productType: 'graded', rawCondition: null, gradingCompany: 'PSA', gradeValue: '10', listPriceCents: 90000 }),

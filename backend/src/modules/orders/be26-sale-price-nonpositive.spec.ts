@@ -31,6 +31,7 @@ describe('BE-26 — salePriceOf rechaza precio <= 0', () => {
     // puede divergir de producción ni reimplementar la matemática.
     decideSalePrice: jest.fn(PricingService.prototype.decideSalePrice),
     gradeKeyFor: jest.fn().mockReturnValue('raw:NM'),
+    tryGradeKeyFor: jest.fn().mockReturnValue('raw:NM'),
     getReference: jest.fn().mockResolvedValue({ status: 'priced', referenceMxnCents: 1000 }),
     // v1.28 (P-18): sin fila M-30 por default (comportamiento previo).
     getVariantOverride: jest.fn().mockResolvedValue(null),

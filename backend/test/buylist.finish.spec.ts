@@ -46,6 +46,7 @@ function svcWith(opts: {
   };
   const pricing = {
     gradeKeyFor: jest.fn().mockReturnValue('raw:NM'),
+    tryGradeKeyFor: jest.fn().mockReturnValue('raw:NM'),
     // v2.0 (§4.36.2): UN solo lector de configuración de dinero para los dos ejes.
     loadPricingCurve: jest.fn(async () => DEFAULT_PRICING_CURVE),
     // v2.1.1 (§4.36.5b): el seam de VENTA devuelve una DECISIÓN (monto + veredicto). El mock usa
@@ -194,6 +195,7 @@ describe('BuylistService.createRequest — snapshot del acabado + del priceBasis
   function pricingFor(referenceMxnCents: number | null): PricingService {
     return {
       gradeKeyFor: jest.fn().mockReturnValue('raw:NM'),
+      tryGradeKeyFor: jest.fn().mockReturnValue('raw:NM'),
       loadPricingCurve: jest.fn(async () => DEFAULT_PRICING_CURVE),
       // v2.1.1 (§4.36.5b): el seam de VENTA devuelve una DECISIÓN (monto + veredicto). El mock usa
       // el CUERPO REAL (`PricingService.prototype`): es puro y no toca `this`, así que el test no
@@ -323,6 +325,7 @@ describe('BLOQUEO 2 — quote y createRequest cotizan por el MISMO cuerpo (§4.3
     };
     const pricing = {
       gradeKeyFor: jest.fn(() => 'raw:NM'),
+      tryGradeKeyFor: jest.fn(() => 'raw:NM'),
       loadPricingCurve: jest.fn(async () => DEFAULT_PRICING_CURVE),
       getReference: jest.fn(async () =>
         referenceMxnCents == null ? { status: 'pending' } : { status: 'priced', referenceMxnCents },
@@ -399,6 +402,7 @@ describe('BLOQUEO 2 — quote y createRequest cotizan por el MISMO cuerpo (§4.3
     };
     const pricing = {
       gradeKeyFor: jest.fn(() => 'raw:NM'),
+      tryGradeKeyFor: jest.fn(() => 'raw:NM'),
       loadPricingCurve: jest.fn(async () => DEFAULT_PRICING_CURVE),
       getReference: jest.fn(async () => ({ status: 'priced', referenceMxnCents: 12500 })),
       settlePendingForVariant: jest.fn(async () => undefined),

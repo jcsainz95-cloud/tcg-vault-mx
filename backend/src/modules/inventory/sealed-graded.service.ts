@@ -386,24 +386,29 @@ export class SealedGradedInventoryService {
     const cardById = new Map(cards.map((c) => [c.id, c]));
 
     // Referencia por grado en UN lote (misma clave que fija el override manual §M2 P-20).
+    // v1.53 (§4.40.4b, MONEY) — LECTURA: el `groupBy` agrupa por (cardId, gradingCompany, gradeValue)
+    // y las piezas nacidas de `convertToInventory` traen los dos últimos en NULL (§9 D-BG-3). Ese
+    // grupo NO tiene clave de precio ⇒ `marketReferenceMxnCents: null`. Antes se resolvía a
+    // `graded:PSA:10` y la pestaña enseñaba el valor del grado MÁS CARO para un grupo sin grado.
     const gradeKeyOf = (g: { gradingCompany: GradingCompany | null; gradeValue: string | null }) =>
-      this.pricing.gradeKeyFor({
+      this.pricing.tryGradeKeyFor({
         productType: 'graded' as ProductType,
         gradingCompany: g.gradingCompany,
         gradeValue: g.gradeValue,
       });
     const refs = await this.pricing.getReferencesBatch(
-      grouped.map((g) => ({
-        cardId: g.cardId,
-        productType: 'graded' as ProductType,
-        gradeKey: gradeKeyOf(g),
-        finish: 'normal' as Finish,
-      })),
+      grouped.flatMap((g) => {
+        const gk = gradeKeyOf(g);
+        return gk
+          ? [{ cardId: g.cardId, productType: 'graded' as ProductType, gradeKey: gk, finish: 'normal' as Finish }]
+          : [];
+      }),
     );
 
     const rows: GradedInventoryGroupDTO[] = grouped.map((g) => {
       const card = cardById.get(g.cardId);
-      const ref = refs.get(`${g.cardId}|graded|${gradeKeyOf(g)}|normal`);
+      const gk = gradeKeyOf(g);
+      const ref = gk ? refs.get(`${g.cardId}|graded|${gk}|normal`) : undefined;
       const priced = ref && ref.status === 'priced' && ref.referenceMxnCents != null;
       return {
         cardId: g.cardId,
@@ -414,6 +419,11 @@ export class SealedGradedInventoryService {
           ...(card?.imageSmallUrl ? { imageSmallUrl: card.imageSmallUrl } : {}),
         },
         // El alta exige compañía+grado (validateProductShape); los ?? son defensivos para legacy.
+        // ⚠️ v1.53 (§4.40.5b): este `?? 'PSA'` es DISPLAY, no clave de precio — el contrato declara
+        // `gradingCompany: GradingCompany` REQUERIDO y no nullable, así que no puede salir vacío sin
+        // cambiar el contrato (queda anotado como discrepancia para el arquitecto en BACKEND_NOTES).
+        // Lo que sí se corrigió es lo que movía dinero: `marketReferenceMxnCents` de un grupo sin
+        // identidad ahora sale `null`, ya NO el valor de un PSA 10.
         gradingCompany: (g.gradingCompany ?? 'PSA') as GradingCompany,
         gradeValue: g.gradeValue ?? '',
         count: g._count._all,

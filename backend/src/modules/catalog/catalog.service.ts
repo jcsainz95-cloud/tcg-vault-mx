@@ -529,7 +529,11 @@ export class CatalogService {
           const gk = this.pricing.sealedMarketGradeKeyForItem(i);
           return gk ? [{ cardId: i.cardId, productType: 'sealed', gradeKey: gk, finish: 'normal' }] : [];
         }
-        return [{ cardId: i.cardId, productType: i.productType, gradeKey: this.pricing.gradeKeyFor(i), finish: i.finish }];
+        // v1.53 (§4.40.4b, MONEY) — LECTURA: una graduada sin identidad de slab no aporta clave al
+        // lote (mismo idioma que el sellado no mapeado, justo arriba) ⇒ sin referencia ⇒ `pending`
+        // ⇒ NO se publica. Antes se resolvía como `graded:PSA:10`, el grado más caro.
+        const gk = this.pricing.tryGradeKeyFor(i);
+        return gk ? [{ cardId: i.cardId, productType: i.productType, gradeKey: gk, finish: i.finish }] : [];
       }),
     );
 
@@ -540,12 +544,11 @@ export class CatalogService {
       items
         // H-1 (E5-bis): `<= 0` es AUSENTE, así que esas piezas TAMBIÉN necesitan precio derivado.
         .filter((i) => i.productType !== 'sealed' && !hasManualPrice(i))
-        .map((i) => ({
-          cardId: i.cardId,
-          productType: i.productType,
-          gradeKey: this.pricing.gradeKeyFor(i),
-          finish: i.finish,
-        })),
+        // v1.53 (§4.40.4b): sin identidad de slab no hay clave de variante que buscar.
+        .flatMap((i) => {
+          const gk = this.pricing.tryGradeKeyFor(i);
+          return gk ? [{ cardId: i.cardId, productType: i.productType, gradeKey: gk, finish: i.finish }] : [];
+        }),
     );
 
     const out: { item: ItemWithCard; dto: Awaited<ReturnType<CatalogService['toListingDTO']>> }[] = [];
@@ -557,20 +560,38 @@ export class CatalogService {
         sealedSpreads,
         pricedFinishes: pricedByCard.get(item.cardId),
         variantOverride:
-          item.productType === 'sealed'
-            ? null
-            : variantOverrides.get(
-                variantKey({
-                  cardId: item.cardId,
-                  productType: item.productType,
-                  gradeKey: this.pricing.gradeKeyFor(item),
-                  finish: item.finish,
-                }),
-              ) ?? null,
+          item.productType === 'sealed' ? null : this.variantOverrideOf(variantOverrides, item),
       });
       if (dto.sellable && dto.salePriceCents != null) out.push({ item, dto });
     }
     return out;
+  }
+
+  /**
+   * v1.53 (§4.40.4b, MONEY) — **clave de variante de LECTURA.** `null` cuando la pieza es `graded`
+   * sin identidad de slab (`gradingCompany`/`gradeValue` nulos, §9 D-BG-3): sin clave no hay
+   * referencia ni override ⇒ la pieza cae a `pending` y NO se publica. Es lo correcto: antes esa
+   * misma pieza se resolvía contra `graded:PSA:10`, el grado más caro.
+   */
+  private lookupKeyOf(item: ItemWithCard): string | null {
+    const gk = this.pricing.tryGradeKeyFor(item);
+    return gk == null
+      ? null
+      : variantKey({
+          cardId: item.cardId,
+          productType: item.productType,
+          gradeKey: gk,
+          finish: item.finish,
+        });
+  }
+
+  /** Override M-30 de la pieza dentro del lote; `null` sin clave (§4.40.4b). */
+  private variantOverrideOf(
+    overrides: Map<string, VariantPriceOverride>,
+    item: ItemWithCard,
+  ): VariantPriceOverride | null {
+    const key = this.lookupKeyOf(item);
+    return (key ? overrides.get(key) : undefined) ?? null;
   }
 
   /** Referencia del lote para un item (mercado sellado vs. gradeKey+acabado del resto). */
@@ -583,14 +604,8 @@ export class CatalogService {
         ? refs.get(variantKey({ cardId: item.cardId, productType: 'sealed', gradeKey: gk, finish: 'normal' }))
         : undefined;
     }
-    return refs.get(
-      variantKey({
-        cardId: item.cardId,
-        productType: item.productType,
-        gradeKey: this.pricing.gradeKeyFor(item),
-        finish: item.finish,
-      }),
-    );
+    const key = this.lookupKeyOf(item);
+    return key ? refs.get(key) : undefined;
   }
 
   /**
@@ -644,11 +659,16 @@ export class CatalogService {
       priceBasis = sealedPriceBasisOf(sale);
       referenceValue = marketPriced ? marketRef! : { status: 'pending' };
     } else {
-      const gradeKey = this.pricing.gradeKeyFor(item);
+      // v1.53 (§4.40.4b, MONEY) — LECTURA pública: `null` ⇒ la pieza `graded` no tiene identidad de
+      // slab ⇒ NO HAY REFERENCIA ⇒ `pending` (y abajo, `sellable:false`). Jamás el default a
+      // `graded:PSA:10`, que publicaba el grado más caro sobre una carta cuyo grado nunca se preguntó.
+      const gradeKey = this.pricing.tryGradeKeyFor(item);
       // v1.6-finish: valúa contra la PriceReference del ACABADO de ESTA copia física.
       referenceValue =
         ctx?.reference ??
-        (await this.pricing.getReference(item.cardId, item.productType, gradeKey, item.finish));
+        (gradeKey == null
+          ? { status: 'pending' }
+          : await this.pricing.getReference(item.cardId, item.productType, gradeKey, item.finish));
 
       if (hasManualPrice(item)) {
         // Override manual POR PIEZA → gana siempre (precio directo sin regla; intención más
@@ -672,12 +692,14 @@ export class CatalogService {
         // override single.
         const variantOverride = ctx?.curve
           ? (ctx.variantOverride ?? null)
-          : await this.pricing.getVariantOverride(
-              item.cardId,
-              item.productType,
-              this.pricing.gradeKeyFor(item),
-              item.finish,
-            );
+          : gradeKey == null
+            ? null
+            : await this.pricing.getVariantOverride(
+                item.cardId,
+                item.productType,
+                gradeKey,
+                item.finish,
+              );
         // v2.0 (P-48, §4.36.5b) — SEAM ÚNICO del eje de venta: el monto y el GUARDARRAÍL vienen de la
         // MISMA llamada. Una carta de rareza PREMIUM que aterriza en el PISO NO se publica —que una
         // chase resuelva al piso solo puede significar que su dato de mercado está mal (ausente,
@@ -865,12 +887,15 @@ export class CatalogService {
   ) {
     const groups = new Map<string, typeof rows>();
     for (const r of rows) {
-      const k = variantKey({
-        cardId: r.item.cardId,
-        productType: r.item.productType,
-        gradeKey: this.pricing.gradeKeyFor(r.item),
-        finish: r.item.finish,
-      });
+      // v1.53 (§4.40.4b, MONEY) — la clave de AGRUPACIÓN **es** la clave de PRECIO (§P-30). Una pieza
+      // `graded` sin identidad de slab no tiene clave, así que **no forma publicación agrupada**: no
+      // se le puede poner un `gradeKey` en el DTO sin inventarle un grado, y eso es exactamente el
+      // defecto que este pase retira. En la práctica no llega ninguna —publicar una graduada exige
+      // `certNumber` (`assertPublishableGuards` / `updateItem`) y las piezas sin identidad las creó
+      // `convertToInventory`, que tampoco escribe cert (§9 D-BG-3)—; se filtra por defensa, y esas
+      // piezas quedan inventariadas en el censo §4.40.8 para que el dueño repare o retire.
+      const k = this.lookupKeyOf(r.item);
+      if (k == null) continue;
       const arr = groups.get(k);
       if (arr) arr.push(r);
       else groups.set(k, [r]);
@@ -914,7 +939,9 @@ export class CatalogService {
         finish: item.finish,
         // rawCondition SOLO en raw; gradingCompany/gradeValue SOLO en graded (identidad de GRADO del grupo).
         rawCondition: item.rawCondition ?? undefined,
-        gradeKey: this.pricing.gradeKeyFor(item),
+        // v1.53 (§4.40.4b): el `!` es SEGURO — el bucle de arriba ya descartó las piezas sin clave,
+        // así que todo miembro de un grupo la tiene (y todos comparten la MISMA: es la clave del grupo).
+        gradeKey: this.pricing.tryGradeKeyFor(item)!,
         gradingCompany: item.gradingCompany ?? undefined,
         gradeValue: item.gradeValue ?? undefined,
         stockCount: members.length,

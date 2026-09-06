@@ -26,6 +26,7 @@ import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
 function buildPricing(over: any = {}): PricingService {
   return {
     gradeKeyFor: jest.fn().mockReturnValue('raw:NM'),
+    tryGradeKeyFor: jest.fn().mockReturnValue('raw:NM'),
     getReference: jest.fn(async () => ({ status: 'priced', referenceMxnCents: 10000 })),
     // v2.0 (§4.36.5c): el MISMO seam escala Y cierra la cola.
     settlePendingForVariant: jest.fn(async () => undefined),
