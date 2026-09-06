@@ -25,7 +25,10 @@
  */
 import { E2EHarness } from './helpers/e2e-app';
 import { seedE2E } from '../../prisma/seed-e2e';
-import { E2E_CARDS, E2E_USERS } from '../../prisma/e2e-fixtures';
+import { E2E_CARDS, E2E_PICKUP_ADDRESS, E2E_USERS } from '../../prisma/e2e-fixtures';
+// v1.54 · B-1: el correo se lee DEL PUERTO REAL de la app levantada, no de una plantilla llamada a
+// mano. Es la única forma de ver lo que de verdad sale de la bandeja.
+import { MAIL_PORT, MailMessage, MailPort } from '../../src/modules/mail/mail.port';
 
 /** CLABE válida (18 dígitos) del `customer`; la fija su primera solicitud. */
 const CLABE_A = '012345678901234567';
@@ -864,6 +867,60 @@ describe('E2E — Ciclo de adquisición del buylist (§6 · §M5)', () => {
       // Invariante de §11: `offerReissueCount > 0 ⇔ offerIssueClockStartedAt IS NOT NULL`.
       const row = await h.prisma.sellRequest.findUnique({ where: { id: srId } });
       expect(row!.offerIssueClockStartedAt).not.toBeNull();
+    });
+  });
+
+  // ===========================================================================================
+  // ⚠️⚠️ v1.54 · B-1 — EL CORREO QUE DE VERDAD SALE NO LLEVA EL DOMICILIO DEL VENDEDOR
+  //
+  // QA capturó esto del stack corriendo, no de un unitario: el correo de oferta terminaba con
+  // `Sale desde: Av. E2E 123, Centro, CDMX, CDMX, 01000` — la dirección sembrada por `seed-e2e`.
+  // `PROJECT.md` §P.3 y el criterio 173(h) lo prohíben **en los cinco** correos del ciclo.
+  //
+  // Este caso vive en INTEGRACIÓN por la misma razón que el resto de esta suite: el dato viajaba
+  // del `pickupAddressSnapshot` de la fila real, por el servicio real, hasta el puerto real. Un
+  // unitario de plantilla no puede verlo si el fixture no le pasa la dirección — y no se la pasaba
+  // (pasaba `null`, que apagaba el bloque). **Aquí se lee lo que sale por el puerto.**
+  // ===========================================================================================
+  describe('⚠️ B-1 · PII: ningún correo del ciclo lleva el domicilio (criterio 173h)', () => {
+    /** Todas las partes del domicilio sembrado, cada una por separado: media dirección lo sigue siendo. */
+    const PARTES = Object.values(E2E_PICKUP_ADDRESS).filter((v) => typeof v === 'string');
+
+    it('el correo 1 (oferta), emitido por HTTP, no lleva ni una parte de la dirección de origen', async () => {
+      const port = h.app.get<MailPort>(MAIL_PORT);
+      const enviados: MailMessage[] = [];
+      const spy = jest
+        .spyOn(port, 'send')
+        .mockImplementation(async (msg: MailMessage) => {
+          enviados.push(msg);
+          return { id: 'e2e-mail' };
+        });
+      try {
+        const creada = await createRequest(validBody());
+        expect(creada.status).toBe(201);
+        const srId = creada.body.sellRequestId as string;
+        // La solicitud NACIÓ con el snapshot: si no, este test no probaría nada.
+        const row = await h.prisma.sellRequest.findUnique({ where: { id: srId } });
+        expect((row!.pickupAddressSnapshot as Record<string, unknown>).line1).toBe('Av. E2E 123');
+
+        const detail = await h.api('GET', `/admin/buylist/${srId}`, { token: operatorToken });
+        const offer = await h.api('POST', `/admin/buylist/${srId}/offer`, {
+          token: operatorToken,
+          json: { lines: [{ itemId: detail.body.items[0].id, decision: 'buy' }] },
+        });
+        expect(offer.status).toBe(200); // 200 ⇒ la oferta SALIÓ (y con ella el correo)
+
+        expect(enviados).toHaveLength(1);
+        const cuerpo = [enviados[0].subject, enviados[0].html, enviados[0].text].join('\n');
+        for (const parte of PARTES) expect(cuerpo).not.toContain(parte);
+
+        // Contrapeso: un correo vacío también pasaría lo anterior. Lo VINCULANTE sigue ahí.
+        expect(cuerpo).toContain('SE TE DEPOSITAN');
+        // Y el aviso útil se conserva SIN el dato: corregir la dirección sigue siendo accionable.
+        expect(enviados[0].text).toContain('corrígela antes de aceptar');
+      } finally {
+        spy.mockRestore();
+      }
     });
   });
 });

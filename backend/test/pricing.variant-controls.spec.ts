@@ -301,19 +301,91 @@ describe('bounty (P-22: persistencia + invariantes; vitrina/conteo son de fase p
     expect(res.pricing.bounty).toMatchObject({ enabled: true, priceCents: 10 });
   });
 
-  it('targetQty < 1 → 422; null = sin objetivo', async () => {
+  // ===========================================================================================
+  // ⚠️ v1.54 · B-2 — `422 BOUNTY_TARGET_REQUIRED`: LA TABLA DEL CONTRATO (§M2, D32 + D35).
+  //
+  // Este bloque SUSTITUYE a un test que afirmaba *«targetQty < 1 → 422 [VALIDATION_ERROR]; null =
+  // sin objetivo»*. Esa era la conducta de **antes de D32**: el `null` dejaba el bounty **vivo y sin
+  // techo** —la mesa jamás pinta «no comprar» con `targetQty = null`— y el `0` salía con el código
+  // equivocado. El test no se «ajustó para que pasara»: **medía la regla derogada**, y por eso el
+  // agujero convivió con la suite en verde.
+  //
+  // El precio va SIEMPRE por encima de la curva ($40 con mercado $100) o `BOUNTY_BELOW_RULE` se
+  // dispara antes y el test mediría otra cosa.
+  // ===========================================================================================
+  const LIVE = { enabled: true as const, priceCents: CURVE_BUY_AT_100 + 100 };
+
+  /** El objetivo REALMENTE persistido, leído del `upsert` (no del DTO, que ya está compuesto). */
+  function persistedTarget(prisma: PrismaClient): unknown {
+    const call = (prisma.variantPriceOverride.upsert as unknown as jest.Mock).mock.calls[0][0];
+    return { ...call.create, ...call.update }.bountyTargetQty;
+  }
+
+  it.each([
+    ['`null` explícito — LIMPIA, y limpiar deja un bounty vivo sin techo', null],
+    ['`0` — no es una meta (y NO es VALIDATION_ERROR: el contrato nombra este código)', 0],
+    ['negativo', -3],
+    ['no entero', 1.5],
+    ['no numérico', '2'],
+  ])('enabled:true con targetQty %s → 422 BOUNTY_TARGET_REQUIRED', async (_label, targetQty) => {
     const { svc } = build({ referenceMxnCents: 10000 });
     await expect(
-      svc.update('card-1', 'normal', { bounty: { enabled: true, priceCents: 100, targetQty: 0 } }, 'a'),
-    ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
-    // v2.0: el precio debe superar la curva ($40) o el gate BOUNTY_BELOW_RULE lo rechaza antes.
+      svc.update('card-1', 'normal', { bounty: { ...LIVE, targetQty } }, 'a'),
+    ).rejects.toMatchObject({
+      code: 'BOUNTY_TARGET_REQUIRED',
+      details: { field: 'bounty.targetQty' },
+    });
+  });
+
+  it('enabled:true con targetQty OMITIDO y fila SIN objetivo → default 2 (D35)', async () => {
+    const { svc, prisma } = build({ referenceMxnCents: 10000 });
+    const res = await svc.update('card-1', 'normal', { bounty: LIVE }, 'a');
+    expect(persistedTarget(prisma)).toBe(2);
+    expect(res.pricing.bounty).toMatchObject({ enabled: true, targetQty: 2 });
+  });
+
+  it('enabled:true con targetQty OMITIDO y fila CON objetivo → se CONSERVA (omitido no se toca)', async () => {
+    const existing = overrideRow({ bountyEnabled: true, bountyPriceCents: 9999, bountyTargetQty: 7 });
+    const { svc, prisma } = build({ existing, referenceMxnCents: 10000 });
+    const res = await svc.update('card-1', 'normal', { bounty: LIVE }, 'a');
+    expect(persistedTarget(prisma)).toBe(7); // NO 2: el default contesta «no lo dije», no pisa lo dicho
+    expect(res.pricing.bounty).toMatchObject({ targetQty: 7 });
+  });
+
+  it('enabled:true con targetQty entero ≥ 1 → ese valor (editable por bounty)', async () => {
+    const { svc, prisma } = build({ referenceMxnCents: 10000 });
+    const res = await svc.update('card-1', 'normal', { bounty: { ...LIVE, targetQty: 5 } }, 'a');
+    expect(persistedTarget(prisma)).toBe(5);
+    expect(res.pricing.bounty).toMatchObject({ targetQty: 5 });
+  });
+
+  it('⚠️ el fail-safe es sobre el ESTADO: re-encender una fila LEGACY sin meta y SIN mandar targetQty la rellena con 2', async () => {
+    // La fila legacy (apagada, `bountyTargetQty = null`) es justo la que el backfill de M-46 NO
+    // toca. Re-encenderla por el PUT no puede devolverla al estado que D32 prohibió.
+    const existing = overrideRow({ bountyEnabled: false, bountyTargetQty: null, bountyAcquiredQty: 4 });
+    const { svc, prisma } = build({ existing, referenceMxnCents: 10000 });
+    await svc.update('card-1', 'normal', { bounty: LIVE }, 'a');
+    expect(persistedTarget(prisma)).toBe(2);
+  });
+
+  it('enabled:FALSE con targetQty null → LIMPIA sin error (no hay bounty vivo que proteger)', async () => {
+    const existing = overrideRow({ bountyEnabled: true, bountyPriceCents: 9999, bountyTargetQty: 3 });
+    const { svc, prisma } = build({ existing, referenceMxnCents: 10000 });
     const res = await svc.update(
       'card-1',
       'normal',
-      { bounty: { enabled: true, priceCents: CURVE_BUY_AT_100 + 100, targetQty: null } },
+      { bounty: { enabled: false, targetQty: null } },
       'a',
     );
-    expect(res.pricing.bounty).toMatchObject({ targetQty: null });
+    expect(persistedTarget(prisma)).toBeNull();
+    expect(res.pricing.bounty).toMatchObject({ enabled: false, targetQty: null });
+  });
+
+  it('enabled:FALSE con targetQty 0 → 422 VALIDATION_ERROR: `0` no es una meta ni apagado', async () => {
+    const { svc } = build({ referenceMxnCents: 10000 });
+    await expect(
+      svc.update('card-1', 'normal', { bounty: { enabled: false, targetQty: 0 } }, 'a'),
+    ).rejects.toMatchObject({ code: 'VALIDATION_ERROR', details: { field: 'bounty.targetQty' } });
   });
 
   it('bounty:null APAGA sin borrar el contador (enabled=false, acquiredQty intacto)', async () => {

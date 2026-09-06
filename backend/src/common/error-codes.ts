@@ -60,6 +60,16 @@ export const ErrorCode = {
   // (efectivo tras el merge con la fila existente). El bounty es SIEMPRE precio explícito,
   // jamás calculado. 422.
   BOUNTY_PRICE_REQUIRED: 'BOUNTY_PRICE_REQUIRED',
+  // v1.51.1/v1.51.2 (D32/D35, §M2 variant-controls) — **HERMANO EXACTO del anterior**, y la razón es
+  // la misma: *un bounty sin precio no es un bounty; uno sin meta, tampoco*. Dispara cuando la
+  // petición dejaría un **bounty VIVO sin objetivo válido**: `targetQty` `null` explícito (que en
+  // este endpoint LIMPIA), `0`, negativo o no entero, con `enabled:true`.
+  // ⚠️ **La OMISIÓN no es una de sus entradas** (D35): omitido sobre una fila sin objetivo ⇒ **2** por
+  // defecto; sobre una fila con objetivo ⇒ se conserva. *Un default es para «no lo dije», no para
+  // «dije que ninguno».* Sin este código, un `targetQty: null` dejaba el bounty vivo SIN techo: la
+  // mesa de decisión nunca pintaba «no comprar» por muchas copias que se acumularan.
+  // `details: { field: 'bounty.targetQty' }`. 422.
+  BOUNTY_TARGET_REQUIRED: 'BOUNTY_TARGET_REQUIRED',
   // v1.28 (P-18/P-22): `bounty.priceCents` por DEBAJO del sugerido de compra por regla del
   // momento (cuando el sugerido resuelve; con sugerido pending se ACEPTA — el bounty es el caso
   // donde más se necesita un precio explícito). Si no es más que la regla, no es bounty. 422.
@@ -207,6 +217,17 @@ export const ErrorCode = {
   // `graded:PSA:10` —el grado MÁS CARO— porque el grado real nunca se captura. El bloqueo lo aplica
   // SIEMPRE el backend; el selector del cotizador es sólo UI (SEC-A1).
   BUYLIST_RAW_ONLY: 'BUYLIST_RAW_ONLY',
+  // ⚠️ v1.54 · **B-3 — BACKSTOP, y HOY ES INALCANZABLE.** No es un caso de negocio ni un error del
+  // actor: dispara solo si `BUYLIST_ACCEPTED_PRODUCT_TYPES` autoriza un `productType` para el que
+  // `BuylistService.gradeKeyInputFor` **no sabe derivar la identidad de la variante** (p. ej. añadir
+  // `'graded'` a la lista **sin** hacer `M-49`, que es quien captura la identidad del slab). Con la
+  // lista vigente (`['raw']`) **no puede dispararse**: la contradicción se grita además al arrancar.
+  //
+  // **500 y no 422** (misma doctrina que `OFFER_PROJECTION_INCOMPLETE` / `OFFERED_PRICE_MISSING`): el
+  // cliente no lo causó y **no hay nada que pueda corregir**. Y **lanza en vez de degradar** porque
+  // vive en el camino del DINERO: una lectura puede decir «no sé contar»; una cotización no puede
+  // poner un número sobre una identidad que no sabe expresar. `details: { productType }`.
+  BUYLIST_LINE_NOT_KEYABLE: 'BUYLIST_LINE_NOT_KEYABLE',
   BUYLIST_LIMIT_EXCEEDED: 'BUYLIST_LIMIT_EXCEEDED',
   INE_REQUIRED: 'INE_REQUIRED',
   CLABE_NOT_OWN_NAME: 'CLABE_NOT_OWN_NAME',

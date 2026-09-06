@@ -28,6 +28,291 @@
 > §0.22 de este documento son de `main` y NO se movieron**: son M47-H2, v1.53 (buylist raw-only) y
 > v1.53-b. Un informe de QA/techlead anterior al 2026-09-06 puede usar la numeración vieja.
 
+## 0.38 — **Los tres bloqueantes del gate de v1.54: la PII del correo, el objetivo del bounty y la derivación de la llave** (2026-09-06, rama `claude/buylist-inventory-workflow-hdnls3`, **PII + MONEY**)
+
+> Propiedad: **backend**. Cierra **B-1** (QA/seguridad), **B-2** (QA) y **B-3** (techlead), más los tres
+> menores que el techlead pidió anotar. **Cero endpoints nuevos, cero migraciones, cero cambios de
+> forma en ningún DTO** ⇒ **frontend: cero.** Un código de error nuevo **inalcanzable hoy** (§0.38.6,
+> con petición explícita al arquitecto) y **una escalada que se retira porque era falsa** (§0.38.3).
+
+### 0.38.1 **B-1 — el correo de oferta le mandaba al vendedor su domicilio completo**
+
+**Qué salía**, capturado del stack por QA, al final del correo 1 (y en las **dos** mitades del cuerpo,
+HTML y texto plano):
+
+```
+Sale desde: Av. E2E 123, Centro, CDMX, CDMX, 01000
+```
+
+**Qué manda.** `PROJECT.md` §P.3 lo prohíbe **en la misma frase que la CLABE**, y lo dice dos veces:
+*«Aplica a los cinco, sin excepción … nada de CLABE (ni enmascarada), nada de datos de terceros … y
+**nada de domicilio**. La regla nunca dependió del número»*; y el criterio **173(h)** fija **cómo se
+verifica**: *«se verifica buscando esos datos **en los cinco, no en cuatro**»*.
+
+**Lo que se hizo, en tres piezas:**
+1. **El dato sale del correo.** `SellOfferParams.pickupAddressLine` **se retira del tipo** (no se deja
+   opcional: un campo opcional es una invitación) y el call-site de `sendOfferMail` deja de
+   inyectarlo. Las dos mitades del cuerpo se arreglan juntas — un cliente que solo renderiza texto
+   plano leía el domicilio igual.
+2. **`pickupAddressLine(snapshot)` se ELIMINA.** Era el helper que componía la línea legible del
+   snapshot y el correo era su único llamador. *Una función que compone PII y que nadie llama es la
+   rampa por la que el dato vuelve.*
+3. **El aviso útil se conserva, sin el dato.** El párrafo existía por una razón buena —que el vendedor
+   corrija una dirección vieja **antes** de aceptar, porque después ya compramos la etiqueta con
+   ella—. Eso no necesita el domicilio: *«Al aceptar te mandamos la guía: sale con la dirección de
+   origen que guardaste en esta solicitud. Si te mudaste, revísala en tu cuenta y **corrígela antes
+   de aceptar**.»* La consulta ocurre en la cuenta, que es **superficie autenticada**.
+
+> **⚠️ La excepción razonada se consideró y NO se tomó.** El texto era útil y es **su** domicilio en
+> **su** correo. Aun así: la prohibición de §P.3 es sobre **el dato en el canal**, no sobre a quién
+> pertenece —un correo se reenvía, se imprime y vive en un buzón de terceros—, y `PROJECT.md` manda
+> sobre el contrato y sobre el código (regla de conflicto). **No se toma la excepción por cuenta
+> propia.** Si el dueño quiere reabrirlo, es una decisión de producto que pasa por el arquitecto; el
+> arreglo de arriba **no la impide** (el aviso ya está escrito y solo habría que reponer el dato).
+
+**⚠️ Por qué 3 420 tests estaban en verde con esto dentro, y qué se hizo distinto.** Los dos specs que
+tocaban la plantilla pasaban **`pickupAddressLine: null` como fixture**. *Un fixture no es una
+aserción*: apagaba el bloque en vez de mirarlo. El ancla nueva
+(`test/buylist.cycle-mail-pii.spec.ts`) tiene cuatro patas, y las cuatro hacen falta:
+
+| Pata | Qué mira | Qué atrapa |
+|---|---|---|
+| **Barrido de salida** | los **CINCO** correos × **es/en** × `subject`+`html`+`text`, contra los **cinco** datos prohibidos del criterio 173(h) | una plantilla que empiece a interpolar un dato prohibido que ya recibe |
+| **Exhaustividad de exports** | `Object.entries(templates)` — toda función `*Template` tiene que estar **clasificada** (ciclo / fuera del ciclo) | **el correo número seis**: rompe el spec hasta que alguien lo clasifique |
+| **Productor real** | se **emite una oferta** con un `pickupAddressSnapshot` lleno y se lee el `MailMessage` que salió por el puerto | la fuga **real**, que nace en el servicio y no en la plantilla |
+| **Ancla estructural** | el código del módulo (sin comentarios) no nombra `pickupAddress`/`postalCode`/`neighborhood`/`line1`/`clabe` | la reintroducción del helper por otro camino |
+
+Y una quinta pieza fuera de ese archivo, que es la de mayor fidelidad:
+**`test/integration/buylist-cycle.e2e-spec.ts`** emite la oferta **por HTTP contra la app real y
+Postgres real**, espía `MAIL_PORT` y comprueba que **ninguna parte** de `E2E_PICKUP_ADDRESS` viaja —
+exactamente el escenario que QA capturó del stack.
+
+> **Comprobado que el ancla muerde, no solo que pasa:** se reintrodujo la fuga tal cual era y se
+> midió. Con el campo fuera del tipo, **ni siquiera compila** (`TS2353`); forzándola de vuelta al
+> tipo, **caen el test del productor y el ancla estructural**. Una aserción de ausencia que nunca vio
+> una presencia no vale nada, así que el spec **también prueba que el detector detecta**.
+
+### 0.38.2 **B-2 — `BOUNTY_TARGET_REQUIRED` no existía: se podía dejar un bounty VIVO sin techo**
+
+`grep BOUNTY_TARGET_REQUIRED src/ test/` daba **cero**. Medido contra el contrato (§M2, D32 + D35):
+
+| Entrada (`bounty.enabled = true`) | Contrato | Antes | Ahora |
+|---|---|---|---|
+| `targetQty` **omitido**, fila **sin** objetivo | **2** (default) | `200` con `null` | **2** |
+| `targetQty` **omitido**, fila **con** objetivo | se conserva | se conservaba | se conserva |
+| `targetQty: null` | `422 BOUNTY_TARGET_REQUIRED` | `200` con `null` | **422 `BOUNTY_TARGET_REQUIRED`** |
+| `targetQty: 0` / negativo / no entero | `422 BOUNTY_TARGET_REQUIRED` | `422 VALIDATION_ERROR` | **422 `BOUNTY_TARGET_REQUIRED`** |
+
+**Por qué importaba:** un bounty vivo con `targetQty = null` **no se auto-apaga y nunca frena la
+compra** — la mesa de decisión jamás pinta «no comprar», acumule las copias que acumule. El backfill
+de **M-46** limpió el **histórico** (rellenó con 2 los vivos sin meta); **la puerta seguía abierta**,
+y QA construyó por ella el estado que los criterios 164(c)/168(d) declaran inexistente.
+
+**La forma del código sigue a la del contrato.** El contrato dice que el error dispara *«exactamente
+cuando la petición dejaría un bounty vivo sin objetivo válido»*, así que el predicado se evalúa
+**sobre el estado resultante** (`next`) y **después** de conocer `enabled` — igual que su hermano
+`BOUNTY_PRICE_REQUIRED`. Eso obliga a separar dos cosas que antes iban juntas:
+- **la FORMA** (se aplica lo que trae la petición: `null` **limpia**, un valor imposible **no se
+  escribe**), y
+- **la REGLA** (con el bounty **vivo**, el objetivo es obligatorio).
+
+Consecuencia deliberada: con **`enabled: false`** un `targetQty: null` **sigue limpiando** —no hay
+bounty vivo cuyo techo proteger— y solo el valor imposible (`0`, negativo, no entero) queda como
+error de **forma** (`VALIDATION_ERROR`). Y el default de D35 **solo** contesta la omisión: *un default
+es para «no lo dije», no para «dije que ninguno»*.
+
+**Fail-safe que sale gratis por evaluar el estado:** re-encender una fila **legacy** sin meta y sin
+mandar `targetQty` **la rellena con 2** en vez de revivir el agujero. Anclado.
+
+⚠️ **El test que había medía la regla derogada.** `pricing.variant-controls.spec.ts` afirmaba
+*«targetQty < 1 → 422; **null = sin objetivo**»* — la conducta de **antes de D32**. No se «ajustó
+para que pasara»: se **sustituyó** por la tabla del contrato, fila por fila, más los dos casos de
+`enabled:false`. El objetivo persistido se lee **del `upsert`**, no del DTO ya compuesto.
+
+### 0.38.3 **B-3 — la lista autorizaba el literal, pero no producía la derivación**
+
+**El defecto, tal cual.** v1.53 unificó **el permiso** (`lineIsKeyable` pasó a consultar
+`BUYLIST_ACCEPTED_PRODUCT_TYPES`, la misma lista que la guarda) **pero dejó la derivación clavada**:
+`productType: 'raw'` escrito a mano en **tres** sitios. El día de `M-49` —añadir `'graded'` a la
+lista por el camino que §4.40.6 describe— la guarda **deja pasar** y la derivación produce **`raw:NM`
+para una graduada**: las tres superficies cotizando contra la referencia raw y la mesa emitiendo
+**`stock: 0` con `positionUnavailable: false`**, el cero que §P.8 prohíbe, con cara de dato cierto.
+
+**La forma final son DOS PREGUNTAS, no una lista partida en dos** (la lista de política sigue siendo
+**UNA**; §0.37.1(3) acertó en eso y no se re-litiga):
+
+```
+llaveable = ACEPTADO ∧ CLAVABLE
+            │           └── capacidad TÉCNICA — ¿la llave puede decir la identidad de esta fila sin
+            │               mentir?  ·  `identityGradeKeyInput`  ·  dueño: BACKEND
+            └── política de PRODUCTO — ¿el negocio lo compra?
+                `isPurchasableProductType` → BUYLIST_ACCEPTED_PRODUCT_TYPES  ·  dueño: PRODUCTO
+```
+
+**Cierran en fechas distintas y por dueños distintos**, y por eso no podían ser un solo booleano.
+`identityGradeKeyInput` es un **`switch` exhaustivo sobre `ProductType`** que **produce el input** en
+vez de autorizar un literal, con **una razón escrita por rama**:
+
+| Rama | Resultado | Razón, y qué la desbloquea |
+|---|---|---|
+| `raw` | su input | única identidad que `SellRequestItem` sabe expresar entera |
+| `graded` | `null` | **A** — la fila no guarda identidad de slab (`gradingCompany`/`gradeValue` no existen). Desbloquea **`M-49`**, y solo `M-49` |
+| `sealed` | `null` | **B** — ni la fila dice **qué producto** es, ni la clave plana `'sealed'` (que es la del override **manual**, §4.19d) distingue productos. Desbloquea **`BL-33`** + una columna en la fila |
+| *(nuevo `ProductType`)* | **no compila** | `const unreachable: never` en el `default` |
+
+Consecuencias buscadas: **ensanchar la lista obliga a visitar la derivación** (con `'graded'` en la
+lista la línea sale `SIN PRECIO` + `SIN CONTEO`, nunca con una llave mentirosa), **ningún call-site
+vuelve a escribir un literal de identidad**, y el desajuste *«lista ensanchada sin rama escrita»* se
+**grita al arrancar** (`onModuleInit`, mismo estilo que el aviso de `INVENTORY_POSITION_PORT`) además
+de atajarse por petición.
+
+**Los dos lados del `null`, que es donde vive la doctrina:**
+- **LECTURA (mesa, sumandos de promesa): degrada.** `gradeKey: null` ⇒ sin override, sin referencia,
+  sin bucket ⇒ `positionUnavailable` + `derivedPriceCents: null`.
+- **DINERO (cotizador, batch, creación): LANZA.** `purchasableGradeKeyInput` responde `422
+  BUYLIST_RAW_ONLY` a la pregunta 1 y **`500 BUYLIST_LINE_NOT_KEYABLE`** a la 2 (§0.38.6). *Una
+  lectura puede decir «no sé contar»; una cotización no puede poner un número sobre una identidad que
+  no sabe expresar.*
+
+> **⚠️ El test escrito para el día de `M-49` encontró un defecto que la lectura del código no vio.**
+> El spec **ensancha la lista de verdad** (mock del módulo de reglas) en vez de razonar sobre ella, y
+> con eso salió esto: `derivedLine` degradaba **por el CÓDIGO de la excepción** (`BUYLIST_RAW_ONLY`
+> en su allowlist), no por el dato. Ensanchada la lista, la guarda de política ya no dispara y el que
+> lanza es el backstop de identidad — **que no está en el allowlist** ⇒ **una fila vieja tumbaría la
+> mesa entera**, justo lo que toda la degradación existe para impedir. **Arreglado moviendo la
+> decisión al dato**: si `gradeKey == null`, la línea **ni entra** al cuerpo del dinero. *La lectura
+> degrada por lo que SABE, no por lo que le lanzaron.*
+
+#### ⛔ La escalada de la mitad `sealed` SE RETIRA: el diagnóstico era mío y era falso
+
+§0.37.1(2) y §0.37.6 decían que la mitad `sealed` de B-3 exigía **cambiar la forma de
+`VariantPositionRef`** (cargar `sealedProductId`) ⇒ *interfaz entre streams* ⇒ **arquitecto**, y que
+estaba **escalada y esperando**. **No es así**, y lo verifiqué en el código antes de escribirlo:
+
+- la identidad del sellado **ya cabe en `gradeKey`**: `sealedMarketGradeKey()` produce
+  `sealed:tcg:<tcgplayerProductId>` desde **v1.19** (`pricing.types.ts`);
+- **`InventoryItem` ya tiene** `sealedProductId` (`schema.prisma:784`), con su índice;
+- el colapso está en el **adaptador**: `inventory-position.adapter.ts` agrupa **sin** esa columna
+  (`by: [cardId, productType, rawCondition, gradingCompany, gradeValue, finish, cardProductId]`), y
+  además deriva con `tryGradeKeyFor`, que para sellado devuelve el literal plano `'sealed'`.
+
+⇒ **El puerto no necesita campos nuevos y nunca hubo nada que esperar del arquitecto.** Es un defecto
+de un adaptador **dentro de un solo stream**, es **mío**, y queda como **`BL-33`** en `TECH_DEBT.md`,
+**no bloqueante**: hoy el único consumidor es raw-only y **no le pregunta al puerto** por sellado.
+*La degradación del buylist no es la cura de BL-33: es lo que hace que hoy no duela.*
+
+#### ⚠️ La contradicción de MIS notas, resuelta (§0.37.1(3) vs §0.37.2)
+
+Las dos frases no podían ser ciertas a la vez y lo eran por descuido: §0.37.1(3) decía que *«guarda y
+degradación se ensanchan a la vez»* (la lista **va a** cambiar) y §0.37.2 justificaba dos filas con
+*«el `continue` ya estrechó a `raw`»* (la lista **no va a** cambiar). **La cierta es la primera**: la
+lista es exactamente el sitio pensado para cambiar. La segunda razonaba sobre el valor de hoy de un
+dato que existe para poder cambiar mañana — y **era la mitad exacta del defecto B-3**. Las dos
+secciones quedan **enmendadas en el sitio** con puntero aquí; el código ya no depende de esa
+deducción, porque **la identidad la produce el `switch`** y no un estrechamiento inferido.
+
+### 0.38.4 Los tres menores del techlead
+
+1. **Sin test de la línea legacy no-raw en la EMISIÓN** — el único test de `OFFER_LINE_NOT_PRICEABLE`
+   llegaba por otra puerta (`refCents: null`, el hueco de mercado). **Añadido** el caso por **esta**
+   puerta: mercado presente y aun así sin precio derivable porque **no hay llave con la que
+   buscarlo** ⇒ `422 OFFER_LINE_NOT_PRICEABLE`; y su complemento, que `skip` sobre esa misma línea
+   **sí** emite (*lo que se exige es decidir, no comprar*).
+2. **El allowlist triplicado y el comentario falso** — el comentario decía *«los MISMOS códigos que
+   `batchQuote`»* y eran **cuatro de cinco**: `derivedLine` omite `NOT_FOUND`. **La omisión es
+   correcta y ahora está declarada** (allí la carta la nombra el cliente; aquí viene de la solicitud
+   ya cargada, así que un `NOT_FOUND` sería inconsistencia **nuestra** y debe subir). La
+   **triplicación** queda anotada como **`B3-D2`** en `TECH_DEBT.md`.
+3. **Los 2 warnings de lint preexistentes** — sin cambio, en código que este pase no toca
+   (`inventory.service.ts:638`, `sealed-product.service.ts:11`).
+
+### 0.38.5 El paso 6 del despliegue: la tercera pregunta, con la consulta lista
+
+`v1.54(8)` ordena **una sola pasada** que por cada `cotizada` viva conteste **tres** preguntas. El
+`SELECT` del paso 6 de la migración M-46 contesta **dos** (`sinDireccion` → BL-12; `anclaDelReloj` →
+BL-10) y **le falta la tercera** (*¿tiene líneas no-`raw`?*, §4.40.5a). **La migración NO se edita**:
+está aplicada y editarla —aunque sea dentro de un comentario— **rompe su checksum** y con él
+`prisma migrate deploy`. Queda anotada como **`M46-D2`** y la consulta completa vive aquí:
+
+```sql
+-- PASO 6 (OPERATIVO, HUMANO) — censo y triage de las `cotizada` VIVAS, UNA sola pasada.
+-- Contesta las TRES preguntas de v1.54(8): dirección (BL-12), reloj (BL-10) y líneas no-raw (§4.40.5a).
+SELECT s.id, s."userId", s."createdAt", s."quotedTotalCents",
+       (s."pickupAddressSnapshot" IS NULL)                       AS "sinDireccion",
+       COALESCE(s."offerIssueClockStartedAt", s."createdAt")      AS "anclaDelReloj",
+       EXISTS (SELECT 1 FROM "SellRequestItem" i
+                WHERE i."sellRequestId" = s.id AND i."productType" <> 'raw') AS "tieneNoRaw"
+  FROM "SellRequest" s
+ WHERE s.status = 'cotizada' AND s."closedAt" IS NULL
+ ORDER BY COALESCE(s."offerIssueClockStartedAt", s."createdAt") ASC;
+```
+
+**Cómo se lee cada columna en el triage:** `sinDireccion` ⇒ o se le pide la dirección al vendedor
+(tiene `User.phone`, D11/D12) o se **declina a mano**; `anclaDelReloj` ⇒ prioridad (las más viejas
+primero, son las que la regla 7 caducaría de golpe); **`tieneNoRaw` ⇒ esa solicitud NO se puede
+ofertar entera**: sus líneas no-raw salen **SIN PRECIO** y exigen `skip` u **override motivado**
+(§0.37.4) — *jamás MX$0 y jamás un grado inventado*.
+
+### 0.38.6 Lo que necesita decisión del arquitecto (dos cosas, ninguna bloquea)
+
+1. **Un código de error nuevo, HOY INALCANZABLE: `500 BUYLIST_LINE_NOT_KEYABLE`.** Es el backstop de
+   la pregunta 2 de §0.38.3 en el camino del dinero. **Con la lista vigente (`['raw']`) no puede
+   dispararse** —la política y la derivación coinciden— y **ninguna respuesta del contrato cambia**:
+   no altera ningún endpoint, ningún DTO ni ningún código existente. Se elige `500` con código
+   estable por la misma doctrina que `OFFER_PROJECTION_INCOMPLETE` / `OFFERED_PRICE_MISSING`: *el
+   actor no lo causó y no puede corregirlo; un `422` le pediría que arregle un bug nuestro*.
+   **Petición:** ratificarlo en `API_CONTRACT` §Errores como backstop (igual que se hizo con
+   `OFFER_PROJECTION_INCOMPLETE` en v1.51.17), o indicar el código alternativo que prefieras. **No se
+   ha tocado el contrato.**
+2. **D44 (v1.55) — la columna `SellRequest.offerSentCancelledAt` está PEDIDA y el trabajo está
+   listo.** `prisma/` es zona compartida y el orquestador la serializa. **En cuanto se abra**, el
+   cambio es exactamente el que fija la norma y **no toca ningún DTO** ⇒ frontend cero:
+   - **escritor:** el **mismo `if`** que ya sella `offerIssueClockStartedAt`, incrementa
+     `offerReissueCount` y manda el correo 5 — **mismo `now()`, misma transacción**;
+   - **lector:** la proyección de cancelación deja de mirar `offerSentAt` (marca **permanente**) y
+     deja de pintar `offerCancelledAt` (que **se sobrescribe en las tres ramas**) ⇒ pinta
+     `offerSentCancelledAt`. *Cambiar solo el discriminador a `offerReissueCount > 0` no arregla
+     nada: en el caso medido vale 1, la puerta se abre bien y la fecha sigue siendo la equivocada.*
+   - **`offerCancelledAt` NO se toca**: su escritura incondicional es correcta para lo que esa
+     columna significa. *No se arregla el escritor, se arregla el lector.*
+   - **invariante que se aserta al cerrar:** `offerReissueCount > 0 ⇔ offerIssueClockStartedAt IS NOT
+     NULL ⇔ offerSentCancelledAt IS NOT NULL`.
+
+### 0.38.7 Verificación (los cuatro gates, literal)
+
+| Gate | Resultado |
+|---|---|
+| `npx tsc --noEmit -p tsconfig.json` | **limpio** (exit 0, cero errores) |
+| `npx jest` | **243 suites / 3 465 tests en verde** (antes del pase: 241 / 3 420 ⇒ **+2 suites, +45 tests**) |
+| `npm run lint` | **exit 0**, **las mismas 2 advertencias preexistentes** (`inventory.service.ts:638` `actorUserId`, `sealed-product.service.ts:11` `normalizeSetName`), ambas fuera de lo que este pase toca |
+| `npm run test:integration` | **17 suites / 240 tests en verde** (antes: 17 / 239 ⇒ **+1**, el ancla E2E de PII del correo 1) |
+
+**Archivos de test tocados y por qué ninguno se «ajustó para que pasara»:**
+- **`test/buylist.cycle-mail-pii.spec.ts`** (NUEVO, 18 tests) — B-1, las cuatro patas de §0.38.1.
+- **`test/buylist.grade-key-derivation.spec.ts`** (NUEVO, 17 tests) — B-3: las dos preguntas, el
+  `switch`, **el día de `M-49` simulado ensanchando la lista de verdad**, el grito de arranque y la
+  puerta de la emisión (menor 1).
+- **`test/integration/buylist-cycle.e2e-spec.ts`** (+1) — el correo 1 leído **del puerto real** de la
+  app levantada.
+- **`test/pricing.variant-controls.spec.ts`** — el test de `targetQty` **medía la regla derogada**
+  (§0.38.2); se sustituye por la tabla del contrato + los dos casos de `enabled:false`.
+- **`test/buylist.item-offer-block.spec.ts`**, **`test/buylist.bl23-bl24.spec.ts`** — se retiran los
+  cuatro `pickupAddressLine: null` de fixture: **el campo ya no existe en el tipo**.
+
+### 0.38.8 Para otros roles
+
+- **Frontend: cero.** Ningún DTO cambia de forma. El correo de oferta pierde el domicilio y conserva
+  el aviso; el portal **sí** sigue mostrando `pickupAddress` (es superficie **autenticada**, y el
+  criterio 114 lo exige para que el vendedor verifique lo que vamos a imprimir).
+- **QA:** (1) emitir una oferta y **buscar el domicilio en los cinco correos** — el ancla ya lo hace,
+  pero el criterio 173(h) pide la búsqueda, no la confianza; (2) `PUT
+  /admin/pricing/variant-controls/:cardId/:finish` con `bounty.enabled:true` y `targetQty` **omitido**
+  / `null` / `0` ⇒ **2** / **422 `BOUNTY_TARGET_REQUIRED`** / **422 `BOUNTY_TARGET_REQUIRED`**; (3) la
+  mesa de una solicitud legacy con línea `graded`: `SIN PRECIO` + `SIN CONTEO`, las raw intactas, y
+  emitir sin override ⇒ `422 OFFER_LINE_NOT_PRICEABLE`.
+- **devops:** el `SELECT` completo del paso 6 está en §0.38.5 (la migración **no** se edita: checksum).
+- **Arquitecto:** §0.38.6 — el backstop `BUYLIST_LINE_NOT_KEYABLE` y la columna de D44.
+
 ## 0.37 — **La fusión del ciclo de adquisición con v1.53: dónde LANZA el dinero y dónde DEGRADA la lectura** (2026-09-06, merge `main` → `claude/buylist-inventory-workflow-hdnls3`, **MONEY**)
 
 > Propiedad: **backend**. Resolución de los cuatro conflictos de backend de la fusión. **Cero
@@ -51,14 +336,26 @@ describir un mundo muerto: la clase exacta de comentario que engaña a un gate (
    pantalla **revienta** (con la variante que lanza) o **cuenta mal** (con la que rellena).
 2. **La mitad `sealed` del hallazgo es AJENA a v1.53 y sigue abierta.** El `groupBy` de
    `inventory-position.adapter.ts` no incluye `sealedProductId`, así que dos `SealedProduct` de la
-   misma `Card` caen en un bucket. Eso no lo tocó la guarda ni lo arregla `buildGradeKey`: sigue
+   misma `Card` caen en un bucket. Eso no lo tocó la guarda ni lo arregla `buildGradeKey`. ~~Sigue
    escalado al **arquitecto** (cambiar la forma de `VariantPositionRef` es un cambio de interfaz
-   entre streams).
+   entre streams).~~
+   ⛔ **ENMENDADO (v1.55, §0.38.3): esa escalada era MÍA y era FALSA, y se retira.** La identidad del
+   sellado **ya cabe en `gradeKey`** (`sealedMarketGradeKey()` ⇒ `sealed:tcg:<productId>`, v1.19) e
+   `InventoryItem` **ya tiene** `sealedProductId` (`schema.prisma:784`): **el puerto no necesita
+   campos nuevos y no había nada que esperar del arquitecto.** Es un defecto del **adaptador**, en un
+   solo stream y **mío** ⇒ **`BL-33`** en `TECH_DEBT.md`, no bloqueante. **El hallazgo sigue abierto;
+   lo que cambia es de quién es y qué cuesta.**
 3. **El predicado pasa a ser UNO.** `positionIsKeyable` se renombra a **`lineIsKeyable`** y su cuerpo
    deja de ser `productType === 'raw'` para ser `BUYLIST_ACCEPTED_PRODUCT_TYPES.includes(...)` — **la
    misma lista que usa la guarda**. Si algún día se decide comprar graduadas (M-49, §4.40.7), la
    guarda y la degradación se ensanchan **a la vez** o no se ensanchan. *Dos listas que hoy coinciden
    serían dos listas que mañana no.*
+   ⚠️ **ESTA MITAD ES LA CIERTA de la contradicción que el techlead encontró** (contra la fila de
+   `positionFor` en §0.37.2, que razonaba *«el `continue` ya estrechó a `raw`»*): **la lista es
+   exactamente el sitio pensado para cambiar.** Lo que faltaba —y es **B-3**, cerrado en **§0.38.3**—
+   es que unificar el **permiso** no unificaba la **derivación**: el literal `productType: 'raw'`
+   seguía escrito a mano. Hoy son **dos preguntas** (`ACEPTADO ∧ CLAVABLE`) y la identidad **la
+   produce un `switch` exhaustivo**, no un estrechamiento inferido.
 
 Y gana alcance: el predicado gobierna ahora **las dos llaves** de la mesa (la de variante y la de
 posición), no solo la del conteo. `DecisionLine.variant.gradeKey` pasa a `string | null` y ese `null`
@@ -75,7 +372,7 @@ repartir, con el criterio que decidió cada uno:
 | `buylist.service.ts` · `decideBuyLine` | `gradeKeyFor(rawGradeKeyInput(…))` | **Dinero.** Cuerpo compartido por las tres superficies ⇒ la guarda raw-only se re-aplica dentro |
 | `buylist.service.ts` · `createRequest` (llave del override, P-30 H2) | ídem, **dentro de `variantKey()`** | Se conservan los dos lados: la llave se construye con el helper **y** el `gradeKey` pasa por la guarda |
 | `buylist.service.ts` · `deriveOfferLinesBatch` / `derivedLine` | `lineIsKeyable` ⇒ clave o `null` | **Lectura sobre filas históricas.** Ver §0.37.1 |
-| `buylist.service.ts` · `positionFor` (sumandos de promesa) | `gradeKeyFor({productType:'raw', …})` | El `continue` de `lineIsKeyable` ya estrechó a `raw`: input estricto satisfecho sin default |
+| `buylist.service.ts` · `positionFor` (sumandos de promesa) | ~~`gradeKeyFor({productType:'raw', …})`~~ ⇒ **`gradeKeyFor(gradeKeyInputFor(row))`** (v1.55) | ~~El `continue` de `lineIsKeyable` ya estrechó a `raw`: input estricto satisfecho sin default~~ ⛔ **ESTA JUSTIFICACIÓN ERA LA MITAD FALSA de la contradicción (§0.38.3)**: deducía la identidad del **valor de hoy** de una lista que existe para cambiar. Hoy el input **lo produce el `switch`** ⇒ satisfecho **por construcción**, no por deducción |
 | `inventory-position.adapter.ts` · `onHandCountsFor` | `tryGradeKeyFor` + `continue` | **Conteo = lectura.** Un slab incompleto no se cuenta en ninguna variante; con la que lanza, **una sola fila mala dejaría la mesa entera sin conteo** |
 | `inventory.service.ts` · `reevaluateVariantsForPublication` | `tryBuildGradeKey` + `continue` | **Disparador, no pago.** Sin clave no casa con ninguna variante — y tampoco podría publicarse. Con la que lanza, un slab incompleto tumbaría el barrido y con él la publicación de todas las demás |
 | `inventory.service.ts` · `derivePublishSalePrice` (sellado) | `gradeKeyFor({productType:'sealed'})` | Literal, no derivado de la fila: estamos **dentro** del `if (productType === 'sealed')` |
@@ -154,10 +451,13 @@ degrada; la firma sigue exigiendo una decisión humana registrada.*
 
 ### 0.37.6 Para otros roles
 
-- **Arquitecto:** **sin discrepancias con el contrato**, y una escalada que sigue **abierta desde
+- **Arquitecto:** **sin discrepancias con el contrato**, y ~~una escalada que sigue **abierta desde
   antes** (no la abre esta fusión): la mitad `sealed` de B-3 —`INVENTORY_POSITION_PORT` no acuerda con
   `INVENTORY_PUBLISH_PORT` qué es una variante, porque `VariantPositionRef` no puede cargar
-  `sealedProductId`— es un cambio de forma de un puerto entre streams. Mientras no se decida, la mesa
+  `sealedProductId`— es un cambio de forma de un puerto entre streams.~~
+  ⛔ **ENMENDADO (v1.55): esa escalada NO existe y era mía.** `VariantPositionRef` **no necesita**
+  `sealedProductId` —la identidad cabe en `gradeKey`— y el defecto es del **adaptador**, dentro de un
+  solo stream ⇒ **`BL-33`, backend, no bloqueante** (§0.38.3). Mientras no se tome, la mesa
   contesta `positionUnavailable`, que es lo que el contrato ordena.
 - **Frontend:** §0.37.4. Nada nuevo que pintar — `SIN PRECIO` y `SIN CONTEO` ya existen; lo que cambia
   es **cuándo** aparecen (ahora también en líneas legacy no-raw de la mesa).

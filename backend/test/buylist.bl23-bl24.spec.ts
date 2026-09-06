@@ -342,7 +342,6 @@ describe('⚠️ BL-23(2) — `terms.rule`: la prosa del descuento con los monto
           shippingFeeCents: res.offer.shippingFeeCents,
           netCents: res.offer.netCents,
           acceptDeadlineAt: new Date('2026-09-03T15:00:00Z'),
-          pickupAddressLine: null,
         },
         'Ash',
         locale,

@@ -207,8 +207,6 @@ export interface SellOfferParams {
   shippingFeeCents: number;
   netCents: number;
   acceptDeadlineAt: Date;
-  /** Dirección de origen ya confirmada por el vendedor para ESTA solicitud (snapshot, D36). */
-  pickupAddressLine: string | null;
   /** URL del portal; vacío ⇒ el CTA se degrada a instrucción de texto (nunca un botón muerto). */
   portalUrl?: string;
 }
@@ -228,6 +226,12 @@ export interface SellOfferParams {
  * - **NO se acepta desde el correo** (criterio 146): el enlace lleva a la pantalla, la sesión decide.
  * - **El correo NO compra etiqueta** (D21): solo anuncia que el envío corre por nuestra cuenta y que
  *   la guía llega **al aceptar**. *Solo se gasta etiqueta en quien ya dijo que sí.*
+ * - **⚠️ v1.54 · B-1 — NI EL DOMICILIO NI NINGÚN OTRO DATO PROHIBIDO** (`PROJECT.md` §P.3, criterio
+ *   **173(h)**): la lista es **CLABE (ni enmascarada), datos de terceros, montos de OTRAS solicitudes,
+ *   cifras internas de la mesa (posición, sugerencia, topes) y domicilio**, y **aplica a los CINCO**
+ *   correos del ciclo. Este llevaba el domicilio; ya no. El ancla que lo vigila **en los cinco a la
+ *   vez** —y que obliga a clasificar cualquier plantilla nueva de este módulo— es
+ *   `test/buylist.cycle-mail-pii.spec.ts`.
  */
 export function sellOfferTemplate(
   params: SellOfferParams,
@@ -288,9 +292,21 @@ export function sellOfferTemplate(
   const cta = params.portalUrl
     ? `<p style="margin:20px 0"><a href="${escapeHtml(params.portalUrl)}" style="background:#111;color:#fff;padding:12px 20px;border-radius:6px;text-decoration:none;display:inline-block">${escapeHtml(en ? 'View and respond to the offer' : 'Ver y responder la oferta')}</a></p>`
     : `<p style="margin:20px 0"><strong>${escapeHtml(en ? 'Sign in to your account and open your sell request to respond.' : 'Entra a tu cuenta y abre tu solicitud para responder.')}</strong></p>`;
-  const pickup = params.pickupAddressLine
-    ? `<p style="font-size:13px;color:#555">${escapeHtml(en ? 'When you accept we send you the label; the package ships from:' : 'Al aceptar te mandamos la guía; el paquete sale desde:')} ${escapeHtml(params.pickupAddressLine)}. ${escapeHtml(en ? 'If you moved, correct it from your account before accepting.' : 'Si te mudaste, corrígela desde tu cuenta antes de aceptar.')}</p>`
-    : '';
+  // ⚠️ v1.54 · **B-1 (PII): EL AVISO SE QUEDA, EL DOMICILIO NO.**
+  // Este párrafo llevaba el domicilio del vendedor interpolado (`Sale desde: Av. …, CDMX, 01000`).
+  // `PROJECT.md` §P.3 lo prohíbe **en los cinco** correos del ciclo, en la misma frase que la CLABE:
+  // *«nada de CLABE (ni enmascarada), nada de datos de terceros … y nada de domicilio. La regla nunca
+  // dependió del número»*, y el criterio **173(h)** ordena verificarlo *«buscando esos datos en los
+  // cinco, no en cuatro»*.
+  // **Que sea SU domicilio en SU correo no lo autoriza**: la prohibición es sobre el dato en el canal,
+  // no sobre a quién pertenece — un correo se reenvía, se imprime y vive en un buzón de terceros.
+  // **Lo que el párrafo hacía útil sí se conserva**: el aviso de que la etiqueta sale con la dirección
+  // congelada en ESTA solicitud y de que corregirla es AHORA. Eso no necesita el dato: el vendedor lo
+  // consulta en su cuenta, que es superficie autenticada. *Se retira el domicilio, no la advertencia.*
+  const pickupProse = en
+    ? 'When you accept we send you the label: it uses the pickup address saved on this request. If you moved, check it in your account and correct it before accepting.'
+    : 'Al aceptar te mandamos la guía: sale con la dirección de origen que guardaste en esta solicitud. Si te mudaste, revísala en tu cuenta y corrígela antes de aceptar.';
+  const pickup = `<p style="font-size:13px;color:#555">${escapeHtml(pickupProse)}</p>`;
 
   const title = en
     ? `We're buying ${buy.length} of your ${params.lines.length} cards`
@@ -316,9 +332,10 @@ export function sellOfferTemplate(
     `${en ? 'Shipping we cover' : 'Envío que ponemos nosotros'}: -${money(params.shippingFeeCents, l)}\n` +
     `${en ? 'DEPOSITED TO YOU' : 'SE TE DEPOSITAN'}: ${money(params.netCents, l)}\n\n` +
     `${shippingProse}\n\n${deadlineProse}\n${ctaProse}\n\n` +
-    (params.pickupAddressLine
-      ? `${en ? 'Ships from' : 'Sale desde'}: ${params.pickupAddressLine}\n\n`
-      : '') +
+    // B-1: la versión de texto llevaba la MISMA fuga que el HTML (`Sale desde: <domicilio>`). Las dos
+    // mitades del correo se arreglan juntas: un cliente que solo renderiza texto plano leía el
+    // domicilio igual.
+    `${pickupProse}\n\n` +
     `${BRAND}`;
 
   return {
@@ -459,23 +476,15 @@ export function offerTermsCopy(
   };
 }
 
-/**
- * v1.51 (D36) — una línea legible del **snapshot** de dirección de origen, para el correo de oferta.
- *
- * ⚠️ Lee **el snapshot de la solicitud**, jamás la libreta viva: el vendedor confirmó ESE origen para
- * ESTA solicitud. Es tolerante a la forma porque la columna es `Json?` y las filas legacy pueden
- * traer cualquier cosa: lo que no se pueda leer se omite (**una dirección a medias en un correo es
- * peor que ninguna**).
- */
-export function pickupAddressLine(snapshot: unknown): string | null {
-  if (snapshot == null || typeof snapshot !== 'object' || Array.isArray(snapshot)) return null;
-  const s = snapshot as Record<string, unknown>;
-  const parts = ['line1', 'line2', 'neighborhood', 'city', 'state', 'postalCode']
-    .map((k) => s[k])
-    .filter((v): v is string => typeof v === 'string' && v.trim().length > 0)
-    .map((v) => v.trim());
-  return parts.length > 0 ? parts.join(', ') : null;
-}
+// ⛔ **v1.54 · B-1 — `pickupAddressLine(snapshot)` SE ELIMINA, no se deja «por si acaso».**
+// v1.51 (D36) la escribió para armar una línea legible del snapshot de dirección y meterla en el
+// correo de oferta. Ese uso era su ÚNICO llamador y `PROJECT.md` §P.3 / criterio 173(h) lo prohíben,
+// así que la función quedaba sin destino legítimo **dentro de este módulo**: lo único que sabe hacer
+// es exactamente lo que ningún correo del ciclo puede llevar.
+// *Una función que compone PII y que nadie llama es la rampa por la que el dato vuelve.* Si algún día
+// una superficie **autenticada** necesita pintar el snapshot (el portal, la mesa), su sitio es el DTO
+// de esa superficie —donde la audiencia está decidida— y **no un helper del módulo de correos**.
+// El ancla `test/buylist.cycle-mail-pii.spec.ts` vigila que no reaparezca aquí.
 
 /**
  * v1.51 (§4.39n · DESIGN_SYSTEM §23.4.3/§23.4.4/§23.4.5) — **los correos 2, 3 y 4 del ciclo.**
