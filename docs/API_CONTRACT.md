@@ -2,7 +2,71 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-06 (rev **v1.56**).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-06 (rev **v1.57**).
+>
+> **Changelog v1.57 — INVARIANTE P: «NO SE PAGA LO QUE NO HA LLEGADO». EL TERCER TÉRMINO DE `isPayable` (2026-09-06,
+> arquitecto; **CERO endpoints nuevos, CERO campos de DTO, CERO DDL**. UNA precondición de dinero que gana **un tercer
+> término**, UNA tabla normativa que se parte en dos, UNA justificación mía que se **corrige por falsa**, y NUEVE
+> códigos de éxito que se alinean. ARCHITECTURE rev **v1.57**, §4.39(w); registro **BL-35 eje 2**, **BL-36**, **BL-37**):**
+> ⚠️ **Origen: el gate de seguridad RECHAZÓ v1.56 por UN hallazgo — `BL-35` eje 2**, el residual que yo mismo dejé
+> abierto en v1.56 §D y enruté al humano. **Seguridad lo midió EN VIVO** (`docs/SECURITY_NOTES.md` §2): sobre una
+> solicitud **`ofertada`** (`acceptedAt = null`, `receivedAt = null`) un **`vault_operator`** llamó `verify` → `200`
+> con **`isPayable: true`**, y un `super_admin` llamó `pay-spei` → **liquidación SPEI real de MX$320 por mercancía
+> que nunca llegó y que el vendedor nunca aceptó**. **QA lo reprodujo de forma independiente** desde una `cotizada`
+> recién creada (`QA-BL35-EJE2`). **El hallazgo no se re-litiga: se norma su cierre.**
+>
+> **A. ⚠️⚠️ RECTIFICACIÓN DE MI PREMISA — `PROJECT.md` NO ERA AMBIGUO EN ESTE PUNTO, Y ESO CAMBIA QUIÉN DECIDE.**
+> En v1.56 §D escribí que cerrar el eje 2 exigía **declarar la matriz de predecesores** y que `PROJECT.md` era
+> **ambiguo** ⇒ *«se pregunta al humano»*. **En lo de la matriz completa sigo teniendo razón** (§C de v1.56 se
+> conserva íntegra y **no se retro-edita**). **En este agujero concreto NO la tenía**, y el redline es literal:
+> **`PROJECT.md:1107`** lo pone **en negrita**, como **una de las CUATRO promesas que le hacemos al vendedor** en la
+> pantalla de aceptación —
+> > ***(b) el pago se realiza DESPUÉS de que recibimos y verificamos la carta*** *(nunca por adelantado)*, alineado
+> > con el pipeline `cotizada → ofertada → aceptada → en_transito → recibida → verificación → aprobada → pagada`
+>
+> — y **este mismo documento ya lo decía en prosa** (§M5 `pay-spei`: *«Precondición: `aprobada` + verificada (pago
+> **tras** recepción/verificación)»*), y **el código ya lo dice en su mensaje de error** (`'Payment allowed only
+> after receipt/verification and approval'`). **La regla existe en los tres sitios. Lo único que no existía era el
+> TÉRMINO que la hace cierta.** ⇒ **No hay decisión de producto pendiente**: hay una regla escrita que el código
+> incumple, y por la **regla de conflicto** (`PROJECT.md` manda sobre el contrato; el contrato sobre el código) toca
+> **hacerla cumplir**. **El dueño del eje 2 deja de ser «product-owner / humano» y pasa a ser BACKEND**, con esta
+> norma como interfaz.
+>
+> **B. EL TERCER TÉRMINO — se eleva a `§M5-P`, hermana de `§M5-T`, por la misma razón que aquélla.**
+> ```
+> isPayable  =  status ∈ SELL_REQUEST_PAYABLE_STATES  ∧  receivedAt IS NOT NULL  ∧  verifiedAt IS NOT NULL
+>                                                        └──────── NUEVO (v1.57) ────────┘
+> ```
+> **Tres lectores, una regla — y esta vez los TRES, no dos.** El pre-check de `paySpei`, la guarda atómica
+> `payableWhere()` y el `isPayable` de la proyección **salen del mismo cuerpo**; la disciplina de §4.39(c) sitio 10
+> **ya estaba escrita** y es la que hay que respetar al añadir el término. **Ver `§M5-P` para la norma completa,
+> la cohorte legacy y lo que NO cierra.**
+>
+> **C. ⚠️ QUÉ CIERRA Y QUÉ NO — dicho al principio para que nadie lo lea de más.** El tercer término cierra **la
+> salida de dinero**. **NO** cierra el eje 2 entero: `verify` **sigue siendo llamable desde cualquier estado vivo**
+> (`cotizada`, `ofertada`, `aceptada`) y sigue sellando `verifiedAt`. Lo que deja de poder hacer es **pagar**.
+> El residual —reversión/adelanto de estado **sin dinero**— queda **nombrado, con dueño y NO bloqueante**
+> (`BL-35` eje 2-b). ⛔ **No se mete la matriz completa en esta enmienda**: `PROJECT.md` **sí** es ambiguo *ahí*
+> (§C de v1.56, intacta), y **una matriz mal puesta rompería la cohorte legacy**.
+>
+> **D. ⚠️ CORRECCIÓN DE UNA AFIRMACIÓN FALSA MÍA (§M5 `receive`/`verify`, punto 4). La levantó QA por la regla 9.**
+> Escribí que *«**ningún** verbo de transición hermano usa `201` (`confirm-shipment`, `declare-shipped`,
+> `offer-response`, `reject`: todos `200`)»*. **QA lo midió abriendo el stack: `confirm-shipment` → `201` y
+> `reject` → `201`. Dos de las cuatro citas eran falsas.** El error fue de método y lo digo con su nombre: **mezclé
+> dos controllers** y presenté media lista como la lista entera. **La conclusión no cambia** —su razón de peso es
+> otra y es independiente— pero **la frase se corrige, porque hoy invita a concluir lo contrario de lo que hay**.
+>
+> **E. NUEVE CÓDIGOS DE ÉXITO SE ALINEAN — y son NUEVE, no cinco. Los medí yo.** QA reportó **cinco**; al barrer el
+> bloque completo salen **siete** endpoints donde este contrato declara `Res 200` y el código responde `201`, **más
+> dos** que el contrato **no declaraba** y que responden `201` (`pay-spei` y `guide/cancellation-done`). ⚠️ **El de
+> `pay-spei` no es cosmético: contradice una tabla NORMATIVA de este mismo documento**, que declara `200`
+> idempotente para `status === 'pagada'`. **Decisión: el código se alinea al contrato, no al revés** — ver `§M5-C`.
+> **NO BLOQUEANTE y NO va en el commit del dinero** (`BL-37`).
+>
+> **F. Lo que NO cambia.** **Frontend: cero cambios de código** (`apiRequest` ramifica por `res.ok`, medido en
+> v1.56 y sin cambios). Ningún endpoint nuevo, ningún campo de DTO, ningún dial, ningún correo, ninguna regla del
+> barrido, ningún DDL. **§M5-T (v1.56) NO se retro-edita**: su tabla se **parte en dos** sin quitarle un verbo, y su
+> definición operativa **se conserva palabra por palabra**. **P1 sigue cerrada** — P y T son ejes distintos.
 >
 > **Changelog v1.56 — INVARIANTE T: «NINGÚN VERBO DE TRANSICIÓN PISA UNA FILA TERMINAL O CERRADA» (2026-09-06,
 > arquitecto; **CERO endpoints nuevos, CERO campos de DTO, CERO DDL**. UNA invariante que se **ELEVA A NORMA DEL
@@ -806,9 +870,13 @@
 >   servidor son **DOS** términos: `status ∈ PAYABLE` **∧ `verifiedAt IS NOT NULL`**. El cliente **solo replica el
 >   primero** ⇒ **hoy la UI puede habilitar el botón de pago donde el servidor responde `422`.** *No es una copia
 >   fiel que pueda desincronizarse algún día: ya está desincronizada.*
-> - **NORMA:** `isPayable = status ∈ SELL_REQUEST_PAYABLE_STATES ∧ verifiedAt IS NOT NULL`, **de la misma constante y
->   el mismo campo que el pre-check y la guarda atómica de `pay-spei`** — tres lectores, **un** cuerpo. El frontend
->   hace `isSuperAdmin && req.isPayable === true` y **borra el literal de estados**.
+> - **NORMA:** ~~`isPayable = status ∈ SELL_REQUEST_PAYABLE_STATES ∧ verifiedAt IS NOT NULL`~~ **⛔ SUPERSEDED por
+>   [`§M5-P`](#M5-P) (v1.57): son TRES términos — falta `receivedAt IS NOT NULL`.** Lo de esta línea **sigue siendo
+>   cierto en su forma** (*de la misma constante y los mismos campos que el pre-check y la guarda atómica de
+>   `pay-spei` — tres lectores, **un** cuerpo*) y **falso en su contenido**: con dos términos se pagó en vivo una
+>   solicitud pre-recepción (`BL-35` eje 2). *La ironía queda escrita a propósito: este bloque nació denunciando una
+>   copia INCOMPLETA de la regla, y el cuerpo canónico que puso en su lugar también lo estaba.* El frontend hace
+>   `isSuperAdmin && req.isPayable === true` y **borra el literal de estados** — **eso no cambia**.
 > - **⚠️ ADMIN-ONLY: jamás en el DTO de cliente** —a diferencia de `isTerminal`, que viaja en las dos proyecciones—.
 >   Al vendedor no le toca saber si su solicitud ya entró en la cola de pago: es estado interno del pipeline y le
 >   anticiparía un depósito que aún puede no ocurrir.
@@ -9890,24 +9958,221 @@ legalT   ⇔ status ∉ SELL_REQUEST_TERMINAL_STATES  ∧  closedAt IS NULL
 
 **Verbos gobernados — TODOS los que transicionan una `SellRequest`, en cualquier superficie:**
 
+> ### ⚠️ v1.57 — LA TABLA SE PARTE EN DOS, PORQUE LA DE v1.56 SE CONTRADECÍA CON SU PROPIA DEFINICIÓN. (Lo levantó el **techlead**; los guards los medí uno por uno.)
+> **El defecto, dicho sin adornos:** la definición operativa de esta sección es ***«si escribe `SellRequest.status`,
+> obedece T»***, y **la tabla listaba verbos que NO escriben `status`**. Un lector que la aplicara al pie le pondría
+> `legalT` a `guide/cancellation-done` — y **rompería trabajo legítimo**, porque esa tarea existe **precisamente
+> porque la solicitud cerró** (D22: el barrido **cierra la solicitud y abre la tarea en el mismo `data`**).
+> **Backend acertó al NO aplicarle T**, y esta corrección es del documento, no del código.
+> **La definición NO cambia** (se conserva palabra por palabra). **Ningún verbo sale de la vigilancia**: lo que
+> cambia es que ahora se dice **qué gobierna a cada uno**.
+
+**GRUPO A — obedecen T** *(escriben `SellRequest.status`; `legalT` va en el `where` de su `updateMany`, `count===1`)*:
+
 | Superficie | Verbos |
 |---|---|
-| **Admin (§M5)** | `receive` · `verify` · `items/:itemId/decision` · `reject` · `pay-spei` |
-| **Admin (§M5-ciclo)** | `offer` · `offer/authorize` · `offer/cancel` · `decline` · `pickup-address` · `guide` · `guide/cancellation-done` · `confirm-shipment` |
-| **Cliente (§6)** | `respond` · `offer-response` · `declare-shipped` |
+| **Admin (§M5)** | `receive` · `verify` · `items/:itemId/decision` *(vía la auto-transición a `rechazada`)* · `reject` · `pay-spei` |
+| **Admin (§M5-ciclo)** | `offer` · `offer/authorize` · `offer/cancel` · `decline` · `confirm-shipment` |
+| **Cliente (§6)** | `respond` · `offer-response` |
 | **Barrido (jobs, no HTTP)** | reglas 2 · 5 · 6 · 7 — ya llevan `closedAt: null` en el `where` que **lee y escribe** (B-1) |
 
+**GRUPO B — NO escriben `status`; tienen su PROPIA precondición, y aquí se dice cuál y por qué** *(medido verbo por
+verbo sobre el `where` real de cada `updateMany`, no inferido de la ficha)*:
+
+| Verbo | Su precondición REAL | ¿Cubre el eje de terminalidad? |
+|---|---|---|
+| `guide` | `status = 'aceptada' ∧ closedAt IS NULL` | ✅ **Más ESTRECHA que T** — un solo predecesor. T sería redundante |
+| `declare-shipped` (cliente) | `status = 'aceptada' ∧ closedAt IS NULL ∧ sellerShippedDeclaredAt IS NULL` | ✅ **Más estrecha que T.** *(Y por eso está aquí y no en el grupo A: detiene el reloj y **no mueve el estado** — criterios 138/156)* |
+| `pickup-address` (**admin**) | `closedAt IS NULL ∧ shipmentConfirmedAt IS NULL ∧ sellerShippedDeclaredAt IS NULL` | ⚠️ **SOLO el término `closedAt`** — ver el residual **`BL-36`** abajo |
+| `guide/cancellation-done` | `guideCancellationPendingAt IS NOT NULL ∧ guideCancellationDoneAt IS NULL` | ⛔ **NI `status` NI `closedAt` — Y ES CORRECTO. NO SE LE APLICA T.** La tarea de guía muerta **nace de un cierre**: exigirle una fila viva la volvería incerrable y **la etiqueta se perdería del P&L** (D22, criterio 139) |
+
+- ⚠️ **`guide/cancellation-done` es la excepción NOMBRADA de esta sección, y se nombra para que nadie la «arregle».**
+  Es el único verbo del ciclo cuyo trabajo legítimo ocurre **sobre solicitudes cerradas**. *Una invariante con una
+  excepción escrita es una invariante; una con una excepción tácita es un bug esperando.*
+- ⚠️ **`BL-36` — RESIDUAL NOMBRADO, NO BLOQUEANTE (no hay dinero): los DOS `pickup-address` se apoyan SOLO en
+  `closedAt`.** El de **admin** (en esta tabla) y el de **cliente** (`PATCH /buylist/requests/:id/pickup-address`,
+  §6 — que **nunca estuvo en esta tabla**) usan `closedAt IS NULL` **sin** el término de estado. ⇒ Una fila **legacy
+  con `status` terminal y `closedAt = null`** —cohorte que el código **contempla explícitamente** en
+  `jobs/ine-retention.service.ts:98-109` (*«filas legacy previas a M-19»*)— **pasa las dos guardas**. Es **mi propio
+  argumento de §M5-T** (*«los dos términos, porque se midió que discrepan»*) apuntando al otro lado. **Dueño:
+  backend.** **Cierre: añadir el término de estado a los dos `where`** (`status notIn SELL_REQUEST_TERMINAL_STATES`),
+  sin tocar los demás términos. ⚠️ **NO medí si esa cohorte existe en ninguna BD** — lo marco como **no medido**:
+  lo medido es que **el código la contempla** y que **las guardas no la cubren**.
 - **⚠️ Y todo verbo de transición FUTURO nace bajo esta invariante.** No hay que volver a esta tabla para añadirlo:
   la tabla enumera lo que existe **para que QA pueda barrerlo**, no para definir el alcance. **El alcance es la
-  definición**: *si escribe `SellRequest.status`, obedece T.*
+  definición**: *si escribe `SellRequest.status`, obedece T.* **Un verbo que NO escribe `status` no queda fuera de
+  vigilancia: queda en el GRUPO B, y entonces DEBE declarar su propia precondición aquí** — *«no le aplica T» no es
+  lo mismo que «no tiene precondición», y confundirlos es cómo `receive`/`verify` se quedaron sin guarda.*
 - **NO la obedecen las superficies de LECTURA** (`GET …/decision-table`, `reveal-clabe`, las cuatro colas, los
   listados): **no escriben**. `reveal-clabe` en particular **no tiene precondición de estado y sigue sin tenerla**
   (su control es `MoneyOutGuard` + rol + bitácora), y eso **no** es una excepción a T: no es una transición.
 
-**QA — asserts exigibles (normativos):** para **cada** verbo de la tabla, sobre una solicitud en **cada uno de los
+**QA — asserts exigibles (normativos):** para **cada** verbo del **GRUPO A**, sobre una solicitud en **cada uno de los
 cuatro** terminales ⇒ `409` (o su código específico) **y cero escritura** (`updatedAt`, fechas y montos intactos); y
 sobre una fila con **`closedAt` sellado ∧ `status` no-terminal** ⇒ **también `409`** — *ése es el caso que P1 fabricó
-y el que un guard de un solo término deja pasar.*
+y el que un guard de un solo término deja pasar.* **Para el GRUPO B el assert es su propia precondición**, la de la
+segunda tabla — ⛔ **y para `guide/cancellation-done` el assert es el CONTRARIO: sobre una solicitud CERRADA tiene
+que responder `200` y sellar la tarea.**
+
+---
+
+#### <a id="M5-P"></a>⚠️⚠️ §M5-P — INVARIANTE P: **no se paga lo que no ha llegado** (v1.57 — NORMATIVA, **DINERO SALIENTE**)
+
+> *«La regla estaba escrita en `PROJECT.md`, en este contrato y hasta en el mensaje de error del código. Lo único que
+> no existía era el término que la hacía cierta.»* — cierre de **`BL-35` eje 2** (`docs/SECURITY_NOTES.md` §2).
+
+**Origen medido, por DOS roles y de forma independiente:** seguridad liquidó **MX$320 de SPEI real** sobre una
+solicitud **`ofertada`** (`acceptedAt = null`, `receivedAt = null`) encadenando `verify` (como **`vault_operator`**)
+y `pay-spei` (como `super_admin`); **QA lo reprodujo desde una `cotizada` recién creada** (`QA-BL35-EJE2`).
+
+**La cláusula que manda, literal — `PROJECT.md:1107`, una de las CUATRO promesas al vendedor:**
+> ***(b) el pago se realiza DESPUÉS de que recibimos y verificamos la carta*** *(nunca por adelantado)*
+
+**Definición — TRES términos, en conjunción:**
+```
+isPayable  ⇔  status ∈ SELL_REQUEST_PAYABLE_STATES      // 'aprobada' | 'verificacion'
+              ∧  receivedAt IS NOT NULL                  // ⚠️ NUEVO v1.57 — «RECIBIMOS»
+              ∧  verifiedAt IS NOT NULL                  //                  «y VERIFICAMOS»
+```
+
+- **⚠️ Por qué faltaba, y por qué el hueco era exactamente éste.** La fórmula de v1.51.8 codificaba **«verificamos»**
+  y daba **«recibimos»** por implícito — porque en el camino feliz `receive` precede a `verify`. Pero **`verify` es
+  el ÚNICO verbo que escribe `verifiedAt`** y su guarda es `legalT` (no-terminal ∧ no-cerrada), que **no exige
+  predecesor**: alcanzarlo desde cualquier estado **vivo** volvía pagable la solicitud. *Un término implícito no es
+  un término.*
+- **⚠️ LOS TRES LECTORES, NO DOS. Ésta es la parte que no puede quedar a medias.** La disciplina de §4.39(c) sitio 10
+  ya está escrita y es la que hay que respetar al añadir el término:
+
+  | # | Lector | Qué es | Qué pasa si se le olvida el término |
+  |---|---|---|---|
+  | 1 | **pre-check de `paySpei`** | el `if` que ahorra la transacción SERIALIZABLE | el `422` no sale y la petición llega al CAS: **se tapa, pero tarde** |
+  | 2 | **guarda atómica `payableWhere()`** | el `where` del `updateMany`, **la guarda REAL** (`count===1`) | ⛔ **SALE EL DINERO.** Es la única que una carrera no puede saltar |
+  | 3 | **`isPayable` de la proyección** | ⚠️ **gobierna el BOTÓN DE PAGAR en M5** (§4.39c sitio 10) | ⛔ **la señal le MIENTE al `super_admin` que autoriza**: le pinta «lista para pagar» una solicitud cuya carta nunca llegó |
+
+  **El lector 3 es el que convierte esto en ALTA y no en Media**, y hay que decirlo: `isPayable` es la señal **propia
+  del sistema** de *«¿está en condición de pagarse?»*. No es *«el operador debería fijarse»*: **el sistema le dice
+  que sí pague.** *Un control activo que desinforma al que autoriza el dinero es peor que no tener control.*
+  ⇒ **La forma correcta sigue siendo UN cuerpo** (`isPayableSellRequest`) **+ su traducción a `where`**
+  (`payableWhere()`): el término entra en **esos dos sitios** y los tres lectores lo heredan. ⛔ **Prohibido
+  añadirlo escribiéndolo a mano en cada llamador** — sería reintroducir la copia que el sitio 10 borró.
+  *(Hay un cuarto llamador, el backstop de carrera de `paySpei` que distingue «el monto se movió» de «no es
+  pagable»: usa el MISMO predicado, así que hereda el término solo. **Eso es la prueba de que la forma es la
+  correcta**, no un sitio más que actualizar.)*
+- **⚠️ SEGUNDA RED, en el CAS de `pay-spei`, y NO es redundante por accidente.** El término va **también** en el
+  `where` del `updateMany`, hermano exacto de los `paidAt IS NULL ∧ closedAt IS NULL` que v1.56 añadió. **Misma
+  doctrina de §4.39(v.6):** *un invariante de dinero se ancla en el hecho menos reescrito que exista* — y aquí el
+  hecho es **«la mercancía llegó» = `receivedAt`**, que **escribe UN solo verbo** (`receive`), **una vez**, con
+  sellado idempotente (`[field]: null` en el `where`, §M5 punto 3) y **ninguna ruta legítima lo limpia**.
+
+**⚠️⚠️ LO QUE ESTA INVARIANTE **NO** HACE, dicho aquí para que nadie lo lea de más:**
+- **NO vuelve imposible pagar mercancía que no llegó. La vuelve una MENTIRA CON NOMBRE.** `receive` es el único
+  escritor de `receivedAt`, así que un operador todavía puede llamar `receive` sobre una `ofertada` y **afirmar que
+  el paquete llegó**. La diferencia no es cosmética: eso es un **acto declarativo, con actor, fecha y bitácora**
+  (`buylist.receive`), en vez de un **efecto lateral silencioso de `verify`**. *El control no impide el fraude
+  interno; le quita el anonimato* — y ése es el control que un negocio de custodia puede exigirle a su back-office.
+- **NO declara la matriz de predecesores** y ⛔ **prohibido deducirla de aquí.** `receivedAt IS NOT NULL` es un
+  **hecho**, no un **estado de origen**: no dice de dónde viene la solicitud, dice que la carta está en nuestras
+  manos. **La cohorte legacy la satisface igual** (llega a `recibida`/`verificacion` sin pasar por `en_transito`,
+  pero **sí pasando por `receive`**). *Ésa es exactamente la razón por la que el término correcto es el hecho y no
+  el estado.*
+- **NO cierra el eje 2 entero.** Ver el residual **`BL-35` eje 2-b**, abajo.
+
+**⚠️ COHORTE LEGACY — la pregunta explícita, con lo medido y lo NO medido separados.**
+
+| | |
+|---|---|
+| **Medido (BD local, por el orquestador; yo no la re-medí)** | De **cuatro** solicitudes `pagada`, las **dos únicas** sin `receivedAt` son **exactamente los dos PoC** (`SPEI-EJE2-NEVER-ARRIVED-001` y `QA-BL35-EJE2`). **Todas las legítimas lo tienen.** |
+| **Medido (código, por mí)** | `receivedAt` lo escribe **un solo sitio** (`receive`), y `status='recibida'` **solo se alcanza por ese mismo verbo** ⇒ en una fila que llegó a `verificacion`/`aprobada` **por el ciclo**, `receivedAt` está poblado **por construcción** |
+| **NO medido** | **Si existen filas de PRODUCCIÓN en `aprobada`/`verificacion` con `receivedAt = null`.** No es mi blanco y **no lo asumo** |
+
+**NORMA — qué se hace con una fila legacy sin `receivedAt`:**
+1. ⛔ **NO se le añade un término de excepción al `where`** (`OR receivedAt IS NULL AND offerSentAt IS NULL`, ni
+   ninguna variante). **Una excepción legacy en una guarda de dinero es indistinguible del ataque que la guarda
+   frena**: la fila del PoC (`ofertada`, `receivedAt = null`) **entraría por esa misma puerta**. *La cohorte que no
+   se puede distinguir del abuso no se exceptúa: se remedia.*
+2. **El remedio es el acto nombrado: `POST …/receive`**, que sella `receivedAt`, es idempotente, es auditado y ya
+   existe. **Una solicitud cuya carta de verdad está en nuestras manos tiene que poder decirlo**, y decirlo es
+   justamente lo que se le pide.
+3. **Falla CERRADO, y es lo correcto:** una fila en estado pagable sin constancia de recepción **es exactamente la
+   fila defectuosa que esta invariante existe para frenar**. `422`, no pago. *El peor caso de fallar cerrado es un
+   pago que se retrasa un clic; el de fallar abierto es el de MX$320 que ya ocurrió.*
+4. **⚠️ Obligación de backend ANTES del merge (no es opcional y no la puedo hacer yo):** contar en el entorno
+   disponible las filas **vivas** con `status ∈ {'aprobada','verificacion'} ∧ receivedAt IS NULL`. **Si el conteo
+   es `> 0`, se escala al arquitecto — NO se añade una excepción por cuenta propia** (regla 9).
+
+**⚠️ RESIDUAL — `BL-35` eje 2-b: lo que queda abierto, con nombre y sin dinero.**
+`verify` **sigue siendo llamable desde cualquier estado vivo** (`cotizada`, `ofertada`, `aceptada`) y sigue sellando
+`verifiedAt` y fijando `status='verificacion'`. Con el tercer término **eso ya no paga**, pero **sigue siendo una
+transición que salta fases**: ensucia el pipeline, adelanta el `max(...)` de la purga del INE y mete la solicitud en
+la cola de verificación antes de tiempo. **NO es bloqueante** (no hay dinero, no hay PII expuesta, no hay evasión de
+tope) y ⛔ **NO se cierra en esta enmienda**, porque cerrarlo **sí** exige la matriz de predecesores y **ahí
+`PROJECT.md` sigue sin normar la legalidad por-verbo** (§C del changelog v1.56, intacta). **Dueño: product-owner /
+humano** (declarar la matriz) → arquitecto (normarla) → backend. **Disparador para subirlo de prioridad:** que
+aparezca **cualquier** consecuencia de dinero o de plazo colgada de `verifiedAt` o de `status='verificacion'` que
+hoy no exista.
+
+**QA — asserts exigibles (normativos), sobre el stack corriendo:**
+1. Solicitud **`ofertada`** (`acceptedAt = null`, `receivedAt = null`) → `POST …/verify` → **`isPayable` DEBE ser
+   `false`** en la respuesta. *(El `verify` en sí sigue devolviendo `200`: eso es el residual 2-b, no un defecto de P.)*
+2. La misma fila → `POST …/pay-spei` como `super_admin` → **`422 VALIDATION_ERROR`** y **cero escritura**
+   (`paidAt`, `speiReference`, `payoutNetCents`, `closedAt` intactos). **Es el PoC de seguridad, invertido.**
+3. Solicitud **`cotizada`** recién creada → misma cadena → mismo resultado. **Es el PoC de QA (`QA-BL35-EJE2`), invertido.**
+4. **Camino feliz intacto:** `receive` → `verify` → `pay-spei` **paga** (`isPayable: true`, `200`). *Sin este cuarto
+   assert los tres primeros los pasa un endpoint que no paga nunca.*
+5. **Paridad predicado ↔ `where`:** el test que ya asevera que `isPayableSellRequest` y `payableWhere()` coinciden
+   sobre **todo el enum × `verifiedAt`** pasa a barrer **todo el enum × `verifiedAt` × `receivedAt`**. *La paridad
+   es lo que hace que «tres lectores, una regla» sea una propiedad y no una intención.*
+
+---
+
+#### <a id="M5-C"></a>§M5-C — CÓDIGOS DE ÉXITO DEL CICLO DE BUYLIST (v1.57 — **NO BLOQUEANTE**, `BL-37`)
+
+> *(Lo levantó **QA** por la regla 9, al medir en vivo que una afirmación mía era falsa. Reportó **cinco**
+> divergencias; al barrer el bloque completo **son SIETE**, más **dos** endpoints cuyo código de éxito este
+> documento **nunca declaró**. **Los nueve los medí yo** sobre los decoradores reales de los dos controllers.)*
+
+**LA NORMA, en una línea:** en el ciclo de buylist, **`201` es exclusivamente para el endpoint que CREA una
+`SellRequest`** (`POST /buylist/requests`, §6 — declara `Res 201` y el código responde `201`: **alineado, medido**).
+**Todo verbo que opera sobre una solicitud existente responde `200`**, tenga o no rama idempotente.
+
+- **Por qué `200` y no dejar el `201` del framework:** los verbos del ciclo **no crean un recurso**, y **siete de
+  ellos tienen rama idempotente normada en este documento** — *una repetición que devuelve un hecho ya registrado no
+  puede ser honestamente un `201`*. ⚠️ **El caso que lo vuelve obligatorio y no estético es `pay-spei`:** su tabla
+  de §M5 declara **`200` idempotente** para `status === 'pagada'`, y el código responde **`201`**. **Eso no es un
+  código sin declarar: es una tabla NORMATIVA de este documento que el código contradice.**
+- **⚠️ El código se alinea al contrato, no al revés — y el precedente es de este mismo documento, medido:**
+  `POST /admin/pricing/override` (v1.50) declaraba `200`, el código devolvía `201`, y **backend corrigió el código**.
+  *Una precedencia que cambia de criterio a mitad de lista no es una precedencia: son dos.*
+
+**Los NUEVE, con lo declarado y lo medido:**
+
+| # | Endpoint | Contrato declara | Código responde | Origen |
+|---|---|---|---|---|
+| 1 | `POST …/items/:itemId/convert-to-inventory` | `Res 200` | **`201`** | `@Post` sin `@HttpCode` — ⚠️ **no estaba en la lista de QA** |
+| 2 | `POST …/reject` | `Res 200` | **`201`** | **medido EN VIVO por QA** |
+| 3 | `POST …/offer/authorize` | `Res 200` | **`201`** | `@Post` sin `@HttpCode` |
+| 4 | `POST …/offer/cancel` | `Res 200` | **`201`** | `@Post` sin `@HttpCode` — ⚠️ **no estaba en la lista de QA** |
+| 5 | `POST …/decline` | `Res 200` | **`201`** | `@Post` sin `@HttpCode` |
+| 6 | `POST …/guide` | `Res 200` | **`201`** | `@Post` sin `@HttpCode` |
+| 7 | `POST …/confirm-shipment` | `Res 200` | **`201`** | **medido EN VIVO por QA** |
+| 8 | `POST …/pay-spei` | *(no declaraba código de éxito)* ⚠️ | **`201`** | ⚠️ **contradice la tabla normativa de §M5** ⇒ **se DECLARA `Res 200`** |
+| 9 | `POST …/guide/cancellation-done` | *(no declaraba código de éxito)* | **`201`** | **se DECLARA `Res 200`** |
+
+**Ya alineados, medidos, y NO se tocan:** `receive` · `verify` (`@HttpCode(OK)`, v1.56) · `PATCH …/pickup-address`
+(admin) · `PATCH …/items/:itemId/decision` (`@Patch` ⇒ `200`) · `POST …/offer` (**`200` | `202` dinámico por `@Res`,
+y así se queda**: su código **depende del resultado**, no de la ruta) · toda la superficie de **cliente** (§6), que
+lleva `@HttpCode` explícito en cada ruta.
+
+- **Método, dicho porque importa:** las dos filas marcadas *«medido EN VIVO»* las disparó QA por HTTP; **las otras
+  siete las derivé de la ausencia de `@HttpCode` en un `@Post`** — con **dos comprobaciones**: que el mecanismo es
+  el mismo que produjo las dos medidas en vivo, y que **no hay interceptor global** que reescriba el código
+  (`main.ts` solo registra un filtro de excepciones). **Lo derivado va marcado como derivado.**
+- **⛔ NO BLOQUEANTE y NO va en el commit del dinero.** Impacto de cliente **cero** (`apiRequest` ramifica por
+  `res.ok`). **Va en su propio commit**, sin una sola línea de lógica — es la norma de **`BL-27`**: *un diff no
+  mezcla reformateo (ni alineación de códigos) con lógica, porque el gate de seguridad y el techlead revisan por
+  diff.* **Dueño: backend.** Registro **`BL-37`**.
+- **⚠️ Alcance: el ciclo de buylist y nada más.** **No he medido** los códigos de éxito de los demás módulos y
+  **esta norma no los alcanza**. *Lo no medido se dice.*
 
 - `GET /api/v1/admin/buylist` — cola `?status=&userId=&q=&from=&to=&minCents=&maxCents=&page=&pageSize=`
   - **`userId?` (v1.7-admin-users, NUEVO):** filtra por `SellRequest.userId` (simetría con `GET /admin/orders`). Alimenta la ficha 360° del usuario. Paginado; mismo guard y misma proyección PII por rol (la CLABE sigue enmascarada; en claro solo por `reveal-clabe`).
@@ -9955,8 +10220,16 @@ y el que un guard de un solo término deja pasar.*
       🔧 **RESUELTO EN RAMA (backend y frontend); ✅ al mergear** *(vocabulario de estado en ARCHITECTURE §9)*.
     - **`isPayable: boolean` (v1.51.8, NUEVO, derivado server-side) — ⚠️ DINERO SALIENTE. ADMIN-ONLY.**
       ```
-      isPayable = status ∈ SELL_REQUEST_PAYABLE_STATES  ∧  verifiedAt IS NOT NULL
+      isPayable = status ∈ SELL_REQUEST_PAYABLE_STATES  ∧  receivedAt IS NOT NULL  ∧  verifiedAt IS NOT NULL
+                                                           └──── NUEVO v1.57 ────┘
       ```
+      > **⚠️⚠️ v1.57 — EL TERCER TÉRMINO. NORMA COMPLETA EN [`§M5-P`](#M5-P); aquí solo la fórmula.**
+      > **La versión de dos términos de v1.51.8 era INCOMPLETA y se midió el daño:** `verify` es el único verbo que
+      > sella `verifiedAt` y no exige predecesor ⇒ alcanzarlo desde cualquier estado **vivo** ponía `isPayable` en
+      > `true` sobre una solicitud **pre-recepción**, y de ahí salió **una liquidación SPEI real de MX$320** por una
+      > carta que nunca llegó (`BL-35` eje 2; `SECURITY_NOTES.md` §2, `PROJECT.md:1107`).
+      > ⚠️ **Este campo gobierna el BOTÓN DE PAGAR** (abajo, v1.51.11): con dos términos **la señal le mentía al
+      > `super_admin` que autoriza el dinero**. *No es «el operador debería fijarse»: el sistema le decía que pagara.*
       > **Existe para borrar la SEXTA copia, que gobierna el botón de PAGAR POR SPEI.** `M5View.tsx:820-821` tiene
       > `canPay = isSuperAdmin && (status === 'aprobada' || status === 'verificacion')`: `SELL_REQUEST_PAYABLE_STATES`
       > **transcrito a mano en el cliente**, y **la tercera copia** de la regla que §4.39c **sitio 8** acaba de
@@ -9965,8 +10238,14 @@ y el que un guard de un solo término deja pasar.*
       > - **⚠️ Y está INCOMPLETA:** la precondición del servidor son **DOS** términos y el cliente **solo replica el
       >   primero** ⇒ **hoy la UI puede habilitar el pago donde el servidor responde `422`.** *No es una copia que
       >   pueda desincronizarse algún día: ya lo está.*
-      > - **Se deriva de la MISMA constante y el MISMO `verifiedAt`** que el pre-check y la guarda atómica de
-      >   `pay-spei`: **tres lectores, un cuerpo.** El frontend hace `isSuperAdmin && req.isPayable === true`.
+      > - **Se deriva de la MISMA constante y los MISMOS `receivedAt`/`verifiedAt`** *(v1.57: los **tres** términos)*
+      >   que el pre-check y la guarda atómica de `pay-spei`: **tres lectores, un cuerpo.** El frontend hace
+      >   `isSuperAdmin && req.isPayable === true`.
+      >   ⚠️ **v1.57 — «tres lectores, una regla» es una obligación de FORMA, no una descripción.** El término nuevo
+      >   entra en **`isPayableSellRequest`** (el cuerpo) **y en `payableWhere()`** (su traducción a `where`), y los
+      >   lectores lo heredan. ⛔ **Que quede en dos de los tres es el modo de fallo exacto que este bloque nombró en
+      >   v1.51.8** — con la diferencia de que el lector que se quedaría corto ahora es **el `where` del que sale el
+      >   dinero**. Ver [`§M5-P`](#M5-P), tabla de los tres lectores.
       > - **⚠️ ACTOR-INDEPENDIENTE — el rol NO entra en este booleano.** *«¿esta solicitud está en condición de
       >   pagarse?»* es propiedad **de la fila**; *«¿puedo pagarla yo?»* es propiedad **del actor**. Fundirlas haría
       >   que la misma solicitud respondiera distinto según quién pregunte. El rol se queda en el cliente porque ya lo
@@ -10137,10 +10416,25 @@ y el que un guard de un solo término deja pasar.*
   >   uno.
   >
   > **4. `200` Y NO `201` — y cuesta cero.** Hoy responden **`201`** por el default de `POST` de Nest; **este contrato
-  > nunca lo declaró**, y **ningún** verbo de transición hermano usa `201` (`confirm-shipment`, `declare-shipped`,
-  > `offer-response`, `reject`: todos `200`). Además **la repetición idempotente no puede ser honestamente `201`**: no
-  > crea nada. **Impacto de frontend medido: cero** — `apiRequest` ramifica por `res.ok` (2xx), no por el código
-  > exacto.
+  > nunca lo declaró**. **La repetición idempotente no puede ser honestamente un `201`**: no crea nada, devuelve un
+  > hecho **ya registrado** (fila 2 de la tabla del punto 3, que es normativa). **Impacto de frontend medido: cero**
+  > — `apiRequest` ramifica por `res.ok` (2xx), no por el código exacto.
+  >
+  > > ### ⚠️⚠️ v1.57 — CORRECCIÓN: **la segunda justificación que escribí aquí era FALSA.** La midió **QA**, y la retiro.
+  > > **Decía:** *«**ningún** verbo de transición hermano usa `201` (`confirm-shipment`, `declare-shipped`,
+  > > `offer-response`, `reject`: todos `200`)»*. **QA abrió el stack y lo disparó: `confirm-shipment` → `201` y
+  > > `reject` → `201`. Dos de las cuatro citas eran falsas**, y la frase entera —que era **la justificación de un
+  > > cambio en un documento normativo**— invitaba a concluir **lo contrario de lo que hay**.
+  > > **El error, con su nombre: mezclé DOS controllers y presenté media lista como la lista entera.** Los dos que sí
+  > > son `200` (`declare-shipped`, `offer-response`) viven en el controller **de CLIENTE**, donde **todas** las rutas
+  > > llevan `@HttpCode(200)` explícito. Los dos que cité mal viven en el controller **de ADMIN**, donde **ninguna**
+  > > `@Post` llevaba `@HttpCode` ⇒ **todas** responden el `201` por defecto de Nest. *No medí el bloque; lo recordé.*
+  > > **⚠️ La decisión NO cambia, y conviene ver por qué no:** su razón de peso es **la idempotencia** (arriba), que
+  > > es **independiente**, **medida** y **normativa en este mismo punto**. Lo que cae es un argumento **de
+  > > consistencia** que resultó ser falso — *y un argumento falso no se conserva porque la conclusión aguante sin él.*
+  > > **⚠️ Y la consistencia que yo afirmaba de más ahora se busca de verdad, con dueño:** son **NUEVE** los códigos
+  > > de éxito del ciclo que no cuadran (siete declarados `200` que responden `201`, más dos sin declarar). Norma
+  > > completa y tabla en [`§M5-C`](#M5-C). **No bloqueante, commit aparte, dueño backend** (`BL-37`).
   >
   > Res `200` (ambos): la solicitud actualizada, **mismo shape que `GET /admin/buylist/:id`** (`AdminBuylistDTO` con
   > `items`; proyección admin **sin** `clabeSnapshotEnc` — la ruta la alcanza `vault_operator`, S49-M1).
@@ -10380,7 +10674,21 @@ y el que un guard de un solo término deja pasar.*
   >   > campo de `details` (`closedAt`) es **aditivo y opcional aquí**, obligatorio en los guards nuevos.
   Res `200`: la `SellRequest` actualizada (mismo shape que `GET /admin/buylist/:id`: `status="rechazada"`, `closedAt` sellado, `seller`, `items` con sus campos de rechazo).
   Err: `403 FORBIDDEN` (cliente), `404 NOT_FOUND` (solicitud inexistente), `422 REQUEST_HAS_NON_REJECTED_ITEMS` (queda ítem vivo), `409 CONFLICT` (solicitud en otro estado terminal `pagada`/`abandonada`).
-- `POST /api/v1/admin/buylist/:id/pay-spei` — **`super_admin`** — Req `{ speiReference }` + `Idempotency-Key` → registra pago manual, request `→pagada`. Err `403 MONEY_OUT_FORBIDDEN`. Precondición: `aprobada` + verificada (pago **tras** recepción/verificación).
+- `POST /api/v1/admin/buylist/:id/pay-spei` — **`super_admin`** — Req `{ speiReference }` + `Idempotency-Key` → registra pago manual, request `→pagada`. **Res `200`** *(v1.57, §M5-C — hoy responde `201`; ver `BL-37`)*. Err `403 MONEY_OUT_FORBIDDEN`. **Precondición: [`§M5-P`](#M5-P) — `status ∈ {aprobada, verificacion}` ∧ `receivedAt IS NOT NULL` ∧ `verifiedAt IS NOT NULL`** (pago **tras** recepción **y** verificación, `PROJECT.md:1107`).
+  > ### ⚠️⚠️ v1.57 — EL TERCER TÉRMINO: **`receivedAt IS NOT NULL`**. (DINERO, NORMATIVO. Cierre de `BL-35` eje 2.)
+  > **La precondición que este endpoint declara en prosa desde siempre —*«pago tras recepción/verificación»*— y que
+  > su propio mensaje de error dice literal (`'Payment allowed only after receipt/verification and approval'`)
+  > **no estaba en ninguno de sus dos `where`.** Seguridad lo midió: **MX$320 de SPEI real** sobre una solicitud
+  > `ofertada` con `receivedAt = null` y `acceptedAt = null`. **La norma completa —los tres lectores, la cohorte
+  > legacy, lo que NO cierra y los asserts de QA— vive en [`§M5-P`](#M5-P).** Aquí, lo exigible a este endpoint:
+  > - **`receivedAt IS NOT NULL` en el `where` del `updateMany`** (vía `payableWhere()`, que es la traducción del
+  >   predicado), **y** en el pre-check (vía el predicado). **Los dos salen del mismo cuerpo: no se escribe a mano.**
+  > - **Fila en estado pagable sin `receivedAt` ⇒ `422 VALIDATION_ERROR`, sin escribir nada** — misma respuesta y
+  >   mismo mensaje que hoy da el pre-check por los otros dos términos. **Ningún código de error nuevo**: es la
+  >   misma pregunta (*«¿está en condición de pagarse?»*) con el término que le faltaba.
+  > - ⛔ **Sin excepción para la cohorte legacy.** Ver §M5-P, norma 1: *la cohorte que no se puede distinguir del
+  >   abuso no se exceptúa; se remedia con `POST …/receive`.* **Si backend cuenta filas vivas afectadas, escala.**
+  >
   > ### ⚠️⚠️ v1.56 — EL CAS GANA DOS TÉRMINOS: **`paidAt IS NULL` ∧ `closedAt IS NULL`**. (DINERO, NORMATIVO. Cierre de P1, segunda red.)
   > **La lección de la CRÍTICA P1, dicha como norma general:** ***una idempotencia anclada en UN campo mutable es
   > frágil.*** La de este endpoint colgaba entera de `if (status === 'pagada')`, y `status` es **la columna más
@@ -10388,7 +10696,8 @@ y el que un guard de un solo término deja pasar.*
   > `verificacion`: el corto-circuito no disparó, `isPayableSellRequest` volvió a dar `true`, el CAS de las cuatro
   > columnas de dinero **seguía coincidiendo** (revivir no toca montos) y **salió un segundo SPEI real**.
   > - **NORMA — el `where` del `updateMany` afirma, ADEMÁS de lo que ya afirma** (`status ∈
-  >   SELL_REQUEST_PAYABLE_STATES`, `verifiedAt IS NOT NULL` y el CAS de las 4 columnas de dinero)**:**
+  >   SELL_REQUEST_PAYABLE_STATES`, `verifiedAt IS NOT NULL` —⚠️ **v1.57: y `receivedAt IS NOT NULL`**, §M5-P— y el
+  >   CAS de las 4 columnas de dinero)**:**
   >   ```
   >   ∧  paidAt   IS NULL          // esta solicitud NO ha pagado nunca
   >   ∧  closedAt IS NULL          // …y no está cerrada por ninguna vía   (Invariante T, §M5-T)
@@ -10407,7 +10716,7 @@ y el que un guard de un solo término deja pasar.*
   >   | `status === 'pagada'` | **`200` idempotente** con la **PRIMERA** liquidación (`speiReference`/`paidAt` originales), sin re-asentar. **Conducta de hoy, intacta** |
   >   | `status != 'pagada'` **∧ `paidAt IS NOT NULL`** ⚠️ | **`409 CONFLICT`** · `details: { status, paidAt }` · **no paga** |
   >   | `closedAt IS NOT NULL` con `status` no terminal ⚠️ | **`409 CONFLICT`** · `details: { status, closedAt }` · **no paga** |
-  >   | no pagable (`status`/`verifiedAt`) | `422`, sin cambios respecto a hoy |
+  >   | no pagable (`status` / `verifiedAt` / ⚠️ **`receivedAt`** — v1.57) | `422`, **mismo código y mismo mensaje que hoy** · sin escribir nada |
   >
   >   **⛔ Los dos casos marcados ⚠️ NO se resuelven con el `200` idempotente.** Una fila con `paidAt` poblado y
   >   `status` distinto de `pagada` **es la huella dactilar de un rollback** y **tiene que ser ruidosa**: devolverle
@@ -11353,8 +11662,15 @@ Query: `?page=&pageSize=`. Res `200`: `{ data: PendingGuideCancellationRowDTO[],
 > ⇒ no abre tarea.)*
 > **Requisito de compra que esto impone y que NO es detalle operativo (D22):** la etiqueta que compremos debe ser
 > **cancelable o reembolsable** — es un **criterio para elegir con qué paquetería trabajamos**.
+**Res `200`** *(v1.57, §M5-C — el `POST`; hoy responde `201`, ver `BL-37`)*: la `SellRequest` actualizada
+(`guideCancellationDoneAt` / `guideCancellationDoneBy` sellados, `guideActualCostCents` si se capturó).
 Err `403`, `400 VALIDATION_ERROR`; el `POST`: `403`, `404`, `409 NO_PENDING_GUIDE_CANCELLATION`, `400 VALIDATION_ERROR`
 (`guideActualCostCents` no entero o negativo).
+> ⚠️ **v1.57 — este verbo NO obedece §M5-T, y es la ÚNICA excepción nombrada del ciclo.** Su precondición es
+> `guideCancellationPendingAt IS NOT NULL ∧ guideCancellationDoneAt IS NULL` — **sin `status` y sin `closedAt`**,
+> **a propósito**: la tarea de guía muerta **nace de un cierre** (el barrido cierra la solicitud y abre la tarea en
+> el mismo `data`, D22), así que exigirle una fila viva la volvería **incerrable** y **la etiqueta se perdería del
+> P&L**, que es justo lo que esta cola existe para evitar. Ver §M5-T, **GRUPO B**.
 
 ##### `GET /api/v1/admin/buylist/live-sellers` — cotizaciones vivas + teléfono (D12, criterios 129/130)
 Query: `?q=&page=&pageSize=`. Res `200`: `{ data: LiveSellerRowDTO[], page, pageSize, total }` (§11) — `{ seller: { id, name, email, phone }, liveCount, oldestCreatedAt, latestStatus }`.
@@ -12247,8 +12563,15 @@ PendingPublishRowDTO = { inventoryItemId: string, folio: string, card: CardDTO, 
 //   ⚠️ NO BLOQUEA NADA: no expira, no cancela, no mueve estados, no gatea `POST …/offer` y no aparece en ningún correo.
 //   ⚠️ ADMIN-ONLY, jamás en un DTO de cliente: mide NUESTRA conducta, y al vendedor ya se le dijo una vez por vuelta
 //     (correo 5). Tampoco va en `decision-table` (la mesa decide qué comprar, no cómo nos hemos portado).
-// ⚠️ v1.51.8 — `isPayable` (ADMIN-ONLY, DINERO SALIENTE). Deriva de la MISMA constante y el MISMO `verifiedAt` que
-//   el pre-check y la guarda atómica de `pay-spei`: `status ∈ SELL_REQUEST_PAYABLE_STATES ∧ verifiedAt != null`.
+// ⚠️ v1.51.8 — `isPayable` (ADMIN-ONLY, DINERO SALIENTE). Deriva de la MISMA constante y los MISMOS campos que
+//   el pre-check y la guarda atómica de `pay-spei`.
+//   ⚠️⚠️ v1.57 (§M5-P, BL-35 eje 2) — SON TRES TÉRMINOS, NO DOS:
+//     isPayable = status ∈ SELL_REQUEST_PAYABLE_STATES ∧ receivedAt != null ∧ verifiedAt != null
+//   El término `receivedAt` es NUEVO y NO es opcional: sin él, `verify` (único escritor de `verifiedAt`, sin
+//   guarda de predecesor) volvía pagable una solicitud PRE-RECEPCIÓN, y salió un SPEI real de MX$320 por una
+//   carta que nunca llegó. Cláusula que manda: PROJECT.md:1107 («el pago se realiza DESPUÉS de que recibimos y
+//   verificamos la carta»). El término entra en el CUERPO (`isPayableSellRequest`) y en su traducción a `where`
+//   (`payableWhere()`): los tres lectores lo heredan. PROHIBIDO escribirlo a mano en cada llamador.
 //   Existe para borrar la SEXTA copia de un subconjunto de estados (`M5View.tsx:820-821` `canPay`), que gobierna el
 //   BOTÓN DE PAGAR y que además replica solo UNO de los dos términos del servidor ⇒ hoy habilita el pago donde el
 //   servidor responde 422. ⚠️ ACTOR-INDEPENDIENTE: el rol se queda en el cliente (`isSuperAdmin && isPayable`),

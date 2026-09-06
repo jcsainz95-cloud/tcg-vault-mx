@@ -4,6 +4,51 @@
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
 >
 > ---
+> **Rev v1.57 — INVARIANTE P: «NO SE PAGA LO QUE NO HA LLEGADO». EL TÉRCER TÉRMINO, Y UNA PREMISA MÍA QUE ERA FALSA**
+> (2026-09-06, arquitecto; **CERO DDL, CERO endpoints, CERO campos de DTO**. UNA precondición de dinero que gana un
+> **tercer término**, UNA tabla normativa que se parte en dos, UNA justificación mía que se **retira por falsa** y
+> NUEVE códigos de éxito que se alinean. Contrato en `API_CONTRACT.md` **v1.57**, **§M5-P** / **§M5-C**. Detalle en
+> **§4.39(w)**; registros **BL-35 eje 2**, **BL-36**, **BL-37**).
+> ⚠️ **Origen: el gate de seguridad RECHAZÓ v1.56 por UN solo hallazgo — `BL-35` eje 2**, el residual que **yo mismo**
+> dejé abierto en §4.39(v.5) y enruté al humano. **Seguridad lo midió EN VIVO** y **QA lo reprodujo por separado**:
+> **MX$320 de SPEI real** sobre una solicitud **`ofertada`**, sin aceptar y sin recibir.
+>
+> **A. ⚠️⚠️ LO PRIMERO ES LA RECTIFICACIÓN, PORQUE CAMBIA QUIÉN DECIDE.** En (v.5) escribí que `PROJECT.md` era
+> **ambiguo** en este punto y que cerrarlo exigía **declarar la matriz de predecesores** ⇒ *«se pregunta al humano»*.
+> **Sobre la matriz completa sigo teniendo razón, y (v.4) se conserva íntegra.** **Sobre este agujero concreto NO la
+> tenía:** `PROJECT.md:1107` lo pone **en negrita**, como **una de las cuatro promesas al vendedor** — *«**(b) el pago
+> se realiza DESPUÉS de que recibimos y verificamos la carta** (nunca por adelantado)»* —, **mi propio contrato ya lo
+> decía en prosa** y **el código ya lo dice en su mensaje de error**. **La regla existía en los tres sitios; lo que no
+> existía era el TÉRMINO que la hace cierta.** ⇒ **No hay decisión de producto pendiente**: hay una regla escrita que
+> el código incumple, y la **regla de conflicto** (`PROJECT.md` > contrato > código) obliga a hacerla cumplir.
+> **El eje 2 deja de ser del humano y pasa a BACKEND**, con §M5-P como interfaz.
+>
+> **B. EL TERCER TÉRMINO.** `isPayable = status ∈ PAYABLE ∧ **receivedAt IS NOT NULL** ∧ verifiedAt IS NOT NULL`.
+> **Doctrina de (v.6), aplicada al otro lado:** *un invariante de dinero se ancla en el hecho menos reescrito que
+> exista* — y el hecho es **«la mercancía llegó» = `receivedAt`**, con **un solo escritor** y sellado idempotente.
+> **Tres lectores, una regla — y esta vez los tres.** El que convierte esto en ALTA es el tercero: `isPayable`
+> **gobierna el botón de pagar**, así que con dos términos **la señal le mentía al `super_admin` que autoriza**.
+>
+> **C. CIERRE PARCIAL, DICHO COMO PARCIAL.** El término cierra **la salida de dinero**. `verify` **sigue** siendo
+> llamable desde cualquier estado vivo: eso queda como **`BL-35` eje 2-b**, **no bloqueante** (sin dinero), y ⛔ **no
+> se cierra aquí** porque cerrarlo **sí** exige la matriz — y **ahí `PROJECT.md` sigue sin normar la legalidad por
+> verbo** (§(v.4), intacta). *Cerrar la salida de dinero no convierte el eje en «resuelto», y decirlo es la mitad del
+> trabajo.*
+>
+> **D. DOS CORRECCIONES DE DOCUMENTO QUE NO SON MÍAS DE ELEGIR, SINO DE ARREGLAR.** **(1)** la tabla de §M5-T listaba
+> verbos que **no escriben `status`**, contradiciendo su propia definición operativa (**techlead**): se **parte en
+> dos** y cada verbo declara qué lo gobierna — con `guide/cancellation-done` como **excepción NOMBRADA** (su trabajo
+> legítimo ocurre sobre solicitudes cerradas, D22). **(2)** una justificación mía del `201`→`200` era **falsa en dos
+> de sus cuatro citas** (**QA** la midió en vivo): se retira, y la consistencia que yo afirmaba de más se persigue de
+> verdad en **§M5-C** (nueve códigos, **no bloqueante**, `BL-37`).
+>
+> **E. MÉTODO — la lección de esta sesión, escrita donde duele.** Los dos defectos de v1.56 que hoy se corrigen
+> **nacieron de afirmar sin medir el bloque completo**: *«ningún hermano usa 201»* (recordado, no medido) y *«el
+> residual es inferido»* (no disparado). **Norma para mí y para quien mantenga estos documentos: una afirmación que
+> sirve de JUSTIFICACIÓN en un documento normativo se mide antes de escribirse, y lo no medido se marca como no
+> medido.** *Ambos defectos eran baratos de medir y caros de creer.*
+>
+> ---
 > **Rev v1.56 — LA INVARIANTE QUE ESTABA IMPLÍCITA: «NINGÚN VERBO DE TRANSICIÓN PISA UNA FILA TERMINAL O CERRADA»**
 > (2026-09-06, arquitecto; **CERO DDL, CERO endpoints nuevos, CERO campos de DTO**. UNA invariante que **se eleva a
 > norma del ciclo**, DOS verbos que ganan guarda, UNA precondición de dinero con dos términos más y UN acumulado de
@@ -13196,7 +13241,7 @@ export const SELL_REQUEST_PAYABLE_STATES    = ['aprobada','verificacion'] as con
 |---|---|
 | 1 | `IneRetentionJobService.CLOSED` **se borra** y usa `SELL_REQUEST_TERMINAL_STATES`. **Cierra el hueco de PII.** |
 | 2+3 | **Los dos cuerpos colapsan en UNO** (`common/`), con variante transaccional que recibe el `tx`. Predicado: `status notIn SELL_REQUEST_NON_COMMITTING_STATES`. Monto: **bruto** — `offerGrossCents ?? quotedTotalCents ?? 0` (criterio 155). |
-| 4 | Conserva `status:'pagada'` (es un literal legítimo, no un subconjunto), pero **cambia de nombre y de doc**: mide **compromiso bruto**, no caja. La caja (M7) usa `payoutNetCents` (ver (i)). ⚠️ **AMPLIADO en v1.51.5 — «solo nombre y doc» era INSUFICIENTE y lo escribo como corrección mía, no del código.** Renombrar un acumulador a *«compromiso BRUTO»* y dejarlo leyendo `approvedTotalCents ?? quotedTotalCents` deja el nombre diciendo **bruto ofertado** y la cifra midiendo **cotización** en el caso en que `approvedTotalCents` es `null`. **El campo también cambia**, a la cascada de **TRES** términos de **§4.39i.4-bis**: `approvedTotalCents ?? offerGrossCents ?? quotedTotalCents ?? 0`. Backend hizo bien en no cambiarlo en silencio: **esta línea es la autorización.** |
+| 4 | ⛔⛔ **v1.57 — PUNTERO SUPERADO, corregido aquí (lo levantó el techlead, A3).** ~~Conserva `status:'pagada'`~~ **— YA NO. El término `status:'pagada'` CAYÓ en v1.56: el acumulado mensual de AML se ancla **SOLO en `paidAt`** (§4.39(v.7), contrato §M5 «Los TRES sitios», sitio 1).** Es un **superconjunto estricto** del predicado viejo (`paidAt >= inicio de mes` ya excluía los `null`) ⇒ **cero regresión**, y cierra el bypass del tope que P1 abría. ⚠️ *Se corrige porque una línea que sigue diciendo «conserva X» sobre una regla derogada hace que el próximo lector **re-derive la regla vieja** — que es exactamente cómo se reintroduce un defecto ya cerrado.* **Lo que SÍ sigue vigente de esta fila:** el acumulador **cambia de nombre y de doc**: mide **compromiso bruto**, no caja. La caja (M7) usa `payoutNetCents` (ver (i)). ⚠️ **AMPLIADO en v1.51.5 — «solo nombre y doc» era INSUFICIENTE y lo escribo como corrección mía, no del código.** Renombrar un acumulador a *«compromiso BRUTO»* y dejarlo leyendo `approvedTotalCents ?? quotedTotalCents` deja el nombre diciendo **bruto ofertado** y la cifra midiendo **cotización** en el caso en que `approvedTotalCents` es `null`. **El campo también cambia**, a la cascada de **TRES** términos de **§4.39i.4-bis**: `approvedTotalCents ?? offerGrossCents ?? quotedTotalCents ?? 0`. Backend hizo bien en no cambiarlo en silencio: **esta línea es la autorización.** |
 | 5 | `workQueue.buylist` = `count(status IN SELL_REQUEST_LIVE_STATES)`. **Cambia la cifra a propósito** (ahora incluye los tres estados nuevos no-terminales) y **no vuelve a subcontar** cuando se añada otro. |
 | 6 | Añade `offerDecision != 'skip'` al `where` del eje de compra. Una línea que **no compramos** no es una operación de compra y contaminaría la instrumentación de §N.8. |
 | 7 | `SELL_REQUEST_TERMINAL_STATES` **se MUEVE** de `modules/buylist/buylist-reject.constants.ts` a `common/sell-request-states.ts`; el archivo viejo la **re-exporta** (compat de imports) o se actualizan los imports. Gana `expirada`. |
@@ -13263,10 +13308,23 @@ export const SELL_REQUEST_PAYABLE_STATES    = ['aprobada','verificacion'] as con
 >
 > **NORMA — `AdminBuylistDTO` gana `isPayable: boolean`, derivado server-side:**
 > ```
-> isPayable = status ∈ SELL_REQUEST_PAYABLE_STATES  ∧  verifiedAt IS NOT NULL
+> ⛔ v1.51.8 (SUPERSEDED):  isPayable = status ∈ SELL_REQUEST_PAYABLE_STATES ∧ verifiedAt IS NOT NULL
+> ✅ v1.57  (VIGENTE):      isPayable = status ∈ SELL_REQUEST_PAYABLE_STATES
+>                                       ∧  receivedAt IS NOT NULL      // ⚠️ EL QUE FALTABA (§4.39w)
+>                                       ∧  verifiedAt IS NOT NULL
 > ```
-> **De la MISMA constante y con el MISMO `verifiedAt` que usan el pre-check y la guarda atómica de `paySpei`** — tres
+> **De la MISMA constante y con los MISMOS campos que usan el pre-check y la guarda atómica de `paySpei`** — tres
 > lectores, **un** cuerpo. El frontend hace `isSuperAdmin && req.isPayable` y **borra el literal de estados**.
+> > ### ⚠️⚠️ v1.57 — **ERAN TRES TÉRMINOS, NO DOS. `BL-35` eje 2-a. Norma completa en §4.39(w) / `API_CONTRACT` §M5-P.**
+> > **La ironía se deja escrita a propósito, porque es la lección:** este sitio nació denunciando que el frontend
+> > replicaba la regla de dinero **INCOMPLETA** (un término de dos)… y **el cuerpo canónico que puso en su lugar
+> > también lo estaba** (dos términos de tres). **Consolidar una regla en un solo sitio no la valida**; solo garantiza
+> > que, cuando esté mal, esté mal **en todas partes a la vez**. *La copia única es una condición necesaria, no
+> > suficiente: sigue haciendo falta comprobar la regla contra `PROJECT.md`.*
+> > **Coste medido de la omisión: MX$320 de SPEI real** por una carta que nunca llegó (`SECURITY_NOTES.md` §2).
+> > ⚠️ **Y el término entra en el CUERPO y en su traducción a `where` (`payableWhere()`) — los dos.** Que quede en dos
+> > de los tres lectores es el modo de fallo exacto que este sitio existe para impedir, con el agravante de que el
+> > lector que se quedaría corto sería **el `where` del que sale el dinero**.
 >
 > **⚠️ `isPayable` es ACTOR-INDEPENDIENTE, y el rol se queda en el cliente. Ésta es la asimetría, y tiene motivo:**
 > - **Son dos preguntas distintas:** *«¿esta solicitud está en condición de pagarse?»* (propiedad **de la fila**) y
@@ -13298,8 +13356,9 @@ export const SELL_REQUEST_PAYABLE_STATES    = ['aprobada','verificacion'] as con
 > aplicada por quien la necesitaba**. Acierta, y el dictamen la ratifica.)*
 >
 > **Primero, por qué no son el sitio 10 otra vez.** El sitio 10 (`canPay`) era la **transcripción de una precondición
-> del SERVIDOR**: `paySpei` exige `status ∈ PAYABLE ∧ verifiedAt IS NOT NULL`, y el cliente la copiaba **mal** (le
-> faltaba un término) ⇒ habilitaba el pago donde el servidor contesta `422`. **Tenía una verdad del servidor sobre la
+> del SERVIDOR**: `paySpei` exige `status ∈ PAYABLE ∧ receivedAt IS NOT NULL ∧ verifiedAt IS NOT NULL` *(⚠️ **v1.57:
+> TRES términos** — la cita original decía dos; ver §4.39(w))*, y el cliente la copiaba **mal** (le faltaban términos)
+> ⇒ habilitaba el pago donde el servidor contesta `422`. **Tenía una verdad del servidor sobre la
 > que estar equivocado.** Los sitios 11 y 12 **no la tienen**:
 >
 > | | Sitio 10 · `canPay` | Sitios 11/12 · `showMoneyOut` / `canDecide` |
@@ -16823,6 +16882,23 @@ eso **se declara explícitamente** en el contrato para que nadie lo lea como un 
 matriz del camino feliz de §P.1 y cablearla**: §P.1 describe **la fase**, no **la precondición del verbo**.
 
 **(v.5) ⚠️ EL RESIDUAL QUE T NO CIERRA — abierto, con dueño, y NO medido en vivo por mí.**
+
+> ### ⛔⛔ v1.57 — **ESTE APARTADO ESTÁ SUPERSEDED EN SU CONCLUSIÓN. Ver §4.39(w).** Se conserva porque el error es la lección.
+> **Lo que sigue siendo cierto:** los dos hechos medidos (a) y (b), y que **T no lo cubre**.
+> **Lo que resultó FALSO — y era mi conclusión, no mi dato:**
+> 1. **«`PROJECT.md` es ambiguo en el punto ⇒ se pregunta al humano».** **No lo es.** `PROJECT.md:1107` lo dice en
+>    **negrita** como una de las **cuatro promesas al vendedor**: *«**(b) el pago se realiza DESPUÉS de que recibimos
+>    y verificamos la carta** (nunca por adelantado)»*. **No lo busqué antes de declararlo ambiguo.**
+> 2. **«Cerrarlo ES declarar una matriz de predecesores».** **No lo es** — o no del todo. **Cerrar la SALIDA DE
+>    DINERO** cuesta **un término de HECHO** (`receivedAt IS NOT NULL`), que **no enumera predecesores** y **no toca
+>    la cohorte legacy**. Lo que sí exige la matriz es el residual **sin dinero** (eje 2-b).
+> 3. **«Inferido, no disparado».** Correcto como etiqueta **y equivocado como decisión**: *marcar algo como no medido
+>    no es lo mismo que dejarlo sin medir.* **Seguridad lo disparó en una tarde y salieron MX$320.** Un residual de
+>    **dinero saliente** se mide antes de enrutarse, no se enruta para que lo mida otro.
+> **La lección, escrita para el próximo lector:** *el atenuante que anoté en la última viñeta de este apartado
+> —«no es autoservicio; es una fila que aparece en la cola de pago antes de tiempo»— **describía el síntoma y se
+> leyó como una cota de gravedad**. La fila que «aparece antes de tiempo» en una cola de pago **es** la que se paga.*
+
 Dos hechos **sí** medidos: **(a)** `verify` escribe `status='verificacion'` **y sella `verifiedAt`**
 (`buylist.service.ts:5091-5094`); **(b)** `isPayable = status ∈ SELL_REQUEST_PAYABLE_STATES ∧ verifiedAt IS NOT NULL`
 (contrato §M5, §4.39c sitio 10). **Inferencia estática:** `verify` sobre una solicitud **viva** en cualquier estado
@@ -16856,6 +16932,86 @@ nulo tampoco entraba antes). La diferencia son **exactamente** las filas con `pa
 `pagada`: **cero en un sistema sano, y en el enfermo son justo el dinero que P1 hacía olvidar**. ⇒ conducta idéntica
 donde importa, **fail-closed** donde falla. ⚠️ **NO se toca el acumulado de COMPROMISO VIVO** (intake, anclado en
 `createdAt` sobre no-terminales): ése mide **promesa**, no caja, y su ancla correcta **sí** es el estado (§4.39i.4-bis).
+
+---
+
+#### (w) INVARIANTE P — «no se paga lo que no ha llegado»: el TERCER término de `isPayable` (v1.57, cierre de `BL-35` eje 2, NORMATIVO, **DINERO SALIENTE**)
+
+> **Contrato: `API_CONTRACT.md` §M5-P.** Aquí va el **porqué** y el **cómo se llegó hasta aquí**; allá, la interfaz
+> exigible y los asserts.
+> *Blanco medido: `docs/SECURITY_NOTES.md` §2 — MX$320 de SPEI real sobre una `ofertada`, verificado en Postgres.
+> Reproducción independiente de QA desde una `cotizada` (`QA-BL35-EJE2`).*
+
+**(w.1) La cadena, en una línea.** `verify` es el **único** verbo que escribe `verifiedAt`; su guarda es `legalT`
+(no-terminal ∧ no-cerrada) y **no exige predecesor**; `isPayable` exigía **`status ∈ PAYABLE ∧ verifiedAt IS NOT
+NULL`**. ⇒ Llamar `verify` desde **cualquier** estado vivo ponía `status='verificacion'` (que está en `PAYABLE`) **y**
+sellaba `verifiedAt` ⇒ **`isPayable: true`**, y `pay-spei` **no tenía ninguna guarda aguas abajo que mirara la
+recepción**. **El habilitador es el `vault_operator`** —el rol de menor confianza del back-office—, **misma estructura
+de privilegio que P1**: el operador habilita, el súper-admin paga.
+
+**(w.2) Por qué el término correcto es `receivedAt` y no un predecesor. (Es la decisión de diseño de este apartado.)**
+
+| Candidato | Qué dice | Por qué NO / SÍ |
+|---|---|---|
+| `status = 'recibida'` como predecesor de `verify` | *«vienes del estado correcto»* | ⛔ **Es una matriz** — enumera legalidad por verbo, **rompe la cohorte legacy** y es exactamente lo que §(v.4) prohíbe deducir |
+| `acceptedAt IS NOT NULL` | *«el vendedor aceptó»* | ⛔ **`null` en toda la cohorte legacy** (pre-M-46, sin ciclo de oferta) ⇒ **dejaría de pagar filas legítimas** |
+| **`receivedAt IS NOT NULL`** ✅ | *«la carta está en nuestras manos»* | ✅ **Es un HECHO, no un estado de origen.** No dice de dónde viene la solicitud. **La cohorte legacy lo satisface** —llega a `recibida`/`verificacion` sin pasar por `en_transito`, pero **sí pasando por `receive`**—, y es **exactamente la cláusula de `PROJECT.md:1107`** |
+
+***Un invariante de dinero se ancla en el HECHO, no en la fase.*** Es la misma doctrina de (v.6) (`paidAt`) aplicada al
+otro extremo del ciclo, y la razón por la que **cerrar el dinero NO exige la matriz**: `receivedAt` no enumera nada.
+**Propiedades medidas del ancla:** un solo escritor (`receive`), una sola vez (sellado idempotente con `[field]: null`
+en el `where`), y **ninguna ruta legítima lo limpia**.
+
+**(w.3) ⚠️ LOS TRES LECTORES — y por qué el tercero es el que sube la severidad a ALTA.**
+La forma canónica ya existe (§4.39(c) **sitio 10**): **un cuerpo** (`isPayableSellRequest`) **+ su traducción a
+`where`** (`payableWhere()`). El término entra **en esos dos sitios**; los lectores lo heredan.
+- **Lector 1 — pre-check de `paySpei`:** si se le olvida, el `422` llega tarde pero llega. **No sale dinero.**
+- **Lector 2 — el `where` del `updateMany`:** ⛔ **si se le olvida, SALE EL DINERO.** Es la guarda que una carrera no
+  puede saltar.
+- **Lector 3 — `isPayable` de la proyección:** ⛔ **gobierna el botón de pagar en M5.** Si se le olvida, **la señal
+  propia del sistema le dice al `super_admin` que pague** una solicitud cuya carta nunca llegó. *No es «el operador
+  debería fijarse»: es un control activo que DESINFORMA al que autoriza el dinero* — y por eso seguridad lo calificó
+  ALTA y no Media, con razón.
+- ⚠️ **Hay un CUARTO llamador** (el backstop de carrera de `paySpei`, que distingue *«el monto se movió»* de *«no es
+  pagable»*): usa el **mismo predicado**, así que **hereda el término solo**. **Eso es la prueba de que la forma es la
+  correcta**, no un sitio más que actualizar. ⛔ **Prohibido escribir el término a mano en cada llamador**: sería
+  reintroducir la copia que el sitio 10 borró.
+
+**(w.4) ⚠️ QUÉ **NO** CIERRA — y el matiz honesto que no se puede omitir.**
+- **No vuelve imposible pagar mercancía que no llegó: la vuelve una MENTIRA CON NOMBRE.** `receive` sigue siendo
+  llamable desde cualquier estado vivo, así que un operador puede **afirmar que el paquete llegó** y luego verificar y
+  pagar. **La diferencia no es cosmética:** eso pasa de ser un **efecto lateral silencioso de `verify`** a un **acto
+  declarativo con actor, fecha y bitácora** (`buylist.receive`). *El control no impide el fraude interno; le quita el
+  anonimato* — que es el control que un negocio de custodia puede exigirle a su back-office, y el que un `where` puede
+  dar. **Lo demás es segregación de funciones, y es política operativa, no arquitectura.**
+- **No cierra el eje 2 entero — `BL-35` eje 2-b, abierto y nombrado.** `verify` sigue transicionando desde
+  `cotizada`/`ofertada`/`aceptada`: ensucia el pipeline, **adelanta el `max(...)` de la purga del INE** y mete la fila
+  en la cola de verificación antes de tiempo. **Sin dinero ⇒ NO bloqueante.** Cerrarlo **sí** es la matriz ⇒ **sigue
+  siendo del humano/product-owner**. **Disparador para subirlo:** que aparezca **cualquier** consecuencia de dinero o
+  de plazo colgada de `verifiedAt` o de `status='verificacion'` que hoy no exista.
+
+**(w.5) Cohorte legacy — la pregunta explícita, con lo medido y lo no medido separados.**
+
+| | |
+|---|---|
+| **Medido (BD local, por el orquestador; yo NO la re-medí)** | De **cuatro** `pagada`, las **dos únicas** sin `receivedAt` son **exactamente los dos PoC**. Todas las legítimas lo tienen |
+| **Medido (código, por mí)** | `receivedAt` tiene **un solo escritor** (`receive`), y `status='recibida'` **solo se alcanza por ese mismo verbo** ⇒ en una fila que llegó a `verificacion`/`aprobada` **por el ciclo**, está poblado **por construcción** |
+| **NO medido** | Si existen filas de **PRODUCCIÓN** en `aprobada`/`verificacion` con `receivedAt = null`. **No es mi blanco y no lo asumo** |
+
+⛔ **NORMA: no se añade término de excepción legacy al `where`.** *La cohorte que no se puede distinguir del abuso no
+se exceptúa: se remedia.* Una cláusula tipo `OR (receivedAt IS NULL AND offerSentAt IS NULL)` **dejaría pasar la fila
+del PoC** (`ofertada`, `receivedAt = null`) por la misma puerta. **El remedio es el acto nombrado — `POST …/receive`**,
+que sella, es idempotente y queda auditado: *una solicitud cuya carta de verdad está en nuestras manos tiene que poder
+decirlo.* **Falla cerrado, y el coste asimétrico lo justifica:** el peor caso de fallar cerrado es **un pago que se
+retrasa un clic**; el de fallar abierto son **los MX$320 que ya salieron**.
+**⚠️ Obligación de backend antes del merge:** contar las filas vivas con `status ∈ {'aprobada','verificacion'} ∧
+receivedAt IS NULL` en el entorno disponible. **`> 0` ⇒ se escala al arquitecto (regla 9); NO se añade la excepción.**
+
+**(w.6) Por qué P y T son invariantes DISTINTAS y ninguna sustituye a la otra.**
+**T** es de **terminalidad**: *«no se pisa lo cerrado»* — protege el pasado. **P** es de **precedencia de HECHOS de
+dinero**: *«no se paga lo que no ha llegado»* — protege el futuro. **T no cubría P** (`ofertada` no es terminal) y **P
+no cubre T** (una fila `pagada` tiene `receivedAt` poblado). **P1 sigue cerrada.** *Que dos guardas de dinero se
+parezcan no las vuelve la misma, y fundirlas dejaría un hueco con forma de la diferencia entre ambas.*
 
 **(v.8) Idempotencia de `receive`/`verify`: `200` sin re-sellar, y la fecha NO era cosmética.**
 Dictamen completo en el contrato. Aquí lo que lo decide: **`receivedAt` ancla el abandono a 30 días** del barrido
@@ -18262,12 +18418,29 @@ Riesgos técnicos:
   > | Eje | Qué es | Cómo cierra |
   > |---|---|---|
   > | **1 — la CRÍTICA** | `receive`/`verify` sin guarda ⇒ reactivación de terminal ⇒ **doble SPEI** | **backend**, con la norma de `API_CONTRACT` **§M5-T** + §4.39(v). **Bloqueante de release** |
-  > | **2 — el residual** | `verify` vuelve **pagable** una solicitud viva **pre-recepción** (inferido, **no** medido en vivo) | **`PROJECT.md` es ambiguo** ⇒ **product-owner / humano** deciden la matriz de predecesores. **NO lo cierra backend por su cuenta** |
+  > | ~~**2 — el residual**~~ | ~~`verify` vuelve **pagable** una solicitud viva **pre-recepción** (inferido, **no** medido en vivo)~~ | ~~**`PROJECT.md` es ambiguo** ⇒ **product-owner / humano** deciden la matriz de predecesores~~ **⛔ v1.57: SUPERSEDED — ver las dos filas de abajo** |
   > ⚠️ **El eje 2 NO bloquea el cierre del eje 1**: son defensas de ejes distintos (terminalidad vs. predecesores), y
   > el eje 1 cierra el agujero de dinero **hoy**. *Pero cerrar el 1 no convierte el 2 en «resuelto».*
+  >
+  > ### ⚠️⚠️ v1.57 — EL EJE 2 SE PARTE EN DOS, Y **MI ENRUTAMIENTO ERA INCORRECTO**. (Lo midió **seguridad**; **QA** lo reprodujo aparte.)
+  > **Lo que cambió:** el eje 2 dejó de ser `[inferido]` — **seguridad lo disparó y liquidó MX$320 de SPEI real** sobre
+  > una `ofertada` sin aceptar y sin recibir. Y al ir a cerrarlo encontré que **mi premisa era falsa**: `PROJECT.md`
+  > **no** es ambiguo aquí (**`:1107`**, en negrita, una de las cuatro promesas al vendedor). ⇒ **no había decisión de
+  > producto pendiente**, había **una regla escrita que el código incumple**.
+  > | Eje | Qué es | Dueño | Bloqueante |
+  > |---|---|---|---|
+  > | **2-a — la SALIDA DE DINERO** | `isPayable` no exigía `receivedAt` ⇒ `pay-spei` liquida por mercancía que nunca llegó | ⚠️ **BACKEND** *(ya no el humano)*, con **§M5-P** + §4.39(w) | ⛔ **SÍ** — es el hallazgo que rechazó el gate |
+  > | **2-b — la transición sin dinero** | `verify` sigue llamable desde cualquier estado vivo; **con el tercer término ya no paga**, pero salta fases | **product-owner / humano** (matriz) → arquitecto → backend | **NO** (sin dinero, sin PII, sin evasión de tope) |
+  > ⚠️ **Cerrar 2-a NO cierra 2-b, y se dice para que nadie lo dé por cerrado** — mismo modo de fallo que este registro
+  > documentó en v1.55.1 y que la propia partición del eje 2 vino a evitar. *La segunda vez que hay que decirlo sobre
+  > la misma fila.*
 
   | # | Desviación | Dueño | Puerta |
   |---|---|---|---|
+  | **BL-35 eje 2-a** ⛔ **ABIERTA — BLOQUEANTE (DINERO SALIENTE)** *(v1.57 — **medida EN VIVO por seguridad**, `SECURITY_NOTES.md` §2; **reproducida por QA** desde una `cotizada`, ref `QA-BL35-EJE2`. **La dejé abierta yo en v1.56 §4.39(v.5) enrutándola al humano por «ambigüedad de `PROJECT.md`»; esa premisa era FALSA** — ver §4.39(w))* | **`isPayable` exige DOS términos donde `PROJECT.md:1107` exige TRES.** La fórmula (`common/sell-request-states.ts:145-153`) es `status ∈ SELL_REQUEST_PAYABLE_STATES ∧ verifiedAt IS NOT NULL`, **sin ningún término de recepción**; su traducción a `where` (`payableWhere()`, `buylist.service.ts:5433`) copia los mismos dos. Como **`verify` es el ÚNICO escritor de `verifiedAt`** y su guarda (`legalT`) **no exige predecesor**, alcanzarlo desde **cualquier** estado vivo pone `status='verificacion'` (∈ `PAYABLE`) **y** sella `verifiedAt` ⇒ **`isPayable: true` sobre una solicitud pre-recepción**, y **`pay-spei` no tiene ninguna guarda aguas abajo que mire `receivedAt` ni `acceptedAt`**. **Medido:** un `vault_operator` verificó una `ofertada` (`acceptedAt=null`, `receivedAt=null`) → `200`, `isPayable:true`; un `super_admin` pagó → **`payoutNetCents:32000` asentado en BD, `receivedAt` todavía `null`**. ⚠️ **Y el daño no es solo el desembolso:** `isPayable` **gobierna el botón de pagar en M5** (§4.39c sitio 10) ⇒ **la señal propia del sistema DESINFORMA al `super_admin` que autoriza el dinero**. Habilitador: el **rol de menor confianza** del back-office — misma estructura de privilegio que P1 | **backend** *(⚠️ **cambia de dueño en v1.57**: era «product-owner / humano», y era mi error — la regla ya está escrita en `PROJECT.md:1107`, en el contrato y en el mensaje de error del propio código)* · arquitecto (norma ✅ hecha en v1.57) | **Cierre = `API_CONTRACT` §M5-P + §4.39(w): el TERCER TÉRMINO.** `isPayable = status ∈ PAYABLE ∧ **receivedAt IS NOT NULL** ∧ verifiedAt IS NOT NULL`, con **la disciplina de «tres lectores, una regla»**: el término entra en **el cuerpo** (`isPayableSellRequest`) **y en su traducción a `where`** (`payableWhere()`) — **los dos**, y los tres lectores (pre-check, CAS, proyección) más el backstop de carrera lo heredan. ⛔ **Prohibido escribirlo a mano en cada llamador.** **Fila en estado pagable sin `receivedAt` ⇒ `422`, sin escribir nada** (mismo código y mismo mensaje que hoy). ⛔ **SIN excepción para la cohorte legacy** (§4.39w.5: *la cohorte que no se puede distinguir del abuso no se exceptúa, se remedia con `POST …/receive`*); **si backend cuenta filas vivas con `status ∈ {aprobada,verificacion} ∧ receivedAt IS NULL` y da `> 0`, ESCALA — no añade la excepción** (regla 9). **Test de paridad predicado ↔ `where` pasa a barrer el enum × `verifiedAt` × `receivedAt`.** **QA:** los dos PoC invertidos **más** el camino feliz (`receive`→`verify`→`pay-spei` **paga**) — *sin ese cuarto assert, los tres primeros los pasa un endpoint que no paga nunca* |
+  | **BL-35 eje 2-b** ⏳ **ABIERTA — NO BLOQUEANTE** *(v1.57 — el residual que el tercer término **no** cierra, y se nombra para que nadie dé el eje 2 por cerrado)* | `verify` **sigue siendo llamable desde cualquier estado vivo** (`cotizada`/`ofertada`/`aceptada`): sella `verifiedAt` y fija `status='verificacion'` sin pasar por las fases. **Con `BL-35 eje 2-a` cerrada eso YA NO PAGA**, pero sigue **saltando fases**: ensucia el pipeline, **adelanta el `max(...)` que fija la purga del INE** en la fila viva y mete la solicitud en la cola de verificación antes de tiempo | **product-owner / humano** (declarar la matriz de predecesores) → arquitecto (normar) → backend (implementar) | **NO se cierra con un término más.** Cerrarlo **es** declarar la matriz, y **ahí `PROJECT.md` SÍ sigue sin normar la legalidad por-verbo** (§4.39(v.4), intacta: §P.1 fija **fases**, no precondiciones, y una matriz **rompería la cohorte legacy** que llega a `recibida`/`verificacion` sin pasar por `en_transito`). **No bloqueante:** sin dinero, sin PII expuesta, sin evasión de tope. ⚠️ **Disparador para subirlo a bloqueante:** que aparezca **cualquier** consecuencia de dinero o de plazo colgada de `verifiedAt` o de `status='verificacion'` que hoy no exista |
+  | **BL-36** ⛔ **ABIERTA — NO BLOQUEANTE (no hay dinero)** *(v1.57 — lo midió el **techlead** al revisar la tabla de §M5-T; es **mi propio argumento de los dos términos apuntando al otro lado**)* | **Los DOS `pickup-address` se apoyan SOLO en `closedAt`.** El de **admin** (`adminUpdatePickupAddress`, `buylist.service.ts:4305-4312`) usa `closedAt IS NULL ∧ shipmentConfirmedAt IS NULL ∧ sellerShippedDeclaredAt IS NULL`; el de **cliente** (`updatePickupAddress`, `:4210-4212`) usa `closedAt IS NULL ∧ guideSentAt IS NULL`. **Ninguno lleva el término de estado.** ⇒ una fila **legacy con `status` terminal y `closedAt = null`** —cohorte que el código **contempla explícitamente** en `jobs/ine-retention.service.ts:98-109` (*«filas legacy previas a M-19»*)— **pasa las dos guardas** y se le re-congela el domicilio. ⚠️ **Es exactamente el argumento que escribí en §M5-T** (*«los DOS términos, porque se midió que discrepan»*) aplicado a la discrepancia **inversa** a la de P1: allí `closedAt` sellado con `status` vivo; aquí `status` terminal con `closedAt` nulo. ⚠️ **NO medí si esa cohorte existe en ninguna BD** — lo medido es que **el código la contempla** y que **las guardas no la cubren** | **backend** | **Cierre = añadir el término de estado a los DOS `where`** (`status: { notIn: SELL_REQUEST_TERMINAL_STATES }`, de la constante compartida — **no un literal**), **sin tocar los demás términos**. **No bloqueante:** el efecto es re-congelar un `pickupAddressSnapshot` y, en la ruta de admin, abrir una tarea de guía muerta sobre una solicitud ya cerrada — **molesto y visible, no dinero**. ⚠️ **Va en el mismo commit que `BL-35 eje 2-a` SOLO si backend lo prefiere; si no, en el suyo** — lo que no puede es mezclarse con la alineación cosmética de `BL-37` (norma de `BL-27`) |
+  | **BL-37** ⏳ **ABIERTA — NO BLOQUEANTE, cosmética con dueño** *(v1.57 — la levantó **QA** por la regla 9 al medir en vivo que una justificación mía era falsa; **QA reportó CINCO, yo medí NUEVE**)* | **Nueve códigos de éxito del ciclo de buylist no cuadran.** **Siete** donde este contrato declara `Res 200` y el código responde **`201`** (`convert-to-inventory`, `reject`, `offer/authorize`, `offer/cancel`, `decline`, `guide`, `confirm-shipment`) **más dos** cuyo código de éxito el contrato **nunca declaró** y que responden `201` (`pay-spei`, `guide/cancellation-done`). Causa única: **`@Post` sin `@HttpCode` ⇒ `201` por defecto de Nest**; no hay interceptor global que lo reescriba (`main.ts` solo registra `AllExceptionsFilter`). ⚠️ **El de `pay-spei` NO es un código sin declarar: CONTRADICE una tabla normativa** de §M5 que declara **`200` idempotente** para `status === 'pagada'`. ⚠️ **Método:** dos filas (`confirm-shipment`, `reject`) las **midió QA en vivo**; **las otras siete las derivé** de la ausencia del decorador — **marcado como derivado**, con el mecanismo validado por las dos medidas en vivo | **backend** · arquitecto (norma ✅ hecha en v1.57, **§M5-C**) | **Cierre = `@HttpCode(HttpStatus.OK)` en las nueve rutas.** **El código se alinea al contrato, no al revés**, y el precedente es de este proyecto y está medido: `POST /admin/pricing/override` (v1.50) declaraba `200`, el código devolvía `201`, **backend corrigió el código**. **Norma que lo hace enseñable:** en el ciclo de buylist **`201` es exclusivamente del endpoint que CREA una `SellRequest`** (`POST /buylist/requests`, ya alineado). ⛔ **NO BLOQUEANTE** (impacto de cliente **cero**: `apiRequest` ramifica por `res.ok`) **y VA EN SU PROPIO COMMIT, sin una sola línea de lógica** — norma de **`BL-27`**: *un diff no mezcla alineación cosmética con lógica, porque el gate de seguridad y el techlead revisan por diff.* ⚠️ **Alcance: el ciclo de buylist y nada más** — **no medí** los demás módulos |
   | **BL-35** ⛔ **ABIERTA — BLOQUEANTE (DINERO SALIENTE)** *(v1.56 — **CRÍTICA `P1`** del pase de pentest v1.55, **verificada EN VIVO**: dos `speiReference` y dos `paidAt` distintos sobre la misma solicitud)* | **`POST /admin/buylist/:id/receive` y `POST /admin/buylist/:id/verify` son los DOS únicos verbos de transición del ciclo sin guarda de estado atómica**: escriben con `sellRequest.update({ where: { id }, … })` (`buylist.service.ts:5066-5081` y `:5083-5097`) mientras **todos** sus hermanos usan `updateMany` con el estado en el `where` + `count===1`. `adminGet()` —que ambos invocan primero— **solo autoriza al actor**: `findUnique` + `notFound`, **sin filtrar terminal ni `closedAt`**. ⇒ un **`vault_operator`** (el rol de MENOR confianza del back-office) revive una solicitud **`pagada`** a `verificacion` **con `closedAt` todavía sellado**; como `verify` sella `verifiedAt`, `isPayableSellRequest` vuelve a dar `true`, la idempotencia de `paySpei` (anclada **solo** en `status==='pagada'`) **no dispara**, el CAS de las 4 columnas de dinero **sigue coincidiendo** ⇒ **segunda liquidación SPEI real**. **Tres daños más:** evade el **tope AML mensual** (el acumulado exige `status='pagada'`, y la fila reactivada **sale del acumulado**), **corrompe el libro de caja** (la fila conserva solo la ÚLTIMA `speiReference`) y **reabre la retención del INE** (`closedAt` deja de reflejar el cierre). ⚠️ **Defecto MENOR de la misma pareja:** cada `POST` repetido **re-sella `receivedAt`/`verifiedAt`**, y esas fechas **anclan el abandono a 30 días** (barrido regla 6) y la **purga del INE** ⇒ *un reintento de red corría un plazo legal* | **Eje 1: backend.** **Eje 2: product-owner / humano** (matriz de predecesores) · arquitecto (norma ✅ hecha en v1.56) | **Cierre del eje 1 = `API_CONTRACT` §M5-T + §4.39(v):** **(a)** guarda `legalT` (`status ∉ TERMINAL ∧ closedAt IS NULL`) **en el `where` del `updateMany`, con `count===1`** —no un `if`, y `adminGet` **no cuenta**—; fila cerrada ⇒ **`409 CONFLICT`** con `details: { status, closedAt }` y **cero escritura** (tampoco de `itemStatus`); **(b)** idempotencia **`200` sin re-sellar** la fecha (**T gana sobre la idempotencia**); **(c)** `200` en vez del `201` de hoy —**impacto de frontend medido: cero**, `apiRequest` ramifica por `res.ok`—; **(d)** `pay-spei` gana `paidAt IS NULL ∧ closedAt IS NULL` en el CAS, y `status != 'pagada' ∧ paidAt IS NOT NULL` ⇒ **`409`, nunca `200`**; **(e)** el acumulado AML se ancla **solo en `paidAt`** (superconjunto estricto ⇒ **cero regresión**). ⚠️ **NO se declara matriz de predecesores** (eje 2): §P.1 fija fases, no legalidad por verbo, y una matriz **rompería la cohorte legacy**. **QA:** el assert que distingue el guard bueno del malo es la fila **`closedAt` sellado ∧ `status` no terminal ⇒ `409`**. **Limpieza:** el pentester dejó filas sintéticas doble-pagadas en la BD local — **purgar antes de cualquier snapshot** |
   | **BL-34** ⛔ **ABIERTA — NO BLOQUEANTE; es TOOLING, no código de producto** *(v1.55.1 — lo levantó el **techlead** sobre el modo de fallo de una guarda de compilación de **dinero**; hermana de `BL-27`)* | La exhaustividad de la derivación de identidad del buylist se sostiene con un **`const unreachable: never`** en el `default` del `switch` (`buylist.service.ts:2931-2938`): un `ProductType` nuevo en el schema **rompe la compilación** en vez de caer en una rama muda. ⚠️ **Esa guarda solo existe mientras el typecheck corra en CI**, y **su vigencia no estaba escrita en ninguna parte**. **Hoy es real y verificado** (`.github/workflows/ci.yml:114-125`: `prisma generate` → `npm run typecheck` → `tsc --noEmit`), pero tiene **dos modos de fallo SILENCIOSO**: **(1)** el paso es `npm run typecheck --if-present` ⇒ **renombrar o borrar el script deja el job en verde** (*la ausencia del verificador **aprueba** en vez de fallar*); **(2)** un cliente Prisma **rancio** deja el `switch` exhaustivo **sobre el enum de ayer** ⇒ verde con el schema ya en cuatro valores y la derivación cubriendo tres. *No es «que falte el typecheck»: es que corra contra el enum equivocado, que no se ve* | **devops** (herramienta) | **Norma (arquitecto), §4.39(f.4.3):** el typecheck del backend **corre en cada PR que toque `backend/`**, **después** de `prisma generate` sobre el schema de **ese** commit, y **no puede pasar en verde por ausencia del script**. **El mecanismo lo elige devops** —quitar el `--if-present`, job dedicado, o asertar que el script existe—: las tres cierran el hueco y **la elección es de su ruta**. ⚠️ **NO BLOQUEANTE, y con motivo escrito:** la guarda de compilación es **la PRIMERA de tres redes** (compilación → grito de `onModuleInit` → **`500 BUYLIST_LINE_NOT_KEYABLE`** en petición) y el `default` **degrada en runtime** (`return null`), así que aunque se evapore **no se firma un cheque al grado equivocado**: se descubre por un `500`. *Que sea recuperable es lo que lo hace no bloqueante; que se descubra en producción es lo que lo hace real* |
   | **BL-31** ⛔ **ABIERTA** *(v1.55 — **defecto del CONTRATO, mío**; la midió **QA** en la corrida conjunta que exige el criterio **176(d)**, que es la única forma de verla)* | La proyección de `lastOfferCancelledAt` (§4.39s.1, contrato §6/D42) discrimina por **`offerSentAt IS NOT NULL`**, que es **marca permanente de la SOLICITUD** (BL-28), no de la **oferta** que se está cancelando. Con una oferta **enviada-y-cancelada previa**, cancelar después una **`pending_authorization`** deja el correo ✔ y el reloj ✔ correctos y **el portal pintando una fecha que el vendedor nunca supo**, **contradiciendo su correo 5**. ⚠️ **Y el VALOR también estaba mal**: `offerCancelledAt` se **sobrescribe** en las tres ramas ⇒ *«la cancelación que él vio»* **deja de existir en la fila**. Por eso **cambiar solo el discriminador a `offerReissueCount > 0` NO alcanza**: abre la puerta correcta y **sigue pintando la fecha equivocada** | **arquitecto** (norma ✅ hecha en v1.55) → **backend** (implementar) | **Cierre = §4.39(s.1-bis) / D44:** `M-46` gana **`offerSentCancelledAt DateTime?`**, escrita por **el mismo `if`** que ya escribe el reloj, el conteo y el correo 5 ⇒ **las TRES consecuencias de 176(d) pasan a ser cuatro efectos de un predicado** y la propiedad de `PROJECT.md` (*«no pueden desincronizarse»*) vuelve a ser estructural. ⚠️ **El DTO no cambia** (`lastOfferCancelledAt`, mismo nombre y shape) ⇒ **frontend no toca nada**. ⚠️ **`offerCancelledAt` NO se toca**: su `write` incondicional (`buylist.service.ts:3436`) **es correcto para lo que esa columna significa** — *no se arregla el escritor, se arregla el lector*. **Zona compartida** (`prisma/`): el orquestador serializa |
