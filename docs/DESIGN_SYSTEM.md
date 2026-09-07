@@ -4,7 +4,8 @@
 > El frontend (Next.js 14 + Tailwind) implementa este documento; no lo contradice.
 > Manda `PROJECT.md` sobre el contrato y sobre este documento; este documento define solo lo visual/UX,
 > nunca datos, contrato ni arquitectura.
-> Estado: **v3.0** — última sección añadida: **§25, ciclo de adquisición del buylist**. Fecha: 2026-09-05.
+> Estado: **v3.1** — última sección añadida: **§26, mensajería de error del back-office del buylist**
+> (v3.0 fue §25, ciclo de adquisición del buylist). Fecha: 2026-09-07.
 > Rama: `claude/buylist-inventory-workflow-hdnls3` (fusión con `main`, que traía hasta **v2.9**: §22.13/§22.14,
 > §23 rotación del carrusel y §24 logos de expansión). La numeración de esta fusión está explicada en la
 > **nota de reconciliación** del changelog de abajo.
@@ -597,6 +598,22 @@
 > **peso** y **la ausencia** de todo lugar donde la suma pueda aparecer, con test **por lo negativo**— y la
 > **segunda puerta de D6**: *el default no consulta la sugerencia ni una vez*, porque **un botón apagado se
 > ve y se protesta, pero un default sesgado no se ve nunca**. **Cero tokens, cero componentes.**
+>
+> **Añadido v3.1 (2026-09-07 — mensajería de error del back-office del buylist) → ver §26.** Los gates de QA
+> y techlead encontraron **tres defectos de copy en superficies de dinero**, y los tres son del mismo tipo:
+> **el texto no sabe a quién le habla ni a qué palanca lo manda.** (1) `INE_REQUIRED` y
+> `BUYLIST_LIMIT_EXCEEDED` los ve ahora también el **operador** desde `POST /admin/buylist/:id/offer`, y le
+> decían *«necesitas subir **tu** INE»* — el operador **no es el sujeto** de esa regla: le está pasando algo
+> sobre **el vendedor**. Se desdoblan por destinatario con el sufijo **`_OPERATOR`**. (2)
+> `APPROVED_PRICE_CAP_EXCEEDED` explicaba la cota **«cotizado × 2»**, que **dentro del ciclo de oferta ya no
+> existe** (BL-40): mandaba al operador a repreciar una cifra **vinculante e inmutable** — *la palanca
+> equivocada es lo más caro que puede hacer un mensaje de error*. Se parte en dos cadenas, una por cota.
+> (3) Cuatro códigos (`REQUEST_NOT_RECEIVED`, `PICKUP_ADDRESS_LOCKED`, `PICKUP_ADDRESS_MISSING`,
+> `OFFER_PRICE_IMMUTABLE`) **no tenían copy en ningún idioma**, así que el operador mexicano leía el inglés
+> crudo del servidor. **Cero tokens, cero componentes, cero pares de contraste nuevos**: §26 es solo texto,
+> el selector de variante y una lista cerrada de prohibiciones. **Once cadenas obligatorias en ES y EN**
+> (más dos opcionales con cifras), con **dos peticiones al arquitecto** (§26.9) que **no bloquean** la
+> implementación.
 
 ---
 
@@ -11455,3 +11472,305 @@ tres tiempos *«tú X, nosotros Y y Z»* el primer tiempo se lee como **su parte
    nuevo — y un `por_recibir` ahí dentro seguirá diciendo «esto es la cola de paquetes» mucho después de
    que la pestaña diga otra cosa. **Y gracias por dejar el hueco declarado en vez de taparlo en silencio:**
    así se pudo arreglar el rótulo *y* la sección que faltaba, en vez de solo uno de los dos.
+
+---
+
+## 26. Mensajería de error del back-office del buylist — **el destinatario manda** (v3.1)
+
+> **Qué es esta sección.** El **texto normativo** de once cadenas de error (más dos opcionales) en **ES y
+> EN**, con la **clave exacta** y la **regla de selección**, para que frontend las cablee **sin
+> interpretar**. **Cero tokens, cero componentes, cero pares de contraste nuevos.** Se apoya en §8.1
+> (estados de error), §8.3 (feedback de dinero), §9.2 (convención `error.<CODE>`), §9.3 (formato de dinero)
+> y §9.4 (longitud ES/EN). Los códigos, sus `details` y sus remedios salen de `docs/API_CONTRACT.md`
+> (§6, §M5, §M5-A, §M5-R, la familia `PICKUP_ADDRESS_*` y la precedencia de
+> `PATCH /admin/buylist/items/:itemId/decision`); **este documento no inventa reglas, las redacta**.
+
+### 26.0 El diagnóstico y las tres reglas duras
+
+Los tres defectos que encontraron QA y techlead son **el mismo defecto** con tres caras: **el texto no sabe
+a quién le habla ni a qué palanca lo manda.**
+
+| # | Defecto medido | Qué lee hoy el operador | Por qué es caro |
+|---|---|---|---|
+| **1** | `INE_REQUIRED` y `BUYLIST_LIMIT_EXCEEDED` los ve también el **operador** (v1.58, `POST /admin/buylist/:id/offer`) con **una sola cadena** | *«Necesitas subir **tu** INE para continuar.»* · *«Superas el tope permitido de buylist.»* | El operador **no es el sujeto** de la regla: la incumple **el vendedor**. El mensaje le pide un documento **suyo** que nadie le pide, y **no le dice qué hacer** con la solicitud que tiene abierta |
+| **2** | `APPROVED_PRICE_CAP_EXCEEDED` explica **«cotizado × 2 o tope AML»** | *«El precio aprobado excede el tope permitido para este ítem (cotizado × 2 o tope AML).»* | **Dentro del ciclo de oferta el `× 2` ya no aplica** (BL-40): ahí solo queda el tope de compra. El texto manda a **repreciar** una cifra **congelada y vinculante**, y ese reintento choca con `OFFER_PRICE_IMMUTABLE`. **Dos errores para una causa, y el primero apunta a la palanca equivocada** |
+| **3** | `REQUEST_NOT_RECEIVED`, `PICKUP_ADDRESS_LOCKED`, `PICKUP_ADDRESS_MISSING` y `OFFER_PRICE_IMMUTABLE` **no existen en `es` ni en `en`** | el **inglés crudo del servidor** (`useErrorMessage` cae a `apiError.message`), p. ej. *«This sell request has no record of receipt…»* | Es **el fallback funcionando como está diseñado**, y aun así es un defecto: la superficie es un **back-office mexicano** y el mensaje del servidor está escrito para un desarrollador, no para quien decide una compra |
+
+**Las tres reglas duras de esta sección** (valen para todo error futuro del back-office de dinero):
+
+1. **R-A · Un mensaje se escribe para QUIEN LO LEE, no para el código que lo lanza.** Si un mismo código
+   puede llegarle a dos destinatarios distintos, son **dos cadenas**, no una redacción de compromiso. *El
+   sujeto de la regla y el lector del mensaje no siempre son la misma persona; cuando no lo son, el texto
+   tiene que decir **de quién** habla.*
+2. **R-B · El error nombra LA PALANCA que el lector tiene en la mano.** Misma disciplina que
+   `grossShortfallCents` en el contrato: se nombra **el acto** (*«Marcar recibida»*, *«declina la
+   solicitud»*, *«llama al vendedor»*), no la condición interna. **Y si la palanca no existe, se dice** —
+   *«no la apruebes: escala»* es un remedio; *«ese campo no se toca»* insinúa *«quítalo y procede»*, **y no
+   procede**.
+3. **R-C · Lo que NO pasó se dice.** En dinero, *«no se guardó nada»* / *«el vendedor no recibió aviso»* no
+   es relleno: es lo que evita que el operador reintente a ciegas, o que llame a un vendedor a disculparse
+   por una oferta que nunca salió. **Toda cadena de un rechazo sin escritura termina con «No se guardó
+   nada.» / “Nothing was saved.”**
+
+### 26.1 Convención de claves — cómo se desdobla un código por destinatario
+
+Se conserva `error.<CODE>` de §9.2 (**el test de paridad y `useErrorMessage` dependen de ello**) y se le
+añade **un sufijo de destinatario**, con el mismo espíritu del `_WITH_DETAILS` que ya existe
+(`CONFLICT_WITH_DETAILS`, `GRADED_ESTIMATE_SLAB_PUBLISHED_WITH_DETAILS`):
+
+| Forma | Quién la lee | Cuándo existe |
+|---|---|---|
+| `error.<CODE>` | **el sujeto de la regla** — el vendedor/cliente — **si el código tiene una ruta de cliente**; si el código **solo** existe en admin, la base **es** la del operador | siempre (es la que satisface el test de paridad y el fallback) |
+| `error.<CODE>_OPERATOR` | **el operador del back-office**, que no es el sujeto | solo cuando el mismo código llega a los dos |
+| `error.<CODE>_<CASO>` | mismo destinatario, **cota o regla distinta** (hoy: `_OFFER_CYCLE`) | cuando el remedio cambia, no el lector |
+| `error.<CODE>[_…]_WITH_DETAILS` | igual que su base, **con cifras interpoladas** | **opcional** (§26.5) |
+
+- **`_OPERATOR` y no `_ADMIN`:** el lector es un **rol de mesa** (`vault_operator` y `super_admin` leen lo
+  mismo); `admin` en este repo nombra **el módulo/superficie**, no a la persona.
+- **La base nunca se queda sin texto.** Si el discriminador no se puede evaluar (details ausente, forma
+  inesperada), se pinta la **base** — jamás `apiError.message` en inglés, que es el defecto 3.
+- **Cero coexistencia con lo viejo:** las tres cadenas que se reescriben (`INE_REQUIRED`,
+  `BUYLIST_LIMIT_EXCEEDED`, `APPROVED_PRICE_CAP_EXCEEDED`) **se sustituyen carácter por carácter en los dos
+  catálogos**; no se deja la versión anterior «por si acaso».
+
+### 26.2 Tabla A — un código, dos destinatarios (`INE_REQUIRED`, `BUYLIST_LIMIT_EXCEEDED`)
+
+**Selector (normativo).** Lo decide **`details`**, no la pantalla:
+
+| Código | Condición sobre `details` | Clave a pintar | Quién lo produce |
+|---|---|---|---|
+| `INE_REQUIRED` | trae **`thresholdCents`** (y no `sellRequestId`) | `error.INE_REQUIRED` | `POST /buylist/requests` — **intake, lo lee el vendedor** |
+| `INE_REQUIRED` | trae **`sellRequestId` + `grossCents`** (⛔ **sin `thresholdCents`, a propósito**) | `error.INE_REQUIRED_OPERATOR` | `POST /admin/buylist/:id/offer` — **emisión, lo lee el operador** |
+| `BUYLIST_LIMIT_EXCEEDED` | `details.scope === "per_month"` | `error.BUYLIST_LIMIT_EXCEEDED` | intake — **vendedor** |
+| `BUYLIST_LIMIT_EXCEEDED` | `details.scope === "per_month_offer"` | `error.BUYLIST_LIMIT_EXCEEDED_OPERATOR` | emisión — **operador** |
+| cualquiera de los dos | discriminador **ausente o desconocido** | **la base** (variante de cliente) | fallback; ver aviso ⚠ |
+
+> ⚠ **`scope: "per_request"` y `"per_request_offer"` están RETIRADOS** (contrato v1.59 / D47: el tope por
+> solicitud ya no rechaza, solo identifica). **No se les escribe copy.** Si el front los recibe, pinta la
+> base y **es un hallazgo para QA**, no un caso a soportar en el catálogo.
+>
+> ⛔ **El umbral de INE (`thresholdCents`) NO se reintroduce en la variante de operador — ni en el texto ni
+> interpolado.** El backend lo omite deliberadamente (§M5-A.7) y el diseño lo respeta: **el operador no es
+> el sujeto de la regla**, el número no acota su acción (sus palancas son *conseguir el documento* o *no
+> ofertar*) y una cifra de cumplimiento ajena, en una pantalla ajena, es superficie que se acaba filtrando
+> a un log o a una captura de pantalla. *En la variante de cliente **sí** viaja el porqué, porque él es
+> quien tiene que entender por qué le pedimos su identificación.*
+
+**Las cuatro cadenas.**
+
+| Clave | ES | EN |
+|---|---|---|
+| `error.INE_REQUIRED` | Por el monto de esta venta necesitamos identificarte: sube tu INE para continuar. | Because of the amount of this sale we need to identify you: upload your INE (ID) to continue. |
+| `error.INE_REQUIRED_OPERATOR` | La oferta no salió: el vendedor no tiene su INE en el expediente y por este monto se lo tenemos que pedir. No se guardó nada y él no recibió aviso. Llámalo para que lo suba desde su perfil y vuelve a emitir, o declina la solicitud. Ningún rol puede saltarse este requisito. | The offer was not sent: the seller has no INE (ID) on file, and at this amount we have to ask for it. Nothing was saved and the seller was not notified. Call them so they upload it from their profile and issue the offer again, or decline the request. No role can skip this requirement. |
+| `error.BUYLIST_LIMIT_EXCEEDED` | Esta cotización pasa el máximo que te podemos comprar en un mes. Quita algunas cartas y vuelve a intentar; el tope se renueva cada mes. | This quote goes over the most we can buy from you in one month. Remove a few cards and try again; the limit resets every month. |
+| `error.BUYLIST_LIMIT_EXCEEDED_OPERATOR` | Esta oferta dejaría al vendedor por encima del máximo que le podemos comprar este mes, así que no salió y no se guardó nada. Compra menos cartas de esta solicitud o declínala; ningún rol puede levantar este tope. | This offer would put the seller over the most we can buy from them this month, so it was not sent and nothing was saved. Buy fewer cards from this request, or decline it; no role can lift this limit. |
+
+**Por qué dicen lo que dicen (y no otra cosa):**
+
+- **La variante de operador empieza por el hecho que le importa —«no salió»—**, sigue con **de quién es el
+  problema** («el vendedor»), y termina con **sus dos palancas reales**: la llamada (el vendedor sube el
+  INE desde su perfil y se reintenta) o **declinar**. Es la ruta operativa que el contrato ya escribió para
+  `PICKUP_ADDRESS_MISSING`, y no una inventada aquí.
+- **«él no recibió aviso» es obligatorio.** La oferta nunca salió, así que **el portal del vendedor no
+  tiene nada que contarle**: el único aviso es la llamada. Sin esa frase, el operador supone que el sistema
+  ya avisó y **la solicitud se queda esperando a nadie**.
+- **«Ningún rol puede saltarse este requisito» / «ningún rol puede levantar este tope»** existe para
+  **cortar la escalada inútil**: el tope del operador es *delegación* (eso sí se escala), pero el INE y el
+  tope de compra son *cumplimiento sobre el vendedor* y **no hay autorización que los levante**. Sin esta
+  frase, el operador pierde media hora buscando a un súper-admin.
+- **Al operador NO se le dice «espera al mes que entra».** Diferir una compra para que quepa bajo un tope
+  mensual es exactamente lo que un control de este tipo existe para impedir; **un mensaje de error de una
+  plataforma de dinero no sugiere la vuelta al control que acaba de aplicar**. Al **vendedor** sí se le
+  dice que el tope se renueva cada mes, porque para él es **un hecho de su límite**, no una instrucción
+  para partir una operación.
+
+### 26.3 Tabla B — `APPROVED_PRICE_CAP_EXCEEDED`: dos cotas, dos remedios
+
+**El problema del texto viejo:** decía *«cotizado × 2 o tope AML»* **siempre**, y **dentro del ciclo de
+oferta el término relativo está retirado** (BL-40): ahí el monto **no es entrada del operador**, es la
+cifra **congelada y vinculante** que ya pasó su puerta al emitir. Mandarlo a bajar el precio es mandarlo a
+una palanca que **no existe** (`OFFER_PRICE_IMMUTABLE` lo espera al otro lado), y de paso le enseña a
+pensar que un precio ofertado se negocia después.
+
+**Selector (normativo).**
+
+| Caso | Cómo se reconoce | Clave |
+|---|---|---|
+| **Fuera del ciclo de oferta** (verificación clásica: el operador teclea `approvedPriceCents`) | la solicitud **no** está en el ciclo — `offerSentAt == null` en el detalle que la pantalla ya tiene | `error.APPROVED_PRICE_CAP_EXCEEDED` |
+| **Dentro del ciclo de oferta** (el monto es el ofertado, congelado) | `offerSentAt != null` | `error.APPROVED_PRICE_CAP_EXCEEDED_OFFER_CYCLE` |
+
+> ⚠ **Hoy el discriminador es estado de pantalla, no `details`** — el error trae
+> `{ approvedPriceCents, quotedPriceCents, cap }` y **ninguno dice qué cota chocó**. Es la **petición 2 al
+> arquitecto** (§26.9); **no bloquea**, porque la pantalla de verificación ya sabe si la solicitud va por el
+> ciclo (es lo que decide que **no se pinte campo de monto**, criterio 124). **Regla mientras tanto:** si
+> ese estado no está disponible, se pinta la **base** — nombra las dos cotas y no manda a ninguna palanca
+> imposible.
+
+| Clave | ES | EN |
+|---|---|---|
+| `error.APPROVED_PRICE_CAP_EXCEEDED` | El monto que estás aprobando no cabe en el tope de esta carta: no puede pasar del doble de lo cotizado ni del máximo que le podemos comprar al vendedor en el mes. Baja el monto aprobado, o rechaza la carta con su motivo. No se guardó nada. | The amount you are approving does not fit this card's cap: it cannot go over twice the quoted price, nor over the most we can buy from this seller in a month. Lower the approved amount, or reject the card with a reason. Nothing was saved. |
+| `error.APPROVED_PRICE_CAP_EXCEEDED_OFFER_CYCLE` | El precio de esta carta se congeló al emitir la oferta y ya es vinculante: no se puede cambiar. Lo que choca es el máximo que le podemos comprar al vendedor en el mes, así que esta carta no se puede aprobar ni pagar. No intentes repreciarla: escala la solicitud a un súper-admin. No se guardó nada. | This card's price was frozen when the offer went out and is now binding: it cannot be changed. What it hits is the most we can buy from this seller in a month, so this card cannot be approved or paid. Do not try to re-price it: escalate the request to a super-admin. Nothing was saved. |
+
+- **La cadena del ciclo nombra la cota QUE CHOCÓ y calla la que no aplica.** No se menciona el `× 2` ni
+  para negarlo: *un mensaje de error no es el sitio donde se explica una regla retirada* — nombrarla la
+  mantiene viva en la cabeza del operador.
+- **Y nombra el único remedio verdadero: escalar.** Dentro del ciclo, ni bajar el precio (imposible) ni
+  aprobar (bloqueado) ni rechazar por su cuenta (hay una oferta **aceptada** de por medio) son decisiones
+  del operador. **Si esta cadena aparece, algo se desalineó** —el dial de compra se movió después de emitir,
+  o la solicitud cruzó de mes— y eso lo resuelve quien mueve el dial, no quien pulsa el botón.
+  > **Por qué aquí se manda a escalar y en la emisión (§26.2) se dice «ningún rol lo levanta», sin
+  > contradicción:** al **emitir**, el operador **tiene una palanca propia** —comprar menos cartas— y el
+  > escalado solo le haría perder tiempo, porque nadie por encima puede autorizar por encima del tope.
+  > **Dentro del ciclo no le queda ninguna**, y la solicitud está **atascada con una oferta aceptada
+  > enfrente**: dejarla ahí en silencio es peor que subirla. **Se escala el CASO, no una autorización del
+  > monto** — y el texto no promete que arriba se vaya a aprobar.
+- **«en el mes»** es deliberado: tras BL-43 la cota se ancla al **tope mensual**, no al de la solicitud.
+  Decir solo «el tope» dejaría al operador buscando un límite por solicitud que ya no rechaza nada.
+
+### 26.4 Tabla C — los cuatro códigos sin traducción
+
+Los cuatro son **superficie de admin**, salvo `PICKUP_ADDRESS_LOCKED`, que **el contrato declara también en
+la ruta de cliente** (`PATCH /buylist/requests/:id/pickup-address`) ⇒ **se desdobla** por R-A. Significado y
+remedio de cada uno, tal como los define el contrato:
+
+| Código | Qué pasó exactamente (contrato) | Palanca que nombra el texto |
+|---|---|---|
+| `REQUEST_NOT_RECEIVED` (422) | `decision:"approve"` sobre una línea cuya **solicitud padre no tiene constancia de recepción** (`receivedAt IS NULL`). **Es sobre la SOLICITUD, no sobre la carta** | **`POST …/receive`** = el botón **«Marcar recibida»** del detalle de M5, **cuando el paquete de verdad llegó** |
+| `PICKUP_ADDRESS_MISSING` (422) | `POST /admin/buylist/:id/offer` sobre una solicitud **sin snapshot de dirección** — solo puede ser una fila **vieja** (anterior a M-46) | **llamar al vendedor** (su teléfono viaja en la cola) para que la capture **desde su perfil**, o **declinar**. ⛔ **el operador NO la captura por él** |
+| `PICKUP_ADDRESS_LOCKED` (409) | `PATCH …/pickup-address` cuando **ya hay guía** (`guideSentAt != null`) **o la solicitud está cerrada** | **el remedio es humano**: cancelar la guía y emitir una nueva. **No es un reintento** |
+| `OFFER_PRICE_IMMUTABLE` (422) | dentro del ciclo, el cuerpo trae **`approvedPriceCents`** — **con cualquier `decision`, `reject` incluido**. El monto lo fija el servidor (`approvedPriceCents = offeredPriceCents`) | **aprobar sin monto**; si la carta no llegó como se ofertó, **rechazarla con su motivo** |
+
+| Clave | ES | EN |
+|---|---|---|
+| `error.REQUEST_NOT_RECEIVED` | Esta solicitud no tiene registrada la llegada del paquete, así que ninguna de sus cartas se puede aprobar. Cuando el paquete esté en tus manos, usa «Marcar recibida» en la solicitud y vuelve a aprobar. No se guardó nada. | This request has no record that the parcel arrived, so none of its cards can be approved. Once the parcel is in your hands, use “Mark received” on the request and approve again. Nothing was saved. |
+| `error.PICKUP_ADDRESS_MISSING` | Esta solicitud no trae la dirección de recolección (es una solicitud vieja), así que no se puede ofertar. Llama al vendedor para que la capture desde su perfil y vuelve a emitir, o declina la solicitud. No la captures tú por él. | This request has no pickup address (it is an old request), so no offer can be issued. Call the seller so they add it from their profile and issue the offer again, or decline the request. Do not fill it in for them. |
+| `error.PICKUP_ADDRESS_LOCKED` | Esta dirección ya no se puede cambiar: tu guía de envío ya está impresa con ella, o la solicitud ya cerró. Si algo está mal, contáctanos antes de mandar el paquete. | This address can no longer be changed: your shipping label is already printed with it, or the request is closed. If something is wrong, contact us before you send the parcel. |
+| `error.PICKUP_ADDRESS_LOCKED_OPERATOR` | Esta dirección ya no se edita: la guía salió impresa con ella, o la solicitud ya cerró. Si la dirección está mal, hay que cancelar esa guía y emitir una nueva; desde aquí no se puede. No se guardó nada. | This address can no longer be edited: the label went out printed with it, or the request is closed. If the address is wrong, that label has to be cancelled and a new one issued; it cannot be done from here. Nothing was saved. |
+| `error.OFFER_PRICE_IMMUTABLE` | El precio de esta carta se congeló al emitir la oferta y ya es vinculante: desde esta pantalla no viaja ningún monto. Apruébala tal cual; si no llegó como se ofertó, recházala con su motivo. No se guardó nada. | This card's price was frozen when the offer went out and is now binding: no amount travels from this screen. Approve it as it is; if it did not arrive as offered, reject it with a reason. Nothing was saved. |
+
+- **`REQUEST_NOT_RECEIVED` nombra la solicitud y cita el rótulo real del botón** (`admin.m5.receive` =
+  «Marcar recibida» / “Mark received”). **Si ese rótulo cambia, esta cadena cambia con él** — es la única
+  dependencia de texto-a-texto de §26, y se acepta porque *el error que no nombra el botón obliga a
+  buscarlo*. **Y la condición va antes que el acto** («cuando el paquete esté en tus manos»): marcar
+  recepción es el ancla de la mercancía ajena, **no un trámite para desbloquear la pantalla**.
+- **`PICKUP_ADDRESS_MISSING` termina prohibiendo.** *«No la captures tú por él»* parece redundante y no lo
+  es: es **la primera reacción natural** del operador que tiene la libreta a mano, y el contrato lo prohíbe
+  expresamente — la dirección congelada es **lo que va impreso en la etiqueta** y capturarla por él la
+  desalinea de lo que el vendedor declaró.
+- **`OFFER_PRICE_IMMUTABLE` debería ser inalcanzable desde nuestra UI** (criterio 124: dentro del ciclo la
+  pantalla de verificación **no tiene campo de monto**). Se traduce igual porque **un error inalcanzable
+  que aparece es exactamente cuando más falta hace entenderlo**, y porque el mismo código lo puede producir
+  un `reject` con el campo colgado del formulario. **Si un operador lo ve, es un defecto de frontend** y
+  así hay que reportarlo.
+
+### 26.5 Opcionales — las variantes con cifras (`_WITH_DETAILS`)
+
+**No son obligatorias.** Se implementan **solo** si frontend ya tiene el `DETAILED_ERRORS` de
+`useErrorMessage` cableado para ese código; si falta cualquiera de los dos montos, **se pinta la base**
+(nunca `MX$ undefined`). Los montos se formatean con §9.3 (centavos → `MX$ 1,250.00`), **nunca
+concatenados**.
+
+> **⚠ El sufijo va DESPUÉS del destinatario, y eso el resolver de hoy no lo compone solo.**
+> `useErrorMessage` arma `error.<CODE>_WITH_DETAILS` a partir del **código**; estas claves son
+> `error.<CODE>_<DESTINATARIO>_WITH_DETAILS`. **El orden es normativo** —primero se resuelve **a quién le
+> hablas**, luego **con cuánto detalle**— porque al revés habría que escribir el copy del destinatario dos
+> veces. Componer las dos piezas es trabajo del mecanismo, y el mecanismo es de frontend (§26.9.4).
+
+| Clave | ES | EN |
+|---|---|---|
+| `error.BUYLIST_LIMIT_EXCEEDED_OPERATOR_WITH_DETAILS` | Esta oferta dejaría al vendedor en {wouldBeAmount} este mes, y el máximo que le podemos comprar es {capAmount}: no salió y no se guardó nada. Compra menos cartas de esta solicitud o declínala; ningún rol puede levantar este tope. | This offer would put the seller at {wouldBeAmount} this month, and the most we can buy from them is {capAmount}: it was not sent and nothing was saved. Buy fewer cards from this request, or decline it; no role can lift this limit. |
+| `error.APPROVED_PRICE_CAP_EXCEEDED_OFFER_CYCLE_WITH_DETAILS` | El precio de esta carta se congeló al emitir la oferta y ya es vinculante: no se puede cambiar. El máximo que le podemos comprar al vendedor es {capAmount}, así que esta carta no se puede aprobar ni pagar. No intentes repreciarla: escala la solicitud a un súper-admin. No se guardó nada. | This card's price was frozen when the offer went out and is now binding: it cannot be changed. The most we can buy from this seller is {capAmount}, so this card cannot be approved or paid. Do not try to re-price it: escalate the request to a super-admin. Nothing was saved. |
+
+- **Las cifras se le dan al OPERADOR sobre los topes de COMPRA, nunca sobre el UMBRAL DE INE.** La
+  diferencia no es de estilo: `capCents`/`wouldBeCents` **son la cota de la decisión que él está tomando**
+  (le dicen cuánto sobra), mientras que `thresholdCents` es **un dato de cumplimiento sobre un tercero** que
+  no cambia ninguna de sus dos palancas. *Un cajón donde ya viajan cifras es exactamente donde alguien
+  acaba echando la que no debía.*
+- **No hay variante con cifras para el cliente.** Su mensaje ya es accionable sin números («quita algunas
+  cartas»), y meter el tope mensual en el cotizador abriría una superficie pública de diales que §25.13
+  cerró a propósito.
+
+### 26.6 Prohibiciones (lista cerrada — esto es lo que se revisa en el PR)
+
+1. ⛔ **Hablarle al operador como si fuera el sujeto de la regla:** «necesitas subir **tu** INE», «**superas**
+   el tope». Si el texto lleva un *tú* que apunta al vendedor, está en la clave equivocada.
+2. ⛔ **`thresholdCents` (el umbral de INE) en cualquier cadena de operador**, en texto o interpolado.
+3. ⛔ **Nombrar «cotizado × 2» dentro del ciclo de oferta** — ni afirmándolo ni negándolo.
+4. ⛔ **Sugerir repreciar, «ajustar el monto y reintentar» o «quitar ese campo y seguir»** en cualquier
+   cadena del ciclo de oferta.
+5. ⛔ **Sugerirle al operador diferir la compra al mes siguiente** para caber bajo el tope.
+6. ⛔ **Sugerirle al operador capturar, corregir o «completar» un dato del vendedor** (dirección, INE, CLABE).
+7. ⛔ **Dejar caer el mensaje crudo del servidor** (`apiError.message`, inglés) en superficie de admin para
+   cualquiera de los siete códigos de §26. La base existe justamente para eso.
+8. ⛔ **Jerga técnica o de cumplimiento en el texto visible:** *AML*, *KYC*, *cap*, *threshold*, *scope*,
+   *snapshot*, *422*, `offerSentAt`, nombres de endpoint o de código. El operador necesita **qué pasó y qué
+   hacer**, no el nombre de la guarda.
+9. ⛔ **Metáfora de marca (§1) en errores.** Aquí manda la claridad literal; ni «cacería» ni ingenio.
+10. ⛔ **Emojis, signos de admiración y culpa.** Ni *«¡Ups!»* ni *«no debiste…»*: el operador no causó
+    ninguno de estos siete errores.
+
+### 26.7 Dónde se pintan, longitud y accesibilidad
+
+- **Superficie.** Todas van en **`Banner` `variant="danger"`** (§7.5) del contenedor de la acción —el
+  diálogo de emisión de la mesa (§25.6), el detalle de la solicitud o la fila de verificación—, **nunca en
+  un toast efímero** (§8.3: los errores de dinero se muestran inline/banner). Las dos de cliente
+  (`INE_REQUIRED`, `BUYLIST_LIMIT_EXCEEDED`) se pintan **inline en el bloque del cotizador/creación**, como
+  ya se hace con `PICKUP_ADDRESS_REQUIRED` (§25.3(j)).
+- **Longitud (§9.4).** La más larga es `INE_REQUIRED_OPERATOR` (**≈ 275 car. ES / ≈ 300 EN** ⇒ **el
+  contenedor se dimensiona por EN**). **El banner envuelve a las líneas que haga falta: sin alto fijo, sin
+  `line-clamp`, sin «ver más».** Un error de dinero truncado es un error a medias, y la mitad que se corta
+  es siempre la del remedio, que va al final.
+- **Accesibilidad (§8.2).** `role="alert"` con `aria-live="assertive"` (son errores de dinero); el foco
+  **no** se roba, pero el botón que disparó la acción queda enfocable y el banner se referencia con
+  `aria-describedby` desde él. Las cadenas **no dependen de color**: dicen el hecho en palabras.
+- **Contraste (§10).** **Cero pares nuevos:** texto tinta sobre el `Banner danger` ya verificado. §26 no
+  añade ningún token.
+
+### 26.8 Paridad ES/EN y verificación (barata y `grep`-able)
+
+1. **Paridad estricta:** las **once claves obligatorias** existen en `es.json` **y** en `en.json`, con el
+   mismo árbol. El test de paridad ya cubre `error.<CODE>`; **las variantes con sufijo hay que añadirlas a
+   mano a los dos catálogos** (no se derivan de ningún código del contrato).
+2. **Las tres cadenas viejas desaparecen:** `grep -R "cotizado × 2\|quoted × 2" frontend/messages` ⇒ **cero
+   resultados**; `grep -R "tu INE" frontend/messages/es.json` ⇒ **solo** en `error.INE_REQUIRED` y en el
+   flujo de KYC del vendedor (§7.10), **nunca** en una cadena de admin.
+3. **Los cuatro códigos nuevos ya no caen al inglés crudo:** provocar cada uno en staging y comprobar que
+   el banner está en el idioma de la sesión. *(Este es el defecto 3 y su única verificación honesta es
+   verlo en pantalla.)*
+4. **Selector:** dos casos por código desdoblado — con `details.scope = "per_month"` sale la de cliente, con
+   `"per_month_offer"` la de operador; con `details` vacío sale **la base y no un `MISSING_MESSAGE`**.
+5. **Prohibición 7 por lo negativo:** ningún test debe poder afirmar `expect(banner).toHaveText(/This sell
+   request/)` — si un E2E de admin encuentra inglés de servidor, es regresión.
+
+### 26.9 Notas a otros roles (derivadas del diseño; **ninguna bloquea**)
+
+1. **⚠ Arquitecto — petición 1: `INE_REQUIRED` de la emisión no trae discriminador explícito.** Hoy el
+   destinatario se **infiere por la forma de `details`** (`thresholdCents` ⇒ vendedor; `sellRequestId` ⇒
+   operador). Funciona, pero es un contrato **implícito**: el día que alguien añada `sellRequestId` a la
+   puerta del intake «porque ya había campo», **el vendedor empieza a leer el mensaje del operador**.
+   **Petición:** que la emisión emita también **`details.scope: "offer"`** (y, si se quiere simetría,
+   `"intake"` en la otra puerta), con el mismo papel que ya cumple en `BUYLIST_LIMIT_EXCEEDED`.
+   ⛔ **Sin reintroducir `thresholdCents`** — la petición es un discriminador, no el número.
+2. **⚠ Arquitecto — petición 2: `APPROVED_PRICE_CAP_EXCEEDED` no dice qué cota chocó.** `details` trae
+   `{ approvedPriceCents, quotedPriceCents, cap }`, y **con eso no se puede saber** si topó el doble de lo
+   cotizado o el tope de compra, ni si la fila va por el ciclo de oferta. Hoy el copy se elige con **estado
+   de cliente** (`offerSentAt`), que es exactamente lo que R4 desaconseja. **Petición:** un campo
+   discriminante en `details` — p. ej. `bound: "quoted_x2" | "purchase_cap"` **o** `inOfferCycle: boolean`.
+   **Con él, §26.3 deja de depender de la pantalla y las dos cadenas se eligen solas.**
+3. **Arquitecto / PO — confirmar el desdoble de `PICKUP_ADDRESS_LOCKED`.** El contrato lo declara en
+   `PATCH …/pickup-address` y la familia `PICKUP_ADDRESS_*` marca «cliente y admin» en la ruta hermana. Si
+   la ruta de cliente **no** puede devolverlo (porque la UI ya apaga el control cuando la guía está
+   impresa), la variante `_OPERATOR` **se queda como única** y la base se retira de los dos catálogos. **Se
+   entregan las dos porque una carrera sí puede producirlo en cliente**, y una cadena de más es más barata
+   que un vendedor leyendo *«cancela la guía y emite una nueva»*, que es una instrucción **nuestra**.
+4. **Frontend — el mecanismo es tuyo; el orden de resolución no.** La variante se resuelve **antes** de
+   `error.<CODE>`, y **`apiError.message` deja de ser alcanzable** para estos siete códigos. Si tu
+   `DETAILED_ERRORS` ya sabe formatear montos, §26.5 se implementa gratis; si no, **se omite sin deuda**.
+5. **PO — dos frases para ratificar.** *«Ningún rol puede levantar este tope»* y *«escala la solicitud a un
+   súper-admin»*: la primera **le cierra la puerta a la escalada** (y es lo que dice el contrato), la
+   segunda **la abre para un caso concreto**. Son correctas tal como están escritas, pero **definen cómo se
+   comporta la mesa ante un tope**, y eso es decisión de negocio, no de diseño.
+6. **QA — el caso que más valor tiene y no es un test de i18n:** con un vendedor **sin INE** y una oferta
+   **sobre el umbral**, comprobar que el operador ve la cadena **de operador**, que el vendedor **no recibe
+   ningún correo** y que la solicitud sigue **`cotizada`**. Si alguna de las tres falla, el copy es lo de
+   menos.
