@@ -6,6 +6,7 @@ import { PricingService } from '../src/modules/pricing/pricing.service';
 import { SettingsService } from '../src/modules/settings/settings.service';
 // v1.51.20 · BL-26: la puerta de `createRequest` (celular + dirección + mínimo) en un solo sitio.
 import { GATE_ADDRESS_ID, buylistGateMocks } from './helpers/buylist-create-gate';
+import { matchesWhere } from './helpers/prisma-where';
 import { UsersService } from '../src/modules/users/users.service';
 import { PiiCryptoService } from '../src/common/crypto/pii-crypto.service';
 import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
@@ -296,6 +297,20 @@ describe('BuylistService.paySpei — SEC-M5 idempotencia + guardia de estado', (
   });
 
   it('transición aprobada→pagada por updateMany atómico (count===1) con guardia de estado', async () => {
+    // ⚠️ v1.61.1 · B1 — la fila del fake lleva **todas** las columnas que el `where` afirma. Sin
+    // ellas, evaluarlo daría `false` por la razón equivocada (una columna ausente no casa con nada).
+    const fila = {
+      id: 'sr',
+      status: 'aprobada',
+      receivedAt: new Date(),
+      verifiedAt: new Date(),
+      approvedTotalCents: 50_000,
+      offerGrossCents: null,
+      quotedTotalCents: 50_000,
+      offerShippingFeeCents: null,
+      paidAt: null,
+      closedAt: null,
+    };
     const prisma: any = {
       // v2.1.6 (AML-1, §4.36.6a): `paySpei` re-verifica el tope MENSUAL contra el dinero que SALE.
       // Sin KYC override y sin pagos previos del mes, el control es no-op y el pago procede.
@@ -303,8 +318,8 @@ describe('BuylistService.paySpei — SEC-M5 idempotencia + guardia de estado', (
       sellRequest: {
         findUnique: jest
           .fn()
-          .mockResolvedValueOnce({ id: 'sr', status: 'aprobada', receivedAt: new Date(), verifiedAt: new Date(), approvedTotalCents: 50_000 })
-          .mockResolvedValue({ id: 'sr', status: 'pagada', receivedAt: new Date(), verifiedAt: new Date(), approvedTotalCents: 50_000 }),
+          .mockResolvedValueOnce({ ...fila })
+          .mockResolvedValue({ ...fila, status: 'pagada' }),
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
         findMany: jest.fn().mockResolvedValue([]), // AML-1: pagos previos del mes (ninguno).
       },
@@ -316,11 +331,16 @@ describe('BuylistService.paySpei — SEC-M5 idempotencia + guardia de estado', (
     const svc = new BuylistService(prisma as PrismaService, {} as PricingService, { getNumber: jest.fn(async () => 100_000_000) } as unknown as SettingsService, {} as UsersService, pii);
     const res = await svc.paySpei('sr', 'SPEI-REF', 'admin');
     expect(res).toMatchObject({ status: 'pagada' });
-    const call = prisma.sellRequest.updateMany.mock.calls[0][0];
-    expect(call.where.status.in).toEqual(expect.arrayContaining(['aprobada', 'verificacion']));
-    // ⚠️ v1.57 · §M5-P — el `where` afirma los TRES términos. `receivedAt` es el que cierra BL-35
-    // eje 2 (se pagó MX$320 reales por una carta nunca recibida).
-    expect(call.where.receivedAt).toEqual({ not: null });
-    expect(call.where.verifiedAt).toEqual({ not: null });
+    // ⚠️⚠️ v1.61.1 · **B1** — el `where` se afirma EVALUÁNDOLO, no leyendo sus claves planas: se
+    // compone de fragmentos y un `toMatchObject` no ve el que se pierde (así vivió V-a ausente una
+    // versión entera). `matchesWhere` entiende `AND`, que es como viajan los fragmentos.
+    const w = prisma.sellRequest.updateMany.mock.calls[0][0].where;
+    expect(matchesWhere(fila, w)).toBe(true);
+    expect(matchesWhere({ ...fila, status: 'cotizada' }, w)).toBe(false);
+    expect(matchesWhere({ ...fila, status: 'verificacion' }, w)).toBe(true);
+    // ⚠️ v1.57 · §M5-P — `receivedAt` es el término que cierra BL-35 eje 2 (se pagó MX$320 reales
+    // por una carta nunca recibida). ⚠️ v1.61 · §M5-V — `approvedTotalCents` es V-a.
+    expect(matchesWhere({ ...fila, receivedAt: null }, w)).toBe(false);
+    expect(matchesWhere({ ...fila, verifiedAt: null }, w)).toBe(false);
   });
 });

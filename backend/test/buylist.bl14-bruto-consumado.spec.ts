@@ -408,8 +408,21 @@ describe('(b) sitio (c): `payoutNetCents` se sella con el bruto CONSUMADO', () =
     // cherry-pick y TODAS las líneas `buy` rechazadas, la auto-transición a `rechazada` no dispara
     // —la `skip` cuenta como no-rechazada— y la solicitud pagaba **la oferta íntegra por CERO
     // cartas** (medido en vivo, `BACKEND_NOTES` §0.45.1: `payoutNetCents = 32000` sobre 0 cartas).
-    // Ahora **no sale un peso**. ⚠️ **Quitar V-a de `payableWhere()` pone esto rojo con un `200` y
-    // `payoutNetCents = 72_000`.**
+    // Ahora **no sale un peso**.
+    //
+    // ⚠️⚠️ **v1.61.1 · `B1` — CORRECCIÓN DE UN COMENTARIO FALSO.** Aquí decía: *«Quitar V-a de
+    // `payableWhere()` pone esto rojo con un 200 y `payoutNetCents = 72_000`»*. **No era cierto**, y
+    // la mentira importa porque era la única cobertura que el lado `where` de V-a decía tener:
+    //   · este caso monta `req.approvedTotalCents = null`, así que **muere en el pre-check**
+    //     `isPayableSellRequest(req)` — **antes** de abrir la transacción y de que exista un `where`;
+    //   · y `fakePayDb` responde `{ count: 1 }` a cualquier `updateMany` **sin mirar el `where`**,
+    //     así que ningún caso de este fichero puede ponerse rojo por un término de la guarda.
+    // **Medido** (v1.61.1): quitar V-a de `payableWhere()` deja este fichero ENTERO en verde; lo que
+    // sí lo pone rojo es quitar V-a del **predicado** (`isPayableSellRequest`), que es el lector que
+    // este caso ejercita. *Un comentario que documenta una mutación que no mata nada es peor que no
+    // tener comentario: hace que nadie vuelva a mirar.*
+    // ⇒ El lado `where` (y su composición, que es donde vivía `B1`) se prueba en
+    // `test/buylist.pay-spei-where-composition.spec.ts`, con un fake que **sí** evalúa el `where`.
     const { svc, updates } = fakePayDb({
       req: { approvedTotalCents: null, offerGrossCents: 90_000, offerShippingFeeCents: 18_000 },
     });

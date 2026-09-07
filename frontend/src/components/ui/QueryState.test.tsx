@@ -126,6 +126,41 @@ describe('useErrorMessage · §26 «el destinatario manda»', () => {
     expect(message()).toBe(es.error.PICKUP_ADDRESS_LOCKED);
   });
 
+  /*
+   * ───────────────────────────────────────────────────────────────────────────
+   * §27.1 · `ITEMS_NOT_DECIDED` — el LOTE 1, el único de §27 que bloquea el release.
+   * §27.1.2 es normativa en el punto delicado: **la cifra sale de la lista que mandó ESTE error**.
+   * ───────────────────────────────────────────────────────────────────────────
+   */
+  it('con `pendingDecisionItemIds` pinta la variante con cifra, y la cifra es la LONGITUD de esa lista', () => {
+    const error = new ApiClientError(422, {
+      code: 'ITEMS_NOT_DECIDED',
+      message: 'Payment requires a verification verdict on every purchased line',
+      details: { sellRequestId: 'sr-3005', pendingDecisionItemIds: ['a', 'b', 'c'] },
+    });
+    renderWithIntl(<Probe error={error} audience="operator" />, 'es');
+    expect(message()).toContain('quedan 3 cartas sin decidir');
+    // ⛔ Ni el inglés del servidor (MEN-2) ni un `{count}` crudo.
+    expect(message()).not.toContain('Payment requires');
+    expect(message()).not.toContain('{count}');
+    // Y dice lo que NO pasó, con las dos mitades que §27.1.3 exige en la pantalla del pago.
+    expect(message()).toContain('no salió dinero');
+  });
+
+  it('sin lista utilizable cae a la BASE — nunca a la cifra inventada ni al inglés', () => {
+    // §27.1.2: «ausente, no-array o vacío ⇒ se pinta la base». Los tres, uno por uno.
+    for (const details of [undefined, { pendingDecisionItemIds: [] }, { pendingDecisionItemIds: 2 }]) {
+      const error = new ApiClientError(422, {
+        code: 'ITEMS_NOT_DECIDED',
+        message: 'Payment requires a verification verdict on every purchased line',
+        details: details as Record<string, unknown> | undefined,
+      });
+      const { unmount } = renderWithIntl(<Probe error={error} audience="operator" />, 'es');
+      expect(message(), JSON.stringify(details)).toBe(es.error.ITEMS_NOT_DECIDED);
+      unmount();
+    }
+  });
+
   it('lo que NO cambia: un código sin copy sigue cayendo al mensaje del servidor', () => {
     // El fallback no se retira —cubre los códigos que el catálogo aún no tiene, y ocultarlos sería
     // peor—; lo que §26 exige es que **los siete suyos** no lleguen nunca hasta aquí.

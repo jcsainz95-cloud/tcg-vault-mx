@@ -4,8 +4,8 @@
 > El frontend (Next.js 14 + Tailwind) implementa este documento; no lo contradice.
 > Manda `PROJECT.md` sobre el contrato y sobre este documento; este documento define solo lo visual/UX,
 > nunca datos, contrato ni arquitectura.
-> Estado: **v3.1** — última sección añadida: **§26, mensajería de error del back-office del buylist**
-> (v3.0 fue §25, ciclo de adquisición del buylist). Fecha: 2026-09-07.
+> Estado: **v3.2** — última sección añadida: **§27, copy de errores del ciclo de oferta del buylist**
+> (§26 fue la mensajería de error del back-office; v3.0 fue §25, ciclo de adquisición). Fecha: 2026-09-07.
 > Rama: `claude/buylist-inventory-workflow-hdnls3` (fusión con `main`, que traía hasta **v2.9**: §22.13/§22.14,
 > §23 rotación del carrusel y §24 logos de expansión). La numeración de esta fusión está explicada en la
 > **nota de reconciliación** del changelog de abajo.
@@ -614,6 +614,25 @@
 > el selector de variante y una lista cerrada de prohibiciones. **Once cadenas obligatorias en ES y EN**
 > (más dos opcionales con cifras), con **dos peticiones al arquitecto** (§26.9) que **no bloquean** la
 > implementación.
+>
+> **Añadido v3.2 (2026-09-07 — copy de errores del ciclo de oferta) → ver §27.** §26 arregló siete códigos y
+> **frontend los cableó enteros**; el contrato **v1.61** metió después uno nuevo y frontend encontró **doce
+> viejos** sin copy en ningún idioma. **§27 los escribe todos, en dos lotes con prioridad explícita.**
+> **Lote 1, y es lo único que bloquea el release: `ITEMS_NOT_DECIDED`** — el término **V-b** de
+> [`API_CONTRACT §M5-V`](API_CONTRACT.md), que existe porque la plataforma podía **pagar la oferta completa
+> por cero cartas** (reproducido en vivo: **MX$320 por nada**) al pagar sin haber dado veredicto carta por
+> carta. Hoy el súper-admin lee **inglés crudo del servidor en la pantalla donde autoriza dinero**. La
+> cadena se escribe **en tono de paso pendiente, no de avería ni de regaño** —no es un error suyo ni un
+> fallo del sistema: es trabajo que falta— y **aprovecha el conteo** (`{count}`) para que sepa **cuántas**
+> líneas faltan sin ir a contarlas. **Lote 2 (no bloquea, entra si no retrasa): los doce códigos restantes
+> del ciclo** — emisión (`OFFER_NOT_ALLOWED`, `OFFER_ALREADY_SENT`, `OFFER_LINES_MISMATCH`,
+> `OFFER_LINE_NOT_PRICEABLE`, `OVERRIDE_REASON_REQUIRED`, `OFFER_NET_BELOW_MINIMUM`,
+> `OFFER_PROJECTION_INCOMPLETE`), verificación (`ITEM_NOT_OFFERED`, `OFFERED_PRICE_MISSING`,
+> `ADJUST_NOT_ALLOWED_IN_OFFER_CYCLE`, `NO_LIVE_ADJUSTMENT`) y cierre (`DECLINE_NOT_ALLOWED`), **tres de
+> ellos del mismo diálogo que §26 acaba de arreglar**. **15 claves obligatorias en ES y EN** (dos códigos se
+> desdoblan por destinatario con el `_OPERATOR` de §26.1) **más dos opcionales con cifras y una cadena
+> preventiva** para el botón de pago apagado. **Cero tokens, cero componentes, cero pares de contraste
+> nuevos:** §27 es texto y reglas de selección, sobre las tres reglas duras de §26.
 
 ---
 
@@ -11774,3 +11793,290 @@ concatenados**.
    **sobre el umbral**, comprobar que el operador ve la cadena **de operador**, que el vendedor **no recibe
    ningún correo** y que la solicitud sigue **`cotizada`**. Si alguna de las tres falla, el copy es lo de
    menos.
+
+---
+
+## 27. Copy de errores del **ciclo de oferta** del buylist — el que bloquea el release y los doce que no (v3.2)
+
+> **Qué es esta sección.** La continuación directa de §26, con **la misma convención de claves (§26.1), las
+> mismas tres reglas duras (§26.0) y las mismas prohibiciones (§26.6)**, aplicadas a **trece códigos más**
+> del ciclo de oferta. **Cero tokens, cero componentes, cero pares de contraste nuevos.** Significados,
+> `details` y remedios salen de `docs/API_CONTRACT.md` (**§M5-V**, §M5-A.6, §M5-ciclo, `POST
+> /admin/buylist/:id/offer`, `PATCH /admin/buylist/items/:itemId/decision`, `POST …/decline`,
+> `POST /buylist/requests/:id/respond`); **este documento no inventa reglas, las redacta.**
+
+### 27.0 Alcance, prioridad y orden de entrega — **léelo antes de cablear**
+
+| Lote | Claves | ¿Bloquea el release? | Por qué |
+|---|---|---|---|
+| **LOTE 1** | **`ITEMS_NOT_DECIDED`** (+1 opcional con conteo, +1 preventiva) | ⛔ **SÍ. Es lo único de §27 que bloquea** | Código **nuevo del contrato v1.61**. Se pinta **en la pantalla donde el súper-admin autoriza dinero**, y hoy sale **en inglés crudo del servidor** dentro de una UI en español |
+| **LOTE 2** | los **doce** restantes (14 claves, dos desdobles) | **No** | Llevan tiempo sin copy; el mecanismo de frontend ya los espera. **Dejarlos fuera garantiza que el operador siga leyendo inglés en su pantalla**, así que entran si no retrasan al lote 1 |
+
+**Frontend puede cablear el LOTE 1 sin leer el resto de §27.** Está entero en §27.1 y no depende de ninguna
+decisión del lote 2.
+
+**Destinatario, código por código** (aplica §26.1: *si el código **solo** existe en admin, la base **es** la
+del operador*):
+
+| Superficie | Códigos | Forma de la clave |
+|---|---|---|
+| **Solo admin** (11) | `ITEMS_NOT_DECIDED`, `OFFER_NOT_ALLOWED`, `OFFER_ALREADY_SENT`, `OFFER_LINES_MISMATCH`, `OFFER_LINE_NOT_PRICEABLE`, `OVERRIDE_REASON_REQUIRED`, `OFFER_NET_BELOW_MINIMUM`, `OFFER_PROJECTION_INCOMPLETE`, `ITEM_NOT_OFFERED`, `OFFERED_PRICE_MISSING`, `DECLINE_NOT_ALLOWED` | **la base es la del operador**; no hay `_OPERATOR` |
+| **Admin y cliente** (2) | `NO_LIVE_ADJUSTMENT`, `ADJUST_NOT_ALLOWED_IN_OFFER_CYCLE` | **base = cliente** + **`_OPERATOR`** |
+
+> **Selector de los dos desdobles — y NO es el problema de §26.3.** Aquí las dos variantes **salen de dos
+> endpoints distintos que llaman dos aplicaciones distintas**: el vendedor solo puede recibirlos desde
+> `POST /buylist/requests/:id/respond` (su portal) y el operador solo desde
+> `PATCH /admin/buylist/items/:itemId/decision` (verificación). **Regla normativa: en superficie admin se
+> resuelve SIEMPRE `_OPERATOR`; el bundle de cliente ni siquiera carga esa clave.** Esto **no** es inferir
+> por estado de pantalla (§26.3, petición 2 al arquitecto): es saber **qué aplicación hizo la llamada**, que
+> es un hecho del código, no una heurística. **No se pide discriminador en `details` para estos dos.**
+
+---
+
+### 27.1 ⛔ LOTE 1 — `ITEMS_NOT_DECIDED` (bloqueante; entrega independiente)
+
+**Qué es, según el contrato (§M5-V, `BL-45`) — y no se deduce del nombre.** `POST /admin/buylist/:id/pay-spei`
+rechaza el pago cuando, **dentro del ciclo de oferta**, queda al menos **una línea COMPRADA sin veredicto de
+verificación**. Existe porque **se podía pagar la oferta completa por cero cartas** —reproducido en vivo,
+**MX$320 por nada**— y porque una solicitud pagada sin veredictos deja la **mercancía imposible de convertir
+a inventario por ninguna ruta de la API**. Es, literalmente, **el paso del proceso que falta**: decidir cada
+carta comprada. `details: { sellRequestId, pendingDecisionItemIds: string[] }`; **no escribe nada y no paga**.
+
+⚠️ **Las líneas que NO compramos (`skip`) no llevan veredicto y no cuentan** — el servidor las excluye a
+propósito. Por eso el copy lo dice: sin esa media frase el operador sale a buscar cartas que **nunca** va a
+poder aprobar (`ITEM_NOT_OFFERED`, §27.2).
+
+#### 27.1.1 Las cadenas
+
+| Clave | ES | EN |
+|---|---|---|
+| `error.ITEMS_NOT_DECIDED` **(obligatoria)** | Antes de pagar hay que decidir cada carta que compramos, y en esta solicitud todavía quedan cartas sin decidir. Ve a la verificación y deja cada carta pendiente aprobada, o rechazada con su motivo; las que no compramos no llevan decisión. Cuando no quede ninguna, vuelve a pagar. No se guardó nada y no salió dinero. | Before paying, every card we bought has to be decided, and this request still has cards with no decision. Go to verification and leave each pending card approved, or rejected with a reason; the ones we did not buy need no decision. Once none are left, pay again. Nothing was saved and no money went out. |
+| `error.ITEMS_NOT_DECIDED_WITH_DETAILS` *(opcional, §27.1.2)* | Antes de pagar hay que decidir cada carta que compramos, y en esta solicitud {count, plural, one {queda # carta sin decidir} other {quedan # cartas sin decidir}}. Ve a la verificación y deja cada carta pendiente aprobada, o rechazada con su motivo; las que no compramos no llevan decisión. Cuando no quede ninguna, vuelve a pagar. No se guardó nada y no salió dinero. | Before paying, every card we bought has to be decided, and this request still has {count, plural, one {# card with no decision} other {# cards with no decision}}. Go to verification and leave each pending card approved, or rejected with a reason; the ones we did not buy need no decision. Once none are left, pay again. Nothing was saved and no money went out. |
+
+#### 27.1.2 De dónde sale `{count}` (normativo, y es el punto delicado)
+
+```
+count = details.pendingDecisionItemIds.length          ← la lista QUE MANDÓ EL SERVIDOR, en ESTE error
+```
+- **Se pinta `_WITH_DETAILS`** ⇔ `details.pendingDecisionItemIds` es un **array no vacío**. En cualquier otro
+  caso (ausente, no-array, vacío) ⇒ **se pinta la base**, jamás `{count}` crudo, `MISSING_MESSAGE` ni el
+  inglés del servidor. *La base dice lo mismo sin número y es una cadena completa por sí sola.*
+- ⛔ **NO se cuentan filas de la tabla para obtener el número.** §M5-V.5 lo prohíbe explícitamente: derivarlo
+  en el cliente metería **dos** reglas del servidor en el front (el set de estados «sin veredicto» **y** el
+  filtro de líneas compradas), y *la segunda es justo la que un lector se salta*. **Contar la longitud de una
+  lista que mandó el servidor no es derivar la regla: es leer su respuesta.** La distinción es la sección
+  entera.
+- ⛔ **En el banner de error NO se usa `pendingDecisionItemCount` del DTO.** Ese número es de **otra
+  pantalla y otro instante** (§27.1.4) y puede estar rancio respecto del `422` que se acaba de recibir. **El
+  error trae su propia cuenta; el DTO alimenta el estado preventivo.**
+
+#### 27.1.3 Por qué dice lo que dice (y no otra cosa)
+
+- **Abre por el paso que falta, no por el fallo.** *«Antes de pagar hay que decidir cada carta que
+  compramos»* enuncia **la regla del negocio** (`PROJECT.md` §P.5: *«dos desenlaces, no tres»*), no un
+  diagnóstico de avería. **No es un error del operador** —el botón estaba ahí— **ni un fallo del sistema**:
+  es trabajo pendiente. Por eso **no** se abre con *«El pago no salió»* (suena a caída) ni con *«No puedes
+  pagar»* (suena a permiso denegado). *La frase con la que empieza un mensaje decide si el lector busca a
+  quién llamar o dónde hacer clic.*
+- **Nombra la palanca y el sitio** (R-B): **la verificación**, y **los dos desenlaces exactos** —aprobada, o
+  rechazada **con su motivo**—. No dice «revisa las cartas»: revisar no es un acto que el sistema registre.
+- **Dice qué NO pasó, con las dos mitades** (R-C): *«No se guardó nada y **no salió dinero**»*. En la
+  pantalla del pago la segunda mitad es la que importa: sin ella, el súper-admin que ve un error tras pulsar
+  **Pagar** se queda sin saber si el SPEI salió, y **la reacción natural es no reintentar** (o peor: llamar
+  al banco).
+- **Excluye las `skip` en media frase.** *«Las que no compramos no llevan decisión»* evita el segundo error
+  encadenado (`ITEM_NOT_OFFERED`) y explica por qué el conteo puede ser **menor** que el número de líneas
+  que el operador ve sin decidir en la lista. *Un conteo que no cuadra con lo que se ve en pantalla es un
+  conteo que nadie vuelve a creer.*
+- **«Cuando no quede ninguna, vuelve a pagar»** cierra el bucle: el pago **no** se dispara solo al decidir la
+  última carta, y no prometemos que lo haga.
+- **Cero jerga** (prohibición 8 de §26.6): no aparecen *veredicto de verificación* como término técnico,
+  `offerDecision`, `itemStatus`, `pay-spei`, `422`, ni «invariante». **«Decidir» es el verbo que el operador
+  ya usa en esa pantalla.**
+
+#### 27.1.4 Dónde se pinta, y la cadena preventiva del botón apagado
+
+- **Superficie:** `Banner` `variant="danger"` (§7.5) **en el panel de pago del detalle de la solicitud en M5**
+  (`/admin/buylist/*`, visible solo a `super_admin`), **nunca un toast** (§8.3, dinero). `role="alert"`,
+  `aria-live="assertive"`, sin robar el foco, `aria-describedby` desde el botón que disparó el pago (§26.7).
+- ⚠️ **Este banner debería ser CASI inalcanzable, y aun así es obligatorio.** §M5-V.5 exige que
+  **`isPayable` refleje el término**, así que el botón de pagar tiene que estar **apagado** cuando falten
+  veredictos (*«un control activo que desinforma al que autoriza el dinero es peor que no tener control»*).
+  Se traduce igual **por la misma razón que `OFFER_PRICE_IMMUTABLE` en §26.4**: un error que solo aparece por
+  una carrera o por un defecto es **exactamente cuando más falta hace entenderlo**.
+- **Cadena preventiva (recomendada, no bloqueante) — la que explica el botón apagado.** Se alimenta de
+  **`AdminSellRequestDTO.pendingDecisionItemCount`** (server-side, admin-only). El nombre de la clave es de
+  frontend (`admin.m5.*`, §25.12); **el copy es de aquí**:
+
+| Clave (propuesta) | ES | EN |
+|---|---|---|
+| `admin.m5.pay.pendingDecisions` | {count, plural, one {Falta # carta por decidir} other {Faltan # cartas por decidir}} antes de poder pagar. | {count, plural, one {# card still needs a decision} other {# cards still need a decision}} before this can be paid. |
+
+  Va **debajo del botón de pagar deshabilitado**, en texto secundario (§3), y se referencia con
+  `aria-describedby` desde el botón — **un botón apagado sin motivo visible es un callejón**. Se muestra
+  ⇔ `pendingDecisionItemCount > 0`. ⛔ **No se calcula en el cliente** (§M5-V.5).
+
+---
+
+### 27.2 LOTE 2 — los doce códigos restantes del ciclo
+
+**A. Emisión de la oferta** — `POST /admin/buylist/:id/offer`. Todas se pintan en el **`Banner danger` del
+diálogo de emisión de la mesa (§25.6)**. Ninguna escribe nada.
+
+| Código | Qué pasó exactamente (contrato) | Palanca que nombra el texto |
+|---|---|---|
+| `OFFER_NOT_ALLOWED` (409) | la solicitud no está `cotizada` **y abierta** (`details: status, offerState`) | recargar y mirar el punto real; **cancelar la oferta viva** antes de emitir otra |
+| `OFFER_ALREADY_SENT` (409) | ya hay una oferta **enviada**. *Una oferta enviada **no se edita**: se cancela y se emite otra* (criterio 145) | **cancelar** (que es lo que manda el correo al vendedor) y **emitir de nuevo** |
+| `OFFER_LINES_MISMATCH` (422) | `lines` no cubre **exactamente** los ítems (`missingItemIds` / `unknownItemIds`) | **recargar** y marcar **cada** carta como comprada o no comprada |
+| `OFFER_LINE_NOT_PRICEABLE` (422) | línea `buy` **sin monto resoluble y sin override** (`details.itemIds`). **La oferta no sale a medias** — ⛔ nunca MX$0 | **precio a mano con su motivo**, o **marcarla como no comprada** |
+| `OVERRIDE_REASON_REQUIRED` (422) | hay precio a mano **distinto** del calculado y falta el motivo (3–500 car., `details.itemIds`). También cae aquí quien copió el calculado **y la curva se movió en medio** | **escribir el motivo**; y **revisar la cifra** si creía estar copiando el número calculado |
+| `OFFER_NET_BELOW_MINIMUM` (422) | el **neto** tras descontar la guía queda por debajo del mínimo (dial M10). `details` trae `grossShortfallCents` | **comprar más cartas** de la solicitud, o **declinarla**. ⛔ nunca «tocar la guía» |
+| `OFFER_PROJECTION_INCOMPLETE` (500) | **backstop**: no se pudo construir la oferta que vería el vendedor. **El operador no lo causó y no puede resolverlo**; no se emite, no se persiste, no sale correo, **ningún plazo empieza** | **reportar al equipo técnico** — ⛔ **no reintentar en bucle** |
+
+| Clave | ES | EN |
+|---|---|---|
+| `error.OFFER_NOT_ALLOWED` | Esta solicitud no está en punto de ofertar: solo se oferta una solicitud cotizada y abierta. Vuelve a cargarla para ver en qué punto está; si ya tiene una oferta viva, cancélala antes de emitir otra, y si ya cerró, no hay nada que ofertar. No se guardó nada. | This request is not at a point where an offer can be issued: only a quoted, open request can be offered. Reload it to see where it stands; if it already has a live offer, cancel that one before issuing another, and if it is already closed, there is nothing to offer. Nothing was saved. |
+| `error.OFFER_ALREADY_SENT` | Esta solicitud ya tiene una oferta enviada y el vendedor la tiene en sus manos. Una oferta enviada no se edita: si hay que cambiarla, cancélala —eso es lo que le avisa a él— y emite una nueva. No se guardó nada. | This request already has an offer out, and the seller has it in hand. An offer that has gone out is not edited: if it has to change, cancel it —that is what notifies the seller— and issue a new one. Nothing was saved. |
+| `error.OFFER_LINES_MISMATCH` | La oferta tiene que cubrir todas las cartas de la solicitud, ni una de más ni una de menos, y ésta no cuadra. Vuelve a cargar la solicitud, marca cada carta como comprada o no comprada, y emite otra vez. No se guardó nada. | An offer has to cover every card in the request, no more and no fewer, and this one does not match. Reload the request, mark every card as bought or not bought, and issue it again. Nothing was saved. |
+| `error.OFFER_LINE_NOT_PRICEABLE` | Hay cartas marcadas como compradas que se quedaron sin precio: no tenemos valor de mercado para ellas. Ponles un precio a mano con su motivo, o márcalas como no compradas; la oferta no sale a medias ni con precio cero. No se guardó nada y el vendedor no recibió aviso. | Some cards marked as bought were left with no price: we have no market value for them. Set a price by hand with its reason, or mark them as not bought; an offer does not go out half-priced or at zero. Nothing was saved and the seller was not notified. |
+| `error.OVERRIDE_REASON_REQUIRED` | Cambiaste el precio de una o más cartas respecto al calculado, y ese cambio lleva un motivo escrito (de 3 a 500 caracteres). Escríbelo en cada carta marcada y emite de nuevo. Si copiaste el precio calculado tal cual, revisa la cifra: pudo moverse mientras preparabas la oferta. No se guardó nada. | You changed the price of one or more cards from the calculated one, and that change needs a written reason (3 to 500 characters). Write it on each flagged card and issue the offer again. If you copied the calculated price as it was, check the figure: it may have moved while you were preparing the offer. Nothing was saved. |
+| `error.OFFER_NET_BELOW_MINIMUM` | Después de descontar la guía, al vendedor le quedaría menos del mínimo que manejamos, así que la oferta no salió. Compra más cartas de esta solicitud para subir el total, o declínala. No se guardó nada y el vendedor no recibió aviso. | After the shipping label is deducted, the seller would be left with less than our minimum, so the offer was not sent. Buy more cards from this request to raise the total, or decline it. Nothing was saved and the seller was not notified. |
+| `error.OFFER_PROJECTION_INCOMPLETE` | No pudimos armar la oferta que vería el vendedor, así que no se emitió nada. Esto no se corrige desde aquí: no se guardó nada, el vendedor no recibió aviso y ningún plazo empezó a correr. Repórtalo al equipo técnico con el número de solicitud, en vez de reintentar. | We could not build the offer the seller would see, so nothing was issued. This cannot be fixed from here: nothing was saved, the seller was not notified and no deadline started running. Report it to the tech team with the request number instead of retrying. |
+
+**B. Verificación carta por carta** — `PATCH /admin/buylist/items/:itemId/decision`. Se pintan en el
+**`Banner danger` de la fila/detalle de la carta**. Ninguna escribe nada.
+
+| Código | Qué pasó exactamente (contrato) | Palanca que nombra el texto |
+|---|---|---|
+| `ITEM_NOT_OFFERED` (422) | `approve` sobre una línea que **no compramos** (`skip` o sin decisión) dentro del ciclo | **ninguna sobre esa carta**: se deja como está. ⛔ **ni aprobarla con otro monto ni rechazarla** |
+| `OFFERED_PRICE_MISSING` (500) | **backstop**: línea `buy` **sin `offeredPriceCents`**. Viola un invariante que la emisión garantiza sin excepción ⇒ **el operador no lo causó** | **reportar al equipo técnico**. ⛔ **no «rescatar» con otro monto ni rechazar para salir del paso** |
+| `ADJUST_NOT_ALLOWED_IN_OFFER_CYCLE` (409) | `decision:"adjust"` dentro del ciclo — **ese verbo no existe aquí** (criterio 150) | los **dos** desenlaces: **aprobar tal como se ofertó** o **rechazar con su motivo** |
+| `NO_LIVE_ADJUSTMENT` (409) | la solicitud está en estado **terminal** (`pagada`, `rechazada`, `expirada`, `abandonada`) ⇒ no se toca ninguna de sus cartas | **escalar a un súper-admin**; desde la pantalla **no hay corrección** |
+
+⛔ **Los dos `409` ganan a todo lo demás de este endpoint** (precedencia del contrato: terminal ⇒
+`NO_LIVE_ADJUSTMENT` **gana** sobre `OFFER_PRICE_IMMUTABLE` y sobre `ADJUST_NOT_ALLOWED_IN_OFFER_CYCLE`).
+**El copy no repite la precedencia: cada cadena dice solo lo suyo.**
+
+| Clave | ES | EN |
+|---|---|---|
+| `error.ITEM_NOT_OFFERED` | Esta carta no entró en la compra: al emitir la oferta se marcó como no comprada, así que no se puede aprobar. Déjala como está —no la apruebes con otro monto ni la rechaces— y sigue con las cartas que sí compramos. No se guardó nada. | This card was not part of the purchase: it was marked as not bought when the offer went out, so it cannot be approved. Leave it as it is —do not approve it at some other amount and do not reject it— and move on to the cards we did buy. Nothing was saved. |
+| `error.OFFERED_PRICE_MISSING` | Esta carta se compró, pero no tiene registrado el precio que se ofertó, así que no se puede aprobar ni pagar. Es un fallo nuestro y no se corrige desde aquí: no la apruebes con otro monto ni la rechaces para salir del paso, porque eso le mandaría al vendedor un aviso falso. Repórtala al equipo técnico con el número de solicitud. No se guardó nada. | This card was bought, but the price we offered for it is not on record, so it cannot be approved or paid. This is on us and cannot be fixed from here: do not approve it at some other amount and do not reject it to move on, because that would send the seller a false notice. Report it to the tech team with the request number. Nothing was saved. |
+| `error.ADJUST_NOT_ALLOWED_IN_OFFER_CYCLE_OPERATOR` | En una solicitud con oferta enviada no existe ajustar el precio: los desenlaces son dos, aprobar la carta tal como se ofertó o rechazarla con su motivo. No se guardó nada. | In a request whose offer has already gone out, adjusting the price does not exist: there are two outcomes, approve the card exactly as offered or reject it with a reason. Nothing was saved. |
+| `error.NO_LIVE_ADJUSTMENT_OPERATOR` | Esta solicitud ya está cerrada —pagada, rechazada o vencida—, así que sus cartas ya no se tocan: ni la decisión ni el monto. Si algo quedó mal, escala la solicitud a un súper-admin; desde aquí no se corrige. No se guardó nada. | This request is already closed —paid, rejected or expired—, so its cards are not touched any more: neither the decision nor the amount. If something went wrong, escalate the request to a super-admin; it cannot be fixed from here. Nothing was saved. |
+
+**C. Las dos variantes de CLIENTE de los códigos desdoblados** — `POST /buylist/requests/:id/respond`
+(portal del vendedor). Se pintan **inline en el bloque de la solicitud**, como `PICKUP_ADDRESS_REQUIRED`
+(§25.3(j)). **Tono de cliente: sin «no se guardó nada»** —él no estaba guardando nada— **y sin escalados
+internos.**
+
+| Clave | ES | EN |
+|---|---|---|
+| `error.NO_LIVE_ADJUSTMENT` | Esta solicitud ya no tiene nada pendiente de tu respuesta: o ya respondiste, o ya cerró. Revisa su estado en tus ventas; si algo no te cuadra, escríbenos. | There is nothing left for you to respond to on this request: either you already answered, or it is closed. Check its status in your sales; if something does not look right, contact us. |
+| `error.ADJUST_NOT_ALLOWED_IN_OFFER_CYCLE` | Lo que te enviamos es una oferta de compra, no un ajuste de precio: respóndela desde el correo de la oferta o desde tus ventas, aceptándola o rechazándola completa. | What we sent you is a purchase offer, not a price adjustment: respond to it from the offer email or from your sales, accepting or declining it as a whole. |
+
+**D. Cierre de la solicitud** — `POST /admin/buylist/:id/decline`. `Banner danger` en el detalle de M5.
+
+| Clave | ES | EN |
+|---|---|---|
+| `error.DECLINE_NOT_ALLOWED` | Esta solicitud no se puede declinar en el punto en que está. Si ya tiene una oferta enviada, la vía es cancelar la oferta, que es el aviso que le corresponde al vendedor; si ya cerró, no hay nada que declinar. Vuelve a cargarla para ver su estado. No se guardó nada. | This request cannot be declined at the point it is in. If an offer has already gone out, the way is to cancel that offer, which is the notice the seller should get; if it is already closed, there is nothing to decline. Reload it to see its status. Nothing was saved. |
+
+### 27.3 Opcionales con cifras (`_WITH_DETAILS`) — misma regla que §26.5
+
+**No son obligatorias.** Se implementan **solo** si el `DETAILED_ERRORS` de `useErrorMessage` ya sabe
+formatear ese `details`; si falta cualquier dato, **se pinta la base** (nunca `MX$ undefined` ni `{count}`
+crudo). Montos con §9.3 (centavos → `MX$ 1,250.00`), **nunca concatenados**.
+
+| Clave | ES | EN |
+|---|---|---|
+| `error.ITEMS_NOT_DECIDED_WITH_DETAILS` | *(ver §27.1.1 — es la única opcional del lote bloqueante)* | *(ídem)* |
+| `error.OFFER_NET_BELOW_MINIMUM_WITH_DETAILS` | Después de descontar la guía, al vendedor le quedaría menos del mínimo que manejamos: faltan {shortfallAmount} de compra para poder emitir, así que la oferta no salió. Compra más cartas de esta solicitud, o declínala. No se guardó nada y el vendedor no recibió aviso. | After the shipping label is deducted, the seller would be left with less than our minimum: the purchase is {shortfallAmount} short of what it takes to issue, so the offer was not sent. Buy more cards from this request, or decline it. Nothing was saved and the seller was not notified. |
+
+- **`{shortfallAmount}` = `details.grossShortfallCents` formateado.** Es **exactamente** el número que el
+  contrato calculó *«para el copy»* y **es la palanca en cifras**: dice cuánto más hay que comprar. ⛔ **No se
+  interpolan `grossCents`, `netCents` ni `minimumNetCents`**: tres números en un banner de dinero se leen
+  peor que uno, y solo uno responde *«¿cuánto me falta?»*.
+- **⛔ Nada de cifras en las cadenas de emisión restantes.** `OFFER_LINES_MISMATCH` y
+  `OFFER_LINE_NOT_PRICEABLE` traen **listas de ids**: los ids **no se pintan nunca** (§26.6, prohibición 8) y
+  un conteo ahí no cambia la acción —el operador ve las cartas marcadas en el mismo diálogo—. *En
+  `ITEMS_NOT_DECIDED` el conteo sí sirve porque el trabajo está **en otra pantalla**.*
+
+### 27.4 Reglas heredadas, longitud y prohibiciones nuevas
+
+- **§27 hereda íntegras** las tres reglas duras (§26.0), la convención de claves (§26.1), la lista de
+  prohibiciones (§26.6) y las reglas de superficie/accesibilidad (§26.7). **No se repiten aquí.**
+- **Cierre obligatorio de rechazo sin escritura** (R-C): todas las de operador terminan en **«No se guardó
+  nada.»** / “Nothing was saved.”; **`ITEMS_NOT_DECIDED` añade «y no salió dinero»** (es la única que se
+  dispara con el dedo sobre el botón de pagar), y **las tres de emisión que el operador puede confundir con
+  una oferta ya enviada** (`OFFER_LINE_NOT_PRICEABLE`, `OFFER_NET_BELOW_MINIMUM`,
+  `OFFER_PROJECTION_INCOMPLETE`) añaden **«y el vendedor no recibió aviso»**, igual que
+  `INE_REQUIRED_OPERATOR` en §26.2.
+- **Longitud (§9.4).** La más larga de §27 es **`error.OFFERED_PRICE_MISSING` (≈ 340 car. ES / ≈ 350 EN)**,
+  seguida de `ITEMS_NOT_DECIDED_WITH_DETAILS` (≈ 330 / ≈ 330). **Superan a `INE_REQUIRED_OPERATOR`, que §26.7
+  daba como tope: el contenedor del banner se dimensiona ahora por éstas, y por EN.** **Sin alto fijo, sin
+  `line-clamp`, sin «ver más»** — *la mitad que se corta es siempre la del remedio, que va al final*.
+- **Prohibiciones NUEVAS** (se suman a las diez de §26.6; misma lista cerrada revisable en PR):
+
+  11. ⛔ **Sugerir «paga ahora y decide después»**, o cualquier orden que insinúe que los veredictos se pueden
+      dar tras el pago. **No existe:** los ítems se sellan al cerrar la solicitud y después **solo queda
+      escribir en la base a mano**.
+  12. ⛔ **Mandar a rechazar una carta para desbloquear algo** (un pago, un conteo, una pantalla). `rechazada`
+      **ancla los plazos de devolución y manda un correo por carta al vendedor**: usarlo para cuadrar un
+      predicado le manda al vendedor **un aviso falso**.
+  13. ⛔ **Decir «reintenta» en los dos `500`** (`OFFER_PROJECTION_INCOMPLETE`, `OFFERED_PRICE_MISSING`). El
+      operador no los causó y no los puede resolver: el acto correcto es **reportar**. *Un backstop que
+      invita a reintentar se vuelve parte del flujo.*
+  14. ⛔ **Culpar al operador en los dos `500`** — y, en el mismo movimiento, ⛔ **culparlo en
+      `ITEMS_NOT_DECIDED`**, que **no es un fallo ni un descuido**: con M-46 el ciclo feliz **termina en
+      verificación**, así que las líneas sin decidir son **el estado por defecto de no haber terminado
+      todavía**, no un error de nadie.
+  15. ⛔ **Derivar el conteo en el cliente** (§27.1.2), y ⛔ **pintar ids** (`pendingDecisionItemIds`,
+      `missingItemIds`, `unknownItemIds`, `itemIds`) en superficie visible.
+
+### 27.5 Paridad ES/EN y verificación
+
+1. **Paridad estricta: 15 claves obligatorias** en `es.json` **y** `en.json` con el mismo árbol — 11 bases de
+   admin, 2 bases de cliente y 2 `_OPERATOR`. Las de sufijo **se añaden a mano a los dos catálogos** (no se
+   derivan de ningún código del contrato). Opcionales: 2. Preventiva: 1.
+2. **El defecto que cierra el lote 1, por lo negativo:** `grep -R "Payment requires a verification verdict"
+   frontend/` ⇒ **cero resultados**, y **ningún E2E de admin puede afirmar inglés de servidor** en el panel de
+   pago (misma regla que §26.8.5).
+3. **Plural del conteo:** provocar `ITEMS_NOT_DECIDED` con **1** línea pendiente y con **3**, en ES y en EN, y
+   comprobar las cuatro formas. Con `details` **sin** `pendingDecisionItemIds` ⇒ **sale la base**, no
+   `MISSING_MESSAGE`.
+4. **Coherencia conteo ↔ realidad:** en una oferta **con cherry-pick** (líneas `skip`) y **una sola** línea
+   comprada sin decidir, el banner dice **1** aunque en la lista se vean varias filas sin veredicto. *Si dice
+   otra cosa, el número se está derivando en el cliente.*
+5. **El preventivo gana al banner:** con `pendingDecisionItemCount > 0`, el botón de pagar está **apagado** y
+   se ve la cadena de §27.1.4. **En el camino normal el operador nunca debería llegar al banner** (assert 8
+   de §M5-V.8). Si lo ve en un E2E sin carrera, **es un defecto de frontend**, no de copy.
+6. **Los doce del lote 2:** provocar cada uno en staging y comprobar que el banner sale **en el idioma de la
+   sesión**. *(Misma verificación honesta de §26.8.3: verlo en pantalla.)*
+
+### 27.6 Notas a otros roles (**ninguna bloquea el lote 1**)
+
+1. **Frontend — el lote 1 es autocontenido.** Una clave obligatoria, una opcional y una preventiva; el
+   `{count}` sale de `details.pendingDecisionItemIds.length` y **de nada más** (§27.1.2). Si tu
+   `DETAILED_ERRORS` aún no compone `_WITH_DETAILS` sobre este código, **se omite sin deuda**: la base es una
+   cadena completa.
+2. **Frontend — orden de resolución de los dos desdobles.** En superficie admin, `_OPERATOR` se resuelve
+   **antes** que la base, y **la clave `_OPERATOR` no viaja al bundle de cliente**. No hace falta mirar
+   `details` para elegir (§27.0).
+3. **⚠ Arquitecto — confirmación (no petición): ¿`pendingDecisionItemCount` viaja en el DTO que ya pide la
+   pantalla de pago?** §M5-V.5 lo declara en `AdminSellRequestDTO` (admin-only). Si el panel de pago se
+   alimenta de un DTO de **lista** que no lo trae, la cadena preventiva de §27.1.4 no se puede pintar y el
+   operador vuelve a un botón apagado sin motivo. **No bloquea el copy; sí bloquea el preventivo.**
+4. **⚠ Arquitecto / PO — `ITEM_NOT_OFFERED` no puede decirle al operador qué pasa con esas cartas.** El copy
+   dice *«déjala como está»* y **se para ahí a propósito**: no consta en el contrato qué recorrido físico
+   siguen las líneas `skip` (§H ancla los relojes de devolución sobre las **rechazadas**). Si esas cartas se
+   devuelven con el mismo envío, **media frase más cierra el mensaje** —y también la pregunta que el operador
+   le va a hacer al vendedor por teléfono—. **No bloquea.**
+5. **PO — dos frases que definen comportamiento de mesa, no diseño.** *«escala la solicitud a un
+   súper-admin»* (`NO_LIVE_ADJUSTMENT_OPERATOR`, misma frase ratificada en §26.3) y *«Repórtalo al equipo
+   técnico con el número de solicitud»* (los dos `500`): la segunda **supone que existe un canal de reporte
+   con nombre**. Si se llama de otra forma en la operación real, **es un cambio de dos palabras** en cuatro
+   cadenas.
+6. **QA — el assert de copy que vale, y no es de i18n:** montar el ciclo, **no decidir ninguna línea**, pulsar
+   pagar y comprobar **las tres cosas a la vez**: que el banner está **en español**, que el número coincide
+   con las líneas **compradas** sin veredicto (⛔ **no** con todas las líneas sin veredicto: las `skip` no
+   cuentan) y que **no salió dinero** (`paidAt`, `speiReference`, `payoutNetCents` intactos). *Si el número
+   cuenta las `skip`, el copy es correcto y el cableado no.*

@@ -6,6 +6,8 @@ import { UsersService } from '../src/modules/users/users.service';
 import { PiiCryptoService } from '../src/common/crypto/pii-crypto.service';
 import { BusinessException } from '../src/common/business.exception';
 import { ConfigService } from '@nestjs/config';
+// ⚠️ v1.61.1 · B1 — el `where` se afirma EVALUÁNDOLO, no por la forma de sus claves planas.
+import { matchesWhere } from './helpers/prisma-where';
 
 /**
  * v1.51.22 · **B-2 — `paySpei` DERIVABA EL IMPORTE DE UNA LECTURA FUERA DE LA TRANSACCIÓN.**
@@ -91,6 +93,10 @@ const PAGABLE = (over: Row = {}): Row => ({
   id: 'sr-1',
   userId: 'u1',
   status: 'aprobada',
+  // ⚠️ v1.56 · §M5-T — las dos columnas de la SEGUNDA red. Van en el fixture porque el `where` las
+  // afirma: sin ellas, evaluarlo sobre esta fila daría `false` por la razón equivocada.
+  paidAt: null,
+  closedAt: null,
   // ⚠️ v1.57 · §M5-P — «pagable» son TRES términos: sin `receivedAt` esta fila ya no lo es, y esta
   // suite dejaría de probar el CAS del importe (todo caería antes, en la guarda de recepción).
   receivedAt: new Date(),
@@ -171,18 +177,35 @@ describe('B-2 — el CAS sobre el importe vive en el `where` del motor', () => {
       }),
     });
     await h.svc.paySpei('sr-1', 'SPEI-1', 'admin');
-    expect(h.writes[0].where).toMatchObject({
-      id: 'sr-1',
-      // Los TRES términos de `payableWhere()` siguen ahí: el CAS AMPLÍA la guarda, no la sustituye.
-      status: { in: expect.any(Array) },
-      receivedAt: { not: null },
-      verifiedAt: { not: null },
-      // Los TRES términos de `brutoConsumado` + la tarifa que produce `payoutNetCents`.
+    const w = h.writes[0].where;
+    // ⚠️⚠️ v1.61.1 · **B1 — se afirma el `where` COMPUESTO, evaluándolo.** Esto era un
+    // `toMatchObject` sobre claves planas, y eso **no ve un fragmento perdido en la composición**:
+    // con el spread, la clave `approvedTotalCents` seguía en el objeto —con el valor del CAS— y V-a
+    // no llegaba al motor. Aquí se comprueba la conducta: la fila releída casa, y **mover
+    // cualquiera de las cuatro columnas de dinero la descasa**, que es lo que el CAS significa.
+    const releida = PAGABLE({
       approvedTotalCents: 120_000,
       offerGrossCents: 130_000,
       quotedTotalCents: 140_000,
       offerShippingFeeCents: 18_000,
     });
+    expect(matchesWhere(releida, w)).toBe(true);
+    // Los TRES términos de `payableWhere()` siguen ahí: el CAS AMPLÍA la guarda, no la sustituye.
+    expect(matchesWhere({ ...releida, status: 'cotizada' }, w)).toBe(false);
+    expect(matchesWhere({ ...releida, receivedAt: null }, w)).toBe(false);
+    expect(matchesWhere({ ...releida, verifiedAt: null }, w)).toBe(false);
+    // Los TRES términos de `brutoConsumado` + la tarifa que produce `payoutNetCents`.
+    for (const columna of [
+      'approvedTotalCents',
+      'offerGrossCents',
+      'quotedTotalCents',
+      'offerShippingFeeCents',
+    ] as const) {
+      expect({ columna, casa: matchesWhere({ ...releida, [columna]: 999_999 }, w) }).toEqual({
+        columna,
+        casa: false,
+      });
+    }
   });
 
   it('los `null` viajan como `null` (IS NULL), no se omiten del `where`', async () => {
@@ -191,14 +214,15 @@ describe('B-2 — el CAS sobre el importe vive en el `where` del motor', () => {
     // ⚠️ v1.61 · §M5-V (V-a): `approvedTotalCents` ya **no puede** ser `null` en una fila que se
     // paga, así que el `null` se afirma sobre las DOS columnas del ciclo que sí lo son en la cohorte
     // pre-M-46 — que es justo donde este CAS importa.
-    const h = harness({ outer: PAGABLE({ approvedTotalCents: 100_000, quotedTotalCents: 100_000 }) });
+    const fila = PAGABLE({ approvedTotalCents: 100_000, quotedTotalCents: 100_000 });
+    const h = harness({ outer: fila });
     await h.svc.paySpei('sr-1', 'SPEI-1', 'admin');
-    expect(h.writes[0].where).toMatchObject({
-      approvedTotalCents: 100_000,
-      offerGrossCents: null,
-      offerShippingFeeCents: null,
-      quotedTotalCents: 100_000,
-    });
+    const w = h.writes[0].where;
+    expect(matchesWhere(fila, w)).toBe(true);
+    // Si el `null` se hubiera omitido del `where`, el CAS de esa columna sería «cualquier valor» y
+    // esta fila —con la columna MOVIDA— casaría igual. Evaluado, no supuesto.
+    expect(matchesWhere({ ...fila, offerGrossCents: 130_000 }, w)).toBe(false);
+    expect(matchesWhere({ ...fila, offerShippingFeeCents: 18_000 }, w)).toBe(false);
   });
 
   it('⚠️ CAS FALLIDO ⇒ `409 CONFLICT` y NO sale un peso', async () => {

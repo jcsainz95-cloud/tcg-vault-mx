@@ -844,7 +844,12 @@ describe('E2E — Ciclo de adquisición del buylist (§6 · §M5)', () => {
           token: adminToken,
           json: { speiReference: 'SPEI-EJE2-REMEDIADA' },
         });
-        expect([200, 201]).toContain(paid.status);
+        // ⚠️ v1.61.1 · **MENOR-3 (QA)** — era `expect([200, 201]).toContain(...)`, y esa laxitud
+        // **garantiza que nadie note el día que eso cambie**: §M5-C / `BL-37` declara `200` para
+        // TODO `POST` del ciclo que opera sobre una solicitud existente, y `pay-spei` fue
+        // precisamente el endpoint que respondía `201` contra una tabla normativa. *Un rango de
+        // aceptación en el verbo del dinero convierte una regresión de contrato en un no-evento.*
+        expect(paid.status).toBe(200);
         const row = await h.prisma.sellRequest.findUnique({ where: { id: nuncaRecibidaId } });
         expect(row!.status).toBe('pagada');
         expect(row!.speiReference).toBe('SPEI-EJE2-REMEDIADA');

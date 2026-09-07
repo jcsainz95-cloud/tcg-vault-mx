@@ -1289,6 +1289,9 @@
       "reject": "Reject",
       "convert": "Convert to inventory",
       "paySpei": "Pay via SPEI",
+      "pay": {
+        "pendingDecisions": "{count, plural, one {# card still needs a decision} other {# cards still need a decision}} before this can be paid."
+      },
       "cherryPick": "Card-by-card decision",
       "tabs": {
         "por_ofertar": "To offer",
@@ -2824,6 +2827,8 @@
     "PICKUP_ADDRESS_LOCKED": "This address can no longer be changed: your shipping label is already printed with it, or the request is closed. If something is wrong, contact us before you send the parcel.",
     "PICKUP_ADDRESS_LOCKED_OPERATOR": "This address can no longer be edited: the label went out printed with it, or the request is closed. If the address is wrong, that label has to be cancelled and a new one issued; it cannot be done from here. Nothing was saved.",
     "OFFER_PRICE_IMMUTABLE": "This card's price was frozen when the offer went out and is now binding: no amount travels from this screen. Approve it as it is; if it did not arrive as offered, reject it with a reason. Nothing was saved.",
+    "ITEMS_NOT_DECIDED": "Before paying, every card we bought has to be decided, and this request still has cards with no decision. Go to verification and leave each pending card approved, or rejected with a reason; the ones we did not buy need no decision. Once none are left, pay again. Nothing was saved and no money went out.",
+    "ITEMS_NOT_DECIDED_WITH_DETAILS": "Before paying, every card we bought has to be decided, and this request still has {count, plural, one {# card with no decision} other {# cards with no decision}}. Go to verification and leave each pending card approved, or rejected with a reason; the ones we did not buy need no decision. Once none are left, pay again. Nothing was saved and no money went out.",
     "ITEM_NOT_APPROVED": "Only an approved item can be converted to inventory.",
     "CLABE_UNAVAILABLE": "No CLABE available for this request (no snapshot and no KYC record).",
     "ITEM_NOT_ADJUSTABLE": "This piece can't be adjusted in its current status.",

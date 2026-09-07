@@ -889,6 +889,27 @@ export function M5View() {
           // `=== true` por lo mismo que `isTerminal === false`, y con más razón: si el campo
           // faltara, el botón que sobra es un **botón de pago**.
           const canPay = isSuperAdmin && req.isPayable === true;
+          // ⚠️ **POR QUÉ el botón está apagado** (contrato §M5-V.5, v1.61). `isPayable` dice *si*
+          // se puede pagar; este número dice **qué falta y a dónde ir** — sin él, el súper-admin
+          // se queda delante de un control muerto sin explicación, que es la mitad del defecto que
+          // §M5-P llamó ALTA («un control que desinforma al que autoriza el dinero»).
+          //
+          // ⛔ **NO se cuenta aquí**, aunque `req.items` esté a mano: el set de estados «sin
+          // veredicto» ES la regla, y transcribirlo sería la SÉPTIMA copia de un set de estados en
+          // un flujo de dinero — exactamente lo que `isTerminal` e `isPayable` vinieron a borrar.
+          // Y llevaría **dos** reglas, no una: la lista de estados **y** el filtro `offerDecision
+          // = 'buy'` (las `skip` no cuentan). *La segunda es justo la que un lector se salta.*
+          //
+          // `?? 0` porque el campo es ADITIVO (backend primero, frontend después): contra un
+          // backend anterior a v1.61 no se pinta nada, en vez de «faltan undefined cartas».
+          // El copy es NORMATIVO (DESIGN_SYSTEM §27.1.4, «la cadena preventiva del botón
+          // apagado»); la clave es de frontend. Se muestra ⇔ `pendingDecisionItemCount > 0`.
+          const pendingDecisions = req.pendingDecisionItemCount ?? 0;
+          const pendingDecisionsNote =
+            pendingDecisions > 0 ? t('pay.pendingDecisions', { count: pendingDecisions }) : undefined;
+          // §27.1.4: *«un botón apagado sin motivo visible es un callejón»* — el motivo se pinta
+          // debajo y el botón lo REFERENCIA, para que el lector de pantalla lo anuncie con él.
+          const pendingDecisionsId = `pay-pending-${req.id}`;
           // Solo se muestran las acciones de la ETAPA actual de la solicitud:
           //  - decidir carta (aprobar/ajustar/rechazar) solo tras recibir/verificar;
           //  - revelar CLABE / pagar SPEI solo en verificación o por-pagar.
@@ -1121,35 +1142,44 @@ export function M5View() {
 
               {/* Acciones de dinero saliente: solo en la etapa de verificación / por-pagar. */}
               {showMoneyOut && (
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <span className="text-xs text-muted">{tm('moneyOutNote')}</span>
-                  <div className="flex flex-wrap gap-2">
-                    {revealed?.requestId === req.id ? (
-                      <Button size="sm" variant="ghost" onClick={() => setRevealed(null)}>
-                        {t('hideClabe')}
-                      </Button>
-                    ) : (
+                <div className="flex flex-col gap-2">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <span className="text-xs text-muted">{tm('moneyOutNote')}</span>
+                    <div className="flex flex-wrap gap-2">
+                      {revealed?.requestId === req.id ? (
+                        <Button size="sm" variant="ghost" onClick={() => setRevealed(null)}>
+                          {t('hideClabe')}
+                        </Button>
+                      ) : (
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          disabled={!isSuperAdmin}
+                          title={!isSuperAdmin ? tm('masked') : undefined}
+                          loading={revealMutation.isPending && revealMutation.variables === req.id}
+                          onClick={() => revealMutation.mutate(req.id)}
+                        >
+                          {t('revealClabe')}
+                        </Button>
+                      )}
                       <Button
+                        variant="accent"
                         size="sm"
-                        variant="secondary"
-                        disabled={!isSuperAdmin}
-                        title={!isSuperAdmin ? tm('masked') : undefined}
-                        loading={revealMutation.isPending && revealMutation.variables === req.id}
-                        onClick={() => revealMutation.mutate(req.id)}
+                        disabled={!canPay || req.status === 'pagada'}
+                        title={!isSuperAdmin ? tm('masked') : pendingDecisionsNote}
+                        aria-describedby={pendingDecisionsNote ? pendingDecisionsId : undefined}
+                        onClick={() => openPay(req.id)}
                       >
-                        {t('revealClabe')}
+                        {t('paySpei')}
                       </Button>
-                    )}
-                    <Button
-                      variant="accent"
-                      size="sm"
-                      disabled={!canPay || req.status === 'pagada'}
-                      title={!isSuperAdmin ? tm('masked') : undefined}
-                      onClick={() => openPay(req.id)}
-                    >
-                      {t('paySpei')}
-                    </Button>
+                    </div>
                   </div>
+                  {/* §M5-V.5 + §27.1.4: POR QUÉ está apagado, en texto secundario y bajo el botón. */}
+                  {pendingDecisionsNote && (
+                    <p id={pendingDecisionsId} className="text-xs text-muted sm:text-right">
+                      {pendingDecisionsNote}
+                    </p>
+                  )}
                 </div>
               )}
 

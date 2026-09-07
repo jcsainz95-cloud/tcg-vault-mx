@@ -3469,10 +3469,23 @@ export async function paySpeiBuylist(id: string, speiReference: string): Promise
     });
   }
   const req = mockFindBuylistRequest(id);
-  // MOCK · §M5-P (v1.57): la precondición son **TRES** términos (`status ∈ PAYABLE ∧ receivedAt !=
-  // null ∧ verifiedAt != null`) y se pregunta por la MISMA vía que el DTO (`isPayable`), no por una
-  // tercera lista de estados. Por eso esta guarda **heredó el tercer término sin tocarse**: es la
-  // propiedad que hace que «tres lectores, una regla» sea verificable y no una intención.
+  // MOCK · §M5-V.0 (v1.61): la precondición son **CINCO** términos y se pregunta por la MISMA vía
+  // que el DTO (`isPayable`), no por una tercera lista de estados. Por eso esta guarda **ha
+  // heredado el tercero (v1.57) y los dos de v1.61 sin tocarse**: es la propiedad que hace que
+  // «tres lectores, una regla» sea verificable y no una intención.
+  //
+  // ⚠️ **LA ESCALERA ES NORMATIVA** (§M5-V.6): `ITEMS_NOT_DECIDED` va **ARRIBA** de la genérica
+  // aunque V-a también falle, y no es cosmética — cuando faltan veredictos, **decidirlos es el
+  // acto que satisface los dos términos**; el mensaje genérico mandaría al operador a revisar el
+  // estado y la recepción, que están bien, en vez de a la pantalla donde está el trabajo.
+  const pendingDecisionItemIds = fx.mockPendingDecisionItemIds(req);
+  if (req.offerSentAt != null && pendingDecisionItemIds.length > 0) {
+    throw new ApiClientError(422, {
+      code: 'ITEMS_NOT_DECIDED',
+      message: 'Payment requires a verification verdict on every purchased line',
+      details: { sellRequestId: id, pendingDecisionItemIds },
+    });
+  }
   if (!fx.mockAdminBuylistDTO(req).isPayable) {
     throw new ApiClientError(422, {
       code: 'VALIDATION_ERROR',

@@ -14,6 +14,10 @@ import {
   isPayableSellRequest,
   SELL_REQUEST_PAYABLE_STATES,
 } from '../src/common/sell-request-states';
+// ⚠️ v1.61.1 · B1 — el evaluador es COMPARTIDO y entiende `AND`/`OR`/`NOT`. El local de esta suite
+// no sabía leer un fragmento conjugado, y por eso el `where` de `pay-spei` sólo se podía aseverar
+// aquí por la FORMA de sus claves planas — que es exactamente por donde se coló B1.
+import { matchesCond, matchesWhere } from './helpers/prisma-where';
 
 /**
  * `buylist.m5p-received-guard.spec.ts` — **INVARIANTE P (API_CONTRACT §M5-P, v1.57): «NO SE PAGA LO
@@ -54,6 +58,10 @@ type Row = Record<string, any>;
 
 const RECIBIDA = new Date('2026-09-02T00:00:00Z');
 const VERIFICADA = new Date('2026-09-03T00:00:00Z');
+/** Todo lo que NO es pagable: el complemento se deriva de la constante, no se enumera a mano. */
+const ALL_NO_PAGABLES = Object.values(SellRequestStatus).filter(
+  (s) => !(SELL_REQUEST_PAYABLE_STATES as readonly SellRequestStatus[]).includes(s),
+);
 
 function baseRow(over: Row = {}): Row {
   return {
@@ -78,17 +86,6 @@ function baseRow(over: Row = {}): Row {
   };
 }
 
-/** Evalúa una condición Prisma escalar / `{in}` / `{notIn}` / `{not}` contra un valor. */
-function matches(value: unknown, cond: unknown): boolean {
-  if (cond !== null && typeof cond === 'object' && !(cond instanceof Date)) {
-    const c = cond as Record<string, unknown>;
-    if ('in' in c) return (c.in as unknown[]).includes(value);
-    if ('notIn' in c) return !(c.notIn as unknown[]).includes(value);
-    if ('not' in c) return c.not === null ? value !== null : value !== c.not;
-    throw new Error(`condición no soportada en el where: ${JSON.stringify(cond)}`);
-  }
-  return value === cond;
-}
 
 /**
  * Prisma de mentira con **UNA fila mutable** que **evalúa el `where`** de cada `updateMany`.
@@ -107,8 +104,7 @@ function harness(row: Row, opts: { staleFirstRead?: Row } = {}) {
   const state: Row = { ...row };
   const writes: { where: Row; data: Row }[] = [];
   let reads = 0;
-  const evalWhere = (where: Row): boolean =>
-    Object.entries(where).every(([k, cond]) => matches(state[k], cond));
+  const evalWhere = (where: Row): boolean => matchesWhere(state, where);
 
   const prisma: any = {
     sellRequest: {
@@ -184,7 +180,13 @@ describe('⚠️⚠️ §M5-P · BL-35 eje 2 — el PoC: pagar mercancía que NU
     expect(err).toBeInstanceOf(BusinessException);
     // El pre-check pasó ⇒ se abrió la transacción y el `updateMany` corrió… y no casó ninguna fila.
     expect(statusWrite(h.writes)).toBeDefined();
-    expect(statusWrite(h.writes)!.where).toMatchObject({ receivedAt: { not: null } });
+    // ⚠️ v1.61.1 · **B1** — esto era `toMatchObject({ receivedAt: { not: null } })`, y una forma de
+    // claves planas **no prueba que el término llegue al motor**: el `where` se compone de
+    // fragmentos, y un fragmento se puede perder sin que su clave desaparezca del objeto. Se afirma
+    // EVALUANDO el `where` que corrió: esta fila (sin recepción) no casa, y la misma fila CON
+    // recepción sí — o sea, `receivedAt` es lo único que la rechaza.
+    expect(matchesWhere(h.state, statusWrite(h.writes)!.where)).toBe(false);
+    expect(matchesWhere({ ...h.state, receivedAt: RECIBIDA }, statusWrite(h.writes)!.where)).toBe(true);
     expect(h.state.status).toBe('verificacion');
     expect(h.state.speiReference).toBeNull();
     expect(h.state.paidAt).toBeNull();
@@ -199,14 +201,26 @@ describe('⚠️⚠️ §M5-P · BL-35 eje 2 — el PoC: pagar mercancía que NU
     });
   });
 
-  it('el `where` del `updateMany` afirma LOS TRES términos, no dos', async () => {
+  it('el `where` del `updateMany` afirma LOS TRES términos, no dos — Y SE COMPRUEBA EVALUÁNDOLO', async () => {
+    // ⚠️⚠️ v1.61.1 · **B1 — POR QUÉ ESTE TEST YA NO MIRA LA FORMA.** Antes hacía
+    // `toMatchObject({ status, receivedAt, verifiedAt })` sobre las claves planas del `where`. Eso
+    // pasa igual **aunque un fragmento se haya perdido en la composición**, que es literalmente lo
+    // que ocurrió con V-a (`approvedTotalCents: { not: null }`): la clave seguía en el objeto, pero
+    // con el valor del CAS, porque *en un objeto literal la clave posterior gana sobre el spread*.
+    // Ahora se afirma lo que el motor haría: mover UN término ⇒ la fila deja de casar.
+    // ⚠️ El eje `approvedTotalCents` (V-a) **no se puede medir aquí sin máscara** —el CAS de B-2 lo
+    // taparía— y por eso vive en `buylist.pay-spei-where-composition.spec.ts`, con el `where` de una
+    // corrida en la que el CAS vale `null`.
     const h = harness(baseRow());
     await h.svc.paySpei('sr-1', 'SPEI-OK', 'admin');
-    expect(statusWrite(h.writes)!.where).toMatchObject({
-      status: { in: [...SELL_REQUEST_PAYABLE_STATES] },
-      receivedAt: { not: null },
-      verifiedAt: { not: null },
-    });
+    const w = statusWrite(h.writes)!.where;
+    const fila = baseRow({ status: 'verificacion' });
+    expect(matchesWhere(fila, w)).toBe(true);
+    for (const status of ALL_NO_PAGABLES) {
+      expect({ status, casa: matchesWhere(baseRow({ status }), w) }).toEqual({ status, casa: false });
+    }
+    expect(matchesWhere(baseRow({ receivedAt: null }), w)).toBe(false);
+    expect(matchesWhere(baseRow({ verifiedAt: null }), w)).toBe(false);
   });
 
   it('el camino feliz NO se rompe: recibida + verificada SÍ liquida', async () => {
@@ -296,7 +310,7 @@ describe('§M5-P · el aviso de la UI y la guarda del motor NO pueden discrepar 
           for (const approvedTotalCents of [null, 0, 50000]) {
             const fila = { status, receivedAt, verifiedAt, approvedTotalCents };
             const porElWhere = Object.entries(w).every(([k, cond]) =>
-              matches(fila[k as keyof typeof fila], cond),
+              matchesCond(fila[k as keyof typeof fila], cond),
             );
             expect({ status, r: !!receivedAt, v: !!verifiedAt, a: approvedTotalCents, porElWhere }).toEqual({
               status,

@@ -2368,27 +2368,32 @@ export interface AdminBuylistDTO {
    */
   isTerminal: boolean;
   /**
-   * v1.51.8 (§4.39c **sitio 10**) · ⚠️ **v1.57 (§M5-P) — TRES TÉRMINOS.**
+   * v1.51.8 (§4.39c **sitio 10**) · ⚠️ **v1.61 ([§M5-V](docs/API_CONTRACT.md)) — CINCO TÉRMINOS.**
    * **DERIVADO SERVER-SIDE. DINERO SALIENTE. ADMIN-ONLY.**
    * ```
    * isPayable = status ∈ SELL_REQUEST_PAYABLE_STATES
-   *             ∧  receivedAt IS NOT NULL      // ⚠️ v1.57 — «RECIBIMOS»
-   *             ∧  verifiedAt IS NOT NULL      //            «y VERIFICAMOS»
+   *             ∧  receivedAt IS NOT NULL          // ⚠️ v1.57 — «RECIBIMOS»
+   *             ∧  verifiedAt IS NOT NULL          //            «y VERIFICAMOS»
+   *             ∧  approvedTotalCents IS NOT NULL  // ⚠️ v1.61 V-a — «y APROBAMOS ALGO»
+   *             ∧ (offerSentAt IS NULL ∨ ninguna línea `buy` sin veredicto)   // v1.61 V-b
    * ```
-   * ⛔ **La forma de DOS términos de v1.51.8 está SUPERSEDED** (contrato §M5 · v1.51.8, marcada
-   * ahí misma). El tercero cierra `BL-35` eje 2: `verify` es el único escritor de `verifiedAt` y
-   * su guarda **no exige predecesor**, así que alcanzarlo desde cualquier estado vivo volvía
-   * pagable una solicitud **cuya carta nunca llegó** — y el sistema le pintaba «lista para pagar»
-   * al `super_admin` que autoriza. *Un término implícito no es un término.*
+   * ⛔ **Las formas de DOS (v1.51.8) y TRES (v1.57) términos están SUPERSEDED.** El tercero cerró
+   * `BL-35` eje 2 —`verify` no exige predecesor, así que alcanzarlo desde cualquier estado vivo
+   * volvía pagable una solicitud **cuya carta nunca llegó**—; los dos de v1.61 cierran `BL-45`:
+   * **V-a** impide *pagar la oferta íntegra por CERO cartas* (⛔ **`IS NOT NULL`, jamás `> 0`: el
+   * depósito de cero de D40 se sigue pagando**) y **V-b** impide pagar dejando líneas COMPRADAS
+   * sin juzgar — mercancía que después **ninguna ruta de la API puede convertir a inventario**.
+   * *Un término implícito no es un término.*
    *
    * Sale del **mismo cuerpo** que el pre-check y la guarda atómica de `pay-spei`: tres lectores,
    * una regla. Existe para borrar la **sexta** copia (`canPay` en `M5View`), que además replicaba
    * **solo el primero de los términos** ⇒ la UI habilitaba el pago donde el servidor responde
    * `422`. *No era una copia que pudiera desincronizarse algún día: ya lo estaba.*
    *
-   * ⚠️ **Ni `receivedAt` ni `verifiedAt` viajan en este DTO** (ni en ningún otro): son columnas
-   * del backend. El cliente **no recompone la fórmula** — lee este booleano. *La lección de v1.57
-   * es que la fórmula creció y las copias no; la única defensa es no tener copia.*
+   * ⚠️ **Ni `receivedAt`, ni `verifiedAt`, ni `offerSentAt` viajan en este DTO** (ni en ningún
+   * otro): son columnas del backend. El cliente **no recompone la fórmula** — lee este booleano.
+   * *La lección de v1.57 fue que la fórmula creció y las copias no; la de v1.61 es que creció otra
+   * vez. La única defensa es no tener copia.*
    *
    * ⚠️ **ACTOR-INDEPENDIENTE, y NO es un permiso.** Contesta *«¿esta solicitud está en condición
    * de pagarse?»* (propiedad de **la fila**), no *«¿puedo pagarla yo?»* (propiedad **del actor**).
@@ -2399,6 +2404,25 @@ export interface AdminBuylistDTO {
    * vendedor le anticiparía un depósito que aún puede no ocurrir.
    */
   isPayable: boolean;
+  /**
+   * v1.61 (§M5-V.5, `BL-45`) — **ADITIVO, DERIVADO SERVER-SIDE, ADMIN-ONLY.** Cuántas líneas
+   * **`offerDecision='buy'`** siguen **sin veredicto** (`itemStatus ∉ {aprobada, rechazada,
+   * convertida_inventario}`). ⚠️ **Las `skip` NO cuentan** (§M5-V.0): nunca pueden aprobarse.
+   *
+   * **Es lo que permite a la UI decir POR QUÉ el botón de pagar está apagado** —y a dónde ir—, en
+   * vez de dejar al `super_admin` delante de un control muerto sin explicación.
+   *
+   * ⛔ **El front NO lo cuenta él mismo** aunque tenga `items[]`: el set de estados «sin veredicto»
+   * **es la regla**, y transcribirlo aquí sería la **séptima** copia de un set de estados en un
+   * flujo de dinero — justo lo que `isTerminal` e `isPayable` vinieron a borrar. **El servidor
+   * manda el número.**
+   *
+   * ⚠️ **Opcional a propósito, y se consume defensivo (`?? 0`)**: es aditivo y va **backend
+   * primero, frontend después**, así que una respuesta de un backend anterior a v1.61 no debe
+   * pintar «faltan undefined cartas». *Fallar hacia «no sé por qué» es correcto; inventar un
+   * conteo, no.*
+   */
+  pendingDecisionItemCount?: number;
   /** v1.51.1 (D33): por qué expiró; `null`/ausente si no está `expirada`. Ver §23.1d. */
   expiredReason?: SellRequestExpiryReason | null;
   quotedTotalCents: number;

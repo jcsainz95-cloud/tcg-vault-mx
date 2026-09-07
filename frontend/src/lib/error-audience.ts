@@ -108,6 +108,47 @@ export const DESIGN_SYSTEM_26_ERROR_CODES = [
   'OFFER_PRICE_IMMUTABLE',
 ] as const;
 
+/**
+ * **§27, LOTE 1 — lo único de §27 que bloquea el release, y ya está cableado.**
+ *
+ * `422 ITEMS_NOT_DECIDED` (contrato v1.61, §M5-V) se pinta en la pantalla donde el súper-admin
+ * autoriza dinero y hasta este pase salía **en inglés crudo del servidor** dentro de una UI en
+ * español (MEN-2, reabierta por el código nuevo). ux-ui lo redactó en **§27.1.1** y aquí solo se
+ * cablea: la cadena base **más** su variante con cifra, cuyo `{count}` sale de
+ * `details.pendingDecisionItemIds.length` (§27.1.2, `QueryState`).
+ *
+ * ⚠️ Es **solo admin**, así que —por §26.1— **la base ya es la del operador** y no lleva
+ * `_OPERATOR`.
+ */
+export const DESIGN_SYSTEM_27_LOT1_ERROR_CODES = ['ITEMS_NOT_DECIDED'] as const;
+
+/**
+ * **§27, LOTE 2 — copy NORMATIVO ya escrito, cableado PENDIENTE.** ux-ui lo declara *«no
+ * bloqueante»* (§27.0) y lo dejó redactado en §27.2; mientras no se cablee, **el operador sigue
+ * leyendo el inglés del servidor** en la mesa de emisión y en la verificación.
+ *
+ * ⚠️ Esta lista **no es documentación: es un trip-wire por los dos lados** (`error-audience.test`):
+ *  - si un código de aquí **desaparece de §27** ⇒ rojo (la lista dejó de ser cierta);
+ *  - si alguien **le mete copy al catálogo** sin moverlo a la lista de cableados ⇒ rojo (o el copy
+ *    es improvisado, o el cableado quedó a medias y nadie actualizó el inventario).
+ * *Un pendiente sin trip-wire es un pendiente que se olvida* — que es exactamente cómo estos doce
+ * llevan meses sin traducción.
+ */
+export const DESIGN_SYSTEM_27_LOT2_PENDING_ERROR_CODES = [
+  'OFFER_NOT_ALLOWED',
+  'OFFER_ALREADY_SENT',
+  'OFFER_LINES_MISMATCH',
+  'OFFER_LINE_NOT_PRICEABLE',
+  'OVERRIDE_REASON_REQUIRED',
+  'OFFER_NET_BELOW_MINIMUM',
+  'OFFER_PROJECTION_INCOMPLETE',
+  'ITEM_NOT_OFFERED',
+  'OFFERED_PRICE_MISSING',
+  'DECLINE_NOT_ALLOWED',
+  'NO_LIVE_ADJUSTMENT',
+  'ADJUST_NOT_ALLOWED_IN_OFFER_CYCLE',
+] as const;
+
 /** Sufijo de destinatario (§26.1). El vendedor usa la clave BASE. */
 export const OPERATOR_KEY_SUFFIX = '_OPERATOR';
 

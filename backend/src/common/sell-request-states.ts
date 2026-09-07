@@ -168,8 +168,9 @@ export const SELL_REQUEST_PAYABLE_STATES = [
  * *precisamente por ser dinero* — y ésta vive en **otro lenguaje, otro paquete y otro ciclo de
  * release**, así que ni el compilador ni un test de backend la ven.
  *
- * ⚠️ **Y estaba INCOMPLETA:** la precondición del servidor son **TRES** términos (**DOS** cuando se
- * escribió esto; v1.57 añadió `receivedAt`) y el cliente replicaba **solo el primero**, así que **la UI
+ * ⚠️ **Y estaba INCOMPLETA:** la precondición del servidor son **CUATRO** términos escalares
+ * (**DOS** cuando se escribió esto; v1.57 añadió `receivedAt`, v1.61 añadió V-a) **más V-b**, y el
+ * cliente replicaba **solo el primero**, así que **la UI
  * habilitaba el pago en solicitudes donde el servidor responde `422`**. *No era una copia fiel que
  * pudiera desincronizarse algún día: ya lo estaba.* **Y ésa es justamente la razón de que el término
  * nuevo se añada AQUÍ y en ningún otro sitio**: el cliente hereda la corrección sin tocar una línea.

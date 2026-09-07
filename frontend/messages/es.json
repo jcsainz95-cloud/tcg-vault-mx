@@ -1289,6 +1289,9 @@
       "reject": "Rechazar",
       "convert": "Convertir a inventario",
       "paySpei": "Pagar por SPEI",
+      "pay": {
+        "pendingDecisions": "{count, plural, one {Falta # carta por decidir} other {Faltan # cartas por decidir}} antes de poder pagar."
+      },
       "cherryPick": "Decisión carta por carta",
       "tabs": {
         "por_ofertar": "Por ofertar",
@@ -2824,6 +2827,8 @@
     "PICKUP_ADDRESS_LOCKED": "Esta dirección ya no se puede cambiar: tu guía de envío ya está impresa con ella, o la solicitud ya cerró. Si algo está mal, contáctanos antes de mandar el paquete.",
     "PICKUP_ADDRESS_LOCKED_OPERATOR": "Esta dirección ya no se edita: la guía salió impresa con ella, o la solicitud ya cerró. Si la dirección está mal, hay que cancelar esa guía y emitir una nueva; desde aquí no se puede. No se guardó nada.",
     "OFFER_PRICE_IMMUTABLE": "El precio de esta carta se congeló al emitir la oferta y ya es vinculante: desde esta pantalla no viaja ningún monto. Apruébala tal cual; si no llegó como se ofertó, recházala con su motivo. No se guardó nada.",
+    "ITEMS_NOT_DECIDED": "Antes de pagar hay que decidir cada carta que compramos, y en esta solicitud todavía quedan cartas sin decidir. Ve a la verificación y deja cada carta pendiente aprobada, o rechazada con su motivo; las que no compramos no llevan decisión. Cuando no quede ninguna, vuelve a pagar. No se guardó nada y no salió dinero.",
+    "ITEMS_NOT_DECIDED_WITH_DETAILS": "Antes de pagar hay que decidir cada carta que compramos, y en esta solicitud {count, plural, one {queda # carta sin decidir} other {quedan # cartas sin decidir}}. Ve a la verificación y deja cada carta pendiente aprobada, o rechazada con su motivo; las que no compramos no llevan decisión. Cuando no quede ninguna, vuelve a pagar. No se guardó nada y no salió dinero.",
     "ITEM_NOT_APPROVED": "Solo un ítem aprobado puede convertirse a inventario.",
     "CLABE_UNAVAILABLE": "No hay CLABE disponible para esta solicitud (ni snapshot ni KYC).",
     "ITEM_NOT_ADJUSTABLE": "Esta pieza no se puede ajustar en su estado actual.",

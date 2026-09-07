@@ -5818,8 +5818,16 @@ export class BuylistService implements OnModuleInit {
 
   /**
    * v1.51.8 (§4.39c **sitio 10**) — **`isPayableSellRequest` traducido a `where` de Prisma**: los
-   * **TRES** términos (v1.51.8: dos; **v1.57 · §M5-P**: el de la recepción), derivados de la misma
-   * constante y de los mismos campos.
+   * **CUATRO** términos escalares (v1.51.8: dos; **v1.57 · §M5-P**: la recepción; **v1.61 · §M5-V**:
+   * V-a), derivados de la misma constante y de los mismos campos.
+   *
+   * ⚠️ **La cuenta se actualiza cuando el predicado crece.** Este comentario dijo «TRES» durante una
+   * versión en la que ya eran cuatro, y no es una errata inocua: quien audita el `where` cuenta lo
+   * que el comentario le promete y para de buscar. *Un hueco con nombre deja de buscarse.*
+   *
+   * ⚠️⚠️ **Este fragmento se COMPONE, y sólo por `AND`.** Su llamador (`paySpei`) lo mete como
+   * elemento de un `AND`, **nunca por spread**: con spread, una clave posterior del literal lo pisa
+   * **en silencio** — que es exactamente como V-a dejó de llegar al motor (`B1`, v1.61.1).
    *
    * Existe porque un `where` es declarativo y no puede *invocar* el predicado; lo que sí puede es
    * **no repetir la constante**. Que las dos formas digan lo mismo lo asevera un test que las cruza
@@ -6966,7 +6974,9 @@ export class BuylistService implements OnModuleInit {
     // **Una sola constante, los dos sitios.**
     // v1.51.8 (**SITIO 10**): y ahora son **TRES** lectores con **UN** cuerpo — el tercero es
     // `AdminBuylistDTO.isPayable`, que es lo que gobierna el botón de pagar en M5. La condición
-    // completa (v1.57 · §M5-P: los **TRES** términos) vive en `isPayableSellRequest`; aquí solo
+    // completa (v1.57 · §M5-P: la recepción; v1.61 · §M5-V: V-a ⇒ **CUATRO** términos escalares, más
+    // V-b, que mira las LÍNEAS y por eso no cabe en el predicado de la fila) vive en
+    // `isPayableSellRequest` / `isPayableSellRequestWithItems`; aquí solo
     // se invoca. ⚠️ **Que el término nuevo entrara por el cuerpo compartido y no por un `if` local
     // es el punto entero**: `isPayable` gobierna el botón de pagar en M5, así que una guarda sin
     // señal dejaría al súper-admin autorizando con la pantalla diciéndole que la carta llegó.
@@ -7071,10 +7081,13 @@ export class BuylistService implements OnModuleInit {
           // §4.39c sitio 8: la MISMA constante que el pre-check de arriba. Ésta es la guarda real
           // (patrón `count===1`): la del motor, no la de la aplicación.
           // v1.51.8: el fragmento sale de `payableWhere()`, que es la traducción a `where` de
-          // `isPayableSellRequest` — **los TRES términos (v1.57), la misma constante**. Hay un test
-          // que asevera que el predicado y el `where` coinciden en TODO el enum × `receivedAt` ×
-          // `verifiedAt`, y una mutación que verifica que quitar el término de CUALQUIERA de los
-          // tres lectores mata algo.
+          // `isPayableSellRequest` — **los CUATRO términos escalares (v1.57 · §M5-P, v1.61 · §M5-V),
+          // la misma constante**. Hay un test que asevera que el predicado y el `where` coinciden en
+          // TODO el enum × `receivedAt` × `verifiedAt` × `approvedTotalCents`, y una mutación que
+          // verifica que quitar el término de CUALQUIERA de los lectores mata algo.
+          // ⚠️ **Ese test cruza `payableWhere()` AISLADA**, y por sí solo **no** ve lo que la
+          // composición tira: `buylist.pay-spei-where-composition.spec.ts` es el que mira **este**
+          // objeto (`B1`).
           //
           // ⚠️⚠️ v1.51.22 · **B-2 — CAS SOBRE EL IMPORTE**, hermano exacto del `offerSentAt` que
           // `itemDecision` mete en el `where` de todas sus escrituras «con el valor que se observó al
@@ -7108,15 +7121,48 @@ export class BuylistService implements OnModuleInit {
           // estado **terminal**. ⇒ En una fila legítimamente pagable (`aprobada`/`verificacion`) los
           // dos son `null` **por construcción**, y estos dos términos **no pueden rechazar un pago
           // legítimo**: solo rechazan una fila que ya cobró o que ya cerró.
+          //
+          // ⚠️⚠️⚠️ v1.61.1 · **B1 — LOS FRAGMENTOS COMPARTIDOS ENTRAN POR `AND`, JAMÁS POR SPREAD.**
+          //
+          // Esto era `{ id, ...this.payableWhere(), …, approvedTotalCents: fresh.approvedTotalCents }`
+          // y **en un objeto literal de JavaScript la clave posterior gana sobre el spread**: el
+          // `approvedTotalCents: { not: null }` de **V-a no llegaba al motor**. El `where` que corría
+          // era, medido: `…, "approvedTotalCents": null, …` — o sea `IS NULL`, que casa **exactamente
+          // la fila que V-a existe para rechazar**. Y ese `null` es alcanzable:
+          // `recomputeApprovedTotal` lo escribe cuando ninguna línea tiene `approvedPriceCents` y su
+          // guarda deja pasar `verificacion`, así que un `itemDecision(reject)` concurrente en la
+          // ventana B-2 lo produce — y **no es `Serializable`**, luego el SSI no arbitra. Resultado
+          // reproducido antes de tocar nada: `count === 1` y `payoutNetCents = 72000` **por CERO
+          // cartas**. `BL-45` reentrando por la puerta que este `where` existía para tapar.
+          //
+          // El CAS (`= fresh.approvedTotalCents`) y V-a (`IS NOT NULL`) **afirman cosas distintas
+          // sobre la misma columna**, así que no pueden convivir en una clave de un objeto plano.
+          // `AND` conserva **las dos**, y su desacuerdo es justamente la conducta correcta: con el
+          // aprobado en `null` el CAS casa, V-a no ⇒ `count = 0` ⇒ **no sale un peso**. *No es un
+          // segundo candado que tape al primero: son las dos mitades del mismo, y ahora las dos
+          // llegan al SQL.*
+          //
+          // ⚠️ **La regla, para que no vuelva:** todo fragmento que venga de otro sitio
+          // (`payableWhere()`) viaja como elemento de `AND`; **plano solo queda lo que nadie más
+          // reclama** (`id`). Un spread no avisa cuando lo pisan; un `AND` no puede pisar. Y lo
+          // asevera una prueba que mira **el objeto que se le pasa a `updateMany`** —no el ayudante
+          // aislado, que es donde el assert 9 miraba mientras el término estaba ausente aquí—:
+          // `test/buylist.pay-spei-where-composition.spec.ts`.
           where: {
             id,
-            ...this.payableWhere(),
-            paidAt: null,
-            closedAt: null,
-            approvedTotalCents: fresh.approvedTotalCents,
-            offerGrossCents: fresh.offerGrossCents,
-            quotedTotalCents: fresh.quotedTotalCents,
-            offerShippingFeeCents: fresh.offerShippingFeeCents,
+            AND: [
+              // §4.39c sitio 8 · §M5-P · §M5-V (V-a): la MISMA constante que el pre-check de arriba.
+              this.payableWhere(),
+              // §M5-T / BL-35 (P1): los dos hechos que NO se deshacen moviendo un estado.
+              { paidAt: null, closedAt: null },
+              // B-2: CAS sobre las CUATRO columnas de las que sale el dinero, con el valor releído.
+              {
+                approvedTotalCents: fresh.approvedTotalCents,
+                offerGrossCents: fresh.offerGrossCents,
+                quotedTotalCents: fresh.quotedTotalCents,
+                offerShippingFeeCents: fresh.offerShippingFeeCents,
+              },
+            ],
           },
           // SEC-D2: `pagada` es terminal → sella closedAt (ancla la retención de INE al cierre real).
           data: {

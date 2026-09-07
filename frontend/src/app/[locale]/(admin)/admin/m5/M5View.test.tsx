@@ -73,7 +73,7 @@ describe('M5View · Buylist admin end-to-end', () => {
       .spyOn(api, 'verifyBuylistRequest')
       // ⚠️ §M5-P: la respuesta de `verify` sobre una fila RECIBIDA lleva las dos marcas. Escribirla
       // sin `receivedAt` sería fabricar la fila del PoC del eje 2 y llamarla camino feliz.
-      .mockResolvedValue(srv({ id: 'sr-3002', userId: 'u-778', status: 'verificacion', quotedTotalCents: 1200, createdAt: '', receivedAt: '2026-08-13T09:00:00Z', verifiedAt: '2026-08-13T10:00:00Z', items: [] }));
+      .mockResolvedValue(srv({ id: 'sr-3002', userId: 'u-778', status: 'verificacion', quotedTotalCents: 1200, createdAt: '', receivedAt: '2026-08-13T09:00:00Z', verifiedAt: '2026-08-13T10:00:00Z', approvedTotalCents: null, offerSentAt: null, items: [] }));
     renderWithProviders(<M5View />, 'es');
     await openStage('Verificando');
     // sr-3002 está en `recibida` → muestra "Iniciar verificación".
@@ -293,27 +293,63 @@ describe('M5View · Buylist admin end-to-end', () => {
     expect(screen.queryByText('002010077777777771')).not.toBeInTheDocument();
   });
 
-  it('Pagar por SPEI pide la referencia, llama al endpoint y confirma', async () => {
+  /**
+   * ⚠️⚠️ **DINERO SALIENTE · §M5-V (v1.61).** Este test afirmaba que «Pagar por SPEI» estaba
+   * HABILITADO sobre `sr-3001` —`verificacion`, recibida y verificada, **sin nada aprobado**—, o
+   * sea codificaba en verde un estado que el servidor contesta con `422`. Era la reincidencia
+   * exacta del defecto de v1.57, una versión de contrato más tarde.
+   *
+   * Ahora mide las TRES filas que el ciclo produce, y la distinción entre ellas es la norma:
+   *  - `sr-3001` — nada aprobado (**V-a**) ⇒ apagado, y **sin** nota: no faltan veredictos.
+   *  - `sr-3005` — ciclo con dos líneas `buy` sin juzgar (**V-b**) ⇒ apagado **y dice cuántas**.
+   *  - `sr-3006` — cherry-pick con las `buy` aprobadas y la `skip` en `verificacion` ⇒ **paga**.
+   */
+  function requestCard(id: string): HTMLElement {
+    return screen.getByText(id).closest('div.rounded-lg') as HTMLElement;
+  }
+
+  it('Pagar por SPEI: paga el ciclo YA DECIDIDO y NO el que tiene líneas compradas sin veredicto', async () => {
     const spy = vi.spyOn(api, 'paySpeiBuylist').mockResolvedValue(
       srv({
-        id: 'sr-3001',
-        userId: 'u-777',
+        id: 'sr-3006',
+        userId: 'u-782',
         status: 'pagada',
-        quotedTotalCents: 50200,
+        quotedTotalCents: 60000,
         createdAt: '',
-        // Una solicitud PAGADA pasó por las dos puertas: recibimos y verificamos (§M5-P).
-        receivedAt: '2026-08-12T15:00:00Z',
-        verifiedAt: '2026-08-12T16:00:00Z',
+        // Una solicitud PAGADA pasó por las cuatro puertas de §M5-V.0.
+        receivedAt: '2026-09-02T15:00:00Z',
+        verifiedAt: '2026-09-02T16:00:00Z',
+        approvedTotalCents: 47000,
+        offerSentAt: '2026-08-28T10:00:00Z',
         items: [],
       }),
     );
     renderWithProviders(<M5View />, 'es');
     await openStage('Verificando');
-    const payButtons = await screen.findAllByRole('button', { name: 'Pagar por SPEI' });
-    // sr-3001 (`verificacion` CON `verifiedAt`) es pagable; sr-3002 (`recibida`) no. Los dos
-    // términos los decide el servidor y llegan en `isPayable`; la vista no los replica.
-    const enabled = payButtons.find((b) => !(b as HTMLButtonElement).disabled)!;
-    fireEvent.click(enabled);
+    await screen.findByText('sr-3001');
+
+    // V-a: recibida y verificada, pero NADA aprobado ⇒ el botón NO se enciende.
+    const payable = (card: HTMLElement) =>
+      within(card).getByRole('button', { name: 'Pagar por SPEI' }) as HTMLButtonElement;
+    expect(payable(requestCard('sr-3001')).disabled).toBe(true);
+    // …y no se le echa la culpa a los veredictos: no falta ninguno (§M5-V.6, la escalera).
+    expect(within(requestCard('sr-3001')).queryByText(/por decidir/)).toBeNull();
+
+    // V-b: dentro del ciclo, DOS líneas `buy` sin veredicto (la `skip` no cuenta) ⇒ apagado, y la
+    // pantalla dice POR QUÉ y a qué acto ir. El número lo da el servidor (`pendingDecisionItemCount`).
+    const cycle = requestCard('sr-3005');
+    expect(payable(cycle).disabled).toBe(true);
+    // Copy NORMATIVO de DESIGN_SYSTEM §27.1.4 (la «cadena preventiva del botón apagado»).
+    const hint = within(cycle).getByText('Faltan 2 cartas por decidir antes de poder pagar.');
+    expect(hint).toBeInTheDocument();
+    // §27.1.4: el botón lo REFERENCIA, para que el lector de pantalla lo anuncie con él.
+    expect(payable(cycle).getAttribute('aria-describedby')).toBe(hint.id);
+
+    // Y el camino normal del ciclo SIGUE pagando: sin este assert, un predicado que bloqueara
+    // todo pasaría los dos anteriores.
+    const cherryPick = requestCard('sr-3006');
+    expect(within(cherryPick).queryByText(/por decidir/)).toBeNull();
+    fireEvent.click(payable(cherryPick));
 
     const dialog = await screen.findByRole('dialog', { name: 'Registrar pago SPEI' });
     const confirm = within(dialog).getByRole('button', { name: 'Registrar pago' });
@@ -324,8 +360,43 @@ describe('M5View · Buylist admin end-to-end', () => {
     });
     fireEvent.click(within(dialog).getByRole('button', { name: 'Registrar pago' }));
 
-    await waitFor(() => expect(spy).toHaveBeenCalledWith('sr-3001', 'MBAN-2026-081701'));
+    await waitFor(() => expect(spy).toHaveBeenCalledWith('sr-3006', 'MBAN-2026-081701'));
     expect(await screen.findByText(/Pago SPEI registrado/)).toBeInTheDocument();
+  });
+
+  /**
+   * ⚠️ **MEN-2, reabierta por el código nuevo y cerrada aquí.** `422 ITEMS_NOT_DECIDED` (contrato
+   * v1.61) no tenía copy, así que `useErrorMessage` caía a `apiError.message` y el súper-admin
+   * leía **inglés del servidor en el verbo que saca dinero**. Con §27.1 cableado lee su idioma, y
+   * con la cifra que mandó **este** error (§27.1.2: `details.pendingDecisionItemIds.length`).
+   */
+  it('el 422 ITEMS_NOT_DECIDED se lee en español, con su cifra, y NUNCA en el inglés del servidor', async () => {
+    vi.spyOn(api, 'paySpeiBuylist').mockRejectedValue(
+      new ApiClientError(422, {
+        code: 'ITEMS_NOT_DECIDED',
+        message: 'Payment requires a verification verdict on every purchased line',
+        details: { sellRequestId: 'sr-3006', pendingDecisionItemIds: ['sri-cp-1', 'sri-cp-2'] },
+      }),
+    );
+    renderWithProviders(<M5View />, 'es');
+    await openStage('Verificando');
+    await screen.findByText('sr-3006');
+    fireEvent.click(
+      within(requestCard('sr-3006')).getByRole('button', { name: 'Pagar por SPEI' }),
+    );
+    const dialog = await screen.findByRole('dialog', { name: 'Registrar pago SPEI' });
+    fireEvent.change(within(dialog).getByLabelText('Referencia SPEI'), {
+      target: { value: 'MBAN-2026-081702' },
+    });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Registrar pago' }));
+
+    expect(await within(dialog).findByText(es.error.ITEMS_NOT_DECIDED_WITH_DETAILS.replace(
+      '{count, plural, one {queda # carta sin decidir} other {quedan # cartas sin decidir}}',
+      'quedan 2 cartas sin decidir',
+    ))).toBeInTheDocument();
+    // Las dos mitades del modo de fallo: ni el inglés crudo, ni la base sin cifra.
+    expect(within(dialog).queryByText(/Payment requires a verification verdict/)).toBeNull();
+    expect(within(dialog).queryByText(es.error.ITEMS_NOT_DECIDED)).toBeNull();
   });
 
   it('las pestañas filtran por etapa: "Verificando" muestra sr-3001/sr-3002 y "Por pagar" muestra sr-3003', async () => {
@@ -507,6 +578,8 @@ describe('M5View · cierre explícito «Rechazar solicitud» (v1.24)', () => {
           createdAt: '2026-08-12T00:00:00.000Z',
           receivedAt: '2026-08-12T10:00:00.000Z',
           verifiedAt: '2026-08-12T11:00:00.000Z',
+          approvedTotalCents: null,
+          offerSentAt: null,
           items: [rejectedItem('sri-a'), rejectedItem('sri-b')],
         }),
       ],
@@ -523,6 +596,8 @@ describe('M5View · cierre explícito «Rechazar solicitud» (v1.24)', () => {
         createdAt: '2026-08-12T00:00:00.000Z',
         receivedAt: '2026-08-12T10:00:00.000Z',
         verifiedAt: '2026-08-12T11:00:00.000Z',
+        approvedTotalCents: null,
+        offerSentAt: null,
         items: [rejectedItem('sri-a'), rejectedItem('sri-b')],
       }),
     );
@@ -551,6 +626,8 @@ describe('M5View · cierre explícito «Rechazar solicitud» (v1.24)', () => {
           createdAt: '2026-08-12T00:00:00.000Z',
           receivedAt: '2026-08-12T10:00:00.000Z',
           verifiedAt: '2026-08-12T11:00:00.000Z',
+          approvedTotalCents: null,
+          offerSentAt: null,
           items: [
             rejectedItem('sri-c'),
             { id: 'sri-d', card, productType: 'raw', finish: 'normal', itemStatus: 'aprobada', approvedPriceCents: 30000 },
@@ -577,6 +654,8 @@ describe('M5View · cierre explícito «Rechazar solicitud» (v1.24)', () => {
           createdAt: '2026-08-12T00:00:00.000Z',
           receivedAt: '2026-08-12T10:00:00.000Z',
           verifiedAt: '2026-08-12T11:00:00.000Z',
+          approvedTotalCents: null,
+          offerSentAt: null,
           items: [rejectedItem('sri-a')],
         }),
       ],
@@ -644,6 +723,8 @@ describe('M5View · pestaña «Cerradas» server-side (v1.25)', () => {
     createdAt: '2026-08-01T00:00:00.000Z',
     receivedAt: '2026-08-01T10:00:00.000Z',
     verifiedAt: '2026-08-01T11:00:00.000Z',
+    approvedTotalCents: null,
+    offerSentAt: null,
     items: [
       {
         id: `${id}-i`,
@@ -737,6 +818,7 @@ describe('M5View · pestaña «Cerradas» server-side (v1.25)', () => {
       createdAt: '2026-08-01T00:00:00.000Z',
       receivedAt: '2026-08-01T10:00:00.000Z',
       verifiedAt: '2026-08-01T11:00:00.000Z',
+      offerSentAt: null,
       items: [
         {
           id: 'sr-c9-i',
@@ -843,6 +925,8 @@ describe('M5View · los cuatro estados nuevos (v1.51 · M-46)', () => {
           // Expiró sin que llegara nada: las dos anclas en `null` y lo dice la fila, no el olvido.
           receivedAt: null,
           verifiedAt: null,
+          approvedTotalCents: null,
+          offerSentAt: null,
           items: [rejectedItem('sri-e')],
         }),
       ],
@@ -867,6 +951,8 @@ describe('M5View · los cuatro estados nuevos (v1.51 · M-46)', () => {
           createdAt: '2026-08-12T00:00:00.000Z',
           receivedAt: '2026-08-12T10:00:00.000Z',
           verifiedAt: '2026-08-12T11:00:00.000Z',
+          approvedTotalCents: null,
+          offerSentAt: null,
           items: [rejectedItem('sri-v')],
         }),
       ],
@@ -911,6 +997,8 @@ describe('M5View · los cuatro estados nuevos (v1.51 · M-46)', () => {
         // `ofertada`/`aceptada`/`en_transito`: la carta sigue fuera de nuestras manos.
         receivedAt: null,
         verifiedAt: null,
+        approvedTotalCents: null,
+        offerSentAt: null,
         items: [],
       });
     vi.spyOn(api, 'getAdminBuylist').mockResolvedValue({
@@ -960,6 +1048,8 @@ describe('M5View · los cuatro estados nuevos (v1.51 · M-46)', () => {
           createdAt: '2026-08-20T00:00:00.000Z',
           receivedAt: null,
           verifiedAt: null,
+          approvedTotalCents: null,
+          offerSentAt: null,
           items: [],
         }),
       ],

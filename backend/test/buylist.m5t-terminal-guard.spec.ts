@@ -8,6 +8,10 @@ import { UsersService } from '../src/modules/users/users.service';
 import { PiiCryptoService } from '../src/common/crypto/pii-crypto.service';
 import { BusinessException } from '../src/common/business.exception';
 import { SELL_REQUEST_TERMINAL_STATES } from '../src/common/sell-request-states';
+// ⚠️ v1.61.1 · B1 — el evaluador es COMPARTIDO y entiende `AND`. El local de esta suite no lo
+// entendía, y ésa fue la razón por la que la composición del `where` de `pay-spei` no se podía
+// aseverar aquí: *un fake que no sabe leer un fragmento conjugado no puede ver el que falta.*
+import { matchesWhere } from './helpers/prisma-where';
 
 /**
  * `buylist.m5t-terminal-guard.spec.ts` — **INVARIANTE T (API_CONTRACT §M5-T) sobre `receive`/`verify`.**
@@ -64,18 +68,6 @@ function baseRow(over: Row = {}): Row {
   };
 }
 
-/** Evalúa una condición Prisma escalar / `{in}` / `{notIn}` / `{not}` contra un valor. */
-function matches(value: unknown, cond: unknown): boolean {
-  if (cond !== null && typeof cond === 'object' && !(cond instanceof Date)) {
-    const c = cond as Record<string, unknown>;
-    if ('in' in c) return (c.in as unknown[]).includes(value);
-    if ('notIn' in c) return !(c.notIn as unknown[]).includes(value);
-    if ('not' in c) return c.not === null ? value !== null : value !== c.not;
-    throw new Error(`condición no soportada en el where: ${JSON.stringify(cond)}`);
-  }
-  return value === cond;
-}
-
 /**
  * Prisma de mentira con **UNA fila mutable** que **evalúa el `where` de cada `updateMany`** y solo
  * aplica el `data` si la fila casa. `count` es el resultado real de esa evaluación, no una constante.
@@ -84,8 +76,7 @@ function harness(row: Row, opts: { extraRows?: number } = {}) {
   const state: Row = { ...row };
   const writes: { where: Row; data: Row }[] = [];
 
-  const evalWhere = (where: Row): boolean =>
-    Object.entries(where).every(([k, cond]) => matches(state[k], cond));
+  const evalWhere = (where: Row): boolean => matchesWhere(state, where);
 
   const prisma: any = {
     sellRequest: {
@@ -253,10 +244,19 @@ describe('§M5-T · `pay-spei` — la SEGUNDA red: `paidAt IS NULL` ∧ `closedA
       ...over,
     });
 
-  it('el `where` del `updateMany` afirma `paidAt: null` y `closedAt: null`', async () => {
-    const h = harness(PAGABLE({ approvedTotalCents: 40_000 }));
+  it('el `where` del `updateMany` afirma `paidAt: null` y `closedAt: null` — EVALUÁNDOLO', async () => {
+    // ⚠️ v1.61.1 · **B1** — esto era `toMatchObject({ paidAt: null, closedAt: null })`. Una forma de
+    // claves planas **no prueba que el término llegue al motor**: el `where` de `pay-spei` compone
+    // fragmentos, y ahí un término se pierde sin que su clave desaparezca (fue el caso de V-a). Se
+    // afirma lo que el motor haría con el `where` que corrió: sellar CUALQUIERA de las dos fechas
+    // basta para que la fila deje de casar.
+    const fila = PAGABLE({ approvedTotalCents: 40_000 });
+    const h = harness(fila);
     await h.svc.paySpei('sr-1', 'SPEI-1', 'admin');
-    expect(statusWrite(h.writes)!.where).toMatchObject({ paidAt: null, closedAt: null });
+    const w = statusWrite(h.writes)!.where;
+    expect(matchesWhere(fila, w)).toBe(true);
+    expect(matchesWhere({ ...fila, paidAt: new Date('2026-09-04T00:00:00Z') }, w)).toBe(false);
+    expect(matchesWhere({ ...fila, closedAt: new Date('2026-09-04T00:00:00Z') }, w)).toBe(false);
   });
 
   it('⚠️ LA HUELLA DE UN ROLLBACK: `paidAt` poblado con status VIVO ⇒ 409, NO el 200 idempotente', async () => {

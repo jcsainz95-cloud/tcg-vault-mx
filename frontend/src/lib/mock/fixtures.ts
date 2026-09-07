@@ -39,6 +39,7 @@ import type {
   SellOfferPublicDTO,
   PickupAddressSnapshotDTO,
   SellRequestStatus,
+  SellItemStatus,
   DashboardDTO,
   InventoryItemDTO,
   InventoryMovementDTO,
@@ -1250,73 +1251,160 @@ const MOCK_PAYABLE_SELL_REQUEST_STATUSES: ReadonlySet<SellRequestStatus> = new S
 ]);
 
 /**
- * ⚠️⚠️ **LOS HECHOS que hacen pagable una fila** — contrato **§M5-P** (v1.57), *«no se paga lo que
- * no ha llegado»*:
+ * ⚠️⚠️ **LAS COLUMNAS que deciden si una fila se paga** — contrato **§M5-V.0** (v1.61), *«no se
+ * paga lo que no se ha juzgado»*, que absorbe §M5-P (v1.57):
  * ```
- * isPayable ⇔ status ∈ PAYABLE  ∧  receivedAt IS NOT NULL  ∧  verifiedAt IS NOT NULL
+ * isPayable ⇔ status ∈ PAYABLE ∧ receivedAt IS NOT NULL ∧ verifiedAt IS NOT NULL
+ *                              ∧ approvedTotalCents IS NOT NULL
+ * pay-spei  ⇔ isPayable ∧ (offerSentAt IS NULL ∨ ninguna línea COMPRADA sin veredicto)
  * ```
- * **Son columnas OBLIGATORIAS de la «tabla» del servidor falso, no opcionales**, y eso es el
- * arreglo: mientras `receivedAt` no existió en el tipo, **una fila pagable podía nacer sin
- * constancia de recepción** y el servidor falso la declaraba `isPayable: true` — encendiendo el
- * botón de pagar SPEI de M5 justo en la pantalla que existe para demostrar la regla. *El defecto
- * no fue olvidar un `&&`: fue que el tipo permitía la fila que el `&&` tenía que frenar.*
+ * **Son columnas OBLIGATORIAS de la «tabla» del servidor falso, no opcionales**, y eso es la mitad
+ * del arreglo: mientras `receivedAt` no existió en el tipo, **una fila pagable podía nacer sin
+ * constancia de recepción**; mientras `approvedTotalCents` fue el campo opcional del DTO,
+ * **omitirlo volvió a ser gratis** y `sr-3001` nació otra vez pagable donde el servidor responde
+ * `422`. *El defecto no fue olvidar un `&&`: fue que el tipo permitía la fila que el `&&` tenía
+ * que frenar.* Decir `null` es una afirmación; omitir era un olvido, y ahora no compila.
  *
- * ⛔ **Ninguna de las dos viaja en el DTO** (§M5-P: `isPayable` es lo único que el cliente ve).
+ * ⚠️ **`approvedTotalCents` es `number | null` aquí y `number | undefined` en el DTO**: en la
+ * «tabla» es una columna nullable —**`null` = «nadie decidió nada»; `0` = «se decidió y salió
+ * cero»**, y §M5-V.0 existe porque esos dos no son el mismo número—; en el contrato es un campo
+ * opcional. La proyección traduce.
+ *
+ * ⛔ **Las TRES ocultas no viajan en el DTO** (§M5-P: `isPayable` es lo único que el cliente ve);
+ * `approvedTotalCents` sí, y por eso la lista de descarte se DERIVA del contrato (abajo) en vez de
+ * escribirse a mano.
  */
-export type MockPayabilityAnchors = {
+export type MockPayabilityColumns = {
   /** «RECIBIMOS» — lo sella `POST …/receive`, una sola vez, y nadie lo limpia. */
   receivedAt: string | null;
   /** «y VERIFICAMOS» — lo sella `POST …/verify`. */
   verifiedAt: string | null;
+  /**
+   * «y APROBAMOS ALGO» (§M5-V, **V-a**, TODA fila). ⛔ **`IS NOT NULL`, JAMÁS `> 0`:** el depósito
+   * de cero de D40 —`approvedTotalCents = 0` **con** líneas aprobadas, porque el envío se comió el
+   * bruto— **se sigue pagando**.
+   */
+  approvedTotalCents: number | null;
+  /**
+   * «¿va por el CICLO?» (§M5-V, **V-b**, solo `offerSentAt IS NOT NULL`). Es la columna del
+   * backend, no `offerState`: una oferta **cancelada** tiene `offerSentAt` sellado.
+   */
+  offerSentAt: string | null;
 };
 
 /**
- * ⚠️ **UN término por ancla, y el tipo lo obliga: `Record` EXHAUSTIVO sobre `MockPayabilityAnchors`.**
+ * Los estados que SON un veredicto de verificación (§M5-V.0: los dos desenlaces de `PROJECT.md`
+ * §P.5 más el sucesor de la aprobación). Igual que el set pagable: vive en el **SERVIDOR FALSO**
+ * porque en modo mock nadie más puede derivar el conteo. ⛔ **Ninguna pantalla lo importa** — el
+ * contrato prohíbe expresamente que el cliente cuente `itemStatus` (§M5-V.5).
+ */
+const MOCK_ITEM_VERDICT_STATUSES: ReadonlySet<SellItemStatus> = new Set([
+  'aprobada',
+  'rechazada',
+  'convertida_inventario',
+]);
+
+/**
+ * **Las líneas COMPRADAS sin veredicto** — el cuerpo único del que salen las DOS cosas que §M5-V
+ * pide: el término V-b de `isPayable` y el `pendingDecisionItemCount` del DTO (y los
+ * `details.pendingDecisionItemIds` del `422`). *Un cuerpo, tres lectores*, igual que en el backend.
+ *
+ * ⚠️ **`offerDecision === 'buy'` NO es un refinamiento:** las líneas `skip` conservan su
+ * `itemStatus` y **jamás pueden aprobarse** (`ITEM_NOT_OFFERED`), así que sin ese término **toda
+ * oferta con cherry-pick sería impagable** — el camino normal del ciclo.
+ */
+export function mockPendingDecisionItemIds(row: Pick<AdminBuylistDTO, 'items'>): string[] {
+  return row.items
+    .filter((it) => it.offerDecision === 'buy' && !MOCK_ITEM_VERDICT_STATUSES.has(it.itemStatus))
+    .map((it) => it.id);
+}
+
+/** Lo que la fórmula de §M5-V.0 mira de una fila: sus columnas, su `status` y sus líneas. */
+type MockPayabilityRow = MockPayabilityColumns & Pick<AdminBuylistDTO, 'status' | 'items'>;
+
+/**
+ * ⚠️⚠️ **UN término por COLUMNA de la fórmula, y el tipo lo obliga: `Record` EXHAUSTIVO.**
  *
  * La doctrina de este proyecto es *«la copia se cura eliminando la NECESIDAD de la copia»*. Aquí
  * la copia no se puede borrar —en modo mock no hay backend que derive `isPayable`—, así que se le
- * quita lo que la hace peligrosa: **la posibilidad de quedarse corta en silencio**. Añadir un
- * ancla al tipo **sin** añadir su término aquí es un **error de compilación**, y quitar un término
- * también lo es. El defecto de v1.57 —la fórmula creció a tres términos y el servidor falso se
- * quedó en dos— **ya no se puede escribir**: no hay ningún sitio donde enumerar los términos a
- * mano.
+ * quita lo que la hace peligrosa: **la posibilidad de quedarse corta en silencio**. Añadir una
+ * columna al tipo **sin** su término es error de compilación, y quitar un término también.
+ *
+ * ⚠️ **Y ESO NO BASTÓ, que es la lección de v1.61.** El `Record` exhaustivo protege contra olvidar
+ * el término de una columna **ya declarada**; **no** protege contra un término **NUEVO** de la
+ * fórmula del backend, porque nadie obliga a declarar la columna. Por eso `approvedTotalCents`
+ * —que ya existía como campo suelto del DTO— pudo entrar en la fórmula v1.61 sin que aquí se
+ * pusiera nada rojo. La segunda mitad del candado vive en `payability-contract.test.ts`: **lee la
+ * fórmula normativa de `docs/API_CONTRACT.md` §M5-V.0 y exige que sus términos sean EXACTAMENTE
+ * las claves de esta tabla**. Un término nuevo en el contrato ⇒ rojo con su nombre.
  */
-const MOCK_PAYABILITY_ANCHOR_TERMS: {
-  [K in keyof MockPayabilityAnchors]: (value: MockPayabilityAnchors[K]) => boolean;
+const MOCK_PAYABILITY_TERMS: {
+  [K in keyof MockPayabilityColumns | 'status']: (row: MockPayabilityRow) => boolean;
 } = {
-  receivedAt: (value) => value != null,
-  verifiedAt: (value) => value != null,
+  status: (row) => MOCK_PAYABLE_SELL_REQUEST_STATUSES.has(row.status),
+  receivedAt: (row) => row.receivedAt != null,
+  verifiedAt: (row) => row.verifiedAt != null,
+  // ⛔ `!= null`, JAMÁS `> 0`: escribir `> 0` aquí rompe D40 / criterio 140 (el depósito de cero).
+  approvedTotalCents: (row) => row.approvedTotalCents != null,
+  // V-b entero: fuera del ciclo no aplica; dentro, ninguna línea COMPRADA sin veredicto.
+  offerSentAt: (row) => row.offerSentAt == null || mockPendingDecisionItemIds(row).length === 0,
 };
 
-const MOCK_PAYABILITY_ANCHOR_KEYS = Object.keys(MOCK_PAYABILITY_ANCHOR_TERMS) as (keyof MockPayabilityAnchors)[];
+export type MockPayabilityTermKey = keyof typeof MOCK_PAYABILITY_TERMS;
+
+export const MOCK_PAYABILITY_TERM_KEYS = Object.keys(
+  MOCK_PAYABILITY_TERMS,
+) as MockPayabilityTermKey[];
 
 /**
- * ⚠️ Espejo de `isPayableSellRequest` del backend (**TRES** términos desde v1.57). El estado se
- * pregunta al set; los **hechos**, a la tabla de anclas de arriba — **una por una y todas**.
+ * Las columnas de pagabilidad que **NO existen en el contrato** y por tanto no pueden salir en el
+ * DTO. ⚠️ **La lista se DERIVA de `AdminBuylistDTO`, no se escribe a mano:** el día que el
+ * arquitecto publique `offerSentAt` en el DTO admin (petición 2 de §26.9), este `Record` deja de
+ * compilar por propiedad de más y obliga a decidir — en vez de seguir borrando en silencio un
+ * campo que el servidor real ya manda.
  */
-function mockIsPayable(row: MockAdminBuylistRow): boolean {
-  return (
-    MOCK_PAYABLE_SELL_REQUEST_STATUSES.has(row.status) &&
-    MOCK_PAYABILITY_ANCHOR_KEYS.every((key) => MOCK_PAYABILITY_ANCHOR_TERMS[key](row[key]))
-  );
+type MockPayabilityHiddenKey = Exclude<keyof MockPayabilityColumns, keyof AdminBuylistDTO>;
+const MOCK_PAYABILITY_HIDDEN_COLUMNS: { [K in MockPayabilityHiddenKey]: true } = {
+  receivedAt: true,
+  verifiedAt: true,
+  offerSentAt: true,
+};
+const MOCK_PAYABILITY_HIDDEN_KEYS = Object.keys(
+  MOCK_PAYABILITY_HIDDEN_COLUMNS,
+) as MockPayabilityHiddenKey[];
+
+/**
+ * ⚠️ Espejo de `isPayableSellRequest` + la guarda de `paySpei` del backend (**CINCO** términos
+ * desde v1.61). Ningún término se escribe aquí: se recorren **todos** los de la tabla, uno por uno.
+ *
+ * ⚠️ §M5-V.5 obliga a que V-b entre en `isPayable`: si no, la pantalla del `super_admin` diría
+ * «lista para pagar» sobre una solicitud que el servidor rechaza — *la repetición exacta del
+ * defecto que §M5-P llamó ALTA*.
+ */
+function mockIsPayable(row: MockPayabilityRow): boolean {
+  return MOCK_PAYABILITY_TERM_KEYS.every((key) => MOCK_PAYABILITY_TERMS[key](row));
 }
 
 /**
  * Ídem para la proyección ADMIN (`GET /admin/buylist`, `AdminBuylistDTO`).
  *
- * ⚠️ Las anclas de pagabilidad **NO salen en el DTO**: son columnas de la «tabla» del servidor
- * falso, igual que en el backend real, y solo alimentan la derivación de `isPayable`. Se
- * destructuran fuera **por la lista de anclas**, no a mano, para que un ancla nueva no se filtre
- * al cliente por un `...row` distraído.
+ * ⚠️ Las columnas ocultas de pagabilidad **NO salen en el DTO**: son columnas de la «tabla» del
+ * servidor falso, igual que en el backend real, y solo alimentan la derivación. Se descartan **por
+ * la lista derivada**, no a mano, para que una columna nueva no se filtre al cliente por un
+ * `...row` distraído.
  */
 export function mockAdminBuylistDTO(row: MockAdminBuylistRow): AdminBuylistDTO {
-  const dto = { ...row } as Omit<MockAdminBuylistRow, keyof MockPayabilityAnchors> &
-    Partial<MockPayabilityAnchors>;
-  for (const key of MOCK_PAYABILITY_ANCHOR_KEYS) delete dto[key];
+  const dto = { ...row } as Omit<MockAdminBuylistRow, MockPayabilityHiddenKey> &
+    Partial<Pick<MockPayabilityColumns, MockPayabilityHiddenKey>>;
+  for (const key of MOCK_PAYABILITY_HIDDEN_KEYS) delete dto[key];
   return {
-    ...(dto as Omit<MockAdminBuylistRow, keyof MockPayabilityAnchors>),
+    ...(dto as Omit<MockAdminBuylistRow, MockPayabilityHiddenKey | 'approvedTotalCents'>),
+    // `null` (columna nullable de la tabla) → `undefined` (campo opcional del contrato).
+    approvedTotalCents: row.approvedTotalCents ?? undefined,
     isTerminal: MOCK_TERMINAL_SELL_REQUEST_STATUSES.has(row.status),
     isPayable: mockIsPayable(row),
+    // v1.61 §M5-V.5: **el servidor manda el número**; el cliente no cuenta `itemStatus`.
+    pendingDecisionItemCount: mockPendingDecisionItemIds(row).length,
   };
 }
 
@@ -2616,18 +2704,22 @@ export function mockBulkPublish(req: BulkPublishRequest): BulkPublishResponse {
 }
 
 /**
- * ⚠️ Fila mock: sin los dos campos **server-derived** (`isTerminal`, `isPayable`), y **con** las
- * anclas de pagabilidad, que son lo contrario — columnas de la «tabla» que **no** viajan en el DTO
- * pero sin las cuales `isPayable` no se puede derivar. Ver `MockPayabilityAnchors`.
+ * ⚠️ Fila mock: sin los TRES campos **server-derived** (`isTerminal`, `isPayable`,
+ * `pendingDecisionItemCount`), y **con** las columnas de pagabilidad, que son lo contrario —
+ * columnas de la «tabla» sin las cuales la derivación no se puede hacer. Ver
+ * `MockPayabilityColumns`.
  *
- * ⚠️ **Las anclas son OBLIGATORIAS (`receivedAt`, `verifiedAt`), no opcionales, y ésa es la
- * corrección de §M5-P.** Con `verifiedAt?` opcional, **omitir un ancla era gratis**: la fila salía
- * del tipo sin que nadie decidiera nada y la derivación la leía como `undefined`. Ahora cada fila
- * **declara** si la carta llegó y si se verificó — incluido decir `null`, que es una afirmación y
- * no un olvido.
+ * ⚠️ **Las CUATRO son OBLIGATORIAS, no opcionales, y ésa es la corrección de §M5-P + §M5-V.** Con
+ * `verifiedAt?` opcional, **omitir un ancla era gratis**; con `approvedTotalCents?` heredado del
+ * DTO, **omitir el término V-a también lo era** — y `sr-3001` volvió a salir pagable sin que nadie
+ * decidiera nada. Ahora cada fila **declara** si la carta llegó, si se verificó, si se aprobó algo
+ * y si va por el ciclo — incluido decir `null`, que es una afirmación y no un olvido.
  */
-export type MockAdminBuylistRow = Omit<AdminBuylistDTO, 'isTerminal' | 'isPayable'> &
-  MockPayabilityAnchors;
+export type MockAdminBuylistRow = Omit<
+  AdminBuylistDTO,
+  'isTerminal' | 'isPayable' | 'pendingDecisionItemCount' | keyof MockPayabilityColumns
+> &
+  MockPayabilityColumns;
 
 export const mockAdminBuylist: MockAdminBuylistRow[] = [
   /**
@@ -2651,6 +2743,9 @@ export const mockAdminBuylist: MockAdminBuylistRow[] = [
     // Nada ha llegado y nada se ha verificado: la carta sigue en casa del vendedor.
     receivedAt: null,
     verifiedAt: null,
+    // Nada aprobado y ninguna oferta emitida: la mesa de decisión es justo el paso anterior.
+    approvedTotalCents: null,
+    offerSentAt: null,
     seller: { id: 'u-777', name: 'Ash Ketchum', email: 'ash@example.com' },
     items: [
       { id: 'sri-desk-1', card: cardById('c-charizard'), productType: 'raw', rawCondition: 'NM', finish: 'holofoil', rarity: 'Rare Holo', priceBasis: 'market', marketBracket: 'r25_80', quotedPriceCents: 90000, itemStatus: 'cotizada' },
@@ -2672,6 +2767,14 @@ export const mockAdminBuylist: MockAdminBuylistRow[] = [
     // que nunca llegó—, no una fila de demostración.
     receivedAt: '2026-08-12T15:00:00Z',
     verifiedAt: '2026-08-12T16:00:00Z',
+    // ⚠️⚠️ v1.61 (§M5-V, V-a): **NADA APROBADO TODAVÍA ⇒ NO SE PAGA.** Sus tres líneas siguen en
+    // `verificacion`/`recibida`, así que `approvedTotalCents` es `null` — *«nadie decidió nada»*,
+    // que no es lo mismo que `0`. Ésta es la fila exacta del hallazgo de QA: con solo los tres
+    // términos de v1.57 el servidor falso la declaraba `isPayable: true` y encendía «Pagar por
+    // SPEI» donde el servidor real responde `422`. Fuera del ciclo (`offerSentAt: null`), así que
+    // V-b no aplica y su `pendingDecisionItemCount` es 0: el botón está apagado por V-a.
+    approvedTotalCents: null,
+    offerSentAt: null,
     items: mockSellRequests[0].items,
   },
   {
@@ -2683,6 +2786,8 @@ export const mockAdminBuylist: MockAdminBuylistRow[] = [
     // `recibida` SOLO se alcanza por `receive`, que es el único escritor del ancla (§M5-P).
     receivedAt: '2026-08-13T09:00:00Z',
     verifiedAt: null,
+    approvedTotalCents: null,
+    offerSentAt: null,
     items: [
       { id: 'sri-9', card: cardById('c-machamp'), productType: 'raw', rawCondition: 'NM', finish: 'normal', rarity: 'Uncommon', priceBasis: 'market', marketBracket: 'r25_80', quotedPriceCents: 1200, itemStatus: 'recibida' },
     ],
@@ -2696,13 +2801,69 @@ export const mockAdminBuylist: MockAdminBuylistRow[] = [
     quotedTotalCents: 30000,
     approvedTotalCents: 28000,
     createdAt: '2026-08-14T10:00:00Z',
-    // Pasó por recepción Y verificación ⇒ `isPayable` (los TRES términos de §M5-P). Sin cualquiera
-    // de las dos columnas la fila sería `aprobada` PERO NO pagable, que es exactamente el caso que
-    // el servidor rechaza con 422.
+    // Pasó por recepción Y verificación, y su línea está APROBADA ⇒ `isPayable` (los CUATRO
+    // términos escalares de §M5-V.0). Sin cualquiera de esas columnas la fila sería `aprobada`
+    // PERO NO pagable, que es exactamente el caso que el servidor rechaza con 422.
     receivedAt: '2026-08-14T18:00:00Z',
     verifiedAt: '2026-08-15T10:00:00Z',
+    // Fuera del ciclo: llegó por la verificación clásica (`respond(accept)`), no por M-46.
+    offerSentAt: null,
     items: [
       { id: 'sri-appr', card: cardById('c-charizard'), productType: 'raw', rawCondition: 'NM', finish: 'holofoil', rarity: 'Rare Holo', priceBasis: 'market', marketBracket: 'r25_80', quotedPriceCents: 30000, approvedPriceCents: 28000, itemStatus: 'aprobada' },
+    ],
+  },
+  /**
+   * ⚠️⚠️ **EL FINAL POR DEFECTO DEL CICLO M-46** (§M5-V.3): oferta emitida, paquete recibido y
+   * verificado, y **ninguna línea juzgada**. Sin §M5-V ésta se pagaba, sus cartas **nunca podían
+   * convertirse a inventario** y la tarjeta del periodo reportaba MX$0 sobre dinero que salió.
+   *
+   * Existe para que el servidor falso pueda DEMOSTRAR las dos mitades de V-b:
+   *  - `isPayable: false` con `pendingDecisionItemCount: 2` ⇒ el botón apagado **y el porqué**;
+   *  - `pay-spei` ⇒ `422 ITEMS_NOT_DECIDED` con **los ids de las dos líneas `buy`**.
+   * ⚠️ La línea `skip` **NO** cuenta y se queda en `verificacion` a propósito: es la mitad que un
+   * predicado «ninguna línea sin veredicto» a secas rompería (toda oferta con cherry-pick).
+   */
+  {
+    id: 'sr-3005',
+    userId: 'u-781',
+    status: 'verificacion',
+    quotedTotalCents: 105000,
+    createdAt: '2026-08-28T14:00:00Z',
+    receivedAt: '2026-09-01T15:00:00Z',
+    verifiedAt: '2026-09-01T16:00:00Z',
+    approvedTotalCents: null,
+    offerSentAt: '2026-08-29T10:00:00Z',
+    offerState: 'sent',
+    seller: { id: 'u-781', name: 'Misty Waterflower', email: 'misty@example.com' },
+    items: [
+      { id: 'sri-cyc-1', card: cardById('c-charizard'), productType: 'raw', rawCondition: 'NM', finish: 'holofoil', rarity: 'Rare Holo', priceBasis: 'market', marketBracket: 'r25_80', quotedPriceCents: 90000, offerDecision: 'buy', offeredPriceCents: 90000, itemStatus: 'verificacion' },
+      { id: 'sri-cyc-2', card: cardById('c-pikachu'), productType: 'raw', rawCondition: 'NM', finish: 'normal', rarity: 'Common', priceBasis: 'market', marketBracket: 'r25_80', quotedPriceCents: 12000, offerDecision: 'buy', offeredPriceCents: 12000, itemStatus: 'verificacion' },
+      { id: 'sri-cyc-3', card: cardById('c-eevee'), productType: 'raw', rawCondition: 'NM', finish: 'reverse_holo', rarity: 'Reverse Holo', priceBasis: 'market', marketBracket: 'r25_80', quotedPriceCents: 3000, offerDecision: 'skip', offeredPriceCents: null, itemStatus: 'verificacion' },
+    ],
+  },
+  /**
+   * ⭐ **EL CONTRA-CASO OBLIGATORIO** (§M5-V.8, assert 2-bis), y sin él V-b se implementa mal a la
+   * primera: **cherry-pick con las dos líneas `buy` YA APROBADAS y la `skip` todavía en
+   * `verificacion`** ⇒ **se paga**. *La línea que no compramos no necesita veredicto.*
+   * Si alguien quitara el término `offerDecision='buy'` del predicado, esta fila dejaría de ser
+   * pagable — y con ella **el camino normal del ciclo**.
+   */
+  {
+    id: 'sr-3006',
+    userId: 'u-782',
+    status: 'verificacion',
+    quotedTotalCents: 60000,
+    createdAt: '2026-08-27T14:00:00Z',
+    receivedAt: '2026-09-02T15:00:00Z',
+    verifiedAt: '2026-09-02T16:00:00Z',
+    approvedTotalCents: 47000,
+    offerSentAt: '2026-08-28T10:00:00Z',
+    offerState: 'sent',
+    seller: { id: 'u-782', name: 'Brock Harrison', email: 'brock@example.com' },
+    items: [
+      { id: 'sri-cp-1', card: cardById('c-blastoise'), productType: 'raw', rawCondition: 'NM', finish: 'holofoil', rarity: 'Rare Holo', priceBasis: 'market', marketBracket: 'r25_80', quotedPriceCents: 40000, offerDecision: 'buy', offeredPriceCents: 40000, approvedPriceCents: 40000, itemStatus: 'aprobada' },
+      { id: 'sri-cp-2', card: cardById('c-machamp'), productType: 'raw', rawCondition: 'NM', finish: 'normal', rarity: 'Uncommon', priceBasis: 'market', marketBracket: 'r25_80', quotedPriceCents: 7000, offerDecision: 'buy', offeredPriceCents: 7000, approvedPriceCents: 7000, itemStatus: 'aprobada' },
+      { id: 'sri-cp-3', card: cardById('c-eevee'), productType: 'raw', rawCondition: 'NM', finish: 'reverse_holo', rarity: 'Reverse Holo', priceBasis: 'market', marketBracket: 'r25_80', quotedPriceCents: 13000, offerDecision: 'skip', offeredPriceCents: null, itemStatus: 'verificacion' },
     ],
   },
 ];

@@ -13439,3 +13439,170 @@ código—: `OFFER_NOT_ALLOWED`, `OFFER_ALREADY_SENT`, `OFFER_LINES_MISMATCH`, `
 `ADJUST_NOT_ALLOWED_IN_OFFER_CYCLE`, `ITEM_NOT_OFFERED`, `NO_LIVE_ADJUSTMENT`, `OFFERED_PRICE_MISSING`,
 `DECLINE_NOT_ALLOWED`. **No inventé copy para ninguno** — el mecanismo ya está montado y solo esperan
 su cadena. Los tres primeros salen del **mismo diálogo de emisión** que §26 acaba de arreglar.
+
+---
+
+## §51 · v1.61 en el cliente: **la reincidencia**, y el candado que no cubría la clase entera (2026-09-07, rama `main`)
+
+> **Lo que duele y hay que decir primero.** El pase anterior (`543ac17`) cerró *«el servidor falso
+> enciende el botón de pagar donde el real responde 422»* con un mecanismo del que escribí que el
+> defecto *«ya no se puede escribir»*. **Una versión de contrato después volvió a pasar, en la misma
+> fila (`sr-3001`) y en el mismo botón.** El mecanismo no era falso —hizo lo que prometía— pero
+> **prometía menos de lo que hacía falta**: un `Record` exhaustivo sobre las columnas declaradas
+> protege contra *olvidar el término de una columna que ya está en el tipo*, y el defecto de v1.61
+> fue otro — **un término NUEVO** (`approvedTotalCents`, que ya vivía en el DTO como campo suelto,
+> fuera del mecanismo). *Un candado que cubre media clase deja la otra media exactamente igual de
+> abierta, y encima te convence de que ya no hay que mirar.*
+
+### 1. Qué estaba mal (hallazgo IMPORTANTE de QA)
+
+`docs/API_CONTRACT.md` **§M5-V** (v1.61) llevó la fórmula del pago de **tres** términos a **cinco**:
+
+```
+isPayable ⇔ status ∈ PAYABLE ∧ receivedAt IS NOT NULL ∧ verifiedAt IS NOT NULL
+                             ∧ approvedTotalCents IS NOT NULL            ← V-a, TODA fila
+pay-spei  ⇔ isPayable ∧ (offerSentAt IS NULL ∨ ninguna línea `buy` sin veredicto)  ← V-b, solo ciclo
+```
+
+El servidor falso se quedó en tres ⇒ `sr-3001` (`verificacion`, recibida y verificada, **sin nada
+aprobado**) salía `isPayable: true`, y `M5View.test.tsx` **afirmaba en verde que «Pagar por SPEI»
+estaba habilitado sobre ella**. Sin impacto en producción (la vista lee el `isPayable` del servidor),
+pero **el arnés pintaba verde la pantalla del dinero**: Playwright en modo mock habría certificado
+un estado que el servidor real contesta con `422`.
+
+### 2. La cura, en dos mitades — porque la clase del defecto tiene dos
+
+**(a) COMPILACIÓN — lo que ya había, extendido a todo lo que la fórmula mira.**
+`MockPayabilityAnchors` (dos columnas ocultas) pasa a ser **`MockPayabilityColumns`**: `receivedAt`,
+`verifiedAt`, **`approvedTotalCents`** y **`offerSentAt`**, las **cuatro obligatorias** en cada fila
+del servidor falso. `approvedTotalCents` deja de heredarse como `number | undefined` del DTO y se
+modela como la columna nullable que es (**`null` = «nadie decidió nada»; `0` = «se decidió y salió
+cero»** — §M5-V.0 existe porque esos dos no son el mismo número). La tabla de términos es un `Record`
+exhaustivo sobre `columnas + status`, y **la lista de columnas que se borran del DTO ya no se escribe
+a mano: se deriva** (`Exclude<keyof MockPayabilityColumns, keyof AdminBuylistDTO>`), así que el día
+que el arquitecto publique `offerSentAt` en el DTO admin, **deja de compilar y obliga a decidir**.
+
+**(b) DOCUMENTO — la mitad que faltaba, y es la que cierra la clase.**
+`src/lib/mock/payability-contract.test.ts` **lee la fórmula normativa de `docs/API_CONTRACT.md`
+§M5-V.0** y la compara con la tabla del servidor falso. Dos medidas que **no se tapan entre sí**:
+
+| Candado | Qué mide | Qué mata que el otro NO ve |
+|---|---|---|
+| **NOMBRES** | los identificadores a la izquierda de un operador (`x IS [NOT] NULL`, `x ∈ …`) son **exactamente** las claves de la tabla | un término **renombrado** o **sustituido** (la cuenta no cambia) |
+| **CUENTA** | `conjunciones + 1 === número de términos implementados` | un término nuevo **en prosa** o como predicado derivado — *no tiene identificador que extraer* |
+
+⚠️ **Fallan cerrado a propósito.** Un reformateo del bloque los pone rojos sin que la norma cambie;
+el coste es leer el diff del contrato y re-bendecir la cuenta. **El coste del modo de fallo contrario
+ya se pagó dos veces, las dos en el botón que saca dinero.**
+
+⛔ **Lo que NO puedo prometer, dicho explícitamente:** esto cubre **la fórmula de §M5-V.0**. Un
+término que el backend añada **sin escribirlo en ese bloque** —o en otra sección— sigue sin tener
+quien lo grite desde aquí. La cota de lo que se puede automatizar es *«el documento es la fuente»*;
+si el documento no lo dice, ningún candado del cliente lo sabe. Por eso la petición 1 de abajo.
+
+### 3. `pendingDecisionItemCount`: el botón apagado ahora dice POR QUÉ
+
+Añadido a `AdminBuylistDTO` (**opcional**, consumo defensivo `?? 0`: es aditivo y va backend primero)
+y consumido en `M5View` como la **cadena preventiva** de DESIGN_SYSTEM **§27.1.4**, debajo del botón
+deshabilitado y **referenciada por él** con `aria-describedby` (*«un botón apagado sin motivo visible
+es un callejón»*).
+
+⛔ **El número no se cuenta en el cliente** (§M5-V.5): hacerlo metería **dos** reglas del servidor en
+la pantalla —el set de estados «sin veredicto» **y** el filtro `offerDecision='buy'`—, *y la segunda
+es justo la que un lector se salta*. En el servidor falso la derivación existe (no hay backend que la
+haga) y sale del **mismo cuerpo** que el término V-b: un helper, tres lectores.
+
+### 4. El copy del `422`, y una cuenta que le debía a ux-ui
+
+`ITEMS_NOT_DECIDED` llegó a este pase **sin copy**: el súper-admin leía *«Payment requires a
+verification verdict on every purchased line»* dentro de una UI en español, **en el verbo que saca
+dinero** (MEN-2 reabierta). ux-ui lo entregó en **§27.1** mientras trabajaba este pase y aquí solo se
+**cablea**: la base **y** su variante con cifra, cuyo `{count}` sale de
+**`details.pendingDecisionItemIds.length`** (§27.1.2) — ⛔ **no** de `pendingDecisionItemCount`, que es
+de otro instante y puede estar rancio respecto del `422` recién recibido.
+
+Y la deuda que había dejado: las once cadenas de §26 se verificaron *«carácter por carácter»* **a
+mano**, y una verificación manual no vuelve a correr nunca. Ahora `error-audience.test.ts` **parsea
+§26 y §27** y exige que lo cableado esté en los dos catálogos **literal**; lo no cableado, **entero o
+nada**. El **LOTE 2** de §27 (doce códigos, no bloqueante según ux-ui) queda en
+`DESIGN_SYSTEM_27_LOT2_PENDING_ERROR_CODES` como **inventario con trip-wire por los dos lados**: rojo
+si §27 deja de declararlos, y rojo si alguien les mete copy sin moverlos a la lista de cableados.
+**No inventé copy para ninguno.**
+
+### 5. Los candados, y **el rojo que enseñó cada uno** (verificación por mutación)
+
+| # | Mutación | Rojo |
+|---|---|---|
+| 1 | §M5-V.0 gana `∧ kycVerifiedAt IS NOT NULL` | NOMBRES **y** CUENTA |
+| 2 | §M5-V.0 gana un término **en prosa** (`∧ ninguna disputa abierta`) | **solo CUENTA** — la prueba de que no es redundante |
+| 3 | §M5-V.0 **renombra** `verifiedAt → verifiedBy` | **solo NOMBRES** — ídem, por el otro lado |
+| 4 | se rompe el ancla `<a id="M5-V">` | los **tres** tests, con mensaje («no se encontró §M5-V»), no un verde silencioso |
+| 5 | V-a escrito como `> 0` | «el DEPÓSITO DE CERO de D40 se sigue pagando» |
+| 6 | V-b sin el filtro `offerDecision='buy'` | 7 tests, incl. **el camino normal del ciclo deja de pagarse** |
+| 7 | V-b fuera de `isPayable` | «una línea COMPRADA sin veredicto apaga el botón» |
+| 8 | una palabra del catálogo se desvía de §27 | LITERALIDAD |
+| 9 | falta la cadena en **un** idioma | LITERALIDAD |
+| 10 | copy **improvisado** para un código del LOTE 2 | «entero o nada» **y** el inventario del LOTE 2 |
+| 11 | `{count}` deja de salir de `pendingDecisionItemIds` | los dos tests de §27.1.2 |
+| 12 | el botón deja de referenciar su motivo (`aria-describedby`) | M5View |
+| 13 | **omitir `approvedTotalCents` en una fila** (la forma exacta del defecto) | ⛔ **no compila** |
+| 14 | el contrato publica `offerSentAt` en el DTO | ⛔ **no compila** (la lista derivada **y** el trip-wire de §50) |
+| 15 | §27 se renombra/mueve | el inventario del LOTE 2, con mensaje |
+| 16 | el servidor falso deja de contar las líneas pendientes | payability **y** M5View |
+
+**Anti-vacuidad** en los tres parsers nuevos: se afirma que el bloque se localizó, que trae la
+fórmula, que se extrajeron ≥ 4 términos, que hay ≥ 11 filas de copy y que ninguna celda viene vacía.
+
+### 6. Fixtures nuevas del servidor falso (y por qué cada una)
+
+- **`sr-3001`** ya no es pagable: recibida y verificada **sin nada aprobado** (V-a). Es la fila del
+  hallazgo, y ahora demuestra la regla en vez de negarla.
+- **`sr-3005`** — **el final por defecto del ciclo M-46** (§M5-V.3): oferta emitida, dos líneas `buy`
+  sin juzgar y una `skip`. `pendingDecisionItemCount: 2`, botón apagado **con motivo**, y `pay-spei`
+  ⇒ `422 ITEMS_NOT_DECIDED` con los **dos** ids.
+- **`sr-3006`** — ⭐ **el contra-caso obligatorio** (§M5-V.8, assert 2-bis): cherry-pick con las `buy`
+  aprobadas y la `skip` en `verificacion` ⇒ **se paga**. Sin él, «V-b» se implementa como *«ninguna
+  línea sin veredicto»* y **toda oferta con cherry-pick queda impagable**.
+
+### 7. Ficheros tocados
+
+`src/types/contract.ts` (fórmula de `isPayable` a CINCO términos + `pendingDecisionItemCount`),
+`src/lib/mock/fixtures.ts` (columnas, tabla de términos, `mockPendingDecisionItemIds`, proyección,
+tres fixtures), `src/lib/api.ts` (`pay-spei`: `ITEMS_NOT_DECIDED` **arriba** de la genérica, la
+escalera de §M5-V.6), `src/components/ui/QueryState.tsx` (`{count}` de §27.1.2),
+`src/app/[locale]/(admin)/admin/m5/M5View.tsx` (cadena preventiva + `aria-describedby`),
+`messages/{es,en}.json` (3 claves, verbatim de §27), `src/lib/error-audience.ts` (inventario de §27),
+**nuevo** `src/lib/mock/payability-contract.test.ts`, y los tests de `payability`, `error-audience`,
+`QueryState` y `M5View`.
+
+### 8. Verificación (números reales)
+
+- **117 ficheros / 1231 tests** en verde (`vitest run`); antes de este pase, 1213.
+- `tsc --noEmit` **EXIT 0** con `.next` **borrado y reconstruido**; `next build` **EXIT 0**;
+  `next lint` **sin warnings ni errores**.
+- **16 mutaciones, 16 rojos** (tabla de §5), restauradas todas; árbol limpio de residuos.
+
+### 9. Solicitudes al arquitecto
+
+1. **Que §M5-V.0 siga siendo el único sitio donde vive la fórmula, y que crezca ahí.** Mi candado
+   nuevo la lee de ese bloque: un término añadido **solo** en prosa de otra subsección (o en el
+   backend) **no lo ve nadie desde el cliente**. No pido cambio de contrato; pido que la regla siga
+   escribiéndose **entera** en V.0 cuando cambie. *Es lo que convierte «que no se vuelva a
+   desincronizar» en una propiedad verificable y no en una intención.*
+2. **`offerSentAt` en `AdminBuylistDTO`** (sigue viva de §50, y ahora con un segundo consumidor):
+   además de encender la variante `_OFFER_CYCLE` de `APPROVED_PRICE_CAP_EXCEEDED`, le diría a la
+   pantalla si la solicitud va por el ciclo. **No bloquea**: hoy el cliente no lo necesita para
+   decidir nada (el servidor manda `isPayable` y el conteo), y el trip-wire de tipo ya está puesto.
+3. **Reporte, no petición:** `AdminBuylistDTO.approvedTotalCents` sigue declarado `number` opcional
+   (no nullable). En el servidor falso lo modelo `number | null` **porque el término V-a distingue
+   `null` de `0`**, y traduzco en la proyección. Si el backend real llegara a mandar `null`
+   explícito, el tipo del cliente **no lo declara** — no rompe nada hoy (`?? 0` / lectura directa),
+   pero conviene saberlo.
+
+### 10. Para ux-ui (no bloquea)
+
+**LOTE 1 de §27 cableado y verificado carácter por carácter** (base + `_WITH_DETAILS` + la cadena
+preventiva de §27.1.4, con `aria-describedby` como pide la sección). **LOTE 2: no cableado**, por
+alcance de este pase; queda inventariado y con trip-wire, y **su copy ya no se puede improvisar** —
+el candado exige que salga de §27, literal, en los dos idiomas. Si el orquestador lo quiere en este
+release, es un pase mecánico de ~14 claves.

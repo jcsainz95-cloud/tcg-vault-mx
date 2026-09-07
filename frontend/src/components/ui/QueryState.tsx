@@ -89,6 +89,26 @@ const DETAILED_ERRORS: Record<
    * Si falta cualquiera de los dos montos se devuelve `null` y se pinta la base: nunca un
    * `MX$ undefined` (§26.5).
    */
+  /**
+   * `422 ITEMS_NOT_DECIDED` del pago SPEI (contrato §M5-V · `details: { sellRequestId,
+   * pendingDecisionItemIds }`). DESIGN_SYSTEM **§27.1.2**, que es normativa y delicada:
+   * ```
+   * count = details.pendingDecisionItemIds.length   ← la lista QUE MANDÓ EL SERVIDOR, en ESTE error
+   * ```
+   * - Se pinta la variante con cifra **⇔ el array existe y NO está vacío**; en cualquier otro caso
+   *   (ausente, no-array, vacío) se devuelve `null` y se pinta la base — jamás `{count}` crudo.
+   * - ⛔ **No se cuentan filas de la tabla para obtener el número** (§M5-V.5). *Contar la longitud
+   *   de una lista que mandó el servidor no es derivar la regla: es leer su respuesta.*
+   * - ⛔ **Y no se usa `pendingDecisionItemCount` del DTO**, aunque la pantalla lo tenga a mano:
+   *   ese número es de **otro instante** y puede estar rancio respecto del `422` recién recibido
+   *   (§27.1.2). **El error trae su propia cuenta; el DTO alimenta el aviso preventivo.**
+   */
+  ITEMS_NOT_DECIDED: (d) => {
+    const ids = d.pendingDecisionItemIds;
+    if (!Array.isArray(ids) || ids.length === 0) return null;
+    return { count: ids.length };
+  },
+
   BUYLIST_LIMIT_EXCEEDED: (d, _t, locale) => {
     const cap = d.capCents;
     const wouldBe = d.wouldBeCents;

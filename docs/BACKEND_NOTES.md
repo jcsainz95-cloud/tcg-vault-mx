@@ -28,6 +28,215 @@
 > §0.22 de este documento son de `main` y NO se movieron**: son M47-H2, v1.53 (buylist raw-only) y
 > v1.53-b. Un informe de QA/techlead anterior al 2026-09-06 puede usar la numeración vieja.
 
+## 0.46 — **v1.61.1 / `B1`: V-a estaba escrita en el `where` del dinero y NO llegaba al motor** (2026-09-07, bloqueante del techlead)
+
+> Propiedad: **backend**. **CERO DDL, cero migración, cero endpoints, cero diales, cero cambio de
+> contrato.** Un `where` que se componía con **spread** pasa a componerse con **`AND`**, una suite
+> unitaria nueva que mira **el objeto que se le pasa a `updateMany`**, y cuatro asserts de forma
+> convertidos en asserts de conducta. **La norma no cambia: lo que cambia es que ahora se cumple.**
+
+### 0.46.1 El defecto, REPRODUCIDO antes de tocar nada
+
+El `where` del `updateMany` que mueve el dinero (`paySpei`) se armaba así:
+
+```js
+where: {
+  id,
+  ...this.payableWhere(),                        // aporta `approvedTotalCents: { not: null }`  ← V-a
+  paidAt: null,
+  closedAt: null,
+  approvedTotalCents: fresh.approvedTotalCents,  // ⇐ clave POSTERIOR: PISA a la del spread
+  …
+}
+```
+
+En un objeto literal de JavaScript **la clave posterior gana sobre el spread**. ⇒ **V-a no existía en
+el lado `where`.** Y el caso malo no es teórico: con `fresh.approvedTotalCents === null` el `where`
+compuesto queda `approvedTotalCents IS NULL`, que casa **exactamente la fila que V-a existe para
+rechazar**.
+
+**Medido sobre `5de5049`** (harness que evalúa el `where` de verdad; la fila entra en la ventana B-2
+con el aprobado ya en `null` y el pre-check leyendo el valor de antes):
+
+```
+where realmente pasado a updateMany:
+  { "id":"sr-1", "status":{"in":["aprobada","verificacion"]},
+    "receivedAt":{"not":null}, "verifiedAt":{"not":null},
+    "approvedTotalCents": null,            ⇐ V-a AUSENTE: es el CAS, y dice IS NULL
+    "paidAt":null, "closedAt":null,
+    "offerGrossCents":90000, "quotedTotalCents":50000, "offerShippingFeeCents":18000 }
+
+resultado:  count === 1  ·  status → 'pagada'  ·  payoutNetCents = 72000  ⇐ POR CERO CARTAS
+```
+
+Es `BL-45` **reentrando por la puerta de la carrera** —la puerta que ese `where` existía para tapar
+(*«Es la guarda, no el aviso»*)—. La ventana es real: `recomputeApprovedTotal` escribe `null` cuando
+ninguna línea tiene `approvedPriceCents` y su guarda deja pasar `verificacion`; entre el pre-check y
+la relectura corren `kycProfile.findUnique` y `adminCycleDials()`, y un `itemDecision(reject)`
+concurrente **no es `Serializable`**, así que el SSI de Postgres no arbitra.
+
+### 0.46.2 ⚠️⚠️ Por qué TODO afirmaba estar cubierto — la lección, que es más importante que el bug
+
+- **El assert 9 de §M5-V.8** (paridad predicado↔`where`) cruza **`payableWhere()` AISLADA**, donde el
+  término sí está. **No prueba el `where` compuesto.** Verde con la guarda ausente.
+- La **mutación M7 de §0.45.5** (*«V-a sólo en el predicado, no en el `where`»*, 3 unitarios rojos) se
+  ejecutó **quitando el término de `payableWhere()`** — el ayudante. La composición **nunca se mutó**,
+  y es donde el término se perdía.
+- **`buylist.bl14-bruto-consumado.spec.ts`** afirmaba en un comentario: *«Quitar V-a de
+  `payableWhere()` pone esto rojo con un 200 y `payoutNetCents = 72_000»`*. **Era falso**: ese caso
+  monta `req.approvedTotalCents = null`, así que muere en el pre-check **antes** de que exista un
+  `where`; y `fakePayDb` responde `{count:1}` **sin mirar el `where`**. Verificado por mutación: quitar
+  V-a de `payableWhere()` deja ese fichero **entero en verde**; lo que sí lo pone rojo es quitarla del
+  **predicado**.
+
+⇒ El lado `where` de V-a era **código muerto, con cobertura cero y un comentario que documentaba una
+mutación que no mataba nada**. *Un hueco con nombre deja de buscarse.*
+
+### 0.46.3 El arreglo — `AND`, y la regla que lo generaliza
+
+El CAS (`= fresh.approvedTotalCents`) y V-a (`IS NOT NULL`) **afirman cosas distintas sobre la misma
+columna**: no pueden convivir en una clave de un objeto plano. `AND` conserva las dos, y su desacuerdo
+es la conducta correcta — con el aprobado en `null`, el CAS casa, V-a no ⇒ `count = 0` ⇒ **no sale un
+peso**. *No es un segundo candado que tape al primero: son las dos mitades del mismo, y ahora las dos
+llegan al SQL.*
+
+```ts
+where: {
+  id,
+  AND: [
+    this.payableWhere(),                                   // §4.39c sitio 8 · §M5-P · §M5-V (V-a)
+    { paidAt: null, closedAt: null },                      // §M5-T / BL-35 (P1)
+    { approvedTotalCents: fresh.approvedTotalCents, … },   // B-2: CAS de las CUATRO columnas
+  ],
+}
+```
+
+**La regla, para que no vuelva:** *todo fragmento que venga de otro sitio viaja como elemento de
+`AND`; plano queda sólo lo que nadie más reclama (`id`).* Un spread no avisa cuando lo pisan; un `AND`
+no puede pisar. Se asevera **estructuralmente** (`clavesPlanas(where) === ['id']` y ninguna clave plana
+coincide con la de un fragmento), así que la regla protege también a los términos que aún no existen.
+
+**Medido contra Postgres real** (`test/integration/buylist-pay-verdicts.e2e-spec.ts`, sobre una fila
+construida por la API con la única línea `buy` rechazada ⇒ `approvedTotalCents IS NULL`):
+
+```
+count({ id, ...vA, ...cas })    →  1     ⇐ la composición VIEJA casa: saldría el dinero
+count({ id, AND: [vA, cas] })   →  0     ⇐ la NUEVA no casa
+count({ id, AND: [vA, {approvedTotalCents: 0}] })  →  1   ⇐ y NO rechaza de más (D40)
+```
+
+### 0.46.4 Los tests — la prueba mira el objeto, no el ayudante
+
+**Nuevo:** `test/buylist.pay-spei-where-composition.spec.ts` (**17 casos**) y
+`test/helpers/prisma-where.ts` (evaluador de `where` **compartido**, que entiende `AND`/`OR`/`NOT` y
+**lanza** ante un operador que no sabe leer — un evaluador permisivo convierte cualquier término nuevo
+en un no-op silencioso). Los casos que importan:
+
+- **La ventana B-2 con el aprobado en `null`**: el pre-check pasa, el `updateMany` corre y **no casa
+  ninguna fila**.
+- **La mutación, como función**: `sinVa(where)` borra V-a **del objeto que el servicio produjo** y se
+  comprueba que (a) el borrado quitó algo —control anti-vacuidad—, (b) con V-a la fila **no** casa y
+  (c) sin V-a **sí**. *Si quitar la guarda no pone nada rojo, la guarda es código muerto.*
+- **El assert 9, pero sobre el `where` COMPUESTO**: ninguna fila que `isPayableSellRequest` rechaza
+  puede casar el `where` que corrió, barriendo el enum × `receivedAt` × `verifiedAt` ×
+  `approvedTotalCents ∈ {null, 0, n}`. ⚠️ Se captura de una corrida **de carrera** (CAS = `null`): con
+  un CAS de `40_000` el propio CAS taparía el eje y el barrido volvería a ser verde con V-a ausente.
+- **Los once términos, uno a uno**, y los dos controles anti-falso-verde (el camino feliz **paga**; el
+  **depósito de cero de D40** casa ⇒ V-a es `IS NOT NULL`, jamás `> 0`).
+
+**Cuatro asserts de FORMA convertidos en asserts de CONDUCTA** — eran `toMatchObject` sobre claves
+planas, que es exactamente lo que dejó pasar B1: `buylist.m5p-received-guard.spec.ts` (×2),
+`buylist.m5t-terminal-guard.spec.ts`, `buylist.pay-spei-amount-cas.spec.ts` (×2),
+`buylist.security.spec.ts`. Los harnesses de m5p/m5t pasan al evaluador compartido (los suyos **no
+sabían leer `AND`**, y ésa era la razón de que la composición no se pudiera aseverar allí).
+
+**Las mutaciones, corridas una a una:**
+
+| # | Mutación | Unitarios rojos | Integración rojos |
+|---|---|---|---|
+| **M-B1** | **volver a componer con spread** (el defecto exacto) | **4** (3 suites) | **0** ⚠️ |
+| **M1** | quitar V-a de **`payableWhere()`** (predicado intacto) | **6** (3 suites) | **0** ⚠️ |
+| **M2** | quitar V-a del **predicado** (`where` intacto) | **6** (6 suites) | *no medida* |
+| **M3** | V-a como **`{ gt: 0 }`** en el `where` | **4** (3 suites) | **1** ✅ (era **0**) |
+| **M4** | V-a como **`> 0`** en el predicado | **7** (6 suites) | *no medida* |
+| **M6** | quitar **`receivedAt`** de `payableWhere()` | **9** (5 suites) | *no medida* |
+
+**Lo que estos números dicen:**
+
+1. ⚠️⚠️ **M-B1 era VERDE en todo antes de este pase** (unitarios **y** integración) y ahora tumba 4
+   casos. Es el punto entero del encargo: *la mutación que reproduce el defecto ya pone algo rojo.*
+2. ⚠️ **M-B1 y M1 siguen invisibles para la integración (283/283)** y **no es un hueco que quede por
+   tapar**: las dos sólo se manifiestan en una **carrera** entre `itemDecision` y `pay-spei`, y esa
+   carrera no se fabrica por HTTP sin un seam en producción. **Lo dice para que QA no lo lea como
+   cobertura**: el candado de la composición es **unitario por naturaleza**, y por eso la suite nueva
+   evalúa el `where` en vez de mirarle la forma.
+3. **M3 pasa de 0 a 1 rojo en integración**: es `MENOR-2` cerrada (§0.46.5).
+
+### 0.46.5 Las tres deudas menores que se cerraron de paso
+
+- **D2 (techlead)** — comentarios caducados que decían *«los TRES términos»* sobre un predicado que ya
+  tiene **cuatro escalares** más V-b: `buylist.service.ts:5821/:6977/:7084` y
+  `sell-request-states.ts:171`. Corregidos, con la razón escrita: *quien audita el `where` cuenta lo
+  que el comentario le promete y para de buscar.*
+- **MENOR-3 (QA)** — `expect([200, 201]).toContain(...)` en `buylist-cycle.e2e-spec.ts:847` ⇒
+  `expect(...).toBe(200)`. §M5-C / `BL-37` declara `200`, y `pay-spei` fue **precisamente** el endpoint
+  que respondía `201` contra una tabla normativa. Era la **única** aserción laxa de esa clase en
+  `test/` (medido con `grep`).
+- **MENOR-2 (QA)** — el **depósito de cero de D40** (`approvedTotalCents = 0` **con** líneas decididas,
+  que **sí se paga**) ya se ejercita contra Postgres. El estado se monta con `h.prisma` —el ciclo no
+  puede ofertar una línea a 0— y **la conducta se prueba por la puerta**, como la cohorte legacy.
+- ⚠️ **Los dos casos nuevos de integración corren con el SEGUNDO vendedor** (`customer2`): el tope AML
+  es **por vendedor y se consume al CREAR**, así que montarlos sobre `customer` le quitaba presupuesto
+  a los casos que ya estaban y **tumbaba el último** con `422` en el intake. *Un caso nuevo no puede
+  gastarse el presupuesto de los que ya pasaban.*
+
+### 0.46.6 Deuda que NO cerré, y por qué (para el techlead)
+
+**`req.items ?? []`** (`buylist.service.ts:7002` en `paySpei`, `:2372` en la proyección) anula la
+garantía del tipo `VerdictItemsPayload` **en el verbo del dinero**, y con `items = []` **V-b siempre
+pasa** ⇒ es vacuo en todo unitario de `paySpei`. Existe para acomodar mocks. **El camino es arreglar
+los mocks, no debilitar producción** — y no va en este diff porque tocar media docena de harnesses
+mezclaría el arreglo de dinero con una refactorización de tests. Anotada en `docs/TECH_DEBT.md`
+(**BL45-D1**) con dueño y disparador.
+
+### 0.46.7 Contrato — **ninguna discrepancia, ninguna solicitud al arquitecto**
+
+`API_CONTRACT` §M5-V ya decía lo correcto (V-a como `IS NOT NULL`, en el predicado **y** en la guarda
+del motor). **El contrato no estaba mal: el código no lo cumplía en uno de los dos lados.** No se tocó
+`docs/API_CONTRACT.md`.
+
+### 0.46.8 Verificación (literal)
+
+```
+npx tsc --noEmit -p tsconfig.json        →  sin salida (limpio)
+npx eslint "src/**/*.ts" "test/**/*.ts"  →  0 errores, 2 warnings PRE-EXISTENTES
+                                            (inventory.service.ts:638, sealed-product.service.ts:11 —
+                                             ficheros que este pase NO toca)
+npx jest                                 →  Test Suites: 250 passed, 250 total
+                                            Tests:       3666 passed, 3666 total
+./scripts/stack-native.sh test:integration
+                                         →  Test Suites: 19 passed, 19 total
+                                            Tests:       283 passed, 283 total
+```
+
+Respecto a `5de5049` (**249 suites / 3.649 unitarios**, **19 suites / 281 de integración**): **+1
+suite y +17 unitarios**, **+2 de integración**.
+
+⚠️ **Procedencia, dicha con precisión (SEC-OPS-1):** la suite de integración **no** golpea el proceso
+largo de `:3099` — `E2EHarness` levanta el `AppModule` **del árbol de trabajo** en un puerto efímero
+contra el **Postgres real** del stack nativo, así que los 283 miden **este** código (comprobado: la
+mutación `{not:null}` → `{gt:0}` lo pone en rojo). **El proceso de `:3099` sigue sirviendo `5de5049`**
+y `verify:head` sale en rojo por eso: **antes de cualquier medición por HTTP contra `:3099`** (smoke,
+DAST, Playwright real) hay que correr `./scripts/stack-native.sh up`. No lo reinicié yo: el stack está
+compartido con el frente de frontend, que en este momento tiene trabajo vivo en `frontend/`.
+
+**Lo que NO medí, dicho:** **(a)** producción y staging — todo es local; **(b)** el frontend (no
+escribo ahí): este pase **no cambia ningún contrato de respuesta**, sólo hace que una fila que ya era
+impagable deje de pagarse **también bajo carrera**; **(c)** la carrera real `itemDecision` ⟶
+`pay-spei` **no se guionizó contra Postgres** — se reproduce con un harness que evalúa el `where`, y
+fabricarla por HTTP exigiría un seam en producción (ver §0.46.4, punto 2); **(d)** las mutaciones
+**M2, M4 y M6 no se corrieron contra integración** (sí contra los 3.666 unitarios).
+
 ## 0.45 — **v1.61 / `BL-45` · §M5-V: «no se paga lo que no se ha juzgado». LA CUARTA CARA ERA REAL Y SE MIDIÓ** (2026-09-07)
 
 > Propiedad: **backend**. Contra el contrato **v1.61 [`§M5-V`](API_CONTRACT.md#M5-V)** y `ARCHITECTURE`
@@ -218,6 +427,15 @@ el arreglo y va anotado caso por caso en cada uno:
 3. **`M5` y `M7` son unitario-puros, y está bien que lo sean.** El depósito de cero (`approvedTotalCents
    = 0`) no lo produce el ciclo por la API —haría falta aprobar una línea a precio 0— y la paridad
    predicado↔`where` sólo se rompe en una **carrera**. Se dice para que QA no lo lea como un hueco.
+
+> ⛔⛔ **CORRECCIÓN POSTERIOR (v1.61.1, §0.46) — LEE ESTO ANTES DE FIARTE DE `M7`.** `M7`
+> (*«V-a sólo en el predicado, no en el `where`»*) se ejecutó **quitando el término de
+> `payableWhere()`**, o sea del **ayudante**. El `where` real de `paySpei` **componía con spread** y
+> ahí la clave del CAS **pisaba a V-a**: el término estaba escrito en `payableWhere()` —por eso `M7`
+> salía rojo— y **no llegaba al motor**. La composición **nunca se mutó**, y era el único sitio donde
+> el término faltaba de verdad. También el `M5` de esta tabla mide el ayudante, no el objeto
+> compuesto. Ver **§0.46** para el defecto, su reproducción (`payoutNetCents = 72000` por cero
+> cartas) y el arreglo.
 
 **Ficheros de prueba nuevos:**
 - `test/integration/buylist-pay-verdicts.e2e-spec.ts` — **14 casos, por HTTP contra Postgres real**:

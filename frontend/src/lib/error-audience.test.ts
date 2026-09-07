@@ -7,6 +7,8 @@ import type { AdminBuylistDTO } from '@/types/contract';
 import {
   AUDIENCE_SENSITIVE_ERROR_CODES,
   DESIGN_SYSTEM_26_ERROR_CODES,
+  DESIGN_SYSTEM_27_LOT1_ERROR_CODES,
+  DESIGN_SYSTEM_27_LOT2_PENDING_ERROR_CODES,
   ERROR_SCOPE_AUDIENCE,
   errorMessageKeys,
   resolveErrorAudience,
@@ -134,6 +136,150 @@ describe('§26.6 · SIGNIFICADO: al operador no se le habla como si fuera el suj
       expect(all.filter((v) => /cotizado × 2|quoted × 2/.test(v)), locale).toEqual([]);
     }
   });
+});
+
+/*
+ * ─────────────────────────────────────────────────────────────────────────────
+ * ⚠️⚠️ **EL CANDADO QUE LEE EL DOCUMENTO** (DESIGN_SYSTEM §26 y §27, sus tablas de copy)
+ *
+ * Los candados de arriba miden que las claves **existan** y que **no digan lo prohibido**. Ninguno
+ * mira si el texto es **el que ux-ui escribió**: la primera vez las once cadenas se verificaron
+ * «carácter por carácter» **a mano**, y una verificación manual no vuelve a correr nunca. Es la
+ * misma clase de defecto que el servidor falso de `isPayable`: *lo que no está atado al documento
+ * se desincroniza en cuanto el documento cambia.*
+ *
+ * Éste **parsea las dos secciones** y exige que cada fila de copy cableada esté en los DOS
+ * catálogos, **literal**. Se pone rojo cuando ux-ui reescriba una cadena, cuando alguien retoque
+ * el catálogo por su cuenta y —como acaba de pasar con `ITEMS_NOT_DECIDED`— cuando aparezca una
+ * fila nueva que este release se comprometió a cablear.
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+
+const DESIGN_SYSTEM_PATH = join(__dirname, '..', '..', '..', 'docs', 'DESIGN_SYSTEM.md');
+
+/**
+ * Una sección de primer nivel del sistema de diseño, entera. **§27 es la continuación directa de
+ * §26** (misma convención de claves, mismas reglas duras, mismas prohibiciones), así que el
+ * candado las lee **a las dos**: si el copy de errores se reparte en más secciones y el candado
+ * mira solo una, vuelve a haber cadenas normativas que nadie compara con nada.
+ */
+function designSystemSection(number: number): string {
+  const doc = readFileSync(DESIGN_SYSTEM_PATH, 'utf8');
+  const heading = `\n## ${number}. `;
+  const start = doc.indexOf(heading);
+  expect(start, `no se encontró §${number} en ${DESIGN_SYSTEM_PATH}`).toBeGreaterThan(-1);
+  const rest = doc.indexOf('\n## ', start + heading.length);
+  return doc.slice(start, rest === -1 ? undefined : rest);
+}
+
+/**
+ * Las filas de copy de §26: `| \`error.CLAVE\` | ES | EN |`.
+ *
+ * ⚠️ **§26.5 es OPCIONAL por decisión de ux-ui** (*«No son obligatorias. Se implementan solo si
+ * frontend ya tiene el `DETAILED_ERRORS` cableado para ese código»*), así que sus filas se marcan
+ * y se exigen **solo si están**. Lo que NO es opcional para ellas es la paridad y la literalidad:
+ * una cadena a medio cablear —en `es` y no en `en`, o con el texto retocado— es peor que no
+ * tenerla.
+ */
+function copyRows(section: string): { key: string; es: string; en: string; optional: boolean }[] {
+  const rows: { key: string; es: string; en: string; optional: boolean }[] = [];
+  let optional = false;
+  for (const raw of section.split('\n')) {
+    const heading = raw.match(/^### 26\.(\d+)/);
+    if (heading) optional = heading[1] === '5';
+    const row = raw.match(
+      /^\|\s*`(error\.[A-Za-z0-9_.]+)`([^|]*)\|([^|]*)\|([^|]*)\|\s*$/,
+    );
+    if (!row) continue;
+    const [, key, tag, es, en] = row;
+    // ⚠️ Dos formas de «esta fila no trae texto»: la marca `*(opcional…)*` del propio documento y
+    // la fila de REFERENCIA CRUZADA («*(ver §27.1.1…)*»), que repite una clave ya definida arriba.
+    if (/^\s*\*\(/.test(es)) continue;
+    rows.push({
+      key,
+      es: es.trim(),
+      en: en.trim(),
+      optional: optional || /opcional/i.test(tag),
+    });
+  }
+  return rows;
+}
+
+describe('§26/§27 · LITERALIDAD: el copy del catálogo es el que dice DESIGN_SYSTEM, carácter por carácter', () => {
+  // ⚠️ Se lee DENTRO de cada test (memoizado), no en el cuerpo del `describe`: si una sección se
+  // renombra o se mueve, se quiere un test ROJO con su mensaje y no una suite que ni colecciona.
+  let cached: { section: string; rows: ReturnType<typeof copyRows> } | null = null;
+  const read = () => {
+    cached ??= (() => {
+      const section = designSystemSection(26) + designSystemSection(27);
+      return { section, rows: copyRows(section) };
+    })();
+    return cached;
+  };
+  /** Las que este release se comprometió a cablear: §26 entera + el LOTE 1 de §27. */
+  const WIRED = [...DESIGN_SYSTEM_26_ERROR_CODES, ...DESIGN_SYSTEM_27_LOT1_ERROR_CODES] as string[];
+  const isWired = (key: string) =>
+    WIRED.some((code) => key === `error.${code}` || key.startsWith(`error.${code}_`));
+
+  it('el parser encuentra de verdad las tablas de §26/§27 (anti-vacuidad)', () => {
+    const { rows } = read();
+    // Sin esto, un cambio de formato en el documento dejaría `rows` vacío y **todas** las
+    // comprobaciones de abajo pasarían sin mirar nada.
+    expect(rows.length, 'no se parseó ninguna fila de copy de §26').toBeGreaterThanOrEqual(11);
+    expect(rows.filter((r) => !r.optional).length).toBeGreaterThanOrEqual(11);
+    expect(rows.map((r) => r.key)).toContain('error.INE_REQUIRED_OPERATOR');
+    // Y el contenido es copy de verdad, no una celda de encabezado o un guion.
+    for (const row of rows) {
+      expect(row.es.length, `${row.key}: ES vacío en el documento`).toBeGreaterThan(20);
+      expect(row.en.length, `${row.key}: EN vacío en el documento`).toBeGreaterThan(20);
+    }
+  });
+
+  it('cada cadena NORMATIVA de lo CABLEADO está en `es` y en `en`, exactamente como la escribió ux-ui', () => {
+    const { rows } = read();
+    const required = rows.filter((r) => !r.optional && isWired(r.key));
+    // Anti-vacuidad: si `isWired` dejara de reconocer las claves, esto no compararía nada.
+    expect(required.length).toBeGreaterThanOrEqual(11);
+    for (const row of required) {
+      expect(value(es, row.key), `es: ${row.key} no coincide con DESIGN_SYSTEM §26`).toBe(row.es);
+      expect(value(en, row.key), `en: ${row.key} no coincide con DESIGN_SYSTEM §26`).toBe(row.en);
+    }
+  });
+
+  it('todo lo demás se cablea ENTERO o nada: nunca a medias, nunca retocado', () => {
+    // Cubre las opcionales (§26.5, §27.1.2) **y** el LOTE 2 pendiente: en cuanto alguien meta una
+    // de esas cadenas en un catálogo, tiene que ser la del documento y estar en los dos idiomas.
+    const { rows } = read();
+    for (const row of rows.filter((r) => r.optional || !isWired(r.key))) {
+      const wired = value(es, row.key) !== undefined || value(en, row.key) !== undefined;
+      if (!wired) continue;
+      expect(value(es, row.key), `es: ${row.key} cableada a medias o retocada`).toBe(row.es);
+      expect(value(en, row.key), `en: ${row.key} cableada a medias o retocada`).toBe(row.en);
+    }
+  });
+
+  /**
+   * ⚠️ **EL INVENTARIO DEL LOTE 2** (§27.2): copy normativo escrito, cableado pendiente. Falla por
+   * los dos lados —si §27 deja de declarar un código, o si alguien le mete copy sin actualizar el
+   * inventario— para que un pendiente no pueda quedarse en «ya lo haremos» sin que nada lo diga.
+   */
+  it.each(DESIGN_SYSTEM_27_LOT2_PENDING_ERROR_CODES)(
+    '`%s` sigue pendiente de cableado, y §27 lo declara (el inventario no miente)',
+    (code) => {
+      const { section } = read();
+      expect(
+        section.includes(code),
+        `${code} ya no aparece en §26/§27: quítalo de DESIGN_SYSTEM_27_LOT2_PENDING_ERROR_CODES.`,
+      ).toBe(true);
+      for (const [locale, catalog] of CATALOGS) {
+        expect(
+          value(catalog, `error.${code}`),
+          `${locale}: ${code} ya tiene copy en el catálogo — muévelo del LOTE 2 pendiente a la ` +
+            'lista de cableados (y añade su `_OPERATOR` si el código llega a los dos destinatarios).',
+        ).toBeUndefined();
+      }
+    },
+  );
 });
 
 describe('§26.2 · el SELECTOR: `code` + discriminador → destinatario', () => {

@@ -29,16 +29,27 @@ const CLABE = '012345678901234567';
 describe('E2E — §M5-V: no se paga lo que no se ha juzgado (BL-45)', () => {
   let h: E2EHarness;
   let customerToken: string;
+  let customer2Token: string;
+  let address2Id: string;
   let operatorToken: string;
   let adminToken: string;
   let charizardId: string;
   let addressId: string;
   let customerId: string;
 
-  /** Crea una solicitud del `customer` con `n` líneas físicas de la misma carta (§4.16b). */
-  async function createRequest(n: number): Promise<string> {
+  /**
+   * El vendedor con el que se monta un caso. **El tope AML es POR VENDEDOR y el intake lo consume
+   * al CREAR**, así que un caso nuevo sobre el `customer` le quita presupuesto a todos los de este
+   * fichero: los casos añadidos después van con `SEGUNDO` para no desplazar a nadie.
+   */
+  type Vendedor = { token: string; addressId: string };
+  const PRIMERO = (): Vendedor => ({ token: customerToken, addressId });
+  const SEGUNDO = (): Vendedor => ({ token: customer2Token, addressId: address2Id });
+
+  /** Crea una solicitud del vendedor dado con `n` líneas físicas de la misma carta (§4.16b). */
+  async function createRequest(n: number, quien: Vendedor = PRIMERO()): Promise<string> {
     const res = await h.api('POST', '/buylist/requests', {
-      token: customerToken,
+      token: quien.token,
       json: {
         items: Array.from({ length: n }, () => ({
           cardId: charizardId,
@@ -46,7 +57,7 @@ describe('E2E — §M5-V: no se paga lo que no se ha juzgado (BL-45)', () => {
           rawCondition: 'NM' as const,
         })),
         clabe: CLABE,
-        addressId,
+        addressId: quien.addressId,
       },
     });
     expect(res.status).toBe(201);
@@ -81,8 +92,9 @@ describe('E2E — §M5-V: no se paga lo que no se ha juzgado (BL-45)', () => {
    */
   async function upToVerification(
     lines: ('buy' | 'skip')[],
+    quien: Vendedor = PRIMERO(),
   ): Promise<{ srId: string; ids: string[] }> {
-    const srId = await createRequest(lines.length);
+    const srId = await createRequest(lines.length, quien);
     const ids = await itemIds(srId);
     const offer = await h.api('POST', `/admin/buylist/${srId}/offer`, {
       token: operatorToken,
@@ -90,7 +102,7 @@ describe('E2E — §M5-V: no se paga lo que no se ha juzgado (BL-45)', () => {
     });
     expect(offer.status).toBe(200);
     const accept = await h.api('POST', `/buylist/requests/${srId}/offer-response`, {
-      token: customerToken,
+      token: quien.token,
       json: { decision: 'accept' },
     });
     expect(accept.status).toBe(200);
@@ -125,6 +137,7 @@ describe('E2E — §M5-V: no se paga lo que no se ha juzgado (BL-45)', () => {
     h = await E2EHarness.create();
     await seedE2E(h.prisma);
     customerToken = await h.login(E2E_USERS.customer.email, E2E_USERS.customer.password);
+    customer2Token = await h.login(E2E_USERS.customer2.email, E2E_USERS.customer2.password);
     operatorToken = await h.login(E2E_USERS.operator.email, E2E_USERS.operator.password);
     adminToken = await h.login(E2E_USERS.admin.email, E2E_USERS.admin.password);
     const card = await h.prisma.card.findUnique({ where: { externalId: E2E_CARDS.charizard.externalId } });
@@ -133,6 +146,9 @@ describe('E2E — §M5-V: no se paga lo que no se ha juzgado (BL-45)', () => {
     customerId = u!.id;
     const addr = await h.prisma.address.findFirst({ where: { userId: customerId } });
     addressId = addr!.id;
+    const u2 = await h.prisma.user.findUnique({ where: { email: E2E_USERS.customer2.email } });
+    const addr2 = await h.prisma.address.findFirst({ where: { userId: u2!.id } });
+    address2Id = addr2!.id;
   });
 
   afterAll(async () => {
@@ -493,6 +509,103 @@ describe('E2E — §M5-V: no se paga lo que no se ha juzgado (BL-45)', () => {
     expect(replay.status).toBe(200);
     expect((replay.body as any).status).toBe('pagada');
     expect((await rowOf(srId)).speiReference).toBe('SPEI-V-IDEMP');
+  });
+
+  // ===========================================================================================
+  // v1.61.1 · MENOR-2 (QA) — el DEPÓSITO DE CERO, contra el motor
+  // ===========================================================================================
+  it('⚠️ MENOR-2 — `approvedTotalCents = 0` CON líneas decididas SÍ se paga (contra Postgres)', async () => {
+    // **El agujero de cobertura que esto cierra:** la mutación `{ not: null }` → `{ gt: 0 }` en V-a
+    // dejaba **la integración entera en verde** (281/281). La cazan cinco suites unitarias, así que
+    // no era un agujero de conducta — pero *el camino que el contrato marca como «el error obvio» de
+    // V-a no tenía ni un assert contra el motor real*, y una regla de dinero que solo vive en mocks
+    // es una regla que nadie ha visto cumplirse.
+    //
+    // El ciclo **no puede fabricar** un aprobado de `0` por la puerta (una línea ofertada a 0 no es
+    // ofertable), así que el ESTADO se monta por `h.prisma` —misma frontera que la cohorte legacy de
+    // aquí abajo— y **la conducta se prueba por la puerta**.
+    const { srId, ids } = await upToVerification(['buy', 'buy'], SEGUNDO());
+    expect(
+      (
+        await h.api('PATCH', `/admin/buylist/items/${ids[0]}/decision`, {
+          token: operatorToken,
+          json: { decision: 'approve' },
+        })
+      ).status,
+    ).toBe(200);
+    expect(
+      (
+        await h.api('PATCH', `/admin/buylist/items/${ids[1]}/decision`, {
+          token: operatorToken,
+          json: { decision: 'reject', reason: 'no llega en NM: esquina con desgaste' },
+        })
+      ).status,
+    ).toBe(200);
+    // El depósito de cero de D40 / criterio 140: **se decidió, y salió cero**. Se escribe la fila
+    // COHERENTE (la línea aprobada a 0 y el total a 0), que es lo que `recomputeApprovedTotal`
+    // dejaría si el precio aprobado fuese 0.
+    await h.prisma.sellRequestItem.update({
+      where: { id: ids[0] },
+      data: { approvedPriceCents: 0 },
+    });
+    await h.prisma.sellRequest.update({ where: { id: srId }, data: { approvedTotalCents: 0 } });
+
+    const antes = await adminDetail(srId);
+    expect(antes.approvedTotalCents).toBe(0);
+    expect(antes.pendingDecisionItemCount).toBe(0);
+    // ⚠️ La señal también tiene que decir que sí: `isPayable` es lo que gobierna el botón de pagar.
+    expect(antes.isPayable).toBe(true);
+
+    const res = await pay(srId, 'SPEI-V-CERO-D40');
+    expect(res.status).toBe(200);
+    const fila = await rowOf(srId);
+    expect(fila.status).toBe('pagada');
+    // `max(0, 0 − envío)` = 0: el piso protege al vendedor de deber, no es excusa para no pagarle.
+    expect(fila.payoutNetCents).toBe(0);
+    expect(fila.speiReference).toBe('SPEI-V-CERO-D40');
+    expect(fila.closedAt).toBeTruthy();
+  });
+
+  // ===========================================================================================
+  // v1.61.1 · B1 — la composición del `where`, medida contra el motor
+  // ===========================================================================================
+  it('⚠️⚠️ B1 — sobre una fila REAL con el aprobado en `null`, el SPREAD casa y el `AND` no', async () => {
+    // **El defecto era de COMPOSICIÓN, y esto lo mide donde ocurre: en el SQL.** El `where` del
+    // `updateMany` de `pay-spei` se armaba con `{ ...payableWhere(), approvedTotalCents: fresh… }` y
+    // *en un objeto literal la clave posterior gana sobre el spread*: con el aprobado en `null`, V-a
+    // (`IS NOT NULL`) desaparecía y quedaba `IS NULL` — o sea, el `where` casaba **exactamente la
+    // fila que V-a existe para rechazar**. En la ventana B-2 eso es `BL-45` otra vez: `count === 1`
+    // y sale `max(0, offerGross − envío)` por CERO cartas.
+    //
+    // La fila se construye **por la puerta** y es la de `BL-45`: única línea `buy` rechazada (⇒
+    // `approvedTotalCents = null`) y una `skip` que impide la auto-transición a `rechazada`.
+    const { srId, ids } = await upToVerification(['buy', 'skip'], SEGUNDO());
+    expect(
+      (
+        await h.api('PATCH', `/admin/buylist/items/${ids[0]}/decision`, {
+          token: operatorToken,
+          json: { decision: 'reject', reason: 'no llega en NM: bordes blanqueados' },
+        })
+      ).status,
+    ).toBe(200);
+    const fila = await h.prisma.sellRequest.findUnique({ where: { id: srId } });
+    expect(fila!.approvedTotalCents).toBeNull();
+    expect(fila!.status).toBe('verificacion');
+
+    const vA = { approvedTotalCents: { not: null } }; // el término de `payableWhere()`
+    const cas = { approvedTotalCents: fila!.approvedTotalCents }; // el CAS de B-2, con lo releído
+
+    // (1) La composición VIEJA: **Postgres recibe `IS NULL`** y la fila casa. Un peso saldría.
+    expect(await h.prisma.sellRequest.count({ where: { id: srId, ...vA, ...cas } })).toBe(1);
+    // (2) La composición NUEVA: los dos términos llegan al SQL, se contradicen, y **no casa nada**.
+    expect(await h.prisma.sellRequest.count({ where: { id: srId, AND: [vA, cas] } })).toBe(0);
+    // (3) Y el `AND` **no es un candado que rechace de más**: con el aprobado presente, casa.
+    await h.prisma.sellRequest.update({ where: { id: srId }, data: { approvedTotalCents: 0 } });
+    expect(
+      await h.prisma.sellRequest.count({
+        where: { id: srId, AND: [vA, { approvedTotalCents: 0 }] },
+      }),
+    ).toBe(1);
   });
 
   // ===========================================================================================
