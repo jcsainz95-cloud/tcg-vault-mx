@@ -1154,11 +1154,15 @@ describe('M5View · §23.8a — la partición es TOTAL y los rótulos dicen de q
  *
  * Aquí vivía la **sexta copia** de un subconjunto de estados: `canPay = isSuperAdmin && (status
  * === 'aprobada' || status === 'verificacion')`. Y no era una copia que pudiera desincronizarse
- * algún día: **ya lo estaba**, porque la precondición del servidor son **DOS** términos
- * (`status ∈ PAYABLE ∧ verifiedAt != null`) y el cliente replicaba **solo el primero** ⇒ la
- * pantalla ofrecía pagar donde el servidor responde `422`.
+ * algún día: **ya lo estaba**, porque la precondición del servidor **nunca fue solo el `status`**
+ * y el cliente replicaba justamente ese término y ninguno más ⇒ la pantalla ofrecía pagar donde el
+ * servidor responde `422`.
  *
- * El remedio no fue copiar bien las dos condiciones —eso duplicaría **dos** reglas en vez de una
+ * *(La forma de entonces —`status ∈ PAYABLE ∧ verifiedAt != null`, v1.51.8— está **SUPERSEDED**:
+ * la fórmula viva, y su cuenta, viven en el contrato §M5-V.0 y desde entonces han crecido dos
+ * veces. Aquí no se transcribe ninguna de las dos cosas, que es de lo que va este bloque.)*
+ *
+ * El remedio no fue copiar bien las condiciones —eso duplicaría la regla entera en vez de borrarla
  * y metería `verifiedAt` en la lógica de una pantalla—: lo deriva el servidor en `isPayable`.
  */
 describe('M5View · `isPayable` gobierna el botón de pagar (v1.51.8)', () => {
@@ -1192,8 +1196,9 @@ describe('M5View · `isPayable` gobierna el botón de pagar (v1.51.8)', () => {
   }
 
   it('`aprobada` SIN verificar (`isPayable:false`) NO habilita el pago, aunque el estado sea pagable', async () => {
-    // ⚠️ El caso exacto que el literal viejo no podía ver: el primer término se cumple y el
-    // segundo no. Antes el botón salía habilitado y el servidor contestaba 422.
+    // ⚠️ El caso exacto que el literal viejo no podía ver: el término de `status` se cumple y el
+    // de la verificación no. Antes el botón salía habilitado y el servidor contestaba 422.
+    // *(Sin ordinales a propósito: la posición de cada término en §M5-V.0 ya cambió dos veces.)*
     withRow({ isTerminal: false, isPayable: false });
     renderWithProviders(<M5View />, 'es');
     await screen.findByText('sr-pay');

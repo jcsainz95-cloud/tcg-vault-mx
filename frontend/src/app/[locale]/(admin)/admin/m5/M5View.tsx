@@ -875,10 +875,13 @@ export function M5View() {
           // (`isPayable`, §4.39c sitio 10) del MISMO cuerpo que el pre-check y la guarda atómica de
           // `pay-spei`: tres lectores, una regla.
           //
-          // ⚠️ **Y la prueba de que la forma es la correcta la dio v1.57:** la fórmula ganó un
-          // TERCER término (`receivedAt IS NOT NULL`, §M5-P — *«no se paga lo que no ha llegado»*)
-          // y **esta línea no se tocó**. Una copia local habría tenido que enterarse; ésta no tiene
-          // de qué enterarse.
+          // ⚠️ **Y la prueba de que la forma es la correcta la dieron v1.57 Y v1.61:** la fórmula
+          // ganó `receivedAt IS NOT NULL` (§M5-P — *«no se paga lo que no ha llegado»*) y después
+          // `approvedTotalCents IS NOT NULL` + V-b (§M5-V — *«ni lo que no se ha juzgado»*), y
+          // **esta línea no se tocó ninguna de las dos veces**. Una copia local habría tenido que
+          // enterarse; ésta no tiene de qué enterarse. ⛔ Por eso tampoco se escribe aquí cuántos
+          // términos son ni cuál va primero: esa cuenta vive en §M5-V.0 —y la vigila
+          // `payability-contract.test.ts`—, y es exactamente la que ya caducó en dos comentarios.
           //
           // ⚠️ El ROL se queda aquí y NO se funde en el campo: «¿esta solicitud está en condición
           // de pagarse?» es propiedad de LA FILA; «¿puedo pagarla yo?» es propiedad DEL ACTOR.

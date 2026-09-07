@@ -13606,3 +13606,95 @@ preventiva de §27.1.4, con `aria-describedby` como pide la sección). **LOTE 2:
 alcance de este pase; queda inventariado y con trip-wire, y **su copy ya no se puede improvisar** —
 el candado exige que salga de §27, literal, en los dos idiomas. Si el orquestador lo quiere en este
 release, es un pase mecánico de ~14 claves.
+
+
+---
+
+## §52 · La cuenta que caducó en un comentario, y el candado que ahora la lee (2026-09-07, rama `main`)
+
+> **Encargo del techlead, impacto bajo, clase alta.** Se me escapó en el pase de §51 una afirmación
+> de cardinalidad sobre el predicado del pago en un comentario del servidor falso. No es una regla
+> ejecutable —es glosa— pero es la **tercera** vez que esta misma cuenta caduca en silencio, y las
+> tres en el camino del botón que saca dinero. *Lo que se arregla aquí no es el comentario: es que
+> nadie lo estuviera leyendo.*
+
+### 1. Las cuentas caducadas (todas las que había, no solo la reportada)
+
+| Sitio | Decía | Estado |
+|---|---|---|
+| `src/lib/api.ts:3241` (`verifyBuylistRequest`) | *«es **uno de los TRES** términos de `isPayable`»* | **la reportada** |
+| `src/lib/api.ts:3223` (`receiveBuylistRequest`) | *«`receivedAt` —el **PRIMER** término de `isPayable`»* | ordinal: en §M5-V.0 es el segundo conjunto |
+| `src/app/[locale]/(admin)/admin/m5/M5View.tsx:879` | *«la fórmula ganó un **TERCER** término … y esta línea no se tocó»* | cierto en v1.57, pero el argumento se quedó en v1.57 |
+| `M5View.test.tsx:1195` | *«el **primer** término se cumple y el **segundo** no»* | ordinales sobre una fórmula que ya cambió dos veces |
+| `M5View.test.tsx:1157` | *«la precondición del servidor son **DOS** términos»* | ⚠️ **no la encontré yo: la encontró el candado nuevo** |
+
+La última fila es el dato del pase. Mi barrido a mano —el mismo `grep` con el que cerré §51— **no la
+vio** porque el numeral llevaba negritas en medio (`**DOS** términos`) y mi patrón exigía adyacencia
+literal. El candado la cazó en su primera ejecución, antes de que yo escribiera una línea de notas.
+*Es la demostración empírica de por qué el barrido manual no es el remedio: ya había fallado dos
+veces contra esta misma familia, y falló otra vez en este mismo pase.*
+
+**Cómo quedan.** Ninguna cuenta ni ningún ordinal vivo: los comentarios dicen *«uno de los términos
+escalares»* y **enlazan §M5-V.0**. Coincide, sin habernos hablado, con lo que el arquitecto acaba de
+normar en el contrato en este mismo momento (**§0-B.3 regla 8**: *«la lista de términos no se
+transcribe; vive en §M5-V.0 y solo allí»*). La prosa histórica se conserva —es la lección— pero
+marcada `SUPERSEDED` y en pasado.
+
+### 2. La pregunta de fondo: ¿puede el candado leer la prosa? — **Sí, y muerde**
+
+`payability-contract.test.ts` ya parseaba la fórmula normativa del contrato y contaba términos. Le
+añadí un **tercer candado hermano** que usa esa misma cuenta como verdad y la contrasta contra los
+**comentarios de `frontend/src/`**:
+
+- **Alcance descubierto, no enumerado:** recorre `src/` y se queda con los ficheros que hablan del
+  predicado (`isPayable` / `M5-V`) — hoy 11. Un fichero nuevo entra solo.
+- **Qué mide:** un numeral en **MAYÚSCULAS pegado a la palabra «términos»** (con negritas de
+  markdown en medio, que es justo lo que engañó a mi `grep`). Esa cuenta debe ser la del contrato.
+- **Puerta de escape explícita:** una línea marcada `SUPERSEDED`/`histórico` se salta. Decir *«la
+  forma vieja tenía N»* es prosa buena y prohibirla sería el candado gritando por nada.
+- **Anti-vacuidad que no se pelea con la doctrina:** el extractor está **separado de la lectura de
+  disco** y se verifica sobre texto **fabricado** (muerde 5/4/2, y no muerde sobre la histórica, la
+  minúscula ni la marcada). ⚠️ **Descarté a propósito la forma fácil** —*«tiene que haber al menos N
+  cuentas en `src/`»*—: ataría el candado a que la prosa siga escribiendo la cuenta, que es
+  exactamente lo que §0-B.3 regla 8 quiere que dejemos de hacer. *Un candado no puede depender de lo
+  que quiere borrar.* El barrido tiene su propia anti-vacuidad: exige descubrir el DTO, el cliente
+  de la API y el servidor falso por nombre.
+
+**Lo que este candado NO cubre, y por qué no lo forcé** (la parte del encargo que pedía argumento):
+- **Los ORDINALES** («el PRIMER término»). Un ordinal puede ser **verdadero sobre una fórmula
+  histórica**, y por regex es indistinguible de uno caducado ⇒ rojos sobre prosa correcta ⇒ el
+  candado se acabaría desactivando, que es peor que no tenerlo. La defensa contra esa mitad es de
+  **convención y ya está aplicada**: los comentarios vivos del predicado no usan ordinales.
+- **La minúscula** («los dos términos»): en este código significa *subconjunto* —los dos que añadió
+  v1.61— y medirla daría rojo sobre una frase correcta.
+- **La prosa de `docs/`**: no es mía y no la toco (el arquitecto está cerrando ahí las suyas).
+
+### 3. Verificación (números reales)
+
+- **117 ficheros / 1233 tests** en verde (`vitest run`); antes del pase, 1231 (+2: los dos del
+  candado nuevo).
+- `tsc --noEmit` **EXIT 0**; `next lint` **sin warnings ni errores**.
+- **7 mutaciones, 6 rojas + 1 verde esperada**, todas restauradas:
+
+| # | Mutación | Resultado |
+|---|---|---|
+| M1 | reintroducir **la frase caducada real** de `api.ts:3241` (`uno de los TRES términos`) | 🔴 |
+| M2 | cuenta viva de la guarda del mock `CINCO` → `SEIS` | 🔴 |
+| M3 | cuenta viva del DTO (`contract.ts`) `CINCO` → `CUATRO` | 🔴 |
+| M4 | barrido apuntando a un subárbol sin el DTO ni el cliente de la API | 🔴 |
+| M5 | patrón que no casa nada | 🔴 |
+| M6 | extractor mudo (devuelve vacío siempre) | 🔴 |
+| M7 | marcar `SUPERSEDED` una cuenta **falsa** | 🟢 **esperado**: es la puerta documentada, y exige un acto deliberado |
+
+**M1 es la que importa:** el candado, si hubiera existido, habría parado este defecto en el pase de
+§51. Árbol limpio de residuos; `git status` solo muestra mis 4 ficheros de `frontend/` (los cambios
+en `docs/API_CONTRACT.md`, `docs/ARCHITECTURE.md` y `backend/` son de los otros roles trabajando en
+paralelo).
+
+### 4. Solicitudes al arquitecto
+
+**Ninguna nueva.** Este pase no necesita contrato ni endpoints. Solo refuerzo la petición 1 de §51,
+que además el arquitecto acaba de convertir en norma él mismo: **§M5-V.0 como único sitio donde vive
+la fórmula y su cuenta** (§0-B.3 regla 8). Mi candado nuevo es la mitad de esa regla ejecutada en el
+cliente: en `frontend/` ya **no se puede escribir una cuenta que no sea la del contrato** sin
+ponerse rojo.

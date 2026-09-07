@@ -3220,8 +3220,8 @@ export async function receiveBuylistRequest(id: string): Promise<AdminBuylistDTO
   }
   const req = mockFindBuylistRequest(id);
   req.status = 'recibida';
-  // ⚠️ v1.57 (§M5-P): `receive` es el ÚNICO escritor de `receivedAt` —el PRIMER término de
-  // `isPayable`— y **sella una sola vez**: el re-sellado no es cosmético (mueve el reloj del
+  // ⚠️ v1.57 (§M5-P): `receive` es el ÚNICO escritor de `receivedAt` —uno de los términos
+  // escalares de `isPayable`, §M5-V.0— y **sella una sola vez**: el re-sellado no es cosmético (mueve el reloj del
   // abandono a 30 días y el `max(...)` de la purga del INE), así que la rama mock es idempotente
   // igual que el `where` del backend (`[field]: null`).
   req.receivedAt ??= new Date().toISOString();
@@ -3238,9 +3238,12 @@ export async function verifyBuylistRequest(id: string): Promise<AdminBuylistDTO>
   }
   const req = mockFindBuylistRequest(id);
   req.status = 'verificacion';
-  // v1.51.8: el backend sella `verifiedAt` AQUÍ, y es **uno de los TRES** términos de `isPayable`
-  // (§M5-P, v1.57 — el otro hecho es `receivedAt`, que sella `receive`). Sin esta línea el
-  // servidor falso dejaría toda solicitud como no-pagable para siempre.
+  // v1.51.8: el backend sella `verifiedAt` AQUÍ, y es **uno de los términos escalares** de
+  // `isPayable` (§M5-V.0 — el otro hecho de la misma pareja es `receivedAt`, que sella `receive`).
+  // Sin esta línea el servidor falso dejaría toda solicitud como no-pagable para siempre.
+  //
+  // ⛔ **Aquí NO se escribe cuántos términos son.** La cuenta vive en §M5-V.0 y ya caducó dos
+  // veces en esta misma línea (v1.57 y v1.61); lo que la vigila es `payability-contract.test.ts`.
   //
   // ⚠️ **Y `verify` NO sella `receivedAt`, ni siquiera «porque ya viene de recibir».** Ése es
   // exactamente el eje 2 de `BL-35`: `verify` es llamable desde cualquier estado vivo, así que

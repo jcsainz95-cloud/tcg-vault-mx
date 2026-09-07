@@ -2,7 +2,41 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-07 (rev **v1.61**).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-07 (rev **v1.61.1**).
+>
+> **Changelog v1.61.1 — LA CUENTA QUE CADUCÓ SOLA. SOLO PROSA (2026-09-07, arquitecto).**
+> ⛔⛔ **CERO cambios de contrato: cero endpoints, cero DTOs, cero códigos de error, cero precondiciones, cero DDL.
+> NINGÚN predicado cambia ni un término.** Backend, frontend y QA **no tienen nada que implementar ni re-verificar**
+> por esta rev. **`9c186ff` no se toca.** Registro: ARCHITECTURE §9 **D-PROC-6**; regla nueva: ARCHITECTURE §0-B.3
+> **regla 8**.
+>
+> **A. ⛔⛔ QUÉ ESTABA MAL, Y POR QUÉ NO ERA UNA ERRATA.** El bullet de `422 KYC_NOT_VERIFIED` (§M5-K) decía, en
+> imperativo: *«`pay-spei` conserva sus **TRES** términos de §M5-P y **ninguno más**… si aparece en un `throw`, en un
+> test o en un `where`, **es una regresión**»*; **§4.39(ad.1)** de ARCHITECTURE decía lo mismo con un *«⛔ NO hay
+> cuarto término»*. **Desde v1.61 el predicado tiene cinco términos escalares + V-b** ([`§M5-V.0`](#M5-V)). Como **el
+> contrato manda sobre el código** (`CLAUDE.md`), **quien aplicara la frase literalmente RETIRARÍA V-a** — el término
+> que impide **pagar la oferta íntegra por CERO cartas**. Y el contrato **se contradecía consigo mismo** sobre el
+> predicado que saca dinero: §M5-V.0 decía cinco, §M5-K decía tres y prohibía el cuarto. **Lo levantó el techlead.**
+>
+> **B. CÓMO SE CORRIGE: SE NIEGA EL KYC POR SU NOMBRE, Y LA CUENTA SE CITA.** Las frases nacieron para **negar un
+> término de KYC**, no para contar. Ahora dicen **«`pay-spei` no lleva NINGÚN término de KYC»** —verdad **estable**,
+> que sobrevive a que el predicado crezca— **y remiten a [`§M5-V.0`](#M5-V) para la lista**.
+> ⭐ **§M5-V.0 queda declarada FUENTE ÚNICA del predicado de pagabilidad** (marcada `<!-- CANON: … -->`): **ningún
+> otro sitio lo enumera ni lo cuenta.** *Una cuenta repetida en N sitios caduca sola y no hay diff que la señale.*
+>
+> **C. LOS OCHO SITIOS BARRIDOS** *(los dos primeros son los denunciados; los seis restantes salieron del barrido)*:
+> §M5-K bullet de `KYC_NOT_VERIFIED` · ARCHITECTURE §4.39(ad.1) · ARCHITECTURE §4.39(ac.1) · §M5-K.3 (bloque
+> retirado) · changelog v1.60(A) · changelog v1.51.8 · **§M5-P** (*«Definición — TRES términos»*, con `⇔` ⇒ pasa a
+> `⊇`) · **§11** *(la anotación de `isPayable` **transcribía la fórmula y no se enteró de v1.61** — el sitio que el
+> pase de v1.61 no tocó)* · ARCHITECTURE §4.39(c) sitio 10 (*«✅ v1.57 VIGENTE»*) y §4.39(w). **Menor y fuera de mi
+> propiedad, ya enrutado a frontend: `frontend/src/lib/api.ts:3241` repite la frase.**
+>
+> **D. QUÉ NO CAMBIA, DICHO PRIMERO PORQUE ES LA LECTURA FÁCIL Y EQUIVOCADA.** ✅ **`kycStatus` NO es precondición de
+> dinero en ningún endpoint** y ✅ **`422 KYC_NOT_VERIFIED` NO existe** —eso era **lo exigible** de las frases y **se
+> conserva sin una coma menos**—. ✅ **`422 INE_REQUIRED` intacto en sus dos puertas.** ✅ **§M5-P, §M5-V y §M5-K
+> siguen enteras**: lo único que se retira es **la pretensión de que la lista de términos estaba en varias a la vez**.
+>
+> ---
 >
 > **Changelog v1.61 — `BL-45`: EL CERO DEL TABLERO NO ERA EL DEFECTO, ERA EL SÍNTOMA. SE CIERRA EN EL VERBO QUE
 > PAGA, NO EN EL REPORTE (2026-09-07, arquitecto; **CERO DDL, CERO endpoints nuevos, CERO diales, CERO backfill**.
@@ -58,6 +92,12 @@
 > **G. Regla de la cita (§0-B.3 regla 7), cumplida en el mismo pase:** §M5-K.0 y el bullet de `pay-spei` decían
 > *«**NO hay cuarto término**»*. **v1.61 añade términos** (ninguno de KYC) ⇒ las dos frases se corrigen a *«ningún
 > término de **KYC**»*, o QA habría leído §M5-V como una regresión de D51.
+> > ⛔⛔ **CORRECCIÓN v1.61.1 — ESTE PUNTO G AFIRMÓ UN CIERRE QUE NO OCURRIÓ, Y LA AFIRMACIÓN ES PARTE DEL DEFECTO.**
+> > **§M5-K.0 sí se corrigió; el bullet de `pay-spei` (§M5-K, `422 KYC_NOT_VERIFIED`) NO** — y con él **quedaron seis
+> > frases más** de la misma familia, incluida **§4.39(ad.1) de ARCHITECTURE**, ambas en imperativo. *Un pase que se
+> > declara cumplido es exactamente lo que impide que alguien lo vuelva a mirar.* **El barrido por texto encuentra
+> > las frases que su autor recuerda; por eso v1.61.1 no barre mejor: quita las copias** (§0-B.3 **regla 8**,
+> > `D-PROC-6`). **Lo levantó el techlead, dos pases seguidos.**
 >
 > **Changelog v1.60 — D51: SE RETIRA EL COTEJO INE ↔ TITULAR DE LA CLABE, Y CON ÉL EL TÉRMINO QUE YO MISMO DECLARÉ
 > HACE UNA REV (2026-09-07, arquitecto; **CERO endpoints nuevos, CERO DDL, CERO diales**. UN código de error que se
@@ -71,8 +111,10 @@
 > anchor intacto, y **no se disimula**.
 >
 > **A. ⚠️⚠️ EL TÉRMINO SE RETIRA: `422 KYC_NOT_VERIFIED` NO EXISTE Y NO SE IMPLEMENTA.**
-> `POST /admin/buylist/:id/pay-spei` **conserva sus TRES términos** (`§M5-P`: estado pagable ∧ `receivedAt` ∧
-> `verifiedAt`) y **no gana un cuarto**. **`KYC_NOT_VERIFIED` sale del vocabulario del contrato antes de haber llegado
+> `POST /admin/buylist/:id/pay-spei` **no gana NINGÚN término de KYC** *(⚠️ **v1.61.1**: esta frase decía «conserva
+> sus **TRES** términos… y no gana un cuarto». **La cuenta caducó con v1.61 y se retira; la negación del KYC queda
+> intacta.** La lista de términos vigente vive en [`§M5-V.0`](#M5-V) — ARCHITECTURE §0-B.3 regla 8)*.
+> **`KYC_NOT_VERIFIED` sale del vocabulario del contrato antes de haber llegado
 > al código** — backend **no lo implementó** (llegó por la regla 9 y nunca se mergeó), así que **no hay nada que
 > revertir**: hay algo que **no hay que escribir**. ⛔ **El conteo pre-merge de §M5-K.4 queda SIN OBJETO: no se corre.**
 >
@@ -338,9 +380,9 @@
 > **`offer/authorize` NO reevalúa nada** (§M5-A.5: se demuestra que no le hace falta). §M5-T, §M5-P y §M5-C
 > **no se retro-editan**. **Ningún dial nuevo, ningún correo nuevo, ninguna regla del barrido, ningún DDL.**
 >
-> **Changelog v1.57 — INVARIANTE P: «NO SE PAGA LO QUE NO HA LLEGADO». EL TERCER TÉRMINO DE `isPayable` (2026-09-06,
-> arquitecto; **CERO endpoints nuevos, CERO campos de DTO, CERO DDL**. UNA precondición de dinero que gana **un tercer
-> término**, UNA tabla normativa que se parte en dos, UNA justificación mía que se **corrige por falsa**, y NUEVE
+> **Changelog v1.57 — INVARIANTE P: «NO SE PAGA LO QUE NO HA LLEGADO». EL TÉRMINO `receivedAt` DE `isPayable` (2026-09-06,
+> arquitecto; **CERO endpoints nuevos, CERO campos de DTO, CERO DDL**. UNA precondición de dinero que gana el **término
+> `receivedAt`**, UNA tabla normativa que se parte en dos, UNA justificación mía que se **corrige por falsa**, y NUEVE
 > códigos de éxito que se alinean. ARCHITECTURE rev **v1.57**, §4.39(w); registro **BL-35 eje 2**, **BL-36**, **BL-37**):**
 > ⚠️ **Origen: el gate de seguridad RECHAZÓ v1.56 por UN hallazgo — `BL-35` eje 2**, el residual que yo mismo dejé
 > abierto en v1.56 §D y enruté al humano. **Seguridad lo midió EN VIVO** (`docs/SECURITY_NOTES.md` §2): sobre una
@@ -366,17 +408,19 @@
 > **hacerla cumplir**. **El dueño del eje 2 deja de ser «product-owner / humano» y pasa a ser BACKEND**, con esta
 > norma como interfaz.
 >
-> **B. EL TERCER TÉRMINO — se eleva a `§M5-P`, hermana de `§M5-T`, por la misma razón que aquélla.**
+> **B. EL TÉRMINO `receivedAt` — se eleva a `§M5-P`, hermana de `§M5-T`, por la misma razón que aquélla.**
 > ```
-> isPayable  =  status ∈ SELL_REQUEST_PAYABLE_STATES  ∧  receivedAt IS NOT NULL  ∧  verifiedAt IS NOT NULL
+> isPayable  ⊇  status ∈ SELL_REQUEST_PAYABLE_STATES  ∧  receivedAt IS NOT NULL  ∧  verifiedAt IS NOT NULL
 >                                                        └──────── NUEVO (v1.57) ────────┘
 > ```
+> *(⚠️ **v1.61.1**: el título decía «EL TERCER TÉRMINO» y el operador era `=`. **Lo que v1.57 añadió no cambia; lo
+> que caducó es la cuenta.** Fórmula vigente y completa: [`§M5-V.0`](#M5-V) — ARCHITECTURE §0-B.3 regla 8.)*
 > **Tres lectores, una regla — y esta vez los TRES, no dos.** El pre-check de `paySpei`, la guarda atómica
 > `payableWhere()` y el `isPayable` de la proyección **salen del mismo cuerpo**; la disciplina de §4.39(c) sitio 10
 > **ya estaba escrita** y es la que hay que respetar al añadir el término. **Ver `§M5-P` para la norma completa,
 > la cohorte legacy y lo que NO cierra.**
 >
-> **C. ⚠️ QUÉ CIERRA Y QUÉ NO — dicho al principio para que nadie lo lea de más.** El tercer término cierra **la
+> **C. ⚠️ QUÉ CIERRA Y QUÉ NO — dicho al principio para que nadie lo lea de más.** El término `receivedAt` cierra **la
 > salida de dinero**. **NO** cierra el eje 2 entero: `verify` **sigue siendo llamable desde cualquier estado vivo**
 > (`cotizada`, `ofertada`, `aceptada`) y sigue sellando `verifiedAt`. Lo que deja de poder hacer es **pagar**.
 > El residual —reversión/adelanto de estado **sin dinero**— queda **nombrado, con dueño y NO bloqueante**
@@ -1204,8 +1248,10 @@
 >   servidor son **DOS** términos: `status ∈ PAYABLE` **∧ `verifiedAt IS NOT NULL`**. El cliente **solo replica el
 >   primero** ⇒ **hoy la UI puede habilitar el botón de pago donde el servidor responde `422`.** *No es una copia
 >   fiel que pueda desincronizarse algún día: ya está desincronizada.*
-> - **NORMA:** ~~`isPayable = status ∈ SELL_REQUEST_PAYABLE_STATES ∧ verifiedAt IS NOT NULL`~~ **⛔ SUPERSEDED por
->   [`§M5-P`](#M5-P) (v1.57): son TRES términos — falta `receivedAt IS NOT NULL`.** Lo de esta línea **sigue siendo
+> - **NORMA:** ~~`isPayable = status ∈ SELL_REQUEST_PAYABLE_STATES ∧ verifiedAt IS NOT NULL`~~ **⛔ SUPERSEDED — la
+>   fórmula vigente, entera, está en [`§M5-V.0`](#M5-V)** *(le faltaba `receivedAt IS NOT NULL`, §M5-P v1.57, y desde
+>   v1.61 también los términos de §M5-V)*. ⚠️ **v1.61.1: esta línea decía «son TRES términos» y caducó cuando la
+>   fórmula creció** — el reemplazo **no cuenta: cita** (ARCHITECTURE §0-B.3 regla 8). Lo de esta línea **sigue siendo
 >   cierto en su forma** (*de la misma constante y los mismos campos que el pre-check y la guarda atómica de
 >   `pay-spei` — tres lectores, **un** cuerpo*) y **falso en su contenido**: con dos términos se pagó en vivo una
 >   solicitud pre-recepción (`BL-35` eje 2). *La ironía queda escrita a propósito: este bloque nació denunciando una
@@ -4012,12 +4058,20 @@
 - **`403 EMAIL_NOT_VERIFIED` (v1.5):** un `customer` autenticado con `emailVerified=false` intenta una **acción sensible** (comprar / retirar / vender). El front muestra el banner "verifica tu correo" y ofrece reenviar; el bloqueo lo aplica **siempre** el backend (`EmailVerifiedGuard`, ARCHITECTURE §4.11). Endpoints afectados: `POST /checkout/session`, `POST /shipments`, `POST /buylist/requests`.
 - **`422 CLABE_REQUIRED` (v1.15):** `POST /buylist/requests` **sin** `clabe` en el body **y sin** CLABE en archivo (`KycProfile.clabeEnc` vacío). El front debe pedir la CLABE (o registrarla en KYC) antes de reintentar. Distinto de `422 CLABE_INVALID` (formato incorrecto) y de `422 CLABE_NOT_OWN_NAME` (no coincide con la de archivo). Ver §6 y ARCHITECTURE §4.16a.
 - **⛔⛔ ~~`422 KYC_NOT_VERIFIED`~~ — RETIRADO EN v1.60 (D51) ANTES DE IMPLEMENTARSE. NO EXISTE Y NO SE IMPLEMENTA.**
-  **Declarado en v1.59** como el cuarto término de `POST /admin/buylist/:id/pay-spei` (`ineRequired = true ∧
+  **Declarado en v1.59** como **un término de KYC** en `POST /admin/buylist/:id/pay-spei` (`ineRequired = true ∧
   kycStatus != 'verified'`), **nunca llegó al código** —llegó por la regla 9 y no se mergeó—, y **`PROJECT.md` D51
   retira el control entero**: el cotejo INE ↔ titular de la CLABE **no se puede ejecutar** porque **no existe fuente
   del nombre del titular de la cuenta** (pregunta 40, cerrada por el humano midiendo su banco).
-  ⛔ **Este código NO se implementa, NO se emite y NO se testea.** `pay-spei` conserva sus **TRES** términos de
-  [`§M5-P`](#M5-P) y **ninguno más**. **`kycStatus` NO es precondición de dinero en ningún endpoint.**
+  ⛔ **Este código NO se implementa, NO se emite y NO se testea.** **`pay-spei` no lleva NINGÚN término de KYC**, y
+  **`kycStatus` NO es precondición de dinero en ningún endpoint** —ni crear, ni ofertar, ni pagar—.
+  **La lista de términos de `pay-spei` NO se enumera aquí: vive en [`§M5-V.0`](#M5-V), y solo allí.**
+  > **⚠️⚠️ RETRO-EDICIÓN v1.61.1 (regla de la cita, ARCHITECTURE §0-B.3 regla 7; forma nueva: regla 8). LA NORMA NO
+  > CAMBIA — LA CUENTA QUE ESTA LÍNEA HACÍA SE VOLVIÓ FALSA.** Decía: *«`pay-spei` conserva sus **TRES** términos de
+  > §M5-P y **ninguno más**»*. **v1.61 añadió términos** —[`§M5-V`](#M5-V): `approvedTotalCents IS NOT NULL` (V-a) y,
+  > dentro del ciclo, *«ninguna línea comprada sin veredicto»* (V-b)—, **y ninguno de los dos es de KYC**.
+  > ⛔ **Aplicar la frase vieja al pie de la letra RETIRA V-a**, que es el término que impide **pagar la oferta
+  > íntegra por CERO cartas** (§M5-V.4, recuadro). *Lo que esta línea niega —el KYC— sigue entero; lo que contaba
+  > nunca fue norma.* **Se niega el término POR SU NOMBRE, no por su ordinal.**
   ⚠️ **Backend/QA:** si aparece en un `throw`, en un test o en un `where`, **es una regresión** — criterio **183(a)** de
   `PROJECT.md` lo verifica **por ausencia** (*una solicitud sobre el umbral, con INE en archivo y sin que nadie haya
   marcado nada, **se oferta y se paga***). ⛔ **El conteo pre-merge de §M5-K.4 queda sin objeto: no se corre.**
@@ -10521,12 +10575,18 @@ y `pay-spei` (como `super_admin`); **QA lo reprodujo desde una `cotizada` recié
 **La cláusula que manda, literal — `PROJECT.md:1107`, una de las CUATRO promesas al vendedor:**
 > ***(b) el pago se realiza DESPUÉS de que recibimos y verificamos la carta*** *(nunca por adelantado)*
 
-**Definición — TRES términos, en conjunción:**
+**Lo que v1.57 AÑADIÓ al predicado (`receivedAt`), y el contexto mínimo para entenderlo:**
 ```
-isPayable  ⇔  status ∈ SELL_REQUEST_PAYABLE_STATES      // 'aprobada' | 'verificacion'
+isPayable  ⊇  status ∈ SELL_REQUEST_PAYABLE_STATES      // 'aprobada' | 'verificacion'
               ∧  receivedAt IS NOT NULL                  // ⚠️ NUEVO v1.57 — «RECIBIMOS»
               ∧  verifiedAt IS NOT NULL                  //                  «y VERIFICAMOS»
 ```
+> ⚠️ **`⊇`, NO `⇔`, Y ES DELIBERADO (v1.61.1).** Este bloque **no define `isPayable`: declara el término que v1.57
+> le añadió.** **La fórmula completa y vigente —con TODOS sus términos— vive en [`§M5-V.0`](#M5-V), y solo allí**
+> (ARCHITECTURE §0-B.3 regla 8). Esta sección decía *«Definición — TRES términos, en conjunción»* con un `⇔`, y
+> v1.61 la volvió falsa **sin tocarla**: `pay-spei` ganó `approvedTotalCents IS NOT NULL` (V-a) y, dentro del ciclo,
+> «ninguna línea comprada sin veredicto» (V-b). **Nada de §M5-P se retracta** —`receivedAt` sigue siendo exigible
+> palabra por palabra—; lo que se retira es **la pretensión de que aquí estaba la lista entera.**
 
 - **⚠️ Por qué faltaba, y por qué el hueco era exactamente éste.** La fórmula de v1.51.8 codificaba **«verificamos»**
   y daba **«recibimos»** por implícito — porque en el camino feliz `receive` precede a `verify`. Pero **`verify` es
@@ -10595,7 +10655,7 @@ isPayable  ⇔  status ∈ SELL_REQUEST_PAYABLE_STATES      // 'aprobada' | 'ver
 
 **⚠️ RESIDUAL — `BL-35` eje 2-b: lo que queda abierto, con nombre y sin dinero.**
 `verify` **sigue siendo llamable desde cualquier estado vivo** (`cotizada`, `ofertada`, `aceptada`) y sigue sellando
-`verifiedAt` y fijando `status='verificacion'`. Con el tercer término **eso ya no paga**, pero **sigue siendo una
+`verifiedAt` y fijando `status='verificacion'`. Con el término `receivedAt` **eso ya no paga**, pero **sigue siendo una
 transición que salta fases**: ensucia el pipeline, adelanta el `max(...)` de la purga del INE y mete la solicitud en
 la cola de verificación antes de tiempo. **NO es bloqueante** (no hay dinero, no hay PII expuesta, no hay evasión de
 tope) y ⛔ **NO se cierra en esta enmienda**, porque cerrarlo **sí** exige la matriz de predecesores y **ahí
@@ -10625,6 +10685,24 @@ hoy no exista.
 > inventario para siempre.»*
 
 **V.0 — LA NORMA, EN CUATRO LÍNEAS.**
+
+> ### ⭐⭐ V.0 ES LA **FUENTE ÚNICA** DEL PREDICADO DE PAGO. NADIE MÁS LO ENUMERA NI LO CUENTA. (v1.61.1, NORMATIVO)
+> **Esta caja es el ÚNICO sitio del proyecto donde se dice qué términos tiene `pay-spei` / `isPayable` y cuántos
+> son.** Cualquier otro sitio —contrato, ARCHITECTURE, `*_NOTES.md`, comentarios, tests, mensajes de error— **cita
+> `§M5-V.0`**; si necesita hablar de **un** término, lo nombra (`receivedAt`, `approvedTotalCents`, «ningún término
+> de KYC») **y jamás por su ordinal** (*«el cuarto»*) **ni por el total** (*«son TRES»*).
+> **Por qué es norma y no estilo:** una cardinalidad repetida en N sitios **caduca sola** en cuanto la fórmula crece,
+> **y no hay diff que la señale** — el pase que añade un término no toca las líneas que lo cuentan. Este proyecto ya
+> lo pagó **tres veces en una sesión**: v1.57 dejó *«son DOS»* vivo, v1.61 dejó *«son TRES ⛔ no hay cuarto»* vivo en
+> **§M5-K** y en **§4.39(ad.1)** de ARCHITECTURE, y esa última frase —leída literalmente— **manda retirar V-a**, el
+> término que impide pagar la oferta íntegra por cero cartas. ⚠️ **Un documento que cuenta es un documento que va a
+> mentir; uno que cita, no.**
+> **Regla general y su lint sugerido: ARCHITECTURE §0-B.3 regla 8 (LA REGLA DEL CENSO).**
+> ⚠️ **Corolario para quien AÑADA un término aquí:** el pase que toca esta caja **no tiene que buscar frases que
+> actualizar** —ése es el punto de que la cuenta viva en un sitio—, pero **sí** debe releer los sitios que la citan
+> por si alguno reintrodujo un número. *La caja es la que se lee; las citas son las que se auditan.*
+
+<!-- CANON: predicado-de-pagabilidad · única fuente · ver ARCHITECTURE §0-B.3 regla 8 -->
 ```
 isPayable  ⇔  status ∈ SELL_REQUEST_PAYABLE_STATES     // 'aprobada' | 'verificacion'
               ∧  receivedAt        IS NOT NULL          // v1.57 §M5-P — «recibimos»
@@ -10650,6 +10728,8 @@ pay-spei   ⇔  isPayable  ∧  ( offerSentAt IS NULL  ∨  ninguna línea COMPR
   `skip`**: `rechazada` ancla los relojes 7d/30d de §H y manda **el correo de rechazo por carta** — usarlo para
   cuadrar un predicado le mandaría al vendedor un correo que dice algo falso.
 - ⛔ **Ninguna de las dos listas se transcribe al frontend** (ver V.5).
+<!-- /CANON: predicado-de-pagabilidad -->
+
 
 **V.1 — EL DEFECTO, MEDIDO, Y POR QUÉ ES UNO SOLO Y NO TRES.**
 Reproducido en vivo por **QA y por backend, dos veces** (`docs/BACKEND_NOTES.md` §0.44.4), sobre una solicitud del
@@ -11391,7 +11471,7 @@ AHORA:  { kycStatus, clabeMasked?, clabeOnFile, ineOnFile, ineThresholdCents,  c
 #### <a id="M5-K"></a>⛔⛔ §M5-K — `BL-41`: EL COTEJO INE ↔ TITULAR DE LA CLABE. **RETIRADO** (v1.60, D51 — NORMATIVA POR AUSENCIA, **AML-KYC**)
 
 > **⚠️⚠️ ESTA SECCIÓN YA NO DECLARA UN CONTROL: DECLARA POR QUÉ SE QUITÓ UNO, Y QUÉ QUEDA EN SU LUGAR.**
-> **Reescrita entera en v1.60.** Lo que v1.59 declaró aquí —**`422 KYC_NOT_VERIFIED` como cuarto término de
+> **Reescrita entera en v1.60.** Lo que v1.59 declaró aquí —**`422 KYC_NOT_VERIFIED` como término de KYC en
 > `pay-spei`**— **queda RETIRADO antes de implementarse**. **El anchor `#M5-K` se conserva a propósito**: hay ~10 enlaces
 > vivos apuntando aquí y **quien los siga tiene que aterrizar en el retiro, no en un 404 ni en la norma vieja**.
 > **Origen: `PROJECT.md` D51 / decisión 113 / §P.2.3 / criterio 183.** `PROJECT.md` manda sobre este contrato.
@@ -11623,9 +11703,10 @@ hoy: no hay nada que la detenga.** **Y esto NO lo rompió D46: llevaba así desd
 `BL-38`** —una regla que `PROJECT.md` declara, que el código no impone y que nada comprobaba—, con el agravante de
 que **es la única mitigación de la bandera AML que impide pagarle a un tercero**.
 
-**⛔⛔ K.3 — [RETIRADA — v1.60, D51. NO SE IMPLEMENTA.] NORMA: el cotejo vive donde vive el dinero. `pay-spei` gana un CUARTO término.**
-> ⛔ **Todo lo de este bloque queda SIN EFECTO.** `pay-spei` **conserva sus tres términos y no gana un cuarto**;
-> `422 KYC_NOT_VERIFIED` **no existe**. **El error del razonamiento está en su propia primera frase** —*«no se puede
+**⛔⛔ K.3 — [RETIRADA — v1.60, D51. NO SE IMPLEMENTA.] NORMA: el cotejo vive donde vive el dinero. `pay-spei` gana un término de KYC.**
+> ⛔ **Todo lo de este bloque queda SIN EFECTO.** `pay-spei` **no lleva ningún término de KYC** *(⚠️ **v1.61.1**:
+> decía «conserva sus tres términos y no gana un cuarto» — **cuenta caducada por v1.61, retirada**; lista vigente en
+> [`§M5-V.0`](#M5-V))*; `422 KYC_NOT_VERIFIED` **no existe**. **El error del razonamiento está en su propia primera frase** —*«no se puede
 > comparar dos nombres automáticamente»*—: **no es que no se pueda AUTOMÁTICAMENTE; es que NO HAY SEGUNDO NOMBRE,
 > ni para una máquina ni para una persona.** Sobre esa base, *«exigir que el cotejo se haya hecho»* **exige que se haya
 > hecho algo que nadie puede hacer.** Ver **K.0** y **K.1**.
@@ -12095,7 +12176,7 @@ lleva `@HttpCode` explícito en cada ruta.
       >   mutación) y **entra en la MISMA lista de exclusión** de la proyección de cliente: pasan de **tres** a
       >   **CUATRO** (`closedAt`, `paidBy`, `isPayable`, `pendingDecisionItemCount`). **Consumo defensivo**
       >   (`?? 0`), mismo patrón que los anteriores; **backend primero, frontend después.**
-      > **⚠️⚠️ v1.57 — EL TERCER TÉRMINO. NORMA COMPLETA EN [`§M5-P`](#M5-P); aquí solo la fórmula.**
+      > **⚠️⚠️ v1.57 — EL TÉRMINO `receivedAt`. NORMA COMPLETA EN [`§M5-P`](#M5-P); FÓRMULA VIGENTE EN [`§M5-V.0`](#M5-V).**
       > **La versión de dos términos de v1.51.8 era INCOMPLETA y se midió el daño:** `verify` es el único verbo que
       > sella `verifiedAt` y no exige predecesor ⇒ alcanzarlo desde cualquier estado **vivo** ponía `isPayable` en
       > `true` sobre una solicitud **pre-recepción**, y de ahí salió **una liquidación SPEI real de MX$320** por una
@@ -12625,7 +12706,7 @@ lleva `@HttpCode` explícito en cada ruta.
   **⚠️⚠️ v1.61 ([`§M5-V`](#M5-V), `BL-45`) — DOS TÉRMINOS MÁS, Y NINGUNO ES DE KYC:** **`approvedTotalCents IS NOT NULL`** (toda fila; entra en `isPayableSellRequest` + `payableWhere()`) **∧**, **solo dentro del ciclo** (`offerSentAt IS NOT NULL`), **ninguna línea `offerDecision='buy'` sin veredicto** (⚠️ las `skip` **no** cuentan: nunca pueden aprobarse) ⇒ si no, **`422 ITEMS_NOT_DECIDED`** (`details: { sellRequestId, pendingDecisionItemIds }`), cero escritura. **Sin ellos se paga una solicitud cuyas cartas nunca alcanzan `aprobada` ⇒ `convert-to-inventory` las rechaza para siempre** (la solicitud ya es terminal y `itemDecision` responde `409`) **y la tarjeta del tablero reporta MX$0 sobre dinero que salió.** ⛔ **`IS NOT NULL`, nunca `> 0`: el depósito de cero de D40 se sigue pagando.** Conteo pre-merge obligatorio en §M5-V.7.
   **⛔⛔ v1.60 (D51) — ~~NO HAY CUARTO TÉRMINO~~ ⇒ NINGÚN TÉRMINO DE **KYC**. `~~422 KYC_NOT_VERIFIED~~` SE RETIRA ANTES DE IMPLEMENTARSE.** *(Frase corregida en v1.61 por la regla de la cita: v1.61 sí añade términos, y ninguno lee KYC. Ver §M5-K.0.)* **`kycStatus` NO se lee aquí ni en ningún otro camino de dinero**. `PROJECT.md` **D51** retira el cotejo INE ↔ titular de la CLABE **entero** porque **no existe fuente del nombre del titular de la cuenta** (pregunta 40, cerrada). ⛔ **Backend: nada que implementar; el conteo pre-merge queda sin objeto.** ⛔ **QA: si este endpoint rechaza por KYC, es una regresión** (criterio **183(a)**: *sobre el umbral, con INE en archivo y sin que nadie haya marcado nada, **se paga***). Registro del retiro y del **riesgo aceptado** en [`§M5-K`](#M5-K).
   > 🗄️ **~~v1.59 — CUARTO TÉRMINO: `422 KYC_NOT_VERIFIED`~~** (`details: { kycStatus }`) si **`SellRequest.ineRequired = true` ∧ `KycProfile.kycStatus != 'verified'`**. ~~Es el cotejo INE ↔ titular de la CLABE, que hasta hoy no tenía término en ninguna parte~~ (`BL-41`). **⛔ RETIRADO — se conserva tachado como registro; ver §M5-K.**
-  > ### ⚠️⚠️ v1.57 — EL TERCER TÉRMINO: **`receivedAt IS NOT NULL`**. (DINERO, NORMATIVO. Cierre de `BL-35` eje 2.)
+  > ### ⚠️⚠️ v1.57 — EL TÉRMINO **`receivedAt IS NOT NULL`**. (DINERO, NORMATIVO. Cierre de `BL-35` eje 2.)
   > **La precondición que este endpoint declara en prosa desde siempre —*«pago tras recepción/verificación»*— y que
   > su propio mensaje de error dice literal (`'Payment allowed only after receipt/verification and approval'`)
   > **no estaba en ninguno de sus dos `where`.** Seguridad lo midió: **MX$320 de SPEI real** sobre una solicitud
@@ -12634,7 +12715,7 @@ lleva `@HttpCode` explícito en cada ruta.
   > - **`receivedAt IS NOT NULL` en el `where` del `updateMany`** (vía `payableWhere()`, que es la traducción del
   >   predicado), **y** en el pre-check (vía el predicado). **Los dos salen del mismo cuerpo: no se escribe a mano.**
   > - **Fila en estado pagable sin `receivedAt` ⇒ `422 VALIDATION_ERROR`, sin escribir nada** — misma respuesta y
-  >   mismo mensaje que hoy da el pre-check por los otros dos términos. **Ningún código de error nuevo**: es la
+  >   mismo mensaje que da el pre-check por los **demás** términos del predicado ([`§M5-V.0`](#M5-V)). **Ningún código de error nuevo**: es la
   >   misma pregunta (*«¿está en condición de pagarse?»*) con el término que le faltaba.
   > - ⛔ **Sin excepción para la cohorte legacy.** Ver §M5-P, norma 1: *la cohorte que no se puede distinguir del
   >   abuso no se exceptúa; se remedia con `POST …/receive`.* **Si backend cuenta filas vivas afectadas, escala.**
@@ -12645,9 +12726,9 @@ lleva `@HttpCode` explícito en cada ruta.
   > reescrita del modelo** —todo verbo del ciclo la toca—. Bastó **un** verbo sin guarda para devolverla a
   > `verificacion`: el corto-circuito no disparó, `isPayableSellRequest` volvió a dar `true`, el CAS de las cuatro
   > columnas de dinero **seguía coincidiendo** (revivir no toca montos) y **salió un segundo SPEI real**.
-  > - **NORMA — el `where` del `updateMany` afirma, ADEMÁS de lo que ya afirma** (`status ∈
-  >   SELL_REQUEST_PAYABLE_STATES`, `verifiedAt IS NOT NULL` —⚠️ **v1.57: y `receivedAt IS NOT NULL`**, §M5-P— y el
-  >   CAS de las 4 columnas de dinero)**:**
+  > - **NORMA — el `where` del `updateMany` afirma, ADEMÁS de lo que ya afirma** (**el predicado de pagabilidad
+  >   ENTERO, cuya lista vigente está en [`§M5-V.0`](#M5-V)** *(⚠️ v1.61.1: aquí se enumeraba, y la enumeración
+  >   caducó — no se repite)*, y el CAS de las 4 columnas de dinero)**:**
   >   ```
   >   ∧  paidAt   IS NULL          // esta solicitud NO ha pagado nunca
   >   ∧  closedAt IS NULL          // …y no está cerrada por ninguna vía   (Invariante T, §M5-T)
@@ -12799,9 +12880,11 @@ lleva `@HttpCode` explícito en cada ruta.
   >   **inline dos veces en el mismo método** (`:1754` y `:1788`, desviación BL-7)~~ *(✅ **v1.51.5: BL-7 CERRADA** —
   >   las dos apariciones usan la constante compartida)*. El pago sigue siendo **exclusivo del súper-admin**, sin tope
   >   ni delegación (criterio 26 intacto).
-  > - **⚠️ v1.51.8 — LA PRECONDICIÓN SON DOS TÉRMINOS, Y EL CLIENTE SOLO REPLICABA UNO.** El servidor exige
-  >   **`status ∈ SELL_REQUEST_PAYABLE_STATES` ∧ `verifiedAt IS NOT NULL`** (pre-check y guarda del `updateMany`),
-  >   pero `M5View.tsx:820-821` calcula `canPay` **solo con los estados** ⇒ **la UI habilita hoy el botón de pago
+  > - **⚠️ v1.51.8 — LA PRECONDICIÓN TIENE MÁS TÉRMINOS QUE LOS QUE EL CLIENTE REPLICABA.** El servidor exigía ya
+  >   entonces **`status ∈ SELL_REQUEST_PAYABLE_STATES` ∧ `verifiedAt IS NOT NULL`** (pre-check y guarda del
+  >   `updateMany`) *(⚠️ **v1.61.1**: esta línea decía «SON DOS TÉRMINOS» y la cuenta caducó dos veces, en v1.57 y en
+  >   v1.61 — **la lista vigente está en [`§M5-V.0`](#M5-V)**; aquí solo importa que el cliente replicaba MENOS)*,
+  >   pero `M5View.tsx:820-821` calculaba `canPay` **solo con los estados** ⇒ **la UI habilitaba el botón de pago
   >   sobre solicitudes que el servidor rechaza con `422`.** Cierre = **`AdminBuylistDTO.isPayable`** (arriba, §M5
   >   listado), derivado del **mismo cuerpo**: tres lectores, una regla. **Desviación BL-17 — BACKEND PRIMERO.**
   >   ⚠️ **`isPayable` NO relaja este endpoint**: `MoneyOutGuard`, el rol y las dos guardas siguen **idénticos**. Es
@@ -14653,15 +14736,27 @@ PendingPublishRowDTO = { inventoryItemId: string, folio: string, card: CardDTO, 
 //     (correo 5). Tampoco va en `decision-table` (la mesa decide qué comprar, no cómo nos hemos portado).
 // ⚠️ v1.51.8 — `isPayable` (ADMIN-ONLY, DINERO SALIENTE). Deriva de la MISMA constante y los MISMOS campos que
 //   el pre-check y la guarda atómica de `pay-spei`.
-//   ⚠️⚠️ v1.57 (§M5-P, BL-35 eje 2) — SON TRES TÉRMINOS, NO DOS:
-//     isPayable = status ∈ SELL_REQUEST_PAYABLE_STATES ∧ receivedAt != null ∧ verifiedAt != null
-//   El término `receivedAt` es NUEVO y NO es opcional: sin él, `verify` (único escritor de `verifiedAt`, sin
+//   ⛔⛔ v1.61.1 — AQUÍ NO VA LA FÓRMULA. LA FÓRMULA VIGENTE, ENTERA, ESTÁ EN §M5-V.0 Y SOLO ALLÍ.
+//     Esta anotación decía «v1.57 — SON TRES TÉRMINOS, NO DOS» y transcribía el predicado. v1.61 le añadió
+//     `approvedTotalCents IS NOT NULL` (V-a) y, dentro del ciclo, «ninguna línea comprada sin veredicto» (V-b)
+//     — y ESTA COPIA NO SE ENTERÓ: es el sitio que el pase de v1.61 no tocó, encontrado en el barrido de v1.61.1.
+//     ⚠️ Es exactamente el modo de fallo que `isPayable` existe para borrar, cometido por el CONTRATO en vez de
+//     por el cliente. Regla que lo cierra: ARCHITECTURE §0-B.3 regla 8 (LA REGLA DEL CENSO).
+//   Qué le toca a ESTE DTO, y es lo único que se afirma aquí:
+//     * el campo es DERIVADO server-side, del MISMO cuerpo (`isPayableSellRequest`) y su traducción a `where`
+//       (`payableWhere()`) que usan el pre-check y la guarda atómica de `pay-spei` — PROHIBIDO escribir términos
+//       a mano en cada llamador;
+//     * PROPIEDAD NORMATIVA, verificable sin leer el código: `isPayable === true` ⇒ `pay-spei` NO falla por
+//       precondición (§M5-V.5). Si un término no cabe en el predicado escalar, la FORMA la elige backend; la
+//       propiedad no es negociable;
+//     * viaja con `pendingDecisionItemCount` (v1.61) — ver el bloque de `AdminSellRequestDTO` en §M5.
+//   El término `receivedAt` (v1.57, §M5-P) es NUEVO y NO es opcional: sin él, `verify` (único escritor de `verifiedAt`, sin
 //   guarda de predecesor) volvía pagable una solicitud PRE-RECEPCIÓN, y salió un SPEI real de MX$320 por una
 //   carta que nunca llegó. Cláusula que manda: PROJECT.md:1107 («el pago se realiza DESPUÉS de que recibimos y
 //   verificamos la carta»). El término entra en el CUERPO (`isPayableSellRequest`) y en su traducción a `where`
 //   (`payableWhere()`): los tres lectores lo heredan. PROHIBIDO escribirlo a mano en cada llamador.
 //   Existe para borrar la SEXTA copia de un subconjunto de estados (`M5View.tsx:820-821` `canPay`), que gobierna el
-//   BOTÓN DE PAGAR y que además replica solo UNO de los dos términos del servidor ⇒ hoy habilita el pago donde el
+//   BOTÓN DE PAGAR y que además replica solo UNO de los términos del servidor ⇒ habilitaba el pago donde el
 //   servidor responde 422. ⚠️ ACTOR-INDEPENDIENTE: el rol se queda en el cliente (`isSuperAdmin && isPayable`),
 //   porque «¿está en condición de pagarse?» y «¿puedo pagarla yo?» son DOS PREGUNTAS y un campo contesta UNA.
 //   ⚠️ NO ES UN PERMISO: `pay-spei` sigue siendo super_admin con MoneyOutGuard. JAMÁS en el DTO de cliente.
