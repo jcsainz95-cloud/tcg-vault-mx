@@ -1,5 +1,125 @@
 # PENDIENTES — TCG HUNT
 
+---
+
+## 🔴 HANDOFF AL ORQUESTADOR — stream «ciclo de compra a usuarios» (2026-09-07)
+
+**Punto de retome.** Todo lo de abajo se midió, no se recordó. Lo no medido va marcado.
+
+### Estado
+
+| | |
+|---|---|
+| `main` | **`c132397`** — código verificado **+ sus tres veredictos + la documentación que dice la verdad** |
+| Rama `claude/buylist-inventory-workflow-hdnls3` | **fusionada entera** (0 commits por delante). No hay nada colgando. |
+| Contrato | **v1.60** · `PROJECT.md` hasta **D51** |
+| Suites (medidas por QA) | backend **248 suites / 3.609** unitarios · **17 / 264** integración · typecheck limpio · lint 0 errores + 2 warnings preexistentes en `inventory/` · frontend **113 / 1.166** |
+| Producción | **`18f279e`** (release de logos). **NO tiene el ciclo de adquisición**: cero `offerState`/`offerGrossCents`/`pickupAddressSnapshot` en su schema y **sin la migración `m46`**. |
+
+**Los tres veredictos sobre `c6b999a`:** QA **APROBADO** · techlead **APROBADO con deuda** · seguridad **APROBADO** (cero críticos, cero altos). Conteos pre-merge de §M5-A.9 y §M5-R.5: **0, 0, 0, 0** sobre dataset limpio. ⚠️ **Local. Producción no está medida.**
+
+---
+
+### ⚠️⚠️ LA RESTRICCIÓN QUE NO SE PUEDE PERDER
+
+> **`A1` (el rechazo por tope por solicitud al ofertar) es HOY lo único que tapa `BL-43`.**
+> **No se puede retirar `A1` sin poner su sustituto EN EL MISMO COMMIT.**
+
+Lo midió seguridad, incluida la vía del override de KYC: `amlCap` en `approve` lee **la misma fuente** que `A1` al ofertar, así que hoy no pueden discrepar y **lo que pasa la emisión pasa la aprobación**. Y **D47 retira exactamente `A1`**. Si se implementa D47 sin `BL-43`, se abre el agujero: una línea cara pasa la oferta vinculante, **el vendedor manda la carta**, y `approve` la rechaza. Sin remedio para el vendedor.
+
+---
+
+### 1 · Ronda siguiente — implementar v1.59/v1.60 (backend)
+
+Todo está **declarado y sin implementar**. Orden sugerido:
+
+1. **`§M5-D`** — fusión de diales (`BUYLIST_CAP_PER_REQUEST_CENTS` se retira de **las cuatro** estructuras de `settings.constants.ts`; sobrevive `INE_THRESHOLD_CENTS`) **+ `BL-43` en el mismo commit** (ver restricción arriba). El override `capPerRequestCentsOverride` **muere con el dial**: habría pasado a ser un umbral de KYC por vendedor, la exención que el criterio 178(e) prohíbe.
+2. **`§M5-A` reordenada** — inciso (c): **el que rechaza va antes que el que identifica**. `BUYLIST_LIMIT_EXCEEDED` queda **solo para el mensual**; se retiran del vocabulario `scope:"per_request"` y `"per_request_offer"`.
+3. **`§M5-I`** — compuerta del INE en la creación. ⚠️ El predicado **ya existe** (`ineRequired = quotedTotalCents >= ineThreshold || hasPendingLine`); lo que falta es que **sea alcanzable**, que depende de (1).
+4. **Boundary atómico** `I3 → I2 → persistencia → create`. Reordenar dos `if` **NO basta**: el `upsert` que escribe las keys del INE commitea **fuera** de la tx que evalúa el mensual, así que el rollback no lo deshace.
+5. **`§M5-N`** — `BL-42` caminos 1 y 2.
+6. **Retirar `legalName`** de `ADMIN_KYC_SELECT`, del tipo y de las dos proyecciones. Cero migración. Impacto de frontend **cero, medido**.
+7. **`D50` necesita DDL** → **vuelve al arquitecto primero (regla 9)**. El instante «cuando se le pide lo que falta» **no está sellado en ninguna columna**. ⛔ **Prohibido aproximarlo con `createdAt`**: aproximarlo *es* el cierre en silencio que §E prohíbe.
+
+---
+
+### 2 · Lo que los tres gates dejaron abierto
+
+**Backend**
+- ⚠️ **Corregir la afirmación «se hace INALCANZABLE el estado»** en `assertRequestReceived`. **Es falsa**: hay un **segundo escritor** de `itemStatus:'aprobada'` (`respond`, rama accept, `:2081-2084`) que **no lleva el término**. La puerta del dinero aguanta (`isPayable` falso), el daño sería de mercancía. La frase, además, **prohíbe la guarda que lo cerraría**. Fichar el residual con dueño.
+- Marcar **`BL35-D7/D8/D9` como resueltas** (están implementadas y siguen diciendo «pendiente»), y añadir a **`BL35-D6`** su consecuencia de mercancía.
+- **Reabrir `BE-1`** con las cinco cosas que pidió el techlead, **antes** de que disputas se vaya a otra rama.
+- `BLC-D4`: la cifra caducó (dice 6.154 líneas; hoy **~7.236**) y su disparador se incumplió cuatro veces.
+- `D3`: re-redactar el disparador como *«cualquier edición que toque una de las dos escaleras sin tocar la otra»*. Falta test del backstop.
+- **M-1 (QA):** `expect([200,201])` laxo en `buylist-cycle.e2e-spec.ts:816`; §M5-C hace el `200` normativo.
+- Ningún camino trata **`P2034`/`40001`**: seis transacciones `SERIALIZABLE`, cero reintentos, `500` opaco en un verbo de dinero cuyo remedio correcto es «reintenta».
+- La doctrina **§4.39(z)** tiene **un adoptante de ocho candidatos**. El más fuerte sin convertir: `countBountyAcquisitionsTx`, que **escribe**.
+
+**Frontend**
+- **`mockIsPayable` se quedó en DOS términos** (`fixtures.ts:1261-1263`) y `receivedAt` **no existe en `frontend/src`**. En modo mock —contra el que corre Playwright— **el botón de pagar aparece habilitado** sin recepción. Su propio docstring predijo esto.
+- **I-1 (QA):** el copy de `APPROVED_PRICE_CAP_EXCEEDED` dice «cotizado × 2 o tope AML» y **`BL-40` retiró ese término dentro del ciclo**. Explicación falsa en el error que gobierna cuánto se le paga a un vendedor.
+- **I-2 (QA):** `INE_REQUIRED` y `BUYLIST_LIMIT_EXCEEDED` hablan **al vendedor** («necesitas subir **tu** INE») pero ahora se emiten también en la ruta de **admin**, cuyo destinatario no puede subir el INE de otra persona.
+- **M-2 (QA):** `REQUEST_NOT_RECEIVED` sin copy ⇒ inglés dentro de la UI en español. Familia de **siete** códigos M5 huérfanos preexistentes.
+- La fórmula de `isPayable` en `types/contract.ts:2373` sigue con **dos** términos.
+- **`DT-Gd`**: su disparador duro era *«el primer pase de frontend después de que la rama fusione»*. **Ya disparó.**
+
+**Arquitecto**
+- **Corrección de seguridad al contrato (§M5-P):** el eje 2-b **NO adelanta** la purga del INE, la **RETRASA** ⇒ el riesgo real es **sobre-retención de PII (LFPDPPP)**, no pérdida de evidencia.
+- `BL-44`: el barrido de retención **salta el perfil entero** con `openCount > 0`, así que **una sola solicitud eterna congela la purga de TODAS las identificaciones de esa persona**, incluidas las de solicitudes ya pagadas. `D50` **no lo cierra**.
+- `BL-36` residual, `BL-42` camino 3.
+
+**Devops**
+- **`purge-synthetic-poc-data.sh` no puede completarse**: **verifica con un predicado más ancho del que borra** (cuenta como «del PoC» actividad de usuarios del fixture) ⇒ se niega y deshace. Misma familia que B-1.
+- **Sugerencia de seguridad**: comparar también el **hash de árbol**, no solo el commit, para distinguir *«cambió el commit»* de *«cambió el código»* — un commit de solo-docs pone hoy el gate en rojo sin motivo.
+- ⚠️ **Migración fuera de orden**: `m46` está fechada el **1 de septiembre** y producción ya corrió la del **2**. Comprobar **antes** del despliegue, no durante.
+- Pendiente de antes: runbook de cut-over (el `SELECT` del censo del paso 6), smoke de MinIO que se auto-salta.
+- ⚠️ **`STAGING_API_URL` lo tiene que cargar el humano.** Sin él el gate avisa; **promoviendo a prod, falla**.
+
+**Seguridad**
+- **`SEC-B2` [Media]** — `verify` sobre una **oferta viva** deja al vendedor **atrapado**: no puede aceptar ni declinar (`409`), la fila **no caduca**, **ningún verbo la devuelve**, y **su portal le sigue mostrando la cuenta atrás**. Alcanzable por el rol de menor confianza. **Disparador: cerrarlo ANTES de operar con vendedores reales.**
+- **`BL-41`** cerrada como **retirada por producto**, no implementada. La aceptación del riesgo pide **cuatro condiciones** (§8 de `SECURITY_NOTES.md`).
+
+---
+
+### 3 · Decisiones que esperan al humano
+
+- **Preguntas 36, 37, 39, 42, 43, 44** del product-owner, todas **con supuesto** y ninguna bloqueante.
+- **44 (CEP del SPEI)** — ⚠️ **no verificada por nadie**. Antes de construir nada hay que responder: **¿qué se hace cuando el CEP muestre un nombre distinto, con el dinero ya enviado?** *Un registro que nadie sabe leer no es mejor que no tenerlo.*
+- **El umbral del INE (MX$3,000) es un dial editable en M10**, no está clavado. **Su piso probablemente lo fija la ley** (actividades vulnerables) ⇒ consulta legal pendiente, junto con **guardar identificaciones de gente a la que nunca se le compra**.
+- **El cotejo real INE↔titular es un paso operativo**: quién lo hace y en qué pantalla. Hoy **no existe en ningún flujo**.
+
+---
+
+### 4 · Otros streams — NO en esta rama
+
+- **`disputes` [Media, «Órdenes y dinero»]** — `resolve()` sin guarda ni idempotencia en las dos ramas; el job de deadline hace **read-then-write** (una disputa resuelta vuelve a la cola y se resuelve dos veces). **No desembolsa** (el importe solo se interpola en texto), y por eso es Media y no Alta: **la mitigación real es la bitácora, no el código**. `BE-1` declara resuelto lo que no existe.
+- **Criterio 128(b)** — alta de usuario en back-office sin celular. Va al **arquitecto primero**.
+- **M-49** — buylist de graduadas. Proyecto nuevo, arranca en **product-owner**.
+
+---
+
+### 5 · Lo que NO está verificado (decirlo, no asumirlo)
+
+- **Producción no está medida** para ninguno de los conteos pre-merge. *Cero local no es cero.*
+- **El workflow E2E real en CI nunca se ha corrido** en esta rama.
+- ⚠️ **La suite Playwright NO se puede correr reutilizando servidor** — su configuración lo prohíbe por diseño. Hay que usar `E2E_BASE_URL` + `E2E_REAL=1`. **Quien reporte «E2E verde» habiéndola corrido de la otra forma, midió mocks.**
+- Correos reales, barridos con reloj adelantado, subida de INE de punta a punta (sin MinIO) y DAST contra staging: **fuera del alcance del entorno**.
+
+---
+
+### 6 · Método — lo que costó caro esta sesión
+
+**Nueve diagnósticos falsos por medir mal**, tres del orquestador. El patrón fue **siempre el mismo**: concluir desde un `grep` sin abrir el contexto del match.
+
+Y el patrón de fondo, que es el que explica los cuatro agujeros de dinero: **nadie verificaba que el código cumpliera lo que `PROJECT.md` promete**. Aparecieron **cuatro veces** — pago sin recepción, topes sin evaluar al ofertar, la cota que rechazaba lo prometido, y un control entero (el cotejo INE↔CLABE) que estaba escrito en **18 sitios** y no existía en ninguno.
+
+Tres reglas que salieron de ahí y que conviene mantener:
+1. **§4.39(ad.2)** — antes de declarar el término de un control, **identificar la FUENTE de cada operando**. Un predicado con un operando que ningún flujo produce **no es un control incompleto: es un control que no existe, escrito en forma de control**.
+2. **§4.39(z)** — un tipo que **nombra** la intención no la **impone**. Toda afirmación de «esto ahora falla en compilación» se mide con control **positivo Y negativo** antes de escribirse.
+3. **Un gate que no comprueba qué código sirve no es un gate.** Pasó **tres veces** en un día; ahora `./scripts/stack-native.sh verify:head` se niega a mentir.
+
+---
+
 Lista viva de lo que **falta** en el producto. Cuando algo se cierra, se mueve a «Hecho
 (referencia)» al final o se borra. Añade nuevos como `P-#`. Última limpieza: **2026-08-22**.
 
