@@ -2,7 +2,62 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-07 (rev **v1.60**).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-07 (rev **v1.61**).
+>
+> **Changelog v1.61 — `BL-45`: EL CERO DEL TABLERO NO ERA EL DEFECTO, ERA EL SÍNTOMA. SE CIERRA EN EL VERBO QUE
+> PAGA, NO EN EL REPORTE (2026-09-07, arquitecto; **CERO DDL, CERO endpoints nuevos, CERO diales, CERO backfill**.
+> DOS términos en `pay-spei`, UN código de error, UN campo de DTO aditivo, y la tarjeta del tablero **nombrada**.
+> ARCHITECTURE rev **v1.61**, §4.39i.4-bis retro-editada + §9 `BL-45`; nueva sección [`§M5-V`](#M5-V)):**
+>
+> **A. ⚠️⚠️ EL DEFECTO, MEDIDO POR QA Y POR BACKEND (dos veces, en vivo).** Una solicitud del ciclo pagada **sin
+> ninguna decisión por-ítem** (`offerGrossCents=50000`, `fee=18000`, `approvedTotalCents=null`,
+> `payoutNetCents=32000`) hace que la tarjeta «buylist del periodo» —que suma `_sum(approvedTotalCents)`— reporte
+> **`{count:1, amountCents:0}` sobre MX$320 que salieron por SPEI.** **Un cero fabricado sobre dinero real.**
+>
+> **B. ⚠️⚠️ Y EL COLATERAL ES PEOR QUE EL DEFECTO.** Por ese mismo camino las líneas **nunca llegan a `aprobada`**
+> ⇒ `convert-to-inventory` responde **`422 ITEM_NOT_APPROVED`**; y como la solicitud ya es **`pagada`** (terminal),
+> `itemDecision` responde **`409`** ⇒ ⛔ **la mercancía pagada NO PUEDE ENTRAR AL INVENTARIO POR NINGUNA RUTA DE LA
+> API, NUNCA.** No entra al COGS, no se puede vender, y el dinero es invisible **en las dos tarjetas**.
+>
+> **B-bis. ⛔⛔ Y AL VERIFICAR EL PREDICADO APARECIÓ UNO PEOR, QUE NADIE HABÍA MIRADO — DINERO SALIENTE.** Con
+> **cherry-pick** (≥1 línea `skip`) y **todas las líneas compradas rechazadas** en verificación, la auto-transición
+> a `rechazada` **NO dispara** (exige que **todo** ítem esté `rechazada`, y la `skip` se queda en `verificacion`)
+> ⇒ la solicitud sigue **pagable** con `approvedTotalCents = null` ⇒ `brutoConsumado` cae a `offerGrossCents` ⇒
+> **se paga `max(0, offerGrossCents − fee)` por CERO cartas**. Es **la negación exacta del criterio 140**
+> (*«rechazo total ⇒ neto 0»*), **alcanzable por la API sin sembrar nada**. ⚠️ **Derivado del código, NO ejecutado
+> en vivo** — por eso su assert es obligatorio y su conteo (§M5-V.7 **i-bis**) **no espera al merge: es dinero que
+> puede salir hoy, con el código que ya está en producción.**
+>
+> **C. ⚠️⚠️ LA DECISIÓN: NO SE ARREGLA EL REPORTE. SE VUELVE IMPOSIBLE EL ESTADO.** Las dos salidas que backend
+> escaló —congelar el bruto en una columna nueva, o sumar `payoutNetCents`— **atacan la cara (a) y dejan (b) y (c)
+> intactas**, y la segunda además redefine en silencio una tarjeta de dinero de **bruto** a **neto**. **La causa es
+> una sola: un pago que ocurre sin los veredictos por-carta que `PROJECT.md` §P.5 declara obligatorios** (*«dos
+> desenlaces, no tres»*). ⇒ [`§M5-V`](#M5-V): `pay-spei` gana **`approvedTotalCents IS NOT NULL`** (toda fila) **∧**,
+> **dentro del ciclo**, **«ninguna línea sin veredicto»** ⇒ **`422 ITEMS_NOT_DECIDED`**. Con eso, en toda fila que se
+> pague **`brutoConsumado ≡ approvedTotalCents`**, y `_sum(approvedTotalCents)` **es exacto por construcción**: el
+> reporte **lee el número que se decidió donde se decidió el dinero** —la dirección del techlead— **sin columna
+> nueva, sin migración y sin una cuarta transcripción de la cascada.** *Es la doctrina que este proyecto ya aplicó
+> dos veces: una invariante se cierra en el verbo que PRODUCE el estado, no en cada verbo que lo consume.*
+>
+> **D. §11 NOMBRA LA MEDIDA, porque no nombrarla ES lo que convirtió un bug en una decisión de negocio.**
+> `buylistPeriod.amountCents` **es el BRUTO consumado** (criterio 155: los **netos** son de **M7**, y el tablero no
+> es M7). Si el negocio quiere la caja en el tablero, es un **campo nuevo aditivo** — **jamás** una redefinición.
+>
+> **E. ALCANCE Y RELEASE — dicho explícitamente.** **§M5-V entra EN ESTE RELEASE** (bloquea la publicación de los 99
+> commits): no por el reporte, sino porque **M-46 convierte «pagar sin veredictos» en el resultado por defecto de no
+> hacer nada** —dentro del ciclo `adjust` no existe (criterio 150), así que la **única** vía a `aprobada` es la
+> decisión por línea— y publicar sin V es publicar un ciclo cuyo final normal deja **mercancía pagada que no se
+> puede vender**. **La columna congelada + backfill queda DIFERIDA con disparador escrito** (§9 `BL-45`), y **el
+> conteo pre-merge de §M5-V.7 es obligatorio**.
+>
+> **F. Menor, y es mío: §M5-K.5(a) daba una LISTA DE SITIOS como si fuera un censo, y no lo era.** La rama
+> `super_admin` de `getUser` proyecta por **resto** y emitía `legalName` por fuera de la lista blanca (backend lo
+> midió y lo cerró). **La norma se reformula como propiedad de la RESPUESTA**, no como lista de ficheros — y eso
+> aplica ya a la retirada pendiente de `capPerRequestCents`.
+>
+> **G. Regla de la cita (§0-B.3 regla 7), cumplida en el mismo pase:** §M5-K.0 y el bullet de `pay-spei` decían
+> *«**NO hay cuarto término**»*. **v1.61 añade términos** (ninguno de KYC) ⇒ las dos frases se corrigen a *«ningún
+> término de **KYC**»*, o QA habría leído §M5-V como una regresión de D51.
 >
 > **Changelog v1.60 — D51: SE RETIRA EL COTEJO INE ↔ TITULAR DE LA CLABE, Y CON ÉL EL TÉRMINO QUE YO MISMO DECLARÉ
 > HACE UNA REV (2026-09-07, arquitecto; **CERO endpoints nuevos, CERO DDL, CERO diales**. UN código de error que se
@@ -4022,6 +4077,26 @@
   > dinero que sale, aquí la mercancía que entra, **y el mismo ancla** (`receivedAt`: un escritor, una vez, nadie lo
   > limpia). ⛔ **`convert-to-inventory` NO gana una segunda guarda** — con esto `aprobada` se vuelve inalcanzable sin
   > recepción y `ITEM_NOT_APPROVED` **sigue bastando**. **Solo `approve`**: `reject` y `adjust` no lo ganan (§M5-R.3).
+- **`422 ITEMS_NOT_DECIDED` (v1.61 — NUEVO; DINERO SALIENTE **y** MERCANCÍA. [`§M5-V`](#M5-V), `BL-45`):** en
+  `POST /admin/buylist/:id/pay-spei`, **dentro del ciclo** (`offerSentAt IS NOT NULL`), la solicitud tiene al menos
+  una **línea COMPRADA** (`offerDecision='buy'`) **sin veredicto de verificación** — `itemStatus ∉ {aprobada,
+  rechazada, convertida_inventario}`. `details: { sellRequestId, pendingDecisionItemIds: string[] }`. **No escribe
+  nada y no paga.** ⚠️ **El término `offerDecision='buy'` es obligatorio:** las líneas **`skip`** se quedan en
+  `verificacion` a propósito y **jamás pueden aprobarse** (`ITEM_NOT_OFFERED`) ⇒ sin él, **toda oferta con
+  cherry-pick sería impagable**.
+  > **Nombra la LÍNEA porque el remedio es por línea:** `PATCH /admin/buylist/items/:itemId/decision` con
+  > `approve` o `reject` — los **dos** desenlaces que `PROJECT.md` §P.5 declara (*«dos desenlaces, no tres»*).
+  > *El error nombra la palanca*, misma disciplina que `REQUEST_NOT_RECEIVED`.
+  > **Qué cierra, y son DOS cosas con una causa:** pagar sin veredictos deja las líneas fuera de `aprobada` —el
+  > **único** estado que `convert-to-inventory` admite— **y** la solicitud queda `pagada` (terminal) ⇒ `itemDecision`
+  > responde `409 NO_LIVE_ADJUSTMENT` ⇒ **la mercancía pagada NO se puede convertir NUNCA, por ninguna ruta de la
+  > API**. Además `approvedTotalCents` se queda `null` y la tarjeta «buylist del periodo» reporta **MX$0** sobre
+  > dinero que salió. **Un solo defecto con dos caras.**
+  > ⛔ **Solo dentro del ciclo** (`offerSentAt IS NOT NULL`): fuera de él `respond(accept)` aprueba en bloque las
+  > líneas `ajustada` y **deja legítimamente sin veredicto individual** a las demás — aplicarlo allí rompería la
+  > cohorte legacy entera, exactamente como razona `ITEM_NOT_OFFERED`. **No es una excepción legacy en una guarda de
+  > dinero** (lo que §M5-P norma 1 prohíbe): `offerSentAt` es un **hecho sellado una vez, que el pagador no
+  > controla**, y es el discriminador que este contrato ya usa para separar los dos regímenes.
 - **`422 APPROVED_PRICE_CAP_EXCEEDED` (v1.58 — **DECLARADO, NO CREADO**; DINERO. `BL-40`):** en
   `PATCH /admin/buylist/items/:itemId/decision`, el monto que quedaría aprobado supera la cota server-side de dinero
   saliente. `details: { approvedPriceCents, quotedPriceCents, cap }`.
@@ -10543,6 +10618,230 @@ hoy no exista.
 
 ---
 
+#### <a id="M5-V"></a>⚠️⚠️ §M5-V — INVARIANTE V: **no se paga lo que no se ha juzgado** (v1.61 — NORMATIVA, **DINERO SALIENTE + MERCANCÍA + REPORTE**; cierre de `BL-45`)
+
+> *«El tablero decía MX$0 sobre MX$320 que salieron. Pero el cero no era el defecto: era el síntoma más visible de
+> un pago que ocurrió sin que nadie dijera qué carta se compraba. El mismo pago dejó la mercancía fuera del
+> inventario para siempre.»*
+
+**V.0 — LA NORMA, EN CUATRO LÍNEAS.**
+```
+isPayable  ⇔  status ∈ SELL_REQUEST_PAYABLE_STATES     // 'aprobada' | 'verificacion'
+              ∧  receivedAt        IS NOT NULL          // v1.57 §M5-P — «recibimos»
+              ∧  verifiedAt        IS NOT NULL          // v1.57 §M5-P — «y verificamos»
+              ∧  approvedTotalCents IS NOT NULL         // ⚠️ NUEVO v1.61 — «y aprobamos ALGO»   [V-a, TODA fila]
+pay-spei   ⇔  isPayable  ∧  ( offerSentAt IS NULL  ∨  ninguna línea COMPRADA sin veredicto )
+                                                        // ⚠️ NUEVO v1.61 — «y juzgamos TODO
+                                                        //    LO QUE COMPRAMOS»                 [V-b, solo ciclo]
+```
+- **`IS NOT NULL`, JAMÁS `> 0`.** Un `approvedTotalCents = 0` **se paga**: es el **depósito de cero** que D40 /
+  criterio 140 declaran explícitamente pagable (*«no es una operación bloqueada»*). ⛔ **Escribir `> 0` aquí es
+  romper D40**, y es el error obvio de implementación de este término. **`null` = «nadie decidió nada»; `0` = «se
+  decidió y salió cero».** *Toda esta invariante existe porque esos dos no son el mismo número.*
+- **«Línea COMPRADA sin veredicto» = `offerDecision = 'buy'` ∧ `itemStatus ∉ {aprobada, rechazada,
+  convertida_inventario}`.** Los dos estados son **los dos desenlaces de `PROJECT.md` §P.5** (*«Llega en NM ⇒
+  aprobada… No llega en NM ⇒ rechazada»*), más el sucesor de la aprobación.
+  ⚠️⚠️ **EL TÉRMINO `offerDecision = 'buy'` NO ES UN REFINAMIENTO: SIN ÉL LA NORMA ROMPE EL CAMINO FELIZ.** Medido
+  en el código: al emitir, las líneas **`skip`** conservan su `itemStatus` (`cotizada`/`recibida`/`verificacion`) y
+  **solo** ganan `offerDecision='skip'` (`buylist.service.ts`, `OFFER_LINE_NULL`). **Nunca alcanzan `aprobada`** —
+  `422 ITEM_NOT_OFFERED` lo prohíbe a propósito— **y nada las rechaza sola**. ⇒ un predicado *«ninguna línea sin
+  veredicto»* **a secas bloquearía TODA solicitud con cherry-pick**, que es el caso normal del ciclo. *La línea que
+  no compramos no tiene veredicto de compra porque no hay nada que juzgar.* ⛔ **Y no se «arregla» rechazando las
+  `skip`**: `rechazada` ancla los relojes 7d/30d de §H y manda **el correo de rechazo por carta** — usarlo para
+  cuadrar un predicado le mandaría al vendedor un correo que dice algo falso.
+- ⛔ **Ninguna de las dos listas se transcribe al frontend** (ver V.5).
+
+**V.1 — EL DEFECTO, MEDIDO, Y POR QUÉ ES UNO SOLO Y NO TRES.**
+Reproducido en vivo por **QA y por backend, dos veces** (`docs/BACKEND_NOTES.md` §0.44.4), sobre una solicitud del
+ciclo pagada **sin ninguna decisión por-ítem**:
+
+| Fila medida | `offerGrossCents` | `offerShippingFeeCents` | `approvedTotalCents` | `payoutNetCents` |
+|---|---|---|---|---|
+| repro | 50000 | 18000 | **`null`** | 32000 |
+
+| # | Cara del defecto | Qué se observa | Gravedad |
+|---|---|---|---|
+| **a** | **REPORTE** | la tarjeta «buylist del periodo» pasa de `{0,0}` a **`{count:1, amountCents:0}`** habiendo salido **MX$320** | un cero fabricado sobre dinero real |
+| **b** | **MERCANCÍA** | las líneas nunca llegan a `aprobada` ⇒ `convert-to-inventory` ⇒ **`422 ITEM_NOT_APPROVED`**; y la solicitud ya es `pagada` (terminal) ⇒ `itemDecision` ⇒ **`409 NO_LIVE_ADJUSTMENT`** | ⛔ **la pieza pagada NO ENTRA al inventario y NO HAY RUTA DE API QUE LO ARREGLE** |
+| **c** | **COGS** | sin `InventoryItem` no hay `acquisitionCostCents` ⇒ el costo **nunca se capitaliza** | el dinero es invisible en **las dos** tarjetas |
+| **d** | ⛔ **DINERO SALIENTE** | con **cherry-pick** y **todas** las líneas `buy` rechazadas, la auto-transición a `rechazada` **no dispara** ⇒ sigue pagable con `approvedTotalCents = null` ⇒ **`payoutNetCents = max(0, offerGrossCents − fee)` por CERO cartas** *(derivado del código al verificar V-b; **NO ejecutado en vivo**)* | ⛔⛔ **la peor: niega el criterio 140 y saca dinero** |
+
+⚠️ **(b) es peor que (a) y hay que decirlo en voz alta:** (a) es un número mal pintado; **(b) es mercancía comprada,
+pagada y físicamente en la bóveda que el sistema no puede volver vendible**. El remedio *«decide las líneas
+después»* **no existe**: BL-14 sella los ítems al cerrar la solicitud. Después del pago **solo queda escribir en la
+base a mano**, que es exactamente lo que este proyecto no acepta como remedio.
+
+**V.2 — LA CAUSA ÚNICA, Y ES UNA FRASE MÍA QUE RETIRO.**
+`ARCHITECTURE §4.39i.4-bis` describió el término `offerGrossCents` de `brutoConsumado` diciendo que aplica *«cuando
+la solicitud se pagó sin ninguna decisión por-ítem… en el ciclo eso significa **“se aceptó todo tal cual se
+ofertó”**»*. **Esa lectura es errónea y la retiro** (retro-edición en ARCHITECTURE, mismo pase):
+- **`PROJECT.md` §P.5 no admite un tercer desenlace.** *«Verificar sigue siendo carta por carta… los desenlaces son
+  exactamente dos»*. Una solicitud pagada con líneas sin veredicto **no es «se aceptó todo»: es «no se verificó
+  nada», y se pagó igual.**
+- **Ponerle nombre de negocio a un agujero de la máquina de estados es lo que hizo que todo lo de abajo se
+  construyera para servirlo:** el payout, el acumulado AML y —ahora— el reporte. *Un hueco con nombre deja de
+  buscarse.*
+- **`brutoConsumado` NO se retira ni se toca**: su cascada sigue siendo la medida correcta **de las filas ya
+  pagadas** (§4.39i.4-bis sigue vigente entera para el acumulado AML). Lo que cambia es que sus términos 2 y 3
+  **dejan de ser alcanzables en el instante del pago**: con V-a, toda fila que se pague de aquí en adelante tiene
+  `approvedTotalCents` ⇒ `brutoConsumado(fila) ≡ approvedTotalCents`. **Pasa de regla viva a compatibilidad
+  histórica.**
+
+**V.3 — POR QUÉ M-46 LO CONVIERTE EN URGENTE AUNQUE YA VIVA EN PRODUCCIÓN.**
+El camino existe hoy en producción (que **no** tiene M-46) y **no es una regresión de este release**. Lo que cambia
+al publicar es la **frecuencia**, y el motivo es estructural, no de disciplina del operador:
+
+| | Antes de M-46 | Con M-46 |
+|---|---|---|
+| Rutas a `itemStatus='aprobada'` | **dos**: `itemDecision(approve)` **y** `respond(accept)`, que aprueba **en bloque** todas las líneas `ajustada` | **una**: `itemDecision(approve)`, línea por línea — `adjust` **no existe en el ciclo** (criterio 150) |
+| Estado en que termina el ciclo feliz | `aprobada` (por la respuesta del vendedor) | **`verificacion`**, con el botón de pagar al lado |
+
+⇒ **el pago sin veredictos deja de ser un descuido posible y pasa a ser el resultado por defecto de no hacer nada.**
+*Publicar M-46 sin V es publicar un ciclo cuyo final normal deja mercancía pagada que no se puede vender.*
+
+**V.4 — LOS DOS TÉRMINOS TIENEN ALCANCES DISTINTOS, Y CADA UNO CON SU EVIDENCIA.**
+
+| | **V-a** `approvedTotalCents IS NOT NULL` | **V-b** «ninguna línea sin veredicto» |
+|---|---|---|
+| **Alcance** | **TODA** fila (ciclo y legacy) | **SOLO** `offerSentAt IS NOT NULL`, y **solo líneas `offerDecision='buy'`** |
+| **Qué cierra** | ⛔ **pagar la oferta íntegra por CERO cartas** (rechazo total + cherry-pick, ver recuadro) y pagar sin ninguna aprobación | pagar dejando líneas **compradas** sin juzgar ⇒ mercancía inconvertible |
+| **Por qué ese alcance** | *«se paga lo aprobado»* (§P.5.1) no tiene versión legacy: sin nada aprobado no hay nada que pagar, en ningún régimen | fuera del ciclo, `respond(accept)` deja líneas sin veredicto individual **de forma legítima**; aplicarlo allí rompería la cohorte entera |
+| **Dónde vive** | dentro de `isPayableSellRequest` + `payableWhere()` ⇒ **los tres lectores lo heredan** (§M5-P) | guarda propia de `paySpei` (necesita las líneas, no cabe en el predicado escalar) |
+| **Error** | **`422 VALIDATION_ERROR`**, mensaje actual **sin cambio** (*«…and approval»* — el servidor ya afirmaba esta regla) | **`422 ITEMS_NOT_DECIDED`** con `details.pendingDecisionItemIds` |
+
+> ### ⚠️⚠️ V-a NO ES UN CINTURÓN: TAPA UN AGUJERO DE DINERO ALCANZABLE POR LA API. **Esto es lo más grave de `BL-45` y apareció al verificar el predicado de V-b.**
+> **La creencia razonable** —y la que yo mismo tenía al escribir el primer borrador de esta sección— es que un
+> rechazo total no puede pagarse porque `itemDecision(reject)` **auto-transiciona la solicitud a `rechazada`**
+> (terminal) al rechazarse el último ítem. **Esa auto-transición exige que TODO ítem esté `rechazada`**
+> (§M5, `POST …/reject`: *«∅ ítems no-rechazados»*). **Y con cherry-pick eso no puede ocurrir**, porque las líneas
+> **`skip` se quedan en `verificacion`** *(medido arriba)* y **cuentan como no-rechazadas**:
+> ```
+> ciclo con cherry-pick (≥1 línea `skip`)  +  TODAS las líneas `buy` rechazadas en verificación
+>   ⇒ la auto-transición NO dispara      (queda ≥1 ítem no-`rechazada`: el `skip`)
+>   ⇒ status sigue 'verificacion', receivedAt/verifiedAt sellados  ⇒ isPayable = true
+>   ⇒ approvedTotalCents = null          (ningún ítem con approvedPriceCents)
+>   ⇒ brutoConsumado cae a offerGrossCents
+>   ⇒ payoutNetCents = max(0, offerGrossCents − fee)   ⛔ SE PAGA LA OFERTA ÍNTEGRA POR CERO CARTAS
+> ```
+> ⛔ **Es la negación exacta del invariante 2 / criterio 140** (*«Rechazo TOTAL ⇒ `approvedTotalCents = 0` ⇒
+> `payoutNetCents = 0`»*) **y no hace falta sembrar nada en la base para llegar: se construye con el ciclo, por la
+> UI, sin rol extraordinario más allá del `super_admin` que paga.** ⚠️ **No está medido en vivo** —lo derivé del
+> código, no lo ejecuté— **y por eso el assert 3 de V.8 es OBLIGATORIO y se monta por la API, no sembrando.**
+> **Con V-a deja de depender de nada:** sin bruto aprobado no hay pago, dispare o no la auto-transición.
+> **⚠️ Y NO contradice D40/criterio 140:** el «depósito de cero» que D40 manda pagar es
+> `payoutNetCents = 0` **con líneas aprobadas** (el envío se comió el bruto). Ése tiene `approvedTotalCents`
+> poblado y **sigue pagándose**. *Son dos ceros distintos: uno es un resultado, el otro es la ausencia de una
+> decisión.*
+
+**V.5 — LOS LECTORES: `isPayable` TIENE QUE SEGUIR CONTESTANDO LA PREGUNTA QUE SE LLAMA.**
+La disciplina de §M5-P (tres lectores, un cuerpo) **se conserva íntegra y se extiende**:
+- **V-a** entra en `isPayableSellRequest` y en `payableWhere()`. ⛔ **Prohibido escribirlo a mano en los llamadores.**
+- **V-b afecta al botón de pagar**, así que **`isPayable` DEBE reflejarlo**. Si no lo hiciera, la pantalla del
+  `super_admin` diría *«lista para pagar»* sobre una solicitud que el servidor va a rechazar — **la repetición
+  exacta del defecto que §M5-P llamó ALTA** (*«un control activo que desinforma al que autoriza el dinero es peor
+  que no tener control»*). La **forma** —un cuerpo con un argumento más, un helper hermano, lo que sea— es de
+  backend; **la propiedad es normativa: `isPayable === true ⇒ `pay-spei` no falla por precondición`.**
+- **`AdminSellRequestDTO` gana `pendingDecisionItemCount: number`** (aditivo, derivado server-side, **admin-only**)
+  = **líneas `offerDecision='buy'` sin veredicto**. Es lo que permite a la UI decir **por qué** el botón está
+  apagado. ⛔ **El front NO deriva la cifra contando `itemStatus`:** eso metería en el cliente **dos** reglas —el set
+  de estados «sin veredicto» **y** el filtro `buy`—, y este proyecto ya borró **cinco** copias de sets de estado por
+  esa vía (`isTerminal`, `isPayable`, §4.39c). *La segunda regla es justamente la que un lector se salta.* **El
+  servidor manda el número.**
+
+**V.6 — ESCALERA DE ERRORES (NORMATIVA, ESTE ORDEN EXACTO).**
+```
+409 CONFLICT  (paidAt / closedAt poblados)        «ya cobró / ya cerró»            §M5-T
+  → 422 ITEMS_NOT_DECIDED                          «faltan veredictos»             ← V-b, GANA a la genérica
+    → 422 VALIDATION_ERROR                         «no está en condición de pagarse» (estado / receivedAt /
+                                                    verifiedAt / approvedTotalCents)
+      → 409 CONFLICT (CAS del importe)             «el monto se movió»             v1.51.22 B-2
+```
+**`ITEMS_NOT_DECIDED` va ARRIBA de la genérica aunque V-a también falle**, y no es cosmética: cuando faltan
+veredictos, **decidirlos es el acto que satisface los dos términos**. Mandar al operador el mensaje genérico lo
+manda a revisar el estado y la recepción —que están bien— en vez de a la pantalla donde está el trabajo.
+
+**V.7 — ⚠️ OBLIGACIÓN DE BACKEND ANTES DEL MERGE (no es opcional; misma disciplina que §M5-P.4 y §M5-A.9).**
+```sql
+-- (i) VIVAS que este término bloquearía el día del deploy (remediables: decidir sus líneas COMPRADAS)
+SELECT count(*) FROM "SellRequest" s
+ WHERE s.status IN ('aprobada','verificacion')
+   AND ( s."approvedTotalCents" IS NULL
+      OR ( s."offerSentAt" IS NOT NULL
+           AND EXISTS (SELECT 1 FROM "SellRequestItem" i
+                        WHERE i."sellRequestId" = s.id
+                          AND i."offerDecision" = 'buy'      -- ⚠️ SIN esto el conteo (y la guarda) mide mal
+                          AND i."itemStatus" NOT IN ('aprobada','rechazada','convertida_inventario')) ) );
+
+-- (i-bis) ⛔ EL PEOR CASO, y se cuenta APARTE: vivas PAGABLES con TODAS sus líneas compradas rechazadas.
+-- Cada una de éstas paga hoy `max(0, offerGrossCents − fee)` por CERO cartas.
+SELECT count(*) FROM "SellRequest" s
+ WHERE s.status IN ('aprobada','verificacion')
+   AND s."receivedAt" IS NOT NULL AND s."verifiedAt" IS NOT NULL
+   AND s."approvedTotalCents" IS NULL
+   AND EXISTS (SELECT 1 FROM "SellRequestItem" i
+                WHERE i."sellRequestId" = s.id AND i."offerDecision" = 'buy')
+   AND NOT EXISTS (SELECT 1 FROM "SellRequestItem" i
+                    WHERE i."sellRequestId" = s.id AND i."offerDecision" = 'buy'
+                      AND i."itemStatus" <> 'rechazada');
+
+-- (ii) YA PAGADAS sin bruto aprobado = el sub-reporte histórico de la tarjeta, y su importe
+SELECT count(*) AS filas,
+       COALESCE(SUM(COALESCE(s."offerGrossCents", s."quotedTotalCents", 0)),0) AS centavos_no_reportados
+  FROM "SellRequest" s
+ WHERE s."paidAt" IS NOT NULL AND s."approvedTotalCents" IS NULL;
+
+-- (iii) MERCANCÍA ATRAPADA: líneas COMPRADAS de solicitudes PAGADAS que ya no pueden convertirse
+SELECT count(*) FROM "SellRequestItem" i
+  JOIN "SellRequest" s ON s.id = i."sellRequestId"
+ WHERE s."paidAt" IS NOT NULL
+   AND (i."offerDecision" = 'buy' OR i."offerDecision" IS NULL)   -- `null` = cohorte pre-ciclo
+   AND i."itemStatus" NOT IN ('aprobada','rechazada','convertida_inventario')
+   AND i."inventoryItemId" IS NULL;
+```
+> ⚠️ **(i-bis) `> 0` es la MÁS urgente de las cuatro cifras y NO espera al merge: es dinero que puede salir hoy, con
+> el código que está en producción.** Si da `> 0`, **esas solicitudes no se pagan hasta que se decidan sus líneas**
+> —y eso es una instrucción de operación, no de código—; **se escala al humano y al arquitecto en el mismo pase.**
+- **(i) `> 0` ⇒ SE ESCALA AL ARQUITECTO antes de mergear** (regla 9). ⛔ **No se añade excepción legacy al `where`
+  por cuenta propia.** *El remedio es el acto nombrado —decidir cada línea—, que es lo que §P.5 pide de todas
+  formas; el peor caso de fallar cerrado es un pago que se retrasa unos clics.*
+- **(ii) y (iii) NO bloquean el merge**: son **el daño ya causado**, y su número decide dos cosas que están
+  escritas en V.9 y en `ARCHITECTURE §9 (BL-45)`. **Se reportan aunque den `0`.** ⚠️ **Se corren en PRODUCCIÓN, no
+  solo en local** — *cero local no es cero* (`PENDIENTES.md` §5).
+
+**V.8 — QA: ASSERTS EXIGIBLES, Y LAS MUTACIONES QUE LOS PONEN ROJOS.**
+> **Contexto obligatorio:** la **mutación #11 de QA** —cambiar la columna que suma la tarjeta— **sobrevivió a 3.873
+> pruebas**. Un candado que no se puede poner rojo no es un candado. **Cada assert de abajo va con la mutación que
+> lo mata.**
+
+| # | Assert (contra el stack corriendo) | Mutación que lo pone ROJO |
+|---|---|---|
+| 1 | Ciclo completo → `verify` → **`pay-spei` sin decidir ninguna línea** ⇒ **`422 ITEMS_NOT_DECIDED`**, `details.pendingDecisionItemIds` = **las `buy`**, **cero escritura** (`paidAt`, `speiReference`, `payoutNetCents`, `closedAt` intactos) | quitar la guarda V-b ⇒ `200` |
+| 2 | **Parcial:** 3 líneas `buy`, 2 decididas, 1 sin veredicto ⇒ **`422`** con **ese** id | escribir V-b como `approvedTotalCents IS NOT NULL` (V-a) en vez de «ninguna comprada sin veredicto» ⇒ `200` |
+| 2-bis | ⭐ **CONTRA-CASO OBLIGATORIO, y sin él V-b se implementa mal en la primera lectura:** oferta **con cherry-pick** (≥1 línea `skip`, que se queda en `verificacion`) y **todas las `buy` aprobadas** ⇒ **`200`, se paga**. *La línea que no compramos NO necesita veredicto.* | quitar el término `offerDecision='buy'` de V-b ⇒ **`422`** ⇒ **el camino normal del ciclo deja de poder pagarse** |
+| 3 | ⛔ **EL AGUJERO DE DINERO, por la API y sin sembrar nada:** ciclo **con cherry-pick** → **todas** las líneas `buy` **rechazadas** en verificación (la auto-transición a `rechazada` **no dispara**, porque la `skip` cuenta como no-rechazada) → `pay-spei` ⇒ **`422`** y **no sale un peso** | quitar V-a ⇒ **`200` con `payoutNetCents = max(0, offerGrossCents − fee)`** ⇒ *la oferta íntegra por cero cartas*, negación exacta del criterio 140 |
+| 4 | **Camino feliz, y sin él los tres anteriores los pasa un endpoint que no paga nunca:** decidir **todas** las líneas → `pay-spei` ⇒ `200`, `approvedTotalCents = Σ offeredPriceCents` de las `buy` aprobadas, `payoutNetCents = max(0, ese total − fee)` | — |
+| 5 | ⭐ **EL QUE FALTABA (cara (b)/(c)):** tras el `200` de (4), `convert-to-inventory` de **cada** línea comprada ⇒ **`200`**, con `acquisitionCostCents = offeredPriceCents` de esa línea | quitar V-b y saltarse las decisiones ⇒ el E2E muere en la conversión con `422 ITEM_NOT_APPROVED`. **Es el assert que ata el pago con el COGS, y hoy no existe.** |
+| 6 | ⭐ **INVARIANTE DE EQUIVALENCIA:** para **toda** fila con `paidAt IS NOT NULL` **creada por la API**, `brutoConsumado(fila) === approvedTotalCents` **y** `= amountCents` de la tarjeta del periodo | cualquier mutación que permita pagar con `approvedTotalCents = null` ⇒ rojo. **Es la mutación #11 atacada por el otro lado: ata reporte, payout y acumulado AML a un solo número.** |
+| 7 | **La tarjeta lee la columna correcta** (§11): solicitud con `quotedTotalCents=60000`, `offerGrossCents=50000`, `fee=18000`, todo aprobado ⇒ `buylistPeriod = { count: 1, amountCents: 50000 }` | **la mutación #11, literal:** cambiar la columna sumada a `quotedTotalCents` (⇒ 60000), a `payoutNetCents` (⇒ 32000) o a `offerGrossCents` **por otra vía** ⇒ rojo en las tres. *Los cuatro números tienen que ser distintos entre sí en el fixture, o el test no distingue nada.* |
+| 8 | **`isPayable` no miente:** la solicitud de (1) y la de (3) devuelven **`isPayable: false`** y `pendingDecisionItemCount > 0` (en (1)) | dejar `isPayable` con los tres términos de v1.57 ⇒ `true` con el servidor rechazando ⇒ rojo |
+| 9 | **Paridad predicado ↔ `where`** (§M5-P.5) barre ahora **todo el enum × `verifiedAt` × `receivedAt` × `approvedTotalCents ∈ {null, 0, n}`** | quitar V-a de **cualquiera** de los dos lados ⇒ rojo |
+
+**V.9 — LO QUE ESTA INVARIANTE **NO** HACE.**
+- ⛔ **No repara las filas ya pagadas.** (a) y (c) del daño histórico **siguen ahí**: los periodos que contengan
+  filas pagadas con `approvedTotalCents = null` **reportan de menos**, y sus piezas **siguen sin poder
+  convertirse**. **Cuánto es, lo dice el conteo V.7(ii)/(iii)**, y la decisión que ese número dispara está escrita
+  en `ARCHITECTURE §9, BL-45` (columna congelada + backfill, **diferida con disparador**). ⚠️ **Ninguna de las dos
+  se arregla escribiendo `approvedTotalCents` a mano sobre filas pagadas**: esa columna significa *«suma de líneas
+  aprobadas»* y ahí no se aprobó ninguna — **fabricar aprobaciones para cuadrar un reporte es peor que el reporte
+  mal**.
+- ⛔ **No convierte nada automáticamente.** Convertir sigue siendo el acto explícito de M5 (`convert-to-inventory`),
+  con su cola de publicar. V solo garantiza que **exista un estado desde el que se pueda**.
+- ⛔ **No toca el orden pago↔conversión.** Se puede convertir antes o después de pagar; lo que deja de existir es
+  el orden que hace la conversión **imposible**.
+- ⛔ **No añade ningún término de KYC.** Ver §M5-K.0, retro-editada en este mismo pase por la **regla de la cita**.
+
+---
+
 #### <a id="M5-A"></a>⚠️⚠️ §M5-A — INVARIANTE A: **no se compromete lo que no se puede cumplir** (v1.58, **RETRO-EDITADA en v1.59 por D47** — NORMATIVA, **DINERO COMPROMETIDO / AML-KYC**)
 
 > *«Un control que llega después de que le escribimos al vendedor no controla: extorsiona. O incumplimos la palabra
@@ -11099,9 +11398,15 @@ AHORA:  { kycStatus, clabeMasked?, clabeOnFile, ineOnFile, ineThresholdCents,  c
 
 **K.0 — ⛔ LA NORMA, EN UNA LÍNEA, PORQUE ES LO ÚNICO EXIGIBLE DE ESTA SECCIÓN.**
 ```
-pay-spei :  TRES términos (§M5-P) — status ∈ PAYABLE  ∧  receivedAt IS NOT NULL  ∧  verifiedAt IS NOT NULL
-            ⛔ NO hay cuarto término.  ⛔ kycStatus NO se lee en ningún camino de dinero.
+pay-spei :  ⛔ NINGÚN término de KYC.  ⛔ kycStatus NO se lee en ningún camino de dinero.
 ```
+> **⚠️ RETRO-EDICIÓN v1.61 (regla de la cita, §0-B.3 regla 7) — la norma NO cambia; la FORMA en que estaba escrita
+> se volvió falsa.** Esta línea decía *«**TRES** términos… ⛔ **NO hay cuarto término**»*. **v1.61 añade términos a
+> `pay-spei`** ([`§M5-V`](#M5-V): `approvedTotalCents IS NOT NULL` y, dentro del ciclo, «ninguna línea sin
+> veredicto») **que no tienen NADA que ver con KYC**. Dejar la frase como estaba haría que QA leyera V como una
+> regresión de D51 y la rechazara — *la aritmética de términos nunca fue la norma*. **Lo exigible de esta sección,
+> intacto y sin una coma menos: `kycStatus` no gatea la creación, ni la emisión, ni el pago, y
+> `422 KYC_NOT_VERIFIED` no existe.** Los términos de `pay-spei` los enumeran §M5-P y §M5-V, no ésta.
 - ⛔ **`422 KYC_NOT_VERIFIED` no existe.** No se implementa, no se emite, no se testea, no se documenta como vigente.
 - ⛔ **Ninguna precondición de dinero —creación, emisión o pago— lee `kycStatus`.** Ni `'verified'`, ni `'rejected'`.
 - ✅ **`422 INE_REQUIRED` sigue INTACTO en sus dos puertas** (§M5-I creación, §M5-A emisión). **Esto no es «se retira el
@@ -11173,6 +11478,7 @@ sabiendas.**
 | **Medido** | **`KycProfile.legalName` NO TIENE NINGÚN ESCRITOR QUE LE PONGA UN NOMBRE.** En todo `backend/src` solo se **lee** (`ADMIN_KYC_SELECT` y dos DTOs) y su **único escritor** es la anonimización del **soft-delete** (`admin.service.ts:759-769`), que lo pone **a `null`**. ⇒ **no existe ninguna fuente del nombre del titular de la CLABE en el sistema**, ni capturada ni consultada a un tercero |
 | **Medido** | **`CLABE_NOT_OWN_NAME` NO COMPARA NINGÚN NOMBRE.** Es un match de **blind index HMAC** de la CLABE entrante contra la de archivo (`:1385-1391`); **si el usuario no tiene CLABE en archivo, acepta cualquiera y la persiste**. *El código honra el nombre del error solo por costumbre.* |
 | **Medido (v1.60)** | **`legalName` no aparece ni una vez en `frontend/`** ⇒ retirarlo de los DTOs (K.5) **no rompe nada** |
+| ⚠️ **CORREGIDO (v1.61, medición de backend al implementar)** | La fila 2 dice *«en todo `backend/src` **solo se lee** (`ADMIN_KYC_SELECT` y dos DTOs)»* y **esa enumeración estaba INCOMPLETA**: la rama **`super_admin` de `getUser`** no usa `ADMIN_KYC_SELECT` —lee con `include: { kycProfile: true }`— y proyecta **por resto (`...rest`)**, así que **emitía el campo por una puerta que la lista blanca no cubre**. El **hecho** de la fila 2 (nadie le escribe un nombre) **sigue siendo cierto**; lo falso era el **censo de lectores**. Ver **K.5(a)** |
 
 ⇒ **El criterio 178(g) —*«con un INE a nombre distinto del de la CLABE la operación se detiene»*— no era verificable, y
 `PROJECT.md` lo retira** *(D51; su reemplazo es el **criterio 183**, que se verifica **por ausencia**)*.
@@ -11205,9 +11511,30 @@ el argumento de imposibilidad** (*«el cotejo tiene que vivir en el pago porque 
   **reintroduce el cotejo por la puerta de atrás, sin control y sin decisión**. *Es el mismo argumento con el que se
   retiró `capPerRequestCents` en vez de dejarlo como alias: **conservar el nombre que miente es el defecto**.*
 - ✅ **Impacto de frontend: CERO, medido** — `legalName` **no aparece ni una vez en `frontend/`**.
-- ⚠️ **Backend:** el cambio es **retirarlo de `ADMIN_KYC_SELECT` (`admin.service.ts:47`), del tipo (`:191`) y de las dos
-  proyecciones (`:205`, `:503`)**. ⛔ **El escritor a `null` del soft-delete (`:765`) NO se toca**: sigue siendo correcto
-  anular una columna que existe. **Ninguna migración, ningún backfill.**
+- ⚠️⚠️ **LA NORMA ES UNA PROPIEDAD DE LA RESPUESTA, NO UNA LISTA DE SITIOS DE CÓDIGO** *(reformulado en v1.61; ver
+  abajo por qué)*:
+  > **`legalName` NO APARECE COMO CLAVE EN NINGUNA RESPUESTA DE ADMIN, POR NINGUNA RUTA Y CON NINGÚN ROL.**
+
+  ⚠️ **La lista de sitios que esta sección daba en v1.60 —*«`ADMIN_KYC_SELECT` (`admin.service.ts:47`), el tipo
+  (`:191`) y las dos proyecciones (`:205`, `:503`)»*— NO ERA COMPLETA, y hay que decirlo aquí porque alguien la va a
+  volver a leer como censo.** Backend lo midió al implementarlo (`BACKEND_NOTES.md` §0.44.1): **la rama `super_admin`
+  de `getUser` (`:466-483`) no usa `ADMIN_KYC_SELECT`** —lee con `include: { kycProfile: true }`— y **proyecta por
+  resto (`...rest`)**, así que **emitía el campo por una puerta que la lista blanca no cubre**. Backend lo cerró a
+  mano (`legalName: _l`) **y escaló la imprecisión en vez de dejarla**: correcto, y es lo que se corrige aquí.
+  - **La clase del fallo, que es lo que hay que recordar:** *una proyección por resto **publica por omisión cada
+    columna nueva del schema**.* Una lista blanca solo protege el camino que la usa; **enumerar los sitios de un
+    camino no describe los otros**. Es la misma familia que §0-B.2: **el documento describía un valor del producto
+    («dónde se lee esto») como si fuera una decisión suya**, y envejeció mal en el primer `include`.
+  - ⛔ **NORMA GENERAL PARA LAS PRÓXIMAS RETIRADAS DE CAMPO** *(aplica ya a `capPerRequestCents`, §M5-D.3, aún
+    pendiente)*: **se declara la propiedad sobre la respuesta HTTP y se prueba sobre la respuesta HTTP, para TODAS
+    las ramas de rol**; las referencias a fichero/línea son **cortesía de lectura, explícitamente NO exhaustivas y
+    no citables como censo** (§0-B.3 regla 1). *Un test sobre el `select` verifica el camino que alguien recordó;
+    un test sobre la respuesta verifica el que olvidó.*
+  - ✅ **Candados ya existentes y medidos** (backend): `test/no-raw-entity-response.spec.ts` (el `select` y el DTO) y
+    `test/admin.pii.spec.ts` con `it.each` sobre **las dos ramas de rol** — y **cada mutación mata exactamente uno**,
+    que es lo que prueba que no se tapan entre sí.
+- ⛔ **El escritor a `null` del soft-delete (`:765`) NO se toca**: sigue siendo correcto anular una columna que
+  existe. **Ninguna migración, ningún backfill.**
 - ⚠️ **Deuda registrada, NO bloqueante:** *borrar la columna* es DDL y es de backend con migración; **no lo fuerzo aquí
   y no hay prisa** — la columna es `null` en toda fila que exista. **Disparador para cerrarla:** el próximo pase que ya
   lleve DDL de `KycProfile`.
@@ -11748,7 +12075,26 @@ lleva `@HttpCode` explícito en cada ruta.
       ```
       isPayable = status ∈ SELL_REQUEST_PAYABLE_STATES  ∧  receivedAt IS NOT NULL  ∧  verifiedAt IS NOT NULL
                                                            └──── NUEVO v1.57 ────┘
+                ∧ approvedTotalCents IS NOT NULL   ← NUEVO v1.61 (§M5-V, V-a) · ⛔ NUNCA `> 0`
+                ∧ (offerSentAt IS NULL ∨ ninguna línea `buy` sin veredicto)  ← NUEVO v1.61 (§M5-V, V-b)
       ```
+      > **⚠️⚠️ v1.61 — LOS TÉRMINOS 4 Y 5. NORMA COMPLETA EN [`§M5-V`](#M5-V); aquí, lo que le toca al DTO.**
+      > **V-b no es un término escalar de la fila** (mira las líneas), así que **no cabe dentro de
+      > `isPayableSellRequest`** tal como está. ⚠️ **Eso NO autoriza a dejarlo fuera de `isPayable`:** el campo
+      > gobierna el **botón de pagar**, y un `true` sobre una solicitud que el servidor va a rechazar con
+      > `422 ITEMS_NOT_DECIDED` es **literalmente el defecto que v1.57 clasificó como ALTA**, repetido. **La forma
+      > la elige backend** (un argumento más, un helper hermano, un `select` con `_count`); **la propiedad es
+      > normativa y verificable sin leer el código: `isPayable === true` ⇒ `pay-spei` no falla por precondición.**
+      > - **`pendingDecisionItemCount: number` (v1.61, NUEVO, ADITIVO, derivado server-side, ADMIN-ONLY)** — cuántas
+      >   líneas **`offerDecision='buy'`** siguen **sin veredicto** (`itemStatus ∉ {aprobada, rechazada,
+      >   convertida_inventario}`). ⚠️ **Las `skip` NO cuentan** (§M5-V.0). Es lo que
+      >   deja a la UI decir **por qué** el botón está apagado y **a dónde ir**. ⛔ **El front NO lo cuenta él
+      >   mismo** aunque tenga `items[]`: la lista de estados «sin veredicto» **es la regla**, y transcribirla al
+      >   cliente sería la **séptima** copia de un set de estados en un flujo de dinero — justo lo que `isTerminal` e
+      >   `isPayable` vinieron a borrar. **Viaja donde viaja `isPayable`** (listado, detalle, mesa y respuestas de
+      >   mutación) y **entra en la MISMA lista de exclusión** de la proyección de cliente: pasan de **tres** a
+      >   **CUATRO** (`closedAt`, `paidBy`, `isPayable`, `pendingDecisionItemCount`). **Consumo defensivo**
+      >   (`?? 0`), mismo patrón que los anteriores; **backend primero, frontend después.**
       > **⚠️⚠️ v1.57 — EL TERCER TÉRMINO. NORMA COMPLETA EN [`§M5-P`](#M5-P); aquí solo la fórmula.**
       > **La versión de dos términos de v1.51.8 era INCOMPLETA y se midió el daño:** `verify` es el único verbo que
       > sella `verifiedAt` y no exige predecesor ⇒ alcanzarlo desde cualquier estado **vivo** ponía `isPayable` en
@@ -12276,7 +12622,8 @@ lleva `@HttpCode` explícito en cada ruta.
   Res `200`: la `SellRequest` actualizada (mismo shape que `GET /admin/buylist/:id`: `status="rechazada"`, `closedAt` sellado, `seller`, `items` con sus campos de rechazo).
   Err: `403 FORBIDDEN` (cliente), `404 NOT_FOUND` (solicitud inexistente), `422 REQUEST_HAS_NON_REJECTED_ITEMS` (queda ítem vivo), `409 CONFLICT` (solicitud en otro estado terminal `pagada`/`abandonada`).
 - `POST /api/v1/admin/buylist/:id/pay-spei` — **`super_admin`** — Req `{ speiReference }` + `Idempotency-Key` → registra pago manual, request `→pagada`. **Res `200`** *(v1.57, §M5-C — hoy responde `201`; ver `BL-37`)*. Err `403 MONEY_OUT_FORBIDDEN`. **Precondición: [`§M5-P`](#M5-P) — `status ∈ {aprobada, verificacion}` ∧ `receivedAt IS NOT NULL` ∧ `verifiedAt IS NOT NULL`** (pago **tras** recepción **y** verificación, `PROJECT.md:1107`).
-  **⛔⛔ v1.60 (D51) — NO HAY CUARTO TÉRMINO. `~~422 KYC_NOT_VERIFIED~~` SE RETIRA ANTES DE IMPLEMENTARSE.** Este endpoint conserva **exactamente los TRES términos** de [`§M5-P`](#M5-P) y **ninguno más**; **`kycStatus` NO se lee aquí ni en ningún otro camino de dinero**. `PROJECT.md` **D51** retira el cotejo INE ↔ titular de la CLABE **entero** porque **no existe fuente del nombre del titular de la cuenta** (pregunta 40, cerrada). ⛔ **Backend: nada que implementar; el conteo pre-merge queda sin objeto.** ⛔ **QA: si este endpoint rechaza por KYC, es una regresión** (criterio **183(a)**: *sobre el umbral, con INE en archivo y sin que nadie haya marcado nada, **se paga***). Registro del retiro y del **riesgo aceptado** en [`§M5-K`](#M5-K).
+  **⚠️⚠️ v1.61 ([`§M5-V`](#M5-V), `BL-45`) — DOS TÉRMINOS MÁS, Y NINGUNO ES DE KYC:** **`approvedTotalCents IS NOT NULL`** (toda fila; entra en `isPayableSellRequest` + `payableWhere()`) **∧**, **solo dentro del ciclo** (`offerSentAt IS NOT NULL`), **ninguna línea `offerDecision='buy'` sin veredicto** (⚠️ las `skip` **no** cuentan: nunca pueden aprobarse) ⇒ si no, **`422 ITEMS_NOT_DECIDED`** (`details: { sellRequestId, pendingDecisionItemIds }`), cero escritura. **Sin ellos se paga una solicitud cuyas cartas nunca alcanzan `aprobada` ⇒ `convert-to-inventory` las rechaza para siempre** (la solicitud ya es terminal y `itemDecision` responde `409`) **y la tarjeta del tablero reporta MX$0 sobre dinero que salió.** ⛔ **`IS NOT NULL`, nunca `> 0`: el depósito de cero de D40 se sigue pagando.** Conteo pre-merge obligatorio en §M5-V.7.
+  **⛔⛔ v1.60 (D51) — ~~NO HAY CUARTO TÉRMINO~~ ⇒ NINGÚN TÉRMINO DE **KYC**. `~~422 KYC_NOT_VERIFIED~~` SE RETIRA ANTES DE IMPLEMENTARSE.** *(Frase corregida en v1.61 por la regla de la cita: v1.61 sí añade términos, y ninguno lee KYC. Ver §M5-K.0.)* **`kycStatus` NO se lee aquí ni en ningún otro camino de dinero**. `PROJECT.md` **D51** retira el cotejo INE ↔ titular de la CLABE **entero** porque **no existe fuente del nombre del titular de la cuenta** (pregunta 40, cerrada). ⛔ **Backend: nada que implementar; el conteo pre-merge queda sin objeto.** ⛔ **QA: si este endpoint rechaza por KYC, es una regresión** (criterio **183(a)**: *sobre el umbral, con INE en archivo y sin que nadie haya marcado nada, **se paga***). Registro del retiro y del **riesgo aceptado** en [`§M5-K`](#M5-K).
   > 🗄️ **~~v1.59 — CUARTO TÉRMINO: `422 KYC_NOT_VERIFIED`~~** (`details: { kycStatus }`) si **`SellRequest.ineRequired = true` ∧ `KycProfile.kycStatus != 'verified'`**. ~~Es el cotejo INE ↔ titular de la CLABE, que hasta hoy no tenía término en ninguna parte~~ (`BL-41`). **⛔ RETIRADO — se conserva tachado como registro; ver §M5-K.**
   > ### ⚠️⚠️ v1.57 — EL TERCER TÉRMINO: **`receivedAt IS NOT NULL`**. (DINERO, NORMATIVO. Cierre de `BL-35` eje 2.)
   > **La precondición que este endpoint declara en prosa desde siempre —*«pago tras recepción/verificación»*— y que
@@ -13927,6 +14274,43 @@ Err `403`, `400 VALIDATION_ERROR`.
 }
 ```
 Los campos de dinero (`profit*`, `inventoryValue*`, `custodyValue*`) se omiten/enmascaran para `vault_operator`.
+
+> ### ⚠️⚠️ v1.61 (`BL-45`, [`§M5-V`](#M5-V)) — `buylistPeriod.amountCents` **ES EL BRUTO. SE DICE AQUÍ PORQUE NO DECIRLO FUE EL DEFECTO.**
+> Este contrato fijaba la **forma** (`{ count, amountCents }`) y **nunca dijo cuál de las dos medidas del criterio
+> 155 era**. Eso convirtió *«arreglar la tarjeta»* en una decisión de negocio que backend, con razón, no podía
+> tomar (regla 9). **Se cierra por nombre:**
+> ```
+> buylistPeriod.count       = solicitudes con status='pagada' y paidAt en el periodo
+> buylistPeriod.amountCents = Σ BRUTO CONSUMADO de esas solicitudes
+>                           = Σ SellRequest.approvedTotalCents          ← se LEE una columna, no se re-deriva
+> ```
+> - **BRUTO y no NETO, y no es una preferencia:** *(i)* el **criterio 155** asigna los **netos** al *«acumulado de
+>   dinero pagado que reporta **M7**»* — **el tablero no es M7**, y poner ahí el neto dejaría la medida bruta **sin
+>   ninguna superficie**; *(ii)* la tarjeta **ya suma una columna bruta** (`approvedTotalCents`, y el código lo dice:
+>   *«lo lee el P&L / la tarjeta buylist del periodo»*), así que **nombrarla bruta conserva su significado; cambiarla
+>   a neto lo redefiniría en silencio** — y `PROJECT.md` no autoriza esa redefinición (§F: *«buylist del periodo»*, sin
+>   más). Ante la ambigüedad **no se asume** (regla de conflicto de `CLAUDE.md`).
+> - **⚠️ POR QUÉ `_sum(approvedTotalCents)` ES CORRECTO Y NO HACE FALTA COLUMNA NUEVA — pero SOLO con §M5-V.**
+>   El defecto medido era que esa columna puede ser `null` en una fila **pagada** (`{count:1, amountCents:0}` sobre
+>   MX$320 reales). **§M5-V lo vuelve imposible en el origen:** ninguna fila se paga con `approvedTotalCents = null`
+>   ⇒ en toda fila pagada **`brutoConsumado(fila) ≡ approvedTotalCents`** ⇒ el reporte **lee el número que se decidió
+>   donde se decidió el dinero**, que es exactamente lo que pedía el techlead, **sin DDL, sin backfill y sin una
+>   cuarta transcripción de la cascada**. ⛔ **El reporte NO conoce `brutoConsumado` y no debe conocerlo.**
+> - ⛔ **PROHIBIDO** *(las cuatro, con su motivo medido, para que nadie las reabra sin rebatirlo)*: sumar
+>   `payoutNetCents` (cambia bruto→neto en silencio); `findMany` + `reduce` (lectura **sin cota** con `from`/`to`
+>   arbitrarios); tres `_sum` disjuntos (cuarta copia de la cascada); y **`_sum(payoutNet) + _sum(fee)`, que **NO es
+>   exacto**: el piso de neto (D34/D40) se valida **al ofertar** sobre `offerGrossCents`, así que un rechazo parcial
+>   posterior dispara el `max(0,…)` del pago e **infla** el bruto reconstruido.
+> - **Residuo histórico, dicho y no escondido:** las filas pagadas **antes** de §M5-V con `approvedTotalCents = null`
+>   **siguen reportando de menos**. Cuánto, lo mide §M5-V.7(ii); qué se hace con ello, `ARCHITECTURE §9 BL-45`.
+>   ⛔ **No se «arregla» reescribiendo `approvedTotalCents` sobre filas pagadas**: significa *«suma de líneas
+>   aprobadas»* y ahí no se aprobó ninguna.
+> - **Si el negocio quiere ver la CAJA en el tablero, es un campo NUEVO** (`buylistPeriod.payoutNetCents`,
+>   aditivo, `super_admin`), **jamás una redefinición de `amountCents`** — las dos medidas conviven y **no se
+>   mezclan** (criterio 155). **Pregunta abierta al humano**, no supuesto: hoy **no se construye**.
+> - **`amountCents` NO está en la lista de campos enmascarados** para `vault_operator` y **este pase no lo cambia**
+>   (sería alcance nuevo y una pantalla que hoy funciona). *Se anota porque la lista de arriba se lee como exhaustiva
+>   y no lo es.*
 
 > **⚠️ v1.51 (M-46) — `workQueue` gana CUATRO contadores y `workQueue.buylist` CAMBIA DE CIFRA a propósito.**
 > - **`workQueue.buylist` pasa a contar `status IN SELL_REQUEST_LIVE_STATES`** (todo lo **no terminal**), en vez del
