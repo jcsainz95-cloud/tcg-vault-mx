@@ -46,7 +46,42 @@
 #                             (|epoch_sello − arranque_vivo| <= --tolerance).
 #                             Si no cuadra: procedencia DESCONOCIDA ⇒ falla.
 #     4. --sha SHA / HEAD     El SHA del sello == el SHA esperado (por defecto,
-#                             `git rev-parse HEAD`).
+#                             `git rev-parse HEAD`). Y si NO son iguales, antes de
+#                             dar rojo compara el HASH DE ÁRBOL de `backend/` y
+#                             `frontend/` — ver el recuadro de abajo.
+#
+# EL ROJO FALSO QUE ESTE ASERTO DABA, Y POR QUÉ SE ARREGLA COMPARANDO EL ÁRBOL
+#   El aserto 4 comparaba SHA DE COMMIT. Un commit de SOLO DOCUMENTOS mueve HEAD sin
+#   tocar una línea de código, y el gate se ponía ROJO contra un stack que sirve
+#   código BYTE A BYTE IDÉNTICO. Medido en este repo (release del ciclo de compra):
+#       git rev-parse c6b999a:backend  == git rev-parse c132397:backend  == d7d7059f45f6…
+#       git rev-parse c6b999a:frontend == git rev-parse c132397:frontend == cf46d16c26ee…
+#   …con SIETE commits de documentos entre uno y otro. Y el propio pase de seguridad
+#   lo sufrió: «a mitad del pase el gate se puso en ROJO porque el arquitecto commiteó
+#   un commit de solo docs y HEAD se movió bajo mis pies».
+#
+#   El rojo falla en la dirección segura (cerrado), pero tiene un coste que NO es
+#   cosmético: entrena el reflejo «ya, es solo docs» delante de un aserto de
+#   procedencia. Ese reflejo es EXACTAMENTE lo que SEC-OPS-1 existe para matar; la
+#   segunda vez que alguien lo aplica sin mirar, se lo aplica a un commit que sí
+#   tocaba código. Un gate que cría el hábito de ignorarlo ya no es un gate.
+#
+#   Arreglo: cuando los SHA difieren, se comparan los HASHES DE ÁRBOL de `backend/`
+#   y `frontend/` (los dos directorios cuyo contenido es lo que los procesos vivos
+#   ejecutan). Si coinciden, el veredicto es VERDE y se DICE la frase exacta:
+#   «el commit cambió, el código no». Si difieren, rojo igual que siempre.
+#
+#   ⚠️ CONDICIÓN, y no es negociable: la equivalencia SOLO se aplica si el árbol
+#   estaba LIMPIO al sellar (`dirty=0`) y sigue limpio ahora. Con ficheros sin
+#   commitear, el hash de árbol de un commit NO describe lo que se está sirviendo,
+#   y la comparación sería una coartada en vez de una prueba.
+#
+#   ⚠️ LO QUE ESTA EQUIVALENCIA NO CUBRE, dicho de frente: sólo mira `backend/` y
+#   `frontend/`. Un cambio FUERA de esos dos directorios que sí afecte al runtime
+#   (por ejemplo `scripts/stack-native.sh`, que fija el entorno del proceso, o los
+#   `docker-compose*.yml`) pasa por «solo cambió el commit». Es una limitación
+#   ACEPTADA y declarada: esos ficheros no los ejecuta el proceso servido, los
+#   ejecuta quien lo levanta, y el aserto 2 (`--source`) sigue vigilando el fuente.
 #
 #   1 y 2 NO necesitan fichero ninguno: salen del proceso. 3 y 4 son los que ponen
 #   NOMBRE al commit servido (observabilidad: «esto sirve 3b2fc87»), y por eso el
@@ -176,6 +211,31 @@ stamp_get() {
 STAMP_SHA="$(stamp_get sha)"
 STAMP_STARTED="$(stamp_get started_at)"
 STAMP_DIRTY="$(stamp_get dirty)"
+STAMP_TREE_BACKEND="$(stamp_get tree_backend)"
+STAMP_TREE_FRONTEND="$(stamp_get tree_frontend)"
+
+# Hash de árbol de un directorio en un commit. Vacío si no hay repo, el objeto no
+# está, o el directorio no existe en ese commit. Vacío ⇒ NO se puede afirmar
+# equivalencia, y el aserto 4 se queda en rojo (fallar cerrado).
+# `--verify --quiet` NO es decorativo: sin ellos, `git rev-parse` DEVUELVE EL
+# ARGUMENTO TAL CUAL cuando no lo puede resolver (exit 1 pero con eco en stdout).
+# Medido: con un sello que decía `sha=deadbeef…`, esta función devolvía
+# «deadbeef…:backend» y el aserto lo comparaba como si fuera un hash de árbol —
+# daba rojo, sí, pero con el motivo EQUIVOCADO («código distinto» en vez de «no
+# pude comprobarlo»). Un gate que acierta el veredicto por accidente y miente en
+# el porqué es el siguiente falso verde esperando su turno.
+tree_of() {
+  local sha="$1" dir="$2"
+  [ -n "$sha" ] || return 0
+  git -C "$ROOT_DIR" rev-parse --git-dir >/dev/null 2>&1 || return 0
+  git -C "$ROOT_DIR" rev-parse --verify --quiet "$sha:$dir" 2>/dev/null || true
+}
+
+# ¿Hay ficheros sin commitear en backend/ o frontend/ AHORA?
+worktree_dirty_now() {
+  git -C "$ROOT_DIR" rev-parse --git-dir >/dev/null 2>&1 || { echo "?"; return; }
+  git -C "$ROOT_DIR" status --porcelain -- backend frontend 2>/dev/null | wc -l | tr -d ' '
+}
 
 # --- 4. Informe de procedencia (esto es la parte OBSERVABLE) ------------------
 say "──────────────────────────────────────────────────────────────────────────────"
@@ -255,13 +315,62 @@ if [ -n "$STAMP" ]; then
 fi
 
 # --- Aserto 4: el commit servido == el commit esperado ------------------------
+#     …y si no lo es, ¿es al menos el MISMO CÓDIGO? (ver el recuadro de la cabecera)
 if [ -n "$EXPECT_SHA" ] && [ -n "$STAMP" ] && [ -f "$STAMP" ]; then
   CHECKS=$((CHECKS + 1))
   if [ -z "$STAMP_SHA" ]; then
     PROBLEMS+=("El sello no registra \`sha\`: no se puede nombrar el commit servido.")
   elif [ "$STAMP_SHA" != "$EXPECT_SHA" ]; then
-    PROBLEMS+=("COMMIT DISTINTO: se está sirviendo \`${STAMP_SHA:0:12}\` y se esperaba
-     \`${EXPECT_SHA:0:12}\`. Cualquier medición en vivo contra este proceso es INVÁLIDA.")
+    # Preferencia: los hashes que el sello guardó AL ARRANCAR (describen el árbol
+    # que se compiló). Si el sello es viejo y no los trae, se derivan del repo.
+    SERVED_TB="${STAMP_TREE_BACKEND:-$(tree_of "$STAMP_SHA" backend)}"
+    SERVED_TF="${STAMP_TREE_FRONTEND:-$(tree_of "$STAMP_SHA" frontend)}"
+    EXPECT_TB="$(tree_of "$EXPECT_SHA" backend)"
+    EXPECT_TF="$(tree_of "$EXPECT_SHA" frontend)"
+    DIRTY_NOW="$(worktree_dirty_now)"
+
+    if [ -z "$SERVED_TB" ] || [ -z "$SERVED_TF" ] || [ -z "$EXPECT_TB" ] || [ -z "$EXPECT_TF" ]; then
+      PROBLEMS+=("COMMIT DISTINTO: se está sirviendo \`${STAMP_SHA:0:12}\` y se esperaba
+     \`${EXPECT_SHA:0:12}\`, y NO pude comparar los árboles de backend/frontend (falta
+     alguno de los objetos git, o no hay repo aquí). Sin esa comparación no se puede
+     afirmar que el código sea el mismo ⇒ se falla CERRADO.
+     Cualquier medición en vivo contra este proceso es INVÁLIDA.")
+    elif [ "$SERVED_TB" = "$EXPECT_TB" ] && [ "$SERVED_TF" = "$EXPECT_TF" ]; then
+      # Los dos árboles coinciden. Sólo vale como equivalencia si NO hay (ni había)
+      # ficheros sin commitear: con el árbol sucio, el hash del commit no describe
+      # lo que se sirve.
+      if [ -n "$STAMP_DIRTY" ] && [ "$STAMP_DIRTY" != "0" ]; then
+        PROBLEMS+=("COMMIT DISTINTO (\`${STAMP_SHA:0:12}\` vs \`${EXPECT_SHA:0:12}\`). Los árboles de
+     backend/ y frontend/ de ambos commits SÍ coinciden, pero al arrancar había
+     $STAMP_DIRTY fichero(s) SIN COMMITEAR: el hash de árbol de un commit NO describe lo
+     que se compiló. La equivalencia no se puede aplicar ⇒ rojo.")
+      elif [ "$DIRTY_NOW" != "0" ]; then
+        PROBLEMS+=("COMMIT DISTINTO (\`${STAMP_SHA:0:12}\` vs \`${EXPECT_SHA:0:12}\`). Los árboles
+     coinciden, pero AHORA hay $DIRTY_NOW fichero(s) sin commitear en backend/frontend: el
+     árbol de trabajo ya no es el de ninguno de los dos commits ⇒ rojo.")
+      else
+        # VERDE, y con nombre. Se dice EN CLARO para que quien lo lea no tenga que
+        # deducir por qué un commit distinto pasó.
+        say ""
+        say "  ✔ EL COMMIT CAMBIÓ, EL CÓDIGO NO."
+        say "    sellado  : ${STAMP_SHA:0:12}"
+        say "    esperado : ${EXPECT_SHA:0:12}"
+        say "    backend/ : $SERVED_TB   (idéntico en los dos commits)"
+        say "    frontend/: $SERVED_TF   (idéntico en los dos commits)"
+        say "    Entre uno y otro sólo cambió lo que NO ejecuta el proceso (docs, notas)."
+        say "    Alcance de esta equivalencia: SOLO backend/ y frontend/. Un cambio en"
+        say "    scripts/ o docker-compose* NO lo ve — ver la cabecera de este script."
+      fi
+    else
+      DIFF_QUE=""
+      [ "$SERVED_TB" = "$EXPECT_TB" ] || DIFF_QUE="backend/"
+      [ "$SERVED_TF" = "$EXPECT_TF" ] || DIFF_QUE="${DIFF_QUE:+$DIFF_QUE y }frontend/"
+      PROBLEMS+=("COMMIT DISTINTO **Y CÓDIGO DISTINTO**: se está sirviendo \`${STAMP_SHA:0:12}\` y se
+     esperaba \`${EXPECT_SHA:0:12}\`. El contenido de $DIFF_QUE NO coincide entre ambos:
+       backend/   servido ${SERVED_TB:0:12}  ·  esperado ${EXPECT_TB:0:12}$( [ "$SERVED_TB" = "$EXPECT_TB" ] && printf '   (igual)' || printf '   ← DISTINTO' )
+       frontend/  servido ${SERVED_TF:0:12}  ·  esperado ${EXPECT_TF:0:12}$( [ "$SERVED_TF" = "$EXPECT_TF" ] && printf '   (igual)' || printf '   ← DISTINTO' )
+     Esto NO es «solo docs». Cualquier medición en vivo contra este proceso es INVÁLIDA.")
+    fi
   fi
 fi
 

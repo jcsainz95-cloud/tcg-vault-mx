@@ -7061,3 +7061,516 @@ Ninguno bloquea el DoD de este stream; los ordeno por **coste de equivocarse**, 
    la subida del INE, no dinero saliente, y **no es reparable en esta máquina** (sin Docker, sin
    MinIO): pide entorno. **Segundo.**
 3. **SEC-OPS-1-R1** (commit en `/health`, §38.6) — es de **backend**, y lo de hoy funciona sin ello.
+
+---
+
+## 39. Los dos flujos que el arnés E2E no podía ejercitar (cobro y subida del INE), el rojo falso del gate de procedencia, y dónde está M-46 (2026-09-07, stream `claude/buylist-inventory-workflow-hdnls3`)
+
+> **Encargo:** tres puntos de los gates de QA y techlead sobre el release del ciclo de compra
+> (99 commits, pendiente de publicar). **No se commiteó nada** (lo hace el orquestador tras verificar)
+> y **no se desplegó nada**.
+
+### 39.0 Resumen en una tabla
+
+| # | Qué estaba mal | Qué se hizo | Estado |
+|---|---|---|---|
+| 1 | Los 3 smokes de dinero mueren en el modal por `STRIPE_SECRET_KEY ausente`, y la ruta nativa **ni siquiera tenía cable** para pasar una clave si el humano la tuviera. | Paso a través de `STRIPE_TEST_*` → backend y bundle de Next; `up --gate` ahora **exige** la capacidad y sale **rojo** si falta. | Cableado y medido. La ruta sigue **SIN VERIFICAR** en esta máquina: no hay egress a Stripe. |
+| 2 | Sin MinIO en la ruta nativa, `infra-smoke` se **auto-saltaba** el PUT presignado del INE (403/ECONNREFUSED → `warn` → `return`) y la suite salía verde. | Object storage S3 local (`scripts/s3-local/`) en la ruta nativa + `E2E_STRICT_INFRA=true` en local y en CI. | **CERRADO y medido**: el PUT del INE se ejecuta de verdad, y sin almacén la suite se pone roja. |
+| 3 | El aserto 4 de `assert-serving-head.sh` comparaba **SHA de commit**: un commit de solo docs lo ponía rojo contra código idéntico. | Compara **además** el hash de árbol de `backend/`+`frontend/` y dice *«el commit cambió, el código no»*. | **CERRADO y medido** en los 4 casos (incluidos los tres que deben seguir en rojo). |
+| 4 | `M46-D3`: dos normas vigentes se contradicen sobre `M-46`, y su disparador escrito es **este** cut-over. | Lectura del estado real en local + evidencia de repo sobre staging/prod. Consulta lista para prod, **pendiente de autorización**. | **Hecho lo medible.** Prod: **NO leído** (sin acceso). Ver §39.5. |
+
+Ficheros tocados (todos de propiedad devops): `scripts/s3-local/` (nuevo), `scripts/e2e-capability-gate.sh`
+(nuevo), `scripts/check-e2e-harness-gaps.sh` (nuevo), `scripts/stack-native.sh`,
+`scripts/assert-serving-head.sh`, `.github/workflows/e2e.yml`, `.github/workflows/ci.yml`,
+`.env.example`, este documento. **Cero cambios en `backend/` y `frontend/`.**
+
+---
+
+### 39.1 COBRO — la clave de Stripe: el cable que faltaba, y por qué ahora es rojo y no un aviso
+
+**Lo que reportó QA** (subset `@real` contra el stack vivo): **35 pasaron, 3 fallaron**;
+`checkout.spec.ts:57`, `guest-checkout.spec.ts:131` y `shipments.spec.ts:30`, los tres en el modal de
+pago, con la causa en el log del backend: `STRIPE_SECRET_KEY ausente; usando sk_test_dummy`. Y su
+veredicto: *«no son defecto de producto, pero tampoco los declaro verdes — la ruta de cobro con
+tarjeta queda SIN VERIFICAR»*.
+
+**El defecto de infraestructura que encontré al ir a arreglarlo, y que nadie había nombrado:**
+`scripts/stack-native.sh` **no exportaba ninguna variable de Stripe**. Verificado con `grep -n STRIPE
+scripts/stack-native.sh`: cuatro coincidencias, **las cuatro en comentarios**. Es decir: aunque el
+humano tuviera una `sk_test_…` buena y la exportara en su shell, la ruta nativa **no se la pasaba al
+backend**, y `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` tampoco llegaba al bundle de Next. La deuda no era
+solo «falta la credencial»: era que **no había dónde ponerla**. Un hueco así no se cierra pidiendo la
+clave, porque ponerla no habría cambiado nada.
+
+**Lo implementado**
+
+1. **Paso a través, nunca un literal.** `stack-native.sh` toma `STRIPE_TEST_SECRET_KEY`,
+   `STRIPE_TEST_PUBLISHABLE_KEY` y `STRIPE_TEST_WEBHOOK_SECRET` **del entorno**, deriva
+   `STRIPE_SECRET_KEY` / `STRIPE_PUBLISHABLE_KEY` / `STRIPE_WEBHOOK_SECRET` para el backend y
+   `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` para el bundle. Si no están, **no se inventa nada**: quedan
+   ausentes. En el repo solo vive el **nombre** (`.env.example`), nunca un valor — el repo es público.
+2. **`scripts/e2e-capability-gate.sh` (nuevo).** Mide si el entorno **puede** ejercitar cobro, y exige
+   las dos condiciones, porque cualquiera de las dos sola da el mismo rojo indistinguible:
+   - **forma de las claves** — delegada en `scripts/stripe-test-key-preflight.sh`, que ya clasifica por
+     longitud/alfabeto/vocabulario. Se **reutiliza** el clasificador existente en vez de escribir un
+     segundo criterio: dos detectores del mismo hecho divergen, y el que se queda viejo es el que da el
+     falso verde (§33 es exactamente esa historia).
+   - **salida de red a `api.stripe.com`** — porque una clave buena sin egress muere igual en el modal.
+3. **`up --gate` pasó de avisar a fallar.** Antes, el final de `up` imprimía tres `warn` («SIN MinIO…»,
+   «falta STRIPE_TEST_SECRET_KEY…») y **salía 0**. Un aviso que no cambia el código de salida no gatea
+   nada: lo lee quien ya lo sabía. Ahora `up --gate` termina en **exit 1** con el veredicto, y **deja el
+   stack arriba** — el rojo dice «esta corrida no puede ejercitar X», no «no tienes stack». `up` a secas
+   (modo de trabajo) sigue saliendo 0 y solo **informa**.
+
+**Por qué rojo y no «saltado», dicho de frente.** Porque ésta es la **segunda** release con la misma
+deuda aceptada, y la observación del gate es correcta: *una deuda que se acepta cada vez deja de ser una
+excepción y pasa a ser el estado normal*. Un flujo que el entorno no puede ejercitar queda **SIN
+VERIFICAR**; «no aplica» es una categoría que aquí no existe.
+
+**Lo medido** (`scripts/e2e-capability-gate.sh --require-all`, esta máquina, hoy):
+
+```
+  COBRO  (checkout · guest-checkout · shipments) : NO DISPONIBLE   [EXIGIDA]
+  SUBIDA (uploads/presign · INE del buylist)     : DISPONIBLE      [EXIGIDA]
+  ⛔ ESTE ENTORNO NO PUEDE EJERCITAR UN FLUJO QUE EL GATE EXIGE      → exit 1
+```
+
+Y el dispatcher, probado con las funciones caras (infra/backend/frontend) sustituidas por stubs:
+`up --gate` → **exit 1** con el bloque «El stack está ARRIBA, pero NO es apto para una corrida de GATE»;
+`up` sin bandera → **exit 0** con el informe.
+
+**⚠️ Lo que sigue SIN VERIFICAR, y no lo arregla ningún script mío.** El egress a Stripe sigue
+bloqueado en esta máquina — re-medido hoy:
+`curl https://api.stripe.com/v1` → `curl: (56) CONNECT tunnel failed, response 403`.
+Con clave o sin ella, **los tres smokes de dinero no pueden ponerse verdes aquí**. El gate de dinero
+vive en CI (`e2e-real.yml`), y la promoción a producción ya lo exige: `deploy.yml` llama a
+`e2e-real.yml` con `require_real_stripe: true` (verificado en el fichero, y ahora protegido por el
+check estático de §39.3). Lo que hace falta del humano son **los dos secrets de GitHub** — §39.6.
+
+---
+
+### 39.2 SUBIDA — el smoke que se saltaba a sí mismo, y el interruptor que nadie había encendido
+
+**El hueco, con su mecanismo exacto.** `backend/test/integration/infra-smoke.e2e-spec.ts` es quien cubre
+`POST /uploads/presign` + el PUT real del objeto — o sea, **la subida del INE del buylist**
+(`purpose: 'kyc_ine'`), que es la única subida del producto **y es PII**. El spec trae, desde siempre:
+
+```ts
+const STRICT = process.env.E2E_STRICT_INFRA === 'true';
+…
+if (status === 403 && !STRICT) { console.warn('[e2e] MinIO respondió 403 …'); return; }
+```
+
+Es decir: **la rama estricta ya existía** y el propio comentario del spec la recomendaba («recomendado
+en el job E2E de CI con toda la infra»). **Nadie la encendió nunca.** Verificado con `grep -rn
+E2E_STRICT_INFRA` sobre el repo entero: **cero asignaciones** — ni en `.github/workflows/`, ni en
+`scripts/`, ni en `.env.example`. Y en la ruta nativa no había MinIO contra el que correr, así que el
+`catch` de conexión se comía el fallo. Resultado: dos releases sin ejercitar la subida de PII, con la
+corrida en verde.
+
+**El contrafáctico, medido, que es la prueba de que el hueco era real.** Mismo spec, mismo commit,
+misma infraestructura rota (object storage caído):
+
+| Corrida | Resultado literal |
+|---|---|
+| `jest … infra-smoke` **sin** `E2E_STRICT_INFRA` | `Tests: 3 passed, 3 total` · **PASS** (el PUT se salta con `warn`) |
+| `jest … infra-smoke` **con** `E2E_STRICT_INFRA=true` | `Tests: 1 failed, 2 passed` · **FAIL** (`connect ECONNREFUSED 127.0.0.1:9000`) |
+
+Dos veredictos opuestos sobre el mismo entorno roto. Ése era el hueco entero.
+
+**Lo implementado**
+
+1. **Object storage en la ruta nativa** — `scripts/s3-local/` (nuevo). `start_infra()` levanta ahora
+   Postgres, Redis **y** S3 en `:9000`, con el **mismo bucket y las mismas credenciales** que
+   `.env.example` y `docker-compose.yml`, para que el arnés nativo y el de Docker no prueben
+   configuraciones distintas sin que se note en ningún diff.
+   > **Por qué no MinIO:** el binario no se puede traer a esta máquina —
+   > `curl https://dl.min.io/server/minio/release/linux-amd64/minio` → `CONNECT tunnel failed, 403` — y
+   > no hay demonio de Docker. El registro npm sí es alcanzable. Se usa `s3rver` 3.7.1 (implementación
+   > S3 en Node, de uso común en tests) **con tres añadidos de devops** — ver §39.2.3, que es donde está
+   > la parte que importa.
+2. **`E2E_STRICT_INFRA=true` encendido en los dos sitios donde la infra existe**:
+   `scripts/stack-native.sh test:integration` (que además **se planta** si no hay almacén, en vez de
+   dejar que el spec descubra el problema a mitad) y el job `backend-e2e` de
+   `.github/workflows/e2e.yml` (que ya tenía MinIO como *service* con bucket y credenciales que cuadran).
+3. **`up --gate` exige la capacidad de subida** igual que la de cobro (§39.1).
+
+**Lo medido, con el stack nativo de esta máquina**
+
+```
+▸ Object storage S3 (scripts/s3-local) en :9000
+  ✔ arriba (bucket 'tcg-photos', datos en /home/user/tcg-vault-mx/.native-stack/s3)
+
+./scripts/stack-native.sh test:integration -- --testPathPattern infra-smoke
+  ✔ E2E_STRICT_INFRA=true: Redis y el PUT presignado del INE NO se pueden saltar.
+  PASS test/integration/infra-smoke.e2e-spec.ts
+    ✓ Postgres: consulta y secuencia de folios responden (OBLIGATORIO)
+    ✓ Redis: responde PONG
+    ✓ MinIO/S3: presign + PUT real de un objeto            (191 ms)
+  Tests: 3 passed, 3 total
+```
+
+No es un 200 de mentira: los objetos **están en disco** (`find .native-stack/s3 -type f` → 21 ficheros
+bajo `tcg-photos/kyc_ine/`, con su `_S3rver_object`, su `.md5` y su `_metadata.json`).
+
+**Roto a propósito** (que es la única forma de saber que el candado es un candado):
+
+| Rotura | Resultado |
+|---|---|
+| Apagar el object storage y correr la suite | `✖ E2E_STRICT_INFRA=true y NO hay object storage en :9000` · **exit 1** |
+| Saltarse `stack-native.sh` y llamar a jest directo, sin almacén | `Tests: 1 failed` · `connect ECONNREFUSED 127.0.0.1:9000` |
+| Arrancar el almacén con las guardas apagadas (`S3_LOCAL_ALLOW_ANON=1`) | el gate de capacidades lo caza: `✖ PUT presignado con secreto equivocado: ACEPTADO (200) — el almacén no verifica` |
+
+#### 39.2.3 `s3-local` NO es MinIO — la ficha de fidelidad, sin adornos
+
+Un stand-in que se presenta como equivalente y no lo es sería exactamente el problema que este pase
+viene a cerrar. Lo que hace y lo que no:
+
+| Propiedad | `s3-local` | MinIO / R2 |
+|---|---|---|
+| PUT/GET presignado (SigV4) | ✅ | ✅ |
+| **Verifica el HMAC de la firma presignada** | ✅ **implementado por devops** (ver abajo) | ✅ |
+| Rechaza peticiones **anónimas** (paridad bucket privado) | ✅ implementado por devops | ✅ (con `mc anonymous set none`) |
+| Verifica la firma de peticiones con `Authorization:` (server-side) | ❌ solo comprueba el `accessKeyId` | ✅ |
+| **Políticas de bucket** (probar que el bucket es privado *por política*) | ❌ **no** | ✅ |
+| Versionado · lifecycle (`kyc_ine/` a N días) · multipart | ❌ | ✅ |
+
+> **⚠️ La consecuencia operativa, dicha en claro:** este stand-in **no sirve para verificar que el
+> bucket sea privado por política** (SEC-A5 / v1.2.1). Esa propiedad se sigue verificando **solo** en la
+> ruta Docker/CI (servicio `createbuckets` con `mc anonymous set none` y la regla de lifecycle de
+> `kyc_ine/`) y en R2 en producción. Que un `GET` anónimo dé 403 aquí es porque yo lo rechazo en el
+> borde, **no** porque haya una política evaluándose.
+
+**El añadido que más importa, y por qué existe.** `s3rver` **no verifica firmas SigV4**. No es una
+sospecha: lo dice su propio código, literal, en `lib/middleware/authentication.js`:
+
+```js
+} else if (signature.version === 4) {
+  // Signature version 4 calculation is unimplemeneted
+  ctx.state.account = account;
+```
+
+**Medido antes de escribir una línea de este stand-in:** una URL presignada firmada con el **secreto
+equivocado** devolvía **200**. Un almacén que acepta cualquier firma convierte el smoke de subida en
+otro verde vacío — el mismo defecto que veníamos a cerrar, con otra cara. Así que
+`scripts/s3-local/server.js` **implementa la verificación** (canonical request → string to sign → clave
+derivada → HMAC, con `crypto`) para las peticiones presignadas, que son las que produce
+`POST /uploads/presign`. Matriz medida contra el `@aws-sdk` real del backend:
+
+| Caso | Resultado | Esperado |
+|---|---|---|
+| PUT presignado, secreto **correcto** | **200** | 200 |
+| PUT presignado, secreto **equivocado** | **403** | 403 |
+| GET presignado del objeto escrito | **200**, 8 bytes | 200 |
+| GET **anónimo** al objeto | **403** | 403 (paridad bucket privado) |
+| PUT **anónimo** | **403** | 403 |
+
+La versión de `s3rver` va **clavada** (`3.7.1`, sin `^`) a propósito: el registro de credenciales usa
+una API interna, y si un `npm update` la moviera, el arranque falla **ruidosamente** en vez de degradar
+en silencio a otras credenciales.
+
+---
+
+### 39.3 El candado estático: `scripts/check-e2e-harness-gaps.sh` (nuevo, corre en CADA push/PR)
+
+El arreglo de §39.1 y §39.2 son, en el fondo, **una variable en un YAML y una llamada en un script**:
+justo el tipo de línea que alguien quita un martes porque el job estaba rojo. Y su ausencia **no produce
+un rojo**: produce un verde que no significa nada. Mismo criterio, misma forma y mismo sitio que
+`check-provenance-gate.sh` y `check-e2e-provider-incapacitation.sh`. Verifica seis puntos:
+
+1. `scripts/e2e-capability-gate.sh` existe y es ejecutable.
+2. `start_infra()` levanta object storage (`start_s3`).
+3. `up --gate` llama al gate con `--require-all` (**exige**, no informa).
+4. `test:integration` fija `E2E_STRICT_INFRA`.
+5. `.github/workflows/e2e.yml` declara `E2E_STRICT_INFRA: "true"`.
+6. `deploy.yml` promueve a prod con `require_real_stripe: true`.
+
+Cableado en `ci.yml` como job `e2e-harness-gaps`, y añadido a `needs:` de `ci-ok` con la misma regla que
+la guarda del proveedor de paga: **`skipped` no es verde** — un candado que se salta a sí mismo
+desaparece igual que uno que se borra.
+
+**Medido**: en verde sobre el árbol actual (6/6). Y **roto a propósito** sobre una copia: borrando
+`E2E_STRICT_INFRA` de `e2e.yml` y poniendo `require_real_stripe: false` en `deploy.yml` → **2 rojos y
+exit 1**, con el motivo escrito en cada uno. *(De hecho el check cazó un fallo mío mientras lo escribía:
+el aserto 3 salió rojo la primera vez porque mi patrón no contemplaba la comilla de `"$SCRIPT_DIR/…"`.
+Un check que nunca ha dado rojo no se ha probado.)*
+
+---
+
+### 39.4 El rojo FALSO del gate de procedencia: ahora sabe decir «el commit cambió, el código no»
+
+**El hecho, medido en este repo.** El aserto 4 de `scripts/assert-serving-head.sh` comparaba **SHA de
+commit** (`git rev-parse HEAD`). Entre `c6b999a` y `c132397` entraron **siete commits de solo
+documentos**, y:
+
+```
+git rev-parse c6b999a:backend  == git rev-parse c132397:backend  == d7d7059f45f6…
+git rev-parse c6b999a:frontend == git rev-parse c132397:frontend == cf46d16c26ee…
+```
+
+⇒ el gate se ponía **rojo** contra un stack que sirve código **byte a byte idéntico**. El propio pase de
+seguridad lo sufrió: *«a mitad del pase el gate se puso en ROJO porque el arquitecto commiteó un commit
+de solo docs y HEAD se movió bajo mis pies»*.
+
+**Decisión: se toca el gate (opción A), no solo el runbook. Y la justificación es que el coste del rojo
+falso NO es cosmético.** Falla en la dirección segura, sí — pero entrena el reflejo *«ya, es solo
+docs»* delante de un aserto de procedencia, y ese reflejo es **exactamente** lo que SEC-OPS-1 existe
+para matar. La segunda vez que alguien lo aplica sin mirar, se lo aplica a un commit que sí tocaba
+código. **Un gate que cría el hábito de ignorarlo ya no es un gate.** Documentarlo en el runbook habría
+dejado el hábito intacto y solo habría añadido una excusa por escrito.
+
+**Cómo quedó.** Cuando los SHA difieren, se comparan los **hashes de árbol** de `backend/` y
+`frontend/` (los dos directorios cuyo contenido es lo que los procesos ejecutan). Si coinciden: verde,
+y se dice la frase con nombre y apellidos. `stack-native.sh` los guarda en el sello al arrancar
+(`tree_backend=` / `tree_frontend=`); si el sello es viejo, se derivan del repo. Mismo criterio aplicado
+al bloque de frontend de `verify_head`.
+
+**⚠️ Condición no negociable:** la equivalencia **solo** se aplica con el árbol **limpio** al sellar
+(`dirty=0`) y limpio ahora. Con ficheros sin commitear, el hash de árbol de un commit no describe lo que
+se está sirviendo, y la comparación sería una coartada en vez de una prueba.
+
+**⚠️ Lo que esta equivalencia NO cubre, dicho de frente:** solo mira `backend/` y `frontend/`. Un cambio
+**fuera** de esos dos directorios que sí afecte al runtime (por ejemplo `scripts/stack-native.sh`, que
+fija el entorno del proceso, o los `docker-compose*.yml`) pasaría por «solo cambió el commit». Es una
+limitación **aceptada y declarada**: esos ficheros no los ejecuta el proceso servido, los ejecuta quien
+lo levanta, y el aserto 2 (`--source`, mtime del fuente) sigue vigilando el árbol de código.
+
+**Medido, los cuatro casos** (contra un `/health` de prueba y un clon **limpio** del repo):
+
+| Caso | Sello → esperado | Veredicto |
+|---|---|---|
+| **1. Solo docs** | `c6b999a` → `c132397`, árboles idénticos, limpio | **VERDE** · *«✔ EL COMMIT CAMBIÓ, EL CÓDIGO NO»* + los dos hashes |
+| **2. Código distinto** | `5852aa8` → `c6b999a` (`backend/` difiere) | **ROJO** · *«COMMIT DISTINTO **Y CÓDIGO DISTINTO**»*, con qué directorio difiere |
+| **3. Árboles iguales, sello sucio** | `dirty=3` | **ROJO** · «el hash de árbol no describe lo que se compiló» |
+| **4. SHA sellado inexistente** | `deadbeef…` | **ROJO** · «no pude comparar los árboles ⇒ se falla CERRADO» |
+
+**Y mientras escribía esto, el caso 1 volvió a ocurrir solo — con dos commits nuevos de otros roles
+sobre `main`, sin que yo los provocara.** Es el mejor dato del pase porque no lo fabriqué yo:
+
+| commit | `backend/` | `frontend/` | qué es |
+|---|---|---|---|
+| `29f97e2` | `d7d7059f45f6…` | `cf46d16c26ee…` | `docs(orquestador): handoff del stream…` |
+| `334b1e4` | `d7d7059f45f6…` **(igual)** | `cf46d16c26ee…` **(igual)** | `docs(ux-ui): …` ⇒ **el gate viejo daría ROJO; el nuevo dice VERDE** |
+| `72b53d4` | `f00c6ead4158…` **(DISTINTO)** | `cf46d16c26ee…` | `fix(backend): …` ⇒ **rojo en los dos, y aquí el rojo SÍ significa algo** |
+
+Un stack sellado en `29f97e2` sirve exactamente el mismo código que `334b1e4` y **no** el de `72b53d4`.
+Ésa es justo la distinción que el aserto no sabía hacer y por la que se pusieron rojos pases enteros.
+
+> **Defecto encontrado y corregido durante esta prueba, que merece quedar escrito:** el caso 4 daba rojo
+> con el motivo **equivocado** («código distinto») porque `git rev-parse` **devuelve el argumento tal
+> cual** cuando no lo puede resolver. Se arregló con `--verify --quiet`. Un gate que acierta el veredicto
+> por accidente y miente en el porqué es el siguiente falso verde esperando su turno.
+
+**Nota aparte, no pedida pero medida:** con el árbol de trabajo **sucio** —hoy lo está: 40 ficheros sin
+commitear en `backend/`+`frontend/`— la equivalencia **no aplica** y el gate sigue en rojo. Es correcto y
+deliberado. En una corrida de gate el árbol tiene que estar limpio.
+
+---
+
+### 39.5 M-46: dónde está aplicada de verdad (encargo 3) — hechos medidos, y la consulta que falta correr
+
+`docs/TECH_DEBT.md` **M46-D3** registra que dos normas vigentes se contradicen sobre el mismo artefacto
+(`ARCHITECTURE §11` ordena editar `M-46` en el sitio; `M46-D2` dice que ya está aplicada y que editarla
+rompe el checksum), y su **disparador escrito es este cut-over**. *La contradicción normativa la cierra
+el arquitecto; lo que sigue es el hecho, que es lo mío.*
+
+#### (a) LOCAL — medido hoy, y **NO hay divergencia**
+
+```sql
+SELECT migration_name, checksum, finished_at, rolled_back_at FROM _prisma_migrations
+ WHERE migration_name = '20260901120000_m46_buylist_acquisition_cycle';
+```
+
+| dato | valor |
+|---|---|
+| `migration_name` | `20260901120000_m46_buylist_acquisition_cycle` |
+| `checksum` en la BD | `db3341cf13002c2170fbd5670d902dc8829851f530a1334edb5c5ff0d4573792` |
+| `sha256sum` del **fichero del árbol** | `db3341cf13002c2170fbd5670d902dc8829851f530a1334edb5c5ff0d4573792` → **idénticos** |
+| `finished_at` | `2026-09-07 03:48:25 UTC` · `rolled_back_at` = NULL · `applied_steps_count` = 1 |
+| columna `SellRequest.offerSentCancelledAt` | **existe** (`timestamp without time zone`) |
+
+Lectura honesta: la BD local **ya no está divergente**. El `finished_at` de hoy (03:48) —frente al
+`2026-09-01 21:01:13` que registra §37— dice que la base se recreó **después** de la quinta enmienda, así
+que M-46 se aplicó **entera desde el fichero actual**. El checksum cuadra por construcción, no por un
+`UPDATE` manual. En otras palabras: **este entorno se parece hoy a uno limpio.**
+
+#### (b) STAGING — no hay `_prisma_migrations` que leer, y esto es un hecho de configuración
+
+- «Staging» en este proyecto es `docker-compose.staging.yml` con volúmenes **propios y efímeros**
+  (`postgres_staging`), y `e2e-real.yml` termina, en un paso `if: always()`, con
+  `docker compose -f "$COMPOSE" --profile apps down -v` (línea 461) ⇒ **el volumen se borra en cada
+  corrida**. Cada run arranca de cero y aplica las 36 migraciones del árbol.
+- Además, **en esta máquina no hay demonio de Docker** (`/var/run/docker.sock` no existe), así que ni
+  siquiera puedo levantarlo para mirar.
+- Existe un staging **hospedado** *previsto* (`STAGING_BASE_URL` / `STAGING_API_URL` como secrets de
+  GitHub, §13). **No tengo credenciales, ni nombre de host, ni evidencia en el repo de que esté
+  provisionado.** No lo afirmo ni en un sentido ni en el otro: **no lo leí**.
+
+#### (c) PRODUCCIÓN — no la leí. Pero el repo dice algo fuerte, y hay que separarlo del dato
+
+**No tengo acceso**, medido: `curl https://tcg-vault-mx-production.up.railway.app/api/v1/health` →
+`curl: (56) CONNECT tunnel failed, response 403`. No hay CLI de Railway, ni credencial, ni
+`PROD_DB_READONLY_URL` en el entorno.
+
+Lo que **sí** pude medir, del lado del artefacto (todo verificable con `git`):
+
+| Hecho medido | Cómo se comprueba |
+|---|---|
+| M-46 entró al árbol el **2026-09-01** (commit `cc8416a`) | `git log --diff-filter=A -- backend/prisma/migrations/20260901120000_m46_*/migration.sql` |
+| El **último run de `deploy.yml`** es el **#52**, del **2026-08-25**, sobre `0a07babc` — **anterior** a M-46 | API de Actions; ese árbol tiene 0 ficheros `m46` y su última migración es `20260824120000_m41_…` |
+| Ese run **no desplegó nada**: `secrets-gate` en verde y los **8 jobs restantes SKIPPED** (`ci-ok`, `preflight`, `deploy-staging-*`, `e2e-real`, `dast-staging`, `promote-production-*`) | API de Actions, jobs del run #52 |
+| La rama **`production`** (HEAD `18f279e`, *«release: … (main->production)»*, **2026-09-06**) tiene **35** migraciones y **NO** incluye M-46 — **sí** incluye `20260902120000_m47_set_images` | `git ls-tree -d --name-only 18f279e backend/prisma/migrations/` |
+| `main` (`29f97e2`) tiene **36**: la diferencia es **exactamente** `20260901120000_m46_buylist_acquisition_cycle` | `diff` de los dos listados |
+
+**Inferencia (marcada como tal, no como medición):** si producción se despliega desde la rama
+`production` y Railway corre `migrate deploy` en cada deploy, entonces **M-46 nunca ha llegado a
+producción**, y su `_prisma_migrations` no debería contenerla. **No lo doy por hecho:** los runbooks
+§23/§26/§27/§28/§34 describen operaciones manuales contra producción, así que alguien pudo correr
+`migrate deploy` a mano. **Eso solo lo contesta la BD.**
+
+**Y hay un segundo hallazgo que sale de lo mismo, y que NO es mío de cerrar** (es del arquitecto y del
+rol backend, lo aporto como hecho): producción tiene **M-47 (`20260902…`) aplicada y M-46 (`20260901…`)
+no**. Cuando M-46 se publique entrará **fuera de orden cronológico**. `prisma migrate deploy` aplica lo
+que no esté en `_prisma_migrations` sin exigir orden, y las dos tocan tablas distintas (`SellRequest` vs
+imágenes de set), así que **no espero un fallo** — pero es una condición que nadie ha nombrado y que
+conviene decidir antes, no descubrir durante.
+
+**Lo bueno de todo esto para M46-D3:** si la BD confirma que producción **nunca** aplicó M-46, entonces
+el modo de fallo que describe M46-D3 —`migrate deploy` diciendo *«up to date»* mientras la columna no
+existe— **no puede darse en producción**: ahí M-46 se aplicará **entera y por primera vez**, con la
+quinta enmienda incluida, y la columna `offerSentCancelledAt` nacerá bien. El riesgo queda acotado a
+bases que ya la tenían aplicada **antes** de la edición. Si la BD lo desmiente, el cut-over cambia de
+naturaleza y hay que parar. **Por eso hace falta el dato, y por eso no lo infiero.**
+
+#### (d) 🔴 LA CONSULTA EXACTA PARA PRODUCCIÓN — **pendiente de autorización del humano**
+
+**Solo lectura.** Ningún `INSERT`/`UPDATE`/`DELETE`/DDL. No la he corrido y no la voy a correr sin que
+me lo autorices explícitamente. Usa un rol **`SELECT`-only** (`PROD_DB_READONLY_URL`, §31.6), nunca la
+`DATABASE_URL` de la app.
+
+```sql
+-- TCG HUNT · lectura de estado de M-46 en PRODUCCIÓN. SOLO LECTURA.
+-- 1) ¿Corrió M-46, con qué checksum, cuándo, y quedó revertida?
+SELECT migration_name,
+       checksum,
+       started_at,
+       finished_at,
+       applied_steps_count,
+       rolled_back_at
+  FROM _prisma_migrations
+ WHERE migration_name IN ('20260901120000_m46_buylist_acquisition_cycle',
+                          '20260902120000_m47_set_images',
+                          '20260829120000_m43_graded_estimate_kind')
+ ORDER BY started_at;
+
+-- 2) Censo: cuántas hay, cuál fue la última, y si alguna quedó a medias.
+SELECT count(*)                                              AS total,
+       count(*) FILTER (WHERE finished_at IS NULL)           AS sin_terminar,
+       count(*) FILTER (WHERE rolled_back_at IS NOT NULL)    AS revertidas,
+       max(migration_name)                                   AS ultima_por_nombre
+  FROM _prisma_migrations;
+
+-- 3) ¿Existen de verdad los objetos de M-46? (la BD manda sobre la tabla de control)
+SELECT column_name, data_type
+  FROM information_schema.columns
+ WHERE table_name = 'SellRequest'
+   AND column_name IN ('offerSentCancelledAt','offerState','offerAcceptDeadlineAt',
+                       'shipDeadlineAt','guideCancellationPendingAt','closedAt','expiredReason')
+ ORDER BY column_name;
+```
+
+**Cómo leer el resultado, decidido de antemano para que no se interprete a conveniencia:**
+
+| Lo que devuelva (1) | Significa | Qué hacer |
+|---|---|---|
+| **0 filas** para `…m46…` | M-46 nunca corrió en prod (lo esperado por (c)) | ✅ El cut-over la aplica **entera**: sin divergencia posible. Se publica con normalidad. |
+| 1 fila con `checksum = db3341cf13002c2170fbd5670d902dc8829851f530a1334edb5c5ff0d4573792` | Corrió **con el fichero de HOY** (quinta enmienda incluida) | ✅ Consistente. Confirmar con (3) que `offerSentCancelledAt` existe. |
+| 1 fila con **otro** `checksum` | 🔴 Corrió con una versión **anterior** del fichero ⇒ **es el escenario de M46-D3 en producción** | ⛔ **PARAR.** No publicar. `migrate deploy` dirá «up to date» y la columna puede no existir → `column does not exist` en runtime **sobre el ciclo de compra**. Escalar a arquitecto + backend. |
+| `rolled_back_at` no nulo, o `finished_at` NULL | Quedó a medias | ⛔ Parar y escalar. |
+
+**Y si (3) no devuelve `offerSentCancelledAt` mientras (1) dice que M-46 está aplicada, ése es el
+escenario exacto que M46-D3 describe: la tabla de control MIENTE y hay que parar antes de desplegar.**
+
+Para staging, la **misma** consulta contra `STAGING_API_URL`/su BD **si existe hospedado**; si lo único
+que hay es el compose efímero, la respuesta correcta es *«no aplica: se recrea en cada corrida»* y así
+queda escrito arriba.
+
+---
+
+### 39.6 Comandos: cómo se levanta, cómo se prueba y qué tiene que rellenar el humano
+
+```bash
+# 1) Infra nativa (Postgres + Redis + S3 local) — sin Docker
+./scripts/stack-native.sh up --infra
+
+# 2) Stack completo de TRABAJO (informe de capacidades, exit 0)
+./scripts/stack-native.sh up --seed
+
+# 3) Stack de GATE (exige cobro y subida; exit 1 si falta alguna, el stack queda arriba)
+export STRIPE_TEST_SECRET_KEY=sk_test_…        # NUNCA en un fichero del repo
+export STRIPE_TEST_PUBLISHABLE_KEY=pk_test_…
+./scripts/stack-native.sh up --seed --gate
+
+# 4) ¿Este entorno puede ejercitar cobro y subida? (solo mide, no corre la suite)
+./scripts/e2e-capability-gate.sh                # informe
+./scripts/e2e-capability-gate.sh --require-all  # modo gate
+
+# 5) Integración del backend en modo ESTRICTO (el smoke de infra ya no se salta)
+./scripts/stack-native.sh test:integration
+
+# 6) ¿Sigue cableado el candado? (lo corre CI en cada push/PR)
+./scripts/check-e2e-harness-gaps.sh
+./scripts/check-provenance-gate.sh
+
+# 7) Procedencia del stack vivo (SEC-OPS-1)
+./scripts/stack-native.sh verify:head
+```
+
+**Lo que necesito del humano (nada de esto lo puede poner devops):**
+
+| Qué | Dónde | Para qué |
+|---|---|---|
+| `STRIPE_TEST_SECRET_KEY` (`sk_test_…` o `rk_test_…`) | **GitHub Secrets** del repo | Enciende el gate de dinero en `e2e-real.yml`. Sin él, la promoción a prod es **roja** (`require_real_stripe: true`). |
+| `STRIPE_TEST_PUBLISHABLE_KEY` (`pk_test_…`) | **GitHub Secrets** | Sin ella el modal no monta en el navegador aunque el backend cree la sesión. |
+| *(opcional)* las dos anteriores **exportadas en la shell** | máquina con egress a `api.stripe.com` | Correr los 3 smokes de dinero en local. **En esta máquina no sirve**: egress bloqueado. |
+| **Autorización para leer `_prisma_migrations` en PRODUCCIÓN** + una `PROD_DB_READONLY_URL` | tú | §39.5(d). Es el hecho que falta antes de publicar. |
+| *(si existe)* `STAGING_API_URL` / acceso a la BD de staging hospedado | tú | Misma lectura en staging. |
+
+---
+
+### 39.7 Rollback de este pase
+
+| Escenario | Acción |
+|---|---|
+| Volver al arnés anterior | `git revert` del commit de esta sección. Se pierden los dos candados y el object storage local; **no** se pierde ningún dato ni cambia el arranque en lo demás. |
+| El gate de capacidades molesta en el día a día | Usa `up` **sin** `--gate`: informa y sale 0. `--gate` es el modo de gate y ahí el rojo es el producto, no un estorbo. |
+| `E2E_STRICT_INFRA` bloquea una depuración | `E2E_STRICT_INFRA=false ./scripts/stack-native.sh test:integration` — explícito, visible en el historial del shell, y **nunca** en un gate. Si aparece en `.github/`, el check de §39.3 se pone rojo. |
+| `s3-local` da un 403 que crees falso | Míralo en `.native-stack/s3.log`: cada rechazo se registra con el método, la ruta y el motivo. Recuerda que **403 al sondear la raíz es lo normal** (vivo y privado). |
+| Hay que apagar el object storage | `./scripts/stack-native.sh down --all`. **No borra los objetos** (`.native-stack/s3`): apagar para auditar no puede costar la evidencia. |
+| El hash de árbol deja pasar algo que no debía | Está acotado a `backend/`+`frontend/` y solo con árbol limpio (§39.4). Si aparece un caso real, es deuda mía y va a `docs/TECH_DEBT.md`; **no** se desactiva el aserto. |
+
+### 39.8 Lo que NO verifiqué (dicho para que nadie lo cuente como verificado)
+
+1. **Los 3 smokes de dinero en navegador.** Imposible aquí: sin egress a `api.stripe.com`. Siguen
+   **SIN VERIFICAR**, como dijo QA. Lo único que cambió es que ahora **el arnés lo dice en su código de
+   salida** en vez de dejarlo en un aviso.
+2. **`E2E_STRICT_INFRA: "true"` corriendo en GitHub Actions.** No puedo lanzar Actions desde aquí. La
+   configuración está verificada por lectura (el job `backend-e2e` tiene MinIO como *service*, bucket
+   `tcg-photos` por `MINIO_DEFAULT_BUCKETS`, y `S3_ACCESS_KEY_ID`/`S3_SECRET_ACCESS_KEY` cuadran con
+   `MINIO_ROOT_USER`/`MINIO_ROOT_PASSWORD`), y el efecto de la variable está medido **en local**. La
+   primera corrida de CI es la prueba que falta.
+3. **La ruta Docker completa** (`docker-compose.yml` / `docker-compose.staging.yml`): sin demonio de
+   Docker en esta máquina. Sin cambios míos en esos ficheros.
+4. **`_prisma_migrations` de staging hospedado y de producción.** No leídos. §39.5(b) y (c).
+5. **`up --gate` de punta a punta** (con `next build` real). Probé el **dispatcher** con las funciones
+   caras sustituidas por stubs, y el gate de capacidades por separado contra infra real. No relancé el
+   stack completo: había otra sesión con un `up --seed --gate` vivo y reiniciarlo le habría costado su
+   corrida.
+6. **Un fallo del arnés que sí observé y no es mío:** hay un `stack-native.sh up --seed --gate` de las
+   04:19 **colgado** en esta máquina. Al arreglar el arranque de `s3-local` encontré la causa probable y
+   la dejé escrita en el código: `( cd X && nohup … & )` deja un subshell que **hereda el stdout del
+   script**, así que un `stack-native.sh up | tail` nunca ve EOF. Mi `start_s3` usa `setsid` + las tres
+   redirecciones y ya no lo hace; **las funciones `start_backend`/`start_frontend` conservan el patrón
+   viejo** y no las toqué en este pase (fuera de encargo, y reescribir el arranque del backend mientras
+   otra sesión lo está usando no es un cambio que se haga de paso). Queda anotado como candidato a
+   `docs/TECH_DEBT.md` — dueño: devops.

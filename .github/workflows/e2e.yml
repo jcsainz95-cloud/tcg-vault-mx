@@ -160,6 +160,32 @@ jobs:
       DEFAULT_LOCALE: es
       NODE_ENV: test
       SEED_MODE: synthetic
+      # ---------------------------------------------------------------------
+      # E2E_STRICT_INFRA — EL INTERRUPTOR QUE NUNCA SE HABÍA ENCENDIDO (§39.2)
+      #
+      # `backend/test/integration/infra-smoke.e2e-spec.ts` trae desde siempre:
+      #     const STRICT = process.env.E2E_STRICT_INFRA === 'true';
+      # y sin él, un Redis que no responde o un PUT presignado que devuelve 403
+      # se SALTAN con `console.warn` + `return`, y la suite sale VERDE. El propio
+      # comentario del spec dice «recomendado en el job E2E de CI con toda la
+      # infra» — y nadie lo puso: `grep -rn E2E_STRICT_INFRA` sobre el repo
+      # entero no devolvía NINGUNA asignación. La rama estricta existía y jamás
+      # se ejecutó, así que la subida del INE (`purpose: kyc_ine`, PII) llevaba
+      # dos releases sin ejercitarse ni aquí ni en local.
+      #
+      # Este job tiene la infra COMPLETA (postgres + redis + minio como
+      # services, con el bucket `tcg-photos` creado por MINIO_DEFAULT_BUCKETS y
+      # credenciales que cuadran con las S3_* de abajo), así que exigirla no es
+      # una exigencia imposible: es la configuración normal. Si el smoke se pone
+      # rojo aquí, el hallazgo es de INFRAESTRUCTURA (devops) y hay que mirarlo,
+      # no saltarlo.
+      #
+      # MEDIDO en local sobre el MISMO spec y el mismo entorno roto (S3 caído):
+      #   · sin la variable  -> `Tests: 3 passed` (el PUT se salta con warn)
+      #   · con la variable  -> `Tests: 1 failed, 2 passed` (ECONNREFUSED)
+      # Mismo código, misma infra rota, dos veredictos opuestos. Ése era el hueco.
+      # ---------------------------------------------------------------------
+      E2E_STRICT_INFRA: "true"
       # §4.38(r.6.1) — este job levanta la app Nest EN PROCESO y sus specs de
       # integración del gancho ENCIENDEN el dial único (`gradingHookEnabled`).
       # Con v1.51 ese flip autoriza el ingest, así que la credencial del proveedor
