@@ -40,11 +40,18 @@ import {
  *
  * `ineFrontKey`/`ineBackKey` SÍ se seleccionan, pero **sólo para derivar `ineOnFile: boolean`** en
  * `toAdminKycDTO` — exactamente el mismo trato que ya les da `getUser`. Las llaves no viajan.
+ *
+ * ⛔⛔ **v1.60 (D51, API_CONTRACT §M5-K.5(a)) — `legalName` NO SE SELECCIONA: CAMPO MUERTO.**
+ * Existía **solo** para sostener el nombre del titular en el cotejo INE↔CLABE; retirado el cotejo no
+ * tiene ningún uso, y **nunca tuvo escritor que le pusiera un nombre** (su único escritor en todo
+ * `backend/src` es la anonimización del soft-delete, que lo pone a `null` — y **ése no se toca**).
+ * No se «deja vacío en la ficha»: un campo que el panel pinta y que **siempre llega `null` invita a
+ * poblarlo**, y poblarlo **reintroduce el cotejo por la puerta de atrás**. La columna se **conserva
+ * INERTE** en el schema (**cero DDL**, precedente exacto de `capPerRequestCentsOverride`).
  */
 const ADMIN_KYC_SELECT = {
   id: true,
   userId: true,
-  legalName: true,
   kycStatus: true,
   capPerRequestCentsOverride: true,
   capPerMonthCentsOverride: true,
@@ -188,7 +195,6 @@ function toAdminUserAddressRef(a: {
 function toAdminKycDTO(k: {
   id: string;
   userId: string;
-  legalName: string | null;
   kycStatus: KycStatus;
   capPerRequestCentsOverride: number | null;
   capPerMonthCentsOverride: number | null;
@@ -202,7 +208,6 @@ function toAdminKycDTO(k: {
   return {
     id: k.id,
     userId: k.userId,
-    legalName: k.legalName,
     kycStatus: k.kycStatus,
     capPerRequestCents: k.capPerRequestCentsOverride,
     capPerMonthCents: k.capPerMonthCentsOverride,
@@ -468,6 +473,13 @@ export class AdminService {
                 clabeEnc: _c,
                 rfcEnc: _r,
                 clabeHmac: _h,
+                // ⛔ v1.60 (D51, §M5-K.5a): `legalName` sale del DTO. Esta rama proyecta con
+                // `...rest` sobre la fila CRUDA del `include`, así que retirarlo de
+                // `ADMIN_KYC_SELECT` —que es lo único que el contrato enumera— **no la cubre**:
+                // aquí hay que quitarlo a mano o el campo muerto sigue saliendo por esta puerta.
+                // *Es la razón por la que la lista blanca existe: lo que se proyecta por resto
+                // publica cada columna nueva del schema por omisión.*
+                legalName: _l,
                 capPerRequestCentsOverride,
                 capPerMonthCentsOverride,
                 ...rest
@@ -500,7 +512,6 @@ export class AdminService {
         ? {
             id: safe.kycProfile.id,
             userId: safe.kycProfile.userId,
-            legalName: safe.kycProfile.legalName,
             kycStatus: safe.kycProfile.kycStatus,
             clabeMasked,
             ineOnFile: Boolean(safe.kycProfile.ineFrontKey && safe.kycProfile.ineBackKey),

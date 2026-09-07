@@ -267,6 +267,20 @@ describe('S49-R1 · PATCH /admin/users/:id/kyc — no devuelve la entidad `KycPr
     expect(select.clabeEnc).toBeUndefined();
     expect(select.clabeHmac).toBeUndefined();
   });
+
+  // ⛔⛔ v1.60 (D51, API_CONTRACT §M5-K.5(a)) — `legalName` SE RETIRA del DTO: CAMPO MUERTO. Este es
+  // el camino que QA midió en vivo devolviendo `"legalName": null`. El candado afirma las DOS
+  // puntas del mismo hecho, que NO son la misma: que la columna **no se lee** (sale de
+  // `ADMIN_KYC_SELECT`, así que un `select` a la BD ya no la trae) y que **no se proyecta**
+  // (`toAdminKycDTO`). El mock devuelve la fila CON `legalName` poblado —como haría una BD que
+  // ignorara el `select`— para que el segundo aserto siga siendo capaz de ponerse rojo por sí solo.
+  it('§M5-K.5a: `legalName` ni se selecciona de la BD ni se proyecta al DTO', async () => {
+    const { svc, prisma } = buildAdmin();
+    const res: any = await svc.updateUserKyc('u1', 'verified', 300_000, 1_000_000, 'admin-1');
+    expect(prisma.kycProfile.upsert.mock.calls[0][0].select.legalName).toBeUndefined();
+    expect(res.legalName).toBeUndefined();
+    expect(JSON.stringify(res)).not.toContain('Persona Ejemplo');
+  });
 });
 
 /* ------------------------------------------------------------------------------------------------

@@ -28,6 +28,196 @@
 > §0.22 de este documento son de `main` y NO se movieron**: son M47-H2, v1.53 (buylist raw-only) y
 > v1.53-b. Un informe de QA/techlead anterior al 2026-09-06 puede usar la numeración vieja.
 
+## 0.44 — **v1.60: el campo muerto, el candado que no se podía poner rojo, y el número del tablero que NO toqué** (2026-09-07, gates de QA + techlead sobre el ciclo de compra)
+
+> Propiedad: **backend**. Contra el contrato **v1.60** (**§M5-K.5(a)**) y `ARCHITECTURE` §3.2 / §4.39i.4-bis.
+> **Cero DDL, cero endpoints nuevos, cero cambios de forma de respuesta salvo el campo que el contrato
+> manda retirar.** Tres encargos; **dos implementados, uno DETENIDO y escalado al arquitecto (regla 9)**.
+
+### 0.44.1 `legalName` sale de los DTOs de admin — §M5-K.5(a) (BLOQUEANTE, cerrado)
+
+**Qué dice el contrato y qué hacía el código.** §M5-K.5(a) retira `legalName` de `AdminKycProfileDTO`
+y `AdminKycProfileOperatorDTO`: campo muerto, sin escritor que le pusiera un nombre, y *«un campo que
+el panel pinta y siempre llega `null` invita a poblarlo, y poblarlo reintroduce el cotejo por la
+puerta de atrás»*. El código lo seguía emitiendo (QA lo midió en vivo: `PATCH
+/api/v1/admin/users/:id/kyc` como `super_admin` devolvía `"legalName": null`).
+
+**Lo que cambió, todo en `backend/src/modules/admin/admin.service.ts`:**
+
+| Sitio | Antes | Ahora |
+|---|---|---|
+| `ADMIN_KYC_SELECT` (`:47`) | `legalName: true` | **fuera** — la columna ya ni se lee de la BD |
+| tipo de `toAdminKycDTO` (`:191`) | `legalName: string \| null` | **fuera** |
+| proyección de `toAdminKycDTO` (`:205`) | `legalName: k.legalName` | **fuera** |
+| proyección `vault_operator` de `getUser` (`:503`) | `legalName: safe.kycProfile.legalName` | **fuera** |
+| **proyección `super_admin` de `getUser`** (`:466-483`) | **la emitía por `...rest`** | **descartada a mano** (`legalName: _l`) |
+| escritor a `null` del soft-delete (`:765`) | `legalName: null` | **INTACTO** (el contrato lo pide así) |
+
+⚠️ **La quinta fila es un hallazgo, no un extra.** El contrato enumera *«`ADMIN_KYC_SELECT`, el tipo y
+las DOS proyecciones (`:205`, `:503`)»*, y esa lista **no es completa**: la rama `super_admin` de
+`getUser` no usa `ADMIN_KYC_SELECT` —lee con `include: { kycProfile: true }`— y proyecta **por resto**
+(`...rest`), así que publicaba `legalName` por una puerta que la lista blanca no cubre. **No es una
+contradicción del contrato** (la norma es *«sale de los dos DTOs»*, y eso es lo que se cumple): es
+**una imprecisión de las referencias de línea**, y se anota aquí para que el próximo lector no la use
+como censo. *Una proyección por resto publica cada columna nueva del schema por omisión — es la razón
+por la que existe la lista blanca, y el sitio donde falta es donde el campo se escapa.*
+
+**Cero DDL:** la columna se conserva **INERTE** en `schema.prisma` (precedente exacto de
+`capPerRequestCentsOverride`). **Impacto de frontend cero, RE-MEDIDO por mí antes de tocar nada:**
+`grep -rn legalName frontend/` ⇒ **0 coincidencias**.
+
+**Candados (unitarios), y qué mutación pone rojo a cada uno:**
+
+| Candado | Fichero | Mutación que lo pone rojo |
+|---|---|---|
+| el `select` no pide la columna **y** el DTO no la proyecta | `test/no-raw-entity-response.spec.ts` | (M1) `legalName: true` de vuelta en `ADMIN_KYC_SELECT` ⇒ **rojo**; (M2) `legalName` de vuelta en `toAdminKycDTO` ⇒ **rojo** |
+| ninguna de las **dos ramas** de la ficha 360° lo emite | `test/admin.pii.spec.ts` (`it.each` sobre los dos roles) | (M3) quitar `legalName: _l` de la rama `super_admin` ⇒ **rojo**; (M4) `legalName` de vuelta en la rama del operador ⇒ **rojo** |
+
+Los dos candados **no se tapan entre sí**: son dos caminos de lectura distintos (`select` blanco vs.
+`include` + proyección por resto) y cada mutación mata exactamente uno.
+
+⚠️ **PARA FRONTEND / QA:** `AdminKycProfileDTO` y `AdminKycProfileOperatorDTO` **ya no traen la clave
+`legalName`** (antes venía y siempre valía `null`). `kycStatus`, `verifiedBy`/`verifiedAt` y los topes
+se quedan **sin cambio**.
+
+⚠️ **NO se tocó `capPerRequestCents`**, que el contrato **v1.59/D47 (§M5-D.3)** también retira de los
+dos DTOs y que el código **sigue emitiendo** (`:207`, `:479`, `:507`, y el body del `PATCH` lo sigue
+aceptando). **No es un olvido:** `PENDIENTES.md §1` lo tiene como trabajo 1 del próximo pase, **atado
+a `BL-43` en el mismo commit** («no se puede retirar `A1` sin poner su sustituto»). Retirarlo aquí,
+suelto, sería justamente lo que esa restricción prohíbe.
+
+### 0.44.2 La invariante «en una solicitud cerrada el bruto es final» — ahora pinchada contra Postgres
+
+**El hallazgo de QA, y por qué era grave:** la guarda de `recomputeApprovedTotal`
+(`buylist.service.ts`, `updateMany` con `...liveRequestWhere()`) **no tenía ni un caso que la
+ejercitara contra la base**. QA la mutó dejando el `updateMany` y **la suite de integración quedó
+264/264 en verde**; solo la sostenían dos asertos de **forma** sobre un Prisma mockeado.
+
+⚠️⚠️ **EL TEST QUE PIDE EL HALLAZGO, LITERAL, NO SIRVE — y lo digo con la medición.** *«Sella una
+solicitud `pagada`, dispara una decisión por-ítem y exige que `approvedTotalCents` no se mueva»*
+**no ejercita esa guarda**: `itemDecision` corta antes con el pre-check de terminal de **BL-14**
+(`409 NO_LIVE_ADJUSTMENT`) y **el recompute ni se llama**. Ese test pasa en verde con la guarda
+**borrada** — sería otra vez el candado que no se puede poner rojo.
+
+**Lo que se escribió:** `backend/test/integration/buylist-closed-total.e2e-spec.ts`, **por HTTP,
+contra Postgres real**, con **dos** casos que pinchan invariantes distintas:
+
+| Caso | Escenario | Qué afirma |
+|---|---|---|
+| **(A)** | ciclo completo → `pay-spei` **sin ninguna decisión por-ítem** (el repro exacto de QA: `approvedTotalCents = null`, `offerGrossCents = 50000`, `payoutNetCents = 32000`) → `PATCH …/decision` | `409 NO_LIVE_ADJUSTMENT`, el total **sigue `null`** y el ítem no se movió |
+| **(B)** | fila **CERRADA con estado VIVO** (`closedAt` sellado + `status = verificacion`) — la fila que P1 fabricaba, sembrada por `h.prisma` porque la API no la produce → `PATCH …/decision` | la decisión **prospera (200, ítem a MX$500)** y aun así `approvedTotalCents` **sigue `null`** |
+
+**(B) es el que pincha la guarda**, por su eje `closedAt`: es el único eje alcanzable por HTTP (el de
+`status` lo tapa BL-14, y el hueco real que la guarda cubre —el recompute commiteando *después* de
+`pay-spei`— es una carrera que no se guioniza sin meter un seam de test en producción).
+
+**Mutaciones y rojos (medidos, no argumentados):**
+
+| Mutación | Resultado |
+|---|---|
+| **(M5)** `recomputeApprovedTotal` pierde `...liveRequestWhere()` (**la mutación de QA, literal**) | **(B) ROJO** (`Expected: null` / `Received: 50000`) · (A) verde · **suite de integración completa: 1 fallo / 266** — antes era 264/264 en verde |
+| **(M6)** se quitan los **dos** candados de terminal de `itemDecision` (pre-check BL-14 + término del `where`) | **(A) ROJO** (`Expected: 409` / `Received: 200`) · (B) verde |
+
+⇒ cada caso se pone rojo **por su propia razón** y **ninguno tapa al otro**.
+
+### 0.44.3 El predicado del barrido (`buylist-sweep`): **NO** le añado test de integración, y por qué
+
+El encargo pedía decidir si merece el mismo trato. **Decisión: no**, y va con medición.
+
+**(M7)** devolví la escritura de `closeWithGuideTask` a su `where` débil (`{ id, closedAt: null }`,
+el B-1 original) y corrí las dos suites:
+
+- **unitarios: 6 rojos** en `test/buylist-sweep.write-predicate.spec.ts` — y **no son de forma**: tres
+  son de **paridad estructural** (cada término de la lectura aparece en la escritura) y **tres son de
+  CARRERA** (la fila se mueve entre el `findMany` y el `updateMany` ⇒ no se expira, no sale correo, no
+  se cuenta), sobre un harness con `afterRead`.
+- **integración: 266/266 en verde.**
+
+**No es el mismo caso que 0.44.2.** Allí el candado **no podía ponerse rojo por conducta** en ninguna
+suite; aquí **sí se pone rojo, y por la conducta exacta que importa**. Lo que queda es un residual
+distinto y menor: el harness **reimplementa el matcher de `where` de Prisma**, así que su fidelidad al
+motor es una suposición. Duplicarlo en integración exigiría **espiar `prisma.sellRequest.findMany`
+para mutar la fila en la ventana** —un mock de Prisma en la suite que prohíbe mocks de Prisma— a
+cambio de cubrir una carrera **ya cubierta**. *Un candado probable vale más que dos que se tapan entre
+sí.*
+
+⏳ **Residual registrado (no bloqueante).** *Riesgo:* el fake podría interpretar un `where` distinto de
+como lo hace Postgres y dejar verde una regresión real. *Disparador para convertirlo:* que el `where`
+del barrido gane un término que el matcher del harness **no sabe evaluar** (hoy solo hay igualdad,
+`null`, `in`, `not`, `lte`, `gt`), o el primer fallo real de un barrido en staging.
+
+### 0.44.4 ⛔⛔ `buylistPeriod.amountCents` — **DETENIDO Y ESCALADO AL ARQUITECTO (regla 9). NO se tocó una línea.**
+
+**El defecto, reproducido por mí contra la BD real** (no citado): con una solicitud pagada del ciclo
+—`offerGrossCents = 50000`, `offerShippingFeeCents = 18000`, `approvedTotalCents = null`,
+`payoutNetCents = 32000`— el agregado que publica la tarjeta da:
+
+```
+TABLERO HOY (_sum approvedTotalCents) : 0        ← lo que se le enseña al operador
+BRUTO CONSUMADO (cascada brutoConsumado): 50000
+NETO SELLADO (_sum payoutNetCents)    : 32000    ← el dinero que de verdad salió
+```
+
+`{ count: 1, amountCents: 0 }` sobre MX$320 que salieron por SPEI.
+
+**Por qué no lo arreglé yo:** las dos salidas razonables **no son mías**.
+
+1. **Congelar el bruto al pagar** (la dirección del techlead: *«un número de dinero se decide una vez,
+   donde se decide el dinero»*) ⇒ **columna aditiva** en `SellRequest`, escrita en el mismo `data` que
+   `payoutNetCents` y desde el **mismo** local `payoutCents` (cero derivación nueva), y el reporte pasa
+   a `_sum` de esa columna. **Es DDL** ⇒ `backend/prisma/` es zona compartida ⇒ **arquitecto primero**.
+   *Y trae una segunda decisión suya:* las filas pre-M-46 quedarían `null` (mismo trato que
+   `payoutNetCents`, que **no se backfilleó**) ⇒ **los periodos históricos reportarían de menos** salvo
+   que se autorice un backfill `COALESCE(approvedTotalCents, offerGrossCents, quotedTotalCents, 0)`.
+2. **Sumar `payoutNetCents`** (ya sellado, `_sum` lo expresa, **cero DDL, una línea**) ⇒ pero eso
+   **cambia el significado de una tarjeta de dinero** de **bruto** a **neto**. El contrato §11 fija la
+   **forma** (`{ count, amountCents }`) y **no dice cuál de los dos es**; el criterio 155 sí dice que
+   *«las dos medidas conviven y NO se mezclan»*. **Elegir cuál mide esta tarjeta es una decisión
+   normativa, no una corrección de bug.**
+
+**Lo que descarté, con el motivo:**
+
+- **`findMany` + `reduce` con `brutoConsumado`** — no sería una «tercera copia» (es un tercer **sitio
+  de llamada** del cuerpo único de `common/buylist-aml.ts`), pero **sí mete una lectura sin cota en el
+  tablero**: con `from`/`to` arbitrarios el conjunto es *todas* las solicitudes pagadas del rango.
+- **Tres `_sum` disjuntos** que expresen el `COALESCE` particionando el `where` — bounded y sin DDL,
+  pero **transcribe el orden de la cascada por cuarta vez**, lejos del dinero. Es el defecto que
+  §4.39i.4-bis existe para cerrar.
+- **`_sum(payoutNetCents) + _sum(offerShippingFeeCents)`** para «recuperar» el bruto — ⛔ **NO es
+  exacto, y lo medí en el código**: `payoutNetCents = max(0, brutoConsumado − fee)`, y el `max(0,…)`
+  **sí puede disparar en el pago** (el piso de neto de D34/D40 se valida **al ofertar**, sobre
+  `offerGrossCents`; si luego se rechazan líneas, `brutoConsumado` baja por debajo de la tarifa). La
+  suma daría un bruto **inflado** justo en el caso raro.
+
+✅ **`GET /admin/finance/pnl` NO está afectado — VERIFICADO leyendo las dos puntas, no asumido.**
+`pnl()` solo lee `Order` (+`items.inventoryItem.acquisitionCostCents`) y `ShipmentRequest`: **cero
+lecturas de `SellRequest`**. Y `acquisitionCostCents` se escribe al convertir desde
+`item.offeredPriceCents ?? approvedPriceCents ?? quotedPriceCents`, **por línea** — nunca desde
+`approvedTotalCents`.
+
+⚠️ **Hallazgo colateral para el arquitecto, medido de paso:** en el camino *«se aceptó todo tal cual
+se ofertó»* (pagar desde `verificacion` sin decisiones por-ítem) los ítems **nunca llegan a
+`aprobada`**, y `convertToInventory` los rechaza con `422 ITEM_NOT_APPROVED`. ⇒ esas piezas **tampoco
+entran al inventario ni al COGS**: el dinero que salió es invisible **en las dos tarjetas**, no solo
+en la del buylist. No es el encargo y **no lo toqué**; lo dejo escrito porque decide si (1) basta.
+
+### 0.44.5 Verificación (literal)
+
+| Suite | Antes (baseline medido por mí, = el de `PENDIENTES.md`) | Después |
+|---|---|---|
+| unitarios (`npx jest`) | **248 suites / 3.609** | **248 suites / 3.612** (+3 asertos de candado) |
+| integración contra **Postgres real** (`jest-integration.config.js`) | **17 suites / 264** | **18 suites / 266** (+1 suite, +2 casos) |
+| `tsc --noEmit` | limpio | **limpio** |
+| `eslint src/ test/` | 0 errores + 2 warnings preexistentes (`inventory/`) | **idéntico** |
+
+**Mutaciones corridas: 7 (M1–M7). Las 7 pusieron algo en rojo**, y cada una **solo** lo que le tocaba.
+
+**Lo que NO medí, dicho:** (a) **producción y staging** — todo esto es local contra
+`postgresql://…@localhost:5432/tcg_marketplace`; (b) **frontend**: no corrí su suite (no escribo ahí);
+lo único que le cambia es la ausencia de una clave que ya medí que no consume (0 coincidencias);
+(c) **la carrera real** `recompute` ⟶ `pay-spei` (el eje `status` de la guarda) sigue **sin test**:
+solo se guioniza metiendo un seam en producción, y no lo hice.
+
 ## 0.43 — **v1.58: las CUATRO invariantes del pase — §M5-A, §M5-R, BL-40 y BL-36** (2026-09-06, rama `claude/buylist-inventory-workflow-hdnls3`, **CUATRO commits separados**)
 
 > Propiedad: **backend**. Contra el contrato **v1.58** (**§M5-A**, **§M5-R**, §M5 `APPROVED_PRICE_CAP_EXCEEDED`,
