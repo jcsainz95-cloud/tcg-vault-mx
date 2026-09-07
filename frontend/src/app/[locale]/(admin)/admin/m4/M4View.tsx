@@ -66,7 +66,7 @@ export function M4View() {
   const tStatus = useTranslations('status.shipment');
   const tc = useTranslations('common');
   const locale = useLocale() as AppLocale;
-  const getError = useErrorMessage();
+  const getError = useErrorMessage('operator');
   const qc = useQueryClient();
   const steps = useShipmentSteps();
 

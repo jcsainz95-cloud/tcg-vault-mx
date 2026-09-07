@@ -236,7 +236,11 @@ export function BuylistDecisionDesk({ sellRequestId, onClose }: BuylistDecisionD
   const tc = useTranslations('common');
   const locale = useLocale() as AppLocale;
   const queryClient = useQueryClient();
-  const getErrorMessage = useErrorMessage();
+  // ⚠️ **`'operator'` NO es decoración.** Esta es la pantalla donde v1.58 hizo alcanzables
+  // `INE_REQUIRED` y `BUYLIST_LIMIT_EXCEEDED` (§M5-A), y sin declarar la audiencia el banner le
+  // diría al operador que suba **su** INE. El destinatario se resuelve con `details` del servidor
+  // primero y con esto después (DESIGN_SYSTEM §26.2 · `lib/error-audience.ts`).
+  const getErrorMessage = useErrorMessage('operator');
 
   const [selected, setSelected] = useState<Set<string> | null>(null);
   const [overrides, setOverrides] = useState<Record<string, LineOverride>>({});

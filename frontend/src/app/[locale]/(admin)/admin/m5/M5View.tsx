@@ -198,7 +198,9 @@ export function M5View() {
   const steps = useBuylistSteps();
   const { isSuperAdmin } = useRole();
   const qc = useQueryClient();
-  const getError = useErrorMessage();
+  // ⚠️ Back-office: quien lee es el OPERADOR (DESIGN_SYSTEM §26). Aquí caen `REQUEST_NOT_RECEIVED`
+  // y `APPROVED_PRICE_CAP_EXCEEDED` de la mesa de verificación, que **solo** existen de este lado.
+  const getError = useErrorMessage('operator');
   // Operativas: fetch de la página actual del server (las etapas vivas siguen filtrando en memoria).
   const query = useQuery({ queryKey: ['admin-buylist'], queryFn: () => getAdminBuylist() });
 
@@ -867,11 +869,16 @@ export function M5View() {
           ) : (
             visible.map((req) => {
           // ⚠️ **DINERO SALIENTE.** Aquí vivía la SEXTA copia: `SELL_REQUEST_PAYABLE_STATES`
-          // transcrito a mano —y **con uno solo de los dos términos** del servidor, que también
-          // exige `verifiedAt != null`—, así que la pantalla habilitaba el pago en filas donde el
-          // servidor responde 422. No era una copia que pudiera desincronizarse algún día: **ya lo
-          // estaba.** Ahora lo deriva el servidor (`isPayable`, §4.39c sitio 10) del MISMO cuerpo
-          // que el pre-check y la guarda atómica de `pay-spei`: tres lectores, una regla.
+          // transcrito a mano —y **con uno solo de los términos** del servidor—, así que la
+          // pantalla habilitaba el pago en filas donde el servidor responde 422. No era una copia
+          // que pudiera desincronizarse algún día: **ya lo estaba.** Ahora lo deriva el servidor
+          // (`isPayable`, §4.39c sitio 10) del MISMO cuerpo que el pre-check y la guarda atómica de
+          // `pay-spei`: tres lectores, una regla.
+          //
+          // ⚠️ **Y la prueba de que la forma es la correcta la dio v1.57:** la fórmula ganó un
+          // TERCER término (`receivedAt IS NOT NULL`, §M5-P — *«no se paga lo que no ha llegado»*)
+          // y **esta línea no se tocó**. Una copia local habría tenido que enterarse; ésta no tiene
+          // de qué enterarse.
           //
           // ⚠️ El ROL se queda aquí y NO se funde en el campo: «¿esta solicitud está en condición
           // de pagarse?» es propiedad de LA FILA; «¿puedo pagarla yo?» es propiedad DEL ACTOR.

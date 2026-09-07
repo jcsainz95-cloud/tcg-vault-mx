@@ -26,7 +26,7 @@ export function M8View() {
   const tc = useTranslations('common');
   const { isSuperAdmin } = useRole();
   const qc = useQueryClient();
-  const getError = useErrorMessage();
+  const getError = useErrorMessage('operator');
   const query = useQuery({ queryKey: ['admin-disputes'], queryFn: getAdminDisputes });
   // Selección por id (no por objeto): tras invalidar, `active` refleja el estado fresco.
   const [selectedId, setSelectedId] = useState<string | null>(null);

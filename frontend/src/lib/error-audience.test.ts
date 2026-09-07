@@ -1,0 +1,252 @@
+import { describe, it, expect } from 'vitest';
+import { readFileSync, readdirSync } from 'node:fs';
+import { join } from 'node:path';
+import es from '../../messages/es.json';
+import en from '../../messages/en.json';
+import type { AdminBuylistDTO } from '@/types/contract';
+import {
+  AUDIENCE_SENSITIVE_ERROR_CODES,
+  DESIGN_SYSTEM_26_ERROR_CODES,
+  ERROR_SCOPE_AUDIENCE,
+  errorMessageKeys,
+  resolveErrorAudience,
+} from './error-audience';
+
+/*
+ * ─────────────────────────────────────────────────────────────────────────────
+ * DESIGN_SYSTEM §26 — «el destinatario manda». LOS CANDADOS.
+ *
+ * El defecto: `useErrorMessage` resolvía **por código a secas**, así que el `422 INE_REQUIRED` que
+ * v1.58 hizo alcanzable desde `POST /admin/buylist/:id/offer` le decía al OPERADOR que subiera
+ * **su** INE. **Hoy nada fallaba si el copy y su destinatario divergían — que es exactamente la
+ * razón por la que divergieron.**
+ *
+ * Estos candados miden tres cosas distintas, y ninguna se tapa con otra:
+ *   1. **EXISTENCIA** — que las claves de §26 estén en los DOS catálogos (si falta una, el operador
+ *      lee el inglés crudo del servidor: prohibición 7).
+ *   2. **SIGNIFICADO** — que la variante de operador **no le hable como si fuera el sujeto** de la
+ *      regla (prohibiciones 1 y 2). Una variante que existe pero repite el «tú» del vendedor pasa
+ *      cualquier candado de existencia y **no arregla nada**.
+ *   3. **CABLEADO** — que toda pantalla de `(admin)` declare su audiencia. Sin esto, las dos
+ *      anteriores estarían verdes con el mecanismo desconectado.
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+
+function keyPaths(obj: unknown, prefix = ''): string[] {
+  if (typeof obj !== 'object' || obj === null) return [prefix];
+  return Object.entries(obj as Record<string, unknown>).flatMap(([k, v]) =>
+    keyPaths(v, prefix ? `${prefix}.${k}` : k),
+  );
+}
+
+function value(catalog: unknown, path: string): string | undefined {
+  const found = path
+    .split('.')
+    .reduce<unknown>((acc, k) => (acc as Record<string, unknown> | undefined)?.[k], catalog);
+  return typeof found === 'string' ? found : undefined;
+}
+
+const CATALOGS: [string, unknown][] = [
+  ['es', es],
+  ['en', en],
+];
+
+describe('§26 · EXISTENCIA: los siete códigos y sus variantes están en los dos catálogos', () => {
+  it.each(CATALOGS)('%s traduce los SIETE códigos de §26 (nunca el inglés del servidor)', (locale, catalog) => {
+    const keys = new Set(keyPaths(catalog));
+    const missing = DESIGN_SYSTEM_26_ERROR_CODES.filter((code) => !keys.has(`error.${code}`));
+    expect(missing, `${locale}: sin copy base para ${missing.join(', ')}`).toEqual([]);
+  });
+
+  it.each(CATALOGS)('%s tiene la variante `_OPERATOR` de cada código de DOS destinatarios', (locale, catalog) => {
+    const keys = new Set(keyPaths(catalog));
+    const missing = AUDIENCE_SENSITIVE_ERROR_CODES.filter(
+      (code) => !keys.has(`error.${code}_OPERATOR`),
+    );
+    expect(missing, `${locale}: sin variante de operador para ${missing.join(', ')}`).toEqual([]);
+  });
+
+  it.each(CATALOGS)('%s: la variante de operador NO es una copia de la base', (locale, catalog) => {
+    // Si alguien «añade la clave» duplicando el texto del vendedor, el candado de existencia pasa
+    // y el operador sigue leyendo el mensaje equivocado. Esto es lo que impide ese atajo.
+    for (const code of AUDIENCE_SENSITIVE_ERROR_CODES) {
+      const base = value(catalog, `error.${code}`);
+      const operator = value(catalog, `error.${code}_OPERATOR`);
+      expect(operator, `${locale}: falta error.${code}_OPERATOR`).toBeDefined();
+      expect(operator, `${locale}: error.${code}_OPERATOR repite la cadena del vendedor`).not.toBe(base);
+    }
+  });
+});
+
+describe('§26.6 · SIGNIFICADO: al operador no se le habla como si fuera el sujeto de la regla', () => {
+  /**
+   * Prohibición 1. Se buscan las formas concretas del defecto medido —«tu INE», «superas el
+   * tope»— y no un «tú» genérico: el copy de operador **sí** lo tutea («llámalo», «compra menos»),
+   * y prohibir el tuteo entero pondría rojo un texto correcto. Lo prohibido es el «tú» que apunta
+   * al VENDEDOR.
+   */
+  const SUBJECT_CONFUSION: [string, RegExp][] = [
+    ['es', /\b(tu|tus)\s+(INE|identificaci[óo]n)\b|\bsuperas\b|\bnecesitas\s+subir\b/i],
+    ['en', /\byour\s+(INE|ID)\b|\byou\s+exceed\b|\byou\s+need\s+to\s+upload\b/i],
+  ];
+
+  it.each(SUBJECT_CONFUSION)(
+    '%s: ninguna variante `_OPERATOR` acusa al operador de incumplir la regla',
+    (locale, forbidden) => {
+      const catalog = locale === 'es' ? es : en;
+      const offenders = AUDIENCE_SENSITIVE_ERROR_CODES.map(
+        (code) => [`error.${code}_OPERATOR`, value(catalog, `error.${code}_OPERATOR`) ?? ''] as const,
+      ).filter(([, text]) => forbidden.test(text));
+      expect(offenders.map(([k]) => k)).toEqual([]);
+    },
+  );
+
+  it.each(SUBJECT_CONFUSION)(
+    '%s: y el candado NO está mirando al vacío — la cadena del VENDEDOR sí usa esa forma',
+    (locale, forbidden) => {
+      // Anti-vacuidad: si el patrón dejara de reconocer el defecto (o si las claves cambiaran de
+      // nombre), esto se pone rojo antes de que el candado de arriba apruebe por no encontrar nada.
+      const catalog = locale === 'es' ? es : en;
+      expect(forbidden.test(value(catalog, 'error.INE_REQUIRED') ?? '')).toBe(true);
+    },
+  );
+
+  it('prohibición 2: el UMBRAL DE INE no se interpola en ninguna cadena de operador', () => {
+    // `thresholdCents` es cumplimiento **sobre un tercero**: no acota la acción del operador y sí
+    // añade superficie (§M5-A.7 lo omite a propósito del `details` de la emisión).
+    for (const [locale, catalog] of CATALOGS) {
+      const operatorStrings = keyPaths(catalog)
+        .filter((k) => k.startsWith('error.') && k.includes('_OPERATOR'))
+        .map((k) => [k, value(catalog, k) ?? ''] as const);
+      expect(operatorStrings.length, `${locale}: no se encontró ninguna cadena de operador`).toBeGreaterThan(0);
+      const offenders = operatorStrings
+        .filter(([, text]) => /\{threshold[A-Za-z]*\}|umbral de INE|INE threshold/i.test(text))
+        .map(([k]) => k);
+      expect(offenders, `${locale}: umbral de INE en cadena de operador`).toEqual([]);
+    }
+  });
+
+  it('las tres cadenas viejas desaparecieron de los dos catálogos (§26.8.2)', () => {
+    for (const [locale, catalog] of CATALOGS) {
+      const all = keyPaths(catalog).map((k) => value(catalog, k) ?? '');
+      // La cota «cotizado × 2» ya no se nombra dentro del ciclo de oferta… y la cadena que la
+      // nombraba era una sola para los dos casos.
+      expect(all.filter((v) => /cotizado × 2|quoted × 2/.test(v)), locale).toEqual([]);
+    }
+  });
+});
+
+describe('§26.2 · el SELECTOR: `code` + discriminador → destinatario', () => {
+  it('`BUYLIST_LIMIT_EXCEEDED` se decide por `details.scope`', () => {
+    const seller = resolveErrorAudience('BUYLIST_LIMIT_EXCEEDED', { scope: 'per_month' }, 'operator');
+    const operator = resolveErrorAudience('BUYLIST_LIMIT_EXCEEDED', { scope: 'per_month_offer' }, undefined);
+    // El servidor manda sobre la superficie: sabe qué puerta disparó.
+    expect(seller).toBe('seller');
+    expect(operator).toBe('operator');
+  });
+
+  it('`INE_REQUIRED` se decide por la FORMA de `details` (petición 1 al arquitecto)', () => {
+    expect(resolveErrorAudience('INE_REQUIRED', { thresholdCents: 300000 }, 'operator')).toBe('seller');
+    expect(
+      resolveErrorAudience('INE_REQUIRED', { sellRequestId: 'sr-1', grossCents: 340000 }, undefined),
+    ).toBe('operator');
+  });
+
+  it('sin discriminador manda la SUPERFICIE; sin superficie, no hay audiencia (se pinta la base)', () => {
+    // `PICKUP_ADDRESS_LOCKED` no tiene discriminador en `details`: su desdoble es por ruta.
+    expect(resolveErrorAudience('PICKUP_ADDRESS_LOCKED', undefined, 'operator')).toBe('operator');
+    expect(resolveErrorAudience('PICKUP_ADDRESS_LOCKED', {}, undefined)).toBeUndefined();
+  });
+
+  it('los scopes RETIRADOS (v1.59/D47) no se traducen: caen a la superficie, y a la base si no hay', () => {
+    // §26.2: «no se les escribe copy; si el front los recibe, es un hallazgo para QA».
+    expect(ERROR_SCOPE_AUDIENCE).not.toHaveProperty('per_request');
+    expect(ERROR_SCOPE_AUDIENCE).not.toHaveProperty('per_request_offer');
+    expect(
+      resolveErrorAudience('BUYLIST_LIMIT_EXCEEDED', { scope: 'per_request_offer' }, undefined),
+    ).toBeUndefined();
+  });
+
+  it('el ORDEN de las claves es normativo: destinatario primero, base después', () => {
+    expect(errorMessageKeys('INE_REQUIRED', 'operator')).toEqual([
+      'error.INE_REQUIRED_OPERATOR',
+      'error.INE_REQUIRED',
+    ]);
+    expect(errorMessageKeys('INE_REQUIRED', 'seller')).toEqual(['error.INE_REQUIRED']);
+    expect(errorMessageKeys('INE_REQUIRED', undefined)).toEqual(['error.INE_REQUIRED']);
+  });
+});
+
+describe('§26.3 · el HUECO DECLARADO de `APPROVED_PRICE_CAP_EXCEEDED` (petición 2 al arquitecto)', () => {
+  it('la cadena del ciclo EXISTE en los dos catálogos, aunque hoy no se pueda elegir', () => {
+    // Se cablea el texto porque es normativo; lo que no se cablea es el SELECTOR. Ver el trip-wire
+    // de abajo y `docs/FRONTEND_NOTES.md` §50.
+    for (const [locale, catalog] of CATALOGS) {
+      expect(
+        value(catalog, 'error.APPROVED_PRICE_CAP_EXCEEDED_OFFER_CYCLE'),
+        `${locale}: falta la variante del ciclo de oferta`,
+      ).toBeTruthy();
+    }
+  });
+
+  it('y la base NO explica la cota retirada («cotizado × 2» sigue siendo cierta FUERA del ciclo)', () => {
+    // El defecto era afirmar el `× 2` **siempre**. Fuera del ciclo la cota relativa sí aplica
+    // (`relativeCapApplies: !inOfferCycle`), así que la base la nombra con propiedad; la del ciclo
+    // no la menciona ni para negarla (§26.3).
+    expect(value(es, 'error.APPROVED_PRICE_CAP_EXCEEDED')).toMatch(/doble de lo cotizado/);
+    expect(value(es, 'error.APPROVED_PRICE_CAP_EXCEEDED_OFFER_CYCLE')).not.toMatch(/doble|× 2/);
+  });
+});
+
+/**
+ * ⚠️ **TRIP-WIRE del hueco declarado.** `inOfferCycle` lo decide el backend con
+ * `sellRequest.offerSentAt != null` (`buylist.service.ts:6202`), y **`AdminBuylistDTO` no lleva
+ * `offerSentAt`**: la pantalla no puede evaluar el selector de §26.3 sin inventarse un sustituto
+ * (`offerState === 'sent'` **no** es equivalente — una oferta cancelada tiene `offerSentAt` sellado
+ * y `offerState: 'cancelled'`). Por eso hoy se pinta la base, que es lo que §26.3 manda mientras
+ * tanto.
+ *
+ * El día que el DTO gane el campo —o que `details` gane `bound`/`inOfferCycle`, que es la petición
+ * 2 al arquitecto—, **esta línea deja de compilar** y obliga a cablear la variante en vez de
+ * dejarla muerta en el catálogo. *Un hueco declarado sin trip-wire es un hueco que se olvida.*
+ */
+// ⚠️ Es un candado de TIPO puro (no ejecuta nada): `@ts-expect-error` falla cuando el error
+// desaparece, o sea **cuando el campo aparezca**.
+// @ts-expect-error — `offerSentAt` NO existe en `AdminBuylistDTO` (a propósito, ver arriba).
+type _OfferSentAtIsNotAvailableToTheScreen = AdminBuylistDTO['offerSentAt'];
+
+/**
+ * Todos los `.ts`/`.tsx` de PRODUCCIÓN bajo un directorio (sin tests).
+ */
+function productionSources(dir: string, acc: string[] = []): string[] {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const full = join(dir, entry.name);
+    if (entry.isDirectory()) productionSources(full, acc);
+    else if (/\.tsx?$/.test(entry.name) && !/\.test\.tsx?$/.test(entry.name)) acc.push(full);
+  }
+  return acc;
+}
+
+describe('§26 · CABLEADO: toda pantalla de back-office declara a quién le habla', () => {
+  const ADMIN_ROOT = join(__dirname, '..', 'app', '[locale]', '(admin)');
+  const sources = productionSources(ADMIN_ROOT).map((f) => [f, readFileSync(f, 'utf8')] as const);
+  const callers = sources.filter(([, src]) => /useErrorMessage\(/.test(src));
+
+  it('la búsqueda encuentra de verdad las pantallas de admin que resuelven errores', () => {
+    // Anti-vacuidad: si alguien mueve el grupo de rutas o renombra el hook, este candado dejaría
+    // de mirar nada y aprobaría en silencio — el modo de fallo exacto que esta sesión persigue.
+    expect(callers.length).toBeGreaterThanOrEqual(20);
+  });
+
+  it('NINGUNA pantalla de `(admin)` llama a `useErrorMessage()` sin declarar su audiencia', () => {
+    // Un `useErrorMessage()` pelado en back-office resuelve con el copy del VENDEDOR: es el
+    // defecto de §26 esperando a que alguien añada la pantalla número 26.
+    const offenders = callers
+      .filter(([, src]) => /useErrorMessage\(\s*\)/.test(src))
+      .map(([file]) => file.replace(ADMIN_ROOT, '(admin)'));
+    expect(
+      offenders,
+      `pantallas de admin sin audiencia declarada: ${offenders.join(', ')}`,
+    ).toEqual([]);
+  });
+});

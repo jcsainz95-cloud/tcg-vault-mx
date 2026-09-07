@@ -38,7 +38,7 @@ export function M3View() {
   const locale = useLocale() as AppLocale;
   const { isSuperAdmin } = useRole();
   const qc = useQueryClient();
-  const getError = useErrorMessage();
+  const getError = useErrorMessage('operator');
   const [refundTarget, setRefundTarget] = useState<AdminOrderDTO | null>(null);
   const [refundReason, setRefundReason] = useState('');
   const [refundDone, setRefundDone] = useState<string | null>(null);

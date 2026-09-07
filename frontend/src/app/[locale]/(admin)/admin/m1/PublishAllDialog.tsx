@@ -32,7 +32,7 @@ export interface PublishAllDialogProps {
 
 export function PublishAllDialog({ open, onClose, currentSet, onDone }: PublishAllDialogProps) {
   const t = useTranslations('admin.publishAll');
-  const errorMessage = useErrorMessage();
+  const errorMessage = useErrorMessage('operator');
   const [scope, setScope] = useState<Scope>('all');
 
   // batchKey estable por SESIÓN del diálogo: un reintento tras timeout es replay idempotente.

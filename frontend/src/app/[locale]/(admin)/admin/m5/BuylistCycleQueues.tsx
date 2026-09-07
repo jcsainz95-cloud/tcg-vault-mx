@@ -122,7 +122,7 @@ export function BuylistCycleQueues({ isSuperAdmin }: BuylistCycleQueuesProps) {
   const tc = useTranslations('common');
   const locale = useLocale() as AppLocale;
   const queryClient = useQueryClient();
-  const getErrorMessage = useErrorMessage();
+  const getErrorMessage = useErrorMessage('operator');
   const [tab, setTab] = useState<QueueKey>('pendingAuth');
 
   const auth = useQuery({

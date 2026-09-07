@@ -2368,14 +2368,27 @@ export interface AdminBuylistDTO {
    */
   isTerminal: boolean;
   /**
-   * v1.51.8 (§4.39c **sitio 10**) — **DERIVADO SERVER-SIDE. DINERO SALIENTE. ADMIN-ONLY.**
+   * v1.51.8 (§4.39c **sitio 10**) · ⚠️ **v1.57 (§M5-P) — TRES TÉRMINOS.**
+   * **DERIVADO SERVER-SIDE. DINERO SALIENTE. ADMIN-ONLY.**
    * ```
-   * isPayable = status ∈ SELL_REQUEST_PAYABLE_STATES  ∧  verifiedAt IS NOT NULL
+   * isPayable = status ∈ SELL_REQUEST_PAYABLE_STATES
+   *             ∧  receivedAt IS NOT NULL      // ⚠️ v1.57 — «RECIBIMOS»
+   *             ∧  verifiedAt IS NOT NULL      //            «y VERIFICAMOS»
    * ```
+   * ⛔ **La forma de DOS términos de v1.51.8 está SUPERSEDED** (contrato §M5 · v1.51.8, marcada
+   * ahí misma). El tercero cierra `BL-35` eje 2: `verify` es el único escritor de `verifiedAt` y
+   * su guarda **no exige predecesor**, así que alcanzarlo desde cualquier estado vivo volvía
+   * pagable una solicitud **cuya carta nunca llegó** — y el sistema le pintaba «lista para pagar»
+   * al `super_admin` que autoriza. *Un término implícito no es un término.*
+   *
    * Sale del **mismo cuerpo** que el pre-check y la guarda atómica de `pay-spei`: tres lectores,
    * una regla. Existe para borrar la **sexta** copia (`canPay` en `M5View`), que además replicaba
-   * **solo el primero de los dos términos** ⇒ la UI habilitaba el pago donde el servidor responde
+   * **solo el primero de los términos** ⇒ la UI habilitaba el pago donde el servidor responde
    * `422`. *No era una copia que pudiera desincronizarse algún día: ya lo estaba.*
+   *
+   * ⚠️ **Ni `receivedAt` ni `verifiedAt` viajan en este DTO** (ni en ningún otro): son columnas
+   * del backend. El cliente **no recompone la fórmula** — lee este booleano. *La lección de v1.57
+   * es que la fórmula creció y las copias no; la única defensa es no tener copia.*
    *
    * ⚠️ **ACTOR-INDEPENDIENTE, y NO es un permiso.** Contesta *«¿esta solicitud está en condición
    * de pagarse?»* (propiedad de **la fila**), no *«¿puedo pagarla yo?»* (propiedad **del actor**).

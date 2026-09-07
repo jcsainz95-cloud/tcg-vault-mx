@@ -97,7 +97,7 @@ export function GradedEstimateReviewSection() {
   const tReason = useTranslations('admin.m2.gradedEstimateCapture.diagnosis.reason');
   const locale = useLocale() as AppLocale;
   const qc = useQueryClient();
-  const getError = useErrorMessage();
+  const getError = useErrorMessage('operator');
 
   /** `false` = default del contrato (solo coherencia). `true` = además INV-D. */
   const [includeSlabPublished, setIncludeSlabPublished] = useState(false);

@@ -1250,29 +1250,71 @@ const MOCK_PAYABLE_SELL_REQUEST_STATUSES: ReadonlySet<SellRequestStatus> = new S
 ]);
 
 /**
- * ⚠️ **Los DOS términos**, espejo de `isPayableSellRequest` del backend:
- * `status ∈ PAYABLE ∧ verifiedAt != null`.
+ * ⚠️⚠️ **LOS HECHOS que hacen pagable una fila** — contrato **§M5-P** (v1.57), *«no se paga lo que
+ * no ha llegado»*:
+ * ```
+ * isPayable ⇔ status ∈ PAYABLE  ∧  receivedAt IS NOT NULL  ∧  verifiedAt IS NOT NULL
+ * ```
+ * **Son columnas OBLIGATORIAS de la «tabla» del servidor falso, no opcionales**, y eso es el
+ * arreglo: mientras `receivedAt` no existió en el tipo, **una fila pagable podía nacer sin
+ * constancia de recepción** y el servidor falso la declaraba `isPayable: true` — encendiendo el
+ * botón de pagar SPEI de M5 justo en la pantalla que existe para demostrar la regla. *El defecto
+ * no fue olvidar un `&&`: fue que el tipo permitía la fila que el `&&` tenía que frenar.*
  *
- * El segundo término es el que el frontend **nunca tuvo** —`canPay` replicaba solo el primero— y
- * por eso la UI habilitaba el pago en filas donde el servidor responde `422`. Si el servidor falso
- * se quedara también con un solo término, el modo mock **mantendría vivo el bug** justo en la
- * pantalla que existe para demostrarlo.
+ * ⛔ **Ninguna de las dos viaja en el DTO** (§M5-P: `isPayable` es lo único que el cliente ve).
+ */
+export type MockPayabilityAnchors = {
+  /** «RECIBIMOS» — lo sella `POST …/receive`, una sola vez, y nadie lo limpia. */
+  receivedAt: string | null;
+  /** «y VERIFICAMOS» — lo sella `POST …/verify`. */
+  verifiedAt: string | null;
+};
+
+/**
+ * ⚠️ **UN término por ancla, y el tipo lo obliga: `Record` EXHAUSTIVO sobre `MockPayabilityAnchors`.**
+ *
+ * La doctrina de este proyecto es *«la copia se cura eliminando la NECESIDAD de la copia»*. Aquí
+ * la copia no se puede borrar —en modo mock no hay backend que derive `isPayable`—, así que se le
+ * quita lo que la hace peligrosa: **la posibilidad de quedarse corta en silencio**. Añadir un
+ * ancla al tipo **sin** añadir su término aquí es un **error de compilación**, y quitar un término
+ * también lo es. El defecto de v1.57 —la fórmula creció a tres términos y el servidor falso se
+ * quedó en dos— **ya no se puede escribir**: no hay ningún sitio donde enumerar los términos a
+ * mano.
+ */
+const MOCK_PAYABILITY_ANCHOR_TERMS: {
+  [K in keyof MockPayabilityAnchors]: (value: MockPayabilityAnchors[K]) => boolean;
+} = {
+  receivedAt: (value) => value != null,
+  verifiedAt: (value) => value != null,
+};
+
+const MOCK_PAYABILITY_ANCHOR_KEYS = Object.keys(MOCK_PAYABILITY_ANCHOR_TERMS) as (keyof MockPayabilityAnchors)[];
+
+/**
+ * ⚠️ Espejo de `isPayableSellRequest` del backend (**TRES** términos desde v1.57). El estado se
+ * pregunta al set; los **hechos**, a la tabla de anclas de arriba — **una por una y todas**.
  */
 function mockIsPayable(row: MockAdminBuylistRow): boolean {
-  return MOCK_PAYABLE_SELL_REQUEST_STATUSES.has(row.status) && row.verifiedAt != null;
+  return (
+    MOCK_PAYABLE_SELL_REQUEST_STATUSES.has(row.status) &&
+    MOCK_PAYABILITY_ANCHOR_KEYS.every((key) => MOCK_PAYABILITY_ANCHOR_TERMS[key](row[key]))
+  );
 }
 
 /**
  * Ídem para la proyección ADMIN (`GET /admin/buylist`, `AdminBuylistDTO`).
  *
- * ⚠️ `verifiedAt` **NO sale en el DTO**: es una columna de la «tabla» del servidor falso, igual
- * que en el backend real, y solo alimenta la derivación de `isPayable`. Se destructura fuera a
- * propósito para que no se filtre al cliente por un `...row` distraído.
+ * ⚠️ Las anclas de pagabilidad **NO salen en el DTO**: son columnas de la «tabla» del servidor
+ * falso, igual que en el backend real, y solo alimentan la derivación de `isPayable`. Se
+ * destructuran fuera **por la lista de anclas**, no a mano, para que un ancla nueva no se filtre
+ * al cliente por un `...row` distraído.
  */
 export function mockAdminBuylistDTO(row: MockAdminBuylistRow): AdminBuylistDTO {
-  const { verifiedAt: _verifiedAt, ...dto } = row;
+  const dto = { ...row } as Omit<MockAdminBuylistRow, keyof MockPayabilityAnchors> &
+    Partial<MockPayabilityAnchors>;
+  for (const key of MOCK_PAYABILITY_ANCHOR_KEYS) delete dto[key];
   return {
-    ...dto,
+    ...(dto as Omit<MockAdminBuylistRow, keyof MockPayabilityAnchors>),
     isTerminal: MOCK_TERMINAL_SELL_REQUEST_STATUSES.has(row.status),
     isPayable: mockIsPayable(row),
   };
@@ -2574,13 +2616,18 @@ export function mockBulkPublish(req: BulkPublishRequest): BulkPublishResponse {
 }
 
 /**
- * ⚠️ Fila mock: sin los dos campos **server-derived** (`isTerminal`, `isPayable`), y **con**
- * `verifiedAt`, que es lo contrario — una columna de la «tabla» que **no** viaja en el DTO pero
- * sin la cual `isPayable` no se puede derivar (es su segundo término). Ver `mockAdminBuylistDTO`.
+ * ⚠️ Fila mock: sin los dos campos **server-derived** (`isTerminal`, `isPayable`), y **con** las
+ * anclas de pagabilidad, que son lo contrario — columnas de la «tabla» que **no** viajan en el DTO
+ * pero sin las cuales `isPayable` no se puede derivar. Ver `MockPayabilityAnchors`.
+ *
+ * ⚠️ **Las anclas son OBLIGATORIAS (`receivedAt`, `verifiedAt`), no opcionales, y ésa es la
+ * corrección de §M5-P.** Con `verifiedAt?` opcional, **omitir un ancla era gratis**: la fila salía
+ * del tipo sin que nadie decidiera nada y la derivación la leía como `undefined`. Ahora cada fila
+ * **declara** si la carta llegó y si se verificó — incluido decir `null`, que es una afirmación y
+ * no un olvido.
  */
-export type MockAdminBuylistRow = Omit<AdminBuylistDTO, 'isTerminal' | 'isPayable'> & {
-  verifiedAt?: string | null;
-};
+export type MockAdminBuylistRow = Omit<AdminBuylistDTO, 'isTerminal' | 'isPayable'> &
+  MockPayabilityAnchors;
 
 export const mockAdminBuylist: MockAdminBuylistRow[] = [
   /**
@@ -2601,6 +2648,9 @@ export const mockAdminBuylist: MockAdminBuylistRow[] = [
     status: 'cotizada',
     quotedTotalCents: 138000,
     createdAt: '2026-08-30T14:00:00Z',
+    // Nada ha llegado y nada se ha verificado: la carta sigue en casa del vendedor.
+    receivedAt: null,
+    verifiedAt: null,
     seller: { id: 'u-777', name: 'Ash Ketchum', email: 'ash@example.com' },
     items: [
       { id: 'sri-desk-1', card: cardById('c-charizard'), productType: 'raw', rawCondition: 'NM', finish: 'holofoil', rarity: 'Rare Holo', priceBasis: 'market', marketBracket: 'r25_80', quotedPriceCents: 90000, itemStatus: 'cotizada' },
@@ -2617,6 +2667,10 @@ export const mockAdminBuylist: MockAdminBuylistRow[] = [
     // ⚠️ v1.51.8: el backend sella `verifiedAt` en el MISMO `verify()` que pone `verificacion`, así
     // que una fila en este estado SIN la marca no existe en producción. La fixture no la tenía y
     // eso la volvía no-pagable: no era un dato de más, era un estado imposible.
+    // ⚠️ v1.57 (§M5-P): y `receivedAt` ANTES, porque el camino legítimo a `verificacion` pasa por
+    // `receive`. Una fila pagable sin esta marca es el PoC del eje 2 —MX$320 pagados por mercancía
+    // que nunca llegó—, no una fila de demostración.
+    receivedAt: '2026-08-12T15:00:00Z',
     verifiedAt: '2026-08-12T16:00:00Z',
     items: mockSellRequests[0].items,
   },
@@ -2626,6 +2680,9 @@ export const mockAdminBuylist: MockAdminBuylistRow[] = [
     status: 'recibida',
     quotedTotalCents: 1200,
     createdAt: '2026-08-13T08:00:00Z',
+    // `recibida` SOLO se alcanza por `receive`, que es el único escritor del ancla (§M5-P).
+    receivedAt: '2026-08-13T09:00:00Z',
+    verifiedAt: null,
     items: [
       { id: 'sri-9', card: cardById('c-machamp'), productType: 'raw', rawCondition: 'NM', finish: 'normal', rarity: 'Uncommon', priceBasis: 'market', marketBracket: 'r25_80', quotedPriceCents: 1200, itemStatus: 'recibida' },
     ],
@@ -2639,8 +2696,10 @@ export const mockAdminBuylist: MockAdminBuylistRow[] = [
     quotedTotalCents: 30000,
     approvedTotalCents: 28000,
     createdAt: '2026-08-14T10:00:00Z',
-    // Pasó por verificación ⇒ `isPayable` (los DOS términos). Sin esta columna la fila sería
-    // `aprobada` PERO NO pagable, que es exactamente el caso que el servidor rechaza con 422.
+    // Pasó por recepción Y verificación ⇒ `isPayable` (los TRES términos de §M5-P). Sin cualquiera
+    // de las dos columnas la fila sería `aprobada` PERO NO pagable, que es exactamente el caso que
+    // el servidor rechaza con 422.
+    receivedAt: '2026-08-14T18:00:00Z',
     verifiedAt: '2026-08-15T10:00:00Z',
     items: [
       { id: 'sri-appr', card: cardById('c-charizard'), productType: 'raw', rawCondition: 'NM', finish: 'holofoil', rarity: 'Rare Holo', priceBasis: 'market', marketBracket: 'r25_80', quotedPriceCents: 30000, approvedPriceCents: 28000, itemStatus: 'aprobada' },

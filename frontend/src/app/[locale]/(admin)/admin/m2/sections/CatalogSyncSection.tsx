@@ -24,7 +24,7 @@ import type { CatalogSync } from './useCatalogSync';
 export function CatalogSyncSection({ catalog }: { catalog: CatalogSync }) {
   const t = useTranslations('admin.m2');
   const tc = useTranslations('common');
-  const getError = useErrorMessage();
+  const getError = useErrorMessage('operator');
 
   const {
     remoteSets,

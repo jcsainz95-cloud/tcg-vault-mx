@@ -46,7 +46,7 @@ export function BuylistShipmentActions({ request }: { request: AdminBuylistDTO }
   const tc = useTranslations('common');
   const locale = useLocale() as AppLocale;
   const queryClient = useQueryClient();
-  const getErrorMessage = useErrorMessage();
+  const getErrorMessage = useErrorMessage('operator');
 
   const [carrier, setCarrier] = useState(request.shipmentCarrier ?? '');
   const [tracking, setTracking] = useState(request.shipmentTrackingNumber ?? '');

@@ -71,7 +71,9 @@ describe('M5View · Buylist admin end-to-end', () => {
   it('el botón Verificar dispara POST /verify y muestra la confirmación', async () => {
     const spy = vi
       .spyOn(api, 'verifyBuylistRequest')
-      .mockResolvedValue(srv({ id: 'sr-3002', userId: 'u-778', status: 'verificacion', quotedTotalCents: 1200, createdAt: '', items: [] }));
+      // ⚠️ §M5-P: la respuesta de `verify` sobre una fila RECIBIDA lleva las dos marcas. Escribirla
+      // sin `receivedAt` sería fabricar la fila del PoC del eje 2 y llamarla camino feliz.
+      .mockResolvedValue(srv({ id: 'sr-3002', userId: 'u-778', status: 'verificacion', quotedTotalCents: 1200, createdAt: '', receivedAt: '2026-08-13T09:00:00Z', verifiedAt: '2026-08-13T10:00:00Z', items: [] }));
     renderWithProviders(<M5View />, 'es');
     await openStage('Verificando');
     // sr-3002 está en `recibida` → muestra "Iniciar verificación".
@@ -197,10 +199,15 @@ describe('M5View · Buylist admin end-to-end', () => {
     await waitFor(() =>
       expect(spy).toHaveBeenCalledWith('sri-1', { decision: 'adjust', approvedPriceCents: 9999900 }),
     );
-    // Copy i18n del código del contrato (tope B-4/AML), no un genérico.
+    // Copy i18n del código del contrato, no un genérico — **y se lee del catálogo**, no de un
+    // fragmento tecleado aquí: el texto es de ux-ui (DESIGN_SYSTEM §26.3) y este test no debe
+    // fijarlo. Lo que sí fija es que **el operador ve el copy y no el inglés del servidor**.
     expect(
-      await within(dialog).findByText(/excede el tope permitido/),
+      await within(dialog).findByText(es.error.APPROVED_PRICE_CAP_EXCEEDED),
     ).toBeInTheDocument();
+    // Y por lo negativo: la cota retirada dentro del ciclo (`cotizado × 2`) no puede volver a
+    // explicarse en un mensaje que también sale dentro del ciclo (§26.3, defecto 2 de QA).
+    expect(within(dialog).queryByText(/cotizado × 2/)).not.toBeInTheDocument();
   });
 
   it('Rechazar abre el diálogo de motivo (obligatorio 3–500), envía reason y confirma (v1.18)', async () => {
@@ -294,6 +301,9 @@ describe('M5View · Buylist admin end-to-end', () => {
         status: 'pagada',
         quotedTotalCents: 50200,
         createdAt: '',
+        // Una solicitud PAGADA pasó por las dos puertas: recibimos y verificamos (§M5-P).
+        receivedAt: '2026-08-12T15:00:00Z',
+        verifiedAt: '2026-08-12T16:00:00Z',
         items: [],
       }),
     );
@@ -495,6 +505,8 @@ describe('M5View · cierre explícito «Rechazar solicitud» (v1.24)', () => {
           status: 'verificacion',
           quotedTotalCents: 45000,
           createdAt: '2026-08-12T00:00:00.000Z',
+          receivedAt: '2026-08-12T10:00:00.000Z',
+          verifiedAt: '2026-08-12T11:00:00.000Z',
           items: [rejectedItem('sri-a'), rejectedItem('sri-b')],
         }),
       ],
@@ -509,6 +521,8 @@ describe('M5View · cierre explícito «Rechazar solicitud» (v1.24)', () => {
         status: 'rechazada',
         quotedTotalCents: 45000,
         createdAt: '2026-08-12T00:00:00.000Z',
+        receivedAt: '2026-08-12T10:00:00.000Z',
+        verifiedAt: '2026-08-12T11:00:00.000Z',
         items: [rejectedItem('sri-a'), rejectedItem('sri-b')],
       }),
     );
@@ -535,6 +549,8 @@ describe('M5View · cierre explícito «Rechazar solicitud» (v1.24)', () => {
           status: 'verificacion',
           quotedTotalCents: 45000,
           createdAt: '2026-08-12T00:00:00.000Z',
+          receivedAt: '2026-08-12T10:00:00.000Z',
+          verifiedAt: '2026-08-12T11:00:00.000Z',
           items: [
             rejectedItem('sri-c'),
             { id: 'sri-d', card, productType: 'raw', finish: 'normal', itemStatus: 'aprobada', approvedPriceCents: 30000 },
@@ -559,6 +575,8 @@ describe('M5View · cierre explícito «Rechazar solicitud» (v1.24)', () => {
           status: 'verificacion',
           quotedTotalCents: 45000,
           createdAt: '2026-08-12T00:00:00.000Z',
+          receivedAt: '2026-08-12T10:00:00.000Z',
+          verifiedAt: '2026-08-12T11:00:00.000Z',
           items: [rejectedItem('sri-a')],
         }),
       ],
@@ -624,6 +642,8 @@ describe('M5View · pestaña «Cerradas» server-side (v1.25)', () => {
     status,
     quotedTotalCents: 50200,
     createdAt: '2026-08-01T00:00:00.000Z',
+    receivedAt: '2026-08-01T10:00:00.000Z',
+    verifiedAt: '2026-08-01T11:00:00.000Z',
     items: [
       {
         id: `${id}-i`,
@@ -715,6 +735,8 @@ describe('M5View · pestaña «Cerradas» server-side (v1.25)', () => {
       quotedTotalCents: 50200,
       approvedTotalCents: 50200,
       createdAt: '2026-08-01T00:00:00.000Z',
+      receivedAt: '2026-08-01T10:00:00.000Z',
+      verifiedAt: '2026-08-01T11:00:00.000Z',
       items: [
         {
           id: 'sr-c9-i',
@@ -818,6 +840,9 @@ describe('M5View · los cuatro estados nuevos (v1.51 · M-46)', () => {
           status: 'expirada',
           quotedTotalCents: 45000,
           createdAt: '2026-08-12T00:00:00.000Z',
+          // Expiró sin que llegara nada: las dos anclas en `null` y lo dice la fila, no el olvido.
+          receivedAt: null,
+          verifiedAt: null,
           items: [rejectedItem('sri-e')],
         }),
       ],
@@ -840,6 +865,8 @@ describe('M5View · los cuatro estados nuevos (v1.51 · M-46)', () => {
           status: 'verificacion',
           quotedTotalCents: 45000,
           createdAt: '2026-08-12T00:00:00.000Z',
+          receivedAt: '2026-08-12T10:00:00.000Z',
+          verifiedAt: '2026-08-12T11:00:00.000Z',
           items: [rejectedItem('sri-v')],
         }),
       ],
@@ -881,6 +908,9 @@ describe('M5View · los cuatro estados nuevos (v1.51 · M-46)', () => {
         status,
         quotedTotalCents: 50000,
         createdAt: '2026-08-20T00:00:00.000Z',
+        // `ofertada`/`aceptada`/`en_transito`: la carta sigue fuera de nuestras manos.
+        receivedAt: null,
+        verifiedAt: null,
         items: [],
       });
     vi.spyOn(api, 'getAdminBuylist').mockResolvedValue({
@@ -928,6 +958,8 @@ describe('M5View · los cuatro estados nuevos (v1.51 · M-46)', () => {
           expiredReason: 'no_offer',
           quotedTotalCents: 50000,
           createdAt: '2026-08-20T00:00:00.000Z',
+          receivedAt: null,
+          verifiedAt: null,
           items: [],
         }),
       ],

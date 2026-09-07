@@ -3220,6 +3220,11 @@ export async function receiveBuylistRequest(id: string): Promise<AdminBuylistDTO
   }
   const req = mockFindBuylistRequest(id);
   req.status = 'recibida';
+  // ⚠️ v1.57 (§M5-P): `receive` es el ÚNICO escritor de `receivedAt` —el PRIMER término de
+  // `isPayable`— y **sella una sola vez**: el re-sellado no es cosmético (mueve el reloj del
+  // abandono a 30 días y el `max(...)` de la purga del INE), así que la rama mock es idempotente
+  // igual que el `where` del backend (`[field]: null`).
+  req.receivedAt ??= new Date().toISOString();
   for (const it of req.items) {
     if (it.itemStatus === 'cotizada' || it.itemStatus === 'precio_pendiente') it.itemStatus = 'recibida';
   }
@@ -3233,9 +3238,15 @@ export async function verifyBuylistRequest(id: string): Promise<AdminBuylistDTO>
   }
   const req = mockFindBuylistRequest(id);
   req.status = 'verificacion';
-  // v1.51.8: el backend sella `verifiedAt` AQUÍ, y es el SEGUNDO término de `isPayable`. Sin esta
-  // línea el servidor falso dejaría toda solicitud como no-pagable para siempre.
-  req.verifiedAt = new Date().toISOString();
+  // v1.51.8: el backend sella `verifiedAt` AQUÍ, y es **uno de los TRES** términos de `isPayable`
+  // (§M5-P, v1.57 — el otro hecho es `receivedAt`, que sella `receive`). Sin esta línea el
+  // servidor falso dejaría toda solicitud como no-pagable para siempre.
+  //
+  // ⚠️ **Y `verify` NO sella `receivedAt`, ni siquiera «porque ya viene de recibir».** Ése es
+  // exactamente el eje 2 de `BL-35`: `verify` es llamable desde cualquier estado vivo, así que
+  // dejarle sellar la recepción volvería pagable una solicitud cuya carta nunca llegó. *«Recibir»
+  // es un acto declarativo con actor y bitácora, no un efecto lateral de verificar.*
+  req.verifiedAt ??= new Date().toISOString();
   for (const it of req.items) if (it.itemStatus === 'recibida') it.itemStatus = 'verificacion';
   return delay(fx.mockAdminBuylistDTO({ ...req }));
 }
@@ -3458,10 +3469,10 @@ export async function paySpeiBuylist(id: string, speiReference: string): Promise
     });
   }
   const req = mockFindBuylistRequest(id);
-  // MOCK · v1.51.8: la precondición son **DOS** términos (`status ∈ PAYABLE ∧ verifiedAt != null`)
-  // y se pregunta por la MISMA vía que el DTO (`isPayable`), no por una tercera lista de estados.
-  // Antes esta guarda replicaba solo el primero, igual que hacía la UI: el servidor falso
-  // reproducía el bug en vez de cazarlo.
+  // MOCK · §M5-P (v1.57): la precondición son **TRES** términos (`status ∈ PAYABLE ∧ receivedAt !=
+  // null ∧ verifiedAt != null`) y se pregunta por la MISMA vía que el DTO (`isPayable`), no por una
+  // tercera lista de estados. Por eso esta guarda **heredó el tercer término sin tocarse**: es la
+  // propiedad que hace que «tres lectores, una regla» sea verificable y no una intención.
   if (!fx.mockAdminBuylistDTO(req).isPayable) {
     throw new ApiClientError(422, {
       code: 'VALIDATION_ERROR',

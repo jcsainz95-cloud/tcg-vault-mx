@@ -51,7 +51,7 @@ export function CurvePreview({
   const t = useTranslations('admin.m2.curve.preview');
   const tc = useTranslations('common');
   const locale = useLocale() as AppLocale;
-  const getError = useErrorMessage();
+  const getError = useErrorMessage('operator');
 
   return (
     <div className="flex flex-col gap-8">

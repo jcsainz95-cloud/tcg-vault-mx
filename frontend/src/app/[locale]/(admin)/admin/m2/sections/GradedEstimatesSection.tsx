@@ -84,7 +84,7 @@ export function GradedEstimatesSection() {
   const tc = useTranslations('common');
   const locale = useLocale() as AppLocale;
   const qc = useQueryClient();
-  const getError = useErrorMessage();
+  const getError = useErrorMessage('operator');
 
   const cfg = useQuery({ queryKey: ['graded-estimates-config'], queryFn: getGradedEstimateConfig });
 

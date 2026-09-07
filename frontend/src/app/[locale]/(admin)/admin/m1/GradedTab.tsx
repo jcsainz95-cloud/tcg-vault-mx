@@ -33,7 +33,7 @@ export function GradedTab({ onOpenGroup, onAddGraded, onToast }: GradedTabProps)
   const t = useTranslations('admin.inventory.gradedTab');
   const locale = useLocale() as AppLocale;
   const { isSuperAdmin } = useRole();
-  const errorMessage = useErrorMessage();
+  const errorMessage = useErrorMessage('operator');
   const [q, setQ] = useState('');
   // Mini-form inline «Fijar valor…» (uno a la vez).
   const [fixingKey, setFixingKey] = useState<string | null>(null);

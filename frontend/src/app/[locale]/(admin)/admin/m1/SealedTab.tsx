@@ -212,7 +212,7 @@ function SealedSetDetail({
   const tCond = useTranslations('status.sealedCondition');
   const locale = useLocale() as AppLocale;
   const { isSuperAdmin } = useRole();
-  const errorMessage = useErrorMessage();
+  const errorMessage = useErrorMessage('operator');
   const [quickAddKey, setQuickAddKey] = useState<string | null>(null);
 
   const detail = useQuery({

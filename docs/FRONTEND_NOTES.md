@@ -13247,3 +13247,195 @@ delta, **nada de lo anterior se cae**:
 `details: { status, closedAt }`; §M5 declara el shape de la respuesta de `receive`/`verify`). La
 única desviación medida es del **backend** (respuesta de `receive`/`verify`/`pay-spei` sin `items`/
 `seller`/`pickupAddress` frente a lo que §M5 declara) y su dueño ya la tiene registrada como D5.
+
+---
+
+## §50 · v1.57/v1.58 en el cliente: **el servidor cambió la regla del dinero y el cliente seguía con la vieja** (2026-09-07, rama `main`)
+
+> **De qué va este pase.** Cuatro huecos de QA/techlead, y los tres primeros son **la misma clase**:
+> *el cliente codifica una regla de dinero que el servidor ya cambió.* No se arreglan copiando el
+> término que falta —eso reintroduce la copia que se desincronizó— sino **quitándole al cliente la
+> posibilidad de escribirla mal**. Cuatro versiones de contrato sin nota mía: ésta las cierra.
+
+### 1. El bloqueante: el servidor falso encendía el botón de pagar SPEI donde el real responde `422`
+
+**Medido.** `mockIsPayable` tenía **dos** términos (`status ∈ PAYABLE ∧ verifiedAt != null`) y la
+fórmula tiene **tres** desde v1.57 (§M5-P: `∧ receivedAt IS NOT NULL`, *«no se paga lo que no ha
+llegado»*). Peor de lo reportado: **`receivedAt` no existía en el tipo de la fila**, así que **las
+dos filas en estado pagable del fixture** (`sr-3001` verificando, `sr-3003` aprobada) salían
+`isPayable: true` **sin constancia de recepción alguna** — con `NEXT_PUBLIC_USE_MOCKS=true`, M5
+encendía «Pagar por SPEI» sobre la fila del PoC del eje 2 en la pantalla que existe para demostrar
+lo contrario.
+
+**Lo que NO se hizo:** copiar el tercer término al cliente. Encima del defecto ya estaba escrito el
+argumento (*«si el servidor falso se quedara también con un solo término, el modo mock mantendría
+vivo el bug»*) y aun así el mock se quedó corto: **el argumento no impide nada; el tipo sí**.
+
+**Lo que se hizo — que una fila pagable no pueda existir sin `receivedAt`** (`src/lib/mock/fixtures.ts`):
+
+- **`MockPayabilityAnchors = { receivedAt: string | null; verifiedAt: string | null }`**, y
+  `MockAdminBuylistRow` los lleva **OBLIGATORIOS**. Con `verifiedAt?` opcional, **omitir un ancla era
+  gratis**; ahora cada fila **declara** si la carta llegó — incluido decir `null`, que es una
+  afirmación y no un olvido.
+- **`MOCK_PAYABILITY_ANCHOR_TERMS`: un `Record` EXHAUSTIVO sobre `keyof MockPayabilityAnchors`**,
+  un término por ancla. **Añadir un ancla sin su término es error de compilación, y quitar un término
+  también.** No queda ningún sitio donde enumerar los términos a mano ⇒ **la recaída de v1.57 ya no
+  se puede escribir**.
+- La proyección `mockAdminBuylistDTO` **borra las anclas por la lista**, no a mano: un ancla nueva no
+  se puede filtrar al cliente por un `...row` distraído.
+- `receive` (rama mock de `api.ts`) **sella `receivedAt`** —era el único escritor que faltaba— y lo
+  hace **una sola vez** (`??=`), como el `where` idempotente del backend. ⚠️ **`verify` NO lo sella**,
+  ni «porque ya viene de recibir»: eso es exactamente el eje 2 de `BL-35`.
+- `paySpeiBuylist` (mock) **no se tocó** y heredó el tercer término, porque ya preguntaba por
+  `isPayable`. *Ésa es la prueba de que la forma es la correcta.*
+
+**Coste medido y aceptado:** las anclas obligatorias rompieron **12 llamadas a `mockAdminBuylistDTO`
+en `M5View.test.tsx`** (el arnés que hace de servidor). Se arreglaron una por una **declarando el
+hecho**, no callándolo: la respuesta de `verify` sobre una fila recibida lleva las dos marcas; la
+`expirada` sin paquete lleva las dos en `null`.
+
+### 2. La fórmula del dinero, escrita con un término de menos en dos documentos del cliente
+
+- `src/types/contract.ts` — el docstring de `AdminBuylistDTO.isPayable` transcribía la forma de DOS
+  términos que el contrato marca **⛔ SUPERSEDED**. Reescrito con los **tres**, con el porqué del
+  tercero (`verify` no exige predecesor ⇒ *un término implícito no es un término*) y con la nota de
+  que **ni `receivedAt` ni `verifiedAt` viajan en el DTO**: el cliente no recompone la fórmula.
+- `src/lib/api.ts` — *«el SEGUNDO término de `isPayable`»* pasa a *«uno de los TRES»*, y el `pay-spei`
+  mock dice **TRES**.
+- `M5View.tsx` — el comentario de `canPay` ya no dice «los dos términos»; y se añade lo que este pase
+  demuestra: **la fórmula creció y esta línea no se tocó**. *Una copia local habría tenido que
+  enterarse; ésta no tiene de qué enterarse.*
+
+### 3. El copy le hablaba al interlocutor equivocado (DESIGN_SYSTEM **§26**)
+
+v1.58 hizo alcanzables desde `POST /admin/buylist/:id/offer` dos códigos que solo veía el vendedor.
+`useErrorMessage` llaveaba **por código a secas** ⇒ al **operador** se le decía que subiera **su**
+INE. El backend ya había hecho su mitad (§M5-A.7); faltaba la del cliente.
+
+**Mecanismo nuevo — `src/lib/error-audience.ts`** (un módulo, no una rama en cada pantalla):
+
+| Pieza | Qué hace |
+|---|---|
+| `ERROR_SCOPE_AUDIENCE` | `details.scope` → destinatario. **`per_request`/`per_request_offer` NO están**: v1.59/D47 los retiró y §26.2 manda pintar la base y que sea **hallazgo de QA**, no un caso soportado |
+| `AUDIENCE_FROM_DETAILS` | el selector normativo de §26.2, **uno por código**. `INE_REQUIRED` se distingue por la **forma** de `details` (`thresholdCents` ⇒ vendedor; `sellRequestId + grossCents` ⇒ operador) porque **no lleva `scope`** |
+| `resolveErrorAudience` | **(1) lo que dice el servidor en `details`; (2) la audiencia que declara la superficie** |
+| `errorMessageKeys` | orden normativo de §26.5: `error.<CODE>_OPERATOR[_WITH_DETAILS]` **antes** que `error.<CODE>[_WITH_DETAILS]` |
+
+**⚠️ Desviación declarada de §26.2** (su última fila: *«discriminador ausente ⇒ la base»*): aquí,
+con el discriminador ausente, **decide la superficie antes de caer a la base**. La regla de ux-ui
+supone que no queda ninguna señal; en back-office **sí queda**, y pintar la base ahí es el defecto
+que §26 vino a cerrar. Además **§26 la necesita**: `PICKUP_ADDRESS_LOCKED` se desdobla por **ruta**
+(no tiene discriminador en `details`) e `INE_REQUIRED` de la emisión no lleva `scope`. La base sigue
+siendo el último recurso — cuando no hay ni `details` ni superficie.
+
+**Cableado:** `useErrorMessage(surfaceAudience?)`, y **las 26 llamadas de `(admin)` declaran
+`'operator'`**. Es mecánico y por eso lleva candado: hoy **nada fallaba si se omitía**, que es por lo
+que se omitió.
+
+**Copy:** las **11 claves obligatorias de §26 en ES y EN**, copiadas de `DESIGN_SYSTEM.md` §26.2/26.3/26.4
+**carácter por carácter**, más la opcional `BUYLIST_LIMIT_EXCEEDED_OPERATOR_WITH_DETAILS` (§26.5),
+que se cablea con una entrada nueva en `DETAILED_ERRORS`: interpola **solo `capCents`/`wouldBeCents`**
+—los topes de COMPRA, la cota de la decisión del operador— y **jamás el umbral de INE**; si falta
+cualquiera de los dos montos devuelve `null` y se pinta la base, nunca un `MX$ undefined`.
+Las tres cadenas viejas se **sustituyeron**, no se dejaron «por si acaso».
+
+### 4. Los códigos sin traducción, y el que explicaba una cota retirada
+
+Los cuatro (`REQUEST_NOT_RECEIVED`, `PICKUP_ADDRESS_LOCKED` +`_OPERATOR`, `PICKUP_ADDRESS_MISSING`,
+`OFFER_PRICE_IMMUTABLE`) ya están en los dos catálogos, así que **la prohibición 7 de §26 (nunca el
+inglés crudo del servidor) es ahora inalcanzable por construcción** para los siete códigos de §26 —y
+hay candado que lo verifica, no una promesa.
+
+**`APPROVED_PRICE_CAP_EXCEEDED` — hueco DECLARADO, y aquí está exactamente sobre qué me apoyé:**
+
+- La base ya **no** explica la cota retirada dentro del ciclo; el texto de §26.3 nombra las dos cotas
+  y **fuera del ciclo el `× 2` sí aplica** (`relativeCapApplies: !inOfferCycle`), así que la base es
+  correcta tal cual.
+- La variante `_OFFER_CYCLE` **está en el catálogo pero NO se selecciona**, y no es pereza:
+  **`inOfferCycle` lo decide el backend con `item.sellRequest.offerSentAt != null`**
+  (`buylist.service.ts:6202`, medido) y **`AdminBuylistDTO` no lleva `offerSentAt`** — la pantalla no
+  tiene el dato. El sustituto que se podría teclear, `offerState === 'sent'`, **no es equivalente**:
+  una oferta **cancelada** tiene `offerSentAt` sellado y `offerState: 'cancelled'`. Y del `details`
+  tampoco se deduce: con `{ approvedPriceCents, quotedPriceCents, cap }`, `cap === quoted × 2` prueba
+  que chocó la cota **relativa**, pero `cap !== quoted × 2` **no** prueba que estemos en el ciclo (el
+  tope de compra puede ser el menor también fuera). **Es una inferencia de un solo lado y no alcanza.**
+  ⇒ Se pinta la base, que es lo que §26.3 manda mientras tanto, **y queda un trip-wire de tipo**
+  (`@ts-expect-error` sobre `AdminBuylistDTO['offerSentAt']`): **el día que el campo aparezca, deja de
+  compilar** y obliga a cablear la variante. *Un hueco declarado sin trip-wire es un hueco que se
+  olvida.*
+
+### 5. Los candados, y **el rojo que enseñó cada uno** (verificación por mutación)
+
+Ninguno se dio por bueno por leerlo: **se rompió a propósito**.
+
+| # | Mutación | Qué se puso rojo |
+|---|---|---|
+| M1 | quitar el término `receivedAt` del `Record` de anclas (la recaída de v1.57) | **`tsc`**: `TS2741 Property 'receivedAt' is missing … but required` |
+| M2 | dejar el término pero aflojarlo (`() => true`) | `payability.test.ts` **3 de 5** rojos |
+| M3 | una fila de fixture omite `receivedAt` (el olvido original) | **`tsc`**: `TS2322 … Property 'receivedAt' is missing` |
+| M4 | anti-vacuidad: predicado siempre `false` | **4 de 5** rojos (incluido el camino feliz: sin él, un endpoint que no paga nunca pasaría los otros tres) |
+| N1 | `useErrorMessage` vuelve a llavear solo por código | `QueryState.test.tsx` **4 de 9** rojos |
+| N2 | una pantalla de admin pierde su `'operator'` | candado de cableado: *«pantallas de admin sin audiencia declarada: BuylistDecisionDesk.tsx»* |
+| N3 | la variante de operador se rellena **copiando** la del vendedor | **2 rojos**: el de «no es copia» **y** el de significado (`tu INE`) |
+| N4 | se borra `error.REQUEST_NOT_RECEIVED` de **un** idioma | **3 rojos**: existencia, paridad ES/EN y el de conducta (§26 prohibición 7) |
+| N5 | `AdminBuylistDTO` gana `offerSentAt` | **`tsc`**: `TS2578 Unused '@ts-expect-error' directive` — el trip-wire del hueco |
+
+**Un candado probable, no dos que se tapan.** Los tres del error miden **cosas distintas**
+—EXISTENCIA (claves), SIGNIFICADO (que la variante no repita el «tú» del vendedor) y CABLEADO (que la
+pantalla declare su audiencia)—, y cada uno lleva su **anti-vacuidad**: el de significado comprueba
+que el patrón **sí** reconoce el defecto en la cadena del vendedor, y el de cableado exige **≥20**
+llamadas encontradas antes de aprobar. *La lección que traía esta sesión es que un candado de
+traducciones puede medir simetría y no existencia; éstos miden las tres, y se enseñó el rojo de cada
+uno.*
+
+### 6. Ficheros tocados
+
+`src/lib/mock/fixtures.ts` (anclas + `Record` exhaustivo + 4 filas) · `src/lib/api.ts`
+(`receive` sella, `verify` no; dos docstrings) · `src/types/contract.ts` (docstring de `isPayable`) ·
+`src/lib/error-audience.ts` **(nuevo)** · `src/components/ui/QueryState.tsx` (audiencia + entrada
+`BUYLIST_LIMIT_EXCEEDED` en `DETAILED_ERRORS`) · **26 llamadas** en 25 ficheros de `(admin)` ·
+`messages/{es,en}.json` (11 obligatorias + 1 opcional; 3 sustituidas) ·
+`src/lib/mock/payability.test.ts` **(nuevo)** · `src/lib/error-audience.test.ts` **(nuevo)** ·
+`src/components/ui/QueryState.test.tsx` **(nuevo)** · `M5View.test.tsx` (12 fixtures + 1 aserto de
+copy, que ahora **lee el catálogo** en vez de fijar un fragmento) · este fichero.
+**Nada en `backend/`, nada en el contrato, nada en `DESIGN_SYSTEM.md`.**
+
+### 7. Verificación (números reales)
+
+`npx vitest run` → **116 ficheros / 1201 tests verdes** (la rama traía 113/1166; el delta son
+**+35**: 5 de pagabilidad, 21 de audiencia, 9 de `QueryState`) · `npx tsc --noEmit` con **`.next`
+borrado antes** → limpio · `npx next lint` → *«No ESLint warnings or errors»* · `next build` →
+compila.
+
+**Lo que NO verifiqué, y hay que decirlo:** **no corrí Playwright** (la suite E2E necesita el stack
+levantado; ninguna spec toca el botón de SPEI de M5 ni estos siete códigos — comprobado por `grep`,
+no por ejecución) y **no probé nada contra el backend real ni contra staging**: todo lo de arriba es
+modo mock + unitarios. Las tres verificaciones que §26.8 deja en manos de QA —provocar cada código en
+staging y ver el banner en el idioma de la sesión— **siguen pendientes y son suyas**.
+
+### 8. Solicitudes al arquitecto (ninguna bloquea; hoy se trabaja con lo que hay)
+
+1. **`INE_REQUIRED` de la emisión no trae discriminador explícito.** Hoy el destinatario se **infiere
+   por la forma de `details`** (`thresholdCents` ⇒ vendedor; `sellRequestId + grossCents` ⇒ operador).
+   Funciona y está medido, pero es un contrato **implícito**: el día que alguien añada `sellRequestId`
+   a la puerta del intake «porque ya había campo», **el vendedor empieza a leer el mensaje del
+   operador**. **Petición (es la 1 de ux-ui en §26.9, y la suscribo):** que la emisión emita
+   `details.scope` propio. ⛔ **Sin reintroducir `thresholdCents`.**
+2. **`APPROVED_PRICE_CAP_EXCEEDED` no dice qué cota chocó** y **el cliente no puede deducirlo**
+   (§4 de esta nota: `offerSentAt` no viaja en `AdminBuylistDTO` y `offerState` no es equivalente).
+   **Petición:** `details.bound: "quoted_x2" | "purchase_cap"` **o** `details.inOfferCycle: boolean`.
+   Con cualquiera de los dos, la variante `_OFFER_CYCLE` **ya escrita** se enciende sin tocar copy.
+3. **Divergencia backend↔contrato que encontré midiendo (no es petición, es reporte):** el backend
+   **sigue emitiendo `scope: 'per_request'` (`:1557`) y `'per_request_offer'` (`:3540`)**, que v1.59/D47
+   **retiró del vocabulario**. El cliente **no los traduce a propósito** (§26.2 los quiere como hallazgo
+   de QA), así que hoy caen a la audiencia de la superficie. **Dueño: backend.**
+
+### 9. Para ux-ui (no bloquea este pase)
+
+§26 cubre **siete** códigos. Medido sobre el catálogo, **el resto de la familia del ciclo de oferta
+sigue sin copy en ningún idioma** y cae al inglés del servidor —o, en modo mock, al literal del
+código—: `OFFER_NOT_ALLOWED`, `OFFER_ALREADY_SENT`, `OFFER_LINES_MISMATCH`, `OFFER_LINE_NOT_PRICEABLE`,
+`OVERRIDE_REASON_REQUIRED`, `OFFER_NET_BELOW_MINIMUM`, `OFFER_PROJECTION_INCOMPLETE`,
+`ADJUST_NOT_ALLOWED_IN_OFFER_CYCLE`, `ITEM_NOT_OFFERED`, `NO_LIVE_ADJUSTMENT`, `OFFERED_PRICE_MISSING`,
+`DECLINE_NOT_ALLOWED`. **No inventé copy para ninguno** — el mecanismo ya está montado y solo esperan
+su cadena. Los tres primeros salen del **mismo diálogo de emisión** que §26 acaba de arreglar.

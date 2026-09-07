@@ -1,11 +1,14 @@
 'use client';
 
-import { useTranslations } from 'next-intl';
+import { useLocale, useTranslations } from 'next-intl';
 import { Banner } from './Banner';
 import { Button } from './Button';
 import { ApiClientError } from '@/lib/api-client';
 import { gradeLabelFromKey } from '@/lib/gradeKey';
 import { getBadgeSpec } from '@/lib/status-map';
+import { formatMoneyCents } from '@/lib/format';
+import { errorMessageKeys, resolveErrorAudience, type ErrorAudience } from '@/lib/error-audience';
+import type { AppLocale } from '@/i18n/routing';
 
 export interface QueryStateProps {
   isLoading: boolean;
@@ -31,6 +34,7 @@ const DETAILED_ERRORS: Record<
   (
     details: Record<string, unknown>,
     t: ReturnType<typeof useTranslations>,
+    locale: AppLocale,
   ) => Record<string, string | number> | null
 > = {
   GRADED_ESTIMATE_SLAB_PUBLISHED: (d) => {
@@ -69,24 +73,67 @@ const DETAILED_ERRORS: Record<
       closed: typeof d.closedAt === 'string' && d.closedAt !== '' ? 'yes' : 'no',
     };
   },
+
+  /**
+   * `422 BUYLIST_LIMIT_EXCEEDED` del **tope mensual** (contrato §M5-A · `details: { scope,
+   * capCents, wouldBeCents }`). DESIGN_SYSTEM **§26.5**: las cifras se le dan **al operador** y
+   * **solo sobre los topes de COMPRA** — le dicen cuánto sobra, que es la cota de la decisión que
+   * está tomando.
+   *
+   * ⛔ **Jamás el umbral de INE** (`thresholdCents`): ése es un dato de cumplimiento **sobre un
+   * tercero** que no mueve ninguna de sus dos palancas (§26.6, prohibición 2). Por eso esta entrada
+   * lee `capCents`/`wouldBeCents` **y nada más**; y por eso la variante con cifras existe solo del
+   * lado del operador — la clave `error.BUYLIST_LIMIT_EXCEEDED_WITH_DETAILS` **no está en el
+   * catálogo**, así que el vendedor cae a su base aunque su `details` traiga los montos.
+   *
+   * Si falta cualquiera de los dos montos se devuelve `null` y se pinta la base: nunca un
+   * `MX$ undefined` (§26.5).
+   */
+  BUYLIST_LIMIT_EXCEEDED: (d, _t, locale) => {
+    const cap = d.capCents;
+    const wouldBe = d.wouldBeCents;
+    if (typeof cap !== 'number' || !Number.isFinite(cap)) return null;
+    if (typeof wouldBe !== 'number' || !Number.isFinite(wouldBe)) return null;
+    return {
+      capAmount: formatMoneyCents(cap, locale),
+      wouldBeAmount: formatMoneyCents(wouldBe, locale),
+    };
+  },
 };
 
 /**
- * Traduce errorCode del contrato a copy localizado (DESIGN_SYSTEM §8.1).
- * Si el código no tiene copy en el catálogo i18n, cae al MENSAJE REAL del backend
- * (ApiClientError.message) para no ocultar el motivo al operador (p. ej. topes AML);
- * solo si tampoco hay mensaje se muestra el genérico.
+ * Traduce errorCode del contrato a copy localizado (DESIGN_SYSTEM §8.1 · §26).
+ *
+ * ⚠️ **Llavea por `code` + DESTINATARIO, no por `code` a secas** — y ése es el arreglo de §26: un
+ * mismo código puede llegarle al **vendedor** y al **operador**, que no son la misma persona ni
+ * tienen las mismas palancas. El orden de resolución es normativo (§26.5): **primero a quién le
+ * hablas, después con cuánto detalle**.
+ *
+ * @param surfaceAudience Quién LEE esta pantalla. Las superficies de back-office declaran
+ * `'operator'`; sin él, un `422` de `POST …/offer` le diría al operador que suba **su** INE. No es
+ * opcional por gusto: hay un candado (`error-audience.test.ts`) que exige que **toda** pantalla de
+ * `(admin)` lo declare, porque hoy nada falla si se omite — que es justo por lo que se omitió.
  */
-export function useErrorMessage() {
+export function useErrorMessage(surfaceAudience?: ErrorAudience) {
   const t = useTranslations();
+  const locale = useLocale() as AppLocale;
   return (error: unknown): string => {
     const apiError = error instanceof ApiClientError ? error : null;
     const code = apiError?.code ?? 'INTERNAL';
-    const detailed = apiError?.details ? DETAILED_ERRORS[code]?.(apiError.details, t) : null;
-    const detailedKey = `error.${code}_WITH_DETAILS`;
-    if (detailed && t.has(detailedKey)) return t(detailedKey, detailed);
-    const key = `error.${code}`;
-    if (t.has(key)) return t(key);
+    const audience = resolveErrorAudience(code, apiError?.details, surfaceAudience);
+    const detailed = apiError?.details
+      ? DETAILED_ERRORS[code]?.(apiError.details, t, locale)
+      : null;
+    // `error.<CODE>_OPERATOR[_WITH_DETAILS]` antes que `error.<CODE>[_WITH_DETAILS]`: la variante
+    // del destinatario gana, y dentro de cada destinatario gana la que lleva las cifras.
+    for (const key of errorMessageKeys(code, audience)) {
+      const detailedKey = `${key}_WITH_DETAILS`;
+      if (detailed && t.has(detailedKey)) return t(detailedKey, detailed);
+      if (t.has(key)) return t(key);
+    }
+    // ⚠️ Último recurso, y para los códigos de §26 es **inalcanzable por construcción** (todos
+    // tienen base en los dos catálogos, y el candado lo verifica): el inglés del servidor está
+    // escrito para un desarrollador, no para quien decide una compra.
     if (apiError?.message) return apiError.message;
     return t('common.errorGeneric');
   };
