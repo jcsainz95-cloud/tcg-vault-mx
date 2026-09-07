@@ -2,7 +2,123 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-06 (rev **v1.59**).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-07 (rev **v1.60**).
+>
+> **Changelog v1.60 — D51: SE RETIRA EL COTEJO INE ↔ TITULAR DE LA CLABE, Y CON ÉL EL TÉRMINO QUE YO MISMO DECLARÉ
+> HACE UNA REV (2026-09-07, arquitecto; **CERO endpoints nuevos, CERO DDL, CERO diales**. UN código de error que se
+> RETIRA antes de implementarse, UN campo de DTO que se RETIRA por muerto, UN camino de purga que gana norma de
+> producto, y UN registro nuevo. ARCHITECTURE rev **v1.60**, §4.39(ad); registros **BL-41** *(cerrada — RETIRADA POR
+> PRODUCTO)*, **BL-42** *(su camino 3 pasa a normado)*, **BL-43** *(sigue abierta)*, **BL-44** *(nuevo)*):**
+> ⚠️ **Origen: `PROJECT.md` — decisión del humano D51** (13ª ronda, commit `fa96994`), aterrizada por product-owner en
+> **§P.2.3** (reescrita como registro del retiro), **§E**, **§P.2.1/§P.2.2**, **criterio 183** (nuevo, se verifica por
+> **ausencia**), **criterios 180/181** (retirados) y **decisión 113**. **Esto no se discute: se declara.**
+> **`PROJECT.md` manda sobre este contrato, y mi §M5-K de v1.59 queda INVALIDADA** — se reescribe en su sitio, con el
+> anchor intacto, y **no se disimula**.
+>
+> **A. ⚠️⚠️ EL TÉRMINO SE RETIRA: `422 KYC_NOT_VERIFIED` NO EXISTE Y NO SE IMPLEMENTA.**
+> `POST /admin/buylist/:id/pay-spei` **conserva sus TRES términos** (`§M5-P`: estado pagable ∧ `receivedAt` ∧
+> `verifiedAt`) y **no gana un cuarto**. **`KYC_NOT_VERIFIED` sale del vocabulario del contrato antes de haber llegado
+> al código** — backend **no lo implementó** (llegó por la regla 9 y nunca se mergeó), así que **no hay nada que
+> revertir**: hay algo que **no hay que escribir**. ⛔ **El conteo pre-merge de §M5-K.4 queda SIN OBJETO: no se corre.**
+>
+> **B. ⚠️⚠️ POR QUÉ SE RETIRA, Y NO ES QUE `BL-41` ESTUVIERA MAL — ES QUE EL REMEDIO NO SE PUEDE EJECUTAR.**
+> `BL-41` medía que el cotejo **no existía en ninguna parte**, y **eso sigue siendo verdad palabra por palabra**. Lo
+> que cambió es la respuesta a **la pregunta 40** —*¿de dónde sale el nombre del titular de la cuenta?*—, que la 12ª
+> ronda marcó como **condición de existencia** del control. **El humano la contestó midiendo su propio banco:**
+> > *«solo me muestra si es de mi mismo banco[;] al final si vamos a mandar dinero sin completa certeza pueden capturar
+> > una clabe que digan que es de ellos y no sabriamos»*
+> ⇒ **el nombre del titular solo aparece si la cuenta es del MISMO banco, y solo AL EJECUTAR la transferencia.**
+> **No hay segundo nombre que comparar.** Mi §M5-K.3 declaró el mínimo honesto —*«no compara nombres; impone que exista
+> un veredicto registrado»*— y **ese mínimo, sin fuente contra la cual comparar, certifica que alguien abrió una
+> pantalla.** Decisión del humano: *«creo vale la pena quitar ese check no nos genera valor»*, y **tiene razón por mi
+> propio argumento**: *un control que no se puede ejecutar es PEOR que ninguno — ocupa un renglón en la lista de
+> mitigaciones y hace que nadie busque otra cosa.* **Es literalmente lo que ya pasó una vez con este mismo control.**
+>
+> **C. ⚠️⚠️ `BL-41` SE CIERRA COMO «RETIRADA POR PRODUCTO», NO COMO «IMPLEMENTADA» — Y LA DISTINCIÓN ES EL PUNTO.**
+> Marcarla *resuelta* diría que el hueco se tapó. **No se tapó: se decidió no taparlo, porque no se puede.** El
+> hallazgo —*«ninguna precondición de dinero comprueba de quién es la cuenta»*— **queda vivo como riesgo aceptado**, con
+> las palabras del humano y sin suavizar: ***«pueden capturar una CLABE que digan que es de ellos y no sabríamos»***.
+> ⚠️ **Una ficha marcada «resuelta» sobre un control que no existe es exactamente la clase de registro mentiroso que el
+> techlead encontró en `TECH_DEBT.md` con `BE-1`.** Estado en §9 de ARCHITECTURE: **✅ CERRADA — RETIRADA POR PRODUCTO
+> (D51). El riesgo NO se cerró: se aceptó.**
+>
+> **D. ⚠️⚠️ LO QUE **NO** SE RETIRA, Y SE DICE PRIMERO PORQUE ES LA LECTURA FÁCIL Y EQUIVOCADA: **D46 QUEDA ENTERO**.**
+> **Esto NO es «se retira el KYC».** El **INE se sigue pidiendo desde la cotización**, **sobre el umbral**, con sus
+> **DOS compuertas** —**§M5-I** (creación) y **§M5-A** (emisión)—, **cifrado en R2** y con **retención de 180 días**.
+> **`422 INE_REQUIRED` no se toca en ninguna de las dos puertas.** **Lo que muere es COMPARAR EL NOMBRE CONTRA LA
+> CUENTA; IDENTIFICAR A QUIEN NOS VENDE SIGUE EN PIE, y eso es lo que el INE hace.** ⛔ **Backend: si de este changelog
+> sale un solo `INE_REQUIRED` menos, la lectura fue errónea** — criterio **183(e)** es la guarda de regresión y se
+> verifica **con el rol más alto**.
+>
+> **E. `legalName` y `kycStatus` — qué son ahora, porque un campo sin escritor y sin lector es la próxima ficha falsa.**
+> | Campo | Qué era | Qué es tras D51 | Qué se hace |
+> |---|---|---|---|
+> | **`KycProfile.legalName`** | el sitio donde viviría el nombre del titular **para el cotejo** | ⛔ **CAMPO MUERTO.** Sin cotejo **no tiene ningún uso**, y **nunca tuvo escritor** (medido en v1.59: su único escritor lo pone a `null`) | **SE RETIRA de `AdminKycProfileDTO` y `AdminKycProfileOperatorDTO`** (§11). **Cero DDL** —la columna se conserva **INERTE**, precedente exacto de `capPerRequestCentsOverride`— y **cero impacto de frontend: MEDIDO, `legalName` no aparece ni una vez en `frontend/`** |
+> | **`KycProfile.kycStatus`** | escrito en dos sitios, **cero lectores de dinero**; la v1.59 iba a convertirlo en precondición de `pay-spei` | **Vuelve a ser lo que siempre fue: anotación de back-office SIN CONSECUENCIA.** No gatea creación, ni emisión, ni pago | **Se queda** (tiene consumidores reales: badge y selector de M6, y `GET /users/me/kyc`). ⚠️ **Se le escribe la advertencia que le faltaba**: **`'verified'` NO significa que se haya verificado nada** — tras D51 **no existe acto de verificación en el sistema** |
+> ⚠️⚠️ **NORMA, y es la que impide que esto se rehaga solo:** **ninguna regla nueva se cuelga de `kycStatus` sin pasar
+> por el arquitecto** (regla 9), **y la primera pregunta que tendrá que contestar es la 40** —*¿de dónde sale el nombre
+> del titular?*—, **que está CERRADA con «no existe fuente».** *Un enum con un valor llamado `verified` es una invitación
+> permanente a construirle encima una regla; por eso la advertencia va en el DTO y no solo aquí.*
+>
+> **F. `BL-42` — SU CAMINO 3 GANA NORMA DE PRODUCTO (D50), Y NO DEPENDÍA DEL COTEJO.**
+> La *`cotizada` que no muere* —el camino que dejé abierto **a propósito** por ser decisión de producto— **la cierra
+> D50**: el plazo **empieza CUANDO LE PEDIMOS lo que falta** (no desde la creación), y si vence **cierra por el camino
+> que YA EXISTE** —**`expirada` + motivo `no_offer`**, con su correo de siempre—, **sin estado nuevo y sin motivo
+> nuevo**. **Al cerrar nace el ancla y la purga vuelve a funcionar sola.** Norma en [`§M5-N.3`](#M5-N).
+> ⚠️ **Con UNA sola causa** (falta de INE): al retirarse D49 desaparece *«el nombre no coincide»*. **D50 no pierde razón
+> de ser: la causa que sobrevive es la original y la más frecuente.**
+>
+> **G. ⚠️ `BL-44` — REGISTRO NUEVO: LA PURGA SE BLOQUEA POR PERFIL, NO POR SOLICITUD. D50 NO LO CIERRA.**
+> El hallazgo que motivó a D50 **es más ancho que el camino que D50 cierra**, y merece término propio porque **su dueño
+> y su salida son otros**: el barrido **salta el `KycProfile` ENTERO mientras el usuario tenga cualquier solicitud
+> viva** (`openCount == 0` es condición **(1)** del predicado, medido en v1.59) ⇒ **una sola solicitud viva congela la
+> purga de TODAS las identificaciones de esa persona, incluidas las de solicitudes ya cerradas y PAGADAS.**
+> **D50 hace finita UNA causa de solicitud eterna; NO cambia que la retención esté anclada al perfil.** ⇒ un vendedor
+> recurrente **con una solicitud en curso hoy** mantiene vivo el INE de una solicitud **pagada hace 200 días**.
+> **No lo cierro yo, y por la misma razón que el camino 3:** anclar la retención **a la solicitud** en vez de al perfil
+> **cambia qué significa `INE_RETENTION_DAYS`** ⇒ **es del humano** (bandera AML). Norma parcial y assert en
+> [`§M5-N.6`](#M5-N); criterio **182(e)** de `PROJECT.md` es su prueba.
+>
+> **H. LO QUE SIGUE PENDIENTE Y NO SE PIERDE DE VISTA EN ESTE REORDEN.** **`BL-43`** —la cota **por ítem** re-anclada al
+> **mensual** (§M5-D.4)— **sigue ABIERTA y BLOQUEANTE**, pendiente **de backend**, y **esta rev no la toca**. **`BL-42`
+> caminos 1 y 2** (boundary atómico §M5-I.4 y barrido de huérfanos §M5-N.4) **siguen pendientes de backend, sin
+> cambios**. **`BL-38`, `BL-39`, `BL-40` sin cambios.**
+>
+> **I. LO QUE CAMBIA PARA CADA ROL.** **Backend:** **un cierre MENOS** —§M5-K deja de ser trabajo— y **un conteo
+> pre-merge menos**; lo demás de v1.59 sigue idéntico. **Un solo cambio real: retirar `legalName` de los dos DTOs de
+> admin.** **Frontend:** **nada obligatorio**; ⚠️ **un encargo de revisión**: `kycStatus` **hoy no se pinta en ninguna
+> superficie de vendedor** (medido: solo tests en `(storefront)`) y **así debe seguir** — pintarle *«verificado»* al
+> vendedor afirmaría un acto que no existe (criterio **183(c)**). El badge/selector de **M6 (admin)** se queda. **ux-ui:**
+> §P.2.2(b) **pierde la frase del cotejo** — la pantalla que pide el INE **ya no puede decir que se verifica contra el
+> titular de la cuenta**; era **la única de las dieciocho que salía de la pantalla**. **QA:** el criterio **183** se
+> verifica **por AUSENCIA** (seis puntos), el **182** por D50, y ⛔ **los criterios 180 y 181 NO se ejecutan: están
+> retirados.** **seguridad/pentester:** el riesgo residual es **aceptado y escrito**, no un hallazgo nuevo.
+>
+> **J. BARRIDO DE MIS DOS DOCUMENTOS, DICHO CON NÚMERO PORQUE ASÍ SE VERIFICA.** El product-owner encontró la promesa
+> en **18 sitios** de `PROJECT.md` y **tres sobrevivieron a su primera pasada**. **Censo propio: 21 sitios — 14 en este
+> contrato y 7 en `ARCHITECTURE.md`—, todos tocados en esta rev**, y **van en dos categorías porque se corrigen
+> distinto**:
+> - **11 AFIRMABAN el cotejo o lo exigían como precondición** *(7 aquí + 4 en ARCHITECTURE)*: **§0 «Errores»**
+>   (`KYC_NOT_VERIFIED`), **§6 / nota de vocabulario de `scope`** (la **lista de contenciones AML** con la que se
+>   justificó D47), **`pay-spei`** (§M5), **§M5-K** (entera), **`PATCH /admin/users/:id/kyc`** (M6) y el **changelog
+>   v1.59 §E y §G**; en ARCHITECTURE, **rev v1.59 §B**, **§4.39(ac.1)**, y en **§9** la fila `BL-41` y la nota de
+>   cabecera de la tabla. ⇒ **se RETIRAN, con el registro tachado y visible.**
+> - **10 SE APOYABAN en él sin nombrarlo** *(7 aquí + 3 en ARCHITECTURE)* — **y ésta es la categoría que se escapa**:
+>   `legalName` vivo en los **DTOs de KYC** (§11) y en el soft-delete, **`PUT /users/me/kyc`** y la **nota de login
+>   Google** (*«CLABE/INE **a nombre del usuario**»*), las **dos** descripciones de `CLABE_NOT_OWN_NAME` como
+>   *«nombre propio»*; en ARCHITECTURE, la **línea de auth Google**, el **modelo `KycProfile`** y el *«historial de
+>   verificación»* de **§3.4(d)**. ⇒ **se CORRIGE LA REDACCIÓN**: son afirmaciones de verificación disfrazadas de
+>   descripción de campo. *Retirar solo la frase literal habría dejado el documento diciendo lo mismo con otras
+>   palabras.*
+> ⚠️ **Verificado al cierre con `grep` sobre los dos documentos, no al escribir** — que es exactamente el paso que le
+> faltó a la primera pasada del product-owner. *(⚠️ **Aparte del censo**: §M5-N gana norma por **D50**, no por D51.)*
+>
+> **K. LO QUE ESTA REV NO HACE.** ⛔ **No reintroduce el cotejo por ninguna vía** —ni «al menos guardar el nombre», ni
+> «al menos un checkbox»—: la decisión está **medida contra la banca real del humano** y **cerrada**. ⛔ **No declara el
+> CEP del SPEI** (**pregunta abierta 44**): *«podría traer el nombre del beneficiario DESPUÉS de la transferencia»* es un
+> **supuesto que nadie ha verificado, yo incluido** — **no existe en este contrato y no se diseña contra él.** ⛔ **No
+> toca `CLABE_NOT_OWN_NAME`** (sigue comparando CLABEs, no nombres; su nombre sigue siendo peor que su conducta) **ni
+> mueve la CLABE** (pregunta 29). ⛔ **No toca topes, retención, D16, D46, D47 ni ningún dial.**
 >
 > **Changelog v1.59 — D46/D47: EL INE SE EXIGE DESDE LA CREACIÓN, EL TOPE POR SOLICITUD DEJA DE RECHAZAR, Y EL QUE
 > RECHAZA SE EVALÚA ANTES QUE EL QUE IDENTIFICA (2026-09-06, arquitecto; **CERO endpoints nuevos, CERO DDL**. UN dial
@@ -54,6 +170,13 @@
 > [`§M5-D`](#M5-D).
 >
 > **E. ⚠️⚠️ `BL-41` — EL COTEJO INE ↔ TITULAR DE LA CLABE NO TIENE TÉRMINO EN NINGUNA PARTE. Lo encontré midiendo.**
+> **⚠️⚠️ NOTA DE VIGENCIA (v1.60, D51) — LEER ANTES QUE ESTE PÁRRAFO. EL DIAGNÓSTICO SIGUE SIENDO VERDADERO; EL REMEDIO
+> QUEDA RETIRADO.** *«El cotejo no existe»* **es correcto y no se retracta**. Lo que **NO se hace** es la última frase
+> de este bloque —*«Se le declara término en `pay-spei`»*—: **`422 KYC_NOT_VERIFIED` se RETIRA del contrato antes de
+> implementarse**, porque **no hay fuente del nombre del titular** (pregunta 40, cerrada por el humano midiendo su
+> banco) y **un veredicto sin fuente certifica que alguien abrió una pantalla**. **`BL-41` se cierra como RETIRADA POR
+> PRODUCTO, no como implementada**, y el riesgo queda **aceptado y escrito**. Ver **changelog v1.60 (A/B/C)** y
+> [`§M5-K`](#M5-K), reescrita. **El resto de v1.59 —D46, D47, §M5-I, §M5-A, §M5-D, §M5-N— NO se toca.**
 > El criterio **14(e)** y el **178(g)** afirman que el INE *«se verifica contra el nombre de la CLABE»* y que con un
 > nombre distinto *«la operación se detiene»*. **Medido:** `kycStatus` se **escribe** (intake ⇒ `'pending'`, `:1595`;
 > `PATCH /admin/users/:id/kyc` ⇒ `'verified'|'rejected'`, `admin.service.ts:624-648`) y **NO SE LEE COMO PRECONDICIÓN
@@ -73,7 +196,9 @@
 > bloqueada por la compuerta 2 caduque en silencio** ⇒ `openCount > 0` **para siempre**. Norma y remedios:
 > [`§M5-N`](#M5-N). **Es un hallazgo, va nombrado, y no lo cierro yo.**
 >
-> **G. LO QUE CAMBIA PARA CADA ROL.** **Backend:** cinco cierres (§M5-I, §M5-A retro-editada, §M5-D, §M5-K, §M5-N),
+> **G. LO QUE CAMBIA PARA CADA ROL.** *(⚠️ **v1.60, D51: son CUATRO cierres, no cinco — §M5-K se RETIRA** y con él su
+> conteo pre-merge; queda **UNO** con conteo obligatorio, el de §M5-A.9. **Los otros cuatro no cambian.**)*
+> **Backend:** cinco cierres (§M5-I, §M5-A retro-editada, §M5-D, ~~§M5-K~~, §M5-N),
 > **dos con conteo pre-merge obligatorio**. **Frontend:** **UN cambio obligatorio** (`GET /users/me/kyc`:
 > `capPerRequestCents` → `ineThresholdCents`) y **dos códigos que dejan de llegarle** (`per_request`,
 > `per_request_offer`); gana la comparación autorizada del umbral (§M5-I.6). **ux-ui:** **§P.2.2 es requisito, no
@@ -3431,7 +3556,8 @@
 >   request **no** la trae, el backend usa la CLABE **del propio usuario** en archivo (`kyc.clabeEnc`, desencriptada —
 >   mismo fallback que `reveal-clabe`). Si **no** viene ni hay en archivo → **`422 CLABE_REQUIRED`** (nuevo). La CLABE
 >   resuelta **nunca** se loguea ni se devuelve; se guarda cifrada (snapshot) y solo se revela por
->   `GET /admin/buylist/:id/reveal-clabe`. Con `clabe` presente, el comportamiento no cambia (formato + nombre propio).
+>   `GET /admin/buylist/:id/reveal-clabe`. Con `clabe` presente, el comportamiento no cambia (formato + **match de CLABE
+>   contra la de archivo** — ⚠️ **v1.60, D51: NO es «nombre propio»; no se compara ningún nombre**).
 > - **Batch quote `POST /buylist/quote/batch` (§6, NUEVO, `public`, READ-ONLY):** cotiza **N cartas en 1 request**
 >   (mata el fan-out FE-12). **No** crea solicitud, **no** mueve dinero, **no** persiste, **no** escala a pendiente.
 >   **Errores por-ítem** (una carta inválida no tumba las demás): cada resultado es `ok:true`/`ok:false`; HTTP global
@@ -3830,15 +3956,18 @@
     satisfacer un test). Su cobertura es **unitaria**, ensanchando la lista en un mock.
 - **`403 EMAIL_NOT_VERIFIED` (v1.5):** un `customer` autenticado con `emailVerified=false` intenta una **acción sensible** (comprar / retirar / vender). El front muestra el banner "verifica tu correo" y ofrece reenviar; el bloqueo lo aplica **siempre** el backend (`EmailVerifiedGuard`, ARCHITECTURE §4.11). Endpoints afectados: `POST /checkout/session`, `POST /shipments`, `POST /buylist/requests`.
 - **`422 CLABE_REQUIRED` (v1.15):** `POST /buylist/requests` **sin** `clabe` en el body **y sin** CLABE en archivo (`KycProfile.clabeEnc` vacío). El front debe pedir la CLABE (o registrarla en KYC) antes de reintentar. Distinto de `422 CLABE_INVALID` (formato incorrecto) y de `422 CLABE_NOT_OWN_NAME` (no coincide con la de archivo). Ver §6 y ARCHITECTURE §4.16a.
-- **⚠️⚠️ `422 KYC_NOT_VERIFIED` (v1.59, `BL-41` — norma completa en [`§M5-K`](#M5-K)).** `POST /admin/buylist/:id/pay-spei`
-  sobre una solicitud con **`ineRequired = true`** cuyo **`KycProfile.kycStatus != 'verified'`**. `details: { kycStatus }`.
-  **Es el término que le faltaba al cotejo INE ↔ titular de la CLABE**, que `PROJECT.md` declara desde v1.1 (criterio
-  **14(e)**, **178(g)**) y que **medido no existía en ninguna parte**: `kycStatus` se escribía y **no lo leía ningún
-  camino de dinero**. **Remedio:** `PATCH /admin/users/:id/kyc` con `kycStatus: "verified"` (`super_admin`, auditado)
-  **después** de cotejar el INE contra el titular de la CLABE. ⛔ **`'rejected'` bloquea igual que `'pending'`** —el
-  veredicto negativo es justo el caso que hay que detener— y **por debajo del umbral no aplica**: sin INE no hay nada
-  que cotejar. ⚠️ **Introduce un paso humano obligatorio antes de pagar sobre el umbral**: coste, alcance y **conteo
-  pre-merge obligatorio** en §M5-K.4.
+- **⛔⛔ ~~`422 KYC_NOT_VERIFIED`~~ — RETIRADO EN v1.60 (D51) ANTES DE IMPLEMENTARSE. NO EXISTE Y NO SE IMPLEMENTA.**
+  **Declarado en v1.59** como el cuarto término de `POST /admin/buylist/:id/pay-spei` (`ineRequired = true ∧
+  kycStatus != 'verified'`), **nunca llegó al código** —llegó por la regla 9 y no se mergeó—, y **`PROJECT.md` D51
+  retira el control entero**: el cotejo INE ↔ titular de la CLABE **no se puede ejecutar** porque **no existe fuente
+  del nombre del titular de la cuenta** (pregunta 40, cerrada por el humano midiendo su banco).
+  ⛔ **Este código NO se implementa, NO se emite y NO se testea.** `pay-spei` conserva sus **TRES** términos de
+  [`§M5-P`](#M5-P) y **ninguno más**. **`kycStatus` NO es precondición de dinero en ningún endpoint.**
+  ⚠️ **Backend/QA:** si aparece en un `throw`, en un test o en un `where`, **es una regresión** — criterio **183(a)** de
+  `PROJECT.md` lo verifica **por ausencia** (*una solicitud sobre el umbral, con INE en archivo y sin que nadie haya
+  marcado nada, **se oferta y se paga***). ⛔ **El conteo pre-merge de §M5-K.4 queda sin objeto: no se corre.**
+  **Registro del retiro y del riesgo aceptado: [`§M5-K`](#M5-K)** (reescrita). ⚠️ **`422 INE_REQUIRED` NO se toca en
+  ninguna de sus dos puertas: esto no es «se retira el KYC».**
 - **⚠️ LA FAMILIA `PICKUP_ADDRESS_*` (v1.51.3, D36/D37 — ARCHITECTURE §4.39q).** Cuatro códigos, **cuatro remedios
   distintos**; se declaran juntos porque hablan del mismo dato y separarlos en la cabeza del que integra es la mitad
   del valor. **El dato es la DIRECCIÓN DE ORIGEN del vendedor**, tomada de su propia libreta `Address` y **congelada**
@@ -5164,7 +5293,7 @@ Err:
 - `401 GOOGLE_TOKEN_INVALID` (firma/`aud`/`iss`/`exp` inválidos)
 - `403 GOOGLE_EMAIL_UNVERIFIED` (`email_verified != true` en el token → no se crea ni enlaza)
 - `403 USER_BLOCKED` (cuenta existente bloqueada)
-Nota: el login Google **no exime KYC** — la buylist sigue exigiendo CLABE/INE a nombre del usuario (§6/M6).
+Nota: el login Google **no exime KYC** — la buylist sigue exigiendo **CLABE** (siempre) e **INE** (sobre el umbral, D46) sea cual sea el provider (§6/M6). *(⚠️ **v1.60, D51 — corrección de redacción**: decía *«a nombre del usuario»*, y **eso no se comprueba**. La CLABE es **declarada** por el usuario; el INE **identifica a quien nos vende**, no a la cuenta. Ver [`§M5-K`](#M5-K).)*
 
 ### POST /api/v1/auth/refresh — `public` (con refresh token)
 Req: `{ refreshToken }` → Res `200`: `{ accessToken, refreshToken }`. Err: `401`.
@@ -5242,7 +5371,16 @@ Req: `{ name?, phone?, locale? }` → Res `200`: user.
   > **en el mismo paso** en que se captura la dirección (§P.2.2) — nunca desde una superficie anónima (§M5-I.6).
   - **`ineOnFile: boolean`** (ya existente) = hay imagen de INE (frente+reverso) en archivo. El front lo usa para **ocultar los uploaders de INE** y **omitir `ineUploadKeys`** en `POST /buylist/requests`; el backend ya trata el INE en archivo como "provisto" para el umbral AML (no re-pide INE si ya está).
   - **`clabeOnFile: boolean`** (**NUEVO v1.15**) = hay CLABE cifrada en archivo (`Boolean(KycProfile.clabeEnc)`). Booleano **limpio y simétrico** a `ineOnFile`. El front lo usa para ofrecer el atajo "usar mi CLABE ****1234" (= **omitir** `clabe` en `POST /buylist/requests`, resuelto server-side; ver §6) y, junto con `clabeMasked`, pintar el label. Si `clabeOnFile=false`, el front pide la CLABE.
-- `PUT /api/v1/users/me/kyc` — `customer` — Req: `{ clabe?, ineFrontUploadKey?, ineBackUploadKey? }` (keys de presign). La CLABE se recibe en claro (18 dígitos), se **cifra en reposo** y debe ser **a nombre del propio usuario** (declarado). Err `422 CLABE_INVALID`.
+- `PUT /api/v1/users/me/kyc` — `customer` — Req: `{ clabe?, ineFrontUploadKey?, ineBackUploadKey? }` (keys de presign). La CLABE se recibe en claro (18 dígitos), se **cifra en reposo** y debe ser **a nombre del propio usuario** (**declarado por el usuario — ⚠️ v1.60, D51: «declarado» es literal y es TODO lo que hay**). Err `422 CLABE_INVALID`.
+  > ⚠️⚠️ **v1.60 (D51) — LA PRECISIÓN QUE ESTE ENDPOINT NECESITA, PORQUE ES DONDE SE CAPTURA EL DATO:** *«a nombre del
+  > propio usuario»* es una **declaración del vendedor que NADIE COMPRUEBA**. **El sistema no verifica la titularidad de
+  > la cuenta en ningún punto** y `PROJECT.md` **retiró la promesa de que lo hacía** ([`§M5-K`](#M5-K)).
+  > ⛔ **Ninguna superficie —pantalla, correo o términos— puede afirmar que se coteja contra el titular** (criterio
+  > **183(c)**). **`422 CLABE_NOT_OWN_NAME` no contradice esto:** compara **la CLABE entrante contra la CLABE de
+  > archivo** por blind index —**no compara ningún nombre**—, y **sin CLABE en archivo acepta la primera que llegue**.
+  > *Su nombre sigue siendo peor que su conducta; no se renombra (deuda cosmética, rompería a frontend por nada).*
+  > **Riesgo residual aceptado, con las palabras del humano:** ***«pueden capturar una CLABE que digan que es de ellos y
+  > no sabríamos».*** **Lo que sí sabemos es a quién le compramos: eso es el INE (D46), y sigue en pie.**
 
 ---
 
@@ -7187,8 +7325,10 @@ Req: `{ items: [{ cardId, productType: "raw", rawCondition?, finish?, productId?
 > rescata con override motivado — jamás MX$0 y jamás un grado inventado.** *(ARCHITECTURE v1.54(8)/(9).)*
 
 > **v1.15 — `clabe` OPCIONAL + fallback server-side (PII):** `clabe` deja de ser obligatoria. Resolución server-side:
-> - **`clabe` presente** → comportamiento actual: valida formato (18 dígitos → `422 CLABE_INVALID`) y **nombre propio**
->   contra la CLABE en archivo por blind-index (`422 CLABE_NOT_OWN_NAME` si no coincide); se cifra/persiste.
+> - **`clabe` presente** → comportamiento actual: valida formato (18 dígitos → `422 CLABE_INVALID`) y ~~**nombre
+>   propio**~~ **la MISMA CLABE** *(⚠️ **v1.60, D51 — corrección de redacción, no de conducta**: aquí **no se compara
+>   ningún nombre**; se compara **CLABE contra CLABE**)* contra la CLABE en archivo por blind-index
+>   (`422 CLABE_NOT_OWN_NAME` si no coincide); se cifra/persiste. ⚠️ **Sin CLABE en archivo acepta cualquiera.**
 > - **`clabe` omitida** → el backend usa la **CLABE del PROPIO usuario** en archivo (`KycProfile.clabeEnc`,
 >   desencriptada — **misma fuente que `GET /admin/buylist/:id/reveal-clabe`**). Autorización estricta: **siempre** la
 >   del `userId` autenticado, **nunca** la de otro. Habilita el atajo del cotizador "usar mi CLABE ****1234" cuando
@@ -7259,8 +7399,16 @@ Err:
   > ser el tope MENSUAL, y nada más; el de solicitud dejó de acotar exposición y pasó a ser el umbral de KYC»*
   > (criterio 14). **Una sola compra de MX$9,000 a un particular es ahora posible cuando antes era imposible** —con
   > INE—. **Es lo que el humano eligió a sabiendas** (decisión 109). **Lo que sigue conteniendo:** el mensual (que
-  > suma **brutos**), el INE obligatorio desde la creación, el cotejo INE↔titular de la CLABE ([`§M5-K`](#M5-K)), el
-  > SPEI **solo a cuenta propia** y el tope de autorización del operador (D13).
+  > suma **brutos**), el INE obligatorio desde la creación, ~~el cotejo INE↔titular de la CLABE~~ *(**⛔ v1.60, D51 —
+  > RETIRADO de esta lista, y este renglón es EL MOTIVO por el que la decisión se tomó**: el cotejo **nunca existió**
+  > y **no se puede ejecutar**; contarlo aquí era exactamente *«ocupar un renglón en la lista de mitigaciones y hacer
+  > que nadie busque otra cosa»*. **Esta lista era la que justificó abrir la compra grande de D47** — ver
+  > [`§M5-K`](#M5-K))*, el
+  > SPEI **solo a una CLABE que el propio vendedor capturó** *(⚠️ **no «a cuenta propia»: NADIE COMPRUEBA DE QUIÉN ES
+  > ESA CUENTA**, D51)* y el tope de autorización del operador (D13).
+  > **⚠️⚠️ RIESGO RESIDUAL, ACEPTADO Y ESCRITO — con las palabras del humano, sin suavizar:** ***«pueden capturar una
+  > CLABE que digan que es de ellos y no sabríamos».*** **Sabemos a quién le compramos (el INE); no sabemos de quién es
+  > la cuenta a la que depositamos.** *Son dos controles distintos: tenemos el primero.*
   >
   > **⛔ EL INTAKE SIGUE SIN ARMONIZARSE en su MONTO:** mide sobre `quotedTotalCents` —**el único bruto que existe
   > cuando se crea la solicitud** (criterio 14, *«contra qué monto»*)— y sus `details` siguen llevando
@@ -7279,7 +7427,7 @@ Err:
   `PATCH` de admin de §M5-ciclo): **`details: { field: "addressId" }`, sin más claves**. ⛔ **`details.addressId` NO
   se emite** — el cliente acaba de mandarlo y devolverlo solo sacaría un identificador **ajeno** a la respuesta, a
   los logs y a la telemetría. Norma en §0 (familia `PICKUP_ADDRESS_*`) y ARCHITECTURE §4.39(q.3).
-- `422 CLABE_NOT_OWN_NAME` (la `clabe` del body no coincide con la de archivo — nombre propio)
+- `422 CLABE_NOT_OWN_NAME` (la `clabe` del body no coincide con la de archivo) — ⚠️ **v1.60 (D51): compara CLABE contra CLABE por blind index; NO compara ningún nombre**, y **sin CLABE en archivo acepta cualquiera**. *El nombre del código es peor que su conducta; no se renombra (§M5-K.1-ter).*
 - **`422 BUYLIST_MINIMUM_NOT_MET` (v1.51, D18, criterio 132)** — el **TOTAL** de la solicitud queda por debajo del
   **mínimo de compra** (`buylistMinimumRequestCents`, default MX$500, **borde INCLUSIVO**: exactamente MX$500 **SÍ se
   crea**, criterio 158(a)).
@@ -10941,10 +11089,185 @@ AHORA:  { kycStatus, clabeMasked?, clabeOnFile, ineOnFile, ineThresholdCents,  c
 
 ---
 
-#### <a id="M5-K"></a>⚠️⚠️ §M5-K — `BL-41`: EL COTEJO INE ↔ TITULAR DE LA CLABE. Dónde vive, y el término que le faltaba (v1.59 — NORMATIVA, **DINERO SALIENTE / AML-KYC**)
+#### <a id="M5-K"></a>⛔⛔ §M5-K — `BL-41`: EL COTEJO INE ↔ TITULAR DE LA CLABE. **RETIRADO** (v1.60, D51 — NORMATIVA POR AUSENCIA, **AML-KYC**)
 
-> *«El INE se **verifica contra el nombre de la CLABE**»* — criterio **14(e)**, vigente **sin cambio** desde v1.1 y
-> **explícitamente NO derogado por D46** (decisión 108: *«solo se derogó el CUÁNDO»*).
+> **⚠️⚠️ ESTA SECCIÓN YA NO DECLARA UN CONTROL: DECLARA POR QUÉ SE QUITÓ UNO, Y QUÉ QUEDA EN SU LUGAR.**
+> **Reescrita entera en v1.60.** Lo que v1.59 declaró aquí —**`422 KYC_NOT_VERIFIED` como cuarto término de
+> `pay-spei`**— **queda RETIRADO antes de implementarse**. **El anchor `#M5-K` se conserva a propósito**: hay ~10 enlaces
+> vivos apuntando aquí y **quien los siga tiene que aterrizar en el retiro, no en un 404 ni en la norma vieja**.
+> **Origen: `PROJECT.md` D51 / decisión 113 / §P.2.3 / criterio 183.** `PROJECT.md` manda sobre este contrato.
+
+**K.0 — ⛔ LA NORMA, EN UNA LÍNEA, PORQUE ES LO ÚNICO EXIGIBLE DE ESTA SECCIÓN.**
+```
+pay-spei :  TRES términos (§M5-P) — status ∈ PAYABLE  ∧  receivedAt IS NOT NULL  ∧  verifiedAt IS NOT NULL
+            ⛔ NO hay cuarto término.  ⛔ kycStatus NO se lee en ningún camino de dinero.
+```
+- ⛔ **`422 KYC_NOT_VERIFIED` no existe.** No se implementa, no se emite, no se testea, no se documenta como vigente.
+- ⛔ **Ninguna precondición de dinero —creación, emisión o pago— lee `kycStatus`.** Ni `'verified'`, ni `'rejected'`.
+- ✅ **`422 INE_REQUIRED` sigue INTACTO en sus dos puertas** (§M5-I creación, §M5-A emisión). **Esto no es «se retira el
+  KYC»:** se retira **comparar el nombre**, no **identificar a quien nos vende**.
+- ⛔ **El conteo pre-merge de K.4 queda SIN OBJETO y no se corre.**
+
+**K.1 — ⚠️⚠️ POR QUÉ SE RETIRA, Y NO ES QUE `BL-41` ESTUVIERA MAL.**
+**El diagnóstico de `BL-41` era correcto y se sostiene entero** (medición de v1.59, conservada en K.2 **sin retractar
+una palabra**): el cotejo **no existía en ninguna parte**, y llevaba declarado desde **v1.1**. Lo que cambió es que la
+12ª ronda dejó abierta **la pregunta 40** —*¿de dónde sale el nombre del titular de la cuenta?*— **marcada como la
+condición de existencia del control**, y **el humano la contestó midiendo su propio banco**:
+> *«solo me muestra si es de mi mismo banco[;] al final si vamos a mandar dinero sin completa certeza pueden capturar
+> una clabe que digan que es de ellos y no sabriamos»*
+
+⇒ **el nombre del titular solo aparece si la cuenta es del MISMO banco, y solo AL EJECUTAR la transferencia.**
+**Para todo lo demás NO EXISTE EL SEGUNDO NOMBRE QUE HABRÍA QUE COMPARAR.**
+
+| | |
+|---|---|
+| **Lo que declaré en v1.59 (K.3)** | *«No se puede comparar dos nombres automáticamente… lo que sí se puede hacer cumplir es que el cotejo **se HAYA HECHO** y su veredicto esté registrado»* |
+| **Lo que eso vale sin fuente** | **el operador no tiene contra qué cotejar** ⇒ el veredicto **certifica que alguien abrió una pantalla**, y nada más |
+| **Decisión del humano (pregunta 41)** | ***«creo vale la pena quitar ese check no nos genera valor»*** |
+
+⚠️⚠️ **Y la razón de fondo es MI PROPIO ARGUMENTO, aplicado a mi propio remedio:** ***un control que no se puede
+ejecutar es PEOR que ninguno — ocupa un renglón en la lista de mitigaciones, tranquiliza a quien la lee y hace que
+nadie busque otra cosa.*** **Es literalmente lo que ya pasó con este mismo control durante toda la vida del
+documento**, y **es lo que hacía la lista de contenciones AML de §6** (nota de vocabulario de `scope`, junto a
+`BUYLIST_LIMIT_EXCEEDED`): contarlo como mitigación fue parte de lo que
+justificó abrir la compra grande de D47. **Dejarlo escrito ahora, sabiéndolo falso, sería el mismo defecto a
+sabiendas.**
+
+**K.1-bis — ⚠️⚠️ CÓMO SE CIERRA `BL-41`, Y LA DISTINCIÓN NO ES SEMÁNTICA.**
+> **`BL-41`: ✅ CERRADA — RETIRADA POR PRODUCTO (D51). ⛔ NO «implementada», NO «resuelta».**
+- **El hallazgo sigue siendo verdadero**: *ninguna precondición de dinero comprueba de quién es la cuenta a la que
+  depositamos.* **Eso no se arregló.**
+- **Lo que cambió es que se decidió NO construirlo**, porque **no se puede construir**.
+- ⚠️ **Una ficha marcada «resuelta» diría que el hueco se tapó** y **haría que el próximo barrido no lo mirara** — que
+  es **exactamente la clase de registro mentiroso** que el techlead encontró en `TECH_DEBT.md` con `BE-1`, y **la misma
+  forma del defecto que `BL-41` denunciaba.** *Cerrar mal este registro repetiría el error que el registro describe.*
+- **⚠️ RIESGO RESIDUAL — ACEPTADO, ESCRITO Y CON LAS PALABRAS DEL HUMANO:** ***«pueden capturar una CLABE que digan que
+  es de ellos y no sabríamos».*** Vive en la **bandera AML/KYC** de `PROJECT.md` y en la **decisión 113**. **Deja de ser
+  un hueco silencioso y pasa a ser riesgo aceptado.**
+- **Lo que SÍ sigue conteniendo algo** (para no leerlo peor de lo que es): el **tope mensual**, el **INE obligatorio
+  sobre el umbral** —que **sabe a quién le compramos**, aunque no de quién es la cuenta—, el **SPEI a una CLABE que el
+  propio vendedor capturó** y que **cada oferta la emite una persona** (D13). **Lo que NO contiene nada:** cualquier
+  idea de que comprobamos la titularidad de la cuenta.
+
+**K.1-ter — ⛔ LO QUE NO SE HACE, Y SE DICE PORQUE LA TENTACIÓN DE «RESCATARLO UN POCO» ES REAL.**
+- ⛔ **No se captura `legalName` «por si acaso».** Sin cotejo **no tiene uso**, y un campo que se puebla sin lector es
+  la próxima ficha falsa. Ver **K.5** y §11.
+- ⛔ **No se deja «al menos un checkbox» ni «al menos un veredicto informativo».** Es D48 con otro nombre, y **D51 lo
+  retira entero**.
+- ⛔ **No se diseña contra el CEP del SPEI.** **Pregunta abierta 44** de `PROJECT.md`: el CEP *podría* traer el nombre
+  del beneficiario **después** de la transferencia —**registro, no prevención**—, pero **nadie lo ha verificado: ni el
+  humano, ni el product-owner, ni yo**. ⛔ **No existe en este contrato.** ⚠️ Y `PROJECT.md` §P.2.3 ya nombra la
+  pregunta que habría que contestar **antes** de usarlo: *qué hacemos cuando el CEP muestre un nombre distinto, con el
+  dinero ya enviado.*
+- ⛔ **No se toca `CLABE_NOT_OWN_NAME`** —sigue comparando **CLABEs**, no nombres— **ni se mueve la CLABE** (pregunta
+  29). *Renombrarlo es deuda cosmética; cambiarlo ahora rompería a frontend por nada.*
+
+**K.2 — 🗄️ LA MEDICIÓN DE `BL-41`, CONSERVADA ÍNTEGRA (v1.59). Es el registro de que el hueco era real.**
+
+> **Se conserva a propósito y sin editar los hechos:** la próxima ronda tiene que poder leer que **fue una decisión
+> medida y no un olvido**, y **quien proponga reintroducir el cotejo tiene que empezar por rebatir esta tabla.**
+
+| | |
+|---|---|
+| **Medido** | **`kycStatus` no se lee como precondición en ningún camino de dinero.** Se **escribe** en dos sitios (intake ⇒ `'pending'`, `:1595`; `PATCH /admin/users/:id/kyc` ⇒ `'verified'\|'rejected'`, `admin.service.ts:624-648`) y **se lee solo para PROYECTARLO** a DTOs (`users.service.ts:78,170`; `admin.service.ts:206,504`). **Cero lectores en `paySpei`, en `adminOffer` y en `createRequest`** |
+| **Medido** | **`KycProfile.legalName` NO TIENE NINGÚN ESCRITOR QUE LE PONGA UN NOMBRE.** En todo `backend/src` solo se **lee** (`ADMIN_KYC_SELECT` y dos DTOs) y su **único escritor** es la anonimización del **soft-delete** (`admin.service.ts:759-769`), que lo pone **a `null`**. ⇒ **no existe ninguna fuente del nombre del titular de la CLABE en el sistema**, ni capturada ni consultada a un tercero |
+| **Medido** | **`CLABE_NOT_OWN_NAME` NO COMPARA NINGÚN NOMBRE.** Es un match de **blind index HMAC** de la CLABE entrante contra la de archivo (`:1385-1391`); **si el usuario no tiene CLABE en archivo, acepta cualquiera y la persiste**. *El código honra el nombre del error solo por costumbre.* |
+| **Medido (v1.60)** | **`legalName` no aparece ni una vez en `frontend/`** ⇒ retirarlo de los DTOs (K.5) **no rompe nada** |
+
+⇒ **El criterio 178(g) —*«con un INE a nombre distinto del de la CLABE la operación se detiene»*— no era verificable, y
+`PROJECT.md` lo retira** *(D51; su reemplazo es el **criterio 183**, que se verifica **por ausencia**)*.
+**Y esto NO lo rompió D46: llevaba así desde antes.**
+
+**K.2-bis — ⚠️ LA CORRECCIÓN DE HECHO SOBRE LA CLABE SOBREVIVE AL RETIRO, Y SE CONSERVA APARTE.**
+Es **independiente del cotejo** y `PROJECT.md` la ratifica (D51, punto 5 de la 12ª ronda): **la CLABE es requisito de
+CREACIÓN desde v1.15**, no un dato del paso de pago.
+
+| | |
+|---|---|
+| **Medido** | `createRequest` la resuelve **antes** de cotizar líneas: con `clabe` en el body la valida y la compara por blind index contra la de archivo; **sin `clabe` y sin CLABE en archivo ⇒ `422 CLABE_REQUIRED`** (`buylist.service.ts:1378-1404`) |
+| **Medido** | **El contrato ya lo declara**: `POST /buylist/requests` lista `422 CLABE_REQUIRED` (v1.15) |
+| **Medido** | La solicitud nace con `clabeSnapshotEnc` **cifrado** (`:1585`, `:1626`) |
+
+⇒ **La CLABE no se mueve** (pregunta 29, supuesto (a)) — **no hace falta: ya estaba ahí.** **Lo que queda retirado es
+el argumento de imposibilidad** (*«el cotejo tiene que vivir en el pago porque la CLABE aún no existe al crear»*):
+**nunca fue cierto**, y **ahora además es irrelevante, porque el cotejo no vive en ninguna parte.**
+
+**K.5 — ⛔ `legalName` Y `kycStatus`: QUÉ SON AHORA. *(Un campo que nadie escribe y nadie lee es la próxima ficha falsa.)***
+
+**(a) `KycProfile.legalName` — CAMPO MUERTO. Se retira de los DTOs; la columna queda INERTE.**
+- **Existía para una sola cosa: sostener el nombre del titular para el cotejo.** **Retirado el cotejo, no tiene ningún
+  uso** — y **nunca tuvo escritor que le pusiera un nombre** (K.2).
+- ⛔ **SE RETIRA de `AdminKycProfileDTO` y de `AdminKycProfileOperatorDTO`** (§11). **Cero DDL:** la columna **se
+  conserva en el schema, inerte y sin lectores** — **precedente exacto y del mismo pase**:
+  `KycProfile.capPerRequestCentsOverride` (§M5-D.3) y `STRIPE_FEE_IVA_PCT` (v1.40/P-37).
+- **Por qué se retira del DTO y no solo «se deja vacío»:** un campo que **aparece en la ficha de admin** y **siempre
+  llega `null`** es una **invitación permanente** a que alguien lo puebla *«porque el panel lo pinta»* — y poblarlo
+  **reintroduce el cotejo por la puerta de atrás, sin control y sin decisión**. *Es el mismo argumento con el que se
+  retiró `capPerRequestCents` en vez de dejarlo como alias: **conservar el nombre que miente es el defecto**.*
+- ✅ **Impacto de frontend: CERO, medido** — `legalName` **no aparece ni una vez en `frontend/`**.
+- ⚠️ **Backend:** el cambio es **retirarlo de `ADMIN_KYC_SELECT` (`admin.service.ts:47`), del tipo (`:191`) y de las dos
+  proyecciones (`:205`, `:503`)**. ⛔ **El escritor a `null` del soft-delete (`:765`) NO se toca**: sigue siendo correcto
+  anular una columna que existe. **Ninguna migración, ningún backfill.**
+- ⚠️ **Deuda registrada, NO bloqueante:** *borrar la columna* es DDL y es de backend con migración; **no lo fuerzo aquí
+  y no hay prisa** — la columna es `null` en toda fila que exista. **Disparador para cerrarla:** el próximo pase que ya
+  lleve DDL de `KycProfile`.
+
+**(b) `KycProfile.kycStatus` — NO está muerto, pero NO ES UN CONTROL. Se queda, con su advertencia escrita.**
+- **Qué es tras D51:** una **anotación de back-office SIN CONSECUENCIA**. **No gatea la creación, ni la emisión, ni el
+  pago.** Se escribe en el intake (`'pending'`) y desde `PATCH /admin/users/:id/kyc`, y se **lee solo para proyectarlo**
+  (ficha 360° de M6 y `GET /users/me/kyc`).
+- **Por qué NO se retira, a diferencia de `legalName`:** **tiene consumidores reales y medidos** — el **badge** y el
+  **selector** de `M6View` (admin) lo pintan y lo reenvían en el `PATCH`. Retirarlo sería romper una pantalla viva a
+  cambio de nada. *La prueba de «campo muerto» es que nadie lo lea, no que a mí no me guste el nombre.*
+- ⚠️⚠️ **LA ADVERTENCIA, Y VA TAMBIÉN EN EL DTO (§11) PORQUE AHÍ ES DONDE SE LEE:** **`'verified'` NO significa que se
+  haya verificado nada.** **Tras D51 no existe ningún acto de verificación en el sistema.** El valor registra, como
+  mucho, que **un `super_admin` movió un selector**. ⛔ **Nadie —ni backend, ni frontend, ni una regla futura— puede
+  tratarlo como evidencia de identidad.**
+- ⛔ **NORMA — y es la que impide que esto se rehaga solo:** **ninguna regla nueva se cuelga de `kycStatus` sin pasar por
+  el arquitecto** (regla 9), **y la primera pregunta que tendrá que contestar es la 40**, que **está cerrada con «no
+  existe fuente»**. *Un enum con un valor llamado `verified` es una invitación permanente a construirle encima una
+  regla; por eso la advertencia vive en el DTO y no solo aquí.*
+- ⚠️ **Encargo a frontend/ux-ui (revisión, no cambio obligatorio):** `kycStatus` **hoy NO se pinta en ninguna superficie
+  de vendedor** —medido: en `(storefront)` solo aparece en tests— **y así debe seguir.** Pintarle *«verificado»* al
+  vendedor **afirmaría un acto que no existe**, que es lo que el **criterio 183(c)** prohíbe. El **badge de M6 (admin)**
+  se queda: ahí el lector sabe qué está mirando, y el dueño de esa pantalla es back-office.
+- ⚠️ **Deuda cosmética registrada, NO bloqueante:** el **nombre** del enum (`verified`) es peor que su conducta —**misma
+  familia exacta que `CLABE_NOT_OWN_NAME`**— y por la **misma razón no se renombra hoy**: sería DDL + romper a frontend
+  por un cambio de vocabulario. **Se registra; no se hace.**
+
+**K.4 — 🗄️ (v1.59) COSTE OPERATIVO Y CONTEO PRE-MERGE — ⛔ SIN OBJETO TRAS D51. NO SE CORRE.**
+> **Se conserva tachado como registro de lo que el control habría costado**, y porque **ese coste es parte de por qué
+> la decisión de retirarlo fue correcta**: el control introducía **un paso humano obligatorio entre la recepción y el
+> pago para toda solicitud sobre el umbral**, sobre una **población que D46 hace crecer**, **a cambio de nada
+> comprobable**. ⛔ **La consulta de abajo NO se ejecuta y NO bloquea ningún merge.**
+```sql
+-- ⛔ RETIRADA (v1.60, D51). Conservada solo como registro. NO se corre.
+-- SELECT count(*) FROM "SellRequest" s
+--  WHERE s."ineRequired" = true
+--    AND NOT EXISTS (SELECT 1 FROM "KycProfile" k
+--                     WHERE k."userId" = s."userId" AND k."kycStatus" = 'verified');
+```
+
+**K.6 — QA: esto se verifica POR AUSENCIA, y el contra-caso es obligatorio.**
+1. **Nada de KYC bloquea el dinero** *(criterio 183(a))*: solicitud **sobre el umbral**, con **INE en archivo**, con
+   `kycStatus` en **`'none'`/`'pending'`/`'rejected'`** ⇒ **se oferta y se paga**. ⭐ *Es el assert que atrapa el término
+   de v1.59 si sobrevivió al retiro — mismo patrón con que el criterio 179(g) atrapa la implementación vieja de
+   `BL-38`.* **Los tres valores, por separado.**
+2. **`KYC_NOT_VERIFIED` no se emite nunca**, por ningún camino, con ningún rol.
+3. ⭐ **CONTRA-CASO OBLIGATORIO, y es la mitad que importa** *(criterio 183(e))*: **lo que SÍ sigue bloqueando no se cayó
+   con el retiro.** **Sin INE en archivo**, sobre el umbral: **`422 INE_REQUIRED` al crear** (§M5-I) **y** **`422
+   INE_REQUIRED` al ofertar** (§M5-A), **también con `super_admin`**. *Sin este assert, «retirar el cotejo» y «retirar
+   el KYC» se vuelven indistinguibles en la suite.*
+4. **Ninguna superficie de vendedor afirma el cotejo** *(criterio 183(b)/(c))*: **no existe** el mensaje de *«el nombre
+   no coincide»* ni variante suya, ni en pantalla ni en correo; y la **pantalla que pide el INE** no dice que se
+   verifica contra el titular de la cuenta.
+5. ⛔ **Los criterios 180 y 181 NO se ejecutan: están retirados** (`PROJECT.md`). Un test que pretenda probar *«el
+   sistema detectó que los nombres difieren»* **está probando algo que no existe.**
+
+---
+
+<details>
+<summary>🗄️ <b>K.1-a / K.3 — LA NORMA DE v1.59, RETIRADA. Se conserva plegada como registro de qué se intentó y por qué no bastó (⛔ NO ES EXIGIBLE).</b></summary>
 
 **K.1 — ⚠️ PRIMERO, UNA CORRECCIÓN AL ENCARGO, PORQUE LA PREMISA NO SE SOSTIENE AL MEDIRLA.**
 El brief y `PROJECT.md` §P.2.1 dan por hecho que *«la **CLABE todavía no existe** en el momento de la creación»* y que
@@ -10973,7 +11296,13 @@ hoy: no hay nada que la detenga.** **Y esto NO lo rompió D46: llevaba así desd
 `BL-38`** —una regla que `PROJECT.md` declara, que el código no impone y que nada comprobaba—, con el agravante de
 que **es la única mitigación de la bandera AML que impide pagarle a un tercero**.
 
-**K.3 — NORMA: el cotejo vive donde vive el dinero. `pay-spei` gana un CUARTO término.**
+**⛔⛔ K.3 — [RETIRADA — v1.60, D51. NO SE IMPLEMENTA.] NORMA: el cotejo vive donde vive el dinero. `pay-spei` gana un CUARTO término.**
+> ⛔ **Todo lo de este bloque queda SIN EFECTO.** `pay-spei` **conserva sus tres términos y no gana un cuarto**;
+> `422 KYC_NOT_VERIFIED` **no existe**. **El error del razonamiento está en su propia primera frase** —*«no se puede
+> comparar dos nombres automáticamente»*—: **no es que no se pueda AUTOMÁTICAMENTE; es que NO HAY SEGUNDO NOMBRE,
+> ni para una máquina ni para una persona.** Sobre esa base, *«exigir que el cotejo se haya hecho»* **exige que se haya
+> hecho algo que nadie puede hacer.** Ver **K.0** y **K.1**.
+
 **No se puede comparar dos nombres automáticamente** (no hay fuente del titular de la CLABE, y `legalName` no se
 captura). **Lo que sí se puede hacer cumplir es que el cotejo se HAYA HECHO y su veredicto esté registrado**, que es
 la única forma auditable de una verificación documental:
@@ -11028,9 +11357,18 @@ cola**, y con `INE_REQUIRED` adelantado a la creación (D46) **la población afe
 - **No mueve la CLABE** (pregunta 29) **ni cambia `CLABE_NOT_OWN_NAME`**, cuyo nombre sigue siendo peor que su
   conducta. *Renombrarlo es deuda cosmética; cambiarlo ahora rompería a frontend por nada.*
 
+> ⚠️⚠️ **CIERRE DEL REGISTRO PLEGADO — y es la parte que hay que leer si has llegado hasta aquí.** Este último bloque
+> (**K.5 de v1.59**) **nombró correctamente el hueco** —*«mientras `legalName` no se capture, “verificado” significa
+> “un humano dijo que cuadra”»*— **y aun así declaró el término.** **Ése fue mi error**: nombrar honestamente el límite
+> de un control **no lo hace ejecutable**. La pregunta que faltaba era la **40** (*¿de dónde sale el nombre?*), y
+> cuando se contestó —**no existe fuente**— el control se cayó entero. ***Un control cuyo límite hay que explicar en un
+> párrafo para que se entienda qué comprueba, normalmente no comprueba nada.***
+
+</details>
+
 ---
 
-#### <a id="M5-N"></a>⚠️⚠️ §M5-N — `BL-42`: LOS TRES CAMINOS QUE DEJAN EL INE SIN ANCLA DE PURGA (v1.59 — NORMATIVA, **PII / LFPDPPP**)
+#### <a id="M5-N"></a>⚠️⚠️ §M5-N — `BL-42`: LOS TRES CAMINOS QUE DEJAN EL INE SIN ANCLA DE PURGA (v1.59; **camino 3 normado en v1.60 por D50** — NORMATIVA, **PII / LFPDPPP**)
 
 > **La pregunta que me hizo el orquestador, y la respuesta corta es: SÍ, hay caminos sin ancla, y son tres.**
 > `PROJECT.md` lo contiene con dos frases —*«la purga al llegar a estado terminal»* (criterio 169(e), 178(h)) y *«la
@@ -11060,7 +11398,50 @@ INE pedido **en el paso de pago**, casi todo el que subía un INE terminaba paga
 *«también le pediremos el INE a gente a la que al final NO le compraremos»* es **texto de `PROJECT.md`** (§P.2.2), y
 cada uno de esos casos que falle al enviar **deja un objeto huérfano**.
 
-**N.3 — ⚠️⚠️ CAMINO 3: la `cotizada` que no muere. Y aquí `PROJECT.md` se pisa a sí mismo.**
+**N.3 — ⚠️⚠️ CAMINO 3: la `cotizada` que no muere. ✅ DECIDIDO POR PRODUCTO EN v1.60 (D50).**
+
+> **⚠️⚠️ ESTADO v1.60 — LÉASE ANTES DEL DIAGNÓSTICO DE ABAJO, QUE SE CONSERVA PORQUE SIGUE SIENDO CORRECTO.**
+> **Yo dejé este camino abierto A PROPÓSITO**, diciendo que sus tres salidas eran **de producto o legales** y que
+> **no lo cerraba yo**. **`PROJECT.md` D50 (decisión 112) lo cierra**, y **con una salida que no es ninguna de las
+> tres que enumeré** — por eso la declaro y no me limito a citarla.
+> ⚠️ **Y no dependía del cotejo:** D51 retira D49, así que **queda UNA sola causa de bloqueo indefinido —falta de INE
+> (D46)— en vez de dos.** **D50 no pierde razón de ser: la causa que sobrevive es la original y la más frecuente.**
+
+**N.3-bis — NORMA (D50): el plazo nace de NUESTRA PETICIÓN, y el cierre es por el camino que ya existe.**
+```
+Solicitud bloqueada por falta de INE (D46, compuerta 2):
+
+  (1) mientras NO le hayamos pedido el documento   ⇒ sigue VIVA, y NINGÚN barrido la cierra   (protección §E)
+  (2) al PEDIRLE el documento                      ⇒ arranca el plazo   (SUPUESTO pregunta 42: 7 días hábiles, D33)
+  (3) plazo vencido sin que lo suba                ⇒ cierra por status='expirada' + motivo 'no_offer'
+                                                      + el correo que YA EXISTE (§P.3.1)
+  (4) al cerrar                                    ⇒ closedAt sellado ⇒ NACE EL ANCLA ⇒ la purga vuelve a funcionar sola
+```
+- ⛔ **CERO vocabulario nuevo. CERO DDL. CERO endpoints. CERO diales.** **No hay estado nuevo ni motivo nuevo**
+  —el criterio **178** lo prohíbe y **no hace falta**: `expirada`/`no_offer` **ya existen con su correo**—, **no hay
+  código de error nuevo** y **no cambia el shape de nada**. ⇒ **frontend no toca nada.**
+- ⚠️⚠️ **EL TÉRMINO QUE HACE QUE ESTO NO CONTRADIGA A §E, Y ES EL ÚNICO DIFÍCIL: el ancla del plazo es LA PETICIÓN, NO
+  LA CREACIÓN.** §E prohíbe que la solicitud *«caduque en silencio»* y **define el mal con precisión**: *le imputa al
+  vendedor un desenlace nuestro **cuando la causa fue un documento que nunca le pedimos***. ⇒ **si no se le pidió, no
+  corre nada, y la fila vive indefinidamente — eso NO es un defecto: es la regla.** *Un plazo que empieza con nuestra
+  petición y vence sin respuesta es del vendedor, igual que el de `not_shipped`.*
+- ⛔ **Consecuencia directa, y backend tiene que verla antes de escribir una línea:** ***el plazo NO se puede derivar de
+  `createdAt`, ni de `quotedAt`, ni del reloj de la regla 7.*** Hace falta **el instante en que le pedimos el
+  documento**, y **ese instante hoy no está sellado en ninguna columna** (medido: `SellRequest` no tiene marca de
+  «documento solicitado»). ⚠️ **AQUÍ SE PARA EL CONTRATO Y EMPIEZA LA REGLA 9:** cómo se sella ese instante —columna
+  nueva, `AuditLog`, o el envío del correo— **es DDL o modelo**, **es zona compartida (`prisma/`)** y **vuelve al
+  arquitecto antes de implementarse**. ⛔ **Backend no lo elige por su cuenta, y no lo aproxima con `createdAt`:**
+  aproximarlo **es exactamente el cierre en silencio que §E prohíbe**.
+- ⚠️ **Y sin la regla 7 encendida esto no tiene efecto** —`PROJECT.md` lo señala expresamente para devops/arquitecto—:
+  `BUYLIST_NO_OFFER_EXPIRY_ENABLED` **nace `'off'`, fail-closed, con censo previo obligatorio (B-4)**. **Mientras esté
+  apagada ninguna solicitud cierra sola y ninguna identificación se purga jamás.** ⛔ **Encenderla NO se hace por
+  escribirlo aquí**: tiene su propio procedimiento y es de **devops**.
+- **QA — criterio 182**, seis puntos; los dos que distinguen esta norma de una caducidad cualquiera:
+  **(a)** una bloqueada **a la que NO le hemos pedido nada** **NO cierra jamás**, por mucho que corra el reloj;
+  **(b)** dos solicitudes creadas **el mismo día** con la petición en **días distintos** **cierran en días distintos**.
+  ⭐ *Sin (a), la implementación pasa igual anclando el plazo en `createdAt`, y eso es el bug.*
+
+**N.3-ter — 🗄️ EL DIAGNÓSTICO DE v1.59, CONSERVADO: por qué estaba abierto.**
 - **Medido:** la **regla 7 del barrido** —la única que cierra una `cotizada` que nadie ofertó— **nace APAGADA**:
   `BUYLIST_NO_OFFER_EXPIRY_ENABLED`, **seed `'off'`** (`settings.constants.ts:377`; `buylist-sweep.service.ts:38,
   379-394`). **Con la configuración de fábrica, una `cotizada` no expira nunca.**
@@ -11079,8 +11460,13 @@ NUNCA.** *La retención de 180 días no aplica: no hay de qué contarlos.*
 - ⛔ **Lo que NO se hace, y se dice para que nadie lo «arregle» por su cuenta:** **no** se enciende la regla 7 (es un
   dial operativo con censo previo obligatorio, B-4), **no** se le inventa un estado nuevo a la `cotizada` bloqueada
   (criterio 178 lo prohíbe) y **no** se toca la retención (**el humano no la cambió**).
+> ⚠️ **Las tres salidas que enumeré, y por qué D50 no es ninguna:** **no** enciende el barrido a ciegas —**el plazo
+> nace de nuestra petición, no de la creación**—, **no** crea estado ni motivo nuevo, y **no** purga por antigüedad del
+> documento ⇒ **no cambia qué significa `INE_RETENTION_DAYS`**. ***Hace que el CIERRE ocurra, que es lo que faltaba.***
+> **Yo enumeré tres salidas y las tres eran caras; el humano encontró una cuarta.** *Enumerar las salidas de un
+> problema no es demostrar que no hay más.*
 
-**N.4 — NORMA: el barrido de huérfanos de `kyc_ine` (cierra el camino 2; el 3 queda escalado).**
+**N.4 — NORMA: el barrido de huérfanos de `kyc_ine` (cierra el camino 2; el 3 lo cierra D50 — N.3-bis).**
 El job de retención **gana un segundo barrido**, independiente del primero y **anclado en el objeto, no en la
 solicitud**:
 ```
@@ -11115,9 +11501,52 @@ Para cada objeto bajo el prefijo `kyc_ine/` del bucket:
    `KYC_UPLOAD_ORPHAN_HOURS + 1` ⇒ **el objeto ya no está en el bucket** y hay `AuditLog`.
 3. **Contra-caso obligatorio del 2:** un INE **vivo** (referenciado por un `KycProfile`) **NO se borra**, por antiguo
    que sea el objeto. ⭐ *Sin este assert, el barrido de huérfanos es un borrador de INEs.*
-4. **Camino 3 — se MIDE, no se cierra:** con la regla 7 apagada, una `cotizada` de más de `INE_RETENTION_DAYS` con INE
-   ⇒ **el job NO purga** (`openCount > 0`). **Es el comportamiento esperado hoy** y **el número que hay que llevarle
-   al humano**: `SELECT count(*)` de la consulta **(iii)** de §M5-A.9 más las `cotizada` vivas con INE.
+4. **Camino 3 — ⚠️ ACTUALIZADO v1.60 (D50): ahora se PRUEBA el cierre, ya no solo se mide.** Los seis puntos del
+   **criterio 182**, y de ellos los tres que no se pueden derivar de los otros:
+   **(a)** bloqueada **sin petición** ⇒ **sigue viva pasado el plazo** *(guarda de §E — es la que atrapa un plazo
+   anclado en `createdAt`)*; **(c)** vencida tras la petición ⇒ **`expirada` + `no_offer` + el correo de siempre**,
+   **sin estado ni motivo nuevo**; **(d)** **al cerrar, el perfil ENTRA al barrido de retención cuando antes no
+   entraba**. ⚠️ **Con la regla 7 apagada nada de esto dispara** ⇒ el escenario corre **con el dial encendido en el
+   entorno de prueba**, y **eso no autoriza a encenderlo en ningún otro sitio**.
+5. **⚠️ `BL-44` — se MIDE, no se cierra (N.6):** un usuario con **una solicitud pagada hace más de
+   `INE_RETENTION_DAYS`** y **otra solicitud viva cualquiera** ⇒ **el job NO purga NADA de ese perfil**. **Es el
+   comportamiento esperado hoy**, es el criterio **182(e)** de `PROJECT.md`, y **es el número que hay que llevarle al
+   humano**: la consulta **(iii)** de §M5-A.9 más los perfiles con INE y `openCount > 0`.
+
+**N.6 — ⚠️⚠️ `BL-44`: LA PURGA SE BLOQUEA POR PERFIL, NO POR SOLICITUD. D50 NO LO CIERRA (v1.60 — HALLAZGO, **PII / LFPDPPP**).**
+
+> **Sale del mismo predicado que ya medí en N.1, leído por su otro borde.** Lo levanta `PROJECT.md` (decisión 112, *«lo
+> que medí, y es peor que su enunciado»*) y **merece término propio porque su dueño y su salida son OTROS que los del
+> camino 3.** ⚠️ **Atribución honesta: no es una medición nueva; es una CONSECUENCIA de la medición de v1.59** —
+> `openCount == 0` es la condición (1) del predicado, y esa condición **cuenta las solicitudes del USUARIO, no de la
+> imagen**. *Lo que no había hecho era leer el radio de daño.*
+
+**El enunciado, y el matiz es todo:** no es *«una solicitud retiene su INE»*; es ***«una solicitud retiene al
+usuario»***.
+```
+openCount == 0   se evalúa sobre TODAS las SellRequest del usuario
+⇒ UNA sola solicitud viva  ⇒  continue  ⇒  NO SE PURGA NINGUNA imagen de ese KycProfile,
+                                            incluidas las de solicitudes YA CERRADAS Y PAGADAS
+```
+- **Por qué D50 NO lo cierra, y esto es lo que lo hace registro aparte:** D50 hace **finita UNA causa** de solicitud
+  eterna (la bloqueada por falta de INE). **No cambia que la retención esté anclada al PERFIL.** ⇒ un **vendedor
+  recurrente**, con todo funcionando y sin ninguna solicitud atorada, **mantiene vivo el INE de una solicitud pagada
+  hace 200 días** por el mero hecho de tener **una cotización en curso hoy**. *Ninguna solicitud está rota; la
+  retención sigue sin cumplirse.*
+- **Por qué NO lo cierro yo, y es la misma razón exacta que el camino 3:** anclar la retención **a la solicitud** en
+  vez de **al perfil** ⇒ **cambia qué significa `INE_RETENTION_DAYS`** ⇒ **es decisión de producto o legal.**
+  ⚠️ **Y la bandera AML de `PROJECT.md` ya le pregunta al humano exactamente esto** (*«si conviene purgar antes en las
+  solicitudes que nunca llegaron a `pagada`»*). **Dueño: humano → arquitecto → backend.**
+- ⛔ **Lo que NO se hace por cuenta propia:** **no** se cambia el predicado del job, **no** se purga por antigüedad del
+  objeto (eso es N.4 y **solo** para huérfanos **sin referencia**), y **no** se «arregla» borrando la imagen de la
+  solicitud cerrada mientras el perfil tenga otra viva. *Las tres son la misma decisión disfrazada, y no es mía.*
+- **Lo único que hoy lo cubre**: la **segunda capa — lifecycle del bucket** (§3.4(d), devops). ⚠️ **No lo sustituye:**
+  la regla de lifecycle **no distingue un INE vivo de uno que ya debería haberse purgado**, así que su expiración tiene
+  que ser larga. *Es una red, no el control.*
+- **Estado: ⏳ ABIERTA — NO BLOQUEANTE, ESCALADA AL HUMANO.** No hay dinero, no hay fuga a un tercero, no hay
+  privilegio evadido: hay **PII que vive más de lo que este documento promete**. **Disparador para subirla a
+  bloqueante:** cualquier compromiso externo (auditoría, aviso de privacidad publicado o requerimiento legal) que
+  **fije la retención como plazo máximo por documento** en vez de por cierre.
 
 ---
 
@@ -11847,7 +12276,8 @@ lleva `@HttpCode` explícito en cada ruta.
   Res `200`: la `SellRequest` actualizada (mismo shape que `GET /admin/buylist/:id`: `status="rechazada"`, `closedAt` sellado, `seller`, `items` con sus campos de rechazo).
   Err: `403 FORBIDDEN` (cliente), `404 NOT_FOUND` (solicitud inexistente), `422 REQUEST_HAS_NON_REJECTED_ITEMS` (queda ítem vivo), `409 CONFLICT` (solicitud en otro estado terminal `pagada`/`abandonada`).
 - `POST /api/v1/admin/buylist/:id/pay-spei` — **`super_admin`** — Req `{ speiReference }` + `Idempotency-Key` → registra pago manual, request `→pagada`. **Res `200`** *(v1.57, §M5-C — hoy responde `201`; ver `BL-37`)*. Err `403 MONEY_OUT_FORBIDDEN`. **Precondición: [`§M5-P`](#M5-P) — `status ∈ {aprobada, verificacion}` ∧ `receivedAt IS NOT NULL` ∧ `verifiedAt IS NOT NULL`** (pago **tras** recepción **y** verificación, `PROJECT.md:1107`).
-  **⚠️⚠️ v1.59 — CUARTO TÉRMINO: `422 KYC_NOT_VERIFIED`** (`details: { kycStatus }`) si **`SellRequest.ineRequired = true` ∧ `KycProfile.kycStatus != 'verified'`**. **Es el cotejo INE ↔ titular de la CLABE, que hasta hoy no tenía término en ninguna parte** (`BL-41`): norma completa, alcance, remedio y **conteo pre-merge obligatorio** en [`§M5-K`](#M5-K). ⛔ **Solo aplica sobre el umbral** (`ineRequired`): por debajo, el pago **no cambia en nada**. **`'rejected'` bloquea igual que `'pending'`** — el veredicto negativo es justo el caso que hay que detener.
+  **⛔⛔ v1.60 (D51) — NO HAY CUARTO TÉRMINO. `~~422 KYC_NOT_VERIFIED~~` SE RETIRA ANTES DE IMPLEMENTARSE.** Este endpoint conserva **exactamente los TRES términos** de [`§M5-P`](#M5-P) y **ninguno más**; **`kycStatus` NO se lee aquí ni en ningún otro camino de dinero**. `PROJECT.md` **D51** retira el cotejo INE ↔ titular de la CLABE **entero** porque **no existe fuente del nombre del titular de la cuenta** (pregunta 40, cerrada). ⛔ **Backend: nada que implementar; el conteo pre-merge queda sin objeto.** ⛔ **QA: si este endpoint rechaza por KYC, es una regresión** (criterio **183(a)**: *sobre el umbral, con INE en archivo y sin que nadie haya marcado nada, **se paga***). Registro del retiro y del **riesgo aceptado** en [`§M5-K`](#M5-K).
+  > 🗄️ **~~v1.59 — CUARTO TÉRMINO: `422 KYC_NOT_VERIFIED`~~** (`details: { kycStatus }`) si **`SellRequest.ineRequired = true` ∧ `KycProfile.kycStatus != 'verified'`**. ~~Es el cotejo INE ↔ titular de la CLABE, que hasta hoy no tenía término en ninguna parte~~ (`BL-41`). **⛔ RETIRADO — se conserva tachado como registro; ver §M5-K.**
   > ### ⚠️⚠️ v1.57 — EL TERCER TÉRMINO: **`receivedAt IS NOT NULL`**. (DINERO, NORMATIVO. Cierre de `BL-35` eje 2.)
   > **La precondición que este endpoint declara en prosa desde siempre —*«pago tras recepción/verificación»*— y que
   > su propio mensaje de error dice literal (`'Payment allowed only after receipt/verification and approval'`)
@@ -12923,9 +13353,19 @@ Err `403`, `400 VALIDATION_ERROR`.
   > no puede significar — bajarle el KYC a una persona**, que es lo que el criterio **178(e)** y §M5-A.4 prohíben.
   > **`capPerMonthCents` se queda entero**: el mensual sigue siendo el único techo de dinero y elevarlo para un
   > vendedor verificado es una decisión comercial legítima, con nombre y auditada.
-  > ⚠️ **Y este endpoint gana peso, no lo pierde:** `kycStatus: "verified"` es ahora **precondición de dinero
-  > saliente** para toda solicitud sobre el umbral (`422 KYC_NOT_VERIFIED`, [`§M5-K`](#M5-K)). *Deja de ser un campo
-  > de ficha y pasa a ser el registro del cotejo INE ↔ titular de la CLABE.*
+  > ~~⚠️ **Y este endpoint gana peso, no lo pierde:** `kycStatus: "verified"` es ahora **precondición de dinero
+  > saliente** para toda solicitud sobre el umbral (`422 KYC_NOT_VERIFIED`, §M5-K). *Deja de ser un campo
+  > de ficha y pasa a ser el registro del cotejo INE ↔ titular de la CLABE.*~~
+  > **⛔⛔ v1.60 (D51) — ESE PÁRRAFO QUEDA RETIRADO, Y LA CORRECCIÓN IMPORTA: este endpoint NO gana peso.**
+  > **`kycStatus` NO es precondición de nada**: no gatea la creación, ni la emisión, ni el pago. **`422
+  > KYC_NOT_VERIFIED` no existe.** ⇒ **`kycStatus` sigue siendo exactamente lo que era: un campo de ficha de
+  > back-office, SIN CONSECUENCIA** (norma completa en [`§M5-K.5(b)`](#M5-K)).
+  > ⚠️⚠️ **Y la advertencia que hay que leer antes de tocar este selector: `'verified'` NO significa que se haya
+  > verificado nada.** Tras D51 **no existe ningún acto de verificación en el sistema** — el valor registra, como
+  > mucho, **que un `super_admin` movió un selector**. ⛔ **Nadie puede tratarlo como evidencia de identidad, y
+  > ninguna regla nueva se cuelga de él sin pasar por el arquitecto** (regla 9).
+  > **Lo que sí conserva peso real en este endpoint es `capPerMonthCents`**: es el **único techo de dinero que
+  > queda**, y su override es una decisión comercial con nombre y auditada.
 - `PATCH /api/v1/admin/users/:id/status` — **`super_admin`** — Req `{ status: "active" | "blocked" }`.
 
 #### Alta de usuario por rol desde admin (v1.7-admin-users — NUEVO backend)
@@ -13027,6 +13467,9 @@ Err `403`, `400 VALIDATION_ERROR`.
       `phone`/`avatarUrl`/`googleId` → null, `passwordHash` → null (no puede iniciar sesión), refresh tokens revocados.
     - PII sensible: `KycProfile` y `BillingProfile` → borra `clabeEnc`/`clabeHmac`/`rfcEnc`/`legalName` y purga
       imágenes de INE (`ineFrontKey`/`ineBackKey` → null + borrado en storage); conserva solo metadatos no-PII
+      *(⚠️ **v1.60, D51**: `legalName` **sale de los DTOs** (§11, §M5-K.5a) pero **la columna se conserva inerte** y
+      **este escritor NO se toca** — sigue siendo correcto anular una columna que existe. **Es el ÚNICO escritor que
+      ha tenido nunca**, y por eso el campo está muerto.)*
       necesarios para conciliación. `Address` → borrada o reducida a datos no identificatorios si algún envío la referencia por snapshot.
     - **Se conservan** `Order`/`SellRequest`/`ShipmentRequest`/`Dispute` y los `InventoryItem` (bóveda) por
       integridad contable/auditoría; su `userId`/`ownerUserId` sigue apuntando al `User` anonimizado (no se
@@ -14092,16 +14535,32 @@ AdminUserDetailOperatorDTO = {    // ← `vault_operator` (SEC-A4: rol de menor 
 // ⚠️⚠️ v1.59 (D47, §M5-D.3): `capPerRequestCents` SE RETIRA de los DOS DTOs. El override por-KYC del tope por
 // solicitud queda INERTE (columna conservada, cero DDL, cero lectores). `capPerMonthCents` se queda: es el único
 // techo de dinero que queda y su override sigue siendo una decisión comercial legítima y auditada.
-// ⚠️ `kycStatus` DEJA DE SER INFORMATIVO: con `ineRequired = true` es precondición de `pay-spei` (§M5-K).
-AdminKycProfileDTO = { id: string, userId: string, legalName?: string, kycStatus: KycStatus,
+// ~~⚠️ v1.59: `kycStatus` DEJA DE SER INFORMATIVO: con `ineRequired = true` es precondición de `pay-spei`.~~
+// ⛔⛔ v1.60 (D51, §M5-K) — ESA LÍNEA QUEDA RETIRADA. `kycStatus` **SÍ es informativo y nada más**: NO es
+// precondición de la creación, ni de la emisión, ni del pago. `422 KYC_NOT_VERIFIED` NO EXISTE.
+// ⚠️⚠️ Y LA ADVERTENCIA VA AQUÍ PORQUE AQUÍ ES DONDE SE LEE EL CAMPO: `'verified'` NO SIGNIFICA QUE SE HAYA
+// VERIFICADO NADA. Tras D51 no existe ningún acto de verificación en el sistema — el valor registra, como mucho,
+// que un `super_admin` movió un selector en M6. ⛔ No es evidencia de identidad y NINGUNA regla se cuelga de él
+// sin pasar por el arquitecto (regla 9); la primera pregunta que tendría que contestar es la 40 —«¿de dónde sale
+// el nombre del titular?»—, CERRADA con «no existe fuente».
+// ⛔⛔ v1.60 (D51, §M5-K.5a) — `legalName` SE RETIRA DE LOS DOS DTOs: CAMPO MUERTO. Existía solo para sostener el
+// nombre del titular en el cotejo; retirado el cotejo no tiene uso, y NUNCA tuvo escritor que le pusiera un nombre
+// (su único escritor lo pone a `null`, en la anonimización del soft-delete). La columna se CONSERVA INERTE en el
+// schema (CERO DDL; precedente `capPerRequestCentsOverride`). Impacto de frontend: CERO, medido — `legalName` no
+// aparece ni una vez en `frontend/`. ⚠️ No se deja «vacío en la ficha»: un campo que el panel pinta y que siempre
+// llega `null` invita a poblarlo, y poblarlo reintroduce el cotejo por la puerta de atrás. Backend: sale de
+// `ADMIN_KYC_SELECT`, del tipo y de las DOS proyecciones; el escritor a `null` del soft-delete NO se toca.
+AdminKycProfileDTO = { id: string, userId: string, kycStatus: KycStatus,
                        clabeMasked?: string, rfcMasked?: string, ineOnFile: boolean,
                        ineFrontKey?: string, ineBackKey?: string,   // solo super_admin: sirven el presigned GET
                        capPerMonthCents?: number,
                        verifiedBy?: string, verifiedAt?: string, createdAt: string, updatedAt: string }
-AdminKycProfileOperatorDTO = { id: string, userId: string, legalName?: string, kycStatus: KycStatus,
+AdminKycProfileOperatorDTO = { id: string, userId: string, kycStatus: KycStatus,
                                clabeMasked?: string, ineOnFile: boolean,
                                capPerMonthCents?: number,
                                verifiedAt?: string }
+// ⚠️ `verifiedBy`/`verifiedAt` se conservan: siguen sellándose y siguen siendo el rastro auditado de QUIÉN movió el
+// selector y CUÁNDO. Lo que NO son es prueba de que se verificara algo. Mismo caso que `kycStatus`.
 AdminBillingProfileDTO = { id: string, userId: string, rfcMasked: string, razonSocial: string,
                            regimenFiscal: string, usoCfdi: string, postalCode: string, email: string,
                            createdAt: string, updatedAt: string }
