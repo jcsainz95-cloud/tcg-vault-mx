@@ -143,12 +143,15 @@ describe('B-2 — el importe se relee DENTRO de la transacción', () => {
     expect(h.writes[0].data).toMatchObject({ payoutNetCents: 82_000 });
   });
 
-  it('la cascada de TRES términos se evalúa sobre la relectura (aprobado ?? ofertado ?? cotizado)', async () => {
-    // `offerGrossCents` es EL término que faltaba (§4.39i.4-bis): con override al alza el cotizado es
-    // MENOR que el ofertado, y medir por el cotizado deja el acumulado corto.
+  it('el importe sale de la RELECTURA, no de la lectura de fuera de la transacción', async () => {
+    // ⚠️ v1.61 · §M5-V.2 — este caso medía la cascada **con `approvedTotalCents = null` en las dos
+    // puntas**, y eso ya no es alcanzable: V-a exige bruto aprobado para pagar. Lo que el caso
+    // protege —*el número que sale es el de DENTRO de la transacción*— se mide igual, y ahora sobre
+    // el término que post-V manda siempre. Los tres montos van **distintos entre sí** para que la
+    // aserción discrimine cuál se usó.
     const h = harness({
-      outer: PAGABLE({ quotedTotalCents: 100_000, offerGrossCents: null }),
-      inner: PAGABLE({ quotedTotalCents: 100_000, offerGrossCents: 250_000 }),
+      outer: PAGABLE({ approvedTotalCents: 100_000, quotedTotalCents: 140_000, offerGrossCents: 130_000 }),
+      inner: PAGABLE({ approvedTotalCents: 250_000, quotedTotalCents: 140_000, offerGrossCents: 130_000 }),
     });
     await h.svc.paySpei('sr-1', 'SPEI-1', 'admin');
     expect(h.writes[0].data).toMatchObject({ payoutNetCents: 250_000 });
@@ -185,10 +188,13 @@ describe('B-2 — el CAS sobre el importe vive en el `where` del motor', () => {
   it('los `null` viajan como `null` (IS NULL), no se omiten del `where`', async () => {
     // Omitirlos convertiría el CAS en «cualquier valor» justo en la fila pre-M-46, que es donde la
     // cascada cae al término más lejano del dinero real.
-    const h = harness({ outer: PAGABLE({ quotedTotalCents: 100_000 }) });
+    // ⚠️ v1.61 · §M5-V (V-a): `approvedTotalCents` ya **no puede** ser `null` en una fila que se
+    // paga, así que el `null` se afirma sobre las DOS columnas del ciclo que sí lo son en la cohorte
+    // pre-M-46 — que es justo donde este CAS importa.
+    const h = harness({ outer: PAGABLE({ approvedTotalCents: 100_000, quotedTotalCents: 100_000 }) });
     await h.svc.paySpei('sr-1', 'SPEI-1', 'admin');
     expect(h.writes[0].where).toMatchObject({
-      approvedTotalCents: null,
+      approvedTotalCents: 100_000,
       offerGrossCents: null,
       offerShippingFeeCents: null,
       quotedTotalCents: 100_000,

@@ -1,4 +1,4 @@
-import { SellRequestStatus } from '@prisma/client';
+import { BuyDecision, SellItemStatus, SellRequestStatus } from '@prisma/client';
 
 /**
  * sell-request-states.ts (M-46, ARCHITECTURE §4.39c — **ZONA COMPARTIDA**) — **la ÚNICA fuente de los
@@ -114,7 +114,16 @@ export const SELL_REQUEST_PAYABLE_STATES = [
  * ```
  * isPayable = status ∈ SELL_REQUEST_PAYABLE_STATES  ∧  receivedAt IS NOT NULL  ∧  verifiedAt IS NOT NULL
  *                                                      └──────── v1.57 ────────┘
+ *           ∧ approvedTotalCents IS NOT NULL                       ← v1.61 §M5-V (V-a), TODA fila
+ *           ∧ (offerSentAt IS NULL ∨ ninguna línea `buy` sin veredicto)  ← v1.61 §M5-V (V-b), solo ciclo
  * ```
+ *
+ * ⚠️ **Los DOS términos de v1.61 no viven en el mismo sitio y es normativo (§M5-V.4):** **V-a** es
+ * escalar y entra **aquí** (⇒ lo heredan los tres lectores y `payableWhere()`); **V-b** mira las
+ * LÍNEAS, así que no cabe en un predicado de la fila — vive en `pendingBuyDecisionItemIds` y se
+ * compone en `isPayableSellRequestWithItems`, que es lo que la proyección admin publica como
+ * `isPayable`. **La propiedad normativa es una sola: `isPayable === true` ⇒ `pay-spei` no falla por
+ * precondición.**
  *
  * ### ⚠️⚠️ v1.57 · **§M5-P / BL-35 eje 2 — «NO SE PAGA LO QUE NO HA LLEGADO».**
  *
@@ -185,13 +194,102 @@ export function isPayableSellRequest(sr: {
   status: SellRequestStatus;
   receivedAt: Date | null;
   verifiedAt: Date | null;
+  approvedTotalCents: number | null;
 }): boolean {
   return (
     (SELL_REQUEST_PAYABLE_STATES as readonly SellRequestStatus[]).includes(sr.status) &&
     // ⚠️ v1.57 · §M5-P — **el término que faltaba**: la carta está EN NUESTRAS MANOS.
     sr.receivedAt != null &&
-    sr.verifiedAt != null
+    sr.verifiedAt != null &&
+    // ⚠️⚠️ v1.61 · §M5-V **V-a** — «y aprobamos ALGO».
+    // ⛔ **`!= null`, JAMÁS `> 0`.** `0` es el **depósito de cero** de D40 / criterio 140 (el envío se
+    // comió el bruto **con líneas aprobadas**) y **se paga**; `null` es *«nadie decidió nada»* y no
+    // se paga. *Toda esta invariante existe porque esos dos no son el mismo número.*
+    sr.approvedTotalCents != null
   );
+}
+
+/**
+ * ⚠️⚠️ v1.61 · **§M5-V.0 — LOS DOS DESENLACES.** `itemStatus` que cuentan como **veredicto de
+ * verificación** de una línea comprada.
+ *
+ * `aprobada` y `rechazada` son **los dos desenlaces exactos** de `PROJECT.md` §P.5 (*«Llega en NM ⇒
+ * aprobada… No llega en NM ⇒ rechazada»*, *«los desenlaces son exactamente dos»*);
+ * `convertida_inventario` es el **sucesor** de la aprobación (`convert-to-inventory` solo admite
+ * `aprobada`), y sin él una línea ya convertida volvería a contar como pendiente.
+ *
+ * ⚠️ **CLASE R** (§4.37): lo declara `PROJECT.md`, **no** el schema — `ajustada`, `pagada`,
+ * `recibida`, `verificacion`, `cotizada` y `precio_pendiente` **no** son veredictos, y si mañana el
+ * enum gana un valor **no debe volverse veredicto solo**.
+ */
+export const SELL_ITEM_VERDICT_STATES = [
+  'aprobada',
+  'rechazada',
+  'convertida_inventario',
+] as const satisfies readonly SellItemStatus[];
+
+/**
+ * ⚠️⚠️ v1.61 · **§M5-V, TÉRMINO V-b — «y juzgamos TODO LO QUE COMPRAMOS».**
+ *
+ * Devuelve **los ids** de las líneas **COMPRADAS** (`offerDecision = 'buy'`) que siguen **sin
+ * veredicto**. Vacío ⇒ la solicitud pasa V-b. **Devuelve ids y no un booleano** porque el `422
+ * ITEMS_NOT_DECIDED` los publica en `details.pendingDecisionItemIds` y el DTO admin publica su
+ * longitud como `pendingDecisionItemCount`: *un cuerpo, tres respuestas.*
+ *
+ * ### ⛔ `offerSentAt IS NULL` ⇒ SIEMPRE VACÍO, y no es una excepción legacy
+ * Fuera del ciclo, `respond(accept)` aprueba **en bloque** las líneas `ajustada` y deja
+ * legítimamente sin veredicto individual a las demás: aplicar V-b allí volvería impagable **la
+ * cohorte entera**. `offerSentAt` es un **hecho sellado una vez** que el pagador no elige (§M5-V.4).
+ *
+ * ### ⚠️⚠️ EL FILTRO `offerDecision === 'buy'` NO ES UN REFINAMIENTO: SIN ÉL SE ROMPE EL CAMINO FELIZ
+ * **Medido en vivo** (no deducido): al emitir la oferta, las líneas **`skip`** conservan su
+ * `itemStatus` (`cotizada`/`recibida`/**`verificacion`**) y solo ganan `offerDecision='skip'`
+ * (`buylist.service.ts`, `OFFER_LINE_NULL`). **Nunca pueden alcanzar `aprobada`** —`422
+ * ITEM_NOT_OFFERED` lo prohíbe a propósito— y **nada las rechaza solas**. ⇒ un predicado *«ninguna
+ * línea sin veredicto»* **a secas dejaría impagable TODA oferta con cherry-pick**, que es el caso
+ * normal del ciclo. *La línea que no compramos no tiene veredicto de compra porque no hay nada que
+ * juzgar.* ⛔ **Y no se «arregla» rechazando las `skip`**: `rechazada` ancla los relojes 7d/30d de §H
+ * y dispara **el correo de rechazo por carta** — usarlo para cuadrar un predicado le mandaría al
+ * vendedor un correo que dice algo falso.
+ */
+export function pendingBuyDecisionItemIds(
+  sr: { offerSentAt?: Date | null },
+  items: readonly { id: string; offerDecision?: BuyDecision | null; itemStatus: SellItemStatus }[],
+): string[] {
+  // Fuera del ciclo V-b no aplica (§M5-V.4). Sin este corto-circuito, la cohorte pre-M-46 —cuyas
+  // líneas tienen `offerDecision = null`— seguiría dando vacío, pero la INTENCIÓN quedaría implícita
+  // en un `null` del dato en vez de escrita en la regla.
+  if (sr.offerSentAt == null) return [];
+  const verdicts = SELL_ITEM_VERDICT_STATES as readonly SellItemStatus[];
+  return items
+    .filter((i) => i.offerDecision === 'buy' && !verdicts.includes(i.itemStatus))
+    .map((i) => i.id);
+}
+
+/**
+ * ⚠️⚠️ v1.61 · **§M5-V.5 — EL `isPayable` QUE PUBLICA EL DTO: LOS DOS TÉRMINOS, UN SOLO CUERPO.**
+ *
+ * `isPayableSellRequest` (escalar) **∧** V-b. Es el **hermano** que anuncia §M5-V.5: la forma la
+ * elige backend, **la propiedad es normativa** — *`isPayable === true` ⇒ `pay-spei` no falla por
+ * precondición*.
+ *
+ * ⚠️ **Por qué NO se resolvió con un argumento opcional en `isPayableSellRequest`:** un
+ * `items?: […]` deja que un llamador que se olvide de pasarlas obtenga **el predicado débil en
+ * silencio**, que es exactamente cómo el botón de pagar acabó mintiéndole al súper-admin en v1.57
+ * (§M5-P, defecto ALTA). Con **dos funciones** el que quiere la respuesta completa **tiene que
+ * traer las líneas**, y el compilador se lo cobra.
+ */
+export function isPayableSellRequestWithItems(
+  sr: {
+    status: SellRequestStatus;
+    receivedAt: Date | null;
+    verifiedAt: Date | null;
+    approvedTotalCents: number | null;
+    offerSentAt?: Date | null;
+  },
+  items: readonly { id: string; offerDecision?: BuyDecision | null; itemStatus: SellItemStatus }[],
+): boolean {
+  return isPayableSellRequest(sr) && pendingBuyDecisionItemIds(sr, items).length === 0;
 }
 
 /**

@@ -20,10 +20,16 @@
  *
  * Por eso hay **dos** casos, que pinchan **dos invariantes distintas y no se tapan entre sí**:
  *
- * - **(A) La puerta de BL-14.** Sobre una solicitud `pagada` **no hay decisión de ítem que tomar**.
- *   Es el escenario que QA reprodujo en vivo (`receive` → `verify` → `pay-spei` **sin ninguna
- *   decisión por-ítem** ⇒ `approvedTotalCents = null`, `payoutNetCents = 32000`), y lo que se afirma
- *   es que la puerta cierra **y el número no se mueve**.
+ * - **(A) La puerta de BL-14.** Sobre una solicitud `pagada` **no hay decisión de ítem que tomar**:
+ *   `409 NO_LIVE_ADJUSTMENT`, y lo que de verdad se afirma es que **el número del dinero no se
+ *   mueve**.
+ *   > ⚠️⚠️ **v1.61 · §M5-V (`BL-45`) — LA PREMISA DE (A) CAMBIÓ, Y EL CAMBIO ES EL ARREGLO.** Este
+ *   > caso partía del escenario que QA reprodujo en vivo: `receive` → `verify` → **`pay-spei` SIN
+ *   > NINGUNA decisión por-ítem** ⇒ `approvedTotalCents = null` y `payoutNetCents = 32000`. **Ese
+ *   > pago ya no existe**: `422 ITEMS_NOT_DECIDED` lo frena, porque era el mismo camino que dejaba la
+ *   > mercancía pagada fuera del inventario **para siempre**. Ahora (A) decide la línea **antes** de
+ *   > pagar —el ciclo como debe ser— y ejercita la puerta con el `reject` de después, que es el
+ *   > movimiento que de verdad reescribiría el bruto (`50000 → null`) si BL-14 no estuviera.
  * - **(B) La guarda del recompute, por su OTRO eje.** `liveRequestWhere()` son DOS términos
  *   (`status ∉ TERMINAL ∧ closedAt IS NULL`), y el eje `closedAt` **sí es alcanzable por HTTP**:
  *   sobre una fila **cerrada con estado no-terminal** —la fila que P1 fabricaba, la razón literal
@@ -123,8 +129,34 @@ describe('E2E — el bruto de una solicitud CERRADA no se reescribe (§M5-T · B
     await h?.close();
   });
 
+  it('(A-0) ⚠️⚠️ v1.61 · §M5-V — el pago SIN decisiones que QA midió en vivo YA NO OCURRE', async () => {
+    // Se afirma **explícitamente el camino que se cerró**, para que nadie lo reabra creyendo que era
+    // un caso de negocio: `receive` → `verify` → `pay-spei` sin ningún veredicto era el estado que
+    // dejaba `approvedTotalCents = null`, la tarjeta en MX$0 y la mercancía **inconvertible para
+    // siempre**. Quitar la guarda V-b devuelve el `200` y este caso se pone rojo.
+    const { srId } = await walkToVerificacion();
+    const res = await h.api('POST', `/admin/buylist/${srId}/pay-spei`, {
+      token: adminToken,
+      json: { speiReference: `SPEI-CLOSED-A0-${srId.slice(0, 8)}` },
+    });
+    expect(res.status).toBe(422);
+    expect(res.body.error.code).toBe('ITEMS_NOT_DECIDED');
+    const fila = await h.prisma.sellRequest.findUnique({ where: { id: srId } });
+    expect(fila!.paidAt).toBeNull();
+    expect(fila!.payoutNetCents).toBeNull();
+  });
+
   it('(A) sobre una solicitud PAGADA no hay decisión de ítem: `409 NO_LIVE_ADJUSTMENT` y el bruto NO se mueve', async () => {
     const { srId, itemId } = await walkToVerificacion();
+
+    // v1.61 · §M5-V: se decide la línea ANTES de pagar (el ciclo como §P.5 lo exige). El bruto
+    // aprobado queda en 50000 y el neto en 32000 — los mismos números que antes medía este caso,
+    // ahora por el camino que sí deja la mercancía convertible.
+    const aprobada = await h.api('PATCH', `/admin/buylist/items/${itemId}/decision`, {
+      token: operatorToken,
+      json: { decision: 'approve' },
+    });
+    expect(aprobada.status).toBe(200);
 
     const paid = await h.api('POST', `/admin/buylist/${srId}/pay-spei`, {
       token: adminToken,
@@ -132,32 +164,32 @@ describe('E2E — el bruto de una solicitud CERRADA no se reescribe (§M5-T · B
     });
     expect(paid.status).toBe(200);
 
-    // El estado exacto que QA midió en vivo: salieron MX$320 reales sobre un bruto OFERTADO de
-    // MX$500, con `approvedTotalCents` en `null`. Es la fila sobre la que la norma de
-    // `brutoConsumado` (§4.39i.4-bis) afirma que el aprobado «es final».
     const sellado = await h.prisma.sellRequest.findUnique({ where: { id: srId } });
     expect(sellado!.status).toBe('pagada');
-    expect(sellado!.approvedTotalCents).toBeNull();
+    expect(sellado!.approvedTotalCents).toBe(50000);
     expect(sellado!.payoutNetCents).toBe(32000);
     expect(sellado!.closedAt).not.toBeNull();
 
+    // ⚠️ **`reject` y no `approve`**: sobre una fila ya pagada el `reject` es el movimiento que de
+    // verdad reescribiría el dinero — pone `approvedPriceCents = null` y el recompute bajaría
+    // `approvedTotalCents` de **50000 a `null`** sobre una fila que ya depositó MX$320, liberando
+    // cuota mensual AML de forma retroactiva. *La puerta se prueba empujándola por el lado que
+    // rompe.*
     const decision = await h.api('PATCH', `/admin/buylist/items/${itemId}/decision`, {
       token: operatorToken,
-      json: { decision: 'approve' },
+      json: { decision: 'reject', reason: 'intento de re-decidir una línea ya pagada' },
     });
     expect(decision.status).toBe(409);
     expect(decision.body.error.code).toBe('NO_LIVE_ADJUSTMENT');
     expect(decision.body.error.details.status).toBe('pagada');
 
-    // Lo que de verdad importa no es el código: es que **el número del dinero sigue siendo el
-    // mismo**. Sin las guardas de terminal, el ítem quedaría `aprobada` en MX$500 y el recompute
-    // habría subido `approvedTotalCents` de `null` a `50000` — sobre una fila que ya pagó MX$320.
+    // Lo que de verdad importa no es el código: es que **el número del dinero sigue siendo el mismo**.
     const despues = await h.prisma.sellRequest.findUnique({ where: { id: srId } });
-    expect(despues!.approvedTotalCents).toBeNull();
+    expect(despues!.approvedTotalCents).toBe(50000);
     expect(despues!.payoutNetCents).toBe(32000);
     const item = await h.prisma.sellRequestItem.findUnique({ where: { id: itemId } });
-    expect(item!.approvedPriceCents).toBeNull();
-    expect(item!.itemStatus).not.toBe('aprobada');
+    expect(item!.approvedPriceCents).toBe(50000);
+    expect(item!.itemStatus).toBe('aprobada');
   });
 
   it('(B) fila CERRADA con estado vivo: la decisión prospera y aun así el recompute NO reescribe el total', async () => {

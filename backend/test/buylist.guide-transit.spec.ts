@@ -116,10 +116,13 @@ function build(opts: Opts = {}) {
 // =============================================================================================
 describe('⚠️ BL-20 — `isPayable` en TODA proyección admin, y en NINGUNA de cliente', () => {
   // ⚠️ v1.57 · §M5-P — «pagable» son TRES términos: `receivedAt` entra al fixture o nada lo es.
+  // ⚠️⚠️ v1.61 · §M5-V (V-a) — y son **CUATRO**: sin bruto aprobado no hay nada que pagar. El
+  // fixture lo lleva **poblado** porque lo que este bloque mide es la PROYECCIÓN, no el término.
   const pagable = {
     status: 'aprobada',
     receivedAt: new Date('2026-08-04T00:00:00Z'),
     verifiedAt: new Date('2026-08-05T00:00:00Z'),
+    approvedTotalCents: 50000,
   };
 
   it.each([['receive'], ['verify'], ['reject']])(
@@ -142,6 +145,10 @@ describe('⚠️ BL-20 — `isPayable` en TODA proyección admin, y en NINGUNA d
     // transición que lo vuelve verdadero **sobre una fila recibida**; sobre una sin recibir, no.
     const { svc, request } = build({ status: 'verificacion' });
     request.receivedAt = new Date('2026-08-04T00:00:00Z');
+    // v1.61 · §M5-V (V-a): el eje que este caso mide es `verifiedAt`, así que el bruto aprobado va
+    // poblado desde el principio — si no, el `false` de después no distinguiría cuál de los dos
+    // términos lo produce.
+    request.approvedTotalCents = 50000;
     // Sin `verifiedAt`, `isPayable` es false aunque el estado esté en el set pagable.
     const antes: any = await svc.adminGet('sr-1');
     expect(antes.isPayable).toBe(false);

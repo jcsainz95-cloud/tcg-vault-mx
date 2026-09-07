@@ -318,6 +318,30 @@ export const ErrorCode = {
   // ⛔ **Solo `approve`:** `reject` es la dirección segura (quita el monto, cierra solicitudes,
   // desatasca filas) y gatearlo dejaría filas sin salida; `adjust` no existe en el ciclo.
   REQUEST_NOT_RECEIVED: 'REQUEST_NOT_RECEIVED',
+  // ⚠️⚠️ v1.61 · **§M5-V / BL-45 — «NO SE PAGA LO QUE NO SE HA JUZGADO». DINERO SALIENTE + MERCANCÍA.**
+  // `POST /admin/buylist/:id/pay-spei`, **dentro del ciclo** (`offerSentAt IS NOT NULL`), con al menos
+  // una **línea COMPRADA** (`offerDecision='buy'`) **sin veredicto de verificación**
+  // (`itemStatus ∉ {aprobada, rechazada, convertida_inventario}`).
+  // `details: { sellRequestId, pendingDecisionItemIds: string[] }`. **No escribe nada y no paga.** 422.
+  //
+  // **Qué cierra, y son DOS cosas con UNA causa:** pagar sin veredictos deja las líneas fuera de
+  // `aprobada` —el **único** estado que `convert-to-inventory` admite— **y** la solicitud queda
+  // `pagada` (terminal) ⇒ `itemDecision` responde `409 NO_LIVE_ADJUSTMENT` ⇒ **la mercancía pagada no
+  // se puede convertir NUNCA, por ninguna ruta de la API** (verificado por barrido exhaustivo de las
+  // once rutas del ciclo sobre una fila pagada; `BACKEND_NOTES` §0.45.2). Además `approvedTotalCents`
+  // se queda `null` y la tarjeta «buylist del periodo» reporta **MX$0** sobre dinero que salió.
+  //
+  // **Nombra la LÍNEA porque el remedio es por línea:** `PATCH /admin/buylist/items/:itemId/decision`
+  // con `approve` o `reject` — los **dos** desenlaces de `PROJECT.md` §P.5. *El error nombra la palanca.*
+  //
+  // ⚠️ **El término `offerDecision='buy'` es OBLIGATORIO:** las líneas **`skip`** se quedan en
+  // `verificacion` a propósito y **jamás pueden aprobarse** (`ITEM_NOT_OFFERED`) ⇒ sin él **toda
+  // oferta con cherry-pick sería impagable**, que es el camino normal del ciclo.
+  //
+  // ⛔ **Solo dentro del ciclo:** fuera, `respond(accept)` aprueba en bloque las `ajustada` y deja
+  // legítimamente sin veredicto individual a las demás. **No es una excepción legacy en una guarda de
+  // dinero** (§M5-P norma 1): `offerSentAt` es un hecho sellado una vez que el pagador no elige.
+  ITEMS_NOT_DECIDED: 'ITEMS_NOT_DECIDED',
   // ⚠️ v1.51.20 — **BACKSTOP, no error de cliente.** `approve` sobre una línea `offerDecision='buy'`
   // cuyo `offeredPriceCents` es `null`: viola el invariante que la emisión garantiza **sin excepción**
   // (`buy ⇒ offeredPriceCents IS NOT NULL`). `details: { itemId }`. **No escribe nada y no paga.** 500.

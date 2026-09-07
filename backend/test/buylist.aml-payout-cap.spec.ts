@@ -119,13 +119,18 @@ describe('AML-1 — el pago SPEI re-verifica el tope MENSUAL contra lo aprobado'
     expect((h.prisma.sellRequest as { updateMany: jest.Mock }).updateMany).toHaveBeenCalled();
   });
 
-  it('sin cherry-pick (`approvedTotalCents = null`) manda lo COTIZADO', async () => {
+  it('⚠️ v1.61 · §M5-V — con `approvedTotalCents = null` NI SIQUIERA se llega al tope: no se paga', async () => {
+    // **La premisa se invirtió.** Decía *«sin cherry-pick manda lo COTIZADO»*: el término 3 de la
+    // cascada gobernando un pago con cero decisiones por-carta. **V-a lo vuelve inalcanzable en el
+    // instante del pago** — la escalera de §M5-V.6 responde antes de que el tope mensual se evalúe.
+    // ⚠️ Se afirma **el orden**, no solo el rechazo: el AML no puede ser lo que salve una fila sin
+    // aprobar (con un tope más alto, pagaría).
     const h = harness({
       request: APROBADA({ quotedTotalCents: 400_000, approvedTotalCents: null }),
     });
     const err = await h.svc.paySpei('sr-1', 'SPEI-1', 'admin').catch((e) => e);
-    expect(err.code).toBe('BUYLIST_LIMIT_EXCEEDED');
-    expect(err.getResponse()).toMatchObject({ details: { wouldBeCents: 400_000 } });
+    expect(err.code).toBe('VALIDATION_ERROR');
+    expect((h.prisma.sellRequest as { updateMany: jest.Mock }).updateMany).not.toHaveBeenCalled();
   });
 
   it('lo APROBADO manda sobre lo cotizado (es lo que realmente sale)', async () => {
@@ -254,9 +259,14 @@ describe('B-5 — el FILO del tope mensual (un centavo a cada lado)', () => {
   it('⚠️ el filo se mide con el término CENTRAL de la cascada (`offerGrossCents`), en los DOS lados', async () => {
     // Es el término que M-46 añadió y el que el override al alza (D26) hace **mayor** que el cotizado:
     // medir por el cotizado dejaba el acumulado corto y el vendedor rebasaba el tope sin que nada lo
-    // notara. Aquí ni el acumulado ni la solicitud en curso tienen `approvedTotalCents`.
+    // notara.
+    // ⚠️ v1.61 · §M5-V.2 — la fila **PAGADA** conserva `approvedTotalCents = null` (cohorte histórica:
+    // ahí el término central sigue siendo la medida correcta y la cascada NO se retira); la fila
+    // **EN CURSO** lleva el aprobado igual al ofertado, porque V-a exige bruto aprobado para pagar y
+    // en el ciclo `approvedTotalCents = Σ offeredPriceCents` de las `buy` aprobadas. El filo que se
+    // mide —300_001 vs 300_000— no se mueve ni un centavo.
     const h = harness({
-      request: APROBADA({ approvedTotalCents: null, offerGrossCents: 100_001, quotedTotalCents: 1 }),
+      request: APROBADA({ approvedTotalCents: 100_001, offerGrossCents: 100_001, quotedTotalCents: 1 }),
       paidThisMonth: [{ approvedTotalCents: null, offerGrossCents: 200_000, quotedTotalCents: 1 }],
     });
     const err = await h.svc.paySpei('sr-1', 'SPEI-1', 'admin').catch((e) => e);
@@ -268,7 +278,7 @@ describe('B-5 — el FILO del tope mensual (un centavo a cada lado)', () => {
 
   it('y el mismo caso UN CENTAVO más abajo SÍ pasa (el filo no es un rechazo genérico)', async () => {
     const h = harness({
-      request: APROBADA({ approvedTotalCents: null, offerGrossCents: 100_000, quotedTotalCents: 1 }),
+      request: APROBADA({ approvedTotalCents: 100_000, offerGrossCents: 100_000, quotedTotalCents: 1 }),
       paidThisMonth: [{ approvedTotalCents: null, offerGrossCents: 200_000, quotedTotalCents: 1 }],
     });
     await h.svc.paySpei('sr-1', 'SPEI-1', 'admin');

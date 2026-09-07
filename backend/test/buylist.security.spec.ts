@@ -283,7 +283,7 @@ describe('BuylistService.paySpei — SEC-M5 idempotencia + guardia de estado', (
       // Sin KYC override y sin pagos previos del mes, el control es no-op y el pago procede.
       kycProfile: { findUnique: jest.fn().mockResolvedValue(null) },
       sellRequest: {
-        findUnique: jest.fn().mockResolvedValue({ id: 'sr', status: 'pagada', receivedAt: new Date(), verifiedAt: new Date() }),
+        findUnique: jest.fn().mockResolvedValue({ id: 'sr', status: 'pagada', receivedAt: new Date(), verifiedAt: new Date(), approvedTotalCents: 50_000 }),
         updateMany: jest.fn(),
         update: jest.fn(),
         findMany: jest.fn().mockResolvedValue([]), // AML-1: pagos previos del mes (ninguno).
@@ -303,8 +303,8 @@ describe('BuylistService.paySpei — SEC-M5 idempotencia + guardia de estado', (
       sellRequest: {
         findUnique: jest
           .fn()
-          .mockResolvedValueOnce({ id: 'sr', status: 'aprobada', receivedAt: new Date(), verifiedAt: new Date() })
-          .mockResolvedValue({ id: 'sr', status: 'pagada', receivedAt: new Date(), verifiedAt: new Date() }),
+          .mockResolvedValueOnce({ id: 'sr', status: 'aprobada', receivedAt: new Date(), verifiedAt: new Date(), approvedTotalCents: 50_000 })
+          .mockResolvedValue({ id: 'sr', status: 'pagada', receivedAt: new Date(), verifiedAt: new Date(), approvedTotalCents: 50_000 }),
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
         findMany: jest.fn().mockResolvedValue([]), // AML-1: pagos previos del mes (ninguno).
       },

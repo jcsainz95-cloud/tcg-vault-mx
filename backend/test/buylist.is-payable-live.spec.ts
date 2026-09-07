@@ -193,35 +193,46 @@ describe('⚠️ BL-17 · el aviso de la UI y la guarda del servidor NO pueden d
         status: { in: string[] };
         receivedAt: { not: null };
         verifiedAt: { not: null };
+        approvedTotalCents: { not: null };
       };
     };
     const w = svc.payableWhere();
     for (const status of ALL_STATUSES) {
       for (const receivedAt of [null, new Date()]) {
         for (const verifiedAt of [null, new Date()]) {
-          const porElWhere =
-            matchesStatus(status, w.status) &&
-            // Se leen del `where` REAL (no se dan por hechos): si el término desaparece, `w.receivedAt`
-            // es `undefined` y esta rama deja de exigir nada ⇒ el cruce discrepa y el test cae.
-            (w.receivedAt === undefined || receivedAt !== null) &&
-            (w.verifiedAt === undefined || verifiedAt !== null);
-          expect({ status, r: !!receivedAt, v: !!verifiedAt, porElWhere }).toEqual({
-            status,
-            r: !!receivedAt,
-            v: !!verifiedAt,
-            porElWhere: isPayableSellRequest({ status, receivedAt, verifiedAt }),
-          });
+          // ⚠️⚠️ v1.61 · §M5-V.8 assert 9 — el CUARTO eje. `0` y `null` van los dos porque son los
+          // que una implementación con `> 0` confunde, y confundirlos rompe D40 en un sentido y
+          // paga la oferta íntegra por cero cartas en el otro.
+          for (const approvedTotalCents of [null, 0, 50000]) {
+            const porElWhere =
+              matchesStatus(status, w.status) &&
+              // Se leen del `where` REAL (no se dan por hechos): si el término desaparece, `w.receivedAt`
+              // es `undefined` y esta rama deja de exigir nada ⇒ el cruce discrepa y el test cae.
+              (w.receivedAt === undefined || receivedAt !== null) &&
+              (w.verifiedAt === undefined || verifiedAt !== null) &&
+              (w.approvedTotalCents === undefined || approvedTotalCents !== null);
+            expect({ status, r: !!receivedAt, v: !!verifiedAt, a: approvedTotalCents, porElWhere }).toEqual({
+              status,
+              r: !!receivedAt,
+              v: !!verifiedAt,
+              a: approvedTotalCents,
+              porElWhere: isPayableSellRequest({ status, receivedAt, verifiedAt, approvedTotalCents }),
+            });
+          }
         }
       }
     }
   });
 
-  it('el `where` de la guarda lleva LOS TRES términos (no solo el estado)', () => {
+  it('el `where` de la guarda lleva LOS CUATRO términos (no solo el estado)', () => {
     const svc = buildList([]).svc as unknown as { payableWhere(): Record<string, unknown> };
     expect(svc.payableWhere()).toEqual({
       status: { in: [...SELL_REQUEST_PAYABLE_STATES] },
       receivedAt: { not: null },
       verifiedAt: { not: null },
+      // ⚠️⚠️ v1.61 · §M5-V (V-a). ⛔ `{ not: null }`, JAMÁS `{ gt: 0 }`: escribir `gt: 0` aquí rompe
+      // el depósito de cero de D40 (criterio 140) y pone ESTA aserción en rojo.
+      approvedTotalCents: { not: null },
     });
   });
 

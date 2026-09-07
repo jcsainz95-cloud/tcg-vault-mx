@@ -28,6 +28,249 @@
 > §0.22 de este documento son de `main` y NO se movieron**: son M47-H2, v1.53 (buylist raw-only) y
 > v1.53-b. Un informe de QA/techlead anterior al 2026-09-06 puede usar la numeración vieja.
 
+## 0.45 — **v1.61 / `BL-45` · §M5-V: «no se paga lo que no se ha juzgado». LA CUARTA CARA ERA REAL Y SE MIDIÓ** (2026-09-07)
+
+> Propiedad: **backend**. Contra el contrato **v1.61 [`§M5-V`](API_CONTRACT.md#M5-V)** y `ARCHITECTURE`
+> §9 `BL-45` / `BL-45-bis`. **CERO DDL, cero migración, cero endpoints nuevos, cero diales.** Dos
+> términos en `pay-spei`, un código de error, un campo de DTO aditivo.
+> ⛔ **`BL-45-bis` (columna congelada `grossConsumedCents` + backfill) NO se implementa**: está
+> DIFERIDA con disparador mecánico y su disparador es el conteo §M5-V.7(ii) **en producción**.
+
+### 0.45.1 ⛔⛔ PASO 1 — LA CUARTA CARA **NO ERA UNA DERIVACIÓN: SE REPRODUJO EN VIVO**, y sale dinero
+
+El arquitecto la dejó marcada como *«derivada del código, **NO ejecutada en vivo**»*. **Se ejecutó.**
+Contra el stack nativo (`:3099`, backend sirviendo `543ac17`, byte-idéntico en `backend/` a `HEAD`) y
+**Postgres real**, **todo por HTTP con `curl`** y **sin sembrar una sola fila**: usuarios y catálogo
+salen del seed sintético; el escenario se construye **por la API**, con `vault_operator` para el ciclo
+y `super_admin` sólo para pagar.
+
+**Las llamadas exactas y sus códigos** (solicitud `1486216a-92cb-4609-9491-80b80d0f708a`):
+
+| # | Llamada | Rol | Código |
+|---|---|---|---|
+| 1 | `POST /api/v1/buylist/requests` (DOS líneas de la misma carta) | customer | **201** |
+| 2 | `GET /api/v1/admin/buylist/:id` (leer las dos líneas) | operator | 200 |
+| 3 | `POST /api/v1/admin/buylist/:id/offer` — **cherry-pick**: línea A `buy`, línea B `skip` | operator | **200** |
+| 4 | `POST /api/v1/buylist/requests/:id/offer-response {accept}` | customer | 200 |
+| 5 | `POST /api/v1/admin/buylist/:id/receive` | operator | 200 |
+| 6 | `POST /api/v1/admin/buylist/:id/verify` | operator | 200 |
+| 7 | `PATCH /api/v1/admin/buylist/items/:A/decision {reject, reason}` — **la ÚNICA línea comprada** | operator | **200** |
+| 8 | `GET /api/v1/admin/buylist/:id` ⇒ `status='verificacion'`, **`isPayable: true`** | super_admin | 200 |
+| 9 | `POST /api/v1/admin/buylist/:id/pay-spei` | **super_admin** | ⛔ **200** |
+
+**La fila resultante, leída de Postgres (no del DTO):**
+
+```
+status               | pagada
+approvedTotalCents   |            ← NULL
+offerGrossCents      | 50000
+offerShippingFeeCents| 18000
+payoutNetCents       | 32000      ← ⛔ MX$320 POR CERO CARTAS
+speiReference        | REPRO-BL45-D-1788759969
+
+  líneas:  ff4c4d5f | skip | verificacion  | offered=NULL  | approved=NULL
+           efc417e9 | buy  | rechazada     | offered=50000 | approved=NULL
+```
+
+**La derivación del arquitecto era exacta, palabra por palabra**, incluido el mecanismo: la
+auto-transición a `rechazada` no dispara porque `maybeAutoRejectRequest` cuenta
+`itemStatus != 'rechazada'` **sobre TODOS los ítems**, y la línea `skip` se quedó en `verificacion`.
+**No hizo falta sembrar nada**, así que la gravedad **no se acota: se confirma**. Es la negación
+exacta del invariante 2 / criterio 140.
+
+### 0.45.2 La otra cara (b): la mercancía pagada e inconvertible — **y la exhaustividad, VERIFICADA**
+
+Segundo PoC en vivo (`30071e87-e62e-4690-bfc8-014da5fdcf44`): ciclo normal, una línea `buy`,
+`receive` → `verify` → **`pay-spei` sin decidir nada** ⇒ **200**, `approvedTotalCents = null`,
+`payoutNetCents = 32000`. Sobre esa fila **ya pagada** se barrieron **las once rutas del ciclo**:
+
+| Ruta (sobre la solicitud/línea PAGADA) | Código | Error |
+|---|---|---|
+| `POST …/items/:id/convert-to-inventory` (operator **y** super_admin) | 422 | `ITEM_NOT_APPROVED` (`itemStatus: verificacion`) |
+| `PATCH …/items/:id/decision` `{approve}` / `{adjust}` / `{reject}` | 409 | `NO_LIVE_ADJUSTMENT` (`status: pagada`) |
+| `POST …/receive`, `POST …/verify` | 409 | `CONFLICT` (terminal + `closedAt`) |
+| `POST …/offer` | 409 | `OFFER_ALREADY_SENT` |
+| `POST …/offer/cancel` | 409 | `OFFER_NOT_CANCELLABLE` |
+| `POST …/offer/authorize` | 409 | `OFFER_NOT_PENDING_AUTHORIZATION` |
+| `POST …/decline` | 409 | `DECLINE_NOT_ALLOWED` |
+| `POST …/reject` | 409 | `CONFLICT` |
+| `POST …/guide`, `POST …/confirm-shipment` | 409 | `GUIDE_NOT_ALLOWED` / `NOT_ACCEPTED` |
+| `POST /buylist/requests/:id/respond` / `offer-response` / `declare-shipped` | 409 | `ADJUST_NOT_ALLOWED_IN_OFFER_CYCLE` / `OFFER_NOT_PENDING` / `NOT_ACCEPTED` |
+
+**La afirmación de exhaustividad del arquitecto SE CONFIRMA, y no sólo por barrido: por enumeración
+del código.** `SellRequestItem` tiene **NUEVE** sitios de escritura en todo el backend (cero SQL
+crudo, cero escritores fuera de `buylist.service.ts`). De los nueve, **sólo DOS** pueden poner una
+línea en `aprobada` —`respond(accept)` (`ajustada → aprobada`) y `itemDecision(approve)`— y **los dos
+llevan la solicitud NO-terminal en el `where` de su propia escritura**; el noveno
+(`convertToInventory`) exige `itemStatus === 'aprobada'`. ⇒ **sobre una fila `pagada` la línea no
+puede alcanzar `aprobada` por ninguna ruta, nunca.**
+
+> **Acotación honesta, y es la única:** existe `POST /api/v1/admin/inventory/items` (alta manual). Eso
+> **no rescata la línea**: crea un `InventoryItem` **sin `sourceSellRequestItemId`**, deja el
+> `SellRequestItem` en `verificacion` para siempre y obliga a **teclear el costo a mano** en vez de
+> capitalizar `offeredPriceCents`. *Re-teclear una pieza rompiendo su trazabilidad no es una ruta de
+> rescate: es la evidencia de que no hay ninguna.*
+
+### 0.45.3 ⚠️ PASO 2 — LAS CUATRO CONSULTAS DE §M5-V.7, PARA **PRODUCCIÓN**
+
+**NO se corrieron contra producción** (no hay acceso ni autorización desde aquí). Se entregan como SQL
+**literal, ejecutable y de SOLO LECTURA** — cuatro `SELECT`, cero escritura — para la consola de
+Railway. El SQL íntegro y la tabla de decisiones están en el resumen de esta sesión; lo que importa
+aquí, para quien lo audite después:
+
+| Consulta | Qué mide | Si `> 0` |
+|---|---|---|
+| **(i-bis)** ⛔ | vivas **pagables** con **todas** sus líneas `buy` **rechazadas** ⇒ hoy pagan `max(0, offerGross − fee)` por CERO cartas | ⛔ **NO espera al merge.** Esas solicitudes **no se pagan** hasta decidir sus líneas (instrucción de operación) y **se escala al humano y al arquitecto en el mismo pase** |
+| **(i)** | vivas que el término bloquearía el día del deploy (remediables: decidir sus líneas **compradas**) | **SE ESCALA AL ARQUITECTO antes de mergear** (regla 9). ⛔ **NO se añade excepción legacy al `where` por cuenta propia** |
+| **(ii)** | ya pagadas sin bruto aprobado + su importe = **el sub-reporte histórico** de la tarjeta | **no bloquea**; es **el disparador (1) de `BL-45-bis`** (columna congelada + backfill) ⇒ entra en **el pase siguiente**. Si da `0`, ⛔ la columna **no se construye** |
+| **(iii)** | **líneas atrapadas**: compradas, de solicitudes pagadas, ya inconvertibles | **no bloquea**; es el **daño de mercancía ya causado** y alimenta la ficha de `BL-45-bis` |
+
+**Local, medido dos veces y dicho tal cual:** antes de mis PoC, `0 / 0 / 0 / 0`; **después de ellos**,
+`(i)=1 · (i-bis)=0 · (ii)=2 · (iii)=1` — **las cuatro filas eran mías**, de esta misma sesión. Tras la
+suite de integración (que **trunca y resiembra** el fixture) vuelven a `0 / 0 / 0 / 0`. ⚠️ **Cero
+local no es cero** (`PENDIENTES.md` §5): la BD local es un fixture sintético que se borra, así que
+**estos números no dicen nada sobre producción** y el conteo de §M5-V.7 sigue **pendiente y obligatorio**.
+
+### 0.45.4 PASO 3 — QUÉ CAMBIÓ EN EL CÓDIGO (cuatro ficheros de `src/`, cero DDL)
+
+**`src/common/sell-request-states.ts`** (zona compartida; nadie más la tocaba en este pase):
+- **V-a** entra en `isPayableSellRequest`: `sr.approvedTotalCents != null`. ⛔ **`!= null`, JAMÁS
+  `> 0`** — el depósito de cero de D40 / criterio 140 tiene `approvedTotalCents = 0` **con líneas
+  aprobadas** y **se sigue pagando**.
+- **`SELL_ITEM_VERDICT_STATES`** (clase R): `['aprobada','rechazada','convertida_inventario']` — los
+  dos desenlaces de §P.5 más el sucesor de la aprobación.
+- **`pendingBuyDecisionItemIds(sr, items)`** (V-b): corta en seco si `offerSentAt == null` y filtra
+  **`offerDecision === 'buy'`**. Devuelve **ids**, no un booleano: el `422` los publica en
+  `details.pendingDecisionItemIds` y el DTO publica su longitud. *Un cuerpo, tres respuestas.*
+- **`isPayableSellRequestWithItems(sr, items)`** — el hermano que compone los dos términos.
+  ⚠️ **Se descartó a propósito la variante `items?` opcional** en `isPayableSellRequest`: un
+  llamador que se olvidara de pasarlas obtendría **el predicado débil en silencio**, que es
+  literalmente cómo el botón de pagar acabó mintiéndole al súper-admin en v1.57.
+
+**`src/modules/buylist/buylist.service.ts`**:
+- `payableWhere()` gana **`approvedTotalCents: { not: null }`** ⇒ **la guarda del motor**, no el aviso.
+- `paySpei` gana la guarda de **V-b** con `422 ITEMS_NOT_DECIDED` y `details: { sellRequestId,
+  pendingDecisionItemIds }`, **ANTES** de la genérica `VALIDATION_ERROR` (escalera de §M5-V.6).
+- **`adminSellRequestDTO` exige `items` EN EL TIPO** (no opcional) y publica
+  **`pendingDecisionItemCount`** + el `isPayable` estrechado. Las **seis relecturas de mutación**
+  (`offer/cancel`, `guide/cancellation-done`, `decline`, `receive`, `verify`, `pay-spei` ×3) ganan
+  `include: { items: { select: VERDICT_ITEM_SELECT } }` con **un `select` compartido de tres
+  columnas**. *El compilador para la próxima mutación que se olvide; un `items?` no lo haría.*
+- La lista de exclusión del DTO de cliente pasa de **tres a cuatro**: `closedAt`, `paidBy`,
+  `isPayable`, **`pendingDecisionItemCount`**.
+
+**`src/common/error-codes.ts`**: `ITEMS_NOT_DECIDED` (nuevo, 422).
+
+**⚠️ POR QUÉ V-b NO TIENE GEMELA EN EL `where` DEL `updateMany`, y es una decisión medida.** *Un
+candado probable vale más que dos que se tapan entre sí.* Para explotar la ventana entre el
+pre-check y la escritura, una línea `buy` tendría que **PERDER** su veredicto, y **dentro del ciclo
+eso no existe**: `adjust` —el único destino no-veredicto que `itemDecision` sabe escribir— responde
+`422 ADJUST_NOT_ALLOWED_IN_OFFER_CYCLE` con `offerSentAt != null` (criterio 150); `approve`/`reject`/
+`convert` mueven a estados **que son** veredicto; y `offer/cancel` sólo **quita** líneas del conjunto.
+El único eje que sí se mueve es **el monto**, y ése ya lo afirman el CAS de las cuatro columnas (B-2)
+**y** el `approvedTotalCents: { not: null }` de `payableWhere()`.
+
+### 0.45.5 PASO 4 — LOS TESTS, Y LAS MUTACIONES QUE LOS PONEN ROJOS
+
+**Dos ficheros nuevos** (+1 suite unitaria, +1 de integración) y **seis retargeteados**, porque
+**seis casos existentes codificaban el defecto como conducta esperada** — el cambio de premisa **es**
+el arreglo y va anotado caso por caso en cada uno:
+
+| Fichero | Qué decía antes | Qué dice ahora |
+|---|---|---|
+| `buylist-cycle.e2e-spec.ts` (11)/(11-bis) | `isPayable === true` **justo tras `verify`**, sin juzgar una carta | `false` + `pendingDecisionItemCount: 1`; el botón se enciende en **(12)**, al decidir |
+| `buylist-cycle.e2e-spec.ts` (21) | `verify` la vuelve pagable y paga | pagable **tras aprobar la línea** (fila pre-ciclo: falla V-a, no V-b) |
+| `buylist-closed-total.e2e-spec.ts` (A) | pagaba sin decisiones y luego chocaba con BL-14 | **(A-0)** afirma que ese pago **ya no ocurre** (`422`), y (A) decide → paga → el `reject` posterior da `409` sin mover el bruto |
+| `buylist.bl14-bruto-consumado.spec.ts` | *«con el aprobado en `null` NO se paga MX$0: se paga lo ofertado»* | **no se paga NADA** (`422`), y su gemelo: **el aprobado de CERO SÍ se paga** |
+| `buylist.aml-payout-cap.spec.ts` | *«sin cherry-pick manda lo COTIZADO»* | ni se llega al tope: V-a responde antes (se afirma **el orden**, no sólo el rechazo) |
+| `buylist.pay-spei-amount-cas.spec.ts` | la cascada con `null` en las dos puntas | el importe sale de **la relectura**, con los tres montos **distintos entre sí** |
+
+> ⚠️ **La cascada `brutoConsumado` NO se retira y sus términos 2/3 siguen probados** — pero **sobre la
+> fila YA PAGADA** (`paidThisMonth`), que es la cohorte histórica. Post-V son **inalcanzables en el
+> instante del pago**: *de regla viva a compatibilidad histórica* (§M5-V.2).
+
+**Las siete mutaciones, corridas una a una. Las siete pusieron algo en rojo:**
+
+| # | Mutación | Unitarios rojos | Integración rojos |
+|---|---|---|---|
+| **M1a** | la tarjeta suma **`quotedTotalCents`** (mutación #11 literal) | **2** | **2** |
+| **M1b** | la tarjeta suma **`payoutNetCents`** | **2** | **2** |
+| **M1c** | la tarjeta suma **`offerGrossCents`** *(«por otra vía»)* | **2** | **1** |
+| **M2** | **quitar la guarda V-b** | **0** ⚠️ | **4** (incluido `Expected 422 / Received 200`) |
+| **M3** | quitar el filtro **`offerDecision='buy'`** de V-b | **15** | **6** (tres `200 → 422`) |
+| **M4** | **quitar V-a** de los dos lados | **5** | **2** (assert 3: `Expected 422 / Received 200`) |
+| **M5** | V-a como **`> 0`** en vez de `!= null` (rompe D40) | **7** | **0** ⚠️ |
+| **M6** | `isPayable` se queda con los tres términos de v1.57 | **1** | **1** |
+| **M7** | V-a **sólo en el predicado**, no en el `where` (paridad) | **3** | **0** ⚠️ |
+
+**Tres cosas que estos números dicen y hay que leer:**
+
+1. ⚠️⚠️ **`M2` NO LA MATA NINGÚN UNITARIO.** Quitar la guarda de V-b deja **3.649 unitarios en verde**.
+   Sólo la integración la ve, y **sólo en el caso PARCIAL**: con cero decisiones sigue fallando V-a
+   (`VALIDATION_ERROR`), así que el `200` del contrato aparece en el **assert 2** (líneas decididas a
+   medias), no en el 1. *Es la demostración de que los dos términos NO se tapan entre sí y de por qué
+   la suite E2E es obligatoria: el defecto vive en la composición de verbos, no en una función.*
+2. ⚠️ **`M1c` SOBREVIVE AL FIXTURE LITERAL DE §M5-V.8(7).** Con *«todo aprobado»*,
+   `approvedTotalCents === offerGrossCents` ⇒ **sumar `offerGrossCents` da el mismo 50000** y el caso
+   pasa. Lo mata **sólo** el segundo fixture, con **una línea `buy` RECHAZADA**: cotizado 150000 ·
+   ofertado 100000 · **aprobado 50000** · neto 32000 — *cuatro columnas, cuatro números*. **Medido, no
+   supuesto** (ver §0.45.6, punto 1).
+3. **`M5` y `M7` son unitario-puros, y está bien que lo sean.** El depósito de cero (`approvedTotalCents
+   = 0`) no lo produce el ciclo por la API —haría falta aprobar una línea a precio 0— y la paridad
+   predicado↔`where` sólo se rompe en una **carrera**. Se dice para que QA no lo lea como un hueco.
+
+**Ficheros de prueba nuevos:**
+- `test/integration/buylist-pay-verdicts.e2e-spec.ts` — **14 casos, por HTTP contra Postgres real**:
+  asserts **1, 2, 2-bis, 3, 4, 5, 6, 7, 8** de §M5-V.8, la **escalera** de §M5-V.6 (`ITEMS_NOT_DECIDED`
+  gana a la genérica; el `409` de «ya cobró» gana a los dos), la exclusión del DTO de cliente y la
+  cohorte legacy fuera del ciclo. Incluye **el assert 5 que no existía**: tras pagar, `convert-to-inventory`
+  de **cada** línea comprada ⇒ `200` con `acquisitionCostCents = offeredPriceCents` — *el que ata el
+  pago con el COGS*.
+- `test/buylist.m5v-items-not-decided.spec.ts` — **36 casos**: la tabla de verdad del predicado
+  **estado por estado del enum** (`buy` × 9, `skip` × 9, pre-ciclo × 9), la composición de `isPayable`
+  y **la columna que suma la tarjeta**.
+
+### 0.45.6 Discrepancias con el contrato — **NINGUNA BLOQUEANTE; DOS PARA EL ARQUITECTO**
+
+1. **§M5-V.8, assert 7 — el fixture literal no distingue lo que la ficha dice que distingue.** El texto
+   pide *«todo aprobado»* con `quoted=60000 / offerGross=50000 / fee=18000` y añade *«los cuatro
+   números tienen que ser distintos entre sí»*. **Son incompatibles**: con todo aprobado
+   `approvedTotalCents === offerGrossCents`, así que **sólo hay tres números** y la mutación
+   *«sumar `offerGrossCents` por otra vía»* **sobrevive** (medido: `M1c` ⇒ 13/14 verdes con el fixture
+   literal). **No cambié el contrato**: implementé el caso literal **y** añadí uno con una línea `buy`
+   rechazada que sí produce cuatro. **Sugerencia para el arquitecto**, no corrección por mi cuenta.
+2. **§M5-V.8, assert 1 — el `200` de la mutación aparece en el assert 2, no en el 1.** La ficha dice
+   *«quitar la guarda V-b ⇒ `200`»* sobre el escenario **sin ninguna decisión**; ahí V-a sigue
+   frenando (`VALIDATION_ERROR`). Los dos casos están implementados y el `200` se afirma donde de
+   verdad ocurre. **No cambia la norma, sí la lectura del assert.**
+
+### 0.45.7 Verificación (literal)
+
+```
+npx tsc --noEmit -p tsconfig.json        →  sin salida (limpio)
+npx eslint "src/**/*.ts" "test/**/*.ts"  →  0 errores, 2 warnings PRE-EXISTENTES
+                                            (inventory.service.ts:638, sealed-product.service.ts:11 —
+                                             ficheros que este pase NO toca)
+npx jest                                 →  Test Suites: 249 passed, 249 total
+                                            Tests:       3649 passed, 3649 total
+./scripts/stack-native.sh test:integration
+                                         →  Test Suites: 19 passed, 19 total
+                                            Tests:       281 passed, 281 total
+```
+
+Respecto al pase anterior (**248 suites / 3.612 unitarios**, **18 suites / 266 de integración**):
+**+1 suite y +37 unitarios**, **+1 suite y +15 de integración**. El stack vivo sirvió `543ac17`
+(`backend/` **byte-idéntico** a `HEAD`, verificado con `git diff --stat 543ac17 HEAD -- backend/` ⇒
+vacío) durante las dos reproducciones de §0.45.1/§0.45.2.
+
+**Lo que NO medí, dicho:** **(a) producción y staging** — todo es local contra
+`postgresql://…@localhost:5432/tcg_marketplace`, y **el conteo §M5-V.7 sigue pendiente y es
+obligatorio**; **(b) frontend** — no corrí su suite (no escribo ahí): le llega **un campo aditivo**
+(`pendingDecisionItemCount`) y un `isPayable` que ahora **se apaga en más casos**, así que el botón de
+pagar se verá apagado donde antes salía encendido — **eso es el arreglo, no una regresión**;
+**(c) la carrera** `itemDecision` ⟶ `pay-spei` sobre el eje de los VEREDICTOS: se argumenta
+imposible por construcción (§0.45.4) y **no se guionizó** — hacerlo exigiría un seam en producción.
+
 ## 0.44 — **v1.60: el campo muerto, el candado que no se podía poner rojo, y el número del tablero que NO toqué** (2026-09-07, gates de QA + techlead sobre el ciclo de compra)
 
 > Propiedad: **backend**. Contra el contrato **v1.60** (**§M5-K.5(a)**) y `ARCHITECTURE` §3.2 / §4.39i.4-bis.

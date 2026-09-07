@@ -282,7 +282,10 @@ describe('§4.39c — los NUEVE sitios: guard de RESIDUO (ninguno vuelve a codif
     // listado, el detalle y las cuatro respuestas de mutación
     // (`receive`/`verify`/`reject`/`pay-spei`). `verify` es justamente la transición que lo vuelve
     // verdadero: omitirlo ahí daría un `false` silencioso en superficie de dinero.
-    expect((buylist?.text.match(/isPayable: isPayableSellRequest\(/g) ?? []).length).toBe(1);
+    // ⚠️ v1.61 · §M5-V.5 — la emisión pasa a `isPayableSellRequestWithItems` (los DOS términos
+    // nuevos). Sigue siendo **UNA sola**: el que cambia es el cuerpo, no el número de sitios.
+    expect((buylist?.text.match(/isPayable: isPayableSellRequestWithItems\(/g) ?? []).length).toBe(1);
+    expect(buylist?.text).not.toMatch(/isPayable: isPayableSellRequest\(/);
     // ⚠️ Y LA MITAD QUE IMPORTA: que **NO** viaje al vendedor. Antes eso se garantizaba con una
     // RESTA explícita (`isPayable: _isPayable`) sobre una proyección de cliente que heredaba por
     // omisión — una lista negra disfrazada, que el ciclo habría convertido en fuga de veintiún
@@ -292,20 +295,39 @@ describe('§4.39c — los NUEVE sitios: guard de RESIDUO (ninguno vuelve a codif
     expect(buylist?.text).not.toMatch(/toCustomerSellRequestDTO[\s\S]{0,600}toAdminSellRequestDTO\(r\)/);
   });
 
-  it('sitio 10 — `isPayableSellRequest` coincide con la constante Y exige `receivedAt` + `verifiedAt`', () => {
+  it('sitio 10 — `isPayableSellRequest` coincide con la constante Y exige `receivedAt` + `verifiedAt` + `approvedTotalCents`', () => {
     const fecha = new Date();
     for (const s of Object.values(SellRequestStatus)) {
       const enElSet = (SELL_REQUEST_PAYABLE_STATES as readonly SellRequestStatus[]).includes(s);
-      // Con LAS DOS fechas: manda el set.
-      expect(isPayableSellRequest({ status: s, receivedAt: fecha, verifiedAt: fecha })).toBe(enElSet);
+      // Con LAS DOS fechas y bruto aprobado: manda el set.
+      expect(
+        isPayableSellRequest({ status: s, receivedAt: fecha, verifiedAt: fecha, approvedTotalCents: 50000 }),
+      ).toBe(enElSet);
+      // ⚠️⚠️ v1.61 · §M5-V (V-a) — **`0` SE PAGA.** Es el depósito de cero de D40 / criterio 140 (el
+      // envío se comió el bruto **con líneas aprobadas**). Si alguien escribe `> 0` en vez de
+      // `!= null`, ESTA línea se pone roja — y es el error obvio de implementación del término.
+      expect(
+        isPayableSellRequest({ status: s, receivedAt: fecha, verifiedAt: fecha, approvedTotalCents: 0 }),
+      ).toBe(enElSet);
+      // ⚠️⚠️ v1.61 · §M5-V (V-a) — **`null` NO se paga, en NINGÚN estado.** `null` = «nadie decidió
+      // nada»; `0` = «se decidió y salió cero». *Toda la invariante existe porque no son el mismo número.*
+      expect(
+        isPayableSellRequest({ status: s, receivedAt: fecha, verifiedAt: fecha, approvedTotalCents: null }),
+      ).toBe(false);
       // ⚠️ Sin `verifiedAt`: NUNCA, ni siquiera en un estado del set. Éste es el término que el
       // cliente no replicaba, y por el que la UI ofrecía un pago que el servidor rechaza con 422.
-      expect(isPayableSellRequest({ status: s, receivedAt: fecha, verifiedAt: null })).toBe(false);
+      expect(
+        isPayableSellRequest({ status: s, receivedAt: fecha, verifiedAt: null, approvedTotalCents: 50000 }),
+      ).toBe(false);
       // ⚠️⚠️ v1.57 · §M5-P / BL-35 eje 2 — **sin `receivedAt`: NUNCA.** Es exactamente la fila del
       // PoC (`ofertada`/`cotizada` + `verify` ⇒ `verifiedAt` sellado, carta nunca recibida) sobre la
       // que salió un SPEI real de MX$320. `PROJECT.md:1107` (b): *el pago es DESPUÉS de recibir*.
-      expect(isPayableSellRequest({ status: s, receivedAt: null, verifiedAt: fecha })).toBe(false);
-      expect(isPayableSellRequest({ status: s, receivedAt: null, verifiedAt: null })).toBe(false);
+      expect(
+        isPayableSellRequest({ status: s, receivedAt: null, verifiedAt: fecha, approvedTotalCents: 50000 }),
+      ).toBe(false);
+      expect(
+        isPayableSellRequest({ status: s, receivedAt: null, verifiedAt: null, approvedTotalCents: 50000 }),
+      ).toBe(false);
     }
   });
 

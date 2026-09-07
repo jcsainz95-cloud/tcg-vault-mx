@@ -263,8 +263,16 @@ describe('⚠️⚠️ §M5-P · BL-35 eje 2 — el PoC: pagar mercancía que NU
     // registrada — es la misma que `brutoConsumado` contempla con su rama `quotedTotalCents`— y ese
     // término la dejaría **impagable**. El contrato lo dice explícito (v1.57 §C): no se inventa la
     // matriz de predecesores. *Se cierra la salida de dinero, no el eje entero.*
+    // ⚠️ v1.61 · §M5-V — la fila legacy lleva bruto **aprobado** (V-a aplica a TODA fila, sin versión
+    // legacy: *sin nada aprobado no hay nada que pagar, en ningún régimen*). Lo que este caso mide
+    // sigue siendo lo mismo: que **`acceptedAt` no es término** y la cohorte pre-M-46 se paga.
     const h = harness(
-      baseRow({ acceptedAt: null, offerSentAt: null, approvedTotalCents: null, quotedTotalCents: 30_000 }),
+      baseRow({
+        acceptedAt: null,
+        offerSentAt: null,
+        approvedTotalCents: 30_000,
+        quotedTotalCents: 30_000,
+      }),
     );
     const res: any = await h.svc.paySpei('sr-1', 'SPEI-LEGACY', 'admin');
     expect(res.status).toBe('pagada');
@@ -276,21 +284,28 @@ describe('⚠️⚠️ §M5-P · BL-35 eje 2 — el PoC: pagar mercancía que NU
 describe('§M5-P · el aviso de la UI y la guarda del motor NO pueden discrepar (TRES lectores, UNA regla)', () => {
   const ALL = Object.values(SellRequestStatus);
 
-  it('`isPayableSellRequest` ≡ `payableWhere()` en TODO el enum × `receivedAt` × `verifiedAt`', async () => {
+  // ⚠️⚠️ v1.61 · §M5-V.8 assert 9 — el barrido gana el CUARTO eje: `approvedTotalCents ∈ {null, 0, n}`.
+  // Los tres valores son necesarios: `null` y `0` son los dos que la implementación ingenua confunde
+  // (`> 0` en vez de `!= null`), y `n` es el control.
+  it('`isPayableSellRequest` ≡ `payableWhere()` en TODO el enum × `receivedAt` × `verifiedAt` × `approvedTotalCents`', async () => {
     const svc = harness(baseRow()).svc as unknown as { payableWhere(): Row };
     const w = svc.payableWhere();
     for (const status of ALL) {
       for (const receivedAt of [null, RECIBIDA]) {
         for (const verifiedAt of [null, VERIFICADA]) {
-          const porElWhere = Object.entries(w).every(([k, cond]) =>
-            matches({ status, receivedAt, verifiedAt }[k as 'status'], cond),
-          );
-          expect({ status, r: !!receivedAt, v: !!verifiedAt, porElWhere }).toEqual({
-            status,
-            r: !!receivedAt,
-            v: !!verifiedAt,
-            porElWhere: isPayableSellRequest({ status, receivedAt, verifiedAt }),
-          });
+          for (const approvedTotalCents of [null, 0, 50000]) {
+            const fila = { status, receivedAt, verifiedAt, approvedTotalCents };
+            const porElWhere = Object.entries(w).every(([k, cond]) =>
+              matches(fila[k as keyof typeof fila], cond),
+            );
+            expect({ status, r: !!receivedAt, v: !!verifiedAt, a: approvedTotalCents, porElWhere }).toEqual({
+              status,
+              r: !!receivedAt,
+              v: !!verifiedAt,
+              a: approvedTotalCents,
+              porElWhere: isPayableSellRequest(fila),
+            });
+          }
         }
       }
     }
@@ -301,8 +316,12 @@ describe('§M5-P · el aviso de la UI y la guarda del motor NO pueden discrepar 
     // información falsa: la pantalla le pintaría «lista para pagar» una carta que nunca llegó.
     // El DTO admin sale de `adminSellRequestDTO`, que **invoca el mismo cuerpo** (§4.39c sitio 10).
     for (const status of SELL_REQUEST_PAYABLE_STATES) {
-      expect(isPayableSellRequest({ status, receivedAt: null, verifiedAt: VERIFICADA })).toBe(false);
-      expect(isPayableSellRequest({ status, receivedAt: RECIBIDA, verifiedAt: VERIFICADA })).toBe(true);
+      expect(
+        isPayableSellRequest({ status, receivedAt: null, verifiedAt: VERIFICADA, approvedTotalCents: 50000 }),
+      ).toBe(false);
+      expect(
+        isPayableSellRequest({ status, receivedAt: RECIBIDA, verifiedAt: VERIFICADA, approvedTotalCents: 50000 }),
+      ).toBe(true);
     }
   });
 });

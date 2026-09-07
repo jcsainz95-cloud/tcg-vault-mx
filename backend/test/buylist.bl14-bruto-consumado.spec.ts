@@ -329,8 +329,15 @@ describe('(b) sitios (a) y (b): el acumulado del mes y el término EN CURSO, con
     // Cotizado $500, ofertado $900 (override al alza, D26). Tope $1,000.
     // Con la cascada VIEJA acumularía 50,000 + 50,000 = 100,000 ⇒ NO frena y el vendedor rebasa.
     // Con `brutoConsumado`: 90,000 (pagada) + 90,000 (en curso) = 180,000 > 100,000 ⇒ FRENA.
+    //
+    // ⚠️⚠️ v1.61 · §M5-V.2 — **LA FILA PAGADA CONSERVA `approvedTotalCents = null` Y LA EN CURSO NO,
+    // y ésa es exactamente la frontera que V dibuja.** El término 2 de la cascada
+    // (`offerGrossCents`) **sigue vivo para la COHORTE HISTÓRICA** —las filas que se pagaron antes de
+    // V, que es lo que este `paidThisMonth` representa— y **deja de ser alcanzable en el instante del
+    // pago**: V-a exige bruto aprobado para pagar. *La cascada pasa de regla viva a compatibilidad
+    // histórica; no se retira.*
     const { svc } = fakePayDb({
-      req: { approvedTotalCents: null, offerGrossCents: 90_000, quotedTotalCents: 50_000 },
+      req: { approvedTotalCents: 90_000, offerGrossCents: 90_000, quotedTotalCents: 50_000 },
       paidThisMonth: [
         { approvedTotalCents: null, offerGrossCents: 90_000, quotedTotalCents: 50_000 },
       ],
@@ -356,8 +363,11 @@ describe('(b) sitios (a) y (b): el acumulado del mes y el término EN CURSO, con
   });
 
   it('fila pre-M-46: mismo comportamiento que antes (cero regresión)', async () => {
+    // v1.61 · §M5-V (V-a): la fila EN CURSO lleva bruto aprobado también en la cohorte pre-M-46 —
+    // allí `respond(accept)` aprueba en bloque y el recompute lo puebla. La fila **ya pagada** del
+    // mes se queda en el término 3 (`quotedTotalCents`), que es la cohorte que V no repara.
     const { svc } = fakePayDb({
-      req: { approvedTotalCents: null, offerGrossCents: null, quotedTotalCents: 60_000 },
+      req: { approvedTotalCents: 60_000, offerGrossCents: null, quotedTotalCents: 60_000 },
       paidThisMonth: [
         { approvedTotalCents: null, offerGrossCents: null, quotedTotalCents: 50_000 },
       ],
@@ -369,12 +379,14 @@ describe('(b) sitios (a) y (b): el acumulado del mes y el término EN CURSO, con
   });
 });
 
-describe('(b) sitio (c): `payoutNetCents` queda DEFINIDO cuando el aprobado es `null`', () => {
+describe('(b) sitio (c): `payoutNetCents` se sella con el bruto CONSUMADO', () => {
   it('se sella en la MISMA transacción que `pagada`, con la cascada y el envío congelado', async () => {
     const { svc, updates } = fakePayDb({
       req: {
-        approvedTotalCents: null,
-        offerGrossCents: 90_000,
+        // v1.61 · §M5-V: post-V el término que manda es SIEMPRE el aprobado. Se dejan los tres
+        // poblados y **DISTINTOS entre sí** para que la aserción discrimine cuál se usó.
+        approvedTotalCents: 90_000,
+        offerGrossCents: 80_000,
         quotedTotalCents: 50_000,
         offerShippingFeeCents: 18_000,
       },
@@ -382,20 +394,41 @@ describe('(b) sitio (c): `payoutNetCents` queda DEFINIDO cuando el aprobado es `
     await svc.paySpei('sr-1', 'SPEI-1', 'admin');
     const data = updates[0].data;
     expect(data.status).toBe('pagada');
-    // Se le paga LO OFERTADO menos el envío: literalmente lo que se le prometió (D2).
+    // 90_000 − 18_000. Si el término que manda fuera el ofertado saldría 62_000, y si fuera el
+    // cotizado, 32_000: los tres números son distintos a propósito.
     expect(data.payoutNetCents).toBe(72_000);
     // Sellado junto al terminal, no en una segunda escritura que una caída pueda perder.
     expect(data.paidAt).toBeInstanceOf(Date);
     expect(data.closedAt).toBeInstanceOf(Date);
   });
 
-  it('⚠️ con el aprobado en `null` NO se paga MX$0 — ése era el caso indefinido', async () => {
+  it('⚠️⚠️ v1.61 · §M5-V (V-a) — con el aprobado en `null` NO SE PAGA NADA (antes se pagaba lo ofertado)', async () => {
+    // **La premisa de este caso se INVIRTIÓ, y el cambio ES el hallazgo.** Decía: *«con el aprobado
+    // en `null` no se paga MX$0, se paga lo ofertado»*. Eso era cierto y era el agujero: con
+    // cherry-pick y TODAS las líneas `buy` rechazadas, la auto-transición a `rechazada` no dispara
+    // —la `skip` cuenta como no-rechazada— y la solicitud pagaba **la oferta íntegra por CERO
+    // cartas** (medido en vivo, `BACKEND_NOTES` §0.45.1: `payoutNetCents = 32000` sobre 0 cartas).
+    // Ahora **no sale un peso**. ⚠️ **Quitar V-a de `payableWhere()` pone esto rojo con un `200` y
+    // `payoutNetCents = 72_000`.**
     const { svc, updates } = fakePayDb({
       req: { approvedTotalCents: null, offerGrossCents: 90_000, offerShippingFeeCents: 18_000 },
     });
+    await expect(svc.paySpei('sr-1', 'SPEI-1', 'admin')).rejects.toMatchObject({
+      code: 'VALIDATION_ERROR',
+    });
+    expect(updates).toHaveLength(0);
+  });
+
+  it('⚠️ y el aprobado de CERO SÍ se paga: es el DEPÓSITO DE CERO de D40, no una ausencia', async () => {
+    // ⛔ El error obvio de implementación de V-a es escribir `> 0` en vez de `IS NOT NULL`. Este caso
+    // y el de arriba son **el par que lo distingue**: `null` = «nadie decidió nada» ⇒ 422;
+    // `0` = «se decidió y salió cero» ⇒ 200 y la solicitud se cierra.
+    const { svc, updates } = fakePayDb({
+      req: { approvedTotalCents: 0, offerGrossCents: 90_000, offerShippingFeeCents: 18_000 },
+    });
     await svc.paySpei('sr-1', 'SPEI-1', 'admin');
-    expect(updates[0].data.payoutNetCents).not.toBe(0);
-    expect(updates[0].data.payoutNetCents).toBe(72_000);
+    expect(updates[0].data.status).toBe('pagada');
+    expect(updates[0].data.payoutNetCents).toBe(0);
   });
 
   it('el NETO nunca es negativo (invariante 1 / criterio 152): rechazo total ⇒ 0, jamás una deuda', async () => {

@@ -58,6 +58,8 @@ import {
 // v1.51 (M-46, §4.39c) — la fuente ÚNICA de los subconjuntos de `SellRequestStatus`.
 import {
   isPayableSellRequest,
+  isPayableSellRequestWithItems,
+  pendingBuyDecisionItemIds,
   isTerminalSellRequestStatus,
   SELL_REQUEST_COMMITTED_STATES,
   SELL_REQUEST_IN_TRANSIT_STATES,
@@ -200,6 +202,28 @@ type SellRequestCycleRow = Partial<{
   payoutNetCents: number | null;
   offerIssueClockStartedAt: Date | null;
 }>;
+
+/**
+ * ⚠️⚠️ v1.61 · **§M5-V.5 — LAS TRES COLUMNAS DE LÍNEA QUE LA PROYECCIÓN ADMIN NECESITA, Y NINGUNA MÁS.**
+ *
+ * `isPayable` deja de ser una propiedad escalar de la fila: **V-b mira las líneas.** Este `select` es
+ * **el mínimo** que contesta la pregunta —`id` (para `pendingDecisionItemIds`), `offerDecision` (el
+ * filtro `buy`) y `itemStatus` (el veredicto)— y se declara **una vez** para que las seis relecturas
+ * de mutación lo pidan igual. *Traer la línea entera aquí arrastraría el snapshot de precios a rutas
+ * que solo necesitan contar.*
+ */
+const VERDICT_ITEM_SELECT = { id: true, offerDecision: true, itemStatus: true } as const;
+
+/**
+ * ⚠️ v1.61 · §M5-V — **el contrato de entrada de `adminSellRequestDTO`: la fila TRAE sus líneas.**
+ *
+ * Es **obligatorio en el tipo, no opcional**, y ésa es toda la gracia: con un `items?` cualquier
+ * relectura futura que se olvidara de incluirlas obtendría **el predicado débil en silencio** —el
+ * botón de pagar volviendo a mentirle al súper-admin, que es el defecto que §M5-P clasificó ALTA—.
+ * Con el campo requerido, **el compilador para la mutación antes de que llegue a producción.**
+ */
+type VerdictItemRow = { id: string; offerDecision: BuyDecision | null; itemStatus: SellItemStatus };
+type VerdictItemsPayload = Prisma.SellRequestGetPayload<object> & { items: VerdictItemRow[] };
 
 /**
  * S49-M1 — **la proyección de `SellRequest` hacia una respuesta HTTP, en UN solo sitio.**
@@ -358,7 +382,9 @@ function isNoOfferClosure(r: { status: SellRequestStatus } & SellRequestCycleRow
  * - **la redacción `no_offer`** de `quotedTotalCents` (arriba).
  *
  * **Lo que NO gana, y es el punto:** `closedAt` (interno, SEC-D2), `paidBy` (uuid del staff),
- * `isPayable` (le anticiparía un depósito que aún puede no ocurrir), **`offerState`** y **toda cifra
+ * `isPayable` (le anticiparía un depósito que aún puede no ocurrir), **`pendingDecisionItemCount`**
+ * (v1.61 §M5-V.5: es **nuestro** trabajo pendiente de verificación, no el suyo — la lista de
+ * exclusión pasa de **TRES** a **CUATRO**), **`offerState`** y **toda cifra
  * congelada de la oferta** —que viaja **solo** por `offer` y **solo** con `offerState='sent'`—,
  * `offerReissueCount`/`offerReissueAlert` (miden NUESTRA conducta), `declinedBy`, `payoutNetCents` y
  * `offerIssueDeadlineAt` (un SLA nuestro que a propósito no se comunica).
@@ -2333,17 +2359,36 @@ export class BuylistService implements OnModuleInit {
    * proyección de cliente no lee esta función, así que no puede heredar nada de esto por descuido.
    */
   private adminSellRequestDTO(
-    r: SellRequestBaseRow & SellRequestCycleRow & { createdAt: Date },
+    r: SellRequestBaseRow &
+      SellRequestCycleRow & { createdAt: Date } & {
+        items: readonly { id: string; offerDecision?: BuyDecision | null; itemStatus: SellItemStatus }[];
+      },
     dials: { offerIssueDays: number; reissueAlertCount: number },
   ) {
     const reissueCount = r.offerReissueCount ?? 0;
+    // ⚠️ v1.61 · §M5-V — el `?? []` es **solo por los mocks de las suites unitarias**, que construyen
+    // filas a mano y no pasan por el compilador. En producción `items` es OBLIGATORIO en el tipo:
+    // ninguna ruta real puede llegar aquí sin ellas.
+    const pendingDecisionItemIds = pendingBuyDecisionItemIds(r, r.items ?? []);
     return {
       ...toSellRequestBaseDTO(r),
       // ⚠️ v1.51.11 · **BL-20** (§4.39c **SITIO 10**) — `isPayable` DERIVADO, en la proyección
       // COMPARTIDA de admin y no en cada shape: así las CUATRO respuestas de mutación (`receive`,
       // `verify`, `reject`, `pay-spei`) lo heredan y **ninguna mutación futura puede olvidarlo**.
       // ⚠️ **ADMIN-ONLY**: al vendedor le anticiparía un depósito que aún puede no ocurrir.
-      isPayable: isPayableSellRequest(r),
+      // ⚠️⚠️ v1.61 · **§M5-V.5** — los DOS términos nuevos. Si `isPayable` se quedara con los tres de
+      // v1.57, la pantalla del `super_admin` diría «lista para pagar» sobre una solicitud que el
+      // servidor va a rechazar con `422 ITEMS_NOT_DECIDED` (o con la genérica de V-a): **la
+      // repetición exacta del defecto ALTA de §M5-P** (*«un control activo que desinforma al que
+      // autoriza el dinero es peor que no tener control»*). La propiedad es normativa:
+      // `isPayable === true ⇒ pay-spei no falla por precondición`.
+      isPayable: isPayableSellRequestWithItems(r, r.items ?? []),
+      // ⚠️ v1.61 · §M5-V.5 — **ADITIVO y ADMIN-ONLY**: cuántas líneas COMPRADAS siguen sin veredicto.
+      // Es lo que deja a la UI decir **por qué** el botón está apagado y **a dónde ir**. ⛔ El front
+      // NO lo cuenta él mismo aunque tenga `items[]`: serían DOS reglas transcritas al cliente (el
+      // set de estados «sin veredicto» **y** el filtro `buy`), y este proyecto ya borró cinco copias
+      // de sets de estado por esa vía. **El servidor manda el número.**
+      pendingDecisionItemCount: pendingDecisionItemIds.length,
       // Identidad del súper-admin que liquidó: back-office legítimo, NUNCA en la vista del cliente.
       paidBy: r.paidBy,
       // SEC-D2: dato INTERNO de cumplimiento (ancla la retención de INE). Solo vista admin.
@@ -3977,7 +4022,9 @@ export class BuylistService implements OnModuleInit {
       });
       // PROJECTION-EXEMPT: se proyecta con `toAdminSellRequestDTO` fuera de la tx (la lista blanca
       // que excluye `clabeSnapshotEnc`).
-      const after = await tx.sellRequest.findUnique({ where: { id } });
+      const after = await tx.sellRequest.findUnique(
+        { where: { id }, include: { items: { select: VERDICT_ITEM_SELECT } } },
+      );
       return { before, after, wasSent };
     });
 
@@ -3987,7 +4034,7 @@ export class BuylistService implements OnModuleInit {
       await this.sendOfferCancelledMail(outcome.before, outcome.before.user);
     }
     return {
-      response: this.adminSellRequestDTO(outcome.after as Prisma.SellRequestGetPayload<object>, dials),
+      response: this.adminSellRequestDTO(outcome.after as VerdictItemsPayload, dials),
       audit: {
         wasSent: outcome.wasSent,
         reason: reason?.trim() || undefined,
@@ -5223,7 +5270,9 @@ export class BuylistService implements OnModuleInit {
         ...(guideActualCostCents != null ? { guideActualCostCents } : {}),
       },
     });
-    const after = await this.prisma.sellRequest.findUnique({ where: { id } });
+    const after = await this.prisma.sellRequest.findUnique(
+      { where: { id }, include: { items: { select: VERDICT_ITEM_SELECT } } },
+    );
     if (!after) throw BusinessException.notFound();
     if (guard.count !== 1) {
       throw BusinessException.conflict(
@@ -5308,7 +5357,9 @@ export class BuylistService implements OnModuleInit {
         );
       }
       // PROJECTION-EXEMPT: fila cruda DENTRO de la tx; se proyecta abajo con la lista blanca admin.
-      const after = await tx.sellRequest.findUnique({ where: { id } });
+      const after = await tx.sellRequest.findUnique(
+        { where: { id }, include: { items: { select: VERDICT_ITEM_SELECT } } },
+      );
       return { before, after };
     });
 
@@ -5319,7 +5370,7 @@ export class BuylistService implements OnModuleInit {
     // `declinedBy`, que es justo lo que la distingue de la regla 7 del barrido. Con la proyección
     // vieja los dos salían ausentes: el cliente de la API no podía distinguir «lo decidimos» de «se
     // nos venció», que es la pregunta entera que D39 vino a contestar.
-    return this.adminSellRequestDTO(outcome.after as Prisma.SellRequestGetPayload<object>, dials);
+    return this.adminSellRequestDTO(outcome.after as VerdictItemsPayload, dials);
   }
 
   /** **CORREO 4 — «no procederemos».** Best-effort post-commit; su fallo no revierte el cierre. */
@@ -5448,7 +5499,9 @@ export class BuylistService implements OnModuleInit {
       });
       // PROJECTION-EXEMPT: fila cruda DENTRO de la tx; se proyecta abajo con la lista blanca admin.
       // `updateMany` no devuelve filas ⇒ la relectura es la única forma de responder lo ya escrito.
-      return tx.sellRequest.findUnique({ where: { id } });
+      return tx.sellRequest.findUnique(
+        { where: { id }, include: { items: { select: VERDICT_ITEM_SELECT } } },
+      );
     });
     if (!row) throw BusinessException.notFound();
     // S49-M1: proyección admin (sin `clabeSnapshotEnc`). Ruta alcanzable por `vault_operator`, que
@@ -5476,7 +5529,9 @@ export class BuylistService implements OnModuleInit {
         data: { itemStatus: 'verificacion' },
       });
       // PROJECTION-EXEMPT: fila cruda DENTRO de la tx; se proyecta abajo con la lista blanca admin.
-      return tx.sellRequest.findUnique({ where: { id } });
+      return tx.sellRequest.findUnique(
+        { where: { id }, include: { items: { select: VERDICT_ITEM_SELECT } } },
+      );
     });
     if (!row) throw BusinessException.notFound();
     // S49-M1: proyección admin (sin `clabeSnapshotEnc`), igual que `receive`.
@@ -5783,6 +5838,13 @@ export class BuylistService implements OnModuleInit {
       status: { in: [...SELL_REQUEST_PAYABLE_STATES] },
       receivedAt: { not: null },
       verifiedAt: { not: null },
+      // ⚠️⚠️ v1.61 · **§M5-V (V-a) — «y aprobamos ALGO».** Es **la guarda**, no el aviso: sin ella una
+      // solicitud con TODAS sus líneas compradas rechazadas y ≥1 `skip` —que impide la
+      // auto-transición a `rechazada`— **paga `max(0, offerGrossCents − fee)` por CERO cartas**.
+      // Medido en vivo contra Postgres real (`BACKEND_NOTES` §0.45.1), no derivado.
+      // ⛔ **`{ not: null }`, JAMÁS `{ gt: 0 }`**: el depósito de cero de D40 / criterio 140 tiene
+      // `approvedTotalCents = 0` **con líneas aprobadas** y **se sigue pagando**.
+      approvedTotalCents: { not: null },
     };
   }
 
@@ -6853,7 +6915,12 @@ export class BuylistService implements OnModuleInit {
    * (updateMany count===1); un re-POST/replay ve `pagada` y devuelve el estado sin re-contar.
    */
   async paySpei(id: string, speiReference: string, paidBy: string) {
-    const req = await this.prisma.sellRequest.findUnique({ where: { id } });
+    // ⚠️ v1.61 · §M5-V — el `include` de las líneas es **precondición del verbo, no adorno de la
+    // respuesta**: V-b se evalúa sobre ellas y el DTO publica `pendingDecisionItemCount`.
+    const req = await this.prisma.sellRequest.findUnique({
+      where: { id },
+      include: { items: { select: VERDICT_ITEM_SELECT } },
+    });
     if (!req) throw BusinessException.notFound();
     // SEC-M5: idempotencia — si ya está pagada, no se hace un segundo asiento; se
     // devuelve el estado existente (dos POST /pay-spei concurrentes o reintentos).
@@ -6903,6 +6970,33 @@ export class BuylistService implements OnModuleInit {
     // se invoca. ⚠️ **Que el término nuevo entrara por el cuerpo compartido y no por un `if` local
     // es el punto entero**: `isPayable` gobierna el botón de pagar en M5, así que una guarda sin
     // señal dejaría al súper-admin autorizando con la pantalla diciéndole que la carta llegó.
+    // ⚠️⚠️ v1.61 · **§M5-V (V-b) — «y juzgamos TODO LO QUE COMPRAMOS». VA ANTES DE LA GENÉRICA.**
+    //
+    // La escalera de §M5-V.6 es normativa y este peldaño **gana** a `VALIDATION_ERROR` aunque V-a
+    // también falle, y no es cosmética: **cuando faltan veredictos, decidirlos es el acto que
+    // satisface los DOS términos**. Mandar al operador el mensaje genérico lo manda a revisar el
+    // estado y la recepción —que están bien— en vez de a la pantalla donde está el trabajo. *El
+    // error nombra la palanca*, misma disciplina que `REQUEST_NOT_RECEIVED` (§M5-R).
+    //
+    // ⚠️ **No hay guarda gemela en el `where` del `updateMany`, y es una decisión medida, no un
+    // olvido.** *Un candado probable vale más que dos que se tapan entre sí.* Para que esta ventana
+    // fuera explotable una línea `buy` tendría que **PERDER** su veredicto entre este chequeo y la
+    // escritura, y **dentro del ciclo eso no existe**: `adjust` —el único destino no-veredicto que
+    // `itemDecision` sabe escribir— responde `422 ADJUST_NOT_ALLOWED_IN_OFFER_CYCLE` con
+    // `offerSentAt != null` (criterio 150), `approve`/`reject`/`convert` mueven a estados que **son**
+    // veredicto, y `offer/cancel` —lo único que borra `offerDecision`— solo **quita** líneas del
+    // conjunto. **El único eje que sí se mueve bajo nosotros es el MONTO, y ése ya lo afirma el CAS
+    // de las cuatro columnas** (B-2) más `approvedTotalCents: { not: null }` de `payableWhere()`.
+    // ⚠️ El `?? []` es **solo por los mocks unitarios** (filas construidas a mano, sin `include`); el
+    // tipo de `req` ya garantiza las líneas en producción.
+    const pendingDecisionItemIds = pendingBuyDecisionItemIds(req, req.items ?? []);
+    if (pendingDecisionItemIds.length > 0) {
+      throw BusinessException.validation(
+        'ITEMS_NOT_DECIDED',
+        'Payment requires a verification verdict on every purchased line',
+        { sellRequestId: id, pendingDecisionItemIds },
+      );
+    }
     if (!isPayableSellRequest(req)) {
       throw BusinessException.validation(
         'VALIDATION_ERROR',
@@ -7055,7 +7149,10 @@ export class BuylistService implements OnModuleInit {
         if (res.count !== 1) return null;
         // v1.28 (P-22): conteo de bounty EN LA MISMA transacción del pago (§4.26e).
         await this.countBountyAcquisitionsTx(tx, id, paidBy);
-        const row = await tx.sellRequest.findUnique({ where: { id } });
+        const row = await tx.sellRequest.findUnique({
+          where: { id },
+          include: { items: { select: VERDICT_ITEM_SELECT } },
+        });
         // S49-M1: se proyecta DENTRO de la tx, para que el snapshot cifrado no sobreviva ni como
         // variable local del método (`paid` es lo que se devuelve tal cual al controller).
         return row ? this.adminSellRequestDTO(row, dials) : null;
@@ -7063,7 +7160,10 @@ export class BuylistService implements OnModuleInit {
       { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
     );
     if (!paid) {
-      const current = await this.prisma.sellRequest.findUnique({ where: { id } });
+      const current = await this.prisma.sellRequest.findUnique({
+        where: { id },
+        include: { items: { select: VERDICT_ITEM_SELECT } },
+      });
       // S49-M1: mismo motivo que la salida idempotente de arriba (fila cruda con la CLABE cifrada).
       if (current?.status === 'pagada') return this.adminSellRequestDTO(current, dials);
       // ⚠️ v1.51.22 · **B-2 — el CAS del importe tiene su propia salida, y no es la de arriba.**

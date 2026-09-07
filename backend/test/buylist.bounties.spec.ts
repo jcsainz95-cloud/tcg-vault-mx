@@ -152,8 +152,8 @@ describe('paySpei — conteo de bounty transaccional + auto-apagado (§4.26e)', 
       sellRequest: {
         findUnique: jest
           .fn()
-          .mockResolvedValueOnce({ id: 'sr', status: 'aprobada', receivedAt: new Date(), verifiedAt: new Date() })
-          .mockResolvedValue({ id: 'sr', status: 'pagada', receivedAt: new Date(), verifiedAt: new Date() }),
+          .mockResolvedValueOnce({ id: 'sr', status: 'aprobada', receivedAt: new Date(), verifiedAt: new Date(), approvedTotalCents: 50_000 })
+          .mockResolvedValue({ id: 'sr', status: 'pagada', receivedAt: new Date(), verifiedAt: new Date(), approvedTotalCents: 50_000 }),
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
         findMany: jest.fn().mockResolvedValue([]), // AML-1: pagos previos del mes (ninguno).
       },
@@ -303,7 +303,7 @@ describe('paySpei — conteo de bounty transaccional + auto-apagado (§4.26e)', 
     // Primer findUnique ya reporta pagada (replay del POST) → retorno temprano.
     h.prisma.sellRequest.findUnique = jest
       .fn()
-      .mockResolvedValue({ id: 'sr', status: 'pagada', receivedAt: new Date(), verifiedAt: new Date() });
+      .mockResolvedValue({ id: 'sr', status: 'pagada', receivedAt: new Date(), verifiedAt: new Date(), approvedTotalCents: 50_000 });
     await h.svc.paySpei('sr', 'SPEI-1', 'admin');
     expect(h.prisma.variantPriceOverride.updateMany).not.toHaveBeenCalled();
     expect(h.overrideRows[0].bountyAcquiredQty).toBe(0);

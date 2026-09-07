@@ -444,9 +444,19 @@ describe('E2E — Ciclo de adquisición del buylist (§6 · §M5)', () => {
       expect(rec.status).toBe(200);
       const ver = await h.api('POST', `/admin/buylist/${srId}/verify`, { token: operatorToken });
       expect(ver.status).toBe(200);
-      // ⚠️ `verify` es JUSTAMENTE la transición que vuelve `isPayable` verdadero: omitirlo en esta
-      // respuesta daría un `false` silencioso en superficie de dinero (BL-20).
-      expect(ver.body.isPayable).toBe(true);
+      // ⚠️⚠️ **v1.61 · §M5-V — ESTA ASERCIÓN SE INVIRTIÓ, Y LA INVERSIÓN ES EL ARREGLO.** Decía
+      // `isPayable === true` **justo aquí**, antes de juzgar una sola carta: el botón de pagar
+      // encendido sobre una solicitud cuyas líneas **nunca alcanzarían `aprobada`** ⇒ mercancía
+      // pagada e inconvertible para siempre (`BL-45`). Con M-46 ése es **el final por defecto del
+      // ciclo**, no un descuido raro. Ahora la señal dice la verdad: falta trabajo, y dice **cuánto**.
+      expect(ver.body.isPayable).toBe(false);
+      expect(ver.body.pendingDecisionItemCount).toBe(1);
+      // `verify` SIGUE siendo la transición que aporta su término (`verifiedAt` sellado y el estado
+      // en el set pagable): lo que ya no hace es bastar sola.
+      const fila = await h.prisma.sellRequest.findUnique({ where: { id: srId } });
+      expect(fila!.verifiedAt).toBeTruthy();
+      expect(fila!.receivedAt).toBeTruthy();
+      expect(fila!.approvedTotalCents).toBeNull(); // el término que falta es éste
     });
 
     /**
@@ -482,7 +492,8 @@ describe('E2E — Ciclo de adquisición del buylist (§6 · §M5)', () => {
       // Se deja la solicitud como estaba para que (12)/(13) sigan el camino feliz.
       const ver = await h.api('POST', `/admin/buylist/${srId}/verify`, { token: operatorToken });
       expect(ver.status).toBe(200);
-      expect(ver.body.isPayable).toBe(true);
+      // v1.61 · §M5-V: sigue sin ser pagable porque la línea sigue sin veredicto. Lo enciende (12).
+      expect(ver.body.isPayable).toBe(false);
     });
 
     it('(12) llegó NM ⇒ aprobada AL PRECIO OFERTADO, fijado SERVER-SIDE (criterio 124)', async () => {
@@ -495,6 +506,11 @@ describe('E2E — Ciclo de adquisición del buylist (§6 · §M5)', () => {
       expect(res.body.approvedPriceCents).toBe(50000);
       const row = await h.prisma.sellRequest.findUnique({ where: { id: srId } });
       expect(row!.approvedTotalCents).toBe(50000);
+      // ⚠️ v1.61 · §M5-V — **AQUÍ, y no en (11), es donde el botón se enciende**: decidir la línea es
+      // el acto que satisface los DOS términos nuevos a la vez.
+      const dto = await h.api('GET', `/admin/buylist/${srId}`, { token: adminToken });
+      expect(dto.body.isPayable).toBe(true);
+      expect(dto.body.pendingDecisionItemCount).toBe(0);
     });
 
     it('(13) el SPEI deposita EXACTAMENTE el neto anunciado, ni un peso menos (criterio 134)', async () => {
@@ -807,7 +823,22 @@ describe('E2E — Ciclo de adquisición del buylist (§6 · §M5)', () => {
           token: operatorToken,
         });
         expect(ver.status).toBe(200);
-        expect(ver.body.isPayable).toBe(true);
+        // ⚠️ v1.61 · §M5-V (V-a) — `receive` era **el** paso que faltaba para §M5-P, y sigue
+        // siéndolo; lo que v1.61 añade es que **tampoco basta sin haber aprobado nada**. Esta fila es
+        // pre-ciclo (`offerSentAt IS NULL`), así que V-b no aplica y el término que falta es el bruto.
+        expect(ver.body.isPayable).toBe(false);
+        expect(ver.body.pendingDecisionItemCount).toBe(0);
+
+        const item = await h.prisma.sellRequestItem.findFirst({
+          where: { sellRequestId: nuncaRecibidaId },
+        });
+        const aprobada = await h.api('PATCH', `/admin/buylist/items/${item!.id}/decision`, {
+          token: operatorToken,
+          json: { decision: 'approve', approvedPriceCents: 50000 },
+        });
+        expect(aprobada.status).toBe(200);
+        const listo = await h.api('GET', `/admin/buylist/${nuncaRecibidaId}`, { token: adminToken });
+        expect(listo.body.isPayable).toBe(true);
 
         const paid = await h.api('POST', `/admin/buylist/${nuncaRecibidaId}/pay-spei`, {
           token: adminToken,
