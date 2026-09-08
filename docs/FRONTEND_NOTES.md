@@ -13698,3 +13698,108 @@ que además el arquitecto acaba de convertir en norma él mismo: **§M5-V.0 como
 la fórmula y su cuenta** (§0-B.3 regla 8). Mi candado nuevo es la mitad de esa regla ejecutada en el
 cliente: en `frontend/` ya **no se puede escribir una cuenta que no sea la del contrato** sin
 ponerse rojo.
+
+## §53 · El pop-up que no se cerraba: **el rechazo se pintaba fuera de la pantalla** (2026-09-08, rama `claude/tcg-hunt-orchestration-ai2vma`)
+
+> Defecto reportado por el dueño **en producción**: *«cuando confirmas enviar solicitud no desaparece
+> el pop up, pueden dar click varias veces»*. Medido después contra la base por el propio dueño: **no
+> duplicaba** — *«la primera vez no se creó ni picando varias veces; hice una segunda prueba y se creó
+> una vez»*. Así que no era idempotencia ni doble-envío: era **un rechazo que no se enunciaba donde el
+> vendedor estaba mirando**.
+
+### 1. Lo que se midió antes de tocar nada
+
+El guard de código estaba bien (`disabled={submitting || …}`, y el éxito cierra el diálogo y vacía el
+carrito). Lo que fallaba no se ve leyendo el componente: se ve **midiendo la ventana**. Con el stack
+levantado (build de producción en modo mocks) y Chromium conduciendo el flujo real —login → binder →
+carrito → «Enviar solicitud» → «Confirmar y enviar»—:
+
+| | móvil 390×844 | escritorio 1280×800 |
+|---|---|---|
+| contenido del diálogo | **1207 px** | **1136 px** |
+| alto visible del cuerpo | 759 px | 634 px |
+| desplazamiento necesario para llegar al botón | 448 px | 502 px |
+| botón «Confirmar y enviar» al pulsarlo | y=772 | y=687 |
+| bloque **CLABE** en ese momento | **y=-183** (fuera) | **y=-197** (fuera) |
+| bloque **dirección** en ese momento | **y=-64** (fuera) | **y=-78** (fuera) |
+| sección INE / zona de avisos | y=105 / y≈534 (dentro) | y=67 / y≈500 (dentro) |
+
+Es decir: **para pulsar el botón hay que bajar hasta el final**, y desde ahí los dos primeros bloques
+del formulario están *arriba del borde superior de la pantalla*. Reproducido de punta a punta: se
+pulsa, **no se crea nada** (la validación de CLABE ni siquiera viaja), el diálogo sigue abierto, el
+botón sigue vivo y el único mensaje —«La CLABE debe tener 18 dígitos.»— aparece en **y=-100**. En la
+pantalla no cambia **nada**. El síntoma del reporte, entero, sin necesidad de un segundo clic.
+
+**Reproduce en el árbol actual**, así que la hipótesis del despliegue rancio queda descartada sin
+tener que compilar `18f279e`. Y el diff desde ese commit **alarga** el formulario (dirección de
+origen + faltante del mínimo + nota de envío + NM), o sea que antes el defecto existía y hoy es peor.
+
+### 2. Los otros dos huecos del mismo sitio (medidos, no supuestos)
+
+- **Mudo del todo, no solo fuera de pantalla:** con `clabeOnFile` (modo «usar mi CLABE ****1234») el
+  campo de CLABE **no está montado**, así que `CLABE_INVALID` / `CLABE_NOT_OWN_NAME` guardaban su
+  texto en un estado que **nadie renderiza**: cero `role="alert"` en todo el documento. Hoy el
+  backend solo emite esos códigos cuando la CLABE **viaja** (y en este modo se omite), así que no es
+  alcanzable — pero un mensaje que depende de que nadie cambie esa condición no es un mensaje.
+- **`422 PHONE_REQUIRED` (PUERTA 1 del servidor, D11/criterio 128(c)):** la clave **no existía en
+  ninguno de los dos catálogos** (`error.PHONE_REQUIRED`), así que `useErrorMessage` caía al último
+  recurso y el vendedor leía **el inglés del servidor**: *«A mobile phone is required on the account
+  to create a sell request»*. Y el remedio que el contrato asigna al front (§6: *«el front debe pedir
+  el dato en ese momento (`PATCH /users/me`) y reintentar»*) **no existía en ninguna pantalla de la
+  app** — no hay perfil, `phone` solo se captura en el registro. Cuenta de Google o cuenta vieja =
+  vendedor bloqueado, en inglés, sin salida.
+
+### 3. Lo que se hizo
+
+1. **Patrón P-4 en el formulario de venta** (`BuylistKycForm`), el mismo que M1/M2 ya usan
+   (`AddItemModal`, `QuickAdd`, `VariantPriceConsole`) y que §15.4 describe como *«esto sustituye a
+   hacer scroll a ciegas»*: **todo** camino de fallo —las dos validaciones de cliente y **todas** las
+   ramas del `catch`, incluido el `else` que recoge red/500/códigos sin rama— pasa por un único
+   `failAt(ancla)` que trae el bloque del motivo al viewport y le da el foco (al `<input>` que hay que
+   corregir si el bloque tiene uno). Las anclas son los **bloques**, no los `<input>`: el texto del
+   error vive junto al campo, no dentro de él.
+2. **El ancla es un contador, no un booleano.** `failAt` incrementa `attempt`, así que **el segundo
+   intento fallido idéntico vuelve a traer el motivo**. Con el idiom habitual (`useEffect` sobre
+   `isError`) el segundo clic no cambia estado y la pantalla se queda quieta — que es exactamente el
+   caso reportado («pueden dar click varias veces»).
+3. **`CLABE_INVALID`/`CLABE_NOT_OWN_NAME` salen del atajo de archivo** (`setUseStoredClabe(false)`),
+   como ya hacía `CLABE_REQUIRED`: así el campo —y su error— **existen** cuando hay algo que decir.
+4. **`PHONE_REQUIRED`: se traduce y se remedia en el sitio.** Se añadió `error.PHONE_REQUIRED` a los
+   dos catálogos (el motivo se lee **del catálogo por código de contrato**, no de una frase escrita a
+   mano aquí: la misma superficie que cualquier otra que reciba ese 422) y el diálogo abre una
+   captura **inline** del celular que hace `PATCH /users/me` (`updateMe`, nuevo en `lib/api.ts`,
+   contrato §1) y sincroniza la sesión local. Guardado el dato, el vendedor vuelve a pulsar
+   «Confirmar y enviar» — **no hay reintento automático**: un segundo envío lo dispara el usuario.
+
+### 4. Los candados, y su verificación por mutación
+
+- **Unitarios** (6 nuevos en `BuylistKycForm.test.tsx`): no miran «se llamó a `scrollIntoView`», que
+  pasaría con un arreglo que desplace a cualquier sitio; exigen que **el elemento traído al viewport
+  y enfocado CONTENGA el motivo**. Cubren: CLABE inválida (rechazo de cliente), **segundo intento
+  idéntico**, `CLABE_NOT_OWN_NAME` en modo archivo (que el mensaje **exista**), `PHONE_REQUIRED` (en
+  español, con el campo y el `PATCH`), `PICKUP_ADDRESS_NOT_FOUND`, y fallo de red sin código.
+- **E2E** (`buylist.spec.ts`, nuevo caso a **390×844**): tras pulsar desde abajo, el motivo tiene que
+  estar **`toBeInViewport()`** y el foco en el campo. Lleva su **anti-vacuidad de premisa**
+  (`await expect(clabe).not.toBeInViewport()` **antes** del clic: si el campo ya estuviera a la vista,
+  el test no estaría midiendo el caso que reventó). El comentario deja escrito por qué el viewport es
+  ése: el smoke `@real` vecino corre a **1280×2000** —una ventana que no existe en ningún dispositivo—
+  y con esa altura **todo cabe y el defecto es invisible**. *Un arnés que elige la ventana donde el
+  producto no falla no está midiendo el producto.*
+- **Mutaciones (candado fuera ⇒ rojo exigido):** (1) vaciar el efecto de P-4 → **6 rojos** de 25 en el
+  unitario (los 19 previos siguen verdes: la mutación la cazan los candados nuevos y nada más) y, en
+  el navegador, el E2E rojo en su aserción de dinero con `unexpected value "viewport ratio 0"` — el
+  mensaje existe y se ve al 0 %; (2) quitar `setUseStoredClabe(false)` → **1 rojo**, el de modo
+  archivo; (3) borrar `error.PHONE_REQUIRED` de `es.json` → **1 rojo**, el del inglés crudo. Las tres
+  restauradas y verde otra vez.
+
+### 5. Números y lo que NO se midió
+
+`npm test` **1239/1239** (117 archivos) · `tsc --noEmit` limpio · `next lint` sin avisos ·
+`buylist.spec.ts` **22/22** contra el build de producción en modo mocks.
+
+**No medido, y por lo tanto no afirmado:** *cuál* de estos caminos fue el que le tocó al dueño en su
+cuenta de producción. Los tres producen el mismo síntoma y ninguno se puede atribuir sin ver esa
+cuenta (¿tiene celular?, ¿tenía CLABE en archivo?). Tampoco se midió el defecto contra el backend
+real: no hay Docker en este entorno y el stack no está levantado — la reproducción y los candados
+corren contra el build de producción del front con la capa de API en modo fixtures, que es fiel para
+todo lo que aquí se afirma (geometría, ramas de error, foco) pero **no** ejercita el 422 real.

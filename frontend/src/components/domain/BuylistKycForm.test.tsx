@@ -373,3 +373,155 @@ describe('BuylistKycForm — dirección de origen obligatoria (D36/D37) y nota d
     expect(note.textContent).not.toMatch(/MX\$|%|≈/);
   });
 });
+
+/**
+ * ─────────────────────────────────────────────────────────────────────────────────────
+ * EL RECHAZO TIENE QUE LLEGAR A LOS OJOS DEL VENDEDOR (patrón P-4, DESIGN_SYSTEM §16.4.3b)
+ *
+ * Defecto reportado en producción: *«cuando confirmas enviar solicitud no desaparece el pop up,
+ * pueden dar click varias veces»*, sin duplicar la solicitud y sin mensaje. Medido en el
+ * navegador (390×844 y 1280×800): el diálogo tiene 1207 px de contenido en 759 px visibles, así
+ * que **para pulsar el botón hay que desplazarse hasta abajo**, y ahí el bloque de la CLABE queda
+ * en `y=-183` y el de la dirección en `y=-64` — **fuera de la pantalla**. El mensaje existía; no
+ * se veía. Y en modo «usar mi CLABE en archivo» ni siquiera existía: el campo que lo renderiza no
+ * está montado (medido: cero `role="alert"` en todo el documento).
+ *
+ * Estos candados NO miran «se llamó a scrollIntoView»: exigen que **el elemento que se trae al
+ * viewport y recibe el foco sea el que CONTIENE el motivo**. Un arreglo que desplace la pantalla
+ * a un sitio equivocado sigue siendo mudo, y aquí se pone rojo.
+ * ─────────────────────────────────────────────────────────────────────────────────────
+ */
+describe('BuylistKycForm — ningún intento fallido puede quedarse mudo (P-4)', () => {
+  /** jsdom no implementa scrollIntoView: se instala un espía que además guarda el `this`. */
+  function spyOnReveal() {
+    const targets: Element[] = [];
+    Object.defineProperty(Element.prototype, 'scrollIntoView', {
+      configurable: true,
+      writable: true,
+      value: function scrollIntoView(this: Element) {
+        targets.push(this);
+      },
+    });
+    return targets;
+  }
+
+  /** El nodo traído al viewport (y el enfocado) tiene que CONTENER el motivo del rechazo. */
+  function expectRevealed(targets: Element[], message: string) {
+    const last = targets[targets.length - 1];
+    expect(last, 'ningún elemento se trajo al viewport tras el fallo').toBeTruthy();
+    expect(last.textContent, 'el elemento traído al viewport no contiene el motivo').toContain(
+      message,
+    );
+    const focused = document.activeElement as HTMLElement | null;
+    expect(focused, 'nadie recibió el foco tras el fallo').toBeTruthy();
+    // El foco cae en el ancla o dentro de ella (p. ej. el <input> de la CLABE).
+    const holder = focused && (focused.contains(last) || last.contains(focused) ? last : null);
+    expect(holder?.textContent, 'el foco no quedó en el bloque del motivo').toContain(message);
+  }
+
+  async function fillAndSubmit(clabe = '002010077777777771') {
+    const input = screen.queryByLabelText(/CLABE/);
+    if (input && clabe) fireEvent.change(input, { target: { value: clabe } });
+    await pickAddress();
+    fireEvent.click(screen.getByRole('button', { name: 'Confirmar y enviar' }));
+  }
+
+  it('CLABE inválida (rechazo de CLIENTE, ni siquiera viaja): el campo se trae al viewport con foco', async () => {
+    const targets = spyOnReveal();
+    renderWithProviders(<BuylistKycForm items={RAW_ITEMS} onCreated={() => {}} />, 'es');
+    await fillAndSubmit('123');
+
+    await waitFor(() => expect(targets.length).toBeGreaterThan(0));
+    expectRevealed(targets, 'La CLABE debe tener 18 dígitos.');
+  });
+
+  it('el SEGUNDO intento fallido idéntico vuelve a traer el motivo (el usuario pulsa varias veces)', async () => {
+    const targets = spyOnReveal();
+    renderWithProviders(<BuylistKycForm items={RAW_ITEMS} onCreated={() => {}} />, 'es');
+    await fillAndSubmit('123');
+    await waitFor(() => expect(targets.length).toBe(1));
+
+    // Mismo fallo, mismo estado: un guard booleano (`isError`) no volvería a disparar y la
+    // pantalla se quedaría quieta — que es EXACTAMENTE lo que reportó el dueño.
+    fireEvent.click(screen.getByRole('button', { name: 'Confirmar y enviar' }));
+    await waitFor(() => expect(targets.length).toBe(2));
+    expectRevealed(targets, 'La CLABE debe tener 18 dígitos.');
+  });
+
+  it('CLABE_NOT_OWN_NAME en modo «usar mi CLABE en archivo»: el mensaje EXISTE y se trae al viewport', async () => {
+    // Antes: el estado se guardaba y el campo que lo pinta no estaba montado ⇒ cero mensajes.
+    const { ApiClientError } = await import('@/lib/api-client');
+    vi.spyOn(api, 'createSellRequest').mockRejectedValueOnce(
+      new ApiClientError(422, { code: 'CLABE_NOT_OWN_NAME', message: 'not own name' }),
+    );
+    const targets = spyOnReveal();
+    renderWithProviders(
+      <BuylistKycForm items={RAW_ITEMS} onCreated={() => {}} clabeOnFile clabeMasked="****1234" />,
+      'es',
+    );
+    // En este modo NO hay campo de CLABE: se envía omitiéndola (atajo de archivo).
+    expect(screen.queryByLabelText(/CLABE/)).toBeNull();
+    await pickAddress();
+    fireEvent.click(screen.getByRole('button', { name: 'Confirmar y enviar' }));
+
+    const msg = await screen.findByText('La CLABE debe estar a nombre del titular de la cuenta.');
+    expect(msg).toBeInTheDocument();
+    expectRevealed(targets, 'La CLABE debe estar a nombre del titular de la cuenta.');
+  });
+
+  it('PHONE_REQUIRED (PUERTA 1, D11): lo dice EN ESPAÑOL y ofrece capturar el celular aquí mismo', async () => {
+    // Antes: sin clave en el catálogo, `getErrorMessage` caía al inglés crudo del servidor
+    // («A mobile phone is required…») y la app no tenía NINGUNA pantalla para capturar el dato.
+    const { ApiClientError } = await import('@/lib/api-client');
+    vi.spyOn(api, 'createSellRequest').mockRejectedValueOnce(
+      new ApiClientError(422, {
+        code: 'PHONE_REQUIRED',
+        message: 'A mobile phone is required on the account to create a sell request',
+        details: { field: 'phone' },
+      }),
+    );
+    const updateSpy = vi.spyOn(api, 'updateMe');
+    const targets = spyOnReveal();
+    renderWithProviders(<BuylistKycForm items={RAW_ITEMS} onCreated={() => {}} />, 'es');
+    await fillAndSubmit();
+
+    const field = await screen.findByLabelText('Celular (10 dígitos)');
+    // El motivo, en español y del catálogo del contrato — jamás el inglés del servidor.
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Falta el celular en la cuenta. La paquetería lo necesita para entregar la guía y avisarte de la recolección.',
+    );
+    expect(screen.queryByText(/A mobile phone is required/)).toBeNull();
+    expectRevealed(targets, 'Falta el celular en la cuenta.');
+
+    // Y el remedio funciona sin salir del flujo: PATCH /users/me con el celular capturado.
+    fireEvent.change(field, { target: { value: '5555123456' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Guardar celular' }));
+    await waitFor(() => expect(updateSpy).toHaveBeenCalledWith({ phone: '5555123456' }));
+  });
+
+  it('422 de dirección: el motivo inline se trae al viewport (el campo queda 60px sobre el borde)', async () => {
+    const { ApiClientError } = await import('@/lib/api-client');
+    vi.spyOn(api, 'createSellRequest').mockRejectedValueOnce(
+      new ApiClientError(422, { code: 'PICKUP_ADDRESS_NOT_FOUND', message: 'not found' }),
+    );
+    const targets = spyOnReveal();
+    renderWithProviders(<BuylistKycForm items={RAW_ITEMS} onCreated={() => {}} />, 'es');
+    await fillAndSubmit();
+
+    const msg = await screen.findByText(
+      'Esa dirección ya no está en tu libreta. Elige otra o agrega una nueva.',
+    );
+    expect(msg).toBeInTheDocument();
+    expectRevealed(targets, 'Esa dirección ya no está en tu libreta.');
+  });
+
+  it('fallo de red (sin código de contrato): tampoco se queda mudo — banner genérico anclado', async () => {
+    vi.spyOn(api, 'createSellRequest').mockRejectedValueOnce(new TypeError('Failed to fetch'));
+    const targets = spyOnReveal();
+    renderWithProviders(<BuylistKycForm items={RAW_ITEMS} onCreated={() => {}} />, 'es');
+    await fillAndSubmit();
+
+    expect(await screen.findByText('Error del servidor. Intenta de nuevo.')).toBeInTheDocument();
+    expectRevealed(targets, 'Error del servidor. Intenta de nuevo.');
+  });
+});

@@ -17,6 +17,7 @@ import {
 import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/business.exception';
 import { cardProductRefKey, PricingService } from '../pricing/pricing.service';
+import { bountyRemainingQty } from '../pricing/bounty-progress';
 import { toCardDTO } from '../catalog/catalog.service';
 import { SettingsService } from '../settings/settings.service';
 import { SettingKey } from '../settings/settings.constants';
@@ -1298,8 +1299,9 @@ export class BuylistService implements OnModuleInit {
       bountyPriceCents: r.bountyPriceCents as number,
       targetQty: r.bountyTargetQty,
       // Dato motivacional, no compromiso contractual: target − acquired con PISO 0; null sin objetivo.
-      remainingQty:
-        r.bountyTargetQty != null ? Math.max(0, r.bountyTargetQty - r.bountyAcquiredQty) : null,
+      // v1.62 (§M2-B.1): el CUERPO es compartido con el `progress` de la consola de bounties — el
+      // contrato exige que esta resta **no se teclee dos veces**. Sin cambio de conducta.
+      remainingQty: bountyRemainingQty(r.bountyTargetQty, r.bountyAcquiredQty),
     }));
     return { data };
   }

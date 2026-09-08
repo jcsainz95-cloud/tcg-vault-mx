@@ -4,9 +4,12 @@
 > El frontend (Next.js 14 + Tailwind) implementa este documento; no lo contradice.
 > Manda `PROJECT.md` sobre el contrato y sobre este documento; este documento define solo lo visual/UX,
 > nunca datos, contrato ni arquitectura.
-> Estado: **v3.3** — última sección añadida: **§28, panel de bounties del back-office (M2 › Bounties)**
-> (§27 fue el copy de errores del ciclo de oferta; §26 la mensajería del back-office; v3.0 fue §25, ciclo de
-> adquisición). Fecha: 2026-09-08.
+> Estado: **v3.4** — **§28 revisada contra el contrato `v1.62.1`** (`ARCHITECTURE §9 · D-UX-1`): el estado del
+> bounty **lo deriva el servidor y la pantalla lo obedece**, son **cinco** (`activa` · `rebasada` · `invalida` ·
+> `completada` · `apagada`), entra el tratamiento visual y el copy de **`invalida`**, se **retira** el reenvío de
+> overrides y se **retira** el apagado en lote (su argumento queda archivado en §28.7). Antes: **v3.3** —
+> §28, panel de bounties del back-office (M2 › Bounties); §27 el copy de errores del ciclo de oferta; §26 la
+> mensajería del back-office; v3.0 fue §25, ciclo de adquisición. Fecha: 2026-09-08.
 > Rama: `claude/buylist-inventory-workflow-hdnls3` (fusión con `main`, que traía hasta **v2.9**: §22.13/§22.14,
 > §23 rotación del carrusel y §24 logos de expansión). La numeración de esta fusión está explicada en la
 > **nota de reconciliación** del changelog de abajo.
@@ -653,6 +656,31 @@
 > la dirección del dinero que sale** (§28.6). Incluye **voto en contra de la edición masiva de importes**
 > (§28.7), **peticiones al arquitecto** —el listado admin no existe hoy— y **una advertencia de alcance**:
 > `PROJECT.md` declara hoy el panel de bounties **fuera de alcance** (§28.15).
+>
+> **Corregido v3.4 (2026-09-08 — §28 contra el contrato `v1.62.1`, desviación `D-UX-1` de `ARCHITECTURE §9`).**
+> §28 se diseñó **en paralelo** a `API_CONTRACT §M2-B`, y el contrato llegó después: **cuatro correcciones, y la
+> primera desinformaba sobre dinero.**
+> **(1) ⭐ El estado lo deriva el SERVIDOR; la pantalla lo obedece y NO lo infiere.** §28.3 derivaba el estado en
+> el cliente cruzando `enabled` + `effective` + `completedAt`, y esa tabla **no tenía rama para un bounty
+> encendido sin precio utilizable**: una fila `enabled ∧ ¬(priceCents > 0)` caía en la última rama y **se pintaba
+> `ACTIVO`** — *«esta carta se está pagando»* sobre un bounty que **no puede pagar nada**, que es exactamente la
+> ceguera que esta pantalla existe para curar, reproducida dentro de ella. §28.3 pasa de **derivación** a **mapa
+> de rótulos por `state`**, con los **cinco** valores del enum cubiertos. Lo demás de §28.3 —los cuatro canales,
+> el orden de lectura, el fallback neutro— **se conserva: cambia de dónde viene el dato, no cómo se pinta.**
+> **(2) Entra `invalida`, un estado que este documento no había diseñado**: *encendido pero no puede pagar* — ni
+> activo ni apagado. Tratamiento visual, copy ES/EN y **llamada a actuar** (`Poner precio`) en §28.3 y §28.12.
+> **(3) Se retira el reenvío de overrides** que §28.15.6 exigía «por si acaso»: **campo omitido no se toca**
+> (medido en el código por el arquitecto) y el reenvío era un **lost update** de dinero publicado sobre un
+> endpoint **sin token de concurrencia** que **escriben dos superficies** (§0-B.3 regla 9 de `ARCHITECTURE`).
+> **(4) Se retira el botón `Apagar los N rebasados` y sus cadenas `bulk.*`**: la prohibición de acciones masivas
+> se mantiene entera y **un botón de cabecera que dispara N escrituras ES una acción masiva** (el alcance lo
+> define el gesto, no el transporte). **El argumento queda archivado, no borrado**, en §28.7 — la pregunta **47**
+> de `PROJECT.md` sigue abierta y su supuesto vigente es *«ninguna acción masiva en v1»*.
+> **Además:** el **veto de alcance quedó levantado** (`PROJECT.md` **D52**: entra la pantalla de gestión —ver +
+> editar fila a fila—; **siguen fuera** el tablero y los reportes de avance), y el **cero tranquilizador** gana su
+> condición que faltaba: **con la lista cortada (`truncated`) los conteos también están incompletos, así que el
+> cero NO se enuncia** — *un cero de una lista cortada no es un cero*. **Cero tokens, cero componentes y cero
+> pares de contraste nuevos** también en esta revisión.
 
 ---
 
@@ -866,10 +894,11 @@ a `{token de color, clave i18n}`. Nunca se traduce el enum a color en el backend
 | SellRequest | **`expirada` + `null`** | **neutral** | **Fallback legacy: nunca acusa** (v3.0, §25.1) |
 | SellRequest | `abandonada` | neutral | Abandonada → inventario |
 | SellOffer (admin) | **`pending_authorization`** | **accent (outline)** | **Preparada, esperando al súper-admin — JAMÁS en superficie de cliente** (v3.0) |
-| Bounty (M2, §28) | **`ACTIVO`** *(derivado)* | **primary (tinta)** | **Paga por encima de la tarifa y se publica** (v3.3) |
-| Bounty (M2, §28) | **`REBASADO`** *(derivado)* | **accent** | **La tarifa vigente lo alcanzó: se paga la tarifa y sale de la vitrina** (v3.3) |
-| Bounty (M2, §28) | **`APAGADO`** *(derivado)* | **neutral (muted)** | **No publica ni paga premium; el contador se conserva** (v3.3) |
-| Bounty (M2, §28) | **`COMPLETADO`** *(derivado, MOTIVO de apagado)* | **primary (tinta)** | **Se apagó solo al llegar al objetivo** (v3.3) |
+| Bounty (M2, §28) | **`activa` → `ACTIVO`** *(del servidor, v3.4)* | **primary (tinta)** | **Paga por encima de la tarifa y se publica** |
+| Bounty (M2, §28) | **`rebasada` → `REBASADO`** *(del servidor, v3.4)* | **accent** | **La tarifa vigente lo alcanzó: se paga la tarifa y sale de la vitrina** |
+| Bounty (M2, §28) | **`invalida` → `SIN PRECIO`** *(del servidor, **NUEVO v3.4**)* | **accent** | **Encendido y sin precio utilizable: no puede pagar nada y no se publica. Pide una decisión** |
+| Bounty (M2, §28) | **`completada` → `COMPLETADO`** *(del servidor, v3.4)* | **primary (tinta)** | **Se apagó solo al llegar al objetivo** |
+| Bounty (M2, §28) | **`apagada` → `APAGADO`** *(del servidor, v3.4)* | **neutral (muted)** | **Lo apagó una persona: no publica ni paga premium; el contador se conserva** |
 | Precio | `pending` (precio pendiente) | warning (outline) | Sin precio; escalado al dueño |
 | Dispute | `abierta` | warning | Abierta |
 | Dispute | `en_revision` | accent | En revisión |
@@ -898,13 +927,22 @@ visible + contraste AA** (§10). El icono queda **opcional/decorativo** (`aria-h
 > **se pinta el motivo, no el estado**, y cuando el motivo falta se cae al **fallback neutro**, nunca al
 > acusatorio. Ver §25.1.
 >
-> **⚠ Segunda excepción, introducida en v3.3 (§28.3): las cuatro filas de `Bounty` NO son un enum.**
-> No existe ningún `BountyState` en el contrato: el estado se **deriva** de `enabled` + `effective` +
-> `completedAt`, en **ese orden**, y la derivación normativa vive en **§28.3** (no aquí). Se aplica la
-> misma doctrina que a `expirada`: **`COMPLETADO` es un MOTIVO de `APAGADO`**, y cuando el motivo falta se
-> cae al **rótulo neutro** (`APAGADO`), nunca al que afirma de más. El rótulo del **binder** para el mismo
-> dato es distinto a propósito y no es una contradicción — contesta otra pregunta (§28.3, *«un juego de
-> rótulos por pregunta, no por dato»*); la **palabra raíz `REBASADO`/`OUTBID` es la misma en las dos**.
+> **⚠⚠ CORREGIDO EN v3.4 — LAS FILAS DE `Bounty` SÍ SON UN ENUM, Y SON CINCO.** *(La nota de v3.3 decía lo
+> contrario —*«no existe ningún `BountyState`… el estado se deriva de `enabled` + `effective` + `completedAt`»*—
+> y **dejó de ser cierta**: `API_CONTRACT §M2-B.0` declara el enum y `§M2-B.1` manda que **el servidor lo derive
+> y la UI lo obedezca**. Se corrige aquí en vez de borrarse, porque la frase vieja es justo la que produjo el
+> defecto.)*
+> **Regla vigente:** el `state` **viene resuelto en la respuesta** y esta capa **lo pinta, no lo recalcula**;
+> sus cinco valores son `activa` · `rebasada` · `invalida` · `completada` · `apagada`, y el mapa normativo de
+> `state → rótulo, bloque y tinta` vive en **§28.3** (no aquí).
+> **Lo que sí sigue siendo doctrina de `expirada`:** **`completada` y `apagada` NO se colapsan** — comparten
+> «está apagado» y significan cosas distintas (*«ya conseguí lo que quería»* vs *«alguien decidió dejar de
+> ofrecer»*), igual que los dos `expiredReason`; y ante un `state` **que esta tabla no conozca** se cae al
+> **rótulo neutro**, nunca al que afirma de más (§28.3). **Y `invalida` no se funde dentro de `activa`**: pintar
+> `ACTIVO` sobre un bounty encendido sin precio utilizable es afirmar *«se está pagando»* sobre algo que no paga.
+> El rótulo del **binder** para el mismo dato es distinto a propósito y no es una contradicción — contesta otra
+> pregunta (§28.3, *«un juego de rótulos por pregunta, no por dato»*); la **palabra raíz `REBASADO`/`OUTBID` es
+> la misma en las dos**.
 >
 > **⚠ Consecuencia de conteo (v3.0.6) — esta tabla NO sirve para contar estados.** Por la excepción de
 > arriba, `expirada` ocupa **tres filas** aquí y **cero claves** en `status.sellRequest.*`: las filas de
@@ -1974,7 +2012,7 @@ Recomendado documentarlos con ejemplos (Storybook opcional; lo decide frontend/d
 | Admin dashboard | `GET /admin/dashboard` | 8× StatCard (enmascarado por rol), cola de trabajo accionable |
 | M1 Inventario | `/admin/inventory/*` | Alta **sin foto** (imagen de catálogo remota); para gradeada captura **`certNumber`**; folio, ubicación CAJA/FILA/SLOT, DataTable |
 | M2 Precios/Catálogo | `/admin/pricing/*`, `/fx`, `/admin/catalog/sync`,`/backfill`,`/remote-sets` | Tabla precio pendiente, override manual, FX/colchón, rareza→categoría, sync/backfill de sets (super_admin) |
-| **M2 › Bounties** (v3.3) | ⚠ **endpoint de listado por definir** (§28.15.1); escribe en `PUT /admin/pricing/variant-controls/:cardId/:finish` | `DataTable` agrupada **rebasados → activos → apagados** con conteos del total, edición **de una fila a la vez** y confirmación solo cuando **sube** el dinero — **§28** |
+| **M2 › Bounties** (v3.4) | `GET /admin/pricing/bounties` (lectura, `super_admin`); escribe en `PUT /admin/pricing/variant-controls/:cardId/:finish` **fila a fila** | `DataTable` agrupada **atención (rebasados + sin precio) → activos → completados → apagados**, con **`counts` de los cinco estados sobre el total**, edición **de una fila a la vez** y confirmación solo cuando **sube** el dinero — **§28** |
 | M3 Órdenes | `/admin/orders/*` | DataTable, AmountBreakdown, refund destructivo (super_admin) |
 | M4 Retiros | `/admin/shipments/*` | Cola, picking-list por ubicación, captura de guía, PipelineStepper |
 | M5 Buylist | `/admin/buylist/*` | Pipeline, cherry-pick por item, convertir a inventario, pago SPEI (super_admin) |
@@ -2910,11 +2948,16 @@ variar a lo ancho de la teja):
 > **`BOUNTY REBASADO`** (sin glifo de mira) y el bloque del drill-down gana el aviso con las dos cifras. Detalle en
 > §21.9c/d.
 >
-> **⚠ Ampliado por §28 (v3.3) — este bloque deja de ser la ÚNICA superficie de edición.** §28 añade
-> **M2 › Bounties**, la lista de todos los bounties (activos, rebasados y apagados) con edición de precio,
-> objetivo y encendido **desde la fila**. Lo de aquí **no cambia y sigue siendo la casa del ALTA**: dar de
-> alta un bounty exige elegir carta y variante, y eso es el binder. §28 es para **vigilar y corregir** los
-> que ya existen, y escribe contra el **mismo** `PUT /admin/pricing/variant-controls/:cardId/:finish`.
+> **⚠ Ampliado por §28 (v3.3; precisado en v3.4) — este bloque deja de ser la ÚNICA superficie de edición.**
+> §28 añade **M2 › Bounties**, la lista de **todos** los bounties —los **cinco** estados: activos, rebasados,
+> **sin precio**, completados y apagados— con edición de precio, objetivo y encendido **desde la fila**. Lo de
+> aquí **no cambia y sigue siendo la casa del ALTA**: dar de alta un bounty exige elegir carta y variante, y eso
+> es el binder. §28 es para **vigilar y corregir** los que ya existen, y escribe contra el **mismo**
+> `PUT /admin/pricing/variant-controls/:cardId/:finish`.
+> **⚠ Consecuencia de que sean DOS las superficies que escriben esta fila (v3.4):** ninguna de las dos puede
+> reenviar campos que el humano no editó. Este bloque **es el formulario dueño de los tres controles** y el
+> humano los tiene delante, así que enviar los tres es correcto **aquí**; §28 edita **solo el bounty** y por eso
+> **jamás** manda `sellOverrideCents` ni `buyOverrideCents` (§28.6f).
 
 **(a) Edición en la consola (dentro de §16.3b, solo `super_admin`, solo variantes raw):** bloque «Bounty»
 al pie de la consola:
@@ -12127,21 +12170,34 @@ crudo). Montos con §9.3 (centavos → `MX$ 1,250.00`), **nunca concatenados**.
 
 ---
 
-## 28. M2 › Bounties — todos los bounties en un sitio, y el rebasado como eje (v3.3)
+## 28. M2 › Bounties — todos los bounties en un sitio, y el rebasado como eje (v3.3 · **revisada v3.4**)
 
 > **Origen:** encargo directo del dueño («una pantalla con todos los bounties: verlos y editarlos»).
 > **No hubo entrega de Claude Design para esta pantalla**: el diseño se construye **desde cero** pero
 > **sin inventar lenguaje visual** — se compone entero con componentes y pares de contraste ya verificados
 > en este documento, y **reutiliza literalmente** el copy del rebasado que §21.9c/d ya dejó cerrado.
 >
-> **⚠ Alcance — léelo antes de implementar.** `PROJECT.md` declara hoy, en su lista de «Fuera de alcance»,
-> que el **panel de bounties** es *«fuera de alcance por decisión explícita del humano — lo pidió y decidió
-> dejarlo como proyecto aparte»*, y §N.6 lo repite (*«NO se construye panel de bounties»*). Este documento
-> **no puede levantar ese veto**: manda `PROJECT.md` (regla de conflicto de `CLAUDE.md`). §28 queda como
-> **diseño listo y esperando**; **product-owner** tiene que mover el panel de «fuera de alcance» a alcance
-> —con la aprobación del humano— antes de que frontend cablee una sola fila. Ver §28.15.
+> **✅ Alcance — el veto está LEVANTADO (v3.4).** `PROJECT.md` **D52** (14ª ronda, decisión 114, criterio
+> **184**) mete la pantalla **al alcance**, acotada a lo que el humano pidió: **ver la lista completa y editar
+> fila a fila**. **Siguen FUERA, y esta sección no los diseña:** el **tablero** (tarjetas de métricas, KPIs,
+> gráficas), los **reportes de avance contra objetivo**, el **alta** desde aquí (pregunta 45, supuesto: se queda
+> en el binder) y **cualquier acción masiva** (pregunta 47, supuesto: ninguna en v1). *(La advertencia de v3.3
+> —«§28 es diseño listo y esperando a que product-owner levante el veto»— **queda cumplida**; se sustituye en
+> vez de borrarse para que quien lea el histórico sepa por qué estaba.)*
+>
+> **⚠⚠ Revisión v3.4 — contra `API_CONTRACT v1.62.1 §M2-B` y la desviación `D-UX-1` de `ARCHITECTURE §9`.**
+> §28 se escribió **en paralelo** al contrato de esta pantalla, y el contrato llegó después. Lo que cambia,
+> y **por qué**, en una tabla; **el resto de §28 se conserva entero**:
+>
+> | Punto | Antes (v3.3) | Ahora (v3.4) — normativo |
+> |---|---|---|
+> | **⭐ De dónde sale el estado** | la pantalla lo **derivaba** cruzando `enabled` + `effective` + `completedAt` | **lo deriva el servidor** (`state`) y **la pantalla lo pinta, sin recalcularlo** — §28.3 |
+> | **Cuántos estados hay** | **cuatro** rótulos sobre **dos** booleanos, **sin rama para `invalida`** ⇒ un bounty **encendido y sin precio utilizable** caía en la última rama y **se pintaba `ACTIVO`**: *«se está pagando»* sobre algo que no paga | **cinco**: `activa` · `rebasada` · **`invalida`** · `completada` · `apagada` — §28.3 |
+> | **El `PUT` de guardado** | §28.15.6 exigía **reenviar los overrides «tal como se leyeron»** | ⛔ **PROHIBIDO reenviarlos.** Se manda **solo lo que el humano editó** — §28.6f |
+> | **Apagado en lote** | §28.7.4 lo proponía como la única acción masiva sana | ⛔ **retirado del diseño vigente** (botón y cadenas `bulk.*`); **el argumento queda archivado** en §28.7 por si el humano reabre la pregunta **47** |
+> | **El cero tranquilizador** | se enunciaba con `counts.rebasada === 0` | además exige **`counts.invalida === 0`** y **`truncated === false`** — §28.5. *Un cero de una lista cortada no es un cero.* |
 
-### 28.0 El problema, y las cinco reglas duras
+### 28.0 El problema, y las **seis** reglas duras *(v3.4: la sexta es nueva y es la primera)*
 
 **El problema no es de comodidad, es de ceguera, y se puede describir en tres frases.** Un bounty es una
 oferta de compra premium: *«esta carta la pago a este precio, por encima de mi tarifa, hasta juntar N»*. La
@@ -12158,8 +12214,9 @@ De ahí las reglas de esta pantalla. Se citan **por su nombre**, no por su núme
 
 | Regla | Enunciado |
 |---|---|
-| **R · «El rebasado es el eje»** | El estado `rebasado` **no es una columna más**: ordena la pantalla. Los rebasados van **agrupados y primero**, con su **conteo sobre el total** (no sobre la página) visible siempre, pase lo que pase con el orden, el filtro o la paginación. |
-| **R · «El panel dice el cero»** | **Inversión deliberada de la regla de la vitrina.** La vitrina calla cuando no hay nada (§16.7c: *«si no hay bounties activos la sección NO se renderiza»*). Aquí **cero rebasados se enuncia con una frase**. Una sección ausente y una sección vacía se leen igual, y esta pantalla existe justo para que no se confundan. |
+| **R · «El estado lo dice el servidor»** *(NUEVA v3.4, y manda sobre las otras cinco)* | El `state` de cada fila **llega resuelto en la respuesta** y esta pantalla **lo obedece: lo pinta, lo agrupa y lo cuenta, pero no lo recalcula** — ni comparando importes en pantalla, ni cruzando banderas, ni «por si acaso». Son **cinco** valores y **ninguno se funde con otro**. *Razón, y es la del proyecto entero: quien decide si un bounty paga es el servidor **contra la curva vigente**; una pantalla que lo dedujera sería la quinta implementación del mismo predicado y la única que nadie puede probar. La versión v3.3 de §28.3 lo derivaba en cliente, se le olvidó una rama, y el resultado era pintar `ACTIVO` sobre un bounty que no puede pagar nada.* |
+| **R · «El rebasado es el eje»** | El estado `rebasado` **no es una columna más**: ordena la pantalla. Los rebasados van **agrupados y primero**, con su **conteo sobre el total** (no sobre la página) visible siempre, pase lo que pase con el orden, el filtro o la paginación. *(v3.4: el bloque de cabecera lo comparte con `invalida` —los dos son «encendido y no está pagando su premium»— y **el orden lo manda el servidor** con `sort=attention_first`, que es el default del endpoint.)* |
+| **R · «El panel dice el cero»** | **Inversión deliberada de la regla de la vitrina.** La vitrina calla cuando no hay nada (§16.7c: *«si no hay bounties activos la sección NO se renderiza»*). Aquí **cero rebasados se enuncia con una frase**. Una sección ausente y una sección vacía se leen igual, y esta pantalla existe justo para que no se confundan. **⚠ v3.4 — con una condición que faltaba: el cero solo se enuncia si el conteo es COMPLETO** (§28.5). *Un cero de una lista cortada no es un cero.* |
 | **R · «Se movió el mercado, no se rompió el sistema»** | `REBASADO` se pinta como **consecuencia y decisión**, nunca como avería: sin la palabra «error», sin `role="alert"`, sin icono de fallo, y siempre con **dos puertas** (subir o apagar). Lo que falló tiene una causa nuestra y un reintento; **esto tiene una causa del mercado y una decisión del dueño.** |
 | **R · «La tabla en reposo no tiene formularios»** | En reposo, la tabla es **texto**: ni un `input`, ni un `switch`, ni una celda editable al clic. Un precio que se cambia tocándolo es un precio que se cambia **sin querer**, y aquí cada celda es dinero que sale. Se entra a editar por un acto explícito, en **una fila a la vez**. |
 | **R · «La fricción va en la dirección del dinero»** | Lo que **sube** lo que pagamos (subir precio, subir objetivo, encender) pasa por **diálogo de confirmación con los dos importes**. Lo que **baja o detiene** el gasto (bajar precio, bajar objetivo, apagar) **no** abre diálogo: se hace y se ofrece `Deshacer`. Poner la misma fricción en las dos direcciones enseña a confirmar sin leer. |
@@ -12181,24 +12238,32 @@ De ahí las reglas de esta pantalla. Se citan **por su nombre**, no por su núme
 ┌ M2 › BOUNTIES ───────────────────────────────────────────────────────────────────────────────┐
 │ eyebrow mono   OFERTAS DE COMPRA                                                             │
 │ h1 serif       Bounties                                                                      │
-│ lead text-sm muted (§28.2a)                                                                  │
+│ lead text-sm muted (§28.2c)                                                                  │
 │                                                                                              │
-│ [REBASADOS 3] [ACTIVOS 12] [APAGADOS 4]        [ Buscar carta o set ]      [ Orden ▾ ]        │
+│ [REBASADOS 3] [SIN PRECIO 1] [ACTIVOS 12] [COMPLETADOS 2] [APAGADOS 4]                        │
+│                                                [ Buscar carta o set ]      [ Orden ▾ ]        │
 │ ─────────────────────────────────────────────────────────────────────────────  regla 1px ─── │
 │                                                                                              │
 │ CARTA                        ESTADO       PAGAMOS   TARIFA VIGENTE   PREMIUM       AVANCE     │
 │ ═════════════════════════════════════════════════════════════════════ regla fuerte ═════════ │
-│ ▌ REBASADOS · 3                                          ← <th scope="rowgroup">             │
+│ ▌ ATENCIÓN · REBASADOS 3 · SIN PRECIO 1                  ← <th scope="rowgroup">             │
+│ ▌ text-xs muted: están encendidos y no pagan premium. Cada uno pide una decisión.            │
 │ ▌ Charizard ex              REBASADO   MX$ 900.00     MX$ 950.00   −MX$ 50.00      0 de 2     │
 │ ▌ Obsidian Flames · 125                                              −5.3%       faltan 2    │
 │ ▌ HOLOFOIL                                              [ Editar ]  [ Apagar ]               │
+│ ▌ Gengar VMAX             SIN PRECIO       —          MX$ 780.00        —          0 de 2     │
+│ ▌ Fusion Strike · 271                                                            faltan 2    │
+│ ▌ REVERSE                                          [ Poner precio ]  [ Apagar ]              │
 │ ────────────────────────────────────────────────────────────────────────────────────────     │
 │   ACTIVOS · 12                                                                               │
 │   Pikachu VMAX               ACTIVO   MX$ 2,500.00   MX$ 2,100.00  +MX$ 400.00     1 de 3     │
 │   Vivid Voltage · 044                                               +19.0%        faltan 2   │
 │ ────────────────────────────────────────────────────────────────────────────────────────     │
-│   APAGADOS · 4                                                                               │
+│   COMPLETADOS · 2                                                                            │
 │   Mew ex                  COMPLETADO  MX$ 1,200.00   MX$ 1,050.00       —          2 de 2     │
+│ ────────────────────────────────────────────────────────────────────────────────────────     │
+│   APAGADOS · 4                                                                               │
+│   Snorlax VMAX               APAGADO    MX$ 600.00     MX$ 640.00       —          0 de 2     │
 │                                                                                              │
 │ nota al pie text-xs muted: el avance sube al PAGAR · cambios en bitácora                     │
 └──────────────────────────────────────────────────────────────────────────────────────────────┘
@@ -12206,44 +12271,90 @@ De ahí las reglas de esta pantalla. Se citan **por su nombre**, no por su núme
 
 - **Sin cajas, sin sombras, sin radios** (§4.2, §4.3): la pantalla se estructura con **reglas** (1px entre
   filas, `--color-border-strong` bajo la cabecera) y aire, como todo el back-office.
-- **`▌` = regla izquierda de 2px** en `--color-accent` sobre las filas rebasadas y sobre su encabezado de
-  grupo. Es un **marcador de fila** ya verificado (§21.11) — no es un relleno de color ni una caja.
+- **`▌` = regla izquierda de 2px** en `--color-accent` sobre las filas del bloque **ATENCIÓN** (`rebasada` y
+  `invalida`) y sobre su encabezado de grupo. Es un **marcador de fila** ya verificado (§21.11) — no es un
+  relleno de color ni una caja.
 - **Cabecera de tabla sticky** (§7.7). Si el shell de admin llega a exponer `--app-header-h`, se ancla con
   ella (§4.5) — **nunca** con una altura hardcodeada.
-- **Paginación** sobria de 50 filas (§20.12, §6.6). Los **conteos de los chips son del total**, no de la
-  página (§28.15, petición 2): si los chips contaran la página, la regla del eje se rompería en silencio.
+- **Paginación** sobria (§20.12, §6.6) con el `pageSize` que fije frontend dentro del techo del endpoint. Los
+  **conteos de los chips son del total** (`counts`, del servidor), no de la página: si los chips contaran la
+  página, la regla del eje se rompería en silencio.
 - **Sin plegado de grupos en v1.** Si con el tiempo los apagados crecen tanto que estorban, la palanca ya
   existe y es el **chip** (des-seleccionar `APAGADOS`), no un acordeón nuevo.
 
-**(a) Lead de la pantalla (microcopy normativo).**
+**(a) ⚠ Los CINCO chips y los CUATRO bloques — v3.4, y cada decisión tiene su porqué.**
+
+| Pieza | Regla |
+|---|---|
+| **Chips de conteo** | **Uno por cada clave de `counts`, y son cinco**: `rebasada`, `invalida`, `activa`, `completada`, `apagada`, **en ese orden** (el orden de la atención, no el del enum). **Ninguno se funde con otro** y **ninguno se esconde al llegar a cero**. |
+| **Los chips son el filtro `state`** | Seleccionar un chip aplica `?state=…` en el servidor; es **repetible** (se pueden llevar dos puestos, p. ej. `rebasada` + `invalida`). |
+| **⚠ El número del chip NO cambia al seleccionarlo** | Es correcto y hay que respetarlo: `counts` **ignora el filtro de estado** y **respeta los de identidad** (búsqueda `q`, set, acabado). Así los chips siguen sirviendo de **mapa** mientras se usan —si contaran también el estado, filtrar por `REBASADOS` dejaría los otros cuatro en `0` y el usuario perdería el mapa justo al usarlo— y a la vez **no contradicen lo que se ve**: buscando *«Charizard»*, los conteos son de los Charizard. |
+| **Bloques de la tabla** | **Cuatro, y son una PARTICIÓN del orden que mandó el servidor, jamás un reordenamiento:** **① ATENCIÓN** (`rebasada` + `invalida`) · **② ACTIVOS** (`activa`) · **③ COMPLETADOS** (`completada`) · **④ APAGADOS** (`apagada`). |
+| **Por qué `rebasada` e `invalida` comparten bloque** | Porque **el servidor ya los pone juntos y primero** con `sort=attention_first`, y porque **dicen la misma noticia**: *está encendido y no está pagando su premium*. Darles dos bloques obligaría a **reordenar filas en el cliente** para separarlos — y reordenar es la puerta trasera por la que vuelve a colarse una regla de servidor al navegador. **Se distinguen fila a fila** por su versalita, su columna `PAGAMOS` y su `aria-label` (§28.3). |
+| **Por qué `completada` y `apagada` ya NO comparten bloque** *(cambio v3.4)* | v3.3 los metía en un solo grupo `APAGADOS` con dos rótulos. Ahora son **dos bloques**, porque el servidor los ordena en dos rangos distintos y porque **significan cosas distintas**: *«ya conseguí lo que quería»* y *«alguien decidió dejar de ofrecer»*. Fundirlos borra el **porqué** dejó de pagarse, que es el dato que esta pantalla existe para no perder. |
+| **⛔ La pantalla no ordena** | El orden llega hecho. Los encabezados de bloque se insertan **donde cambia el rango**, recorriendo la lista **tal como vino**. **Con un `sort` distinto de `attention_first` los encabezados de bloque NO se pintan** (la lista deja de estar agrupada por estado y fingir el grupo mentiría sobre el orden): el eje lo sostienen entonces los **chips** y la **columna ESTADO**, que no dependen del orden. |
+| **Orden (`Orden ▾`)** | **Tres opciones, las del endpoint y con sus valores:** `attention_first` (**default**, «Atención primero»), `price_desc` («Pagamos, mayor primero») y `updated_desc` («Editados recientemente»). ⛔ **No se ofrece ninguna opción que el servidor no tenga** —ordenar en el cliente sobre una página vuelve a romper el eje—; si hiciera falta otra, se pide al arquitecto (regla 9). |
+
+**(b) ⚠ La lista incompleta se DICE (`truncated: true`).** Cuando la respuesta trae `truncated: true`, el
+conjunto superó el techo del servidor y **ni las filas ni los conteos están completos**. Entonces:
+- Sobre la tabla, **banner de aviso** (§7.5, `role="status"`, **no** `alert`: no es una avería) con la frase de
+  `list.truncated` (§28.12) y la palanca real, que es **filtrar** (buscar, set, acabado o un chip de estado).
+- Los **chips siguen pintando su número, pero con el signo `≥`** (`REBASADOS ≥ 3`) y su `aria-label` lo dice con
+  palabras. Un número exacto sobre un conjunto cortado es una cifra falsa; **el `≥` es verdad**.
+- ⛔ **Y no se enuncia el cero tranquilizador** (§28.5). *Un cero de una lista cortada no es un cero.*
+
+**(c) Lead de la pantalla (microcopy normativo — actualizado en v3.4).**
 > ES — «Lo que pagamos por encima de la tarifa, y hasta cuántas piezas. Aquí están todos: los que están
-> pagando, los que la tarifa rebasó y los apagados.»
+> pagando, los que la tarifa rebasó, los que están encendidos sin precio y los que ya no pagan.»
 > EN — “What we pay above the standard rate, and for how many copies. They're all here: the ones paying,
-> the ones the rate outbid, and the ones that are off.”
+> the ones the rate outbid, the ones that are on with no price, and the ones that no longer pay.”
 
 Dice las tres cosas que la pantalla tiene que enseñar antes de que nadie lea una fila: **qué es un bounty**
-(precio + cupo), **que están todos** y **que hay tres suertes distintas**.
+(precio + cupo), **que están todos** y **que no todos los encendidos están pagando**. *(v3.4: la frase de v3.3
+decía «tres suertes distintas» y **se quedó corta el día que el contrato nombró cinco estados**; se enumeran las
+cuatro noticias que le importan al dueño y no se cita ningún número de estados, que es lo que caduca.)*
 
-### 28.3 Los tres estados — derivación normativa y los canales que los distinguen
+### 28.3 Los CINCO estados — **mapa de rótulos por `state`** y los canales que los distinguen *(reescrita en v3.4)*
 
-**El estado NO viene del servidor como un enum: se deriva de dos booleanos.** Eso lo hace frágil, así que la
-derivación es normativa y vive escrita aquí, en un solo sitio, **en este orden y sin reordenarlo**:
+> ⛔⛔ **ESTA TABLA YA NO ES UNA DERIVACIÓN, ES UN MAPA.** La versión v3.3 decía *«el estado NO viene del
+> servidor como un enum: se deriva de dos booleanos»* y **derivaba en el cliente**. Eso **dejó de ser cierto** y
+> era, además, la **raíz del defecto**: su tabla no tenía rama para *encendido sin precio utilizable*, así que
+> esa fila caía en la última rama y **se pintaba `ACTIVO`** — *«esta carta se está pagando»* sobre un bounty que
+> **no puede pagar nada**, dentro de la única pantalla que existe para curar esa ceguera.
+> **Regla vigente, y no admite atajos:** **la fila pinta el `state` que llegó**. La pantalla **no lo recalcula,
+> no lo corrige, no lo completa y no lo adivina** comparando `PAGAMOS` con `TARIFA VIGENTE` en el navegador.
+> *Quien decide si un bounty paga es el servidor contra la curva vigente; la pantalla informa.*
 
-| Orden | Condición sobre `pricing.bounty` | Grupo | Rótulo |
-|---|---|---|---|
-| 1 | `enabled === false` **y** `completedAt !== null` | **APAGADOS** | `COMPLETADO` / `COMPLETED` |
-| 2 | `enabled === false` | **APAGADOS** | `APAGADO` / `OFF` |
-| 3 | `enabled === true` **y** `effective === false` | **REBASADOS** | `REBASADO` / `OUTBID` |
-| 4 | `enabled === true` | **ACTIVOS** | `ACTIVO` / `ACTIVE` |
+**El mapa. Cinco entradas, una por valor del enum, sin fundir ninguna:**
 
-- **`enabled` se evalúa SIEMPRE primero.** Un bounty completado **puede reactivarse** (§16.7a: *«informativa,
-  no bloquea reactivar»*), y entonces vuelve a ser `ACTIVO` o `REBASADO` según su `effective`. Invertir el
-  orden pintaría `COMPLETADO` sobre un bounty vivo — es decir, *«no estás pagando»* sobre uno que sí paga.
-- **Tres grupos, cuatro rótulos: `COMPLETADO` es un MOTIVO, no un estado.** Es exactamente la doctrina que
-  este documento ya fijó para `expirada` + `expiredReason` (§2.4, §25.1): *se pinta el motivo, no el estado*,
-  porque las dos causas significan cosas opuestas para quien lee. «Lo apagué yo» y «se apagó solo porque ya
-  junté las que quería» no son la misma noticia. **Y si faltara el dato** (`completedAt` ausente), se cae al
-  **rótulo neutro `APAGADO`**, nunca al que afirma de más — mismo *fallback* neutro de §25.1.
+| `state` (llega en la fila) | Bloque | Rótulo **ES / EN** | Tinta y marca | Qué significa en dinero |
+|---|---|---|---|---|
+| `rebasada` | **① ATENCIÓN** | `REBASADO` / `OUTBID` | **accent** + `▌` marca de fila | La tarifa vigente lo alcanzó: **se paga la tarifa, no tu precio**, y sale de la vitrina |
+| `invalida` | **① ATENCIÓN** | **`SIN PRECIO` / `NO PRICE`** | **accent** + `▌` marca de fila | **Encendido y sin precio utilizable: no puede pagar nada y no se publica.** Ni activo ni apagado — **hay que decidir** |
+| `activa` | **② ACTIVOS** | `ACTIVO` / `ACTIVE` | tinta normal, sin marca | Paga por encima de la tarifa y se publica |
+| `completada` | **③ COMPLETADOS** | `COMPLETADO` / `COMPLETED` | tinta normal, sin marca | **Se apagó solo** al llegar a su objetivo |
+| `apagada` | **④ APAGADOS** | `APAGADO` / `OFF` | renglón en `--color-text-muted`, sin marca | **Lo apagó una persona.** No publica ni paga premium; el contador se conserva |
+
+- **⚠ `SIN PRECIO` es el rótulo de `invalida`, y la clave i18n se llama `state.invalida`.** El **nombre de la
+  clave sigue al enum** (para que nadie tenga que traducir de cabeza entre la pantalla, el log y el contrato) y
+  el **texto sigue al humano**: `INVÁLIDO` es jerga, no dice qué pasa y suena a avería del sistema; `SIN PRECIO`
+  **nombra exactamente lo que falta y apunta al remedio**. Misma disciplina que el resto del documento: *la clave
+  nombra el dato, el texto nombra la noticia.*
+- **`invalida` NO se pinta como error.** No lleva `role="alert"`, ni icono de aspa, ni la palabra «error» o
+  «inválido» en ninguna cadena. Es un **estado que pide una decisión**, y tiene **dos puertas** igual que el
+  rebasado: **poner precio** o **apagar** (§28.6g). *(Sí es una anomalía —el servidor la marca como fail-safe y
+  no debería existir ninguna—, pero quien la ve en pantalla no necesita saber que es rara: necesita saber que
+  ese bounty no está pagando y qué hacer con él.)*
+- **⛔ Un `state` que esta tabla no conozca se pinta NEUTRO, nunca `ACTIVO`.** Si el enum creciera y llegara un
+  valor desconocido: versalita con el valor **crudo** en `--color-text-muted`, **sin** marca de fila, **sin**
+  premium calculado, la fila **conserva la posición que le dio el servidor** y sus acciones se limitan a `Editar`
+  y `Ver en el binder`. Es el mismo *fallback* neutro de §25.1 (`expirada` sin motivo): **cuando falta el dato,
+  se cae al rótulo que no afirma de más** — y en esta pantalla el rótulo que afirma de más es `ACTIVO`, porque
+  significa *«se está pagando»*.
+- **`completada` y `apagada` no se colapsan**, y desde v3.4 tampoco comparten bloque. «Lo apagué yo» y «se apagó
+  solo porque ya junté las que quería» no son la misma noticia — es la doctrina de `expirada` + `expiredReason`
+  (§2.4, §25.1). *(v3.3 lo resolvía con dos rótulos dentro de un grupo; **el contrato los separa desde el
+  servidor** y la pantalla se limita a obedecer, que es más simple y menos frágil.)*
 - **Un juego de rótulos por PREGUNTA, no por dato.** En el binder el badge contesta *«¿esta carta tiene
   bounty?»* y por eso su palabra tiene que ser `BOUNTY` / `BOUNTY REBASADO` (§21.9c). Aquí la pantalla entera
   ya es de bounties y la columna contesta *«¿en qué estado está?»*: `ACTIVO` / `REBASADO`. **No es un rótulo
@@ -12255,13 +12366,19 @@ derivación es normativa y vive escrita aquí, en un solo sitio, **en este orden
 de este proyecto —una letra que cruzó un candado de accesibilidad porque *se veía* igual— obliga a que
 ninguna señal dependa de un solo canal, ni siquiera del texto:
 
-| Canal | `ACTIVO` | `REBASADO` | `APAGADO` / `COMPLETADO` |
-|---|---|---|---|
-| **1 · Posición** (pre-atento, sin leer) | bloque 2 | **bloque 1, arriba de todo, con conteo en su encabezado** | bloque 3 |
-| **2 · Palabra** en versalitas mono (§2.4, el portador del sistema) | `ACTIVO` | `REBASADO` | `APAGADO` · `COMPLETADO` |
-| **3 · Signo del número** en la columna PREMIUM | `+MX$ …` | **`−MX$ …`** | `—` (no hay premium si no paga) |
-| **4 · Tinta y marca de fila** | tinta normal, sin marca | **regla izquierda 2px `--color-accent`**, palabra en `--color-accent` | renglón completo en `--color-text-muted`, sin marca |
+| Canal | `ACTIVO` | `REBASADO` | **`SIN PRECIO`** | `COMPLETADO` / `APAGADO` |
+|---|---|---|---|---|
+| **1 · Posición** (pre-atento, sin leer) | bloque ② | **bloque ①, arriba de todo, con su conteo en el encabezado** | **bloque ①, junto al rebasado** | bloques ③ y ④ |
+| **2 · Palabra** en versalitas mono (§2.4, el portador del sistema) | `ACTIVO` | `REBASADO` | **`SIN PRECIO`** | `COMPLETADO` · `APAGADO` |
+| **3 · Los números de la fila** | `PAGAMOS` y `TARIFA` con premium **`+MX$ …`** | las dos cifras con premium **`−MX$ …`** | **⚠ `PAGAMOS` vacío (`—`): el hueco ES la señal** — la fila **no tiene** el número que justifica su existencia, y eso se ve antes de leer | premium `—` (no hay premium si no paga) |
+| **4 · Tinta y marca de fila** | tinta normal, sin marca | **regla izquierda 2px `--color-accent`**, palabra en `--color-accent` | **regla izquierda 2px `--color-accent`**, palabra en `--color-accent` | renglón `--color-text-muted`, sin marca |
+| **5 · La acción que ofrece** *(canal extra, solo en ① )* | — | `Editar` · `Apagar` | **`Poner precio`** · `Apagar` | `Editar` · `Encender` |
 
+- **Por qué `rebasada` e `invalida` comparten tinta y marca, y aun así no se confunden:** comparten el color
+  porque comparten la noticia (*encendido y no está pagando su premium*), y el color **nunca es el canal
+  portador**. Se distinguen por **la palabra**, por **el hueco en `PAGAMOS`**, por **el rótulo del botón** y por
+  el `aria-label`, que son cuatro canales sin color. *Duplicar tintas para distinguir dos parientes obligaría a
+  meter un par de contraste nuevo en una pantalla de dinero, y a que el ojo aprenda dos rojos.*
 - **El caso normal no grita** — principio que ya rige en §21.9a (`market` no lleva sufijo). Por eso
   `ACTIVO` va en **tinta**, no en acento, y el premium positivo va en **tinta, no en verde**: así el rojo de
   la pantalla aparece **solo** donde hay una decisión pendiente, y tres rebasados entre quince filas se ven
@@ -12279,12 +12396,12 @@ ninguna señal dependa de un solo canal, ni siquiera del texto:
 | # | Columna | Contenido | Formato |
 |---|---|---|---|
 | 1 | **CARTA** | nombre EN (`lang="en"`, serif 15–17px, **enlace** al cajón del binder) · segunda línea `Set · número` en `text-xs muted` · tercera línea: **`FinishMark`** (§16.6) + acabado en versalitas mono | izquierda |
-| 2 | **ESTADO** | la versalita de §28.3, con su `aria-label` largo | izquierda |
-| 3 | **PAGAMOS** | `bounty.priceCents` | mono `tabular-nums`, **derecha** |
+| 2 | **ESTADO** | la versalita que el mapa de §28.3 asigna al **`state` que llegó del servidor**, con su `aria-label` largo. ⛔ **No se calcula aquí nada** | izquierda |
+| 3 | **PAGAMOS** | `bounty.priceCents` — **`—` cuando el bounty es `invalida`** (no hay precio que enseñar) | mono `tabular-nums`, **derecha** |
 | 4 | **TARIFA VIGENTE** | `bounty.curveQuoteCents` (`—` si es `null`) | mono `tabular-nums`, **derecha** |
-| 5 | **PREMIUM** | derivada: `+MX$ 400.00 · +19.0%` / `−MX$ 50.00 · −5.3%` / `SIN TARIFA` / `—` | mono `tabular-nums`, **derecha** |
+| 5 | **PREMIUM** | derivada **de las dos cifras que ya vinieron**: `+MX$ 400.00 · +19.0%` / `−MX$ 50.00 · −5.3%` / `SIN TARIFA` / `—` | mono `tabular-nums`, **derecha** |
 | 6 | **AVANCE** | `1 de 3` + segunda línea `faltan 2` en `text-xs muted` | mono `tabular-nums`, **derecha** |
-| 7 | *(acciones)* | `Editar` · `Apagar` / `Encender` | derecha, `<th>` oculto para lectores |
+| 7 | *(acciones)* | `Editar` · `Apagar` / `Encender` — y **`Poner precio`** en lugar de `Editar` cuando el estado es `invalida` (§28.6g) | derecha, `<th>` oculto para lectores |
 
 - **La carta va primera aunque el estado sea el eje**, y no es contradicción: el **agrupamiento** ya resuelve
   el eje (canal 1), y una tabla cuyo primer campo no es el sujeto de la fila desorienta. Es además el orden
@@ -12293,9 +12410,21 @@ ninguna señal dependa de un solo canal, ni siquiera del texto:
   el dueño necesita para teclear el precio nuevo**; «Premium» es el **derivado que hace evidente el
   rebasado sin comparar mentalmente dos cifras**. Quitar el derivado obliga a restar en la cabeza quince
   veces; quitar los crudos obliga a abrir la fila para decidir.
+- **⚠ El PREMIUM es lo ÚNICO que esta pantalla calcula, y calcula una resta, no un veredicto.** Se compone con
+  las dos cifras que ya vinieron en la fila y **sirve para leer, no para clasificar**: ⛔ **está prohibido
+  deducir el estado de su signo** (un premium negativo **no** «hace» rebasada a la fila; la fila es `rebasada`
+  porque el servidor lo dijo). *Si algún día el signo del premium y el `state` no coincidieran, manda el
+  `state` y lo que hay es un defecto que reportar — no una fila que repintar.*
 - **`SIN TARIFA` (curva sin resolver, `curveQuoteCents === null`)** no es un rebasado ni un error: el
-  contrato dice que ahí **el bounty explícito sigue siendo efectivo**. Fila `ACTIVO`, premium `SIN TARIFA`
-  con el texto ya cerrado en §21.9d: *«Sin tarifa de curva — el bounty es el precio explícito.»*
+  contrato dice que ahí **el bounty explícito sigue siendo efectivo**. Premium `SIN TARIFA` con el texto ya
+  cerrado en §21.9d: *«Sin tarifa de curva — el bounty es el precio explícito.»* **El estado de esa fila es el
+  que mande `state`** (será `activa`; la pantalla no lo presupone). ⚠ Y `—` en `TARIFA VIGENTE` significa **una
+  cosa y solo una: la curva no resuelve** — **nunca** «está apagado»: una fila apagada trae su tarifa vigente
+  igual que una viva, precisamente para poder decidir antes de encenderla.
+- **⚠ Fila `invalida`: hueco en `PAGAMOS`, `—` en `PREMIUM`, y ni una cifra inventada.** No hay precio, así que
+  **no hay premium que calcular**: se pinta `—` con el `aria-label` de `premium.noPriceAria` (§28.12) y ⛔ **no
+  se rellena con la tarifa vigente, ni con un `0`, ni con `−100%`**. El hueco es la señal; taparlo con un número
+  la borra.
 - **`SIN OBJETIVO` (`targetQty === null`) se pinta en acento y es un síntoma, no un hueco.** Tras el relleno
   a 2 del despliegue (`PROJECT` D35) **no debería existir ninguna fila así**, y una que aparezca es un bounty
   que **nunca frena la compra** por muchas copias que se acumulen. Se pinta la palabra, con su remedio
@@ -12305,18 +12434,33 @@ ninguna señal dependa de un solo canal, ni siquiera del texto:
   lo incrementa el pago SPEI, por ítem con `priceBasis="bounty"`), **no cuando alguien cotiza**. Sin esa
   frase, un dueño con tres cotizaciones vivas jura que la barra está rota.
 
-### 28.5 El cero que se dice
+### 28.5 El cero que se dice — **y las dos veces que NO se dice** *(precisada en v3.4)*
 
-Cuando `counts.outbid === 0`, **el bloque de rebasados no desaparece**: se sustituye por una línea sobre la
-tabla, en `text-sm`, con la versalita `SIN REBASADOS` y la frase:
+**El bloque ① nunca desaparece.** Cuando no tiene filas, en su lugar va una línea sobre la tabla, en
+`text-sm`, con una versalita y una frase. **Cuál de las tres frases se pinta depende de `counts` y de
+`truncated`, y esta tabla es normativa:**
 
-> ES — «Ningún bounty rebasado. Todos los encendidos pagan por encima de la tarifa vigente.»
-> EN — “No outbid bounties. Every one that's on pays above the current rate.”
+| Condición | Versalita | Frase |
+|---|---|---|
+| `counts.rebasada === 0` **y** `counts.invalida === 0` **y** `truncated === false` | `SIN REBASADOS` | **El cero tranquilizador** — ES: «Ningún bounty rebasado. Todos los encendidos pagan por encima de la tarifa vigente.» · EN: “No outbid bounties. Every one that's on pays above the current rate.” |
+| `counts.rebasada === 0` **pero** `counts.invalida > 0` (y `truncated === false`) | `SIN REBASADOS` | ⚠ **El cero acotado** — ES: «Ningún bounty rebasado, pero {count} están encendidos sin precio y no pagan nada.» · EN: “No outbid bounties, but {count} are on with no price and pay nothing.” |
+| `truncated === true` | `LISTA INCOMPLETA` | ⛔ **Ningún cero** — la frase de lista incompleta (`list.truncated`, §28.2b). |
 
+- **⚠⚠ Por qué la primera condición lleva `counts.invalida === 0`, y es una corrección de v3.4 sobre mi propio
+  copy:** la frase dice *«**todos** los encendidos pagan por encima de la tarifa vigente»*, y con un solo
+  `invalida` vivo **eso es falso** — ese bounty está encendido y no paga nada. Enunciar el cero tranquilizador
+  con un `invalida` en la lista sería **exactamente la desinformación que esta pantalla existe para curar**,
+  dicha por la frase que la pantalla usa para tranquilizar. *Una frase que afirma sobre «todos» tiene que mirar
+  a todos.*
+- **⚠⚠ Por qué el `truncated` mata el cero:** con la lista cortada, **los conteos también están incompletos**;
+  un `counts.rebasada: 0` truncado **no es un cero, es un «no lo sé»**. Decir «ninguno» sobre un conjunto que
+  nadie terminó de mirar es la misma mentira por omisión, con mejor presentación. *Un cero de una lista cortada
+  no es un cero.*
 - **Va en tinta y sin adorno.** Ni verde, ni palomita, ni ilustración: no es una felicitación, es un
   **hecho verificado hoy** que mañana puede no serlo.
-- El chip `REBASADOS 0` **sigue existiendo** (deshabilitado, con su cero). Un chip que se esfuma cuando llega
-  a cero convierte «no hay» en «no se está mirando», que es el defecto que esta pantalla vino a corregir.
+- **Los cinco chips siguen existiendo con su cero** (el que esté en cero, deshabilitado). Un chip que se esfuma
+  cuando llega a cero convierte «no hay» en «no se está mirando», que es el defecto que esta pantalla vino a
+  corregir.
 - **Mientras carga, los conteos son `—`, nunca `0`.** Un `REBASADOS 0` provisional que a los 400 ms se
   convierte en `3` es una mentira sobre el único número que importa. Misma disciplina que el precio: *nunca
   `$0` inventado* (§7.3).
@@ -12327,7 +12471,8 @@ tabla, en `text-sm`, con la versalita `SIN REBASADOS` y la frase:
 
 **(a) En reposo.** Cero controles de formulario en la tabla (regla «la tabla en reposo no tiene
 formularios»). Las únicas cosas enfocables de una fila son: el **nombre** (enlace al binder), **`Editar`** y
-**`Apagar`** / **`Encender`**. Objetivos táctiles ≥ 44×44 (§8.2).
+**`Apagar`** / **`Encender`** — o **`Poner precio`** en lugar de `Editar` si el estado es `invalida` (§28.6g).
+Objetivos táctiles ≥ 44×44 (§8.2).
 
 **(b) Fila en edición.** `Editar` abre, **en el sitio de la fila**, un bloque a ancho completo (`<tr>` con
 `<td colspan>`), no un modal: el contexto —las dos cifras y el avance— tiene que seguir a la vista mientras
@@ -12348,7 +12493,8 @@ se teclea. Contiene exactamente **tres controles y ningún adorno**:
   `admin.m1.bounty.*` aunque esta pantalla viva en M2. Renombrarlas para que «cuadren» rompería §21 a cambio
   de nada.
 - **Aviso de rebasado dentro del bloque**: el `Banner warning` de §21.9c (`role="status"`, sin relleno) con
-  sus dos cifras. **Es el mismo banner**, no uno nuevo.
+  sus dos cifras. **Es el mismo banner**, no uno nuevo. **Se pinta cuando `state === "rebasada"`** — por el
+  estado que trajo la fila, **no** por comparar los dos números en pantalla.
 - **`Guardar` deshabilitado sin cambios**, con el motivo anunciado (`title` + `aria-describedby`, §21.10):
   *«Sin cambios que guardar.»* `Esc` y `Cancelar` cierran; **si hay cambios sucios, confirman antes de
   descartar**. Abrir otra fila cierra esta con la misma confirmación.
@@ -12369,13 +12515,16 @@ ciegas un precio de hace tres meses es exactamente cómo nace un rebasado.
 **(d) Después de guardar: se repinta lo que dijo el servidor, jamás lo que se tecleó.** Prohibición dura.
 Quien decide si un bounty es efectivo es el servidor **contra la curva**; pintar `ACTIVO` en optimista tras
 teclear un precio que sigue por debajo sería **mentir en el sitio exacto que esta pantalla existe para
-evitar**. La fila se re-renderiza con la respuesta, cambia de grupo si toca, y el toast **dice la verdad**:
+evitar**. La fila se re-renderiza **con el `state` que devuelva la relectura**, cambia de bloque si toca, y el
+toast **dice la verdad**. **⚠ El toast se elige por el `state` nuevo, no por lo que se tecleó:**
 
-| Resultado | Toast (ES) |
+| `state` **antes** → **después** | Toast (ES) |
 |---|---|
-| Guardado y sigue activo | «Bounty guardado.» |
-| Guardado y **pasó de rebasado a activo** | «Guardado: ya paga por encima de la tarifa y vuelve a Top Bounties.» |
-| Guardado y **sigue rebasado** | «Guardado, pero sigue rebasado: la tarifa vigente paga MX$ 950.00.» |
+| cualquiera → `activa` (y ya era `activa`) | «Bounty guardado.» |
+| `rebasada` o `invalida` → **`activa`** | «Guardado: ya paga por encima de la tarifa y vuelve a Top Bounties.» |
+| `rebasada` → **`rebasada`** | «Guardado, pero sigue rebasado: la tarifa vigente paga MX$ 950.00.» |
+| cualquiera → **`invalida`** ⚠ | «Guardado, pero este bounty sigue encendido sin precio: no paga nada.» *(no debería ocurrir —la guarda del servidor lo impide— y por eso mismo tiene frase: si ocurre, **hay que verlo**, no tragárselo.)* |
+| cualquiera → `apagada` / `completada` | el toast de apagado, con `Deshacer` |
 
 El tercero es el que justifica la tabla entera: **un guardado exitoso que no arregla nada no puede decir
 «listo»**. Va en `aria-live="polite"` y en tono neutro — **no es un error**, el guardado ocurrió.
@@ -12384,12 +12533,72 @@ El tercero es el que justifica la tabla entera: **un guardado exitoso que no arr
 §8.3), con `aria-invalid` + `aria-describedby` en el campo culpable. Los tres códigos son
 `BOUNTY_BELOW_RULE`, `BOUNTY_PRICE_REQUIRED` y `BOUNTY_TARGET_REQUIRED` (§28.12). Ninguno **escribe nada**,
 así que los tres terminan con **«No se guardó nada.»**, según la regla ya cerrada en §26.
+**⚠ `BOUNTY_BELOW_RULE` desde esta pantalla NO es un fallo de la pantalla: es la guarda funcionando** sobre una
+curva que se movió entre el render y el guardado. Se pinta con la tarifa que venga en el error, **se re-lee la
+fila**, y ⛔ **no se reintenta solo ni se recalcula el precio por cuenta propia**.
 
-### 28.7 Edición masiva — mi voto, para la decisión del arquitecto
+**(f) ⛔⛔ QUÉ VIAJA EN EL `PUT`, Y QUÉ NO — corrección v3.4, y es una regla de dinero.**
 
-**Voto: NO a la edición masiva de importes. SÍ, y solo, a una acción en lote: apagar.**
+**La pantalla manda EXACTAMENTE lo que el humano editó**: `bounty.enabled`, `bounty.priceCents`,
+`bounty.targetQty` y la identidad de la variante. **Nada más.**
 
-**Por qué un importe en lote es peligroso aquí, y no es una intuición:**
+> ⛔ **La consola de bounties NO manda `sellOverrideCents` ni `buyOverrideCents`. Nunca. Ni siquiera «tal como
+> los leyó».** *(v3.3 exigía justo lo contrario en §28.15.6, «por si omitir limpiaba». **Esa instrucción queda
+> RETIRADA**, y se cuenta aquí en vez de borrarse porque el error fue de razonamiento, no de tecleo.)*
+>
+> - **La duda ya tiene respuesta y está MEDIDA, no deducida:** **campo omitido ⇒ no se toca**. Lo verificó el
+>   arquitecto contra el código que corre; la tabla normativa vive en el contrato y **no se transcribe aquí**.
+> - **El remedio era el peligro, no la duda.** Reenviar convierte **una edición parcial en una sobrescritura
+>   total**, sobre un endpoint que **no tiene token de concurrencia** y que **escriben dos superficies**. El
+>   escenario cabe en una frase: *el dueño abre esta consola; otro admin cambia el precio de venta de esa carta
+>   desde el cajón del binder; el primero pulsa `Guardar` sobre el bounty y **restaura el precio viejo del
+>   storefront** sin que nadie lo pidiera.* **Silencioso, en la dirección del dinero publicado y sin más rastro
+>   que la bitácora.**
+> - **La regla general, para que no vuelva** (`ARCHITECTURE §0-B.3 regla 9`, *la regla de la omisión*): **un
+>   cliente nunca reenvía un campo que el humano no editó**, y **una pantalla no compensa una regla del
+>   servidor**. Si un diseño cree necesitar reenviar algo para conservarlo, **lo que está mal es esa creencia**:
+>   se lee el contrato y, si no lo dice, **se pregunta al arquitecto antes de escribir el parche** (regla 9 de
+>   `CLAUDE.md`). *Yo escribí ese parche; esta línea existe para que el siguiente no lo escriba.*
+> - **Verificable, y así se comprueba:** al cambiar solo el precio del bounty, el cuerpo del `PUT` **no contiene
+>   las claves** `sellOverrideCents` ni `buyOverrideCents` (§28.14, caso 11).
+>
+> **⚠ Y no se confunda con el cajón del binder (§16.3b), que sí manda los tres controles:** ahí es correcto,
+> porque **ese formulario es el dueño de los tres y el humano los tiene delante**. *La diferencia no es el
+> endpoint: es qué tenía delante la persona cuando pulsó guardar.*
+
+También son **salida y jamás entrada**: `state`, `effective`, `curveQuoteCents`, `progress` y `remainingQty`.
+⛔ **No se «devuelven» al servidor** ni se meten en el cuerpo «para que no se pierdan».
+
+**(g) ⚠ La fila `invalida`: encendida, sin precio, y con dos puertas** *(nuevo en v3.4)*.
+
+Es el único estado cuyo botón principal **cambia de rótulo**, y es a propósito: `Editar` no dice qué hay que
+hacer; **`Poner precio` sí**. Comportamiento:
+
+| | Qué hace |
+|---|---|
+| **Botón principal** | **`Poner precio`** (`Set a price`) — abre el mismo bloque de edición de (b), con el **foco en `Pagamos`**, el campo **vacío** y el interruptor **encendido tal como está** |
+| **Segunda puerta** | **`Apagar`**, con el mismo trato que en cualquier otra fila: **sin diálogo** y con `Deshacer`. Es legítima y a veces es la correcta: *este bounty no está pagando nada; apagarlo no detiene ningún gasto, pero **deja de mentir sobre lo que se está buscando*** |
+| **Aviso dentro del bloque** | `Banner warning` (§7.5, `role="status"`, sin relleno): ES — «Este bounty está encendido y **no tiene precio**: no puede pagar nada y no se publica. Ponle un precio por encima de la tarifa vigente ({rate}) o apágalo.» · EN — “This bounty is on and **has no price**: it can't pay anything and isn't published. Give it a price above the current rate ({rate}) or turn it off.” |
+| **⛔ El campo NO se prellena** | Ni con la tarifa vigente, ni con `tarifa + algo`. **El precio de un bounty es siempre explícito, jamás calculado**; prellenarlo desde la curva lo vuelve calculado por defecto, que es lo mismo con otro nombre. **Enseñar** la tarifa al lado del campo es correcto y es el punto; **escribirla en el campo** no |
+| **Al guardar** | Pasa por la **misma** guarda que cualquier otro precio (`BOUNTY_BELOW_RULE`, `BOUNTY_PRICE_REQUIRED`) y por el **diálogo de confirmación** de (c): poner precio a un bounty encendido **es dinero que empieza a salir** |
+
+### 28.7 Edición masiva — **⛔ RETIRADA del diseño vigente (v3.4)**; el voto queda archivado
+
+> ⛔⛔ **NADA DE ESTA SECCIÓN SE IMPLEMENTA.** El arquitecto **mantuvo entera la prohibición de acciones
+> masivas** y **refutó por escrito** el caso «apagar en lote» que yo proponía en el punto 4. **El botón
+> `Apagar los N rebasados` y sus cadenas `bulk.*` quedan RETIRADOS** de §28.2 y de §28.12.
+> **Corolario que hay que leer entero, porque es la forma en que esto reaparecería sin mala fe:** **un botón de
+> cabecera de grupo que dispare N escrituras ES una acción masiva**, aunque en la red viajen N peticiones de una
+> variante cada una. **El alcance lo define el gesto del humano, no el transporte.** Prohibidos por igual:
+> multi-selección con acción, «aplicar a los filtrados» y **cualquier control cuyo rótulo lleve un contador**.
+> **Qué SÍ puede hacer esta pantalla:** editar **en línea** desde la fila y encadenar peticiones **de una en
+> una**, por un acto explícito del humano **sobre una** fila.
+>
+> **Se archiva, no se borra**, porque la pregunta **47 de `PROJECT.md` sigue ABIERTA** (supuesto vigente:
+> *«ninguna acción masiva en v1»*) y **es el humano quien la decide**. Si la reabre, esto es lo que se votó y
+> por qué — y lo que el arquitecto contestó.
+
+**(a) Lo que voté, y sigo sosteniendo: NO a la edición masiva de importes.** Se adoptó tal cual.
 
 1. **El premium es una relación, no un número.** «+15% a los seleccionados» o «MX$ 1,000 a estos veinte»
    produce, de un clic, veinte precios cuya relación **con la curva de cada variante** el dueño **no ha
@@ -12400,16 +12609,28 @@ así que los tres terminan con **«No se guardó nada.»**, según la regla ya c
    diecinueve buenas). No hay tercera.
 3. **La selección múltiple convierte la tabla en superficie de edición** y le devuelve el resbalón que la
    regla «la tabla en reposo no tiene formularios» acababa de quitarle.
-4. **La única acción masiva que sí es sana es apagar**, y por tres motivos que no comparte ninguna otra:
-   **no gasta** (detiene el gasto), **es reversible** (no borra el contador) y **no tiene validación por
-   fila** que pueda rechazar la mitad. Es además el gesto real después de mover la curva: *«se me rebasaron
-   ocho, apágalos mientras decido»*. Forma: un botón **`Apagar los 3 rebasados`** en el encabezado del grupo
-   —no un selector— con confirmación que **dice el conteo** y **dice lo que no pasa** (*«No sube ningún
-   precio.»*).
-5. **Si aun así el contrato trae lote de escritura**, el diseño impone dos condiciones: **(i)** la respuesta
-   es **por fila** (`id → ok | errorCode`) y se pinta **en cada fila**, nunca resumida en un toast; y
-   **(ii)** el resumen es de dos números (`{ok} apagados · {failed} sin cambiar`) y las filas fallidas
-   **quedan marcadas en su sitio** hasta que alguien las toque.
+
+**(b) Lo que voté y fue RECHAZADO: el apagado en lote de los rebasados.** Mi argumento era que apagar **no
+gasta**, **es reversible** y **no valida por fila**, y que era el gesto real después de mover la curva
+(*«se me rebasaron ocho, apágalos mientras decido»*). **Las tres premisas caen, y la primera es medible:**
+
+| Mi premisa | La refutación (arquitecto) | Mi lectura hoy |
+|---|---|---|
+| «detiene un gasto» | **⭐ Un `rebasada` YA NO PAGA**: la precedencia de compra **se salta** el bounty no efectivo y cotiza la curva. Se pagaría el mismo peso antes y después de pulsar el botón | **Es la que decide, y es un hecho, no una opinión. Mi premisa era falsa**: el botón no frena nada porque el sistema ya frenó solo. *Una acción masiva de dinero cuyo efecto sobre el dinero es cero no es una herramienta: es un ritual — y los rituales sobre botones masivos se acaban usando sobre las filas que sí pagan.* |
+| «no pierde información» | `rebasada` **se explica sola** y trae sus dos puertas; `apagada` dice *«una persona decidió»*. Apagar ocho de un clic convierte **ocho diagnósticos en ocho decisiones que nadie tomó**, y mañana son indistinguibles de las que el dueño retiró a propósito | **La acepto, y me señala una incoherencia mía**: yo mismo escribí que **el porqué dejó de pagarse es el dato que esta pantalla existe para no perder** (§28.3, `completada` vs `apagada`). Mi botón lo borraba a escala |
+| «es reversible» | Cierto en el dato, **falso en la puerta**: apagar cuesta **un** clic; encender son **N escrituras validadas** que pueden fallar con tres códigos distintos. **Y encender exige importe** ⇒ *un lote cuyo deshacer no puede ser lote es una petición de lote de importes con retraso* | **La acepto entera.** Es el vector por el que caería la prohibición que yo mismo defendía en (a) |
+
+**(c) Qué se hace en su lugar, y ya está en el diseño:** el chip **`REBASADOS`** (filtro `state`) más el orden
+**`attention_first`** ponen **las ocho juntas y arriba**, cada una con su tarifa vigente al lado, y se decide
+**una por una** —subir o apagar—, que es la decisión que de verdad hay que tomar. **La pantalla ya da la
+capacidad; el botón no añadía capacidad, añadía radio.**
+
+**(d) Si el humano reabre la 47 y decide que sí**, vuelve al arquitecto (regla 9) y **la contención mínima
+sigue siendo la que pacté, entera**: **(i)** respuesta **por fila** (`clave → ok | errorCode`) pintada **en
+cada fila**, jamás resumida en un toast; **(ii)** **N entradas de bitácora**, no una; **(iii)** las filas
+fallidas **quedan marcadas en su sitio** hasta que alguien las toque; y **(iv)** **jamás** un lote que fije
+importes. **Las cadenas `bulk.*` no se conservan en el catálogo**: si esto vuelve, se redactan de nuevo con el
+alcance que se apruebe — *cadenas muertas en un catálogo de dinero son una invitación a cablearlas.*
 
 ### 28.8 Estados de carga, vacío y error (obligatorios, §8.1)
 
@@ -12418,7 +12639,8 @@ así que los tres terminan con **«No se guardó nada.»**, según la regla ya c
 | **Cargando** | Skeleton de 8 filas respetando el layout (§7.7). Chips con `—`, **nunca `0`** (§28.5). La cabecera y los rótulos de columna **sí** se pintan: el esqueleto tiene que parecerse a la tabla. |
 | **Vacío total** (no hay ningún bounty en el sistema) | Título «Todavía no hay bounties» + una frase que **explica qué es** («…pagas por encima de tu tarifa hasta juntar las piezas que quieras») + CTA **«Ir al binder»**. Es la única pantalla que enseña el concepto: quien llega aquí y no tiene ninguno probablemente no sabe qué es. |
 | **Vacío por filtro** | «Ningún bounty coincide» + «Limpiar filtros» (§8.1). |
-| **Grupo REBASADOS en cero** | **No es un vacío: es la frase de §28.5.** |
+| **Bloque ① sin filas** | **No es un vacío: es una de las tres frases de §28.5**, y cuál de ellas depende de `counts.invalida` y de `truncated`. |
+| **Lista incompleta** (`truncated: true`) | **No es un error y no bloquea la tabla:** banner `role="status"` con `list.truncated`, chips con `≥`, **y ningún cero enunciado** (§28.2b, §28.5). |
 | **Error de carga** | `Banner danger` + `Reintentar` (§8.1), con el `errorCode` traducido. **La tabla no se pinta a medias**: media lista de bounties es peor que ninguna, porque parece completa. |
 | **Fila que falla al guardar** | El error **se queda en la fila**, abierta y con el foco en el campo; el resto de la tabla no se toca. |
 
@@ -12428,7 +12650,7 @@ La tabla colapsa a **cards por fila** (§7.7 ya lo manda) **conservando los enca
 títulos de sección — el eje sobrevive al colapso, que es lo único innegociable:
 
 ```
-REBASADOS · 3
+ATENCIÓN · REBASADOS 3 · SIN PRECIO 1
 ▌ Charizard ex                            REBASADO
 ▌ Obsidian Flames · 125 · HOLOFOIL
 ▌ Pagamos      MX$ 900.00
@@ -12436,14 +12658,25 @@ REBASADOS · 3
 ▌ Premium      −MX$ 50.00 · −5.3%
 ▌ Avance       0 de 2 · faltan 2
 ▌ [ Editar ]                             [ Apagar ]
+─────────────────────────────────────────────────
+▌ Gengar VMAX                           SIN PRECIO
+▌ Fusion Strike · 271 · REVERSE
+▌ Pagamos      —
+▌ Tarifa       MX$ 780.00
+▌ Premium      —
+▌ Avance       0 de 2 · faltan 2
+▌ [ Poner precio ]                       [ Apagar ]
 ```
 
 - Prioridad de campos si algo tiene que caer: **carta, estado, pagamos, premium, acciones**. La tarifa y el
   avance **no caen**; se apilan.
+- **El hueco de `PAGAMOS` en una fila `SIN PRECIO` se pinta igual en móvil**: la etiqueta con su `—`, **nunca
+  la línea entera omitida**. *Una fila a la que le falta un dato de dinero tiene que enseñar que le falta; si
+  se esconde la línea, el hueco se convierte en «no aplica».*
 - El bloque de edición ocupa el ancho de la card, un control por línea, `inputmode="decimal"` y **cuerpo
   ≥16px** en los inputs (§3.2 — evita el zoom de iOS).
-- Los chips de conteo hacen scroll horizontal **sin recortar el primero**: `REBASADOS` es el que nunca puede
-  quedar fuera de pantalla.
+- Los **cinco** chips de conteo hacen scroll horizontal **sin recortar el primero**: `REBASADOS` es el que
+  nunca puede quedar fuera de pantalla, y `SIN PRECIO` va inmediatamente después.
 
 ### 28.10 Accesibilidad (además de §8.2 y §21.10)
 
@@ -12451,27 +12684,37 @@ REBASADOS · 3
   avance»), `<th scope="col">` en la cabecera y **un `<tbody>` por grupo**, cada uno abierto por un
   `<tr><th scope="rowgroup" colspan="7">` con el rótulo y el conteo. Así el grupo **existe para el lector de
   pantalla**, no solo para el ojo.
-- **La celda de estado lleva el texto largo** en `aria-label` («Rebasado: la tarifa vigente paga más que tu
-  oferta, así que se paga la tarifa y la carta no aparece en Top Bounties.»). La versalita corta es para el
-  ojo; el lector recibe la consecuencia completa.
+- **La celda de estado lleva el texto largo** en `aria-label`, **uno por cada uno de los cinco `state`**
+  (§28.12) — («Rebasado: la tarifa vigente paga más que tu oferta, así que se paga la tarifa y la carta no
+  aparece en Top Bounties.»). La versalita corta es para el ojo; el lector recibe la consecuencia completa.
+  **⚠ El de `invalida` es el que más carga:** la versalita dice `SIN PRECIO`, pero el lector tiene que oír
+  **que está encendido** — que es lo que hace que ese hueco importe.
+- **⚠ El hueco de `PAGAMOS` no es silencio para un lector de pantalla.** Una celda con `—` se anuncia con su
+  `aria-label` (`row.noPriceAria`), porque **un guion no se lee** y una fila de dinero con una celda muda se
+  oye como una fila normal. *El canal «hueco» es visual; para el lector hay que decirlo con palabras.*
 - **Ni `role="alert"` ni `aria-live="assertive"` en ninguna parte de esta pantalla.** El rebasado es un
-  estado, no un incidente; los avisos y los toasts van en `role="status"` / `polite`.
-- **`aria-expanded`** en `Editar`, apuntando a la fila de edición; al cerrar (guardar o cancelar) **el foco
-  vuelve al botón `Editar` de esa fila**, nunca al principio de la tabla.
-- **Cambios de grupo anunciados:** si al guardar la fila salta de REBASADOS a ACTIVOS, se anuncia con el
+  estado, no un incidente; **`invalida` tampoco** —es una anomalía, pero para quien mira es una decisión
+  pendiente, no una alarma—; los avisos y los toasts van en `role="status"` / `polite`.
+- **`aria-expanded`** en `Editar` / `Poner precio`, apuntando a la fila de edición; al cerrar (guardar o
+  cancelar) **el foco vuelve al botón de esa fila**, nunca al principio de la tabla.
+- **Cambios de bloque anunciados:** si al guardar la fila salta de ATENCIÓN a ACTIVOS, se anuncia con el
   toast (`polite`) — el foco no persigue a la fila que se movió.
-- **El color nunca es el único canal** (§28.3, cuatro canales). Con `prefers-reduced-motion` no hay nada que
-  apagar: esta pantalla **no anima nada** — la fila de edición aparece, no se despliega.
+- **El color nunca es el único canal** (§28.3, cuatro canales + el rótulo del botón). `rebasada` e `invalida`
+  **comparten tinta**, así que su distinción **no depende del color en ningún momento**. Con
+  `prefers-reduced-motion` no hay nada que apagar: esta pantalla **no anima nada** — la fila de edición
+  aparece, no se despliega.
 - **⚠ La lección del homoglifo, aplicada a esta pantalla.** Aquí **la palabra en versalitas ES el portador
   de accesibilidad**, así que un carácter latino sustituido por su gemelo cirílico en `REBASADO`/`ACTIVO`
   sería **invisible a la vista y letal para cualquier guarda**. Dos reglas: **(1)** ningún test —ni de
   frontend ni E2E— **teclea la cadena**: se compara contra la clave del catálogo i18n; **(2)** los catálogos
   `es.json`/`en.json` se barren buscando **no-ASCII fuera del juego esperado**, y esta pantalla entra en ese
-  barrido. **Juego permitido, cerrado y explícito:** `áéíóúÁÉÍÓÚñÑüÜ ¡ ¿ · — … × ‹›«» − ●`. **⚠ El
+  barrido. **Juego permitido, cerrado y explícito:** `áéíóúÁÉÍÓÚñÑüÜ ¡ ¿ · — … × ‹›«» − ≥ ●`. **⚠ El
   `−` de la columna PREMIUM es el signo menos tipográfico U+2212, no el guion ASCII, y es deliberado**
   (alinea con `tabular-nums` y no se lee como un guion de separación). Justo por eso **va en la lista blanca
   con su punto de código escrito**: un carácter «raro» que nadie declaró es el que después nadie distingue
-  de su gemelo.
+  de su gemelo. **⚠ v3.4 — se añade `≥` (U+2265), y por la misma razón**: lo usan los chips cuando la lista
+  viene cortada (§28.2b), es un carácter de **dinero incompleto** y **tiene que estar declarado** para que
+  el barrido no lo trate como intruso ni alguien lo sustituya por un `>=` que rompe la alineación.
 
 ### 28.11 Contraste — **cero pares nuevos**
 
@@ -12481,7 +12724,7 @@ Todo §28 se compone con pares ya verificados en §10, §17.2, §20.15 y §21.11
 |---|---|---|
 | Tinta `#1A1A18` sobre papel `#F4F1EA` (cifras, nombres, `ACTIVO`, `COMPLETADO`, premium positivo) | ~15.5:1 | AA/AAA |
 | Muted `#6E695E` sobre papel (rótulos de columna, `set · número`, renglón de fila **apagada**, notas) | ~4.8:1 | AA |
-| Rojo `#B31217` sobre papel (`REBASADO`, premium negativo, `SIN OBJETIVO`, marca de fila) | 6.2:1 | AA |
+| Rojo `#B31217` sobre papel (`REBASADO`, **`SIN PRECIO` (v3.4)**, premium negativo, `SIN OBJETIVO`, marca de fila) | 6.2:1 | AA |
 | Papel sobre tinta (botón primario del diálogo de confirmación) | ~15.5:1 | AA/AAA |
 | Regla 1–2px `--color-border` / `--color-border-strong` / `--color-accent` (marca de fila y separadores) | UI ≥ 3:1 | ok |
 | Anillo de foco rojo sobre papel | 6.2:1 | AA (≥3:1 UI) |
@@ -12491,10 +12734,27 @@ Todo §28 se compone con pares ya verificados en §10, §17.2, §20.15 y §21.11
   tinta (~14.7:1), muted (~4.6:1) y rojo (5.9:1).
 - **El verde de éxito no aparece en esta pantalla** (§28.3): es el único par del sistema en el borde de AA
   (4.4:1) y aquí habría ido en mono de 11px.
+- **⚠ v3.4 — el estado nuevo NO trajo par nuevo, y fue una decisión, no una casualidad.** `SIN PRECIO` usa
+  **el mismo rojo 6.2:1** que `REBASADO`. La alternativa —un segundo tono para «anomalía»— habría metido **un
+  par de contraste nuevo en la pantalla más cargada de dinero del back-office** y habría obligado al ojo a
+  aprender dos rojos que significan casi lo mismo. **La distinción va por palabra, hueco y botón** (§28.3),
+  que son canales sin color y sin coste de contraste.
 
 ### 28.12 i18n — cadenas ES/EN (propiedad de frontend; copiar sin interpretar)
 
 **Namespace nuevo: `admin.m2.bounties.*`.** Todo lo que ya existe se **reutiliza sin duplicar**.
+
+> **⚠ Convención de nombres, corregida en v3.4 y normativa: la CLAVE se llama como el `state` del contrato; el
+> TEXTO se escribe para el humano.** Es decir `state.rebasada` → `REBASADO`, `state.invalida` → `SIN PRECIO`,
+> `counts.apagada` → `APAGADOS {count}`.
+> **Por qué así, en dos frases.** v3.3 nombraba las claves con un vocabulario propio (`state.outbid`,
+> `counts.off`, `sort.gapDesc`) que **no existe en la API** —el enum es `activa` · `rebasada` · `invalida` ·
+> `completada` · `apagada`, y son cinco—; con claves inventadas, **traducir del log a la pantalla era un salto
+> mental que alguien iba a dar mal**, y de hecho faltaba una clave entera porque faltaba el estado.
+> **Traducir el enum a rótulos de pantalla sigue siendo trabajo de i18n del frontend y sigue siendo mío** —lo
+> que no puede es viajar en la petición ni nombrar las claves—; lo que cambia es que **el catálogo tenga tantas
+> entradas como valores tiene el enum, con sus mismos nombres**. *Un catálogo con menos entradas que su enum es
+> un estado que nadie sabe pintar.*
 
 **(a) Claves REUTILIZADAS — no se crean, no se reescriben, no se renombran:**
 
@@ -12516,19 +12776,26 @@ concatena moneda**.
 | `title` | `Bounties` | `Bounties` |
 | `lead` | `Lo que pagamos por encima de la tarifa, y hasta cuántas piezas. Aquí están todos: los que están pagando, los que la tarifa rebasó y los apagados.` | `What we pay above the standard rate, and for how many copies. They're all here: the ones paying, the ones the rate outbid, and the ones that are off.` |
 | `linkFromBinder` | `Ver todos los bounties` | `See all bounties` |
-| `counts.outbid` | `REBASADOS {count}` | `OUTBID {count}` |
-| `counts.active` | `ACTIVOS {count}` | `ACTIVE {count}` |
-| `counts.off` | `APAGADOS {count}` | `OFF {count}` |
+| `counts.rebasada` | `REBASADOS {count}` | `OUTBID {count}` |
+| `counts.invalida` | `SIN PRECIO {count}` | `NO PRICE {count}` |
+| `counts.activa` | `ACTIVOS {count}` | `ACTIVE {count}` |
+| `counts.completada` | `COMPLETADOS {count}` | `COMPLETED {count}` |
+| `counts.apagada` | `APAGADOS {count}` | `OFF {count}` |
+| `counts.atLeast` *(v3.4, lista cortada)* | `{label} ≥ {count}` | `{label} ≥ {count}` |
+| `counts.atLeastAria` *(v3.4)* | `Al menos {count}; la lista está incompleta.` | `At least {count}; the list is incomplete.` |
 | `counts.loadingAria` | `Contando bounties` | `Counting bounties` |
 | `filters.searchLabel` | `Buscar carta o set` | `Search card or set` |
 | `sort.label` | `Orden` | `Sort` |
-| `sort.state` | `Estado (rebasados primero)` | `Status (outbid first)` |
-| `sort.priceDesc` | `Pagamos (mayor primero)` | `We pay (highest first)` |
-| `sort.gapDesc` | `Faltante (mayor primero)` | `Shortfall (largest first)` |
-| `sort.progress` | `Avance (menor primero)` | `Progress (lowest first)` |
-| `group.outbid` | `REBASADOS · {count}` | `OUTBID · {count}` |
-| `group.active` | `ACTIVOS · {count}` | `ACTIVE · {count}` |
-| `group.off` | `APAGADOS · {count}` | `OFF · {count}` |
+| `sort.attention_first` *(default)* | `Atención primero` | `Needs attention first` |
+| `sort.price_desc` | `Pagamos (mayor primero)` | `We pay (highest first)` |
+| `sort.updated_desc` | `Editados recientemente` | `Recently edited` |
+| `group.attention` *(v3.4)* | `ATENCIÓN` | `NEEDS ATTENTION` |
+| `group.attentionCounts` *(v3.4)* | `REBASADOS {outbid} · SIN PRECIO {noPrice}` | `OUTBID {outbid} · NO PRICE {noPrice}` |
+| `group.attentionHint` *(v3.4)* | `Están encendidos y no pagan premium. Cada uno pide una decisión.` | `These are on and paying no premium. Each one needs a decision.` |
+| `group.activa` | `ACTIVOS · {count}` | `ACTIVE · {count}` |
+| `group.completada` *(v3.4)* | `COMPLETADOS · {count}` | `COMPLETED · {count}` |
+| `group.apagada` | `APAGADOS · {count}` | `OFF · {count}` |
+| `list.truncated` *(v3.4)* | `Esta lista está incompleta: hay más bounties de los que caben en una consulta, así que los conteos son mínimos, no totales. Filtra por set, acabado o estado para verlos todos.` | `This list is incomplete: there are more bounties than one query returns, so the counts are minimums, not totals. Filter by set, finish or status to see them all.` |
 | `table.caption` | `Bounties: estado, precio, tarifa vigente y avance` | `Bounties: status, price, current rate and progress` |
 | `col.card` | `CARTA` | `CARD` |
 | `col.state` | `ESTADO` | `STATUS` |
@@ -12537,18 +12804,25 @@ concatena moneda**.
 | `col.premium` | `PREMIUM` | `PREMIUM` |
 | `col.progress` | `AVANCE` | `PROGRESS` |
 | `col.actions` | `Acciones` *(sr-only)* | `Actions` *(sr-only)* |
-| `state.active` | `ACTIVO` | `ACTIVE` |
-| `state.outbid` | `REBASADO` | `OUTBID` |
-| `state.off` | `APAGADO` | `OFF` |
-| `state.completed` | `COMPLETADO` | `COMPLETED` |
-| `state.activeAria` | `Activo: paga por encima de la tarifa vigente y aparece en Top Bounties.` | `Active: it pays above the current rate and appears in Top Bounties.` |
-| `state.outbidAria` | `Rebasado: la tarifa vigente paga más que tu oferta, así que se paga la tarifa y la carta no aparece en Top Bounties.` | `Outbid: the current rate pays more than your offer, so we pay the rate and the card doesn't appear in Top Bounties.` |
-| `state.offAria` | `Apagado: no se publica ni se paga premium. El contador se conserva.` | `Off: not published and no premium paid. The counter is kept.` |
-| `state.completedAria` | `Completado el {date}: se apagó solo al llegar al objetivo.` | `Completed on {date}: it turned itself off when it hit the target.` |
+| `state.activa` | `ACTIVO` | `ACTIVE` |
+| `state.rebasada` | `REBASADO` | `OUTBID` |
+| **`state.invalida`** *(v3.4)* | **`SIN PRECIO`** | **`NO PRICE`** |
+| `state.completada` | `COMPLETADO` | `COMPLETED` |
+| `state.apagada` | `APAGADO` | `OFF` |
+| `state.unknown` *(v3.4, fallback neutro)* | `SIN CLASIFICAR` | `UNCLASSIFIED` |
+| `state.activaAria` | `Activo: paga por encima de la tarifa vigente y aparece en Top Bounties.` | `Active: it pays above the current rate and appears in Top Bounties.` |
+| `state.rebasadaAria` | `Rebasado: la tarifa vigente paga más que tu oferta, así que se paga la tarifa y la carta no aparece en Top Bounties.` | `Outbid: the current rate pays more than your offer, so we pay the rate and the card doesn't appear in Top Bounties.` |
+| **`state.invalidaAria`** *(v3.4)* | **`Sin precio: este bounty está encendido, pero no tiene un precio con el que pagar. No paga nada y no aparece en Top Bounties. Ponle un precio o apágalo.`** | **`No price: this bounty is on, but it has no price to pay with. It pays nothing and doesn't appear in Top Bounties. Give it a price or turn it off.`** |
+| `state.completadaAria` | `Completado el {date}: se apagó solo al llegar al objetivo.` | `Completed on {date}: it turned itself off when it hit the target.` |
+| `state.apagadaAria` | `Apagado: lo apagó una persona. No se publica ni se paga premium. El contador se conserva.` | `Off: someone turned it off. Not published and no premium paid. The counter is kept.` |
+| `state.unknownAria` *(v3.4)* | `Estado no reconocido por esta pantalla. No se puede afirmar si está pagando; ábrelo en el binder.` | `Status not recognised by this screen. We can't say whether it's paying; open it in the binder.` |
 | `premium.above` | `+{amount} · +{pct}%` | `+{amount} · +{pct}%` |
 | `premium.below` | `−{amount} · −{pct}%` | `−{amount} · −{pct}%` |
 | `premium.none` | `—` | `—` |
 | `premium.noneAria` | `Sin premium: este bounty está apagado.` | `No premium: this bounty is off.` |
+| `premium.noPriceAria` *(v3.4)* | `No se puede calcular el premium: este bounty no tiene precio.` | `Premium can't be worked out: this bounty has no price.` |
+| `row.noPrice` *(v3.4, celda PAGAMOS)* | `—` | `—` |
+| `row.noPriceAria` *(v3.4)* | `Sin precio: este bounty está encendido y no tiene precio de compra.` | `No price: this bounty is on and has no buy price.` |
 | `premium.noRate` | `SIN TARIFA` | `NO RATE` |
 | `premium.noRateAria` | `Sin tarifa de curva — el bounty es el precio explícito.` | `No curve rate — the bounty is the explicit price.` |
 | `progress.value` | `{acquired} de {target}` | `{acquired} of {target}` |
@@ -12565,6 +12839,8 @@ concatena moneda**.
 | `row.turnOffToast` | `Bounty apagado · {card}. Deja de publicarse y de pagar premium.` | `Bounty off · {card}. It stops being published and stops paying a premium.` |
 | `row.turnOn` | `Encender` | `Turn on` |
 | `row.turnOnHint` | `Revisa el precio antes de encenderlo: la tarifa vigente pudo cambiar desde que lo apagaste.` | `Check the price before turning it on: the current rate may have moved since you turned it off.` |
+| **`row.setPrice`** *(v3.4, sustituye a `row.edit` en filas `invalida`)* | **`Poner precio`** | **`Set a price`** |
+| **`row.setPriceAria`** *(v3.4)* | **`Poner precio al bounty de {card}`** | **`Set a price for the bounty on {card}`** |
 | `edit.title` | `Editar bounty` | `Edit bounty` |
 | `edit.price` | `Pagamos` | `We pay` |
 | `edit.target` | `Objetivo` | `Target` |
@@ -12585,18 +12861,24 @@ concatena moneda**.
 | `saved` | `Bounty guardado.` | `Bounty saved.` |
 | `savedNowActive` | `Guardado: ya paga por encima de la tarifa y vuelve a Top Bounties.` | `Saved: it now pays above the rate and is back in Top Bounties.` |
 | `savedStillOutbid` | `Guardado, pero sigue rebasado: la tarifa vigente paga {rate}.` | `Saved, but still outbid: the current rate pays {rate}.` |
+| `savedStillNoPrice` *(v3.4)* | `Guardado, pero este bounty sigue encendido sin precio: no paga nada.` | `Saved, but this bounty is still on with no price: it pays nothing.` |
 | `zero.outbidLabel` | `SIN REBASADOS` | `NONE OUTBID` |
 | `zero.outbid` | `Ningún bounty rebasado. Todos los encendidos pagan por encima de la tarifa vigente.` | `No outbid bounties. Every one that's on pays above the current rate.` |
+| **`zero.outbidButNoPrice`** *(v3.4 — el cero acotado, §28.5)* | **`Ningún bounty rebasado, pero {count} están encendidos sin precio y no pagan nada.`** | **`No outbid bounties, but {count} are on with no price and pay nothing.`** |
+| `noPrice.bannerTitle` *(v3.4, bloque de edición)* | `Este bounty no tiene precio` | `This bounty has no price` |
+| `noPrice.bannerBody` *(v3.4)* | `Está encendido, pero no tiene un precio con el que pagar: no paga nada y no se publica. Ponle un precio por encima de la tarifa vigente ({rate}) o apágalo.` | `It's on, but it has no price to pay with: it pays nothing and isn't published. Give it a price above the current rate ({rate}) or turn it off.` |
 | `empty.title` | `Todavía no hay bounties` | `No bounties yet` |
 | `empty.body` | `Un bounty es una oferta de compra premium: pagas por encima de tu tarifa hasta juntar las piezas que quieras. Se dan de alta desde la variante, en el binder.` | `A bounty is a premium buy offer: you pay above your standard rate until you've gathered the copies you want. You create them from the variant, in the binder.` |
 | `empty.cta` | `Ir al binder` | `Go to the binder` |
 | `empty.filteredTitle` | `Ningún bounty coincide` | `No bounties match` |
 | `error.load` | `No se pudieron cargar los bounties.` | `We couldn't load the bounties.` |
-| `bulk.disableOutbid` *(solo si entra §28.7.4)* | `Apagar los {count} rebasados` | `Turn off the {count} outbid` |
-| `bulk.confirmTitle` | `Apagar {count} bounties` | `Turn off {count} bounties` |
-| `bulk.confirmBody` | `Dejan de publicarse y de pagar premium. El contador de cada uno se conserva y puedes volver a encenderlos. No sube ningún precio.` | `They stop being published and stop paying a premium. Each counter is kept and you can turn them back on. No price goes up.` |
-| `bulk.confirmCta` | `Sí, apagar {count}` | `Yes, turn off {count}` |
-| `bulk.result` | `{ok} apagados · {failed} sin cambiar.` | `{ok} turned off · {failed} unchanged.` |
+
+> ⛔ **RETIRADAS EN v3.4 — las cinco cadenas `bulk.*`** (`bulk.disableOutbid`, `bulk.confirmTitle`,
+> `bulk.confirmBody`, `bulk.confirmCta`, `bulk.result`) **NO se traducen, NO se añaden al catálogo y NO se
+> cablean.** Servían al botón `Apagar los {count} rebasados`, que quedó **sin base normativa**: la prohibición
+> de acciones masivas se mantiene entera y **un rótulo con un contador es la firma exacta de una acción masiva**
+> (§28.7). *Se listan aquí, tachadas, para que quien busque «bulk» en el histórico encuentre la decisión y no
+> el hueco.* Si el humano reabre la pregunta **47**, **se redactan de nuevo** con el alcance aprobado.
 
 **(c) Un código de error que NO tenía copy en ningún idioma — hallazgo de este pase.**
 `BOUNTY_TARGET_REQUIRED` existe en el contrato desde `v1.51.1` y **no está en `es.json` ni en `en.json`**:
@@ -12611,103 +12893,139 @@ tres reglas duras de §26 (habla al lector, nombra la palanca, di lo que no pas�
 §16.7a y **gana la cola**: ES «El bounty necesita un precio explícito. **No se guardó nada.**» · EN “A bounty
 needs an explicit price. **Nothing was saved.**”
 
-**(d) Longitud ES vs EN (§9.4).** `REBASADOS`, `TARIFA VIGENTE` y `SIN OBJETIVO` son **~30–45% más largos**
+**(d) Longitud ES vs EN (§9.4).** `REBASADOS`, `TARIFA VIGENTE`, `SIN OBJETIVO` y el `ATENCIÓN · REBASADOS n ·
+SIN PRECIO m` del encabezado de bloque (v3.4, **la cadena más larga de la cabecera**: en móvil **envuelve a dos
+líneas**, el conteo nunca se trunca) son **~30–45% más largos**
 que su EN. Los rótulos de columna **envuelven a dos líneas antes que truncarse**; los chips de conteo tienen
 ancho por contenido con `min-width` para el ES; y `Guardar · pagaremos {amount}` es el botón más largo de la
 pantalla: **su ancho manda** en el bloque de edición, y en móvil ocupa línea propia.
 
 ### 28.13 Qué NO hacer
 
-1. **No pintes `REBASADO` como error.** Ni `role="alert"`, ni icono de aspa, ni la palabra «error»,
-   «inválido» o «roto» en ninguna cadena, ni un botón único que diga «Arreglar». Son **dos puertas**.
-2. **No ocultes el grupo de rebasados cuando esté en cero.** Se dice el cero (§28.5). *La vitrina calla; el
+> **Las cuatro primeras son de v3.4 y van primero a propósito: son las que ya se hicieron mal una vez.**
+
+1. **⛔⛔ NO DERIVES EL ESTADO EN EL CLIENTE.** Ni cruzando `enabled`/`effective`/`completedAt`, ni comparando
+   `PAGAMOS` con `TARIFA VIGENTE`, ni «solo para el color», ni «solo mientras llega el dato». **Se pinta el
+   `state` que llegó** (§28.3). *Así se coló, en v3.3, un `ACTIVO` sobre un bounty que no puede pagar nada.*
+2. **⛔ No fundas dos estados en uno, ni te quedes corto de cubetas.** **Son cinco**: `activa`, `rebasada`,
+   **`invalida`**, `completada`, `apagada`. Ni `invalida` dentro de `activa`, ni `completada` dentro de
+   `apagada`, ni chips de menos. *Un catálogo con menos entradas que su enum es un estado que nadie sabe
+   pintar, y el que se pierde siempre es el raro.*
+3. **⛔⛔ NO REENVÍES CAMPOS QUE EL HUMANO NO EDITÓ**, y en concreto **jamás** `sellOverrideCents` ni
+   `buyOverrideCents` (§28.6f). Omitir **no borra**; reenviar **sí pisa**, en silencio y sobre el precio
+   publicado.
+4. **⛔ No ofrezcas ninguna acción cuyo alcance sea un conjunto.** Ni multi-selección con acción, ni «aplicar
+   a los filtrados», ni un botón de cabecera con un contador en el rótulo. **N escrituras disparadas por un
+   gesto son una acción masiva** aunque viajen de una en una (§28.7).
+5. **⛔ No enuncies el cero tranquilizador con la lista cortada** (`truncated: true`) **ni con `invalida > 0`**
+   (§28.5). *Un cero de una lista cortada no es un cero, y «todos los encendidos pagan» es falso si hay uno
+   encendido sin precio.*
+6. **No pintes `REBASADO` —ni `SIN PRECIO`— como error.** Ni `role="alert"`, ni icono de aspa, ni la palabra
+   «error», «inválido» o «roto» en ninguna cadena, ni un botón único que diga «Arreglar». Son **dos puertas**.
+7. **No ocultes el bloque de atención cuando esté en cero.** Se dice el cero (§28.5). *La vitrina calla; el
    panel habla.*
-3. **No derives el conteo de los chips de las filas de la página.** Viene del servidor sobre el total, o el
+8. **No derives el conteo de los chips de las filas de la página.** Viene del servidor sobre el total, o el
    eje de la pantalla se rompe en la página 2 sin que nadie lo note.
-4. **No pintes `0` mientras carga.** `—` hasta que llegue el dato.
-5. **No hagas aritmética con `null`.** `targetQty`/`curveQuoteCents` pueden venir nulos: se pintan sus
-   rótulos (`SIN OBJETIVO`, `SIN TARIFA`), nunca `NaN`, `0 de null` ni `−100%`.
-6. **No pintes optimista el resultado de guardar.** El efectivo lo decide el servidor contra la curva.
-7. **No metas `input`, `switch` ni celdas editables en la tabla en reposo**, ni siquiera «solo el precio».
-8. **No uses el verde de éxito** en esta pantalla (§28.3, §28.11).
-9. **No inventes «desde cuándo está rebasado»** ni ninguna antigüedad: ese dato no existe hoy (§28.15).
-10. **No añadas correo, push ni tarjeta de dashboard** por el rebasado: §21.9f lo cerró por decisión
+9. **No reordenes filas en el cliente.** El orden llega hecho (`sort`); los bloques son una **partición** de
+   ese orden, no una reorganización (§28.2a).
+10. **No pintes `0` mientras carga.** `—` hasta que llegue el dato.
+11. **No hagas aritmética con `null`.** `targetQty`, `curveQuoteCents` y el precio de un `invalida` pueden
+    venir nulos: se pintan sus rótulos (`SIN OBJETIVO`, `SIN TARIFA`, `—`), nunca `NaN`, `0 de null` ni
+    `−100%`.
+12. **No pintes optimista el resultado de guardar.** El efectivo lo decide el servidor contra la curva.
+13. **No prellenes el campo de precio con la tarifa vigente** (ni con `tarifa + algo`), tampoco al poner
+    precio a un `invalida` (§28.6g). El precio de un bounty es **siempre explícito**.
+14. **No metas `input`, `switch` ni celdas editables en la tabla en reposo**, ni siquiera «solo el precio».
+15. **No uses el verde de éxito** en esta pantalla (§28.3, §28.11).
+16. **No inventes «desde cuándo está rebasado»** ni ninguna antigüedad: ese dato **no existe y no se
+    aproxima con `updatedAt`** (§28.15).
+17. **No añadas correo, push ni tarjeta de dashboard** por el rebasado: §21.9f lo cerró por decisión
     explícita del humano.
-11. **No traduzcas los nombres de carta ni de set** (§9.2) y márcalos `lang="en"`.
-12. **No teclees las versalitas en un test.** Se comparan contra la clave del catálogo (§28.10).
+18. **No construyas tablero ni reportes de avance aquí**: `PROJECT.md` D52 los dejó **fuera** al meter la
+    pantalla de gestión (criterio 184(f)).
+19. **No traduzcas los nombres de carta ni de set** (§9.2) y márcalos `lang="en"`.
+20. **No teclees las versalitas en un test.** Se comparan contra la clave del catálogo (§28.10).
 
 ### 28.14 QA visual sugerido
 
 1. **El caso que da nombre a la pantalla:** con un bounty activo, **mover la curva** hasta que la tarifa lo
-   alcance ⇒ la fila **cambia de grupo sola** al recargar, aparece arriba con su marca y el chip pasa de
+   alcance ⇒ la fila **cambia de bloque sola** al recargar, aparece arriba con su marca y el chip pasa de
    `REBASADOS 0` a `REBASADOS 1`. La vitrina pública **deja de mostrarla** (§16.7c) y **aquí sí se ve**.
-2. **Empate exacto** (`priceCents === curveQuoteCents`) ⇒ **REBASADO**, no activo (el contrato rechaza el
-   empate: *«con el mismo importe no sería una oferta»*).
-3. **Guardar sin arreglar:** subir un rebasado a un precio que **sigue por debajo** ⇒ toast
-   `savedStillOutbid` con la tarifa, la fila **se queda en REBASADOS**, y **ningún** texto dice «listo».
-4. **`curveQuoteCents: null`** ⇒ fila `ACTIVO` con `SIN TARIFA`, **sin** banner de rebasado.
-5. **`targetQty: null`** (fila que se escapó del relleno) ⇒ `SIN OBJETIVO` en acento y **cero excepciones en
-   consola**.
-6. **Cero rebasados** ⇒ se lee la frase, el chip sigue visible con su `0`.
-7. **Asimetría de la confirmación:** subir precio ⇒ **hay diálogo con los dos importes**; apagar ⇒ **no hay
-   diálogo** y sí `Deshacer`.
-8. **Rol:** con `vault_operator`, **la pantalla no se renderiza** (ni en solo lectura).
-9. **Idioma:** los ocho estados/rótulos y los tres errores, en ES y EN, **vistos en pantalla** (la
-   verificación honesta de §26.8: mirarlo, no `grep`earlo).
-10. **Teclado puro:** tabular hasta una fila, `Editar`, cambiar precio, `Esc` (confirma descartar), `Editar`,
+2. **Empate exacto** (`priceCents === curveQuoteCents`) ⇒ la fila llega con `state: "rebasada"` y se pinta
+   `REBASADO`, no `ACTIVO`. **Se verifica el rótulo, no la comparación**: la pantalla no compara nada.
+3. **⭐ El caso que motivó la revisión v3.4 — fila `invalida`:** una fila con el bounty **encendido y sin
+   precio utilizable** ⇒ **`SIN PRECIO`** en acento, en el bloque de atención, **`PAGAMOS` en `—`**, premium
+   `—`, botón **`Poner precio`** y `Apagar`. ⛔ **Rojo si dice `ACTIVO`, si cae en el bloque de activos, si
+   suma en `counts.activa` o si inventa cualquier cifra en `PAGAMOS`/`PREMIUM`.**
+4. **⭐ El cero acotado (§28.5):** `counts.rebasada = 0` **con** `counts.invalida ≥ 1` ⇒ se lee
+   `zero.outbidButNoPrice`, **nunca** la frase que dice *«todos los encendidos pagan por encima de la tarifa
+   vigente»*.
+5. **⭐ Lista cortada:** respuesta con `truncated: true` ⇒ banner de lista incompleta, chips con `≥` y
+   **ninguna frase de cero** en pantalla, ni siquiera con `counts.rebasada = 0`.
+6. **⭐ Conteos contra página:** con **más de una página** y un `rebasada` que cae fuera de la primera,
+   `REBASADOS` sigue diciendo su número **en la página 1**. Rojo si dice `0` o si coincide con lo que se ve.
+7. **⭐ Chips que no se apagan al usarlos:** con el chip `REBASADOS` puesto, los otros cuatro **conservan su
+   número** (no caen a `0`). Con una búsqueda por nombre puesta, **sí** cambian (los conteos respetan la
+   identidad).
+8. **Guardar sin arreglar:** subir un rebasado a un precio que **sigue por debajo** ⇒ toast
+   `savedStillOutbid` con la tarifa, la fila **se queda en el bloque de atención**, y **ningún** texto dice
+   «listo».
+9. **`curveQuoteCents: null`** ⇒ premium `SIN TARIFA`, **sin** banner de rebasado, y el estado que diga la
+   respuesta. Y una fila **apagada** con mercado resoluble **sí** enseña su tarifa vigente (`—` significa
+   *la curva no resuelve*, nunca *está apagado*).
+10. **`targetQty: null`** (fila que se escapó del relleno) ⇒ `SIN OBJETIVO` en acento y **cero excepciones en
+    consola**.
+11. **⭐ El cuerpo del `PUT` (§28.6f):** editar **solo** el precio del bounty de una fila y mirar la petición
+    ⇒ **no contiene** las claves `sellOverrideCents` ni `buyOverrideCents`. *(Es la comprobación que cierra el
+    lost update; se mira la petición, no el resultado en pantalla.)*
+12. **⭐ Verificable POR AUSENCIA (`PROJECT.md` 184(f)):** en toda la pantalla **no existe** ningún control con
+    un contador en el rótulo (`Apagar los N…`), **ni** multi-selección con acción, **ni** tarjetas de métricas,
+    **ni** gráficas, **ni** alta de bounty.
+13. **Cero rebasados de verdad** (`rebasada = 0`, `invalida = 0`, `truncated = false`) ⇒ se lee la frase
+    tranquilizadora y los cinco chips siguen visibles con sus ceros.
+14. **Asimetría de la confirmación:** subir precio ⇒ **hay diálogo con los dos importes**; apagar ⇒ **no hay
+    diálogo** y sí `Deshacer`. **Poner precio a un `invalida` cuenta como subir**: hay diálogo.
+15. **Rol:** con `vault_operator`, **la pantalla no se renderiza** (ni en solo lectura).
+16. **Idioma:** los **cinco** rótulos de estado con sus cinco `aria-label`, los rótulos de bloque y los tres
+    errores, en ES y EN, **vistos en pantalla** (la verificación honesta de §26.8: mirarlo, no `grep`earlo).
+17. **Teclado puro:** tabular hasta una fila, `Editar`, cambiar precio, `Esc` (confirma descartar), `Editar`,
     `Guardar` ⇒ el foco vuelve al `Editar` de esa fila. Sin trampas y sin foco perdido.
+18. **Estado desconocido (defensivo):** una fila con un `state` fuera del enum ⇒ versalita neutra
+    `SIN CLASIFICAR`, **sin** marca de acento, **sin** premium y **sin** pintar `ACTIVO`.
 
-### 28.15 Peticiones al arquitecto y preguntas al humano
+### 28.15 Peticiones al arquitecto: **todas contestadas** · y las preguntas abiertas del humano *(v3.4)*
 
-**⚠ Bloqueante de alcance, y no es técnico:** `PROJECT.md` declara el **panel de bounties fuera de alcance**
-por decisión explícita del humano (§N.6 y la lista de «Fuera de alcance»). **Product-owner** debe llevarlo a
-alcance con aprobación del humano antes de implementar. El diseño está listo y no cambia por eso.
+**✅ Alcance desbloqueado.** El bloqueante de v3.3 (*«`PROJECT.md` declara el panel fuera de alcance»*) **quedó
+resuelto**: **D52** mete la pantalla de gestión al alcance —**ver + editar fila a fila**— y deja fuera el
+tablero y los reportes de avance. **Frontend puede cablear esta sección.**
 
-**Peticiones al arquitecto** (por orden de importancia; **1, 2 y 6 bloquean la pantalla**):
+**(a) Las nueve peticiones, con su veredicto.** *(Ninguna queda abierta. Se conserva el enunciado corto para
+que quien vuelva sepa qué se preguntó; el **detalle vive en el contrato**, y no se transcribe aquí.)*
 
-1. **⛔ No existe endpoint de listado admin.** Hoy solo hay `GET /buylist/bounties` (**público**, filtra los
-   no efectivos, tope 50, solo sueltas). Esta pantalla necesita lo contrario: **todos**, incluidos
-   **rebasados y apagados**. Forma sugerida — `GET /admin/pricing/bounties` con, por fila, la identidad de la
-   carta (`cardId`, `finish`, `name`, `number`, `setName`, `rarity?`, `imageSmallUrl?`) **más el bloque
-   `bounty` que `VariantPricingDTO` ya define tal cual** (`enabled`, `priceCents`, `targetQty`,
-   `acquiredQty`, `completedAt`, `effective`, `curveQuoteCents`). **No pido campos nuevos: pido el mismo
-   objeto, en lista.**
-2. **⛔ `counts` sobre el TOTAL, en la respuesta:** `{ outbid, active, off, completed }`. Con paginación, un
-   conteo derivado en el cliente **cuenta la página** y la regla «el rebasado es el eje» se rompe sin ruido.
-   Es el campo más importante de la petición 1.
-3. **`curveQuoteCents` también en las filas APAGADAS.** Se necesita para poder decidir al encender. Si hoy
-   solo se calcula para bounties vivos, la columna «Tarifa vigente» sale en `—` justo donde más falta.
-4. **Filtro y orden server-side:** `state=outbid|active|off|completed`, `q` (nombre/set) y `sort`. Ordenar en
-   cliente sobre una página vuelve a romper el eje.
-5. **Opcional — `state` derivado en el servidor.** Hoy el estado sale de cruzar `enabled` + `effective` +
-   `completedAt` (§28.3). Si el servidor expone un `state` ya resuelto, **la derivación deja de estar
-   duplicada** entre binder, vitrina y panel. Si no llega, la tabla de §28.3 es normativa y basta.
-6. **⛔ Semántica de omisión en el `PUT` de escritura — riesgo de dinero, no de comodidad.** Esta pantalla
-   escribe contra `PUT /admin/pricing/variant-controls/:cardId/:finish`, que **también lleva
-   `sellOverrideCents` y `buyOverrideCents`**. Necesito confirmado por contrato **qué pasa con un campo
-   omitido**: ¿*no se toca* o *se limpia*? Si omitir limpia, **editar solo el bounty desde aquí borraría los
-   overrides manuales de esa variante sin que nadie lo pida** — y el contrato ya dice que `null` **limpia**
-   en `targetQty`. Mientras no esté confirmado, el diseño exige que **la pantalla reenvíe los overrides tal
-   como los leyó**; prefiero que la respuesta sea *«omitido = no se toca»* y que quede escrito.
-7. **Opcional — antigüedad del rebasado** («lleva 12 días»). Sería el dato más útil para priorizar y **hoy no
-   existe**. Si no hay un `outbidSince`, **no se inventa** ninguna fecha aproximada (§28.13.9).
-8. **Solo si el humano acepta §28.7.4 — apagado en lote:** endpoint con lista de claves y **respuesta por
-   fila** (`id → ok | errorCode`). ⛔ Sin respuesta por fila, el diseño **no admite** la acción en lote.
-9. **Opcional — «exposición máxima»** (`Σ priceCents × remainingQty` de los bounties vivos). Si se calcula en
-   el servidor, va como una cifra en la cabecera; **calculada en el cliente sobre una página sería una cifra
-   de dinero falsa**, así que o viene del servidor o no existe. Ver pregunta 2.
+| # | Petición | Veredicto | Qué significa para el diseño |
+|---|---|---|---|
+| 1 | Endpoint de listado admin | ✅ **ENTRA** — `GET /admin/pricing/bounties`, `super_admin`, solo lectura | La pantalla ya tiene de dónde leer. Cada fila trae la identidad de la carta **y el mismo bloque de precios que compone el binder**, así que consola, binder y vitrina **no pueden discrepar** |
+| 2 | `counts` sobre el TOTAL | ✅ **ENTRA**, y **con cinco claves** | Los **cinco chips** de §28.2a. Ignora el filtro de estado y respeta el de identidad ⇒ **el número no cambia al seleccionar el chip**, y eso es correcto |
+| 3 | `curveQuoteCents` también en filas apagadas | ✅ **YA ESTABA** | La columna `TARIFA VIGENTE` **nunca sale en `—` por estar apagado**; `—` significa **una cosa y solo una**: la curva no resuelve (§28.4) |
+| 4 | Filtro y orden server-side | ✅ **YA ESTABA** | ⚠ **Con el vocabulario del contrato**: los valores de `state` son los cinco en español y los de `sort` son **tres**. Mis `sort.gapDesc` / `sort.progress` **no existen** y **se retiran** (§28.12) |
+| 5 | `state` derivado en el servidor *(yo lo pedí como «opcional»)* | ✅ **ENTRA — y NO es opcional** | **Es la corrección nº 1 de v3.4.** Me equivoqué al marcarla opcional: mientras la derivación viviera en el cliente, **la pantalla podía contradecir al servidor sobre si un bounty paga** — y eso fue exactamente lo que pasó con `invalida`. §28.3 pasó de derivación a mapa |
+| 6 | Semántica de omisión del `PUT` | ✅ **CONTESTADA Y MEDIDA — y mi parche, PROHIBIDO** | **Omitido no se toca** (medido en el código, no deducido). **Se retira** la instrucción de reenviar los overrides: era un **lost update** sobre dinero publicado (§28.6f) |
+| 7 | Antigüedad del rebasado (`outbidSince`) | ⛔ **NO ENTRA** | No existe la columna **y no se aproxima con `updatedAt`** (diría *«cuándo tocó alguien la fila»*, no *«cuándo el mercado la rebasó»*). **La pantalla no muestra ninguna antigüedad, ni exacta ni aproximada** (§28.13.16) |
+| 8 | Endpoint de apagado en lote | ⛔ **RECHAZADO** | El botón y sus cadenas **se retiran**; el argumento queda archivado en §28.7 |
+| 9 | «Exposición máxima» en la cabecera | ⏸️ **DIFERIDA — es pregunta de negocio** (la 49 del humano) | Mi punto técnico se acepta —**o la suma el servidor sobre el conjunto, o no existe**—, pero **qué significa** lo decide él. **No se pinta en v1.** Si entra: **`null`, jamás `0` ni una suma parcial**, cuando la lista venga cortada o haya un bounty vivo sin objetivo |
 
-**Preguntas al humano** (no las asumo):
+**(b) Preguntas abiertas del humano** — están recogidas en `PROJECT.md` (**45–50**) con **supuesto tomado**;
+**ninguna bloquea**. Lo que este diseño hace hoy con cada una:
 
-1. **¿Se puede dar de alta un bounty desde esta pantalla**, buscando la carta, o el alta se queda en el
-   binder (§28.1)? Mi recomendación es que se quede en el binder en v1; si la quieres aquí, el diseño es
-   aditivo y se hace después.
-2. **¿Quieres ver una cifra de «exposición máxima»** —lo que pagarías si todos los bounties vivos se
-   completaran— en la cabecera? Es una **proyección**, no una deuda; si el número te va a leer como «lo que
-   debo», **prefiero no pintarlo**.
-3. **¿Apagado en lote de los rebasados con un clic** (con confirmación y conteo)? Es la **única** acción
-   masiva que recomiendo (§28.7); la edición masiva de precios la desaconsejo por escrito.
-4. **¿Los completados se quedan listados para siempre**, o se archivan pasados N días? Una lista que solo
-   crece termina escondiendo lo que importa; hoy los dejo visibles en su grupo y ninguno se borra.
-5. **¿El binder debe llevar aquí desde el badge `BOUNTY REBASADO` de la casilla**, o basta con el enlace del
-   aviso del cajón (§21.9c)? Lo segundo es lo que dejo especificado.
+| `PROJECT.md` | Pregunta | Supuesto vigente | Qué hay diseñado |
+|---|---|---|---|
+| **45** | ¿Alta desde la consola? | **No**: el alta se queda en el binder | El estado vacío manda al binder con todas las letras (§28.8). Si el humano la quiere aquí, **es aditivo** |
+| **46** | ¿Los completados/apagados se archivan? | **No**: se ven todos | Tienen **su propio bloque** y sus chips; la palanca para esconderlos ya existe y es el filtro |
+| **47** | ¿Alguna acción en lote? | **Ninguna en v1** | **Retirada** del diseño (§28.7). ⚠ *Aquí ux-ui y arquitecto discrepábamos; leída la refutación, **retiro mi voto sobre «apagar en lote»** — mi premisa de que detenía un gasto era falsa. Mi voto contra el **lote de importes** se mantiene y fue adoptado* |
+| **48** | ¿Aviso proactivo del rebasado? | **No** | §28 **no lo reabre**: añade un sitio donde mirar, no un empujón (§28.1) |
+| **49** | ¿«Exposición máxima» en la cabecera? | **No se pinta** | Si entra, **del servidor y rotulada como proyección**, nunca como saldo (petición 9) |
+| **50** | ¿El badge de la casilla lleva aquí? | **Basta el enlace del aviso del cajón** | Es lo que está especificado (§28.1); hacer navegable el badge sería aditivo |
+
+**(c) Lo que este diseño necesitaría si algo de lo anterior cambiara** — y va escrito para que **no se asuma
+en el código**: cualquier dato o pantalla que §28 no tenga hoy (antigüedad del rebasado, exposición, alta,
+lote) **pasa por el arquitecto antes** (regla 9 de `CLAUDE.md`). **Este documento no inventa campos.**

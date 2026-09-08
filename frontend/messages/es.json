@@ -693,6 +693,13 @@
         "why": "La necesitamos para imprimir la guía que te vamos a mandar.",
         "printed": "Esta dirección va impresa en la guía.",
         "missing": "Elige la dirección de donde salen tus cartas para continuar."
+      },
+      "phone": {
+        "label": "Celular (10 dígitos)",
+        "hint": "Solo lo usamos para la guía y la recolección.",
+        "save": "Guardar celular",
+        "saved": "Celular guardado. Vuelve a pulsar «Confirmar y enviar».",
+        "invalid": "El celular debe tener 10 dígitos."
       }
     },
     "requestTitle": "Crear solicitud de venta",
@@ -2862,7 +2869,8 @@
     "PICKUP_ADDRESS_NOT_FOUND": "Esa dirección ya no está en tu libreta. Elige otra o agrega una nueva.",
     "BUYLIST_MINIMUM_NOT_MET": "Tu solicitud todavía no alcanza el mínimo de compra.",
     "OFFER_EXPIRED": "El plazo para responder esta oferta ya venció, así que no pudimos registrar tu respuesta.",
-    "OFFER_NOT_PENDING": "Esta oferta ya no está esperando respuesta."
+    "OFFER_NOT_PENDING": "Esta oferta ya no está esperando respuesta.",
+    "PHONE_REQUIRED": "Falta el celular en la cuenta. La paquetería lo necesita para entregar la guía y avisarte de la recolección."
   },
   "payment": {
     "title": "Pago",

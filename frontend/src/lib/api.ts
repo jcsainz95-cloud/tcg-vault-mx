@@ -108,6 +108,7 @@ import type {
   ForgotPasswordResponse,
   ResetPasswordSelfResponse,
   Locale,
+  UserDTO,
   UploadPurpose,
   UploadPresignResponse,
   IneUploadKeys,
@@ -1807,6 +1808,44 @@ export async function getDispute(id: string): Promise<ClientDisputeDTO> {
   const found = fx.mockClientDisputes.find((d) => d.id === id);
   if (!found) throw new ApiClientError(404, { code: 'NOT_FOUND', message: 'Dispute not found' });
   return delay(found);
+}
+
+// ---------- Perfil de la cuenta (contrato §1) ----------
+export interface UpdateMeInput {
+  name?: string;
+  /** 10 dígitos MX (contrato §1 · `PATCH /users/me`). */
+  phone?: string;
+  locale?: Locale;
+}
+
+/**
+ * Edita el perfil propio (contrato §1 · `PATCH /users/me` → `200 user`).
+ *
+ * **Por qué existe (D11, criterio 128(c)):** `POST /buylist/requests` rechaza con
+ * `422 PHONE_REQUIRED` cuando la cuenta no tiene celular —el caso REAL de las cuentas creadas con
+ * Google y las viejas, donde `User.phone` es `null`— y el contrato asigna el remedio al front:
+ * *«el front debe pedir el dato en ese momento (`PATCH /users/me`) y reintentar»* (§6). Hasta aquí
+ * ese remedio no existía en ninguna pantalla: el vendedor leía el inglés crudo del servidor y no
+ * tenía dónde capturar el dato. La sesión local se sincroniza con `patchStoredUser` para que la
+ * app no siga creyendo que la cuenta no tiene teléfono.
+ */
+export async function updateMe(input: UpdateMeInput): Promise<UserDTO> {
+  if (!config.useMocks) {
+    const user = await apiRequest<UserDTO>('/users/me', { method: 'PATCH', body: input });
+    patchStoredUser({ name: user.name, phone: user.phone, locale: user.locale });
+    return user;
+  }
+  // MOCK: espeja el 200 del contrato sobre la sesión local (no hay backend que consultar).
+  const current = getStoredUser();
+  if (!current) throw new ApiClientError(401, { code: 'UNAUTHENTICATED', message: 'No session' });
+  const user: UserDTO = {
+    ...current,
+    ...(input.name != null ? { name: input.name } : {}),
+    ...(input.phone != null ? { phone: input.phone } : {}),
+    ...(input.locale != null ? { locale: input.locale } : {}),
+  };
+  patchStoredUser({ name: user.name, phone: user.phone, locale: user.locale });
+  return delay(user, 200);
 }
 
 // ---------- KYC (contrato §1) ----------

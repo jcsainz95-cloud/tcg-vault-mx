@@ -693,6 +693,13 @@
         "why": "We need it to print the label we'll send you.",
         "printed": "This address is printed on the label.",
         "missing": "Choose the address your cards ship from to continue."
+      },
+      "phone": {
+        "label": "Mobile number (10 digits)",
+        "hint": "We only use it for the shipping label and the pickup.",
+        "save": "Save mobile number",
+        "saved": "Mobile number saved. Press “Confirm and send” again.",
+        "invalid": "The mobile number must be 10 digits."
       }
     },
     "requestTitle": "Create sell request",
@@ -2862,7 +2869,8 @@
     "PICKUP_ADDRESS_NOT_FOUND": "That address is no longer in your address book. Choose another or add a new one.",
     "BUYLIST_MINIMUM_NOT_MET": "Your request is still below the buy minimum.",
     "OFFER_EXPIRED": "The deadline to respond to this offer has passed, so we could not register your response.",
-    "OFFER_NOT_PENDING": "This offer is no longer waiting for a response."
+    "OFFER_NOT_PENDING": "This offer is no longer waiting for a response.",
+    "PHONE_REQUIRED": "The account has no mobile number. The carrier needs it to deliver the label and to call about the pickup."
   },
   "payment": {
     "title": "Payment",
