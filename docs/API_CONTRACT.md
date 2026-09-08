@@ -2,7 +2,39 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-07 (rev **v1.61.1**).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-08 (rev **v1.62**).
+>
+> **Changelog v1.62 — CONSOLA DE BOUNTIES: UNA LECTURA NUEVA, CERO ESCRITURAS NUEVAS (2026-09-08, arquitecto).**
+> **UN endpoint nuevo y de solo lectura** ([`§M2-B.1`](#M2-B1)), **UN enum nuevo** (`state`), **CERO endpoints de
+> escritura**, **CERO DDL**, **CERO diales**, **CERO códigos de error nuevos**, **CERO cambios en superficies
+> públicas**. Diseño en ARCHITECTURE **§4.42**.
+>
+> **A. ⛔⛔ NO SE IMPLEMENTA TODAVÍA — BLOQUEO DE PRECEDENCIA.** `PROJECT.md` **prohíbe hoy explícitamente** esta
+> pantalla en **cinco** frases (criterios **164(e)** y **168(e)**, **§N.6**, y **dos** entradas de «Fuera de
+> alcance»), y **`PROJECT.md` manda sobre este contrato**. El dueño la pidió de viva voz —y su voz está **por encima**
+> de `PROJECT.md`—, pero **el arquitecto no escribe `PROJECT.md`**: **product-owner** debe enmendarlo con aprobación
+> del humano **antes de que backend o frontend escriban una línea**. Se diseña ya para no serializar; se implementa
+> cuando el documento que manda lo diga. Enrutado en ARCHITECTURE **§9 (D-PROC-7)** y **§10**.
+>
+> **B. QUÉ CURA.** Un bounty **rebasado** por la curva (§N.6) deja de pagarse y desaparece de la vitrina; las **dos**
+> superficies que lo pintaban son **condicionales**, así que hoy **solo es visible en la casilla de su set en el
+> binder**. El dueño cree estar pagando un precio que **no paga**. [`§M2-B.0`](#M2-B0) declara el **estado** de un
+> bounty **FUENTE ÚNICA** (marcado `<!-- CANON: estado-de-bounty -->`, §0-B.3 regla 8) y **distingue `completada` de
+> `apagada`** —el *por qué* dejó de pagarse— en vez de fundirlas.
+> *(⚠️ **La lista de estados no se transcribe aquí ni en ningún otro sitio: se cita el anchor.** Regla del censo —
+> esta rev **añade una fila** a la tabla de predicados de ARCHITECTURE §0-B.3 regla 8.)*
+>
+> **C. ⛔ LA EDICIÓN MASIVA QUEDA PROHIBIDA, CON SU RAZÓN ESCRITA** ([`§M2-B.2`](#M2-B2)) **para que nadie la añada
+> luego «por comodidad»**. La pantalla **sí edita**, fila a fila, **reusando `PUT …/variant-controls/:cardId/:finish`
+> tal cual**. La razón que decide: un botón masivo que deje ofertas bajo la curva **no falla, degrada en silencio**
+> ⇒ **fabricaría a escala la misma ceguera que la pantalla vino a curar**.
+>
+> **D. QUÉ NO CAMBIA.** ✅ `GET /buylist/bounties` **intacto** (sigue `@Public()`, sigue filtrando rebasados, **no**
+> gana ramas por rol). ✅ `PUT …/variant-controls/...` **intacto**: ni un campo, ni un código de error, ni una guarda.
+> ✅ El **badge del binder** se conserva. ✅ La escalera de redondeo **sigue siendo del eje de venta** y **no** toca al
+> bounty ([`§M2-B.5`](#M2-B5)).
+>
+> ---
 >
 > **Changelog v1.61.1 — LA CUENTA QUE CADUCÓ SOLA. SOLO PROSA (2026-09-07, arquitecto).**
 > ⛔⛔ **CERO cambios de contrato: cero endpoints, cero DTOs, cero códigos de error, cero precondiciones, cero DDL.
@@ -9003,8 +9035,15 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
     > existe: en los datos de producción.* **No contradice D29(a)**, que habla de un bounty **bien formado**.
     > **`GET /buylist/bounties` (público):** `targetQty`/`remainingQty` **conservan el tipo `| null`** para tolerar esas
     > filas legacy; en un bounty creado desde v1.51.1 **nunca** son `null`.
-    > **NO se diseña panel de bounties** — el humano lo dejó como **proyecto aparte**. La exigencia vive **solo** aquí,
-    > que es donde hoy se configuran.
+    > ~~**NO se diseña panel de bounties** — el humano lo dejó como **proyecto aparte**. La exigencia vive **solo** aquí,
+    > que es donde hoy se configuran.~~
+    > ⚠️ **v1.62 — LA SEGUNDA FRASE CADUCÓ; LA PRIMERA ES DE OTRO DUEÑO.** El dueño pidió la consola: se diseña en
+    > [`§M2-B`](#M2-B). **La exigencia del objetivo SIGUE VIVIENDO SOLO EN ESTE ENDPOINT** —la consola **no** abre una
+    > segunda puerta de escritura, **reusa ésta**— pero ya **no** es cierto que éste sea *el único sitio desde donde se
+    > configuran*: **§M2-B.2 escribe desde aquí, fila a fila**. *(La afirmación «no se diseña panel» era **mía y en mi
+    > documento**, así que la corrijo yo — §0-B.3 reglas 5 y 7. Las **cinco** frases equivalentes de `PROJECT.md`
+    > **no** las toco: están enrutadas a product-owner en ARCHITECTURE §9 **D-PROC-7**, y **bloquean la
+    > implementación** hasta que se enmienden.)*
     > ~~**Censo, no backfill (M-46):** la migración **lista** los bounties vivos con objetivo `null` para que el dueño
     > los complete desde M2; **no los rellena**. Mientras tanto la lectura ya los frena.~~ ⛔ **SUPERSEDED por D35.**
   - **⚠️ v1.51.2 (D35) — EL OBJETIVO POR DEFECTO ES 2, Y LOS VIEJOS SE RELLENAN.** El humano fijó el número que D32
@@ -9078,6 +9117,245 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
     compra ni se paga ⇒ jamás cuenta para el bounty ni dispara el auto-apagado — ARCHITECTURE §4.26e); al
     llegar a `targetQty` ⇒ `enabled=false` + `completedAt` + `AuditLog action=bounty.completed` (auto-apagado).
     Apagar/editar un bounty NO re-precia solicitudes ya cotizadas (montos snapshoteados, doctrina vigente).
+
+---
+
+<a id="M2-B"></a>
+#### ⚠️⚠️ §M2-B — CONSOLA DE BOUNTIES: la pantalla que ve los que hoy son invisibles (v1.62 — NORMATIVA, `super_admin`, **DINERO**)
+
+> ⛔⛔ **BLOQUEO DE PRECEDENCIA — LEER ANTES DE IMPLEMENTAR.** `PROJECT.md` dice hoy, en **criterio 164(e)**,
+> **criterio 168(e)**, **§N.6** y **dos entradas de «Fuera de alcance»**, que **NO se construye panel de bounties** y
+> que la exigencia del objetivo vive *«solo donde hoy se configuran»*. **`PROJECT.md` manda sobre este contrato**
+> (`CLAUDE.md`, regla de conflicto) ⇒ **esta sección NO se implementa hasta que product-owner enmiende esas cinco
+> frases con la aprobación del humano.** El dueño pidió la pantalla de viva voz, y **la voz del dueño es la autoridad
+> que está por encima de `PROJECT.md`** — pero **el arquitecto no escribe `PROJECT.md`** (tabla de propiedad de
+> `CLAUDE.md`). *Se diseña ya para no serializar el trabajo; se implementa cuando el documento que manda lo diga.*
+> Detalle y enrutamiento en ARCHITECTURE **§4.42** y **§10 (v1.62-bounty-console)**.
+
+**Qué es.** Una **lectura consolidada** de todos los bounties del catálogo en una pantalla, con su **estado real**.
+**Por qué existe, dicho con precisión** (§N.6 + ARCHITECTURE §4.42): un bounty con `bountyEnabled = true` cuya oferta
+quedó **por debajo o igual** de la tarifa vigente de la curva **deja de ser bounty** — no se paga, no se publica en
+`GET /buylist/bounties`, y las **dos** superficies públicas donde vivía la vitrina son **condicionales** (si no hay
+bounties efectivos, la sección desaparece). Resultado: **ese bounty es hoy invisible en todas partes menos en la
+casilla del binder de su set**, y el dueño cree estar pagando un precio que **no paga**. Esa ceguera es lo que esta
+pantalla cura; **todo lo demás de la pantalla es secundario a eso**.
+
+<a id="M2-B0"></a>
+##### M2-B.0 — EL ESTADO DE UN BOUNTY: **fuente única** (v1.62)
+
+**Qué fila entra a esta pantalla** (predicado de ALCANCE — una fila `VariantPriceOverride` es *un bounty* si tiene
+historia de bounty; una fila que solo lleva `sellOverrideCents`/`buyOverrideCents` **NO** aparece):
+
+<!-- CANON: estado-de-bounty · única fuente · ver ARCHITECTURE §0-B.3 regla 8 -->
+```
+enScope  ⇔  bountyEnabled = true
+          ∨ bountyPriceCents  IS NOT NULL
+          ∨ bountyCompletedAt IS NOT NULL
+          ∨ bountyAcquiredQty > 0
+```
+
+`state` se **deriva server-side** de la fila M-30 **y de la curva vigente**; **jamás se persiste** (persistirlo sería
+una copia que caduca sola cada vez que el barrido mueve el mercado — §0-B.2 clase B):
+
+| `state` | Predicado | Qué significa **en dinero** |
+|---|---|---|
+| `activa` | `bountyEnabled ∧ isBountyEffective(bountyPriceCents, curveQuoteCents)` | gana el peldaño 1 de la precedencia de compra **y** sale en la vitrina pública |
+| `rebasada` | `bountyEnabled ∧ bountyPriceCents > 0 ∧ ¬isBountyEffective(bountyPriceCents, curveQuoteCents)` | ⚠️ **NO se paga** (se paga la curva) y **NO se publica**. **Es la fila por la que existe la pantalla.** |
+| `invalida` | `bountyEnabled ∧ ¬(bountyPriceCents > 0)` | *fail-safe*: encendido sin precio explícito utilizable. **No debería existir ninguna** (`BOUNTY_PRICE_REQUIRED` lo impide al escribir); es representable en la BD (restore, fixture, bug) y **tiene que verse**, no colarse dentro de otro estado |
+| `completada` | `¬bountyEnabled ∧ bountyCompletedAt IS NOT NULL` | se **auto-apagó** al alcanzar su objetivo (transacción del SPEI) |
+| `apagada` | `¬bountyEnabled ∧ bountyCompletedAt IS NULL` | lo apagó **una persona** |
+
+- ⛔ **`isBountyEffective` NO se re-implementa aquí.** Es el **mismo cuerpo** que usan el alta, la cotización y la
+  vitrina (§4.36.6: *«PROHIBIDO duplicar: mismo cuerpo en las TRES seams»*); esta pantalla es la **cuarta seam** y
+  entra por la misma puerta. *Si esta pantalla y la vitrina pudieran discrepar, la pantalla no serviría para lo único
+  que se le pide.*
+- ⛔ **`completada` y `apagada` NO se colapsan en un solo estado.** Comparten `bountyEnabled = false` y **no
+  significan lo mismo**: una dice *«ya conseguí lo que quería»* y la otra *«alguien decidió dejar de ofrecer»*.
+  Fundirlas borra el **por qué** dejó de pagarse — que es exactamente el dato que la pantalla existe para no perder.
+  *(Mismo criterio que distinguir `no_market` de `premium_at_floor`: separarlos es lo que hace **triable** la cola.)*
+- ⛔ **`rebasada` NO se auto-apaga, ni aquí ni en ningún barrido.** *Apagar un bounty vivo es una decisión de negocio,
+  no el efecto de un `UPDATE`* (misma doctrina que el backfill de M-46). La pantalla lo **muestra**; el dueño decide.
+<!-- /CANON: estado-de-bounty -->
+
+<a id="M2-B1"></a>
+##### M2-B.1 — `GET /api/v1/admin/pricing/bounties` — **(NUEVO v1.62)** `super_admin`, READ-ONLY
+
+**Rol: `super_admin`, no `vault_operator+`.** El binder expone `pricing.bounty` de **un set** a `vault_operator+`
+porque lo necesita para capturar inventario; **la lista consolidada de todo lo que el negocio paga por encima de su
+tarifa es un activo distinto** —es la estrategia de compra en una pantalla— y **su única acción es una escritura
+`super_admin`**. Un lector con menos rol tendría una pantalla donde cada botón contesta `403`.
+
+Query: `?state=&setId=&finish=&q=&page=&pageSize=&sort=`
+- `state` — **repetible** (`?state=rebasada&state=invalida`), valores del enum de §M2-B.0. Omitido ⇒ **todos**.
+- `setId`, `finish` — filtros de identidad. `q` — nombre o número de carta.
+- `page`/`pageSize` — paginación estándar de §0 (`pageSize ≤ 100`, default 20).
+- `sort` — `attention_first` (**default**) | `price_desc` | `updated_desc`.
+  **`attention_first` es el default a propósito, y es la decisión de producto de este endpoint:** ordena
+  `rebasada`/`invalida` **primero** (las que están costando dinero silenciosamente), luego `activa`, luego
+  `completada`, luego `apagada`; dentro de cada grupo `bountyPriceCents` **desc** (espejo de la vitrina), desempate
+  `updatedAt` desc y, para que el orden sea **total** y la paginación estable, `id` asc como último criterio.
+  `price_desc` es el espejo exacto del orden de `GET /buylist/bounties`.
+
+Res `200` (`AdminBountyListResponse`):
+```
+{ data: AdminBountyRowDTO[], page, pageSize, total, truncated: boolean }
+```
+`AdminBountyRowDTO`:
+```
+{
+  cardId, setId, setName, name, number, imageSmallUrl?, rarity?,
+  productType: "raw", gradeKey: "raw:NM", finish: Finish,
+  state: "activa" | "rebasada" | "invalida" | "completada" | "apagada",
+  progress: { targetQty: number | null, acquiredQty: number, remainingQty: number | null },
+  updatedAt: string, updatedBy?: string,
+  pricing: VariantPricingDTO
+}
+```
+- **`pricing` es el `VariantPricingDTO` COMPLETO y sin recortar** (§DTOs) — **el mismo objeto que ya compone el
+  binder**, producido por el **mismo** `composeVariantPricing`. De ahí salen, sin campos nuevos, las tres cifras que
+  el dueño pidió por fila: **el precio del bounty** (`pricing.bounty.priceCents`), **la tarifa vigente contra la que
+  se compara** (`pricing.bounty.curveQuoteCents`, y `pricing.buy.suggestedCents` es la misma cifra por el otro lado)
+  y **el veredicto** (`pricing.bounty.effective`). ⛔ **No se define un DTO «plano» de bounty**: sería una segunda
+  proyección de las mismas columnas, y **dos proyecciones del mismo dinero divergen** — es la forma exacta del defecto
+  que este proyecto ya pagó cuatro veces (§0-B.1).
+- **`state` es redundante con `pricing.bounty.effective` A PROPÓSITO, y no es una duplicación de regla:** `effective`
+  es un **booleano de un eje**; `state` es la **clasificación de las cinco** de §M2-B.0, que además distingue
+  `completada` de `apagada` —cosa que `effective` no puede— y **la deriva el servidor**. **La UI obedece `state` y
+  NO lo infiere** comparando números en pantalla (misma doctrina que `priceBasis`, §N.7).
+- **`progress`** es el **cupo del bounty**: `remainingQty = max(0, targetQty − acquiredQty)`, `null` si
+  `targetQty` es `null`. **Idéntica a la de `GET /buylist/bounties`** ⇒ **backend la extrae a UN helper compartido**
+  y no la teclea dos veces.
+  - ⚠️ **`acquiredQty` NO es la posición de inventario, y la pantalla no debe sugerir que lo sea.**
+    `bountyAcquiredQty` cuenta **piezas compradas vía buylist PAGADA bajo bounty** (es lo que dispara el
+    auto-apagado); la **posición** que la mesa de decisión compara contra el objetivo (D29) es otra cifra —stock +
+    verificando + en camino + comprometido— y **vive en el ciclo de M5**. Son dos preguntas distintas: *«¿cuánto llevo
+    de esta cacería?»* y *«¿cuántas tengo?»*. **Esta pantalla contesta la primera.**
+  - ⛔ **La posición NO se añade a esta lista.** Exigiría un fan-out por fila contra
+    `INVENTORY_POSITION_PORT` en un endpoint de listado, y un `positionUnavailable` por fila que la pantalla tendría
+    que saber pintar. **Si el dueño la quiere, es otro pase y pasa por el arquitecto** (regla 9).
+- **`truncated`** — `true` cuando el conjunto de bounties superó el techo de servidor y la respuesta **no es
+  completa**. **Existe porque el `state` NO se puede calcular en SQL** (depende de la curva y de la referencia de
+  mercado, que se izan en lote en la aplicación) ⇒ el servidor **selecciona → resuelve el estado de TODO el conjunto →
+  ordena → pagina**. **⛔ Prohibido paginar o cortar ANTES de clasificar**: cortar primero es exactamente cómo un
+  `rebasada` volvería a desaparecer, ahora en la pantalla que se construyó para verlo *(mismo orden de operaciones que
+  ya norma `GET /buylist/bounties`: «filtrar DESPUÉS del cap dejaría huecos silenciosos»)*. El techo es una
+  **constante de servidor** (no un dial); **el contrato norma la conducta —que la incompletitud se DECLARE— no el
+  número**, y **el frontend debe decirlo en pantalla**: una lista de dinero que miente por omisión es peor que una
+  lista que se declara incompleta.
+- Err `400 VALIDATION_ERROR` (`state`/`sort`/`finish` fuera de enum, `pageSize` fuera de rango), `403`.
+- **READ-ONLY estricto**: no persiste, no resuelve pendientes, no apaga nada, no mueve dinero. **No audita** (una
+  lectura no es un acto auditable; el gate de auditoría es de la escritura).
+
+<a id="M2-B2"></a>
+##### M2-B.2 — ⛔⛔ LA ESCRITURA: **CERO endpoints nuevos**, y la **edición MASIVA queda PROHIBIDA**
+
+**La pantalla edita, y edita FILA A FILA reusando el endpoint que ya existe:**
+`PUT /api/v1/admin/pricing/variant-controls/:cardId/:finish` — **sin un solo campo nuevo, sin una variante nueva de
+la ruta y sin un «modo consola»**. Ese endpoint ya impone, en un solo cuerpo, las cinco guardas que esta pantalla
+necesita: `BOUNTY_PRICE_REQUIRED`, `BOUNTY_TARGET_REQUIRED` (+ default 2), `BOUNTY_BELOW_RULE` contra la curva
+vigente, `FINISH_NOT_AVAILABLE` y el `raw`-only, más `AuditLog action=pricing.variant_controls` con **before/after
+por variante**. *La superficie de escritura de dinero de este proyecto no crece por una pantalla nueva.*
+
+> ⛔ **PROHIBIDA la edición masiva: ninguna petición muta más de UNA variante.** No hay `POST /admin/pricing/bounties/bulk`,
+> ni cuerpo con array, ni `?ids=`, ni «aplicar a los seleccionados», ni «+10 % a los rebasados». **Se escribe aquí
+> para que nadie lo añada después «por comodidad»**, que es exactamente como llegaría: la pantalla es una lista, y
+> una lista **invita** al multi-select.
+>
+> **Las cuatro razones, y la segunda es la que decide:**
+> 1. **La guarda que protege este dinero es INTRÍNSECAMENTE por variante.** `BOUNTY_BELOW_RULE` necesita la
+>    **referencia de mercado de esa variante** y la curva para producir su `curveQuoteCents`. En un lote, el fallo
+>    **parcial** es el caso **normal**, no el borde — y de ahí solo salen dos diseños, los dos malos: *todo o nada*
+>    (una fila mala bloquea las otras diecinueve, y el operador aprende a buscar el botón que se salte la guarda) o
+>    *resultado por fila* (que es **N llamadas con pasos de más**, y un segundo sitio donde la guarda se puede omitir).
+> 2. ⚠️ **El radio de daño es asimétrico en la dirección que `PROJECT.md §N.0` manda evitar.** Una acción masiva que
+>    deje ofertas **por debajo** de la curva **no falla ruidosamente: degrada en silencio** — cada fila afectada pasa a
+>    `rebasada`, deja de pagarse y **deja de verse en las dos vitrinas**. Es decir: **un botón masivo puede FABRICAR,
+>    de una sola vez y a escala, exactamente la ceguera que esta pantalla vino a curar.** *Una pantalla que crea el
+>    problema que diagnostica no es una herramienta, es una trampa.*
+> 3. **La bitácora de dinero es por variante.** `pricing.variant_controls` registra `before`/`after` de **una** fila.
+>    Un endpoint masivo o escribe **N** entradas —y entonces ya era N llamadas— o escribe **una** y pierde el rastro
+>    por variante, que es el único con el que se reconstruye *qué precio de compra estaba vigente cuándo*.
+> 4. **El trabajo real de la pantalla es MIRAR.** La edición es la excepción (arreglar el rebasado que se acaba de
+>    ver), no el caso de uso; y para esa excepción ya hay una consola por variante probada en producción.
+>
+> **Qué SÍ puede hacer el frontend sin romper esto:** editar **en línea** desde la fila (sin abrir otra pantalla) y
+> encadenar peticiones **de una en una** por acción explícita del usuario sobre **una** fila. Lo que no puede es
+> **ofrecer una acción cuyo alcance sea un conjunto**. *La diferencia no es cuántos `PUT` viajan: es si el humano
+> apretó un botón por cada precio de compra que cambió.*
+
+<a id="M2-B3"></a>
+##### M2-B.3 — SEC-A1 aquí: **qué manda el cliente y qué NO**
+
+- **El cliente manda EXACTAMENTE lo que ya manda hoy** la consola por variante: `bounty.enabled`,
+  `bounty.priceCents`, `bounty.targetQty`. **Nada más.**
+- ⛔ **`curveQuoteCents`, `effective`, `suggestedCents`, `state`, `progress` y `remainingQty` son SALIDA, nunca
+  entrada.** Si llegan en el body **se ignoran** (el `PUT` ya valida su cuerpo campo a campo y no los conoce), y el
+  servidor **re-deriva la curva y la referencia de mercado en el momento del write**, contra el dato real de la
+  variante. **La cifra que la pantalla enseñó puede estar rancia** —el barrido corre 2×/día— y eso es correcto: *la
+  pantalla informa; la puerta decide* (misma doctrina que el mínimo del cotizador, §4.39r.4).
+- **El `422 BOUNTY_BELOW_RULE` que devuelva un write hecho desde esta pantalla NO es un error de la pantalla: es la
+  guarda funcionando** sobre una curva que se movió entre el render y el guardado. El frontend lo pinta con
+  `details.curveQuoteCents` y **re-lee la fila**; **no reintenta solo**, y **jamás recalcula el precio por su cuenta**.
+- ⛔ **El campo de precio NO se prellena con `curveQuoteCents` (ni con `curveQuoteCents + ε`).** El precio del bounty
+  es **SIEMPRE explícito, jamás calculado** (`schema.prisma`, `VariantPriceOverride.bountyPriceCents`). Prellenarlo
+  desde la curva lo vuelve **calculado por defecto**, que es la misma cosa con otro nombre. **Mostrar** la tarifa
+  vigente al lado del campo es correcto y es el punto; **escribirla en el campo** no.
+- **El objetivo (D32/D35) no necesita nada nuevo:** el formulario llega **prellenado con 2** para un bounty sin
+  objetivo previo y **nunca envía `targetQty: null`** *(`null` explícito ⇒ `422 BOUNTY_TARGET_REQUIRED`; la tabla
+  entera está arriba, en el bloque de `variant-controls`, y **no se transcribe aquí**)*.
+
+<a id="M2-B4"></a>
+##### M2-B.4 — Qué se REUSA, qué NACE, y por qué lo existente no bastaba
+
+| Pieza | Veredicto | Por qué |
+|---|---|---|
+| `PUT …/variant-controls/:cardId/:finish` (escritura) | ♻️ **se reusa entero** | ya impone las cinco guardas y la auditoría. **Cero superficie de escritura nueva.** |
+| `composeVariantPricing` → `VariantPricingDTO` (fila) | ♻️ **se reusa entero** | garantiza que la consola, el binder y el drawer **no puedan discrepar** sobre el mismo dinero |
+| `isBountyEffective` (veredicto) | ♻️ **se reusa entero** | cuarta seam del mismo predicado (§4.36.6 prohíbe duplicarlo) |
+| `loadPricingCurve` + `getReferencesBatch` (izado en lote) | ♻️ **se reusa entero** | el mismo trío que ya usan el binder y `publicBounties`; evita el N+1 |
+| `GET /buylist/bounties` (vitrina pública) | ⛔ **NO sirve, y no se toca** | **filtra a los rebasados por diseño** (criterio 91: todo lo publicado es mejor que la tarifa) — *justamente la fila que hay que ver*; además es `@Public()`, tope 50, sin paginación ni parámetros, y no conoce `apagada`/`completada`. **Darle una rama por rol sería meter una bifurcación de autorización en una superficie anónima de dinero: una regresión de seguridad, no un atajo.** |
+| `GET /admin/reports/pricing-brackets` | ⛔ **NO sirve, y no se toca** | agrega **operaciones consumadas** por bracket; su `byBasis.bounty` es *cuántas compras se pagaron a precio de bounty*, **no** qué bounties existen. Un contador de resultados no es un inventario de configuraciones. |
+| Badge «Bounty / Bounty rebasado» del binder | ♻️ **se conserva tal cual** | sigue siendo la alerta **en contexto** (§N.6: *«genera alerta en el binder»*). La consola **no lo sustituye**: el binder responde *«¿qué pasa con ESTA carta?»* y la consola *«¿qué pasa con TODOS?»* |
+| **Lo único que NACE** | ✅ **UN endpoint de LECTURA** (§M2-B.1) + el enum `state` | no existe ninguna lectura que devuelva bounties **no efectivos**, ni apagados, ni completados |
+
+<a id="M2-B5"></a>
+##### M2-B.5 — Lo que esta pantalla **NO** hace *(escrito para que no crezca sola)*
+
+⛔ No apaga bounties automáticamente · ⛔ no crea bounties para variantes sin fila (el alta sigue naciendo en el
+drawer del binder, donde el operador ve la carta; ver pregunta abierta) · ⛔ no manda correo, push ni tarjeta de
+dashboard (§N.6: *«ALERTA EN EL BINDER, y solo ahí — decisión del humano»*; añadirlo es alcance posterior y pasa por
+producto) · ⛔ no muestra posición de inventario (§M2-B.1) · ⛔ no toca `PriceReference` ni la cola de pendientes ·
+⛔ no re-precia solicitudes ya cotizadas (montos snapshoteados) · ⛔ **no aplica la escalera de redondeo**: la
+escalera ($5 / $10 / $25) es **del eje de VENTA** —`PROJECT.md §N.1`: *«El redondeo hacia arriba aplica SOLO a la
+venta… La compra no se redondea»*— y el bounty vive en el **eje de COMPRA**. **Validar un bounty contra la escalera
+sería importar una regla del eje equivocado**; se dice aquí porque la escalera es la primera cosa que alguien
+intentará añadir al ver un campo de precio.
+
+<a id="M2-B6"></a>
+##### M2-B.6 — Las mutaciones que ponen un test **en rojo** *(para QA y para quien escriba los tests)*
+
+*Un candado que no se puede poner rojo no vale, y **un candado probable vale más que dos que se tapan entre sí**.*
+Cada línea es **una** mutación y **el** test que la mata:
+
+| # | Mutación (romper esto…) | …pone en rojo |
+|---|---|---|
+| **B-1** ⭐ | clasificar un `bountyEnabled ∧ ¬effective` como `activa`, **o excluirlo de `data`** | **EL candado de la feature.** Fixture: bounty por encima de la curva → sube el mercado hasta que la curva lo rebase → `GET /admin/pricing/bounties` **debe** traer la fila con `state:"rebasada"`. Rojo si falta o si dice `activa` |
+| **B-2** ⭐ | re-implementar el veredicto en el endpoint nuevo (p. ej. `>=` en vez de `>`) | **Test de DOS superficies, un fixture:** un bounty **exactamente igual** a `curveQuoteCents` debe salir `rebasada` **aquí** y estar **ausente** de `GET /buylist/bounties`. *No se puede tapar cambiando un solo lado* |
+| **B-3** | paginar/cortar **antes** de clasificar | con un conjunto que abarque más de una página, un `rebasada` que ordena primero **debe** venir en `page=1` |
+| **B-4** | quitar `truncated` o devolverlo siempre `false` | conjunto por encima del techo ⇒ `truncated: true` |
+| **B-5** | que el servidor lea del body un `curveQuoteCents`/`effective` | `PUT …/variant-controls/...` con `priceCents` **bajo la curva real** + `curveQuoteCents: 1` en el body ⇒ sigue siendo `422 BOUNTY_BELOW_RULE` |
+| **B-6** | abrir la lectura a `vault_operator` | `403` con token de `vault_operator` |
+| **B-7** | añadir una ruta mutadora al controller nuevo | el controller de §M2-B.1 expone **solo** `@Get`: inventario de rutas del módulo, rojo ante cualquier verbo de escritura bajo `admin/pricing/bounties` |
+| **B-8** | colapsar `completada` con `apagada` | fila con `bountyCompletedAt != null` ⇒ `state:"completada"`; fila apagada a mano ⇒ `"apagada"` |
+
+⛔ **Lo que NO se vuelve a testear aquí, a propósito:** `BOUNTY_TARGET_REQUIRED`, el default 2,
+`BOUNTY_PRICE_REQUIRED` y el `raw`-only **ya están cerrados** en `backend/test/pricing.variant-controls.spec.ts`, y
+esta pantalla **no los toca porque reusa ese endpoint**. Re-asertarlos aquí crearía **dos candados que se tapan entre
+sí**: el día que la regla cambie, uno de los dos quedará mintiendo y nadie sabrá cuál manda. *La cobertura de un
+endpoint reusado vive donde vive el endpoint.*
+
+---
+
 - `GET /api/v1/admin/pricing/card/:cardId` — **historial de precios** por fecha/fuente de esa carta (todas las
   variantes/grados/tipos), `capturedDate` **desc**. **Forma NORMADA en v2.1.7** — antes solo decía «historial de
   precios por fecha/fuente» y **no fijaba campos**: backend y frontend coincidían por **acuerdo tácito**, que es

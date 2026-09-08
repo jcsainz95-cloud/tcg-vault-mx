@@ -4,6 +4,38 @@
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
 >
 > ---
+> **Rev v1.62 — `M2-B`: LA CONSOLA DE BOUNTIES. UNA LECTURA NUEVA, CERO ESCRITURAS NUEVAS**
+> (2026-09-08, arquitecto. **UN endpoint de solo lectura**, **UN enum** (`state`), **CERO DDL**, **CERO diales**,
+> **CERO códigos de error nuevos**, **CERO endpoints de escritura**, **CERO cambios en superficies públicas**.
+> Contrato en `API_CONTRACT.md` **v1.62**, **§M2-B** *(nueva)*. Diseño aquí en **§4.42**.)
+>
+> **A. ⛔⛔ BLOQUEO DE PRECEDENCIA — ESTO NO SE IMPLEMENTA HASTA QUE `PROJECT.md` LO PERMITA.** `PROJECT.md` dice hoy,
+> en **cinco** frases (criterios **164(e)** y **168(e)**, **§N.6**, y **dos** entradas de «Fuera de alcance»), que
+> **NO se construye panel de bounties** — el humano lo dejó como **proyecto aparte** en la 5ª ronda y **lo ratificó en
+> la 6ª**. **`PROJECT.md` manda sobre el contrato y el contrato sobre el código** (`CLAUDE.md`). El dueño acaba de
+> pedir la pantalla de viva voz y **su voz es la autoridad por encima de `PROJECT.md`**, pero **yo no escribo
+> `PROJECT.md`**: enrutado a **product-owner** en **§9 (D-PROC-7)**. *Diseño ahora para no serializar el trabajo;
+> nadie implementa hasta que el documento que manda lo diga.*
+>
+> **B. EL DEFECTO QUE CURA, MEDIDO EN EL CÓDIGO VIVO.** §N.6 decidió que un bounty **por debajo o igual** de la tarifa
+> vigente **deja de ser bounty**, y el código lo cumple en las tres seams. **La consecuencia que nadie diseñó**: un
+> bounty con `bountyEnabled = true` que la curva rebasó **no aparece en ninguna superficie** —`publicBounties` lo
+> filtra, y las dos vitrinas que lo pintaban **desaparecen enteras** cuando no hay nada efectivo que mostrar— **salvo
+> en la casilla de su set en el binder**, donde hay que ir set por set a buscarlo. *El dueño cree estar pagando un
+> precio que no paga, y el sistema no tiene dónde decírselo.*
+>
+> **C. LA DECISIÓN INCÓMODA: SE EDITA, PERO NUNCA EN MASA** (§4.42d). Una lista **invita** al multi-select, y una
+> acción masiva sobre el eje de compra **no falla ruidosamente: degrada en silencio** —cada fila que quede bajo la
+> curva pasa a `rebasada`, deja de pagarse y **deja de verse**—. **Un botón masivo fabricaría a escala exactamente la
+> ceguera que esta pantalla vino a curar.** La prohibición y sus cuatro razones viven **en el contrato**, no solo
+> aquí, porque el contrato es lo que lee quien implementa.
+>
+> **D. CERO SUPERFICIE DE ESCRITURA NUEVA.** La pantalla escribe por `PUT …/variant-controls/:cardId/:finish`
+> **tal cual**, que ya impone `BOUNTY_PRICE_REQUIRED`, `BOUNTY_TARGET_REQUIRED` (+ default 2), `BOUNTY_BELOW_RULE`
+> contra la curva, `FINISH_NOT_AVAILABLE`, el `raw`-only y la auditoría **before/after por variante**. Lo único que
+> nace es **una lectura**. ✅ `GET /buylist/bounties` **no se toca**.
+>
+> ---
 > **Rev v1.61.1 — LA CUENTA QUE CADUCÓ SOLA Y MANDABA BORRAR UNA GUARDA DE DINERO (SOLO PROSA)**
 > (2026-09-07, arquitecto. ⛔⛔ **CERO cambios normativos: CERO DDL, CERO endpoints, CERO diales, CERO códigos de
 > error, CERO precondiciones.** **Ni un solo término de ningún predicado cambia.** Se corrigen **ocho frases** que
@@ -2540,6 +2572,7 @@ es clase (B), y transcribir el literal es exactamente lo que hizo sobrevivir un 
      | Predicado | Fuente ÚNICA (se cita, no se transcribe) | Marca en el documento |
      |---|---|---|
      | **Pagabilidad de una solicitud de buylist** (`isPayable` / `payableWhere()` / precondición de `pay-spei`) | **`API_CONTRACT.md` §M5-V.0** | `<!-- CANON: predicado-de-pagabilidad -->` |
+     | **Estado de un bounty** (`state` de la consola / predicado de alcance de la lista) *(v1.62)* | **`API_CONTRACT.md` §M2-B.0** | `<!-- CANON: estado-de-bounty -->` |
    - **Qué NO prohíbe, dicho para que no se lea de más:** (1) **el historial versionado sí se conserva** —*«v1.57
      añadió `receivedAt`»*, *«v1.61 añadió V-a y V-b»*— porque cuenta **qué rev añadió qué**, no cuántos hay hoy;
      (2) **§M5-P, §M5-V y §4.39(w) siguen enteras**: lo que se retira es la pretensión de que la lista estaba en
@@ -18638,6 +18671,161 @@ el merge; bloquea la **decisión del dueño** sobre las filas vivas.
 
 ---
 
+### 4.42 CONSOLA DE BOUNTIES — ver y editar todos los bounties en un sitio (v1.62-bounty-console, NORMATIVO, **DINERO**)
+
+> ⛔⛔ **BLOQUEADA POR PRECEDENCIA.** `PROJECT.md` **prohíbe hoy** esta pantalla (criterios 164(e), 168(e), §N.6 y dos
+> entradas de «Fuera de alcance»). **Nadie implementa** hasta que **product-owner** lo enmiende con aprobación del
+> humano — §9 **D-PROC-7**. *El diseño se adelanta; la implementación no.*
+> Contrato: `API_CONTRACT.md` **§M2-B**. Aquí va el **porqué**; allí va **la forma**, y **no se transcribe** ninguna
+> de las dos en la otra.
+
+#### 4.42a El defecto: un bounty puede estar vivo y ser invisible
+
+`PROJECT.md` §N.6 decidió —y el código cumple— que **un bounty por debajo o igual de la tarifa vigente deja de ser
+bounty**: no aplica al cotizar, no se publica, y genera alerta en el binder. La regla es correcta y **no se toca**.
+Lo que nadie diseñó es **dónde mira el dueño** cuando eso pasa:
+
+1. la **vitrina pública** filtra a los no efectivos **antes** de cortar a 50 — por diseño (criterio 91: *todo lo que
+   aparece es mejor que la tarifa estándar*);
+2. las **dos** superficies que la pintan (el estante de la home y el de `/buylist`) son **condicionales**: sin
+   bounties efectivos, **la sección entera desaparece** — no queda ni un hueco que delate la ausencia;
+3. la **consola por variante** solo existe **dentro del cajón de una variante**, a la que hay que llegar navegando el
+   binder de su set;
+4. **la única superficie donde un rebasado se ve** es el badge «Bounty rebasado» de la casilla del binder — y hay que
+   estar mirando ese set.
+
+⇒ **La suma de cuatro decisiones individualmente correctas es una ceguera.** Un bounty rebasado es **dinero que el
+dueño cree estar pagando y no paga**, y **no existe ninguna pantalla desde la que se pueda notar sin sospecharlo
+antes**. *(`GET /admin/reports/pricing-brackets` **no** lo cubre: su `byBasis.bounty` cuenta **compras consumadas** a
+precio de bounty — un contador de resultados, no un inventario de configuraciones.)*
+
+**Por eso la pantalla no es «un listado más»:** su requisito central —el que el dueño nombró— es **incluir a los
+rebasados**, es decir, **mostrar exactamente lo que todas las demás superficies filtran a propósito**.
+
+#### 4.42b La forma: una lectura que compone, no que calcula
+
+El endpoint iza el **mismo trío en lote** que ya usan el binder y la vitrina —`loadPricingCurve()` +
+`getReferencesBatch()` + la fila M-30— y compone cada renglón con **`composeVariantPricing`**, el composer puro que
+ya produce el `VariantPricingDTO` del binder. **Ninguna cifra de dinero nace en este endpoint**: todas se derivan de
+cuerpos que ya existen y que ya están probados.
+
+Consecuencia buscada, y es la razón del diseño: **la consola, el binder, el drawer y la vitrina no pueden discrepar**,
+porque **hay un solo cuerpo** que decide. Si mañana la curva cambia, cambia en un sitio.
+
+- **`state` se deriva, no se persiste.** Depende de la curva y del mercado, que el barrido mueve 2×/día: una columna
+  `state` en la BD sería una **copia sin fecha de caducidad** (§0-B.2 clase B) que empezaría a mentir en el primer
+  barrido. **Fuente única del predicado: `API_CONTRACT §M2-B.0`** (marcada `<!-- CANON: estado-de-bounty -->`,
+  §0-B.3 regla 8) — **este documento la cita y no la transcribe**.
+- **El estado no se puede calcular en SQL** ⇒ el orden de operaciones es **normativo**: *seleccionar → resolver el
+  estado de TODO el conjunto → ordenar → paginar*. **Cortar antes de clasificar** haría desaparecer un rebasado de la
+  pantalla construida para verlo — el mismo error que `publicBounties` ya evita («filtrar después del cap dejaría
+  huecos silenciosos»). Como eso obliga a un techo de servidor, la respuesta **declara** su incompletitud
+  (`truncated`) en vez de callarla.
+- **El orden por defecto pone primero lo que está costando dinero** (`rebasada`/`invalida`). Un listado de dinero
+  ordenado por conveniencia técnica entierra el hallazgo en la página 3.
+
+**♻️ Efecto lateral bueno, y conviene registrarlo porque cierra una deuda ya escrita:** el **residuo operativo del
+backfill de D35** (§4.39o.15) —una fila legacy que quedó **viva y por encima de su objetivo**, cotizando por encima de
+la curva por una carta de la que **ya hay suficientes**, hasta el siguiente SPEI— quedó documentado como *«el paso
+reporta esas filas para **triage manual desde M2**»*. **Hasta hoy M2 no tenía dónde hacer ese triage.** Esta consola
+lo es: esas filas salen como `activa` con `progress.remainingQty = 0`, y **son directamente accionables** (apagar o
+subir la meta) desde la misma fila. **No se añade nada para lograrlo** — cae del diseño.
+
+#### 4.42c Lo que ya existía y por qué no bastaba *(reuso antes que invención)*
+
+**Se reusa entero**: el endpoint de **escritura**, el **composer** de la fila, el **predicado** `isBountyEffective`
+(esta pantalla es su **cuarta seam**; §4.36.6 prohíbe duplicar ese cuerpo) y el **izado en lote**.
+**Nace exactamente una cosa: una lectura.** La tabla pieza-por-pieza, con el veredicto de cada una, vive en
+`API_CONTRACT §M2-B.4` — **no se duplica aquí**.
+
+Lo que **no** puede reusarse, y conviene dejar escrito el porqué para que nadie lo intente:
+`GET /buylist/bounties` es **`@Public()`**, sin paginación ni parámetros, y **filtra a los rebasados por contrato**.
+Adaptarlo exigiría darle **una rama condicionada por rol a una superficie anónima que toca dinero** — eso no es
+reuso, es **introducir una decisión de autorización en el único endpoint de bounties que hoy no tiene ninguna**.
+La superficie pública **no cambia ni un campo** en este pase.
+
+#### 4.42d ⚠️ La edición: sí, pero **jamás en masa** — y la razón se escribe en el contrato
+
+El dueño decidió **ver Y editar**, sabiendo que eso convierte la pantalla en dinero. **Se respeta**: se edita **fila a
+fila**, en línea, reusando `PUT …/variant-controls/:cardId/:finish` **sin un solo campo nuevo**.
+**Lo que se prohíbe es otra cosa**: una acción **cuyo alcance sea un conjunto** (multi-select, `?ids=`, body con
+array, «+10 % a los rebasados»). **La prohibición y sus cuatro razones viven en `API_CONTRACT §M2-B.2`**, no solo
+aquí, **porque el contrato es lo que lee quien implementa** — una regla de contención que solo existe en
+ARCHITECTURE es una regla que se salta sin mala fe.
+
+El resumen de la razón que decide: **la asimetría del error de N.0 aplicada a un lote**. Una acción masiva que suba
+precios falla ruidosamente (la guarda rechaza) y no hace daño; una que los deje **bajo la curva** **no falla en
+absoluto**: cada fila afectada pasa a `rebasada`, **deja de pagarse y deja de verse**. *Un botón masivo puede
+fabricar, de un clic, la ceguera que esta pantalla vino a curar.* Y como `BOUNTY_BELOW_RULE` necesita la referencia
+de mercado **de cada variante**, el fallo **parcial** sería el caso normal del lote, no su borde.
+
+#### 4.42e La revalidación al guardar: **se rechaza**, y ya se rechazaba
+
+**No hay regla nueva.** `BOUNTY_BELOW_RULE` ya **rechaza** el guardado (no avisa, no acepta con advertencia) y desde
+v2.0 rechaza **también el empate**, para que el alta y el runtime no puedan discrepar. **Esta pantalla no relaja esa
+puerta ni le añade un `force`.**
+
+Lo único que la pantalla **añade** es una ventana de rancidez que hay que nombrar: **la lista es un snapshot** y el
+barrido mueve el mercado. Un `422 BOUNTY_BELOW_RULE` al guardar desde aquí **es la guarda funcionando** sobre una
+curva que se movió entre el render y el `PUT`, no un defecto de la pantalla. *La pantalla informa; la puerta decide*
+(misma doctrina que el mínimo del cotizador, §4.39r.4). El frontend re-lee la fila y **no reintenta solo**.
+
+Tres precisiones que se hacen aquí porque son las que alguien intentará «mejorar»:
+- **⛔ La escalera de redondeo NO aplica al bounty.** `PROJECT.md` §N.1 es explícito: *«El redondeo hacia arriba
+  aplica SOLO a la venta… La compra no se redondea»*, y el bounty vive en el **eje de compra** (§N.6: *«Vive en la
+  escala de COMPRA… nunca se compara contra el mercado, solo contra la regla de compra»*). Validar un bounty contra la
+  escalera sería **importar una regla del eje equivocado**.
+- **⛔ El campo de precio no se prellena desde la curva.** El bounty es **SIEMPRE explícito, jamás calculado**
+  (`schema.prisma`, `VariantPriceOverride.bountyPriceCents`). Prellenar con `curveQuoteCents (+ ε)` lo vuelve
+  *calculado por defecto*: la misma cosa con otro nombre. **Mostrar** la tarifa al lado del campo es el punto de la
+  pantalla; **escribirla dentro** la anula.
+- **⛔ Un rebasado no se auto-apaga.** *Apagar un bounty vivo es decisión de negocio, no efecto de un `UPDATE`*
+  (misma doctrina que el backfill de M-46, que rellenó metas y **no desactivó ninguno**).
+
+#### 4.42f SEC-A1 en esta pantalla
+
+**El monto se deriva y se valida server-side, siempre.** Concretamente, y es lo que hay que poder verificar:
+
+- **En la LECTURA**: `curveQuoteCents`, `suggestedCents`, `effective`, `state` y `remainingQty` los produce el
+  servidor a partir de la fila M-30 y de la referencia de mercado **de la variante correcta**. El cliente **no envía
+  ningún insumo del cálculo**: sus parámetros son **filtros y paginación**, es decir, entran a un `where` y a un
+  `slice` — **nunca a una fórmula**.
+- **En la ESCRITURA**: el cliente manda **solo** `bounty.enabled`, `bounty.priceCents`, `bounty.targetQty` — lo mismo
+  que hoy. `curveQuoteCents`/`effective`/`state` **son salida, jamás entrada**; el `PUT` valida su cuerpo campo a
+  campo y no los conoce, y **re-deriva** curva y mercado en el instante del write. **El número que la pantalla enseñó
+  no participa en la decisión.**
+- **El objetivo obligatorio (D32/D35) no necesita nada nuevo**: lo impone el mismo `PUT` que la pantalla reusa. La
+  pantalla **prellena 2** para un bounty sin objetivo previo y **nunca envía `targetQty: null`**.
+- **Rol `super_admin`** para la lectura consolidada, aunque el binder exponga `pricing.bounty` de **un set** a
+  `vault_operator+`: **agregar cambia el activo**. La lista de todo lo que el negocio paga por encima de su tarifa es
+  la estrategia de compra en una pantalla, y su única acción es una escritura `super_admin`.
+
+#### 4.42g Datos y migración
+
+**SIN DDL. SIN backfill. SIN dial nuevo. SIN campo nuevo.** Todo lo que la pantalla necesita ya vive en
+`VariantPriceOverride` (M-30): `bountyEnabled`, `bountyPriceCents`, `bountyTargetQty`, `bountyAcquiredQty`,
+`bountyCompletedAt`, `updatedAt`, `updatedBy`.
+
+- **`bountyTargetQty` sigue siendo `Int?` y no se endurece a `NOT NULL`.** La obligatoriedad es **de la escritura, no
+  del tipo** (decisión ya tomada en el contrato): el `null` sigue siendo representable —restore, fixture, bug futuro—
+  y **el lector tiene que tener una respuesta**. La consola la tiene: lo muestra tal cual, sin inventarlo.
+- **Único cambio de esquema contemplado, y es OPCIONAL:** si el conjunto de bounties crece hasta que el filtro por
+  historia de bounty pese, cabe un **índice parcial aditivo** sobre `VariantPriceOverride` para ese predicado.
+  **No es requisito de corrección** y **no se pide por adelantado**: se mide primero (§0-B.2 — no afirmo un volumen
+  que no he medido). Si se añade, es **DDL aditivo puro**, sin backfill y sin ventana de riesgo.
+
+#### 4.42h Lo que este pase **no** hace
+
+**No toca** `GET /buylist/bounties` · **no toca** `PUT …/variant-controls/...` (ni un campo, ni un código de error,
+ni una guarda) · **no retira ni sustituye** el badge del binder (§N.6 manda que la alerta viva ahí; la consola
+responde otra pregunta) · **no añade** aviso proactivo por correo/push/dashboard (§N.6: *«y solo ahí — decisión del
+humano»*) · **no muestra** posición de inventario (`bountyAcquiredQty` ≠ posición: son dos preguntas distintas, y
+mezclarlas desinformaría sobre el techo de compra de D29) · **no crea** bounties para variantes sin fila (el alta
+sigue naciendo donde el operador ve la carta) · **no toca** `backend/`, `frontend/`, `docs/DESIGN_SYSTEM.md` ni
+`docs/TECH_DEBT.md`.
+
+---
+
 ## 5. Decisiones transversales
 
 - **Dinero sin balance:** no hay wallet ni saldo; cada movimiento de dinero es una transacción Stripe (ventas/reembolsos) o un pago SPEI manual (buylist). Ninguna vista de usuario muestra saldo.
@@ -19262,6 +19450,31 @@ Riesgos técnicos:
 > (backend). Estado del código revisado el **2026-08-16** (plataforma ya en producción; back-office M1–M10 con
 > backend en su mayoría implementado; **M7 ya tiene UI consumidora real** —`admin/m7/M7View.tsx`—, el resto de
 > módulos sigue con UI en `ModuleTodo` pendiente de consumir).
+
+- **⛔⛔ NUEVA (v1.62) — `D-PROC-7`: `PROJECT.md` PROHÍBE LA PANTALLA QUE EL DUEÑO ACABA DE PEDIR.**
+  **Dueño del arreglo: product-owner** (yo no escribo `PROJECT.md`). **Estado: ⛔ ABIERTA — bloquea la
+  implementación de §4.42 / `API_CONTRACT §M2-B`.**
+  - **Qué dice hoy `PROJECT.md`**, en **cinco** frases y **en dos rondas distintas** (no es un descuido de
+    redacción, es una **decisión tomada y ratificada**): **§N.6** (*«**NO se construye panel de bounties** — el
+    humano lo pidió y decidió dejarlo como **proyecto aparte**»*), **criterio 164** (*«verificable también **lo que
+    NO se construye**: **no hay panel de bounties**»*), **criterio 168(e)** (*«**no se construye panel de bounties**…
+    **sin pantalla nueva**»*) y **dos** entradas de **«Fuera de alcance»** (*«**No** hay pantalla nueva de gestión, ni
+    tablero de bounties, ni reportes de avance contra objetivo»* y *«sigue **fuera**»*).
+  - **Por qué es una desviación y no una nota:** por la **regla de conflicto** de `CLAUDE.md`, **`PROJECT.md` manda
+    sobre el contrato**. Un contrato que norma una pantalla que `PROJECT.md` declara fuera de alcance **se
+    contradice con quien manda**, y además **el criterio 164 es verificable POR AUSENCIA**: QA, leyendo `PROJECT.md`,
+    **debería rechazar** la pantalla. *Implementar contra este estado documental haría fallar el gate por hacer lo
+    que el dueño pidió.*
+  - **Qué hace falta (y solo lo puede hacer product-owner, con aprobación del humano):** enmendar esas cinco frases,
+    y **decidir explícitamente qué parte del «proyecto aparte» entra**: la consola de §4.42 es **ver + editar fila a
+    fila**, y **no** incluye reportes de avance contra objetivo ni tablero de métricas —que es la otra mitad de lo
+    que la entrada de «Fuera de alcance» nombra—. Si el humano quiere también eso, es **otro pase** y vuelve al
+    arquitecto (regla 9).
+  - **Aplicación de §0-B.3 regla 7 (regla de la cita), en el mismo pase:** este diseño cita §N.6, y **al citarla
+    detecté que mi propio contrato ya contenía la frase muerta** — el bloque de `variant-controls` decía *«**NO se
+    diseña panel de bounties** — el humano lo dejó como proyecto aparte. La exigencia vive **solo** aquí»*. **Esa
+    frase es mía y está en mi documento**, así que **la corrijo yo** (§M2-B la sustituye). Las cinco de `PROJECT.md`
+    **no las toco**: son de otro dueño (regla 5).
 
 - **⚠️ NUEVAS (v1.51) — desviaciones del ciclo de adquisición del buylist. Detectadas leyendo el código para diseñar
   §4.39; ninguna corregida por mí (CLAUDE.md). Dictamen completo en §4.39; aquí el registro con dueño y puerta:**
@@ -19909,6 +20122,36 @@ este documento y con `API_CONTRACT.md`.
 ---
 
 ## 10. Decisiones resueltas (antes "Preguntas para el humano")
+
+### Preguntas abiertas (v1.62-bounty-console — consola de bounties, §4.42)
+
+> **Ninguna de estas bloquea el diseño**: las tres tienen un **default money-safe** ya normado en
+> `API_CONTRACT §M2-B`, y las abro porque son **decisiones de negocio**, no técnicas — *si `PROJECT.md` no lo dice, no
+> lo asumo* (`CLAUDE.md`, regla de conflicto).
+>
+> ⛔ **El BLOQUEANTE no es una pregunta abierta, es una enmienda pendiente**: `PROJECT.md` prohíbe la pantalla en
+> cinco frases. Ver **§9 `D-PROC-7`** — dueño: **product-owner**.
+
+- **Q-B1 — ¿La consola debe poder DAR DE ALTA un bounty, o solo gestionar los que existen?**
+  El dueño pidió *«verlos y editarlos»*, que es **gestionar**. El alta hoy nace en el cajón de la variante dentro del
+  binder, **donde el operador tiene la carta delante** (imagen, set, acabado, mercado). Permitir el alta desde la
+  consola exigiría un **buscador de cartas** dentro de la pantalla y elegir acabado a ciegas —lo que aumenta la
+  probabilidad de crear un bounty sobre **la variante equivocada**, y un bounty es dinero de compra—.
+  **Default normado: NO se crea desde la consola** (§4.42h). *Si el dueño quiere el alta aquí, es un pase aparte con
+  su propio diseño de selección de variante.*
+
+- **Q-B2 — ¿Cuánto tiempo deben seguir apareciendo los bounties `apagada` y `completada`?**
+  Son historia: no pagan nada y no se publican. Mostrarlos **siempre** hace que la lista crezca de forma monótona;
+  ocultarlos borra el rastro de *«esto ya lo cacé»* y de *«esto lo apagué yo»*.
+  **Default normado: se muestran TODOS, y el filtro `state` deja verlos o esconderlos**; el orden por defecto los
+  manda al final. *Es el lado seguro: no esconder dinero pasado.* Si el dueño prefiere una ventana temporal, es un
+  parámetro más, no un rediseño.
+
+- **Q-B3 — ¿Quiere el dueño un aviso PROACTIVO cuando un bounty se vuelve `rebasada`?**
+  §N.6 lo decidió en su momento: *«ALERTA EN EL BINDER, y solo ahí — decisión del humano. **NO** hay aviso proactivo
+  (correo/push/dashboard)»*. **Esta consola no cambia esa decisión**, y de hecho la hace más defendible: ahora **hay
+  un sitio donde mirar**. Pero la decisión se tomó cuando **no existía la pantalla**, así que conviene reconfirmarla.
+  **Default normado: sin aviso proactivo** (§4.42h). *Un rebasado sigue necesitando que alguien abra la pantalla.*
 
 ### ✅ Q-D1 — CERRADA por el dueño (2026-08-24): el techo del piso/bin es **MX$2,000**
 
@@ -20633,6 +20876,21 @@ Las 6 ambigüedades quedaron resueltas por el humano (2026-08-13) y se integran 
 ## 11. Migraciones requeridas (v1.1 + v1.2/v1.2.1 + v1.3.1 — 2026-08-16)
 
 Cambios de esquema Prisma que backend debe migrar. Proyecto **greenfield sin backfill de datos** (aún no hay filas productivas); las migraciones solo redefinen esquema.
+
+### v1.62-bounty-console — **SIN MIGRACIÓN** (§4.42g)
+
+**CERO DDL, CERO backfill, CERO seed, CERO dial, CERO columna nueva.** La consola de bounties se compone **entera**
+con columnas que `VariantPriceOverride` (M-30) ya tiene: `bountyEnabled`, `bountyPriceCents`, `bountyTargetQty`,
+`bountyAcquiredQty`, `bountyCompletedAt`, `updatedAt`, `updatedBy`. **No se reserva número de migración.**
+
+- ⛔ **`bountyTargetQty` NO se endurece a `NOT NULL`.** La obligatoriedad es **de la escritura, no del tipo**
+  (decisión vigente del contrato): el `null` debe seguir siendo **representable** —restore, fixture, bug futuro— y el
+  lector debe tener una respuesta en vez de reventar. La consola la tiene: lo muestra tal cual y **no lo inventa**.
+- **Único cambio de esquema contemplado, OPCIONAL y DIFERIDO:** un **índice parcial aditivo** sobre
+  `VariantPriceOverride` para el predicado de alcance de §M2-B.0, **si y solo si** se mide que pesa. **No es requisito
+  de corrección**; **no lo pido por adelantado** y **no afirmo un volumen que no he medido** (§0-B.2). Si se añade:
+  **DDL aditivo puro**, sin backfill, sin ventana de riesgo, y **pasa por el arquitecto** antes (zona compartida
+  `prisma/`, regla 9 de `CLAUDE.md`).
 
 ### 11.0 REGLA DE PROPAGACIÓN DE SEEDS (v1.50.3, NORMATIVA, GENERAL — aplica a TODO `ConfigSetting`)
 
