@@ -23,7 +23,7 @@ test.describe('checkout · desglose y CFDI', () => {
     await expect(breakdown).toBeVisible();
     await expect(breakdown.getByText(t('es', 'checkout.subtotal'))).toBeVisible();
     await expect(breakdown.getByText(t('es', 'checkout.iva', { rate: 16 }))).toBeVisible();
-    await expect(breakdown.getByText(t('es', 'checkout.processingFee'))).toBeVisible();
+    await expect(breakdown.getByText(t('es', 'checkout.platformFee'))).toBeVisible();
     await expect(breakdown.getByText(t('es', 'checkout.total'))).toBeVisible();
 
     // Mensaje CFDI: solicitar factura por correo con datos fiscales.

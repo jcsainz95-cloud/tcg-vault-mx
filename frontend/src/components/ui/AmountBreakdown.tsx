@@ -43,11 +43,19 @@ function Line({
 }
 
 /**
- * AmountBreakdown (DESIGN_SYSTEM §7.12): subtotal + IVA desglosado + fee de
- * procesamiento + total, en el orden del contrato. El total nunca sin su desglose.
+ * AmountBreakdown (DESIGN_SYSTEM §7.12): subtotal + IVA desglosado + comisión de
+ * plataforma + total, en el orden del contrato. El total nunca sin su desglose.
  *
  * Dirección 5a: los renglones se separan con aire, no con reglas, y solo el total
  * lleva regla encima; la cifra final es la pieza tipográfica más grande del bloque.
+ *
+ * ⚠️ §29 (v3.6) — este componente es el ÚNICO que rotula estas líneas, y de él cuelgan
+ * CINCO superficies de cliente: checkout con cuenta, guest checkout, detalle de orden,
+ * seguimiento público (`/pedido`) y detalle de envío. La línea de comisión se rotula
+ * `checkout.platformFee` y **es una comisión NUESTRA**: la pantalla no nombra al
+ * procesador de pago ni declara traslado alguno. El campo del contrato sigue
+ * llamándose `processingFeeCents` a propósito (§29.5): es nombre de API, no de rótulo.
+ * El candado del copy vive en `src/lib/i18n-parity.test.ts`.
  */
 export function AmountBreakdown({ breakdown, variant = 'purchase' }: AmountBreakdownProps) {
   const t = useTranslations('checkout');
@@ -77,9 +85,9 @@ export function AmountBreakdown({ breakdown, variant = 'purchase' }: AmountBreak
         locale={locale}
       />
       <Line
-        label={t('processingFee')}
+        label={t('platformFee')}
         amount={breakdown.processingFeeCents}
-        hint={t('processingFeeHint')}
+        hint={t('platformFeeHint')}
         locale={locale}
       />
       <div className="mt-2 flex items-baseline justify-between border-t border-border-strong pt-5">

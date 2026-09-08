@@ -4,7 +4,17 @@
 > El frontend (Next.js 14 + Tailwind) implementa este documento; no lo contradice.
 > Manda `PROJECT.md` sobre el contrato y sobre este documento; este documento define solo lo visual/UX,
 > nunca datos, contrato ni arquitectura.
-> Estado: **v3.5** — **§28.5 precisada**: el **cero tranquilizador** tampoco se enuncia con un **filtro de
+> Estado: **v3.6** — dos cosas, y la primera **corre prisa**:
+> **(1) §29 — la línea de comisión del checkout se renombra y su explicación se BORRA y se reescribe.**
+> `Costo de procesamiento` ⇒ **`Comisión de plataforma`** / **`Platform fee`**, y la frase que decía
+> *«cubre la comisión del procesador de pago (Stripe), **trasladada a ti**»* **desaparece**: en superficie de
+> cliente un cobro se nombra **por lo que es para el cliente**, y **nunca** se explica trasladándole el costo
+> de un tercero (§29, §7.12, §7.12a). ⚠ **El back-office NO se toca**: ahí Stripe **sí** es un costo nuestro y
+> nombrarlo es correcto (§29.4).
+> **(2) §28.5b — resuelta la intersección §28.5 × §28.8** (deuda **BNT-D14**): con `VISTA FILTRADA` en el
+> bloque ① **se suprime el vacío por filtro entero**; la palanca `Limpiar filtros` es **una sola** y vive
+> **arriba, con la versalita** (§28.5b, §28.8, §28.13.21, §28.14 caso 20).
+> Antes: **v3.5** — **§28.5 precisada**: el **cero tranquilizador** tampoco se enuncia con un **filtro de
 > identidad** puesto (`q`), porque `counts` respeta esa identidad y entonces *«todos los encendidos»* es un
 > conjunto acotado por el propio humano; en su sitio va `VISTA FILTRADA` + `zero.filtered` (§28.5, §28.12,
 > §28.14 caso 19). Se alinea además `filters.searchLabel` con el rótulo real (`Buscar carta`, **BNT-D10**).
@@ -716,7 +726,8 @@ sostiene esa dualidad con cinco principios:
    disfraza una carga. **No hay fotos propias del producto** (v1.2): la confianza se apoya en la imagen de
    catálogo de pokemontcg.io + el estándar NM + el `certNumber` verificable en la graduadora.
 2. **Claridad sobre decoración.** Jerarquía tipográfica fuerte, mucho aire, datos legibles. El dinero
-   siempre desglosado (subtotal + procesamiento + IVA). Ninguna cifra financiera aparece sin etiqueta.
+   siempre desglosado (subtotal + **comisión de plataforma** + IVA). Ninguna cifra financiera aparece sin
+   etiqueta. **Y cada línea se nombra por lo que es para quien paga** (§29).
 3. **Coleccionismo serio, no infantil.** Se evoca el mundo TCG/Pokémon con la **carta como héroe visual**
    (imagen grande de catálogo) sobre una base **editorial de papel**: la personalidad la dan la textura de
    papel, la tinta y un único acento bermellón usado con avaricia. **Tipografía profesional, nada de
@@ -732,8 +743,15 @@ sostiene esa dualidad con cinco principios:
    texto (ES suele ser ~15-30% más largo que EN). Ver §9.
 
 Tono de voz del copy: **claro, directo, tranquilizador**. Explica el "por qué" cuando toca dinero
-("Este cargo cubre el procesamiento del pago"). Sin jerga innecesaria; los términos fiscales (IVA, CFDI)
+(«Es nuestra comisión por operar la compra»). Sin jerga innecesaria; los términos fiscales (IVA, CFDI)
 se nombran correctamente.
+
+> ⚠ **Y "explicar el porqué" tiene un límite duro, aprendido en v3.6:** explicar **de dónde sale nuestro
+> costo** no es explicar el cobro — es **contarle al cliente nuestra contabilidad**, y en la pantalla de pago
+> eso se lee como una **declaración**. El ejemplo de esta línea era, hasta v3.5, *«Este cargo cubre el
+> procesamiento del pago»*, y el copy real en producción llegó a decir *«cubre la comisión del procesador de
+> pago (Stripe), **trasladada a ti**»*. **Se borró** (§29). *Un cobro se explica por lo que el cliente
+> recibe, nunca por lo que a nosotros nos cuesta.*
 
 **Léxico de marca — la metáfora de caza (TCG HUNT).** La marca es **TCG HUNT** (§17) y su metáfora de
 caza es **voz legítima del copy**: *cazar, cacería, bounty, presa*. Copy vivo hoy: «Caza la carta.
@@ -1475,12 +1493,44 @@ un módulo— todo el card es clickable (foco visible).
 ### 7.12 Desglose de importe (`AmountBreakdown`) — checkout y órdenes
 Lista de líneas alineadas (label izquierda, monto derecha `tabular-nums`):
 - Subtotal (sin IVA)
-- Costo de procesamiento (Stripe trasladado) — con tooltip explicativo
+- **Comisión de plataforma** — el importe es `processingFeeCents` del `BreakdownDTO` (**el campo del
+  contrato NO cambia**; lo que cambia es **cómo se rotula**). Con hint explicativo. ⛔ **Nunca se rotula
+  «costo de procesamiento» ni se explica nombrando a Stripe ni un traslado de costo** (§29).
 - IVA 16% — etiqueta muestra el `ivaRatePct` real del `BreakdownDTO`
 - (Envío, cuando aplica: retiros)
 - **Total** en negrita, con línea divisoria arriba y tamaño mayor.
 Cada línea que el usuario pueda cuestionar tiene un `?`/tooltip. El total nunca aparece sin su desglose.
 Los importes vienen en centavos del contrato; el formato es §9.3.
+
+> **Un solo componente, cinco superficies.** `AmountBreakdown` es el único sitio donde se rotulan estas
+> líneas, y lo consumen **checkout con cuenta, guest checkout, detalle de orden, seguimiento público del
+> pedido y detalle de envío**. Consecuencia práctica: **cambiar las dos cadenas arregla las cinco a la vez**,
+> y **cualquier superficie nueva que rotule dinero por su cuenta está incumpliendo §7.12a**.
+
+### 7.12a ⚠ Cómo se nombra un cobro en superficie de cliente — **norma, no cadena** (v3.6)
+
+**La regla, en una línea: en superficie de cliente, un cobro se nombra por lo que es *para el cliente*, y no
+se explica trasladándole el costo de un tercero.**
+
+Se desdobla en cuatro obligaciones, y aplican a **toda** etiqueta, hint, tooltip, nota al margen, correo y
+página legal que vea un comprador:
+
+| # | Obligación | Por qué |
+|---|---|---|
+| 1 | **El rótulo nombra al cobrador, no al proveedor.** Si el dinero lo cobra la plataforma, la línea dice **«Comisión de plataforma»**. | Quien emite el cargo es TCG HUNT. Rotularlo con el nombre de un costo interno describe **nuestra contabilidad**, no el cobro que el cliente acepta. |
+| 2 | ⛔ **Prohibido el vocabulario del traslado.** Ni «trasladada a ti», «se te traslada», «passed on to you», «te cobramos lo que nos cobra X», ni ninguna variante. | Una frase en la pantalla de pago **es una declaración por escrito** de lo que hacemos. El riesgo no es que suene mal: es **lo que afirma**. |
+| 3 | ⛔ **Prohibido nombrar a un proveedor de pago como justificación del importe.** El nombre del procesador **no aparece** en una línea de dinero de cliente. *(Distinto de nombrarlo en un error operativo — ver el matiz de abajo.)* | Qué costos cubrimos con nuestra comisión **es asunto nuestro** y no aporta nada a quien paga. Nombrarlo solo sirve para señalar a un tercero como causa. |
+| 4 | ⛔ **Prohibida cualquier afirmación jurídica**, en los dos sentidos: ni «conforme a la ley», ni «permitido por», ni «esto no es un recargo», ni citar norma alguna. | **Hoy no hay abogado en el proyecto.** Sustituir una afirmación arriesgada por otra no es una mejora. **Cuanto menos afirme la pantalla, mejor**; cuando haya asesoría se revisa. |
+
+- **El matiz que evita el barrido ciego.** Nombrar al proveedor en un **mensaje operativo** («No pudimos
+  contactar al procesador de pago. Inténtalo de nuevo en unos minutos.», `error.PAYMENT_PROVIDER_UNAVAILABLE`)
+  **no incumple nada**: ahí el proveedor **es la causa del fallo**, es información útil y **no justifica ningún
+  importe**. Lo prohibido es nombrarlo **para explicar cuánto se cobra**.
+- **⛔ Esta norma NO aplica al back-office.** Ver §29.4: ahí Stripe es un **costo nuestro** y llamarlo por su
+  nombre es lo correcto y lo único honesto.
+- **Prueba de una sola pregunta, para el que dude ante una cadena nueva:** *si un tercero leyera esta frase en
+  voz alta como declaración del negocio, ¿la firmaríamos?* Si la respuesta es «depende de lo que diga un
+  abogado», la frase **no se escribe**.
 
 ### 7.13 Guía de EMPAQUE (`SafeShippingGuide`) — buylist · **reescrita v3.0.2 (D16/D31)**
 
@@ -2034,10 +2084,12 @@ No bloquean el diseño; se registran para coherencia:
 1. **Fecha de refresco de precio en la UI.** El diseño muestra `capturedDate` junto al precio ("actualizado
    a diario"). Confirmar que `PriceInfo.capturedDate` está disponible en **todos** los `ListingDTO`
    mostrados (catálogo y bóveda) y no solo en el detalle. (Aparece en `PriceInfo`, se asume presente.)
-2. **Copy del tooltip del fee de procesamiento.** El diseño incluye un tooltip explicativo en la línea
-   "costo de procesamiento". Depende de la fórmula del fee (Pregunta 1 de ARCHITECTURE, aún abierta). El
-   texto exacto se ajustará cuando se fije la fórmula; mientras, copy genérico "cubre el procesamiento del
-   pago".
+2. **~~Copy del tooltip del fee de procesamiento.~~ — ⛔ CERRADA Y SUPERADA en v3.6 (§29).** Decía que el
+   texto del tooltip *«se ajustará cuando se fije la fórmula»*, y **esa premisa era el error**: ataba el copy
+   de cliente a **cómo se calcula nuestro costo**. Ya no. **El copy de la línea NO depende de la fórmula del
+   fee y no volverá a depender de ella**: la línea se llama **«Comisión de plataforma»** y su hint no nombra
+   ni fórmula, ni proveedor, ni traslado (§7.12a, §29). El campo del contrato sigue siendo
+   `processingFeeCents` y **no se pide cambiarlo** — el rótulo es asunto de diseño, no de contrato.
 3. **IVA sobre envío en el desglose de retiro.** `AmountBreakdown` de retiros muestra línea de IVA sobre
    el envío (coincide con `shipments/quote` que devuelve `ivaCents`). Confirmar que el IVA aplica al envío
    (Pregunta 2 de ARCHITECTURE) para no mostrar una línea que luego cambie.
@@ -2284,7 +2336,7 @@ base nuevo**. Dos grupos separados por regla, con `eyebrow` mono cada uno.
 bloque. Esto sustituye a hacer scroll a ciegas.
 
 **Desglose y avisos (idénticos al checkout con cuenta, criterio 48b):** `AmountBreakdown` (§7.12) con
-**subtotal sin IVA · costo de procesamiento · IVA 16% · envío (MX$175, del dial, nunca hardcodeado) ·
+**subtotal sin IVA · comisión de plataforma (§29) · IVA 16% · envío (MX$175, del dial, nunca hardcodeado) ·
 total**, más las tres notas al margen ya existentes (ventas finales con enlace a términos, factura CFDI por
 correo, "qué pasa después del pago"). No se añade ni se quita ninguna.
 
@@ -2432,7 +2484,7 @@ en el `Referer` hacia terceros (requisito de diseño con implicación técnica; 
 | 2 | **Estado** | `PipelineStepper` (§7.9): `pagado → preparando → guía → enviado → entregado`. Horizontal en `lg+`, vertical en móvil. Paso completado = verde + label en versalitas; actual = tinta + anillo + `aria-current="step"`; pendiente = muted. Fecha localizada bajo cada paso cumplido (§9.3). |
 | 3 | **Guía** | Solo cuando existe: paquetería + número en mono + "Copiar". Si la URL de rastreo del carrier no está confirmada, **se muestra como texto copiable, no como enlace inventado** (misma regla que §7.2c). Sin guía todavía → el paso "guía" dice `PENDIENTE` en muted, no una caja vacía. |
 | 4 | **Artículos** | Lista con imagen de catálogo (`CardImage`), nombre EN (`lang="en"`), set · número, `ListingSpec` y precio unitario. **Sin folio de inventario** (`INV-…`, dato interno). |
-| 5 | **Total pagado** | `AmountBreakdown` en modo **solo lectura**: subtotal, procesamiento, IVA, envío, total. Es la misma información que ya recibió por correo. |
+| 5 | **Total pagado** | `AmountBreakdown` en modo **solo lectura**: subtotal, **comisión de plataforma** (§29), IVA, envío, total. Es la misma información que ya recibió por correo. **Esta pantalla es de cliente y es pública**: §7.12a aplica aquí con la misma dureza que en el checkout. |
 | 6 | **Pago** | **Una sola línea mono**: `TARJETA ···· 4242` / `CARD ···· 4242`. Nada más: sin titular, sin banco, sin fecha de expiración, sin `paymentIntent`. |
 | 7 | **Envío (mínimo)** | **Ciudad y estado únicamente**: "Envío a Guadalajara, Jalisco". **Sin calle, sin número, sin colonia, sin CP, sin nombre del destinatario.** |
 | 8 | **Frescura** | `text-xs muted` "Actualizado {hora}" + botón `ghost` "Actualizar" (refetch, acción de solo lectura). |
@@ -4631,7 +4683,7 @@ Sin flujo nuevo; tres matices visuales que el frontend debe respetar al re-piela
   («Comprar» tinta / «En el carrito» outline / «No disponible» muted deshabilitado; el ejemplar sin
   precio muestra el aviso mono rojo de §16.4, nunca $0).
 - **Carrito (2d):** líneas con miniatura 92×129 (5:7) o 92×92 (sellado), nombre serif 19px, spec mono
-  muted, «Quitar» mono muted; resumen con desglose (subtotal / IVA 16% / procesamiento) en filas con
+  muted, «Quitar» mono muted; resumen con desglose (subtotal / IVA 16% / **comisión de plataforma**, §29) en filas con
   reglas y **Total mono 26px**; CTA de pago **rojo** con monto (§20.9). El bloque «Guardar en mi
   bóveda» es lista de beneficios con reglas + nota al margen roja «Todas las ventas son finales.»
 - **Bóveda (2e):** KPI del portafolio **44px sans 500 `tabular-nums`** + delta verde/rojo (§7.17);
@@ -12458,7 +12510,7 @@ excluyentes: se cumple exactamente una:**
 |---|---|---|
 | `counts.rebasada === 0` **y** `counts.invalida === 0` **y** `truncated === false` **y** **sin filtro de identidad activo** | `SIN REBASADOS` | **El cero tranquilizador** — ES: «Ningún bounty rebasado. Todos los encendidos pagan por encima de la tarifa vigente.» · EN: “No outbid bounties. Every one that's on pays above the current rate.” |
 | `counts.rebasada === 0` **pero** `counts.invalida > 0` (y `truncated === false`, y **sin filtro de identidad activo**) | `SIN REBASADOS` | ⚠ **El cero acotado por el estado** — ES: «Ningún bounty rebasado, pero {count} están encendidos sin precio y no pagan nada.» · EN: “No outbid bounties, but {count} are on with no price and pay nothing.” |
-| **Hay un filtro de identidad activo** (y `truncated === false`), **sea cual sea `counts`** *(v3.5)* | **`VISTA FILTRADA`** | ⛔ **Ningún cero, ni siquiera acotado** — la frase que **nombra el recorte** (`zero.filtered`, §28.12) + la palanca `Limpiar filtros` (`common.clearFilters`). |
+| **Hay un filtro de identidad activo** (y `truncated === false`), **sea cual sea `counts`** *(v3.5)* | **`VISTA FILTRADA`** | ⛔ **Ningún cero, ni siquiera acotado** — la frase que **nombra el recorte** (`zero.filtered`, §28.12) + la palanca `Limpiar filtros` (`common.clearFilters`). ⚠ **Y esta palanca es LA ÚNICA de la vista**: si además `rows.length === 0`, el vacío por filtro de §28.8 **no se pinta** (§28.5b, v3.6). |
 | `truncated === true` | `LISTA INCOMPLETA` | ⛔ **Ningún cero** — la frase de lista incompleta (`list.truncated`, §28.2b). |
 
 > **`truncated === true` manda sobre todo lo demás**: si además hay un filtro puesto, se pinta `LISTA
@@ -12553,6 +12605,69 @@ lista incompleta):*
 - **Mientras carga, los conteos son `—`, nunca `0`.** Un `REBASADOS 0` provisional que a los 400 ms se
   convierte en `3` es una mentira sobre el único número que importa. Misma disciplina que el precio: *nunca
   `$0` inventado* (§7.3).
+
+### 28.5b ⚠ La intersección **§28.5 × §28.8** — qué se pinta cuando el filtro no casa con NADA *(v3.6, cierra **BNT-D14**)*
+
+> **Esto no era un defecto y no era deuda de frontend: era un hueco mío.** §28.5 v3.5 abrió un caso nuevo del
+> bloque ① (`VISTA FILTRADA`, con su propia palanca) y **no dijo qué pasa cuando ese caso coincide con el
+> vacío por filtro de §28.8** —que también trae palanca—. Frontend cumplió **las dos normas al pie**, porque
+> cada una es correcta por separado, y el resultado fue **dos botones `Limpiar filtros` idénticos y
+> consecutivos**. QA falló a favor de frontend y **el fallo es correcto**: suprimir uno de los dos bloques es
+> **decidir cuál norma cede**, y eso se decide aquí. *Cuando dos reglas mías chocan, la que está mal escrita
+> es la mía, no el código que las obedeció.*
+
+**Lo que se veía, reproducido en navegador con `q=zzzznada`:** el bloque ① pintaba `VISTA FILTRADA` +
+`zero.filtered` + `Limpiar filtros`, e inmediatamente debajo el vacío por filtro pintaba «Ningún bounty
+coincide» + `Limpiar filtros`.
+
+**DECIDIDO — regla normativa, y es una supresión, no una fusión:**
+
+| Condición | Qué se pinta | Qué NO se pinta |
+|---|---|---|
+| **Hay filtro de identidad activo** (§28.5) **y** `rows.length === 0` | **Solo el bloque ①**: `VISTA FILTRADA` + `zero.filtered` + **una** palanca `Limpiar filtros` (`common.clearFilters`) | ⛔ **El vacío por filtro de §28.8 NO se pinta**: ni su título «Ningún bounty coincide», ni su icono, ni su palanca. **No se pinta a medias — se suprime entero.** |
+| **NO hay filtro de identidad** (solo chips de estado y/o paginación) **y** `rows.length === 0` | **El vacío por filtro de §28.8, completo y con su palanca** — más el bloque ① con la frase de cero que le toque por §28.5 | *(nada suprimido: el bloque ① no trae palanca en ese caso)* |
+| **`truncated === true`** | Manda §28.5: banner `LISTA INCOMPLETA`. Esta sección **no lo altera** | — |
+
+**Por qué cede el vacío y no el bloque ①. Cuatro razones, y las dos primeras son mías de v3.5:**
+
+1. **El portador es la versalita — el mismo argumento con el que descarté acotar la frase.** `VISTA FILTRADA`
+   va arriba, en **versalitas mono**, que en esta pantalla es *el* canal pre-atento y el portador de
+   accesibilidad (§28.3 canal 2, §28.10). **Se lee primero y se lee siempre.** Si el que sobreviviera fuera el
+   vacío, la noticia importante —*«esta pantalla no puede contestarte mientras haya filtro»*— quedaría
+   colgando de un bloque que se lee después. **Sería resolver esta intersección con el criterio contrario al
+   que ya usé para la otra**, y eso convierte una regla en dos, siendo la segunda la débil. *(Es literalmente
+   el argumento 3 de §28.5, aplicado a sí mismo.)*
+2. **Los dos bloques dicen cosas distintas, y una es estrictamente más fuerte.** «Ningún bounty coincide»
+   informa de **un hecho de la búsqueda**. `zero.filtered` informa de **un límite de la pantalla**: *«con un
+   filtro puesto esta consola no puede decirte si hay rebasados fuera de él»*. La segunda **contiene** a la
+   primera y añade lo único que aquí puede hacer daño. Conservar la débil y tirar la fuerte sería
+   exactamente el error que §28.5 v3.5 vino a corregir.
+3. **La palanca duplicada no es cosmética: es un fallo de accesibilidad.** Dos controles con **el mismo nombre
+   accesible y el mismo efecto** en pasos de tabulación consecutivos obligan a un lector de pantalla a
+   anunciar dos veces la misma acción sin poder distinguirlas (§8.2, §28.10). **Una acción, un control.**
+4. **La supresión es más barata y más segura que la fusión.** La alternativa «fusionar los dos bloques en uno»
+   obliga a inventar copy nuevo, a decidir dónde vive el control y a tocar el `EmptyState` compartido. Aquí no
+   se inventa **ni una cadena**: se apaga una rama de render.
+
+**Lo que descarté, con su argumento — porque las dos alternativas eran defendibles:**
+
+- ⛔ **Que el vacío se quedara la palanca y el bloque ① la perdiera** (la simétrica que apunta la nota de
+  frontend). Se descarta: el argumento a su favor es de **proximidad física** al hueco de la tabla, y el que
+  tiene enfrente es de **jerarquía de lectura**. En una pantalla que existe para que una noticia se lea antes
+  que nada, la proximidad pierde. Además dejaría la versalita **sin salida a mano**, que es justo lo que
+  §28.5 v3.5 prometió (*«y ofrece la palanca»*).
+- ⛔ **Fusionar los dos en un bloque único.** Se descarta por la razón 4 y por una peor: obligaría a redactar
+  una frase que dijera las dos cosas, y **cada frase nueva sobre este hueco es una oportunidad más de volver a
+  afirmar de más**. Ya hay una frase que dice lo que hay que decir.
+- ⛔ **Dejarlo como está y documentarlo como aceptable.** Se descarta: la deuda estaba bien clasificada como
+  **Baja**, pero «bajo impacto» no es «sin decisión». Un hueco de norma que nadie cierra vuelve como
+  reinterpretación en el siguiente pase, y en esta pantalla las reinterpretaciones han costado caro.
+
+**Nota de alcance — esto NO reescribe §8.1.** El patrón general *«sin resultados de filtro ⇒ título +
+Limpiar filtros»* **sigue vigente en todo el sistema**. Lo que dice §28.5b es que **cuando otro bloque de la
+misma vista ya nombra el recorte y ya ofrece la palanca, el vacío por filtro no se repite**. La regla
+generalizable, por si otra pantalla llega a la misma esquina: **el recorte se nombra una vez y la salida se
+ofrece una vez, arriba.**
 
 ### 28.6 Editar una fila sin que un resbalón mueva dinero
 
@@ -12727,8 +12842,8 @@ alcance que se apruebe — *cadenas muertas en un catálogo de dinero son una in
 |---|---|
 | **Cargando** | Skeleton de 8 filas respetando el layout (§7.7). Chips con `—`, **nunca `0`** (§28.5). La cabecera y los rótulos de columna **sí** se pintan: el esqueleto tiene que parecerse a la tabla. |
 | **Vacío total** (no hay ningún bounty en el sistema) | Título «Todavía no hay bounties» + una frase que **explica qué es** («…pagas por encima de tu tarifa hasta juntar las piezas que quieras») + CTA **«Ir al binder»**. Es la única pantalla que enseña el concepto: quien llega aquí y no tiene ninguno probablemente no sabe qué es. |
-| **Vacío por filtro** | «Ningún bounty coincide» + «Limpiar filtros» (§8.1). |
-| **Bloque ① sin filas** | **No es un vacío: es una de las cuatro frases de §28.5**, y cuál de ellas depende de `counts.invalida`, de `truncated` y de **si hay un filtro de identidad puesto** (v3.5). |
+| **Vacío por filtro** ⚠ *(acotado en v3.6)* | «Ningún bounty coincide» + «Limpiar filtros» (§8.1) — **solo cuando NO hay filtro de identidad activo** (es decir: el conjunto quedó vacío por chips de estado y/o paginación). ⛔ **Con un filtro de identidad puesto este bloque NO se pinta**: el bloque ① ya dice `VISTA FILTRADA` y ya trae la palanca, y **la palanca es una sola** (§28.5b). |
+| **Bloque ① sin filas** | **No es un vacío: es una de las cuatro frases de §28.5**, y cuál de ellas depende de `counts.invalida`, de `truncated` y de **si hay un filtro de identidad puesto** (v3.5). Cuando pinta `VISTA FILTRADA`, **manda sobre el vacío por filtro y lo suprime** (§28.5b). |
 | **Lista incompleta** (`truncated: true`) | **No es un error y no bloquea la tabla:** banner `role="status"` con `list.truncated`, chips con `≥`, **y ningún cero enunciado** (§28.2b, §28.5). |
 | **Error de carga** | `Banner danger` + `Reintentar` (§8.1), con el `errorCode` traducido. **La tabla no se pinta a medias**: media lista de bounties es peor que ninguna, porque parece completa. |
 | **Fila que falla al guardar** | El error **se queda en la fila**, abierta y con el foco en el campo; el resto de la tabla no se toca. |
@@ -13039,6 +13154,12 @@ pantalla: **su ancho manda** en el bloque de edición, y en móvil ocupa línea 
     pantalla de gestión (criterio 184(f)).
 19. **No traduzcas los nombres de carta ni de set** (§9.2) y márcalos `lang="en"`.
 20. **No teclees las versalitas en un test.** Se comparan contra la clave del catálogo (§28.10).
+21. **⛔ No pintes DOS palancas `Limpiar filtros` en la misma vista** (v3.6, §28.5b). Con `VISTA FILTRADA` en
+    pantalla, el **vacío por filtro de §28.8 no se pinta**: ni su título, ni su icono, ni su botón. **Una
+    acción, un control** — dos controles con el mismo nombre accesible y el mismo efecto en pasos de
+    tabulación consecutivos son un fallo de accesibilidad, no un detalle estético (§8.2, §28.10). ⛔ **Y no se
+    resuelve al revés** (quitándole la palanca al bloque ①): *el recorte se nombra arriba y la salida se
+    ofrece arriba.*
 
 ### 28.14 QA visual sugerido
 
@@ -13102,6 +13223,23 @@ pantalla: **su ancho manda** en el bloque de edición, y en móvil ocupa línea 
     `invalida = 0`, `truncated = false` ⇒ **sí** se lee el cero tranquilizador (caso 13); y con **un chip de
     estado puesto** y esas mismas condiciones, **también** (los chips no son filtro de identidad).
     *(El test compara **claves** del catálogo, nunca cadenas tecleadas — §28.10, §28.13.20.)*
+20. **⭐⭐ La intersección §28.5 × §28.8 (§28.5b, v3.6) — y también TIENE que poder ponerse en roja.**
+    En `/es/admin/m2/bounties`, teclear en `Buscar carta` un texto que **no case con nada** (p. ej.
+    `zzzznada`) ⇒ la vista tiene que leer **`VISTA FILTRADA` + `zero.filtered`** y contener **exactamente
+    UNA** palanca `Limpiar filtros`.
+    **La aserción es de conteo, no de presencia** —y esa es la parte que hace que el candado pueda ponerse
+    rojo—: se cuentan los controles cuyo nombre accesible es `common.clearFilters` **en toda la vista** y el
+    resultado tiene que ser **1**. *(Un `getByRole(...).toBeVisible()` pasaría en verde con dos botones: es
+    justo el matcher que dejó pasar esto.)*
+    ⛔ **Rojo si aparecen dos.** ⛔ **Rojo si en pantalla se lee «Ningún bounty coincide»** (el vacío por
+    filtro está suprimido en este caso). ⛔ **Rojo si la palanca superviviente es la del vacío** y el bloque ①
+    se queda sin salida.
+    **Control negativo, para que la supresión no se pase de lista:** con **`q` vacía** y **un chip de estado
+    puesto** que deje la tabla sin filas ⇒ **sí** se pinta el vacío por filtro completo, con su título y su
+    palanca (los chips **no** son filtro de identidad, §28.5), y sigue habiendo **exactamente una** palanca.
+    **Y la vuelta:** al limpiar el filtro, las filas reaparecen y **no queda ninguna** palanca `Limpiar
+    filtros` en pantalla.
+    *(Mismo test compara **claves**, nunca cadenas tecleadas — §28.13.20.)*
 
 ### 28.15 Peticiones al arquitecto: **todas contestadas** · y las preguntas abiertas del humano *(v3.4)*
 
@@ -13139,3 +13277,162 @@ que quien vuelva sepa qué se preguntó; el **detalle vive en el contrato**, y n
 **(c) Lo que este diseño necesitaría si algo de lo anterior cambiara** — y va escrito para que **no se asuma
 en el código**: cualquier dato o pantalla que §28 no tenga hoy (antigüedad del rebasado, exposición, alta,
 lote) **pasa por el arquitecto antes** (regla 9 de `CLAUDE.md`). **Este documento no inventa campos.**
+
+---
+
+## 29. 🔴 La línea de comisión del checkout — se renombra y su explicación **se borra** (v3.6)
+
+> **Prioridad: alta.** Esto **no es un cambio cosmético de copy**. La frase que hay hoy en producción
+> **declara por escrito, en la pantalla de pago, que trasladamos al cliente la comisión de nuestro procesador
+> de pago** — y el dueño del negocio, que es quien conoce su jurisdicción, dice que **en México eso es
+> ilegal**. Lo que se retira es **la afirmación**, no el nombre feo. El nombre se cambia de paso porque
+> rotular el cargo como «costo de procesamiento» es la mitad de la misma afirmación.
+
+### 29.1 Lo que decía, y por qué exactamente es el problema
+
+| Clave | ES (producción, hasta v3.5) | EN (producción, hasta v3.5) |
+|---|---|---|
+| `checkout.processingFee` | «Costo de procesamiento» | “Processing fee” |
+| `checkout.processingFeeHint` | «Cubre la comisión del procesador de pago (Stripe), trasladada a ti.» | “Covers the payment processor fee (Stripe), passed on to you.” |
+
+**Diseccionado, la frase hace tres cosas y las tres sobran:**
+1. **Nombra a un tercero** (Stripe) como origen del importe.
+2. **Dice que ese costo es de un tercero** («la comisión del procesador de pago»).
+3. **Dice que te lo pasamos a ti** («trasladada a ti» / “passed on to you”).
+
+La (3) es la exposición. La (1) y la (2) son las que la hacen inequívoca: sin ellas, «trasladada» no tendría
+sujeto. **Por eso la frase no se maquilla: se borra entera** y se escribe otra desde cero.
+
+### 29.2 ⚠ La disciplina de escribir esto **sin abogado** — lo que NO se puede hacer
+
+**Hoy el proyecto no tiene asesoría legal.** Eso **no** autoriza a improvisar una frase más lista: obliga a
+**afirmar menos**.
+
+- ⛔ **Ninguna afirmación jurídica**, ni a favor ni en contra. Nada de «conforme a la ley», «permitido por la
+  normativa», «no constituye un recargo», «no es una sobretasa», ni citas de norma, artículo o autoridad.
+  **No lo sabemos y no se finge.**
+- ⛔ **Ninguna negación defensiva.** *«Esto no es un traslado de la comisión de tu método de pago»* sería
+  **peor que la frase original**: introduce el tema, obliga al lector a pensar en él y **sigue siendo una
+  afirmación que habría que sostener**. *No se sustituye una afirmación arriesgada por otra: se retira el
+  tema de la pantalla.*
+- ✅ **Sí se escribe lo que es verdad del negocio**, y es simple: **es una comisión NUESTRA, de la plataforma,
+  por operar el servicio.** Con qué costos cargamos nosotros —Stripe entre ellos— **es asunto interno** y no
+  tiene por qué aparecer en la pantalla del cliente.
+- **Cuanto menos afirme la pantalla, mejor.** Este texto es **provisional por diseño**: cuando haya abogado se
+  revisa. Queda anotado como tal en §29.6.
+
+### 29.3 ✅ Las cadenas nuevas — normativas, se copian sin interpretar
+
+**Las dos claves conservan su nombre** (`checkout.processingFee` / `checkout.processingFeeHint`); lo que
+cambia es **el valor**. *(El renombrado de la clave, opcional, se trata en §29.5.)*
+
+| Clave | **ES (nuevo)** | **EN (nuevo)** |
+|---|---|---|
+| `checkout.processingFee` | **`Comisión de plataforma`** | **`Platform fee`** |
+| `checkout.processingFeeHint` | **`Nuestra comisión por operar tu compra en TCG HUNT. Ya está incluida en el total que ves aquí.`** | **`Our fee for handling your purchase on TCG HUNT. It's already included in the total shown here.`** |
+
+**Por qué esta frase y no otra, línea por línea:**
+
+- **«Nuestra comisión»** — dice **quién cobra** (nosotros) y **qué es** (una comisión). Es el hecho, y es
+  nuestro. No hay tercero en la frase.
+- **«por operar tu compra en TCG HUNT»** — dice **a cambio de qué**, que es lo único que legítimamente le
+  interesa a quien paga. ⛔ **No enumera costos** (ni pago, ni resguardo, ni seguro): una enumeración es una
+  promesa de cobertura y **se convertiría en una afirmación que habría que sostener** en cada caso.
+- **«Ya está incluida en el total que ves aquí»** — es la parte **útil** para el comprador y es
+  **verificable en la propia pantalla**: `totalCents = subtotal + comisión + IVA`. Cierra la duda que de
+  verdad tiene («¿me van a cobrar algo más luego?») sin abrir ninguna nueva.
+- **Lo que la frase NO dice, y es deliberado:** no dice cómo se calcula, no dice por qué existe ese importe y
+  no dice si es obligatorio, opcional, evitable o legal. **Cuatro silencios a propósito.**
+- **EN — «Our fee for handling…», no “Our fee for processing…”.** `processing` reintroduce por la puerta de
+  atrás la palabra del procesador de pago, que es exactamente el vocabulario del que se sale. `handling` dice
+  *ocuparnos de tu compra* y no apunta a ningún proveedor.
+
+**Tratamiento visual: no cambia nada.** Misma fila del `AmountBreakdown` (§7.12), mismo peso, mismo
+`tabular-nums`, mismo hint en `text-xs muted`. **Ni destacado, ni color, ni icono de aviso.** *Poner un
+adorno nuevo en esta línea justo ahora sería señalarla — y lo que se busca es que deje de ser una
+declaración y vuelva a ser una fila.*
+
+### 29.4 ⚠⚠ El barrido completo del catálogo — **y la línea que separa CLIENTE de BACK-OFFICE**
+
+> **Léase esto antes de tocar nada.** El cambio es **solo lo que ve el cliente**. En el back-office, Stripe
+> **sí** es un costo nuestro, nombrarlo es correcto y **necesario** para operar y cuadrar. **Quien barra el
+> catálogo con un `grep` de «Stripe» y lo cambie todo, rompe la contabilidad del panel.**
+
+**(a) ✅ CAMBIAN — superficie de cliente (2 claves × 2 idiomas = 4 cadenas). Es la lista completa.**
+
+| # | Clave | Archivos | Acción |
+|---|---|---|---|
+| 1 | `checkout.processingFee` | `frontend/messages/es.json:304`, `en.json:304` | **Reemplazar valor** por §29.3 |
+| 2 | `checkout.processingFeeHint` | `frontend/messages/es.json:305`, `en.json:305` | **Borrar la frase actual y reemplazar** por §29.3 |
+
+*(Números de línea a fecha de este documento; son una ayuda para localizar, no una aserción.)*
+
+**Y con esas dos claves quedan cubiertas CINCO superficies de cliente**, porque `AmountBreakdown` es el único
+componente que rotula estas líneas y lo consumen: **checkout con cuenta · guest checkout · detalle de orden ·
+seguimiento público del pedido (`/pedido`) · detalle de envío**. **No hay que buscar más sitios** (§7.12).
+
+**(b) ⛔ NO CAMBIAN — back-office. Están BIEN. No se tocan.**
+
+| Clave | Valor ES | Por qué se queda |
+|---|---|---|
+| `admin.m10.dials.labels.stripeFeePct` | «Comisión Stripe» | Es **el dial del costo real** que nos cobra Stripe. Rebautizarlo haría imposible saber qué se está configurando. |
+| `admin.m10.dials.labels.stripeFeeFixedCents` | «Comisión Stripe fija» | Ídem: es el componente fijo de ese mismo costo. |
+| `admin.m7.pnl.stripeFees` | «Comisiones Stripe» | Es **una línea de gasto del P&L**. Es nuestro costo y así se llama. |
+| `admin.m7.pnl.formula` | «Ingresos + ingreso por envío − costo de lo vendido − **comisiones Stripe** − costo de envío = ganancia.» | La fórmula **describe nuestra contabilidad interna**. Si esta línea dejara de nombrar a Stripe, el P&L dejaría de ser auditable. |
+
+*La razón de fondo, para que no haga falta volver a preguntarlo:* **el problema nunca fue nombrar a Stripe —
+fue decirle al cliente que su comisión se la pasamos a él.** En el back-office no hay cliente, no hay
+traslado y no hay declaración: hay un costo con su nombre.
+
+**(c) 🔍 Revisadas y **NO** afectadas — se listan para que nadie las «arregle» por su cuenta.**
+
+| Clave | Valor | Veredicto |
+|---|---|---|
+| `error.PAYMENT_PROVIDER_UNAVAILABLE` | «No pudimos contactar al procesador de pago…» | ✅ **Se queda.** Es un **error operativo**; el proveedor es la **causa del fallo**, no la justificación de un importe (§7.12a, el matiz). |
+| `home.how.step1Body` | «…En el checkout ves el desglose completo antes de pagar.» | ✅ **Ya está limpia** — **verificado en el catálogo actual**. Enumeró «IVA, procesamiento y envío» en su día y **ya fue reescrita**. ⚠ **La entrada de `docs/TECH_DEBT.md` que aún la cita con el texto viejo está desactualizada**; no reabrir. |
+| `legal.*` (términos y política) | — | ✅ **Barrido completo: no menciona la comisión ni ningún traslado.** Nada que cambiar. |
+| `checkout.shipping`, `checkout.destination.shipFeeHint`, `shipments.shippingFee`, `shipments.flatFeeNotice`, `admin.m10.dials.labels.shippingFeeCents` | Tarifa de envío | ✅ Son **envío**, no comisión. Fuera de alcance. |
+| Plantillas de correo del backend | — | ✅ **Verificado: los correos no renderizan el desglose de importes.** No hay copia de estas cadenas fuera del catálogo del frontend. |
+| `checkout.stripeMock`, `checkout.paidBody`, `payment.mockBody` | Avisos de **modo demo** que nombran a Stripe | ⚠ **NO se tocan en este pase**, y se dice por qué: **no afirman ningún traslado** y son andamiaje de demo. **Pero no deberían llegar a producción tal cual** — eso es una decisión de release, no de este encargo. Se anota como observación en §29.6, **no como trabajo**. |
+
+### 29.5 Sobre el **nombre de la clave** — recomendado, **no bloqueante**
+
+La clave sigue llamándose `processingFee` mientras el rótulo dice «Comisión de plataforma». **Es una
+incoherencia interna, no una exposición**: el nombre de la clave **no lo ve ningún cliente**.
+
+- **Recomendación:** renombrar a **`checkout.platformFee` / `checkout.platformFeeHint`** en el **mismo pase**.
+  El alcance real es corto y está acotado: los dos catálogos, el `t('processingFee')`/`t('processingFeeHint')`
+  de `AmountBreakdown`, y las referencias de los specs de navegador que leen esas claves.
+- ⛔ **Pero NO bloquea el cambio de cadena, y si hay que elegir, primero van las cadenas.** Un renombrado
+  apresurado que se deje una referencia sin actualizar produce una **clave sin traducir en la pantalla de
+  pago**, que es peor que una clave con nombre viejo.
+- ⛔ **El campo del contrato NO se toca.** `processingFeeCents` del `BreakdownDTO` se queda como está: es un
+  nombre de API interna, **no lo lee ningún cliente**, y cambiarlo movería backend, contrato, Prisma y tests
+  **sin ganar nada frente al riesgo**. *(Si algún día el arquitecto quiere alinearlo, es petición suya y pasa
+  por la regla 9 — este documento no lo pide.)*
+
+### 29.6 Verificación, y lo que queda anotado
+
+**Cómo se comprueba que quedó hecho (verificable POR AUSENCIA, que es lo que importa aquí):**
+
+1. **En pantalla, ES y EN**, en el checkout con cuenta **y** en el guest checkout: la línea lee **«Comisión de
+   plataforma» / “Platform fee”** con su hint nuevo.
+2. **En todo el catálogo de cliente, cero apariciones** de: `trasladad*`, `passed on`, «procesador de pago»
+   **como justificación de un importe**, y de la palabra `Stripe` **en cualquier cadena que acompañe a una
+   cifra**. *(El `grep` es la ayuda; la verificación honesta es mirar la pantalla — §26.8.)*
+3. **Contraste y layout: sin regresión.** El rótulo ES mantiene su longitud (22 caracteres, igual que
+   «Costo de procesamiento») y el EN **encoge** de 14 a 12 — **cabe en el mismo sitio, en las cinco
+   superficies y también en la barra sticky de móvil** (§15.3) — y **no se toca ningún par de color** (misma
+   tinta sobre mismo papel, §10). **Cero pares nuevos que verificar.** El **hint** sí crece un poco en ES;
+   va en `text-xs muted` bajo la etiqueta y **envuelve**, que es su comportamiento normal.
+4. **Back-office intacto:** los cuatro rótulos de §29.4(b) siguen diciendo «Stripe». **Si alguno cambió, el
+   pase se fue de largo y hay que revertirlo.**
+
+**Anotado, y no es trabajo de este encargo:**
+
+- **⏸️ Revisión legal pendiente.** Este copy está escrito **para afirmar lo mínimo** precisamente porque no hay
+  abogado. **Cuando lo haya, esta sección se revisa** — puede que permita decir más, o que exija decir otra
+  cosa. Hasta entonces, **§29.3 es la redacción vigente y no se «mejora» por criterio propio**.
+- **📌 Para product-owner / arquitecto (observación, no petición de contrato):** las cadenas de **modo demo**
+  que nombran a Stripe (§29.4(c)) son andamiaje y **conviene que no sobrevivan al primer release real**. No
+  pido ningún campo nuevo ni ningún cambio de contrato: **este pase no necesita nada de nadie.**

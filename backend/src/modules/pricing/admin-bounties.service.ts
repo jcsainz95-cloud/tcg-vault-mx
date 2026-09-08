@@ -245,10 +245,10 @@ export class AdminBountiesService {
           finish: row.finish,
         }),
       );
-      const referenceMxnCents =
-        ref && ref.status === 'priced' ? (ref.referenceMxnCents ?? null) : null;
+      // v1.62.2 (B-14): la `PriceInfo` entra ENTERA al composer. El estrechamiento money-safe (y el
+      // `market` que se emite) viven allí dentro, una sola vez — aquí no se decide nada del mercado.
       const pricing = composeVariantPricing(
-        referenceMxnCents,
+        ref ?? null,
         curve,
         row,
         row.card.rarityCanonical ?? row.card.rarity,

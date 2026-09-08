@@ -5,7 +5,7 @@ import { BusinessException } from '../../common/business.exception';
 import { MAX_CENTS, quoteAcquisitionFromCurve } from '../../common/money';
 import { AuditService } from '../audit/audit.service';
 import { PricingService } from './pricing.service';
-import { VariantPricingDTO, composeVariantPricing } from './variant-pricing';
+import { VariantPricingDTO, composeVariantPricing, resolveMarketReference } from './variant-pricing';
 
 /**
  * VariantControlsService — v1.28 (P-18/P-22, ARCHITECTURE §4.26a/§4.26b · API_CONTRACT §M2
@@ -370,8 +370,9 @@ export class VariantControlsService {
     // caso donde más se necesita.
     const curve = await this.pricing.loadPricingCurve();
     const ref = await this.pricing.getReference(card.id, productType, 'raw:NM', finish);
-    const referenceMxnCents =
-      ref.status === 'priced' && ref.referenceMxnCents != null ? ref.referenceMxnCents : null;
+    // v1.62.2: MISMO estrechamiento money-safe que emite `market` (`resolveMarketReference`), para que
+    // el gate del alta y la respuesta resuelta no puedan mirar dos mercados distintos.
+    const referenceMxnCents = resolveMarketReference(ref).referenceMxnCents;
     const curveQuoteCents = quoteAcquisitionFromCurve(referenceMxnCents, curve).curveQuoteCents;
     if (curveQuoteCents != null && next.bountyPriceCents <= curveQuoteCents) {
       throw BusinessException.validation(
@@ -395,8 +396,8 @@ export class VariantControlsService {
     // v2.0 (P-48, §4.36.2): UN solo lector de la curva para los dos ejes.
     const curve = await this.pricing.loadPricingCurve();
     const ref = await this.pricing.getReference(card.id, productType, gradeKey, finish);
-    const referenceMxnCents =
-      ref.status === 'priced' && ref.referenceMxnCents != null ? ref.referenceMxnCents : null;
-    return composeVariantPricing(referenceMxnCents, curve, row, card.rarityCanonical ?? card.rarity);
+    // v1.62.2 (B-14(d)): la `PriceInfo` entera al composer — el mismo cuerpo, y por tanto el mismo
+    // `market`, que devuelven el binder y la consola para esta variante.
+    return composeVariantPricing(ref, curve, row, card.rarityCanonical ?? card.rarity);
   }
 }

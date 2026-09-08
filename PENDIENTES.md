@@ -204,6 +204,11 @@ Doble veredicto por-stream aprobado; mergeado a `main` (`6c5763b`). Se despliega
 
 ### Diseñado y documentado pero SIN CONSTRUIR (2026-09-02)
 
+#### ~~P-54 · 🎨 Logos de expansión en el índice de sets~~ — ✅ HECHO Y EN PRODUCCIÓN (2026-09-08)
+- Verificado: `SetPlate.tsx` pinta `logoUrl`, con el caso `null` tratado como normal y permanente (no como carga). El humano lo confirmó en vivo. *(Texto original abajo, conservado por el histórico.)*
+
+<details><summary>original</summary>
+
 #### P-54 · 🎨 Logos de expansión en el índice de sets (en vez de los títulos en texto) — 0% implementado
 - **Pedido del humano:** que el índice de sets muestre **el logo de cada expansión**, no su nombre en texto.
 - **Lo que SÍ existe (todo documental, ya en `main` y desplegado como docs):**
@@ -392,14 +397,24 @@ Encontrado por el humano probando en producción. Las tres se sirven juntas o ni
   que frena al vendedor primerizo). Hay que **reubicarlas**, no solo mover el carrito.
 - **Rol dueño:** ux-ui → frontend.
 
-#### P-62 · 🏷️ Renombrar «Costo de procesamiento» — decisión de negocio pendiente
-- **Pedido por el humano.** ⚠️ **No es solo el nombre:** la explicación de al lado dice *«cubre la
-  comisión del procesador de pago (Stripe), trasladada a ti»* — **no es comisión nuestra, es un
-  costo que se traslada**. Llamarlo «comisión de plataforma» diría que nos la quedamos nosotros.
-- **Dos opciones, las dos legítimas:** (a) «Comisión de plataforma» + **cambiar también la
-  explicación**, o (b) «Comisión por procesamiento de pago», que quita lo feo sin cambiar lo que
-  dice. Recomendada la (b). **Decide el humano.** Claves `processingFee`/`processingFeeHint`, ES/EN.
-- **Rol dueño:** ux-ui (texto) → frontend (cableado).
+#### ~~P-62 · 🏷️ Renombrar «Costo de procesamiento»~~ — ✅ HECHO (2026-09-08), y **la recomendación que traía era la EQUIVOCADA**
+- **Cerrado.** El checkout dice **«Comisión de plataforma»** · *«Nuestra comisión por operar tu compra en
+  TCG HUNT. Ya está incluida en el total que ves aquí.»* La clave se renombró a `checkout.platformFee`.
+- ⚠️⚠️ **Lo que esta ficha recomendaba era la opción (b), «Comisión por procesamiento de pago», con el
+  argumento de que “quita lo feo sin cambiar lo que dice”. Esa opción está DESCARTADA, y no por
+  preferencia:** el humano informó (2026-09-08) que **trasladar al cliente la comisión del procesador es
+  ilegal en México**, así que «no cambiar lo que dice» era exactamente lo que NO se podía hacer. Queda
+  escrito para que nadie la reabra leyendo la recomendación vieja.
+- **Y el problema nunca fue el nombre: era la frase.** El texto viejo declaraba por escrito, en la
+  pantalla de pago, que trasladamos ese costo. Se borró entera; la nueva **no afirma nada jurídico y
+  tampoco lo niega** — una negación defensiva introduce el tema y sigue siendo una afirmación que habría
+  que sostener.
+- ⛔ **Lo que NO se tocó, y no se toca:** los rótulos de Stripe del back-office (diales de M10, línea del
+  P&L de M7). Ahí Stripe **sí** es un costo nuestro y nombrarlo es lo honesto. **Un barrido con `grep`
+  de «Stripe» rompe la contabilidad del panel** — hay un candado que lo caza.
+- 🕐 **Pendiente del humano, con disparador DURO:** **no tiene abogado todavía**. Ese texto de cliente
+  **debe revisarse con abogado antes de crecer en volumen**. Ni el equipo ni el orquestador escriben
+  afirmaciones jurídicas mientras tanto.
 
 #### P-63 · 💱 Falta `BANXICO_SIE_TOKEN` — el tipo de cambio no se actualiza
 - **Medido en los logs de producción**, repetido: *«Sin `BANXICO_SIE_TOKEN`: fx-refresh no puede
@@ -408,10 +423,19 @@ Encontrado por el humano probando en producción. Las tres se sirven juntas o ni
 - No rompe nada hoy, pero **si el peso se mueve, cotizas compra y venta con un tipo viejo**.
 - **Rol dueño:** devops (variable de entorno) — el token lo obtiene el humano de Banxico.
 
+</details>
+
+#### ~~P-64 · 📄 `HANDOFF.md` desactualizado~~ — ✅ HECHO Y EN PRODUCCIÓN (2026-09-08)
+- devops barrió el fichero entero, no solo las cinco líneas reportadas. Verificado: las dos menciones que quedan del dominio viejo son la nota explícita de que está **RETIRADO**. Y dejó fijado que el nombre interno `tcg-vault-mx` **sí** es correcto — la trampa del siguiente que haga ese grep.
+
+<details><summary>original</summary>
+
 #### P-64 · 📄 `HANDOFF.md` desactualizado — dice un dominio de correo que ya no es
 - Afirma que el dominio verificado en Resend es `tcgvaultmx.com`; **el que se usa y está verificado
   es `tcghunt.mx`** (medido en los logs y en Resend). Misma clase que los ocho tachones de D52: un
   documento afirmando un estado que la realidad dejó atrás. **Rol dueño:** devops.
+
+</details>
 
 #### P-65 · 🖼️ Las fotos tardan 5–10 s en aparecer — reportado por el humano
 - **Medido en el código (no supuesto): no es una causa, son cuatro eslabones EN SERIE.**
@@ -425,8 +449,15 @@ Encontrado por el humano probando en producción. Las tres se sirven juntas o ni
   3. **Las fotos no pasan por nosotros.** Todas se piden directo a `images.pokemontcg.io` con `<img>`
      plano (`components/ui/CardImage.tsx`): ni las redimensionamos, ni las convertimos a formato
      moderno, ni las guardamos en caché propia. Cada visitante paga el viaje al servidor del
-     proveedor, con su latencia y el peso original. El **único** sitio del front que usa el
-     optimizador de Next es el logo de expansión (`SetPlate.tsx`).
+     proveedor, con su latencia y el peso original.
+     - ⚠️ **CORRECCIÓN (2026-09-08, mía).** Aquí decía que *«el único sitio del front que usa el
+       optimizador de Next es el logo de expansión (`SetPlate.tsx`)»*. **Es falso.** Lo deduje de que
+       un `grep` de `next/image` devolvía ese fichero — y **la coincidencia era un COMENTARIO** que
+       dice literalmente *«sin next/image»*. **No hay una sola línea de `next/image` en el frontend**:
+       todas las imágenes son `<img>` crudo (Nivel B, `ARCHITECTURE §4.41.7`). Propagué el error a un
+       encargo de seguridad y ahí hizo ver un riesgo más pequeño de lo que era; lo cazó el agente al
+       verificar en vez de ejecutar. **La lección: un `grep` dice dónde aparece un texto, no qué hace
+       el código.**
   4. Las demás van en `lazy` y eso **está bien** — no es ahí donde se van los segundos.
 - **Lo que NO pude medir desde aquí, y decide cuál es la cura:** este contenedor tiene bloqueada la
   salida a internet (`tcghunt.mx` e `images.pokemontcg.io` devuelven 403 en el proxy), así que **no
@@ -449,39 +480,115 @@ Encontrado por el humano probando en producción. Las tres se sirven juntas o ni
 - **Rol dueño:** frontend para (a) y (b); arquitecto si se va a (c) o (d).
   **Antes de tocar nada: la medición del navegador.**
 
-#### P-66 · 🧟 Dar una vuelta al panel de administración — zombies y navegabilidad — pedido por el humano
-- **Lo que dijo el humano:** *«siento que tenemos varios zombies ahí que no nos ayudan, o temas de
-  navegabilidad»*. Es el panel donde él trabaja todos los días: la fricción aquí no se pierde en
-  una conversión, **se paga en su tiempo**.
-- **Censo medido (`AdminSidebar.tsx` + `messages/es.json`), para que la revisión no empiece de cero:**
-  **12 destinos** en 4 grupos — Operación (Dashboard, M1 Inventario y bóveda, Bóvedas de clientes,
-  M4 Retiros/envíos, M5 Buylist, M8 Disputas) · Catálogo/Precios (M2) · Ventas/Finanzas (M3 Ventas,
-  M7 Finanzas, M9 Reportes) · Administración (M6 Usuarios/KYC, M10 Config y bitácora).
-  **7 de los 12 son solo súper-admin**, así que un operador ve cinco y el dueño ve doce, siempre.
-- **Zombies concretos ya verificados en el código (no son todos, son los que se ven sin buscar):**
-  - **M9 · Reportes** — su bloque principal es *«Avance de la beta cerrada frente a las metas
-    **N/X/Y/Z**»*. Dos problemas en una pantalla: (1) las metas se llaman **N, X, Y y Z**, letras que
-    vienen de `PROJECT.md` y que **en pantalla son álgebra**, no negocio; (2) hay un texto de reserva
-    —*«las metas N/X/Y/Z aún no se fijan»*— que sugiere que **las cuatro tarjetas están enseñando
-    "Meta sin fijar"**. Si es así, es una sección entera cuyo propósito (avance contra meta) **está
-    inerte**. ⚠️ *Falta comprobar en producción si las metas están fijadas o no — no se puede medir
-    desde el repo.* Además sigue hablando de **«beta cerrada»**, y ya estamos en producción.
-  - **La navegación etiqueta cada destino por su CÓDIGO INTERNO** («M1 · Inventario y bóveda»,
-    «M9 · Reportes»). El código no le dice nada a un humano y se come el principio de cada rótulo,
-    que es justo donde el ojo busca. Está escrito a propósito en `AdminSidebar.tsx` («el código del
-    módulo ya identifica cada entrada») — es decir, es una decisión que hay que **revisar**, no un
-    descuido.
-  - **Botones que aparecen donde no se pueden usar** — ya reportado aparte como **P-58**
-    («Marcar recibida» visible fuera del paso donde tiene sentido). Es el mismo síntoma de fondo:
-    la pantalla enseña todo lo que existe en vez de lo que toca ahora.
-- **Lo que NO se midió, y hace falta:** cuáles de los 12 destinos **usa realmente** el dueño. Eso no
-  está en el repo; lo contesta él en dos minutos o se saca de los registros de acceso.
-- **Cómo hacerlo bien (y no a ojo):** un pase del rol **`ux-review`** sobre el panel ya construido
-  —fricción, jerarquía, claridad, consistencia con `DESIGN_SYSTEM`— que **reporta y no corrige**;
-  sus hallazgos se enrutan a **ux-ui** (rótulos, agrupación, qué se esconde) y a **frontend**
-  (cableado). Si sale que hay que **retirar** una pantalla, eso es decisión de producto: pasa por
-  **product-owner** y lo aprueba el humano — nadie borra una pantalla del admin por su cuenta.
-- **Rol dueño:** `ux-review` (diagnóstico) → ux-ui + frontend (cura) → product-owner si se retira algo.
+#### P-66 · 🧟 Dar una vuelta al panel de administración — ✅ DIAGNOSTICADO (ux-review, 2026-09-08) · **VEREDICTO: RECHAZADO**
+- **Pedido del humano:** *«siento que tenemos varios zombies ahí que no nos ayudan, o temas de navegabilidad»*.
+- **Cómo se midió:** bundle de producción con mocks recompilado sobre `9ff373f`, recorrido en Chromium a
+  **1280×800 y 390×844**, como `super_admin` y como `vault_operator`. Lo no medido va marcado como tal.
+
+##### 🔴 Bloqueantes
+- **B1 · M5 (Buylist) enseña TODO lo que existe, no lo que toca ahora.** **Diez pestañas en dos barras
+  apiladas** (4 «colas del ciclo» + 6 de estado) y dos jerarquías en la misma pantalla. En «Verificando»,
+  una solicitud de 3 cartas pinta **14 botones**; con 4 solicitudes es una pared, y **«Pagar por SPEI»
+  —dinero— queda al fondo**. La única pista de qué toca ahora va en 11 px. Y la lista de solicitudes
+  empieza a **≈660 px en escritorio y ≈880 px en móvil** (bajo el pliegue): esto es, literalmente, lo que
+  el humano llamó *«súper escondidas»*. **Rol:** ux-ui → frontend.
+  - ⚠️ **P-58 confirmado y precisado:** «Marcar recibida» **no es una fuga** — está cableado a `status ===
+    'cotizada'` **a propósito**, o sea exactamente al paso donde no debería estar.
+- **B2 · Tres pantallas DESBORDAN en 390 px** (medido, `scrollWidth − innerWidth`): **M5 +419 px**
+  (la página se renderiza a 809 px: hay que hacer scroll lateral para llegar a «AUTORIZAR Y MANDAR»),
+  **M1 +89 px**, **M2 +35 px**. Las tres se saltan `DataTable`, que **sí** colapsa a tarjetas. *(Bounties
+  ya no desborda: 0 px, verificado.)* **Rol:** frontend. ⚠️ **Si el humano no usa el teléfono, baja a
+  importante** — es la pregunta 1 de abajo.
+- **B3 · Las pantallas de dinero hablan en identificadores, no en personas.** M3 y M4 pintan `u-777`,
+  `u-778` como «usuario»: para saber a quién le vendió hay que ir a M6 con el id en la cabeza. M10 pinta
+  `u-admin`/`SUPER_ADMIN`/`settings.update`; M6 pinta `CUSTOMER`/`VAULT_OPERATOR`. **§9.2 del sistema de
+  diseño dice «nunca se pinta el enum crudo».** ⭐ **M5 ya lo resolvió** (nombre + correo + enlace a la
+  ficha): la cura existe en el mismo panel. **Rol:** frontend; arquitecto+backend si M3 necesita el DTO.
+
+##### 🟠 Importantes
+- **I1 · Zombies confirmados** *(no se retira nada sin producto y sin el humano)*: **M9 Reportes** — de sus
+  tres secciones, **dos son las mismas de M7** (mismo rango de fechas, **los mismos tres botones de
+  exportar, misma función**); lo único propio son 4 tarjetas cuyo subtítulo dice *«Avance de la beta
+  cerrada frente a las metas N/X/Y/Z»* (álgebra en pantalla, y «beta cerrada» estando en producción).
+  Y la **tarjeta «Progreso de lanzamiento» del dashboard está INERTE POR CONSTRUCCIÓN**: pinta «Meta
+  pendiente» **sin condición**, y su DTO ni siquiera tiene metas ⇒ con los mismos datos, M9 dice 42 % y el
+  dashboard dice «Meta pendiente». **Los mismos cuatro contadores aparecen en tres sitios.**
+  **Rol:** product-owner decide → ux-ui redacta → frontend cablea.
+- **I2 · La navegación rotula por código, y el código no sirve para nada.** Los códigos **no llevan orden**
+  (M1, Bóvedas, M4, M5, M8 / M2 / M3, M7, M9 / M6, M10) y **tres destinos no tienen código**: no ordenan ni
+  identifican, solo **desplazan el nombre 5 caracteres a la derecha en 12 filas**. El rótulo del menú y el
+  título de la página **difieren en 6 de 12**. Las solicitudes de venta se llaman **«Buylist»** en el menú
+  y **«Solicitudes de venta»** en M6 — *el humano las buscó por su nombre y no las encontró*. La etiqueta
+  «SÚPER» sale en **7 de 12 filas** también para el súper-admin, que es el único que la ve.
+  **Rol:** ux-ui → frontend.
+- **I3 · M2 es UNA página de 7.986 px, 11 secciones y 61 botones**, con una barra pegajosa
+  («GUARDAR CURVA») fija al pie **desde el primer scroll**: quien está en «Tipo de cambio» ve un botón que
+  no le corresponde. **Rol:** ux-ui / frontend.
+- **I4 · M8 le habla al dueño como si fuera el cliente** («Envía **tu** evidencia por correo… citando **tu**
+  número de orden») y **no tiene estado vacío**: con cero disputas queda en blanco. **Rol:** frontend.
+- **I5 · El sistema de diseño afirma seis cosas que el panel NO cumple** — buscador global en el topbar
+  (no existe), barra inferior en móvil (no existe), la lista de grupos de §7.15 (desactualizada), tarjetas
+  del dashboard clicables + semáforo + barras (no existen), colapso a tarjetas en `<md` (falso fuera de
+  `DataTable`), y **objetivos táctiles ≥44 px** (medido en el topbar: 15×25, 111×17, 101×16).
+  **Misma clase que los ocho tachones de D52: o se implementan o ux-ui las retira.**
+- **I6 · M3 muestra su única acción como lo más llamativo:** «REEMBOLSAR» en bermellón sólido —dinero que
+  sale— sin detalle de orden, sin enlace al envío ni al comprador.
+
+##### ✅ Lo que está bien y NO se toca
+Foco de teclado visible · M1 cumple §16.1 · **Bóvedas de clientes y Bounties son las dos pantallas más
+limpias del panel** · **M4 tiene estado vacío y acciones acotadas por estado — es el patrón que le falta a
+M5** · los enlaces de «Cola de trabajo» del dashboard sí llevan a su módulo.
+
+##### ❓ No medido, y hace falta
+Volumen real de datos (colas con decenas de filas cambian la lectura de M5 y M3), si las metas de M9 están
+fijadas **en producción**, y **el uso real de cada destino**. Hay 12 preguntas cortas para el humano en el
+reporte; las cuatro que más cambian el trabajo: **¿entra desde el teléfono?** (decide si B2 bloquea),
+**¿fijó las metas N/X/Y/Z?** (decide si M9 es zombie), **¿entra alguien más al panel?** (decide el trato de
+roles) y **¿cómo le llama a M5?**.
+
+
+##### ✅ Respuestas del humano (2026-09-08) — reordenan el trabajo
+| Pregunta | Respuesta | Qué cambia |
+|---|---|---|
+| ¿Entra desde el teléfono? | **No, solo computadora** | ⬇️ **B2 (las tres pantallas que desbordan en 390 px) BAJA a deuda registrada.** No se gasta tiempo ahí ahora. Se anota con su medición para el día que use el móvil o entre un operador que sí |
+| ¿Las metas `N/X/Y/Z`? | **No existen — y quiere una pestaña de analytics de verdad, pero primero saber qué datos hay** | ➡️ **M9 NO se retira: es la semilla.** Nace **P-67** (inventario de datos). Sí se corrige ya el «beta cerrada» |
+| ¿Alguien más en el panel? | **Todavía no, pero pronto** | Se optimiza para él primero, **sin cerrarle la puerta al operador**. La etiqueta «SÚPER» en 7 de 12 filas **no se quita**: pronto informará |
+| ¿Qué usó la última semana? | **M3 · Ventas** y **M10 · Config** (⛔ **no** M8, **no** M9) | ⬆️ **B3 sube**: M3 es de uso real y le enseña `u-777` en vez del comprador. ⬆️ M10 (el ensayo de ingeniería dentro del formulario). ⬇️ **M8 baja** — no lo usó, y lo más probable es que sea porque **no ha habido disputas**, no porque sobre: es una pantalla que espera, no un zombie |
+
+##### 🎯 Orden de trabajo resultante
+1. **B1 · M5 en computadora** — la pantalla que más usa, diez pestañas y catorce botones por solicitud.
+2. **B3 · M3 y M10** — identificadores en vez de personas, en pantallas de uso diario.
+3. **P-67** — el inventario de datos, que desbloquea la pestaña de analytics.
+4. **I2 · los rótulos del menú** — barato y se nota todos los días.
+5. **I1 (dashboard)** — la tarjeta de progreso inerte: se quita o se conecta.
+6. ⬇️ **B2 (móvil)**, **I4 (M8)** — deuda registrada, con su medición, para cuando toque.
+
+#### P-67 · 📊 Inventario de datos para analytics — «¿qué podemos medir hoy?» — pedido por el humano
+- **Lo que dijo, literal (2026-09-08):** *«SÍ me interesa generar una tab de analytics y reportes, sin
+  embargo creo falta saber bien qué datos están disponibles para ver si hay que crear track de algo y
+  elegir de lo que hay.»*
+- **La pregunta es la correcta y va PRIMERO.** Diseñar un tablero antes de saber qué se puede medir es
+  cómo nacieron las metas `N/X/Y/Z`: un marco de reporte sin datos detrás que lleva meses enseñando
+  «Meta sin fijar». **No se diseña ninguna pantalla hasta que este inventario exista.**
+- **Qué hay que producir** — un documento que el humano pueda leer y elegir, no una lista de tablas:
+  1. **Lo que YA se guarda y se puede reportar hoy**, en lenguaje de negocio (qué se vendió, a quién, a
+     qué precio, con qué margen, cuánto se pagó en compras, qué inventario hay y cuánto vale, KYC,
+     disputas, retiros). Con **la granularidad real** (¿por día? ¿por pieza? ¿por set?) y **desde cuándo
+     hay historia** — un dato que empieza el mes pasado no sirve para una tendencia anual.
+  2. **Lo que se guarda pero NO es reportable todavía** y qué faltaría para que lo fuera.
+  3. **Lo que NO se guarda y habría que empezar a registrar** (el «crear track de algo» que él nombra),
+     con el costo de empezar a hacerlo y **desde cuándo tendría historia** — porque lo que se empieza a
+     registrar hoy no tiene pasado.
+  4. ⚠️ **Las trampas conocidas**, que ya nos mordieron: el P&L del tablero suma un campo a secas
+     mientras el control antilavado usa una cascada con respaldo; y `PriceReference` escribe ~28.559
+     filas/día (P-53) — cualquier reporte histórico de precios se apoya en esa tabla.
+- **Cómo se hace, y en qué orden:** un pase de **lectura** (arquitecto o backend, sin escribir código)
+  que produzca el inventario → el **humano elige** qué quiere ver → **product-owner** aterriza el
+  alcance → recién entonces arquitecto/ux-ui/frontend.
+- **Cruce con P-66:** de las tres secciones de **M9 Reportes**, dos son **idénticas a M7**; lo único
+  propio son las tarjetas de `N/X/Y/Z`. ⇒ **M9 no se retira todavía: es la semilla de este trabajo.**
+  Lo que sí se corrige ya es que hable de «beta cerrada» estando en producción.
+- **Rol dueño:** arquitecto/backend (inventario, solo lectura) → product-owner → ux-ui → frontend.
 
 #### P-55 · 🛒 El carrito de venta NO sobrevive al inicio de sesión — reportado por el humano
 - **Síntoma:** el cliente arma su carrito en el cotizador **sin haber iniciado sesión**; al entrar a su
@@ -542,14 +649,30 @@ Encontrado por el humano probando en producción. Las tres se sirven juntas o ni
 - **Follow-up (frontend, no bloqueante):** UX del modal cuando la sync da 0 por «sin grupo resoluble» —
   guiar explícitamente al linker en vez de solo mostrar «0 presentaciones».
 
+#### ~~P-45 · Badge «N EN TOTAL» del binder~~ — ✅ HECHO (arreglado en `5cdac57`; el candado se añadió el 2026-09-08)
+- **Quinto pendiente desactualizado del día.** Decía «EN CURSO · fix frontend en curso»: **el arreglo ya vivía en el árbol**. Lo que faltaba era el candado, y hacía falta — una fuga que use el total de la carta **solo en el renglón de conteo** dejaba los tres tests viejos en verde.
+
+<details><summary>original</summary>
+
 #### P-45 · Badge «N EN TOTAL» del binder muestra el total de la carta en cada acabado — EN CURSO
 - Dar de alta 2 piezas de un acabado (ej. Spinarak NORMAL) pinta «2 EN TOTAL» también en la teja de otro
   acabado con 0 piezas (Reverse Holo). Solo display (el dato es correcto, el otro acabado está en 0). Fix
   frontend en curso: cada teja muestra el conteo de SU acabado. Money-safe.
 
-### Pendiente del humano · Razón social para el footer
-- El footer de producción aún dice **«[RAZÓN SOCIAL PENDIENTE]»**. Falta que el humano dé la razón
-  social para `footer.legalEntity` (check del rebrand P-21). Solo dato del humano; el cableado ya está.
+</details>
+
+### Pendiente del humano · Razón social para el footer — ⚠️ LA NOTA ANTERIOR ERA FALSA (corregida 2026-09-08)
+- **Lo que decía esta nota:** «el footer de producción aún dice [RAZÓN SOCIAL PENDIENTE]». **Medido: es
+  falso.** El footer **ya omite la línea** y nunca ha enseñado el placeholder.
+- **Por qué:** `resolveLegalEntity` (`frontend/src/app/[locale]/(storefront)/footer.ts`) devuelve `null`
+  ante vacío, espacios o cualquier valor **entre corchetes** — y el valor real es `[Razón social
+  pendiente]` / `[Legal entity pending]`. Hay tres tests que lo fijan
+  (`footerLegalEntity.test.ts`). El footer publica «TCG HUNT · tcghunt.mx · © {año}», sin nada colgando.
+- **Lo único que sigue pendiente**, y es dato del humano, no código: **cuál es la razón social**. El día
+  que la dé, se pone en `common.footer.legalEntity` **sin corchetes** y aparece sola, sin desplegar código
+  nuevo. *(El humano pidió el 2026-09-08 que «no salga de momento» — ya se cumple por construcción.)*
+- ⚠️ **Lección:** esta nota afirmaba un estado de producción que nadie había medido, y llevaba semanas
+  mandando a alguien a arreglar algo que ya estaba bien. Misma clase que los ocho tachones de D52.
 
 ---
 

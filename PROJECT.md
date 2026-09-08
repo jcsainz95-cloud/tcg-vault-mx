@@ -22,8 +22,56 @@
 > documentación. Cualquier cadena «TCG Vault MX» que siga viva en `docs/` o en código es un **residuo a
 > corregir**, no una fuente válida.
 >
-> **ESTADO AL 2026-09-08 (14ª ronda del bloque v2.1 — DECISIÓN DE PRODUCTO DEL HUMANO — LEER PRIMERO;
-> ESTA ES LA MÁS RECIENTE. NO toca nada de la 13ª ni de las anteriores: es OTRO FRENTE —bounties, no KYC—,
+> **ESTADO AL 2026-09-08 (15ª ronda del bloque v2.1 — CORRECCIÓN DE PRODUCTO A PETICIÓN DEL DUEÑO — LEER
+> PRIMERO; ESTA ES LA MÁS RECIENTE. NO toca la 14ª (D52, bounties) ni la 13ª (D51, KYC): es OTRO FRENTE
+> —**cómo se NOMBRA la línea de comisión del checkout**— y lo único que hace es poner este documento a decir
+> lo que el negocio hace de verdad):**
+> **D53 — LA LÍNEA DE COMISIÓN DEL CHECKOUT ES UNA COMISIÓN NUESTRA, DE PLATAFORMA, POR OPERAR LA COMPRA.
+> QUEDA DEROGADO EN TODO EL DOCUMENTO EL «COSTO DE PROCESAMIENTO TRASLADADO AL COMPRADOR».**
+> **De dónde sale — y esto es lo ÚNICO que este documento afirma sobre el asunto**: el **2026-09-08 el dueño
+> informó al equipo que en México es ilegal trasladar al cliente la comisión del procesador de pago**. **Se
+> registra el HECHO de que lo informó, con su fecha, como ORIGEN de la decisión.** **Este documento no
+> sostiene ninguna postura jurídica propia** — ver la disciplina de abajo.
+> **⚠ POR QUÉ ESTO ERA GRAVE Y NO UN TEXTO VIEJO.** El producto **ya estaba corregido** (el checkout dice
+> **«Comisión de plataforma»** con el hint *«Nuestra comisión por operar tu compra en TCG HUNT. Ya está
+> incluida en el total que ves aquí»*; `DESIGN_SYSTEM §29`, **§7.12a**). Pero **`PROJECT.md` seguía ordenando
+> lo viejo en cinco sitios**, y **uno era un criterio de aceptación vigente y sin marcar**: *«Costo de
+> procesamiento trasladado al comprador: línea visible y desglosada en el checkout»*. Por la **regla de
+> conflicto** de `CLAUDE.md` —**`PROJECT.md` manda sobre el contrato y sobre el código**— y por el **DoD**
+> —que verifica los criterios de **este** documento—, **quien aplicara la regla al pie habría revertido el
+> arreglo y habría tenido razón**. No era copy caduco: **era una instrucción activa**, y del documento de
+> mayor autoridad del proyecto.
+> **QUÉ QUEDA ESCRITO, con precisión**: la línea del checkout es **la comisión de TCG HUNT por operar la
+> compra**, va **rotulada «Comisión de plataforma» / «Platform fee»**, es **visible y desglosada**, y **está
+> incluida en el total** que el comprador ve. **Qué costos cubrimos con ella es asunto interno y NO tiene por
+> qué aparecer en la pantalla del cliente.**
+> **⛔ QUÉ NO PUEDE DECIR NINGUNA SUPERFICIE DE CLIENTE** *(es la norma que ya escribió ux-ui en
+> **`DESIGN_SYSTEM §7.12a`**; este documento **no la contradice**, la ratifica)*: **(a)** el **vocabulario del
+> traslado** —«trasladada a ti», «se te traslada», «te cobramos lo que nos cobra X»—; **(b)** el **nombre de
+> un proveedor de pago como justificación del importe**; **(c)** cualquier **afirmación jurídica**.
+> **⚠⚠ DISCIPLINA OBLIGATORIA — NADIE ESCRIBE AFIRMACIONES JURÍDICAS, NI A FAVOR NI EN CONTRA.** **Hoy no hay
+> abogado en el proyecto.** Ni este documento, ni el diseño, ni el producto escriben «conforme a la ley», «no
+> es un recargo», ni citan norma alguna — **tampoco negándolo**: **una negación defensiva introduce el tema y
+> sigue siendo una afirmación que habría que sostener**. **Cuanto menos afirme la pantalla, mejor.** Queda
+> como **pendiente del dueño**, con **disparador duro**, que **el copy de dinero de cara al cliente se revise
+> con abogado** (bandera **«Legal — copy de dinero de cara al cliente»**, sección «Riesgos y banderas»).
+> **⛔ QUÉ NO SE TOCA, y se dice porque es justo donde alguien "corregiría" de más**: **(1) el back-office
+> está BIEN**. El **P&L de M7** nombra a **Stripe** como **línea de gasto** y los diales guardan su **costo
+> real**: ahí Stripe **sí** es un costo nuestro y nombrarlo es lo único honesto (`DESIGN_SYSTEM §29.4`).
+> **El problema nunca fue nombrar a Stripe: fue decirle al cliente que su comisión se la pasamos a él.**
+> **(2)** el campo del contrato **se sigue llamando `processingFeeCents`, a propósito**: es **nombre
+> interno**, no un rótulo, y renombrarlo tocaría backend, base de datos y tests **sin ganar nada**.
+> **(3)** el **importe** no cambia, el **IVA 16%** desglosado no cambia, el **envío** no cambia.
+> **Doctrina de redacción (la misma de D51 y D52): lo derogado queda TACHADO, no borrado**, con su cuerpo
+> intacto y la razón al lado — es lo que evita que la próxima ronda lo reintroduzca creyendo que se perdió.
+> Ver **§B** (criterio de checkout, reescrito), **§J** (invitado) y su **flujo crítico J.1**, criterios **4**
+> y **48b**, la bandera **«Legal — copy de dinero de cara al cliente»** (nueva) y **decisión 115**.
+> **Preguntas: se abre UNA, la 51 — y no bloquea nada.** No hay supuesto de alcance que confirmar: el rótulo
+> y lo que la pantalla calla **son decisión tomada**. Lo único supuesto son **las cifras del disparador** de
+> la bandera legal (100 cobros / 30 días); **la obligación de revisar con abogado NO es supuesto**.
+>
+> **ESTADO AL 2026-09-08 (14ª ronda del bloque v2.1 — DECISIÓN DE PRODUCTO DEL HUMANO — ⚠ SIGUE VIGENTE;
+> la 15ª no la toca. NO toca nada de la 13ª ni de las anteriores: es OTRO FRENTE —bounties, no KYC—,
 > y lo único que hace es REABRIR UNA DECISIÓN DE ALCANCE QUE EL PROPIO HUMANO HABÍA TOMADO):**
 > **D52 — LA CONSOLA DE BOUNTIES ENTRA AL ALCANCE: VER LA LISTA COMPLETA Y EDITAR FILA A FILA. EL TABLERO Y
 > LOS REPORTES DE AVANCE SIGUEN FUERA.**
@@ -1161,7 +1209,20 @@ de autenticidad/condición y precios opacos. Este marketplace resuelve:
 - [ ] Carrito y checkout con **Stripe**. El **precio de venta** que se cobra es **referencia + markup**
       (el markup es un dial configurable en M10); el "valor de mercado" mostrado sigue siendo la referencia.
 - [ ] Precios en catálogo/ficha se muestran **sin IVA**.
-- [ ] **Costo de procesamiento trasladado al comprador**: línea visible y desglosada en el checkout.
+- [ ] ~~**Costo de procesamiento trasladado al comprador**: línea visible y desglosada en el checkout.~~
+      **⚠⚠ DEROGADO (15ª ronda, 2026-09-08, D53). Se conserva TACHADO, no borrado**, porque **era un criterio
+      de aceptación vigente y sin marcar**: leído al pie habría hecho que QA exigiera —y el DoD verificara—
+      justo la frase que el dueño mandó retirar. **Lo sustituye el punto de abajo.**
+- [ ] **Comisión de plataforma — línea visible y desglosada en el checkout** *(**D53**, 15ª ronda)*: el
+      checkout muestra una línea rotulada **«Comisión de plataforma» / «Platform fee»**, que es **la comisión
+      de TCG HUNT por operar la compra**, y que **ya está incluida en el total** que el comprador ve.
+      **⛔ La pantalla del cliente NO explica qué costos cubrimos con esa comisión, NO nombra a ningún
+      proveedor de pago y NO describe ningún traslado de costo**: qué cubre es **asunto interno** y se
+      desglosa donde corresponde, en el **P&L de M7**. **⛔ Tampoco lleva afirmación jurídica alguna, en
+      ningún sentido** (ver D53 y la bandera «Legal — copy de dinero de cara al cliente»).
+      *(Rótulos y hint normativos: `DESIGN_SYSTEM §29`; la norma de nombrado que este punto ratifica:
+      **`DESIGN_SYSTEM §7.12a`**. El campo del contrato **sigue llamándose `processingFeeCents`** a
+      propósito — es nombre **interno**, no un rótulo.)*
 - [ ] **IVA 16% desglosado como línea aparte** en el checkout; el total cobrado lo incluye.
 - [ ] **Facturación (CFDI) manual por correo en el MVP** (sin timbrado con PAC, eso es fase 2): en el
       checkout y/o FAQ/términos se muestra un **mensaje** indicando que **para solicitar factura el cliente
@@ -2177,7 +2238,8 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
 - [ ] **Único destino disponible: envío directo a domicilio nacional** con la **tarifa fija de envío** (§D,
       default MX$175). Aplican las mismas reglas de §D: solo direcciones en **México**.
 - [ ] **Mismo precio, mismos impuestos, mismas políticas** que un usuario con cuenta: precio de venta =
-      referencia + markup, **línea de costo de procesamiento**, **IVA 16% desglosado**, aviso de **ventas
+      referencia + markup, ~~**línea de costo de procesamiento**~~ **línea de «Comisión de plataforma»**
+      *(**D53**, 15ª ronda)*, **IVA 16% desglosado**, aviso de **ventas
       finales**, enlace a términos y el mensaje de **factura CFDI manual por correo**. Comprar como invitado
       **no** cambia condiciones comerciales.
 - [ ] **Seguimiento de su pedido por enlace tokenizado** (ver abajo).
@@ -2253,7 +2315,8 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
 > 2. En el checkout elige **"continuar como invitado"** (no inicia sesión ni se registra).
 > 3. Captura **correo válido** y **dirección de envío nacional**; el sistema valida el formato del correo y
 >    que la dirección sea de México.
-> 4. Ve el desglose: subtotal, **costo de procesamiento**, **IVA 16%**, **envío MX$175** y total; ve el
+> 4. Ve el desglose: subtotal, ~~**costo de procesamiento**~~ **«Comisión de plataforma»** *(**D53**)*,
+>    **IVA 16%**, **envío MX$175** y total; ve el
 >    aviso de **ventas finales** y el mensaje de **factura por correo**.
 > 5. Paga con **Stripe** con éxito.
 > 6. Llega a la **confirmación** con su **número de pedido** y la oferta de **crear cuenta con ese correo**.
@@ -5756,9 +5819,11 @@ ronda por D31**)**
    visible y sin efecto en el precio).
 
 **Compra y bóveda**
-4. Un comprador puede pagar con Stripe; el checkout muestra una **línea explícita de costo de
-   procesamiento trasladado** y una **línea explícita de IVA 16%** (además del subtotal), y el total
-   cobrado incluye ambas.
+4. Un comprador puede pagar con Stripe; el checkout muestra una ~~**línea explícita de costo de
+   procesamiento trasladado**~~ **línea explícita de «Comisión de plataforma»** *(**D53**, 15ª ronda: es
+   **nuestra comisión por operar la compra**; **la pantalla del cliente no nombra al procesador de pago ni
+   describe un traslado de costo**, y **no lleva ninguna afirmación jurídica**)* y una **línea explícita de
+   IVA 16%** (además del subtotal), y el total cobrado incluye ambas.
 5. Tras un pago exitoso, la carta aparece en la bóveda del comprador con titularidad `pending` y
    cambia a `settled` cuando el pago se liquida.
 6. Un usuario NO tiene saldo/wallet en ninguna vista; todo se maneja por transacción.
@@ -6031,7 +6096,8 @@ ronda por D31**)**
     checkout**, **conserva el carrito**, y tras registrarse el destino **bóveda queda disponible** y el
     flujo continúa; si descarta el upsell, sigue con envío directo.
 48b. El checkout de invitado muestra **el mismo desglose y los mismos avisos** que el de un usuario con
-    cuenta: subtotal sin IVA, **costo de procesamiento**, **IVA 16%**, **envío fijo (default MX$175)**,
+    cuenta: subtotal sin IVA, ~~**costo de procesamiento**~~ **«Comisión de plataforma»** *(**D53**)*,
+    **IVA 16%**, **envío fijo (default MX$175)**,
     aviso de **ventas finales** con enlace a términos y mensaje de **factura CFDI manual por correo**; el
     precio de venta cobrado es el mismo (referencia + markup) que para un usuario registrado. Una dirección
     **fuera de México** se rechaza (criterio 31).
@@ -7810,6 +7876,36 @@ de este documento (v2.1, D41 + D42; §E/§H/§P.3/§P.11)**
   mínimo de compra**, que ya existe en M10. **El problema, si aparece, no será la divulgación: será la
   proporción.** *(El dato ya se registra por solicitud; no hace falta instrumentación nueva. Si el humano
   quiere el reporte como pantalla, eso **sí** sería alcance nuevo.)*
+- **Legal — copy de dinero de cara al cliente: SIN REVISIÓN DE ABOGADO** *(NUEVA 15ª ronda, 2026-09-08,
+  **D53**; **pendiente DEL DUEÑO**, con **disparador duro**)*: **hoy no hay abogado en el proyecto**, y sin
+  embargo el checkout **rotula y explica un cobro** —«Comisión de plataforma» y su hint— en la pantalla donde
+  el cliente entrega dinero. **Una frase en la pantalla de pago es una declaración por escrito de lo que
+  hacemos**, y la escribimos nosotros.
+  **Qué pasó, y es el origen de esta bandera**: el **2026-09-08 el dueño informó al equipo que en México es
+  ilegal trasladar al cliente la comisión del procesador de pago**. **El texto anterior decía exactamente
+  eso** (*«cubre la comisión del procesador de pago (Stripe), trasladada a ti»*), llevaba **meses vivo** y
+  **nadie del equipo lo detectó**: lo detectó **el dueño**. **La lección no es que se corrigió: es que el
+  equipo no tenía cómo detectarlo.**
+  **Lo que se hizo mientras tanto —y es contención, NO cierre—**: se retiró el vocabulario del traslado, se
+  dejó de nombrar al procesador en superficie de cliente, y se aplicó la regla de **escribir lo menos
+  posible** (`DESIGN_SYSTEM §7.12a`, obligación 4). **⛔ Y NO se sustituyó por otra afirmación**: no se
+  escribió «esto no es un recargo» ni «conforme a la ley» — **una negación defensiva introduce el tema y
+  sigue siendo una afirmación que habría que sostener**, y **ninguno de los que escribimos ese texto sabe
+  qué dice la ley**. **Cuanto menos afirme la pantalla, mejor, hasta que haya asesoría.**
+  **⚠ Qué hay que llevarle al abogado, concreto y sin suavizar**: **(1)** el **rótulo y el hint** de la línea
+  de comisión del checkout (`checkout.processingFee` y `checkout.processingFeeHint`, ES y EN); **(2)** si
+  **cobrar una comisión propia de plataforma sobre la compra** requiere decir algo que hoy no decimos;
+  **(3)** el resto del copy de dinero de cliente —**envío**, **IVA 16%**, **«ventas finales»**, términos y
+  el descargo de §O.5—, porque **el mismo hueco de revisión los cubre a todos**; **(4)** el **dato de que el
+  texto anterior estuvo publicado**, por si eso mismo tiene consecuencias.
+  **DISPARADOR DURO — esta bandera se cierra ANTES de que el copy de cliente crezca en volumen**, y en
+  concreto **antes de lo que ocurra primero**: *(**SUPUESTO** en las cifras, **no** en la obligación — ver
+  **pregunta 51**)* **(a)** los **primeros 100 cobros reales** a clientes que no sean del equipo, o **(b)**
+  **30 días** de checkout abierto al público. **Mientras siga abierta, ninguna superficie nueva de cliente
+  añade texto explicativo sobre cobros**: se reusan las cadenas ya revisadas (`AmountBreakdown`, §7.12) y
+  **no se redacta copy de dinero nuevo**.
+  **Quién la cierra**: **el dueño** (es suya, como la pregunta abierta 1 de la revisión legal del descargo).
+  **Ningún rol del equipo puede cerrarla escribiendo una frase mejor.**
 - **Legal — custodia/depositario**: la bóveda implica guardar bienes de terceros. Validar con abogado la
   figura de **depositario**, el **contrato de custodia**, la responsabilidad por pérdida/daño y el **tope
   por carta**. ~~Definir si hay **seguro formal** del inventario en custodia.~~ — **RESUELTO (2026-09-01,
@@ -9273,6 +9369,48 @@ promesa:**
    consolidadas; **ninguna bloquea**).
    Ver **M2**, **§N.6**, **§P.2**, **«Fuera de alcance»** (dos entradas enmendadas), criterios **164** y
    **168(e)** (enmendados) y criterio **184** (nuevo).
+115. **D53 — LA LÍNEA DE COMISIÓN DEL CHECKOUT ES UNA COMISIÓN NUESTRA, DE PLATAFORMA, POR OPERAR LA COMPRA.
+   ⚠ DEROGA el «costo de procesamiento TRASLADADO al comprador» en todo este documento, incluido UN CRITERIO
+   DE ACEPTACIÓN VIGENTE.**
+   **De dónde sale, y es lo único que se afirma**: el **2026-09-08 el dueño informó al equipo que en México
+   es ilegal trasladar al cliente la comisión del procesador de pago**. **Queda registrado el HECHO de que lo
+   informó, con su fecha, como origen de la decisión.** **Este documento no sostiene ninguna postura
+   jurídica propia** (ver «la disciplina», abajo).
+   **⚠ Por qué esto era peor que el defecto original, y no un texto viejo**: el producto **ya se había
+   corregido** —el checkout dice **«Comisión de plataforma»** con el hint *«Nuestra comisión por operar tu
+   compra en TCG HUNT. Ya está incluida en el total que ves aquí»* (`DESIGN_SYSTEM §29`, **§7.12a**)—, pero
+   **`PROJECT.md` seguía ordenando lo viejo en cinco sitios**, y **uno de ellos era un criterio de aceptación
+   vigente y sin marcar** (*«Costo de procesamiento trasladado al comprador: línea visible y desglosada en el
+   checkout»*). Con la **regla de conflicto** de `CLAUDE.md` —**`PROJECT.md` manda sobre el contrato y sobre
+   el código**— y con el **DoD** verificando **los criterios de este documento**, **quien aplicara la regla al
+   pie habría revertido el arreglo, y habría tenido razón según nuestras propias reglas**. **Era una
+   instrucción activa del documento de mayor autoridad del proyecto**, no un residuo de copy.
+   **Qué queda decidido**: la línea es **la comisión de TCG HUNT por operar la compra**; se rotula **«Comisión
+   de plataforma» / «Platform fee»**; es **visible y desglosada**; **ya está incluida en el total**. **Qué
+   costos cubrimos con ella es asunto INTERNO y no tiene por qué aparecer en la pantalla del cliente.**
+   **⛔ Qué queda prohibido en superficie de cliente** *(ratifica **`DESIGN_SYSTEM §7.12a`**, que ux-ui ya
+   escribió; este documento **no la contradice**)*: **(a)** el **vocabulario del traslado**; **(b)** nombrar a
+   un **proveedor de pago** como justificación del importe; **(c)** **cualquier afirmación jurídica**.
+   **⚠⚠ La disciplina, y aplica también a esta decisión: NO SE ESCRIBEN AFIRMACIONES JURÍDICAS, NI EN UN
+   SENTIDO NI EN EL OTRO.** **Hoy no hay abogado en el proyecto.** Nada de «conforme a la ley», «no es un
+   recargo», ni citas de norma — **tampoco en negativo**: **una negación defensiva introduce el tema y sigue
+   siendo una afirmación que habría que sostener**. **Cuanto menos afirme la pantalla, mejor.**
+   **⛔ Qué NO toca esta decisión, dicho porque es donde alguien "corregiría" de más**: **(1)** el
+   **back-office está BIEN y se queda**: el **P&L de M7** nombra a **Stripe** como línea de gasto y los diales
+   guardan su **costo real** — ahí Stripe **sí** es un costo nuestro y nombrarlo es lo único honesto
+   (`DESIGN_SYSTEM §29.4`). **El problema nunca fue nombrar a Stripe: fue decirle al cliente que su comisión
+   se la pasamos a él.** **(2)** el campo del contrato **sigue siendo `processingFeeCents`** —nombre
+   **interno**, no rótulo; renombrarlo tocaría backend, BD y tests **sin ganar nada**—. **(3)** el **importe**,
+   el **IVA 16%** y el **envío** no cambian.
+   **Doctrina de redacción (la de D51 y D52)**: **lo derogado queda TACHADO con su cuerpo intacto**, no
+   borrado — es lo que impide que la próxima ronda lo reintroduzca creyendo que se perdió.
+   **Pendiente del dueño, con disparador DURO**: **revisar el copy de dinero de cara al cliente con abogado**
+   — bandera **«Legal — copy de dinero de cara al cliente»**.
+   **Preguntas: se abre la 51**, y **no bloquea**: solo pone a confirmar **las cifras del disparador duro**
+   de la bandera legal (**100 cobros reales / 30 días**). **La obligación de revisar con abogado no es
+   supuesto**; el número sí.
+   Ver **§B** (criterio de checkout, tachado y reescrito), **§J**, **§J.1** (flujo crítico del invitado) y
+   criterios **4** y **48b**.
 
 ---
 
@@ -10729,3 +10867,33 @@ ese frente:**
    esa marca significa** en una superficie que se recorre mirando muchas cartas a la vez.
    **Qué confirmar**: **(a)** el badge no navega —**supuesto**—; **o (b)** sí navega (cambio pequeño y
    aditivo, sin efecto sobre nada de dinero).
+
+## Preguntas abiertas — nombrado del cobro del checkout (v2.1, 15ª ronda, D53)
+
+> **Una sola pregunta, y no bloquea nada.** **D53 no deja alcance en duda**: el rótulo, lo que la pantalla
+> dice y **lo que la pantalla calla** son **decisión tomada**. Lo único abierto es **cuándo se cierra el
+> hueco de la revisión legal**, y el número lo pone el dueño.
+> **Numeración**: sigue la serie del bloque v2.1 (la 50 fue la última).
+> **⚠ Lo que esta sección NO pregunta, a propósito**: **no se le pregunta al humano si el texto es legal**.
+> **Nadie del equipo puede responder eso**, y preguntarlo invitaría a que alguien lo escribiera en el
+> documento. **La única salida es un abogado**, y por eso está como **bandera con disparador**, no como duda
+> de redacción.
+
+51. **[ABIERTA — no bloqueante, con SUPUESTO TOMADO] ¿Cuál es el disparador exacto para revisar el copy de
+   dinero de cliente con abogado?** *(nace de **D53** y de la bandera «Legal — copy de dinero de cara al
+   cliente»)*
+   **Lo que NO está en duda**: **que hay que revisarlo**. Eso quedó como **pendiente del dueño** y **no es
+   supuesto**.
+   **Lo que está en duda**: **el momento**. El dueño pidió que se revise **antes de crecer en volumen**, y
+   *«volumen»* no es verificable como está.
+   **Supuesto tomado**: se cierra **antes de lo que ocurra primero** — **(a)** los **primeros 100 cobros
+   reales** a clientes ajenos al equipo, o **(b)** **30 días** de checkout abierto al público.
+   **Por qué ese es el lado seguro**: un umbral **bajo y con tope de tiempo** falla hacia *revisar antes de
+   tiempo*, que cuesta una consulta; el fallo contrario cuesta **cada cobro que se hizo con un texto que
+   nadie revisó**, y **no se puede deshacer hacia atrás**.
+   **Qué confirmar**: **(a)** los dos umbrales tal cual —**supuesto**—; **(b)** otras cifras (se sustituyen y
+   ya, la bandera no cambia de forma); **o (c)** que la revisión debe ocurrir **antes del primer cobro real**,
+   en cuyo caso **la bandera pasa a bloquear la apertura al público** y hay que decirlo explícitamente, porque
+   hoy **no bloquea el desarrollo del MVP**.
+   **Costo de equivocarse**: es **el único punto de esta ronda donde el equipo puso un número que el dueño no
+   dio**. Está marcado aquí y en la bandera para que **se vea, no para que se herede en silencio**.

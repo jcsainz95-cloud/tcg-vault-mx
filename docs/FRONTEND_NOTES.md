@@ -4,6 +4,101 @@
 > Fecha: 2026-08-13. Branch: `claude/tcg-cards-marketplace-oijthj`.
 > El contrato (`docs/API_CONTRACT.md`) y el sistema de diseño (`docs/DESIGN_SYSTEM.md`) mandan.
 
+## §59 · **A-1: el comodín que nadie miró en dos semanas** — se cierra D-IMG-5, se parchea `next`, y el candado mide el ENDPOINT, no el fichero (2026-09-08, rama `claude/tcg-hunt-orchestration-ai2vma`)
+
+> Encargo único de seguridad (hallazgo **A-1** del blue team, cierre de release). **Cero producto**:
+> no se tocó un componente, ni el optimizador, ni `CardImage`, ni el catálogo (eso es **P-65**, y
+> sigue bloqueado esperando medición del humano). Dos ficheros de configuración y dos candados.
+
+### 1. Los dos hechos, y por qué se agravaban entre sí
+
+1. **`next` en `15.5.23`.** El parche de **GHSA-2xp9-vwfh-vxw4** —*RCE sin autenticar* en la API de
+   optimización de imágenes, vía AVIF— es **`15.5.24`**: estábamos **una versión por debajo**.
+   Arrastraba además `sharp@0.35.3` (**alta**, GHSA-rgj7-g3m4-5g8c, libheif).
+2. **`next.config.mjs` tenía `{ protocol: 'https', hostname: '**' }`** — un comodín que aceptaba
+   **cualquier** host. El aviso necesita que el atacante elija **qué** imagen procesamos; el comodín
+   se lo regalaba.
+
+Vivo desde el **2026-08-23**, dos semanas, **sin figurar en `SECURITY_NOTES`, `PENTEST_NOTES`,
+`TECH_DEBT` ni aquí**. No venía de este delta.
+
+### 2. 🔴 La premisa del encargo era FALSA, y verificarla cambió el riesgo (a mejor)
+
+El encargo decía que `SetPlate.tsx` era *«el único componente que usa `next/image`»*. **No usa
+`next/image`.** No hay **ni una sola** línea de `next/image` en todo el frontend: el logo de set,
+como el arte de carta, es **Nivel B** (`<img>` crudo, ARCHITECTURE §4.41.7). Lo confirma el propio
+ARCHITECTURE §5.3.4 («hoy es inerte»).
+
+Consecuencias, y la segunda es la que importa:
+
+- **A favor:** quitar el comodín es de riesgo funcional **cero**, y por una razón más fuerte que la
+  del encargo — no es que «solo afecte a los logos de set», es que **`remotePatterns` no gobierna
+  hoy ninguna imagen renderizada**. El narrowing es literalmente inobservable en pantalla.
+- **⚠️ En contra, y hay que decirlo:** *«inerte»* describe el **render**, **nunca el endpoint**.
+  `/_next/image` lo sirve el servidor de Next **exista o no** un `next/image` nuestro. El comodín
+  **sí** era explotable: se midió en el navegador (§4). Quien lea «inerte» y deduzca «no urgente»
+  está leyendo mal, y por eso queda escrito aquí.
+
+### 3. Lo que se cambió
+
+- `frontend/package.json`: `next` `15.5.23` → **`15.5.24`**; override `sharp` `^0.35.3` → **`^0.35.4`**.
+  Bump de parche, sin cambio funcional. **No se subió nada más** («ya que estamos» no aplica a un
+  parche de seguridad). `npm audit --omit=dev`: **1 crítica + 1 alta → 0/0**.
+- `frontend/next.config.mjs`: fuera el comodín; quedan los **dos** hosts de `SET_IMAGE_HOSTS`
+  (`images.pokemontcg.io`, `images.scrydex.com`). El segundo **no es opcional**: ya servía arte de
+  **661 cartas en producción** (§4.41.1 hecho 8) y omitirlo rompería los sets `me2pt5`/`me3`+.
+- **`port: ''` en ambos patrones — lo encontró el candado, no una lectura.** En
+  `shared/lib/match-remote-pattern.js` el puerto solo se compara **si el patrón lo define**
+  (`if (pattern.port !== undefined)`), así que omitirlo empata **cualquier** puerto y
+  `https://images.pokemontcg.io:8443/…` pasaba. Es la regla que el backend ya impone
+  («`host`, no `hostname`: incluye el puerto»). El candado se escribió, se puso rojo solo, y
+  **descubrió un segundo agujero más pequeño que nadie había pedido buscar**.
+
+### 4. Los candados: se mide CONDUCTA, en dos capas
+
+Un `expect(fuente).not.toContain("'**'")` sería teatro: pasa en verde con `'*'`, con el comodín
+construido por concatenación, o reabriendo por el legacy `images.domains`.
+
+| Capa | Fichero | Qué pregunta |
+|---|---|---|
+| Unitaria | `src/lib/next-image-remote-patterns.test.ts` | Importa el config **real** y lo interroga con `hasRemoteMatch`, **el mismo matcher que corre `/_next/image`**. Incluye 250 hosts **aleatorios** por ejecución: ningún literal añadido «para que pase» los cubre. |
+| Navegador | `e2e/next-image-optimizer-hosts.spec.ts` | Pega al **servidor corriendo** por HTTP, como el atacante. Y verifica que **los logos siguen saliendo** (`naturalWidth > 0`, que un `complete` roto no da). |
+
+Ambas mitades: el candado también se pone rojo si alguien «arregla» un fallo **vaciando** la lista
+(rompería los logos). **Mutaciones ejecutadas, todas rojas:** comodín `'**'`, comodín `'*'`, comodín
+**construido** (`['*','*'].join('')`), `images.domains` reintroducido, y lista vaciada.
+
+**La mutación más elocuente es la del navegador:** con el comodín puesto,
+`/_next/image?url=https://evil.example/payload.avif` devuelve **500, no 400** — el portero lo dejó
+pasar y el servidor **fue a buscar la URL del atacante**, fallando solo porque el entorno E2E no
+tiene salida a internet. Con red de verdad, eso es un **200 sirviendo bytes ajenos desde nuestro
+origen**. No es una hipótesis: es la traza.
+
+### 5. Verificación
+
+`tsc` limpio · unitarios **1383/1383** · E2E completa **153 passed / 3 skipped / 0 failed** (base
+150 + los 3 nuevos) · `next build` **verde**, sin cambio de conducta ni de tamaño de bundle.
+
+⚠️ **Aviso de higiene:** `next build` **reescribe `tsconfig.json`** (reformatea y añade el `distDir`
+al `include`). Se revirtió; **si alguien ve `tsconfig.json` sucio tras un build, es esto y no un
+cambio deliberado.** Las builds de verificación se hicieron con `NEXT_DIST_DIR` a un directorio
+aparte para no pisar el `.next` de un stack ajeno.
+
+### 6. ⚠️ Deuda que queda ABIERTA y no me corresponde cerrar
+
+`remotePatterns` queda con **dos** hosts, que es lo que el encargo pidió y lo más estrecho posible.
+Pero **§5.3.4 exige que el espejo tenga TRES fuentes** el día que se adopte Nivel A: (i)
+`SET_IMAGE_HOSTS` ✅, (ii) `SEALED_IMAGE_HOST_ALLOWLIST` (`tcgplayer.com`, `tcgcsv.com`) ❌ **no
+incluida**, y (iii) los hosts de `Card.imageSmallUrl`, que **no son una allowlist** sino lo que
+`upsertCards` dejó pasar sin validar (deuda **M47-R1**, alta, abierta).
+
+Hoy no rompe nada (todo es Nivel B). **Pero los fixtures ya usan `tcgplayer-cdn.tcgplayer.com`**: la
+primera línea de `next/image` sobre una imagen de sellado o de carta fallará hasta que se amplíe.
+Queda **enrutado al arquitecto** (regla 9), no resuelto aquí: ampliar por mi cuenta habría sido ir
+**por delante** del backend, justo lo que §5.3.4 prohíbe.
+
+---
+
 ## §58 · **Un candado que no puede ponerse rojo no es medio candado: es ninguno** — la hermana del control vacuo, la cláusula sin candado y el caso 19 en el navegador (2026-09-08, rama `claude/tcg-hunt-orchestration-ai2vma`)
 
 > Sobre `a028079`, con §28.5 v3.5 ya **aprobada por QA** y medida en el navegador. Este pase **no
@@ -14582,3 +14677,120 @@ cuenta (¿tiene celular?, ¿tenía CLABE en archivo?). Tampoco se midió el defe
 real: no hay Docker en este entorno y el stack no está levantado — la reproducción y los candados
 corren contra el build de producción del front con la capa de API en modo fixtures, que es fiel para
 todo lo que aquí se afirma (geometría, ramas de error, foco) pero **no** ejercita el 422 real.
+
+---
+
+## §45 · La comisión del checkout (§29), BNT-D14 (§28.5b), P-45 como regla, y una ficha de deuda que mentía — rama `claude/tcg-hunt-orchestration-ai2vma`
+
+### 1. 🔴 §29 — la línea de comisión: lo que se retiró fue **la afirmación**, no el nombre feo
+
+La pantalla de pago decía, por escrito, que le trasladamos al cliente la comisión de nuestro
+procesador («Cubre la comisión del procesador de pago (Stripe), **trasladada a ti**»). Según el dueño
+del negocio, en México eso es ilegal. Se aplicaron las cuatro cadenas normativas de §29.3 **sin
+interpretarlas**, y la frase vieja se borró entera.
+
+- `checkout.processingFee` → **`checkout.platformFee`**: «Comisión de plataforma» / “Platform fee”.
+- `checkout.processingFeeHint` → **`checkout.platformFeeHint`**, con el texto íntegro de §29.3.
+  En EN, **`handling`, no `processing`**: `processing` reintroduce el vocabulario del procesador.
+
+**El renombrado de clave (§29.5, opcional) SÍ se hizo**, porque las referencias eran enumerables y
+verificables: dos catálogos, las dos llamadas de `AmountBreakdown.tsx` y los dos specs de navegador.
+El motivo no es estético: el nombre viejo arrastraba la palabra retirada e **invitaba a «restaurar»
+el rótulo para que casara con la clave**. ⛔ El campo del contrato `processingFeeCents` **no se tocó**
+(§29.5: es nombre de API interna, no lo lee ningún cliente).
+
+**Back-office intacto**, y con candado propio: los cuatro rótulos de §29.4(b) siguen diciendo Stripe.
+Ahí Stripe es **nuestro** costo y nombrarlo es lo único honesto — quien barra el catálogo con un
+`grep` de «Stripe» rompe la contabilidad del panel.
+
+#### 1.1 ⚠️ El hueco que había, medido: **nada impedía la recaída**
+
+Los dos e2e de checkout leen la cadena con `t('es', 'checkout.platformFee')` y comprueban que **lo
+que dice el catálogo** está en pantalla. Eso verifica el **cableado** y es **ciego al contenido**.
+Se midió: con **el rótulo y el hint viejos completos restaurados**, los **16** tests e2e de checkout
+y guest-checkout pasaron **en verde**. El candado que faltaba no era de rótulo, era de conducta.
+
+Los nuevos viven en `frontend/src/lib/i18n-parity.test.ts` (catálogo) y
+`frontend/src/components/ui/AmountBreakdown.test.tsx` (DOM renderizado), y miden **qué puede llegar a
+afirmar la pantalla**:
+
+1. **Cero declaraciones de traslado** en toda la superficie de cliente (se busca el **núcleo** de la
+   afirmación, no la frase concreta: la recaída peligrosa es reescribir la idea con otras palabras).
+2. **No justificar un cobro nombrando al procesador**: se prohíbe la combinación *proveedor + palabra
+   de cobro*. Esa mecanización **es** el matiz de §29.4(c), así que `error.PAYMENT_PROVIDER_UNAVAILABLE`
+   y los avisos de modo demo pasan **solos, sin lista blanca** — ninguno nombra una comisión.
+3. **El back-office conserva a Stripe** en sus cuatro rótulos (la dirección contraria).
+4. **Los literales normativos de §29.3**, fijados a propósito: es el único sitio del proyecto donde
+   eso se justifica. Sin abogado, la disciplina es **afirmar menos**, y cualquier «mejora» de criterio
+   propio es una regresión. Cuando haya abogado se revisa §29 y **entonces** se mueve el candado.
+5. **Sobre el DOM**, en ES y EN: el hint no se pinta como texto —viaja en `title` y `aria-label`—, así
+   que una cadena limpia mal cableada no la vería el candado de catálogo. Va con su **anti-vacuidad**:
+   otro test exige que la explicación **esté** cableada, o borrarla entera pondría verde la ausencia.
+
+### 2. 🟡 BNT-D14 (§28.5b) — el vacío que sobra: **una acción, un control**
+
+Con `VISTA FILTRADA` en pantalla, el vacío por filtro de §28.8 **se suprime entero** (ni título, ni
+icono, ni palanca). Cede el vacío porque el portador es la versalita y porque `zero.filtered` ya
+**contiene** lo que decía el vacío. La palanca duplicada era **fallo de accesibilidad**, no cosmética.
+
+⚠️ **La condición se ancla en lo que de verdad se pinta** (`showZeroLine && zero === 'filtered'`), **no
+en `identityFiltered` a secas**, y la diferencia no es teórica: con la lista **truncada**
+`zeroStatement` devuelve `null` (manda `LISTA INCOMPLETA`), así que el bloque ① **no ofrece palanca**
+aunque haya filtro puesto — suprimir ahí el vacío dejaría la vista **sin ninguna salida**.
+
+**El candado (§28.14 caso 20, `e2e/admin-bounties.spec.ts`) es de CONTEO, no de presencia**: se
+cuentan los controles con nombre accesible `common.clearFilters` en toda la vista y tiene que dar
+**1**. Un `toBeVisible()` pasaría en verde con dos botones — es el matcher que dejó pasar esto.
+Además comprueba **cuál** sobrevive (tiene que vivir dentro del bloque ①, vía `data-testid`), que no
+se lea «Ningún bounty coincide», y **la vuelta**.
+
+**Control negativo**, y es la mitad del valor: con **un chip de estado** que vacía la tabla, el vacío
+**SÍ** se pinta entero (los chips no son filtro de identidad). Sin él, un arreglo que suprimiera
+mirando `filtersActive` pasaría el caso principal y dejaría la pantalla sin título y sin salida.
+La tabla se vacía **por la UI de verdad** —se apaga el único `rebasada` de la semilla con su propio
+botón `Apagar`—: ⛔ sin fixture nuevo, sin `q` mágico, sin puerta trasera.
+
+### 3. 🟡 P-45 — el arreglo **ya estaba**; lo que faltaba era la regla
+
+El fix por-acabado del badge ya vivía en el código (`5cdac57`). Lo que se añadió es el candado escrito
+con **la forma de su familia (P-47): el número de un acabado NUNCA se pinta en otro.**
+
+Los tres tests previos fijaban **el caso reportado** —2 NORMAL contra **0** REVERSE HOLO— y casi todos
+se apoyaban en que el otro acabado estuviera **en cero**. Se midió el hueco: una fuga que use el total
+de la carta **solo en el renglón de conteo** deja los tres tests viejos **en verde** (la teja en HUECO
+nunca pinta ese renglón) y **solo** el candado nuevo la caza. El nuevo usa **tres** acabados con
+conteos **distintos y todos no-nulos**, así que no depende de ningún cero y cubre cualquier par y las
+dos direcciones.
+
+### 4. Una ficha de deuda que mandaba a romper algo que estaba bien
+
+`docs/TECH_DEBT.md` **DT-Fz** tenía el título tachado como «RESUELTA de raíz» pero el cuerpo seguía
+diciendo **«Estado: abierta, aceptada»** y citando `home.how.step1Body` **en presente con su texto
+viejo** («IVA, procesamiento y envío»). Esa cadena **ya está limpia** (verificado en el catálogo, y
+por ux-ui en §29.4(c)). Se corrigió la ficha: estado **CERRADA**, aviso al lector de que todo lo que
+sigue está **en pasado**, y nota de que `checkout.processingFee` **ya no existe** (es
+`checkout.platformFee`), para que nadie busque una clave fantasma.
+
+**Y se midió lo que la ficha misma decía:** reponer la enumeración vieja pasaba **las 1375 pruebas**.
+Se cerró **sin candado**, y una deuda que se paga redactando vuelve redactando. Se añadió el mínimo
+que **no** reintroduce el acoplamiento que la ficha rechazaba: prohíbe **enumerar en el home**, sin
+compararlo con el checkout. Encaja con §29: la enumeración retirada decía «**procesamiento**», que es
+justo el vocabulario que §29 sacó de la superficie de cliente.
+
+### 5. Números
+
+`tsc --noEmit` limpio · `npm test` **1375/1375** (121 archivos) · suite E2E completa de mocks
+**150 passed · 3 skipped · 0 failed** (`E2E_MOCK_PORT`, build de producción en modo fixtures).
+El delta de e2e (148 → 150) son los dos casos nuevos de §28.14 caso 20.
+
+**Mutaciones, todas rotadas y restauradas:** (1) frase vieja del hint → **5 rojos** (3 de catálogo,
+2 de DOM); (1b) rótulo **y** hint viejos completos → **16 e2e de checkout en VERDE**, que es el hueco
+que motivó los candados; (1c) barrido de `grep` sobre el back-office → **1 rojo**; (2a) supresión de
+§28.5b retirada → caso 20 rojo con `Received: 2`; (2b) supresión por `filtersActive` → **solo** el
+control negativo rojo; (3) badge al total de la carta → **6 rojos**; (3b) fuga solo en el renglón →
+**4 rojos, y los tres tests viejos de P-45 en verde**; (4) `step1Body` reabierto → verde antes del
+candado nuevo, **rojo** después.
+
+**No medido, y por lo tanto no afirmado:** nada de esto corrió contra el **backend real** — la capa de
+API va en modo fixtures. Es fiel para todo lo que se afirma aquí (copy, ramas de render, conteo de
+controles, foco), pero no ejercita el desglose que compone el servidor.

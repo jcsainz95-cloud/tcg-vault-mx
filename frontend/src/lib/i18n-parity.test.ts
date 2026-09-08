@@ -175,6 +175,164 @@ describe('i18n catalogs', () => {
   });
 
   /*
+   * ══ DESIGN_SYSTEM §29 (v3.6) · 🔴 exposición legal ═════════════════════════════════════════
+   *
+   * La frase que había en la pantalla de pago —«Cubre la comisión del procesador de pago (Stripe),
+   * **trasladada a ti**»— DECLARABA POR ESCRITO que le pasamos al cliente la comisión de nuestro
+   * procesador, y el dueño del negocio dice que en México eso es ilegal. Lo que se retiró es **la
+   * afirmación**, no el nombre feo.
+   *
+   * ⚠️ Por qué el candado vive AQUÍ y no en los e2e: los dos specs de checkout leen la cadena con
+   * `t('es', 'checkout.platformFee')` y comprueban que **lo que dice el catálogo** está en pantalla.
+   * Eso verifica el cableado —que la etiqueta se pinta— pero es CIEGO al contenido: con la frase
+   * vieja restaurada en el catálogo, los dos specs siguen verdes. Hoy nada impedía la recaída.
+   * Estos candados miden **la conducta** (qué afirma la pantalla), no el rótulo.
+   */
+
+  // Vocabulario que convierte un importe en una declaración de traslado. En la superficie de
+  // cliente no tiene ningún uso legítimo, así que se prohíbe sin excepciones ni lista blanca.
+  const RECLAMO_DE_TRASLADO = /trasladad|traslado|passed on|repercut|se te pasa|te lo pasamos/i;
+  // Palabras que indican que la cadena está hablando de un IMPORTE que cobramos.
+  const HABLA_DE_UN_COBRO = /comisi|cargo|tarifa|\bfees?\b/i;
+  const esCliente = (path: string) => !path.startsWith('admin.');
+
+  /*
+   * §29.1/§29.6.2 — **cero declaraciones de traslado en la superficie de cliente.** Se busca el
+   * NÚCLEO de la afirmación, no la frase concreta que había: la recaída peligrosa no es restaurar
+   * el texto literal (eso lo caza el candado de valor normativo de más abajo), es volver a
+   * escribir la misma idea con otras palabras en cualquier pantalla nueva que cobre algo.
+   */
+  it.each([
+    ['es', es],
+    ['en', en],
+  ])('%s no declara en NINGUNA pantalla de cliente que un importe se traslade', (_locale, catalog) => {
+    const offenders = stringEntries(catalog)
+      .filter(([path]) => esCliente(path))
+      .filter(([, value]) => RECLAMO_DE_TRASLADO.test(value))
+      .map(([path]) => path);
+    expect(offenders).toEqual([]);
+  });
+
+  /*
+   * §29.4(c) — el matiz que hace falta para NO romper `error.PAYMENT_PROVIDER_UNAVAILABLE`, que es
+   * correcta y se queda: ahí el proveedor es **la causa de un fallo**, no la justificación de un
+   * importe. La regla mecanizada es exactamente ese matiz — se prohíbe nombrar al procesador (o a
+   * Stripe) en una cadena de cliente **que además hable de un cobro**. No hay lista blanca: el
+   * error operativo y los avisos de modo demo pasan solos porque ninguno nombra una comisión.
+   */
+  it.each([
+    ['es', es, /procesador de pago|stripe/i],
+    ['en', en, /payment processor|stripe/i],
+  ])('%s no justifica ningún cobro al cliente nombrando al procesador de pago', (_locale, catalog, proveedor) => {
+    const offenders = stringEntries(catalog)
+      .filter(([path]) => esCliente(path))
+      .filter(([, value]) => proveedor.test(value) && HABLA_DE_UN_COBRO.test(value))
+      .map(([path]) => path);
+    expect(offenders).toEqual([]);
+  });
+
+  /*
+   * §29.4(b)/§29.6.4 — **el candado en la dirección contraria, y es el más fácil de romper.**
+   * En el back-office Stripe SÍ es un costo nuestro y nombrarlo es lo único honesto: son el dial
+   * del costo real y una línea de gasto del P&L. Quien «arregle» esta exposición barriendo el
+   * catálogo con un `grep` de Stripe rompe la contabilidad del panel — el problema nunca fue
+   * nombrar a Stripe, fue decirle AL CLIENTE que su comisión se la pasamos a él.
+   */
+  it.each([
+    ['es', es],
+    ['en', en],
+  ])('%s conserva el nombre de Stripe en los cuatro rótulos de back-office (§29.4b)', (_locale, catalog) => {
+    const backOffice = [
+      'admin.m10.dials.labels.stripeFeePct',
+      'admin.m10.dials.labels.stripeFeeFixedCents',
+      'admin.m7.pnl.stripeFees',
+      'admin.m7.pnl.formula',
+    ];
+    const encontradas = stringEntries(catalog).filter(([path]) => backOffice.includes(path));
+    // Si alguien borra o renombra las claves, el candado no puede quedar mirando al vacío.
+    expect(encontradas.map(([path]) => path).sort()).toEqual([...backOffice].sort());
+    for (const [path, value] of encontradas) {
+      expect(/stripe/i.test(value), `${path}: el back-office dejó de nombrar a Stripe`).toBe(true);
+    }
+  });
+
+  /*
+   * §29.3 — **las cadenas son normativas: se copian sin interpretar.** Se fijan literales a
+   * propósito, y es el único sitio del proyecto donde eso está justificado: sin abogado, la
+   * disciplina es afirmar MENOS, y cualquier «mejora» de criterio propio —incluida una negación
+   * defensiva del tipo «esto no es un traslado», que introduce el tema y sigue siendo una
+   * afirmación que habría que sostener— es una regresión. Cuando haya abogado se revisa §29 y
+   * entonces se mueve este candado, deliberadamente y con la sección delante.
+   */
+  it('la línea de comisión del checkout dice exactamente lo aprobado en §29.3 (ES y EN)', () => {
+    const valor = (catalog: unknown, key: string) =>
+      stringEntries(catalog).find(([path]) => path === key)?.[1];
+
+    expect(valor(es, 'checkout.platformFee')).toBe('Comisión de plataforma');
+    expect(valor(es, 'checkout.platformFeeHint')).toBe(
+      'Nuestra comisión por operar tu compra en TCG HUNT. Ya está incluida en el total que ves aquí.',
+    );
+    expect(valor(en, 'checkout.platformFee')).toBe('Platform fee');
+    expect(valor(en, 'checkout.platformFeeHint')).toBe(
+      "Our fee for handling your purchase on TCG HUNT. It's already included in the total shown here.",
+    );
+  });
+
+  /*
+   * §29.3 (EN) — `handling`, **no** `processing`. Es una regla de conducta, no de literal: se
+   * mantiene viva aunque el copy se revise. `processing` reintroduce por la puerta de atrás el
+   * vocabulario del procesador de pago, que es exactamente del que se sale.
+   */
+  it('el copy EN de la comisión no reintroduce «processing»', () => {
+    const feeCopy = stringEntries(en)
+      .filter(([path]) => path === 'checkout.platformFee' || path === 'checkout.platformFeeHint')
+      .map(([, value]) => value);
+    expect(feeCopy).toHaveLength(2);
+    expect(feeCopy.filter((v) => /process/i.test(v))).toEqual([]);
+  });
+
+  /*
+   * §29.5 — el renombrado de la clave se hizo, y esto impide la vuelta a medias. El nombre viejo
+   * arrastraba el vocabulario retirado e invitaba a «restaurar» el rótulo para que casara con la
+   * clave. ⚠️ El campo del CONTRATO (`processingFeeCents` del `BreakdownDTO`) **no se toca**: es
+   * nombre de API interna y no lo lee ningún cliente.
+   */
+  it.each([
+    ['es', es],
+    ['en', en],
+  ])('%s no conserva las claves retiradas `checkout.processingFee*`', (_locale, catalog) => {
+    const paths = keyPaths(catalog);
+    expect(paths).not.toContain('checkout.processingFee');
+    expect(paths).not.toContain('checkout.processingFeeHint');
+    expect(paths).toContain('checkout.platformFee');
+    expect(paths).toContain('checkout.platformFeeHint');
+  });
+
+  /*
+   * `TECH_DEBT.md` **DT-Fz** (cerrada) — el home **no enumera** las líneas del resumen de checkout.
+   *
+   * La ficha se cerró adoptando su «salida (a)»: redactar **sin enumerar** («En el checkout ves el
+   * desglose completo antes de pagar.»), lo que rompe el acoplamiento a la composición de
+   * `checkout.*`. Pero se cerró **sin candado**, y se midió: reponer la enumeración vieja pasaba las
+   * 1375 pruebas. Una deuda que se paga redactando vuelve redactando.
+   *
+   * ⚠️ Esto **no** reintroduce el acoplamiento que la ficha rechazaba —no compara el home con el
+   * checkout, ni le pide que estén de acuerdo—: prohíbe **enumerar** en el home, y nada más.
+   * Y hay un motivo de §29 para que viva aquí: la enumeración retirada decía «IVA, **procesamiento**
+   * y envío», que es exactamente el vocabulario del procesador de pago que §29 sacó de la superficie
+   * de cliente. Reabrirla lo devolvería a la portada.
+   */
+  it.each([
+    ['es', es, /procesamiento|desglose completo:/i],
+    ['en', en, /processing|full breakdown:/i],
+  ])('%s no vuelve a enumerar las líneas del checkout en el home (DT-Fz)', (_locale, catalog, enumera) => {
+    const home = stringEntries(catalog).filter(([path]) => path.startsWith('home.how.'));
+    // Si alguien renombra el bloque, el candado no puede quedar mirando al vacío y aprobando.
+    expect(home.length).toBeGreaterThan(0);
+    expect(home.filter(([, value]) => enumera.test(value)).map(([path]) => path)).toEqual([]);
+  });
+
+  /*
    * PROJECT.md decisión 62 / criterio **119(b)** — verificación negativa: la clave del eyebrow de
    * fecha de la ficha no existe en NINGÚN idioma. Retirarla en uno solo sería la recaída silenciosa
    * que el candado de paridad de arriba caza; esta es la que dice **por qué** no debe volver.

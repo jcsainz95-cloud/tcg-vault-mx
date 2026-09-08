@@ -134,6 +134,100 @@ describe('MasterSetBinder · badge on-hand POR ACABADO (regresión IMP-2)', () =
 });
 
 /**
+ * ⭐⭐ **P-45, escrito como la REGLA de su familia (la de P-47): el número de un acabado NUNCA se
+ * pinta en otro.**
+ *
+ * Los tres candados de arriba fijan **el caso que se reportó** —2 NORMAL contra 0 REVERSE HOLO— y
+ * eso deja un hueco que importa: casi todos se apoyan en que **el otro acabado está en CERO**
+ * (`queryByText('2 piezas')` ausente, `HUECO` presente). Con el cero de por medio, una fuga sigue
+ * siendo detectable; **sin él, no**. Si mañana la teja de `reverse_holo` (1 pieza) pintara el
+ * número de `holofoil` (3 piezas), las tres pruebas de arriba **seguirían verdes**: hay badge en
+ * las dos tejas, ninguna es HUECO y el número que se busca existe legítimamente en la vista.
+ *
+ * Este candado mide **la conducta general**: con TRES acabados y tres conteos **distintos y todos
+ * no-nulos**, cada teja enseña **el suyo** y **ninguno de los ajenos**. No hay ningún cero del que
+ * dependa la detección, así que cubre las fugas en las dos direcciones y entre cualquier par.
+ *
+ * Es la misma forma que el candado de P-47 (el mercado aplanado a todos los acabados) porque es el
+ * mismo defecto de fondo: **una cifra por acabado que se calcula, o se hereda, a nivel de carta.**
+ */
+describe('MasterSetBinder · P-45 (familia P-47) · el número de un acabado NUNCA se pinta en otro', () => {
+  /** Tres acabados, tres conteos DISTINTOS y ninguno en cero: la detección no depende de un HUECO. */
+  const COUNTS = { normal: 2, reverse_holo: 5, holofoil: 7 } as const;
+  const LABEL = { normal: 'Normal', reverse_holo: 'Reverse Holo', holofoil: 'Holofoil' } as const;
+  const FINISHES = ['normal', 'reverse_holo', 'holofoil'] as const;
+
+  const multiFinishCell: MasterSetCardCellDTO = {
+    cardId: 'sv08-064',
+    number: '064',
+    name: 'Spinarak',
+    rarity: 'Common',
+    imageSmallUrl: 'https://img.example/spinarak.png',
+    availableFinishes: [...FINISHES],
+    displayFinishes: [...FINISHES],
+    countsByFinish: FINISHES.map((f) => ({ finish: f, count: COUNTS[f] })),
+    // El total de la CARTA (14) es justo la cifra que ninguna teja debe enseñar.
+    totalCount: 14,
+    isSecretRare: false,
+    expectedVariantCount: 3,
+    coveredVariantCount: 3,
+    variants: FINISHES.map((f) => ({ finish: f, count: COUNTS[f], covered: true })),
+  };
+
+  beforeEach(() => {
+    vi.mocked(getMasterSetBinder).mockReset();
+    vi.mocked(getMasterSetBinder).mockResolvedValue({
+      ...response,
+      cells: [multiFinishCell],
+    });
+  });
+
+  it.each(FINISHES)('la teja %s enseña SU conteo y ninguno de los ajenos', async (finish) => {
+    renderWithProviders(
+      <MasterSetBinder mode="platform" set={set} onBack={() => {}} onOpenCell={() => {}} />,
+    );
+    await screen.findAllByText('Spinarak');
+
+    const tile = tileFor(LABEL[finish]);
+    const mine = COUNTS[finish];
+
+    // (a) SU número, en las DOS superficies de conteo de la teja: el badge sobre el arte
+    //     (`finishOnHandCount`, cuyo título nombra el acabado) y el renglón de abajo (`totalCount`).
+    expect(within(tile).getByTitle(`Tengo ${mine} piezas de este acabado`)).toBeInTheDocument();
+    expect(within(tile).getByText(`${mine} piezas`)).toBeInTheDocument();
+
+    // (b) ⛔ NINGÚN número ajeno, en ninguna de las dos superficies. Esta es la aserción que
+    //     convierte el caso reportado en la regla.
+    for (const other of FINISHES) {
+      if (other === finish) continue;
+      const theirs = COUNTS[other];
+      expect(within(tile).queryByTitle(`Tengo ${theirs} piezas de este acabado`)).toBeNull();
+      expect(within(tile).queryByText(`${theirs} piezas`)).toBeNull();
+    }
+
+    // (c) ⛔ Y tampoco el TOTAL DE LA CARTA, que es de donde salía el número equivocado.
+    expect(within(tile).queryByTitle(/Tengo 14 piezas/)).toBeNull();
+    expect(within(tile).queryByText('14 piezas')).toBeNull();
+  });
+
+  it('cada conteo aparece EXACTAMENTE UNA VEZ en toda la rejilla (ninguno se replica)', async () => {
+    renderWithProviders(
+      <MasterSetBinder mode="platform" set={set} onBack={() => {}} onOpenCell={() => {}} />,
+    );
+    await screen.findAllByText('Spinarak');
+
+    // Una carta, tres impresiones, tres cifras distintas: cada una vive en su teja y solo ahí.
+    // Un conteo que se hereda a nivel de carta se delata aquí como 3 apariciones en vez de 1.
+    for (const f of FINISHES) {
+      expect(screen.getAllByTitle(`Tengo ${COUNTS[f]} piezas de este acabado`)).toHaveLength(1);
+      expect(screen.getAllByText(`${COUNTS[f]} piezas`)).toHaveLength(1);
+    }
+    // Y el total de la carta no se pinta en ningún sitio.
+    expect(screen.queryByText('14 piezas')).toBeNull();
+  });
+});
+
+/**
  * Consistencia visual del ACENTO por acabado (spec humano 2026-08): la banda de color de cada teja
  * depende SOLO de su acabado — reverse_holo=ROJO, holofoil=AZUL— y NO cambia porque la carta tenga
  * a la vez holofoil y reverse holo. Se prueba sobre una carta con AMBOS acabados (más normal).

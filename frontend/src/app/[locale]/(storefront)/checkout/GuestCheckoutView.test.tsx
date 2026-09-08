@@ -62,7 +62,8 @@ describe('GuestCheckoutView · checkout de invitado (criterios 45–48b)', () =>
     expect(screen.getByText('Subtotal')).toBeInTheDocument();
     expect(screen.getByText('Envío')).toBeInTheDocument();
     expect(screen.getByText('IVA 16%')).toBeInTheDocument();
-    expect(screen.getByText('Costo de procesamiento')).toBeInTheDocument();
+    // §29 (v3.6): «Comisión de plataforma» — la línea ya no nombra al procesador de pago.
+    expect(screen.getByText('Comisión de plataforma')).toBeInTheDocument();
     expect(
       screen.getByText('Todas las ventas son finales. Sin reembolsos salvo carta dañada o equivocada.'),
     ).toBeInTheDocument();
