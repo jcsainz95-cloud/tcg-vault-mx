@@ -7038,3 +7038,529 @@ hasta cerrarlo y re-verificar (independiente de los veredictos de QA y techlead)
 queda HABILITADO (junto con QA + techlead) el flip `PRICE_PROVIDER=tcgcsv_singles`.
 
 — SEGURIDAD (blue team / AppSec), 2026-08-24 (P-47 cierre: CERRADAS, flip habilitado por seguridad)
+
+---
+
+# REVISIÓN DE SEGURIDAD FOCALIZADA — delta `origin/production..HEAD` (`f04f2dc..fdec257`) · 2026-09-08
+## VEREDICTO: **APROBADO-CON-CONDICIONES**
+
+> **Alcance:** el delta desde el release que aprobé y ya está publicado (`production` = `f04f2dc`).
+> 16 commits; **6 archivos de código fuente** tocados (4 backend, 2 frontend), el resto son tests,
+> catálogos de textos y documentos.
+> **Modo:** lectura dirigida del código + ejecución de las suites del delta + una sonda propia de
+> fuzzing sobre el estrechamiento de dinero + `npm audit --omit=dev` + barrido de secretos y de
+> homoglifos sobre **todas** las líneas añadidas. **No levanté el stack HTTP** (los puertos `:3000`
+> y `:3111` son de otros; lo que no se puede medir sin stack lo digo como no medido).
+
+---
+
+## 0. Resumen para quien decide si se publica *(sin tecnicismos)*
+
+1. **El cambio de este pase es seguro.** Lo revisé entero y no abre ninguna puerta nueva: no hay
+   pantallas nuevas, no se guarda nada nuevo, no cambia quién puede hacer qué, y no toca la base de
+   datos. **La lectura del orquestador es CORRECTA y la confirmo, con mediciones, no de palabra.**
+2. **El dato nuevo (el valor de mercado de cada carta) NO se le enseña a nadie a quien antes no se
+   le enseñara.** Al contrario: viaja a **menos** gente que el número que ya viajaba antes.
+3. **Encontré un problema que NO viene de este cambio y que ya está vivo en producción**: la
+   librería con la que está hecha la tienda (Next.js) tiene un aviso de seguridad **crítico**
+   publicado, y nuestra configuración lo deja **más alcanzable de lo que debería**. Esto no lo trajo
+   este pase — estaba ya en lo que publicamos hace unas horas, y **yo no lo vi en la revisión
+   anterior**. Lo digo así de claro porque es una corrección de mi propio trabajo.
+4. **De las dos "mentiras" del tipo de cambio: ninguna bloquea hoy.** Una de ellas ni siquiera puede
+   pasar hoy en producción (lo verifiqué leyendo el orden del código). La otra sí está ocurriendo,
+   pero **no mueve un solo peso**: lo que hace es ensuciar la bitácora.
+5. **El diseño del interruptor del tipo de cambio (aún sin construir) está bien planteado**, y tiene
+   un fallo concreto que conviene arreglar **antes** de construirlo: la protección pensada para que
+   el dueño no mueva el precio a ciegas **se apaga justo en el caso más peligroso**.
+6. **No hace falta volver a lanzar al red team para este cambio.** Sí hace falta una verificación
+   distinta (de dependencias y configuración de despliegue), que es de otro rol.
+
+---
+
+## 1. Lo que verifiqué **yo**, y cómo *(medido en este árbol, commit `fdec257`)*
+
+### 1.1 Que el delta no abre superficie — comprobado mecánicamente, no leído
+
+Corrí un barrido sobre las líneas **añadidas** del delta buscando cada una de las cinco cosas que
+abrirían superficie. Resultado: **NINGUNA** en las cinco.
+
+| Se buscó en lo añadido | Resultado |
+|---|---|
+| Rutas/decoradores nuevos (`@Get/@Post/@Put/@Patch/@Delete/@Roles/@Public`) | **0** |
+| Escrituras a base de datos (`create/update/upsert/delete*/…Raw`) | **0** |
+| Migraciones / cambios de `prisma/` | **0** |
+| Variables de entorno nuevas (`process.env`, `configService.get`) | **0** |
+| Cambios en `package.json` / lockfiles / `Dockerfile` / `docker-compose` / `.github/` / `security/` | **0** |
+
+⇒ **Confirmo la lectura del orquestador.** El delta es *aditivo y de solo lectura*.
+
+### 1.2 La pregunta que se me pidió mirar con mis ojos: ¿`pricing.market` amplía lo que ve un rol de menor confianza?
+
+**Respuesta: NO. Viaja a MENOS superficie que el campo plano que ya existía.**
+
+- El bloque `pricing` (y por tanto `pricing.market`) **solo se calcula y solo viaja en el scope
+  `platform`**: `master-set.service.ts:782` → `const includePricing = scope.kind === 'platform'`, y
+  la curva ni se carga fuera de ahí (`:784`).
+- Los **dos scopes de bóveda de cliente** entran por `vault.controller.ts:59` y
+  `admin-vaults.controller.ts:61`, **ambos con `{ kind: 'user_vault' }` fijo en el código** — no hay
+  parámetro del cliente que elija scope, así que no hay forma de pedir el scope `platform` desde la
+  cara de cliente.
+- Además hay **candado vivo** que ya lo sostenía y que sigue verde:
+  `sell-override.propagation.spec.ts:279` — *«scope user_vault: `pricing` se OMITE SIEMPRE»* —, y no
+  solo asierta la ausencia del campo: asierta que **ni siquiera se consulta** la tabla de overrides
+  ni la curva. Lo corrí: pasa.
+- El campo plano **`marketReferenceMxnCents` sí sigue viajando en los tres scopes** (se calcula
+  fuera del condicional, `master-set.service.ts:828-833`) — **verificado, sigue siendo cierto** como
+  desde v1.27. `pricing.market` **no** iguala ese límite: es **más estrecho**.
+- **El único dato genuinamente nuevo** que llega a `vault_operator` (el rol de menor confianza del
+  back-office) es **`source`** — la *procedencia* del precio (`manual`, `tcgcsv_singles`, …). Eso
+  **coincide con la política ya escrita y vigente** para ese campo:
+  `pricing.service.ts:424` → *«PROCEDENCIA — `vault_operator+` únicamente. En público se OMITE»*, y
+  el proyector público `toPublicPriceInfo` (`:487-497`) sigue construyéndose **por lista blanca** y
+  **no** incluye `source`. El delta no toca ese proyector.
+- Los otros tres campos de `pricing.market` no son información nueva: `referenceMxnCents` y
+  `capturedDate` ya viajaban planos, y `status` es derivado de ellos.
+- Las otras dos costuras son **`super_admin`**: consola de bounties
+  (`admin-bounties.controller.ts:43`) y el `PUT` de controles de variante (bajo
+  `@Controller('admin/pricing') @Roles(Role.super_admin)`, `pricing.controller.ts:161`).
+
+**En dinero / datos del cliente:** exposición nueva = **ninguna hacia el cliente**; hacia el operador
+de bóveda, una etiqueta de procedencia que la política ya le concedía. Impacto: **nulo**.
+
+### 1.3 Mejora real que trae el delta (a favor)
+
+El estrechamiento pasó a exigir `> 0` y finito. Antes, una fila corrupta con `referenceMxnCents = 0`
+marcada como `priced` se emitía **como `0`** en el campo plano — es decir, **un cliente mirando su
+propia bóveda podía ver su carta valorada en «$0.00»**. Ahora se emite `pending`/`null`. Es un
+endurecimiento money-safe **visible para el cliente**, y va en la dirección correcta.
+
+### 1.4 Sonda propia (no me fié de los tests del autor)
+
+Ejecuté `resolveMarketReference` y `composeVariantPricing` contra **13 entradas hostiles**
+(`null`, `{}`, `status` en mayúsculas, `priced` con `0`, con `-1`, con `NaN`, con `Infinity`, con
+`"9999"` como texto, `pending` con número, y un objeto con campos intrusos
+`extraSecret`/`providerApiKey`). Resultado: **PROBE: CLEAN**.
+
+- **Nunca** emite `priced` con `0`, negativo, `NaN`, `Infinity` ni texto → cae a `pending`.
+- Un `pending` **siempre** sale con los cuatro campos en `null` (no hay «pending sucio» que filtre un
+  número por la puerta de atrás).
+- La salida tiene **exactamente** cuatro claves: los campos intrusos del objeto de entrada
+  (`extraSecret`, `providerApiKey`) **no se propagan**. Es lista blanca de hecho, no solo de tipos.
+
+### 1.5 Suites ejecutadas por mí
+
+- **Backend (jest): 6 suites, 143 pruebas, 143 en verde.** `pricing.variant-market.spec.ts`,
+  `sell-override.propagation.spec.ts`, `master-set.scopes.spec.ts`,
+  `pricing.variant-controls.spec.ts`, `buylist.bounty-revalidation.spec.ts`,
+  `sealed-product.service.spec.ts`.
+- **Frontend (vitest): 4 suites, 64 pruebas, 64 en verde.** `i18n-parity.test.ts`,
+  `AmountBreakdown.test.tsx`, `MasterSetBinder.test.tsx`, `GuestCheckoutView.test.tsx`.
+
+### 1.6 Secretos (el repo es PÚBLICO — `github.com/jcsainz95-cloud/tcg-vault-mx`)
+
+- Barrido de patrones (`sk_live`, `whsec_`, `AKIA`, `ghp_`, `xox*`, `postgres://`, claves privadas,
+  `api_key`, `password`…) sobre **todas** las líneas añadidas: **0 secretos**. Las coincidencias son
+  **nombres** de variables en documentos (`BANXICO_SIE_TOKEN`), nunca valores.
+- Barrido de literales largos con forma de credencial (≥32 chars base64/hex) en lo añadido: **0**
+  (solo rutas de archivo y nombres de rama).
+- `.gitignore` cubre `.env*` con excepción explícita de `.env.example`; **el único fichero de entorno
+  versionado es `.env.example`**; no hay `.env` en el árbol.
+- **Sin hallazgo de secretos. Nada crítico por esta vía.**
+
+### 1.7 Homoglifos y el renombrado de la clave del checkout
+
+- **Barrido de homoglifos y caracteres invisibles sobre las 217 479 caracteres añadidas** del delta
+  (cirílico, griego, armenio, cheroqui, fullwidth, matemáticos, ancho cero, marcas bidi):
+  **0 sospechosos**.
+- Barrido independiente sobre **los catálogos completos** `messages/es.json` y `messages/en.json`
+  (no solo el delta): **0 caracteres de escritura sospechosa**. Todo lo no-ASCII es tipografía
+  legítima (comillas angulares, flechas, signo menos).
+- **El renombrado no dejó ninguna clave sin traducir en la pantalla de pago.** `checkout.platformFee`
+  y `checkout.platformFeeHint` existen **en los dos** catálogos; el componente
+  (`AmountBreakdown.tsx:88,90`) las consume bajo el espacio `checkout`; **no queda ninguna referencia
+  viva** a las claves retiradas (las tres únicas menciones de `processingFee` en el árbol están
+  dentro del propio candado que prohíbe su regreso, `i18n-parity.test.ts:303-306`). El campo de API
+  `processingFeeCents` no se tocó, que es lo correcto.
+- ⚠️ **Hueco de proceso, no de este delta:** existe candado de **paridad de claves ES/EN** y de
+  vocabulario, pero **NO existe candado de homoglifos**. Hoy está limpio porque lo medí yo a mano;
+  mañana depende de que alguien lo vuelva a medir. Ver **S-B1**.
+
+---
+
+## 2. Lo **NO** medido *(dicho como tal)*
+
+1. **No levanté el stack HTTP.** Todo lo de arriba es estático + unitario. No hay confirmación
+   dinámica de que `GET /admin/master-set/:setId` con una sesión real de `vault_operator` devuelva
+   exactamente lo que el código dice. El riesgo residual es bajo (el gate de scope es una constante
+   en el código, no un dato), pero **no está medido en vivo**.
+2. **No tengo acceso a la base de producción.** Que `fx_manual_override_rate = 19.0` y que
+   `BANXICO_SIE_TOKEN` falte son **mediciones del arquitecto/devops que yo NO he reproducido**. Mi
+   juicio sobre las dos "mentiras" depende de esos dos hechos; si alguno fuera falso, la severidad
+   cambia (lo digo en §5 y §6).
+3. **No verifiqué el estado de mitigación de Vercel** para el aviso de Next.js (§5, A-1). No hay
+   egress a `vercel.com` desde aquí y no probé el vector — **es una ejecución remota de código; no se
+   hace PoC contra producción sin ventana autorizada**.
+4. **No re-ejecuté la suite completa** (backend ni frontend) ni los E2E: eso es de QA. Corrí las
+   suites del delta.
+5. **§M2-F es contrato, no código.** Lo que digo en §6 es revisión **de diseño**; no hay nada que
+   medir todavía.
+
+---
+
+## 3. ¿Hace falta el red team? — **Mi juicio explícito: NO para este delta**
+
+**Estoy de acuerdo con no relanzar al pentester, y lo sostengo con las mediciones de §1.1.** El valor
+de un pase ofensivo se saca de superficie nueva: endpoints, escrituras, decisiones de autorización,
+entradas del usuario. **Este delta tiene cero de las cuatro cosas.** El único cambio de
+comportamiento observable es un campo de solo lectura que viaja a **menos** superficie que el número
+que ya viajaba, y una etiqueta de procedencia que la política ya concedía a ese rol. Un red team
+gastaría el pase confirmando lo que un `grep` demuestra en un segundo.
+
+**Pero saco una lección de este pase, y es la que importa:** el hallazgo serio de hoy (**A-1**) no
+está en el delta — está en las **dependencias y la configuración de despliegue**, que **no cambian
+con el código** y por eso se caen entre las grietas de una cadencia "por release de código". La
+respuesta correcta **no** es más red team sobre deltas inofensivos: es que el gate de dependencias
+(`npm audit`) y la configuración del optimizador de imágenes se verifiquen **por calendario**, no por
+delta. Eso es de **devops**, no del pentester.
+
+---
+
+## 4. Consolidación con el pentester
+
+`docs/PENTEST_NOTES.md` **no tiene entrada nueva para este delta** (no se relanzó, con mi acuerdo).
+Consolido por tanto el estado heredado y **no lo duplico**: la escalada de rol en el endpoint de
+bounties (diez vías), la escritura de dinero de controles de variante, `S49-M1` y el doble pago SPEI
+**siguen cerradas** y **este delta no las toca** — verificado: ninguno de los 6 archivos de código
+del delta modifica guardas, roles, transacciones ni escrituras (§1.1). **No las reabro.**
+
+---
+
+## 5. Hallazgos priorizados
+
+### 🔴 A-1 (ALTA) — La tienda corre sobre una versión de Next.js con aviso **crítico** publicado, y nuestra configuración lo hace más alcanzable
+- **NO introducido por este delta.** Ya está vivo en producción (`f04f2dc`). **Yo no lo detecté en la
+  revisión anterior**; el histórico de este documento dice «frontend prod: 0 vulns» — eso **ya no es
+  cierto** y lo corrijo aquí.
+- **Ubicación:** `frontend/package.json:21` (`"next": "15.5.23"`), `:49` (`"sharp": "^0.35.3"`) y
+  `frontend/next.config.mjs:14-19`.
+- **Evidencia (medida hoy):** `npm audit --omit=dev` en `frontend/` → **1 crítica + 1 alta**.
+  - `GHSA-2xp9-vwfh-vxw4` — **crítica** — ejecución remota de código **sin autenticar** en la API de
+    optimización de imágenes al procesar ficheros **AVIF**. Afecta `>=10.0.0 <15.5.24`. **Tenemos
+    15.5.23; la corregida es 15.5.24 — estamos una versión por debajo del parche.**
+  - `GHSA-rgj7-g3m4-5g8c` — **alta** — `sharp < 0.35.4` (vulnerabilidades de `libheif`). **Tenemos
+    0.35.3.**
+  - `GHSA-p293-qw3h-jr36` (RCE en servidores **Windows**) — **NO nos aplica**: desplegamos en Vercel
+    y en imágenes `node:20-alpine`. Lo descarto explícitamente.
+- **Lo que lo empeora, y es nuestro:** `next.config.mjs:17` contiene
+  `{ protocol: 'https', hostname: '**' }` — **un comodín que autoriza a CUALQUIER servidor de
+  internet**. Eso significa que un desconocido puede pedirle a nuestra web que **descargue y procese
+  una imagen alojada en su propio servidor**, que es justo la condición que el aviso necesita: le
+  permite entregarnos el AVIF malicioso. Sin ese comodín solo se podrían procesar imágenes de
+  `images.pokemontcg.io`.
+- **Impacto en dinero y datos del cliente, en llano:** si el vector es alcanzable, un atacante puede
+  **ejecutar código en el servidor que sirve la tienda**. Eso es el peor caso posible: manipular lo
+  que ven los compradores, robar lo que ese servidor pueda leer y usarlo como trampolín. **Esto es un
+  riesgo de plataforma, no del dinero del cliente directamente** (los pagos los liquida Stripe y los
+  datos sensibles —INE/CLABE— viven en el backend, que es otro proceso y otro despliegue).
+- **Por qué ALTA y no CRÍTICA — y bajo qué supuesto:** el frontend de **producción corre en Vercel**
+  (`vercel.json`, y `docs/DEVOPS_NOTES.md §40`), donde el optimizado de imágenes lo ejecuta la
+  plataforma, y el propio aviso indica que **la optimización de AVIF se deshabilitó como mitigación**
+  del lado del proveedor. **No he podido verificar esa mitigación** (§2.3). **Si el frontend se
+  sirviera alguna vez desde nuestra propia imagen Docker** (`Dockerfile.frontend`, el
+  `docker-compose.staging.yml`, o un futuro despliegue en Railway), **entonces es CRÍTICA y
+  explotable sin autenticación**, porque ahí el que procesa la imagen es *nuestro* `sharp 0.35.3`.
+- **Rol dueño: FRONTEND** (`frontend/` es su ruta: `package.json` y `next.config.mjs`), con
+  **devops** verificando el despliegue y el gate.
+- **Arreglo (dos líneas, sin cambio de comportamiento del producto):**
+  1. `next` → **`15.5.24`** o superior (parche, misma línea menor) y `sharp` → **`^0.35.4`**.
+  2. **Quitar `{ protocol: 'https', hostname: '**' }`** y dejar solo los hosts que de verdad
+     servimos imágenes (`images.pokemontcg.io` y los que use el CDN/uploads).
+
+### 🟠 A-2 (MEDIA) — El comodín de imágenes convierte nuestra web en un proxy de imágenes abierto
+- **Independiente de A-1: sigue existiendo aunque se parchee Next.** Mismo sitio,
+  `frontend/next.config.mjs:17`.
+- **Nunca había sido señalado**: no aparece en `SECURITY_NOTES.md`, `PENTEST_NOTES.md`,
+  `TECH_DEBT.md` ni `FRONTEND_NOTES.md`. Introducido el **2026-08-23**.
+- **Impacto en llano:** cualquiera puede hacer que nuestro dominio descargue y sirva imágenes
+  alojadas en cualquier sitio de internet. Dos consecuencias con precio: **(a)** se **paga** ese
+  tráfico y ese procesado (el optimizado de imágenes de Vercel se factura), y un tercero puede
+  encenderlo a voluntad; **(b)** contenido ajeno —incluido contenido ilegal o abusivo— puede quedar
+  servido **desde la dirección de TCG HUNT**, con nuestro nombre encima.
+- **Rol dueño: FRONTEND.**
+
+### 🟡 A-3 (MEDIA) — La bitácora del tipo de cambio afirma refrescos que **no ocurrieron** *(la "mentira (b)")*
+- Detalle y juicio en **§6.2**. **Rol dueño: BACKEND.**
+
+### 🟢 A-4 (BAJA, latente) — El tipo de cambio de emergencia (18) se etiqueta como **`manual`** *(la "mentira (a)")*
+- Detalle y juicio en **§6.1**. **Rol dueño: BACKEND** (el contrato ya norma el arreglo: `source: "fallback"`).
+
+### 🟢 A-5 (BAJA) — Sin candado automático de homoglifos en los catálogos de textos
+- **Ubicación:** `frontend/src/lib/i18n-parity.test.ts` (39 pruebas; ninguna mira el alfabeto).
+- **Evidencia:** hoy los catálogos están **limpios** (lo medí, §1.7), pero la limpieza no está
+  defendida: una `А` cirílica en un rótulo vuelve a pasar todas las pruebas.
+- **Impacto en llano:** un carácter que *parece* una letra normal pero no lo es puede usarse para
+  hacer pasar un texto por otro (por ejemplo, un nombre de marca falsificado en una pantalla de
+  pago). Ya nos mordió una vez.
+- **Rol dueño: FRONTEND** (el fichero es suyo). **Arreglo:** una prueba de ~8 líneas que rechace todo
+  carácter fuera del latín/puntuación en `messages/*.json`.
+
+### Sin hallazgos en el resto del delta
+`BountiesView.tsx` es **presentación pura** (suprimir un vacío duplicado por accesibilidad; añade un
+`data-testid`): sin datos nuevos, sin llamadas nuevas. Los cambios de textos y de tests no tienen
+efecto de seguridad. **El frontend todavía no consume `pricing.market`** — el campo se emite y no se
+pinta en ningún sitio.
+
+---
+
+## 6. Las dos mentiras vivas — mi juicio, **hoy, en producción**
+
+### 6.1 El fallback duro de 18 se reporta como `source: "manual"` — **¿bloquea? NO**
+
+- **Confirmado en el código:** `fx.service.ts:57` →
+  `return { rate: 18, bufferPct, source: 'manual', effectiveDate: today()... }`. Y agrava: le sella
+  **la fecha de hoy**, así que el número inventado además *parece recién capturado*.
+- **Es de seguridad/integridad, no de producto.** Es una **etiqueta de procedencia que miente sobre
+  un dato de dinero**: dice «esto lo puso un humano» sobre un número que **no puso nadie**. Lo que
+  rompe no es el cálculo: es la capacidad del dueño de **darse cuenta de que el sistema está
+  cotizando a ciegas**. Un operador que ve «MANUAL» concluye «es mi tasa» y no investiga.
+- **Pero hoy, en producción, NO se puede alcanzar.** Verifiqué el orden de las tres ramas de
+  `getCurrent()`: **(1)** override manual → **(2)** última fila `FxRate` → **(3)** fallback 18.
+  Con `fx_manual_override_rate = 19.0` vivo, **gana la rama (1) y la (3) nunca se ejecuta**.
+  ⚠️ Ese `19.0` es **medición del arquitecto que yo no he reproducido** (§2.2).
+- **Y verifiqué que NO es un puente a un fallo de control**, que era mi preocupación real: busqué si
+  alguna decisión de dinero se ramifica por la fuente del FX. La única comparación
+  `source === 'manual'` en la capa de precios (`pricing.service.ts:1774`, `gateSealedMarketCents`)
+  lee el `source` de la **referencia de precio**, no el del tipo de cambio. **La mentira no salta
+  ninguna guarda.**
+- **Riesgo real:** dispara en cualquier entorno **sin ninguna fila `FxRate` y sin override** — un
+  restore, una base nueva, un entorno recién levantado. Ahí el catálogo entero se cotizaría a 18
+  diciendo que es la tasa del dueño. **Es latente, no vivo.**
+- **Severidad: BAJA hoy** (inalcanzable en producción) / **MEDIA como latente**. **No bloquea.**
+
+### 6.2 `fx.refresh` audita como refresco un fetch que **falló** — **¿bloquea? NO, pero es la más seria de las dos**
+
+- **Confirmado en el código.** `fx.service.ts:92-96` (sin token) y `:117-121` (fetch fallido) hacen
+  lo mismo: **se tragan el fallo** y devuelven `getCurrent()` —es decir, el override—. Y el
+  controlador (`pricing.controller.ts:841-844`) lo escribe tal cual:
+  `await this.audit.log({ ..., action: 'fx.refresh', after: r })`.
+- **Esta sí está ocurriendo hoy**, porque en producción **falta `BANXICO_SIE_TOKEN`** (`D-OPS-1`,
+  medido y repetido en los registros; ⚠️ **no reproducido por mí**, §2.2). Efecto: **cada vez que el
+  dueño pulsa "Refrescar Banxico" se escribe en la bitácora una entrada que afirma un refresco que
+  nunca sucedió, con el valor de su propio override como si Banxico lo hubiera traído.**
+- **Es de seguridad, no de producto.** Es **integridad del registro**, que es la propiedad sobre la
+  que descansa el no-repudio: la bitácora es *la* respuesta a «¿quién tocó el tipo de cambio y
+  cuándo?». Hoy contiene entradas que describen hechos que no ocurrieron.
+- **Impacto en dinero: cero directo.** No escribe ninguna fila `FxRate`, no cambia ningún ajuste, no
+  mueve ningún precio. El daño es **investigativo**: ante una disputa por un precio, el registro
+  atribuye a Banxico un número que puso el dueño, y quien reconstruya el día llega a la conclusión
+  contraria a la verdad. Peor: permite **ensuciar el rastro a voluntad** — pulsar "refrescar" N veces
+  después de cambiar la tasa a mano llena la bitácora de entradas que *aparentan* legitimar el
+  número.
+- **Severidad: MEDIA. No bloquea este delta** (es preexistente, sin cambios, y ya estaba vivo en el
+  release que aprobé). **Pero deja de ser aceptable en el momento en que §M2-F se construya**, porque
+  §M2-F.4 convierte precisamente esta bitácora en el mecanismo oficial de reconstrucción. **Que
+  `FX-8` esté en la lista de candados del contrato es correcto y suficiente** *si de verdad se
+  implementa*.
+
+---
+
+## 7. Revisión de **DISEÑO** de §M2-F *(antes de que se construya — contrato v1.63)*
+
+**Valoración general: el diseño es sólido y, en lo esencial, más seguro que lo que hay hoy.** Separar
+el modo del valor elimina una clase entera de accidentes (hoy «apagar el manual» significa
+**destruir** el número del dueño). Los cuatro invariantes están bien elegidos, y **I-FX2** («toda
+escritura del valor fija el modo del momento») es el que cierra la puerta de verdad. Los candados
+`FX-1`, `FX-2` y `FX-6` miden **conducta y pesos**, no nombres de campo, que es como deben medirse.
+**`FX-6(c)`** —*«`SETTING_DEFAULTS` no contiene `fx_rate_mode`»*— es, en mi opinión, **el candado más
+importante de los diez**: verifiqué que `SETTING_DEFAULTS` hoy sí trae
+`FX_MANUAL_OVERRIDE_RATE: null` (`settings.constants.ts:251`), o sea que **el patrón de poner
+defaults en ese mapa está vivo**; si alguien añadiera ahí `fx_rate_mode: 'auto'`, producción (que
+tiene 19.0 y ninguna fila de modo) **cambiaría de modo sola en el siguiente arranque y repreciaría el
+catálogo entero sin que nadie tocara nada**. El contrato lo ve y lo bloquea. Bien.
+
+### 7.1 ¿Quién debe poder tocarlo? ¿Basta `super_admin`? — **Sí, basta**
+
+- Verifiqué que **las dos puertas que escriben el valor ya son `super_admin`**:
+  `pricing.controller.ts:806` (`@Controller('admin/fx')`) y `settings.controller.ts:12-13`
+  (`@Controller('admin') @Roles(Role.super_admin)`). El endpoint nuevo hereda ese mismo listón.
+- Es **coherente con el modelo ya aprobado**: es el mismo rol que autoriza el dinero saliente.
+  Segregar más (un cuarto rol de "tesorería") no tiene sentido en una operación de un solo dueño y
+  añadiría un rol que nadie usaría.
+- **Nota menor:** los endpoints de FX **no tienen límite de tasa propio**; solo el global de
+  300/min (`app.module.ts:44`). Para un interruptor de `super_admin` es aceptable, pero un
+  `@Throttle` estrecho en `/admin/fx*` es barato y evita el "martilleo" del interruptor.
+
+### 7.2 ⚠️ **El fallo concreto que hay que arreglar antes de construirlo**: la protección se apaga justo en el caso más peligroso
+
+Hay una **tensión entre dos reglas del propio §M2-F.3**:
+
+- **Regla 2** dice: *«PROHIBIDO que la pantalla ofrezca el interruptor sin tener las dos [tasas] en
+  la mano»*. Esa es **la** salvaguarda de dinero del diseño: no se mueve el tipo de cambio a ciegas.
+- **Regla 5** dice: si `automatic.rate` es `null` (nunca llegó nada de Banxico), `status: "missing"`,
+  y **el interruptor a `auto` sigue siendo legal, «pero se toma a ciegas»**.
+
+**El problema:** cuando `automatic.rate` es `null` **no hay segunda tasa que enseñar**, así que la
+precondición de la regla 2 **no puede cumplirse** — y en vez de bloquear, el diseño deja pasar el
+cambio. Es decir: **la protección existe en todos los casos salvo precisamente en aquel en el que el
+resultado lo elige una constante escondida en el código.**
+
+Y ese caso **no es hipotético hoy**: producción está en manual con 19.0 y **sin `BANXICO_SIE_TOKEN`**
+(§6.2), así que es perfectamente posible que **no exista ninguna fila `FxRate` de origen Banxico**.
+En ese escenario, un clic en «automático» lleva el tipo de cambio de **19.0 al fallback de 18**.
+
+- **En dinero, en llano:** eso es **~5% de bajada instantánea, en el mismo segundo, en todo el
+  catálogo derivado de dólares — en los dos sentidos**. Vendemos ~5% más barato **y** ofrecemos ~5%
+  menos por lo que compramos, hasta que alguien lo note. Y el número que pasa a mandar **no lo eligió
+  nadie**: es un `18` escrito en el código como red de emergencia.
+- **A favor del diseño:** el `FxStateDTO` **lo declara** (`status: "missing"`, `automatic.rate: null`,
+  `source: "fallback"`) y la bitácora recogería `19.0 → 18`. O sea: es **visible y auditable**. No es
+  un agujero silencioso.
+- **Mi recomendación (rol dueño: ARQUITECTO, es contrato y aún no está construido):** que pasar a
+  `auto` con `automatic.status === "missing"` **exija una confirmación explícita** — por ejemplo un
+  `{ mode: "auto", acknowledgeNoAutomaticRate: true }`, y sin él un `422`. **No re-ata el modo al
+  valor** (sigue sin aceptar `rate`), así que no rompe el principio del pase; solo obliga a que el
+  «se toma a ciegas» sea un acto consciente y no un clic. Alternativa mínima si se prefiere no tocar
+  el contrato: dejarlo escrito como **regla de cliente** obligatoria en §M2-F.3 regla 2, igual que ya
+  se hace con el toggle deshabilitado.
+- Un segundo caso de la misma familia, **menor**: pasar a `auto` con `status: "stale"` (p. ej. 40
+  días) reprecia con una tasa vieja. Aquí sí hay dos números que enseñar, así que la regla 2 **sí**
+  protege. Lo considero **aceptable como está**.
+
+### 7.3 ¿La auditoría propuesta basta para reconstruir quién movió el dinero y cuándo? — **Sí, con tres matices**
+
+**Lo que está bien, y es lo importante:** `fx.mode.change` lleva **actor**, **entidad**, y sobre todo
+**los dos números** (`before.effectiveRate` / `after.effectiveRate`) con su fuente y su fecha — no los
+rótulos. **Ése es el acierto central**: «cambié a automático» no es auditable; «pasé de 19.0000 a
+18.2431» sí. Además:
+- Es **transaccional**, y el precedente que cita **existe y funciona**: verifiqué `auditWithin` en
+  `settings.controller.ts:36-52` (efecto y bitácora commitean o revierten juntos).
+- Auditar también los cambios **idempotentes** (`before == after`) es correcto: obliga a que no haya
+  que demostrar una ausencia.
+- Verifiqué que `AuditLog` es **solo-añadir desde la aplicación**: no existe **ni una** llamada
+  `auditLog.update/delete/updateMany/deleteMany` en todo `backend/src`. Y guarda `createdAt` e `ip`
+  (esta última visible solo a `super_admin`).
+
+**Matiz 1 — el registro guarda la tasa, pero no el colchón.** Para reconstruir *el efecto del flip*
+basta `effectiveRate` (el colchón es el mismo en las dos ramas, §M2-F.3 regla 3). Pero para
+reconstruir **el precio de un día concreto** hace falta también el `bufferPct` vigente, que vive en
+otra acción (`settings.update`). Conviene **decirlo en el contrato** en una frase, para que quien
+investigue no crea que `fx.mode.change` se basta solo.
+
+**Matiz 2 — «lee `action=fx.mode.change`» no es suficiente y el contrato lo insinúa que sí.**
+§M2-F.4 cierra diciendo que todo es legible con
+`GET /admin/audit-log?action=fx.mode.change`. Pero por **I-FX2**, una escritura del valor por
+`PUT /admin/settings` **también escribe la fila del modo**, y eso queda registrado como
+`settings.update`, no como `fx.mode.change`. El efecto es nulo (fija el statu quo), pero **un auditor
+que filtre solo por `fx.mode.change` no verá todas las escrituras de esa fila.** Recomiendo que el
+contrato diga explícitamente que la reconstrucción es la **unión** de `fx.mode.change`, `fx.override`
+y `settings.update`.
+
+**Matiz 3 — `fx.override` sigue sin ser transaccional, y el contrato no lo arregla.** Hoy
+(`pricing.controller.ts:832-836`) la bitácora se escribe **después** del `setManual`, **fuera de
+cualquier transacción**: si falla en medio, queda **efecto sin registro**. §M2-F.4 le exige
+transaccionalidad a `fx.mode.change` pero a `fx.override` solo le pide "normalizarse"
+(`before`, claves de entidad, `applied`). **En modo `manual`, escribir el valor mueve el catálogo
+exactamente igual que mover el interruptor**, así que merece **la misma** garantía `auditWithin`.
+**Rol dueño: ARQUITECTO** (añadirlo a §M2-F.4) **+ BACKEND** (implementarlo).
+
+### 7.4 ¿Hay forma de mover el modo **sin** dejar rastro? — **Sí: una, y está fuera de la aplicación**
+
+- **Dentro de la aplicación: NO.** Las tres puertas (`PUT /admin/fx/mode`, `PUT /admin/fx`,
+  `PUT /admin/settings`) auditan, `AuditLog` es solo-añadir, y la del modo es transaccional. **Bien
+  cerrado.**
+- **Fuera de la aplicación: SÍ.** `fx_rate_mode` es una fila de `ConfigSetting`. Cualquiera con
+  acceso directo a la base la cambia sin dejar entrada. Eso es inherente a cualquier tabla de ajustes
+  y se mitiga con control de acceso a la base, no con código — **pero hay un matiz específico de este
+  diseño que sí conviene decir en voz alta**: **borrar** la fila es **peor** que editarla. Al
+  desaparecer, se re-arma la **resolución legacy** (el modo se vuelve a inferir del valor), de modo
+  que **el modo puede cambiar en la siguiente lectura sin que nadie haya escrito «manual» en ningún
+  sitio**. Es un cambio de modo **sin autor y sin evento**.
+- **Recomendación (ARQUITECTO + BACKEND, barata):** la bitácora es necesaria pero **no suficiente**
+  para detectar esto, porque nada reconcilia el estado actual contra el rastro. Que el modo resuelto
+  y la tasa vigente se **expongan en una señal ya existente** (salud/telemetría del panel, o el
+  propio `GET /admin/fx` que el dueño ya mira) hace que un modo que cambió **sin** su entrada
+  correspondiente sea **visible**, en vez de indetectable.
+
+### 7.5 Lo que el diseño hace bien y quiero dejar por escrito
+
+- **El orden de dos llamadas es money-safe por construcción**: guardar la tasa (no aplica) y luego
+  aplicarla. El paso intermedio no mueve un peso. Correcto.
+- **`FX_AUTO_STALE_AFTER_DAYS = 5` como constante y no como dial** es la decisión correcta: un dial
+  es una palanca más que auditar, y el razonamiento (Banxico publica en días hábiles) es sólido.
+- **No bloquear el pricing cuando la tasa está `stale`** es correcto: ocultar dinero que sí tenemos
+  no es money-safe; declararlo sí.
+- **Derivar `automatic.status` en el servidor y no en la pantalla** es correcto y consistente.
+- **No emitir el salto en % como campo** (que lo reste la pantalla) es correcto: un tercer número del
+  servidor podría discrepar de la resta que el humano tiene delante.
+
+---
+
+## 8. Deuda de seguridad aceptada (no bloqueante)
+
+| Id | Hallazgo | Impacto | Dueño | Disparador para atacarla |
+|---|---|---|---|---|
+| **S-B1** | Sin candado de homoglifos en `messages/*.json` (**A-5**) | Un rótulo falsificable en pantalla de pago; hoy limpio pero sin defensa | frontend | Próximo toque a los catálogos de textos, o ya (son ~8 líneas) |
+| **S-B2** | Fallback FX de 18 etiquetado `manual` (**A-4**, §6.1) | Latente: cotizar el catálogo a una tasa inventada diciendo que es la del dueño, en un entorno sin `FxRate` ni override | backend | **Con la implementación de §M2-F** (`source: "fallback"`, candado `FX-7`). Antes si se restaura o se levanta un entorno nuevo |
+| **S-B3** | `fx.refresh` audita fetches fallidos como refrescos (**A-3**, §6.2) | Entradas falsas en la bitácora del dinero; sin efecto monetario | backend | **Antes de que §M2-F entre en producción** (candado `FX-8`). Deja de ser aceptable en cuanto esa bitácora sea el mecanismo oficial de reconstrucción |
+| **S-B4** | `fx.override` no es transaccional (§7.3, matiz 3) | Posible efecto sin registro si falla entre la escritura y la bitácora | arquitecto + backend | Al implementar §M2-F, en el mismo pase |
+| **S-B5** | Sin `@Throttle` propio en `/admin/fx*` (§7.1) | Bajo (solo `super_admin`) | backend | Al implementar §M2-F |
+| **N-0 (carryover)** | `@nestjs/core` GHSA-36xv-jgw5-4q75 — backend `npm audit --omit=dev` = **5 moderate, 0 high, 0 critical** (medido hoy; ahora también `qs`/`body-parser`/`express`) | No alcanzable (sin SSE); `qs` es DoS en el parseo de query | devops | Ventana de mantenimiento de deps; **el mismo pase que A-1** |
+
+---
+
+## 9. Banderas para el humano
+
+1. 🚩 **A-1 no espera al siguiente release.** El aviso crítico de Next.js ya está vivo en lo que
+   publicamos. Publicar este delta **no lo empeora**, pero **no publicarlo tampoco lo arregla**. Como
+   publicar implica de todos modos volver a desplegar el frontend, **ése es el momento más barato
+   para subir la versión**: es un cambio de parche (`15.5.23` → `15.5.24`) sin cambio funcional.
+2. 🚩 **Antes de operar con dinero real a escala sigue pendiente lo de siempre**, y este pase no lo
+   cambia: **pentest de un tercero independiente + programa de bug bounty**. Un equipo interno
+   (ofensivo o defensivo) tiene el sesgo de conocer el diseño; A-1 es la prueba de que las cosas se
+   caen por las grietas del proceso, no por falta de lectura.
+3. 🚩 **`BANXICO_SIE_TOKEN` sigue faltando en producción** (`D-OPS-1`). Mientras falte: el tipo de
+   cambio está **congelado** en el override del dueño, el botón «Refrescar» **no refresca** y además
+   **miente en la bitácora** (§6.2). Es de **devops + humano**, no se arregla con código.
+4. 🚩 **Validación legal pendiente (sin cambios):** custodia de bienes de terceros y tratamiento de
+   PII (INE/CLABE) bajo la LFPDPPP siguen sin revisión de un abogado. Este delta **no toca PII**.
+5. 🚩 **Antes de construir §M2-F**, que el arquitecto resuelva el punto **§7.2** (la confirmación
+   explícita cuando no hay tasa de Banxico). Es más barato en el contrato que en el código.
+
+---
+
+## 10. VEREDICTO
+
+### **APROBADO-CON-CONDICIONES**
+
+**El delta en sí (`f04f2dc..fdec257`) queda APROBADO sin reservas.** No introduce ningún hallazgo,
+de ninguna severidad. Confirmo la lectura del orquestador con mediciones: cero endpoints nuevos,
+cero escrituras nuevas, cero cambios de autorización, cero migraciones, cero variables de entorno.
+El campo `pricing.market` **no** amplía lo que ve ningún rol de menor confianza —viaja a **menos**
+superficie que el número que ya viajaba— y de hecho **endurece** un caso de dinero que el cliente
+veía mal (`$0.00` donde debía decir «pendiente»). Los textos del checkout están completos en los dos
+idiomas, sin claves huérfanas y sin homoglifos.
+
+**La condición NO viene del delta**, y por eso el veredicto no es un RECHAZO: viene de un hallazgo
+**ALTO preexistente y ya vivo en producción** que **detecté en este pase y que no había detectado en
+el anterior** (**A-1**: Next.js `15.5.23` con aviso crítico + el comodín `hostname: '**'`).
+Rechazar este delta no quitaría ese riesgo de producción ni un minuto antes; lo único que haría es
+retener un cambio inofensivo.
+
+**Mínimo necesario para pasar a APROBADO limpio** — todo de **rol frontend**, dos ficheros:
+
+1. `frontend/package.json` → `next` a **`15.5.24`+** y `sharp` a **`^0.35.4`**.
+2. `frontend/next.config.mjs` → **eliminar** `{ protocol: 'https', hostname: '**' }`, dejando solo
+   los hosts que realmente servimos.
+3. Que **devops** confirme que el despliegue de producción del frontend sale de **Vercel** (no de
+   `Dockerfile.frontend`) y que **staging no está expuesto a internet** mientras (1) y (2) no estén.
+
+**Si el humano prefiere publicar este delta ya y arreglar A-1 justo después**, es una decisión
+defendible —el delta no añade riesgo— **siempre que (3) se confirme** y (1)+(2) salgan en el
+siguiente despliegue, no en el siguiente release. **Lo que no es defendible es cerrarlo como
+"0 críticas / 0 altas": hoy hay una ALTA abierta, y es mía de la ronda anterior.**
+
+**Sobre el red team: no hace falta relanzarlo para este delta** (§3). Lo que hace falta es que el
+gate de dependencias y la configuración del optimizador de imágenes se verifiquen **por calendario**
+y no por delta de código — de otro modo, el mismo hueco vuelve a colarse en la próxima ronda.
+
+— SEGURIDAD (blue team / AppSec), 2026-09-08 · delta `f04f2dc..fdec257` · **APROBADO-CON-CONDICIONES**
