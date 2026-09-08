@@ -309,6 +309,30 @@ describe('i18n catalogs', () => {
   });
 
   /*
+   * `TECH_DEBT.md` **DT-Fz** (cerrada) — el home **no enumera** las líneas del resumen de checkout.
+   *
+   * La ficha se cerró adoptando su «salida (a)»: redactar **sin enumerar** («En el checkout ves el
+   * desglose completo antes de pagar.»), lo que rompe el acoplamiento a la composición de
+   * `checkout.*`. Pero se cerró **sin candado**, y se midió: reponer la enumeración vieja pasaba las
+   * 1375 pruebas. Una deuda que se paga redactando vuelve redactando.
+   *
+   * ⚠️ Esto **no** reintroduce el acoplamiento que la ficha rechazaba —no compara el home con el
+   * checkout, ni le pide que estén de acuerdo—: prohíbe **enumerar** en el home, y nada más.
+   * Y hay un motivo de §29 para que viva aquí: la enumeración retirada decía «IVA, **procesamiento**
+   * y envío», que es exactamente el vocabulario del procesador de pago que §29 sacó de la superficie
+   * de cliente. Reabrirla lo devolvería a la portada.
+   */
+  it.each([
+    ['es', es, /procesamiento|desglose completo:/i],
+    ['en', en, /processing|full breakdown:/i],
+  ])('%s no vuelve a enumerar las líneas del checkout en el home (DT-Fz)', (_locale, catalog, enumera) => {
+    const home = stringEntries(catalog).filter(([path]) => path.startsWith('home.how.'));
+    // Si alguien renombra el bloque, el candado no puede quedar mirando al vacío y aprobando.
+    expect(home.length).toBeGreaterThan(0);
+    expect(home.filter(([, value]) => enumera.test(value)).map(([path]) => path)).toEqual([]);
+  });
+
+  /*
    * PROJECT.md decisión 62 / criterio **119(b)** — verificación negativa: la clave del eyebrow de
    * fecha de la ficha no existe en NINGÚN idioma. Retirarla en uno solo sería la recaída silenciosa
    * que el candado de paridad de arriba caza; esta es la que dice **por qué** no debe volver.

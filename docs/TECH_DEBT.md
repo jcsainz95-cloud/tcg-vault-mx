@@ -5123,8 +5123,21 @@
   léxico de marca (cacería/bounty/HUNT) en ese valor.
 
 #### DT-Fz · ~~`home.how.step1Body` enumera las líneas del resumen de checkout~~ → **RESUELTA de raíz** (2026-09-01, misma rama)
-- **Dueño:** frontend. **Severidad:** Baja. **Estado: abierta, aceptada.** Anotada a petición del techlead en el veredicto del pase §41.
-- **Hoy es CIERTO, y eso es justo lo que la hace fácil de pasar por alto.** `home.how.step1Body` dice «ves el desglose completo: **IVA, procesamiento y envío**» (EN: «VAT, processing and shipping»), y el resumen de checkout tiene hoy exactamente esas líneas: `checkout.subtotal`, `checkout.processingFee`, `checkout.iva`, `checkout.shipping`, `checkout.total` (verificado sobre `messages/es.json`).
+- **Dueño:** frontend. **Severidad:** Baja. **Estado: CERRADA** (2026-09-01). Anotada a petición del techlead en el veredicto del pase §41.
+- ⚠️ **AVISO AL LECTOR (corregido 2026-09-08): todo lo que sigue en esta ficha está en PASADO.** El
+  cuerpo se conserva porque el diagnóstico —y su autocrítica— siguen siendo útiles, pero **describe
+  un estado que ya no existe**. La entrada citaba `home.how.step1Body` **con su texto viejo** y en
+  presente, y así llevaba días mandando a alguien a reabrir una cadena **que ya está limpia**.
+  ⛔ **No se reabre `home.how.step1Body`**: su valor vigente es «En el checkout ves el desglose
+  completo antes de pagar.» / «At checkout you see the full breakdown before you pay.» — sin
+  enumerar, verificado sobre el catálogo actual (y confirmado por ux-ui, `DESIGN_SYSTEM §29.4(c)`).
+- **[HISTÓRICO — el texto de abajo YA NO ESTÁ en el catálogo]** El valor **retirado** de
+  `home.how.step1Body` decía «ves el desglose completo: **IVA, procesamiento y envío**» (EN: «VAT,
+  processing and shipping»), y en su momento el resumen de checkout tenía exactamente esas líneas.
+  ⚠️ Dos de esos nombres tampoco existen ya: la línea de comisión se rotula **«Comisión de
+  plataforma»** y su clave es **`checkout.platformFee`** desde `DESIGN_SYSTEM §29` (v3.6) —
+  `checkout.processingFee` **no existe**, así que quien busque esa clave para «arreglar» algo no la
+  va a encontrar, y hace bien.
 - **Deuda:** el home **espeja la composición de un componente que no controla**. La enumeración es una afirmación sobre el checkout escrita en la home, y **nada la ata**: no hay test que compare ambas superficies, ni podría haberlo sin inventar un acoplamiento nuevo. El día que el resumen gane o pierda una línea —un descuento, una cuota aduanal, o que la comisión del procesador se absorba en el precio en vez de trasladarse— **el home vuelve a ser falso en silencio**.
 - **Por qué importa más de lo que parece:** es la **recurrencia, por una vía nueva, de la falla que QA acaba de rechazar** en este mismo pase (§41.9a: «Lo que ves es lo que pagas» prometía una equivalencia que el desglose desmentía). Se corrigió una frase falsa sustituyéndola por una frase cierta **pero frágil**. No es un defecto hoy; es el mismo defecto esperando otro cambio de checkout.
 - **Salidas (excluyentes):** **(a)** redactar **sin enumerar** — «ves el desglose completo antes de pagar» / «you see the full breakdown before you pay»: rompe el acoplamiento a **coste cero**, sin perder el argumento (el desglose sigue siendo el gancho), y es la salida barata; **o (b)** conservar la enumeración porque concreta mejor, y entonces **anclar el disparador a `checkout.*`**: quien toque las líneas del resumen tiene que revisar esta clave.

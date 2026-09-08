@@ -44,6 +44,13 @@ const OUTBID_CARD = 'Charizard';
  * semilla tal cual: ⛔ sin puerta trasera, sin fixture nuevo, sin `q` mágico.
  */
 const FILTER_CARD = 'Pikachu';
+/**
+ * Un texto que **no casa con nada**: la `q` que vacía la tabla teniendo un filtro de IDENTIDAD
+ * puesto, que es la esquina exacta de §28.5b. Sale de teclear en el buscador de verdad: ⛔ no es
+ * un `q` mágico ni una puerta trasera — el servidor falso lo filtra con el mismo `where` que el
+ * endpoint (nombre o número de carta).
+ */
+const NO_MATCH_QUERY = 'zzzznada';
 /** La `invalida` de la semilla: encendida y **sin precio**. Su hueco es la señal (§28.3, §28.9). */
 const NO_PRICE_CARD = 'Milotic ex';
 
@@ -326,5 +333,116 @@ test.describe('admin · M2 › Bounties', () => {
     await expect(page.getByText(B('zero.filteredLabel'))).toHaveCount(0);
     // Y tampoco se enuncia el otro cero: con un rebasado a la vista no hay cero que decir.
     await expect(page.getByText(B('zero.outbidLabel'))).toHaveCount(0);
+  });
+
+  /**
+   * ⭐⭐ §28.14 caso 20 / §28.5b (v3.6, cierra **BNT-D14**) — **una acción, un control**
+   *
+   * §28.5 v3.5 abrió `VISTA FILTRADA` **con su propia palanca**, y §28.8 ya tenía la suya en el
+   * vacío por filtro. Las dos normas eran correctas por separado, así que cuando el filtro no casaba
+   * con NADA la pantalla obedecía a las dos y pintaba **dos `Limpiar filtros` idénticos y
+   * consecutivos**. No es cosmética: dos controles con el mismo nombre accesible y el mismo efecto
+   * en pasos de tabulación seguidos obligan a un lector de pantalla a anunciar dos veces la misma
+   * acción sin poder distinguirlas (§8.2, §28.10).
+   *
+   * ⚠️ **La aserción es de CONTEO, no de presencia, y ahí está todo el candado.** Un
+   * `getByRole(...).toBeVisible()` **pasa en verde con dos botones** — es literalmente el matcher
+   * que dejó pasar este defecto. Se cuentan los controles cuyo nombre accesible es
+   * `common.clearFilters` **en toda la vista** y el resultado tiene que ser **exactamente 1**.
+   *
+   * Se mide la CONDUCTA, no el rótulo: qué puede accionar el humano y cuántas veces se le ofrece.
+   */
+  test('⭐⭐ §28.14 caso 20 · con VISTA FILTRADA hay UNA sola palanca, y es la de arriba (§28.5b)', async ({
+    page,
+  }) => {
+    mockOnly('la semilla del servidor falso es la que deja la tabla vacía al no casar la búsqueda');
+    await openBounties(page);
+
+    const clear = page.getByRole('button', { name: t('es', 'common.clearFilters') });
+    // Punto de partida honesto: sin filtro no hay ninguna palanca que contar.
+    await expect(clear).toHaveCount(0);
+
+    // ── El filtro de identidad que no casa con NADA ───────────────────────────────────────────
+    await page.getByLabel(B('filters.searchLabel')).fill(NO_MATCH_QUERY);
+    await expect(page.locator('tbody tr')).toHaveCount(0);
+
+    // ⇒ Manda el bloque ①: nombra el recorte y ofrece la salida.
+    const zeroLine = page.getByTestId('bounties-zero-line');
+    await expect(zeroLine.getByText(B('zero.filteredLabel'))).toBeVisible();
+    await expect(zeroLine.getByText(B('zero.filtered'))).toBeVisible();
+
+    // ⛔ ROJO SI APARECEN DOS. La aserción que hace de candado.
+    await expect(clear).toHaveCount(1);
+
+    // ⛔ ROJO si la superviviente es la del vacío y el bloque ① se queda sin salida: la única
+    // palanca de la vista tiene que vivir DENTRO del bloque ①.
+    await expect(zeroLine.getByRole('button', { name: t('es', 'common.clearFilters') })).toHaveCount(1);
+
+    // ⛔ ROJO si se lee «Ningún bounty coincide»: el vacío por filtro se suprime **entero** —título,
+    // icono y palanca—, no a medias (§28.5b).
+    await expect(page.getByText(B('empty.filteredTitle'))).toHaveCount(0);
+    await expect(page.getByText(B('empty.title'))).toHaveCount(0);
+
+    // ── LA VUELTA: al limpiar, las filas reaparecen y no queda NINGUNA palanca ────────────────
+    await clear.click();
+    await expect(page.locator('tbody tr', { hasText: OUTBID_CARD }).first()).toBeVisible();
+    await expect(clear).toHaveCount(0);
+    await expect(page.getByText(B('zero.filteredLabel'))).toHaveCount(0);
+  });
+
+  /**
+   * ⭐⭐ §28.14 caso 20 · **el control negativo, para que la supresión no se pase de lista**
+   *
+   * La supresión se condiciona al filtro de **IDENTIDAD**, no a «hay algún filtro puesto». Los chips
+   * de estado **no son filtro de identidad** (§28.5: `counts` los IGNORA), así que con la tabla
+   * vacía por un chip el vacío por filtro **SÍ se pinta entero, con su título y su palanca** — y
+   * sigue habiendo **exactamente una**.
+   *
+   * Sin este control, un arreglo que suprimiera el vacío mirando `filtersActive` —chips incluidos—
+   * pasaría el caso de arriba en verde y dejaría esta pantalla **sin título y sin salida**. Es el
+   * mismo defecto, en la otra dirección.
+   *
+   * Cómo se vacía la tabla con un chip **sin ninguna puerta trasera**: la semilla tiene un solo
+   * `rebasada` (Charizard). Con el chip `REBASADOS` puesto se **apaga esa fila desde su propio
+   * botón `Apagar`** (§28.6c), pasa a `apagada` y el conjunto filtrado se queda en cero. Todo por la
+   * UI de verdad: ni fixture nuevo, ni `q` mágico, ni tope configurable desde la URL.
+   */
+  test('⭐⭐ §28.14 caso 20 (control negativo) · un CHIP que vacía la tabla SÍ pinta el vacío entero', async ({
+    page,
+  }) => {
+    mockOnly('se apaga el único `rebasada` de la semilla para dejar el conjunto del chip en cero');
+    await openBounties(page);
+
+    // ── El chip de estado (NO es filtro de identidad) y su única fila ─────────────────────────
+    await page.getByRole('button', { name: B('counts.rebasada', { count: 1 }) }).click();
+    const outbidRow = page.locator('tbody tr', { hasText: OUTBID_CARD }).first();
+    await expect(outbidRow).toBeVisible();
+    // ⚠️ NO se cuentan los `tr` del `tbody`: con el orden `attention_first` la tabla intercala
+    // ENCABEZADOS DE BLOQUE, que también son `tr` (§28.5). Lo que importa aquí es el punto de
+    // partida: hay fila y todavía NO hay vacío que pintar.
+    await expect(page.getByText(B('empty.filteredTitle'))).toHaveCount(0);
+
+    // ── Se apaga esa fila: el conjunto del chip se queda sin filas, con la búsqueda VACÍA ─────
+    await outbidRow.getByRole('button', { name: B('row.turnOffAria', { card: OUTBID_CARD }) }).click();
+    await expect(page.locator('tbody tr')).toHaveCount(0);
+    await expect(page.getByLabel(B('filters.searchLabel'))).toHaveValue('');
+
+    // ⇒ El vacío por filtro se pinta ENTERO: su título y su palanca. Nada suprimido.
+    await expect(page.getByText(B('empty.filteredTitle'))).toBeVisible();
+    const clear = page.getByRole('button', { name: t('es', 'common.clearFilters') });
+    await expect(clear).toHaveCount(1);
+
+    // ⛔ Y NO es la del bloque ①: sin filtro de identidad, el bloque ① no trae palanca (§28.5b).
+    await expect(page.getByTestId('bounties-zero-line').getByRole('button', {
+      name: t('es', 'common.clearFilters'),
+    })).toHaveCount(0);
+    // La versalita de filtrado tampoco: un chip no acota la pregunta, la responde.
+    await expect(page.getByText(B('zero.filteredLabel'))).toHaveCount(0);
+
+    // ── LA VUELTA: al limpiar el chip vuelven las filas y no queda ninguna palanca ────────────
+    await clear.click();
+    await expect(page.locator('tbody tr').first()).toBeVisible();
+    await expect(clear).toHaveCount(0);
+    await expect(page.getByText(B('empty.filteredTitle'))).toHaveCount(0);
   });
 });
