@@ -4,6 +4,100 @@
 > Fecha: 2026-08-13. Branch: `claude/tcg-cards-marketplace-oijthj`.
 > El contrato (`docs/API_CONTRACT.md`) y el sistema de diseño (`docs/DESIGN_SYSTEM.md`) mandan.
 
+## §58 · **Un candado que no puede ponerse rojo no es medio candado: es ninguno** — la hermana del control vacuo, la cláusula sin candado y el caso 19 en el navegador (2026-09-08, rama `claude/tcg-hunt-orchestration-ai2vma`)
+
+> Sobre `a028079`, con §28.5 v3.5 ya **aprobada por QA** y medida en el navegador. Este pase **no
+> toca producto**: `BountiesView.tsx` y el modelo quedan **byte a byte** como estaban. Es todo
+> candados y registro.
+
+### 1. 🟠 El CONTROL NEGATIVO 2 era VACUO — y es la hermana del que yo mismo cacé en §57.4
+
+`BountiesView.test.tsx` servía `counts: { …, apagada: 0 }` y hacía `fireEvent.click(chip('apagada'))`
+para demostrar que **un chip de estado no es filtro de identidad**. Pero la propia pantalla
+**deshabilita el chip en cero** (`disabled={!truncated && n === 0 && !selected}`, §28.5: *un chip en
+cero no se esconde, se apaga*) ⇒ **el clic no hacía nada**, `states` se quedaba en `[]` y el caso
+**nunca ejercía la condición que decía ejercer**.
+
+**Es exactamente la misma clase de defecto que reescribí en el CONTROL NEGATIVO 3, en el mismo
+commit, en el caso de al lado.** El patrón, ahora con dos ejemplares y nombre: *el arnés del control
+negativo puede dejar la condición fuera de alcance sin que nada avise; el caso pasa, y pasa por el
+motivo equivocado*. En el 3 lo que faltaba era **una frase que comparar**; aquí, **un control que se
+pudiera pulsar**. Se me escapó la hermana.
+
+**El arreglo es de fixture, no de producto** —QA verificó en el navegador que con el chip habilitado
+de verdad la pantalla se comporta bien—, y viene con **tres candados contra la recaída**:
+
+1. el servidor falso responde **como el de verdad**: `data` **respeta** el filtro de estado y
+   `counts` **lo ignora** (§28.2a) ⇒ hay una `apagada` de verdad y el chip nace pulsable;
+2. el caso asevera que **el chip está vivo** (`toBeEnabled()`) *antes* de pulsarlo;
+3. y que el **gesto surtió efecto** (`aria-pressed=true` + la página cambió de filas) *antes* de
+   creerse la frase. ⚠️ **Esta es la regla que queda escrita**: un control negativo tiene que
+   demostrar que **hizo la cosa** antes de afirmar que la cosa no cambió nada.
+
+### 2. 🟡 La paginación era la ÚNICA cláusula de §28.5 v3.5 sin candado
+
+La mutación **M3** de QA —`hasIdentityFilter({ q }) || page > 1`— dejaba la suite entera en verde. La
+norma lo dice con todas las letras (*«La paginación tampoco cuenta: no toca `counts`»*) y el caso 19
+no la listaba entre sus controles. El riesgo era bajo y **en la dirección buena** (silenciar un cero
+verdadero, no fabricar falsa tranquilidad), pero *una cláusula de norma sin candado es una cláusula
+que el próximo refactor puede borrar sin ruido*.
+
+**CONTROL NEGATIVO 4:** dos páginas de una fila, se pulsa `Siguiente` y **el cero sigue enunciándose**.
+Con la lección del punto 1 aplicada: primero se asevera que la petición **viajó con `page: 2`** y que
+la fila de la segunda página está a la vista; solo después se mira la frase.
+
+⚠️ **Por qué no es un unitario:** `hasIdentityFilter` **no recibe la página** —y no debe recibirla, la
+paginación no es un filtro de identidad—, así que la única forma de ejercer M3 es **por pantalla**,
+que es donde vive el `||` que la mutación introduce.
+
+### 3. Caso 19 en el NAVEGADOR, sin puerta trasera
+
+§28.5 v3.5 narra el defecto como *«medido en el navegador contra el build de producción»* y mi spec
+de Playwright tenía cuatro casos, ninguno el 19. **La semilla del servidor falso ya daba la
+reproducción exacta** y lo comprobé antes de escribir nada: `q=Pikachu` ⇒ `counts.rebasada: 0` con
+`Charizard` (el `rebasada` de la demo) **fuera del filtro**. ⛔ Ni fixture nuevo, ni `q` mágico, ni
+tope configurable: la misma regla que en la cabecera de ese archivo — *un candado que se abre desde
+fuera no es un candado*.
+
+Lo que añade el navegador sobre jsdom: el **rebote real** de la búsqueda, el `<Input>` con su `label`
+de verdad y el ciclo entero (React Query + servidor falso + build de producción) en vez de una
+respuesta inyectada a mano. El caso mide la ida (`VISTA FILTRADA`, ⛔ ni `SIN REBASADOS` ni su frase,
+palanca **única**) y **la vuelta** (al limpiar: `REBASADOS 1`, `Charizard` de nuevo y **ningún** cero
+enunciado).
+
+### 4. Lo que NO se toca, y queda registrado
+
+- **`BNT-D14` — la intersección §28.5 × §28.8 (las dos palancas `Limpiar filtros`). Dueño: ux-ui.**
+  Con `q=zzzznada` se pintan a la vez el bloque ① (`VISTA FILTRADA` + palanca) y el vacío por filtro
+  (`Ningún bounty coincide` + palanca) ⇒ **dos botones consecutivos**. **QA falla a favor de
+  frontend y así queda escrito:** *no es defecto ni deuda de frontend — es una decisión de diseño
+  que nadie ha tomado*. Cumplí las dos normas al pie y **no podía elegir cuál suprimir sin decidir
+  norma**. ⛔ No lo he tocado. La lectura para cuando ux-ui decida queda en la entrada: el argumento
+  de §28.5 —*«el portador es la versalita»*— apunta a que el que sobra es **el del vacío**.
+- **`BNT-D15` — referencia cruzada, dueño backend:** `backend/test/pricing.variant-controls.spec.ts`
+  asevera el `upsert` con `toMatchObject`, que **no ve claves de más** ⇒ el refactor peligroso del
+  mass-assignment latente entraría **en verde**. Es la misma familia que lo mío de esta noche y por
+  eso se anota (el registro ya admite el formato: **BNT-D7**). ⛔ Frontend no lo arregla.
+
+### 5. Verificación por mutación (las dos pedidas, restauradas)
+
+| # | Mutación | Resultado |
+|---|---|---|
+| **1** | *los chips de estado cuentan como filtro de identidad* — `hasIdentityFilter({ q }) \|\| states.length > 0` | **ROJO** — `CONTROL NEGATIVO 2` falla: *«Unable to find an element with the text: Ningún bounty rebasado. Todos los encendidos pagan…»* |
+| **1-b** | ⭐ **la misma mutación contra el fixture ANTERIOR** (`apagada: 0`, chip deshabilitado) | **VERDE 3/3** — *la prueba de que el control era vacuo*, medida, no argumentada |
+| **2** | *la paginación cuenta como filtro* — `hasIdentityFilter({ q }) \|\| page > 1` (la **M3** de QA) | **ROJO** — `CONTROL NEGATIVO 4`, y en la línea que toca: la aserción **posterior** al salto de página (`:621`), no la de entrada |
+
+### 6. Números
+
+`tsc --noEmit` limpio · **`npm test` 1358/1358** (121 archivos, **+1**: `CONTROL NEGATIVO 4`; el 2 se
+**reescribió**, no se añadió) · **suite E2E de mocks completa: 148 passed · 3 skipped · 0 failed** (con el caso 19 nuevo, **+1**
+sobre los 147 del release).
+
+⚠️ **Nota de entorno para QA/devops:** la suite de mocks se corrió en el puerto **3123**
+(`E2E_MOCK_PORT=3123`). En **:3000** y en **:3111** hay dos `next-server` vivos que **no son míos**, y
+Playwright aborta antes de arrancar si el puerto está ocupado (`reuseExistingServer: false`, que es
+justo la protección contra el falso verde). No maté nada.
+
 ## §57 · §28.5 v3.5 · el cero que un FILTRO acota deja de ser un cero (2026-09-08, `DESIGN_SYSTEM §28.5 v3.5`, rama `claude/tcg-hunt-orchestration-ai2vma`)
 
 > Sobre `6515071`, con la norma nueva de ux-ui (`cba9679`). Encargo acotado y último bloque de esta

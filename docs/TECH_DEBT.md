@@ -5752,3 +5752,47 @@
   mide **lo que el humano ve**; lo que sobra no es el literal, es que **nadie más lo sepa**.
 - **Disparador:** el próximo pase que toque la semilla de bounties de `fixtures.ts` **o** el spec
   `inventory-stream-b`. Ref: `FRONTEND_NOTES.md` §56.1.
+
+#### BNT-D14 · La intersección **§28.5 × §28.8**: dos palancas `Limpiar filtros` seguidas — ⚠️ **NO ES DEUDA DE FRONTEND: es una decisión de diseño que nadie ha tomado** (Baja, **ux-ui**)
+- **Dueño: ux-ui.** Se anota aquí a petición del coordinador y **con el fallo de QA a favor de
+  frontend escrito tal cual**: *no es defecto de frontend ni deuda técnica de frontend — es una
+  decisión de norma pendiente*. ⛔ **Frontend no lo toca** (ni «porque se ve mal»): suprimir uno de
+  los dos bloques es **decidir cuál de las dos normas cede**, y eso no se decide desde el código.
+- **Lo que se ve, y es reproducible en dos segundos:** con una `q` que no casa con nada (p. ej.
+  `zzzznada`) la pantalla pinta **a la vez**
+  - el **bloque ①** de §28.5 v3.5 — `VISTA FILTRADA` + su frase + **su** palanca `Limpiar filtros`
+    (hay filtro de identidad puesto ⇒ el cero no se puede enunciar), y
+  - el **vacío por filtro** de §28.8 — `Ningún bounty coincide` + **su** palanca `Limpiar filtros`
+    (`rows.length === 0` con filtros activos),
+
+  ⇒ **dos botones `Limpiar filtros` consecutivos**, con el mismo nombre accesible y el mismo efecto.
+- **Por qué el código está bien:** las dos normas se cumplen **por separado y al pie**; **ninguna de
+  las dos dice qué hacer cuando coinciden**. Las dos palancas comparten ya **un solo cuerpo**
+  (`clearFilters()`), así que no hay duplicación de lógica: lo duplicado es el **anuncio**, y el
+  anuncio lo dicta el sistema de diseño.
+- **Lectura para cuando ux-ui lo decida** (⚠️ es una **lectura**, no una decisión de frontend): el
+  argumento con el que §28.5 v3.5 justifica su bloque —*«el portador es la versalita»* (§28.3 canal 2)
+  y por eso el cero **se retira en vez de acotarse**— apunta a que el que sobra es **el del vacío**:
+  con `VISTA FILTRADA` ya dicho y su palanca a la vista, el `EmptyState` puede quedarse con su título
+  y **sin** botón. Pero la simétrica también se defiende (que el vacío se quede la palanca por estar
+  más cerca del hueco), y elegir es de ux-ui.
+- **Impacto:** cosmético + accesibilidad menor (dos controles indistinguibles por nombre en el mismo
+  paso de tabulación). **Ningún dato se pierde ni se afirma nada falso** — que es lo que §28.5 v3.5
+  vino a cerrar. **No bloqueante.**
+- **Disparador:** el próximo pase de ux-ui sobre §28. En cuanto la norma diga cuál se suprime, el
+  cambio en `BountiesView.tsx` es de una condición. Ref: `FRONTEND_NOTES.md` §57.8 y §58.4,
+  `DESIGN_SYSTEM.md` §28.5 v3.5 y §28.8.
+
+#### BNT-D15 · *(referencia cruzada, NO es deuda de frontend)* `toMatchObject` sobre el `upsert` de `pricing.variant-controls.spec.ts` **no ve claves de más**
+- **Dueño: backend.** Se anota **solo como referencia cruzada** —a petición del coordinador, y porque
+  este registro ya admite el formato (ver **BNT-D7**)—. ⛔ **Frontend no lo toca ni lo arregla**; el
+  hallazgo es de la fase de seguridad y se enruta al rol dueño.
+- **Lo señalado:** `backend/test/pricing.variant-controls.spec.ts` asevera el `upsert` con
+  `toMatchObject`, y **`toMatchObject` es una comparación de subconjunto**: un refactor que colara
+  claves **de más** en el objeto persistido —el mass-assignment latente— **entraría en verde**.
+- **Por qué se anota desde aquí:** es **exactamente la misma familia** que lo corregido esta noche en
+  el frontend (`CONTROL NEGATIVO 2`, §58): *un candado que no puede ponerse rojo*. Un caso que dice
+  cubrir una condición y no la ejerce —porque el control estaba deshabilitado, o porque el matcher no
+  mira lo que haría daño— **no es media protección: es cero protección con acuse de recibo**.
+- **Disparador:** el próximo pase de backend sobre `variant-controls`. Ref: `docs/SECURITY_NOTES.md`
+  (hallazgo de esta ronda), `FRONTEND_NOTES.md` §58.

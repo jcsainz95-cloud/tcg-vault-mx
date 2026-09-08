@@ -38,6 +38,12 @@ const B = (key: string, vars?: Record<string, string | number>) =>
 
 /** La carta `rebasada` de la semilla del servidor falso: la fila por la que existe la pantalla. */
 const OUTBID_CARD = 'Charizard';
+/**
+ * La `activa` que **no** es el rebasado: teclearla en la búsqueda deja a `Charizard` FUERA del filtro
+ * y `counts.rebasada` en **0**. Es la reproducción exacta del defecto de §28.5 v3.5, y sale de la
+ * semilla tal cual: ⛔ sin puerta trasera, sin fixture nuevo, sin `q` mágico.
+ */
+const FILTER_CARD = 'Pikachu';
 /** La `invalida` de la semilla: encendida y **sin precio**. Su hueco es la señal (§28.3, §28.9). */
 const NO_PRICE_CARD = 'Milotic ex';
 
@@ -265,5 +271,60 @@ test.describe('admin · M2 › Bounties', () => {
     // El conjunto de la semilla NO está cortado ⇒ ni banner ni `≥` (la otra mitad del caso, la de
     // `truncated: true`, no es alcanzable en mocks — ver la cabecera de este archivo).
     await expect(page.getByText(B('list.truncated'))).toHaveCount(0);
+  });
+
+  /**
+   * ⭐⭐ §28.14 caso 19 / §28.5 v3.5 — **el cero que un FILTRO acota deja de ser un cero**
+   *
+   * §28.5 v3.5 narra el defecto como *medido en el navegador contra el build de producción*, y hasta
+   * ahora el candado vivía **solo en jsdom**. Aquí se reproduce **con la semilla tal cual**: `Pikachu`
+   * deja a `Charizard` —el `rebasada` de la demo— fuera del filtro, y el servidor falso devuelve
+   * `counts.rebasada: 0`, que es **correcto** (`counts` respeta la identidad, §M2-B.1). Antes de v3.5
+   * la pantalla leía ahí **`SIN REBASADOS` · «Todos los encendidos pagan por encima de la tarifa
+   * vigente»** con un rebasado vivo a un clic de distancia: la frase que le dice al dueño *«puedes
+   * dejar de preocuparte»*, dicha sobre un conjunto que él mismo acotó.
+   *
+   * Lo que añade el navegador sobre jsdom: el **rebote real** de la búsqueda, el `<Input>` con su
+   * `label` de verdad y el ciclo entero (React Query + servidor falso + render) en lugar de una
+   * respuesta inyectada a mano.
+   */
+  test('⭐⭐ §28.14 caso 19 · con un filtro puesto, la pantalla NO afirma sobre «todos» (§28.5 v3.5)', async ({
+    page,
+  }) => {
+    mockOnly('el `rebasada` de la demo (Charizard) y su tarifa salen de la semilla del servidor falso');
+    await openBounties(page);
+
+    // ── Punto de partida: el rebasado está a la vista y contado ───────────────────────────────
+    await expect(page.getByRole('button', { name: B('counts.rebasada', { count: 1 }) })).toBeVisible();
+    await expect(page.locator('tbody tr', { hasText: OUTBID_CARD }).first()).toBeVisible();
+
+    // ── El filtro que reproduce el defecto ────────────────────────────────────────────────────
+    await page.getByLabel(B('filters.searchLabel')).fill(FILTER_CARD);
+
+    // El conteo cae a 0 —y **hace bien**— con el rebasado fuera del filtro: es el instante exacto
+    // en el que la pantalla se quedaba sin saber y afirmaba igual.
+    await expect(page.getByRole('button', { name: B('counts.rebasada', { count: 0 }) })).toBeVisible();
+    await expect(page.locator('tbody tr', { hasText: OUTBID_CARD })).toHaveCount(0);
+
+    // ⇒ NOMBRA EL RECORTE, y ofrece la palanca que la frase promete.
+    await expect(page.getByText(B('zero.filteredLabel')).first()).toBeVisible();
+    await expect(page.getByText(B('zero.filtered')).first()).toBeVisible();
+
+    // ⛔ Ni la versalita tranquilizadora ni ninguna de sus dos frases. La versalita es el portador
+    // (§28.3 canal 2): acotarla en la subordinada no desarma lo que ya se leyó, así que **se retira**.
+    await expect(page.getByText(B('zero.outbidLabel'))).toHaveCount(0);
+    await expect(page.getByText(B('zero.outbid'))).toHaveCount(0);
+
+    // La palanca es UNA (con filas a la vista no se pinta además el vacío por filtro de §28.8).
+    const clear = page.getByRole('button', { name: t('es', 'common.clearFilters') });
+    await expect(clear).toHaveCount(1);
+
+    // ── LA VUELTA, sin recargar: al limpiar vuelven el conteo, la fila y el silencio ──────────
+    await clear.click();
+    await expect(page.getByRole('button', { name: B('counts.rebasada', { count: 1 }) })).toBeVisible();
+    await expect(page.locator('tbody tr', { hasText: OUTBID_CARD }).first()).toBeVisible();
+    await expect(page.getByText(B('zero.filteredLabel'))).toHaveCount(0);
+    // Y tampoco se enuncia el otro cero: con un rebasado a la vista no hay cero que decir.
+    await expect(page.getByText(B('zero.outbidLabel'))).toHaveCount(0);
   });
 });

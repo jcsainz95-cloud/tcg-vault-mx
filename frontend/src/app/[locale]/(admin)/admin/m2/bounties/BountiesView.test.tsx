@@ -539,17 +539,88 @@ describe('⭐⭐ caso 19 — con un filtro de identidad puesto, la pantalla NO a
     // `counts` **ignora** el filtro de estado (§28.2a), así que con un chip puesto `counts.rebasada`
     // sigue siendo el número del sistema entero: *el chip no acota el conjunto de la pregunta, la
     // responde*. Si alguien mete los chips en el predicado, este control se pone rojo.
-    serve(
-      response({
-        data: [PIKACHU],
-        counts: { activa: 1, rebasada: 0, invalida: 0, completada: 0, apagada: 0 },
-      }),
-    );
+    //
+    // ⚠️⚠️ **EL CHIP TIENE QUE SER PULSABLE, O EL CONTROL ES VACUO** — es la hermana del defecto
+    // del control negativo 3, en el caso de al lado. En su primera forma este caso servía
+    // `apagada: 0`, y un chip en cero **se deshabilita** (§28.5: no se esconde, se apaga) ⇒ el clic
+    // no hacía nada, `states` se quedaba en `[]` y el caso **nunca ejercía la condición que dice
+    // ejercer**. Medido a una cifra de diferencia: con `apagada: 0` la mutación «los chips cuentan
+    // como identidad» queda **VERDE**; con el chip encendido, **ROJA**.
+    //
+    // Por eso el servidor falso responde aquí como el de verdad: `data` **respeta** el filtro de
+    // estado y `counts` **lo ignora** (§28.2a) — y el caso asevera que el gesto **surtió efecto**
+    // antes de creerse la frase.
+    const SNORLAX = makeRow({
+      id: 'c9',
+      name: 'Snorlax VMAX',
+      state: 'apagada',
+      enabled: false,
+      priceCents: 60000,
+      curveQuoteCents: 64000,
+    });
+    vi.spyOn(api, 'getAdminBounties').mockImplementation(async (filters = {}) => {
+      const states = filters.states ?? [];
+      const todas = [PIKACHU, SNORLAX];
+      return response({
+        data: states.length > 0 ? todas.filter((r) => states.includes(r.state)) : todas,
+        // El conteo del sistema entero, sea cual sea el chip puesto.
+        counts: { activa: 1, rebasada: 0, invalida: 0, completada: 0, apagada: 1 },
+      });
+    });
     renderWithProviders(<BountiesView />, 'es');
     await screen.findByText(T.zero.outbid);
+
+    // (a) el chip está VIVO — si vuelve a salir deshabilitado, este control deja de medir nada.
+    expect(chip('apagada')).toBeEnabled();
     fireEvent.click(chip('apagada'));
+
+    // (b) el gesto SURTIÓ EFECTO: el chip queda pulsado y la página es ya la del estado filtrado.
+    await waitFor(() => expect(chip('apagada')).toHaveAttribute('aria-pressed', 'true'));
+    expect(await screen.findByText('Snorlax VMAX', {}, { timeout: 3000 })).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText('Pikachu VMAX')).toBeNull());
+
+    // (c) …y con el chip puesto el cero SIGUE enunciándose: el chip no acotó la pregunta.
     expect(await screen.findByText(T.zero.outbid)).toBeInTheDocument();
     expect(screen.queryByText(T.zero.filtered)).toBeNull();
+    expect(screen.queryByText(T.zero.filteredLabel)).toBeNull();
+  });
+
+  it('⭐ CONTROL NEGATIVO 4: la PAGINACIÓN no es filtro de identidad ⇒ el cero se enuncia en la página 2', async () => {
+    // §28.5 v3.5 lo escribe con todas las letras —*«La paginación tampoco cuenta: no toca
+    // `counts`»*— y era la **única cláusula de la norma sin candado**: la mutación
+    // `hasIdentityFilter({ q }) || page > 1` se quedaba verde con la suite entera. Pasar de página
+    // no acota el conjunto que `counts` cuenta: cambia la ventana, no la pregunta.
+    const OTRA = makeRow({
+      id: 'c8',
+      name: 'Snorlax VMAX',
+      state: 'activa',
+      priceCents: 250000,
+      curveQuoteCents: 210000,
+    });
+    const spy = vi.spyOn(api, 'getAdminBounties').mockImplementation(async (filters = {}) => {
+      const page = filters.page ?? 1;
+      return response({
+        data: [page === 1 ? PIKACHU : OTRA],
+        page,
+        pageSize: 1,
+        total: 2, // dos páginas de una fila: lo mínimo para que exista un «Siguiente»
+        counts: { activa: 2, rebasada: 0, invalida: 0, completada: 0, apagada: 0 },
+      });
+    });
+    renderWithProviders(<BountiesView />, 'es');
+    expect(await screen.findByText(T.zero.outbid)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: T.page.next }));
+
+    // El gesto SURTIÓ EFECTO —la lección del control negativo 2: un control que no se pulsa no
+    // mide—: la petición viajó con `page: 2` y la fila de la segunda página está a la vista.
+    expect(await screen.findByText('Snorlax VMAX', {}, { timeout: 3000 })).toBeInTheDocument();
+    await waitFor(() => expect(spy.mock.calls.at(-1)?.[0]?.page).toBe(2));
+
+    // …y el cero sigue diciéndose, porque sigue siendo verdadero.
+    expect(screen.getByText(T.zero.outbid)).toBeInTheDocument();
+    expect(screen.queryByText(T.zero.filtered)).toBeNull();
+    expect(screen.queryByText(T.zero.filteredLabel)).toBeNull();
   });
 
   it('⭐ CONTROL NEGATIVO 3: una `q` de SOLO ESPACIOS no acota nada — ni en pantalla ni en la petición', async () => {
