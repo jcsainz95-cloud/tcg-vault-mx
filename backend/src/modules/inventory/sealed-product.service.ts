@@ -791,7 +791,7 @@ export class SealedProductService {
     if (targets.some((t) => gnames.includes(t))) {
       const localYear = releaseYear({ releaseDate: set.releaseDate });
       const groupYear = releaseYear({ releaseDate: g.publishedOn ?? null });
-      if (localYear != null && groupYear != null) return localYear === groupYear ? 1.0 : 0.7;
+      if (localYear != null && groupYear != null) return 1.0;
       return 0.9;
     }
     // Contención parcial: alguna variante contiene o está contenida en alguna del grupo.

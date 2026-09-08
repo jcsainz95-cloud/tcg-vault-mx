@@ -551,6 +551,90 @@ describe('SealedProductService.matchScore — tolerante al prefijo de código de
     expect(res.groupsPopulated).toBe(0);
   });
 
+  // -------------------------------------------------------------------------
+  // P-46 (verificación 2026-09-08): el arreglo es GENÉRICO, no caso-por-caso. Cualquier forma de
+  // prefijo de código que TCGCSV use ("ME05:", "SV08:", "SWSH07:", "SV:") tiene que auto-resolver
+  // cuando el nombre restante es EL MISMO set y el año coincide. Medido: sin la tolerancia estos
+  // casos puntúan 0.5 (< 0.9) → «sin grupo resoluble» → 0 presentaciones.
+  // -------------------------------------------------------------------------
+  it.each([
+    ['Pitch Black', 'ME05: Pitch Black'],
+    ['Pitch Black', 'SV08: Pitch Black'],
+    ['Chaos Rising', 'ME04: Chaos Rising'],
+    ['Chaos Rising', 'SV: Chaos Rising'],
+    ['Evolving Skies', 'SWSH07: Evolving Skies'],
+  ])('prefijo de TCGCSV: local «%s» vs grupo «%s» (mismo año) → auto-resuelve y BAJA presentaciones', async (localName, groupName) => {
+    const setRow = { id: 'set-1', name: localName, series: 'SV', releaseDate: '2026-07-17', tcgcsvGroupId: null };
+    const groups = [
+      { groupId: 800, name: groupName, publishedOn: '2026-07-17' },
+      { groupId: 999, name: 'Totally Unrelated', publishedOn: '2019-01-01' },
+    ];
+    const prisma = buildPrisma({ sets: [{ ...setRow }] });
+    const provider = buildProvider({
+      groups,
+      productsByGroup: { 800: [{ productId: 81, name: `${localName} Booster Box` }] },
+      pricesByGroup: {},
+    });
+    const res = await svcOf(prisma, provider).sync({ setId: 'set-1' });
+    expect(prisma._stores.sets[0].tcgcsvGroupId).toBe(800);
+    expect(res.productsUpserted).toBe(1); // el síntoma del humano era exactamente «0 presentaciones»
+  });
+
+  // -------------------------------------------------------------------------
+  // NEGATIVO — el UMBRAL 0.9 sigue en pie (money-safe). Un grupo que solo CONTIENE el nombre es
+  // otro producto (kit de prerelease, promos): puntúa 0.5 y NO se auto-resuelve, aunque sea el
+  // ÚNICO candidato. Este es el candado que impide bajar presentaciones y precios del set ajeno.
+  // Muerde: bajar el umbral de `bestSetMainMatch` de 0.9 a 0.5 pone este test en rojo (verificado
+  // con mutación 2026-09-08; sin él, la suite entera de 3689 tests seguía verde con el umbral roto).
+  // -------------------------------------------------------------------------
+  it('NEGATIVO: único candidato con contención («ME05: Pitch Black Prerelease Kit») → 0.5, NO auto-resuelve; la curación a mano sigue siendo la salida', async () => {
+    const setRow = { id: 'set-1', name: 'Pitch Black', series: 'SV', releaseDate: '2026-07-17', tcgcsvGroupId: null };
+    const groups = [{ groupId: 850, name: 'ME05: Pitch Black Prerelease Kit', publishedOn: '2026-07-17' }];
+    const productsByGroup = { 850: [{ productId: 85, name: 'Pitch Black Prerelease Kit' }] };
+
+    // 1) El candidato SÍ se ve en la UI de curación, con confianza baja (0.5): no se esconde.
+    const candPrisma = buildPrisma({ sets: [{ ...setRow }] });
+    const cand = await svcOf(candPrisma, buildProvider({ groups })).syncCandidates('set-1');
+    expect(cand.candidates.map((c) => c.tcgplayerGroupId)).toEqual([850]);
+    expect(cand.candidates[0].matchScore).toBeCloseTo(0.5);
+
+    // 2) …pero el sync NO lo adopta: sin grupo resoluble no baja NADA (0 presentaciones a propósito).
+    const prisma = buildPrisma({ sets: [{ ...setRow }] });
+    const res = await svcOf(prisma, buildProvider({ groups, productsByGroup, pricesByGroup: {} })).sync({ setId: 'set-1' });
+    expect(prisma._stores.sets[0].tcgcsvGroupId).toBeNull();
+    expect(prisma._stores.sealedSetGroups).toHaveLength(0);
+    expect(res).toMatchObject({ groupsPopulated: 0, productsUpserted: 0 });
+
+    // 3) La salida manual sigue viva: el humano lo cura y ENTONCES sí baja (curado > name-match).
+    const svc = svcOf(prisma, buildProvider({ groups, productsByGroup, pricesByGroup: {} }));
+    await svc.linkGroup('set-1', { tcgplayerGroupId: 850, kind: 'set_main' });
+    const res2 = await svc.sync({ setId: 'set-1' });
+    expect(prisma._stores.sets[0].tcgcsvGroupId).toBe(850);
+    expect(res2.productsUpserted).toBe(1);
+  });
+
+  // -------------------------------------------------------------------------
+  // NEGATIVO — dos sets DISTINTOS que se parecen: mismo nombre tras quitar prefijo pero de AÑO
+  // distinto (reimpresión/otro producto homónimo). 0.7 < 0.9 → no se auto-resuelve. Muerde:
+  // devolver 0.9/1.0 sin comparar años (o ignorar `publishedOn`) pone este test en rojo.
+  // -------------------------------------------------------------------------
+  it('NEGATIVO: «Chaos Rising» (2026) vs grupo «ME04: Chaos Rising» publicado en 2019 → 0.7 → NO auto-resuelve', async () => {
+    const setRow = { id: 'set-1', name: 'Chaos Rising', series: 'ME', releaseDate: '2026-05-01', tcgcsvGroupId: null };
+    const groups = [{ groupId: 640, name: 'ME04: Chaos Rising', publishedOn: '2019-03-01' }];
+
+    const candPrisma = buildPrisma({ sets: [{ ...setRow }] });
+    const cand = await svcOf(candPrisma, buildProvider({ groups })).syncCandidates('set-1');
+    expect(cand.candidates[0].matchScore).toBeCloseTo(0.7);
+
+    const prisma = buildPrisma({ sets: [{ ...setRow }] });
+    const res = await svcOf(
+      prisma,
+      buildProvider({ groups, productsByGroup: { 640: [{ productId: 64, name: 'Chaos Rising Booster Box' }] }, pricesByGroup: {} }),
+    ).sync({ setId: 'set-1' });
+    expect(prisma._stores.sets[0].tcgcsvGroupId).toBeNull();
+    expect(res).toMatchObject({ groupsPopulated: 0, productsUpserted: 0 });
+  });
+
   it('set que NO existe en TCGCSV → sin match (0), sin falsos positivos ni auto-resolución', async () => {
     const setRow = { id: 'set-1', name: 'Nonexistent Set XYZ', series: 'SV', releaseDate: '2025-06-13', tcgcsvGroupId: null };
     const groups = [{ groupId: 999, name: 'Totally Unrelated', publishedOn: '2019-01-01' }];
