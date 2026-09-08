@@ -463,39 +463,71 @@ Encontrado por el humano probando en producción. Las tres se sirven juntas o ni
 - **Rol dueño:** frontend para (a) y (b); arquitecto si se va a (c) o (d).
   **Antes de tocar nada: la medición del navegador.**
 
-#### P-66 · 🧟 Dar una vuelta al panel de administración — zombies y navegabilidad — pedido por el humano
-- **Lo que dijo el humano:** *«siento que tenemos varios zombies ahí que no nos ayudan, o temas de
-  navegabilidad»*. Es el panel donde él trabaja todos los días: la fricción aquí no se pierde en
-  una conversión, **se paga en su tiempo**.
-- **Censo medido (`AdminSidebar.tsx` + `messages/es.json`), para que la revisión no empiece de cero:**
-  **12 destinos** en 4 grupos — Operación (Dashboard, M1 Inventario y bóveda, Bóvedas de clientes,
-  M4 Retiros/envíos, M5 Buylist, M8 Disputas) · Catálogo/Precios (M2) · Ventas/Finanzas (M3 Ventas,
-  M7 Finanzas, M9 Reportes) · Administración (M6 Usuarios/KYC, M10 Config y bitácora).
-  **7 de los 12 son solo súper-admin**, así que un operador ve cinco y el dueño ve doce, siempre.
-- **Zombies concretos ya verificados en el código (no son todos, son los que se ven sin buscar):**
-  - **M9 · Reportes** — su bloque principal es *«Avance de la beta cerrada frente a las metas
-    **N/X/Y/Z**»*. Dos problemas en una pantalla: (1) las metas se llaman **N, X, Y y Z**, letras que
-    vienen de `PROJECT.md` y que **en pantalla son álgebra**, no negocio; (2) hay un texto de reserva
-    —*«las metas N/X/Y/Z aún no se fijan»*— que sugiere que **las cuatro tarjetas están enseñando
-    "Meta sin fijar"**. Si es así, es una sección entera cuyo propósito (avance contra meta) **está
-    inerte**. ⚠️ *Falta comprobar en producción si las metas están fijadas o no — no se puede medir
-    desde el repo.* Además sigue hablando de **«beta cerrada»**, y ya estamos en producción.
-  - **La navegación etiqueta cada destino por su CÓDIGO INTERNO** («M1 · Inventario y bóveda»,
-    «M9 · Reportes»). El código no le dice nada a un humano y se come el principio de cada rótulo,
-    que es justo donde el ojo busca. Está escrito a propósito en `AdminSidebar.tsx` («el código del
-    módulo ya identifica cada entrada») — es decir, es una decisión que hay que **revisar**, no un
-    descuido.
-  - **Botones que aparecen donde no se pueden usar** — ya reportado aparte como **P-58**
-    («Marcar recibida» visible fuera del paso donde tiene sentido). Es el mismo síntoma de fondo:
-    la pantalla enseña todo lo que existe en vez de lo que toca ahora.
-- **Lo que NO se midió, y hace falta:** cuáles de los 12 destinos **usa realmente** el dueño. Eso no
-  está en el repo; lo contesta él en dos minutos o se saca de los registros de acceso.
-- **Cómo hacerlo bien (y no a ojo):** un pase del rol **`ux-review`** sobre el panel ya construido
-  —fricción, jerarquía, claridad, consistencia con `DESIGN_SYSTEM`— que **reporta y no corrige**;
-  sus hallazgos se enrutan a **ux-ui** (rótulos, agrupación, qué se esconde) y a **frontend**
-  (cableado). Si sale que hay que **retirar** una pantalla, eso es decisión de producto: pasa por
-  **product-owner** y lo aprueba el humano — nadie borra una pantalla del admin por su cuenta.
-- **Rol dueño:** `ux-review` (diagnóstico) → ux-ui + frontend (cura) → product-owner si se retira algo.
+#### P-66 · 🧟 Dar una vuelta al panel de administración — ✅ DIAGNOSTICADO (ux-review, 2026-09-08) · **VEREDICTO: RECHAZADO**
+- **Pedido del humano:** *«siento que tenemos varios zombies ahí que no nos ayudan, o temas de navegabilidad»*.
+- **Cómo se midió:** bundle de producción con mocks recompilado sobre `9ff373f`, recorrido en Chromium a
+  **1280×800 y 390×844**, como `super_admin` y como `vault_operator`. Lo no medido va marcado como tal.
+
+##### 🔴 Bloqueantes
+- **B1 · M5 (Buylist) enseña TODO lo que existe, no lo que toca ahora.** **Diez pestañas en dos barras
+  apiladas** (4 «colas del ciclo» + 6 de estado) y dos jerarquías en la misma pantalla. En «Verificando»,
+  una solicitud de 3 cartas pinta **14 botones**; con 4 solicitudes es una pared, y **«Pagar por SPEI»
+  —dinero— queda al fondo**. La única pista de qué toca ahora va en 11 px. Y la lista de solicitudes
+  empieza a **≈660 px en escritorio y ≈880 px en móvil** (bajo el pliegue): esto es, literalmente, lo que
+  el humano llamó *«súper escondidas»*. **Rol:** ux-ui → frontend.
+  - ⚠️ **P-58 confirmado y precisado:** «Marcar recibida» **no es una fuga** — está cableado a `status ===
+    'cotizada'` **a propósito**, o sea exactamente al paso donde no debería estar.
+- **B2 · Tres pantallas DESBORDAN en 390 px** (medido, `scrollWidth − innerWidth`): **M5 +419 px**
+  (la página se renderiza a 809 px: hay que hacer scroll lateral para llegar a «AUTORIZAR Y MANDAR»),
+  **M1 +89 px**, **M2 +35 px**. Las tres se saltan `DataTable`, que **sí** colapsa a tarjetas. *(Bounties
+  ya no desborda: 0 px, verificado.)* **Rol:** frontend. ⚠️ **Si el humano no usa el teléfono, baja a
+  importante** — es la pregunta 1 de abajo.
+- **B3 · Las pantallas de dinero hablan en identificadores, no en personas.** M3 y M4 pintan `u-777`,
+  `u-778` como «usuario»: para saber a quién le vendió hay que ir a M6 con el id en la cabeza. M10 pinta
+  `u-admin`/`SUPER_ADMIN`/`settings.update`; M6 pinta `CUSTOMER`/`VAULT_OPERATOR`. **§9.2 del sistema de
+  diseño dice «nunca se pinta el enum crudo».** ⭐ **M5 ya lo resolvió** (nombre + correo + enlace a la
+  ficha): la cura existe en el mismo panel. **Rol:** frontend; arquitecto+backend si M3 necesita el DTO.
+
+##### 🟠 Importantes
+- **I1 · Zombies confirmados** *(no se retira nada sin producto y sin el humano)*: **M9 Reportes** — de sus
+  tres secciones, **dos son las mismas de M7** (mismo rango de fechas, **los mismos tres botones de
+  exportar, misma función**); lo único propio son 4 tarjetas cuyo subtítulo dice *«Avance de la beta
+  cerrada frente a las metas N/X/Y/Z»* (álgebra en pantalla, y «beta cerrada» estando en producción).
+  Y la **tarjeta «Progreso de lanzamiento» del dashboard está INERTE POR CONSTRUCCIÓN**: pinta «Meta
+  pendiente» **sin condición**, y su DTO ni siquiera tiene metas ⇒ con los mismos datos, M9 dice 42 % y el
+  dashboard dice «Meta pendiente». **Los mismos cuatro contadores aparecen en tres sitios.**
+  **Rol:** product-owner decide → ux-ui redacta → frontend cablea.
+- **I2 · La navegación rotula por código, y el código no sirve para nada.** Los códigos **no llevan orden**
+  (M1, Bóvedas, M4, M5, M8 / M2 / M3, M7, M9 / M6, M10) y **tres destinos no tienen código**: no ordenan ni
+  identifican, solo **desplazan el nombre 5 caracteres a la derecha en 12 filas**. El rótulo del menú y el
+  título de la página **difieren en 6 de 12**. Las solicitudes de venta se llaman **«Buylist»** en el menú
+  y **«Solicitudes de venta»** en M6 — *el humano las buscó por su nombre y no las encontró*. La etiqueta
+  «SÚPER» sale en **7 de 12 filas** también para el súper-admin, que es el único que la ve.
+  **Rol:** ux-ui → frontend.
+- **I3 · M2 es UNA página de 7.986 px, 11 secciones y 61 botones**, con una barra pegajosa
+  («GUARDAR CURVA») fija al pie **desde el primer scroll**: quien está en «Tipo de cambio» ve un botón que
+  no le corresponde. **Rol:** ux-ui / frontend.
+- **I4 · M8 le habla al dueño como si fuera el cliente** («Envía **tu** evidencia por correo… citando **tu**
+  número de orden») y **no tiene estado vacío**: con cero disputas queda en blanco. **Rol:** frontend.
+- **I5 · El sistema de diseño afirma seis cosas que el panel NO cumple** — buscador global en el topbar
+  (no existe), barra inferior en móvil (no existe), la lista de grupos de §7.15 (desactualizada), tarjetas
+  del dashboard clicables + semáforo + barras (no existen), colapso a tarjetas en `<md` (falso fuera de
+  `DataTable`), y **objetivos táctiles ≥44 px** (medido en el topbar: 15×25, 111×17, 101×16).
+  **Misma clase que los ocho tachones de D52: o se implementan o ux-ui las retira.**
+- **I6 · M3 muestra su única acción como lo más llamativo:** «REEMBOLSAR» en bermellón sólido —dinero que
+  sale— sin detalle de orden, sin enlace al envío ni al comprador.
+
+##### ✅ Lo que está bien y NO se toca
+Foco de teclado visible · M1 cumple §16.1 · **Bóvedas de clientes y Bounties son las dos pantallas más
+limpias del panel** · **M4 tiene estado vacío y acciones acotadas por estado — es el patrón que le falta a
+M5** · los enlaces de «Cola de trabajo» del dashboard sí llevan a su módulo.
+
+##### ❓ No medido, y hace falta
+Volumen real de datos (colas con decenas de filas cambian la lectura de M5 y M3), si las metas de M9 están
+fijadas **en producción**, y **el uso real de cada destino**. Hay 12 preguntas cortas para el humano en el
+reporte; las cuatro que más cambian el trabajo: **¿entra desde el teléfono?** (decide si B2 bloquea),
+**¿fijó las metas N/X/Y/Z?** (decide si M9 es zombie), **¿entra alguien más al panel?** (decide el trato de
+roles) y **¿cómo le llama a M5?**.
 
 #### P-55 · 🛒 El carrito de venta NO sobrevive al inicio de sesión — reportado por el humano
 - **Síntoma:** el cliente arma su carrito en el cotizador **sin haber iniciado sesión**; al entrar a su
