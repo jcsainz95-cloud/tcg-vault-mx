@@ -5491,3 +5491,163 @@
 - **⚠️ Por qué NO se arregló aquí, aunque el arreglo sea una línea:** el contrato **no dice «no terminal», declara la FÓRMULA** — cliente: *«mientras no haya papel (`closedAt IS NULL ∧ guideSentAt IS NULL`)»*; admin: un bloque `legal ⇔ … ∧ closedAt IS NULL` con el comentario `// no se toca una terminal` **al lado**. Es **la forma exacta de eje 2 en miniatura**: la intención comentada y el término declarado divergen justo en la fila legacy. Y en eje 2 el cierre correcto fue que **el arquitecto enmendara el contrato** y el backend implementara. *Aplicar la disciplina solo cuando es cómoda no es disciplina.*
 - **Forma propuesta (si el arquitecto la aprueba):** sustituir `closedAt: null` por `...this.liveRequestWhere()` en los dos `where`. Es §M5-T ya escrita, no un mecanismo nuevo, y el `409 PICKUP_ADDRESS_LOCKED` ya está declarado con `details.status` en las dos rutas ⇒ **cero vocabulario nuevo**.
 - **Disparador:** decisión del arquitecto. Ref: `BACKEND_NOTES.md` §0.42.1, contrato líneas 1273 y 11492.
+
+---
+
+### Ronda del techlead sobre la consola de bounties (M2 › Bounties, §28 / §M2-B) — rama `claude/tcg-hunt-orchestration-ai2vma`, 2026-09-08 (dueño: **frontend**, no bloqueante)
+
+> Veredicto: **aprobado con deuda anotada**. Los **dos bloqueantes** de esa revisión **NO figuran aquí,
+> se corrigieron en la rama** y están verificados por mutación (rótulo que prometía buscar por set
+> mientras el servidor no lo hace y el mock lo tapaba; `sort=updated_desc` inerte + `updatedAt`
+> constante + la resta del avance tecleada dos veces). Ver `FRONTEND_NOTES.md` §54.
+>
+> Lo que sigue es lo que **queda abierto y aceptado**. Numeración **D1–D7 del techlead**, conservada
+> tal cual para que su revisión y este registro se puedan leer en paralelo; D8–D10 son las que ya
+> estaban declaradas en prosa (`FRONTEND_NOTES` §47.7) y que él aceptó **con la condición de que
+> bajaran al registro**, más la desalineación de catálogo que abre el arreglo del rótulo.
+
+#### BNT-D1 · Un `<tbody>` por FILA y no por grupo: el `scope="rowgroup"` cubre una sola fila (Baja, frontend)
+- **Dueño:** frontend (`BountiesView.tsx`, el `withHeaders.map` que envuelve cada fila en su propio
+  `<tbody>`). **Severidad:** Baja. **Estado: abierta, aceptada.**
+- **La deuda:** `DESIGN_SYSTEM.md` §28.10 pide *«un `<tbody>` por GRUPO, cada uno abierto por un
+  `<tr><th scope="rowgroup" colspan="7">`»*. El código abre un `<tbody>` **por fila**, así que el
+  `scope="rowgroup"` del encabezado alcanza **exactamente una** fila: **el agrupamiento no existe
+  para el lector de pantalla**, que es literalmente lo que esa frase de §28.10 venía a garantizar.
+- **Por qué es Baja y no Media:** los otros **tres** canales del eje sí están y son los que llevan el
+  peso: el orden lo manda el servidor, el encabezado de bloque se **lee** (es texto, no un `::before`)
+  y la celda de estado lleva su `aria-label` largo por fila. El grupo se entiende oyendo la lista;
+  lo que se pierde es poder **saltar de grupo en grupo**.
+- **Dirección:** agrupar el `map` por bloque y emitir **un** `<tbody>` por bloque. ⚠️ La razón de que
+  hoy sea por fila es que el bloque de edición se inserta como `<tr>` hermano justo debajo de su fila;
+  al reagrupar hay que conservar eso **sin** cambiar el orden que mandó el servidor (⛔ reordenar en
+  el cliente es §28.13 nº9). Coste: pequeño, pero toca la parte que ya tiene 48 pruebas.
+- **Disparador:** el próximo pase que abra el `render` de la tabla, o una auditoría de accesibilidad.
+
+#### BNT-D2 · `aria-description` en los chips es ARIA 1.3 en borrador, y es su ÚNICA aparición en todo el frontend (Baja, frontend)
+- **Dueño:** frontend (`BountiesView.tsx`, el chip con `'aria-description'` cuando `truncated`).
+  **Severidad:** Baja. **Estado: abierta, aceptada.**
+- **La deuda:** `aria-description` está en **borrador** (ARIA 1.3) y su soporte fuera de Chromium es
+  parcial ⇒ en esos lectores el matiz *«al menos {count}; la lista está incompleta»* **no se anuncia**.
+  Y es **inconsistente dentro de la propia feature**: `BountyRowEditor.tsx` usa para lo mismo el patrón
+  portable del proyecto (`aria-describedby` + un `<span class="sr-only">`), que es el que el resto del
+  código emplea.
+- **Impacto acotado:** el `≥` **sí** se pinta en el rótulo visible del chip y el banner de
+  `list.truncated` (`role="status"`) dice la lista incompleta con todas las letras. Lo que se pierde
+  es la **redundancia** de ese aviso en el chip, no el aviso.
+- **Dirección:** cambiar a `aria-describedby` + `sr-only`, como el editor. Es un cambio local.
+  ⚠️ Ojo al hacerlo: son **cinco** chips y el `id` tiene que llevar el `state` (colisionarían).
+- **Disparador:** oportunista (cualquier pase sobre los chips), o el primer reporte de lector de
+  pantalla no-Chromium.
+
+#### BNT-D3 · Dos afirmaciones de §28 que el código no cumple: cabecera *sticky* y esqueleto sin cabecera (Baja, frontend + **ux-ui**)
+- **Dueño:** frontend (implementarlas) / **ux-ui** (retirarlas de §28 si no las quiere). **Severidad:**
+  Baja (cosmética). **Estado: abierta, aceptada — pero con la disyuntiva escrita.**
+- **La deuda, medida:** (a) §28.2 (`DESIGN_SYSTEM.md:12277`) manda *«cabecera de tabla sticky (§7.7)»*
+  y el `<thead>` **no lo es**; (b) §28.8 (`:12639`) dice que en carga *«la cabecera y los rótulos de
+  columna **sí** se pintan: el esqueleto tiene que parecerse a la tabla»* y el esqueleto pinta **ocho
+  barras** y ningún encabezado.
+- **⚠️ Por qué se anota algo cosmético:** este proyecto ya **tachó ocho frases** del sistema de diseño
+  por exactamente este motivo. Una norma que el código incumple sin que nadie lo diga deja de ser
+  norma y se convierte en decoración; y el siguiente que lea §28 creerá que están.
+- **Dirección: o se implementan o ux-ui las retira.** (a) es `sticky top-0` + fondo opaco, con el
+  anclaje a `--app-header-h` que la propia §28.2 exige (⛔ nunca una altura hardcodeada); (b) es pintar
+  el `<thead>` real y sustituir las filas por `<Skeleton>` dentro de las celdas.
+- **Disparador:** el próximo pase de UI sobre esta pantalla, o la próxima revisión de §28 por ux-ui.
+
+#### BNT-D4 · `parsePesos` es un tri-estado documentado solo en un comentario, y `Number()` crudo sobre un campo de DINERO (Media, frontend)
+- **Dueño:** frontend (`BountyRowEditor.tsx`, `parsePesos`). **Severidad:** Media (**es un campo de
+  dinero**; hoy sin fuga demostrada). **Estado: abierta, aceptada.**
+- **La deuda, con los tres defectos medidos:**
+  1. Devuelve `number | null | undefined` donde `null` = «vacío» y `undefined` = «no numérico». Los dos
+     son *«no hay número»* para el compilador: **lo único que los distingue es un comentario**, y quien
+     use `?? 0` en cualquiera de los dos sitios que lo consumen no romperá ninguna prueba de tipos.
+  2. `Number(s)` acepta **notación de programador**: `1e3` → MX$1,000.00 y `0x10` → MX$16.00. Nadie
+     teclea eso queriendo, pero un pegado desde una hoja de cálculo sí puede traerlo.
+  3. **Rechaza `1,200.50`**, que es el formato natural de es-MX y **el mismo que la pantalla imprime**
+     (`formatMoneyCents` con `Intl`). El operador puede copiar una cifra de la columna `PAGAMOS`,
+     pegarla en el campo y recibir *«falta el precio»* (ver **BNT-D5**).
+- **Impacto hoy:** acotado, porque el servidor revalida **todo** (`BOUNTY_PRICE_REQUIRED`,
+  `BOUNTY_BELOW_RULE`, el tope por línea) y porque `1e3`/`0x10` producen un número *plausible* que el
+  humano ve en el resumen del diálogo de confirmación antes de guardar. No es una fuga: es una entrada
+  de dinero más laxa por un lado y más estrecha por otro de lo que el usuario espera.
+- **Dirección:** un parser de moneda es-MX **compartido** (`lib/`), con resultado explícito
+  (`{ kind: 'empty' | 'malformed' | 'value', cents }`), que acepte separador de millares y coma
+  decimal y **rechace** `e`/`x`/signos. ⚠️ Hay más de un campo de dinero en el back-office: mírense
+  antes los otros para no crear el sexto parser.
+- **Disparador:** el primer reporte de un precio rechazado que «se veía bien», o el próximo campo de
+  dinero nuevo del back-office — lo que ocurra antes.
+
+#### BNT-D5 · Un precio MAL FORMADO dice «falta el precio» cuando el precio sí está (Baja, frontend + **ux-ui**)
+- **Dueño:** frontend (la conducta) / **ux-ui** (el copy que falta). **Severidad:** Baja. **Estado:
+  abierta, aceptada.**
+- **La deuda:** el `error` de los dos campos colapsa **dos causas distintas** en un solo mensaje:
+  `priceMissing || priceMalformed` → `error.BOUNTY_PRICE_REQUIRED` («falta el precio») y
+  `targetMissing || targetMalformed` → `BOUNTY_TARGET_REQUIRED`. Con `1,200.50` tecleado, el campo
+  **tiene** un precio y el mensaje dice que falta ⇒ el remedio que sugiere es el equivocado.
+- **Por qué no se inventó el copy en este pase:** §28.6e declara los códigos de error de esta pantalla
+  y **no declaró uno de «formato»**. Inventar una cadena de error en una pantalla de dinero sin que
+  esté en §28.12 es exactamente lo que este proyecto prohíbe.
+- **Dirección (dos salidas, las dos válidas):** pedir a ux-ui un `edit.priceMalformed` /
+  `edit.targetMalformed`, **o** estrechar el input para que el caso no exista (normalizar al vuelo lo
+  que el parser de **BNT-D4** sepa leer). Se resuelve naturalmente **junto con D4**.
+- **Disparador:** el mismo que BNT-D4.
+
+#### BNT-D6 · `row.setName` sin `lang="en"` en la cabecera del bloque de edición (Baja, frontend)
+- **Dueño:** frontend (`BountyRowEditor.tsx`, la línea `edit.title · {name} · {setName} #{number}`).
+  **Severidad:** Baja. **Estado: abierta, aceptada.** **Coste: una línea.**
+- **La deuda:** los nombres de set no se traducen y van marcados `lang="en"` — la tabla lo hace
+  (`BountiesView.tsx`, celda de carta), el editor **marca el nombre de la carta y no el del set**. Un
+  lector de pantalla en español leerá «Surging Sparks» con fonética castellana.
+- **Por qué no entró en este pase:** el pase estaba acotado a los dos bloqueantes y a la unificación de
+  la transición; una línea suelta de accesibilidad **en otro fichero** habría entrado en el mismo diff
+  que un arreglo de dinero. *Un arreglo de dinero se lee solo.*
+- **Disparador:** el próximo pase que abra `BountyRowEditor.tsx` — sin excusa, es una línea.
+
+#### BNT-D7 · *(referencia cruzada, NO es deuda de frontend)* el endpoint reclasifica hasta 1000 filas por página para devolver 25
+- **Dueño:** **backend** (`admin-bounties.service.ts`, `list`). **Aquí solo se anota como referencia
+  cruzada, a petición del techlead**, y **frontend no la toca**.
+- **El motivo de anotarla es preventivo:** ese coste es **el precio de la corrección**, no un descuido.
+  §M2-B.1 declara el orden normativo *seleccionar → clasificar TODO → contar → filtrar → ordenar →
+  paginar*, y **cortar antes de clasificar es la mutación B-3**: es exactamente cómo un `rebasada`
+  volvería a desaparecer de la pantalla que se construyó para verlo. ⛔ Que nadie lo «optimice»
+  moviendo el corte hacia arriba.
+- **Disparador:** ninguno por parte de frontend. Si el coste llega a medirse en producción, la salida
+  es del backend (materializar el estado o un índice), **jamás** mover el corte.
+
+#### BNT-D8 · El nombre de la carta enlaza a `/admin/m1`, no al cajón de esa variante (Baja, frontend)
+- **Dueño:** frontend. **Severidad:** Baja. **Estado: abierta, aceptada** (declarada en
+  `FRONTEND_NOTES` §47.7 y **bajada aquí a petición del techlead**).
+- **La deuda:** §28.1 pide que la fila lleve **al cajón de esa variante en el binder**. M1 **no tiene
+  deep-link** por set/carta (solo `?tab=`), así que hoy el enlace deja al operador en la portada de M1
+  y **la búsqueda la repite a mano**. Con el `sr-only` *«abrir en el binder»* el destino se anuncia,
+  pero el destino es más ancho de lo prometido.
+- **No es petición al arquitecto:** no falta ningún campo del contrato (la fila trae `setId`, `cardId`
+  y `finish`). Es **deuda de enrutado del propio frontend**: hay que añadir parámetros a M1.
+- **Disparador:** el próximo pase que toque el enrutado de M1 (`/admin/m1`).
+
+#### BNT-D9 · La tabla no colapsa a *cards* en móvil (§28.9) (Baja, frontend)
+- **Dueño:** frontend. **Severidad:** Baja. **Estado: abierta, aceptada** (§47.7 → registro).
+- **La deuda:** §28.9 manda que a 390px la tabla colapse a **tarjetas por fila conservando los
+  encabezados de grupo** («el eje sobrevive al colapso, que es lo único innegociable»). Se pinta la
+  `<table>` con scroll horizontal, como el resto del back-office **hoy**.
+- **Impacto:** el eje **no se pierde** (el orden y los encabezados de bloque siguen ahí, en su sitio);
+  lo que cuesta es leerlo en un teléfono. Y el back-office es de escritorio en la práctica.
+- **Dirección:** ⚠️ si se hace, hay que hacerlo **para el back-office**, no solo aquí: una pantalla que
+  colapsa y seis que no es peor que siete que no colapsan. Es candidato a componente compartido.
+- **Disparador:** el primer uso real de esta pantalla desde un teléfono, o un pase de responsive del
+  back-office.
+
+#### BNT-D10 · El catálogo de §28.12 y el wireframe de §28.2 siguen diciendo «Buscar carta o set» (Baja, **ux-ui**)
+- **Dueño:** **ux-ui** (la norma). **Frontend ya alineó el código** y no puede tocar
+  `DESIGN_SYSTEM.md`. **Severidad:** Baja. **Estado: abierta — pendiente de ux-ui.**
+- **Lo medido:** `DESIGN_SYSTEM.md:12787` (tabla de cadenas §28.12) y `:12244` (el wireframe de §28.2)
+  declaran `Buscar carta o set` / `Search card or set`. El contrato §M2-B.1 declara `q` sobre
+  **nombre o número de carta** y el endpoint lo implementa así ⇒ el rótulo prometía un filtro que no
+  existe. El catálogo dice ahora **`Buscar carta` / `Search card`**.
+- **Lo que hay que decidir (y es de ux-ui, no de frontend):** alinear §28.12 y el wireframe con lo
+  implementado. Si lo que se quiere de verdad es **buscar por set**, eso **no es copy**: es un cambio
+  de `q` en `API_CONTRACT §M2-B.1` y pasa por el **arquitecto** (regla 9) antes de tocar ningún rótulo.
+- **Candado mientras tanto:** `frontend/src/lib/mock/admin-bounties-mock.test.ts` lee el bullet de `q`
+  del contrato y se pone **rojo** si el rótulo (ES o EN) vuelve a nombrar el set sin que el contrato lo
+  declare — y también si el contrato lo declara y el rótulo se queda corto.
+- **Disparador:** la próxima revisión de §28 por ux-ui.

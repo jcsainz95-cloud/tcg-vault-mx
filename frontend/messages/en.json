@@ -2070,7 +2070,7 @@
           "loadingAria": "Counting bounties"
         },
         "filters": {
-          "searchLabel": "Search card or set"
+          "searchLabel": "Search card"
         },
         "sort": {
           "label": "Sort",

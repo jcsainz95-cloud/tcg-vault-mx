@@ -656,6 +656,36 @@ describe('§28.6 — la tabla en reposo no tiene formularios, y la fricción va 
     expect(screen.getByLabelText(T.edit.price)).toBeInTheDocument();
   });
 
+  it('⭐ volver a pulsar `Editar` sobre la fila ABIERTA no borra la suciedad (§28.6b)', async () => {
+    // Regresión real del código anterior: `requestEdit` limpiaba `editorDirty` cuando la fila
+    // siguiente era **la misma**, pero el bloque de edición NO se remonta en ese caso (conserva lo
+    // tecleado) y su efecto de suciedad solo reporta **cuando `dirty` cambia** ⇒ la vista se quedaba
+    // creyendo que no había nada que perder y el siguiente `Cancelar` descartaba **sin preguntar**.
+    renderOne('rebasada');
+    const edit = await screen.findByRole('button', { name: T.row.editAria.replace('{card}', 'Charizard ex') });
+    fireEvent.click(edit);
+    fireEvent.change(await screen.findByLabelText(T.edit.price), { target: { value: '1200' } });
+    fireEvent.click(edit); // la MISMA fila
+    expect(screen.getByLabelText(T.edit.price)).toHaveValue('1200');
+    fireEvent.click(screen.getByRole('button', { name: es.common.cancel }));
+    expect(await screen.findByText(T.edit.discardConfirm.replace('{card}', 'Charizard ex'))).toBeInTheDocument();
+  });
+
+  it('⭐ tras un guardado FALLIDO lo tecleado sigue ahí, y `Cancelar` sigue preguntando (§28.6e)', async () => {
+    // El error ancla la fila abierta; **no** es un cierre. Si esa transición limpiara la suciedad,
+    // el vendedor perdería sin aviso lo que acababa de teclear justo después de un error.
+    renderOne('rebasada');
+    vi.spyOn(api, 'putVariantControls').mockRejectedValue(
+      new ApiClientError(500, { code: 'INTERNAL', message: 'boom' }),
+    );
+    fireEvent.click(await screen.findByRole('button', { name: T.row.editAria.replace('{card}', 'Charizard ex') }));
+    fireEvent.change(await screen.findByLabelText(T.edit.price), { target: { value: '800' } });
+    fireEvent.click(screen.getByRole('button', { name: T.edit.save }));
+    await waitFor(() => expect(screen.getByLabelText(T.edit.price)).toHaveValue('800'));
+    fireEvent.click(screen.getByRole('button', { name: es.common.cancel }));
+    expect(await screen.findByText(T.edit.discardConfirm.replace('{card}', 'Charizard ex'))).toBeInTheDocument();
+  });
+
   it('⛔ `BOUNTY_BELOW_RULE` se ancla EN LA FILA, no en un toast, y no se reintenta solo', async () => {
     renderOne('rebasada');
     const put = vi

@@ -143,24 +143,46 @@ export function BountiesView() {
     window.setTimeout(() => editButtons.current.get(key)?.focus(), 0);
   }
 
-  function closeEditor(key: string | undefined) {
-    setEditing(null);
-    setEditorDirty(false);
-    setRowError(null);
-    if (key) focusEditButton(key);
-  }
-
   /**
-   * Cierre pedido por el humano (`Cancelar` o `Esc`). Con cambios sucios **se confirma antes de
-   * descartar** (§28.6b); sin ellos se cierra y el foco vuelve al botón de esa fila (§28.10).
+   * ### ⚠️ EL ÚNICO SITIO QUE MUEVE LA FILA ABIERTA (§28.6b)
+   *
+   * §28.6b declara **equivalentes** los cuatro caminos que cierran o cambian la fila en edición:
+   * `Cancelar`, `Esc`, **abrir otra fila** y **confirmar el descarte**. Cuando cada uno tecleaba su
+   * propia secuencia de `setState`, esa equivalencia la sostenía la *disciplina*: el próximo cambio
+   * se habría aplicado en un camino y no en los otros tres, y los cuatro tienen que hacer lo mismo.
+   * Aquí lo son **por construcción** — esta función es la única que **mueve la fila abierta**, y por
+   * tanto la única que toca `editing`, `editorDirty`, `rowError` y el foco. (El `Cancelar` del
+   * diálogo no es un camino más: **retira la pregunta y no transiciona**, `setDiscardAsk(null)`.)
+   *
+   * - `force` — el humano YA contestó la pregunta (botón `Confirmar` del diálogo), o no hay nada que
+   *   perder (cierre tras un guardado con éxito). Sin él, la suciedad **pregunta antes de descartar**.
+   * - `focusKey` — a qué botón vuelve el foco al cerrar. Por defecto, el de la fila que se cierra;
+   *   explícito cuando el cierre lo dispara una fila que **no estaba abierta** (apagar desde reposo).
+   * - `error` — el `422`/`409` de ESA fila. La deja abierta y anclada, ⛔ nunca en un toast (§28.6e).
+   *
+   * ⚠️ **`editorDirty` solo se limpia si la fila abierta CAMBIA de identidad**, y no es un detalle:
+   * si `next` es la misma fila, `BountyRowEditor` **no se vuelve a montar** y conserva lo tecleado,
+   * mientras que su `useEffect` de suciedad solo reporta **cuando `dirty` cambia**. Ponerlo a `false`
+   * ahí dejaría a la vista creyendo que no hay nada que perder sobre un formulario que sí lo tiene, y
+   * el siguiente `Cancelar` **descartaría sin preguntar** — que es el defecto que §28.6b prohíbe.
    */
-  function requestClose(key: string) {
-    if (editorDirty) {
-      const open = rows.find((r) => bountyRowKey(r) === key);
-      setDiscardAsk({ card: open?.name ?? '', next: null });
+  function transitionTo(
+    next: EditingState | null,
+    opts: { force?: boolean; focusKey?: string; error?: unknown } = {},
+  ) {
+    if (!opts.force && editorDirty && editing !== null && editing.key !== next?.key) {
+      const open = rows.find((r) => bountyRowKey(r) === editing.key);
+      setDiscardAsk({ card: open?.name ?? '', next });
       return;
     }
-    closeEditor(key);
+    const closing = editing?.key;
+    const sameRow = editing !== null && editing.key === next?.key;
+    setDiscardAsk(null);
+    if (!sameRow) setEditorDirty(false);
+    setRowError(opts.error !== undefined && next !== null ? { key: next.key, error: opts.error } : null);
+    setEditing(next);
+    const focusKey = opts.focusKey ?? closing;
+    if (next === null && focusKey) focusEditButton(focusKey);
   }
 
   /**
@@ -221,31 +243,20 @@ export function BountiesView() {
         // ocurrió— pero tampoco puede decir «listo» (§28.6d).
         pushToast({ variant: 'info', message });
       }
-      closeEditor(key);
+      // Guardado con éxito: no hay nada que descartar, así que **no se pregunta** (`force`), y el
+      // foco vuelve al botón de ESA fila aunque el guardado saliera de una fila en reposo (`Apagar`).
+      transitionTo(null, { force: true, focusKey: key });
     },
     onError: (error, vars) => {
+      // El error se queda EN LA FILA, abierta y anclada; el resto de la tabla no se toca (§28.8). Y
+      // se re-lee la fila, porque un `BOUNTY_BELOW_RULE` significa que la curva se movió bajo los
+      // pies. ⚠️ Lo tecleado NO se pierde: si la fila ya estaba abierta, `transitionTo` respeta su
+      // suciedad (misma identidad ⇒ el editor no se remonta).
       const key = bountyRowKey(vars.row);
-      setRowError({ key, error });
-      // El error se queda EN LA FILA, abierta; el resto de la tabla no se toca (§28.8). Y se re-lee
-      // la fila, porque un `BOUNTY_BELOW_RULE` significa que la curva se movió bajo los pies.
-      setEditing({ key, turnOnIntent: false });
+      transitionTo({ key, turnOnIntent: false }, { force: true, error });
       void query.refetch();
     },
   });
-
-  function requestEdit(next: EditingState | null, row?: AdminBountyRowDTO) {
-    // Solo hay UNA fila abierta a la vez; abrir otra cierra ésta con la misma confirmación (§28.6b),
-    // y **solo si hay algo que descartar**.
-    if (editing && editing.key !== next?.key && editorDirty) {
-      const open = rows.find((r) => bountyRowKey(r) === editing.key);
-      setDiscardAsk({ card: open?.name ?? '', next });
-      return;
-    }
-    setRowError(null);
-    setEditorDirty(false);
-    setEditing(next);
-    if (next === null && row) focusEditButton(bountyRowKey(row));
-  }
 
   const zero = counts ? zeroStatement(counts, truncated) : null;
   const grouped = sort === 'attention_first';
@@ -420,8 +431,8 @@ export function BountiesView() {
                   editing={isEditing}
                   busy={mutatingKey === key}
                   registerButton={(el) => editButtons.current.set(key, el)}
-                  onEdit={() => requestEdit({ key, turnOnIntent: false })}
-                  onTurnOn={() => requestEdit({ key, turnOnIntent: true })}
+                  onEdit={() => transitionTo({ key, turnOnIntent: false })}
+                  onTurnOn={() => transitionTo({ key, turnOnIntent: true })}
                   onTurnOff={() =>
                     save.mutate({
                       row,
@@ -440,7 +451,7 @@ export function BountiesView() {
                       saving={mutatingKey === key}
                       error={rowError?.key === key ? rowError.error : undefined}
                       onDirtyChange={setEditorDirty}
-                      onCancel={() => requestClose(key)}
+                      onCancel={() => transitionTo(null)}
                       onSubmit={(req) => save.mutate({ row, req, intent: 'edit' })}
                     />
                   </tr>
@@ -485,16 +496,10 @@ export function BountiesView() {
             </Button>
             <Button
               size="sm"
-              onClick={() => {
-                const next = discardAsk?.next ?? null;
-                const closing = editing?.key;
-                setDiscardAsk(null);
-                setRowError(null);
-                setEditorDirty(false);
-                setEditing(next);
-                // Si se cerró sin abrir otra, el foco vuelve al botón de ESA fila (§28.10).
-                if (next === null && closing) focusEditButton(closing);
-              }}
+              // El humano ya contestó: el descarte se ejecuta por LA MISMA puerta que los otros tres
+              // caminos, con `force`. ⛔ Nada de re-teclear aquí el cuerpo de la transición: era el
+              // quinto sitio que tenía que acordarse de limpiar la suciedad y devolver el foco.
+              onClick={() => transitionTo(discardAsk?.next ?? null, { force: true })}
             >
               {tRoot('common.confirm')}
             </Button>

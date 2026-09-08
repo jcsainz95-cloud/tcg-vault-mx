@@ -160,6 +160,17 @@ export function BuylistKycForm({
    * `attempt` es un CONTADOR, no un booleano: el usuario que falla **dos veces por lo mismo**
    * tiene que ver el mensaje las dos veces. Con un `isError` booleano el segundo intento no
    * cambia el estado y el efecto no vuelve a correr — que es justo el caso del reporte.
+   *
+   * ⚠️⚠️ **NO LO QUITES AL DESCUBRIR QUE «NO HACE FALTA».** Hoy el contador es *funcionalmente*
+   * redundante y hay que decirlo aquí, porque el próximo lector lo va a averiguar solo: `setFailure`
+   * construye un **objeto nuevo** en cada llamada, así que el efecto ya se re-dispara por
+   * **identidad de referencia** aunque `anchor` y `attempt` sean idénticos. El valor de `attempt` no
+   * es hacer correr el efecto: es **convertir ese invariante invisible y frágil en un dato
+   * explícito**. Si alguien «simplifica» el estado —a un `anchor` suelto, a un booleano, a un
+   * `useMemo`, a cualquier cosa que se compare por valor—, **el segundo clic vuelve a quedarse
+   * mudo**, que es el defecto exacto que se reportó en producción, y **ninguna prueba lo caza**:
+   * ningún test aserta la identidad de un objeto de estado. Lo único que sostiene la cura es que
+   * esta dependencia **cambie de verdad en cada intento**, y eso lo garantiza el contador.
    * ─────────────────────────────────────────────────────────────────────────────────────
    */
   const [failure, setFailure] = useState<{ anchor: FailureAnchor; attempt: number } | null>(null);

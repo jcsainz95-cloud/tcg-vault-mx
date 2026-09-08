@@ -2070,7 +2070,7 @@
           "loadingAria": "Contando bounties"
         },
         "filters": {
-          "searchLabel": "Buscar carta o set"
+          "searchLabel": "Buscar carta"
         },
         "sort": {
           "label": "Orden",

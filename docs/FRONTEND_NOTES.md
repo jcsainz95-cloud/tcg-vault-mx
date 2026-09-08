@@ -4,6 +4,153 @@
 > Fecha: 2026-08-13. Branch: `claude/tcg-cards-marketplace-oijthj`.
 > El contrato (`docs/API_CONTRACT.md`) y el sistema de diseño (`docs/DESIGN_SYSTEM.md`) mandan.
 
+## §54 · Bounties, ronda del techlead: el rótulo prometía un filtro que el servidor no tiene, y el mock lo tapaba (2026-09-08, rama `claude/tcg-hunt-orchestration-ai2vma`)
+
+> Continuación directa de **§47** (la consola de bounties). El techlead la **aprobó con deuda
+> anotada** y devolvió dos bloqueantes, una recomendación, el encargo de bajar la deuda al registro y
+> una línea de comentario. Esto es el pase de corrección; el alcance es **exactamente** ése.
+
+### 1. El bloqueante que importa: un falso negativo silencioso, y el mock que lo escondía
+
+Tres piezas, medidas, que solo son un defecto **juntas**:
+
+| Pieza | Qué decía |
+|---|---|
+| `messages/es.json` · `en.json` | `filters.searchLabel` = **«Buscar carta o set»** / «Search card or set» |
+| `backend/.../admin-bounties.service.ts` (`buildWhere`) | `card.OR = [{ name contains }, { number contains }]` — **el set NO entra** |
+| `lib/mock/fixtures.ts` (`mockAdminBounties`) | `` `${card.name} ${card.number} ${card.setName}` `` — **el mock SÍ buscaba por set** |
+
+Y el contrato, que es quien manda: **§M2-B.1 declara `q` sobre «nombre o número de carta»**. El
+rótulo prometía de más, el servidor cumplía el contrato, y el servidor falso cumplía el rótulo.
+
+**Por qué no es cosmético.** En producción el operador teclea «Obsidian Flames», recibe *«Ningún
+bounty coincide»* y concluye que ese set no tiene bounties. Es un **falso negativo silencioso en la
+única pantalla que existe para que ninguna fila desaparezca sin avisar**: la misma ceguera que §28
+vino a curar, entrando por la puerta del filtro. Y era **caro de descubrir**, porque el mock lo
+tapaba: funcionaba en desarrollo y en las 46 pruebas de pantalla, y solo fallaba contra el servidor
+real, *donde nadie mira*.
+
+**Lo que se hizo, que es lo barato:**
+1. El rótulo dice lo que el servidor hace: **`Buscar carta` / `Search card`** (ES y EN).
+2. El mock filtra **exactamente igual** que el servidor: fuera `card.setName` de la búsqueda.
+3. Un candado que **ata el mock al servidor** por el contrato (§3 de esta nota).
+
+⛔ **No se añadió búsqueda por set**, y no por pereza: ampliar `q` es un cambio de `API_CONTRACT
+§M2-B.1` y pasa por el **arquitecto** (regla 9). El filtro por set ya existe y es `setId`, que es
+otra cosa. Queda como petición explícita en §6.
+
+> **La regla que sale de aquí, y que conviene que se cite en las revisiones:**
+> ***un mock puede ser más POBRE que el servidor; nunca más permisivo ni distinto.***
+
+### 2. Las otras dos divergencias del mock, de la misma familia
+
+- **`sort=updated_desc` no estaba implementado.** El `if` distinguía `attention_first` y **todo lo
+  demás caía en precio descendente**, mientras el `<Select>` ofrece las tres opciones del endpoint ⇒
+  **una de las tres no hacía nada**. Peor: `updatedAt` era **una constante para todas las filas**, así
+  que ese orden **no podía existir** ni queriendo. Ahora `MockVariantControlsRow` tiene su propio
+  `updatedAt` (seis marcas distintas en la semilla), toda escritura lo mueve a «ahora» —igual que
+  `@updatedAt` de Prisma, con lo que **editar una fila la sube al frente**— y el comparador replica
+  los **tres** órdenes del servidor **con sus mismos desempates** (`updatedAt` desc e identidad asc,
+  para que el orden sea total y la paginación estable).
+- **La resta del avance estaba tecleada dos veces** en el mismo fichero (la vitrina pública y la
+  consola de admin, a ~130 líneas). El backend hizo lo contrario porque §M2-B.1 se lo exigió: la
+  extrajo a `bounty-progress.ts`. Ahora hay `mockBountyRemainingQty(target, acquired)` y **una sola
+  copia del piso en `0`**, que es el borde delicado: `acquiredQty > targetQty` es representable
+  (4 compradas de un objetivo de 3) y sin el `max` la vitrina publicaría un *«faltan −1»*.
+
+### 3. El candado nuevo: `src/lib/mock/admin-bounties-mock.test.ts` (12 casos)
+
+Ata el servidor falso al de verdad **por el contrato, no por `backend/`**, y el motivo está escrito en
+la cabecera del archivo: `CLAUDE.md` dice *«el contrato manda sobre el código»*, así que anclarlo en
+el `.ts` del backend bendeciría cualquier deriva que el backend introdujera y ataría el frontend a la
+forma interna de un `where` de Prisma. Lee de `docs/API_CONTRACT.md` §M2-B.1 —anclado en
+`<a id="M2-B1">`, **jamás en un número de línea**— el bullet de `q` y el de `sort`, y exige:
+
+- que `q` se declare sobre **nombre y número** y **no** sobre el set;
+- que el **mock** case por nombre y por número y **no** por `setName` (con `q="Surging Sparks"` ⇒ **0
+  filas**, que antes eran 3);
+- que `setId` siga filtrando por set (es otra cosa y sigue viva);
+- que **el rótulo ES y EN** no nombre el set mientras el contrato no lo declare;
+- que el `<Select>` ofrezca **exactamente** los valores de `sort` del contrato (`BOUNTY_SORTS`);
+- que los tres órdenes existan y **difieran**, y que `updatedAt` sea **distinto por fila**;
+- que `remainingQty` nunca sea negativo y que `targetQty: null` ⇒ `null`, **jamás `0`**.
+
+Falla **cerrado**: si el arquitecto amplía `q`, esto se pone rojo **por el sitio correcto** —dirá que
+el mock y el rótulo se han quedado cortos—, que es justo la conversación que hay que tener.
+
+### 4. La transición de la fila abierta, en un solo sitio (recomendación del techlead)
+
+`BountiesView` tenía **seis piezas de estado que son una sola cosa**, y el `Confirmar` del `Modal`
+**re-tecleaba a mano el cuerpo de la transición** en vez de reusarlo. No era un bug: era el sitio
+donde el próximo cambio se aplicaría en un camino y no en los otros, y §28.6b declara **equivalentes
+por escrito** los cuatro (`Cancelar`, `Esc`, abrir otra fila, confirmar el descarte) que el código
+mantenía equivalentes **por disciplina**.
+
+Ahora hay **una** función, `transitionTo(next, { force, focusKey, error })`, única que toca `editing`,
+`editorDirty`, `rowError` y el foco; el `Modal` invoca el cierre forzado. Se respetó al pie el límite
+del encargo: **no se partió el componente y no se sacó la mutación a un hook**.
+
+**⚠️ Y al unificarlo apareció un defecto latente que el código anterior tenía y nadie había visto:**
+`requestEdit` limpiaba `editorDirty` **también cuando la fila siguiente era la misma** (volver a
+pulsar `Editar` sobre la fila ya abierta). En ese caso `BountyRowEditor` **no se remonta** —conserva lo
+tecleado— y su efecto de suciedad solo reporta **cuando `dirty` cambia**, así que la vista se quedaba
+creyendo que no había nada que perder y **el siguiente `Cancelar` descartaba sin preguntar**, que es
+exactamente lo que §28.6b prohíbe. La condición correcta no es una bandera nueva: es un invariante
+derivable — ***`editorDirty` solo se limpia si la fila abierta CAMBIA de identidad***. Eso arregla de
+paso el camino del error (`onError` re-ancla la misma fila y ahora no puede perder lo tecleado).
+Dos pruebas nuevas lo fijan.
+
+### 5. Verificación por mutación (romper ⇒ exigir rojo; todas restauradas)
+
+| # | Mutación | Resultado |
+|---|---|---|
+| 1 | mock: devolver `card.setName` a la búsqueda de `q` | **1 rojo** — *«un `q` que SOLO casa con el nombre del set no devuelve nada»* |
+| 2 | catálogo ES: `searchLabel` = `Buscar carta o set` | **1 rojo** — *«el RÓTULO no promete más de lo que el contrato declara»* (`expected 'buscar carta o set' not to match /\bsets?\b/`) |
+| 3 | mock: borrar la rama `if (sort === 'updated_desc')` | **2 rojos** — el orden por edición y *«una escritura mueve la fila al frente»* |
+| 4 | mock: devolver `updatedAt` constante en el DTO | **1 rojo** — *«`updatedAt` es distinto por fila»* ⚠️ y **el de ordenación NO lo caza**: con todas las marcas iguales cualquier orden es «no creciente». Por eso el candado de la **constante** va aparte; era el defecto real de `:4098` |
+| 5 | mock: quitar el `Math.max(0, …)` del helper de la resta | **1 rojo** — `remainingQty` negativo |
+| 6 | vista: `setEditorDirty(false)` incondicional (el código anterior) | **2 rojos** — reabrir la misma fila y el guardado fallido |
+
+### 6. Peticiones (ninguna bloquea)
+
+- **Al arquitecto — solo si producto lo quiere:** hoy `q` es **nombre o número de carta** (§M2-B.1) y
+  el frontend se ha alineado con eso. **Si el operador necesita de verdad buscar por set**, es un
+  cambio del contrato, no del rótulo. ⛔ No se ha implementado nada por adelantado, y el candado del
+  §3 se pondrá rojo el día que el contrato cambie, para que mock y rótulo se muevan **detrás** de él.
+- **A ux-ui:** `DESIGN_SYSTEM.md` §28.12 (`:12787`) y el wireframe de §28.2 (`:12244`) siguen diciendo
+  `Buscar carta o set` / `Search card or set`. El código dice ya `Buscar carta` / `Search card`.
+  Anotado como **BNT-D10** en `TECH_DEBT.md`.
+- **A ux-ui (observación, no petición):** `list.truncated` recomienda *«filtra por set, acabado o
+  estado»* y **esta pantalla solo ofrece búsqueda, orden y los chips de estado**: no hay control de
+  `setId` ni de `finish` (el endpoint sí los acepta). Es la misma familia que el bloqueante de arriba
+  —copy que promete una palanca que no está a la vista— pero **no se tocó**: decidir si se añaden los
+  dos filtros o se reescribe el banner es de producto/ux-ui, no del pase de corrección.
+
+### 7. Números y ficheros
+
+`npm test` **1330/1330** (120 archivos, **+14**: 12 del candado nuevo y 2 de la transición) ·
+`tsc --noEmit` limpio · `next lint` sin avisos · catálogos ES/EN simétricos.
+
+- `frontend/messages/{es,en}.json` — `admin.m2.bounties.filters.searchLabel`.
+- `frontend/src/lib/mock/fixtures.ts` — `q` sin `setName`, `updatedAt` por fila (interfaz + 6 semillas
+  + escritura), los tres `sort`, `mockBountyRemainingQty`.
+- `frontend/src/lib/mock/admin-bounties-mock.test.ts` — **nuevo**.
+- `frontend/src/app/[locale]/(admin)/admin/m2/bounties/BountiesView.tsx` — `transitionTo`.
+- `frontend/src/app/[locale]/(admin)/admin/m2/bounties/BountiesView.test.tsx` — +2 casos.
+- `frontend/src/components/domain/BuylistKycForm.tsx` — comentario del contador (§8).
+- `docs/TECH_DEBT.md` — **BNT-D1…D10** (D7 es referencia cruzada a backend; D8/D9 vienen de §47.7).
+
+### 8. El contador de `BuylistKycForm`, y por qué se deja escrito que NO se quite
+
+El techlead avaló el diseño del contador de intentos **y encontró algo que había que dejar por
+escrito**: hoy es *funcionalmente* redundante, porque `setFailure({...})` construye un objeto nuevo en
+cada llamada y **el efecto ya se re-dispara por identidad de referencia**. Se añadió un comentario que
+dice exactamente eso, porque el próximo lector lo va a averiguar solo y la conclusión natural es
+quitarlo. Su valor no es hacer correr el efecto: es **convertir un invariante invisible y frágil —la
+identidad de un objeto de estado— en un dato explícito**. Si alguien «simplifica» el estado a algo que
+se compare por valor, **el segundo clic vuelve a quedarse mudo** —el defecto exacto que se reportó en
+producción— y **ninguna prueba lo caza**: ningún test aserta la identidad de un objeto de estado.
+
 ## §47 · M2 › Bounties: se recoge una pantalla escrita a medias y se le ponen los candados que le faltaban (2026-09-08, contrato `v1.62.1 §M2-B`, `DESIGN_SYSTEM §28 v3.4`)
 
 > Rama `claude/tcg-hunt-orchestration-ai2vma`, sobre `d7a9039`. **Continuación, no arranque:** cuatro
@@ -111,6 +258,9 @@ v3.4 vino a corregir** (pintar `ACTIVO` sobre un bounty que no puede pagar nada)
 catálogos ES/EN **simétricos** (0 claves huérfanas en cualquiera de los dos sentidos).
 
 ### 7. Lo que NO se hizo, y por qué (para que nadie lo dé por hecho)
+
+> ⚠️ **Las dos primeras bajaron al registro de deuda** (`TECH_DEBT.md`, **BNT-D8** y **BNT-D9**) a
+> petición del techlead: las aceptó, pero *la deuda que solo vive en una nota de pase se pierde*.
 
 - **El nombre de la carta enlaza a `/admin/m1`, no al cajón de esa variante.** §28.1 pide el cajón;
   **M1 no tiene deep-link** por set/carta (solo `?tab=`), así que llevar a la variante exigiría
