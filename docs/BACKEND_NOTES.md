@@ -28,6 +28,163 @@
 > §0.22 de este documento son de `main` y NO se movieron**: son M47-H2, v1.53 (buylist raw-only) y
 > v1.53-b. Un informe de QA/techlead anterior al 2026-09-06 puede usar la numeración vieja.
 
+## 0.47 — **v1.62.1 / `§M2-B`: la CONSOLA DE BOUNTIES — una lectura, cero escritura, cero DDL** (2026-09-08)
+
+> Propiedad: **backend**. Implementa `API_CONTRACT §M2-B.0/.1` (rev **v1.62.1**), `ARCHITECTURE §4.42`
+> y `PROJECT` criterio **184** / **D52**. **CERO DDL, cero migración, cero seed, cero dial, cero
+> código de error nuevo, cero cambios en `PUT …/variant-controls/...` y cero cambios en la vitrina
+> pública.** Lo único que nace es **una lectura**: `GET /api/v1/admin/pricing/bounties`.
+
+### 0.47.1 Qué se añadió, archivo por archivo
+
+| Archivo | Qué es |
+|---|---|
+| `backend/src/modules/pricing/admin-bounties.controller.ts` | El borde HTTP. `@Controller('admin/pricing/bounties')` + `@Roles(super_admin)` y **un solo `@Get`**. Valida `state`/`sort`/`finish` contra sus enums y delega `page`/`pageSize`/`q` al parser transversal `parseAdminListFilters` ⇒ **`400 VALIDATION_ERROR`**, sin *clamp* silencioso |
+| `backend/src/modules/pricing/admin-bounties.service.ts` | La lectura: orden de operaciones normativo, `counts`, `truncated`, los tres órdenes y la proyección al DTO |
+| `backend/src/modules/pricing/bounty-state.ts` | El enum `state` (cinco valores), el **predicado de alcance** (`BOUNTY_SCOPE_WHERE`) y `deriveBountyState` |
+| `backend/src/modules/pricing/bounty-progress.ts` | El **cupo** (`remainingQty`) en un solo cuerpo, compartido con la vitrina pública |
+| `backend/src/modules/pricing/pricing.module.ts` | Alta del provider y del controller (3 líneas) |
+| `backend/src/modules/buylist/buylist.service.ts` | **1 línea de conducta idéntica**: `publicBounties` pasa a llamar a `bountyRemainingQty(...)` en vez de repetir la resta (ver 0.47.5) |
+
+### 0.47.2 Lo que se REUSA entero (ninguna cifra de dinero nace en este endpoint)
+
+`composeVariantPricing` (la fila **es** el `VariantPricingDTO` del binder, completo y sin recortar),
+`isBountyEffective` —vía el `bounty.effective` que ya compone ese composer, **cuarta seam del mismo
+cuerpo**, §4.36.6—, y el izado en lote `loadPricingCurve()` + `getReferencesBatch()` (una lectura de
+curva y una de referencias por request; sin N+1). De ahí salen, **sin un solo campo nuevo**, las tres
+cifras que el dueño pidió por fila: `pricing.bounty.priceCents`, `pricing.bounty.curveQuoteCents` y
+`pricing.bounty.effective`.
+
+`state` **se deriva y no se persiste**, y **no es opcional**: lo manda el servidor y la UI lo obedece
+(§M2-B.7 punto 5). Es redundante con `effective` **a propósito**: `effective` es un booleano de un
+eje; `state` es la clasificación de las cinco, y además distingue `completada` de `apagada`.
+
+### 0.47.3 El orden de operaciones, y por qué `counts` no puede salir de SQL
+
+```
+seleccionar (alcance §M2-B.0 + identidad; el TECHO se aplica AQUÍ y solo aquí ⇒ `truncated`)
+  → resolver el estado de TODO lo seleccionado → CONTAR (`counts`) → filtrar por `state`
+  → ordenar → paginar
+```
+
+`counts` sale de **la misma pasada** que `data`, **ignora el filtro `state` y respeta los de
+identidad** (`setId`, `finish`, `q`), y tiene **cinco claves** — `invalida` **no se funde** en
+`activa`. ⛔ **No hay `groupBy` de SQL**: el estado depende de la curva y del mercado, que se izan en
+la aplicación, así que un conteo «barato» por SQL **sería otro predicado con otro resultado**.
+Invariante verificable (y verificado, unit + e2e): con `state` omitido,
+`total == counts.activa + counts.rebasada + counts.invalida + counts.completada + counts.apagada`.
+
+**`truncated` gobierna `data`, `total` y `counts` a la vez** — con `truncated: true` los conteos
+**también** están incompletos. *Un cero de una lista cortada no es un cero*: ahí el frontend **no
+puede** enunciar el cero tranquilizador («ningún bounty rebasado»); la frase correcta es la de lista
+incompleta.
+
+### 0.47.4 Las tres decisiones de implementación que el contrato dejaba al servidor
+
+1. **El TECHO de servidor es `ADMIN_BOUNTY_SERVER_CAP = 1000`** (constante exportada de
+   `admin-bounties.service.ts`, **no un dial** — el contrato norma la conducta, no el número). Se
+   pide `take: CAP + 1` **solo para detectar** el rebase; la fila extra no se clasifica ni se cuenta.
+   *(Referencia: la vitrina pública usa 500 candidatos, pero ella solo mira bounties vivos; esta
+   pantalla incluye `apagada`/`completada`, que crecen de forma monótona — Q-B2.)*
+2. **El ORDEN DEL CORTE** (distinto del orden de la respuesta, que se decide tras clasificar) es
+   `bountyEnabled desc, updatedAt desc, id asc`: si el conjunto rebasa el techo, lo que sobrevive es
+   **lo que sigue encendido** —lo que puede estar costando dinero— y no la historia ya apagada. Es
+   determinista, así que dos llamadas iguales cortan por el mismo sitio.
+3. **`productType: 'raw'` + `gradeKey: 'raw:NM'` entran al `where`** como defensa en profundidad
+   (igual que en la vitrina): el bounty es raw-only **por la escritura** (`variant-controls`) y el
+   DTO del contrato declara los dos campos como literales. **No es un predicado nuevo**: el alcance
+   sigue siendo el de §M2-B.0.
+
+Además, los tres órdenes terminan en **`id` asc** para que el orden sea **total** y la paginación
+estable; y un `bountyPriceCents` nulo ordena **al final** de su grupo (`null` no es «gratis», es «sin
+precio»).
+
+### 0.47.5 La única línea tocada fuera de lo nuevo, y por qué
+
+§M2-B.1 lo pide literalmente: *«`progress` … **idéntica a la de `GET /buylist/bounties`** ⇒ backend
+la extrae a UN helper compartido y no la teclea dos veces»*. Así que `publicBounties` pasa de
+`r.bountyTargetQty != null ? Math.max(0, r.bountyTargetQty - r.bountyAcquiredQty) : null` a
+`bountyRemainingQty(r.bountyTargetQty, r.bountyAcquiredQty)`. **Conducta idéntica**, y sostenida por
+los tests que ya existían (`test/buylist.bounties.spec.ts`: `null` sin objetivo, piso 0 si `acquired`
+rebasó el target). **La vitrina pública no cambia ni un campo, ni un filtro, ni un cap.**
+
+### 0.47.6 SEC-A1
+
+Lo que manda el cliente **entra a un `where` y a un `slice`, jamás a una fórmula**.
+`curveQuoteCents`, `suggestedCents`, `effective`, `state`, `progress` y `remainingQty` son **salida,
+nunca entrada**. En la escritura no cambia nada: el `PUT …/variant-controls/...` ya valida su cuerpo
+campo a campo con `whitelist` global, así que un `curveQuoteCents`/`effective`/`state` en el body **se
+descarta antes de llegar al servicio** y la guarda `BOUNTY_BELOW_RULE` sigue disparando contra la
+curva re-derivada en el instante del write (candado **B-5**, e2e). Rol **`super_admin`** para la
+lectura consolidada, aunque el binder exponga `pricing.bounty` de un set a `vault_operator+`:
+**agregar cambia el activo** (candado **B-6**: `403` con token de operador, `401` sin token).
+
+### 0.47.7 Lo que este pase NO hace *(y no es un olvido)*
+
+⛔ **Ningún endpoint de escritura, y ninguna acción de alcance de conjunto**: no hay `/bulk`, ni
+`?ids=`, ni «apagar los N rebasados» — la prohibición y sus razones están en §M2-B.2 y el candado es
+un **inventario de rutas sobre el grafo real de `AppModule`** (`test/admin-bounties.routes.spec.ts`),
+no una revisión a ojo. ⛔ **`outbidSince` no viaja y no se aproxima con `updatedAt`** (exigiría
+columna nueva + un observador que la escriba: rompe el CERO DDL y es otro pase). ⛔ **No se pinta la
+posición de inventario** (`bountyAcquiredQty` ≠ posición: son dos preguntas distintas). ⛔ **No se
+apaga nada automáticamente, no se audita** (una lectura no es un acto auditable) y ⛔ **no se toca
+`GET /buylist/bounties`**, que filtra a los rebasados **por contrato** y ese filtro es correcto.
+
+### 0.47.8 Cobertura y verificación (números reales, 2026-09-08)
+
+| Suite | Antes | Después |
+|---|---|---|
+| Unitarios (`npx jest`) | 250 suites / 3666 tests, verde | **252 suites / 3688 tests, verde** |
+| Integración contra **Postgres real** (`jest --config test/jest-integration.config.js --runInBand`) | 20 suites / 289 tests, verde | **21 suites / 305 tests, verde** |
+
+Archivos nuevos: `test/admin-bounties.list.spec.ts` (18), `test/admin-bounties.routes.spec.ts` (4),
+`test/integration/admin-bounties.e2e-spec.ts` (16). `tsc --noEmit` y `eslint` limpios.
+
+**Cada mutación de §M2-B.6 se aplicó al código y se comprobó que pone un test EN ROJO** (y se
+revirtió; árbol verificado idéntico al original):
+
+| Mutación | Rojo en |
+|---|---|
+| **B-1** clasificar `enabled ∧ ¬effective` como `activa` | unit (3 casos) + e2e |
+| **B-2** ⭐ re-implementar el veredicto (`>=` en vez de reusar `effective`) | **e2e**: el empate sale `rebasada` aquí **y** ausente de `/buylist/bounties` — no se puede tapar cambiando un solo lado |
+| **B-3** paginar/cortar antes de clasificar | unit (4 casos) |
+| **B-4** `truncated` siempre `false` | unit |
+| **B-5** el body del `PUT` decide la curva | e2e (sigue `422 BOUNTY_BELOW_RULE`) |
+| **B-6** abrir la lectura a `vault_operator` | e2e (`403`) |
+| **B-7 / B-13(a)** añadir un verbo de escritura bajo `admin/pricing/bounties` | inventario de rutas (2 casos) |
+| **B-8** colapsar `completada` con `apagada` | unit (3 casos) + e2e |
+| **B-9** ⭐ `counts` sobre la página | unit **y** e2e (la cifra no cambia con paginación puesta) |
+| **B-10** `counts` obedeciendo a `state` · `invalida` fundida en `activa` · invariante de la suma | unit (3 casos) + e2e |
+| **B-12** dejar de resolver `curveQuoteCents` en filas apagadas | unit |
+
+**B-11 y B-13(b) son de FRONTEND** (§M2-B.6) y no se cubren aquí. La mitad de servidor de B-11
+—*campo omitido conserva el valor persistido*— **ya está cerrada** en
+`test/pricing.variant-controls.spec.ts` y **no se re-asierta**: dos candados sobre la misma regla se
+tapan entre sí. Por lo mismo, aquí **no** se vuelven a testear `BOUNTY_PRICE_REQUIRED`,
+`BOUNTY_TARGET_REQUIRED`, el default 2 ni el `raw`-only.
+
+**Lo que NO se midió, dicho explícitamente:** (a) el **rendimiento** con el conjunto pegado al techo
+—no hay datos productivos que medir, y §4.42g deja el índice parcial como opcional y **diferido hasta
+que se mida**; no se pide por adelantado—; (b) el caso `truncated: true` se ejercita **con dobles**
+(1001 filas en memoria), no contra Postgres: sembrar 1001 cartas en la base compartida de la suite
+habría contaminado a los demás specs por un aserto que no depende del motor.
+
+### 0.47.9 Para el FRONTEND
+
+- La respuesta es `{ data, page, pageSize, total, counts, truncated }`. **`counts` trae siempre las
+  cinco claves con nombres del enum** (`activa`, `rebasada`, `invalida`, `completada`, `apagada`) —
+  no existe `outbid`/`active`/`off`/`completed` en la API; traducir a rótulos es i18n del frontend.
+- **`state` viene del servidor y se obedece**: no se infiere cruzando `enabled`/`effective`/
+  `completedAt` en pantalla (una fila `enabled ∧ ¬(priceCents > 0)` es `invalida`, no `activa`).
+- Los **opcionales ausentes no viajan** (`imageSmallUrl`, `rarity`, `updatedBy` desaparecen del JSON
+  cuando no hay dato); `progress.targetQty` y `progress.remainingQty` **sí** pueden ser `null`, y ese
+  `null` significa *«sin objetivo»*, nunca `0`.
+- `pricing.bounty.curveQuoteCents` **también viene en filas apagadas**; su `null` significa **una sola
+  cosa: la curva no resuelve** (mercado pendiente / guardarraíl), jamás «está apagado».
+- Con `truncated: true`, **no se enuncia el cero tranquilizador** sobre ningún `counts.*: 0`.
+- La edición es el `PUT …/variant-controls/:cardId/:finish` de siempre, **fila a fila**, y **sin
+  reenviar `sellOverrideCents`/`buyOverrideCents`** (§M2-B.3: campo omitido = no se toca).
+
 ## 0.46 — **v1.61.1 / `B1`: V-a estaba escrita en el `where` del dinero y NO llegaba al motor** (2026-09-07, bloqueante del techlead)
 
 > Propiedad: **backend**. **CERO DDL, cero migración, cero endpoints, cero diales, cero cambio de

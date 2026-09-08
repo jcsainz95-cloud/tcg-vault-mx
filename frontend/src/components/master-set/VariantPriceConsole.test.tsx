@@ -192,7 +192,10 @@ describe('VariantPriceConsole (§16.3b) · edición super_admin', () => {
 
     fireEvent.click(screen.getByRole('switch', { name: /Marcar como bounty/ }));
     // Sin precio explícito: validación espejo BOUNTY_PRICE_REQUIRED, guardado bloqueado.
-    expect(await screen.findByText('El bounty necesita un precio explícito.')).toBeInTheDocument();
+    // §28.12(c): el copy gana la cola «lo que NO pasó se dice» (§26).
+    expect(
+      await screen.findByText('El bounty necesita un precio explícito. No se guardó nada.'),
+    ).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Guardar precios' })).toBeDisabled();
 
     fireEvent.change(screen.getByLabelText('Precio bounty (MXN)'), { target: { value: '2500' } });

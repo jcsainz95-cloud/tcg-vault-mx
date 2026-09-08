@@ -1858,6 +1858,66 @@ export interface PublicBountiesResponse {
   data: PublicBountyDTO[];
 }
 
+// ===== v1.62/v1.62.1 · CONSOLA DE BOUNTIES (GET /admin/pricing/bounties, `super_admin`) =====
+// Contrato §M2-B.0/.1 · diseño §28 · alcance PROJECT criterio 184 (D52).
+//
+// ⛔ `state` LO DERIVA EL SERVIDOR y la UI lo OBEDECE: no se recalcula cruzando
+// `enabled`/`effective`/`completedAt` ni comparando importes en pantalla (§M2-B.1, §28.0 regla
+// «el estado lo dice el servidor»). Son CINCO valores del enum del contrato —en español, no
+// `outbid`/`active`/`off`—; traducirlos a rótulos es trabajo de i18n, jamás un enum paralelo.
+export type BountyState = 'activa' | 'rebasada' | 'invalida' | 'completada' | 'apagada';
+
+/** `sort` del endpoint. `attention_first` es el DEFAULT (decisión de producto de §M2-B.1). */
+export type AdminBountySort = 'attention_first' | 'price_desc' | 'updated_desc';
+
+/** El cupo del bounty (§M2-B.1). ⚠️ `acquiredQty` NO es la posición de inventario. */
+export interface AdminBountyProgressDTO {
+  targetQty: number | null;
+  acquiredQty: number;
+  remainingQty: number | null;
+}
+
+/**
+ * `AdminBountyCountsDTO` — el conteo por estado SOBRE EL CONJUNTO CLASIFICADO, jamás sobre la
+ * página. **Cinco claves, las mismas del enum**: `invalida` tiene la suya y no se funde en
+ * `activa`. Ignora el filtro `state` y respeta los de identidad (`setId`, `finish`, `q`).
+ */
+export type AdminBountyCountsDTO = Record<BountyState, number>;
+
+export interface AdminBountyRowDTO {
+  cardId: string;
+  setId: string;
+  setName: string;
+  name: string;
+  number: string;
+  imageSmallUrl?: string;
+  rarity?: string;
+  productType: 'raw';
+  gradeKey: 'raw:NM';
+  finish: Finish;
+  state: BountyState;
+  progress: AdminBountyProgressDTO;
+  updatedAt: string;
+  updatedBy?: string;
+  /** El `VariantPricingDTO` COMPLETO y sin recortar: mismo objeto que compone el binder. */
+  pricing: VariantPricingDTO;
+}
+
+/**
+ * `truncated: true` ⇒ el conjunto superó el techo de servidor y **gobierna `data`, `total` y
+ * `counts` a la vez**: los conteos son mínimos, no totales, y el frontend **no puede enunciar el
+ * cero tranquilizador** sobre ellos (§M2-B.1 regla 4, §28.5). *Un cero de una lista cortada no es
+ * un cero.*
+ */
+export interface AdminBountyListResponse {
+  data: AdminBountyRowDTO[];
+  page: number;
+  pageSize: number;
+  total: number;
+  counts: AdminBountyCountsDTO;
+  truncated: boolean;
+}
+
 // ===== v1.20: lista de clientes con bóveda (GET /admin/vaults, `vault_operator+`) =====
 // totalValueMxnCents usa la MISMA base de valuación del portafolio (§3): referencia vigente del
 // ACABADO de cada pieza; piezas sin precio se EXCLUYEN del total y se cuentan en pendingPriceCount.

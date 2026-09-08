@@ -281,6 +281,219 @@ Doble veredicto por-stream aprobado; mergeado a `main` (`6c5763b`). Se despliega
   `pg_total_relation_size`; `du -sh /var/lib/postgresql/data/pgdata/*`; `pg_replication_slots`;
   `SELECT "capturedDate", count(*) FROM "PriceReference" GROUP BY 1 ORDER BY 1 DESC`.
 
+### Encontrado por el humano en producción (2026-09-08, tras publicar el ciclo de compra)
+
+#### P-56 · ⭐ WISHLIST del cliente — «dime qué buscas y te la consigo» — pedido por el humano
+- **La idea:** el cliente arma una **lista de deseos** con las cartas que anda buscando. La plataforma
+  le hace saber que **podría conseguírsela a cierto porcentaje por encima del mercado**.
+- **Por qué es más que una lista:** hoy solo sabes qué te compran de lo que YA tienes. La wishlist te
+  dice **qué te comprarían si lo tuvieras** — es tu demanda insatisfecha, medida, y hoy es invisible.
+- **⚠️ Conecta con los bounties, y ése es el valor real.** El bounty es *«pago X por esta carta»*
+  (oferta); la wishlist es *«alguien la quiere»* (demanda). **Una alimenta a la otra**: N clientes
+  buscando la misma variante es exactamente la señal para levantar un bounty. Diseñar las dos sin
+  mirarse sería construir dos mitades de lo mismo.
+- **🔴 Money-critical, y no es obvio:** *«te la consigo a X% sobre mercado»* es **un compromiso de
+  precio con el cliente**. Hay que decidir si es vinculante, cuánto dura, qué pasa si el mercado se
+  mueve entre la promesa y la entrega, y cómo se cruza con la escalera de redondeo y el tope de
+  compra. Pasa por **arquitecto** (regla 9) y exige **triple veredicto**.
+- **Preguntas para el humano, sin asumir:** ¿el porcentaje es un dial global, por rareza, o por
+  carta? ¿la promesa caduca? ¿se avisa al cliente cuando la conseguimos, y con qué plazo para que
+  responda? ¿la wishlist es privada o alimenta un ranking público («las más buscadas»)?
+- **Rol dueño:** arquitecto (diseño) → backend + frontend. **Sin empezar hasta que el humano cierre
+  el alcance.**
+
+#### P-57 · 👤 LA CUENTA DEL CLIENTE — el hueco más grande, y son tres cosas del mismo frente
+Encontrado por el humano probando en producción. Las tres se sirven juntas o ninguna funciona bien.
+
+- **(a) No existe pantalla de perfil.** Verificado: no hay ninguna ruta de perfil ni de cuenta. El
+  cliente **no puede ver ni cambiar** su correo, sus direcciones, sus datos de facturación ni el
+  estado de su verificación. **El servidor YA lo expone todo** (`GET`/`PATCH /users/me`, direcciones,
+  facturación, KYC): falta solo la pantalla. ⚠️ Consecuencia medida: `PHONE_REQUIRED` bloquea vender
+  y el contrato manda «pedir el dato y reintentar» — **sin perfil no había dónde**, así que una
+  cuenta de Google quedaba bloqueada sin salida (paliado con captura inline en el diálogo de venta).
+- **(b) Los pedidos de invitado no se pueden reclamar desde la cuenta.** El mecanismo existe entero y
+  está bien hecho (prueba de titularidad = correo verificado; el enlace de seguimiento sirve para
+  LEER, nunca para APROPIARSE; `GET /orders/claimable` no es un oráculo). Pero **solo se ofrece en la
+  confirmación de compra y en el seguimiento público**: si el cliente cierra esa pestaña, **no hay
+  pantalla que se lo vuelva a ofrecer**. `GET /orders/claimable` **no lo consume nadie**.
+  ⇒ Cada compra de invitado no reclamada en el momento **se queda fuera de la bóveda para siempre**,
+  y la bóveda es la propuesta de valor. **Dónde ponerlo (decidido con el humano):** aviso en **la
+  bóveda** (es donde se nota la ausencia) **y** en pedidos (los enviados a domicilio nunca pasan por
+  la bóveda). Que desaparezca al reclamar y que no aparezca vacío.
+- **(c) La navegación está partida en siete.** Hoy el menú tiene catálogo, compra, sellado, vender,
+  órdenes, envíos y bóveda — y **las solicitudes de venta no están**: solo se llega por dentro de
+  Vender o por el correo. Propuesta del humano, que suscribo: **consolidar** compras + ventas +
+  estado de solicitudes en un solo sitio, y **mover los retiros a la bóveda** (un retiro es una
+  acción sobre la bóveda). ⚠️ Matiz de nombre: «orden» se lee como *compra*; si ahí van las ventas,
+  hacen falta **pestañas explícitas** o un nombre neutro, o el vendedor no las busca ahí.
+- **Rol dueño:** ux-ui (rediseño de navegación) → frontend. **Cero backend**: los endpoints existen.
+
+#### P-58 · 🔴 «Marcar recibida» se ofrece desde CUALQUIER estado — se salta el pacto
+- **Encontrado por el humano** mirando la pantalla; **seguridad lo había visto por el código** en su
+  pase y lo dejó anotado. Dos caminos independientes, mismo hallazgo.
+- **Medido:** la guarda de `receive` (`buylist.service.ts:5488`) es `liveRequestWhere()` — solo exige
+  que la solicitud no esté cerrada, **no que esté en el paso correcto**. Y la interfaz ofrece el
+  botón desde el paso 1.
+- **Por qué importa, y no es cosmético:** desde **«Cotizada»** marcar recibida salta al paso 5 **sin
+  que exista precio pactado ni aceptación del vendedor** — acabas con las cartas de alguien sin
+  acuerdo. Desde **«Ofertada»** es peor: **le cierra la ventana al vendedor**, que ya no puede
+  aceptar ni declinar.
+
+- **⚠️⚠️ ANTES DE TOCAR LA GUARDA — LEER ESTO (medido 2026-09-08, y contradice la cura obvia).**
+  La guarda **NO está floja por descuido: está por EXCLUSIÓN a propósito**, y el porqué está escrito
+  en el bloque de documentación de `receive`. Los hechos que dejó quien la escribió:
+  - **La mesa dispara los verbos EN CADENA.** En el incidente que originó la guarda, `receive` y
+    `verify` se ejecutaron seguidos tras `confirm-shipment`, y **la bitácora real muestra
+    `receive`→`verify` con 20 ms de diferencia**. No es un caso teórico: es cómo se trabaja.
+  - Su regla, textual: *«Una guarda que rompe el trabajo legítimo del día siguiente no es más segura:
+    es la que alguien acaba desactivando.»* Misma dirección que el **criterio 129** (estados vivos
+    por complemento): olvidarse falla hacia el lado seguro.
+  - El segundo término, `closedAt: null`, **no es redundante** aunque lo parezca: ya hubo en la base
+    filas con `closedAt` sellado y estado no-terminal, y sobre ésas el término de estado por sí solo
+    dejaba pasar la transición. *Una guarda no puede apoyarse en el invariante que el bug rompió.*
+  ⇒ **Apretar a «solo desde el estado X» sin más inventaría una máquina de estados que la mesa no
+  usa, y rompería la operación real.** Quien lo intente sin leer ese bloque va a romper algo que hoy
+  funciona y a creer que lo arregló.
+
+- **Cómo se cierra bien, en dos mitades separables:**
+  1. **La barata y sin riesgo (hacer ya):** que **la interfaz no ofrezca el botón donde no toca**.
+     Eso quita el 100% del camino accidental —que es como lo encontró el humano— **sin tocar la
+     guarda del servidor**. Rol: **frontend**.
+  2. **La de fondo (decisión, no parche):** ¿desde qué estados es legítimo `receive`? Lo decide el
+     **arquitecto**, y con las dos evidencias delante: el agujero del pacto **y** el encadenamiento
+     de 20 ms de la mesa. Si de ahí sale una guarda más apretada, la escribe **backend**.
+- **Rol dueño:** frontend (mitad 1, ya) · arquitecto → backend (mitad 2, con la evidencia de arriba).
+
+#### P-59 · 🛑 La reserva propia bloquea el reintento del mismo cliente
+- **Encontrado por el humano:** se le congeló el pago, reintentó, y **la carta ya no estaba** —
+  la había reservado su propio intento fallido.
+- **Medido:** el inventario se reserva **60 minutos** (`GUEST_ORDER_RESERVATION_TTL_MIN`) y un
+  barrido cada 15 minutos libera lo no pagado. **No se pierde nada** — pero el cliente espera hasta
+  una hora por un pago que se le cayó, y ve «no disponible» sin explicación.
+- **Lo correcto:** que el mismo cliente/sesión **recupere su propia reserva** al reintentar, en vez
+  de chocar contra ella. **Rol dueño:** arquitecto → backend.
+
+#### P-60 · ✉️ Entregabilidad del correo: falta DMARC y el dominio es nuevo
+- **Medido:** el correo de la oferta **se mandó y se entregó** (Resend: `Delivered`) — y **cayó en
+  spam** en Hotmail. No es defecto de código: es reputación. `tcghunt.mx` tiene 17 días y **dos
+  correos en 15 días**; SPF y DKIM verificados, **DMARC ausente**.
+- **⚠️ Por qué urge más de lo que parece:** el correo de **verificación de cuenta** es la puerta de
+  entrada — sin verificar, el sistema **bloquea comprar y vender**. Si ese correo cae en spam, el
+  usuario nuevo se va y **nadie se entera**.
+- **Acción (humano/devops):** registro TXT `_dmarc` con `v=DMARC1; p=none; rua=mailto:…` (modo
+  observación, sin riesgo); marcar los correos como «no es spam»; el volumen hace el resto.
+
+#### P-61 · 🖼️ El catálogo de Vender se ve chico — carrito a pop-up
+- **Propuesta del humano:** mover el carrito a un pop-up y usar ese espacio para mostrar las cartas
+  más grandes, como en el inventario de admin.
+- **⚠️ Restricción que el diseño debe respetar:** ese panel carga hoy **dos cosas que no pueden
+  esconderse**: la llamada a **iniciar sesión** (es donde el vendedor descubre que necesita cuenta) y
+  el mensaje de que **la guía la ponemos nosotros y no paga nada de su bolsillo** (responde la duda
+  que frena al vendedor primerizo). Hay que **reubicarlas**, no solo mover el carrito.
+- **Rol dueño:** ux-ui → frontend.
+
+#### P-62 · 🏷️ Renombrar «Costo de procesamiento» — decisión de negocio pendiente
+- **Pedido por el humano.** ⚠️ **No es solo el nombre:** la explicación de al lado dice *«cubre la
+  comisión del procesador de pago (Stripe), trasladada a ti»* — **no es comisión nuestra, es un
+  costo que se traslada**. Llamarlo «comisión de plataforma» diría que nos la quedamos nosotros.
+- **Dos opciones, las dos legítimas:** (a) «Comisión de plataforma» + **cambiar también la
+  explicación**, o (b) «Comisión por procesamiento de pago», que quita lo feo sin cambiar lo que
+  dice. Recomendada la (b). **Decide el humano.** Claves `processingFee`/`processingFeeHint`, ES/EN.
+- **Rol dueño:** ux-ui (texto) → frontend (cableado).
+
+#### P-63 · 💱 Falta `BANXICO_SIE_TOKEN` — el tipo de cambio no se actualiza
+- **Medido en los logs de producción**, repetido: *«Sin `BANXICO_SIE_TOKEN`: fx-refresh no puede
+  consultar; usa override/último valor»*. Los precios de mercado vienen en USD y se convierten a
+  MXN: **sin token el tipo de cambio se congela** en el último valor o en el manual.
+- No rompe nada hoy, pero **si el peso se mueve, cotizas compra y venta con un tipo viejo**.
+- **Rol dueño:** devops (variable de entorno) — el token lo obtiene el humano de Banxico.
+
+#### P-64 · 📄 `HANDOFF.md` desactualizado — dice un dominio de correo que ya no es
+- Afirma que el dominio verificado en Resend es `tcgvaultmx.com`; **el que se usa y está verificado
+  es `tcghunt.mx`** (medido en los logs y en Resend). Misma clase que los ocho tachones de D52: un
+  documento afirmando un estado que la realidad dejó atrás. **Rol dueño:** devops.
+
+#### P-65 · 🖼️ Las fotos tardan 5–10 s en aparecer — reportado por el humano
+- **Medido en el código (no supuesto): no es una causa, son cuatro eslabones EN SERIE.**
+  1. **La home y el catálogo son pantallas de cliente** (`'use client'` + TanStack Query en
+     `frontend/src/app/[locale]/(storefront)/page.tsx`). Antes de que exista siquiera la *dirección*
+     de la primera foto hay que: bajar el HTML → bajar y arrancar el JavaScript → preguntar al
+     backend → recibir respuesta. **La foto empieza a bajarse en el cuarto viaje, no en el primero.**
+  2. **La teja líder del carrusel pide la imagen HD** (`FeaturedCarousel.tsx:708`,
+     `imageLargeUrl` → `_hires.png` de pokemontcg.io: cientos de KB, frente a las ~40–60 KB de la
+     chica). Es justo la imagen que decide cuándo el visitante siente que «ya cargó la página».
+  3. **Las fotos no pasan por nosotros.** Todas se piden directo a `images.pokemontcg.io` con `<img>`
+     plano (`components/ui/CardImage.tsx`): ni las redimensionamos, ni las convertimos a formato
+     moderno, ni las guardamos en caché propia. Cada visitante paga el viaje al servidor del
+     proveedor, con su latencia y el peso original. El **único** sitio del front que usa el
+     optimizador de Next es el logo de expansión (`SetPlate.tsx`).
+  4. Las demás van en `lazy` y eso **está bien** — no es ahí donde se van los segundos.
+- **Lo que NO pude medir desde aquí, y decide cuál es la cura:** este contenedor tiene bloqueada la
+  salida a internet (`tcghunt.mx` e `images.pokemontcg.io` devuelven 403 en el proxy), así que **no
+  sé cuál de los cuatro eslabones se lleva los segundos**. La distinción no es un detalle: si el que
+  tarda es el backend (Railway despertando, o la consulta de catálogo), optimizar imágenes **no
+  arregla nada**.
+  - **Dato que el humano da en un minuto:** F12 → pestaña **Red** → recargar → decir (a) cuánto tarda
+    la llamada al backend y (b) cuánto tarda la primera foto. Con eso se sabe qué atacar.
+- **Palancas, de más barata a más cara** (todas reales, ninguna aplicada):
+  - **(a)** usar la imagen chica también en la teja líder — una línea, ahorra cientos de KB en la
+    imagen que marca el tiempo percibido;
+  - **(b)** servir las fotos por el optimizador de Next/Vercel (redimensiona + WebP + caché en el
+    borde) — cambio acotado en `CardImage`. ⚠️ consume cuota de Vercel, **que ya está al 75%**;
+  - **(c)** pintar la primera pantalla en el servidor, para que la foto empiece a bajar en el primer
+    viaje y no en el cuarto — cambio grande: es rediseñar cómo carga la home;
+  - **(d)** copiar las fotos a almacenamiento propio (R2) y servirlas desde ahí — quita la
+    dependencia del tercero; es un proyecto aparte.
+- **Cruce:** (b) y (d) tocan `remotePatterns` de `frontend/next.config.mjs`, hoy abierto a
+  `hostname: '**'` (cualquier host) — mismo terreno que la deuda **M47-R1**.
+- **Rol dueño:** frontend para (a) y (b); arquitecto si se va a (c) o (d).
+  **Antes de tocar nada: la medición del navegador.**
+
+#### P-66 · 🧟 Dar una vuelta al panel de administración — zombies y navegabilidad — pedido por el humano
+- **Lo que dijo el humano:** *«siento que tenemos varios zombies ahí que no nos ayudan, o temas de
+  navegabilidad»*. Es el panel donde él trabaja todos los días: la fricción aquí no se pierde en
+  una conversión, **se paga en su tiempo**.
+- **Censo medido (`AdminSidebar.tsx` + `messages/es.json`), para que la revisión no empiece de cero:**
+  **12 destinos** en 4 grupos — Operación (Dashboard, M1 Inventario y bóveda, Bóvedas de clientes,
+  M4 Retiros/envíos, M5 Buylist, M8 Disputas) · Catálogo/Precios (M2) · Ventas/Finanzas (M3 Ventas,
+  M7 Finanzas, M9 Reportes) · Administración (M6 Usuarios/KYC, M10 Config y bitácora).
+  **7 de los 12 son solo súper-admin**, así que un operador ve cinco y el dueño ve doce, siempre.
+- **Zombies concretos ya verificados en el código (no son todos, son los que se ven sin buscar):**
+  - **M9 · Reportes** — su bloque principal es *«Avance de la beta cerrada frente a las metas
+    **N/X/Y/Z**»*. Dos problemas en una pantalla: (1) las metas se llaman **N, X, Y y Z**, letras que
+    vienen de `PROJECT.md` y que **en pantalla son álgebra**, no negocio; (2) hay un texto de reserva
+    —*«las metas N/X/Y/Z aún no se fijan»*— que sugiere que **las cuatro tarjetas están enseñando
+    "Meta sin fijar"**. Si es así, es una sección entera cuyo propósito (avance contra meta) **está
+    inerte**. ⚠️ *Falta comprobar en producción si las metas están fijadas o no — no se puede medir
+    desde el repo.* Además sigue hablando de **«beta cerrada»**, y ya estamos en producción.
+  - **La navegación etiqueta cada destino por su CÓDIGO INTERNO** («M1 · Inventario y bóveda»,
+    «M9 · Reportes»). El código no le dice nada a un humano y se come el principio de cada rótulo,
+    que es justo donde el ojo busca. Está escrito a propósito en `AdminSidebar.tsx` («el código del
+    módulo ya identifica cada entrada») — es decir, es una decisión que hay que **revisar**, no un
+    descuido.
+  - **Botones que aparecen donde no se pueden usar** — ya reportado aparte como **P-58**
+    («Marcar recibida» visible fuera del paso donde tiene sentido). Es el mismo síntoma de fondo:
+    la pantalla enseña todo lo que existe en vez de lo que toca ahora.
+- **Lo que NO se midió, y hace falta:** cuáles de los 12 destinos **usa realmente** el dueño. Eso no
+  está en el repo; lo contesta él en dos minutos o se saca de los registros de acceso.
+- **Cómo hacerlo bien (y no a ojo):** un pase del rol **`ux-review`** sobre el panel ya construido
+  —fricción, jerarquía, claridad, consistencia con `DESIGN_SYSTEM`— que **reporta y no corrige**;
+  sus hallazgos se enrutan a **ux-ui** (rótulos, agrupación, qué se esconde) y a **frontend**
+  (cableado). Si sale que hay que **retirar** una pantalla, eso es decisión de producto: pasa por
+  **product-owner** y lo aprueba el humano — nadie borra una pantalla del admin por su cuenta.
+- **Rol dueño:** `ux-review` (diagnóstico) → ux-ui + frontend (cura) → product-owner si se retira algo.
+
+#### P-55 · 🛒 El carrito de venta NO sobrevive al inicio de sesión — reportado por el humano
+- **Síntoma:** el cliente arma su carrito en el cotizador **sin haber iniciado sesión**; al entrar a su
+  cuenta para mandar la solicitud, **el carrito se pierde** y tiene que rehacerlo.
+- **Por qué importa, y no es cosmético:** el cotizador es la puerta de entrada del vendedor. Rehacer el
+  carrito es fricción **justo en el paso donde ya decidió vendernos**, y el abandono ahí se lleva la
+  venta entera. Es el mismo patrón que ya se curó del lado de la compra con el checkout de invitado.
+- **Estado:** **pendiente, sin diagnosticar.** No se ha medido si el carrito vive en memoria, en
+  `localStorage`, o si se pierde por el remonte del árbol tras autenticar.
+- **Rol dueño:** frontend (y arquitecto si resulta que hay que persistirlo server-side).
+- **Aplazado por decisión del humano**: lo reportó y pidió explícitamente dejarlo anotado.
+
 ### Encontrado en pruebas post-publicación (2026-08-23)
 
 #### P-47 · 💰 El mercado se aplana a todos los acabados (normal = reverse holo = holofoil) — EN CURSO

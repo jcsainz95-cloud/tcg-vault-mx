@@ -108,6 +108,7 @@ import type {
   ForgotPasswordResponse,
   ResetPasswordSelfResponse,
   Locale,
+  UserDTO,
   UploadPurpose,
   UploadPresignResponse,
   IneUploadKeys,
@@ -176,6 +177,9 @@ import type {
   SealedGroupKind,
   GradedInventoryResponse,
   PublicBountiesResponse,
+  AdminBountyListResponse,
+  AdminBountySort,
+  BountyState,
   // v1.21-guest-checkout (contrato §4-G) — sección aditiva al final del archivo.
   GuestAddressInput,
   GuestCheckoutQuoteResponse,
@@ -1809,6 +1813,44 @@ export async function getDispute(id: string): Promise<ClientDisputeDTO> {
   return delay(found);
 }
 
+// ---------- Perfil de la cuenta (contrato §1) ----------
+export interface UpdateMeInput {
+  name?: string;
+  /** 10 dígitos MX (contrato §1 · `PATCH /users/me`). */
+  phone?: string;
+  locale?: Locale;
+}
+
+/**
+ * Edita el perfil propio (contrato §1 · `PATCH /users/me` → `200 user`).
+ *
+ * **Por qué existe (D11, criterio 128(c)):** `POST /buylist/requests` rechaza con
+ * `422 PHONE_REQUIRED` cuando la cuenta no tiene celular —el caso REAL de las cuentas creadas con
+ * Google y las viejas, donde `User.phone` es `null`— y el contrato asigna el remedio al front:
+ * *«el front debe pedir el dato en ese momento (`PATCH /users/me`) y reintentar»* (§6). Hasta aquí
+ * ese remedio no existía en ninguna pantalla: el vendedor leía el inglés crudo del servidor y no
+ * tenía dónde capturar el dato. La sesión local se sincroniza con `patchStoredUser` para que la
+ * app no siga creyendo que la cuenta no tiene teléfono.
+ */
+export async function updateMe(input: UpdateMeInput): Promise<UserDTO> {
+  if (!config.useMocks) {
+    const user = await apiRequest<UserDTO>('/users/me', { method: 'PATCH', body: input });
+    patchStoredUser({ name: user.name, phone: user.phone, locale: user.locale });
+    return user;
+  }
+  // MOCK: espeja el 200 del contrato sobre la sesión local (no hay backend que consultar).
+  const current = getStoredUser();
+  if (!current) throw new ApiClientError(401, { code: 'UNAUTHENTICATED', message: 'No session' });
+  const user: UserDTO = {
+    ...current,
+    ...(input.name != null ? { name: input.name } : {}),
+    ...(input.phone != null ? { phone: input.phone } : {}),
+    ...(input.locale != null ? { locale: input.locale } : {}),
+  };
+  patchStoredUser({ name: user.name, phone: user.phone, locale: user.locale });
+  return delay(user, 200);
+}
+
 // ---------- KYC (contrato §1) ----------
 export async function getKyc(): Promise<KycInfoDTO> {
   if (!config.useMocks) return apiRequest<KycInfoDTO>('/users/me/kyc');
@@ -2656,6 +2698,48 @@ export async function getPublicBounties(): Promise<PublicBountiesResponse> {
     return apiRequest<PublicBountiesResponse>('/buylist/bounties');
   }
   return delay(fx.mockPublicBounties());
+}
+
+// ---------- v1.62/v1.62.1 · CONSOLA DE BOUNTIES (M2 › Bounties, §M2-B / §28) ----------
+
+export interface AdminBountyFilters {
+  /** Repetible. Omitido/vacío ⇒ **todos** (no se manda el parámetro). */
+  states?: BountyState[];
+  setId?: string;
+  finish?: Finish;
+  q?: string;
+  page?: number;
+  pageSize?: number;
+  sort?: AdminBountySort;
+}
+
+/**
+ * Lista consolidada de bounties (contrato §M2-B.1 · `GET /admin/pricing/bounties`,
+ * `super_admin`, **READ-ONLY**). Es la ÚNICA superficie donde se ve un bounty `rebasada` —la
+ * vitrina pública lo filtra por diseño y la cotización se lo salta—, y por eso el `state`, los
+ * `counts` y `truncated` viajan como los manda el servidor y **no se recalculan aquí**.
+ *
+ * ⛔ **No hay escritura bajo esta ruta** (§M2-B.2: cero endpoints nuevos). La edición de una fila
+ * reusa `putVariantControls` —una variante por petición, por un gesto del humano sobre UNA fila—
+ * y no existe ninguna variante «bulk» de esta función.
+ */
+export async function getAdminBounties(
+  filters: AdminBountyFilters = {},
+): Promise<AdminBountyListResponse> {
+  const query = {
+    // `[]` no emite nada: «sin filtro» ⇒ los cinco estados, que es el default del contrato.
+    ...(filters.states && filters.states.length > 0 ? { state: filters.states } : {}),
+    setId: filters.setId,
+    finish: filters.finish,
+    q: filters.q,
+    page: filters.page,
+    pageSize: filters.pageSize,
+    sort: filters.sort,
+  };
+  if (!config.useMocks) {
+    return apiRequest<AdminBountyListResponse>('/admin/pricing/bounties', { query });
+  }
+  return delay(fx.mockAdminBounties(filters));
 }
 
 // ---------- Master set en todas partes (v1.20) · admin vaults + ajustes ----------

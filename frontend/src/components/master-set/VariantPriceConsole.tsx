@@ -584,6 +584,16 @@ export function VariantPriceConsole(props: VariantPriceConsoleProps) {
               <p className="mt-1">
                 {tb('outbidBody', { amount: money(bounty?.curveQuoteCents ?? 0) })}
               </p>
+              {/* v1.62 (§21.9c, enmienda de v3.3) — el aviso gana UN enlace y nada más: desde el
+                  aviso de UNA carta se llega a la lista donde están TODOS los rebasados, que es la
+                  pregunta que el dueño se hace justo después de leer este banner («¿y cuántos más
+                  tengo así?»). Sigue SIN haber acción de «subir automáticamente». */}
+              <Link
+                href="/admin/m2/bounties"
+                className="mt-2 inline-block border-b border-accent pb-0.5 text-[12px] text-accent"
+              >
+                {tRoot('admin.m2.bounties.linkFromBinder')}
+              </Link>
             </Banner>
           )}
           {bountyOn && (

@@ -1,10 +1,10 @@
 'use client';
 
-import { useState } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
+import { useEffect, useRef, useState } from 'react';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
 import { ShieldCheck } from 'lucide-react';
-import { createSellRequest } from '@/lib/api';
+import { createSellRequest, updateMe } from '@/lib/api';
 import { ApiClientError } from '@/lib/api-client';
 import type { RawCondition, Finish } from '@/types/contract';
 import type { AppLocale } from '@/i18n/routing';
@@ -82,6 +82,9 @@ export interface BuylistKycFormProps {
 
 const CLABE_RE = /^\d{18}$/;
 
+/** Bloques a los que puede apuntar un intento fallido (ver el comentario de `failAt`). */
+type FailureAnchor = 'clabe' | 'phone' | 'address' | 'notice';
+
 /**
  * Paso de pago/KYC del buylist (PROJECT §E, contrato §6 POST /buylist/requests):
  * captura CLABE (a nombre propio) + imagen del INE (anverso/reverso) cuando aplica,
@@ -136,6 +139,105 @@ export function BuylistKycForm({
   const [emailNotVerified, setEmailNotVerified] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
+  /**
+   * ─────────────────────────────────────────────────────────────────────────────────────
+   * DÓNDE APARECE EL RECHAZO (patrón P-4, DESIGN_SYSTEM §16.4.3b: «jamás silencio»)
+   *
+   * **El defecto medido, reportado en producción:** *«cuando confirmas enviar solicitud no
+   * desaparece el pop up, pueden dar click varias veces»*. No era el botón: era que **el
+   * mensaje se pintaba fuera de la pantalla**. Este diálogo es MÁS ALTO que la ventana —medido
+   * en el navegador: 1207 px de contenido en 759 px visibles (móvil 390×844) y 1136 en 634
+   * (escritorio 1280×800)—, así que para pulsar «Confirmar y enviar» **hay que desplazarse hasta
+   * abajo**, y en esa posición el bloque de la CLABE queda en `y=-183` y el de la dirección en
+   * `y=-64`: **arriba del borde superior**. El envío se rechazaba, el error existía en el DOM,
+   * y el vendedor no veía nada cambiar. Volvía a pulsar. Otra vez nada.
+   *
+   * El arreglo no es escribir el mensaje otra vez más abajo (duplicar copy envejece mal): es
+   * que **todo intento fallido traiga su motivo al viewport y le dé el foco**, que es el patrón
+   * que esta base de código ya usa en M1/M2 (`AddItemModal`, `QuickAdd`, `VariantPriceConsole`)
+   * y que §15.4 llama *«esto sustituye a hacer scroll a ciegas»*.
+   *
+   * `attempt` es un CONTADOR, no un booleano: el usuario que falla **dos veces por lo mismo**
+   * tiene que ver el mensaje las dos veces. Con un `isError` booleano el segundo intento no
+   * cambia el estado y el efecto no vuelve a correr — que es justo el caso del reporte.
+   *
+   * ⚠️⚠️ **NO LO QUITES AL DESCUBRIR QUE «NO HACE FALTA».** Hoy el contador es *funcionalmente*
+   * redundante y hay que decirlo aquí, porque el próximo lector lo va a averiguar solo: `setFailure`
+   * construye un **objeto nuevo** en cada llamada, así que el efecto ya se re-dispara por
+   * **identidad de referencia** aunque `anchor` y `attempt` sean idénticos. El valor de `attempt` no
+   * es hacer correr el efecto: es **convertir ese invariante invisible y frágil en un dato
+   * explícito**. Si alguien «simplifica» el estado —a un `anchor` suelto, a un booleano, a un
+   * `useMemo`, a cualquier cosa que se compare por valor—, **el segundo clic vuelve a quedarse
+   * mudo**, que es el defecto exacto que se reportó en producción, y **ninguna prueba lo caza**:
+   * ningún test aserta la identidad de un objeto de estado. Lo único que sostiene la cura es que
+   * esta dependencia **cambie de verdad en cada intento**, y eso lo garantiza el contador.
+   * ─────────────────────────────────────────────────────────────────────────────────────
+   */
+  const [failure, setFailure] = useState<{ anchor: FailureAnchor; attempt: number } | null>(null);
+  const attemptsRef = useRef(0);
+  /*
+   * Las anclas son los BLOQUES completos, no los `<input>`: lo que hay que traer a la pantalla es
+   * el motivo, y el motivo se pinta en el `<p>` de error que vive JUNTO al campo. Anclar en el
+   * input dejaría el desplazamiento a merced de dónde caiga el texto.
+   */
+  const clabeRef = useRef<HTMLDivElement>(null);
+  const phoneRef = useRef<HTMLDivElement>(null);
+  const addressRef = useRef<HTMLDivElement>(null);
+  const noticeRef = useRef<HTMLDivElement>(null);
+
+  /** Marca el intento como fallido y ANCLA el motivo. Todo camino de fallo pasa por aquí. */
+  function failAt(anchor: FailureAnchor) {
+    attemptsRef.current += 1;
+    setFailure({ anchor, attempt: attemptsRef.current });
+  }
+
+  useEffect(() => {
+    if (!failure) return;
+    const el =
+      failure.anchor === 'clabe'
+        ? clabeRef.current
+        : failure.anchor === 'phone'
+          ? phoneRef.current
+          : failure.anchor === 'address'
+            ? addressRef.current
+            : noticeRef.current;
+    if (!el) return;
+    // `?.` en scrollIntoView: jsdom no lo implementa (el foco es lo obligatorio; el desplazamiento
+    // es lo que arregla el defecto en un navegador real).
+    el.scrollIntoView?.({ block: 'center', behavior: 'smooth' });
+    // El foco va al campo que hay que corregir cuando lo hay (y en móvil abre el teclado justo
+    // donde toca); si el bloque no tiene campo —la zona de avisos—, al bloque mismo (tabIndex -1).
+    const field = el.querySelector('input');
+    (field ?? el).focus?.({ preventScroll: true });
+  }, [failure]);
+
+  /**
+   * PUERTA 1 del servidor (D11, criterio 128(c)): sin celular en la cuenta,
+   * `POST /buylist/requests` responde `422 PHONE_REQUIRED` — el caso REAL de las cuentas de
+   * Google y las viejas, donde `User.phone` es `null`. El contrato (§6) asigna el remedio a esta
+   * pantalla: *«el front debe pedir el dato en ese momento (`PATCH /users/me`) y reintentar»*.
+   * Hasta ahora no se pedía en ningún sitio: el vendedor leía el inglés crudo del servidor
+   * («A mobile phone is required…») y **no tenía dónde arreglarlo en toda la app**.
+   */
+  const [phoneRequired, setPhoneRequired] = useState(false);
+  /**
+   * El MOTIVO se toma del catálogo `error.PHONE_REQUIRED` por el código del contrato —no se
+   * escribe una segunda frase aquí—: así el vendedor lee el mismo español que leería en
+   * cualquier otra superficie que reciba ese 422, y nunca el inglés crudo del servidor
+   * («A mobile phone is required on the account…», que es lo que leía hasta hoy porque la clave
+   * no existía en ninguno de los dos catálogos).
+   */
+  const [phoneReason, setPhoneReason] = useState<string | null>(null);
+  const [phone, setPhone] = useState('');
+  const [phoneError, setPhoneError] = useState<string | null>(null);
+  const savePhone = useMutation({
+    mutationFn: (value: string) => updateMe({ phone: value }),
+    onSuccess: () => setPhoneError(null),
+    onError: (e) => setPhoneError(getErrorMessage(e)),
+  });
+  /** El celular quedó guardado en la cuenta en ESTE intento (no es «tenía uno de antes»). */
+  const phoneJustSaved = savePhone.isSuccess;
+
   // Gating proactivo: espeja el guard server-side (solo bloquea con `false` explícito;
   // sesiones viejas sin el campo dejan decidir al backend).
   const emailBlocked = ready && !!user && user.emailVerified === false;
@@ -160,12 +262,16 @@ export function BuylistKycForm({
     const storedMode = useStoredClabe && clabeShortcutAvailable;
     if (!storedMode && !CLABE_RE.test(clabe)) {
       setClabeError(t('clabeInvalid'));
+      // El rechazo de cliente es el que MÁS se pierde: ni siquiera viaja, así que en la pantalla
+      // no cambia nada visible (el campo está 180 px por encima del borde superior).
+      failAt('clabe');
       return;
     }
     // Sin dirección NO se manda nada: el `addressId` es obligatorio en el contrato y aquí no hay
     // relleno de cortesía — mandar sin él solo produciría un 422 evitable.
     if (!addressId) {
       setAddressError(t('request.address.missing'));
+      failAt('address');
       return;
     }
 
@@ -192,22 +298,34 @@ export function BuylistKycForm({
         // v1.5: vender es acción sensible; se muestra el aviso claro con CTA de reenvío
         // en vez de un error genérico (contrato §0/§6).
         setEmailNotVerified(true);
+        failAt('notice');
+      } else if (code === 'PHONE_REQUIRED') {
+        // PUERTA 1 (D11): la cuenta no tiene celular. El contrato manda pedirlo AQUÍ y reintentar
+        // (§6); sin esta rama el vendedor leía el inglés del servidor y no tenía dónde capturarlo.
+        setPhoneRequired(true);
+        setPhoneReason(getErrorMessage(e));
+        setPhone((current) => current || user?.phone || '');
+        failAt('phone');
       } else if (code === 'INE_REQUIRED') {
         setIneRequired(true);
         setFormError(t('ineRequiredError'));
+        failAt('notice');
       } else if (code === 'CLABE_REQUIRED') {
         // v1.15: se envió sin `clabe` y no hay CLABE en archivo → forzar captura y salir del atajo.
         setUseStoredClabe(false);
         setClabeError(t('clabeRequired'));
+        failAt('clabe');
       } else if (code === 'PICKUP_ADDRESS_REQUIRED') {
         // No debería ocurrir (el botón se apaga sin dirección), pero si ocurre se pide INLINE.
         setAddressError(getErrorMessage(e));
+        failAt('address');
       } else if (code === 'PICKUP_ADDRESS_NOT_FOUND') {
         // El id no existe O no es del usuario — el contrato devuelve LO MISMO en los dos casos a
         // propósito (anti-IDOR). Remedio único: refrescar la libreta y volver a elegir.
         setAddressId('');
         void qc.invalidateQueries({ queryKey: ['addresses'] });
         setAddressError(getErrorMessage(e));
+        failAt('address');
       } else if (code === 'BUYLIST_MINIMUM_NOT_MET') {
         // details: { minimumCents, totalCents, shortfallCents } — el faltante lo calcula el
         // SERVIDOR y es el que manda. El front lo RENDERIZA, no lo recalcula.
@@ -219,10 +337,21 @@ export function BuylistKycForm({
         } else {
           setFormError(getErrorMessage(e));
         }
-      } else if (code === 'CLABE_NOT_OWN_NAME') {
-        setClabeError(t('clabeNotOwnName'));
-      } else if (code === 'CLABE_INVALID') {
-        setClabeError(t('clabeInvalid'));
+        failAt('notice');
+      } else if (code === 'CLABE_NOT_OWN_NAME' || code === 'CLABE_INVALID') {
+        /*
+         * ⚠️ `setUseStoredClabe(false)` NO es cosmético — es la SEGUNDA forma del mismo defecto,
+         * medida en jsdom: en modo «usar mi CLABE ****1234» **el campo no está montado**, así que
+         * `clabeError` se guardaba en un estado que NADIE renderiza. Cero mensajes en todo el
+         * documento, botón vivo, diálogo abierto: mudo del todo, no solo fuera de pantalla.
+         * Salir del atajo es además el remedio correcto (hay que capturar otra CLABE) y es lo que
+         * ya hacía `CLABE_REQUIRED`, su hermano. Hoy el backend solo emite estos dos códigos
+         * cuando la CLABE VIAJA —así que el atajo no puede provocarlos—, pero un mensaje que
+         * depende de que nadie cambie esa condición no es un mensaje: es una casualidad.
+         */
+        setUseStoredClabe(false);
+        setClabeError(code === 'CLABE_INVALID' ? t('clabeInvalid') : t('clabeNotOwnName'));
+        failAt('clabe');
       } else if (code === 'BUYLIST_LIMIT_EXCEEDED') {
         // details: { scope, capCents, wouldBeCents } (contrato §6) → mensaje con el tope real.
         const capCents =
@@ -232,10 +361,14 @@ export function BuylistKycForm({
             ? t('limitExceededCap', { cap: formatMoneyCents(capCents, locale) })
             : t('limitExceeded'),
         );
+        failAt('notice');
       } else {
         // Mapea el código REAL del contrato (p. ej. FINISH_NOT_AVAILABLE) al catálogo
-        // i18n `error.*`; solo cae al genérico si no hay ni código ni mensaje.
+        // i18n `error.*`; solo cae al genérico si no hay ni código ni mensaje. `getErrorMessage`
+        // NUNCA devuelve cadena vacía (cae a `common.errorGeneric`), así que esta rama —la que
+        // recoge todo lo imprevisto, incluido un fallo de red— siempre tiene algo que anclar.
         setFormError(getErrorMessage(e));
+        failAt('notice');
       }
     } finally {
       setSubmitting(false);
@@ -258,7 +391,7 @@ export function BuylistKycForm({
           </button>
         </div>
       ) : (
-        <div className="flex flex-col gap-2">
+        <div ref={clabeRef} tabIndex={-1} className="flex flex-col gap-2 outline-none">
           <Input
             label={t('clabeLabel')}
             hint={clabeMasked ? t('clabeOnFileHint', { masked: clabeMasked }) : t('clabeHint')}
@@ -284,13 +417,64 @@ export function BuylistKycForm({
         </div>
       )}
 
+      {/* PUERTA 1 (D11): el celular de la cuenta. Solo se pide cuando el servidor lo exige —no se
+          molesta a quien ya lo tiene— y el remedio queda AQUÍ, sin salir del flujo de venta. */}
+      {phoneRequired && (
+        <section
+          ref={phoneRef}
+          tabIndex={-1}
+          className="flex flex-col gap-3 border-l-2 border-accent pl-4 outline-none"
+        >
+          <p role="alert" className="text-sm leading-[1.7] text-text">
+            {phoneReason}
+          </p>
+          {phoneJustSaved ? (
+            <p role="status" className="text-sm text-success">
+              {t('request.phone.saved')}
+            </p>
+          ) : (
+            <>
+              <Input
+                label={t('request.phone.label')}
+                hint={t('request.phone.hint')}
+                error={phoneError ?? undefined}
+                inputMode="tel"
+                type="tel"
+                autoComplete="tel"
+                maxLength={10}
+                value={phone}
+                onChange={(e) => setPhone(e.target.value.replace(/\D/g, ''))}
+              />
+              <Button
+                variant="secondary"
+                className="self-start"
+                loading={savePhone.isPending}
+                onClick={() => {
+                  if (!/^\d{10}$/.test(phone)) {
+                    setPhoneError(t('request.phone.invalid'));
+                    failAt('phone');
+                    return;
+                  }
+                  setPhoneError(null);
+                  savePhone.mutate(phone);
+                }}
+              >
+                {t('request.phone.save')}
+              </Button>
+            </>
+          )}
+        </section>
+      )}
+
       {/* Dirección de ORIGEN (D36/D37): se pide junto con la CLABE, no al aceptar la oferta. */}
-      <BuylistPickupAddressField
-        value={addressId}
-        onChange={setAddressId}
-        error={addressError}
-        describedById="kyc-address-reason"
-      />
+      <div ref={addressRef} tabIndex={-1} className="outline-none">
+        <BuylistPickupAddressField
+          value={addressId}
+          onChange={setAddressId}
+          error={addressError}
+          describedById="kyc-address-reason"
+        />
+      </div>
 
       <section className="flex flex-col gap-3 rounded-lg border border-border bg-surface-2/40 p-4">
         <div className="flex items-center gap-2">
@@ -324,18 +508,29 @@ export function BuylistKycForm({
         )}
       </section>
 
-      {(emailBlocked || emailNotVerified) && <EmailNotVerifiedNotice />}
-      {formError && <Banner variant="danger" role="alert">{formError}</Banner>}
+      {/* ZONA DE AVISOS, y es un ANCLA con nombre (`noticeRef`): los desenlaces que no pertenecen a
+          un campo concreto viven juntos y aquí es adonde el efecto de P-4 lleva la pantalla. Se
+          monta solo si hay algo que decir, para no meter un hueco de `gap-5` cuando no lo hay. */}
+      {(emailBlocked || emailNotVerified || formError || shortfall) && (
+        <div ref={noticeRef} tabIndex={-1} className="flex flex-col gap-5 outline-none">
+          {(emailBlocked || emailNotVerified) && <EmailNotVerifiedNotice />}
+          {formError && (
+            <Banner variant="danger" role="alert">
+              {formError}
+            </Banner>
+          )}
 
-      {/* Faltante del mínimo en el paso de crear. El del SERVIDOR (422) manda sobre el preventivo:
-          la pantalla informa, la puerta decide. */}
-      {shortfall && (
-        <BuylistMinimumShortfall
-          id="kyc-minimum-reason"
-          shortfallCents={shortfall.shortfallCents}
-          minimumCents={shortfall.minimumCents}
-          hasPendingLines={pendingCardCount > 0}
-        />
+          {/* Faltante del mínimo en el paso de crear. El del SERVIDOR (422) manda sobre el
+              preventivo: la pantalla informa, la puerta decide. */}
+          {shortfall && (
+            <BuylistMinimumShortfall
+              id="kyc-minimum-reason"
+              shortfallCents={shortfall.shortfallCents}
+              minimumCents={shortfall.minimumCents}
+              hasPendingLines={pendingCardCount > 0}
+            />
+          )}
+        </div>
       )}
 
       {/* §23.3g (superficie 2): la MISMA frase del cotizador, carácter por carácter —no una

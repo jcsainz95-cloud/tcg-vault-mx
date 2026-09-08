@@ -1,3 +1,448 @@
+# PASE BLUE TEAM — candidato `6055f82` (2026-09-08) · release «consola de bounties» (§M2-B) + delta acumulado contra `origin/main`
+
+> ## ⭐ VEREDICTO: **APROBADO**
+>
+> **Críticos abiertos: 0. Altos abiertos: 0.** El DoD del proyecto (*«sin hallazgos críticos/altos
+> abiertos»*) se cumple. Nada de lo que encontré bloquea publicar.
+>
+> Lo que queda son **1 Media y 5 Bajas** (dos de ellas nuevas y mías), todas registradas en §8 con su
+> motivo, su dueño y su disparador. **Ninguna toca dinero ni datos de cliente hoy**: todas son *«si
+> mañana alguien hace X, esto se convierte en un problema»*, y ese X está escrito para cada una.
+>
+> **Respuesta directa a la pregunta que me hicieron (B62-3, mass-assignment latente):**
+> **es aceptable como está; NO hay que cerrarlo antes de publicar.** Lo medí, no lo deduje: con el
+> código de `6055f82` el payload hostil es **inerte** (7/7 verde), y **rompiendo el código a
+> propósito** demostré que hace falta un refactor concreto para volverlo explotable. Ver §3.3: va con
+> disparador y con un candado barato recomendado.
+
+---
+
+## 0. Qué es este pase y sobre qué binario lo hice
+
+- **Candidato:** `6055f82`, rama `claude/tcg-hunt-orchestration-ai2vma`. Árbol **limpio** antes,
+  durante y después (`git status --short` vacío; `git rev-parse HEAD` = `6055f82c…` al cerrar).
+- **Delta auditado:** `origin/main..HEAD` — 47 ficheros, +10 728 / −105. Backend **no-test** tocado
+  solo en `pricing` (consola de bounties) + **un refactor de una línea** en `buylist.service.ts`.
+- **Blanco:** LOCAL, proceso **mío**, puerto efímero. **No toqué el stack ajeno de `:3000`** ni su
+  Postgres ni su Redis. **Producción NO atacada.**
+- **No escribí ni una línea de código del repo.** Mis mediciones viven fuera del árbol; los arreglos
+  van al **rol dueño** (backend / devops / frontend), nunca a mí.
+
+### Convención de este documento
+`[MEDIDO]` = lo disparé yo y vi el resultado · `[CONSOLIDADO]` = hallazgo del red team que verifiqué
+contra el código · `[NO MEDIDO]` = lo digo así, y **nunca** lo llamo «seguro».
+
+---
+
+## 1. Lo que medí YO, y cómo
+
+Monté dos bancos de pruebas propios **fuera del repo** (`scratchpad/blue/`), contra el código de
+`6055f82`:
+
+### 1.1 Banco A — HTTP real contra el `AppModule` completo · **23/23 verde** `[MEDIDO]`
+
+`AppModule` entero con **los guards reales** (Throttler → JwtAuth → Roles → EmailVerified →
+MoneyOut), `ValidationPipe` réplica del de `main.ts`, Prisma sustituido por un doble (no hay
+Postgres), `app.listen(0)` y peticiones HTTP nativas contra el puerto efímero. JWT HS256 firmados
+por mí con el secreto del entorno.
+
+| # | Ataque | Resultado |
+|---|---|---|
+| L1 | `GET /admin/pricing/bounties` **sin token** | **401** |
+| L2 | con JWT válido de **`vault_operator`** (el rol de MENOR confianza del back-office) | **403** |
+| L3 | con JWT de `super_admin` | **200** |
+| L4 | `vault_operator` + cabeceras `X-Role: super_admin` y `role: super_admin` | **403** (ignoradas) |
+| L5 | `vault_operator` + `?role=super_admin` en la query | **403** |
+| L6 | JWT **`alg:none`** con `role:super_admin` | **401** |
+| L7 | JWT firmado con **secreto equivocado** | **401** |
+| L8 | **confusión de algoritmo HS512** | **401** |
+| L9 | `tokenVersion` viejo (sesión revocada) | **401** |
+| L10 | firma válida pero **usuario inexistente** | **401** |
+| L11 | `POST`/`PUT`/`PATCH`/`DELETE` al prefijo + `POST …/bulk` | **ninguno 200/201**; `/bulk` → **404** |
+| L12 | `pageSize=100000`, `pageSize=101`, `q` de 201 chars, `state=DROP`, `sort=1;DROP`, `finish=zzz`, `page=abc`, `page=0` | **400** los ocho |
+| L13 | `page=999999999` | **200** con `data: []`, sin coste extra |
+| **L14** | **fuga por proyección** (ver §1.3) | **sin fuga** |
+| L15 | `?__proto__[polluted]=yes&constructor[prototype][x]=1` | `Object.prototype` **intacto** |
+| L16 | `?state=activa,rebasada` (lista por coma) | **400** — no se cuela |
+| L17 | ¿el error de validación filtra stack / SQL / secretos? | **no** |
+| L18 | `?state=` repetido **5 000 veces** | **431**, en 1 ms (ver §3.1) |
+| L19 | query string de **1 MB** | **431** |
+| L20 | cuerpo de 2 MB | **500** (ver §3.4) |
+| L22 | `?state=` repetido 100 / 400 / 1 000 / 2 000 veces | 200 · 200 · 200 · **431** |
+| L22b | `PUT …/variant-controls/…` como **`vault_operator`** (la escritura de dinero) | **403** |
+| **L23** | **escalada de privilegio por `PATCH /users/me`** (ver §1.4) | **recortado** |
+
+**Conclusión de §1.1:** la autorización de la superficie nueva **aguanta**, y lo confirmo con mis
+propias peticiones, no por lectura. Confirma B62-4 y B62-5 del red team.
+
+### 1.2 Banco B — la ESCRITURA de dinero, que el red team declaró «no medida» · **7/7 verde** `[MEDIDO]`
+
+Esto es lo que el red team dijo honestamente que **no** pudo disparar (no levantó Postgres). Lo cerré
+sin Postgres: instancié `VariantControlsService` con un doble de Prisma que **captura exactamente lo
+que se le pide persistir**, y le mandé payloads hostiles.
+
+| # | Qué probé | Resultado |
+|---|---|---|
+| **B-W1** | mando dentro de `bounty` los campos de SALIDA: `acquiredQty:99999`, `bountyAcquiredQty:99999`, `completedAt`, `curveQuoteCents:1`, `effective:true`, `state:'activa'`, `updatedBy:'attacker'` | **NADA de eso se persiste.** Lo escrito son 8 claves exactas; `bountyAcquiredQty` conserva el valor **de la base**, `updatedBy` es el actor **del JWT** |
+| **B-W2** | precio del bounty **por debajo** de la curva real + `curveQuoteCents: 1` en el cuerpo | **422 `BOUNTY_BELOW_RULE`** — el cuerpo del cliente **no mueve** el gate; la tarifa la iza el servidor |
+| **B-W3** | precio **exactamente igual** a la curva | **422 `BOUNTY_BELOW_RULE`** (el empate también se rechaza) |
+| **B-W4** | `targetQty: null` sobre un bounty **vivo** | **422 `BOUNTY_TARGET_REQUIRED`** y **cero escritura**: no se puede borrar el techo de gasto en silencio |
+| **B-W5** | montos `-1`, `0`, `1.5`, `2147483648`, `"60000"`, `null` | **rechazados los seis** |
+| **B-W6** | ¿queda rastro? | **auditado** con `before`/`after` y el actor del JWT |
+| **B-W7** | ¿la respuesta filtra columnas crudas? | **no** — 5 claves declaradas, sin `updatedBy`, sin PII |
+
+### 1.2b Verificación por MUTACIÓN — rompí cada candado y exigí el rojo `[MEDIDO]`
+
+Un test verde no prueba nada si no puede ponerse rojo. Sobre una **copia** del código fuera del repo
+(el repo no se tocó):
+
+| Mutación | Resultado |
+|---|---|
+| **MUT-1** — el refactor que teme B62-3: `Object.assign(next, input.bounty)` | 🔴 **B-W1 rojo.** Y medí lo que se persistiría: `{…,"bountyAcquiredQty":99999,…}` |
+| **MUT-2** — revertir el endurecimiento del gate (`<=` → `<`) | 🔴 **B-W3 rojo** |
+| **MUT-3** — que el gate use el `curveQuoteCents` **del cliente** | 🔴 **B-W2 rojo** |
+
+Los tres candados de dinero son **independientes y reales**. Copia restaurada, repo intacto.
+
+### 1.3 La fuga por proyección (`S49-M1`, la herida del `legalName`) — **cerrada aquí** `[MEDIDO]`
+
+No me bastó leer que la proyección enumera campos. **Envenené la fila**: le puse a la fila M-30 y a
+la carta columnas que no existen en el contrato — `internalNoteSecreta`, **`clabeSnapshotEnc`**,
+`legalName`, `piiInterna`, `codigoInterno`, todas con el valor centinela `NO-DEBE-VIAJAR` — y pedí
+la respuesta 200 como `super_admin`.
+
+- El centinela **no aparece** en el cuerpo.
+- Las claves de cada fila son **exactamente** las 15 del contrato: `cardId, finish, gradeKey,
+  imageSmallUrl, name, number, pricing, productType, progress, rarity, setId, setName, state,
+  updatedAt, updatedBy`.
+- **Ni una** de `clabe`, `legalName`, `passwordHash`, `tokenVersion` aparece.
+
+⇒ **La clase `legalName` no tiene hermano en esta pantalla.** Y sobre `S49-M1` en concreto:
+`clabeSnapshotEnc` **no toca este módulo** (`grep` en todo `backend/src`: las 14 apariciones viven en
+`buylist` y `admin`, y son las proyecciones que ya lo excluyen). Al rol de menor confianza
+(`vault_operator`) esta pantalla **no le contesta nada**: 403 antes de proyectar (L2).
+
+### 1.4 Escalada de privilegio por el sitio más apetecible — `PATCH /users/me` `[MEDIDO]`
+
+Fuera del delta, pero es el camino corto a `super_admin`, que es el rol que **mueve el dinero
+saliente**. El servicio hace `prisma.user.update({ where:{id:userId}, data: dto })` — el cuerpo del
+cliente **entero** al sink. Lo ataqué en vivo como `vault_operator`:
+
+```
+PATCH /api/v1/users/me
+{"name":"legit","role":"super_admin","status":"active","tokenVersion":99,
+ "emailVerified":true,"passwordHash":"x","googleId":"y","id":"user-super"}
+→ 200 · lo que llegó a la base:  {"where":{"id":"user-vault"},"data":{"name":"legit"}}
+```
+
+**Solo `name` sobrevive.** `role`, `status`, `tokenVersion`, `emailVerified`, `passwordHash`,
+`googleId` e `id` los recorta el `ValidationPipe`, y el `where` sale del JWT. **No hay escalada.**
+(Deja una nota de arquitectura: ver §3.5.)
+
+### 1.5 Suites del repo que ejecuté yo `[MEDIDO]`
+
+- `backend/test/admin-bounties.routes.spec.ts` + `admin-bounties.list.spec.ts` → **22/22 verde**.
+  El primero barre el **grafo real de rutas** del `AppModule` y confirma que ningún verbo de
+  escritura cuelga de `admin/pricing/bounties`. Matiz honesto: ese candado lee **metadatos**, no
+  HTTP; el HTTP lo puse yo en L11.
+- `npm audit` en backend (solo runtime) y en frontend (con y sin devDependencies) → §3.1 y §3.2.
+- `scripts/vercel-ignore-build.sh --self-test` → **5/5 OK** (§4).
+
+---
+
+## 2. Consolidación del red team (`PENTEST_NOTES` § PASE v1.62)
+
+Verifiqué cada afirmación contra el código y, donde pude, contra la app corriendo. **No dupliqué
+ninguno**: los renumero a mi nomenclatura y digo qué cambia.
+
+| Red team | Mi veredicto | Qué cambia |
+|---|---|---|
+| **B62-1** MEDIA · deps runtime backend | **CONFIRMADO, con matiz que lo hace menos grave** | §3.1 |
+| **B62-2** BAJA · deps dev frontend | **CONFIRMADO y reforzado con medición nueva** | §3.2 |
+| **B62-3** BAJA · mass-assignment latente | **CONFIRMADO; evidencia elevada de lectura a medición** | §3.3 |
+| **B62-4** authz resiste 6 vías | **CONFIRMADO en vivo por mí** (L1–L10, 10 peticiones propias) | — |
+| **B62-5** cero escritura nueva | **CONFIRMADO** (L11 en HTTP + 22/22 del candado de rutas) | — |
+| **B62-6** sin fuga por «resto de objeto» | **CONFIRMADO, y elevado**: yo lo probé **envenenando la fila**, no leyendo (§1.3) | — |
+| **B62-7** coste acotado, sin `$queryRaw` | **CONFIRMADO** (L12/L13/L18/L22 + `grep`: cero `queryRaw` en `pricing`) | — |
+| **B62-8** escritura de dinero *code-verified* | **CERRADO: ya no es «por código»** — lo medí (§1.2) y lo verifiqué por mutación (§1.2b) | — |
+| **B62-9** el dinero grande no cambió | **CONFIRMADO**: `git diff --name-only origin/main..HEAD -- payments/ orders/ disputes/` = **vacío** | — |
+| **B62-10** sin secretos en el delta | **CONFIRMADO** (§5) | — |
+
+### 2.1 La crítica de doble pago SPEI (P1 del pase v1.55) — **sigue cerrada** `[MEDIDO]`
+
+Me pidieron no re-medirlo. Lo re-medí igual, porque es dinero saliente y es barato:
+
+- `paySpei` (`backend/src/modules/buylist/buylist.service.ts:7153`) compone su `where` con
+  `payableWhere()` **como elemento de `AND`**, no por spread ⇒ ninguna clave posterior puede pisarlo.
+- `receive()` y `verify()` —los dos verbos que reviviían un estado terminal— hoy usan
+  `updateMany({ where: { id, ...liveRequestWhere() }, … })` + `count !== 1` → `409` (L5491-5495 y
+  L5523-5527). **Ya no hay `update({where:{id}})` a secas.**
+- `git diff origin/production..HEAD -- buylist.service.ts` = **+4 / −2**, y son **exclusivamente** el
+  refactor de `remainingQty` al helper compartido. Conducta idéntica (misma fórmula, mismo piso 0).
+
+⇒ **Confirmado. La corrección viaja en este release y es la misma que ya está en `production`.**
+
+---
+
+## 3. Hallazgos priorizados
+
+### Críticas: **0** · Altas: **0**
+
+### 3.1 · MEDIA · `SEC-B62-1` — el backend viaja a producción con librerías de red con fallo conocido `[MEDIDO]`
+- **Dónde:** `backend/package-lock.json` — `express@4.22.2` → `body-parser@1.20.6` → `qs@6.15.3`.
+- **Evidencia mía:** `cd backend && npm audit --omit=dev` ⇒ **5 moderadas, 0 altas, 0 críticas**.
+  Los avisos: `qs` *Denial of Service via Attacker Controlled isBuffer* y *array-limit bypass*.
+- **En lenguaje llano:** son fallos de **disponibilidad** —alguien podría intentar hacer que el
+  servidor se atragante procesando una petición rara—. **No hay lectura de datos ni movimiento de
+  dinero por esta vía.**
+- **Matiz que yo añado y que baja el riesgo real** `[MEDIDO]`: el vector práctico en esta pantalla
+  (el `?state=` repetible) **está capado antes de llegar a `qs`**: Node corta la petición con **431**
+  a partir de ~2 000 repeticiones (L18/L22). Con 1 000 repeticiones el endpoint contesta 200 en
+  milisegundos y **deduplica**, porque el coste del servicio es **fijo** (1 000 filas) sea cual sea
+  el parámetro. No encontré amplificación.
+- **Corrección al red team:** el 5.º aviso que plegaron dentro de éste es propio de
+  **`@nestjs/core`** (GHSA-36xv-jgw5-4q75, CVSS 6.1) y es de **Server-Sent Events**. En este backend
+  **no existe ni un solo `@Sse()`** (`grep` = 0 coincidencias) ⇒ **inalcanzable aquí**. No cambia la
+  severidad global, pero que conste que ese renglón concreto no aplica.
+- **Por qué no bloquea:** el arreglo obliga a subir a `@nestjs/platform-express@12` (**cambio mayor**
+  de framework). Cambiar de versión mayor de framework en la víspera de un release de dinero es
+  **más arriesgado** que el fallo que cierra. El gate de CI del propio proyecto
+  (`security/scripts/audit-npm.sh`, umbral **high/critical** sobre runtime) da verde con esto,
+  coherentemente.
+- **Dueño: devops.** **Disparador:** (a) que cualquiera de estos avisos suba a *high*; (b) la
+  próxima ventana de mantenimiento sin release de dinero encima; (c) que se añada un `@Sse()`.
+
+### 3.2 · BAJA · `SEC-B62-2` — CVE crítico/alto en herramientas de desarrollo del frontend `[MEDIDO]`
+- **Dónde:** `frontend/` — `vitest@2.1.9`, `vite@5.4.21`, `esbuild`.
+- **Evidencia mía, y es la que zanja el asunto:**
+  - `npm audit` (todo) ⇒ **1 crítica, 1 alta, 3 moderadas**.
+  - `npm audit --omit=dev` ⇒ **`{"critical":0,"high":0,"moderate":0,"total":0}`**.
+- **En lenguaje llano:** el rótulo «crítica» del escáner es la gravedad del fallo **en abstracto**.
+  Aquí esas librerías **solo existen en la máquina de quien programa y en el CI**; **no viajan al
+  sitio web que ve el cliente**. Riesgo para usuarios, dinero o PII: **ninguno**.
+- **Dueño: devops / frontend.** **Disparador:** el próximo mantenimiento de dependencias, o si
+  alguien expone un servidor de desarrollo a la red.
+
+### 3.3 · BAJA · `SEC-B62-3` — mass-assignment **latente** en el objeto `bounty` `[MEDIDO]` ⭐ *(la pregunta que me hicieron)*
+- **Dónde:** `backend/src/modules/pricing/pricing.controller.ts:149-155`
+  (`class VariantControlsDto { @Allow() bounty?: unknown; … }`) +
+  `backend/src/modules/pricing/variant-controls.service.ts:288-385` (`mergeBounty`).
+- **El hecho, medido:** el `ValidationPipe({whitelist:true})` **sí** recorta la raíz del cuerpo, pero
+  `bounty` está tipado `unknown` con `@Allow()`, así que **el pipe no entra dentro** y el objeto
+  llega entero al servicio. Lo que impide el daño **no es el borde**: es que `mergeBounty` **lee a
+  mano tres claves** (`enabled`, `priceCents`, `targetQty`) e ignora el resto.
+- **Hoy es INERTE, y lo probé:** B-W1 (§1.2) manda el payload hostil completo y **no persiste nada**
+  de lo hostil.
+- **Mañana no lo sería, y también lo probé:** MUT-1 (§1.2b) simula la «simplificación» que el red
+  team teme y lo que se escribiría es
+  `{…,"bountyPriceCents":60000,"bountyAcquiredQty":99999,…}`.
+- **Impacto **si** ese refactor ocurriera, en llano:** `bountyAcquiredQty` es **el contador de cuántas
+  piezas lleva compradas esa cacería**, y es lo que **apaga el bounty solo** al llegar al objetivo.
+  Poder fijarlo desde el cliente significa poder **apagar un bounty antes de tiempo** o
+  —al revés— **reabrir la compra de una carta cuyo cupo ya se había cerrado**, es decir manipular el
+  **techo de gasto** de esa carta. Eso sí sería dinero.
+- **Mi respuesta a «¿aceptable o hay que cerrarlo antes de publicar?»:**
+  **ACEPTABLE. No bloquea el release.** Razones: (1) no es explotable en `6055f82`, medido, no
+  supuesto; (2) el endpoint está detrás de `super_admin` **y auditado** (B-W6), o sea que ni siquiera
+  en el escenario malo sería un anónimo; (3) cerrarlo bien significa un **DTO anidado tipado**, que
+  toca la semántica *omitido vs `null`* que este endpoint necesita distinguir — meter eso hoy es
+  arriesgar el comportamiento del dinero por una exposición que hoy es cero.
+- **Lo que sí pido, y es barato — para el rol dueño (backend):** el candado que falta. La suite
+  actual `backend/test/pricing.variant-controls.spec.ts` usa `toMatchObject` sobre el `upsert`, y
+  **`toMatchObject` no ve claves de más** — por eso el refactor podría entrar en verde. Una sola
+  aserción de **conjunto exacto de claves persistidas** (`expect(Object.keys(upsert.update).sort())
+  .toEqual([...])`) pone en rojo el día que alguien esparza el objeto del cliente. Es la línea que
+  convierte esta deuda en una deuda **con freno**.
+- **Dueño: backend.** **Disparador:** cualquier edición de `mergeBounty`, o cualquier campo nuevo
+  dentro de `bounty`. Cerrar entonces, no antes.
+
+### 3.4 · BAJA · `SEC-BLUE-1` *(NUEVO, mío)* — un cuerpo demasiado grande contesta **500**, no **413** `[MEDIDO]`
+- **Dónde:** `backend/src/common/filters/all-exceptions.filter.ts` (rama final: todo lo que no es
+  `HttpException` → `500 INTERNAL`). Pre-existente, **fuera de este delta**.
+- **Evidencia:** `PUT /api/v1/admin/pricing/variant-controls/card-1/normal` con 500 KB de relleno ⇒
+  **`500 {"error":{"code":"INTERNAL","message":"Internal server error","details":{}}}`**.
+- **No hay fuga:** el cuerpo es genérico; no sale stack, ni SQL, ni secretos (verificado).
+- **Impacto en llano:** ninguno sobre dinero ni datos. Es **ruido**: cualquiera con sesión puede
+  fabricar «errores internos» baratos, y si mañana hay una alarma de «suben los 500», esto la
+  ensucia y puede **tapar un 500 de verdad**.
+- **Dueño: backend** (mapear `PayloadTooLargeError` → `413`).
+  **Disparador:** cuando se cablee alertado por tasa de 5xx.
+
+### 3.5 · BAJA · `SEC-BLUE-2` *(NUEVO, mío)* — dos sinks confían en que el borde recorte, y el borde es global `[MEDIDO]`
+- **Dónde:** `backend/src/modules/users/users.service.ts:88` —
+  `prisma.user.update({ where:{id:userId}, data: dto })`, el cuerpo del cliente **entero** al sink.
+- **Hoy está bien y lo medí:** L23 (§1.4) confirma que solo `name` llega a la base y que `role` se
+  cae. La barrera es (a) `whitelist:true` en `main.ts` y (b) que **`UpdateMeDto` tenga un decorador
+  en cada campo**.
+- **Por qué lo escribo:** es **la misma forma** que §3.3 —la protección no está donde se escribe,
+  está en un ajuste global lejos de ahí—. Si alguien añade a `UpdateMeDto` un campo sin decorador, o
+  toca el pipe global, el fallo es **silencioso** y aquí la ficha es el **rol**. `forbidNonWhitelisted`
+  está en `false`, o sea que un campo de más se **descarta sin avisar** en vez de rechazarse.
+- **Impacto si se rompiera:** un cliente cualquiera se haría `super_admin`, que es el rol que
+  autoriza **el dinero saliente**. Sería crítico. Hoy **no lo es**.
+- **Dueño: backend.** **Disparador:** cualquier campo nuevo en `UpdateMeDto`, o cualquier cambio en
+  el `ValidationPipe` global.
+
+---
+
+## 4. Configuración de devops que entra en este release — comprobada, no denunciada `[MEDIDO]`
+
+Me pidieron comprobar que **lo escrito coincide con lo que hace** y que no abre nada. Lo hice:
+
+- `scripts/vercel-ignore-build.sh --self-test` → **5/5 OK**: `main` y `production` construyen
+  (exit 1), cualquier otra rama se cancela (exit 0), y **variable vacía o ausente ⇒ construye**
+  (fail-safe, tal y como lo documenta). Coincide con `vercel.json` y con `DEVOPS_NOTES §40.4`.
+- **No abre superficie:** el `ignoreCommand` solo **reduce** qué ramas construyen; no despliega, no
+  promueve a producción y no lleva secretos. Probé además **inyección por nombre de rama**
+  (`VERCEL_GIT_COMMIT_REF='main; echo PWNED'`): la expansión va **entrecomillada** dentro de un
+  `case`, no se ejecuta nada y el resultado es «cancelar». Correcto.
+- **Está INERTE hoy** (el Root Directory de Vercel es `frontend/`), tal y como lo declara
+  `DEVOPS_NOTES §40.4`. **No lo reporto como defecto**, según el encargo, y confirmo que la
+  documentación dice la verdad.
+
+**Gate de seguridad en CI (revisado, no medido en ejecución):** existen y están cableados
+`security-sast.yml` (Semgrep con gate en severidad ERROR + **gitleaks** + `npm audit` runtime con
+umbral high/critical + Trivy fs e imágenes), `security-scheduled.yml` (ZAP full + nuclei semanal
+contra staging, con **guarda anti-producción**) y `deploy.yml` (DAST ZAP contra staging **bloqueante**
+antes de promover, con verificación de que staging sirve el commit que se promueve). Es la forma
+correcta.
+
+---
+
+## 5. Secretos en el repositorio **PÚBLICO** — barrido propio `[MEDIDO]`
+
+Un secreto commiteado sería **crítico** y hundiría este veredicto. Barrí todo el delta
+(`git diff origin/main..HEAD`) buscando `sk_live`, `sk_test`, `whsec_`, `AKIA`, `-----BEGIN … PRIVATE
+KEY`, `xoxb-`, `ghp_`, `github_pat`, `Bearer <token largo>`, `password=…`, `secret=…` y cadenas de
+conexión `postgres://`, `redis://`, `mongodb://`.
+
+- **Coincidencias reales: ninguna.** Los únicos aciertos son **marcadores de posición en ficheros de
+  prueba** (`postgresql://user:pass@localhost:5432/db`, `JWT_ACCESS_SECRET: 'test_access'` en
+  `backend/test/app.module.spec.ts` y `admin-bounties.routes.spec.ts`) — literales inventados para
+  que Nest arranque en test. No abren nada.
+- `git ls-files | grep '\.env'` ⇒ **solo `.env.example`**. `.gitignore` cubre `.env`, `.env.local`,
+  `.env.*.local`, `.env.development/production/test`.
+- `backend/src/config/env.validation.ts` **aborta el arranque** fuera de local si falta
+  `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `APP_BASE_URL`…
+  y exige **≥ 32 caracteres** en los secretos JWT. **Nunca cae a valores de relleno.**
+- El delta de `.env.example` solo retira el nombre de dominio viejo. Sin secretos.
+
+⇒ **Cero secretos. Cero críticas por esta vía.**
+
+## 5.1 · Las otras dos heridas históricas — busqué la variante de cada una en el delta `[MEDIDO]`
+
+- **(a) Homoglifo cirílico en un catálogo de textos:** barrí los 47 ficheros del delta con un script
+  Unicode (rangos cirílico y griego, ancho completo y **caracteres invisibles**: `U+200B`, `U+FEFF`,
+  `U+00AD`, marcas de dirección…). En `frontend/messages/es.json` y `en.json` —los catálogos que
+  importan— **cero**: los únicos no-latinos son símbolos tipográficos legítimos (`≈ ✓ ≥ → ∞ ↑ − `).
+  Las apariciones de `А` cirílica del delta están **todas** en documentación y en el test
+  `BountiesView.test.tsx`, que es precisamente **el candado contra el homoglifo**. Sano.
+- **(b) Fuga por «resto de objeto» en una rama `super_admin` (`legalName`):** §1.3, medida con fila
+  envenenada. **Sin hermano.** Además, `grep` de `...row`/`...override`/`...req`/`...safe` en el
+  delta de `backend/` y `frontend/src`: los dos únicos usos de resto (`...rest`) están en **mocks de
+  `<Link>` de ficheros de test**, no en código de producción.
+- **(c) Pago repetible por el camino más corto de «pagada» a «pagable»:** §2.1. **Cerrado**, y
+  cerrado igual que en `origin/production`.
+
+---
+
+## 6. Lo que **NO** medí — dicho como «no medido», jamás como «seguro»
+
+Esto no son hallazgos: es el **perímetro honesto** de este pase.
+
+1. **`[NO MEDIDO]` Toda la escritura de dinero contra Postgres real.** Mi banco B usa un doble de
+   Prisma. Eso mide **la lógica** de la aplicación (qué se le pide escribir), y ahí está la decisión
+   de dinero. **No mide** transacciones, aislamiento, carreras concurrentes ni el CAS de `paySpei`
+   ejecutándose de verdad. Quien cubre eso es la **suite de integración de QA** contra Postgres, que
+   ya aprobó.
+2. **`[NO MEDIDO]` Cabeceras de seguridad y CORS en el binario real.** `helmet()` y la allow-list de
+   CORS se aplican en `main.ts`, y mi banco de pruebas **no ejecuta `main.ts`**. Leí el código y es
+   correcto (`origin` desde `APP_BASE_URL`, **nunca `origin:true`**; fallback solo a `localhost`), y
+   `env.validation` obliga a `APP_BASE_URL` fuera de local — **pero no lo disparé contra staging.**
+   Lo cubre el DAST de `deploy.yml`.
+3. **`[NO MEDIDO]` Rate limiting en ejecución.** El `ThrottlerGuard` **se desactiva bajo
+   `NODE_ENV=test`**, que es como corrió mi banco. La configuración leída es 300/min global más
+   `@Throttle` por handler. **No lo medí en vivo.**
+4. **`[NO MEDIDO]` Webhook de Stripe, checkout, reembolsos, contracargos y topes antilavado.**
+   `git diff origin/main..HEAD` sobre `payments/`, `orders/` y `disputes/` es **vacío**: no hay
+   código nuevo que auditar en este release. Su cobertura vive en pases anteriores de este documento.
+   **No los re-medí.**
+5. **`[NO MEDIDO]` Producción.** No había ventana autorizada. Todo fue local.
+6. **`[NO MEDIDO]` Frontend en ejecución.** Revisé el delta por lectura (sin
+   `dangerouslySetInnerHTML`, sin `eval`, sin `localStorage`/`console.log` nuevos, página envuelta en
+   `<SuperAdminOnly>` y entrada del menú marcada `superAdminOnly`). **No lo ataqué con navegador.**
+   Da igual para el veredicto: la autoridad es el backend, y ésa sí la medí (L2, L22b).
+
+---
+
+## 7. Banderas para el humano — decisiones que **no** son mías
+
+1. ⚠️ **Antes de operar con dinero real de terceros a escala: pentest de un tercero
+   independiente.** Este equipo se audita a sí mismo. Yo puedo decir *«no encontré»*; no puedo decir
+   *«no hay»*. Cuando el sistema custodie bienes y dinero de clientes reales en volumen, la práctica
+   correcta es una auditoría externa y, después, un programa de recompensas por fallos. **Esto es una
+   decisión de negocio, no técnica.**
+2. ⚠️ **Custodia + PII (INE, CLABE) tiene obligaciones legales en México.** El sistema almacena
+   identificaciones oficiales y cuentas bancarias cifradas. Quién puede descifrarlas, cuánto tiempo
+   se guardan y qué se hace ante un incidente son preguntas **legales**, no de código. Un abogado
+   debe validar aviso de privacidad, plazos de retención y el papel de la empresa como custodio.
+   **Nada de esto lo puede cerrar un ingeniero.**
+3. ⚠️ **Cómo se le quita el `super_admin` a alguien — runbook operativo que hoy no existe.**
+   Verificado: **ningún endpoint del sistema cambia el rol de un usuario** (`grep` de escrituras de
+   `role` = 0). Se cambia tocando la base a mano. Consecuencia: si mañana hay que **degradar a un
+   administrador**, cambiar la fila **no basta** — su sesión viva sigue siendo `super_admin` hasta
+   **15 minutos** (`JWT_ACCESS_TTL`, por defecto `15m`). Para cortarla **al instante** hay que
+   incrementar `tokenVersion` o poner la cuenta en `blocked`, que es lo que la revocación mira (L9
+   confirma que funciona). **Esto debe estar escrito en un runbook antes de que haga falta**, no
+   improvisado el día que haga falta.
+4. **Rate limiting en memoria, no compartido.** Está documentado en `main.ts` y no lo introduce este
+   delta: con **más de una instancia** del backend, el límite por IP se multiplica por el número de
+   instancias (cada una lleva su propia cuenta). Para fuerza bruta en `/auth/login` importa. **Dueño:
+   devops**; **disparador:** el día que se escale a más de una instancia.
+
+---
+
+## 8. Deuda de seguridad **aceptada** (registrada aquí, según el DoD)
+
+| Id | Sev | Qué es | Por qué se acepta | Dueño | Disparador |
+|---|---|---|---|---|---|
+| `SEC-B62-1` | Media | `qs`/`body-parser`/`express` con avisos moderados en runtime | Solo disponibilidad; vector práctico capado en 431 (medido); el arreglo es un salto **mayor** de framework, más arriesgado hoy que el fallo | devops | Que suba a *high*; próxima ventana sin release de dinero; o que aparezca un `@Sse()` |
+| `SEC-B62-2` | Baja | `vitest`/`vite`/`esbuild` con CVE crítico/alto | `npm audit --omit=dev` del frontend = **0 vulnerabilidades**: no viajan al sitio del cliente | devops/frontend | Próximo mantenimiento de dependencias |
+| `SEC-B62-3` | Baja | Mass-assignment latente en `bounty` | Inerte medido (B-W1); detrás de `super_admin` y auditado; cerrarlo hoy toca la semántica del dinero | backend | Cualquier edición de `mergeBounty` o campo nuevo en `bounty`. **Pedido: aserción de conjunto exacto de claves persistidas** |
+| `SEC-BLUE-1` | Baja | Cuerpo grande ⇒ `500` en vez de `413` | Sin fuga; sin impacto en dinero ni datos; es ruido de observabilidad | backend | Cuando se cablee alertado por tasa de 5xx |
+| `SEC-BLUE-2` | Baja | `data: dto` en `updateMe` confía en el pipe global | Medido: hoy recorta bien (L23) | backend | Campo nuevo en `UpdateMeDto` o cambio del pipe global |
+| *(carryover)* | Baja | Throttler en memoria, sin storage compartido | Ya documentado; una sola instancia hoy | devops | Al escalar a >1 instancia |
+
+---
+
+## 9. VEREDICTO
+
+> # **APROBADO**
+>
+> - **Hallazgos críticos abiertos: 0.**
+> - **Hallazgos altos abiertos: 0.**
+> - Abiertos y **aceptados**, con motivo y disparador: **1 Media + 5 Bajas** (§8).
+> - **Mínimo necesario para aprobar: ya se cumple.** No hay condición bloqueante.
+>
+> **Qué significa esto para quien decide publicar, en llano:** ataqué la pantalla nueva por diez vías
+> distintas de suplantación de rol y **ninguna entró**; envenené los datos para ver si la respuesta
+> filtraba la CLABE o el nombre legal de alguien y **no filtró**; intenté que el cliente fijara desde
+> su navegador el precio, el contador de compras o el techo de gasto de un bounty y **el servidor los
+> ignoró todos**, decidiéndolos él; y después **rompí el código a propósito** para comprobar que esas
+> tres defensas son de verdad y no un test que siempre dice que sí. El pago por transferencia sigue
+> sin poder ejecutarse dos veces. No hay ninguna contraseña ni llave guardada en este repositorio
+> público.
+>
+> Lo que queda pendiente son **cuatro cosas que hoy no hacen daño** y que están escritas arriba con
+> el nombre de quién las arregla y **en qué momento exacto dejan de ser aceptables**.
+>
+> **Con QA y techlead ya aprobados, éste es el tercer veredicto: publicar deja de ser una apuesta y
+> pasa a ser una decisión informada del humano.** Las tres banderas de §7 —auditoría externa antes de
+> volumen real, revisión legal de la custodia de INE/CLABE, y el runbook para degradar a un
+> administrador— **son suyas, no mías**.
+
+---
+
 # PASE BLUE TEAM — candidato `9c186ff` (2026-09-07) · foco: DINERO SALIENTE nuevo (§M5-V, B1) + superficie no medida
 
 > **VEREDICTO: APROBADO-CON-CONDICIONES.** Críticos abiertos: **0**. Altos abiertos: **0**.

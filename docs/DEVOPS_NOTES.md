@@ -519,7 +519,11 @@ plataformas (§11). Sin los secrets, `preflight` **falla** (comportamiento desea
   a Postgres) — ver §6.3. El **worker BullMQ** corre en el **mismo servicio** que la API
   en el MVP (deuda BE-5: falta cablear los repeatable jobs a `REDIS_URL`); si crece la carga, se separa a
   un servicio `worker` con el mismo Dockerfile y otro `startCommand` — decisión futura.
-- **Vercel — sin `vercel.json`:** el proyecto de Vercel se configura con **Root Directory = `frontend`**
+- **Vercel — sin `vercel.json`:** *(⚠️ **SUPERADA PARCIALMENTE POR §40** (2026-09-08): ya existe un
+  `vercel.json` **en la raíz del repo** con `ignoreCommand`. El razonamiento de abajo sigue siendo
+  correcto y es exactamente el motivo por el que ese archivo de raíz **hoy es INERTE**: con Root
+  Directory = `frontend`, Vercel solo lee `frontend/vercel.json`. Lee §40 antes de dar por hecho que
+  el freno de vistas previas está activo.)* el proyecto de Vercel se configura con **Root Directory = `frontend`**
   (dashboard, [HUMANO]) y **framework Next.js autodetectado**. No se crea `vercel.json` porque, con Root
   Directory en `frontend/`, Vercel solo leería `frontend/vercel.json`, y esa carpeta es **propiedad del rol
   frontend** (devops no escribe ahí, CLAUDE.md). La config (build/env) vive en el proyecto de Vercel y el
@@ -7574,3 +7578,234 @@ export STRIPE_TEST_PUBLISHABLE_KEY=pk_test_…
    viejo** y no las toqué en este pase (fuera de encargo, y reescribir el arranque del backend mientras
    otra sesión lo está usando no es un cambio que se haga de paso). Queda anotado como candidato a
    `docs/TECH_DEBT.md` — dueño: devops.
+
+---
+
+## 40. Frenar el crecimiento del almacenamiento de Vercel — *Ignored Build Step* (2026-09-08)
+
+> **Encargo acotado.** El almacenamiento del proyecto de Vercel iba al **75% de 10 GB**. Esta sección
+> **detiene el crecimiento futuro**. **NO recupera un solo byte** de lo ya gastado — ver §40.7.
+
+### 40.0 El diagnóstico (medido, no supuesto)
+
+| Medición | Comando | Resultado |
+|---|---|---|
+| ¿Existe `vercel.json`? | `find . -name vercel.json -not -path '*/node_modules/*'` | **No existía** (ni en raíz ni en `frontend/`) antes de este pase |
+| ¿Cuántas ramas hay en el remoto? | `git branch -r \| grep -v HEAD \| wc -l` | **46** |
+| ¿Existen `main` y `production`? | `git branch -r \| grep -E 'origin/(main\|production)$'` | Sí, las dos |
+
+Sin *Ignored Build Step*, Vercel construye una **vista previa por cada push a cualquiera de las 46
+ramas** y **guarda esos deployments para siempre**. El dueño no sabía que existían y nadie las usa.
+**Ése es el motor del crecimiento**, no el tamaño del bundle.
+
+### 40.1 La palanca y su trampa: los códigos de salida están AL REVÉS
+
+El *Ignored Build Step* es un comando que Vercel ejecuta **antes** de arrancar el build:
+
+| Código de salida | Efecto |
+|---|---|
+| **`exit 0`** | **CANCELA** el build ("Ignoring the change") |
+| **`exit 1`** (o distinto de 0) | **CONSTRUYE** ("Proceeding with deployment") |
+
+**Verificado, no asumido.** No hubo egress a `vercel.com` desde esta sesión (el proxy deniega el
+CONNECT con 403), así que la semántica se confirmó contra la **herramienta oficial de Vercel para
+este mismo hueco**: el paquete npm `turbo-ignore` (publicado por Vercel, `2.10.12`), cuyo
+`dist/cli.js` contiene literalmente:
+
+```js
+function _y(){ return $v(`⏭ Ignoring the change`),          process.exit(0) }
+function vy(){ return $v(`✓ Proceeding with deployment`),   process.exit(1) }
+```
+
+El mismo binario confirma que **`VERCEL_GIT_COMMIT_REF` es la env var con el nombre de la rama**
+(`... on branch "${process.env.VERCEL_GIT_COMMIT_REF}"`).
+
+**Por qué importa el signo:** equivocarlo **no da error rojo en ningún sitio**. Simplemente deja de
+construirse `main`/`production` y el sitio se queda **congelado en la versión vieja sin que nadie se
+entere**. Por eso este pase no afirma el comportamiento: lo **demuestra** (§40.3).
+
+### 40.2 El comando (fuente de verdad única)
+
+```sh
+case "${VERCEL_GIT_COMMIT_REF:-main}" in main|production) exit 1 ;; *) exit 0 ;; esac
+```
+
+Tres decisiones deliberadas:
+
+1. **`:-main` es el fail-safe.** Si `VERCEL_GIT_COMMIT_REF` llega **vacía o ausente** (deploy manual
+   por CLI, redeploy sin metadatos de Git, cambio futuro de Vercel), el `case` cae en `main` →
+   `exit 1` → **construye**. Regla: *ante la duda, se construye*. Nunca dejar producción sin
+   desplegar por una variable que no llegó.
+2. **Es POSIX `sh` puro y va INLINE**, no llama a ningún script del repo. Motivo: el *Ignored Build
+   Step* corre con el CWD en el **Root Directory** del proyecto (`frontend/`), así que una ruta
+   `scripts/…` sería `../scripts/…` y se rompería el día que alguien cambie el Root Directory.
+3. **Si el comando falla por lo que sea** (error de sintaxis, shell distinta) el shell sale con
+   código ≠ 0 → **construye**. El modo de fallo también es seguro.
+
+Vive, idéntico, en tres sitios (§40.6 explica por qué la duplicación es a propósito):
+
+| Copia | Ruta | Estado |
+|---|---|---|
+| Versionada, raíz del repo | `vercel.json` → `ignoreCommand` | **Creada — pero INERTE hoy**, ver §40.4 |
+| Versionada, lista para copiar a `frontend/` | `scripts/vercel.frontend-root.json` | Creada (artefacto de handoff, Vercel no la lee) |
+| Ejecutable y probable en local | `scripts/vercel-ignore-build.sh` | Creada, con `--self-test` |
+
+### 40.3 La demostración (salida real, 2026-09-08)
+
+Leyendo el `ignoreCommand` **del `vercel.json` real** y ejecutándolo con `sh -c`:
+
+```
+$ CMD=$(node -e "process.stdout.write(require('./vercel.json').ignoreCommand)")
+
+CASO (VERCEL_GIT_COMMIT_REF)               ESPERADO  REAL  VEREDICTO
+main -> CONSTRUYE                          1         1     OK
+production -> CONSTRUYE                    1         1     OK
+claude/loquesea -> CANCELA                 0         0     OK
+vacia -> CONSTRUYE (fail-safe)             1         1     OK
+ausente -> CONSTRUYE (fail-safe)           1         1     OK
+```
+
+Y el script, que reproduce la misma tabla en un comando:
+
+```
+$ ./scripts/vercel-ignore-build.sh --self-test
+CASO                                   ESPERADO REAL     VEREDICTO
+main (construye)                       1        1        OK
+production (construye)                 1        1        OK
+claude/loquesea (CANCELA)              0        0        OK
+var VACIA (construye: fail-safe)       1        1        OK
+var AUSENTE (construye: fail-safe)     1        1        OK
+
+SELF-TEST: verde. exit 0 = cancelar, exit 1 = construir.
+```
+
+**Repetir esta prueba es obligatorio** antes de tocar el campo del dashboard o de cambiar la lista
+de ramas. Un `--self-test` en rojo significa: NO lo pongas en Vercel.
+
+### 40.4 ⚠️ DÓNDE VIVE `vercel.json` — y por qué el de la raíz HOY NO HACE NADA
+
+**El Root Directory del proyecto de Vercel es `frontend`.** Está medido y repetido en tres sitios de
+este mismo documento: §6.1, §11.A (checklist `Settings > General > Root Directory = frontend`) y
+§25.2. Consecuencia documentada de Vercel: **`vercel.json` se lee desde el Root Directory del
+proyecto**, es decir, Vercel lee **`frontend/vercel.json`** y **ignora el `vercel.json` de la raíz
+del repo**.
+
+Por tanto, de las tres copias del §40.2, **ninguna está activa todavía**:
+
+| Ubicación | ¿La lee Vercel hoy? | Quién puede escribirla |
+|---|---|---|
+| `vercel.json` (raíz del repo) | **NO** (Root Directory = `frontend`) | devops ✅ (hecho) |
+| `frontend/vercel.json` | **SÍ — ésta es la que manda** | **rol frontend** (CLAUDE.md; devops NO escribe en `frontend/`, y §6.1/§25.2 ya lo dejaron sentado) |
+| Dashboard → Ignored Build Step | **SÍ**, independiente del Root Directory | **HUMANO** |
+
+**La opción segura ante las dos ubicaciones** es tener el **mismo `ignoreCommand` en las dos**: si el
+Root Directory se cambia a la raíz, funciona el de la raíz; si sigue en `frontend`, funciona el de
+`frontend/`. devops solo puede poner una de las dos. La otra queda en §40.8 como handoff.
+
+**Mientras tanto, el freno NO está puesto.** Para pararlo HOY sin depender de ningún merge, §40.8-B.
+
+### 40.5 Reversión en 30 segundos, y cómo forzar una vista previa
+
+**Revertir (elige la que corresponda a la copia activa):**
+
+| Copia activa | Cómo se revierte | Cuánto tarda |
+|---|---|---|
+| Dashboard | Vercel → proyecto → **Settings → Git → Ignored Build Step** → borrar el contenido del campo → **Save**. Vuelve el comportamiento por defecto (construir todo). | **~15 s, sin deploy, sin merge** |
+| `frontend/vercel.json` | Borrar la clave `ignoreCommand` del archivo (o `git revert` del commit) y desplegar. | 1 merge + 1 build |
+| `vercel.json` (raíz) | `git rm vercel.json` (hoy no cambia nada: es inerte, §40.4). | inmediato |
+
+**Comprobación después de revertir o de cambiar la lista de ramas:** haz un push trivial a `main` y
+confirma en Vercel que aparece un deployment nuevo. **No des por hecho que produce**: el modo de
+fallo de esta configuración es silencioso.
+
+**Cómo forzar una vista previa el día que alguien la quiera de verdad** (tres formas, de menos a más
+invasiva):
+
+1. **Redeploy manual desde el dashboard.** Vercel → **Deployments** → *Create Deployment* / *Redeploy*
+   sobre el commit o rama que quieras. El *Ignored Build Step* **también se evalúa** en un redeploy,
+   así que si la rama no está en la lista seguirá cancelando: usa la opción 2 o 3.
+2. **Añadir la rama a la lista, temporalmente.** Es un cambio de una palabra en el `case`:
+   `in main|production|mi-rama)`. Al terminar, quitarla. Recuerda que son **tres copias** (§40.2):
+   cambia la que esté activa y deja las otras alineadas o el siguiente que las lea se confundirá.
+3. **Vaciar el campo del dashboard** (§40.5, tabla de reversión) mientras dure la necesidad. Es lo más
+   rápido, pero mientras esté vacío **vuelven a construirse las 46 ramas**: no lo dejes puesto.
+
+> **La forma que NO funciona:** los marcadores de mensaje de commit (`[vercel deploy]`, `[skip ci]`…)
+> son de `turbo-ignore`, **no** de este comando. Aquí no hacen nada.
+
+### 40.6 Por qué la lógica está duplicada en tres sitios (y no es descuido)
+
+Un script único sería más limpio, pero el *Ignored Build Step* corre con el CWD en el Root Directory
+y sin garantía de qué hay alrededor: una referencia a `scripts/…` es una dependencia frágil justo en
+el punto donde un fallo silencioso cuesta *no desplegar producción*. Se prefirió un one-liner
+autocontenido, y el script del repo existe para poder **probarlo** (§40.3), no para ser invocado por
+Vercel. **Coste aceptado:** al cambiar la lista de ramas hay que tocar las tres copias. Está avisado
+en el encabezado de `scripts/vercel-ignore-build.sh` y aquí.
+
+### 40.7 ⚠️ LO QUE ESTO **NO** HACE — los ~7,5 GB ya gastados siguen ahí
+
+Esta configuración **evita builds nuevos**. **No borra nada.** El almacenamiento que ya consumen los
+deployments históricos de las 46 ramas **solo lo libera el dueño** desde el panel de Vercel:
+
+- Vercel → proyecto → **Deployments** → filtrar por rama / por estado → **Delete** en los deployments
+  de vistas previas viejas (los de `main`/`production` **no** se tocan: el más reciente de producción
+  es el que sirve el sitio, y los anteriores son el rollback instantáneo).
+- Es una acción **[HUMANO]**, manual y no automatizable desde el repo.
+- **Orden recomendado:** primero poner el freno (§40.8), luego borrar. Al revés, lo borrado se vuelve
+  a llenar con el siguiente push.
+
+**Dicho sin rodeos: esta cura no recupera un solo byte de lo ya gastado.**
+
+### 40.8 Qué falta para que el freno esté REALMENTE puesto
+
+**A) [FRONTEND] Crear `frontend/vercel.json`** — es la ruta del rol frontend (CLAUDE.md), devops no
+escribe ahí. Contenido exacto, ya generado en `scripts/vercel.frontend-root.json`:
+
+```json
+{
+  "ignoreCommand": "case \"${VERCEL_GIT_COMMIT_REF:-main}\" in main|production) exit 1 ;; *) exit 0 ;; esac"
+}
+```
+
+Copia sin transcribir a mano (una sola línea, y así no se cuela una comilla):
+
+```sh
+cp scripts/vercel.frontend-root.json frontend/vercel.json
+```
+
+Si `frontend/vercel.json` ya existiera con otras claves, **se añade `ignoreCommand` como clave más**;
+no se sustituye el archivo. Notas para frontend:
+- El `$` de `${VERCEL_GIT_COMMIT_REF:-main}` lo expande **la shell en Vercel**, no el JSON: déjalo tal cual.
+- **No** lo conviertas en `"ignoreCommand": "bash ../scripts/vercel-ignore-build.sh"` — ver §40.6.
+- En cuanto se mergee y despliegue, **queda activo**.
+
+**B) [HUMANO — 1 minuto, y es lo que para el sangrado HOY]** Vercel → proyecto → **Settings → Git →
+Ignored Build Step** → seleccionar *Custom* y pegar **exactamente**:
+
+```
+case "${VERCEL_GIT_COMMIT_REF:-main}" in main|production) exit 1 ;; *) exit 0 ;; esac
+```
+
+Funciona **independientemente del Root Directory** y **sin merge ni deploy**. Si más adelante se
+mergea (A), el `ignoreCommand` del `vercel.json` **tiene precedencia** sobre el campo del dashboard;
+como los dos dicen lo mismo, no hay conflicto observable.
+
+**Verificación después de (A) o (B):** push trivial a una rama cualquiera → en Vercel el deployment
+debe aparecer como **Canceled** con el motivo del *Ignored Build Step*. Después, push trivial a
+`main` → debe **construir**. **Haz las dos comprobaciones, en ese orden.** La segunda es la que
+protege producción.
+
+### 40.9 Lo que NO verifiqué (dicho para que nadie lo cuente como verificado)
+
+1. **La documentación oficial de Vercel, de primera mano.** `vercel.com` está bloqueado por política
+   de egress en esta sesión (`403` al CONNECT). La semántica de `exit 0`/`exit 1` y el nombre
+   `VERCEL_GIT_COMMIT_REF` se confirmaron contra el **código publicado por Vercel** en npm
+   (`turbo-ignore@2.10.12`), que es evidencia de primera mano del comportamiento, no de la redacción
+   del doc. La regla de "`vercel.json` se lee desde el Root Directory" **no** pude confirmarla contra
+   una fuente descargable en esta sesión: se apoya en §6.1/§11.A/§25.2 de este mismo documento, que
+   ya la daban por establecida. **Por eso §40.8 propone la opción segura ante las dos ubicaciones.**
+2. **El comportamiento real en Vercel.** No hay token ni egress: no se lanzó ningún deployment desde
+   aquí. Lo demostrado es el **comando**, en local, con `sh` (§40.3). La primera corrida en Vercel
+   es la prueba que falta, y por eso §40.8 termina con dos comprobaciones obligatorias.
+3. **Cuánto almacenamiento libera borrar los deployments viejos.** No tengo acceso al panel; el
+   ~75% de 10 GB es el dato que dio el dueño.

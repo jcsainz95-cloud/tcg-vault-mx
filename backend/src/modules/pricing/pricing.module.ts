@@ -2,6 +2,9 @@ import { Module } from '@nestjs/common';
 import { PricingService } from './pricing.service';
 // v1.28 (P-18/P-22, §4.26): consola de controles de precio por variante (M-30).
 import { VariantControlsService } from './variant-controls.service';
+// v1.62 (§4.42 / §M2-B): consola de BOUNTIES — UNA lectura nueva, cero superficie de escritura.
+import { AdminBountiesService } from './admin-bounties.service';
+import { AdminBountiesController } from './admin-bounties.controller';
 import { FxService } from './fx.service';
 import { PricingController, FxController } from './pricing.controller';
 import { PokemonTcgIoProvider } from './providers/pokemontcg-io.provider';
@@ -51,6 +54,7 @@ import { FinishReconcilerModule } from '../catalog/finish-reconciler.module';
   providers: [
     PricingService,
     VariantControlsService,
+    AdminBountiesService,
     FxService,
     PokemonTcgIoProvider,
     PokemonPriceTrackerProvider,
@@ -74,7 +78,14 @@ import { FinishReconcilerModule } from '../catalog/finish-reconciler.module';
     SealedMappingService,
     SealedPriceIngestJobService,
   ],
-  controllers: [PricingController, FxController, SealedPricingController],
+  controllers: [
+    PricingController,
+    FxController,
+    SealedPricingController,
+    // §M2-B.1/§M2-B.2: READ-ONLY — este controller expone SOLO `@Get` (candado en
+    // `test/admin-bounties.routes.spec.ts`).
+    AdminBountiesController,
+  ],
   exports: [
     PricingService,
     FxService,

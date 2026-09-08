@@ -3695,6 +3695,14 @@ export interface MockVariantControlsRow {
   bountyTargetQty: number | null;
   bountyAcquiredQty: number;
   bountyCompletedAt: string | null;
+  /**
+   * `VariantPriceOverride.updatedAt` de la BD real: **por fila y distinto por fila**, porque es lo
+   * que ordena `sort=updated_desc` y lo que desempata los otros dos órdenes de §M2-B.1. Una
+   * constante compartida no es «un dato de menos»: hace que **una de las tres opciones del `<Select>`
+   * no pueda distinguirse de otra** en modo mock, y eso es un rótulo que miente.
+   * Toda escritura del servidor falso lo mueve a «ahora», igual que Prisma con `@updatedAt`.
+   */
+  updatedAt: string;
 }
 
 export const variantControlsKey = (
@@ -3716,18 +3724,101 @@ export const mockVariantControlsStore = new Map<string, MockVariantControlsRow>(
       bountyTargetQty: 3,
       bountyAcquiredQty: 1,
       bountyCompletedAt: null,
+      updatedAt: '2026-08-29T14:00:00.000Z',
     },
   ],
   [
+    /**
+     * ⚠️⚠️ **EL HÉROE DE LA VITRINA PÚBLICA. Su precio tiene que estar POR ENCIMA de la tarifa.**
+     *
+     * Estaba en `480_000` con una tarifa de curva de `760_000` ⇒ **`rebasada`**, y desde v1.62 la
+     * vitrina pública **filtra a los rebasados** (§N.6 / §M2-B.4: *«todo lo publicado es mejor que
+     * la tarifa»*). El filtro es **correcto** —un bounty rebasado no se paga, así que no se
+     * anuncia—; lo que estaba mal era la SEMILLA: la carta que la vitrina usa de precio héroe se
+     * había quedado en el estado que la vitrina, por diseño, no publica. La demo se quedó sin
+     * escaparate y el E2E de `Top Bounties` en rojo.
+     *
+     * ⛔ **No se arregla relajando el filtro ni degradando la demo del `rebasada`** (que es el
+     * estado que justifica la consola entera): la semilla tiene que sostener **las dos**
+     * demostraciones a la vez. Este es el **efectivo** (`activa`, se publica); el `rebasada` de
+     * demo es `c-charizard`, más abajo, y ahí se queda.
+     *
+     * Candado: `admin-bounties-mock.test.ts` («la semilla sostiene las DOS demostraciones»).
+     */
     variantControlsKey('c-latias-sir', 'raw', 'raw:NM', 'holofoil'),
     {
       sellOverrideCents: null,
       buyOverrideCents: null,
       bountyEnabled: true,
-      bountyPriceCents: 480_000,
+      // MX$8,500: por encima de la tarifa de curva (MX$7,600) y por debajo del mercado (MX$9,500),
+      // que es exactamente la forma de un bounty real —se paga premium sobre la tarifa, no sobre el
+      // mercado— y deja margen visible en las dos direcciones.
+      bountyPriceCents: 850_000,
       bountyTargetQty: null,
       bountyAcquiredQty: 0,
       bountyCompletedAt: null,
+      updatedAt: '2026-08-30T08:45:00.000Z',
+    },
+  ],
+  // v1.62 — filas de DEMO para la consola de bounties (§28): sin ellas el modo mock solo enseña
+  // el caso feliz, y la pantalla existe justo para los otros cuatro. Una por estado del enum.
+  [
+    // `rebasada`: encendido, con precio, pero POR DEBAJO de la tarifa que da la curva ⇒ no paga y
+    // no se publica. Es la fila por la que existe la consola.
+    variantControlsKey('c-charizard', 'raw', 'raw:NM', 'holofoil'),
+    {
+      sellOverrideCents: null,
+      buyOverrideCents: null,
+      bountyEnabled: true,
+      bountyPriceCents: 1_000,
+      bountyTargetQty: 2,
+      bountyAcquiredQty: 0,
+      bountyCompletedAt: null,
+      updatedAt: '2026-08-25T09:00:00.000Z',
+    },
+  ],
+  [
+    // `invalida`: encendido y SIN precio utilizable (fail-safe; la guarda del `PUT` lo impide, pero
+    // es representable en la BD y tiene que verse en vez de colarse dentro de `activa`).
+    variantControlsKey('c-milotic-fa', 'raw', 'raw:NM', 'reverse_holo'),
+    {
+      sellOverrideCents: null,
+      buyOverrideCents: null,
+      bountyEnabled: true,
+      bountyPriceCents: null,
+      bountyTargetQty: 2,
+      bountyAcquiredQty: 0,
+      bountyCompletedAt: null,
+      updatedAt: '2026-08-27T09:00:00.000Z',
+    },
+  ],
+  [
+    // `completada`: se apagó SOLO al llegar al objetivo (no lo apagó nadie).
+    variantControlsKey('c-blastoise', 'raw', 'raw:NM', 'holofoil'),
+    {
+      sellOverrideCents: null,
+      buyOverrideCents: null,
+      bountyEnabled: false,
+      bountyPriceCents: 120_000,
+      bountyTargetQty: 2,
+      bountyAcquiredQty: 2,
+      bountyCompletedAt: '2026-08-30T18:00:00.000Z',
+      updatedAt: '2026-09-04T11:00:00.000Z',
+    },
+  ],
+  [
+    // `apagada`: lo apagó una PERSONA. No se colapsa con `completada` — el porqué dejó de pagarse
+    // es el dato que esta pantalla existe para no perder.
+    variantControlsKey('c-zapdos', 'raw', 'raw:NM', 'normal'),
+    {
+      sellOverrideCents: null,
+      buyOverrideCents: null,
+      bountyEnabled: false,
+      bountyPriceCents: 60_000,
+      bountyTargetQty: 2,
+      bountyAcquiredQty: 0,
+      bountyCompletedAt: null,
+      updatedAt: '2026-08-31T16:30:00.000Z',
     },
   ],
 ]);
@@ -3865,6 +3956,7 @@ export function mockUpsertVariantControls(
     bountyTargetQty: null,
     bountyAcquiredQty: 0,
     bountyCompletedAt: null,
+    updatedAt: new Date().toISOString(),
   };
   // Campos omitidos NO se tocan; `null` explícito LIMPIA (contrato v1.28).
   if ('sellOverrideCents' in req) row.sellOverrideCents = req.sellOverrideCents ?? null;
@@ -3878,8 +3970,26 @@ export function mockUpsertVariantControls(
       if (req.bounty.targetQty !== undefined) row.bountyTargetQty = req.bounty.targetQty;
     }
   }
+  // `@updatedAt` de Prisma: toda escritura lo mueve. Es lo que hace que `sort=updated_desc` tenga
+  // conducta observable en modo mock (una fila recién editada sube), en vez de ser un rótulo inerte.
+  row.updatedAt = new Date().toISOString();
   mockVariantControlsStore.set(key, row);
   return { cardId, productType, gradeKey, finish, pricing: mockVariantPricing(cardId, finish, productType, gradeKey) };
+}
+
+/**
+ * `remainingQty` de un bounty — **la cuenta se escribe UNA vez en este archivo**.
+ *
+ * El backend hizo lo mismo y por la misma razón: §M2-B.1 exige que la resta viva en un solo sitio, y
+ * allí es `bounty-progress.ts` (lo consumen `buylist.service.ts` y el endpoint de la consola). Aquí
+ * la tenían **tecleada dos veces** —la vitrina pública y la consola de admin—, a 130 líneas de
+ * distancia, y las dos con el mismo borde delicado: **el piso en `0`**. `acquiredQty > targetQty` es
+ * representable (se compraron 4 de un objetivo de 3), así que sin el `max` la vitrina publicaría un
+ * *«faltan −1»*. Dos copias de un piso es la forma más barata de que una edición mueva una y no la
+ * otra. ⛔ `targetQty == null` ⇒ `null`, **jamás `0`**: «sin objetivo» no es «ya no falta ninguna».
+ */
+function mockBountyRemainingQty(targetQty: number | null, acquiredQty: number): number | null {
+  return targetQty != null ? Math.max(0, targetQty - acquiredQty) : null;
 }
 
 /** Sugerido de compra por regla (expuesto para las validaciones BOUNTY_BELOW_RULE de lib/api.ts). */
@@ -3896,8 +4006,11 @@ export function mockPublicBounties(): import('@/types/contract').PublicBountiesR
     if (productType !== 'raw') continue;
     const card = mockCards.find((c) => c.id === cardId);
     if (!card) continue;
-    const remaining =
-      row.bountyTargetQty != null ? Math.max(0, row.bountyTargetQty - row.bountyAcquiredQty) : null;
+    // v1.62 — la vitrina pública FILTRA a los rebasados por diseño (criterio 91 · §M2-B.4: «todo
+    // lo publicado es mejor que la tarifa»). Sin esto el mock publicaba un bounty que el sistema
+    // real ni paga ni publica, y la consola de bounties y la vitrina se contradecían en demo.
+    if (!mockVariantPricing(cardId, finish as Finish).bounty?.effective) continue;
+    const remaining = mockBountyRemainingQty(row.bountyTargetQty, row.bountyAcquiredQty);
     data.push({
       cardId: card.id,
       name: card.name,
@@ -3913,6 +4026,154 @@ export function mockPublicBounties(): import('@/types/contract').PublicBountiesR
   }
   data.sort((a, b) => b.bountyPriceCents - a.bountyPriceCents);
   return { data: data.slice(0, 50) };
+}
+
+// ---- v1.62/v1.62.1 · CONSOLA DE BOUNTIES (GET /admin/pricing/bounties, §M2-B.0/.1) ----
+
+/**
+ * **Esto es el SERVIDOR simulado, no la pantalla.** El `state`, los `counts` y `truncated` los
+ * deriva aquí el stand-in del backend porque el contrato dice que los deriva el backend; la vista
+ * de §28 se limita a pintarlos y **jamás** los recalcula. Si alguien copia esta función a un
+ * componente, ha roto la regla «el estado lo dice el servidor».
+ *
+ * Se sigue el ORDEN DE OPERACIONES NORMATIVO de §M2-B.1 al pie:
+ * seleccionar (alcance + identidad; techo ⇒ `truncated`) → clasificar TODO → CONTAR → filtrar por
+ * `state` → ordenar → paginar. ⛔ Cortar antes de clasificar es exactamente cómo un `rebasada`
+ * volvería a desaparecer en la pantalla construida para verlo.
+ */
+const MOCK_ADMIN_BOUNTY_CAP = 1000;
+
+/** Predicado de ALCANCE (§M2-B.0): una fila es *un bounty* si tiene historia de bounty. */
+function mockBountyInScope(row: MockVariantControlsRow): boolean {
+  return (
+    row.bountyEnabled ||
+    row.bountyPriceCents != null ||
+    row.bountyCompletedAt != null ||
+    row.bountyAcquiredQty > 0
+  );
+}
+
+/** Tabla de §M2-B.0, en el mismo orden en que la escribe el contrato. */
+function mockDeriveBountyState(
+  bounty: NonNullable<import('@/types/contract').VariantPricingDTO['bounty']>,
+): import('@/types/contract').BountyState {
+  if (!bounty.enabled) return bounty.completedAt != null ? 'completada' : 'apagada';
+  if (!(bounty.priceCents != null && bounty.priceCents > 0)) return 'invalida';
+  return bounty.effective ? 'activa' : 'rebasada';
+}
+
+/** `attention_first`: lo que está costando dinero en silencio, primero. */
+const MOCK_ATTENTION_RANK: Record<import('@/types/contract').BountyState, number> = {
+  rebasada: 0,
+  invalida: 0,
+  activa: 1,
+  completada: 2,
+  apagada: 3,
+};
+
+export function mockAdminBounties(
+  filters: import('@/lib/api').AdminBountyFilters = {},
+): import('@/types/contract').AdminBountyListResponse {
+  const page = Math.max(1, filters.page ?? 1);
+  const pageSize = Math.min(100, Math.max(1, filters.pageSize ?? 20));
+  const q = (filters.q ?? '').trim().toLowerCase();
+
+  // (1) SELECCIONAR — alcance + filtros de IDENTIDAD. El techo se aplica AQUÍ y solo aquí.
+  const selected: { cardId: string; finish: Finish; row: MockVariantControlsRow }[] = [];
+  for (const [key, row] of mockVariantControlsStore) {
+    const [cardId, productType, gradeKey, finish] = key.split('|');
+    if (productType !== 'raw' || gradeKey !== 'raw:NM') continue;
+    if (!mockBountyInScope(row)) continue;
+    const card = mockCards.find((c) => c.id === cardId);
+    if (!card) continue;
+    if (filters.setId && card.setId !== filters.setId) continue;
+    if (filters.finish && finish !== filters.finish) continue;
+    // ⚠️⚠️ `q` busca **NOMBRE o NÚMERO de carta, y NADA MÁS** (§M2-B.1, y es lo que el `where` del
+    // endpoint compone: `card.OR = [{ name contains }, { number contains }]`). ⛔ **El SET no entra.**
+    // *Un mock puede ser más pobre que el servidor; nunca más permisivo ni distinto.* Cuando aquí
+    // entraba `card.setName`, teclear un set funcionaba en desarrollo y en las 46 pruebas de pantalla,
+    // y contra el servidor real devolvía «Ningún bounty coincide» — un **falso negativo silencioso**
+    // en la única pantalla cuyo motivo de existir es que ninguna fila desaparezca sin avisar.
+    // Si alguna vez se quiere buscar por set, es un cambio de `q` en §M2-B.1 y pasa por el ARQUITECTO
+    // (regla 9); el filtro de set ya existe aparte y es `setId`. Candado: `admin-bounties-mock.test.ts`.
+    if (q && !`${card.name} ${card.number}`.toLowerCase().includes(q)) continue;
+    selected.push({ cardId, finish: finish as Finish, row });
+  }
+  const truncated = selected.length > MOCK_ADMIN_BOUNTY_CAP;
+  const capped = selected.slice(0, MOCK_ADMIN_BOUNTY_CAP);
+
+  // (2) CLASIFICAR todo lo seleccionado con el MISMO composer que usa el binder.
+  const classified = capped.flatMap(({ cardId, finish, row }) => {
+    const card = mockCards.find((c) => c.id === cardId)!;
+    const pricing = mockVariantPricing(cardId, finish);
+    if (!pricing.bounty) return [];
+    return [{ card, finish, row, pricing, state: mockDeriveBountyState(pricing.bounty) }];
+  });
+
+  // (3) CONTAR — sobre el conjunto clasificado ENTERO: ignora el filtro `state`, respeta identidad.
+  const counts: import('@/types/contract').AdminBountyCountsDTO = {
+    activa: 0,
+    rebasada: 0,
+    invalida: 0,
+    completada: 0,
+    apagada: 0,
+  };
+  for (const c of classified) counts[c.state] += 1;
+
+  // (4) FILTRAR por `state` → (5) ORDENAR → (6) PAGINAR.
+  const states = filters.states && filters.states.length > 0 ? filters.states : null;
+  const filtered = states ? classified.filter((c) => states.includes(c.state)) : classified;
+  // ⚠️ Los TRES órdenes de §M2-B.1 están implementados, con los mismos desempates que el servidor:
+  //   · `attention_first` (default) → rango de atención, precio desc, `updatedAt` desc, id asc
+  //   · `price_desc`                → precio desc, `updatedAt` desc, id asc
+  //   · `updated_desc`              → `updatedAt` desc, id asc
+  // ⛔ **Ninguna de las tres puede quedar sin implementar mientras el `<Select>` la ofrezca**: una
+  // opción que no cambia nada es un control que miente, y aquí se dejaba caer `updated_desc` en el
+  // precio descendente. El último criterio es SIEMPRE la identidad, para que el orden sea total y la
+  // paginación estable (dos llamadas idénticas cortan por el mismo sitio).
+  const price = (c: (typeof classified)[number]) => c.pricing.bounty?.priceCents ?? -1;
+  const updated = (c: (typeof classified)[number]) => Date.parse(c.row.updatedAt);
+  const byId = (a: (typeof classified)[number], b: (typeof classified)[number]) =>
+    `${a.card.id}|${a.finish}`.localeCompare(`${b.card.id}|${b.finish}`);
+  const sort = filters.sort ?? 'attention_first';
+  const sorted = [...filtered].sort((a, b) => {
+    if (sort === 'updated_desc') return updated(b) - updated(a) || byId(a, b);
+    if (sort === 'attention_first') {
+      const rank = MOCK_ATTENTION_RANK[a.state] - MOCK_ATTENTION_RANK[b.state];
+      if (rank !== 0) return rank;
+    }
+    return price(b) - price(a) || updated(b) - updated(a) || byId(a, b);
+  });
+  const total = sorted.length;
+  const slice = sorted.slice((page - 1) * pageSize, page * pageSize);
+
+  return {
+    data: slice.map((c) => ({
+      cardId: c.card.id,
+      setId: c.card.setId,
+      setName: c.card.setName,
+      name: c.card.name,
+      number: c.card.number,
+      ...(c.card.imageSmallUrl ? { imageSmallUrl: c.card.imageSmallUrl } : {}),
+      ...(c.card.rarity ? { rarity: c.card.rarity } : {}),
+      productType: 'raw' as const,
+      gradeKey: 'raw:NM' as const,
+      finish: c.finish,
+      state: c.state,
+      progress: {
+        targetQty: c.row.bountyTargetQty,
+        acquiredQty: c.row.bountyAcquiredQty,
+        remainingQty: mockBountyRemainingQty(c.row.bountyTargetQty, c.row.bountyAcquiredQty),
+      },
+      updatedAt: c.row.updatedAt,
+      pricing: c.pricing,
+    })),
+    page,
+    pageSize,
+    total,
+    counts,
+    truncated,
+  };
 }
 
 // ---- P-19: publicar todo (POST /admin/inventory/publish-all) ----

@@ -5491,3 +5491,308 @@
 - **⚠️ Por qué NO se arregló aquí, aunque el arreglo sea una línea:** el contrato **no dice «no terminal», declara la FÓRMULA** — cliente: *«mientras no haya papel (`closedAt IS NULL ∧ guideSentAt IS NULL`)»*; admin: un bloque `legal ⇔ … ∧ closedAt IS NULL` con el comentario `// no se toca una terminal` **al lado**. Es **la forma exacta de eje 2 en miniatura**: la intención comentada y el término declarado divergen justo en la fila legacy. Y en eje 2 el cierre correcto fue que **el arquitecto enmendara el contrato** y el backend implementara. *Aplicar la disciplina solo cuando es cómoda no es disciplina.*
 - **Forma propuesta (si el arquitecto la aprueba):** sustituir `closedAt: null` por `...this.liveRequestWhere()` en los dos `where`. Es §M5-T ya escrita, no un mecanismo nuevo, y el `409 PICKUP_ADDRESS_LOCKED` ya está declarado con `details.status` en las dos rutas ⇒ **cero vocabulario nuevo**.
 - **Disparador:** decisión del arquitecto. Ref: `BACKEND_NOTES.md` §0.42.1, contrato líneas 1273 y 11492.
+
+---
+
+### Ronda del techlead sobre la consola de bounties (M2 › Bounties, §28 / §M2-B) — rama `claude/tcg-hunt-orchestration-ai2vma`, 2026-09-08 (dueño: **frontend**, no bloqueante)
+
+> Veredicto: **aprobado con deuda anotada**. Los **dos bloqueantes** de esa revisión **NO figuran aquí,
+> se corrigieron en la rama** y están verificados por mutación (rótulo que prometía buscar por set
+> mientras el servidor no lo hace y el mock lo tapaba; `sort=updated_desc` inerte + `updatedAt`
+> constante + la resta del avance tecleada dos veces). Ver `FRONTEND_NOTES.md` §54.
+>
+> Lo que sigue es lo que **queda abierto y aceptado**. Numeración **D1–D7 del techlead**, conservada
+> tal cual para que su revisión y este registro se puedan leer en paralelo; D8–D10 son las que ya
+> estaban declaradas en prosa (`FRONTEND_NOTES` §47.7) y que él aceptó **con la condición de que
+> bajaran al registro**, más la desalineación de catálogo que abre el arreglo del rótulo.
+
+#### BNT-D1 · Un `<tbody>` por FILA y no por grupo: el `scope="rowgroup"` cubre una sola fila (Baja, frontend)
+- **Dueño:** frontend (`BountiesView.tsx`, el `withHeaders.map` que envuelve cada fila en su propio
+  `<tbody>`). **Severidad:** Baja. **Estado: abierta, aceptada.**
+- **La deuda:** `DESIGN_SYSTEM.md` §28.10 pide *«un `<tbody>` por GRUPO, cada uno abierto por un
+  `<tr><th scope="rowgroup" colspan="7">`»*. El código abre un `<tbody>` **por fila**, así que el
+  `scope="rowgroup"` del encabezado alcanza **exactamente una** fila: **el agrupamiento no existe
+  para el lector de pantalla**, que es literalmente lo que esa frase de §28.10 venía a garantizar.
+- **Por qué es Baja y no Media:** los otros **tres** canales del eje sí están y son los que llevan el
+  peso: el orden lo manda el servidor, el encabezado de bloque se **lee** (es texto, no un `::before`)
+  y la celda de estado lleva su `aria-label` largo por fila. El grupo se entiende oyendo la lista;
+  lo que se pierde es poder **saltar de grupo en grupo**.
+- **⚠️ RE-LEÍDO PARA MÓVIL (QA, 2026-09-08) — y el argumento de «Baja» aguanta, pero por menos margen.**
+  Desde §28.9 la tabla se desploma a 390px: el `<thead>` queda en `display:none` y **la estructura pasa
+  a ser el único canal que queda del agrupamiento** para quien no ve la pantalla (el orden visual y el
+  color no le llegan). Aun así sigue siendo **Baja** y la razón es medible: el encabezado de grupo
+  **es texto real** dentro de un `<th scope="rowgroup">` que Chromium expone como `rowheader` **también
+  colapsado** (medido con CDP: `rowheader: 4` a 390px), así que el grupo **se sigue anunciando**; lo que
+  no existe es el contenedor que permitiría **saltarlo**. ⇒ *no se pierde el dato, se pierde la
+  navegación.* **Si esto sube a Media alguna vez, será por móvil, no por escritorio.**
+- **Dirección:** agrupar el `map` por bloque y emitir **un** `<tbody>` por bloque. ⚠️ La razón de que
+  hoy sea por fila es que el bloque de edición se inserta como `<tr>` hermano justo debajo de su fila;
+  al reagrupar hay que conservar eso **sin** cambiar el orden que mandó el servidor (⛔ reordenar en
+  el cliente es §28.13 nº9). Coste: pequeño, pero toca la parte que ya tiene 48 pruebas.
+- **Disparador:** el próximo pase que abra el `render` de la tabla, o una auditoría de accesibilidad.
+  ⚠️ Cuando se pague, la aserción `rowgroup === nº de <tbody>` de `e2e/admin-bounties.spec.ts` **seguirá
+  siendo correcta** (bajará de 6 a 4 sola): está escrita contra los `<tbody>` que existan, no contra 6.
+
+#### BNT-D2 · `aria-description` en los chips es ARIA 1.3 en borrador, y es su ÚNICA aparición en todo el frontend (Baja, frontend)
+- **Dueño:** frontend (`BountiesView.tsx`, el chip con `'aria-description'` cuando `truncated`).
+  **Severidad:** Baja. **Estado: abierta, aceptada.**
+- **La deuda:** `aria-description` está en **borrador** (ARIA 1.3) y su soporte fuera de Chromium es
+  parcial ⇒ en esos lectores el matiz *«al menos {count}; la lista está incompleta»* **no se anuncia**.
+  Y es **inconsistente dentro de la propia feature**: `BountyRowEditor.tsx` usa para lo mismo el patrón
+  portable del proyecto (`aria-describedby` + un `<span class="sr-only">`), que es el que el resto del
+  código emplea.
+- **Impacto acotado:** el `≥` **sí** se pinta en el rótulo visible del chip y el banner de
+  `list.truncated` (`role="status"`) dice la lista incompleta con todas las letras. Lo que se pierde
+  es la **redundancia** de ese aviso en el chip, no el aviso.
+- **Dirección:** cambiar a `aria-describedby` + `sr-only`, como el editor. Es un cambio local.
+  ⚠️ Ojo al hacerlo: son **cinco** chips y el `id` tiene que llevar el `state` (colisionarían).
+- **Disparador:** oportunista (cualquier pase sobre los chips), o el primer reporte de lector de
+  pantalla no-Chromium.
+
+#### BNT-D3 · Dos afirmaciones de §28 que el código no cumple: cabecera *sticky* y esqueleto sin cabecera (Baja, frontend + **ux-ui**)
+- **Dueño:** frontend (implementarlas) / **ux-ui** (retirarlas de §28 si no las quiere). **Severidad:**
+  Baja (cosmética). **Estado: abierta, aceptada — pero con la disyuntiva escrita.**
+- **La deuda, medida:** (a) §28.2 (`DESIGN_SYSTEM.md:12277`) manda *«cabecera de tabla sticky (§7.7)»*
+  y el `<thead>` **no lo es**; (b) §28.8 (`:12639`) dice que en carga *«la cabecera y los rótulos de
+  columna **sí** se pintan: el esqueleto tiene que parecerse a la tabla»* y el esqueleto pinta **ocho
+  barras** y ningún encabezado.
+- **⚠️ Por qué se anota algo cosmético:** este proyecto ya **tachó ocho frases** del sistema de diseño
+  por exactamente este motivo. Una norma que el código incumple sin que nadie lo diga deja de ser
+  norma y se convierte en decoración; y el siguiente que lea §28 creerá que están.
+- **Dirección: o se implementan o ux-ui las retira.** (a) es `sticky top-0` + fondo opaco, con el
+  anclaje a `--app-header-h` que la propia §28.2 exige (⛔ nunca una altura hardcodeada); (b) es pintar
+  el `<thead>` real y sustituir las filas por `<Skeleton>` dentro de las celdas.
+- **Disparador:** el próximo pase de UI sobre esta pantalla, o la próxima revisión de §28 por ux-ui.
+
+#### BNT-D4 · `parsePesos` es un tri-estado documentado solo en un comentario, y `Number()` crudo sobre un campo de DINERO (Media, frontend)
+- **Dueño:** frontend (`BountyRowEditor.tsx`, `parsePesos`). **Severidad:** Media (**es un campo de
+  dinero**; hoy sin fuga demostrada). **Estado: abierta, aceptada.**
+- **La deuda, con los tres defectos medidos:**
+  1. Devuelve `number | null | undefined` donde `null` = «vacío» y `undefined` = «no numérico». Los dos
+     son *«no hay número»* para el compilador: **lo único que los distingue es un comentario**, y quien
+     use `?? 0` en cualquiera de los dos sitios que lo consumen no romperá ninguna prueba de tipos.
+  2. `Number(s)` acepta **notación de programador**: `1e3` → MX$1,000.00 y `0x10` → MX$16.00. Nadie
+     teclea eso queriendo, pero un pegado desde una hoja de cálculo sí puede traerlo.
+  3. **Rechaza `1,200.50`**, que es el formato natural de es-MX y **el mismo que la pantalla imprime**
+     (`formatMoneyCents` con `Intl`). El operador puede copiar una cifra de la columna `PAGAMOS`,
+     pegarla en el campo y recibir *«falta el precio»* (ver **BNT-D5**).
+- **Impacto hoy:** acotado, porque el servidor revalida **todo** (`BOUNTY_PRICE_REQUIRED`,
+  `BOUNTY_BELOW_RULE`, el tope por línea) y porque `1e3`/`0x10` producen un número *plausible* que el
+  humano ve en el resumen del diálogo de confirmación antes de guardar. No es una fuga: es una entrada
+  de dinero más laxa por un lado y más estrecha por otro de lo que el usuario espera.
+- **Dirección:** un parser de moneda es-MX **compartido** (`lib/`), con resultado explícito
+  (`{ kind: 'empty' | 'malformed' | 'value', cents }`), que acepte separador de millares y coma
+  decimal y **rechace** `e`/`x`/signos. ⚠️ Hay más de un campo de dinero en el back-office: mírense
+  antes los otros para no crear el sexto parser.
+- **Disparador:** el primer reporte de un precio rechazado que «se veía bien», o el próximo campo de
+  dinero nuevo del back-office — lo que ocurra antes.
+
+#### BNT-D5 · Un precio MAL FORMADO dice «falta el precio» cuando el precio sí está (Baja, frontend + **ux-ui**)
+- **Dueño:** frontend (la conducta) / **ux-ui** (el copy que falta). **Severidad:** Baja. **Estado:
+  abierta, aceptada.**
+- **La deuda:** el `error` de los dos campos colapsa **dos causas distintas** en un solo mensaje:
+  `priceMissing || priceMalformed` → `error.BOUNTY_PRICE_REQUIRED` («falta el precio») y
+  `targetMissing || targetMalformed` → `BOUNTY_TARGET_REQUIRED`. Con `1,200.50` tecleado, el campo
+  **tiene** un precio y el mensaje dice que falta ⇒ el remedio que sugiere es el equivocado.
+- **Por qué no se inventó el copy en este pase:** §28.6e declara los códigos de error de esta pantalla
+  y **no declaró uno de «formato»**. Inventar una cadena de error en una pantalla de dinero sin que
+  esté en §28.12 es exactamente lo que este proyecto prohíbe.
+- **Dirección (dos salidas, las dos válidas):** pedir a ux-ui un `edit.priceMalformed` /
+  `edit.targetMalformed`, **o** estrechar el input para que el caso no exista (normalizar al vuelo lo
+  que el parser de **BNT-D4** sepa leer). Se resuelve naturalmente **junto con D4**.
+- **Disparador:** el mismo que BNT-D4.
+
+#### BNT-D6 · `row.setName` sin `lang="en"` en la cabecera del bloque de edición (Baja, frontend)
+- **Dueño:** frontend (`BountyRowEditor.tsx`, la línea `edit.title · {name} · {setName} #{number}`).
+  **Severidad:** Baja. **Estado: abierta, aceptada.** **Coste: una línea.**
+- **La deuda:** los nombres de set no se traducen y van marcados `lang="en"` — la tabla lo hace
+  (`BountiesView.tsx`, celda de carta), el editor **marca el nombre de la carta y no el del set**. Un
+  lector de pantalla en español leerá «Surging Sparks» con fonética castellana.
+- **Por qué no entró en este pase:** el pase estaba acotado a los dos bloqueantes y a la unificación de
+  la transición; una línea suelta de accesibilidad **en otro fichero** habría entrado en el mismo diff
+  que un arreglo de dinero. *Un arreglo de dinero se lee solo.*
+- **Disparador:** el próximo pase que abra `BountyRowEditor.tsx` — sin excusa, es una línea.
+
+#### BNT-D7 · *(referencia cruzada, NO es deuda de frontend)* el endpoint reclasifica hasta 1000 filas por página para devolver 25
+- **Dueño:** **backend** (`admin-bounties.service.ts`, `list`). **Aquí solo se anota como referencia
+  cruzada, a petición del techlead**, y **frontend no la toca**.
+- **El motivo de anotarla es preventivo:** ese coste es **el precio de la corrección**, no un descuido.
+  §M2-B.1 declara el orden normativo *seleccionar → clasificar TODO → contar → filtrar → ordenar →
+  paginar*, y **cortar antes de clasificar es la mutación B-3**: es exactamente cómo un `rebasada`
+  volvería a desaparecer de la pantalla que se construyó para verlo. ⛔ Que nadie lo «optimice»
+  moviendo el corte hacia arriba.
+- **Disparador:** ninguno por parte de frontend. Si el coste llega a medirse en producción, la salida
+  es del backend (materializar el estado o un índice), **jamás** mover el corte.
+
+#### BNT-D8 · El nombre de la carta enlaza a `/admin/m1`, no al cajón de esa variante (Baja, frontend)
+- **Dueño:** frontend. **Severidad:** Baja. **Estado: abierta, aceptada** (declarada en
+  `FRONTEND_NOTES` §47.7 y **bajada aquí a petición del techlead**).
+- **La deuda:** §28.1 pide que la fila lleve **al cajón de esa variante en el binder**. M1 **no tiene
+  deep-link** por set/carta (solo `?tab=`), así que hoy el enlace deja al operador en la portada de M1
+  y **la búsqueda la repite a mano**. Con el `sr-only` *«abrir en el binder»* el destino se anuncia,
+  pero el destino es más ancho de lo prometido.
+- **No es petición al arquitecto:** no falta ningún campo del contrato (la fila trae `setId`, `cardId`
+  y `finish`). Es **deuda de enrutado del propio frontend**: hay que añadir parámetros a M1.
+- **Disparador:** el próximo pase que toque el enrutado de M1 (`/admin/m1`).
+
+#### BNT-D9 · La tabla no colapsa a *cards* en móvil (§28.9) — ⛔ **RETIRADA DEL REGISTRO: implementada** (2026-09-08)
+- **Estado: CERRADA, no aceptada.** Se anota el tombstone —y no se borra la línea— porque **el techlead
+  la aceptó como deuda y QA la devolvió como BLOQUEANTE**, y esa discrepancia tiene que quedar legible:
+  el coordinador la resolvió a favor de QA con la regla del proyecto (*«§28.9 está escrita y sin cumplir:
+  o se implementa o ux-ui la retira, nunca la omisión tácita»*).
+- **Lo que la volvió bloqueante fue la MEDICIÓN**, no la opinión: a 390×844 el documento medía
+  `scrollWidth 724` contra `clientWidth 390` ⇒ **334 px fuera de pantalla**, y lo que quedaba fuera eran
+  `PAGAMOS` y `TARIFA VIGENTE` — las dos cifras de dinero, en la pantalla que existe para que el dinero
+  no se esconda. *Una deuda de layout deja de ser cosmética cuando lo que recorta es la columna del
+  dinero.*
+- **Implementada** en la ronda de QA: la misma tabla se desploma por CSS (`max-md:`) con roles ARIA
+  explícitos. Ver `FRONTEND_NOTES.md` §55. Candado: `frontend/e2e/admin-bounties.spec.ts` (Chromium real,
+  `docScrollW <= docClientW`), verificado por mutación —quitar las clases devuelve **exactamente** los
+  724/334 px que midió QA—.
+
+#### BNT-D10 · El catálogo de §28.12 se ha quedado atrás en TRES cadenas (Baja, **ux-ui**)
+- **Dueño:** **ux-ui** (la norma). **Frontend ya alineó el código** y no puede tocar
+  `DESIGN_SYSTEM.md`. **Severidad:** Baja. **Estado: abierta — pendiente de ux-ui.**
+- **Lo medido:** `DESIGN_SYSTEM.md:12787` (tabla de cadenas §28.12) y `:12244` (el wireframe de §28.2)
+  declaran `Buscar carta o set` / `Search card or set`. El contrato §M2-B.1 declara `q` sobre
+  **nombre o número de carta** y el endpoint lo implementa así ⇒ el rótulo prometía un filtro que no
+  existe. El catálogo dice ahora **`Buscar carta` / `Search card`**.
+- **Lo que hay que decidir (y es de ux-ui, no de frontend):** alinear §28.12 y el wireframe con lo
+  implementado. Si lo que se quiere de verdad es **buscar por set**, eso **no es copy**: es un cambio
+  de `q` en `API_CONTRACT §M2-B.1` y pasa por el **arquitecto** (regla 9) antes de tocar ningún rótulo.
+- **Candado mientras tanto:** `frontend/src/lib/mock/admin-bounties-mock.test.ts` lee el bullet de `q`
+  del contrato y se pone **rojo** si el rótulo (ES o EN) vuelve a nombrar el set sin que el contrato lo
+  declare — y también si el contrato lo declara y el rótulo se queda corto.
+- **⚠️ Y en la ronda de QA se sumaron dos más, del mismo tipo** (copy que el código ya no puede sostener):
+  - **`list.truncated`** decía *«Filtra por **set, acabado** o estado para verlos todos»* y la pantalla
+    **no tiene control de `setId` ni de `finish`** (solo búsqueda, orden y los cinco chips). En el único
+    estado en el que la pantalla admite estar ocultando filas, le daba al operador **una instrucción que
+    no puede ejecutar**. El catálogo dice ahora *«Filtra por estado o busca una carta»* (ES/EN). ⛔ **No
+    se añadieron los filtros**: eso es §28.2b y lo decide ux-ui. §28.12 sigue con el texto viejo.
+  - **`counts.atLeast`** (`{label} ≥ {count}`) **ya existe** en el catálogo y se usa: era la única de
+    §28.12 declarada y no cableada, y mientras el `≥` se componía en código **no entraba en el barrido de
+    homoglifos** de §28.10. Esta línea de §28.12 y el código vuelven a coincidir; se anota para que la
+    revisión de ux-ui no la marque como pendiente.
+- **Disparador:** la próxima revisión de §28 por ux-ui.
+
+#### BNT-D11 · El caso 5 (**lista cortada**) no es medible en NAVEGADOR contra fixtures (Baja, frontend + QA)
+- **Dueño:** frontend (si algún día se quiere medir en mocks) / **QA** (donde sí es real: el stack).
+  **Severidad:** Baja. **Estado: abierta, aceptada, con la razón escrita.**
+- **La deuda:** `frontend/e2e/admin-bounties.spec.ts` cubre §28.9, el rol (caso 15), el teclado puro
+  (caso 17) y **la mitad** del caso 5 (los cinco chips con su número y la ausencia de banner). La otra
+  mitad —`truncated: true` ⇒ **banner de lista incompleta y chips con `≥`**— **no es alcanzable en modo
+  mock**, y no por descuido:
+  - en modo fixtures `getAdminBounties` **no emite ninguna petición HTTP** (`api.ts` corta antes y llama
+    al servidor falso en proceso) ⇒ **no hay nada que interceptar** con `page.route`;
+  - el techo son **1000 filas** y la semilla solo puede clasificar variantes de cartas que existan en
+    `mockCards` — hoy **seis**.
+- **⛔ Lo que NO se hizo, y es la parte que importa:** fabricar una puerta trasera (un `q` mágico, un tope
+  configurable por URL, un `window.__truncate`) para que el navegador pudiera verlo. Sería meter en el
+  bundle una rama que **solo existe para poner un test en verde**. *Un candado que se abre desde fuera no
+  es un candado.*
+- **Dónde SÍ está cubierto, para que nadie lo cuente como hueco entero:** en jsdom, donde la respuesta se
+  inyecta completa (`BountiesView.test.tsx`, «⭐ B-4 (espejo de cliente)»: banner, `≥` y **ningún cero**),
+  y en el gate de QA contra el stack real, que es el único sitio donde `truncated` puede ser verdad.
+- **Disparador:** que el seed real tenga >1000 filas de bounty (entonces es un `@real` de QA), o que
+  alguien necesite el caso en demo — y entonces la vía correcta es **ampliar la semilla de `mockCards`**,
+  no una bandera de test.
+
+#### BNT-D12 · El barrido de gestos de B-13(b) tiene **cuatro puertas** que siguen abiertas (Media, frontend)
+- **Dueño:** frontend (`BountiesView.test.tsx`, el caso *«B-13(b) por CONDUCTA»*, hoy en `:611-661`).
+  **Severidad:** Media (**es profundidad de candado, no defecto de producto** — QA verificó que el
+  producto obedece B-13(b) **por construcción**: un solo *call site* de escritura, una fila por gesto,
+  cero bucles sobre `rows`). **No bloqueante. Estado: abierta, aceptada.**
+- **Lo medido por QA:** cuatro mutaciones nuevas, cada una con **3 escrituras de un solo gesto humano**
+  y **84/84 en verde**. Se anotan las cuatro con su causa exacta, porque cada una define un trozo del
+  barrido que hoy falta:
+
+  | # | Mutación | Por qué se escapa |
+  |---|---|---|
+  | **N1** ⚠️ | el control masivo vive **dentro del editor de fila** (solo existe tras pulsar `Editar`) | el inventario de controles se toma **sobre un render limpio**, con el editor cerrado. Al pulsar `Editar`, el barrido abre el editor, busca un diálogo, no lo encuentra y hace `cleanup()`: **no visita ni un control del editor — que es justo donde se teclea el dinero** |
+  | **N2** | ventana de confirmación con `role="alertdialog"` | `queryByRole('dialog')` **no casa** con `alertdialog`, que es el rol canónico de un confirm destructivo ⇒ **un dev haciendo lo correcto en accesibilidad cruza el candado** |
+  | **N3** | `role="dialog"` con el primario **fuera del último lugar** del DOM (`flex-row-reverse`) | el barrido pulsa `botones[length-1]` asumiendo el orden del sistema de diseño; invertido, pulsa `Cancelar` y da verde. **La suposición está escrita en el comentario y no aseverada** |
+  | **N4** ⚠️ | `<form onSubmit>` disparado con **Enter** en un campo | el gesto de un campo es `fireEvent.change`: **nunca teclea `Enter` ni dispara `submit`**, y es un patrón React de manual |
+
+- **Las dos que más pesan son N1 y N4**, y por motivos distintos: N1 deja **una región entera sin
+  barrer** (el editor, que es la superficie de escritura de la pantalla) y N4 es **un patrón
+  idiomático**, no una rareza — el día que alguien envuelva los campos en un `<form>`, el candado deja
+  de ver el camino principal sin que nadie lo note.
+- **Dirección (las cuatro se cierran en el mismo sitio, sin tocar producto):** re-inventariar los
+  controles **después** de cada gesto (no solo antes), aceptar `dialog` **y** `alertdialog`, pulsar el
+  botón del diálogo **por su papel** (el que no es `Cancelar`/cerrar) en vez de por su posición, y
+  añadir `Enter`/`submit` a los gestos de campo. ⚠️ Al hacerlo, **medirlo con las cuatro mutaciones de
+  QA reinstaladas una por una**: un barrido más ancho que no se prueba roto es un barrido más lento,
+  no más seguro.
+- **Disparador:** **el próximo pase que toque el render de la tabla o el editor de fila** — que es
+  cuando N1 deja de ser teórica. Ref: `FRONTEND_NOTES.md` §56.2 y §57.
+
+#### BNT-D13 · El invariante de la semilla **no cubre el literal que decía proteger** (Media, frontend)
+- **Dueño:** frontend (`src/lib/mock/admin-bounties-mock.test.ts`, «la semilla sostiene las dos
+  demostraciones» + `e2e/inventory-stream-b.spec.ts:86`). **Severidad:** Media. **No bloqueante.
+  Estado: abierta, aceptada** — y con la crítica escrita entera, porque es justa.
+- **Lo medido por QA (mutación S1, de una cifra, en `fixtures.ts`):** `bountyPriceCents: 850_000` →
+  **`780_000`**. Sigue **por encima** de la tarifa (`760_000`) ⇒ Latias sigue `activa`, la vitrina
+  sigue publicando, sigue habiendo un `rebasada` fuera del escaparate y siguen estando los cinco
+  estados. Resultado:
+  - `admin-bounties-mock.test.ts` → **15/15 verde**, incluidos los **3** casos del invariante;
+  - **suite unitaria completa → 1327 passed, 0 failed: ciega del todo**;
+  - `e2e/inventory-stream-b.spec.ts:86` → **ROJO** (`MX$8,500.00` no existe).
+- **⚠️ Por qué esto importa más que el fallo en sí:** es **el modo de fallo de BLOQUEANTE-1
+  reproducido después de su arreglo**. El invariante se añadió justificándolo con *«un literal en un
+  spec ya demostró que no basta»*… y **el literal `MX$8,500.00` sigue ahí, sin protección**: lo único
+  que lo caza es el gate lento y cruzado, que es exactamente la situación que el invariante venía a
+  quitar de en medio. *El candado nuevo cubre la clase del defecto y deja fuera el caso concreto que
+  lo destapó.*
+- **Dirección (la cura es barata, y es de QA):** que **el candado unitario lea del propio escaparate**
+  qué carta y qué importe es el héroe —`mockPublicBounties().data[0]`— y que el spec de navegador
+  **asevere ese valor** en vez de teclearlo. Así la semilla puede moverse y el gate rápido sigue
+  diciendo la verdad; solo se pondría rojo cuando el escaparate **de verdad** cambie de héroe, que es
+  lo que se quiere saber.
+- **Y lo que NO se hace:** quitar el literal del spec de navegador sin más. Es el único sitio donde se
+  mide **lo que el humano ve**; lo que sobra no es el literal, es que **nadie más lo sepa**.
+- **Disparador:** el próximo pase que toque la semilla de bounties de `fixtures.ts` **o** el spec
+  `inventory-stream-b`. Ref: `FRONTEND_NOTES.md` §56.1.
+
+#### BNT-D14 · La intersección **§28.5 × §28.8**: dos palancas `Limpiar filtros` seguidas — ⚠️ **NO ES DEUDA DE FRONTEND: es una decisión de diseño que nadie ha tomado** (Baja, **ux-ui**)
+- **Dueño: ux-ui.** Se anota aquí a petición del coordinador y **con el fallo de QA a favor de
+  frontend escrito tal cual**: *no es defecto de frontend ni deuda técnica de frontend — es una
+  decisión de norma pendiente*. ⛔ **Frontend no lo toca** (ni «porque se ve mal»): suprimir uno de
+  los dos bloques es **decidir cuál de las dos normas cede**, y eso no se decide desde el código.
+- **Lo que se ve, y es reproducible en dos segundos:** con una `q` que no casa con nada (p. ej.
+  `zzzznada`) la pantalla pinta **a la vez**
+  - el **bloque ①** de §28.5 v3.5 — `VISTA FILTRADA` + su frase + **su** palanca `Limpiar filtros`
+    (hay filtro de identidad puesto ⇒ el cero no se puede enunciar), y
+  - el **vacío por filtro** de §28.8 — `Ningún bounty coincide` + **su** palanca `Limpiar filtros`
+    (`rows.length === 0` con filtros activos),
+
+  ⇒ **dos botones `Limpiar filtros` consecutivos**, con el mismo nombre accesible y el mismo efecto.
+- **Por qué el código está bien:** las dos normas se cumplen **por separado y al pie**; **ninguna de
+  las dos dice qué hacer cuando coinciden**. Las dos palancas comparten ya **un solo cuerpo**
+  (`clearFilters()`), así que no hay duplicación de lógica: lo duplicado es el **anuncio**, y el
+  anuncio lo dicta el sistema de diseño.
+- **Lectura para cuando ux-ui lo decida** (⚠️ es una **lectura**, no una decisión de frontend): el
+  argumento con el que §28.5 v3.5 justifica su bloque —*«el portador es la versalita»* (§28.3 canal 2)
+  y por eso el cero **se retira en vez de acotarse**— apunta a que el que sobra es **el del vacío**:
+  con `VISTA FILTRADA` ya dicho y su palanca a la vista, el `EmptyState` puede quedarse con su título
+  y **sin** botón. Pero la simétrica también se defiende (que el vacío se quede la palanca por estar
+  más cerca del hueco), y elegir es de ux-ui.
+- **Impacto:** cosmético + accesibilidad menor (dos controles indistinguibles por nombre en el mismo
+  paso de tabulación). **Ningún dato se pierde ni se afirma nada falso** — que es lo que §28.5 v3.5
+  vino a cerrar. **No bloqueante.**
+- **Disparador:** el próximo pase de ux-ui sobre §28. En cuanto la norma diga cuál se suprime, el
+  cambio en `BountiesView.tsx` es de una condición. Ref: `FRONTEND_NOTES.md` §57.8 y §58.4,
+  `DESIGN_SYSTEM.md` §28.5 v3.5 y §28.8.
+
+#### BNT-D15 · *(referencia cruzada, NO es deuda de frontend)* `toMatchObject` sobre el `upsert` de `pricing.variant-controls.spec.ts` **no ve claves de más**
+- **Dueño: backend.** Se anota **solo como referencia cruzada** —a petición del coordinador, y porque
+  este registro ya admite el formato (ver **BNT-D7**)—. ⛔ **Frontend no lo toca ni lo arregla**; el
+  hallazgo es de la fase de seguridad y se enruta al rol dueño.
+- **Lo señalado:** `backend/test/pricing.variant-controls.spec.ts` asevera el `upsert` con
+  `toMatchObject`, y **`toMatchObject` es una comparación de subconjunto**: un refactor que colara
+  claves **de más** en el objeto persistido —el mass-assignment latente— **entraría en verde**.
+- **Por qué se anota desde aquí:** es **exactamente la misma familia** que lo corregido esta noche en
+  el frontend (`CONTROL NEGATIVO 2`, §58): *un candado que no puede ponerse rojo*. Un caso que dice
+  cubrir una condición y no la ejerce —porque el control estaba deshabilitado, o porque el matcher no
+  mira lo que haría daño— **no es media protección: es cero protección con acuse de recibo**.
+- **Disparador:** el próximo pase de backend sobre `variant-controls`. Ref: `docs/SECURITY_NOTES.md`
+  (hallazgo de esta ronda), `FRONTEND_NOTES.md` §58.

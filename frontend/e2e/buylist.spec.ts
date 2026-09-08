@@ -591,6 +591,65 @@ test.describe('buylist · solicitud con KYC/INE (AC 14; contrato §6/§8)', () =
   });
 
   /**
+   * ─────────────────────────────────────────────────────────────────────────────────────
+   * EL RECHAZO SE TIENE QUE VER, EN LA PANTALLA QUE EL VENDEDOR ESTÁ MIRANDO (P-4)
+   *
+   * Defecto reportado por el dueño EN PRODUCCIÓN: *«cuando confirmas enviar solicitud no
+   * desaparece el pop up, pueden dar click varias veces»* — y midiéndolo contra la base, **no se
+   * creaba nada, ni al primer clic ni al quinto**. La causa no era el botón ni la idempotencia:
+   * era la GEOMETRÍA. El diálogo tiene más contenido que alto de ventana (medido: 1207 px en
+   * 759 px visibles a 390×844), así que para pulsar «Confirmar y enviar» **hay que bajar hasta el
+   * final**, y en esa posición el bloque de la CLABE queda **arriba del borde superior** (y=-183).
+   * El rechazo se pintaba donde nadie podía verlo.
+   *
+   * ⚠️ **Este test corre a 390×844 A PROPÓSITO.** El smoke @real de más abajo usa 1280×2000 —un
+   * viewport que no existe en ningún teléfono ni monitor— y con esa altura el defecto es
+   * invisible: TODO cabe. Un arnés que elige la ventana donde el producto no falla no está
+   * midiendo el producto. Si alguien vuelve a subir esta altura, este candado deja de servir.
+   * ─────────────────────────────────────────────────────────────────────────────────────
+   */
+  test('el motivo del rechazo cae DENTRO de la pantalla al pulsar desde abajo (móvil 390×844)', async ({
+    page,
+  }) => {
+    test.slow();
+    // Mock-only por la carta literal del fixture y por asumir KYC sin CLABE en archivo (que es
+    // lo que hace que el campo —y su error— existan).
+    mockOnly('carta literal «Charizard» del fixture + KYC sin CLABE en archivo');
+    await page.setViewportSize({ width: 390, height: 844 });
+    await loginAs(page, 'customer');
+    await page.goto('/es/buylist');
+    await addFromBinder(page, 'Charizard');
+    await openCart(page);
+    await ensureMinimumReached(page);
+    await page.getByRole('button', { name: /Enviar solicitud/ }).click();
+
+    const dialog = page.getByRole('dialog', { name: t('es', 'buylist.requestTitle') });
+    const clabe = dialog.getByLabel(/CLABE/);
+    await expect(clabe).toBeVisible();
+    await choosePickupAddress(dialog);
+
+    // El usuario baja hasta el botón —no hay otra forma de pulsarlo— y confirma sin CLABE.
+    const submit = dialog.getByRole('button', { name: t('es', 'buylist.submit') });
+    await expect(submit).toBeEnabled();
+    await submit.scrollIntoViewIfNeeded();
+    // Anti-vacuidad de la premisa: si el campo siguiera a la vista aquí, este test no estaría
+    // midiendo el caso que reventó en producción (y el `toBeInViewport` de abajo sería trivial).
+    await expect(clabe).not.toBeInViewport();
+    await submit.click();
+
+    // Nada se creó y el diálogo sigue abierto: exactamente el síntoma reportado…
+    await expect(page.getByText(t('es', 'buylist.created'))).toHaveCount(0);
+    await expect(dialog).toBeVisible();
+
+    // …pero AHORA el motivo está donde el vendedor está mirando, y el foco cayó en el campo que
+    // tiene que corregir (P-4: «esto sustituye a hacer scroll a ciegas», §15.4).
+    const reason = dialog.getByText(t('es', 'buylist.clabeInvalid'));
+    await expect(reason).toHaveCount(1);
+    await expect(reason).toBeInViewport();
+    await expect(clabe).toBeFocused();
+  });
+
+  /**
    * SMOKE @real — VENDER: descubre la carta cotizable más barata del binder quoter (raw,
    * env-agnóstico), la agrega desde su teja y crea la solicitud (`POST /buylist/requests`):
    *  - real: el cliente del seed suele traer CLABE/INE en archivo → el modal usa el atajo

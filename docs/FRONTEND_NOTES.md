@@ -4,6 +4,785 @@
 > Fecha: 2026-08-13. Branch: `claude/tcg-cards-marketplace-oijthj`.
 > El contrato (`docs/API_CONTRACT.md`) y el sistema de diseño (`docs/DESIGN_SYSTEM.md`) mandan.
 
+## §58 · **Un candado que no puede ponerse rojo no es medio candado: es ninguno** — la hermana del control vacuo, la cláusula sin candado y el caso 19 en el navegador (2026-09-08, rama `claude/tcg-hunt-orchestration-ai2vma`)
+
+> Sobre `a028079`, con §28.5 v3.5 ya **aprobada por QA** y medida en el navegador. Este pase **no
+> toca producto**: `BountiesView.tsx` y el modelo quedan **byte a byte** como estaban. Es todo
+> candados y registro.
+
+### 1. 🟠 El CONTROL NEGATIVO 2 era VACUO — y es la hermana del que yo mismo cacé en §57.4
+
+`BountiesView.test.tsx` servía `counts: { …, apagada: 0 }` y hacía `fireEvent.click(chip('apagada'))`
+para demostrar que **un chip de estado no es filtro de identidad**. Pero la propia pantalla
+**deshabilita el chip en cero** (`disabled={!truncated && n === 0 && !selected}`, §28.5: *un chip en
+cero no se esconde, se apaga*) ⇒ **el clic no hacía nada**, `states` se quedaba en `[]` y el caso
+**nunca ejercía la condición que decía ejercer**.
+
+**Es exactamente la misma clase de defecto que reescribí en el CONTROL NEGATIVO 3, en el mismo
+commit, en el caso de al lado.** El patrón, ahora con dos ejemplares y nombre: *el arnés del control
+negativo puede dejar la condición fuera de alcance sin que nada avise; el caso pasa, y pasa por el
+motivo equivocado*. En el 3 lo que faltaba era **una frase que comparar**; aquí, **un control que se
+pudiera pulsar**. Se me escapó la hermana.
+
+**El arreglo es de fixture, no de producto** —QA verificó en el navegador que con el chip habilitado
+de verdad la pantalla se comporta bien—, y viene con **tres candados contra la recaída**:
+
+1. el servidor falso responde **como el de verdad**: `data` **respeta** el filtro de estado y
+   `counts` **lo ignora** (§28.2a) ⇒ hay una `apagada` de verdad y el chip nace pulsable;
+2. el caso asevera que **el chip está vivo** (`toBeEnabled()`) *antes* de pulsarlo;
+3. y que el **gesto surtió efecto** (`aria-pressed=true` + la página cambió de filas) *antes* de
+   creerse la frase. ⚠️ **Esta es la regla que queda escrita**: un control negativo tiene que
+   demostrar que **hizo la cosa** antes de afirmar que la cosa no cambió nada.
+
+### 2. 🟡 La paginación era la ÚNICA cláusula de §28.5 v3.5 sin candado
+
+La mutación **M3** de QA —`hasIdentityFilter({ q }) || page > 1`— dejaba la suite entera en verde. La
+norma lo dice con todas las letras (*«La paginación tampoco cuenta: no toca `counts`»*) y el caso 19
+no la listaba entre sus controles. El riesgo era bajo y **en la dirección buena** (silenciar un cero
+verdadero, no fabricar falsa tranquilidad), pero *una cláusula de norma sin candado es una cláusula
+que el próximo refactor puede borrar sin ruido*.
+
+**CONTROL NEGATIVO 4:** dos páginas de una fila, se pulsa `Siguiente` y **el cero sigue enunciándose**.
+Con la lección del punto 1 aplicada: primero se asevera que la petición **viajó con `page: 2`** y que
+la fila de la segunda página está a la vista; solo después se mira la frase.
+
+⚠️ **Por qué no es un unitario:** `hasIdentityFilter` **no recibe la página** —y no debe recibirla, la
+paginación no es un filtro de identidad—, así que la única forma de ejercer M3 es **por pantalla**,
+que es donde vive el `||` que la mutación introduce.
+
+### 3. Caso 19 en el NAVEGADOR, sin puerta trasera
+
+§28.5 v3.5 narra el defecto como *«medido en el navegador contra el build de producción»* y mi spec
+de Playwright tenía cuatro casos, ninguno el 19. **La semilla del servidor falso ya daba la
+reproducción exacta** y lo comprobé antes de escribir nada: `q=Pikachu` ⇒ `counts.rebasada: 0` con
+`Charizard` (el `rebasada` de la demo) **fuera del filtro**. ⛔ Ni fixture nuevo, ni `q` mágico, ni
+tope configurable: la misma regla que en la cabecera de ese archivo — *un candado que se abre desde
+fuera no es un candado*.
+
+Lo que añade el navegador sobre jsdom: el **rebote real** de la búsqueda, el `<Input>` con su `label`
+de verdad y el ciclo entero (React Query + servidor falso + build de producción) en vez de una
+respuesta inyectada a mano. El caso mide la ida (`VISTA FILTRADA`, ⛔ ni `SIN REBASADOS` ni su frase,
+palanca **única**) y **la vuelta** (al limpiar: `REBASADOS 1`, `Charizard` de nuevo y **ningún** cero
+enunciado).
+
+### 4. Lo que NO se toca, y queda registrado
+
+- **`BNT-D14` — la intersección §28.5 × §28.8 (las dos palancas `Limpiar filtros`). Dueño: ux-ui.**
+  Con `q=zzzznada` se pintan a la vez el bloque ① (`VISTA FILTRADA` + palanca) y el vacío por filtro
+  (`Ningún bounty coincide` + palanca) ⇒ **dos botones consecutivos**. **QA falla a favor de
+  frontend y así queda escrito:** *no es defecto ni deuda de frontend — es una decisión de diseño
+  que nadie ha tomado*. Cumplí las dos normas al pie y **no podía elegir cuál suprimir sin decidir
+  norma**. ⛔ No lo he tocado. La lectura para cuando ux-ui decida queda en la entrada: el argumento
+  de §28.5 —*«el portador es la versalita»*— apunta a que el que sobra es **el del vacío**.
+- **`BNT-D15` — referencia cruzada, dueño backend:** `backend/test/pricing.variant-controls.spec.ts`
+  asevera el `upsert` con `toMatchObject`, que **no ve claves de más** ⇒ el refactor peligroso del
+  mass-assignment latente entraría **en verde**. Es la misma familia que lo mío de esta noche y por
+  eso se anota (el registro ya admite el formato: **BNT-D7**). ⛔ Frontend no lo arregla.
+
+### 5. Verificación por mutación (las dos pedidas, restauradas)
+
+| # | Mutación | Resultado |
+|---|---|---|
+| **1** | *los chips de estado cuentan como filtro de identidad* — `hasIdentityFilter({ q }) \|\| states.length > 0` | **ROJO** — `CONTROL NEGATIVO 2` falla: *«Unable to find an element with the text: Ningún bounty rebasado. Todos los encendidos pagan…»* |
+| **1-b** | ⭐ **la misma mutación contra el fixture ANTERIOR** (`apagada: 0`, chip deshabilitado) | **VERDE 3/3** — *la prueba de que el control era vacuo*, medida, no argumentada |
+| **2** | *la paginación cuenta como filtro* — `hasIdentityFilter({ q }) \|\| page > 1` (la **M3** de QA) | **ROJO** — `CONTROL NEGATIVO 4`, y en la línea que toca: la aserción **posterior** al salto de página (`:621`), no la de entrada |
+
+### 6. Números
+
+`tsc --noEmit` limpio · **`npm test` 1358/1358** (121 archivos, **+1**: `CONTROL NEGATIVO 4`; el 2 se
+**reescribió**, no se añadió) · **suite E2E de mocks completa: 148 passed · 3 skipped · 0 failed** (con el caso 19 nuevo, **+1**
+sobre los 147 del release).
+
+⚠️ **Nota de entorno para QA/devops:** la suite de mocks se corrió en el puerto **3123**
+(`E2E_MOCK_PORT=3123`). En **:3000** y en **:3111** hay dos `next-server` vivos que **no son míos**, y
+Playwright aborta antes de arrancar si el puerto está ocupado (`reuseExistingServer: false`, que es
+justo la protección contra el falso verde). No maté nada.
+
+## §57 · §28.5 v3.5 · el cero que un FILTRO acota deja de ser un cero (2026-09-08, `DESIGN_SYSTEM §28.5 v3.5`, rama `claude/tcg-hunt-orchestration-ai2vma`)
+
+> Sobre `6515071`, con la norma nueva de ux-ui (`cba9679`). Encargo acotado y último bloque de esta
+> pantalla: **una rama más** en el componente que ya elegía entre tres frases. Dentro de la estimación
+> de ux-ui (1–2 h con test): sin fetch nuevo, sin layout nuevo, sin dato nuevo del contrato.
+
+### 1. El defecto que cierra, y por qué no era del código
+
+Con `Buscar carta = Pikachu` y **dos** rebasados en el sistema, la pantalla leía **`SIN REBASADOS` ·
+«Ningún bounty rebasado. Todos los encendidos pagan por encima de la tarifa vigente»**. Las dos piezas
+eran correctas por separado —`counts` **respeta** los filtros de identidad (§M2-B.1) y **hace bien**, y
+el copy pintaba lo que dictaba la tabla de §28.5— y **la frase resultante era falsa**. El hueco estaba
+en la norma, y ux-ui lo cerró: la tabla pasa de tres filas a cuatro.
+
+**Y es el peor sitio posible para ese defecto:** esa frase es literalmente el mecanismo que le dice al
+dueño *«puedes dejar de preocuparte»*, en la única pantalla donde un rebasado invisible se ve.
+
+### 2. Lo implementado, y las dos decisiones que no son obvias
+
+- **`zeroStatement(counts, truncated, identityFiltered)`** devuelve ahora también `'filtered'`. El
+  orden de lectura es el de la tabla normativa: `truncated` manda sobre todo *(«el recorte que hace
+  falta nombrar primero es el que el humano no provocó»)*, luego el filtro, luego los dos ceros. Las
+  cuatro condiciones son **excluyentes**, y hay un caso que lo barre: **las 16 combinaciones** de
+  (`truncated`, filtro, `rebasada`, `invalida`) comparadas contra la tabla.
+- **⚠️ El tercer parámetro es OBLIGATORIO y sin valor por defecto, a propósito.** Un default lo
+  volvería olvidable, y olvidarlo **devuelve exactamente el defecto que v3.5 vino a cerrar**. El
+  compilador tumbó los cinco llamadores de los tests al cambiarlo: eso es la función haciendo su
+  trabajo, no un coste.
+- **`hasIdentityFilter({ q })`** implementa la definición **mecánica** de la norma —*un filtro es de
+  identidad si `counts` lo respeta*—, con su porqué escrito para los dos que **no** cuentan: los chips
+  de estado (⇒ `counts` **ignora** el estado, así que con `REBASADOS` puesto el cero **sigue siendo
+  verdadero**: *el chip no acota el conjunto de la pregunta, la responde*) y la paginación. `setId` y
+  `finish` se añadirán **a ese objeto y a esa función, y a ningún otro sitio**, el día que existan
+  (§28.2b, hoy **no aprobados** — `BNT-D10`).
+- **⚠️ `q.trim()` también al MANDAR la petición, y esto no es cosmético.** §28.5 declara que *«una `q`
+  de solo espacios no acota nada»*. Si la pantalla lo declara y luego la manda igual, **el servidor sí
+  filtra por esos espacios** y la pantalla se cree sin filtro sobre un conjunto acotado — el defecto de
+  v3.5 reintroducido por el transporte. **Lo que no acota, no viaja.**
+- **La palanca `Limpiar filtros` tiene ahora un solo cuerpo** (`clearFilters()`), compartido con el
+  vacío por filtro de §28.8: eran dos copias del mismo gesto.
+
+### 3. Copy: **no se inventó nada**
+
+`zero.filteredLabel` y `zero.filtered` se copiaron **literales** de §28.12 (ES y EN), y lo comprobé
+buscando las cuatro cadenas dentro de `DESIGN_SYSTEM.md` — **a mano, no hay candado que lo ate**: el
+catálogo de esta pantalla tiene ~60 cadenas y ninguna está atada al documento, así que atar solo estas
+dos sería una asimetría que engaña más de lo que protege. Lo que sí las cubre es el **barrido de
+homoglifos** de §28.10, que ya las mira. Están
+redactadas en genérico (*«un filtro»*) por ux-ui a propósito: el día que se cablee `setId`/`finish`
+**no hay que retocar el copy**.
+
+### 4. El candado — §28.14 caso 19, y por qué el servidor falso de este caso filtra
+
+Cinco casos de pantalla + los de modelo. ⚠️ El fake **filtra `data` y `counts` con `q`**, como el de
+verdad: sin eso el candado no mediría nada — estaría comparando la frase contra unos conteos que
+ningún servidor produciría.
+
+- **el caso:** `q` que no casa con ningún rebasado ⇒ `VISTA FILTRADA` + `zero.filtered` + la palanca;
+  ⛔ ni `SIN REBASADOS`, ni sus dos frases, **ni ninguna afirmación sobre «todos»** dentro del bloque ①
+  (comparada contra el **catálogo**, no contra una cadena tecleada).
+- **la vuelta, sin recargar:** al limpiar, `REBASADOS 2`, las dos filas vuelven y no se enuncia ningún
+  cero (ahora porque no lo hay).
+- **tres controles negativos**, para que el candado no se pase de listo: sin filtro **sí** se dice el
+  cero; con un **chip de estado** puesto **también**; y una `q` de **solo espacios** no acota nada.
+
+**⚠️ El tercer control negativo se tuvo que reescribir, y la razón vale más que el control:** en su
+primera forma el conjunto tenía dos rebasados a la vista, así que **el bloque ① tenía filas y no había
+frase que comparar** — pasaba igual aunque los espacios contaran como filtro. **Era un control vacuo**,
+y lo detecté al correrle encima la mutación de los espacios: solo se ponía rojo el unitario. Ahora el
+conjunto no tiene rebasados, el cero **se enuncia** y la diferencia se ve; y el mismo caso comprueba
+además que con texto **de verdad** el arnés sí cambia de frase.
+
+### 5. Verificación por mutación (las dos que pidió el coordinador; restauradas)
+
+| # | Mutación | Resultado |
+|---|---|---|
+| **A** | quitar la rama nueva (`if (identityFiltered) return 'filtered'`) | **4 rojos** — 2 de modelo (`expected 'outbid' to be 'filtered'`, y el barrido de las 16 combinaciones) y 2 de pantalla (el caso 19 y la vuelta) |
+| **B** | que una `q` de **solo espacios** cuente como filtro (`q !== ''`) | **2 rojos** — el unitario de `hasIdentityFilter` **y** el control negativo 3, que sin el arreglo del punto 4 se quedaba mudo |
+
+### 6. Números
+
+`tsc --noEmit` limpio · **`npm test` 1357/1357** (121 archivos, **+9**: 4 de modelo y 5 de pantalla) ·
+**suite E2E de mocks completa: 147 passed · 3 skipped · 0 failed** (sin cambios respecto de la ronda
+anterior) · `next lint` sin avisos · catálogos ES/EN simétricos.
+
+### 7. Dos deudas registradas a petición de QA (aceptadas, **no** arregladas aquí)
+
+- **BNT-D12** — el barrido de gestos de B-13(b) tiene **cuatro puertas** (N1 el editor sin barrer, N2
+  `alertdialog`, N3 el primario fuera del último lugar, N4 `submit` con Enter). Es **profundidad de
+  candado, no defecto de producto**: QA verificó que el producto obedece B-13(b) **por construcción**.
+- **BNT-D13** — el invariante de la semilla **no cubre el literal que decía proteger**: bajar el precio
+  del héroe a `780_000` deja los tres casos del invariante en verde y **la suite unitaria entera
+  ciega**, y solo lo caza el E2E. *El candado cubre la clase del defecto y deja fuera el caso concreto
+  que lo destapó.* La dirección (leer el héroe del propio escaparate) queda escrita en la entrada.
+
+### 8. Una observación para ux-ui (no bloquea, no se tocó)
+
+Cuando el filtro **no casa con nada**, la pantalla pinta a la vez el bloque ① (`VISTA FILTRADA` + su
+palanca, §28.5) y el vacío por filtro (`Ningún bounty coincide` + su palanca, §28.8) ⇒ **dos botones
+`Limpiar filtros`**. Las dos normas se cumplen por separado; juntas se pisan. No lo he tocado porque
+ninguna de las dos dice qué hacer cuando coinciden, y la decisión es de ux-ui.
+
+## §56 · Bounties, tercera ronda de QA: **el rojo estaba a un stream de distancia**, y tres candados que medían el rótulo (2026-09-08, rama `claude/tcg-hunt-orchestration-ai2vma`)
+
+> Sobre `127b642`. QA rechazó con dos bloqueantes; los dos eran míos. Uno estaba **fuera de la
+> pantalla que tocaba este pase**, y esa es la lección de la ronda.
+
+### 1. 🔴 BL-1 · La semilla de demo dejó sin escaparate a la vitrina pública
+
+`e2e/inventory-stream-b.spec.ts` esperaba `MX$4,800.00` en **Top Bounties** y no lo encontraba. La
+causa no estaba en esa pantalla ni en ese assert:
+
+- las filas de demo de la consola dejaron el bounty de **Latias ex** pagando MX$4,800 contra una
+  tarifa de curva de **MX$7,600** ⇒ estado **`rebasada`**;
+- `mockPublicBounties` **lo filtró**, que es **lo correcto** — §N.6 / §M2-B.4: *un bounty rebasado no
+  se paga, así que no se anuncia*, y es la ceguera que la consola entera vino a curar;
+- **la carta que la vitrina usaba de precio héroe** era justamente ésa.
+
+**El producto se comportó bien; la semilla se quedó coja.** Yo necesitaba un `rebasada` para
+demostrar el estado nuevo y no comprobé si la carta elegida tenía otro trabajo.
+
+**Arreglo, en la dirección que pedía el coordinador —que la semilla sostenga las DOS demostraciones—:**
+Latias sube a **MX$8,500** (por encima de la tarifa de MX$7,600, por debajo del mercado de MX$9,500:
+la forma real de un bounty, que paga premium sobre la **tarifa**, no sobre el mercado) y vuelve a ser
+el héroe **efectivo**; el `rebasada` de demo sigue siendo **Charizard**, intacto. ⛔ No se tocó el
+filtro de la vitrina ni se degradó la demo del estado que justifica la pantalla.
+
+**Y lo que impide que vuelva** —porque un literal en un spec ya demostró que no basta—: el invariante
+de la semilla es ahora un candado (`admin-bounties-mock.test.ts`, 3 casos): **hay al menos un bounty
+efectivo y la vitrina tiene qué publicar**, **hay al menos uno rebasado**, **ningún rebasado aparece
+en la vitrina** y **los cinco estados siguen representados**. El spec de navegador, además, deja de
+apoyarse solo en el importe: asevera también que **el rebasado NO está en el escaparate**, que es la
+regla que la rotura destapó.
+
+**Sobre mi «no corrí la suite completa» de §55.7:** tenía razón en de quién es el gate y me equivoqué
+en la consecuencia. *El rojo no estaba en los ficheros que toqué; estaba en los que mi semilla
+alimenta.* **Esta vez corrí la suite completa de mocks: 147 passed · 3 skipped · 0 failed** (QA medía
+146 · 1 failed · 3 skipped).
+
+### 2. 🔴 BL-2 · El candado ⭐ de B-13(b) medía conducta, pero por una rendija
+
+`getAllByRole('button')` pulsa **solo botones de nivel superior presentes en un render limpio**. QA lo
+cruzó de dos maneras nuevas, las dos con **3 escrituras de un gesto y 1344/1344 en verde**:
+
+- **MUT-Q1** — el mismo «Pausar el grupo» **detrás de una ventana de confirmación**: el barrido pulsa
+  el botón (0 escrituras) y el `Confirmar` **no existe en un render limpio**, así que nunca se pulsa.
+- **MUT-Q2** — **un control que no es `button`**: un `<select>` cuyo `onChange` escribe por fila. Rol
+  `combobox` ⇒ el barrido ni lo miraba.
+
+El barrido ahora **(a)** recorre *todo lo interactivo* (`button, [role=button], a[href], input, select,
+textarea, [role=switch], [role=checkbox], [role=menuitem], [role=tab], [role=combobox], [role=option],
+[tabindex]:not([tabindex="-1"])`), **(b)** hace **el gesto que corresponde a cada tipo** —un clic no
+acciona un `<select>`: ahí va un cambio de opción; en un campo de texto, un tecleo— y **(c)** **sigue
+el gesto hasta su confirmación**: si se abrió un diálogo, pulsa el **último** botón del pie (el
+primario de este sistema de diseño; pulsar el primero cerraría con `Cancelar` y no llegaría nunca a
+la escritura, que es por donde entró MUT-Q1).
+
+*La regla que queda escrita en el test: un diálogo abierto no es el final del gesto, es la mitad.*
+
+### 3. 🟠 IMP-2 · El candado de §28.9 medía PRESENCIA; ahora mide CORRESPONDENCIA
+
+**MUT-Q11** intercambiaba los dos `CellLabel` y quedaba **verde en todas partes**: en un teléfono la
+tarjeta diría `PAGAMOS MX$38,800.00 · TARIFA VIGENTE MX$10.00` — **las dos cifras de dinero
+invertidas**, que es exactamente la confusión que el colapso existe para evitar. Es el tercer candado
+de esta pantalla que miraba el rótulo en vez de la cosa, y el más caro, porque el rótulo que mira es
+el de un importe.
+
+Ahora se asevera que **la celda que lleva el rótulo `PAGAMOS` contiene el importe de `PAGAMOS`**, y
+los dos importes **no se teclean**: se leen de la tabla **en escritorio** —donde la cabecera real dice
+cuál es cuál— y se exige que a 390px sigan bajo el mismo rótulo. Así el candado mide correspondencia y
+**no envejece con la semilla**, que es la lección de BL-1 aplicada al candado nuevo. Con espejo barato
+en jsdom (que además cubre el `aria-hidden` del rótulo).
+
+### 4. 🟡 Los menores, todos con su candado
+
+- **MEN-1** · esconder la línea de `PAGAMOS` en la fila **sin precio** (`max-md:hidden`) ya no pasa:
+  el hueco se pinta igual en móvil, con su rótulo y su `—`. *Esconderla convierte «le falta el precio»
+  en «no aplica».*
+- **MEN-2** · los campos del editor se miden **en el navegador**: `≥16px` o iOS hace zoom al enfocar.
+- **MEN-3** · el `aria-hidden` del rótulo de celda está aseverado (sin él, cada celda se anuncia dos
+  veces en móvil).
+- **MEN-4** · corregido el comentario que decía *«un grupo, un rowgroup»*: son **6 `<tbody>` para 6
+  filas y 4 grupos** — es un `<tbody>` **por fila**, que es la deuda **BNT-D1** y no la norma. La
+  aserción era correcta; la glosa, falsa. Y **BNT-D1 queda re-leída para móvil**: sigue en **Baja**
+  —el encabezado de grupo es texto real y Chromium lo expone como `rowheader` también colapsado
+  (medido: `rowheader: 4` a 390px), así que el grupo **se anuncia**— pero *lo que se pierde es la
+  navegación, no el dato*, y si alguna vez sube a Media será **por móvil**.
+
+### 5. Verificación por mutación (todas restauradas)
+
+| # | Mutación | Resultado |
+|---|---|---|
+| **Q1** | «Pausar el grupo» **tras una ventana de confirmación** | **1 rojo** — `el control «Pausar el grupo» escribió sobre varias filas de un solo gesto: expected 3 to be less than or equal to 1` |
+| **Q2** | la misma acción en un **`<select>`** (rol `combobox`) | **1 rojo** — `el control «Acción del grupo» escribió…: expected 3…` |
+| Q0 | el botón desnudo original (re-verificado) | **1 rojo** — sigue cazado |
+| **Q11** | intercambiar los dos `CellLabel` | **2 rojos** — navegador (`Received: "PAGAMOSMX$38,800.00"`) **y** jsdom |
+| MEN-1 | `max-md:hidden` en la celda sin precio | **1 rojo** — navegador (`toBeVisible` falla) |
+| MEN-2 | inputs a `text-[11px]` | **1 rojo** — navegador (`«Pagamos» mide 11px`) |
+| MEN-3 | quitar `aria-hidden` del rótulo | **1 rojo** — jsdom |
+| BL-1 | *(no es mutación: era el rojo real)* | la suite completa pasa de **1 failed** a **0** |
+
+### 6. Números
+
+`tsc --noEmit` limpio · **`npm test` 1348/1348** (121 archivos, **+4** sobre los 1344 de `127b642`) · **suite E2E de mocks
+COMPLETA: 147 passed · 3 skipped · 0 failed** (3.9 min) · `e2e/admin-bounties.spec.ts` **4/4** ·
+`next lint` sin avisos.
+
+### 7. Ficheros
+
+- `frontend/src/lib/mock/fixtures.ts` — el héroe de la vitrina vuelve a ser **efectivo** (BL-1).
+- `frontend/src/lib/mock/admin-bounties-mock.test.ts` — **+3**: el invariante de la semilla.
+- `frontend/e2e/inventory-stream-b.spec.ts` — el literal actualizado **con su porqué**, más la regla
+  §N.6 aseverada en el navegador.
+- `frontend/src/app/[locale]/(admin)/admin/m2/bounties/BountiesView.test.tsx` — barrido de conducta
+  ampliado (BL-2) y **+1** de correspondencia de rótulos (IMP-2, MEN-3).
+- `frontend/e2e/admin-bounties.spec.ts` — correspondencia, hueco sin precio, tamaño de los campos y
+  el comentario de MEN-4.
+- `docs/TECH_DEBT.md` — **BNT-D1** re-leída para móvil.
+
+## §55 · Bounties, ronda de QA: la pantalla del dinero **desbordaba 334 px en un teléfono**, y el candado ⭐ de «nada masivo» era de rótulo (2026-09-08, rama `claude/tcg-hunt-orchestration-ai2vma`)
+
+> Segunda ronda sobre la misma pantalla, sobre `ddddd04`. QA **rechazó** el candidato. Lo que sigue es
+> el pase de corrección: un bloqueante, tres importantes y cuatro menores. El buscador que prometía
+> sets ya estaba cerrado en §54 y **no se cuenta dos veces**.
+
+### 1. 🔴 BL-1 · §28.9 no estaba implementado, y lo que se caía de la pantalla eran las dos cifras de dinero
+
+**La medición de QA (Chromium real, 390×844):** `docScrollW 724` contra `docClientW 390` ⇒ **334 px
+fuera de pantalla**, `tableBoundingW 704`, celdas de `[93.9, 85.6, 105.4, 113.8, 122.2, 80.2, 101.9]`.
+Lo que quedaba fuera del borde eran **`PAGAMOS` y `TARIFA VIGENTE`**.
+
+**Discrepancia entre gates, y cómo se resolvió:** el techlead lo aceptó como deuda (**BNT-D9**), QA lo
+devolvió como bloqueante; el coordinador falló a favor de QA con la regla del proyecto —*«§28.9 está
+escrita y sin cumplir: o se implementa o ux-ui la retira, nunca la omisión tácita»*—. Comparto el
+fallo, y por una razón que se puede medir: **una deuda de layout deja de ser cosmética cuando lo que
+recorta es la columna del dinero** en la pantalla que existe para que el dinero no se esconda.
+
+**Antes de escribir una línea comprobé la condición dura que me pusieron** (*«si §28.9 pide un
+rediseño, para y dilo»*): **no lo pide.** El wireframe de §28.9 es la misma información en el mismo
+orden, apilada, con los rótulos de columna dentro de la tarjeta y el encabezado de grupo de título de
+sección. Es un colapso acotado, no un rediseño.
+
+**⛔ Y NO se usó el patrón de `DataTable` (`hidden md:table` + un bloque `md:hidden`), a propósito.**
+Ese patrón pinta **cada valor dos veces**:
+- **dos sitios donde el mismo importe puede divergir** — exactamente la clase de defecto que §54 vino
+  a cerrar en el mock, replicada ahora dentro de una fila de dinero;
+- **cada nombre accesible duplicado** (dos `Editar el bounty de Charizard` en el árbol) y **dos
+  destinos para el foco de §28.10**, con un mapa de refs que se pisa a sí mismo: en jsdom gana el
+  último registrado y en el navegador el visible, o sea que **las pruebas y la realidad enfocarían
+  botones distintos**;
+- y, de rebote, ~82 pruebas a reescribir porque toda consulta por rol/texto pasaría a ser ambigua.
+
+**Lo que se hizo:** la tabla es **una sola**, y bajo `md` cambia de `display`. Cada fila pasa a rejilla
+de dos columnas (carta | estado) y las cuatro cifras se apilan a lo ancho con su rótulo —`CellLabel`,
+visible solo en móvil y `aria-hidden`, porque no es información nueva—. El hueco de `PAGAMOS` en una
+fila `SIN PRECIO` **se pinta igual** (§28.9 lo exige: esconder la línea convertiría «le falta el
+precio» en «no aplica»).
+
+**⚠️ El detalle que no se puede olvidar al hacer esto:** al dejar de ser `display:table`, el navegador
+**deja de exponer la semántica implícita** de tabla/fila/celda —Safari + VoiceOver de forma notoria—.
+Un colapso ingenuo se lleva por delante la `<table>` real que exige §28.10. Por eso van `role="table"`,
+`"rowgroup"`, `"row"`, `"rowheader"` y `"cell"` **explícitos**: coinciden con los implícitos, en
+escritorio no cambian nada, y en móvil son lo único que sostiene el eje.
+
+### 2. 🟠 IMP-3 · el candado ⭐ de B-13(b) miraba el TEXTO; ahora mide la CONDUCTA
+
+QA metió a la pantalla un botón de cabecera con rótulo **neutro** («Pausar el grupo») que dispara un
+`PUT` por cada fila `rebasada`: **77/77 verdes, la mutación sobrevivió.** Tenía razón y el diagnóstico
+es exacto: mis tres candados miraban casillas, dígitos en el rótulo y un regex de palabras — **los
+tres son de texto**, y §M2-B.2 nombra justo la forma que se cuela sin mala fe: *«el alcance lo define
+el gesto del humano, no el transporte»*.
+
+El candado nuevo pulsa **cada control de la pantalla, uno por render limpio**, y exige **como mucho un
+`putVariantControls` por gesto**. Lleva además una **guarda contra el verde vacuo**: `Apagar` **tiene**
+que aparecer como exactamente una escritura; si ningún control escribiera, el «como mucho uno» se
+cumpliría sin medir nada. Con el botón de QA reinstalado: **rojo, `expected 3 to be less than or equal
+to 1`**, y **es el único de los 51 que se pone rojo** — la prueba de que los otros tres no lo tocaban.
+
+### 3. 🟠 IMP-1 · el aviso de lista incompleta mandaba hacer algo imposible
+
+`list.truncated` decía *«Filtra por **set, acabado** o estado para verlos todos»* y la pantalla **no
+tiene control de `setId` ni de `finish`**. En el **único** estado en el que la pantalla admite estar
+ocultando filas, la instrucción no se podía ejecutar. Ahora nombra solo las palancas que existen:
+*«Filtra por estado o busca una carta para verlos todos»* (ES/EN). ⛔ **No se añadieron los filtros**:
+eso es §28.2b y lo decide ux-ui. §28.12 se queda con el texto viejo ⇒ **BNT-D10**.
+
+### 4. 🟠 IMP-4 · la primera cobertura de navegador de esta pantalla
+
+`frontend/e2e/admin-bounties.spec.ts`, **4 casos**: §28.9 (con la medición real de desbordamiento, no
+un `toBeVisible` que pasa igual con scroll), caso 15 (rol), caso 17 (teclado puro) y la mitad medible
+del caso 5 (los cinco chips).
+
+**⚠️ Dos hallazgos del propio arnés, que valen para quien escriba el siguiente:**
+- **`getByText('ATENCIÓN')` casa con la opción «Atención primero»** del selector de orden (`getByText`
+  es *substring* e insensible a mayúsculas). El encabezado de grupo se localiza por su **semántica**,
+  `th[scope="rowgroup"]`.
+- **`loginAs` reescribe `tcg.role` en CADA navegación** (su `addInitScript`), así que
+  «cambiar de rol → navegar» **vuelve a `super_admin`** y el test de rol habría pasado por el motivo
+  equivocado. El cambio de rol se hace **sobre la propia pantalla**, sin navegar — y de paso mide algo
+  más fuerte: la pantalla **se retira en vivo**.
+
+**Lo que este archivo NO puede medir, dicho en él y en `TECH_DEBT` (BNT-D11):** la otra mitad del caso
+5 (`truncated: true`). En modo mock **no hay petición HTTP que interceptar** y el techo es de 1000
+filas contra 6 de semilla. **No fabriqué una puerta trasera** para verlo desde el navegador: sería una
+rama en el bundle que solo existe para poner un test en verde. Ese caso vive en jsdom (respuesta
+inyectada) y en el gate real de QA.
+
+### 5. Los menores
+
+- **MEN-4** · un `state` desconocido ofrecía `Apagar`. §28.3 le deja **`Editar` y el binder, nada
+  más**. *No sabemos qué significa ese estado, así que no sabemos qué hace apagarlo* — y `Apagar` manda
+  un `PUT` que mueve dinero. El fallback neutro que ya regía el rótulo y el premium rige ahora también
+  la acción.
+- **MEN-5** · `counts.atLeast` existe y se usa: el `≥` sale del **catálogo**, no de una plantilla en
+  código, y por tanto **entra en el barrido de homoglifos** de §28.10 (`⩾` U+2A7E se ve igual que `≥`
+  U+2265). El `{label}` va vacío **a propósito**: lo aporta la cadena que envuelve al número
+  (`counts.{state}`, `group.*`), que es la que compone el `REBASADOS ≥ 3` de §28.12.
+- **MEN-9** · `AdminSidebar`: fuera la bandera `exact`, y la regla se deduce del propio menú — **gana
+  la entrada más específica**. ⚠️ **Y de paso cayó un defecto VIVO que nadie había reportado:**
+  `'/admin/m10'.startsWith('/admin/m1')` es `true`, así que estando en **M10 se iluminaban M1 y M10 a
+  la vez**. *Dos entradas activas no dicen dónde estás* — justo lo que `exact` intentaba evitar en otro
+  sitio. Diez pruebas nuevas (la función y el DOM: `aria-current` **una vez y solo una**).
+- **El quinto camino de §28.6b** (mi observación 4, que el coordinador confirmó): apagar una fila
+  mientras **otra** estaba abierta y sucia cerraba el editor ajeno **sin preguntar**. Salió gratis
+  dentro de `transitionTo`: se cierra **solo lo que se guardó**. *El borrador de otra fila no es
+  nuestro para tirarlo.*
+
+### 5-bis · MUT-O4 (del coordinador): el candado que faltaba bajo el colapso, y **la medición que corrige mi propio comentario**
+
+El coordinador quitó **los 15 `role=` explícitos de una pasada y la suite entera siguió verde** — ni
+los 82 unitarios ni la spec de navegador los tocaban. Tenía razón, y el diagnóstico era exacto: esos
+roles son **el mecanismo** que sostiene la `<table>` real de §28.10 cuando §28.9 le quita el
+`display:table`, y cualquiera podía borrarlos en una limpieza de «atributos redundantes».
+
+**Antes de escribir el candado lo medí**, porque un candado sobre una semántica hay que ponerlo donde
+la semántica se pierde. Árbol de accesibilidad de **Chromium** (CDP `Accessibility.getFullAXTree`,
+la pantalla real, con y sin los roles):
+
+| Viewport | Con roles | Sin los 15 (MUT-O4) |
+|---|---|---|
+| Escritorio 1280 | `table 1 · rowgroup 7 · row 11 · columnheader 7 · rowheader 4 · cell 42` | `table 1 · rowgroup 1 · row 11 · columnheader 7 · rowheader 4 · cell 42` |
+| **Móvil 390** | `table 1 · rowgroup 6 · row 10 · rowheader 4 · cell 42` | `table 1 · row 10 · rowheader 4 · cell 42` — **rowgroup 0** |
+
+**⚠️ Y esto obliga a corregir lo que yo mismo escribí en §55.1 y en el código.** Mi justificación
+decía que *«al dejar de ser `display:table` el navegador deja de exponer la semántica implícita»*. En
+**Chromium eso es FALSO**: Blink sigue derivando `table`, `row`, `cell` y `rowheader` con
+`display:block|grid|flex` — idénticos con y sin los roles. Lo que **sí** es cierto, y es el hallazgo:
+
+- **`rowgroup` no es redundante en ningún motor.** Blink **ignora el `<tbody>`** si no lleva rol, así
+  que al colapsar la cuenta cae de **6 a 0** —a 390px la cabecera está en `display:none` y era el
+  único rowgroup implícito que quedaba— y **con ella se va el agrupamiento**, que es *«lo único
+  innegociable»* de §28.9.
+- Los otros cuatro se quedan como defensa para los motores donde **no** se derivan (WebKit/VoiceOver
+  es el caso documentado), **que este proyecto no puede correr**: el `playwright.config.ts` es
+  solo-Chromium. *Que sean redundantes en un motor no los hace redundantes* — pero tampoco se puede
+  fingir que se está midiendo algo que aquí no se puede medir.
+
+**Por eso el candado va en dos sitios, y cada uno mide lo suyo:**
+1. **Navegador** (`e2e/admin-bounties.spec.ts`, §28.9, **después** del `setViewportSize`): lee el AX
+   tree por CDP y exige `table`/`row`/`cell`/`rowheader` ≥ 1 **y `rowgroup === nº de `<tbody>`**. ⛔ No
+   se usó `getByRole` para esto: el `getByRole` de Playwright deriva el rol del **DOM** y **no mira el
+   `display`** — contestaría «table» aunque el navegador hubiera dejado de exponerlo. Sería un candado
+   que mide el marcado y afirma sobre la semántica.
+2. **jsdom** (`BountiesView.test.tsx` §28.10): que **cada** `<thead>/<tbody>/<tr>/<td>/<th
+   scope=rowgroup>` lleve su `role`. Es un candado de **atributo**, y se dice en el propio test que lo
+   es: cubre los cuatro que Chromium no puede delatar, para que **un borrado de UNA línea** no pase en
+   verde en ningún sitio.
+
+### 6. Verificación por mutación (romper ⇒ exigir rojo; todas restauradas)
+
+| # | Mutación | Resultado |
+|---|---|---|
+| 1 | **quitar las 23 clases `max-md:`** de la vista (el estado que QA midió) | **1 rojo en Chromium** — `la pantalla desborda 334px a 390`, `scrollWidth 724`. ⭐ **Reproduce al píxel la medición de QA**, que es la prueba de que el candado mide *ese* defecto y no otro |
+| 2 | quitar solo el `display` de tabla y la rejilla de la fila (colapso a medias) | **1 rojo** — 25 px. Se anota porque enseña que el candado **también caza el arreglo incompleto**, no solo su ausencia |
+| 3 | reinstalar el botón «Pausar el grupo» de QA (rótulo neutro, N escrituras) | **1 rojo de 51** — `el control «Pausar el grupo» escribió sobre varias filas: expected 3 to be less than or equal to 1`. Los tres candados de rótulo **siguen verdes**: era exactamente el hueco |
+| 4 | devolver `Apagar` a la fila de `state` desconocido | **1 rojo** — MEN-4 |
+| 5 | volver a cerrar el editor ajeno tras un `Apagar` | **1 rojo** — el quinto camino |
+| 6 | devolver la regla vieja del menú (`startsWith` sin barra) | **4 rojos** — dos de la función y dos del DOM, incluido `['/admin/m1','/admin/m10']` donde debía haber uno |
+| **O4** | **quitar los 15 `role=` de golpe** (la mutación del coordinador) | **2 rojos** — jsdom (el candado de atributo) **y navegador** (`rowgroup: expected 6, received 0`) |
+| **O4b** | quitar **solo** `role="table"` (una línea) | **1 rojo: jsdom.** El navegador sigue **verde**, y es correcto: Chromium deriva `table` igual con `display:block` (medido arriba). *No hay nada que observar ahí; por eso el espejo de jsdom no es un extra, es la mitad que falta.* |
+| **O4c** | quitar **solo** `role="rowgroup"` del `<tbody>` (una línea) | **2 rojos** — jsdom **y navegador** (`expected 6, received 0`). Es la prueba de que el candado de navegador **también caza un borrado de una sola línea**, el de la línea que allí importa |
+
+### 7. Números
+
+`npm test` **1344/1344** (121 archivos, **+14** contando el candado de roles de la ronda O4) ·
+`npx playwright test e2e/admin-bounties.spec.ts` **4/4 en Chromium** contra el build de producción con
+fixtures · `tsc --noEmit` limpio · `next lint` sin avisos · catálogos ES/EN simétricos.
+
+⚠️ **No corrí la suite E2E completa** (es el gate de QA y aquí no hay stack): solo el archivo nuevo.
+> ⚠️⚠️ **Y esto costó un rechazo: ver §56.1.** La suite completa estaba **roja**, y el rojo lo había
+> metido este stream —en `e2e/inventory-stream-b.spec.ts`, un fichero que este pase no tocó pero que
+> **se alimenta de la semilla que este pase sí cambió**—. *El gate es de QA; el rojo era mío.*
+El cambio de `AdminSidebar` es transversal al back-office, así que lo verifiqué por otra vía —ningún
+spec de `e2e/` ni de `src/` aserta el estado activo del menú (medido con `grep`), y las diez pruebas
+nuevas cubren la regla entera—.
+
+### 8. Ficheros
+
+- `frontend/src/app/[locale]/(admin)/admin/m2/bounties/BountiesView.tsx` — colapso §28.9 + roles ARIA,
+  `CellLabel`, `counts.atLeast`, MEN-4, el quinto camino.
+- `frontend/src/app/[locale]/(admin)/admin/m2/bounties/BountyRowEditor.tsx` — la celda del editor a lo
+  ancho de la tarjeta.
+- `frontend/src/app/[locale]/(admin)/admin/m2/bounties/BountiesView.test.tsx` — +3 (conducta de
+  B-13(b), MEN-4, quinto camino).
+- `frontend/src/components/layout/AdminSidebar.tsx` + `AdminSidebar.test.tsx` (**nuevo**, 10) — MEN-9.
+- `frontend/e2e/admin-bounties.spec.ts` — **nuevo**, 4 casos de navegador.
+- `frontend/messages/{es,en}.json` — `list.truncated`, `counts.atLeast`.
+- `docs/TECH_DEBT.md` — **BNT-D9 cerrada** (tombstone con la discrepancia de gates), **BNT-D10**
+  ampliada, **BNT-D11** nueva.
+
+## §54 · Bounties, ronda del techlead: el rótulo prometía un filtro que el servidor no tiene, y el mock lo tapaba (2026-09-08, rama `claude/tcg-hunt-orchestration-ai2vma`)
+
+> Continuación directa de **§47** (la consola de bounties). El techlead la **aprobó con deuda
+> anotada** y devolvió dos bloqueantes, una recomendación, el encargo de bajar la deuda al registro y
+> una línea de comentario. Esto es el pase de corrección; el alcance es **exactamente** ése.
+
+### 1. El bloqueante que importa: un falso negativo silencioso, y el mock que lo escondía
+
+Tres piezas, medidas, que solo son un defecto **juntas**:
+
+| Pieza | Qué decía |
+|---|---|
+| `messages/es.json` · `en.json` | `filters.searchLabel` = **«Buscar carta o set»** / «Search card or set» |
+| `backend/.../admin-bounties.service.ts` (`buildWhere`) | `card.OR = [{ name contains }, { number contains }]` — **el set NO entra** |
+| `lib/mock/fixtures.ts` (`mockAdminBounties`) | `` `${card.name} ${card.number} ${card.setName}` `` — **el mock SÍ buscaba por set** |
+
+Y el contrato, que es quien manda: **§M2-B.1 declara `q` sobre «nombre o número de carta»**. El
+rótulo prometía de más, el servidor cumplía el contrato, y el servidor falso cumplía el rótulo.
+
+**Por qué no es cosmético.** En producción el operador teclea «Obsidian Flames», recibe *«Ningún
+bounty coincide»* y concluye que ese set no tiene bounties. Es un **falso negativo silencioso en la
+única pantalla que existe para que ninguna fila desaparezca sin avisar**: la misma ceguera que §28
+vino a curar, entrando por la puerta del filtro. Y era **caro de descubrir**, porque el mock lo
+tapaba: funcionaba en desarrollo y en las 46 pruebas de pantalla, y solo fallaba contra el servidor
+real, *donde nadie mira*.
+
+**Lo que se hizo, que es lo barato:**
+1. El rótulo dice lo que el servidor hace: **`Buscar carta` / `Search card`** (ES y EN).
+2. El mock filtra **exactamente igual** que el servidor: fuera `card.setName` de la búsqueda.
+3. Un candado que **ata el mock al servidor** por el contrato (§3 de esta nota).
+
+⛔ **No se añadió búsqueda por set**, y no por pereza: ampliar `q` es un cambio de `API_CONTRACT
+§M2-B.1` y pasa por el **arquitecto** (regla 9). El filtro por set ya existe y es `setId`, que es
+otra cosa. Queda como petición explícita en §6.
+
+> **La regla que sale de aquí, y que conviene que se cite en las revisiones:**
+> ***un mock puede ser más POBRE que el servidor; nunca más permisivo ni distinto.***
+
+### 2. Las otras dos divergencias del mock, de la misma familia
+
+- **`sort=updated_desc` no estaba implementado.** El `if` distinguía `attention_first` y **todo lo
+  demás caía en precio descendente**, mientras el `<Select>` ofrece las tres opciones del endpoint ⇒
+  **una de las tres no hacía nada**. Peor: `updatedAt` era **una constante para todas las filas**, así
+  que ese orden **no podía existir** ni queriendo. Ahora `MockVariantControlsRow` tiene su propio
+  `updatedAt` (seis marcas distintas en la semilla), toda escritura lo mueve a «ahora» —igual que
+  `@updatedAt` de Prisma, con lo que **editar una fila la sube al frente**— y el comparador replica
+  los **tres** órdenes del servidor **con sus mismos desempates** (`updatedAt` desc e identidad asc,
+  para que el orden sea total y la paginación estable).
+- **La resta del avance estaba tecleada dos veces** en el mismo fichero (la vitrina pública y la
+  consola de admin, a ~130 líneas). El backend hizo lo contrario porque §M2-B.1 se lo exigió: la
+  extrajo a `bounty-progress.ts`. Ahora hay `mockBountyRemainingQty(target, acquired)` y **una sola
+  copia del piso en `0`**, que es el borde delicado: `acquiredQty > targetQty` es representable
+  (4 compradas de un objetivo de 3) y sin el `max` la vitrina publicaría un *«faltan −1»*.
+
+### 3. El candado nuevo: `src/lib/mock/admin-bounties-mock.test.ts` (12 casos)
+
+Ata el servidor falso al de verdad **por el contrato, no por `backend/`**, y el motivo está escrito en
+la cabecera del archivo: `CLAUDE.md` dice *«el contrato manda sobre el código»*, así que anclarlo en
+el `.ts` del backend bendeciría cualquier deriva que el backend introdujera y ataría el frontend a la
+forma interna de un `where` de Prisma. Lee de `docs/API_CONTRACT.md` §M2-B.1 —anclado en
+`<a id="M2-B1">`, **jamás en un número de línea**— el bullet de `q` y el de `sort`, y exige:
+
+- que `q` se declare sobre **nombre y número** y **no** sobre el set;
+- que el **mock** case por nombre y por número y **no** por `setName` (con `q="Surging Sparks"` ⇒ **0
+  filas**, que antes eran 3);
+- que `setId` siga filtrando por set (es otra cosa y sigue viva);
+- que **el rótulo ES y EN** no nombre el set mientras el contrato no lo declare;
+- que el `<Select>` ofrezca **exactamente** los valores de `sort` del contrato (`BOUNTY_SORTS`);
+- que los tres órdenes existan y **difieran**, y que `updatedAt` sea **distinto por fila**;
+- que `remainingQty` nunca sea negativo y que `targetQty: null` ⇒ `null`, **jamás `0`**.
+
+Falla **cerrado**: si el arquitecto amplía `q`, esto se pone rojo **por el sitio correcto** —dirá que
+el mock y el rótulo se han quedado cortos—, que es justo la conversación que hay que tener.
+
+### 4. La transición de la fila abierta, en un solo sitio (recomendación del techlead)
+
+`BountiesView` tenía **seis piezas de estado que son una sola cosa**, y el `Confirmar` del `Modal`
+**re-tecleaba a mano el cuerpo de la transición** en vez de reusarlo. No era un bug: era el sitio
+donde el próximo cambio se aplicaría en un camino y no en los otros, y §28.6b declara **equivalentes
+por escrito** los cuatro (`Cancelar`, `Esc`, abrir otra fila, confirmar el descarte) que el código
+mantenía equivalentes **por disciplina**.
+
+Ahora hay **una** función, `transitionTo(next, { force, focusKey, error })`, única que toca `editing`,
+`editorDirty`, `rowError` y el foco; el `Modal` invoca el cierre forzado. Se respetó al pie el límite
+del encargo: **no se partió el componente y no se sacó la mutación a un hook**.
+
+**⚠️ Y al unificarlo apareció un defecto latente que el código anterior tenía y nadie había visto:**
+`requestEdit` limpiaba `editorDirty` **también cuando la fila siguiente era la misma** (volver a
+pulsar `Editar` sobre la fila ya abierta). En ese caso `BountyRowEditor` **no se remonta** —conserva lo
+tecleado— y su efecto de suciedad solo reporta **cuando `dirty` cambia**, así que la vista se quedaba
+creyendo que no había nada que perder y **el siguiente `Cancelar` descartaba sin preguntar**, que es
+exactamente lo que §28.6b prohíbe. La condición correcta no es una bandera nueva: es un invariante
+derivable — ***`editorDirty` solo se limpia si la fila abierta CAMBIA de identidad***. Eso arregla de
+paso el camino del error (`onError` re-ancla la misma fila y ahora no puede perder lo tecleado).
+Dos pruebas nuevas lo fijan.
+
+### 5. Verificación por mutación (romper ⇒ exigir rojo; todas restauradas)
+
+| # | Mutación | Resultado |
+|---|---|---|
+| 1 | mock: devolver `card.setName` a la búsqueda de `q` | **1 rojo** — *«un `q` que SOLO casa con el nombre del set no devuelve nada»* |
+| 2 | catálogo ES: `searchLabel` = `Buscar carta o set` | **1 rojo** — *«el RÓTULO no promete más de lo que el contrato declara»* (`expected 'buscar carta o set' not to match /\bsets?\b/`) |
+| 3 | mock: borrar la rama `if (sort === 'updated_desc')` | **2 rojos** — el orden por edición y *«una escritura mueve la fila al frente»* |
+| 4 | mock: devolver `updatedAt` constante en el DTO | **1 rojo** — *«`updatedAt` es distinto por fila»* ⚠️ y **el de ordenación NO lo caza**: con todas las marcas iguales cualquier orden es «no creciente». Por eso el candado de la **constante** va aparte; era el defecto real de `:4098` |
+| 5 | mock: quitar el `Math.max(0, …)` del helper de la resta | **1 rojo** — `remainingQty` negativo |
+| 6 | vista: `setEditorDirty(false)` incondicional (el código anterior) | **2 rojos** — reabrir la misma fila y el guardado fallido |
+
+### 6. Peticiones (ninguna bloquea)
+
+- **Al arquitecto — solo si producto lo quiere:** hoy `q` es **nombre o número de carta** (§M2-B.1) y
+  el frontend se ha alineado con eso. **Si el operador necesita de verdad buscar por set**, es un
+  cambio del contrato, no del rótulo. ⛔ No se ha implementado nada por adelantado, y el candado del
+  §3 se pondrá rojo el día que el contrato cambie, para que mock y rótulo se muevan **detrás** de él.
+- **A ux-ui:** `DESIGN_SYSTEM.md` §28.12 (`:12787`) y el wireframe de §28.2 (`:12244`) siguen diciendo
+  `Buscar carta o set` / `Search card or set`. El código dice ya `Buscar carta` / `Search card`.
+  Anotado como **BNT-D10** en `TECH_DEBT.md`.
+- **A ux-ui (observación, no petición):** `list.truncated` recomienda *«filtra por set, acabado o
+  estado»* y **esta pantalla solo ofrece búsqueda, orden y los chips de estado**: no hay control de
+  `setId` ni de `finish` (el endpoint sí los acepta). Es la misma familia que el bloqueante de arriba
+  —copy que promete una palanca que no está a la vista— pero **no se tocó**: decidir si se añaden los
+  dos filtros o se reescribe el banner es de producto/ux-ui, no del pase de corrección.
+
+### 7. Números y ficheros
+
+`npm test` **1330/1330** (120 archivos, **+14**: 12 del candado nuevo y 2 de la transición) ·
+`tsc --noEmit` limpio · `next lint` sin avisos · catálogos ES/EN simétricos.
+
+- `frontend/messages/{es,en}.json` — `admin.m2.bounties.filters.searchLabel`.
+- `frontend/src/lib/mock/fixtures.ts` — `q` sin `setName`, `updatedAt` por fila (interfaz + 6 semillas
+  + escritura), los tres `sort`, `mockBountyRemainingQty`.
+- `frontend/src/lib/mock/admin-bounties-mock.test.ts` — **nuevo**.
+- `frontend/src/app/[locale]/(admin)/admin/m2/bounties/BountiesView.tsx` — `transitionTo`.
+- `frontend/src/app/[locale]/(admin)/admin/m2/bounties/BountiesView.test.tsx` — +2 casos.
+- `frontend/src/components/domain/BuylistKycForm.tsx` — comentario del contador (§8).
+- `docs/TECH_DEBT.md` — **BNT-D1…D10** (D7 es referencia cruzada a backend; D8/D9 vienen de §47.7).
+
+### 8. El contador de `BuylistKycForm`, y por qué se deja escrito que NO se quite
+
+El techlead avaló el diseño del contador de intentos **y encontró algo que había que dejar por
+escrito**: hoy es *funcionalmente* redundante, porque `setFailure({...})` construye un objeto nuevo en
+cada llamada y **el efecto ya se re-dispara por identidad de referencia**. Se añadió un comentario que
+dice exactamente eso, porque el próximo lector lo va a averiguar solo y la conclusión natural es
+quitarlo. Su valor no es hacer correr el efecto: es **convertir un invariante invisible y frágil —la
+identidad de un objeto de estado— en un dato explícito**. Si alguien «simplifica» el estado a algo que
+se compare por valor, **el segundo clic vuelve a quedarse mudo** —el defecto exacto que se reportó en
+producción— y **ninguna prueba lo caza**: ningún test aserta la identidad de un objeto de estado.
+
+## §47 · M2 › Bounties: se recoge una pantalla escrita a medias y se le ponen los candados que le faltaban (2026-09-08, contrato `v1.62.1 §M2-B`, `DESIGN_SYSTEM §28 v3.4`)
+
+> Rama `claude/tcg-hunt-orchestration-ai2vma`, sobre `d7a9039`. **Continuación, no arranque:** cuatro
+> commits `wip: ⚠️ SIN VERIFICAR` traían la pantalla (`BountiesView`, `BountyRowEditor`,
+> `bounty-view-model`, `page`), los tipos, el cliente, los fixtures y las cadenas ES/EN — **y ni un
+> solo test**. Este pase revisa lo que había contra el contrato y §28, cierra tres huecos y escribe
+> los candados de la tabla **§M2-B.6**.
+
+### 1. Qué estaba bien (y por qué se conserva tal cual)
+
+La parte difícil ya estaba resuelta y **resuelta como manda el contrato**: el `state` llega del
+servidor y la pantalla **lo pinta** (`bounty-view-model` no tiene ninguna función que lo derive), los
+chips leen `counts` —del conjunto, no de `data`—, `truncated` gobierna el `≥` y **mata** el cero
+tranquilizador, y `buildBountyControlsRequest` **no arma** `sellOverrideCents` ni `buyOverrideCents`.
+Nada de eso se tocó: lo que faltaba era **probarlo**.
+
+### 2. Los tres huecos que sí había, y qué se hizo
+
+1. **`Esc` y `Cancelar` no confirmaban el descarte** (§28.6b: *«si hay cambios sucios, confirman antes
+   de descartar»*). El bloque de edición no escuchaba `Esc` **en absoluto** y `Cancelar` cerraba
+   tirando lo tecleado. Ahora el editor reporta su suciedad (`onDirtyChange`) y **la vista** decide:
+   `Cancelar`, `Esc` y *abrir otra fila* pasan por el mismo diálogo, y **solo cuando hay algo que
+   perder** — preguntar sobre un formulario intacto enseña a confirmar sin leer, que es justo lo que
+   la asimetría de §28.6c intenta evitar. Al confirmar, el foco vuelve al botón de **esa** fila.
+2. **Un chip en `0` se deshabilitaba también con la lista cortada.** Con `truncated: true` un `0` no
+   es un cero: es un *«no lo sé»* (§28.2b). Deshabilitar el chip cerraba **la única palanca** que el
+   propio banner recomienda —filtrar— justo sobre el estado del que no se sabe nada. Ahora con
+   `truncated` no se deshabilita ninguno.
+3. **No había un solo test.** Se escriben **77** (46 de pantalla + 31 de modelo de vista).
+
+### 3. Los candados, mapeados a la tabla §M2-B.6
+
+`BountiesView.test.tsx` (46) y `bounty-view-model.test.ts` (31). Las dos filas que el contrato marca
+como **test de frontend** son las que más peso llevan:
+
+- **B-11 ⭐ (el cuerpo del `PUT`)** — editar **solo** el precio de una fila y mirar **la petición**:
+  el cuerpo es exactamente `{ productType, gradeKey, bounty: { enabled, priceCents } }` y **no
+  contiene** `sellOverrideCents` ni `buyOverrideCents`. Se asierta además que el objetivo no tocado
+  **no viaja**, que **jamás** sale un `targetQty: null`, y que `state`/`effective`/`curveQuoteCents`/
+  `progress` no aparecen en el JSON. La mitad de servidor («omitido conserva») **no se re-asierta**:
+  vive en `backend/test/pricing.variant-controls.spec.ts` (§M2-B.6, y `ARCHITECTURE §0-B.3` regla 8).
+- **B-13(b) ⭐ (nada de alcance de conjunto)** — cuatro aserciones, porque «no existe» hay que
+  medirlo por varios lados: (i) cero `checkbox` en la tabla; (ii) los **únicos** botones con dígitos
+  son los cinco chips de conteo **y pulsarlos no emite ninguna escritura** (son filtro, no acción);
+  (iii) ningún rótulo casa con «apagar los/todos», «aplicar a los», «seleccionados», «en lote»,
+  «bulk»… ni en ES ni en EN, **y las cadenas `bulk.*` no volvieron al catálogo**; (iv) con **tres**
+  rebasadas a la vista, `Apagar` en una emite **una** petición y con **su** `cardId`. *El alcance lo
+  define el gesto, no el transporte.*
+
+Los demás son **espejos de cliente** de candados de servidor: no repiten la regla del servidor,
+asertan que **la pantalla obedece lo que llegó**.
+
+| Fila / regla | Espejo de cliente que se escribió |
+|---|---|
+| **B-1 / B-2** (clasificar mal el rebasado) | fixture **deliberadamente contradictorio**: `state: "activa"` con el precio **por debajo** de la tarifa ⇒ la fila **tiene que decir `ACTIVO`**. Cualquier derivación en cliente lo pinta `REBASADO` y el test se cae. Más el empate exacto, que llega `rebasada` y se pinta `REBASADO` |
+| **B-8** (colapsar `completada`/`apagada`) | dos rótulos distintos **y dos encabezados de bloque**, no uno compartido |
+| **B-9** (contar la página) | `counts.rebasada = 3` con **una** rebasada visible ⇒ el chip dice **3**. Rojo si dice `1` |
+| **B-10** (que `counts` obedezca al filtro) | con el chip `REBASADOS` puesto, `ACTIVOS 12` y `APAGADOS 4` **conservan su número**; y la petición lleva `states: ['rebasada']` |
+| **B-4** (no declarar el techo) | `truncated: true` ⇒ banner `role="status"`, chips con `≥`, **ninguna frase de cero** |
+| **B-6** (rol) | con `vault_operator` la página **no monta la consola** y **no se pide la lista** |
+| **B-12** (tarifa en filas apagadas) | fila `apagada` con mercado resoluble **enseña su tarifa**; `curveQuoteCents: null` es `SIN TARIFA`, que significa *la curva no resuelve*, nunca *está apagado* |
+
+Y de §28: los tres casos del cero (§28.5), la fila `invalida` entera (§28.14 caso 3: `SIN PRECIO`,
+hueco en `PAGAMOS`, premium `—`, botón `Poner precio`, campo **sin prellenar**), el `state`
+desconocido que cae a neutro y **nunca** a `ACTIVO`, la asimetría de la confirmación, el
+`BOUNTY_BELOW_RULE` anclado **en la fila** con la tarifa que devolvió el **servidor** y **sin
+reintento**, la tabla en reposo **sin formularios**, que la pantalla **no reordena** y que sin
+`attention_first` **no pinta encabezados**, los tres estados obligatorios de §28.8, y los cinco
+rótulos en **ES y EN**.
+
+### 4. Ningún test teclea una versalita, y hay un barrido de homoglifos
+
+§28.13 nº20 es explícito: los rótulos se comparan **contra la clave del catálogo**, no contra la
+cadena escrita a mano. Todos los tests leen de `messages/{es,en}.json`. Eso deja un flanco —si el
+catálogo miente, el test miente con él— y por eso se añade el barrido que §28.10 pedía y **no
+existía**: el namespace `admin.m2.bounties.*` de los **dos** catálogos se compara contra el juego de
+caracteres declarado (ASCII + `áéíóúÁÉÍÓÚñÑüÜ ¡ ¿ · — … × ‹›«» − ≥ ●`), con el `−` (U+2212) y el `≥`
+(U+2265) escritos con su punto de código. Se acota **a esta pantalla** a propósito: el barrido global
+del catálogo entero es otra tarea (hoy `en.json` usa comillas tipográficas que no están en ese juego).
+Segundo candado de catálogo: **los cinco rótulos de estado tienen que ser distintos entre sí**, en ES
+y en EN — un catálogo con menos entradas que su enum es un estado que nadie sabe pintar.
+
+### 5. Mutaciones corridas a mano (romper el candado ⇒ exigir rojo)
+
+Siete, todas restauradas y verde después:
+
+| # | Mutación | Resultado |
+|---|---|---|
+| 1 | derivar el estado en el cliente: `state.${premium.kind === 'below' ? 'rebasada' : row.state}` | **1 rojo** — el fixture contradictorio (*«pinta `activa` aunque parezcan rebasados»*) |
+| 2 | reenviar los overrides en el `PUT` (`sellOverrideCents: null, buyOverrideCents: null`) | **3 rojos** — los tres de **B-11** |
+| 3 | derivar los chips de la página: `rows.filter(r => r.state === s).length` | **5 rojos** — B-9, B-10, el `—` de carga, el `≥` de la lista cortada y el vacío por filtro |
+| 4 | añadir `Apagar los {n} rebasados` que dispara N `PUT` | **2 rojos** — «ningún control de acción lleva contador» y el barrido de rótulos prohibidos |
+| 5 | quitar la guarda `if (truncated) return null` del cero | **2 rojos** — el unitario y la pantalla |
+| 6 | enunciar el cero tranquilizador ignorando `counts.invalida` | **2 rojos** — el cero **acotado**, unitario y pantalla |
+| 7 | catálogo: (a) `ACTIVO` con **`А` cirílica** (U+0410); (b) `state.invalida` = `ACTIVO` | (a) **1 rojo** — el barrido de homoglifos; (b) **2 rojos** — la fila `invalida` que decía `ACTIVO` y los «cinco rótulos distintos» |
+
+La mutación 7 se eligió por el aviso del proyecto: *«una mutación de copy que escribió “terminos” sin
+acento pasó verde»*. Cambiar una tilde **no** puede ponerse rojo aquí, porque los tests leen el
+catálogo — así que se mutó lo que **sí** muerde: un homoglifo invisible y **el defecto exacto que §28
+v3.4 vino a corregir** (pintar `ACTIVO` sobre un bounty que no puede pagar nada). Las dos se cazan.
+
+### 6. Números
+
+`npm test` **1316/1316** (119 archivos, +77) · `tsc --noEmit` limpio · `next lint` sin avisos ·
+catálogos ES/EN **simétricos** (0 claves huérfanas en cualquiera de los dos sentidos).
+
+### 7. Lo que NO se hizo, y por qué (para que nadie lo dé por hecho)
+
+> ⚠️ **Las dos primeras bajaron al registro de deuda** (`TECH_DEBT.md`, **BNT-D8** y **BNT-D9**) a
+> petición del techlead: las aceptó, pero *la deuda que solo vive en una nota de pase se pierde*.
+
+- **El nombre de la carta enlaza a `/admin/m1`, no al cajón de esa variante.** §28.1 pide el cajón;
+  **M1 no tiene deep-link** por set/carta (solo `?tab=`), así que llevar a la variante exigiría
+  añadirle enrutado por parámetros a M1 — otra pantalla, otro alcance. **No es una petición al
+  arquitecto** (no falta ningún campo del contrato): es deuda de enrutado del propio frontend.
+- **La tabla no colapsa a *cards* en móvil** (§28.9). Se pinta la `<table>` con scroll, como el resto
+  del back-office hoy. Queda anotado como pendiente de UI, no como incumplimiento de contrato.
+- **`counts.atLeast`** (`{label} ≥ {count}`) **no se cableó como clave**: el `≥` se antepone al número
+  y se interpola en `counts.{state}`, que produce **el mismo texto en pantalla** (`REBASADOS ≥ 3`)
+  sin partir el rótulo en dos claves. Si ux-ui prefiere la clave, es un cambio de catálogo, no de
+  conducta.
+- **Sin Playwright nuevo.** La suite E2E de esta pantalla se cablea contra el stack levantado y la
+  corre **QA**; aquí no hay stack.
+- **Los fixtures de mocks replican la clasificación del servidor** (`mockDeriveBountyState`). Es la
+  capa de servidor falso de `lib/mock/`, como el resto del archivo, y **ningún test de esta pantalla
+  se apoya en ella**: los 46 de UI sirven su propia respuesta. No es una quinta implementación del
+  predicado en producción.
+
 ## §46 · El ciclo de compra entra al gate real: 23 pruebas que nadie corría, el `total` que se tiraba y un rótulo que prometía la regla del servidor (2026-09-02)
 
 > **Renumerada DOS veces, y el motivo es el mismo las dos: §27 → §44 (2026-09-05) → §46 (2026-09-06).**
@@ -13698,3 +14477,108 @@ que además el arquitecto acaba de convertir en norma él mismo: **§M5-V.0 como
 la fórmula y su cuenta** (§0-B.3 regla 8). Mi candado nuevo es la mitad de esa regla ejecutada en el
 cliente: en `frontend/` ya **no se puede escribir una cuenta que no sea la del contrato** sin
 ponerse rojo.
+
+## §53 · El pop-up que no se cerraba: **el rechazo se pintaba fuera de la pantalla** (2026-09-08, rama `claude/tcg-hunt-orchestration-ai2vma`)
+
+> Defecto reportado por el dueño **en producción**: *«cuando confirmas enviar solicitud no desaparece
+> el pop up, pueden dar click varias veces»*. Medido después contra la base por el propio dueño: **no
+> duplicaba** — *«la primera vez no se creó ni picando varias veces; hice una segunda prueba y se creó
+> una vez»*. Así que no era idempotencia ni doble-envío: era **un rechazo que no se enunciaba donde el
+> vendedor estaba mirando**.
+
+### 1. Lo que se midió antes de tocar nada
+
+El guard de código estaba bien (`disabled={submitting || …}`, y el éxito cierra el diálogo y vacía el
+carrito). Lo que fallaba no se ve leyendo el componente: se ve **midiendo la ventana**. Con el stack
+levantado (build de producción en modo mocks) y Chromium conduciendo el flujo real —login → binder →
+carrito → «Enviar solicitud» → «Confirmar y enviar»—:
+
+| | móvil 390×844 | escritorio 1280×800 |
+|---|---|---|
+| contenido del diálogo | **1207 px** | **1136 px** |
+| alto visible del cuerpo | 759 px | 634 px |
+| desplazamiento necesario para llegar al botón | 448 px | 502 px |
+| botón «Confirmar y enviar» al pulsarlo | y=772 | y=687 |
+| bloque **CLABE** en ese momento | **y=-183** (fuera) | **y=-197** (fuera) |
+| bloque **dirección** en ese momento | **y=-64** (fuera) | **y=-78** (fuera) |
+| sección INE / zona de avisos | y=105 / y≈534 (dentro) | y=67 / y≈500 (dentro) |
+
+Es decir: **para pulsar el botón hay que bajar hasta el final**, y desde ahí los dos primeros bloques
+del formulario están *arriba del borde superior de la pantalla*. Reproducido de punta a punta: se
+pulsa, **no se crea nada** (la validación de CLABE ni siquiera viaja), el diálogo sigue abierto, el
+botón sigue vivo y el único mensaje —«La CLABE debe tener 18 dígitos.»— aparece en **y=-100**. En la
+pantalla no cambia **nada**. El síntoma del reporte, entero, sin necesidad de un segundo clic.
+
+**Reproduce en el árbol actual**, así que la hipótesis del despliegue rancio queda descartada sin
+tener que compilar `18f279e`. Y el diff desde ese commit **alarga** el formulario (dirección de
+origen + faltante del mínimo + nota de envío + NM), o sea que antes el defecto existía y hoy es peor.
+
+### 2. Los otros dos huecos del mismo sitio (medidos, no supuestos)
+
+- **Mudo del todo, no solo fuera de pantalla:** con `clabeOnFile` (modo «usar mi CLABE ****1234») el
+  campo de CLABE **no está montado**, así que `CLABE_INVALID` / `CLABE_NOT_OWN_NAME` guardaban su
+  texto en un estado que **nadie renderiza**: cero `role="alert"` en todo el documento. Hoy el
+  backend solo emite esos códigos cuando la CLABE **viaja** (y en este modo se omite), así que no es
+  alcanzable — pero un mensaje que depende de que nadie cambie esa condición no es un mensaje.
+- **`422 PHONE_REQUIRED` (PUERTA 1 del servidor, D11/criterio 128(c)):** la clave **no existía en
+  ninguno de los dos catálogos** (`error.PHONE_REQUIRED`), así que `useErrorMessage` caía al último
+  recurso y el vendedor leía **el inglés del servidor**: *«A mobile phone is required on the account
+  to create a sell request»*. Y el remedio que el contrato asigna al front (§6: *«el front debe pedir
+  el dato en ese momento (`PATCH /users/me`) y reintentar»*) **no existía en ninguna pantalla de la
+  app** — no hay perfil, `phone` solo se captura en el registro. Cuenta de Google o cuenta vieja =
+  vendedor bloqueado, en inglés, sin salida.
+
+### 3. Lo que se hizo
+
+1. **Patrón P-4 en el formulario de venta** (`BuylistKycForm`), el mismo que M1/M2 ya usan
+   (`AddItemModal`, `QuickAdd`, `VariantPriceConsole`) y que §15.4 describe como *«esto sustituye a
+   hacer scroll a ciegas»*: **todo** camino de fallo —las dos validaciones de cliente y **todas** las
+   ramas del `catch`, incluido el `else` que recoge red/500/códigos sin rama— pasa por un único
+   `failAt(ancla)` que trae el bloque del motivo al viewport y le da el foco (al `<input>` que hay que
+   corregir si el bloque tiene uno). Las anclas son los **bloques**, no los `<input>`: el texto del
+   error vive junto al campo, no dentro de él.
+2. **El ancla es un contador, no un booleano.** `failAt` incrementa `attempt`, así que **el segundo
+   intento fallido idéntico vuelve a traer el motivo**. Con el idiom habitual (`useEffect` sobre
+   `isError`) el segundo clic no cambia estado y la pantalla se queda quieta — que es exactamente el
+   caso reportado («pueden dar click varias veces»).
+3. **`CLABE_INVALID`/`CLABE_NOT_OWN_NAME` salen del atajo de archivo** (`setUseStoredClabe(false)`),
+   como ya hacía `CLABE_REQUIRED`: así el campo —y su error— **existen** cuando hay algo que decir.
+4. **`PHONE_REQUIRED`: se traduce y se remedia en el sitio.** Se añadió `error.PHONE_REQUIRED` a los
+   dos catálogos (el motivo se lee **del catálogo por código de contrato**, no de una frase escrita a
+   mano aquí: la misma superficie que cualquier otra que reciba ese 422) y el diálogo abre una
+   captura **inline** del celular que hace `PATCH /users/me` (`updateMe`, nuevo en `lib/api.ts`,
+   contrato §1) y sincroniza la sesión local. Guardado el dato, el vendedor vuelve a pulsar
+   «Confirmar y enviar» — **no hay reintento automático**: un segundo envío lo dispara el usuario.
+
+### 4. Los candados, y su verificación por mutación
+
+- **Unitarios** (6 nuevos en `BuylistKycForm.test.tsx`): no miran «se llamó a `scrollIntoView`», que
+  pasaría con un arreglo que desplace a cualquier sitio; exigen que **el elemento traído al viewport
+  y enfocado CONTENGA el motivo**. Cubren: CLABE inválida (rechazo de cliente), **segundo intento
+  idéntico**, `CLABE_NOT_OWN_NAME` en modo archivo (que el mensaje **exista**), `PHONE_REQUIRED` (en
+  español, con el campo y el `PATCH`), `PICKUP_ADDRESS_NOT_FOUND`, y fallo de red sin código.
+- **E2E** (`buylist.spec.ts`, nuevo caso a **390×844**): tras pulsar desde abajo, el motivo tiene que
+  estar **`toBeInViewport()`** y el foco en el campo. Lleva su **anti-vacuidad de premisa**
+  (`await expect(clabe).not.toBeInViewport()` **antes** del clic: si el campo ya estuviera a la vista,
+  el test no estaría midiendo el caso que reventó). El comentario deja escrito por qué el viewport es
+  ése: el smoke `@real` vecino corre a **1280×2000** —una ventana que no existe en ningún dispositivo—
+  y con esa altura **todo cabe y el defecto es invisible**. *Un arnés que elige la ventana donde el
+  producto no falla no está midiendo el producto.*
+- **Mutaciones (candado fuera ⇒ rojo exigido):** (1) vaciar el efecto de P-4 → **6 rojos** de 25 en el
+  unitario (los 19 previos siguen verdes: la mutación la cazan los candados nuevos y nada más) y, en
+  el navegador, el E2E rojo en su aserción de dinero con `unexpected value "viewport ratio 0"` — el
+  mensaje existe y se ve al 0 %; (2) quitar `setUseStoredClabe(false)` → **1 rojo**, el de modo
+  archivo; (3) borrar `error.PHONE_REQUIRED` de `es.json` → **1 rojo**, el del inglés crudo. Las tres
+  restauradas y verde otra vez.
+
+### 5. Números y lo que NO se midió
+
+`npm test` **1239/1239** (117 archivos) · `tsc --noEmit` limpio · `next lint` sin avisos ·
+`buylist.spec.ts` **22/22** contra el build de producción en modo mocks.
+
+**No medido, y por lo tanto no afirmado:** *cuál* de estos caminos fue el que le tocó al dueño en su
+cuenta de producción. Los tres producen el mismo síntoma y ninguno se puede atribuir sin ver esa
+cuenta (¿tiene celular?, ¿tenía CLABE en archivo?). Tampoco se midió el defecto contra el backend
+real: no hay Docker en este entorno y el stack no está levantado — la reproducción y los candados
+corren contra el build de producción del front con la capa de API en modo fixtures, que es fiel para
+todo lo que aquí se afirma (geometría, ramas de error, foco) pero **no** ejercita el 422 real.

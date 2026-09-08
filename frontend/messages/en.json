@@ -35,7 +35,8 @@
       "month": "Last month",
       "quarter": "This quarter",
       "year": "This year"
-    }
+    },
+    "undo": "Undo"
   },
   "nav": {
     "catalog": "Shop",
@@ -105,7 +106,7 @@
     "carouselNext": "Next",
     "featured": {
       "roledescription": "carousel",
-      "trackAria": "Featured pieces \u2014 scrollable track",
+      "trackAria": "Featured pieces — scrollable track",
       "status": {
         "paused": "Automatic rotation paused.",
         "ended": "End of featured pieces."
@@ -693,6 +694,13 @@
         "why": "We need it to print the label we'll send you.",
         "printed": "This address is printed on the label.",
         "missing": "Choose the address your cards ship from to continue."
+      },
+      "phone": {
+        "label": "Mobile number (10 digits)",
+        "hint": "We only use it for the shipping label and the pickup.",
+        "save": "Save mobile number",
+        "saved": "Mobile number saved. Press “Confirm and send” again.",
+        "invalid": "The mobile number must be 10 digits."
       }
     },
     "requestTitle": "Create sell request",
@@ -1002,7 +1010,8 @@
       "m8": "M8 · Disputes",
       "m9": "M9 · Reports",
       "m10": "M10 · Config",
-      "vaults": "Customer vaults"
+      "vaults": "Customer vaults",
+      "m2Bounties": "M2 · Bounties"
     },
     "roleSwitch": "View as",
     "masked": "Super-admin only",
@@ -2045,6 +2054,148 @@
         "cardCountCol": "Cards",
         "premium": "Premium",
         "unmapped": "Unmapped"
+      },
+      "bounties": {
+        "eyebrow": "BUY OFFERS",
+        "title": "Bounties",
+        "lead": "What we pay above the standard rate, and for how many copies. They're all here: the ones paying, the ones the rate outbid, the ones that are on with no price, and the ones that no longer pay.",
+        "linkFromBinder": "See all bounties",
+        "counts": {
+          "rebasada": "OUTBID {count}",
+          "invalida": "NO PRICE {count}",
+          "activa": "ACTIVE {count}",
+          "completada": "COMPLETED {count}",
+          "apagada": "OFF {count}",
+          "atLeast": "{label} ≥ {count}",
+          "atLeastAria": "At least {count}; the list is incomplete.",
+          "loadingAria": "Counting bounties"
+        },
+        "filters": {
+          "searchLabel": "Search card"
+        },
+        "sort": {
+          "label": "Sort",
+          "attention_first": "Needs attention first",
+          "price_desc": "We pay (highest first)",
+          "updated_desc": "Recently edited"
+        },
+        "group": {
+          "attention": "NEEDS ATTENTION",
+          "attentionCounts": "OUTBID {outbid} · NO PRICE {noPrice}",
+          "attentionHint": "These are on and paying no premium. Each one needs a decision.",
+          "activa": "ACTIVE · {count}",
+          "completada": "COMPLETED · {count}",
+          "apagada": "OFF · {count}"
+        },
+        "list": {
+          "truncated": "This list is incomplete: there are more bounties than one query returns, so the counts are minimums, not totals. Filter by status or search for a card to see them all."
+        },
+        "table": {
+          "caption": "Bounties: status, price, current rate and progress"
+        },
+        "col": {
+          "card": "CARD",
+          "state": "STATUS",
+          "pay": "WE PAY",
+          "rate": "CURRENT RATE",
+          "premium": "PREMIUM",
+          "progress": "PROGRESS",
+          "actions": "Actions"
+        },
+        "state": {
+          "activa": "ACTIVE",
+          "rebasada": "OUTBID",
+          "invalida": "NO PRICE",
+          "completada": "COMPLETED",
+          "apagada": "OFF",
+          "unknown": "UNCLASSIFIED",
+          "activaAria": "Active: it pays above the current rate and appears in Top Bounties.",
+          "rebasadaAria": "Outbid: the current rate pays more than your offer, so we pay the rate and the card doesn't appear in Top Bounties.",
+          "invalidaAria": "No price: this bounty is on, but it has no price to pay with. It pays nothing and doesn't appear in Top Bounties. Give it a price or turn it off.",
+          "completadaAria": "Completed on {date}: it turned itself off when it hit the target.",
+          "apagadaAria": "Off: someone turned it off. Not published and no premium paid. The counter is kept.",
+          "unknownAria": "Status not recognised by this screen. We can't say whether it's paying; open it in the binder."
+        },
+        "premium": {
+          "above": "+{amount} · +{pct}%",
+          "below": "−{amount} · −{pct}%",
+          "none": "—",
+          "noneAria": "No premium: this bounty is off.",
+          "noPriceAria": "Premium can't be worked out: this bounty has no price.",
+          "noRate": "NO RATE",
+          "noRateAria": "No curve rate — the bounty is the explicit price."
+        },
+        "row": {
+          "noPrice": "—",
+          "noPriceAria": "No price: this bounty is on and has no buy price.",
+          "openInBinder": "Open in the binder",
+          "edit": "Edit",
+          "editAria": "Edit the bounty for {card}",
+          "turnOff": "Turn off",
+          "turnOffAria": "Turn off the bounty for {card}",
+          "turnOffToast": "Bounty off · {card}. It stops being published and stops paying a premium.",
+          "turnOn": "Turn on",
+          "turnOnHint": "Check the price before turning it on: the current rate may have moved since you turned it off.",
+          "setPrice": "Set a price",
+          "setPriceAria": "Set a price for the bounty on {card}"
+        },
+        "progress": {
+          "value": "{acquired} of {target}",
+          "remaining": "{n, plural, one {# to go} other {# to go}}",
+          "done": "target met",
+          "noTarget": "NO TARGET",
+          "noTargetAria": "No target: this bounty never stops the buying, no matter how many copies pile up. Edit it to set one.",
+          "hint": "Progress moves when the purchase is paid, not when someone gets a quote."
+        },
+        "edit": {
+          "title": "Edit bounty",
+          "price": "We pay",
+          "target": "Target",
+          "targetHint": "Until we have {n} in stock. When it's met, the bounty turns itself off.",
+          "enabled": "On",
+          "save": "Save",
+          "saveRaising": "Save · we'll pay {amount}",
+          "saving": "Saving…",
+          "noChanges": "No changes to save.",
+          "discardConfirm": "You have unsaved changes on {card}. Discard them?",
+          "oneAtATime": "One bounty at a time."
+        },
+        "confirm": {
+          "title": "You're raising what we pay",
+          "titleOn": "You're turning this bounty back on",
+          "price": "Before {before} · now {after} · {delta} more per card.",
+          "target": "Target: before up to {before} · now up to {after}.",
+          "cta": "Yes, pay {amount}"
+        },
+        "saved": "Bounty saved.",
+        "savedNowActive": "Saved: it now pays above the rate and is back in Top Bounties.",
+        "savedStillOutbid": "Saved, but still outbid: the current rate pays {rate}.",
+        "savedStillNoPrice": "Saved, but this bounty is still on with no price: it pays nothing.",
+        "zero": {
+          "outbidLabel": "NONE OUTBID",
+          "outbid": "No outbid bounties. Every one that's on pays above the current rate.",
+          "outbidButNoPrice": "No outbid bounties, but {count} are on with no price and pay nothing.",
+          "filteredLabel": "FILTERED VIEW",
+          "filtered": "With a filter on, only matching bounties are counted here, so this screen can't tell you whether there are outbid ones outside it. Clear the filters to find out."
+        },
+        "noPrice": {
+          "bannerTitle": "This bounty has no price",
+          "bannerBody": "It's on, but it has no price to pay with: it pays nothing and isn't published. Give it a price above the current rate ({rate}) or turn it off."
+        },
+        "empty": {
+          "title": "No bounties yet",
+          "body": "A bounty is a premium buy offer: you pay above your standard rate until you've gathered the copies you want. You create them from the variant, in the binder.",
+          "cta": "Go to the binder",
+          "filteredTitle": "No bounties match"
+        },
+        "error": {
+          "load": "We couldn't load the bounties."
+        },
+        "page": {
+          "prev": "Previous",
+          "next": "Next",
+          "info": "Page {page} of {totalPages}"
+        }
       }
     },
     "m6": {
@@ -2836,7 +2987,7 @@
     "PAYMENT_PROVIDER_UNAVAILABLE": "We couldn't reach the payment processor. Try again in a few minutes.",
     "ORDER_ALREADY_CLAIMED": "We couldn't link this order.",
     "CLAIM_EMAIL_MISMATCH": "We couldn't link this order.",
-    "BOUNTY_PRICE_REQUIRED": "A bounty needs an explicit price.",
+    "BOUNTY_PRICE_REQUIRED": "A bounty needs an explicit price. Nothing was saved.",
     "BOUNTY_BELOW_RULE": "A bounty must pay more than the current rate ({suggested}). At the same amount it would not be an offer.",
     "SET_NOT_IMPORTED": "That set is not imported yet; import it before refreshing its variants.",
     "UPSTREAM_ERROR": "TCGCSV is unavailable right now. Please try again in a few minutes.",
@@ -2862,7 +3013,9 @@
     "PICKUP_ADDRESS_NOT_FOUND": "That address is no longer in your address book. Choose another or add a new one.",
     "BUYLIST_MINIMUM_NOT_MET": "Your request is still below the buy minimum.",
     "OFFER_EXPIRED": "The deadline to respond to this offer has passed, so we could not register your response.",
-    "OFFER_NOT_PENDING": "This offer is no longer waiting for a response."
+    "OFFER_NOT_PENDING": "This offer is no longer waiting for a response.",
+    "PHONE_REQUIRED": "The account has no mobile number. The carrier needs it to deliver the label and to call about the pickup.",
+    "BOUNTY_TARGET_REQUIRED": "Give it a target: how many copies you want to pay that price for. Without one, the bounty never stops the buying. Nothing was saved."
   },
   "payment": {
     "title": "Payment",
