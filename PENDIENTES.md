@@ -204,6 +204,11 @@ Doble veredicto por-stream aprobado; mergeado a `main` (`6c5763b`). Se despliega
 
 ### Diseñado y documentado pero SIN CONSTRUIR (2026-09-02)
 
+#### ~~P-54 · 🎨 Logos de expansión en el índice de sets~~ — ✅ HECHO Y EN PRODUCCIÓN (2026-09-08)
+- Verificado: `SetPlate.tsx` pinta `logoUrl`, con el caso `null` tratado como normal y permanente (no como carga). El humano lo confirmó en vivo. *(Texto original abajo, conservado por el histórico.)*
+
+<details><summary>original</summary>
+
 #### P-54 · 🎨 Logos de expansión en el índice de sets (en vez de los títulos en texto) — 0% implementado
 - **Pedido del humano:** que el índice de sets muestre **el logo de cada expansión**, no su nombre en texto.
 - **Lo que SÍ existe (todo documental, ya en `main` y desplegado como docs):**
@@ -408,10 +413,19 @@ Encontrado por el humano probando en producción. Las tres se sirven juntas o ni
 - No rompe nada hoy, pero **si el peso se mueve, cotizas compra y venta con un tipo viejo**.
 - **Rol dueño:** devops (variable de entorno) — el token lo obtiene el humano de Banxico.
 
+</details>
+
+#### ~~P-64 · 📄 `HANDOFF.md` desactualizado~~ — ✅ HECHO Y EN PRODUCCIÓN (2026-09-08)
+- devops barrió el fichero entero, no solo las cinco líneas reportadas. Verificado: las dos menciones que quedan del dominio viejo son la nota explícita de que está **RETIRADO**. Y dejó fijado que el nombre interno `tcg-vault-mx` **sí** es correcto — la trampa del siguiente que haga ese grep.
+
+<details><summary>original</summary>
+
 #### P-64 · 📄 `HANDOFF.md` desactualizado — dice un dominio de correo que ya no es
 - Afirma que el dominio verificado en Resend es `tcgvaultmx.com`; **el que se usa y está verificado
   es `tcghunt.mx`** (medido en los logs y en Resend). Misma clase que los ocho tachones de D52: un
   documento afirmando un estado que la realidad dejó atrás. **Rol dueño:** devops.
+
+</details>
 
 #### P-65 · 🖼️ Las fotos tardan 5–10 s en aparecer — reportado por el humano
 - **Medido en el código (no supuesto): no es una causa, son cuatro eslabones EN SERIE.**
