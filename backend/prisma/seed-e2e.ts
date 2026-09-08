@@ -554,6 +554,47 @@ export async function seedE2E(prisma: PrismaClient): Promise<void> {
     { ownerType: 'platform', ownerUserId: null, ownershipStatus: null, status: 'listed', listPriceCents: null },
   );
 
+  // ⚠️ v2.1.10 — LA ÚNICA PIEZA `in_stock` DEL FIXTURE: la que habita la COLA DE «LISTAS PARA
+  // PUBLICAR» (§4.39m.1, criterio 125). Ver el porqué largo en `E2E_FOLIOS.pendingPublishNoLocation`.
+  //
+  // Reproduce el estado en que nace una pieza CONVERTIDA desde M5 (`convertToInventory`): plataforma,
+  // `in_stock`, `acquisitionType='buylist'`, costo = el bruto ofertado de la línea… y **SIN ubicación**,
+  // porque la conversión no la exige (atorar ahí atoraría el pago al vendedor). Resultado observable:
+  // `missing: ['location']` y un precio de venta que SÍ resuelve (la carta tiene referencia de
+  // mercado), que es exactamente el perfil de las filas reales de esta cola.
+  //
+  // ⚠️ **NO lleva `sourceSellRequestItemId`.** Esa FK es única y colgarla de una de las dos
+  // `SellRequest` del ciclo marcaría esa línea como YA CONVERTIDA, rompiendo las pruebas del ciclo
+  // que la necesitan viva. El contrato la declara `string | null` (§11), así que ausente es un valor
+  // legítimo de la fila, no un hueco.
+  //
+  // ⚠️ El `reset` la devuelve a `in_stock` SIN ubicación en cada siembra (E2E-1): si una corrida la
+  // ubica —o la auto-publicación la saca porque alguien le puso caja—, la siguiente corrida vuelve a
+  // encontrar la cola con trabajo. Un fixture que solo funciona la primera vez es un test que se
+  // apaga solo.
+  await upsertItem(
+    E2E_FOLIOS.pendingPublishNoLocation,
+    {
+      cardId: cardIds[E2E_CARDS.common.externalId],
+      productType: 'raw',
+      rawCondition: 'NM',
+      ownerType: 'platform',
+      status: 'in_stock',
+      acquisitionType: 'buylist',
+      // La curva paga 50 % de los $50 de mercado del común: el BRUTO que se le ofertó al vendedor.
+      acquisitionCostCents: 2500,
+      // locationId AUSENTE a propósito: es lo que le falta y lo que la cola existe para señalar.
+    },
+    {
+      ownerType: 'platform',
+      ownerUserId: null,
+      ownershipStatus: null,
+      status: 'in_stock',
+      locationId: null,
+      listPriceCents: null,
+    },
+  );
+
   // Bóveda del cliente: un settled (retirable) y un pending (NO retirable).
   await upsertItem(
     E2E_FOLIOS.custSettled,

@@ -16877,3 +16877,127 @@ La ruta feliz del CAS está cubierta **contra Postgres real** (E2E paso 13). La 
 (`409 CONFLICT`) está cubierta **solo en unitario**: hacerla determinista en integración exigiría
 interceptar entre la relectura y la escritura dentro de la misma transacción, cosa que no se puede
 hacer por HTTP. Queda anotado para que QA no lo lea como un hueco olvidado.
+
+# v2.1.10 — La cola de publicar salía vacía porque el SEED nunca sembró una pieza `in_stock` (2026-09-08)
+
+**Hallazgo de QA en la primera corrida de la suite E2E COMPLETA contra el stack real:** 37 pasaron,
+1 falló — `frontend/e2e/admin.spec.ts:329`, con tres reintentos idénticos:
+
+```
+Error: la cola de publicar está vacía: el seed debe dejar al menos una pieza
+Expected: > 0 · Received: 0
+```
+
+## ⚠️ Era PREEXISTENTE, y por qué nadie lo había visto
+
+**No es regresión de este release.** El mismo caso falla igual en `main` (29f97e2). Confirmado además
+por historia: `git log -S"in_stock" -- backend/prisma/seed-e2e.ts` devuelve **cero** commits — el seed
+sintético **no sembró jamás** una pieza en ese estado, ni una sola vez en toda su vida. Nunca se vio
+por dos razones que se suman:
+
+1. **el workflow que corre la suite E2E completa contra el stack real no se había corrido nunca** (lo
+   dice el handoff de la sesión anterior); y
+2. **en una BD de trabajo local la cola NO sale vacía**: acumula piezas `in_stock` de corridas
+   anteriores (medido aquí: 147 piezas `platform ∧ in_stock`, 146 de ellas sin ubicación). Es decir,
+   *el entorno donde se desarrolla enmascara exactamente el defecto que el entorno de CI destapa* —
+   CI parte de BD efímera + seed, y ahí el hueco es visible.
+
+## El diagnóstico, MEDIDO (no asumido)
+
+- `pendingPublish` (`backend/src/modules/inventory/inventory.service.ts:1738`) filtra por el predicado
+  del contrato §4.39m.1: `ownerType='platform' ∧ status='in_stock' ∧ (sin ubicación ∨ precio no
+  resoluble)`.
+- Las nueve piezas de plataforma del seed (`E2E-LST-0001…0009`) nacen **`listed`**, y las dos de bóveda
+  `in_custody`. **Cero `in_stock`.**
+- Medición sobre BD limpia (base `tcg_seedcheck`, `migrate deploy` + `seed:synthetic`, backend NestJS
+  real de HEAD en `:3098`):
+
+  ```
+  SELECT status, "ownerType", count(*) …  ⇒  listed|platform|9   in_custody|customer|2
+  GET /api/v1/admin/inventory/pending-publish?page=1&pageSize=20
+  ⇒ {"data":[],"page":1,"pageSize":20,"total":0}
+  ```
+
+**⇒ La cola sale vacía porque no hay nada que poner en ella. La pantalla funciona**: la aserción
+anterior del mismo caso —«o hay filas, o dice explícitamente que está vacía»— pasa. **Es un hueco de
+datos de prueba, no un defecto de producto.** Descartado el modo de fallo alternativo (que algo que
+debía producir piezas `in_stock` hubiera dejado de hacerlo): los dos productores —
+`convertToInventory` del buylist y el alta de inventario— siguen escribiendo `status:'in_stock'`, y
+ninguno es invocado por el seed.
+
+**Consecuencia peor que el rojo:** mientras la cola estuvo vacía, los **tres invariantes** que ese
+caso de UI existe para proteger (cada fila dice qué le falta · nunca `MX$0.00` para «no resoluble» ·
+ningún botón de publicar) recorrían **cero filas** y **pasaban por vacuidad**. Un verde de ese caso no
+significaba nada.
+
+## El arreglo — `E2E-STK-0001`, la única pieza `in_stock` del fixture
+
+`backend/prisma/seed-e2e.ts` + `backend/prisma/e2e-fixtures.ts`
+(`E2E_FOLIOS.pendingPublishNoLocation`):
+
+| campo | valor | por qué |
+|---|---|---|
+| `ownerType` / `status` | `platform` / **`in_stock`** | es el predicado de la cola |
+| `locationId` | **ausente (NULL)** | lo que le falta: la conversión desde M5 **no exige** ubicación (§4.39m.3 — exigirla atoraría el pago al vendedor). Es el caso REAL |
+| carta | `e2e-common` raw NM (`refNmCents` 5000) | **tiene referencia de mercado ⇒ el precio SÍ resuelve** |
+| `acquisitionType` | `buylist` | reproduce la pieza recién convertida, y ejercita la etiqueta «Compra a vendedor» de la columna de origen |
+| `acquisitionCostCents` | 2500 | el bruto que la curva paga por ese común (50 %) |
+| `sourceSellRequestItemId` | **ausente** | esa FK es **única**: colgarla de una de las dos `SellRequest` del ciclo marcaría esa línea como YA CONVERTIDA y rompería las pruebas del ciclo. El contrato la declara `string \| null` (§11) |
+
+**Por qué le falta la UBICACIÓN y no el precio:** el docblock del caso (`admin.spec.ts:300-313`) dice
+que contra el stack real **todas** las piezas de la cola tienen precio resoluble. Sembrar una pieza sin
+precio habría fabricado una coincidencia de fixture — justo lo que la v1.51.20 del caso quitó. Con
+precio resoluble la fila ejercita de verdad el invariante de dinero: se pinta un importe REAL
+(**MX$70.00**, `priceBasis: "market"`), así que una regresión que resolviera cero **se vería** como
+`MX$0.00` en lugar de esconderse tras un `null`.
+
+**Idempotencia (E2E-1):** el `reset` del `upsert` la devuelve a `in_stock` **con `locationId: null`** en
+cada siembra. Si una corrida le pone caja, la auto-publicación la saca de la cola (sale sola, sin botón
+— D10) y la corrida siguiente encontraría la cola vacía otra vez: *un fixture que solo funciona la
+primera vez es un test que se apaga solo.* El folio entra automáticamente en el reset de
+`InventoryMovement` del paso 3b (itera `Object.values(E2E_FOLIOS)`).
+
+⚠️ **No se tocó `inventory.service.ts` ni ningún endpoint.** El filtro `status:'in_stock'` es el
+predicado del contrato; ensancharlo para «que la cola tenga filas» habría sido cambiar el producto para
+que el test pase.
+
+## Test nuevo: `backend/test/integration/pending-publish-seed.e2e-spec.ts` (6 casos)
+
+*Un dato de prueba que nadie comprueba es la próxima ficha falsa.* El spec afirma **por HTTP contra
+Postgres real** los mismos tres invariantes del caso de UI, en el EMISOR: cola no vacía, ninguna fila
+muda (`missing` no vacío y de vocabulario cerrado), ningún precio resuelto ≤ 0 (el «no sé» viaja como
+`null` + `priceBasis:'pending'`, nunca como 0), `total` == filas paginadas, y la pieza del fixture
+sigue siendo `in_stock`/sin ubicación/con precio resoluble. Pagina la cola entera a propósito: mirar
+solo la página 1 haría que el spec pasara o fallara según la antigüedad de la BD local.
+No fija `total === 1` — eso haría fallar al entorno, no al código.
+
+## Verificación (literal, con números reales)
+
+Todo se midió sobre una base **limpia y aparte** (`tcg_seedcheck`) y un backend de HEAD en `:3098` con
+Redis en la db 3: **la BD del stack vivo NO se resembró** (`--seed` borra, y hay filas de evidencia de
+pentest/PoC en ella — DEVOPS_NOTES §38.4).
+
+| medición | resultado |
+|---|---|
+| `GET /admin/inventory/pending-publish` — seed ANTERIOR, BD limpia | `{"data":[],"total":0}` ⇒ **el rojo de CI reproducido** |
+| `GET /admin/inventory/pending-publish` — seed NUEVO | `total: 1`, fila `E2E-STK-0001`, `missing:["location"]`, `resolvedSalePriceCents: 7000`, `priceBasis:"market"`, `pendingPriceEntryId: null`, `acquisitionType:"buylist"` |
+| spec nuevo (integración) | **6/6 verdes** |
+| **suite de integración completa** | **20 suites / 289 tests — 289 verdes** |
+| **suite unitaria completa** (`npx jest`) | **250 suites / 3.666 tests — 3.666 verdes** |
+| `eslint` + `tsc --noEmit` sobre lo tocado | limpio |
+
+**Verificación por MUTACIÓN** (se quitó el bloque del seed y se borró la fila de la BD, y se volvió a
+sembrar): `GET …/pending-publish` vuelve a `total: 0` y el spec nuevo cae **3 de 6**, encabezado por
+`Expected: > 0 · Received: 0` — **el mismo mensaje que el fallo de Playwright**. Restaurado el bloque:
+6/6 otra vez. El fixture está, por tanto, **comprobado por algo que se pone rojo si desaparece**.
+
+### ⚠️ Lo que NO se midió, dicho explícitamente
+**No se corrió `frontend/e2e/admin.spec.ts`**: en esta máquina **no hay navegadores de Playwright
+instalados** (`~/.cache/ms-playwright` no existe) y, aunque los hubiera, el frontend vivo apunta a la BD
+de trabajo —que ya tenía 147 piezas `in_stock` de corridas viejas— así que ese caso habría pasado
+**con y sin** este arreglo: no habría medido nada. La comprobación de punta a punta queda para el
+workflow de CI, que es donde el rojo se midió. Lo que sí se verificó del lado de la UI, leyendo (sin
+tocar) `frontend/src/app/[locale]/(admin)/admin/m1/PendingPublishQueue.tsx` y `messages/es.json`:
+la 3ª columna es «Le falta» y con `missing:['location']` pinta **«Ubicación»** (no vacía), la columna
+de dinero pinta el importe resuelto, el contador `publish-queue-total` se pinta porque `total` es
+número, y el componente **no tiene ningún botón de publicar**.

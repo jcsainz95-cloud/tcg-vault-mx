@@ -256,7 +256,8 @@ export const E2E_SET_EXPECTED_NUMBERS = ['4', '16', '17', '20', '25', '30', '31'
 /**
  * Piezas físicas (InventoryItem) deterministas por folio. Los `E2E-LST-*` son de la
  * PLATAFORMA y vendibles; `E2E-CUS-*` están en la bóveda del `customer` para probar
- * portafolio/retiro sin depender del webhook.
+ * portafolio/retiro sin depender del webhook; el `E2E-STK-*` es de la PLATAFORMA y **NO**
+ * vendible todavía — vive en la cola de «listas para publicar» (§4.39m.1).
  */
 export const E2E_FOLIOS = {
   listedCharizard: 'E2E-LST-0001', // platform listed, sin listPrice → salePrice = ref×(1+markup)
@@ -275,6 +276,29 @@ export const E2E_FOLIOS = {
   // carta de los estimados RANCIOS/AUTOMÁTICOS que la API del contrato no puede fabricar.
   listedFourthRaw: 'E2E-LST-0008',
   listedStaleEst: 'E2E-LST-0009',
+  /**
+   * ⚠️ v2.1.10 — **LA PIEZA QUE HABITA LA COLA DE «LISTAS PARA PUBLICAR»** (§4.39m.1, criterio 125).
+   *
+   * **Por qué existe.** El predicado de esa cola es `ownerType='platform' ∧ status='in_stock' ∧
+   * (sin ubicación ∨ precio no resoluble)`, y **el seed no dejaba NI UNA sola pieza `in_stock`**:
+   * las nueve `E2E-LST-*` nacen `listed`. La cola salía **vacía por falta de dato**, no porque el
+   * back-office estuviera al día — y la pantalla que existe para que *«una carta comprada y pagada
+   * no se quede quieta sin que nada lo señale»* se verificaba **sin nada que señalar**. El hueco es
+   * **preexistente** (el seed nunca sembró `in_stock`, ni una vez en toda su historia) y solo se vio
+   * cuando la suite E2E completa corrió por primera vez contra el stack real.
+   *
+   * **Por qué le falta la UBICACIÓN y no el precio.** Es el caso que ocurre de verdad: la conversión
+   * desde M5 **no exige ubicación a propósito** (§4.39m.3 — exigirla atoraría el pago al vendedor),
+   * así que la pieza nace en una caja que todavía no existe. El precio, en cambio, **resuelve**:
+   * contra el stack real todas las piezas de la cola tienen precio resoluble, y forzar lo contrario
+   * sería fabricar una coincidencia de fixture. Además así la fila ejercita el invariante de dinero
+   * de la cola —**jamás `MX$0.00` para «no resoluble»**, §7.3—: se pinta un importe REAL, y una
+   * regresión que resolviera cero se vería.
+   *
+   * ⚠️ **NO le pongas ubicación ni la publiques «para dejarla bonita»**: en cuanto no le falte nada,
+   * la auto-publicación la saca sola (sin botón, D10) y la cola vuelve a quedar vacía.
+   */
+  pendingPublishNoLocation: 'E2E-STK-0001',
 } as const;
 
 export const E2E_LOCATIONS = {
