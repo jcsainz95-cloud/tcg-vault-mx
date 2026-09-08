@@ -2,7 +2,48 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-08 (rev **v1.62.1**).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-08 (rev **v1.62.2**).
+>
+> **Changelog v1.62.2 — EL VALOR DE MERCADO DE LA VARIANTE VIAJA. UNA CARA NUEVA EN UN DTO QUE YA EXISTÍA, CERO
+> ENDPOINTS, CERO DDL (2026-09-08, arquitecto).** Base: **v1.62.1, vigente entera** salvo lo que se marca aquí.
+> **CERO endpoints nuevos, CERO códigos de error nuevos, CERO DDL, CERO diales, CERO cambios en superficies
+> públicas, CERO cambios en `PUT …/variant-controls/...`, CERO filtros y CERO acciones nuevas.** Diseño en
+> ARCHITECTURE **§4.42j**.
+>
+> **A. LA PETICIÓN, LITERAL.** El dueño vio la consola de bounties corriendo y pidió *«solo agrégame el precio del
+> mercado»*; preguntado cuál de los dos números quería, eligió **el valor de mercado de la carta** —**no** «a cuánto
+> la vendemos nosotros», que ya viajaba—. Su razón, en sus términos: hoy la pantalla dice *«pago MX$3,000 y la tarifa
+> vigente es MX$1,603 (+87 %)»* y **no permite juzgar si eso es una ganga o un disparate**, porque **no dice cuánto
+> vale la carta**. Es **una lectura más**, no una función nueva.
+>
+> **B. MEDIDO ANTES DE DECIDIR: ese número NO viajaba.** `AdminBountyRowDTO` lleva el `VariantPricingDTO` completo,
+> pero sus tres cifras (`suggestedCents`, `overrideCents`, `effectiveCents`) son **salida de la CURVA**, no el
+> mercado (`variant-pricing.ts:98,107` ⇒ `buy.curveQuoteCents`). **La referencia de mercado era la ENTRADA del
+> composer y se descartaba al proyectar.** Por eso esto es cambio de contrato (regla 9 de `CLAUDE.md`) y no un
+> arreglo de backend.
+>
+> **C. DÓNDE ENTRA: una cara `market` en `VariantPricingDTO` (§DTOs base), NO un campo suelto en `AdminBountyRowDTO`.**
+> El composer **ya recibe** ese número como primer argumento y de él derivan las otras tres cifras ⇒ emitirlo **no es
+> una segunda proyección del mismo dinero** (§0-B.1), es **el eco de la entrada**. Lo heredan las **cuatro** seams del
+> composer (consola, binder, cajón de variante, respuesta del `PUT`), que es lo correcto: la ceguera que el dueño
+> nombró **existe igual en el cajón del binder**. **Descartado** el campo suelto en la fila de bounty: sería la
+> **quinta** forma del mismo número y el primer ladrillo del «DTO plano de bounty» que [`§M2-B.1`](#M2-B1) prohíbe.
+>
+> **D. LAS TRES RESTRICCIONES DURAS, RESUELTAS EN EL CONTRATO — y son la mitad del cambio.**
+> **(1) ⛔ Nunca un precio inventado ni un `0`:** `market.status` es un **discriminante obligatorio**
+> (`priced | pending`); sin referencia **para ESA variante** ⇒ `pending` + `referenceMxnCents: null`, y **jamás el
+> precio de otro acabado**. **(2) 🕐 El número puede estar viejo:** viaja **`capturedDate`** —que `getReferencesBatch`
+> **ya resuelve y ya se descartaba aquí**—, y el contrato dice **exactamente qué fecha es** (el día en que **bajamos
+> el archivo**, no el de la última venta observada: `evidenceDate` **sigue sin escritor**, deuda GU-9, y **no se
+> aproxima**). **(3) 💱 El importe MXN depende de un FX que puede estar congelado** (P-63, `BANXICO_SIE_TOKEN`
+> ausente en producción): se **declara en el contrato**, se enruta a **devops + el humano**, y **no se inventa un
+> campo de frescura de FX por fila** (ya existe `GET /admin/fx`; pintarlo o no es **Q-B5**, ARCHITECTURE §10).
+>
+> **E. CANDADOS.** [`§M2-B.6`](#M2-B6) gana **B-14** (⭐ el mercado es el de ESA variante, y sin referencia sale
+> `pending`, no `0` ni el precio del otro acabado) y **B-15** (la fecha es la de la fila, no `today()`). Los dos
+> miden **la cosa**, no el nombre: B-14 ata `market` al `suggestedCents` que el mismo composer produjo.
+>
+> ---
 >
 > **Changelog v1.62.1 — LAS PETICIONES DE ux-ui, ARBITRADAS. UN CAMPO NUEVO (`counts`), CERO DDL (2026-09-08,
 > arquitecto).** Base: **v1.62, vigente entera** salvo lo que se marca aquí. **CERO endpoints nuevos, CERO códigos de
@@ -5136,7 +5177,13 @@ MasterSetVariantDTO = { finish: Finish, count: number, covered: boolean, display
 //   * `premiumAtFloor: boolean` (ADITIVO) = el guardarraíl §4.36.5 disparó para esta variante en ese eje: rareza
 //     premium que aterrizó en el piso/bin ⇒ NO se publica / NO se cotiza y hay entrada `premium_at_floor` en la cola.
 //     Es lo que hace VISIBLE el guardarraíl desde el back-office y permite detectar PISOS MAL CALIBRADOS.
-VariantPricingDTO = { buy:  { suggestedCents: number | null, overrideCents: number | null,
+// ⚠️⚠️ v1.62.2 (ADITIVO, admin-only) — **`market`: EL VALOR DE MERCADO DE LA VARIANTE**, la ENTRADA de la que
+//   salen `buy.suggestedCents` y `sell.suggestedCents`. Lo pidió el dueño para poder juzgar si un bounty es sano
+//   («pago MX$3,000, la tarifa es MX$1,603… ¿y cuánto vale la carta?»). Ver el bloque normativo
+//   `<!-- CANON: mercado-de-la-variante -->` justo debajo. **Presente SIEMPRE que viaje `pricing`** (nunca opcional:
+//   su ausencia se confundiría con «no hay mercado», que es lo que `status` está para decir en voz alta).
+VariantPricingDTO = { market: MarketReferenceDTO,
+                      buy:  { suggestedCents: number | null, overrideCents: number | null,
                               effectiveCents: number | null,
                               source: PriceBasis, premiumAtFloor: boolean },
                       sell: { suggestedCents: number | null, overrideCents: number | null,
@@ -5145,6 +5192,85 @@ VariantPricingDTO = { buy:  { suggestedCents: number | null, overrideCents: numb
                       bounty?: { enabled: boolean, priceCents: number | null, targetQty: number | null,
                                  acquiredQty: number, completedAt: string | null,
                                  effective: boolean, curveQuoteCents: number | null } | null }
+
+// <!-- CANON: mercado-de-la-variante · única fuente · §0-B.3 regla 8 · ver ARCHITECTURE §4.42j -->
+//    (marca DENTRO del bloque `ts` a propósito: la fuente única es esta declaración, no una prosa aparte.)
+// ===== v1.62.2 — `MarketReferenceDTO`: QUÉ ES, EXACTAMENTE, EL «PRECIO DEL MERCADO» QUE SE PINTA =====
+// Es la MISMA forma que el backend ya resuelve y ya pasa al composer (`PriceInfo` de
+// `pricing.service.ts`); lo que hace esta rev es **DECLARARLA** en el contrato en vez de tirarla al proyectar.
+// ⛔ NO es un DTO nuevo del mercado: **no se define una segunda resolución**, no se hace una segunda consulta y
+//    no se recalcula nada. Si alguna implementación resuelve `market` por su cuenta en vez de emitir el valor que
+//    alimentó a `buy`/`sell`, ha creado la quinta proyección del mismo dinero — el defecto de §0-B.1. Candado B-14.
+MarketReferenceDTO = { status: "priced" | "pending",
+                       referenceMxnCents: number | null,
+                       capturedDate: string | null,     // "YYYY-MM-DD"
+                       source: PriceSource | null }
+// **QUÉ FILA es** — la referencia vigente de **ESA variante**: la `PriceReference` de la clave
+//   `(cardId, productType, gradeKey, finish)` **del renglón**, con la naturaleza de dinero (`refKind=market`) y la
+//   identidad de producto base que ya filtran `MONEY_REF_WHERE` + `BASE_CARD_REF_WHERE`, elegida con la precedencia
+//   vigente (**tier manual absoluto → `capturedDate` desc → fuente**). **Ninguna regla nueva**: es la que ya
+//   aplican `getReference`/`getReferencesBatch`, y se cita, no se transcribe.
+// **QUÉ ACABADO** — ⛔⛔ **el del renglón, y SOLO el del renglón.** La consola de bounties es **por acabado**
+//   (`raw:NM` + `finish`), así que el mercado que se enseña es el de **esa** variante. **PROHIBIDO copiar el precio
+//   de un acabado a otro, caer al acabado base o «al precio de la carta»** — regla del dueño, ya vigente para
+//   `marketReferenceMxnCents` (arriba, v1.44/P-47): *un acabado sin precio en NINGUNA fuente ⇒ «—» + `PRICE_PENDING`,
+//   JAMÁS el precio de otro acabado*. Candado **B-14**.
+// **QUÉ MONEDA** — **centavos de MXN**, con el **FX VIGENTE aplicado al vuelo** (no el `priceMxnCents` congelado en
+//   la ingesta) para las referencias de mercado en USD; las referencias nativas en MXN y los overrides manuales del
+//   admin van **congelados** tal cual. Misma regla que ya gobierna toda valuación — no se duplica aquí.
+// **QUÉ PROVEEDOR** — `source: PriceSource` (`tcgcsv_singles` primario para singles, PPT/pokemontcg.io de fallback,
+//   `manual` para el override del admin). ⚠️ Es **procedencia** ⇒ `vault_operator+` únicamente. No hay riesgo de fuga
+//   por añadirlo aquí: **`pricing` ya es admin-only** (se OMITE entero en `user_vault` y «Mi bóveda», regla dura
+//   §4.26b) y `toPublicPriceInfo` sigue siendo el único emisor hacia superficie anónima, **que no cambia**.
+//
+// ⛔ **(1) NUNCA UN PRECIO INVENTADO, NUNCA UN `0`.** Regla del dueño, textual: *«Sin valor de mercado ⇒ pendiente
+//   o “—”. Nunca copies el precio de un acabado a otro.»* Cómo se cumple, y por qué el frontend NO puede
+//   confundirlo con cero:
+//     · `status: "pending"` ⇔ `referenceMxnCents: null` ⇔ `capturedDate: null` ⇔ `source: null`. Los cuatro a la vez.
+//     · `status: "priced"` ⇒ `referenceMxnCents` es un entero **> 0** (invariante vigente `market > 0`), y
+//       `capturedDate`/`source` **no** son `null`.
+//     · **`0` NO es un valor emitible.** Si llegara, es un bug del emisor y el cliente lo trata como `pending`.
+//   **El frontend ramifica por `status`, JAMÁS por la verdad/falsedad del número** (misma doctrina que `state` y que
+//   `priceBasis`: la UI obedece el discriminante, no lo infiere). Con `pending` se pinta el «—»/«sin valor de
+//   mercado» del sistema de diseño; **prohibido** pintar `MX$0`, «gratis», una barra de premium o un porcentaje.
+// 🕐 **(2) EL NÚMERO PUEDE SER VIEJO, Y POR ESO VIAJA SU FECHA.** `capturedDate` = **el día en que ESTA fila se
+//   capturó** (`PriceReference.capturedDate`), es decir **el día en que bajamos el archivo del proveedor**.
+//     · ⛔ **NO es la fecha de la última venta observada.** Esa es `evidenceDate`, que **existe en el esquema y hoy
+//       NADIE la escribe ni la lee** (deuda **GU-9**, `TECH_DEBT.md`, dueño **backend**). **No se aproxima, no se
+//       renombra y no se rellena**: poner una antigüedad falsa junto a una decisión de dinero es peor que no
+//       ponerla — misma doctrina con la que se rechazó `outbidSince` (§M2-B.7). El día que GU-9 se cablee, este
+//       campo **no cambia de significado**; se decidirá entonces si nace un segundo campo.
+//     · **Por qué viaja igual:** el barrido escribe a diario, pero una variante cuyo proveedor no respondió
+//       **conserva la fila anterior** ⇒ una consola que enseña un valor de mercado **sin decir de cuándo es** vuelve
+//       a ser la pantalla que miente por omisión sobre dinero, que es justo lo que §M2-B existe para no ser.
+//     · **Coste real: cero.** `getReference`/`getReferencesBatch` **ya devuelven `capturedDate`** y el binder ya lo
+//       pinta desde v1.27; aquí solo se dejaba de proyectar. Candado **B-15**.
+// 💱 **(3) ⚠️ EL IMPORTE DEPENDE DE UN TIPO DE CAMBIO QUE HOY PUEDE ESTAR CONGELADO — y quien lea este contrato
+//   tiene que saberlo.** Las referencias de mercado llegan en **USD** y se convierten a MXN con la FX vigente +
+//   colchón. En **producción**, `BANXICO_SIE_TOKEN` **falta** (pendiente **P-63**, medido y repetido en los registros)
+//   ⇒ la conversión cae al **override manual / último `FxRate` válido**. Consecuencia honesta: `referenceMxnCents`
+//   puede ser **un precio USD reciente convertido con una tasa vieja**, y `capturedDate` **NO** informa de eso
+//   (es la fecha del precio, no la de la tasa).
+//     · **Esto NO lo arregla el contrato ni el arquitecto**: es de **devops + el humano** (poner el token) —
+//       enrutado en ARCHITECTURE §4.42j. Se declara aquí porque el número se va a pintar igual.
+//     · ⛔ **NO se añade un campo de frescura de FX por fila:** la FX es **una** por respuesta, no por variante, y
+//       `GET /admin/fx` **ya la expone** con `source` y `effectiveDate`. Si el dueño quiere verla en la cabecera de
+//       la consola, es **Q-B5** (ARCHITECTURE §10) y **no cambia este DTO**.
+// **INVARIANTE VERIFICABLE — es lo que prueba que `market` NO es una segunda resolución** (candado B-14):
+//   `market.status === "pending"` ⇔ `buy.suggestedCents === null` ⇔ `sell.suggestedCents === null`
+//                                 ⇔ `bounty.curveQuoteCents === null`
+//   (el mercado nulo/≤0 es exactamente lo que hace que la curva no resuelva). Un `market` que resuelva por su
+//   cuenta rompe esta equivalencia en cuanto las dos vías discrepen, y **por eso el candado mide la cosa y no el
+//   nombre del campo**. ⚠️ La recíproca sobre `effectiveCents` **NO** vale y no se aserta: el guardarraíl
+//   `premiumAtFloor` anula `effectiveCents` con mercado presente, y un `overrideCents` puede dar precio sin curva.
+// **CONVIVENCIA con `MasterSetVariantDTO.marketReferenceMxnCents`/`capturedDate` (v1.27, arriba) — NO se deprecan:**
+//   esos campos planos viajan en **los tres scopes** del binder y `pricing` viaja **solo en `platform`**; retirarlos
+//   dejaría a la bóveda del cliente sin su valuación. En scope `platform` el mismo número viaja **dos veces**, y es
+//   **redundancia, no divergencia**: backend emite **ambos desde la MISMA variable resuelta una sola vez** ⇒
+//   invariante `pricing.market.referenceMxnCents === marketReferenceMxnCents` y
+//   `pricing.market.capturedDate === capturedDate` cuando ambos viajan. ⛔ El frontend **lee uno solo** y **jamás los
+//   compara para decidir**; el binder puede seguir con el plano.
+// <!-- /CANON: mercado-de-la-variante -->
 // EXTENSIONES v1.20 (ADITIVAS — los campos v1.16 no cambian; notación `+=` = campos que se AÑADEN al DTO):
 // Índice: catalogVariantCount = Σ |availableFinishes| de las cartas del set; distinctVariantsOwned = variantes del
 // universo con ≥1 pieza en el scope; variantCompletionPct = distinctVariantsOwned / catalogVariantCount × 100
@@ -9276,6 +9402,25 @@ Res `200` (`AdminBountyListResponse`):
   y **el veredicto** (`pricing.bounty.effective`). ⛔ **No se define un DTO «plano» de bounty**: sería una segunda
   proyección de las mismas columnas, y **dos proyecciones del mismo dinero divergen** — es la forma exacta del defecto
   que este proyecto ya pagó cuatro veces (§0-B.1).
+- **⚠️⚠️ v1.62.2 — LA CUARTA CIFRA: `pricing.market`, EL VALOR DE MERCADO DE LA VARIANTE.** El dueño la pidió con
+  estas palabras: *«solo agrégame el precio del mercado»*, y precisó cuál —**cuánto vale la carta**, no a cuánto la
+  vendemos nosotros—. **Su razón es la que fija el requisito:** hoy la fila dice *«pago MX$3,000 y la tarifa vigente
+  es MX$1,603 (+87 %)»* y **eso no basta para juzgar si el bounty es sano**; con el mercado al lado, `+87 %` deja de
+  ser un número flotante y pasa a ser *«pago el 60 % del valor»* o *«pago el triple»*. **Es una lectura más, no una
+  función nueva:** no añade filtros, ni acciones, ni orden, ni endpoint.
+  - **Sale del mismo sitio que todo lo demás:** es la **entrada** que `composeVariantPricing` ya recibe y de la que
+    derivan `buy.suggestedCents`, `sell.suggestedCents` y `bounty.curveQuoteCents`. **No hay segunda consulta ni
+    segundo cálculo** — hasta v1.62.1 simplemente **se descartaba al proyectar**.
+  - **Forma, semántica exacta y las tres restricciones duras** (sin mercado ⇒ `pending`, **jamás `0`** y **jamás el
+    precio de otro acabado** · la **fecha** de la referencia viaja y se dice **qué fecha es** · el importe MXN
+    depende de un **FX que hoy puede estar congelado**, P-63): **§DTOs base**, bloque marcado
+    `<!-- CANON: mercado-de-la-variante -->`. **No se transcribe aquí** (§0-B.3 regla 8).
+  - **Esta pantalla NO es la única que lo gana, y es deliberado:** vive en `VariantPricingDTO`, así que lo heredan
+    el **binder** y el **cajón de variante** —donde el dueño tenía exactamente la misma ceguera al mirar un bounty—
+    y la respuesta del `PUT …/variant-controls/...`. *Poner el número solo en la fila de bounty habría sido la
+    quinta forma del mismo dinero, y el primer ladrillo del «DTO plano» que este bullet prohíbe justo arriba.*
+  - **La columna en pantalla es de ux-ui** (`DESIGN_SYSTEM §28.4`), incluido el tratamiento del caso `pending` y
+    dónde se dice la fecha. El contrato norma **qué viaja y qué significa**, no dónde se pinta.
 - **`state` es redundante con `pricing.bounty.effective` A PROPÓSITO, y no es una duplicación de regla:** `effective`
   es un **booleano de un eje**; `state` es la **clasificación de las cinco** de §M2-B.0, que además distingue
   `completada` de `apagada` —cosa que `effective` no puede— y **la deriva el servidor**. **La UI obedece `state` y
@@ -9443,11 +9588,18 @@ por variante**. *La superficie de escritura de dinero de este proyecto no crece 
     ARCHITECTURE **§0-B.3 regla 9**.
   - **Verificable desde el frontend, y así se comprueba:** el `PUT` que emite esta pantalla al cambiar solo el precio
     del bounty **no contiene las claves** `sellOverrideCents` ni `buyOverrideCents` (mutación **B-11** de §M2-B.6).
-- ⛔ **`curveQuoteCents`, `effective`, `suggestedCents`, `state`, `progress` y `remainingQty` son SALIDA, nunca
+- ⛔ **`curveQuoteCents`, `effective`, `suggestedCents`, `state`, `progress`, `remainingQty` y —desde v1.62.2— el
+  bloque `market` entero (`referenceMxnCents`, `capturedDate`, `source`, `status`) son SALIDA, nunca
   entrada.** Si llegan en el body **se ignoran** (el `PUT` ya valida su cuerpo campo a campo y no los conoce), y el
   servidor **re-deriva la curva y la referencia de mercado en el momento del write**, contra el dato real de la
   variante. **La cifra que la pantalla enseñó puede estar rancia** —el barrido corre 2×/día— y eso es correcto: *la
   pantalla informa; la puerta decide* (misma doctrina que el mínimo del cotizador, §4.39r.4).
+  - **⛔ v1.62.2 — Y `market` NO ES UNA PERILLA DESDE AQUÍ.** Enseñar el valor de mercado **no abre** ninguna vía
+    para tocarlo: la única escritura de una `PriceReference` sigue siendo `POST /admin/pricing/override`
+    (`super_admin`, auditada, con su propia resolución de la cola de pendientes), y **esta pantalla no la ofrece ni
+    la enlaza** — §M2-B.5 ya dice que la consola *«no toca `PriceReference` ni la cola de pendientes»* y **eso no
+    cambia**. *Un número que se lee no es un campo que se edita; la distancia entre las dos cosas es un endpoint
+    distinto, no un `disabled` en el formulario.*
 - **El `422 BOUNTY_BELOW_RULE` que devuelva un write hecho desde esta pantalla NO es un error de la pantalla: es la
   guarda funcionando** sobre una curva que se movió entre el render y el guardado. El frontend lo pinta con
   `details.curveQuoteCents` y **re-lee la fila**; **no reintenta solo**, y **jamás recalcula el precio por su cuenta**.
@@ -9465,13 +9617,13 @@ por variante**. *La superficie de escritura de dinero de este proyecto no crece 
 | Pieza | Veredicto | Por qué |
 |---|---|---|
 | `PUT …/variant-controls/:cardId/:finish` (escritura) | ♻️ **se reusa entero** | ya impone las cinco guardas y la auditoría. **Cero superficie de escritura nueva.** |
-| `composeVariantPricing` → `VariantPricingDTO` (fila) | ♻️ **se reusa entero** | garantiza que la consola, el binder y el drawer **no puedan discrepar** sobre el mismo dinero |
+| `composeVariantPricing` → `VariantPricingDTO` (fila) | ♻️ **se reusa entero** *(v1.62.2: **gana una cara, `market`**, y sigue siendo UNO)* | garantiza que la consola, el binder y el drawer **no puedan discrepar** sobre el mismo dinero. **`market` no es una pieza nueva: es la ENTRADA del composer, que hasta v1.62.1 se descartaba al proyectar** ⇒ el número que se pinta es, por construcción, el mismo del que salió la curva |
 | `isBountyEffective` (veredicto) | ♻️ **se reusa entero** | cuarta seam del mismo predicado (§4.36.6 prohíbe duplicarlo) |
 | `loadPricingCurve` + `getReferencesBatch` (izado en lote) | ♻️ **se reusa entero** | el mismo trío que ya usan el binder y `publicBounties`; evita el N+1 |
 | `GET /buylist/bounties` (vitrina pública) | ⛔ **NO sirve, y no se toca** | **filtra a los rebasados por diseño** (criterio 91: todo lo publicado es mejor que la tarifa) — *justamente la fila que hay que ver*; además es `@Public()`, tope 50, sin paginación ni parámetros, y no conoce `apagada`/`completada`. **Darle una rama por rol sería meter una bifurcación de autorización en una superficie anónima de dinero: una regresión de seguridad, no un atajo.** |
 | `GET /admin/reports/pricing-brackets` | ⛔ **NO sirve, y no se toca** | agrega **operaciones consumadas** por bracket; su `byBasis.bounty` es *cuántas compras se pagaron a precio de bounty*, **no** qué bounties existen. Un contador de resultados no es un inventario de configuraciones. |
 | Badge «Bounty / Bounty rebasado» del binder | ♻️ **se conserva tal cual** | sigue siendo la alerta **en contexto** (§N.6: *«genera alerta en el binder»*). La consola **no lo sustituye**: el binder responde *«¿qué pasa con ESTA carta?»* y la consola *«¿qué pasa con TODOS?»* |
-| **Lo único que NACE** | ✅ **UN endpoint de LECTURA** (§M2-B.1) + el enum `state` *(+ su envoltorio de respuesta, `counts` incluido desde v1.62.1)* | no existe ninguna lectura que devuelva bounties **no efectivos**, ni apagados, ni completados |
+| **Lo único que NACE** | ✅ **UN endpoint de LECTURA** (§M2-B.1) + el enum `state` *(+ su envoltorio de respuesta, `counts` incluido desde v1.62.1; + la cara `market` del `VariantPricingDTO` desde v1.62.2)* | no existe ninguna lectura que devuelva bounties **no efectivos**, ni apagados, ni completados. **`market` no añade endpoint, consulta, columna ni dial**: declara un valor que el servidor ya resolvía |
 
 <a id="M2-B5"></a>
 ##### M2-B.5 — Lo que esta pantalla **NO** hace *(escrito para que no crezca sola)*
@@ -9507,6 +9659,8 @@ Cada línea es **una** mutación y **el** test que la mata:
 | **B-11** ⭐ *(v1.62.1)* | que la consola de bounties **reenvíe** los overrides que leyó | **Test de FRONTEND** (§M2-B.3): editar **solo** el precio del bounty de una fila ⇒ el body del `PUT` **no contiene** las claves `sellOverrideCents` ni `buyOverrideCents`. *(La mitad de servidor —omitido conserva— **ya está cerrada** en `backend/test/pricing.variant-controls.spec.ts` y **no se re-asierta aquí**: dos candados sobre la misma regla se tapan entre sí.)* |
 | **B-12** *(v1.62.1)* | dejar de resolver `curveQuoteCents` en filas **apagadas** | fila con `bountyEnabled=false` y mercado resoluble ⇒ `pricing.bounty.curveQuoteCents != null`. Rojo si solo se resuelve para bounties vivos |
 | **B-13** *(v1.62.1)* | añadir una acción de alcance de conjunto | **Dos superficies:** (a) inventario de rutas — ningún verbo de escritura bajo `admin/pricing/bounties` (ya es **B-7**); (b) **frontend** — la pantalla **no expone** ningún control cuyo rótulo lleve un contador (`Apagar los {n}…`) ni multi-select con acción |
+| **B-14** ⭐ *(v1.62.2)* | resolver `pricing.market` **por su cuenta** (segunda consulta / otra precedencia), **copiar el precio de OTRO acabado**, o emitir **`0`** donde no hay referencia | **EL candado del número nuevo, y mide la COSA, no el nombre del campo.** **Un** fixture, **una** carta, **dos** acabados: `normal` **con** `PriceReference` (p. ej. MX$1,000) y `reverse_holo` **sin ninguna fila** de referencia, **ambos** con bounty en alcance. En la respuesta de `GET /admin/pricing/bounties`: **(a)** la fila `normal` trae `market.status:"priced"` y `market.referenceMxnCents == 1000_00`; **(b)** la fila `reverse_holo` trae `market.status:"pending"`, `referenceMxnCents:null`, `capturedDate:null`, `source:null` — **rojo si trae el 1000_00 del otro acabado, si trae `0`, o si omite el bloque `market`**; **(c)** ⭐ **el amarre que hace imposible taparlo cambiando un solo lado**: en **esa misma fila** `buy.suggestedCents`, `sell.suggestedCents` y `bounty.curveQuoteCents` son **los tres `null`**, y en la fila `normal` los tres son **no nulos**. *Emitir un mercado que la curva no vio rompe (c) aunque (a) y (b) pasen.* **(d)** El **mismo** fixture, leído por `GET /admin/master-set/:setId` (scope `platform`) y por la respuesta del `PUT …/variant-controls/...`, da **el mismo `market`** — es el mismo composer, y aquí se comprueba que lo sigue siendo |
+| **B-15** *(v1.62.2)* | sellar `capturedDate` con `today()`, o dejar de emitirla cuando hay precio | **El candado de «el número puede ser viejo».** Fixture: la **única** `PriceReference` de la variante tiene `capturedDate` de **hace 40 días** (el proveedor no volvió a responder) ⇒ la fila trae `market.capturedDate` **igual a esa fecha**, en `YYYY-MM-DD`. **Rojo si vale la fecha de hoy, si viene `null` con `status:"priced"`, o si la clave no viaja.** *(⛔ **No** se asierta `evidenceDate`: no la escribe nadie —deuda GU-9— y afirmarla aquí sería inventarla.)* |
 
 ⛔ **Lo que NO se vuelve a testear aquí, a propósito:** `BOUNTY_TARGET_REQUIRED`, el default 2,
 `BOUNTY_PRICE_REQUIRED` y el `raw`-only **ya están cerrados** en `backend/test/pricing.variant-controls.spec.ts`, y
