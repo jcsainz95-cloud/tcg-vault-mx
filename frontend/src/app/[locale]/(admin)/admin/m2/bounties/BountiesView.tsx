@@ -399,7 +399,13 @@ export function BountiesView() {
           acota la frase: el portador es la VERSALITA, que se lee primero y no la desarma ninguna
           subordinada (§28.5 v3.5, §28.3 canal 2). Se ofrece la palanca en su lugar. */}
       {showZeroLine && (
-        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-2 border-l-2 border-border-strong pl-4 text-sm text-text">
+        <div
+          // §28.14 caso 20: el candado no solo cuenta las palancas, comprueba **cuál** sobrevive.
+          // Si la superviviente fuera la del vacío, el bloque ① —que es el que se lee primero—
+          // quedaría sin salida, y eso es rojo aunque el conteo diera 1.
+          data-testid="bounties-zero-line"
+          className="flex flex-wrap items-baseline gap-x-3 gap-y-2 border-l-2 border-border-strong pl-4 text-sm text-text"
+        >
           <p>
             <span className="mr-2 font-mono text-[11px] uppercase tracking-[0.06em] text-muted">
               {zero === 'filtered' ? t('zero.filteredLabel') : t('zero.outbidLabel')}
