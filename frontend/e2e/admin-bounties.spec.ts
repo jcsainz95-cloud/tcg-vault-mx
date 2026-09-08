@@ -15,6 +15,11 @@ import { loginAs, mockOnly } from './utils/auth';
  * Cubre los cuatro huecos que QA marcó como **no medidos**: **§28.9** (móvil), **caso 15** (rol),
  * **caso 17** (teclado puro) y la mitad medible del **caso 5** (los chips).
  *
+ * Y dentro de §28.9, **todo lo que solo existe cuando hay layout**: que no haya desbordamiento, que
+ * el rótulo de cada celda etiquete **su** importe (no basta con que esté), que el hueco de `PAGAMOS`
+ * **no se esconda** en la fila sin precio, que los campos de dinero midan **≥16px** (o iOS hace zoom)
+ * y que la tabla desplomada **siga siendo una tabla** en el árbol de accesibilidad.
+ *
  * ## ⚠️ Lo que este archivo NO puede medir, y por qué se dice aquí
  * **La otra mitad del caso 5 —`truncated: true`: el banner de lista incompleta y los chips con `≥`—
  * NO es alcanzable en modo mock.** No es una omisión: en modo fixtures `getAdminBounties` **no hace
@@ -33,6 +38,8 @@ const B = (key: string, vars?: Record<string, string | number>) =>
 
 /** La carta `rebasada` de la semilla del servidor falso: la fila por la que existe la pantalla. */
 const OUTBID_CARD = 'Charizard';
+/** La `invalida` de la semilla: encendida y **sin precio**. Su hueco es la señal (§28.3, §28.9). */
+const NO_PRICE_CARD = 'Milotic ex';
 
 async function openBounties(page: Page) {
   await loginAs(page, 'admin');
@@ -84,6 +91,12 @@ test.describe('admin · M2 › Bounties', () => {
     const desktop = await overflow(page);
     expect(desktop.scrollW, 'la tabla desborda ya en escritorio').toBeLessThanOrEqual(desktop.clientW);
 
+    // Los dos importes de la fila, leídos **con la cabecera real delante** (3.ª PAGAMOS, 4.ª TARIFA
+    // VIGENTE). Son la referencia contra la que se medirá la correspondencia de rótulos a 390px.
+    const desktopRow = page.locator('tbody tr', { hasText: OUTBID_CARD }).first();
+    const payText = (await desktopRow.locator('td').nth(2).innerText()).trim();
+    const rateText = (await desktopRow.locator('td').nth(3).innerText()).trim();
+
     // ── Móvil 390×844 (el viewport que QA midió) ─────────────────────────────────────────────
     await page.setViewportSize({ width: 390, height: 844 });
 
@@ -101,10 +114,25 @@ test.describe('admin · M2 › Bounties', () => {
     // (3) …y su trabajo lo hace el rótulo dentro de la tarjeta, que ahora SÍ se ve. Sin esto, el
     //     colapso sería una tabla sin cabecera: dos cifras de dinero sin nombre, que es peor.
     const card = page.locator('tr', { hasText: OUTBID_CARD }).first();
-    await expect(card.getByText(B('col.pay'), { exact: true })).toBeVisible();
-    await expect(card.getByText(B('col.rate'), { exact: true })).toBeVisible();
     await expect(card.getByText(B('col.premium'), { exact: true })).toBeVisible();
     await expect(card.getByText(B('col.progress'), { exact: true })).toBeVisible();
+
+    // ⭐⭐ **Y NO BASTA CON QUE EL RÓTULO ESTÉ: TIENE QUE ETIQUETAR SU CELDA.**
+    // Intercambiar los dos `CellLabel` deja la tarjeta diciendo `PAGAMOS <tarifa> · TARIFA VIGENTE
+    // <lo que pagamos>` —**las dos cifras de dinero invertidas**— y una aserción de presencia pasa
+    // igual. Es exactamente la confusión que el colapso existe para evitar: *lo que pagamos* contra
+    // *lo que paga la tarifa*.
+    // ⚠️ Los importes NO se teclean aquí: se **leen de la tabla en escritorio** (columnas 3.ª y 4.ª,
+    // donde la cabecera real dice cuál es cuál) y se exige que a 390px sigan bajo el mismo rótulo.
+    // Así el candado mide **correspondencia** y no envejece con la semilla — que es justo lo que
+    // rompió el literal `MX$4,800.00` de la vitrina pública en otro spec.
+    await expect(card.getByText(B('col.pay'), { exact: true })).toBeVisible();
+    await expect(card.getByText(B('col.rate'), { exact: true })).toBeVisible();
+    const celdaConRotulo = (label: string) =>
+      card.locator('td', { has: page.getByText(label, { exact: true }) });
+    expect(payText, 'los dos importes coinciden: el candado sería vacuo').not.toBe(rateText);
+    await expect(celdaConRotulo(B('col.pay'))).toContainText(payText);
+    await expect(celdaConRotulo(B('col.rate'))).toContainText(rateText);
 
     // (4) El eje sobrevive al colapso —*«lo único innegociable»* de §28.9—: el encabezado de grupo
     //     sigue ahí, de título de sección. Se localiza por su SEMÁNTICA (`th[scope=rowgroup]`) y no
@@ -130,15 +158,42 @@ test.describe('admin · M2 › Bounties', () => {
     // ⚠️⚠️ **EL QUE DE VERDAD MUERDE, y está medido:** de los cinco roles explícitos, el único que
     // Chromium **no** deriva solo es `rowgroup` — Blink **ignora el `<tbody>`** si no lleva rol, así
     // que sin `role="rowgroup"` esta cuenta cae de N a **CERO** a 390px (la cabecera, que sí aporta
-    // un rowgroup implícito, está en `display:none` aquí). Y con ella se va **el agrupamiento**, que
-    // es lo único innegociable de §28.9. Se compara contra los `<tbody>` que hay: un grupo, un
-    // rowgroup. ⛔ Si alguien «limpia atributos redundantes», esto es lo que se pone rojo.
+    // un rowgroup implícito, está en `display:none` aquí). Y con ella se va el único canal
+    // ESTRUCTURAL del eje en móvil. ⛔ Si alguien «limpia atributos redundantes», esto se pone rojo.
+    //
+    // ⚠️ La cuenta es **un `<tbody>` por FILA**, no por grupo: hoy son 6 `<tbody>` para 6 filas y 4
+    // grupos. Eso **no es lo que pide §28.10** (un `tbody` por grupo) y está anotado como **BNT-D1**;
+    // aquí se compara contra los `<tbody>` que existen para medir los roles, no para bendecir la
+    // estructura. *Si BNT-D1 se paga, esta cuenta bajará a 4 y seguirá siendo correcta.*
     const tbodies = await page.locator('table > tbody').count();
     expect(tbodies).toBeGreaterThan(0);
     expect(
       ax.rowgroup,
       'los `<tbody>` dejaron de exponerse como grupos de filas al colapsar',
     ).toBe(tbodies);
+
+    // ── (7) §28.9 · el HUECO de `PAGAMOS` se pinta IGUAL en la fila sin precio ────────────────
+    // *«El hueco de `PAGAMOS` en una fila `SIN PRECIO` se pinta igual en móvil: la etiqueta con su
+    // `—`, **nunca la línea entera omitida**»* — esconderla convierte «le falta el precio» en «no
+    // aplica», y esta pantalla existe para lo contrario. Un `max-md:hidden` en esa celda pasaría
+    // desapercibido en jsdom (no hay CSS) y aquí no.
+    const noPriceCard = page.locator('tr', { hasText: NO_PRICE_CARD }).first();
+    const noPriceCell = noPriceCard.locator('td', { has: page.getByText(B('col.pay'), { exact: true }) });
+    await expect(noPriceCell).toBeVisible();
+    await expect(noPriceCell).toContainText(B('row.noPrice'));
+
+    // ── (8) §28.9 · los campos del editor miden ≥16px (si no, iOS hace ZOOM al enfocarlos) ────
+    // §3.2: el zoom del teclado de iOS al enfocar un input de <16px descoloca la pantalla entera.
+    // Es una regla de tamaño, así que solo se puede medir donde hay estilos aplicados.
+    await noPriceCard.getByRole('button', { name: B('row.setPriceAria', { card: NO_PRICE_CARD }) }).click();
+    for (const label of [B('edit.price'), B('edit.target')]) {
+      // `getByRole('textbox')` y no `getByLabel`: «Objetivo» también aparece dentro del
+      // `aria-label` largo de `SIN OBJETIVO`, y el localizador por etiqueta se vuelve ambiguo.
+      const size = await page
+        .getByRole('textbox', { name: label, exact: true })
+        .evaluate((el) => parseFloat(getComputedStyle(el).fontSize));
+      expect(size, `«${label}» mide ${size}px: por debajo de 16 iOS hace zoom (§28.9/§3.2)`).toBeGreaterThanOrEqual(16);
+    }
   });
 
   test('§28.14 caso 15 · con `vault_operator` la pantalla NO se renderiza', async ({ page }) => {

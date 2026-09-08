@@ -4,6 +4,123 @@
 > Fecha: 2026-08-13. Branch: `claude/tcg-cards-marketplace-oijthj`.
 > El contrato (`docs/API_CONTRACT.md`) y el sistema de diseño (`docs/DESIGN_SYSTEM.md`) mandan.
 
+## §56 · Bounties, tercera ronda de QA: **el rojo estaba a un stream de distancia**, y tres candados que medían el rótulo (2026-09-08, rama `claude/tcg-hunt-orchestration-ai2vma`)
+
+> Sobre `127b642`. QA rechazó con dos bloqueantes; los dos eran míos. Uno estaba **fuera de la
+> pantalla que tocaba este pase**, y esa es la lección de la ronda.
+
+### 1. 🔴 BL-1 · La semilla de demo dejó sin escaparate a la vitrina pública
+
+`e2e/inventory-stream-b.spec.ts` esperaba `MX$4,800.00` en **Top Bounties** y no lo encontraba. La
+causa no estaba en esa pantalla ni en ese assert:
+
+- las filas de demo de la consola dejaron el bounty de **Latias ex** pagando MX$4,800 contra una
+  tarifa de curva de **MX$7,600** ⇒ estado **`rebasada`**;
+- `mockPublicBounties` **lo filtró**, que es **lo correcto** — §N.6 / §M2-B.4: *un bounty rebasado no
+  se paga, así que no se anuncia*, y es la ceguera que la consola entera vino a curar;
+- **la carta que la vitrina usaba de precio héroe** era justamente ésa.
+
+**El producto se comportó bien; la semilla se quedó coja.** Yo necesitaba un `rebasada` para
+demostrar el estado nuevo y no comprobé si la carta elegida tenía otro trabajo.
+
+**Arreglo, en la dirección que pedía el coordinador —que la semilla sostenga las DOS demostraciones—:**
+Latias sube a **MX$8,500** (por encima de la tarifa de MX$7,600, por debajo del mercado de MX$9,500:
+la forma real de un bounty, que paga premium sobre la **tarifa**, no sobre el mercado) y vuelve a ser
+el héroe **efectivo**; el `rebasada` de demo sigue siendo **Charizard**, intacto. ⛔ No se tocó el
+filtro de la vitrina ni se degradó la demo del estado que justifica la pantalla.
+
+**Y lo que impide que vuelva** —porque un literal en un spec ya demostró que no basta—: el invariante
+de la semilla es ahora un candado (`admin-bounties-mock.test.ts`, 3 casos): **hay al menos un bounty
+efectivo y la vitrina tiene qué publicar**, **hay al menos uno rebasado**, **ningún rebasado aparece
+en la vitrina** y **los cinco estados siguen representados**. El spec de navegador, además, deja de
+apoyarse solo en el importe: asevera también que **el rebasado NO está en el escaparate**, que es la
+regla que la rotura destapó.
+
+**Sobre mi «no corrí la suite completa» de §55.7:** tenía razón en de quién es el gate y me equivoqué
+en la consecuencia. *El rojo no estaba en los ficheros que toqué; estaba en los que mi semilla
+alimenta.* **Esta vez corrí la suite completa de mocks: 147 passed · 3 skipped · 0 failed** (QA medía
+146 · 1 failed · 3 skipped).
+
+### 2. 🔴 BL-2 · El candado ⭐ de B-13(b) medía conducta, pero por una rendija
+
+`getAllByRole('button')` pulsa **solo botones de nivel superior presentes en un render limpio**. QA lo
+cruzó de dos maneras nuevas, las dos con **3 escrituras de un gesto y 1344/1344 en verde**:
+
+- **MUT-Q1** — el mismo «Pausar el grupo» **detrás de una ventana de confirmación**: el barrido pulsa
+  el botón (0 escrituras) y el `Confirmar` **no existe en un render limpio**, así que nunca se pulsa.
+- **MUT-Q2** — **un control que no es `button`**: un `<select>` cuyo `onChange` escribe por fila. Rol
+  `combobox` ⇒ el barrido ni lo miraba.
+
+El barrido ahora **(a)** recorre *todo lo interactivo* (`button, [role=button], a[href], input, select,
+textarea, [role=switch], [role=checkbox], [role=menuitem], [role=tab], [role=combobox], [role=option],
+[tabindex]:not([tabindex="-1"])`), **(b)** hace **el gesto que corresponde a cada tipo** —un clic no
+acciona un `<select>`: ahí va un cambio de opción; en un campo de texto, un tecleo— y **(c)** **sigue
+el gesto hasta su confirmación**: si se abrió un diálogo, pulsa el **último** botón del pie (el
+primario de este sistema de diseño; pulsar el primero cerraría con `Cancelar` y no llegaría nunca a
+la escritura, que es por donde entró MUT-Q1).
+
+*La regla que queda escrita en el test: un diálogo abierto no es el final del gesto, es la mitad.*
+
+### 3. 🟠 IMP-2 · El candado de §28.9 medía PRESENCIA; ahora mide CORRESPONDENCIA
+
+**MUT-Q11** intercambiaba los dos `CellLabel` y quedaba **verde en todas partes**: en un teléfono la
+tarjeta diría `PAGAMOS MX$38,800.00 · TARIFA VIGENTE MX$10.00` — **las dos cifras de dinero
+invertidas**, que es exactamente la confusión que el colapso existe para evitar. Es el tercer candado
+de esta pantalla que miraba el rótulo en vez de la cosa, y el más caro, porque el rótulo que mira es
+el de un importe.
+
+Ahora se asevera que **la celda que lleva el rótulo `PAGAMOS` contiene el importe de `PAGAMOS`**, y
+los dos importes **no se teclean**: se leen de la tabla **en escritorio** —donde la cabecera real dice
+cuál es cuál— y se exige que a 390px sigan bajo el mismo rótulo. Así el candado mide correspondencia y
+**no envejece con la semilla**, que es la lección de BL-1 aplicada al candado nuevo. Con espejo barato
+en jsdom (que además cubre el `aria-hidden` del rótulo).
+
+### 4. 🟡 Los menores, todos con su candado
+
+- **MEN-1** · esconder la línea de `PAGAMOS` en la fila **sin precio** (`max-md:hidden`) ya no pasa:
+  el hueco se pinta igual en móvil, con su rótulo y su `—`. *Esconderla convierte «le falta el precio»
+  en «no aplica».*
+- **MEN-2** · los campos del editor se miden **en el navegador**: `≥16px` o iOS hace zoom al enfocar.
+- **MEN-3** · el `aria-hidden` del rótulo de celda está aseverado (sin él, cada celda se anuncia dos
+  veces en móvil).
+- **MEN-4** · corregido el comentario que decía *«un grupo, un rowgroup»*: son **6 `<tbody>` para 6
+  filas y 4 grupos** — es un `<tbody>` **por fila**, que es la deuda **BNT-D1** y no la norma. La
+  aserción era correcta; la glosa, falsa. Y **BNT-D1 queda re-leída para móvil**: sigue en **Baja**
+  —el encabezado de grupo es texto real y Chromium lo expone como `rowheader` también colapsado
+  (medido: `rowheader: 4` a 390px), así que el grupo **se anuncia**— pero *lo que se pierde es la
+  navegación, no el dato*, y si alguna vez sube a Media será **por móvil**.
+
+### 5. Verificación por mutación (todas restauradas)
+
+| # | Mutación | Resultado |
+|---|---|---|
+| **Q1** | «Pausar el grupo» **tras una ventana de confirmación** | **1 rojo** — `el control «Pausar el grupo» escribió sobre varias filas de un solo gesto: expected 3 to be less than or equal to 1` |
+| **Q2** | la misma acción en un **`<select>`** (rol `combobox`) | **1 rojo** — `el control «Acción del grupo» escribió…: expected 3…` |
+| Q0 | el botón desnudo original (re-verificado) | **1 rojo** — sigue cazado |
+| **Q11** | intercambiar los dos `CellLabel` | **2 rojos** — navegador (`Received: "PAGAMOSMX$38,800.00"`) **y** jsdom |
+| MEN-1 | `max-md:hidden` en la celda sin precio | **1 rojo** — navegador (`toBeVisible` falla) |
+| MEN-2 | inputs a `text-[11px]` | **1 rojo** — navegador (`«Pagamos» mide 11px`) |
+| MEN-3 | quitar `aria-hidden` del rótulo | **1 rojo** — jsdom |
+| BL-1 | *(no es mutación: era el rojo real)* | la suite completa pasa de **1 failed** a **0** |
+
+### 6. Números
+
+`tsc --noEmit` limpio · **`npm test` 1348/1348** (121 archivos, **+4** sobre los 1344 de `127b642`) · **suite E2E de mocks
+COMPLETA: 147 passed · 3 skipped · 0 failed** (3.9 min) · `e2e/admin-bounties.spec.ts` **4/4** ·
+`next lint` sin avisos.
+
+### 7. Ficheros
+
+- `frontend/src/lib/mock/fixtures.ts` — el héroe de la vitrina vuelve a ser **efectivo** (BL-1).
+- `frontend/src/lib/mock/admin-bounties-mock.test.ts` — **+3**: el invariante de la semilla.
+- `frontend/e2e/inventory-stream-b.spec.ts` — el literal actualizado **con su porqué**, más la regla
+  §N.6 aseverada en el navegador.
+- `frontend/src/app/[locale]/(admin)/admin/m2/bounties/BountiesView.test.tsx` — barrido de conducta
+  ampliado (BL-2) y **+1** de correspondencia de rótulos (IMP-2, MEN-3).
+- `frontend/e2e/admin-bounties.spec.ts` — correspondencia, hueco sin precio, tamaño de los campos y
+  el comentario de MEN-4.
+- `docs/TECH_DEBT.md` — **BNT-D1** re-leída para móvil.
+
 ## §55 · Bounties, ronda de QA: la pantalla del dinero **desbordaba 334 px en un teléfono**, y el candado ⭐ de «nada masivo» era de rótulo (2026-09-08, rama `claude/tcg-hunt-orchestration-ai2vma`)
 
 > Segunda ronda sobre la misma pantalla, sobre `ddddd04`. QA **rechazó** el candidato. Lo que sigue es
@@ -174,6 +291,9 @@ decía que *«al dejar de ser `display:table` el navegador deja de exponer la se
 fixtures · `tsc --noEmit` limpio · `next lint` sin avisos · catálogos ES/EN simétricos.
 
 ⚠️ **No corrí la suite E2E completa** (es el gate de QA y aquí no hay stack): solo el archivo nuevo.
+> ⚠️⚠️ **Y esto costó un rechazo: ver §56.1.** La suite completa estaba **roja**, y el rojo lo había
+> metido este stream —en `e2e/inventory-stream-b.spec.ts`, un fichero que este pase no tocó pero que
+> **se alimenta de la semilla que este pase sí cambió**—. *El gate es de QA; el rojo era mío.*
 El cambio de `AdminSidebar` es transversal al back-office, así que lo verifiqué por otra vía —ningún
 spec de `e2e/` ni de `src/` aserta el estado activo del menú (medido con `grep`), y las diez pruebas
 nuevas cubren la regla entera—.

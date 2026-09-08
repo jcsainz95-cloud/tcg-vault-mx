@@ -5517,11 +5517,21 @@
   peso: el orden lo manda el servidor, el encabezado de bloque se **lee** (es texto, no un `::before`)
   y la celda de estado lleva su `aria-label` largo por fila. El grupo se entiende oyendo la lista;
   lo que se pierde es poder **saltar de grupo en grupo**.
+- **⚠️ RE-LEÍDO PARA MÓVIL (QA, 2026-09-08) — y el argumento de «Baja» aguanta, pero por menos margen.**
+  Desde §28.9 la tabla se desploma a 390px: el `<thead>` queda en `display:none` y **la estructura pasa
+  a ser el único canal que queda del agrupamiento** para quien no ve la pantalla (el orden visual y el
+  color no le llegan). Aun así sigue siendo **Baja** y la razón es medible: el encabezado de grupo
+  **es texto real** dentro de un `<th scope="rowgroup">` que Chromium expone como `rowheader` **también
+  colapsado** (medido con CDP: `rowheader: 4` a 390px), así que el grupo **se sigue anunciando**; lo que
+  no existe es el contenedor que permitiría **saltarlo**. ⇒ *no se pierde el dato, se pierde la
+  navegación.* **Si esto sube a Media alguna vez, será por móvil, no por escritorio.**
 - **Dirección:** agrupar el `map` por bloque y emitir **un** `<tbody>` por bloque. ⚠️ La razón de que
   hoy sea por fila es que el bloque de edición se inserta como `<tr>` hermano justo debajo de su fila;
   al reagrupar hay que conservar eso **sin** cambiar el orden que mandó el servidor (⛔ reordenar en
   el cliente es §28.13 nº9). Coste: pequeño, pero toca la parte que ya tiene 48 pruebas.
 - **Disparador:** el próximo pase que abra el `render` de la tabla, o una auditoría de accesibilidad.
+  ⚠️ Cuando se pague, la aserción `rowgroup === nº de <tbody>` de `e2e/admin-bounties.spec.ts` **seguirá
+  siendo correcta** (bajará de 6 a 4 sola): está escrita contra los `<tbody>` que existan, no contra 6.
 
 #### BNT-D2 · `aria-description` en los chips es ARIA 1.3 en borrador, y es su ÚNICA aparición en todo el frontend (Baja, frontend)
 - **Dueño:** frontend (`BountiesView.tsx`, el chip con `'aria-description'` cuando `truncated`).

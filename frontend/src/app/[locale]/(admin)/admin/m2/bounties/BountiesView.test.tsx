@@ -577,20 +577,27 @@ describe('⭐⭐ B-13(b) — la pantalla no expone ninguna acción de alcance de
     expect(put).not.toHaveBeenCalled();
   });
 
-  it('⭐⭐ B-13(b) por CONDUCTA: pulsar CUALQUIER control produce como mucho UN `PUT`', async () => {
+  it('⭐⭐ B-13(b) por CONDUCTA: NINGÚN gesto humano produce más de UNA escritura', async () => {
     /*
      * ⚠️⚠️ **ESTE ES EL CANDADO DE B-13(b); LOS DOS DE ARRIBA SON DE RÓTULO.**
      *
-     * QA lo demostró con una mutación que sobrevivió a los 77 tests: un botón de cabecera con
-     * rótulo **neutro** —«Pausar el grupo»: sin contador, sin casilla, sin ninguna palabra del
-     * regex— que dispara **un `PUT` por cada fila `rebasada`**. Ni las casillas, ni los dígitos en
-     * el rótulo, ni el barrido de palabras prohibidas lo tocan, porque **los tres miran el texto**.
+     * §M2-B.2 nombra la forma en que esto reaparece sin mala fe: *«el alcance lo define el GESTO
+     * DEL HUMANO, no el transporte»* — N escrituras disparadas por un gesto son una acción masiva
+     * **aunque viajen de una en una**. Por eso se mide la conducta, no el texto del rótulo.
      *
-     * §M2-B.2 nombra exactamente esa forma: *«el alcance lo define el GESTO DEL HUMANO, no el
-     * transporte»* — N escrituras disparadas por un gesto son una acción masiva **aunque viajen de
-     * una en una**. Así que la aserción tiene que ser sobre la CONDUCTA: un gesto, una escritura.
+     * ### Las TRES evasiones que ya sobrevivieron a una versión anterior de este candado
+     * Se dejan escritas porque cada una define una parte del barrido, y quitarla lo vuelve a abrir:
+     *  1. **Rótulo neutro** («Pausar el grupo»): los candados de casilla/dígitos/palabras prohibidas
+     *     miran el TEXTO ⇒ ninguno lo tocaba. ⇒ el barrido pulsa **todo**, mire lo que mire.
+     *  2. **Detrás de una ventana de confirmación**: pulsar el botón abre el modal y escribe cero;
+     *     el `Confirmar` **no existe en un render limpio**, así que un barrido de una sola pulsación
+     *     nunca llega a él. ⇒ **el gesto se sigue hasta su confirmación**: un diálogo abierto no es
+     *     el final del gesto, es la mitad.
+     *  3. **Un control que no es `<button>`** (un `<select>` cuyo `onChange` escribe): rol
+     *     `combobox` ⇒ un barrido de `getAllByRole('button')` ni lo mira. ⇒ se barre **todo lo
+     *     interactivo** y a cada tipo se le hace **su** gesto (clic, cambio de opción, tecleo).
      *
-     * Cada control se pulsa **desde un render limpio**, para que ninguno herede el estado que dejó
+     * Cada control se acciona **desde un render limpio**, para que ninguno herede el estado que dejó
      * el anterior (un chip filtra, `Editar` abre una fila) y el barrido mida lo que dice medir.
      */
     const putOk = {
@@ -600,33 +607,69 @@ describe('⭐⭐ B-13(b) — la pantalla no expone ninguna acción de alcance de
       finish: 'holofoil' as Finish,
       pricing: pricing({ enabled: false }),
     };
+    /** Todo lo que un humano puede accionar. ⛔ No solo `button`: la evasión 3 entró por un `select`. */
+    const INTERACTIVOS =
+      'button, [role="button"], a[href], input, select, textarea, [role="switch"], [role="checkbox"], [role="menuitem"], [role="tab"], [role="combobox"], [role="option"], [tabindex]:not([tabindex="-1"])';
+
+    const tick = () => new Promise((r) => setTimeout(r, 0));
+    /** El gesto que corresponde a CADA tipo de control (un clic no acciona un `<select>`). */
+    async function accionar(el: Element) {
+      await act(async () => {
+        if (el instanceof HTMLSelectElement) {
+          const otra = Array.from(el.options).find((o) => o.value !== el.value);
+          if (otra) fireEvent.change(el, { target: { value: otra.value } });
+        } else if (el instanceof HTMLInputElement && /checkbox|radio/.test(el.type)) {
+          fireEvent.click(el);
+        } else if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
+          fireEvent.change(el, { target: { value: '1' } });
+        } else {
+          fireEvent.click(el);
+        }
+        await tick();
+      });
+    }
+
+    const nombre = (el: Element) =>
+      el.getAttribute('aria-label') || (el as HTMLElement).textContent || el.nodeName.toLowerCase();
 
     renderThreeOutbid();
     await screen.findByText('Charizard ex');
-    const controls = screen.getAllByRole('button').length;
-    expect(controls).toBeGreaterThan(5); // el barrido tiene que tener algo que barrer
+    const total = document.querySelectorAll(INTERACTIVOS).length;
+    expect(total, 'el barrido tiene que tener algo que barrer').toBeGreaterThan(5);
     cleanup();
 
     const writes: number[] = [];
-    for (let i = 0; i < controls; i++) {
+    for (let i = 0; i < total; i++) {
       vi.restoreAllMocks();
       renderThreeOutbid();
       await screen.findByText('Charizard ex');
       const put = vi.spyOn(api, 'putVariantControls').mockResolvedValue(putOk);
-      const button = screen.getAllByRole('button')[i];
-      const label = button.getAttribute('aria-label') || button.textContent || `#${i}`;
-      // Un tick de macrotarea dentro de `act`: `mutate` dispara `mutationFn` de forma asíncrona.
-      await act(async () => {
-        fireEvent.click(button);
-        await new Promise((r) => setTimeout(r, 0));
-      });
-      expect(put.mock.calls.length, `el control «${label}» escribió sobre varias filas`).toBeLessThanOrEqual(1);
+      const control = document.querySelectorAll(INTERACTIVOS)[i];
+      const label = nombre(control);
+
+      await accionar(control);
+
+      // ⭐ **SEGUIR EL GESTO HASTA SU CONFIRMACIÓN.** Si el control abrió una ventana, el gesto del
+      // humano no ha terminado: falta el botón que la cierra confirmando. Se pulsa el ÚLTIMO botón
+      // del diálogo —en este sistema de diseño el primario va al final del pie— porque pulsar el
+      // primero (`×` / `Cancelar`) cerraría la ventana sin llegar nunca a la escritura, que es
+      // justamente por donde se coló la evasión 2.
+      const dialog = screen.queryByRole('dialog');
+      if (dialog) {
+        const botones = within(dialog).getAllByRole('button');
+        await accionar(botones[botones.length - 1]);
+      }
+
+      expect(
+        put.mock.calls.length,
+        `el control «${label}» escribió sobre varias filas de un solo gesto`,
+      ).toBeLessThanOrEqual(1);
       writes.push(put.mock.calls.length);
       cleanup();
     }
 
     // ⚠️ Guarda contra el VERDE VACUO: si ningún control llegara a escribir —porque el espía no
-    // estuviera enganchado, o porque el barrido pulsara elementos muertos—, el «como mucho uno»
+    // estuviera enganchado, o porque el barrido accionara elementos muertos—, el «como mucho uno»
     // se cumpliría sin medir nada. `Apagar` **tiene** que aparecer como exactamente una escritura.
     expect(Math.max(...writes), 'ningún control escribió: el barrido no está midiendo').toBe(1);
   });
@@ -895,6 +938,33 @@ describe('§28.10 — accesibilidad y el barrido del homoglifo', () => {
     expect(await screen.findByRole('table', { name: T.table.caption })).toBeInTheDocument();
     const groupHeaders = document.querySelectorAll('th[scope="rowgroup"]');
     expect(groupHeaders).toHaveLength(2);
+  });
+
+  it('⭐ el rótulo de móvil etiqueta SU celda, y no se anuncia dos veces (§28.9)', async () => {
+    /*
+     * ⚠️ **Presencia no es correspondencia.** Intercambiar los dos `CellLabel` deja la tarjeta de
+     * móvil diciendo `PAGAMOS <tarifa> · TARIFA VIGENTE <lo que pagamos>` —**los dos importes
+     * invertidos**— y cualquier aserción de «el rótulo está» pasa igual. Es la confusión exacta que
+     * el colapso existe para evitar, y sobre las dos cifras de dinero de la pantalla.
+     * El espejo de navegador vive en `e2e/admin-bounties.spec.ts` (§28.9); éste es el barato.
+     */
+    serve(
+      response({
+        data: [makeRow({ id: 'c1', name: 'Charizard ex', state: 'rebasada', priceCents: 90000, curveQuoteCents: 95000 })],
+        counts: { activa: 0, rebasada: 1, invalida: 0, completada: 0, apagada: 0 },
+      }),
+    );
+    renderWithProviders(<BountiesView />, 'es');
+    const row = (await screen.findByText('Charizard ex')).closest('tr')!;
+    const rotulo = (label: string) => within(row).getByText(label, { selector: 'span' });
+
+    expect(rotulo(T.col.pay).closest('td')).toHaveTextContent('MX$900.00');
+    expect(rotulo(T.col.rate).closest('td')).toHaveTextContent('MX$950.00');
+
+    // El rótulo es **redundante para el lector** (los `role=` explícitos conservan la cabecera de
+    // columna también en móvil): sin `aria-hidden` cada celda se anunciaría dos veces.
+    expect(rotulo(T.col.pay)).toHaveAttribute('aria-hidden', 'true');
+    expect(rotulo(T.col.rate)).toHaveAttribute('aria-hidden', 'true');
   });
 
   it('⭐ todos los elementos de la tabla llevan su `role` EXPLÍCITO (el mecanismo de §28.9)', async () => {

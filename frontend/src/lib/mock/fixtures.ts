@@ -3728,12 +3728,32 @@ export const mockVariantControlsStore = new Map<string, MockVariantControlsRow>(
     },
   ],
   [
+    /**
+     * ⚠️⚠️ **EL HÉROE DE LA VITRINA PÚBLICA. Su precio tiene que estar POR ENCIMA de la tarifa.**
+     *
+     * Estaba en `480_000` con una tarifa de curva de `760_000` ⇒ **`rebasada`**, y desde v1.62 la
+     * vitrina pública **filtra a los rebasados** (§N.6 / §M2-B.4: *«todo lo publicado es mejor que
+     * la tarifa»*). El filtro es **correcto** —un bounty rebasado no se paga, así que no se
+     * anuncia—; lo que estaba mal era la SEMILLA: la carta que la vitrina usa de precio héroe se
+     * había quedado en el estado que la vitrina, por diseño, no publica. La demo se quedó sin
+     * escaparate y el E2E de `Top Bounties` en rojo.
+     *
+     * ⛔ **No se arregla relajando el filtro ni degradando la demo del `rebasada`** (que es el
+     * estado que justifica la consola entera): la semilla tiene que sostener **las dos**
+     * demostraciones a la vez. Este es el **efectivo** (`activa`, se publica); el `rebasada` de
+     * demo es `c-charizard`, más abajo, y ahí se queda.
+     *
+     * Candado: `admin-bounties-mock.test.ts` («la semilla sostiene las DOS demostraciones»).
+     */
     variantControlsKey('c-latias-sir', 'raw', 'raw:NM', 'holofoil'),
     {
       sellOverrideCents: null,
       buyOverrideCents: null,
       bountyEnabled: true,
-      bountyPriceCents: 480_000,
+      // MX$8,500: por encima de la tarifa de curva (MX$7,600) y por debajo del mercado (MX$9,500),
+      // que es exactamente la forma de un bounty real —se paga premium sobre la tarifa, no sobre el
+      // mercado— y deja margen visible en las dos direcciones.
+      bountyPriceCents: 850_000,
       bountyTargetQty: null,
       bountyAcquiredQty: 0,
       bountyCompletedAt: null,

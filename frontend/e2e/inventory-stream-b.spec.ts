@@ -70,13 +70,23 @@ test.describe('buylist · Top Bounties (P-22)', () => {
   test('la vitrina aparece ARRIBA de Vender con precio héroe y regla PAY_AFTER_RECEIPT', async ({
     page,
   }) => {
-    mockOnly('bounty literal del fixture (Latias ex · MX$4,800.00)');
+    mockOnly('bounty literal del fixture (Latias ex · MX$8,500.00)');
     await page.goto('/es/buylist');
 
     await expect(page.getByRole('heading', { name: t('es', 'buylist.bounties.title') })).toBeVisible();
     await expect(page.getByText(t('es', 'buylist.bounties.subtitle'))).toBeVisible();
-    // Fixtures: bounty de Latias ex a MX$4,800.00 (el más alto va primero).
-    await expect(page.getByText('MX$4,800.00').first()).toBeVisible();
+    // Fixtures: bounty de Latias ex a MX$8,500.00 (el más alto va primero).
+    //
+    // ⚠️ **Este literal se rompió una vez y conviene saber por qué**: la semilla dejó a Latias en
+    // estado `rebasada` (pagaba MX$4,800 contra una tarifa de MX$7,600) y la vitrina **lo filtró,
+    // que es lo correcto** — §N.6: *un bounty rebasado no se paga, así que no se anuncia*. El rojo
+    // no era de esta pantalla ni de este assert: era de la semilla, y se arregló ahí
+    // (`fixtures.ts`, con su candado de invariante en `admin-bounties-mock.test.ts`).
+    const shelf = page.getByRole('region', { name: t('es', 'buylist.bounties.title') });
+    await expect(shelf.getByText('MX$8,500.00').first()).toBeVisible();
+    // Y la regla que aquella rotura destapó, ahora aseverada **en el navegador**: lo que está
+    // rebasado NO llega al escaparate. `Charizard` es el `rebasada` de la semilla.
+    await expect(shelf.getByText('Charizard', { exact: true })).toHaveCount(0);
     await expect(
       page.getByRole('button', { name: t('es', 'buylist.bounties.cta') }).first(),
     ).toBeVisible();

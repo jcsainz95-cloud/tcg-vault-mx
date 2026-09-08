@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   mockAdminBounties,
+  mockPublicBounties,
   mockUpsertVariantControls,
   mockVariantControlsStore,
   variantControlsKey,
@@ -197,6 +198,55 @@ describe('`sort`: ninguna opción ofrecida puede ser inerte', () => {
     } finally {
       // El store es estado de módulo: se restaura para no fijar el orden de ejecución de nadie.
       mockVariantControlsStore.get(key)!.updatedAt = before;
+    }
+  });
+});
+
+// ===========================================================================
+// 2-bis · La SEMILLA sostiene las dos demostraciones a la vez
+// ===========================================================================
+describe('la semilla del servidor falso: escaparate Y consola', () => {
+  /*
+   * ⚠️⚠️ **EL DEFECTO QUE ESTE BLOQUE EXISTE PARA QUE NO VUELVA.**
+   *
+   * Las filas de demo de la consola dejaron al héroe de la vitrina pública (`Latias ex`) en estado
+   * `rebasada`. `mockPublicBounties` **lo filtró, correctamente** —§N.6: un bounty rebasado no se
+   * paga, así que no se anuncia—, la vitrina se quedó sin su precio y el E2E de `Top Bounties` se
+   * puso rojo **a un stream de distancia**, en un fichero que nadie de este pase estaba mirando.
+   *
+   * *El producto se comportó bien; la semilla se quedó coja.* Y una semilla coja no se caza con un
+   * literal en un spec —eso es lo que se rompió— sino aseverando **el invariante**: la demo tiene
+   * que poder enseñar **el escaparate** (algo efectivo que publicar) **y** el estado que justifica
+   * la consola (algo rebasado). ⛔ Nunca a costa del otro.
+   */
+  it('⭐ hay al menos un bounty EFECTIVO, y la vitrina pública tiene qué publicar', () => {
+    const rows = mockAdminBounties(ALL).data;
+    expect(rows.filter((r) => r.state === 'activa').length).toBeGreaterThan(0);
+
+    const publicados = mockPublicBounties().data;
+    expect(publicados.length, 'la vitrina pública se quedó sin ningún bounty que publicar').toBeGreaterThan(0);
+    // El héroe es el de precio más alto (la vitrina ordena desc) y **paga de verdad**.
+    expect(publicados[0].bountyPriceCents).toBeGreaterThan(0);
+  });
+
+  it('⭐ …y al menos uno REBASADO, que es el estado por el que existe la consola', () => {
+    const rows = mockAdminBounties(ALL).data;
+    const rebasadas = rows.filter((r) => r.state === 'rebasada');
+    expect(rebasadas.length, 'sin un `rebasada` en la semilla, la demo no enseña el defecto que cura').toBeGreaterThan(0);
+    // Y lo que hace que las dos demostraciones no se pisen: **el rebasado NO se publica**.
+    const publicados = new Set(mockPublicBounties().data.map((r) => `${r.cardId}|${r.finish}`));
+    for (const r of rebasadas) {
+      expect(
+        publicados.has(`${r.cardId}|${r.finish}`),
+        `«${r.name}» está rebasado y aun así aparece en la vitrina pública (§N.6)`,
+      ).toBe(false);
+    }
+  });
+
+  it('los cinco estados del enum siguen representados (la demo enseña los cinco, no solo el feliz)', () => {
+    const states = new Set(mockAdminBounties(ALL).data.map((r) => r.state));
+    for (const s of ['activa', 'rebasada', 'invalida', 'completada', 'apagada'] as const) {
+      expect(states.has(s), `la semilla ya no tiene ninguna fila «${s}»`).toBe(true);
     }
   });
 });
