@@ -5696,3 +5696,59 @@
 - **Disparador:** que el seed real tenga >1000 filas de bounty (entonces es un `@real` de QA), o que
   alguien necesite el caso en demo — y entonces la vía correcta es **ampliar la semilla de `mockCards`**,
   no una bandera de test.
+
+#### BNT-D12 · El barrido de gestos de B-13(b) tiene **cuatro puertas** que siguen abiertas (Media, frontend)
+- **Dueño:** frontend (`BountiesView.test.tsx`, el caso *«B-13(b) por CONDUCTA»*, hoy en `:611-661`).
+  **Severidad:** Media (**es profundidad de candado, no defecto de producto** — QA verificó que el
+  producto obedece B-13(b) **por construcción**: un solo *call site* de escritura, una fila por gesto,
+  cero bucles sobre `rows`). **No bloqueante. Estado: abierta, aceptada.**
+- **Lo medido por QA:** cuatro mutaciones nuevas, cada una con **3 escrituras de un solo gesto humano**
+  y **84/84 en verde**. Se anotan las cuatro con su causa exacta, porque cada una define un trozo del
+  barrido que hoy falta:
+
+  | # | Mutación | Por qué se escapa |
+  |---|---|---|
+  | **N1** ⚠️ | el control masivo vive **dentro del editor de fila** (solo existe tras pulsar `Editar`) | el inventario de controles se toma **sobre un render limpio**, con el editor cerrado. Al pulsar `Editar`, el barrido abre el editor, busca un diálogo, no lo encuentra y hace `cleanup()`: **no visita ni un control del editor — que es justo donde se teclea el dinero** |
+  | **N2** | ventana de confirmación con `role="alertdialog"` | `queryByRole('dialog')` **no casa** con `alertdialog`, que es el rol canónico de un confirm destructivo ⇒ **un dev haciendo lo correcto en accesibilidad cruza el candado** |
+  | **N3** | `role="dialog"` con el primario **fuera del último lugar** del DOM (`flex-row-reverse`) | el barrido pulsa `botones[length-1]` asumiendo el orden del sistema de diseño; invertido, pulsa `Cancelar` y da verde. **La suposición está escrita en el comentario y no aseverada** |
+  | **N4** ⚠️ | `<form onSubmit>` disparado con **Enter** en un campo | el gesto de un campo es `fireEvent.change`: **nunca teclea `Enter` ni dispara `submit`**, y es un patrón React de manual |
+
+- **Las dos que más pesan son N1 y N4**, y por motivos distintos: N1 deja **una región entera sin
+  barrer** (el editor, que es la superficie de escritura de la pantalla) y N4 es **un patrón
+  idiomático**, no una rareza — el día que alguien envuelva los campos en un `<form>`, el candado deja
+  de ver el camino principal sin que nadie lo note.
+- **Dirección (las cuatro se cierran en el mismo sitio, sin tocar producto):** re-inventariar los
+  controles **después** de cada gesto (no solo antes), aceptar `dialog` **y** `alertdialog`, pulsar el
+  botón del diálogo **por su papel** (el que no es `Cancelar`/cerrar) en vez de por su posición, y
+  añadir `Enter`/`submit` a los gestos de campo. ⚠️ Al hacerlo, **medirlo con las cuatro mutaciones de
+  QA reinstaladas una por una**: un barrido más ancho que no se prueba roto es un barrido más lento,
+  no más seguro.
+- **Disparador:** **el próximo pase que toque el render de la tabla o el editor de fila** — que es
+  cuando N1 deja de ser teórica. Ref: `FRONTEND_NOTES.md` §56.2 y §57.
+
+#### BNT-D13 · El invariante de la semilla **no cubre el literal que decía proteger** (Media, frontend)
+- **Dueño:** frontend (`src/lib/mock/admin-bounties-mock.test.ts`, «la semilla sostiene las dos
+  demostraciones» + `e2e/inventory-stream-b.spec.ts:86`). **Severidad:** Media. **No bloqueante.
+  Estado: abierta, aceptada** — y con la crítica escrita entera, porque es justa.
+- **Lo medido por QA (mutación S1, de una cifra, en `fixtures.ts`):** `bountyPriceCents: 850_000` →
+  **`780_000`**. Sigue **por encima** de la tarifa (`760_000`) ⇒ Latias sigue `activa`, la vitrina
+  sigue publicando, sigue habiendo un `rebasada` fuera del escaparate y siguen estando los cinco
+  estados. Resultado:
+  - `admin-bounties-mock.test.ts` → **15/15 verde**, incluidos los **3** casos del invariante;
+  - **suite unitaria completa → 1327 passed, 0 failed: ciega del todo**;
+  - `e2e/inventory-stream-b.spec.ts:86` → **ROJO** (`MX$8,500.00` no existe).
+- **⚠️ Por qué esto importa más que el fallo en sí:** es **el modo de fallo de BLOQUEANTE-1
+  reproducido después de su arreglo**. El invariante se añadió justificándolo con *«un literal en un
+  spec ya demostró que no basta»*… y **el literal `MX$8,500.00` sigue ahí, sin protección**: lo único
+  que lo caza es el gate lento y cruzado, que es exactamente la situación que el invariante venía a
+  quitar de en medio. *El candado nuevo cubre la clase del defecto y deja fuera el caso concreto que
+  lo destapó.*
+- **Dirección (la cura es barata, y es de QA):** que **el candado unitario lea del propio escaparate**
+  qué carta y qué importe es el héroe —`mockPublicBounties().data[0]`— y que el spec de navegador
+  **asevere ese valor** en vez de teclearlo. Así la semilla puede moverse y el gate rápido sigue
+  diciendo la verdad; solo se pondría rojo cuando el escaparate **de verdad** cambie de héroe, que es
+  lo que se quiere saber.
+- **Y lo que NO se hace:** quitar el literal del spec de navegador sin más. Es el único sitio donde se
+  mide **lo que el humano ve**; lo que sobra no es el literal, es que **nadie más lo sepa**.
+- **Disparador:** el próximo pase que toque la semilla de bounties de `fixtures.ts` **o** el spec
+  `inventory-stream-b`. Ref: `FRONTEND_NOTES.md` §56.1.

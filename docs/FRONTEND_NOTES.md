@@ -4,6 +4,108 @@
 > Fecha: 2026-08-13. Branch: `claude/tcg-cards-marketplace-oijthj`.
 > El contrato (`docs/API_CONTRACT.md`) y el sistema de diseño (`docs/DESIGN_SYSTEM.md`) mandan.
 
+## §57 · §28.5 v3.5 · el cero que un FILTRO acota deja de ser un cero (2026-09-08, `DESIGN_SYSTEM §28.5 v3.5`, rama `claude/tcg-hunt-orchestration-ai2vma`)
+
+> Sobre `6515071`, con la norma nueva de ux-ui (`cba9679`). Encargo acotado y último bloque de esta
+> pantalla: **una rama más** en el componente que ya elegía entre tres frases. Dentro de la estimación
+> de ux-ui (1–2 h con test): sin fetch nuevo, sin layout nuevo, sin dato nuevo del contrato.
+
+### 1. El defecto que cierra, y por qué no era del código
+
+Con `Buscar carta = Pikachu` y **dos** rebasados en el sistema, la pantalla leía **`SIN REBASADOS` ·
+«Ningún bounty rebasado. Todos los encendidos pagan por encima de la tarifa vigente»**. Las dos piezas
+eran correctas por separado —`counts` **respeta** los filtros de identidad (§M2-B.1) y **hace bien**, y
+el copy pintaba lo que dictaba la tabla de §28.5— y **la frase resultante era falsa**. El hueco estaba
+en la norma, y ux-ui lo cerró: la tabla pasa de tres filas a cuatro.
+
+**Y es el peor sitio posible para ese defecto:** esa frase es literalmente el mecanismo que le dice al
+dueño *«puedes dejar de preocuparte»*, en la única pantalla donde un rebasado invisible se ve.
+
+### 2. Lo implementado, y las dos decisiones que no son obvias
+
+- **`zeroStatement(counts, truncated, identityFiltered)`** devuelve ahora también `'filtered'`. El
+  orden de lectura es el de la tabla normativa: `truncated` manda sobre todo *(«el recorte que hace
+  falta nombrar primero es el que el humano no provocó»)*, luego el filtro, luego los dos ceros. Las
+  cuatro condiciones son **excluyentes**, y hay un caso que lo barre: **las 16 combinaciones** de
+  (`truncated`, filtro, `rebasada`, `invalida`) comparadas contra la tabla.
+- **⚠️ El tercer parámetro es OBLIGATORIO y sin valor por defecto, a propósito.** Un default lo
+  volvería olvidable, y olvidarlo **devuelve exactamente el defecto que v3.5 vino a cerrar**. El
+  compilador tumbó los cinco llamadores de los tests al cambiarlo: eso es la función haciendo su
+  trabajo, no un coste.
+- **`hasIdentityFilter({ q })`** implementa la definición **mecánica** de la norma —*un filtro es de
+  identidad si `counts` lo respeta*—, con su porqué escrito para los dos que **no** cuentan: los chips
+  de estado (⇒ `counts` **ignora** el estado, así que con `REBASADOS` puesto el cero **sigue siendo
+  verdadero**: *el chip no acota el conjunto de la pregunta, la responde*) y la paginación. `setId` y
+  `finish` se añadirán **a ese objeto y a esa función, y a ningún otro sitio**, el día que existan
+  (§28.2b, hoy **no aprobados** — `BNT-D10`).
+- **⚠️ `q.trim()` también al MANDAR la petición, y esto no es cosmético.** §28.5 declara que *«una `q`
+  de solo espacios no acota nada»*. Si la pantalla lo declara y luego la manda igual, **el servidor sí
+  filtra por esos espacios** y la pantalla se cree sin filtro sobre un conjunto acotado — el defecto de
+  v3.5 reintroducido por el transporte. **Lo que no acota, no viaja.**
+- **La palanca `Limpiar filtros` tiene ahora un solo cuerpo** (`clearFilters()`), compartido con el
+  vacío por filtro de §28.8: eran dos copias del mismo gesto.
+
+### 3. Copy: **no se inventó nada**
+
+`zero.filteredLabel` y `zero.filtered` se copiaron **literales** de §28.12 (ES y EN), y lo comprobé
+buscando las cuatro cadenas dentro de `DESIGN_SYSTEM.md` — **a mano, no hay candado que lo ate**: el
+catálogo de esta pantalla tiene ~60 cadenas y ninguna está atada al documento, así que atar solo estas
+dos sería una asimetría que engaña más de lo que protege. Lo que sí las cubre es el **barrido de
+homoglifos** de §28.10, que ya las mira. Están
+redactadas en genérico (*«un filtro»*) por ux-ui a propósito: el día que se cablee `setId`/`finish`
+**no hay que retocar el copy**.
+
+### 4. El candado — §28.14 caso 19, y por qué el servidor falso de este caso filtra
+
+Cinco casos de pantalla + los de modelo. ⚠️ El fake **filtra `data` y `counts` con `q`**, como el de
+verdad: sin eso el candado no mediría nada — estaría comparando la frase contra unos conteos que
+ningún servidor produciría.
+
+- **el caso:** `q` que no casa con ningún rebasado ⇒ `VISTA FILTRADA` + `zero.filtered` + la palanca;
+  ⛔ ni `SIN REBASADOS`, ni sus dos frases, **ni ninguna afirmación sobre «todos»** dentro del bloque ①
+  (comparada contra el **catálogo**, no contra una cadena tecleada).
+- **la vuelta, sin recargar:** al limpiar, `REBASADOS 2`, las dos filas vuelven y no se enuncia ningún
+  cero (ahora porque no lo hay).
+- **tres controles negativos**, para que el candado no se pase de listo: sin filtro **sí** se dice el
+  cero; con un **chip de estado** puesto **también**; y una `q` de **solo espacios** no acota nada.
+
+**⚠️ El tercer control negativo se tuvo que reescribir, y la razón vale más que el control:** en su
+primera forma el conjunto tenía dos rebasados a la vista, así que **el bloque ① tenía filas y no había
+frase que comparar** — pasaba igual aunque los espacios contaran como filtro. **Era un control vacuo**,
+y lo detecté al correrle encima la mutación de los espacios: solo se ponía rojo el unitario. Ahora el
+conjunto no tiene rebasados, el cero **se enuncia** y la diferencia se ve; y el mismo caso comprueba
+además que con texto **de verdad** el arnés sí cambia de frase.
+
+### 5. Verificación por mutación (las dos que pidió el coordinador; restauradas)
+
+| # | Mutación | Resultado |
+|---|---|---|
+| **A** | quitar la rama nueva (`if (identityFiltered) return 'filtered'`) | **4 rojos** — 2 de modelo (`expected 'outbid' to be 'filtered'`, y el barrido de las 16 combinaciones) y 2 de pantalla (el caso 19 y la vuelta) |
+| **B** | que una `q` de **solo espacios** cuente como filtro (`q !== ''`) | **2 rojos** — el unitario de `hasIdentityFilter` **y** el control negativo 3, que sin el arreglo del punto 4 se quedaba mudo |
+
+### 6. Números
+
+`tsc --noEmit` limpio · **`npm test` 1357/1357** (121 archivos, **+9**: 4 de modelo y 5 de pantalla) ·
+**suite E2E de mocks completa: 147 passed · 3 skipped · 0 failed** (sin cambios respecto de la ronda
+anterior) · `next lint` sin avisos · catálogos ES/EN simétricos.
+
+### 7. Dos deudas registradas a petición de QA (aceptadas, **no** arregladas aquí)
+
+- **BNT-D12** — el barrido de gestos de B-13(b) tiene **cuatro puertas** (N1 el editor sin barrer, N2
+  `alertdialog`, N3 el primario fuera del último lugar, N4 `submit` con Enter). Es **profundidad de
+  candado, no defecto de producto**: QA verificó que el producto obedece B-13(b) **por construcción**.
+- **BNT-D13** — el invariante de la semilla **no cubre el literal que decía proteger**: bajar el precio
+  del héroe a `780_000` deja los tres casos del invariante en verde y **la suite unitaria entera
+  ciega**, y solo lo caza el E2E. *El candado cubre la clase del defecto y deja fuera el caso concreto
+  que lo destapó.* La dirección (leer el héroe del propio escaparate) queda escrita en la entrada.
+
+### 8. Una observación para ux-ui (no bloquea, no se tocó)
+
+Cuando el filtro **no casa con nada**, la pantalla pinta a la vez el bloque ① (`VISTA FILTRADA` + su
+palanca, §28.5) y el vacío por filtro (`Ningún bounty coincide` + su palanca, §28.8) ⇒ **dos botones
+`Limpiar filtros`**. Las dos normas se cumplen por separado; juntas se pisan. No lo he tocado porque
+ninguna de las dos dice qué hacer cuando coinciden, y la decisión es de ux-ui.
+
 ## §56 · Bounties, tercera ronda de QA: **el rojo estaba a un stream de distancia**, y tres candados que medían el rótulo (2026-09-08, rama `claude/tcg-hunt-orchestration-ai2vma`)
 
 > Sobre `127b642`. QA rechazó con dos bloqueantes; los dos eran míos. Uno estaba **fuera de la
