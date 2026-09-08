@@ -425,6 +425,40 @@ Encontrado por el humano probando en producción. Las tres se sirven juntas o ni
 - **Rol dueño:** frontend para (a) y (b); arquitecto si se va a (c) o (d).
   **Antes de tocar nada: la medición del navegador.**
 
+#### P-66 · 🧟 Dar una vuelta al panel de administración — zombies y navegabilidad — pedido por el humano
+- **Lo que dijo el humano:** *«siento que tenemos varios zombies ahí que no nos ayudan, o temas de
+  navegabilidad»*. Es el panel donde él trabaja todos los días: la fricción aquí no se pierde en
+  una conversión, **se paga en su tiempo**.
+- **Censo medido (`AdminSidebar.tsx` + `messages/es.json`), para que la revisión no empiece de cero:**
+  **12 destinos** en 4 grupos — Operación (Dashboard, M1 Inventario y bóveda, Bóvedas de clientes,
+  M4 Retiros/envíos, M5 Buylist, M8 Disputas) · Catálogo/Precios (M2) · Ventas/Finanzas (M3 Ventas,
+  M7 Finanzas, M9 Reportes) · Administración (M6 Usuarios/KYC, M10 Config y bitácora).
+  **7 de los 12 son solo súper-admin**, así que un operador ve cinco y el dueño ve doce, siempre.
+- **Zombies concretos ya verificados en el código (no son todos, son los que se ven sin buscar):**
+  - **M9 · Reportes** — su bloque principal es *«Avance de la beta cerrada frente a las metas
+    **N/X/Y/Z**»*. Dos problemas en una pantalla: (1) las metas se llaman **N, X, Y y Z**, letras que
+    vienen de `PROJECT.md` y que **en pantalla son álgebra**, no negocio; (2) hay un texto de reserva
+    —*«las metas N/X/Y/Z aún no se fijan»*— que sugiere que **las cuatro tarjetas están enseñando
+    "Meta sin fijar"**. Si es así, es una sección entera cuyo propósito (avance contra meta) **está
+    inerte**. ⚠️ *Falta comprobar en producción si las metas están fijadas o no — no se puede medir
+    desde el repo.* Además sigue hablando de **«beta cerrada»**, y ya estamos en producción.
+  - **La navegación etiqueta cada destino por su CÓDIGO INTERNO** («M1 · Inventario y bóveda»,
+    «M9 · Reportes»). El código no le dice nada a un humano y se come el principio de cada rótulo,
+    que es justo donde el ojo busca. Está escrito a propósito en `AdminSidebar.tsx` («el código del
+    módulo ya identifica cada entrada») — es decir, es una decisión que hay que **revisar**, no un
+    descuido.
+  - **Botones que aparecen donde no se pueden usar** — ya reportado aparte como **P-58**
+    («Marcar recibida» visible fuera del paso donde tiene sentido). Es el mismo síntoma de fondo:
+    la pantalla enseña todo lo que existe en vez de lo que toca ahora.
+- **Lo que NO se midió, y hace falta:** cuáles de los 12 destinos **usa realmente** el dueño. Eso no
+  está en el repo; lo contesta él en dos minutos o se saca de los registros de acceso.
+- **Cómo hacerlo bien (y no a ojo):** un pase del rol **`ux-review`** sobre el panel ya construido
+  —fricción, jerarquía, claridad, consistencia con `DESIGN_SYSTEM`— que **reporta y no corrige**;
+  sus hallazgos se enrutan a **ux-ui** (rótulos, agrupación, qué se esconde) y a **frontend**
+  (cableado). Si sale que hay que **retirar** una pantalla, eso es decisión de producto: pasa por
+  **product-owner** y lo aprueba el humano — nadie borra una pantalla del admin por su cuenta.
+- **Rol dueño:** `ux-review` (diagnóstico) → ux-ui + frontend (cura) → product-owner si se retira algo.
+
 #### P-55 · 🛒 El carrito de venta NO sobrevive al inicio de sesión — reportado por el humano
 - **Síntoma:** el cliente arma su carrito en el cotizador **sin haber iniciado sesión**; al entrar a su
   cuenta para mandar la solicitud, **el carrito se pierde** y tiene que rehacerlo.
