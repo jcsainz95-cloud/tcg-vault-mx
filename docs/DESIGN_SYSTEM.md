@@ -4,7 +4,11 @@
 > El frontend (Next.js 14 + Tailwind) implementa este documento; no lo contradice.
 > Manda `PROJECT.md` sobre el contrato y sobre este documento; este documento define solo lo visual/UX,
 > nunca datos, contrato ni arquitectura.
-> Estado: **v3.4** — **§28 revisada contra el contrato `v1.62.1`** (`ARCHITECTURE §9 · D-UX-1`): el estado del
+> Estado: **v3.5** — **§28.5 precisada**: el **cero tranquilizador** tampoco se enuncia con un **filtro de
+> identidad** puesto (`q`), porque `counts` respeta esa identidad y entonces *«todos los encendidos»* es un
+> conjunto acotado por el propio humano; en su sitio va `VISTA FILTRADA` + `zero.filtered` (§28.5, §28.12,
+> §28.14 caso 19). Se alinea además `filters.searchLabel` con el rótulo real (`Buscar carta`, **BNT-D10**).
+> Antes: **v3.4** — **§28 revisada contra el contrato `v1.62.1`** (`ARCHITECTURE §9 · D-UX-1`): el estado del
 > bounty **lo deriva el servidor y la pantalla lo obedece**, son **cinco** (`activa` · `rebasada` · `invalida` ·
 > `completada` · `apagada`), entra el tratamiento visual y el copy de **`invalida`**, se **retira** el reenvío de
 > overrides y se **retira** el apagado en lote (su argumento queda archivado en §28.7). Antes: **v3.3** —
@@ -12170,7 +12174,7 @@ crudo). Montos con §9.3 (centavos → `MX$ 1,250.00`), **nunca concatenados**.
 
 ---
 
-## 28. M2 › Bounties — todos los bounties en un sitio, y el rebasado como eje (v3.3 · **revisada v3.4**)
+## 28. M2 › Bounties — todos los bounties en un sitio, y el rebasado como eje (v3.3 · **revisada v3.4** · **§28.5 precisada v3.5**)
 
 > **Origen:** encargo directo del dueño («una pantalla con todos los bounties: verlos y editarlos»).
 > **No hubo entrega de Claude Design para esta pantalla**: el diseño se construye **desde cero** pero
@@ -12196,6 +12200,15 @@ crudo). Montos con §9.3 (centavos → `MX$ 1,250.00`), **nunca concatenados**.
 > | **El `PUT` de guardado** | §28.15.6 exigía **reenviar los overrides «tal como se leyeron»** | ⛔ **PROHIBIDO reenviarlos.** Se manda **solo lo que el humano editó** — §28.6f |
 > | **Apagado en lote** | §28.7.4 lo proponía como la única acción masiva sana | ⛔ **retirado del diseño vigente** (botón y cadenas `bulk.*`); **el argumento queda archivado** en §28.7 por si el humano reabre la pregunta **47** |
 > | **El cero tranquilizador** | se enunciaba con `counts.rebasada === 0` | además exige **`counts.invalida === 0`** y **`truncated === false`** — §28.5. *Un cero de una lista cortada no es un cero.* |
+>
+> **⚠ Precisión v3.5 — un solo hueco, y es de §28.5. Nada más de §28 cambia.** QA midió en el navegador,
+> contra el build de producción, que con un filtro de identidad puesto (`q=Pikachu`) la pantalla enunciaba el
+> **cero tranquilizador** mientras el sistema tenía **dos rebasados fuera del filtro**. **El código obedecía
+> §28.5 al pie y `counts` obedecía el contrato: el hueco era de la norma.** Se cierra con **el tercer caso en
+> que el cero NO se dice** (§28.5), sus dos cadenas nuevas (`zero.filteredLabel`, `zero.filtered`, §28.12) y
+> su mutación en rojo (§28.14, caso 19). De paso se alinea `filters.searchLabel` con el rótulo real
+> —**`Buscar carta`**, **BNT-D10**— en §28.12 y en el wireframe de §28.2. **§28.9, §28.10 y el resto quedan
+> intactos.**
 
 ### 28.0 El problema, y las **seis** reglas duras *(v3.4: la sexta es nueva y es la primera)*
 
@@ -12216,7 +12229,7 @@ De ahí las reglas de esta pantalla. Se citan **por su nombre**, no por su núme
 |---|---|
 | **R · «El estado lo dice el servidor»** *(NUEVA v3.4, y manda sobre las otras cinco)* | El `state` de cada fila **llega resuelto en la respuesta** y esta pantalla **lo obedece: lo pinta, lo agrupa y lo cuenta, pero no lo recalcula** — ni comparando importes en pantalla, ni cruzando banderas, ni «por si acaso». Son **cinco** valores y **ninguno se funde con otro**. *Razón, y es la del proyecto entero: quien decide si un bounty paga es el servidor **contra la curva vigente**; una pantalla que lo dedujera sería la quinta implementación del mismo predicado y la única que nadie puede probar. La versión v3.3 de §28.3 lo derivaba en cliente, se le olvidó una rama, y el resultado era pintar `ACTIVO` sobre un bounty que no puede pagar nada.* |
 | **R · «El rebasado es el eje»** | El estado `rebasado` **no es una columna más**: ordena la pantalla. Los rebasados van **agrupados y primero**, con su **conteo sobre el total** (no sobre la página) visible siempre, pase lo que pase con el orden, el filtro o la paginación. *(v3.4: el bloque de cabecera lo comparte con `invalida` —los dos son «encendido y no está pagando su premium»— y **el orden lo manda el servidor** con `sort=attention_first`, que es el default del endpoint.)* |
-| **R · «El panel dice el cero»** | **Inversión deliberada de la regla de la vitrina.** La vitrina calla cuando no hay nada (§16.7c: *«si no hay bounties activos la sección NO se renderiza»*). Aquí **cero rebasados se enuncia con una frase**. Una sección ausente y una sección vacía se leen igual, y esta pantalla existe justo para que no se confundan. **⚠ v3.4 — con una condición que faltaba: el cero solo se enuncia si el conteo es COMPLETO** (§28.5). *Un cero de una lista cortada no es un cero.* |
+| **R · «El panel dice el cero»** | **Inversión deliberada de la regla de la vitrina.** La vitrina calla cuando no hay nada (§16.7c: *«si no hay bounties activos la sección NO se renderiza»*). Aquí **cero rebasados se enuncia con una frase**. Una sección ausente y una sección vacía se leen igual, y esta pantalla existe justo para que no se confundan. **⚠ v3.4 — con una condición que faltaba: el cero solo se enuncia si el conteo es COMPLETO** (§28.5). *Un cero de una lista cortada no es un cero.* **⚠ v3.5 — y con la otra mitad de esa condición: el conteo tiene que ser del SISTEMA ENTERO, no de un subconjunto que el humano acotó con un filtro de identidad** (§28.5). *Un cero de una lista acotada tampoco es un cero.* |
 | **R · «Se movió el mercado, no se rompió el sistema»** | `REBASADO` se pinta como **consecuencia y decisión**, nunca como avería: sin la palabra «error», sin `role="alert"`, sin icono de fallo, y siempre con **dos puertas** (subir o apagar). Lo que falló tiene una causa nuestra y un reintento; **esto tiene una causa del mercado y una decisión del dueño.** |
 | **R · «La tabla en reposo no tiene formularios»** | En reposo, la tabla es **texto**: ni un `input`, ni un `switch`, ni una celda editable al clic. Un precio que se cambia tocándolo es un precio que se cambia **sin querer**, y aquí cada celda es dinero que sale. Se entra a editar por un acto explícito, en **una fila a la vez**. |
 | **R · «La fricción va en la dirección del dinero»** | Lo que **sube** lo que pagamos (subir precio, subir objetivo, encender) pasa por **diálogo de confirmación con los dos importes**. Lo que **baja o detiene** el gasto (bajar precio, bajar objetivo, apagar) **no** abre diálogo: se hace y se ofrece `Deshacer`. Poner la misma fricción en las dos direcciones enseña a confirmar sin leer. |
@@ -12241,7 +12254,7 @@ De ahí las reglas de esta pantalla. Se citan **por su nombre**, no por su núme
 │ lead text-sm muted (§28.2c)                                                                  │
 │                                                                                              │
 │ [REBASADOS 3] [SIN PRECIO 1] [ACTIVOS 12] [COMPLETADOS 2] [APAGADOS 4]                        │
-│                                                [ Buscar carta o set ]      [ Orden ▾ ]        │
+│                                                    [ Buscar carta ]        [ Orden ▾ ]        │
 │ ─────────────────────────────────────────────────────────────────────────────  regla 1px ─── │
 │                                                                                              │
 │ CARTA                        ESTADO       PAGAMOS   TARIFA VIGENTE   PREMIUM       AVANCE     │
@@ -12434,17 +12447,22 @@ ninguna señal dependa de un solo canal, ni siquiera del texto:
   lo incrementa el pago SPEI, por ítem con `priceBasis="bounty"`), **no cuando alguien cotiza**. Sin esa
   frase, un dueño con tres cotizaciones vivas jura que la barra está rota.
 
-### 28.5 El cero que se dice — **y las dos veces que NO se dice** *(precisada en v3.4)*
+### 28.5 El cero que se dice — **y las TRES veces que NO se dice** *(precisada en v3.4 · tercer caso añadido en v3.5)*
 
 **El bloque ① nunca desaparece.** Cuando no tiene filas, en su lugar va una línea sobre la tabla, en
-`text-sm`, con una versalita y una frase. **Cuál de las tres frases se pinta depende de `counts` y de
-`truncated`, y esta tabla es normativa:**
+`text-sm`, con una versalita y una frase. **Cuál de las cuatro frases se pinta depende de `counts`, de
+`truncated` y de si hay un filtro de identidad puesto, y esta tabla es normativa. Las cuatro condiciones son
+excluyentes: se cumple exactamente una:**
 
 | Condición | Versalita | Frase |
 |---|---|---|
-| `counts.rebasada === 0` **y** `counts.invalida === 0` **y** `truncated === false` | `SIN REBASADOS` | **El cero tranquilizador** — ES: «Ningún bounty rebasado. Todos los encendidos pagan por encima de la tarifa vigente.» · EN: “No outbid bounties. Every one that's on pays above the current rate.” |
-| `counts.rebasada === 0` **pero** `counts.invalida > 0` (y `truncated === false`) | `SIN REBASADOS` | ⚠ **El cero acotado** — ES: «Ningún bounty rebasado, pero {count} están encendidos sin precio y no pagan nada.» · EN: “No outbid bounties, but {count} are on with no price and pay nothing.” |
+| `counts.rebasada === 0` **y** `counts.invalida === 0` **y** `truncated === false` **y** **sin filtro de identidad activo** | `SIN REBASADOS` | **El cero tranquilizador** — ES: «Ningún bounty rebasado. Todos los encendidos pagan por encima de la tarifa vigente.» · EN: “No outbid bounties. Every one that's on pays above the current rate.” |
+| `counts.rebasada === 0` **pero** `counts.invalida > 0` (y `truncated === false`, y **sin filtro de identidad activo**) | `SIN REBASADOS` | ⚠ **El cero acotado por el estado** — ES: «Ningún bounty rebasado, pero {count} están encendidos sin precio y no pagan nada.» · EN: “No outbid bounties, but {count} are on with no price and pay nothing.” |
+| **Hay un filtro de identidad activo** (y `truncated === false`), **sea cual sea `counts`** *(v3.5)* | **`VISTA FILTRADA`** | ⛔ **Ningún cero, ni siquiera acotado** — la frase que **nombra el recorte** (`zero.filtered`, §28.12) + la palanca `Limpiar filtros` (`common.clearFilters`). |
 | `truncated === true` | `LISTA INCOMPLETA` | ⛔ **Ningún cero** — la frase de lista incompleta (`list.truncated`, §28.2b). |
+
+> **`truncated === true` manda sobre todo lo demás**: si además hay un filtro puesto, se pinta `LISTA
+> INCOMPLETA`. Son dos recortes, y el que hace falta nombrar primero es el que el humano **no** provocó.
 
 - **⚠⚠ Por qué la primera condición lleva `counts.invalida === 0`, y es una corrección de v3.4 sobre mi propio
   copy:** la frase dice *«**todos** los encendidos pagan por encima de la tarifa vigente»*, y con un solo
@@ -12456,6 +12474,77 @@ ninguna señal dependa de un solo canal, ni siquiera del texto:
   un `counts.rebasada: 0` truncado **no es un cero, es un «no lo sé»**. Decir «ninguno» sobre un conjunto que
   nadie terminó de mirar es la misma mentira por omisión, con mejor presentación. *Un cero de una lista cortada
   no es un cero.*
+
+**⚠⚠ v3.5 — la TERCERA vez que el cero no se dice: cuando lo acota un filtro de identidad.** *(El hueco era
+mío: §28.5 resolvió el recorte de la lista y se le olvidó el recorte del humano.)*
+
+- **Lo que pasaba, medido en el navegador contra el build de producción.** En `/es/admin/m2/bounties`, con
+  **dos** bounties `rebasada` en el sistema, teclear `Pikachu` en `Buscar carta` ⇒ los chips dicen
+  `REBASADOS 0` y el bloque ① lee **`SIN REBASADOS` · «Ningún bounty rebasado. Todos los encendidos pagan por
+  encima de la tarifa vigente.»** **Las dos piezas eran correctas por separado y la frase resultante era
+  falsa**: `counts` respeta los filtros de identidad (`API_CONTRACT §M2-B.1`) y **hace bien**, y el copy pinta
+  lo que dicta esta tabla. **El defecto no estaba en el código: estaba aquí.**
+- **Por qué es un cero como el de la lista cortada, y no otro caso.** Con un filtro puesto, `counts.rebasada:
+  0` significa *«ninguno **entre los que buscaste**»*, y la pantalla **no tiene de dónde sacar el otro
+  número**: el servidor no le manda un conteo sin filtrar. Así que ese cero **no es un cero, es un «no lo
+  sé»** — la misma frase, la misma causa lógica, distinta mano recortando. *Un cero de un conjunto acotado no
+  es un cero.*
+- **Y es el peor sitio posible para el defecto.** Esta pantalla existe **por una sola razón**: un bounty
+  rebasado deja de comprar, las vitrinas lo filtran y **desaparece sin avisar**, así que el dueño cree pagar
+  un precio que no paga (§28.0). La frase del cero tranquilizador es literalmente el mecanismo que le dice
+  *«puedes dejar de preocuparte»*. **Que mienta esa frase no es un bug de copy: es el fallo del órgano.**
+
+**Elegido: la frase NO se enuncia. Y por qué NO se acota — la alternativa que descarté, con su argumento.**
+La otra salida legítima era conservar la frase acotándola (*«…de los que coinciden con tu búsqueda»*). **Se
+descarta**, por cuatro razones y en este orden:
+
+1. **El portador es la versalita, no la subordinada.** `SIN REBASADOS` va en **versalitas mono**, que en esta
+   pantalla es *el* canal pre-atento y **el portador de accesibilidad** (§28.3, canal 2; §28.10). Una salvedad
+   colgada de la frase de abajo **no desarma una versalita**: se lee después, y muchas veces no se lee. Para
+   acotar de verdad habría que acotar **la versalita**, y una versalita acotada ya no es una versalita: es una
+   frase.
+2. **Un cero acotado es verdadero y aun así no contesta.** La pregunta que esta pantalla existe para
+   responder es *«¿tengo algún bounty que dejó de comprar sin avisarme?»*, y **esa pregunta no admite
+   respuesta sobre un subconjunto que el humano acotó por otro motivo** (tecleó un nombre porque quería mirar
+   **esa** carta, no porque quisiera preguntar por ella). Una respuesta acotada a una pregunta global **invita
+   a relajarse igual que la falsa**, y encima con la coartada de ser cierta.
+3. **El precedente ya lo escribí yo, y fue el contrario.** Con `truncated`, §28.5 **no acotó** la frase
+   («ninguno de los que caben») — **la retiró y puso en su sitio una que nombra el recorte**. El caso de hoy
+   es idéntico salvo **la causa** del recorte. Resolverlo distinto convertiría una regla en dos, y la segunda
+   sería la débil.
+4. **El coste es asimétrico.** Con esta salida se pierde una frase que el humano **no vino a buscar**; con la
+   otra se pierde **la única pantalla donde el rebasado invisible se ve**. *Cuando el error de un lado es
+   «no le dijimos algo que no preguntó» y el del otro es «le dijimos que estaba tranquilo y no lo estaba», no
+   hay empate.*
+
+**Y no se queda muda: el bloque ① sigue sin desaparecer** (regla «el panel dice el cero»). El sitio de la
+frase lo ocupa `VISTA FILTRADA` + `zero.filtered`, que **nombra el recorte con la misma dureza** con que
+`list.truncated` nombra el suyo, y **ofrece la palanca**: `Limpiar filtros` (`common.clearFilters`, ya
+existente). Mismo tratamiento visual que las demás: **tinta, `text-sm`, sin color de estado, sin icono, sin
+`role="alert"`** — y **sin `aria-live` nuevo**: es el mismo hueco de la misma tabla, repintado.
+
+**Qué cuenta como «filtro de identidad» aquí — y la prueba es mecánica, no de criterio.**
+Un filtro es **de identidad** si **`counts` lo respeta** (`API_CONTRACT §M2-B.1`). Esa es la definición
+normativa, y se escribe así a propósito: si el contrato cambiara, la regla sigue siendo correcta sin
+reescribirla.
+
+- **Hoy hay exactamente uno: la búsqueda `q`** (campo `Buscar carta`). **Cuenta cuando trae texto** tras
+  `trim`; una `q` vacía o de solo espacios **no acota nada** y no dispara este caso.
+- **`setId` y `finish` entrarían en esta regla el día que existan** — **hoy NO existen en esta pantalla**, y
+  añadirlos es la pregunta **47** / §28.2b, **no aprobada** (registrada como **BNT-D10**). Por eso la
+  condición se escribe sobre *«hay algún filtro de identidad activo»* y **no** sobre *«hay `q`»*: el día que
+  se cablee otro, **no se toca ni el copy ni esta sección**.
+- ⛔ **Los chips de estado NO son filtros de identidad**, y la razón no es retórica: **`counts` ignora el
+  filtro de estado** (§28.2a), así que con `REBASADOS` o `APAGADOS` puestos **`counts.rebasada` sigue siendo
+  el número del sistema entero** y el cero sigue siendo un cero de verdad. *El chip no acota el conjunto de la
+  pregunta: la responde.* Con un chip puesto, el cero **se enuncia igual** si cumple sus condiciones.
+- **La paginación tampoco cuenta**: no toca `counts` (§28.2, §28.13.8).
+- **No hace falta ningún dato nuevo del servidor.** La pantalla ya sabe qué filtros lleva puestos, porque es
+  ella quien los puso. *Esto se arregla sin pedirle nada al arquitecto.*
+
+**Reglas comunes a las cuatro frases** *(valen para el cero, para el acotado, para `VISTA FILTRADA` y para la
+lista incompleta):*
+
 - **Va en tinta y sin adorno.** Ni verde, ni palomita, ni ilustración: no es una felicitación, es un
   **hecho verificado hoy** que mañana puede no serlo.
 - **Los cinco chips siguen existiendo con su cero** (el que esté en cero, deshabilitado). Un chip que se esfuma
@@ -12639,7 +12728,7 @@ alcance que se apruebe — *cadenas muertas en un catálogo de dinero son una in
 | **Cargando** | Skeleton de 8 filas respetando el layout (§7.7). Chips con `—`, **nunca `0`** (§28.5). La cabecera y los rótulos de columna **sí** se pintan: el esqueleto tiene que parecerse a la tabla. |
 | **Vacío total** (no hay ningún bounty en el sistema) | Título «Todavía no hay bounties» + una frase que **explica qué es** («…pagas por encima de tu tarifa hasta juntar las piezas que quieras») + CTA **«Ir al binder»**. Es la única pantalla que enseña el concepto: quien llega aquí y no tiene ninguno probablemente no sabe qué es. |
 | **Vacío por filtro** | «Ningún bounty coincide» + «Limpiar filtros» (§8.1). |
-| **Bloque ① sin filas** | **No es un vacío: es una de las tres frases de §28.5**, y cuál de ellas depende de `counts.invalida` y de `truncated`. |
+| **Bloque ① sin filas** | **No es un vacío: es una de las cuatro frases de §28.5**, y cuál de ellas depende de `counts.invalida`, de `truncated` y de **si hay un filtro de identidad puesto** (v3.5). |
 | **Lista incompleta** (`truncated: true`) | **No es un error y no bloquea la tabla:** banner `role="status"` con `list.truncated`, chips con `≥`, **y ningún cero enunciado** (§28.2b, §28.5). |
 | **Error de carga** | `Banner danger` + `Reintentar` (§8.1), con el `errorCode` traducido. **La tabla no se pinta a medias**: media lista de bounties es peor que ninguna, porque parece completa. |
 | **Fila que falla al guardar** | El error **se queda en la fila**, abierta y con el foco en el campo; el resto de la tabla no se toca. |
@@ -12784,7 +12873,7 @@ concatena moneda**.
 | `counts.atLeast` *(v3.4, lista cortada)* | `{label} ≥ {count}` | `{label} ≥ {count}` |
 | `counts.atLeastAria` *(v3.4)* | `Al menos {count}; la lista está incompleta.` | `At least {count}; the list is incomplete.` |
 | `counts.loadingAria` | `Contando bounties` | `Counting bounties` |
-| `filters.searchLabel` | `Buscar carta o set` | `Search card or set` |
+| `filters.searchLabel` *(v3.5 — alineada con el rótulo real, **BNT-D10**)* | `Buscar carta` | `Search card` |
 | `sort.label` | `Orden` | `Sort` |
 | `sort.attention_first` *(default)* | `Atención primero` | `Needs attention first` |
 | `sort.price_desc` | `Pagamos (mayor primero)` | `We pay (highest first)` |
@@ -12864,7 +12953,9 @@ concatena moneda**.
 | `savedStillNoPrice` *(v3.4)* | `Guardado, pero este bounty sigue encendido sin precio: no paga nada.` | `Saved, but this bounty is still on with no price: it pays nothing.` |
 | `zero.outbidLabel` | `SIN REBASADOS` | `NONE OUTBID` |
 | `zero.outbid` | `Ningún bounty rebasado. Todos los encendidos pagan por encima de la tarifa vigente.` | `No outbid bounties. Every one that's on pays above the current rate.` |
-| **`zero.outbidButNoPrice`** *(v3.4 — el cero acotado, §28.5)* | **`Ningún bounty rebasado, pero {count} están encendidos sin precio y no pagan nada.`** | **`No outbid bounties, but {count} are on with no price and pay nothing.`** |
+| **`zero.outbidButNoPrice`** *(v3.4 — el cero acotado por el estado, §28.5)* | **`Ningún bounty rebasado, pero {count} están encendidos sin precio y no pagan nada.`** | **`No outbid bounties, but {count} are on with no price and pay nothing.`** |
+| **`zero.filteredLabel`** *(v3.5 — versalita del cero acotado por un filtro, §28.5)* | **`VISTA FILTRADA`** | **`FILTERED VIEW`** |
+| **`zero.filtered`** *(v3.5 — sustituye a CUALQUIER frase de cero mientras haya filtro de identidad, §28.5)* | **`Con un filtro puesto aquí solo se cuentan los bounties que coinciden, así que esta pantalla no puede decirte si hay rebasados fuera de él. Limpia los filtros para saberlo.`** | **`With a filter on, only matching bounties are counted here, so this screen can't tell you whether there are outbid ones outside it. Clear the filters to find out.`** |
 | `noPrice.bannerTitle` *(v3.4, bloque de edición)* | `Este bounty no tiene precio` | `This bounty has no price` |
 | `noPrice.bannerBody` *(v3.4)* | `Está encendido, pero no tiene un precio con el que pagar: no paga nada y no se publica. Ponle un precio por encima de la tarifa vigente ({rate}) o apágalo.` | `It's on, but it has no price to pay with: it pays nothing and isn't published. Give it a price above the current rate ({rate}) or turn it off.` |
 | `empty.title` | `Todavía no hay bounties` | `No bounties yet` |
@@ -12917,9 +13008,12 @@ pantalla: **su ancho manda** en el bloque de edición, y en móvil ocupa línea 
 4. **⛔ No ofrezcas ninguna acción cuyo alcance sea un conjunto.** Ni multi-selección con acción, ni «aplicar
    a los filtrados», ni un botón de cabecera con un contador en el rótulo. **N escrituras disparadas por un
    gesto son una acción masiva** aunque viajen de una en una (§28.7).
-5. **⛔ No enuncies el cero tranquilizador con la lista cortada** (`truncated: true`) **ni con `invalida > 0`**
-   (§28.5). *Un cero de una lista cortada no es un cero, y «todos los encendidos pagan» es falso si hay uno
-   encendido sin precio.*
+5. **⛔ No enuncies el cero tranquilizador con la lista cortada** (`truncated: true`), **ni con `invalida > 0`**,
+   **ni con un filtro de identidad puesto** (v3.5: `q` con texto —y `setId`/`finish` el día que existan—;
+   los chips de estado **no** cuentan) (§28.5). *Un cero de una lista cortada no es un cero, un cero de una
+   lista acotada tampoco, y «todos los encendidos pagan» es falso si hay uno encendido sin precio.*
+   **⛔ Y acotar la frase no vale como remedio**: con filtro puesto **no se pinta la versalita
+   `SIN REBASADOS`** en ninguna de sus variantes — se pinta `VISTA FILTRADA` (§28.5).
 6. **No pintes `REBASADO` —ni `SIN PRECIO`— como error.** Ni `role="alert"`, ni icono de aspa, ni la palabra
    «error», «inválido» o «roto» en ninguna cadena, ni un botón único que diga «Arreglar». Son **dos puertas**.
 7. **No ocultes el bloque de atención cuando esté en cero.** Se dice el cero (§28.5). *La vitrina calla; el
@@ -12957,7 +13051,8 @@ pantalla: **su ancho manda** en el bloque de edición, y en móvil ocupa línea 
    precio utilizable** ⇒ **`SIN PRECIO`** en acento, en el bloque de atención, **`PAGAMOS` en `—`**, premium
    `—`, botón **`Poner precio`** y `Apagar`. ⛔ **Rojo si dice `ACTIVO`, si cae en el bloque de activos, si
    suma en `counts.activa` o si inventa cualquier cifra en `PAGAMOS`/`PREMIUM`.**
-4. **⭐ El cero acotado (§28.5):** `counts.rebasada = 0` **con** `counts.invalida ≥ 1` ⇒ se lee
+4. **⭐ El cero acotado por el estado (§28.5):** `counts.rebasada = 0` **con** `counts.invalida ≥ 1` **y sin
+   filtro de identidad puesto** ⇒ se lee
    `zero.outbidButNoPrice`, **nunca** la frase que dice *«todos los encendidos pagan por encima de la tarifa
    vigente»*.
 5. **⭐ Lista cortada:** respuesta con `truncated: true` ⇒ banner de lista incompleta, chips con `≥` y
@@ -12981,8 +13076,8 @@ pantalla: **su ancho manda** en el bloque de edición, y en móvil ocupa línea 
 12. **⭐ Verificable POR AUSENCIA (`PROJECT.md` 184(f)):** en toda la pantalla **no existe** ningún control con
     un contador en el rótulo (`Apagar los N…`), **ni** multi-selección con acción, **ni** tarjetas de métricas,
     **ni** gráficas, **ni** alta de bounty.
-13. **Cero rebasados de verdad** (`rebasada = 0`, `invalida = 0`, `truncated = false`) ⇒ se lee la frase
-    tranquilizadora y los cinco chips siguen visibles con sus ceros.
+13. **Cero rebasados de verdad** (`rebasada = 0`, `invalida = 0`, `truncated = false` **y sin filtro de
+    identidad puesto**) ⇒ se lee la frase tranquilizadora y los cinco chips siguen visibles con sus ceros.
 14. **Asimetría de la confirmación:** subir precio ⇒ **hay diálogo con los dos importes**; apagar ⇒ **no hay
     diálogo** y sí `Deshacer`. **Poner precio a un `invalida` cuenta como subir**: hay diálogo.
 15. **Rol:** con `vault_operator`, **la pantalla no se renderiza** (ni en solo lectura).
@@ -12992,6 +13087,21 @@ pantalla: **su ancho manda** en el bloque de edición, y en móvil ocupa línea 
     `Guardar` ⇒ el foco vuelve al `Editar` de esa fila. Sin trampas y sin foco perdido.
 18. **Estado desconocido (defensivo):** una fila con un `state` fuera del enum ⇒ versalita neutra
     `SIN CLASIFICAR`, **sin** marca de acento, **sin** premium y **sin** pintar `ACTIVO`.
+19. **⭐⭐ El cero acotado por un filtro (§28.5, v3.5) — y es la mutación que TIENE que ponerse en rojo.**
+    Con **dos** bounties `rebasada` en el sistema (p. ej. Charizard y Gengar), en `/es/admin/m2/bounties`
+    teclear en `Buscar carta` un texto que **no coincida con ninguno de los dos** (p. ej. `Pikachu`) ⇒ la
+    respuesta trae **`counts.rebasada = 0`** (**correcto**: `counts` respeta la identidad) y el bloque ①
+    tiene que leer **`VISTA FILTRADA` + `zero.filtered`**, con `Limpiar filtros` a mano.
+    ⛔ **Rojo si aparece la versalita `SIN REBASADOS`** (en cualquiera de sus dos variantes), ⛔ **rojo si se
+    lee `zero.outbid` o `zero.outbidButNoPrice`**, y ⛔ **rojo si en cualquier parte del bloque ① se afirma
+    sobre «todos» los encendidos** — incluso acotando la frase: *acotar no es remedio, la versalita se lee
+    primero.*
+    **Y la vuelta, sin recargar:** al **limpiar el filtro**, los chips vuelven a `REBASADOS 2`, las dos filas
+    reaparecen en el bloque ① y **sigue sin enunciarse ningún cero** (ahora porque no lo hay).
+    **Control negativo, para que el candado no se pase de listo:** con **`q` vacía** y `rebasada = 0`,
+    `invalida = 0`, `truncated = false` ⇒ **sí** se lee el cero tranquilizador (caso 13); y con **un chip de
+    estado puesto** y esas mismas condiciones, **también** (los chips no son filtro de identidad).
+    *(El test compara **claves** del catálogo, nunca cadenas tecleadas — §28.10, §28.13.20.)*
 
 ### 28.15 Peticiones al arquitecto: **todas contestadas** · y las preguntas abiertas del humano *(v3.4)*
 
