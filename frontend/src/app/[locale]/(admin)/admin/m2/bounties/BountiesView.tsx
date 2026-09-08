@@ -99,6 +99,13 @@ export function BountiesView() {
   const [page, setPage] = useState(1);
 
   const [editing, setEditing] = useState<EditingState | null>(null);
+  /**
+   * ¿La fila abierta tiene cambios sin guardar? Lo reporta el bloque de edición (§28.6b: *«`Esc` y
+   * `Cancelar` cierran; **si hay cambios sucios, confirman antes de descartar**»*). Se pregunta
+   * SOLO cuando hay algo que perder: confirmar un formulario intacto enseña a confirmar sin leer,
+   * que es justo lo que la asimetría de §28.6c intenta evitar.
+   */
+  const [editorDirty, setEditorDirty] = useState(false);
   const [discardAsk, setDiscardAsk] = useState<{ card: string; next: EditingState | null } | null>(null);
   const [mutatingKey, setMutatingKey] = useState<string | null>(null);
   const [rowError, setRowError] = useState<{ key: string; error: unknown } | null>(null);
@@ -138,8 +145,22 @@ export function BountiesView() {
 
   function closeEditor(key: string | undefined) {
     setEditing(null);
+    setEditorDirty(false);
     setRowError(null);
     if (key) focusEditButton(key);
+  }
+
+  /**
+   * Cierre pedido por el humano (`Cancelar` o `Esc`). Con cambios sucios **se confirma antes de
+   * descartar** (§28.6b); sin ellos se cierra y el foco vuelve al botón de esa fila (§28.10).
+   */
+  function requestClose(key: string) {
+    if (editorDirty) {
+      const open = rows.find((r) => bountyRowKey(r) === key);
+      setDiscardAsk({ card: open?.name ?? '', next: null });
+      return;
+    }
+    closeEditor(key);
   }
 
   /**
@@ -213,13 +234,15 @@ export function BountiesView() {
   });
 
   function requestEdit(next: EditingState | null, row?: AdminBountyRowDTO) {
-    // Solo hay UNA fila abierta a la vez; abrir otra cierra ésta con la misma confirmación (§28.6b).
-    if (editing && editing.key !== next?.key) {
+    // Solo hay UNA fila abierta a la vez; abrir otra cierra ésta con la misma confirmación (§28.6b),
+    // y **solo si hay algo que descartar**.
+    if (editing && editing.key !== next?.key && editorDirty) {
       const open = rows.find((r) => bountyRowKey(r) === editing.key);
       setDiscardAsk({ card: open?.name ?? '', next });
       return;
     }
     setRowError(null);
+    setEditorDirty(false);
     setEditing(next);
     if (next === null && row) focusEditButton(bountyRowKey(row));
   }
@@ -259,7 +282,10 @@ export function BountiesView() {
               aria-pressed={selected}
               // Un chip en cero se deshabilita, pero NO desaparece: un chip que se esfuma convierte
               // «no hay» en «no se está mirando» (§28.5).
-              disabled={n === 0 && !selected}
+              // ⚠️ Con la lista cortada **no se deshabilita ninguno**: ahí un `0` no es un cero, es
+              // un «no lo sé» (§28.2b), y filtrar es justo la palanca que el banner recomienda —
+              // apagar el chip cerraría la única puerta para averiguarlo.
+              disabled={!truncated && n === 0 && !selected}
               onClick={() => toggleState(s)}
               {...(truncated && n != null ? { 'aria-description': t('counts.atLeastAria', { count: n }) } : {})}
               className={cn(
@@ -413,7 +439,8 @@ export function BountiesView() {
                       turnOnIntent={editing.turnOnIntent}
                       saving={mutatingKey === key}
                       error={rowError?.key === key ? rowError.error : undefined}
-                      onCancel={() => closeEditor(key)}
+                      onDirtyChange={setEditorDirty}
+                      onCancel={() => requestClose(key)}
                       onSubmit={(req) => save.mutate({ row, req, intent: 'edit' })}
                     />
                   </tr>
@@ -460,9 +487,13 @@ export function BountiesView() {
               size="sm"
               onClick={() => {
                 const next = discardAsk?.next ?? null;
+                const closing = editing?.key;
                 setDiscardAsk(null);
                 setRowError(null);
+                setEditorDirty(false);
                 setEditing(next);
+                // Si se cerró sin abrir otra, el foco vuelve al botón de ESA fila (§28.10).
+                if (next === null && closing) focusEditButton(closing);
               }}
             >
               {tRoot('common.confirm')}

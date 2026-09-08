@@ -52,6 +52,13 @@ export interface BountyRowEditorProps {
   saving: boolean;
   /** Error del servidor de ESTA fila (se ancla aquí, nunca en un toast efímero — §28.6e). */
   error?: unknown;
+  /**
+   * Avisa a la tabla de si hay cambios sin guardar. Quien decide **si se confirma antes de
+   * descartar** es la vista (§28.6b), porque el descarte puede venir de `Cancelar`, de `Esc` o de
+   * abrir otra fila, y las tres tienen que preguntar lo mismo.
+   */
+  onDirtyChange?: (dirty: boolean) => void;
+  /** `Cancelar` / `Esc`. **No cierra por su cuenta**: la vista confirma si hay cambios sucios. */
   onCancel: () => void;
   onSubmit: (req: VariantControlsRequest) => void;
 }
@@ -61,6 +68,7 @@ export function BountyRowEditor({
   turnOnIntent = false,
   saving,
   error,
+  onDirtyChange,
   onCancel,
   onSubmit,
 }: BountyRowEditorProps) {
@@ -139,6 +147,13 @@ export function BountyRowEditor({
   const raising = raisesSpend(stored, draft);
   const canSave = dirty && !clientInvalid && !saving;
 
+  // La tabla necesita saberlo para decidir si confirma antes de descartar (§28.6b).
+  const dirtyRef = useRef(onDirtyChange);
+  dirtyRef.current = onDirtyChange;
+  useEffect(() => {
+    dirtyRef.current?.(dirty);
+  }, [dirty]);
+
   const premium = bountyPremium(
     row.state,
     draft.priceCents,
@@ -174,7 +189,22 @@ export function BountyRowEditor({
   })();
 
   return (
-    <td colSpan={7} className="border-l-2 border-accent bg-surface-2/40 px-4 py-5">
+    <td
+      colSpan={7}
+      className="border-l-2 border-accent bg-surface-2/40 px-4 py-5"
+      // `Esc` cierra igual que `Cancelar` — y con cambios sucios pregunta antes de descartar,
+      // porque quien decide eso es la vista (§28.6b). El diálogo de confirmación de subida se
+      // cierra solo, sin propagar: `Esc` dentro de la ventana no debe además tirar el formulario.
+      onKeyDown={(e) => {
+        if (e.key !== 'Escape' || saving) return;
+        if (confirmOpen) {
+          setConfirmOpen(false);
+          return;
+        }
+        e.stopPropagation();
+        onCancel();
+      }}
+    >
       <p className="eyebrow mb-4">
         {t('edit.title')} · <span lang="en">{row.name}</span> · {row.setName} #{row.number}
       </p>
