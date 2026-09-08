@@ -42,21 +42,34 @@ Ver `CLAUDE.md`. La sesión principal **orquesta** y **delega**; no implementa d
 | Pieza | Dónde | Notas |
 |---|---|---|
 | **Frontend** | Vercel | Root Directory = `frontend`, preset Next.js. Auto-deploy desde `main`. |
-| **Dominio** | Cloudflare DNS → Vercel | `www.tcgvaultmx.com` (canónico) + apex `tcgvaultmx.com` (redirect) + `tcg-vault-mx.vercel.app`. CNAME **DNS only** (nube gris). |
+| **Dominio** | Cloudflare DNS → Vercel | **`www.tcghunt.mx` (canónico)** + apex `tcghunt.mx` (redirect al canónico) + `tcg-vault-mx.vercel.app` (dominio técnico de Vercel). CNAME **DNS only** (nube gris). |
 | **Backend** | Railway | `Dockerfile.backend`. Corre `prisma migrate deploy` en cada deploy. Auto-deploy desde `main`. |
 | **DB** | Railway Postgres | `DATABASE_URL`. |
 | **Redis** | Railway | `REDIS_URL` (habilita el scheduler BullMQ diario). |
 | **INE (KYC)** | Cloudflare R2 | bucket `tcg-kyc-ine`, privado. CORS ya configurado con los dominios reales (PUT/GET, `content-type`). |
-| **Correo** | Resend | dominio `tcgvaultmx.com` **Verified** (SPF/DKIM). |
+| **Correo** | Resend | dominio **`tcghunt.mx` Verified** (SPF/DKIM). Recepción por Cloudflare **Email Routing** (Resend solo ENVÍA). |
 | **Pagos** | Stripe | **claves de TEST por ahora** (falta pasar a live — ver pendientes). |
 | **Catálogo** | pokemontcg.io | `POKEMONTCG_IO_API_KEY` puesta. |
 
+> **El dominio del negocio es UNO: `tcghunt.mx`** (PROJECT.md decisión 58). Los nombres anteriores
+> —`tcgvaultmx.com` y `tcgvault.mx`— están **RETIRADOS**: no sirven la app, no envían correo y no
+> son del negocio. Si los ves en algún documento o comentario, el documento está viejo. *(Corregido
+> aquí el 2026-09-08, pendiente **P-64**: esta sección afirmaba `tcgvaultmx.com` como dominio y como
+> dominio verificado en Resend. El rebrand se ejecutó en producción el 2026-08-31 — `docs/DEVOPS_NOTES.md`
+> §34.)*
+>
+> **El nombre INTERNO no cambió:** el repo, el proyecto de Vercel y el servicio de Railway siguen
+> llamándose `tcg-vault-mx`, y `tcg-vault-mx.vercel.app` sigue siendo el dominio técnico. Eso es
+> correcto y **no hay que "arreglarlo"**.
+
 ### Variables de entorno (los VALORES viven en Railway/Vercel, NO en el repo)
 Backend (Railway): `DATABASE_URL`, `REDIS_URL`, `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`, `PII_ENCRYPTION_KEY`,
-`PII_HMAC_KEY`, `APP_BASE_URL` (lista con `https://tcg-vault-mx.vercel.app,https://www.tcgvaultmx.com,https://tcgvaultmx.com`),
+`PII_HMAC_KEY`, `APP_BASE_URL` (lista separada por comas; el **PRIMER origen es el canónico** y es el que
+el backend usa para armar los enlaces de los correos y el `return_url` de Stripe → debe ser
+`https://www.tcghunt.mx`, seguido de `https://tcghunt.mx` y `https://tcg-vault-mx.vercel.app`),
 `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `S3_ENDPOINT`/`S3_BUCKET`/`S3_REGION=auto`/`S3_ACCESS_KEY_ID`/`S3_SECRET_ACCESS_KEY`/`S3_FORCE_PATH_STYLE=false`,
-`KYC_UPLOAD_MAX_BYTES`, `INE_RETENTION_DAYS`, `DISPUTE_EVIDENCE_CONTACT=soporte@tcgvaultmx.com`,
-`RESEND_API_KEY`, `MAIL_FROM=no-reply@tcgvaultmx.com`, `POKEMONTCG_IO_API_KEY`, `SEED_ADMIN_EMAIL`/`SEED_ADMIN_PASSWORD`,
+`KYC_UPLOAD_MAX_BYTES`, `INE_RETENTION_DAYS`, `DISPUTE_EVIDENCE_CONTACT=soporte@tcghunt.mx`,
+`RESEND_API_KEY`, `MAIL_FROM=TCG HUNT <no-reply@tcghunt.mx>`, `POKEMONTCG_IO_API_KEY`, `SEED_ADMIN_EMAIL`/`SEED_ADMIN_PASSWORD`,
 `SEED_OPERATOR_EMAIL`/`SEED_OPERATOR_PASSWORD`. (Falta `GOOGLE_CLIENT_ID` — ver pendientes.)
 Frontend (Vercel): `NEXT_PUBLIC_API_BASE_URL` (…/api/v1), `NEXT_PUBLIC_USE_MOCKS=false`, `NEXT_PUBLIC_DEFAULT_LOCALE=es`.
 (Falta `NEXT_PUBLIC_GOOGLE_CLIENT_ID` — ver pendientes.) **`NEXT_PUBLIC_*` se hornea en build → requiere redeploy al cambiarla.**
@@ -102,6 +115,13 @@ Historial de versiones (cada una con sus verdictos qa+techlead+seguridad y migra
    Hasta correrlo, las cartas ya importadas quedan en `['normal']` y el selector de acabado no aparece. Idempotente.
    Después, el price-sync diario mantiene los precios por acabado.
 2. **Probar el INE** en producción (con el CORS ya puesto): subir foto de INE en el cotizador → debe cargar.
+3. **FRENAR EL ALMACENAMIENTO DE VERCEL** (está al ~75% de 10 GB). Hay **46 ramas** en el remoto y cada push a
+   cualquiera de ellas construye una vista previa que Vercel guarda **para siempre**. Dos acciones, en este orden:
+   **(a)** Vercel → Settings → **Git → Ignored Build Step** → *Custom* → pegar el one-liner de
+   `docs/DEVOPS_NOTES.md` **§40.8-B** (1 min, sin deploy; solo construirán `main` y `production`).
+   **(b)** Vercel → **Deployments** → borrar a mano los deployments de vistas previas viejas. ⚠️ **(a) NO libera
+   espacio**: solo detiene el crecimiento. Los ~7,5 GB ya gastados solo los recupera (b). Detalle, reversión en
+   30 s y cómo forzar una vista previa: `docs/DEVOPS_NOTES.md` **§40**.
 
 ---
 
@@ -110,8 +130,9 @@ Historial de versiones (cada una con sus verdictos qa+techlead+seguridad y migra
 - **Stripe live:** cambiar `STRIPE_SECRET_KEY` / `STRIPE_WEBHOOK_SECRET` a claves reales y **probar con sandbox** primero.
 - **Google sign-in:** crear OAuth Client ID (Web) en Google Cloud; **Authorized JavaScript origins** = los 3 dominios;
   `NEXT_PUBLIC_GOOGLE_CLIENT_ID` en Vercel (**rebuild**) + `GOOGLE_CLIENT_ID` (mismo valor) en Railway. Hoy el botón cae a mock → falla.
-- **Buzones que reciben** (`soporte@` / `facturacion@tcgvaultmx.com`): Cloudflare **Email Routing** → reenviar a un Gmail
-  (Resend solo ENVÍA, no recibe). Opcional: "Send as" en Gmail vía SMTP de Resend.
+  *(Los "3 dominios" son hoy `https://www.tcghunt.mx`, `https://tcghunt.mx` y `https://tcg-vault-mx.vercel.app` — **no** los del nombre viejo.)*
+- ~~**Buzones que reciben**~~ **HECHO** (2026-08-31): `soporte@` / `facturacion@tcghunt.mx` ya reciben vía Cloudflare
+  **Email Routing** → reenvío a Gmail (Resend solo ENVÍA, no recibe). Opcional pendiente: "Send as" en Gmail vía SMTP de Resend.
 - **Diseño (Claude Design):** import de `Pantallas.dc.html` + `support.js` — se está trabajando en **otra sesión** (Claude Code Web).
   Si esa sesión empuja a `main`, hacer `git pull` antes de continuar aquí.
 
