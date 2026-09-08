@@ -28,6 +28,83 @@
 > §0.22 de este documento son de `main` y NO se movieron**: son M47-H2, v1.53 (buylist raw-only) y
 > v1.53-b. Un informe de QA/techlead anterior al 2026-09-06 puede usar la numeración vieja.
 
+## 0.48 — **P-46 (re-verificación 2026-09-08): el arreglo YA estaba; lo que faltaba era el candado que lo defiende**
+
+> Propiedad: **backend**. Encargo: «Sincronizar sellado devuelve 0 presentaciones» en **Pitch Black** y
+> **Chaos Rising**. **Sin cambio de contrato, sin cambio de comportamiento en producción.** Lo único que
+> cambia en esta pasada es `backend/test/sealed-product.service.spec.ts` (7 tests nuevos).
+
+### 0.48.1 Lo que se MIDIÓ (no se asumió)
+
+El diagnóstico del ticket («`matchScore` usa `normalizeSetName` sobre el nombre directo y no llama a
+`setNameCandidates`») describe el estado **anterior** al commit `47c97c1` (2026-08-23), que ya está en
+`origin/main` **y en `origin/production`** (`git merge-base --is-ancestor 47c97c1 origin/production` → sí).
+Medición con un arnés temporal que ejecuta el `matchScore` real y, al lado, el algoritmo pre-fix
+reconstruido:
+
+| Set local | Grupo TCGCSV | Pre-fix | HOY (`main`/`production`) |
+|---|---|---|---|
+| `Pitch Black` | `SV08: Pitch Black` (mismo año) | **0.5** | **1.0** |
+| `Pitch Black` | `ME05: Pitch Black` (mismo año) | **0.5** | **1.0** |
+| `Chaos Rising` | `ME04: Chaos Rising` (mismo año) | **0.5** | **1.0** |
+| `Chaos Rising` | `SV: Chaos Rising` (mismo año) | **0.5** | **1.0** |
+| `Prismatic Evolutions` | `Prismatic Evolutions Promos` | 0.5 | **0.5** (contención, no sube) |
+| `Prismatic Evolutions` | `SV08: Prismatic Evolutions` (**año distinto**) | 0.5 | **0.7** (< umbral) |
+| `Chaos Rising` | `Mega Evolution: Chaos Rising` | 0.5 | **0.5** (prefijo >6 chars, no se quita) |
+
+Umbral de `bestSetMainMatch` = **0.9 y único en el tope**. Confirmado: el 0.5 pre-fix era la causa del
+«sin grupo resoluble», y hoy los prefijos `XX##:` ya auto-resuelven. **No se tecleó una segunda copia del
+quitado de prefijo**: la única implementación sigue siendo `setNameCandidates`
+(`src/modules/pricing/ppt-set-mapper.service.ts:180`), reusada por `matchScore`.
+
+### 0.48.2 El hueco real que sí había: la suite NO defendía el umbral
+
+Mutación medida sobre el árbol previo: bajar el umbral money-safe de `bestSetMainMatch` de **0.9 a 0.5**
+dejaba **la suite backend entera (253 suites, 3689 tests) en VERDE**. El candado que impide adoptar el
+grupo equivocado —y con él meter presentaciones y precios de otro producto— no estaba probado por nadie.
+Eso es lo que se cierra aquí.
+
+**Tests nuevos** (`test/sealed-product.service.spec.ts`, describe «matchScore — tolerante al prefijo…»):
+1. `it.each` de **5 formas de prefijo reales** (`ME05:`, `SV08:`, `ME04:`, `SV:`, `SWSH07:`) sobre Pitch
+   Black / Chaos Rising / Evolving Skies → auto-resuelve **y** `productsUpserted = 1` (se asserta el
+   síntoma del humano: que dejen de ser «0 presentaciones», no solo el score).
+2. **NEGATIVO — el umbral 0.9 sigue en pie.** Único candidato `ME05: Pitch Black Prerelease Kit`
+   (contención → 0.5): aparece en `…/sync/candidates` con confianza 0.5 (no se esconde), el sync **NO**
+   lo adopta (`tcgcsvGroupId` sigue null, 0 productos), y **la curación a mano sigue siendo la salida**
+   (tras `linkGroup` el re-sync sí baja la presentación).
+3. **NEGATIVO — el año discrimina.** `Chaos Rising` (2026) vs `ME04: Chaos Rising` publicado en **2019**
+   → 0.7 → no auto-resuelve.
+
+### 0.48.3 Mutaciones corridas (rojo confirmado y restaurado)
+
+| Mutación | Resultado |
+|---|---|
+| A — quitar la tolerancia al prefijo (`setNameCandidates` → `normalizeSetName`, estado pre-fix) | **ROJO**: 8 tests |
+| B — umbral `>= 0.9` → `>= 0.5` en `bestSetMainMatch` | antes: **verde** en 3689 tests. Ahora: **ROJO** (los dos negativos) |
+| C — ignorar el año (`return 1.0` en vez de `localYear === groupYear ? 1.0 : 0.7`) | **ROJO**: 2 tests |
+
+Suite final: **252 suites / 3695 tests en verde**, `tsc --noEmit` limpio, `eslint` limpio. El código de
+`src/` queda **byte a byte idéntico** a `47c97c1` (`git diff 47c97c1 -- …/sealed-product.service.ts` vacío).
+
+### 0.48.4 Lo que NO explica este arreglo (para quien retome P-46)
+
+Si en producción **hoy** un set sigue dando «0 presentaciones», ya no puede ser el prefijo `XX##:`. Las
+causas residuales, todas money-safe por diseño (no se adivina) y todas con la misma salida —**curar el
+grupo a mano** en M1 → Sellado → «Curar/vincular grupo»— son:
+
+- **Prefijo que `setNameCandidates` no reconoce**: el regex exige `^[A-Za-z0-9]{1,6}\s*:` , así que
+  `«Mega Evolution: Chaos Rising»` o un prefijo con `&`/espacios NO se quita → 0.5.
+- **Año que no coincide**: `CardSet.releaseDate` (pokemontcg.io) vs `publishedOn` del grupo TCGCSV de
+  años distintos → 0.7 < 0.9. Es deliberado: el año es lo que distingue un homónimo de una reimpresión.
+- **Empate en el tope**: dos grupos que colapsan al mismo nombre (base + reprint) → null a propósito.
+- **El nombre local no es el de TCGCSV** (traducción, sufijo, errata en el catálogo).
+
+Para cerrar cuál de las cuatro aplica hace falta **la línea de log de prod de hoy** y el **nombre exacto
+del grupo en TCGCSV**; desde este entorno no hay egress a `tcgcsv.com` (el proxy rechaza el CONNECT), así
+que no se puede leer el catálogo real. Ampliar el regex del prefijo **no se hizo**: tocaría
+`setNameCandidates`, que también alimenta el mapeo de precios de PPT (`matchSet`), y sin evidencia del
+nombre real sería aflojar un predicado de dinero a ciegas.
+
 ## 0.47 — **v1.62.1 / `§M2-B`: la CONSOLA DE BOUNTIES — una lectura, cero escritura, cero DDL** (2026-09-08)
 
 > Propiedad: **backend**. Implementa `API_CONTRACT §M2-B.0/.1` (rev **v1.62.1**), `ARCHITECTURE §4.42`

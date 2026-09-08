@@ -54,7 +54,7 @@ test.describe('guest checkout · identidad y desglose', () => {
     await expect(breakdown.getByText(t('es', 'checkout.subtotal'))).toBeVisible();
     await expect(breakdown.getByText(t('es', 'checkout.shipping'))).toBeVisible();
     await expect(breakdown.getByText(t('es', 'checkout.iva', { rate: 16 }))).toBeVisible();
-    await expect(breakdown.getByText(t('es', 'checkout.processingFee'))).toBeVisible();
+    await expect(breakdown.getByText(t('es', 'checkout.platformFee'))).toBeVisible();
     await expect(breakdown.getByText(MONEY_RE).first()).toBeVisible();
 
     await expect(page.getByText(t('es', 'checkout.finalSaleNotice'))).toBeVisible();

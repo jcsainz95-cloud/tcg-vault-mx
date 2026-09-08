@@ -288,6 +288,26 @@ export function BountiesView() {
   const totalPages = data ? Math.max(1, Math.ceil(data.total / data.pageSize)) : 1;
   const filtersActive = states.length > 0 || identityFiltered;
 
+  /*
+   * §28.5b (v3.6, cierra **BNT-D14**) — la intersección §28.5 × §28.8: **una acción, un control.**
+   *
+   * Cuando el bloque ① pinta `VISTA FILTRADA` ya nombra el recorte (`zero.filtered`) **y ya ofrece
+   * la palanca**. Si además la tabla queda sin filas, el vacío por filtro de §28.8 traía su propia
+   * `Limpiar filtros`, y salían **dos controles idénticos y consecutivos**: eso no es cosmética,
+   * es un fallo de accesibilidad (un lector de pantalla anuncia dos veces la misma acción sin poder
+   * distinguirlas, §8.2/§28.10). Cede el vacío y **se suprime ENTERO** —título, icono y palanca—,
+   * no a medias: el portador es la versalita, que se lee primero, y `zero.filtered` ya CONTIENE lo
+   * que decía el vacío («ningún bounty coincide») y añade lo único que aquí hace daño —que la
+   * pantalla **no puede contestar** mientras haya filtro—.
+   *
+   * ⚠️ La condición se ancla en **lo que de verdad se está pintando** (`showZeroLine && filtered`),
+   * NO en `identityFiltered` a secas, y la diferencia no es teórica: con la lista truncada
+   * `zeroStatement` devuelve `null` (manda `LISTA INCOMPLETA`, §28.5b fila 3), así que el bloque ①
+   * **no ofrece palanca** aunque haya filtro puesto. Suprimir ahí el vacío dejaría la vista sin
+   * ninguna salida — que es el otro caso que §28.14 caso 20 marca en rojo.
+   */
+  const clearFiltersLiveInZeroLine = showZeroLine && zero === 'filtered';
+
   /** La palanca de §28.5/§28.8: **un** sitio, dos consumidores (el vacío por filtro y `VISTA FILTRADA`). */
   function clearFilters() {
     setStates([]);
@@ -421,7 +441,9 @@ export function BountiesView() {
         </div>
       )}
 
-      {!query.isLoading && !query.isError && rows.length === 0 && (
+      {/* §28.5b: con `VISTA FILTRADA` arriba, este bloque NO se pinta (ni título, ni icono, ni
+          palanca). El recorte se nombra una vez y la salida se ofrece una vez, arriba. */}
+      {!query.isLoading && !query.isError && rows.length === 0 && !clearFiltersLiveInZeroLine && (
         <EmptyState
           title={filtersActive ? t('empty.filteredTitle') : t('empty.title')}
           body={filtersActive ? undefined : t('empty.body')}
