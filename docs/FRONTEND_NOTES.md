@@ -4,6 +4,150 @@
 > Fecha: 2026-08-13. Branch: `claude/tcg-cards-marketplace-oijthj`.
 > El contrato (`docs/API_CONTRACT.md`) y el sistema de diseño (`docs/DESIGN_SYSTEM.md`) mandan.
 
+## §55 · Bounties, ronda de QA: la pantalla del dinero **desbordaba 334 px en un teléfono**, y el candado ⭐ de «nada masivo» era de rótulo (2026-09-08, rama `claude/tcg-hunt-orchestration-ai2vma`)
+
+> Segunda ronda sobre la misma pantalla, sobre `ddddd04`. QA **rechazó** el candidato. Lo que sigue es
+> el pase de corrección: un bloqueante, tres importantes y cuatro menores. El buscador que prometía
+> sets ya estaba cerrado en §54 y **no se cuenta dos veces**.
+
+### 1. 🔴 BL-1 · §28.9 no estaba implementado, y lo que se caía de la pantalla eran las dos cifras de dinero
+
+**La medición de QA (Chromium real, 390×844):** `docScrollW 724` contra `docClientW 390` ⇒ **334 px
+fuera de pantalla**, `tableBoundingW 704`, celdas de `[93.9, 85.6, 105.4, 113.8, 122.2, 80.2, 101.9]`.
+Lo que quedaba fuera del borde eran **`PAGAMOS` y `TARIFA VIGENTE`**.
+
+**Discrepancia entre gates, y cómo se resolvió:** el techlead lo aceptó como deuda (**BNT-D9**), QA lo
+devolvió como bloqueante; el coordinador falló a favor de QA con la regla del proyecto —*«§28.9 está
+escrita y sin cumplir: o se implementa o ux-ui la retira, nunca la omisión tácita»*—. Comparto el
+fallo, y por una razón que se puede medir: **una deuda de layout deja de ser cosmética cuando lo que
+recorta es la columna del dinero** en la pantalla que existe para que el dinero no se esconda.
+
+**Antes de escribir una línea comprobé la condición dura que me pusieron** (*«si §28.9 pide un
+rediseño, para y dilo»*): **no lo pide.** El wireframe de §28.9 es la misma información en el mismo
+orden, apilada, con los rótulos de columna dentro de la tarjeta y el encabezado de grupo de título de
+sección. Es un colapso acotado, no un rediseño.
+
+**⛔ Y NO se usó el patrón de `DataTable` (`hidden md:table` + un bloque `md:hidden`), a propósito.**
+Ese patrón pinta **cada valor dos veces**:
+- **dos sitios donde el mismo importe puede divergir** — exactamente la clase de defecto que §54 vino
+  a cerrar en el mock, replicada ahora dentro de una fila de dinero;
+- **cada nombre accesible duplicado** (dos `Editar el bounty de Charizard` en el árbol) y **dos
+  destinos para el foco de §28.10**, con un mapa de refs que se pisa a sí mismo: en jsdom gana el
+  último registrado y en el navegador el visible, o sea que **las pruebas y la realidad enfocarían
+  botones distintos**;
+- y, de rebote, ~82 pruebas a reescribir porque toda consulta por rol/texto pasaría a ser ambigua.
+
+**Lo que se hizo:** la tabla es **una sola**, y bajo `md` cambia de `display`. Cada fila pasa a rejilla
+de dos columnas (carta | estado) y las cuatro cifras se apilan a lo ancho con su rótulo —`CellLabel`,
+visible solo en móvil y `aria-hidden`, porque no es información nueva—. El hueco de `PAGAMOS` en una
+fila `SIN PRECIO` **se pinta igual** (§28.9 lo exige: esconder la línea convertiría «le falta el
+precio» en «no aplica»).
+
+**⚠️ El detalle que no se puede olvidar al hacer esto:** al dejar de ser `display:table`, el navegador
+**deja de exponer la semántica implícita** de tabla/fila/celda —Safari + VoiceOver de forma notoria—.
+Un colapso ingenuo se lleva por delante la `<table>` real que exige §28.10. Por eso van `role="table"`,
+`"rowgroup"`, `"row"`, `"rowheader"` y `"cell"` **explícitos**: coinciden con los implícitos, en
+escritorio no cambian nada, y en móvil son lo único que sostiene el eje.
+
+### 2. 🟠 IMP-3 · el candado ⭐ de B-13(b) miraba el TEXTO; ahora mide la CONDUCTA
+
+QA metió a la pantalla un botón de cabecera con rótulo **neutro** («Pausar el grupo») que dispara un
+`PUT` por cada fila `rebasada`: **77/77 verdes, la mutación sobrevivió.** Tenía razón y el diagnóstico
+es exacto: mis tres candados miraban casillas, dígitos en el rótulo y un regex de palabras — **los
+tres son de texto**, y §M2-B.2 nombra justo la forma que se cuela sin mala fe: *«el alcance lo define
+el gesto del humano, no el transporte»*.
+
+El candado nuevo pulsa **cada control de la pantalla, uno por render limpio**, y exige **como mucho un
+`putVariantControls` por gesto**. Lleva además una **guarda contra el verde vacuo**: `Apagar` **tiene**
+que aparecer como exactamente una escritura; si ningún control escribiera, el «como mucho uno» se
+cumpliría sin medir nada. Con el botón de QA reinstalado: **rojo, `expected 3 to be less than or equal
+to 1`**, y **es el único de los 51 que se pone rojo** — la prueba de que los otros tres no lo tocaban.
+
+### 3. 🟠 IMP-1 · el aviso de lista incompleta mandaba hacer algo imposible
+
+`list.truncated` decía *«Filtra por **set, acabado** o estado para verlos todos»* y la pantalla **no
+tiene control de `setId` ni de `finish`**. En el **único** estado en el que la pantalla admite estar
+ocultando filas, la instrucción no se podía ejecutar. Ahora nombra solo las palancas que existen:
+*«Filtra por estado o busca una carta para verlos todos»* (ES/EN). ⛔ **No se añadieron los filtros**:
+eso es §28.2b y lo decide ux-ui. §28.12 se queda con el texto viejo ⇒ **BNT-D10**.
+
+### 4. 🟠 IMP-4 · la primera cobertura de navegador de esta pantalla
+
+`frontend/e2e/admin-bounties.spec.ts`, **4 casos**: §28.9 (con la medición real de desbordamiento, no
+un `toBeVisible` que pasa igual con scroll), caso 15 (rol), caso 17 (teclado puro) y la mitad medible
+del caso 5 (los cinco chips).
+
+**⚠️ Dos hallazgos del propio arnés, que valen para quien escriba el siguiente:**
+- **`getByText('ATENCIÓN')` casa con la opción «Atención primero»** del selector de orden (`getByText`
+  es *substring* e insensible a mayúsculas). El encabezado de grupo se localiza por su **semántica**,
+  `th[scope="rowgroup"]`.
+- **`loginAs` reescribe `tcg.role` en CADA navegación** (su `addInitScript`), así que
+  «cambiar de rol → navegar» **vuelve a `super_admin`** y el test de rol habría pasado por el motivo
+  equivocado. El cambio de rol se hace **sobre la propia pantalla**, sin navegar — y de paso mide algo
+  más fuerte: la pantalla **se retira en vivo**.
+
+**Lo que este archivo NO puede medir, dicho en él y en `TECH_DEBT` (BNT-D11):** la otra mitad del caso
+5 (`truncated: true`). En modo mock **no hay petición HTTP que interceptar** y el techo es de 1000
+filas contra 6 de semilla. **No fabriqué una puerta trasera** para verlo desde el navegador: sería una
+rama en el bundle que solo existe para poner un test en verde. Ese caso vive en jsdom (respuesta
+inyectada) y en el gate real de QA.
+
+### 5. Los menores
+
+- **MEN-4** · un `state` desconocido ofrecía `Apagar`. §28.3 le deja **`Editar` y el binder, nada
+  más**. *No sabemos qué significa ese estado, así que no sabemos qué hace apagarlo* — y `Apagar` manda
+  un `PUT` que mueve dinero. El fallback neutro que ya regía el rótulo y el premium rige ahora también
+  la acción.
+- **MEN-5** · `counts.atLeast` existe y se usa: el `≥` sale del **catálogo**, no de una plantilla en
+  código, y por tanto **entra en el barrido de homoglifos** de §28.10 (`⩾` U+2A7E se ve igual que `≥`
+  U+2265). El `{label}` va vacío **a propósito**: lo aporta la cadena que envuelve al número
+  (`counts.{state}`, `group.*`), que es la que compone el `REBASADOS ≥ 3` de §28.12.
+- **MEN-9** · `AdminSidebar`: fuera la bandera `exact`, y la regla se deduce del propio menú — **gana
+  la entrada más específica**. ⚠️ **Y de paso cayó un defecto VIVO que nadie había reportado:**
+  `'/admin/m10'.startsWith('/admin/m1')` es `true`, así que estando en **M10 se iluminaban M1 y M10 a
+  la vez**. *Dos entradas activas no dicen dónde estás* — justo lo que `exact` intentaba evitar en otro
+  sitio. Diez pruebas nuevas (la función y el DOM: `aria-current` **una vez y solo una**).
+- **El quinto camino de §28.6b** (mi observación 4, que el coordinador confirmó): apagar una fila
+  mientras **otra** estaba abierta y sucia cerraba el editor ajeno **sin preguntar**. Salió gratis
+  dentro de `transitionTo`: se cierra **solo lo que se guardó**. *El borrador de otra fila no es
+  nuestro para tirarlo.*
+
+### 6. Verificación por mutación (romper ⇒ exigir rojo; todas restauradas)
+
+| # | Mutación | Resultado |
+|---|---|---|
+| 1 | **quitar las 23 clases `max-md:`** de la vista (el estado que QA midió) | **1 rojo en Chromium** — `la pantalla desborda 334px a 390`, `scrollWidth 724`. ⭐ **Reproduce al píxel la medición de QA**, que es la prueba de que el candado mide *ese* defecto y no otro |
+| 2 | quitar solo el `display` de tabla y la rejilla de la fila (colapso a medias) | **1 rojo** — 25 px. Se anota porque enseña que el candado **también caza el arreglo incompleto**, no solo su ausencia |
+| 3 | reinstalar el botón «Pausar el grupo» de QA (rótulo neutro, N escrituras) | **1 rojo de 51** — `el control «Pausar el grupo» escribió sobre varias filas: expected 3 to be less than or equal to 1`. Los tres candados de rótulo **siguen verdes**: era exactamente el hueco |
+| 4 | devolver `Apagar` a la fila de `state` desconocido | **1 rojo** — MEN-4 |
+| 5 | volver a cerrar el editor ajeno tras un `Apagar` | **1 rojo** — el quinto camino |
+| 6 | devolver la regla vieja del menú (`startsWith` sin barra) | **4 rojos** — dos de la función y dos del DOM, incluido `['/admin/m1','/admin/m10']` donde debía haber uno |
+
+### 7. Números
+
+`npm test` **1343/1343** (121 archivos, **+13**) · `npx playwright test e2e/admin-bounties.spec.ts`
+**4/4 en Chromium** contra el build de producción con fixtures · `tsc --noEmit` limpio · `next lint`
+sin avisos · catálogos ES/EN simétricos.
+
+⚠️ **No corrí la suite E2E completa** (es el gate de QA y aquí no hay stack): solo el archivo nuevo.
+El cambio de `AdminSidebar` es transversal al back-office, así que lo verifiqué por otra vía —ningún
+spec de `e2e/` ni de `src/` aserta el estado activo del menú (medido con `grep`), y las diez pruebas
+nuevas cubren la regla entera—.
+
+### 8. Ficheros
+
+- `frontend/src/app/[locale]/(admin)/admin/m2/bounties/BountiesView.tsx` — colapso §28.9 + roles ARIA,
+  `CellLabel`, `counts.atLeast`, MEN-4, el quinto camino.
+- `frontend/src/app/[locale]/(admin)/admin/m2/bounties/BountyRowEditor.tsx` — la celda del editor a lo
+  ancho de la tarjeta.
+- `frontend/src/app/[locale]/(admin)/admin/m2/bounties/BountiesView.test.tsx` — +3 (conducta de
+  B-13(b), MEN-4, quinto camino).
+- `frontend/src/components/layout/AdminSidebar.tsx` + `AdminSidebar.test.tsx` (**nuevo**, 10) — MEN-9.
+- `frontend/e2e/admin-bounties.spec.ts` — **nuevo**, 4 casos de navegador.
+- `frontend/messages/{es,en}.json` — `list.truncated`, `counts.atLeast`.
+- `docs/TECH_DEBT.md` — **BNT-D9 cerrada** (tombstone con la discrepancia de gates), **BNT-D10**
+  ampliada, **BNT-D11** nueva.
+
 ## §54 · Bounties, ronda del techlead: el rótulo prometía un filtro que el servidor no tiene, y el mock lo tapaba (2026-09-08, rama `claude/tcg-hunt-orchestration-ai2vma`)
 
 > Continuación directa de **§47** (la consola de bounties). El techlead la **aprobó con deuda

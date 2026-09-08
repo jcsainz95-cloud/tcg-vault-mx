@@ -128,9 +128,18 @@ export function BountiesView() {
   const truncated = data?.truncated ?? false;
   const money = (cents: number) => formatMoneyCents(cents, locale);
 
-  /** Con `truncated` los conteos son MÍNIMOS: el `≥` es lo único verdadero (§28.2b). */
+  /**
+   * Con `truncated` los conteos son MÍNIMOS: el `≥` es lo único verdadero (§28.2b).
+   *
+   * ⚠️ **El `≥` sale del CATÁLOGO** (`counts.atLeast`, §28.12), no se teclea aquí. §28.10 mete esta
+   * pantalla en el **barrido de homoglifos** y un carácter compuesto en código **no entra en ese
+   * barrido**: `⩾` (U+2A7E) se ve igual que `≥` (U+2265) y cruzaría el candado sin despeinarse. El
+   * `{label}` de la clave va vacío a propósito — **lo aporta la cadena que envuelve al número**
+   * (`counts.{state}` en los chips, `group.*` en los encabezados), que es lo que compone el
+   * `REBASADOS ≥ 3` que §28.12 escribe de una pieza.
+   */
   function countText(n: number): string {
-    return truncated ? `≥ ${n}` : String(n);
+    return truncated ? t('counts.atLeast', { label: '', count: n }).trim() : String(n);
   }
 
   function toggleState(s: BountyState) {
@@ -245,7 +254,13 @@ export function BountiesView() {
       }
       // Guardado con éxito: no hay nada que descartar, así que **no se pregunta** (`force`), y el
       // foco vuelve al botón de ESA fila aunque el guardado saliera de una fila en reposo (`Apagar`).
-      transitionTo(null, { force: true, focusKey: key });
+      //
+      // ⚠️ **Salvo que la fila guardada NO sea la abierta.** `Apagar` se pulsa desde una fila en
+      // reposo, y puede haber OTRA fila en edición con cambios sin guardar: cerrarla aquí sería un
+      // **quinto camino de descarte** —uno que §28.6b no nombra y que además no pregunta—. *El
+      // borrador de otra fila no es nuestro para tirarlo.* Se cierra solo lo que se guardó.
+      if (editing === null || editing.key === key) transitionTo(null, { force: true, focusKey: key });
+      else focusEditButton(key);
     },
     onError: (error, vars) => {
       // El error se queda EN LA FILA, abierta y anclada; el resto de la tabla no se toca (§28.8). Y
@@ -403,10 +418,23 @@ export function BountiesView() {
       )}
 
       {!query.isLoading && !query.isError && rows.length > 0 && (
-        <table className="w-full border-collapse text-sm">
+        // ── §28.9 · MÓVIL (390px): la MISMA tabla se desploma en tarjetas por CSS ──────────────
+        // ⛔ **No hay dos árboles de DOM.** El patrón de `DataTable` (`hidden md:table` + un bloque
+        // `md:hidden`) pinta cada valor **dos veces**, y en una pantalla de dinero eso es dos sitios
+        // donde el importe puede divergir —justo la clase de defecto que este pase vino a cerrar—
+        // además de duplicar cada nombre accesible y cada botón (dos `Editar` por fila, dos destinos
+        // para el foco de §28.10). Aquí la tabla es **una**: bajo `md` el `display` pasa a bloque y
+        // cada fila se convierte en una rejilla de dos columnas.
+        // ⚠️ **Y por eso los roles van explícitos:** al dejar de ser `display:table`, el navegador
+        // **deja de exponer la semántica implícita** de tabla/fila/celda (Safari+VoiceOver de forma
+        // notoria). Sin `role="table"|"rowgroup"|"row"|"cell"` el colapso de §28.9 se llevaría por
+        // delante la `<table>` real que exige §28.10. Los roles coinciden con los implícitos, así
+        // que en escritorio no cambian nada.
+        <table role="table" className="w-full border-collapse text-sm max-md:block">
           <caption className="sr-only">{t('table.caption')}</caption>
-          <thead>
-            <tr className="border-b border-border-strong text-left font-mono text-[10px] uppercase tracking-[0.06em] text-muted">
+          {/* La cabecera desaparece en móvil: su trabajo lo hace el rótulo dentro de cada celda. */}
+          <thead role="rowgroup" className="max-md:hidden">
+            <tr role="row" className="border-b border-border-strong text-left font-mono text-[10px] uppercase tracking-[0.06em] text-muted">
               <th scope="col" className="py-2 pr-3">{t('col.card')}</th>
               <th scope="col" className="py-2 pr-3">{t('col.state')}</th>
               <th scope="col" className="py-2 pr-3 text-right">{t('col.pay')}</th>
@@ -422,7 +450,7 @@ export function BountiesView() {
             const key = bountyRowKey(row);
             const isEditing = editing?.key === key;
             return (
-              <tbody key={key}>
+              <tbody role="rowgroup" key={key} className="max-md:block">
                 {startsBlock && (
                   <BlockHeader block={startsBlock} counts={counts} countText={countText} />
                 )}
@@ -444,7 +472,7 @@ export function BountiesView() {
                   }
                 />
                 {isEditing && (
-                  <tr>
+                  <tr role="row" className="max-md:block">
                     <BountyRowEditor
                       row={row}
                       turnOnIntent={editing.turnOnIntent}
@@ -531,11 +559,15 @@ function BlockHeader({
   const t = useTranslations('admin.m2.bounties');
   const attention = block === 'attention';
   return (
-    <tr className={cn(attention && 'border-l-2 border-accent')}>
+    // §28.9: en móvil el encabezado de grupo es el **título de sección** de las tarjetas que siguen.
+    // *«El eje sobrevive al colapso, que es lo único innegociable»* — por eso el bloque no se pliega
+    // ni se esconde cuando la tabla deja de ser tabla.
+    <tr role="row" className={cn('max-md:block', attention && 'border-l-2 border-accent')}>
       <th
+        role="rowheader"
         scope="rowgroup"
         colSpan={7}
-        className={cn('py-3 text-left', attention ? 'pl-3' : '')}
+        className={cn('py-3 text-left max-md:block', attention ? 'pl-3' : '')}
       >
         <span className="font-mono text-[11px] uppercase tracking-[0.06em] text-text">
           {attention
@@ -552,6 +584,34 @@ function BlockHeader({
         )}
       </th>
     </tr>
+  );
+}
+
+/**
+ * Las cuatro celdas de CIFRAS (§28.9): a la derecha en la tabla, y bajo `md` una línea a lo ancho de
+ * la tarjeta con el rótulo a la izquierda y el valor a la derecha.
+ */
+const CELL_STACKED =
+  'py-3 pr-3 text-right font-mono tabular-nums ' +
+  'max-md:col-span-2 max-md:flex max-md:items-baseline max-md:justify-between max-md:gap-3 max-md:py-1 max-md:pr-0';
+
+/**
+ * El rótulo de la columna, repetido DENTRO de la celda y visible **solo en móvil** (§28.9): cuando la
+ * tabla se desploma, `PAGAMOS` y `TARIFA VIGENTE` se quedan sin cabecera que las nombre, y en esta
+ * pantalla confundir esas dos cifras es confundir *lo que pagamos* con *lo que paga la tarifa*.
+ *
+ * `aria-hidden` porque **no es información nueva**: los roles explícitos conservan la semántica de
+ * tabla también en móvil, así que el lector ya recibe el encabezado de columna. Sin esto, cada celda
+ * se anunciaría dos veces.
+ */
+function CellLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <span
+      aria-hidden
+      className="hidden font-mono text-[10px] uppercase tracking-[0.06em] text-muted max-md:inline"
+    >
+      {children}
+    </span>
   );
 }
 
@@ -602,13 +662,18 @@ function BountyTableRow({
 
   return (
     <tr
+      role="row"
       className={cn(
         'border-b border-border align-top',
+        'max-md:grid max-md:grid-cols-[minmax(0,1fr)_auto] max-md:gap-x-3 max-md:py-2',
+        // §28.9 · la fila se vuelve una TARJETA: rejilla de dos columnas (carta | estado) y el resto
+        // de los campos a lo ancho, cada uno con su rótulo. Prioridad de §28.9 respetada: no cae
+        // ninguno —ni la tarifa ni el avance—, se apilan.
         attention && 'border-l-2 border-l-accent',
         row.state === 'apagada' && 'text-muted',
       )}
     >
-      <td className={cn('py-3 pr-3', attention && 'pl-3')}>
+      <td role="cell" className={cn('py-3 pr-3 max-md:py-1 max-md:pr-0', attention && 'pl-3')}>
         {/* ⛔ Los nombres de carta y de set NO se traducen; van marcados `lang="en"`. */}
         <Link href="/admin/m1" lang="en" className="font-serif text-base text-text underline-offset-4 hover:underline">
           {row.name}
@@ -620,7 +685,7 @@ function BountyTableRow({
         <FinishMark finish={row.finish} band={false} className="mt-1" />
       </td>
 
-      <td className="py-3 pr-3">
+      <td role="cell" className="py-3 pr-3 max-md:justify-self-end max-md:py-1 max-md:pr-0 max-md:text-right">
         <span
           aria-label={stateAria}
           className={cn(
@@ -634,10 +699,13 @@ function BountyTableRow({
       </td>
 
       {/* PAGAMOS — el hueco ES la señal en una fila `invalida`, y para el lector de pantalla hay que
-          decirlo con palabras: un guion no se lee (§28.10). */}
-      <td className="py-3 pr-3 text-right font-mono tabular-nums">
+          decirlo con palabras: un guion no se lee (§28.10). ⚠️ §28.9: en móvil el hueco se pinta
+          IGUAL, con su rótulo y su `—`; ⛔ jamás se omite la línea entera —esconderla convertiría
+          «le falta el precio» en «no aplica». */}
+      <td role="cell" className={CELL_STACKED}>
+        <CellLabel>{t('col.pay')}</CellLabel>
         {priceCents != null ? (
-          money(priceCents)
+          <span>{money(priceCents)}</span>
         ) : (
           <span {...(row.state === 'invalida' ? { 'aria-label': t('row.noPriceAria') } : {})}>
             {t('row.noPrice')}
@@ -647,16 +715,24 @@ function BountyTableRow({
 
       {/* TARIFA VIGENTE — `—` significa una cosa y solo una: **la curva no resuelve**. Nunca «está
           apagado»: una fila apagada trae su tarifa igual que una viva. */}
-      <td className="py-3 pr-3 text-right font-mono tabular-nums">
-        {curveQuoteCents != null ? money(curveQuoteCents) : <span aria-label={t('premium.noRateAria')}>—</span>}
+      <td role="cell" className={CELL_STACKED}>
+        <CellLabel>{t('col.rate')}</CellLabel>
+        {curveQuoteCents != null ? (
+          <span>{money(curveQuoteCents)}</span>
+        ) : (
+          <span aria-label={t('premium.noRateAria')}>—</span>
+        )}
       </td>
 
-      <td className={cn('py-3 pr-3 text-right font-mono tabular-nums', premium.kind === 'below' && 'text-accent')}>
+      <td role="cell" className={cn(CELL_STACKED, premium.kind === 'below' && 'text-accent')}>
+        <CellLabel>{t('col.premium')}</CellLabel>
         {premium.kind === 'above' || premium.kind === 'below' ? (
-          t(premium.kind === 'above' ? 'premium.above' : 'premium.below', {
-            amount: money(premium.amountCents),
-            pct: premium.pct.toFixed(1),
-          })
+          <span>
+            {t(premium.kind === 'above' ? 'premium.above' : 'premium.below', {
+              amount: money(premium.amountCents),
+              pct: premium.pct.toFixed(1),
+            })}
+          </span>
         ) : premium.kind === 'noRate' ? (
           <span className="text-accent" aria-label={t('premium.noRateAria')}>
             {t('premium.noRate')}
@@ -675,23 +751,24 @@ function BountyTableRow({
       </td>
 
       {/* AVANCE — ⛔ nada de aritmética con `null`: sin objetivo se pinta la palabra y su remedio. */}
-      <td className="py-3 pr-3 text-right font-mono tabular-nums">
+      <td role="cell" className={CELL_STACKED}>
+        <CellLabel>{t('col.progress')}</CellLabel>
         {targetQty == null ? (
           <span className="text-accent" aria-label={t('progress.noTargetAria')}>
             {t('progress.noTarget')}
           </span>
         ) : (
-          <>
+          <span className="max-md:text-right">
             {t('progress.value', { acquired: acquiredQty, target: targetQty })}
             <span className="block text-xs font-normal text-muted">
               {remainingQty === 0 ? t('progress.done') : t('progress.remaining', { n: remainingQty ?? 0 })}
             </span>
-          </>
+          </span>
         )}
       </td>
 
-      <td className="py-3 text-right">
-        <div className="flex flex-wrap justify-end gap-2">
+      <td role="cell" className="py-3 text-right max-md:col-span-2 max-md:py-2">
+        <div className="flex flex-wrap justify-end gap-2 max-md:justify-between">
           <Button
             ref={registerButton}
             size="sm"
@@ -710,7 +787,12 @@ function BountyTableRow({
             {row.state === 'invalida' ? t('row.setPrice') : t('row.edit')}
           </Button>
 
-          {row.state === 'apagada' || row.state === 'completada' ? (
+          {/* ⛔⛔ Un `state` DESCONOCIDO se queda en `Editar` + el enlace al binder, y **nada más**
+              (§28.3): no se le ofrece ni `Apagar` ni `Encender`. *No sabemos qué significa ese
+              estado, así que no sabemos qué hace apagarlo* — y el botón de apagar manda un `PUT` que
+              mueve dinero. Es el mismo fallback neutro que ya rige su rótulo y su premium: cuando
+              falta el dato, **no se afirma de más y tampoco se actúa de más**. */}
+          {!known ? null : row.state === 'apagada' || row.state === 'completada' ? (
             // ⛔ `Encender` NO se hace de un clic: abre la fila en edición con el interruptor puesto
             // y el aviso de revisar el precio. Encender a ciegas un precio de hace tres meses es
             // exactamente cómo nace un rebasado (§28.6c).

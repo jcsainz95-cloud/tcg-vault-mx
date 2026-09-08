@@ -9,12 +9,6 @@ interface Item {
   href: string;
   key: string;
   superAdminOnly?: boolean;
-  /**
-   * El activo se marca por PREFIJO (para que `/admin/m1/...` ilumine M1). Un módulo que tiene
-   * sub-rutas propias en el menú se marca `exact` para no quedar iluminado a la vez que su hija —
-   * dos entradas activas a la vez no dicen dónde estás.
-   */
-  exact?: boolean;
 }
 
 const groups: { groupKey: string; items: Item[] }[] = [
@@ -33,7 +27,7 @@ const groups: { groupKey: string; items: Item[] }[] = [
   {
     groupKey: 'pricing',
     items: [
-      { href: '/admin/m2', key: 'm2', superAdminOnly: true, exact: true },
+      { href: '/admin/m2', key: 'm2', superAdminOnly: true },
       // v1.62 (D52 · criterio 184): M2 › Bounties. Entra por la navegación de M2 (§28.1) porque un
       // bounty es una decisión de PRECIO DE COMPRA y su verdad se mide contra la curva, que vive
       // aquí. `super_admin` y solo `super_admin`.
@@ -57,6 +51,35 @@ const groups: { groupKey: string; items: Item[] }[] = [
   },
 ];
 
+const ALL_HREFS = groups.flatMap((g) => g.items.map((i) => i.href));
+
+/**
+ * ### Qué entrada se ilumina — **gana la MÁS ESPECÍFICA**, y por eso ya no hace falta `exact`
+ *
+ * Antes: prefijo simple + una bandera `exact` puesta a mano en el padre que tuviera una hija en el
+ * menú. Dos defectos, y el segundo estaba vivo:
+ *
+ * 1. **`exact` es una lista que hay que acordarse de mantener.** `/admin/m2` la llevaba por su hija
+ *    `/admin/m2/bounties` — lo que significa que **cualquier sub-ruta futura de M2** (`/admin/m2/loquesea`)
+ *    dejaría de iluminar M2 **en silencio**: el menú diría que no estás en ninguna parte.
+ * 2. ⚠️ **`startsWith` sin la barra confunde hermanos**: `'/admin/m10'.startsWith('/admin/m1')` es
+ *    `true`, así que estando en **M10** se iluminaban **M1 y M10 a la vez**. *Dos entradas activas no
+ *    dicen dónde estás* — que es justo lo que `exact` intentaba evitar en otro sitio.
+ *
+ * Ahora la regla es una sola y se deduce del propio menú: una entrada se ilumina si la ruta es la
+ * suya o cuelga de ella (**con barra**), **salvo que otra entrada del menú sea un prefijo más largo**
+ * de esa misma ruta. `/admin` es el único caso exacto por definición: es la raíz de todas.
+ */
+export function isActiveHref(pathname: string, href: string): boolean {
+  if (pathname === href) return true;
+  if (href === '/admin') return false;
+  if (!pathname.startsWith(`${href}/`)) return false;
+  return !ALL_HREFS.some(
+    (other) =>
+      other.length > href.length && (pathname === other || pathname.startsWith(`${other}/`)),
+  );
+}
+
 /**
  * 6i — Mismos grupos y módulos M1–M10, sobre tinta.
  * Dirección 5a: fuera los iconos lucide (el código del módulo ya identifica cada
@@ -78,9 +101,7 @@ export function AdminSidebar({ onNavigate }: { onNavigate?: () => void }) {
           </p>
           <ul className="mt-3.5 flex flex-col">
             {g.items.map((item) => {
-              const active =
-                pathname === item.href ||
-                (!item.exact && item.href !== '/admin' && pathname.startsWith(item.href));
+              const active = isActiveHref(pathname, item.href);
               const locked = item.superAdminOnly && !isSuperAdmin;
               return (
                 <li key={item.href}>

@@ -5625,19 +5625,22 @@
   y `finish`). Es **deuda de enrutado del propio frontend**: hay que añadir parámetros a M1.
 - **Disparador:** el próximo pase que toque el enrutado de M1 (`/admin/m1`).
 
-#### BNT-D9 · La tabla no colapsa a *cards* en móvil (§28.9) (Baja, frontend)
-- **Dueño:** frontend. **Severidad:** Baja. **Estado: abierta, aceptada** (§47.7 → registro).
-- **La deuda:** §28.9 manda que a 390px la tabla colapse a **tarjetas por fila conservando los
-  encabezados de grupo** («el eje sobrevive al colapso, que es lo único innegociable»). Se pinta la
-  `<table>` con scroll horizontal, como el resto del back-office **hoy**.
-- **Impacto:** el eje **no se pierde** (el orden y los encabezados de bloque siguen ahí, en su sitio);
-  lo que cuesta es leerlo en un teléfono. Y el back-office es de escritorio en la práctica.
-- **Dirección:** ⚠️ si se hace, hay que hacerlo **para el back-office**, no solo aquí: una pantalla que
-  colapsa y seis que no es peor que siete que no colapsan. Es candidato a componente compartido.
-- **Disparador:** el primer uso real de esta pantalla desde un teléfono, o un pase de responsive del
-  back-office.
+#### BNT-D9 · La tabla no colapsa a *cards* en móvil (§28.9) — ⛔ **RETIRADA DEL REGISTRO: implementada** (2026-09-08)
+- **Estado: CERRADA, no aceptada.** Se anota el tombstone —y no se borra la línea— porque **el techlead
+  la aceptó como deuda y QA la devolvió como BLOQUEANTE**, y esa discrepancia tiene que quedar legible:
+  el coordinador la resolvió a favor de QA con la regla del proyecto (*«§28.9 está escrita y sin cumplir:
+  o se implementa o ux-ui la retira, nunca la omisión tácita»*).
+- **Lo que la volvió bloqueante fue la MEDICIÓN**, no la opinión: a 390×844 el documento medía
+  `scrollWidth 724` contra `clientWidth 390` ⇒ **334 px fuera de pantalla**, y lo que quedaba fuera eran
+  `PAGAMOS` y `TARIFA VIGENTE` — las dos cifras de dinero, en la pantalla que existe para que el dinero
+  no se esconda. *Una deuda de layout deja de ser cosmética cuando lo que recorta es la columna del
+  dinero.*
+- **Implementada** en la ronda de QA: la misma tabla se desploma por CSS (`max-md:`) con roles ARIA
+  explícitos. Ver `FRONTEND_NOTES.md` §55. Candado: `frontend/e2e/admin-bounties.spec.ts` (Chromium real,
+  `docScrollW <= docClientW`), verificado por mutación —quitar las clases devuelve **exactamente** los
+  724/334 px que midió QA—.
 
-#### BNT-D10 · El catálogo de §28.12 y el wireframe de §28.2 siguen diciendo «Buscar carta o set» (Baja, **ux-ui**)
+#### BNT-D10 · El catálogo de §28.12 se ha quedado atrás en TRES cadenas (Baja, **ux-ui**)
 - **Dueño:** **ux-ui** (la norma). **Frontend ya alineó el código** y no puede tocar
   `DESIGN_SYSTEM.md`. **Severidad:** Baja. **Estado: abierta — pendiente de ux-ui.**
 - **Lo medido:** `DESIGN_SYSTEM.md:12787` (tabla de cadenas §28.12) y `:12244` (el wireframe de §28.2)
@@ -5650,4 +5653,36 @@
 - **Candado mientras tanto:** `frontend/src/lib/mock/admin-bounties-mock.test.ts` lee el bullet de `q`
   del contrato y se pone **rojo** si el rótulo (ES o EN) vuelve a nombrar el set sin que el contrato lo
   declare — y también si el contrato lo declara y el rótulo se queda corto.
+- **⚠️ Y en la ronda de QA se sumaron dos más, del mismo tipo** (copy que el código ya no puede sostener):
+  - **`list.truncated`** decía *«Filtra por **set, acabado** o estado para verlos todos»* y la pantalla
+    **no tiene control de `setId` ni de `finish`** (solo búsqueda, orden y los cinco chips). En el único
+    estado en el que la pantalla admite estar ocultando filas, le daba al operador **una instrucción que
+    no puede ejecutar**. El catálogo dice ahora *«Filtra por estado o busca una carta»* (ES/EN). ⛔ **No
+    se añadieron los filtros**: eso es §28.2b y lo decide ux-ui. §28.12 sigue con el texto viejo.
+  - **`counts.atLeast`** (`{label} ≥ {count}`) **ya existe** en el catálogo y se usa: era la única de
+    §28.12 declarada y no cableada, y mientras el `≥` se componía en código **no entraba en el barrido de
+    homoglifos** de §28.10. Esta línea de §28.12 y el código vuelven a coincidir; se anota para que la
+    revisión de ux-ui no la marque como pendiente.
 - **Disparador:** la próxima revisión de §28 por ux-ui.
+
+#### BNT-D11 · El caso 5 (**lista cortada**) no es medible en NAVEGADOR contra fixtures (Baja, frontend + QA)
+- **Dueño:** frontend (si algún día se quiere medir en mocks) / **QA** (donde sí es real: el stack).
+  **Severidad:** Baja. **Estado: abierta, aceptada, con la razón escrita.**
+- **La deuda:** `frontend/e2e/admin-bounties.spec.ts` cubre §28.9, el rol (caso 15), el teclado puro
+  (caso 17) y **la mitad** del caso 5 (los cinco chips con su número y la ausencia de banner). La otra
+  mitad —`truncated: true` ⇒ **banner de lista incompleta y chips con `≥`**— **no es alcanzable en modo
+  mock**, y no por descuido:
+  - en modo fixtures `getAdminBounties` **no emite ninguna petición HTTP** (`api.ts` corta antes y llama
+    al servidor falso en proceso) ⇒ **no hay nada que interceptar** con `page.route`;
+  - el techo son **1000 filas** y la semilla solo puede clasificar variantes de cartas que existan en
+    `mockCards` — hoy **seis**.
+- **⛔ Lo que NO se hizo, y es la parte que importa:** fabricar una puerta trasera (un `q` mágico, un tope
+  configurable por URL, un `window.__truncate`) para que el navegador pudiera verlo. Sería meter en el
+  bundle una rama que **solo existe para poner un test en verde**. *Un candado que se abre desde fuera no
+  es un candado.*
+- **Dónde SÍ está cubierto, para que nadie lo cuente como hueco entero:** en jsdom, donde la respuesta se
+  inyecta completa (`BountiesView.test.tsx`, «⭐ B-4 (espejo de cliente)»: banner, `≥` y **ningún cero**),
+  y en el gate de QA contra el stack real, que es el único sitio donde `truncated` puede ser verdad.
+- **Disparador:** que el seed real tenga >1000 filas de bounty (entonces es un `@real` de QA), o que
+  alguien necesite el caso en demo — y entonces la vía correcta es **ampliar la semilla de `mockCards`**,
+  no una bandera de test.

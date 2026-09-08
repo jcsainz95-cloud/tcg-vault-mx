@@ -2066,6 +2066,7 @@
           "activa": "ACTIVE {count}",
           "completada": "COMPLETED {count}",
           "apagada": "OFF {count}",
+          "atLeast": "{label} ≥ {count}",
           "atLeastAria": "At least {count}; the list is incomplete.",
           "loadingAria": "Counting bounties"
         },
@@ -2087,7 +2088,7 @@
           "apagada": "OFF · {count}"
         },
         "list": {
-          "truncated": "This list is incomplete: there are more bounties than one query returns, so the counts are minimums, not totals. Filter by set, finish or status to see them all."
+          "truncated": "This list is incomplete: there are more bounties than one query returns, so the counts are minimums, not totals. Filter by status or search for a card to see them all."
         },
         "table": {
           "caption": "Bounties: status, price, current rate and progress"

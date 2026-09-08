@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { ReactNode } from 'react';
-import { screen, fireEvent, waitFor, within } from '@testing-library/react';
+import { screen, fireEvent, waitFor, within, cleanup, act } from '@testing-library/react';
 import { renderWithProviders } from '@/test/render';
 import * as api from '@/lib/api';
 import { ApiClientError } from '@/lib/api-client';
@@ -221,6 +221,29 @@ describe('⭐ el `state` llega resuelto y la pantalla lo PINTA, no lo recalcula'
     expect(within(row).queryByText(T.state.activa)).toBeNull();
     // Sin premium: no se afirma nada sobre su dinero.
     expect(within(row).getByText(T.premium.none)).toBeInTheDocument();
+  });
+
+  it('⭐ …y sus acciones se limitan a `Editar` + el binder: NI `Apagar` NI `Encender` (§28.3)', async () => {
+    // *No sabemos qué significa ese estado, así que no sabemos qué hace apagarlo* — y `Apagar` manda
+    // un `PUT` que mueve dinero. El fallback neutro que ya rige el rótulo y el premium rige también
+    // la acción: cuando falta el dato, no se afirma de más **y no se actúa de más**.
+    serve(
+      response({
+        data: [makeRow({ id: 'c1', name: 'Gengar VMAX', state: 'zombi' })],
+        counts: { activa: 0, rebasada: 0, invalida: 0, completada: 0, apagada: 0 },
+      }),
+    );
+    renderWithProviders(<BountiesView />, 'es');
+    const row = (await screen.findByText('Gengar VMAX')).closest('tr')!;
+    expect(
+      within(row).queryByRole('button', { name: T.row.turnOffAria.replace('{card}', 'Gengar VMAX') }),
+    ).toBeNull();
+    expect(within(row).queryByRole('button', { name: T.row.turnOn })).toBeNull();
+    // Las dos que §28.3 sí le deja siguen ahí.
+    expect(
+      within(row).getByRole('button', { name: T.row.editAria.replace('{card}', 'Gengar VMAX') }),
+    ).toBeInTheDocument();
+    expect(within(row).getByRole('link', { name: /Gengar VMAX/ })).toBeInTheDocument();
   });
 });
 
@@ -554,6 +577,60 @@ describe('⭐⭐ B-13(b) — la pantalla no expone ninguna acción de alcance de
     expect(put).not.toHaveBeenCalled();
   });
 
+  it('⭐⭐ B-13(b) por CONDUCTA: pulsar CUALQUIER control produce como mucho UN `PUT`', async () => {
+    /*
+     * ⚠️⚠️ **ESTE ES EL CANDADO DE B-13(b); LOS DOS DE ARRIBA SON DE RÓTULO.**
+     *
+     * QA lo demostró con una mutación que sobrevivió a los 77 tests: un botón de cabecera con
+     * rótulo **neutro** —«Pausar el grupo»: sin contador, sin casilla, sin ninguna palabra del
+     * regex— que dispara **un `PUT` por cada fila `rebasada`**. Ni las casillas, ni los dígitos en
+     * el rótulo, ni el barrido de palabras prohibidas lo tocan, porque **los tres miran el texto**.
+     *
+     * §M2-B.2 nombra exactamente esa forma: *«el alcance lo define el GESTO DEL HUMANO, no el
+     * transporte»* — N escrituras disparadas por un gesto son una acción masiva **aunque viajen de
+     * una en una**. Así que la aserción tiene que ser sobre la CONDUCTA: un gesto, una escritura.
+     *
+     * Cada control se pulsa **desde un render limpio**, para que ninguno herede el estado que dejó
+     * el anterior (un chip filtra, `Editar` abre una fila) y el barrido mida lo que dice medir.
+     */
+    const putOk = {
+      cardId: 'c1',
+      productType: 'raw' as const,
+      gradeKey: 'raw:NM' as const,
+      finish: 'holofoil' as Finish,
+      pricing: pricing({ enabled: false }),
+    };
+
+    renderThreeOutbid();
+    await screen.findByText('Charizard ex');
+    const controls = screen.getAllByRole('button').length;
+    expect(controls).toBeGreaterThan(5); // el barrido tiene que tener algo que barrer
+    cleanup();
+
+    const writes: number[] = [];
+    for (let i = 0; i < controls; i++) {
+      vi.restoreAllMocks();
+      renderThreeOutbid();
+      await screen.findByText('Charizard ex');
+      const put = vi.spyOn(api, 'putVariantControls').mockResolvedValue(putOk);
+      const button = screen.getAllByRole('button')[i];
+      const label = button.getAttribute('aria-label') || button.textContent || `#${i}`;
+      // Un tick de macrotarea dentro de `act`: `mutate` dispara `mutationFn` de forma asíncrona.
+      await act(async () => {
+        fireEvent.click(button);
+        await new Promise((r) => setTimeout(r, 0));
+      });
+      expect(put.mock.calls.length, `el control «${label}» escribió sobre varias filas`).toBeLessThanOrEqual(1);
+      writes.push(put.mock.calls.length);
+      cleanup();
+    }
+
+    // ⚠️ Guarda contra el VERDE VACUO: si ningún control llegara a escribir —porque el espía no
+    // estuviera enganchado, o porque el barrido pulsara elementos muertos—, el «como mucho uno»
+    // se cumpliría sin medir nada. `Apagar` **tiene** que aparecer como exactamente una escritura.
+    expect(Math.max(...writes), 'ningún control escribió: el barrido no está midiendo').toBe(1);
+  });
+
   it('⛔ ni «apagar todos», ni «aplicar a los filtrados», ni «+10 % a los rebasados» — ES y EN', async () => {
     renderThreeOutbid();
     await screen.findByText('Charizard ex');
@@ -684,6 +761,36 @@ describe('§28.6 — la tabla en reposo no tiene formularios, y la fricción va 
     await waitFor(() => expect(screen.getByLabelText(T.edit.price)).toHaveValue('800'));
     fireEvent.click(screen.getByRole('button', { name: es.common.cancel }));
     expect(await screen.findByText(T.edit.discardConfirm.replace('{card}', 'Charizard ex'))).toBeInTheDocument();
+  });
+
+  it('⭐ `Apagar` en una fila NO cierra el editor sucio de OTRA fila (el quinto camino)', async () => {
+    // §28.6b nombra CUATRO caminos de descarte, y todos preguntan. Apagar una fila en reposo mientras
+    // otra está abierta con cambios era un quinto camino **que no preguntaba**: cerraba el editor
+    // ajeno y tiraba lo tecleado. *El borrador de otra fila no es nuestro para tirarlo.*
+    serve(
+      response({
+        data: [
+          makeRow({ id: 'c1', name: 'Charizard ex', state: 'rebasada' }),
+          makeRow({ id: 'c2', name: 'Umbreon VMAX', state: 'rebasada' }),
+        ],
+        counts: { activa: 0, rebasada: 2, invalida: 0, completada: 0, apagada: 0 },
+      }),
+    );
+    const put = vi.spyOn(api, 'putVariantControls').mockResolvedValue({
+      cardId: 'c2',
+      productType: 'raw',
+      gradeKey: 'raw:NM',
+      finish: 'holofoil',
+      pricing: pricing({ enabled: false }),
+    });
+    renderWithProviders(<BountiesView />, 'es');
+    fireEvent.click(await screen.findByRole('button', { name: T.row.editAria.replace('{card}', 'Charizard ex') }));
+    fireEvent.change(await screen.findByLabelText(T.edit.price), { target: { value: '1200' } });
+
+    fireEvent.click(screen.getByRole('button', { name: T.row.turnOffAria.replace('{card}', 'Umbreon VMAX') }));
+    await waitFor(() => expect(put).toHaveBeenCalledTimes(1));
+    // El editor de Charizard sigue abierto y con lo tecleado.
+    expect(screen.getByLabelText(T.edit.price)).toHaveValue('1200');
   });
 
   it('⛔ `BOUNTY_BELOW_RULE` se ancla EN LA FILA, no en un toast, y no se reintenta solo', async () => {

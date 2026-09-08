@@ -2066,6 +2066,7 @@
           "activa": "ACTIVOS {count}",
           "completada": "COMPLETADOS {count}",
           "apagada": "APAGADOS {count}",
+          "atLeast": "{label} ≥ {count}",
           "atLeastAria": "Al menos {count}; la lista está incompleta.",
           "loadingAria": "Contando bounties"
         },
@@ -2087,7 +2088,7 @@
           "apagada": "APAGADOS · {count}"
         },
         "list": {
-          "truncated": "Esta lista está incompleta: hay más bounties de los que caben en una consulta, así que los conteos son mínimos, no totales. Filtra por set, acabado o estado para verlos todos."
+          "truncated": "Esta lista está incompleta: hay más bounties de los que caben en una consulta, así que los conteos son mínimos, no totales. Filtra por estado o busca una carta para verlos todos."
         },
         "table": {
           "caption": "Bounties: estado, precio, tarifa vigente y avance"

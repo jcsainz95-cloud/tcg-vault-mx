@@ -190,8 +190,13 @@ export function BountyRowEditor({
 
   return (
     <td
+      role="cell"
       colSpan={7}
-      className="border-l-2 border-accent bg-surface-2/40 px-4 py-5"
+      // §28.9 · en móvil la tabla se desploma en tarjetas (`max-md:block` en la vista): esta celda
+      // tiene que ocupar el ancho de la tarjeta, y sus tres controles ya se apilan por debajo de
+      // `sm`. El `role` explícito acompaña al de la fila: sin `display:table` la semántica implícita
+      // de celda se pierde.
+      className="border-l-2 border-accent bg-surface-2/40 px-4 py-5 max-md:block"
       // `Esc` cierra igual que `Cancelar` — y con cambios sucios pregunta antes de descartar,
       // porque quien decide eso es la vista (§28.6b). El diálogo de confirmación de subida se
       // cierra solo, sin propagar: `Esc` dentro de la ventana no debe además tirar el formulario.
