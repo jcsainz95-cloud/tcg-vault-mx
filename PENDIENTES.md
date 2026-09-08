@@ -389,6 +389,42 @@ Encontrado por el humano probando en producción. Las tres se sirven juntas o ni
   es `tcghunt.mx`** (medido en los logs y en Resend). Misma clase que los ocho tachones de D52: un
   documento afirmando un estado que la realidad dejó atrás. **Rol dueño:** devops.
 
+#### P-65 · 🖼️ Las fotos tardan 5–10 s en aparecer — reportado por el humano
+- **Medido en el código (no supuesto): no es una causa, son cuatro eslabones EN SERIE.**
+  1. **La home y el catálogo son pantallas de cliente** (`'use client'` + TanStack Query en
+     `frontend/src/app/[locale]/(storefront)/page.tsx`). Antes de que exista siquiera la *dirección*
+     de la primera foto hay que: bajar el HTML → bajar y arrancar el JavaScript → preguntar al
+     backend → recibir respuesta. **La foto empieza a bajarse en el cuarto viaje, no en el primero.**
+  2. **La teja líder del carrusel pide la imagen HD** (`FeaturedCarousel.tsx:708`,
+     `imageLargeUrl` → `_hires.png` de pokemontcg.io: cientos de KB, frente a las ~40–60 KB de la
+     chica). Es justo la imagen que decide cuándo el visitante siente que «ya cargó la página».
+  3. **Las fotos no pasan por nosotros.** Todas se piden directo a `images.pokemontcg.io` con `<img>`
+     plano (`components/ui/CardImage.tsx`): ni las redimensionamos, ni las convertimos a formato
+     moderno, ni las guardamos en caché propia. Cada visitante paga el viaje al servidor del
+     proveedor, con su latencia y el peso original. El **único** sitio del front que usa el
+     optimizador de Next es el logo de expansión (`SetPlate.tsx`).
+  4. Las demás van en `lazy` y eso **está bien** — no es ahí donde se van los segundos.
+- **Lo que NO pude medir desde aquí, y decide cuál es la cura:** este contenedor tiene bloqueada la
+  salida a internet (`tcghunt.mx` e `images.pokemontcg.io` devuelven 403 en el proxy), así que **no
+  sé cuál de los cuatro eslabones se lleva los segundos**. La distinción no es un detalle: si el que
+  tarda es el backend (Railway despertando, o la consulta de catálogo), optimizar imágenes **no
+  arregla nada**.
+  - **Dato que el humano da en un minuto:** F12 → pestaña **Red** → recargar → decir (a) cuánto tarda
+    la llamada al backend y (b) cuánto tarda la primera foto. Con eso se sabe qué atacar.
+- **Palancas, de más barata a más cara** (todas reales, ninguna aplicada):
+  - **(a)** usar la imagen chica también en la teja líder — una línea, ahorra cientos de KB en la
+    imagen que marca el tiempo percibido;
+  - **(b)** servir las fotos por el optimizador de Next/Vercel (redimensiona + WebP + caché en el
+    borde) — cambio acotado en `CardImage`. ⚠️ consume cuota de Vercel, **que ya está al 75%**;
+  - **(c)** pintar la primera pantalla en el servidor, para que la foto empiece a bajar en el primer
+    viaje y no en el cuarto — cambio grande: es rediseñar cómo carga la home;
+  - **(d)** copiar las fotos a almacenamiento propio (R2) y servirlas desde ahí — quita la
+    dependencia del tercero; es un proyecto aparte.
+- **Cruce:** (b) y (d) tocan `remotePatterns` de `frontend/next.config.mjs`, hoy abierto a
+  `hostname: '**'` (cualquier host) — mismo terreno que la deuda **M47-R1**.
+- **Rol dueño:** frontend para (a) y (b); arquitecto si se va a (c) o (d).
+  **Antes de tocar nada: la medición del navegador.**
+
 #### P-55 · 🛒 El carrito de venta NO sobrevive al inicio de sesión — reportado por el humano
 - **Síntoma:** el cliente arma su carrito en el cotizador **sin haber iniciado sesión**; al entrar a su
   cuenta para mandar la solicitud, **el carrito se pierde** y tiene que rehacerlo.
