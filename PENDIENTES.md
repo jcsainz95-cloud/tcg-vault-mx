@@ -561,9 +561,18 @@ Encontrado por el humano probando en producción. Las tres se sirven juntas o ni
   acabado con 0 piezas (Reverse Holo). Solo display (el dato es correcto, el otro acabado está en 0). Fix
   frontend en curso: cada teja muestra el conteo de SU acabado. Money-safe.
 
-### Pendiente del humano · Razón social para el footer
-- El footer de producción aún dice **«[RAZÓN SOCIAL PENDIENTE]»**. Falta que el humano dé la razón
-  social para `footer.legalEntity` (check del rebrand P-21). Solo dato del humano; el cableado ya está.
+### Pendiente del humano · Razón social para el footer — ⚠️ LA NOTA ANTERIOR ERA FALSA (corregida 2026-09-08)
+- **Lo que decía esta nota:** «el footer de producción aún dice [RAZÓN SOCIAL PENDIENTE]». **Medido: es
+  falso.** El footer **ya omite la línea** y nunca ha enseñado el placeholder.
+- **Por qué:** `resolveLegalEntity` (`frontend/src/app/[locale]/(storefront)/footer.ts`) devuelve `null`
+  ante vacío, espacios o cualquier valor **entre corchetes** — y el valor real es `[Razón social
+  pendiente]` / `[Legal entity pending]`. Hay tres tests que lo fijan
+  (`footerLegalEntity.test.ts`). El footer publica «TCG HUNT · tcghunt.mx · © {año}», sin nada colgando.
+- **Lo único que sigue pendiente**, y es dato del humano, no código: **cuál es la razón social**. El día
+  que la dé, se pone en `common.footer.legalEntity` **sin corchetes** y aparece sola, sin desplegar código
+  nuevo. *(El humano pidió el 2026-09-08 que «no salga de momento» — ya se cumple por construcción.)*
+- ⚠️ **Lección:** esta nota afirmaba un estado de producción que nadie había medido, y llevaba semanas
+  mandando a alguien a arreglar algo que ya estaba bien. Misma clase que los ocho tachones de D52.
 
 ---
 
