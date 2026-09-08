@@ -35,7 +35,8 @@
       "month": "Último mes",
       "quarter": "Este trimestre",
       "year": "Este año"
-    }
+    },
+    "undo": "Deshacer"
   },
   "nav": {
     "catalog": "Compra",
@@ -105,9 +106,9 @@
     "carouselNext": "Siguiente",
     "featured": {
       "roledescription": "carrusel",
-      "trackAria": "Piezas destacadas \u2014 pista desplazable",
+      "trackAria": "Piezas destacadas — pista desplazable",
       "status": {
-        "paused": "Rotaci\u00f3n autom\u00e1tica pausada.",
+        "paused": "Rotación automática pausada.",
         "ended": "Fin de las piezas destacadas."
       }
     },
@@ -2052,6 +2053,145 @@
         "cardCountCol": "Cartas",
         "premium": "Premium",
         "unmapped": "Sin mapear"
+      },
+      "bounties": {
+        "eyebrow": "OFERTAS DE COMPRA",
+        "title": "Bounties",
+        "lead": "Lo que pagamos por encima de la tarifa, y hasta cuántas piezas. Aquí están todos: los que están pagando, los que la tarifa rebasó, los que están encendidos sin precio y los que ya no pagan.",
+        "linkFromBinder": "Ver todos los bounties",
+        "counts": {
+          "rebasada": "REBASADOS {count}",
+          "invalida": "SIN PRECIO {count}",
+          "activa": "ACTIVOS {count}",
+          "completada": "COMPLETADOS {count}",
+          "apagada": "APAGADOS {count}",
+          "atLeastAria": "Al menos {count}; la lista está incompleta.",
+          "loadingAria": "Contando bounties"
+        },
+        "filters": {
+          "searchLabel": "Buscar carta o set"
+        },
+        "sort": {
+          "label": "Orden",
+          "attention_first": "Atención primero",
+          "price_desc": "Pagamos (mayor primero)",
+          "updated_desc": "Editados recientemente"
+        },
+        "group": {
+          "attention": "ATENCIÓN",
+          "attentionCounts": "REBASADOS {outbid} · SIN PRECIO {noPrice}",
+          "attentionHint": "Están encendidos y no pagan premium. Cada uno pide una decisión.",
+          "activa": "ACTIVOS · {count}",
+          "completada": "COMPLETADOS · {count}",
+          "apagada": "APAGADOS · {count}"
+        },
+        "list": {
+          "truncated": "Esta lista está incompleta: hay más bounties de los que caben en una consulta, así que los conteos son mínimos, no totales. Filtra por set, acabado o estado para verlos todos."
+        },
+        "table": {
+          "caption": "Bounties: estado, precio, tarifa vigente y avance"
+        },
+        "col": {
+          "card": "CARTA",
+          "state": "ESTADO",
+          "pay": "PAGAMOS",
+          "rate": "TARIFA VIGENTE",
+          "premium": "PREMIUM",
+          "progress": "AVANCE",
+          "actions": "Acciones"
+        },
+        "state": {
+          "activa": "ACTIVO",
+          "rebasada": "REBASADO",
+          "invalida": "SIN PRECIO",
+          "completada": "COMPLETADO",
+          "apagada": "APAGADO",
+          "unknown": "SIN CLASIFICAR",
+          "activaAria": "Activo: paga por encima de la tarifa vigente y aparece en Top Bounties.",
+          "rebasadaAria": "Rebasado: la tarifa vigente paga más que tu oferta, así que se paga la tarifa y la carta no aparece en Top Bounties.",
+          "invalidaAria": "Sin precio: este bounty está encendido, pero no tiene un precio con el que pagar. No paga nada y no aparece en Top Bounties. Ponle un precio o apágalo.",
+          "completadaAria": "Completado el {date}: se apagó solo al llegar al objetivo.",
+          "apagadaAria": "Apagado: lo apagó una persona. No se publica ni se paga premium. El contador se conserva.",
+          "unknownAria": "Estado no reconocido por esta pantalla. No se puede afirmar si está pagando; ábrelo en el binder."
+        },
+        "premium": {
+          "above": "+{amount} · +{pct}%",
+          "below": "−{amount} · −{pct}%",
+          "none": "—",
+          "noneAria": "Sin premium: este bounty está apagado.",
+          "noPriceAria": "No se puede calcular el premium: este bounty no tiene precio.",
+          "noRate": "SIN TARIFA",
+          "noRateAria": "Sin tarifa de curva — el bounty es el precio explícito."
+        },
+        "row": {
+          "noPrice": "—",
+          "noPriceAria": "Sin precio: este bounty está encendido y no tiene precio de compra.",
+          "openInBinder": "Ver en el binder",
+          "edit": "Editar",
+          "editAria": "Editar el bounty de {card}",
+          "turnOff": "Apagar",
+          "turnOffAria": "Apagar el bounty de {card}",
+          "turnOffToast": "Bounty apagado · {card}. Deja de publicarse y de pagar premium.",
+          "turnOn": "Encender",
+          "turnOnHint": "Revisa el precio antes de encenderlo: la tarifa vigente pudo cambiar desde que lo apagaste.",
+          "setPrice": "Poner precio",
+          "setPriceAria": "Poner precio al bounty de {card}"
+        },
+        "progress": {
+          "value": "{acquired} de {target}",
+          "remaining": "{n, plural, one {falta #} other {faltan #}}",
+          "done": "objetivo cumplido",
+          "noTarget": "SIN OBJETIVO",
+          "noTargetAria": "Sin objetivo: este bounty no frena la compra por más copias que se acumulen. Edítalo para ponerle uno.",
+          "hint": "El avance sube cuando se paga la compra, no cuando alguien cotiza."
+        },
+        "edit": {
+          "title": "Editar bounty",
+          "price": "Pagamos",
+          "target": "Objetivo",
+          "targetHint": "Hasta tener {n} en inventario. Al completarse, el bounty se apaga solo.",
+          "enabled": "Encendido",
+          "save": "Guardar",
+          "saveRaising": "Guardar · pagaremos {amount}",
+          "saving": "Guardando…",
+          "noChanges": "Sin cambios que guardar.",
+          "discardConfirm": "Tienes cambios sin guardar en {card}. ¿Los descartas?",
+          "oneAtATime": "Solo se edita un bounty a la vez."
+        },
+        "confirm": {
+          "title": "Vas a subir lo que pagamos",
+          "titleOn": "Vas a volver a encender este bounty",
+          "price": "Antes {before} · ahora {after} · {delta} más por carta.",
+          "target": "Objetivo: antes hasta {before} · ahora hasta {after}.",
+          "cta": "Sí, pagar {amount}"
+        },
+        "saved": "Bounty guardado.",
+        "savedNowActive": "Guardado: ya paga por encima de la tarifa y vuelve a Top Bounties.",
+        "savedStillOutbid": "Guardado, pero sigue rebasado: la tarifa vigente paga {rate}.",
+        "savedStillNoPrice": "Guardado, pero este bounty sigue encendido sin precio: no paga nada.",
+        "zero": {
+          "outbidLabel": "SIN REBASADOS",
+          "outbid": "Ningún bounty rebasado. Todos los encendidos pagan por encima de la tarifa vigente.",
+          "outbidButNoPrice": "Ningún bounty rebasado, pero {count} están encendidos sin precio y no pagan nada."
+        },
+        "noPrice": {
+          "bannerTitle": "Este bounty no tiene precio",
+          "bannerBody": "Está encendido, pero no tiene un precio con el que pagar: no paga nada y no se publica. Ponle un precio por encima de la tarifa vigente ({rate}) o apágalo."
+        },
+        "empty": {
+          "title": "Todavía no hay bounties",
+          "body": "Un bounty es una oferta de compra premium: pagas por encima de tu tarifa hasta juntar las piezas que quieras. Se dan de alta desde la variante, en el binder.",
+          "cta": "Ir al binder",
+          "filteredTitle": "Ningún bounty coincide"
+        },
+        "error": {
+          "load": "No se pudieron cargar los bounties."
+        },
+        "page": {
+          "prev": "Anterior",
+          "next": "Siguiente",
+          "info": "Página {page} de {totalPages}"
+        }
       }
     },
     "m6": {
@@ -2843,7 +2983,7 @@
     "PAYMENT_PROVIDER_UNAVAILABLE": "No pudimos contactar al procesador de pago. Inténtalo de nuevo en unos minutos.",
     "ORDER_ALREADY_CLAIMED": "No fue posible vincular este pedido.",
     "CLAIM_EMAIL_MISMATCH": "No fue posible vincular este pedido.",
-    "BOUNTY_PRICE_REQUIRED": "El bounty necesita un precio explícito.",
+    "BOUNTY_PRICE_REQUIRED": "El bounty necesita un precio explícito. No se guardó nada.",
     "BOUNTY_BELOW_RULE": "Un bounty tiene que pagar más que la tarifa vigente ({suggested}). Con el mismo importe no sería una oferta.",
     "SET_NOT_IMPORTED": "Ese set aún no está importado; impórtalo antes de refrescar sus variantes.",
     "UPSTREAM_ERROR": "TCGCSV no está disponible en este momento. Inténtalo de nuevo en unos minutos.",
@@ -2870,7 +3010,8 @@
     "BUYLIST_MINIMUM_NOT_MET": "Tu solicitud todavía no alcanza el mínimo de compra.",
     "OFFER_EXPIRED": "El plazo para responder esta oferta ya venció, así que no pudimos registrar tu respuesta.",
     "OFFER_NOT_PENDING": "Esta oferta ya no está esperando respuesta.",
-    "PHONE_REQUIRED": "Falta el celular en la cuenta. La paquetería lo necesita para entregar la guía y avisarte de la recolección."
+    "PHONE_REQUIRED": "Falta el celular en la cuenta. La paquetería lo necesita para entregar la guía y avisarte de la recolección.",
+    "BOUNTY_TARGET_REQUIRED": "Ponle un objetivo: hasta cuántas piezas quieres pagar ese precio. Sin objetivo, el bounty nunca frena la compra. No se guardó nada."
   },
   "payment": {
     "title": "Pago",
