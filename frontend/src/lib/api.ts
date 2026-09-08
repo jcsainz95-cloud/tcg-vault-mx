@@ -177,6 +177,9 @@ import type {
   SealedGroupKind,
   GradedInventoryResponse,
   PublicBountiesResponse,
+  AdminBountyListResponse,
+  AdminBountySort,
+  BountyState,
   // v1.21-guest-checkout (contrato §4-G) — sección aditiva al final del archivo.
   GuestAddressInput,
   GuestCheckoutQuoteResponse,
@@ -2695,6 +2698,48 @@ export async function getPublicBounties(): Promise<PublicBountiesResponse> {
     return apiRequest<PublicBountiesResponse>('/buylist/bounties');
   }
   return delay(fx.mockPublicBounties());
+}
+
+// ---------- v1.62/v1.62.1 · CONSOLA DE BOUNTIES (M2 › Bounties, §M2-B / §28) ----------
+
+export interface AdminBountyFilters {
+  /** Repetible. Omitido/vacío ⇒ **todos** (no se manda el parámetro). */
+  states?: BountyState[];
+  setId?: string;
+  finish?: Finish;
+  q?: string;
+  page?: number;
+  pageSize?: number;
+  sort?: AdminBountySort;
+}
+
+/**
+ * Lista consolidada de bounties (contrato §M2-B.1 · `GET /admin/pricing/bounties`,
+ * `super_admin`, **READ-ONLY**). Es la ÚNICA superficie donde se ve un bounty `rebasada` —la
+ * vitrina pública lo filtra por diseño y la cotización se lo salta—, y por eso el `state`, los
+ * `counts` y `truncated` viajan como los manda el servidor y **no se recalculan aquí**.
+ *
+ * ⛔ **No hay escritura bajo esta ruta** (§M2-B.2: cero endpoints nuevos). La edición de una fila
+ * reusa `putVariantControls` —una variante por petición, por un gesto del humano sobre UNA fila—
+ * y no existe ninguna variante «bulk» de esta función.
+ */
+export async function getAdminBounties(
+  filters: AdminBountyFilters = {},
+): Promise<AdminBountyListResponse> {
+  const query = {
+    // `[]` no emite nada: «sin filtro» ⇒ los cinco estados, que es el default del contrato.
+    ...(filters.states && filters.states.length > 0 ? { state: filters.states } : {}),
+    setId: filters.setId,
+    finish: filters.finish,
+    q: filters.q,
+    page: filters.page,
+    pageSize: filters.pageSize,
+    sort: filters.sort,
+  };
+  if (!config.useMocks) {
+    return apiRequest<AdminBountyListResponse>('/admin/pricing/bounties', { query });
+  }
+  return delay(fx.mockAdminBounties(filters));
 }
 
 // ---------- Master set en todas partes (v1.20) · admin vaults + ajustes ----------

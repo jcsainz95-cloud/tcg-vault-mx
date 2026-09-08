@@ -58,8 +58,25 @@ export function clearClientSession() {
 interface RequestOptions {
   method?: string;
   body?: unknown;
-  query?: Record<string, string | number | undefined>;
+  /**
+   * Un array serializa el parámetro REPETIDO (`?state=rebasada&state=invalida`), que es lo que
+   * pide el contrato para los filtros repetibles (§M2-B.1 `state`). Un array vacío no emite nada:
+   * «sin filtro» y «pedí los cero» no son lo mismo, y solo el primero es una petición legítima.
+   */
+  query?: Record<string, string | number | readonly string[] | undefined>;
   headers?: Record<string, string>;
+}
+
+/** Vuelca `opts.query` en la URL: escalares con `set`, arrays con `append` (repetible). */
+function applyQuery(url: URL, query: RequestOptions['query']) {
+  if (!query) return;
+  for (const [k, v] of Object.entries(query)) {
+    if (Array.isArray(v)) {
+      for (const item of v) if (item !== undefined && item !== '') url.searchParams.append(k, String(item));
+    } else if (v !== undefined && v !== '') {
+      url.searchParams.set(k, String(v));
+    }
+  }
 }
 
 /** Contrato §1: POST /auth/refresh { refreshToken } → { accessToken, refreshToken }. */
@@ -180,11 +197,7 @@ function parseContentDispositionFilename(header: string | null): string | null {
  */
 export async function requestBlob(path: string, opts: RequestOptions = {}): Promise<BlobResponse> {
   const url = new URL(config.apiBaseUrl + path);
-  if (opts.query) {
-    for (const [k, v] of Object.entries(opts.query)) {
-      if (v !== undefined && v !== '') url.searchParams.set(k, String(v));
-    }
-  }
+  applyQuery(url, opts.query);
   const token = getToken();
   const res = await fetch(url.toString(), {
     method: opts.method ?? 'GET',
@@ -215,11 +228,7 @@ async function requestWithRefresh<T>(
   allowRefresh: boolean,
 ): Promise<T> {
   const url = new URL(config.apiBaseUrl + path);
-  if (opts.query) {
-    for (const [k, v] of Object.entries(opts.query)) {
-      if (v !== undefined && v !== '') url.searchParams.set(k, String(v));
-    }
-  }
+  applyQuery(url, opts.query);
 
   // v1.42 (menor, ruido 401): si el access token ya venció y tenemos refresh, renovamos ANTES de
   // disparar la request (que si no daría un 401 garantizado y ruidoso en cada navegación admin). El
