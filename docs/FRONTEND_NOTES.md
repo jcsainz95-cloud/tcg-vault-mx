@@ -4,6 +4,131 @@
 > Fecha: 2026-08-13. Branch: `claude/tcg-cards-marketplace-oijthj`.
 > El contrato (`docs/API_CONTRACT.md`) y el sistema de diseño (`docs/DESIGN_SYSTEM.md`) mandan.
 
+## §47 · M2 › Bounties: se recoge una pantalla escrita a medias y se le ponen los candados que le faltaban (2026-09-08, contrato `v1.62.1 §M2-B`, `DESIGN_SYSTEM §28 v3.4`)
+
+> Rama `claude/tcg-hunt-orchestration-ai2vma`, sobre `d7a9039`. **Continuación, no arranque:** cuatro
+> commits `wip: ⚠️ SIN VERIFICAR` traían la pantalla (`BountiesView`, `BountyRowEditor`,
+> `bounty-view-model`, `page`), los tipos, el cliente, los fixtures y las cadenas ES/EN — **y ni un
+> solo test**. Este pase revisa lo que había contra el contrato y §28, cierra tres huecos y escribe
+> los candados de la tabla **§M2-B.6**.
+
+### 1. Qué estaba bien (y por qué se conserva tal cual)
+
+La parte difícil ya estaba resuelta y **resuelta como manda el contrato**: el `state` llega del
+servidor y la pantalla **lo pinta** (`bounty-view-model` no tiene ninguna función que lo derive), los
+chips leen `counts` —del conjunto, no de `data`—, `truncated` gobierna el `≥` y **mata** el cero
+tranquilizador, y `buildBountyControlsRequest` **no arma** `sellOverrideCents` ni `buyOverrideCents`.
+Nada de eso se tocó: lo que faltaba era **probarlo**.
+
+### 2. Los tres huecos que sí había, y qué se hizo
+
+1. **`Esc` y `Cancelar` no confirmaban el descarte** (§28.6b: *«si hay cambios sucios, confirman antes
+   de descartar»*). El bloque de edición no escuchaba `Esc` **en absoluto** y `Cancelar` cerraba
+   tirando lo tecleado. Ahora el editor reporta su suciedad (`onDirtyChange`) y **la vista** decide:
+   `Cancelar`, `Esc` y *abrir otra fila* pasan por el mismo diálogo, y **solo cuando hay algo que
+   perder** — preguntar sobre un formulario intacto enseña a confirmar sin leer, que es justo lo que
+   la asimetría de §28.6c intenta evitar. Al confirmar, el foco vuelve al botón de **esa** fila.
+2. **Un chip en `0` se deshabilitaba también con la lista cortada.** Con `truncated: true` un `0` no
+   es un cero: es un *«no lo sé»* (§28.2b). Deshabilitar el chip cerraba **la única palanca** que el
+   propio banner recomienda —filtrar— justo sobre el estado del que no se sabe nada. Ahora con
+   `truncated` no se deshabilita ninguno.
+3. **No había un solo test.** Se escriben **77** (46 de pantalla + 31 de modelo de vista).
+
+### 3. Los candados, mapeados a la tabla §M2-B.6
+
+`BountiesView.test.tsx` (46) y `bounty-view-model.test.ts` (31). Las dos filas que el contrato marca
+como **test de frontend** son las que más peso llevan:
+
+- **B-11 ⭐ (el cuerpo del `PUT`)** — editar **solo** el precio de una fila y mirar **la petición**:
+  el cuerpo es exactamente `{ productType, gradeKey, bounty: { enabled, priceCents } }` y **no
+  contiene** `sellOverrideCents` ni `buyOverrideCents`. Se asierta además que el objetivo no tocado
+  **no viaja**, que **jamás** sale un `targetQty: null`, y que `state`/`effective`/`curveQuoteCents`/
+  `progress` no aparecen en el JSON. La mitad de servidor («omitido conserva») **no se re-asierta**:
+  vive en `backend/test/pricing.variant-controls.spec.ts` (§M2-B.6, y `ARCHITECTURE §0-B.3` regla 8).
+- **B-13(b) ⭐ (nada de alcance de conjunto)** — cuatro aserciones, porque «no existe» hay que
+  medirlo por varios lados: (i) cero `checkbox` en la tabla; (ii) los **únicos** botones con dígitos
+  son los cinco chips de conteo **y pulsarlos no emite ninguna escritura** (son filtro, no acción);
+  (iii) ningún rótulo casa con «apagar los/todos», «aplicar a los», «seleccionados», «en lote»,
+  «bulk»… ni en ES ni en EN, **y las cadenas `bulk.*` no volvieron al catálogo**; (iv) con **tres**
+  rebasadas a la vista, `Apagar` en una emite **una** petición y con **su** `cardId`. *El alcance lo
+  define el gesto, no el transporte.*
+
+Los demás son **espejos de cliente** de candados de servidor: no repiten la regla del servidor,
+asertan que **la pantalla obedece lo que llegó**.
+
+| Fila / regla | Espejo de cliente que se escribió |
+|---|---|
+| **B-1 / B-2** (clasificar mal el rebasado) | fixture **deliberadamente contradictorio**: `state: "activa"` con el precio **por debajo** de la tarifa ⇒ la fila **tiene que decir `ACTIVO`**. Cualquier derivación en cliente lo pinta `REBASADO` y el test se cae. Más el empate exacto, que llega `rebasada` y se pinta `REBASADO` |
+| **B-8** (colapsar `completada`/`apagada`) | dos rótulos distintos **y dos encabezados de bloque**, no uno compartido |
+| **B-9** (contar la página) | `counts.rebasada = 3` con **una** rebasada visible ⇒ el chip dice **3**. Rojo si dice `1` |
+| **B-10** (que `counts` obedezca al filtro) | con el chip `REBASADOS` puesto, `ACTIVOS 12` y `APAGADOS 4` **conservan su número**; y la petición lleva `states: ['rebasada']` |
+| **B-4** (no declarar el techo) | `truncated: true` ⇒ banner `role="status"`, chips con `≥`, **ninguna frase de cero** |
+| **B-6** (rol) | con `vault_operator` la página **no monta la consola** y **no se pide la lista** |
+| **B-12** (tarifa en filas apagadas) | fila `apagada` con mercado resoluble **enseña su tarifa**; `curveQuoteCents: null` es `SIN TARIFA`, que significa *la curva no resuelve*, nunca *está apagado* |
+
+Y de §28: los tres casos del cero (§28.5), la fila `invalida` entera (§28.14 caso 3: `SIN PRECIO`,
+hueco en `PAGAMOS`, premium `—`, botón `Poner precio`, campo **sin prellenar**), el `state`
+desconocido que cae a neutro y **nunca** a `ACTIVO`, la asimetría de la confirmación, el
+`BOUNTY_BELOW_RULE` anclado **en la fila** con la tarifa que devolvió el **servidor** y **sin
+reintento**, la tabla en reposo **sin formularios**, que la pantalla **no reordena** y que sin
+`attention_first` **no pinta encabezados**, los tres estados obligatorios de §28.8, y los cinco
+rótulos en **ES y EN**.
+
+### 4. Ningún test teclea una versalita, y hay un barrido de homoglifos
+
+§28.13 nº20 es explícito: los rótulos se comparan **contra la clave del catálogo**, no contra la
+cadena escrita a mano. Todos los tests leen de `messages/{es,en}.json`. Eso deja un flanco —si el
+catálogo miente, el test miente con él— y por eso se añade el barrido que §28.10 pedía y **no
+existía**: el namespace `admin.m2.bounties.*` de los **dos** catálogos se compara contra el juego de
+caracteres declarado (ASCII + `áéíóúÁÉÍÓÚñÑüÜ ¡ ¿ · — … × ‹›«» − ≥ ●`), con el `−` (U+2212) y el `≥`
+(U+2265) escritos con su punto de código. Se acota **a esta pantalla** a propósito: el barrido global
+del catálogo entero es otra tarea (hoy `en.json` usa comillas tipográficas que no están en ese juego).
+Segundo candado de catálogo: **los cinco rótulos de estado tienen que ser distintos entre sí**, en ES
+y en EN — un catálogo con menos entradas que su enum es un estado que nadie sabe pintar.
+
+### 5. Mutaciones corridas a mano (romper el candado ⇒ exigir rojo)
+
+Siete, todas restauradas y verde después:
+
+| # | Mutación | Resultado |
+|---|---|---|
+| 1 | derivar el estado en el cliente: `state.${premium.kind === 'below' ? 'rebasada' : row.state}` | **1 rojo** — el fixture contradictorio (*«pinta `activa` aunque parezcan rebasados»*) |
+| 2 | reenviar los overrides en el `PUT` (`sellOverrideCents: null, buyOverrideCents: null`) | **3 rojos** — los tres de **B-11** |
+| 3 | derivar los chips de la página: `rows.filter(r => r.state === s).length` | **5 rojos** — B-9, B-10, el `—` de carga, el `≥` de la lista cortada y el vacío por filtro |
+| 4 | añadir `Apagar los {n} rebasados` que dispara N `PUT` | **2 rojos** — «ningún control de acción lleva contador» y el barrido de rótulos prohibidos |
+| 5 | quitar la guarda `if (truncated) return null` del cero | **2 rojos** — el unitario y la pantalla |
+| 6 | enunciar el cero tranquilizador ignorando `counts.invalida` | **2 rojos** — el cero **acotado**, unitario y pantalla |
+| 7 | catálogo: (a) `ACTIVO` con **`А` cirílica** (U+0410); (b) `state.invalida` = `ACTIVO` | (a) **1 rojo** — el barrido de homoglifos; (b) **2 rojos** — la fila `invalida` que decía `ACTIVO` y los «cinco rótulos distintos» |
+
+La mutación 7 se eligió por el aviso del proyecto: *«una mutación de copy que escribió “terminos” sin
+acento pasó verde»*. Cambiar una tilde **no** puede ponerse rojo aquí, porque los tests leen el
+catálogo — así que se mutó lo que **sí** muerde: un homoglifo invisible y **el defecto exacto que §28
+v3.4 vino a corregir** (pintar `ACTIVO` sobre un bounty que no puede pagar nada). Las dos se cazan.
+
+### 6. Números
+
+`npm test` **1316/1316** (119 archivos, +77) · `tsc --noEmit` limpio · `next lint` sin avisos ·
+catálogos ES/EN **simétricos** (0 claves huérfanas en cualquiera de los dos sentidos).
+
+### 7. Lo que NO se hizo, y por qué (para que nadie lo dé por hecho)
+
+- **El nombre de la carta enlaza a `/admin/m1`, no al cajón de esa variante.** §28.1 pide el cajón;
+  **M1 no tiene deep-link** por set/carta (solo `?tab=`), así que llevar a la variante exigiría
+  añadirle enrutado por parámetros a M1 — otra pantalla, otro alcance. **No es una petición al
+  arquitecto** (no falta ningún campo del contrato): es deuda de enrutado del propio frontend.
+- **La tabla no colapsa a *cards* en móvil** (§28.9). Se pinta la `<table>` con scroll, como el resto
+  del back-office hoy. Queda anotado como pendiente de UI, no como incumplimiento de contrato.
+- **`counts.atLeast`** (`{label} ≥ {count}`) **no se cableó como clave**: el `≥` se antepone al número
+  y se interpola en `counts.{state}`, que produce **el mismo texto en pantalla** (`REBASADOS ≥ 3`)
+  sin partir el rótulo en dos claves. Si ux-ui prefiere la clave, es un cambio de catálogo, no de
+  conducta.
+- **Sin Playwright nuevo.** La suite E2E de esta pantalla se cablea contra el stack levantado y la
+  corre **QA**; aquí no hay stack.
+- **Los fixtures de mocks replican la clasificación del servidor** (`mockDeriveBountyState`). Es la
+  capa de servidor falso de `lib/mock/`, como el resto del archivo, y **ningún test de esta pantalla
+  se apoya en ella**: los 46 de UI sirven su propia respuesta. No es una quinta implementación del
+  predicado en producción.
+
 ## §46 · El ciclo de compra entra al gate real: 23 pruebas que nadie corría, el `total` que se tiraba y un rótulo que prometía la regla del servidor (2026-09-02)
 
 > **Renumerada DOS veces, y el motivo es el mismo las dos: §27 → §44 (2026-09-05) → §46 (2026-09-06).**

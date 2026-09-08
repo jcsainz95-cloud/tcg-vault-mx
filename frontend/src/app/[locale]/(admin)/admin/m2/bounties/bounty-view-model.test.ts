@@ -50,7 +50,7 @@ function row(state: string): AdminBountyRowDTO {
     number: '125',
     productType: 'raw',
     gradeKey: 'raw:NM',
-    finish: 'HOLOFOIL',
+    finish: 'holofoil',
     state: state as BountyState,
     progress: { targetQty: 2, acquiredQty: 0, remainingQty: 2 },
     updatedAt: '2026-09-01T12:00:00.000Z',
