@@ -9,6 +9,12 @@ interface Item {
   href: string;
   key: string;
   superAdminOnly?: boolean;
+  /**
+   * El activo se marca por PREFIJO (para que `/admin/m1/...` ilumine M1). Un módulo que tiene
+   * sub-rutas propias en el menú se marca `exact` para no quedar iluminado a la vez que su hija —
+   * dos entradas activas a la vez no dicen dónde estás.
+   */
+  exact?: boolean;
 }
 
 const groups: { groupKey: string; items: Item[] }[] = [
@@ -26,7 +32,13 @@ const groups: { groupKey: string; items: Item[] }[] = [
   },
   {
     groupKey: 'pricing',
-    items: [{ href: '/admin/m2', key: 'm2', superAdminOnly: true }],
+    items: [
+      { href: '/admin/m2', key: 'm2', superAdminOnly: true, exact: true },
+      // v1.62 (D52 · criterio 184): M2 › Bounties. Entra por la navegación de M2 (§28.1) porque un
+      // bounty es una decisión de PRECIO DE COMPRA y su verdad se mide contra la curva, que vive
+      // aquí. `super_admin` y solo `super_admin`.
+      { href: '/admin/m2/bounties', key: 'm2Bounties', superAdminOnly: true },
+    ],
   },
   {
     groupKey: 'finance',
@@ -67,7 +79,8 @@ export function AdminSidebar({ onNavigate }: { onNavigate?: () => void }) {
           <ul className="mt-3.5 flex flex-col">
             {g.items.map((item) => {
               const active =
-                pathname === item.href || (item.href !== '/admin' && pathname.startsWith(item.href));
+                pathname === item.href ||
+                (!item.exact && item.href !== '/admin' && pathname.startsWith(item.href));
               const locked = item.superAdminOnly && !isSuperAdmin;
               return (
                 <li key={item.href}>

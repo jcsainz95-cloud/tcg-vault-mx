@@ -1010,7 +1010,8 @@
       "m8": "M8 · Disputes",
       "m9": "M9 · Reports",
       "m10": "M10 · Config",
-      "vaults": "Customer vaults"
+      "vaults": "Customer vaults",
+      "m2Bounties": "M2 · Bounties"
     },
     "roleSwitch": "View as",
     "masked": "Super-admin only",

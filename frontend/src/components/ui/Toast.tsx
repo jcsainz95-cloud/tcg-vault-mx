@@ -23,6 +23,13 @@ export interface ToastItem {
   message: string;
   /** ms hasta el auto-cierre; 0 = no se cierra solo. Default 6000. */
   duration?: number;
+  /**
+   * Acción REVERSIBLE ofrecida junto al mensaje (DESIGN_SYSTEM §28.6c: *«lo que baja o detiene el
+   * gasto no abre diálogo: se hace y el toast ofrece `Deshacer`»*). Es la contrapartida de no poner
+   * ventana de confirmación en esa dirección — sin ella, la asimetría se vuelve descuido.
+   * ⚠️ Es la acción de **un** gesto sobre **un** objeto; no es un sitio para acciones de conjunto.
+   */
+  undo?: { label: string; onUndo: () => void };
 }
 
 let seq = 0;
@@ -91,6 +98,18 @@ function ToastCard({ toast, onDismiss }: { toast: ToastItem; onDismiss: (id: str
         )}
         <p className="text-sm leading-snug text-on-ink-muted">{toast.message}</p>
       </div>
+      {toast.undo && (
+        <button
+          type="button"
+          onClick={() => {
+            toast.undo?.onUndo();
+            onDismiss(toast.id);
+          }}
+          className="shrink-0 self-center border-b border-on-ink-rule font-mono text-[11px] uppercase tracking-[0.06em] text-on-ink hover:border-on-ink focus-visible:shadow-focus"
+        >
+          {toast.undo.label}
+        </button>
+      )}
       <button
         type="button"
         onClick={() => onDismiss(toast.id)}
