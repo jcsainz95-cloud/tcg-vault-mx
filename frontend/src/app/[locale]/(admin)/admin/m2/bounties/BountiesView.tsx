@@ -33,6 +33,7 @@ import {
   bountyPremium,
   bountyRowKey,
   hasAttentionRows,
+  hasIdentityFilter,
   isKnownBountyState,
   savedToastFor,
   withBlockHeaders,
@@ -113,7 +114,11 @@ export function BountiesView() {
 
   const query = useQuery<AdminBountyListResponse>({
     queryKey: ['admin-bounties', states, sort, q, page],
-    queryFn: () => getAdminBounties({ states, sort, q: q || undefined, page, pageSize: PAGE_SIZE }),
+    // ⚠️ `q.trim()`: §28.5 v3.5 declara que **una `q` de solo espacios no acota nada**. Si la
+    // pantalla lo declara y luego la manda igual, el servidor **sí** filtra por esos espacios y la
+    // pantalla creería estar sin filtro sobre un conjunto acotado — el defecto exacto que v3.5 cierra,
+    // reintroducido por el transporte. Lo que no acota, no viaja.
+    queryFn: () => getAdminBounties({ states, sort, q: q.trim() || undefined, page, pageSize: PAGE_SIZE }),
   });
 
   // Cualquier cambio de filtro devuelve a la página 1: un filtro nuevo sobre la página 7 deja al
@@ -273,12 +278,21 @@ export function BountiesView() {
     },
   });
 
-  const zero = counts ? zeroStatement(counts, truncated) : null;
+  // §28.5 v3.5: mientras haya un filtro de IDENTIDAD puesto, esta pantalla **no puede saber** si hay
+  // rebasados fuera de él (`counts` respeta la identidad y no llega ningún conteo sin filtrar).
+  const identityFiltered = hasIdentityFilter({ q });
+  const zero = counts ? zeroStatement(counts, truncated, identityFiltered) : null;
   const grouped = sort === 'attention_first';
   const withHeaders = withBlockHeaders(rows, grouped);
   const showZeroLine = !query.isLoading && !query.isError && zero !== null && !hasAttentionRows(rows);
   const totalPages = data ? Math.max(1, Math.ceil(data.total / data.pageSize)) : 1;
-  const filtersActive = states.length > 0 || q.trim() !== '';
+  const filtersActive = states.length > 0 || identityFiltered;
+
+  /** La palanca de §28.5/§28.8: **un** sitio, dos consumidores (el vacío por filtro y `VISTA FILTRADA`). */
+  function clearFilters() {
+    setStates([]);
+    setQInput('');
+  }
 
   return (
     <div className="flex flex-col gap-8">
@@ -356,16 +370,32 @@ export function BountiesView() {
 
       {/* El bloque ① nunca desaparece: cuando no tiene filas, se ENUNCIA el cero. Inversión
           deliberada de la vitrina, que calla cuando no hay nada. Va en tinta y sin adorno: no es
-          una felicitación, es un hecho verificado hoy que mañana puede no serlo. */}
+          una felicitación, es un hecho verificado hoy que mañana puede no serlo.
+
+          ⚠️ **v3.5 · y cuando NO se puede enunciar, se dice por qué.** Con un filtro de identidad
+          puesto, la versalita es `VISTA FILTRADA` y la frase **nombra el recorte** en vez de afirmar
+          sobre «todos»: `counts` respeta ese filtro, así que un `rebasada: 0` ahí **no es un cero, es
+          un «no lo sé»** — el mismo caso que la lista cortada, con otra mano recortando. ⛔ Y no se
+          acota la frase: el portador es la VERSALITA, que se lee primero y no la desarma ninguna
+          subordinada (§28.5 v3.5, §28.3 canal 2). Se ofrece la palanca en su lugar. */}
       {showZeroLine && (
-        <p className="border-l-2 border-border-strong pl-4 text-sm text-text">
-          <span className="mr-2 font-mono text-[11px] uppercase tracking-[0.06em] text-muted">
-            {t('zero.outbidLabel')}
-          </span>
-          {zero === 'outbid'
-            ? t('zero.outbid')
-            : t('zero.outbidButNoPrice', { count: counts?.invalida ?? 0 })}
-        </p>
+        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-2 border-l-2 border-border-strong pl-4 text-sm text-text">
+          <p>
+            <span className="mr-2 font-mono text-[11px] uppercase tracking-[0.06em] text-muted">
+              {zero === 'filtered' ? t('zero.filteredLabel') : t('zero.outbidLabel')}
+            </span>
+            {zero === 'filtered'
+              ? t('zero.filtered')
+              : zero === 'outbid'
+                ? t('zero.outbid')
+                : t('zero.outbidButNoPrice', { count: counts?.invalida ?? 0 })}
+          </p>
+          {zero === 'filtered' && (
+            <Button size="sm" variant="secondary" onClick={clearFilters}>
+              {tRoot('common.clearFilters')}
+            </Button>
+          )}
+        </div>
       )}
 
       {query.isError && (
@@ -397,14 +427,7 @@ export function BountiesView() {
           body={filtersActive ? undefined : t('empty.body')}
           action={
             filtersActive ? (
-              <Button
-                size="sm"
-                variant="secondary"
-                onClick={() => {
-                  setStates([]);
-                  setQInput('');
-                }}
-              >
+              <Button size="sm" variant="secondary" onClick={clearFilters}>
                 {tRoot('common.clearFilters')}
               </Button>
             ) : (

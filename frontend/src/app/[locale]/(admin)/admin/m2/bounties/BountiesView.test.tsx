@@ -433,6 +433,162 @@ describe('§28.5 — el panel DICE el cero (inversión deliberada de la vitrina)
 });
 
 // ===========================================================================
+// ⭐⭐ §28.14 caso 19 / §28.5 v3.5 — el cero que un FILTRO acota deja de ser un cero
+// ===========================================================================
+describe('⭐⭐ caso 19 — con un filtro de identidad puesto, la pantalla NO afirma sobre «todos»', () => {
+  /*
+   * ### El defecto que cierra, medido antes de existir la norma
+   * Con dos `rebasada` en el sistema y `Buscar carta = Pikachu`, la pantalla leía
+   * **`SIN REBASADOS` · «Ningún bounty rebasado. Todos los encendidos pagan por encima de la tarifa
+   * vigente»**. Las dos piezas eran correctas por separado —`counts` **respeta** la identidad
+   * (§M2-B.1) y el copy pintaba lo que dictaba la tabla— y **la frase resultante era falsa**.
+   *
+   * Y es el peor sitio posible: esa frase es literalmente el mecanismo que le dice al dueño *«puedes
+   * dejar de preocuparte»* sobre la única pantalla donde un rebasado invisible se ve.
+   *
+   * ⚠️ El servidor falso de estos casos **filtra `data` y `counts` con `q`**, como el de verdad: sin
+   * eso el candado no mediría nada — estaría comprobando la frase contra unos conteos que ningún
+   * servidor produciría.
+   */
+  const CHARIZARD = makeRow({ id: 'c1', name: 'Charizard ex', state: 'rebasada' });
+  const GENGAR = makeRow({ id: 'c2', name: 'Gengar VMAX', state: 'rebasada' });
+  const PIKACHU = makeRow({
+    id: 'c3',
+    name: 'Pikachu VMAX',
+    state: 'activa',
+    priceCents: 250000,
+    curveQuoteCents: 210000,
+  });
+
+  function serveRespetandoIdentidad() {
+    const todas = [CHARIZARD, GENGAR, PIKACHU];
+    return vi.spyOn(api, 'getAdminBounties').mockImplementation(async (filters = {}) => {
+      const q = (filters.q ?? '').trim().toLowerCase();
+      const data = q ? todas.filter((r) => r.name.toLowerCase().includes(q)) : todas;
+      const rebasada = data.filter((r) => r.state === 'rebasada').length;
+      return response({
+        data,
+        // `counts` RESPETA la identidad (y sigue ignorando el filtro de estado).
+        counts: { activa: data.length - rebasada, rebasada, invalida: 0, completada: 0, apagada: 0 },
+      });
+    });
+  }
+
+  /** El bloque ①: la línea sobre la tabla. Se localiza por su versalita, sea cual sea. */
+  const bloqueUno = () =>
+    (screen.queryByText(T.zero.filteredLabel) ?? screen.queryByText(T.zero.outbidLabel))?.closest('div');
+
+  it('⭐⭐ `q` que no casa con ningún rebasado ⇒ `VISTA FILTRADA`, jamás `SIN REBASADOS`', async () => {
+    serveRespetandoIdentidad();
+    renderWithProviders(<BountiesView />, 'es');
+    await screen.findByText('Charizard ex');
+
+    fireEvent.change(screen.getByLabelText(T.filters.searchLabel), { target: { value: 'Pikachu' } });
+
+    // La respuesta trae `counts.rebasada = 0` —correcto— y el bloque ① tiene que NOMBRAR EL RECORTE.
+    expect(await screen.findByText(T.zero.filtered, {}, { timeout: 3000 })).toBeInTheDocument();
+    expect(screen.getByText(T.zero.filteredLabel)).toBeInTheDocument();
+    expect(chip('rebasada')).toHaveTextContent(T.counts.rebasada.replace('{count}', '0'));
+
+    // ⛔ Ni la versalita tranquilizadora, ni ninguna de sus dos frases, ni acotadas.
+    expect(screen.queryByText(T.zero.outbidLabel)).toBeNull();
+    expect(screen.queryByText(T.zero.outbid)).toBeNull();
+    expect(screen.queryByText(new RegExp(T.zero.outbidButNoPrice.replace('{count}', '\\d+')))).toBeNull();
+    // Y nada del bloque ① afirma sobre «todos» los encendidos, ni siquiera acotando: se compara
+    // contra el CATÁLOGO (§28.13 nº20), no contra una cadena tecleada aquí.
+    const afirmacionGlobal = T.zero.outbid.split('.')[1].trim(); // «Todos los encendidos pagan…»
+    expect(bloqueUno()?.textContent ?? '').not.toContain(afirmacionGlobal);
+
+    // Y la palanca, que es lo que la frase promete.
+    expect(within(bloqueUno()!).getByRole('button', { name: es.common.clearFilters })).toBeInTheDocument();
+  });
+
+  it('⭐ LA VUELTA: al limpiar el filtro vuelven los conteos, las filas y el silencio', async () => {
+    serveRespetandoIdentidad();
+    renderWithProviders(<BountiesView />, 'es');
+    await screen.findByText('Charizard ex');
+    fireEvent.change(screen.getByLabelText(T.filters.searchLabel), { target: { value: 'Pikachu' } });
+    await screen.findByText(T.zero.filtered, {}, { timeout: 3000 });
+
+    fireEvent.click(within(bloqueUno()!).getByRole('button', { name: es.common.clearFilters }));
+
+    // Sin recargar: los dos rebasados vuelven a estar a la vista y a contarse…
+    expect(await screen.findByText('Charizard ex', {}, { timeout: 3000 })).toBeInTheDocument();
+    expect(screen.getByText('Gengar VMAX')).toBeInTheDocument();
+    await waitFor(() =>
+      expect(chip('rebasada')).toHaveTextContent(T.counts.rebasada.replace('{count}', '2')),
+    );
+    // …y ahora no se enuncia ningún cero, porque no lo hay: el bloque ① tiene filas.
+    expect(screen.queryByText(T.zero.filtered)).toBeNull();
+    expect(screen.queryByText(T.zero.outbid)).toBeNull();
+  });
+
+  it('⭐ CONTROL NEGATIVO 1: sin filtro, el cero SÍ se enuncia (el candado no se pasa de listo)', async () => {
+    serve(
+      response({
+        data: [PIKACHU],
+        counts: { activa: 1, rebasada: 0, invalida: 0, completada: 0, apagada: 0 },
+      }),
+    );
+    renderWithProviders(<BountiesView />, 'es');
+    expect(await screen.findByText(T.zero.outbid)).toBeInTheDocument();
+    expect(screen.queryByText(T.zero.filtered)).toBeNull();
+  });
+
+  it('⭐ CONTROL NEGATIVO 2: un CHIP DE ESTADO no es filtro de identidad ⇒ el cero se enuncia igual', async () => {
+    // `counts` **ignora** el filtro de estado (§28.2a), así que con un chip puesto `counts.rebasada`
+    // sigue siendo el número del sistema entero: *el chip no acota el conjunto de la pregunta, la
+    // responde*. Si alguien mete los chips en el predicado, este control se pone rojo.
+    serve(
+      response({
+        data: [PIKACHU],
+        counts: { activa: 1, rebasada: 0, invalida: 0, completada: 0, apagada: 0 },
+      }),
+    );
+    renderWithProviders(<BountiesView />, 'es');
+    await screen.findByText(T.zero.outbid);
+    fireEvent.click(chip('apagada'));
+    expect(await screen.findByText(T.zero.outbid)).toBeInTheDocument();
+    expect(screen.queryByText(T.zero.filtered)).toBeNull();
+  });
+
+  it('⭐ CONTROL NEGATIVO 3: una `q` de SOLO ESPACIOS no acota nada — ni en pantalla ni en la petición', async () => {
+    // §28.5 v3.5 lo declara: *«una `q` vacía o de solo espacios no acota nada»*. Y si la pantalla lo
+    // declara, tampoco puede mandarla: el servidor **sí** filtraría por esos espacios y la pantalla
+    // creería estar sin filtro sobre un conjunto acotado — el defecto de v3.5 por la puerta de atrás.
+    //
+    // ⚠️ El conjunto de este caso **no tiene rebasados a la vista** a propósito: con filas en el
+    // bloque ① no habría frase que comparar y el control sería VACUO — pasaría igual aunque los
+    // espacios contaran como filtro. Aquí el cero **se enuncia**, así que la diferencia se ve.
+    const spy = vi.spyOn(api, 'getAdminBounties').mockImplementation(async (filters = {}) => {
+      const q = (filters.q ?? '').trim().toLowerCase();
+      const data = q && !PIKACHU.name.toLowerCase().includes(q) ? [] : [PIKACHU];
+      return response({
+        data,
+        counts: { activa: data.length, rebasada: 0, invalida: 0, completada: 0, apagada: 0 },
+      });
+    });
+    renderWithProviders(<BountiesView />, 'es');
+    await screen.findByText(T.zero.outbid);
+
+    fireEvent.change(screen.getByLabelText(T.filters.searchLabel), { target: { value: '   ' } });
+    await new Promise((r) => setTimeout(r, 400)); // el rebote de la búsqueda
+
+    // Sigue siendo el cero de siempre: los espacios no acotan nada.
+    expect(screen.getByText(T.zero.outbid)).toBeInTheDocument();
+    expect(screen.queryByText(T.zero.filtered)).toBeNull();
+    expect(screen.queryByText(T.zero.filteredLabel)).toBeNull();
+    // Y la petición viajó **sin `q`**: lo que no acota, no viaja.
+    expect(spy.mock.calls.at(-1)?.[0]?.q).toBeUndefined();
+
+    // …y con texto DE VERDAD el mismo arnés sí cambia de frase (si no, el control no medía nada).
+    fireEvent.change(screen.getByLabelText(T.filters.searchLabel), { target: { value: 'zzz' } });
+    expect(await screen.findByText(T.zero.filtered, {}, { timeout: 3000 })).toBeInTheDocument();
+    expect(spy.mock.calls.at(-1)?.[0]?.q).toBe('zzz');
+  });
+});
+
+// ===========================================================================
 // Espejo de cliente de B-12 — la tarifa vigente también en filas apagadas
 // ===========================================================================
 describe('B-12 (espejo de cliente) — `—` en TARIFA VIGENTE significa UNA cosa: la curva no resuelve', () => {

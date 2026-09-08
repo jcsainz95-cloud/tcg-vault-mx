@@ -2174,7 +2174,9 @@
         "zero": {
           "outbidLabel": "SIN REBASADOS",
           "outbid": "Ningún bounty rebasado. Todos los encendidos pagan por encima de la tarifa vigente.",
-          "outbidButNoPrice": "Ningún bounty rebasado, pero {count} están encendidos sin precio y no pagan nada."
+          "outbidButNoPrice": "Ningún bounty rebasado, pero {count} están encendidos sin precio y no pagan nada.",
+          "filteredLabel": "VISTA FILTRADA",
+          "filtered": "Con un filtro puesto aquí solo se cuentan los bounties que coinciden, así que esta pantalla no puede decirte si hay rebasados fuera de él. Limpia los filtros para saberlo."
         },
         "noPrice": {
           "bannerTitle": "Este bounty no tiene precio",

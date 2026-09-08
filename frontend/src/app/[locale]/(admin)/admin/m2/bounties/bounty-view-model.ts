@@ -97,22 +97,65 @@ export function hasAttentionRows(rows: AdminBountyRowDTO[]): boolean {
 }
 
 /**
- * ### El CERO que se dice — y las dos veces que NO se dice (§28.5, tabla normativa)
+ * ### Los filtros de IDENTIDAD que lleva puestos la pantalla (§28.5 v3.5)
  *
- * - `truncated === true` ⇒ **ningún cero**: con la lista cortada los conteos también están
- *   incompletos, y un `counts.rebasada: 0` truncado **no es un cero, es un «no lo sé»**.
- * - `counts.invalida > 0` ⇒ el cero **acotado**: la frase tranquilizadora afirma sobre *todos* los
- *   encendidos, y con un `invalida` vivo eso es **falso** — ese bounty está encendido y no paga
- *   nada. Sería la desinformación que esta pantalla existe para curar, dicha por la frase que usa
- *   para tranquilizar.
+ * **Definición normativa, y es mecánica:** un filtro es *de identidad* **si `counts` lo respeta**
+ * (`API_CONTRACT §M2-B.1`). Escrita así, la regla sobrevive a que el contrato cambie.
+ *
+ * Hoy hay **exactamente uno**: la búsqueda `q`, y **cuenta solo con texto tras `trim`** — una `q`
+ * vacía o de solo espacios **no acota nada**.
+ *
+ * - ⛔ **Los chips de estado NO entran**, y la razón es verificable: **`counts` IGNORA el filtro de
+ *   estado** (§28.2a), así que con `REBASADOS` o `APAGADOS` puestos `counts.rebasada` sigue siendo
+ *   el número del sistema entero y el cero sigue siendo verdadero. *El chip no acota el conjunto de
+ *   la pregunta: la responde.*
+ * - ⛔ **La paginación tampoco**: no toca `counts`.
+ * - `setId`/`finish` entrarían aquí **el día que existan** en esta pantalla (§28.2b, hoy **no
+ *   aprobados** — `BNT-D10`). Se añaden **a este objeto y a esta función, y a ningún otro sitio**:
+ *   ni el copy ni §28.5 se tocan, que es justo para lo que la condición se escribió en genérico.
+ */
+export interface BountyIdentityFilters {
+  q: string;
+}
+
+export function hasIdentityFilter(filters: BountyIdentityFilters): boolean {
+  return filters.q.trim() !== '';
+}
+
+/**
+ * ### El CERO que se dice — y las TRES veces que NO se dice (§28.5, tabla normativa v3.5)
+ *
+ * Las cuatro condiciones son **excluyentes**: se cumple exactamente una, y por eso aquí no hay
+ * precedencias que razonar más allá del orden en que se leen.
+ *
+ * 1. `truncated === true` ⇒ **ningún cero**: con la lista cortada los conteos también están
+ *    incompletos, y un `counts.rebasada: 0` truncado **no es un cero, es un «no lo sé»**. Manda
+ *    sobre todo lo demás: *«el recorte que hace falta nombrar primero es el que el humano no
+ *    provocó»*.
+ * 2. **(v3.5)** hay un **filtro de identidad** puesto ⇒ **`filtered`**, *sea cual sea `counts`*. Con
+ *    un filtro, `counts.rebasada: 0` significa *«ninguno **entre los que buscaste**»* y **la
+ *    pantalla no tiene de dónde sacar el otro número**: el servidor no manda un conteo sin filtrar.
+ *    Mismo «no lo sé» que la lista cortada, distinta mano recortando. ⛔ **Y no se acota la frase,
+ *    se retira**: el portador es la **versalita** (§28.3 canal 2), y una salvedad colgada de la
+ *    subordinada no desarma una versalita que ya se leyó.
+ * 3. `counts.invalida > 0` ⇒ el cero **acotado por el estado**: la frase tranquilizadora afirma
+ *    sobre *todos* los encendidos, y con un `invalida` vivo eso es **falso** — ese bounty está
+ *    encendido y no paga nada.
  *
  * ⚠️ Se decide sobre `counts` (**el conjunto clasificado**), jamás contando las filas de la página.
+ *
+ * ⚠️ `identityFiltered` es un parámetro **obligatorio y sin valor por defecto, a propósito**: un
+ * default lo volvería olvidable, y olvidarlo devuelve exactamente el defecto que v3.5 vino a cerrar
+ * —la pantalla diciendo *«todos los encendidos pagan»* sobre un conjunto que el humano acotó—.
+ * Candado: §28.14 caso 19.
  */
 export function zeroStatement(
   counts: Record<BountyState, number>,
   truncated: boolean,
-): 'outbid' | 'outbidButNoPrice' | null {
+  identityFiltered: boolean,
+): 'outbid' | 'outbidButNoPrice' | 'filtered' | null {
   if (truncated) return null;
+  if (identityFiltered) return 'filtered';
   if (counts.rebasada !== 0) return null;
   return counts.invalida === 0 ? 'outbid' : 'outbidButNoPrice';
 }

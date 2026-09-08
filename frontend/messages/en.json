@@ -2174,7 +2174,9 @@
         "zero": {
           "outbidLabel": "NONE OUTBID",
           "outbid": "No outbid bounties. Every one that's on pays above the current rate.",
-          "outbidButNoPrice": "No outbid bounties, but {count} are on with no price and pay nothing."
+          "outbidButNoPrice": "No outbid bounties, but {count} are on with no price and pay nothing.",
+          "filteredLabel": "FILTERED VIEW",
+          "filtered": "With a filter on, only matching bounties are counted here, so this screen can't tell you whether there are outbid ones outside it. Clear the filters to find out."
         },
         "noPrice": {
           "bannerTitle": "This bounty has no price",

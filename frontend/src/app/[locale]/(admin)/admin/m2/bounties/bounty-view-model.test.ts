@@ -14,6 +14,7 @@ import {
   savedToastFor,
   withBlockHeaders,
   zeroStatement,
+  hasIdentityFilter,
 } from './bounty-view-model';
 
 /**
@@ -135,22 +136,72 @@ describe('§28.2a — los bloques son una PARTICIÓN del orden del servidor, no 
   });
 });
 
-describe('§28.5 — el cero que se dice, y las DOS veces que no se dice', () => {
-  it('el cero TRANQUILIZADOR exige rebasada 0 · invalida 0 · truncated false', () => {
-    expect(zeroStatement(counts({ activa: 12 }), false)).toBe('outbid');
+describe('§28.5 — el cero que se dice, y las TRES veces que no se dice (v3.5)', () => {
+  it('el cero TRANQUILIZADOR exige rebasada 0 · invalida 0 · truncated false · SIN filtro', () => {
+    expect(zeroStatement(counts({ activa: 12 }), false, false)).toBe('outbid');
   });
 
   it('con `invalida > 0` es el cero ACOTADO: «todos los encendidos pagan» sería FALSO', () => {
-    expect(zeroStatement(counts({ activa: 12, invalida: 1 }), false)).toBe('outbidButNoPrice');
+    expect(zeroStatement(counts({ activa: 12, invalida: 1 }), false, false)).toBe('outbidButNoPrice');
   });
 
   it('⭐ con la lista cortada NO se enuncia ningún cero: un cero de una lista cortada no es un cero', () => {
-    expect(zeroStatement(counts(), true)).toBeNull();
-    expect(zeroStatement(counts({ invalida: 1 }), true)).toBeNull();
+    expect(zeroStatement(counts(), true, false)).toBeNull();
+    expect(zeroStatement(counts({ invalida: 1 }), true, false)).toBeNull();
   });
 
   it('con rebasados no hay frase de cero, haya lo que haya en las otras cubetas', () => {
-    expect(zeroStatement(counts({ rebasada: 3 }), false)).toBeNull();
+    expect(zeroStatement(counts({ rebasada: 3 }), false, false)).toBeNull();
+  });
+
+  // ── v3.5 · la TERCERA vez que el cero no se dice: cuando lo acota un FILTRO DE IDENTIDAD ──
+  it('⭐⭐ con filtro de identidad NO hay cero, sea cual sea `counts` (§28.5 v3.5)', () => {
+    // `counts` respeta la identidad ⇒ ese `rebasada: 0` significa «ninguno ENTRE LOS QUE BUSCASTE»,
+    // y la pantalla no tiene de dónde sacar el otro número. No es un cero: es un «no lo sé».
+    expect(zeroStatement(counts({ activa: 12 }), false, true)).toBe('filtered');
+    expect(zeroStatement(counts({ activa: 12, invalida: 1 }), false, true)).toBe('filtered');
+    expect(zeroStatement(counts({ rebasada: 3 }), false, true)).toBe('filtered');
+  });
+
+  it('⭐ `truncated` MANDA sobre el filtro: primero se nombra el recorte que el humano NO provocó', () => {
+    expect(zeroStatement(counts(), true, true)).toBeNull();
+  });
+
+  it('las cuatro condiciones son EXCLUYENTES: se cumple exactamente una', () => {
+    // Barrido de las 8 combinaciones de (truncated, filtro, rebasada>0) con invalida a 0 y a 1.
+    for (const truncated of [false, true]) {
+      for (const filtered of [false, true]) {
+        for (const rebasada of [0, 3]) {
+          for (const invalida of [0, 1]) {
+            const r = zeroStatement(counts({ rebasada, invalida }), truncated, filtered);
+            const esperado = truncated
+              ? null
+              : filtered
+                ? 'filtered'
+                : rebasada !== 0
+                  ? null
+                  : invalida === 0
+                    ? 'outbid'
+                    : 'outbidButNoPrice';
+            expect(r, `truncated=${truncated} filtro=${filtered} rebasada=${rebasada} invalida=${invalida}`).toBe(esperado);
+          }
+        }
+      }
+    }
+  });
+});
+
+describe('§28.5 v3.5 — qué cuenta como FILTRO DE IDENTIDAD', () => {
+  it('`q` con texto sí; vacía o de SOLO ESPACIOS no acota nada', () => {
+    expect(hasIdentityFilter({ q: 'pikachu' })).toBe(true);
+    expect(hasIdentityFilter({ q: '' })).toBe(false);
+    // ⛔ El caso que parece trivial y no lo es: si los espacios contaran, teclear un espacio en el
+    // buscador retiraría el cero de una pantalla que NO está acotada — y la pantalla dejaría de
+    // contestar la pregunta que existe para contestar.
+    expect(hasIdentityFilter({ q: '   ' })).toBe(false);
+    expect(hasIdentityFilter({ q: '\t\n ' })).toBe(false);
+    // Y el espacio alrededor de un texto real no lo invalida.
+    expect(hasIdentityFilter({ q: '  pikachu  ' })).toBe(true);
   });
 });
 
