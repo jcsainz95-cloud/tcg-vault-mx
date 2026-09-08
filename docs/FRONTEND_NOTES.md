@@ -4,6 +4,101 @@
 > Fecha: 2026-08-13. Branch: `claude/tcg-cards-marketplace-oijthj`.
 > El contrato (`docs/API_CONTRACT.md`) y el sistema de diseño (`docs/DESIGN_SYSTEM.md`) mandan.
 
+## §59 · **A-1: el comodín que nadie miró en dos semanas** — se cierra D-IMG-5, se parchea `next`, y el candado mide el ENDPOINT, no el fichero (2026-09-08, rama `claude/tcg-hunt-orchestration-ai2vma`)
+
+> Encargo único de seguridad (hallazgo **A-1** del blue team, cierre de release). **Cero producto**:
+> no se tocó un componente, ni el optimizador, ni `CardImage`, ni el catálogo (eso es **P-65**, y
+> sigue bloqueado esperando medición del humano). Dos ficheros de configuración y dos candados.
+
+### 1. Los dos hechos, y por qué se agravaban entre sí
+
+1. **`next` en `15.5.23`.** El parche de **GHSA-2xp9-vwfh-vxw4** —*RCE sin autenticar* en la API de
+   optimización de imágenes, vía AVIF— es **`15.5.24`**: estábamos **una versión por debajo**.
+   Arrastraba además `sharp@0.35.3` (**alta**, GHSA-rgj7-g3m4-5g8c, libheif).
+2. **`next.config.mjs` tenía `{ protocol: 'https', hostname: '**' }`** — un comodín que aceptaba
+   **cualquier** host. El aviso necesita que el atacante elija **qué** imagen procesamos; el comodín
+   se lo regalaba.
+
+Vivo desde el **2026-08-23**, dos semanas, **sin figurar en `SECURITY_NOTES`, `PENTEST_NOTES`,
+`TECH_DEBT` ni aquí**. No venía de este delta.
+
+### 2. 🔴 La premisa del encargo era FALSA, y verificarla cambió el riesgo (a mejor)
+
+El encargo decía que `SetPlate.tsx` era *«el único componente que usa `next/image`»*. **No usa
+`next/image`.** No hay **ni una sola** línea de `next/image` en todo el frontend: el logo de set,
+como el arte de carta, es **Nivel B** (`<img>` crudo, ARCHITECTURE §4.41.7). Lo confirma el propio
+ARCHITECTURE §5.3.4 («hoy es inerte»).
+
+Consecuencias, y la segunda es la que importa:
+
+- **A favor:** quitar el comodín es de riesgo funcional **cero**, y por una razón más fuerte que la
+  del encargo — no es que «solo afecte a los logos de set», es que **`remotePatterns` no gobierna
+  hoy ninguna imagen renderizada**. El narrowing es literalmente inobservable en pantalla.
+- **⚠️ En contra, y hay que decirlo:** *«inerte»* describe el **render**, **nunca el endpoint**.
+  `/_next/image` lo sirve el servidor de Next **exista o no** un `next/image` nuestro. El comodín
+  **sí** era explotable: se midió en el navegador (§4). Quien lea «inerte» y deduzca «no urgente»
+  está leyendo mal, y por eso queda escrito aquí.
+
+### 3. Lo que se cambió
+
+- `frontend/package.json`: `next` `15.5.23` → **`15.5.24`**; override `sharp` `^0.35.3` → **`^0.35.4`**.
+  Bump de parche, sin cambio funcional. **No se subió nada más** («ya que estamos» no aplica a un
+  parche de seguridad). `npm audit --omit=dev`: **1 crítica + 1 alta → 0/0**.
+- `frontend/next.config.mjs`: fuera el comodín; quedan los **dos** hosts de `SET_IMAGE_HOSTS`
+  (`images.pokemontcg.io`, `images.scrydex.com`). El segundo **no es opcional**: ya servía arte de
+  **661 cartas en producción** (§4.41.1 hecho 8) y omitirlo rompería los sets `me2pt5`/`me3`+.
+- **`port: ''` en ambos patrones — lo encontró el candado, no una lectura.** En
+  `shared/lib/match-remote-pattern.js` el puerto solo se compara **si el patrón lo define**
+  (`if (pattern.port !== undefined)`), así que omitirlo empata **cualquier** puerto y
+  `https://images.pokemontcg.io:8443/…` pasaba. Es la regla que el backend ya impone
+  («`host`, no `hostname`: incluye el puerto»). El candado se escribió, se puso rojo solo, y
+  **descubrió un segundo agujero más pequeño que nadie había pedido buscar**.
+
+### 4. Los candados: se mide CONDUCTA, en dos capas
+
+Un `expect(fuente).not.toContain("'**'")` sería teatro: pasa en verde con `'*'`, con el comodín
+construido por concatenación, o reabriendo por el legacy `images.domains`.
+
+| Capa | Fichero | Qué pregunta |
+|---|---|---|
+| Unitaria | `src/lib/next-image-remote-patterns.test.ts` | Importa el config **real** y lo interroga con `hasRemoteMatch`, **el mismo matcher que corre `/_next/image`**. Incluye 250 hosts **aleatorios** por ejecución: ningún literal añadido «para que pase» los cubre. |
+| Navegador | `e2e/next-image-optimizer-hosts.spec.ts` | Pega al **servidor corriendo** por HTTP, como el atacante. Y verifica que **los logos siguen saliendo** (`naturalWidth > 0`, que un `complete` roto no da). |
+
+Ambas mitades: el candado también se pone rojo si alguien «arregla» un fallo **vaciando** la lista
+(rompería los logos). **Mutaciones ejecutadas, todas rojas:** comodín `'**'`, comodín `'*'`, comodín
+**construido** (`['*','*'].join('')`), `images.domains` reintroducido, y lista vaciada.
+
+**La mutación más elocuente es la del navegador:** con el comodín puesto,
+`/_next/image?url=https://evil.example/payload.avif` devuelve **500, no 400** — el portero lo dejó
+pasar y el servidor **fue a buscar la URL del atacante**, fallando solo porque el entorno E2E no
+tiene salida a internet. Con red de verdad, eso es un **200 sirviendo bytes ajenos desde nuestro
+origen**. No es una hipótesis: es la traza.
+
+### 5. Verificación
+
+`tsc` limpio · unitarios **1383/1383** · E2E completa **153 passed / 3 skipped / 0 failed** (base
+150 + los 3 nuevos) · `next build` **verde**, sin cambio de conducta ni de tamaño de bundle.
+
+⚠️ **Aviso de higiene:** `next build` **reescribe `tsconfig.json`** (reformatea y añade el `distDir`
+al `include`). Se revirtió; **si alguien ve `tsconfig.json` sucio tras un build, es esto y no un
+cambio deliberado.** Las builds de verificación se hicieron con `NEXT_DIST_DIR` a un directorio
+aparte para no pisar el `.next` de un stack ajeno.
+
+### 6. ⚠️ Deuda que queda ABIERTA y no me corresponde cerrar
+
+`remotePatterns` queda con **dos** hosts, que es lo que el encargo pidió y lo más estrecho posible.
+Pero **§5.3.4 exige que el espejo tenga TRES fuentes** el día que se adopte Nivel A: (i)
+`SET_IMAGE_HOSTS` ✅, (ii) `SEALED_IMAGE_HOST_ALLOWLIST` (`tcgplayer.com`, `tcgcsv.com`) ❌ **no
+incluida**, y (iii) los hosts de `Card.imageSmallUrl`, que **no son una allowlist** sino lo que
+`upsertCards` dejó pasar sin validar (deuda **M47-R1**, alta, abierta).
+
+Hoy no rompe nada (todo es Nivel B). **Pero los fixtures ya usan `tcgplayer-cdn.tcgplayer.com`**: la
+primera línea de `next/image` sobre una imagen de sellado o de carta fallará hasta que se amplíe.
+Queda **enrutado al arquitecto** (regla 9), no resuelto aquí: ampliar por mi cuenta habría sido ir
+**por delante** del backend, justo lo que §5.3.4 prohíbe.
+
+---
+
 ## §58 · **Un candado que no puede ponerse rojo no es medio candado: es ninguno** — la hermana del control vacuo, la cláusula sin candado y el caso 19 en el navegador (2026-09-08, rama `claude/tcg-hunt-orchestration-ai2vma`)
 
 > Sobre `a028079`, con §28.5 v3.5 ya **aprobada por QA** y medida en el navegador. Este pase **no
