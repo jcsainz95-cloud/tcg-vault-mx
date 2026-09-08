@@ -34,6 +34,10 @@ import {
 // migraciones y los tests la compartan con el runtime. Aquí solo se declara su KEY, su DEFAULT y su
 // validador de puerta; la matemática y los invariantes V1–V8 NO se duplican.
 import { DEFAULT_PRICING_CURVE, validatePricingCurve } from '../../common/pricing-curve';
+// v1.63 (§M2-F.1, §4.43c): la regla de resolución del MODO de la FX vive en `common/` (mismo motivo
+// que la curva: la comparten `FxService` y este módulo, y `FxService` ya depende de éste). Aquí solo
+// se declaran su KEY, su DEFAULT (el sentinel) y su validador de puerta.
+import { FX_RATE_MODE_LEGACY, FX_RATE_MODE_STORED_VALUES } from '../../common/fx-mode';
 import { SEALED_SUBTYPE_VALUES } from '../../common/enum-values';
 export const SettingKey = {
   SHIPPING_FEE_CENTS: 'shipping_fee_cents',
@@ -51,6 +55,13 @@ export const SettingKey = {
   REPO_CAP_PER_CARD_CENTS: 'repo_cap_per_card_cents',
   FX_BUFFER_PCT: 'fx_buffer_pct',
   FX_MANUAL_OVERRIDE_RATE: 'fx_manual_override_rate',
+  // ⭐ v1.63 (§M2-F.1 / §4.43) — EL MODO del tipo de cambio, **separado del VALOR**. Hasta v1.62.2 el
+  // modo se INFERÍA de si `fx_manual_override_rate` estaba o no estaba, así que «apagar el manual»
+  // significaba BORRAR el número. Esa inferencia ERA el defecto.
+  // ⛔ NO está en `SETTING_DTO_MAP`: no se lee ni se edita por `PUT /admin/settings` (enviarlo cae en
+  // 422 «unknown setting key», igual que `pricing_curve` o `sealed_spread_*`). Su ÚNICA puerta es
+  // `PUT /admin/fx/mode`, que es la que impone las precondiciones y la bitácora dedicada.
+  FX_RATE_MODE: 'fx_rate_mode',
   PRICING_PROVIDER_RAW: 'pricing_provider_raw',
   PRICING_PROVIDER_GRADED: 'pricing_provider_graded',
   PRICING_PROVIDER_SEALED: 'pricing_provider_sealed',
@@ -249,6 +260,14 @@ export const SETTING_DEFAULTS: Record<SettingKeyType, unknown> = {
   [SettingKey.REPO_CAP_PER_CARD_CENTS]: 5000000, // tope de reposición por carta (editable)
   [SettingKey.FX_BUFFER_PCT]: 3, // colchón FX (%)
   [SettingKey.FX_MANUAL_OVERRIDE_RATE]: null, // sin override por defecto
+  // ⭐⭐ v1.63.1 (§4.43g, candado FX-6(c)) — el default es el SENTINEL `"legacy"`, y ⛔ JAMÁS `"auto"`
+  // ni `"manual"`. Un default de código se aplica en la PRIMERA LECTURA, antes de que corra ningún
+  // seed (hecho F4): sembrar `"auto"` sería, literalmente, el mecanismo por el que producción —que
+  // hoy tiene un override de 19.0000 vivo— se pasaría sola a Banxico al desplegar. Con `"legacy"`
+  // NO EXISTE NINGÚN VALOR DE ESTE MAPA QUE PUEDA CAMBIAR LA CONDUCTA DE PRODUCCIÓN: significa
+  // «resuelve como lo hacía v1.62.2». Y por tener default, la clave ENTRA en el inventario de
+  // arranque (§11.0) ⇒ un valor corrupto SÍ se grita (sin default, `logConfigInventory` la saltaría).
+  [SettingKey.FX_RATE_MODE]: FX_RATE_MODE_LEGACY,
   [SettingKey.PRICING_PROVIDER_RAW]: 'pokemontcg_io',
   [SettingKey.PRICING_PROVIDER_GRADED]: 'pokemonpricetracker',
   [SettingKey.PRICING_PROVIDER_SEALED]: 'pokemonpricetracker',
@@ -723,6 +742,14 @@ export const SETTING_VALIDATORS: Record<SettingKeyType, (v: unknown) => string |
   // override de FX: null (sin override) o un tipo de cambio en (0, MAX] (FX-B1/FX-B2, validador
   // compartido con PUT /admin/fx para que ambas puertas apliquen el mismo rango).
   [SettingKey.FX_MANUAL_OVERRIDE_RATE]: validateFxManualOverrideRate,
+  // v1.63.1 (§4.43g punto 3): acepta los TRES valores ALMACENABLES y nada más. `"legacy"` es el
+  // seed, NO un modo de API. Un `true` o un `"AUTO"` en esta fila no puede quedar guardado
+  // pareciendo un modo — y si aparece por escritura directa a la BD, `resolveFxMode()` lo trata
+  // como legacy (no cambia lo que está pasando) y el inventario de arranque lo grita.
+  [SettingKey.FX_RATE_MODE]: (v) =>
+    typeof v === 'string' && (FX_RATE_MODE_STORED_VALUES as readonly string[]).includes(v)
+      ? null
+      : `must be one of ${FX_RATE_MODE_STORED_VALUES.join('|')}`,
   [SettingKey.PRICING_PROVIDER_RAW]: (v) =>
     typeof v === 'string' && PROVIDER_VALUES.includes(v) ? null : `must be one of ${PROVIDER_VALUES.join('|')}`,
   [SettingKey.PRICING_PROVIDER_GRADED]: (v) =>
