@@ -449,8 +449,15 @@ Encontrado por el humano probando en producción. Las tres se sirven juntas o ni
   3. **Las fotos no pasan por nosotros.** Todas se piden directo a `images.pokemontcg.io` con `<img>`
      plano (`components/ui/CardImage.tsx`): ni las redimensionamos, ni las convertimos a formato
      moderno, ni las guardamos en caché propia. Cada visitante paga el viaje al servidor del
-     proveedor, con su latencia y el peso original. El **único** sitio del front que usa el
-     optimizador de Next es el logo de expansión (`SetPlate.tsx`).
+     proveedor, con su latencia y el peso original.
+     - ⚠️ **CORRECCIÓN (2026-09-08, mía).** Aquí decía que *«el único sitio del front que usa el
+       optimizador de Next es el logo de expansión (`SetPlate.tsx`)»*. **Es falso.** Lo deduje de que
+       un `grep` de `next/image` devolvía ese fichero — y **la coincidencia era un COMENTARIO** que
+       dice literalmente *«sin next/image»*. **No hay una sola línea de `next/image` en el frontend**:
+       todas las imágenes son `<img>` crudo (Nivel B, `ARCHITECTURE §4.41.7`). Propagué el error a un
+       encargo de seguridad y ahí hizo ver un riesgo más pequeño de lo que era; lo cazó el agente al
+       verificar en vez de ejecutar. **La lección: un `grep` dice dónde aparece un texto, no qué hace
+       el código.**
   4. Las demás van en `lazy` y eso **está bien** — no es ahí donde se van los segundos.
 - **Lo que NO pude medir desde aquí, y decide cuál es la cura:** este contenedor tiene bloqueada la
   salida a internet (`tcghunt.mx` e `images.pokemontcg.io` devuelven 403 en el proxy), así que **no
