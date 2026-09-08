@@ -2,7 +2,45 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-08 (rev **v1.62**).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-08 (rev **v1.62.1**).
+>
+> **Changelog v1.62.1 — LAS PETICIONES DE ux-ui, ARBITRADAS. UN CAMPO NUEVO (`counts`), CERO DDL (2026-09-08,
+> arquitecto).** Base: **v1.62, vigente entera** salvo lo que se marca aquí. **CERO endpoints nuevos, CERO códigos de
+> error nuevos, CERO DDL, CERO diales, CERO cambios en superficies públicas, CERO cambios en
+> `PUT …/variant-controls/...`.** Diseño en ARCHITECTURE **§4.42i**.
+>
+> **A. ⛔ LA SEMÁNTICA DE OMISIÓN DEL `PUT`: NO ERA AMBIGUA, Y EL PARCHE DE CLIENTE ERA EL PELIGRO.**
+> ux-ui pidió confirmar si un campo **omitido** se conserva o se limpia, y —mientras tanto— su diseño obligaba a la
+> pantalla a **reenviar los overrides tal como los leyó**. **Medido en el código, no deducido del contrato**
+> (`backend/src/modules/pricing/variant-controls.service.ts`, `mergeCents` y `mergeBounty`; test vivo *«campo omitido
+> conserva el valor persistido; null explícito lo limpia»*): **omitido = NO SE TOCA**, exactamente lo que este
+> contrato ya decía. **El endpoint no cambia ni una línea.** Lo que **sí** se norma —y es lo que evita el daño— es el
+> **cliente**: ⛔ **reenviar un campo que el humano no editó queda PROHIBIDO** ([`§M2-B.3`](#M2-B3)). Ese reenvío
+> convierte una edición parcial en un **sobrescritura total** sobre un endpoint **sin token de concurrencia**: una
+> pantalla de bounties devolvería `sellOverrideCents` **rancio** encima del que otro admin acaba de cambiar en el
+> binder. *La regla la sostiene el servidor; el cliente no la re-implementa ni la compensa.* Norma general nueva:
+> ARCHITECTURE **§0-B.3 regla 9 (REGLA DE LA OMISIÓN)**, con la tabla de semántica marcada
+> `<!-- CANON: semantica-de-omision -->` en el bloque de `variant-controls`.
+>
+> **B. ✅ `counts` ENTRA — Y ES SOBRE EL CONJUNTO CLASIFICADO, NO SOBRE LA PÁGINA** ([`§M2-B.1`](#M2-B1)).
+> v1.62 traía `total` y `truncated`, pero **no** los conteos por estado: sin ellos el eje de la pantalla (*«el panel
+> DICE el cero»*) **se rompe en la página 2 sin hacer ruido**. **Cinco claves, las mismas del enum `state`** (no
+> cuatro: `invalida` **no se funde con nada**), **ignorando el filtro `state` y respetando los de identidad**, y
+> **gobernadas por el mismo `truncated`** que `data`.
+>
+> **C. ⛔ LA EDICIÓN MASIVA SIGUE PROHIBIDA, Y AHORA TAMBIÉN EL CASO «APAGAR»** ([`§M2-B.2`](#M2-B2)). ux-ui votó
+> *«NO a importes en lote, SÍ a apagar»* con un buen argumento (*no gasta, es reversible, no valida por fila*).
+> **Rechazado, con las tres razones escritas** —la primera es medida: **un `rebasada` YA no paga** (el cotizador se
+> lo salta), así que apagarlo en lote **no detiene ni un peso** y sí **borra el porqué**. Se escribe **para que no se
+> vuelva a proponer**, porque el argumento es bueno.
+>
+> **D. LAS NO BLOQUEANTES, RESUELTAS CON MOTIVO** ([`§M2-B.7`](#M2-B7)): `curveQuoteCents` en filas apagadas **ya
+> venía** (medido); filtro/orden server-side **ya estaban**; `state` derivado **ya es normativo y obligatorio** (no
+> opcional); `outbidSince` **no existe, no se inventa y no se aproxima con `updatedAt`** —crearlo rompería el CERO
+> DDL y es decisión del humano—; «exposición máxima» **solo si viene del servidor**, y queda como pregunta abierta
+> (ARCHITECTURE §10 **Q-B4**).
+>
+> ---
 >
 > **Changelog v1.62 — CONSOLA DE BOUNTIES: UNA LECTURA NUEVA, CERO ESCRITURAS NUEVAS (2026-09-08, arquitecto).**
 > **UN endpoint nuevo y de solo lectura** ([`§M2-B.1`](#M2-B1)), **UN enum nuevo** (`state`), **CERO endpoints de
@@ -9008,9 +9046,28 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
   `{ productType?: "raw" | "graded" /* default raw */, gradeKey?: string /* default "raw:NM"; graded:
   "graded:PSA:10"… */, sellOverrideCents?: number | null, buyOverrideCents?: number | null,
   bounty?: { enabled: boolean, priceCents?: number, targetQty?: number | null } | null }`
-  — campos omitidos NO se tocan; `null` explícito LIMPIA (quitar un override regresa la cara a su regla;
-  `bounty: null` o `enabled:false` apaga el bounty sin borrar el contador). Fila con todo vacío ⇒ puede borrarse
-  (equivalente observable).
+
+  <!-- CANON: semantica-de-omision · única fuente · ver ARCHITECTURE §0-B.3 regla 9 -->
+  **SEMÁNTICA DE ESCRITURA PARCIAL — FUENTE ÚNICA DEL PROYECTO. Se CITA este anchor; no se transcribe.**
+
+  | Lo que manda el cliente | Qué hace el servidor |
+  |---|---|
+  | campo **OMITIDO** (ausente del JSON) | **NO SE TOCA** — conserva el valor persistido |
+  | `null` **explícito** | **LIMPIA** (quitar un override regresa esa cara a su regla; `bounty: null` o `enabled:false` **apaga** el bounty **sin borrar** el contador `bountyAcquiredQty`) |
+  | valor | se valida y se fija |
+
+  *(Fila con todo vacío ⇒ puede borrarse: **equivalente observable** a «sin fila». Si el bounty dejó historia
+  —contador o `completedAt`— la fila **no** califica como vacía y se conserva.)*
+
+  **⛔ La otra mitad de la regla, y es del CLIENTE: un cliente NO reenvía un campo que el humano no editó.**
+  Reenviar los overrides «tal como se leyeron» para *«no perderlos»* es un **parche del cliente sobre una regla del
+  servidor**, y hace daño en la única dirección que importa: este endpoint **no tiene token de concurrencia**
+  (`If-Match`, `version`, `updatedAt` esperado — **ninguno**), así que **omitir lo que no se editó es la única
+  protección contra pisar el cambio de otro**. Un `PUT` que reenvía un `sellOverrideCents` leído hace treinta
+  segundos **restaura en silencio** el valor que otra superficie acaba de cambiar. *La omisión no es un descuido del
+  contrato: es el mecanismo de convivencia entre superficies.*
+  Norma general: ARCHITECTURE **§0-B.3 regla 9**. Aplicación a la consola de bounties: [`§M2-B.3`](#M2-B3).
+  <!-- /CANON: semantica-de-omision -->
   - **Validaciones:** centavos enteros `> 0`; `raw` ⇒ `:finish ∈ Card.availableFinishes` (SEC-A1,
     `422 FINISH_NOT_AVAILABLE`); `graded` ⇒ `:finish = normal` y `gradeKey` con forma `graded:<company>:<grade>`;
     `productType="sealed"` ⇒ `422 VALIDATION_ERROR` (el sellado conserva su cadena H-1). Bounty: **solo
@@ -9198,8 +9255,9 @@ Query: `?state=&setId=&finish=&q=&page=&pageSize=&sort=`
 
 Res `200` (`AdminBountyListResponse`):
 ```
-{ data: AdminBountyRowDTO[], page, pageSize, total, truncated: boolean }
+{ data: AdminBountyRowDTO[], page, pageSize, total, counts: AdminBountyCountsDTO, truncated: boolean }
 ```
+`AdminBountyCountsDTO` — **(NUEVO v1.62.1)** `{ activa, rebasada, invalida, completada, apagada }`, enteros ≥ 0.
 `AdminBountyRowDTO`:
 ```
 {
@@ -9233,10 +9291,43 @@ Res `200` (`AdminBountyListResponse`):
   - ⛔ **La posición NO se añade a esta lista.** Exigiría un fan-out por fila contra
     `INVENTORY_POSITION_PORT` en un endpoint de listado, y un `positionUnavailable` por fila que la pantalla tendría
     que saber pintar. **Si el dueño la quiere, es otro pase y pasa por el arquitecto** (regla 9).
+- **`counts` — (NUEVO v1.62.1) el conteo por estado SOBRE EL CONJUNTO CLASIFICADO, jamás sobre la página.**
+  Nace porque **sin él el eje de la pantalla se rompe en la página 2 sin hacer ruido**: la consola agrupa por estado
+  y **enuncia el cero** (*«ningún bounty rebasado»* se dice, no se calla — inversión deliberada de la vitrina, que
+  calla cuando no hay nada). Un conteo derivado en el cliente cuenta **las 20 filas que le tocaron**, y con un
+  `rebasada` en la página 3 diría «cero» **exactamente donde la pantalla existe para no decirlo**. `total` NO lo
+  sustituye: `total` es **una** cifra del conjunto ya filtrado; `counts` es la **distribución**. Reglas, y las tres
+  primeras son las que hacen que el número signifique algo:
+  1. **CINCO claves — las mismas del enum `state` de [`§M2-B.0`](#M2-B0), con sus mismos nombres.** ⛔ No se
+     renombran a un vocabulario de UI (`outbid`/`active`/`off`) ni se colapsan a cuatro: **`invalida` tiene su
+     propia clave**. Fundirla dentro de `activa` pintaría *«está pagando»* sobre un bounty encendido **sin precio
+     utilizable**, que es la fila que §M2-B.0 creó ese estado para no perder. *Un conteo con menos cubetas que su
+     enum es una traducción, y las traducciones de dinero divergen.*
+  2. **`counts` IGNORA el filtro `state` y RESPETA los de identidad** (`setId`, `finish`, `q`). Es lo que hace que
+     los conteos sirvan de **selector** —si contaran también el `state`, pedir `state=rebasada` dejaría los otros
+     cuatro en `0` y el usuario perdería el mapa justo al usarlo— y a la vez que **no contradigan lo que se ve**:
+     buscando *«Charizard»*, los conteos son de los Charizard. **`total` sí obedece a TODOS los filtros** (es el
+     tamaño del conjunto que se está paginando). **Invariante verificable:** con `state` omitido,
+     `total == counts.activa + counts.rebasada + counts.invalida + counts.completada + counts.apagada`.
+  3. **`counts` sale de la MISMA pasada de clasificación que `data`** —el **orden de operaciones normativo** está
+     escrito **una sola vez**, en el bullet de `truncated` de aquí abajo— y por tanto **está gobernado por el mismo
+     `truncated`**. ⛔ No se calcula con una segunda consulta ni con un `groupBy` de SQL: **el estado no es
+     calculable en SQL** (depende de la curva y del mercado), así que un conteo «barato» por SQL **sería otro
+     predicado con otro resultado** — dos proyecciones del mismo dinero, el defecto que este proyecto ya pagó
+     cuatro veces (§0-B.1).
+  4. **Money-safe en la incompletitud:** con `truncated: true` los conteos **también** están incompletos, y **el
+     frontend no puede enunciar el cero tranquilizador** («ningún bounty rebasado») sobre un `counts.rebasada: 0`
+     truncado: ahí la frase correcta es la de lista incompleta. *Un cero de una lista cortada no es un cero.*
 - **`truncated`** — `true` cuando el conjunto de bounties superó el techo de servidor y la respuesta **no es
-  completa**. **Existe porque el `state` NO se puede calcular en SQL** (depende de la curva y de la referencia de
-  mercado, que se izan en lote en la aplicación) ⇒ el servidor **selecciona → resuelve el estado de TODO el conjunto →
-  ordena → pagina**. **⛔ Prohibido paginar o cortar ANTES de clasificar**: cortar primero es exactamente cómo un
+  completa** (**gobierna `data`, `total` y `counts` a la vez**). **Existe porque el `state` NO se puede calcular en SQL** (depende de la curva y de la referencia de
+  mercado, que se izan en lote en la aplicación) ⇒ **ORDEN DE OPERACIONES NORMATIVO — escrito aquí y solo aquí; el
+  resto del documento lo cita** *(v1.62.1: gana el paso «contar», que es de dónde sale `counts`)*:
+
+  > **seleccionar** (predicado de alcance de [`§M2-B.0`](#M2-B0) + filtros de **identidad**; el **techo de servidor**
+  > se aplica **aquí y solo aquí** ⇒ `truncated`) **→ resolver el estado de TODO lo seleccionado → CONTAR
+  > (`counts`) → filtrar por `state` → ordenar → paginar**
+
+  **⛔ Prohibido paginar o cortar ANTES de clasificar**: cortar primero es exactamente cómo un
   `rebasada` volvería a desaparecer, ahora en la pantalla que se construyó para verlo *(mismo orden de operaciones que
   ya norma `GET /buylist/bounties`: «filtrar DESPUÉS del cap dejaría huecos silenciosos»)*. El techo es una
   **constante de servidor** (no un dial); **el contrato norma la conducta —que la incompletitud se DECLARE— no el
@@ -9278,16 +9369,80 @@ por variante**. *La superficie de escritura de dinero de este proyecto no crece 
 > 4. **El trabajo real de la pantalla es MIRAR.** La edición es la excepción (arreglar el rebasado que se acaba de
 >    ver), no el caso de uso; y para esa excepción ya hay una consola por variante probada en producción.
 >
+> ---
+> **⛔⛔ v1.62.1 — «PERO APAGAR EN LOTE SÍ, ¿NO?» — NO. Y SE ESCRIBE AQUÍ PORQUE EL ARGUMENTO ES BUENO Y VOLVERÁ.**
+>
+> La propuesta (ux-ui, voto razonado): *NO a importes en lote; SÍ a un botón **`Apagar los N rebasados`***, porque
+> apagar **no gasta**, **es reversible** y **no valida por fila**. Las tres premisas parecen ciertas. **Las tres
+> fallan aquí**, y la primera es medible:
+>
+> 1. **⭐ NO DETIENE NINGÚN GASTO, PORQUE UN `rebasada` YA NO PAGA.** Es la refutación que decide y no es una opinión:
+>    la precedencia de compra **se salta** un bounty no efectivo y cotiza la curva (mismo predicado
+>    `isBountyEffective` de [`§M2-B.0`](#M2-B0), cuarta seam). El gesto que motiva el botón —*«se me rebasaron ocho,
+>    apágalos mientras decido»*— **cree estar frenando un gasto que el sistema ya frenó solo**. Se pagaría el mismo
+>    peso antes y después de pulsarlo. *Una acción masiva de dinero cuyo efecto sobre el dinero es CERO no es una
+>    herramienta: es un ritual, y los rituales sobre botones masivos se acaban usando sobre las filas que sí pagan.*
+> 2. **ES UNA ESCRITURA QUE PIERDE INFORMACIÓN, y justo la que esta pantalla existe para conservar.** `rebasada` dice
+>    *«el mercado te pasó por encima»* y **se auto-explica**: trae su `curveQuoteCents` al lado y sus dos puertas
+>    (subir o apagar). `apagada` dice *«una persona decidió dejar de ofrecer»*. Apagar ocho de un clic **convierte
+>    ocho diagnósticos en ocho decisiones que nadie tomó una por una**, y el *porqué* dejó de pagarse —el dato que
+>    §M2-B.0 se niega a colapsar entre `completada` y `apagada`— **se pierde para siempre**: mañana esas ocho filas
+>    son indistinguibles de las que el dueño retiró a propósito. *El estado `rebasada` no cuesta nada y no se cura
+>    tapándolo.*
+> 3. **«ES REVERSIBLE» ES CIERTO EN EL DATO Y FALSO EN LA PUERTA.** Apagar en lote costaría **un** clic; volver a
+>    encender son **N escrituras validadas una a una** que pueden fallar con `BOUNTY_PRICE_REQUIRED`,
+>    `BOUNTY_TARGET_REQUIRED` y `BOUNTY_BELOW_RULE`. Esa asimetría **no es un detalle de UX: es el vector por el que
+>    cae la prohibición entera** — el operador que apagó veinte pedirá *«enciéndelos otra vez»*, y **encender exige
+>    importe**, es decir **exactamente el lote de importes que las cuatro razones de arriba prohíben**. *Un lote cuyo
+>    deshacer no puede ser lote es una petición de lote de importes con retraso.*
+> 4. **Y la razón 3 de arriba no perdona ninguna excepción:** la bitácora de dinero es **por variante**. Apagar es un
+>    `before/after` tan auditable como subir un precio, y ocho apagados son ocho entradas o ninguna.
+>
+> **Qué se hace en su lugar, que es lo que el operador necesitaba de verdad:** `?state=rebasada` + `sort=attention_first`
+> le pone **las ocho juntas y arriba**, cada una con su tarifa vigente al lado, y decide una por una —subir o apagar—
+> que es la decisión que de verdad hay que tomar. **La pantalla ya lo da; el botón no añadía capacidad, añadía radio.**
+>
+> *(Si el humano decide lo contrario —su voz manda—, vuelve al arquitecto (regla 9) y la contención mínima ya está
+> pactada con ux-ui y se respeta entera: **respuesta por fila** (`clave → ok | errorCode`) pintada **en cada fila**,
+> nunca resumida en un toast, **N entradas de auditoría**, y **jamás** un lote que fije importes.)*
+> ---
+>
 > **Qué SÍ puede hacer el frontend sin romper esto:** editar **en línea** desde la fila (sin abrir otra pantalla) y
 > encadenar peticiones **de una en una** por acción explícita del usuario sobre **una** fila. Lo que no puede es
 > **ofrecer una acción cuyo alcance sea un conjunto**. *La diferencia no es cuántos `PUT` viajan: es si el humano
 > apretó un botón por cada precio de compra que cambió.*
+>
+> ⛔ **Corolario explícito (v1.62.1), porque es la forma en que esto reaparecería sin mala fe:** un **botón de
+> cabecera de grupo** que dispare N `PUT` desde el navegador **es una acción masiva**, aunque en la red viajen N
+> peticiones de una variante cada una. **El alcance lo define el gesto del humano, no el transporte.** Prohibidos por
+> igual: multi-select con acción, `Apagar los N rebasados`, «aplicar a los filtrados» y cualquier control cuyo
+> rótulo lleve un contador.
 
 <a id="M2-B3"></a>
 ##### M2-B.3 — SEC-A1 aquí: **qué manda el cliente y qué NO**
 
-- **El cliente manda EXACTAMENTE lo que ya manda hoy** la consola por variante: `bounty.enabled`,
-  `bounty.priceCents`, `bounty.targetQty`. **Nada más.**
+- **El cliente manda EXACTAMENTE lo que el humano editó**, y en esta pantalla eso es: `bounty.enabled`,
+  `bounty.priceCents`, `bounty.targetQty` (+ la identidad de la variante: `productType`/`gradeKey`). **Nada más.**
+- **⛔⛔ v1.62.1 — LA CONSOLA DE BOUNTIES NO REENVÍA `sellOverrideCents` NI `buyOverrideCents`. NUNCA. NI SIQUIERA
+  «TAL COMO LOS LEYÓ».** Es la petición bloqueante nº 6 de ux-ui, contestada, y la respuesta es la contraria a la que
+  su diseño provisional aplicaba:
+  - **La pregunta ya tenía respuesta y ahora está MEDIDA, no deducida:** **campo omitido ⇒ NO SE TOCA**. La tabla
+    normativa vive en el bloque de `PUT …/variant-controls/...` (marca `<!-- CANON: semantica-de-omision -->`) y
+    **no se transcribe aquí** (§0-B.3 regla 8). Verificado contra el artefacto que corre —`mergeCents` y
+    `mergeBounty` en `variant-controls.service.ts`, más su test *«campo omitido conserva el valor persistido»*—,
+    porque una regla de dinero se comprueba en el código, no en otro documento (§0-B.3 regla 2).
+  - **Por qué el reenvío «defensivo» era el verdadero riesgo, y no la omisión:** convierte una edición de bounty en
+    una **sobrescritura de los tres controles de precio de la variante**, sobre un endpoint que **no tiene token de
+    concurrencia**. Entre el render de la lista y el `PUT` cabe un cambio hecho **en el drawer del binder** —la otra
+    superficie que escribe esta misma fila—, y el reenvío lo **revierte en silencio, sin que nadie lo pida, sobre el
+    precio publicado del storefront**. *El override manual del admin es el que gana siempre; por eso mismo nadie
+    puede reescribirlo desde una pantalla que no lo estaba editando.*
+  - **Regla, para que no vuelva:** *el cliente no compensa una regla del servidor*. Si una pantalla cree necesitar
+    reenviar un campo para conservarlo, **la que está mal es esa creencia**: se lee el contrato, y si el contrato no
+    lo dice, **se pregunta al arquitecto antes de escribir el parche** (regla 9 de `CLAUDE.md`). Norma general:
+    ARCHITECTURE **§0-B.3 regla 9**.
+  - **Verificable desde el frontend, y así se comprueba:** el `PUT` que emite esta pantalla al cambiar solo el precio
+    del bounty **no contiene las claves** `sellOverrideCents` ni `buyOverrideCents` (mutación **B-11** de §M2-B.6).
 - ⛔ **`curveQuoteCents`, `effective`, `suggestedCents`, `state`, `progress` y `remainingQty` son SALIDA, nunca
   entrada.** Si llegan en el body **se ignoran** (el `PUT` ya valida su cuerpo campo a campo y no los conoce), y el
   servidor **re-deriva la curva y la referencia de mercado en el momento del write**, contra el dato real de la
@@ -9316,7 +9471,7 @@ por variante**. *La superficie de escritura de dinero de este proyecto no crece 
 | `GET /buylist/bounties` (vitrina pública) | ⛔ **NO sirve, y no se toca** | **filtra a los rebasados por diseño** (criterio 91: todo lo publicado es mejor que la tarifa) — *justamente la fila que hay que ver*; además es `@Public()`, tope 50, sin paginación ni parámetros, y no conoce `apagada`/`completada`. **Darle una rama por rol sería meter una bifurcación de autorización en una superficie anónima de dinero: una regresión de seguridad, no un atajo.** |
 | `GET /admin/reports/pricing-brackets` | ⛔ **NO sirve, y no se toca** | agrega **operaciones consumadas** por bracket; su `byBasis.bounty` es *cuántas compras se pagaron a precio de bounty*, **no** qué bounties existen. Un contador de resultados no es un inventario de configuraciones. |
 | Badge «Bounty / Bounty rebasado» del binder | ♻️ **se conserva tal cual** | sigue siendo la alerta **en contexto** (§N.6: *«genera alerta en el binder»*). La consola **no lo sustituye**: el binder responde *«¿qué pasa con ESTA carta?»* y la consola *«¿qué pasa con TODOS?»* |
-| **Lo único que NACE** | ✅ **UN endpoint de LECTURA** (§M2-B.1) + el enum `state` | no existe ninguna lectura que devuelva bounties **no efectivos**, ni apagados, ni completados |
+| **Lo único que NACE** | ✅ **UN endpoint de LECTURA** (§M2-B.1) + el enum `state` *(+ su envoltorio de respuesta, `counts` incluido desde v1.62.1)* | no existe ninguna lectura que devuelva bounties **no efectivos**, ni apagados, ni completados |
 
 <a id="M2-B5"></a>
 ##### M2-B.5 — Lo que esta pantalla **NO** hace *(escrito para que no crezca sola)*
@@ -9347,12 +9502,34 @@ Cada línea es **una** mutación y **el** test que la mata:
 | **B-6** | abrir la lectura a `vault_operator` | `403` con token de `vault_operator` |
 | **B-7** | añadir una ruta mutadora al controller nuevo | el controller de §M2-B.1 expone **solo** `@Get`: inventario de rutas del módulo, rojo ante cualquier verbo de escritura bajo `admin/pricing/bounties` |
 | **B-8** | colapsar `completada` con `apagada` | fila con `bountyCompletedAt != null` ⇒ `state:"completada"`; fila apagada a mano ⇒ `"apagada"` |
+| **B-9** ⭐ *(v1.62.1)* | calcular `counts` **sobre la página** (o derivarlos de `data`) | **El candado del eje.** Fixture con **más de una página** y un `rebasada` **fuera de la página 1**: `counts.rebasada` **debe** ser ≥ 1 en la respuesta de `page=1`. Rojo si vale `0` o si iguala el conteo de `data` |
+| **B-10** *(v1.62.1)* | hacer que `counts` obedezca al filtro `state` (o colapsar `invalida`) | con `?state=rebasada`: `data` trae **solo** rebasadas **y** `counts.activa` sigue siendo > 0. Segundo caso: fila `bountyEnabled ∧ ¬(priceCents > 0)` ⇒ `counts.invalida == 1` **y** `counts.activa == 0`. Tercero (invariante): sin filtro `state`, `total` == suma de las **cinco** claves |
+| **B-11** ⭐ *(v1.62.1)* | que la consola de bounties **reenvíe** los overrides que leyó | **Test de FRONTEND** (§M2-B.3): editar **solo** el precio del bounty de una fila ⇒ el body del `PUT` **no contiene** las claves `sellOverrideCents` ni `buyOverrideCents`. *(La mitad de servidor —omitido conserva— **ya está cerrada** en `backend/test/pricing.variant-controls.spec.ts` y **no se re-asierta aquí**: dos candados sobre la misma regla se tapan entre sí.)* |
+| **B-12** *(v1.62.1)* | dejar de resolver `curveQuoteCents` en filas **apagadas** | fila con `bountyEnabled=false` y mercado resoluble ⇒ `pricing.bounty.curveQuoteCents != null`. Rojo si solo se resuelve para bounties vivos |
+| **B-13** *(v1.62.1)* | añadir una acción de alcance de conjunto | **Dos superficies:** (a) inventario de rutas — ningún verbo de escritura bajo `admin/pricing/bounties` (ya es **B-7**); (b) **frontend** — la pantalla **no expone** ningún control cuyo rótulo lleve un contador (`Apagar los {n}…`) ni multi-select con acción |
 
 ⛔ **Lo que NO se vuelve a testear aquí, a propósito:** `BOUNTY_TARGET_REQUIRED`, el default 2,
 `BOUNTY_PRICE_REQUIRED` y el `raw`-only **ya están cerrados** en `backend/test/pricing.variant-controls.spec.ts`, y
 esta pantalla **no los toca porque reusa ese endpoint**. Re-asertarlos aquí crearía **dos candados que se tapan entre
 sí**: el día que la regla cambie, uno de los dos quedará mintiendo y nadie sabrá cuál manda. *La cobertura de un
 endpoint reusado vive donde vive el endpoint.*
+
+<a id="M2-B7"></a>
+##### M2-B.7 — Lo pedido que YA ESTABA, y lo pedido que NO ENTRA (con su motivo) *(v1.62.1)*
+
+*Se escribe para que ninguna petición quede contestada solo en un resumen: un «ya estaba» sin decir **dónde** se
+vuelve a pedir dentro de dos semanas.*
+
+| Petición (ux-ui §28.15) | Veredicto | Dónde vive / por qué |
+|---|---|---|
+| **3 · `curveQuoteCents` también en filas APAGADAS** | ✅ **YA ESTABA — cerrado, y verificado en el código** | `composeVariantPricing` resuelve `bounty.curveQuoteCents` desde la **curva + referencia de mercado**, **sin mirar `bountyEnabled`** ⇒ una fila apagada trae su tarifa vigente igual que una viva. ⚠️ **`null` significa una cosa y solo una: la curva NO resuelve** (mercado pendiente / guardarraíl) — es el caso `SIN TARIFA`, **no** «está apagado». *La columna nunca sale en `—` por estar apagada.* Candado: **B-12** |
+| **4 · Filtro y orden server-side** | ✅ **YA ESTABA** | [`§M2-B.1`](#M2-B1): `state` (repetible), `setId`, `finish`, `q`, `sort`. ⚠️ **Los valores del enum son los de [`§M2-B.0`](#M2-B0)** —`activa`, `rebasada`, `invalida`, `completada`, `apagada`— y **son cinco**: no existe el vocabulario `outbid`/`active`/`off`/`completed` en la API. Traducir a rótulos de UI es **trabajo de i18n del frontend**, no un enum paralelo del contrato |
+| **5 · `state` derivado en el servidor** | ✅ **YA ESTABA — y NO es opcional** | [`§M2-B.1`](#M2-B1) lo declara **normativo**: el servidor lo deriva y **la UI lo obedece, no lo infiere** cruzando `enabled`/`effective`/`completedAt` en pantalla (misma doctrina que `priceBasis`, §N.7). Derivarlo en cliente sería la **quinta** implementación del predicado, y la única que nadie puede probar contra la curva |
+| **9 · «Exposición máxima»** (`Σ priceCents × remainingQty`) | ⏸️ **DIFERIDA — es pregunta al humano, no decisión técnica** | ux-ui tiene razón en lo técnico: **o la calcula el servidor sobre el conjunto, o no existe** (sumar una página es una cifra de dinero falsa). Pero **qué significa** es negocio: ¿solo `activa`, o todo lo encendido? ¿y una fila con `targetQty: null`, que hace la exposición **no acotada**? Abierta como **Q-B4** (ARCHITECTURE §10). **Si entra:** viene del servidor, sobre el mismo conjunto clasificado, y es **`null` —jamás `0`, jamás una suma parcial—** cuando `truncated: true` o cuando alguna fila viva no tiene objetivo. *Una proyección de dinero incompleta que se pinta como número es peor que no pintarla* |
+| **7 · `outbidSince`** («lleva 12 días rebasado») | ⛔ **NO ENTRA — y el dato NO SE INVENTA** | **No existe ninguna columna así**, y **no es derivable de lo que hay**: `updatedAt` dice *cuándo tocó alguien la fila*, no *cuándo el mercado la rebasó* — usarlo como aproximación pondría una antigüedad **falsa** junto a una decisión de dinero. Tenerlo de verdad exige **dos cosas nuevas**: una **columna** (rompe el **CERO DDL** de este pase) y **un observador que la escriba** al detectar el cruce en cada barrido, es decir **estado derivado persistido** —§0-B.2 clase B, lo que este diseño evita a propósito con `state`—. **Decisión del humano**, y si la quiere es **otro pase** con su propio diseño (regla 9). Mientras tanto: **la pantalla no muestra ninguna antigüedad, ni exacta ni aproximada** |
+| **8 · Apagado en lote** | ⛔ **RECHAZADO** | Las tres refutaciones, con la medida que decide, en [`§M2-B.2`](#M2-B2) |
+| **1 y 2 · Listado admin + `counts`** | ✅ **NORMADOS** | [`§M2-B.1`](#M2-B1) (`counts` es de v1.62.1) |
+| **6 · Semántica de omisión del `PUT`** | ✅ **CONTESTADA Y MEDIDA; el parche de cliente, PROHIBIDO** | [`§M2-B.3`](#M2-B3) + la marca `<!-- CANON: semantica-de-omision -->` del bloque de `variant-controls` |
 
 ---
 

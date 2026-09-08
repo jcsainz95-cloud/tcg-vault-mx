@@ -281,6 +281,19 @@ Doble veredicto por-stream aprobado; mergeado a `main` (`6c5763b`). Se despliega
   `pg_total_relation_size`; `du -sh /var/lib/postgresql/data/pgdata/*`; `pg_replication_slots`;
   `SELECT "capturedDate", count(*) FROM "PriceReference" GROUP BY 1 ORDER BY 1 DESC`.
 
+### Encontrado por el humano en producción (2026-09-08, tras publicar el ciclo de compra)
+
+#### P-55 · 🛒 El carrito de venta NO sobrevive al inicio de sesión — reportado por el humano
+- **Síntoma:** el cliente arma su carrito en el cotizador **sin haber iniciado sesión**; al entrar a su
+  cuenta para mandar la solicitud, **el carrito se pierde** y tiene que rehacerlo.
+- **Por qué importa, y no es cosmético:** el cotizador es la puerta de entrada del vendedor. Rehacer el
+  carrito es fricción **justo en el paso donde ya decidió vendernos**, y el abandono ahí se lleva la
+  venta entera. Es el mismo patrón que ya se curó del lado de la compra con el checkout de invitado.
+- **Estado:** **pendiente, sin diagnosticar.** No se ha medido si el carrito vive en memoria, en
+  `localStorage`, o si se pierde por el remonte del árbol tras autenticar.
+- **Rol dueño:** frontend (y arquitecto si resulta que hay que persistirlo server-side).
+- **Aplazado por decisión del humano**: lo reportó y pidió explícitamente dejarlo anotado.
+
 ### Encontrado en pruebas post-publicación (2026-08-23)
 
 #### P-47 · 💰 El mercado se aplana a todos los acabados (normal = reverse holo = holofoil) — EN CURSO
