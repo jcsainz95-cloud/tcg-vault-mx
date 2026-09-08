@@ -45,6 +45,22 @@ export interface VariantControlsResponse {
 
 const FINISH_VALUES: readonly Finish[] = Object.values(Finish);
 
+/**
+ * v1.51.2 · **D35 — el objetivo por defecto de un bounty nuevo: DOS.**
+ *
+ * No es un número técnico: es la **política que fijó el dueño** (*«hasta tener 2 en inventario»*,
+ * `PROJECT.md` §P / contrato §M2). Contesta **una sola** entrada —la **omisión** sobre una fila que
+ * no tenía objetivo—; **jamás** un `null` explícito, que es una respuesta distinta (`422
+ * BOUNTY_TARGET_REQUIRED`). *Un default es para «no lo dije», no para «dije que ninguno».*
+ *
+ * ⚠️ **Tiene un gemelo en SQL y no se pueden importar entre sí:** el backfill de M-46
+ * (`prisma/migrations/20260901120000_m46_buylist_acquisition_cycle/migration.sql`, bloque 9) rellena
+ * con **2** los bounties vivos sin meta. Si esta política cambia, **los dos sitios cambian**: el de
+ * aquí para las filas nuevas y —solo si el dueño quiere reescribir historia— una migración nueva.
+ * Una migración ya aplicada **no se edita** (rompe su checksum).
+ */
+const BOUNTY_DEFAULT_TARGET_QTY = 2;
+
 /** Campos auditables de la fila (snapshot estable para before/after de AuditLog). */
 function snapshot(row: VariantPriceOverride | null) {
   if (!row) return null;
@@ -236,9 +252,29 @@ export class VariantControlsService {
    *  - objeto → solo `productType=raw` (la vitrina pública es de sueltas, §4.26a);
    *    `enabled:true` exige precio efectivo > 0 (BOUNTY_PRICE_REQUIRED) y ≥ sugerido de compra por
    *    regla del momento cuando el sugerido resuelve (BOUNTY_BELOW_RULE; pending ⇒ se acepta);
-   *    `targetQty` ≥ 1, `null` = sin objetivo (no se auto-apaga).
    *  - Al (re)ENCENDER se limpia `bountyCompletedAt` (un bounty re-armado ya no está "completado";
    *    el contador `bountyAcquiredQty` SÍ se conserva — doctrina "apagar no borra el contador").
+   *
+   * ### ⚠️ v1.54 · B-2 — **EL OBJETIVO DE UN BOUNTY VIVO ES OBLIGATORIO** (D32 + D35, contrato §M2)
+   * Faltaba entero: `targetQty: null` se escribía tal cual y el bounty quedaba **vivo y sin techo**
+   * —la mesa de decisión jamás pintaba «no comprar», acumulara las copias que acumulara—, que es
+   * exactamente el agujero que D32 cerró. El backfill de M-46 limpió el **histórico**; esto cierra la
+   * **puerta**. La tabla del contrato, entera:
+   *
+   * | `targetQty` con `enabled:true` | Resultado |
+   * |---|---|
+   * | **omitido**, fila SIN objetivo previo | **2** (`BOUNTY_DEFAULT_TARGET_QTY`) |
+   * | **omitido**, fila CON objetivo previo | se conserva (*omitido no se toca*) |
+   * | entero **≥ 1** | ese valor |
+   * | **`null` explícito** | **422 `BOUNTY_TARGET_REQUIRED`** |
+   * | `0`, negativo o no entero | **422 `BOUNTY_TARGET_REQUIRED`** |
+   *
+   * **La forma del código sigue a la del contrato, no al revés:** el error dispara *«exactamente
+   * cuando la petición dejaría un bounty vivo sin objetivo válido»*, así que **se evalúa sobre el
+   * ESTADO RESULTANTE** (`next`) y **después** de conocer `enabled`, igual que su hermano
+   * `BOUNTY_PRICE_REQUIRED`. Por eso la aplicación del valor (forma) y la exigencia de que exista
+   * (regla) están separadas: con `enabled:false` un `null` **sigue limpiando** —no hay bounty vivo
+   * que proteger— y solo el valor **imposible** (`0`, negativo, no entero) queda como error de forma.
    */
   private async mergeBounty(
     next: {
@@ -273,20 +309,30 @@ export class VariantControlsService {
     if (b.priceCents !== undefined) {
       next.bountyPriceCents = assertCents('bounty.priceCents', b.priceCents);
     }
+    // (1) FORMA — se aplica lo que trae la petición. Todavía NO se juzga si basta: eso depende de
+    //     `enabled`, que se lee abajo. `null` LIMPIA (regla del endpoint) y un valor IMPOSIBLE no se
+    //     escribe nunca; se recuerda para que la rama de `enabled` le ponga el código que le toca.
+    let targetMalformed = false;
     if (b.targetQty !== undefined) {
       if (b.targetQty === null) {
-        next.bountyTargetQty = null; // sin objetivo: solo contador, nunca auto-off
+        next.bountyTargetQty = null;
       } else if (typeof b.targetQty !== 'number' || !Number.isInteger(b.targetQty) || b.targetQty < 1) {
-        throw invalid('bounty.targetQty must be an integer >= 1 or null', {
-          field: 'bounty.targetQty',
-          value: b.targetQty,
-        });
+        targetMalformed = true;
       } else {
         next.bountyTargetQty = b.targetQty;
       }
     }
 
     if (!b.enabled) {
+      // Apagado: no hay bounty vivo cuyo techo proteger ⇒ `BOUNTY_TARGET_REQUIRED` NO aplica (su
+      // condición es literalmente «bounty vivo sin objetivo»). Un valor imposible sigue siendo un
+      // error de FORMA: `0` no es una meta, ni siquiera para un bounty apagado.
+      if (targetMalformed) {
+        throw invalid('bounty.targetQty must be an integer >= 1 or null', {
+          field: 'bounty.targetQty',
+          value: b.targetQty,
+        });
+      }
       next.bountyEnabled = false;
       return;
     }
@@ -296,6 +342,24 @@ export class VariantControlsService {
       throw BusinessException.validation(
         'BOUNTY_PRICE_REQUIRED',
         'bounty.priceCents (> 0) is required when enabling a bounty',
+      );
+    }
+    // (2) REGLA — enabled:true ⇒ objetivo OBLIGATORIO (D32/D35). El default de D35 **solo** contesta
+    //     la omisión, y solo cuando no hay nada que conservar: *«no lo dije»* tiene respuesta de
+    //     producto, *«dije que ninguno»* no — convertir un `null` explícito en un `2` respondería una
+    //     pregunta distinta de la que hizo el cliente de la API, y en la única dirección que reabre
+    //     el agujero.
+    if (b.targetQty === undefined && next.bountyTargetQty == null) {
+      next.bountyTargetQty = BOUNTY_DEFAULT_TARGET_QTY;
+    }
+    // El predicado es sobre el ESTADO RESULTANTE, no sobre el input: así cubre de una vez el `null`
+    // explícito, el valor imposible y —fail-safe— una fila LEGACY con un objetivo inválido que se
+    // re-enciende sin mandar `targetQty`. *Se prohíbe el estado, no la forma de llegar a él.*
+    if (targetMalformed || next.bountyTargetQty == null || next.bountyTargetQty < 1) {
+      throw BusinessException.validation(
+        'BOUNTY_TARGET_REQUIRED',
+        'bounty.targetQty (integer >= 1) is required when enabling a bounty',
+        { field: 'bounty.targetQty', ...(b.targetQty !== undefined ? { value: b.targetQty } : {}) },
       );
     }
     // v2.0 (P-48, §4.36.6 / criterio 91) — GATE «CREAR/EDITAR» del bounty, contra la CURVA vigente.

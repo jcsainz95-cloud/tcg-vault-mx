@@ -52,7 +52,7 @@ export function GradedEstimateCaptureSection() {
   const t = useTranslations('admin.m2.gradedEstimateCapture');
   const locale = useLocale() as AppLocale;
   const qc = useQueryClient();
-  const getError = useErrorMessage();
+  const getError = useErrorMessage('operator');
 
   const [query, setQuery] = useState('');
   const [card, setCard] = useState<CardDTO | null>(null);

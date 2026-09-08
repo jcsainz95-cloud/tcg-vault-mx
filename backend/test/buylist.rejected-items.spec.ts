@@ -26,7 +26,9 @@ function buildService(prisma: any): BuylistService {
     prisma as unknown as PrismaService,
     // v1.22-2 / N-15: adminRejectedItems deriva displayFinishes de este lote (vacío = sin supresión).
     { getPricedRawFinishesBatch: jest.fn(async () => new Map()) } as unknown as PricingService,
-    {} as SettingsService,
+    // v1.51.20 · BL-29: la proyección admin deriva `offerIssueDeadlineAt` y `offerReissueAlert` de
+    // dos diales, así que `adminGet` necesita un `SettingsService` aunque este spec mire los rechazos.
+    { getNumber: jest.fn(async () => 7) } as unknown as SettingsService,
     {} as UsersService,
     pii,
   );
@@ -103,7 +105,13 @@ describe('BuylistService.adminRejectedItems — shape RejectedSellItemDTO + orde
 
     expect(row.id).toBe('sri-1');
     expect(row.sellRequestId).toBe('sr-1'); // deep-link al detalle
-    expect(row.seller).toEqual({ id: 'user-1', name: 'Ash Ketchum', email: 'ash@example.com' });
+    // v1.51 · BL-15 (D12): `AdminSellerRef` gana `phone`. `null` en cuentas de Google / viejas.
+    expect(row.seller).toEqual({
+      id: 'user-1',
+      name: 'Ash Ketchum',
+      email: 'ash@example.com',
+      phone: null,
+    });
     // T-1: card es la proyección canónica CardDTO (§11) — setName PLANO, subtypes y
     // availableFinishes presentes; la relación Prisma cruda `set` NO se propaga.
     expect(row.card.name).toBe('Pidgey');
@@ -265,7 +273,12 @@ describe('SellItemDTO — campos de rechazo en las proyecciones (listMine/getMin
     };
     const svc = buildService(prisma);
     const res: any = await svc.adminGet('sr-1');
-    expect(res.seller).toEqual({ id: 'user-1', name: 'Ash Ketchum', email: 'ash@example.com' });
+    expect(res.seller).toEqual({
+      id: 'user-1',
+      name: 'Ash Ketchum',
+      email: 'ash@example.com',
+      phone: null,
+    });
     // El join crudo de User NO se propaga (solo el ref proyectado).
     expect(res.user).toBeUndefined();
     expect(res.items[0].rejectionReason).toBe('no es NM: whitening');

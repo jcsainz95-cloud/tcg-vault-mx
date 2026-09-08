@@ -74,8 +74,12 @@ async function fetchQuoterIndex(filters: MasterSetIndexFilters): Promise<MasterS
     year: s.year,
     // v1.52 (M-47): `GET /buylist/sets` trae el logo (contrato §GET /buylist/sets: «obligatorio, no
     // opcional» — es la ÚNICA fuente de la teja del cotizador). Si no se mapeara aquí, ésta sería
-    // la única de las cuatro retículas sin logo, y nada fallaría hasta verlo con los ojos.
-    logoUrl: s.logoUrl ?? null,
+    // la única de las cuatro retículas sin logo.
+    // ⚠️ Sin `?? null`, y es DELIBERADO (DT-Gd): `listBuylistSets()` devuelve `BuylistSetDTO`, que
+    // declara `logoUrl: string | null` REQUERIDO. Sin el `??`, el día que el campo desaparezca del
+    // contrato del cotizador esta línea **deja de compilar** — antes se tragaba el `undefined` y
+    // «nada fallaba hasta verlo con los ojos».
+    logoUrl: s.logoUrl,
     catalogCardCount: 0,
     distinctCardsOwned: 0,
     completionPct: null,

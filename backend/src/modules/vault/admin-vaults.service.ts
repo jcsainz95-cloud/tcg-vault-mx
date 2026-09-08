@@ -99,13 +99,14 @@ export class AdminVaultsService {
     const userById = new Map(users.map((u) => [u.id, u]));
 
     // (3) Valuación en LOTE — misma base que el portafolio §3 (referencia vigente por acabado).
+    // v1.53 (§4.40.4b, MONEY) — LECTURA: una pieza `graded` sin identidad de slab no aporta clave al
+    // lote; abajo suma a `pendingPriceCount` y queda EXCLUIDA del total, que es la verdad. Antes se
+    // valuaba la bóveda del cliente al precio de un PSA 10.
     const refs = await this.pricing.getReferencesBatch(
-      pieces.map((p) => ({
-        cardId: p.cardId,
-        productType: p.productType,
-        gradeKey: this.pricing.gradeKeyFor(p),
-        finish: p.finish,
-      })),
+      pieces.flatMap((p) => {
+        const gk = this.pricing.tryGradeKeyFor(p);
+        return gk ? [{ cardId: p.cardId, productType: p.productType, gradeKey: gk, finish: p.finish }] : [];
+      }),
     );
 
     const agg = new Map<
@@ -117,9 +118,8 @@ export class AdminVaultsService {
       if (!userById.has(userId)) continue; // fuera del filtro q (o usuario inexistente)
       const a = agg.get(userId) ?? { pieceCount: 0, totalValueMxnCents: 0, pendingPriceCount: 0 };
       a.pieceCount += 1;
-      const ref = refs.get(
-        `${p.cardId}|${p.productType}|${this.pricing.gradeKeyFor(p)}|${p.finish}`,
-      );
+      const gk = this.pricing.tryGradeKeyFor(p);
+      const ref = gk ? refs.get(`${p.cardId}|${p.productType}|${gk}|${p.finish}`) : undefined;
       if (ref && ref.status === 'priced' && ref.referenceMxnCents != null) {
         a.totalValueMxnCents += ref.referenceMxnCents;
       } else {

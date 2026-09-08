@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, Logger, Param, Post, Put, Query } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Inject, Logger, Optional, Param, Post, Put, Query } from '@nestjs/common';
 import { Finish, PendingPriceContext, Prisma, PriceRefKind, ProductType, Role } from '@prisma/client';
 import { FINISH_VALUES, PRODUCT_TYPE_VALUES } from '../../common/enum-values';
 import { Allow, IsIn, IsInt, IsNumber, IsObject, IsOptional, IsString, Min } from 'class-validator';
@@ -7,6 +7,12 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { BusinessException } from '../../common/business.exception';
 import { ManualOverrideResult, PricingService, toPriceHistoryEntry } from './pricing.service';
 import { isCanonicalGradeKey } from './pricing.types';
+// v1.51.19 (BL-25, §4.39m.8): disparador (c) — el override puede volver resoluble el precio de una
+// variante. El puerto es @Global; NO se importa `InventoryModule` (§4.39f).
+import {
+  INVENTORY_PUBLISH_PORT,
+  InventoryPublishPort,
+} from '../inventory/inventory-publish.port';
 import { FxService } from './fx.service';
 import { SettingsService } from '../settings/settings.service';
 import {
@@ -165,6 +171,22 @@ export class PricingController {
     private readonly priceSync: PriceSyncJobService,
     private readonly priceIngest: PriceIngestService,
     private readonly variantControls: VariantControlsService,
+    // ⚠️ v1.51.19 (BL-25 · §4.39m.8) — **DISPARADOR (c), productor «acto puntual»**: al fijar un
+    // override, el precio de esa variante puede haberse vuelto resoluble.
+    //
+    // ⚠️⚠️ **El consumidor es ESTE CONTROLLER, no `PricingService`, y no es una preferencia de
+    // estilo:** `InventoryService` ya depende de `PricingService`, así que inyectar el puerto allí
+    // cerraría `Pricing → PORT → Inventory → Pricing`. ⛔ **`forwardRef` está PROHIBIDO para esto**
+    // (§4.39m.8): *un ciclo que se «arregla» así sigue siendo un ciclo*, y aquí uniría **los dos
+    // módulos de dinero** justo por la frontera que el puerto existe para mantener abierta. Un
+    // controller es una **hoja**: nadie lo inyecta.
+    //
+    // `@Optional` porque el disparo es **best-effort** —el override YA está escrito y auditado; que
+    // no podamos publicar no puede tumbarlo— y porque la red existe: lo que no se publique **queda en
+    // `pending-publish`**.
+    @Optional()
+    @Inject(INVENTORY_PUBLISH_PORT)
+    private readonly inventoryPublish?: InventoryPublishPort,
   ) {}
 
   /**
@@ -403,7 +425,45 @@ export class PricingController {
         ...(dto.productType === 'graded' ? { intent: dto.intent } : {}),
       },
     });
+    // ⚠️ v1.51.19 (BL-25 · §4.39m.8) — **DISPARADOR (c).** POST-escritura y POST-bitácora: el
+    // override es el hecho, publicar es la consecuencia. Una sola variante, una sola llamada.
+    // **No se ordena publicar**: se pide reevaluar, y las guardas viven dentro de `inventory`.
+    await this.triggerPublishForVariant({
+      cardId: dto.cardId,
+      productType: dto.productType,
+      gradeKey: dto.gradeKey,
+      finish: dto.finish ?? 'normal',
+    });
     return { data: toPriceHistoryEntry(ref) };
+  }
+
+  /**
+   * v1.51.19 (BL-25 · §4.39m.8) — el disparo del override, **best-effort y sin excepciones hacia
+   * fuera**. Un fallo aquí **no revierte el override** (ya está escrito y auditado) y **no deja nada
+   * invisible**: la pieza que no se publique **sigue en `GET /admin/inventory/pending-publish`**, que
+   * es la red de este puerto. *Se degrada el intento, nunca el hecho.*
+   */
+  private async triggerPublishForVariant(v: {
+    cardId: string;
+    productType: ProductType;
+    gradeKey: string;
+    finish: Finish;
+  }): Promise<void> {
+    if (!this.inventoryPublish) return;
+    try {
+      const res = await this.inventoryPublish.reevaluateVariantsForPublication([v]);
+      const published = res.filter((r) => r.outcome === 'published').length;
+      if (published > 0) {
+        this.logger.log(
+          `pricing.override → auto-publicadas ${published} pieza(s) de ${v.cardId}/${v.gradeKey}/${v.finish}`,
+        );
+      }
+    } catch (e) {
+      this.logger.warn(
+        `pricing.override: disparo de publicación falló para ${v.cardId}/${v.gradeKey}: ` +
+          `${e instanceof Error ? e.message : String(e)}`,
+      );
+    }
   }
 
   /**

@@ -6,11 +6,62 @@
  * Todos los montos son enteros en centavos MXN (*Cents), como el resto del sistema.
  */
 
+/**
+ * ⚠️ v1.51.20 (D11, criterio 128(c)) — **`phone` es obligatorio en TODOS los fixtures de usuario.**
+ * `POST /buylist/requests` responde `422 PHONE_REQUIRED` sin celular en la cuenta, así que un
+ * fixture sin él haría que **ningún** flujo de venta arrancara. Es `User.phone` —NUESTRO dato para
+ * llamar al vendedor (D12)— y **no** el de la etiqueta, que es `Address.phone`. Se parecen y no son
+ * el mismo dato: por eso llevan valores DISTINTOS a propósito, para que un test que los confunda
+ * falle en vez de pasar por casualidad.
+ */
 export const E2E_USERS = {
-  customer: { email: 'customer@e2e.local', password: 'Customer123!', name: 'E2E Customer', role: 'customer' as const },
-  customer2: { email: 'customer2@e2e.local', password: 'Customer123!', name: 'E2E Customer Two', role: 'customer' as const },
-  operator: { email: 'operator@e2e.local', password: 'Operator123!', name: 'E2E Operator', role: 'vault_operator' as const },
-  admin: { email: 'admin@e2e.local', password: 'Admin123!', name: 'E2E Admin', role: 'super_admin' as const },
+  customer: { email: 'customer@e2e.local', password: 'Customer123!', name: 'E2E Customer', role: 'customer' as const, phone: '5511110001' },
+  customer2: { email: 'customer2@e2e.local', password: 'Customer123!', name: 'E2E Customer Two', role: 'customer' as const, phone: '5511110002' },
+  operator: { email: 'operator@e2e.local', password: 'Operator123!', name: 'E2E Operator', role: 'vault_operator' as const, phone: '5511110003' },
+  admin: { email: 'admin@e2e.local', password: 'Admin123!', name: 'E2E Admin', role: 'super_admin' as const, phone: '5511110004' },
+} as const;
+
+/**
+ * v1.51.20 (D36/D37) — **la dirección de ORIGEN del vendedor, sembrada para los DOS customers.**
+ * Sin ella `POST /buylist/requests` responde `422 PICKUP_ADDRESS_REQUIRED` y el ciclo no arranca.
+ * `phone` es el del DOMICILIO (va impreso en la etiqueta), distinto de `User.phone`.
+ */
+export const E2E_PICKUP_ADDRESS = {
+  line1: 'Av. E2E 123',
+  neighborhood: 'Centro',
+  city: 'CDMX',
+  state: 'CDMX',
+  postalCode: '01000',
+  country: 'MX',
+  phone: '5555555555',
+} as const;
+
+/**
+ * v1.51.20 (M-46, §4.39) — **las DOS solicitudes de venta del seed.** Existen porque `seed-e2e` no
+ * creaba **ninguna** `SellRequest`, y ésa era la razón de raíz de que **doce** pruebas de UI del
+ * ciclo se saltaran siempre (`test.skip('sin solicitud ofertada en este entorno')`): el arnés no
+ * puede fabricar una oferta emitida desde la UI —hace falta un operador con la mesa de decisión— y
+ * sin dato en la BD el gate del frontend **nunca corría de verdad**.
+ *
+ * ⚠️ **El ORDEN de creación importa y es normativo para la suite del portal.** `listMine` ordena por
+ * `createdAt desc`, y `buylist-offer.spec.ts` tiene un caso que exige que **la PRIMERA fila NO tenga
+ * oferta** (mira el estado previo). Por eso la `ofertada` se siembra **antes** (queda más abajo) y la
+ * `cotizada` **después** (queda arriba). *Un fixture cuyo orden se elige a ciegas es un test que se
+ * salta solo.*
+ */
+export const E2E_SELL_REQUESTS = {
+  /** `ofertada` con la oferta ENVIADA: los tres montos congelados y el plazo vivo. */
+  offered: {
+    folioHint: 'e2e-offered',
+    /** charizard NM: la curva paga 50 % de $1,000. Es el BRUTO congelado de la oferta. */
+    grossCents: 50000,
+    /** Tarifa de envío congelada al ofertar (D25/D31: una sola banda, siempre se descuenta). */
+    shippingFeeCents: 18000,
+    /** NETO ANUNCIADO = max(0, bruto − envío). Es la cifra vinculante frente al vendedor. */
+    netCents: 32000,
+  },
+  /** `cotizada` sin oferta: la fila que el portal pinta como «te debemos una respuesta». */
+  quoted: { folioHint: 'e2e-quoted' },
 } as const;
 
 export const E2E_SET = { externalId: 'e2e-base', name: 'E2E Base Set', series: 'E2E', releaseDate: '1999/01/09' } as const;
@@ -205,7 +256,8 @@ export const E2E_SET_EXPECTED_NUMBERS = ['4', '16', '17', '20', '25', '30', '31'
 /**
  * Piezas físicas (InventoryItem) deterministas por folio. Los `E2E-LST-*` son de la
  * PLATAFORMA y vendibles; `E2E-CUS-*` están en la bóveda del `customer` para probar
- * portafolio/retiro sin depender del webhook.
+ * portafolio/retiro sin depender del webhook; el `E2E-STK-*` es de la PLATAFORMA y **NO**
+ * vendible todavía — vive en la cola de «listas para publicar» (§4.39m.1).
  */
 export const E2E_FOLIOS = {
   listedCharizard: 'E2E-LST-0001', // platform listed, sin listPrice → salePrice = ref×(1+markup)
@@ -224,6 +276,29 @@ export const E2E_FOLIOS = {
   // carta de los estimados RANCIOS/AUTOMÁTICOS que la API del contrato no puede fabricar.
   listedFourthRaw: 'E2E-LST-0008',
   listedStaleEst: 'E2E-LST-0009',
+  /**
+   * ⚠️ v2.1.10 — **LA PIEZA QUE HABITA LA COLA DE «LISTAS PARA PUBLICAR»** (§4.39m.1, criterio 125).
+   *
+   * **Por qué existe.** El predicado de esa cola es `ownerType='platform' ∧ status='in_stock' ∧
+   * (sin ubicación ∨ precio no resoluble)`, y **el seed no dejaba NI UNA sola pieza `in_stock`**:
+   * las nueve `E2E-LST-*` nacen `listed`. La cola salía **vacía por falta de dato**, no porque el
+   * back-office estuviera al día — y la pantalla que existe para que *«una carta comprada y pagada
+   * no se quede quieta sin que nada lo señale»* se verificaba **sin nada que señalar**. El hueco es
+   * **preexistente** (el seed nunca sembró `in_stock`, ni una vez en toda su historia) y solo se vio
+   * cuando la suite E2E completa corrió por primera vez contra el stack real.
+   *
+   * **Por qué le falta la UBICACIÓN y no el precio.** Es el caso que ocurre de verdad: la conversión
+   * desde M5 **no exige ubicación a propósito** (§4.39m.3 — exigirla atoraría el pago al vendedor),
+   * así que la pieza nace en una caja que todavía no existe. El precio, en cambio, **resuelve**:
+   * contra el stack real todas las piezas de la cola tienen precio resoluble, y forzar lo contrario
+   * sería fabricar una coincidencia de fixture. Además así la fila ejercita el invariante de dinero
+   * de la cola —**jamás `MX$0.00` para «no resoluble»**, §7.3—: se pinta un importe REAL, y una
+   * regresión que resolviera cero se vería.
+   *
+   * ⚠️ **NO le pongas ubicación ni la publiques «para dejarla bonita»**: en cuanto no le falte nada,
+   * la auto-publicación la saca sola (sin botón, D10) y la cola vuelve a quedar vacía.
+   */
+  pendingPublishNoLocation: 'E2E-STK-0001',
 } as const;
 
 export const E2E_LOCATIONS = {

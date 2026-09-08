@@ -25,7 +25,7 @@ import {
  * ─────────────────────────────────────────────────────────────────────────────────────────────
  * EL ARNÉS E2E NO PUEDE GASTAR CRÉDITOS DE UN PROVEEDOR DE PAGA (ARCHITECTURE §4.38r.6.1)
  *
- * **Qué se está probando y por qué aquí.** Desde el colapso a un solo dial (M-46), el `PUT` que el
+ * **Qué se está probando y por qué aquí.** Desde el colapso a un solo dial (M-48 —era `M-46`, v1.54(1)), el `PUT` que el
  * arnés hace en CADA corrida —`{ gradingHookEnabled: 'on' }`— dejó de encender solo la exhibición:
  * enciende también la **obtención** desde un proveedor de paga. La protección que existía hoy vivía
  * en el proveedor del backend (sale con `warn` si no hay llave) y dependía de que la llave estuviera
@@ -277,7 +277,7 @@ describe('e2e · el arnés no puede encender el dial por su cuenta', () => {
   /**
    * Segundo candado, estructural: el literal que enciende el dial vive **solo** en el guardarraíl.
    * Si alguien vuelve a escribir el `PUT` a mano en el arnés —que es exactamente cómo estaba antes
-   * de M-46—, este test lo dice. Sin él, el candado de comportamiento se esquiva con una línea.
+   * de M-48—, este test lo dice. Sin él, el candado de comportamiento se esquiva con una línea.
    */
   it('el arnés no contiene ningún PUT que ponga el dial en `on`', () => {
     expect(harness).not.toMatch(/gradingHookEnabled['"]?\s*:\s*['"]on['"]/);

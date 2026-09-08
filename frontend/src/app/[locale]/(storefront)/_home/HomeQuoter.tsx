@@ -9,6 +9,7 @@ import type { AppLocale } from '@/i18n/routing';
 import { formatMoneyCents } from '@/lib/format';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import { EditorialLink } from '../_shared/EditorialLink';
+import { BuylistShippingNote } from '@/components/domain/BuylistShippingNote';
 import { Link } from '@/i18n/navigation';
 import { cn } from '@/lib/cn';
 
@@ -136,25 +137,54 @@ export function useHomeQuoter(): HomeQuoterState {
 /**
  * Panel visual del cotizador (artboard 1a, columna derecha del hero / sección móvil).
  * `withTrust` pinta los dos renglones de confianza al pie (solo variante del hero).
+ *
+ * §23.3g fila 0 (v2.3.2): este panel ES el cotizador —se rotula así y cotiza contra
+ * POST /buylist/quote—, así que D31 exige que diga la regla del envío. Dos consecuencias
+ * que NO son cosméticas:
+ * - El total se rotula `buylist.quote.money.cardsValue` («Valor de tus cartas»), la MISMA
+ *   clave del carrito y del resumen de crear. Se retiró `home.quoter.wePay` («Te pagamos»):
+ *   prometía un depósito por el bruto cuando el envío se descuenta de ese monto (§23.14.2a).
+ *   No se crea una clave gemela — un segundo string con el mismo significado es justo el
+ *   mecanismo por el que este rótulo se desincronizó.
+ * - `BuylistShippingNote` va en el CUERPO del panel y FUERA de `withTrust`: esa banda no se
+ *   pinta en móvil (`withTrust={false}`), y una regla de dinero que solo existe en escritorio
+ *   no es una regla. Se renderiza siempre, con y sin líneas (§23.3k: no depende de datos).
+ *
+ * **⚠ `surface` — el panel se monta DOS VECES por diseño, y hasta v2.3.8 las dos copias eran
+ * indistinguibles** (§23.14.7-7). El home pinta este panel en la **columna del hero**
+ * (`hidden lg:flex`) y como **sección móvil** (`lg:hidden`): a cada ancho **una está oculta por
+ * diseño**, que es lo correcto. Pero con el mismo identificador, **una comprobación no puede
+ * saber cuál está mirando** — y eso no es teórico: una prueba cogió «la primera», dio con la
+ * copia de escritorio a 390px y **se documentó como defecto de pantalla lo que era un defecto de
+ * medición**. `surface` es obligatorio a propósito: un tercer montaje **tiene que declararse**.
  */
 export function HomeQuoterPanel({
   state,
+  surface,
   withTrust = true,
   className,
 }: {
   state: HomeQuoterState;
+  /** Cuál de los dos montajes del diseño es éste. Obligatorio: sin él, no es distinguible. */
+  surface: 'hero' | 'mobile';
   withTrust?: boolean;
   className?: string;
 }) {
   const t = useTranslations('home');
   const tc = useTranslations('common');
+  // Rótulo del total y nota del envío viven en `buylist`: son del cotizador, no del home.
+  const tb = useTranslations('buylist');
   const locale = useLocale() as AppLocale;
   const {
     term, setTerm, searching, results, showResults, lines, add, addFirst, remove, totalCents, pendingCount,
   } = state;
 
   return (
-    <div className={cn('flex w-full flex-col', className)}>
+    <div
+      data-testid={`home-quoter-${surface}`}
+      data-quoter-surface={surface}
+      className={cn('flex w-full flex-col', className)}
+    >
       <div className="flex items-center justify-between border-b border-border px-5 py-3.5 lg:px-6">
         <span className="eyebrow">{t('quoter.label')}</span>
         <span className="eyebrow">MXN · {tc('withoutIva')}</span>
@@ -284,7 +314,7 @@ export function HomeQuoterPanel({
               </div>
             ))}
             <div className="flex items-baseline justify-between pt-3.5">
-              <span className="eyebrow">{t('quoter.wePay')}</span>
+              <span className="eyebrow">{tb('quote.money.cardsValue')}</span>
               <span className="tabular font-mono text-[19px] text-text">
                 {totalCents != null ? formatMoneyCents(totalCents, locale) : '—'}
               </span>
@@ -296,6 +326,12 @@ export function HomeQuoterPanel({
             )}
           </div>
         )}
+
+        {/* §23.3g fila 0 · §23.14.2a: la regla del envío, en la PRIMERA pantalla de dinero del
+            embudo. Fuera de los dos brazos del ternario ⇒ se pinta con cero líneas y con líneas
+            por igual, sin esqueleto y sin moverse; y fuera de `withTrust` ⇒ también en móvil.
+            Sin cifras (D43): la tarifa solo aparece con número en la oferta y en `offer.terms`. */}
+        <BuylistShippingNote surface={`home-${surface}`} className="mt-3" />
 
         <EditorialLink href="/buylist" className="mt-6 inline-block">
           {t('quoter.continue')}

@@ -4,7 +4,7 @@
 # TCG Vault MX — comparador SOLO-LECTURA del gancho de grading
 #   · v1.50.3 (§4.38p): los 3 diales de M2 (manualFreshnessDays / minSampleCount /
 #     maxRawMultiple) contra su default nuevo.
-#   · v1.51  (§4.38r, M-46): el **DIAL ÚNICO** `grading_hook_enabled` — el que
+#   · v1.51  (§4.38r, M-48): el **DIAL ÚNICO** `grading_hook_enabled` — el que
 #     gobierna EXHIBICIÓN **Y** OBTENCIÓN (créditos de un proveedor de paga).
 # =============================================================================
 # QUÉ HACE (y qué NO hace, que importa más):
@@ -19,7 +19,7 @@
 #          · Traduce `ingestMaxCardsPerRun` a **créditos/día** (el presupuesto de
 #            §4.38r.3.1), porque un tope que nadie tradujo a créditos no es un
 #            presupuesto: es un número.
-#          · Detecta que el binario desplegado es **PRE-M-46** (proyecta claves
+#          · Detecta que el binario desplegado es **PRE-M-48** (proyecta claves
 #            retiradas o `ingestEnabled`) y para en seco.
 #
 #   NO HACE · No escribe NADA. Ni `PUT`, ni `UPDATE`, ni un `curl -X` de escritura.
@@ -30,7 +30,7 @@
 #
 # ⚠️ LA TRAMPA DE DIAGNÓSTICO QUE ESTE SCRIPT EXISTE PARA NO CAER (§4.38r.1)
 #   En toda base ya sembrada SOBREVIVEN, huérfanas e inertes, las dos claves que
-#   M-46 retiró: `graded_estimates_enabled` y `graded_estimate_ingest_enabled`.
+#   M-48 retiró: `graded_estimates_enabled` y `graded_estimate_ingest_enabled`.
 #   No se borran a propósito (borrarlas sería escribir en la config de producción
 #   para lograr CERO efecto, §11.0-4; y son lo que mantiene fail-closed al código
 #   viejo si hay rollback). El precio es que **mienten a quien lea la tabla a
@@ -38,7 +38,7 @@
 #   y concluye que el ingest está apagado **mientras gasta**.
 #   Este script NO consulta esas dos claves, y no puede: la API ya no las
 #   proyecta. Si alguna aparece en una respuesta, es que el binario desplegado
-#   es anterior a M-46 ⇒ se para (rc=2). Para VERLAS —y verlas rotuladas— la vía
+#   es anterior a M-48 ⇒ se para (rc=2). Para VERLAS —y verlas rotuladas— la vía
 #   es la línea de inventario del arranque:
 #       railway logs --service backend | grep 'config inventory'
 #   que las lista bajo «claves RETIRADAS presentes en la base (INERTES, NO SE
@@ -77,7 +77,7 @@
 #        (20 gana sobre 10: si algo diverge, se pregunta antes de aplicar nada.)
 #        Incluye el dial único con un valor que no es `on` ni `off`.
 #   2  — error de uso / de entorno / de CONTRATO (falta var, falta jq, HTTP != 200,
-#        el DTO no trae una clave, o trae una que M-46 retiró ⇒ el binario
+#        el DTO no trae una clave, o trae una que M-48 retiró ⇒ el binario
 #        desplegado no es el que creemos). 2 gana sobre 20 y sobre 10: si no
 #        sabemos qué corre, no se toca nada.
 #
@@ -137,7 +137,7 @@ field() {
 }
 
 # =============================================================================
-# PASO 0 — EL DIAL ÚNICO (v1.51, M-46). Va PRIMERO porque es el único que gasta.
+# PASO 0 — EL DIAL ÚNICO (v1.51, M-48). Va PRIMERO porque es el único que gasta.
 # =============================================================================
 log "PASO 0 — GET $SETTINGS_ENDPOINT  (solo lectura) — el DIAL ÚNICO del gancho"
 get_json "$SETTINGS_ENDPOINT" "$SET_OUT" "los diales de M10"
@@ -147,16 +147,16 @@ RC=0
 # --- 0.a Claves RETIRADAS que el binario no debería proyectar nunca más --------
 # `getAllDto()` itera SETTING_DTO_MAP: si una clave está en el mapa, SIEMPRE viaja
 # (cae al default cuando no hay fila). Que aparezca ⇒ el mapa aún las tiene ⇒
-# binario PRE-M-46. No es una opinión sobre el valor: es sobre QUÉ código corre.
+# binario PRE-M-48. No es una opinión sobre el valor: es sobre QUÉ código corre.
 RETIRED_SEEN=()
 for dead in gradedEstimatesEnabled gradedEstimateIngestEnabled; do
   [ "$(field "$SET_OUT" "$dead")" = "__ABSENT__" ] || RETIRED_SEEN+=("$dead")
 done
 if [ ${#RETIRED_SEEN[@]} -gt 0 ]; then
   RC=2
-  bad "El DTO de M10 todavía proyecta clave(s) que M-46 RETIRÓ: ${RETIRED_SEEN[*]}"
+  bad "El DTO de M10 todavía proyecta clave(s) que M-48 RETIRÓ: ${RETIRED_SEEN[*]}"
   cat <<'EOF'
-  Este entorno corre un binario ANTERIOR a v1.51 (M-46). Consecuencia que hay que
+  Este entorno corre un binario ANTERIOR a v1.51 (M-48). Consecuencia que hay que
   decir entera: en ese código HAY DOS DIALES, y el que gobierna el gasto
   (`graded_estimate_ingest_enabled`) NO es el que este script lee. Cualquier
   conclusión de aquí abajo sobre «gasta / no gasta» sería sobre el dial equivocado.
@@ -177,7 +177,7 @@ case "$DIAL" in
   AUSENTE NO significa «apagado»: significa que NO SABES en qué estado está el
   gancho en este entorno. La clave viaja SIEMPRE en el DTO (`getAllDto()` recorre
   SETTING_DTO_MAP y cae al default cuando la fila no existe), así que su ausencia
-  solo puede querer decir que el binario desplegado es anterior a M-46 (v1.51) o
+  solo puede querer decir que el binario desplegado es anterior a M-48 (v1.51) o
   que el contrato cambió.
 
   ⇒ Parar. No se concluye nada sobre el gasto con el dial sin leer.
@@ -211,7 +211,7 @@ esac
 
 cat <<'EOF'
 
-  ── Las claves RETIRADAS por M-46 NO se consultan aquí, y no es un olvido ──
+  ── Las claves RETIRADAS por M-48 NO se consultan aquí, y no es un olvido ──
   `graded_estimates_enabled` y `graded_estimate_ingest_enabled` siguen en la tabla
   de cualquier base ya sembrada, INERTES: ningún código las lee. La API ya no las
   proyecta, así que este script NO puede —ni debe— deducir nada de ellas. Para
@@ -232,7 +232,7 @@ ok "Config leída."
 # --- 1.a `ingestEnabled` tuvo que desaparecer del DTO (§4.38r.1) --------------
 if [ "$(field "$OUT" ingestEnabled)" != "__ABSENT__" ]; then
   RC=2
-  bad "El DTO de M2 todavía trae \`ingestEnabled\`: binario PRE-M-46 (v1.51 lo retiró)."
+  bad "El DTO de M2 todavía trae \`ingestEnabled\`: binario PRE-M-48 (v1.51 lo retiró)."
   echo "    Mismo diagnóstico que 0.a: en ese código el gasto lo gobierna OTRO dial."
 fi
 

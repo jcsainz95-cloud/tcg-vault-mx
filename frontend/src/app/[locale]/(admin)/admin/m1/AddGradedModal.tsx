@@ -32,7 +32,7 @@ export interface AddGradedModalProps {
 export function AddGradedModal({ open, onClose, card, onCreated }: AddGradedModalProps) {
   const t = useTranslations('admin.inventory.addGraded');
   const tc = useTranslations('common');
-  const errorMessage = useErrorMessage();
+  const errorMessage = useErrorMessage('operator');
 
   const [query, setQuery] = useState('');
   const [search, setSearch] = useState('');

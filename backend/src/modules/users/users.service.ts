@@ -5,6 +5,7 @@ import { SettingsService } from '../settings/settings.service';
 import { SettingKey } from '../settings/settings.constants';
 import { PiiCryptoService } from '../../common/crypto/pii-crypto.service';
 import { maskClabe, maskRfc } from '../../common/crypto/pii-mask';
+import { monthCommittedGrossCents } from '../../common/buylist-aml';
 import {
   AddressDto,
   BillingProfileDto,
@@ -182,20 +183,17 @@ export class UsersService {
     };
   }
 
-  /** Suma de solicitudes de buylist del mes en curso (no rechazadas/abandonadas). */
+  /**
+   * Acumulado mensual de COMPROMISO (brutos) del vendedor — la base del tope AML por mes.
+   *
+   * v1.51 (M-46, §4.39c **SITIO 2**): este cuerpo era **un duplicado literal** de
+   * `BuylistService.monthUsedCentsTx` (sitio 3), con su propio `notIn ['rechazada','abandonada']`.
+   * Los dos **colapsan en uno solo** en `common/buylist-aml.ts`; la variante transaccional no es otra
+   * función, es **la misma con otro cliente**. Ahí están documentados los dos cambios de conducta:
+   * `expirada` deja de quemar cuota, y el monto pasa a ser `offerGrossCents ?? quotedTotalCents`.
+   */
   async monthUsedCents(userId: string): Promise<number> {
-    const start = new Date();
-    start.setUTCDate(1);
-    start.setUTCHours(0, 0, 0, 0);
-    const agg = await this.prisma.sellRequest.aggregate({
-      where: {
-        userId,
-        createdAt: { gte: start },
-        status: { notIn: ['rechazada', 'abandonada'] },
-      },
-      _sum: { quotedTotalCents: true },
-    });
-    return agg._sum.quotedTotalCents ?? 0;
+    return monthCommittedGrossCents(this.prisma, userId);
   }
 
   async putKyc(userId: string, dto: UpdateKycDto) {

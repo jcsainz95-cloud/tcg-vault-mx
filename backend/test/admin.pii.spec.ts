@@ -86,6 +86,7 @@ describe('AdminService.getUser — PII cifrada + enmascarado por rol', () => {
       // puede divergir de producción ni reimplementar la matemática.
       decideSalePrice: jest.fn(PricingService.prototype.decideSalePrice),
       gradeKeyFor: jest.fn().mockReturnValue('raw:NM'),
+      tryGradeKeyFor: jest.fn().mockReturnValue('raw:NM'),
       fxSnapshotSafe: jest.fn().mockResolvedValue(null),
       liveMxnCents: (ref: { priceMxnCents: number }) => ref.priceMxnCents,
     } as unknown as PricingService;
@@ -150,6 +151,24 @@ describe('AdminService.getUser — PII cifrada + enmascarado por rol', () => {
     expect(JSON.stringify(res)).not.toContain(CLABE);
     expect(JSON.stringify(res)).not.toContain(RFC);
   });
+
+  // ⛔⛔ v1.60 (D51, API_CONTRACT §M5-K.5(a)) — `legalName` SE RETIRA de `AdminKycProfileDTO` y de
+  // `AdminKycProfileOperatorDTO`. Es CAMPO MUERTO: nunca tuvo escritor que le pusiera un nombre y,
+  // retirado el cotejo INE↔CLABE, no tiene ningún uso. El candado va sobre las DOS ramas porque son
+  // DOS proyecciones distintas: la de `super_admin` publica por RESTO (`...rest` sobre la fila cruda
+  // del `include`) y la del operador enumera campo a campo. El mock alimenta `legalName: 'Cliente
+  // Legal'` a propósito: si alguna de las dos vuelve a emitirlo, el valor aparece en la respuesta y
+  // este test cae.
+  it.each([Role.super_admin, Role.vault_operator])(
+    '§M5-K.5a: `legalName` NO sale en la ficha 360° — %s',
+    async (role) => {
+      const { service } = buildService();
+      const res: any = await service.getUser('u1', role);
+
+      expect(res.kycProfile.legalName).toBeUndefined();
+      expect(JSON.stringify(res)).not.toContain('Cliente Legal');
+    },
+  );
 
   // Regresión v1.7-admin-users: `ownedItems` DEBE conformar el contrato §M6
   // `AdminUserOwnedItemRef = { inventoryItemId, folio, card: CardDTO, ownershipStatus }`.

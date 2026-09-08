@@ -184,7 +184,7 @@ export function SetPlate({
         </span>
       )}
       {src && (
-        // Nivel B (ARCHITECTURE §4.39.7): `<img>` crudo, sin next/image y sin `srcset` (no
+        // Nivel B (ARCHITECTURE §4.41.7): `<img>` crudo, sin next/image y sin `srcset` (no
         // conocemos las dimensiones intrínsecas y el CDN sirve un solo tamaño).
         // eslint-disable-next-line @next/next/no-img-element
         <img

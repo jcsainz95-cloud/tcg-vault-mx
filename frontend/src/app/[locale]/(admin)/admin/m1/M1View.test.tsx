@@ -491,9 +491,17 @@ describe('M1View · Pestañas Sellado y Gradeadas (P-25 / P-20)', () => {
     renderWithProviders(<M1View />, 'es');
     fireEvent.click(screen.getByRole('tab', { name: 'Gradeadas' }));
 
-    // Charizard PSA 9 (fixtures) con valor de mercado manual (MX$32,600.00 ·M).
-    expect((await screen.findAllByText('Charizard')).length).toBeGreaterThan(0);
-    expect(screen.getAllByText('PSA 9').length).toBeGreaterThan(0);
+    /*
+     * Charizard PSA 9 (fixtures) con valor de mercado manual (MX$32,600.00 ·M).
+     *
+     * ⚠️ **Se espera por «PSA 9», no por «Charizard».** El nombre de la carta ya NO es un ancla
+     * exclusiva de esta pestaña: la cola «listas para publicar» de fase 8 vive en la misma
+     * pantalla y también lista Charizard, así que un `await` sobre ese texto resuelve **antes** de
+     * que carguen las gradeadas y las aserciones siguientes miden un DOM a medias. El ancla tiene
+     * que ser lo único que solo existe aquí — el grado.
+     */
+    expect((await screen.findAllByText('PSA 9')).length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Charizard').length).toBeGreaterThan(0);
     expect(screen.getAllByText(/MX\$32,600\.00/).length).toBeGreaterThan(0);
     expect(screen.getAllByText('·M').length).toBeGreaterThan(0);
   });

@@ -24,6 +24,9 @@ import { formatMoneyCents, formatDate } from '@/lib/format';
 import { Badge } from '@/components/ui/Badge';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { PipelineStepper } from '@/components/ui/PipelineStepper';
+import { BuylistDecisionDesk } from './BuylistDecisionDesk';
+import { BuylistShipmentActions } from './BuylistShipmentActions';
+import { BuylistCycleQueues } from './BuylistCycleQueues';
 import { Button } from '@/components/ui/Button';
 import { Banner } from '@/components/ui/Banner';
 import { Input } from '@/components/ui/Input';
@@ -37,24 +40,107 @@ import { useBuylistSteps } from '@/lib/pipelines';
 /**
  * Pestañas por ETAPA de la solicitud (G3): en vez de una pila plana con las 7 acciones
  * siempre visibles, se agrupa por `status` para que el operador vea solo la cola de su
- * etapa. Cada solicitud aparece en la pestaña de su `status`. La pestaña «Rechazadas»
+ * etapa. Cada solicitud aparece en la pestaña de su `status`. La pestaña «Piezas rechazadas»
  * (v1.18) es TRANSVERSAL: no filtra solicitudes, consume su propio endpoint paginado.
  */
 // Pestañas OPERATIVAS (etapas vivas): siguen su fetch client-side sobre la página actual. Las
-// pestañas TRANSVERSALES «Cerradas» (v1.25) y «Rechazadas» (v1.18) son server-side paginadas.
-type M5OpTab = 'por_recibir' | 'verificando' | 'por_pagar';
-type M5TabAll = M5OpTab | 'cerradas' | 'rechazadas';
-const M5_OP_TABS: { key: M5OpTab; statuses: SellRequestStatus[] }[] = [
-  { key: 'por_recibir', statuses: ['cotizada'] },
-  { key: 'verificando', statuses: ['recibida', 'verificacion'] },
-  { key: 'por_pagar', statuses: ['aprobada'] },
-];
+// pestañas TRANSVERSALES «Cerradas» (v1.25) y «Piezas rechazadas» (v1.18) son server-side paginadas.
 /**
- * Estados terminales que agrupa la pestaña «Cerradas» (v1.25-buylist-orders-pagination). Se pide
- * server-side como `status=pagada,rechazada,abandonada` (CSV) en UNA llamada paginada.
+ * ⚠️ **EL EJE DE LOS RÓTULOS (DESIGN_SYSTEM §23.8a): la pestaña dice DE QUIÉN ES EL PENDIENTE.**
+ *
+ * M5 es una **cola de trabajo**, así que sus pestañas contestan **«¿qué me toca?»**, no «¿en qué
+ * estado está el registro?». De ahí salen las dos formas, y **no hay una tercera**:
+ *
+ *  · **El pendiente es NUESTRO** ⇒ **«Por + verbo»**, que nombra la acción (`por_ofertar`,
+ *    `por_pagar`). Normalmente hay además **un reloj corriendo en contra nuestra**.
+ *  · **El pendiente NO es nuestro** ⇒ se nombra **de quién depende**, nunca la acción
+ *    (`con_vendedor`). Ahí solo se **mira**.
+ *
+ * Los identificadores de abajo son **los mismos** que las claves i18n a propósito: un
+ * discriminante que diga `por_recibir` mientras el rótulo dice «Por ofertar» reintroduce **en el
+ * código** el desfase que se acaba de quitar del texto, y este mapa es justo lo que alguien lee
+ * para decidir dónde vive el próximo estado nuevo.
+ *
+ * ⚠️ `verificando` es un gerundio y no un «Por X»: **se queda así** (§23.8ad). Describe bien el
+ * trabajo real —*«está en casa y hay que revisarlo»*— y §23.6 ya usa «EN NUESTRAS MANOS» para ese
+ * mismo tramo. Un barrido que cambia de más hace daño nuevo.
  */
-const M5_CLOSED_STATUSES: SellRequestStatus[] = ['pagada', 'rechazada', 'abandonada'];
-const M5_CLOSED_STATUS_CSV = M5_CLOSED_STATUSES.join(',');
+type M5OpTab = 'por_ofertar' | 'con_vendedor' | 'verificando' | 'por_pagar';
+/**
+ * `piezas_rechazadas` (no `rechazadas`): esa pestaña **no contiene solicitudes**, contiene
+ * **ítems** que no llegaron en NM (`GET /admin/buylist/rejected-items`). Pero `rechazada` es
+ * **también** un estado de solicitud —el del vendedor que no respondió la oferta— y ése vive en
+ * «Cerradas». Con el nombre a secas, quien buscaba *«las solicitudes que rechacé»* pulsaba aquí y
+ * encontraba cartas: misnavegación garantizada, no hipotética (§23.8ac). **«Piezas»** y no
+ * «cartas» porque cubre raw, **sellado y gradeadas**.
+ */
+type M5TabAll = M5OpTab | 'cerradas' | 'piezas_rechazadas';
+
+/**
+ * ⚠️ **ASIGNACIÓN TOTAL estado → pestaña. Es el candado de esta pantalla, no una tabla de
+ * conveniencia.**
+ *
+ * El filtro de las pestañas operativas es `filtered.filter(r => activeStatuses.includes(r.status))`:
+ * **un status que no esté en ninguna pestaña no sale en ninguna vista y nadie lo ve nunca.** No
+ * falla, no avisa, no rompe un test — simplemente desaparece del back-office. Eso ya pasó: al
+ * crecer el enum en cuatro valores (M-46), `ofertada`, `aceptada`, `en_transito` y `expirada`
+ * quedaron sin casa mientras las listas de abajo seguían siendo las de tres pestañas.
+ *
+ * `Record<SellRequestStatus, M5TabAll>` convierte esa desaparición silenciosa en un **error de
+ * compilación**: añadir un valor al enum del contrato deja de compilar esta pantalla hasta que
+ * alguien decida en qué pestaña vive. Las listas de abajo se DERIVAN de aquí; no se escriben
+ * dos veces.
+ *
+ * ⚠️ Esto NO es una copia del set terminal: es dónde se PINTA cada estado (decisión de UI). Qué
+ * solicitudes admiten acciones lo dice el servidor con `isTerminal` — ver `canRejectRequest`.
+ *
+ * ⚠️ Se EXPORTA solo para la comprobación normativa de §23.14.6-3bis (partición total); ninguna
+ * otra pantalla lo consume.
+ */
+export const M5_STATUS_TAB: Record<SellRequestStatus, M5TabAll> = {
+  // El pendiente es NUESTRO, y con el reloj de caducidad de 7 días hábiles (D33) corriendo en
+  // contra: al vencer, la solicitud caduca sola y al vendedor le llega un «no procederemos» que
+  // NADIE decidió. Por eso NO se llama «Por recibir»: ese rótulo describía el modelo viejo —el
+  // vendedor mandaba el paquete primero— e inducía a ESPERAR, que es literalmente la conducta
+  // que hace que ese correo salga. Aquí no hay nada que recibir (§23.1a, §23.8aa).
+  cotizada: 'por_ofertar',
+  // v1.51 (M-46): el tramo en que el pendiente NO es nuestro. Los tres son MONITOREO desde esta
+  // cola (su respuesta, su decisión de enviar, su paquete); las colas con acción propia —por
+  // autorizar, por confirmar envío, guías por cancelar— son vistas aparte (§23.8).
+  // ⚠️ `aceptada` NUNCA bajo un rótulo que diga «en camino»: aceptar no mueve nada (criterio 156)
+  // y el único estado que significa «un paquete viaja» es `en_transito`. «Con el vendedor» no se
+  // puede leer como «hay cartas llegando», que era el riesgo real.
+  // ⚠️ Concesión consciente (§23.8ab): en `en_transito` el paquete lo tiene la PAQUETERÍA, no el
+  // vendedor. Se acepta porque el fallo caro es el contrario —creer que hay cartas en casa cuando
+  // no las hay— y porque la fila desambigua sola: la pestaña agrupa, el BADGE precisa.
+  ofertada: 'con_vendedor',
+  aceptada: 'con_vendedor',
+  en_transito: 'con_vendedor',
+  recibida: 'verificando',
+  verificacion: 'verificando',
+  aprobada: 'por_pagar',
+  // Los CUATRO terminales viven en «Cerradas». `expirada` es el cuarto (criterio 113): sin esta
+  // línea una solicitud expirada no aparecía en ninguna pestaña de M5.
+  // ⚠️ Aquí es donde vive la solicitud `rechazada` — NO en «Piezas rechazadas» (§23.8ac). El
+  // MOTIVO lo pinta la fila con su badge (`RECHAZADA`/`SIN ENVÍO`/`NO PROCEDIÓ`), no la pestaña.
+  pagada: 'cerradas',
+  rechazada: 'cerradas',
+  abandonada: 'cerradas',
+  expirada: 'cerradas',
+};
+
+/** Estados asignados a una pestaña dada, DERIVADOS del mapa total (nunca escritos a mano). */
+function statusesForTab(tab: M5TabAll): SellRequestStatus[] {
+  return (Object.keys(M5_STATUS_TAB) as SellRequestStatus[]).filter(
+    (status) => M5_STATUS_TAB[status] === tab,
+  );
+}
+
+// Orden de las pestañas OPERATIVAS en la barra (sigue el pipeline). Sus estados salen del mapa.
+export const M5_OP_TAB_ORDER: M5OpTab[] = ['por_ofertar', 'con_vendedor', 'verificando', 'por_pagar'];
+const M5_OP_TABS: { key: M5OpTab; statuses: SellRequestStatus[] }[] = M5_OP_TAB_ORDER.map(
+  (key) => ({ key, statuses: statusesForTab(key) }),
+);
 const M5_PAGE_SIZE = 25;
 
 /** Límites del motivo de rechazo (contrato §M5: 3–500 chars; 400 si no cumple). */
@@ -102,15 +188,9 @@ function pesosToCents(value: string): number | null {
 /** Estados terminales de item: ya no admiten decisión. */
 const ITEM_TERMINAL = new Set(['pagada', 'convertida_inventario']);
 
-/**
- * Estados terminales de la SOLICITUD (pestaña «Cerradas» = M5_CLOSED_STATUSES): ya no admiten
- * el cierre explícito «Rechazar solicitud» (contrato §M5 · v1.24: idempotente si ya `rechazada`,
- * 409 si `pagada`/`abandonada`). La UI simplemente no ofrece el botón sobre estos.
- */
-const REQUEST_TERMINAL = new Set<SellRequestStatus>(['pagada', 'rechazada', 'abandonada']);
-
 export function M5View() {
   const t = useTranslations('admin.m5');
+  const tDesk = useTranslations('admin.m5.desk');
   const tm = useTranslations('admin');
   const tc = useTranslations('common');
   const te = useTranslations('error');
@@ -118,7 +198,9 @@ export function M5View() {
   const steps = useBuylistSteps();
   const { isSuperAdmin } = useRole();
   const qc = useQueryClient();
-  const getError = useErrorMessage();
+  // ⚠️ Back-office: quien lee es el OPERADOR (DESIGN_SYSTEM §26). Aquí caen `REQUEST_NOT_RECEIVED`
+  // y `APPROVED_PRICE_CAP_EXCEEDED` de la mesa de verificación, que **solo** existen de este lado.
+  const getError = useErrorMessage('operator');
   // Operativas: fetch de la página actual del server (las etapas vivas siguen filtrando en memoria).
   const query = useQuery({ queryKey: ['admin-buylist'], queryFn: () => getAdminBuylist() });
 
@@ -129,6 +211,12 @@ export function M5View() {
 
   // CLABE revelada: SOLO estado local efímero de esta vista (nunca query-cache/estado
   // global) y solo bajo demanda — cada reveal queda auditado server-side (contrato §M5).
+  /**
+   * Qué solicitud tiene la MESA DE DECISIÓN abierta (§23.6). Una a la vez: la mesa es densa
+   * —cinco cifras por línea sobre solicitudes de hasta 40— y dos abiertas a la vez convierten
+   * la cola en el «tablero de aeropuerto» que §23.6 existe para evitar.
+   */
+  const [deskFor, setDeskFor] = useState<string | null>(null);
   const [revealed, setRevealed] = useState<{ requestId: string; clabe: string } | null>(null);
 
   function refresh() {
@@ -186,7 +274,7 @@ export function M5View() {
       if (vars.decision === 'adjust') closeAdjust();
       if (vars.decision === 'reject') {
         closeReject();
-        // La carta rechazada aparece en la pestaña transversal «Rechazadas».
+        // La carta rechazada aparece en la pestaña transversal «Piezas rechazadas».
         void qc.invalidateQueries({ queryKey: ['admin-buylist-rejected'] });
       }
       ok(
@@ -340,7 +428,7 @@ export function M5View() {
   const visible = filtered.filter((r) => activeStatuses.includes(r.status));
 
   // --- Pestaña «Cerradas» (v1.25-buylist-orders-pagination · GET /admin/buylist server-side) ---
-  // Query dedicada y paginada (mismo patrón que «Rechazadas»): pide `status` CSV + filtros
+  // Query dedicada y paginada (mismo patrón que «Piezas rechazadas»): pide `status` CSV + filtros
   // (fecha/monto) + `q` (del buscador global). Solo se pide al abrir la pestaña.
   const [closedPage, setClosedPage] = useState(1);
   const [closedFrom, setClosedFrom] = useState('');
@@ -358,7 +446,12 @@ export function M5View() {
   // El buscador global alimenta `q` server-side cuando la pestaña activa es «Cerradas».
   const closedQ = debouncedClosedSearch.trim() === '' ? undefined : debouncedClosedSearch.trim();
   const closedFilters = {
-    status: M5_CLOSED_STATUS_CSV,
+    // ⚠️ v1.51.8 (BL-18) — **`live: false`, NO un CSV que enumere los cuatro terminales.**
+    // Aquí sobrevivía la última copia de esa enumeración en el cliente, después de haberla
+    // retirado de los otros cinco sitios. El servidor filtra **por exclusión** sobre su propio set
+    // terminal (criterio 129), así que **un terminal nuevo entra a esta pestaña solo**: sin tocar
+    // este archivo, sin tocar el endpoint y sin que nadie tenga que acordarse.
+    live: false,
     page: closedPage,
     pageSize: M5_PAGE_SIZE,
     q: closedQ,
@@ -389,13 +482,13 @@ export function M5View() {
     setClosedPage(1);
   }
 
-  // --- Pestaña «Rechazadas» (contrato §M5 · GET /admin/buylist/rejected-items) ---
+  // --- Pestaña «Piezas rechazadas» (contrato §M5 · GET /admin/buylist/rejected-items) ---
   // Query aparte (transversal a solicitudes), paginada server-side; solo se pide al abrirla.
   const [rejectedPage, setRejectedPage] = useState(1);
   const rejectedQuery = useQuery({
     queryKey: ['admin-buylist-rejected', rejectedPage],
     queryFn: () => getAdminRejectedBuylistItems({ page: rejectedPage }),
-    enabled: activeTab === 'rechazadas',
+    enabled: activeTab === 'piezas_rechazadas',
   });
   const rejectedTotalPages =
     rejectedQuery.data && rejectedQuery.data.pageSize > 0
@@ -423,8 +516,13 @@ export function M5View() {
         />
       </div>
 
+      {/* Las CUATRO colas del ciclo (§23.8). Son vistas con ACCIÓN PROPIA y por eso viven fuera de
+          las pestañas de etapa: éstas particionan `SellRequestStatus`, aquéllas contestan un
+          pendiente NUESTRO que, si nadie mira, cuesta dinero o cuesta una venta. */}
+      <BuylistCycleQueues isSuperAdmin={isSuperAdmin} />
+
       {/* Pestañas por etapa: cada operativa muestra el conteo de solicitudes en esa etapa.
-          «Cerradas» (v1.25) y «Rechazadas» (v1.18) son transversales, server-side paginadas; su
+          «Cerradas» (v1.25) y «Piezas rechazadas» (v1.18) son transversales, server-side paginadas; su
           conteo es el `total` del query dedicado (solo tras cargar). */}
       <div role="tablist" aria-label={t('title')} className="flex flex-wrap gap-1 border-b border-border">
         {M5_OP_TABS.map((tb) => (
@@ -461,21 +559,21 @@ export function M5View() {
         <button
           role="tab"
           type="button"
-          aria-selected={activeTab === 'rechazadas'}
-          onClick={() => setTab('rechazadas')}
+          aria-selected={activeTab === 'piezas_rechazadas'}
+          onClick={() => setTab('piezas_rechazadas')}
           className={cn(
             '-mb-px flex items-center gap-2 px-3 py-2 text-sm font-medium focus-visible:shadow-focus focus-visible:outline-none',
-            activeTab === 'rechazadas' ? 'border-b-2 border-primary text-text' : 'text-muted hover:text-text',
+            activeTab === 'piezas_rechazadas' ? 'border-b-2 border-primary text-text' : 'text-muted hover:text-text',
           )}
         >
-          {t('tabs.rechazadas')}
+          {t('tabs.piezas_rechazadas')}
           {rejectedQuery.data && (
             <span className="tabular text-xs text-muted">{rejectedQuery.data.total}</span>
           )}
         </button>
       </div>
 
-      {activeTab === 'rechazadas' ? (
+      {activeTab === 'piezas_rechazadas' ? (
         <QueryState
           isLoading={rejectedQuery.isLoading}
           isError={rejectedQuery.isError}
@@ -653,7 +751,13 @@ export function M5View() {
                       <div className="flex flex-wrap items-center justify-between gap-3">
                         <div className="flex flex-wrap items-center gap-2">
                           <span className="tabular text-sm font-medium">{req.id}</span>
-                          <StatusBadge domain="sellRequest" value={req.status} />
+                          {/* §23.1d: `expirada` se pinta por su MOTIVO, no por su estado — una
+                              `no_offer` es culpa NUESTRA y no puede salir en rojo acusatorio. */}
+                          <StatusBadge
+                            domain="sellRequest"
+                            value={req.status}
+                            reason={req.expiredReason}
+                          />
                           <Link
                             href={{ pathname: '/admin/m6', query: { user: req.userId } }}
                             title={req.userId}
@@ -764,8 +868,51 @@ export function M5View() {
             <EmptyState title={searchTerm !== '' ? t('emptySearch') : t('emptyTab')} />
           ) : (
             visible.map((req) => {
-          const canPay =
-            isSuperAdmin && (req.status === 'aprobada' || req.status === 'verificacion');
+          // ⚠️ **DINERO SALIENTE.** Aquí vivía la SEXTA copia: `SELL_REQUEST_PAYABLE_STATES`
+          // transcrito a mano —y **con uno solo de los términos** del servidor—, así que la
+          // pantalla habilitaba el pago en filas donde el servidor responde 422. No era una copia
+          // que pudiera desincronizarse algún día: **ya lo estaba.** Ahora lo deriva el servidor
+          // (`isPayable`, §4.39c sitio 10) del MISMO cuerpo que el pre-check y la guarda atómica de
+          // `pay-spei`: tres lectores, una regla.
+          //
+          // ⚠️ **Y la prueba de que la forma es la correcta la dieron v1.57 Y v1.61:** la fórmula
+          // ganó `receivedAt IS NOT NULL` (§M5-P — *«no se paga lo que no ha llegado»*) y después
+          // `approvedTotalCents IS NOT NULL` + V-b (§M5-V — *«ni lo que no se ha juzgado»*), y
+          // **esta línea no se tocó ninguna de las dos veces**. Una copia local habría tenido que
+          // enterarse; ésta no tiene de qué enterarse. ⛔ Por eso tampoco se escribe aquí cuántos
+          // términos son ni cuál va primero: esa cuenta vive en §M5-V.0 —y la vigila
+          // `payability-contract.test.ts`—, y es exactamente la que ya caducó en dos comentarios.
+          //
+          // ⚠️ El ROL se queda aquí y NO se funde en el campo: «¿esta solicitud está en condición
+          // de pagarse?» es propiedad de LA FILA; «¿puedo pagarla yo?» es propiedad DEL ACTOR.
+          // Un check de permiso en el cliente es affordance; un check de máquina de estados es una
+          // regla duplicada — solo la segunda se cura. El servidor impone el rol igual con
+          // `MoneyOutGuard`: `isPayable: true` NO autoriza un pago.
+          //
+          // `=== true` por lo mismo que `isTerminal === false`, y con más razón: si el campo
+          // faltara, el botón que sobra es un **botón de pago**.
+          const canPay = isSuperAdmin && req.isPayable === true;
+          // ⚠️ **POR QUÉ el botón está apagado** (contrato §M5-V.5, v1.61). `isPayable` dice *si*
+          // se puede pagar; este número dice **qué falta y a dónde ir** — sin él, el súper-admin
+          // se queda delante de un control muerto sin explicación, que es la mitad del defecto que
+          // §M5-P llamó ALTA («un control que desinforma al que autoriza el dinero»).
+          //
+          // ⛔ **NO se cuenta aquí**, aunque `req.items` esté a mano: el set de estados «sin
+          // veredicto» ES la regla, y transcribirlo sería la SÉPTIMA copia de un set de estados en
+          // un flujo de dinero — exactamente lo que `isTerminal` e `isPayable` vinieron a borrar.
+          // Y llevaría **dos** reglas, no una: la lista de estados **y** el filtro `offerDecision
+          // = 'buy'` (las `skip` no cuentan). *La segunda es justo la que un lector se salta.*
+          //
+          // `?? 0` porque el campo es ADITIVO (backend primero, frontend después): contra un
+          // backend anterior a v1.61 no se pinta nada, en vez de «faltan undefined cartas».
+          // El copy es NORMATIVO (DESIGN_SYSTEM §27.1.4, «la cadena preventiva del botón
+          // apagado»); la clave es de frontend. Se muestra ⇔ `pendingDecisionItemCount > 0`.
+          const pendingDecisions = req.pendingDecisionItemCount ?? 0;
+          const pendingDecisionsNote =
+            pendingDecisions > 0 ? t('pay.pendingDecisions', { count: pendingDecisions }) : undefined;
+          // §27.1.4: *«un botón apagado sin motivo visible es un callejón»* — el motivo se pinta
+          // debajo y el botón lo REFERENCIA, para que el lector de pantalla lo anuncie con él.
+          const pendingDecisionsId = `pay-pending-${req.id}`;
           // Solo se muestran las acciones de la ETAPA actual de la solicitud:
           //  - decidir carta (aprobar/ajustar/rechazar) solo tras recibir/verificar;
           //  - revelar CLABE / pagar SPEI solo en verificación o por-pagar.
@@ -774,16 +921,27 @@ export function M5View() {
           // «Rechazar solicitud» (v1.24): cierre explícito del hueco de estado (bug P-4). El
           // endpoint SÓLO cierra si TODOS los ítems ya están `rechazada`; para no ofrecer un
           // botón que siempre daría 422, se muestra exactamente en esa precondición y nunca
-          // sobre una solicitud ya terminal (`pagada`/`rechazada`/`abandonada`).
+          // sobre una solicitud ya terminal.
           const allItemsRejected =
             req.items.length > 0 && req.items.every((it) => it.itemStatus === 'rechazada');
-          const canRejectRequest = !REQUEST_TERMINAL.has(req.status) && allItemsRejected;
+          // ⚠️ `isTerminal` lo DERIVA EL SERVIDOR (contrato §M5 · v1.51, ARCHITECTURE §4.39c
+          // sitio 9). Aquí vivía `REQUEST_TERMINAL`, la QUINTA copia del set terminal y la única
+          // fuera del backend: escrita a mano con TRES estados, se quedó corta cuando el enum
+          // creció a CUATRO, y sobre una solicitud `expirada` ofrecía un botón que el servidor
+          // contesta con 409. Se borró y NO se sustituyó por otra constante de frontend: la copia
+          // se cura eliminando la NECESIDAD de la copia, no moviéndola de archivo.
+          //
+          // `=== false` y no `!req.isTerminal` a propósito: si el campo faltara (backend anterior
+          // a v1.51), fallar hacia «no ofrecer la acción» deja al operador sin un botón; fallar al
+          // revés le ofrece un cierre que el servidor rechaza. Fail-closed, como todo lo que toca
+          // el cierre de una solicitud.
+          const canRejectRequest = req.isTerminal === false && allItemsRejected;
           return (
             <div key={req.id} className="flex flex-col gap-4 rounded-lg border border-border bg-surface p-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="tabular text-sm font-medium">{req.id}</span>
-                  <StatusBadge domain="sellRequest" value={req.status} />
+                  <StatusBadge domain="sellRequest" value={req.status} reason={req.expiredReason} />
                   {/* Vendedor legible (v1.18: seller.name + seller.email del server); el UUID
                       queda en el tooltip. Sigue enlazando a su ficha 360° en M6 (?user=<id>). */}
                   <Link
@@ -817,6 +975,19 @@ export function M5View() {
 
               {/* Acciones a nivel solicitud: recepción física, verificación y cierre explícito */}
               <div className="flex flex-wrap gap-2">
+                {/* §23.6 · la MESA DE DECISIÓN es la acción principal de una `cotizada`: es
+                    donde se decide QUÉ comprar y a cuánto, viendo cuántas copias ya tenemos y
+                    cuántas vienen en camino. Va antes que «Recibir» porque bajo el ciclo de
+                    oferta una `cotizada` ya no salta a `recibida`: pasa por `ofertada`. */}
+                {req.status === 'cotizada' && (
+                  <Button
+                    size="sm"
+                    variant={deskFor === req.id ? 'ghost' : 'primary'}
+                    onClick={() => setDeskFor(deskFor === req.id ? null : req.id)}
+                  >
+                    {deskFor === req.id ? tDesk('close') : tDesk('open')}
+                  </Button>
+                )}
                 {req.status === 'cotizada' && (
                   <Button
                     size="sm"
@@ -838,7 +1009,8 @@ export function M5View() {
                   </Button>
                 )}
                 {/* Cierre explícito «Rechazar solicitud» (v1.24 · POST .../reject): sólo cuando
-                    TODOS los ítems ya están rechazados y la solicitud NO es terminal. Resuelve la
+                    TODOS los ítems ya están rechazados y la solicitud NO es terminal —según el
+                    `isTerminal` del SERVIDOR (v1.51), no según una lista local. Resuelve la
                     solicitud atorada en «Verificando» del caso reportado por el PO (bug P-4). */}
                 {canRejectRequest && (
                   <Button
@@ -850,6 +1022,16 @@ export function M5View() {
                   </Button>
                 )}
               </div>
+
+              {deskFor === req.id && (
+                <BuylistDecisionDesk sellRequestId={req.id} onClose={() => setDeskFor(null)} />
+              )}
+
+              {/* Guía + confirmación: solo en `aceptada`, que es el único estado donde las dos
+                  acciones existen. Capturar la guía NO mueve el estado; confirmar sí — y son dos
+                  actos separados porque el plazo mide algo del VENDEDOR y nos enteramos por algo
+                  NUESTRO. */}
+              {req.status === 'aceptada' && <BuylistShipmentActions request={req} />}
 
               <div className="flex flex-col divide-y divide-border">
                 {req.items.map((it) => {
@@ -963,35 +1145,44 @@ export function M5View() {
 
               {/* Acciones de dinero saliente: solo en la etapa de verificación / por-pagar. */}
               {showMoneyOut && (
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <span className="text-xs text-muted">{tm('moneyOutNote')}</span>
-                  <div className="flex flex-wrap gap-2">
-                    {revealed?.requestId === req.id ? (
-                      <Button size="sm" variant="ghost" onClick={() => setRevealed(null)}>
-                        {t('hideClabe')}
-                      </Button>
-                    ) : (
+                <div className="flex flex-col gap-2">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <span className="text-xs text-muted">{tm('moneyOutNote')}</span>
+                    <div className="flex flex-wrap gap-2">
+                      {revealed?.requestId === req.id ? (
+                        <Button size="sm" variant="ghost" onClick={() => setRevealed(null)}>
+                          {t('hideClabe')}
+                        </Button>
+                      ) : (
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          disabled={!isSuperAdmin}
+                          title={!isSuperAdmin ? tm('masked') : undefined}
+                          loading={revealMutation.isPending && revealMutation.variables === req.id}
+                          onClick={() => revealMutation.mutate(req.id)}
+                        >
+                          {t('revealClabe')}
+                        </Button>
+                      )}
                       <Button
+                        variant="accent"
                         size="sm"
-                        variant="secondary"
-                        disabled={!isSuperAdmin}
-                        title={!isSuperAdmin ? tm('masked') : undefined}
-                        loading={revealMutation.isPending && revealMutation.variables === req.id}
-                        onClick={() => revealMutation.mutate(req.id)}
+                        disabled={!canPay || req.status === 'pagada'}
+                        title={!isSuperAdmin ? tm('masked') : pendingDecisionsNote}
+                        aria-describedby={pendingDecisionsNote ? pendingDecisionsId : undefined}
+                        onClick={() => openPay(req.id)}
                       >
-                        {t('revealClabe')}
+                        {t('paySpei')}
                       </Button>
-                    )}
-                    <Button
-                      variant="accent"
-                      size="sm"
-                      disabled={!canPay || req.status === 'pagada'}
-                      title={!isSuperAdmin ? tm('masked') : undefined}
-                      onClick={() => openPay(req.id)}
-                    >
-                      {t('paySpei')}
-                    </Button>
+                    </div>
                   </div>
+                  {/* §M5-V.5 + §27.1.4: POR QUÉ está apagado, en texto secundario y bajo el botón. */}
+                  {pendingDecisionsNote && (
+                    <p id={pendingDecisionsId} className="text-xs text-muted sm:text-right">
+                      {pendingDecisionsNote}
+                    </p>
+                  )}
                 </div>
               )}
 

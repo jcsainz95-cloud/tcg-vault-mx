@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect, useRef, useState } from 'react';
 import { useLocale, useTranslations } from 'next-intl';
 import type { AppLocale } from '@/i18n/routing';
 import type { BuylistQuoteResponse } from '@/types/contract';
@@ -10,8 +11,15 @@ import { CardImage } from '@/components/ui/CardImage';
 import { Link } from '@/i18n/navigation';
 import { FinishMark } from '@/components/domain/FinishMark';
 import { SellRequirementsPanel } from '@/components/domain/SellRequirementsPanel';
+import { BuylistShippingNote } from '@/components/domain/BuylistShippingNote';
+import { BuylistMinimumShortfall } from '@/components/domain/BuylistMinimumShortfall';
+import {
+  BuylistPendingLineLabel,
+  BuylistPendingLinesNote,
+} from '@/components/domain/BuylistPendingLinesNote';
 import type { CartLine } from './useSellCart';
 import { MAX_LINE_QUANTITY } from './useSellCart';
+import { minimumShortfallCents } from './useQuotePolicy';
 
 /**
  * Renglón de detalle: concepto a la izquierda, dato a la derecha.
@@ -45,12 +53,29 @@ export interface SellCartContentsProps {
   pendingCardCount: number;
   /** Piezas totales (suma de cantidades), para el CTA «Enviar solicitud (N)». */
   cartCount: number;
+  /**
+   * Mínimo de compra del servidor (`GET /buylist/quote-policy`). `undefined` mientras carga y
+   * también si la llamada FALLÓ: los dos casos degradan igual —sin faltante y con el CTA vivo—
+   * porque la puerta real es el `422` del servidor (fail-open, contrato §6).
+   */
+  minimumRequestCents?: number;
   onSetQuantity: (lineId: string, quantity: number) => void;
   onRemoveLine: (lineId: string) => void;
   onToggleLineDetail: (lineId: string) => void;
   onClearCart: () => void;
   /** CTA «Enviar solicitud»: el dueño cierra el drawer y abre el modal de solicitud (§18.4b). */
   onSubmit: () => void;
+  /**
+   * ¿Le toca a ESTE bloque pintar la nota de servicio del envío? (§23.3g-bis, v2.3.8).
+   *
+   * ⚠️ **La decisión NO se toma aquí y es deliberado:** la regla es *«exactamente una nota
+   * visible por pantalla»*, y eso solo se puede decidir donde se conoce **el layout completo** —
+   * si el carrito es panel fijo, si el drawer está abierto, si el modal de crear está encima—.
+   * Un componente que decidiera por su cuenta volvería a producir el caso de v2.3.7: dos párrafos
+   * idénticos a 600px de distancia, que el vendedor no lee como énfasis sino como *«esta página
+   * está rota»*. `BuylistView` es el único que ve la pantalla entera; aquí solo se obedece.
+   */
+  showShippingNote?: boolean;
 }
 
 /**
@@ -66,15 +91,46 @@ export function SellCartContents({
   totalEstimatedCents,
   pendingCardCount,
   cartCount,
+  minimumRequestCents,
   onSetQuantity,
   onRemoveLine,
   onToggleLineDetail,
   onClearCart,
   onSubmit,
+  showShippingNote = true,
 }: SellCartContentsProps) {
   const t = useTranslations('buylist');
   const tFinish = useTranslations('finish');
   const locale = useLocale() as AppLocale;
+
+  // Faltante del mínimo (criterio 132a). `null` = no hay faltante que pintar: o el mínimo ya se
+  // alcanzó (borde INCLUSIVO) o NO se conoce (la política no llegó) — y en ese segundo caso el
+  // CTA sigue habilitado a propósito: fail-open, la puerta es el `422` del servidor.
+  const shortfallCents =
+    cart.length > 0 ? minimumShortfallCents(minimumRequestCents, totalEstimatedCents) : null;
+  const belowMinimum = shortfallCents != null;
+
+  // §23.10 · el CRUCE del mínimo se anuncia una vez con `aria-live="polite"`, y el anuncio ya no
+  // menciona envío ni neto. Solo la TRANSICIÓN debajo→arriba habla: un carrito que nace por
+  // encima del mínimo no dispara nada (sería ruido), y la nota de servicio jamás entra aquí.
+  const [minimumAnnounce, setMinimumAnnounce] = useState('');
+  const wasBelowRef = useRef<boolean | null>(null);
+  useEffect(() => {
+    if (minimumRequestCents == null || cart.length === 0) {
+      wasBelowRef.current = null;
+      setMinimumAnnounce('');
+      return;
+    }
+    const below = totalEstimatedCents < minimumRequestCents;
+    if (wasBelowRef.current === true && !below) {
+      setMinimumAnnounce(
+        t('quote.minimum.reachedAnnounce', { amount: formatMoneyCents(minimumRequestCents, locale) }),
+      );
+    } else if (below) {
+      setMinimumAnnounce('');
+    }
+    wasBelowRef.current = below;
+  }, [minimumRequestCents, totalEstimatedCents, cart.length, locale, t]);
 
   return (
     <>
@@ -84,7 +140,12 @@ export function SellCartContents({
       <SellRequirementsPanel req={sellReq} />
 
       {cart.length === 0 ? (
-        <p className="mt-5 text-[13px] leading-[1.7] text-muted">{t('cartEmpty')}</p>
+        <>
+          <p className="mt-5 text-[13px] leading-[1.7] text-muted">{t('cartEmpty')}</p>
+          {/* §23.9: el cotizador vacío TAMBIÉN explica el trato del envío. Que se lea antes de
+              agregar nada es el punto: cambiar de opinión todavía no cuesta nada. */}
+          {showShippingNote && <BuylistShippingNote surface="cart-money" className="mt-4" />}
+        </>
       ) : (
         <>
           <ul className="mt-4">
@@ -118,9 +179,10 @@ export function SellCartContents({
                           {l.card.name}
                         </p>
                         <span className="tabular shrink-0 text-sm font-medium text-text">
-                          {/* Honesto: una línea pendiente NO muestra MX$0.00. */}
+                          {/* Honesto: una línea pendiente NO muestra MX$0.00 — cero es un precio y
+                              aquí no hay precio (§23.3h). La versalita ocupa el sitio de la cifra. */}
                           {pending ? (
-                            <span className="font-mono text-[11px] text-accent">{t('linePending')}</span>
+                            <BuylistPendingLineLabel />
                           ) : (
                             formatMoneyCents(unitCents * l.quantity, locale)
                           )}
@@ -129,7 +191,7 @@ export function SellCartContents({
                       <p className="mt-1 flex flex-wrap items-baseline gap-x-1.5 font-mono text-[10px] text-muted">
                         <span className="text-muted">{t('cartItemEstimate')}:</span>
                         {pending ? (
-                          <span className="text-accent">{t('linePending')}</span>
+                          <BuylistPendingLineLabel className="text-[10px]" />
                         ) : (
                           <span className="tabular">{formatMoneyCents(unitCents, locale)}</span>
                         )}
@@ -226,27 +288,65 @@ export function SellCartContents({
             })}
           </ul>
 
-          {/* Artboard 2b: etiqueta mono en versalitas y cifra héroe (26px) del total. */}
-          <div className="flex items-baseline justify-between gap-3 py-5">
-            <span className="font-mono text-[11px] font-medium uppercase tracking-eyebrow text-text">
-              {t('totalEstimated')}
-            </span>
-            {/* Si TODO el carrito está pendiente, el total no es MX$0.00: es pendiente. */}
-            {totalEstimatedCents === 0 && pendingCardCount > 0 ? (
-              <span className="font-mono text-[13px] text-accent">{t('linePending')}</span>
-            ) : (
-              <span className="tabular font-mono text-[26px] font-medium leading-none text-text">
-                {formatMoneyCents(totalEstimatedCents, locale)}
+          {/* Bloque de dinero del cotizador (§23.3c, D43): UN SOLO MONTO, rotulado por lo que es
+              —«Valor de tus cartas»—, el faltante del mínimo si lo hay, y la nota de servicio del
+              envío. ⛔ NO hay línea de envío, NO hay resta, NO hay neto estimado y el bloque NO
+              reserva altura para ellos: esas líneas no existen en ningún estado, así que un hueco
+              con forma de monto solo prometería una cifra que jamás va a llegar. */}
+          <div className="py-5" data-testid="sell-cart-money">
+            {/* Artboard 2b: etiqueta mono en versalitas y cifra héroe (26px) del total. */}
+            <div className="flex items-baseline justify-between gap-3">
+              <span className="font-mono text-[11px] font-medium uppercase tracking-eyebrow text-text">
+                {t('quote.money.cardsValue')}
               </span>
-            )}
-          </div>
-          {pendingCardCount > 0 && (
-            <p className="mb-3 font-mono text-[11px] leading-[1.6] text-muted">
-              {t('totalPendingNote', { count: pendingCardCount })}
-            </p>
-          )}
+              {/* Si TODO el carrito está pendiente, el total NO es MX$0.00: es la versalita
+                  (§23.3h) — «un total de cero que significa todavía no lo he calculado no es un
+                  cero». El porqué se explica debajo, en `BuylistPendingLinesNote`. */}
+              {totalEstimatedCents === 0 && pendingCardCount > 0 ? (
+                <BuylistPendingLineLabel className="text-[13px]" />
+              ) : (
+                <span className="tabular font-mono text-[26px] font-medium leading-none text-text">
+                  {formatMoneyCents(totalEstimatedCents, locale)}
+                </span>
+              )}
+            </div>
 
-          {/* SEC-A1: el total es un ESTIMADO; el backend confirma el monto al recibir.
+            {/* Faltante (criterio 132a): cuánto falta, con el número del servidor. Al cruzar el
+                mínimo lo ÚNICO que cambia es que este bloque desaparece. */}
+            {belowMinimum && minimumRequestCents != null && (
+              <BuylistMinimumShortfall
+                id="sell-cart-minimum"
+                shortfallCents={shortfallCents}
+                minimumCents={minimumRequestCents}
+                // §23.3f-bis: con líneas sin precio, «Agrega otra carta» es una cinta de correr.
+                hasPendingLines={pendingCardCount > 0}
+                className="mt-3"
+              />
+            )}
+
+            {/* §23.3h: la explicación del total va DENTRO del bloque de dinero y UNA sola vez,
+                con el conteo interpolado. Antes vivía fuera, en mono muted de 11px, diciendo algo
+                distinto («cuando las recibimos») — bajo el ciclo de oferta esas cartas se cotizan
+                a mano AL OFERTAR, no al recibirlas. */}
+            <BuylistPendingLinesNote count={pendingCardCount} className="mt-3" />
+
+            {/* La nota de servicio: aire, no regla ni caja (§23.3c). Misma frase por encima y por
+                debajo del mínimo — al no llevar cifras no depende de ningún estado. */}
+            {showShippingNote && <BuylistShippingNote surface="cart-money" className="mt-3" />}
+
+            {/* El cruce del mínimo se anuncia una sola vez; la nota NUNCA entra en la live region. */}
+            <p aria-live="polite" className="sr-only">
+              {minimumAnnounce}
+            </p>
+          </div>
+          {/* El total es un ESTIMADO — y v2.3.2 corrigió POR QUÉ (§23.14.4a). El texto viejo
+              decía que «el monto final lo confirma la plataforma cuando recibimos y verificamos
+              tus cartas»: eso implica REPRECIADO, y bajo D2/D9 el precio ofertado es vinculante
+              desde que sale el correo y verificar solo tiene dos desenlaces (llega en NM y se
+              paga lo ofertado, o no llega en NM y se rechaza). Ahora dice lo que sí es cierto:
+              los precios se mueven y puede que no compremos todas las líneas.
+              ⚠ No cierra con «antes de que aceptes» a propósito: `shippingNote`, en este mismo
+              bloque, ya termina así, y dos frases con la misma cola se leen como plantilla.
               Nota al margen con regla roja (artboard 2b), no un renglón mono suelto. */}
           <p className="rule-note text-[13px] leading-[1.6] text-muted">{t('estimateNote')}</p>
 
@@ -274,8 +374,20 @@ export function SellCartContents({
               <Button
                 variant="primary"
                 className="mt-5 min-h-[54px] w-full tracking-eyebrow"
-                disabled={cart.length === 0 || !sellReq.canSubmit}
-                aria-describedby={sellReq.emailBlocked ? 'sell-blocked-reason' : undefined}
+                // El gate del mínimo SOLO existe cuando el mínimo se conoce (`belowMinimum` es
+                // false si la política no llegó): apagar el botón por un error de red sería
+                // fail-closed y bloquearía a un vendedor legítimo.
+                disabled={cart.length === 0 || !sellReq.canSubmit || belowMinimum}
+                // §15.9/§23.10: ningún control apagado y mudo — el motivo y su remedio siempre
+                // están enlazados (el faltante dice cuánto falta y qué hacer).
+                aria-describedby={
+                  [
+                    sellReq.emailBlocked ? 'sell-blocked-reason' : null,
+                    belowMinimum ? 'sell-cart-minimum' : null,
+                  ]
+                    .filter(Boolean)
+                    .join(' ') || undefined
+                }
                 onClick={onSubmit}
               >
                 {t('sendRequestCta', { count: cartCount })}

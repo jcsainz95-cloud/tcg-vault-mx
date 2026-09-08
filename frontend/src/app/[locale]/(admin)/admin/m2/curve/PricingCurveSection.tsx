@@ -70,7 +70,7 @@ export function PricingCurveSection() {
   const tc = useTranslations('common');
   const locale = useLocale() as AppLocale;
   const qc = useQueryClient();
-  const getError = useErrorMessage();
+  const getError = useErrorMessage('operator');
   const { isSuperAdmin } = useRole();
 
   const curve = useQuery({ queryKey: ['pricing-curve'], queryFn: getPricingCurve });

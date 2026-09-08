@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { screen, within, fireEvent, waitFor } from '@testing-library/react';
 import { renderWithProviders } from '@/test/render';
-import type { CardSetDTO } from '@/types/contract';
+import type { BuylistSetDTO } from '@/types/contract';
 import * as api from '@/lib/api';
 import { MasterSetIndex } from './MasterSetIndex';
 import { SetPlate, setMonogram } from './SetPlate';
@@ -25,7 +25,7 @@ import { SetPlate, setMonogram } from './SetPlate';
  *    pasadas (atributos y estilo en línea, no su efecto visual: el ojo lo pone §24.14).
  *  - R4: SIN logo no hay hueco ni PULSO — monograma; `onLoad` lo retira y `onError` lo devuelve
  *    (transiciones de estado del DOM, que jsdom sí puede simular con `fireEvent`).
- *  - §4.39.5 / contrato v1.52: el modo `quoter` mapea `logoUrl` desde `GET /buylist/sets`;
+ *  - §4.41.5 / contrato v1.52: el modo `quoter` mapea `logoUrl` desde `GET /buylist/sets`;
  *    si nadie lo mapea ahí, esa teja es la única sin logo de todo el producto.
  */
 
@@ -70,7 +70,7 @@ describe('§24 · la teja del índice: pozo de papel + repisa + leyenda (v2.10)'
     const tile = await tileOf(/Surging Sparks/);
     const img = tile.querySelector('img');
     expect(img).not.toBeNull();
-    // Sale del DTO, no de una plantilla construida a partir del setId (§4.39, prohibido).
+    // Sale del DTO, no de una plantilla construida a partir del setId (§4.41, prohibido).
     expect(img).toHaveAttribute('src', 'https://images.pokemontcg.io/sv8/logo.png');
 
     // §24.8: el logo es DECORATIVO. Sin esto el lector anuncia «logo de X, X».
@@ -205,7 +205,7 @@ describe('§24 · la teja del índice: pozo de papel + repisa + leyenda (v2.10)'
   it('el fixture cubre los DOS casos: en la MISMA retícula conviven tejas con logo y tejas sin logo', async () => {
     // Guardia anti «el mock miente»: si los fixtures dieran logo a todos (o a ninguno), el
     // monograma —o la placa con imagen— no se ejercitaría nunca en dev ni en Playwright y el
-    // defecto solo aparecería en producción. Convivir es el estado PERMANENTE (§4.39.6).
+    // defecto solo aparecería en producción. Convivir es el estado PERMANENTE (§4.41.6).
     renderWithProviders(<MasterSetIndex mode="platform" onOpenSet={noop} />, 'es');
     await tileOf(/Surging Sparks/);
 
@@ -276,8 +276,10 @@ describe('§24.6 · seleccionado / actual (solo cuando el anfitrión lo sabe)', 
   });
 });
 
-describe('§4.39.5 · modo `quoter`: el logo viaja desde GET /buylist/sets', () => {
-  const quoterSets: CardSetDTO[] = [
+describe('§4.41.5 · modo `quoter`: el logo viaja desde GET /buylist/sets', () => {
+  // ⚠️ `BuylistSetDTO[]`, no `CardSetDTO[]` (DT-Gd): el tipo del cotizador declara `logoUrl`
+  // REQUERIDO, así que una fixture que lo omita —o un contrato que lo quite— NO compila.
+  const quoterSets: BuylistSetDTO[] = [
     {
       id: 'sv08',
       name: 'Surging Sparks',

@@ -5,7 +5,7 @@
 # automáticos contra un proveedor DE PAGA (ARCHITECTURE §4.38(r.6.1), NORMATIVO)
 # =============================================================================
 # QUÉ PROBLEMA CIERRA
-#   Desde v1.51 (M-46) hay **un solo dial**: `PUT /admin/settings
+#   Desde v1.51 (M-48) hay **un solo dial**: `PUT /admin/settings
 #   {"gradingHookEnabled":"on"}` publica las cifras **y** autoriza al barrido a
 #   pedir datos a PokemonPriceTracker (2 créditos/carta) y a escribir precios.
 #   El arnés E2E enciende ese dial **en CADA corrida**. Si el entorno del gate

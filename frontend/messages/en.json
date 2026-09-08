@@ -94,7 +94,6 @@
       "pending": "Pending",
       "pendingNote": "{count, plural, one {# card will be quoted on receipt} other {# cards will be quoted on receipt}}",
       "quoteError": "Could not quote",
-      "wePay": "We pay you",
       "remove": "Remove {name}",
       "continue": "Sell these cards",
       "viewMore": "See more in the quoter"
@@ -554,6 +553,7 @@
     "separateProductErrorCode": {
       "PRODUCT_NOT_FOUND": "This product no longer exists in the catalog.",
       "PRODUCT_CARD_MISMATCH": "This product doesn't belong to this card.",
+      "BUYLIST_RAW_ONLY": "We only buy raw cards.",
       "FINISH_NOT_AVAILABLE": "That finish isn't available for this product.",
       "NOT_FOUND": "We couldn't find this card."
     },
@@ -664,10 +664,9 @@
     "verticalLabel": "Buylist",
     "title": "Sell my cards",
     "subtitle": "We quote your list at today's market value. You ship, we authenticate and pay you by SPEI.",
-    "selectType": "Product type",
     "referencePrice": "Reference value",
     "payAfterReceipt": "Payment is made after we receive and verify your cards.",
-    "shippingGuideLink": "Safe shipping guide",
+    "shippingGuideLink": "How to pack your cards",
     "pricePendingNotice": "This card has no reference price; it will enter the pending-price queue and we'll quote it manually.",
     "myRequests": "My requests",
     "noRequests": "You have no sell requests yet.",
@@ -688,6 +687,14 @@
     "limitPerMonth": "Monthly cap",
     "nmOnlyTitle": "We only buy Near Mint (NM)",
     "nmOnlyBody": "If on receipt and verification the card isn't NM, we don't buy it: it's returned if you wish (at your cost, 7 days) or considered abandoned after 30 days.",
+    "request": {
+      "address": {
+        "label": "Pickup address",
+        "why": "We need it to print the label we'll send you.",
+        "printed": "This address is printed on the label.",
+        "missing": "Choose the address your cards ship from to continue."
+      }
+    },
     "requestTitle": "Create sell request",
     "clabeLabel": "CLABE (18 digits, in your name)",
     "clabeHint": "The SPEI payment goes to this CLABE, which must be in your name.",
@@ -704,32 +711,26 @@
     "submit": "Confirm and send",
     "submitting": "Submitting…",
     "requestError": "We couldn't create the request. Check the details and try again.",
-    "created": "Request created! We'll let you know when we receive your card.",
-    "filterBySet": "Filter by set",
-    "allSets": "All sets",
-    "searchCards": "Search card",
-    "searchPlaceholder": "Name or number",
-    "searchAction": "Search",
-    "searchResults": "Results",
-    "noResults": "No cards match that filter. Try another set or term.",
-    "searchHint": "Filter by set or search by name to browse the catalog with its estimated buy price.",
-    "gridEstimateLegend": "Estimated buy price per finish (NM for raw); one click adds it to the cart.",
-    "gridQuotesFailed": "We couldn't load the buy estimates.",
-    "addFinishAria": "Add {name} ({finish}) to cart",
+    "created": "Request created! We'll email you an offer. Don't ship your cards yet: first you accept the offer, then the label reaches you.",
     "addedLine": "{name} ({finish}) added to the cart.",
-    "bulkSelect": "Select {name}",
-    "bulkAddCta": "Add selected ({count})",
-    "bulkClear": "Clear selection",
-    "bulkAdded": "{count} card(s) added to the cart.",
-    "bulkAddedPartial": "{added} card(s) added; {failed} unavailable.",
-    "bulkAddError": "We couldn't quote the selected cards. Try again.",
-    "gridQuoteError": "Unavailable",
-    "productType": {
-      "raw": "Single (raw)",
-      "graded": "Graded",
-      "sealed": "Sealed"
-    },
     "rarityLabel": "Rarity",
+    "quote": {
+      "money": {
+        "cardsValue": "Value of your cards"
+      },
+      "shippingNote": "We provide the shipping label and its cost is always deducted from what we pay you: you pay nothing out of pocket. The exact amount is in the offer, before you accept.",
+      "pendingLine": {
+        "label": "No price",
+        "note": "{count, plural, one {# card has no price yet, so it doesn't count toward the total} other {# cards have no price yet, so they don't count toward the total}}. We quote those by hand and include them in your offer."
+      },
+      "minimum": {
+        "shortfall": "You're {amount} short",
+        "minimumIs": "of the {amount} minimum.",
+        "addAnother": "Add another card.",
+        "addPricedCard": "Add a card that already has a price.",
+        "reachedAnnounce": "You've reached the {amount} minimum."
+      }
+    },
     "cartTitle": "Your list",
     "cartCount": "{count} card(s)",
     "cartFab": {
@@ -748,22 +749,62 @@
     "increaseQty": "Increase quantity",
     "decreaseQty": "Decrease quantity",
     "removeLine": "Remove",
-    "totalEstimated": "Estimated total",
     "clearCart": "Clear the list",
     "cartFooterNote": "Payment is made after we receive and verify your cards.",
     "linePending": "Price pending",
-    "totalPendingNote": "The total doesn't include {count} card(s) with pending price: we quote those manually when we receive them.",
     "requestPendingNote": "The total shown doesn't include cards with pending price.",
-    "estimateNote": "The total is an ESTIMATE. The final amount is confirmed by the platform when we receive and verify your cards.",
+    "estimateNote": "The total is an ESTIMATE: prices move and we may not buy every line. The firm amount comes to you in the offer.",
     "sendRequestCta": "Submit request ({count})",
     "summaryTitle": "Your sale summary",
-    "trustShipping": "You cover the shipping of your cards to us (see the safe shipping guide). If a card is rejected for not being NM, the return is also at your cost (7 days).",
     "trustPayment": "Payment is made after we receive and verify your cards.",
-    "trustValidity": "The quote is an estimate at today's prices; the final amount is confirmed at the prices in effect when we verify your cards.",
+    "trustValidity": "The quote is an estimate at today's prices. The binding price is the one in the offer we email you, and that price does not move when we receive your cards.",
     "clabeSectionTitle": "Payout account (SPEI)",
     "clabeStoredSelected": "The payment will go to your CLABE on file ({masked}).",
     "clabeUseStored": "Use my CLABE {masked}",
     "clabeUseAnother": "Use a different CLABE",
+    "offer": {
+      "eyebrow": "Purchase offer",
+      "headline": "We’re buying {bought} of your {total, plural, one {# card} other {# cards}}",
+      "conditionIntro": "This offer is conditional and this is how it works: we buy each card at the price below only if it arrives Near Mint.",
+      "buyGroup": "We buy ({count})",
+      "skipGroup": "We don’t buy ({count})",
+      "skipLabel": "Not part of this offer",
+      "consequenceTitle": "What happens if a card doesn’t arrive Near Mint",
+      "grossLabel": "Value of {count, plural, one {your card} other {your # cards}}",
+      "shippingLabel": "Shipping we provide",
+      "netLabel": "Deposited to you",
+      "ruleParagraph": "We provide the shipping label. Its cost, {shippingAmount}, is a flat fee and is always deducted from what we pay you: you pay nothing out of pocket. The amount deposited to you is {netAmount}.",
+      "deadline": "You have until {deadline} (Mexico City time). If you don't respond before then, the offer expires and we won't be able to buy at this price anymore.",
+      "accept": "Accept the offer",
+      "reject": "Decline the offer",
+      "confirmAcceptTitle": "Confirm that you accept",
+      "confirmAcceptBody": "You accept that we buy {count, plural, one {# card} other {# cards}} from you for {netAmount}. The condition is the same for every card: {condition}.",
+      "confirmAcceptCta": "Accept and get my label",
+      "confirmRejectTitle": "Confirm that you decline",
+      "confirmRejectBody": "You are about to decline the offer of {netAmount} for {count, plural, one {# card} other {# cards}}. The condition was the same for every card: {condition}. This is final: we cannot reactivate it and, if you change your mind, you would have to request a new quote.",
+      "confirmRejectCta": "Decline the offer",
+      "acceptedNow": "You accepted the offer. We’re emailing you the shipping label.",
+      "rejectedNow": "You declined the offer.",
+      "acceptedOn": "You accepted this offer on {date}.",
+      "noLongerActive": "This offer is no longer active.",
+      "quoteAgainCta": "Get a new quote",
+      "preOfferTitle": "Don’t send anything yet",
+      "preOfferBody": "We'll write to you with our offer.",
+      "cancelledBanner": "We sent you an offer and cancelled it on {date}; we’re reviewing your request again.",
+      "cardsTitle": "Your cards",
+      "closedNotShipped": "The deadline to ship your cards has passed.",
+      "closedNoOffer": "We did not pursue this offer.",
+      "closedAbandoned": "This request is considered abandoned. Write to us at {email} if you need help.",
+      "closedPaid": "We paid you for this request.",
+      "incompleteTitle": "We can’t show you the full offer",
+      "incompleteBody": "Part of this offer’s breakdown is missing, so we won’t show it half-way and we won’t let you accept it. Check the email we sent you or write to us at {email}.",
+      "notFoundTitle": "We couldn’t find this request",
+      "notFoundBody": "Check the link in your email, or sign in with the account you used to create the request.",
+      "loginTitle": "Sign in to see your offer",
+      "loginBody": "You will sign in with your account: this offer is not accepted from an email link.",
+      "viewRequestCta": "View this request",
+      "backToBuylist": "See my requests"
+    },
     "adjust": {
       "title": "Proposed price adjustment",
       "body": "After verification we adjusted the price of one or more cards. Review the new total and accept or decline the adjustment.",
@@ -779,9 +820,7 @@
       "wePay": "We pay",
       "cta": "Quote this card",
       "badge": "Bounty"
-    },
-    "viewDetailAria": "View {name} details",
-    "tileInCart": "In cart"
+    }
   },
   "finish": {
     "label": "Finish",
@@ -807,16 +846,16 @@
     "errUpload": "We couldn't upload the image. Try again."
   },
   "safeShipping": {
-    "title": "Safe shipping guide",
-    "intro": "Protect your card to minimize transit damage and disputes.",
+    "title": "How to pack your cards",
+    "intro": "We only buy Near Mint cards. Pack them well: a card that doesn't arrive NM isn't bought, and the return is at your cost.",
     "step1Title": "Soft sleeve",
     "step1Body": "Every card in its own sleeve, never loose or stuck to another.",
     "step2Title": "Rigid top loader",
     "step2Body": "The sleeve goes into a top loader so the card can't bend.",
     "step3Title": "Rigid mailer or box",
-    "step3Body": "Bubble mailer for a few cards, padded box for larger lots.",
-    "step4Title": "Insured label",
-    "step4Body": "Insure for the quoted value and write down your request number.",
+    "step3Body": "Bubble mailer for a few cards, padded box for larger lots; inside, a sheet with your request number.",
+    "step4Title": "We provide the label",
+    "step4Body": "When you accept the offer we send you the label and its cost is deducted from your payment. You buy and insure nothing, and you don't ship until you have it.",
     "understood": "Got it"
   },
   "orders": {
@@ -1157,7 +1196,25 @@
       "sealedCondition": "Sealed condition",
       "sealedConditionHint": "Visible to the buyer. Does not affect price.",
       "listPriceOptional": "Sale price (optional)",
-      "listPriceOptionalHint": "Leave empty to price by market × spread. A manual price overrides it."
+      "listPriceOptionalHint": "Leave empty to price by market × spread. A manual price overrides it.",
+      "publishQueue": {
+        "title": "Ready to publish",
+        "subtitle": "Pieces we bought that are not on sale yet. They leave this queue on their own as soon as nothing is missing.",
+        "count": "{count, plural, =0 {None pending} one {# pending} other {# pending}}",
+        "empty": "No pieces pending publication.",
+        "folio": "Folio",
+        "piece": "Piece",
+        "missing": "Missing",
+        "missingLocation": "Location",
+        "missingPrice": "Price",
+        "missingUnknown": "To review",
+        "origin": "Origin",
+        "originBuylist": "Bought from a seller",
+        "salePrice": "Sale price",
+        "noSalePrice": "No resolvable price",
+        "pendingPriceLink": "See in the pending price queue",
+        "note": "This queue only shows: no sale prices are captured here, nor inherited from the purchase cost."
+      }
     },
     "m3": {
       "title": "M3 · Sales / orders",
@@ -1232,13 +1289,17 @@
       "reject": "Reject",
       "convert": "Convert to inventory",
       "paySpei": "Pay via SPEI",
+      "pay": {
+        "pendingDecisions": "{count, plural, one {# card still needs a decision} other {# cards still need a decision}} before this can be paid."
+      },
       "cherryPick": "Card-by-card decision",
       "tabs": {
-        "por_recibir": "To receive",
+        "por_ofertar": "To offer",
+        "con_vendedor": "With the seller",
         "verificando": "Verifying",
         "por_pagar": "To pay",
         "cerradas": "Closed",
-        "rechazadas": "Rejected"
+        "piezas_rechazadas": "Rejected items"
       },
       "searchLabel": "Search request",
       "emptyTab": "No requests in this stage.",
@@ -1319,6 +1380,176 @@
         "alreadyConverted": "This item was already converted to inventory.",
         "paid": "SPEI payment recorded; the request is now paid.",
         "requestRejected": "Request rejected; it is now closed."
+      },
+      "desk": {
+        "title": "Decision desk",
+        "open": "Open the decision desk",
+        "close": "Close the desk",
+        "quoted": "Quoted",
+        "weOffer": "We offer",
+        "noPrice": "No price",
+        "noPriceReason": {
+          "no_market": "The market returned no price for this variant.",
+          "premium_at_floor": "The premium variant hit the floor: no derivable price.",
+          "identity_drift": "This variant no longer exists in the catalog, so the market was not consulted."
+        },
+        "buyLine": "Buy {name}",
+        "selectAll": "Select all",
+        "clearAll": "Clear all",
+        "position": {
+          "title": "Position {total}/{threshold}",
+          "aria": "Position {total} of {threshold}: {stock} in stock, {verifying} in verification, {inTransit} in transit, {committed} committed. Rule: {rule}.",
+          "groupInHouse": "In our hands",
+          "groupNotYet": "Not yet",
+          "stock": "In stock",
+          "verifying": "Verifying",
+          "inTransit": "In transit",
+          "committed": "Committed",
+          "rule": {
+            "bounty": "Bounty",
+            "cap": "Cap"
+          },
+          "unavailable": {
+            "tag": "No count",
+            "text": "We couldn't count the inventory for this card.",
+            "noSuggestion": "No suggestion — the count is missing.",
+            "banner": "We couldn't count the inventory for {count} of {total} cards. You can still make an offer, but you'll do it without seeing how many copies we hold.",
+            "retry": "Retry the count"
+          }
+        },
+        "suggestion": {
+          "label": "Suggestion",
+          "buy": "buy",
+          "doNotBuy": "do not buy",
+          "reasonCap": "the position reached the cap of {threshold} units per variant.",
+          "reasonCapOk": "{total} of {threshold}.",
+          "reasonBounty": "you already hold {total} and the bounty targeted {threshold}.",
+          "reasonBountyOk": "{total} of {threshold} for the bounty.",
+          "legacyBountyNote": "This bounty has no target; it is being measured against the cap.",
+          "none": "No suggestion."
+        },
+        "override": {
+          "action": "Adjust the price",
+          "cancel": "Use the curve price",
+          "amountLabel": "Offered price for {name}",
+          "reasonLabel": "Reason for the adjustment",
+          "reasonHint": "Required when the amount differs from the curve's (3 to 500 characters).",
+          "derived": "Derived by the curve: {amount}",
+          "noDerived": "The curve gave no price: this line only goes in with a manual price."
+        },
+        "totals": {
+          "lines": "{selected} of {total} lines",
+          "gross": "Gross",
+          "shipping": "Shipping",
+          "net": "Deposited",
+          "preview": "Preview · frozen on issue",
+          "previewNote": "These figures use the curve and dials as of now. What's binding is frozen when you issue the offer.",
+          "emit": "Issue offer",
+          "emitForApproval": "Send for approval",
+          "authNote": "The email does not go out until the super admin approves it.",
+          "belowMinimum": "Can't issue: the deposit would be {netAmount} and the minimum is {minimumAmount}. Add {shortfallAmount} of gross, or don't make an offer.",
+          "noLines": "Can't issue: no line is marked to buy."
+        },
+        "pickupAddressMissing": {
+          "text": "The seller's pickup address is missing.",
+          "remedy": "Call them (their phone is in the queue) so they capture it from their account."
+        },
+        "confirm": {
+          "title": "Confirm the offer",
+          "body": "You are about to offer on {count, plural, one {# card} other {# cards}} for a gross of {grossAmount}. Shipping of {shippingAmount} is deducted and {netAmount} is deposited.",
+          "deadlineNote": "The response deadline starts when you issue the offer and is frozen at that moment.",
+          "cta": "Issue the offer and send the email",
+          "ctaForApproval": "Send for approval"
+        },
+        "sent": "Offer issued: the email went out and the seller now has {netAmount} on the table.",
+        "pendingAuthorization": "Prepared and waiting for super admin approval. The email has NOT been sent and nothing changed for the seller.",
+        "readOnly": "The offer is out: the desk is read-only."
+      },
+      "shipment": {
+        "title": "Label and shipping",
+        "guideTitle": "Capture the label",
+        "guideNote": "Capturing the label does NOT move the status: it only starts the seller's deadline, which is frozen at this moment. While there is no label, their clock does not run — and it shouldn't.",
+        "carrier": "Carrier",
+        "trackingNumber": "Tracking number",
+        "captureCta": "Save the label",
+        "recaptureCta": "Fix the label",
+        "captured": "Label captured: {carrier} · {tracking}",
+        "shipDeadline": "Shipping deadline: {date}",
+        "noShipDeadline": "No label yet: the seller's deadline has not started.",
+        "declaredTitle": "Package reported",
+        "declaredAt": "The seller said they shipped it on {date}.",
+        "declaredNote": "That stopped their clock and nothing else: the request is unchanged and does not count as in transit.",
+        "confirmTitle": "Confirm the shipment",
+        "confirmNote": "Confirming is the only thing that moves the request to \\u201cin transit\\u201d and the only thing that makes it count as in transit for the others.",
+        "actualCostLabel": "Actual label cost (optional)",
+        "actualCostHint": "For reporting only. It does not change what the seller is paid: that is the fee they accepted.",
+        "confirmCta": "Confirm it shipped",
+        "confirmDialogTitle": "Confirm the package left",
+        "confirmDialogBody": "The request moves to \\u201cin transit\\u201d and, from that moment, its cards count as in transit on the decision desk of other requests.",
+        "confirmDialogNoGuide": "There is no label captured for this request. It is confirmed anyway \\u2014 refusing does not bring the package back \\u2014 and it is recorded in the audit log.",
+        "confirmed": "Shipment confirmed: the request is in transit."
+      },
+      "queues": {
+        "title": "Cycle queues",
+        "empty": "Nothing pending here.",
+        "seller": "Seller",
+        "request": "Request",
+        "pendingAuth": {
+          "tab": "Offers to approve",
+          "preparedBy": "Prepared by",
+          "gross": "Gross",
+          "cap": "Cap",
+          "excess": "Excess",
+          "lines": "Lines",
+          "diesOn": "Expires on",
+          "diesToday": "Expires today",
+          "diesTomorrow": "Expires tomorrow",
+          "warning": "If nobody approves before that date, the request expires on its own and the offer is voided.",
+          "authorize": "Approve and send",
+          "authorizeTitle": "Approve this offer",
+          "authorizeBody": "It goes out exactly as prepared: {gross} gross, {lines} lines. It cannot be edited here \\u2014 approving means approving what was saved.",
+          "authorizeConfirm": "Approve and send the email",
+          "authorized": "Offer approved: the email went out and the seller's deadline starts now.",
+          "superAdminOnly": "Only the super admin can approve an offer above the cap."
+        },
+        "pendingShipment": {
+          "tab": "Shipments to confirm",
+          "declaredAt": "Said they shipped",
+          "guide": "Label",
+          "waiting": "Days waiting",
+          "waitingUnknown": "Could not be calculated",
+          "waitingValue": "{count, plural, one {# business day} other {# business days}}",
+          "deadline": "Shipping deadline",
+          "alert": "Alert",
+          "alertNote": "It has been waiting too long for confirmation, or we could not compute how long. Both call for the same thing: confirm it. Nothing expires and no status moves.",
+          "noGuide": "No label"
+        },
+        "pendingGuide": {
+          "tab": "Labels to cancel",
+          "carrier": "Carrier",
+          "tracking": "Tracking number",
+          "openedAt": "Opened on",
+          "why": "Why it closed",
+          "empty": "No labels pending cancellation.",
+          "note": "This queue does not empty itself: a label bought and forgotten is money thrown away that nobody sees.",
+          "done": "Label cancelled",
+          "doneTitle": "Mark the label as cancelled",
+          "doneBody": "Confirm that you cancelled label {tracking} with {carrier}. This is the only way this row leaves the queue.",
+          "costLabel": "Actual label cost (optional)",
+          "costHint": "Zero if the carrier refunded it. It only feeds reporting; it does not touch what anyone is paid.",
+          "noteLabel": "Note (optional)",
+          "doneConfirm": "Mark as cancelled",
+          "doneOk": "Label marked as cancelled."
+        },
+        "liveSellers": {
+          "tab": "Sellers with live requests",
+          "phone": "Phone",
+          "noPhone": "No phone",
+          "liveCount": "Live",
+          "oldest": "Oldest",
+          "latestStatus": "Latest status",
+          "note": "This is the list of people we owe an answer to. Oldest first."
+        }
       }
     },
     "m8": {
@@ -2450,12 +2681,20 @@
     },
     "sellRequest": {
       "cotizada": "Quoted",
+      "ofertada": "Offer sent",
+      "aceptada": "Accepted",
+      "en_transito": "In transit",
       "recibida": "Received",
       "verificacion": "In verification",
       "aprobada": "Approved",
       "pagada": "Paid",
       "rechazada": "Rejected",
       "abandonada": "Abandoned"
+    },
+    "sellRequestExpiry": {
+      "not_shipped": "Not shipped",
+      "no_offer": "Not pursued",
+      "unknown": "Expired"
     },
     "sellItem": {
       "cotizada": "Quoted",
@@ -2548,6 +2787,7 @@
     "FORBIDDEN": "You don't have permission for this action.",
     "NOT_FOUND": "We couldn't find what you were looking for.",
     "CONFLICT": "There was a conflict with the current state.",
+    "CONFLICT_WITH_DETAILS": "{closed, select, yes {This request is already closed (it ended in “{status}”), so this action no longer applies.} other {This action doesn’t apply to the request’s current status (“{status}”).}} This isn’t an app failure and retrying won’t change it: refresh the view to see the real status.",
     "RATE_LIMITED": "Too many requests, try again later.",
     "INTERNAL": "Server error. Please try again.",
     "PRICE_PENDING": "This card has a pending price and can't be purchased yet.",
@@ -2555,8 +2795,9 @@
     "ITEM_NOT_SETTLED": "You can only withdraw settled cards.",
     "ADDRESS_NOT_MX": "We only ship to addresses within Mexico.",
     "ITEM_IN_ANOTHER_SHIPMENT": "This card is already in another shipment.",
-    "BUYLIST_LIMIT_EXCEEDED": "You exceed the allowed buylist cap.",
-    "INE_REQUIRED": "You need to upload your INE to continue.",
+    "BUYLIST_LIMIT_EXCEEDED": "This quote goes over the most we can buy from you in one month. Remove a few cards and try again; the limit resets every month.",
+    "BUYLIST_RAW_ONLY": "We only buy raw cards in Near Mint; graded slabs and sealed product are not quoted here.",
+    "INE_REQUIRED": "Because of the amount of this sale we need to identify you: upload your INE (ID) to continue.",
     "CLABE_NOT_OWN_NAME": "The CLABE must be in your name.",
     "CLABE_INVALID": "The CLABE is not valid.",
     "FINISH_NOT_AVAILABLE": "That finish isn't available for this card.",
@@ -2576,7 +2817,18 @@
     "EMAIL_NOT_VERIFIED": "Verify your email to complete this action.",
     "EMAIL_VERIFY_TOKEN_INVALID": "The verification link is invalid or expired.",
     "RESET_TOKEN_INVALID": "The reset link is invalid or expired.",
-    "APPROVED_PRICE_CAP_EXCEEDED": "The approved price exceeds the allowed cap for this item (quoted × 2 or AML cap).",
+    "APPROVED_PRICE_CAP_EXCEEDED": "The amount you are approving does not fit this card's cap: it cannot go over twice the quoted price, nor over the most we can buy from this seller in a month. Lower the approved amount, or reject the card with a reason. Nothing was saved.",
+    "INE_REQUIRED_OPERATOR": "The offer was not sent: the seller has no INE (ID) on file, and at this amount we have to ask for it. Nothing was saved and the seller was not notified. Call them so they upload it from their profile and issue the offer again, or decline the request. No role can skip this requirement.",
+    "BUYLIST_LIMIT_EXCEEDED_OPERATOR": "This offer would put the seller over the most we can buy from them this month, so it was not sent and nothing was saved. Buy fewer cards from this request, or decline it; no role can lift this limit.",
+    "BUYLIST_LIMIT_EXCEEDED_OPERATOR_WITH_DETAILS": "This offer would put the seller at {wouldBeAmount} this month, and the most we can buy from them is {capAmount}: it was not sent and nothing was saved. Buy fewer cards from this request, or decline it; no role can lift this limit.",
+    "APPROVED_PRICE_CAP_EXCEEDED_OFFER_CYCLE": "This card's price was frozen when the offer went out and is now binding: it cannot be changed. What it hits is the most we can buy from this seller in a month, so this card cannot be approved or paid. Do not try to re-price it: escalate the request to a super-admin. Nothing was saved.",
+    "REQUEST_NOT_RECEIVED": "This request has no record that the parcel arrived, so none of its cards can be approved. Once the parcel is in your hands, use “Mark received” on the request and approve again. Nothing was saved.",
+    "PICKUP_ADDRESS_MISSING": "This request has no pickup address (it is an old request), so no offer can be issued. Call the seller so they add it from their profile and issue the offer again, or decline the request. Do not fill it in for them.",
+    "PICKUP_ADDRESS_LOCKED": "This address can no longer be changed: your shipping label is already printed with it, or the request is closed. If something is wrong, contact us before you send the parcel.",
+    "PICKUP_ADDRESS_LOCKED_OPERATOR": "This address can no longer be edited: the label went out printed with it, or the request is closed. If the address is wrong, that label has to be cancelled and a new one issued; it cannot be done from here. Nothing was saved.",
+    "OFFER_PRICE_IMMUTABLE": "This card's price was frozen when the offer went out and is now binding: no amount travels from this screen. Approve it as it is; if it did not arrive as offered, reject it with a reason. Nothing was saved.",
+    "ITEMS_NOT_DECIDED": "Before paying, every card we bought has to be decided, and this request still has cards with no decision. Go to verification and leave each pending card approved, or rejected with a reason; the ones we did not buy need no decision. Once none are left, pay again. Nothing was saved and no money went out.",
+    "ITEMS_NOT_DECIDED_WITH_DETAILS": "Before paying, every card we bought has to be decided, and this request still has {count, plural, one {# card with no decision} other {# cards with no decision}}. Go to verification and leave each pending card approved, or rejected with a reason; the ones we did not buy need no decision. Once none are left, pay again. Nothing was saved and no money went out.",
     "ITEM_NOT_APPROVED": "Only an approved item can be converted to inventory.",
     "CLABE_UNAVAILABLE": "No CLABE available for this request (no snapshot and no KYC record).",
     "ITEM_NOT_ADJUSTABLE": "This piece can't be adjusted in its current status.",
@@ -2605,7 +2857,12 @@
     "GRADED_ESTIMATE_SLAB_PUBLISHED": "This card already has a published piece of that grade. That price is real money, not an estimate; to change it, edit the piece price in Inventory › Graded.",
     "GRADED_ESTIMATE_SLAB_PUBLISHED_WITH_DETAILS": "This card already has {count, plural, one {one published {grade} piece} other {# published {grade} pieces}}. That price is real money, not an estimate; to change it, edit the piece price in Inventory › Graded.",
     "GRADING_SORT_REQUIRES_FILTER": "That sort order only exists for the showcase of cards worth grading; without that filter it cannot be applied.",
-    "GRADED_CONFIG_INVALID": "A threshold in the hook configuration is corrupt, so nothing is evaluated: a review list computed against a garbage threshold is worse than no list. Fix the configuration above and retry."
+    "GRADED_CONFIG_INVALID": "A threshold in the hook configuration is corrupt, so nothing is evaluated: a review list computed against a garbage threshold is worse than no list. Fix the configuration above and retry.",
+    "PICKUP_ADDRESS_REQUIRED": "We need the address your cards ship from to print the label.",
+    "PICKUP_ADDRESS_NOT_FOUND": "That address is no longer in your address book. Choose another or add a new one.",
+    "BUYLIST_MINIMUM_NOT_MET": "Your request is still below the buy minimum.",
+    "OFFER_EXPIRED": "The deadline to respond to this offer has passed, so we could not register your response.",
+    "OFFER_NOT_PENDING": "This offer is no longer waiting for a response."
   },
   "payment": {
     "title": "Payment",

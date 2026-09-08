@@ -31,11 +31,27 @@ export function useShipmentClientSteps(): Step[] {
   ];
 }
 
-/** Pasos del pipeline de buylist (contrato SellRequestStatus). */
+/**
+ * Pasos del pipeline de buylist (contrato `SellRequestStatus`, DESIGN_SYSTEM §23.2a).
+ *
+ * ⚠️ **Son OCHO desde v1.51 (M-46).** Eran cinco, y esa lista se escribió cuando el enum tenía
+ * cinco pasos vivos: al crecer el enum, una solicitud `ofertada`/`aceptada`/`en_transito`
+ * caía en `currentIdx === -1` y **el stepper no marcaba ningún paso como actual** — el estado
+ * desaparecía de la pantalla sin que nada fallara. Es la misma clase de defecto que
+ * `REQUEST_TERMINAL`: una lista de literales que hay que acordarse de ampliar.
+ *
+ * Los TERMINALES (`rechazada`, `abandonada`, `expirada`) **no son pasos** y no entran aquí:
+ * son un CIERRE del recorrido (§23.2d). La representación de ese cierre —truncar el stepper y
+ * colgar la versalita del motivo— es rediseño de `PipelineStepper` y está pendiente; hoy una
+ * solicitud terminal simplemente no marca paso actual, que es el comportamiento previo.
+ */
 export function useBuylistSteps(): Step[] {
   const t = useTranslations('status.sellRequest');
   return [
     { key: 'cotizada', label: t('cotizada') },
+    { key: 'ofertada', label: t('ofertada') },
+    { key: 'aceptada', label: t('aceptada') },
+    { key: 'en_transito', label: t('en_transito') },
     { key: 'recibida', label: t('recibida') },
     { key: 'verificacion', label: t('verificacion') },
     { key: 'aprobada', label: t('aprobada') },

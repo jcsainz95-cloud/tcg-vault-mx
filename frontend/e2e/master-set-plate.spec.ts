@@ -32,14 +32,14 @@ import { needsSeed } from './utils/auth';
  * interceptan por URL, las proporciones se reparten por índice de descubrimiento y el oráculo —la
  * víctima del 404 y su testigo— se descubre del DOM), pero hoy se marca `needsSeed` contra el
  * stack real: `logoUrl` es `null` en TODO el catálogo hasta que un operador re-sincronice
- * (ARCHITECTURE §4.39.4 — no hay backfill), así que en real no habría ninguna placa CON logo que
+ * (ARCHITECTURE §4.41.4 — no hay backfill), así que en real no habría ninguna placa CON logo que
  * medir. El día que el seed traiga un set con logo, este archivo corre tal cual: basta borrar el
  * `needsSeed`. Interceptar las imágenes NO es la parte mock: la geometría es una propiedad del CSS
  * y hace falta forzar proporciones que un CDN de terceros no ofrece a la carta.
  */
 
 /**
- * Proporciones INTRÍNSECAS deliberadamente dispares (§4.39.2: «proporción MUY variable entre
+ * Proporciones INTRÍNSECAS deliberadamente dispares (§4.41.2: «proporción MUY variable entre
  * sets»).
  *  · 1.92:1 es el único que el defecto B-1 NO manifestaba (por encima del umbral de ~1.83:1);
  *    los otros tres son los que descuadraban la retícula. Servir SOLO ese equivaldría a no probar.
@@ -128,7 +128,7 @@ async function settleLogos(page: Page) {
 
 const NEEDS_LOGO =
   'ningún set del catálogo real tiene `logoUrl` hasta que un operador re-sincronice ' +
-  '(ARCHITECTURE §4.39.4: no hay backfill) ⇒ no habría placa CON logo que medir. ' +
+  '(ARCHITECTURE §4.41.4: no hay backfill) ⇒ no habría placa CON logo que medir. ' +
   'Borrar este guardarraíl en cuanto el seed E2E traiga un set con logo.';
 
 test.describe('§24 · el pozo mide lo mismo con cualquier logo (R1)', () => {

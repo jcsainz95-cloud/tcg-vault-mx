@@ -3,7 +3,7 @@ import { AdminService } from '../src/modules/admin/admin.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { PricingService } from '../src/modules/pricing/pricing.service';
 import { PiiCryptoService } from '../src/common/crypto/pii-crypto.service';
-import { buildGradeKey, sealedMarketGradeKey } from '../src/modules/pricing/pricing.types';
+import { buildGradeKey, tryBuildGradeKey, sealedMarketGradeKey } from '../src/modules/pricing/pricing.types';
 import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
 
 /**
@@ -38,6 +38,7 @@ function buildHarness(items: any[], refsByKey: Record<string, number>) {
     // puede divergir de producción ni reimplementar la matemática.
     decideSalePrice: jest.fn(PricingService.prototype.decideSalePrice),
     gradeKeyFor: (i: any) => buildGradeKey(i),
+    tryGradeKeyFor: (i: any) => tryBuildGradeKey(i),
     sealedMarketGradeKeyForItem: (i: any) =>
       i.tcgplayerProductId != null ? sealedMarketGradeKey(i.tcgplayerProductId) : null,
     getReferencesBatch,

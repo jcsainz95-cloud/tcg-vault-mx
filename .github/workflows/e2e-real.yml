@@ -151,7 +151,7 @@ jobs:
       # ---------------------------------------------------------------------
       # INCAPACITACIÓN FRENTE AL PROVEEDOR DE PAGA (ARCHITECTURE §4.38r.6.1)
       #
-      # Desde v1.51 (M-46) hay UN SOLO dial: el `PUT /admin/settings
+      # Desde v1.51 (M-48) hay UN SOLO dial: el `PUT /admin/settings
       # {"gradingHookEnabled":"on"}` que el arnés E2E hace EN CADA CORRIDA ya no
       # solo publica cifras — autoriza al barrido a pedir datos a
       # PokemonPriceTracker (2 créditos/carta) y a escribir precios estimados.
@@ -237,6 +237,17 @@ jobs:
       # 1) Levantar el STACK REAL (mocks=false ya horneado en el frontend).
       #    El backend corre `prisma migrate deploy` al arrancar (Dockerfile CMD).
       # -----------------------------------------------------------------------
+      # -----------------------------------------------------------------------
+      # SEC-OPS-1 — se marca el instante ANTES de levantar nada. Todo lo que
+      # responda después tiene que haber NACIDO después de esta marca; si no, es
+      # un resto de otra corrida y lo que midamos no habla de este commit.
+      # (docs/SECURITY_NOTES.md §9 · DEVOPS_NOTES §38)
+      # -----------------------------------------------------------------------
+      - name: Marcar el instante de arranque (procedencia del binario)
+        run: |
+          echo "STACK_UP_EPOCH=$(date +%s)" >> "$GITHUB_ENV"
+          echo "Commit bajo prueba: $GITHUB_SHA"
+
       - name: Levantar stack real (Postgres/Redis/MinIO + backend + frontend)
         run: docker compose -f "$COMPOSE" --profile apps up -d --build
 
@@ -251,6 +262,30 @@ jobs:
           echo "::error::El backend real no respondió en $BACKEND_HEALTH tras ~5min. Revisa arranque/migrate. Si es fallo de arranque del backend, el finding es del rol backend."
           docker compose -f "$COMPOSE" logs --tail=200 backend || true
           exit 1
+
+      # -----------------------------------------------------------------------
+      # GATE DE PROCEDENCIA — SEC-OPS-1. Aquí el riesgo es MENOR que en local
+      # (`up -d --build` reconstruye desde el checkout en cada corrida, así que la
+      # estrategia «reconstruir siempre» ya está puesta), pero «menor» no es
+      # «nulo»: un contenedor superviviente de otra corrida, un `--build` que
+      # falla y deja el anterior en pie, o un runner reutilizado, dan exactamente
+      # el mismo verde falso que se comió el gate de seguridad DOS veces en local.
+      # Se COMPRUEBA en vez de suponerse, y se deja dicho en el log qué commit se
+      # está midiendo — que es la mitad del arreglo.
+      # -----------------------------------------------------------------------
+      - name: Gate SEC-OPS-1 — el backend vivo nació de ESTE arranque
+        run: |
+          ./scripts/assert-serving-head.sh \
+            --url "$BACKEND_HEALTH" \
+            --label "backend (compose, commit $GITHUB_SHA)" \
+            --newer-than "$STACK_UP_EPOCH" \
+            --remedy "El contenedor que responde es ANTERIOR a este job: hay un stack superviviente. Bájalo (docker compose -f $COMPOSE down -v) y repite. NO interpretes el resultado de esta corrida."
+          {
+            echo "### Procedencia del stack E2E"
+            echo ""
+            echo "- commit medido: \`$GITHUB_SHA\`"
+            echo "- backend levantado por este job (verificado contra \`uptime\` de /health)"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       # -----------------------------------------------------------------------
       # 2) Migraciones (idempotentes al arranque) + SEED SINTÉTICO.

@@ -13,6 +13,7 @@ import type {
   CardDTO,
   CardProductDTO,
   CardSetDTO,
+  BuylistSetDTO,
   Finish,
   ListingDTO,
   HoldingDTO,
@@ -20,6 +21,25 @@ import type {
   OrderDetailDTO,
   OrderItemCardDTO,
   SellRequestDTO,
+  SellRequestDetailDTO,
+  SellItemDTO,
+  BuylistDecisionLineDTO,
+  BuylistDecisionTableDTO,
+  BuylistOfferLineInput,
+  BuylistOfferResultDTO,
+  BuylistGuideResultDTO,
+  BuylistShipmentConfirmResultDTO,
+  PendingOfferAuthorizationRowDTO,
+  PendingShipmentConfirmationRowDTO,
+  PendingGuideCancellationRowDTO,
+  LiveSellerRowDTO,
+  PendingPublishRowDTO,
+  AdminSellerRef,
+  Paginated,
+  SellOfferPublicDTO,
+  PickupAddressSnapshotDTO,
+  SellRequestStatus,
+  SellItemStatus,
   DashboardDTO,
   InventoryItemDTO,
   InventoryMovementDTO,
@@ -32,6 +52,7 @@ import type {
   ClientDisputeDTO,
   ShipmentDTO,
   AddressDTO,
+  BuylistQuotePolicyDTO,
   CatalogFacetsDTO,
   PortfolioHistoryResponse,
   PortfolioPointDTO,
@@ -108,15 +129,24 @@ function yearOf(releaseDate?: string): number | undefined {
   return m ? Number(m[1]) : undefined;
 }
 
-// v1.52 (M-47, ARCHITECTURE §4.39 · DESIGN_SYSTEM §24): `logoUrl` CONVIVE con `null` de forma
+/**
+ * ⚠️ **Fila mock, NO un DTO** — misma doctrina que `MockSellRequestRow`: `mockSets` es la
+ * **tabla `CardSet` del servidor falso**, y `logoUrl` es su **columna** (`CardSet.logoUrl`,
+ * M-47), no un campo de respuesta. Quién la ve y quién no lo deciden las **proyecciones** de
+ * abajo, igual que los `select` del backend real.
+ *
+ * La columna es `string | null` **requerida** (la fila siempre la tiene; el valor puede ser
+ * nulo), para que ninguna fixture pueda nacer sin decidir si ese set tiene logo o no.
+ */
+export type MockCardSetRow = CardSetDTO & { logoUrl: string | null };
+
+// v1.52 (M-47, ARCHITECTURE §4.41 · DESIGN_SYSTEM §24): `logoUrl` CONVIVE con `null` de forma
 // PERMANENTE — hay sets que el proveedor nunca ilustra (promos, colecciones, sets viejos). El mock
 // tiene que decir la verdad, así que la lista de abajo trae los DOS casos a propósito y en la misma
 // página del índice: CON logo (sv08, sv06, sv1, cel25) y SIN logo (cel25c, swsh1, base1 → `null`).
 // Si todos tuvieran logo, el monograma de §24.5 no se ejercitaría nunca en dev ni en Playwright y el
 // hueco solo aparecería en producción (es el modo exacto en que se escapó el bug de imagen del carrito).
-// ⚠️ El backend NO emite `logoUrl` en `GET /catalog/sets` (§4.39.5): aquí sale en los dos porque
-// `lib/api.ts` sirve `getSets()` y `listBuylistSets()` del MISMO fixture. Ver FRONTEND_NOTES §42.
-export const mockSets: CardSetDTO[] = [
+export const mockSets: MockCardSetRow[] = [
   { id: 'sv08', name: 'Surging Sparks', series: 'Scarlet & Violet', releaseDate: '2024/11/08', year: 2024, logoUrl: 'https://images.pokemontcg.io/sv8/logo.png' },
   { id: 'sv06', name: 'Twilight Masquerade', series: 'Scarlet & Violet', releaseDate: '2024/05/24', year: 2024, logoUrl: 'https://images.pokemontcg.io/sv6/logo.png' },
   { id: 'sv1', name: 'Scarlet & Violet', series: 'Scarlet & Violet', releaseDate: '2023/03/31', year: 2023, logoUrl: 'https://images.pokemontcg.io/sv1/logo.png' },
@@ -132,6 +162,31 @@ export const mockSets: CardSetDTO[] = [
   { id: 'swsh1', name: 'Sword & Shield', series: 'Sword & Shield', releaseDate: '2020/02/07', year: 2020, logoUrl: null },
   { id: 'base1', name: 'Base Set', series: 'Base', releaseDate: '1999/01/09', year: 1999, logoUrl: null },
 ].map((s) => ({ ...s, year: yearOf(s.releaseDate) }));
+
+/**
+ * **Proyección de `GET /catalog/sets` — SIN `logoUrl`, y el descarte es el punto** (DT-Gd).
+ *
+ * §4.41.5 lista `GET /catalog/sets` en «NO entra»: el backend real **no emite la clave**. Antes
+ * `getSets()` servía `mockSets` tal cual, así que en modo mock `/catalog/sets` **rendía un campo
+ * que el backend nunca manda** — «el mock promete más que el backend», la clase exacta de
+ * divergencia que ya costó un defecto en producción (§34). No basta con tipar la respuesta como
+ * `CardSetDTO[]`: TypeScript acepta la propiedad de más en un valor no-literal, así que la clave
+ * se **borra de verdad** aquí (mismo `Omit` por destructuring que `mockSellRequestDTO`).
+ */
+export function mockCatalogSetDTO(row: MockCardSetRow): CardSetDTO {
+  const { logoUrl: _logoUrl, ...dto } = row;
+  return dto;
+}
+
+/** Fixture de `GET /catalog/sets`: las filas SIN la columna del logo. */
+export const mockCatalogSets: CardSetDTO[] = mockSets.map(mockCatalogSetDTO);
+
+/**
+ * **Fixture de `GET /buylist/sets`: con `logoUrl` SIEMPRE presente** (contrato «obligatorio, no
+ * opcional»; §4.41.6). Es la fuente client-side de la retícula de tejas del cotizador, y el tipo
+ * `BuylistSetDTO` es lo que impide que la clave se caiga sin que nada falle.
+ */
+export const mockBuylistSets: BuylistSetDTO[] = mockSets.map((row): BuylistSetDTO => ({ ...row }));
 
 // ===== v1.33-master-set-multipart (P-27, §4.31a): mapa curado padre→subset (SOLO presentación) =====
 // Espeja `backend/src/config/master-set-groups.ts`. NUNCA es fuente de verdad: cada Card/pieza conserva
@@ -205,7 +260,7 @@ function partLabelOf(partSetId: string, group: MasterSetGroup): string {
  * (Celebrations aparece UNA sola vez) y esa entrada gana `partSetIds`. CA-71: si el principal no está
  * en el listado, el subset se conserva como su propia entrada. Un set normal pasa sin cambio.
  */
-export function foldSetsForDropdown(sets: CardSetDTO[]): CardSetDTO[] {
+export function foldSetsForDropdown<T extends CardSetDTO>(sets: T[]): T[] {
   const present = new Set(sets.map((s) => s.id));
   const droppedSubsets = new Set<string>();
   const partsByPrimary = new Map<string, string[]>();
@@ -1045,7 +1100,315 @@ export const mockOrderDetailLegacy: OrderDetailDTO = {
   stripePaymentIntentId: 'pi_mock_legacy',
 };
 
-export const mockSellRequests: SellRequestDTO[] = [
+/**
+ * ⚠️ **Fila mock, NO el DTO.** `isTerminal` es **server-derived** (contrato §6/§11, v1.51): no
+ * puede vivir en la fixture porque las ramas mock MUTAN el `status` en memoria (`respondSellRequest`,
+ * `paySpeiBuylist`, …) y un booleano guardado se quedaría mintiendo en cuanto la solicitud cambiara
+ * de estado. Lo pone la PROYECCIÓN del servidor falso, igual que el backend real.
+ */
+export type MockSellRequestRow = Omit<SellRequestDTO, 'isTerminal'> & {
+  /**
+   * ⚠️ **Columnas CONGELADAS de la oferta — viven en la FILA, no en el DTO.** Espejan
+   * `SellRequest.offerState / offerSentAt / offerGrossCents / offerShippingFeeCents /
+   * offerNetCents / offerAcceptDeadlineAt / acceptedAt` del backend. El cliente NUNCA ve
+   * `offerState` (le filtraría el orden de magnitud de nuestro tope interno): lo consume
+   * `mockSellOffer` para decidir si hay oferta, exactamente como `offerPublicDTO` en el backend.
+   */
+  offerState?: 'pending_authorization' | 'sent' | 'cancelled' | null;
+  offerSentAt?: string | null;
+  offerGrossCents?: number | null;
+  offerShippingFeeCents?: number | null;
+  offerNetCents?: number | null;
+  offerAcceptDeadlineAt?: string | null;
+  offerAcceptedAt?: string | null;
+  /** v1.51.3 (D36/D37): snapshot de la dirección de ORIGEN. */
+  pickupAddress?: PickupAddressSnapshotDTO | null;
+};
+
+/**
+ * ⚠️ **La ÚNICA derivación del set terminal que existe en el frontend, y vive en el SERVIDOR
+ * FALSO — no en una pantalla.**
+ *
+ * Espeja `backend/src/common/sell-request-states.ts` (`SELL_REQUEST_TERMINAL_STATES`, los CUATRO
+ * de `PROJECT.md` §P.1 / criterio 113). No es la quinta copia que ARCHITECTURE §4.39c mandó
+ * borrar: aquella la consultaba una VISTA para decidir qué botones ofrecer teniendo el dato del
+ * servidor a mano. Ésta existe porque en modo mock **no hay servidor que lo derive**, y su único
+ * consumidor son las proyecciones de abajo. **Ninguna pantalla la importa; si alguna lo hace,
+ * la copia volvió.**
+ */
+const MOCK_TERMINAL_SELL_REQUEST_STATUSES: ReadonlySet<SellRequestStatus> = new Set([
+  'pagada',
+  'rechazada',
+  'abandonada',
+  'expirada',
+]);
+
+/**
+ * Proyección del servidor falso para la **LISTA** (`GET /buylist/requests`): añade lo que el
+ * backend real deriva (§4.39c sitio 9) y **descarta las columnas de la oferta**.
+ *
+ * ⚠️ El descarte es la parte importante: el contrato (v1.51.8) dice que `offer` y los campos de
+ * estado de la oferta viajan **solo en el DETALLE**. Si el servidor falso los repartiera en la
+ * lista, el frontend podría llegar a depender de algo que el backend real no manda.
+ */
+export function mockSellRequestDTO(row: MockSellRequestRow): SellRequestDTO {
+  const {
+    offerState: _offerState,
+    offerSentAt: _offerSentAt,
+    offerGrossCents: _offerGrossCents,
+    offerShippingFeeCents: _offerShippingFeeCents,
+    offerNetCents: _offerNetCents,
+    offerAcceptDeadlineAt: _offerAcceptDeadlineAt,
+    offerAcceptedAt: _offerAcceptedAt,
+    pickupAddress: _pickupAddress,
+    ...dto
+  } = row;
+  return { ...dto, isTerminal: MOCK_TERMINAL_SELL_REQUEST_STATUSES.has(row.status) };
+}
+
+/**
+ * MOCK del `terms` que **renderiza el backend** con las MISMAS plantillas del correo
+ * (`offerTermsCopy` en `backend/src/modules/buylist/buylist-mail.templates.ts`). Está aquí
+ * —del lado del servidor falso— y **no** en el catálogo i18n del front a propósito: el contrato
+ * manda estos dos strings como DATO precisamente para que la pantalla y el correo no puedan
+ * decir cosas distintas (§23.5a). Una copia en `messages/*.json` sería la segunda plantilla que
+ * rompe la identidad en el primer cambio de copy.
+ */
+function mockOfferTerms(locale: 'es' | 'en'): SellOfferPublicDTO['terms'] {
+  return locale === 'en'
+    ? {
+        perLineConditionLabel: 'only if it arrives Near Mint',
+        consequence:
+          "If a card doesn't arrive Near Mint we don't buy it, we don't pay for it and we send it back: you have 7 days to arrange the return, at your cost, and after 30 days it is considered abandoned. Rejecting one card does NOT cancel the purchase of the others and does NOT change any price: the ones that do arrive Near Mint are paid at the price in this offer.",
+      }
+    : {
+        perLineConditionLabel: 'siempre que llegue en Near Mint',
+        consequence:
+          'Si una carta no llega en Near Mint no se compra, no se paga y te la devolvemos: tienes 7 días para gestionar la devolución, a tu costo, y a los 30 días se considera abandonada. Rechazar una carta NO cancela la compra de las demás y NO cambia el precio de ninguna: las que sí lleguen en Near Mint se pagan al precio de esta oferta.',
+      };
+}
+
+/**
+ * Proyección del servidor falso de `SellOfferPublicDTO` — espejo de `offerPublicDTO`.
+ * **`null` salvo con `offerState === 'sent'`**: una oferta que espera autorización *no existe*
+ * para el vendedor (D13/D24) y una cancelada se limpió. Nunca lleva `offerState`.
+ */
+export function mockSellOffer(
+  row: MockSellRequestRow,
+  locale: 'es' | 'en' = 'es',
+): SellOfferPublicDTO | null {
+  if (row.offerState !== 'sent' || !row.offerSentAt || !row.offerAcceptDeadlineAt) return null;
+  return {
+    sentAt: row.offerSentAt,
+    grossCents: row.offerGrossCents ?? 0,
+    shippingFeeCents: row.offerShippingFeeCents ?? 0,
+    netCents: row.offerNetCents ?? 0,
+    acceptDeadlineAt: row.offerAcceptDeadlineAt,
+    acceptedAt: row.offerAcceptedAt ?? null,
+    shipDeadlineAt: null,
+    sellerShippedDeclaredAt: null,
+    carrier: null,
+    trackingNumber: null,
+    terms: mockOfferTerms(locale),
+    lines: row.items,
+  };
+}
+
+/**
+ * Proyección del servidor falso para el **DETALLE** (`GET /buylist/requests/:id`).
+ * `locale` hace de `User.locale` del dueño, que es de donde el backend real saca el idioma de
+ * `offer.terms`.
+ */
+export function mockSellRequestDetailDTO(
+  row: MockSellRequestRow,
+  locale: 'es' | 'en' = 'es',
+): SellRequestDetailDTO {
+  return {
+    ...mockSellRequestDTO(row),
+    offer: mockSellOffer(row, locale),
+    pickupAddress: row.pickupAddress ?? null,
+    lastOfferCancelledAt: null,
+  };
+}
+
+/**
+ * ⚠️ **El plazo lo calcula el SERVIDOR FALSO, nunca la pantalla.** R4 (§23.0) prohíbe que el
+ * cliente derive plazos; aquí estamos del lado del servidor, que es donde el backend real los
+ * congela en días hábiles al emitir la oferta. Se calcula al cargar el módulo (no en una
+ * constante de fecha fija) para que la fixture no nazca vencida y `OFFER_EXPIRED` solo aparezca
+ * cuando de verdad corresponde.
+ */
+const MOCK_OFFER_DEADLINE = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString();
+
+/**
+ * Estados **pagables** — espejo de `SELL_REQUEST_PAYABLE_STATES` del backend. Igual que el set
+ * terminal: vive en el SERVIDOR FALSO porque en modo mock no hay backend que derive `isPayable`.
+ * Ninguna pantalla lo importa.
+ */
+const MOCK_PAYABLE_SELL_REQUEST_STATUSES: ReadonlySet<SellRequestStatus> = new Set([
+  'aprobada',
+  'verificacion',
+]);
+
+/**
+ * ⚠️⚠️ **LAS COLUMNAS que deciden si una fila se paga** — contrato **§M5-V.0** (v1.61), *«no se
+ * paga lo que no se ha juzgado»*, que absorbe §M5-P (v1.57):
+ * ```
+ * isPayable ⇔ status ∈ PAYABLE ∧ receivedAt IS NOT NULL ∧ verifiedAt IS NOT NULL
+ *                              ∧ approvedTotalCents IS NOT NULL
+ * pay-spei  ⇔ isPayable ∧ (offerSentAt IS NULL ∨ ninguna línea COMPRADA sin veredicto)
+ * ```
+ * **Son columnas OBLIGATORIAS de la «tabla» del servidor falso, no opcionales**, y eso es la mitad
+ * del arreglo: mientras `receivedAt` no existió en el tipo, **una fila pagable podía nacer sin
+ * constancia de recepción**; mientras `approvedTotalCents` fue el campo opcional del DTO,
+ * **omitirlo volvió a ser gratis** y `sr-3001` nació otra vez pagable donde el servidor responde
+ * `422`. *El defecto no fue olvidar un `&&`: fue que el tipo permitía la fila que el `&&` tenía
+ * que frenar.* Decir `null` es una afirmación; omitir era un olvido, y ahora no compila.
+ *
+ * ⚠️ **`approvedTotalCents` es `number | null` aquí y `number | undefined` en el DTO**: en la
+ * «tabla» es una columna nullable —**`null` = «nadie decidió nada»; `0` = «se decidió y salió
+ * cero»**, y §M5-V.0 existe porque esos dos no son el mismo número—; en el contrato es un campo
+ * opcional. La proyección traduce.
+ *
+ * ⛔ **Las TRES ocultas no viajan en el DTO** (§M5-P: `isPayable` es lo único que el cliente ve);
+ * `approvedTotalCents` sí, y por eso la lista de descarte se DERIVA del contrato (abajo) en vez de
+ * escribirse a mano.
+ */
+export type MockPayabilityColumns = {
+  /** «RECIBIMOS» — lo sella `POST …/receive`, una sola vez, y nadie lo limpia. */
+  receivedAt: string | null;
+  /** «y VERIFICAMOS» — lo sella `POST …/verify`. */
+  verifiedAt: string | null;
+  /**
+   * «y APROBAMOS ALGO» (§M5-V, **V-a**, TODA fila). ⛔ **`IS NOT NULL`, JAMÁS `> 0`:** el depósito
+   * de cero de D40 —`approvedTotalCents = 0` **con** líneas aprobadas, porque el envío se comió el
+   * bruto— **se sigue pagando**.
+   */
+  approvedTotalCents: number | null;
+  /**
+   * «¿va por el CICLO?» (§M5-V, **V-b**, solo `offerSentAt IS NOT NULL`). Es la columna del
+   * backend, no `offerState`: una oferta **cancelada** tiene `offerSentAt` sellado.
+   */
+  offerSentAt: string | null;
+};
+
+/**
+ * Los estados que SON un veredicto de verificación (§M5-V.0: los dos desenlaces de `PROJECT.md`
+ * §P.5 más el sucesor de la aprobación). Igual que el set pagable: vive en el **SERVIDOR FALSO**
+ * porque en modo mock nadie más puede derivar el conteo. ⛔ **Ninguna pantalla lo importa** — el
+ * contrato prohíbe expresamente que el cliente cuente `itemStatus` (§M5-V.5).
+ */
+const MOCK_ITEM_VERDICT_STATUSES: ReadonlySet<SellItemStatus> = new Set([
+  'aprobada',
+  'rechazada',
+  'convertida_inventario',
+]);
+
+/**
+ * **Las líneas COMPRADAS sin veredicto** — el cuerpo único del que salen las DOS cosas que §M5-V
+ * pide: el término V-b de `isPayable` y el `pendingDecisionItemCount` del DTO (y los
+ * `details.pendingDecisionItemIds` del `422`). *Un cuerpo, tres lectores*, igual que en el backend.
+ *
+ * ⚠️ **`offerDecision === 'buy'` NO es un refinamiento:** las líneas `skip` conservan su
+ * `itemStatus` y **jamás pueden aprobarse** (`ITEM_NOT_OFFERED`), así que sin ese término **toda
+ * oferta con cherry-pick sería impagable** — el camino normal del ciclo.
+ */
+export function mockPendingDecisionItemIds(row: Pick<AdminBuylistDTO, 'items'>): string[] {
+  return row.items
+    .filter((it) => it.offerDecision === 'buy' && !MOCK_ITEM_VERDICT_STATUSES.has(it.itemStatus))
+    .map((it) => it.id);
+}
+
+/** Lo que la fórmula de §M5-V.0 mira de una fila: sus columnas, su `status` y sus líneas. */
+type MockPayabilityRow = MockPayabilityColumns & Pick<AdminBuylistDTO, 'status' | 'items'>;
+
+/**
+ * ⚠️⚠️ **UN término por COLUMNA de la fórmula, y el tipo lo obliga: `Record` EXHAUSTIVO.**
+ *
+ * La doctrina de este proyecto es *«la copia se cura eliminando la NECESIDAD de la copia»*. Aquí
+ * la copia no se puede borrar —en modo mock no hay backend que derive `isPayable`—, así que se le
+ * quita lo que la hace peligrosa: **la posibilidad de quedarse corta en silencio**. Añadir una
+ * columna al tipo **sin** su término es error de compilación, y quitar un término también.
+ *
+ * ⚠️ **Y ESO NO BASTÓ, que es la lección de v1.61.** El `Record` exhaustivo protege contra olvidar
+ * el término de una columna **ya declarada**; **no** protege contra un término **NUEVO** de la
+ * fórmula del backend, porque nadie obliga a declarar la columna. Por eso `approvedTotalCents`
+ * —que ya existía como campo suelto del DTO— pudo entrar en la fórmula v1.61 sin que aquí se
+ * pusiera nada rojo. La segunda mitad del candado vive en `payability-contract.test.ts`: **lee la
+ * fórmula normativa de `docs/API_CONTRACT.md` §M5-V.0 y exige que sus términos sean EXACTAMENTE
+ * las claves de esta tabla**. Un término nuevo en el contrato ⇒ rojo con su nombre.
+ */
+const MOCK_PAYABILITY_TERMS: {
+  [K in keyof MockPayabilityColumns | 'status']: (row: MockPayabilityRow) => boolean;
+} = {
+  status: (row) => MOCK_PAYABLE_SELL_REQUEST_STATUSES.has(row.status),
+  receivedAt: (row) => row.receivedAt != null,
+  verifiedAt: (row) => row.verifiedAt != null,
+  // ⛔ `!= null`, JAMÁS `> 0`: escribir `> 0` aquí rompe D40 / criterio 140 (el depósito de cero).
+  approvedTotalCents: (row) => row.approvedTotalCents != null,
+  // V-b entero: fuera del ciclo no aplica; dentro, ninguna línea COMPRADA sin veredicto.
+  offerSentAt: (row) => row.offerSentAt == null || mockPendingDecisionItemIds(row).length === 0,
+};
+
+export type MockPayabilityTermKey = keyof typeof MOCK_PAYABILITY_TERMS;
+
+export const MOCK_PAYABILITY_TERM_KEYS = Object.keys(
+  MOCK_PAYABILITY_TERMS,
+) as MockPayabilityTermKey[];
+
+/**
+ * Las columnas de pagabilidad que **NO existen en el contrato** y por tanto no pueden salir en el
+ * DTO. ⚠️ **La lista se DERIVA de `AdminBuylistDTO`, no se escribe a mano:** el día que el
+ * arquitecto publique `offerSentAt` en el DTO admin (petición 2 de §26.9), este `Record` deja de
+ * compilar por propiedad de más y obliga a decidir — en vez de seguir borrando en silencio un
+ * campo que el servidor real ya manda.
+ */
+type MockPayabilityHiddenKey = Exclude<keyof MockPayabilityColumns, keyof AdminBuylistDTO>;
+const MOCK_PAYABILITY_HIDDEN_COLUMNS: { [K in MockPayabilityHiddenKey]: true } = {
+  receivedAt: true,
+  verifiedAt: true,
+  offerSentAt: true,
+};
+const MOCK_PAYABILITY_HIDDEN_KEYS = Object.keys(
+  MOCK_PAYABILITY_HIDDEN_COLUMNS,
+) as MockPayabilityHiddenKey[];
+
+/**
+ * ⚠️ Espejo de `isPayableSellRequest` + la guarda de `paySpei` del backend (**CINCO** términos
+ * desde v1.61). Ningún término se escribe aquí: se recorren **todos** los de la tabla, uno por uno.
+ *
+ * ⚠️ §M5-V.5 obliga a que V-b entre en `isPayable`: si no, la pantalla del `super_admin` diría
+ * «lista para pagar» sobre una solicitud que el servidor rechaza — *la repetición exacta del
+ * defecto que §M5-P llamó ALTA*.
+ */
+function mockIsPayable(row: MockPayabilityRow): boolean {
+  return MOCK_PAYABILITY_TERM_KEYS.every((key) => MOCK_PAYABILITY_TERMS[key](row));
+}
+
+/**
+ * Ídem para la proyección ADMIN (`GET /admin/buylist`, `AdminBuylistDTO`).
+ *
+ * ⚠️ Las columnas ocultas de pagabilidad **NO salen en el DTO**: son columnas de la «tabla» del
+ * servidor falso, igual que en el backend real, y solo alimentan la derivación. Se descartan **por
+ * la lista derivada**, no a mano, para que una columna nueva no se filtre al cliente por un
+ * `...row` distraído.
+ */
+export function mockAdminBuylistDTO(row: MockAdminBuylistRow): AdminBuylistDTO {
+  const dto = { ...row } as Omit<MockAdminBuylistRow, MockPayabilityHiddenKey> &
+    Partial<Pick<MockPayabilityColumns, MockPayabilityHiddenKey>>;
+  for (const key of MOCK_PAYABILITY_HIDDEN_KEYS) delete dto[key];
+  return {
+    ...(dto as Omit<MockAdminBuylistRow, MockPayabilityHiddenKey | 'approvedTotalCents'>),
+    // `null` (columna nullable de la tabla) → `undefined` (campo opcional del contrato).
+    approvedTotalCents: row.approvedTotalCents ?? undefined,
+    isTerminal: MOCK_TERMINAL_SELL_REQUEST_STATUSES.has(row.status),
+    isPayable: mockIsPayable(row),
+    // v1.61 §M5-V.5: **el servidor manda el número**; el cliente no cuenta `itemStatus`.
+    pendingDecisionItemCount: mockPendingDecisionItemIds(row).length,
+  };
+}
+
+export const mockSellRequests: MockSellRequestRow[] = [
   {
     sellRequestId: 'sr-3001',
     status: 'verificacion',
@@ -1070,7 +1433,50 @@ export const mockSellRequests: SellRequestDTO[] = [
       { id: 'sri-adj-1', card: cardById('c-charizard'), productType: 'raw', rawCondition: 'NM', finish: 'holofoil', rarity: 'Rare Holo', priceBasis: 'market', marketBracket: 'r25_80', quotedPriceCents: 60000, approvedPriceCents: 45000, itemStatus: 'ajustada' },
     ],
   },
+  /**
+   * v1.51 (M-46) — solicitud con la **OFERTA EMITIDA**, para ejercer el portal del vendedor
+   * (§23.5): DOS líneas `buy` con su precio congelado y UNA `skip` **sin monto** (criterio 118:
+   * el desglose tiene que decir qué NO compramos; `MX$ 0.00` está prohibido ahí).
+   * Los tres montos son los del ejemplo normativo de §23.4.2: 1020 − 180 = 840.
+   */
+  {
+    sellRequestId: 'sr-3003',
+    status: 'ofertada',
+    quotedTotalCents: 105000,
+    ineRequired: false,
+    createdAt: '2026-08-28T14:00:00Z',
+    offerState: 'sent',
+    offerSentAt: '2026-08-30T18:00:00Z',
+    offerGrossCents: 102000,
+    offerShippingFeeCents: 18000,
+    offerNetCents: 84000,
+    offerAcceptDeadlineAt: MOCK_OFFER_DEADLINE,
+    offerAcceptedAt: null,
+    pickupAddress: {
+      line1: 'Av. Central 123',
+      neighborhood: 'Centro',
+      city: 'Ciudad de México',
+      state: 'CDMX',
+      postalCode: '06000',
+      country: 'MX',
+      phone: '5555555555',
+      capturedAt: '2026-08-28T14:00:00Z',
+    },
+    items: [
+      { id: 'sri-off-1', card: cardById('c-charizard'), productType: 'raw', rawCondition: 'NM', finish: 'holofoil', rarity: 'Rare Holo', priceBasis: 'market', marketBracket: 'r25_80', quotedPriceCents: 84000, itemStatus: 'cotizada', offerDecision: 'buy', offeredPriceCents: 84000 },
+      { id: 'sri-off-2', card: cardById('c-pikachu'), productType: 'raw', rawCondition: 'NM', finish: 'normal', rarity: 'Common', priceBasis: 'market', marketBracket: 'r25_80', quotedPriceCents: 18000, itemStatus: 'cotizada', offerDecision: 'buy', offeredPriceCents: 18000 },
+      { id: 'sri-off-3', card: cardById('c-eevee'), productType: 'raw', rawCondition: 'NM', finish: 'reverse_holo', rarity: 'Reverse Holo', priceBasis: 'market', marketBracket: 'r25_80', quotedPriceCents: 3000, itemStatus: 'cotizada', offerDecision: 'skip', offeredPriceCents: null },
+    ],
+  },
 ];
+
+/**
+ * MOCK: respuesta de `GET /buylist/quote-policy` (contrato §6/§11, v1.51.4 · D43). UN entero.
+ * Es el valor SEMBRADO del dial `buylist_minimum_request_cents` (MX$500) actuando como servidor
+ * falso — NO es un default de la ruta real: la ruta real NUNCA inventa el mínimo (si el endpoint
+ * falla, el front no pinta faltante y deja el botón vivo; el 422 del servidor trae el número).
+ */
+export const mockBuylistQuotePolicy: BuylistQuotePolicyDTO = { minimumRequestCents: 50000 };
 
 /** KYC del comprador (contrato GET /users/me/kyc). CLABE enmascarada; INE aún no en archivo. */
 export const mockKyc: KycInfoDTO = {
@@ -1712,9 +2118,10 @@ export function mockMasterSetIndex(
       releaseDate: s.releaseDate,
       year: s.year,
       printedTotal: SET_PRINTED_TOTAL[s.id],
-      // v1.52 (M-47): la clave va SIEMPRE; `?? null` porque `CardSetDTO.logoUrl` es opcional
-      // (§4.39.5: `GET /catalog/sets` no lo emite) y este DTO lo declara requerido.
-      logoUrl: s.logoUrl ?? null,
+      // v1.52 (M-47): la clave va SIEMPRE. Sin `?? null` a propósito (DT-Gd): la columna
+      // `MockCardSetRow.logoUrl` es `string | null` REQUERIDA, así que si desapareciera de la
+      // fila esto NO compilaría — que es justo el candado que el `??` desactivaba.
+      logoUrl: s.logoUrl,
       catalogCardCount,
       distinctCardsOwned,
       completionPct,
@@ -2296,13 +2703,78 @@ export function mockBulkPublish(req: BulkPublishRequest): BulkPublishResponse {
   return { summary: { requested: req.items.length, published, failedLines }, results };
 }
 
-export const mockAdminBuylist: AdminBuylistDTO[] = [
+/**
+ * ⚠️ Fila mock: sin los TRES campos **server-derived** (`isTerminal`, `isPayable`,
+ * `pendingDecisionItemCount`), y **con** las columnas de pagabilidad, que son lo contrario —
+ * columnas de la «tabla» sin las cuales la derivación no se puede hacer. Ver
+ * `MockPayabilityColumns`.
+ *
+ * ⚠️ **Las CUATRO son OBLIGATORIAS, no opcionales, y ésa es la corrección de §M5-P + §M5-V.** Con
+ * `verifiedAt?` opcional, **omitir un ancla era gratis**; con `approvedTotalCents?` heredado del
+ * DTO, **omitir el término V-a también lo era** — y `sr-3001` volvió a salir pagable sin que nadie
+ * decidiera nada. Ahora cada fila **declara** si la carta llegó, si se verificó, si se aprobó algo
+ * y si va por el ciclo — incluido decir `null`, que es una afirmación y no un olvido.
+ */
+export type MockAdminBuylistRow = Omit<
+  AdminBuylistDTO,
+  'isTerminal' | 'isPayable' | 'pendingDecisionItemCount' | keyof MockPayabilityColumns
+> &
+  MockPayabilityColumns;
+
+export const mockAdminBuylist: MockAdminBuylistRow[] = [
+  /**
+   * ⚠️ **Una solicitud `cotizada` — «POR OFERTAR».** Sin ella el servidor falso no tenía ninguna
+   * fila en el estado donde vive **la mesa de decisión**, así que el ciclo entero era
+   * indemostrable en modo mock (y sin cobertura E2E).
+   *
+   * Sus TRES líneas están elegidas para cubrir los tres casos que la mesa existe para no
+   * confundir, y que son exactamente los que `MOCK_POSITIONS` siembra:
+   *  - **Charizard** → posición completa (5/1/1/2 = 9 de 10): la tira con sus cuatro sumandos.
+   *  - **Pikachu**   → **un CERO REAL** (0/0/0/0): retícula y titular presentes.
+   *  - **Eevee**     → **`positionUnavailable`**: no hay retícula, hay una frase. *Un cero que
+   *    significa «no pude contar» se ve confiable y empuja a comprar de más.*
+   */
+  {
+    id: 'sr-3004',
+    userId: 'u-777',
+    status: 'cotizada',
+    quotedTotalCents: 138000,
+    createdAt: '2026-08-30T14:00:00Z',
+    // Nada ha llegado y nada se ha verificado: la carta sigue en casa del vendedor.
+    receivedAt: null,
+    verifiedAt: null,
+    // Nada aprobado y ninguna oferta emitida: la mesa de decisión es justo el paso anterior.
+    approvedTotalCents: null,
+    offerSentAt: null,
+    seller: { id: 'u-777', name: 'Ash Ketchum', email: 'ash@example.com' },
+    items: [
+      { id: 'sri-desk-1', card: cardById('c-charizard'), productType: 'raw', rawCondition: 'NM', finish: 'holofoil', rarity: 'Rare Holo', priceBasis: 'market', marketBracket: 'r25_80', quotedPriceCents: 90000, itemStatus: 'cotizada' },
+      { id: 'sri-desk-2', card: cardById('c-pikachu'), productType: 'raw', rawCondition: 'NM', finish: 'normal', rarity: 'Common', priceBasis: 'market', marketBracket: 'r25_80', quotedPriceCents: 45000, itemStatus: 'cotizada' },
+      { id: 'sri-desk-3', card: cardById('c-eevee'), productType: 'raw', rawCondition: 'NM', finish: 'reverse_holo', rarity: 'Reverse Holo', priceBasis: 'market', marketBracket: 'r25_80', quotedPriceCents: 3000, itemStatus: 'cotizada' },
+    ],
+  },
   {
     id: 'sr-3001',
     userId: 'u-777',
     status: 'verificacion',
     quotedTotalCents: 50200,
     createdAt: '2026-08-12T14:00:00Z',
+    // ⚠️ v1.51.8: el backend sella `verifiedAt` en el MISMO `verify()` que pone `verificacion`, así
+    // que una fila en este estado SIN la marca no existe en producción. La fixture no la tenía y
+    // eso la volvía no-pagable: no era un dato de más, era un estado imposible.
+    // ⚠️ v1.57 (§M5-P): y `receivedAt` ANTES, porque el camino legítimo a `verificacion` pasa por
+    // `receive`. Una fila pagable sin esta marca es el PoC del eje 2 —MX$320 pagados por mercancía
+    // que nunca llegó—, no una fila de demostración.
+    receivedAt: '2026-08-12T15:00:00Z',
+    verifiedAt: '2026-08-12T16:00:00Z',
+    // ⚠️⚠️ v1.61 (§M5-V, V-a): **NADA APROBADO TODAVÍA ⇒ NO SE PAGA.** Sus tres líneas siguen en
+    // `verificacion`/`recibida`, así que `approvedTotalCents` es `null` — *«nadie decidió nada»*,
+    // que no es lo mismo que `0`. Ésta es la fila exacta del hallazgo de QA: con solo los tres
+    // términos de v1.57 el servidor falso la declaraba `isPayable: true` y encendía «Pagar por
+    // SPEI» donde el servidor real responde `422`. Fuera del ciclo (`offerSentAt: null`), así que
+    // V-b no aplica y su `pendingDecisionItemCount` es 0: el botón está apagado por V-a.
+    approvedTotalCents: null,
+    offerSentAt: null,
     items: mockSellRequests[0].items,
   },
   {
@@ -2311,6 +2783,11 @@ export const mockAdminBuylist: AdminBuylistDTO[] = [
     status: 'recibida',
     quotedTotalCents: 1200,
     createdAt: '2026-08-13T08:00:00Z',
+    // `recibida` SOLO se alcanza por `receive`, que es el único escritor del ancla (§M5-P).
+    receivedAt: '2026-08-13T09:00:00Z',
+    verifiedAt: null,
+    approvedTotalCents: null,
+    offerSentAt: null,
     items: [
       { id: 'sri-9', card: cardById('c-machamp'), productType: 'raw', rawCondition: 'NM', finish: 'normal', rarity: 'Uncommon', priceBasis: 'market', marketBracket: 'r25_80', quotedPriceCents: 1200, itemStatus: 'recibida' },
     ],
@@ -2324,8 +2801,69 @@ export const mockAdminBuylist: AdminBuylistDTO[] = [
     quotedTotalCents: 30000,
     approvedTotalCents: 28000,
     createdAt: '2026-08-14T10:00:00Z',
+    // Pasó por recepción Y verificación, y su línea está APROBADA ⇒ `isPayable` (los CUATRO
+    // términos escalares de §M5-V.0). Sin cualquiera de esas columnas la fila sería `aprobada`
+    // PERO NO pagable, que es exactamente el caso que el servidor rechaza con 422.
+    receivedAt: '2026-08-14T18:00:00Z',
+    verifiedAt: '2026-08-15T10:00:00Z',
+    // Fuera del ciclo: llegó por la verificación clásica (`respond(accept)`), no por M-46.
+    offerSentAt: null,
     items: [
       { id: 'sri-appr', card: cardById('c-charizard'), productType: 'raw', rawCondition: 'NM', finish: 'holofoil', rarity: 'Rare Holo', priceBasis: 'market', marketBracket: 'r25_80', quotedPriceCents: 30000, approvedPriceCents: 28000, itemStatus: 'aprobada' },
+    ],
+  },
+  /**
+   * ⚠️⚠️ **EL FINAL POR DEFECTO DEL CICLO M-46** (§M5-V.3): oferta emitida, paquete recibido y
+   * verificado, y **ninguna línea juzgada**. Sin §M5-V ésta se pagaba, sus cartas **nunca podían
+   * convertirse a inventario** y la tarjeta del periodo reportaba MX$0 sobre dinero que salió.
+   *
+   * Existe para que el servidor falso pueda DEMOSTRAR las dos mitades de V-b:
+   *  - `isPayable: false` con `pendingDecisionItemCount: 2` ⇒ el botón apagado **y el porqué**;
+   *  - `pay-spei` ⇒ `422 ITEMS_NOT_DECIDED` con **los ids de las dos líneas `buy`**.
+   * ⚠️ La línea `skip` **NO** cuenta y se queda en `verificacion` a propósito: es la mitad que un
+   * predicado «ninguna línea sin veredicto» a secas rompería (toda oferta con cherry-pick).
+   */
+  {
+    id: 'sr-3005',
+    userId: 'u-781',
+    status: 'verificacion',
+    quotedTotalCents: 105000,
+    createdAt: '2026-08-28T14:00:00Z',
+    receivedAt: '2026-09-01T15:00:00Z',
+    verifiedAt: '2026-09-01T16:00:00Z',
+    approvedTotalCents: null,
+    offerSentAt: '2026-08-29T10:00:00Z',
+    offerState: 'sent',
+    seller: { id: 'u-781', name: 'Misty Waterflower', email: 'misty@example.com' },
+    items: [
+      { id: 'sri-cyc-1', card: cardById('c-charizard'), productType: 'raw', rawCondition: 'NM', finish: 'holofoil', rarity: 'Rare Holo', priceBasis: 'market', marketBracket: 'r25_80', quotedPriceCents: 90000, offerDecision: 'buy', offeredPriceCents: 90000, itemStatus: 'verificacion' },
+      { id: 'sri-cyc-2', card: cardById('c-pikachu'), productType: 'raw', rawCondition: 'NM', finish: 'normal', rarity: 'Common', priceBasis: 'market', marketBracket: 'r25_80', quotedPriceCents: 12000, offerDecision: 'buy', offeredPriceCents: 12000, itemStatus: 'verificacion' },
+      { id: 'sri-cyc-3', card: cardById('c-eevee'), productType: 'raw', rawCondition: 'NM', finish: 'reverse_holo', rarity: 'Reverse Holo', priceBasis: 'market', marketBracket: 'r25_80', quotedPriceCents: 3000, offerDecision: 'skip', offeredPriceCents: null, itemStatus: 'verificacion' },
+    ],
+  },
+  /**
+   * ⭐ **EL CONTRA-CASO OBLIGATORIO** (§M5-V.8, assert 2-bis), y sin él V-b se implementa mal a la
+   * primera: **cherry-pick con las dos líneas `buy` YA APROBADAS y la `skip` todavía en
+   * `verificacion`** ⇒ **se paga**. *La línea que no compramos no necesita veredicto.*
+   * Si alguien quitara el término `offerDecision='buy'` del predicado, esta fila dejaría de ser
+   * pagable — y con ella **el camino normal del ciclo**.
+   */
+  {
+    id: 'sr-3006',
+    userId: 'u-782',
+    status: 'verificacion',
+    quotedTotalCents: 60000,
+    createdAt: '2026-08-27T14:00:00Z',
+    receivedAt: '2026-09-02T15:00:00Z',
+    verifiedAt: '2026-09-02T16:00:00Z',
+    approvedTotalCents: 47000,
+    offerSentAt: '2026-08-28T10:00:00Z',
+    offerState: 'sent',
+    seller: { id: 'u-782', name: 'Brock Harrison', email: 'brock@example.com' },
+    items: [
+      { id: 'sri-cp-1', card: cardById('c-blastoise'), productType: 'raw', rawCondition: 'NM', finish: 'holofoil', rarity: 'Rare Holo', priceBasis: 'market', marketBracket: 'r25_80', quotedPriceCents: 40000, offerDecision: 'buy', offeredPriceCents: 40000, approvedPriceCents: 40000, itemStatus: 'aprobada' },
+      { id: 'sri-cp-2', card: cardById('c-machamp'), productType: 'raw', rawCondition: 'NM', finish: 'normal', rarity: 'Uncommon', priceBasis: 'market', marketBracket: 'r25_80', quotedPriceCents: 7000, offerDecision: 'buy', offeredPriceCents: 7000, approvedPriceCents: 7000, itemStatus: 'aprobada' },
+      { id: 'sri-cp-3', card: cardById('c-eevee'), productType: 'raw', rawCondition: 'NM', finish: 'reverse_holo', rarity: 'Reverse Holo', priceBasis: 'market', marketBracket: 'r25_80', quotedPriceCents: 13000, offerDecision: 'skip', offeredPriceCents: null, itemStatus: 'verificacion' },
     ],
   },
 ];
@@ -2896,7 +3434,7 @@ export let mockSettings: SettingsDTO = {
   // v1.14-price-ingest: proveedor de la ingesta masiva. Seed recomendado por contrato §M10.
   priceProvider: 'pokemontcg_io',
   catalogSyncFromDate: '2024/01/01',
-  // v1.51-one-dial (M-46): DIAL ÚNICO del gancho (contrato §M10; **seed real = `off`**, fail-closed,
+  // v1.51-one-dial (M-48 —era `M-46`, v1.54(1)): DIAL ÚNICO del gancho (contrato §M10; **seed real = `off`**, fail-closed,
   // y la clave es NUEVA ⇒ ningún entorno la tiene). MOCK: el fixture lo representa YA ENCENDIDO
   // —como un entorno donde el dueño lo prendió a mano— para poder ejercitar las tres superficies
   // sin backend. El gate y el interruptor son SERVER-SIDE y no se simulan: apagarlo aquí desde M10
@@ -4386,4 +4924,460 @@ export function generateSealedValueHistory(range: SetValueRange): SetValueHistor
     })),
     change: base.change,
   };
+}
+
+// ---------------------------------------------------------------------------------------------
+// MOCK · LA MESA DE DECISIÓN (contrato §M5 · GET /admin/buylist/:id/decision-table)
+// ---------------------------------------------------------------------------------------------
+
+/** Diales vigentes que el servidor falso reparte. Espejan `SettingKey` del backend. */
+const MOCK_SHIPPING_FEE_CENTS = 18000;
+const MOCK_MINIMUM_OFFER_NET_CENTS = 20000;
+const MOCK_OPERATOR_CAP_CENTS = 150000;
+const MOCK_VARIANT_POSITION_CAP = 10;
+
+/**
+ * Posiciones sembradas por carta. La tercera fila es **deliberada**: `null` significa
+ * **«no se pudo contar»**, NO cero — es el caso de §23.7, el que la pantalla existe para no
+ * confundir con un cero real. La segunda es **un cero REAL** (`stock: 0` con la tira completa),
+ * que es exactamente el contraste que demuestra que el diseño funciona.
+ */
+const MOCK_POSITIONS: Record<
+  string,
+  { stock: number; verifying: number; inTransit: number; committed: number } | null
+> = {
+  'c-charizard': { stock: 5, verifying: 1, inTransit: 1, committed: 2 },
+  'c-pikachu': { stock: 0, verifying: 0, inTransit: 0, committed: 0 },
+  'c-eevee': null,
+};
+
+function mockDecisionLine(item: SellItemDTO): BuylistDecisionLineDTO {
+  const raw = MOCK_POSITIONS[item.card.id];
+  const unavailable = raw === null;
+  const position = raw
+    ? { ...raw, total: raw.stock + raw.verifying + raw.inTransit + raw.committed }
+    : null;
+  // La curva VIGENTE: el mock la simula sobre el cotizado, que es lo que el backend NO hereda.
+  const pending = item.itemStatus === 'precio_pendiente' || item.quotedPriceCents == null;
+  const derived = pending ? null : Math.round((item.quotedPriceCents ?? 0) * 0.93);
+  return {
+    itemId: item.id,
+    card: item.card,
+    productType: item.productType,
+    finish: item.finish,
+    cardProductId: item.productId ?? null,
+    quotedPriceCents: item.quotedPriceCents ?? null,
+    derivedPriceCents: derived,
+    priceBasis: pending ? 'pending' : 'market',
+    // El PAR discrimina: sin precio y con motivo ⇒ el mercado se consultó y no dio nada.
+    pendingReason: pending ? 'no_market' : null,
+    position,
+    ...(unavailable ? { positionUnavailable: true } : {}),
+    // ⚠️ Sin conteo NO se infiere veredicto: `none`, y la UI pinta «sin sugerencia».
+    suggestion: unavailable
+      ? { verdict: 'none', rule: null, thresholdQty: null, bountyActive: false }
+      : {
+          verdict:
+            (position?.total ?? 0) >= MOCK_VARIANT_POSITION_CAP ? 'do_not_buy' : 'buy',
+          rule: 'variant_cap',
+          thresholdQty: MOCK_VARIANT_POSITION_CAP,
+          bountyActive: false,
+        },
+  };
+}
+
+/**
+ * Proyección del servidor falso de la mesa. ⚠️ `buyableGrossCents` es **la selección POR DEFECTO**
+ * —Σ de las líneas con `derivedPriceCents != null`—, no una selección recibida: este endpoint es un
+ * `GET` sin cuerpo. Una línea sin precio derivable **aporta 0 y nace desmarcada**.
+ */
+export function mockDecisionTable(id: string): BuylistDecisionTableDTO {
+  const row = mockAdminBuylist.find((r) => r.id === id);
+  if (!row) throw new ApiFixtureNotFound('Sell request not found');
+  const lines = row.items.map(mockDecisionLine);
+  const buyableGrossCents = lines.reduce((sum, l) => sum + (l.derivedPriceCents ?? 0), 0);
+  const netCents = Math.max(0, buyableGrossCents - MOCK_SHIPPING_FEE_CENTS);
+  return {
+    sellRequestId: row.id,
+    status: row.status,
+    seller: row.seller,
+    quotedTotalCents: row.quotedTotalCents,
+    lines,
+    totals: {
+      buyableGrossCents,
+      shippingFeeCents: MOCK_SHIPPING_FEE_CENTS,
+      netCents,
+      minimumOfferNetCents: MOCK_MINIMUM_OFFER_NET_CENTS,
+      requiredGrossCents: MOCK_MINIMUM_OFFER_NET_CENTS + MOCK_SHIPPING_FEE_CENTS,
+      netBelowMinimum: netCents < MOCK_MINIMUM_OFFER_NET_CENTS,
+    },
+    operatorCapCents: MOCK_OPERATOR_CAP_CENTS,
+    requiresAuthorization: buyableGrossCents > MOCK_OPERATOR_CAP_CENTS,
+    pickupAddressMissing: false,
+  };
+}
+
+/**
+ * MOCK de `POST /admin/buylist/:id/offer`. Replica **la secuencia normativa** del contrato en su
+ * orden —`OFFER_LINES_MISMATCH` → precio por línea → piso de neto → tope—, porque **el orden es la
+ * norma**: si el tope fuera antes que el piso, una oferta inofertable entraría a la cola de
+ * autorización y el súper-admin se toparía con el `422` al autorizarla.
+ */
+export function mockEmitOffer(
+  id: string,
+  lines: BuylistOfferLineInput[],
+): BuylistOfferResultDTO {
+  const row = mockAdminBuylist.find((r) => r.id === id);
+  if (!row) throw new ApiFixtureNotFound('Sell request not found');
+  const table = mockDecisionTable(id);
+
+  const known = new Set(table.lines.map((l) => l.itemId));
+  const sent = new Set(lines.map((l) => l.itemId));
+  const missingItemIds = [...known].filter((x) => !sent.has(x));
+  const unknownItemIds = [...sent].filter((x) => !known.has(x));
+  if (missingItemIds.length || unknownItemIds.length) {
+    throw new ApiFixtureError(422, 'OFFER_LINES_MISMATCH', 'lines must cover exactly the request items', {
+      missingItemIds,
+      unknownItemIds,
+    });
+  }
+
+  let grossCents = 0;
+  const notPriceable: string[] = [];
+  const needReason: string[] = [];
+  for (const line of lines) {
+    if (line.decision === 'skip') continue;
+    const table_line = table.lines.find((l) => l.itemId === line.itemId)!;
+    const derived = table_line.derivedPriceCents;
+    const amount = line.overridePriceCents ?? derived;
+    if (amount == null) {
+      notPriceable.push(line.itemId);
+      continue;
+    }
+    // ⚠️ Mandar EXACTAMENTE el derivado NO es override: no pide motivo (v1.51.12).
+    if (amount !== derived && !(line.overrideReason ?? '').trim()) needReason.push(line.itemId);
+    grossCents += amount;
+  }
+  if (notPriceable.length) {
+    throw new ApiFixtureError(422, 'OFFER_LINE_NOT_PRICEABLE', 'a buy line has no resolvable amount', {
+      itemIds: notPriceable,
+    });
+  }
+  if (needReason.length) {
+    throw new ApiFixtureError(422, 'OVERRIDE_REASON_REQUIRED', 'override requires a reason', {
+      itemIds: needReason,
+    });
+  }
+
+  const shippingFeeCents = MOCK_SHIPPING_FEE_CENTS;
+  const netCents = Math.max(0, grossCents - shippingFeeCents);
+  // El piso va ANTES del tope: nada inofertable llega a la cola de autorización.
+  if (netCents < MOCK_MINIMUM_OFFER_NET_CENTS) {
+    const requiredGrossCents = MOCK_MINIMUM_OFFER_NET_CENTS + shippingFeeCents;
+    throw new ApiFixtureError(422, 'OFFER_NET_BELOW_MINIMUM', 'offer net is below the minimum', {
+      grossCents,
+      shippingFeeCents,
+      netCents,
+      minimumNetCents: MOCK_MINIMUM_OFFER_NET_CENTS,
+      requiredGrossCents,
+      grossShortfallCents: requiredGrossCents - grossCents,
+    });
+  }
+
+  // El tope es INCLUSIVO: exactamente el tope sale sola.
+  const needsAuth = grossCents > MOCK_OPERATOR_CAP_CENTS;
+  row.status = needsAuth ? 'cotizada' : 'ofertada';
+  return {
+    sellRequestId: id,
+    status: row.status,
+    offerState: needsAuth ? 'pending_authorization' : 'sent',
+    offerSentAt: needsAuth ? null : new Date().toISOString(),
+    offerGrossCents: grossCents,
+    offerShippingFeeCents: shippingFeeCents,
+    offerNetCents: netCents,
+    offerAcceptDeadlineAt: needsAuth ? null : MOCK_OFFER_DEADLINE,
+    requiresAuthorization: needsAuth,
+    items: row.items,
+  };
+}
+
+// ---------------------------------------------------------------------------------------------
+// MOCK · GUÍA, CONFIRMACIÓN Y LAS CUATRO COLAS DEL CICLO (contrato §M5)
+// ---------------------------------------------------------------------------------------------
+
+/** Dial del plazo de envío. Vive del lado del SERVIDOR falso, nunca en una pantalla. */
+const MOCK_SHIP_DEADLINE_DAYS = 3;
+
+/**
+ * MOCK de `POST …/guide`. ⚠️ **NO mueve el estado** — la solicitud sigue `aceptada`. Congela
+ * `shipDeadlineAt` **solo cuando está en `null`**: re-capturar para corregir un typo **no mueve una
+ * fecha ya comunicada** (criterio 157), y dejarla en `null` para siempre sería una solicitud que
+ * nunca puede expirar (v1.51.4).
+ */
+export function mockCaptureGuide(
+  id: string,
+  input: { carrier: string; trackingNumber: string },
+): BuylistGuideResultDTO {
+  const row = mockAdminBuylist.find((r) => r.id === id);
+  if (!row) throw new ApiFixtureNotFound('Sell request not found');
+  if (row.status !== 'aceptada') {
+    throw new ApiFixtureError(409, 'GUIDE_NOT_ALLOWED', 'the guide is bought on acceptance', {
+      status: row.status,
+    });
+  }
+  const guideSentAt = new Date().toISOString();
+  row.shipmentCarrier = input.carrier;
+  row.shipmentTrackingNumber = input.trackingNumber;
+  row.guideSentAt = guideSentAt;
+  row.shipDeadlineAt =
+    row.shipDeadlineAt ??
+    new Date(Date.now() + MOCK_SHIP_DEADLINE_DAYS * 24 * 60 * 60 * 1000).toISOString();
+  return {
+    sellRequestId: id,
+    status: row.status,
+    shipmentCarrier: row.shipmentCarrier ?? null,
+    shipmentTrackingNumber: row.shipmentTrackingNumber ?? null,
+    guideSentAt,
+    shipDeadlineAt: row.shipDeadlineAt ?? null,
+  };
+}
+
+/**
+ * MOCK de `POST …/confirm-shipment` — **lo único que mueve a `en_transito`**.
+ * ⚠️ `guideSentAt` **NO es precondición**: si el paquete llegó sin que hubiéramos capturado guía,
+ * negar la confirmación **no devuelve el paquete**. Fail-visible, no fail-blocking.
+ */
+export function mockConfirmShipment(
+  id: string,
+  input: { guideActualCostCents?: number },
+): BuylistShipmentConfirmResultDTO {
+  const row = mockAdminBuylist.find((r) => r.id === id);
+  if (!row) throw new ApiFixtureNotFound('Sell request not found');
+  if (row.status !== 'aceptada') {
+    throw new ApiFixtureError(409, 'NOT_ACCEPTED', 'only an accepted request can be confirmed', {
+      status: row.status,
+    });
+  }
+  row.status = 'en_transito';
+  return {
+    sellRequestId: id,
+    status: 'en_transito',
+    shipmentConfirmedAt: new Date().toISOString(),
+    shipmentConfirmedBy: 'admin@tcghunt.mx',
+    guideActualCostCents: input.guideActualCostCents ?? null,
+  };
+}
+
+/** MOCK de `POST …/offer/authorize`: autoriza LO GUARDADO y el correo sale. */
+export function mockAuthorizeOffer(id: string): BuylistOfferResultDTO {
+  const row = mockAdminBuylist.find((r) => r.id === id);
+  if (!row) throw new ApiFixtureNotFound('Sell request not found');
+  row.status = 'ofertada';
+  return {
+    sellRequestId: id,
+    status: 'ofertada',
+    offerState: 'sent',
+    offerSentAt: new Date().toISOString(),
+    offerGrossCents: 200000,
+    offerShippingFeeCents: MOCK_SHIPPING_FEE_CENTS,
+    offerNetCents: 182000,
+    offerAcceptDeadlineAt: MOCK_OFFER_DEADLINE,
+    requiresAuthorization: false,
+    items: row.items,
+  };
+}
+
+/**
+ * MOCK de `POST …/guide/cancellation-done`. Es **la única salida** de su cola: la fila se retira
+ * aquí y en ningún otro sitio.
+ */
+export function mockGuideCancellationDone(
+  id: string,
+  _input: { note?: string; guideActualCostCents?: number },
+): { sellRequestId: string; guideCancellationDoneAt: string } {
+  const idx = mockPendingGuideCancellationRows.findIndex((r) => r.sellRequestId === id);
+  if (idx === -1) {
+    throw new ApiFixtureError(409, 'NO_PENDING_GUIDE_CANCELLATION', 'no pending cancellation');
+  }
+  mockPendingGuideCancellationRows.splice(idx, 1);
+  return { sellRequestId: id, guideCancellationDoneAt: new Date().toISOString() };
+}
+
+const MOCK_SELLER: AdminSellerRef = {
+  id: 'u-777',
+  name: 'Ash Ketchum',
+  email: 'ash@example.com',
+};
+
+/**
+ * Instante que cae, **sin ambigüedad**, en el día `offsetDays` respecto de HOY en
+ * `America/Mexico_City`.
+ *
+ * ⚠️ Sustituye a `Date.now() + 20 h`, que **dejó de ser determinista** cuando `caducityTone`
+ * (`BuylistCycleQueues.tsx`) pasó de una ventana rodante de horas al **día del calendario**:
+ * veinte horas caen hoy o mañana según la hora a la que corra la suite, así que el smoke E2E que
+ * afirma «Caduca hoy» solo pasaba si el arranque era antes de las 04:00 de CDMX. El unitario ya
+ * había resuelto esto con este mismo helper; el servidor falso se había quedado atrás — y un mock
+ * que contradice al componente al que alimenta produce rojos que no son del producto.
+ */
+function caducityOnMxDay(offsetDays: number): string {
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Mexico_City' }).format(
+    new Date(Date.now()),
+  );
+  const day = new Date(`${today}T00:00:00Z`);
+  day.setUTCDate(day.getUTCDate() + offsetDays);
+  // Mediodía de CDMX (UTC−6 todo el año desde 2022): lejos de cualquier borde de medianoche.
+  return new Date(`${day.toISOString().slice(0, 10)}T12:00:00-06:00`).toISOString();
+}
+
+export function mockPendingOfferAuthorizations(): Paginated<PendingOfferAuthorizationRowDTO> {
+  const rows: PendingOfferAuthorizationRowDTO[] = [
+    {
+      sellRequestId: 'sr-auth-1',
+      seller: MOCK_SELLER,
+      preparedBy: 'operador@tcghunt.mx',
+      offerPreparedAt: '2026-08-29T15:00:00Z',
+      offerGrossCents: 200000,
+      operatorCapCents: MOCK_OPERATOR_CAP_CENTS,
+      excessCents: 50000,
+      lineCount: 4,
+      buyLineCount: 3,
+      // ⚠️ Se muere sola: si nadie autoriza antes de esta fecha, el barrido caduca la solicitud.
+      // HOY en el calendario de CDMX — que es lo que `caducityTone` compara y lo que el rótulo
+      // «Caduca hoy» significa para quien lee la cola.
+      caducityAt: caducityOnMxDay(0),
+    },
+  ];
+  return { data: rows, page: 1, pageSize: 20, total: rows.length };
+}
+
+export function mockPendingShipmentConfirmations(): Paginated<PendingShipmentConfirmationRowDTO> {
+  const rows: PendingShipmentConfirmationRowDTO[] = [
+    {
+      sellRequestId: 'sr-conf-1',
+      seller: MOCK_SELLER,
+      sellerShippedDeclaredAt: '2026-08-26T18:00:00Z',
+      shipDeadlineAt: '2026-09-02T18:00:00Z',
+      carrier: 'Estafeta',
+      trackingNumber: '7712345678',
+      businessDaysWaiting: 6,
+      alert: true,
+    },
+    {
+      sellRequestId: 'sr-conf-2',
+      seller: { id: 'u-778', name: 'Misty', email: 'misty@example.com' },
+      sellerShippedDeclaredAt: '2026-08-31T18:00:00Z',
+      shipDeadlineAt: null,
+      carrier: null,
+      trackingNumber: null,
+      // ⚠️ El caso que el front NO puede recalcular: no se pudo contar los días hábiles. La fila
+      // se degrada y la cola SE PINTA, y `alert` falla hacia `true` — «llevo demasiado» y «no sé
+      // cuánto llevo» piden la MISMA acción humana.
+      businessDaysWaiting: null,
+      businessDaysUnavailable: true,
+      alert: true,
+    },
+  ];
+  return { data: rows, page: 1, pageSize: 20, total: rows.length };
+}
+
+/** ⚠️ Mutable: la cola **no desaparece sola**; solo la vacía `guide/cancellation-done`. */
+const mockPendingGuideCancellationRows: PendingGuideCancellationRowDTO[] = [
+  {
+    sellRequestId: 'sr-guide-1',
+    seller: MOCK_SELLER,
+    carrier: 'Estafeta',
+    trackingNumber: '7798765432',
+    guideSentAt: '2026-08-20T18:00:00Z',
+    guideCancellationPendingAt: '2026-08-28T18:00:00Z',
+    closedStatus: 'expirada',
+    expiredReason: 'not_shipped',
+  },
+];
+
+export function mockPendingGuideCancellations(): Paginated<PendingGuideCancellationRowDTO> {
+  return {
+    data: [...mockPendingGuideCancellationRows],
+    page: 1,
+    pageSize: 20,
+    total: mockPendingGuideCancellationRows.length,
+  };
+}
+
+export function mockLiveSellers(): Paginated<LiveSellerRowDTO> {
+  const rows: LiveSellerRowDTO[] = [
+    {
+      // D12: el teléfono viaja EN LA FILA para poder llamar sin ir a buscar al usuario.
+      seller: { id: 'u-777', name: 'Ash Ketchum', email: 'ash@example.com', phone: '5555123456' },
+      liveCount: 3,
+      oldestCreatedAt: '2026-08-25T14:00:00Z',
+      latestStatus: 'cotizada',
+    },
+    {
+      // `null` en cuentas de Google / viejas: se dice, no se inventa.
+      seller: { id: 'u-778', name: 'Misty', email: 'misty@example.com', phone: null },
+      liveCount: 1,
+      oldestCreatedAt: '2026-08-30T14:00:00Z',
+      latestStatus: 'ofertada',
+    },
+  ];
+  return { data: rows, page: 1, pageSize: 20, total: rows.length };
+}
+
+export function mockPendingPublish(): Paginated<PendingPublishRowDTO> {
+  const rows: PendingPublishRowDTO[] = [
+    {
+      inventoryItemId: 'inv-pub-1',
+      folio: 'INV-004201',
+      card: cardById('c-charizard'),
+      productType: 'raw',
+      finish: 'holofoil',
+      cardProductId: null,
+      locationId: null,
+      listPriceCents: null,
+      resolvedSalePriceCents: 120000,
+      priceBasis: 'market',
+      pendingPriceEntryId: null,
+      missing: ['location'],
+      acquisitionType: 'buylist',
+      sourceSellRequestItemId: 'sri-desk-1',
+      createdAt: '2026-08-30T18:00:00Z',
+    },
+    {
+      inventoryItemId: 'inv-pub-2',
+      folio: 'INV-004202',
+      card: cardById('c-eevee'),
+      productType: 'raw',
+      finish: 'reverse_holo',
+      cardProductId: null,
+      locationId: 'loc-a1',
+      listPriceCents: null,
+      resolvedSalePriceCents: null,
+      priceBasis: null,
+      // Deep-link a la cola de precio pendiente de M2: la pieza no se publica sin precio.
+      pendingPriceEntryId: 'ppe-77',
+      missing: ['price'],
+      acquisitionType: 'buylist',
+      sourceSellRequestItemId: 'sri-desk-3',
+      createdAt: '2026-08-30T18:05:00Z',
+    },
+    {
+      inventoryItemId: 'inv-pub-3',
+      folio: 'INV-004203',
+      card: cardById('c-pikachu'),
+      productType: 'raw',
+      finish: 'normal',
+      cardProductId: null,
+      locationId: null,
+      listPriceCents: null,
+      resolvedSalePriceCents: null,
+      priceBasis: null,
+      pendingPriceEntryId: 'ppe-78',
+      missing: ['location', 'price'],
+      acquisitionType: 'buylist',
+      sourceSellRequestItemId: 'sri-desk-2',
+      createdAt: '2026-08-30T18:10:00Z',
+    },
+  ];
+  return { data: rows, page: 1, pageSize: 20, total: rows.length };
 }

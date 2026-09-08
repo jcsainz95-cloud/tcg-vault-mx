@@ -5,6 +5,10 @@ import { BuylistView } from './BuylistView';
 import * as api from '@/lib/api';
 import { setStoredUser } from '@/lib/session';
 import type { KycInfoDTO, UserDTO, CardDTO, BuylistQuoteItemDTO } from '@/types/contract';
+// ⚠️ El spy HACE DE SERVIDOR: `isTerminal` es **server-derived** (contrato §6 · v1.51). Se
+// proyecta con la MISMA función que el mock en vez de escribir el booleano a mano, para no
+// reintroducir en las pruebas la copia local del set terminal.
+import { mockSellRequestDTO as srv } from '@/lib/mock/fixtures';
 
 // El gating de venta usa Link de next-intl (login/registro); se mockea el router
 // de Next para aislar la vista (mismo patrón que StorefrontHeader.test).
@@ -69,6 +73,16 @@ async function openBaseSet() {
  * grid anterior — sin panel intermedio). La casilla queda habilitada cuando su cotización
  * (batch client-side de MasterSetBinder) resuelve.
  */
+/**
+ * v1.51.3 (D36/D37): crear la solicitud exige `addressId`. La libreta mock trae una dirección
+ * predeterminada, así que el modal la PRESELECCIONA — pero llega por red: los tests esperan al
+ * `Select` antes de confirmar. (Que el id viaje explícito lo verifica BuylistKycForm.test.)
+ */
+async function pickAddress() {
+  const select = (await screen.findByLabelText('Dirección de origen')) as HTMLSelectElement;
+  await waitFor(() => expect(select.value).toBe('addr-1'));
+}
+
 async function addCard(name: string, finish = 'Normal') {
   await openBaseSet();
   const btn = await screen.findByRole('button', {
@@ -130,7 +144,7 @@ describe('BuylistView · raw = binder Master Set (mode="quoter", v1.21)', () => 
     );
 
     openCart();
-    expect(screen.getByText('Total estimado')).toBeInTheDocument();
+    expect(screen.getByText('Valor de tus cartas')).toBeInTheDocument();
     expect(screen.getByText('Estimado c/u:')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Enviar solicitud (1)' })).toBeEnabled();
   });
@@ -159,9 +173,12 @@ describe('BuylistView · raw = binder Master Set (mode="quoter", v1.21)', () => 
     await addCard('Zapdos', 'Holofoil');
     openCart();
 
-    // En el carrito la línea queda pendiente (no MX$0.00) y el total lo explica.
-    expect(screen.getAllByText('Precio pendiente').length).toBeGreaterThan(0);
-    expect(screen.getByText(/El total no incluye 1 carta\(s\) con precio pendiente/)).toBeInTheDocument();
+    // §23.3h (v2.3.8): en el COTIZADOR la línea sin precio se rotula con la versalita
+    // `SIN PRECIO` —no con el rótulo largo— y el total lo explica UNA vez, con el conteo.
+    expect(screen.getAllByTestId('buylist-pending-label').length).toBeGreaterThan(0);
+    expect(screen.getByTestId('buylist-pending-note')).toHaveTextContent(
+      '1 carta todavía no tiene precio, así que no suma al total',
+    );
     expect(screen.queryByText('MX$0.00')).not.toBeInTheDocument();
   });
 
@@ -286,6 +303,7 @@ describe('BuylistView · carrito de venta', () => {
       target: { value: '002010077777777771' },
     });
     // a11y (hallazgo QA): el submit del modal KYC tiene una etiqueta DISTINTA del CTA del carrito.
+    await pickAddress();
     fireEvent.click(screen.getByRole('button', { name: 'Confirmar y enviar' }));
 
     await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
@@ -344,6 +362,7 @@ describe('BuylistView · carrito de venta', () => {
     fireEvent.change(await screen.findByLabelText(/CLABE/), {
       target: { value: '002010077777777771' },
     });
+    await pickAddress();
     fireEvent.click(screen.getByRole('button', { name: 'Confirmar y enviar' }));
 
     await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
@@ -427,84 +446,77 @@ describe('BuylistView · carrito de venta', () => {
 });
 
 /**
- * v1.21: el multi-selección (bulk) del grid plano queda para graded/sealed — el binder
- * Master Set (raw) agrega de un clic por casilla y no tiene checkboxes de selección múltiple
- * (cada casilla YA es su propia acción, sin necesitar un paso de selección previo).
+ * ⚠️ v1.53 (MONEY — contrato §6, ARCHITECTURE §4.40): EL COTIZADOR ES RAW-ONLY.
+ *
+ * Lo que se retiró (y por qué estos tests lo AFIRMAN en negativo): el selector «Tipo de producto»
+ * ofrecía `raw | graded | sealed`, pero ningún DTO de buylist tuvo nunca dónde capturar QUÉ grado
+ * es un slab — el backend caía a `graded:PSA:10`, el grado más caro, y cotizaba cualquier graduada
+ * a ese precio. `PROJECT.md` §E, §K LOCKED y el criterio 61 nunca autorizaron esa compra. Con el
+ * selector se fueron el grid plano de graded/sealed, su barra de filtros (set + texto) y el bulk.
+ *
+ * Estos casos son el CANDADO: si alguien vuelve a montar el selector (o el grid plano), se ponen
+ * rojos. La guarda que manda sigue siendo server-side (`422 BUYLIST_RAW_ONLY`); esto es la UI.
  */
-describe('BuylistView · graded/sealed (grid plano, sin variantes por acabado)', () => {
-  function selectGraded() {
-    fireEvent.change(screen.getByLabelText('Tipo de producto'), { target: { value: 'graded' } });
-  }
-
-  /** Busca por texto en la barra de filtros (graded/sealed conservan el grid plano). */
-  function searchFor(term: string) {
-    fireEvent.change(screen.getByLabelText('Buscar carta'), { target: { value: term } });
-    fireEvent.click(screen.getByRole('button', { name: 'Buscar' }));
-  }
-
-  it('las etiquetas de tipo de producto están traducidas (no raw/graded/sealed crudos)', () => {
+describe('BuylistView · v1.53 el cotizador compra RAW y solo raw (§4.40)', () => {
+  it('NO existe selector de tipo de producto (con una sola opción, el control sobra)', async () => {
     renderWithProviders(<BuylistView />, 'es');
-    expect(screen.getByRole('option', { name: 'Suelta (raw)' })).toBeInTheDocument();
-    expect(screen.getByRole('option', { name: 'Gradeada' })).toBeInTheDocument();
-    expect(screen.getByRole('option', { name: 'Sellado' })).toBeInTheDocument();
+    await screen.findByLabelText('Buscar set');
+    expect(screen.queryByLabelText('Tipo de producto')).not.toBeInTheDocument();
+    // Y ninguna de sus opciones queda suelta en la página (ni la de sueltas).
+    expect(screen.queryByRole('option', { name: 'Gradeada' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('option', { name: 'Sellado' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('option', { name: 'Suelta (raw)' })).not.toBeInTheDocument();
   });
 
-  it('en tipo Gradeada cada carta cotiza como gradeada (una sola fila, sin acabados raw) y conserva "Filtrar por set"/"Buscar carta"', async () => {
+  it('NO existe la barra de filtros del grid plano: la búsqueda es la del binder', async () => {
     renderWithProviders(<BuylistView />, 'es');
-    selectGraded();
-    expect(screen.getByLabelText('Filtrar por set')).toBeInTheDocument();
-    searchFor('Charizard');
-
-    const row = await screen.findByRole('button', { name: 'Agregar Charizard (Gradeada) al carrito' });
-    await waitFor(() => expect(row).toBeEnabled());
-    expect(
-      screen.queryByRole('button', { name: 'Agregar Charizard (Normal) al carrito' }),
-    ).not.toBeInTheDocument();
+    // La que SÍ existe: «Buscar set» del índice de Master Set (mode="quoter").
+    expect(await screen.findByLabelText('Buscar set')).toBeInTheDocument();
+    // Las que se fueron con el grid plano de graded/sealed.
+    expect(screen.queryByLabelText('Filtrar por set')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Buscar carta')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Buscar' })).not.toBeInTheDocument();
   });
 
-  it('filtra por set y muestra las cartas de ese set', async () => {
-    renderWithProviders(<BuylistView />, 'es');
-    selectGraded();
-
-    await screen.findByRole('option', { name: /Base Set/ });
-    fireEvent.change(screen.getByLabelText('Filtrar por set'), { target: { value: 'base1' } });
-
-    expect(
-      (await screen.findAllByRole('button', { name: /Agregar Pikachu/ })).length,
-    ).toBeGreaterThan(0);
-  });
-
-  it('selecciona varias cartas del grid y las agrega al carrito de golpe (bulk)', async () => {
+  it('todo item de la solicitud creada viaja con productType "raw" (nunca graded/sealed)', async () => {
     asVerifiedCustomer();
+    const spy = vi.spyOn(api, 'createSellRequest');
     renderWithProviders(<BuylistView />, 'es');
-    selectGraded();
-
-    await screen.findByRole('option', { name: /Base Set/ });
-    fireEvent.change(screen.getByLabelText('Filtrar por set'), { target: { value: 'base1' } });
-
-    fireEvent.click(await screen.findByRole('checkbox', { name: 'Seleccionar Charizard' }));
-    fireEvent.click(screen.getByRole('checkbox', { name: 'Seleccionar Pikachu' }));
-    const addBtn = screen.getByRole('button', { name: 'Agregar seleccionadas (2)' });
-    await waitFor(() => expect(addBtn).toBeEnabled());
-    fireEvent.click(addBtn);
-
-    expect(await screen.findByText('2 carta(s) agregada(s) al carrito.')).toBeInTheDocument();
+    await addCard('Charizard');
+    await addCard('Pikachu');
     openCart();
-    expect(screen.getByRole('button', { name: 'Enviar solicitud (2)' })).toBeInTheDocument();
-    expect(screen.getAllByRole('button', { name: 'Quitar' })).toHaveLength(2);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Enviar solicitud (2)' }));
+    fireEvent.change(await screen.findByLabelText(/CLABE/), {
+      target: { value: '002010077777777771' },
+    });
+    // v1.51.3 (D36/D37): crear exige `addressId` — se espera a que la libreta preseleccione.
+    await pickAddress();
+    fireEvent.click(screen.getByRole('button', { name: 'Confirmar y enviar' }));
+
+    await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
+    const items = spy.mock.calls[0][0].items;
+    expect(items).toHaveLength(2);
+    expect(items.every((i) => i.productType === 'raw')).toBe(true);
   });
 
-  it('tolerante por-ítem: una carta inválida NO tumba el lote (batch parcial → aviso parcial)', async () => {
+  it('BUYLIST_RAW_ONLY es error POR ÍTEM: una línea caída no tumba las cotizaciones vivas', async () => {
     asVerifiedCustomer();
-    // El batch responde 200 con errores POR-ÍTEM: Eevee sale ok:false y no tira el resto.
+    // El backend degrada por-ítem (HTTP 200): la línea de Charizard sale ok:false con el código
+    // nuevo y TODAS las demás cotizan. Si el front lo tratara como fallo global, el binder se
+    // quedaría sin una sola teja agregable — que es justo la razón por la que el contrato lo puso
+    // por-ítem (§4.40.3.3: un lote de 50 con una mala debe dar 49 cotizaciones vivas).
     vi.spyOn(api, 'batchQuote').mockImplementation(async (items: BuylistQuoteItemDTO[]) => ({
       results: items.map((it, index) =>
-        it.cardId === 'c-eevee'
+        it.cardId === 'c-charizard'
           ? {
               index,
               cardId: it.cardId,
               ok: false as const,
-              error: { code: 'NOT_FOUND' as const, message: 'Card not found' },
+              error: {
+                code: 'BUYLIST_RAW_ONLY' as const,
+                message: 'The buylist only accepts raw cards',
+              },
             }
           : {
               index,
@@ -520,65 +532,28 @@ describe('BuylistView · graded/sealed (grid plano, sin variantes por acabado)',
       ),
     }));
     renderWithProviders(<BuylistView />, 'es');
-    selectGraded();
+    await openBaseSet();
 
-    await screen.findByRole('option', { name: /Base Set/ });
-    fireEvent.change(screen.getByLabelText('Filtrar por set'), { target: { value: 'base1' } });
-
-    fireEvent.click(await screen.findByRole('checkbox', { name: 'Seleccionar Charizard' }));
-    fireEvent.click(screen.getByRole('checkbox', { name: 'Seleccionar Eevee' }));
-    const addBtn = screen.getByRole('button', { name: 'Agregar seleccionadas (2)' });
-    await waitFor(() => expect(addBtn).toBeEnabled());
-    fireEvent.click(addBtn);
-
-    // Aviso parcial (1 agregada, 1 no disponible) y la válida SÍ entró (1 línea "Quitar").
-    expect(await screen.findByText('1 carta(s) agregada(s); 1 no disponible(s).')).toBeInTheDocument();
-    openCart();
-    expect(screen.getAllByRole('button', { name: 'Quitar' })).toHaveLength(1);
-    // Las filas de Eevee muestran su error por-ítem sin romper el grid.
-    expect(screen.getAllByText('No disponible').length).toBeGreaterThan(0);
-  });
-
-  it('limpiar selección desmarca sin agregar nada', async () => {
-    renderWithProviders(<BuylistView />, 'es');
-    selectGraded();
-
-    await screen.findByRole('option', { name: /Base Set/ });
-    fireEvent.change(screen.getByLabelText('Filtrar por set'), { target: { value: 'base1' } });
-
-    fireEvent.click(await screen.findByRole('checkbox', { name: 'Seleccionar Charizard' }));
-    expect(screen.getByRole('button', { name: 'Agregar seleccionadas (1)' })).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole('button', { name: 'Limpiar selección' }));
-    expect(screen.queryByRole('button', { name: /Agregar seleccionadas/ })).not.toBeInTheDocument();
-    expect((screen.getByRole('checkbox', { name: 'Seleccionar Charizard' }) as HTMLInputElement).checked).toBe(false);
-  });
-
-  it('el finish (siempre "Gradeada", sin variantes) viaja en los items de la solicitud creada', async () => {
-    asVerifiedCustomer();
-    const spy = vi.spyOn(api, 'createSellRequest');
-    renderWithProviders(<BuylistView />, 'es');
-    selectGraded();
-    searchFor('Charizard');
-    const row = await screen.findByRole('button', { name: 'Agregar Charizard (Gradeada) al carrito' });
-    await waitFor(() => expect(row).toBeEnabled());
-    fireEvent.click(row);
-    openCart();
-
-    fireEvent.click(screen.getByRole('button', { name: 'Enviar solicitud (1)' }));
-    fireEvent.change(await screen.findByLabelText(/CLABE/), {
-      target: { value: '002010077777777771' },
+    // La teja viva se cotiza y se puede agregar…
+    const pikachu = await screen.findByRole('button', {
+      name: /^Agregar Pikachu \(Normal\) a la venta/,
     });
-    fireEvent.click(screen.getByRole('button', { name: 'Confirmar y enviar' }));
+    await waitFor(() => expect(pikachu).toBeEnabled());
+    fireEvent.click(pikachu);
+    openCart();
+    expect(screen.getByRole('button', { name: 'Enviar solicitud (1)' })).toBeInTheDocument();
 
-    await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
-    expect(spy.mock.calls[0][0].items.every((i) => i.finish === 'normal')).toBe(true);
+    // …y la caída se marca SOLO a sí misma: su teja queda inhábil, sin precio inventado.
+    expect(
+      screen.getByRole('button', { name: /^Agregar Charizard \(Normal\) a la venta/ }),
+    ).toBeDisabled();
+    expect(screen.getAllByText('No disponible').length).toBeGreaterThan(0);
   });
 });
 
 /**
  * v1.6-finish: acabados por carta (una casilla agregable por acabado, binder Master Set) y
- * dedup del carrito por (cardId + productType + finish).
+ * dedup del carrito por (cardId + finish).
  */
 describe('BuylistView · acabado (finish, raw)', () => {
   it('dedup: agregar la MISMA (carta, tipo, acabado) incrementa la cantidad, no duplica la línea', async () => {
@@ -622,6 +597,7 @@ describe('BuylistView · acabado (finish, raw)', () => {
     fireEvent.change(await screen.findByLabelText(/CLABE/), {
       target: { value: '002010077777777771' },
     });
+    await pickAddress();
     fireEvent.click(screen.getByRole('button', { name: 'Confirmar y enviar' }));
 
     await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
@@ -663,7 +639,7 @@ describe('BuylistView · Mis solicitudes', () => {
       availableFinishes: ['normal'],
     };
     vi.spyOn(api, 'getSellRequests').mockResolvedValue([
-      {
+      srv({
         sellRequestId: 'sr-pend-1',
         status: 'cotizada',
         quotedTotalCents: 0,
@@ -680,7 +656,7 @@ describe('BuylistView · Mis solicitudes', () => {
           },
         ],
         createdAt: '2026-08-17T10:00:00Z',
-      },
+      }),
     ]);
     renderWithProviders(<BuylistView />, 'es');
 
@@ -714,7 +690,7 @@ describe('BuylistView · responder ajuste (F5)', () => {
 
   function withAdjustedRequest() {
     vi.spyOn(api, 'getSellRequests').mockResolvedValue([
-      {
+      srv({
         sellRequestId: 'sr-adj-1',
         status: 'verificacion',
         quotedTotalCents: 60000,
@@ -733,7 +709,7 @@ describe('BuylistView · responder ajuste (F5)', () => {
             itemStatus: 'ajustada',
           },
         ],
-      },
+      }),
     ]);
   }
 
@@ -752,7 +728,7 @@ describe('BuylistView · responder ajuste (F5)', () => {
   it('el bloque NO aparece cuando ningún ítem está `ajustada`', async () => {
     asVerifiedCustomer();
     vi.spyOn(api, 'getSellRequests').mockResolvedValue([
-      {
+      srv({
         sellRequestId: 'sr-plain-1',
         status: 'verificacion',
         quotedTotalCents: 50000,
@@ -770,7 +746,7 @@ describe('BuylistView · responder ajuste (F5)', () => {
             itemStatus: 'verificacion',
           },
         ],
-      },
+      }),
     ]);
     renderWithProviders(<BuylistView />, 'es');
 
@@ -859,6 +835,7 @@ describe('BuylistView · gating de requisitos de cuenta (vender)', () => {
     openCart();
 
     fireEvent.click(screen.getByRole('button', { name: 'Enviar solicitud (1)' }));
+    await pickAddress();
     fireEvent.click(await screen.findByRole('button', { name: 'Confirmar y enviar' }));
 
     expect(screen.getByText('La CLABE debe tener 18 dígitos.')).toBeInTheDocument();
@@ -920,6 +897,7 @@ describe('BuylistView · v1.15 CLABE/INE en archivo', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Enviar solicitud (1)' }));
     // El modal arranca en modo "usar mi CLABE": se confirma sin teclear los 18 dígitos.
+    await pickAddress();
     fireEvent.click(await screen.findByRole('button', { name: 'Confirmar y enviar' }));
 
     await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
@@ -971,6 +949,7 @@ describe('BuylistView · productos SEPARADOS por productId (v1.30 §4.29)', () =
     fireEvent.change(await screen.findByLabelText(/CLABE/), {
       target: { value: '002010077777777771' },
     });
+    await pickAddress();
     fireEvent.click(screen.getByRole('button', { name: 'Confirmar y enviar' }));
 
     await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
@@ -996,6 +975,7 @@ describe('BuylistView · productos SEPARADOS por productId (v1.30 §4.29)', () =
     fireEvent.change(await screen.findByLabelText(/CLABE/), {
       target: { value: '002010077777777771' },
     });
+    await pickAddress();
     fireEvent.click(screen.getByRole('button', { name: 'Confirmar y enviar' }));
 
     await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
@@ -1019,6 +999,7 @@ describe('BuylistView · productos SEPARADOS por productId (v1.30 §4.29)', () =
     fireEvent.change(await screen.findByLabelText(/CLABE/), {
       target: { value: '002010077777777771' },
     });
+    await pickAddress();
     fireEvent.click(screen.getByRole('button', { name: 'Confirmar y enviar' }));
 
     await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
@@ -1063,7 +1044,7 @@ describe('BuylistView · P-42 carrito fijo (desktop) + sombreado', () => {
       expect(screen.queryByTestId('sell-cart-fab')).not.toBeInTheDocument();
       expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
       // El total y el CTA de enviar están a la vista SIN necesidad de abrir el carrito.
-      expect(screen.getByText('Total estimado')).toBeInTheDocument();
+      expect(screen.getByText('Valor de tus cartas')).toBeInTheDocument();
       expect(screen.getByRole('button', { name: 'Enviar solicitud (1)' })).toBeEnabled();
     } finally {
       restore();
@@ -1132,5 +1113,356 @@ describe('BuylistView · P-44 rareza en las tejas', () => {
     await screen.findByRole('button', { name: /^Agregar Charizard \(Normal\) a la venta/ });
     // La rareza se pinta en las tejas (una por acabado de Charizard).
     expect(screen.getAllByText('Rare Holo').length).toBeGreaterThan(0);
+  });
+});
+
+/**
+ * v1.51.4/v1.51.5 (D43) — EL COTIZADOR PIERDE LA ARITMÉTICA DEL ENVÍO Y CONSERVA EL FALTANTE.
+ *
+ * Lo que estos tests fijan, y por qué cada uno:
+ *  - el bloque de dinero tiene UN SOLO monto (sin línea de envío, sin resta, sin neto, sin `≈`);
+ *  - la nota de servicio es copy estático: se pinta con el carrito VACÍO y no espera a ningún dato;
+ *  - el faltante del mínimo (criterio 132a) dice CUÁNTO falta y apaga el CTA;
+ *  - si `GET /buylist/quote-policy` falla, la degradación es FAIL-OPEN (sin faltante, CTA vivo).
+ */
+describe('BuylistView · cotizador sin cifras de envío (D43) + faltante del mínimo (132a)', () => {
+  const NOTE_ES =
+    'Nosotros ponemos la guía de envío y su costo se descuenta siempre de lo que te pagamos: tú no pagas nada de tu bolsillo. El monto exacto va en la oferta, antes de que aceptes.';
+
+  /**
+   * §23.3g fila 1-bis (v2.3.2) — LA CABECERA. En móvil el carrito es un drawer CERRADO, así
+   * que sin esta instancia un vendedor puede recorrer /buylist entera —hero, bounties, binder,
+   * políticas, guía de empaque— sin leer nunca quién pone el envío. El render de prueba es
+   * móvil (sin `matchMedia` de escritorio), así que esto es exactamente el caso de 390px.
+   */
+  it('SIN abrir el carrito, la regla del envío ya se lee en la CABECERA (§23.3g fila 1-bis)', () => {
+    renderWithProviders(<BuylistView />, 'es');
+    const notes = screen.getAllByTestId('buylist-shipping-note');
+    expect(notes).toHaveLength(1); // el drawer está cerrado: esta es la de la cabecera
+    // §23.14.7-7: la instancia se NOMBRA. «La primera que aparezca» es exactamente la
+    // medición que documentó un defecto inexistente en el sistema de diseño.
+    expect(notes[0]).toHaveAttribute('data-note-surface', 'buylist-header');
+    expect(notes[0]).toHaveTextContent(NOTE_ES);
+  });
+
+  /**
+   * §23.14.2b — el remanente de `trustShipping` se RETIRÓ. Decía «si una carta se rechaza por
+   * no estar en NM, la devolución corre por tu cuenta (7 días)»: un eco degradado de
+   * `nmOnlyBody`, que está arriba y lo dice con más detalle. Su hueco original (quién pone el
+   * envío) no podía llenarse ahí — ese bloque es `text-muted` de 13px y §23.3c prohíbe contar
+   * la regla de D16 en letra chica. El bloque de confianza baja a DOS párrafos.
+   */
+  it('el bloque de confianza del pie queda en DOS párrafos: sin el eco retirado de `trustShipping`', () => {
+    renderWithProviders(<BuylistView />, 'es');
+    expect(
+      screen.queryByText('Si una carta se rechaza por no estar en NM, la devolución corre por tu cuenta (7 días).'),
+    ).not.toBeInTheDocument();
+    // Lo que sí sigue: el pago tras verificar (cierto bajo D2/D9) y la vigencia reescrita.
+    expect(
+      screen.getAllByText('El pago se realiza después de recibir y verificar tus cartas.').length,
+    ).toBeGreaterThan(0);
+    // §23.14.4b: se promete que el PRECIO no se mueve, nunca que el total no cambie.
+    const validity = screen.getByText(/El precio vinculante es el de la oferta/);
+    expect(validity).toHaveTextContent('ese precio ya no se mueve cuando recibimos tus cartas');
+    expect(validity.textContent).not.toMatch(/precios vigentes al verificar/);
+    // La condición NM sigue a la vista, en su sitio y con su detalle.
+    expect(screen.getByText(/se devuelve si deseas \(a tu costo, 7 días\)/)).toBeInTheDocument();
+  });
+
+  it('la nota de servicio se pinta con el carrito VACÍO (copy estático: no espera a ningún dato)', () => {
+    // Sin sesión y sin cotizar nada: el trato se explica antes de que agregar cueste algo.
+    renderWithProviders(<BuylistView />, 'es');
+    openCart();
+    expect(screen.getByText('Tu carrito está vacío. Elige una carta del catálogo para agregarla.')).toBeInTheDocument();
+    // §23.3g-bis (v2.3.8) — EXACTAMENTE UNA, y con el drawer abierto le toca al bloque de
+    // dinero. Antes eran DOS (cabecera + carrito) y se declaraba «repetición aceptada»: dos
+    // párrafos idénticos a 600px no refuerzan, son la firma de un error de render.
+    const notes = screen.getAllByTestId('buylist-shipping-note');
+    expect(notes).toHaveLength(1);
+    expect(notes[0]).toHaveAttribute('data-note-surface', 'cart-money');
+    expect(notes[0]).toHaveTextContent(NOTE_ES);
+  });
+
+  it('la nota sigue ahí aunque la política del cotizador FALLE (no se esqueletiza, no se condiciona)', async () => {
+    vi.spyOn(api, 'getBuylistQuotePolicy').mockRejectedValue(new Error('network'));
+    renderWithProviders(<BuylistView />, 'es');
+    openCart();
+    const notes = screen.getAllByTestId('buylist-shipping-note');
+    expect(notes).toHaveLength(1);
+    expect(notes[0]).toHaveTextContent(NOTE_ES);
+  });
+
+  it('el bloque de dinero lleva UN SOLO monto: ni línea de envío, ni resta, ni neto, ni «≈»', async () => {
+    asVerifiedCustomer();
+    renderWithProviders(<BuylistView />, 'es');
+    await addCard('Charizard');
+    openCart();
+
+    const money = screen.getByTestId('sell-cart-money');
+    // El único rótulo de monto del bloque (§23.12), y jamás uno que prometa depósito.
+    expect(within(money).getByText('Valor de tus cartas')).toBeInTheDocument();
+    await waitFor(() => expect(money.textContent?.match(/MX\$/g) ?? []).toHaveLength(1));
+    expect(money.textContent).not.toMatch(/≈|%|recibir[íi]as|neto|te quedar[íi]an|env[íi]o que ponemos/i);
+    // Y la nota vive DENTRO del bloque de dinero, sin caja ni regla que la separe del monto.
+    expect(within(money).getByTestId('buylist-shipping-note')).toBeInTheDocument();
+  });
+
+  it('por debajo del mínimo: dice cuánto falta (con el número del servidor) y el CTA NO procede', async () => {
+    asVerifiedCustomer();
+    // Mínimo alto a propósito: 1 Charizard (MX$24,250) queda por debajo de MX$50,000.
+    vi.spyOn(api, 'getBuylistQuotePolicy').mockResolvedValue({ minimumRequestCents: 5_000_000 });
+    renderWithProviders(<BuylistView />, 'es');
+    await addCard('Charizard');
+    openCart();
+
+    const shortfall = await screen.findByTestId('buylist-minimum-shortfall');
+    expect(shortfall).toHaveTextContent('Te faltan MX$25,750.00');
+    expect(shortfall).toHaveTextContent('para el mínimo de MX$50,000.00');
+    expect(shortfall).toHaveTextContent('Agrega otra carta.');
+    // ⛔ el faltante NUNCA se expresa en términos de envío.
+    expect(shortfall.textContent).not.toMatch(/env[íi]o|gu[íi]a/i);
+
+    const cta = screen.getByRole('button', { name: 'Enviar solicitud (1)' });
+    expect(cta).toBeDisabled();
+    // §15.9: apagado pero no mudo — apunta al texto que explica y da el remedio.
+    expect(cta.getAttribute('aria-describedby')).toContain('sell-cart-minimum');
+  });
+
+  /**
+   * §23.14.6-7.3 — **ESCRITORIO: la cabecera NO monta la nota.** El carrito es un panel fijo
+   * siempre a la vista, así que la única razón de ser de la instancia de la cabecera —cubrir el
+   * caso en que el carrito no se ve— desaparece. Este es el caso exacto que a 1280px daba DOS.
+   *
+   * `useMediaQuery` lee `matchMedia`; jsdom lo tiene poly-rellenado con `matches:false` (móvil),
+   * así que el escritorio se simula devolviendo `true` para el query del panel fijo.
+   */
+  it('§23.3g-bis · en ESCRITORIO la nota la pinta el bloque de dinero y la cabecera no se monta', async () => {
+    asVerifiedCustomer();
+    // ⚠️ `vi.spyOn`, NO una asignación directa: `window` es COMPARTIDO por todos los tests del
+    // fichero, así que reescribir `matchMedia` a mano dejaría el resto de la suite en modo
+    // escritorio (sin FAB) y los rojos aparecerían en tests que no tocan nada de esto. El
+    // `vi.restoreAllMocks()` del `beforeEach` deshace el espía; una asignación no se deshace.
+    vi.spyOn(window, 'matchMedia').mockImplementation(
+      (query: string) =>
+        ({
+          matches: query.includes('1024'),
+          media: query,
+          onchange: null,
+          addEventListener: () => {},
+          removeEventListener: () => {},
+          addListener: () => {},
+          removeListener: () => {},
+          dispatchEvent: () => false,
+        }) as unknown as MediaQueryList,
+    );
+
+    renderWithProviders(<BuylistView />, 'es');
+    // El panel fijo no necesita abrirse: ya está en pantalla (y no hay FAB que pulsar).
+    await waitFor(() => {
+      const notes = screen.getAllByTestId('buylist-shipping-note');
+      expect(notes).toHaveLength(1);
+      expect(notes[0]).toHaveAttribute('data-note-surface', 'cart-money');
+    });
+    expect(screen.queryByTestId('sell-cart-fab')).not.toBeInTheDocument();
+  });
+
+  /**
+   * §23.14.6-8 — **el carrito explica su propia aritmética.** Este es, literalmente, el caso que
+   * hizo que un test E2E concluyera que el cotizador no sumaba: cartas sin precio de referencia,
+   * total en cero, y **nada en pantalla que lo explicara**.
+   */
+  it('§23.3h · con TODAS las líneas sin precio el total NO es MX$0.00 y la pantalla dice por qué', async () => {
+    asVerifiedCustomer();
+    renderWithProviders(<BuylistView />, 'es');
+    await addCard('Zapdos', 'Holofoil');
+    openCart();
+
+    const money = screen.getByTestId('sell-cart-money');
+    // (8.4) el total es la VERSALITA, no un cero que se ve confiable.
+    expect(within(money).getByTestId('buylist-pending-label')).toBeInTheDocument();
+    expect(within(money).queryByText('MX$0.00')).not.toBeInTheDocument();
+    // (8.1) la explicación aparece UNA sola vez, con el conteo, dentro del bloque de dinero.
+    const notes = screen.getAllByTestId('buylist-pending-note');
+    expect(notes).toHaveLength(1);
+    expect(money).toContainElement(notes[0]);
+    expect(notes[0]).toHaveTextContent('1 carta todavía no tiene precio, así que no suma al total');
+    // (8.2) …y dice QUÉ PASA con esas cartas. Sin esta frase el vendedor las borra, que es el
+    // peor desenlace posible de esta pantalla.
+    expect(notes[0]).toHaveTextContent('Las cotizamos a mano y te las incluimos en la oferta.');
+    // (8.5) el conteo de cartas NO introduce un monto: los únicos `MX$` del bloque son los del
+    // faltante (faltante + mínimo, §23.3f). Descontados esos, el bloque no tiene ninguna cifra —
+    // porque ninguna sería cierta.
+    const shortfall = within(money).getByTestId('buylist-minimum-shortfall');
+    const inBlock = ((money.textContent ?? '').match(/MX\$/g) ?? []).length;
+    const inShortfall = ((shortfall.textContent ?? '').match(/MX\$/g) ?? []).length;
+    expect(inBlock - inShortfall).toBe(0);
+  });
+
+  it('§23.3h · la explicación se pinta UNA vez aunque haya MUCHAS cartas sin precio', async () => {
+    asVerifiedCustomer();
+    renderWithProviders(<BuylistView />, 'es');
+    await addCard('Zapdos', 'Holofoil');
+    openCart();
+    const qty = screen.getByLabelText('Cantidad de Zapdos') as HTMLInputElement;
+    fireEvent.change(qty, { target: { value: '999' } });
+
+    // El plural del conteo entra; la explicación NO se repite por ítem (ese era el defecto:
+    // repetirla N veces hunde lo único que hay que leer).
+    const notes = await screen.findAllByTestId('buylist-pending-note');
+    expect(notes).toHaveLength(1);
+    expect(notes[0]).toHaveTextContent('999 cartas todavía no tienen precio, así que no suman al total');
+  });
+
+  /**
+   * §23.14.6-8.3 — el CONSEJO cambia; la CIFRA no. «Agrega otra carta» con el carrito lleno de
+   * pendientes es una cinta de correr: puede agregar mil más del mismo set y seguir en cero.
+   */
+  it('§23.3f-bis · con líneas sin precio el consejo es «una carta que ya tenga precio»', async () => {
+    asVerifiedCustomer();
+    vi.spyOn(api, 'getBuylistQuotePolicy').mockResolvedValue({ minimumRequestCents: 5_000_000 });
+    renderWithProviders(<BuylistView />, 'es');
+    await addCard('Charizard'); // con precio: hay faltante que pintar
+    await addCard('Zapdos', 'Holofoil'); // sin precio: cambia el consejo
+    openCart();
+
+    const shortfall = await screen.findByTestId('buylist-minimum-shortfall');
+    expect(shortfall).toHaveTextContent('Agrega una carta que ya tenga precio.');
+    expect(shortfall).not.toHaveTextContent('Agrega otra carta.');
+    // ⛔ Prohibido fundir el faltante con la explicación: la cifra tiene que seguir siendo
+    // verificable por sí sola. El porqué vive arriba, en su propia frase.
+    expect(shortfall).toHaveTextContent('Te faltan MX$25,750.00');
+    expect(shortfall.textContent).not.toMatch(/no tiene[n]? precio|porque/i);
+  });
+
+  it('al CRUZAR el mínimo el faltante desaparece y se anuncia SIN mencionar envío ni neto', async () => {
+    asVerifiedCustomer();
+    // MX$30,000: una Charizard queda debajo; dos, arriba.
+    vi.spyOn(api, 'getBuylistQuotePolicy').mockResolvedValue({ minimumRequestCents: 3_000_000 });
+    renderWithProviders(<BuylistView />, 'es');
+    await addCard('Charizard');
+    openCart();
+    expect(await screen.findByTestId('buylist-minimum-shortfall')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Aumentar cantidad' }));
+
+    await waitFor(() =>
+      expect(screen.queryByTestId('buylist-minimum-shortfall')).not.toBeInTheDocument(),
+    );
+    const announce = await screen.findByText('Ya alcanzaste el mínimo de MX$30,000.00.');
+    expect(announce).toHaveAttribute('aria-live', 'polite');
+    expect(announce.textContent).not.toMatch(/env[íi]o|neto/i);
+    expect(screen.getByRole('button', { name: 'Enviar solicitud (2)' })).toBeEnabled();
+  });
+
+  it('FAIL-OPEN: si la política no llega, no se pinta faltante, no se inventa mínimo y el CTA sigue vivo', async () => {
+    asVerifiedCustomer();
+    vi.spyOn(api, 'getBuylistQuotePolicy').mockRejectedValue(new Error('429'));
+    renderWithProviders(<BuylistView />, 'es');
+    await addCard('Charizard');
+    openCart();
+
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Enviar solicitud (1)' })).toBeEnabled());
+    expect(screen.queryByTestId('buylist-minimum-shortfall')).not.toBeInTheDocument();
+    // Ni un número inventado: el bloque de dinero sigue con UN solo monto.
+    expect(screen.getByTestId('sell-cart-money').textContent?.match(/MX\$/g) ?? []).toHaveLength(1);
+  });
+});
+
+/**
+ * v1.51 (M-46) · el portal del vendedor tenía su propia derivación del desenlace:
+ * `errored={r.status === 'rechazada' || r.status === 'abandonada'}` — dos literales que, con
+ * `expirada` en el enum, dejaban de reconocer un cierre real. Ahora sale de `isTerminal`
+ * (server-derived) menos el único terminal FELIZ.
+ *
+ * Y §23.1d: `expirada` se pinta por su MOTIVO. Aquí es donde más importa, porque es la pantalla
+ * del propio vendedor: un `no_offer` (no ofertamos NOSOTROS) pintado como `not_shipped` le
+ * imputaría un incumplimiento que nunca cometió.
+ */
+describe('BuylistView · «Mis solicitudes» y los estados nuevos (v1.51 · M-46)', () => {
+  const card: CardDTO = {
+    id: 'c-exp',
+    externalId: 'c-exp',
+    name: 'Charizard',
+    number: '4',
+    rarity: 'Rare Holo',
+    supertype: 'Pokémon',
+    subtypes: [],
+    setId: 'base1',
+    setName: 'Base Set',
+    imageSmallUrl: '',
+    imageLargeUrl: '',
+    availableFinishes: ['holofoil'],
+  };
+
+  function withExpired(expiredReason: 'no_offer' | 'not_shipped') {
+    asVerifiedCustomer();
+    vi.spyOn(api, 'getSellRequests').mockResolvedValue([
+      srv({
+        sellRequestId: 'sr-exp-1',
+        status: 'expirada',
+        expiredReason,
+        quotedTotalCents: 60000,
+        ineRequired: false,
+        createdAt: '2026-08-15T10:00:00Z',
+        items: [
+          {
+            id: 'sri-exp-1',
+            card,
+            productType: 'raw',
+            rawCondition: 'NM',
+            finish: 'holofoil',
+            rarity: 'Rare Holo',
+            quotedPriceCents: 60000,
+            itemStatus: 'cotizada',
+          },
+        ],
+      }),
+    ]);
+  }
+
+  it('una `expirada` por `no_offer` dice «No procedió» y NO acusa al vendedor', async () => {
+    withExpired('no_offer');
+    renderWithProviders(<BuylistView />, 'es');
+
+    expect(await screen.findByText('sr-exp-1')).toBeInTheDocument();
+    const badge = screen.getByText('No procedió');
+    expect(badge).toBeInTheDocument();
+    expect(badge.className).toContain('text-muted');
+    // Ni el rótulo genérico ni la versión acusatoria.
+    expect(screen.queryByText('Expirada')).not.toBeInTheDocument();
+    expect(screen.queryByText('Sin envío')).not.toBeInTheDocument();
+  });
+
+  it('una `expirada` por `not_shipped` sí dice «Sin envío» (los dos motivos NO se colapsan)', async () => {
+    withExpired('not_shipped');
+    renderWithProviders(<BuylistView />, 'es');
+
+    expect(await screen.findByText('sr-exp-1')).toBeInTheDocument();
+    expect(screen.getByText('Sin envío')).toBeInTheDocument();
+    expect(screen.queryByText('No procedió')).not.toBeInTheDocument();
+  });
+
+  it('el pipeline del vendedor tiene los OCHO pasos del contrato, no los cinco viejos', async () => {
+    asVerifiedCustomer();
+    vi.spyOn(api, 'getSellRequests').mockResolvedValue([
+      srv({
+        sellRequestId: 'sr-tr-1',
+        status: 'en_transito',
+        quotedTotalCents: 60000,
+        ineRequired: false,
+        createdAt: '2026-08-15T10:00:00Z',
+        items: [],
+      }),
+    ]);
+    renderWithProviders(<BuylistView />, 'es');
+    await screen.findByText('sr-tr-1');
+
+    // `en_transito` ES un paso alcanzable: antes caía fuera de la lista de cinco y el stepper
+    // no marcaba NINGÚN paso como actual (`currentIdx === -1`).
+    const current = document.querySelector('li[aria-current="step"]');
+    expect(current).not.toBeNull();
+    expect(current!.textContent).toContain('En tránsito');
+    // El stepper (el `<ol>` que contiene ese paso; la página tiene otras listas) es de OCHO.
+    expect(current!.parentElement!.children).toHaveLength(8);
   });
 });

@@ -32,7 +32,7 @@ export function LocationsModal({ open, onClose, locations }: LocationsModalProps
   const tz = useTranslations('admin.m1.zone');
   const tc = useTranslations('common');
   const qc = useQueryClient();
-  const getError = useErrorMessage();
+  const getError = useErrorMessage('operator');
 
   const [zone, setZone] = useState<VaultZone>('platform_stock');
   const [box, setBox] = useState('');

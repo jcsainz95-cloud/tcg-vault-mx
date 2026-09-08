@@ -4,6 +4,4243 @@
 > El contrato (`docs/API_CONTRACT.md`) manda sobre el código. Stack: NestJS + Prisma + PostgreSQL,
 > Redis/BullMQ (jobs), JWT + argon2, S3/MinIO (presigned URLs), Stripe.
 
+
+> ⚠️ **RENUMERADO DOS VECES EN DOS FUSIONES. Lee esto antes de citar una sección de este bloque.**
+>
+> El bloque **§0.23–§0.36** (el ciclo de adquisición, M-46/v1.51, rama
+> `claude/buylist-inventory-workflow-hdnls3`) nació como **§0.13–§0.26** y ha cedido el paso **dos
+> veces**, siempre en la misma dirección: **se renumera lo de la rama, nunca lo que `main` ya
+> publicó.** No es cortesía — la numeración de `main` está citada desde código
+> (`pokemontcg-io.client.ts` §0.19), desde `docs/TECH_DEBT.md` y desde `docs/DEVOPS_NOTES.md`, que no
+> son míos; la de la rama solo se citaba desde la propia rama.
+>
+> | Fusión | `main` traía | El bloque pasó de | a | offset |
+> |---|---|---|---|---|
+> | 2026-09-05 (P-54) | §0.13–§0.19 (v1.51-a…-e, M-47) | §0.13–§0.26 | §0.20–§0.33 | +7 |
+> | 2026-09-06 (v1.53) | §0.20–§0.22 (M47-H2, v1.53, v1.53-b) | §0.20–§0.33 | **§0.23–§0.36** | +3 |
+>
+> **Mapa acumulado (original → hoy):** §0.13→§0.23, §0.14→§0.24, §0.15→§0.25, §0.16→§0.26,
+> §0.17→§0.27, §0.18→§0.28, §0.19→§0.29, §0.20→§0.30, §0.21→§0.31, §0.22→§0.32, §0.23→§0.33,
+> §0.24→§0.34, §0.25→§0.35, §0.26→§0.36 (y sus subsecciones, con el mismo offset).
+>
+> Las referencias internas del bloque y la única externa que lo citaba
+> (`backend/test/buylist.guide-transit.spec.ts`) se actualizaron en el mismo paso. **§0.20, §0.21 y
+> §0.22 de este documento son de `main` y NO se movieron**: son M47-H2, v1.53 (buylist raw-only) y
+> v1.53-b. Un informe de QA/techlead anterior al 2026-09-06 puede usar la numeración vieja.
+
+## 0.46 — **v1.61.1 / `B1`: V-a estaba escrita en el `where` del dinero y NO llegaba al motor** (2026-09-07, bloqueante del techlead)
+
+> Propiedad: **backend**. **CERO DDL, cero migración, cero endpoints, cero diales, cero cambio de
+> contrato.** Un `where` que se componía con **spread** pasa a componerse con **`AND`**, una suite
+> unitaria nueva que mira **el objeto que se le pasa a `updateMany`**, y cuatro asserts de forma
+> convertidos en asserts de conducta. **La norma no cambia: lo que cambia es que ahora se cumple.**
+
+### 0.46.1 El defecto, REPRODUCIDO antes de tocar nada
+
+El `where` del `updateMany` que mueve el dinero (`paySpei`) se armaba así:
+
+```js
+where: {
+  id,
+  ...this.payableWhere(),                        // aporta `approvedTotalCents: { not: null }`  ← V-a
+  paidAt: null,
+  closedAt: null,
+  approvedTotalCents: fresh.approvedTotalCents,  // ⇐ clave POSTERIOR: PISA a la del spread
+  …
+}
+```
+
+En un objeto literal de JavaScript **la clave posterior gana sobre el spread**. ⇒ **V-a no existía en
+el lado `where`.** Y el caso malo no es teórico: con `fresh.approvedTotalCents === null` el `where`
+compuesto queda `approvedTotalCents IS NULL`, que casa **exactamente la fila que V-a existe para
+rechazar**.
+
+**Medido sobre `5de5049`** (harness que evalúa el `where` de verdad; la fila entra en la ventana B-2
+con el aprobado ya en `null` y el pre-check leyendo el valor de antes):
+
+```
+where realmente pasado a updateMany:
+  { "id":"sr-1", "status":{"in":["aprobada","verificacion"]},
+    "receivedAt":{"not":null}, "verifiedAt":{"not":null},
+    "approvedTotalCents": null,            ⇐ V-a AUSENTE: es el CAS, y dice IS NULL
+    "paidAt":null, "closedAt":null,
+    "offerGrossCents":90000, "quotedTotalCents":50000, "offerShippingFeeCents":18000 }
+
+resultado:  count === 1  ·  status → 'pagada'  ·  payoutNetCents = 72000  ⇐ POR CERO CARTAS
+```
+
+Es `BL-45` **reentrando por la puerta de la carrera** —la puerta que ese `where` existía para tapar
+(*«Es la guarda, no el aviso»*)—. La ventana es real: `recomputeApprovedTotal` escribe `null` cuando
+ninguna línea tiene `approvedPriceCents` y su guarda deja pasar `verificacion`; entre el pre-check y
+la relectura corren `kycProfile.findUnique` y `adminCycleDials()`, y un `itemDecision(reject)`
+concurrente **no es `Serializable`**, así que el SSI de Postgres no arbitra.
+
+### 0.46.2 ⚠️⚠️ Por qué TODO afirmaba estar cubierto — la lección, que es más importante que el bug
+
+- **El assert 9 de §M5-V.8** (paridad predicado↔`where`) cruza **`payableWhere()` AISLADA**, donde el
+  término sí está. **No prueba el `where` compuesto.** Verde con la guarda ausente.
+- La **mutación M7 de §0.45.5** (*«V-a sólo en el predicado, no en el `where`»*, 3 unitarios rojos) se
+  ejecutó **quitando el término de `payableWhere()`** — el ayudante. La composición **nunca se mutó**,
+  y es donde el término se perdía.
+- **`buylist.bl14-bruto-consumado.spec.ts`** afirmaba en un comentario: *«Quitar V-a de
+  `payableWhere()` pone esto rojo con un 200 y `payoutNetCents = 72_000»`*. **Era falso**: ese caso
+  monta `req.approvedTotalCents = null`, así que muere en el pre-check **antes** de que exista un
+  `where`; y `fakePayDb` responde `{count:1}` **sin mirar el `where`**. Verificado por mutación: quitar
+  V-a de `payableWhere()` deja ese fichero **entero en verde**; lo que sí lo pone rojo es quitarla del
+  **predicado**.
+
+⇒ El lado `where` de V-a era **código muerto, con cobertura cero y un comentario que documentaba una
+mutación que no mataba nada**. *Un hueco con nombre deja de buscarse.*
+
+### 0.46.3 El arreglo — `AND`, y la regla que lo generaliza
+
+El CAS (`= fresh.approvedTotalCents`) y V-a (`IS NOT NULL`) **afirman cosas distintas sobre la misma
+columna**: no pueden convivir en una clave de un objeto plano. `AND` conserva las dos, y su desacuerdo
+es la conducta correcta — con el aprobado en `null`, el CAS casa, V-a no ⇒ `count = 0` ⇒ **no sale un
+peso**. *No es un segundo candado que tape al primero: son las dos mitades del mismo, y ahora las dos
+llegan al SQL.*
+
+```ts
+where: {
+  id,
+  AND: [
+    this.payableWhere(),                                   // §4.39c sitio 8 · §M5-P · §M5-V (V-a)
+    { paidAt: null, closedAt: null },                      // §M5-T / BL-35 (P1)
+    { approvedTotalCents: fresh.approvedTotalCents, … },   // B-2: CAS de las CUATRO columnas
+  ],
+}
+```
+
+**La regla, para que no vuelva:** *todo fragmento que venga de otro sitio viaja como elemento de
+`AND`; plano queda sólo lo que nadie más reclama (`id`).* Un spread no avisa cuando lo pisan; un `AND`
+no puede pisar. Se asevera **estructuralmente** (`clavesPlanas(where) === ['id']` y ninguna clave plana
+coincide con la de un fragmento), así que la regla protege también a los términos que aún no existen.
+
+**Medido contra Postgres real** (`test/integration/buylist-pay-verdicts.e2e-spec.ts`, sobre una fila
+construida por la API con la única línea `buy` rechazada ⇒ `approvedTotalCents IS NULL`):
+
+```
+count({ id, ...vA, ...cas })    →  1     ⇐ la composición VIEJA casa: saldría el dinero
+count({ id, AND: [vA, cas] })   →  0     ⇐ la NUEVA no casa
+count({ id, AND: [vA, {approvedTotalCents: 0}] })  →  1   ⇐ y NO rechaza de más (D40)
+```
+
+### 0.46.4 Los tests — la prueba mira el objeto, no el ayudante
+
+**Nuevo:** `test/buylist.pay-spei-where-composition.spec.ts` (**17 casos**) y
+`test/helpers/prisma-where.ts` (evaluador de `where` **compartido**, que entiende `AND`/`OR`/`NOT` y
+**lanza** ante un operador que no sabe leer — un evaluador permisivo convierte cualquier término nuevo
+en un no-op silencioso). Los casos que importan:
+
+- **La ventana B-2 con el aprobado en `null`**: el pre-check pasa, el `updateMany` corre y **no casa
+  ninguna fila**.
+- **La mutación, como función**: `sinVa(where)` borra V-a **del objeto que el servicio produjo** y se
+  comprueba que (a) el borrado quitó algo —control anti-vacuidad—, (b) con V-a la fila **no** casa y
+  (c) sin V-a **sí**. *Si quitar la guarda no pone nada rojo, la guarda es código muerto.*
+- **El assert 9, pero sobre el `where` COMPUESTO**: ninguna fila que `isPayableSellRequest` rechaza
+  puede casar el `where` que corrió, barriendo el enum × `receivedAt` × `verifiedAt` ×
+  `approvedTotalCents ∈ {null, 0, n}`. ⚠️ Se captura de una corrida **de carrera** (CAS = `null`): con
+  un CAS de `40_000` el propio CAS taparía el eje y el barrido volvería a ser verde con V-a ausente.
+- **Los once términos, uno a uno**, y los dos controles anti-falso-verde (el camino feliz **paga**; el
+  **depósito de cero de D40** casa ⇒ V-a es `IS NOT NULL`, jamás `> 0`).
+
+**Cuatro asserts de FORMA convertidos en asserts de CONDUCTA** — eran `toMatchObject` sobre claves
+planas, que es exactamente lo que dejó pasar B1: `buylist.m5p-received-guard.spec.ts` (×2),
+`buylist.m5t-terminal-guard.spec.ts`, `buylist.pay-spei-amount-cas.spec.ts` (×2),
+`buylist.security.spec.ts`. Los harnesses de m5p/m5t pasan al evaluador compartido (los suyos **no
+sabían leer `AND`**, y ésa era la razón de que la composición no se pudiera aseverar allí).
+
+**Las mutaciones, corridas una a una:**
+
+| # | Mutación | Unitarios rojos | Integración rojos |
+|---|---|---|---|
+| **M-B1** | **volver a componer con spread** (el defecto exacto) | **4** (3 suites) | **0** ⚠️ |
+| **M1** | quitar V-a de **`payableWhere()`** (predicado intacto) | **6** (3 suites) | **0** ⚠️ |
+| **M2** | quitar V-a del **predicado** (`where` intacto) | **6** (6 suites) | *no medida* |
+| **M3** | V-a como **`{ gt: 0 }`** en el `where` | **4** (3 suites) | **1** ✅ (era **0**) |
+| **M4** | V-a como **`> 0`** en el predicado | **7** (6 suites) | *no medida* |
+| **M6** | quitar **`receivedAt`** de `payableWhere()` | **9** (5 suites) | *no medida* |
+
+**Lo que estos números dicen:**
+
+1. ⚠️⚠️ **M-B1 era VERDE en todo antes de este pase** (unitarios **y** integración) y ahora tumba 4
+   casos. Es el punto entero del encargo: *la mutación que reproduce el defecto ya pone algo rojo.*
+2. ⚠️ **M-B1 y M1 siguen invisibles para la integración (283/283)** y **no es un hueco que quede por
+   tapar**: las dos sólo se manifiestan en una **carrera** entre `itemDecision` y `pay-spei`, y esa
+   carrera no se fabrica por HTTP sin un seam en producción. **Lo dice para que QA no lo lea como
+   cobertura**: el candado de la composición es **unitario por naturaleza**, y por eso la suite nueva
+   evalúa el `where` en vez de mirarle la forma.
+3. **M3 pasa de 0 a 1 rojo en integración**: es `MENOR-2` cerrada (§0.46.5).
+
+### 0.46.5 Las tres deudas menores que se cerraron de paso
+
+- **D2 (techlead)** — comentarios caducados que decían *«los TRES términos»* sobre un predicado que ya
+  tiene **cuatro escalares** más V-b: `buylist.service.ts:5821/:6977/:7084` y
+  `sell-request-states.ts:171`. Corregidos, con la razón escrita: *quien audita el `where` cuenta lo
+  que el comentario le promete y para de buscar.*
+- **MENOR-3 (QA)** — `expect([200, 201]).toContain(...)` en `buylist-cycle.e2e-spec.ts:847` ⇒
+  `expect(...).toBe(200)`. §M5-C / `BL-37` declara `200`, y `pay-spei` fue **precisamente** el endpoint
+  que respondía `201` contra una tabla normativa. Era la **única** aserción laxa de esa clase en
+  `test/` (medido con `grep`).
+- **MENOR-2 (QA)** — el **depósito de cero de D40** (`approvedTotalCents = 0` **con** líneas decididas,
+  que **sí se paga**) ya se ejercita contra Postgres. El estado se monta con `h.prisma` —el ciclo no
+  puede ofertar una línea a 0— y **la conducta se prueba por la puerta**, como la cohorte legacy.
+- ⚠️ **Los dos casos nuevos de integración corren con el SEGUNDO vendedor** (`customer2`): el tope AML
+  es **por vendedor y se consume al CREAR**, así que montarlos sobre `customer` le quitaba presupuesto
+  a los casos que ya estaban y **tumbaba el último** con `422` en el intake. *Un caso nuevo no puede
+  gastarse el presupuesto de los que ya pasaban.*
+
+### 0.46.6 Deuda que NO cerré, y por qué (para el techlead)
+
+**`req.items ?? []`** (`buylist.service.ts:7002` en `paySpei`, `:2372` en la proyección) anula la
+garantía del tipo `VerdictItemsPayload` **en el verbo del dinero**, y con `items = []` **V-b siempre
+pasa** ⇒ es vacuo en todo unitario de `paySpei`. Existe para acomodar mocks. **El camino es arreglar
+los mocks, no debilitar producción** — y no va en este diff porque tocar media docena de harnesses
+mezclaría el arreglo de dinero con una refactorización de tests. Anotada en `docs/TECH_DEBT.md`
+(**BL45-D1**) con dueño y disparador.
+
+### 0.46.7 Contrato — **ninguna discrepancia, ninguna solicitud al arquitecto**
+
+`API_CONTRACT` §M5-V ya decía lo correcto (V-a como `IS NOT NULL`, en el predicado **y** en la guarda
+del motor). **El contrato no estaba mal: el código no lo cumplía en uno de los dos lados.** No se tocó
+`docs/API_CONTRACT.md`.
+
+### 0.46.8 Verificación (literal)
+
+```
+npx tsc --noEmit -p tsconfig.json        →  sin salida (limpio)
+npx eslint "src/**/*.ts" "test/**/*.ts"  →  0 errores, 2 warnings PRE-EXISTENTES
+                                            (inventory.service.ts:638, sealed-product.service.ts:11 —
+                                             ficheros que este pase NO toca)
+npx jest                                 →  Test Suites: 250 passed, 250 total
+                                            Tests:       3666 passed, 3666 total
+./scripts/stack-native.sh test:integration
+                                         →  Test Suites: 19 passed, 19 total
+                                            Tests:       283 passed, 283 total
+```
+
+Respecto a `5de5049` (**249 suites / 3.649 unitarios**, **19 suites / 281 de integración**): **+1
+suite y +17 unitarios**, **+2 de integración**.
+
+⚠️ **Procedencia, dicha con precisión (SEC-OPS-1):** la suite de integración **no** golpea el proceso
+largo de `:3099` — `E2EHarness` levanta el `AppModule` **del árbol de trabajo** en un puerto efímero
+contra el **Postgres real** del stack nativo, así que los 283 miden **este** código (comprobado: la
+mutación `{not:null}` → `{gt:0}` lo pone en rojo). **El proceso de `:3099` sigue sirviendo `5de5049`**
+y `verify:head` sale en rojo por eso: **antes de cualquier medición por HTTP contra `:3099`** (smoke,
+DAST, Playwright real) hay que correr `./scripts/stack-native.sh up`. No lo reinicié yo: el stack está
+compartido con el frente de frontend, que en este momento tiene trabajo vivo en `frontend/`.
+
+**Lo que NO medí, dicho:** **(a)** producción y staging — todo es local; **(b)** el frontend (no
+escribo ahí): este pase **no cambia ningún contrato de respuesta**, sólo hace que una fila que ya era
+impagable deje de pagarse **también bajo carrera**; **(c)** la carrera real `itemDecision` ⟶
+`pay-spei` **no se guionizó contra Postgres** — se reproduce con un harness que evalúa el `where`, y
+fabricarla por HTTP exigiría un seam en producción (ver §0.46.4, punto 2); **(d)** las mutaciones
+**M2, M4 y M6 no se corrieron contra integración** (sí contra los 3.666 unitarios).
+
+## 0.45 — **v1.61 / `BL-45` · §M5-V: «no se paga lo que no se ha juzgado». LA CUARTA CARA ERA REAL Y SE MIDIÓ** (2026-09-07)
+
+> Propiedad: **backend**. Contra el contrato **v1.61 [`§M5-V`](API_CONTRACT.md#M5-V)** y `ARCHITECTURE`
+> §9 `BL-45` / `BL-45-bis`. **CERO DDL, cero migración, cero endpoints nuevos, cero diales.** Dos
+> términos en `pay-spei`, un código de error, un campo de DTO aditivo.
+> ⛔ **`BL-45-bis` (columna congelada `grossConsumedCents` + backfill) NO se implementa**: está
+> DIFERIDA con disparador mecánico y su disparador es el conteo §M5-V.7(ii) **en producción**.
+
+### 0.45.1 ⛔⛔ PASO 1 — LA CUARTA CARA **NO ERA UNA DERIVACIÓN: SE REPRODUJO EN VIVO**, y sale dinero
+
+El arquitecto la dejó marcada como *«derivada del código, **NO ejecutada en vivo**»*. **Se ejecutó.**
+Contra el stack nativo (`:3099`, backend sirviendo `543ac17`, byte-idéntico en `backend/` a `HEAD`) y
+**Postgres real**, **todo por HTTP con `curl`** y **sin sembrar una sola fila**: usuarios y catálogo
+salen del seed sintético; el escenario se construye **por la API**, con `vault_operator` para el ciclo
+y `super_admin` sólo para pagar.
+
+**Las llamadas exactas y sus códigos** (solicitud `1486216a-92cb-4609-9491-80b80d0f708a`):
+
+| # | Llamada | Rol | Código |
+|---|---|---|---|
+| 1 | `POST /api/v1/buylist/requests` (DOS líneas de la misma carta) | customer | **201** |
+| 2 | `GET /api/v1/admin/buylist/:id` (leer las dos líneas) | operator | 200 |
+| 3 | `POST /api/v1/admin/buylist/:id/offer` — **cherry-pick**: línea A `buy`, línea B `skip` | operator | **200** |
+| 4 | `POST /api/v1/buylist/requests/:id/offer-response {accept}` | customer | 200 |
+| 5 | `POST /api/v1/admin/buylist/:id/receive` | operator | 200 |
+| 6 | `POST /api/v1/admin/buylist/:id/verify` | operator | 200 |
+| 7 | `PATCH /api/v1/admin/buylist/items/:A/decision {reject, reason}` — **la ÚNICA línea comprada** | operator | **200** |
+| 8 | `GET /api/v1/admin/buylist/:id` ⇒ `status='verificacion'`, **`isPayable: true`** | super_admin | 200 |
+| 9 | `POST /api/v1/admin/buylist/:id/pay-spei` | **super_admin** | ⛔ **200** |
+
+**La fila resultante, leída de Postgres (no del DTO):**
+
+```
+status               | pagada
+approvedTotalCents   |            ← NULL
+offerGrossCents      | 50000
+offerShippingFeeCents| 18000
+payoutNetCents       | 32000      ← ⛔ MX$320 POR CERO CARTAS
+speiReference        | REPRO-BL45-D-1788759969
+
+  líneas:  ff4c4d5f | skip | verificacion  | offered=NULL  | approved=NULL
+           efc417e9 | buy  | rechazada     | offered=50000 | approved=NULL
+```
+
+**La derivación del arquitecto era exacta, palabra por palabra**, incluido el mecanismo: la
+auto-transición a `rechazada` no dispara porque `maybeAutoRejectRequest` cuenta
+`itemStatus != 'rechazada'` **sobre TODOS los ítems**, y la línea `skip` se quedó en `verificacion`.
+**No hizo falta sembrar nada**, así que la gravedad **no se acota: se confirma**. Es la negación
+exacta del invariante 2 / criterio 140.
+
+### 0.45.2 La otra cara (b): la mercancía pagada e inconvertible — **y la exhaustividad, VERIFICADA**
+
+Segundo PoC en vivo (`30071e87-e62e-4690-bfc8-014da5fdcf44`): ciclo normal, una línea `buy`,
+`receive` → `verify` → **`pay-spei` sin decidir nada** ⇒ **200**, `approvedTotalCents = null`,
+`payoutNetCents = 32000`. Sobre esa fila **ya pagada** se barrieron **las once rutas del ciclo**:
+
+| Ruta (sobre la solicitud/línea PAGADA) | Código | Error |
+|---|---|---|
+| `POST …/items/:id/convert-to-inventory` (operator **y** super_admin) | 422 | `ITEM_NOT_APPROVED` (`itemStatus: verificacion`) |
+| `PATCH …/items/:id/decision` `{approve}` / `{adjust}` / `{reject}` | 409 | `NO_LIVE_ADJUSTMENT` (`status: pagada`) |
+| `POST …/receive`, `POST …/verify` | 409 | `CONFLICT` (terminal + `closedAt`) |
+| `POST …/offer` | 409 | `OFFER_ALREADY_SENT` |
+| `POST …/offer/cancel` | 409 | `OFFER_NOT_CANCELLABLE` |
+| `POST …/offer/authorize` | 409 | `OFFER_NOT_PENDING_AUTHORIZATION` |
+| `POST …/decline` | 409 | `DECLINE_NOT_ALLOWED` |
+| `POST …/reject` | 409 | `CONFLICT` |
+| `POST …/guide`, `POST …/confirm-shipment` | 409 | `GUIDE_NOT_ALLOWED` / `NOT_ACCEPTED` |
+| `POST /buylist/requests/:id/respond` / `offer-response` / `declare-shipped` | 409 | `ADJUST_NOT_ALLOWED_IN_OFFER_CYCLE` / `OFFER_NOT_PENDING` / `NOT_ACCEPTED` |
+
+**La afirmación de exhaustividad del arquitecto SE CONFIRMA, y no sólo por barrido: por enumeración
+del código.** `SellRequestItem` tiene **NUEVE** sitios de escritura en todo el backend (cero SQL
+crudo, cero escritores fuera de `buylist.service.ts`). De los nueve, **sólo DOS** pueden poner una
+línea en `aprobada` —`respond(accept)` (`ajustada → aprobada`) y `itemDecision(approve)`— y **los dos
+llevan la solicitud NO-terminal en el `where` de su propia escritura**; el noveno
+(`convertToInventory`) exige `itemStatus === 'aprobada'`. ⇒ **sobre una fila `pagada` la línea no
+puede alcanzar `aprobada` por ninguna ruta, nunca.**
+
+> **Acotación honesta, y es la única:** existe `POST /api/v1/admin/inventory/items` (alta manual). Eso
+> **no rescata la línea**: crea un `InventoryItem` **sin `sourceSellRequestItemId`**, deja el
+> `SellRequestItem` en `verificacion` para siempre y obliga a **teclear el costo a mano** en vez de
+> capitalizar `offeredPriceCents`. *Re-teclear una pieza rompiendo su trazabilidad no es una ruta de
+> rescate: es la evidencia de que no hay ninguna.*
+
+### 0.45.3 ⚠️ PASO 2 — LAS CUATRO CONSULTAS DE §M5-V.7, PARA **PRODUCCIÓN**
+
+**NO se corrieron contra producción** (no hay acceso ni autorización desde aquí). Se entregan como SQL
+**literal, ejecutable y de SOLO LECTURA** — cuatro `SELECT`, cero escritura — para la consola de
+Railway. El SQL íntegro y la tabla de decisiones están en el resumen de esta sesión; lo que importa
+aquí, para quien lo audite después:
+
+| Consulta | Qué mide | Si `> 0` |
+|---|---|---|
+| **(i-bis)** ⛔ | vivas **pagables** con **todas** sus líneas `buy` **rechazadas** ⇒ hoy pagan `max(0, offerGross − fee)` por CERO cartas | ⛔ **NO espera al merge.** Esas solicitudes **no se pagan** hasta decidir sus líneas (instrucción de operación) y **se escala al humano y al arquitecto en el mismo pase** |
+| **(i)** | vivas que el término bloquearía el día del deploy (remediables: decidir sus líneas **compradas**) | **SE ESCALA AL ARQUITECTO antes de mergear** (regla 9). ⛔ **NO se añade excepción legacy al `where` por cuenta propia** |
+| **(ii)** | ya pagadas sin bruto aprobado + su importe = **el sub-reporte histórico** de la tarjeta | **no bloquea**; es **el disparador (1) de `BL-45-bis`** (columna congelada + backfill) ⇒ entra en **el pase siguiente**. Si da `0`, ⛔ la columna **no se construye** |
+| **(iii)** | **líneas atrapadas**: compradas, de solicitudes pagadas, ya inconvertibles | **no bloquea**; es el **daño de mercancía ya causado** y alimenta la ficha de `BL-45-bis` |
+
+**Local, medido dos veces y dicho tal cual:** antes de mis PoC, `0 / 0 / 0 / 0`; **después de ellos**,
+`(i)=1 · (i-bis)=0 · (ii)=2 · (iii)=1` — **las cuatro filas eran mías**, de esta misma sesión. Tras la
+suite de integración (que **trunca y resiembra** el fixture) vuelven a `0 / 0 / 0 / 0`. ⚠️ **Cero
+local no es cero** (`PENDIENTES.md` §5): la BD local es un fixture sintético que se borra, así que
+**estos números no dicen nada sobre producción** y el conteo de §M5-V.7 sigue **pendiente y obligatorio**.
+
+### 0.45.4 PASO 3 — QUÉ CAMBIÓ EN EL CÓDIGO (cuatro ficheros de `src/`, cero DDL)
+
+**`src/common/sell-request-states.ts`** (zona compartida; nadie más la tocaba en este pase):
+- **V-a** entra en `isPayableSellRequest`: `sr.approvedTotalCents != null`. ⛔ **`!= null`, JAMÁS
+  `> 0`** — el depósito de cero de D40 / criterio 140 tiene `approvedTotalCents = 0` **con líneas
+  aprobadas** y **se sigue pagando**.
+- **`SELL_ITEM_VERDICT_STATES`** (clase R): `['aprobada','rechazada','convertida_inventario']` — los
+  dos desenlaces de §P.5 más el sucesor de la aprobación.
+- **`pendingBuyDecisionItemIds(sr, items)`** (V-b): corta en seco si `offerSentAt == null` y filtra
+  **`offerDecision === 'buy'`**. Devuelve **ids**, no un booleano: el `422` los publica en
+  `details.pendingDecisionItemIds` y el DTO publica su longitud. *Un cuerpo, tres respuestas.*
+- **`isPayableSellRequestWithItems(sr, items)`** — el hermano que compone los dos términos.
+  ⚠️ **Se descartó a propósito la variante `items?` opcional** en `isPayableSellRequest`: un
+  llamador que se olvidara de pasarlas obtendría **el predicado débil en silencio**, que es
+  literalmente cómo el botón de pagar acabó mintiéndole al súper-admin en v1.57.
+
+**`src/modules/buylist/buylist.service.ts`**:
+- `payableWhere()` gana **`approvedTotalCents: { not: null }`** ⇒ **la guarda del motor**, no el aviso.
+- `paySpei` gana la guarda de **V-b** con `422 ITEMS_NOT_DECIDED` y `details: { sellRequestId,
+  pendingDecisionItemIds }`, **ANTES** de la genérica `VALIDATION_ERROR` (escalera de §M5-V.6).
+- **`adminSellRequestDTO` exige `items` EN EL TIPO** (no opcional) y publica
+  **`pendingDecisionItemCount`** + el `isPayable` estrechado. Las **seis relecturas de mutación**
+  (`offer/cancel`, `guide/cancellation-done`, `decline`, `receive`, `verify`, `pay-spei` ×3) ganan
+  `include: { items: { select: VERDICT_ITEM_SELECT } }` con **un `select` compartido de tres
+  columnas**. *El compilador para la próxima mutación que se olvide; un `items?` no lo haría.*
+- La lista de exclusión del DTO de cliente pasa de **tres a cuatro**: `closedAt`, `paidBy`,
+  `isPayable`, **`pendingDecisionItemCount`**.
+
+**`src/common/error-codes.ts`**: `ITEMS_NOT_DECIDED` (nuevo, 422).
+
+**⚠️ POR QUÉ V-b NO TIENE GEMELA EN EL `where` DEL `updateMany`, y es una decisión medida.** *Un
+candado probable vale más que dos que se tapan entre sí.* Para explotar la ventana entre el
+pre-check y la escritura, una línea `buy` tendría que **PERDER** su veredicto, y **dentro del ciclo
+eso no existe**: `adjust` —el único destino no-veredicto que `itemDecision` sabe escribir— responde
+`422 ADJUST_NOT_ALLOWED_IN_OFFER_CYCLE` con `offerSentAt != null` (criterio 150); `approve`/`reject`/
+`convert` mueven a estados **que son** veredicto; y `offer/cancel` sólo **quita** líneas del conjunto.
+El único eje que sí se mueve es **el monto**, y ése ya lo afirman el CAS de las cuatro columnas (B-2)
+**y** el `approvedTotalCents: { not: null }` de `payableWhere()`.
+
+### 0.45.5 PASO 4 — LOS TESTS, Y LAS MUTACIONES QUE LOS PONEN ROJOS
+
+**Dos ficheros nuevos** (+1 suite unitaria, +1 de integración) y **seis retargeteados**, porque
+**seis casos existentes codificaban el defecto como conducta esperada** — el cambio de premisa **es**
+el arreglo y va anotado caso por caso en cada uno:
+
+| Fichero | Qué decía antes | Qué dice ahora |
+|---|---|---|
+| `buylist-cycle.e2e-spec.ts` (11)/(11-bis) | `isPayable === true` **justo tras `verify`**, sin juzgar una carta | `false` + `pendingDecisionItemCount: 1`; el botón se enciende en **(12)**, al decidir |
+| `buylist-cycle.e2e-spec.ts` (21) | `verify` la vuelve pagable y paga | pagable **tras aprobar la línea** (fila pre-ciclo: falla V-a, no V-b) |
+| `buylist-closed-total.e2e-spec.ts` (A) | pagaba sin decisiones y luego chocaba con BL-14 | **(A-0)** afirma que ese pago **ya no ocurre** (`422`), y (A) decide → paga → el `reject` posterior da `409` sin mover el bruto |
+| `buylist.bl14-bruto-consumado.spec.ts` | *«con el aprobado en `null` NO se paga MX$0: se paga lo ofertado»* | **no se paga NADA** (`422`), y su gemelo: **el aprobado de CERO SÍ se paga** |
+| `buylist.aml-payout-cap.spec.ts` | *«sin cherry-pick manda lo COTIZADO»* | ni se llega al tope: V-a responde antes (se afirma **el orden**, no sólo el rechazo) |
+| `buylist.pay-spei-amount-cas.spec.ts` | la cascada con `null` en las dos puntas | el importe sale de **la relectura**, con los tres montos **distintos entre sí** |
+
+> ⚠️ **La cascada `brutoConsumado` NO se retira y sus términos 2/3 siguen probados** — pero **sobre la
+> fila YA PAGADA** (`paidThisMonth`), que es la cohorte histórica. Post-V son **inalcanzables en el
+> instante del pago**: *de regla viva a compatibilidad histórica* (§M5-V.2).
+
+**Las siete mutaciones, corridas una a una. Las siete pusieron algo en rojo:**
+
+| # | Mutación | Unitarios rojos | Integración rojos |
+|---|---|---|---|
+| **M1a** | la tarjeta suma **`quotedTotalCents`** (mutación #11 literal) | **2** | **2** |
+| **M1b** | la tarjeta suma **`payoutNetCents`** | **2** | **2** |
+| **M1c** | la tarjeta suma **`offerGrossCents`** *(«por otra vía»)* | **2** | **1** |
+| **M2** | **quitar la guarda V-b** | **0** ⚠️ | **4** (incluido `Expected 422 / Received 200`) |
+| **M3** | quitar el filtro **`offerDecision='buy'`** de V-b | **15** | **6** (tres `200 → 422`) |
+| **M4** | **quitar V-a** de los dos lados | **5** | **2** (assert 3: `Expected 422 / Received 200`) |
+| **M5** | V-a como **`> 0`** en vez de `!= null` (rompe D40) | **7** | **0** ⚠️ |
+| **M6** | `isPayable` se queda con los tres términos de v1.57 | **1** | **1** |
+| **M7** | V-a **sólo en el predicado**, no en el `where` (paridad) | **3** | **0** ⚠️ |
+
+**Tres cosas que estos números dicen y hay que leer:**
+
+1. ⚠️⚠️ **`M2` NO LA MATA NINGÚN UNITARIO.** Quitar la guarda de V-b deja **3.649 unitarios en verde**.
+   Sólo la integración la ve, y **sólo en el caso PARCIAL**: con cero decisiones sigue fallando V-a
+   (`VALIDATION_ERROR`), así que el `200` del contrato aparece en el **assert 2** (líneas decididas a
+   medias), no en el 1. *Es la demostración de que los dos términos NO se tapan entre sí y de por qué
+   la suite E2E es obligatoria: el defecto vive en la composición de verbos, no en una función.*
+2. ⚠️ **`M1c` SOBREVIVE AL FIXTURE LITERAL DE §M5-V.8(7).** Con *«todo aprobado»*,
+   `approvedTotalCents === offerGrossCents` ⇒ **sumar `offerGrossCents` da el mismo 50000** y el caso
+   pasa. Lo mata **sólo** el segundo fixture, con **una línea `buy` RECHAZADA**: cotizado 150000 ·
+   ofertado 100000 · **aprobado 50000** · neto 32000 — *cuatro columnas, cuatro números*. **Medido, no
+   supuesto** (ver §0.45.6, punto 1).
+3. **`M5` y `M7` son unitario-puros, y está bien que lo sean.** El depósito de cero (`approvedTotalCents
+   = 0`) no lo produce el ciclo por la API —haría falta aprobar una línea a precio 0— y la paridad
+   predicado↔`where` sólo se rompe en una **carrera**. Se dice para que QA no lo lea como un hueco.
+
+> ⛔⛔ **CORRECCIÓN POSTERIOR (v1.61.1, §0.46) — LEE ESTO ANTES DE FIARTE DE `M7`.** `M7`
+> (*«V-a sólo en el predicado, no en el `where`»*) se ejecutó **quitando el término de
+> `payableWhere()`**, o sea del **ayudante**. El `where` real de `paySpei` **componía con spread** y
+> ahí la clave del CAS **pisaba a V-a**: el término estaba escrito en `payableWhere()` —por eso `M7`
+> salía rojo— y **no llegaba al motor**. La composición **nunca se mutó**, y era el único sitio donde
+> el término faltaba de verdad. También el `M5` de esta tabla mide el ayudante, no el objeto
+> compuesto. Ver **§0.46** para el defecto, su reproducción (`payoutNetCents = 72000` por cero
+> cartas) y el arreglo.
+
+**Ficheros de prueba nuevos:**
+- `test/integration/buylist-pay-verdicts.e2e-spec.ts` — **14 casos, por HTTP contra Postgres real**:
+  asserts **1, 2, 2-bis, 3, 4, 5, 6, 7, 8** de §M5-V.8, la **escalera** de §M5-V.6 (`ITEMS_NOT_DECIDED`
+  gana a la genérica; el `409` de «ya cobró» gana a los dos), la exclusión del DTO de cliente y la
+  cohorte legacy fuera del ciclo. Incluye **el assert 5 que no existía**: tras pagar, `convert-to-inventory`
+  de **cada** línea comprada ⇒ `200` con `acquisitionCostCents = offeredPriceCents` — *el que ata el
+  pago con el COGS*.
+- `test/buylist.m5v-items-not-decided.spec.ts` — **36 casos**: la tabla de verdad del predicado
+  **estado por estado del enum** (`buy` × 9, `skip` × 9, pre-ciclo × 9), la composición de `isPayable`
+  y **la columna que suma la tarjeta**.
+
+### 0.45.6 Discrepancias con el contrato — **NINGUNA BLOQUEANTE; DOS PARA EL ARQUITECTO**
+
+1. **§M5-V.8, assert 7 — el fixture literal no distingue lo que la ficha dice que distingue.** El texto
+   pide *«todo aprobado»* con `quoted=60000 / offerGross=50000 / fee=18000` y añade *«los cuatro
+   números tienen que ser distintos entre sí»*. **Son incompatibles**: con todo aprobado
+   `approvedTotalCents === offerGrossCents`, así que **sólo hay tres números** y la mutación
+   *«sumar `offerGrossCents` por otra vía»* **sobrevive** (medido: `M1c` ⇒ 13/14 verdes con el fixture
+   literal). **No cambié el contrato**: implementé el caso literal **y** añadí uno con una línea `buy`
+   rechazada que sí produce cuatro. **Sugerencia para el arquitecto**, no corrección por mi cuenta.
+2. **§M5-V.8, assert 1 — el `200` de la mutación aparece en el assert 2, no en el 1.** La ficha dice
+   *«quitar la guarda V-b ⇒ `200`»* sobre el escenario **sin ninguna decisión**; ahí V-a sigue
+   frenando (`VALIDATION_ERROR`). Los dos casos están implementados y el `200` se afirma donde de
+   verdad ocurre. **No cambia la norma, sí la lectura del assert.**
+
+### 0.45.7 Verificación (literal)
+
+```
+npx tsc --noEmit -p tsconfig.json        →  sin salida (limpio)
+npx eslint "src/**/*.ts" "test/**/*.ts"  →  0 errores, 2 warnings PRE-EXISTENTES
+                                            (inventory.service.ts:638, sealed-product.service.ts:11 —
+                                             ficheros que este pase NO toca)
+npx jest                                 →  Test Suites: 249 passed, 249 total
+                                            Tests:       3649 passed, 3649 total
+./scripts/stack-native.sh test:integration
+                                         →  Test Suites: 19 passed, 19 total
+                                            Tests:       281 passed, 281 total
+```
+
+Respecto al pase anterior (**248 suites / 3.612 unitarios**, **18 suites / 266 de integración**):
+**+1 suite y +37 unitarios**, **+1 suite y +15 de integración**. El stack vivo sirvió `543ac17`
+(`backend/` **byte-idéntico** a `HEAD`, verificado con `git diff --stat 543ac17 HEAD -- backend/` ⇒
+vacío) durante las dos reproducciones de §0.45.1/§0.45.2.
+
+**Lo que NO medí, dicho:** **(a) producción y staging** — todo es local contra
+`postgresql://…@localhost:5432/tcg_marketplace`, y **el conteo §M5-V.7 sigue pendiente y es
+obligatorio**; **(b) frontend** — no corrí su suite (no escribo ahí): le llega **un campo aditivo**
+(`pendingDecisionItemCount`) y un `isPayable` que ahora **se apaga en más casos**, así que el botón de
+pagar se verá apagado donde antes salía encendido — **eso es el arreglo, no una regresión**;
+**(c) la carrera** `itemDecision` ⟶ `pay-spei` sobre el eje de los VEREDICTOS: se argumenta
+imposible por construcción (§0.45.4) y **no se guionizó** — hacerlo exigiría un seam en producción.
+
+## 0.44 — **v1.60: el campo muerto, el candado que no se podía poner rojo, y el número del tablero que NO toqué** (2026-09-07, gates de QA + techlead sobre el ciclo de compra)
+
+> Propiedad: **backend**. Contra el contrato **v1.60** (**§M5-K.5(a)**) y `ARCHITECTURE` §3.2 / §4.39i.4-bis.
+> **Cero DDL, cero endpoints nuevos, cero cambios de forma de respuesta salvo el campo que el contrato
+> manda retirar.** Tres encargos; **dos implementados, uno DETENIDO y escalado al arquitecto (regla 9)**.
+
+### 0.44.1 `legalName` sale de los DTOs de admin — §M5-K.5(a) (BLOQUEANTE, cerrado)
+
+**Qué dice el contrato y qué hacía el código.** §M5-K.5(a) retira `legalName` de `AdminKycProfileDTO`
+y `AdminKycProfileOperatorDTO`: campo muerto, sin escritor que le pusiera un nombre, y *«un campo que
+el panel pinta y siempre llega `null` invita a poblarlo, y poblarlo reintroduce el cotejo por la
+puerta de atrás»*. El código lo seguía emitiendo (QA lo midió en vivo: `PATCH
+/api/v1/admin/users/:id/kyc` como `super_admin` devolvía `"legalName": null`).
+
+**Lo que cambió, todo en `backend/src/modules/admin/admin.service.ts`:**
+
+| Sitio | Antes | Ahora |
+|---|---|---|
+| `ADMIN_KYC_SELECT` (`:47`) | `legalName: true` | **fuera** — la columna ya ni se lee de la BD |
+| tipo de `toAdminKycDTO` (`:191`) | `legalName: string \| null` | **fuera** |
+| proyección de `toAdminKycDTO` (`:205`) | `legalName: k.legalName` | **fuera** |
+| proyección `vault_operator` de `getUser` (`:503`) | `legalName: safe.kycProfile.legalName` | **fuera** |
+| **proyección `super_admin` de `getUser`** (`:466-483`) | **la emitía por `...rest`** | **descartada a mano** (`legalName: _l`) |
+| escritor a `null` del soft-delete (`:765`) | `legalName: null` | **INTACTO** (el contrato lo pide así) |
+
+⚠️ **La quinta fila es un hallazgo, no un extra.** El contrato enumera *«`ADMIN_KYC_SELECT`, el tipo y
+las DOS proyecciones (`:205`, `:503`)»*, y esa lista **no es completa**: la rama `super_admin` de
+`getUser` no usa `ADMIN_KYC_SELECT` —lee con `include: { kycProfile: true }`— y proyecta **por resto**
+(`...rest`), así que publicaba `legalName` por una puerta que la lista blanca no cubre. **No es una
+contradicción del contrato** (la norma es *«sale de los dos DTOs»*, y eso es lo que se cumple): es
+**una imprecisión de las referencias de línea**, y se anota aquí para que el próximo lector no la use
+como censo. *Una proyección por resto publica cada columna nueva del schema por omisión — es la razón
+por la que existe la lista blanca, y el sitio donde falta es donde el campo se escapa.*
+
+**Cero DDL:** la columna se conserva **INERTE** en `schema.prisma` (precedente exacto de
+`capPerRequestCentsOverride`). **Impacto de frontend cero, RE-MEDIDO por mí antes de tocar nada:**
+`grep -rn legalName frontend/` ⇒ **0 coincidencias**.
+
+**Candados (unitarios), y qué mutación pone rojo a cada uno:**
+
+| Candado | Fichero | Mutación que lo pone rojo |
+|---|---|---|
+| el `select` no pide la columna **y** el DTO no la proyecta | `test/no-raw-entity-response.spec.ts` | (M1) `legalName: true` de vuelta en `ADMIN_KYC_SELECT` ⇒ **rojo**; (M2) `legalName` de vuelta en `toAdminKycDTO` ⇒ **rojo** |
+| ninguna de las **dos ramas** de la ficha 360° lo emite | `test/admin.pii.spec.ts` (`it.each` sobre los dos roles) | (M3) quitar `legalName: _l` de la rama `super_admin` ⇒ **rojo**; (M4) `legalName` de vuelta en la rama del operador ⇒ **rojo** |
+
+Los dos candados **no se tapan entre sí**: son dos caminos de lectura distintos (`select` blanco vs.
+`include` + proyección por resto) y cada mutación mata exactamente uno.
+
+⚠️ **PARA FRONTEND / QA:** `AdminKycProfileDTO` y `AdminKycProfileOperatorDTO` **ya no traen la clave
+`legalName`** (antes venía y siempre valía `null`). `kycStatus`, `verifiedBy`/`verifiedAt` y los topes
+se quedan **sin cambio**.
+
+⚠️ **NO se tocó `capPerRequestCents`**, que el contrato **v1.59/D47 (§M5-D.3)** también retira de los
+dos DTOs y que el código **sigue emitiendo** (`:207`, `:479`, `:507`, y el body del `PATCH` lo sigue
+aceptando). **No es un olvido:** `PENDIENTES.md §1` lo tiene como trabajo 1 del próximo pase, **atado
+a `BL-43` en el mismo commit** («no se puede retirar `A1` sin poner su sustituto»). Retirarlo aquí,
+suelto, sería justamente lo que esa restricción prohíbe.
+
+### 0.44.2 La invariante «en una solicitud cerrada el bruto es final» — ahora pinchada contra Postgres
+
+**El hallazgo de QA, y por qué era grave:** la guarda de `recomputeApprovedTotal`
+(`buylist.service.ts`, `updateMany` con `...liveRequestWhere()`) **no tenía ni un caso que la
+ejercitara contra la base**. QA la mutó dejando el `updateMany` y **la suite de integración quedó
+264/264 en verde**; solo la sostenían dos asertos de **forma** sobre un Prisma mockeado.
+
+⚠️⚠️ **EL TEST QUE PIDE EL HALLAZGO, LITERAL, NO SIRVE — y lo digo con la medición.** *«Sella una
+solicitud `pagada`, dispara una decisión por-ítem y exige que `approvedTotalCents` no se mueva»*
+**no ejercita esa guarda**: `itemDecision` corta antes con el pre-check de terminal de **BL-14**
+(`409 NO_LIVE_ADJUSTMENT`) y **el recompute ni se llama**. Ese test pasa en verde con la guarda
+**borrada** — sería otra vez el candado que no se puede poner rojo.
+
+**Lo que se escribió:** `backend/test/integration/buylist-closed-total.e2e-spec.ts`, **por HTTP,
+contra Postgres real**, con **dos** casos que pinchan invariantes distintas:
+
+| Caso | Escenario | Qué afirma |
+|---|---|---|
+| **(A)** | ciclo completo → `pay-spei` **sin ninguna decisión por-ítem** (el repro exacto de QA: `approvedTotalCents = null`, `offerGrossCents = 50000`, `payoutNetCents = 32000`) → `PATCH …/decision` | `409 NO_LIVE_ADJUSTMENT`, el total **sigue `null`** y el ítem no se movió |
+| **(B)** | fila **CERRADA con estado VIVO** (`closedAt` sellado + `status = verificacion`) — la fila que P1 fabricaba, sembrada por `h.prisma` porque la API no la produce → `PATCH …/decision` | la decisión **prospera (200, ítem a MX$500)** y aun así `approvedTotalCents` **sigue `null`** |
+
+**(B) es el que pincha la guarda**, por su eje `closedAt`: es el único eje alcanzable por HTTP (el de
+`status` lo tapa BL-14, y el hueco real que la guarda cubre —el recompute commiteando *después* de
+`pay-spei`— es una carrera que no se guioniza sin meter un seam de test en producción).
+
+**Mutaciones y rojos (medidos, no argumentados):**
+
+| Mutación | Resultado |
+|---|---|
+| **(M5)** `recomputeApprovedTotal` pierde `...liveRequestWhere()` (**la mutación de QA, literal**) | **(B) ROJO** (`Expected: null` / `Received: 50000`) · (A) verde · **suite de integración completa: 1 fallo / 266** — antes era 264/264 en verde |
+| **(M6)** se quitan los **dos** candados de terminal de `itemDecision` (pre-check BL-14 + término del `where`) | **(A) ROJO** (`Expected: 409` / `Received: 200`) · (B) verde |
+
+⇒ cada caso se pone rojo **por su propia razón** y **ninguno tapa al otro**.
+
+### 0.44.3 El predicado del barrido (`buylist-sweep`): **NO** le añado test de integración, y por qué
+
+El encargo pedía decidir si merece el mismo trato. **Decisión: no**, y va con medición.
+
+**(M7)** devolví la escritura de `closeWithGuideTask` a su `where` débil (`{ id, closedAt: null }`,
+el B-1 original) y corrí las dos suites:
+
+- **unitarios: 6 rojos** en `test/buylist-sweep.write-predicate.spec.ts` — y **no son de forma**: tres
+  son de **paridad estructural** (cada término de la lectura aparece en la escritura) y **tres son de
+  CARRERA** (la fila se mueve entre el `findMany` y el `updateMany` ⇒ no se expira, no sale correo, no
+  se cuenta), sobre un harness con `afterRead`.
+- **integración: 266/266 en verde.**
+
+**No es el mismo caso que 0.44.2.** Allí el candado **no podía ponerse rojo por conducta** en ninguna
+suite; aquí **sí se pone rojo, y por la conducta exacta que importa**. Lo que queda es un residual
+distinto y menor: el harness **reimplementa el matcher de `where` de Prisma**, así que su fidelidad al
+motor es una suposición. Duplicarlo en integración exigiría **espiar `prisma.sellRequest.findMany`
+para mutar la fila en la ventana** —un mock de Prisma en la suite que prohíbe mocks de Prisma— a
+cambio de cubrir una carrera **ya cubierta**. *Un candado probable vale más que dos que se tapan entre
+sí.*
+
+⏳ **Residual registrado (no bloqueante).** *Riesgo:* el fake podría interpretar un `where` distinto de
+como lo hace Postgres y dejar verde una regresión real. *Disparador para convertirlo:* que el `where`
+del barrido gane un término que el matcher del harness **no sabe evaluar** (hoy solo hay igualdad,
+`null`, `in`, `not`, `lte`, `gt`), o el primer fallo real de un barrido en staging.
+
+### 0.44.4 ⛔⛔ `buylistPeriod.amountCents` — **DETENIDO Y ESCALADO AL ARQUITECTO (regla 9). NO se tocó una línea.**
+
+**El defecto, reproducido por mí contra la BD real** (no citado): con una solicitud pagada del ciclo
+—`offerGrossCents = 50000`, `offerShippingFeeCents = 18000`, `approvedTotalCents = null`,
+`payoutNetCents = 32000`— el agregado que publica la tarjeta da:
+
+```
+TABLERO HOY (_sum approvedTotalCents) : 0        ← lo que se le enseña al operador
+BRUTO CONSUMADO (cascada brutoConsumado): 50000
+NETO SELLADO (_sum payoutNetCents)    : 32000    ← el dinero que de verdad salió
+```
+
+`{ count: 1, amountCents: 0 }` sobre MX$320 que salieron por SPEI.
+
+**Por qué no lo arreglé yo:** las dos salidas razonables **no son mías**.
+
+1. **Congelar el bruto al pagar** (la dirección del techlead: *«un número de dinero se decide una vez,
+   donde se decide el dinero»*) ⇒ **columna aditiva** en `SellRequest`, escrita en el mismo `data` que
+   `payoutNetCents` y desde el **mismo** local `payoutCents` (cero derivación nueva), y el reporte pasa
+   a `_sum` de esa columna. **Es DDL** ⇒ `backend/prisma/` es zona compartida ⇒ **arquitecto primero**.
+   *Y trae una segunda decisión suya:* las filas pre-M-46 quedarían `null` (mismo trato que
+   `payoutNetCents`, que **no se backfilleó**) ⇒ **los periodos históricos reportarían de menos** salvo
+   que se autorice un backfill `COALESCE(approvedTotalCents, offerGrossCents, quotedTotalCents, 0)`.
+2. **Sumar `payoutNetCents`** (ya sellado, `_sum` lo expresa, **cero DDL, una línea**) ⇒ pero eso
+   **cambia el significado de una tarjeta de dinero** de **bruto** a **neto**. El contrato §11 fija la
+   **forma** (`{ count, amountCents }`) y **no dice cuál de los dos es**; el criterio 155 sí dice que
+   *«las dos medidas conviven y NO se mezclan»*. **Elegir cuál mide esta tarjeta es una decisión
+   normativa, no una corrección de bug.**
+
+**Lo que descarté, con el motivo:**
+
+- **`findMany` + `reduce` con `brutoConsumado`** — no sería una «tercera copia» (es un tercer **sitio
+  de llamada** del cuerpo único de `common/buylist-aml.ts`), pero **sí mete una lectura sin cota en el
+  tablero**: con `from`/`to` arbitrarios el conjunto es *todas* las solicitudes pagadas del rango.
+- **Tres `_sum` disjuntos** que expresen el `COALESCE` particionando el `where` — bounded y sin DDL,
+  pero **transcribe el orden de la cascada por cuarta vez**, lejos del dinero. Es el defecto que
+  §4.39i.4-bis existe para cerrar.
+- **`_sum(payoutNetCents) + _sum(offerShippingFeeCents)`** para «recuperar» el bruto — ⛔ **NO es
+  exacto, y lo medí en el código**: `payoutNetCents = max(0, brutoConsumado − fee)`, y el `max(0,…)`
+  **sí puede disparar en el pago** (el piso de neto de D34/D40 se valida **al ofertar**, sobre
+  `offerGrossCents`; si luego se rechazan líneas, `brutoConsumado` baja por debajo de la tarifa). La
+  suma daría un bruto **inflado** justo en el caso raro.
+
+✅ **`GET /admin/finance/pnl` NO está afectado — VERIFICADO leyendo las dos puntas, no asumido.**
+`pnl()` solo lee `Order` (+`items.inventoryItem.acquisitionCostCents`) y `ShipmentRequest`: **cero
+lecturas de `SellRequest`**. Y `acquisitionCostCents` se escribe al convertir desde
+`item.offeredPriceCents ?? approvedPriceCents ?? quotedPriceCents`, **por línea** — nunca desde
+`approvedTotalCents`.
+
+⚠️ **Hallazgo colateral para el arquitecto, medido de paso:** en el camino *«se aceptó todo tal cual
+se ofertó»* (pagar desde `verificacion` sin decisiones por-ítem) los ítems **nunca llegan a
+`aprobada`**, y `convertToInventory` los rechaza con `422 ITEM_NOT_APPROVED`. ⇒ esas piezas **tampoco
+entran al inventario ni al COGS**: el dinero que salió es invisible **en las dos tarjetas**, no solo
+en la del buylist. No es el encargo y **no lo toqué**; lo dejo escrito porque decide si (1) basta.
+
+### 0.44.5 Verificación (literal)
+
+| Suite | Antes (baseline medido por mí, = el de `PENDIENTES.md`) | Después |
+|---|---|---|
+| unitarios (`npx jest`) | **248 suites / 3.609** | **248 suites / 3.612** (+3 asertos de candado) |
+| integración contra **Postgres real** (`jest-integration.config.js`) | **17 suites / 264** | **18 suites / 266** (+1 suite, +2 casos) |
+| `tsc --noEmit` | limpio | **limpio** |
+| `eslint src/ test/` | 0 errores + 2 warnings preexistentes (`inventory/`) | **idéntico** |
+
+**Mutaciones corridas: 7 (M1–M7). Las 7 pusieron algo en rojo**, y cada una **solo** lo que le tocaba.
+
+**Lo que NO medí, dicho:** (a) **producción y staging** — todo esto es local contra
+`postgresql://…@localhost:5432/tcg_marketplace`; (b) **frontend**: no corrí su suite (no escribo ahí);
+lo único que le cambia es la ausencia de una clave que ya medí que no consume (0 coincidencias);
+(c) **la carrera real** `recompute` ⟶ `pay-spei` (el eje `status` de la guarda) sigue **sin test**:
+solo se guioniza metiendo un seam en producción, y no lo hice.
+
+## 0.43 — **v1.58: las CUATRO invariantes del pase — §M5-A, §M5-R, BL-40 y BL-36** (2026-09-06, rama `claude/buylist-inventory-workflow-hdnls3`, **CUATRO commits separados**)
+
+> Propiedad: **backend**. Contra el contrato **v1.58** (**§M5-A**, **§M5-R**, §M5 `APPROVED_PRICE_CAP_EXCEEDED`,
+> §M5-T grupo B) y `ARCHITECTURE` §4.39(x)/(y)/(z). **Cero endpoints nuevos, cero DDL. Un campo aditivo
+> de DTO.** Los cuatro van **en commits separados** (norma **BL-27**) y ninguno se mezcla con la
+> alineación cosmética de BL-37: *el gate de seguridad y el techlead revisan por diff.*
+
+### 0.43.1 ⚠️⚠️ LOS DOS CONTEOS PRE-MERGE — hechos ANTES de correr una sola suite
+
+**§M5-A.9 y §M5-R.5 exigen contar antes de mergear, y el orden importa:** `npm run test:integration`
+corre `seedE2E`, que **borra filas**. La medición que vale es la de **antes**. Se hizo con `psql`
+directo contra la BD local, **antes** de tocar el código y **antes** de la primera corrida de tests.
+*Devops puso una guarda en `--seed`; no cubre las suites.*
+
+| Conteo | Qué mide | Resultado |
+|---|---|---|
+| **§M5-A.9 (i)** | filas VIVAS ya ofertadas por encima del tope efectivo | **0** |
+| **§M5-A.9 (ii)** | las mismas, sobre el umbral de INE y sin INE en archivo | **0** |
+| **§M5-R.5 (i)** | líneas `aprobada`/`convertida_inventario` **sin constancia de recepción** | **0** |
+| **§M5-R.5 (ii)** | solicitudes vivas sin recibir (*informativo*) | **2** |
+
+**Ninguno escala.** El de R.5(i) es el que habría exigido decisión operativa —piezas de inventario que
+puede que nunca hayan existido, y eso **no lo arregla un `where`**—: dio **0**. El (ii) es informativo y
+**no justifica excepción**: una solicitud viva sin recibir **es** el caso que la invariante frena.
+⛔ **Ningún `where` lleva excepción legacy.**
+
+⚠️ **Alcance honesto de la medición:** es la BD **local**. **No está medido en producción.** *Cero
+local no es cero* — el conteo va antes del merge precisamente porque **sobre una oferta ya enviada no
+hay remedio unilateral: es vinculante.**
+
+### 0.43.2 `BL-38` / §M5-A — los topes AML y el INE, **al ofertar**
+
+`POST /admin/buylist/:id/offer` gana **tres términos**, todos sobre `G = offerGrossCents`:
+
+```
+A1  G  >  capPerRequest                          ⇒ 422 BUYLIST_LIMIT_EXCEEDED  scope:"per_request_offer"
+A2  G >= ineThreshold ∧ ¬ineEnArchivo            ⇒ 422 INE_REQUIRED  details:{sellRequestId,grossCents}
+A3  Σ(compromiso vivo, ESTA fila sustituida) > capPerMonth
+                                                 ⇒ 422 BUYLIST_LIMIT_EXCEEDED  scope:"per_month_offer"
+```
+
+**Dónde:** A1 y A2 **después** del piso de neto y **antes** del tope del operador (*nada inofertable
+llega a la cola de autorización*); A3 **dentro** de la transacción, y la transacción pasó a
+**`SERIALIZABLE`** — mismo TOCTOU que ya cerraron el intake (SEC-A2) y `pay-spei` (AML-1).
+
+⚠️ **EL MONTO ES `G`, Y NO `brutoConsumado(req)` — es la trampa del apartado y la medí antes de
+escribir.** En ese instante y sobre esa fila la precondición garantiza `offerState ∈ {null,'cancelled'}`
+y `offer/cancel` limpia `offerGrossCents` (`OFFER_FROZEN_NULL`, verificado en el código) ⇒ la cascada
+`approvedTotalCents ?? offerGrossCents ?? quotedTotalCents` **devolvería `quotedTotalCents`, que es
+justo el número que no ve el override**. *Un término correcto para el compromiso CONSUMADO es el
+término equivocado para el que se está CONTRAYENDO, y los dos se llaman «bruto».*
+
+**A3 se implementa por SUSTITUCIÓN, no por suma** (`Σ − aporte_actual_de_esta_fila + G`), y la fila
+propia solo entra si está en la ventana del mes. Se reusa `monthCommittedGrossCents` —el cuerpo del
+intake, misma ancla `createdAt`, mismo predicado por complemento—: ⛔ **no hay un tercer acumulado.**
+La propiedad verificable sin leer el código: **la guarda asevera el valor que el acumulado devolverá el
+instante después de la escritura**, y hay un test que lo comprueba llamándolo antes y después.
+
+**Otros hechos que otros roles necesitan:**
+- **Aplica a TODO actor, `super_admin` incluido.** *«El súper-admin oferta sin tope»* es el tope del
+  **operador** (delegación); el AML es **cumplimiento sobre el vendedor** y ningún rol lo levanta. Se
+  mueve con el dial (M10) o con el **override por KYC** de ese vendedor.
+- **`ineProvided` se relee del `KycProfile`**, no de la columna `SellRequest.ineProvided` (snapshot del
+  intake). **`ineRequired` es MONÓTONA**: la clave solo se emite cuando la oferta cruza el umbral, así
+  que un `true` del intake **nunca se apaga**.
+- **`INE_REQUIRED` de esta ruta NO lleva `thresholdCents`** (§M5-A.7): el destinatario es el operador,
+  que no es el sujeto de la regla. **El intake no se armoniza** y sigue emitiéndolo: allá el
+  destinatario es el vendedor.
+- **`offer/authorize` NO reevalúa nada** y no le hace falta: el `202` ya escribió `offerGrossCents`
+  sobre una fila que ya está en el acumulado ⇒ el compromiso entra **al preparar**.
+- **Residual nombrado, NO bloqueante — el cruce de mes:** una solicitud creada en un mes y ofertada en
+  el siguiente no está en la ventana del acumulado ⇒ su bruto no topa **al comprometer**. No queda
+  descubierta en el dinero: al pagar entra al acumulado consumado del mes del pago. *El compromiso
+  puede cruzar el mes; el pago no.*
+
+**Frontend (aditivo, opcional):** `GET /admin/buylist/:id/decision-table` emite
+**`sellerIneOnFile: boolean`** en la **raíz** (no en `totals`), derivado de
+`KycProfile.ineFrontKey != null ∧ ineBackKey != null`. Es **aviso, no bloqueo**. ⛔ **La lista es
+CERRADA**: no lleva el umbral, ni los topes, ni el acumulado del mes. Ignorarlo no rompe nada.
+
+### 0.43.3 `BL-39` / §M5-R — la recepción es precondición de `approve`
+
+`PATCH /admin/buylist/items/:itemId/decision` con `decision:"approve"` exige
+**`sellRequest.receivedAt IS NOT NULL`** ⇒ **`422 REQUEST_NOT_RECEIVED`**
+(`details: { sellRequestId, status }`), cero escritura.
+
+⚠️ **El término va en `approve`, y NO en `convert-to-inventory`, que es donde yo lo había propuesto.**
+El arquitecto me corrigió con su propio argumento de v1.51.20 (el caso gemelo de la línea `skip`):
+*«duplicar la guarda duplicaría la regla, y la copia se desfasa»*. Con `approve` guardado, **`aprobada`
+se vuelve inalcanzable sin recepción** y `422 ITEM_NOT_APPROVED` **vuelve a bastar** ⇒
+⛔ **`convert-to-inventory` NO SE TOCA** (misma respuesta, mismo `details`, misma idempotencia). Hay un
+test —unitario y de integración— que lo **prueba** en vez de afirmarlo.
+
+**Forma:** la guarda REAL vive en el `where` del `updateMany` con `count === 1`; el pre-check da el
+error honesto y **evita gastar un intento de escritura**. Los dos hacen falta, y hay un test por capa.
+**Un solo cuerpo (`assertRequestReceived`) con DOS entradas:** dentro del ciclo va como peldaño de
+`assertOfferCycleAllows` (entre `ITEM_NOT_OFFERED` y `OFFER_PRICE_IMMUTABLE`); fuera del ciclo, directo.
+**R aplica dentro y fuera:** no es una regla del ciclo de oferta, es una afirmación sobre mercancía
+física.
+
+**Escalera de precedencia (normativa, con test por peldaño):**
+`409 NO_LIVE_ADJUSTMENT` → `409 ADJUST_NOT_ALLOWED_IN_OFFER_CYCLE` → `422 ITEM_NOT_OFFERED` →
+**`422 REQUEST_NOT_RECEIVED`** → `422 OFFER_PRICE_IMMUTABLE` → `500 OFFERED_PRICE_MISSING`.
+
+**Solo `approve`.** `reject` es la dirección **segura** —quita el monto, cierra solicitudes, desatasca
+filas— y gatearlo **dejaría filas sin salida**. **Residual nombrado, NO bloqueante:** `reject`
+pre-recepción sella `rejectedAt`, que ancla los plazos de §H, y manda correo ⇒ puede arrancar un reloj
+de devolución sobre una carta que no tenemos. **Disparador para reabrirlo:** que aparezca cualquier
+consecuencia de **dinero** colgada de `rejectedAt`.
+
+⚠️ **Para QA y para quien escriba fixtures:** varias suites describían solicitudes **en verificación
+sin `receivedAt`** — un escenario que ahora es imposible. Los fixtures ganaron el dato; **eso no relaja
+nada**: el caso contrario tiene suite propia (`buylist.m5r-received-approve.spec.ts`).
+
+### 0.43.4 `BL-40` — la cota que rechazaba lo que ya habíamos prometido
+
+```
+offerSentAt IS NOT NULL   ⇒   cota = capAML                            // v1.58
+offerSentAt IS NULL       ⇒   cota = min(quotedPriceCents × 2, capAML) // legacy, SIN CAMBIOS
+```
+
+**Lo encontró el arquitecto midiendo BL-38, y el comentario del propio código lo delataba:** aplicábamos
+una cota de *«defensa en profundidad, no confianza en el origen»* **sobre un monto que nosotros mismos
+ya prometimos por correo**. Con números ordinarios —cotizada **MX$300**, override motivado a
+**MX$1,000**, bruto muy por debajo del tope AML— **la oferta salía, el vendedor mandaba la carta, y
+`approve` la rechazaba contra MX$600**. Es la única de las cuatro **sin remedio posible para el
+vendedor**: ya se desprendió de su carta.
+
+- **Por qué se retira dentro del ciclo:** ahí el monto **no es entrada del operador**; es la cifra
+  congelada y vinculante que ya pasó **su propia** puerta (motivo auditado de D26, tope del operador con
+  escalación y, desde v1.58, el tope AML al ofertar).
+- ⛔ **NO se resuelve al revés** (imponer el `×2` al ofertar): sería inventarle al negocio una cota que
+  `PROJECT.md` no tiene, y mataría el caso que el override existe para atender.
+- **El término `capAML` SE QUEDA** dentro del ciclo (backstop para filas legacy y malformadas), con test
+  que comprueba que sigue vivo.
+- **Forma:** `assertApprovedPriceWithinCap` gana un parámetro **obligatorio y sin default**
+  (`{ relativeCapApplies }`). *Un opcional dejaría que un llamador futuro heredara la cota relativa sin
+  decidirlo, que es exactamente cómo se coló el defecto.*
+- **`APPROVED_PRICE_CAP_EXCEEDED` ya vivía en el código sin estar declarado**; v1.58 lo declara. El
+  shape de `details` **no cambia**.
+
+### 0.43.5 `BL-36` — la fórmula gana su término, y este es el pase en el que entra
+
+Los dos `where` de `pickup-address` (cliente y admin) ganan `status ∉ SELL_REQUEST_TERMINAL_STATES` vía
+**`...liveRequestWhere()`** — el helper que ya existe, ⛔ **jamás un literal de estados** (§4.39c sitio
+8). **Cero vocabulario nuevo y cero cambio de shape:** `409 PICKUP_ADDRESS_LOCKED` con `details.status`
+ya estaba declarado en las dos rutas ⇒ **frontend no toca nada**.
+
+**El término NO sustituye a `closedAt` ni a `guideSentAt`: se SUMA.** Son ejes distintos («ya cerró»,
+«ya hay papel») y hacen falta todos.
+
+⚠️ **Por qué entra ahora y no en el pase anterior (§0.42.1):** cuando lo medí —**0 filas locales**— no
+toqué el código, porque el término que faltaba estaba en **una fórmula que el contrato declara**, y
+moverlo desde el código habría sido el código mandando sobre el contrato (regla 9). El arquitecto normó
+la fórmula en v1.58 y **entonces** el código la sigue. **Y añadió la medición que cierra el argumento:
+toda fila pre-M-19 es también pre-M-46** ⇒ `guideSentAt`, `shipmentConfirmedAt` y
+`sellerShippedDeclaredAt` son **nulos en ella**: **pasaba las DOS guardas enteras.**
+
+**Ningún trabajo legítimo se pierde**, comprobado verbo por verbo: el `hadGuide` que reabre la tarea de
+guía muerta **no puede disparar en esa cohorte** (`guideSentAt` es nulo), y la tarea tiene **su propio
+endpoint**, que es la **excepción NOMBRADA** de §M5-T y **no se toca** — con un test que lo asevera por
+el contrario: sobre una solicitud **cerrada** tiene que responder `200`.
+
+### 0.43.6 Verificación, y qué mutaciones se probaron
+
+| | Antes | Después |
+|---|---|---|
+| Unitarios | 246 suites / 3.553 | **248 suites / 3.609** |
+| Integración | 17 suites / 252 | **17 suites / 264** |
+| `typecheck` | limpio | **limpio** |
+| `lint` | 0 errores + 2 warnings preexistentes | **igual** |
+
+**Suites nuevas:** `test/buylist.m5a-offer-aml.spec.ts` (26) y
+`test/buylist.m5r-received-approve.spec.ts` (13); bloques nuevos en
+`buylist.approved-price-cap.spec.ts` (BL-40) y `buylist.pickup-address.spec.ts` (BL-36); y el bloque
+v1.58 de `test/integration/buylist-cycle.e2e-spec.ts` (12 casos por HTTP contra Postgres real).
+
+**28 mutaciones probadas sobre los términos nuevos; las 28 mueren** — cada una está listada, con el test
+que la mata, en la cabecera de su suite. Incluyen los **bordes** (`>` de A1, `>=` de A2, el inclusivo
+del AML), **medir con `brutoConsumado` en vez de `G`**, **sumar en vez de sustituir** en A3, **sacar A3
+de la `SERIALIZABLE`**, **mover el peldaño de R** arriba o abajo en la escalera, **extenderlo a
+`reject`**, **revertir BL-40** y **quitarle a BL-36 cada uno de sus términos**.
+
+⚠️ **Y en cada bloque hay un CAMINO FELIZ explícito** (la oferta sale, `approve` responde `200`, la
+conversión crea la pieza, las dos rutas de `pickup-address` re-congelan). *Sin él, los asserts negativos
+los pasa igual un endpoint que rechaza siempre* — y es el assert más fácil de olvidar.
+
+**Sobre `sellerIneOnFile` y §4.39(z):** el campo es el único sitio de este pase donde afirmo que *«esto
+ahora falla en compilación»*, y **lo medí con los dos controles**: con el campo, la suite compila y pasa
+(positivo); al quitarlo del servicio, `tsc` rechaza el test con `TS2339` y **la suite no llega a correr**
+(negativo). *Un tipo que nombra la intención no la impone; lo que la impone es una prueba que falla al
+relajarlo.*
+
+## 0.42 — **§M5-C / BL-37: los nueve `201` que el contrato declara `200`** (2026-09-06, rama `claude/buylist-inventory-workflow-hdnls3`, **commit APARTE, sin una línea de lógica**)
+
+> Propiedad: **backend**. Contra **§M5-C** (contrato v1.57). **No bloqueante.** Va en su propio commit
+> por la norma **BL-27**: *un diff no mezcla alineación de códigos con lógica, porque el gate de
+> seguridad y el techlead revisan por diff.*
+
+**La norma:** en el ciclo de buylist, **`201` es exclusivamente del endpoint que CREA una `SellRequest`**
+(`POST /buylist/requests`). **Todo verbo que opera sobre una solicitud existente responde `200`.**
+
+Se añadió `@HttpCode(HttpStatus.OK)` a los **nueve** de la tabla de §M5-C: `offer/authorize`,
+`offer/cancel`, `guide`, `confirm-shipment`, `guide/cancellation-done`, `decline`, `reject`,
+`items/:itemId/convert-to-inventory` y `pay-spei`. **Ni una línea de lógica.**
+
+⚠️ **El defecto no era un código mal escrito: era un código NO escrito.** Un `@Post` sin `@HttpCode`
+hereda el `201` del framework **en silencio** — no se ve en el diff, no lo ve el compilador, y solo
+aparece disparando el endpoint. Nueve lo acumularon durante versiones. Por eso el pase **no se queda en
+poner los decoradores**: añade `test/buylist.m5c-success-codes.spec.ts`, que **lee los decoradores
+reales** (`HTTP_CODE_METADATA`) en vez de una lista a mano, y **exige `200` a todo `POST` del
+controller**. El décimo endpoint nace cubierto.
+
+**La única excepción va nombrada con su razón** (`POST :id/offer`, que fija `200`|`202` **por
+resultado** vía `@Res`): una excepción anónima es la puerta por la que entra la siguiente.
+
+**Nueve aserciones de integración pasaron de `201` a `200`** (7 en `buylist-cycle.e2e-spec.ts`, 2 en
+`buylist.e2e-spec.ts`). *Pinneaban la conducta vieja; el contrato manda sobre el código.* **Frontend:
+cero cambios** — `apiRequest` ramifica por `res.ok` (medido por el arquitecto en v1.56).
+
+### 0.42.1 ⚠️ BL-36 — medido, y **NO lo toco: es una fórmula DECLARADA en el contrato**
+
+El arquitecto me enrutó BL-36 (*los dos `pickup-address` se apoyan solo en `closedAt`, así que una fila
+terminal con `closedAt` nulo pasa*) marcándolo **no medido** y pidiéndome medirlo antes de decidir la
+forma. **Medido, y la respuesta cambia el dueño:**
+
+1. **La cohorte no existe hoy en la BD local:** `0` filas terminales con `closedAt IS NULL` (5
+   terminales, todas selladas), y `0` filas no-terminales con `closedAt` poblado.
+2. **Pero es posible POR CONSTRUCCIÓN, y lo dice el propio schema:** `closedAt` nació en v1.8-ronda-c /
+   SEC-D2 (M-19) y su comentario declara *«Nullable (filas legacy usan fallback)»* ⇒ **toda fila que se
+   volvió terminal ANTES de M-19 tiene `closedAt` nulo**. En una BD de producción de largo recorrido la
+   cohorte **sí** puede existir. *Cero local no es cero.*
+3. **⚠️ Y aquí está lo que cambia quién decide: el contrato NO dice «no terminal», dice la FÓRMULA.**
+   - Cliente (§ línea 1273): *«re-congela el snapshot mientras no haya papel (**`closedAt IS NULL ∧
+     guideSentAt IS NULL`**)»*.
+   - Admin (§ línea 11492): un bloque `legal ⇔ …` con **`∧ closedAt IS NULL`** y, al lado, el
+     comentario **`// no se toca una terminal`**.
+
+   **Es EXACTAMENTE la forma de eje 2 en miniatura:** la intención escrita (*«una terminal»*) y el
+   término declarado (`closedAt`) **divergen justo en la fila legacy**. Y por eso mismo **no lo arreglo
+   yo**: en eje 2 el término faltante estaba en una fórmula declarada, y el cierre correcto fue que el
+   **arquitecto enmendara el contrato** (v1.57, regla 9) y luego yo implementara. Cambiar aquí una
+   fórmula que el contrato escribe con sus términos sería hacer justo lo que ese precedente prohíbe.
+   *Aplicar la disciplina solo cuando es cómoda no es disciplina.*
+
+**Escalado al arquitecto** con la medición y la forma propuesta (`liveRequestWhere()` en los dos
+`where`, que es literalmente §M5-T ya escrita). Fichado como **BL35-D9**. **No bloqueante**: el impacto
+es que un vendedor pueda re-congelar la dirección de una solicitud legacy ya terminal — **no mueve
+dinero, no imprime papel y no reabre nada**.
+
+## 0.41 — **§M5-P / BL-35 eje 2: el tercer término de `isPayable` — «no se paga lo que no ha llegado»** (2026-09-06, rama `claude/buylist-inventory-workflow-hdnls3`, **MONEY · contrato v1.57**)
+
+> Propiedad: **backend**. Cierra **BL-35 eje 2-a**, el único hallazgo que hizo que **seguridad
+> RECHAZARA** el pase v1.56 (`docs/SECURITY_NOTES.md` §2). Contra la enmienda **v1.57** del contrato
+> (**§M5-P**, `ARCHITECTURE` §4.39(w)). **Cero endpoints nuevos, cero campos de DTO, cero DDL.**
+
+### 0.41.1 La fórmula, y en qué sitios quedó
+
+```
+isPayable  ⇔  status ∈ SELL_REQUEST_PAYABLE_STATES  ∧  receivedAt IS NOT NULL  ∧  verifiedAt IS NOT NULL
+                                                       └──────── v1.57 ────────┘
+```
+
+**El término se ESCRIBE en dos sitios y lo LEEN cuatro.** Esa asimetría es el diseño, no un descuido:
+
+| # | Sitio | Qué es | Cómo obtiene el término |
+|---|---|---|---|
+| **E1** | `common/sell-request-states.ts` · `isPayableSellRequest()` | el **cuerpo** | **escrito** |
+| **E2** | `buylist.service.ts` · `payableWhere()` | su traducción a `where` de Prisma | **escrito** (un `where` es declarativo: no puede *invocar* el predicado) |
+| L1 | `paySpei` pre-check | ahorra la transacción SERIALIZABLE | **hereda** de E1 |
+| L2 | `paySpei` CAS (`updateMany`) | **la guarda real** | **hereda** de E2 |
+| L3 | `adminSellRequestDTO` · `isPayable` | **gobierna el botón de pagar en M5** | **hereda** de E1 |
+| L4 | `paySpei` backstop del `!paid` | distingue *«el monto se movió»* de *«no es pagable»* | **hereda** de E1 |
+
+**L4 no estaba en el encargo: apareció al medir.** El orquestador pidió tres lectores; son cuatro. Lo
+verifiqué como se me pidió —*si algún lector no hereda, ése es el defecto*— y **hereda**: el backstop
+relee la fila entera y pasa el objeto completo. **Y está probado por mutación**, no por lectura: si se
+le inlinea la fórmula vieja, sobre la fila del PoC el súper-admin oiría *«el monto cambió; revísalo
+antes de pagar»* — que lo manda a revisar lo único que sí está bien **y lo empuja a reintentar el pago
+que la guarda existe para impedir**. Ese es el test `⚠️ LA CARRERA`.
+
+⚠️ **El punto entero de que dos de los cuatro hereden:** `isPayable` **gobierna el botón** de M5.
+Arreglar la guarda y no la señal no es medio arreglo — es el defecto de §4.39c sitio 10 otra vez: deja
+al `super_admin` que autoriza tomando la decisión **con información falsa**.
+
+### 0.41.2 Por qué `receivedAt` y no `status='recibida'` ni `acceptedAt` — con la medición delante
+
+- **`receivedAt` es un HECHO, no un estado de origen.** No enumera predecesores ⇒ cerrar el dinero **no
+  exige la matriz** que `PROJECT.md` no declara. (Misma razón que da el contrato en §M5-P.)
+- **UN solo escritor en todo el backend**, medido: `receive()` → `sealOnceTx(tx, id, 'receivedAt')`.
+  **Ninguna ruta lo limpia.** Misma propiedad que hace de `paidAt` (§M5-T) y `offerSentAt` (BL-28)
+  anclas fiables. *El invariante se ancla en el hecho menos reescrito que exista.*
+- **La columna existe desde la migración inicial** (`0000000000000_init`) ⇒ no hay filas anteriores a
+  su existencia.
+- ⛔ **`acceptedAt` NO entra como cuarto término**, aunque los dos PoC también lo tengan nulo: la
+  cohorte **pre-M-46** (`offerSentAt IS NULL`) alcanza `recibida`/`verificacion` **sin aceptación
+  registrada** —es la misma que `brutoConsumado` contempla con su rama `quotedTotalCents`— y ese
+  término la dejaría **impagable**. Hay un test que lo fija para que nadie lo «complete» por simetría.
+
+### 0.41.3 ⚠️ CONTEO PRE-MERGE OBLIGATORIO (§M5-P) — cohorte legacy: **0**
+
+El contrato normó las filas legacy **sin excepción** (*«la cohorte que no se puede distinguir del abuso
+no se exceptúa, se remedia»*) y a cambio obliga a **contar antes del merge**. Medido contra la BD local
+`tcg_marketplace`:
+
+```sql
+SELECT count(*) FROM "SellRequest"
+ WHERE status IN ('aprobada','verificacion') AND "receivedAt" IS NULL;   -- ⇒ 0
+```
+
+**Resultado: 0.** No hay ninguna fila viva que este término vuelva impagable ⇒ **no se escala** y **no
+se añade cláusula de excepción**.
+
+**Y lo medí DOS veces, en dos estados distintos de la BD, porque el segundo estado no vale solo:**
+
+| Momento | Estado de la BD | `aprobada`/`verificacion` ∧ `receivedAt IS NULL` |
+|---|---|---|
+| **Antes de correr nada** (datos del pase de seguridad) | 9 filas: 2 `cotizada`, 1 `recibida`, 4 `pagada`, 1 `rechazada`, 1 `expirada` | **0** — *no existía ninguna fila en estado pagable* |
+| Después de la suite de integración | 16 filas, re-sembradas | **0** |
+
+En el primer estado, las **únicas** filas con `verifiedAt IS NOT NULL ∧ receivedAt IS NULL` eran
+**exactamente los dos PoC** (`SPEI-EJE2-NEVER-ARRIVED-001` de seguridad y `QA-BL35-EJE2` de QA); las dos
+liquidaciones legítimas (`SPEI-DOUBLESPEND-777`, `QA-LIVE-SPEI-0001`) **sí** tenían `receivedAt`. Eso
+coincide con lo que había medido el orquestador y **es la confirmación por el lado del código**: un solo
+escritor, ninguna ruta que lo limpie, columna desde el init.
+
+> ⚠️ **AVISO PARA EL SIGUIENTE PASE — la evidencia forense NO sobrevive a `npm run test:integration`.**
+> Ese comando corre `seedE2E`, que **re-siembra la BD local compartida**. Al ejecutarlo desapareció la
+> fila del PoC de seguridad (`SPEI-EJE2-NEVER-ARRIVED-001`), la de QA (`QA-BL35-EJE2`) y la de
+> `QA-LIVE-SPEI-0001`. **Lo digo yo porque lo hice yo**, y por eso la medición que vale es la de la
+> primera fila de la tabla, tomada **antes**. Es hermano operativo de SEC-OPS-1 (el gate auditando un
+> binario viejo) y va **a devops**: si la BD local es a la vez entorno de pruebas y almacén de evidencia
+> de un pase de seguridad, cualquier `test:integration` la borra sin preguntar.
+
+### 0.41.4 Los dos arreglos de una línea del techlead — **HECHOS, no fichados** (precedente §0.39.1)
+
+**(a) El JSDoc de `monthCommittedGrossPaidCentsTx` afirmaba lo contrario de lo que hay.** Decía que el
+`where` *«conserva `status:'pagada'` … no se reapunta a ninguna constante»*. **Es falso desde mi propio
+commit anterior**: hoy es `{ userId, paidAt: { gte: start } }` — el término de estado **cayó** en v1.56.
+Y describía **exactamente la conducta pre-P1 que P1 evadía**, en el predicado del **tope AML**. Se
+sustituye por un párrafo que dice qué decía, por qué dejó de ser cierto y que **la cifra no cambió en
+ninguno de los dos pases**. *Quien audite el tope en seis meses ya no concluye lo contrario de lo que hay.*
+
+**(b) `sealOnceTx` ya no acepta `PrismaService` — y la forma que pedía el techlead NO lo conseguía.**
+- **El diagnóstico era correcto:** `SellRequestReader = Pick<Prisma.TransactionClient,'sellRequest'>` lo
+  satisface `PrismaService`, así que `sealOnceTx(this.prisma, …)` compilaba y **anulaba en silencio el
+  argumento de seguridad del propio docstring** (lo que hace aceptable que sea silenciosa es que el
+  llamador **mantiene el row lock dentro de la transacción**).
+- ⚠️ **Pero el remedio propuesto —`Prisma.TransactionClient`— tampoco rechaza a `PrismaService`, y lo
+  medí con una sonda antes de escribir nada** (`conTxClient(p)` compila; control negativo falla). Razón:
+  `TransactionClient = Omit<PrismaClient, ITXClientDenyList>`, y en tipado **estructural** un supertipo
+  con miembros **de más** sigue siendo asignable a un `Omit`. *La firma habría cambiado sin cambiar nada.*
+- **Lo implementado cumple la INTENCIÓN (que romperlo falle en compilación, la jugada de BL-25):**
+  ```ts
+  export type TransactionOnlyClient = Prisma.TransactionClient & { $transaction?: never };
+  ```
+  El cliente transaccional real **carece** de `$transaction` (satisface el opcional); `PrismaService`
+  **lo tiene** (falla). Verificado en los dos sentidos con una **guarda de tipos** que corre en `tsc`
+  (`NoAsignable<PrismaService, …>` / `SiAsignable<Prisma.TransactionClient, …>`): si alguien relaja el
+  tipo, **cae el typecheck**, no una revisión.
+- Se declara **local al módulo** y **no** en `common/buylist-aml.ts`: `SellRequestReader` es zona
+  compartida, expresa *«esto solo LEE»* y lo usan helpers que corren con y sin transacción. Éste dice
+  *«esto ESCRIBE y necesita el row lock del llamador»*. **Son dos afirmaciones distintas y no se funden.**
+
+### 0.41.5 SEC-B1 (Baja) — la bitácora deja de registrar referencias fantasma
+
+El `pay-spei` idempotente audita ahora la referencia **efectiva** (la que quedó en la fila) y, cuando
+difiere de la del body, marca `applied: false` con `attemptedSpeiReference` al lado. Antes emitía un
+`sellrequest.pay_spei` con una `speiReference` **que nunca se asentó**. Cero dinero movido; el daño era
+que *una bitácora de dinero que registra referencias fantasma es la que no sirve el día que hay que
+reconstruir qué se pagó*. **El intento no se calla** —ocurrió— pero deja de leerse como liquidación.
+
+⛔ **El `201`→`200` de SEC-B1 NO va aquí.** El contrato (v1.57 §E) lo agrupa con otros ocho en **BL-37**
+y dice literal que **no va en el commit del dinero**. Va en su propio commit; ver §0.41.8.
+
+### 0.41.6 El barrido de eje 2 — *«¿a qué otra señal o guarda le falta un término que `PROJECT.md` exige?»*
+
+Barrí las superficies de dinero y las señales derivadas del backend, no solo el reporte. **Dos
+hallazgos**, los dos con la **misma forma** que eje 2 (una regla escrita en `PROJECT.md` a la que le
+falta el término en el sitio donde se decide), y los dos **escalados**: cerrarlos exige declarar un
+error nuevo en un endpoint aprobado ⇒ **regla 9**. Fichados como **BL35-D7** y **BL35-D8**.
+
+1. **⚠️ Los topes AML y el umbral de INE NO se evalúan al OFERTAR** (`adminOffer`). `PROJECT.md:1127-1128`
+   dice literal *«los topes se evalúan **en los dos momentos** (al cotizar y al ofertar), y el monto que
+   los gobierna —y que gobierna el **KYC/INE**— es el **BRUTO OFERTADO**»*. Medido: los tres diales
+   (`BUYLIST_CAP_PER_REQUEST_CENTS`, `BUYLIST_CAP_PER_MONTH_CENTS`, `INE_THRESHOLD_CENTS`) se leen
+   **solo** en `createRequest`, **sobre `quotedTotalCents`**; `adminOffer` tiene **cero** referencias a
+   ninguno (sus siete pasos evalúan dirección, cobertura de líneas, precio, piso de neto y **tope del
+   operador**, que es otro control). El override al alza llega a **MX$10,000 por línea** contra un tope
+   por solicitud de **MX$3,000**: la oferta sale, **es vinculante** (D2, correo al vendedor) y el tope
+   solo aparece **después**, al aprobar o al pagar. *Un control que se descubre después de comprometer
+   la palabra no controla.*
+2. **⚠️ Se puede convertir a inventario VENDIBLE una carta que nunca recibimos.** `convertToInventory`
+   gatea **solo** con `itemStatus === 'aprobada'`, y `itemDecision` con `approve` **no tiene ninguna
+   precondición sobre el `itemStatus` actual**: una línea `cotizada` de una solicitud nunca recibida se
+   aprueba y se convierte. Es **el espejo de eje 2 por el lado de la mercancía**. Atenuante medido: la
+   pieza nace sin ubicación y cae en `pending-publish`, que es una cola que alguien trabaja.
+
+**No-hallazgos, dichos para que nadie los vuelva a barrer:**
+- `reveal-clabe` **no tiene precondición de estado — y el contrato lo declara así explícitamente**
+  (§ línea 758). No es un hueco: es una decisión escrita.
+- Promesa (a) de `PROJECT.md:1107` (*«el neto anunciado es el que se deposita»*): **cubierta** por BL-27
+  (`OFFER_PRICE_IMMUTABLE` / `ADJUST_NOT_ALLOWED_IN_OFFER_CYCLE`) y por el CAS del importe de B-2.
+- `isTerminal`: un solo término por definición; nada que le falte.
+- **Fuera de mi stream, sin tocar:** `orders/:id/refund` decide con un `if` sobre una lectura previa y
+  escribe con `update({where:{id}})` — read-then-write clásico. Hoy tiene red (Stripe deduplica por
+  `Idempotency-Key` derivada), pero un cliente que mande **dos claves distintas** en paralelo pasa las
+  dos veces. Es del stream **«Órdenes y dinero»** ⇒ lo señalo para que el orquestador lo enrute, junto
+  con `disputes` (ya señalado en §0.40.7).
+
+### 0.41.7 Cobertura, y la mutación de cada lector
+
+**Test nuevo:** `test/buylist.m5p-received-guard.spec.ts` (18 tests) — hermana de
+`buylist.m5t-terminal-guard.spec.ts`, con el **mismo arnés que evalúa el `where` de verdad**. Un doble
+que responde `{count:1}` a cualquier `updateMany` pasa igual con la guarda puesta y quitada.
+
+⚠️ **Un detalle del arnés que corregí a media escritura y vale la pena decir:** el simulador de carrera
+(`staleFirstRead`) deja la fila **vieja solo en la PRIMERA lectura**. Al principio la dejaba en *todas*,
+y con eso el backstop del `!paid` también veía la fila vieja y respondía *«el monto cambió»* — **un
+falso verde que escondía justo el lector que había que probar** (L4). *Un arnés que miente sobre el
+orden de las lecturas prueba otra cosa.*
+
+**Los CINCO asserts normativos de §M5-P, cubiertos y mapeados** (`test/integration/buylist-cycle.e2e-spec.ts`
+(18)-(21), contra Postgres real):
+
+| Assert §M5-P | Dónde |
+|---|---|
+| 1 · desde una **`ofertada`** (el PoC de **seguridad**) ⇒ `isPayable: false` | **(18-bis)** — hace la oferta de verdad y comprueba `acceptedAt`/`receivedAt` nulos antes de verificar |
+| 2 · misma fila → `pay-spei` ⇒ `422` y **cero escritura** | (18-bis) y **(20)** — `paidAt`, `speiReference`, `payoutNetCents` y `closedAt` intactos |
+| 3 · desde una **`cotizada`** recién creada (el PoC de **QA**) | **(18)**-(20) |
+| 4 · **camino feliz intacto**: `receive` → `verify` → `pay-spei` **paga** | **(21)**, más (11)/(13) del recorrido completo, más la cadena unitaria |
+| 5 · **paridad predicado ↔ `where`** sobre todo el enum × `receivedAt` × `verifiedAt` | `buylist.is-payable-live.spec.ts` y `m5p-received-guard.spec.ts` (dos formas de leer el `where`) |
+
+⚠️ **(18) y (18-bis) NO son el mismo test aunque converjan.** Los dos PoC parten de estados distintos y
+acaban en la misma fila post-`verify` —que es justamente por lo que el término correcto es un **hecho**
+(`receivedAt`) y no un estado de origen—, pero *un test que asume la convergencia no la prueba*, y el
+contrato exige los dos. Se dejan los dos.
+
+Y **(18) fija también el residual**: `verify` sobre una solicitud viva nunca recibida **sigue dando
+`200`** (**eje 2-b, abierto y normado**).
+
+**El camino feliz, que es el assert que el contrato subraya** (*sin él, los tres anteriores los pasa
+igual un endpoint que no paga nunca*): cubierto **dos veces** — unitario encadenando los tres verbos
+sobre el arnés, y (11)/(13) del E2E contra Postgres, que ya deposita el neto anunciado.
+
+**Mutación — se quitó el término de CADA lector por separado, sobre las 245 suites completas. Cero supervivientes:**
+
+| Mutación | Suites/tests que caen | Un test que muere |
+|---|---|---|
+| **E1** — quitar `receivedAt` de `isPayableSellRequest` | 4 suites / **12** tests | «estado pagable `verificacion` + `verifiedAt` sellado + `receivedAt` NULO ⇒ 422 y CERO escritura» |
+| **E2** — quitar `receivedAt: {not:null}` de `payableWhere()` | 4 suites / **7** tests | «⚠️ LA CARRERA: … la GUARDA sola lo frena (sin el pre-check)» |
+| **L3** — regresar la proyección a la fórmula de dos términos | 3 suites / **4** tests | «⚠️⚠️ EL PoC DE EJE 2 EN LA PROYECCIÓN: `verify` SIN recepción NO enciende el botón» |
+| **L4** — que el backstop deje de heredar | 1 suite / **1** test | «⚠️ LA CARRERA …» (el `code` esperado pasa de `VALIDATION_ERROR` a `CONFLICT`) |
+
+**Y el mutante equivalente que QA encontró, cubierto** (borró el pre-check de `paidAt` y las 244 suites
+siguieron verdes). No había bug —el CAS produce el mismo `409` con los mismos `details`— pero *una capa
+de defensa en profundidad podía desaparecer sin que nada avisara*. Lo que sí es observable **es la razón
+documentada del pre-check**: no gastar una transacción **SERIALIZABLE** ni una lectura de KYC en una
+fila que ya sabemos que no se paga. Cinco tests fijan eso (`$transaction` y `kycProfile.findUnique`
+**no llamados**) para `paidAt`, `closedAt`, `receivedAt`, `verifiedAt` y estado no pagable, más uno que
+fija **el orden** (`paidAt` gana sobre `closedAt` y sobre el estado). *Se cubre el efecto que el
+pre-check tiene, no el que comparte con el CAS.*
+
+**Fixtures ajustados (8 suites), y una lección:** ocho suites se pusieron rojas al añadir el término —
+todas por fixtures que se declaraban «pagables» con dos términos. Se les añadió `receivedAt`, **no se
+relajó la guarda**. Dos merecen mención:
+- `buylist.guide-transit.spec.ts` tenía un test llamado *«`verify` es LA transición que lo vuelve
+  verdadero»*. **Era cierto desde cualquier estado vivo — y eso ERA el bug.** Se reescribió a *«…pero
+  SOLO sobre una solicitud YA RECIBIDA»* y se le añadió el contraste (el PoC en la proyección).
+- La integración (17) (tope AML) sembraba la fila pagable **por la puerta de atrás** sin `receivedAt`:
+  sin el arreglo del fixture habría medido **la guarda nueva en vez del acumulado**, que es su asunto.
+  *Una precondición nueva no puede secuestrar un test viejo.*
+
+### 0.41.8 ⚠️ Lo que NO cerré, y por qué
+
+1. **Eje 2-b (`verify` salta fases).** Cerrado **parcialmente y así está normado** (contrato v1.57 §C):
+   el tercer término cierra **la salida de dinero**. `verify` sigue llamable desde cualquier estado vivo
+   y sigue sellando `verifiedAt`, que entra al `max(...)` de la purga del INE. **No lo cierro por
+   iniciativa propia**: exige la matriz de predecesores, que `PROJECT.md` no declara. Ficha **BL35-D6**.
+   ⚠️ **Y el matiz que evita que alguien crea que el término hace más de lo que hace:** `receive` es el
+   único escritor de `receivedAt`, así que un operador todavía puede **declarar** que el paquete llegó.
+   Lo que cambia es que deja de ser **efecto lateral silencioso de `verify`** y pasa a ser **acto
+   declarativo con actor, fecha y bitácora**. *El control no impide el fraude interno: le quita el anonimato.*
+2. **BL-37 (nueve `201` que deben ser `200`)** y **BL-36 (los dos `pickup-address`)**: van en **commits
+   separados**, como ordena la norma BL-27 y como pidió el arquitecto. Ver §0.42 y §0.43.
+3. **BL35-D7 y BL35-D8** (los dos hallazgos del barrido): **escalados al arquitecto**, no implementados.
+   Añadir un error a un endpoint aprobado es contrato.
+
+## 0.40 — **§M5-T / BL-35: la Invariante T cableada, y el cierre de la CRÍTICA P1 (doble pago SPEI)** (2026-09-06, rama `claude/buylist-inventory-workflow-hdnls3`, **MONEY · contrato v1.56**)
+
+> Propiedad: **backend**. Cierra **P1 [CRÍTICA]** de `docs/PENTEST_NOTES.md` (pase v1.55) contra la
+> enmienda **v1.56** del contrato: **§M5-T** (invariante nueva y normativa), §M5 `receive`/`verify`
+> (guarda + idempotencia + `200`) y §M5 `pay-spei` (CAS + ancla del acumulado AML).
+> **Cero DDL, cero endpoints nuevos, cero códigos de error nuevos.**
+
+### 0.40.1 Qué era P1, en una frase
+
+`receive()` y `verify()` eran **los dos únicos verbos de transición del ciclo que escribían con
+`update({ where: { id } })` sin guarda de estado** (todos sus hermanos usan `updateMany` con la
+precondición en el `where` + `count===1`). `adminGet()`, que ambos llamaban primero, solo hace
+`findUnique` + `notFound`: **autoriza al actor, no protege la fila**. Con eso, un `vault_operator`
+—el rol de menor confianza del back-office— devolvía una solicitud **`pagada`** a `verificacion`, y
+como la idempotencia de `paySpei` colgaba entera de `if (status === 'pagada')`, **el segundo SPEI
+salía**. Verificado en vivo por el red team: dos `speiReference` y dos `paidAt` sobre la misma fila.
+
+### 0.40.2 Lo que cambió, endpoint por endpoint
+
+| Endpoint | Antes | Ahora |
+|---|---|---|
+| `POST /admin/buylist/:id/receive` | `201`, `update({where:{id}})`, **re-sella `receivedAt`** | **`200`**, `updateMany` con `legalT` + `count===1`; fecha sellada **solo si es `null`**; terminal/cerrada ⇒ **`409 CONFLICT`** `details:{status,closedAt}` |
+| `POST /admin/buylist/:id/verify` | ídem, con `verifiedAt` | ídem |
+| `POST /admin/buylist/:id/pay-spei` | CAS de estado + `verifiedAt` + 4 columnas de dinero | **+ `paidAt: null` + `closedAt: null`**; `status≠pagada ∧ paidAt≠null` ⇒ **`409`**, nunca el `200` idempotente |
+| `POST /admin/buylist/:id/reject` | guard de **un** término (`status notIn TERMINAL`) | **los dos** (`liveRequestWhere`). `details` sin cambios (§M5-T: aditivo y opcional aquí) |
+| *(interno)* auto-rechazo por ítems y recálculo de `approvedTotalCents` | ver 0.40.4 | guardados |
+
+**⚠️ El `201 → 200` es lo único que un consumidor puede notar**, y el arquitecto midió el impacto en
+frontend: **cero** (`apiRequest` ramifica por `res.ok`, no por el código exacto). Los dos tests de
+integración que aseveraban `201` se actualizaron.
+
+### 0.40.3 Las dos decisiones de implementación que conviene conocer
+
+**(a) `liveRequestWhere()` es un helper NUEVO, y no toca a `notTerminalWhere()`.**
+`liveRequestWhere()` **se construye encima** de `notTerminalWhere()` (BL-14) — `{ ...notTerminal,
+closedAt: null }` — en vez de escribir otro literal de estados: la doctrina del *sitio 8* de §4.39c
+no admite una segunda lista, y así el día que `SELL_REQUEST_TERMINAL_STATES` gane un valor los dos
+`where` se mueven juntos o ninguno. **`notTerminalWhere()` se deja intacto** y con sus tres
+llamadores: allí la precondición que el contrato declara es *terminal* a secas (§4.18f de
+`items/:itemId/decision`), y ampliarla «por consistencia» cambiaría el `409` de un endpoint que hoy
+está bien y que §M5-T dice expresamente que **no se retro-edita**.
+
+**(b) La fecha se sella en su PROPIO `updateMany` (`sealOnceTx`), con la fecha en el `where`.**
+El contrato lo pide literal: *«la fecha entra al `data` solo si aún es `null`, no un `if` de
+aplicación que una carrera pueda saltar»*. Con `receivedAt: null` en el `where`, dos llamadas
+concurrentes compiten **en el motor** y solo una sella. Es el patrón exacto de `declare-shipped`.
+⚠️ **Y el `updateMany` de ítems se movió DESPUÉS de la guarda**: corría antes, así que una solicitud
+`pagada` ya podía quedarse con el `itemStatus` de sus cartas movido aunque la transición fallara.
+
+### 0.40.4 **El barrido: cuántos verbos había sin guarda, de verdad**
+
+El pentester reportó **dos**. Barriendo `backend/src/modules/buylist/` y `backend/src/jobs/` con el
+criterio de §M5-T (*si escribe `SellRequest.status`, obedece T*, **con los dos términos**):
+
+| Sitio | Diagnóstico | Acción |
+|---|---|---|
+| `receive` · `verify` | los dos del hallazgo: **sin guarda ninguna** | **arreglados** |
+| `rejectRequest` (§4.18f) | escribe `status`, guard de **un** término | **+`closedAt: null`** |
+| `maybeAutoRejectRequest` | escribe `status`, guard de **un** término | **+`closedAt: null`** |
+| `recomputeApprovedTotal` | **no** transiciona, pero escribe un **MONTO** con `update({where:{id}})` | **guardado** (ver abajo) |
+| `sellRequestItem.update` de `convert-to-inventory` | nivel ítem; su exclusión real es el **índice único** en `sourceSellRequestItemId` (SEC-A3), y convertir sobre una `pagada` es el flujo normal | sin cambio |
+| `jobs/buylist-sweep` (reglas 2·5·6·7) | ya llevan `closedAt: null` en el `where` que **lee y escribe** (B-1) | verificado, sin cambio |
+
+⇒ **cuatro** verbos que escriben `status` estaban por debajo de la norma, no dos. Los dos que el
+pentester encontró no tenían guarda **ninguna**; los otros dos tenían **la mitad** — que es
+exactamente lo que §M5-T existe para hacer visible.
+
+**`recomputeApprovedTotal` merece su párrafo.** No mueve `status`, y su única entrada (`itemDecision`)
+ya está guardada por BL-14 — pero la guarda del llamador **no cubre esta escritura**: entre el commit
+de la decisión por-ítem y el recálculo hay una ventana en la que `paySpei` puede commitear `pagada`,
+y entonces se reescribe `approvedTotalCents` **sobre una fila ya pagada y cerrada**. El orden inverso
+sí estaba cubierto (el CAS de B-2 lo frena), y por eso no se veía. El daño no es el depósito —ya
+salió, correcto— sino el **acumulado AML**, que mide `brutoConsumado` sobre las filas pagadas: mover
+el bruto de una pagada **cambia retroactivamente cuánta cuota consumió**, a la baja. §4.18f ancla su
+norma en que *«`approvedTotalCents` es FINAL en `pagada`»*. Ahora lo es. **No lanza**: es un derivado
+best-effort post-commit; el no-op **es** el resultado correcto (el total congelado es el que se pagó)
+y se registra en el log para que la carrera sea visible.
+
+### 0.40.5 **El acumulado AML deja de exigir `status='pagada'`** (§M5 → «Los TRES sitios», sitio 1)
+
+`monthCommittedGrossPaidCentsTx` ancla ahora **solo en `paidAt`**. Era el **segundo impacto** de P1:
+durante la reactivación la fila no está `pagada` ⇒ **salía del acumulado** y cada re-pago se medía
+contra una cifra que no incluía el dinero ya entregado.
+
+> **⚠️ La precondición del arquitecto la verifiqué en el código antes de tocarlo, porque una guarda
+> mal puesta aquí rechaza pagos buenos:** `SellRequest.paidAt` tiene **un único escritor en todo el
+> backend** —el `data` de la transición de `paySpei`, en el mismo objeto literal que
+> `status: 'pagada'`—, **no tiene default en el schema**, ningún seed lo pobla y **no hay SQL crudo
+> que toque `SellRequest`**. ⇒ ningún flujo legítimo deja `paidAt` sellado con `status != 'pagada'`,
+> y el predicado nuevo es un **superconjunto estricto** del viejo (`paidAt >= inicio de mes` ya
+> excluía los `null`). **Cero regresión en fila sana; falla cerrado en la defectuosa.**
+>
+> **NO se tocó el acumulado de COMPROMISO VIVO** (`monthCommittedGrossCents`, ancla `createdAt` sobre
+> estados no terminales): mide **promesa**, no caja, y su ancla correcta **sí** es el estado.
+
+### 0.40.6 Para QA — qué mirar, y cómo se midió
+
+- **Reproducción del PoC completo, por HTTP y contra Postgres real:**
+  `backend/test/integration/buylist-cycle.e2e-spec.ts` **(14)-(17)**, dentro del recorrido
+  `(1)-(13)` — *la fila que se ataca es exactamente la que el ciclo legítimo produce*. Cubre: `verify`
+  y `receive` sobre `pagada` ⇒ `409` **y cero escritura** (columna por columna, ítems incluidos), la
+  cadena `verify → pay-spei` con ref nueva ⇒ **una sola liquidación**, y la **no evasión del tope
+  AML**. **(11-bis)** cubre la idempotencia y el no-re-sellado de fechas.
+- **Forma de la guarda y mutación:** `backend/test/buylist.m5t-terminal-guard.spec.ts` (41 casos).
+  Su Prisma de mentira **evalúa el `where`** contra una fila mutable en vez de devolver `count: 1` a
+  ciegas: *un doble que no mira el `where` pasa igual con la guarda puesta y quitada.*
+- **Verificado que el test falla contra el código de HOY:** revirtiendo `backend/src/`, la aserción
+  de dinero de (16) falla con **`Received: "SPEI-DOUBLESPEND-777"`** — el doble pago del PoC,
+  reproducido. *(Y (16) se hizo autocontenido —hace su propio `verify` antes del pago— porque
+  dependiendo del `receive` de (15) fallaba con un `422` por la ruta equivocada: el propio pentester
+  anotó que ese camino no llega al doble pago.)*
+- **Batería de mutación: 13 mutantes, 13 muertos, 0 supervivientes.** Cada término de la guarda
+  (terminal · `closedAt`), `count !== 1 → count < 1` en los dos verbos, el `[field]: null` de
+  `sealOnceTx`, los dos términos del CAS de `pay-spei`, el ancla del AML, el `details.closedAt`, la
+  guarda del recompute, la de `rejectRequest`, la de `maybeAutoRejectRequest` y el `@HttpCode(200)`.
+
+### 0.40.7 ⚠️ Lo que NO cerré, y por qué (para el arquitecto / el humano)
+
+1. **BL-35 eje 2 — `verify` vuelve pagable una solicitud viva pre-recepción.** El arquitecto lo dejó
+   abierto a propósito: T no lo cubre (esos estados no son terminales) y cerrarlo exige declarar la
+   **matriz de predecesores**, que `PROJECT.md` no norma. **Mi arreglo no lo toca ni lo empeora**: el
+   guardado es por exclusión, tal como §M5-T ordena. Sigue abierto.
+2. **Tres verbos de §M5-T que NO escriben `status` y quedan por debajo de los dos términos.** No los
+   toqué porque la definición operativa de la norma es *«si escribe `SellRequest.status`»*, y en un
+   caso aplicarla **rompería trabajo legítimo**:
+   - `pickup-address` (cliente y admin): llevan `closedAt: null`, sin término de estado.
+   - **`guide/cancellation-done`: no lleva ninguno de los dos, y creo que debe quedarse así.** La
+     tarea de guía muerta **sobrevive a propósito al cierre de la solicitud**: existe para que la
+     etiqueta tirada entre al P&L (D22), y una solicitud puede expirar/rechazarse y aun así hacer
+     falta registrar que se mató la guía y cuánto costó. Aplicarle T **perdería ese dinero del
+     reporte**. Aparece en la tabla de verbos gobernados de §M5-T, lo cual **contradice la definición
+     por escritura de `status`** de la misma sección: **eso es una discrepancia del contrato y la
+     decide el arquitecto**, no yo.
+3. **Fuera de mi work stream, sin verificar en profundidad: el mismo patrón vive en `disputes`.**
+   `disputes.service.ts` `resolve()` hace `dispute.update({ where: { id } })` para `rechazada` y
+   **`resuelta_recompra` (money-out: es una compensación al cliente)**, sin guarda de estado ni
+   idempotencia — un re-`POST` reescribe `resolution`/`resolvedAt`. Y `jobs/dispute-deadline.service.ts`
+   hace read-then-write (`findMany status:'abierta'` → `update({where:{id}})`), así que una disputa
+   resuelta en la ventana vuelve a `en_revision`. **Es el módulo del stream «Órdenes y dinero», no del
+   mío**: lo dejo señalado para que el orquestador lo enrute, sin tocarlo.
+4. **Datos sintéticos de P1 en la BD local.** `SellRequest afc4ab63-4633-4b3f-80ab-2d98234f1719`
+   sigue con `speiReference=SPEI-DOUBLESPEND-777` y los usuarios `redteam.*@e2e.local`. **No los
+   purgué**: es la evidencia del hallazgo y borrar datos no es una decisión de código. Con el arreglo
+   puesto esa fila ya es inerte (es terminal y coherente), pero conviene limpiarla antes de cualquier
+   snapshot, como pidió el pentester.
+
+## 0.39 — **D44 (la pantalla de la oferta cancelada), las dos listas que decían menos de cinco y las atribuciones corregidas** (2026-09-06, rama `claude/buylist-inventory-workflow-hdnls3`, **PII + contrato v1.55**)
+
+> Propiedad: **backend**. Cierra **D44 / BL-31** (arquitecto → backend), la **cura de QA** sobre el
+> ancla de PII, y los dos arreglos de comentario que el techlead pidió hacer **en vez de** anotar.
+> **UNA columna en `M-46`** (`prisma/`, zona compartida abierta por el orquestador). **Cero
+> endpoints, cero códigos de error, cero cambios de forma en ningún DTO ⇒ frontend: cero.**
+> Tres fichas nuevas en `TECH_DEBT.md` (**INV-D8**, **B1-D3**, **M46-D3**).
+
+### 0.39.1 **Las dos listas de prohibiciones que decían menos de cinco** (techlead, arreglo directo)
+
+El diagnóstico de **B-1** —*«una lista que dice cuatro de cinco deja de vigilarse a sí misma»*— se
+había aplicado a **una** de las **tres** listas del fichero. Verificado y corregido en
+`backend/src/modules/buylist/buylist-mail.templates.ts`:
+
+| Sitio | Decía | Ahora |
+|---|---|---|
+| docstring del correo 1 (la oferta) | los **cinco** ✔ (v1.54) | sin cambios |
+| **banner de los correos 1 y 5** | **cuatro** ✘ | los **cinco** |
+| **cabecera del fichero** | **tres** ✘ | los **cinco** |
+
+⚠️ **La de `:169` gobierna literalmente el correo que fugó.** Quien la leyera para saber qué no podía
+escribir **no encontraba el domicilio en la lista**. La lista canónica —**domicilio · CLABE (ni
+enmascarada) · datos de terceros · montos de OTRAS solicitudes/ítems · cifras internas de la mesa**—
+queda escrita **entera** en los tres sitios, con puntero al ancla que la hace cumplir.
+
+*No va a `TECH_DEBT.md`: anotarlo cuesta más que arreglarlo.*
+
+### 0.39.2 **El ancla de PII no protegía igual a los cinco — la cura de QA, implementada**
+
+**Lo que QA midió por mutación** sobre una copia desechable del ancla (`test/buylist.cycle-mail-pii.spec.ts`):
+
+| Mutación | Resultado ANTES | Resultado AHORA |
+|---|---|---|
+| **A** — reintroducir la fuga original (correo 1) | **no compila** (`TS2345`: el campo salió del tipo) ✔ | igual ✔ |
+| **B** — campo **opcional** interpolado en el cuerpo de `sellOfferCancelledTemplate` (correo 5), cableado desde el servicio | **compila y pasa los 18 tests** ✘ | **cae** ✔ |
+| **B′** — lo mismo sobre `sellRequestNotPursuedTemplate` (correo 4) | pasaría ✘ | **cae** ✔ |
+
+**Por qué el reparto no era uniforme, que es lo que importa:** el barrido de los cinco renderiza
+**plantillas con parámetros de fixture**, y *un fixture no es una aserción* — **es la misma forma que
+dejó vivir el hallazgo original 3 420 tests** (`pickupAddressLine: null` **apagaba** el bloque en vez
+de mirarlo). Solo el correo 1 tenía **test de productor**.
+
+**El reparto real, ahora declarado y verificado en el propio spec:**
+
+| Correo | Productor | ¿Snapshot en scope? | Cobertura |
+|---|---|---|---|
+| **1** oferta | `adminOffer` (servicio) | **sí** | tipo + **productor** + escaneo |
+| **2** recordatorio | barrido | **no** | **por construcción** + escaneo |
+| **3** expiración | barrido | **no** | **por construcción** + escaneo |
+| **4** no procederemos | `adminDecline` (servicio) y barrido | **sí** en el servicio | tipo + **productor** + escaneo |
+| **5** cancelamos | `adminOfferCancel` (servicio) | **sí** | tipo + **productor** + escaneo |
+
+- **`(3)` pasa de un productor a TRES.** Cada uno ejecuta el endpoint de verdad con el
+  `pickupAddressSnapshot` **lleno** y la CLABE cifrada en KYC, y lee **el correo que salió por
+  `MAIL_PORT`** — no el que devuelve la plantilla.
+- **`(3)` gana un test de EXHAUSTIVIDAD del reparto:** un correo nuevo del ciclo **rompe el spec**
+  hasta que alguien diga si su productor carga el snapshot (⇒ productor) o no (⇒ razón estructural).
+  *No se cierra el hueco tapando el correo que apareció, se cierra obligando a clasificar el siguiente.*
+- **`(3-bis)` es NUEVO y convierte «seguros por construcción» en una aserción:** el código de
+  `buylist-sweep.service.ts` (sin comentarios) **no nombra** `pickupAddress`/`postalCode`/
+  `neighborhood`/`clabe`. El día que el barrido cargue el snapshot, **ese test cae** y los correos 2 y
+  3 necesitan productor. Registrado como **`B1-D3`** en `TECH_DEBT.md`: la protección de 2 y 3 es de
+  **otra clase** que la de los otros tres, y eso se dice en voz alta.
+
+### 0.39.3 **D44 / BL-31 — `lastOfferCancelledAt` se discrimina por OFERTA, no por solicitud**
+
+Implementa **API_CONTRACT v1.55 (A)** y **ARCHITECTURE §4.39(s.1-bis)**. **El DTO no cambia** —mismo
+nombre, mismo tipo, misma superficie (solo el detalle), misma frase habilitada, misma tabla de
+minimización— ⇒ **frontend no toca nada**.
+
+**El defecto, en una línea:** la proyección discriminaba por `offerSentAt IS NOT NULL` (marca
+**permanente de la SOLICITUD**, BL-28) y pintaba `offerCancelledAt` (que **se sobrescribe** en las
+tres ramas). Con **una** cancelación las dos daban la respuesta correcta **por coincidencia**; con
+**dos**, el portal pintaba **una fecha que el vendedor nunca supo**, contradiciendo su **correo 5**.
+
+**Lo implementado:**
+
+```
+POST …/offer/cancel, rama offerState == 'sent'  ⇒  offerIssueClockStartedAt = now()   // D38 · reloj
+                                                   offerReissueCount        += 1      // (u)  · alerta
+                                                   offerSentCancelledAt     = now()   // D44 · PANTALLA
+                                                   + correo 5                         // (n)  · bandeja
+rama 'pending_authorization' · decline · anulación del barrido  ⇒  ninguno de los cuatro
+
+lastOfferCancelledAt = offerSentCancelledAt  ⇔  closedAt             IS NULL
+                                             ∧  status               = 'cotizada'
+                                             ∧  offerSentCancelledAt IS NOT NULL   // ÚNICO término
+```
+
+- **`SellRequest.offerSentCancelledAt DateTime?`** — `M-46` editada **en el sitio** (§11, delta
+  v1.55). **Nullable puro, CERO backfill, cero índices, cero enums, cero FK.**
+- **El escritor es el `if` que ya existía**, con **el mismo `now()` y la misma transacción**: *las
+  TRES consecuencias de 176(d) pasan a ser CUATRO efectos de un predicado.* La propiedad de
+  `PROJECT.md` §E (*«no pueden desincronizarse»*) vuelve a ser **estructural**, no una promesa.
+- **⚠️ `offerCancelledAt` NO se toca.** Su escritura **incondicional** es correcta para lo que esa
+  columna significa (*el hecho de la cancelación*, admin-only, lo que leen la bitácora y M10). *No se
+  arregla el escritor: se arregla el lector, y se le da la columna que sí contesta su pregunta.*
+- **⛔ Por qué NO bastaba `offerReissueCount > 0`**, medido y anclado en un test propio: en el caso de
+  176(d) vale **1**, así que **la puerta se abre correctamente y el valor sigue siendo el equivocado**.
+  *Arregla cuándo se pinta, no qué se pinta.*
+- **Comentarios que quedaron falsos y se corrigieron en el mismo pase:** el bloque **BL-30** de
+  `adminOfferCancel` justificaba que `offerSentAt` no se limpiara **en parte** porque la proyección lo
+  exigía; ese motivo **caducó** (la proyección ya no lo mira) y se declara. **El otro motivo sigue
+  vivo y basta solo**, que es la razón de que la línea no vuelva.
+
+**Invariante, asertado en unitario Y contra Postgres real** (la misma query que devops puede correr
+tras el deploy):
+
+```sql
+SELECT count(*) FROM "SellRequest"
+ WHERE ("offerReissueCount" > 0) IS DISTINCT FROM ("offerIssueClockStartedAt" IS NOT NULL)
+    OR ("offerReissueCount" > 0) IS DISTINCT FROM ("offerSentCancelledAt"    IS NOT NULL)
+    OR "offerSentCancelledAt" IS DISTINCT FROM "offerIssueClockStartedAt";   -- ⇒ 0
+```
+
+**⚠️ Nota operativa para devops/QA — la migración se editó y la BD local ya la tenía aplicada.**
+`M-46` está en `_prisma_migrations` del Postgres local/CI. Editarla **no rompe** `migrate deploy`
+(Prisma 5 no re-verifica checksums de migraciones aplicadas): **es peor, no dice nada** —
+`migrate status` respondió *«Database schema is up to date!»* con la columna **inexistente**. En un
+entorno **limpio** (CI, staging, prod) `migrate deploy` aplica el archivo entero y la columna nace
+bien. En una BD local que ya la tenía se reconcilia con `prisma migrate reset` **o**, sin perder
+datos, con:
+
+```sql
+ALTER TABLE "SellRequest" ADD COLUMN IF NOT EXISTS "offerSentCancelledAt" TIMESTAMP(3);
+-- y refrescar el checksum de esa fila con el sha256sum del migration.sql nuevo
+UPDATE _prisma_migrations SET checksum = '<sha256sum del archivo>'
+ WHERE migration_name = '20260901120000_m46_buylist_acquisition_cycle';
+```
+
+Es lo que se hizo aquí. La tensión de fondo —**§11 dice «edítala», `M46-D2` dice «no se edita una
+migración aplicada»**— es **decisión del arquitecto** y queda registrada como **`M46-D3`**.
+
+### 0.39.4 **Las dos atribuciones corregidas** (techlead)
+
+**(1) `onModuleInit` NO es el detector del desajuste lista/derivación.** Hace `logger.error` y **la
+app arranca igual**: un despliegue con `BUYLIST_ACCEPTED_PRODUCT_TYPES` ensanchada y la rama del
+`switch` sin escribir **sube en verde**. Varios comentarios lo vendían como *el* mecanismo
+(`buylist.service.ts:764`, `common/error-codes.ts:224`) y **un mantenedor futuro se lo iba a creer**.
+Corregido en los tres sitios, con las **tres capas** nombradas por lo que cada una hace:
+
+| Capa | Qué es | ¿Frena? |
+|---|---|---|
+| `test/buylist.grade-key-derivation.spec.ts` | **ensancha la lista VIVA** e itera la real | **sí — rompe el build** |
+| `BuylistService.onModuleInit` | `logger.error` al izar | **no** (aviso; cubre el deploy que se salta CI) |
+| `purchasableGradeKeyInput` | `500 BUYLIST_LINE_NOT_KEYABLE` | **sí, por petición** |
+
+Y **la atribución se asevera**, no solo se comenta: hay un test nuevo que comprueba que
+`onModuleInit()` **no lanza** con la lista ensanchada.
+
+**(2) El truco que encontró los dos defectos se MUEVE, no se argumenta.** El getter que intercepta una
+constante de módulo para **ensanchar la lista de verdad dentro de un test** vivía enterrado en un
+spec. Ahora es **`backend/test/helpers/widen-list.ts`** (`widenableModule` / `setList` / `resetLists` /
+`withList`), documentado con la clase de problema que resuelve: *toda lista de política que un
+`switch`, una guarda o un barrido consuman tiene el mismo agujero — el día que crezca, ¿qué hace el
+consumidor?—, y la respuesta solo es fiable si se ensancha la lista real.*
+`buylist.grade-key-derivation.spec.ts` pasa a consumirlo (17 → 18 tests, todos verdes).
+
+### 0.39.5 **Dos cosas verificadas que conviene que consten**
+
+- **⚠️ El `never` de `identityGradeKeyInput` depende de una pieza FUERA del fichero:** solo protege si
+  el typecheck corre **después** de `prisma generate` (el enum `ProductType` lo emite el cliente
+  generado). **Verificado en `.github/workflows/ci.yml`**: el job de backend hace `npm ci` →
+  `prisma generate` + `migrate deploy` → **lint → typecheck → test → build**. El orden es correcto
+  **hoy**. Si el pipeline pasara a compilar sin verificar tipos, **la guarda se evapora en silencio** —
+  y el aviso queda aquí porque el fichero que la contiene no puede decirlo.
+- **La doctrina del `switch` exhaustivo NO se aplicó al gemelo de `inventory`**, y sus dos catch-alls
+  **se contradicen** (`gradeKeyInputOfDto` trata lo desconocido como **raw**; `validateProductShape`,
+  como **graded**). Hoy no dispara. **Anotado como `INV-D8`** — no se corrige aquí porque
+  `inventory.service.ts` es de otro stream y este pase no tiene esa ventana.
+
+### 0.39.6 **Qué cambió, por archivo**
+
+| Archivo | Cambio |
+|---|---|
+| `backend/prisma/schema.prisma` | **+ `SellRequest.offerSentCancelledAt DateTime?`** |
+| `backend/prisma/migrations/20260901120000_m46_buylist_acquisition_cycle/migration.sql` | **+ `ALTER TABLE … ADD COLUMN`** (bloque 5) + nota operativa sobre la premisa «es papel» |
+| `backend/src/modules/buylist/buylist.service.ts` | escritor (`adminOfferCancel`), lector (`lastOfferCancelledAtOf`), tipo de fila, y las atribuciones de `onModuleInit` |
+| `backend/src/modules/buylist/buylist-mail.templates.ts` | **solo comentarios**: las dos listas de prohibiciones, completas |
+| `backend/src/common/error-codes.ts` | **solo comentario**: atribución de `BUYLIST_LINE_NOT_KEYABLE` |
+| `backend/test/helpers/widen-list.ts` | **NUEVO** — el ensanche de listas de política, reutilizable |
+| `backend/test/buylist.cycle-mail-pii.spec.ts` | productores 4 y 5, exhaustividad del reparto, `(3-bis)` |
+| `backend/test/buylist.offer-cycle.spec.ts` | los **cuatro** efectos + bloque D44 / 176(d) (7 tests) |
+| `backend/test/buylist.grade-key-derivation.spec.ts` | consume el helper + test de atribución de `onModuleInit` |
+| `backend/test/integration/buylist-cycle.e2e-spec.ts` | 176(d) por HTTP contra Postgres + invariante desplegable |
+
+### 0.39.7 **Verificación (literal)**
+
+```
+npx tsc --noEmit -p tsconfig.json        →  sin salida (limpio)
+npx eslint "src/**/*.ts" "test/**/*.ts"  →  0 errores, 2 warnings PRE-EXISTENTES
+                                            (inventory.service.ts:638, sealed-product.service.ts:11 —
+                                             ficheros que este pase NO toca)
+npx jest                                 →  Test Suites: 243 passed, 243 total
+                                            Tests:       3477 passed, 3477 total
+npx jest --config test/jest-integration.config.js --runInBand
+                                         →  Test Suites: 17 passed, 17 total
+                                            Tests:       242 passed, 242 total
+```
+
+Respecto al pase anterior (**243 / 3465** unitarios y **17 / 240** de integración): **+12 unitarios**
+y **+2 de integración**, **sin suites nuevas**. Todos los nuevos se verificaron **por mutación**:
+
+| Mutación aplicada | Tests que caen |
+|---|---|
+| lector de D44 revertido al de v1.51.4 (`offerSentAt` + `offerCancelledAt`) | **3** unitarios + **1** de integración |
+| escritor sin `offerSentCancelledAt` en el `if` | **4** unitarios |
+| **Mutación B de QA** (campo opcional en el correo 5, cableado desde el servicio) | **1** — y **compila**, que es el punto |
+| lo mismo sobre el correo 4 | **1** — y **compila** |
+
+El fallo de integración bajo mutación es literal y merece leerse, porque es **el defecto exacto** que
+D44 cierra: `Expected: 2026-09-06T06:45:02.735Z` / `Received: 2026-09-06T06:45:02.754Z` — **la
+pantalla pintando la segunda cancelación, 19 ms después de la que el vendedor tiene en su correo**.
+
+## 0.38 — **Los tres bloqueantes del gate de v1.54: la PII del correo, el objetivo del bounty y la derivación de la llave** (2026-09-06, rama `claude/buylist-inventory-workflow-hdnls3`, **PII + MONEY**)
+
+> Propiedad: **backend**. Cierra **B-1** (QA/seguridad), **B-2** (QA) y **B-3** (techlead), más los tres
+> menores que el techlead pidió anotar. **Cero endpoints nuevos, cero migraciones, cero cambios de
+> forma en ningún DTO** ⇒ **frontend: cero.** Un código de error nuevo **inalcanzable hoy** (§0.38.6,
+> con petición explícita al arquitecto) y **una escalada que se retira porque era falsa** (§0.38.3).
+
+### 0.38.1 **B-1 — el correo de oferta le mandaba al vendedor su domicilio completo**
+
+**Qué salía**, capturado del stack por QA, al final del correo 1 (y en las **dos** mitades del cuerpo,
+HTML y texto plano):
+
+```
+Sale desde: Av. E2E 123, Centro, CDMX, CDMX, 01000
+```
+
+**Qué manda.** `PROJECT.md` §P.3 lo prohíbe **en la misma frase que la CLABE**, y lo dice dos veces:
+*«Aplica a los cinco, sin excepción … nada de CLABE (ni enmascarada), nada de datos de terceros … y
+**nada de domicilio**. La regla nunca dependió del número»*; y el criterio **173(h)** fija **cómo se
+verifica**: *«se verifica buscando esos datos **en los cinco, no en cuatro**»*.
+
+**Lo que se hizo, en tres piezas:**
+1. **El dato sale del correo.** `SellOfferParams.pickupAddressLine` **se retira del tipo** (no se deja
+   opcional: un campo opcional es una invitación) y el call-site de `sendOfferMail` deja de
+   inyectarlo. Las dos mitades del cuerpo se arreglan juntas — un cliente que solo renderiza texto
+   plano leía el domicilio igual.
+2. **`pickupAddressLine(snapshot)` se ELIMINA.** Era el helper que componía la línea legible del
+   snapshot y el correo era su único llamador. *Una función que compone PII y que nadie llama es la
+   rampa por la que el dato vuelve.*
+3. **El aviso útil se conserva, sin el dato.** El párrafo existía por una razón buena —que el vendedor
+   corrija una dirección vieja **antes** de aceptar, porque después ya compramos la etiqueta con
+   ella—. Eso no necesita el domicilio: *«Al aceptar te mandamos la guía: sale con la dirección de
+   origen que guardaste en esta solicitud. Si te mudaste, revísala en tu cuenta y **corrígela antes
+   de aceptar**.»* La consulta ocurre en la cuenta, que es **superficie autenticada**.
+
+> **⚠️ La excepción razonada se consideró y NO se tomó.** El texto era útil y es **su** domicilio en
+> **su** correo. Aun así: la prohibición de §P.3 es sobre **el dato en el canal**, no sobre a quién
+> pertenece —un correo se reenvía, se imprime y vive en un buzón de terceros—, y `PROJECT.md` manda
+> sobre el contrato y sobre el código (regla de conflicto). **No se toma la excepción por cuenta
+> propia.** Si el dueño quiere reabrirlo, es una decisión de producto que pasa por el arquitecto; el
+> arreglo de arriba **no la impide** (el aviso ya está escrito y solo habría que reponer el dato).
+
+**⚠️ Por qué 3 420 tests estaban en verde con esto dentro, y qué se hizo distinto.** Los dos specs que
+tocaban la plantilla pasaban **`pickupAddressLine: null` como fixture**. *Un fixture no es una
+aserción*: apagaba el bloque en vez de mirarlo. El ancla nueva
+(`test/buylist.cycle-mail-pii.spec.ts`) tiene cuatro patas, y las cuatro hacen falta:
+
+| Pata | Qué mira | Qué atrapa |
+|---|---|---|
+| **Barrido de salida** | los **CINCO** correos × **es/en** × `subject`+`html`+`text`, contra los **cinco** datos prohibidos del criterio 173(h) | una plantilla que empiece a interpolar un dato prohibido que ya recibe |
+| **Exhaustividad de exports** | `Object.entries(templates)` — toda función `*Template` tiene que estar **clasificada** (ciclo / fuera del ciclo) | **el correo número seis**: rompe el spec hasta que alguien lo clasifique |
+| **Productor real** | se **emite una oferta** con un `pickupAddressSnapshot` lleno y se lee el `MailMessage` que salió por el puerto | la fuga **real**, que nace en el servicio y no en la plantilla |
+| **Ancla estructural** | el código del módulo (sin comentarios) no nombra `pickupAddress`/`postalCode`/`neighborhood`/`line1`/`clabe` | la reintroducción del helper por otro camino |
+
+Y una quinta pieza fuera de ese archivo, que es la de mayor fidelidad:
+**`test/integration/buylist-cycle.e2e-spec.ts`** emite la oferta **por HTTP contra la app real y
+Postgres real**, espía `MAIL_PORT` y comprueba que **ninguna parte** de `E2E_PICKUP_ADDRESS` viaja —
+exactamente el escenario que QA capturó del stack.
+
+> **Comprobado que el ancla muerde, no solo que pasa:** se reintrodujo la fuga tal cual era y se
+> midió. Con el campo fuera del tipo, **ni siquiera compila** (`TS2353`); forzándola de vuelta al
+> tipo, **caen el test del productor y el ancla estructural**. Una aserción de ausencia que nunca vio
+> una presencia no vale nada, así que el spec **también prueba que el detector detecta**.
+
+### 0.38.2 **B-2 — `BOUNTY_TARGET_REQUIRED` no existía: se podía dejar un bounty VIVO sin techo**
+
+`grep BOUNTY_TARGET_REQUIRED src/ test/` daba **cero**. Medido contra el contrato (§M2, D32 + D35):
+
+| Entrada (`bounty.enabled = true`) | Contrato | Antes | Ahora |
+|---|---|---|---|
+| `targetQty` **omitido**, fila **sin** objetivo | **2** (default) | `200` con `null` | **2** |
+| `targetQty` **omitido**, fila **con** objetivo | se conserva | se conservaba | se conserva |
+| `targetQty: null` | `422 BOUNTY_TARGET_REQUIRED` | `200` con `null` | **422 `BOUNTY_TARGET_REQUIRED`** |
+| `targetQty: 0` / negativo / no entero | `422 BOUNTY_TARGET_REQUIRED` | `422 VALIDATION_ERROR` | **422 `BOUNTY_TARGET_REQUIRED`** |
+
+**Por qué importaba:** un bounty vivo con `targetQty = null` **no se auto-apaga y nunca frena la
+compra** — la mesa de decisión jamás pinta «no comprar», acumule las copias que acumule. El backfill
+de **M-46** limpió el **histórico** (rellenó con 2 los vivos sin meta); **la puerta seguía abierta**,
+y QA construyó por ella el estado que los criterios 164(c)/168(d) declaran inexistente.
+
+**La forma del código sigue a la del contrato.** El contrato dice que el error dispara *«exactamente
+cuando la petición dejaría un bounty vivo sin objetivo válido»*, así que el predicado se evalúa
+**sobre el estado resultante** (`next`) y **después** de conocer `enabled` — igual que su hermano
+`BOUNTY_PRICE_REQUIRED`. Eso obliga a separar dos cosas que antes iban juntas:
+- **la FORMA** (se aplica lo que trae la petición: `null` **limpia**, un valor imposible **no se
+  escribe**), y
+- **la REGLA** (con el bounty **vivo**, el objetivo es obligatorio).
+
+Consecuencia deliberada: con **`enabled: false`** un `targetQty: null` **sigue limpiando** —no hay
+bounty vivo cuyo techo proteger— y solo el valor imposible (`0`, negativo, no entero) queda como
+error de **forma** (`VALIDATION_ERROR`). Y el default de D35 **solo** contesta la omisión: *un default
+es para «no lo dije», no para «dije que ninguno»*.
+
+**Fail-safe que sale gratis por evaluar el estado:** re-encender una fila **legacy** sin meta y sin
+mandar `targetQty` **la rellena con 2** en vez de revivir el agujero. Anclado.
+
+⚠️ **El test que había medía la regla derogada.** `pricing.variant-controls.spec.ts` afirmaba
+*«targetQty < 1 → 422; **null = sin objetivo**»* — la conducta de **antes de D32**. No se «ajustó
+para que pasara»: se **sustituyó** por la tabla del contrato, fila por fila, más los dos casos de
+`enabled:false`. El objetivo persistido se lee **del `upsert`**, no del DTO ya compuesto.
+
+### 0.38.3 **B-3 — la lista autorizaba el literal, pero no producía la derivación**
+
+**El defecto, tal cual.** v1.53 unificó **el permiso** (`lineIsKeyable` pasó a consultar
+`BUYLIST_ACCEPTED_PRODUCT_TYPES`, la misma lista que la guarda) **pero dejó la derivación clavada**:
+`productType: 'raw'` escrito a mano en **tres** sitios. El día de `M-49` —añadir `'graded'` a la
+lista por el camino que §4.40.6 describe— la guarda **deja pasar** y la derivación produce **`raw:NM`
+para una graduada**: las tres superficies cotizando contra la referencia raw y la mesa emitiendo
+**`stock: 0` con `positionUnavailable: false`**, el cero que §P.8 prohíbe, con cara de dato cierto.
+
+**La forma final son DOS PREGUNTAS, no una lista partida en dos** (la lista de política sigue siendo
+**UNA**; §0.37.1(3) acertó en eso y no se re-litiga):
+
+```
+llaveable = ACEPTADO ∧ CLAVABLE
+            │           └── capacidad TÉCNICA — ¿la llave puede decir la identidad de esta fila sin
+            │               mentir?  ·  `identityGradeKeyInput`  ·  dueño: BACKEND
+            └── política de PRODUCTO — ¿el negocio lo compra?
+                `isPurchasableProductType` → BUYLIST_ACCEPTED_PRODUCT_TYPES  ·  dueño: PRODUCTO
+```
+
+**Cierran en fechas distintas y por dueños distintos**, y por eso no podían ser un solo booleano.
+`identityGradeKeyInput` es un **`switch` exhaustivo sobre `ProductType`** que **produce el input** en
+vez de autorizar un literal, con **una razón escrita por rama**:
+
+| Rama | Resultado | Razón, y qué la desbloquea |
+|---|---|---|
+| `raw` | su input | única identidad que `SellRequestItem` sabe expresar entera |
+| `graded` | `null` | **A** — la fila no guarda identidad de slab (`gradingCompany`/`gradeValue` no existen). Desbloquea **`M-49`**, y solo `M-49` |
+| `sealed` | `null` | **B** — ni la fila dice **qué producto** es, ni la clave plana `'sealed'` (que es la del override **manual**, §4.19d) distingue productos. Desbloquea **`BL-33`** + una columna en la fila |
+| *(nuevo `ProductType`)* | **no compila** | `const unreachable: never` en el `default` |
+
+Consecuencias buscadas: **ensanchar la lista obliga a visitar la derivación** (con `'graded'` en la
+lista la línea sale `SIN PRECIO` + `SIN CONTEO`, nunca con una llave mentirosa), **ningún call-site
+vuelve a escribir un literal de identidad**, y el desajuste *«lista ensanchada sin rama escrita»* se
+**grita al arrancar** (`onModuleInit`, mismo estilo que el aviso de `INVENTORY_POSITION_PORT`) además
+de atajarse por petición.
+
+**Los dos lados del `null`, que es donde vive la doctrina:**
+- **LECTURA (mesa, sumandos de promesa): degrada.** `gradeKey: null` ⇒ sin override, sin referencia,
+  sin bucket ⇒ `positionUnavailable` + `derivedPriceCents: null`.
+- **DINERO (cotizador, batch, creación): LANZA.** `purchasableGradeKeyInput` responde `422
+  BUYLIST_RAW_ONLY` a la pregunta 1 y **`500 BUYLIST_LINE_NOT_KEYABLE`** a la 2 (§0.38.6). *Una
+  lectura puede decir «no sé contar»; una cotización no puede poner un número sobre una identidad que
+  no sabe expresar.*
+
+> **⚠️ El test escrito para el día de `M-49` encontró un defecto que la lectura del código no vio.**
+> El spec **ensancha la lista de verdad** (mock del módulo de reglas) en vez de razonar sobre ella, y
+> con eso salió esto: `derivedLine` degradaba **por el CÓDIGO de la excepción** (`BUYLIST_RAW_ONLY`
+> en su allowlist), no por el dato. Ensanchada la lista, la guarda de política ya no dispara y el que
+> lanza es el backstop de identidad — **que no está en el allowlist** ⇒ **una fila vieja tumbaría la
+> mesa entera**, justo lo que toda la degradación existe para impedir. **Arreglado moviendo la
+> decisión al dato**: si `gradeKey == null`, la línea **ni entra** al cuerpo del dinero. *La lectura
+> degrada por lo que SABE, no por lo que le lanzaron.*
+
+#### ⛔ La escalada de la mitad `sealed` SE RETIRA: el diagnóstico era mío y era falso
+
+§0.37.1(2) y §0.37.6 decían que la mitad `sealed` de B-3 exigía **cambiar la forma de
+`VariantPositionRef`** (cargar `sealedProductId`) ⇒ *interfaz entre streams* ⇒ **arquitecto**, y que
+estaba **escalada y esperando**. **No es así**, y lo verifiqué en el código antes de escribirlo:
+
+- la identidad del sellado **ya cabe en `gradeKey`**: `sealedMarketGradeKey()` produce
+  `sealed:tcg:<tcgplayerProductId>` desde **v1.19** (`pricing.types.ts`);
+- **`InventoryItem` ya tiene** `sealedProductId` (`schema.prisma:784`), con su índice;
+- el colapso está en el **adaptador**: `inventory-position.adapter.ts` agrupa **sin** esa columna
+  (`by: [cardId, productType, rawCondition, gradingCompany, gradeValue, finish, cardProductId]`), y
+  además deriva con `tryGradeKeyFor`, que para sellado devuelve el literal plano `'sealed'`.
+
+⇒ **El puerto no necesita campos nuevos y nunca hubo nada que esperar del arquitecto.** Es un defecto
+de un adaptador **dentro de un solo stream**, es **mío**, y queda como **`BL-33`** en `TECH_DEBT.md`,
+**no bloqueante**: hoy el único consumidor es raw-only y **no le pregunta al puerto** por sellado.
+*La degradación del buylist no es la cura de BL-33: es lo que hace que hoy no duela.*
+
+#### ⚠️ La contradicción de MIS notas, resuelta (§0.37.1(3) vs §0.37.2)
+
+Las dos frases no podían ser ciertas a la vez y lo eran por descuido: §0.37.1(3) decía que *«guarda y
+degradación se ensanchan a la vez»* (la lista **va a** cambiar) y §0.37.2 justificaba dos filas con
+*«el `continue` ya estrechó a `raw`»* (la lista **no va a** cambiar). **La cierta es la primera**: la
+lista es exactamente el sitio pensado para cambiar. La segunda razonaba sobre el valor de hoy de un
+dato que existe para poder cambiar mañana — y **era la mitad exacta del defecto B-3**. Las dos
+secciones quedan **enmendadas en el sitio** con puntero aquí; el código ya no depende de esa
+deducción, porque **la identidad la produce el `switch`** y no un estrechamiento inferido.
+
+### 0.38.4 Los tres menores del techlead
+
+1. **Sin test de la línea legacy no-raw en la EMISIÓN** — el único test de `OFFER_LINE_NOT_PRICEABLE`
+   llegaba por otra puerta (`refCents: null`, el hueco de mercado). **Añadido** el caso por **esta**
+   puerta: mercado presente y aun así sin precio derivable porque **no hay llave con la que
+   buscarlo** ⇒ `422 OFFER_LINE_NOT_PRICEABLE`; y su complemento, que `skip` sobre esa misma línea
+   **sí** emite (*lo que se exige es decidir, no comprar*).
+2. **El allowlist triplicado y el comentario falso** — el comentario decía *«los MISMOS códigos que
+   `batchQuote`»* y eran **cuatro de cinco**: `derivedLine` omite `NOT_FOUND`. **La omisión es
+   correcta y ahora está declarada** (allí la carta la nombra el cliente; aquí viene de la solicitud
+   ya cargada, así que un `NOT_FOUND` sería inconsistencia **nuestra** y debe subir). La
+   **triplicación** queda anotada como **`B3-D2`** en `TECH_DEBT.md`.
+3. **Los 2 warnings de lint preexistentes** — sin cambio, en código que este pase no toca
+   (`inventory.service.ts:638`, `sealed-product.service.ts:11`).
+
+### 0.38.5 El paso 6 del despliegue: la tercera pregunta, con la consulta lista
+
+`v1.54(8)` ordena **una sola pasada** que por cada `cotizada` viva conteste **tres** preguntas. El
+`SELECT` del paso 6 de la migración M-46 contesta **dos** (`sinDireccion` → BL-12; `anclaDelReloj` →
+BL-10) y **le falta la tercera** (*¿tiene líneas no-`raw`?*, §4.40.5a). **La migración NO se edita**:
+está aplicada y editarla —aunque sea dentro de un comentario— **rompe su checksum** y con él
+`prisma migrate deploy`. Queda anotada como **`M46-D2`** y la consulta completa vive aquí:
+
+```sql
+-- PASO 6 (OPERATIVO, HUMANO) — censo y triage de las `cotizada` VIVAS, UNA sola pasada.
+-- Contesta las TRES preguntas de v1.54(8): dirección (BL-12), reloj (BL-10) y líneas no-raw (§4.40.5a).
+SELECT s.id, s."userId", s."createdAt", s."quotedTotalCents",
+       (s."pickupAddressSnapshot" IS NULL)                       AS "sinDireccion",
+       COALESCE(s."offerIssueClockStartedAt", s."createdAt")      AS "anclaDelReloj",
+       EXISTS (SELECT 1 FROM "SellRequestItem" i
+                WHERE i."sellRequestId" = s.id AND i."productType" <> 'raw') AS "tieneNoRaw"
+  FROM "SellRequest" s
+ WHERE s.status = 'cotizada' AND s."closedAt" IS NULL
+ ORDER BY COALESCE(s."offerIssueClockStartedAt", s."createdAt") ASC;
+```
+
+**Cómo se lee cada columna en el triage:** `sinDireccion` ⇒ o se le pide la dirección al vendedor
+(tiene `User.phone`, D11/D12) o se **declina a mano**; `anclaDelReloj` ⇒ prioridad (las más viejas
+primero, son las que la regla 7 caducaría de golpe); **`tieneNoRaw` ⇒ esa solicitud NO se puede
+ofertar entera**: sus líneas no-raw salen **SIN PRECIO** y exigen `skip` u **override motivado**
+(§0.37.4) — *jamás MX$0 y jamás un grado inventado*.
+
+### 0.38.6 Lo que necesita decisión del arquitecto (dos cosas, ninguna bloquea)
+
+1. **Un código de error nuevo, HOY INALCANZABLE: `500 BUYLIST_LINE_NOT_KEYABLE`.** Es el backstop de
+   la pregunta 2 de §0.38.3 en el camino del dinero. **Con la lista vigente (`['raw']`) no puede
+   dispararse** —la política y la derivación coinciden— y **ninguna respuesta del contrato cambia**:
+   no altera ningún endpoint, ningún DTO ni ningún código existente. Se elige `500` con código
+   estable por la misma doctrina que `OFFER_PROJECTION_INCOMPLETE` / `OFFERED_PRICE_MISSING`: *el
+   actor no lo causó y no puede corregirlo; un `422` le pediría que arregle un bug nuestro*.
+   **Petición:** ratificarlo en `API_CONTRACT` §Errores como backstop (igual que se hizo con
+   `OFFER_PROJECTION_INCOMPLETE` en v1.51.17), o indicar el código alternativo que prefieras. **No se
+   ha tocado el contrato.**
+2. **D44 (v1.55) — la columna `SellRequest.offerSentCancelledAt` está PEDIDA y el trabajo está
+   listo.** `prisma/` es zona compartida y el orquestador la serializa. **En cuanto se abra**, el
+   cambio es exactamente el que fija la norma y **no toca ningún DTO** ⇒ frontend cero:
+   - **escritor:** el **mismo `if`** que ya sella `offerIssueClockStartedAt`, incrementa
+     `offerReissueCount` y manda el correo 5 — **mismo `now()`, misma transacción**;
+   - **lector:** la proyección de cancelación deja de mirar `offerSentAt` (marca **permanente**) y
+     deja de pintar `offerCancelledAt` (que **se sobrescribe en las tres ramas**) ⇒ pinta
+     `offerSentCancelledAt`. *Cambiar solo el discriminador a `offerReissueCount > 0` no arregla
+     nada: en el caso medido vale 1, la puerta se abre bien y la fecha sigue siendo la equivocada.*
+   - **`offerCancelledAt` NO se toca**: su escritura incondicional es correcta para lo que esa
+     columna significa. *No se arregla el escritor, se arregla el lector.*
+   - **invariante que se aserta al cerrar:** `offerReissueCount > 0 ⇔ offerIssueClockStartedAt IS NOT
+     NULL ⇔ offerSentCancelledAt IS NOT NULL`.
+
+### 0.38.7 Verificación (los cuatro gates, literal)
+
+| Gate | Resultado |
+|---|---|
+| `npx tsc --noEmit -p tsconfig.json` | **limpio** (exit 0, cero errores) |
+| `npx jest` | **243 suites / 3 465 tests en verde** (antes del pase: 241 / 3 420 ⇒ **+2 suites, +45 tests**) |
+| `npm run lint` | **exit 0**, **las mismas 2 advertencias preexistentes** (`inventory.service.ts:638` `actorUserId`, `sealed-product.service.ts:11` `normalizeSetName`), ambas fuera de lo que este pase toca |
+| `npm run test:integration` | **17 suites / 240 tests en verde** (antes: 17 / 239 ⇒ **+1**, el ancla E2E de PII del correo 1) |
+
+**Archivos de test tocados y por qué ninguno se «ajustó para que pasara»:**
+- **`test/buylist.cycle-mail-pii.spec.ts`** (NUEVO, 18 tests) — B-1, las cuatro patas de §0.38.1.
+- **`test/buylist.grade-key-derivation.spec.ts`** (NUEVO, 17 tests) — B-3: las dos preguntas, el
+  `switch`, **el día de `M-49` simulado ensanchando la lista de verdad**, el grito de arranque y la
+  puerta de la emisión (menor 1).
+- **`test/integration/buylist-cycle.e2e-spec.ts`** (+1) — el correo 1 leído **del puerto real** de la
+  app levantada.
+- **`test/pricing.variant-controls.spec.ts`** — el test de `targetQty` **medía la regla derogada**
+  (§0.38.2); se sustituye por la tabla del contrato + los dos casos de `enabled:false`.
+- **`test/buylist.item-offer-block.spec.ts`**, **`test/buylist.bl23-bl24.spec.ts`** — se retiran los
+  cuatro `pickupAddressLine: null` de fixture: **el campo ya no existe en el tipo**.
+
+### 0.38.8 Para otros roles
+
+- **Frontend: cero.** Ningún DTO cambia de forma. El correo de oferta pierde el domicilio y conserva
+  el aviso; el portal **sí** sigue mostrando `pickupAddress` (es superficie **autenticada**, y el
+  criterio 114 lo exige para que el vendedor verifique lo que vamos a imprimir).
+- **QA:** (1) emitir una oferta y **buscar el domicilio en los cinco correos** — el ancla ya lo hace,
+  pero el criterio 173(h) pide la búsqueda, no la confianza; (2) `PUT
+  /admin/pricing/variant-controls/:cardId/:finish` con `bounty.enabled:true` y `targetQty` **omitido**
+  / `null` / `0` ⇒ **2** / **422 `BOUNTY_TARGET_REQUIRED`** / **422 `BOUNTY_TARGET_REQUIRED`**; (3) la
+  mesa de una solicitud legacy con línea `graded`: `SIN PRECIO` + `SIN CONTEO`, las raw intactas, y
+  emitir sin override ⇒ `422 OFFER_LINE_NOT_PRICEABLE`.
+- **devops:** el `SELECT` completo del paso 6 está en §0.38.5 (la migración **no** se edita: checksum).
+- **Arquitecto:** §0.38.6 — el backstop `BUYLIST_LINE_NOT_KEYABLE` y la columna de D44.
+
+## 0.37 — **La fusión del ciclo de adquisición con v1.53: dónde LANZA el dinero y dónde DEGRADA la lectura** (2026-09-06, merge `main` → `claude/buylist-inventory-workflow-hdnls3`, **MONEY**)
+
+> Propiedad: **backend**. Resolución de los cuatro conflictos de backend de la fusión. **Cero
+> migraciones, cero endpoints nuevos, cero cambios de contrato.** Un cambio de comportamiento
+> observable (§0.37.4) y una decisión que el orquestador pidió explícitamente (§0.37.1).
+
+### 0.37.1 ⚠️ B-3 se QUEDA — pero su porqué ya no es el que decía el comentario
+
+`main` trajo v1.53: la guarda **raw-only** (`422 BUYLIST_RAW_ONLY`) en las tres superficies del
+buylist y un `buildGradeKey` **sin defaults**. Eso deja huérfana la justificación de **B-3** — la
+degradación que devuelve `positionUnavailable` para líneas `graded`/`sealed` de la mesa de decisión.
+El comentario decía, literal, que *«`buildGradeKey` cae a sus defaults ⇒ TODA línea graduada se
+llavea `graded:PSA:10`»*. **Ese default ya no existe**, así que el comentario habría pasado a
+describir un mundo muerto: la clase exacta de comentario que engaña a un gate (§0.22 / I-2).
+
+**Decisión: la degradación se queda, con el porqué reescrito.** Tres razones, y ninguna es inercia:
+
+1. **La guarda es una validación de ESCRITURA, no una constraint.** Las `SellRequestItem` no-raw
+   creadas **antes** de v1.53 siguen en la BD, y `GET /admin/buylist/:id/decision-table` es
+   precisamente la pantalla que el operador abre sobre solicitudes viejas. Sin la degradación, esa
+   pantalla **revienta** (con la variante que lanza) o **cuenta mal** (con la que rellena).
+2. **La mitad `sealed` del hallazgo es AJENA a v1.53 y sigue abierta.** El `groupBy` de
+   `inventory-position.adapter.ts` no incluye `sealedProductId`, así que dos `SealedProduct` de la
+   misma `Card` caen en un bucket. Eso no lo tocó la guarda ni lo arregla `buildGradeKey`. ~~Sigue
+   escalado al **arquitecto** (cambiar la forma de `VariantPositionRef` es un cambio de interfaz
+   entre streams).~~
+   ⛔ **ENMENDADO (v1.55, §0.38.3): esa escalada era MÍA y era FALSA, y se retira.** La identidad del
+   sellado **ya cabe en `gradeKey`** (`sealedMarketGradeKey()` ⇒ `sealed:tcg:<productId>`, v1.19) e
+   `InventoryItem` **ya tiene** `sealedProductId` (`schema.prisma:784`): **el puerto no necesita
+   campos nuevos y no había nada que esperar del arquitecto.** Es un defecto del **adaptador**, en un
+   solo stream y **mío** ⇒ **`BL-33`** en `TECH_DEBT.md`, no bloqueante. **El hallazgo sigue abierto;
+   lo que cambia es de quién es y qué cuesta.**
+3. **El predicado pasa a ser UNO.** `positionIsKeyable` se renombra a **`lineIsKeyable`** y su cuerpo
+   deja de ser `productType === 'raw'` para ser `BUYLIST_ACCEPTED_PRODUCT_TYPES.includes(...)` — **la
+   misma lista que usa la guarda**. Si algún día se decide comprar graduadas (M-49, §4.40.7), la
+   guarda y la degradación se ensanchan **a la vez** o no se ensanchan. *Dos listas que hoy coinciden
+   serían dos listas que mañana no.*
+   ⚠️ **ESTA MITAD ES LA CIERTA de la contradicción que el techlead encontró** (contra la fila de
+   `positionFor` en §0.37.2, que razonaba *«el `continue` ya estrechó a `raw`»*): **la lista es
+   exactamente el sitio pensado para cambiar.** Lo que faltaba —y es **B-3**, cerrado en **§0.38.3**—
+   es que unificar el **permiso** no unificaba la **derivación**: el literal `productType: 'raw'`
+   seguía escrito a mano. Hoy son **dos preguntas** (`ACEPTADO ∧ CLAVABLE`) y la identidad **la
+   produce un `switch` exhaustivo**, no un estrechamiento inferido.
+
+Y gana alcance: el predicado gobierna ahora **las dos llaves** de la mesa (la de variante y la de
+posición), no solo la del conteo. `DecisionLine.variant.gradeKey` pasa a `string | null` y ese `null`
+significa lo mismo que el de `tryBuildGradeKey`: **no hay clave ⇒ no hay override, no hay referencia,
+no hay bucket**. El estrechamiento lo hace un `flatMap`, no un `!`.
+
+### 0.37.2 El reparto: «el dinero LANZA, la lectura DEGRADA» aplicado a los call-sites de la rama
+
+`main` partió el constructor en dos (§4.40.4). Estos son los sitios de la rama que la fusión tuvo que
+repartir, con el criterio que decidió cada uno:
+
+| Call-site | Variante | Por qué |
+|---|---|---|
+| `buylist.service.ts` · `decideBuyLine` | `gradeKeyFor(rawGradeKeyInput(…))` | **Dinero.** Cuerpo compartido por las tres superficies ⇒ la guarda raw-only se re-aplica dentro |
+| `buylist.service.ts` · `createRequest` (llave del override, P-30 H2) | ídem, **dentro de `variantKey()`** | Se conservan los dos lados: la llave se construye con el helper **y** el `gradeKey` pasa por la guarda |
+| `buylist.service.ts` · `deriveOfferLinesBatch` / `derivedLine` | `lineIsKeyable` ⇒ clave o `null` | **Lectura sobre filas históricas.** Ver §0.37.1 |
+| `buylist.service.ts` · `positionFor` (sumandos de promesa) | ~~`gradeKeyFor({productType:'raw', …})`~~ ⇒ **`gradeKeyFor(gradeKeyInputFor(row))`** (v1.55) | ~~El `continue` de `lineIsKeyable` ya estrechó a `raw`: input estricto satisfecho sin default~~ ⛔ **ESTA JUSTIFICACIÓN ERA LA MITAD FALSA de la contradicción (§0.38.3)**: deducía la identidad del **valor de hoy** de una lista que existe para cambiar. Hoy el input **lo produce el `switch`** ⇒ satisfecho **por construcción**, no por deducción |
+| `inventory-position.adapter.ts` · `onHandCountsFor` | `tryGradeKeyFor` + `continue` | **Conteo = lectura.** Un slab incompleto no se cuenta en ninguna variante; con la que lanza, **una sola fila mala dejaría la mesa entera sin conteo** |
+| `inventory.service.ts` · `reevaluateVariantsForPublication` | `tryBuildGradeKey` + `continue` | **Disparador, no pago.** Sin clave no casa con ninguna variante — y tampoco podría publicarse. Con la que lanza, un slab incompleto tumbaría el barrido y con él la publicación de todas las demás |
+| `inventory.service.ts` · `derivePublishSalePrice` (sellado) | `gradeKeyFor({productType:'sealed'})` | Literal, no derivado de la fila: estamos **dentro** del `if (productType === 'sealed')` |
+
+⚠️ **El ancla de `inventory.publish-port-variants.spec.ts` cambió de nombre, no de intención.**
+Comprobaba que el cuerpo contuviera `buildGradeKey(c)`; ahora comprueba `tryBuildGradeKey(c)` **y
+además** que no haya ni una interpolación de clave a mano (`` `graded:`` / `` `raw:``). Lo que ancla
+nunca fue el nombre: es que la clave salga de la función del dueño.
+
+### 0.37.3 Dos composiciones que ningún lado vio, porque cada una nació en un lado
+
+**(a) `PATCH /admin/inventory/items/:id` — el saneo de `gradingCompany` va ARRIBA de la bifurcación.**
+La rama convirtió este PATCH en el pipeline completo de publicación (§0.34, desviación INV-P1), así
+que tiene **dos** caminos de escritura; `main` añadió el descarte de `gradingCompany` cuando la pieza
+no es `graded` (§4.40.5b) sobre el `update` plano que existía **antes** de esa partición. Pegar el
+descarte en uno solo de los dos caminos habría dejado el campo colarse por el otro — y, peor, por el
+`resulting` sobre el que corren las guardas. **Se sanea una vez, en `patch`, antes de bifurcar**, y
+todo lo que sigue lee `patch` y nunca `dto`.
+
+**(b) `derivePublishSalePrice` es PURA, así que «no se escala» se dice con la clave en `null`.**
+`main` añadió la salida «graduada sin identidad de slab ⇒ no se publica **y no se encola**» con un
+`return` que se saltaba el `escalatePending` inline. En la rama ese cuerpo ya no escala: devuelve
+`pendingKey` y quien escribe es `resolvePublishSalePrice`. La composición correcta es
+**`pendingKey: null`**, con su significado propio y distinto de «no hay precio»: *la cola de M2 es por
+VARIANTE, y una graduada sin identidad no tiene variante que encolar — lo que le falta no es un
+precio, es saber QUÉ SLAB ES.* `pendingQueueKey` se **omite** en `pending-publish` en vez de
+fabricarse: la fila sigue saliendo con `missing: ['price']`, lo que no se inventa es el deep-link.
+
+### 0.37.4 ⚠️ Cambio de comportamiento observable (frontend y QA, leed esto)
+
+**En `GET /admin/buylist/:id/decision-table`, una línea LEGACY no-raw sale ahora con
+`derivedPriceCents: null` y `priceBasis: "pending"`.** Antes salía con monto, porque el buylist
+cotizaba graduadas. Hoy **no las compra**: `decideBuyLine` responde `BUYLIST_RAW_ONLY` y
+`derivedLine` lo degrada **por línea** (mismo allowlist que `batchQuote`) para que **una fila vieja no
+tumbe la pantalla entera** y con ella las otras cuarenta líneas raw perfectamente ofertables.
+
+Lo que **no** cambia: `quotedPriceCents` (el snapshot congelado el día que se cotizó) sigue viajando,
+y los `totals` siguen siendo válidos — el contrato ya dice que `buyableGrossCents = Σ derivedPriceCents
+de las líneas con valor`, así que una línea sin valor simplemente no suma. El front pinta `SIN PRECIO`,
+**jamás `MX$ 0.00`**.
+
+Y el dinero no se afloja por degradar: al **emitir** la oferta, esa línea sin monto obliga a
+`skip` o a un **override explícito con motivo**; si no, `422 OFFER_LINE_NOT_PRICEABLE`. *La lectura
+degrada; la firma sigue exigiendo una decisión humana registrada.*
+
+### 0.37.5 Verificación
+
+| Gate | Resultado |
+|---|---|
+| `npx tsc --noEmit -p tsconfig.json` | limpio |
+| `npx jest` | **241 suites / 3 420 tests en verde** (la rama traía 3 341; `main`, 2 801) |
+| `npm run lint` | exit 0, **las mismas 2 advertencias preexistentes** (`inventory.service.ts:638` `actorUserId`, `sealed-product.service.ts:11` `normalizeSetName`), ambas en código que esta fusión no toca |
+| `npm run test:integration` | **17 suites / 239 tests en verde** (la rama traía 228; `main`, 194) |
+
+**Tests tocados, y por qué ninguno se «ajustó para que pasara»:**
+
+- `test/buylist.position-identity.spec.ts` (B-3) — §(0) medía el default `graded:PSA:10`; ese default
+  ya no existe, así que ahora mide que el constructor **se niegue** (lanza) y que el tolerante
+  devuelva `null`: **ninguna de las dos respuestas sirve para pintar la mesa, que es lo que hace
+  obligatoria la degradación.** §(2) esperaba monto en una línea graduada; esa afirmación **dejó de
+  ser cierta** (§0.37.4) y se sustituye por la que la cláusula del contrato siempre quiso decir: una
+  línea **raw** con el **puerto caído** conserva su precio y sus totales. Se añade el caso legacy con
+  sus valores nuevos, incluido `netCents = 0` (invariante i.1: el neto nunca es negativo).
+- `test/inventory.graded-cert.spec.ts` — el fixture gana `gradingCompany`/`gradeValue` porque una
+  gradeada REAL a la venta los tiene, y se añade el test de la **composición**: el PATCH que publica
+  una gradeada **sin** identidad de slab da `422`. Ese caso no existía en ninguno de los dos lados —
+  nace de juntar el pipeline del PATCH (rama) con la guarda de §4.40.5 (`main`).
+- `test/buylist.raw-only.spec.ts` y `test/integration/buylist-raw-only.e2e-spec.ts` (de `main`) — sus
+  fixtures no conocían las **tres puertas** que la rama añadió a `POST /buylist/requests` (celular
+  D11, dirección de origen D36/D37, mínimo de compra D18). Se completan; la regresión E2E pasa a
+  `charizard` (MX$1 000 ⇒ cotiza MX$500, el borde inclusivo del mínimo) porque con `common` (MX$50)
+  el test mediría el mínimo y no la regresión. **La aserción de que la guarda raw-only corre ANTES
+  que las tres se refuerza**, no se relaja: ni PII ni libreta de direcciones se tocan.
+- Cuatro stubs de `PricingService` ganan `tryGradeKeyFor` (`inventory-position.port`,
+  `inventory.pending-publish`, `inventory.publish-port`, `inventory.publish-port-variants`).
+
+### 0.37.6 Para otros roles
+
+- **Arquitecto:** **sin discrepancias con el contrato**, y ~~una escalada que sigue **abierta desde
+  antes** (no la abre esta fusión): la mitad `sealed` de B-3 —`INVENTORY_POSITION_PORT` no acuerda con
+  `INVENTORY_PUBLISH_PORT` qué es una variante, porque `VariantPositionRef` no puede cargar
+  `sealedProductId`— es un cambio de forma de un puerto entre streams.~~
+  ⛔ **ENMENDADO (v1.55): esa escalada NO existe y era mía.** `VariantPositionRef` **no necesita**
+  `sealedProductId` —la identidad cabe en `gradeKey`— y el defecto es del **adaptador**, dentro de un
+  solo stream ⇒ **`BL-33`, backend, no bloqueante** (§0.38.3). Mientras no se tome, la mesa
+  contesta `positionUnavailable`, que es lo que el contrato ordena.
+- **Frontend:** §0.37.4. Nada nuevo que pintar — `SIN PRECIO` y `SIN CONTEO` ya existen; lo que cambia
+  es **cuándo** aparecen (ahora también en líneas legacy no-raw de la mesa).
+- **QA:** humo del dinero de esta fusión, en dos pasos: (1) abrir la mesa de una solicitud legacy con
+  una línea `graded` ⇒ la pantalla responde, esa línea sale `SIN PRECIO`/`SIN CONTEO` y las raw de la
+  misma solicitud conservan monto y conteo; (2) intentar emitir esa oferta sin override ⇒
+  `422 OFFER_LINE_NOT_PRICEABLE`. Y la regresión de siempre: cotizar `raw` NM no cambia ni un centavo.
+
+## 0.36 v1.51.19 — **BL-25 completo: el disparador (c), con la resolución DENTRO de `inventory`** (2026-09-01)
+
+> Implementa **ARCHITECTURE §4.39m.8**. **CERO DDL, CERO SQL nuevo, CERO endpoints.** Una segunda
+> entrada al puerto y dos consumidores. Cierra **BL-25**.
+
+### 0.36.1 La forma: SELECT columnar + filtro en memoria
+
+```
+1. SELECT por las partes COLUMNARES: cardId ∈ (…) ∧ productType ∧ finish ∧ status='in_stock' ∧ ownerType='platform'
+2. FILTRAR en memoria: buildGradeKey(pieza) === gradeKey buscado
+3. Los ids entran al MISMO cuerpo de (m.5)
+```
+
+**Ninguna regla entra al SQL ni cruza la frontera.** Hay guarda que asevera que el `where` lleva
+**exactamente cinco claves columnares** y que ni `gradeKey` ni `rawCondition` ni `gradeValue` aparecen
+en la consulta — y otra que asevera que el filtro llama a **`buildGradeKey`**, no a un literal copiado.
+Y una tercera sobre `schema.prisma`: **`InventoryItem` sigue sin columna `gradeKey`** (no se
+materializó nada).
+
+**Un cuerpo, dos entradas.** `reevaluateVariantsForPublication` **resuelve y delega** en
+`reevaluateForPublication`: es un adaptador delante del cuerpo único, no una copia. Tests de que las
+guardas no se relajan por esta vía: `listed` no se toca, la custodia no entra, sin ubicación no
+publica, y **una gradeada sin `certNumber` sale `not_publishable`** aunque su variante resuelva.
+
+**El lote también por dentro:** N variantes con el mismo `(productType, finish)` producen **una**
+consulta con `cardId IN (…)`, no N.
+
+### 0.36.2 ⚠️⚠️ La trampa que encontré al implementarlo: `cardProductId` tiene DOS identificadores
+
+Verificado en el schema:
+
+| Modelo | Tipo | Qué es |
+|---|---|---|
+| `InventoryItem.cardProductId` | **`Int`** | el **`tcgplayerProductId`** |
+| `PendingPriceEntry.cardProductId` | **`Int`** | el **`tcgplayerProductId`** |
+| `PriceReference.cardProductId` | **`String`** | el **uuid de `CardProduct`** (FK) |
+
+**Son dos identificadores distintos del mismo eje.** Un llamador que pasara el uuid de
+`PriceReference` **no casaría con ninguna pieza** y el disparo sería un **no-op silencioso que parece
+funcionar** — de los que nadie encuentra. `VariantPublishRef.cardProductId` es **el `Int`**, y el
+docblock lo dice con la trampa entera.
+
+De ahí que el campo tenga **TRES estados y no dos**, implementados explícitamente:
+- **ausente (`undefined`) ⇒ sin restricción**; **`null` ⇒ solo la del set base**; **número ⇒ solo ese
+  producto**.
+- Un `?? null` habría convertido *«no restrinjas»* en *«solo la base»* y **habría dejado fuera justo
+  las promos**. Hay test por cada estado; la mutación que los colapsa muere.
+
+**El barrido OMITE el campo** (tiene el uuid, no el Int): *sin restricción es la dirección segura* —un
+disparo de más es un no-op, porque cada pieza se juzga por su propio precio; uno de menos es **una
+carta que se queda en la caja**.
+
+### 0.36.3 Los dos productores de (c)
+
+| Productor | Dónde | Alcance |
+|---|---|---|
+| `POST /admin/pricing/override` | `PricingController` (handler) | **una** variante, **una** llamada, tras escribir y auditar |
+| barrido de precios | `PriceIngestService`, **los DOS caminos** | **una** llamada con **el conjunto que ESCRIBIÓ** |
+
+⚠️ **Los dos sentidos del barrido tienen alcances distintos, y la diferencia quedó escrita en el
+código para que nadie los iguale:** `reconcilePublishedPrices` (lo `listed` que pudo **degradarse**)
+barre **el SET completo**, porque ahí *la ausencia es la señal* —el acabado que el proveedor dejó de
+reportar—. El disparo nuevo (lo `in_stock` que pudo volverse **publicable**) pasa **solo lo escrito**,
+porque *repreciar algo que no se movió no vuelve publicable a nadie*.
+
+**Disparan LOS DOS caminos de ingesta** (`ingestSinglesForSet` primario y `ingestForSet` legacy). Hay
+test de eso: media regla en un camino y media en otro es la forma en que una regla se pierde.
+
+### 0.36.4 ⚠️ El ciclo, cerrado por construcción y con guarda
+
+El consumidor es **una hoja**: el **handler** del override y el **servicio de ingesta**. **Nunca
+`PricingService`** —cerraría `Pricing → PORT → Inventory → Pricing`— y **`forwardRef` está prohibido**.
+
+Hay guardas de código para las dos cosas, y una lección de escribirlas: **miran CÓDIGO, no prosa**.
+Sin quitar los comentarios, el fichero que *documenta* «`forwardRef` está prohibido» habría hecho
+fallar el test que verifica que no se usa — y el arreglo obvio (borrar la explicación) habría sido
+exactamente al revés de lo que se quiere.
+
+### 0.36.5 Tests
+
+`test/inventory.publish-port-variants.spec.ts` (**20**) y `test/pricing.publish-trigger.spec.ts`
+(**16**). Suite: **225 suites / 3045 tests**, verde. Ningún test existente necesitó cambios — el puerto
+es aditivo y los dos disparos son best-effort.
+
+**Mutación (5 corridas, todas cazadas):** (1) colapsar los tres estados de `cardProductId` ⇒ 1 fallo;
+(2) quitar el filtro de `gradeKey` ⇒ 2 fallos; (3) meter `rawCondition` al `where` ⇒ 1 fallo;
+(4) fan-out de N llamadas en el barrido ⇒ 1 fallo; (5) el camino legacy deja de disparar ⇒ 1 fallo.
+
+### 0.36.6 ⚠️ Escalada al arquitecto (1, no bloqueante)
+
+**«Solo el conjunto REALMENTE cambiado» quedó implementado como «las variantes que este barrido
+ESCRIBIÓ», y el residuo hay que decirlo:** una reescritura con **el mismo precio** entra igual, porque
+`persistMarketReference` devuelve `void` y **no reporta si cambió algo**. Distinguirlo exigiría
+comparar contra **la referencia MÁS RECIENTE** (no contra la fila de hoy: en la primera corrida del día
+*todo* es «nuevo»), es decir **una consulta más en un camino de dinero compartido** por varios
+llamadores. **No lo cambié.**
+
+El residuo está acotado y no creo que valga la cirugía: el `SELECT` del puerto solo mira **piezas
+`in_stock` de plataforma**, así que una variante repreciada sin piezas sin publicar **no produce
+trabajo ninguno**. Pero es una desviación de la letra de (m.8) y prefiero decirla.
+
+### 0.36.7 Lo que NO entró
+
+- **`workQueue.pendingPublish`** del dashboard (§11): módulo `admin`, **otro work stream**.
+- La deuda de escala de `pending-publish` en `TECH_DEBT.md` — a petición del techlead.
+- **BL-27** (el mecanismo anti-reformateo del prettier) — es de **devops**, su ruta.
+
+## 0.35 v1.51.18 — **BL-25 (el puerto de DISPARO) y BL-26 (un `total` que mentía)** (2026-09-01)
+
+> Implementa **ARCHITECTURE §4.39m.5** (BL-25) y **§4.39m.7.2** (BL-26). **CERO DDL, CERO endpoints,
+> CERO diales.** Un puerto nuevo (interno, no cruza el contrato), `convert-to-inventory` gana
+> `locationId?` y `pendingPublish`, y una cola deja de mentir en su conteo.
+
+### 0.35.1 ⚠️ Corté: el disparador (c) NO entró, y por una razón que hay que leer
+
+**Entra:** el puerto, el **consumidor (a)** (`buylist` al convertir) y **BL-26**.
+**Queda fuera:** el **consumidor (c)** (`pricing`, cuando el precio se vuelve resoluble).
+
+No es tamaño. Al ir a escribirlo aparece un problema que **es el mismo que el arquitecto acaba de
+prohibir resolver a lo bruto en (m.6)**: para disparar desde `pricing` hay que ir **de una clave de
+variante a las piezas de inventario de esa variante**, y **`gradeKey` NO ES UNA COLUMNA** de
+`InventoryItem` — se deriva (`buildGradeKey`: `raw:{rawCondition}` / `graded:{company}:{value}` /
+`sealed`). Escribir ese `where` sería **poner una segunda definición de la clave de variante en una
+consulta**, que es literalmente *«una copia de la regla»* en vez de *«la salida de la regla»*. Va en
+0.35.5 como escalada.
+
+Y hay una segunda decisión ahí que tampoco es mía: **(c) tiene DOS productores con formas distintas**
+—el `POST /admin/pricing/override` (un acto puntual) y el **barrido de precios** (una ingesta masiva
+que puede resolver miles de variantes de golpe)—. Disparar pieza a pieza tras un barrido completo es
+una decisión de operación, no de implementación.
+
+### 0.35.2 `INVENTORY_PUBLISH_PORT` — de disparo, y la forma lo hace cumplir
+
+`reevaluateForPublication(inventoryItemIds: string[])`. **Eso es toda la firma**, y es el diseño: no
+hay estado destino, ni precio, ni `status` que un llamador pueda pasar. Hay un test que **asevera la
+firma carácter por carácter** — verificar una *ausencia* solo se puede hacer por la forma.
+
+- **Las guardas viven del otro lado**, así que un llamador con un bug —o malicioso— **no puede
+  publicar una pieza impublicable**. Tests: status no publicable, inventario de custodia, sin precio,
+  sin ubicación. En los cuatro el puerto **dice que no** y el estado no se mueve.
+- **En lote, idempotente, no-op sobre lo impublicable.** Una pieza `listed` responde
+  `already_listed` sin re-publicar ni re-resolver; ids repetidos o vacíos no producen trabajo extra;
+  un id inexistente devuelve `not_found` **sin lanzar** y sin tumbar el lote.
+- **Devuelve qué pasó por pieza** para que el llamador registre **sin re-derivar** la regla. Si
+  tuviera que re-derivarla, tendríamos la regla en dos sitios otra vez.
+
+**⚠️ Cableado — el ciclo que esto evita, por si alguien mueve la inyección.** El token se declara en
+`inventory-publish.module.ts` (`@Global`), **no** en `InventoryModule`: Nest no re-exporta tokens
+ajenos, y re-exportar `InventoryModule` entero **publicaría globalmente su grafo de servicios de
+escritura**, que es exactamente lo que §4.39f prohíbe. Fuera solo existe **el token**.
+Y: `InventoryService` depende de `PricingService`, así que **el consumidor de (c) NO puede ser
+`PricingService`** —sería `PricingService → PORT → InventoryService → PricingService`, un ciclo de
+providers que solo se arregla con `forwardRef`—: tiene que ser **una hoja del grafo** (un controller o
+un job). Está escrito en el docblock del módulo.
+
+**Un solo cuerpo de publicación.** Al nacer el puerto, `tryAutoPublish` (disparador **b**) habría
+quedado con una copia del pipeline; **la borré**: ahora llama a `reevaluateOne`, el mismo cuerpo. El
+disparador (b) **sigue sin pasar por el puerto** —sería `inventory` dándole la vuelta al módulo para
+llamar a su propia puerta— y hay test que falla si alguien inyecta el token dentro de `inventory`.
+
+### 0.35.3 Consumidor (a) — `convert-to-inventory`
+
+`locationId?` **opcional** (se ofrece, no se exige), `pendingPublish` en la respuesta, y el disparo
+**post-commit**. ⛔ **Sigue sin aceptar `listPriceCents`**, y hay test que lo asevera **por la forma**
+(firma + campos del DTO), no por una validación.
+
+**⚠️ El degradado no inventa un estado bueno.** Si el puerto lanza o no está cableado, `pendingPublish`
+sale `['location','price']` — *«no sé, revísalo»*. **Jamás `[]`**: un `[]` significaría *«ya está a la
+venta»* y **sacaría la pieza de la única pantalla donde se encontraría**. Es la misma regla de BL-22:
+*donde el flag solo hace VISIBLE, se falla hacia visible.*
+
+**El replay también dispara.** Si el deep-link solo viajara en la primera conversión, M5 lo perdería
+**justo en el reintento**, que es cuando el operador está buscando qué pasó — y como el puerto es
+idempotente, re-disparar es gratis y **recupera un disparo perdido** en la llamada original.
+
+### 0.35.4 BL-26 — el `total` cuenta lo que `data` pagina
+
+Con `?onlyAlerts=true`, `pending-shipment-confirmation` paginaba y contaba en SQL y **filtraba
+después**: `total: 10` con 3 filas ⇒ **tres páginas vacías** y un número que miente sobre el trabajo
+pendiente. Ahora, con `onlyAlerts`, se deriva sobre la cola entera, se filtra y **el total sale del
+conjunto filtrado**. **Sin `onlyAlerts` no se barre**: ahí `data` y `total` ya coinciden en SQL, y
+barrer de más para obtener el mismo número sería pagar por nada.
+
+⚠️ **BL-22 sigue vivo dentro de esto**, y tiene test: la fila cuyo calendario no cubre la fecha
+**degrada a `alert: true`**, así que **entra** en `?onlyAlerts=true` y **suma al `total`**. *La fila
+más rara no puede ser la más escondida.* Es también la razón por la que esto **no se arregla con un
+`where`**: `alert` no es columna y su degradación no es expresable en SQL.
+
+La construcción de la fila se extrajo a `pendingShipmentRow` — **cuerpo único**: *el `total` no puede
+contar filas construidas con una regla distinta de la que produce las filas de `data`.*
+
+### 0.35.5 Tests
+
+`test/inventory.publish-port.spec.ts` (**17**) y `test/buylist.bl25-bl26.spec.ts` (**16**). Suite:
+**223 suites / 3009 tests**, verde. Actualicé `buylist.convert-guard.spec.ts` y
+`buylist.security.spec.ts`, que aseveraban la respuesta de convert con `toEqual` exacto.
+
+**Mutación (5 corridas, todas cazadas):** (1) `total` = superconjunto ⇒ 3 fallos; (2) el degradado
+inventa `missing: []` ⇒ 2 fallos; (3) el disparo deja de ser best-effort ⇒ 2 fallos; (4) el puerto
+re-publica lo `listed` ⇒ 2 fallos; (5) se quitan las guardas del puerto ⇒ 3 fallos.
+
+⚠️ **Nota de proceso:** al aplicar BL-26 corrí `prettier` sobre `buylist.service.ts` y me reformateó
+**445 líneas** que yo no había tocado. Lo revertí y reapliqué el cambio a mano (**diff final: 68/33**).
+*Un diff que mezcla reformateo con lógica es un diff que nadie puede revisar* — y `npm run lint` no
+corre prettier, así que el reformateo no era ni siquiera necesario.
+
+### 0.35.6 ⚠️ Escalada al arquitecto (1)
+
+**El consumidor (c) necesita ir de una VARIANTE a las PIEZAS de esa variante, y `gradeKey` no es una
+columna.** Se deriva de `rawCondition` / `gradingCompany`+`gradeValue` (`buildGradeKey`,
+`pricing.types.ts:561`). Traducirlo a un `where` sería **una segunda definición de la clave de
+variante en una consulta** — el patrón que (m.6) acaba de prohibir para el precio, por el mismo
+motivo y sobre el mismo dinero. Además **(c) tiene dos productores de formas distintas** (el override
+puntual de M2 y el barrido masivo de precios), y disparar pieza a pieza tras un barrido completo es
+una decisión de operación. **Ninguna de las dos la resuelvo solo.**
+
+### 0.35.7 Lo que NO entró
+
+- **Disparador (c)** — ver arriba.
+- **`workQueue.pendingPublish`** del dashboard (§11): módulo `admin`, **otro work stream**.
+- La entrada de **deuda de escala de `pending-publish`** en `TECH_DEBT.md` — el arquitecto la dejó
+  para **cuando el techlead la pida**, no ahora.
+
+## 0.34 v1.51 fase 8 — **Publicar: la cola «listas para publicar» y el bypass del `PATCH`** (2026-09-01)
+
+> Implementa **API_CONTRACT §M1 / §11 `PendingPublishRowDTO`** sobre **ARCHITECTURE §4.39m.1/m.2/m.4**
+> (D10, criterio 125). **CERO DDL, CERO diales.** Un endpoint nuevo, un bypass cerrado y **uno de los
+> tres disparadores**. Cierra la desviación **INV-P1**.
+>
+> Contesta la pregunta del humano —*«cómo la subimos a inventario, porque ahí ya tenemos para
+> publicar»*—: hasta hoy el ciclo **moría al convertir**.
+
+### 0.34.1 ⚠️ Corté, y el corte tiene una razón de diseño (no de cansancio)
+
+**Entra:** la cola, el bypass del `PATCH` y el **disparador (b)** (al fijar/mover ubicación).
+**Queda fuera:** los disparadores **(a) al convertir** y **(c) cuando el precio se vuelve resoluble**.
+
+No los corté por tamaño: **los dos necesitan EL MISMO seam que todavía no existe** — una forma de que
+un módulo de FUERA (`buylist` al convertir, `pricing` al resolver un precio) dispare el pipeline de
+publicación de `inventory`. Hacerlos por separado inventaría **dos** caminos hacia adentro de
+`inventory`, y el segundo se escribiría copiando al primero. Van juntos, en un pase que diseñe ese
+seam una vez. Ver 0.34.6.
+
+⚠️ **Lo que el corte NO deja pendiente, y es lo que preguntaba el humano:** la **doble invisibilidad**
+ya está cerrada. Una pieza convertida **sin dato de mercado aparece en la cola desde el instante en
+que se crea**, porque `pending-publish` **calcula la resolubilidad del precio ella misma** en vez de
+leer la cola de M2. *No hace falta que alguien intente publicarla para que se vea.*
+
+### 0.34.2 `GET /admin/inventory/pending-publish`
+
+Predicado (§4.39m.1): `ownerType='platform' ∧ status='in_stock' ∧ (locationId IS NULL ∨ precio NO
+resoluble)`. Cada fila dice **qué le falta** y, con `'price'`, trae el `pendingPriceEntryId` de la
+entrada `open` de M2 **si ya existe** (deep-link; `null` si no — no se inventa un id).
+
+**⚠️ Barre, no pagina en SQL, y conviene saber por qué.** *«Precio no resoluble»* **no es expresable
+en SQL**: depende de la curva vigente, de las referencias de mercado y de los overrides de variante.
+Las dos opciones eran barrer o **reimplementar la precedencia de precios en una consulta** — la copia
+que este proyecto lleva quince revisiones borrando, y encima sobre dinero. Se barre el superconjunto
+**que sí es SQL** (`platform ∧ in_stock`, el mismo que ya barre `publish-all`) **por chunks de 100**,
+con referencias y overrides en lote por chunk; del barrido **solo sobreviven `id` + estado**, y las
+filas completas (con el `set` para `toCardDTO`) se leen **solo para la página**. Lo que crece es el
+escaneo, no la memoria.
+
+**⚠️ `total` es el conteo REAL de la cola, no el del superconjunto.** *Una cola que dijera 200 cuando
+hay 900 sería peor que no tener cola.* Punto de escala señalado en 0.34.7.
+
+### 0.34.3 ⚠️ Un cuerpo, dos lectores: `derivePublishSalePrice` (sin efectos) / `resolvePublishSalePrice` (con)
+
+`resolvePublishSalePrice` **escribe**: escala a la cola de M2 cuando no resuelve y la cierra cuando sí
+(salida simétrica §4.36.5c). La cola **no puede** llamarlo: sería **un `GET` que abre y cierra
+entradas de la cola de precio pendiente por el hecho de que alguien mire la pantalla** — un efecto
+invisible sobre dinero, y sobre la cola de otro módulo. Y reimplementar la precedencia en la cola
+daría **dos verdades sobre el mismo dinero**.
+
+Así que se partió: **la precedencia vive en `derivePublishSalePrice` (pura); el efecto vive una capa
+más arriba.** Hay test que falla si alguien vuelve a meter el resolvedor con efectos en la cola.
+
+⚠️ **El refactor NO ensancha el alcance del cierre.** La clave de variante viaja **también en el
+éxito**, para que escalada y cierre usen la MISMA (recalcularla en el llamador reabriría la puerta a
+que no coincidan). Pero el cierre sigue ocurriendo **solo en raw/graded con precio DERIVADO**, igual
+que antes: un precio **manual** no dice nada sobre el mercado de la variante —cerrar por él apagaría
+un aviso que sigue siendo cierto— y el sellado nunca cerró por esta vía.
+
+### 0.34.4 ⚠️⚠️ El bypass del `PATCH /admin/inventory/items/:id` — **BREAKING chico, cerrado**
+
+Era un `update` plano: validaba el `certNumber` de una gradeada **y nada más**. Aceptaba marcar
+`listed` una pieza **sin precio resoluble** ⇒ el storefront **la descartaba en silencio** y **no
+entraba a ninguna cola**: invisible para el comprador y para el operador **a la vez**. Y se saltaba la
+guarda **anti-double-sell** que los dos caminos de lote sí corren.
+
+Ahora: si el PATCH **resulta** en `listed` y el previo **no** era `listed`, corre el pipeline completo
+(`assertPublishableGuards` + `resolvePublishSalePrice` + `claimListed`) con los códigos del lote
+(`422 ITEM_NOT_PUBLISHABLE`, `422 PRICE_PENDING` + `pendingPriceEntryId`).
+
+- **Las guardas corren sobre el estado RESULTANTE, en memoria y ANTES de escribir nada**: una gradeada
+  que aporta su `certNumber` en ESTE mismo PATCH debe poder publicarse, y una que falle **no puede
+  dejar a medias** el resto de los campos. Hay test de esto último.
+- **`listPriceCents` no se toca**: es el override manual por pieza de M1 y **precede al ciclo**. D10
+  prohíbe capturar precio de venta *dentro del ciclo de buylist*; no retira una perilla de M1.
+- **Un PATCH que no publica sigue siendo un `update` plano** — no se le añadió ceremonia.
+
+### 0.34.5 Disparador (b) y por qué la auto-publicación **sí** es best-effort
+
+`moveItem` intenta publicar tras fijar la ubicación. *«Las escrituras no degradan»* (v1.51.14)
+gobierna **lo que se compromete**; aquí el hecho comprometido —la carta está en esa caja— **ya está
+escrito**, y esto es un intento oportunista encima cuyo fallo más común (**no hay precio de mercado**)
+**es el caso normal, no una avería**. Si tumbara el `move`, el operador **no podría ni guardar la
+ubicación** de una carta sin precio — justo la que más falta hace localizar.
+
+⚠️ **Y el fallo no es silencioso**, que es lo que lo hace aceptable: `resolvePublishSalePrice` escala a
+la cola de M2 y la pieza **sigue en `pending-publish`**. *Se degrada el intento, nunca la visibilidad.*
+
+**El PISO NO GANA** (decisión LOCKED §4.36.0) y **no se tocó**: sin `PriceReference` no se publica, se
+escala. Lo que cambia con la fase 8 no es esa regla — es que la pieza **deja de ser invisible mientras
+espera**.
+
+### 0.34.6 Tests
+
+`test/inventory.pending-publish.spec.ts` (**31**). Suite completa: **221 suites / 2976 tests**, verde.
+Actualicé `inventory.graded-cert.spec.ts`: sus fixtures publicaban piezas **sin `ownerType` y sin
+precio**, que es exactamente lo que el bypass permitía. **No es maquillaje**: el doble tuvo que
+aprender que publicar pasa por `claimListed` (`updateMany` con allowlist), no por un `update` plano.
+
+**Mutación (5 corridas):** (1) la cola vuelve a usar el resolvedor con efectos ⇒ 1 fallo; (2) se
+reabre el bypass ⇒ 9 fallos; (3) la auto-publicación deja de ser best-effort ⇒ **SOBREVIVIÓ**;
+(4) `total` = superconjunto ⇒ 5 fallos; (5) el estado deja de mirar la ubicación ⇒ 6 fallos.
+
+⚠️ **La 3 otra vez, y el caso que discrimina no era el obvio.** Mi test de *«sin precio el move no
+falla»* **no toca el `catch`**: esa rama devuelve `ok:false`, no lanza. Lo que sí lanza es
+`assertPublishableGuards` en inventario **que no es de plataforma** —y **las piezas de custodia se
+mueven de caja todos los días**: sin el `catch`, la bóveda **no podría reubicar la carta de un
+cliente**— y `claimListed` cuando pierde la carrera contra un checkout. Añadí los dos; ahora la
+mutación muere. *Van tres.*
+
+### 0.34.7 ⚠️ Escaladas al arquitecto (2)
+
+1. **El seam de los disparadores (a) y (c) — necesita dictamen antes de escribirlo.** Los dos
+   disparadores que faltan viven **fuera** de `inventory` (`buylist.convertToInventory` y el barrido
+   de precios / override de M2) y los dos necesitan **disparar una ESCRITURA de `inventory`**. El
+   precedente que existe —`INVENTORY_POSITION_PORT` (§4.39f)— fue declarado explícitamente como *«un
+   token de SOLO LECTURA»*, y su docblock razona que volver global `InventoryModule` *«publicaría el
+   grafo entero de servicios de ESCRITURA»*. **Un puerto de publicación es un puerto de escritura**:
+   es una instancia nueva de esa doctrina y prefiero que la fije el arquitecto antes de crear el
+   segundo camino hacia adentro de `inventory`. *(Mi propuesta, si sirve: un único
+   `INVENTORY_PUBLISH_PORT` de un solo método, `attemptPublish(inventoryItemId) → PendingPublishState`,
+   que sirva a los DOS disparadores — para que no acaben siendo dos.)*
+2. **Escala de `pending-publish`.** El endpoint barre `platform ∧ in_stock` completo en cada llamada
+   porque la resolubilidad del precio no es SQL (0.34.2). Es el mismo barrido que ya hace
+   `publish-all`, y es un endpoint de back-office, no una ruta caliente — pero **crece con el
+   inventario**, y el `total` honesto exige el barrido entero. Lo dejo dicho por si el arquitecto
+   quiere fijar un disparador de revisión (p. ej. el mismo umbral de ~5k piezas de §4.38).
+
+### 0.34.8 Lo que NO entró
+
+- **Disparador (a)** — `convert-to-inventory` sigue **sin `locationId?` opcional** y **sin devolver
+  `pendingPublish`** (§M1 los declara). El deep-link desde M5 a la cola **todavía no funciona**.
+- **Disparador (c)** — el precio que se vuelve resoluble no publica solo; hoy drena por `move`, por el
+  `PATCH` o por `publish-all`.
+- **`workQueue.pendingPublish`** del dashboard (§11) — vive en el módulo **`admin`**, que es **otro
+  work stream** en el mapa de módulos. No lo toqué.
+
+## 0.33 v1.51.15/16 — **La línea de la oferta para el vendedor, BL-23 y BL-24 (la guarda de emisión)** (2026-09-01)
+
+> Implementa **API_CONTRACT §11 / §6 / §M5** (v1.51.15 y v1.51.16) sobre **ARCHITECTURE §4.39h paso
+> 7-bis + (h.1)**, §4.39a y §4.39t. **CERO DDL, CERO endpoints nuevos, CERO diales.** Un código de
+> error nuevo (`OFFER_PROJECTION_INCOMPLETE`).
+
+### 0.33.1 Lo que cerró este pase
+
+| # | Qué | Dónde |
+|---|---|---|
+| §11 | `offerDecision`, `offeredPriceCents`, `condition` en la línea de **cliente** | `buylist.service.ts` `itemDTO` |
+| BL-23(1) | El path del CTA → `/{locale}/buylist/requests/{id}` | `buylist-mail.templates.ts` `buylistPortalUrl` |
+| BL-23(2) | `offer.terms.rule` — la prosa del descuento con montos interpolados | `offerTermsCopy` |
+| BL-23(3) | `rejectedReason` — **derivado, cero DDL** | `buylist-reject.constants.ts` `deriveRejectedReason` |
+| BL-23(5) | `offer.guideSentAt` al cliente | `offerPublicDTO` |
+| BL-23(6) | `paidAt`/`speiReference` — **ya viajaban**, no hubo cambio de código | `toAdminSellRequestDTO` (test nuevo que lo fija) |
+| BL-23(4) | `SellItemDTO` / `AdminSellItemDTO` — **los shapes de red no cambian** | ver 0.33.3 |
+| **BL-24** | **Guarda de proyección al emitir** (paso 7-bis) | `adminOffer` + `offerProjectionGaps` |
+
+### 0.33.2 §11 — los tres campos de la línea, y la audiencia se hace cumplir por AUSENCIA
+
+`itemDTO` es **compartido por admin y cliente** (a diferencia de la cabecera, que sí está partida en
+`toAdminSellRequestDTO`/`toCustomerSellRequestDTO`). No lo partí, y no por pereza: **el contrato
+declara la dirección segura**, `AdminSellItemDTO = SellItemDTO & {…}` — *admin AÑADE, cliente no
+resta*. Los cinco admin-only (`offerDerivedPriceCents`, `offerOverrideReason`, `offerPriceBasis`,
+`offerMarketMxnCents`, `offerMarketBracket`) **no se leen de la fila**, luego no pueden escaparse. Es
+**lo contrario de la trampa de `toCustomerSellRequestDTO`**, que hereda por omisión y por eso necesitó
+la resta explícita de `isPayable` (BL-20): aquí un campo interno nuevo tendría que **añadirse a
+propósito** al cuerpo compartido para filtrarse. Hay test de fuga por **ausencia de clave** con las
+cinco columnas **pobladas** en la fila (un test de fuga con la columna vacía no prueba nada).
+
+**`condition` no se renderiza en `itemDTO`: se RECIBE ya renderizada.** §11 pide *«el MISMO string que
+usó el correo»*, y eso no se garantiza con dos literales — se garantiza con una fuente. `offerTermsCopy`
+pasa a tener **tres lectores** (`offer.terms`, el correo y `item.condition`) y el correo **dejó de tener
+su copia local** de `condition` y `consequence`: eran dos strings byte a byte idénticos que coincidían
+**por disciplina**. El texto renderizado no cambió; lo que cambió es que ya **no pueden divergir**. Hay
+guarda de censo que falla si el literal NM vuelve a aparecer dos veces en `src/`.
+
+- Sin `conditionLabel` ⇒ **la clave no existe** (admin, y la lista del cliente, que no lleva oferta).
+- Con label y línea `buy` ⇒ el string. Con label y `skip`/pre-ciclo ⇒ `null`: **poner la condición de
+  compra junto a una carta que NO compramos sería una promesa que no hicimos**, y el correo tampoco la
+  pone.
+
+⚠️ **Bug que salió al hacerlo:** `offerResponse` no cargaba el `locale` del vendedor, así que
+`offerPublicDTO` caía al idioma por defecto ⇒ **la misma oferta se leía en inglés al abrir el portal y
+en español al aceptarla**. Corregido (join de `user.locale` dentro de la tx); hay test de regresión. El
+criterio 161(d) pide *«palabra por palabra»* y un locale distinto cambia la palabra entera.
+
+### 0.33.3 ⚠️⚠️ BL-24 — la guarda de emisión (paso 7-bis)
+
+`assertOfferProjectionComplete` va **DENTRO de la transacción y DESPUÉS de las escrituras**, como
+último gesto antes del commit. Eso no es un detalle de colocación:
+
+- Valida **la fila REAL** que `GET /buylist/requests/:id` leería, no una simulación armada a mano.
+- Al lanzar, **la transacción se deshace entera** ⇒ no se persiste, **`offerSentAt` nunca se sella** y
+  el plazo del vendedor **nunca se congela**. La solicitud se queda `cotizada`, así que la mira la
+  **regla 7 del barrido (NUESTRO plazo)**, no la 1 (el suyo). El correo es post-commit ⇒ **no sale**.
+- **Se proyecta «como si estuviera enviada»** (se fuerzan `offerState:'sent'` y `offerSentAt`, y **nada
+  más**): `offerPublicDTO` devuelve `null` fuera de `sent` por su regla de **visibilidad** (D13/D24),
+  y aquí se pregunta otra cosa — *«cuando esta oferta salga, ¿se podrá mostrar?»*. **Con `202` es donde
+  importa:** §M5 dice por escrito que `authorize` **no revalida**, así que sin esto una oferta
+  inmostrable entraría a la cola y **saldría inmostrable al autorizarla**.
+- **No mira montos ni plazos.** `acceptDeadlineAt` es `null` en el camino `202` **por diseño**, y
+  confundir *«incompleto para MOSTRAR»* con *«incompleto para PAGAR»* convertiría un backstop en una
+  segunda regla de negocio.
+- **`500`, no `422`**, y se **loguea** antes de lanzar: el filtro global **no loguea** las
+  `BusinessException`, y *un backstop que dispara en silencio es un backstop que nadie arregla*.
+
+**La regla se extrajo a `offerProjectionGaps(projected)`, pura y exportada.** Recibe **la proyección
+real** —sigue siendo *la guarda ES la proyección*, no una checklist paralela: no sabe leer la fila— y
+devuelve **los nombres de lo que falta** (`terms.rule`, `lines[<itemId>].offerDecision`, …), que es lo
+que viaja en `details.missing`. Separarla es lo que la vuelve **verificable rama por rama** sin
+fabricar una solicitud imposible: *un candado sin test propio es un candado que alguien borra en el
+siguiente refactor.*
+
+⚠️ **Para QA — dónde ver la guarda funcionando de verdad:** el fixture de `bl21-bl22.spec.ts` tenía un
+doble de `sellRequestItem.updateMany` que devolvía `count: 1` **sin escribir nada**. Al añadir el gate,
+esos dos tests empezaron a dar `500` — **y el que mentía era el doble**. Lo arreglé para que aplique la
+escritura. *Un fixture que no refleja la escritura oculta la guarda que la protege.*
+
+### 0.33.4 BL-23 — las cuatro adiciones
+
+- **`terms.rule`**: `offerTermsCopy(locale, { shippingFeeCents, netCents })`. Los montos son **las
+  mismas constantes** que emite el desglose del DTO, no una segunda lectura de la fila: la prosa dice
+  *«se te depositan X»* y el `AmountBreakdown` dice `netCents`; con dos expresiones, **la pantalla se
+  contradiría sobre una cifra vinculante**. El correo consume `terms.rule` (era la tercera copia). Con
+  esto **la copia del i18n del frontend (DESIGN_SYSTEM §23.5h) queda sin objeto**.
+- **`guideSentAt`**: **no es derivable de `carrier != null`** — §4.39t **conserva** carrier/tracking y
+  **limpia** `guideSentAt`. Test explícito del estado post-corrección: carrier presente, `guideSentAt`
+  null.
+- **`rejectedReason`**: `deriveRejectedReason(row, items)`, **solo en el DETALLE** del cliente, por la
+  misma razón que `expiredReason` (§6, tabla de alcance v1.51.8: pertenece a la ficha de UNA solicitud).
+  ⚠️ **`all_items_rejected` se evalúa PRIMERO** — ver 0.33.6, es la escalada de este pase.
+- **`paidAt`/`speiReference`**: **sin cambio de código**, ya viajaban. Añadí el test que lo fija (y que
+  `paidBy` sigue fuera), porque *un campo que viaja sin test es un campo que el próximo refactor quita*.
+
+### 0.33.5 Tests
+
+`test/buylist.item-offer-block.spec.ts` (**29**) y `test/buylist.bl23-bl24.spec.ts` (**36**). Suite
+completa: **220 suites / 2943 tests**, verde. Actualicé `bl21-bl22.spec.ts` (path del CTA + el fixture
+de arriba).
+
+**Mutación (5 corridas, todas cazadas):** (1) guarda 7-bis a no-op ⇒ 5 fallos; (2) `condition` sin mirar
+`offerDecision` ⇒ 3 fallos; (3) el correo recupera su copia de la prosa ⇒ 1 fallo; (4) la guarda fuera
+de la transacción ⇒ falla el test de *«no se persiste»*; (5) **`all_items_rejected` movida detrás de las
+guardas de nulos ⇒ SOBREVIVIÓ**. Mi test de orden pasaba **por la razón equivocada** (las tres fechas
+existían en el caso que probé). El caso que discrimina es la **cohorte legacy**: todas las cartas
+rechazadas y **nunca hubo oferta** — con la regla abajo, la guarda `offerSentAt == null` devuelve `null`
+y **se pierde la única causa honesta**. Añadido, y ahora la mutación muere.
+
+### 0.33.6 ⚠️ Escaladas al arquitecto (2, ninguna bloqueante)
+
+1. **`all_items_rejected` y el ORDEN de evaluación (BL-23.3).** La tabla de §6 enumera **valores**, no
+   un orden, y el orden **no es libre**: una solicitud que llegó a verificación fue ofertada, aceptada y
+   **enviada**, así que su `closedAt` cae muy **después** del plazo de aceptación. Evaluar las fechas
+   primero le diría *«no respondiste»* a quien respondió y mandó el paquete — la mentira exacta que este
+   campo existe para borrar. **Lo implementé con `all_items_rejected` primero** (la tabla define esa
+   causa **solo** por los ítems, sin mencionar la oferta) y lo señalo por si el arquitecto quiere fijar
+   el orden por escrito.
+2. **Nit de documentación:** la línea `Err:` de `POST /admin/buylist/:id/offer` (§M5) **no lista**
+   `500 OFFER_PROJECTION_INCOMPLETE`, aunque la prosa normativa de v1.51.16 sí lo fija en esa secuencia.
+   Implementé según la prosa. **No toqué el contrato.**
+
+### 0.33.7 Lo que NO entró (y sigue pendiente)
+
+- **Fase 8** (`GET /admin/inventory/pending-publish`, cierre del bypass de `PATCH
+  /admin/inventory/items/:id`, y los **tres disparadores** de publicación automática) — cortada desde el
+  pase anterior, sin tocar.
+- **BL-11** (`addressId` obligatorio en `POST /buylist/requests`) y el `PATCH …/pickup-address` del
+  **cliente** — no son de este pase.
+
+## 0.32 v1.51.4 — **BL-13 (corregir la dirección tras la guía), `awaitingGuide` y BL-15 (el teléfono en la cola)** (2026-09-01)
+
+> Implementa **API_CONTRACT §M5** (`PATCH /admin/buylist/:id/pickup-address`, `awaitingGuide`,
+> `seller.phone`) sobre **ARCHITECTURE §4.39t** y **D12/D31/D36**.
+> **Con esto el ciclo del buylist queda cerrado del lado del operador**: emitir → autorizar/cancelar →
+> aceptar → guía → corregir la guía → confirmar → barrido, con sus cinco correos y sus cuatro colas.
+
+### 0.32.1 Corté, y la **fase 8 va sola** — la razón es concreta
+
+**Este pase trae los tres puntos del ciclo; la fase 8 NO entra.** No es solo tamaño:
+
+1. **Es otro módulo y otras guardas.** `inventory`, con `assertPublishableGuards` +
+   `resolvePublishSalePrice` + `claimListed`, que no toqué en todo este ciclo.
+2. **Cerrar el bypass del `PATCH` individual es BREAKING CHICO sobre un endpoint VIVO**: pasa a
+   devolver `422 ITEM_NOT_PUBLISHABLE` / `422 PRICE_PENDING` donde hoy devuelve `200`. Eso merece su
+   propio pase y su propia superficie de prueba, no la cola de otro.
+3. **⚠️ Y el contrato pide MÁS de lo que parece — esto conviene verlo antes de planificarlo.** §M1
+   no manda solo *«una cola de visibilidad»*: manda **AUTO-PUBLICACIÓN SIN BOTÓN** (criterio 125) e
+   **intentarla en TRES momentos**: (a) al convertir desde M5, (b) al fijar/mover ubicación y
+   (c) **cuando el precio se vuelve resoluble — «barrido de precios u override de M2»**. El (c) vive
+   **fuera de `inventory`**, en el eje de precios. *La cola es la mitad visible; los tres disparadores
+   son la feature.*
+
+### 0.32.2 BL-13 — `PATCH /admin/buylist/:id/pickup-address`
+
+**Por qué no es una comodidad.** Con la guía emitida y un typo **NUESTRO** en la etiqueta, no había
+salida: la cola de guía muerta solo se abre si la solicitud **expira o se cancela**; `offer/cancel`
+**rechaza una `aceptada`**; y la ruta del cliente está cerrada por `guideSentAt IS NULL`. ⇒ **La única
+salida era dejar vencer el plazo de envío** ⇒ `expirada`/`not_shipped` ⇒ el correo de *«aceptaste y el
+paquete no salió»*. **Un error nuestro terminaba imputándole un incumplimiento al vendedor.** *No era
+una comodidad ausente: era un desenlace incorrecto.*
+
+**La guarda, condición por condición:**
+
+| Condición | Por qué |
+|---|---|
+| `closedAt IS NULL` | no se toca una terminal |
+| `shipmentConfirmedAt IS NULL` | el paquete ya viaja: corregir el papel no lo desvía |
+| `sellerShippedDeclaredAt IS NULL` | ⚠️ él dice que **ya lo depositó** ⇒ la etiqueta está **usada** |
+
+⚠️ **La tercera se rechaza a propósito.** Si el vendedor ya depositó, el papel **no está impreso:
+está en manos de una paquetería**. Cambiar la fila **no mueve la caja**, y dejarlo pasar **crearía la
+ilusión de que sí**. Ahí el remedio es humano de verdad —llamar a la paquetería— y **el sistema no
+debe fingir que tiene un botón para eso**. ⚠️ **`guideSentAt` NO es precondición: es justo la ventana
+que esta ruta existe para cubrir.**
+
+**Efectos.** El snapshot **siempre** se re-congela. Si había papel impreso, la solicitud vuelve a un
+estado **que ya existe y ya se vigila**: `aceptada` **sin guía** ⇒ `shipDeadlineAt = null` ⇒ la regla 2
+del barrido **no la ve** ⇒ **no puede expirar por nuestro error**, y aparece en `awaitingGuide`. *La
+corrección no inventa un camino: devuelve la solicitud al punto exacto del que nunca debió salir.*
+**Cero estados nuevos, cero colas nuevas, cero correos.**
+
+⚠️ **`guideCancellationDoneAt = null` REABRE la tarea, y sin esa línea el fallo es invisible:** una
+**segunda** corrección sobre la misma solicitud **no volvería a aparecer en la cola** (el predicado
+exige `doneAt IS NULL`) y **la etiqueta se perdería del P&L en silencio** — esa cola es *«la ÚNICA
+puerta por la que el costo de una etiqueta tirada entra al P&L»*. Tiene test propio, y la mutación que
+borra esas dos líneas lo tumba.
+
+**`carrier`/`trackingNumber` NO se limpian:** son **lo que hay que cancelar**, y la fila de la cola los
+muestra para que el operador sepa **qué** guía matar.
+
+**SEC-A1 aplicado a un dato que no es dinero: nadie ESCRIBE un domicilio, se ELIGE una fila** de la
+libreta del vendedor. *La defensa es la forma del DTO: no hay campo de dirección que manipular.* Y
+**«no existe» y «no es suya» dan la MISMA respuesta** (`422 PICKUP_ADDRESS_NOT_FOUND`): distinguirlas
+convertiría el endpoint en un **oráculo de existencia de direcciones ajenas**.
+
+El **teléfono del snapshot es el del DOMICILIO**, no `User.phone` (que es el nuestro, para llamarle).
+Se parecen y no son el mismo dato. Y **la bitácora recibe solo los `addressId`**, jamás el domicilio:
+*un domicilio en la bitácora es PII que nadie va a purgar*.
+
+**`resolvePickupAddressSnapshot()` queda extraído** para que `POST /buylist/requests` (BL-11, cuando
+llegue) use **el mismo cuerpo** y no una segunda forma del snapshot.
+
+### 0.32.3 `awaitingGuide` (D31) y BL-15 (el teléfono)
+
+**`awaitingGuide`** es un **filtro sobre la cola que ya existe**, no una cola nueva (P-5 prohíbe que el
+front lo derive paginando): `status='aceptada' ∧ guideSentAt IS NULL`, orden **`acceptedAt` asc**
+(es cola de trabajo). Se intersecta con `status` por `AND` —**sin reasignar `where.status`**, que
+haría desaparecer en silencio el filtro que pidió el usuario— y usa el **parsing tri-estado**
+ratificado. Existe porque una `aceptada` sin guía **no corre reloj y no expira nunca** —correcto, la
+etiqueta depende de nosotros— **pero sin esta vista el pendiente es invisible**.
+
+**BL-15:** `sellerRef()` emite `phone` y los ocho `select` de vendedor lo piden. Un cuerpo, muchos
+lectores — así la cola principal, el detalle, la mesa y las tres colas lo heredan.
+⚠️ **PII:** en claro **tras el guard de rol**, como el correo (§4.18d) — **no es la CLABE**, cuyo
+régimen no cambia. ⛔ **Y NO entra al buscador `q`**: buscar por teléfono convertiría el listado en un
+**oráculo de enumeración** (quien probara números sabría cuáles tienen cuenta aquí). **Hay guard de
+test**, y la mutación que añade `phone` al `OR` lo tumba.
+
+### 0.32.4 Tests
+
+`test/buylist.pickup-address.spec.ts` (**NUEVO, 16**) + tres fixtures actualizados (`AdminSellerRef`
+cambió de forma).
+
+**Prueba de mutación, tres a la vez:** (1) que la corrección **no reabra** la tarea, (2) que se permita
+corregir **tras el «ya lo mandé»**, (3) que `q` **gane el teléfono** ⇒ **3 tests fallan**, uno por
+cada una. Revertidas.
+
+`npm test` **218 suites / 2878 tests en verde** · `npm run typecheck` limpio · `npm run lint` con las
+**2 warnings preexistentes**.
+
+### 0.32.5 ⚠️ Un hecho de estado que conviene tener a la vista
+
+**Hoy NADIE escribe `pickupAddressSnapshot` salvo este endpoint nuevo.** `POST /buylist/requests` gana
+`addressId` obligatorio con **BL-11**, que es **FRONTEND PRIMERO** y sigue abierta, y la ruta de
+cliente `PATCH /buylist/requests/:id/pickup-address` (§4.39q.4) **tampoco está implementada**.
+
+Consecuencia verificable: **`POST /admin/buylist/:id/offer` responde `422 PICKUP_ADDRESS_MISSING` en
+toda solicitud existente**, porque ninguna tiene snapshot. **No es un defecto de este pase** —la guarda
+es correcta y deliberada (D36: *«la respuesta correcta a un dato que falta es pedirlo, no
+adivinarlo»*)— pero significa que **el ciclo no se puede recorrer de punta a punta hasta que BL-11
+aterrice**, y que **este endpoint es, hoy, la única vía para desbloquear una solicitud**. Lo señalo
+para que no se descubra al probar.
+
+### 0.32.6 Lo que queda
+
+**Fase 8** (cola «listas para publicar» + cerrar el bypass del `PATCH` individual + **los tres
+disparadores de auto-publicación**), **BL-11** (frontend) y la ruta de cliente de `pickup-address`.
+
+**Zona compartida tocada:** `backend/src/common/error-codes.ts` (`PICKUP_ADDRESS_NOT_FOUND`,
+`PICKUP_ADDRESS_LOCKED`). Aditiva.
+
+---
+
+## 0.31 v1.51.13/14 — **BL-21 (la cadena del CTA) y BL-22 (una fila mala no tumba una cola)** + las dos colas que faltaban (2026-09-01)
+
+> Implementa **ARCHITECTURE §4.39n.1** (BL-21), **§4.39k.1** (BL-22) y **API_CONTRACT §M5**
+> (`GET …/offers/pending-authorization`, `GET …/live-sellers`).
+>
+> ### Corté otra vez, y por aquí
+> **Queda fuera `PATCH /admin/buylist/:id/pickup-address`** (BL-13). Es la pieza que yo mismo señalé
+> como *«arrastra su propia guarda»*: `409 PICKUP_ADDRESS_LOCKED` con **tres** condiciones, un
+> `422 PICKUP_ADDRESS_NOT_FOUND`, y la interacción con la guía muerta —**reabre** la tarea poniendo
+> `guideCancellationDoneAt = null`, sin la cual una segunda corrección **pierde una etiqueta del P&L
+> en silencio**—. Es una superficie de prueba propia. **Las dos colas SÍ entran** porque `caducityAt`
+> **nace con la regla** de BL-22: implementarla ahora es exactamente lo que evita escribir el defecto
+> una tercera vez.
+
+### 0.31.1 BL-21 — la URL del CTA, en un solo sitio
+
+**Forma canónica: `{origen}/{locale}/buylist/{sellRequestId}`**, en `buylistPortalUrl()`
+(`buylist-mail.templates.ts`). Los **cinco** call-sites —los tres del servicio y los tres del
+barrido— pasan por ella.
+
+**Vive en el archivo de plantillas y no en cada servicio**, y esa es la parte que importa: el
+`{locale}` sale del **mismo `normalizeLocale`** que eligió el idioma del cuerpo, tres líneas más
+arriba. *Un correo tiene UN idioma, y el cuerpo y el botón lo comparten.* Construirlos por vías
+distintas es exactamente cómo se manda **un correo en inglés cuyo botón abre una pantalla en
+español** — y sería en el correo donde el vendedor **acepta una oferta vinculante**.
+
+**Las tres cosas que estaban mal, y eran independientes:**
+
+| # | Defecto | Consecuencia |
+|---|---|---|
+| 1 | sin prefijo de idioma (el front corre con `localePrefix: 'always'`) | el vendedor que eligió inglés **aterriza en español** |
+| 2 | path con forma de **API**, no de pantalla | **404** |
+| 3 | **era el único enlace de correo del proyecto fuera del molde** | no fue un olvido puntual: **se escribió fuera de un patrón que ya existía** |
+
+**Segmento, no query param:** el enlace de invitado usa `?token=` **porque el token es un secreto de
+URL**; aquí el `sellRequestId` **no lo es** (el portal está autenticado y el vendedor ya ve ese id),
+así que *la razón que obligó al query param allí no existe* y manda la regla normal.
+
+**El origen es un origen, no una lista.** Sale de `APP_PUBLIC_URL` (variable **dedicada**), se
+normaliza la barra final, y **no** de la allow-list de CORS —que en producción va separada por comas y
+produciría `https://a,https://b/es/buylist/...`: un href roto en un correo de dinero—. *(Los otros dos
+enlaces del proyecto derivan su origen de `APP_BASE_URL.split(',')[0]`. Funciona, pero **el orden de
+una lista de CORS no significa nada**: reordenarla movería en silencio el origen de todos los correos.
+Footgun heredado, registrado en BL-21; **no se migra aquí**.)*
+
+**Sin origen ⇒ `undefined`, y el correo SALE IGUAL** con instrucción de texto. Ratificado: el envío
+**nunca se bloquea por el CTA** y **jamás se emite un href a medias**.
+
+### 0.31.2 BL-22 — la fila se degrada, la cola se pinta
+
+`safeDerive()` captura **por fila**: el derivado sale `null` con **flag explícito** y la colección se
+devuelve **completa**. **`business-days` sigue lanzando** — lo que se norma es **el llamador**.
+
+Sin esto, **una sola fila** con una fecha fuera de cobertura devolvía `500` **en toda la cola**, y lo
+que desaparecía no era un cálculo sino **una cola de trabajo entera**. Un `500` de back-office se lee
+como *«no hay nada pendiente»* o *«hoy está rota»*, y en ninguno de los dos casos alguien va a buscar
+una fila con una fecha rara: es *el fallo que no se ve*.
+
+**Las tres superficies, las tres con la captura puesta:**
+
+| Superficie | Derivado | Bandera |
+|---|---|---|
+| `GET …/pending-shipment-confirmation` | `businessDaysWaiting` | `businessDaysUnavailable` |
+| `AdminBuylistDTO.offerIssueDeadlineAt` (cola de M5) | caducidad de emisión | `offerIssueDeadlineUnavailable` |
+| `PendingOfferAuthorizationRowDTO.caducityAt` | la misma fórmula | `caducityUnavailable` |
+
+⚠️ **`alert` falla hacia `true`.** *«Llevo demasiado esperando»* y *«no puedo saber cuánto llevo»*
+piden **la misma acción humana**; y un `false` **sacaría la fila del filtro `?onlyAlerts=true`**, la
+única vista donde alguien la encontraría — **la fila más rara sería la más escondida**. Contraste con
+la mesa, que falla hacia `"none"`: allí el veredicto **aconseja un acto**. *Donde el flag solo hace
+visible, se falla hacia visible; donde condiciona un acto, hacia «no sé».*
+
+⚠️ **Por qué `offerIssueDeadlineAt` necesita bandera aunque ya sea nullable:** su `null` **ya
+significa** «no es `cotizada`». Sin bandera propia, un fallo de calendario se leería como *«esta fila
+no caduca»* — el mismo cero-que-miente de la mesa, con otra forma.
+
+**⚠️ Y la otra mitad, que es la que evita el sobre-arreglo: LAS ESCRITURAS NO DEGRADAN.** Al congelar
+`offerAcceptDeadlineAt` (al ofertar/autorizar) o `shipDeadlineAt` (al capturar la guía), el error
+**se propaga y la petición falla**: *si no podemos calcular la fecha límite, no emitimos la oferta.*
+**Se degrada lo que se MUESTRA, nunca lo que se COMPROMETE.** Hay dos tests que lo fijan con el reloj
+en 2019, y **la mutación que aplica el `try/catch` ahí «por consistencia» los rompe**.
+
+**La misma fórmula en los dos sitios que la muestran** (`caducityOf`): *una fecha derivada de dos
+maneras distintas es dos fechas*. Y anclada en `offerIssueClockStartedAt ?? createdAt`, porque cancelar
+una oferta repone los siete días: una cola con la fecha vieja **pintaría como perdidas justo las filas
+que acabamos de re-encolar por un error nuestro**.
+
+### 0.31.3 Las dos colas
+
+- **`GET /admin/buylist/offers/pending-authorization`** — con `caducityAt` **naciendo con la
+  degradación puesta**. Sus filas **se mueren solas** (la `cotizada` que sostiene la oferta caduca y
+  el barrido anula la oferta ⇒ autorizar después da `409`), así que la fecha no es decoración:
+  *una cola ordenada por antigüedad sin la fecha en que cada fila muere se trabaja a ciegas*.
+  `excessCents` viaja **calculado**: la UI no hace aritmética de dinero.
+- **`GET /admin/buylist/live-sellers`** (D12) — *«la lista de gente a la que le debemos una
+  respuesta»*. **«Viva» = todo lo que NO es terminal, POR EXCLUSIÓN** (criterio 129): un estado nuevo
+  del enum entra **solo**. En **una query agrupada** (P-5). **El teléfono viaja en la fila** para
+  poder llamar sin abrir la ficha — mismo régimen PII que el correo: back-office por rol, sin
+  enmascarado, y **prohibido en toda superficie pública**.
+
+### 0.31.4 Tests
+
+`test/buylist.bl21-bl22.spec.ts` (**NUEVO, 18**) + cuatro fixtures actualizados (`adminList` ahora lee
+un dial, así que un `{} as SettingsService` ya no basta).
+
+**Prueba de mutación, tres a la vez:** (1) el CTA pierde el locale —el defecto original—, (2) `alert`
+falla hacia `false`, (3) la escritura degrada «por consistencia» ⇒ **7 tests fallan**. Revertidas. La
+tercera importa especialmente: es el **sobre-arreglo** que la norma prohíbe explícitamente, y sin test
+propio nadie lo distinguiría de una mejora.
+
+`npm test` **217 suites / 2862 tests en verde** · `npm run typecheck` limpio · `npm run lint` con las
+**2 warnings preexistentes**.
+
+### 0.31.5 Lo que queda del ciclo
+
+`PATCH /admin/buylist/:id/pickup-address` (**BL-13**) y el filtro `awaitingGuide` de la cola de M5.
+**BL-15** (`seller.phone` en `GET /admin/buylist`) sigue abierta y **no entra aquí**: `live-sellers` ya
+lleva el teléfono, pero la cola principal no — son dos superficies distintas.
+
+---
+
+## 0.30 v1.51 — **El barrido de SIETE reglas, los correos 2/3/4 y «declinar ahora»** (2026-09-01)
+
+> Implementa **ARCHITECTURE §4.39j** (las siete reglas), **§4.39n** (correos 2, 3 y 4) y
+> **API_CONTRACT §M5** (`POST /admin/buylist/:id/decline`, D39).
+>
+> ### ⚠️ Corté el pase, y digo por dónde
+> El orquestador pidió **cuatro** cosas. Entran **tres** —barrido + correos + `decline`— porque son
+> **una sola unidad**: el barrido no existe sin sus correos, y `decline` es **el segundo productor del
+> correo 4** (misma plantilla, mismo texto). **Queda fuera:** `PATCH …/pickup-address` (BL-13) y las
+> colas de autorización / `live-sellers`. Ninguna de las tres piezas de aquí depende de ellas, y
+> `pickup-address` arrastra su propia guarda (`PICKUP_ADDRESS_LOCKED`) y su interacción con la guía
+> muerta — es un pase con su propia superficie de prueba. *Dos pases verdes antes que uno a medias.*
+
+### 0.30.1 El barrido: siete reglas, **un job, un cron**
+
+`jobs/buylist-sweep.service.ts` reescrito. **NO es un job nuevo:** mismo `buylist-sweep`, mismo cron
+`'0 8 * * *'`, así que el `toEqual` **exhaustivo** de `test/scheduler.spec.ts` **no se toca**. *Un
+barrido más en el mismo pase es una query más, no un servicio más — y partirlo obligaría a razonar
+sobre dos relojes.*
+
+| # | Regla | Efecto |
+|---|---|---|
+| 1 | `ofertada` con el plazo de aceptación vencido | `rechazada` + **correo 3a** + tarea de guía si la hubiera |
+| 2 | `aceptada` vencida **y sin ninguna de las dos señales** | `expirada`/`not_shipped` + **correo 3b** + **tarea «cancelar guía no usada»** |
+| 3 | `ofertada` a **1 día hábil** de vencer | **correo 2a**, **UNA vez** |
+| 4 | `aceptada` a **1 día hábil**, sin señal del vendedor | **correo 2b**, **UNA vez** |
+| 5 | Ajuste sin responder a 7 días | `rechazada` (legacy, **sin cambio**, sin correo) |
+| 6 | Abandono a 30 días — **RE-ANCLADO en `receivedAt`** | `abandonada` |
+| 7 | `cotizada` que **nadie ofertó** en 7 días hábiles | `expirada`/`no_offer` + **correo 4** + **anula la oferta pendiente** |
+
+**Aquí se saldan los 7/30 inline que quedaban:** el set del ajuste vivo sale de
+`SELL_REQUEST_LIVE_ADJUSTMENT_STATES` y ya no hay literales de estado en el job.
+
+**La regla 7 cierra un hueco humano, no técnico.** Al re-anclar la 6 en `receivedAt`, **nada cerraba
+ya una `cotizada`**: el cliente podía esperar **indefinidamente** una respuesta que nadie le debía
+formalmente. Una cotización no compromete dinero — **el daño era humano**. Y lo que hace legítima la
+regla es que **cierra con una carta que dice explícitamente que no procederemos**, no con un archivado
+silencioso.
+
+**No contradice §P.13** aunque lo parezca: la regla 2 **le quita algo** a alguien que cumplió; la 7
+**no le quita nada** —nunca hubo oferta— y **lo libera de una espera abierta**. Además, el plazo que
+vence aquí **es nuestro** (por eso el dial se llama `buylistOfferIssueDeadlineBusinessDays`).
+
+**Ancla D38:** `offerIssueClockStartedAt ?? createdAt`. Cancelar una oferta enviada repone los siete
+días **íntegros** — *el vendedor no paga por una corrección nuestra*.
+
+**Anula la oferta `pending_authorization` en la MISMA escritura.** Sin eso, el súper-admin autorizaría
+después **sobre una solicitud terminal**, mandando un correo vinculante a alguien a quien acabamos de
+escribirle que no procederíamos.
+
+### 0.30.2 El candado de §P.13, y por qué la regla 2 no basta con la fecha
+
+La regla 2 lleva **`sellerShippedDeclaredAt: null` ∧ `shipmentConfirmedAt: null` en el `where`**. Es
+el candado que impide expirarle la venta a quien sí cumplió: *un plazo del vendedor solo puede vencer
+por algo que dependa del vendedor*. Y una `aceptada` **sin guía** tiene `shipDeadlineAt = null` ⇒ **no
+entra al predicado** ⇒ no expira: la etiqueta depende de **nosotros**.
+
+### 0.30.3 D23 — el recordatorio sale **una** vez, y hay DOS candados
+
+El barrido corre a diario y la ventana de «falta 1 día hábil» dura **más de una corrida**:
+
+| Candado | Qué cubre |
+|---|---|
+| `…ReminderSentAt: null` **en el `where` de la consulta** | el caso **secuencial**: la corrida de mañana ya no ve la fila |
+| `updateMany` + **`count === 1`** sobre ese mismo campo | el caso **concurrente**: dos corridas leen la fila sin sellar y **solo una** puede mandar el correo |
+
+⚠️ **Escribí el test del primero y el segundo sobrevivió a la mutación.** Al quitar el
+`if (count !== 1) continue` **nada falló**, porque el filtro de la consulta ya tapaba el caso
+secuencial. Añadí un test que simula **perder la carrera** (el sello lo gana otro ⇒ `count = 0`) y
+asevera que **no se manda el correo**; con él, la mutación sí cae. *Un candado sin test propio es un
+candado que alguien borra en el siguiente refactor.*
+
+**El contenido del recordatorio tiene su propia regla, y es la que más fácil se rompe:** repite el
+neto **junto a la condición NM**. La tentación es ser «ligero» y quedarse con la cifra — y un
+recordatorio que repite el monto **sin** decir *«siempre que lleguen en Near Mint»* **degrada la
+condición a letra chica por omisión**. Y **no re-lista el desglose**: un recordatorio que repite la
+tabla **se lee como una oferta nueva** y arruina la propiedad más valiosa del ciclo (hay **una** oferta
+y **no se edita**).
+
+### 0.30.4 Los correos 2, 3 y 4
+
+**Best-effort POST-COMMIT** en los tres: su fallo se loggea y **no revierte la transición** — lo
+contrario dejaría filas colgadas de un servicio externo. Test con `callOrder` que asevera el orden, y
+otro que hace fallar el envío y verifica que la expiración quedó escrita.
+**`escapeHtml` en todo valor dinámico**, fechas en `America/Mexico_City`, `normalizeLocale`, y
+**minimización**: jamás CLABE ni terceros.
+
+- **Correo 3 (expiración):** dos variantes, **sin montos ni siquiera en 3b** — ahí el monto ya no se
+  va a pagar y **mencionarlo solo duele**.
+- **⚠️ Correo 4 («no procederemos»):** **no puede decir «se te venció»** — nada expiró, **la cerramos
+  nosotros**. Además tiene prohibido explicar el porqué, mencionar **cualquier monto** y referirse al
+  **tiempo transcurrido** (delataría **por qué camino** se cerró, y es *un correo por hecho, no por
+  camino*). Hay un test que asevera las cuatro prohibiciones por lo negativo.
+
+**Un productor por correo, elegido en el call-site.** Nada de `switch (status)`: `expiredReason` es
+`null` en dos de los tres productores del correo 3, así que ramificar sobre datos de la fila
+**elegiría mal**.
+
+### 0.30.5 `POST /admin/buylist/:id/decline` (D39)
+
+**No es un desenlace nuevo: es el de la regla 7, sin la espera.** Mismo `status`, mismo
+`expiredReason`, **mismo correo 4 con el mismo texto**. *Toda la diferencia está en `declinedBy`*:
+poblado ⇒ lo decidió una persona; `null` ⇒ lo cerró el cron.
+
+- **No se puede declinar una `ofertada`:** hay un trato **vinculante** en la bandeja del vendedor, y
+  el correo 4 afirma que **nunca ofertamos**. La vía es `offer/cancel` (correo 5, reloj repuesto) y
+  declinar **después**. *Dos puertas, dos hechos.*
+- **Sí se declina con una `pending_authorization` viva**, que se **anula en la misma transacción**.
+- **Sin `200` idempotente:** un segundo `decline` ⇒ `409`. Este verbo **manda un correo a una
+  persona**, y un `200` silencioso escondería justo lo que hay que ver.
+- ⚠️ **El `reason` NO llega al servicio**, y es deliberado: va al `AuditLog` desde el controller y no
+  tiene columna. Recibirlo sin usarlo sugeriría que hace algo — y lo único que un motivo puede hacer
+  aquí es **acabar filtrándose al correo**, que lo tiene prohibido. Hay test sobre la **aridad** de la
+  función: es la versión estructural de la prohibición. *(De paso, eso quitó la única warning de lint
+  que este pase había introducido.)*
+
+### 0.30.6 Tests
+
+`test/buylist-sweep.seven-rules.spec.ts` (**NUEVO, 24**), +5 en `test/buylist.offer-cycle.spec.ts`
+(`decline`), y `test/buylist-sweep.closedat.spec.ts` **reescrito** sin perder su tesis (SEC-D2: toda
+terminal sella `closedAt`) — su mock era **posicional** (`mockResolvedValueOnce` ×2) y el barrido pasó
+de dos queries a seis; ahora responde **por regla**, no por orden de llamada.
+
+El fake **evalúa el `where`**: un mock que devolviera todas las filas dejaría pasar los tests aunque
+los candados (`sellerShippedDeclaredAt: null`, el sello del recordatorio) no existieran.
+
+**Prueba de mutación, tres a la vez:** quitar el sello del recordatorio, quitar el candado del «ya lo
+mandé» y quitar la apertura de la tarea de guía ⇒ **caen los tests correspondientes** (el primero,
+solo tras añadir el test de concurrencia — ver §0.30.3).
+
+`npm test` **216 suites / 2844 tests en verde** · `npm run typecheck` limpio · `npm run lint` con las
+**2 warnings preexistentes** y ninguna nueva.
+
+### 0.30.7 Lo que queda
+
+`PATCH /admin/buylist/:id/pickup-address` (BL-13, con `PICKUP_ADDRESS_LOCKED` y su interacción con la
+guía muerta), `GET /admin/buylist/offers/pending-authorization`, `GET /admin/buylist/live-sellers` y
+el filtro `awaitingGuide`. **Ninguna es dependencia de lo de este pase.**
+
+**Zona compartida tocada:** `backend/src/common/error-codes.ts` (`DECLINE_NOT_ALLOWED`). Aditiva.
+
+---
+
+## 0.29 v1.51.11 — **BL-20** y el ciclo cerrado hasta `en_transito` (guía, confirmación y el «ya lo mandé») (2026-09-01)
+
+> Implementa **API_CONTRACT v1.51.11 §B** (BL-20) y **§M5/§6** (`POST …/guide`,
+> `POST …/confirm-shipment`, `POST /buylist/requests/:id/declare-shipped`, las dos colas y
+> `guide/cancellation-done`), sobre **ARCHITECTURE §4.39** (D19/D20/D21/D22, criterios 114/122/123/
+> 137/138/156).
+
+### 0.29.1 BL-20 — `isPayable` en las cuatro proyecciones, y la trampa que lo acompaña
+
+**Son DOS cambios, no uno**, y el primero sin el segundo **convierte un arreglo de tipos en una fuga
+de estado interno**:
+
+| # | Dónde | Qué |
+|---|---|---|
+| 1 | `toAdminSellRequestDTO` (proyección **COMPARTIDA**) | **añade** `isPayable` ⇒ `receive`, `verify`, `reject` y `pay-spei` lo heredan, y **ninguna mutación futura puede olvidarlo** |
+| 2 | `toCustomerSellRequestDTO` | **resta** `isPayable` ⇒ pasa de restar **dos** campos a **TRES** (`closedAt`, `paidBy`, `isPayable`) |
+
+**Por qué el segundo es obligatorio:** la proyección de cliente **hereda por omisión** —se construye
+como «la de admin **menos N**»—, así que **todo campo nuevo de la de admin se publica al vendedor
+salvo que se reste**. Es lo contrario de la lista blanca de arriba y es deliberado (el cliente ve
+*casi* lo mismo), pero significa que **añadir un campo admin-only son dos cambios**. Quedó escrito en
+el docblock de esa función, para el próximo que añada uno.
+
+**`verify` era el peor sitio posible para omitirlo:** es **la transición que vuelve `isPayable`
+verdadero** (sella `verifiedAt`), así que quien escribiera `if (res.isPayable)` justo después obtenía
+un **`false` silencioso en superficie de dinero**. Hay test que lo recorre: antes `false`, después
+`true`.
+
+**El test de la fuga asevera por AUSENCIA DE CLAVE**, no por valor falsy: un `isPayable: false`
+filtrado seguiría siendo estado interno del pipeline viajando al vendedor.
+
+### 0.29.2 La separación que arregla un bug real (D20 · §P.13)
+
+El plazo mide **una acción del vendedor** pero nos enteramos por **una acción nuestra**. Sin nada en
+medio: el vendedor deposita el **día 3**, el operador confirma el **día 4**, y el barrido ya expiró
+una solicitud **en la que el vendedor cumplió** — se queda sin venta **por una latencia nuestra**, y
+encima ya gastamos la etiqueta. Por eso son **dos actos**:
+
+| Acto | Estado | Reloj | ¿«en camino»? |
+|---|---|---|---|
+| `POST /buylist/requests/:id/declare-shipped` (vendedor) | **no lo mueve** — sigue `aceptada` | **lo DETIENE** | **no** |
+| `POST /admin/buylist/:id/confirm-shipment` (operador) | **`en_transito`** | — | **sí, aquí empieza** |
+
+*El barrido solo expira si no hubo **ninguna** de las dos.* El «ya lo mandé» es **su palabra, todavía
+sin confirmar**: el conteo de «en camino» se queda **corto, no inflado** — el lado seguro del error—,
+y la **alerta P17** existe para que alguien lo corrija pronto.
+
+**Idempotencia del «ya lo mandé»:** `200` con el timestamp ya sellado y **sin re-fijarlo** —
+re-fijarlo le regalaría al vendedor **un reloj infinito**. La guarda del motor lleva
+`sellerShippedDeclaredAt: null`, así que dos llamadas concurrentes tampoco pueden re-sellarlo. A
+diferencia de `respond`, aquí el `200` idempotente **sí** es correcto: no mueve dinero y el hecho que
+declara es puntual.
+
+**La cola que la separación crea:** `GET /admin/buylist/pending-shipment-confirmation` — las
+solicitudes con el reloj detenido y sin confirmar. Sin ella, el pendiente **nuestro** sería invisible.
+`alert` es **derivado** (timestamp + dial), **no expira, no cancela, no mueve el estado y no suma a
+«en camino»**: *el vendedor ya cumplió; el remedio es hacerlo visible, no castigarlo.*
+
+### 0.29.3 La guía (D21) y la etiqueta muerta (D22)
+
+**D21 — la etiqueta se compra AL ACEPTAR, no al ofertar.** Precondición `status='aceptada'`; sobre una
+`ofertada` ⇒ `409 GUIDE_NOT_ALLOWED`. *Ofertar a diez personas y comprar diez guías por adelantado
+sería tirar el dinero de las que digan que no.* **El reloj arranca con la ENTREGA DE LA GUÍA**
+(`shipDeadlineAt = guideSentAt + 3 días hábiles`), no con la aceptación: sería injusto correrle el
+plazo mientras espera una etiqueta que depende de nosotros.
+
+**Un solo timestamp de guía** (`guideSentAt`): capturar **es** entregar. Dos campos
+(`emitida`/`entregada`) invitarían a que uno se quede sin poblar y **el reloj arrancara en el momento
+equivocado**.
+
+**Re-captura:** corrige `carrier`/`trackingNumber` y **NO mueve la fecha ya comunicada** (criterio
+157) — salvo que `shipDeadlineAt` esté en `null`, en cuyo caso **sí congela**. Sin ese matiz, la guía
+re-capturada tras una corrección de dirección dejaría el plazo en `null` **para siempre**: una
+solicitud invisible para el reloj **y** para la cola `awaitingGuide`. *Un plazo que no arranca es tan
+defectuoso como uno que arranca mal.*
+
+**`409 GUIDE_CANCELLATION_PENDING`:** con una cancelación abierta, capturar la etiqueta nueva
+**pisaría el número de la vieja** y la cola pediría cancelar *la que ya es la buena*. **Una etiqueta
+viva por solicitud.**
+
+**D22 — las dos mitades, y las dos van:** la tarea se **encola** (ya lo hacía `offer/cancel`) **y
+alguien avisa** (`GET /admin/buylist/guides/pending-cancellation`, con el número de guía a la vista —
+sin él la fila no es trabajable). **No desaparece sola** (criterio 139): sale únicamente por
+`POST …/guide/cancellation-done`, que es **el único momento en que se conoce el costo final** de la
+etiqueta (`0` si la reembolsaron). Sin ese campo, *el «dinero tirado que nadie ve» nunca entraría al
+P&L*.
+
+**⚠️ FRONTERA money-safe, en las dos ramas:** `guideActualCostCents` **NO ENTRA JAMÁS en
+`payoutNetCents`**. Al vendedor se le descuenta **la tarifa congelada que aceptó**, cueste lo que
+cueste la etiqueta real (D25/criterio 157). Hay test que captura una etiqueta de $450 y verifica que
+`offerShippingFeeCents`, `offerNetCents` y `payoutNetCents` **no se mueven**.
+
+**`guideSentAt` NO es precondición de `confirm-shipment`:** si el paquete llegó sin guía capturada,
+negar la confirmación **no devuelve el paquete**. El caso queda **anotado** (`guideMissing: true` en
+la bitácora): **fail-visible, no fail-blocking**.
+
+### 0.29.4 Tests
+
+`test/buylist.guide-transit.spec.ts` (**NUEVO, 30**) + censo del sitio 10 actualizado.
+
+**El que motiva todo el diseño:** vendedor que declara el **día 3** y operador que confirma el **día
+4** ⇒ la solicitud **sigue viva** (`closedAt` nulo, estado intacto hasta la confirmación). Y: **no se
+entra a `en_transito`** desde `cotizada`/`ofertada`/`recibida`/`en_transito`, ni por la guía ni por el
+«ya lo mandé» — solo por la confirmación del operador.
+
+**Prueba de mutación, tres a la vez:** (1) quitar la resta de `isPayable` en la proyección de cliente
+—la fuga de BL-20—, (2) que `declare-shipped` mueva a `en_transito`, (3) que `confirm-shipment` acepte
+cualquier estado ⇒ **8 tests fallan**. Revertidas.
+
+`npm test` **215 suites / 2815 tests en verde** · `npm run typecheck` limpio · `npm run lint` con las
+**2 warnings preexistentes**.
+
+### 0.29.5 Un límite que descubrí implementando, y NO resolví por mi cuenta
+
+**`businessDaysSince` LANZA fuera de los años que cubre `MX_HOLIDAYS` (2026-2030)**, y la cola «por
+confirmar envío» lo llama **por fila**. Consecuencia: una sola fila con `sellerShippedDeclaredAt`
+fuera de cobertura **tumba la cola entera** con un `500`.
+
+**Lo dejé lanzando a propósito y lo señalo en vez de degradarlo**, por dos razones: (a) `business-days`
+lanza **por doctrina** —degradar a «no hay festivos» adelantaría vencimientos y expiraría ofertas de
+gente que sí cumplió—, y (b) inventarme aquí una degradación sería crear política que el contrato no
+tiene. **Pero el modo de fallo no es el mismo que en un plazo:** aquí lo que desaparece es **una cola
+de trabajo entera**, que es justamente el fallo que §4.39c(c.11) acaba de llamar *«el que no se ve»*.
+
+**En la práctica hoy no se puede disparar** (`sellerShippedDeclaredAt` solo lo escribe
+`declare-shipped`, con `now()`), **pero se dispara solo en 2031** si nadie extiende la tabla. **Para
+el arquitecto:** ¿degradación por fila (`alert: true` + días desconocidos) o `500` de la cola? **No lo
+resuelvo yo.** Y **para devops:** extender `MX_HOLIDAYS` es una tarea con **fecha**, no «cuando se
+pueda».
+
+**Zona compartida tocada:** `backend/src/common/error-codes.ts` (cuatro códigos del contrato).
+Aditiva.
+
+---
+
+## 0.28 v1.51 — **EL CORAZÓN DEL CICLO: la oferta** (emitir, autorizar, cancelar, responder) + **BL-16** (2026-09-01)
+
+> Implementa **API_CONTRACT §M5** (`POST …/offer`, `…/offer/authorize`, `…/offer/cancel`) y **§6**
+> (`POST /buylist/requests/:id/offer-response`), sobre **ARCHITECTURE §4.39h** (la secuencia),
+> **§4.39n** (correos 1 y 5), **§4.39g.1** (BL-16) y **§4.39i.5** (la cláusula de acoplamiento).
+> Es literalmente lo que pidió el humano: *«ahí mandamos el correo al cliente diciendo que estamos
+> dispuestos a comprar y a cuánto»*.
+
+### 0.28.1 `POST /admin/buylist/:id/offer` — la secuencia, en el orden normativo
+
+```
+1     precondición: cotizada ∧ offerState ∈ {null, cancelled}    → 409 OFFER_NOT_ALLOWED / OFFER_ALREADY_SENT
+1-bis PICKUP_ADDRESS_MISSING          ← lo más barato, y hace inútil todo lo demás
+2     OFFER_LINES_MISMATCH            ← las líneas cubren EXACTAMENTE los ítems
+3     precio por línea (decideBuyLine) → OFFER_LINE_NOT_PRICEABLE / OVERRIDE_REASON_REQUIRED
+4-5   bruto → envío CONGELADO → neto = max(0, bruto − tarifa)
+6     OFFER_NET_BELOW_MINIMUM         ← ⚠️ ANTES del tope: nada inofertable llega a la cola
+7     tope del operador               → 200 (sale, con correo) | 202 (espera, SIN correo)
+```
+
+**El precio sale de `decideBuyLine`, no de una cuarta reimplementación.** Se extrajo
+`deriveOfferLinesBatch()` —el seam en lote que ya usaba la mesa— y **ahora lo comparten la mesa y la
+emisión**: la mesa **previsualiza exactamente el número que la emisión congela**. Si leyeran por
+caminos distintos, el operador decidiría con una cifra y firmaría otra.
+
+**Dos desenlaces, y el código HTTP los distingue.** El `202` se fija con
+`@Res({ passthrough: true })` porque **depende del resultado, no de la ruta**: un `@HttpCode`
+estático mentiría en la mitad de los casos. Con `202` la solicitud **sigue `cotizada`** y **no sale
+ningún correo** — una oferta que espera autorización **no existe para el vendedor**; escribirle le
+filtraría la existencia y el orden de magnitud de nuestro tope interno.
+
+**Money-safe, punto por punto:**
+- **`offerDecision='buy' ⇒ offeredPriceCents IS NOT NULL`, en la MISMA transacción.** Es la cláusula
+  de acoplamiento de §4.39i.5: `convertToInventory` ya lee `offeredPriceCents ?? …`, así que sin esta
+  escritura la conversión capitalizaría el **precio COTIZADO** de una pieza comprada a otro precio,
+  **sin fallar y sin avisar**, y el margen de M7 saldría inflado. Hay test que recorre las líneas.
+- **El neto se topa en CERO** (invariante 1, criterio 152). `max(0, …)` no es una defensa: es **la
+  definición**. Bruto $100 con tarifa $180 ⇒ **MX$0**, jamás −$80, jamás un cargo o un adeudo.
+- **La tarifa se CONGELA aquí** (D25) en `offerShippingFeeCents`: no se relee el dial al pagar.
+- **El override no es puerta trasera al tope** (criterio 148c): el tope mira el bruto **resultante**.
+- **Los tres bordes inclusivos** (mínimo, tope, piso) se fijan con **un test parametrizado** y con
+  **override**, no barriendo la curva: el borde es una propiedad del comparador, y una búsqueda por
+  aproximación haría que el test dependiera de una tabla de precios editable sin redeploy.
+
+**Guarda del motor, no `if` de aplicación:** la precondición vive en el `where` del `updateMany`
+(`count === 1`), igual que BL-2/BL-14/`paySpei`. El encabezado y **todas** las líneas van en el mismo
+boundary; las `skip` comparten `data` ⇒ **una** escritura, y las `buy` llevan cada una su monto
+(inherente: Prisma no expresa un update masivo con valores distintos).
+
+### 0.28.2 `…/offer/authorize` y `…/offer/cancel`
+
+**`authorize`** autoriza **LO GUARDADO**: no acepta líneas ni montos, y **el piso NO se reevalúa**
+(reevaluarlo compararía un monto congelado contra un dial vivo). **DOS candados**
+(`offerState='pending_authorization' ∧ status='cotizada' ∧ closedAt IS NULL`): el barrido ya anula la
+oferta al caducar, así que el primero bastaría — **pero si un refactor futuro lo olvida, el segundo
+sigue cerrando la puerta**, y sin él el súper-admin resucitaría una solicitud **terminal** mandando un
+**correo vinculante**. El plazo se congela **en este instante** (se fija al comunicarse).
+
+**`cancel`** — los **TRES efectos de D38/v1.51.4 cuelgan del MISMO `if`**, y eso es la garantía:
+
+| `offerState` | reloj | conteo | correo |
+|---|---|---|---|
+| `sent` | `offerIssueClockStartedAt = now` | `offerReissueCount += 1` | **correo 5** |
+| `pending_authorization` | — | — | **ninguno** |
+
+El reinicio existe porque el reloj de la regla 7 colgaba de `createdAt`: cancelar el día 7 **para
+corregir un error nuestro** devolvía la solicitud con **cero días** y el barrido le mandaba un *«no
+procederemos»*. **El vendedor cumplía y recibía un cierre causado por nuestra corrección.** El candado
+es estructural: *el reinicio no puede ocurrir sin que al vendedor le llegue un correo* — hay test que
+cruza las tres señales en las dos ramas. La oferta anterior sobrevive íntegra en el `before` de la
+bitácora, y `OFFER_FROZEN_NULL` / `OFFER_LINE_NULL` se declaran **una vez** porque emitir y cancelar
+tienen que ser exactamente inversos.
+
+### 0.28.3 `POST /buylist/requests/:id/offer-response`
+
+**Va en este pase aunque no estaba en la lista de endpoints**, porque el test que el plan marcó como
+no negociable —*`ofertada` + `accept` ⇒ `aceptada`, JAMÁS `aprobada`*— **no se puede escribir sin él**,
+y sin él la oferta emitida no tiene salida.
+
+**`accept` no produce NINGUNA transición de dinero:** no toca ítems, no toca montos, no habilita el
+pago — hay test que compara el JSON de las líneas antes y después y que asevera que
+`sellRequestItem.updateMany` **ni se llama**. Si saltara a `aprobada`, la solicitud caería en la cola
+de SPEI **sin envío, sin recepción y sin verificación**. El plazo va **también en el `where`**: un
+read-then-write dejaría aceptar una oferta que venció entre la lectura y la escritura.
+
+También se completó `SellOfferPublicDTO` (`offer` en `offer-response` **y** en
+`GET /buylist/requests/:id`, un solo constructor): **los tres montos**, `terms` **renderizados por el
+backend** con la misma fuente que el correo, y **nunca `offerState`** ni ninguna cifra de la mesa.
+
+### 0.28.4 Los correos 1 y 5
+
+**Best-effort POST-COMMIT** (try/catch que solo loguea): el fallo del correo **no revierte la
+oferta** — lo contrario dejaría una decisión de dinero colgada de un servicio externo. Hay test con
+`callOrder` que asevera que `mail.send` ocurre **después** del commit, y otro que hace fallar el envío
+y verifica que la oferta quedó emitida.
+
+- **Correo 1 (oferta):** los **TRES montos** —*«la resta se ENSEÑA, no se esconde»*—, la condición NM
+  **en la línea** pegada al monto, lo que **NO** compramos **con nombre y sin monto** (prohibido
+  `MX$ 0.00`, y prohibido explicar por qué), el bloque de consecuencia, y el plazo con **fecha y hora
+  explícitas** en `America/Mexico_City`.
+- **Correo 5 (cancelación):** **un solo productor** (`offer/cancel` con `sent`). Prohibido «venció»,
+  cualquier plazo del vendedor y **cualquier monto** (se limpiaron y no se resucitan). No es una
+  variante del 3: aquél afirma *«tu plazo venció»* y aquí **no venció nada**.
+- **`escapeHtml` en todo valor dinámico** (S15-B1) — hay test con un `<script>` en el nombre.
+- **Minimización:** jamás CLABE, terceros ni cifras de la mesa — test que lo asevera sobre el mensaje.
+
+⚠️ **Un botón muerto es peor que una frase:** el CTA sale de `APP_PUBLIC_URL`; **si la env no está, la
+plantilla degrada a una instrucción de texto** en vez de renderizar un enlace roto. **Para devops:**
+`APP_PUBLIC_URL` **no está en `.env.example`** (archivo suyo) — se señala, no se toca.
+
+### 0.28.5 BL-16 — la posición excluye la solicitud EN PANTALLA
+
+Entra **en este pase y no después**, o sea **antes de que algo escriba `offerDecision`** (hasta hoy el
+defecto era latente porque ninguna fila tenía ese campo poblado).
+
+Los **tres sumandos de promesa** (`verifying`, `inTransit`, `committed`) llevan
+`sellRequestId: { not: :id }`; **`stock` NO se excluye**, y la asimetría es deliberada: *una pieza en
+bóveda es un **hecho**, no una promesa — da igual qué solicitud la trajo*. `PROJECT.md` §P.2 es
+literal: *«ocho copias en la caja y tres más en camino es una razón perfectamente buena para no
+comprar **la novena**»* — la novena es lo que se juzga; si se cuenta a sí misma la frase es circular y
+el número **engaña** en pantalla.
+
+Caso de prueba exigido, implementado: X `ofertada` con 3 líneas de C ⇒ la mesa de **X** da
+`committed: 0`; la de **Y** da `committed: 3`. El fake **evalúa** el `not`, así que un mock que
+devolviera todas las filas no dejaría pasar el test.
+
+### 0.28.6 Tests
+
+`test/buylist.offer-cycle.spec.ts` (**NUEVO, 51**) + 2 en `test/buylist.decision-table.spec.ts` (BL-16)
++ dos censos actualizados en `test/sell-request-states.spec.ts`.
+
+Los cinco que el plan marcó: (1) `accept ⇒ aceptada`, aseverado **también por lo negativo**
+(`not.toBe('aprobada')`, en la respuesta **y** en la fila); (2) `202` con **ausencia de la llamada** al
+correo; (3) el neto topado en cero con el caso que lo produce; (4) override que rebasa el tope, y el
+válido con sus tres datos + su asiento; (5) viernes + 2 días hábiles **no** cae en fin de semana.
+
+**Prueba de mutación hecha a mano, tres a la vez:** `accept → 'aprobada'`, quitar el
+`sellRequestId: { not: … }` de BL-16 y mandar el correo también con `pending_authorization` ⇒ **6
+tests fallan**. Revertidas.
+
+`npm test` **214 suites / 2785 tests en verde** · `npm run typecheck` limpio · `npm run lint` con las
+**2 warnings preexistentes**.
+
+### 0.28.7 Lo que este pase NO trae, declarado
+
+`POST …/guide`, `…/confirm-shipment`, `…/decline`, `PATCH …/pickup-address`, `declare-shipped`, las
+**cuatro colas** nuevas, los **correos 2/3/4** y las **siete reglas del barrido** (que sigue con sus
+plazos viejos). El ciclo queda operable de punta a punta hasta **`aceptada`**; de ahí en adelante es el
+pase siguiente.
+
+**Zona compartida tocada:** `backend/src/common/error-codes.ts` (once códigos nuevos, todos del
+contrato). Aditiva.
+
+---
+
+## 0.27 v1.51.8 — **BL-17 (`isPayable`) y BL-18 (`live?`)**: la sexta copia gobernaba el botón de pagar (2026-09-01)
+
+> Implementa **API_CONTRACT v1.51.8 §A/§C** y **ARCHITECTURE §4.39c SITIO 10**, **§9 BL-17/BL-18**.
+> **Van juntos por lo que le ahorran al consumidor:** mismo endpoint, mismo DTO, misma doctrina ⇒ el
+> frontend hace **un** pase y no dos.
+> ⚠️ **ORDEN OBLIGATORIO — BACKEND PRIMERO, frontend después** (al revés de BL-11). Si el frontend
+> borrara su literal antes de que el campo exista, `isPayable` llegaría `undefined` y **el botón de
+> pago moriría para todos**. Con este orden el peor caso del desfase es *«sigue como hoy»*.
+
+### 0.27.1 BL-17 — `isPayable`, y la copia **ya estaba rota**
+
+`M5View.tsx` tenía `canPay = isSuperAdmin && (status === 'aprobada' || status === 'verificacion')`:
+`SELL_REQUEST_PAYABLE_STATES` **transcrito a mano en el cliente**, gobernando el botón de **pagar por
+SPEI**. Es la **tercera** copia de la regla que el **sitio 8** acababa de consolidar server-side
+*precisamente por ser dinero* — y ésta vive en **otro lenguaje, otro paquete y otro ciclo de
+release**, así que ni el compilador ni un test de backend la veían.
+
+⚠️ **Y estaba INCOMPLETA.** La precondición real del servidor son **DOS** términos y el cliente
+replicaba **solo el primero**:
+
+```
+isPayable = status ∈ SELL_REQUEST_PAYABLE_STATES  ∧  verifiedAt IS NOT NULL
+```
+
+Es decir: **la UI habilitaba el botón de pago en solicitudes donde el servidor responde `422`.** *No
+era una copia fiel que pudiera desincronizarse algún día: ya lo estaba.* Y eso descarta la alternativa
+—que el cliente replicara *bien* las dos condiciones— porque sería **duplicar dos reglas en vez de una**
+y meter `verifiedAt` en la lógica de una pantalla: más copias, no menos.
+
+**Cómo queda: TRES lectores, UN cuerpo.**
+
+| Lector | Qué usa |
+|---|---|
+| Pre-check de `paySpei` | `isPayableSellRequest(req)` |
+| **Guarda atómica** del `updateMany` (`count === 1`) | `payableWhere()` — la traducción a `where` de lo mismo |
+| `AdminBuylistDTO.isPayable` (M5) | `isPayableSellRequest(r)` |
+
+`isPayableSellRequest` vive en `common/sell-request-states.ts`, junto a `isTerminalSellRequestStatus`
+y derivado de la misma constante. `payableWhere()` existe porque **un `where` es declarativo y no
+puede invocar el predicado**; lo que sí puede es **no repetir la constante**. Que las dos formas digan
+lo mismo lo asevera un test que las cruza sobre **todo el enum × `verifiedAt ∈ {null, fecha}`**: si
+alguien mueve una y no la otra, ese test cae.
+
+**Las tres acotaciones del contrato, implementadas tal cual:**
+- **ADMIN-ONLY.** Sale **solo** en `adminList` — hay guard de censo que asevera **una** emisión (frente
+  a las **tres** de `isTerminal`, que sí viaja en las dos proyecciones de cliente). Al vendedor le
+  anticiparía un depósito que aún puede no ocurrir.
+- **ACTOR-INDEPENDIENTE.** El rol **no** entra en el booleano: *«¿esta solicitud está en condición de
+  pagarse?»* es propiedad **de la fila**; *«¿puedo pagarla yo?»* es del actor. Fundirlas haría que la
+  misma solicitud **respondiera distinto según quién pregunte**.
+- **NO es un permiso y no relaja nada.** `pay-spei` conserva `super_admin` + `MoneyOutGuard` + sus dos
+  guardas server-side. Un `isPayable: true` **no autoriza** un pago.
+
+### 0.27.2 BL-18 — `live?`, por exclusión
+
+Estaba **declarado en el contrato desde v1.51 y ausente del código**; mientras tanto la pestaña
+«Cerradas» mandaba un **CSV que enumeraba los cuatro terminales** — la forma exacta que este ciclo
+retiró de los otros cinco sitios. **Se implementa, no se retira**: `live?` **es** la contraparte
+server-side de `isTerminal`, y quitarlo del contrato **bendeciría** la enumeración en el cliente justo
+después de haberla borrado de todas partes.
+
+| Caso | `where` |
+|---|---|
+| `live=true` | `status: { notIn: SELL_REQUEST_TERMINAL_STATES }` — **exclusión**, nunca una lista de vivos |
+| `live=false` | `status: { in: SELL_REQUEST_TERMINAL_STATES }` |
+| `live` + `status` | `AND: [{ status: <lo pedido> }, { status: <live> }]` — **se intersectan** |
+| `live` ausente | **el `where` de hoy, byte a byte** (incluido el escalar cuando `status` trae un solo token) |
+
+- **Por qué `AND` y no reasignar `where.status`:** asignarlo dos veces dejaría ganar al último y **el
+  filtro del usuario desaparecería en silencio**. Un listado que ignora lo que le pidieron es peor que
+  uno que falla.
+- **Contradicción ⇒ conjunto VACÍO, no un 4xx** (`status=pagada` ∧ `live=true`). Pedir la intersección
+  de dos filtros legítimos es legítimo, y un `400` obligaría al cliente a razonar sobre **qué estados
+  son terminales**… que es exactamente lo que este parámetro existe para evitar.
+- **Parsing del query param:** solo `'true'` / `'false'` filtran; **cualquier otra cosa (incluido
+  omitirlo) no filtra y no falla**. Mismo criterio y mismo precedente que `guest`/`needsManual` en
+  `GET /admin/orders`: un query param mal escrito **no puede** convertir una cola de trabajo en un
+  `400` — el modo seguro de un filtro ausente es «no filtrar».
+- La validación previa **no se relaja**: un token de `status` inválido sigue siendo `400
+  VALIDATION_ERROR` con `details.invalidStatus`, venga o no `live`.
+
+### 0.27.3 Tests
+
+| Archivo | Qué fija |
+|---|---|
+| `test/buylist.is-payable-live.spec.ts` (**NUEVO**, 26) | **El que no puede faltar:** estado pagable **con `verifiedAt` nulo ⇒ `isPayable: false`** (el caso que hoy la UI pinta como pagable y el servidor rechaza) · la **tabla de verdad completa** (enum × `verifiedAt`) · **el predicado ≡ el `where` de la guarda** sobre todo el espacio de entrada · `isPayable:false` ⇒ `paySpei` responde `422` (el aviso y el servidor coinciden) · **admin-only** (ausente en `listMine`, donde `isTerminal` sí está) · actor-independiente · `live` por exclusión, **un estado nuevo no-terminal sale en `live=true` sin tocar el endpoint** · las dos vistas **particionan** el enum · intersección con `status` sin pisar el filtro · **contradicción ⇒ vacío, no 4xx** · parsing del controller (`true`/`false`/basura/ausente) |
+| `test/sell-request-states.spec.ts` (+2) | **Sitio 10**: `isPayable` se emite **UNA** vez (admin-only) y el predicado exige **los dos términos**, estado por estado |
+
+El fake de Prisma de este spec **evalúa el `where`** contra un universo con una fila por estado del
+enum: un mock que devolviera una lista fija dejaría pasar los tests aunque el filtro no existiera, y lo
+que hay que probar de `live?` es **qué filas salen**.
+
+**Prueba de mutación hecha a mano, dos veces:** (1) dejando `isPayable` con **un solo término** (el
+defecto real del frontend) ⇒ **fallan 4** tests, incluido el que el orquestador pidió; (2) escribiendo
+`live=true` como **lista de vivos enumerada a mano** ⇒ **fallan 4**, entre ellos el del estado nuevo.
+Revertidas ambas.
+
+`npm test` **213 suites / 2732 tests en verde** · `npm run typecheck` limpio · `npm run lint` con las
+**2 warnings preexistentes** y ninguna nueva.
+
+### 0.27.4 Lo que NO entra, y queda señalado
+
+**`awaitingGuide?` (v1.51.1/D31) sigue declarado en §M5 y ausente del código** — mismo patrón exacto
+que BL-18 (`GET /admin/buylist` con un query param que el controller no tiene). **No se implementa
+aquí** porque depende de columnas que solo puebla el ciclo de oferta (`guideSentAt`, `acceptedAt`) y su
+orden normativo es `acceptedAt asc`: hoy filtraría siempre vacío. **Se señala para el arquitecto**, no
+se resuelve por cuenta propia.
+
+**Zona compartida tocada:** `backend/src/common/sell-request-states.ts` (adición de
+`isPayableSellRequest`, dictada por §4.39c sitio 10). Aditiva.
+
+---
+
+## 0.26 v1.51.5 — **Dos agujeros de dinero en el mismo commit: BL-14 y `brutoConsumado`** (+ cierre de los dos `TODO(M-46)`) (2026-09-01)
+
+> Implementa **API_CONTRACT v1.51.5 §A/§B** y **ARCHITECTURE §4.39(i) 4-bis**, **§4.39(b.3)**, **§9
+> (BL-14, BL-5 la mitad viva)**.
+> **Van juntos porque el segundo depende del primero:** `brutoConsumado` ancla el acumulado AML en
+> `approvedTotalCents` **porque en un estado terminal es final** — y sin la guarda de BL-14 **no lo
+> era**. *Una norma que se apoya en una afirmación falsa sobre el código no es una norma.*
+
+### 0.26.1 (a) BL-14 — `itemDecision` no leía el estado de la solicitud
+
+**Era peor que un `if` faltante.** El `include` del `findUnique` traía un `select` con **solo `userId`
+y `user`**: `status` **ni siquiera se leía**, así que no había forma de comprobarlo aunque alguien
+hubiera querido. Las únicas guardas eran existencia del ítem, idempotencia a nivel ítem
+(`itemStatus === 'rechazada'`) y longitud del `reason`. **Nada a nivel solicitud.**
+
+Consecuencia: sobre una solicitud **`pagada`**, un operador re-decidía un ítem, `recomputeApprovedTotal`
+corría, y **el bruto aprobado se reescribía después de que el SPEI salió**. Hermana exacta de **BL-2**
+por la puerta del ítem: BL-2 revivía la solicitud; ésta reescribe **el monto** de una ya liquidada.
+
+**Se cierra con el mismo patrón que BL-2, en dos capas:**
+
+| Capa | Qué | Por qué |
+|---|---|---|
+| **Pre-check** | `isTerminalSellRequestStatus(item.sellRequest.status)` ⇒ `409 NO_LIVE_ADJUSTMENT` (`details.status`) | Mensaje honesto y **antes de cualquier escritura**. Va incluso **antes de la idempotencia del `reject`**: sobre una solicitud cerrada, un `200` silencioso diría que la operación está disponible |
+| **Guarda del MOTOR** | `updateMany` + **`count === 1`** con `sellRequest: { status: { notIn: TERMINAL } }` **en el `where`** | Un `if` sobre la lectura previa es read-then-write y sufre **TOCTOU**. Mismo patrón atómico que `respond`, `paySpei` y `rejectRequest` |
+
+**Un solo sitio para el conjunto de estados:** `notTerminalWhere()` se deriva de
+`SELL_REQUEST_TERMINAL_STATES`, **la misma constante** de la que se deriva `isTerminalSellRequestStatus`.
+Es la doctrina del **sitio 8** de §4.39c: dos literales de estados en un método de dinero es la forma
+más barata de que una edición mueva uno y no el otro.
+
+**Cambios de forma que QA y techlead deben ver:**
+- Las **tres** escrituras de `itemDecision` pasan de `update` a **`updateMany` guardado + relectura**
+  (`updateMany` no devuelve filas). La relectura lleva su `PROJECTION-EXEMPT` razonado: el caller la
+  proyecta con `toAdminSellItemRow`.
+- **La rama `adjust` cambia de orden y gana atomicidad.** `adjustmentSentAt` se escribía **primero y
+  suelto**: sobre una solicitud cerrada dejaba **el plazo de 7 días puesto** aunque la decisión no
+  prosperara, y el barrido lo habría visto como un ajuste vivo. Ahora las dos escrituras van en **un
+  solo `$transaction`**, cada una con su guarda, y el plazo se pone **después** de la decisión.
+- **`409` sobre terminal es un cambio de conducta observable:** un `reject` sobre un ítem ya
+  `rechazada` de una solicitud terminal **ya no devuelve `200`**. Es deliberado y está en el contrato.
+
+⚠️ **No basta la guarda del ciclo de oferta** (`422 OFFER_PRICE_IMMUTABLE` /
+`409 ADJUST_NOT_ALLOWED_IN_OFFER_CYCLE`): ésas miran `offerSentAt`, y una solicitud **pre-M-46** ya
+pagada **no lo tiene**.
+
+### 0.26.2 (b) `brutoConsumado` — con qué columna se mide el tope AML
+
+```
+brutoConsumado(sr) = approvedTotalCents ?? offerGrossCents ?? quotedTotalCents ?? 0
+```
+
+**Vive en `common/buylist-aml.ts`, pegado a la OTRA cascada, y eso es el punto.** El archivo ya
+alojaba `monthCommittedGrossCents` (sitios 2+3, **dos** términos). Ponerlas juntas es la única defensa
+real contra que alguien las «unifique por consistencia» — el comentario de `brutoConsumado` explica,
+en el mismo scroll, por qué son dos.
+
+**Los tres sitios, un solo cuerpo:**
+
+| # | Sitio | Antes | Ahora |
+|---|---|---|---|
+| a | `monthCommittedGrossPaidCentsTx` (acumulado del mes) | `approvedTotalCents ?? quotedTotalCents` | `brutoConsumado` de cada fila (+ `offerGrossCents` **en el `select`** — sin leerlo la cascada no puede aplicarse) |
+| b | El término de la solicitud **en curso** en la guarda del tope de `pay-spei` | ídem | `brutoConsumado(req)` |
+| c | **`payoutNetCents`**, sellado en la misma tx que `pagada` | **no se escribía** | `max(0, brutoConsumado(req) − (offerShippingFeeCents ?? 0))` |
+
+**(a) y (b) tienen que compartir cuerpo**: son los dos lados de la misma desigualdad
+(`acumulado + enCurso > cap`), y medir cada lado con una cascada distinta es **comparar dos cosas**.
+
+**El agujero real era el término central.** Sin `offerGrossCents` la cascada salta de *aprobado* a
+*cotizado*, y con **override al alza (D26)** el cotizado es **menor** que el ofertado ⇒ el acumulado se
+queda **corto** y el vendedor **rebasa el tope mensual sin que ningún control lo note**. *Un tope que
+puede quedarse corto no es un tope.* (El caso simétrico —cherry-pick, cotizado mayor— acumulaba **de
+más**: injusto, pero fail-closed.)
+
+**Decisión mía en el sitio (c), señalada:** el contrato escribe
+`max(0, brutoConsumado − offerShippingFeeCents)` y esa columna es **`null` en toda fila pre-M-46** (y
+hoy en todas, porque nada escribe ofertas todavía). Se implementa **`offerShippingFeeCents ?? 0`**: en
+una fila sin tarifa congelada **no se le descontó ningún envío**, y restar el dial vigente sería
+cobrarle un envío **que nunca se le anunció** — lo contrario de D25. Sin ese `?? 0` la resta sería
+`NaN`.
+
+**Cero regresión:** en toda fila pre-M-46 `offerGrossCents` es `null` ⇒ la cascada colapsa a la de hoy.
+
+### 0.26.3 (c) Los dos `TODO(M-46)` de BL-2, cerrados
+
+El JSDoc de `respond` afirmaba que la cuarta condición *«no se puede cablear hoy sin inventar la
+columna»*. **`offerSentAt` existe desde M-46**, así que el bloqueo desapareció y el `TODO` pasó a ser
+**documentación que miente**. Se cierra:
+
+- **`offerSentAt: null` entra al `where`** de la guarda (la precondición del contrato, ahora completa
+  con sus **cuatro** condiciones).
+- **La rama de error discrimina:** con `offerSentAt` poblado ⇒ **`409 ADJUST_NOT_ALLOWED_IN_OFFER_CYCLE`**;
+  si no ⇒ `409 NO_LIVE_ADJUSTMENT`. **Son dos hechos distintos con dos conductas distintas**: el
+  primero puede resolverse esperando un ajuste; el segundo, jamás. *Un código que miente sobre la
+  causa manda a alguien a esperar algo que no va a pasar.*
+- **No se retira nada** (§4.39b.3): la ruta de ajuste es **inalcanzable por construcción** para toda
+  solicitud nueva, pero la **cohorte legacy en vuelo** la necesita. *Se apaga la entrada, no la salida.*
+- El comentario de `ADJUST_NOT_ALLOWED_IN_OFFER_CYCLE` en `error-codes.ts` decía «TODAVÍA NO SE EMITE»;
+  ahora dice dónde sí se emite y qué falta (`itemDecision(adjust)`, con el pase de `POST …/offer`).
+
+### 0.26.4 Tests
+
+| Archivo | Qué fija |
+|---|---|
+| `test/buylist.bl14-bruto-consumado.spec.ts` (**NUEVO**, 22) | **El que no puede faltar:** un ítem de una solicitud `pagada` no se re-decide **y el bruto aprobado no se mueve** — se asevera el monto **antes y después**, y que **no hubo NINGUNA escritura** (un test que solo mirase el 409 pasaría igual si la escritura ocurriera antes del throw) · los **cuatro** terminales · **TOCTOU**: con una lectura vieja, el **motor** para la escritura · `reject` no se cuela por la idempotencia · `adjust` no deja el plazo puesto · el flujo vivo intacto · la cascada término a término (incluido **aprobado `0` ≠ ausencia**) · **override al alza** en el acumulado · `payoutNetCents` definido, no negativo y sin envío inventado · **la otra cascada sigue en dos términos y ni siquiera lee `approvedTotalCents`** |
+| `test/buylist.respond-guard.spec.ts` (+6) | `accept`/`decline` con `offerSentAt` ⇒ `ADJUST_NOT_ALLOWED_IN_OFFER_CYCLE` y **nada se mueve** · la cuarta condición está **en el `where`** · los dos 409 **discriminan** · la cohorte legacy sigue pudiendo responder · **guard de residuo: cero `TODO(M-46)` en `src/`** |
+| Fixtures actualizados (5 specs) | `reject`, `request-reject`, `approved-price-cap`, `ronda-c`, `respond-guard`: el `include` espeja el nuevo `status`, y los mocks pasan de `update` a **`updateMany` con semántica condicional** (un mock que devolviera `{count:1}` a ciegas dejaría pasar los tests aunque la guarda no existiera) |
+
+**Prueba de mutación hecha a mano, dos veces:** (1) quitando `sellRequest: notTerminalWhere()` del
+`where` ⇒ **falla** el test de TOCTOU; (2) quitando `offerGrossCents` de la cascada ⇒ **fallan** 4
+tests (la cascada, el acumulado, y los dos de `payoutNetCents`). Revertidas ambas.
+
+`npm test` **212 suites / 2704 tests en verde** · `npm run typecheck` limpio · `npm run lint` con las
+**2 warnings preexistentes** y ninguna nueva.
+
+### 0.26.5 Zona compartida tocada (para el orquestador)
+
+`backend/src/common/buylist-aml.ts` (adición de `brutoConsumado`) y `backend/src/common/error-codes.ts`
+(un comentario). Las dos son **aditivas** y están dictadas por el contrato v1.51.5; se señalan por si
+otro stream tocó los mismos archivos en paralelo.
+
+---
+
+## 0.25 v1.51 — **La MESA DE DECISIÓN y el puerto de posición** (M-46: `INVENTORY_POSITION_PORT` + `GET /admin/buylist/:id/decision-table`) (2026-09-01)
+
+> Implementa **ARCHITECTURE §4.39(f)(g)** + **§11 (M-46, fila del puerto)** y **API_CONTRACT §M5 /
+> §11** (`BuylistDecisionLineDTO`, `BuylistDecisionTotalsDTO`).
+> **Cierra el agujero que abrió la petición original del humano:** *«cuando llegue una solicitud vendrá
+> con una o varias cartas que en admin se me despliegue cuántas tenemos en inventario y cuántas vienen
+> en camino que hemos comprado a otros usuarios»* (§P.2). Hasta este pase `adminGet` **no exponía ni
+> una cifra de stock**: se compraba a ciegas.
+>
+> **Lo que este pase NO trae** (declarado, no olvidado): `POST …/offer`, `…/offer/authorize`,
+> `…/offer/cancel`, la guía, el barrido de siete reglas, los cinco correos y las cuatro colas. La mesa
+> **previsualiza**; nada de aquí compromete dinero.
+
+### 0.25.1 `INVENTORY_POSITION_PORT` — el único dato que cruza de `inventory` a `buylist`
+
+| Archivo | Qué |
+|---|---|
+| `modules/inventory/inventory-position.port.ts` (**NUEVO**) | Token + `VariantPositionRef` + `InventoryPositionPort`. **Copiado literal de §4.39f**, sin rediseño |
+| `modules/inventory/inventory-position.adapter.ts` (**NUEVO**) | El adaptador: **UN** `groupBy` sobre `InventoryItem` para las N variantes |
+| `modules/inventory/inventory-position.module.ts` (**NUEVO**) | Módulo **`@Global`** que provee/exporta **solo el token** |
+| `app.module.ts` | Registra `InventoryPositionModule` |
+
+**Por qué un módulo `@Global` propio y no `imports: [InventoryModule]` ni `InventoryModule` global.**
+El puerto tiene que llegar a `buylist` **sin** acoplar los dos streams en el grafo de módulos (§4.39f).
+`MailModule` ya sienta el precedente de `@Global`, pero volver global a `InventoryModule` entero
+publicaría su grafo de servicios de **escritura** a todo el backend. Aquí lo único exportado es un token
+de **solo lectura**, y `InventoryPositionAdapter` es provider **privado**: nadie puede inyectar la clase
+concreta y saltarse el seam.
+
+**⚠️ Este puerto NO es best-effort, y esa es la parte que no se puede copiar de `MAIL_PORT`.**
+
+| Situación | Qué hace la mesa |
+|---|---|
+| El provider **no está cableado** | `position: null` + `positionUnavailable: true`; **error en el log de izado** (`BuylistService.onModuleInit`) |
+| El adaptador **revienta** (BD caída) | `position: null` + `positionUnavailable: true`; `error` con el motivo |
+| El adaptador devuelve un `Map` **sin la clave** de una variante | **`stock: 0`** — cero **legítimo**: «no hay ninguna» |
+| Cualquiera de los tres | **JAMÁS `0` como sustituto de «no pude contar»** |
+
+El adaptador **no captura excepciones a propósito**: tragarlas y devolver un `Map` vacío sería
+indistinguible de «no tengo ninguna de estas cartas» y produciría **el cero prohibido**. Hay un test que
+lo asevera (`inventory-position.port.spec.ts`).
+
+**El `@Optional()` del `@Inject` existe SOLO por los tests unitarios legacy** (mismo motivo que
+`MAIL_PORT`) y por ningún otro. Como el `@Optional()` hace que un desconexionado sea **silencioso**, se
+añadió una aseveración de **wiring real** en `test/app.module.spec.ts`: el token está provisto **y**
+`BuylistService` lo recibe.
+
+**Qué cuenta el adaptador:** `InventoryItem` de **`ownerType='platform'`**, `status NOT IN NOT_ON_HAND`
+(**la constante exportada de `master-set.service.ts`, reusada, no redefinida**), acotado por
+`cardId IN (…)` (que es lo que sirve `@@index([cardId, finish, status])`), agrupado por la variante
+**incluyendo `cardProductId`**. El `gradeKey` sale de **`pricing.gradeKeyFor`** — la misma función que
+lo produce del lado de `buylist`.
+
+### 0.25.2 `variantPositionKey()` — zona compartida, adición mandada por §4.39g
+
+`common/variant-key.ts` gana `variantPositionKey(parts & { cardProductId })` = `variantKey(parts)` +
+`|` + (`cardProductId` ?? `'base'`). **`variantKey()` NO se tocó** (la consumen los mapas de
+`PriceReference`/`VariantPriceOverride`, cuya `@@unique` no lleva `cardProductId`; cambiarle la forma
+sería un miss silencioso de override/referencia = dinero mal).
+
+⚠️ **Es zona compartida (`backend/src/common/`)**: la adición es **puramente aditiva** y está dictada
+literalmente por ARCHITECTURE §4.39g. **Queda señalada para el orquestador** por si otro stream tocó el
+mismo archivo en paralelo.
+
+**Las CUATRO fuentes de la posición usan esta función** — hay guard en
+`test/sell-request-states.spec.ts`. El censo de `variantKey(` de ese mismo guard sube de **4 a 6** (la
+mesa añade dos consumidores **que usan el helper**); lo que sigue sin poder subir nunca es el número de
+interpolaciones a mano, que es el test que de verdad protege el invariante.
+
+### 0.25.3 `GET /api/v1/admin/buylist/:id/decision-table`
+
+Roles heredados de `AdminBuylistController` (`vault_operator` / `super_admin`) ⇒ `403` fuera de ellos;
+`404 NOT_FOUND` si la solicitud no existe. **Sin `@MoneyOut`** (no sale dinero) y **SIN AuditLog**:
+ARCHITECTURE §4.39 lo dice explícitamente — *«la mesa decide qué comprar, no cómo nos hemos portado»*.
+Lo que se audita es la **emisión**.
+
+**La posición son cuatro sumandos y `inTransit` es UNO de ellos:**
+
+| Sumando | De dónde | ¿Suma a `total`? | ¿Es «en camino»? |
+|---|---|---|---|
+| `stock` | `INVENTORY_POSITION_PORT` (otro stream) | sí | no |
+| `verifying` | `SellRequestItem.offerDecision='buy'` + solicitud en `SELL_REQUEST_VERIFYING_STATES` | sí | no |
+| `inTransit` | ídem + `SELL_REQUEST_IN_TRANSIT_STATES` (`en_transito`) | sí | **SÍ, la única** |
+| `committed` | ídem + `SELL_REQUEST_COMMITTED_STATES` (`ofertada`, `aceptada`) | sí | no |
+
+Los cuatro se emiten **por separado** (más `total`): tienen **confianza distinta** y esa distinción es
+el valor de la pantalla. **No hay un segundo campo «en camino»** — hay un test que busca cualquier clave
+con ese nombre. Una `aceptada` **no** entra en `inTransit`: *es una promesa, no un paquete* (criterio
+116); solo cuenta lo que el operador confirmó como enviado (D20).
+
+**La sugerencia:** precedencia `bounty vivo ∧ targetQty ≠ null → bounty_target`; en cualquier otro caso
+→ `variant_cap`. **NUNCA bloquea**: no hay validación de la oferta contra ella y no se emite ninguna
+bandera que un front pudiera leer como «no se puede» (hay test). **Siempre dice qué regla se disparó**
+(`rule` + `thresholdQty` + `bountyActive`). Un **bounty legacy con `targetQty = null` cae al TOPE
+GENERAL** y la respuesta lo **declara** (`rule: 'variant_cap'` **con** `bountyActive: true`): no es «sin
+límite». Con `positionUnavailable` ⇒ `{ verdict: 'none', rule: null, thresholdQty: null, bountyActive }`
+— **nunca se infiere un veredicto sobre un total que no se pudo calcular**.
+
+«Bounty vivo» = `bountyEnabled ∧ bountyCompletedAt IS NULL ∧ isBountyEffective(precio, curva vigente)`
+(§4.36.6): un bounty por debajo de la tarifa de la curva **dejó de ser bounty** y no gobierna el consejo.
+
+**El precio derivado sale del seam único `decideBuyLine`** con la **curva vigente ahora** — no se hereda
+de la cotización (§P.2). `quotedPriceCents` (el snapshot) y `derivedPriceCents` viajan **los dos**, que
+es justamente la diferencia que el operador necesita ver.
+
+### 0.25.4 Sin N+1: qué se lee y cuántas veces
+
+Con **1 línea o con 40 líneas** el número de lecturas es **idéntico**, y lo es **por tipo de lectura**
+(un test compara el censo completo, no solo el total — un intercambio de una lectura por otra pasaría
+un total y sería igual de malo):
+
+`sellRequest.findUnique` ×1 · curva ×1 · `getVariantOverridesBatch` ×1 · `getReferencesBatch` ×1 ·
+`findCardProductsByTcgIds` ×1 · `getReferencesByCardProductBatch` ×1 · **puerto de posición ×1** ·
+`sellRequestItem.findMany` ×1 · diales ×4.
+
+Para lograrlo se añadieron **dos hermanas EN LOTE** en `PricingService` (mismo módulo, mismo stream):
+
+- **`findCardProductsByTcgIds(ids)`** — hermana de `findCardProductByTcgId`.
+- **`getReferencesByCardProductBatch(items)`** + `cardProductRefKey()` — hermana de
+  `getReferenceByCardProduct`. Existe porque `getReferencesBatch` aplica `BASE_CARD_REF_WHERE`, que
+  **excluye justamente** las filas de `deck_exclusive`/`promo`: sin ella, una solicitud de promos volvía
+  a hacer una lectura por línea. Mismo desempate determinista (`isBetterRef`) y misma FX izada una vez.
+
+Y **`decideBuyLine` gana un parámetro `prefetched?`**: los **dos lookups** que ese cuerpo haría por
+línea, ya resueltos por el caller. **No cambia ni una decisión de dinero** —es el mismo dato, leído
+antes—; la secuencia curva/override/bounty/pendiente **sigue viviendo ahí y solo ahí**. Las guardas de
+identidad (`PRODUCT_NOT_FOUND` / `PRODUCT_CARD_MISMATCH`) **se re-aplican sobre la fila que trajo el
+lote**: un `productId` de otra carta **no se reinterpreta** como la carta de set. Sin `prefetched` el
+comportamiento previo queda **intacto** (cotizador público, `/quote/batch`, `createRequest`).
+
+`sellRequestItem.findMany` trae filas (no agregados) porque Prisma **no puede agrupar por un campo de
+la relación** (`sellRequest.status`) y hacen falta las tres clases en una sola lectura. Está acotado por
+`cardId IN (…)` + `offerDecision='buy'`. Si el profiling lo pidiera, la alternativa es **tres**
+`groupBy` (uno por clase de estado): sigue siendo constante en N.
+
+### 0.25.5 Decisiones que tomé y que conviene que el arquitecto vea
+
+1. **`totals.buyableGrossCents` = la selección POR DEFECTO** (toda línea con precio derivable). El
+   contrato dice *«Σ de las líneas marcadas `buy` en esta previsualización»* pero **el `GET` no recibe
+   selección**. Se resolvió con DESIGN_SYSTEM §23.6(g), que es explícito: *«Toda línea con precio
+   resoluble nace marcada como comprar; la línea sin precio nace desmarcada»*. **Se señala como
+   ambigüedad del contrato, no se da por zanjada.**
+2. **Línea sin precio por deriva de IDENTIDAD** (el `finish` snapshoteado ya no está en
+   `Card.availableFinishes`, o el `cardProductId` no resuelve): la mesa emite
+   `derivedPriceCents: null` + **`pendingReason: null`** y **no revienta**. El contrato solo declara
+   `403`/`404` para este endpoint, así que un `422` sería una violación; y **no se inventa un
+   `pendingReason`** porque sus dos valores (`no_market`, `premium_at_floor`) **afirman algo sobre el
+   mercado**, que aquí ni se consultó. La línea sigue rescatable con override al ofertar. *La respuesta
+   correcta a un dato que falta es decir que falta, no elegirle un motivo.* **Si el arquitecto prefiere
+   un valor propio del enum (`identity_drift`), es cambio de contrato: lo pido, no lo hago.**
+3. **En una línea de producto separado el bounty/override de la variante se IGNORA también para la
+   sugerencia**, no solo para el precio. La `@@unique` de `VariantPriceOverride` **no lleva
+   `cardProductId`**, así que esa fila describe la variante de **set_base**; aplicarla a una promo sería
+   la fusión de identidades que §P.8 llama «peor que no mostrar nada». Consecuencia: una línea de
+   producto separado **siempre** se juzga con `variant_cap`. **El contrato no lo dice explícitamente.**
+4. **`seller` viaja SIN `phone`.** `AdminSellerRef.phone` es **opcional** en el contrato, y poblarlo
+   exigiría tocar `sellerRef()`, que comparten `adminList`/`adminGet` — es trabajo de **D12** (la cola
+   de vendedores vivos), no de la mesa. Se deja para ese pase.
+5. **La solicitud abierta cuenta en su propia posición si ya está `ofertada`/`aceptada`.** El predicado
+   del contrato es **por estado** y no excluye la solicitud que se está mirando; abriendo la mesa sobre
+   una `cotizada` (el caso normal) esto no aplica. Se implementó el predicado **literal**.
+
+### 0.25.6 Tests
+
+| Archivo | Qué fija |
+|---|---|
+| `test/buylist.decision-table.spec.ts` (**NUEVO**, 32) | Puerto caído ⇒ `null` + `positionUnavailable` (**aseverado con `toBeNull()` y `not.toBe(0)`**, jamás `toBeFalsy()`, que pasaría con `0`) · cero real vs sin conteo · los cuatro sumandos separados · `aceptada` ∉ `inTransit` · identidad de producto y acabado · la sugerencia no bloquea y nombra la regla · borde inclusivo del tope · bounty legacy ⇒ `variant_cap` · bounty no efectivo/completado · **no-N+1 por censo de lecturas** · totales, `netBelowMinimum`, `requiresAuthorization` por actor, `pickupAddressMissing` · líneas de producto separado |
+| `test/inventory-position.port.spec.ts` (**NUEVO**, 12) | Plataforma + `NOT_ON_HAND` reusada · llave canónica · identidad de producto/acabado/grado · ausencia ≠ cero inventado · una query para N · **el adaptador NO se traga los errores** |
+| `test/app.module.spec.ts` (+1) | El token **está provisto** y `BuylistService` **lo recibe** (el `@Optional()` hace silencioso el desconexionado) |
+| `test/sell-request-states.spec.ts` (+1, censo actualizado) | `variantPositionKey` es **derivada** de `variantKey` y su caso base es explícito (`base`, no cadena vacía) |
+
+**Prueba de mutación hecha a mano:** se cambió el `position: null` por un desglose de ceros y los dos
+tests de la rama del puerto **fallaron**; se revirtió. El test que importa es el que se rompe cuando
+alguien "mejora" el `null` a `0`.
+
+`npm test` **211 suites / 2676 tests en verde** · `npm run typecheck` limpio · `npm run lint` con las
+**2 warnings preexistentes** (`inventory.service.ts:452`, `sealed-product.service.ts:11`) y ninguna
+nueva.
+
+---
+
+## 0.24 v1.51 — **M-46: los CIMIENTOS del ciclo de adquisición** (schema, diez diales, días hábiles, el radio del enum) (2026-09-01)
+
+> Implementa **ARCHITECTURE §11 (M-46)** + **§4.39(c)(d)(e)(k)(l)** y **API_CONTRACT v1.51.4 §M10**.
+> ⚠️ **Esto NO es el ciclo: es la base sobre la que va.** No hay un solo endpoint **del ciclo** en este
+> pase — ni ofertar, ni aceptar, ni guía, ni barrido, ni correos, ni la mesa de decisión. Lo que hay es
+> **la migración, los diales, el helper de días hábiles, el set único de estados y la columna de
+> identidad de producto**, que es lo que todos los pases siguientes van a necesitar y que **no se puede
+> paralelizar** porque toca zona compartida.
+> **Con UNA excepción, y no es del ciclo:** `GET /buylist/quote-policy` (§0.24.7). Es la superficie
+> pública que sostiene el **criterio 132(a)** —que el cotizador diga *cuánto falta* **antes** de
+> enviar—, existía desde v1.51.4 en el contrato y el frontend ya la llamaba. **Se implementó a
+> petición del orquestador**, no por iniciativa propia: el hueco se señaló y se esperó la decisión.
+
+### 0.24.1 Qué quedó en la migración `20260901120000_m46_buylist_acquisition_cycle`
+
+**Una sola migración** (M-46 se enmendó **en el sitio cuatro veces** —v1.51.1 a v1.51.4— porque era
+papel; esta es su **primera ejecución** y ya nace con las cuatro enmiendas aplicadas). **Aditiva pura**:
+
+| Bloque | Qué |
+|---|---|
+| 1 | `SellRequestStatus` **+4 valores** (`ofertada`, `aceptada`, `en_transito`, `expirada`), con `IF NOT EXISTS` |
+| 2 | **3 enums nuevos**: `SellOfferState`, `SellRequestExpiryReason`, `BuyDecision` |
+| 3–7 | **32 columnas** en `SellRequest` (oferta, montos congelados, plazos, caducidad, cancelación, domicilio de origen, guía, tránsito, guía muerta, caja) + **4 índices** |
+| 7-bis | **7 columnas** en `SellRequestItem` (cherry-pick, precio ofertado/derivado, motivo del override, basis e instrumentación) + **1 índice** |
+| 8 | `InventoryItem.cardProductId` + **backfill** por la FK `@unique` |
+| 9 | **backfill** `VariantPriceOverride.bountyTargetQty = 2` (D35) |
+
+**Verificación mecánica del DDL:** se contrastó el archivo escrito a mano contra
+`prisma migrate diff --from-schema-datamodel <schema en HEAD> --to-schema-datamodel <schema nuevo>`.
+Coinciden **columna por columna, tipo por tipo y nombre de índice por nombre de índice**. Se escribió a
+mano —y no se dejó el generado— porque la migración lleva **dos backfills**, el **orden de despliegue
+de seis pasos** y el **paso 6 humano**, que ningún generador puede producir.
+
+**Cero `DROP`, cero `ALTER COLUMN`, exactamente DOS `UPDATE`** (los dos backfills declarados), y
+**ninguno toca `SellRequest`**. Todas las columnas son nullable salvo `offerReissueCount Int NOT NULL
+DEFAULT 0` — cuyo default puebla las filas existentes con **la verdad** (`0`: ninguna oferta se ha
+cancelado nunca) ⇒ **cero backfill**.
+
+**Lo que NO se creó, y es tan importante como lo que sí:**
+- **`offerShippingPaidByUs`** (retirada en v1.51.1 por D31): con **una sola banda** no hay `fee = 0` que
+  desambiguar y el campo solo podría valer `true`. *Un booleano de un solo valor invita a que alguien lo
+  ponga en `false` y resucite la banda.* **No existe en el schema ni en el SQL.**
+- **`pickupAddressId`**: el domicilio es **snapshot, no FK**. Con FK alguien haría el join e imprimiría
+  la dirección **viva** —el bug exacto que el snapshot existe para impedir— y, como `Address` **se puede
+  borrar**, una referencia viva dejaría **solicitudes en vuelo sin origen**.
+- **`declinedAt`**: duplicaría `closedAt`, sellado en la misma transacción. *Dos columnas para el mismo
+  instante es la primera versión de que se desincronicen.*
+
+**Los dos backfills, y por qué son legales.** El de `cardProductId` **COPIA** —no infiere— a través de
+la FK **`@unique`** `sourceSellRequestItemId` el valor que **el propio vendedor eligió** al cotizar. El
+**criterio 160 prohíbe adivinar** («ninguna migración puede adivinar si aquella pieza era la promo o la
+del set base»); **copiar por una llave única no es adivinar por heurística**, y el `UPDATE` no menciona
+rareza, nombre, fecha ni acabado — hay un test que lo asevera. Toda pieza **sin**
+`sourceSellRequestItemId` queda en `null` y se reclasifica **a mano desde M1**, tal cual pide el
+criterio. El del bounty pone **2 para todas** porque es la **política que fijó el dueño**, no una
+inferencia por fila, y no toca bounties apagados ni completados. Los dos son **idempotentes**
+(`… IS NULL`): la segunda corrida toca 0 filas.
+
+**El paso 6 NO está en el SQL, a propósito.** El **censo y triage humano** de las `cotizada` vivas
+(BL-10 + BL-12, **las mismas filas** ⇒ un solo triage) es **una decisión, no un `UPDATE`**. La consulta
+del censo queda **comentada al final del archivo** para que devops la copie. Sin ese paso, la primera
+corrida de la regla 7 del barrido **manda correos reales** de «no procederemos» a vendedores con
+solicitudes viejas. **No se rellena ninguna dirección por migración**: copiarla de un pedido o de la
+libreta viva sería **adivinar el consentimiento** del vendedor (criterio 160 aplicado a PII).
+
+**Precedencia de release (BL-11), que devops necesita y no es un séptimo paso:** el deploy del código se
+parte en dos con orden obligatorio — **FRONTEND PRIMERO, backend después**. `POST /buylist/requests`
+gana un campo **obligatorio** (`addressId`) en un endpoint **vivo**: front nuevo contra backend viejo
+**funciona** (el `ValidationPipe` con whitelist descarta lo desconocido); backend nuevo contra front
+viejo **rompe TODAS las altas**. *(El endpoint en sí NO se implementó en este pase.)*
+
+### 0.24.2 Los DIEZ diales (`settings.constants.ts`)
+
+Sembrados con sus defaults de `PROJECT.md` §P.10, con validador propio y **expuestos los diez** en el
+DTO de M10 (`GET`/`PUT /admin/settings`):
+
+| # | Dial | Default | Clase |
+|---|---|---|---|
+| 1 | `buylistOfferAcceptDeadlineBusinessDays` | 2 | **se congela** |
+| 2 | `buylistShipDeadlineBusinessDays` | 3 | **se congela** |
+| 3 | `buylistMinimumRequestCents` | 50000 | gate · **cruzada** |
+| 4 | `buylistOfferIssueDeadlineBusinessDays` | 7 | gate |
+| 5 | `buylistOperatorOfferCapCents` | 150000 | gate |
+| 6 | `buylistVariantPositionCap` | 10 | política |
+| 7 | `buylistShippingFeeCents` | 18000 | **se congela** · **cruzada** |
+| 8 | `buylistShipmentConfirmAlertBusinessDays` | 5 | política |
+| 9 | `buylistMinimumOfferNetCents` | 20000 | gate · **cruzada** |
+| 10 | `buylistOfferReissueAlertCount` | 2 | política |
+
+- **Se congelan 3, son gates o política 7.** El **10 no es excepción** aunque su alerta se lea contra una
+  columna: lo que se persiste es el **conteo** (`offerReissueCount`, un **hecho**), no el **umbral** (el
+  dial, una **política**). *El hecho se guarda; la política se relee* ⇒ mover el dial **reevalúa la
+  alerta de todas las filas vivas**, que es lo correcto para un control interno. **Ninguno de los siete
+  lleva columna en `SellRequest`.**
+- **El `0` NO es legal en el dial 9**, con validador propio y mensaje que dice por qué: con el piso en 0
+  la guarda de emisión `net < piso` **nunca dispara** y vuelve a ser emitible la oferta que anuncia
+  **MX$0**. Con el piso en **1 centavo** la regla degenera **exactamente** en la de v1.51.1
+  (`net < 1` ⇔ `net ≤ 0`): **la guarda vieja no se perdió, se convirtió en el suelo del dial.**
+- **`requiredGrossCents` (MX$380) NO es un décimo dial**: es `dial 9 + dial 7`, **derivado**. Hay test que
+  verifica que no exista como clave. *Dos fuentes para el mismo número es la primera versión del bug.*
+- **⚠️ Dial 7 ≠ `shippingFeeCents`.** MX$180 (lo que **nos descontamos** por traer la carta del vendedor)
+  contra MX$175 (lo que **le cobramos** al comprador por mandarle la suya). **Mover uno no mueve el
+  otro**; unificarlos «porque se parecen» rompería dos flujos a la vez.
+- **DOS diales que NO existen, verificable por lo negativo:** `buylist_shipping_threshold_cents` (D31) y
+  el «recorte material» de D28. **No se siembran, no se apagan, no quedan en 0: dejan de existir**, y hay
+  un test que busca los dos por su clave de BD **y** por su nombre de DTO.
+
+**La validación cruzada de TRES términos** (`tarifa + piso ≤ mínimo`) vive en
+`SettingsService.assertBuylistCrossDials`, **no** en `SETTING_VALIDATORS`: aquel mapa es un validador
+**por clave** y un validador por clave **solo ve su propio valor**. Se evalúa sobre
+**`{...vigente, ...body}`** porque el `PUT` es **parcial** — validar solo lo que viene permitiría romper
+el invariante mandando **una** de las tres, que es el agujero exacto que existe para tapar. Es
+**bloqueante** (no advertencia), aplica en **los tres sentidos** y emite `422 VALIDATION_ERROR` con
+`details.rule = "buylist_fee_plus_min_net_le_min_request"` — **el nombre NUEVO**: los dos anteriores
+describen relaciones de **dos** términos que ya no son la regla, y *un `details.rule` que miente es peor
+que uno ausente*. **El dial 10 no entra**: cuenta actos, no centavos.
+
+### 0.24.3 `common/business-days.ts` — falla ruidosamente
+
+L-V, sin **festivos oficiales de México** (Art. 74 LFT, tabla **explícita por año**, 2026–2030), en
+`America/Mexico_City`. Cuatro funciones: `isBusinessDay`, `addBusinessDays`, `businessDaysUntil` y
+`businessDaysSince` (esta última es la que necesita la regla 7 del barrido, y se expone **para que nadie
+la reimplemente restando fechas**).
+
+- **Si el año no está cubierto, LANZA** (`BusinessDaysCoverageError`, tipo propio para que el barrido lo
+  distinga y aplique la única conducta correcta: **loggear `error` y NO expirar**). **Prohibido degradar
+  a «no hay festivos»**: adelantaría vencimientos y **expiraría ofertas de gente que sí cumplió**.
+  *Fallar hacia «no vence» es el único lado seguro.* **Requiere extensión anual** — el `throw` es lo que
+  garantiza que nadie se entere tarde.
+- **Una fecha inválida también lanza** (`BusinessDaysInputError`), no se degrada a «hoy»: *una fecha
+  silenciosamente equivocada es un vencimiento silenciosamente equivocado*.
+- **Se cuenta sobre la fecha CIVIL de CDMX**, no sobre el instante UTC: un vencimiento a las 23:00 CST
+  cae **al día siguiente** en UTC, y ese día es exactamente el que le quitaríamos al vendedor. Hay test.
+- **⚠️ Punto abierto declarado, no adivinado:** el **1-dic sexenal** de 2030. El Art. 74 LFT dice
+  literalmente «1o. de diciembre», pero la reforma constitucional movió la **transmisión** al **1 de
+  octubre** desde 2024 y la LFT no se actualizó. Se sembró la fecha **literal de la ley**, que en 2030
+  **cae en domingo** ⇒ **no resta ningún día hábil y la ambigüedad no mueve ningún plazo hoy**. Si se
+  confirma que el descanso es el **1-oct-2030 (martes)**, hay que añadirlo: **eso sí movería una fecha**.
+
+**El frontend NO recalcula plazos**: recibe el ISO ya resuelto y lo formatea. Dos implementaciones de
+«día hábil» en dos lenguajes es la receta para que la pantalla y el correo digan fechas distintas.
+
+### 0.24.4 El radio del enum: los NUEVE sitios, cerrados
+
+Fuente única en **`common/sell-request-states.ts`**. **TERMINAL** se declara **literal** (clase R: lo
+fija `PROJECT.md` §P.1, no el schema) y **LIVE se deriva por complemento** (criterio 129), de modo que un
+estado nuevo entre **solo** a la cola del back-office.
+
+| # | Sitio | Qué se hizo | Efecto observable |
+|---|---|---|---|
+| 1 | `jobs/ine-retention.service.ts` | su `CLOSED` local **se borró** | **cierra el hueco de PII**: una `expirada` contaba abierta para siempre ⇒ el INE **no se purgaba nunca** |
+| 2+3 | `users.service.ts` + `buylist.service.ts` | los **dos cuerpos duplicados colapsan** en `common/buylist-aml.ts` | ⚠️ **dos cambios de conducta**, abajo |
+| 4 | `monthPaidOutCentsTx` | **renombrado** a `monthCommittedGrossPaidCentsTx` + doc | **la cifra no cambia**; el nombre mentía (mide **compromiso bruto**, no caja — la caja es `payoutNetCents`) |
+| 5 | `admin.service.ts` `workQueue.buylist` | pasa a `SELL_REQUEST_LIVE_STATES` | ⚠️ **la cifra cambia a propósito**: ahora incluye `ofertada`/`aceptada`/`en_transito` |
+| 6 | `admin.service.ts` reporte de brackets | excluye `offerDecision:'skip'` | una línea que **no compramos** no es una operación de compra |
+| 7 | `buylist-reject.constants.ts` | la constante **se mudó** a `common/`; queda **re-exportación** de compat | gana `expirada` ⇒ el guard «no pisar terminal» **sí la ve** |
+| 8 | `paySpei` | las **dos** copias inline usan `SELL_REQUEST_PAYABLE_STATES` | pre-check y guarda transaccional **no pueden divergir** |
+| 9 | DTOs | **`isTerminal` derivado server-side** en detalle admin, detalle cliente, cola de admin y listado propio | **el frontend borra `M5View.tsx:REQUEST_TERMINAL`** y **no lo sustituye por otra constante propia** |
+
+**⚠️ Sitios 2+3 — los dos cambios de conducta que QA debe verificar:**
+1. **`expirada` deja de quemar cuota mensual AML.** El predicado pasa a ser *por complemento* sobre
+   `SELL_REQUEST_NON_COMMITTING_STATES`. Una oferta caducada le seguía consumiendo el tope al vendedor —
+   cuota quemada por una operación que **no ocurrió** y que, en la mitad de los casos, caducó por un
+   plazo **nuestro**.
+2. **El monto pasa a ser el BRUTO OFERTADO cuando existe** (`offerGrossCents ?? quotedTotalCents ?? 0`,
+   criterio 155). **Consecuencia técnica visible en los mocks:** el acumulado deja de usar `aggregate`
+   (`_sum`) y pasa a `findMany` + `reduce`, porque el monto es un **COALESCE entre dos columnas** que
+   `_sum` no expresa. *Sumar el campo equivocado sería exactamente el error que este control cierra.*
+   Se actualizaron **8 specs** que mockeaban `sellRequest.aggregate`.
+
+**Sitio 6, detalle que no es cosmético:** el predicado se escribió con un **`OR` explícito**
+(`[{ offerDecision: null }, { offerDecision: { not: 'skip' } }]`) y no con `{ not: 'skip' }` a secas.
+Sobre una columna **nullable**, el trato que un `not` le da al `NULL` es una sutileza del ORM, y aquí la
+diferencia es **borrar de la serie histórica todas las líneas previas al ciclo** — o sea, el **100 % de
+los datos que existen hoy**.
+
+**Guard de residuo:** `test/sell-request-states.spec.ts` **lee `src/` como texto** (quitando
+comentarios) y falla si cualquiera de los literales reaparece, con el nombre del sitio y la razón. Hay
+además el guard simétrico —«los consumidores **importan** la constante»— porque «no hay literal» se
+cumpliría también si alguien hubiera **borrado el filtro entero**, que es peor.
+
+### 0.24.5 `InventoryItem.cardProductId` (D7) y la deuda documental
+
+Columna + propagación en `convertToInventory` + backfill por FK única. **Los tres comentarios que
+afirmaban una propagación inexistente** quedaron corregidos (`schema.prisma` y `dto/buylist.dto.ts` en
+este pase; ARCHITECTURE §4.29d lo corrigió el arquitecto) y la deuda quedó **registrada y cerrada** como
+**INV-D7** en `docs/TECH_DEBT.md` — se registra **aunque nazca cerrada** porque §4.39(d.4) lo exige y
+porque **§11 M-32 se contradecía a sí misma** remitiendo a una entrada que no existía.
+
+**Aprovechando el mismo `create`, y porque el contrato lo manda (§4.39i.5, criterio 135):**
+`acquisitionCostCents` pasa a `offeredPriceCents ?? approvedPriceCents ?? quotedPriceCents ?? 0`. **Hoy
+es un no-op** (nada escribe `offeredPriceCents` todavía); se pone ahora porque olvidarlo después sería
+registrar el costo **cotizado** de una pieza comprada a otro precio. **El envío no entra al costo de la
+pieza.**
+
+### 0.24.6 P-30 H2 — la llave canónica de variante
+
+`buylist` interpolaba la llave a mano. **El contrato enumeraba DOS sitios; en el código vivo eran
+CUATRO** (`batchQuote`, la vitrina de bounties, `createRequest` y el conteo de bounties al pagar). Se
+migraron **los cuatro**: cerrar dos de cuatro habría dejado la clase abierta, y este ciclo mete **cuatro
+fuentes nuevas** que se agrupan por esa misma familia de llaves — una que la construya distinto
+desalinea las cifras de la mesa **en silencio** y el operador compra mal. `variantKey()` **no se tocó**
+(cambiarla produce misses de override/referencia = dinero mal).
+
+### 0.24.7 `GET /api/v1/buylist/quote-policy` — la única cifra de dinero que el cotizador público conoce
+
+**Contrato:** API_CONTRACT §6 y §11 (v1.51.4, **D43**) · ARCHITECTURE §4.39(r) · **criterio 132(a)**.
+`public`, **READ-ONLY estricto**, sin query params, sin body, throttle **60/min por IP** (el mismo que
+`/quote` y `/bounties`), **`Cache-Control: public, max-age=300`**.
+
+```
+BuylistQuotePolicyDTO = { minimumRequestCents: number }      // UN entero. Y nada más.
+```
+
+**Por qué existe:** el criterio 132 son **DOS frentes**. El **(b)** —el `422 BUYLIST_MINIMUM_NOT_MET`—
+**no cubre el (a)**: si el botón no procede **no se manda nada al servidor** y el `422` **nunca se
+dispara**, así que no puede alimentar esa pantalla. Y hardcodear el mínimo lo prohíbe **R4** de
+`DESIGN_SYSTEM.md` §23 y lo desmiente el propio criterio, que pide *«con el número correcto»*.
+
+**⚠️ Lo que NO devuelve es el punto entero del diseño.** `buylistShippingFeeCents` **no viaja**: no es
+que el front «no deba pintarlo», es que **no lo recibe**. *Un valor que no llega al navegador no se
+puede pintar por accidente* ⇒ **D43 deja de depender de la disciplina del frontend y pasa a ser una
+propiedad del contrato.** La lista de exclusiones es **CERRADA** (§4.39r.2) y está transcrita en el
+docblock del método: los tres plazos, el tope del operador, el cap de posición, la alerta de confirmación,
+el piso de neto, la alerta de re-emisión, y **veto duro permanente** sobre los topes AML y
+`ineThresholdCents` — *publicar el umbral de INE es publicar el manual de cómo estructurar por debajo,
+y un control de cumplimiento pierde eficacia al ser conocido*. **Resultado: 1 de 10 diales.**
+⚠️ **`seguridad` debe tratar cualquier dial adicional en esta ruta como un DEFECTO, no como una mejora.**
+
+**Dos decisiones de implementación que conviene conocer:**
+- **No hay caché en memoria.** El contrato la **permite** («su TTL no puede superar el `max-age`
+  publicado») pero **no la exige**. Se omitió: la lectura es un `findUnique` por clave única, y un TTL
+  propio **sumaría una segunda ventana de rancidez** encima de los 300 s — justo en el número que
+  **gatea un botón**. *Si el humano mueve el dial, el único retraso debe ser el que está publicado.*
+- **El valor sale del dial en cada llamada**, con el mismo `getNumber` que usa cualquier otro consumidor.
+  Hay test que **mueve el dial y verifica que la respuesta cambia** — uno que solo comprobara `50000`
+  pasaría igual con el número hardcodeado.
+
+**Las dos superficies del mínimo no se pisan:** la del cotizador es **preventiva** (el front resta, con
+el mínimo del servidor: evita el viaje); el `422` es **AUTORITATIVO** (decide, con
+`details.shortfallCents`). Si difieren —caché, o dial movido entre medias— **manda el `422`**. *La
+pantalla informa; la puerta decide.* **En ningún caso se crea una solicitud incorrecta.**
+
+**Tests:** `backend/test/buylist.quote-policy.spec.ts` (15). Los dos que importan: **el DTO tiene
+exactamente UNA clave** (un test que solo asertara `minimumRequestCents` pasaría el día que alguien
+añada la tarifa) y **el valor sale del dial vigente**. Las exclusiones se comprueban **por clave y por
+valor**: renombrar la clave no sería una defensa.
+
+### 0.24.8 Lo que este pase deja para el siguiente (declarado, no olvidado)
+
+Ningún endpoint **del ciclo** (`quote-policy` no lo es: es la política pública del cotizador); el
+barrido sigue con sus **plazos viejos** (7/30 inline en `jobs/buylist-sweep.service.ts`) y **sin las
+siete reglas**; `variantPositionKey` (§4.39g) no se añadió —es de la mesa de decisión, y **entró en el
+pase §0.25**—; y la desviación
+**BL-9** (re-anclar `abandonada` a `receivedAt`) no se tocó: es un **cambio de comportamiento** que va
+con el barrido, no con los cimientos.
+
+---
+
+## 0.23 v1.51 — **BL-2: `respond` gana la guarda de estado** (dinero saliente, agujero VIVO en `main`) (2026-09-01)
+
+> Implementa **API_CONTRACT §6 v1.51** (`POST /buylist/requests/:id/respond`) y **ARCHITECTURE
+> §4.39(b.2)**. Cierra la desviación **BL-2** de ARCHITECTURE §9. **Va SOLA, en su propio commit:** no
+> depende de M-46 ni del resto del ciclo de adquisición — era explotable con el código de `main`.
+
+### 0.23.1 Qué estaba roto
+
+`BuylistService.respond()` hacía `findUnique` **sólo para autorizar propiedad** y **nunca leía
+`req.status`**. `accept` fijaba `status:'aprobada'` + `approvedAt` **incondicionalmente**; `decline`
+fijaba `status:'rechazada'` + `closedAt` igual de incondicionalmente. Consecuencia real: **el dueño de
+una solicitud `pagada`, `rechazada` o `abandonada` podía re-postear `accept` y revivirla a
+`aprobada`** — que junto con `verifiedAt` es exactamente el estado pagable de `paySpei`. Una solicitud
+ya cerrada (o ya pagada una vez) volvía sola a la cola de «listas para pagar SPEI». `decline` tenía el
+hueco simétrico: reescribía una `pagada` a `rechazada`, borrando el rastro del pago y re-sellando el
+`closedAt` que ancla la retención de INE (SEC-D2).
+
+### 0.23.2 Qué se implementó
+
+La precondición del contrato, **entera menos la cuarta condición** (ver 0.23.3), y **en el `where` del
+`updateMany`**, verificada con `count === 1`:
+
+```
+closedAt IS NULL ∧ adjustmentSentAt IS NOT NULL ∧ status ∈ {verificacion, aprobada}
+```
+
+- **La guarda es del motor, no de la aplicación.** No es un `if` sobre la lectura previa: eso es
+  read-then-write y sufre TOCTOU (dos `accept` concurrentes pasarían los dos). Mismo patrón atómico que
+  `paySpei` y `rejectRequest`.
+- **`userId` va TAMBIÉN en el `where`**, además del `404` anti-IDOR de arriba: la autorización no queda
+  colgada de una lectura que una carrera pueda invalidar. El `404` (solicitud ajena o inexistente,
+  misma respuesta) **no cambia**.
+- Fuera de la precondición ⇒ **`409 NO_LIVE_ADJUSTMENT`** con **`details.status`** (el estado **releído
+  dentro de la transacción**, no el de la lectura inicial, que ya puede estar viejo).
+- **La idempotencia aquí NO es «200 con el estado actual»** (a diferencia de `itemDecision(reject)`):
+  el re-`accept` sobre un ajuste ya consumido (`adjustmentSentAt = null`, que la propia rama `accept`
+  deja) cae en la misma `409`. Es exigencia expresa del contrato: el verbo mueve dinero y un `200`
+  silencioso esconde justo lo que hay que ver.
+- **Transacción, isolation por defecto.** Guarda + movimiento de ítems (`ajustada → aprobada`) +
+  relectura van en un solo boundary para que «solicitud transicionada» e «ítems transicionados» no
+  diverjan tras un commit (criterio de §4.18g). **NO se pide `Serializable` a propósito:** aquí no hay
+  lectura-y-luego-decido que proteger (a diferencia del tope mensual de `paySpei`); la exclusión mutua
+  la da entera el `where`, y subir el aislamiento sólo añadiría fallos de serialización espurios.
+- El movimiento de ítems corre **después** de la guarda: una respuesta ilegítima no mueve ni un ítem.
+- **`updateMany` no devuelve filas** ⇒ hay una relectura antes de proyectar. La proyección de cliente
+  (`toCustomerSellRequestDTO`) y el resto del comportamiento **no cambian** (S49-M1 intacto: ni
+  `clabeSnapshotEnc`, ni `closedAt`, ni `paidBy`).
+
+**Constante nueva:** `SELL_REQUEST_LIVE_ADJUSTMENT_STATES = ['verificacion','aprobada']` en
+`buylist-reject.constants.ts`, fuente única del set. Es —por definición del contrato— el mismo set que
+el barrido de 7d reconoce: si el barrido puede rechazar por no contestar, el vendedor tiene que poder
+contestar, y sólo ahí.
+
+**Códigos de error registrados** en `common/error-codes.ts`: `NO_LIVE_ADJUSTMENT` y
+`ADJUST_NOT_ALLOWED_IN_OFFER_CYCLE` (este segundo **aún no se emite**, ver abajo).
+
+### 0.23.3 ⚠️ PENDIENTE PARA CUANDO ATERRICE M-46 — lo que NO se pudo cablear
+
+La **cuarta** condición del contrato, **`offerSentAt IS NULL`** (y su
+**`409 ADJUST_NOT_ALLOWED_IN_OFFER_CYCLE`**), **no está implementada**: la columna
+**`SellRequest.offerSentAt` no existe todavía en el schema** — llega con **M-46** (ciclo de oferta). No
+se inventó la columna. Las otras tres condiciones cierran el agujero explotable hoy, que es lo que BL-2
+exige.
+
+**Cableado exacto que falta (dos puntos, ambos marcados con `TODO(M-46)` en
+`backend/src/modules/buylist/buylist.service.ts`, método `respond`):**
+
+1. Añadir **`offerSentAt: null`** al `where` del `updateMany` de la guarda.
+2. En el brazo de fallo (`count !== 1`), incluir `offerSentAt` en el `select` de la relectura y, si
+   `current.offerSentAt != null`, lanzar **`409 ADJUST_NOT_ALLOWED_IN_OFFER_CYCLE`**
+   (`details.status`) en vez de `NO_LIVE_ADJUSTMENT`. Es el criterio 150 por lo negativo.
+
+**Ventana de exposición mientras tanto:** ninguna en `main` hoy — sin ciclo de oferta no existen
+solicitudes con `offerSentAt`, así que la condición ausente no deja pasar nada. **Se vuelve exigible en
+el mismo pase que cree la columna**, y por eso queda anotado aquí y en el código.
+
+### 0.23.4 Tests
+
+**Nuevo:** `backend/test/buylist.respond-guard.spec.ts` — **17 tests**. Prisma mockeado a mano, sin BD,
+con factories locales (patrón `buylist.reject.spec.ts`). El mock **evalúa el `where`** en vez de
+devolver `{count:1}` a ciegas: con un mock complaciente estos tests pasarían aunque la guarda no
+existiera. Cubre `accept` y `decline` sobre `pagada`/`rechazada`/`abandonada` (409 + fila intacta +
+cero ítems movidos), `cotizada`/`recibida`, re-`accept` y re-`decline`, el **flujo legítimo** (efecto
+idéntico al de v1.50), un test **estructural** de que la guarda vive en el `where` (cae si alguien la
+mueve a un `if`), el `404` anti-IDOR y **concurrencia** (dos `accept` simultáneos ⇒ una sola
+transición; `accept` + `decline` simultáneos ⇒ un solo desenlace, nunca una mezcla).
+
+Verificado contra la implementación vieja: **16 de los 17 fallan** con el código de `HEAD` (el que pasa
+es el anti-IDOR, que ya era correcto y queda como guarda de regresión).
+
+**Tests ajenos ajustados (sólo plumbing de mocks, ninguna aserción de negocio debilitada):**
+- `backend/test/no-raw-entity-response.spec.ts` — el mock de Prisma ahora modela el ciclo
+  «`updateMany` condicional → relectura» y las dos filas de `respond` pasan a tener **ajuste vivo**
+  (antes una tenía `closedAt` seteado y la otra `status:'ajustada'`, que ni siquiera es un
+  `SellRequestStatus`). La aserción S49-M1 sale **reforzada**: el `closedAt` que no debe filtrarse es
+  ahora uno **recién escrito por el propio decline**.
+- `backend/test/buylist.ronda-c.spec.ts` — `respond(decline)` ya no transiciona con `update`; el test
+  afirma sobre el `data` del `updateMany` (mismo invariante: `rechazada` + `closedAt`).
+
+**Resultado de `cd backend && npm test`: 204 suites / 2527 tests, TODO VERDE.** `npm run typecheck`
+limpio; `npm run lint` 0 errores (2 warnings preexistentes en `inventory.service.ts` y
+`sealed-product.service.ts`, archivos no tocados).
+
+### 0.23.5 Para otros roles
+
+- **Frontend:** `POST /buylist/requests/:id/respond` puede devolver **`409 NO_LIVE_ADJUSTMENT`** con
+  `details.status`. La pantalla de respuesta al ajuste necesita ese caso (típicamente: la solicitud se
+  cerró o el plazo de 7d ya la rechazó mientras el vendedor tenía la pestaña abierta). **No hay
+  reintento útil**: el ajuste ya no existe.
+- **QA:** el flujo legítimo (ajuste vivo ⇒ accept/decline) **no cambia** en absoluto. Lo nuevo es que
+  todo lo demás devuelve 409 en vez de 200. Caso de humo del dinero: pagar una solicitud vía SPEI y
+  después re-postear `accept` ⇒ debe ser 409 y la solicitud debe seguir `pagada`.
+- **Arquitecto:** sin discrepancias con el contrato. La única parte no implementada es la que depende
+  de una columna que el propio contrato marca como M-46 (ver 0.23.3).
+## 0.22 — **v1.53-b: el comentario que engañó a un gate, y las dos raíces que lo hacían posible** (2026-09-06, rama `claude/buylist-graded-identity`, **MONEY-adyacente**)
+
+> Propiedad: **backend**. Ronda de corrección posterior al doble veredicto APROBADO de v1.53 (`6db0a78`).
+> **Cero migraciones, cero endpoints nuevos, cero cambios de contrato.** Un cambio de comportamiento
+> (M-1) que **cierra** una puerta de publicación, y tres correcciones de honestidad.
+
+### I-2 — el `!` de `catalog.service.ts:944`: los dos gates discreparon, y los dos tenían media razón
+
+El código emitía el `gradeKey` del grupo así:
+
+```ts
+// v1.53 (§4.40.4b): el `!` es SEGURO — el bucle de arriba ya descartó las piezas sin clave,
+// así que todo miembro de un grupo la tiene (y todos comparten la MISMA: es la clave del grupo).
+gradeKey: this.pricing.tryGradeKeyFor(item)!,
+```
+
+El techlead lo descartó como falso positivo; QA trazó la cadena y dijo que había hueco. **Se midió
+ejecutando la cadena, no razonando sobre ella** (`backend/test/catalog.group-identity-gap.spec.ts`), y
+el resultado reparte la razón:
+
+| Afirmación | Veredicto medido |
+|---|---|
+| «Una graduada legacy sin identidad **llega** a `buildGroups`» (QA) | ✅ **CIERTA.** `fetchSellable` filtra por `dto.sellable && salePriceCents != null` y **no mira `gradeKey`**; `sellable` es `salePriceCents > 0 && status === 'listed'` y **tampoco**; y la rama de precio manual fija el precio **sin** consultar la identidad. Medido: la pieza sale `sellable:true`, con precio, en `units[]` |
+| «El `!` produce `gradeKey: undefined` en el cable» (QA) | ❌ **FALSA.** `buildGroups` tenía **su propio** `continue` sobre `lookupKeyOf`. La pieza se atajaba ahí: `listings` sale `[]`, y en la rejilla tampoco aparece |
+| «El `!` es seguro» (techlead) | ✅ **CIERTA**, pero por un invariante **no local**: se sostenía en un `continue` a 45 líneas de distancia, acoplado sólo por que ambos llamaban a `tryGradeKeyFor` |
+| «El bucle de arriba ya descartó las piezas sin clave» (el comentario) | ⚠️ **AMBIGUA hasta el punto de engañar.** Hay dos bucles candidatos y el lector natural es el de `fetchSellable`, que **no** filtra por clave. Ahí se partió el veredicto |
+
+**Lo que se hizo, y por qué no fue «reforzar el comentario».** El comentario ya afirmaba lo correcto
+(«todos comparten la MISMA: es la clave del grupo»); lo que fallaba es que el **código no lo hacía**:
+recalculaba la clave con un `!` en vez de transportar la que ya había calculado para agrupar. Así que
+se cambió el código para que la afirmación deje de ser una afirmación:
+
+- `lookupKeyOf` → **`lookupKeysOf`**, que devuelve `{ gradeKey, variantKey } | null` (las dos claves de
+  una vez; `lookupKeyOf` queda como envoltorio de un campo para los otros dos call-sites).
+- el `Map` de grupos pasa de `Map<string, rows>` a **`Map<string, { gradeKey, members }>`**: la clave
+  de grado viaja **dentro del grupo**, que es lo que el comentario decía que era.
+- el DTO emite **`gradeKey,`** — sin `!`, sin recálculo, sin invariante que creerse. Si el `continue`
+  desapareciera mañana, ya no compilaría en silencio.
+
+**Y por qué ningún test lo veía:** `catalog.group-dto-shape.spec.ts` **mockea `tryGradeKeyFor`** con un
+stub que devuelve `'graded:PSA:10'` para toda graduada ⇒ en ese spec el `null` **no es representable**.
+El spec nuevo usa el cuerpo REAL (`PricingService.prototype.tryGradeKeyFor`).
+
+> **Verificación negativa (obligatoria, por el precedente de N-1/N-2):** se simuló la regresión
+> (quitar el `continue`, volver al `!`) y el spec nuevo **falla 4/5**, con el DTO serializado
+> **literalmente sin la clave `gradeKey`** en la salida del error. El test no aprueba sin el código
+> que prueba.
+
+### M-1 — **publicar un slab exigía cert, pero no saber qué grado es.** Corregido (cambio de comportamiento)
+
+Es la **raíz** de I-2, y el hueco era alcanzable de verdad:
+
+1. `assertPublishableGuards` exigía `certNumber` para `graded` — **pero no `gradingCompany`/`gradeValue`**.
+2. La comprobación de identidad sí existía… en `resolvePublishSalePrice`, **después** de su primera línea:
+   `if (manual != null) return { ok:true, salePriceCents: manual, priceSource:'manual' }`.
+3. ⇒ con `listPriceCents` manual (de la **línea** o de la **pieza**) el flujo **retornaba antes** de
+   llegar a la comprobación, y la graduada sin identidad **se publicaba**: `listed`, `sellable`,
+   comprable por `inventoryItemId`.
+
+**No era una fuga de dinero** —el monto es el override EXPLÍCITO del admin, no una referencia de
+`graded:PSA:10` inventada (ese defecto lo cerró §4.40.4)—, pero publicaba una pieza **cuya identidad el
+sistema no conoce**, en un marketplace donde el grado *es* el producto.
+
+**El arreglo** tiene la forma del `certNumber` que ya vivía al lado: `422 VALIDATION_ERROR`, **por
+línea**, con la misma degradación en `bulkPublish`/`publishAll` (una línea inválida no tumba las demás).
+`createItem` ya exigía los tres campos para `graded` (`validateProductShape`, contrato §M1 alta): esto
+cierra la misma invariante en la otra puerta.
+
+**Impacto operativo:** las piezas nacidas sin identidad (`convertToInventory`, §9 D-BG-3) **ya no pueden
+llegar a `listed` por precio manual**. La reparación sigue siendo `PATCH /admin/inventory/items/:id`
+(§4.40.5b) y luego publicar. El censo §4.40.8 midió **0 filas** en este estado, así que el cambio no
+retira nada publicado hoy.
+
+> **Verificación negativa:** con la guarda retirada, el spec nuevo falla **6/7** — y `publishAll`
+> publica **2 de 2** en vez de 1. Es la medición de que el hueco era real, no teórico.
+
+### Residuo del gate — el `continue` del contador de bounties ya no es silencioso
+
+`countBountyAcquisitionsTx` corre **dentro de la transacción del pago** y saltaba las líneas sin clave
+**sin dejar rastro**, mientras `price-sync` —con mucho menos en juego— sí cuenta y loguea. Si una línea
+legacy se salta el contador, el `bountyAcquiredQty` de esa variante queda por debajo de la realidad y el
+auto-apagado del bounty se retrasa: es poco, pero es dinero. Ahora lleva contador y **una** línea de
+`logger.warn` al final (nunca por-fila: es ruta caliente de pago). El flujo del pago **no cambia**.
+
+### `test/integration/setup.ts` — el aviso que gritaba en toda corrida verde
+
+Su docstring afirmaba que «si `DATABASE_URL` falta, la suite fallará explícitamente». **No fallaba: sólo
+hacía `console.warn`.** Y el aviso saltaba **siempre**, incluso con Postgres levantado, porque el archivo
+leía `process.env.DATABASE_URL` **antes** de que `@prisma/client` cargara `.env` por su cuenta ⇒ las 16
+suites imprimían «la suite de integración requiere Postgres real» mientras corrían en verde **contra
+Postgres real**. Eso entrena a ignorar el aviso, y el día que la infra falte de verdad la señal es
+indistinguible del ruido. Arreglado en las dos puntas: `setup.ts` carga `.env` igual que la CLI de
+Prisma, y el docstring dice lo que el código hace.
+
+> Comprobado que la suite **sí** exige infra: apuntada a un Postgres inexistente, `infra-smoke`
+> falla **3/3** en el `$connect()`. Los 194 tests verdes son contra Postgres real.
+
+### Lo que NO se tocó, y por qué
+
+- **M-2 (`updateItem` bloquea reparar `gradingCompany` en una graduada ya `listed` sin `certNumber`)
+  queda ABIERTO y escalado al arquitecto.** Es una tensión entre **dos reglas del contrato**, no un
+  defecto de implementación, y resolverla es decisión de contrato (ver `TECH_DEBT` **DT-M2** y el
+  resumen del pase). No se «arregla» por cuenta propia.
+- **`frontend/`** — intacto (rama en paralelo).
+- **`docs/API_CONTRACT.md` / `docs/ARCHITECTURE.md`** — intactos.
+
+### Verificación de este pase (comandos literales)
+
+| Comando | Resultado |
+|---|---|
+| `npx tsc --noEmit -p tsconfig.json` | **limpio** (exit 0, sin salida) |
+| `npx jest` | **214 suites / 2779 tests, todos verdes** (antes: 2766 ⇒ **+13**) |
+| `npm run lint` | **0 errores**, 2 warnings **preexistentes** (`inventory.service.ts:452` `actorUserId`, `sealed-product.service.ts:11` `normalizeSetName`) — confirmado que ya estaban en `HEAD` |
+| `npm run test:integration` | **16 suites / 194 tests, todos verdes** (exit 0). El script **sí existe y corre**: `prisma migrate deploy && jest --config test/jest-integration.config.js --runInBand`, con «35 migrations found / No pending migrations to apply» contra `tcg_marketplace` en `localhost:5432` |
+
+**Tests nuevos (13):**
+
+| Archivo | Tests | Qué ancla |
+|---|---|---|
+| `backend/test/catalog.group-identity-gap.spec.ts` | 5 | I-2: la cadena existe (la pieza es vendible y viaja en `units[]`), **no** forma grupo, el filtro no se come lo legítimo, y **en el cable** todo grupo trae `gradeKey` string no vacío |
+| `backend/test/inventory.publish-slab-identity.spec.ts` | 7 | M-1: rechazo con precio manual en pieza y en línea, `''`/`'   '` como ausencia, **no regresión** de la graduada completa, degradación por-línea, y `publishAll` |
+| `backend/test/pricing.grade-key-identity.spec.ts` (+1) | 1 | El **ancla de la premisa** del `?? 'NM'`: cardinalidad del enum `RawCondition`, no la lista de negocio (ver `TECH_DEBT` DT-M1) |
+
+
+## 0.21 — **v1.53: el buylist vuelve a ser RAW-ONLY y `buildGradeKey` deja de inventar el grado** (2026-09-05, rama `claude/buylist-graded-identity`, **MONEY**)
+
+> Propiedad: **backend**. Implementa ARCHITECTURE **§4.40** y el contrato **v1.53** (`f3fef40`).
+> **Cero migraciones, cero DDL, cero columnas nuevas, cero endpoints nuevos, cero backfill.**
+> Riesgo de dinero: **cierra** una fuga de dinero saliente que estaba **viva en producción**.
+
+### El defecto, en una frase
+
+El cotizador ofrecía `graded` y `sealed`; **ningún DTO de buylist tenía —ni tuvo nunca— dónde capturar
+QUÉ grado es** el slab; y `buildGradeKey` rellenaba el hueco:
+
+```ts
+case 'graded': return `graded:${input.gradingCompany ?? 'PSA'}:${input.gradeValue ?? '10'}`;
+```
+
+⇒ **toda carta graduada se cotizaba contra la referencia de PSA 10, el grado más caro que existe**,
+fuera un PSA 6 o un CGC 8. Y no acababa ahí: `convertToInventory` crea la pieza **sin** grado —no
+puede, el origen no lo tiene—, así que **todos** los lectores la resolvían como PSA 10 **para
+siempre**: precio de venta, valor de custodia, P&L, bóveda, catálogo y `price-sync` (§9 D-BG-3).
+
+### Lo que se construyó
+
+| Pieza | Archivo | Qué hace |
+|---|---|---|
+| Lista blanca | `backend/src/common/business-rules.ts` | `BUYLIST_ACCEPTED_PRODUCT_TYPES = ['raw']` — **literal**, con la cita de `PROJECT.md` §E/§K LOCKED/criterio 61 al lado. **NO** derivada de `PRODUCT_TYPE_VALUES` |
+| Código de error | `backend/src/common/error-codes.ts` | `BUYLIST_RAW_ONLY` (422 de negocio), con el porqué de **no** ser el 400 del `@IsIn` escrito en el propio código |
+| Guarda server-side | `backend/src/modules/buylist/buylist.service.ts` (`assertBuylistProductType`) | Las **tres** superficies: `publicQuote` (422 de request), `batchQuote` (**por-ítem**, `ok:false`, HTTP 200) y `createRequest` (todo-o-nada, la solicitud **no se crea**) |
+| Narrowing del buylist | `buylist.service.ts` (`rawGradeKeyInput`) | Puente entre la línea de compra y el input estricto; re-aplica la guarda (defensa en profundidad) |
+| **La cirugía** | `backend/src/modules/pricing/pricing.types.ts` | Unión discriminada `GradeKeyInput` + `buildGradeKey` (**lanza** `IncompleteGradeIdentityError`) + `tryBuildGradeKey` (**`null`**). Se retiran `?? 'PSA'` y `?? '10'` |
+| Seams del servicio | `backend/src/modules/pricing/pricing.service.ts` | `gradeKeyFor` (estricta, dinero) y **`tryGradeKeyFor`** (tolerante, lectura) |
+| Reparación del operador | `backend/src/modules/inventory/dto/inventory.dto.ts` + `inventory.service.ts` (`updateItem`) | `UpdateItemDto` gana `gradingCompany?: GradingCompany` (ADITIVO, §4.40.5b · §9 D-BG-4). Se **ignora** en `raw`/`sealed` |
+| Tests | 4 specs nuevos (ver abajo) | 42 tests nuevos: 31 unitarios + 11 de integración |
+
+### Por qué `422` de negocio y NO un `@IsIn(['raw'])` en el DTO — la decisión que decide el pase
+
+En `/quote/batch` los errores son **por-ítem** (`ok:false`, HTTP `200`). Un `@IsIn` que falle en el
+`ValidationPipe` devuelve **`400` para el request entero** y **se lleva por delante las otras 49 líneas
+raw legítimas** del grid del cotizador. Por eso `BUYLIST_RAW_ONLY` entra al **allowlist de degradación
+por-ítem** del batch, junto a `NOT_FOUND`, `FINISH_NOT_AVAILABLE`, `PRODUCT_NOT_FOUND` y
+`PRODUCT_CARD_MISMATCH`.
+
+**Consecuencia de implementación que es fácil pasar por alto:** el lote de overrides
+(`getVariantOverridesBatch`) se arma **antes** del bucle y con `overrideKeyOf`, que construye la clave
+de precio. Si se le pasan los ítems `graded`, revienta **fuera** del `try` por-ítem y tumba el request
+igual que el pipe. Por eso ese lote se arma **filtrando** por la lista blanca. Lo mismo en
+`createRequest`, donde la guarda corre **antes** de leer la KYC (una petición imposible no toca PII).
+
+**Los límites de FORMA no cambian:** `items` vacío o > 50 siguen siendo `400 VALIDATION_ERROR` del pipe.
+El contraste está probado en el spec de integración.
+
+### El reparto de los ~30 call-sites (§4.40.4b) — «dinero lanza, lectura degrada a `pending`»
+
+Es el punto que el techlead va a juzgar, así que va explícito. **Regla dura: `null` ⇒ NO HAY
+REFERENCIA ⇒ `precio_pendiente` / «—». Jamás un default, jamás MX$0.**
+
+| Call-site | Variante | Por qué |
+|---|---|---|
+| `buylist.service.ts` `overrideKeyOf` · `decideBuyLine` · lote de `createRequest` | **`gradeKeyFor` (lanza)** | Cotización y creación de solicitud: **firman dinero**. Tras la guarda, la línea siempre es `raw` |
+| `inventory.service.ts:createItem` | **`gradeKeyFor` (lanza)** | Alta de inventario: `validateProductShape` ya exige empresa+grado; `gradeKeyInputOfDto` estrecha y re-comprueba (422, no 500) |
+| `inventory.service.ts` rama `sealed` de `resolvePublishSalePrice` | **`gradeKeyFor({productType:'sealed'})`** | Literal, dentro del `if` de sellado. Devuelve `'sealed'` (clave del override manual, §4.19d) |
+| `orders.service.ts:salePriceOf` (**checkout**) | `tryGradeKeyFor` **+ `PRICE_PENDING` explícito** | Ver el apartado siguiente |
+| `inventory.service.ts` publicación (`loadPublishPricingCtx`, `resolvePublishSalePrice` raw/graded) | `tryGradeKeyFor` | Sin clave ⇒ `ok:false`, **no se publica**. **No escala a la cola**: la cola es por VARIANTE y aquí no hay variante — lo que falta no es un precio, es saber **qué slab es** |
+| `inventory.service.ts:exportGradeKey` (XLSX) | `tryBuildGradeKey` | Lectura pura: columnas de mercado/compra/venta **vacías** |
+| `catalog.service.ts` (7 sitios: lote de refs, lote de overrides, `refFromBatch`, `toListingDTO`, `buildGroups`) | `tryGradeKeyFor` (vía `lookupKeyOf`/`variantOverrideOf`) | Storefront público: `pending` ⇒ `sellable:false` |
+| `vault.service.ts` (`holdings`, `holdingDetail`) · `admin-vaults.service.ts` | `tryGradeKeyFor` | Patrimonio del cliente: `pending` y **excluido del total**, contado en `pendingPriceCount` |
+| `admin.service.ts:ownedItemRefs` | `tryGradeKeyFor` | La fila sale con `referenceValue: {status:'pending'}` — **visible por pieza** en el DTO |
+| `admin.service.ts:inventoryValue` (×2) | `tryGradeKeyFor` | Suma a `pendingPriceCount`, **no** a `atReferenceCents` |
+| `admin.service.ts:custodyValue` | `tryGradeKeyFor` | ⚠️ **OMITE EN SILENCIO** (`continue`): la pieza **desaparece del pasivo sin dejar señal**. Ver la corrección de abajo y `TECH_DEBT` DT-M3 |
+| `master-set.service.ts` (binder) · `price-ingest.service.ts` ×2 · `jobs/price-sync.service.ts` | `tryGradeKeyFor` | Lectura/valuación y barridos; sin clave ⇒ se omite (con contador en el log de `price-sync`) |
+| `sealed-graded.service.ts:gradedIndex` | `tryGradeKeyFor` | Un grupo sin identidad sale con `marketReferenceMxnCents: null` |
+| `buylist.service.ts:countBountyAcquisitionsTx` | `tryGradeKeyFor` | Ver el apartado siguiente |
+
+#### Las tres excepciones razonadas (para que no parezcan atajos)
+
+1. **`orders.salePriceOf` es camino de dinero y usa la tolerante.** El `null` **no cae a un default:
+   cae a NO VENDER** (`422 PRICE_PENDING`), que es el mismo criterio money-safe que ya aplica ese
+   método cuando no hay dato de mercado. Se hace así —y no con la que lanza— porque **existen piezas
+   `listed` legacy sin identidad** (§4.40.5c) y un `IncompleteGradeIdentityError` ahí sería un **500 en
+   el checkout** en vez de un rechazo honesto. Fail-**closed** con nombre, no fail-open.
+2. **`countBountyAcquisitionsTx` corre dentro de la transacción del PAGO** y sólo lleva un contador de
+   bounty. Un `throw` tumbaría un pago por una fila **legacy**. Misma doctrina que el
+   `if (res.count === 0) continue` que ya vivía ahí. Sin clave no hay `VariantPriceOverride` que casar,
+   así que no se incrementa nada.
+3. **`catalog.buildGroups` descarta las filas sin clave** en vez de inventarles un `gradeKey` para el
+   DTO.
+
+   > ⚠️ **CORREGIDO en v1.53-b (hallazgo I-2).** La frase que seguía aquí —«en la práctica no llega
+   > ninguna: publicar una graduada exige `certNumber`»— **era falsa**, y engañó a un revisor. Sí
+   > llegan: `assertPublishableGuards` exigía `certNumber` pero **no** empresa+grado, y
+   > `resolvePublishSalePrice` retorna en su primera línea con un precio manual, **antes** de su
+   > comprobación de identidad. La cadena completa y su medición están en la sección **§0.22**.
+
+### Lo que NO se hizo, y por qué (prohibiciones del encargo, §4.40.9g)
+
+- **Cero columnas de graduación en `SellRequestItem`.** Añadirlas sería **construir el buylist de
+  graduadas**, decisión de producto que `PROJECT.md` §E/§K/criterio 61 pone fuera de alcance. La forma
+  queda **reservada** en `M-49` (§4.40.7), **diseñada y no programada**.
+- **Cero backfill.** No existe dato del que derivar el grado de una carta cuyo grado nunca se preguntó.
+- **Cero `??` que rellene identidad de grado.** Hay un **test que lee el fuente** de `pricing.types.ts`
+  y falla si vuelve a aparecer `?? 'PSA'` o `?? '10'`.
+- **`?? 'NM'` de `raw` se CONSERVA** y no es lo mismo: `NM` es el **único** valor que el negocio acepta
+  (`ACCEPTED_RAW_CONDITIONS`, `PROJECT.md` §E). Ahí el default es neutro; en el grado elegía el máximo.
+
+### Censo §4.40.8 (READ-ONLY, sin `UPDATE`, sin script de datos)
+
+Ejecutado el 2026-09-06 contra la **BD de desarrollo local** (`tcg_marketplace`, tras `test:integration`):
+
+| # | Consulta | Resultado |
+|---|---|---|
+| 1 | `SellRequestItem` con `productType != 'raw'`, por `itemStatus`, con `sum(quotedPriceCents)` / `sum(approvedPriceCents)` | **0 líneas · 0 ¢ comprometidos** |
+| 2 | `InventoryItem` `productType='graded'` con `gradingCompany IS NULL OR gradeValue IS NULL`, separando `acquisitionType='buylist'` | **0 piezas** |
+| 3 | Subconjunto de (2) con `status='listed'` | **0 piezas** |
+| — | Contexto (para saber si el 0 es real o es una BD vacía) | 1 `SellRequestItem`, 1 `SellRequest`, 584 `InventoryItem` (2 `graded`, **ambas con identidad completa**) |
+
+**Coincide con lo que dijo el dueño («no hay ninguna graduada comprada») — pero medido, no asumido.**
+
+> ⚠️ **Esto NO es producción.** El número que decide (§4.40.5a y §4.40.6) es el de **prod**, y quien
+> tenga acceso debe correr el mismo SQL ahí. Es de solo lectura; se puede pegar tal cual:
+
+```sql
+-- (1) dinero comprometido contra un grado que nunca se preguntó
+SELECT "productType", "itemStatus", COUNT(*) AS lineas,
+       COALESCE(SUM("quotedPriceCents"),0)   AS quoted_cents,
+       COALESCE(SUM("approvedPriceCents"),0) AS approved_cents
+FROM "SellRequestItem" WHERE "productType" <> 'raw' GROUP BY 1,2 ORDER BY 1,2;
+
+-- (2) piezas que caen a `pending` con §4.40.4
+SELECT "acquisitionType", COUNT(*) AS piezas,
+       COUNT(*) FILTER (WHERE "gradingCompany" IS NULL) AS sin_empresa,
+       COUNT(*) FILTER (WHERE "gradeValue"     IS NULL) AS sin_grado
+FROM "InventoryItem"
+WHERE "productType" = 'graded' AND ("gradingCompany" IS NULL OR "gradeValue" IS NULL)
+GROUP BY 1 ORDER BY 1;
+
+-- (3) las que además están PUBLICADAS sin identidad de slab
+SELECT COUNT(*) FROM "InventoryItem"
+WHERE "productType"='graded' AND ("gradingCompany" IS NULL OR "gradeValue" IS NULL) AND "status"='listed';
+```
+
+**Si (1) > 0:** esas líneas **no se re-cotizan ni se auto-aprueban**. Se resuelven a mano por
+`PATCH /api/v1/admin/buylist/items/:itemId/decision` (§M5), con el monto escrito por el dueño.
+**Si (2) > 0:** se reparan con `PATCH /api/v1/admin/inventory/items/:id` enviando `gradingCompany`,
+`gradeValue` y `certNumber` con el slab físico en la mano (por eso este pase añade `gradingCompany`).
+
+### Efectos observables para OTROS ROLES
+
+- **frontend:** `BUYLIST_RAW_ONLY` llega **por-ítem** en `/quote/batch` (`ok:false`, HTTP 200,
+  `error.code`, correlación por `index`) y como **`422` de request** en `/quote` y `/requests` (ahí sí
+  con `details: { index?, productType }`). El selector de tipo del cotizador es cosmética: la guarda ya
+  está en el servidor, así que retirarlo no cambia nada del backend.
+- **QA:** el aserto que separa una implementación correcta de una incorrecta es **`/quote/batch` con 50
+  líneas y UNA graduada ⇒ HTTP `200` con 49 cotizaciones vivas**. Si devuelve `400`, la guarda se puso
+  en el `ValidationPipe`. Está cubierto en unitario y en integración, y verificado con `curl` contra el
+  stack vivo.
+- **admin/operación:** piezas graduadas sin identidad de slab pasan a valuarse **`pending`** en bóveda,
+  catálogo, agregados de admin y `price-sync`. **No es una regresión: por primera vez dicen la verdad.**
+  El `price-sync` además emite en su log cuántas omitió por ese motivo.
+- **devops:** **nada que correr.** Cero migraciones, cero variables, cero ventana. Rollback = el normal
+  de la rama.
+
+### Tests
+
+| Spec | Qué ancla | Tests |
+|---|---|---|
+| `backend/test/pricing.grade-key-identity.spec.ts` | La cirugía: `buildGradeKey` lanza / `tryBuildGradeKey` da `null`; **el `??` no puede volver** (test que lee el fuente); `raw`/`sealed` sin cambios | 12 |
+| `backend/test/buylist.raw-only.spec.ts` | Las tres superficies + el lote de 50 con una graduada + «ninguna clave del buylist es de graduada» + ancla de la lista blanca | 14 |
+| `backend/test/graded-identity.pending-readers.spec.ts` | La **mitad persistida**: bóveda / admin / checkout valúan `pending`, y la pieza **bien capturada** se valúa **igual que antes** (regresión) | 9 |
+| `backend/test/inventory.grading-company-repair.spec.ts` | `UpdateItemDto.gradingCompany`: acepta PSA/CGC, ignora en `raw`/`sealed`, no relaja el guardarraíl del cert | 7 |
+| `backend/test/integration/buylist-raw-only.e2e-spec.ts` | **Por el borde HTTP con el pipe real montado**: 422 en las tres rutas, batch 200 con 49 vivas, `400` de forma intacto, y **cero filas nuevas** en `SellRequest` | 11 |
+
+Resultados: `npx tsc --noEmit` **limpio**; `npx jest` **212 suites / 2 766 tests, todo verde**;
+`npm run lint` **0 errores** (2 warnings **preexistentes**, no de este pase);
+`npm run test:integration` **16 suites / 194 tests, todo verde**.
+
+### Discrepancia menor anotada para el **arquitecto** (no bloquea)
+
+`GradedInventoryGroupDTO.gradingCompany` está declarado en el contrato como **`GradingCompany`
+requerido y no nullable** (§M1). Un grupo de `gradedIndex` cuya `gradingCompany` es `NULL` se sigue
+pintando con el `?? 'PSA'` **de display** que ya existía, porque emitir otra cosa cambiaría la forma del
+DTO. **Lo que movía dinero sí se corrigió**: ese grupo ahora sale con `marketReferenceMxnCents: null` en
+vez del valor de un PSA 10. Si se quiere que también el display sea honesto, hace falta que el contrato
+haga el campo opcional/nullable — decisión del arquitecto, no de backend.
+
+### Deuda conocida que este pase NO cierra (de §9 D-BG-4, segunda mitad)
+
+`gradeValue` sigue siendo `@IsString()` **libre** en el alta y en el `PATCH` de inventario: se puede
+capturar `"banana"` ⇒ clave `graded:PSA:banana`, que `isCanonicalGradeKey` rechazaría en el override de
+§M2. **No es una fuga de dinero** (esa pieza queda `pending` para siempre, fail-closed), y ARCHITECTURE
+la ancla a `M-49` («o antes si backend la toma de paso»). Se deja fuera **a propósito**: el contrato
+v1.53 no la pide y endurecer una validación no pedida en un pase de dinero es superficie extra. La
+regla canónica ya existe y está lista para promoverse: `CANONICAL_GRADE_VALUE` en `pricing.types.ts`.
+
 ## 0.20 — **M47-H2: el proveedor mudó de CDN; el guardarraíl de imágenes de set pasa a DOS hosts** (2026-09-05, v1.52-a)
 
 > Propiedad: **backend**. **Defecto EN PRODUCCIÓN**, corregido con evidencia dura.
@@ -12147,3 +16384,620 @@ llave ni salida a la API del proveedor; **no se intentó ninguna corrida real**)
 3. **El modelo de coste de `fetchAllInSet=true`** (la duda abierta del recuadro de arriba): si la
    medición confirma cobro por carta devuelta, la premisa «coste proporcional al inventario real» de
    §4.38h cae y hay que rediseñar el alcance del barrido.
+
+## v1.51.20 — El ciclo tenía 3.045 tests en verde y no funcionaba de punta a punta (2026-09-02)
+
+> **Rama:** `claude/buylist-inventory-workflow-hdnls3`. **Entrada:** gate de QA **RECHAZADO** (8
+> bloqueantes) + techlead **APROBADO CON DEUDA** condicionado a 3 cierres. **Los once se arreglaron
+> en el pase**, y aparecieron **dos más** que solo se veían por HTTP.
+>
+> **El titular, y la lección que se lleva el repo:** los ocho bloqueantes los encontró QA
+> **ejercitando los endpoints con `curl` contra el stack real**. Ninguno era sutil —**404 de ruta**,
+> **un campo que el `ValidationPipe` tiraba en silencio**, **veintiún campos que el DTO no
+> proyectaba**, **una guarda de dinero que no existía**— y **ninguno era visible desde una suite
+> construida sobre Prisma mockeado**: *un mock confirma la forma del código, no la del sistema.*
+> Por eso la mitad de este pase es código y la otra mitad es **`test/integration/buylist-cycle.e2e-spec.ts`**.
+
+### Lo que se arregló, por qué existía y qué lo vigila ahora
+
+| # | Defecto | Causa raíz | Guarda nueva |
+|---|---|---|---|
+| **BL-26** | `POST /buylist/requests` ignoraba `addressId`, no validaba el mínimo y no leía el celular | el campo **no estaba en el DTO** (whitelist lo descartaba); el mínimo solo se **leía** en `quotePolicy()`; `User.phone` no se consultaba | integración por HTTP (5 casos, incluido el borde inclusivo) |
+| **BL-27** | `itemDecision` permitía **repreciar y ajustar una oferta ya aceptada** | la guarda de terminal (BL-14) aterrizó sola; `OFFER_PRICE_IMMUTABLE` **no existía** y `ADJUST_NOT_ALLOWED_IN_OFFER_CYCLE` estaba solo en `respond` | 9 unitarios con `updateMany` condicional + 4 por HTTP |
+| **BL-28** | `live-sellers` y `pending-shipment-confirmation` devolvían **404** | declaradas **después** de `@Get(':id')`; y **dos comentarios afirmaban lo contrario** | las cuatro colas, por HTTP |
+| **BL-29** | la proyección admin emitía **2 de 26** campos y la de cliente heredaba por resta | `toCustomerSellRequestDTO` = «la de admin **menos N**» | guard de residuo + 24 claves aseveradas por HTTP |
+| **BL-30** | `offer/cancel` **limpiaba `offerSentAt`** | el código contradecía al schema, a ARCHITECTURE §4.39i.6 **y** al contrato §6/D42 | `lastOfferCancelledAt` por HTTP |
+| **R1/R2/R3** | el puerto de publicación no era un puerto; sin test de cableado; llave de cola con un componente de menos | ver abajo | `app.module.spec.ts` + guard de paridad de llave |
+
+### 1. La puerta del ciclo (**BL-26**) — `POST /buylist/requests`
+**Tres requisitos del contrato faltaban enteros**, y el orden en que se comprueban es normativo:
+```
+1. PHONE_REQUIRED           ← una columna del usuario; no depende de nada más
+2. PICKUP_ADDRESS_REQUIRED  ← ausencia de un campo del body
+3. PICKUP_ADDRESS_NOT_FOUND ← una lectura de la libreta del propio usuario
+   … CLABE (formato / nombre propio / fallback — v1.15 intacta) …
+   … cotización server-side de las N líneas …
+4. BUYLIST_MINIMUM_NOT_MET  ← ⚠️ necesita el TOTAL, así que NO puede ir antes
+5. BUYLIST_LIMIT_EXCEEDED · INE_REQUIRED · tope mensual
+```
+- **El mínimo va ANTES de los topes AML a propósito:** *«te faltan $483.33»* es accionable para el
+  vendedor; *«superaste el tope»* es una condición nuestra. Cuando las dos son ciertas, se le dice la
+  que puede resolver.
+- **`addressId` es `@IsOptional()` en el DTO y el `422` sale del servicio.** No es un olvido: el
+  contrato exige `PICKUP_ADDRESS_REQUIRED` con `details.field`, **no** un `400 VALIDATION_ERROR`. *El
+  pipe valida forma; el servicio valida la puerta.*
+- **Sin fallback a la dirección `isDefault`**, y es la diferencia deliberada con la CLABE: en archivo
+  hay **una** CLABE y es del propio usuario; la libreta tiene **N filas**, y elegir por el vendedor es
+  elegir **de dónde salen sus cartas**.
+- **Nuevo `PATCH /buylist/requests/:id/pickup-address`** (BL-2 de QA): guarda de motor
+  `closedAt IS NULL ∧ guideSentAt IS NULL` con `count===1`, `409 PICKUP_ADDRESS_LOCKED` fuera de ella,
+  y **auditoría sin PII** (solo los `addressId`).
+
+### 2. La guarda de dinero (**BL-27**) — lo que se estaba pagando mal
+Medido por QA contra BD real, sobre una oferta **aceptada** (`offerGrossCents=63500`,
+`offerNetCents=45500`): `PATCH …/decision {"decision":"adjust","approvedPriceCents":9900}` → `200 OK`
+⇒ `pay-spei` → **el vendedor aceptó MX$500 y cobró MX$0**.
+- **Discriminador:** `offerSentAt IS NOT NULL`. Con él: `approvedPriceCents` en el body ⇒
+  **`422 OFFER_PRICE_IMMUTABLE`**; `decision:"adjust"` ⇒ **`409 ADJUST_NOT_ALLOWED_IN_OFFER_CYCLE`**;
+  `approve` fija **server-side** `approvedPriceCents = offeredPriceCents`.
+- **`reject` NO se gatea por el eje**, y es deliberado: es legal a los dos lados (D30, rechazo
+  parcial) y su escritura no depende de ningún monto. *Se guarda lo que el estado condiciona, no todo
+  lo que se leyó.*
+- **Precedencia:** terminal ⇒ `NO_LIVE_ADJUSTMENT` **gana**. Y la guarda vive **en el `where`** con el
+  eje **tal como se observó**: si una emisión gana la carrera entre la lectura y la escritura,
+  `count !== 1` y no se escribe un peso.
+
+### 3. Las proyecciones (**BL-29**) — se invirtió la dirección de la herencia
+`AdminBuylistDTO` declara **24 campos del ciclo**; la proyección emitía **dos**. **Los datos estaban
+en la BD**: era **omisión de proyección**, y por eso ninguna prueba de escritura la veía.
+- La proyección de cliente era *«la de admin **menos 3 campos**»*. Con 21 campos nuevos —entre ellos
+  `offerState` y los tres montos congelados, cuya divulgación el contrato prohíbe— **esa resta pasaba
+  de trampa a fuga garantizada**. *Una resta de veinticuatro términos no es una lista blanca.*
+- ⇒ **base compartida** (`toSellRequestBaseDTO`) + **adición admin-only** (`adminSellRequestDTO`). Lo
+  admin-only no viaja al cliente **porque no se lee**, que es la misma disciplina que ya aplicaba
+  `itemDTO` con los cinco campos de `AdminSellItemDTO`.
+- **El listado de admin ahora sale de la MISMA proyección** que el detalle y que las mutaciones: tenía
+  su propio literal de doce claves y arrastraba el mismo agujero. Sigue **sin** `pickupAddress` (un
+  listado paginado de domicilios es cosecha masiva de PII).
+- **Cliente:** gana `expiredReason`, `pickupAddress` y `lastOfferCancelledAt` (derivado), y aplica la
+  **redacción `no_offer`** —`quotedTotalCents: null` y todas las líneas a `null`— **en el detalle y en
+  la lista**. La regla vive en el servidor porque el correo 4 tiene prohibido cualquier monto y §23.5a
+  exige que la pantalla diga lo mismo: *el espejo no puede sostenerse solo con la disciplina del front.*
+- **Dos diales** alimentan derivados (`offerIssueDeadlineAt`, `offerReissueAlert`). `getNumber` es una
+  query por llamada, así que se izan **una vez por request** y —en `paySpei`— **antes** de la
+  transacción serializable: no participan en ninguna precondición.
+
+### 4. ⚠️ **BL-30 — el código contradecía a tres fuentes a la vez** (hallazgo del pase)
+`adminOfferCancel` hacía `offerSentAt: null`. El **schema**, **ARCHITECTURE §4.39i.6** y el
+**contrato §6/D42** dicen los tres que **no se limpia al cancelar**. Rompía dos cosas:
+1. **`lastOfferCancelledAt` salía siempre `null`** (su regla exige `offerSentAt IS NOT NULL`) ⇒ el
+   vendedor que acababa de recibir el **correo 5** entraba al portal y **no veía rastro**: la pantalla
+   contradecía al correo.
+2. **La solicitud salía del ciclo a ojos de las guardas** ⇒ `respond` e `itemDecision(adjust)` volvían
+   a admitir la vía de ajuste, que el criterio 150 declara inexistente. *Cancelar una oferta no
+   devuelve la solicitud al mundo legacy.*
+
+Se retiró la línea. **No reabre ninguna fuga:** `offerPublicDTO` sigue gateado por
+`offerState === 'sent'`, y la re-emisión no mira ese campo (`status='cotizada' ∧ offerState ∈ {null,
+cancelled}`).
+
+### 5. Los tres cierres del techlead
+- **R1 — `InventoryPublishAdapter implements InventoryPublishPort`.** El token se ataba con
+  `useExisting: InventoryService` y la clase **no declaraba el `implements`**: renombrar
+  `reevaluateForPublication` dejaba `tsc` verde, las specs verdes (mockean el puerto) y **los tres
+  consumidores reventando en runtime capturando el error** ⇒ auto-publicación apagada con un
+  `logger.warn` como único síntoma. Y detrás del token estaba el **servicio de escritura completo**.
+  *Delegar no es reimplementar:* el adaptador **reenvía**, el pipeline sigue en un solo sitio, y ahora
+  romper la firma **falla en compilación**.
+- **R2 — test de cableado.** Con `@Optional()` + `catch` en los tres consumidores, sacar el módulo del
+  grafo compilaba y pasaba la suite entera. Se asevera el token, **las dos entradas** y **los dos
+  consumidores** (`buylist`, `price-ingest`).
+- **R3 — `pendingQueueKey`.** El docblock estaba **pegado a la función de al lado** y su afirmación de
+  paridad era **falsa**: `escalatePending` dedupe por **seis** componentes (con `cardProductId`) y la
+  llave usaba **cinco**; `openPendingEntriesFor` ni lo seleccionaba. Como `buylist` **sí** abre
+  entradas con `cardProductId` no nulo, **una promo y su set base colapsaban** y el deep-link podía
+  llevar al operador a la entrada del otro producto. Se añadió el componente **en los tres sitios**
+  (llave, `select` y `PendingVariantKey`), lo que además alinea la **escalada y el cierre** del eje de
+  inventario con los de buylist — *resolver el precio de una variante ya no puede apagar el aviso de
+  otra*.
+
+### 6. La cobertura, que es lo que de verdad cierra el agujero
+- **`test/integration/buylist-cycle.e2e-spec.ts` — 41 casos, todo por HTTP contra Postgres real.**
+  Incluye el **smoke completo** (cotizar → ofertar → aceptar → guía → «ya lo mandé» → confirmar →
+  recibir → verificar → aprobar → pagar) que termina en la aserción que justifica el recorrido:
+  **`payoutNetCents === offerNetCents`** — el invariante que el bug de la guarda rompía.
+- **Norma para quien añada casos** (escrita en la cabecera del archivo): **nada de mocks de Prisma
+  ahí**. Si un caso necesita un estado que la API no puede fabricar, se **siembra por `h.prisma`** y
+  se ejercita **por HTTP**.
+- **`prisma/seed-e2e.ts` ahora crea DOS `SellRequest`** (una `ofertada` con la oferta enviada y sus
+  tres montos congelados, y una `cotizada`). No creaba **ninguna**, y ésa era la razón de raíz de que
+  **doce** pruebas de UI del ciclo se saltaran siempre: el arnés del frontend **no puede fabricar una
+  oferta emitida desde la UI**. ⚠️ **El orden de creación es normativo** (`listMine` ordena
+  `createdAt desc` y la suite del portal exige que la primera fila **no** tenga oferta).
+- **`User.phone` y una `Address` para los DOS customers** entran al seed: sin ellos, desde BL-26
+  **ningún** flujo de venta arranca.
+- **Unitarios nuevos:** `buylist.offer-cycle-guards.spec.ts` (9 — con un Prisma de mentira que evalúa
+  el `where` **de verdad**, incluida la relación, para que un `updateMany` sin guarda no pueda pasar)
+  y `buylist.projection-and-queue-key.spec.ts` (8 — guards de residuo de las dos paridades cross-file).
+
+### Verificación (literal)
+```
+npx tsc --noEmit -p tsconfig.json      →  sin salida (limpio)
+npx eslint "src/**/*.ts" "test/**/*.ts" →  0 errores, 2 warnings PRE-EXISTENTES
+                                           (inventory.service.ts `actorUserId`,
+                                            sealed-product.service.ts `normalizeSetName`)
+npx jest                                →  Test Suites: 227 passed, 227 total
+                                           Tests:       3063 passed, 3063 total
+./scripts/stack-native.sh test:integration
+                                        →  Test Suites: 16 passed, 16 total
+                                           Tests:       224 passed, 224 total
+```
+Baseline de entrada: 225 suites / 3045 unitarios y 15 suites / 183 de integración.
+**Delta: +2 suites y +18 unitarios; +1 suite y +41 de integración.**
+
+### Para el FRONTEND (lo que cambia de forma en la respuesta)
+1. **`POST /buylist/requests` ahora EXIGE `addressId`.** El front ya lo manda; a partir de aquí el
+   backend lo **usa** (antes se descartaba). Códigos nuevos que hay que pintar:
+   `PICKUP_ADDRESS_REQUIRED`, `PICKUP_ADDRESS_NOT_FOUND`, `BUYLIST_MINIMUM_NOT_MET`
+   (con `details.shortfallCents` **ya calculado**: se renderiza, no se calcula) y `PHONE_REQUIRED`.
+2. **`PATCH /buylist/requests/:id/pickup-address` existe** (antes `404`).
+3. **`GET /admin/buylist/live-sellers` y `…/pending-shipment-confirmation` existen** (antes `404`).
+   El código de front que las llamaba **ya funciona sin cambios**.
+4. **El DTO admin trae los 24 campos del ciclo** (guía, plazos, montos, cierre, `payoutNetCents`). El
+   código que leía `shipmentTrackingNumber` o `expiredReason` y recibía `undefined` **deja de estar
+   muerto**.
+5. **`?offerReissueAlert=true` filtra de verdad** (devolvía el superconjunto).
+6. **El detalle de cliente gana `expiredReason`, `pickupAddress` y `lastOfferCancelledAt`**, y en
+   `expirada ∧ no_offer` **`quotedTotalCents` y `items[].quotedPriceCents` llegan `null`** — en el
+   detalle **y** en la lista.
+
+### Escaladas al arquitecto (ninguna bloqueante — se implementó lo que el contrato dice)
+1. **`details` de `PICKUP_ADDRESS_NOT_FOUND` está declarado distinto en dos sitios:** §6 dice
+   `{ field: "addressId" }` y §M5 dice `details.addressId`. Como el cuerpo que resuelve la dirección
+   es **compartido** por las tres rutas (crear, cliente, admin), **se emiten los dos** (`{ field,
+   addressId }`) — superset que satisface ambas lecturas sin romper ninguna. *Si el arquitecto
+   prefiere una sola forma, es un cambio de una línea.*
+2. **`approve` sobre una línea `skip` (o sin `offeredPriceCents`) dentro del ciclo fija `0`.** El
+   contrato dice que en el ciclo `approve` toma el monto de `SellRequestItem.offeredPriceCents`, y una
+   línea que no compramos no tiene ninguno. **No inventé un código de error** (§N.2: no se rellena lo
+   que el contrato no nombra); se deja en `0` y se documenta. Si esa combinación debe ser un `422`,
+   el contrato tiene que nombrarlo.
+3. **Precedencia entre `OFFER_PRICE_IMMUTABLE` y `ADJUST_NOT_ALLOWED_IN_OFFER_CYCLE`** cuando llegan
+   `decision:"adjust"` **y** `approvedPriceCents` a la vez: el contrato ordena el terminal sobre las
+   dos, pero no las ordena **entre sí**. Se eligió el **`422` primero** (es el orden en que §M5 las
+   lista y es el campo de dinero). El test de integración acepta cualquiera de los dos a propósito, y
+   fija el discriminante limpio (`adjust` sin monto ⇒ `409`).
+
+---
+
+## v1.51.20-b — Las tres escaladas, resueltas por el arquitecto (2026-09-02)
+
+> **Entrada:** dictamen del arquitecto (`e406b57`) sobre las tres escaladas que dejé abiertas.
+> **Ninguna era bloqueante y las tres cambiaron algo.** Dos códigos de error nuevos, cero DDL, cero
+> endpoints. Lo anoto aquí porque **una de las tres corrige código mío que ya estaba en `main`**.
+
+### 1. `PICKUP_ADDRESS_NOT_FOUND` — el superset se retira: `details` queda `{ field: "addressId" }`
+Yo emitía **los dos** (`field` **y** `addressId`) porque §6 y §M5 los declaraban distinto y el cuerpo
+que resuelve la dirección es **compartido** por las tres rutas. El arquitecto lo corrigió y el
+argumento va más allá de la pregunta que hice:
+- **`field` dice qué control repintar** —lo único que separa *capturar* (`PICKUP_ADDRESS_REQUIRED`) de
+  *volver a elegir*—; **el id no contesta nada nuevo: el cliente lo acaba de mandar en esa petición**.
+- **Devolverlo saca un UUID ajeno** al cuerpo, a los logs y a la telemetría — **en el único código de
+  la familia que existe por ANTI-ENUMERACIÓN**. *Eco de un identificador que no es tuyo, en el error
+  diseñado para no confirmar que existe.*
+- Y su juicio sobre mi salida, que me llevo: **el superset era la peor de las tres opciones — no
+  cierra la ambigüedad, la vuelve permanente.** El hueco era de declaración (una sección la declaraba
+  y las otras dos la dejaban sin declarar), y *un hueco de declaración se lee como permiso*.
+
+**Hecho:** una línea en `resolvePickupAddressSnapshot`. No rompe al front (ramifica por `code`).
+
+### 2. ⚠️ `approve` sobre una línea que NO compramos — `422 ITEM_NOT_OFFERED` + backstop `500`
+**Esto era mucho más grave que el `0` que yo dejé documentado.** Yo implementé lo que el contrato
+decía (el monto sale de `offeredPriceCents`), me topé con que una línea `skip` **no tiene ninguno**,
+fijé `0` y **no inventé un código** (§N.2). El hueco era del contrato — pero el efecto del `0` no era
+cosmético: **la línea quedaba `aprobada`**, y `aprobada` es exactamente:
+1. **el ÚNICO estado que `convert-to-inventory` admite** (`422 ITEM_NOT_APPROVED` es su guarda única)
+   ⇒ **una carta que nunca compramos entraba al inventario VENDIBLE** con `acquisitionCostCents = 0`
+   ⇒ **M7 reportando 100 % de margen sobre mercancía ajena**;
+2. **el estado que saca la línea de §H** —los plazos 7d/30d se anclan en `rejectedAt`, que solo
+   escribe `reject`— ⇒ **el reloj de devolución del vendedor no arrancaba nunca** y su carta
+   desaparecía en silencio, sin correo y sin fila en ninguna cola.
+
+*Tercer `0` de este stream que significaba «no hay dato» y se leía como cifra. Aquí ni siquiera falta
+un dato: la línea **no se compró**, y el número correcto no es `0` — es que la operación no exista.*
+
+| `offerDecision` | `offeredPriceCents` | Resultado |
+|---|---|---|
+| `buy` | no nulo | `200` · `approvedPriceCents := offeredPriceCents` **server-side** |
+| `skip` | (`null` siempre) | **`422 ITEM_NOT_OFFERED`** · `{ itemId, offerDecision }` · no escribe nada |
+| `null` | — | **`422 ITEM_NOT_OFFERED`** · `{ itemId, offerDecision: null }` |
+| `buy` | **`null`** ⚠️ | **`500 OFFERED_PRICE_MISSING`** · `{ itemId }` · no escribe nada, no paga |
+
+- **Discriminador: una sola pregunta — ¿le debemos dinero a esta línea?** **No** ⇒ `422` accionable,
+  y **el remedio está a un clic**: `decision:"reject"` con motivo, que ancla §H y manda el correo por
+  carta. **Sí, y no sabemos cuánto** ⇒ **`500` backstop**, misma doctrina que
+  `OFFER_PROJECTION_INCOMPLETE`: el operador **no lo causó y no puede resolverlo**, así que **se
+  arregla el bug** — no se paga un `0` ni se degrada a `422`, que culparía a quien pulsó el botón.
+- **`reject` no cambia** y **fuera del ciclo nada de esto aplica** (`offerDecision` es `null` en toda
+  línea pre-ciclo: aplicarlo allí rompería la cohorte legacy entera).
+- **`convert-to-inventory` NO gana una segunda guarda:** con esta norma una `skip` **jamás alcanza
+  `aprobada`**, así que `ITEM_NOT_APPROVED` sigue bastando. *Duplicar la guarda duplicaría la regla.*
+- **Se retiró el `?? 0`** de la resolución del monto: dentro del ciclo la escalera ya garantizó las dos
+  condiciones, así que el valor **no puede** faltar. *Un `?? 0` ahí volvería a abrir el agujero entero.*
+
+### 3. La precedencia va **al revés** de lo que implementé: gana el `409`
+```
+409 NO_LIVE_ADJUSTMENT                     «esta SOLICITUD está cerrada»   (terminal)
+  >  409 ADJUST_NOT_ALLOWED_IN_OFFER_CYCLE «este VERBO no existe aquí»     [solo decision="adjust"]
+     422 ITEM_NOT_OFFERED                  «esta LÍNEA no se compró»       [solo decision="approve"]
+  >  422 OFFER_PRICE_IMMUTABLE             «ese CAMPO no viaja»            [CUALQUIER decision]
+  >  500 OFFERED_PRICE_MISSING             backstop
+```
+Yo puse el `422` del campo primero **siguiendo el orden en que §M5 los lista** — y *el orden de una
+lista nunca fue una precedencia*. El criterio correcto es **de lo que anula el ACTO ENTERO a lo que
+objeta un CAMPO**, el mismo con el que ya se había puesto el terminal encima: *«ese campo no se toca»*
+le insinúa al operador *«quítalo y procede»*, **y no procede** — el reintento sin monto choca igual
+con el `409`. **Dos errores para una causa, y el primero apunta al remedio equivocado.**
+Los dos peldaños del medio **no compiten**: los selecciona un `decision` distinto.
+
+⚠️ **Precisión que evita una cuarta escalada: `OFFER_PRICE_IMMUTABLE` es regla del CUERPO, no del
+VERBO** ⇒ **`approvedPriceCents` presente ⇒ `422` sea cual sea el `decision`, `reject` incluido**. No
+contradice que `reject` siga siendo legal a los dos lados del eje: *lo que se rechaza es el cuerpo, no
+el verbo*. **Aceptar-e-ignorar un campo de dinero entrena al integrador a mandarlo, y el día que el
+verbo cambie empieza a tener efecto.**
+
+**Y aquí se nota por qué el test estaba bien escrito:** el caso de integración **aceptaba cualquiera
+de los dos a propósito**, así que **no había clavado mi elección en un test** y la inversión no rompió
+nada. Ahora **fija el `409`**, conservando el discriminante limpio.
+
+### Cómo quedó implementado
+- **Un solo cuerpo**, `assertOfferCycleAllows(decision, approvedPriceCents, line, status)`: síncrono y
+  sin leer BD, para que lo compartan **los dos** sitios que lo necesitan —el pre-check y el
+  discriminador de la guarda del motor—. *Dos escaleras de precedencia para el mismo endpoint son dos
+  precedencias, y la que se lee en el código no sería la que se dispara en una carrera.*
+- El discriminador de la carrera **relee la línea**: la que teníamos en la mano es **pre-ciclo**
+  (`offerDecision: null`), y evaluarla daría `ITEM_NOT_OFFERED` sobre una línea que **acaba de
+  comprarse**. Se relee para que el error sea **el mismo que daría el reintento**.
+- Los dos códigos entran al **enum central** (`common/error-codes.ts`, **zona compartida** — nadie más
+  la tocó en esta ventana).
+
+### BL-28 — mi hallazgo, normado
+`offer/cancel` limpiaba `offerSentAt`. La norma escrita: **esa marca es la señal PERMANENTE de
+pertenencia al ciclo; lo vivo lo dice `offerState`; ninguna ruta la limpia jamás.** Verificado por
+`grep`: tras el arreglo, `offerSentAt: null` solo aparece **en un `where`** (predicado de lectura de la
+guarda de `respond`), en ninguna escritura.
+
+### Verificación (literal)
+```
+npx tsc --noEmit -p tsconfig.json        →  sin salida (limpio)
+npx eslint "src/**/*.ts" "test/**/*.ts"  →  0 errores, 2 warnings PRE-EXISTENTES
+npx jest                                 →  Test Suites: 227 passed, 227 total
+                                            Tests:       3069 passed, 3069 total
+./scripts/stack-native.sh test:integration
+                                         →  Test Suites: 16 passed, 16 total
+                                            Tests:       228 passed, 228 total
+```
+Respecto al pase anterior (3063 / 224): **+6 unitarios y +4 de integración**, todos de los dos códigos
+nuevos y de la precedencia invertida.
+
+### Para el FRONTEND (aditivo sobre la nota anterior)
+- **`PICKUP_ADDRESS_NOT_FOUND` ya NO devuelve `details.addressId`** — solo `{ field: "addressId" }`.
+  Si alguien lo leía, era un eco de lo que él mismo mandó.
+- **Dos códigos nuevos en `PATCH /admin/buylist/items/:itemId/decision`:** `422 ITEM_NOT_OFFERED`
+  (`{ itemId, offerDecision }`) — **el copy debe empujar a `reject` con motivo, no a «aprobar más
+  barato»** — y `500 OFFERED_PRICE_MISSING` (`{ itemId }`), que es **defecto nuestro**: el copy no
+  debe culpar al operador.
+- **`adjust` con monto ahora responde `409`, no `422`.** Si el front ramificaba por status, revisar.
+- **`reject` con `approvedPriceCents` en el body ahora es `422`** dentro del ciclo (antes se ignoraba
+  el campo). Si alguna pantalla lo manda «por si acaso», hay que dejar de mandarlo.
+
+---
+
+# v1.51.22 — Los cinco hallazgos del rechazo QA/techlead (B-1 … B-5)
+
+QA y techlead rechazaron la rama con **cinco hallazgos, los cinco de backend**. No fue un rechazo de
+diseño: los guardarraíles de dinero de este ciclo aguantaron 12 de 13 mutaciones y BL-2 quedó
+genuinamente cerrado. Lo que sigue son **cinco huecos concretos**, cerrados, con el detalle que otros
+roles necesitan.
+
+## B-1 · El barrido escribía sin el predicado con el que había leído — `backend/src/jobs/buylist-sweep.service.ts`
+
+`closeWithGuideTask` escribía con `updateMany({ where: { id, closedAt: null }, … })` **y nada más**.
+El docblock de la regla 2 **afirmaba** que `sellerShippedDeclaredAt IS NULL` «está en el where»: lo
+estaba en el del `findMany`, **no en el de la escritura**. Reglas 5 y 6, igual. La **asimetría era el
+síntoma**: la regla 7, en el mismo fichero y el mismo pase, sí reafirmaba `status: 'cotizada'`.
+
+**El caso alcanzable, y lo que costaba.** El job lee a las 08:00:00; el vendedor pulsa «ya lo mandé» a
+las 08:00:00.5 — `declareShipped` escribe **solo** `sellerShippedDeclaredAt` (ni `status` ni
+`closedAt`) y **no tiene guarda de plazo, a propósito**; el job escribe a las 08:00:01 y su `where` de
+dos términos **sigue casando**. Resultado: `expirada`/`not_shipped`, **terminal**, `closedAt` sellado,
+correo de «no procederemos» y tarea de cancelar la guía — **sobre un paquete que va físicamente en el
+correo**. Y `expirada` **no está en `payableWhere()`**: a esa persona ya no se le podía pagar ni
+revivir la solicitud.
+
+**Cierre.** `closeWithGuideTask` recibe ahora un cuarto parámetro `guard` —**el predicado de la
+lectura**— y lo reafirma en el `where` (`{ ...guard, id }`). Las reglas 1, 2, 5 y 6 declaran su `where`
+**una sola vez** y lo pasan a las dos mitades. `count === 1` sigue siendo el veredicto: si la fila se
+movió, **no se escribe, no se manda correo y no se cuenta**.
+
+**Residual conocido y aceptado:** el `findUnique` de la etiqueta dentro de `closeWithGuideTask` sigue
+siendo read-then-write. Su peor caso es **no abrir** una tarea operativa (fail-open sobre trabajo, no
+sobre dinero) y es casi inalcanzable —`shipDeadlineAt` solo existe si la guía ya se capturó—, así que
+no justifica partir la escritura en dos `updateMany`. Queda escrito en el docblock del método.
+
+## B-2 · `paySpei` derivaba el importe de una lectura FUERA de la transacción — `backend/src/modules/buylist/buylist.service.ts`
+
+El `findUnique` de `req` ocurría **antes** del `$transaction`, con **otra ida y vuelta a la BD en
+medio** (`kycProfile.findUnique` + `adminCycleDials`), y dentro se usaba ese snapshot para **el bruto
+que se compara contra el tope AML** y **el neto que se deposita**. `payableWhere()` no lo tapaba: fija
+`status` y `verifiedAt`, y **ninguno de los dos se mueve cuando cambia el monto**. `itemDecision` es
+**legal concurrentemente** en `aprobada`/`verificacion` (BL-14 solo frena los terminales) y llama a
+`recomputeApprovedTotal`. Si una decisión por-ítem commitea en esa ventana, **el SPEI sale con un bruto
+superado y el chequeo AML compara contra la cifra vieja**.
+
+**Cierre, en dos piezas que NO son redundantes:**
+1. **Relectura dentro de la tx** (`select` de solo las cuatro columnas de dinero — también evita
+   traerse otra vez el snapshot cifrado de la CLABE, S49-M1). Corrige *qué número* se compara.
+2. **CAS sobre esas cuatro columnas** en el `where` del `updateMany` —los tres términos de
+   `brutoConsumado` **más** `offerShippingFeeCents`, que es lo que produce `payoutNetCents`—.
+   Garantiza que *ese mismo número* siga vigente al escribir. Es el hermano exacto del `offerSentAt`
+   que `itemDecision` mete en el `where` de todas sus escrituras.
+
+⚠️ **Por qué hacen falta las dos:** el SSI de Postgres solo arbitra entre transacciones que TAMBIÉN son
+`Serializable`, y `itemDecision` **no lo es**. Sin CAS, la relectura sola dejaría la ventana abierta.
+
+**`capPerMonth` se sigue leyendo FUERA de la tx, y es deliberado:** es una **política** (dial u
+override de KYC), no el importe de esta operación. Ir una llamada stale en una política es
+categóricamente distinto de ir stale en el monto que se está pagando, y meterla dentro alargaría la
+ventana de conflicto de un camino de dinero saliente sin cerrar ningún hueco.
+
+### ⚠️ PARA FRONTEND — `POST /admin/buylist/:id/pay-spei` puede devolver `409 CONFLICT`
+Cuando el CAS falla **pero la solicitud sigue siendo pagable**, lo que falló no fue la precondición de
+estado sino **el monto**. Devolver el `422` de siempre («el pago solo se permite tras
+recepción/verificación») sobre una fila **aprobada y verificada** mandaría al operador a revisar lo
+único que sí está bien.
+
+- **Código:** `409 CONFLICT` (código **COMÚN** del contrato §3, no uno inventado), con
+  `details.status` = el estado real releído.
+- **La acción correcta que el copy debe empujar:** *recargar la solicitud, mirar el monto NUEVO y
+  decidir otra vez*. No es un reintento ciego.
+- **Lo que NO cambia:** el `422 VALIDATION_ERROR` de precondición sigue tal cual cuando la solicitud
+  **no** es pagable, y el replay idempotente de una `pagada` sigue devolviendo `200` con su estado.
+
+## B-3 · Los dos puertos no acuerdan qué es una variante — ESCALADO AL ARQUITECTO
+
+**Medido:** `sealedProductId` aparece **2 veces** en `inventory-publish.port.ts` y **0** en
+`inventory-position.port.ts`. `onHandCountsFor` agrupa por `(cardId, productType, rawCondition,
+gradingCompany, gradeValue, finish, cardProductId)` — **sin `sealedProductId`** ⇒ dos `SealedProduct`
+de la misma `Card` **colapsan en un bucket**. Y en graduado es peor: el adaptador deriva `gradeKey` de
+cuatro campos; **`buylist` llama `gradeKeyFor({ productType, rawCondition })` con dos**, porque
+`SellRequestItem` **no tiene columnas de graduación** ⇒ `buildGradeKey` cae a sus defaults y **toda
+línea graduada se llavea `graded:PSA:10`**. El puerto solo empareja stock PSA 10; el resto es
+**invisible**, y un PSA 10 ajeno se cuenta como propio. **Las dos direcciones del error a la vez.**
+
+⚠️ **La norma de `variant-key.ts` no lo atrapa**: guarda **el FORMATO del string** y deja libre **la
+DERIVACIÓN de sus partes**. El drift ocurre una capa por debajo de donde vigila la norma.
+
+**Cierre elegido (vía b), y por qué.** `buylist` devuelve `positionUnavailable` para `graded` y
+`sealed`: el mecanismo honesto que la pantalla ya tenía y que el contrato **ordena** usar cuando el
+conteo no se puede obtener (*«PROHIBIDO devolver `0`»*, §M5). Es **por línea**: la línea `raw` de la
+misma solicitud conserva su posición completa, y **el dinero de la línea degradada se sigue emitiendo**
+(el contrato dice explícitamente que esos campos son válidos con `positionUnavailable`). Y no se le
+**pregunta** al puerto por una variante que la llave no sabe decir: preguntar y descartar dejaría la
+llave equivocada viva en el seam.
+
+> ### 🚩 DECISIÓN PENDIENTE DEL ARQUITECTO (regla 9)
+> La vía (a) —**que el `VariantPositionRef` cargue la identidad completa** (`gradingCompany`,
+> `gradeValue`, `sealedProductId`), y que el `groupBy` del adaptador agrupe por `sealedProductId`—
+> **cambia la forma de un puerto que declara y provee `inventory`**: es una interfaz **entre streams**,
+> y probablemente arrastre `SellRequestItem` (hoy no tiene dónde guardar la graduación que el vendedor
+> declara). **No lo decido yo.** La degradación de arriba es correcta y honesta, pero **cuesta
+> funcionalidad**: la mesa de decisión deja de dar posición en graduado y sellado, que es justamente
+> donde las piezas son más caras. Hay un test de forma (`buylist.position-identity.spec.ts`) que
+> **cae** el día que el ref gane esos campos, para que la degradación no se quede puesta por inercia.
+
+## B-4 · El paso 6 de M-46 era obligatorio y no tenía mecanismo
+
+La migración declara **en mayúsculas** que el censo y triage humano de las `cotizada` vivas va **antes**
+de habilitar la regla 7, que **NO ES OPCIONAL**, y que sin él «la primera corrida del barrido manda
+correos reales a vendedores con solicitudes viejas». Pero `expireUnofferedRequests` **no tenía flag, ni
+gate, ni kill switch**: corría con `'0 8 * * *'` **la primera mañana tras el deploy**. **Lo único que
+separaba el deploy de esos correos era un comentario en un `.sql`.**
+
+**Cierre:** dial nuevo **`buylist_no_offer_expiry_enabled`**, **seed `off`**, régimen `on|off` estricto
+(solo el string `'on'` enciende; `true`, `'ON'`, `null` o basura ⇒ **apagado**). El gate va **primero**:
+apagado, ni siquiera se lee la tabla. **Sin `SettingsService` la regla también queda apagada** — mismo
+lado seguro que el fail-closed de calendario. **Las otras seis reglas no se gatean**: ninguna depende de
+un paso operativo previo, y apagar el barrido entero dejaría sin plazo a las cinco que sí están listas.
+
+### ⚠️ PARA DEVOPS — orden de despliegue, y lo que queda pendiente
+1. Deploy (la migración ya siembra la fila en `off` vía `prisma/seed.ts`, que itera
+   `SETTING_DEFAULTS`; **verificado contra la BD viva: `buylist_no_offer_expiry_enabled = "off"`**).
+2. **Paso 6**: censo + triage humano (la consulta está al final de la migración de M-46).
+3. Encender **a mano**:
+   `UPDATE "ConfigSetting" SET "valueJson" = '"on"' WHERE key = 'buylist_no_offer_expiry_enabled';`
+
+⚠️ **NO se expone en `SETTING_DTO_MAP`** (§M10), y es deliberado: el contrato fija **DIEZ** diales del
+ciclo y hay un test-ancla que rompe con el onceavo «para que haya que decidirlo a propósito». Éste no es
+un dial de política de negocio sino un **gate de despliegue de una sola vez**, del mismo género que
+`sealed_spread_*` (que tampoco está en el mapa). **Exponerlo en M10 sería un cambio de contrato ⇒ lo
+decide el arquitecto.** Si se prefiere que el operador lo mueva desde la UI en vez de por SQL, es una
+petición para el arquitecto, no un cambio que yo pueda hacer.
+
+> ### 🚩 PENDIENTE DE DEVOPS — BL-11 sigue solo en prosa
+> La precedencia de release **«FRONTEND PRIMERO, backend después»** (`POST /buylist/requests` gana un
+> campo obligatorio `addressId` en un endpoint vivo; backend nuevo contra front viejo **rompe todas las
+> altas**) sigue viviendo **únicamente** en un comentario de la migración. **Cablearlo en CI es de
+> devops** (`.github/workflows/` no es mi ruta) y **no lo he tocado**. Es el mismo género de hallazgo
+> que B-4: un requisito de orden cuyo incumplimiento se paga en producción y cuyo único mecanismo es
+> un párrafo.
+
+## B-5 · El tope AML no tenía prueba en el borde
+
+`buylist.aml-payout-cap.spec.ts` probaba **MX$4,000** y **MX$2,000** contra un tope de **MX$3,000** —
+muy por encima y muy por debajo— más el borde exacto `== cap` **por el lado que pasa**. Faltaba **el
+filo por el lado que rechaza**: mutar `> capPerMonth` a `> capPerMonth + 1` dejaba **58/58 verde** en
+payout y **605/605** en intake. *Un off-by-one en un control antilavado se habría publicado en verde.*
+
+El spec es heredado, pero **esta rama cambió la cascada que lo alimenta** (`brutoConsumado` pasó de dos
+términos a tres, §4.39i.4-bis), así que el universo de montos que el control mide se movió. Ahora se
+prueban los **tres** puntos que fijan la comparación exacta —`cap-1` pasa, `cap` pasa, **`cap+1`
+frena**— y **con el término central de la cascada** (`offerGrossCents`), no solo con los dos viejos.
+Verificado: la mutación `> cap + 1` pone **5 tests en rojo** y la mutación `>= cap` pone **3**.
+
+## Verificación (literal)
+
+```
+npx tsc --noEmit -p tsconfig.json        →  sin salida (limpio)
+npx eslint "src/**/*.ts" "test/**/*.ts"  →  0 errores, 2 warnings PRE-EXISTENTES
+                                            (inventory.service.ts:628, sealed-product.service.ts:11 —
+                                             ficheros que este pase NO toca)
+npx jest                                 →  Test Suites: 235 passed, 235 total
+                                            Tests:       3341 passed, 3341 total
+npx jest --config test/jest-integration.config.js --runInBand
+                                         →  Test Suites: 16 passed, 16 total
+                                            Tests:       228 passed, 228 total
+```
+
+Respecto al pase anterior (232 suites / 3283 unitarios): **+3 suites y +58 tests**. Todos los nuevos se
+verificaron **por mutación**: se rompió el arreglo a propósito y se comprobó que caen (B-1: 10 de 11;
+B-2: 6 de 10; B-3: 6 de 10; B-5: 5 con el off-by-one y 3 con el `>=`). Los que quedan verdes bajo
+mutación son deliberados: documentan el drift o son guardas de no-regresión, no discriminadores.
+
+### ⚠️ La suite de integración se ejecutó, y M-46 se ensayó por primera vez
+Postgres y Redis estaban arriba y la BD **al día** (`prisma migrate status` → «Database schema is up to
+date!», 36 migraciones). **`buylist-cycle.e2e-spec.ts` (869 líneas, nunca ejecutado) pasa 45/45**,
+incluido el recorrido de punta a punta cotizar→ofertar→aceptar→guía→envío→confirmar→recibir→verificar→
+**pagar SPEI**. Ese paso 13 es lo que valida **el CAS de B-2 contra el motor real**: los cuatro términos
+del `where` con valores mezclados `null`/no-`null` casan y el pago prospera. Ningún spec de integración
+ejercita el barrido, así que el gate de B-4 no altera nada allí.
+
+### Reparto de cobertura de B-2, dicho explícitamente
+La ruta feliz del CAS está cubierta **contra Postgres real** (E2E paso 13). La ruta de **fallo** del CAS
+(`409 CONFLICT`) está cubierta **solo en unitario**: hacerla determinista en integración exigiría
+interceptar entre la relectura y la escritura dentro de la misma transacción, cosa que no se puede
+hacer por HTTP. Queda anotado para que QA no lo lea como un hueco olvidado.
+
+# v2.1.10 — La cola de publicar salía vacía porque el SEED nunca sembró una pieza `in_stock` (2026-09-08)
+
+**Hallazgo de QA en la primera corrida de la suite E2E COMPLETA contra el stack real:** 37 pasaron,
+1 falló — `frontend/e2e/admin.spec.ts:329`, con tres reintentos idénticos:
+
+```
+Error: la cola de publicar está vacía: el seed debe dejar al menos una pieza
+Expected: > 0 · Received: 0
+```
+
+## ⚠️ Era PREEXISTENTE, y por qué nadie lo había visto
+
+**No es regresión de este release.** El mismo caso falla igual en `main` (29f97e2). Confirmado además
+por historia: `git log -S"in_stock" -- backend/prisma/seed-e2e.ts` devuelve **cero** commits — el seed
+sintético **no sembró jamás** una pieza en ese estado, ni una sola vez en toda su vida. Nunca se vio
+por dos razones que se suman:
+
+1. **el workflow que corre la suite E2E completa contra el stack real no se había corrido nunca** (lo
+   dice el handoff de la sesión anterior); y
+2. **en una BD de trabajo local la cola NO sale vacía**: acumula piezas `in_stock` de corridas
+   anteriores (medido aquí: 147 piezas `platform ∧ in_stock`, 146 de ellas sin ubicación). Es decir,
+   *el entorno donde se desarrolla enmascara exactamente el defecto que el entorno de CI destapa* —
+   CI parte de BD efímera + seed, y ahí el hueco es visible.
+
+## El diagnóstico, MEDIDO (no asumido)
+
+- `pendingPublish` (`backend/src/modules/inventory/inventory.service.ts:1738`) filtra por el predicado
+  del contrato §4.39m.1: `ownerType='platform' ∧ status='in_stock' ∧ (sin ubicación ∨ precio no
+  resoluble)`.
+- Las nueve piezas de plataforma del seed (`E2E-LST-0001…0009`) nacen **`listed`**, y las dos de bóveda
+  `in_custody`. **Cero `in_stock`.**
+- Medición sobre BD limpia (base `tcg_seedcheck`, `migrate deploy` + `seed:synthetic`, backend NestJS
+  real de HEAD en `:3098`):
+
+  ```
+  SELECT status, "ownerType", count(*) …  ⇒  listed|platform|9   in_custody|customer|2
+  GET /api/v1/admin/inventory/pending-publish?page=1&pageSize=20
+  ⇒ {"data":[],"page":1,"pageSize":20,"total":0}
+  ```
+
+**⇒ La cola sale vacía porque no hay nada que poner en ella. La pantalla funciona**: la aserción
+anterior del mismo caso —«o hay filas, o dice explícitamente que está vacía»— pasa. **Es un hueco de
+datos de prueba, no un defecto de producto.** Descartado el modo de fallo alternativo (que algo que
+debía producir piezas `in_stock` hubiera dejado de hacerlo): los dos productores —
+`convertToInventory` del buylist y el alta de inventario— siguen escribiendo `status:'in_stock'`, y
+ninguno es invocado por el seed.
+
+**Consecuencia peor que el rojo:** mientras la cola estuvo vacía, los **tres invariantes** que ese
+caso de UI existe para proteger (cada fila dice qué le falta · nunca `MX$0.00` para «no resoluble» ·
+ningún botón de publicar) recorrían **cero filas** y **pasaban por vacuidad**. Un verde de ese caso no
+significaba nada.
+
+## El arreglo — `E2E-STK-0001`, la única pieza `in_stock` del fixture
+
+`backend/prisma/seed-e2e.ts` + `backend/prisma/e2e-fixtures.ts`
+(`E2E_FOLIOS.pendingPublishNoLocation`):
+
+| campo | valor | por qué |
+|---|---|---|
+| `ownerType` / `status` | `platform` / **`in_stock`** | es el predicado de la cola |
+| `locationId` | **ausente (NULL)** | lo que le falta: la conversión desde M5 **no exige** ubicación (§4.39m.3 — exigirla atoraría el pago al vendedor). Es el caso REAL |
+| carta | `e2e-common` raw NM (`refNmCents` 5000) | **tiene referencia de mercado ⇒ el precio SÍ resuelve** |
+| `acquisitionType` | `buylist` | reproduce la pieza recién convertida, y ejercita la etiqueta «Compra a vendedor» de la columna de origen |
+| `acquisitionCostCents` | 2500 | el bruto que la curva paga por ese común (50 %) |
+| `sourceSellRequestItemId` | **ausente** | esa FK es **única**: colgarla de una de las dos `SellRequest` del ciclo marcaría esa línea como YA CONVERTIDA y rompería las pruebas del ciclo. El contrato la declara `string \| null` (§11) |
+
+**Por qué le falta la UBICACIÓN y no el precio:** el docblock del caso (`admin.spec.ts:300-313`) dice
+que contra el stack real **todas** las piezas de la cola tienen precio resoluble. Sembrar una pieza sin
+precio habría fabricado una coincidencia de fixture — justo lo que la v1.51.20 del caso quitó. Con
+precio resoluble la fila ejercita de verdad el invariante de dinero: se pinta un importe REAL
+(**MX$70.00**, `priceBasis: "market"`), así que una regresión que resolviera cero **se vería** como
+`MX$0.00` en lugar de esconderse tras un `null`.
+
+**Idempotencia (E2E-1):** el `reset` del `upsert` la devuelve a `in_stock` **con `locationId: null`** en
+cada siembra. Si una corrida le pone caja, la auto-publicación la saca de la cola (sale sola, sin botón
+— D10) y la corrida siguiente encontraría la cola vacía otra vez: *un fixture que solo funciona la
+primera vez es un test que se apaga solo.* El folio entra automáticamente en el reset de
+`InventoryMovement` del paso 3b (itera `Object.values(E2E_FOLIOS)`).
+
+⚠️ **No se tocó `inventory.service.ts` ni ningún endpoint.** El filtro `status:'in_stock'` es el
+predicado del contrato; ensancharlo para «que la cola tenga filas» habría sido cambiar el producto para
+que el test pase.
+
+## Test nuevo: `backend/test/integration/pending-publish-seed.e2e-spec.ts` (6 casos)
+
+*Un dato de prueba que nadie comprueba es la próxima ficha falsa.* El spec afirma **por HTTP contra
+Postgres real** los mismos tres invariantes del caso de UI, en el EMISOR: cola no vacía, ninguna fila
+muda (`missing` no vacío y de vocabulario cerrado), ningún precio resuelto ≤ 0 (el «no sé» viaja como
+`null` + `priceBasis:'pending'`, nunca como 0), `total` == filas paginadas, y la pieza del fixture
+sigue siendo `in_stock`/sin ubicación/con precio resoluble. Pagina la cola entera a propósito: mirar
+solo la página 1 haría que el spec pasara o fallara según la antigüedad de la BD local.
+No fija `total === 1` — eso haría fallar al entorno, no al código.
+
+## Verificación (literal, con números reales)
+
+Todo se midió sobre una base **limpia y aparte** (`tcg_seedcheck`) y un backend de HEAD en `:3098` con
+Redis en la db 3: **la BD del stack vivo NO se resembró** (`--seed` borra, y hay filas de evidencia de
+pentest/PoC en ella — DEVOPS_NOTES §38.4).
+
+| medición | resultado |
+|---|---|
+| `GET /admin/inventory/pending-publish` — seed ANTERIOR, BD limpia | `{"data":[],"total":0}` ⇒ **el rojo de CI reproducido** |
+| `GET /admin/inventory/pending-publish` — seed NUEVO | `total: 1`, fila `E2E-STK-0001`, `missing:["location"]`, `resolvedSalePriceCents: 7000`, `priceBasis:"market"`, `pendingPriceEntryId: null`, `acquisitionType:"buylist"` |
+| spec nuevo (integración) | **6/6 verdes** |
+| **suite de integración completa** | **20 suites / 289 tests — 289 verdes** |
+| **suite unitaria completa** (`npx jest`) | **250 suites / 3.666 tests — 3.666 verdes** |
+| `eslint` + `tsc --noEmit` sobre lo tocado | limpio |
+
+**Verificación por MUTACIÓN** (se quitó el bloque del seed y se borró la fila de la BD, y se volvió a
+sembrar): `GET …/pending-publish` vuelve a `total: 0` y el spec nuevo cae **3 de 6**, encabezado por
+`Expected: > 0 · Received: 0` — **el mismo mensaje que el fallo de Playwright**. Restaurado el bloque:
+6/6 otra vez. El fixture está, por tanto, **comprobado por algo que se pone rojo si desaparece**.
+
+### ⚠️ Lo que NO se midió, dicho explícitamente
+**No se corrió `frontend/e2e/admin.spec.ts`**: en esta máquina **no hay navegadores de Playwright
+instalados** (`~/.cache/ms-playwright` no existe) y, aunque los hubiera, el frontend vivo apunta a la BD
+de trabajo —que ya tenía 147 piezas `in_stock` de corridas viejas— así que ese caso habría pasado
+**con y sin** este arreglo: no habría medido nada. La comprobación de punta a punta queda para el
+workflow de CI, que es donde el rojo se midió. Lo que sí se verificó del lado de la UI, leyendo (sin
+tocar) `frontend/src/app/[locale]/(admin)/admin/m1/PendingPublishQueue.tsx` y `messages/es.json`:
+la 3ª columna es «Le falta» y con `missing:['location']` pinta **«Ubicación»** (no vacía), la columna
+de dinero pinta el importe resuelto, el contador `publish-queue-total` se pinta porque `total` es
+número, y el componente **no tiene ningún botón de publicar**.

@@ -5,13 +5,32 @@ import { Button } from '@/components/ui/Button';
 import { cn } from '@/lib/cn';
 
 /**
- * Guía de envío seguro (DESIGN_SYSTEM §7.13, PROJECT AC 34): sleeve + top loader.
+ * Guía de EMPAQUE (DESIGN_SYSTEM §7.13 reescrita v2.3.2, PROJECT AC 34): sleeve + top loader.
+ *
+ * ⚠ El componente cambió de TEMA, no solo de texto. Nació cuando el vendedor compraba su
+ * propio envío; bajo D16/D31 la etiqueta la ponemos nosotros y su costo se descuenta del
+ * pago. El `step4Body` viejo —«asegura por el valor cotizado»— hacía que quien lo obedecía
+ * PAGARA DOS VECES. Lo que queda aquí es lo único que sigue siendo del vendedor: cómo empaca.
+ * El copy normativo está en §23.14.1; este archivo solo lo pinta.
+ *
+ * Invariantes que NO se pueden «mejorar» sin romper algo:
+ * - `step1*` y `step2*` dicen funda/sleeve y top loader porque AC 34 EXIGE esas palabras.
+ *   Reescribirlos «por consistencia» rompe un criterio de aceptación (§23.14.5).
+ * - El `intro` lleva la política NM-only para que AC 34 se cumpla en TODA instancia, incluido
+ *   el modal, que tapa el bloque NM-only de la página.
+ * - El paso 4 es una regla de dinero: quién pone la etiqueta + que se descuenta + qué NO hacer.
+ *   Los tres viajan juntos (§23.14.3): este componente se pinta sin ningún bloque de dinero al
+ *   lado (modal) y §P lo repite dentro de dos correos, así que la resta no se puede delegar.
+ * - Sin cifras (D43): ningún paso lleva monto, rango ni porcentaje de envío.
+ * - El alto de fila NO se fija y el paso 4 NO se trunca: es el cuerpo más largo de los cuatro.
+ *   Prohibidos `line-clamp`, «ver más» y altura fija; si no cupiera, se corrige el contenedor.
  *
  * Makeover 1a (artboard «2b Vender»): los pasos son una retícula editorial de
  * cuatro columnas — regla superior, numeral mono en rojo (01–04), título y cuerpo —
  * sin cajas, iconos ni rellenos de color. El mismo bloque sirve en el modal
  * (columns=2, con CTA «entendido») y como sección inline al pie de /buylist
- * (columns=4, sin CTA).
+ * (columns=4, sin CTA). El título/enlace de ambos montajes sale de
+ * `buylist.shippingGuideLink`, que dice lo mismo que `safeShipping.title`.
  */
 export function SafeShippingGuide({
   onUnderstood,

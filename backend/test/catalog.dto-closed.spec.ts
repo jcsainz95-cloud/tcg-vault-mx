@@ -71,6 +71,7 @@ function pricingMock() {
     decideSalePrice: jest.fn(PricingService.prototype.decideSalePrice),
     computeSalePriceForItem: jest.fn(PricingService.prototype.computeSalePriceForItem),
     gradeKeyFor: jest.fn(() => 'raw:NM'),
+    tryGradeKeyFor: jest.fn(() => 'raw:NM'),
     getReference: jest.fn(async () => MANUAL_REF),
     getVariantOverride: jest.fn(async () => null),
   } as unknown as PricingService;

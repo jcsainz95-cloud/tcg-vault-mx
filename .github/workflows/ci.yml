@@ -163,7 +163,55 @@ jobs:
         run: npm run build --if-present
 
   # ---------------------------------------------------------------------------
-  # GUARDA DE DINERO (v1.51, M-46 · ARCHITECTURE §4.38r.6.1) — vive AQUÍ, en el
+  # BL-27 — «un diff no mezcla reformateo con lógica» (norma del arquitecto).
+  # NO es un gate de estilo: no exige que el árbol esté formateado ni reformatea
+  # nada. Solo bloquea el diff que reformatea Y ADEMÁS cambia comportamiento,
+  # porque ése es el que hace INVISIBLE una línea de dinero a la revisión del
+  # techlead y de la fase de seguridad. El commit de SOLO formato pasa.
+  # Detalle del porqué y del algoritmo: scripts/check-format-mix.sh + DEVOPS_NOTES
+  # §36 (era §34 antes de la fusión con main; ver la nota de renumeración de §35).
+  # ---------------------------------------------------------------------------
+  format-mix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # El comparador necesita el commit BASE, no solo el HEAD.
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Resolver base del diff
+        id: base
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "ref=${{ github.event.pull_request.base.sha }}" >> "$GITHUB_OUTPUT"
+          elif git rev-parse --verify --quiet "${{ github.event.before }}^{commit}" >/dev/null 2>&1; then
+            echo "ref=${{ github.event.before }}" >> "$GITHUB_OUTPUT"
+          elif git rev-parse --verify --quiet origin/main^{commit} >/dev/null 2>&1; then
+            echo "ref=origin/main" >> "$GITHUB_OUTPUT"
+          else
+            echo "ref=" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Comparar (reformateo vs lógica)
+        run: |
+          BASE="${{ steps.base.outputs.ref }}"
+          if [ -z "$BASE" ]; then
+            echo "::notice title=format-mix::Sin commit base utilizable (rama nueva). No concluye; no se finge verde."
+            exit 0
+          fi
+          set +e
+          ./scripts/check-format-mix.sh "$BASE" "${{ github.sha }}"
+          rc=$?
+          set -e
+          case "$rc" in
+            0) exit 0 ;;
+            2) echo "::notice title=format-mix::El comparador no pudo concluir (base inaccesible)."; exit 0 ;;
+            *) echo "::error title=format-mix::Este diff mezcla reformateo con cambios de comportamiento (BL-27). Sepáralos en dos commits."; exit 1 ;;
+          esac
+
+  # ---------------------------------------------------------------------------
+  # GUARDA DE DINERO (v1.51, M-48 · ARCHITECTURE §4.38r.6.1) — vive AQUÍ, en el
   # workflow que corre en CADA push y PR, y no solo en los workflows de E2E.
   #
   # Motivo, sin adornos: `e2e-real.yml` solo corre nightly, por `workflow_dispatch`
@@ -181,21 +229,62 @@ jobs:
         run: ./scripts/check-e2e-provider-incapacitation.sh
 
   # ---------------------------------------------------------------------------
+  # GUARDA SEC-OPS-1 — el comprobador de procedencia sigue cableado.
+  # Misma lógica de ubicación que la guarda de arriba: es estática y barata (lee
+  # ficheros, sin red, sin stack), y vive en el workflow que corre en CADA push y
+  # PR — no en los pipelines de E2E/deploy, que casi nunca corren.
+  #
+  # Qué protege: SEC-OPS-1 ya se materializó DOS veces (SECURITY_NOTES §9). El
+  # arreglo es fácil de borrar sin querer, y su ausencia no produce un rojo: produce
+  # un VERDE que no significa nada. Ver docs/DEVOPS_NOTES.md §38.
+  # ---------------------------------------------------------------------------
+  provenance-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: El gate no puede medir un binario distinto del HEAD auditado
+        run: ./scripts/check-provenance-gate.sh
+
+  # ---------------------------------------------------------------------------
+  # GUARDA DEL ARNÉS E2E (§39) — cobro y subida no se pueden saltar en silencio.
+  # Misma ubicación y mismo motivo que las dos guardas de arriba: estática, barata
+  # (lee ficheros, sin red, sin stack) y en el workflow que corre en CADA push y PR.
+  #
+  # Qué protege, con la medición que la originó: QA cerró el release del ciclo de
+  # compra con 35 verdes y 3 rojos, y los tres rojos eran el modal de pago sin
+  # `STRIPE_SECRET_KEY`; en paralelo, el smoke de infraestructura se auto-saltaba
+  # el PUT presignado del INE por no haber object storage en la ruta nativa. Dos
+  # flujos críticos sin ejercitar, y ninguna corrida lo dijo en su exit code.
+  # Es la SEGUNDA release consecutiva con la misma deuda aceptada.
+  # ---------------------------------------------------------------------------
+  e2e-harness-gaps:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: El arnés E2E no puede saltarse el cobro ni la subida del INE
+        run: ./scripts/check-e2e-harness-gaps.sh
+
+  # ---------------------------------------------------------------------------
   # Gate final: resume el estado. Verde también en greenfield (jobs saltados).
   # Útil como required check en la protección de rama.
   # ---------------------------------------------------------------------------
   ci-ok:
-    needs: [detect, backend, frontend, e2e-provider-guard]
+    needs: [detect, backend, frontend, format-mix, e2e-provider-guard, provenance-gate, e2e-harness-gaps]
     if: always()
     runs-on: ubuntu-latest
     steps:
       - name: Verificar resultados
         run: |
-          echo "backend:  ${{ needs.backend.result }}"
-          echo "frontend: ${{ needs.frontend.result }}"
+          echo "backend:                  ${{ needs.backend.result }}"
+          echo "frontend:                 ${{ needs.frontend.result }}"
+          echo "format-mix:               ${{ needs.format-mix.result }}"
           echo "guarda proveedor de paga: ${{ needs.e2e-provider-guard.result }}"
+          echo "guarda procedencia:       ${{ needs.provenance-gate.result }}"
+          echo "guarda huecos del arnés:  ${{ needs.e2e-harness-gaps.result }}"
           # Falla solo si algún job que SÍ corrió terminó en failure.
-          if [ "${{ needs.backend.result }}" = "failure" ] || [ "${{ needs.frontend.result }}" = "failure" ]; then
+          # `provenance-gate` SÍ suma: si el comprobador de SEC-OPS-1 deja de estar
+          # cableado, el resto de gates dejan de significar lo que dicen.
+          if [ "${{ needs.backend.result }}" = "failure" ] || [ "${{ needs.frontend.result }}" = "failure" ] || [ "${{ needs.format-mix.result }}" = "failure" ] || [ "${{ needs.provenance-gate.result }}" = "failure" ]; then
             echo "::error::Algún job de CI falló."
             exit 1
           fi
@@ -205,6 +294,13 @@ jobs:
           # `skipped`, que es justo la forma en que un gate deja de gatear sin avisar.
           if [ "${{ needs.e2e-provider-guard.result }}" != "success" ]; then
             echo "::error::La guarda del proveedor de paga no terminó en verde (resultado: ${{ needs.e2e-provider-guard.result }}). Ver DEVOPS_NOTES §32.12."
+            exit 1
+          fi
+          # Mismo criterio, y por la misma razón: `skipped` NO es verde. La guarda de
+          # §39 impide que el arnés vuelva a saltarse el cobro o la subida del INE sin
+          # decirlo; si ella misma se salta, el candado desaparece exactamente igual.
+          if [ "${{ needs.e2e-harness-gaps.result }}" != "success" ]; then
+            echo "::error::La guarda de huecos del arnés E2E no terminó en verde (resultado: ${{ needs.e2e-harness-gaps.result }}). Ver DEVOPS_NOTES §39."
             exit 1
           fi
           echo "CI OK (los jobs saltados son esperados mientras no exista el código)."

@@ -48,7 +48,7 @@
 > `scripts/post-deploy.sh`. También ahí: **`next build` + `next start` para gates, nunca `next dev`**
 > (§32.6) y la confirmación de los dos huecos de entorno **abiertos** (§32.7).
 >
-> **⇒ Actualización 2026-08-31 (v1.51, M-46): NUEVA §32.12 — UN SOLO DIAL, y encenderlo es un ACTO DE
+> **⇒ Actualización 2026-08-31 (v1.51, M-48): NUEVA §32.12 — UN SOLO DIAL, y encenderlo es un ACTO DE
 > GASTO.** El dueño colapsó los dos interruptores del gancho de grading en **uno**
 > (`grading_hook_enabled`, seed `off`, DTO `gradingHookEnabled`): el mismo `PUT` **publica la afirmación
 > comercial Y autoriza al barrido diario a pedir datos a un proveedor de PAGA y a escribir precios**. Las
@@ -83,6 +83,47 @@
 > post-deploy**, su idempotencia, qué hacer si falla y el **rollback** quedan en **§27**, y el orquestador
 > idempotente **`scripts/post-deploy.sh`** los corre en orden y **PARA ante «ACCIÓN REQUERIDA»** del reshape
 > money-crítico. Ver **§27**.
+>
+> **⇒ Actualización 2026-09-01 (v1.51, rama `claude/buylist-inventory-workflow-hdnls3`): NUEVA §33 —
+> `APP_PUBLIC_URL`.** El ciclo de adquisición del buylist manda dos correos con un **CTA al portal del
+> vendedor** y esa URL sale de `APP_PUBLIC_URL`, que **no estaba declarada** (hueco levantado por backend,
+> `BACKEND_NOTES` §0.18). Ya está: declarada en `.env.example`, **alineada a `APP_BASE_URL`** (no es una
+> segunda URL, es la misma con otro nombre) y **cableada** en los dos composes y en `stack-native.sh` —
+> sin ese cableado, ponerla en `.env` **no llegaba al contenedor**. Se deja **SIN VALOR a propósito**:
+> el destino `…/buylist/requests/<id>` **no existe todavía como página del frontend** (verificado), así
+> que fijarla hoy cambia la frase segura por **un botón a 404**. Contrato de formato, activación en 3
+> pasos, hallazgos enrutados y la revisión del resto del ciclo (correo, plazos, cola): **§33**.
+>
+> **⇒ Actualización 2026-09-01, 2ª ronda: `APP_PUBLIC_URL` ACTIVADA (§33.4-bis) + NUEVA §34 (BL-27).**
+> **(a)** La pantalla del portal ya existe, así que la puerta se cruzó **midiéndola**: 307→200, con
+> **404 de control negativo**. Activada en local y staging; **en prod la fija el humano**. Sigue abierto
+> —y enrutado a backend— que el correo arma el path **sin `/{locale}`**, así que un vendedor `en`
+> aterriza en español. **(b)** **BL-27**: `prettier` reformateó 445 líneas dentro de un cambio de dos.
+> Medido el terreno (**274/418 archivos** sin formatear ⇒ un commit de **~13,7k líneas**; y el
+> formateador **ni siquiera está elegido**: entra como transitivo de `resend`), **NO formateo el árbol**:
+> cablé el gate que bloquea **la mezcla** de reformateo con lógica y **deja pasar** el commit de solo
+> formato (`scripts/check-format-mix.sh` + job `format-mix`, probado contra 4 casos). **§34.6** tiene el
+> estado real del gate de seguridad y el harness E2E: **no falta construir, falta encender**.
+>
+> **⇒ Actualización 2026-09-06 — NUEVA §38: SEC-OPS-1 (el gate auditaba un binario más viejo que el
+> código auditado) + el mecanismo de purga de los datos del PoC.** Seguridad reportó que **por segundo
+> pase consecutivo** el backend vivo era **más viejo que el commit a auditar**, y que las dos veces lo
+> cazó una persona mirando la **hora de un PID**. La causa eran cuatro líneas de `start_backend()`:
+> «¿responde? ⇒ reutilízalo», sin preguntar **qué código** servía. Ahora **`up` comprueba-o-reinicia y
+> termina PROBÁNDOLO** (`verify_head`), hay verbo de solo-lectura **`stack-native.sh verify:head`** para
+> QA/seguridad/pentester, el arranque **dice qué commit sirve**, y está cableado en **`e2e-real.yml`**,
+> en **`deploy.yml`** (job nuevo `staging-serves-head`, del que ahora **depende el DAST**) y en
+> **`ci.yml`** (guarda anti-regresión). **Reiniciar para auditar NO cuesta la evidencia**: `up` nunca
+> siembra, y está medido que **`--seed` sí habría destruido 2 de las 3 filas del PoC** (§38.4). Al
+> cablearlo, el comprobador **cazó el mismo fallo por tercera vez, en vivo** (§38.2). La **purga**
+> (`scripts/purge-synthetic-poc-data.sh`) está lista, medida y **NO ejecutada**: la dispara el humano
+> cuando backend confirme que ya no necesita esas filas (§38.7).
+> **⚠️ Y mientras se escribía esto, a las 17:14, una resiembra de una corrida de integración borró DOS
+> de las tres filas de evidencia de BL-35 eje 2** (§38.4-bis, con la cadena de relojes). El `--seed` de
+> este script ahora **se planta** ante filas de PoC; las suites de integración no las cubro yo (llaman
+> a `seedE2E()` directamente — rol **backend**). Lección que hay que decidir (**QA/seguridad/backend**):
+> **la BD del fixture no es un sitio donde guardar evidencia de una auditoría** — el PoC va como
+> **spec**, no como fila.
 
 ---
 
@@ -578,10 +619,13 @@ Regla de oro del rollback: **datos primero** (snapshot antes de migrar), luego c
 | `scripts/dev-up.sh` / `dev-down.sh` | Levantar/apagar entorno local. |
 | `scripts/db-migrate.sh` / `seed.sh` | Migraciones y seed (delegan en los scripts npm de backend). |
 | `scripts/seed-synthetic.sh` | Seed sintético de staging (delega en backend; nunca datos reales). |
-| `scripts/check-graded-estimate-dials.sh` | Comparador **SOLO-LECTURA** del gancho de grading: el **dial único** `gradingHookEnabled` (v1.51), los 3 diales de v1.50.3 contra su default nuevo, el **presupuesto en créditos** del entorno, y la detección de binario **pre-M-46**. No escribe nada. §32.5 y §32.12.4. |
+| `scripts/check-graded-estimate-dials.sh` | Comparador **SOLO-LECTURA** del gancho de grading: el **dial único** `gradingHookEnabled` (v1.51), los 3 diales de v1.50.3 contra su default nuevo, el **presupuesto en créditos** del entorno, y la detección de binario **pre-M-48**. No escribe nada. §32.5 y §32.12.4. |
 | `scripts/check-e2e-provider-incapacitation.sh` | Guarda **estática** (lee YAML, sin red): los workflows E2E deben declarar `POKEMONPRICETRACKER_API_KEY: ''` y la constancia `E2E_GRADING_PROVIDER_INCAPACITATED`. Cableada en `ci.yml` (cada push/PR) y como primer paso de `e2e-real.yml`/`e2e.yml`. §32.12.5. |
 | `scripts/post-deploy.sh` | Orquestador idempotente post-deploy (§27, §29); su PASO 8 corre el comparador de diales y **bloquea el anuncio del release** si `rc != 0`. |
-| `scripts/stack-native.sh` | Stack REAL sin Docker (Postgres+Redis+Nest+Next nativos). Ruta soportada para gates y verificaciones cuando no hay demonio de Docker. §29.10. |
+| `scripts/stack-native.sh` | Stack REAL sin Docker (Postgres+Redis+Nest+Next nativos). Ruta soportada para gates y verificaciones cuando no hay demonio de Docker. §29.10. Desde §38: **garantiza que lo vivo es el árbol de ahora** (`up` comprueba-o-reinicia; `verify:head` lo verifica sin tocar nada). |
+| `scripts/assert-serving-head.sh` | **SEC-OPS-1.** ¿El binario VIVO es el commit que se va a auditar? Solo lee; exit 1 ruidoso si no. Datar el proceso sale del `uptime` de `/health` (`process.uptime()`), no de un fichero. Lo usan `stack-native.sh`, `e2e-real.yml` y `deploy.yml`. §38.2. |
+| `scripts/check-provenance-gate.sh` | Guarda **estática** de que el comprobador de procedencia **sigue cableado** en los tres puntos. Cableada en `ci.yml` (cada push/PR). Sin ella, borrar el arreglo de SEC-OPS-1 no daría un rojo: daría un verde que no significa nada. §38.5. |
+| `scripts/purge-synthetic-poc-data.sh` | Purga de los datos sembrados por el red team y los PoC (ARCHITECTURE §9 «purgar antes de cualquier snapshot»). **Simulacro por defecto**, `--apply` para borrar. Idempotente, transaccional, lista blanca de objetivo. **No lo llama nadie automáticamente.** §38.7. |
 
 > Los Dockerfiles viven en la **raíz** (no dentro de `backend/`/`frontend/`) para respetar la propiedad
 > de archivos de `CLAUDE.md`: devops no escribe en esas carpetas.
@@ -4673,7 +4717,7 @@ viejo» es prueba de nada — solo es lo bastante probable como para proponer el
 
 ### 32.5 Verificación de cierre — y el límite honesto del E2E (hallazgo de devops)
 
-> ⚠️ **ACTUALIZACIÓN v1.51 (M-46) — leer antes de correr el punto (3).** El spec del criterio 109
+> ⚠️ **ACTUALIZACIÓN v1.51 (M-48) — leer antes de correr el punto (3).** El spec del criterio 109
 > **enciende y apaga el dial del gancho**, y desde el colapso a **un solo dial** ese flip **también
 > autoriza el ingest de un proveedor de PAGA**. Consecuencia normativa (§4.38r.6.3): ese E2E —y
 > cualquier verificación del **criterio 108**— se corre **solo en un entorno sin credencial del
@@ -4830,12 +4874,12 @@ quedarían rojos por timeout de red en vez de por falta de clave. **El gate vive
 
 ### 32.8 Rollback
 
-> ⚠️ **CORREGIDA POR M-46 (v1.51, 2026-08-31). El botón de pánico de esta sección CAMBIÓ DE CLAVE.**
+> ⚠️ **CORREGIDA POR M-48 (v1.51, 2026-08-31). El botón de pánico de esta sección CAMBIÓ DE CLAVE.**
 > Esta sección se escribió para el pase del 2026-08-28, cuando el gancho de grading tenía **dos**
-> diales. M-46 los colapsó en **uno** (`grading_hook_enabled`, DTO `gradingHookEnabled`) y **retiró**
+> diales. M-48 los colapsó en **uno** (`grading_hook_enabled`, DTO `gradingHookEnabled`) y **retiró**
 > `graded_estimates_enabled` y `graded_estimate_ingest_enabled` del código: siguen como filas en la
 > tabla, pero **son inertes y `PUT /admin/settings` las rechaza con 422**. La tercera fila de la tabla
-> de abajo ya viene corregida. **El rollback canónico de M-46 es §32.12.7 — léelo si el incidente es
+> de abajo ya viene corregida. **El rollback canónico de M-48 es §32.12.7 — léelo si el incidente es
 > del gancho de grading.**
 
 **El rollback de un dial NO es un rollback de deploy.** Los dos casos, y son distintos:
@@ -4858,7 +4902,7 @@ el comparador imprime en el paso 1. Sin ese apunte, el rollback del dial no tien
 
 #### 32.8-bis El botón de pánico, **EJECUTADO** — no «debería funcionar» (2026-08-31)
 
-QA rechazó M-46 porque §32.8 mandaba a una tecla muerta. **La corrección no se declara: se demuestra.**
+QA rechazó M-48 porque §32.8 mandaba a una tecla muerta. **La corrección no se declara: se demuestra.**
 Stack nativo real (`stack-native.sh up --infra` + backend NestJS completo por `ts-node` en `:3099`,
 guards y pipes activos), `super_admin` autenticado de verdad. **Salida literal, pegada sin editar:**
 
@@ -4911,7 +4955,7 @@ hace auditable un rollback a posteriori:
 > proveedor de paga en **cada tick del cron, 2×/día, sin humano delante**. Quien estuviera dentro de un
 > incidente siguiendo §32.8 recibía un 422, **0 upserts**, y se quedaba con el gancho **encendido y
 > facturando** mientras creía haberlo apagado. Un rollback que no ejecuta no es documentación
-> incompleta: es la mitad que falta del control de dinero que M-46 existe para construir.
+> incompleta: es la mitad que falta del control de dinero que M-48 existe para construir.
 >
 > **Y es el mismo defecto que backend ya había cazado en su runbook (`fa2e3eb`).** Yo escribí el
 > runbook correcto —vive en §32.12.7— y aun así metí 447 líneas en este archivo **sin tocar §32.8**,
@@ -4945,9 +4989,9 @@ correcciones el archivo creció; la referencia estable es la **sección**.)*
 | 4839 | §32.8 | **INSTRUCCIÓN**: el `PUT` del botón de pánico | 🔴 **CORREGIDA** → `{"gradingHookEnabled":"off"}` + banner en §32.8 |
 | 4860 | §32.9 | **INSTRUCCIÓN**: ítem de checklist «la feature sigue APAGADA por su dial (`graded_estimates_enabled = off`)», para pegar en el ticket del release. **QA no lo señaló** — su patrón no cubría esta clave | 🔴 **CORREGIDA** → `grading_hook_enabled` + banner de supersesión en §32.9 |
 | 56 | índice | Descripción fechada de la **trampa** («leer `graded_estimate_ingest_enabled = off` y concluir …») | 🟢 Se conserva: **advierte** contra la clave muerta, no manda a ella |
-| 5057, 5110 | §32.12 | Por qué las dos claves quedan retiradas y vivas, y por qué la clave es NUEVA | 🟢 Se conserva: es la decisión de seguridad de M-46 |
+| 5057, 5110 | §32.12 | Por qué las dos claves quedan retiradas y vivas, y por qué la clave es NUEVA | 🟢 Se conserva: es la decisión de seguridad de M-48 |
 | 5204 | §32.12.3 | **Salida real pegada** de la línea de inventario del arranque | 🟢 Se conserva: es evidencia, no instrucción |
-| 5242, 5248, 5249, 5264 | §32.12.4 | Qué detecta el comparador sobre binarios PRE-M-46 y sus roturas demostradas | 🟢 Se conserva: nombrar la clave muerta **es** la función del check |
+| 5242, 5248, 5249, 5264 | §32.12.4 | Qué detecta el comparador sobre binarios PRE-M-48 y sus roturas demostradas | 🟢 Se conserva: nombrar la clave muerta **es** la función del check |
 | 5405 | §32.12.7 | Efecto de un rollback de **código**: el binario viejo vuelve a leer `graded_estimates_enabled` | 🟢 Se conserva: es correcto y es el motivo de no borrar las filas |
 
 **Fuera de este archivo:** el mismo patrón sobre `scripts/`, `.github/workflows/`, `docker-compose*.yml`
@@ -4959,10 +5003,10 @@ gritar**, que es exactamente lo contrario de mandar a ellas. **Ninguno se toca.*
 
 ### 32.9 Checklist del pase (§4.38p) — para pegar en el ticket del release
 
-> ⚠️ **CHECKLIST DEL PASE DEL 2026-08-28 (v1.50.3 / M-42). SUPERADA POR §32.12.9 para el pase de M-46.**
+> ⚠️ **CHECKLIST DEL PASE DEL 2026-08-28 (v1.50.3 / M-42). SUPERADA POR §32.12.9 para el pase de M-48.**
 > Se conserva porque los 3 diales de M2 siguen siendo los mismos, pero **el nombre del dial del
-> penúltimo punto cambió con M-46** y ya viene corregido abajo. Si el pase que estás preparando es el
-> de M-46 (v1.51), **la checklist que se pega en el ticket es la de §32.12.9**, no ésta.
+> penúltimo punto cambió con M-48** y ya viene corregido abajo. Si el pase que estás preparando es el
+> de M-48 (v1.51), **la checklist que se pega en el ticket es la de §32.12.9**, no ésta.
 
 - [ ] `migrate deploy` — **nada nuevo por M-42** (es DATA/seed, sin DDL). M-41 (curva) ya está desplegada.
 - [ ] **Staging**: `check-graded-estimate-dials.sh` → anotar los 3 valores vigentes **antes** de tocar nada.
@@ -4974,7 +5018,7 @@ gritar**, que es exactamente lo contrario de mandar a ellas. **Ninguno se toca.*
 - [ ] La feature sigue **APAGADA** por su dial (**v1.51: `grading_hook_enabled = off`**, DTO
       `gradingHookEnabled`; la vieja `graded_estimates_enabled` está **retirada e inerte** — verificarla
       no prueba nada) hasta que el humano apruebe el texto legal. **Encenderla no es decisión de
-      devops** y **no es parte de este paso**; desde M-46 encenderla es además un **acto de gasto**
+      devops** y **no es parte de este paso**; desde M-48 encenderla es además un **acto de gasto**
       (§32.12.1).
 - [ ] Solo entonces: anunciar el release.
 
@@ -5162,7 +5206,24 @@ roles; el dato ya existe y ya es de solo-lectura.
 
 ---
 
-### 32.12 M-46 — **un solo dial**, y encenderlo es un acto de DINERO (v1.51, §4.38r) — 2026-08-31
+### 32.12 M-48 — **un solo dial**, y encenderlo es un acto de DINERO (v1.51, §4.38r) — 2026-08-31
+
+> **⚠️ RENUMERADA (v1.53(1), fusión 2026-09-05): esta sección era «M-46» y ahora es `M-48`.**
+> `M-46` nombraba **dos** migraciones distintas: la de esta sección (el dial del gancho de grading,
+> **DATA/seed, sin DDL**) y la del **ciclo de adquisición del buylist** (**DDL real**: 40 columnas +
+> enums + backfill, en disco como `20260901120000_m46_buylist_acquisition_cycle`). El arquitecto
+> resolvió la colisión por el artefacto —la del ciclo existe, está aplicada y registrada, y
+> renombrarla rompería `migrate deploy`— así que **el ciclo se queda con `M-46` y el gancho pasa a
+> `M-48`** (ARCHITECTURE §11, tabla de desambiguación).
+>
+> **Por qué esto no era cosmético, y léelo antes de correr el pase:** todo lo que sigue dice
+> *«nada que migrar»*. Eso es cierto **de `M-48` y solo de `M-48`**. Mientras la sección decía
+> «M-46», el mismo runbook parecía autorizar a saltarse `M-46` — que es **DDL de dinero y estaba
+> pendiente**. Si el release que preparas incluye el ciclo de adquisición, **`migrate deploy` SÍ
+> trae DDL**: no es este runbook el que te lo dice, es §37.
+>
+> Otras menciones de `M-46` en este documento (§37) hablan de la **migración DDL** y conservan su
+> número a propósito.
 
 > **Lo que cambia para operación, en una frase:** hasta ayer había un dial de **exhibición** que no
 > costaba dinero y un segundo dial de **obtención** que sí, y que nunca se dibujó en ninguna pantalla.
@@ -5232,7 +5293,7 @@ todas aterrizan en el default `off`.
 | # | Paso | Quién | Verificación (comando exacto) |
 |---|---|---|---|
 | **0** | **Anotar el estado previo** de las dos claves retiradas en **cada** entorno. No para restaurarlo: para poder responder «¿qué había?» después. | devops | Línea de inventario del arranque (§32.12.3-B). Los dos valores al ticket del release. |
-| **1** | **Deploy del código.** **Nada que migrar** (M-46 es DATA/seed, sin DDL). | devops | `npx prisma migrate deploy` → *No pending migrations to apply.* (verificado en local: 34 migraciones, ninguna nueva). |
+| **1** | **Deploy del código.** **Nada que migrar *por M-48*** (M-48 es DATA/seed, sin DDL). ⚠️ **Esto NO dice que el release no tenga migraciones:** si arrastra `M-46` (ciclo de adquisición) o `M-47` (imágenes de set), `migrate deploy` **sí** aplica DDL. Lee lo que devuelve el comando; no des por hecho el *«no pending»*. | devops | `npx prisma migrate deploy` → para un pase de **solo M-48**: *No pending migrations to apply.* (verificado en local: 34 migraciones, ninguna nueva). Si lista migraciones, es correcto: son las de otros pases. |
 | **2** | **El gancho queda OSCURO por construcción**, no por un paso que alguien pueda olvidar. | *(automático)* | `bash scripts/check-graded-estimate-dials.sh` → `gradingHookEnabled: off` + rótulo de retiradas. |
 | **3** | **VERIFICACIÓN POSITIVA Nº1 — no se PIDE nada.** Dejar pasar un tick del cron o dispararlo a mano y comprobar en el log: dial `off`, **cero peticiones al proveedor**, `written=0`. | devops | §32.12.3-A. |
 | **4** | **VERIFICACIÓN POSITIVA Nº2 — no se ESCRIBE nada.** Los 10 diales de M2 idénticos a antes del deploy y **ninguna `PriceReference` nueva** con `source='pokemonpricetracker'` y `gradeKey='graded:PSA:*'`. | devops + QA | §32.12.3-C. |
@@ -5362,7 +5423,7 @@ diales de M2). Lo que **sí** faltaba es todo lo demás:
 | Añadido | Por qué |
 |---|---|
 | **PASO 0 — lee el DIAL ÚNICO** (`GET /admin/settings` → `gradingHookEnabled`) y lo reporta con su consecuencia de dinero. | El comparador hablaba de la config del gancho **sin mirar el interruptor que la gobierna**. |
-| **Detección de binario PRE-M-46**: si el DTO de M10 proyecta `gradedEstimatesEnabled`/`gradedEstimateIngestEnabled`, o el de M2 trae `ingestEnabled` ⇒ **rc=2, parada en seco**. | En ese código **hay dos diales** y el que gobierna el gasto no es el que el script lee. Cualquier conclusión sería sobre el dial equivocado. |
+| **Detección de binario PRE-M-48**: si el DTO de M10 proyecta `gradedEstimatesEnabled`/`gradedEstimateIngestEnabled`, o el de M2 trae `ingestEnabled` ⇒ **rc=2, parada en seco**. | En ese código **hay dos diales** y el que gobierna el gasto no es el que el script lee. Cualquier conclusión sería sobre el dial equivocado. |
 | **Bloque explícito sobre las claves retiradas**: no se consultan, no se pueden consultar por API, y **«`graded_estimate_ingest_enabled = off`» NO significa que el ingest esté apagado**. Remite a la línea de inventario. | Es LA trampa de diagnóstico de §4.38(r.1), y el sitio donde se comete es exactamente éste. |
 | **Coherencia del espejo**: `enabled` del DTO de M2 debe reflejar el dial. Si discrepan ⇒ rc=2. | Dos superficies del mismo dial que no concuerdan no es un ajuste del operador: es incoherencia del binario. |
 | **PASO 3 — presupuesto en créditos** calculado desde el `ingestMaxCardsPerRun` **vigente en ese entorno**. | El presupuesto tiene que salir del entorno que se está mirando, no de un documento que puede estar rancio. |
@@ -5378,7 +5439,7 @@ corrió el comparador contra él:
 
 | Rotura | Resultado | Mensaje (recortado) |
 |---|---|---|
-| DTO **PRE-M-46**: `gradedEstimatesEnabled:"on"`, `gradedEstimateIngestEnabled:"off"`, `ingestEnabled:false` — **la trampa exacta**: la fila muerta dice `off` mientras la viva dice `on` | 🔴 **rc=2** | «El DTO de M10 todavía proyecta clave(s) que M-46 RETIRÓ… en ese código HAY DOS DIALES, y el que gobierna el gasto NO es el que este script lee» |
+| DTO **PRE-M-48**: `gradedEstimatesEnabled:"on"`, `gradedEstimateIngestEnabled:"off"`, `ingestEnabled:false` — **la trampa exacta**: la fila muerta dice `off` mientras la viva dice `on` | 🔴 **rc=2** | «El DTO de M10 todavía proyecta clave(s) que M-48 RETIRÓ… en ese código HAY DOS DIALES, y el que gobierna el gasto NO es el que este script lee» |
 | `gradingHookEnabled` **ausente** del DTO | 🔴 **rc=2** | «AUSENTE NO significa "apagado": significa que NO SABES en qué estado está el gancho» |
 | dial `on` pero espejo `enabled:false` | 🔴 **rc=2** | «INCOHERENCIA: dial `on` pero espejo `enabled`=false… hallazgo para BACKEND/arquitecto» |
 | dial con valor `"ON"` (mayúsculas, presente-e-inválido) | 🔴 **rc=20** | «Dial con valor INESPERADO… el código es fail-closed y ESTRICTO (`v === 'on'`)» |
@@ -5603,7 +5664,7 @@ Igual que §32.8, con el matiz de §4.38(r.4) que conviene tener delante:
 
 | Qué se revierte | Cómo | Efecto |
 |---|---|---|
-| El **código** (M-46) | redeploy del commit anterior. **Sin migración que deshacer** (DATA/seed, sin DDL). | Vuelve el código que lee `graded_estimates_enabled`, **cuya fila sigue ahí con su valor previo**: el rollback **reenciende la exhibición tal como estaba** y el ingest vuelve a depender de su clave vieja (`off`). **Seguro y completo** — es la otra razón para no borrar las filas retiradas. |
+| El **código** (M-48) | redeploy del commit anterior. **Sin migración que deshacer *por M-48*** (DATA/seed, sin DDL). ⚠️ Si el redeploy retrocede por detrás de **M-46** (ciclo de adquisición, DDL) o **M-47**, esas migraciones **ya están aplicadas** y este rollback no las revierte: un binario viejo contra un schema nuevo es otro escenario, y no es éste. | Vuelve el código que lee `graded_estimates_enabled`, **cuya fila sigue ahí con su valor previo**: el rollback **reenciende la exhibición tal como estaba** y el ingest vuelve a depender de su clave vieja (`off`). **Seguro y completo** — es la otra razón para no borrar las filas retiradas. |
 | El **dial encendido** (si ya se encendió) | `PUT /admin/settings {"gradingHookEnabled":"off"}` desde M10. **Nunca por SQL** (§11.0-4). | Para publicación **y** gasto a la vez, sin redeploy. Es el botón de pánico que el gancho no tenía con dos diales. |
 | Los cambios de **infra** de esta sección | `git revert` del commit de devops | Vuelve el `${VAR}` sin default y desaparece la guarda. **No hagas esto sin sustituirlo**: es lo único que impide que un runner con llave gaste. |
 
@@ -5628,19 +5689,21 @@ tras reencender, que **se normaliza como parte del reencendido**.
 | **GU-9** (frescura del dato automático: aceptar `≤ 60 días` por escrito **o** `evidenceDate` de M-43) | ⛔ **PENDIENTE, BLOQUEANTE del paso 5** (§4.38r.6.2) | **humano** (dos palabras bastan) |
 | **Encender el dial en producción** | ⛔ **No es de devops.** Paso 5, con las cuatro precondiciones cumplidas | **el dueño**, desde M10 |
 | Subir `ingestMaxCardsPerRun` por encima de 250 | ⛔ No en este pase: se dimensiona con el número **medido** en la primera corrida | dueño, tras el paso 6 |
-| Deploy real del código de M-46 a staging/prod | ⛔ Fuera de esta sesión (sin credenciales de plataforma) | devops **con acceso** |
+| Deploy real del código de M-48 a staging/prod | ⛔ Fuera de esta sesión (sin credenciales de plataforma) | devops **con acceso** |
 
 ---
 
-#### 32.12.9 Checklist del pase M-46 — para pegar en el ticket del release
+#### 32.12.9 Checklist del pase M-48 — para pegar en el ticket del release
 
 ```
 [ ] 0. Estado previo anotado en CADA entorno (dev/staging/prod):
        railway logs --service backend | grep 'config inventory'
        → copiar la línea «claves RETIRADAS presentes» con sus dos valores.
-[ ] 1. Deploy del código. `migrate deploy` NO trae nada (M-46 es DATA/seed, sin DDL).
+[ ] 1. Deploy del código. `migrate deploy` no trae nada POR M-48 (es DATA/seed, sin DDL).
+       ⚠️ NO asumas «no pending»: si el release arrastra M-46 (ciclo de adquisición,
+       DDL) o M-47, el comando SÍ aplica DDL. Lee su salida y anótala en el ticket.
 [ ] 2. bash scripts/check-graded-estimate-dials.sh  → rc=0 y `gradingHookEnabled: off`
-       (si sale rc=2 «binario PRE-M-46», PARAR: el deploy no es el que creemos).
+       (si sale rc=2 «binario PRE-M-48», PARAR: el deploy no es el que creemos).
 [ ] 3. VERIFICACIÓN POSITIVA Nº1 (no se pide nada):
        POST /admin/jobs/price-ingest {}  →  en el log:
          · `graded-estimate-ingest: dial ... = off → no se pide NADA al proveedor`
@@ -6128,3 +6191,1386 @@ Railway no ofrece historial de variables por valor y el rollback depende de que 
 - **frontend:** buzones en `messages/{es,en}.json`, marca/metadata y `vercel.json` (§25.7). Con el
   dominio viejo retirado, el 301 de §25.2 ya no es realizable: eso lo replantea el arquitecto/PO.
 - **humano:** todo §34.2 y §34.4 — nadie más tiene acceso a Railway ni a Resend.
+
+---
+
+> **Nota de fusión (2026-09-05).** Las tres secciones que siguen se escribieron en el stream
+> `claude/buylist-inventory-workflow-hdnls3` numeradas **§33 / §34 / §35**. Al absorber `origin/main`
+> chocaron con las §33 y §34 que ya vivían en el tronco, así que **se renumeraron aquí**:
+>
+> | Número en el stream | Número definitivo | Sección |
+> |---|---|---|
+> | §33 | **§35** | `APP_PUBLIC_URL` — CTA de los correos del buylist |
+> | §34 | **§36** | BL-27 — el gate `format-mix` de CI |
+> | §35 | **§37** | Stack nativo para el gate de QA |
+>
+> El tronco NO se renumeró (su §33 está referenciada desde `.github/workflows/e2e-real.yml`).
+> **Las 12 referencias que apuntaban al número viejo ya están corregidas** en el mismo pase:
+> `docker-compose.yml:223`, `docker-compose.staging.yml:210`, `scripts/stack-native.sh`
+> (43, 128, 511, 524, 557), `scripts/check-format-mix.sh:160` y `.env.example` (8, 41, 141, 670).
+> **No se tocaron** las que apuntan al §33/§34 del tronco —Stripe y switch de correo P-21—:
+> `.github/workflows/e2e-real.yml` (26, 44, 116, 393) y `.env.example` (98, 291, 324, 745).
+> La tabla se conserva porque los números viejos siguen citados en veredictos y tickets
+> anteriores a la fusión.
+
+---
+
+## 35. `APP_PUBLIC_URL` — el CTA de los correos del buylist: declarado, alineado y **todavía sin valor a propósito** (2026-09-01, stream `claude/buylist-inventory-workflow-hdnls3`)
+
+**El hueco lo levantó backend, no QA ni un incidente** (`BACKEND_NOTES` §0.18: *«`APP_PUBLIC_URL` no está
+en `.env.example` (archivo suyo) — se señala, no se toca»*). Es la manera correcta de enrutar un hallazgo
+de entorno y aquí queda cerrado por su dueño.
+
+### 35.1 Qué se tocó (todo dentro de rutas de devops)
+
+| Archivo | Cambio |
+|---|---|
+| `.env.example` | **Declarada `APP_PUBLIC_URL`** (bloque propio, pegado a `APP_BASE_URL`), + `STAGING_APP_PUBLIC_URL` en la sección de staging, + entrada en la topología `[RW]` de Railway de la cabecera. |
+| `docker-compose.yml` | `APP_PUBLIC_URL` + **pass-through de correo** (`RESEND_API_KEY`, `MAIL_FROM`, `SUPPORT_EMAIL`) en el servicio `backend`. |
+| `docker-compose.staging.yml` | `APP_PUBLIC_URL: ${STAGING_APP_PUBLIC_URL:-}` + `MAIL_FROM` + `SUPPORT_EMAIL`. |
+| `scripts/stack-native.sh` | `export APP_PUBLIC_URL="${APP_PUBLIC_URL:-}"` junto al de `APP_BASE_URL`. |
+
+**Ni una línea de `backend/` ni de `frontend/`.** Lo que sale de este pase y no es mío va enrutado en §35.4.
+
+### 35.2 No es una variable nueva: es `APP_BASE_URL` **con otro nombre**
+
+El encargo era explícito —*si ya existe algo equivalente, alinea en vez de crear una segunda*—, y existe.
+`APP_BASE_URL` **ya es** «la URL pública del frontend con la que el backend arma los enlaces de los
+correos». Tres consumidores lo demuestran, y **los tres usan su PRIMER origen**:
+
+| Consumidor | Enlace que construye |
+|---|---|
+| `backend/src/modules/auth/auth.service.ts` → `buildFrontendLink()` | verificación de email / reset de contraseña |
+| `backend/src/modules/orders/guest-order-mail.service.ts` → `buildTrackingUrl()` | seguimiento de pedido de invitado |
+| `backend/src/main.ts` | allow-list de CORS (la **lista completa**, no solo el primero) |
+
+`APP_PUBLIC_URL` (`buylist.service.ts` → `portalRequestUrl()`) es **la cuarta lectura de la misma URL**,
+por un nombre distinto y por otra vía (`process.env` directo, no `ConfigService`). Como el nombre lo
+elige el código y el código no es mío, **no puedo unificarlas desde infraestructura**; lo que sí puedo es
+que **no puedan divergir por descuido**, y eso es lo que hace la declaración:
+
+> **REGLA DE ALINEACIÓN (obligatoria, todos los entornos):**
+> `APP_PUBLIC_URL` == **PRIMER origen** de `APP_BASE_URL`. Mismo esquema, mismo host, mismo puerto.
+> En el switch del rebrand **P-21** (§25) **se cambian las dos a la vez, o ninguna.**
+
+**La trampa que esta regla evita, y que no es teórica:** en producción `APP_BASE_URL` es una **lista
+separada por comas** (§25), porque alimenta CORS. `portalRequestUrl()` **no parte por comas** — hace
+`envOr(process.env.APP_PUBLIC_URL, '')` y concatena—, así que copiar la lista tal cual produce un href
+`https://www.tcghunt.mx,https://tcghunt.mx/buylist/requests/…`: un botón roto en un correo de dinero.
+El bloque de `.env.example` lo grita en mayúsculas.
+
+**Enrutado a backend (consolidación real, no la hago yo):** `portalRequestUrl()` puede caer a
+`APP_BASE_URL.split(',')[0].trim()` cuando `APP_PUBLIC_URL` esté ausente — exactamente el patrón que ya
+usan `auth.service.ts` y `guest-order-mail.service.ts`. Con eso `APP_PUBLIC_URL` pasa de ser **una segunda
+fuente de verdad** a un **override opcional**, y la divergencia deja de ser posible en vez de quedar
+prohibida por comentario. Son dos líneas y **es de backend**.
+
+### 35.3 Contrato de formato (de esto depende que el enlace se arme bien)
+
+El backend hace, literalmente: `` `${base.replace(/\/+$/, '')}/buylist/requests/${sellRequestId}` ``.
+De ahí salen las reglas — verificadas contra el código, no supuestas:
+
+| Caso | Qué pasa | Veredicto |
+|---|---|---|
+| `https://www.tcghunt.mx` | href correcto | ✅ **forma canónica** |
+| `https://www.tcghunt.mx/` (barra final) | el backend recorta `/+$` | ✅ tolerado (escríbela sin barra igual) |
+| `www.tcghunt.mx` (**sin esquema**) | href **relativo** dentro del cliente de correo → no lleva a ningún sitio. El backend **no valida el esquema** | ⛔ |
+| `https://a.mx,https://b.mx` (la lista de CORS) | `…,https://b.mx/buylist/requests/<id>` | ⛔ |
+| `https://www.tcghunt.mx/es` (parche del locale) | el enlace sí resolvería… **congelando el idioma a ES** para todo vendedor, incluido el que tiene `locale=en` | ⛔ el locale es del path, no del origen |
+| **ausente / vacía / solo espacios** | `envOr` trata blanco como ausente ⇒ `portalUrl: undefined` ⇒ **la plantilla degrada el botón a una instrucción de texto**. **NO** falla el arranque: no está en `required` de `env.validation.ts` | ⚠️ red de seguridad, **no** estado deseado |
+
+### 35.4 ⛔ Por qué se declara **vacía**: el destino todavía no existe
+
+Fijarla hoy **no enciende un enlace, enciende un 404**. Verificado en el árbol, no supuesto:
+
+1. **No hay página de la solicitud.** Bajo `frontend/src/app/[locale]/` los únicos segmentos dinámicos son
+   `catalog/[cardId]`, `orders/[orderId]`, `shipments/[id]` y `sellado/[inventoryItemId]`. **No existe
+   `buylist/requests/[id]`.** El portal del vendedor vive hoy *dentro* de `/[locale]/buylist`
+   (`MyRequestsSection.tsx`), que además **no lee ningún parámetro de URL**: no hay deep-link ni por query
+   ni por ancla. `/buylist/requests/:id` es **una ruta de la API** (contrato §6), no una de pantalla.
+2. **Falta el prefijo de idioma.** `frontend/src/i18n/routing.ts` corre con `localePrefix: 'always'`, así
+   que el middleware redirige `/buylist/requests/<id>` → `/es/buylist/requests/<id>`… que tampoco existe.
+   No hay `rewrites` en `next.config.mjs` ni catch-all que lo rescate.
+
+*Un botón muerto es peor que una frase* — y **un botón a 404 es un botón muerto**. La degradación que
+backend construyó es la conducta correcta mientras esto siga así, y por eso la variable queda **declarada,
+documentada y cableada, pero sin valor**: activarla es cambiar una línea, no un deploy de infra.
+
+| Hallazgo | Dueño | Qué falta exactamente |
+|---|---|---|
+| No existe la página del portal por solicitud | **frontend** | Ruta `/[locale]/buylist/requests/[id]` (o la que el arquitecto decida) que muestre la oferta y sus dos botones. |
+| El path del CTA **no lleva `/{locale}`**, a diferencia de **todos** los demás enlaces de correo del proyecto (`auth`, `guest-order`) | **backend** (contrato: **arquitecto**) | Que `portalRequestUrl()` incluya el locale del usuario, o que se decida y escriba que el portal vive en una ruta sin prefijo. Hoy funciona por el redirect del middleware, que es **suerte, no diseño**. |
+
+**Activación (3 pasos, el día que la ruta exista):**
+
+```bash
+# 1) COMPROBAR el destino. Si esto no da 200, NO fijes la variable.
+curl -s -o /dev/null -w '%{http_code}\n' "https://<dominio>/es/buylist/requests/<id-real>"
+
+# 2) Local / staging
+APP_PUBLIC_URL=http://localhost:3000   ./scripts/stack-native.sh up      # nativo
+STAGING_APP_PUBLIC_URL=http://localhost:3010 docker compose -f docker-compose.staging.yml --profile apps up -d
+
+# 3) PROD — Railway > servicio backend > Variables (env de runtime, sin redeploy de código):
+#    APP_PUBLIC_URL = PRIMER origen de APP_BASE_URL
+#      pre-switch P-21 : https://www.tcgvaultmx.com
+#      post-switch P-21: https://www.tcghunt.mx
+```
+
+**Verificación de que quedó bien (sin abrir un cliente de correo):** en local, `RESEND_API_KEY` vacía deja
+`NoopMailAdapter`, que **loguea el correo en vez de enviarlo** — emite una oferta y busca el `href` en el
+log del backend. Si en el log aparece la instrucción de texto en vez del botón, la variable no llegó.
+
+
+### 35.4-bis La puerta se cruzó, y se cruzó MIDIÉNDOLA (2026-09-01)
+
+`APP_PUBLIC_URL` quedó **declarada pero sin valor** porque el destino no existía. Ya existe:
+`frontend/src/app/[locale]/(storefront)/buylist/requests/[id]/page.tsx`. La activación exigía un
+200, no una inspección de directorios, así que se levantó el frontend y **se midió**, con **control
+negativo** (sin él, un 200 no significa nada):
+
+| Petición | Literal |
+|---|---|
+| `/buylist/requests/<id>` — **lo que arma el correo hoy** | **307** → `Location: /es/buylist/requests/<id>` |
+| …siguiendo el redirect (`curl -L`) | **200** |
+| `/es/buylist/requests/<id>` | **200** |
+| `/en/buylist/requests/<id>` | **200** |
+| `/es/buylist/requests-que-no-existe/<id>` ← **control negativo** | **404** |
+
+**Veredicto: el CTA lleva a la pantalla correcta.** Variable activada en local
+(`APP_PUBLIC_URL=http://localhost:3000`), en staging (`STAGING_APP_PUBLIC_URL=http://localhost:3010`)
+y en los tres puntos de fontanería. **En PROD la fija el humano** (Railway > backend > Variables):
+mientras no esté, el correo de producción sigue degradando a la instrucción de texto.
+
+**Lo que sigue abierto y NO lo cierra esta activación (enrutado a backend, ya con corroboración
+del propio frontend):** el correo arma el path **sin `/{locale}`**, así que el 307 del middleware
+manda **siempre a `/es`** (`localeDetection:false`). Un vendedor con `locale=en` recibe el correo en
+inglés y aterriza en la pantalla en español. El docblock de la pantalla nueva lo dice con todas las
+letras: *«el path que el correo debe apuntar es `/{locale}/buylist/requests/{sellRequestId}`, con el
+`locale` del `User`»*. El arreglo es añadir el locale en `portalRequestUrl()`, igual que
+`buildFrontendLink()`. **No se parchea desde la env** poniendo `…/es`: eso congelaría el idioma para
+todos. Un botón que funciona en el idioma equivocado es peor que uno correcto, pero mucho mejor que
+ningún botón — por eso se activa ahora y el defecto queda abierto, no escondido.
+
+> **Nota de por qué la medición fue solo del frontend.** El stack completo **no arranca** con el
+> árbol de trabajo de hoy: `./scripts/stack-native.sh up` muere en el backend con
+> `ReferenceError: Optional is not defined` en `backend/src/modules/pricing/pricing.controller.ts:181`.
+> Es **trabajo en vuelo sin comitear** (BL-25, el `@Optional() @Inject(INVENTORY_PUBLISH_PORT)` nuevo;
+> `HEAD` no lo tiene) y **no es mío**: `Optional` **sí** está importado en la línea 1, así que no es un
+> import ausente sino cómo resuelve ese binding en runtime — el primer sospechoso es el ciclo de
+> `require` que abre el import nuevo de `../inventory/inventory-publish.port`, la otra mitad del mismo
+> cambio. **Enrutado a backend, no tocado.** La ruta del portal se verificó levantando solo el
+> frontend, que es lo que respondía la pregunta.
+
+### 35.5 La fontanería que faltaba (sin esto, declararla no habría servido de nada)
+
+`environment:` en compose es una **allow-list explícita**: lo que no se nombra, **no entra al contenedor**.
+`APP_PUBLIC_URL` no estaba nombrada en ningún sitio, así que **ponerla en `.env` no habría tenido ningún
+efecto** y el síntoma habría sido «la declaré y el correo sigue sin botón». De paso, el mismo agujero
+afectaba a **tres variables de correo** que este ciclo usa y que tampoco viajaban: `RESEND_API_KEY`,
+`MAIL_FROM` y `SUPPORT_EMAIL` (esta última es la que decide el buzón que aparece en los correos del
+buylist, cadena `SUPPORT_EMAIL` → `DISPUTE_EVIDENCE_CONTACT` → default de código).
+
+Todos los defaults nuevos son **vacíos**, o sea **cero cambio de comportamiento**: `RESEND_API_KEY=""` es
+falsy ⇒ `NoopMailAdapter` (idéntico a antes); `MAIL_FROM`/`SUPPORT_EMAIL`/`APP_PUBLIC_URL` vacías ⇒ `envOr`
+las trata como ausentes ⇒ los mismos defaults de código de siempre.
+
+> ⚠️ **Lo único que cambia de verdad:** si alguien tiene una `RESEND_API_KEY` **real** en su `.env`, el
+> stack **local** ahora **sí enviará correos**. Es opt-in consciente (el `.env.example` la trae vacía), y
+> es justo lo que hacía falta para probar de punta a punta los correos nuevos del ciclo.
+
+Comprobado renderizando la configuración, no por lectura:
+
+```bash
+docker compose -f docker-compose.yml         --profile apps config | grep -E 'APP_PUBLIC_URL|MAIL_FROM|SUPPORT_EMAIL|RESEND'
+docker compose -f docker-compose.staging.yml --profile apps config | grep -E 'APP_PUBLIC_URL|MAIL_FROM|SUPPORT_EMAIL|RESEND'
+```
+
+### 35.6 El resto del ciclo (correos, plazos en días hábiles, cola): **revisado — no falta ninguna variable más**
+
+Se revisó qué necesita el ciclo de adquisición para funcionar de punta a punta. Resultado, con evidencia:
+
+| Frente | Estado | Detalle |
+|---|---|---|
+| **Correo** (oferta, cancelación, recordatorio) | ✅ **Completo** | `RESEND_API_KEY` (obligatoria en no-local por `env.validation.ts`), `MAIL_FROM` (opcional, default en código) y `SUPPORT_EMAIL` (opcional, cadena de fallback) ya estaban declaradas; lo que faltaba era el **pass-through** de §35.5. |
+| **Zona horaria** (`America/Mexico_City`) | ✅ **No necesita env, y es lo correcto** | `business-days.ts` y las plantillas usan `Intl` con `timeZone: 'America/Mexico_City'` **explícito**. No leen `process.env.TZ`. **Fijar un `TZ` en el contenedor no cambiaría ninguna fecha** — y por eso **no se añade**: una env que no hace nada es una env que alguien acabará creyendo que hace algo. La zona es parte de la definición del plazo (criterio 154), no configuración. |
+| **Formato de fecha en español** | ⚠️ **Sin acción, riesgo residual anotado** | Las plantillas piden `es-MX` con `dateStyle:'full'`. Eso necesita **ICU completo** en el runtime; con `small-icu` las fechas del correo saldrían **en inglés** (no rompe, *miente*). `node:20-alpine` trae full-icu por defecto desde Node 13, pero **no lo pude verificar aquí: no hay demonio de Docker en este entorno** (`docker info` falla). No cablé un gate de build sobre una suposición. **Verificación de un renglón** cuando haya Docker: `docker run --rm node:20-alpine node -p "new Intl.DateTimeFormat('es-MX',{dateStyle:'full'}).format(new Date())"` → debe salir en español. Si saliera en inglés, es mío y se arregla en `Dockerfile.backend`. |
+| **Barrido de plazos** (`buylist-sweep`) | ✅ **Ya cubierto** | Lo agenda el scheduler a `0 8 * * *` **UTC** = 02:00 CDMX. **Requiere `REDIS_URL`** — sin Redis **no se programa NINGÚN cron** (ya documentado en `.env.example` y §19). En Railway lo inyecta el add-on. **No hay env que declarar**: a diferencia de los crons de precios, este horario está **fijo en el código** (`scheduler.service.ts`). Si algún día hay que moverlo, hace falta que **backend** lo lea de una env; hoy no me consta que haga falta y **no invento la variable**. |
+| **Trabajo de cola** | ✅ **Ya cubierto** | Mismo `REDIS_URL` + `REDIS_FAMILY` (§20, la trampa IPv6 de Railway). Nada nuevo para el buylist. |
+| **Calendario de días hábiles** | ⚠️ **Ni env ni infra — pero SÍ operación** | `MX_HOLIDAYS` es una **tabla en código** (`backend/src/common/business-days.ts`) que cubre **2026–2030** y **falla ruidosamente** fuera de rango (`BusinessDaysCoverageError`), a propósito: degradar a «no hay festivos» **adelantaría vencimientos**. **Lo que verá devops** si nadie la extiende: el barrido **no expira nada** y loguea `error`. **Extenderla es de backend** (§35.7 lo deja como aviso con fecha, no como sorpresa). |
+
+**En una línea: para este ciclo faltaba `APP_PUBLIC_URL` y su fontanería. Lo demás ya estaba.**
+
+### 35.7 Dos avisos operativos que salen de esta revisión (ninguno bloquea)
+
+1. **Vigilancia del calendario (2030).** Cuando se acerque el cierre de 2030, el síntoma será
+   *«el barrido del buylist no expira ofertas y loguea `BusinessDaysCoverageError`»*. **No es un fallo de
+   infraestructura**: es la tabla `MX_HOLIDAYS` sin extender. Queda escrito aquí para que quien esté de
+   guardia no lo diagnostique desde cero. **Dueño: backend.**
+2. **Envs que el backend lee y `.env.example` todavía no declara** (mías, **fuera de este ciclo**, todas
+   **opcionales con default en código** — ninguna afecta al buylist): `GUEST_ORDER_SWEEP_CRON`,
+   `SCHEDULER_SHUTDOWN_TIMEOUT_MS`, `CATALOG_REFRESH_VARIANTS_BATCH_DELAY_MS`,
+   `POKEMONPRICETRACKER_PARTIAL_MIN_PRICE`, `POKEMONPRICETRACKER_GRADED_FIELD`,
+   `POKEMONPRICETRACKER_GRADED_FORMAT`, `POKEMONPRICETRACKER_GRADED_MARKET_FORMAT`,
+   `POKEMONPRICETRACKER_GRADED_EVIDENCE_FIELD`. Se listan **ahora que se detectaron** en vez de
+   documentarlas de memoria en un pase que no es el suyo: son diales finos del proveedor de precios
+   *graded* y merecen leerse una por una antes de escribir su default en la plantilla. **Dueño: devops
+   (yo), en un pase de plantilla del stream de precios.**
+
+### 35.8 Rollback
+
+**No hay rollback de deploy que hacer aquí: no hay código nuevo, no hay migración y no hay servicio nuevo.**
+
+| Escenario | Acción | Efecto |
+|---|---|---|
+| El CTA sale roto/al sitio equivocado en prod | **Borrar `APP_PUBLIC_URL`** en Railway (o dejarla vacía) y reiniciar el servicio | Vuelve la **instrucción de texto**. Es el estado seguro y **es el estado por defecto**. Sin migración, sin ventana, sin pérdida de nada. |
+| El pass-through de correo molesta en local | Dejar `RESEND_API_KEY=` vacía en tu `.env` | `NoopMailAdapter`, exactamente como antes de este pase. |
+| Hay que revertir el commit entero | `git revert` de este commit | Se pierde la declaración y el cableado; **el comportamiento de la app no cambia** (los defaults son vacíos y equivalen a la ausencia de las variables). |
+---
+
+## 36. BL-27 — el formateador rompía la revisión por diff. Mecanismo elegido: **bloquear la mezcla, no formatear el árbol** (2026-09-01)
+
+**El encargo llegó con dos salidas y la elección era mía.** La elijo con datos medidos, no por gusto.
+
+### 36.1 Lo que se midió antes de decidir (literal)
+
+```
+$ backend/node_modules/.bin/prettier --check "src/**/*.ts" "test/**/*.ts"
+Code style issues found in 274 files.
+```
+
+| Medición | Literal |
+|---|---|
+| Archivos `.ts` en `backend/src` + `backend/test` | **418** |
+| Archivos que prettier reformatearía | **274 (65 %)** |
+| Líneas de ese reformateo (copia en scratchpad, `.prettierrc` del repo) | **+10.435 / −3.311 ≈ 13.746 líneas** |
+| Cambio de comportamiento en esas 13.746 líneas | **ninguno** |
+
+Y tres hechos sobre el formateador que cambian por completo la decisión:
+
+1. **Nadie lo eligió.** `prettier` **no está en `devDependencies`**. Llega de rebote:
+   `resend@4.8.0 → @react-email/render@1.1.2 → prettier@3.9.6`. **El formateador del proyecto es una
+   dependencia transitiva del SDK de correo.** Un `npm update` de `resend` puede cambiar la versión
+   del formateador y, con ella, el formato de todo el repositorio.
+2. **`npm run lint` no lo corre, y no es un olvido.** `backend/.eslintrc.js` hace
+   `extends: [..., 'prettier']` — `eslint-config-prettier` existe **para apagar** las reglas de
+   formato de eslint. Lint y formato están desacoplados **a propósito**.
+3. **El frontend no tiene prettier en absoluto**: ni dependencia, ni binario, ni `.prettierrc`. Un
+   `npx prettier` ahí formatearía con los **defaults** (80 columnas, comillas dobles) — es decir,
+   una reescritura del frontend entero con un estilo que nadie acordó. Solo `backend/.prettierrc`
+   existe (`singleQuote`, `trailingComma: all`, `printWidth: 100`).
+
+### 36.2 Por qué NO cableo el formateador (la opción A), hoy
+
+Cablear `prettier --check` como gate exige **primero** un commit que formatee el árbol. Ese commit,
+medido, es de **13.746 líneas en 274 archivos**. Y ahí está la ironía que decide el asunto:
+
+> **El commit que arregla «los diffs no son revisables» sería, él mismo, un diff de 13.746 líneas
+> imposible de revisar** — y aterrizaría **justo antes** de la fase de seguridad, cuyo valor entero
+> está en revisar por diff, y **encima de dos agentes escribiendo ahora mismo** en `backend/` y
+> `frontend/` (conflicto garantizado con todo lo que está en vuelo).
+
+Súmese que **no sería un commit mío**: reformatear `backend/` y `frontend/` es escribir en rutas de
+otros roles. Yo no puedo hacerlo y no debo pedirlo en caliente.
+
+**No la descarto para siempre — la dejo costeada** (§36.5), que es lo que pedía el encargo: *saber el
+tamaño antes de llegar al gate*.
+
+### 36.3 Lo que SÍ cablé: la norma del arquitecto, ejecutable
+
+> *Un diff no mezcla reformateo con lógica; si hay que reformatear, va en su propio commit sin un
+> solo cambio de comportamiento.*
+
+`scripts/check-format-mix.sh` + job **`format-mix`** en `.github/workflows/ci.yml` (dentro de
+`ci-ok`, o sea **bloqueante**). **No es un gate de estilo**: no exige que el árbol esté formateado,
+no reformatea nada y no opina sobre comillas. Responde a una sola pregunta por archivo modificado:
+
+    ¿este cambio reformateó el archivo Y ADEMÁS cambió otra cosa?
+
+**El algoritmo es exacto, sin umbrales ni heurísticas** (por eso no tiene falsos positivos):
+
+| Situación del archivo | Decisión |
+|---|---|
+| En HEAD **no** es idéntico a su propia salida de prettier | **Se ignora** — nadie lo reformateó. Es el caso normal en este árbol. |
+| En HEAD sí, y en BASE **también** lo era | **Se ignora** — ya estaba formateado de antes. |
+| En HEAD sí, en BASE no ⇒ **este cambio lo reformateó**. Y `prettier(BASE) == HEAD` | **PASA** — el cambio es *exactamente* el reformateo. **Es el commit que la norma autoriza.** |
+| Ídem, pero `prettier(BASE) != HEAD` | **FALLA** — reformateo **mezclado** con otra cosa. |
+
+La versión de prettier va **clavada a 3.9.6** en el script. No es cosmético: si el comparador usara
+«la última», su veredicto cambiaría solo, sin que nadie tocara nada.
+
+### 36.4 Probado contra los cuatro casos, no solo contra el bueno
+
+Repo git sintético, con un archivo sin formatear como los 274 reales:
+
+| Caso | Esperado | Resultado |
+|---|---|---|
+| **1. El de BL-27**: `prettier --write` + cambiar `IVA = 0.16` → `0.08` | falla | **`rc=1`** — y lo dice donde importa: *«f.ts → **2 línea(s) de cambio real**»*. Ésa es exactamente la línea de dinero que se perdía entre el reformateo. |
+| **2. Commit de SOLO formato** (la vía autorizada) | pasa | `rc=0`, «Reformateo LIMPIO (sin lógica mezclada) en 1 archivo(s)» |
+| **3. SOLO lógica**, sin tocar formato | pasa | `rc=0` |
+| **4. Re-indentar A MANO** (envolver un bloque en un `if`) — el falso positivo clásico | pasa | `rc=0` |
+
+Y contra el repo **real** (`HEAD~5..HEAD`, 25 archivos evaluados, trabajo en vuelo de backend y
+frontend): **`rc=0`, sin falso positivo**, en ~39 s. El coste en CI es de ese orden: dos pasadas de
+prettier por archivo **modificado**, no por archivo del repo.
+
+> Nota metodológica: el caso 1 **pasó en verde en el primer intento y era el test el que estaba mal**
+> (el `sed` ya no casaba tras el reformateo, así que no cambiaba nada). Se corrigió el test, no el
+> script. Un comparador que solo se prueba contra el caso que debe fallar no está probado.
+
+### 36.5 Si algún día se quiere la opción A (formatear el árbol), así se hace y esto cuesta
+
+Queda **propuesta y costeada, sin cablear**. Orden obligatorio — y el primer punto no es negociable:
+
+1. **Ventana sin trabajo en vuelo.** Con agentes escribiendo, un reformateo de 274 archivos genera
+   conflictos en todo lo abierto.
+2. **`prettier` pasa a `devDependencies` con versión fija** (hoy es transitivo de `resend`: nadie
+   controla su versión). **Es de backend**, y el frontend además tendría que **elegir su
+   `.prettierrc`** — sin él, los defaults reescriben el frontend entero con otro estilo.
+3. **Un commit por paquete, solo formato**: `style: formatear backend/ (sin cambios de comportamiento)`
+   y su gemelo de frontend. Verificación de que no cambió comportamiento: **la suite completa en
+   verde antes y después**, más el propio `format-mix` (que reconoce y aprueba el commit de solo
+   formato — caso 2). El tamaño medido hoy: **274 archivos / ~13,7k líneas** solo en backend.
+4. **Solo entonces** se puede endurecer `format-mix` a un `prettier --check` del árbol.
+
+Mientras eso no ocurra, el estado correcto es el actual: **el árbol NO está formateado, y no pasa
+nada**, porque lo que se protege no es el estilo — es la revisabilidad del diff.
+
+### 36.6 Estado del gate de seguridad y del harness E2E (lo que pedía el encargo: el tamaño)
+
+Revisado archivo por archivo. **Cableado ≠ corriendo**, y la diferencia es justo donde está el hueco.
+
+| Pieza del DoD | Archivo | Estado real |
+|---|---|---|
+| **SAST en cada PR** | `security-sast.yml` (semgrep · gitleaks · npm-audit · trivy-fs · trivy-image → `sast-ok`) | ✅ **Cableado y corriendo** en `push` y `pull_request`. |
+| **Harness E2E** | `e2e.yml` → `backend-e2e` (Postgres+Redis reales, **deploy-blocking**) + `frontend-e2e` (mock, **informativo** por decisión §24) | ✅ **Cableado.** El mock es soft-gate **a propósito**; el gate real de UI es `e2e-real.yml`. |
+| **E2E contra stack real** | `e2e-real.yml` (nightly 08:00 UTC · `workflow_dispatch` · `workflow_call` desde deploy con `require_real_stripe: true`) | ⚠️ **Cableado, pero sin `STRIPE_TEST_SECRET_KEY` su preflight ABORTA** la ruta de promoción (hueco §32.7-1, del humano). |
+| **DAST contra staging que bloquea la promoción** | `deploy.yml` → `dast-staging` (ZAP baseline) con `promote-production-*` condicionado a `dast-staging.outputs.critical == 'false'` | ⚠️ **Cableado y correctamente condicionado… en un camino que no se usa.** `deploy.yml` es **`workflow_dispatch` only**; los deploys reales van por push-to-deploy de Vercel/Railway, que **no pasan por este DAST**. Es el hueco estructural de §32.11, ahora con nombre. |
+| **DAST programado semanal** | `security-scheduled.yml` (lunes 06:00 UTC) | ⚠️ **No-op silencioso**: su preflight comprueba `STAGING_BASE_URL` y, si falta, emite un `::notice::` y **se salta todo**. Hoy falta ⇒ **el DAST no se ha ejecutado nunca**. |
+| **Que los gates sean `required checks`** | Protección de rama en GitHub | ❓ **No verificable desde aquí** (no hay `gh` en este entorno). `ci-ok`, `sast-ok` y `e2e-ok` están **diseñados** como required checks, pero si nadie los marcó como tales en *Settings → Branches*, **no bloquean nada**. Comprobación del humano: `gh api repos/<org>/<repo>/branches/main/protection`. |
+
+**Resumen honesto del tamaño:** no falta *construir* casi nada — **falta encender**. Dos secretos
+(`STAGING_BASE_URL`, `STRIPE_TEST_*`) y una decisión sobre el camino de deploy: mientras el deploy
+real sea push-to-deploy, el DAST de staging **no se interpone**, y el DoD pide que se interponga.
+Eso último **no lo cierro yo solo**: o los deploys pasan por `deploy.yml`, o hay que mover el DAST
+a un disparo post-deploy que bloquee la promoción. **Decisión del humano** (y del arquitecto si
+cambia el flujo).
+
+### 36.7 Rollback de BL-27
+
+| Escenario | Acción |
+|---|---|
+| El comparador da un falso positivo y frena a alguien | Quitar `format-mix` de `needs`/condición de `ci-ok` en `ci.yml` (una línea): sigue corriendo e informando, deja de bloquear. |
+| Se quiere retirar del todo | Borrar el job `format-mix` y `scripts/check-format-mix.sh`. **No deja rastro**: no toca el árbol, no formatea, no tiene estado. |
+| Un caso legítimo que el algoritmo no contempla | Partir el commit en dos (formato / lógica) — que es, exactamente, lo que la norma pide. |
+
+---
+
+## 37. Stack nativo para el gate de QA del stream `buylist-inventory-workflow` — lo que arrancó, y el rojo que **no era del producto** (2026-09-02)
+
+**Encargo:** QA no puede correr su gate sin un stack vivo y no tiene herramientas de escritura
+(es intencional). Levantar la ruta nativa y decir **exactamente** qué puede correr y qué no.
+
+**Regla que gobierna esta sección:** todo número de aquí está **medido** sobre el árbol limpio en
+`claude/buylist-inventory-workflow-hdnls3` (commit `742ce51`). Donde no medí, lo digo.
+
+### 37.1 Punto de partida (confirmado, no asumido)
+
+| Hecho | Comprobación |
+|---|---|
+| No hay demonio de Docker | `/var/run/docker.sock`: *No such file or directory* ⇒ `docker-compose.yml` **no es una opción**; la ruta nativa es la única |
+| Postgres instalado y **parado** | `pg_lsclusters` → `16 main 5432 down` |
+| Redis instalado y **parado** | `redis-cli ping` → *Connection refused* |
+| Sin `.env` en ninguna parte | solo `.env.example` |
+| Puertos 3000/3099 libres | `ss -ltnp` sin coincidencias |
+| `node_modules` presentes | backend 578 paquetes · frontend 447 |
+
+### 37.2 `./scripts/stack-native.sh up --seed --gate` — **exit 0**, literales
+
+```
+▸ Postgres (16/main)          ✔ arriba.            (había un pid file rancio; el script lo purgó solo)
+▸ Redis                       ✔ arriba.
+▸ Rol y base de datos         ✔ rol 'tcg' ya existe.  ✔ base 'tcg_marketplace' ya existe (datos intactos).
+▸ prisma migrate deploy       35 migrations found in prisma/migrations
+                              No pending migrations to apply.
+▸ Seed sintético              ✓ seed-e2e: dataset sintético cargado (determinista).
+▸ Backend NestJS (:3099)      ✔ salud: {"status":"ok","uptime":6,"timestamp":"2026-09-02T04:33:17.395Z","db":"up","redis":"up"}
+▸ next build                  ✔ build listo (NODE_ENV=production, sin aviso de NODE_ENV no estándar).
+▸ Frontend (:3000)            ✔ arriba en http://localhost:3000 (modo build)
+```
+
+`status` tras el arranque: `postgres: accepting connections` · `redis: PONG` · `backend: 200 (:3099)` ·
+`frontend: 200 (:3000)`.
+
+**`DATABASE_URL` efectivo (contraseña enmascarada):**
+`postgresql://tcg:****@localhost:5432/tcg_marketplace?schema=public`
+Credencial de **desarrollo local**, la misma de `.env.example`. Aquí no hay ni se inventó ningún
+secreto real.
+
+**M-46 aplicada — verificada en la BD, no solo en el «no pending».** `migrate deploy` dijo *no
+pending* porque la base **persistió de una sesión previa**; eso por sí solo no prueba nada, así que
+se comprobó el registro **y** los objetos:
+
+```
+migration_name                                  | finished_at         | steps | rolled_back_at
+20260901120000_m46_buylist_acquisition_cycle    | 2026-09-01 21:01:13 |     1 | (null)
+```
+`35 aplicadas · 0 pendientes-o-fallidas · 0 rolled_back` · `prisma migrate status` → *Database schema is up to date!*
+
+Y sus objetos existen de verdad: los 3 enums (`BuyDecision{buy,skip}`,
+`SellOfferState{pending_authorization,sent,cancelled}`, `SellRequestExpiryReason{no_offer,not_shipped}`),
+los 5 índices (`SellRequest_offerState_idx`, `SellRequest_status_offerAcceptDeadlineAt_idx`,
+`SellRequest_status_shipDeadlineAt_idx`, `SellRequest_guideCancellationPendingAt_idx`,
+`SellRequestItem_offerDecision_idx`) y las columnas (`SellRequest.offerState`, `.offerAcceptDeadlineAt`,
+`.shipDeadlineAt`, `.guideCancellationPendingAt`, `.closedAt`, `.expiredReason`, `SellRequestItem.offerDecision`).
+
+**Backend vivo, con guards puestos** (no es un arnés recortado): `GET /api/v1/health` → 200 ·
+`GET /api/v1/catalog/cards?limit=1` → 200 · `GET /api/v1/admin/orders` sin token → **401** ·
+`SchedulerService: BullMQ operativo`.
+Único aviso en el log: `pokemontcg.io … -> HTTP 403` (sin egress). **Esperado y money-safe**: deja los
+precios STALE, no borra ni escribe $0.
+
+### 37.3 El rojo de la suite de integración: **entorno, no producto** — y el footgun que casi me como
+
+El encargo pedía el literal de `cd backend && npm run test:integration`. Es éste:
+
+| # | Cómo se corrió | Resultado literal | Veredicto |
+|---|---|---|---|
+| A | `cd backend && npm run test:integration` (**literal**) | `Test Suites: 1 failed, 14 passed, 15 total` · `Tests: 5 failed, 178 passed, 183 total` · 31.7 s · **exit 1** | rojo de **entorno** |
+| B | igual, con `DATABASE_URL` **exportada** | `15 passed, 15 total` · `183 passed, 183 total` · 26.3 s · **exit 0** | ✅ |
+| C | 1ª versión de mi subcomando (**mal**: filtraba `NODE_ENV=development`) | `3 failed, 12 passed` · `25 failed, 158 passed` · **exit 1**, con **13 asertos fallando en `Received: 429`** | rojo **del arnés** |
+| D | subcomando ya corregido (`NODE_ENV=test`) | `15 passed, 15 total` · `183 passed, 183 total` · 27.2 s · **exit 0** | ✅ |
+
+**Por qué falla A.** Una sola suite, `seed-idempotency.e2e-spec.ts`, y con este literal:
+
+```
+PrismaClientInitializationError: error: Environment variable not found: DATABASE_URL.
+  -->  schema.prisma:11
+   |
+10 |   provider = "postgresql"
+11 |   url      = env("DATABASE_URL")
+    at Object.<anonymous> (test/integration/seed-idempotency.e2e-spec.ts:42:5)
+```
+
+Las otras **14 sí** ven la BD porque arrancan el `AppModule`, y `ConfigModule.forRoot()`
+(`app.module.ts:39`, **sin `envFilePath`** ⇒ default `<cwd>/.env`) carga `backend/.env` dentro de
+`process.env` al importar el módulo. `seed-idempotency` es la **única** que no pasa por Nest: hace
+`new PrismaClient()` a nivel de módulo, o sea **antes** de que nadie cargue el `.env`.
+`test/integration/setup.ts` no tapa el hueco: para `DATABASE_URL` solo emite un `console.warn` (y no
+podría poner default: no existe una BD «de mentira» válida). **Ese warn sale también en la corrida
+verde** — es ruido conocido, no un síntoma.
+
+**El footgun de C, que es el hallazgo que de verdad importa.** Mi primer subcomando reexportaba el
+bloque de env de la cabecera del script, `NODE_ENV=development` incluido. `export` alcanza a todo
+hijo y **jest solo pone `NODE_ENV=test` si nadie lo puso antes**, así que ese `development` ganaba.
+De `src/config/test-env.ts:28` (`process.env.NODE_ENV === 'test'`) cuelgan dos piezas:
+
+1. **`AppThrottlerGuard`** — login 5/min por IP (SEC-C1). Con `NODE_ENV≠test` el guard no se omite y
+   la suite, que hace ~10 logins desde 127.0.0.1 en el mismo minuto, **se autoenvenena con 429**.
+   Es exactamente el fallo de CI del 2026-08-18 que motivó `test-env.ts`.
+2. **El scheduler BullMQ** — cada suite registraría los crons y un worker sobre la cola compartida
+   `tcg-daily`, y el catch-up de `price-ingest` encola trabajo **real**: escrituras de fondo en la
+   misma BD que se está midiendo.
+
+O sea: sin `NODE_ENV=test` el arnés no solo pinta rojos falsos, **mide otra cosa**. Es el **mismo
+footgun de §32.10** (el `NODE_ENV` exportado que rompía `next build`), en otro consumidor. Queda
+cerrado por construcción y comentado en el propio script.
+
+`PORT` no hace falta neutralizarlo: el harness hace `app.listen(0)` (`test/integration/helpers/e2e-app.ts:172`).
+
+**Lo que cablé (todo en rutas de devops):**
+
+| Archivo | Qué |
+|---|---|
+| `backend/.env` (**untracked**, `.gitignore`) | `DATABASE_URL`, `REDIS_URL`, `APP_BASE_URL`, `APP_PUBLIC_URL`, `JWT_*` de desarrollo. **Sin Stripe, sin Resend, sin S3, sin API keys de precios** — a propósito (§37.4). Con él, el comando literal pasa de 0 a **14/15 suites**. |
+| `scripts/stack-native.sh` → `test:integration` | Exporta el mismo env que usa `up` **y fija `NODE_ENV=test`**. Comprueba que Postgres responda antes de correr. Da **15/15 · 183/183 · exit 0**. |
+| `scripts/stack-native.sh` → `migrate deploy` | El mensaje decía «incluida M-41» **desde M-41 hasta M-46**. Ahora el nombre se deriva del árbol: un mensaje que envejece en silencio es peor que no tenerlo, porque se cita en veredictos. |
+| `scripts/stack-native.sh` → `mask_url()` | Un solo sitio que enmascara la contraseña antes de imprimir una URL de conexión. |
+
+### 37.4 Qué puede correr QA y qué no
+
+**✅ Sí, ahora mismo, sin tocar nada:**
+
+| Qué | Comando | Estado medido |
+|---|---|---|
+| Integración contra **BD real** | `./scripts/stack-native.sh test:integration` | **15/15 suites · 183/183 tests · exit 0** |
+| Una spec suelta | `./scripts/stack-native.sh test:integration -t "<patrón>"` | pasa args a jest |
+| Backend en vivo | `curl localhost:3099/api/v1/health` | `{"status":"ok",…,"db":"up","redis":"up"}` |
+| Frontend horneado (mocks=**false**, API→:3099) | `http://localhost:3000/es` | 200, `next build` con `NODE_ENV=production` |
+| Gate E2E real | `cd frontend && E2E_BASE_URL=http://localhost:3000 E2E_REAL=1 npm run test:e2e` | Chromium 141 en `/opt/pw-browsers/chromium` **verificado**; Playwright 1.56.0 |
+
+**❌ No, y no es arreglable en esta máquina** (no son fallos del producto; **no los reporte como bugs**):
+
+| Qué | Por qué | Síntoma esperado |
+|---|---|---|
+| Cobrar de verdad (checkout, guest-checkout, envíos) | **Sin egress a `api.stripe.com`** (CONNECT → 403) y sin `STRIPE_TEST_SECRET_KEY`. No se inventó ninguna clave. | 503 `PAYMENT_PROVIDER_UNAVAILABLE`, se libera la reserva (**money-safe**) |
+| Subir el INE del buylist (sobre el tope AML) | **No hay MinIO/R2** nativo; `uploads` no lo cubre esta ruta | el spec de infra lo **salta** con aviso |
+| Correo real (Resend) | Sin `RESEND_API_KEY` ⇒ `NoopMailAdapter` (degradación de LOCAL_ENVS) | no sale correo; el flujo no se bloquea |
+| Precios frescos de proveedor | Sin egress a `pokemontcg.io` / `tcgcsv.com` (403) | precios **STALE**; no borra, no escribe $0 |
+
+**⚠️ Dos avisos operativos (ninguno bloquea):**
+
+1. **La suite de integración ESCRIBE en la BD** (resiembra el fixture). Si después va el gate de
+   Playwright, **vuelva a sembrar**: `./scripts/stack-native.sh up --seed --infra`. El subcomando lo
+   avisa al empezar. Orden recomendado: **integración → re-seed → E2E**.
+2. **Deriva cosmética de schema** (no bloquea, **no es mía**): `prisma migrate diff` reporta un único
+   `ALTER INDEX "PriceReference_variant_capturedDate_key" RENAME TO
+   "PriceReference_cardId_productType_gradeKey_finish_capturedD_key"`. Mismas columnas, misma
+   unicidad: solo el **nombre** difiere entre `schema.prisma` y la BD. Efecto real: un
+   `prisma migrate dev` querría generar una migración de rename. `backend/prisma/` es del rol
+   **backend**; queda anotado, no tocado.
+
+### 37.5 Apagado y rollback
+
+| Escenario | Acción |
+|---|---|
+| Terminar la sesión, conservar datos | `./scripts/stack-native.sh down` (para backend y frontend; deja PG/Redis) |
+| Apagar todo | `./scripts/stack-native.sh down --all` |
+| BD envenenada por una corrida | `./scripts/stack-native.sh up --seed --infra` (el seed es **idempotente**: lo prueba `seed-idempotency.e2e-spec.ts`) |
+| Revertir lo de esta sección | Borrar `backend/.env` y revertir `scripts/stack-native.sh`. Se pierde el 15/15 (vuelve a 14/15 por `DATABASE_URL`); **nada más**: no toca `backend/`, ni `frontend/`, ni migraciones, ni datos |
+| El subcomando molesta | `cd backend && NODE_ENV=test DATABASE_URL=… npm run test:integration` hace lo mismo a mano |
+
+---
+
+## 38. SEC-OPS-1 — el gate auditaba un binario más viejo que el código auditado. Y la purga de los datos del PoC (2026-09-06, stream `claude/buylist-inventory-workflow-hdnls3`)
+
+> **Regla que gobierna esta sección:** todo número de aquí está **medido** en esta máquina,
+> contra el stack vivo y la BD local. Donde no medí, lo digo con esas palabras. Lo que
+> queda pendiente de otro rol va nombrado con su rol.
+
+### 38.0 El hallazgo, en una línea
+
+Seguridad (pase v1.56, `SECURITY_NOTES.md` §9) reportó que **por segundo pase consecutivo** el
+backend vivo era **más viejo que el commit a auditar**, y que las dos veces lo cazó una persona
+mirando la **hora de un PID**:
+
+| Pase | Backend vivo arrancó | Commit a auditar | Consecuencia |
+|---|---|---|---|
+| 2026-08-29 (SEC-M43-6) | 20:10 | `1f73654` de 21:34 | La 1ª corrida del PoC devolvió el default de la columna; **casi se firma un ALTO abierto que ya estaba cerrado** |
+| 2026-09-06 (v1.56) | 15:04:03 | `3b2fc87` de 16:16:31 | El stack servía el código **vulnerable**; seguridad reinició (`down` + `up`, **sin `--seed`**) y remidió contra un proceso de 16:21:42 |
+
+**Es mío y es de proceso, no de código.** Y lo peor no es el rojo falso: es el **verde falso**
+simétrico — un stack viejo puede dar por buena una guarda que el binario no tiene, y entonces se
+promueve a producción algo que nadie probó.
+
+### 38.1 La causa, en cuatro líneas de `stack-native.sh`
+
+No hubo misterio. `start_backend()` decía, literalmente:
+
+```bash
+if curl -sf "$BACKEND_HEALTH_URL"; then
+  ok "ya respondía en :$BACKEND_PORT."
+  return 0        # ← reutiliza SIN preguntar qué código está sirviendo
+fi
+```
+
+El **frontend** ya tenía la guarda equivalente desde hace tiempo («NO REUTILIZAR UN SERVIDOR AJENO
+EN MODO GATE», por el episodio de `reuseExistingServer` de §32.6). El backend no la tenía. La
+asimetría es exactamente el agujero.
+
+### 38.2 El mecanismo: `scripts/assert-serving-head.sh`
+
+**Qué evidencia usa.** La única señal de procedencia que el proceso emite hoy es el `uptime` de
+`GET /api/v1/health`, y **es `process.uptime()`** — verificado leyendo
+`backend/src/modules/health/health.service.ts` (`uptime: Math.round(process.uptime())`), no
+`os.uptime()`. De ahí sale el instante real de arranque del proceso que atiende el puerto:
+
+```
+arranque_vivo = ahora − uptime
+```
+
+Eso **no se puede falsificar con un fichero rancio**: si otro proceso tomó el puerto, su uptime no
+cuadra. Comprobación en vivo contra el stack de esta máquina: el script dató el arranque en
+**16:21:43**; seguridad había anotado a mano **16:21:42**. Un segundo de redondeo.
+
+**Los cuatro asertos** (todos opcionales, se activan por bandera):
+
+| # | Bandera | Qué afirma | De dónde sale |
+|---|---|---|---|
+| 1 | `--newer-than EPOCH` | el proceso nació **después** de EPOCH | proceso (`uptime`) |
+| 2 | `--source RUTA` | ningún fichero de fuente es **más nuevo** que el proceso | proceso + `mtime` |
+| 3 | `--stamp FICHERO` | el sello escrito al arrancar habla de **este** proceso | proceso + sello |
+| 4 | `--sha` / HEAD | el commit sellado es el esperado | sello + `git rev-parse` |
+
+El **aserto 2 es el que reproduce a máquina lo que seguridad vio a mano**: `ts-node --transpile-only`
+compila **al arrancar** y Nest requiere el árbol entero en el boot, así que un fichero editado
+después **no está** en lo que se sirve. No necesita ni sello ni git: sale del proceso.
+
+**Lo que NO prueba, dicho de frente.** No hay prueba criptográfica de que el artefacto contenga el
+SHA: **el backend no expone commit/version en `/health`** (medido: la respuesta es
+`{status,uptime,timestamp,db,redis}` y nada más). La cadena es «arranqué X» + «el proceso vivo
+nació de ese arranque» ⇒ «sirve X». Es sólida, no es una firma. El cierre definitivo está en §38.6
+y **es del rol backend**.
+
+**Matriz de prueba (medida, 7 casos + 1 detección real):**
+
+| Caso | Resultado | Exit |
+|---|---|---|
+| sello coherente + fuentes viejas | ✔ pasa | 0 |
+| SHA del sello ≠ HEAD | ⛔ «COMMIT DISTINTO» | 1 |
+| sello de otro proceso (6000 s de desfase) | ⛔ «hay OTRO sirviendo el puerto» | 1 |
+| fuente editado después del arranque | ⛔ lista los ficheros | 1 |
+| `--newer-than` con proceso viejo | ⛔ «sirviendo el binario ANTERIOR» | 1 |
+| `--newer-than` satisfecho | ✔ pasa | 0 |
+| servicio caído | ✖ error de uso, no «obsoleto» | **2** |
+| **detección real, en vivo** | ⛔ **cazó el caso de verdad** — ver abajo | 1 |
+
+**La detección real.** Al cablearlo, el comprobador encontró **el mismo fallo, por tercera vez**,
+esta vez sin que nadie lo buscara: el backend de `:3099` (arrancado 16:21:42) **no incluye**
+`backend/src/modules/buylist/buylist.service.ts` ni `backend/src/common/sell-request-states.ts`,
+que backend está editando ahora mismo para cerrar BL-35 eje 2. **Cualquier medición en vivo contra
+`:3099` hecha después de esas ediciones y antes de un reinicio es inválida.** Aviso para **QA** y
+**seguridad**: antes de la re-verificación de BL-35 eje 2, corran `verify:head` (§38.3).
+
+### 38.3 Local — `stack-native.sh` ya no puede servir algo distinto del árbol
+
+| Comando | Qué garantiza ahora |
+|---|---|
+| `./scripts/stack-native.sh up` | **No reutiliza** un backend vivo sin comprobar la procedencia. Si no sirve el árbol de ahora, **lo reinicia** (banner ruidoso) y **termina probándolo** con `verify_head` — `up` ya no *afirma* que está al día, lo *prueba*. |
+| `./scripts/stack-native.sh verify:head [<sha>]` | **Solo lee.** Exit 1 ruidoso si lo vivo no es lo que se va a auditar. **Este es el comando que QA / seguridad / el pentester corren antes de su primera medición.** Con argumento: «quiero auditar exactamente `3b2fc87`». |
+| `./scripts/stack-native.sh status` | Dice **qué commit sirve cada proceso** y desde cuándo. Sin sello ⇒ lo dice: «procedencia DESCONOCIDA». |
+
+**Observabilidad.** El arranque ahora **imprime el commit que sirve** (`✔ sirviendo commit
+7e56e374f42d …  · arrancado 16:21:42`) y deja un **sello** en `.native-stack/backend.stamp`:
+
+```
+sha=7e56e374f42d2d62a199a7145acfbde1c7ab0d04
+started_at=1788711703
+started_h=2026-09-06T16:21:43
+dirty=16                       ← ficheros sin commitear al arrancar (HEAD no cuenta toda la historia)
+pid=999
+port=3099
+db=postgresql://tcg:****@localhost:5432/tcg_marketplace?schema=public   ← ENMASCARADA
+```
+
+Dos decisiones que no son cosméticas:
+
+- **El `started_at` del sello se deriva del proceso, no de mi reloj.** Se escribe *después* de que
+  el servicio esté sano, con el `ahora − uptime` del propio proceso. Así el desfase sello↔proceso es
+  **cero por construcción** y cualquier diferencia futura significa de verdad «hay otro proceso en
+  el puerto», no «se me fue el reloj entre el `nohup` y el `node`».
+- **Solo se reutiliza un backend que arrancó este script.** Uno levantado a mano no tiene sello ⇒
+  procedencia desconocida ⇒ se reinicia. Eso cierra de paso el riesgo «commit correcto, **base
+  equivocada**»: el sello registra a qué BD apuntaba.
+
+**Si el puerto no se libera, el script se planta** (`die`) en vez de seguir: mientras haya un proceso
+ajeno vivo, nadie puede afirmar qué se está midiendo, y ése es justo el estado que esto existe para
+hacer imposible.
+
+### 38.4 Reiniciar para auditar **no cuesta la evidencia** — y esto está medido
+
+Seguridad reinició **deliberadamente sin `--seed`** para conservar las filas del PoC. Tenía razón, y
+ahora es una propiedad del arnés en vez de un acto de memoria:
+
+- `stop_backend_only()` **no** para Postgres, **no** para Redis, **no** siembra, **no** borra una
+  fila. Reinicia procesos y nada más.
+- **El único camino que toca datos es `--seed` EXPLÍCITO** — y sí es destructivo. **Medido en el
+  código, no supuesto:** `backend/prisma/seed-e2e.ts:129` hace
+  `prisma.sellRequest.deleteMany({ where: { userId: { in: ids } } })` sobre los usuarios
+  deterministas del fixture. Y **dos de las tres filas de evidencia** (`b6e3b8e0…` y `1f151cea…`)
+  cuelgan de `customer@e2e.local`, que **está** en ese conjunto.
+
+> **Conclusión medible: `up --seed` habría destruido 2 de las 3 filas del PoC. `up` a secas no toca
+> ninguna.** Por eso el reinicio automático de §38.3 nunca siembra, y `--seed` sigue siendo algo que
+> se escribe a mano.
+
+#### 38.4-bis — Y no era hipotético: **pasó, mientras escribía esta sección**
+
+A las **17:14:09** del 2026-09-06 una resiembra borró **dos de las tres filas de evidencia**:
+`b6e3b8e0…` (`SPEI-EJE2-NEVER-ARRIVED-001`) y `1f151cea…` (`QA-BL35-EJE2`), ambas de
+`customer@e2e.local`. Sobrevivió `afc4ab63…` (`SPEI-DOUBLESPEND-777`), cuyo dueño es
+`redteam.victim@e2e.local` — **que no está en el fixture**. Exactamente la predicción del párrafo
+anterior, cumplida en menos de una hora.
+
+**No fui yo, y lo puedo acotar:** todas mis operaciones sobre la BD fueron `ROLLBACK` y verifiqué las
+3 filas intactas después de cada una. La cadena, con relojes:
+
+| Hora | Hecho | Cómo lo sé |
+|---|---|---|
+| 17:13:49 | `backend/test/integration/buylist-cycle.e2e-spec.ts` modificado | `mtime` |
+| 17:14:09 | fixture reescrito; desaparecen las 2 filas | `max(SellRequest.createdAt)` de `customer@e2e.local` y `max(AuditLog.createdAt)` |
+| 17:14:08 | aparece `e2e3a3c5…` `SPEI-EJE2-REMEDIADA` | fila nueva de `customer@e2e.local` |
+| — | ese spec llama a `seedE2E()` en su arranque (`:63`); **12** specs de integración lo hacen | `grep` |
+| ahora | `jest` corriendo | `pgrep` |
+
+Es una resiembra de una corrida de integración de **backend**, que es trabajo legítimo y esperable
+(el propio `test:integration` de este script ya avisa: «esta suite ESCRIBE en la BD»). No es un
+error de nadie: es que **la BD del fixture no es un sitio donde se pueda guardar evidencia de una
+auditoría**, y hasta hoy nadie lo había dicho en voz alta.
+
+**Lo que hice con lo que controlo.** `--seed` de este script ahora **se planta** si detecta filas con
+marca de PoC: las lista, explica que el seed borra, y ofrece las tres salidas (no sembrar · purgar ·
+`SEED_OVER_EVIDENCE=1` para hacerlo a propósito). **Cubre mi bandera, no las suites**: los 12 specs
+llaman a `seedE2E()` directamente y eso es `backend/test/` — **rol backend**.
+
+**Lo que NO es mío y hay que decidir** (va a **QA / seguridad / backend**, no lo cierro yo): si un
+hallazgo abierto necesita evidencia reproducible, esa evidencia **no puede vivir solo en filas de la
+BD compartida**. O se guarda el PoC como **spec** (que es lo que backend acaba de hacer:
+`buylist.m5p-received-guard.spec.ts`, `SPEI-EJE2-REMEDIADA`), o se dumpea aparte antes de tocar el
+fixture. **Recomendación de devops: la primera.** Un test que reproduce el hallazgo es evidencia que
+ninguna resiembra puede borrar.
+
+### 38.5 CI — dónde se cableó y dónde no
+
+| Sitio | Qué se añadió | Por qué ahí |
+|---|---|---|
+| `.github/workflows/e2e-real.yml` | Marca de epoch **antes** de `docker compose up`, y gate `--newer-than` tras la salud del backend. Deja el commit medido en el *step summary*. | El riesgo aquí es menor (`up -d --build` ya reconstruye desde el checkout: la estrategia «reconstruir siempre») pero no nulo: un contenedor superviviente, un `--build` que falla y deja el anterior en pie, o un runner reutilizado dan el mismo verde falso. **Se comprueba en vez de suponerse.** |
+| `.github/workflows/deploy.yml` | **Job nuevo `staging-serves-head`**, entre el deploy de staging y el DAST. `dast-staging` ahora **depende de él**. | **Éste era el agujero de verdad en CI.** `dast-staging` escanea `STAGING_BASE_URL`, un dominio **estable**; `needs:` garantizaba el **orden de los jobs**, no que el rollout hubiera **tomado efecto**. Si el rollout va lento —o falla y la plataforma deja en pie la revisión anterior— ZAP y nuclei escanean el binario **viejo**, y su verde promueve a prod un commit que **nadie escaneó**. Mismo fallo, mismo sentido peligroso. |
+| `.github/workflows/ci.yml` | Job `provenance-gate` → `scripts/check-provenance-gate.sh`, y suma en `ci-ok`. | SEC-OPS-1 **ya se repitió dos veces**: el arreglo es fácil de borrar sin querer y su ausencia **no produce un rojo, produce un verde que no significa nada**. Guarda estática, barata, en el workflow que corre en **cada push y PR** — mismo criterio que `e2e-provider-guard` (§32.12). |
+| `security-sast.yml` | **Nada, a propósito.** | Semgrep/gitleaks/trivy-fs/npm-audit son **estáticos sobre el checkout**: analizan el árbol, no un proceso. No hay binario vivo que pueda quedarse viejo. `trivy-image` construye la imagen en el propio job. **Aquí no hay nada que arreglar** y añadir un check sería teatro. |
+
+**`STAGING_API_URL` (secret nuevo, lo debe cargar el humano).** Base del **backend** de staging con
+`/api/v1` (p. ej. `https://api-staging.tcghunt.mx/api/v1`). Es lo que permite leer el `uptime`.
+**No** se metió en `secrets-gate` para no romper pipelines ya configurados; en su lugar:
+
+- sin ella y **sin promover a prod** → `::warning::` y el DAST queda marcado como **no citable**;
+- sin ella y **promoviendo a prod** → **falla**. Un DAST que no sabe qué binario escaneó no puede
+  ser la puerta de producción.
+
+Documentada en `.env.example` (bloque `[GH]`).
+
+**Estado honesto de lo cableado en CI: escrito y validado como YAML (los 6 workflows parsean y el
+grafo de jobs es el esperado), NO ejecutado.** Aquí no hay demonio de Docker, ni secrets de deploy,
+ni staging: `deploy.yml` sigue desactivado por defecto (§ cabecera del propio workflow). Lo que sí
+se ejecutó y midió es todo lo local de §38.2–38.4 y `check-provenance-gate.sh`.
+
+**La guarda se probó por mutación** (no basta con que dé verde hoy): quitándole a `start_backend()`
+la llamada al comprobador → **rojo**; quitándole a `dast-staging` la dependencia de
+`staging-serves-head` → **rojo**. La primera versión del propio check tenía un rango `awk` mal
+puesto que lo daba por bueno mirando el fichero entero; se corrigió a mirar **el `needs:` del job**,
+que era el enunciado.
+
+### 38.6 Lo que queda abierto, y de quién es
+
+| # | Qué | Rol dueño |
+|---|---|---|
+| **SEC-OPS-1-R1** | **`GET /api/v1/health` no devuelve el commit.** Con un campo `commit` (o `version`) en la respuesta, la procedencia pasa de «cadena de inferencias sólida» a **dato verificable en una petición**, y `--stamp` deja de hacer falta. Es `backend/src/modules/health/health.service.ts` + el DTO del contrato. **Petición, no exigencia**: lo de hoy funciona sin ello. | **backend** (+ **arquitecto** si toca el contrato) |
+| **SEC-OPS-1-R2** | El frontend no tiene `/health` con `uptime`, así que su sello se apoya en el reloj del script y en que el pid siga vivo — **evidencia más débil**, y `verify:head` lo etiqueta como tal. En modo `dev` directamente no se puede fechar lo que sirve (recompila bajo demanda); por eso un gate es siempre `up --gate`. | **devops** (si algún día hace falta), **frontend** si expusiera un endpoint |
+
+### 38.7 Purga de datos sintéticos — `scripts/purge-synthetic-poc-data.sh`
+
+`ARCHITECTURE.md` §9 (fila BL-35) lo pide con estas palabras: «el pentester dejó filas sintéticas
+doble-pagadas en la BD local — **purgar antes de cualquier snapshot**». QA lo levantó como MENOR-3.
+
+> ⚠️ **NO SE HA CORRIDO. El mecanismo está listo; la ejecución la dispara el humano.** Estas filas
+> son la **evidencia** de un hallazgo abierto (BL-35 eje 2) y **backend las puede necesitar** para su
+> test de regresión. Por eso el modo por defecto **no borra**, y no hay ningún gancho que lo llame
+> solo: `stack-native.sh` **no** lo invoca.
+
+**Cómo se dispara:**
+
+```bash
+# 1) SOLO CONTAR (no simula ni borra)
+./scripts/purge-synthetic-poc-data.sh --census
+
+# 2) SIMULACRO — modo por defecto. Ejecuta el borrado DE VERDAD dentro de una
+#    transacción y la DESHACE. Los números que imprime son los reales.
+./scripts/purge-synthetic-poc-data.sh
+
+# 3) BORRAR DE VERDAD — una transacción, con verificación de cierre dentro
+./scripts/purge-synthetic-poc-data.sh --apply
+```
+
+> ⚠️ **La cohorte es DINÁMICA, no la lista congelada de tres ids de `SECURITY_NOTES` §10.** El script
+> selecciona **por marca** (`speiReference` con prefijo `SPEI-DOUBLESPEND|SPEI-EJE2|QA-BL35|PENTEST-|
+> POC-|REDTEAM-`) además de por los tres ids. Es deliberado: así **sigue siendo correcto** cuando
+> aparecen filas de PoC nuevas. Y aparecen: mientras escribía esto salió `SPEI-EJE2-REMEDIADA`, la
+> prueba del arreglo. **Corre `--census` antes de decidir; no te fíes de los números de abajo, que
+> son una foto.**
+
+**Foto de las 17:22** (dos censos distintos en una hora — ver §38.4-bis):
+
+| Cohorte | 17:05 | 17:22 |
+|---|---|---|
+| usuarios `redteam.*@e2e.local` | 4 | 4 |
+| `SellRequest` de PoC | **3** | **2** ← una resiembra se llevó 2 y backend creó 1 |
+| `SellRequestItem` (cascada) | 6 | 5 |
+| `AuditLog` del PoC | 23 | 23 |
+| **simulacro, total borrado** | **36** | **35** |
+
+Desglose del simulacro de las 17:22 (borra y deshace): `AuditLog` 23 · `SellRequest` 2 (+items en
+cascada) · `KycProfile` 1 (CLABE/INE sintéticos de la víctima) · `Address` 1 · `AuthToken` 4 ·
+`User` 4. Comprobado tras cada simulacro: las filas **siguen ahí**.
+
+Las filas de dinero que se irían **a las 17:22**, tal como las devuelve el script:
+
+```
+afc4ab63-…  pagada  SPEI-DOUBLESPEND-777   paid 15:22:13  recv 15:21:36  redteam.victim@e2e.local
+e2e3a3c5-…  pagada  SPEI-EJE2-REMEDIADA    paid 17:14:08  …             customer@e2e.local
+```
+
+Y las que **ya no están** porque una resiembra las borró a las 17:14 (§38.4-bis):
+`b6e3b8e0…` (`SPEI-EJE2-NEVER-ARRIVED-001`) y `1f151cea…` (`QA-BL35-EJE2`). **Sus 17 filas de
+`AuditLog` sobreviven** —`AuditLog` no tiene FK— lo que ilustra por qué la purga tiene que borrarlo
+explícitamente: si no, el rastro del pago falso dura más que el pago falso.
+
+**Decisiones de diseño que importan:**
+
+- **`AuditLog` entra en la purga.** No tiene FK a `User` (verificado en `pg_constraint`), así que sin
+  un borrado explícito **el libro de caja falso sobrevive a la purga de usuarios**. 23 filas, entre
+  ellas **tres `sellrequest.pay_spei` sobre la misma solicitud** — el rastro del doble pago.
+- **Las dos filas de `customer@e2e.local` se borran por MARCA (`speiReference`), nunca por usuario.**
+  `customer@e2e.local` es fixture, no contaminación: borrarlo rompería el seed.
+- **Orden de borrado dictado por los FK reales** (medidos, no supuestos): `Dispute`/`Order`/
+  `SellRequest`/`ShipmentRequest` → `User` son **RESTRICT** ⇒ van antes; `SellRequestItem`,
+  `OrderItem`, `OrderAccessToken`, `ShipmentItem` son **CASCADE**.
+- **No usa la API, va por SQL.** Además de ser más rápido, esquiva un hecho que midió seguridad
+  (`SECURITY_NOTES` §10): **los usuarios `redteam.*` no loguean** con el `*Pass123!` que documentó el
+  pentester (el hash argon2 no casa; `INVALID_CREDENTIALS`, cuenta activa, sin lockout). Un script
+  que dependiera de esas credenciales no funcionaría. Éste no las necesita.
+- **Idempotente — medido, no prometido.** Ejecutando el bloque de borrado **dos veces dentro de una
+  misma transacción**: pasada 1 → **36 filas**, pasada 2 → **0 filas**. Y el script lleva dentro una
+  verificación de cierre que **aborta la transacción** si algo de la cohorte sobrevive (mismo
+  criterio que el `down` del stack nativo: informar éxito por haber lanzado los `DELETE` no es
+  informar éxito).
+- **Se planta antes que corromper.** `RAISE EXCEPTION` (transacción abortada) si: un usuario redteam
+  posee piezas de `InventoryItem` (el FK es **SET NULL** ⇒ borrarlo convertiría bóveda de un cliente
+  en **stock de plataforma** en silencio); si alguna pieza apunta a items de las solicitudes a purgar
+  (`InventoryItem.sourceSellRequestItemId` **no tiene FK** ⇒ quedaría colgando); o si la base **no
+  contiene usuarios `@e2e.local`** ⇒ no es una base de fixtures y el script no pinta ahí. Hoy los tres
+  contadores dan **0**, así que no bloquean.
+- **Guardas de objetivo, probadas las tres:** host `db.railway.internal` → rechazado; base
+  `produccion` → rechazada; `NODE_ENV=production` → rechazado. Lista **blanca** (no negra): solo
+  `localhost`/`127.0.0.1`/`::1` y `tcg_marketplace{,_test,_e2e}`.
+- **`lock_timeout=5s` / `statement_timeout=60s`:** si backend está escribiendo en esas filas, falla en
+  segundos en vez de quedarse bloqueando su transacción.
+
+**Nota aparte (no es del PoC, no se purga):** la BD local tiene **53** usuarios `@e2e.local`, de los
+que ~45 son `new_<hash>@e2e.local` y `qa_*@e2e.local` — basura acumulada de corridas E2E, no cohorte
+del pentest. Está **fuera del alcance** de este script a propósito. Si molesta para un snapshot, es
+un `up --seed` (que sí los deja fuera del fixture) o una limpieza aparte que hay que diseñar.
+
+### 38.8 Rollback de esta sección
+
+| Escenario | Acción |
+|---|---|
+| Volver al comportamiento anterior de `up` | `git revert` del commit de esta sección. Se pierde la garantía de procedencia; **no** se pierde ningún dato ni cambia el arranque en lo demás. |
+| El comprobador da un rojo que crees falso | No lo desactives: córrelo sin `--quiet`, imprime el bloque de procedencia entero y **contrasta** (`ps -o lstart -p <pid>` y `ls -l --time-style=full-iso` del fichero que señala). Si de verdad es falso, el bug es mío y va a `docs/TECH_DEBT.md`. |
+| La guarda de CI estorba | Es un `if` de `ci-ok`. Si se quita, **que se diga en este documento y lo firme quien acepte el riesgo** de volver a auditar un binario viejo (§38.5). |
+| La purga borró de más | **No hay marcha atrás**: es un `DELETE` commiteado. Por eso el modo por defecto es simulacro y hay que escribir `--apply`. Para volver a un fixture limpio: `./scripts/stack-native.sh up --seed`. |
+
+### 38.9 Lo mío que sigue pendiente de antes (orden propuesto)
+
+Ninguno bloquea el DoD de este stream; los ordeno por **coste de equivocarse**, no por esfuerzo:
+
+1. **`SELECT` del censo humano del cut-over (paso 6 de §29)** — hoy vive solo como comentario en la
+   migración. Es el que más pesa: sin él, el runbook de cut-over tiene un paso que **depende de que
+   alguien escriba la consulta bien bajo presión**, y el cut-over mueve precios. **Primero éste.**
+2. **Smoke de MinIO que se auto-salta con 403** — un test que se salta solo es un test que miente
+   sobre su cobertura (misma familia que SEC-OPS-1: verde que no significa nada). Pero su alcance es
+   la subida del INE, no dinero saliente, y **no es reparable en esta máquina** (sin Docker, sin
+   MinIO): pide entorno. **Segundo.**
+3. **SEC-OPS-1-R1** (commit en `/health`, §38.6) — es de **backend**, y lo de hoy funciona sin ello.
+
+---
+
+## 39. Los dos flujos que el arnés E2E no podía ejercitar (cobro y subida del INE), el rojo falso del gate de procedencia, y dónde está M-46 (2026-09-07, stream `claude/buylist-inventory-workflow-hdnls3`)
+
+> **Encargo:** tres puntos de los gates de QA y techlead sobre el release del ciclo de compra
+> (99 commits, pendiente de publicar). **No se commiteó nada** (lo hace el orquestador tras verificar)
+> y **no se desplegó nada**.
+
+### 39.0 Resumen en una tabla
+
+| # | Qué estaba mal | Qué se hizo | Estado |
+|---|---|---|---|
+| 1 | Los 3 smokes de dinero mueren en el modal por `STRIPE_SECRET_KEY ausente`, y la ruta nativa **ni siquiera tenía cable** para pasar una clave si el humano la tuviera. | Paso a través de `STRIPE_TEST_*` → backend y bundle de Next; `up --gate` ahora **exige** la capacidad y sale **rojo** si falta. | Cableado y medido. La ruta sigue **SIN VERIFICAR** en esta máquina: no hay egress a Stripe. |
+| 2 | Sin MinIO en la ruta nativa, `infra-smoke` se **auto-saltaba** el PUT presignado del INE (403/ECONNREFUSED → `warn` → `return`) y la suite salía verde. | Object storage S3 local (`scripts/s3-local/`) en la ruta nativa + `E2E_STRICT_INFRA=true` en local y en CI. | **CERRADO y medido**: el PUT del INE se ejecuta de verdad, y sin almacén la suite se pone roja. |
+| 3 | El aserto 4 de `assert-serving-head.sh` comparaba **SHA de commit**: un commit de solo docs lo ponía rojo contra código idéntico. | Compara **además** el hash de árbol de `backend/`+`frontend/` y dice *«el commit cambió, el código no»*. | **CERRADO y medido** en los 4 casos (incluidos los tres que deben seguir en rojo). |
+| 4 | `M46-D3`: dos normas vigentes se contradicen sobre `M-46`, y su disparador escrito es **este** cut-over. | Lectura del estado real en local + evidencia de repo sobre staging/prod. Consulta lista para prod, **pendiente de autorización**. | **Hecho lo medible.** Prod: **NO leído** (sin acceso). Ver §39.5. |
+
+Ficheros tocados (todos de propiedad devops): `scripts/s3-local/` (nuevo), `scripts/e2e-capability-gate.sh`
+(nuevo), `scripts/check-e2e-harness-gaps.sh` (nuevo), `scripts/stack-native.sh`,
+`scripts/assert-serving-head.sh`, `.github/workflows/e2e.yml`, `.github/workflows/ci.yml`,
+`.env.example`, este documento. **Cero cambios en `backend/` y `frontend/`.**
+
+---
+
+### 39.1 COBRO — la clave de Stripe: el cable que faltaba, y por qué ahora es rojo y no un aviso
+
+**Lo que reportó QA** (subset `@real` contra el stack vivo): **35 pasaron, 3 fallaron**;
+`checkout.spec.ts:57`, `guest-checkout.spec.ts:131` y `shipments.spec.ts:30`, los tres en el modal de
+pago, con la causa en el log del backend: `STRIPE_SECRET_KEY ausente; usando sk_test_dummy`. Y su
+veredicto: *«no son defecto de producto, pero tampoco los declaro verdes — la ruta de cobro con
+tarjeta queda SIN VERIFICAR»*.
+
+**El defecto de infraestructura que encontré al ir a arreglarlo, y que nadie había nombrado:**
+`scripts/stack-native.sh` **no exportaba ninguna variable de Stripe**. Verificado con `grep -n STRIPE
+scripts/stack-native.sh`: cuatro coincidencias, **las cuatro en comentarios**. Es decir: aunque el
+humano tuviera una `sk_test_…` buena y la exportara en su shell, la ruta nativa **no se la pasaba al
+backend**, y `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` tampoco llegaba al bundle de Next. La deuda no era
+solo «falta la credencial»: era que **no había dónde ponerla**. Un hueco así no se cierra pidiendo la
+clave, porque ponerla no habría cambiado nada.
+
+**Lo implementado**
+
+1. **Paso a través, nunca un literal.** `stack-native.sh` toma `STRIPE_TEST_SECRET_KEY`,
+   `STRIPE_TEST_PUBLISHABLE_KEY` y `STRIPE_TEST_WEBHOOK_SECRET` **del entorno**, deriva
+   `STRIPE_SECRET_KEY` / `STRIPE_PUBLISHABLE_KEY` / `STRIPE_WEBHOOK_SECRET` para el backend y
+   `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` para el bundle. Si no están, **no se inventa nada**: quedan
+   ausentes. En el repo solo vive el **nombre** (`.env.example`), nunca un valor — el repo es público.
+2. **`scripts/e2e-capability-gate.sh` (nuevo).** Mide si el entorno **puede** ejercitar cobro, y exige
+   las dos condiciones, porque cualquiera de las dos sola da el mismo rojo indistinguible:
+   - **forma de las claves** — delegada en `scripts/stripe-test-key-preflight.sh`, que ya clasifica por
+     longitud/alfabeto/vocabulario. Se **reutiliza** el clasificador existente en vez de escribir un
+     segundo criterio: dos detectores del mismo hecho divergen, y el que se queda viejo es el que da el
+     falso verde (§33 es exactamente esa historia).
+   - **salida de red a `api.stripe.com`** — porque una clave buena sin egress muere igual en el modal.
+3. **`up --gate` pasó de avisar a fallar.** Antes, el final de `up` imprimía tres `warn` («SIN MinIO…»,
+   «falta STRIPE_TEST_SECRET_KEY…») y **salía 0**. Un aviso que no cambia el código de salida no gatea
+   nada: lo lee quien ya lo sabía. Ahora `up --gate` termina en **exit 1** con el veredicto, y **deja el
+   stack arriba** — el rojo dice «esta corrida no puede ejercitar X», no «no tienes stack». `up` a secas
+   (modo de trabajo) sigue saliendo 0 y solo **informa**.
+
+**Por qué rojo y no «saltado», dicho de frente.** Porque ésta es la **segunda** release con la misma
+deuda aceptada, y la observación del gate es correcta: *una deuda que se acepta cada vez deja de ser una
+excepción y pasa a ser el estado normal*. Un flujo que el entorno no puede ejercitar queda **SIN
+VERIFICAR**; «no aplica» es una categoría que aquí no existe.
+
+**Lo medido** (`scripts/e2e-capability-gate.sh --require-all`, esta máquina, hoy):
+
+```
+  COBRO  (checkout · guest-checkout · shipments) : NO DISPONIBLE   [EXIGIDA]
+  SUBIDA (uploads/presign · INE del buylist)     : DISPONIBLE      [EXIGIDA]
+  ⛔ ESTE ENTORNO NO PUEDE EJERCITAR UN FLUJO QUE EL GATE EXIGE      → exit 1
+```
+
+Y el dispatcher, probado con las funciones caras (infra/backend/frontend) sustituidas por stubs:
+`up --gate` → **exit 1** con el bloque «El stack está ARRIBA, pero NO es apto para una corrida de GATE»;
+`up` sin bandera → **exit 0** con el informe.
+
+**⚠️ Lo que sigue SIN VERIFICAR, y no lo arregla ningún script mío.** El egress a Stripe sigue
+bloqueado en esta máquina — re-medido hoy:
+`curl https://api.stripe.com/v1` → `curl: (56) CONNECT tunnel failed, response 403`.
+Con clave o sin ella, **los tres smokes de dinero no pueden ponerse verdes aquí**. El gate de dinero
+vive en CI (`e2e-real.yml`), y la promoción a producción ya lo exige: `deploy.yml` llama a
+`e2e-real.yml` con `require_real_stripe: true` (verificado en el fichero, y ahora protegido por el
+check estático de §39.3). Lo que hace falta del humano son **los dos secrets de GitHub** — §39.6.
+
+---
+
+### 39.2 SUBIDA — el smoke que se saltaba a sí mismo, y el interruptor que nadie había encendido
+
+**El hueco, con su mecanismo exacto.** `backend/test/integration/infra-smoke.e2e-spec.ts` es quien cubre
+`POST /uploads/presign` + el PUT real del objeto — o sea, **la subida del INE del buylist**
+(`purpose: 'kyc_ine'`), que es la única subida del producto **y es PII**. El spec trae, desde siempre:
+
+```ts
+const STRICT = process.env.E2E_STRICT_INFRA === 'true';
+…
+if (status === 403 && !STRICT) { console.warn('[e2e] MinIO respondió 403 …'); return; }
+```
+
+Es decir: **la rama estricta ya existía** y el propio comentario del spec la recomendaba («recomendado
+en el job E2E de CI con toda la infra»). **Nadie la encendió nunca.** Verificado con `grep -rn
+E2E_STRICT_INFRA` sobre el repo entero: **cero asignaciones** — ni en `.github/workflows/`, ni en
+`scripts/`, ni en `.env.example`. Y en la ruta nativa no había MinIO contra el que correr, así que el
+`catch` de conexión se comía el fallo. Resultado: dos releases sin ejercitar la subida de PII, con la
+corrida en verde.
+
+**El contrafáctico, medido, que es la prueba de que el hueco era real.** Mismo spec, mismo commit,
+misma infraestructura rota (object storage caído):
+
+| Corrida | Resultado literal |
+|---|---|
+| `jest … infra-smoke` **sin** `E2E_STRICT_INFRA` | `Tests: 3 passed, 3 total` · **PASS** (el PUT se salta con `warn`) |
+| `jest … infra-smoke` **con** `E2E_STRICT_INFRA=true` | `Tests: 1 failed, 2 passed` · **FAIL** (`connect ECONNREFUSED 127.0.0.1:9000`) |
+
+Dos veredictos opuestos sobre el mismo entorno roto. Ése era el hueco entero.
+
+**Lo implementado**
+
+1. **Object storage en la ruta nativa** — `scripts/s3-local/` (nuevo). `start_infra()` levanta ahora
+   Postgres, Redis **y** S3 en `:9000`, con el **mismo bucket y las mismas credenciales** que
+   `.env.example` y `docker-compose.yml`, para que el arnés nativo y el de Docker no prueben
+   configuraciones distintas sin que se note en ningún diff.
+   > **Por qué no MinIO:** el binario no se puede traer a esta máquina —
+   > `curl https://dl.min.io/server/minio/release/linux-amd64/minio` → `CONNECT tunnel failed, 403` — y
+   > no hay demonio de Docker. El registro npm sí es alcanzable. Se usa `s3rver` 3.7.1 (implementación
+   > S3 en Node, de uso común en tests) **con tres añadidos de devops** — ver §39.2.3, que es donde está
+   > la parte que importa.
+2. **`E2E_STRICT_INFRA=true` encendido en los dos sitios donde la infra existe**:
+   `scripts/stack-native.sh test:integration` (que además **se planta** si no hay almacén, en vez de
+   dejar que el spec descubra el problema a mitad) y el job `backend-e2e` de
+   `.github/workflows/e2e.yml` (que ya tenía MinIO como *service* con bucket y credenciales que cuadran).
+3. **`up --gate` exige la capacidad de subida** igual que la de cobro (§39.1).
+
+**Lo medido, con el stack nativo de esta máquina**
+
+```
+▸ Object storage S3 (scripts/s3-local) en :9000
+  ✔ arriba (bucket 'tcg-photos', datos en /home/user/tcg-vault-mx/.native-stack/s3)
+
+./scripts/stack-native.sh test:integration -- --testPathPattern infra-smoke
+  ✔ E2E_STRICT_INFRA=true: Redis y el PUT presignado del INE NO se pueden saltar.
+  PASS test/integration/infra-smoke.e2e-spec.ts
+    ✓ Postgres: consulta y secuencia de folios responden (OBLIGATORIO)
+    ✓ Redis: responde PONG
+    ✓ MinIO/S3: presign + PUT real de un objeto            (191 ms)
+  Tests: 3 passed, 3 total
+```
+
+No es un 200 de mentira: los objetos **están en disco** (`find .native-stack/s3 -type f` → 21 ficheros
+bajo `tcg-photos/kyc_ine/`, con su `_S3rver_object`, su `.md5` y su `_metadata.json`).
+
+**Roto a propósito** (que es la única forma de saber que el candado es un candado):
+
+| Rotura | Resultado |
+|---|---|
+| Apagar el object storage y correr la suite | `✖ E2E_STRICT_INFRA=true y NO hay object storage en :9000` · **exit 1** |
+| Saltarse `stack-native.sh` y llamar a jest directo, sin almacén | `Tests: 1 failed` · `connect ECONNREFUSED 127.0.0.1:9000` |
+| Arrancar el almacén con las guardas apagadas (`S3_LOCAL_ALLOW_ANON=1`) | el gate de capacidades lo caza: `✖ PUT presignado con secreto equivocado: ACEPTADO (200) — el almacén no verifica` |
+
+#### 39.2.3 `s3-local` NO es MinIO — la ficha de fidelidad, sin adornos
+
+Un stand-in que se presenta como equivalente y no lo es sería exactamente el problema que este pase
+viene a cerrar. Lo que hace y lo que no:
+
+| Propiedad | `s3-local` | MinIO / R2 |
+|---|---|---|
+| PUT/GET presignado (SigV4) | ✅ | ✅ |
+| **Verifica el HMAC de la firma presignada** | ✅ **implementado por devops** (ver abajo) | ✅ |
+| Rechaza peticiones **anónimas** (paridad bucket privado) | ✅ implementado por devops | ✅ (con `mc anonymous set none`) |
+| Verifica la firma de peticiones con `Authorization:` (server-side) | ❌ solo comprueba el `accessKeyId` | ✅ |
+| **Políticas de bucket** (probar que el bucket es privado *por política*) | ❌ **no** | ✅ |
+| Versionado · lifecycle (`kyc_ine/` a N días) · multipart | ❌ | ✅ |
+
+> **⚠️ La consecuencia operativa, dicha en claro:** este stand-in **no sirve para verificar que el
+> bucket sea privado por política** (SEC-A5 / v1.2.1). Esa propiedad se sigue verificando **solo** en la
+> ruta Docker/CI (servicio `createbuckets` con `mc anonymous set none` y la regla de lifecycle de
+> `kyc_ine/`) y en R2 en producción. Que un `GET` anónimo dé 403 aquí es porque yo lo rechazo en el
+> borde, **no** porque haya una política evaluándose.
+
+**El añadido que más importa, y por qué existe.** `s3rver` **no verifica firmas SigV4**. No es una
+sospecha: lo dice su propio código, literal, en `lib/middleware/authentication.js`:
+
+```js
+} else if (signature.version === 4) {
+  // Signature version 4 calculation is unimplemeneted
+  ctx.state.account = account;
+```
+
+**Medido antes de escribir una línea de este stand-in:** una URL presignada firmada con el **secreto
+equivocado** devolvía **200**. Un almacén que acepta cualquier firma convierte el smoke de subida en
+otro verde vacío — el mismo defecto que veníamos a cerrar, con otra cara. Así que
+`scripts/s3-local/server.js` **implementa la verificación** (canonical request → string to sign → clave
+derivada → HMAC, con `crypto`) para las peticiones presignadas, que son las que produce
+`POST /uploads/presign`. Matriz medida contra el `@aws-sdk` real del backend:
+
+| Caso | Resultado | Esperado |
+|---|---|---|
+| PUT presignado, secreto **correcto** | **200** | 200 |
+| PUT presignado, secreto **equivocado** | **403** | 403 |
+| GET presignado del objeto escrito | **200**, 8 bytes | 200 |
+| GET **anónimo** al objeto | **403** | 403 (paridad bucket privado) |
+| PUT **anónimo** | **403** | 403 |
+
+La versión de `s3rver` va **clavada** (`3.7.1`, sin `^`) a propósito: el registro de credenciales usa
+una API interna, y si un `npm update` la moviera, el arranque falla **ruidosamente** en vez de degradar
+en silencio a otras credenciales.
+
+---
+
+### 39.3 El candado estático: `scripts/check-e2e-harness-gaps.sh` (nuevo, corre en CADA push/PR)
+
+El arreglo de §39.1 y §39.2 son, en el fondo, **una variable en un YAML y una llamada en un script**:
+justo el tipo de línea que alguien quita un martes porque el job estaba rojo. Y su ausencia **no produce
+un rojo**: produce un verde que no significa nada. Mismo criterio, misma forma y mismo sitio que
+`check-provenance-gate.sh` y `check-e2e-provider-incapacitation.sh`. Verifica seis puntos:
+
+1. `scripts/e2e-capability-gate.sh` existe y es ejecutable.
+2. `start_infra()` levanta object storage (`start_s3`).
+3. `up --gate` llama al gate con `--require-all` (**exige**, no informa).
+4. `test:integration` fija `E2E_STRICT_INFRA`.
+5. `.github/workflows/e2e.yml` declara `E2E_STRICT_INFRA: "true"`.
+6. `deploy.yml` promueve a prod con `require_real_stripe: true`.
+
+Cableado en `ci.yml` como job `e2e-harness-gaps`, y añadido a `needs:` de `ci-ok` con la misma regla que
+la guarda del proveedor de paga: **`skipped` no es verde** — un candado que se salta a sí mismo
+desaparece igual que uno que se borra.
+
+**Medido**: en verde sobre el árbol actual (6/6). Y **roto a propósito** sobre una copia: borrando
+`E2E_STRICT_INFRA` de `e2e.yml` y poniendo `require_real_stripe: false` en `deploy.yml` → **2 rojos y
+exit 1**, con el motivo escrito en cada uno. *(De hecho el check cazó un fallo mío mientras lo escribía:
+el aserto 3 salió rojo la primera vez porque mi patrón no contemplaba la comilla de `"$SCRIPT_DIR/…"`.
+Un check que nunca ha dado rojo no se ha probado.)*
+
+---
+
+### 39.4 El rojo FALSO del gate de procedencia: ahora sabe decir «el commit cambió, el código no»
+
+**El hecho, medido en este repo.** El aserto 4 de `scripts/assert-serving-head.sh` comparaba **SHA de
+commit** (`git rev-parse HEAD`). Entre `c6b999a` y `c132397` entraron **siete commits de solo
+documentos**, y:
+
+```
+git rev-parse c6b999a:backend  == git rev-parse c132397:backend  == d7d7059f45f6…
+git rev-parse c6b999a:frontend == git rev-parse c132397:frontend == cf46d16c26ee…
+```
+
+⇒ el gate se ponía **rojo** contra un stack que sirve código **byte a byte idéntico**. El propio pase de
+seguridad lo sufrió: *«a mitad del pase el gate se puso en ROJO porque el arquitecto commiteó un commit
+de solo docs y HEAD se movió bajo mis pies»*.
+
+**Decisión: se toca el gate (opción A), no solo el runbook. Y la justificación es que el coste del rojo
+falso NO es cosmético.** Falla en la dirección segura, sí — pero entrena el reflejo *«ya, es solo
+docs»* delante de un aserto de procedencia, y ese reflejo es **exactamente** lo que SEC-OPS-1 existe
+para matar. La segunda vez que alguien lo aplica sin mirar, se lo aplica a un commit que sí tocaba
+código. **Un gate que cría el hábito de ignorarlo ya no es un gate.** Documentarlo en el runbook habría
+dejado el hábito intacto y solo habría añadido una excusa por escrito.
+
+**Cómo quedó.** Cuando los SHA difieren, se comparan los **hashes de árbol** de `backend/` y
+`frontend/` (los dos directorios cuyo contenido es lo que los procesos ejecutan). Si coinciden: verde,
+y se dice la frase con nombre y apellidos. `stack-native.sh` los guarda en el sello al arrancar
+(`tree_backend=` / `tree_frontend=`); si el sello es viejo, se derivan del repo. Mismo criterio aplicado
+al bloque de frontend de `verify_head`.
+
+**⚠️ Condición no negociable:** la equivalencia **solo** se aplica con el árbol **limpio** al sellar
+(`dirty=0`) y limpio ahora. Con ficheros sin commitear, el hash de árbol de un commit no describe lo que
+se está sirviendo, y la comparación sería una coartada en vez de una prueba.
+
+**⚠️ Lo que esta equivalencia NO cubre, dicho de frente:** solo mira `backend/` y `frontend/`. Un cambio
+**fuera** de esos dos directorios que sí afecte al runtime (por ejemplo `scripts/stack-native.sh`, que
+fija el entorno del proceso, o los `docker-compose*.yml`) pasaría por «solo cambió el commit». Es una
+limitación **aceptada y declarada**: esos ficheros no los ejecuta el proceso servido, los ejecuta quien
+lo levanta, y el aserto 2 (`--source`, mtime del fuente) sigue vigilando el árbol de código.
+
+**Medido, los cuatro casos** (contra un `/health` de prueba y un clon **limpio** del repo):
+
+| Caso | Sello → esperado | Veredicto |
+|---|---|---|
+| **1. Solo docs** | `c6b999a` → `c132397`, árboles idénticos, limpio | **VERDE** · *«✔ EL COMMIT CAMBIÓ, EL CÓDIGO NO»* + los dos hashes |
+| **2. Código distinto** | `5852aa8` → `c6b999a` (`backend/` difiere) | **ROJO** · *«COMMIT DISTINTO **Y CÓDIGO DISTINTO**»*, con qué directorio difiere |
+| **3. Árboles iguales, sello sucio** | `dirty=3` | **ROJO** · «el hash de árbol no describe lo que se compiló» |
+| **4. SHA sellado inexistente** | `deadbeef…` | **ROJO** · «no pude comparar los árboles ⇒ se falla CERRADO» |
+
+**Y mientras escribía esto, el caso 1 volvió a ocurrir solo — con dos commits nuevos de otros roles
+sobre `main`, sin que yo los provocara.** Es el mejor dato del pase porque no lo fabriqué yo:
+
+| commit | `backend/` | `frontend/` | qué es |
+|---|---|---|---|
+| `29f97e2` | `d7d7059f45f6…` | `cf46d16c26ee…` | `docs(orquestador): handoff del stream…` |
+| `334b1e4` | `d7d7059f45f6…` **(igual)** | `cf46d16c26ee…` **(igual)** | `docs(ux-ui): …` ⇒ **el gate viejo daría ROJO; el nuevo dice VERDE** |
+| `72b53d4` | `f00c6ead4158…` **(DISTINTO)** | `cf46d16c26ee…` | `fix(backend): …` ⇒ **rojo en los dos, y aquí el rojo SÍ significa algo** |
+
+Un stack sellado en `29f97e2` sirve exactamente el mismo código que `334b1e4` y **no** el de `72b53d4`.
+Ésa es justo la distinción que el aserto no sabía hacer y por la que se pusieron rojos pases enteros.
+
+> **Defecto encontrado y corregido durante esta prueba, que merece quedar escrito:** el caso 4 daba rojo
+> con el motivo **equivocado** («código distinto») porque `git rev-parse` **devuelve el argumento tal
+> cual** cuando no lo puede resolver. Se arregló con `--verify --quiet`. Un gate que acierta el veredicto
+> por accidente y miente en el porqué es el siguiente falso verde esperando su turno.
+
+**Nota aparte, no pedida pero medida:** con el árbol de trabajo **sucio** —hoy lo está: 40 ficheros sin
+commitear en `backend/`+`frontend/`— la equivalencia **no aplica** y el gate sigue en rojo. Es correcto y
+deliberado. En una corrida de gate el árbol tiene que estar limpio.
+
+---
+
+### 39.5 M-46: dónde está aplicada de verdad (encargo 3) — hechos medidos, y la consulta que falta correr
+
+`docs/TECH_DEBT.md` **M46-D3** registra que dos normas vigentes se contradicen sobre el mismo artefacto
+(`ARCHITECTURE §11` ordena editar `M-46` en el sitio; `M46-D2` dice que ya está aplicada y que editarla
+rompe el checksum), y su **disparador escrito es este cut-over**. *La contradicción normativa la cierra
+el arquitecto; lo que sigue es el hecho, que es lo mío.*
+
+#### (a) LOCAL — medido hoy, y **NO hay divergencia**
+
+```sql
+SELECT migration_name, checksum, finished_at, rolled_back_at FROM _prisma_migrations
+ WHERE migration_name = '20260901120000_m46_buylist_acquisition_cycle';
+```
+
+| dato | valor |
+|---|---|
+| `migration_name` | `20260901120000_m46_buylist_acquisition_cycle` |
+| `checksum` en la BD | `db3341cf13002c2170fbd5670d902dc8829851f530a1334edb5c5ff0d4573792` |
+| `sha256sum` del **fichero del árbol** | `db3341cf13002c2170fbd5670d902dc8829851f530a1334edb5c5ff0d4573792` → **idénticos** |
+| `finished_at` | `2026-09-07 03:48:25 UTC` · `rolled_back_at` = NULL · `applied_steps_count` = 1 |
+| columna `SellRequest.offerSentCancelledAt` | **existe** (`timestamp without time zone`) |
+
+Lectura honesta: la BD local **ya no está divergente**. El `finished_at` de hoy (03:48) —frente al
+`2026-09-01 21:01:13` que registra §37— dice que la base se recreó **después** de la quinta enmienda, así
+que M-46 se aplicó **entera desde el fichero actual**. El checksum cuadra por construcción, no por un
+`UPDATE` manual. En otras palabras: **este entorno se parece hoy a uno limpio.**
+
+#### (b) STAGING — no hay `_prisma_migrations` que leer, y esto es un hecho de configuración
+
+- «Staging» en este proyecto es `docker-compose.staging.yml` con volúmenes **propios y efímeros**
+  (`postgres_staging`), y `e2e-real.yml` termina, en un paso `if: always()`, con
+  `docker compose -f "$COMPOSE" --profile apps down -v` (línea 461) ⇒ **el volumen se borra en cada
+  corrida**. Cada run arranca de cero y aplica las 36 migraciones del árbol.
+- Además, **en esta máquina no hay demonio de Docker** (`/var/run/docker.sock` no existe), así que ni
+  siquiera puedo levantarlo para mirar.
+- Existe un staging **hospedado** *previsto* (`STAGING_BASE_URL` / `STAGING_API_URL` como secrets de
+  GitHub, §13). **No tengo credenciales, ni nombre de host, ni evidencia en el repo de que esté
+  provisionado.** No lo afirmo ni en un sentido ni en el otro: **no lo leí**.
+
+#### (c) PRODUCCIÓN — no la leí. Pero el repo dice algo fuerte, y hay que separarlo del dato
+
+**No tengo acceso**, medido: `curl https://tcg-vault-mx-production.up.railway.app/api/v1/health` →
+`curl: (56) CONNECT tunnel failed, response 403`. No hay CLI de Railway, ni credencial, ni
+`PROD_DB_READONLY_URL` en el entorno.
+
+Lo que **sí** pude medir, del lado del artefacto (todo verificable con `git`):
+
+| Hecho medido | Cómo se comprueba |
+|---|---|
+| M-46 entró al árbol el **2026-09-01** (commit `cc8416a`) | `git log --diff-filter=A -- backend/prisma/migrations/20260901120000_m46_*/migration.sql` |
+| El **último run de `deploy.yml`** es el **#52**, del **2026-08-25**, sobre `0a07babc` — **anterior** a M-46 | API de Actions; ese árbol tiene 0 ficheros `m46` y su última migración es `20260824120000_m41_…` |
+| Ese run **no desplegó nada**: `secrets-gate` en verde y los **8 jobs restantes SKIPPED** (`ci-ok`, `preflight`, `deploy-staging-*`, `e2e-real`, `dast-staging`, `promote-production-*`) | API de Actions, jobs del run #52 |
+| La rama **`production`** (HEAD `18f279e`, *«release: … (main->production)»*, **2026-09-06**) tiene **35** migraciones y **NO** incluye M-46 — **sí** incluye `20260902120000_m47_set_images` | `git ls-tree -d --name-only 18f279e backend/prisma/migrations/` |
+| `main` (`29f97e2`) tiene **36**: la diferencia es **exactamente** `20260901120000_m46_buylist_acquisition_cycle` | `diff` de los dos listados |
+
+**Inferencia (marcada como tal, no como medición):** si producción se despliega desde la rama
+`production` y Railway corre `migrate deploy` en cada deploy, entonces **M-46 nunca ha llegado a
+producción**, y su `_prisma_migrations` no debería contenerla. **No lo doy por hecho:** los runbooks
+§23/§26/§27/§28/§34 describen operaciones manuales contra producción, así que alguien pudo correr
+`migrate deploy` a mano. **Eso solo lo contesta la BD.**
+
+**Y hay un segundo hallazgo que sale de lo mismo, y que NO es mío de cerrar** (es del arquitecto y del
+rol backend, lo aporto como hecho): producción tiene **M-47 (`20260902…`) aplicada y M-46 (`20260901…`)
+no**. Cuando M-46 se publique entrará **fuera de orden cronológico**. `prisma migrate deploy` aplica lo
+que no esté en `_prisma_migrations` sin exigir orden, y las dos tocan tablas distintas (`SellRequest` vs
+imágenes de set), así que **no espero un fallo** — pero es una condición que nadie ha nombrado y que
+conviene decidir antes, no descubrir durante.
+
+**Lo bueno de todo esto para M46-D3:** si la BD confirma que producción **nunca** aplicó M-46, entonces
+el modo de fallo que describe M46-D3 —`migrate deploy` diciendo *«up to date»* mientras la columna no
+existe— **no puede darse en producción**: ahí M-46 se aplicará **entera y por primera vez**, con la
+quinta enmienda incluida, y la columna `offerSentCancelledAt` nacerá bien. El riesgo queda acotado a
+bases que ya la tenían aplicada **antes** de la edición. Si la BD lo desmiente, el cut-over cambia de
+naturaleza y hay que parar. **Por eso hace falta el dato, y por eso no lo infiero.**
+
+#### (d) 🔴 LA CONSULTA EXACTA PARA PRODUCCIÓN — **pendiente de autorización del humano**
+
+**Solo lectura.** Ningún `INSERT`/`UPDATE`/`DELETE`/DDL. No la he corrido y no la voy a correr sin que
+me lo autorices explícitamente. Usa un rol **`SELECT`-only** (`PROD_DB_READONLY_URL`, §31.6), nunca la
+`DATABASE_URL` de la app.
+
+```sql
+-- TCG HUNT · lectura de estado de M-46 en PRODUCCIÓN. SOLO LECTURA.
+-- 1) ¿Corrió M-46, con qué checksum, cuándo, y quedó revertida?
+SELECT migration_name,
+       checksum,
+       started_at,
+       finished_at,
+       applied_steps_count,
+       rolled_back_at
+  FROM _prisma_migrations
+ WHERE migration_name IN ('20260901120000_m46_buylist_acquisition_cycle',
+                          '20260902120000_m47_set_images',
+                          '20260829120000_m43_graded_estimate_kind')
+ ORDER BY started_at;
+
+-- 2) Censo: cuántas hay, cuál fue la última, y si alguna quedó a medias.
+SELECT count(*)                                              AS total,
+       count(*) FILTER (WHERE finished_at IS NULL)           AS sin_terminar,
+       count(*) FILTER (WHERE rolled_back_at IS NOT NULL)    AS revertidas,
+       max(migration_name)                                   AS ultima_por_nombre
+  FROM _prisma_migrations;
+
+-- 3) ¿Existen de verdad los objetos de M-46? (la BD manda sobre la tabla de control)
+SELECT column_name, data_type
+  FROM information_schema.columns
+ WHERE table_name = 'SellRequest'
+   AND column_name IN ('offerSentCancelledAt','offerState','offerAcceptDeadlineAt',
+                       'shipDeadlineAt','guideCancellationPendingAt','closedAt','expiredReason')
+ ORDER BY column_name;
+```
+
+**Cómo leer el resultado, decidido de antemano para que no se interprete a conveniencia:**
+
+| Lo que devuelva (1) | Significa | Qué hacer |
+|---|---|---|
+| **0 filas** para `…m46…` | M-46 nunca corrió en prod (lo esperado por (c)) | ✅ El cut-over la aplica **entera**: sin divergencia posible. Se publica con normalidad. |
+| 1 fila con `checksum = db3341cf13002c2170fbd5670d902dc8829851f530a1334edb5c5ff0d4573792` | Corrió **con el fichero de HOY** (quinta enmienda incluida) | ✅ Consistente. Confirmar con (3) que `offerSentCancelledAt` existe. |
+| 1 fila con **otro** `checksum` | 🔴 Corrió con una versión **anterior** del fichero ⇒ **es el escenario de M46-D3 en producción** | ⛔ **PARAR.** No publicar. `migrate deploy` dirá «up to date» y la columna puede no existir → `column does not exist` en runtime **sobre el ciclo de compra**. Escalar a arquitecto + backend. |
+| `rolled_back_at` no nulo, o `finished_at` NULL | Quedó a medias | ⛔ Parar y escalar. |
+
+**Y si (3) no devuelve `offerSentCancelledAt` mientras (1) dice que M-46 está aplicada, ése es el
+escenario exacto que M46-D3 describe: la tabla de control MIENTE y hay que parar antes de desplegar.**
+
+Para staging, la **misma** consulta contra `STAGING_API_URL`/su BD **si existe hospedado**; si lo único
+que hay es el compose efímero, la respuesta correcta es *«no aplica: se recrea en cada corrida»* y así
+queda escrito arriba.
+
+---
+
+### 39.6 Comandos: cómo se levanta, cómo se prueba y qué tiene que rellenar el humano
+
+```bash
+# 1) Infra nativa (Postgres + Redis + S3 local) — sin Docker
+./scripts/stack-native.sh up --infra
+
+# 2) Stack completo de TRABAJO (informe de capacidades, exit 0)
+./scripts/stack-native.sh up --seed
+
+# 3) Stack de GATE (exige cobro y subida; exit 1 si falta alguna, el stack queda arriba)
+export STRIPE_TEST_SECRET_KEY=sk_test_…        # NUNCA en un fichero del repo
+export STRIPE_TEST_PUBLISHABLE_KEY=pk_test_…
+./scripts/stack-native.sh up --seed --gate
+
+# 4) ¿Este entorno puede ejercitar cobro y subida? (solo mide, no corre la suite)
+./scripts/e2e-capability-gate.sh                # informe
+./scripts/e2e-capability-gate.sh --require-all  # modo gate
+
+# 5) Integración del backend en modo ESTRICTO (el smoke de infra ya no se salta)
+./scripts/stack-native.sh test:integration
+
+# 6) ¿Sigue cableado el candado? (lo corre CI en cada push/PR)
+./scripts/check-e2e-harness-gaps.sh
+./scripts/check-provenance-gate.sh
+
+# 7) Procedencia del stack vivo (SEC-OPS-1)
+./scripts/stack-native.sh verify:head
+```
+
+**Lo que necesito del humano (nada de esto lo puede poner devops):**
+
+| Qué | Dónde | Para qué |
+|---|---|---|
+| `STRIPE_TEST_SECRET_KEY` (`sk_test_…` o `rk_test_…`) | **GitHub Secrets** del repo | Enciende el gate de dinero en `e2e-real.yml`. Sin él, la promoción a prod es **roja** (`require_real_stripe: true`). |
+| `STRIPE_TEST_PUBLISHABLE_KEY` (`pk_test_…`) | **GitHub Secrets** | Sin ella el modal no monta en el navegador aunque el backend cree la sesión. |
+| *(opcional)* las dos anteriores **exportadas en la shell** | máquina con egress a `api.stripe.com` | Correr los 3 smokes de dinero en local. **En esta máquina no sirve**: egress bloqueado. |
+| **Autorización para leer `_prisma_migrations` en PRODUCCIÓN** + una `PROD_DB_READONLY_URL` | tú | §39.5(d). Es el hecho que falta antes de publicar. |
+| *(si existe)* `STAGING_API_URL` / acceso a la BD de staging hospedado | tú | Misma lectura en staging. |
+
+---
+
+### 39.7 Rollback de este pase
+
+| Escenario | Acción |
+|---|---|
+| Volver al arnés anterior | `git revert` del commit de esta sección. Se pierden los dos candados y el object storage local; **no** se pierde ningún dato ni cambia el arranque en lo demás. |
+| El gate de capacidades molesta en el día a día | Usa `up` **sin** `--gate`: informa y sale 0. `--gate` es el modo de gate y ahí el rojo es el producto, no un estorbo. |
+| `E2E_STRICT_INFRA` bloquea una depuración | `E2E_STRICT_INFRA=false ./scripts/stack-native.sh test:integration` — explícito, visible en el historial del shell, y **nunca** en un gate. Si aparece en `.github/`, el check de §39.3 se pone rojo. |
+| `s3-local` da un 403 que crees falso | Míralo en `.native-stack/s3.log`: cada rechazo se registra con el método, la ruta y el motivo. Recuerda que **403 al sondear la raíz es lo normal** (vivo y privado). |
+| Hay que apagar el object storage | `./scripts/stack-native.sh down --all`. **No borra los objetos** (`.native-stack/s3`): apagar para auditar no puede costar la evidencia. |
+| El hash de árbol deja pasar algo que no debía | Está acotado a `backend/`+`frontend/` y solo con árbol limpio (§39.4). Si aparece un caso real, es deuda mía y va a `docs/TECH_DEBT.md`; **no** se desactiva el aserto. |
+
+### 39.8 Lo que NO verifiqué (dicho para que nadie lo cuente como verificado)
+
+1. **Los 3 smokes de dinero en navegador.** Imposible aquí: sin egress a `api.stripe.com`. Siguen
+   **SIN VERIFICAR**, como dijo QA. Lo único que cambió es que ahora **el arnés lo dice en su código de
+   salida** en vez de dejarlo en un aviso.
+2. **`E2E_STRICT_INFRA: "true"` corriendo en GitHub Actions.** No puedo lanzar Actions desde aquí. La
+   configuración está verificada por lectura (el job `backend-e2e` tiene MinIO como *service*, bucket
+   `tcg-photos` por `MINIO_DEFAULT_BUCKETS`, y `S3_ACCESS_KEY_ID`/`S3_SECRET_ACCESS_KEY` cuadran con
+   `MINIO_ROOT_USER`/`MINIO_ROOT_PASSWORD`), y el efecto de la variable está medido **en local**. La
+   primera corrida de CI es la prueba que falta.
+3. **La ruta Docker completa** (`docker-compose.yml` / `docker-compose.staging.yml`): sin demonio de
+   Docker en esta máquina. Sin cambios míos en esos ficheros.
+4. **`_prisma_migrations` de staging hospedado y de producción.** No leídos. §39.5(b) y (c).
+5. **`up --gate` de punta a punta** (con `next build` real). Probé el **dispatcher** con las funciones
+   caras sustituidas por stubs, y el gate de capacidades por separado contra infra real. No relancé el
+   stack completo: había otra sesión con un `up --seed --gate` vivo y reiniciarlo le habría costado su
+   corrida.
+6. **Un fallo del arnés que sí observé y no es mío:** hay un `stack-native.sh up --seed --gate` de las
+   04:19 **colgado** en esta máquina. Al arreglar el arranque de `s3-local` encontré la causa probable y
+   la dejé escrita en el código: `( cd X && nohup … & )` deja un subshell que **hereda el stdout del
+   script**, así que un `stack-native.sh up | tail` nunca ve EOF. Mi `start_s3` usa `setsid` + las tres
+   redirecciones y ya no lo hace; **las funciones `start_backend`/`start_frontend` conservan el patrón
+   viejo** y no las toqué en este pase (fuera de encargo, y reescribir el arranque del backend mientras
+   otra sesión lo está usando no es un cambio que se haga de paso). Queda anotado como candidato a
+   `docs/TECH_DEBT.md` — dueño: devops.

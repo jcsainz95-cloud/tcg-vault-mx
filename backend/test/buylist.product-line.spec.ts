@@ -3,6 +3,8 @@ import { BuylistService } from '../src/modules/buylist/buylist.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { PricingService } from '../src/modules/pricing/pricing.service';
 import { SettingsService } from '../src/modules/settings/settings.service';
+// v1.51.20 · BL-26: la puerta de `createRequest` (celular + dirección + mínimo) en un solo sitio.
+import { GATE_ADDRESS_ID, buylistGateMocks } from './helpers/buylist-create-gate';
 import { UsersService } from '../src/modules/users/users.service';
 import { PiiCryptoService } from '../src/common/crypto/pii-crypto.service';
 import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
@@ -71,6 +73,7 @@ function svcWith(opts: {
     // puede divergir de producción ni reimplementar la matemática.
     decideSalePrice: jest.fn(PricingService.prototype.decideSalePrice),
     gradeKeyFor: jest.fn().mockReturnValue('raw:NM'),
+    tryGradeKeyFor: jest.fn().mockReturnValue('raw:NM'),
     findCardProductByTcgId: jest.fn(async (tcgId: number) => products[tcgId] ?? null),
     getReferenceByCardProduct: jest.fn(async (cpId: string, _pt: any, _gk: any, finish: string) => {
       const cents = productRefs[`${cpId}|${finish}`];
@@ -254,9 +257,11 @@ describe('M-32 createRequest — snapshot + escalada de pendiente con cardProduc
           return rows.filter(Boolean);
         }),
       },
+      // v1.51.20 · BL-26: vendedor con celular y dirección propia (la puerta se prueba por HTTP).
+      ...buylistGateMocks('user-1'),
       kycProfile: { findUnique: jest.fn().mockResolvedValue(null), upsert: jest.fn() },
       sellRequest: {
-        aggregate: jest.fn().mockResolvedValue({ _sum: { quotedTotalCents: 0 } }),
+        findMany: jest.fn(async () => []), // M-46 §4.39c: acumulado mensual = findMany+reduce (COALESCE de 2 columnas)
         create: jest.fn(async ({ data }: any) => ({
           id: 'sr-1',
           status: data.status,
@@ -293,6 +298,7 @@ describe('M-32 createRequest — snapshot + escalada de pendiente con cardProduc
       // puede divergir de producción ni reimplementar la matemática.
       decideSalePrice: jest.fn(PricingService.prototype.decideSalePrice),
       gradeKeyFor: jest.fn().mockReturnValue('raw:NM'),
+      tryGradeKeyFor: jest.fn().mockReturnValue('raw:NM'),
       findCardProductByTcgId: jest.fn(async (tcgId: number) => opts.products[tcgId] ?? null),
       getReferenceByCardProduct: jest.fn(async (cpId: string, _pt: any, _gk: any, finish: string) => {
         const cents = opts.productRefs[`${cpId}|${finish}`];
@@ -335,6 +341,8 @@ describe('M-32 createRequest — snapshot + escalada de pendiente con cardProduc
       'user-1',
       [{ cardId: 'c1', productType: 'raw' as any, rawCondition: 'NM' as any, finish: 'holofoil' as any, productId: 707029 }],
       VALID_CLABE,
+      undefined,
+      GATE_ADDRESS_ID,
     );
     expect(res.items[0].productId).toBe(707029);
     const created = prisma.sellRequest.create.mock.calls[0][0].data.items.create[0];
@@ -361,6 +369,7 @@ describe('M-32 createRequest — snapshot + escalada de pendiente con cardProduc
       [{ cardId: 'c1', productType: 'raw' as any, rawCondition: 'NM' as any, finish: 'holofoil' as any, productId: 707029 }],
       VALID_CLABE,
       { front: 'k-front', back: 'k-back' },
+      GATE_ADDRESS_ID,
     );
     // v2.0 (§4.36.5c): la escalada pasa por el seam simétrico `settlePendingForVariant`, con la RAZÓN
     // y con el `cardProductId` en la clave lógica de la cola (resolver el set_base NO cierra la del
@@ -388,6 +397,8 @@ describe('M-32 createRequest — snapshot + escalada de pendiente con cardProduc
       'user-1',
       [{ cardId: 'c1', productType: 'raw' as any, rawCondition: 'NM' as any, finish: 'normal' as any }],
       VALID_CLABE,
+      undefined,
+      GATE_ADDRESS_ID,
     );
     expect(res.items[0].productId).toBeUndefined();
     const created = prisma.sellRequest.create.mock.calls[0][0].data.items.create[0];

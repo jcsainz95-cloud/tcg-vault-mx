@@ -5,7 +5,7 @@ import { PricingService } from '../src/modules/pricing/pricing.service';
 import { SettingsService } from '../src/modules/settings/settings.service';
 import { UsersService } from '../src/modules/users/users.service';
 import { PiiCryptoService } from '../src/common/crypto/pii-crypto.service';
-import { buildGradeKey } from '../src/modules/pricing/pricing.types';
+import { buildGradeKey, tryBuildGradeKey } from '../src/modules/pricing/pricing.types';
 import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
 
 const pii = new PiiCryptoService(new ConfigService({}));
@@ -33,6 +33,7 @@ const svcOf = (prisma: any, refsByKey: Record<string, number> = {}) =>
     prisma as PrismaService,
     {
       gradeKeyFor: (i: any) => buildGradeKey(i),
+      tryGradeKeyFor: (i: any) => tryBuildGradeKey(i),
       loadPricingCurve: jest.fn(async () => DEFAULT_PRICING_CURVE),
       // v2.1.1 (§4.36.5b): el seam de VENTA devuelve una DECISIÓN (monto + veredicto). El mock usa
       // el CUERPO REAL (`PricingService.prototype`): es puro y no toca `this`, así que el test no
@@ -151,8 +152,8 @@ describe('paySpei — conteo de bounty transaccional + auto-apagado (§4.26e)', 
       sellRequest: {
         findUnique: jest
           .fn()
-          .mockResolvedValueOnce({ id: 'sr', status: 'aprobada', verifiedAt: new Date() })
-          .mockResolvedValue({ id: 'sr', status: 'pagada', verifiedAt: new Date() }),
+          .mockResolvedValueOnce({ id: 'sr', status: 'aprobada', receivedAt: new Date(), verifiedAt: new Date(), approvedTotalCents: 50_000 })
+          .mockResolvedValue({ id: 'sr', status: 'pagada', receivedAt: new Date(), verifiedAt: new Date(), approvedTotalCents: 50_000 }),
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
         findMany: jest.fn().mockResolvedValue([]), // AML-1: pagos previos del mes (ninguno).
       },
@@ -302,7 +303,7 @@ describe('paySpei — conteo de bounty transaccional + auto-apagado (§4.26e)', 
     // Primer findUnique ya reporta pagada (replay del POST) → retorno temprano.
     h.prisma.sellRequest.findUnique = jest
       .fn()
-      .mockResolvedValue({ id: 'sr', status: 'pagada', verifiedAt: new Date() });
+      .mockResolvedValue({ id: 'sr', status: 'pagada', receivedAt: new Date(), verifiedAt: new Date(), approvedTotalCents: 50_000 });
     await h.svc.paySpei('sr', 'SPEI-1', 'admin');
     expect(h.prisma.variantPriceOverride.updateMany).not.toHaveBeenCalled();
     expect(h.overrideRows[0].bountyAcquiredQty).toBe(0);

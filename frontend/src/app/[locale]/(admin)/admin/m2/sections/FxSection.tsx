@@ -22,7 +22,7 @@ export function FxSection() {
   const tc = useTranslations('common');
   const locale = useLocale() as AppLocale;
   const qc = useQueryClient();
-  const getError = useErrorMessage();
+  const getError = useErrorMessage('operator');
 
   const fx = useQuery({ queryKey: ['admin-fx'], queryFn: getFx });
   const [fxRate, setFxRate] = useState('');

@@ -9,7 +9,7 @@ import {
   getToken,
   clearClientSession,
 } from './api-client';
-import { setStoredUser, patchStoredUser } from './session';
+import { setStoredUser, patchStoredUser, getStoredUser } from './session';
 import * as fx from './mock/fixtures';
 import type {
   Paginated,
@@ -18,6 +18,7 @@ import type {
   GroupedListingListResponse,
   GroupedListingDetailResponse,
   CardSetDTO,
+  BuylistSetDTO,
   CatalogFacetsDTO,
   HoldingsResponse,
   OrderSummaryDTO,
@@ -30,7 +31,20 @@ import type {
   BuylistQuoteItemDTO,
   BuylistBatchQuoteResultDTO,
   BuylistBatchQuoteResponse,
+  BuylistQuotePolicyDTO,
   SellRequestDTO,
+  SellRequestDetailDTO,
+  BuylistDecisionTableDTO,
+  BuylistOfferLineInput,
+  BuylistOfferResultDTO,
+  BuylistGuideResultDTO,
+  BuylistShipmentConfirmResultDTO,
+  PendingOfferAuthorizationRowDTO,
+  PendingShipmentConfirmationRowDTO,
+  PendingGuideCancellationRowDTO,
+  LiveSellerRowDTO,
+  PendingPublishRowDTO,
+  SellOfferResponseDTO,
   ShipmentDTO,
   ShipmentQuoteResponse,
   ShipmentStatus,
@@ -339,6 +353,15 @@ export async function getCatalogFacets(): Promise<CatalogFacetsDTO> {
   return delay(fx.mockFacets);
 }
 
+/**
+ * Sets con inventario PUBLICADO, para el dropdown/filtro de texto de Compra
+ * (contrato `GET /catalog/sets`).
+ *
+ * ⛔ **`CardSetDTO` NO trae `logoUrl` y es normativo** (§4.41.5 «NO entra»): esta superficie es
+ * texto, no tejas. El fixture es `mockCatalogSets` —la proyección SIN la columna— y no
+ * `mockSets`: servir la tabla cruda hacía que en modo mock este endpoint rindiera un campo que
+ * el backend real nunca manda (DT-Gd).
+ */
 export async function getSets(): Promise<CardSetDTO[]> {
   if (!config.useMocks) {
     const res = await apiRequest<{ data: CardSetDTO[] }>('/catalog/sets');
@@ -346,7 +369,7 @@ export async function getSets(): Promise<CardSetDTO[]> {
   }
   // v1.33 (P-27, §4.31d): el backend pliega el subset de un master combinado en el principal
   // (Celebrations una vez, con `partSetIds`). El mock reproduce ese plegado para el dropdown de Compra.
-  return delay(fx.foldSetsForDropdown(fx.mockSets));
+  return delay(fx.foldSetsForDropdown(fx.mockCatalogSets));
 }
 
 export async function getListing(inventoryItemId: string): Promise<ListingDTO> {
@@ -1184,15 +1207,22 @@ export async function updateAdminShipmentStatus(
  * Sets con cartas importadas para el dropdown del cotizador (contrato GET /buylist/sets).
  * A diferencia de GET /catalog/sets (solo sets con inventario publicado), aquí aparecen
  * TODOS los sets del catálogo.
+ *
+ * ⚠️ Devuelve **`BuylistSetDTO`**, no `CardSetDTO`: este endpoint —y solo éste— emite
+ * `logoUrl` (`string | null`, clave SIEMPRE presente) porque es la **fuente client-side de la
+ * retícula de tejas del cotizador** (§4.41.5/§4.41.6). El tipo propio es el candado: con él,
+ * quitar el campo de la respuesta **rompe el typecheck** de `fetchQuoterIndex` en vez de dejar
+ * la única teja sin logo del producto (DT-Gd).
  */
-export async function listBuylistSets(): Promise<CardSetDTO[]> {
+export async function listBuylistSets(): Promise<BuylistSetDTO[]> {
   if (!config.useMocks) {
-    const res = await apiRequest<{ data: CardSetDTO[] }>('/buylist/sets');
+    const res = await apiRequest<{ data: BuylistSetDTO[] }>('/buylist/sets');
     return res.data;
   }
   // v1.33 (P-27, §4.31d): el subset de un master combinado se pliega en el principal (una entrada
   // combinada única en el dropdown del cotizador); esa entrada trae `partSetIds` para expandir el filtro.
-  return delay(fx.foldSetsForDropdown(fx.mockSets));
+  // Fixture PROPIO de este endpoint (con logo), distinto del de `/catalog/sets`.
+  return delay(fx.foldSetsForDropdown(fx.mockBuylistSets));
 }
 
 export interface BuylistCardsFilters {
@@ -1249,7 +1279,11 @@ export async function searchBuylistCards(
 
 export interface BuylistQuoteInput {
   cardId: string;
-  productType: ProductType;
+  /**
+   * ⚠️ v1.53 (MONEY, BREAKING — contrato §6, ARCHITECTURE §4.40): `"raw"` y SOLO `"raw"`.
+   * `graded`/`sealed` ⇒ `422 BUYLIST_RAW_ONLY` server-side (`PROJECT.md` §E, §K LOCKED, criterio 61).
+   */
+  productType: 'raw';
   rawCondition?: RawCondition;
   /** v1.6-finish: acabado a cotizar; default `normal`. Debe pertenecer a card.availableFinishes. */
   finish?: Finish;
@@ -1300,8 +1334,13 @@ function mockRuleQuote(
   };
 }
 
-/** Códigos de error POR-ÍTEM del contrato (§6/§4.29) que el mock puede emitir. */
-type MockQuoteItemError = 'NOT_FOUND' | 'FINISH_NOT_AVAILABLE' | 'PRODUCT_NOT_FOUND' | 'PRODUCT_CARD_MISMATCH';
+/** Códigos de error POR-ÍTEM del contrato (§6/§4.29/§4.40) que el mock puede emitir. */
+type MockQuoteItemError =
+  | 'NOT_FOUND'
+  | 'FINISH_NOT_AVAILABLE'
+  | 'PRODUCT_NOT_FOUND'
+  | 'PRODUCT_CARD_MISMATCH'
+  | 'BUYLIST_RAW_ONLY';
 
 /**
  * MOCK v1.30 (§4.29): resuelve UN ítem de cotización (carta BASE o PRODUCTO SEPARADO por
@@ -1312,12 +1351,23 @@ type MockQuoteItemError = 'NOT_FOUND' | 'FINISH_NOT_AVAILABLE' | 'PRODUCT_NOT_FO
  * set_base). Sin `productId`: comportamiento v1.29 (set_base por (cardId, finish)).
  */
 function mockResolveQuoteItem(
-  item: { cardId: string; finish?: Finish; productId?: number },
+  // `productType` se tipa aquí como `string` A PROPÓSITO: los DTOs ya lo estrechan a `"raw"`, pero
+  // el mock hace de SERVIDOR y la guarda de v1.53 es server-side (§4.40.3.2) — tiene que poder
+  // rechazar un payload que llegue fuera de tipo (JS crudo, bundle viejo en caché), igual que el
+  // backend rechaza un `curl`.
+  item: { cardId: string; productType?: string; finish?: Finish; productId?: number },
   // El batch valida el acabado base ∈ availableFinishes (SEC-A1, por-ítem); el quote por-carta NO lo
   // hacía (retrocompat de mock) — se preserva ese matiz con este flag. La whitelist del PRODUCTO
   // separado (CardProduct.finishes) SIEMPRE se valida (contrato §4.29, ambos endpoints).
   opts: { validateBaseFinish?: boolean } = {},
 ): { ok: true; payload: BuylistQuoteResponse } | { ok: false; code: MockQuoteItemError } {
+  // v1.53 (§4.40) — el buylist compra raw y solo raw (`PROJECT.md` §E, §K LOCKED, criterio 61).
+  // Se evalúa ANTES que la existencia de la carta: es una regla de negocio sobre la línea, no una
+  // búsqueda. En el batch el llamador lo convierte en `ok:false` POR ÍTEM (HTTP 200); en el quote
+  // por-carta y en la solicitud, en `422`.
+  if (item.productType !== undefined && item.productType !== 'raw') {
+    return { ok: false, code: 'BUYLIST_RAW_ONLY' };
+  }
   const card = fx.mockCards.find((c) => c.id === item.cardId);
   if (!card) return { ok: false, code: 'NOT_FOUND' };
   const rarity = card.rarity ?? '';
@@ -1386,6 +1436,7 @@ export async function batchQuote(items: BuylistQuoteItemDTO[]): Promise<BuylistB
     FINISH_NOT_AVAILABLE: 'Finish is not available for this card',
     PRODUCT_NOT_FOUND: 'Product not found',
     PRODUCT_CARD_MISMATCH: 'Product does not belong to this card',
+    BUYLIST_RAW_ONLY: 'The buylist only accepts raw cards',
   };
   const results: BuylistBatchQuoteResultDTO[] = items.map((item, index) => {
     // v1.30 (§4.29): resuelve base O producto separado por-ítem; errores por-ítem NO tumban el lote.
@@ -1399,12 +1450,115 @@ export async function batchQuote(items: BuylistQuoteItemDTO[]): Promise<BuylistB
   return delay({ results });
 }
 
+/**
+ * Política pública del cotizador (contrato §6 · `GET /buylist/quote-policy`, v1.51.4 · D43).
+ * `public`, READ-ONLY, cacheable (`Cache-Control: public, max-age=300`). Devuelve UN entero:
+ * `minimumRequestCents`. Es lo único que el cotizador público necesita para cumplir el criterio
+ * 132(a) de PROJECT.md (decir CUÁNTO FALTA con el número correcto y no dejar proceder el botón).
+ *
+ * ⚠️ Consumo normado por el contrato: se pide AL MONTAR el cotizador (ver `useQuotePolicy`), no
+ * se guarda en un store de vida larga entre navegaciones — la caché pública es de 5 minutos.
+ * ⚠️ Degradación FAIL-OPEN: si falla, el llamador NO pinta faltante, NO inventa mínimo y DEJA el
+ * botón habilitado; la puerta real es el `422 BUYLIST_MINIMUM_NOT_MET` del servidor.
+ */
+export async function getBuylistQuotePolicy(): Promise<BuylistQuotePolicyDTO> {
+  if (!config.useMocks) return apiRequest<BuylistQuotePolicyDTO>('/buylist/quote-policy');
+  // MOCK: el dial sembrado hace de servidor falso (fixtures), no de default del cliente.
+  return delay({ ...fx.mockBuylistQuotePolicy });
+}
+
 export async function getSellRequests(): Promise<SellRequestDTO[]> {
   if (!config.useMocks) {
     const res = await apiRequest<{ data: SellRequestDTO[] }>('/buylist/requests');
     return res.data;
   }
-  return delay(fx.mockSellRequests);
+  // MOCK: el servidor falso proyecta `isTerminal` (server-derived, §4.39c sitio 9) igual que
+  // el backend real: la fixture guarda la FILA, nunca el campo derivado.
+  return delay(fx.mockSellRequests.map(fx.mockSellRequestDTO));
+}
+
+/**
+ * **DETALLE de una solicitud propia** (contrato §6 · `GET /buylist/requests/:id`, `customer`).
+ *
+ * Es la fuente del PORTAL DEL VENDEDOR (§23.5): trae `offer` (la oferta como la ve él, `null`
+ * mientras no esté emitida), `pickupAddress`, `expiredReason`, `lastOfferCancelledAt` e
+ * `isTerminal`. **Exige sesión del dueño**: una solicitud ajena responde `404` (no `403`, para
+ * no confirmar que existe), así que la pantalla trata el 404 como «no encontrada» sin más.
+ */
+export async function getSellRequest(id: string): Promise<SellRequestDetailDTO> {
+  if (!config.useMocks) return apiRequest<SellRequestDetailDTO>(`/buylist/requests/${id}`);
+  // MOCK: el servidor falso proyecta lo que el backend real deriva (`isTerminal`) y adjunta la
+  // oferta SOLO cuando la fila la tiene emitida — igual que `offerPublicDTO`. El `locale` que
+  // alimenta `offer.terms` sale del usuario en sesión, que es el `User.locale` que lee el
+  // backend real: los términos son DATO renderizado por el servidor, no copy del front.
+  const req = fx.mockSellRequests.find((r) => r.sellRequestId === id);
+  if (!req) throw new ApiClientError(404, { code: 'NOT_FOUND', message: 'Sell request not found' });
+  const ownerLocale = getStoredUser()?.locale === 'en' ? 'en' : 'es';
+  return delay(fx.mockSellRequestDetailDTO(req, ownerLocale));
+}
+
+/**
+ * **RESPUESTA A LA OFERTA** (contrato §6 · `POST /buylist/requests/:id/offer-response`,
+ * `customer`). Body `{ decision: 'accept' | 'reject' }` — **y nada más**.
+ *
+ * ⚠️ **SEC-A1: el monto NO viaja del cliente al servidor** (criterio 120). Aceptar es aceptar
+ * *la oferta que está guardada*, no mandar un número: **la defensa es la forma del DTO**, no una
+ * validación. Si alguna vez alguien añade aquí un campo de monto «para confirmar», habrá abierto
+ * la puerta que este endpoint existe para tener cerrada.
+ *
+ * ⚠️ **TODO-O-NADA** (D1, criterio 118): no hay parámetro de líneas ni contraoferta. El vendedor
+ * ve el desglose completo y acepta o rechaza **el paquete entero**.
+ *
+ * ⚠️ **NO es `respondSellRequest`.** Aquél responde a un AJUSTE de precio de una carta que ya
+ * tenemos; éste responde a un CONTRATO DE COMPRA antes de gastar un peso en envío. Son dos actos
+ * de negocio distintos y el contrato los mantiene en dos endpoints distintos a propósito.
+ *
+ * Errores: `409 OFFER_EXPIRED` (venció el plazo), `409 OFFER_NOT_PENDING` (cualquier otro
+ * estado), `404 NOT_FOUND` (inexistente o de otro dueño), `400 VALIDATION_ERROR`.
+ */
+export async function respondToSellOffer(
+  id: string,
+  decision: 'accept' | 'reject',
+): Promise<SellOfferResponseDTO> {
+  if (!config.useMocks) {
+    return apiRequest<SellOfferResponseDTO>(`/buylist/requests/${id}/offer-response`, {
+      method: 'POST',
+      body: { decision },
+    });
+  }
+  // MOCK: replica la TABLA DE TRANSICIÓN del contrato §6, incluidos sus dos `409`. La rama del
+  // plazo vencido la decide el SERVIDOR FALSO (no la pantalla): es exactamente el reparto de
+  // responsabilidades del backend real.
+  const req = fx.mockSellRequests.find((r) => r.sellRequestId === id);
+  if (!req) throw new ApiClientError(404, { code: 'NOT_FOUND', message: 'Sell request not found' });
+  const offer = fx.mockSellOffer(req, getStoredUser()?.locale === 'en' ? 'en' : 'es');
+  if (req.status !== 'ofertada' || !offer) {
+    throw new ApiClientError(409, {
+      code: 'OFFER_NOT_PENDING',
+      message: 'There is no pending offer for this request',
+      details: { status: req.status },
+    });
+  }
+  if (new Date(offer.acceptDeadlineAt).getTime() <= Date.now()) {
+    throw new ApiClientError(409, {
+      code: 'OFFER_EXPIRED',
+      message: 'The offer deadline has passed',
+      details: { offerAcceptDeadlineAt: offer.acceptDeadlineAt },
+    });
+  }
+  const acceptedAt = new Date().toISOString();
+  req.status = decision === 'accept' ? 'aceptada' : 'rechazada';
+  if (decision === 'accept') req.offerAcceptedAt = acceptedAt;
+  const detail = fx.mockSellRequestDetailDTO(req, getStoredUser()?.locale === 'en' ? 'en' : 'es');
+  return delay({
+    sellRequestId: req.sellRequestId,
+    status: req.status as 'aceptada' | 'rechazada',
+    ...(decision === 'accept' ? { acceptedAt } : {}),
+    isTerminal: detail.isTerminal,
+    // El contrato devuelve la oferta ÍNTEGRA también al rechazar: el vendedor tiene derecho al
+    // registro de lo que se le ofreció.
+    offer: detail.offer ?? offer,
+  });
 }
 
 export interface CreateSellRequestInput {
@@ -1414,13 +1568,29 @@ export interface CreateSellRequestInput {
   // se snapshotea en SellRequestItem.finish y se propaga al InventoryItem al convertir (M5).
   items: {
     cardId: string;
-    productType: ProductType;
+    /**
+     * ⚠️ v1.53 (MONEY, BREAKING — contrato §6, ARCHITECTURE §4.40): `"raw"` y SOLO `"raw"`.
+     * Aquí NO hay degradación por-ítem (a diferencia de `/quote/batch`): un item `graded`/`sealed`
+     * ⇒ `422 BUYLIST_RAW_ONLY` y **la solicitud no se crea** (`createRequest` congela dinero en una
+     * transacción, es todo-o-nada).
+     */
+    productType: 'raw';
     rawCondition?: RawCondition;
     finish?: Finish;
     // v1.30 (§4.29): TCGplayer `productId` cuando el ítem es un PRODUCTO SEPARADO
     // (deck_exclusive/promo). Se snapshotea en SellRequestItem.cardProductId server-side.
     productId?: number;
   }[];
+  /**
+   * ⚠️ v1.51.3 (D36/D37) — **OBLIGATORIO**. Id de una dirección de la libreta del PROPIO vendedor
+   * (`GET /users/me/addresses`): es la dirección de ORIGEN que el backend copia a
+   * `SellRequest.pickupAddressSnapshot` y que va IMPRESA en la guía que ponemos nosotros (D16).
+   * NO hay fallback a la dirección `isDefault` — la libreta tiene N filas y elegir por el vendedor
+   * es elegir de dónde salen sus cartas. La UI PRESELECCIONA la predeterminada, pero el id viaja
+   * SIEMPRE explícito en el body. Ausente ⇒ `422 PICKUP_ADDRESS_REQUIRED`; inexistente o de otro
+   * usuario ⇒ `422 PICKUP_ADDRESS_NOT_FOUND` (misma respuesta a propósito, anti-IDOR).
+   */
+  addressId: string;
   /**
    * CLABE destino en claro (18 dígitos). v1.15: OPCIONAL. Si se OMITE, el backend hace fallback
    * server-side a la CLABE en archivo del PROPIO usuario (`clabeOnFile=true`; mismo fallback que
@@ -1444,6 +1614,38 @@ export async function createSellRequest(input: CreateSellRequestInput): Promise<
     // lleva y el backend hace el fallback server-side a la CLABE del propio usuario (§6). Sin flags
     // de cliente: el contrato ya soporta el shape directo.
     return apiRequest<SellRequestDTO>('/buylist/requests', { method: 'POST', body: input });
+  }
+  // MOCK v1.53 (§4.40) — el pipeline de compra es raw-only y aquí, a diferencia del batch, es
+  // TODO-O-NADA: `createRequest` congela dinero en una transacción, así que un solo item no-raw
+  // aborta la solicitud entera con `422 BUYLIST_RAW_ONLY` + `details: { index, productType }`
+  // (contrato §6). Ninguna línea se crea. Va PRIMERO porque es la puerta de dinero: el contrato la
+  // lista antes que las demás 422 y ni siquiera hay que mirar la dirección de una compra que no
+  // hacemos. (El orden real lo decide el servidor; el mock solo no puede contradecir el contrato.)
+  const badIndex = input.items.findIndex((it) => (it.productType as string) !== 'raw');
+  if (badIndex >= 0) {
+    throw new ApiClientError(422, {
+      code: 'BUYLIST_RAW_ONLY',
+      message: 'The buylist only accepts raw cards',
+      details: { index: badIndex, productType: input.items[badIndex].productType },
+    });
+  }
+  // MOCK · v1.51.3 (D36/D37): la dirección de ORIGEN es OBLIGATORIA y se resuelve contra la libreta
+  // del PROPIO usuario. Sin `addressId` no se crea nada (hermano exacto de CLABE_REQUIRED); un id
+  // inexistente o ajeno devuelve PICKUP_ADDRESS_NOT_FOUND — LA MISMA respuesta para los dos casos,
+  // a propósito (anti-IDOR: no se confirma la existencia de una fila ajena).
+  if (!input.addressId) {
+    throw new ApiClientError(422, {
+      code: 'PICKUP_ADDRESS_REQUIRED',
+      message: 'A pickup address is required',
+      details: { field: 'addressId' },
+    });
+  }
+  if (!fx.mockAddresses.some((a) => a.id === input.addressId)) {
+    throw new ApiClientError(422, {
+      code: 'PICKUP_ADDRESS_NOT_FOUND',
+      message: 'Pickup address not found',
+      details: { field: 'addressId' },
+    });
   }
   // MOCK: replica el shape de la respuesta del contrato (SellRequestDTO). El monto se resuelve por
   // la REGLA de la rareza (v1.3.1), igual que el cotizador; v1.30 (§4.29): con `productId` la línea
@@ -1470,14 +1672,32 @@ export async function createSellRequest(input: CreateSellRequestInput): Promise<
     };
   });
   const quotedTotalCents = items.reduce((s, it) => s + (it.quotedPriceCents ?? 0), 0);
-  return delay({
-    sellRequestId: `sr-${Math.floor(Math.random() * 9000 + 1000)}`,
-    status: 'cotizada',
-    quotedTotalCents,
-    ineRequired: !!input.ineUploadKeys,
-    items,
-    createdAt: new Date().toISOString(),
-  });
+  // MOCK · v1.51 (D18, criterio 132(b)): la PUERTA del mínimo vive en el servidor y se juzga sobre
+  // el TOTAL cotizado BRUTO, con borde INCLUSIVO (exactamente el mínimo SÍ se crea). Una línea en
+  // `precio_pendiente` aporta 0 (no tiene `quotedPriceCents`). El `shortfallCents` lo calcula el
+  // SERVIDOR: es el número AUTORITATIVO con el que la pantalla se repinta.
+  const minimumCents = fx.mockBuylistQuotePolicy.minimumRequestCents;
+  if (quotedTotalCents < minimumCents) {
+    throw new ApiClientError(422, {
+      code: 'BUYLIST_MINIMUM_NOT_MET',
+      message: 'The request total is below the buylist minimum',
+      details: {
+        minimumCents,
+        totalCents: quotedTotalCents,
+        shortfallCents: minimumCents - quotedTotalCents,
+      },
+    });
+  }
+  return delay(
+    fx.mockSellRequestDTO({
+      sellRequestId: `sr-${Math.floor(Math.random() * 9000 + 1000)}`,
+      status: 'cotizada',
+      quotedTotalCents,
+      ineRequired: !!input.ineUploadKeys,
+      items,
+      createdAt: new Date().toISOString(),
+    }),
+  );
 }
 
 /**
@@ -2665,6 +2885,19 @@ function mockSellerFor(userId: string): AdminSellerRef {
 export interface AdminBuylistFilters {
   /** v1.25: uno o varios `SellRequestStatus` en CSV (`IN (...)`); un solo valor = como HOY. */
   status?: string;
+  /**
+   * v1.51.8 (BL-18) — **la contraparte server-side de `isTerminal`**. `live=false` filtra los
+   * terminales; `live=true`, todo lo que NO lo es.
+   *
+   * ⚠️ **Se implementa POR EXCLUSIÓN sobre el set terminal del backend** (criterio 129), así que
+   * un estado nuevo entra a la vista **solo**. Es lo que permite que «Cerradas» deje de mandar un
+   * CSV que **enumera** los cuatro terminales — la última copia de esa enumeración que quedaba
+   * viva en el cliente después de retirarla de los otros cinco sitios.
+   *
+   * Se **intersecta** con `status` (no lo pisa); si se contradicen, el resultado es **vacío, no
+   * un error**.
+   */
+  live?: boolean;
   userId?: string;
   q?: string;
   from?: string;
@@ -2688,6 +2921,10 @@ export async function getAdminBuylist(
     return apiRequest<Paginated<AdminBuylistDTO>>('/admin/buylist', {
       query: {
         status: filters.status,
+        // Mismo patrón que `guest`/`needsManual` en M3 (§M3): el booleano se serializa AQUÍ, no en
+        // `api-client`, y `false` viaja como `live=false` en vez de omitirse — que es justo lo que
+        // esta pestaña necesita pedir.
+        live: filters.live === undefined ? undefined : String(filters.live),
         userId: filters.userId,
         q: filters.q,
         from: filters.from,
@@ -2700,11 +2937,16 @@ export async function getAdminBuylist(
     });
   }
   // MOCK: espeja los filtros server-side v1.25 en memoria.
-  let data = fx.mockAdminBuylist.map((r) => ({ ...r, seller: r.seller ?? mockSellerFor(r.userId) }));
+  let data = fx.mockAdminBuylist.map((r) =>
+    fx.mockAdminBuylistDTO({ ...r, seller: r.seller ?? mockSellerFor(r.userId) }),
+  );
   if (filters.status) {
     const set = new Set(filters.status.split(',').map((s) => s.trim()).filter(Boolean));
     data = data.filter((r) => set.has(r.status));
   }
+  // MOCK: espeja `live` POR EXCLUSIÓN sobre `isTerminal` —el campo que el servidor falso acaba de
+  // derivar—, no contra una lista de estados vivos. Se intersecta con `status`, igual que el real.
+  if (filters.live !== undefined) data = data.filter((r) => r.isTerminal !== filters.live);
   if (filters.userId) data = data.filter((r) => r.userId === filters.userId);
   const q = filters.q?.trim().toLowerCase();
   if (q) {
@@ -2728,17 +2970,247 @@ export async function getAdminBuylist(
 
 // ---- Admin M5 · acciones de buylist (contrato §M5) ----
 // MOCK: helpers en memoria para reflejar las transiciones en fixtures.
-function mockFindBuylistRequest(id: string): AdminBuylistDTO {
+// ⚠️ Devuelven la FILA mutable en memoria, no el DTO: `isTerminal` lo pone la proyección
+// (`fx.mockAdminBuylistDTO`) en el momento de responder, para que nunca contradiga al `status`
+// que estas mismas ramas acaban de mover.
+function mockFindBuylistRequest(id: string): fx.MockAdminBuylistRow {
   const req = fx.mockAdminBuylist.find((r) => r.id === id);
   if (!req) throw new ApiClientError(404, { code: 'NOT_FOUND', message: 'Sell request not found' });
   return req;
 }
-function mockFindBuylistItem(itemId: string): { req: AdminBuylistDTO; item: SellItemDTO } {
+function mockFindBuylistItem(itemId: string): { req: fx.MockAdminBuylistRow; item: SellItemDTO } {
   for (const req of fx.mockAdminBuylist) {
     const item = req.items.find((it) => it.id === itemId);
     if (item) return { req, item };
   }
   throw new ApiClientError(404, { code: 'NOT_FOUND', message: 'Sell request item not found' });
+}
+
+/**
+ * **LA MESA DE DECISIÓN** (contrato §M5 · `GET /admin/buylist/:id/decision-table`, `vault_operator+`).
+ *
+ * Es la petición original del humano: *«el admin no debería decidir una compra sin saber cuánto de
+ * eso ya tiene»*. Trae, por línea, qué pidió vender, cuánto se le cotizó, **el precio de la curva
+ * VIGENTE AHORA**, los **cuatro sumandos** de la posición y una sugerencia legible; y, arriba, los
+ * totales de la previsualización con **los veredictos ya resueltos por el servidor**
+ * (`netBelowMinimum`, `requiresAuthorization`, `pickupAddressMissing`).
+ *
+ * ⚠️ **Nada de esto se recalcula en el cliente.** Los diales se editan sin redeploy: una constante
+ * aquí quedaría desincronizada **en silencio**, y en una pantalla de dinero eso es un aviso que
+ * aparece cuando no toca o que no aparece cuando sí.
+ */
+export async function getBuylistDecisionTable(id: string): Promise<BuylistDecisionTableDTO> {
+  if (!config.useMocks) {
+    return apiRequest<BuylistDecisionTableDTO>(`/admin/buylist/${id}/decision-table`);
+  }
+  try {
+    return delay(fx.mockDecisionTable(id));
+  } catch (e) {
+    throw translateFixtureError(e);
+  }
+}
+
+/**
+ * **EMITIR (o PREPARAR) LA OFERTA** (contrato §M5 · `POST /admin/buylist/:id/offer`).
+ *
+ * ⚠️ **DOS DESENLACES DE ÉXITO, y la UI tiene que distinguirlos:** con el bruto **dentro** del tope
+ * del operador (o siendo súper-admin) la oferta **SALE** —`offerState='sent'`, `status='ofertada'`,
+ * **el correo se manda**—; **por encima** del tope queda **`pending_authorization`**, **`status`
+ * sigue `cotizada`** y **el correo NO se manda**. Una oferta pendiente **no existe para el
+ * vendedor**: la pantalla no puede sugerir lo contrario.
+ *
+ * ⚠️ **El código HTTP es dinámico** (`200` vs `202`) y **no se lee**: se lee `offerState`, que dice
+ * el mismo hecho sin depender del transporte.
+ *
+ * ⚠️ **`lines` debe cubrir EXACTAMENTE los ítems** (ni faltar ni sobrar) ⇒ si no,
+ * `422 OFFER_LINES_MISMATCH`. Sin eso, una línea olvidada saldría del correo **sin que nadie
+ * hubiera decidido nada sobre ella**.
+ *
+ * ⚠️ **`overrideReason` es obligatorio ⇔ el monto DIFIERE del derivado** (delta ≠ 0, aunque sea un
+ * centavo). Mandar **exactamente** el derivado **no es un override** y no pide motivo — el borde de
+ * la igualdad está ratificado en el contrato (v1.51.12). *Lo auditable es la desviación, no la
+ * pulsación.*
+ */
+export async function emitBuylistOffer(
+  id: string,
+  lines: BuylistOfferLineInput[],
+): Promise<BuylistOfferResultDTO> {
+  if (!config.useMocks) {
+    return apiRequest<BuylistOfferResultDTO>(`/admin/buylist/${id}/offer`, {
+      method: 'POST',
+      body: { lines },
+    });
+  }
+  try {
+    return delay(fx.mockEmitOffer(id, lines));
+  } catch (e) {
+    throw translateFixtureError(e);
+  }
+}
+
+/**
+ * **CAPTURAR LA GUÍA** (contrato §M5 · `POST /admin/buylist/:id/guide`, D19/D21/D22).
+ *
+ * ⚠️ **NO mueve el estado.** La solicitud sigue `aceptada`. Lo único que hace es **congelar el
+ * plazo de envío**, y el reloj arranca **con la entrega de la guía, no con la aceptación**: una
+ * guía entregada dos días después de aceptar corre el vencimiento dos días. *Sería injusto correrle
+ * el reloj al vendedor mientras espera una etiqueta que depende de nosotros.*
+ *
+ * ⚠️ **No hay integración con paquetería, y es alcance cerrado (D19):** sin compra automática, sin
+ * tarifas, sin rastreo en vivo y **sin validar el número contra el transportista**. *El sistema
+ * solo guarda y muestra.* El número es visible para **las dos partes**: al vendedor para usarlo, al
+ * operador para conciliar al recibir.
+ *
+ * **Re-capturar corrige un typo** pero **no re-congela** una fecha ya comunicada (criterio 157).
+ */
+export async function captureBuylistGuide(
+  id: string,
+  input: { carrier: string; trackingNumber: string },
+): Promise<BuylistGuideResultDTO> {
+  if (!config.useMocks) {
+    return apiRequest<BuylistGuideResultDTO>(`/admin/buylist/${id}/guide`, {
+      method: 'POST',
+      body: input,
+    });
+  }
+  try {
+    return delay(fx.mockCaptureGuide(id, input));
+  } catch (e) {
+    throw translateFixtureError(e);
+  }
+}
+
+/**
+ * **CONFIRMAR EL ENVÍO** (contrato §M5 · `POST /admin/buylist/:id/confirm-shipment`, D20).
+ *
+ * ⚠️ **Es lo ÚNICO que mueve a `en_transito`.** Ni comprar la guía, ni el «ya lo mandé» del
+ * vendedor mueven este estado. Y **solo desde aquí** la línea empieza a sumar a la cifra de «en
+ * camino» de la mesa de decisión de otras solicitudes.
+ *
+ * ⚠️ **`guideActualCostCents` es OPCIONAL y NO ENTRA JAMÁS en lo que se le deposita al vendedor**:
+ * a él se le descuenta **la tarifa congelada que aceptó**, cueste lo que cueste la etiqueta real.
+ * Es insumo **de reporte** (M7). *Escrito para que nadie «mejore» el pago con el costo real.*
+ */
+export async function confirmBuylistShipment(
+  id: string,
+  input: { guideActualCostCents?: number } = {},
+): Promise<BuylistShipmentConfirmResultDTO> {
+  if (!config.useMocks) {
+    return apiRequest<BuylistShipmentConfirmResultDTO>(`/admin/buylist/${id}/confirm-shipment`, {
+      method: 'POST',
+      body: input,
+    });
+  }
+  try {
+    return delay(fx.mockConfirmShipment(id, input));
+  } catch (e) {
+    throw translateFixtureError(e);
+  }
+}
+
+/**
+ * **AUTORIZAR una oferta preparada** (`POST /admin/buylist/:id/offer/authorize`, **`super_admin`**).
+ * ⚠️ **No acepta líneas ni montos: autoriza LO GUARDADO.** Aceptar cambios aquí convertiría la
+ * autorización en una segunda edición y el «quién preparó / quién autorizó» dejaría de significar
+ * nada. Al autorizar **sale el correo** y el plazo del vendedor **se congela en ese instante**.
+ */
+export async function authorizeBuylistOffer(id: string): Promise<BuylistOfferResultDTO> {
+  if (!config.useMocks) {
+    return apiRequest<BuylistOfferResultDTO>(`/admin/buylist/${id}/offer/authorize`, {
+      method: 'POST',
+      body: {},
+    });
+  }
+  try {
+    return delay(fx.mockAuthorizeOffer(id));
+  } catch (e) {
+    throw translateFixtureError(e);
+  }
+}
+
+/**
+ * **MARCAR LA GUÍA COMO CANCELADA** (`POST /admin/buylist/:id/guide/cancellation-done`, D22).
+ *
+ * ⚠️ **Es la ÚNICA salida de la cola «guías por cancelar»** (criterio 139): esa cola **no
+ * desaparece sola**. Sin esta llamada, la fila se queda ahí para siempre — y las dos mitades de
+ * D22 van juntas: *una etiqueta comprada y olvidada es dinero tirado que nadie ve*.
+ *
+ * `guideActualCostCents` es **el único momento en que se conoce el costo final de una etiqueta
+ * cancelada** (`0` si la paquetería la reembolsó). Misma frontera money-safe: **no toca lo que se
+ * le deposita al vendedor**.
+ */
+export async function markBuylistGuideCancellationDone(
+  id: string,
+  input: { note?: string; guideActualCostCents?: number } = {},
+): Promise<{ sellRequestId: string; guideCancellationDoneAt: string }> {
+  if (!config.useMocks) {
+    return apiRequest(`/admin/buylist/${id}/guide/cancellation-done`, {
+      method: 'POST',
+      body: input,
+    });
+  }
+  try {
+    return delay(fx.mockGuideCancellationDone(id, input));
+  } catch (e) {
+    throw translateFixtureError(e);
+  }
+}
+
+/** Cola «ofertas por autorizar» (`GET /admin/buylist/offers/pending-authorization`). */
+export async function getPendingOfferAuthorizations(): Promise<
+  Paginated<PendingOfferAuthorizationRowDTO>
+> {
+  if (!config.useMocks) {
+    return apiRequest<Paginated<PendingOfferAuthorizationRowDTO>>(
+      '/admin/buylist/offers/pending-authorization',
+    );
+  }
+  return delay(fx.mockPendingOfferAuthorizations());
+}
+
+/** Cola «por confirmar envío» (`GET /admin/buylist/pending-shipment-confirmation`). */
+export async function getPendingShipmentConfirmations(): Promise<
+  Paginated<PendingShipmentConfirmationRowDTO>
+> {
+  if (!config.useMocks) {
+    return apiRequest<Paginated<PendingShipmentConfirmationRowDTO>>(
+      '/admin/buylist/pending-shipment-confirmation',
+    );
+  }
+  return delay(fx.mockPendingShipmentConfirmations());
+}
+
+/** Cola «guías por cancelar» (`GET /admin/buylist/guides/pending-cancellation`). */
+export async function getPendingGuideCancellations(): Promise<
+  Paginated<PendingGuideCancellationRowDTO>
+> {
+  if (!config.useMocks) {
+    return apiRequest<Paginated<PendingGuideCancellationRowDTO>>(
+      '/admin/buylist/guides/pending-cancellation',
+    );
+  }
+  return delay(fx.mockPendingGuideCancellations());
+}
+
+/** Cola «vendedores con solicitudes vivas» (`GET /admin/buylist/live-sellers`, D12). */
+export async function getLiveSellers(): Promise<Paginated<LiveSellerRowDTO>> {
+  if (!config.useMocks) {
+    return apiRequest<Paginated<LiveSellerRowDTO>>('/admin/buylist/live-sellers');
+  }
+  return delay(fx.mockLiveSellers());
+}
+
+/**
+ * Cola «listas para publicar» (`GET /admin/inventory/pending-publish`, fase 8).
+ * ⚠️ **Es la RED del disparo de auto-publicación**: la publicación se intenta best-effort en tres
+ * momentos, y **un disparo perdido deja la pieza EN ESTA COLA** en vez de invisible. Por eso la
+ * cola no se estrecha ni se «optimiza».
+ */
+export async function getPendingPublish(): Promise<Paginated<PendingPublishRowDTO>> {
+  if (!config.useMocks) {
+    return apiRequest<Paginated<PendingPublishRowDTO>>('/admin/inventory/pending-publish');
+  }
+  return delay(fx.mockPendingPublish());
 }
 
 /** Marca recepción física de la solicitud → `recibida` (contrato POST /admin/buylist/:id/receive). */
@@ -2748,10 +3220,15 @@ export async function receiveBuylistRequest(id: string): Promise<AdminBuylistDTO
   }
   const req = mockFindBuylistRequest(id);
   req.status = 'recibida';
+  // ⚠️ v1.57 (§M5-P): `receive` es el ÚNICO escritor de `receivedAt` —uno de los términos
+  // escalares de `isPayable`, §M5-V.0— y **sella una sola vez**: el re-sellado no es cosmético (mueve el reloj del
+  // abandono a 30 días y el `max(...)` de la purga del INE), así que la rama mock es idempotente
+  // igual que el `where` del backend (`[field]: null`).
+  req.receivedAt ??= new Date().toISOString();
   for (const it of req.items) {
     if (it.itemStatus === 'cotizada' || it.itemStatus === 'precio_pendiente') it.itemStatus = 'recibida';
   }
-  return delay({ ...req });
+  return delay(fx.mockAdminBuylistDTO({ ...req }));
 }
 
 /** Inicia/registra la verificación → `verificacion` (contrato POST /admin/buylist/:id/verify). */
@@ -2761,8 +3238,20 @@ export async function verifyBuylistRequest(id: string): Promise<AdminBuylistDTO>
   }
   const req = mockFindBuylistRequest(id);
   req.status = 'verificacion';
+  // v1.51.8: el backend sella `verifiedAt` AQUÍ, y es **uno de los términos escalares** de
+  // `isPayable` (§M5-V.0 — el otro hecho de la misma pareja es `receivedAt`, que sella `receive`).
+  // Sin esta línea el servidor falso dejaría toda solicitud como no-pagable para siempre.
+  //
+  // ⛔ **Aquí NO se escribe cuántos términos son.** La cuenta vive en §M5-V.0 y ya caducó dos
+  // veces en esta misma línea (v1.57 y v1.61); lo que la vigila es `payability-contract.test.ts`.
+  //
+  // ⚠️ **Y `verify` NO sella `receivedAt`, ni siquiera «porque ya viene de recibir».** Ése es
+  // exactamente el eje 2 de `BL-35`: `verify` es llamable desde cualquier estado vivo, así que
+  // dejarle sellar la recepción volvería pagable una solicitud cuya carta nunca llegó. *«Recibir»
+  // es un acto declarativo con actor y bitácora, no un efecto lateral de verificar.*
+  req.verifiedAt ??= new Date().toISOString();
   for (const it of req.items) if (it.itemStatus === 'recibida') it.itemStatus = 'verificacion';
-  return delay({ ...req });
+  return delay(fx.mockAdminBuylistDTO({ ...req }));
 }
 
 /**
@@ -2778,10 +3267,16 @@ export async function verifyBuylistRequest(id: string): Promise<AdminBuylistDTO>
  *
  * Retorno (hallazgo QA de P-4): la Res 200 es la SOLICITUD actualizada, «mismo shape que
  * `GET /admin/buylist/:id`» (contrato §M5) — el DETALLE admin con `id`/`userId`/`seller`/`status`/
- * `items` con sus campos de rechazo. En este front ese detalle SE MODELA con `AdminBuylistDTO`
- * (idéntico shape que devuelven `receive`/`verify`/`paySpei` y cada fila de `getAdminBuylist`); NO
+ * `items` con sus campos de rechazo. En este front ese detalle SE MODELA con `AdminBuylistDTO`; NO
  * con el DTO de CLIENTE `SellRequestDTO` (`sellRequestId`/`ineRequired`, sin `seller`), que sería
  * incorrecto para un endpoint de back-office. Por eso el tipo correcto del detalle es `AdminBuylistDTO`.
+ *
+ * ⚠️ **CORRECCIÓN 2026-09-06 (medida, techlead).** Este bloque afirmaba que ése es «idéntico shape
+ * que devuelven `receive`/`verify`/`paySpei`». **No lo es hoy:** los tres responden desde un
+ * `findUnique` **sin `include`**, o sea **sin `items`, sin `seller` y sin `pickupAddress`**; el que
+ * sí cumple es este `reject`, que devuelve `adminGet(id)`. Su tipado `AdminBuylistDTO` se mantiene
+ * **porque lo manda el contrato**, no porque se haya observado en la respuesta — quien está desviado
+ * es el backend (deuda suya, D5). Ver `docs/FRONTEND_NOTES.md` §49.
  */
 export async function rejectBuylistRequest(
   id: string,
@@ -2795,7 +3290,7 @@ export async function rejectBuylistRequest(
   }
   const req = mockFindBuylistRequest(id);
   // Idempotencia: ya rechazada → no-op (200 con el estado actual).
-  if (req.status === 'rechazada') return delay({ ...req });
+  if (req.status === 'rechazada') return delay(fx.mockAdminBuylistDTO({ ...req }));
   // No pisar otros estados terminales (contrato: 409 CONFLICT).
   if (req.status === 'pagada' || req.status === 'abandonada') {
     throw new ApiClientError(409, {
@@ -2814,7 +3309,7 @@ export async function rejectBuylistRequest(
     });
   }
   req.status = 'rechazada';
-  return delay({ ...req });
+  return delay(fx.mockAdminBuylistDTO({ ...req }));
 }
 
 /** Plazos del ítem rechazado en la rama MOCK (espeja las constantes 7d/30d del backend). */
@@ -2879,7 +3374,7 @@ export async function decideBuylistItem(
 }
 
 /**
- * Pestaña «Rechazadas» de M5 (contrato §M5 · GET /admin/buylist/rejected-items,
+ * Pestaña «Piezas rechazadas» de M5 (contrato §M5 · GET /admin/buylist/rejected-items,
  * v1.18-buylist-rejects). Listado paginado TRANSVERSAL (todas las solicitudes) de ítems
  * `itemStatus="rechazada"`, orden `rejectedAt` desc (legacy sin fecha al final); el
  * server deriva los plazos (+7d/+30d) y la UI solo deriva la FASE de now vs las fechas.
@@ -2977,7 +3472,24 @@ export async function paySpeiBuylist(id: string, speiReference: string): Promise
     });
   }
   const req = mockFindBuylistRequest(id);
-  if (req.status !== 'aprobada' && req.status !== 'verificacion') {
+  // MOCK · §M5-V.0 (v1.61): la precondición son **CINCO** términos y se pregunta por la MISMA vía
+  // que el DTO (`isPayable`), no por una tercera lista de estados. Por eso esta guarda **ha
+  // heredado el tercero (v1.57) y los dos de v1.61 sin tocarse**: es la propiedad que hace que
+  // «tres lectores, una regla» sea verificable y no una intención.
+  //
+  // ⚠️ **LA ESCALERA ES NORMATIVA** (§M5-V.6): `ITEMS_NOT_DECIDED` va **ARRIBA** de la genérica
+  // aunque V-a también falle, y no es cosmética — cuando faltan veredictos, **decidirlos es el
+  // acto que satisface los dos términos**; el mensaje genérico mandaría al operador a revisar el
+  // estado y la recepción, que están bien, en vez de a la pantalla donde está el trabajo.
+  const pendingDecisionItemIds = fx.mockPendingDecisionItemIds(req);
+  if (req.offerSentAt != null && pendingDecisionItemIds.length > 0) {
+    throw new ApiClientError(422, {
+      code: 'ITEMS_NOT_DECIDED',
+      message: 'Payment requires a verification verdict on every purchased line',
+      details: { sellRequestId: id, pendingDecisionItemIds },
+    });
+  }
+  if (!fx.mockAdminBuylistDTO(req).isPayable) {
     throw new ApiClientError(422, {
       code: 'VALIDATION_ERROR',
       message: 'Payment allowed only after receipt/verification and approval',
@@ -2985,7 +3497,7 @@ export async function paySpeiBuylist(id: string, speiReference: string): Promise
   }
   req.status = 'pagada';
   for (const it of req.items) if (it.itemStatus === 'aprobada') it.itemStatus = 'pagada';
-  return delay({ ...req });
+  return delay(fx.mockAdminBuylistDTO({ ...req }));
 }
 
 /**
@@ -3760,7 +4272,12 @@ export async function getAdminUserBuylist(
       query: { userId, page: params.page, pageSize: params.pageSize },
     });
   }
-  return delay(paginate(fx.mockAdminBuylist.filter((b) => b.userId === userId), params));
+  return delay(
+    paginate(
+      fx.mockAdminBuylist.filter((b) => b.userId === userId).map(fx.mockAdminBuylistDTO),
+      params,
+    ),
+  );
 }
 
 /** Envíos del usuario (contrato §M4 · GET /admin/shipments?userId=, NUEVO v1.7). Paginado. */

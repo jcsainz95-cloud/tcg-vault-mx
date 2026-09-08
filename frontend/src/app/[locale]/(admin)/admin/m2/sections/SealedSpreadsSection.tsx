@@ -48,7 +48,7 @@ export function SealedSpreadsSection() {
   const tc = useTranslations('common');
   const tSub = useTranslations('status.sealedSubtype');
   const qc = useQueryClient();
-  const getError = useErrorMessage();
+  const getError = useErrorMessage('operator');
 
   const sealedSpreads = useQuery({ queryKey: ['sealed-spreads'], queryFn: getSealedSpreads });
   // Borrador por subtipo + fallback (texto para permitir edición parcial; se castea al guardar).

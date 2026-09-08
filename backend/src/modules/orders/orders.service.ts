@@ -134,7 +134,24 @@ export class OrdersService {
       const sealedMarket = this.pricing.gateSealedMarketCents(marketRef, ctx.sourceOn);
       return instrument(sale.salePriceCents, sealedPriceBasisOf(sale), sealedMarket);
     }
-    const gradeKey = this.pricing.gradeKeyFor(item);
+    // v1.53 (§4.40.4, **MONEY**) — CHECKOUT. La clave se pide con la TOLERANTE y su `null` se
+    // convierte AQUÍ, explícitamente, en el rechazo que este método ya sabe emitir: `PRICE_PENDING`.
+    //
+    // **Por qué la tolerante en un camino de dinero, y por qué NO es fail-open:** el `null` NO cae a
+    // un default —cae a NO VENDER—, que es el mismo criterio money-safe que aplica el resto del
+    // método cuando no hay dato de mercado («sin dato ⇒ pendiente, jamás MX$0 ni precio inventado»,
+    // `PROJECT.md` §E.1). Y evita cambiar un error de dinero por un 500 en el checkout: existen
+    // piezas `listed` legacy con identidad de slab nula (§4.40.5c) y `IncompleteGradeIdentityError`
+    // ahí sería una caída de servicio en vez de un rechazo honesto y accionable.
+    // Antes de v1.53 esta línea resolvía `graded:PSA:10` y el comprador se llevaba —o pagaba— el
+    // precio del grado MÁS CARO sobre una pieza cuyo grado nunca se capturó.
+    const gradeKey = this.pricing.tryGradeKeyFor(item);
+    if (gradeKey == null) {
+      throw BusinessException.validation(
+        'PRICE_PENDING',
+        `Item ${item.folio} has no slab identity (grading company / grade value); not sellable`,
+      );
+    }
     // v1.6-finish: precio de venta contra la referencia del ACABADO del item.
     const ref = await this.pricing.getReference(item.cardId, item.productType, gradeKey, item.finish);
     const referenceMxnCents = ref.status === 'priced' ? (ref.referenceMxnCents ?? null) : null;

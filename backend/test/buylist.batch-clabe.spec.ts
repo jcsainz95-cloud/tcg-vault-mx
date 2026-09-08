@@ -5,6 +5,8 @@ import { BuylistService } from '../src/modules/buylist/buylist.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { PricingService } from '../src/modules/pricing/pricing.service';
 import { SettingsService } from '../src/modules/settings/settings.service';
+// v1.51.20 · BL-26: la puerta de `createRequest` (celular + dirección + mínimo) en un solo sitio.
+import { GATE_ADDRESS_ID, buylistGateMocks, withMinimumOff } from './helpers/buylist-create-gate';
 import { UsersService } from '../src/modules/users/users.service';
 import { PiiCryptoService } from '../src/common/crypto/pii-crypto.service';
 import { BatchQuoteDto, BUYLIST_QUOTE_BATCH_MAX } from '../src/modules/buylist/dto/buylist.dto';
@@ -27,8 +29,8 @@ function settingsHighCaps(): SettingsService {
   return {
     // v2.0 (P-48): ya no hay tabla de reglas por rareza; la curva la iza `PricingService`.
     getRaw: jest.fn(async () => null),
-    getNumber: jest.fn(async (key: string) =>
-      key === 'buylist_price_fallback_pct' ? 40 : 100_000_000,
+    getNumber: jest.fn(
+      withMinimumOff(async (key: string) => (key === 'buylist_price_fallback_pct' ? 40 : 100_000_000)),
     ),
   } as unknown as SettingsService;
 }
@@ -50,6 +52,7 @@ describe('createRequest — CLABE opcional + fallback server-side (§4.16a)', ()
       // puede divergir de producción ni reimplementar la matemática.
       decideSalePrice: jest.fn(PricingService.prototype.decideSalePrice),
       gradeKeyFor: jest.fn().mockReturnValue('raw:NM'),
+      tryGradeKeyFor: jest.fn().mockReturnValue('raw:NM'),
       // v2.0 (P-48): el monto sale de la CURVA sobre el mercado. Sin referencia la línea quedaría
       // `precio_pendiente` (el BIN no gana) y dispararía el gate de INE de Fase 0.3, que NO es lo que
       // estos casos verifican (CLABE/PII). Se le da mercado para que la línea COTICE.
@@ -82,12 +85,14 @@ describe('createRequest — CLABE opcional + fallback server-side (§4.16a)', ()
           return rows.filter(Boolean);
         }),
       },
+      // v1.51.20 · BL-26: vendedor con celular y dirección propia. Este bloque prueba la CLABE.
+      ...buylistGateMocks('u1'),
       kycProfile: {
         findUnique: jest.fn(async ({ where }: any) => kycByUser[where.userId] ?? null),
         upsert: jest.fn().mockResolvedValue(undefined),
       },
       sellRequest: {
-        aggregate: jest.fn().mockResolvedValue({ _sum: { quotedTotalCents: 0 } }),
+        findMany: jest.fn(async () => []), // M-46 §4.39c: acumulado mensual = findMany+reduce (COALESCE de 2 columnas)
         create: jest.fn(async ({ data }: any) => ({
           id: 'sr',
           status: data.status,
@@ -117,7 +122,7 @@ describe('createRequest — CLABE opcional + fallback server-side (§4.16a)', ()
       // Otro usuario con OTRA CLABE en archivo: jamás debe usarse para u1.
       u2: { clabeEnc: pii.encrypt(CLABE_OTHER), clabeHmac: pii.clabeBlindIndex(CLABE_OTHER) },
     });
-    const res = await svc(prisma).createRequest('u1', [{ cardId: 'c', productType: 'raw' as any }]);
+    const res = await svc(prisma).createRequest('u1', [{ cardId: 'c', productType: 'raw' as any }], undefined, undefined, GATE_ADDRESS_ID);
     expect(res.status).toBe('cotizada');
 
     // El snapshot descifra a la CLABE PROPIA (no la de u2), y NO está en claro en la columna.
@@ -146,6 +151,8 @@ describe('createRequest — CLABE opcional + fallback server-side (§4.16a)', ()
       'u1',
       [{ cardId: 'c', productType: 'raw' as any }],
       VALID_CLABE,
+      undefined,
+      GATE_ADDRESS_ID,
     );
     expect(res.status).toBe('cotizada');
     const upsertCreate = prisma.kycProfile.upsert.mock.calls[0][0].create;
@@ -164,7 +171,7 @@ describe('createRequest — CLABE opcional + fallback server-side (§4.16a)', ()
       u2: { clabeEnc: pii.encrypt(CLABE_OTHER), clabeHmac: pii.clabeBlindIndex(CLABE_OTHER) },
     });
     await expect(
-      svc(prisma).createRequest('u1', [{ cardId: 'c', productType: 'raw' as any }]),
+      svc(prisma).createRequest('u1', [{ cardId: 'c', productType: 'raw' as any }], undefined, undefined, GATE_ADDRESS_ID),
     ).rejects.toMatchObject({ code: 'CLABE_REQUIRED' });
     expect(prisma.sellRequest.create).not.toHaveBeenCalled();
     // No se consultó (ni usó) la KYC de otro usuario.
@@ -176,7 +183,7 @@ describe('createRequest — CLABE opcional + fallback server-side (§4.16a)', ()
   it('sin `clabe` y sin KYC alguna → 422 CLABE_REQUIRED', async () => {
     const prisma = buildPrisma({ u1: null });
     await expect(
-      svc(prisma).createRequest('u1', [{ cardId: 'c', productType: 'raw' as any }]),
+      svc(prisma).createRequest('u1', [{ cardId: 'c', productType: 'raw' as any }], undefined, undefined, GATE_ADDRESS_ID),
     ).rejects.toMatchObject({ code: 'CLABE_REQUIRED' });
   });
 
@@ -185,7 +192,7 @@ describe('createRequest — CLABE opcional + fallback server-side (§4.16a)', ()
       u1: { clabeEnc: pii.encrypt(CLABE_OWN), clabeHmac: pii.clabeBlindIndex(CLABE_OWN) },
     });
     await expect(
-      svc(prisma).createRequest('u1', [{ cardId: 'c', productType: 'raw' as any }], '123'),
+      svc(prisma).createRequest('u1', [{ cardId: 'c', productType: 'raw' as any }], '123', undefined, GATE_ADDRESS_ID),
     ).rejects.toMatchObject({ code: 'CLABE_INVALID' });
   });
 });
@@ -223,6 +230,7 @@ describe('batchQuote — errores por-ítem (§4.16b)', () => {
       // puede divergir de producción ni reimplementar la matemática.
       decideSalePrice: jest.fn(PricingService.prototype.decideSalePrice),
       gradeKeyFor: jest.fn().mockReturnValue('raw:NM'),
+      tryGradeKeyFor: jest.fn().mockReturnValue('raw:NM'),
       getReference: jest.fn(async (cardId: string) =>
         cardId === 'c-ok'
           ? { status: 'priced', referenceMxnCents: 12500 }
@@ -413,7 +421,7 @@ describe('UsersService.getKyc — clabeOnFile refleja el estado real (§4.16c)',
   function usersSvc(kyc: any): UsersService {
     const prisma: any = {
       kycProfile: { findUnique: jest.fn().mockResolvedValue(kyc) },
-      sellRequest: { aggregate: jest.fn().mockResolvedValue({ _sum: { quotedTotalCents: 0 } }) },
+      sellRequest: { findMany: jest.fn(async () => []) }, // M-46 §4.39c
     };
     const settings = {
       getNumber: jest.fn().mockResolvedValue(300_000),

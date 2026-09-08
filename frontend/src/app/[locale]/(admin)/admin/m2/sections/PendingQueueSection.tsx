@@ -42,7 +42,7 @@ export function PendingQueueSection() {
   const tReason = useTranslations('status.pendingReason');
   const locale = useLocale() as AppLocale;
   const qc = useQueryClient();
-  const getError = useErrorMessage();
+  const getError = useErrorMessage('operator');
 
   const [bucket, setBucket] = useState<'venta' | 'compra'>('venta');
   // §21.7c: la cola recibe entradas de DOS orígenes que se arreglan de forma distinta, así que se

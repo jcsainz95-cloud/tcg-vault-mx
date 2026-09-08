@@ -202,17 +202,28 @@ function AddressRow({
   return <li className="flex items-start gap-4 border-t border-border py-4 last:border-b">{body}</li>;
 }
 
-function AddressFormModal({
-  open,
-  onClose,
-  onCreated,
-}: {
-  open: boolean;
-  onClose: () => void;
-  onCreated: (created: AddressDTO) => void;
-}) {
+/**
+ * Estado del formulario de alta de dirección (contrato §1 · `POST /users/me/addresses`).
+ *
+ * Se extrae del modal —sin cambiar una sola regla— porque hay DOS presentaciones del mismo
+ * formulario y una sola validación: el modal de la libreta y el alta INLINE del paso de crear la
+ * solicitud de buylist (DESIGN_SYSTEM §23.3j: «si no tiene ninguna, el formulario de alta inline,
+ * y queda en su libreta»). Un segundo camino de alta con su propia validación de CP se desfasaría
+ * del primero — que es exactamente lo que el contrato evita al no dejar que `buylist` escriba en
+ * la libreta.
+ */
+export interface AddressFormState {
+  form: AddressInput;
+  errors: Record<string, string>;
+  set: <K extends keyof AddressInput>(key: K, value: AddressInput[K]) => void;
+  submit: () => void;
+  isPending: boolean;
+  isError: boolean;
+  error: unknown;
+}
+
+export function useAddressForm(onCreated: (created: AddressDTO) => void): AddressFormState {
   const t = useTranslations('addresses');
-  const getMessage = useErrorMessage();
   const [form, setForm] = useState<AddressInput>(EMPTY_FORM);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
@@ -242,8 +253,82 @@ function AddressFormModal({
 
   function submit() {
     if (!validate()) return;
+    // País fijo MX (envío solo nacional): el backend sigue siendo la puerta (422 ADDRESS_NOT_MX).
     mut.mutate({ ...form, country: 'MX' });
   }
+
+  return { form, errors, set, submit, isPending: mut.isPending, isError: mut.isError, error: mut.error };
+}
+
+/** Campos del alta de dirección. La ACCIÓN (guardar) la pone quien lo monta: el modal en su
+ *  footer, el alta inline con su propio botón. */
+export function AddressFormFields({ state }: { state: AddressFormState }) {
+  const t = useTranslations('addresses');
+  const getMessage = useErrorMessage();
+  const { form, errors, set } = state;
+  return (
+    <div className="flex flex-col gap-4">
+      <Input label={t('line1')} value={form.line1} onChange={(e) => set('line1', e.target.value)} error={errors.line1} />
+      <Input label={t('line2')} value={form.line2 ?? ''} onChange={(e) => set('line2', e.target.value)} />
+      <Input
+        label={t('neighborhood')}
+        value={form.neighborhood ?? ''}
+        onChange={(e) => set('neighborhood', e.target.value)}
+      />
+      <div className="grid grid-cols-2 gap-4">
+        <Input label={t('city')} value={form.city} onChange={(e) => set('city', e.target.value)} error={errors.city} />
+        <Input label={t('state')} value={form.state} onChange={(e) => set('state', e.target.value)} error={errors.state} />
+      </div>
+      <div className="grid grid-cols-2 gap-4">
+        <Input
+          label={t('postalCode')}
+          inputMode="numeric"
+          value={form.postalCode}
+          onChange={(e) => set('postalCode', e.target.value)}
+          error={errors.postalCode}
+        />
+        <Input
+          label={t('phone')}
+          inputMode="tel"
+          value={form.phone}
+          onChange={(e) => set('phone', e.target.value)}
+          error={errors.phone}
+        />
+      </div>
+      {/* País fijo MX (envío solo nacional en el MVP). */}
+      <div className="flex flex-col">
+        <span className="eyebrow">{t('country')}</span>
+        <p className="mt-3 border-b border-border-strong pb-3 text-base text-text">{t('countryMx')}</p>
+      </div>
+      <label className="flex items-center gap-3 text-sm text-text">
+        <input
+          type="checkbox"
+          checked={!!form.isDefault}
+          onChange={(e) => set('isDefault', e.target.checked)}
+          className="h-4 w-4 shrink-0 cursor-pointer appearance-none border border-border-strong checked:border-text checked:bg-text"
+        />
+        {t('makeDefault')}
+      </label>
+      {state.isError && (
+        <p role="alert" className="font-mono text-xs text-accent">
+          {getMessage(state.error)}
+        </p>
+      )}
+    </div>
+  );
+}
+
+function AddressFormModal({
+  open,
+  onClose,
+  onCreated,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onCreated: (created: AddressDTO) => void;
+}) {
+  const t = useTranslations('addresses');
+  const state = useAddressForm(onCreated);
 
   return (
     <Modal
@@ -255,60 +340,13 @@ function AddressFormModal({
           <Button variant="ghost" onClick={onClose}>
             {t('cancel')}
           </Button>
-          <Button variant="primary" loading={mut.isPending} onClick={submit}>
+          <Button variant="primary" loading={state.isPending} onClick={state.submit}>
             {t('save')}
           </Button>
         </>
       }
     >
-      <div className="flex flex-col gap-4">
-        <Input label={t('line1')} value={form.line1} onChange={(e) => set('line1', e.target.value)} error={errors.line1} />
-        <Input label={t('line2')} value={form.line2 ?? ''} onChange={(e) => set('line2', e.target.value)} />
-        <Input
-          label={t('neighborhood')}
-          value={form.neighborhood ?? ''}
-          onChange={(e) => set('neighborhood', e.target.value)}
-        />
-        <div className="grid grid-cols-2 gap-4">
-          <Input label={t('city')} value={form.city} onChange={(e) => set('city', e.target.value)} error={errors.city} />
-          <Input label={t('state')} value={form.state} onChange={(e) => set('state', e.target.value)} error={errors.state} />
-        </div>
-        <div className="grid grid-cols-2 gap-4">
-          <Input
-            label={t('postalCode')}
-            inputMode="numeric"
-            value={form.postalCode}
-            onChange={(e) => set('postalCode', e.target.value)}
-            error={errors.postalCode}
-          />
-          <Input
-            label={t('phone')}
-            inputMode="tel"
-            value={form.phone}
-            onChange={(e) => set('phone', e.target.value)}
-            error={errors.phone}
-          />
-        </div>
-        {/* País fijo MX (envío solo nacional en el MVP). */}
-        <div className="flex flex-col">
-          <span className="eyebrow">{t('country')}</span>
-          <p className="mt-3 border-b border-border-strong pb-3 text-base text-text">{t('countryMx')}</p>
-        </div>
-        <label className="flex items-center gap-3 text-sm text-text">
-          <input
-            type="checkbox"
-            checked={!!form.isDefault}
-            onChange={(e) => set('isDefault', e.target.checked)}
-            className="h-4 w-4 shrink-0 cursor-pointer appearance-none border border-border-strong checked:border-text checked:bg-text"
-          />
-          {t('makeDefault')}
-        </label>
-        {mut.isError && (
-          <p role="alert" className="font-mono text-xs text-accent">
-            {getMessage(mut.error)}
-          </p>
-        )}
-      </div>
+      <AddressFormFields state={state} />
     </Modal>
   );
 }

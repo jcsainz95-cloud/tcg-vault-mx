@@ -46,7 +46,7 @@ export function ItemDetailModal({ itemId, onClose, locations }: ItemDetailModalP
   const tInv = useTranslations('status.inventory');
   const locale = useLocale() as AppLocale;
   const qc = useQueryClient();
-  const getError = useErrorMessage();
+  const getError = useErrorMessage('operator');
 
   const detail = useQuery({
     queryKey: ['admin-inventory-item', itemId],

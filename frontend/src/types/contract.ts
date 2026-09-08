@@ -88,14 +88,40 @@ export type ShipmentStatus =
  * `cancelado` libera el item ⇒ shipmentState=null. Ver contrato §3 / Enums.
  */
 export type ShipmentActiveStage = 'solicitado' | 'picking' | 'guia' | 'enviado';
+/**
+ * Estados de la SOLICITUD de venta (contrato §Enums, línea canónica). CLASE E: espeja
+ * `schema.prisma`; el orden es el del pipeline feliz.
+ *
+ * ⚠️ v1.51 (M-46, criterio 113) — CUATRO valores nuevos: `ofertada`, `aceptada`, `en_transito`,
+ * `expirada`. Pipeline: `cotizada → ofertada → aceptada → en_transito → recibida → verificacion
+ * → aprobada → pagada`.
+ *
+ * **Los TERMINALES son CUATRO (`pagada | rechazada | abandonada | expirada`) y el frontend NO
+ * los codifica.** El servidor manda `isTerminal` derivado server-side en las dos proyecciones
+ * (cliente y admin) precisamente para que aquí no exista una quinta copia del set
+ * (ARCHITECTURE §4.39c sitio 9). Si necesitas «¿esta solicitud ya cerró?», usa `isTerminal`.
+ */
 export type SellRequestStatus =
   | 'cotizada'
+  | 'ofertada'
+  | 'aceptada'
+  | 'en_transito'
   | 'recibida'
   | 'verificacion'
   | 'aprobada'
   | 'pagada'
   | 'rechazada'
-  | 'abandonada';
+  | 'abandonada'
+  | 'expirada';
+/**
+ * POR QUÉ expiró una solicitud (contrato §Enums, v1.51.1 · D33). Es un ATRIBUTO del terminal,
+ * NO un quinto estado: los terminales siguen siendo cuatro. `null` en toda fila que no esté
+ * `expirada`. Viaja en la proyección de CLIENTE y en la de ADMIN.
+ *
+ * ⚠️ DESIGN_SYSTEM §23.1d: `expirada` es el ÚNICO enum del sistema que se pinta por su MOTIVO
+ * y no por su valor — `not_shipped` acusa al vendedor, `no_offer` nos acusa a nosotros.
+ */
+export type SellRequestExpiryReason = 'no_offer' | 'not_shipped';
 export type SellItemStatus =
   | 'cotizada'
   | 'precio_pendiente'
@@ -391,15 +417,36 @@ export interface CardSetDTO {
   // (principal + subsets). Presente SOLO en masters combinados; el dropdown filtra por TODAS las partes.
   // Un set normal lo omite (comportamiento previo intacto).
   partSetIds?: string[];
-  // v1.52 (M-47, ARCHITECTURE §4.39.5, aditivo): logo de la expansión (`CardSet.logoUrl`).
-  // ⚠️ OPCIONAL **aquí a propósito**, y no por descuido: este mismo tipo sirve a DOS endpoints y
-  // solo UNO lo emite. `GET /buylist/sets` lo manda SIEMPRE (clave presente, `null` cuando el
-  // proveedor no publica logo) porque es la fuente client-side de la retícula de tejas del
-  // cotizador; `GET /catalog/sets` NO lo emite (§4.39.5 «NO entra»: alimenta dropdown/filtro de
-  // texto, no tejas). Por eso `?: string | null` y no `string | null`: en la respuesta de catálogo
-  // la clave está AUSENTE de verdad. Quien lo consuma debe tratar `undefined` y `null` igual
-  // («sin logo»); ⛔ PROHIBIDO construir la URL por plantilla desde el `id`.
-  logoUrl?: string | null;
+  // ⛔ v1.52 (M-47, ARCHITECTURE §4.41.5) — `CardSetDTO` **NO lleva `logoUrl`**, y la ausencia es
+  // NORMATIVA, no un olvido: `GET /catalog/sets` alimenta el dropdown/filtro de TEXTO de Compra,
+  // no una retícula de tejas, y §4.41.5 lo lista explícitamente en «NO entra». El endpoint que sí
+  // lo emite —`GET /buylist/sets`— tiene su propio tipo, `BuylistSetDTO` (abajo).
+  // *(DT-Gd, pagada: antes los dos endpoints compartían este tipo con `logoUrl?: string | null`, y
+  // ese `?` desactivaba en el cliente justo el invariante que §4.41.6 existe para garantizar — el
+  // cotizador compilaba igual si el campo desaparecía de la respuesta.)*
+}
+
+/**
+ * `GET /api/v1/buylist/sets` → `data[]` (contrato §GET /buylist/sets, v1.52 · M-47).
+ *
+ * **Es `CardSetDTO` MÁS el logo, y el logo es REQUERIDO.** Este endpoint es la **fuente
+ * client-side de la retícula de tejas del cotizador** (`MasterSetIndex mode="quoter"` no tiene
+ * endpoint de índice propio y compone sus `MasterSetSummaryDTO` desde aquí): si el campo no
+ * viaja, la teja del cotizador es la **única sin logo** de todo el producto.
+ *
+ * ⚠️ **`string | null` REQUERIDO, jamás `logoUrl?`** — es §4.41.6 literal, y el tipo es el único
+ * sitio donde ese invariante se puede hacer cumplir en el cliente:
+ * - la **clave va SIEMPRE presente**; la ausencia de logo se expresa con `null` (el proveedor no
+ *   publica logo para ese set, o el set aún no se re-sincronizó — indistinguibles a propósito y
+ *   caso **normal y permanente**, no error);
+ * - un `?` se lee como «normalmente está», invita a `s.logoUrl!` y **deja compilar** un cliente
+ *   que dejó de mapear el campo. Con el campo requerido, quitarlo **rompe el typecheck**, que es
+ *   exactamente lo que se quiere: es la grieta de `imageSmallUrl` (§5.2.1) otra vez.
+ *
+ * ⛔ PROHIBIDO construir la URL por plantilla desde el `id`.
+ */
+export interface BuylistSetDTO extends CardSetDTO {
+  logoUrl: string | null;
 }
 
 // v1.1: facetas dinámicas de "Compra" (contrato GET /catalog/facets).
@@ -913,7 +960,16 @@ export interface BuylistQuoteResponse {
 // UNA línea por carta física (ARCHITECTURE §4.16b). Mismos campos que el quote por-carta.
 export interface BuylistQuoteItemDTO {
   cardId: string;
-  productType: ProductType;
+  /**
+   * ⚠️ v1.53 (MONEY, BREAKING — contrato §6, ARCHITECTURE §4.40): `"raw"` y SOLO `"raw"`.
+   * El buylist compra raw NM (`PROJECT.md` §E; §K LOCKED: «el cotizador y el pipeline de buylist
+   * siguen siendo solo para raw»; criterio 61). Ningún DTO de buylist tuvo NUNCA dónde capturar
+   * QUÉ grado es un slab, así que el backend resolvía la referencia con un default silencioso a
+   * `graded:PSA:10` —el grado MÁS CARO— y cotizaba cualquier graduada a ese precio. El tipo
+   * literal cierra la puerta en compilación; la guarda que manda es server-side
+   * (`422 BUYLIST_RAW_ONLY`, por-ítem en el batch).
+   */
+  productType: 'raw';
   rawCondition?: RawCondition;
   finish?: Finish;
   // v1.30 (§4.29, ADITIVO): el TCGplayer `productId` (== `CardProduct.tcgplayerProductId`, el MISMO
@@ -945,7 +1001,14 @@ export interface BuylistQuotePayload {
 // lote → HTTP 200). `index` = posición 0-based en el request items[] (llave de correlación robusta
 // ante cardId+finish+productId repetidos); `cardId` se ecoa. Errores por-ítem: NOT_FOUND |
 // FINISH_NOT_AVAILABLE | PRODUCT_NOT_FOUND (v1.30: productId inexistente) | PRODUCT_CARD_MISMATCH
-// (v1.30: productId no cuelga del cardId → rechazo validado, NUNCA fusión silenciosa con el set_base).
+// (v1.30: productId no cuelga del cardId → rechazo validado, NUNCA fusión silenciosa con el set_base)
+// | BUYLIST_RAW_ONLY (v1.53: productType != "raw", ARCHITECTURE §4.40).
+//
+// ⚠️ v1.53 — `BUYLIST_RAW_ONLY` es un error POR ÍTEM, NO del request. El contrato (§6) lo pone
+// aquí a propósito: un lote de 50 con UNA línea no-raw devuelve HTTP 200 con esa línea `ok:false`
+// y las otras 49 cotizadas. Pintarlo como fallo global anularía la razón de ese diseño. El front
+// ya no puede emitirlo (`BuylistQuoteItemDTO.productType` es `"raw"`), pero un bundle viejo en
+// caché o una línea legacy sí puede recibirlo: degrada por-línea como cualquier otro código.
 export type BuylistBatchQuoteResultDTO =
   | ({ index: number; cardId: string; ok: true } & BuylistQuotePayload)
   | {
@@ -953,13 +1016,35 @@ export type BuylistBatchQuoteResultDTO =
       cardId: string;
       ok: false;
       error: {
-        code: 'NOT_FOUND' | 'FINISH_NOT_AVAILABLE' | 'PRODUCT_NOT_FOUND' | 'PRODUCT_CARD_MISMATCH';
+        code:
+          | 'NOT_FOUND'
+          | 'FINISH_NOT_AVAILABLE'
+          | 'PRODUCT_NOT_FOUND'
+          | 'PRODUCT_CARD_MISMATCH'
+          | 'BUYLIST_RAW_ONLY';
         message: string;
       };
     };
 
 export interface BuylistBatchQuoteResponse {
   results: BuylistBatchQuoteResultDTO[];
+}
+
+// ---- Política pública del cotizador (contrato §6/§11 · GET /buylist/quote-policy, v1.51.4/D43) ----
+// UN SOLO ENTERO, y el DTO importa tanto por lo que NO lleva como por lo que lleva. Es la ÚNICA
+// cifra de dinero que el cotizador público conoce y existe para el criterio 132(a) de PROJECT.md:
+// «el botón no procede y la pantalla dice CUÁNTO FALTA, con el número correcto» (el 422 del
+// servidor no puede alimentar esa pantalla: si el botón no procede, no se manda nada).
+// ⛔ NO lleva `shippingFeeCents` — bajo D43 el cotizador dice el envío EN PALABRAS y ninguna
+//    pantalla pública consume la tarifa. La exclusión es del CONTRATO, no de la disciplina del
+//    front: un valor que no llega al navegador no se puede pintar por accidente.
+// ⛔ NO lleva plazos, topes AML, umbral de INE, `currency`, `shortfallCents` ni ningún derivado
+//    del carrito (el carrito es estado del cliente; el faltante AUTORITATIVO lo da el
+//    `422 BUYLIST_MINIMUM_NOT_MET` de POST /buylist/requests).
+// ✅ Resta AUTORIZADA en cliente: `faltante = minimumRequestCents − totalCarrito`.
+// ⛔ Resta PROHIBIDA: `neto ≈ total − tarifa` (además de imposible: la tarifa no viaja).
+export interface BuylistQuotePolicyDTO {
+  minimumRequestCents: number;
 }
 
 // v1.3.1: `category` (BuylistCategory) REEMPLAZADO por `rarity`; v2.0 (P-48) retira `appliedRule`
@@ -996,15 +1081,158 @@ export interface SellItemDTO {
   rejectionReason?: string | null;
   returnDeadlineAt?: string | null;
   abandonDeadlineAt?: string | null;
+  // ---- v1.51 (M-46, contrato §11 `SellItemDTO +=`) · LA LÍNEA DE LA OFERTA ----
+  // Poblados desde que la oferta se emite. Los TRES que siguen son los ÚNICOS de ese bloque
+  // que el contrato deja viajar al CLIENTE; ver la nota de abajo sobre los que faltan.
+  /** `buy` = la compramos; `skip` = NO la compramos (se lista igual, criterio 118). */
+  offerDecision?: BuyDecision | null;
+  /**
+   * ⚠️ **El precio OFERTADO, congelado** (D2/D9): no se mueve jamás. `null` en las líneas
+   * `skip` — y **jamás `0`**: cero es un precio y en una línea que no compramos no hay precio
+   * (§23.4.2, decisión 3). La UI pinta «No entra en esta oferta», nunca `MX$ 0.00`.
+   */
+  offeredPriceCents?: number | null;
+  /**
+   * La CONDICIÓN NM de esta línea, **ya renderizada por el backend** en el `locale` del dueño
+   * y **es el mismo string que usó el correo** (criterio 161(d), §23.5a: pantalla y correo
+   * dicen lo mismo palabra por palabra). El front lo pinta VERBATIM y **no tiene copia
+   * propia**: dos plantillas distintas rompen la identidad en el primer cambio de copy.
+   * Solo existe en la proyección de CLIENTE.
+   */
+  condition?: string | null;
+  // ⚠️ **LO QUE DELIBERADAMENTE NO SE DECLARA AQUÍ.** El contrato §11 lista además
+  // `offerDerivedPriceCents`, `offerOverrideReason`, `offerPriceBasis`, `offerMarketMxnCents`
+  // y `offerMarketBracket`, y los marca **ADMIN-ONLY** (deliberación interna + cifras de la
+  // mesa de decisión). Este mismo `SellItemDTO` es el que consume el PORTAL DEL VENDEDOR, así
+  // que declararlos aquí sería dejar a mano —con autocompletado— justo los campos que el
+  // contrato prohíbe enseñarle. **Un campo que no está en el tipo no se pinta por accidente.**
+  // Cuando la mesa de decisión (M5) los necesite, entran en su DTO admin, que es el sitio donde
+  // el compilador puede seguir distinguiendo las dos audiencias.
+}
+
+/** Contrato §Enums (v1.51): el cherry-pick AL OFERTAR. */
+export type BuyDecision = 'buy' | 'skip';
+
+/**
+ * Snapshot de la dirección de ORIGEN congelado al crear la solicitud (contrato §11, v1.51.3 ·
+ * D36/D37). Es **el dato del propio vendedor** y lo que vamos a IMPRIMIR en la guía; por eso se
+ * le muestra desde el principio (§23.5e). PII: nunca en listados ni en correos.
+ */
+export interface PickupAddressSnapshotDTO {
+  line1: string;
+  line2?: string;
+  neighborhood?: string;
+  city: string;
+  state: string;
+  postalCode: string;
+  country: 'MX';
+  /** Teléfono DEL DOMICILIO (va en la etiqueta), no `User.phone`. */
+  phone: string;
+  capturedAt: string;
+}
+
+/**
+ * **LA OFERTA COMO LA VE EL VENDEDOR** (contrato §11 `SellOfferPublicDTO`, v1.51/v1.51.1).
+ *
+ * Presente **solo** cuando la oferta está emitida (`offerState='sent'`); `null` en cualquier
+ * otro caso. **NUNCA lleva `offerState`** (una `pending_authorization` le filtraría al vendedor
+ * la existencia y el orden de magnitud de nuestro tope interno) ni ninguna cifra de la mesa.
+ *
+ * **Los TRES montos, sin letras chiquitas** (D16, criterios 133/134): `grossCents` = valor de
+ * las cartas; `shippingFeeCents` = el envío que ponemos y descontamos (D31: SIEMPRE la tarifa
+ * congelada, ya no existe el caso `0`); `netCents` = **lo que se deposita**, y es **la cifra
+ * vinculante**. ⚠️ **La UI no calcula ninguno de los tres, ni la resta** (R4 de §23.0): los
+ * pinta como llegan. D31 retiró `shippingPaidByUs` y `depositField` — con una sola banda solo
+ * podían valer una cosa, así que **la UI no ramifica**: lo que se deposita es siempre el neto.
+ *
+ * **Plazos:** ISO datetime **ya resuelto** en días hábiles (`America/Mexico_City`). ⚠️ **El
+ * front NO recalcula plazos** (criterio 154): dos implementaciones de «día hábil» hacen que la
+ * pantalla y el correo digan fechas distintas.
+ */
+export interface SellOfferPublicDTO {
+  sentAt: string;
+  grossCents: number;
+  shippingFeeCents: number;
+  netCents: number;
+  acceptDeadlineAt: string;
+  acceptedAt: string | null;
+  shipDeadlineAt: string | null;
+  sellerShippedDeclaredAt: string | null;
+  carrier: string | null;
+  trackingNumber: string | null;
+  /**
+   * El texto legal **renderizado por el backend** (mismas plantillas que el correo).
+   * `perLineConditionLabel` es la frase corta que va pegada a cada monto (R2) y `consequence`
+   * el bloque de qué pasa con la carta que no llegue NM. **El front no tiene copia propia.**
+   */
+  terms: { perLineConditionLabel: string; consequence: string };
+  lines: SellItemDTO[];
 }
 
 export interface SellRequestDTO {
   sellRequestId: string;
   status: SellRequestStatus;
+  /**
+   * v1.51 (M-46, ARCHITECTURE §4.39c sitio 9) — **DERIVADO SERVER-SIDE** de los CUATRO
+   * terminales (`pagada|rechazada|abandonada|expirada`). Viaja en la LISTA y en el DETALLE
+   * de la proyección de cliente.
+   *
+   * ⚠️ **Obligatorio a propósito.** Si fuera opcional, cada consumidor escribiría un
+   * `?? <adivinanza local>` y volvería la copia del set que este campo vino a borrar.
+   * El frontend NO recodifica el set: pregunta aquí.
+   */
+  isTerminal: boolean;
+  /** v1.51.1 (D33): por qué expiró; `null`/ausente si no está `expirada`. Ver §23.1d. */
+  expiredReason?: SellRequestExpiryReason | null;
   quotedTotalCents: number;
   ineRequired: boolean;
   items: SellItemDTO[];
   createdAt?: string;
+}
+
+/**
+ * **DETALLE** de la proyección de cliente (`GET /buylist/requests/:id`).
+ *
+ * ⚠️ Es un tipo aparte **por mandato del contrato** (v1.51.8): la lista y el detalle son
+ * *shapes distintos* y el contrato lo resuelve **campo por campo**, no en bloque. `offer` es un
+ * DTO anidado y pesado (tres montos + desglose línea por línea + guía) y **no viaja en la
+ * lista**; `isTerminal` sí viaja en las dos. Separar los tipos hace que ninguna pantalla de
+ * listado pueda leer un `offer` que el servidor no manda — y que el compilador lo diga.
+ */
+export interface SellRequestDetailDTO extends SellRequestDTO {
+  /**
+   * `null` salvo con la oferta EMITIDA. ⚠️ **Opcional a propósito**, aunque el contrato lo
+   * declare siempre presente: durante el despliegue incremental del ciclo un backend anterior
+   * responde el detalle sin el campo, y el fallo tiene que caer del lado seguro. Ausente se
+   * lee **igual que `null`** ⇒ la pantalla muestra el estado PREVIO a la oferta (§23.5d), que
+   * no promete dinero, no ofrece guía y no ofrece aceptar. Lo contrario —asumir que hay
+   * oferta— sería pintar un contrato vinculante a partir de datos que no llegaron.
+   */
+  offer?: SellOfferPublicDTO | null;
+  /**
+   * v1.51.3 (D36/D37): la dirección de ORIGEN congelada. Se le muestra al vendedor **desde el
+   * principio** (es SU dato y es lo que vamos a imprimir). `null` en filas legacy.
+   * ⚠️ No confundir con NUESTRA dirección, que sigue oculta hasta la aceptación (criterio 114).
+   */
+  pickupAddress?: PickupAddressSnapshotDTO | null;
+  /**
+   * v1.51.4 (D42): **cuándo** cancelamos la última oferta que el vendedor SÍ vio; `null` en
+   * cualquier otro caso. Viaja **el cuándo y nada más** (ni motivo, ni montos, ni cuántas
+   * veces). Existe para que el portal no contradiga al correo 5.
+   */
+  lastOfferCancelledAt?: string | null;
+}
+
+/**
+ * Respuesta de `POST /buylist/requests/:id/offer-response` (contrato §6, v1.51).
+ * `acceptedAt` solo en la rama `accept`.
+ */
+export interface SellOfferResponseDTO {
+  sellRequestId: string;
+  status: 'aceptada' | 'rechazada';
+  acceptedAt?: string;
+  isTerminal: boolean;
+  offer: SellOfferPublicDTO;
 }
 
 // ---- Admin (contrato §10-11) ----
@@ -1124,7 +1352,7 @@ export interface MasterSetSummaryDTO {
   // `partSetIds` = los set-ids REALES plegados (principal + subsets); presente SOLO en masters
   // combinados. Un set normal lo omite. Sirve para que el front marque "combinado" / filtre por partes.
   partSetIds?: string[];
-  // ===== v1.52 (M-47, ARCHITECTURE §4.39, aditivo): logo de la expansión =====
+  // ===== v1.52 (M-47, ARCHITECTURE §4.41, aditivo): logo de la expansión =====
   // `string | null` REQUERIDO (no `logoUrl?`): la clave va SIEMPRE presente y la ausencia se
   // expresa con `null` (clase (P) presentación, §5.2.9). `null` es NORMAL y PERMANENTE — hay sets
   // que el proveedor no ilustra (promos, colecciones, sets viejos) y también lo rinde un set aún
@@ -1849,6 +2077,282 @@ export interface AdminSellerRef {
   email: string;
 }
 
+/**
+ * **UNA FILA DE LA MESA DE DECISIÓN** (contrato §M5 · `GET /admin/buylist/:id/decision-table`).
+ * **ADMIN-ONLY, íntegro** — nada de esto viaja jamás al vendedor.
+ *
+ * Es la pantalla que pidió el humano: *«el admin no debería decidir una compra sin saber cuánto de
+ * eso ya tiene. Ocho copias en la caja y tres más en camino es una razón perfectamente buena para no
+ * comprar la novena — y hoy esa información no está en la pantalla donde se decide.»*
+ */
+export interface BuylistDecisionLineDTO {
+  itemId: string;
+  card: CardDTO;
+  productType: ProductType;
+  finish: Finish;
+  /** D7: la identidad REAL de la pieza; entra en la llave del conteo. */
+  cardProductId: number | null;
+  /** (a) lo que se le cotizó al vendedor. */
+  quotedPriceCents: number | null;
+  /** Lo que produce la CURVA VIGENTE AHORA — **no** se hereda de la cotización. */
+  derivedPriceCents: number | null;
+  priceBasis: PriceBasis;
+  /**
+   * ⚠️ **El par `(derivedPriceCents, pendingReason)` tiene TRES combinaciones legales**, y la
+   * lectura ingenua «sin precio ⇒ hay motivo» es **falsa**:
+   * - `(número, null)` ⇒ precio derivado normalmente.
+   * - `(null, no_market | premium_at_floor)` ⇒ **el mercado se consultó** y no dio precio.
+   * - `(null, null)` ⇒ **DERIVA DE IDENTIDAD**: el `finish` snapshoteado ya no está en
+   *   `availableFinishes`, o el `cardProductId` no resuelve. **El mercado ni se consultó.**
+   *
+   * El discriminador **es el par**; no hay campo nuevo y no se añade `identity_drift` al enum.
+   */
+  pendingReason: PendingPriceReason | null;
+  /**
+   * **LOS CUATRO SUMANDOS.** `position` = *«lo que YA tengo o YA debo, SIN CONTAR esta
+   * solicitud»*: los tres de **promesa** (`verifying`/`inTransit`/`committed`) excluyen la
+   * solicitud en pantalla; `stock` **no** se excluye —una pieza en bóveda es un **hecho**, no una
+   * promesa—. Sin esa exclusión, la mesa de una solicitud ya `ofertada` contaría sus propias
+   * líneas y el operador decidiría contra una posición inflada por él mismo.
+   *
+   * ⚠️ **`null` NO significa cero**: significa que no se pudo contar (ver `positionUnavailable`).
+   */
+  position: {
+    stock: number;
+    verifying: number;
+    inTransit: number;
+    committed: number;
+    total: number;
+  } | null;
+  /**
+   * ⚠️ **`true` ⇒ NO se pinta `0`: se pinta «sin conteo».** Un cero que en realidad significa «no
+   * pude contar» **se ve confiable** y empuja a comprar de más — y aquí el daño es capital mal
+   * puesto. La tira entera desaparece y en su lugar va una frase (§23.7).
+   */
+  positionUnavailable?: boolean;
+  /**
+   * ⚠️ **LA SUGERENCIA NUNCA BLOQUEA** (D6): el servidor **no** valida la oferta contra ella, y la
+   * UI tampoco. El admin compra una línea con `do_not_buy` y descarta una con `buy`, **sin
+   * fricción, sin permiso extra y sin confirmación adicional**. Se escribe para que nadie lo
+   * «endurezca» por parecer prudente: endurecerlo **contradice PROJECT.md**.
+   *
+   * `verdict: "none"` ⇒ **no se infiere veredicto** (pasa, entre otros, con el conteo caído).
+   */
+  suggestion: {
+    verdict: 'buy' | 'do_not_buy' | 'none';
+    rule: 'bounty_target' | 'variant_cap' | null;
+    thresholdQty: number | null;
+    bountyActive: boolean;
+  } | null;
+}
+
+/**
+ * Totales de la mesa (contrato §M5). ⚠️ **Es una PREVISUALIZACIÓN, no un compromiso**: se calcula
+ * con la curva y los diales **de este instante**. Lo vinculante se congela **al emitir**.
+ *
+ * ⚠️ **El front recalcula la SUMA al desmarcar; el UMBRAL y el VEREDICTO los manda el servidor.**
+ * `minimumOfferNetCents` es un dial editable sin redeploy: una constante en el frontend quedaría
+ * desincronizada **en silencio** la primera vez que alguien lo mueva — y en una pantalla de dinero
+ * eso es un aviso que aparece cuando no toca, o que no aparece cuando sí.
+ */
+export interface BuylistDecisionTotalsDTO {
+  /** Σ de las líneas marcadas `buy` en esta previsualización (= la selección POR DEFECTO). */
+  buyableGrossCents: number;
+  /** Tarifa VIGENTE (D31: siempre; se congela al EMITIR, no aquí). */
+  shippingFeeCents: number;
+  netCents: number;
+  minimumOfferNetCents: number;
+  /** DERIVADO por el servidor = `minimumOfferNetCents + shippingFeeCents`. */
+  requiredGrossCents: number;
+  /** DERIVADO por el servidor. **Aviso en la mesa**; quien bloquea es `POST …/offer`. */
+  netBelowMinimum: boolean;
+}
+
+export interface BuylistDecisionTableDTO {
+  sellRequestId: string;
+  status: SellRequestStatus;
+  seller?: AdminSellerRef;
+  quotedTotalCents: number;
+  lines: BuylistDecisionLineDTO[];
+  totals: BuylistDecisionTotalsDTO;
+  /** Tope del operador vigente. El front **no** lo compara: usa `requiresAuthorization`. */
+  operatorCapCents: number;
+  /**
+   * `true` ⇒ la oferta **no saldrá sola**: queda esperando al súper-admin. **Aviso, no bloqueo**
+   * (el operador SÍ puede prepararla). Cambia **el verbo del botón**, no su disponibilidad.
+   */
+  requiresAuthorization: boolean;
+  /**
+   * v1.51.3 (D36) — derivado server-side. **Aviso, no bloqueo** en la mesa; quien bloquea es
+   * `POST …/offer` con `422 PICKUP_ADDRESS_MISSING`. Existe para que el operador lo vea **antes**
+   * de armar el cherry-pick entero y llevarse el `422` al final por un motivo que no tiene nada
+   * que ver con las líneas. **Es un booleano y no la dirección**: la mesa decide compras, no
+   * muestra datos personales.
+   */
+  pickupAddressMissing: boolean;
+}
+
+/** Una línea del body de `POST /admin/buylist/:id/offer`. */
+export interface BuylistOfferLineInput {
+  itemId: string;
+  decision: BuyDecision;
+  overridePriceCents?: number;
+  overrideReason?: string;
+}
+
+/**
+ * Respuesta de `POST /admin/buylist/:id/offer`.
+ * ⚠️ **El CÓDIGO lo determina el RESULTADO**: `200` cuando la oferta **salió** y `202` cuando quedó
+ * `pending_authorization`. Los dos son éxito con el **mismo shape**; lo que cambia es **si el
+ * correo salió**. `offerState` lo dice sin ambigüedad, y es lo que la UI debe leer.
+ */
+export interface BuylistOfferResultDTO {
+  sellRequestId: string;
+  status: SellRequestStatus;
+  offerState: 'pending_authorization' | 'sent' | 'cancelled' | null;
+  offerSentAt: string | null;
+  offerGrossCents: number;
+  offerShippingFeeCents: number;
+  offerNetCents: number;
+  offerAcceptDeadlineAt: string | null;
+  requiresAuthorization: boolean;
+  items: SellItemDTO[];
+}
+
+// ---- v1.51 · las CUATRO COLAS del ciclo + la guía (contrato §M5). Todas ADMIN-ONLY ----
+
+/** Respuesta de `POST /admin/buylist/:id/guide`. ⚠️ **NO mueve el estado**: solo congela el plazo. */
+export interface BuylistGuideResultDTO {
+  sellRequestId: string;
+  status: SellRequestStatus;
+  shipmentCarrier: string | null;
+  shipmentTrackingNumber: string | null;
+  guideSentAt: string | null;
+  /**
+   * ⚠️ **El reloj del vendedor arranca con la ENTREGA DE LA GUÍA, no con la aceptación.** Una guía
+   * entregada dos días después de aceptar corre el vencimiento dos días: *sería injusto correrle
+   * el reloj mientras espera una etiqueta que depende de NOSOTROS.* Y re-capturar para corregir un
+   * typo **no re-congela** una fecha ya comunicada.
+   */
+  shipDeadlineAt: string | null;
+}
+
+/**
+ * Respuesta de `POST /admin/buylist/:id/confirm-shipment` — **lo ÚNICO que mueve a `en_transito`**.
+ *
+ * ⚠️ **`guideActualCostCents` NO ENTRA JAMÁS en lo que se le deposita al vendedor.** Al vendedor se
+ * le descuenta **la tarifa congelada que aceptó**, cueste lo que cueste la etiqueta real. Es insumo
+ * **de reporte** (M7), no de pago.
+ */
+export interface BuylistShipmentConfirmResultDTO {
+  sellRequestId: string;
+  status: 'en_transito';
+  shipmentConfirmedAt: string;
+  shipmentConfirmedBy: string;
+  guideActualCostCents: number | null;
+}
+
+/** Fila de «ofertas por autorizar». ⚠️ **Estas filas se mueren solas**: ver `caducityAt`. */
+export interface PendingOfferAuthorizationRowDTO {
+  sellRequestId: string;
+  seller: AdminSellerRef;
+  preparedBy: string;
+  offerPreparedAt: string;
+  offerGrossCents: number;
+  operatorCapCents: number;
+  excessCents: number;
+  lineCount: number;
+  buyLineCount: number;
+  /**
+   * Cuándo **caduca la solicitud** si nadie autoriza. Derivado server-side del ANCLA del ciclo, no
+   * de `createdAt`. *Una cola cuyas filas se mueren sin avisar es una cola que se trabaja a ciegas.*
+   */
+  caducityAt: string;
+}
+
+/** Fila de «por confirmar envío» (el vendedor ya dijo «ya lo mandé»). */
+export interface PendingShipmentConfirmationRowDTO {
+  sellRequestId: string;
+  seller: AdminSellerRef;
+  sellerShippedDeclaredAt: string;
+  shipDeadlineAt: string | null;
+  carrier: string | null;
+  trackingNumber: string | null;
+  /**
+   * ⚠️ **`null` NO es cero: es «no se pudo calcular»** (el cálculo de días hábiles **lanza** fuera
+   * de la cobertura del calendario, por doctrina). La fila **se degrada y la cola se pinta** —
+   * prohibido que una fila devuelva `500` en un listado.
+   */
+  businessDaysWaiting: number | null;
+  businessDaysUnavailable?: true;
+  /**
+   * ⚠️ **Falla hacia `true`, y el front NO lo recalcula.** *«Llevo demasiado esperando»* y *«no sé
+   * cuánto llevo»* piden **la misma acción humana**, y un `false` sacaría la fila del filtro de
+   * alertas — **la más rara sería la más escondida**.
+   *
+   * ⚠️ **La alerta NO HACE NADA MÁS**: no expira, no cancela, no mueve el estado y no suma a «en
+   * camino». *El vendedor ya cumplió; el pendiente es nuestro, así que el remedio es hacerlo
+   * visible, no castigarlo.*
+   */
+  alert: boolean;
+}
+
+/**
+ * Fila de «guías por cancelar» (D22). ⚠️ **NO desaparece sola**: sale de la cola **únicamente** por
+ * `POST …/guide/cancellation-done`. *Una etiqueta comprada y olvidada es dinero tirado que nadie ve.*
+ */
+export interface PendingGuideCancellationRowDTO {
+  sellRequestId: string;
+  seller: AdminSellerRef;
+  carrier: string;
+  trackingNumber: string;
+  guideSentAt: string;
+  guideCancellationPendingAt: string;
+  /** Por qué se abrió la tarea. Puede NO ser terminal: la corrección de dirección la abre en vivo. */
+  closedStatus: SellRequestStatus;
+  expiredReason: SellRequestExpiryReason | null;
+}
+
+/**
+ * Fila de «vendedores con solicitudes vivas» (D12). Es *«la lista de gente a la que le debemos una
+ * respuesta»*. ⚠️ **`phone` es dato de contacto operativo de back-office** —sin enmascarar, sin
+ * reveal auditado— y **PROHIBIDO en toda superficie pública**. `null` en cuentas de Google/viejas.
+ */
+export interface LiveSellerRowDTO {
+  seller: { id: string; name: string; email: string; phone: string | null };
+  liveCount: number;
+  oldestCreatedAt: string;
+  latestStatus: SellRequestStatus;
+}
+
+/**
+ * Fila de «listas para publicar» (fase 8, criterio 125). *Comprar bien y dejar la carta en una caja
+ * sin precio es comprar mal.*
+ *
+ * ⚠️ **AUTO-PUBLICACIÓN, SIN BOTÓN:** la pieza **sale sola** de la cola en cuanto `missing` queda
+ * vacío. Esta cola es **SOLO VISIBILIDAD**: no captura precios de venta, no los sugiere y no los
+ * hereda del costo de compra.
+ */
+export interface PendingPublishRowDTO {
+  inventoryItemId: string;
+  folio: string;
+  card: CardDTO;
+  productType: ProductType;
+  finish: Finish;
+  cardProductId: number | null;
+  locationId: string | null;
+  listPriceCents: number | null;
+  resolvedSalePriceCents: number | null;
+  priceBasis: PriceBasis | null;
+  /** Deep-link a la cola de precio pendiente de M2. */
+  pendingPriceEntryId: string | null;
+  /** QUÉ LE FALTA. Vacío ⇒ la pieza ya no debería estar aquí. */
+  missing: ('location' | 'price')[];
+  acquisitionType: AcquisitionType;
+  sourceSellRequestItemId: string | null;
+  createdAt: string;
+}
+
 export interface AdminBuylistDTO {
   id: string;
   userId: string;
@@ -1856,16 +2360,105 @@ export interface AdminBuylistDTO {
   // tolerancia a filas sin join; la UI cae a `userId` cuando falta.
   seller?: AdminSellerRef;
   status: SellRequestStatus;
+  /**
+   * v1.51 (M-46, contrato §M5 · GET /admin/buylist) — **DERIVADO SERVER-SIDE** de los CUATRO
+   * terminales. Existe literalmente para BORRAR `REQUEST_TERMINAL` de `M5View.tsx`
+   * (ARCHITECTURE §4.39c sitio 9, la quinta de cinco copias y la única fuera del backend).
+   * **El frontend no lo sustituye por otra constante propia: el servidor le dice.**
+   */
+  isTerminal: boolean;
+  /**
+   * v1.51.8 (§4.39c **sitio 10**) · ⚠️ **v1.61 ([§M5-V](docs/API_CONTRACT.md)) — CINCO TÉRMINOS.**
+   * **DERIVADO SERVER-SIDE. DINERO SALIENTE. ADMIN-ONLY.**
+   * ```
+   * isPayable = status ∈ SELL_REQUEST_PAYABLE_STATES
+   *             ∧  receivedAt IS NOT NULL          // ⚠️ v1.57 — «RECIBIMOS»
+   *             ∧  verifiedAt IS NOT NULL          //            «y VERIFICAMOS»
+   *             ∧  approvedTotalCents IS NOT NULL  // ⚠️ v1.61 V-a — «y APROBAMOS ALGO»
+   *             ∧ (offerSentAt IS NULL ∨ ninguna línea `buy` sin veredicto)   // v1.61 V-b
+   * ```
+   * ⛔ **Las formas de DOS (v1.51.8) y TRES (v1.57) términos están SUPERSEDED.** El tercero cerró
+   * `BL-35` eje 2 —`verify` no exige predecesor, así que alcanzarlo desde cualquier estado vivo
+   * volvía pagable una solicitud **cuya carta nunca llegó**—; los dos de v1.61 cierran `BL-45`:
+   * **V-a** impide *pagar la oferta íntegra por CERO cartas* (⛔ **`IS NOT NULL`, jamás `> 0`: el
+   * depósito de cero de D40 se sigue pagando**) y **V-b** impide pagar dejando líneas COMPRADAS
+   * sin juzgar — mercancía que después **ninguna ruta de la API puede convertir a inventario**.
+   * *Un término implícito no es un término.*
+   *
+   * Sale del **mismo cuerpo** que el pre-check y la guarda atómica de `pay-spei`: tres lectores,
+   * una regla. Existe para borrar la **sexta** copia (`canPay` en `M5View`), que además replicaba
+   * **solo el primero de los términos** ⇒ la UI habilitaba el pago donde el servidor responde
+   * `422`. *No era una copia que pudiera desincronizarse algún día: ya lo estaba.*
+   *
+   * ⚠️ **Ni `receivedAt`, ni `verifiedAt`, ni `offerSentAt` viajan en este DTO** (ni en ningún
+   * otro): son columnas del backend. El cliente **no recompone la fórmula** — lee este booleano.
+   * *La lección de v1.57 fue que la fórmula creció y las copias no; la de v1.61 es que creció otra
+   * vez. La única defensa es no tener copia.*
+   *
+   * ⚠️ **ACTOR-INDEPENDIENTE, y NO es un permiso.** Contesta *«¿esta solicitud está en condición
+   * de pagarse?»* (propiedad de **la fila**), no *«¿puedo pagarla yo?»* (propiedad **del actor**).
+   * El rol se queda en el cliente —`isSuperAdmin && req.isPayable === true`— y el servidor lo
+   * impone igual con `MoneyOutGuard`. Un `isPayable: true` **no autoriza** un pago.
+   *
+   * ⚠️ **Jamás en el DTO de cliente** (a diferencia de `isTerminal`, que viaja en las dos): al
+   * vendedor le anticiparía un depósito que aún puede no ocurrir.
+   */
+  isPayable: boolean;
+  /**
+   * v1.61 (§M5-V.5, `BL-45`) — **ADITIVO, DERIVADO SERVER-SIDE, ADMIN-ONLY.** Cuántas líneas
+   * **`offerDecision='buy'`** siguen **sin veredicto** (`itemStatus ∉ {aprobada, rechazada,
+   * convertida_inventario}`). ⚠️ **Las `skip` NO cuentan** (§M5-V.0): nunca pueden aprobarse.
+   *
+   * **Es lo que permite a la UI decir POR QUÉ el botón de pagar está apagado** —y a dónde ir—, en
+   * vez de dejar al `super_admin` delante de un control muerto sin explicación.
+   *
+   * ⛔ **El front NO lo cuenta él mismo** aunque tenga `items[]`: el set de estados «sin veredicto»
+   * **es la regla**, y transcribirlo aquí sería la **séptima** copia de un set de estados en un
+   * flujo de dinero — justo lo que `isTerminal` e `isPayable` vinieron a borrar. **El servidor
+   * manda el número.**
+   *
+   * ⚠️ **Opcional a propósito, y se consume defensivo (`?? 0`)**: es aditivo y va **backend
+   * primero, frontend después**, así que una respuesta de un backend anterior a v1.61 no debe
+   * pintar «faltan undefined cartas». *Fallar hacia «no sé por qué» es correcto; inventar un
+   * conteo, no.*
+   */
+  pendingDecisionItemCount?: number;
+  /** v1.51.1 (D33): por qué expiró; `null`/ausente si no está `expirada`. Ver §23.1d. */
+  expiredReason?: SellRequestExpiryReason | null;
   quotedTotalCents: number;
   // Total recomputado por el backend EXCLUYENDO ítems rechazados (invariante v1.18).
   // SEC-A1: la UI solo lo muestra, nunca lo calcula.
   approvedTotalCents?: number;
   createdAt: string;
+  // ---- v1.51 (M-46) · el PIPELINE del ciclo, ADMIN-ONLY ----
+  /**
+   * ⚠️ **ADMIN-ONLY, jamás en un DTO de cliente**: una oferta `pending_authorization` le filtraría
+   * al vendedor la existencia y el orden de magnitud de nuestro tope interno.
+   */
+  offerState?: 'pending_authorization' | 'sent' | 'cancelled' | null;
+  /**
+   * La guía capturada. ⚠️ **Que exista NO significa que el paquete viaje**: capturar la guía **no
+   * mueve el estado**. Solo `confirm-shipment` mueve a `en_transito`.
+   */
+  shipmentCarrier?: string | null;
+  shipmentTrackingNumber?: string | null;
+  /** «Capturar ES entregar» (criterio 123): es el instante en que arranca el reloj del vendedor. */
+  guideSentAt?: string | null;
+  /** Congelado al capturar la guía. `null` mientras no haya guía ⇒ **la solicitud no expira**. */
+  shipDeadlineAt?: string | null;
+  /**
+   * El «ya lo mandé» del vendedor. ⚠️ **NO mueve el estado y NO suma a «en camino»**: *es una
+   * promesa, no un paquete.* Lo único que hace es **detener SU reloj**, porque un plazo del
+   * vendedor solo puede vencer por algo que dependa del vendedor.
+   */
+  sellerShippedDeclaredAt?: string | null;
+  /** Costo REAL de la etiqueta. ⚠️ **NO participa en lo que se le deposita al vendedor.** */
+  guideActualCostCents?: number | null;
   items: SellItemDTO[];
 }
 
 // v1.18-buylist-rejects (contrato §M5/§11): fila de GET /admin/buylist/rejected-items
-// (pestaña «Rechazadas», transversal a solicitudes). `reason` = rejectionReason. La
+// (pestaña «Piezas rechazadas», transversal a solicitudes). `reason` = rejectionReason. La
 // "fase" (devolución / abandono / vencida) la deriva el FRONT de now vs las fechas.
 export interface RejectedSellItemDTO {
   id: string;
@@ -2638,7 +3231,7 @@ export interface SettingsDTO {
   priceProvider?: PriceProvider;
   catalogSyncFromDate: string;
   /**
-   * v1.51-one-dial (§M10, M-46): **EL** —y único— interruptor del «gancho de grading»
+   * v1.51-one-dial (§M10, M-48 —era `M-46`, v1.54(1)): **EL** —y único— interruptor del «gancho de grading»
    * (`grading_hook_enabled`, enum `on | off`, **seed `off` fail-closed**).
    *
    * **Gobierna las DOS cosas** (ARCHITECTURE §4.38r):

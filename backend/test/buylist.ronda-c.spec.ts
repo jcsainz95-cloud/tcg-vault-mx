@@ -5,6 +5,7 @@ import { PricingService } from '../src/modules/pricing/pricing.service';
 import { SettingsService } from '../src/modules/settings/settings.service';
 import { UsersService } from '../src/modules/users/users.service';
 import { PiiCryptoService } from '../src/common/crypto/pii-crypto.service';
+import { SELL_REQUEST_TERMINAL_STATES } from '../src/common/sell-request-states';
 
 const pii = new PiiCryptoService(new ConfigService({}));
 
@@ -29,12 +30,41 @@ describe('itemDecision — RB-6 approvedTotalCents + RB-3 cap por-KYC', () => {
     aggregateSum?: number | null;
     aggregateCount?: number;
     settings?: SettingsService;
+    /** v1.51.5 · BL-14: estado de la SOLICITUD dueña del ítem. */
+    requestStatus?: string;
+    /** v1.51.5 · BL-14: `count` que devuelve la guarda del motor (0 = chocó con un terminal). */
+    guardCount?: number;
   }) {
-    const withRel = { ...opts.item, sellRequest: { userId: 'u1' } };
+    // v1.51.5 · BL-14: el `include` de `itemDecision` ahora trae el ESTADO de la solicitud (sin él,
+    // la guarda de terminal no podría comprobarse) — el fixture lo espeja. `status` por defecto:
+    // `verificacion` (viva), que es el escenario de estos tests.
+    const current: any = { ...opts.item };
+    const withRel = {
+      ...current,
+      sellRequest: {
+        userId: 'u1',
+        status: opts.requestStatus ?? 'verificacion',
+        // ⚠️ v1.58 · §M5-R (BL-39): la constancia de RECEPCIÓN. Estos fixtures deciden líneas de una
+        // solicitud VIVA con la carta ya en nuestras manos; sin este dato describirían un escenario
+        // imposible. El caso contrario es el sujeto de `buylist.m5r-received-approve.spec.ts`.
+        receivedAt: new Date('2026-09-02T00:00:00Z'),
+      },
+    };
     const sellRequestUpdates: any[] = [];
     const prisma: any = {
       sellRequestItem: {
-        findUnique: jest.fn().mockResolvedValue(withRel),
+        // La PRIMERA lectura trae las relaciones; la RE-lectura post-`updateMany` trae la fila ya
+        // escrita (el servicio ya no usa el valor de retorno de un `update`).
+        findUnique: jest.fn(async (args: any) =>
+          args?.include ? { ...current, ...withRel, ...current } : { ...current },
+        ),
+        // v1.51.5 · BL-14: la escritura pasa a `updateMany` + `count === 1` con la guarda de terminal
+        // en el `where`. El fixture aplica el `data` sobre la fila viva para que la re-lectura vea lo
+        // escrito, igual que haría el motor.
+        updateMany: jest.fn(async ({ data }: any) => {
+          Object.assign(current, data);
+          return { count: opts.guardCount ?? 1 };
+        }),
         update: jest.fn(async ({ data }: any) => ({ id: opts.item.id, ...data })),
         aggregate: jest.fn().mockResolvedValue({
           _sum: { approvedPriceCents: opts.aggregateSum ?? null },
@@ -50,7 +80,15 @@ describe('itemDecision — RB-6 approvedTotalCents + RB-3 cap por-KYC', () => {
           return {};
         }),
         // v1.24-buylist-request-reject: guarda atómica «no pisar terminal» de la auto-transición.
-        updateMany: jest.fn(async () => ({ count: 1 })),
+        // ⚠ v1.56 (§M5-T/BL-35): **el recompute del total también pasa por aquí ahora.** Dejó de ser un
+        // `update({where:{id}})` a secas —escribía un MONTO sobre una fila que podía estar ya
+        // pagada y cerrada— y es un `updateMany` guardado como sus hermanos. Se recogen las dos
+        // formas en la MISMA lista para que las aserciones de abajo sigan mirando *la escritura*,
+        // no *el verbo de Prisma*.
+        updateMany: jest.fn(async (args: any) => {
+          sellRequestUpdates.push(args);
+          return { count: 1 };
+        }),
         findMany: jest.fn().mockResolvedValue([]), // AML-1: pagos previos del mes (ninguno).
       },
       kycProfile: {
@@ -87,7 +125,15 @@ describe('itemDecision — RB-6 approvedTotalCents + RB-3 cap por-KYC', () => {
     );
     expect(totalUpdate).toBeDefined();
     expect(totalUpdate.data.approvedTotalCents).toBe(8000);
-    expect(totalUpdate.where).toEqual({ id: 'sr-1' });
+    // ⚠ v1.56 (§M5-T/BL-35): el `where` ya no es `{id}` a secas. Lleva la guarda de vida en LOS DOS ejes
+    // (no-terminal **y** `closedAt: null`), porque este `update` escribe un MONTO y la ventana entre
+    // el commit de la decisión por-ítem y este recálculo permite que `paySpei` cierre la fila en
+    // medio: reescribir el bruto de una `pagada` mueve retroactivamente el acumulado AML del mes.
+    expect(totalUpdate.where).toEqual({
+      id: 'sr-1',
+      status: { notIn: [...SELL_REQUEST_TERMINAL_STATES] },
+      closedAt: null,
+    });
   });
 
   it('RB-6: sin ítems aprobados, approvedTotalCents = null (distingue "sin aprobar" de "cero")', async () => {
@@ -114,7 +160,8 @@ describe('itemDecision — RB-6 approvedTotalCents + RB-3 cap por-KYC', () => {
     });
     const res = await svc.itemDecision('sri-1', 'approve', 500_000);
     expect(res).toMatchObject({ itemStatus: 'aprobada', approvedPriceCents: 500_000 });
-    expect(prisma.sellRequestItem.update).toHaveBeenCalled();
+    // v1.51.5 · BL-14: la escritura es `updateMany` guardado, no un `update` a pelo.
+    expect(prisma.sellRequestItem.updateMany).toHaveBeenCalled();
   });
 
   it('RB-3: sin override, el mismo monto (500,000 > dial 300,000) se RECHAZA por el cap AML', async () => {
@@ -133,17 +180,29 @@ describe('itemDecision — RB-6 approvedTotalCents + RB-3 cap por-KYC', () => {
 describe('closedAt — SEC-D2 sella el cierre en transiciones terminales', () => {
   it('respond(decline) → rechazada con closedAt', async () => {
     const updates: any[] = [];
+    // v1.51 · BL-2: la transición de `respond` ya NO es un `update` a pelo — va en el `updateMany`
+    // CONDICIONAL que hace de guarda atómica (`count===1`), dentro de una transacción. `closedAt` se
+    // sella ahí, en el mismo `data`.
+    const row = {
+      id: 'sr-1',
+      userId: 'u1',
+      status: 'verificacion',
+      adjustmentSentAt: new Date('2026-08-02T00:00:00Z'),
+      closedAt: null,
+    };
     const prisma: any = {
       // v2.1.6 (AML-1, §4.36.6a): `paySpei` re-verifica el tope MENSUAL contra el dinero que SALE.
       // Sin KYC override y sin pagos previos del mes, el control es no-op y el pago procede.
       kycProfile: { findUnique: jest.fn().mockResolvedValue(null) },
       sellRequest: {
-        findUnique: jest.fn().mockResolvedValue({ id: 'sr-1', userId: 'u1', status: 'aprobada' }),
-        update: jest.fn(async (args: any) => {
+        findUnique: jest.fn(async () => ({ ...row })),
+        updateMany: jest.fn(async (args: any) => {
           updates.push(args);
-          return { id: 'sr-1', ...args.data };
+          return { count: 1 };
         }),
       },
+      sellRequestItem: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
+      $transaction: jest.fn(async (cb: any, _opts?: any) => cb(prisma)),
     };
     const svc = new BuylistService(
       prisma as PrismaService,
@@ -165,8 +224,8 @@ describe('closedAt — SEC-D2 sella el cierre en transiciones terminales', () =>
       sellRequest: {
         findUnique: jest
           .fn()
-          .mockResolvedValueOnce({ id: 'sr', status: 'aprobada', verifiedAt: new Date() })
-          .mockResolvedValue({ id: 'sr', status: 'pagada', verifiedAt: new Date() }),
+          .mockResolvedValueOnce({ id: 'sr', status: 'aprobada', receivedAt: new Date(), verifiedAt: new Date(), approvedTotalCents: 50_000 })
+          .mockResolvedValue({ id: 'sr', status: 'pagada', receivedAt: new Date(), verifiedAt: new Date(), approvedTotalCents: 50_000 }),
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
         findMany: jest.fn().mockResolvedValue([]), // AML-1: pagos previos del mes (ninguno).
       },

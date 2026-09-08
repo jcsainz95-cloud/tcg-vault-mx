@@ -4,6 +4,8 @@ import {
   getCatalogFacets,
   getPortfolioHistory,
   getBuylistQuote,
+  getBuylistQuotePolicy,
+  createSellRequest,
   batchQuote,
   BUYLIST_QUOTE_BATCH_MAX,
   loginWithGoogle,
@@ -25,8 +27,12 @@ import {
   createDispute,
   getDisputes,
   getSellRequests,
+  getSellRequest,
+  respondToSellOffer,
   decideBuylistItem,
   getAdminRejectedBuylistItems,
+  getSets,
+  listBuylistSets,
 } from './api';
 import { getToken, setToken } from './api-client';
 import { config } from './config';
@@ -427,7 +433,7 @@ describe('api (rama mock) · WS-F Pass 2 (F4/F5/F6)', () => {
     expect(new Date(res.returnDeadlineAt!).getTime()).toBe(t0 + 7 * DAY);
     expect(new Date(res.abandonDeadlineAt!).getTime()).toBe(t0 + 30 * DAY);
 
-    // La pestaña «Rechazadas» (transversal) lo lista con seller + reason + plazos.
+    // La pestaña «Piezas rechazadas» (transversal) lo lista con seller + reason + plazos.
     const page = await getAdminRejectedBuylistItems();
     const row = page.data.find((r) => r.id === 'sri-9')!;
     expect(row).toBeTruthy();
@@ -618,5 +624,230 @@ describe('api (rama REAL) · WS-F endpoints, headers y errores', () => {
     expect(list).toHaveLength(1);
     expect(String(fetchMock.mock.calls[0][0])).toContain('/disputes');
     expect(fetchMock.mock.calls[0][1].method ?? 'GET').toBe('GET');
+  });
+});
+
+/**
+ * v1.51.4/v1.51.5 (D41/D43) + v1.51.3 (D36/D37) — el ESPEJO mock de la política del cotizador y
+ * de las tres puertas nuevas de `POST /buylist/requests`. Si el mock deja de espejar el contrato,
+ * la UI se prueba contra una mentira: por eso el shape se afirma campo por campo.
+ */
+describe('api · buylist quote-policy (D43) y las puertas de POST /buylist/requests (D36/D37)', () => {
+  const ITEMS = [{ cardId: 'c-charizard', productType: 'raw' as const, rawCondition: 'NM' as const }];
+
+  it('getBuylistQuotePolicy devuelve UN SOLO campo: el mínimo (⛔ sin `shippingFeeCents`)', async () => {
+    const policy = await getBuylistQuotePolicy();
+    // La lista de lo que NO lleva es CERRADA: cualquier dial extra en ruta pública es un defecto.
+    expect(Object.keys(policy)).toEqual(['minimumRequestCents']);
+    expect(typeof policy.minimumRequestCents).toBe('number');
+    expect('shippingFeeCents' in policy).toBe(false);
+  });
+
+  it('getBuylistQuotePolicy REAL → GET /buylist/quote-policy (sin body, sin params)', async () => {
+    const originalUseMocks = config.useMocks;
+    const fetchMock = vi.fn().mockResolvedValue({
+      status: 200,
+      ok: true,
+      json: async () => ({ minimumRequestCents: 50000 }),
+    } as unknown as Response);
+    config.useMocks = false;
+    vi.stubGlobal('fetch', fetchMock);
+    try {
+      await expect(getBuylistQuotePolicy()).resolves.toEqual({ minimumRequestCents: 50000 });
+      const [url, init] = fetchMock.mock.calls[0];
+      expect(String(url)).toContain('/buylist/quote-policy');
+      expect(init?.method ?? 'GET').toBe('GET');
+      expect(init?.body).toBeUndefined();
+    } finally {
+      config.useMocks = originalUseMocks;
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('sin `addressId` NO se crea nada: 422 PICKUP_ADDRESS_REQUIRED (hermano de CLABE_REQUIRED)', async () => {
+    await expect(
+      // @ts-expect-error — el tipo YA lo exige; el test cubre al cliente desactualizado.
+      createSellRequest({ items: ITEMS, clabe: '002010077777777771' }),
+    ).rejects.toMatchObject({ status: 422, code: 'PICKUP_ADDRESS_REQUIRED' });
+  });
+
+  it('`addressId` ajeno o inexistente: 422 PICKUP_ADDRESS_NOT_FOUND (misma respuesta, anti-IDOR)', async () => {
+    await expect(
+      createSellRequest({ items: ITEMS, addressId: 'addr-de-otro', clabe: '002010077777777771' }),
+    ).rejects.toMatchObject({ status: 422, code: 'PICKUP_ADDRESS_NOT_FOUND' });
+  });
+
+  it('con dirección propia crea la solicitud y devuelve el shape del contrato', async () => {
+    const res = await createSellRequest({
+      items: ITEMS,
+      addressId: fx.mockAddresses[0].id,
+      clabe: '002010077777777771',
+    });
+    expect(res.status).toBe('cotizada');
+    expect(res.items).toHaveLength(1);
+    expect(res.quotedTotalCents).toBeGreaterThan(0);
+  });
+
+  it('por debajo del mínimo: 422 BUYLIST_MINIMUM_NOT_MET con el `shortfallCents` del SERVIDOR', async () => {
+    // Zapdos entra en `precio_pendiente` ⇒ aporta 0 al total ⇒ la solicitud no alcanza el mínimo.
+    await expect(
+      createSellRequest({
+        items: [{ cardId: 'c-zapdos', productType: 'raw', rawCondition: 'NM', finish: 'holofoil' }],
+        addressId: fx.mockAddresses[0].id,
+        clabe: '002010077777777771',
+      }),
+    ).rejects.toMatchObject({
+      status: 422,
+      code: 'BUYLIST_MINIMUM_NOT_MET',
+      details: {
+        minimumCents: fx.mockBuylistQuotePolicy.minimumRequestCents,
+        totalCents: 0,
+        shortfallCents: fx.mockBuylistQuotePolicy.minimumRequestCents,
+      },
+    });
+  });
+});
+
+/**
+ * v1.51 (M-46) — el DETALLE del vendedor y la RESPUESTA A LA OFERTA. Contrato §6.
+ * Se prueban las dos ramas: la real (URL, método y **forma exacta del body**) y la mock
+ * (que hace de servidor falso y replica la tabla de transición, incluidos sus dos `409`).
+ */
+describe('api · el ciclo de la oferta del buylist (contrato §6, v1.51)', () => {
+  const originalUseMocks = config.useMocks;
+  afterEach(() => {
+    config.useMocks = originalUseMocks;
+    setToken(null);
+    vi.unstubAllGlobals();
+  });
+
+  it('rama REAL: offer-response manda EXACTAMENTE { decision } — ningún monto viaja (SEC-A1)', async () => {
+    config.useMocks = false;
+    setToken('access-token');
+    const fetchMock = vi.fn().mockResolvedValue({
+      status: 200,
+      ok: true,
+      json: async () => ({ sellRequestId: 'sr-1', status: 'aceptada', isTerminal: false, offer: {} }),
+    } as unknown as Response);
+    vi.stubGlobal('fetch', fetchMock);
+
+    await respondToSellOffer('sr-1', 'accept');
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(String(url)).toContain('/buylist/requests/sr-1/offer-response');
+    expect(init.method).toBe('POST');
+    // La defensa es la FORMA del DTO: no hay campo de monto que manipular.
+    expect(JSON.parse(init.body as string)).toEqual({ decision: 'accept' });
+  });
+
+  it('rama REAL: el detalle pega a GET /buylist/requests/:id', async () => {
+    config.useMocks = false;
+    setToken('access-token');
+    const fetchMock = vi.fn().mockResolvedValue({
+      status: 200,
+      ok: true,
+      json: async () => ({ sellRequestId: 'sr-1', status: 'cotizada', isTerminal: false, items: [], offer: null }),
+    } as unknown as Response);
+    vi.stubGlobal('fetch', fetchMock);
+
+    const res = await getSellRequest('sr-1');
+    expect(String(fetchMock.mock.calls[0][0])).toContain('/buylist/requests/sr-1');
+    expect(res.offer).toBeNull();
+  });
+
+  it('mock: el detalle trae la oferta con los tres montos y el desglose por línea', async () => {
+    const res = await getSellRequest('sr-3003');
+    expect(res.offer).not.toBeNull();
+    expect(res.offer!.grossCents).toBe(102000);
+    expect(res.offer!.shippingFeeCents).toBe(18000);
+    expect(res.offer!.netCents).toBe(84000);
+    expect(res.offer!.terms.perLineConditionLabel).toBeTruthy();
+    // Criterio 118: las líneas `skip` SÍ se muestran, y sin monto.
+    const skipped = res.offer!.lines.filter((l) => l.offerDecision === 'skip');
+    expect(skipped).toHaveLength(1);
+    expect(skipped[0].offeredPriceCents).toBeNull();
+  });
+
+  it('mock: la LISTA no reparte la oferta (v1.51.8: `offer` es solo del DETALLE)', async () => {
+    const list = await getSellRequests();
+    const row = list.find((r) => r.sellRequestId === 'sr-3003')!;
+    expect(row).toBeDefined();
+    expect('offer' in row).toBe(false);
+    // …pero `isTerminal` sí viaja en las dos proyecciones.
+    expect(row.isTerminal).toBe(false);
+  });
+
+  it('mock: 404 en una solicitud que no existe (el contrato no usa 403 aquí)', async () => {
+    await expect(getSellRequest('sr-inexistente')).rejects.toMatchObject({ status: 404 });
+  });
+
+  it('mock: `accept` mueve a `aceptada` — NUNCA a `aprobada` (no habilita el pago)', async () => {
+    // La rama mock MUTA la fila en memoria (igual que el backend muta la suya). Se restaura al
+    // salir para no dejar el servidor falso en un estado que dependa del orden de las pruebas.
+    const row = fx.mockSellRequests.find((r) => r.sellRequestId === 'sr-3003')!;
+    const snapshot = { status: row.status, offerAcceptedAt: row.offerAcceptedAt };
+    try {
+      await runAcceptScenario();
+    } finally {
+      row.status = snapshot.status;
+      row.offerAcceptedAt = snapshot.offerAcceptedAt;
+    }
+  });
+
+  async function runAcceptScenario() {
+    const res = await respondToSellOffer('sr-3003', 'accept');
+    expect(res.status).toBe('aceptada');
+    expect(res.acceptedAt).toBeTruthy();
+    expect(res.isTerminal).toBe(false);
+    // Segunda llamada: ya no hay oferta pendiente que responder.
+    await expect(respondToSellOffer('sr-3003', 'accept')).rejects.toMatchObject({
+      status: 409,
+      code: 'OFFER_NOT_PENDING',
+    });
+  }
+});
+/**
+ * **DT-Gd · el servidor falso no puede prometer más que el backend real** (ARCHITECTURE §4.41.5
+ * y §4.41.6, contrato `GET /catalog/sets` / `GET /buylist/sets`).
+ *
+ * `logoUrl` entra en **`GET /buylist/sets`** —clave SIEMPRE presente, `null` cuando el proveedor
+ * no publica logo— y **NO entra** en `GET /catalog/sets`. Los dos endpoints salían del MISMO
+ * `fx.mockSets`, así que en modo mock el catálogo rendía un campo que el backend real **nunca
+ * manda**: exactamente «el mock promete más que el backend», la clase de divergencia que ya costó
+ * un defecto en producción (§34).
+ *
+ * ⚠️ **Se comprueba con `in`, no con `?.` ni con `toBeUndefined()`, y es la parte que importa:**
+ * lo que el contrato distingue es **clave ausente** (catálogo) de **clave presente con valor
+ * nulo** (cotizador), y `undefined` los confunde a los dos. El tipo ya impide construirlos mal;
+ * esto defiende el RUNTIME del servidor falso, que es lo que el tipo no ve.
+ */
+describe('api (rama mock) · las DOS formas de set, una por endpoint (DT-Gd)', () => {
+  it('getSets (`/catalog/sets`) NO emite la clave `logoUrl` — §4.41.5 «NO entra»', async () => {
+    const sets = await getSets();
+    expect(sets.length).toBeGreaterThan(0);
+    expect(sets.every((s) => !('logoUrl' in s))).toBe(true);
+  });
+
+  it('listBuylistSets (`/buylist/sets`) emite `logoUrl` SIEMPRE, con `null` cuando no hay logo', async () => {
+    const sets = await listBuylistSets();
+    expect(sets.length).toBeGreaterThan(0);
+    // Clave presente en TODAS: es el invariante de §4.41.6 (nunca omitida, nunca `""`).
+    expect(sets.every((s) => 'logoUrl' in s)).toBe(true);
+    expect(sets.every((s) => typeof s.logoUrl === 'string' || s.logoUrl === null)).toBe(true);
+    expect(sets.every((s) => s.logoUrl !== '')).toBe(true);
+    // Y el fixture ejercita LOS DOS casos en la misma página: si todos tuvieran logo, el
+    // monograma de DESIGN_SYSTEM §24.5 no se vería jamás fuera de producción.
+    expect(sets.some((s) => s.logoUrl !== null)).toBe(true);
+    expect(sets.some((s) => s.logoUrl === null)).toBe(true);
+  });
+
+  it('el plegado del master combinado (P-27) conserva el logo DEL PRINCIPAL, no el del subset', async () => {
+    const sets = await listBuylistSets();
+    const celebrations = sets.find((s) => s.id === 'cel25');
+    expect(celebrations).toBeDefined();
+    // `cel25c` (Classic Collection, `logoUrl: null`) se pliega dentro de `cel25`…
+    expect(celebrations!.partSetIds).toEqual(['cel25', 'cel25c']);
+    expect(sets.some((s) => s.id === 'cel25c')).toBe(false);
+    // …y la teja usa el logo del principal (contrato `GET /catalog/sets`, nota de P-27).
+    expect(celebrations!.logoUrl).toBe('https://images.pokemontcg.io/cel25/logo.png');
   });
 });

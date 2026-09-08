@@ -3,6 +3,8 @@ import { BuylistService } from '../src/modules/buylist/buylist.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { PricingService } from '../src/modules/pricing/pricing.service';
 import { SettingsService } from '../src/modules/settings/settings.service';
+// v1.51.20 · BL-26: la puerta de `createRequest` (celular + dirección + mínimo) en un solo sitio.
+import { GATE_ADDRESS_ID, buylistGateMocks, withMinimumOff } from './helpers/buylist-create-gate';
 import { UsersService } from '../src/modules/users/users.service';
 import { PiiCryptoService } from '../src/common/crypto/pii-crypto.service';
 import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
@@ -27,6 +29,7 @@ function pricingPending(): PricingService {
     // puede divergir de producción ni reimplementar la matemática.
     decideSalePrice: jest.fn(PricingService.prototype.decideSalePrice),
     gradeKeyFor: jest.fn().mockReturnValue('raw:NM'),
+    tryGradeKeyFor: jest.fn().mockReturnValue('raw:NM'),
     // v2.0 (P-48): con la curva, SIN mercado la línea queda `precio_pendiente` (el bin no gana) y eso
     // dispara el gate de INE de Fase 0.3 — ruido ajeno a lo que este spec verifica (CLABE/PII).
     getReference: jest.fn().mockResolvedValue({ status: 'priced', referenceMxnCents: 12500 }),
@@ -44,7 +47,9 @@ function settings(): SettingsService {
     getRaw: jest.fn(async (key: string) =>
       key === 'buylist_price_rules' ? { Common: { mode: 'fixed', value: 50 } } : {},
     ),
-    getNumber: jest.fn(async (key: string) => (key === 'buylist_price_fallback_pct' ? 40 : 100_000_000)),
+    getNumber: jest.fn(
+      withMinimumOff(async (key: string) => (key === 'buylist_price_fallback_pct' ? 40 : 100_000_000)),
+    ),
   } as unknown as SettingsService;
 }
 
@@ -52,6 +57,9 @@ describe('BuylistService — match CLABE por HMAC (sin descifrar)', () => {
   function buildPrisma(kycHmac: string | null) {
     let created: any;
     const prisma: any = {
+      // v1.51.20 · BL-26: el vendedor tiene celular y una dirección propia. Este spec prueba la
+      // CLABE; la puerta se prueba por HTTP en `test/integration/buylist-cycle.e2e-spec.ts`.
+      ...buylistGateMocks('u'),
       card: {
         findUnique: jest.fn().mockResolvedValue({ id: 'c', rarity: 'Common' }),
         // v2.1.1: `createRequest` carga las cartas EN LOTE (mata el N+1 que hacía un
@@ -71,7 +79,7 @@ describe('BuylistService — match CLABE por HMAC (sin descifrar)', () => {
         }),
       },
       sellRequest: {
-        aggregate: jest.fn().mockResolvedValue({ _sum: { quotedTotalCents: 0 } }),
+        findMany: jest.fn(async () => []), // M-46 §4.39c: acumulado mensual = findMany+reduce (COALESCE de 2 columnas)
         create: jest.fn(async ({ data }: any) => ({ id: 'sr', status: data.status, quotedTotalCents: data.quotedTotalCents, clabeSnapshotEnc: data.clabeSnapshotEnc, items: [] })),
       },
       $transaction: jest.fn(async (cb: any) => cb(prisma)),
@@ -82,7 +90,7 @@ describe('BuylistService — match CLABE por HMAC (sin descifrar)', () => {
   it('CLABE propia (mismo HMAC almacenado) → OK y snapshot CIFRADO', async () => {
     const { prisma } = buildPrisma(pii.clabeBlindIndex(CLABE_A));
     const svc = new BuylistService(prisma as PrismaService, pricingPending(), settings(), {} as UsersService, pii);
-    const res = await svc.createRequest('u', [{ cardId: 'c', productType: 'raw' as any }], CLABE_A);
+    const res = await svc.createRequest('u', [{ cardId: 'c', productType: 'raw' as any }], CLABE_A, undefined, GATE_ADDRESS_ID);
     expect(res.status).toBe('cotizada');
     // Snapshot persistido cifrado, no en claro.
     const snap = prisma.sellRequest.create.mock.calls[0][0].data.clabeSnapshotEnc;
@@ -98,14 +106,14 @@ describe('BuylistService — match CLABE por HMAC (sin descifrar)', () => {
     const { prisma } = buildPrisma(pii.clabeBlindIndex(CLABE_A));
     const svc = new BuylistService(prisma as PrismaService, pricingPending(), settings(), {} as UsersService, pii);
     await expect(
-      svc.createRequest('u', [{ cardId: 'c', productType: 'raw' as any }], CLABE_B),
+      svc.createRequest('u', [{ cardId: 'c', productType: 'raw' as any }], CLABE_B, undefined, GATE_ADDRESS_ID),
     ).rejects.toMatchObject({ code: 'CLABE_NOT_OWN_NAME' });
   });
 
   it('sin KYC previa: primera CLABE se acepta y fija el blind index', async () => {
     const { prisma } = buildPrisma(null);
     const svc = new BuylistService(prisma as PrismaService, pricingPending(), settings(), {} as UsersService, pii);
-    const res = await svc.createRequest('u', [{ cardId: 'c', productType: 'raw' as any }], CLABE_A);
+    const res = await svc.createRequest('u', [{ cardId: 'c', productType: 'raw' as any }], CLABE_A, undefined, GATE_ADDRESS_ID);
     expect(res.status).toBe('cotizada');
   });
 });
@@ -149,7 +157,9 @@ describe('BuylistService.adminGet — nunca CLABE en claro', () => {
         }),
       },
     };
-    const svc = new BuylistService(prisma as PrismaService, {} as PricingService, {} as SettingsService, {} as UsersService, pii);
+    // v1.51.20 · BL-29: la proyección admin deriva `offerIssueDeadlineAt` y `offerReissueAlert` de
+    // DOS diales, así que necesita un `SettingsService` aunque este spec solo mire la CLABE.
+    const svc = new BuylistService(prisma as PrismaService, {} as PricingService, settings(), {} as UsersService, pii);
     const res: any = await svc.adminGet('sr');
     expect(res.clabeMasked).toBe('**************4567');
     expect(res.clabeSnapshotEnc).toBeUndefined();

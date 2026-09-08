@@ -4,6 +4,7 @@ import {
   IsArray,
   IsIn,
   IsInt,
+  IsNotEmpty,
   IsObject,
   IsOptional,
   IsString,
@@ -95,8 +96,13 @@ export class RequestItemDto {
   // v1.6-finish: acabado del item (default normal), validado contra card.availableFinishes.
   @IsOptional() @IsIn(FINISHES) finish?: Finish;
   // v1.30 (§4.29): productId OPCIONAL/ADITIVO. Presente ⇒ la línea es ESE CardProduct separado — se
-  // snapshotea en SellRequestItem.cardProductId (== productId TCGplayer) y al convertir a inventario la
-  // pieza queda ligada a ese producto. Dos ítems con mismo (cardId, finish) y distinto productId son
+  // snapshotea en SellRequestItem.cardProductId (== productId TCGplayer).
+  // ⚠️ CORREGIDO en v1.51 (M-46, §4.39d): este comentario decía «y al convertir a inventario la pieza
+  // queda ligada a ese producto», y era **FALSO desde v1.30** — `InventoryItem` NO tenía columna
+  // `cardProductId` y `convertToInventory` no la propagaba ni podía. **M-46 crea la columna y la
+  // propagación**, así que ahora sí: al convertir, la pieza queda ligada a **ESE** producto vía
+  // `InventoryItem.cardProductId`. Deuda documental registrada en `docs/TECH_DEBT.md` (INV-D7).
+  // Dos ítems con mismo (cardId, finish) y distinto productId son
   // líneas físicas DISTINTAS. productId inexistente → 422 PRODUCT_NOT_FOUND; que no cuelga → 422
   // PRODUCT_CARD_MISMATCH. Entero positivo.
   @IsOptional() @IsInt() @Min(1) productId?: number;
@@ -107,6 +113,31 @@ export class RequestItemDto {
 export class CreateRequestDto {
   @IsArray() @ArrayNotEmpty() @ValidateNested({ each: true }) @Type(() => RequestItemDto)
   items!: RequestItemDto[];
+  /**
+   * ⚠️ v1.51.3 (D36/D37, §6 · ARCHITECTURE §4.39q) — **LA DIRECCIÓN DE ORIGEN. OBLIGATORIA.**
+   *
+   * Es el único campo obligatorio nuevo de todo el ciclo. Sin domicilio de remitente **no se imprime
+   * una etiqueta**, y D16 («la guía la ponemos nosotros») deja de ser ejecutable: el backend copia la
+   * fila de la libreta a `SellRequest.pickupAddressSnapshot` en la MISMA transacción que crea la
+   * solicitud.
+   *
+   * ### ⚠️ Por qué `@IsOptional()` aquí y el `422` en el servicio — es deliberado, no un olvido
+   * El contrato exige **`422 PICKUP_ADDRESS_REQUIRED`** (`details: { field: "addressId" }`) cuando
+   * falta, **no un `400 VALIDATION_ERROR`**: es un requisito **de negocio con remedio nombrado**
+   * (capturar una dirección y reintentar), igual que `CLABE_REQUIRED`, del que es hermano exacto.
+   * Si el pipe lo rechazara, el cliente recibiría el código genérico y **el front no sabría qué
+   * pantalla abrir**. El pipe valida **forma**; el servicio valida **la puerta**.
+   *
+   * ⚠️ **BL-1 (el defecto que esta línea cierra):** este campo **no existía en el DTO** y el
+   * `ValidationPipe` con `whitelist` **lo descartaba en silencio** — el frontend lo mandaba, la
+   * solicitud nacía sin snapshot y **quedaba inofertable** (`422 PICKUP_ADDRESS_MISSING`) desde su
+   * primer instante. *Un campo ausente de un DTO con whitelist no da error: da un dato perdido.*
+   *
+   * ⛔ **NO se acepta un domicilio suelto** (SEC-A1 aplicado a un dato que no es dinero): el cliente
+   * manda **un identificador de su propia libreta** y el servidor resuelve. La defensa es la FORMA
+   * del DTO — no hay campo de dirección que manipular.
+   */
+  @IsOptional() @IsString() addressId?: string;
   // v1.15 (ARCHITECTURE §4.16a, PII): `clabe` OPCIONAL. Si se omite, el backend resuelve la CLABE
   // del PROPIO usuario en archivo (KycProfile.clabeEnc, desencriptada — misma fuente que
   // reveal-clabe); si tampoco hay en archivo → 422 CLABE_REQUIRED. Con `clabe` presente el flujo
@@ -117,6 +148,123 @@ export class CreateRequestDto {
 
 export class RespondDto {
   @IsIn(['accept', 'decline']) decision!: 'accept' | 'decline';
+}
+
+/**
+ * v1.51.3 (§6, D36/D37 · ARCHITECTURE §4.39q.4) — `PATCH /buylist/requests/:id/pickup-address`.
+ *
+ * **`{ addressId }` y NADA MÁS.** El servidor **re-resuelve y re-congela** el snapshot contra la
+ * libreta del propio usuario; **no acepta campos de domicilio sueltos**. Misma forma —y la misma
+ * razón— que `AdminPickupAddressDto`: *no existe «inyectar un domicilio que no es tuyo» porque no
+ * hay dónde escribirlo.*
+ *
+ * Aquí el `addressId` **sí** es obligatorio de forma (`400 VALIDATION_ERROR` si falta): a diferencia
+ * de `POST /buylist/requests`, este endpoint **no tiene otro trabajo** — una llamada sin `addressId`
+ * no es «una solicitud a la que le falta un dato», es una petición vacía.
+ */
+export class PickupAddressDto {
+  @IsString() @IsNotEmpty() addressId!: string;
+}
+
+/**
+ * v1.51 (§M5, §4.39h) — UNA LÍNEA del cherry-pick al ofertar (D26, criterio 148).
+ *
+ * ⚠️ **SEC-A1: el monto DERIVADO no viaja aquí.** Lo calcula el servidor con `decideBuyLine` y la
+ * curva vigente. Lo único que el cliente puede mandar es un **override explícito** — y **con motivo**,
+ * que es lo que lo convierte en una decisión revisable en vez de una cifra huérfana.
+ */
+export class OfferLineDto {
+  @IsString() @IsNotEmpty() itemId!: string;
+  @IsIn(['buy', 'skip']) decision!: 'buy' | 'skip';
+  // Cota dura de sanidad (la misma que `approvedPriceCents`); la cota FINA —el tope del operador
+  // sobre el bruto resultante— la impone el servicio. `0` es un monto legal de override: nunca se
+  // ofertaría, pero el DTO no es el sitio donde se decide eso (lo frena el piso de neto).
+  @IsOptional() @IsInt() @Min(0) @Max(MAX_APPROVED_PRICE_CENTS) overridePriceCents?: number;
+  // OBLIGATORIO ⇔ el override difiere del derivado — condición que **solo el servidor puede
+  // evaluar** (necesita el derivado). Por eso aquí es opcional y el `422 OVERRIDE_REASON_REQUIRED`
+  // sale del servicio, no del pipe. El pipe sí impone la LONGITUD cuando viene.
+  @IsOptional() @IsString() @Length(3, 500) overrideReason?: string;
+}
+
+/**
+ * v1.51 (§M5) — `POST /admin/buylist/:id/offer`. **Las líneas deben cubrir EXACTAMENTE los ítems de
+ * la solicitud** (ni faltar ni sobrar); eso lo valida el servicio con `422 OFFER_LINES_MISMATCH`,
+ * porque el pipe no conoce la solicitud.
+ */
+export class OfferDto {
+  @IsArray() @ArrayNotEmpty() @ValidateNested({ each: true }) @Type(() => OfferLineDto)
+  lines!: OfferLineDto[];
+}
+
+/** v1.51 (§M5) — `POST /admin/buylist/:id/offer/cancel`. Motivo INTERNO (no PII), va al AuditLog. */
+export class OfferCancelDto {
+  @IsOptional() @IsString() @Length(0, 500) reason?: string;
+}
+
+/**
+ * v1.51 (§6) — `POST /buylist/requests/:id/offer-response`. **`{ decision }` y NADA MÁS.**
+ *
+ * ⚠️ **SEC-A1 (criterio 120): la defensa es LA FORMA DEL DTO, no una validación.** No hay campo de
+ * monto que manipular, así que una petición manipulada **no puede cambiar lo ofertado**; todo campo
+ * extra lo descarta el `ValidationPipe` (whitelist). **Todo-o-nada** (D1): no existe vía para aceptar
+ * solo algunas líneas ni para contraofertar.
+ */
+export class OfferResponseDto {
+  @IsIn(['accept', 'reject']) decision!: 'accept' | 'reject';
+}
+
+/**
+ * v1.51 (§M5, D19) — `POST /admin/buylist/:id/guide`.
+ *
+ * ⚠️ **NO HAY INTEGRACIÓN CON PAQUETERÍA, y es alcance CERRADO:** sin compra automática, sin
+ * cotización de tarifas, sin rastreo en vivo y **sin validación del número contra el transportista**.
+ * **El sistema solo guarda y muestra.** Por eso el DTO valida forma (longitud, trim) y nada más:
+ * fingir una validación de guía sería prometer una verificación que no existe.
+ */
+export class GuideDto {
+  @IsString() @Length(1, 100) carrier!: string;
+  @IsString() @Length(1, 100) trackingNumber!: string;
+}
+
+/**
+ * v1.51.1 (§M5) — `POST /admin/buylist/:id/confirm-shipment`. El costo REAL de la etiqueta es
+ * **OPCIONAL** (fallback a la tarifa congelada).
+ *
+ * ⚠️ **FRONTERA MONEY-SAFE: este número NO ENTRA JAMÁS en `payoutNetCents`.** Al vendedor se le
+ * descuenta **la tarifa congelada que aceptó**, cueste lo que cueste la etiqueta real (D25/criterio
+ * 157). Es insumo **de reporte**, no de pago.
+ */
+export class ConfirmShipmentDto {
+  @IsOptional() @IsInt() @Min(0) guideActualCostCents?: number;
+}
+
+/** v1.51.1 (§M5, D22) — `POST /admin/buylist/:id/guide/cancellation-done`. Misma frontera money-safe. */
+export class GuideCancellationDoneDto {
+  @IsOptional() @IsString() @Length(0, 500) note?: string;
+  @IsOptional() @IsInt() @Min(0) guideActualCostCents?: number;
+}
+
+/**
+ * v1.51.3 (§M5, D39) — `POST /admin/buylist/:id/decline`. Body vacío `{}` es válido.
+ *
+ * ⚠️ El `reason` es **motivo INTERNO, NO PII**: va al `AuditLog` y **NUNCA se le muestra al
+ * vendedor ni entra al correo** — el correo 4 tiene **prohibido** explicar por qué no ofertamos.
+ * **No lleva columna**: `declinedBy` + `closedAt` + la bitácora ya guardan el acto entero.
+ */
+export class DeclineDto {
+  @IsOptional() @IsString() @Length(0, 500) reason?: string;
+}
+
+/**
+ * v1.51.4 (§M5, BL-13) — `PATCH /admin/buylist/:id/pickup-address`.
+ *
+ * ⚠️ **NI EL CLIENTE NI EL ADMIN ESCRIBEN UN DOMICILIO: los dos ELIGEN una fila** de la libreta del
+ * vendedor. *La defensa es la forma del DTO: no hay campo de dirección que manipular.* Si el vendedor
+ * no tiene la buena en su libreta, **la añade ÉL** y el operador la selecciona — para eso el operador
+ * tiene su teléfono (D12). ⛔ Prohibido teclearla, copiarla de un pedido o derivarla del KYC.
+ */
+export class AdminPickupAddressDto {
+  @IsString() @IsNotEmpty() addressId!: string;
 }
 
 export class ItemDecisionDto {
@@ -156,4 +304,23 @@ export class PaySpeiDto {
  */
 export class RejectRequestDto {
   @IsOptional() @IsString() @MaxLength(500) reason?: string;
+}
+
+/**
+ * v1.51.18 (fase 8, §M5 · ARCHITECTURE §4.39m.3) — body de
+ * `POST /admin/buylist/items/:itemId/convert-to-inventory`.
+ *
+ * ⚠️ **`locationId` es OPCIONAL y es el ÚNICO campo.** Se **ofrece** para no obligar a un segundo
+ * viaje, pero **no se exige**: *bloquear la conversión por falta de ubicación atoraría el flujo de
+ * pago, y el pago al vendedor no puede depender de que ya sepamos en qué caja va la carta* (criterio
+ * 125). La pieza sin ubicación **sale SEÑALADA** en `pending-publish`, no bloqueada.
+ *
+ * ⛔ **NO existe `listPriceCents` aquí, y no es un olvido** (D10, criterio 126): *en todo el ciclo de
+ * buylist **no existe** ningún campo para capturar el **precio de venta***, ni se «hereda» el precio
+ * de compra como precio de venta. Lo fija la curva (§N.1) con su precedencia money-safe. **La defensa
+ * es la FORMA DEL DTO**, no una validación: no hay campo que manipular (el `ValidationPipe` con
+ * whitelist descarta cualquier extra).
+ */
+export class ConvertToInventoryDto {
+  @IsOptional() @IsString() locationId?: string;
 }

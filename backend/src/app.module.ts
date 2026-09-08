@@ -13,6 +13,12 @@ import { UsersModule } from './modules/users/users.module';
 import { PricingModule } from './modules/pricing/pricing.module';
 import { CatalogModule } from './modules/catalog/catalog.module';
 import { InventoryModule } from './modules/inventory/inventory.module';
+// v1.51 (M-46, §4.39f): módulo @Global que provee SOLO `INVENTORY_POSITION_PORT` (solo lectura, en
+// lote). Existe para que `buylist` lea la posición de inventario SIN importar `InventoryModule`:
+// los dos viven en streams distintos y tienen que poder mergear por separado.
+import { InventoryPositionModule } from './modules/inventory/inventory-position.module';
+// v1.51.18 (BL-25, §4.39m.5): puerto de DISPARO de publicación. @Global, exporta SOLO el token.
+import { InventoryPublishModule } from './modules/inventory/inventory-publish.module';
 import { OrdersModule } from './modules/orders/orders.module';
 import { VaultModule } from './modules/vault/vault.module';
 import { ShipmentsModule } from './modules/shipments/shipments.module';
@@ -46,6 +52,8 @@ import { MoneyOutGuard } from './common/guards/money-out.guard';
     PricingModule,
     CatalogModule,
     InventoryModule,
+    InventoryPositionModule,
+    InventoryPublishModule,
     OrdersModule,
     VaultModule,
     ShipmentsModule,

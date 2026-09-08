@@ -194,7 +194,9 @@ describe('Listados admin — filtro ?userId= (F2)', () => {
         count: jest.fn(async () => 0),
       },
     };
-    const svc = new BuylistService(prisma as any, {} as any, {} as any, {} as any, {} as any);
+    // v1.51.14 · BL-22: `adminList` lee el dial de emisión para derivar `offerIssueDeadlineAt`.
+    const settings = { getNumber: jest.fn(async () => 7) } as any;
+    const svc = new BuylistService(prisma as any, {} as any, settings, {} as any, {} as any);
     await svc.adminList(undefined, 1, 20, 'user-42');
     expect(prisma.sellRequest.findMany.mock.calls[0][0].where).toEqual({ userId: 'user-42' });
     expect(prisma.sellRequest.count).toHaveBeenCalledWith({ where: { userId: 'user-42' } });
@@ -204,7 +206,9 @@ describe('Listados admin — filtro ?userId= (F2)', () => {
     const prisma: any = {
       sellRequest: { findMany: jest.fn(async () => []), count: jest.fn(async () => 0) },
     };
-    const svc = new BuylistService(prisma as any, {} as any, {} as any, {} as any, {} as any);
+    // v1.51.14 · BL-22: `adminList` lee el dial de emisión para derivar `offerIssueDeadlineAt`.
+    const settings = { getNumber: jest.fn(async () => 7) } as any;
+    const svc = new BuylistService(prisma as any, {} as any, settings, {} as any, {} as any);
     await svc.adminList('cotizada', 1, 20);
     expect(prisma.sellRequest.findMany.mock.calls[0][0].where).toEqual({ status: 'cotizada' });
   });

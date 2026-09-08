@@ -52,7 +52,7 @@ function sellRequestRow(over: Record<string, unknown> = {}) {
     paidBy: null,
     paidAt: null,
     createdAt: new Date('2026-08-01T00:00:00Z'),
-    receivedAt: null,
+    receivedAt: new Date('2026-08-01T12:00:00Z'), // v1.57 · §M5-P: el tercer término de `isPayable`
     verifiedAt: new Date('2026-08-02T00:00:00Z'),
     approvedAt: null,
     adjustmentSentAt: null,
@@ -63,15 +63,28 @@ function sellRequestRow(over: Record<string, unknown> = {}) {
 }
 
 function buildBuylist(row: Record<string, unknown>) {
+  // v1.51 · BL-2: `respond` transiciona con un `updateMany` CONDICIONAL (guarda atómica `count===1`)
+  // y RELEE la fila para proyectarla, porque `updateMany` no devuelve filas. El mock modela ese
+  // ciclo —la relectura entrega la fila cruda con lo último escrito encima—, que es justo el punto
+  // donde el snapshot cifrado y el `closedAt` recién sellado se escaparían si no hubiera proyección.
+  let written: Record<string, unknown> = {};
   const prisma: any = {
     kycProfile: { findUnique: jest.fn().mockResolvedValue(null) },
     sellRequest: {
       // El mock devuelve la fila CRUDA a propósito: si el servicio la reenviara tal cual, el
       // secreto saldría. Es exactamente el fallo que se está fijando.
-      findUnique: jest.fn().mockResolvedValue(row),
+      // ⚠ v1.56 (§M5-T/BL-35): `items: []` va en la implementación BASE, no en un `mockResolvedValue` por
+      // test. `receive`/`verify` llaman `adminGet` (que necesita `items`) **y además** releen la fila
+      // tras su `updateMany` guardado; un `mockResolvedValue` fijo pisaba la relectura y devolvía el
+      // estado ANTERIOR a la transición — el test afirmaba entonces sobre una fila que el servicio
+      // nunca escribió.
+      findUnique: jest.fn(async () => ({ items: [], user: null, ...row, ...written })),
       findMany: jest.fn().mockResolvedValue([]),
       update: jest.fn(async (args: any) => ({ ...row, ...args.data })),
-      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      updateMany: jest.fn(async (args: any) => {
+        written = { ...written, ...(args?.data ?? {}) };
+        return { count: 1 };
+      }),
     },
     sellRequestItem: {
       updateMany: jest.fn().mockResolvedValue({ count: 0 }),
@@ -99,7 +112,15 @@ function expectNoClabeSnapshot(res: unknown) {
 
 describe('S49-M1 · buylist — `clabeSnapshotEnc` no sale por NINGUNA ruta salvo reveal-clabe', () => {
   it('POST /buylist/requests/:id/respond {decline} — al CLIENTE, sin snapshot y sin closedAt', async () => {
-    const { svc } = buildBuylist(sellRequestRow());
+    // v1.51 · BL-2: `respond` sólo procede con un AJUSTE VIVO (adjustmentSentAt != null, sin cerrar,
+    // status ∈ {verificacion, aprobada}). La fila parte SIN `closedAt`: lo sella este mismo decline.
+    const { svc } = buildBuylist(
+      sellRequestRow({
+        status: 'verificacion',
+        adjustmentSentAt: new Date('2026-08-02T00:00:00Z'),
+        closedAt: null,
+      }),
+    );
     const res: any = await svc.respond('u1', 'sr-1', 'decline');
     expectNoClabeSnapshot(res);
     expect(res.status).toBe('rechazada');
@@ -111,7 +132,13 @@ describe('S49-M1 · buylist — `clabeSnapshotEnc` no sale por NINGUNA ruta salv
   });
 
   it('POST /buylist/requests/:id/respond {accept} — al CLIENTE, sin snapshot ni closedAt', async () => {
-    const { svc } = buildBuylist(sellRequestRow({ status: 'ajustada' }));
+    const { svc } = buildBuylist(
+      sellRequestRow({
+        status: 'verificacion',
+        adjustmentSentAt: new Date('2026-08-02T00:00:00Z'),
+        closedAt: null,
+      }),
+    );
     const res: any = await svc.respond('u1', 'sr-1', 'accept');
     expectNoClabeSnapshot(res);
     expect(res.status).toBe('aprobada');
@@ -127,26 +154,33 @@ describe('S49-M1 · buylist — `clabeSnapshotEnc` no sale por NINGUNA ruta salv
     expect(res.sellRequestId).toBe('sr-1');
   });
 
+  // ⚠ v1.56 (§M5-T/BL-35): la fila parte **VIVA** (`closedAt: null`). Antes heredaba el `closedAt` sellado
+  // del fixture base, que hoy es un estado que la guarda nueva rechaza: el test seguiría verde solo
+  // porque el doble responde `count: 1` sin mirar el `where`. *Un fixture imposible prueba lo que
+  // pasa en un mundo que no existe.*
   it('POST /admin/buylist/:id/receive — alcanzable por `vault_operator`, sin snapshot', async () => {
-    const { svc, prisma } = buildBuylist(sellRequestRow());
-    prisma.sellRequest.findUnique.mockResolvedValue({ ...sellRequestRow(), items: [] });
+    const { svc } = buildBuylist(sellRequestRow({ status: 'en_transito', closedAt: null }));
     const res: any = await svc.receive('sr-1');
     expectNoClabeSnapshot(res);
     expect(res.status).toBe('recibida');
   });
 
   it('POST /admin/buylist/:id/verify — alcanzable por `vault_operator`, sin snapshot', async () => {
-    const { svc, prisma } = buildBuylist(sellRequestRow());
-    prisma.sellRequest.findUnique.mockResolvedValue({ ...sellRequestRow(), items: [] });
+    const { svc } = buildBuylist(sellRequestRow({ status: 'recibida', closedAt: null }));
     const res: any = await svc.verify('sr-1');
     expectNoClabeSnapshot(res);
     expect(res.status).toBe('verificacion');
   });
 
+  // ⚠️ v1.56 (§M5-T/BL-35): la fila PAGABLE parte con `closedAt: null` **y** `paidAt: null`. El
+  // fixture base traía `closedAt` sellado con `status: 'aprobada'` — la combinación INCOHERENTE que
+  // P1 fabrica, y que el CAS nuevo de `pay-spei` rechaza con `409` por diseño. *Una fila que el
+  // sistema no puede producir no puede ser el escenario de un camino feliz.*
   it('POST /admin/buylist/:id/pay-spei — la transición NO devuelve el snapshot', async () => {
-    const { svc, prisma } = buildBuylist(sellRequestRow());
+    const pagable = sellRequestRow({ closedAt: null });
+    const { svc, prisma } = buildBuylist(pagable);
     prisma.sellRequest.findUnique
-      .mockResolvedValueOnce(sellRequestRow())
+      .mockResolvedValueOnce(pagable)
       .mockResolvedValue(sellRequestRow({ status: 'pagada', paidBy: 'admin-1' }));
     const res: any = await svc.paySpei('sr-1', 'SPEI-REF', 'admin-1');
     expectNoClabeSnapshot(res);
@@ -232,6 +266,20 @@ describe('S49-R1 · PATCH /admin/users/:id/kyc — no devuelve la entidad `KycPr
     expect(select.rfcEnc).toBeUndefined();
     expect(select.clabeEnc).toBeUndefined();
     expect(select.clabeHmac).toBeUndefined();
+  });
+
+  // ⛔⛔ v1.60 (D51, API_CONTRACT §M5-K.5(a)) — `legalName` SE RETIRA del DTO: CAMPO MUERTO. Este es
+  // el camino que QA midió en vivo devolviendo `"legalName": null`. El candado afirma las DOS
+  // puntas del mismo hecho, que NO son la misma: que la columna **no se lee** (sale de
+  // `ADMIN_KYC_SELECT`, así que un `select` a la BD ya no la trae) y que **no se proyecta**
+  // (`toAdminKycDTO`). El mock devuelve la fila CON `legalName` poblado —como haría una BD que
+  // ignorara el `select`— para que el segundo aserto siga siendo capaz de ponerse rojo por sí solo.
+  it('§M5-K.5a: `legalName` ni se selecciona de la BD ni se proyecta al DTO', async () => {
+    const { svc, prisma } = buildAdmin();
+    const res: any = await svc.updateUserKyc('u1', 'verified', 300_000, 1_000_000, 'admin-1');
+    expect(prisma.kycProfile.upsert.mock.calls[0][0].select.legalName).toBeUndefined();
+    expect(res.legalName).toBeUndefined();
+    expect(JSON.stringify(res)).not.toContain('Persona Ejemplo');
   });
 });
 

@@ -20,14 +20,20 @@ import {
 import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/business.exception';
 import { PriceInfo, PricingService } from '../pricing/pricing.service';
-import { buildGradeKey, sealedMarketGradeKey } from '../pricing/pricing.types';
+import { tryBuildGradeKey, GradeKeyInput, sealedMarketGradeKey } from '../pricing/pricing.types';
 import * as ExcelJS from 'exceljs';
 import { SettingsService } from '../settings/settings.service';
 import { SettingKey } from '../settings/settings.constants';
 // H-1 (§4.36.6): «presente ⇔ > 0» en UN solo predicado compartido — prohibido repetirlo a mano.
-import { computeAportacionCostCents, firstPresentAmount, hasManualPrice } from '../../common/money';
+import {
+  computeAportacionCostCents,
+  firstPresentAmount,
+  hasManualPrice,
+  PriceBasis,
+  sealedPriceBasisOf,
+} from '../../common/money';
 // v2.0 (P-48, §4.36): la CURVA sustituye a las reglas de venta por rareza/acabado en la publicación.
-import { PricingCurve } from '../../common/pricing-curve';
+import { PendingReason, PricingCurve } from '../../common/pricing-curve';
 import {
   BatchCreateInventoryRequest,
   BatchInventoryItemInput,
@@ -41,6 +47,9 @@ import {
   PublishAllRequestDto,
   UpdateItemDto,
 } from './dto/inventory.dto';
+import { toCardDTO } from '../catalog/catalog.service';
+// v1.51.18 (BL-25, §4.39m.5): `inventory` DECLARA y PROVEE el puerto de disparo de publicación.
+import { PublishReevaluationResult, VariantPublishRef } from './inventory-publish.port';
 import { sanitizeSealedImageUrl } from './sealed-image-host';
 import { AuditService } from '../audit/audit.service';
 
@@ -148,6 +157,113 @@ export const PUBLISH_ALL_CHUNK_SIZE = 100;
 /** Cap del DETALLE de fallos en la respuesta (el remanente se opera por la cola M2 `?context=inventory`). */
 export const PUBLISH_ALL_FAILURES_CAP = 200;
 
+// ===== v1.51 (fase 8, D10, criterio 125) — la cola «listas para publicar» =====
+
+/**
+ * Chunk del barrido de la cola de pendientes de publicación. **Mismo tamaño y misma razón que el de
+ * `publish-all`**: memoria acotada y referencias/overrides en lote por chunk, sin N+1 por pieza.
+ */
+export const PENDING_PUBLISH_CHUNK_SIZE = PUBLISH_ALL_CHUNK_SIZE;
+
+/** Qué le falta a una pieza para estar a la venta (§11 `PendingPublishRowDTO.missing`). */
+export type PendingPublishMissing = 'location' | 'price';
+
+/**
+ * v1.51.19 (§4.39m.8) — llave de emparejamiento **variante ↔ pieza** para el disparador (c). Incluye
+ * `cardProductId` y `sealedProductId` porque **una promo y la versión del set base son variantes
+ * distintas** (D7 / §4.39d) y **un ETB y un blíster también** (BLOQ-2b): resolver el precio de una
+ * **no** vuelve publicable a la otra. *Una llave que las colapsara publicaría la carta equivocada.*
+ */
+function variantPublishMatches(
+  ref: VariantPublishRef,
+  piece: {
+    cardId: string;
+    productType: ProductType;
+    gradeKey: string;
+    finish: Finish;
+    cardProductId: number | null;
+    sealedProductId: string | null;
+  },
+): boolean {
+  if (
+    ref.cardId !== piece.cardId ||
+    ref.productType !== piece.productType ||
+    ref.finish !== piece.finish ||
+    ref.gradeKey !== piece.gradeKey
+  ) {
+    return false;
+  }
+  // ⚠️ TRES estados, no dos, y colapsarlos sería un bug SILENCIOSO:
+  //   `undefined` (clave ausente) = **sin restricción**  ·  `null` = **solo la del set base**
+  //   número/uuid = **solo ese producto**
+  // Un `?? null` aquí convertiría «no restrinjas» en «solo la base» y el disparo **dejaría fuera**
+  // justo las promos — un fallo que se ve como un no-op y que nadie encontraría.
+  if (ref.cardProductId !== undefined && ref.cardProductId !== piece.cardProductId) return false;
+  if (ref.sealedProductId !== undefined && ref.sealedProductId !== piece.sealedProductId) {
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Llave LÓGICA de dedupe de la cola de precio pendiente — **la misma que usa `escalatePending`**.
+ * Se escribe aquí una vez para que el emparejamiento «pieza ↔ entrada abierta» no se haga con una
+ * llave inventada en el sitio: *dos llaves distintas para la misma cola producen deep-links que
+ * apuntan a la entrada equivocada*.
+ *
+ * ### ⚠️⚠️ v1.51.20 · **R3** — DOS DEFECTOS, Y LOS DOS ESTABAN EN ESTE DOCBLOCK
+ * 1. **El comentario estaba pegado a la función equivocada.** Vivía sobre `variantPublishMatches`
+ *    —que ya tiene el suyo— así que describía una función y documentaba otra. *Un docblock que
+ *    describe a su vecino es peor que ninguno: el siguiente lector cree haber leído el contrato.*
+ * 2. **Su afirmación de paridad era FALSA, y en un camino de dinero.** Decía «la misma que usa
+ *    `escalatePending`» y enumeraba **CINCO** componentes; `escalatePending` dedupe por **SEIS**
+ *    —incluye **`cardProductId`** (`pricing.service.ts`, dedupe por
+ *    `(cardId, productType, gradeKey, finish, cardProductId, sealedProductId, status='open')`)—
+ *    y `openPendingEntriesFor` **ni siquiera lo seleccionaba**.
+ *
+ * **Qué rompía, concretamente:** `buylist` **sí** abre entradas con `cardProductId` **no nulo** (una
+ * promo, un deck exclusive). Con cinco componentes, **una promo y su versión del set base
+ * colapsaban en la misma llave** ⇒ el deep-link de `pending-publish` podía llevar al operador **a la
+ * entrada de OTRO producto**, y el cierre simétrico de la cola podía apagar el aviso equivocado.
+ * *Es exactamente la fusión money-unsafe que D7/§4.29d prohíbe, por la puerta de una llave con un
+ * componente de menos.*
+ *
+ * ⚠️ **`cardProductId` aquí es el `Int` de TCGplayer** (el de `InventoryItem`/`PendingPriceEntry`),
+ * **no** el uuid `String` de `PriceReference.cardProductId`. Son dos identificadores distintos con el
+ * mismo nombre en este repo (ver `VariantPublishRef`).
+ */
+function pendingQueueKey(k: {
+  cardId: string;
+  productType: ProductType;
+  gradeKey: string;
+  finish: Finish;
+  cardProductId?: number | null;
+  sealedProductId?: string | null;
+}): string {
+  return [
+    k.cardId,
+    k.productType,
+    k.gradeKey,
+    k.finish,
+    k.cardProductId ?? '',
+    k.sealedProductId ?? '',
+  ].join('|');
+}
+
+/**
+ * v1.51 (fase 8) — el estado de publicación de UNA pieza, ya calculado.
+ *
+ * `missing: []` ⇒ **no le falta nada**: no entra a la cola porque la auto-publicación ya la sacó (o
+ * la sacará en el siguiente intento). `pendingPriceEntryId` solo tiene sentido con `'price'`.
+ */
+export interface PendingPublishState {
+  missing: PendingPublishMissing[];
+  /** Llave de la cola de M2 con la que se busca la entrada `open`. Solo con `'price'`. */
+  pendingQueueKey?: string;
+  resolvedSalePriceCents: number | null;
+  priceBasis: PriceBasis | null;
+}
+
 /**
  * Contexto de precio de publicación izado UNA VEZ por request/chunk (pago mínimo BE-25):
  * reglas de venta + spreads de sellado + referencias y overrides M-30 EN LOTE. Lo comparten
@@ -173,6 +289,76 @@ type PublishableItem = Prisma.InventoryItemGetPayload<{ include: { card: true } 
 type PublishPriceResolution =
   | { ok: true; salePriceCents: number; priceSource: 'manual' | 'derived' }
   | { ok: false; message: string; pendingPriceEntryId?: string };
+
+/**
+ * v1.51 (fase 8, §4.39m.1) — **LA MISMA DECISIÓN DE PRECIO, SIN ESCRIBIR NADA.**
+ *
+ * `derivePublishSalePrice` responde *«¿tiene esta pieza un precio de venta resoluble, y cuál?»*.
+ * `resolvePublishSalePrice` es **esto MISMO más el efecto**: escalar a la cola de precio pendiente
+ * cuando no resuelve, y cerrarla cuando sí (salida simétrica §4.36.5c).
+ *
+ * ### Por qué hacía falta partirlo, y por qué NO es una segunda copia de la precedencia
+ * La cola `GET /admin/inventory/pending-publish` necesita **exactamente esta pregunta** por fila. Si
+ * llamara a `resolvePublishSalePrice`, **un GET escribiría**: abriría y cerraría `PendingPriceEntry`
+ * por el mero hecho de que alguien mire la pantalla — una lectura con efectos, y encima sobre la cola
+ * de otro módulo. Y reimplementar la precedencia en la cola daría **dos verdades sobre el mismo
+ * dinero**: la cola diría «le falta precio» y el publish diría que no, o al revés.
+ * **Un cuerpo, dos lectores:** aquí vive la precedencia; el efecto vive **una capa más arriba**.
+ */
+interface PendingVariantKey {
+  cardId: string;
+  productType: ProductType;
+  gradeKey: string;
+  finish: Finish;
+  /**
+   * ⚠️ v1.51.20 · **R3** — **EL SEXTO COMPONENTE, Y ES MONEY-SAFE.** `escalatePending` dedupe **con**
+   * `cardProductId` desde v1.30 (§4.29d) y `buylist` **sí** abre entradas con él poblado; el eje de
+   * inventario escalaba y cerraba **sin él**, o sea **bajo la llave del set base**. Efecto: resolver
+   * el precio de la versión base podía **cerrar el aviso de la promo** (y al revés), que es
+   * exactamente la fusión que D7 prohíbe. `null`/ausente = línea de set base (conducta previa).
+   * Es el **`Int` de TCGplayer** (`InventoryItem.cardProductId`), no el uuid de `PriceReference`.
+   */
+  cardProductId?: number | null;
+  sealedProductId?: string | null;
+}
+type PublishPriceDerivation =
+  | {
+      ok: true;
+      salePriceCents: number;
+      priceSource: 'manual' | 'derived';
+      /**
+       * §11 `PendingPublishRowDTO.priceBasis` — **QUÉ determinó el monto**, con el MISMO enum que
+       * usan ficha, catálogo y compra. La cola lo enseña para que el operador vea de dónde salió el
+       * precio de una pieza que solo espera ubicación, sin abrir otra pantalla.
+       */
+      priceBasis: PriceBasis;
+      /**
+       * ⚠️ Viaja **también en el éxito**, y a propósito: el cierre simétrico de la cola (§4.36.5c)
+       * tiene que usar **la MISMA clave** que habría usado la escalada. Recalcularla en el
+       * llamador sería reabrir la puerta a que entrada y salida no coincidan — que es exactamente
+       * el defecto que `settlePendingForVariant` vino a cerrar. `null` en la rama de precio
+       * MANUAL, donde no hay variante que consultar.
+       */
+      pendingKey: PendingVariantKey | null;
+    }
+  | {
+      ok: false;
+      message: string;
+      /**
+       * Clave de la variante con la que se escala/consulta la cola de precio pendiente.
+       *
+       * ⚠️ v1.53 (§4.40.4c) — **`null` ⇒ NO se encola, y no es lo mismo que «no hay precio».** La
+       * cola de M2 es POR VARIANTE (`cardId|productType|gradeKey|finish`); una `graded` sin
+       * identidad de slab **no tiene variante**, así que no hay entrada que abrir ni que cerrar.
+       * Lo que le falta no es un precio: es saber **QUÉ SLAB ES**. Encolarla bajo una clave
+       * inventada metería en la cola del dueño un aviso de mercado sobre una pieza cuyo mercado
+       * nadie puede consultar. Se repara capturando empresa+grado (§4.40.5b) y entra al censo
+       * §4.40.8.
+       */
+      pendingKey: PendingVariantKey | null;
+      /** `null` para sellado (su escalada no lleva razón de curva). */
+      pendingReason: PendingReason | null;
+    };
 
 /**
  * [MONEY · WS-E] Allowlist de status de ORIGEN seguros para publicar a `listed`.
@@ -492,7 +678,12 @@ export class InventoryService {
     // Para raw se valida contra card.availableFinishes (SEC-A1); fuera de la lista → 422.
     const finish = this.resolveFinish(dto, card.availableFinishes as Finish[]);
 
-    const gradeKey = this.pricing.gradeKeyFor(dto);
+    // v1.53 (§4.40.4, MONEY) — camino que ESCRIBE dinero: la clave se pide con la variante que LANZA.
+    // `validateProductShape` (arriba) ya rechazó con 422 una graduada sin `gradingCompany`/`gradeValue`;
+    // `gradeKeyInputOfDto` sólo se lo dice al compilador y vuelve a comprobarlo por si algún día
+    // aparece un alta que no valide. Aquí NO puede haber default: un `?? 'PSA'` / `?? '10'` valuaría
+    // el alta contra el grado más caro.
+    const gradeKey = this.pricing.gradeKeyFor(this.gradeKeyInputOfDto(dto));
     let acquisitionCostCents =
       ('acquisitionCostCents' in dto ? dto.acquisitionCostCents : undefined) ?? null;
     let acquisitionPct = dto.acquisitionPct ?? null;
@@ -1207,7 +1398,10 @@ export class InventoryService {
           const gk = this.pricing.sealedMarketGradeKeyForItem(i);
           return gk ? [{ cardId: i.cardId, productType: 'sealed', gradeKey: gk, finish: 'normal' }] : [];
         }
-        return [{ cardId: i.cardId, productType: i.productType, gradeKey: this.pricing.gradeKeyFor(i), finish: i.finish }];
+        // v1.53 (§4.40.4b, MONEY): sin identidad de slab no hay clave que precargar. Abajo, esa pieza
+        // cae a `PRICE_PENDING` y ESCALA a la cola en vez de publicarse al precio de un PSA 10.
+        const gk = this.pricing.tryGradeKeyFor(i);
+        return gk ? [{ cardId: i.cardId, productType: i.productType, gradeKey: gk, finish: i.finish }] : [];
       });
     const refs = await this.pricing.getReferencesBatch(derivable);
     const variantOverrides = await this.pricing.getVariantOverridesBatch(
@@ -1221,7 +1415,9 @@ export class InventoryService {
    *  - solo inventario de PLATAFORMA;
    *  - [MONEY · WS-E] status de ORIGEN ∈ {in_stock, listed} (anti-double-sell: publicar una
    *    reserved/in_custody/lost/... la re-abriría a un segundo checkout);
-   *  - gradeada exige `certNumber` para publicarse (v1.2/M-12).
+   *  - gradeada exige `certNumber` para publicarse (v1.2/M-12);
+   *  - gradeada exige **IDENTIDAD DE SLAB** (`gradingCompany` + `gradeValue`) para publicarse
+   *    (v1.53-b, M-1 — ver abajo).
    */
   private assertPublishableGuards(item: PublishableItem): void {
     if (item.ownerType !== 'platform') {
@@ -1240,6 +1436,34 @@ export class InventoryService {
         'graded items require certNumber to be published',
       );
     }
+    // v1.53-b (M-1, **MONEY**) — **publicar un slab exige saber QUÉ GRADO ES.**
+    //
+    // Hasta aquí el único requisito de graduación para publicar era `certNumber`, y eso dejaba un
+    // hueco REAL, no teórico: `resolvePublishSalePrice` corta con `if (manual != null) return` en su
+    // PRIMERA línea, **antes** de su propia comprobación de identidad de slab. Así que una graduada
+    // con `listPriceCents` manual nunca llegaba a esa comprobación y se publicaba con
+    // `gradingCompany`/`gradeValue` nulos — quedaba `listed` + `sellable`, comprable por
+    // `inventoryItemId`, y sin `gradeKey` que emitir (la raíz de I-2 en `catalog.buildGroups`).
+    //
+    // El monto NO estaba inventado (es el override explícito del admin), así que esto no era una
+    // fuga de dinero; lo que se publicaba era una pieza **cuya identidad el sistema no conoce**, en
+    // un marketplace donde el grado ES el producto. `createItem` ya exige los tres campos para
+    // `graded` (`validateProductShape`, API_CONTRACT §M1 alta); esto cierra la misma invariante en
+    // la otra puerta, y su forma es la del cert: mismo código, mismo `422`, misma degradación
+    // por-línea en `bulkPublish`/`publishAll` (una línea inválida no tumba las demás).
+    //
+    // Efecto práctico: las piezas que nacen sin identidad (`convertToInventory`, §9 D-BG-3) dejan de
+    // poder llegar a `listed` por precio manual. La reparación es capturar empresa+grado por
+    // `PATCH /admin/inventory/items/:id` (§4.40.5b) y volver a publicar.
+    if (
+      item.productType === 'graded' &&
+      (!item.gradingCompany || !item.gradeValue || item.gradeValue.trim() === '')
+    ) {
+      throw BusinessException.validation(
+        'VALIDATION_ERROR',
+        'graded items require gradingCompany and gradeValue to be published',
+      );
+    }
   }
 
   /**
@@ -1255,12 +1479,77 @@ export class InventoryService {
     lineListPriceCents: number | null,
     ctx: PublishPricingCtx,
   ): Promise<PublishPriceResolution> {
+    // v1.51 (fase 8) — LA DECISIÓN sale del cuerpo compartido; aquí solo vive **el efecto**.
+    const derived = this.derivePublishSalePrice(item, lineListPriceCents, ctx);
+    if (derived.ok) {
+      // §4.36.5c — SALIDA SIMÉTRICA: el MISMO seam que escala CIERRA. Si el barrido ya escribió una
+      // `PriceReference` real y el precio volvió a resolver, la entrada `open` de esta clave se
+      // cierra SOLA aquí, sin intervención manual.
+      // ⚠️ **El alcance del cierre NO se ensancha en este refactor**: solo raw/graded con precio
+      // DERIVADO, igual que antes. Un precio manual no dice nada sobre el mercado de la variante
+      // (cerrar por él apagaría un aviso que sigue siendo cierto), y el sellado nunca cerró aquí.
+      if (derived.pendingKey != null && derived.priceSource === 'derived') {
+        await this.pricing.settlePendingForVariant(null, derived.pendingKey, 'inventory');
+      }
+      return { ok: true, salePriceCents: derived.salePriceCents, priceSource: derived.priceSource };
+    }
+    const k = derived.pendingKey;
+    // v1.53 (§4.40.4c): sin variante NO se toca la cola. La pieza no se publica igual (`ok:false`),
+    // pero el aviso que se abriría sería sobre un mercado que nadie puede consultar.
+    const pendingPriceEntryId =
+      k == null
+        ? undefined
+        : k.productType === 'sealed'
+          ? // v1.42 (BLOQ-2b): `sealedProductId` de la pieza a la clave de la cola (ETB y blíster no colapsan).
+            await this.pricing.escalatePending(
+              k.cardId,
+              'sealed',
+              k.gradeKey,
+              'inventory',
+              undefined,
+              'normal',
+              null,
+              k.sealedProductId ?? null,
+            )
+          : // ④ + §4.36.5c: escala con el gradeKey server-side + acabado del item (la cola es POR
+            // acabado, M-19) y con la RAZÓN, que es lo que hace triable la cola en M2.
+            await this.pricing.settlePendingForVariant(
+              derived.pendingReason ?? 'no_market',
+              {
+                cardId: k.cardId,
+                productType: k.productType,
+                gradeKey: k.gradeKey,
+                finish: k.finish,
+                // R3: money-safe — una promo y su set base son entradas SEPARADAS de la cola.
+                cardProductId: k.cardProductId ?? null,
+              },
+              'inventory',
+            );
+    return { ok: false, message: derived.message, pendingPriceEntryId };
+  }
+
+  /**
+   * v1.51 (fase 8, §4.39m.1) — **la precedencia de precio de publicación, SIN efectos.** Ver el
+   * docblock de `PublishPriceDerivation`: esto lo leen la cola `pending-publish` (que **no puede
+   * escribir**) y `resolvePublishSalePrice` (que **añade** la escalada/cierre de la cola de M2).
+   *
+   * Precedencia NORMATIVA v1.28 (§4.26b/§4.26c): `listPriceCents (línea o pieza) > [sealed: H-1
+   * override/mercado×spread | raw/graded: sellOverride M-30 > curva] > PRICE_PENDING`.
+   * SEC-A1: todo sale de BD/settings, nada del DTO del cliente (el `lineListPrice` es el override
+   * manual del admin). **Sin dato de mercado el PISO NO GANA** (decisión LOCKED §4.36.0).
+   */
+  private derivePublishSalePrice(
+    item: PublishableItem,
+    lineListPriceCents: number | null,
+    ctx: PublishPricingCtx,
+  ): PublishPriceDerivation {
     // H-1 (E5-bis): precedencia línea → pieza con «presente ⇔ > 0». Con `??` un `0` en la LÍNEA
     // cortocircuitaba y enmascaraba el override de la pieza; con `firstPresentAmount` cae al
     // siguiente peldaño, que es lo que dice §4.36.6.
     const manual = firstPresentAmount(lineListPriceCents, item.listPriceCents);
     if (manual != null) {
-      return { ok: true, salePriceCents: manual, priceSource: 'manual' };
+      // Un `listPriceCents` por pieza/línea es el override manual de M1 (§4.36.6).
+      return { ok: true, salePriceCents: manual, priceSource: 'manual', priceBasis: 'override', pendingKey: null };
     }
     if (item.productType === 'sealed') {
       // v1.23-sealed-sales (§4.23d): el sellado deriva por override/mercado×spread (resolver ÚNICO
@@ -1270,31 +1559,57 @@ export class InventoryService {
       const sale = this.pricing.resolveSealedSalePrice(item, ref, ctx.sealed);
       if (sale.salePriceCents == null) {
         // ④: escala con el gradeKey de MERCADO; sellado no mapeado cae al gradeKey estructural.
-        const pendingGradeKey = gk ?? this.pricing.gradeKeyFor(item);
-        // v1.42 (BLOQ-2b): `sealedProductId` de la pieza a la clave de la cola (ETB y blíster no colapsan).
-        const pendingPriceEntryId = await this.pricing.escalatePending(
-          item.cardId,
-          'sealed',
-          pendingGradeKey,
-          'inventory',
-          undefined,
-          'normal',
-          null,
-          item.sealedProductId,
-        );
+        // v1.51 (fase 8, §4.39m.1): este cuerpo YA NO escala — es puro y devuelve la `pendingKey`;
+        // quien escribe en la cola es `resolvePublishSalePrice` (el `escalatePending` con el
+        // `sealedProductId` de la pieza, v1.42/BLOQ-2b, vive allí).
         return {
           ok: false,
           message: 'No resolvable sale price for sealed (no override and no market); not published',
-          pendingPriceEntryId,
+          pendingKey: {
+            cardId: item.cardId,
+            productType: 'sealed',
+            // v1.53 (§4.40.4d): la rama `sealed` del constructor NO admite campos de grado y
+            // devuelve siempre `'sealed'` (la clave del override MANUAL del admin, §4.19d) — aquí
+            // va literal, no derivado de la fila, porque estamos DENTRO del
+            // `if (productType === 'sealed')`.
+            gradeKey: gk ?? this.pricing.gradeKeyFor({ productType: 'sealed' }),
+            finish: 'normal',
+            sealedProductId: item.sealedProductId,
+          },
+          pendingReason: null,
         };
       }
-      return { ok: true, salePriceCents: sale.salePriceCents, priceSource: 'derived' };
+      // `pendingKey: null` ⇒ el sellado NO cierra la cola por esta vía (conducta preexistente).
+      return {
+        ok: true,
+        salePriceCents: sale.salePriceCents,
+        priceSource: 'derived',
+        priceBasis: sealedPriceBasisOf(sale),
+        pendingKey: null,
+      };
     }
     // raw/graded — v2.0 (P-48, §4.36.1): derivado server-side (SEC-A1) por la CURVA sobre el VALOR DE
     // MERCADO del acabado de ESTA pieza. Ya no depende de la rareza ni del acabado (criterio 84); el
     // sellOverride de la variante (M-30) pisa la curva (misma precedencia que storefront/checkout).
     // SIN dato de mercado ⇒ PRICE_PENDING y escala a la cola: el PISO NO gana (decisión LOCKED).
-    const gradeKey = this.pricing.gradeKeyFor(item);
+    // v1.53 (§4.40.4, MONEY) — PUBLICACIÓN: sin identidad de slab NO hay clave de precio, así que la
+    // pieza **no se publica**. Y NO se escala a la cola de precios: la cola es por VARIANTE
+    // (`cardId|productType|gradeKey|finish`) y aquí no hay variante que encolar — lo que falta no es
+    // un precio, es saber QUÉ SLAB ES. La reparación es capturar empresa+grado por
+    // `PATCH /admin/inventory/items/:id` (§4.40.5b); entra al censo §4.40.8.
+    // Antes esta pieza se publicaba al precio de un `graded:PSA:10`, el grado más caro.
+    const gradeKey = this.pricing.tryGradeKeyFor(item);
+    if (gradeKey == null) {
+      return {
+        ok: false,
+        message:
+          'Graded item has no slab identity (grading company / grade value); not published — capture it first (PATCH /admin/inventory/items/:id)',
+        // v1.51 (fase 8, §4.39m.1) + v1.53 (§4.40.4c): este cuerpo es PURO, así que «no se escala»
+        // se dice con la clave en `null` en vez de con un `return` que se salta el efecto.
+        pendingKey: null,
+        pendingReason: null,
+      };
+    }
     const key = `${item.cardId}|${item.productType}|${gradeKey}|${item.finish}`;
     const ref = ctx.refs.get(key);
     const refCents = ref && ref.status === 'priced' ? (ref.referenceMxnCents ?? null) : null;
@@ -1311,31 +1626,241 @@ export class InventoryService {
     });
     const pendingReason = sale.pendingReason;
     if (pendingReason != null || sale.priceCents == null) {
-      // ④ + §4.36.5c: escala con el gradeKey server-side + acabado del item (la cola es POR acabado,
-      // M-19) y con la RAZÓN, que es lo que hace triable la cola en M2.
-      const pendingPriceEntryId = await this.pricing.settlePendingForVariant(
-        pendingReason ?? 'no_market',
-        { cardId: item.cardId, productType: item.productType, gradeKey, finish: item.finish },
-        'inventory',
-      );
       return {
         ok: false,
         message:
           pendingReason === 'premium_at_floor'
             ? 'Premium rarity resolved to the floor (bad market data); not published — escalated to the pending queue'
             : 'No resolvable sale price (no market reference); not published',
-        pendingPriceEntryId,
+        pendingKey: {
+          cardId: item.cardId,
+          productType: item.productType,
+          gradeKey,
+          finish: item.finish,
+          // R3: la identidad REAL de la pieza entra a la llave de la cola.
+          cardProductId: item.cardProductId,
+        },
+        pendingReason,
       };
     }
-    // §4.36.5c — SALIDA SIMÉTRICA: el MISMO seam que escala CIERRA. Si el barrido ya escribió una
-    // `PriceReference` real y el precio volvió a resolver, la entrada `open` de esta clave se cierra
-    // SOLA aquí, sin intervención manual.
-    await this.pricing.settlePendingForVariant(
-      null,
-      { cardId: item.cardId, productType: item.productType, gradeKey, finish: item.finish },
-      'inventory',
-    );
-    return { ok: true, salePriceCents: sale.priceCents, priceSource: 'derived' };
+    return {
+      ok: true,
+      salePriceCents: sale.priceCents,
+      priceSource: 'derived',
+      priceBasis: sale.basis,
+      pendingKey: {
+        cardId: item.cardId,
+        productType: item.productType,
+        gradeKey,
+        finish: item.finish,
+        // R3: el CIERRE simétrico usa la MISMA llave que la escalada — con los seis componentes, o
+        // resolver una variante apagaría el aviso de otra.
+        cardProductId: item.cardProductId,
+      },
+    };
+  }
+
+  /**
+   * ⚠️ v1.51 (fase 8, D10, criterio 125 · ARCHITECTURE §4.39m.1/m.2) — **QUÉ LE FALTA A ESTA PIEZA
+   * PARA ESTAR A LA VENTA.** Cuerpo ÚNICO de la pregunta, leído por la cola
+   * (`GET /admin/inventory/pending-publish`) y por los disparadores de auto-publicación.
+   *
+   * > *«Comprar bien y dejar la carta en una caja sin precio es comprar mal.»*
+   *
+   * **NO ESCRIBE NADA** (usa `derivePublishSalePrice`, no `resolvePublishSalePrice`): la cola es un
+   * `GET` y un `GET` que abre y cierra entradas de la cola de precio pendiente **por el hecho de que
+   * alguien mire la pantalla** sería un efecto invisible sobre dinero.
+   *
+   * El `pendingPriceEntryId` sale de la cola de M2 **si ya existe** una entrada `open` para esa
+   * variante — se pasa ya resuelto (`openPendingByKey`), en lote, porque una consulta por fila sería
+   * N+1 sobre una cola que puede tener cientos.
+   */
+  private pendingPublishStateOf(item: PublishableItem, ctx: PublishPricingCtx): PendingPublishState {
+    const missing: PendingPublishMissing[] = [];
+    // ⚠️ La ubicación va PRIMERA porque es la que el operador puede arreglar sin depender de nadie:
+    // es un dato de captura, no un dato de mercado.
+    if (item.locationId == null) missing.push('location');
+    const derived = this.derivePublishSalePrice(item, null, ctx);
+    if (derived.ok) {
+      return {
+        missing,
+        resolvedSalePriceCents: derived.salePriceCents,
+        priceBasis: derived.priceBasis,
+      };
+    }
+    missing.push('price');
+    return {
+      missing,
+      // La llave viaja para que el deep-link se empareje con la entrada REAL de la cola de M2, sin
+      // recalcular la derivación ni inventar una llave en el sitio.
+      // v1.53 (§4.40.4c): sin variante no hay entrada en la cola a la que enlazar ⇒ la clave se OMITE
+      // (`?? null` abajo, §11) en vez de fabricarse. La fila sigue saliendo en `pending-publish` con
+      // `missing: ['price']`: la pieza se ve, lo que no se inventa es el deep-link.
+      pendingQueueKey:
+        derived.pendingKey == null ? undefined : pendingQueueKey(derived.pendingKey),
+      resolvedSalePriceCents: null,
+      // `pending` NO es «no sé»: es el veredicto explícito de que la variante no tiene precio
+      // publicable. El storefront ya lo trata así (§N.5) y la cola dice lo mismo, no otra cosa.
+      priceBasis: 'pending',
+    };
+  }
+
+  /**
+   * ⚠️ v1.51 (fase 8, D10, criterio 125) — **`GET /admin/inventory/pending-publish`: LA COLA DE
+   * «LISTAS PARA PUBLICAR».**
+   *
+   * El defecto que cierra, y es el que preguntó el humano (*«cómo la subimos a inventario, porque ahí
+   * ya tenemos para publicar»*): una pieza recién convertida nace `in_stock` **sin ubicación y sin
+   * precio**, y hasta ahora **nada la empujaba a la venta ni la señalaba**. Peor: **sin dato de
+   * mercado quedaba invisible por partida doble** —ni a la venta, ni en la cola de precio pendiente,
+   * porque esa escalada solo ocurría **cuando alguien intentaba publicarla**—. *Una carta comprada y
+   * pagada podía quedarse quieta para siempre sin que nada lo señalara.*
+   *
+   * Predicado (§4.39m.1): `ownerType='platform' ∧ status='in_stock' ∧ (locationId IS NULL ∨ precio NO
+   * resoluble)`.
+   *
+   * ### ⚠️ Por qué esto barre y no pagina en SQL, dicho sin adornos
+   * *«Precio no resoluble»* **no es expresable en SQL**: depende de la curva vigente, de las
+   * referencias de mercado y de los overrides de variante. Las opciones eran barrer o **reimplementar
+   * la precedencia de precios en una consulta** — que es la copia que este proyecto lleva quince
+   * revisiones borrando, y encima sobre dinero. Se barre el superconjunto **que SÍ es SQL**
+   * (`platform ∧ in_stock`, el mismo que ya barre `publish-all`) **por chunks**, con referencias y
+   * overrides en lote por chunk, y se filtra en memoria. **Solo se retienen las filas pendientes**,
+   * que en un sistema sano son pocas: lo que crece es el escaneo, no la memoria.
+   * ⚠️ **Y `total` es el conteo REAL de la cola, no el del superconjunto**: una cola que dijera «200»
+   * cuando hay 900 sería peor que no tener cola. Señalado al arquitecto como punto de escala.
+   *
+   * `missing` dice **QUÉ le falta**; con `'price'` viaja el `pendingPriceEntryId` para el deep-link a
+   * la cola de M2. **La pieza sin ubicación sale SEÑALADA, no bloqueada** (m.3): la conversión no
+   * exige ubicación a propósito — *bloquearla atoraría el pago al vendedor, y el pago no puede
+   * depender de que ya sepamos en qué caja va la carta*.
+   */
+  async pendingPublish(q: {
+    missing?: PendingPublishMissing;
+    acquisitionType?: AcquisitionType;
+    setId?: string;
+    page: number;
+    pageSize: number;
+  }) {
+    const where: Prisma.InventoryItemWhereInput = {
+      ownerType: 'platform',
+      status: 'in_stock',
+      ...(q.acquisitionType ? { acquisitionType: q.acquisitionType } : {}),
+      ...(q.setId ? { card: { setId: q.setId } } : {}),
+      // Cuando se filtra por `missing=location` el predicado SÍ es SQL: se empuja a la BD para no
+      // barrer de más. `missing=price` no puede empujarse — ver el bloque de arriba.
+      ...(q.missing === 'location' ? { locationId: null } : {}),
+    };
+    const selectedIds = (
+      await this.prisma.inventoryItem.findMany({
+        where,
+        select: { id: true },
+        // Orden ESTABLE y determinista: la paginación de una cola que se trabaja no puede reordenar
+        // filas entre página y página. `createdAt` primero (lo más viejo pesa más) y `id` desempata.
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      })
+    ).map((r) => r.id);
+
+    const curve = await this.pricing.loadPricingCurve();
+    const sealed = await this.pricing.loadSealedSpreads();
+    // Del barrido solo sobreviven **id + estado**: es lo que mantiene la memoria acotada aunque el
+    // superconjunto sea grande. Las filas completas se leen después, y SOLO las de la página.
+    const pending: { id: string; state: PendingPublishState }[] = [];
+    for (let i = 0; i < selectedIds.length; i += PENDING_PUBLISH_CHUNK_SIZE) {
+      const chunkIds = selectedIds.slice(i, i + PENDING_PUBLISH_CHUNK_SIZE);
+      const items = await this.prisma.inventoryItem.findMany({
+        where: { id: { in: chunkIds } },
+        include: { card: true },
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      });
+      const ctx = await this.loadPublishPricingCtx(items, { curve, sealed });
+      for (const item of items) {
+        const state = this.pendingPublishStateOf(item, ctx);
+        // `missing: []` ⇒ NO entra: no le falta nada, así que la auto-publicación la sacará (o ya la
+        // sacó). Una cola que listara piezas sin pendiente enseñaría a ignorarla.
+        if (state.missing.length === 0) continue;
+        if (q.missing && !state.missing.includes(q.missing)) continue;
+        pending.push({ id: item.id, state });
+      }
+    }
+
+    const total = pending.length;
+    const slice = pending.slice((q.page - 1) * q.pageSize, q.page * q.pageSize);
+    const byId = new Map(slice.map((r) => [r.id, r.state]));
+    const rows = await this.prisma.inventoryItem.findMany({
+      where: { id: { in: slice.map((r) => r.id) } },
+      // `set` SOLO aquí: `toCardDTO` lo necesita y el barrido no. Traerlo en el barrido sería pagar
+      // el join por todo el inventario para pintar una página.
+      include: { card: { include: { set: true } } },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+    });
+    // El `pendingPriceEntryId` se resuelve SOLO para la página devuelta: es un deep-link de UI, y
+    // consultarlo para toda la cola sería trabajo que nadie va a mirar.
+    const openPendingByKey = await this.openPendingEntriesFor(rows);
+    const pricedByCard = await this.pricing.getPricedRawFinishesBatch(rows.map((r) => r.cardId));
+    const data = rows.map((item) => {
+      const state = byId.get(item.id) as PendingPublishState;
+      const entryId = state.pendingQueueKey
+        ? (openPendingByKey.get(state.pendingQueueKey) ?? null)
+        : null;
+      return {
+        inventoryItemId: item.id,
+        folio: item.folio,
+        card: toCardDTO(item.card, pricedByCard.get(item.cardId)),
+        productType: item.productType,
+        finish: item.finish,
+        cardProductId: item.cardProductId,
+        locationId: item.locationId,
+        listPriceCents: item.listPriceCents,
+        resolvedSalePriceCents: state.resolvedSalePriceCents,
+        priceBasis: state.priceBasis,
+        pendingPriceEntryId: entryId,
+        missing: state.missing,
+        acquisitionType: item.acquisitionType,
+        sourceSellRequestItemId: item.sourceSellRequestItemId,
+        createdAt: item.createdAt,
+      };
+    });
+    return { data, page: q.page, pageSize: q.pageSize, total };
+  }
+
+  /**
+   * Entradas `open` de la cola de precio pendiente para las variantes de estas piezas, EN LOTE
+   * (`Map<pendingQueueKey, entryId>`). Es una LECTURA: no escala nada — quien escala es el intento
+   * de publicación, y ésa es justamente la diferencia que la fase 8 vino a marcar.
+   */
+  private async openPendingEntriesFor(items: PublishableItem[]): Promise<Map<string, string>> {
+    const map = new Map<string, string>();
+    if (items.length === 0) return map;
+    const rows = await this.prisma.pendingPriceEntry.findMany({
+      where: { status: 'open', cardId: { in: [...new Set(items.map((i) => i.cardId))] } },
+      select: {
+        id: true,
+        cardId: true,
+        productType: true,
+        gradeKey: true,
+        finish: true,
+        // ⚠️ v1.51.20 · R3 — SIN esta columna la llave de la cola tenía CINCO componentes y la de
+        // `escalatePending` SEIS: una promo y su set base colapsaban, y el deep-link podía apuntar a
+        // la entrada del otro producto.
+        cardProductId: true,
+        sealedProductId: true,
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+    for (const r of rows) {
+      const k = pendingQueueKey({
+        cardId: r.cardId,
+        productType: r.productType,
+        gradeKey: r.gradeKey,
+        finish: r.finish,
+        cardProductId: r.cardProductId,
+        sealedProductId: r.sealedProductId,
+      });
+      // La MÁS ANTIGUA gana (orden asc): el deep-link lleva a la entrada que lleva más esperando.
+      if (!map.has(k)) map.set(k, r.id);
+    }
+    return map;
   }
 
   /**
@@ -1578,6 +2103,29 @@ export class InventoryService {
    * el raw solo NM; el graded exige compañía+grado. Rechaza combinaciones inválidas con
    * 422 VALIDATION_ERROR (API_CONTRACT §M1).
    */
+  /**
+   * v1.53 (§4.40.4, **MONEY**) — el DTO del alta, ya pasado por `validateProductShape`, estrechado al
+   * input ESTRICTO de `buildGradeKey` (unión discriminada). Es el puente explícito entre «forma
+   * validada» y «el compilador lo sabe»: no hay `as`, no hay `??` que rellene identidad de grado.
+   *
+   * El `throw` de la rama `graded` es, por la vía normal, inalcanzable (`validateProductShape` ya
+   * exige empresa+grado) y es DELIBERADO: si mañana aparece un camino de alta que no valide, revienta
+   * aquí —con 422 y mensaje— antes de escribir un precio contra `graded:PSA:10`.
+   */
+  private gradeKeyInputOfDto(dto: CreateItemDto | BatchInventoryItemInput): GradeKeyInput {
+    if (dto.productType === 'sealed') return { productType: 'sealed' };
+    if (dto.productType === 'graded') {
+      if (!dto.gradingCompany || !dto.gradeValue) {
+        throw BusinessException.validation(
+          'VALIDATION_ERROR',
+          'graded items require gradingCompany and gradeValue',
+        );
+      }
+      return { productType: 'graded', gradingCompany: dto.gradingCompany, gradeValue: dto.gradeValue };
+    }
+    return { productType: 'raw', rawCondition: dto.rawCondition ?? null };
+  }
+
   private validateProductShape(dto: CreateItemDto | BatchInventoryItemInput) {
     if (dto.productType === 'sealed') {
       if (dto.rawCondition || dto.gradingCompany || dto.gradeValue) {
@@ -1747,8 +2295,297 @@ export class InventoryService {
         'graded items require certNumber to be published',
       );
     }
-    // S49-R4: proyectado (antes devolvía la entidad `InventoryItem` cruda).
-    return toAdminInventoryItemRow(await this.prisma.inventoryItem.update({ where: { id }, data: dto }));
+    // v1.53 (§4.40.5b · API_CONTRACT §M1) — `gradingCompany` es la reparación de la IDENTIDAD DEL
+    // SLAB y sólo tiene sentido en `productType='graded'`: en `raw`/`sealed` se IGNORA (el contrato lo
+    // declara así de forma explícita para el campo nuevo). Se descarta aquí, no en el DTO, porque el
+    // tipo de la pieza vive en BD y no en el body — SEC-A1.
+    //
+    // ⚠️ **Se sanea UNA vez y ARRIBA, antes de bifurcar.** Este PATCH tiene ahora DOS caminos de
+    // escritura (el plano y el de publicación, v1.51 fase 8) y además alimenta el `resulting` sobre el
+    // que corren las guardas: con un solo punto de saneo, ninguno de los tres puede quedarse con el
+    // campo colado. Todo lo que sigue lee `patch`, nunca `dto`.
+    const { gradingCompany, ...rest } = dto;
+    const patch: UpdateItemDto =
+      current.productType === 'graded' && gradingCompany !== undefined
+        ? { ...rest, gradingCompany }
+        : rest;
+    // ⚠️ v1.51 (fase 8, ARCHITECTURE §4.39m.4 · desviación INV-P1) — **SE CIERRA EL BYPASS DE
+    // PUBLICACIÓN.** Hasta aquí este `PATCH` era un `update` plano: validaba el `certNumber` de una
+    // gradeada **y nada más**. **No** corría `assertPublishableGuards`, **no** resolvía precio y
+    // **no** hacía el `claimListed` atómico. Consecuencia exacta: aceptaba marcar `listed` una pieza
+    // **sin precio resoluble** ⇒ el storefront **la descartaba en silencio** y **no entraba a ninguna
+    // cola** — invisible para el comprador y para el operador **a la vez**. La contradicción exacta
+    // de la fase 8 (*«ninguna pieza adquirida se queda invisible»*), y además un camino que se
+    // saltaba la guarda **anti-double-sell** que los dos caminos de lote sí corren.
+    //
+    // **Norma:** cuando el PATCH **RESULTA** en `listed` y el estado previo **no** era `listed`, corre
+    // el **pipeline completo**, con los MISMOS códigos que el lote (`422 ITEM_NOT_PUBLISHABLE`,
+    // `422 PRICE_PENDING` con su `pendingPriceEntryId`).
+    //
+    // ⚠️ **`listPriceCents` NO se toca**: es el override manual por pieza de M1 y **precede a este
+    // ciclo**. D10 prohíbe capturar precio de venta *dentro del ciclo de buylist* (por eso
+    // `convert-to-inventory` no lo acepta); no retira una perilla de M1 que ya existía. Aquí ALIMENTA
+    // la resolución, como el override por línea del `bulk-publish`.
+    const publishing = resultingStatus === 'listed' && current.status !== 'listed';
+    if (!publishing) {
+      // S49-R4: proyectado (antes devolvía la entidad `InventoryItem` cruda).
+      return toAdminInventoryItemRow(
+        await this.prisma.inventoryItem.update({ where: { id }, data: patch }),
+      );
+    }
+    // ⚠️ Las guardas corren sobre el estado **RESULTANTE**, en memoria y ANTES de escribir nada: una
+    // gradeada que gana su `certNumber` en ESTE mismo PATCH debe poder publicarse, y una que falle
+    // **no debe dejar a medias** el resto de los campos.
+    const { status: _status, ...fields } = patch;
+    // ⚠️ La fila CRUDA (con su `card`), no la proyección de `getItem`: el pipeline de publicación
+    // trabaja sobre columnas del modelo, y la proyección de M1 es una lista blanca de presentación.
+    const raw = await this.prisma.inventoryItem.findUnique({
+      where: { id },
+      include: { card: true },
+    });
+    if (!raw) throw BusinessException.notFound();
+    const resulting: PublishableItem = { ...raw, ...fields };
+    this.assertPublishableGuards(resulting);
+    const ctx = await this.loadPublishPricingCtx([resulting]);
+    const resolved = await this.resolvePublishSalePrice(resulting, patch.listPriceCents ?? null, ctx);
+    if (!resolved.ok) {
+      // El `PRICE_PENDING` **no es un rechazo seco**: `resolvePublishSalePrice` YA escaló a la cola
+      // de M2, así que la pieza **queda visible** donde se trabaja. *Es un pendiente visible, no una
+      // carta perdida.*
+      throw BusinessException.validation('PRICE_PENDING', resolved.message, {
+        ...(resolved.pendingPriceEntryId ? { pendingPriceEntryId: resolved.pendingPriceEntryId } : {}),
+      });
+    }
+    // Los campos no-status primero; el `listed` lo pone `claimListed` con su guarda atómica.
+    if (Object.keys(fields).length > 0) {
+      await this.prisma.inventoryItem.update({ where: { id }, data: fields });
+    }
+    await this.claimListed(resulting, patch.listPriceCents);
+    return toAdminInventoryItemRow({ ...resulting, status: 'listed' });
+  }
+
+  /**
+   * ⚠️ v1.51 (fase 8, §4.39m.2, criterio 125) — **AUTO-PUBLICACIÓN: «ubicación + precio ⇒ publicada»,
+   * SIN BOTÓN.** *La pieza sale sola de la cola en cuanto no le falta nada — sin depender de que
+   * alguien se acuerde de apretar un botón.*
+   *
+   * Corre el **pipeline COMPLETO** (`assertPublishableGuards` + `resolvePublishSalePrice` +
+   * `claimListed`), el mismo de los caminos de lote: **no hay una segunda forma de publicar**.
+   *
+   * ### ⚠️ Best-effort, y aquí sí es lo correcto — la distinción importa
+   * *«Las escrituras no degradan»* (v1.51.14) gobierna **lo que se compromete**. Aquí el hecho que se
+   * compromete —mover la pieza a su caja— **ya está escrito**; esto es un intento **oportunista**
+   * encima, y su fallo más común (**no hay precio de mercado**) es **el caso normal**, no una avería:
+   * es exactamente lo que la Regla de Compra ordena (§A). Si tumbara el `move`, el operador **no
+   * podría ni guardar la ubicación** de una carta sin precio.
+   * ⚠️ **Y el fallo NO es silencioso**, que es lo que lo hace aceptable: `resolvePublishSalePrice`
+   * **escala a la cola de precio pendiente** y la pieza **sigue en `pending-publish`**. *Se degrada
+   * el intento, nunca la visibilidad.*
+   */
+  private async tryAutoPublish(itemId: string, trigger: string): Promise<void> {
+    // ⚠️ v1.51.18 — **UN SOLO CUERPO DE PUBLICACIÓN.** Antes esto tenía su propia copia del
+    // pipeline; al nacer el puerto (BL-25) habría quedado la MISMA regla escrita dos veces, y la
+    // segunda copia se habría desviado en el primer cambio. `reevaluateOne` es la única.
+    // El disparador (b) **NO pasa por el puerto** —sería `inventory` dándole la vuelta al módulo
+    // para llamar a su propia puerta (§4.39m.5)—: llama al cuerpo directamente.
+    const item = await this.prisma.inventoryItem.findUnique({
+      where: { id: itemId },
+      include: { card: true },
+    });
+    if (!item) return;
+    const ctx = await this.loadPublishPricingCtx([item]);
+    const res = await this.reevaluateOne(item, ctx);
+    if (res.outcome !== 'published') {
+      this.logger.debug(`auto-publish (${trigger}): ${item.folio} → ${res.outcome}`);
+    }
+  }
+
+  /**
+   * ⚠️⚠️ v1.51.18 · **BL-25** (§4.39m.5) — **`INVENTORY_PUBLISH_PORT`: «REEVALÚA ESTAS PIEZAS».**
+   *
+   * Implementación del **puerto de DISPARO**. Lo que entra son **ids y nada más**: no hay estado
+   * destino, ni precio, ni `status` que un llamador pueda pasar. **La decisión y la escritura viven
+   * aquí**, tras el pipeline de siempre — así lo que cruzó la frontera fue una **notificación**, no
+   * una **autoridad**, y un llamador con un bug **no puede publicar una pieza impublicable**.
+   *
+   * **En lote, idempotente y no-op sobre lo impublicable**: llamarlo de más no hace nada. **No lanza
+   * por una pieza**: devuelve qué pasó con cada una, para que el llamador registre **sin re-derivar**
+   * la regla — si tuviera que re-derivarla, tendríamos la regla en dos sitios otra vez.
+   *
+   * ⚠️ **La cola `pending-publish` es la RED de este disparo** (ver el docblock del puerto): por eso
+   * el fallo puede ser silencioso *para el llamador* sin ser silencioso *para la operación*.
+   */
+  async reevaluateForPublication(
+    inventoryItemIds: string[],
+  ): Promise<PublishReevaluationResult[]> {
+    const ids = [...new Set(inventoryItemIds)].filter((x) => typeof x === 'string' && x.length > 0);
+    if (ids.length === 0) return [];
+    const out: PublishReevaluationResult[] = [];
+    const curve = await this.pricing.loadPricingCurve();
+    const sealed = await this.pricing.loadSealedSpreads();
+    for (let i = 0; i < ids.length; i += PENDING_PUBLISH_CHUNK_SIZE) {
+      const chunkIds = ids.slice(i, i + PENDING_PUBLISH_CHUNK_SIZE);
+      const items = await this.prisma.inventoryItem.findMany({
+        where: { id: { in: chunkIds } },
+        include: { card: true },
+      });
+      const found = new Set(items.map((it) => it.id));
+      for (const missingId of chunkIds.filter((x) => !found.has(x))) {
+        out.push({ inventoryItemId: missingId, outcome: 'not_found', missing: [] });
+      }
+      const ctx = await this.loadPublishPricingCtx(items, { curve, sealed });
+      for (const item of items) {
+        out.push(await this.reevaluateOne(item, ctx));
+      }
+    }
+    return out;
+  }
+
+  /**
+   * ⚠️⚠️ v1.51.19 · **BL-25 / §4.39m.8** — **SEGUNDA ENTRADA al MISMO cuerpo: por VARIANTE.**
+   *
+   * El disparador (c) —*«el precio de esta variante ya resuelve»*— **no puede nombrar piezas**: quien
+   * lo sabe es `pricing`, y `pricing` conoce **una clave de variante**, no ids de inventario. Esta
+   * entrada traduce; **no reimplementa nada**: resuelve a ids y llama a `reevaluateForPublication`.
+   * *Es un adaptador delante del cuerpo único, no una copia.*
+   *
+   * ### ⚠️ Por qué la traducción vive AQUÍ y no en el llamador — ni SQL, ni DDL
+   * **`gradeKey` NO es columna de `InventoryItem`**: es columna de los modelos de PRECIO
+   * (`VariantPriceOverride`, `PriceReference`, `PendingPriceEntry`) y en inventario **se DERIVA** de
+   * `productType`/`rawCondition`/`gradingCompany`/`gradeValue` (`buildGradeKey`). Un `where` que la
+   * reconstruyera sería **una segunda definición de la clave de variante dentro de una consulta**, y
+   * sobre el mismo dinero: en los términos de §4.39m.6, ***una copia de la regla, no la salida de la
+   * regla***.
+   *
+   * **Los tres pasos, y el orden importa:**
+   * 1. **SELECT por las partes COLUMNARES** — `cardId ∈ (…) ∧ productType ∧ finish ∧
+   *    status='in_stock' ∧ ownerType='platform'`. Lo sirve el índice `[cardId, finish, status]` que
+   *    **ya existe** (M-21).
+   * 2. **FILTRAR en memoria** `gradeKeyFor(pieza) === gradeKey`, **con la función de su dueño**.
+   * 3. Los ids entran al **MISMO cuerpo**.
+   *
+   * **Ninguna regla entra al SQL ni cruza la frontera:** la derivación la aplica quien la posee, y el
+   * llamador sigue sin poder expresar nada más que *«reevalúa»*.
+   *
+   * ### ⚠️ Y por qué NO se materializa (la distinción de §4.39m.6, refinada en m.8)
+   * Se materializa **solo cuando el camino en memoria exigiría cargar un conjunto NO ACOTADO** — que
+   * es el caso de `pending-publish`, cuyo candidato es *todo el inventario*. **Aquí el conjunto está
+   * ACOTADO POR LA ENTRADA**: las piezas `in_stock` de unas cartas y acabados concretos. *Materializar
+   * aquí sería añadir estado derivado —y por tanto capaz de desincronizarse— para resolver un problema
+   * que no existe*, y acabaríamos con una columna `gradeKey` en `InventoryItem` **que puede mentir**.
+   *
+   * ⚠️ **Solo `status='in_stock'`**: una pieza ya `listed` no necesita este disparo (y re-resolver lo
+   * publicado es trabajo de `publish-all`, que existe para eso y es explícito).
+   */
+  async reevaluateVariantsForPublication(
+    variants: VariantPublishRef[],
+  ): Promise<PublishReevaluationResult[]> {
+    if (variants.length === 0) return [];
+    // Agrupa por las partes columnares para hacer UNA consulta por (productType, finish) en vez de
+    // una por variante: el fan-out que el lote existe para evitar también aplica aquí adentro.
+    const byShape = new Map<string, { productType: ProductType; finish: Finish; cardIds: Set<string> }>();
+    for (const v of variants) {
+      const k = `${v.productType}|${v.finish}`;
+      const g = byShape.get(k) ?? { productType: v.productType, finish: v.finish, cardIds: new Set<string>() };
+      g.cardIds.add(v.cardId);
+      byShape.set(k, g);
+    }
+    const ids: string[] = [];
+    for (const g of byShape.values()) {
+      // PASO 1 — solo columnas. `cardProductId` TAMBIÉN es columna (M-46) y entra en el paso 2 junto
+      // al `gradeKey`, porque una promo y la del set base **son variantes distintas** (D7).
+      const candidates = await this.prisma.inventoryItem.findMany({
+        where: {
+          ownerType: 'platform',
+          status: 'in_stock',
+          productType: g.productType,
+          finish: g.finish,
+          cardId: { in: [...g.cardIds] },
+        },
+        select: {
+          id: true,
+          cardId: true,
+          productType: true,
+          rawCondition: true,
+          gradingCompany: true,
+          gradeValue: true,
+          finish: true,
+          cardProductId: true,
+          sealedProductId: true,
+        },
+      });
+      // PASO 2 — el `gradeKey` se DERIVA aquí, en memoria, con `tryBuildGradeKey`: la misma función
+      // que usa el resto de las LECTURAS. Si un día cambia, cambia en un sitio.
+      // ⚠️ v1.53 (§4.40.4b) — **la TOLERANTE, y esto es un disparador, no un pago.** Una pieza
+      // `graded` sin identidad de slab (`convertToInventory`, §9 D-BG-3) no tiene clave ⇒ **no casa
+      // con ninguna variante** y no entra al lote. Es lo correcto por partida doble: no puede casar
+      // (no hay clave que comparar) y **tampoco podría publicarse** — `derivePublishSalePrice` la
+      // rechaza igual. Con la variante que LANZA, un solo slab incompleto en la BD tumbaría el
+      // barrido entero y con él la publicación de todas las demás piezas del disparo.
+      for (const c of candidates) {
+        const gradeKey = tryBuildGradeKey(c);
+        if (gradeKey == null) continue;
+        if (variants.some((v) => variantPublishMatches(v, { ...c, gradeKey }))) ids.push(c.id);
+      }
+    }
+    // PASO 3 — el MISMO cuerpo. Nada de lo de arriba decide si se publica: solo QUÉ se mira.
+    return this.reevaluateForPublication(ids);
+  }
+
+  /**
+   * Una pieza del disparo. **Comparte el pipeline con todo lo demás** (`assertPublishableGuards` +
+   * `resolvePublishSalePrice` + `claimListed`): *no hay una segunda forma de publicar*.
+   */
+  private async reevaluateOne(
+    item: PublishableItem,
+    ctx: PublishPricingCtx,
+  ): Promise<PublishReevaluationResult> {
+    const id = item.id;
+    // Idempotencia observable: una pieza ya a la venta no se vuelve a publicar ni se re-resuelve.
+    // (Re-resolver lo `listed` es trabajo de `publish-all`, que existe para eso y es explícito.)
+    if (item.status === 'listed') {
+      return { inventoryItemId: id, outcome: 'already_listed', missing: [] };
+    }
+    const state = this.pendingPublishStateOf(item, ctx);
+    if (item.locationId == null) {
+      // Sin ubicación no se publica **y no se escala nada**: el hueco es de captura, no de mercado.
+      return { inventoryItemId: id, outcome: 'missing_location', missing: state.missing };
+    }
+    try {
+      this.assertPublishableGuards(item);
+    } catch (e) {
+      // Status de origen no publicable o inventario que no es de plataforma. **Correcto y esperado**:
+      // el puerto NUNCA fuerza. Se registra porque un disparo sobre algo ajeno es señal de un bug
+      // del llamador, y un no-op mudo lo escondería.
+      this.logger.warn(
+        `publish trigger: ${item.folio} no publicable (${e instanceof Error ? e.message : String(e)})`,
+      );
+      return { inventoryItemId: id, outcome: 'not_publishable', missing: state.missing };
+    }
+    const resolved = await this.resolvePublishSalePrice(item, null, ctx);
+    if (!resolved.ok) {
+      // Ya escaló a la cola de M2: *un pendiente visible, no una carta perdida.*
+      return {
+        inventoryItemId: id,
+        outcome: 'price_pending',
+        missing: state.missing.includes('price') ? state.missing : [...state.missing, 'price'],
+        ...(resolved.pendingPriceEntryId
+          ? { pendingPriceEntryId: resolved.pendingPriceEntryId }
+          : {}),
+      };
+    }
+    try {
+      await this.claimListed(item);
+    } catch (e) {
+      // La guarda atómica perdió la carrera (un checkout la reservó entre medias). Es la conducta
+      // CORRECTA (anti-double-sell) y no se convierte en error del llamador.
+      this.logger.warn(
+        `publish trigger: ${item.folio} perdió la carrera al publicar (${e instanceof Error ? e.message : String(e)})`,
+      );
+      return { inventoryItemId: id, outcome: 'not_publishable', missing: state.missing };
+    }
+    this.logger.log(`publish trigger: ${item.folio} publicada`);
+    return { inventoryItemId: id, outcome: 'published', missing: [] };
   }
 
   async moveItem(id: string, dto: MoveItemDto, actorUserId: string) {
@@ -1765,12 +2602,17 @@ export class InventoryService {
         note: dto.note,
       },
     });
-    // S49-R4: proyectado.
+    const moved = await this.prisma.inventoryItem.update({
+      where: { id },
+      data: { locationId: dto.toLocationId },
+    });
+    // ⚠️ v1.51 (fase 8, §4.39m.2) — **DISPARADOR (b): al fijar/mover ubicación.** Éste es el momento
+    // en que a una pieza convertida deja de faltarle lo único que le faltaba. Va DESPUÉS del update
+    // (la ubicación es el hecho; publicar es la consecuencia) y es best-effort — ver `tryAutoPublish`.
+    await this.tryAutoPublish(id, 'move');
+    // S49-R4: proyectado. Se relee para que el `status` refleje una publicación que acaba de ocurrir.
     return toAdminInventoryItemRow(
-      await this.prisma.inventoryItem.update({
-        where: { id },
-        data: { locationId: dto.toLocationId },
-      }),
+      (await this.prisma.inventoryItem.findUnique({ where: { id } })) ?? moved,
     );
   }
 
@@ -2282,18 +3124,16 @@ export class InventoryService {
     });
 
     // Referencias de mercado EN LOTE (sin N+1) — misma llave que getReferencesBatch.
-    const refKeyOf = (i: {
-      cardId: string;
-      productType: ProductType;
-      finish: Finish;
-      gradeKey: string;
-    }) => `${i.cardId}|${i.productType}|${i.gradeKey}|${i.finish}`;
-    const refReqs = items.map((it) => ({
-      cardId: it.cardId,
-      productType: it.productType,
-      finish: it.finish,
-      gradeKey: this.exportGradeKey(it),
-    }));
+    // v1.53 (§4.40.4b, MONEY): `null` = pieza `graded` sin identidad de slab ⇒ NO entra al lote de
+    // referencias y sus columnas de dinero salen vacías. Se calcula UNA vez, alineado por índice con
+    // `items` (antes se recalculaba dos veces por fila).
+    const gradeKeys = items.map((it) => this.exportGradeKey(it));
+    const refReqs = items.flatMap((it, i) => {
+      const gk = gradeKeys[i];
+      return gk == null
+        ? []
+        : [{ cardId: it.cardId, productType: it.productType, finish: it.finish, gradeKey: gk }];
+    });
     const refs = refReqs.length
       ? await this.pricing.getReferencesBatch(refReqs)
       : new Map<string, PriceInfo>();
@@ -2328,8 +3168,12 @@ export class InventoryService {
 
     for (let idx = 0; idx < items.length; idx++) {
       const it = items[idx];
-      const market = refs.get(refKeyOf(refReqs[idx]));
-      const ov = ovByKey.get(`${it.cardId}|${it.productType}|${this.exportGradeKey(it)}|${it.finish}`);
+      // v1.53 (§4.40.4b): sin clave no hay mercado ni override que casar — las columnas salen vacías,
+      // que es la verdad. Antes salían con el valor de un PSA 10.
+      const gk = gradeKeys[idx];
+      const refKey = gk == null ? null : `${it.cardId}|${it.productType}|${gk}|${it.finish}`;
+      const market = refKey == null ? undefined : refs.get(refKey);
+      const ov = refKey == null ? undefined : ovByKey.get(refKey);
       const marketCents =
         market && market.status === 'priced' ? market.referenceMxnCents ?? null : null;
       const buyCents = ov?.buyOverrideCents ?? null;
@@ -2370,11 +3214,13 @@ export class InventoryService {
     gradingCompany: string | null;
     gradeValue: string | null;
     tcgplayerProductId: number | null;
-  }): string {
+  }): string | null {
     if (it.productType === 'sealed' && it.tcgplayerProductId != null) {
       return sealedMarketGradeKey(it.tcgplayerProductId);
     }
-    return buildGradeKey(it);
+    // v1.53 (§4.40.4b, MONEY) — EXPORT = lectura pura: sin identidad de slab no hay clave y las
+    // columnas de mercado/compra/venta salen vacías. Antes salían con el valor de un PSA 10.
+    return tryBuildGradeKey(it);
   }
 
   /** Condición legible por tipo: raw→rawCondition, sealed→sealedCondition, graded→empresa+grado. */

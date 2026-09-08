@@ -387,7 +387,7 @@ function PiecesSection({
   const t = useTranslations('admin.drawer');
   const tc = useTranslations('common');
   const locale = useLocale() as AppLocale;
-  const errorMessage = useErrorMessage();
+  const errorMessage = useErrorMessage('operator');
 
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [detailId, setDetailId] = useState<string | null>(null);
@@ -682,7 +682,7 @@ function LossModal({
   const t = useTranslations('admin.drawer.loss');
   const ta = useTranslations('masterSet.adjust');
   const tc = useTranslations('common');
-  const errorMessage = useErrorMessage();
+  const errorMessage = useErrorMessage('operator');
   const [reason, setReason] = useState<(typeof LOSS_REASONS)[number]>('perdida');
   const [note, setNote] = useState('');
 

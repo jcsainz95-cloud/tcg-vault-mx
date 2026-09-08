@@ -11,6 +11,7 @@ import {
   BUYLIST_REJECT_ABANDON_WINDOW_DAYS,
   rejectDeadlines,
 } from '../src/modules/buylist/buylist-reject.constants';
+import { SELL_REQUEST_TERMINAL_STATES } from '../src/common/sell-request-states';
 
 const pii = new PiiCryptoService(new ConfigService({}));
 
@@ -51,15 +52,32 @@ function build(itemOverrides: Record<string, unknown> = {}, mail: MailPort | und
     rejectionReason: null,
     sellRequest: {
       userId: 'u1',
+      // v1.51.5 · BL-14: el `include` ahora trae el ESTADO de la solicitud — sin él la guarda de
+      // terminal no podría comprobarse. `verificacion` = viva, el escenario de estos tests.
+      status: 'verificacion',
+      // ⚠️ v1.58 · §M5-R (BL-39): la constancia de RECEPCIÓN. Estos tests deciden líneas de una
+      // solicitud **en verificación**, o sea con la carta YA en nuestras manos: sin este dato el
+      // fixture describiría un escenario imposible. El caso contrario —`receivedAt: null`— es el
+      // sujeto de `buylist.m5r-received-approve.spec.ts`.
+      receivedAt: new Date('2026-09-02T00:00:00Z'),
       user: { email: 'seller@example.com', name: 'Ash', locale: 'es' },
     },
     card: { name: 'Pidgey', number: '16', set: { name: 'Base Set' } },
     ...itemOverrides,
   };
   const callOrder: string[] = [];
+  // v1.51.5 · BL-14: la escritura del ítem pasa a `updateMany` + `count === 1`, con la guarda de
+  // terminal EN EL `where`; el servicio ya no usa el valor de retorno de un `update`, sino que
+  // RELEE. El fixture aplica el `data` sobre la fila viva para que la relectura vea lo escrito.
+  const live: any = { ...item };
   const prisma: any = {
     sellRequestItem: {
-      findUnique: jest.fn().mockResolvedValue(item),
+      findUnique: jest.fn(async (args: any) => (args?.include ? item : { ...live })),
+      updateMany: jest.fn(async ({ data }: any) => {
+        callOrder.push('item.update');
+        Object.assign(live, data);
+        return { count: 1 };
+      }),
       update: jest.fn(async ({ data }: any) => {
         callOrder.push('item.update');
         return { id: item.id, ...data };
@@ -79,6 +97,9 @@ function build(itemOverrides: Record<string, unknown> = {}, mail: MailPort | und
         return {};
       }),
       // v1.24-buylist-request-reject: guarda atómica «no pisar terminal» de la auto-transición.
+      // ⚠ v1.56 (§M5-T/BL-35): y AHORA TAMBIÉN el recompute del total aprobado, que hasta este pase era
+      // el tercer `update({where:{id}})` sin guarda del módulo — un MONTO escrito sobre una fila que
+      // `paySpei` podía haber cerrado en la ventana. Se distinguen por el `data`, no por el verbo.
       updateMany: jest.fn(async () => {
         callOrder.push('sellRequest.updateMany');
         return { count: 1 };
@@ -113,7 +134,7 @@ describe('itemDecision(reject) — reason obligatorio (400 VALIDATION_ERROR)', (
     await expect(svc.itemDecision('sri-1', 'reject', undefined, reason as any)).rejects.toMatchObject({
       code: 'VALIDATION_ERROR',
     });
-    expect(prisma.sellRequestItem.update).not.toHaveBeenCalled();
+    expect(prisma.sellRequestItem.updateMany).not.toHaveBeenCalled();
     expect((mail as any).send).not.toHaveBeenCalled();
   });
 
@@ -122,14 +143,14 @@ describe('itemDecision(reject) — reason obligatorio (400 VALIDATION_ERROR)', (
     await expect(
       svc.itemDecision('sri-1', 'reject', undefined, 'x'.repeat(501)),
     ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
-    expect(prisma.sellRequestItem.update).not.toHaveBeenCalled();
+    expect(prisma.sellRequestItem.updateMany).not.toHaveBeenCalled();
   });
 
   it('para approve el reason se IGNORA (no se exige ni se persiste)', async () => {
     const { svc, prisma } = build();
     const res = await svc.itemDecision('sri-1', 'approve', 5000, 'motivo que sobra');
     expect(res).toMatchObject({ itemStatus: 'aprobada', approvedPriceCents: 5000 });
-    const data = prisma.sellRequestItem.update.mock.calls[0][0].data;
+    const data = prisma.sellRequestItem.updateMany.mock.calls[0][0].data;
     expect(data.rejectionReason).toBeUndefined();
   });
 });
@@ -139,8 +160,10 @@ describe('itemDecision(reject) — efectos persistidos (BL-1 + rejectedAt)', () 
     // approve→reject: el ítem ya tenía monto aprobado (el caso del monto fantasma BL-1).
     const { svc, prisma } = build({ itemStatus: 'aprobada', approvedPriceCents: 5000 });
     const res: any = await svc.itemDecision('sri-1', 'reject', undefined, 'no es NM: whitening');
-    expect(prisma.sellRequestItem.update).toHaveBeenCalledWith({
-      where: { id: 'sri-1' },
+    // v1.51.5 · BL-14: el `where` lleva la GUARDA de terminal además del id — es la exclusión del
+    // motor, no un `if` sobre la lectura previa (que una carrera invalida).
+    expect(prisma.sellRequestItem.updateMany).toHaveBeenCalledWith({
+      where: { id: 'sri-1', sellRequest: { status: { notIn: expect.arrayContaining(['pagada']) } } },
       data: {
         itemStatus: 'rechazada',
         approvedPriceCents: null,
@@ -166,8 +189,15 @@ describe('itemDecision(reject) — efectos persistidos (BL-1 + rejectedAt)', () 
       }),
     );
     // Y el total derivado (null: ningún otro ítem aprobado) se escribe en la solicitud.
-    expect(prisma.sellRequest.update).toHaveBeenCalledWith({
-      where: { id: 'sr-1' },
+    // ⚠ v1.56 (§M5-T/BL-35): con la guarda de vida en el `where` (los DOS ejes). Se afirma el `where`
+    // COMPLETO, no un `objectContaining`: si alguien le quita el término de terminal o el
+    // `closedAt`, este test cae — que es exactamente lo que tiene que hacer.
+    expect(prisma.sellRequest.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: 'sr-1',
+        status: { notIn: [...SELL_REQUEST_TERMINAL_STATES] },
+        closedAt: null,
+      },
       data: { approvedTotalCents: null },
     });
   });
@@ -185,7 +215,7 @@ describe('itemDecision(reject) — efectos persistidos (BL-1 + rejectedAt)', () 
   it('el reason se persiste con trim (whitespace de orillas fuera)', async () => {
     const { svc, prisma } = build();
     await svc.itemDecision('sri-1', 'reject', undefined, '  no es NM: bent corner  ');
-    const data = prisma.sellRequestItem.update.mock.calls[0][0].data;
+    const data = prisma.sellRequestItem.updateMany.mock.calls[0][0].data;
     expect(data.rejectionReason).toBe('no es NM: bent corner');
   });
 
@@ -196,7 +226,7 @@ describe('itemDecision(reject) — efectos persistidos (BL-1 + rejectedAt)', () 
       rejectionReason: 'no es NM',
     });
     await svc.itemDecision('sri-1', 'approve', 5000);
-    const data = prisma.sellRequestItem.update.mock.calls[0][0].data;
+    const data = prisma.sellRequestItem.updateMany.mock.calls[0][0].data;
     expect(data.rejectedAt).toBeNull();
     expect(data.rejectionReason).toBeNull();
   });
@@ -215,7 +245,7 @@ describe('itemDecision(reject) — idempotencia', () => {
     expect(res.itemStatus).toBe('rechazada');
     expect(res.rejectedAt).toBe(rejectedAt);
     expect(res.rejectionReason).toBe('no es NM: original');
-    expect(prisma.sellRequestItem.update).not.toHaveBeenCalled();
+    expect(prisma.sellRequestItem.updateMany).not.toHaveBeenCalled();
     expect(prisma.sellRequestItem.aggregate).not.toHaveBeenCalled();
     expect((mail as any).send).not.toHaveBeenCalled();
     // No filtra las relaciones internas del include en la respuesta.
@@ -227,7 +257,7 @@ describe('itemDecision(reject) — idempotencia', () => {
     const { svc, prisma } = build({ itemStatus: 'rechazada', rejectedAt: new Date() });
     const res: any = await svc.itemDecision('sri-1', 'reject');
     expect(res.itemStatus).toBe('rechazada');
-    expect(prisma.sellRequestItem.update).not.toHaveBeenCalled();
+    expect(prisma.sellRequestItem.updateMany).not.toHaveBeenCalled();
   });
 });
 
@@ -250,7 +280,11 @@ describe('itemDecision(reject) — correo al vendedor (best-effort, post-commit)
 
   it('usa la plantilla EN cuando User.locale=en', async () => {
     const { svc, mail } = build({
-      sellRequest: { userId: 'u1', user: { email: 'seller@example.com', name: 'Ash', locale: 'en' } },
+      sellRequest: {
+        userId: 'u1',
+        status: 'verificacion',
+        user: { email: 'seller@example.com', name: 'Ash', locale: 'en' },
+      },
     });
     await svc.itemDecision('sri-1', 'reject', undefined, 'not NM: whitening');
     const msg = (mail as any).send.mock.calls[0][0];
@@ -262,14 +296,14 @@ describe('itemDecision(reject) — correo al vendedor (best-effort, post-commit)
     const { svc, prisma } = build({}, mail);
     const res: any = await svc.itemDecision('sri-1', 'reject', undefined, 'no es NM: crease');
     expect(res.itemStatus).toBe('rechazada'); // la decisión quedó persistida
-    expect(prisma.sellRequestItem.update).toHaveBeenCalled();
+    expect(prisma.sellRequestItem.updateMany).toHaveBeenCalled();
   });
 
   it('sin MAIL_PORT (tests legacy / arranque parcial) la decisión igual procede', async () => {
     const { svc, prisma } = build({}, undefined);
     const res: any = await svc.itemDecision('sri-1', 'reject', undefined, 'no es NM: scratches');
     expect(res.itemStatus).toBe('rechazada');
-    expect(prisma.sellRequestItem.update).toHaveBeenCalled();
+    expect(prisma.sellRequestItem.updateMany).toHaveBeenCalled();
   });
 
   it('el correo NO se envía en approve/adjust', async () => {

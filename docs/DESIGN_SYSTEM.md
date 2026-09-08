@@ -4,7 +4,13 @@
 > El frontend (Next.js 14 + Tailwind) implementa este documento; no lo contradice.
 > Manda `PROJECT.md` sobre el contrato y sobre este documento; este documento define solo lo visual/UX,
 > nunca datos, contrato ni arquitectura.
-> Estado: **v1.3** (rediseño 5a "papel/tinta/bermellón" — sin look de IA). Fecha: 2026-08-16. Branch: `claude/rediseno-5a-pantallas`.
+> Estado: **v3.2** — última sección añadida: **§27, copy de errores del ciclo de oferta del buylist**
+> (§26 fue la mensajería de error del back-office; v3.0 fue §25, ciclo de adquisición). Fecha: 2026-09-07.
+> Rama: `claude/buylist-inventory-workflow-hdnls3` (fusión con `main`, que traía hasta **v2.9**: §22.13/§22.14,
+> §23 rotación del carrusel y §24 logos de expansión). La numeración de esta fusión está explicada en la
+> **nota de reconciliación** del changelog de abajo.
+> Dirección de arte vigente desde **v1.3** (rediseño 5a "papel/tinta/bermellón" — sin look de IA;
+> 2026-08-16, rama `claude/rediseno-5a-pantallas`), con el rebrand **TCG HUNT** de v1.7 (§17).
 > Origen: **codificado a partir del rediseño 5a implementado en `frontend/`** (dirección de arte
 > aprobada por el humano). No hubo entrega formal de Claude Design; los tokens de este documento se
 > **extraen de los valores reales** de `frontend/src/app/globals.css`, `frontend/tailwind.config.ts` y
@@ -219,6 +225,7 @@
 > Se traduce en la regla dura **R6** (§22.0) y en un **estado nuevo** en §22.7 —«hay cifra y pasa el gate
 > de ROI, pero no es confiable» ⇒ **ficha sí, teja y vitrina no**—, **indistinguible en pantalla** del
 > caso «no pasa el gate», y así debe ser (R5). Sigue **cero tokens nuevos**.
+>
 > **Revisión del humano (2026-08-31), incorporada — la burbuja entra también al carrusel «Piezas
 > destacadas del catálogo» → nueva §22.6b.** El gancho pasa de **tres** superficies a **cuatro**: la
 > vitrina «Joyas para gradear» **se conserva tal cual** y el carrusel del home **suma** la cifra. No es un
@@ -357,6 +364,275 @@
 > que convierte el usuario necesita saber a dónde va — el titular evoca, el **CTA nombra la acción
 > real**. **Aditiva: cero tokens nuevos, cero componentes nuevos, cero claves i18n nuevas y cero
 > cambios de contrato**; no modifica ninguna sección previa.
+>
+> ---
+>
+> **⚠ Reconciliación de numeración al fusionar con `main` (2026-09-05).** La entrega que sigue —el **ciclo
+> de adquisición del buylist**, §P de `PROJECT.md`— se escribió en rama con las etiquetas **§23 / v2.3**.
+> Al absorber `main`, esas dos etiquetas ya estaban **ocupadas y publicadas**: **v2.3** es el *dial único
+> del gancho* (§22.13), **§23** es la *rotación automática del carrusel* (P-49, v2.6–v2.7) y **§24** son
+> los *logos de expansión* (P-54, v2.8), los tres con sus veredictos aprobados y con código, tests y
+> `*_NOTES.md` que ya los citan. Se aplica el mismo criterio que en la fusión anterior (nota de v2.2:
+> *«la curva P-48 ya ocupaba §21 y la etiqueta v2.1 en producción, así que esta entrega pasa a §22 /
+> v2.2»*): **renumera lo que todavía no había entrado, nunca lo que ya está publicado**. Por tanto
+> **§23 (rama) ⇒ §25** y **v2.3 ⇒ v3.0**, con sus diez correcciones **v2.3.1–v2.3.10 ⇒ v3.0.1–v3.0.10**.
+> Se salta a **v3.0** en vez de a «v2.10» a propósito: en un documento que ya tiene **v2.1** (§21) y que
+> cita versiones dentro de los títulos («reescrita v3.0.2»), *«v2.10» y «v2.1» son el mismo error que este
+> ciclo cazó cuatro veces —una etiqueta que se lee como otra—*. **No cambia ni una decisión de diseño:**
+> cambian el número de sección y la etiqueta de versión, y el texto de las entradas es **literal el
+> ratificado**. **Las referencias externas a `DESIGN_SYSTEM §23.x` del ciclo de buylist** —en
+> `ARCHITECTURE.md`, `API_CONTRACT.md`, las `*_NOTES.md`, `backend/` y `frontend/`— **siguen apuntando al
+> número viejo**: actualizarlas le toca a **cada rol dueño de esa ruta**, no a este documento (ver el
+> resumen de esta fusión). Dentro de este archivo la renumeración es **completa**: no queda ningún `§23.x`
+> que signifique buylist, ni ningún `§25.x` que signifique carrusel.
+>
+> **Añadido v3.0 (§P de PROJECT — ciclo de adquisición del buylist: ofertar, aceptar, guía y publicar)
+> → ver §25.** El buylist deja de ir de `cotizada` directo a la recepción física y gana **oferta
+> vinculante → aceptación → guía → tránsito**. §25 define lo que le toca al diseño: **(1) los CUATRO
+> correos del ciclo** —oferta, recordatorio, expiración/cancelación y «no procederemos»— con su
+> jerarquía, su tono y sus **prohibiciones**, empezando por la que sostiene todo el trato: la
+> **condición NM declarada línea por línea, pegada al dinero**, y los **tres montos** (bruto / envío /
+> **neto**) con el neto como **única cifra vinculante y única cifra que puede viajar en el asunto**;
+> **(2)** ~~el **aviso del descuento de envío en el cotizador**, resuelto como **aritmética ya hecha**
+> («recibirías ≈ MX$ 320») dentro del bloque de dinero~~ **⚠ SUPERADO en v3.0.1 (D43) — ver abajo**;
+> **(3)** los **cuatro estados nuevos** (`ofertada`, `aceptada`, `en_transito`, `expirada`) en el mapa
+> canónico §2.4 —con **`expirada` pintando su MOTIVO, no su estado**, porque sus dos causas significan
+> cosas opuestas— y el **`PipelineStepper` de OCHO pasos** con la rama de error como **cierre terminal**,
+> no como paso; **(4)** la **mesa de decisión** del admin: **cinco cifras por línea** leídas en dos
+> tiempos —un titular `POSICIÓN n/m` y una **tira de cuatro sumandos ordenada por confianza**, con una
+> **regla vertical** que separa lo que está en la casa de lo que no, y la **prohibición dura de sumar
+> «en camino» con «comprometido»**— más una **sugerencia que informa y nunca preselecciona**;
+> **(5)** el estado **`positionUnavailable`**: cuando no se pudo contar, **desaparece la tira entera y
+> aparece una frase** — prohibidos el `0`, el `—`, el `?`, la celda vacía y el skeleton eterno.
+> §25 es **aditiva**: **cero tokens nuevos** de color y tipografía, cero elementos gráficos nuevos, y
+> **una sola pieza de medio nuevo** (la plantilla de correo, §25.4, que traduce papel/tinta a HTML de
+> correo con **fallbacks de sistema como diseño real**). Sin entrega de Claude Design para esta feature:
+> se compone con lo ya ratificado (`Badge` §7.2, `Banner` §7.5, `DataTable` §7.7, `PipelineStepper`
+> §7.9, `AmountBreakdown` §7.12, barra sticky §21.6, reglas §4.3, `--app-header-h` §4.5).
+>
+> **Corrección v3.0.1 (2026-09-01 — D43, decisión del humano; pase correctivo acotado sobre §25).**
+> **El cotizador deja de hablar de montos de envío.** Se retiran del carrito la línea de envío, la resta y
+> el neto estimado (`RECIBIRÍAS ≈`), y en su lugar va **una nota de servicio sin cifras**: *«Nosotros
+> ponemos la guía de envío y su costo se descuenta siempre de lo que te pagamos: tú no pagas nada de tu
+> bolsillo. El monto exacto va en la oferta, antes de que aceptes.»* Razón: **el cotizador es indicativo por
+> construcción** —los precios se mueven y puede que no compremos todas las líneas—, así que restarle un
+> envío exacto es **precisión falsa**; peor aún, el neto que pintaba era **sistemáticamente optimista**
+> (el cherry-pick solo quita líneas), o sea que fabricaba la decepción que R1 existe para evitar. **La resta
+> con los tres montos vive solo en la oferta** (correo §25.4.2 + portal §25.5), que es autenticada y usa la
+> tarifa **congelada**. **El faltante para el mínimo se queda** (criterio 132), ahora **solo y sin nada de
+> envío al lado**. Consecuencia asumida y trabajada: **el correo de oferta es la primera vez que el vendedor
+> ve el monto del envío** ⇒ ese correo **repite la cifra del envío en la prosa** (no solo en la tabla), el
+> preheader deja de decir «el envío lo ponemos nosotros» **sin** «y se descuenta», y queda prohibida toda
+> fórmula que presuponga conocimiento previo («como ya sabías»). Alcance: §25.0 (precisión de R1), **§25.3
+> reescrita**, §25.4.2, §25.4.3, §25.4.7, §25.5b/c/d, §25.9, §25.10, §25.11, §25.12 (tres claves retiradas,
+> una nueva) y §25.13. **Sigue sin tokens nuevos, sin componentes nuevos y con paridad ES/EN.** La objeción
+> de UX —el vendedor cerca del mínimo se entera del ~36% hasta el correo— queda **registrada en §25.3l**,
+> con su mitigación de producto: **medir**, y si duele, **mover el dial del mínimo**, no repintar la resta.
+>
+> **Corrección v3.0.2 (2026-09-01 — barrido de copy vivo tras D16/D31/D43; §25.14 nueva).**
+> El primer pase de frontend dejó tres textos **que seguían contando el trato viejo** en pantallas vivas, y
+> el barrido de esta versión encontró **cuatro más**. La cabeza de todo es la misma: **D16/D31 cambió quién
+> pone el envío y ningún texto anterior a esa decisión se revisó.** Lo que cambia: **(1)** la guía de
+> empaque deja de mandar al vendedor a **comprar y asegurar su propia guía** —bajo D16 pagaría **dos
+> veces**— y de paso pierde la ambigüedad de llamarse «Guía de envío seguro» en la misma página donde
+> «guía» ya significa **la etiqueta que ponemos nosotros**; **(2)** el cotizador del **home** deja de
+> rotular su total con «Te pagamos» —un rótulo que **promete depósito** sobre una cifra que no lo es— y
+> **entra a §25.3g** como tercera superficie de cotizador; **(3)** `buylist.trustShipping`, que el frontend
+> dejó **como recorte**, se **retira**: lo que le quedaba ya estaba dicho **palabra por palabra** dos
+> párrafos arriba, y la mitad que faltaba **no puede vivir ahí** porque ese bloque es `muted` y §25.3c
+> prohíbe el `muted` para esta regla. Del barrido salen además **dos contradicciones de dinero con D2/D9**
+> (`estimateNote` y `trustValidity` seguían prometiendo que **el monto final se confirma al verificar**,
+> cuando la oferta es **vinculante y no se reprecia**) y **una de D16** (`buylist.created` invitaba a
+> **mandar el paquete** sin nuestra guía). **Cero tokens, cero componentes nuevos, cero cifras nuevas**: es
+> un pase **solo de copy y de dónde se pinta**, y **D43 sigue intacta** (ninguna cadena nueva lleva una
+> cifra de envío). Alcance: §7.13 reescrita, §25.3c-bis y §25.3g (fila nueva), §25.12 y **§25.14 nueva**.
+>
+> **Corrección v3.0.3 (2026-09-01 — dictamen del arquitecto sobre `ARCHITECTURE §4.39(n)`).**
+> **Los correos del ciclo son CINCO, no cuatro, y «3c» deja de existir.** §25.4.4 trataba la **cancelación
+> de la oferta por nuestra parte** como tercera variante del correo 3; **es un correo propio** porque
+> **deja la solicitud `cotizada` y VIVA**, mientras 3a y 3b dejan terminales. **El texto ratificado no
+> cambia una letra**: cambia de número, pasa a **§25.4.4-bis** y —**lo que de verdad importaba**— sale del
+> prefijo que mentía: ~~`expiry.cancelledByUs.*`~~ ⇒ **`offerCancelled.*`**. *Un número mal puesto se nota;
+> un prefijo que miente se propaga, porque no se lee: se autocompleta* — y `expiry.*` empujaba cada edición
+> futura hacia «se te venció», que es **la frase prohibida** en ese correo. Se corrigen además todas las
+> referencias cruzadas al conteo viejo dentro de §25 (§25.0, §25.4.0, §25.4.7, §25.13.2/6/8, §25.14.7).
+> **Segunda resolución, en dirección contraria: `buylist.adjust.*` NO se retira** — es **inalcanzable para
+> el ciclo nuevo pero necesaria para la cohorte heredada en vuelo**; su retiro va **con gate, no con
+> fecha**. De ahí sale una regla que este documento adopta: *el copy de un flujo que se apaga se retira
+> cuando **termina su última instancia viva**, no cuando el flujo deja de crearse.* **Cero cambios de
+> diseño visual, cero tokens, cero redacción nueva.**
+>
+> **Corrección v3.0.4 (2026-09-01 — falso positivo levantado por frontend al implementar §25.14).**
+> **Se recalibra la regla de QA 2 de §25.14.6**, que marcaba **`buylist.quote.shippingNote`** —la cadena
+> **normativa** de §25.3d, citada literal en el mock-up de §25.3c— porque buscaba `te pagamos` / `we pay
+> you` exigiendo **«cero coincidencias»** sobre `buylist.quote.*`. El patrón no era el problema: **la
+> forma de la regla sí**. El criterio real es más fino —*rótulo que promete depósito **sobre una suma***— y
+> `shippingNote` **no es un rótulo ni cuelga de una suma**: es prosa, y «lo que te pagamos» es **el
+> referente del descuento**, sin el cual la frase no dice de dónde se descuenta. La regla pasa a
+> **(2a)** aserción positiva —el rótulo del total resuelve a `buylist.quote.money.cardsValue` y a ninguna
+> otra clave— **(2b)** `grep` acotado a **claves de rótulo de monto** y **(2c)** lista de **supervivientes
+> esperados**, que es el patrón que la regla 1 **ya usaba bien** con `grading.*`. Se añade la convención
+> a la cabecera de §25.14.6. **Cero cambios de copy, de diseño y de claves**: solo cambia cómo se verifica.
+> *Motivo por el que se corrige algo cosmético: una regla que da falsos positivos se deja de correr, y esta
+> protege la distinción **rótulo vs. prosa / suma vs. tarifa unitaria** que costó dos rondas fijar.*
+>
+> **Corrección v3.0.5 (2026-09-01 — dos rótulos de M5 levantados por frontend; §25.8a nueva).**
+> **§25.8 tenía un hueco:** especificó **las cuatro colas** de M5 pero **nunca las PESTAÑAS DE ETAPA**, así
+> que al crecer el enum el frontend tuvo que **inventar un rótulo** para que tres estados no desaparecieran
+> de la pantalla — y lo declaró como decisión suya. **§25.8a llena el hueco y le da a M5 el eje que le
+> faltaba: el rótulo dice DE QUIÉN ES EL PENDIENTE** («Por + verbo» cuando es nuestro; de quién depende
+> cuando no lo es). Cambian **tres** rótulos y sus claves: **(1)** ~~«Por recibir»~~ ⇒ **«Por ofertar»**,
+> porque §25.1a ratificó que `cotizada` significa **«te debemos una respuesta»** y **ahí no hay nada que
+> recibir** — el rótulo viejo induce a **esperar** en la única cola donde corre un plazo de 7 días hábiles
+> **en contra nuestra**; **(2)** ~~«Ciclo de oferta»~~ ⇒ **«Con el vendedor»** —**la estructura del
+> frontend se RATIFICA** (una pestaña y no tres, y `aceptada` jamás bajo un rótulo de «en camino»,
+> criterio 156); lo que cambia es la jerga interna por la pregunta operativa—; y **(3)** hallazgo del
+> barrido: ~~«Rechazadas»~~ ⇒ **«Piezas rechazadas»**, porque esa pestaña lista **ítems** mientras
+> `rechazada` es **un estado de solicitud** que vive en «Cerradas» — **la misma palabra con dos
+> significados en la misma pantalla**. Se dejan intactas «Verificando», «Por pagar» y «Cerradas».
+> **Es la tercera vez en este ciclo que el defecto es el mismo** —`expiry.*`, «Guía de envío seguro» y
+> ahora «Por recibir»—: **un nombre que sobrevive al cambio de significado**. **Cero tokens, cero
+> componentes, cero cambios de dato.**
+>
+> **Corrección v3.0.6 (2026-09-01 — errata de conteo levantada por frontend; regla nueva en §25.12).**
+> §25.14.6-3bis decía **«los DIEZ valores de `SellRequestStatus`»**: son **ONCE**. El texto y la tabla de
+> §25.8a **siempre repartieron once** (1+3+2+1+4) — mentía **el número suelto**. **El origen es una
+> distinción real que no estaba nombrada:** §25.12 lista **diez** claves bajo `status.sellRequest.*` y
+> **ahí el diez es correcto**, porque `expirada` **se rotula por su motivo** (§25.1d) y no tiene clave en
+> ese espacio. **El diez viajó del sitio donde era cierto al sitio donde no lo es.** No era cosmético: el
+> número vivía **dentro de una regla de verificación**, así que un test escrito contra «diez» habría
+> dejado **un estado sin comprobar** — y esa regla existe justamente porque un estado sin pestaña **no
+> falla ni avisa, desaparece del back-office**. *Una regla de QA con el número mal deja pasar el caso que
+> vino a cazar.* Se corrige el dígito y, sobre todo, **se nombra la distinción donde nace** (§25.12:
+> «rótulos de estado ≠ estados», con las cuatro magnitudes — 11 estados · 10 claves · 3 de motivo · 4
+> terminales) y **se marca §2.4 como no-contable**, que es el otro sitio donde `expirada` ocupa tres filas.
+> **Regla adoptada:** *toda afirmación de cobertura se escribe contra el **enum del contrato**, nunca
+> contra el número de claves i18n ni de filas de una tabla de color; y si el número y la enumeración
+> discrepan, **manda la enumeración**.* **Cero cambios de copy, de claves y de diseño.**
+>
+> **Corrección v3.0.7 (2026-09-01 — el PORTAL DEL VENDEDOR existe; §25.5g y §25.5h nuevas).**
+> La pantalla a la que apunta el correo de oferta **era un 404** y ya no lo es. §25.5 cubría **la oferta
+> viva y los cierres**, pero **no** el rechazo confirmado, la oferta incompleta, el 404 neutro ni la puerta
+> de sesión: el frontend los construyó, **declaró** las claves que tuvo que nombrar y escribió el EN.
+> **Se ratifica el espacio `buylist.offer.*` completo** (inventariado por fin en §25.12) **con tres
+> correcciones**: **(C1)** `offer.deadline` decía que la oferta *«se cancela sola»* y **«cancelar» es
+> desde v3.0.3 el verbo del correo 5** —lo que hacemos NOSOTROS—; una oferta que muere por silencio
+> **vence**. **(C2)** el diálogo de rechazar gana **el neto y la condición**: R2 no admite excepción y es
+> el último instante en que el vendedor puede saber qué suelta — con una lista de prohibiciones para que
+> informar no se convierta en presionar. **(C3)** el diálogo de aceptar **se reenmarca** (*«La condición es
+> la misma para cada carta: {condition}»*) para que **el singular del servidor se pueda CITAR** en vez de
+> reescribirse: *cuando un texto del servidor no encaja en el marco de la UI, **se cambia el marco, no se
+> duplica el texto**.* Se ratifican el **aviso de oferta incompleta** (R2 hasta el final: sin montos, sin
+> plazo, sin acciones), el **404 neutro** atado a la doctrina de §15.7 —con la precisión que lo hace
+> seguro: **la puerta de sesión se resuelve por la SESIÓN, nunca por una consulta**, o es un oráculo— y la
+> **frase neutra de `rechazada`**, con el reparto `rejectedNow`/`noLongerActive` que solo usa la neutra
+> donde la ignorancia es real.
+> **§25.5h decide la prosa duplicada: se PERMITE como puente y NO es bloqueante**, porque omitirla sería
+> una **regresión de producto** (§25.5b: el portal es el único sitio donde la resta se relee) y duplicarla
+> es una **deuda de mantenimiento** — con tres condiciones: **el correo es la fuente**, **verbatim
+> verificado** y **la clave se borra** cuando el servidor mande la prosa. Se afina además la verificación
+> del teaser del home: **«presente» no era el requisito, «visible» sí** (la nota está en el DOM pero
+> `hidden` a 390px). **Tres peticiones al arquitecto en §25.13.9**, y una es de dinero: **una oferta
+> inmostrable puede consumirle el plazo al vendedor** y vencerle por un fallo nuestro.
+>
+> **Corrección v3.0.8 (2026-09-01 — dos decisiones de pantalla, y una rectificación mía).**
+> **(1) RECTIFICACIÓN: el defecto del teaser a 390px NO existía.** En v3.0.7 escribí como hecho que la nota
+> estaba «en el DOM pero `hidden`». **Es falso**: hay una nota visible en los dos anchos y **§25.14.2a
+> estaba cumplida desde el principio**. Lo que fallaba era **la medición** — el home monta el panel **dos
+> veces** (por diseño, §25.3g fila 0) **con el mismo identificador**, y la comprobación miraba la copia de
+> escritorio. La regla afinada se queda y **gana la mitad que faltaba**: si el diseño manda dos montajes,
+> **una comprobación que no desambigüe cuál mira no está midiendo la pantalla**. *Acepté un hallazgo sin
+> preguntar cómo se midió y lo escribí en la fuente de verdad; **un diagnóstico falso se propaga igual que
+> un nombre falso**. La corrección se deja visible, no se borra.*
+> **(2) DOS notas de envío a la vez ⇒ §25.3g-bis: EXACTAMENTE UNA visible por pantalla.** Autoricé las dos
+> instancias **por separado y nunca las miré juntas** — el error clásico de especificar por reglas y no por
+> pantallas. Se resuelve por construcción con el criterio que sale de por qué existe cada una: **gana la
+> más cercana a la decisión**, y la cabecera **solo se monta cuando el carrito no está visible**, que era
+> su única razón de ser. Dos párrafos idénticos de cuatro líneas no refuerzan: **son la firma de un error
+> de render**.
+> **(3) EL TOTAL QUE NO EXPLICA SU PROPIA ARITMÉTICA — §25.3h reescrita + §25.3f-bis nueva.** Con líneas en
+> `precio_pendiente`, el bloque decía *«TE FALTAN MX$500… Agrega otra carta»* frente a **un carrito de 999
+> cartas**. Un **test E2E** vio el total en cero y **concluyó que el cotizador no sumaba**: *si alguien que
+> conoce el sistema se confunde, el vendedor se confunde seguro — y él no abre un issue, cierra la
+> pestaña.* Es **R7 aplicada al total**: *un cero que significa «todavía no lo he calculado» no es un
+> cero*. §25.3h lo tenía bien **por línea** y le faltaba **el agregado**. Ahora: la explicación se pinta
+> **una vez** en el bloque de dinero con `{count}` (y **se retira** la línea repetida por ítem, que con
+> cientos de líneas era ruido), dice **qué pasa con esas cartas** para que el vendedor **no las borre**, y
+> **el consejo cambia**: `addPricedCard` en vez de `addAnother`, porque «agrega otra carta» ahí es **una
+> cinta de correr** — mil cartas más del mismo set siguen sumando cero. **Cero tokens, cero componentes;
+> una clave nueva y una que cambia de contenido y de sitio.**
+>
+> **Corrección v3.0.9 (2026-09-01 — se fija el EN que §25 nunca dio, y se ratifican dos aciertos del pase).**
+> **`SIN PRECIO` no tenía par en inglés** —a diferencia de `SIN ENVÍO`/`NOT SHIPPED`—, así que el
+> implementador tuvo que elegirlo. Queda **`Sin precio` / `No price yet`**: en inglés *«No price»* puede
+> leerse como **«no vale nada»**, que es **exactamente** la conclusión que §25.3h existe para impedir, y es
+> una etiqueta **pegada a dinero**. En español no hace falta el «aún» porque *«sin precio»* ya se lee como
+> *«todavía sin asignar»* —lo que significa «no vale nada» es *«sin valor»*—: **es traducción de
+> significado, no de palabras**, y a EN le cuesta un término más llegar al mismo sitio. **EN queda 2
+> caracteres más largo ⇒ la celda se dimensiona por EN** (§9.4). **Se ratifican** además: **(a)** que la
+> decisión de §25.3g-bis viva en **una sola capa** —la vista decide, el carrito obedece— y que el
+> acoplamiento esté **documentado en el prop**, porque *un componente que decide solo si pinta una regla de
+> dinero no puede saber si otro ya la está pintando: o la duplica o la omite*; y **(b)** el retiro de
+> **`buylist.totalPendingNote`**, que decía que esas cartas se cotizan *«cuando las recibimos»* cuando bajo
+> el ciclo se cotizan **al ofertar, antes de que el vendedor mande nada** — **cuarta aparición del mismo
+> patrón** y la primera que caza el implementador, no yo. Entra al registro de §25.14 como la fila 11.
+>
+> **Corrección v3.0.10 (2026-09-01 — la MESA DE DECISIÓN existe; §25.6 ratificada con una corrección).**
+> **(1) Namespace: manda el catálogo.** §25.12 decía `admin.buylist.desk.*`; M5 vive en **`admin.m5.*`** y
+> todo el admin está indexado por módulo. Mi ruta habría creado el único namespace fuera de convención,
+> **a cambio de nada**: se corrige el documento, no el código. *§25.12 especifica **qué claves existen y
+> qué dicen**, no dónde vive el árbol — ese archivo es de frontend, y ante un choque **gana la
+> convención**.*
+> **(2) Copy de las ~64 claves RATIFICADO, con UN fallo: `confirm.deadlineNote` incumple R4.** Lleva
+> **«2 días hábiles» escrito a mano** y ese plazo es **un dial de M10** (D3/D8) — la constante que *«se
+> desincroniza en silencio la primera vez que alguien mueve el dial»* (criterio 154), **prometida al
+> operador en el diálogo donde emite dinero**. Dos salidas: interpolar el dial, o —**sin tocar el
+> contrato**— quitar el número y decir lo único que ahí importa: **que el plazo se congela al emitir**.
+> **(3) §25.6d reescrito, y una parte era una contradicción MÍA.** La **densidad compacta queda DIFERIDA**
+> (mi propio texto ya la daba por *opcional*, y además cambia una protección de R6 —la etiqueta por celda—
+> por menos scroll: mal negocio). Y **se retira la frase «en `< md` la fila colapsa a card (§7.7)»**:
+> §25.6e dice que la línea **no es una fila de tabla sino una banda**, así que arrastré una regla del
+> `DataTable` sin comprobar que aplicara. El requisito móvil real ya estaba bien en §25.13.8(n).
+> **(4) Se elevan a norma dos defensas que el implementador escribió mejor de lo que yo las tenía:** los
+> **cuatro mecanismos** que hacen R6 irrompible —regla vertical, encabezados de grupo reales, gradiente por
+> **peso** y **la ausencia** de todo lugar donde la suma pueda aparecer, con test **por lo negativo**— y la
+> **segunda puerta de D6**: *el default no consulta la sugerencia ni una vez*, porque **un botón apagado se
+> ve y se protesta, pero un default sesgado no se ve nunca**. **Cero tokens, cero componentes.**
+>
+> **Añadido v3.1 (2026-09-07 — mensajería de error del back-office del buylist) → ver §26.** Los gates de QA
+> y techlead encontraron **tres defectos de copy en superficies de dinero**, y los tres son del mismo tipo:
+> **el texto no sabe a quién le habla ni a qué palanca lo manda.** (1) `INE_REQUIRED` y
+> `BUYLIST_LIMIT_EXCEEDED` los ve ahora también el **operador** desde `POST /admin/buylist/:id/offer`, y le
+> decían *«necesitas subir **tu** INE»* — el operador **no es el sujeto** de esa regla: le está pasando algo
+> sobre **el vendedor**. Se desdoblan por destinatario con el sufijo **`_OPERATOR`**. (2)
+> `APPROVED_PRICE_CAP_EXCEEDED` explicaba la cota **«cotizado × 2»**, que **dentro del ciclo de oferta ya no
+> existe** (BL-40): mandaba al operador a repreciar una cifra **vinculante e inmutable** — *la palanca
+> equivocada es lo más caro que puede hacer un mensaje de error*. Se parte en dos cadenas, una por cota.
+> (3) Cuatro códigos (`REQUEST_NOT_RECEIVED`, `PICKUP_ADDRESS_LOCKED`, `PICKUP_ADDRESS_MISSING`,
+> `OFFER_PRICE_IMMUTABLE`) **no tenían copy en ningún idioma**, así que el operador mexicano leía el inglés
+> crudo del servidor. **Cero tokens, cero componentes, cero pares de contraste nuevos**: §26 es solo texto,
+> el selector de variante y una lista cerrada de prohibiciones. **Once cadenas obligatorias en ES y EN**
+> (más dos opcionales con cifras), con **dos peticiones al arquitecto** (§26.9) que **no bloquean** la
+> implementación.
+>
+> **Añadido v3.2 (2026-09-07 — copy de errores del ciclo de oferta) → ver §27.** §26 arregló siete códigos y
+> **frontend los cableó enteros**; el contrato **v1.61** metió después uno nuevo y frontend encontró **doce
+> viejos** sin copy en ningún idioma. **§27 los escribe todos, en dos lotes con prioridad explícita.**
+> **Lote 1, y es lo único que bloquea el release: `ITEMS_NOT_DECIDED`** — el término **V-b** de
+> [`API_CONTRACT §M5-V`](API_CONTRACT.md), que existe porque la plataforma podía **pagar la oferta completa
+> por cero cartas** (reproducido en vivo: **MX$320 por nada**) al pagar sin haber dado veredicto carta por
+> carta. Hoy el súper-admin lee **inglés crudo del servidor en la pantalla donde autoriza dinero**. La
+> cadena se escribe **en tono de paso pendiente, no de avería ni de regaño** —no es un error suyo ni un
+> fallo del sistema: es trabajo que falta— y **aprovecha el conteo** (`{count}`) para que sepa **cuántas**
+> líneas faltan sin ir a contarlas. **Lote 2 (no bloquea, entra si no retrasa): los doce códigos restantes
+> del ciclo** — emisión (`OFFER_NOT_ALLOWED`, `OFFER_ALREADY_SENT`, `OFFER_LINES_MISMATCH`,
+> `OFFER_LINE_NOT_PRICEABLE`, `OVERRIDE_REASON_REQUIRED`, `OFFER_NET_BELOW_MINIMUM`,
+> `OFFER_PROJECTION_INCOMPLETE`), verificación (`ITEM_NOT_OFFERED`, `OFFERED_PRICE_MISSING`,
+> `ADJUST_NOT_ALLOWED_IN_OFFER_CYCLE`, `NO_LIVE_ADJUSTMENT`) y cierre (`DECLINE_NOT_ALLOWED`), **tres de
+> ellos del mismo diálogo que §26 acaba de arreglar**. **15 claves obligatorias en ES y EN** (dos códigos se
+> desdoblan por destinatario con el `_OPERATOR` de §26.1) **más dos opcionales con cifras y una cadena
+> preventiva** para el botón de pago apagado. **Cero tokens, cero componentes, cero pares de contraste
+> nuevos:** §27 es texto y reglas de selección, sobre las tres reglas duras de §26.
 
 ---
 
@@ -556,13 +832,20 @@ a `{token de color, clave i18n}`. Nunca se traduce el enum a color en el backend
 | Shipment | `enviado` | primary | En tránsito |
 | Shipment | `entregado` | success | Entregado |
 | Shipment | `cancelado` | neutral | Cancelado |
-| SellRequest | `cotizada` | neutral | Cotizada |
+| SellRequest | `cotizada` | neutral | Cotizada — **esperando NUESTRA oferta** (v3.0, §25.1) |
+| SellRequest | **`ofertada`** | **accent** | **Oferta vinculante enviada; el reloj es del vendedor** (v3.0) |
+| SellRequest | **`aceptada`** | **accent** | **Dijo que sí; todavía no viaja nada** (v3.0) |
+| SellRequest | **`en_transito`** | **primary** | **Un paquete viaja de verdad** (v3.0) |
 | SellRequest | `recibida` | info | Recibida física |
 | SellRequest | `verificacion` | accent | En verificación |
 | SellRequest | `aprobada` | success (outline) | Aprobada, por pagar |
 | SellRequest | `pagada` | success | Pagada (SPEI) |
 | SellRequest | `rechazada` | danger | Rechazada |
+| SellRequest | **`expirada` + `not_shipped`** | **danger** | **Aceptó y el paquete no salió** (v3.0 — se pinta el MOTIVO) |
+| SellRequest | **`expirada` + `no_offer`** | **neutral** | **No procedimos con la oferta** (v3.0 — se pinta el MOTIVO) |
+| SellRequest | **`expirada` + `null`** | **neutral** | **Fallback legacy: nunca acusa** (v3.0, §25.1) |
 | SellRequest | `abandonada` | neutral | Abandonada → inventario |
+| SellOffer (admin) | **`pending_authorization`** | **accent (outline)** | **Preparada, esperando al súper-admin — JAMÁS en superficie de cliente** (v3.0) |
 | Precio | `pending` (precio pendiente) | warning (outline) | Sin precio; escalado al dueño |
 | Dispute | `abierta` | warning | Abierta |
 | Dispute | `en_revision` | accent | En revisión |
@@ -581,6 +864,23 @@ portador**. **El icono deja de ser requisito** en estados críticos (antes lo er
 editorial 5a los badges son texto, no pastillas con icono. Esto es un **cambio de regla deliberado y
 aprobado**, no un descuido; la accesibilidad se preserva por **texto en versalitas + `aria-label` + foco
 visible + contraste AA** (§10). El icono queda **opcional/decorativo** (`aria-hidden`).
+
+> **⚠ Excepción de mapeo introducida en v3.0 (§25.1): `expirada` NO tiene un color propio, tiene DOS.**
+> Es el único valor de enum del sistema cuyo **color y cuya versalita se eligen por un segundo campo**
+> (`expiredReason`), porque sus dos causas significan **cosas opuestas para el vendedor**: una dice que él
+> incumplió y la otra dice que **nosotros** no respondimos. Pintar las dos igual —o peor, pintar las dos
+> con el rojo de `rechazada`— **acusaría de incumplimiento a alguien a quien nunca le ofertamos**. La
+> regla derivada, que vale para toda superficie (cola de M5, ficha, portal del vendedor y reportes):
+> **se pinta el motivo, no el estado**, y cuando el motivo falta se cae al **fallback neutro**, nunca al
+> acusatorio. Ver §25.1.
+>
+> **⚠ Consecuencia de conteo (v3.0.6) — esta tabla NO sirve para contar estados.** Por la excepción de
+> arriba, `expirada` ocupa **tres filas** aquí y **cero claves** en `status.sellRequest.*`: las filas de
+> `SellRequest` en esta tabla **no son** los valores del enum. **Cualquier afirmación de cobertura**
+> —particiones, mapas totales, `switch` exhaustivos, reglas de QA— **se escribe contra el enum del
+> contrato, nunca contra el número de filas de esta tabla ni contra el número de claves i18n.** El desfase
+> ya causó una errata real; la regla y sus cuatro magnitudes están en **§25.12 («rótulos de estado ≠
+> estados»)**.
 
 ---
 
@@ -1052,8 +1352,11 @@ un módulo— todo el card es clickable (foco visible).
 - Estados de paso: **completado** (success, check), **actual** (primary, resaltado + anillo), **pendiente**
   (neutral, atenuado), **error/rechazo** (danger, X). Conector coloreado hasta el paso actual.
 - Mapas:
-  - Buylist: `cotizada → recibida → verificación → aprobada → pagada` (rama de error: `rechazada` /
-    `abandonada` se muestra como estado final rojo/neutral).
+  - Buylist: ~~`cotizada → recibida → verificación → aprobada → pagada`~~ **⚠ SUPERSEDED por §25.2 (v3.0):
+    son OCHO pasos** — `cotizada → ofertada → aceptada → en_transito → recibida → verificación → aprobada
+    → pagada`. Las terminales (`rechazada`, `expirada` **con su motivo**, `abandonada`) **no son pasos**:
+    son un **cierre** que trunca la cadena (§25.2). La **fase 8 «publicar» tampoco es un paso** — es vida
+    de la pieza en inventario, no de la solicitud.
   - Envío: `solicitado → picking → guía → enviado → entregado`.
   - Orden (para el comprador): `pending → settled` (con posible rama `refunded/chargeback`).
 - Accesible: `<ol>` con `aria-current="step"` en el actual; el color no es el único indicador (icono+label).
@@ -1105,12 +1408,37 @@ Lista de líneas alineadas (label izquierda, monto derecha `tabular-nums`):
 Cada línea que el usuario pueda cuestionar tiene un `?`/tooltip. El total nunca aparece sin su desglose.
 Los importes vienen en centavos del contrato; el formato es §9.3.
 
-### 7.13 Guía de envío seguro (`SafeShippingGuide`) — buylist
-- Componente ilustrado paso a paso (sleeve → top loader → sobre rígido → sobre acolchado), visible
-  **antes** de crear la solicitud de buylist (requisito PROJECT/AC 34). Menciona explícitamente
-  **sleeve** y **top loader**.
-- Formato: tarjetas numeradas con icono + texto corto; opción "Ya lo entendí" para continuar. Accesible
-  desde un enlace persistente en todo el flujo de buylist. Ilustraciones con `alt` descriptivo.
+### 7.13 Guía de EMPAQUE (`SafeShippingGuide`) — buylist · **reescrita v3.0.2 (D16/D31)**
+
+> **⚠ El componente cambia de tema, no solo de texto.** Nació cuando **el vendedor compraba su propio
+> envío**; bajo **D16/D31 la guía (la etiqueta) la ponemos nosotros, siempre**. Un componente que sigue
+> enseñando a **comprar y asegurar** una etiqueta le cuesta dinero real al vendedor. Lo que queda de él es
+> lo único que sigue siendo suyo: **cómo empaca**. El copy normativo está en **§25.14.1**.
+
+- **Qué es:** cuatro pasos de **empaque** (funda → top loader → sobre/caja rígida → **la etiqueta que le
+  mandamos**), visible **antes** de crear la solicitud (PROJECT/AC 34). Menciona explícitamente **sleeve**
+  y **top loader**, y **su `intro` lleva la política NM-only** — así **AC 34 se cumple en toda instancia
+  del componente**, incluido el **modal**, que hoy no tiene el bloque NM-only al lado.
+- **⚠ Se retira la palabra «guía» del título y del enlace.** En la misma página conviven dos «guías»: el
+  **manual** y **la etiqueta que ponemos nosotros** (§25.3d). El título pasa a **«Cómo empacar tus
+  cartas» / "How to pack your cards"** (claves `safeShipping.title` y `buylist.shippingGuideLink`, que
+  **tienen que decir lo mismo**: el enlace, el título del modal y el `h2` de la sección inline salen de
+  ahí). *No es cosmético: «Guía de envío seguro» junto a «Nosotros ponemos la guía de envío» se lee como
+  «la etiqueta segura», que es exactamente el malentendido que D16 puede producir.*
+- **El paso 4 es una regla de dinero, no un consejo.** Dice **quién pone la etiqueta**, **que su costo se
+  descuenta** y **qué NO debe hacer el vendedor** (comprar, asegurar, mandar antes de tenerla). Los tres
+  van juntos: ver la regla de §25.14.3 —**una cadena que viaja sola no puede decir «ponemos la guía» sin
+  «y se descuenta»**—, y este componente **viaja solo** (modal sin contexto de dinero, y §P lo repite en
+  el correo de aceptación y en el de la etiqueta).
+- **Sin cifras.** D43 alcanza a este componente: **ningún paso lleva monto, rango ni porcentaje de envío**.
+- **Formato (sin cambios):** retícula editorial `01–04` — regla superior, numeral mono en `accent`, título
+  `text-sm` medium en tinta, cuerpo `text-[13px]` muted. **Sin cajas, sin iconos, sin rellenos.** `columns`
+  = 2 (modal, con CTA «Ya lo entendí») · 4 (sección inline al pie de `/buylist`).
+- **El alto de fila NO se fija y el paso 4 no se trunca.** Es el cuerpo más largo de los cuatro (§25.14.1)
+  y en `lg:grid-cols-4` ocupa ~2 líneas más que sus vecinos. **Prohibidos `line-clamp`, «ver más» y altura
+  fija**; si en algún ancho no cupiera, se corrige el contenedor, nunca el texto (misma doctrina §25.12).
+- Semántica: `<ol>` con un `<li>` por paso (ya lo es); el numeral es `aria-hidden` (decorativo, el orden lo
+  da la lista). Si algún día lleva ilustraciones, con `alt` descriptivo.
 
 ### 7.14 Cotizador de buylist (`BuylistQuoter`)
 - Formulario compacto: selector de carta (Combobox con búsqueda sobre catálogo EN) → tipo de producto →
@@ -1604,8 +1932,12 @@ Recomendado documentarlos con ejemplos (Storybook opcional; lo decide frontend/d
 | Checkout | `POST /checkout/quote`,`/session` | AmountBreakdown (subtotal+fee+IVA), Stripe, Banner CFDI |
 | Mi bóveda / portafolio | `GET /vault/holdings`, `/vault/portfolio/history` | CardTile compacto, badge titularidad, **PortfolioTrendChart** (§7.17), StatCard "valor portafolio" (+sparkline opcional), PriceTag pending |
 | Retiro / envío | `POST /shipments/quote`,`/shipments` | Selección items settled, AmountBreakdown (envío+IVA), Address MX, PipelineStepper |
-| Buylist cotizador | `POST /buylist/quote` | BuylistQuoter, Banner PAY_AFTER_RECEIPT, SafeShippingGuide, PriceTag |
-| Buylist solicitud | `POST /buylist/requests` | KYC/CLABE inputs, **IneUploader** (único uploader, §7.10), topes (Banner límite) |
+| Buylist cotizador | `POST /buylist/quote` · `GET /buylist/quote-policy` | BuylistQuoter, Banner PAY_AFTER_RECEIPT, SafeShippingGuide, PriceTag, **nota de servicio del envío — sin cifras (§25.3, v3.0.1/D43)** + faltante del mínimo |
+| Buylist solicitud | `POST /buylist/requests` | KYC/CLABE inputs, **IneUploader** (único uploader, §7.10), topes (Banner límite), **selector de dirección de origen (§25.3j)** |
+| **Buylist — responder la oferta** (v3.0) | `GET /buylist/requests/:id`, `POST …/offer-response` | **PipelineStepper de 8 pasos (§25.2)**, bloque de condición NM, AmountBreakdown de 3 montos, plazo, Aceptar `primary` / Rechazar `secondary` (§25.5) |
+| **M5 — mesa de decisión** (v3.0) | `GET /admin/buylist/:id/decision-table`, `POST …/offer` | **Tira de posición de 4 sumandos + titular `POSICIÓN n/m` (§25.6)**, sugerencia en prosa, override + motivo, **barra sticky de totales**, `SIN CONTEO` (§25.7) |
+| **M5 — colas del ciclo** (v3.0) | `/admin/buylist/queues/*` | DataTable ×4: por autorizar (con «muere el»), por confirmar envío (con `ALERTA`), guías por cancelar, vendedores vivos (con teléfono) — §25.8 |
+| **M5 — pestañas de etapa** (v3.0.5) | `GET /admin/buylist` (+ `…/rejected-items`) | Seis pestañas, **partición TOTAL de `SellRequestStatus`**: Por ofertar · Con el vendedor · Verificando · Por pagar · Cerradas · Piezas rechazadas — **§25.8a** |
 | Disputa | `POST /disputes` | Textarea descripción, **DisputeEvidenceContact** (correo `soporte@tcgvault.mx`, §7.11), PipelineStepper — **sin uploader** |
 | Admin dashboard | `GET /admin/dashboard` | 8× StatCard (enmascarado por rol), cola de trabajo accionable |
 | M1 Inventario | `/admin/inventory/*` | Alta **sin foto** (imagen de catálogo remota); para gradeada captura **`certNumber`**; folio, ubicación CAJA/FILA/SLOT, DataTable |
@@ -8622,3 +8954,3129 @@ verifican con los sets reales nombrados, a 390px y a 1440px, y con brillo de pan
 **Cero claves nuevas.** El nombre, la serie y el año ya se pintan; el `alt` es vacío por diseño (§24.8) y el
 monograma se deriva del nombre, no se traduce. Las claves del índice (`masterSet.*`) siguen tal cual.
 
+---
+
+## 25. Ciclo de adquisición del buylist — ofertar, aceptar, guía y publicar (v3.0, §P de PROJECT)
+
+> **⚠ Esta sección se escribió en rama como «§23 / v2.3».** Al fusionar con `main`, §23 y §24 ya estaban
+> ocupadas y publicadas (rotación del carrusel, P-49; logos de expansión, P-54), así que **se renumeró lo
+> que aún no había entrado**: **§23 ⇒ §25** y **v2.3 ⇒ v3.0** (correcciones v2.3.1–v2.3.10 ⇒
+> v3.0.1–v3.0.10). Ver la **nota de reconciliación** en el changelog de la cabecera. **Ni una decisión de
+> diseño cambia.** Las citas externas a «`DESIGN_SYSTEM §23.x`» que hablen de buylist se refieren a esta
+> sección, y las actualiza cada rol dueño de su ruta.
+
+> **Origen:** **no hubo entrega de Claude Design** para esta feature. §25 se genera desde cero sobre la piel
+> ya ratificada (papel/tinta, radio 0, sombras 0 salvo el anillo de foco, las tres familias, cifras en mono
+> con `tabular-nums`) y **no introduce ni un token de color ni un tamaño tipográfico nuevo**.
+> **Normativo:** `PROJECT.md` §P (v2.1, aprobado, ocho fases y 40 decisiones) y `ARCHITECTURE.md` §4.39
+> (v1.51.3) + `API_CONTRACT.md` v1.51. Donde este documento y `PROJECT.md` difieran, **manda PROJECT**;
+> lo que aquí se decide es **cómo se ve y cómo se lee**, nunca el dato ni la regla.
+> **Dónde se juega la feature:** en la **confianza del vendedor**. Es una persona que va a meter cartas de
+> valor en un sobre y esperar dinero. Todo el diseño de esta sección sale de una sola frase de §P:
+> *«un correo que anuncie $1,480 y termine en un depósito de $1,350 destruye exactamente la confianza que la
+> oferta vinculante venía a construir»*.
+
+### 25.0 Alcance y las SIETE reglas duras
+
+**Qué diseña §25:** los **cinco correos** del ciclo (§25.4 — *eran cuatro hasta v3.0.3; la cancelación se
+separó, ver §25.4.4-bis*), la **nota de servicio del envío** en el
+cotizador (§25.3 — **sin cifras, v3.0.1/D43**; ~~el aviso con la resta hecha~~ quedó superado), los
+**cuatro estados nuevos** y el **stepper de ocho pasos** (§25.1, §25.2), la
+**pantalla del vendedor** que espeja el correo (§25.5), la **mesa de decisión** del admin (§25.6), el
+**tratamiento del conteo ausente** (§25.7) y las **colas nuevas de M5** (§25.8).
+
+**Qué NO diseña §25** *(se dice para que nadie lo dé por hecho)*: la **curva de compra** (§21 la cubre), la
+**consola de precios** de M1/M2, la **cola de precio pendiente**, la **cola de pendientes de publicar** más
+allá de su enlace desde M5 (fase 8 vive en M1, §16), la **integración con paquetería** (no existe: la guía
+se compra a mano y se captura), y **ningún panel de bounties** (proyecto aparte del humano).
+
+| # | Regla dura | Por qué existe |
+|---|---|---|
+| **R1** | **El NETO manda.** De los tres montos, el **neto** es el único vinculante frente al vendedor y **el único que puede aparecer solo**: en un **asunto** de correo, en un **preheader**, en un titular, en una notificación o en un resumen de una línea. **El bruto NUNCA aparece sin el envío y el neto al lado.** | El daño que este ciclo existe para evitar es *«dije $1,480 y llegaron $1,350»*. Un asunto que anuncia el bruto **es** ese daño, escrito antes de que el vendedor abra nada |
+| **R2** | **La condición viaja pegada al dinero.** Toda superficie que muestre un **monto ofertado** —correo 1, correo 2, portal, confirmación de aceptación— muestra en el **mismo bloque** la condición NM. Sin excepción y **sin versión "limpia"** del recordatorio | La condición **es** lo que el vendedor acepta (D30). Un recordatorio que repite la cifra sin la condición convierte la condición en letra chica **por omisión** |
+| **R3** | **Un correo por HECHO, no por camino.** Dos rutas que producen el mismo hecho comparten correo **palabra por palabra**; dos hechos distintos **no se fusionan** aunque compartan estado técnico | `expirada`/`no_offer` sale por barrido **o** por «declinar ahora»: al vendedor no le corresponde saber cuál (§4.39n). Y `not_shipped` vs `no_offer` comparten `status` pero afirman **cosas opuestas** |
+| **R4** | **Ninguna cifra del ciclo se calcula en el cliente.** Montos, plazos, faltantes, umbrales y veredictos **llegan resueltos** del servidor y la UI los **renderiza** | Dos implementaciones de «día hábil» dan dos fechas; una constante `20000` en el front se desincroniza **en silencio** la primera vez que alguien mueve el dial (criterio 154, §4.39g) |
+| **R5** | **La sugerencia informa; no bloquea, no preselecciona, no cambia de tamaño.** El servidor **no** valida la oferta contra ella y la UI tampoco | D6 es explícita. Endurecerla «por prudencia» **contradice PROJECT** (§4.39g). Y un default gobernado por la sugerencia es un bloqueo blando |
+| **R6** | **«En camino» y «comprometido» NO se suman jamás.** No existe subtotal, paréntesis, `+`, barra de progreso apilada ni etiqueta común que los agrupe en una cifra | Tienen **confianza distinta** y esa distinción **es** el punto de la pantalla. *«Contar promesas como inventario es exactamente el error que esta pantalla existe para evitar»* (§P.2) |
+| **R7** | **Un conteo ausente NO es un número.** Cuando el conteo no se pudo obtener, **desaparece la tira entera** y aparece una **frase**. Prohibidos `0`, `—`, `–`, `?`, `N/D`, celda vacía, gris de placeholder y skeleton permanente | Un cero que significa «no pude contar» *«es peor que no mostrar nada, porque se ve confiable»* y **empuja a comprar de más** (§P.8, §4.39f) |
+
+> **⚠ Precisión de R1 (v3.0.1, D43) — sin ella, §25.3 parecería violar la regla.** **R1 gobierna el dinero
+> de la OFERTA**, que es el único vinculante: ahí, y solo ahí, existen «bruto», «envío» y «neto», y ahí el
+> bruto nunca puede aparecer sin los otros dos. **El total del cotizador NO es un bruto**: es una cotización
+> **indicativa** sobre cartas que quizá no compremos, y por D43 **no tiene envío ni neto al lado** — por eso
+> el cotizador **no lo llama bruto, no lo presenta como base de una resta y no lo rotula como pago**
+> (§25.3c). Lejos de debilitar R1, D43 la refuerza: **la primera cifra que el vendedor ve rotulada como "lo
+> que recibes" es el NETO**, en el asunto del correo 1 (§25.4.7).
+
+---
+
+### 25.1 Los cuatro estados nuevos — y el único enum que se pinta por su MOTIVO
+
+**(a) Mapa canónico ampliado** (enmienda de §2.4; la tabla de §2.4 ya lo recoge). Versalitas ES/EN,
+`text-[11px]` mono `uppercase tracking-[0.06em]`, **sin caja** (los `*-bg` son `transparent`, §2.3):
+
+| Estado | Versalita ES / EN | Token | Qué significa para quien lo lee |
+|---|---|---|---|
+| `cotizada` | `COTIZADA` / `QUOTED` | neutral (`--color-text-muted`) | **Cambia de sentido en v3.0**: ya no es «llegó y algún día se verá», es **«te debemos una respuesta»** |
+| **`ofertada`** | `OFERTADA` / `OFFER SENT` | `accent` | Hay una **oferta vinculante** afuera y **el reloj es del vendedor** |
+| **`aceptada`** | `ACEPTADA` / `ACCEPTED` | `accent` | Dijo que sí. **Nada viaja todavía** |
+| **`en_transito`** | `EN TRÁNSITO` / `IN TRANSIT` | `primary` (tinta) | Un paquete **viaja de verdad** |
+| **`expirada` + `not_shipped`** | `SIN ENVÍO` / `NOT SHIPPED` | `danger` | **Aceptó y el paquete no salió** |
+| **`expirada` + `no_offer`** | `NO PROCEDIÓ` / `NOT PURSUED` | neutral | **Nosotros no ofertamos.** No hay incumplimiento de nadie |
+| **`expirada` + `null`** | `EXPIRADA` / `EXPIRED` | neutral | **Fallback legacy.** Nunca acusa |
+| `pending_authorization` (`offerState`, **admin-only**) | `POR AUTORIZAR` / `NEEDS APPROVAL` | `accent` **outline** | Preparada, esperando al súper-admin. **El correo no ha salido** |
+
+**(b) `accent` para `ofertada` y para `aceptada`, a propósito — y por qué `aceptada` NO es verde.**
+El verde del sistema significa *«ya ocurrió y no depende de nadie»* (`settled`, `aprobada`, `pagada`).
+`aceptada` es **lo contrario**: es un sí con un reloj corriendo y **sin una sola carta en la casa**. Pintarla
+verde le diría al operador «esto ya está» sobre la fase con más riesgo del ciclo. Los dos estados comparten
+tinta y **se distinguen por la palabra** (§2.4), que es la regla vigente; el discriminador operativo
+—**cuál vence antes**— lo da el plazo en mono junto al badge, no un matiz de color.
+
+**(c) `en_transito` en `primary` (tinta) — hereda el token de `Shipment.enviado`.** Es el mismo hecho del
+mundo físico visto desde el otro lado del mostrador; usar otro tono inventaría una segunda gramática para
+«va en camino».
+
+**(d) ⚠ `expirada` se pinta por su MOTIVO. Es la única excepción del sistema y es obligatoria.**
+`expiredReason` no es un detalle: es lo que decide **el color, la versalita, el copy y el correo**.
+
+- **Regla:** el mapa de badges recibe `{domain:'sellRequest', status, expiredReason}` y resuelve
+  `status==='expirada'` **por el motivo**. Un mapa que resuelva solo por `status` **es un defecto**, no una
+  simplificación.
+- **Fallback obligatorio y su dirección:** motivo `null`/desconocido ⇒ **neutral + `EXPIRADA`**, jamás la
+  versión acusatoria. *En un desenlace ambiguo, el sistema no acusa al cliente.* Es la misma doctrina
+  money-safe de §7.3 (`—` antes que `$0`), aplicada a la reputación en vez de al dinero.
+- **Alcance:** cola de M5, ficha de solicitud, portal del vendedor, reportes de M9 y cualquier export.
+  «Toda superficie que muestre el desenlace muestra el MOTIVO» (§P.1).
+
+**(e) El «ya lo mandé» NO es un estado y no se pinta como badge.** Detiene el **reloj** del vendedor sin
+mover el **estado** (§P.13). Se representa como **renglón mono bajo el badge**, no como segundo badge:
+
+```
+EN ESPERA DE ENVÍO                    ← badge de `aceptada`
+PAQUETE REPORTADO · 2 sep, 4:10 p. m. ← renglón mono `text-[11px]` muted, SIN color de estado
+```
+
+- Un segundo badge invitaría a leerlo como estado y a **contarlo como inventario en camino**, que es
+  exactamente lo prohibido (§P.13, criterio 156).
+- En la **cola del operador** («por confirmar envío») el mismo renglón, **pasados 5 días hábiles**
+  (`alert: true`), pasa a `--color-accent` con la palabra `ALERTA` delante. **No cambia el estado, no expira
+  nada**: el pendiente es nuestro y el remedio es hacerlo visible.
+
+---
+
+### 25.2 `PipelineStepper` de OCHO pasos — y la rama de error que no es un paso
+
+**(a) El mapa.** Enmienda §7.9:
+
+```
+1 COTIZADA → 2 OFERTADA → 3 ACEPTADA → 4 EN TRÁNSITO → 5 RECIBIDA → 6 VERIFICACIÓN → 7 APROBADA → 8 PAGADA
+```
+
+**La fase 8 de `PROJECT.md` («publicamos») NO es el paso 8 del stepper.** El stepper describe la vida de la
+**solicitud**, que termina en `pagada`; publicar es vida de la **pieza** en inventario. En una solicitud
+`pagada` el admin ve, bajo el stepper, un enlace `Ver las N piezas en la cola de publicación` (M1, §16) —
+así el ciclo se cierra sin mentir sobre a quién pertenece el paso.
+
+**(b) Layout — ocho pasos no caben horizontales en cualquier ancho.**
+
+| Breakpoint | Orientación | Etiquetas |
+|---|---|---|
+| **≥ `xl` (1280)** | horizontal, 8 nodos, conector de 1px | versalita completa bajo el nodo |
+| **`lg`–`xl`** | horizontal **compacto**: nodos con número, etiqueta **solo del paso actual** | los demás nodos exponen su etiqueta en `title` + `aria-label` |
+| **< `lg` y SIEMPRE en el portal del vendedor** | **vertical**, con **fecha y hora** por paso completado | versalita + timestamp mono |
+
+> **El portal del vendedor usa SIEMPRE la vertical con timestamps**, incluso en escritorio. No es una
+> concesión de espacio: el vendedor no está leyendo un pipeline, está leyendo **el historial de su venta**, y
+> ese objeto se lee de arriba abajo como un rastreo de paquetería.
+
+**(c) Estados de nodo** (§7.9 sin cambios): completado (tinta, regla continua), **actual**
+(`aria-current="step"`, tinta peso 500 + anillo), pendiente (regla `--color-border`, etiqueta muted).
+**Cero rellenos de color**; el conector completado es tinta de 1px, el pendiente es regla.
+
+**(d) La rama de error es un CIERRE, no un noveno paso.** Al llegar a una terminal el stepper **trunca**:
+se pintan los pasos realmente completados y, en lugar del siguiente nodo, un **cierre** con regla superior
+de tinta, la versalita del **motivo** (§25.1d) y la fecha:
+
+```
+COTIZADA ✓ ── OFERTADA ✓ ── ACEPTADA ✓ ──┐
+                                          └─ SIN ENVÍO · 5 sep 2026
+```
+```
+COTIZADA ✓ ──┐
+              └─ NO PROCEDIÓ · 5 sep 2026
+```
+
+- **Prohibido** pintar los pasos no alcanzados como «fallidos», tacharlos o ponerles ✗. En `no_offer` el
+  vendedor **no falló nada**; una cadena de cruces le imputaría un incumplimiento visual que el correo 4
+  tiene prohibido decir con palabras.
+- **Prohibido** pintar el cierre `no_offer` en `danger`. Su token es **neutral** (§25.1d).
+- `rechazada` por no responder ⇒ cierre en `danger` con versalita `RECHAZADA` colgando de `OFERTADA`.
+- `abandonada` ⇒ cierre neutral colgando del último paso físico alcanzado.
+
+**(e) Accesibilidad.** `<ol>` con un `<li>` por paso; `aria-current="step"` en el actual; el cierre es un
+`<li>` con `aria-label` completo («Cerrada el 5 de septiembre de 2026: no procedimos con la oferta»). El
+color **nunca** es el único indicador: versalita + timestamp + `aria-label`.
+
+---
+
+### 25.3 El envío en el cotizador — una NOTA DE SERVICIO, sin cifras (v3.0.1 · D43)
+
+> **⚠ Sección reescrita el 2026-09-01 por decisión del humano (D43).** Lo que v3.0 pedía aquí —**la resta
+> hecha y enseñada** dentro del bloque de dinero del carrito— queda **SUPERADO**. Se conserva en **(a)**,
+> marcado y sin borrar, porque el contraste entre las dos versiones **es** la lección. **Lo vigente empieza
+> en (b).** Si algo de §25 sigue asumiendo que el vendedor vio una cifra de envío antes de la oferta, manda
+> esta sección.
+
+**(a) ⚠ SUPERADO — la «aritmética ya hecha» de v3.0. NO IMPLEMENTAR.**
+
+> ```
+> ┌ TU COTIZACIÓN ────────────────────────────────┐   ⚠ SUPERADO por D43 — NO IMPLEMENTAR
+> │ 3 cartas                                      │
+> │ Valor de tus cartas              MX$ 500.00   │
+> │ Envío que ponemos nosotros     − MX$ 180.00   │
+> │ ───────────────────────────────────────────   │
+> │ RECIBIRÍAS ≈                     MX$ 320.00   │
+> └───────────────────────────────────────────────┘
+> ```
+> Quedan retirados: ~~la línea de envío~~, ~~la regla de la resta~~, ~~`RECIBIRÍAS ≈`~~, ~~el neto
+> estimado~~ y ~~la aparición conjunta de envío + neto al cruzar el mínimo~~.
+
+**Por qué se retira** (tres razones, y la segunda no estaba en v3.0):
+
+1. **El cotizador ya es indicativo.** Los precios se mueven y **puede que no compremos todas las líneas**.
+   Restarle un envío exacto a un número que de todas formas va a cambiar es **precisión falsa**: le sugiere
+   al vendedor un neto que **nadie se comprometió a pagar**. La resta pertenece al único documento donde los
+   números son vinculantes.
+2. **⚠ Y el neto del cotizador era sistemáticamente OPTIMISTA.** El cherry-pick solo **quita** líneas: el
+   bruto de la oferta es **≤** el total del carrito, y el neto también. `RECIBIRÍAS ≈ MX$ 320` no era una
+   aproximación centrada, era **la mejor cifra posible** — es decir, fabricaba con nuestras propias manos la
+   decepción *«dije $500 y llegaron menos»* que **R1** existe para evitar. El `≈` no salvaba eso: un `≈` se
+   lee como «más o menos esto», no como «esto o menos».
+3. **Nota de proceso, y me toca a mí:** **D31 nunca pidió cifras en el cotizador.** Pide que el cotizador
+   diga «con todas sus letras» que **ponemos la guía** y que **siempre** se deduce del pago. Los tres montos
+   en el carrito fueron una **amplificación de este documento** — el mismo patrón por el que D31 tuvo que
+   retirar el umbral de MX$1,000 que *«nunca fue un pedido del humano»*. **D43 no contradice D31: le quita
+   la amplificación.** El requisito de comunicar el descuento sigue vivo y esta sección lo cumple.
+
+**(b) La decisión vigente (D43).** El cotizador **no menciona ningún monto de envío**: **sin cifra, sin
+resta, sin neto estimado, sin porcentaje**, y **sin expresar el faltante del mínimo en términos de envío**.
+Solo una **frase cualitativa**. La resta con los tres montos vive **exclusivamente en la oferta** —correo
+(§25.4.2) y portal (§25.5)—, autenticada y armada server-side con la tarifa **congelada**.
+
+> **⚠ Consecuencia que hay que decir en voz alta, porque cambia el peso de otra pantalla:** **el correo de
+> oferta es ahora la PRIMERA vez que el vendedor ve el monto del envío.** Ya no confirma algo que vio en el
+> carrito: es **información nueva, en el momento exacto en que decide**. Ver §25.4.2 (enmienda v3.0.1) y la
+> objeción registrada en (l).
+
+**(c) La forma: es una NOTA DE SERVICIO, no una advertencia y no letra chica.**
+No es un banner de aviso —eso ya se rechazó en v3.0 y **sigue rechazado**— ni una nota al pie. Es **un hecho
+del trato**, redactado como se redacta un hecho del trato: prosa corta, en tinta, **dentro del bloque de
+dinero**, con el mismo rango visual que la información de servicio de un pedido («llega en 3 días»).
+
+| Rechazado | Por qué |
+|---|---|
+| **`Banner warning`** («Ojo: se descuenta el envío») | Un banner de atención sobre un trato que es **bueno** para el vendedor lo enmarca como problema. Y los banners se ignoran: la ceguera que §22.12 ya documentó |
+| **Asterisco + nota al pie / `<details>` / tooltip / acordeón** | Es la definición de letra chica que §P.3 prohíbe. Y un tooltip **no existe en táctil**. La frase no se esconde: es corta **porque** tiene que estar a la vista |
+| **Porcentaje («−36%»)** | Invita a discutir el porcentaje en vez de leer el trato, y **cambia con cada carrito**. Sin cifras **y sin porcentajes** |
+| **Un renglón de envío con `—`, `?` o «según la oferta»** | Un hueco con forma de monto **se lee como monto** (misma doctrina que R7 y que §7.3). Si no hay cifra, **no hay renglón**: el bloque de dinero del cotizador tiene **exactamente un monto** |
+
+| **La cifra «solo en los requisitos de venta» o «solo en el FAQ del cotizador»** | Cumplimiento por reubicación. El panel de requisitos y el paso de crear **son el cotizador**. D43 no admite una puerta lateral |
+
+```
+┌ TU COTIZACIÓN ────────────────────────────────┐
+│ 3 cartas                                      │
+│ Valor de tus cartas              MX$ 500.00   │  ← el ÚNICO monto del bloque
+│                                               │
+│ Nosotros ponemos la guía de envío y su costo  │  ← sans text-sm, TINTA (no muted),
+│ se descuenta siempre de lo que te pagamos:    │    sin icono, sin caja, sin regla
+│ tú no pagas nada de tu bolsillo. El monto     │    que la separe del monto
+│ exacto va en la oferta, antes de que aceptes. │
+└───────────────────────────────────────────────┘
+```
+
+- **Vive dentro del bloque de dinero**, separada del monto **solo por aire** (escala §4.1, ~`12px`). Ni
+  regla, ni caja, ni pozo: un escalón de superficie la convertiría en «aviso» y (c) ya explicó por qué no.
+- **En tinta `--color-text`, `text-sm`** — nunca muted: §10 prohíbe el muted para información esencial, y
+  D31 exige esta regla «al mismo nivel visual que los montos».
+- **Siempre visible —desde el carrito vacío, no desde la primera carta—** y **con el mismo texto por encima
+  y por debajo del mínimo**. Que se lea **antes** de agregar nada es justamente el punto: el trato se explica
+  cuando todavía no cuesta nada cambiar de opinión.
+  Al no llevar cifras **no depende de ningún estado**: no aparece, no desaparece, no se mueve. Eso mata de
+  raíz una clase entera de bugs que v3.0 sí tenía (el bloque que se materializaba al cruzar el mínimo).
+- **El total se rotula por lo que es:** `Valor de tus cartas`. **Prohibidos** `Total a recibir`, `Tu pago`,
+  `Ganarías` o cualquier rótulo que prometa depósito (§7.3: money-safe también es no prometer).
+- **No es una región `aria-live`.** Es copy estático; anunciarla en cada cambio del carrito la convertiría
+  en ruido y, peor, en alarma.
+
+**(c-bis) La regla que faltaba: un TOTAL rotulado no promete depósito; un precio POR CARTA sí puede decir
+«Pagamos» (v3.0.2).** §25.3c prohibía `Total a recibir`, `Tu pago` y `Ganarías`, pero lo hacía **como lista
+de ejemplos**, y por eso `home.quoter.wePay` («Te pagamos») sobrevivió al pase de D43 en otra pantalla. La
+regla, ahora en forma general y verificable:
+
+| Superficie | ¿Puede rotularse como pago? | Por qué |
+|---|---|---|
+| **El TOTAL de un bloque de dinero del cotizador** (carrito, panel de escritorio, teaser del home, resumen del paso de crear) | **NO.** Solo `buylist.quote.money.cardsValue` — «Valor de tus cartas» / "Value of your cards" | Ese total **es la suma de las cartas**, no lo que se deposita: le falta la resta del envío y le sobran las líneas que quizá **no compremos** (§25.3a.2). Rotularlo «Te pagamos» **es** el daño *«dije $500 y llegaron menos»*, escrito antes de que exista una oferta |
+| **El precio de UNA carta** (teja de bounty, línea del carrito, ficha) | **SÍ**, `Pagamos` / "We pay" | Nombra una **tarifa por pieza**, no un importe a depositar. El descuento del envío es **por solicitud**, no por carta, así que no hay resta que omitir. `home.bounties.wePay` y `buylist.bounties.wePay` **se quedan como están** |
+
+- **Prueba de una línea:** *si el número es una **suma**, su rótulo no puede contener un verbo de pago.*
+  ES: `pagamos`, `te pagamos`, `recibes`, `ganas`, `depositamos`. EN: `we pay you`, `you get`, `you'd
+  receive`, `payout`. **Sobre un precio unitario, esos verbos sí se permiten.**
+- **Un solo string para el rótulo del total.** Las tres superficies usan **la misma clave**,
+  `buylist.quote.money.cardsValue`, aunque vivan en namespaces distintos. Un `home.quoter.cardsValue`
+  duplicado es exactamente el mecanismo por el que este rótulo se desincronizó la primera vez.
+
+**(d) La redacción, ES y EN — cuatro movimientos, y el orden es normativo.**
+La frase tiene que lograr **dos cosas a la vez**: que el vendedor **sepa que habrá un descuento** antes de
+crear la solicitud, y que **no crea que ya sabe cuánto**. Ahí se juega todo el patrón.
+
+| # | Movimiento | ES | EN | Qué hace |
+|---|---|---|---|---|
+| 1 | **Quién pone la guía** | «Nosotros ponemos la guía de envío» | "We provide the shipping label" | Encuadra el hecho como **servicio**, no como cobro |
+| 2 | **La resta, nombrada y sin condición** | «y su costo se descuenta siempre de lo que te pagamos» | "and its cost is always deducted from what we pay you" | **Anuncia el descuento.** `siempre` / `always` cierra la lectura «quizá solo en algunos casos» |
+| 3 | **El alivio, DESPUÉS de la resta** | «: tú no pagas nada de tu bolsillo» | ": you pay nothing out of pocket" | Impide leerlo como castigo. Va **después**, nunca antes |
+| 4 | **La cita con el número** | «El monto exacto va en la oferta, antes de que aceptes.» | "The exact amount is in the offer, before you accept." | **Impide creer que ya sabe cuánto** y dice **dónde y cuándo** lo sabrá |
+
+**Texto completo (normativo; PO ratifica, §25.13.6):**
+- **ES** — *«Nosotros ponemos la guía de envío y su costo se descuenta siempre de lo que te pagamos: tú no
+  pagas nada de tu bolsillo. El monto exacto va en la oferta, antes de que aceptes.»*
+- **EN** — *"We provide the shipping label and its cost is always deducted from what we pay you: you pay
+  nothing out of pocket. The exact amount is in the offer, before you accept."*
+
+**Por qué el orden 2 → 3 es normativo.** Invertido («no pagas nada de envío, y su costo se descuenta…») la
+primera cláusula **ancla en "gratis"** y la segunda se lee como una corrección incómoda. La resta se nombra
+primero **porque es la noticia**; el alivio es el matiz, no el titular.
+
+**Por qué el movimiento 4 es el que sostiene el patrón.** Convierte un **hueco de información** en una
+**cita**: no dice «hay un descuento que no te decimos», dice «**el número exacto te llega antes de que te
+comprometas**». Es la misma doctrina de §7.3 y de R7 aplicada al copy: cuando no hay número, se dice **qué
+va a pasar con el número** — jamás se insinúa uno. Sin el movimiento 4 la frase es honesta pero deja al
+vendedor **rellenando el hueco con su propia estimación**, que es la peor de las cifras posibles: la que se
+inventó él.
+
+**(e) Prohibiciones del cotizador — la lista es cerrada y es verificable de un `grep`:**
+
+| Prohibido | Por qué |
+|---|---|
+| **Cualquier cifra de envío**: `MX$ 180`, `180`, `~200`, `$0` | D43. Y `$0` sería mentira: sí hay costo, lo pagamos y se descuenta |
+| **Rangos** («entre $150 y $200», «alrededor de $180», «aprox.») | Un rango **es** una cifra, con menos precisión y la misma promesa implícita |
+| **Adjetivos de tamaño aplicados a la tarifa**: «pequeño», «mínimo», «bajo», «simbólico», «razonable», «apenas», «solo» | **Es un juicio que no nos toca.** En una cotización de MX$500 la tarifa es el **36%**: llamarla «pequeña» es decidir por el vendedor cómo debe sentirse ante un número que **todavía no le enseñamos**. *(La palabra «mínimo» sigue siendo legítima donde nombra el **mínimo de compra** —«el mínimo de MX$500»—: ahí no califica la tarifa, nombra un umbral.)* |
+| **Porcentajes** | Igual que las cifras, y además cambia con cada carrito |
+| **`RECIBIRÍAS`, `NETO ESTIMADO`, `TE QUEDARÍAN`, `≈` sobre un neto** | Es la resta por otro nombre |
+| **Expresar el faltante del mínimo en términos de envío** («te faltan $120 para cubrir el envío») | Reintroduce la cifra **y** miente sobre qué es el mínimo: el mínimo **no es** el envío |
+| **«comisión», «cargo», «penalización», «retención», «descuento por manejo»** | No es ninguna de esas cosas. Es **la guía que ponemos nosotros** |
+| **«gratis», «sin costo», «cortesía», «envío gratis»** | Es exactamente la lectura falsa que el movimiento 2 viene a impedir |
+| **«como ya sabes», «recuerda que»** | El vendedor **no lo sabía**. Presuponer conocimiento es la versión educada de mentir |
+
+**(f) El mínimo se queda — solo, y sin nada de envío al lado.**
+El faltante es **un monto legítimo del cotizador**: es una cifra sobre **sus** cartas, no sobre nuestro
+servicio, y sin ella un «no» seco manda al vendedor a otro lado (criterio 132, que **no cambia**).
+
+```
+┌ TU COTIZACIÓN ────────────────────────────────┐
+│ 2 cartas                                      │
+│ Valor de tus cartas              MX$ 380.00   │
+│                                               │
+│ TE FALTAN MX$ 120.00 para el mínimo de        │
+│ MX$ 500.00.  Agrega otra carta.               │
+│                                               │
+│ Nosotros ponemos la guía de envío y su costo  │  ← la MISMA frase, sin cambios
+│ se descuenta siempre de lo que te pagamos:    │
+│ tú no pagas nada de tu bolsillo. El monto     │
+│ exacto va en la oferta, antes de que aceptes. │
+└───────────────────────────────────────────────┘
+```
+
+- **Queda retirada la regla de v3.0** que ataba la aparición del envío al cruce del mínimo («aparecen
+  juntos, en el mismo instante»): **ya no hay nada de envío que aparezca**. Al cruzar el mínimo lo único que
+  cambia es que **el faltante desaparece**.
+- El faltante y el mínimo son `details.shortfallCents` y `minimumRequestCents` **del servidor** (R4). La
+  **puerta manda sobre la pantalla**: si el `422 BUYLIST_MINIMUM_NOT_MET` trae otro mínimo, se repinta con
+  el del error.
+- La transición al cruzar el mínimo sigue anunciándose con **`aria-live="polite"`**, y **el anuncio ya no
+  menciona envío ni neto**: *«Ya alcanzaste el mínimo de MX$ 500.00.»*
+
+**(f-bis) ⚠ Con líneas sin precio, «Agrega otra carta» es el consejo EQUIVOCADO (v3.0.8).**
+Con 999 cartas en `precio_pendiente`, el bloque decía *«TE FALTAN MX$ 500.00 para el mínimo de MX$ 500.00.
+**Agrega otra carta.**»* mientras el vendedor miraba **un carrito lleno**. Aritméticamente impecable; como
+consejo, **una cinta de correr**: puede agregar mil cartas más del mismo set y **seguir en cero**.
+
+**Es peor que confuso — es una instrucción que no puede funcionar.** Y el daño se acumula con el de (h):
+el mensaje se lee como *«tu carrito está casi vacío»* justo cuando está lleno.
+
+**La corrección: el consejo cambia cuando hay líneas sin precio.** No el faltante —ese es correcto y se
+queda—, **solo la acción sugerida**:
+
+| Estado | Qué se pinta |
+|---|---|
+| Falta para el mínimo, **sin** líneas sin precio | faltante + mínimo + **`minimum.addAnother`** — «Agrega otra carta.» *(sin cambios)* |
+| Falta para el mínimo, **con** líneas sin precio | faltante + mínimo + **`minimum.addPricedCard`** — **«Agrega una carta que ya tenga precio.»** La explicación del **por qué** ya está encima, en `pendingLine.note` (§25.3h), y **no se repite aquí** |
+
+| Clave | ES | EN |
+|---|---|---|
+| **`minimum.addPricedCard`** *(nueva)* | Agrega una carta que ya tenga precio. | Add a card that already has a price. |
+
+- **«que ya tenga precio»**, no «con precio»: el **«ya»** dice que las otras **también lo tendrán**, y
+  evita partir el carrito en cartas buenas y cartas malas. Coherente con la segunda frase de (h).
+- **El faltante NO cambia de cifra ni de redacción.** Sigue siendo `details.shortfallCents` del servidor
+  (R4) y sigue siendo **legítimo** (criterio 132): es una cifra sobre **sus** cartas.
+- **Prohibido** convertir el faltante en una explicación («te faltan MX$500 porque tus cartas no tienen
+  precio»): mezcla dos hechos en una cifra y **la cifra deja de ser verificable**. Dos frases, dos trabajos:
+  **(h)** explica **por qué el total es ese**, **(f-bis)** dice **qué hacer**.
+- El anuncio `aria-live` al cruzar el mínimo **no cambia**.
+
+**(g) Dónde se dice la regla, actualizado.** D31 exige tres superficies —**cotizador, correo de oferta y
+términos**—; **las tres siguen diciéndola**, y lo que cambia es **quién puede llevar la cifra**. El cotizador
+ocupa dos filas porque son dos pantallas (carrito y paso de crear); el **correo de oferta** es la cuarta fila
+y vive en §25.4.2:
+
+| Superficie | Cuándo | Qué muestra | ⚠ |
+|---|---|---|---|
+| **0. Teaser del cotizador en el HOME** (`HomeQuoterPanel`) — **NUEVA v3.0.2** | **siempre**, en las **dos** instancias (columna del hero y sección móvil) y **con o sin líneas** | la frase de (d), **misma clave y mismo texto**; el total rotulado `cardsValue` (c-bis) | **NO cuelga de `withTrust`**: esa banda **no se pinta en móvil**, y móvil es donde vende la mayoría. Va en el **cuerpo del panel**, entre el bloque de dinero y el enlace «Continuar mi cotización» |
+| **1. Carrito del cotizador** (`SellCartDrawer` / panel fijo de escritorio, §18.4) | **siempre, incluso con el carrito vacío** | el bloque de (c): **un monto** (cuando hay líneas) + la frase de (d) | El `SellRequirementsPanel` del propio drawer **también es cotizador**: tampoco lleva cifras de envío |
+| **1-bis. Cabecera de `/buylist`** (bajo `payAfterReceipt`) — **NUEVA v3.0.2** | siempre | la frase de (d), **misma clave**, en **tinta `text-sm`** (no `muted`, no `rule-note`) | En **móvil el carrito es un drawer cerrado**: sin esta instancia, un vendedor puede recorrer toda la página sin leer la regla. **Sustituye** al retirado `buylist.trustShipping` (§25.14.2) |
+| **2. Paso de crear la solicitud** | antes del botón que crea | la **misma frase, carácter por carácter** + la condición NM + la dirección de origen elegida | Es el último momento antes de comprometer cartas: **misma frase, no una versión resumida** |
+| **2-bis. Guía de empaque, paso 4** (`SafeShippingGuide`, §7.13) — **NUEVA v3.0.2** | siempre que se pinte el componente (modal, sección inline, y los correos de §P) | **su propia redacción corta** (§25.14.1): quién pone la etiqueta + **que se descuenta** + qué no hacer | **Única excepción al «misma frase»**, y está acotada: es una **celda de retícula de ~13px**, no un bloque de dinero. Lo que **no** puede omitir es la resta (§25.14.3) |
+| **3. Términos** (`offer.terms`, render del backend) | con la oferta | la regla **en prosa y CON la cifra congelada** | **Los términos NO son el cotizador**: viajan con la oferta, son autenticados y ahí el número **sí** es vinculante |
+| **4. Correo de oferta** (§25.4.2) | al emitir | la regla en prosa **con el envío Y el neto nombrados**, junto a la tabla de los tres montos | **Es la primera vez que el vendedor ve la tarifa** (v3.0.1). Ver la decisión 8 de §25.4.2 |
+
+> **⚠ Por qué la fila 0 entra y no es una amplificación (la pregunta correcta, después de §25.3a.3).** El
+> panel del home **se rotula a sí mismo «Cotizador»**, cotiza contra `POST /buylist/quote` y enseña un
+> total: **es el cotizador**, y es **la primera pantalla de dinero de todo el embudo**. D31 pide que la
+> regla se diga **en el cotizador**; incluirlo es **cumplimiento literal**. Lo que en v3.0 fue
+> amplificación fue meter **cifras**, y esta fila **no mete ninguna** (la frase es estática, §25.3k: no
+> depende de ningún dato, no se esqueletiza, no puede fallar). Dejarlo fuera sería dibujar la frontera de
+> D31 alrededor de **las superficies que yo ya había documentado** — que es, exactamente, el mecanismo por
+> el que estos tres textos sobrevivieron.
+
+**(g-bis) ⚠ EXACTAMENTE UNA nota visible por pantalla (v3.0.8).** La tabla de (g) dice **dónde puede** ir
+la nota; le faltaba decir **cuántas se ven a la vez**. A 1280px `/buylist` acabó mostrando **dos párrafos
+idénticos de cuatro líneas** —cabecera y panel fijo del carrito—, porque autoricé cada fila por separado y
+**nunca miré las dos juntas**.
+
+**La regla:** *en cualquier pantalla y a cualquier ancho, la nota se ve **una vez**: ni cero, ni dos.*
+
+**Y el criterio de desempate sale solo de por qué existe cada instancia — gana la más cercana a la
+decisión:**
+
+| Situación | Quién pinta | Por qué |
+|---|---|---|
+| **Carrito visible de forma persistente** (escritorio: panel fijo lateral) | **el bloque de dinero** | Es donde está el monto. La cabecera **no se monta**: su única razón de ser era cubrir el caso contrario |
+| **Carrito NO visible** (móvil: drawer cerrado) | **la cabecera** | Es literalmente el motivo por el que la fila 1-bis existe: sin ella se recorre la página entera sin leer la regla |
+| **Drawer abierto** (móvil) | **el bloque de dinero** del drawer | Tapa la página; la de la cabecera no está a la vista |
+| **Paso de crear** | **el suyo** | Es el último momento antes de comprometer cartas (fila 2) |
+
+- **Esto NO contradice §25.3c** («no aparece, no desaparece, no se mueve»): esa prohibición es sobre el
+  **estado del carrito** —vacío/lleno, bajo/sobre el mínimo—, no sobre el **layout**. La invariante que
+  ahora se pide es **más fuerte y más simple de comprobar**: *siempre visible exactamente una vez*, en vez
+  de *al menos una vez*.
+- **Por qué dos copias idénticas sí son un defecto**, aunque el texto sea correcto: dos párrafos iguales
+  a 600px de distancia y con el mismo peso visual son **la firma de un error de render** — el vendedor no
+  concluye «esto es importante», concluye «esta página está rota». Y repetir **no** refuerza: es la misma
+  ceguera que §25.3c ya invocó para rechazar el banner.
+- **Comprobable en una línea:** contar los nodos **visibles** de `BuylistShippingNote` en cada ancho ⇒
+  **exactamente 1**. Ver §25.14.6-6, que ya exige medir **visibilidad efectiva** y **desambiguar la
+  instancia**.
+
+> **⚠ Dónde vive esta decisión — normativo (v3.0.9), porque repartirla es cómo se llegó a las dos copias.**
+> La regla es **de pantalla**, así que **solo puede decidirla quien ve la pantalla entera**: la **vista**.
+> El carrito **recibe la orden y obedece**; **no decide si pinta la nota**. Es un acoplamiento
+> **deliberado**, y el implementador lo dejó documentado en el propio prop — bien hecho: sin esa nota, el
+> siguiente que pase lo lee como un acoplamiento sucio, se lo «devuelve» al componente **por higiene**, y
+> reintroduce el defecto exacto de v3.0.7. *Un componente que decide por su cuenta si muestra una regla de
+> dinero **no puede saber** si otro ya la está mostrando: por construcción, o la duplica o la omite.*
+> **Prohibido** repartir esta decisión entre dos componentes, y **prohibido** derivarla de un media query
+> local: sale del mismo estado de layout que decide si el carrito es panel fijo o drawer.
+
+**(h) Líneas sin precio (`precio_pendiente`) — ⚠ REESCRITO v3.0.8: el problema no era la línea, era el
+TOTAL.**
+
+> **La evidencia, y es de las mejores que ha dado este proyecto.** Un **test E2E** agregó cartas de un set
+> sin precios, vio el total en cero y **concluyó que el cotizador no sumaba**. No sumaba **porque no
+> debía** — pero **nada en pantalla lo decía**. *Si alguien que conoce el sistema saca esa conclusión, un
+> vendedor con 999 cartas la saca seguro.* Y el vendedor no puede abrir un issue: cierra la pestaña.
+>
+> **El diagnóstico, en una frase:** *una pantalla aritméticamente correcta que no explica su propia
+> aritmética le enseña al usuario que está rota.* Es **R7 aplicada al total**: R7 dice que **un conteo
+> ausente no es un número**; aquí el espejo es que **un total de cero que significa «todavía no lo he
+> calculado» no es un cero**. §25.3h ya lo tenía bien **por línea** (`SIN PRECIO`, nunca `MX$ 0.00`); lo
+> que faltaba era **decirlo del agregado**, que es lo único que el vendedor mira cuando tiene 999 líneas.
+
+**Por línea:** aportan **0** al total. Versalita **`SIN PRECIO` / `NO PRICE YET`** (`accent`, §7.3) **sin
+monto**. **Nunca `MX$ 0.00`**, nunca excluidas en silencio.
+
+> **⚠ v3.0.9 — el EN de la versalita, que §25 nunca fijó (a diferencia de `SIN ENVÍO`/`NOT SHIPPED`).**
+> **ES `Sin precio` (10) · EN `No price yet` (12).** El frontend propuso `No price` (8) por una restricción
+> de layout real —la celda comparte sitio con un monto— y señaló que `No price yet` **también cabe**.
+> **Se toma el «yet», y los tres caracteres valen.**
+>
+> - **Porque en inglés «No price» sí puede leerse como «no vale nada»**, y esa es **exactamente** la lectura
+>   que la segunda frase de esta sección existe para impedir. Es una etiqueta **pegada a dinero**: la
+>   doctrina money-safe de §7.3 no es solo *no prometer de más*, es **no dejar concluir algo falso**.
+> - **Porque el riesgo NO es simétrico entre idiomas, y por eso ES no lleva «aún».** En español *«sin
+>   precio»* se lee como *«todavía sin asignar»* —lo que significa «no vale nada» es *«sin valor»*—, así
+>   que ES **ya tiene la temporalidad gratis**. En inglés hay que pagarla con una palabra. **No es una
+>   asimetría de paridad: es una traducción de SIGNIFICADO, no de palabras** — las dos versalitas dicen lo
+>   mismo, y a EN le cuesta un término más llegar ahí.
+> - **Y porque la etiqueta es lo que se repite.** La prosa explicativa se pinta **una vez**; la versalita,
+>   **una por línea**. Con 999 líneas, **lo que el vendedor escanea es la etiqueta** — que es justo el
+>   motivo por el que aquí sí conviene que la etiqueta sea autosuficiente, aunque en general
+>   *«la etiqueta se repite y la explicación no»*.
+> - **Layout:** EN es **2 caracteres más largo** que ES, así que **la celda se dimensiona por EN** (§9.4:
+>   por el más largo, no por el idioma por defecto). Las versalitas **envuelven a dos líneas antes de
+>   truncarse**; **prohibido** `line-clamp` o elipsis sobre esta etiqueta.
+>
+> **Y lo que NO se toca** (§25.14.5): **`buylist.linePending`** («Precio pendiente» / "Price pending")
+> sigue vivo **fuera del cotizador**, en «Mis solicitudes», donde la línea **ya no es una cotización viva
+> sino el registro de una solicitud enviada**. El frontend hizo esa separación y la dejó escrita; **se
+> ratifica**. No es una segunda etiqueta para el mismo estado: es **el mismo hecho en dos momentos** del
+> ciclo, y ninguna de las dos es falsa. Tampoco se tocan `admin.*.colPending` / `pendingPrice` («No
+> price»): son **superficie de admin**, otro registro y otras restricciones de densidad.
+
+- **⚠ Se RETIRA la línea muted por ítem** (*«Todavía no tiene precio; no suma a tu total.»*). Con carritos
+  de cientos de líneas, repetir la misma explicación N veces **es ruido, no información**, y empuja hacia
+  abajo lo único que hay que leer. **La etiqueta se repite; la explicación, no.** *(Es el mismo criterio
+  por el que §25.4.3 prohíbe que el recordatorio repita el desglose.)*
+
+**En el bloque de dinero, UNA vez:** siempre que haya al menos una línea sin precio, se pinta
+**`buylist.quote.pendingLine.note`** —independiente del mínimo, del total y de si falta algo—:
+
+| | ES | EN |
+|---|---|---|
+| **`pendingLine.note`** | {count, plural, one {# carta todavía no tiene precio, así que no suma al total} other {# cartas todavía no tienen precio, así que no suman al total}}. Las cotizamos a mano y te las incluimos en la oferta. | {count, plural, one {# card has no price yet, so it doesn't count toward the total} other {# cards have no price yet, so they don't count toward the total}}. We quote those by hand and include them in your offer. |
+
+- **La segunda frase no es relleno: es la que evita que el vendedor las borre del carrito.** Sin ella,
+  «no suman» se lee como «no las queremos», y la reacción racional es **quitarlas** — perdiendo justo las
+  cartas que más trabajo nos costó catalogar. Dice **qué pasa con ellas**, que es la doctrina de §25.3d
+  movimiento 4 aplicada aquí: *cuando no hay número, se dice qué va a pasar con el número*.
+- **En tinta `text-sm`**, no muted: §10 prohíbe el muted para información esencial, y esta explica **por
+  qué el total no es lo que el vendedor esperaba**.
+- **No lleva ningún monto** ⇒ §25.3c sigue intacta: el bloque de dinero tiene **exactamente un monto**
+  (más el faltante y el mínimo cuando aplican, §25.3f). Un conteo de cartas **no es un monto**.
+- **Si TODAS las líneas están sin precio**, el total **no se pinta `MX$ 0.00`**: se pinta la versalita
+  `SIN PRECIO` en lugar de la cifra (regla ya viva en el carrito) **y esta nota debajo**.
+
+**(i) NO hay casilla de «entiendo el descuento» al crear la solicitud — y con D43 menos que nunca.**
+El acto vinculante es **aceptar la oferta** (§25.5), y ahí sí hay confirmación, con el número enfrente.
+Pedir consentimiento aquí produce dos daños: fricción donde no protege, y la falsa impresión de que el trato
+ya está cerrado. **Y ahora se agrega un tercero, decisivo:** una casilla que dice «entiendo el descuento»
+sobre un monto que **deliberadamente no estamos mostrando** extrae consentimiento **de algo desconocido** —
+es el patrón oscuro que este ciclo entero existe para no cometer. **Si alguien propone la casilla como
+compensación por D43, la respuesta es no.**
+
+**(j) La dirección de origen, en el mismo paso.** Se pide **al crear** (D36/D37), con el patrón de la
+libreta que ya existe: si tiene direcciones guardadas, **`Select` con la predeterminada preseleccionada**
+(el recurrente no teclea nada); si no tiene ninguna, el formulario de alta inline, y queda en su libreta.
+Sin dirección **el botón de crear está apagado con `aria-describedby`** apuntando al motivo — nunca un
+botón mudo (§15.9). Copy de por qué: *«La necesitamos para imprimir la guía que te vamos a mandar.»*
+`422 PICKUP_ADDRESS_REQUIRED` / `PICKUP_ADDRESS_NOT_FOUND` se pintan inline en el campo, no como toast.
+
+**(k) Dependencia de datos: D43 la vuelve casi cero.**
+
+| Dato | ¿Lo necesita el cotizador? | Qué pasa si no llega |
+|---|---|---|
+| La **frase** de (d) | **No necesita ningún dato.** Es copy estático de `messages/{es,en}.json` | No puede fallar. **No se esqueletiza, no se condiciona, no espera al servidor** |
+| `minimumRequestCents` (`GET /buylist/quote-policy`, D41) | **Sí**, para el faltante | **No se pinta el faltante y no se inventa ningún mínimo.** El CTA sigue vivo: la puerta real es el `422` del servidor, que trae el mínimo autoritativo y repinta |
+| `shippingFeeCents` | **⚠ Ya NO.** Ninguna superficie pública lo consume | — (ver **§25.13.1-bis**: se propone retirarlo del DTO público) |
+
+La regla 1 de §11.4 aplicada al dinero (R4) sigue en pie: **ninguna cifra de estas se hardcodea**. Lo que
+cambia es que **la cifra que más riesgo de hardcodeo tenía —la tarifa— ya no se pinta en ningún lado
+público**, así que el riesgo desaparece por construcción, no por disciplina.
+
+**(l) Objeción registrada (obligación de representar a quien usa esto).**
+**Acepto D43** y creo que la razón que la sostiene es correcta —y en (a.2) le agregué un argumento que la
+refuerza—. Queda **una reserva acotada**, para que esté escrita y se pueda medir:
+
+- **La reserva:** el vendedor que cotiza **cerca del mínimo** decide crear la solicitud, captura su
+  dirección y espera, sin saber que la deducción puede ser **~36%** de lo que está viendo. Lo descubre en el
+  correo. **No pierde dinero ni cartas** —puede decir que no, y ese es el punto que baja la gravedad—, pero
+  **sí pierde tiempo y confianza**, y nosotros perdemos el trato con una oferta ya emitida.
+- **Lo que NO propongo:** volver a pintar la cifra en el cotizador. Ya vimos en (a.2) que el neto de esa
+  pantalla es optimista por construcción; enseñarlo sería peor.
+- **Lo que propongo, y es de producto, no de diseño (§25.13.6-bis.b):** **medir el rechazo por tamaño de
+  oferta.**
+  Si las ofertas chicas se rechazan sistemáticamente después del correo, el problema **no** es la
+  divulgación: es **la proporción**. Y la proporción se arregla con **un dial** —subir el mínimo de compra
+  para que la tarifa nunca sea una tajada brutal—, no con más letra en una pantalla indicativa.
+
+---
+
+### 25.4 Los CINCO correos del ciclo
+
+> Los correos son **el documento donde se cierra el trato**. `PROJECT.md` §P.3 los pone al mismo nivel que
+> una pantalla: la oferta **es** el correo. Aquí se define la **estructura, la jerarquía y el tono**; el
+> texto vive en las plantillas locales del módulo `buylist` (`buylist-mail.templates.ts`, bilingüe por
+> `User.locale`) y el **render es del backend**. La **redacción es de ux-ui** y se ratifica con PO.
+>
+> **⚠ v3.0.3 — SON CINCO, y «3c» ya no existe. Manda `ARCHITECTURE §4.39(n)`.** §25.4.4 trataba la
+> **cancelación de la oferta por nuestra parte** como una tercera variante del correo 3. **Es un correo
+> propio, el 5**, y el argumento no es de jerarquía documental sino de hechos: **3a y 3b dejan la solicitud
+> en un estado TERMINAL; la cancelación la deja `cotizada` y VIVA**, de vuelta en la fila con 7 días
+> hábiles completos (D38). Agruparlos era precisamente lo que **R3** prohíbe —*un correo por HECHO, no por
+> camino*— aplicado al revés: no fusioné dos caminos del mismo hecho, **fusioné dos hechos distintos**.
+> **El texto que escribí para «3c» es correcto y no se redacta nada nuevo**: cambia de número, de
+> subsección (**§25.4.4-bis**) y —lo que de verdad importa— **de prefijo de clave** (§25.12).
+>
+> *(Nota de formato: §25.4 es la **única** sección del documento con cuatro niveles de encabezado. Son nueve
+> bloques hermanos —el medio, el esqueleto y los cinco correos con sus asuntos— y meterlos como negritas
+> dentro de un solo `###` los volvería inencontrables. No es un desliz.*
+> **La numeración `25.4.N` NO sigue al número del correo** y por eso el 5 entra como **§25.4.4-bis** en
+> lugar de renumerar `.5/.6/.7`: hay referencias cruzadas vivas a esas tres subsecciones dentro y fuera de
+> §25, y **renumerarlas para ganar una coincidencia estética habría roto punteros reales**.)*
+
+#### 25.4.0 El medio: papel y tinta en HTML de correo
+
+El correo no es la app y no puede fingir que lo es. Restricciones asumidas como **parte del diseño**:
+
+| | Norma |
+|---|---|
+| **Ancho** | **600px** máximo, **una sola columna**, tablas para layout, estilos **inline**. Ningún `flex`, ningún `grid` |
+| **Tipografía** | **Se diseña con los fallbacks, no con las webfonts.** Ningún cliente serio carga `Zen Old Mincho`/`Archivo`/`JetBrains Mono` de forma fiable. Pilas declaradas: serif `Georgia, 'Times New Roman', serif` · sans `Archivo, Arial, Helvetica, sans-serif` · mono `'JetBrains Mono', Consolas, Menlo, monospace`. **El correo tiene que verse correcto en Georgia/Arial/Consolas**; si carga la webfont, mejora, no cambia |
+| **Color** | Los **mismos valores** de §2.2/§17.2 (papel `#F4F1EA`, pozo `#EFEBE2`, tinta `#1A1A18`, muted `#6E695E`, rojo `#B31217`, verde `#4E7A49`), **aplanados**: las reglas translúcidas se sustituyen por su equivalente sólido sobre papel — `--color-border` ⇒ **`#D1CFC8`**, `--color-border-strong` ⇒ **`#AEACA7`**. **No son tokens nuevos**: es el mismo valor sin canal alfa, porque `rgba` en bordes no es fiable en Outlook |
+| **Radios y sombras** | **0 y 0**, igual que en la app. Un correo con esquinas redondeadas no es este producto |
+| **Modo oscuro del cliente** | `<meta name="color-scheme" content="light">` + `supported-color-schemes: light` y **`bgcolor` explícito en cada `td`**. El sistema no tiene modo oscuro (§2.1) y aquí no se inventa uno. **Ningún significado depende del fondo** |
+| **Imágenes** | **Solo el wordmark** (PNG del lockup, ≤ 240px de ancho, con `alt="TCG HUNT"`). **Cero imágenes de carta**, cero iconos-imagen, **cero imágenes de fondo**: el correo tiene que decir todo lo que dice **con las imágenes bloqueadas**, que es el estado por defecto de la mitad de las bandejas |
+| **Parte de texto plano** | **OBLIGATORIA** (`multipart/alternative`) y con **el mismo contenido sustantivo**: los tres montos, la condición por línea y el plazo. Un correo de dinero sin parte de texto es un correo que algunos clientes muestran mutilado |
+| **Prohibido en los CINCO** | **CLABE** (ni enmascarada), datos de terceros, montos de otras solicitudes, **cualquier cifra interna de la mesa** (posición, sugerencia, tope del operador, cuánto inventario tenemos), teléfono del vendedor, y cualquier enlace que **ejecute** una acción sin sesión. **En el correo 5 se añade `offerCancelReason`**: el motivo de la cancelación es de la bitácora, no del vendedor |
+
+#### 25.4.1 Esqueleto común
+
+```
+┌──────────────────────────────────────────────────────────┐  ← papel #F4F1EA, 600px
+│  TCG HUNT                                                │  wordmark, 24px alto
+│  ──────────────────────────────────────────────────────  │  regla #AEACA7 1px
+│  EYEBROW EN VERSALITAS · FOLIO BL-000123                 │  mono 10px, tracking .18em, muted
+│                                                          │
+│  Titular en serif                                        │  Georgia 26px/1.15, tinta, peso 400
+│                                                          │
+│  Cuerpo en sans, 15px/1.55, tinta.                       │
+│  …                                                       │
+│  ──────────────────────────────────────────────────────  │  regla #D1CFC8
+│  BLOQUES (condición · líneas · montos · plazo)           │
+│  ──────────────────────────────────────────────────────  │
+│  [ CTA ]                                                 │  botón tinta, texto papel, radio 0, 44px alto
+│  https://… (URL en texto, mono 12px muted)               │  para clientes que no pintan botones
+│  ──────────────────────────────────────────────────────  │
+│  TCG HUNT · tcghunt.mx · Este correo se envió a nombre…  │  mono 11px muted, UNA línea (§20.10)
+└──────────────────────────────────────────────────────────┘
+```
+
+- **Un solo CTA por correo.** Si hace falta un segundo destino, va como **enlace de texto** en el cuerpo.
+- **Jerarquía tipográfica idéntica a la app**: serif para el titular, sans para prosa, **mono para toda
+  cifra, folio, fecha, versalita y etiqueta**. `tabular-nums` en toda columna de dinero.
+- **Folio siempre visible** en el eyebrow: es la llave con la que el vendedor va a escribir a soporte.
+
+#### 25.4.2 CORREO 1 — LA OFERTA (el crítico)
+
+**Orden de bloques, y el orden es la decisión.** La condición va **antes** de los montos y **dentro** de
+cada línea; los montos van **antes** del CTA; el plazo va **pegado** al CTA.
+
+```
+OFERTA DE COMPRA · BL-000123
+
+Te compramos 2 de tus 3 cartas                        ← serif 26px
+
+Esta oferta es condicional y así funciona:            ← sans 15px tinta
+compramos cada carta al precio de abajo SIEMPRE
+QUE LLEGUE EN NEAR MINT.
+──────────────────────────────────────────────────────
+COMPRAMOS (2)                                         ← mono 10px versalitas muted
+
+ Charizard VMAX                                       ← sans 15px tinta 500
+ SWSH03 · 020/189 · RAW · NM · HOLOFOIL               ← mono 11px muted
+ siempre que llegue en Near Mint        MX$ 840.00    ← ⚠ condición y monto EN LA MISMA LÍNEA
+ ····································· regla punteada #D1CFC8 ·····
+ Pikachu VMAX
+ SWSH04 · 044/185 · RAW · NM · NORMAL
+ siempre que llegue en Near Mint        MX$ 180.00
+──────────────────────────────────────────────────────
+NO COMPRAMOS (1)                                      ← mono 10px versalitas muted
+
+ Snorlax V                                            ← sans 15px, tinta muted
+ SWSH02 · 141/192 · RAW · NM · NORMAL   No entra en esta oferta
+──────────────────────────────────────────────────────
+QUÉ PASA SI UNA CARTA NO LLEGA EN NEAR MINT           ← bloque sobre POZO #EFEBE2, regla arriba y abajo
+ No se compra, no se paga y te la devolvemos: tienes
+ 7 días para gestionar la devolución, a tu costo, y a
+ los 30 días se considera abandonada.
+ Rechazar una carta NO cancela la compra de las demás
+ y NO cambia el precio de ninguna: las que sí lleguen
+ en Near Mint se pagan al precio de esta oferta.
+──────────────────────────────────────────────────────
+ Valor de las 2 cartas                  MX$ 1,020.00  ← mono, tabular-nums, alineadas a la derecha
+ Envío que ponemos nosotros           − MX$   180.00
+ ─────────────────────────────────────────────────    ← regla de TINTA 1px (la única del correo)
+ SE TE DEPOSITAN                        MX$   840.00  ← mono 22px peso 500, tinta
+
+ Nosotros ponemos la guía de envío. Su costo,          ← sans 15px TINTA (no muted)
+ MX$ 180.00, es una tarifa fija y SIEMPRE se            ⚠ v3.0.1: la prosa nombra
+ descuenta de lo que te pagamos: tú no pagas            TAMBIÉN el envío, no solo
+ nada de tu bolsillo. La cifra que se te                el neto (ver decisión 8)
+ deposita es MX$ 840.00.
+──────────────────────────────────────────────────────
+ Tienes hasta el miércoles 3 de septiembre de 2026,   ← sans 15px; la fecha en mono 500
+ 6:00 p. m. (2 días hábiles). Si no respondes antes
+ de esa hora, la oferta se cancela sola.
+
+        [  Ver y responder la oferta  ]               ← botón tinta / texto papel
+
+ Entrarás con tu cuenta: esta oferta no se acepta      ← sans 13px muted
+ desde un enlace del correo.
+──────────────────────────────────────────────────────
+ Al aceptar te mandamos la guía; el paquete sale
+ desde: Av. Central 123, Col. Centro, 06000 CDMX.
+ Si te mudaste, corrígela desde tu cuenta antes de
+ aceptar.
+ Solo compramos lo que está en esta oferta, a estos
+ precios. El pago se hace DESPUÉS de recibir y
+ verificar tus cartas.
+```
+
+**Las OCHO decisiones que sostienen este correo** *(eran siete; la 8 entra en v3.0.1 con D43)*:
+
+1. **La condición está EN LA LÍNEA, no en una leyenda.** `terms.perLineConditionLabel` se pinta en cada
+   línea comprada, en **tinta** (no muted), **en el mismo renglón que el monto**, alineada a la izquierda
+   contra el monto a la derecha. Es imposible leer el precio sin barrer la condición.
+   *Se rechaza* el asterisco por línea con nota al final: es letra chica.
+   *Se asume el coste* de repetirla N veces (ceguera por repetición, el mismo riesgo que §22.12.2), y se
+   mitiga como allí: **frase cortísima** (≤ 34 caracteres en ES, ≤ 30 en EN) y **un solo bloque destacado**
+   con la consecuencia, que es donde vive el detalle. Repetir una frase corta pegada al dinero cuesta poco;
+   **omitirla en la línea que sí se lee cuesta el trato**.
+2. **El bloque de consecuencia va sobre POZO** (`#EFEBE2`) con regla arriba y abajo. Es el **único** bloque
+   con tono de fondo del correo: el sistema no usa rellenos para estados, pero sí escalones de superficie
+   para jerarquía (§4.3), y esta es la información que el vendedor tiene que poder encontrar de un vistazo
+   cuando dentro de dos semanas le rechacemos una carta.
+3. **«NO COMPRAMOS» se lista, con nombre y sin monto.** El criterio 118 exige decir qué **no** compramos.
+   **Prohibido `MX$ 0.00`** en esas líneas: cero es un precio y aquí no hay precio. Y **prohibido explicar
+   por qué** no se compró (es deliberación interna).
+4. **Los tres montos, con el neto tipográficamente dominante y la resta visible.** La única **regla de
+   tinta** del correo va encima del neto. El signo `−` es texto. El neto es la cifra más grande del correo
+   **y la única en 22px**: el bruto y el envío comparten cuerpo (15px mono) para que ninguno compita.
+5. **La regla del descuento se escribe, no solo se resta** (D31), en **tinta y al lado de los montos**, y
+   **repite en prosa el envío y el neto** («Su costo, MX$ 180.00… La cifra que se te deposita es
+   MX$ 840.00»): quien lee en diagonal la tabla y quien lee la prosa se llevan **los mismos números**.
+   *(Ampliado en v3.0.1 — antes la prosa solo repetía el neto; ver la decisión 8.)*
+6. **Plazo con fecha, hora, día de la semana y «días hábiles» entre paréntesis.** Nunca «en 2 días». La
+   fecha llega **ya resuelta** del servidor (R4). Se dice **qué pasa si no responde** — que la oferta se
+   cancela sola — porque el silencio también es una decisión y debe estar informada.
+7. **El CTA lleva al portal y lo dice.** «Entrarás con tu cuenta: esta oferta no se acepta desde un enlace
+   del correo» convierte una restricción de seguridad en una **señal de seriedad**. No existe enlace
+   tokenizado de aceptación.
+8. **⚠ NUEVA (v3.0.1, D43) — este correo es la PRIMERA vez que el vendedor ve el monto del envío.** Ya no
+   confirma nada que haya visto en el carrito (§25.3): **introduce un número nuevo en el momento en que
+   decide**. La consecuencia de diseño es una sola y es de **redundancia de canal**: **la cifra del envío se
+   dice DOS VECES —en la tabla y en la prosa—**, igual que el neto. Antes bastaba con que la prosa repitiera
+   el neto, porque el envío era un recordatorio; **un número que se estrena no puede vivir en una sola
+   celda**, que es justo la celda que se salta quien lee en diagonal. Se añade `es una tarifa fija`: es un
+   hecho de `PROJECT.md` (§P, D31) y **quita la sospecha** de un cargo variable calculado a nuestro gusto —
+   sin pedir disculpas y sin vender el descuento. *(Redacción sujeta a ratificación de PO, §25.13.6.)*
+
+**Lo que se revisó con esa lente y se decidió NO cambiar** *(v3.0.1 — se escribe para que nadie lo
+«mejore» después)*:
+
+| Se consideró | Decisión | Por qué |
+|---|---|---|
+| **Subir los montos por encima de la condición**, ya que el envío es información nueva | **NO** | R2 manda: la condición se lee **antes** del dinero y **dentro** de cada línea. Un correo que abre con la resta convierte el trato en una factura |
+| **Darle más peso tipográfico a la línea del envío** para que el número nuevo se note | **NO** | Si el envío compite con el neto, el vendedor se va con **la cifra equivocada en la cabeza**. La resta ya tiene dos canales visuales: la **regla de tinta** y el signo `−`. Al envío se le da el segundo canal **en la prosa**, que no cuesta jerarquía |
+| **Poner el envío en el asunto o en el preheader** «ya que es nuevo» | **NO — lo prohíbe R1** | El asunto sigue llevando **solo el neto**, y con D43 esa regla vale más que antes: **la primera cifra que este vendedor ve en su vida sobre esta venta es la que efectivamente va a recibir**, rotulada «se te depositan» |
+| **Explicar por qué cobramos envío**, o disculparse por el descuento | **NO** | El correo **informa un hecho del trato**; justificarlo lo vuelve negociable y sugiere que nos parece caro |
+| **Un bloque «esto no te lo habíamos dicho»** | **NO** | Nombrar el hueco lo agranda. La frase del cotizador ya prometió que el monto exacto venía aquí; **cumplirla en silencio es la forma correcta de cumplirla** |
+
+**Prohibiciones específicas del correo 1:**
+`MX$ 0.00` en cualquier línea · el bruto en el asunto o en el preheader (**R1**) · porcentajes · una
+condición en pie de página en vez de por línea · botones de «aceptar» / «rechazar» **dentro del correo** ·
+cualquier cifra de la mesa de decisión · prometer la guía como si ya existiera («tu guía está lista»: no se
+compra al ofertar, D21) · **⚠ (v3.0.1) cualquier fórmula que PRESUPONGA conocimiento previo del envío** —
+«como ya sabías», «como te habíamos dicho», «recuerda que», «el descuento habitual», «te confirmamos el
+envío de siempre»—: con D43 **es falso**, y un correo de dinero que le dice al vendedor que ya sabía algo
+que nunca vio **le enseña a desconfiar de todo lo demás que ese correo afirma**.
+
+#### 25.4.3 CORREO 2 — EL RECORDATORIO (uno por plazo, una sola vez)
+
+**Dos variantes de la misma plantilla**, porque son el mismo hecho (*«te queda un día»*) con acciones
+distintas. **No** se convierten en dos correos: el esqueleto, el tono y el bloque congelado son idénticos.
+
+| Variante | Cuándo | Qué pide | Qué muestra además |
+|---|---|---|---|
+| **2a — aceptar** | 1 día hábil antes de `offerAcceptDeadlineAt` | responder la oferta | el **bloque congelado** (abajo) + CTA al portal |
+| **2b — enviar** | 1 día hábil antes de `shipDeadlineAt` | que el paquete salga | **paquetería + número de guía** en mono, + CTA «Ya lo mandé» al portal |
+
+**El bloque congelado — tres renglones y nada más:**
+
+```
+TU OFERTA · BL-000123
+ 2 cartas, siempre que lleguen en Near Mint     ← ⚠ R2: el recordatorio NO se limpia de la condición
+ SE TE DEPOSITAN                  MX$ 840.00
+ Vence el miércoles 3 de septiembre, 6:00 p. m.
+```
+
+- **⚠ R2 aplicada aquí es la regla que más fácil se rompe.** La tentación de un recordatorio es ser
+  «ligero» y quedarse con la cifra. Un correo que repite **MX$ 840.00** sin decir «siempre que lleguen en
+  Near Mint» **degrada la condición a letra chica por omisión** y es exactamente lo que D30 vino a impedir.
+  Va en **una línea corta**, junto al conteo de cartas.
+- **No se vuelve a listar el desglose.** Un recordatorio que repite la tabla completa se lee como **una
+  oferta nueva** y arruina la propiedad más valiosa del ciclo: que hay **una** oferta y **no se edita**.
+  Enlace: «Ver el desglose completo» → portal.
+- **Mismos números, congelados.** Si el recordatorio muestra un monto o una fecha distintos de los del
+  correo 1, es un **defecto bloqueante**, no una discrepancia menor.
+- **⚠ Revisado con la lente de D43 (v3.0.1) y NO cambia.** El bloque congelado sigue llevando **solo el
+  neto**, sin la resta. Es correcto por partida doble: el neto es **el único monto vinculante** (R1) y es
+  **el único que el vendedor necesita para decidir** si acepta; y repetir la resta en un recordatorio lo
+  convertiría en una **oferta nueva** (la propiedad que este ciclo más protege: hay **una** oferta y **no se
+  edita**). El envío ya se estrenó en el correo 1 y se puede releer, completo, en el portal — al que este
+  correo enlaza con «Ver el desglose completo». **La divulgación es del correo 1 + el portal; el
+  recordatorio no la repite ni la sustituye.**
+- **Una sola vez por plazo** (el barrido corre varias veces). Es regla de backend; la nota se deja aquí
+  porque un segundo recordatorio idéntico **destruye la credibilidad del primero**.
+- **2b lleva el número de guía en mono seleccionable**, y el texto dice qué hacer si **ya** lo mandó:
+  *«Si ya lo depositaste, avísanos desde tu cuenta y detenemos el reloj.»* — es la salida de §P.13 y evita
+  que alguien pierda su venta por una demora nuestra.
+- **No hay recordatorio del plazo de caducidad** (los 7 días hábiles nuestros). Correcto por diseño:
+  avisarle al vendedor de un plazo que depende de nuestra carga de trabajo no le sirve de nada.
+
+#### 25.4.4 CORREO 3 — EXPIRACIÓN (⚠ DOS productores, y los dos son terminales)
+
+> **⚠ v3.0.3 — esta subsección tenía TRES variantes y ahora tiene DOS.** La tercera (~~3c~~, «la cancelamos
+> nosotros») **salió de aquí** y es el **correo 5** (§25.4.4-bis). El criterio de corte es el estado que
+> deja: **3a y 3b cierran la solicitud; la cancelación la devuelve viva a la fila.** ~~3c~~ **no vuelve a
+> nombrarse en §25**; si aparece en algún sitio, es una referencia sin actualizar.
+
+Dos productores distintos con el **mismo hecho de fondo** (*«se te venció un plazo y la solicitud queda
+cerrada»*) y dos acciones distintas ⇒ **una plantilla, dos variantes**. Es exactamente el reparto que pide
+**R3**: se fusiona lo que comparte hecho, **no** lo que comparte estado técnico.
+
+| Variante | Productor | Estado que deja | Hecho que afirma | ⚠ |
+|---|---|---|---|---|
+| **3a — no respondiste** | barrido regla 1 | `rechazada` (**terminal**) | *«el plazo para responder terminó»* | — |
+| **3b — no salió el paquete** | barrido regla 2 | `expirada` + `not_shipped` (**terminal**) | *«aceptaste y el paquete no salió en el plazo»* | — |
+
+**Esqueleto compartido:** eyebrow + titular serif + **dos párrafos** (qué pasó · qué sigue) + **bloque de
+estado** (folio, fecha del cierre, versalita del desenlace) + CTA. **Sin montos** ni siquiera en 3b, donde
+el monto ya no se va a pagar y mencionarlo solo duele: **ninguna de las dos variantes lleva montos.**
+
+**Copys (ES, con EN en §25.12):**
+
+- **3a** — Titular: «Tu oferta venció». Cuerpo: *«El plazo para responder terminó el {fecha} y la oferta ya
+  no es válida. No se compró ninguna carta y no tienes nada pendiente.»* + *«Si sigues queriendo vender,
+  puedes cotizar de nuevo cuando quieras.»* CTA: **Cotizar de nuevo**.
+- **3b** — Titular: «Se venció el plazo para enviar tu paquete». Cuerpo: *«Aceptaste la oferta el {fecha} y
+  el paquete no salió antes del {fecha límite}, así que cerramos la solicitud. Si la guía que te mandamos
+  sigue sin usar, ya no es válida.»* + la misma invitación. **Hechos y fechas, cero adjetivos**: ni
+  «lamentablemente», ni «no cumpliste», ni «desafortunadamente».
+
+#### 25.4.4-bis CORREO 5 — CANCELAMOS LA OFERTA (⚠ el único desenlace que NO cierra nada)
+
+> **Era la «variante 3c» hasta v3.0.3.** El **texto no cambia una letra** —está ratificado y es correcto—;
+> cambian **el número, la subsección y el prefijo de su clave**. Se separa por dictamen del arquitecto
+> (`ARCHITECTURE §4.39(n)`, v1.51.4), y la razón vale la pena escribirla porque es una regla, no un caso:
+> **lo que agrupa correos es el HECHO y su desenlace, nunca el productor ni el `status`.**
+
+| | Correo 5 |
+|---|---|
+| **Productor** | **uno solo**: `POST /admin/buylist/:id/offer/cancel` sobre una oferta **`sent`** |
+| **Estado que deja** | **`cotizada` — NO es terminal**: vuelve a la fila con **7 días hábiles completos** (D38) |
+| **Hecho que afirma** | *«cancelamos la oferta; no es nada de tu parte, y tu solicitud sigue viva»* |
+| **Quién falló** | **nadie**, y menos el vendedor: es **un acto nuestro** (típicamente, corregir un número mal puesto) |
+| **⚠** | Un texto de «se venció tu plazo» aquí es **FALSO** y **culpa al vendedor de un acto NUESTRO** |
+
+**Por qué NO podía quedarse dentro del correo 3** (tres razones, y la tercera es la operativa):
+
+1. **Contradice el hecho.** El correo 3 afirma *«esto se acabó»*; el 5 afirma *«esto sigue, y te
+   escribiremos otra vez»*. Son **instrucciones opuestas** para el vendedor: uno le dice que vuelva a
+   cotizar, el otro que **no** lo haga.
+2. **Contradice el estado.** 3a/3b sellan `closedAt`; el 5 deja la solicitud abierta. Una plantilla que
+   comparte «bloque de estado» entre desenlaces terminales y no terminales **pinta un cierre que no
+   ocurrió** — y §25.2d ya trunca el stepper en un cierre para los terminales.
+3. **Y por eso el CTA es otro.** «Cotizar de nuevo» sobre una solicitud **viva** manda al vendedor a
+   **duplicarla**. El 5 dice **«Ver mi solicitud»**. Un CTA equivocado no es un matiz de tono: **crea
+   trabajo basura en la cola de M5**.
+
+**Copy (ES, con EN en §25.12) — sin cambios respecto de la ~~3c~~ ratificada:**
+
+- Titular: «Cancelamos la oferta que te mandamos». Cuerpo: *«La oferta del {fecha} ya no es válida:
+  **la cancelamos nosotros**. No es nada de tu parte.»* + *«Tu solicitud sigue viva y volvemos a revisarla;
+  te escribiremos con una oferta nueva o con nuestra respuesta.»* **CTA: Ver mi solicitud** (no «cotizar de
+  nuevo»: la solicitud **no** está cerrada).
+
+**Prohibido en el correo 5:** la palabra **«venció»**, **cualquier plazo del vendedor**, **cualquier monto**
+(los de la oferta cancelada se limpian de la fila y **no se resucitan para el correo**), el **motivo interno**
+(`offerCancelReason` es de la bitácora) y el **CTA de volver a cotizar**.
+
+> **⚠ Y el correo 5 NO lo manda el barrido.** Cuando el barrido anula una oferta al caducar la solicitud,
+> el hecho real es *«no procederemos»* ⇒ sale el **correo 4**. **Un productor por correo, y el 5 tiene
+> exactamente uno** (`ARCHITECTURE §4.39(n)`). Un `catch` que mande el 5 desde el barrido le diría al
+> vendedor que su solicitud sigue viva **el día que la cerramos**.
+
+> **Deuda de pantalla que este correo sigue teniendo (no la resuelve el renumerado):** tras la cancelación
+> el portal se queda **mudo** —`offer` vuelve a `null`— y el vendedor no ve rastro de la oferta que sí
+> recibió. **La pantalla contradice al correo.** La petición al arquitecto sigue abierta en **§25.13.3**.
+
+#### 25.4.5 CORREO 4 — «NO PROCEDEREMOS» (nadie ofertó, o el operador declinó)
+
+El más corto y el más fácil de arruinar. Su trabajo es **cerrar sin acusar y sin explicar**.
+
+```
+TU SOLICITUD DE VENTA · BL-000123
+
+No vamos a proceder con la oferta                     ← serif 26px
+
+Sobre tu solicitud BL-000123: no vamos a proceder
+con la oferta.
+
+No hay nada pendiente de tu parte: no mandes ninguna
+carta, no se generó ninguna guía y no nos debes nada.
+
+Los precios se mueven todo el tiempo. Puedes volver
+a cotizar cuando quieras.
+
+        [  Cotizar de nuevo  ]
+```
+
+**Las seis prohibiciones, y cada una tiene una razón:**
+
+| Prohibido | Por qué |
+|---|---|
+| **Decir POR QUÉ no ofertamos** (carga de trabajo, precio, inventario, «no nos interesa esta carta») | *No procederemos* es la información completa que le corresponde. Explicar abre una negociación que no existe y filtra criterio interno |
+| **Cualquier referencia al TIEMPO transcurrido** («después de revisar tu solicitud», «tras 7 días», «perdón por la demora») | Delata **por qué camino** se cerró —barrido o «declinar ahora»— y §4.39(n) lo prohíbe: *un correo por hecho, no por camino*. Además «revisamos y decidimos» roza la prohibición de explicar |
+| **Cualquier MONTO** (ni el total cotizado) | Nombrar MX$1,200 junto a «no procederemos» se lee como *«te íbamos a pagar esto y no lo hicimos»*. La cotización **nunca fue vinculante** |
+| **Fórmulas vagas**: «no pudimos procesar tu solicitud», «seguimos revisando», «tu solicitud no fue seleccionada» | §P.3.1 las descarta por nombre. El cliente **tiene que saber a qué atenerse**; un eufemismo lo deja esperando |
+| **Culpar o insinuar incumplimiento** | Es el motivo entero por el que este correo existe separado del 3 |
+| **Disculparse de un modo que invente una causa** | Una cortesía neutra es aceptable; «perdón por la demora» no lo es (ver fila 2) |
+
+**Y la propiedad que lo hace verificable:** el correo 4 **no menciona ningún plazo**. Si en el texto aparece
+una fecha límite, un «7 días» o un «venció», el correo está mal.
+
+#### 25.4.6 (c) vs (d): la tabla que impide fusionarlos
+
+| | **Correo 3b — expiración** | **Correo 4 — no procederemos** |
+|---|---|---|
+| Estado técnico | `expirada` | **el mismo**: `expirada` |
+| Motivo | `not_shipped` | `no_offer` |
+| **Quién falló** | **el vendedor** (aceptó y no envió) | **nadie** — nosotros no ofertamos |
+| ¿Hubo oferta? | **sí** | **no**, y decir que sí sería mentir |
+| Menciona plazos | **sí** (el suyo) | **NUNCA** |
+| Menciona montos | no | **NUNCA** |
+| Tono | factual, sin adjetivos | factual, cerrado, con puerta abierta |
+| CTA | Cotizar de nuevo | Cotizar de nuevo |
+| Versalita en el portal | `SIN ENVÍO` (danger) | `NO PROCEDIÓ` (neutral) |
+
+> **⚠ La selección de plantilla es por MOTIVO, no por estado** (`not_shipped` ⇒ 3b; `no_offer` ⇒ 4).
+> Un `switch (status)` que caiga en el correo 3 por defecto **le imputa un incumplimiento a alguien a quien
+> nunca le ofertamos**. Es el riesgo que trae compartir `status` y por eso se escribe aquí también.
+
+#### 25.4.7 Asuntos y preheaders
+
+**Regla R1 aplicada:** el **único monto** que puede aparecer en un asunto o preheader es el **neto**.
+
+| # | Asunto ES | Asunto EN |
+|---|---|---|
+| 1 | `Tu oferta: se te depositan MX$ 840.00 · vence el 3 sep, 6:00 p. m.` | `Your offer: MX$ 840.00 deposited to you · expires Sep 3, 6:00 PM` |
+| 2a | `Te queda 1 día hábil para responder tu oferta` | `1 business day left to respond to your offer` |
+| 2b | `Te queda 1 día hábil para enviar tu paquete` | `1 business day left to ship your package` |
+| 3a | `Tu oferta venció` | `Your offer expired` |
+| 3b | `Se venció el plazo para enviar tu paquete` | `The shipping deadline passed` |
+| 4 | `No procederemos con tu solicitud de venta` | `We won't be proceeding with your sell request` |
+| **5** *(era ~~3c~~)* | `Cancelamos la oferta que te mandamos` | `We cancelled the offer we sent you` |
+
+> **⚠ El asunto del 5 es el único de los cierres que NO puede empezar por «Tu oferta venció…».** Se lee
+> entero antes de abrir nada: **«Cancelamos»** pone el sujeto de la acción **en nosotros** en la primera
+> palabra, en los dos idiomas. Es la misma doctrina de §25.1d —*en un desenlace ambiguo el sistema no acusa
+> al cliente*— aplicada a la bandeja de entrada, que es donde más gente se queda.
+
+**Preheader del correo 1** (texto oculto, primera línea que ve la bandeja) — **⚠ corregido en v3.0.1**:
+ES *«Compramos 2 de tus 3 cartas, siempre que lleguen en Near Mint. La guía la ponemos nosotros y se
+descuenta.»* · EN *"We'll buy 2 of your 3 cards, provided they arrive Near Mint. We provide the label and
+deduct it."*
+**El preheader del correo 1 lleva la condición** — es la primera superficie del trato y no puede omitirla.
+
+> **⚠ Por qué se corrigió** (v3.0.1, D43): ~~«El envío lo ponemos nosotros» / «Shipping is on us»~~ decía
+> **la mitad buena** del hecho y omitía la resta. Cuando el vendedor ya había visto la aritmética en el
+> carrito, esa media frase era taquigrafía inofensiva; **ahora es la primera cosa que lee sobre el envío en
+> todo el ciclo**, y «lo ponemos nosotros» a secas se lee como **«gratis»**. **Regla derivada, válida en
+> todo el sistema: donde aparezca «ponemos la guía», viaja «y se descuenta».** Las dos mitades no se
+> separan nunca — ni en un preheader, ni en un asunto, ni en una notificación, ni en un tuit.
+> **Única excepción, y es aparente:** el **rótulo de la fila de la tabla de montos** del correo/portal
+> (`Envío que ponemos nosotros  − MX$ 180.00`) puede ser corto **porque la resta está a la vista** — signo
+> `−`, regla de tinta y neto debajo hacen literalmente lo que la frase diría. La regla protege a la frase
+> **suelta**, no al renglón de una aritmética visible.
+> El asunto **no cambia**: sigue llevando **solo el neto**, que es la cifra rotulada con lo que de verdad
+> recibe (R1).
+
+---
+
+### 25.5 Portal del vendedor: la pantalla tiene que decir **exactamente** lo mismo que el correo
+
+**(a) Regla de espejo.** El correo y la pantalla se pintan del **mismo `SellOfferPublicDTO`** y del mismo
+`offer.terms`. **La UI no calcula ninguno de los tres montos, ni el plazo, ni la resta** (R4). Si la pantalla
+y el correo dicen números distintos, **se rompe todo el ciclo**, no una pantalla.
+
+**(b) Anatomía** (bajo el `PipelineStepper` vertical, §25.2):
+la **condición en un bloque sobre pozo** (mismo texto del correo) → la lista de líneas **compradas** con su
+condición por línea → las **no compradas** sin monto → el `AmountBreakdown` de los tres montos con el neto
+destacado → el plazo con fecha y hora → **dos acciones**.
+
+- **⚠ v3.0.1 (D43): el portal es el único sitio donde el vendedor puede RELEER la resta.** El correo la
+  estrena y el recordatorio no la repite (§25.4.3), así que aquí el `AmountBreakdown` de los **tres** montos
+  es **obligatorio** y va acompañado de la **misma frase en prosa del correo**, con el envío y el neto
+  nombrados —no una versión abreviada, no solo el neto—. Un portal que muestre únicamente `SE TE DEPOSITAN`
+  deja al vendedor **sin ningún lugar donde volver a ver de dónde salió**, salvo un correo que quizá borró.
+
+**(c) Las dos acciones, y su jerarquía deliberada:**
+
+| Acción | Variante | Por qué |
+|---|---|---|
+| **Aceptar la oferta** | `primary` (tinta, relleno), ancho completo en móvil | Es la acción esperada |
+| **Rechazar la oferta** | `secondary` (regla + texto), **nunca `destructive`** | Rechazar es **legítimo**. Pintarlo en rojo lo convierte en un error del usuario y presiona a aceptar. El rojo del sistema es de **atención**, no de castigo |
+
+- **Confirmación al aceptar** (§7.6, es dinero): repite **el neto** y **la condición**, y el botón dice el
+  verbo con el monto: **«Aceptar y recibir mi guía»**. Sin cuenta atrás, sin urgencia artificial.
+
+  > **⚠ v3.0.7 — la frase se REENMARCA para que la condición se pueda CITAR en vez de reescribir.**
+  > Aquí decía *«…2 cartas por MX$ 840.00, **siempre que lleguen** en Near Mint»* —plural—, pero el
+  > servidor manda `offer.perLineCondition` **en singular** («siempre que **llegue** en Near Mint»), porque
+  > es **la condición de una línea** (§25.12). El frontend detectó el desajuste y **citó verbatim** en vez
+  > de fabricar una segunda redacción. **Esa decisión se ratifica y es la correcta**: *la condición es
+  > exactamente lo que el vendedor acepta (D30); tener DOS redacciones de ella —una en el correo y otra en
+  > el diálogo— es el defecto que R2 existe para impedir, y una discordancia gramatical es un coste
+  > cosmético al lado de eso.*
+  > **Pero no hay que pagar ni el coste cosmético:** el problema era **mi marco**, que forzaba el plural.
+  > Se cambia el marco para que **el singular del servidor encaje bien**:
+  >
+  > | | ES | EN |
+  > |---|---|---|
+  > | ~~Antes~~ | ~~«Aceptas que te compremos 2 cartas por MX$ 840.00, siempre que lleguen en Near Mint»~~ | ~~"…provided they arrive Near Mint"~~ |
+  > | **Ahora** | «Aceptas que te compremos {count, plural, one {# carta} other {# cartas}} por {netAmount}. **La condición es la misma para cada carta: {condition}.**» | "You accept that we buy {count, plural, one {# card} other {# cards}} from you for {netAmount}. **The condition is the same for every card: {condition}.**" |
+  >
+  > Con «cada carta» / "every card" el singular citado **lee correcto con cualquier conteo**, y la cita
+  > sigue siendo **una sola fuente**. El mismo marco se usa en el diálogo de rechazar (§25.5g-c), en
+  > pasado: *«La condición **era** la misma para cada carta»*.
+  > **Regla general que se lleva de aquí:** *cuando un texto del servidor no encaje en el marco de la UI,
+  > **se cambia el marco, no se duplica el texto**.*
+  *(**Revisado con la lente de D43 y NO cambia:** el diálogo se abre **a 200px del bloque de los tres
+  montos**, y R1 autoriza expresamente al **neto** a viajar solo. Meterle la resta convertiría el último
+  clic en una re-lectura del trato — y el sitio para leer el trato es la pantalla, no el diálogo que la
+  tapa.)*
+- **`aria-live="polite"`** al resolver; el resultado sustituye el bloque de acciones por el estado nuevo.
+- **NO existen casillas por línea.** El todo-o-nada se demuestra **por lo que no está** (§P.11): la lista es
+  de solo lectura, sin `checkbox`, sin «quitar esta carta».
+- **`409 OFFER_EXPIRED` / `OFFER_NOT_PENDING`** se pintan como **banner persistente** con el estado real,
+  no como toast: el vendedor acaba de intentar comprometer dinero.
+
+**(d) Antes de que exista oferta**, la pantalla **no muestra guía, ni nuestra dirección, ni instrucciones de
+envío**, y **no ofrece** ninguna vía para decir «ya lo mandé» (criterio 114). Muestra: sus cartas, **su
+propia dirección de origen** (que es suya y tiene que poder verificarla), una frase clara —*«Todavía no
+mandes nada. Te escribimos con nuestra oferta.»*— y **la nota de servicio del envío de §25.3d, palabra por
+palabra y SIN CIFRAS**.
+
+> **⚠ Corrección v3.0.1 (D43).** Aquí decía «el aviso de descuento de §25.3», que en v3.0 era **el bloque
+> con la resta**. Sería un error doble pintarlo: (1) D43 lo prohíbe en toda superficie previa a la oferta, y
+> (2) **antes de la oferta no existe tarifa congelada**, así que cualquier cifra que apareciera aquí sería
+> **la del dial de hoy**, capaz de no coincidir con la que se le ofertará mañana. La regla es limpia:
+> **antes de la oferta, la frase; desde la oferta, los tres montos.** El portal **cambia de idioma sobre el
+> dinero exactamente en el mismo instante** en que sale el correo 1 — que es el instante en que el número
+> deja de ser un dial y pasa a ser un compromiso.
+
+**(e) La dirección de origen, con su ventana de corrección.** Mientras `guideSentAt === null`, junto a la
+dirección va **«Cambiar»** (`PATCH …/pickup-address`, elige otra de su libreta). Cuando ya hay guía, el
+enlace **desaparece** y en su lugar: *«Ya imprimimos la guía con esta dirección.»* — sin botón, porque no
+hay remedio self-service (§25.13.4).
+
+**(f) Cierre terminal.** Con la solicitud cerrada, la pantalla muestra el mismo mensaje que el correo, no un
+resumen genérico:
+
+| Desenlace | Qué se muestra | ⚠ |
+|---|---|---|
+| `pagada` | los tres montos, la fecha del SPEI y el desglose de aprobadas/rechazadas | — |
+| `rechazada` | **⚠ CORREGIDO v3.0.7:** ~~«La oferta venció el {fecha}»~~ ⇒ **«Esta oferta ya no está vigente.»** + CTA cotizar de nuevo | **`rechazada` tiene DOS causas y el DTO no las distingue**: el vendedor **pulsó rechazar**, o el barrido cerró por silencio. Decirle «venció» a quien **decidió** le niega su propio acto — es el mismo error que separó el correo 5 del 3. Ver §25.5g(e) |
+| `expirada`+`not_shipped` | «Se venció el plazo para enviar» + CTA cotizar de nuevo | — |
+| `expirada`+`no_offer` | «No procedimos con la oferta» + CTA cotizar de nuevo | **⚠ Se OCULTA el total cotizado y toda cifra.** Una lista de cartas con «MX$ 1,200» al lado de «no procedimos» se lee como una deuda. Se listan las cartas **sin montos** |
+| `abandonada` | el estado y a quién escribir | — |
+
+---
+
+### 25.5g Los estados del portal que §25 NO cubría (v3.0.7)
+
+> **Contexto.** El portal era un **404** hasta este pase — la pantalla a la que apunta el correo de oferta
+> no existía. §25.5 especificó **la oferta viva y los cierres**, pero **no** el rechazo confirmado, la
+> oferta incompleta, el 404 ni la puerta de sesión. El frontend los construyó y **declaró** las claves que
+> tuvo que nombrar. **Aquí se ratifican, con tres correcciones.**
+
+**(a) ✅ Se ratifica el espacio de claves `buylist.offer.*` y su EN.** El inventario completo está en
+§25.12. Revisado contra R1, R2, R4 y D43: **ningún asunto ni titular lleva el bruto**, la condición viaja
+con todo monto, **la UI no calcula nada** y no hay ninguna cifra de envío fuera de la oferta. `grossLabel`,
+`shippingLabel` y `netLabel` coinciden con los del correo; `shippingLabel` («Envío que ponemos nosotros»)
+es la **excepción autorizada** de §25.4.7 — renglón corto **porque la resta está a la vista**.
+
+**(b) ⚠ CORRECCIÓN 1 — `offer.deadline` dice «se cancela sola», y «cancelar» ya significa otra cosa.**
+Tras v3.0.3, **«cancelar» es el verbo del correo 5: lo que hacemos NOSOTROS**. Una oferta que muere por
+silencio **vence** (correo 3a, titular «Tu oferta venció»). Que la misma palabra nombre *«nosotros la
+retiramos»* y *«se te acabó el plazo»* reintroduce, en la pantalla, la fusión que acabamos de deshacer en
+los correos.
+
+| | ES | EN |
+|---|---|---|
+| ~~Antes~~ | ~~«…Si no respondes antes de esa hora, la oferta **se cancela sola**.»~~ | ~~"…the offer **cancels itself**."~~ |
+| **Ahora** | «Tienes hasta el {deadline} (hora del centro de México). Si no respondes antes de esa hora, **la oferta vence** y ya no podremos comprarte a este precio.» | "You have until {deadline} (Mexico City time). If you don't respond before then, **the offer expires** and we won't be able to buy at this price anymore." |
+
+**(c) ⚠ CORRECCIÓN 2 — el diálogo de RECHAZAR necesita el neto y la condición, y R2 no admite excepción.**
+El frontend escribió un cuerpo sin montos. Es defendible —evita presionar— pero **choca con R2 por el lado
+contrario**: en cuanto el diálogo nombre el neto, la condición es obligatoria; y **el neto tiene que estar**,
+porque este es el último instante en que el vendedor puede saber **qué está soltando**. La línea entre
+*informar* y *presionar* no está en decir el número: **está en el tono**.
+
+| Clave | ES | EN |
+|---|---|---|
+| `confirmRejectTitle` | Confirma que rechazas | Confirm that you decline |
+| **`confirmRejectBody`** | **Vas a rechazar la oferta de {netAmount} por {count, plural, one {# carta} other {# cartas}}. La condición era la misma para cada carta: {condition}. Es definitivo: no podemos reactivarla y, si cambias de opinión, tendrías que cotizar de nuevo.** | **You are about to decline the offer of {netAmount} for {count, plural, one {# card} other {# cards}}. The condition was the same for every card: {condition}. This is final: we cannot reactivate it and, if you change your mind, you would have to request a new quote.** |
+| `confirmRejectCta` | Rechazar la oferta | Decline the offer |
+
+**Prohibido en este diálogo** —y la lista es el motivo por el que se escribe aquí—: **«¿Estás seguro?»**,
+cualquier cuenta atrás, **cualquier reencuadre del beneficio** («estás dejando ir…», «piénsalo»), el botón
+de rechazar en `destructive` (§25.5c: rechazar **es legítimo**) y **un segundo CTA de aceptar dentro del
+diálogo**. La salida es **«Cancelar»** —volver atrás—, nunca un embudo de aceptación. *Un diálogo de
+confirmación que argumenta ya no confirma: negocia.*
+
+**(d) La oferta INCOMPLETA — el único estado donde la pantalla se niega a pintar.** Cuando la oferta llega
+sin términos o con líneas sin decisión, **no se pinta ni un monto, ni el plazo, ni las acciones**: solo el
+aviso. Es **R2 llevada hasta el final** —si no podemos mostrar la condición completa, no mostramos el
+dinero— y por eso **ese texto es lo único que el vendedor ve**. **Se ratifica el copy del frontend**, que
+acierta en lo difícil: **no culpa a nadie, dice qué NO vamos a hacer y por qué, y da dos salidas**.
+
+| Clave | ES | EN |
+|---|---|---|
+| `incompleteTitle` | No podemos mostrarte la oferta completa | We can't show you the full offer |
+| `incompleteBody` | Nos falta parte del desglose de esta oferta, así que no la mostramos a medias ni te dejamos aceptarla. Revisa el correo que te mandamos o escríbenos a {email}. | Part of this offer's breakdown is missing, so we won't show it half-way and we won't let you accept it. Check the email we sent you or write to us at {email}. |
+
+- **Mandar al correo es correcto y no es una excusa:** el correo **es el documento vinculante** (§25.4) y
+  lleva el desglose completo. Es la única superficie que **sigue siendo verdad** cuando la proyección falla.
+- **Prohibido**: pintar el neto «aunque sea», un `AmountBreakdown` a medias, el plazo, el botón de aceptar
+  en `disabled` (§15.9: un botón apagado y mudo es peor que ausente) y **cualquier código de error**.
+
+- **⚠ Riesgo que el copy NO puede resolver y que se enruta al arquitecto (§25.5g-f):** si el reloj del
+  vendedor sigue corriendo mientras la oferta es inmostrable, **le vence un plazo por un fallo nuestro** —
+  justo lo que §P.13 prohíbe. **El texto no promete nada sobre el plazo** (correcto), pero el problema es
+  real y es de contrato.
+
+**(e) El 404 neutro y la puerta de sesión — se ratifican, y se atan a la doctrina que ya existe.**
+Esto es **§15.7 aplicado al buylist**: *una sola pantalla para todos los fallos*. Token inexistente,
+solicitud de otro, solicitud borrada, 401/403/404/410 ⇒ **el mismo texto, el mismo layout**. El frontend
+**no ramifica por código de estado**, que es lo correcto: cualquier diferencia visible convierte la pantalla
+en un **oráculo** de qué solicitudes existen.
+
+| Clave | ES | EN |
+|---|---|---|
+| `notFoundTitle` | No encontramos esta solicitud | We couldn't find this request |
+| `notFoundBody` | Revisa el enlace del correo, o entra con la cuenta con la que creaste la solicitud. | Check the link in your email, or sign in with the account you used to create the request. |
+| `loginTitle` | Entra con tu cuenta para ver tu oferta | Sign in to see your offer |
+| `loginBody` | Entrarás con tu cuenta: esta oferta no se acepta desde un enlace del correo. | You will sign in with your account: this offer is not accepted from an email link. |
+
+> **⚠ Precisión que decide si esto es seguro o es un oráculo: la puerta de sesión se resuelve por la SESIÓN,
+> nunca por una consulta.** Si `loginTitle` se pintara **después** de comprobar que la solicitud existe, la
+> pantalla diría *«existe, identifícate»* frente a *«no existe»* — y eso **es** el oráculo, con otro
+> vestido. **Sin sesión ⇒ puerta de sesión, siempre, sin mirar el id.** Con sesión y sin acceso ⇒ el 404
+> neutro. **Prohibido** además: repetir el folio en pantalla, nombrar a otra cuenta, y que el texto cambie
+> entre «no existe» y «no es tuya».
+
+**(f) La frase neutra de `rechazada` — ratificada, y con el reparto que la hace correcta.**
+El DTO no dice **quién** cerró: si el vendedor pulsó rechazar o si el barrido cerró por silencio. §25.5f
+decía «La oferta venció el {fecha}» **para las dos**, y a quien **decidió** eso le niega su propio acto.
+
+| Clave | Cuándo | ES | EN |
+|---|---|---|---|
+| `rejectedNow` | **justo después** de la acción — aquí **sí sabemos** que rechazó, porque acabamos de hacerlo | Rechazaste la oferta. | You declined the offer. |
+| `noLongerActive` | **en una visita posterior** — aquí **no sabemos** por qué se cerró | Esta oferta ya no está vigente. | This offer is no longer active. |
+
+- **El reparto es la parte buena de la solución**, y es del frontend: la frase neutra solo se usa donde la
+  ignorancia es real. **No se degrada la información que sí tenemos.**
+- **No lleva fecha**, y no le hace falta: el **cierre del stepper** ya pinta versalita + fecha (§25.2d).
+  Repetirla obligaría a redactar una causa que no conocemos.
+- **Es una solución puente, no el destino.** Con el discriminador en el contrato, `rechazada` vuelve a
+  hablar claro y **cada causa recupera su frase**. **Petición al arquitecto en §25.13.9.**
+
+**(g) Detalles menores ratificados, para que nadie los «corrija» después:**
+
+| Clave | Veredicto |
+|---|---|
+| `acceptedNow` («Te mandamos la guía por correo») | **Correcto.** Es **secuencia logística**, no afirmación de coste ⇒ **no** le aplica la regla de §25.14.3, igual que a `buylist.created`. Y además la resta está en pantalla, a un scroll |
+| `reject` = «Rechazar» ES / "Decline" EN | **Correcto**, y la asimetría es deliberada: ES ya usa «Declinar» para **la acción del admin** (§25.8) y **ningún usuario ve las dos superficies**. "Decline" es más suave que "Reject", que sonaría a juzgar sus cartas |
+| `preOfferTitle` + `preOfferBody` | **Ajuste menor:** hoy repiten «Todavía no mandes nada» en los dos. **Título:** «Todavía no mandes nada» · **Cuerpo:** «Te escribimos con nuestra oferta.» Leídos juntos dan la frase de §25.5d **exacta**, sin eco |
+| `cancelledBanner` | **Ratificado** — es §25.13.3 implementada, y el texto coincide con el que pedí. **Sin monto de la oferta cancelada**, como se pidió |
+| `closedNoOffer` | **Ratificado**, con el recordatorio de §25.5f: en ese desenlace **se ocultan el total cotizado y toda cifra**. Las cartas se listan **sin montos** |
+
+---
+
+### 25.5h ⚠ La prosa duplicada — decisión: SE PERMITE como puente, con tres condiciones
+
+> **Es la pregunta correcta y la respuesta no es obvia**, así que va con su razonamiento. El frontend
+> **copió `offer.ruleParagraph`** —la prosa del descuento con `{shippingAmount}` y `{netAmount}`— al
+> catálogo i18n, porque **solo existía dentro de la plantilla del correo** y §25.5b **obliga** al portal a
+> llevarla. Lo declaró como *«la única copia de copy que este pase se vio obligado a crear»*.
+
+**Veredicto: NO es bloqueante. Se permite, y por qué la alternativa era peor.**
+
+Las opciones reales eran tres, y dos son inaceptables:
+
+| Opción | Consecuencia |
+|---|---|
+| **Portal sin la prosa**, solo el `AmountBreakdown` | **Viola §25.5b explícitamente.** Bajo D43 el portal es **el único sitio donde el vendedor puede releer la resta**: el correo la estrena y el recordatorio no la repite. Sin prosa, quien borró el correo **se queda sin ningún lugar donde ver de dónde salió el neto** |
+| **Bloquear el portal** hasta que el servidor mande la prosa | El portal era **un 404** al que apunta el correo de oferta. Bloquear = **seguir mandando ofertas vinculantes a una página que no existe** |
+| **Duplicar el string** *(elegida)* | Riesgo de **deriva** entre dos catálogos. Es un coste de **mantenimiento**, no una regresión para el vendedor |
+
+**La distinción que decide:** *omitir la prosa sería una **regresión de producto**; duplicarla es una
+**deuda de mantenimiento**.* No son la misma clase de problema, y este documento no cambia lo primero por
+lo segundo. **Y la duplicación es visible y está declarada** — que es exactamente lo contrario del patrón
+que este ciclo lleva persiguiendo, donde el daño venía de textos **que nadie sabía que existían**.
+
+**Las tres condiciones, y son obligatorias mientras dure el puente:**
+
+1. **La plantilla del correo es la FUENTE; el i18n es el ESPEJO.** Si divergen, **manda el correo** — es el
+   documento vinculante (§25.4). Toda edición de esa prosa **se hace primero en la plantilla** y después se
+   copia. **Prohibido «mejorar» la copia del portal por su cuenta**: dos redacciones de la misma regla de
+   dinero es el defecto, no la solución.
+2. **Verbatim, carácter por carácter, en ES y EN**, incluidos los dos placeholders. La comprobación (f) de
+   §25.13.8 —*«correo vs portal coinciden carácter por carácter»*— **se amplía a la prosa del descuento**,
+   que hasta hoy solo cubría montos, plazo y condición. **Es el único guardarraíl real que hay hoy**, y se
+   dice sin adornos: *el guardián de esta copia es una revisión, no un test.*
+3. **Cuando el servidor mande la prosa, la clave i18n SE BORRA — no se deja de reserva.** Un *fallback*
+   superviviente es exactamente cómo un texto viejo vuelve a producción (la lección de `expiry.*` y de las
+   tres claves retiradas de §25.12). **Cero coexistencia.**
+
+**Y el límite del permiso, para que no se generalice:** esto vale **para esta prosa y por este motivo** —
+una regla de dinero que el diseño **obliga** a mostrar en dos medios y que hoy **solo un medio produce**.
+**No autoriza a duplicar copy en general**, y menos a duplicar **la condición** o **la consecuencia**: esas
+el portal las pinta **verbatim del servidor**, que es lo que el frontend ya hizo bien y **es la razón por
+la que el vendedor lee en pantalla el mismo texto que aceptó en el correo**.
+
+---
+
+### 25.6 La mesa de decisión (admin, M5) — cinco cifras leídas en dos tiempos
+
+> **El problema de diseño, dicho sin rodeos:** por cada línea hay que enseñar **cinco números** —en
+> inventario, verificando, en tránsito, comprometido y el objetivo— y una sugerencia, sobre una solicitud
+> que puede tener 40 líneas. Volcados sin jerarquía son **un tablero de aeropuerto**: 200 cifras que nadie
+> lee. Y hay una restricción que no se puede negociar: **«en camino» y «comprometido» no se suman jamás**
+> (R6), porque tienen confianza distinta y esa distinción **es** el valor de la pantalla.
+
+**(a) La decisión: una cifra que decide, cuatro que la explican.**
+
+```
+POSICIÓN 9/10  TOPE          ← primer tiempo: UNA cifra, mono 15px, y su umbral como denominador
+EN INVENTARIO 5  VERIFICANDO 1 │ EN CAMINO 1  COMPROMETIDO 2
+                                 ↑ segundo tiempo: los cuatro sumandos, en orden de confianza
+```
+
+- **Primer tiempo — `POSICIÓN 9/10`.** Es `position.total` sobre el **objetivo** (la quinta cifra:
+  `bountyTargetQty` o el tope general), con la versalita de **qué regla manda** (`BOUNTY` / `TOPE`). El
+  operador lee **una** fracción y sabe dónde está. El quebrado es honesto también al pasarse: con bounty,
+  `3/2` dice «ya te pasaste» sin necesidad de explicarlo.
+- **Se llama POSICIÓN, no «inventario».** Contesta *«¿de cuántas copias ya soy responsable?»*, que incluye
+  dinero comprometido. Llamarla «tengo» sería mentir.
+- **Segundo tiempo — la tira de cuatro.** Siempre los **cuatro**, siempre en el **mismo orden**, siempre en
+  las **mismas posiciones** de la retícula.
+
+**(b) Cómo se impide que el ojo sume «en camino» + «comprometido» (R6):**
+
+| Mecanismo | Cómo |
+|---|---|
+| **Una regla vertical de 1px** (`--color-border-strong`) entre `VERIFICANDO` y `EN CAMINO` | Es la frontera **está en la casa / todavía no está**. Es el único separador del sistema (§4.3) y aquí carga significado |
+| **Encabezados de grupo reales** | En la cabecera de la tabla, `<th colspan="2" scope="colgroup">`: **`EN NUESTRAS MANOS`** (inventario + verificando) y **`TODAVÍA NO`** (en camino + comprometido). El lector de pantalla anuncia el grupo antes de cada cifra |
+| **Gradiente de confianza por PESO, no por contraste** | `EN INVENTARIO` y `VERIFICANDO` en tinta **500**; `EN CAMINO` y `COMPROMETIDO` en tinta **400**. **Las cuatro cifras van en `--color-text`**: la confianza **no se codifica bajando el contraste** — un número que decide una compra es información esencial y §10 prohíbe el muted para eso |
+| **Prohibiciones explícitas** | **No** existe subtotal, `+`, paréntesis «(3 por llegar)», barra apilada, ni etiqueta que agrupe las dos. El **único** lugar donde los cuatro se suman es `POSICIÓN`, y esa palabra **no significa inventario** |
+
+**(c) Cómo se leen 5×N cifras sin marearse: alineación de columna.**
+La tira es una **retícula de anchos fijos** (`grid-template-columns` con tracks fijos), mono con
+`tabular-nums`, números **alineados a la derecha dentro de su celda**. Con eso las cuatro cifras forman
+**cuatro columnas verticales perfectas** a lo largo de toda la solicitud: el operador escanea *hacia abajo*
+una columna («¿de cuáles tengo muchas?») en vez de leer 40 renglones. Es la propiedad que hace que el sitio
+«se lea como una tabla de precios» (§3.1) aplicada a la pantalla más densa del producto.
+
+**(d) Densidad — ⚠ REESCRITO v3.0.10: la compacta queda DIFERIDA y la frase del `< md` era mía y estaba
+mal.**
+
+| Densidad | Estado |
+|---|---|
+| **Cómoda** — cada cifra con su etiqueta en la celda (`EN INVENTARIO 5`) | **Default, única y SUFICIENTE.** Es la que se implementa **a todos los anchos** |
+| **Compacta** (`≥ lg`, etiquetas subidas a `<th scope="col">`) | **DIFERIDA. No se pide.** Sigue siendo *opcional* como decía este apartado, y hay una razón para no tener prisa (abajo) |
+
+- **Por qué la compacta no solo es opcional sino que conviene aplazarla:** su ahorro es **scroll** en
+  solicitudes largas; su coste es que **deja cuatro números desnudos en una fila**. La etiqueta por celda
+  es uno de los cuatro mecanismos que impiden que el ojo sume «en camino» + «comprometido» (R6, §25.6c-bis),
+  y **R6 es el valor de esta pantalla**. Cambiar una protección de dinero por menos scroll es un mal
+  negocio, y más antes de saber si existen solicitudes de 40 líneas. *Si algún día se construye, la
+  condición es que los **encabezados de grupo sigan siendo `<th>` reales** y que la **regla vertical**
+  entre los dos grupos se conserve: las etiquetas pueden subir, la separación no puede desaparecer.*
+- **⚠ Y se retira la frase «en `< md` la fila colapsa a card (§7.7)», que era una contradicción mía.**
+  §7.7 gobierna el `DataTable`, y **(e) dice explícitamente que la línea de la mesa NO es una fila de tabla
+  de 9 columnas, sino una banda de dos renglones**. Una banda **no tiene que colapsar a card**: ya lo es.
+  Arrastré la frase de §7.7 sin comprobar que aplicara. **El requisito móvil real es el que ya está en
+  §25.13.8(n) y no cambia:** a 390px **la tira se parte en dos renglones de dos, conservando el separador
+  de grupos**, y ningún monto se trunca.
+
+**(c-bis) ⚠ Los CUATRO mecanismos que hacen R6 irrompible por descuido (normativo desde v3.0.10).**
+R6 decía **qué** está prohibido —que «en camino» y «comprometido» se sumen— pero no **cómo** se impide.
+El implementador lo resolvió con cuatro barreras independientes y **se elevan a norma**, porque juntas
+convierten una regla de disciplina en una propiedad de la pantalla:
+
+| # | Mecanismo | Qué cierra |
+|---|---|---|
+| **1** | **Regla vertical** entre los dos grupos | Separación **visual**: los cuatro números no forman una serie continua |
+| **2** | **Encabezados de grupo reales** (`EN NUESTRAS MANOS` / `TODAVÍA NO`) | Separación **semántica**: el lector de pantalla anuncia **el grupo antes de la cifra**, así que la distinción existe también sin ver |
+| **3** | **Gradiente por PESO, no por contraste** — las cuatro en tinta | Separación **de jerarquía sin castigar**: ninguna cifra se degrada a «menos importante», que sería mentir sobre datos que sí son ciertos |
+| **4** | **La AUSENCIA**: sin subtotal, sin `+`, sin paréntesis, sin barra apilada | Separación **estructural**: no hay ningún sitio donde la suma pueda aparecer |
+
+- **El mecanismo 4 es el único verificable por lo negativo, y por eso es el que se testea:** *la suma de
+  «en camino» + «comprometido» **no aparece en ninguna celda**.* Es la comprobación (h) de §25.13.8
+  convertida en aserción automática — y es la forma correcta de defender R6, porque **una prohibición que
+  solo vive en la cabeza del que dibuja se rompe en el siguiente rediseño**.
+- **Los cuatro son independientes a propósito:** si alguien retira uno «por limpieza», quedan tres. Una
+  regla de dinero con una sola defensa **es una regla con un solo punto de fallo**.
+
+**(e) Anatomía completa de la línea** (banda de dos renglones, no una fila de tabla de 9 columnas):
+
+```
+┌────────────────────────────────────────────────────────────────────────────────────┐
+│ ☑  Charizard VMAX                                    Cotizado         MX$ 900.00   │
+│    SWSH03 · 020/189 · RAW · NM · HOLOFOIL            Ofertamos        MX$ 840.00   │
+│                                                      MERCADO                       │
+│    POSICIÓN 9/10 TOPE   EN INVENTARIO 5  VERIFICANDO 1 │ EN CAMINO 1  COMPROMET. 2 │
+│    Sugerencia: no comprar — la posición llegó al tope de 10 piezas por variante.    │
+└────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+- **`Cotizado` vs `Ofertamos`**: dos montos con etiqueta, nunca uno solo. El derivado sale de la curva
+  **vigente al ofertar**, no se hereda de la cotización — y cuando difieren del cotizado, esa diferencia es
+  precisamente lo que el operador necesita ver.
+- **`priceBasis`** se pinta con el mapa canónico de §21.9a (`MERCADO/PISO/MANUAL/BOUNTY/PENDIENTE`), sin
+  inventar rótulos nuevos.
+- **Línea sin precio** (`derivedPriceCents === null`): versalita `SIN PRECIO` en `accent`, **sin monto**,
+  casilla **desmarcada y bloqueada** hasta que se ponga override. Nunca `MX$ 0.00` (§7.3, §N.2).
+- **Override:** input de dinero con prefijo `MX$` (§6.2) + **motivo obligatorio** (`Textarea`, 3–500). Sin
+  motivo el guardado no procede: `422 OVERRIDE_REASON_REQUIRED` se pinta **inline en el campo del motivo**.
+  Con override, la línea gana la versalita `MANUAL` y bajo el input, en `text-xs muted`:
+  *«Derivado por la curva: MX$ 812.00»* — la cifra que se pisó **se sigue viendo**.
+- **Después de emitir, la mesa es de solo lectura.** El override vive **solo antes** del correo (D2). Los
+  inputs se renderizan como texto plano, igual que §16.3b hace con el operador.
+
+**(f) La sugerencia que informa sin imponer.**
+
+```
+Sugerencia: no comprar — la posición llegó al tope de 10 piezas por variante.
+Sugerencia: comprar — 1 de 10.
+Sugerencia: no comprar — ya tienes 3 y el bounty buscaba 2.
+Sugerencia: no comprar — tope general (10). Este bounty no tiene objetivo; se está midiendo con el tope.
+```
+
+| Decisión | Forma |
+|---|---|
+| **Es una frase en prosa, no un semáforo** | Una pastilla verde/roja a la izquierda de la fila se lee como **permiso**. Una frase se lee como **opinión**. La diferencia es exactamente D6 |
+| **Asimétrica a propósito** | `do_not_buy`: la palabra **«no comprar»** en `--color-accent` peso 500, el resto en muted. `buy`: **todo muted, sin color, sin negrita**. Un consejo que dice «adelante» no necesita interrumpir; uno que dice «para» sí |
+| **Siempre explica con cifras** | qué regla se disparó (`bounty_target` / `variant_cap`) y contra qué número (criterio 144). Una sugerencia sin su porqué no es revisable |
+| **Ocupa el mismo espacio en los tres veredictos** | La fila **no cambia de alto** entre `buy`, `do_not_buy` y `none`. Si la fila salta al cambiar el veredicto, el operador aprende a temerle |
+| **NUNCA gobierna el default de la casilla** | Ver (g) |
+| **NUNCA apaga un control** | Ver (h) |
+
+> **⚠ D6 tiene DOS puertas, no una (ratificado v3.0.10).** Este documento insistía en que la sugerencia
+> **no apaga controles** (h) — la puerta visible. El implementador protegió además la **invisible**, y es
+> la que de verdad se cuela: **la selección por defecto no consulta la sugerencia ni una sola vez**.
+> Su formulación, que adopto: *si el default siguiera a la sugerencia, «no comprar» sería un **bloqueo
+> blando** y la **inercia** haría el trabajo que el sistema tiene prohibido hacer.* Un botón apagado se ve
+> y se protesta; **un default sesgado no se ve nunca** y produce el mismo resultado con mejor prensa.
+> **Verificable por construcción:** el cálculo del default **no recibe la sugerencia como entrada**.
+
+**(g) El default de la casilla, y por qué NO lo decide la sugerencia.**
+Toda línea **con precio resoluble** nace **marcada como «comprar»**; la línea **sin precio** nace
+desmarcada (no se puede ofertar sin monto). El punto de partida es **la solicitud tal como llegó** —lo que
+el vendedor pidió vender—, y el cherry-pick es **quitar**. Si el default siguiera a la sugerencia,
+«no comprar» se convertiría en un **bloqueo blando**: la inercia haría el trabajo que D6 le prohíbe hacer al
+sistema. Contrapesos contra la inercia contraria (marcar todo por comodidad): el **contador y los tres
+montos viven siempre a la vista** en la barra inferior (i), y hay acciones en lote **«Marcar todas» /
+«Quitar todas»** para que quitar sea tan barato como poner.
+
+**(h) ⚠ Qué SÍ apaga el botón de emitir y qué NO — la distinción que evita que alguien «endurezca» la mesa.**
+
+| Señal | ¿Apaga «Emitir»? | Por qué |
+|---|---|---|
+| `suggestion.verdict === "do_not_buy"` | **NO. Nunca. Ni con confirmación extra** | El servidor **no** la valida (§4.39g). Endurecerla contradice `PROJECT.md` |
+| `totals.netBelowMinimum` | **SÍ** | El servidor responde `422 OFFER_NET_BELOW_MINIMUM`. Dejar el botón vivo es prometer una acción que va a fallar |
+| `pickupAddressMissing` | **SÍ** | Ídem: `422 PICKUP_ADDRESS_MISSING` |
+| `positionUnavailable` | **NO** | Se puede ofertar sin conteo; lo que falta es el **consejo**, no el permiso (§25.7) |
+| `requiresAuthorization` | **NO** — pero **cambia la etiqueta del botón** | Ver (i) |
+
+**(i) Barra de totales sticky** (patrón §21.6, anclada con `--app-header-h` §4.5 al scroll):
+
+```
+──────────────────────────────────────────────────────────────────────────────────
+ 2 de 3 líneas    BRUTO MX$ 1,020.00  −  ENVÍO MX$ 180.00  =  SE DEPOSITA MX$ 840.00
+ Previsualización · se congela al emitir                        [ Emitir oferta ]
+──────────────────────────────────────────────────────────────────────────────────
+```
+
+| Estado | Qué cambia |
+|---|---|
+| **Normal** | como arriba. El nombre `SE DEPOSITA` es el **mismo** del correo: el operador ve la cifra con la etiqueta con la que la va a leer el vendedor |
+| **`netBelowMinimum`** | botón apagado + texto asociado por `aria-describedby`: *«No se puede emitir: el depósito quedaría en MX$ 120.00 y el mínimo es MX$ 200.00. Agrega MX$ 80.00 de bruto, o no ofertes.»* Los tres números son `minimumNetCents`, `netCents` y `grossShortfallCents` **del servidor** (R4). Nunca un botón apagado y mudo |
+| **`requiresAuthorization`** | el botón cambia de verbo: **«Enviar a autorización»**, con la nota *«El correo no sale hasta que el súper-admin la autorice.»* Un botón que dice «Emitir» y en realidad encola **miente sobre lo que va a pasar** |
+| **`pickupAddressMissing`** | botón apagado + *«Falta la dirección de origen del vendedor. Llámalo (tienes su teléfono en la cola) para que la capture desde su cuenta.»* — se dice **el remedio**, no solo el problema |
+| **Emitida** | la barra se sustituye por el resumen congelado + `Cancelar oferta` (§7.6, con la consecuencia escrita: *«se le manda el correo de cancelación y la solicitud vuelve a la fila con 7 días hábiles completos»*) |
+
+- **Confirmación al emitir** (§7.6, dinero comprometido): repite **líneas, tres montos y plazo**, y el botón
+  dice *«Emitir la oferta y mandar el correo»*. **No** se señala en ese diálogo cuántas líneas iban contra la
+  sugerencia: eso sería la fricción que D6 prohíbe, colada por la puerta de atrás.
+- **`aria-live="polite"`** sobre los totales: cambian con cada casilla.
+
+**(j) Aviso de previsualización.** Bajo la barra, `text-xs muted` permanente:
+*«Estas cifras se calculan con la curva y los diales de ahora. Lo vinculante se congela al emitir.»*
+
+---
+
+### 25.7 El conteo que no se pudo hacer (`positionUnavailable`) — R7
+
+> **Por qué merece tratamiento propio:** un `0` que en realidad significa «no pude contar» **se ve
+> confiable** y empuja a comprar de más. Es el mismo fallo que §7.3 resuelve en el dinero (nunca `$0` para
+> «precio pendiente») aplicado al inventario, y aquí el daño es capital mal puesto.
+
+**(a) Qué se pinta:** **la tira desaparece completa** —los cuatro sumandos **y** el titular `POSICIÓN n/m`—
+y en su lugar va **una frase**:
+
+```
+    SIN CONTEO   No pudimos contar el inventario de esta carta.
+    Sin sugerencia — falta el conteo.
+```
+
+- **`SIN CONTEO`**: versalita mono `text-[11px]` en `--color-accent`. Es el segundo canal (§2.4).
+- **La frase en `text-xs` TINTA**, no muted: es información esencial para una decisión de dinero y §10
+  prohíbe el muted para eso.
+- **El titular tampoco se pinta.** Ni siquiera el denominador: un `—/10` invita a leerlo como `0/10`.
+- La sugerencia se sustituye por *«Sin sugerencia — falta el conteo»* y **jamás** se infiere un veredicto.
+
+**(b) Lista de prohibiciones — esta es la casilla donde el sistema se rompe:**
+
+| Prohibido | Por qué |
+|---|---|
+| **`0`** | El fallo entero |
+| **`—` / `–`** | En este sistema el em dash ya significa **«precio pendiente»** (§16.3a). Reusarlo aquí colisiona con una semántica de dinero y, peor, **se lee como cero** |
+| **`?`, `N/D`, `n/a`, `-`** | Parecen valores. Un valor desconocido no es un valor |
+| **Celda vacía** | Indistinguible de un cero mal renderizado |
+| **Gris de placeholder / opacidad** | Bajar el contraste no comunica «falta el dato», comunica «esto importa menos» |
+| **Skeleton que se queda** | Un skeleton promete que el dato viene. Si no viene, **miente indefinidamente** |
+| **Tooltip como único portador** | No existe en táctil ni para el lector de pantalla |
+
+**(c) El contraste con el cero real, que es la prueba de que el diseño funciona:**
+
+| Caso | Qué se ve | Cómo se distingue |
+|---|---|---|
+| **Cero real** (`stock: 0`) | `EN INVENTARIO 0` — un dígito en su columna, tinta, **con la tira completa y el titular `POSICIÓN 0/10`** | **Hay retícula y hay número** |
+| **Sin conteo** | **no hay retícula**: hay una versalita y una frase de prosa | **No ocupa columna: ocupa una oración** |
+
+La distinción no es un matiz de glifo ni de tono: es **presencia de estructura numérica vs ausencia total de
+ella**. Se reconoce a un metro de la pantalla y sobrevive a una captura en blanco y negro.
+
+**(d) Nivel de pantalla.** Si **alguna** línea llega con `positionUnavailable`, sobre la tabla aparece un
+`Banner` `warning` (§7.5, sin relleno) con `role="status"`:
+*«No pudimos contar el inventario de {n} de {N} cartas. Puedes ofertar igual, pero lo harás sin ver cuántas
+copias tenemos.»* + **Reintentar**. **No bloquea nada** (§25.6h).
+
+**(e) La línea sigue siendo operable.** Montos, override y casilla funcionan con normalidad, y
+`totals` sigue siendo válido (depende de montos, no del conteo). Lo que falta es el **consejo**, no el
+permiso.
+
+---
+
+### 25.8 Colas nuevas de M5 y «declinar ahora»
+
+> **⚠ v3.0.5 — §25.8 tenía un HUECO y el frontend lo tapó con criterio propio.** Esta sección especificó
+> **las cuatro colas** (vistas con acción propia) pero **nunca las PESTAÑAS DE ETAPA** de M5, que son otra
+> cosa: la partición total de `SellRequestStatus` en la pantalla principal. Al crecer el enum en cuatro
+> valores, el frontend tuvo que inventar un rótulo (`ciclo`) **para que tres estados no desaparecieran de
+> la pantalla**, y lo declaró como decisión suya. Hizo bien las dos cosas: **taparlo** y **decirlo**.
+> **§25.8a llena el hueco.**
+
+#### 25.8a Las pestañas de ETAPA de M5 — el eje es DE QUIÉN ES EL PENDIENTE
+
+**El criterio de rotulación, que es lo que faltaba.** M5 es una **cola de trabajo**, así que sus pestañas
+tienen que contestar **«¿qué me toca?»**, no «¿en qué estado está el registro?». De ahí sale un eje único:
+
+| Eje | Qué significa | Forma del rótulo |
+|---|---|---|
+| **El pendiente es NUESTRO** | hay una acción que solo nosotros podemos hacer, y normalmente **hay un reloj corriendo en contra nuestra** | **«Por + verbo»** — nombra la acción |
+| **El pendiente NO es nuestro** | ya hicimos lo que nos tocaba; aquí solo se **mira** | nombra **de quién depende**, nunca la acción |
+
+**Mapa normativo (enmienda: §25.8 antes no lo tenía).**
+
+| Pestaña | Estados | Rótulo ES / EN | Pendiente |
+|---|---|---|---|
+| **1** | `cotizada` | **«Por ofertar» / "To offer"** ⚠ *(era «Por recibir» / "To receive")* | **NUESTRO** — y con el reloj de caducidad de 7 días hábiles (D33) corriendo en contra |
+| **2** | `ofertada` · `aceptada` · `en_transito` | **«Con el vendedor» / "With the seller"** ⚠ *(era «Ciclo de oferta» / "Offer cycle")* | **NO nuestro** — monitoreo |
+| **3** | `recibida` · `verificacion` | «Verificando» / "Verifying" — **sin cambio** | NUESTRO |
+| **4** | `aprobada` | «Por pagar» / "To pay" — **sin cambio** | NUESTRO |
+| **5** *(transversal)* | `pagada` · `rechazada` · `abandonada` · `expirada` | «Cerradas» / "Closed" — **sin cambio** | ninguno |
+| **6** *(transversal, ítems)* | *ítems* rechazados, no solicitudes | **«Piezas rechazadas» / "Rejected items"** ⚠ *(era «Rechazadas» / "Rejected")* | ninguno |
+
+**(a) «Por recibir» ⇒ «Por ofertar» — el rótulo describía lo que el estado ya NO significa.**
+**§25.1a lo dice con todas sus letras:** `cotizada` *«cambia de sentido en v3.0: ya no es "llegó y algún día
+se verá", es **"te debemos una respuesta"»***. El rótulo se quedó anclado al modelo viejo, en el que el
+vendedor mandaba el paquete primero y nosotros lo recibíamos. **Hoy en esa pestaña no hay nada que
+recibir**: hay **gente esperando nuestra oferta**.
+
+- **El daño es operativo, no cosmético.** «Por recibir» le dice al operador *«espera un paquete»* —una
+  postura pasiva— cuando lo que esa cola contiene es **un pendiente nuestro con un plazo de 7 días hábiles
+  corriendo en contra**, al final del cual la solicitud **caduca sola** y al vendedor le llega un *«no
+  procederemos»* que **nadie decidió**. Un rótulo que induce a esperar es, literalmente, el
+  comportamiento que hace que ese correo salga.
+- **Es el mismo patrón que ya cacé dos veces**: `expiry.*` en un correo donde no expiraba nada (§25.12) y
+  «Guía de envío seguro» donde «guía» ya significaba otra cosa (§7.13). **Un nombre sobrevive al cambio de
+  significado y sigue empujando a quien lo lee hacia el modelo mental viejo.** Es, con diferencia, la forma
+  más común de deuda de copy en este proyecto — y la más barata de arreglar.
+- **La clave también se renombra:** `admin.m5.tabs.por_recibir` ⇒ **`admin.m5.tabs.por_ofertar`**. Misma
+  doctrina que `offerCancelled.*`: *el número mal puesto se nota, el nombre que miente se propaga*.
+  *(El discriminante TypeScript `M5OpTab` y el mapa `M5_STATUS_TAB` son código y los decide frontend; la
+  recomendación es que **acompañen**, porque ese mapa es justamente lo que alguien lee para decidir dónde
+  vive un estado nuevo.)*
+
+**(b) La pestaña agrupada — se RATIFICA la estructura, se corrige el rótulo.**
+**Las dos decisiones del frontend eran correctas y quedan normadas:**
+
+1. **UNA pestaña y no tres.** Los tres estados son **monitoreo desde esta cola**; las colas con acción
+   propia (por autorizar, por confirmar envío, guías por cancelar) son **vistas aparte** (§25.8). Tres
+   pestañas sin acción invitarían a buscar un botón que no existe en ninguna.
+2. **`aceptada` NUNCA bajo un rótulo que diga «en camino».** Aceptar **no mueve nada** (criterio 156,
+   §25.1e) y el único estado que significa «un paquete viaja» es `en_transito`. **Esta restricción sigue
+   en pie con el rótulo nuevo** y es la que descarta a la mitad de los candidatos.
+
+**Por qué «Ciclo de oferta» no se queda**, aunque no esté mal: **(i)** es **jerga interna** —nombra una
+fase de nuestro proceso, no un estado del trabajo del operador—; y **(ii)** es **impreciso por el borde**:
+`en_transito` ya no es «el ciclo de la oferta», la oferta se aceptó dos pasos antes. **«Con el vendedor»**
+contesta la pregunta operativa (*¿de quién depende?*), es verdad en los tres —su respuesta, su decisión de
+enviar, su paquete— y **no se puede leer como «hay cartas llegando»**, que era el riesgo real.
+
+> **⚠ Concesión consciente, para que no parezca descuido:** en `en_transito` el paquete lo tiene **la
+> paquetería**, no el vendedor. Se acepta porque **el fallo caro es el contrario** —creer que hay cartas en
+> casa cuando no las hay— y porque **la fila desambigua sola**: dentro de la pestaña, cada solicitud lleva
+> su badge (`OFERTADA` / `ACEPTADA` / `EN TRÁNSITO`, §25.1a). **La pestaña agrupa; el badge precisa.**
+> Y las llamadas al vendedor **no se sacan de aquí**: salen de la cola «vendedores con solicitudes vivas»
+> (§25.8), que existe justo para eso.
+
+**(c) «Rechazadas» ⇒ «Piezas rechazadas» — hallazgo del barrido: una MISMA palabra con dos significados en
+la MISMA pantalla.** Esta pestaña es **transversal y NO contiene solicitudes**: consume
+`GET /admin/buylist/rejected-items` y lista **ítems** (cartas/piezas) rechazados por no llegar en NM. Pero
+`rechazada` es **también un estado de solicitud** —el del vendedor que **no respondió la oferta**
+(§25.4.4-3a)— y ese vive en **«Cerradas»**.
+
+- **Consecuencia:** un operador que busca *«las solicitudes que se rechazaron»* pulsa **«Rechazadas»** y
+  encuentra **cartas**. Y las solicitudes que buscaba están en otra pestaña, con la misma palabra pintada
+  en su badge. **Es una misnavegación garantizada, no hipotética.**
+- **El arreglo nombra el objeto**, que es lo que faltaba: **«Piezas rechazadas» / "Rejected items"** —
+  «piezas» es el término que ya usan M1 y el inventario, y **cubre raw, sellado y gradeadas**, mientras que
+  «cartas» dejaría fuera al sellado. Clave: `admin.m5.tabs.rechazadas` ⇒ **`admin.m5.tabs.piezas_rechazadas`**.
+
+**(d) Lo que NO se toca, y por qué se dice** (misma disciplina que §25.14.5: un barrido que cambia de más
+hace daño nuevo):
+
+| Pestaña | Veredicto |
+|---|---|
+| **«Verificando»** | **Se queda.** D16/D31/D33 no la tocaron y sigue siendo cierta: agrupa `recibida` + `verificacion`, o sea *«está en casa y hay que revisarlo»*. Es un gerundio entre rótulos «Por X», pero **describe bien el trabajo real** — y §25.6 ya usa «EN NUESTRAS MANOS» para ese mismo tramo |
+| **«Por pagar»** | **Se queda.** Nombra la acción y el pendiente es nuestro: encaja en el eje sin cambiar una letra |
+| **«Cerradas»** | **Se queda.** Los cuatro terminales, y `expirada` entre ellos. **Ojo:** su contenido incluye solicitudes con badge `RECHAZADA`, `SIN ENVÍO` y `NO PROCEDIÓ` (§25.1d) — el **motivo** lo pinta la fila, no la pestaña |
+
+**(e) Accesibilidad y forma (§6.6, sin novedades).** Las pestañas son `role="tablist"` con
+`aria-selected`; **el rótulo es el único portador del significado** (ningún color distingue una pestaña de
+otra). Longitudes para el dimensionado (§9.4): la más larga es **«Piezas rechazadas» (17)** vs "Rejected
+items" (14); en la fila 2, ES y EN empatan a 15. **La barra se dimensiona por ES.**
+
+---
+
+**Las CUATRO colas** (vistas con acción propia, distintas de las pestañas de (a)-(d)).
+Todas reutilizan `DataTable` (§7.7) con su colapso a card en `< md`. **El teléfono viaja en la cola** (D12):
+columna `Vendedor` con nombre + teléfono en mono seleccionable, **jamás en superficie pública**.
+
+| Cola | Columnas clave | Tratamiento propio |
+|---|---|---|
+| **Ofertas por autorizar** | vendedor · preparó · **bruto** · tope · exceso · **`caducityAt`** | La columna **«Muere el»** con la fecha en mono; a ≤ 1 día hábil, en `--color-accent` con la versalita `CADUCA HOY/MAÑANA`. *Una cola cuyas filas se mueren sin avisar se trabaja a ciegas* |
+| **Por confirmar envío** | vendedor · «ya lo mandé» el · guía · días esperando · plazo | `alert: true` (> 5 días hábiles) ⇒ versalita `ALERTA` en accent. **No expira ni mueve nada** (§25.1e) |
+| **Guías por cancelar** | vendedor · paquetería · **número de guía** · abierta el · por qué se cerró (**estado + motivo**, §25.1d) | **No desaparece sola**: solo sale con «Guía cancelada». Copy del vacío: *«Ninguna guía pendiente de cancelar»* (positivo) |
+| **Vendedores con solicitudes vivas** | vendedor · **teléfono** · cuántas vivas · la más antigua · último estado | Es *«la lista de gente a la que le debemos una respuesta»*. El orden por defecto es **la más antigua primero** |
+
+**«Declinar ahora» (D39).** Vive en la ficha de la solicitud `cotizada`, como acción **`secondary`**
+(no `destructive`: no estamos destruyendo nada del cliente, estamos contestándole), y abre confirmación
+§7.6 porque **es terminal y manda un correo**:
+
+```
+Declinar esta solicitud
+Se cierra la solicitud y se le manda el correo de «no procederemos».
+No se puede reabrir ni volver a ofertar; si el vendedor sigue interesado,
+tendrá que cotizar de nuevo.
+Motivo (interno, queda en bitácora) [                          ]
+                                        [ Cancelar ]  [ Declinar y avisarle ]
+```
+
+- El **motivo es interno** y así se rotula: *«El vendedor no lo verá.»* El correo 4 tiene **prohibido** decir
+  por qué (§25.4.5).
+- **El desenlace es idéntico al del barrido** y el diseño no lo distingue en ninguna superficie de cliente:
+  mismo estado, mismo motivo, mismo correo. La distinción (`declinedBy`) vive **solo** en la bitácora y en
+  reportes.
+
+---
+
+### 25.9 Estados de carga, vacío y error (obligatorios, §8.1)
+
+| Superficie | Loading | Vacío | Error |
+|---|---|---|---|
+| **Mesa de decisión** | skeleton **con la retícula final** (§18.6): identidad, dos montos y **la tira de cuatro**, para que no salte al llegar el dato | no aplica (una solicitud siempre tiene líneas) | `Banner danger` + Reintentar. **Si falla el conteo, NO es error de pantalla**: es §25.7 |
+| **Colas de M5** | filas skeleton | mensaje positivo («Nada pendiente aquí») | banner + reintentar |
+| **Portal, oferta** | skeleton del bloque de montos con **la altura final** | — | banner persistente con el estado real |
+| **Cotizador** | ya definido en §18.6. **La nota de servicio del envío (§25.3d) se pinta desde el primer render**: es copy estático, no espera a ningún dato y **no se esqueletiza** | «Tu cotización está vacía» — **con la nota igualmente visible**: el trato se explica antes de que haya carrito | inline. **Si falla `quote-policy`**: no se pinta el faltante, no se inventa mínimo, **la nota sigue ahí** y el CTA sigue vivo (la puerta es el `422` del servidor) |
+
+**Regla money-safe del skeleton:** ningún skeleton reserva el hueco de una cifra que puede **no existir**
+(§22 R4 aplicada aquí): la tira de posición se esqueletiza porque **siempre** hay respuesta —número o
+`positionUnavailable`—, pero el bloque de montos del portal **no se esqueletiza si no hay oferta**.
+**⚠ Y el bloque de dinero del cotizador no reserva altura para ninguna línea de envío ni de neto** (v3.0.1,
+D43): esas líneas **no existen en ningún estado**, así que un skeleton que las dibuje estaría prometiendo
+una cifra que jamás va a llegar — la misma mentira que §25.7 prohíbe en la tira de posición.
+
+---
+
+### 25.10 Accesibilidad (además de §8.2)
+
+- **La tira de posición es una tabla real.** `<th colspan="2" scope="colgroup">` para los dos grupos
+  (`EN NUESTRAS MANOS` / `TODAVÍA NO`) y `<th scope="col">` para cada sumando. El lector de pantalla anuncia
+  **el grupo antes del número**, que es exactamente la distinción que R6 protege.
+- **`aria-label` completo del titular:** «Posición 9 de 10: 5 en inventario, 1 en verificación, 1 en camino,
+  2 comprometidas. Regla: tope general.»
+- **`positionUnavailable`:** el texto es **texto real**, no `aria-label` sobre un guion. La versalita
+  `SIN CONTEO` + la frase se leen tal cual.
+- **Ningún control apagado y mudo:** `netBelowMinimum`, `pickupAddressMissing` y «sin dirección para crear»
+  llevan siempre `aria-describedby` al texto que explica y da el remedio (§15.9).
+- **Orden de tabulación** en la mesa: casilla → override → motivo → siguiente línea → barra de totales →
+  emitir. La barra sticky va al final del DOM y no rompe el orden.
+- **`aria-live="polite"`** en: totales de la mesa, cruce del mínimo en el cotizador, resultado de aceptar o
+  rechazar. **`assertive`** solo para errores de emisión y de aceptación (dinero).
+  **⚠ v3.0.1 (D43):** el anuncio del cruce del mínimo **ya no menciona envío ni neto** (*«Ya alcanzaste el
+  mínimo de MX$ 500.00»*), y **la nota de servicio del envío NO va dentro de una región live**: es texto
+  permanente, y repetirlo en cada cambio del carrito lo volvería ruido para quien navega con lector de
+  pantalla. Se lee **una vez, en su orden del DOM** —inmediatamente después del monto—, que es exactamente
+  donde lo lee quien mira.
+- **Táctil ≥ 44px** en casillas de la mesa (se usa junto a las cajas, a veces con prisa) y en las dos
+  acciones del portal.
+- **Correo:** tablas de layout con `role="presentation"`; la tabla de montos **no** es presentacional (lleva
+  encabezados); `alt` en el wordmark; **contraste verificado con las imágenes bloqueadas**; nada de texto
+  dentro de imágenes.
+- **`prefers-reduced-motion`:** la barra sticky y los cambios de totales sin transición.
+
+---
+
+### 25.11 Contraste (verificación) — **cero pares nuevos**
+
+Todo lo que §25 usa ya está verificado en §10 y §17.2:
+
+| Uso en §25 | Par | Ratio | Cumple |
+|---|---|---|---|
+| Cifras de posición, montos, titulares | tinta `#1A1A18` / papel `#F4F1EA` | ~15.5:1 | AA/AAA |
+| Bloque de consecuencia del correo | tinta / pozo `#EFEBE2` | ~14.7:1 | AA/AAA |
+| Etiquetas, eyebrows, notas al pie | muted `#6E695E` / papel | ~4.8:1 | AA |
+| `SIN CONTEO`, `SIN PRECIO`, `no comprar`, `ALERTA`, `CADUCA HOY`, badges `ofertada`/`aceptada` | accent `#B31217` / papel | ~6.2:1 | AA |
+| Los mismos sobre pozo | accent / pozo | ~5.9:1 | AA |
+| Botón «Emitir» / CTA del correo | papel sobre tinta | ~15.5:1 | AA/AAA |
+| Badge `pagada` / pasos completados | verde `#4E7A49` / papel | ~4.4:1 | AA borde — **la versalita es el portador** (§2.4) |
+| Anillo de foco | accent / papel · pozo | ~6.2:1 · ~5.9:1 | AA (≥3:1 UI) |
+| Reglas del correo (aplanadas) | `#D1CFC8` y `#AEACA7` sobre papel | UI decorativa | ok — **es el mismo token sin canal alfa**, no un token nuevo |
+
+**Reglas derivadas de esta sección:**
+1. **El muted no porta ninguna cifra ni ningún estado de §25.** Las cuatro cifras de la posición, la frase de
+   `SIN CONTEO` y **la nota de servicio del envío del cotizador** (§25.3d, v3.0.1) van en **tinta**. El muted
+   queda para etiquetas y notas. **Con D43 esta regla pesa más, no menos:** la nota es ahora **lo único** que
+   el vendedor lee sobre el envío antes de la oferta — degradarla a muted la convertiría en la letra chica
+   que §P.3 prohíbe, por la puerta del color.
+2. **`warning` y `danger` comparten el rojo**, así que `SIN ENVÍO` (danger) y `ALERTA` (warning) se
+   distinguen **por la palabra**, nunca por el matiz.
+3. **`no_offer` es neutral a propósito.** Es el único desenlace del ciclo que **no** puede llevar rojo:
+   pintarlo de atención acusaría a quien no falló.
+
+---
+
+### 25.12 i18n — claves nuevas (propiedad de frontend) y paridad ES/EN
+
+Convención §9.2. **Todo lo de §25 existe en los dos idiomas** (el proyecto tiene test de paridad); los
+**correos** se eligen por `User.locale`.
+
+**Estados y stepper**
+- `status.sellRequest.{cotizada,ofertada,aceptada,en_transito,recibida,verificacion,aprobada,pagada,rechazada,abandonada}`
+  — **DIEZ claves para ONCE estados, y no es un olvido.**
+- `status.sellRequestExpiry.{not_shipped,no_offer,unknown}` — **tres**, incluido el fallback neutro.
+
+> **⚠ RÓTULOS DE ESTADO ≠ ESTADOS (v3.0.6). Nombrada aquí porque este es el sitio donde nace el desfase.**
+> `SellRequestStatus` tiene **ONCE** valores, pero `status.sellRequest.*` tiene **DIEZ** claves: **`expirada`
+> no tiene rótulo propio en ese espacio** porque **se pinta por su MOTIVO** —`status.sellRequestExpiry.*`,
+> la única excepción del sistema y obligatoria (§25.1d)—. Sumando los dos espacios hay **13 rótulos** para
+> **11 estados**, porque `expirada` aporta **tres**.
+>
+> | Se cuenta… | Cuántos | Dónde vale |
+> |---|---|---|
+> | **Estados** (`SellRequestStatus`) | **11** | particiones, mapas totales, `switch` exhaustivos, **reglas de QA** |
+> | **Claves de `status.sellRequest.*`** | **10** | inventario i18n, test de paridad |
+> | **Claves de `status.sellRequestExpiry.*`** | **3** | idem |
+> | **Terminales** | **4** (`pagada`·`rechazada`·`abandonada`·`expirada`) | «Cerradas», `isTerminal` |
+>
+> **La regla:** *cuando cuentes, di **qué** estás contando.* Un «diez» a secas es ambiguo entre dos
+> magnitudes distintas de esta misma feature, y **ya viajó una vez** — de aquí, donde era cierto, a
+> §25.14.6-3bis, donde dejaba **un estado sin verificar**. **Ninguna afirmación de cobertura (particiones,
+> mapas totales, reglas de QA) se escribe contra el conteo de CLAVES**: se escribe contra el **enum del
+> contrato**, que es la fuente. Si el número y la enumeración discrepan, **manda la enumeración** — es lo
+> que pasó aquí: la tabla de §25.8a estaba bien y el dígito estaba mal.
+  ES `SIN ENVÍO` / `NO PROCEDIÓ` / `EXPIRADA`; EN `NOT SHIPPED` / `NOT PURSUED` / `EXPIRED`.
+- `status.offerState.pending_authorization` — `POR AUTORIZAR` / `NEEDS APPROVAL` (**admin-only**).
+- `buylist.stepper.{1..8}.label` + `buylist.stepper.closed.{rechazada,not_shipped,no_offer,abandonada}`.
+- `buylist.shipDeclared.{label,at}` — `PAQUETE REPORTADO`.
+
+**Cotizador (§25.3)** — **⚠ reescrito en v3.0.1 (D43)**
+- `buylist.quote.money.cardsValue` — el **único** rótulo de monto del bloque («Valor de tus cartas» /
+  "Value of your cards"). **Prohibido** cambiarlo por uno que prometa pago (§25.3c).
+- **`buylist.quote.shippingNote`** — **la frase completa de §25.3d, UNA sola clave** (es **un párrafo**; el
+  patrón «una clave por párrafo» de §22.11 se cumple, no se trocea en cuatro para «armarla»: trocearla
+  invitaría a que alguien pinte solo el movimiento 1 y se pierda la resta).
+  **ES:** «Nosotros ponemos la guía de envío y su costo se descuenta siempre de lo que te pagamos: tú no
+  pagas nada de tu bolsillo. El monto exacto va en la oferta, antes de que aceptes.»
+  **EN:** "We provide the shipping label and its cost is always deducted from what we pay you: you pay
+  nothing out of pocket. The exact amount is in the offer, before you accept."
+  **Sin placeholders**: esta clave **no admite `{amount}`** — si alguien le añade uno, es el bug de D43.
+- `buylist.quote.minimum.{shortfall,minimumIs,addAnother,reachedAnnounce}` — con `{amount}` interpolado,
+  nunca concatenado. `reachedAnnounce` es el `aria-live` del cruce (§25.10) y **no nombra envío ni neto**.
+  - **⚠ v3.0.8 — clave NUEVA: `buylist.quote.minimum.addPricedCard`** («Agrega una carta que ya tenga
+    precio.» / "Add a card that already has a price."). **Sustituye a `addAnother` cuando hay líneas sin
+    precio** (§25.3f-bis). `addAnother` **se queda** para el caso normal: son **dos consejos, no dos
+    redacciones del mismo** — con carrito lleno de pendientes, «agrega otra carta» es una **cinta de
+    correr**.
+- `buylist.quote.pendingLine.{label,note}` — **⚠ v3.0.8: `note` CAMBIA de contenido y de sitio.** `label`
+  sigue siendo la versalita por línea: **`Sin precio` / `No price yet`** *(⚠ v3.0.9 — el EN se fija por fin;
+  §25 lo había dejado sin par, a diferencia de `SIN ENVÍO`/`NOT SHIPPED`. **EN es 2 caracteres más largo
+  que ES ⇒ la celda se dimensiona por EN**, §9.4; el porqué del «yet», en §25.3h)*. `note` **deja de pintarse por ítem** (con 999
+  líneas era ruido) y pasa a pintarse **UNA vez en el bloque de dinero**, con **`{count}` interpolado** y
+  la frase que dice **qué pasa con esas cartas** («las cotizamos a mano y te las incluimos en la oferta») —
+  sin ella, «no suman» se lee como «no las queremos» y el vendedor **las borra**. Texto normativo ES/EN en
+  §25.3h.
+  **Sigue SIN IMPLEMENTARSE desde v3.0** *(alcance confirmado a frontend: `label` + `note` + `addPricedCard`)*.
+- `buylist.request.address.{label,why,change,printed,missing}`.
+- **⚠ CLAVES RETIRADAS (no se implementan; si ya existen, se borran):**
+  ~~`buylist.quote.money.shippingOnUs`~~ (el rótulo de la línea de envío), ~~`buylist.quote.money.youWouldGet`~~
+  (`RECIBIRÍAS ≈`) y ~~`buylist.quote.money.rule`~~ (sustituida por `shippingNote`, que **no es la misma
+  frase**: la nueva incorpora la cita con el número). **El test de paridad ES/EN debe quedar en verde con
+  las tres ausentes en los dos idiomas** — una clave viva en un solo idioma es el modo típico en que una
+  cifra retirada reaparece en producción.
+- **⚠ v3.0.2 — dos claves MÁS se retiran y dos se REUSAN fuera de su namespace (§25.14):**
+  - ~~`home.quoter.wePay`~~ («Te pagamos» / "We pay you") — **retirada de los dos catálogos**. El total del
+    teaser del home se rotula con **`buylist.quote.money.cardsValue`**, la misma clave del carrito. **No se
+    crea un duplicado en `home.*`** (§25.3c-bis).
+  - ~~`buylist.trustShipping`~~ — **retirada de los dos catálogos**. Su mitad falsa ya la había borrado
+    frontend; la que quedaba **duplicaba `buylist.nmOnlyBody`** y su hueco **no podía llenarse ahí** (bloque
+    `muted`, prohibido por §25.3c). Ver §25.14.2b.
+  - **`buylist.quote.shippingNote` se reusa en dos superficies nuevas** —el teaser del home y la cabecera de
+    `/buylist`— **sin cambiar una letra** y **sin clave nueva**. Es el mismo párrafo, sin placeholders.
+  - **Cambian de contenido, no de nombre:** `safeShipping.{title,intro,step3Body,step4Title,step4Body}`,
+    `buylist.shippingGuideLink`, `buylist.estimateNote`, `buylist.trustValidity`, `buylist.created`; y
+    **opcionales** (PO decide): `buylist.subtitle`, `home.sellBody`. **Textos normativos en §25.14.1 y
+    §25.14.4.**
+  - **Longitud (§9.4):** en `safeShipping.step4Body` **EN es más largo que ES** (≈155 vs ≈146) y es **el
+    cuerpo más largo de la retícula 01–04**: la fila **no lleva alto fijo, ni `line-clamp`, ni «ver más»**.
+
+**Correos (`buylist.mail.*`)** — una clave **por párrafo** (nunca un solo string; §22.11 sentó el patrón):
+- `offer.{subject,preheader,eyebrow,headline,conditionIntro,buyGroup,skipGroup,skipLabel,consequenceTitle,consequenceBody,grossLabel,shippingLabel,netLabel,ruleParagraph,deadlineParagraph,cta,ctaNote,guideParagraph,addressParagraph,closingParagraph}`
+- **⚠ v3.0.1 (D43) — DOS claves del correo 1 cambian de CONTENIDO, ninguna de nombre:**
+  - `offer.ruleParagraph` gana **dos interpolaciones**: `{shippingAmount}` **y** `{netAmount}` (antes solo
+    el neto). ES: *«Nosotros ponemos la guía de envío. Su costo, {shippingAmount}, es una tarifa fija y
+    siempre se descuenta de lo que te pagamos: tú no pagas nada de tu bolsillo. La cifra que se te deposita
+    es {netAmount}.»* · EN: *"We provide the shipping label. Its cost, {shippingAmount}, is a flat fee and
+    is always deducted from what we pay you: you pay nothing out of pocket. The amount deposited to you is
+    {netAmount}."* **Los dos montos llegan resueltos del servidor** (R4) y son los **congelados** de la
+    oferta, no los diales de hoy.
+  - `offer.preheader` incorpora la resta (§25.4.7). **Regla de sistema, con el alcance que le da §25.4.7:**
+    ninguna cadena **que viaje sola** —preheader, asunto, notificación, la nota del cotizador— puede decir
+    «ponemos la guía» / "we provide the label" **sin** su «y se descuenta» / "and deduct it", **en ninguno de
+    los dos idiomas**. Dentro del correo o del portal, donde la tabla de los tres montos está a la vista, un
+    párrafo logístico como `offer.guideParagraph` («al aceptar te mandamos la guía…») **sí** puede hablar de
+    la guía sin repetir la resta: ahí la aritmética ya está en pantalla.
+- `offer.perLineCondition` — **la frase corta por línea** («siempre que llegue en Near Mint» / «provided it
+  arrives Near Mint»). ≤ 34 car. ES, ≤ 30 EN.
+- `reminder.accept.{subject,headline,body,cta}` · `reminder.ship.{subject,headline,body,guideLabel,alreadyShipped,cta}`
+  · `reminder.frozen.{cards,net,deadline}` (el bloque congelado, compartido).
+- `expiry.noResponse.{subject,headline,p1,p2,cta}` · `expiry.notShipped.{subject,headline,p1,p2,cta}` —
+  **DOS variantes del correo 3**, no tres (§25.4.4).
+- `notPursued.{subject,headline,p1,p2,p3,cta}` — el correo 4. **Sin ninguna clave de plazo, monto ni motivo.**
+- **⚠ v3.0.3 — `offerCancelled.{subject,headline,p1,p2,cta}` — el correo 5. CAMBIA DE PREFIJO, no de texto.**
+  ~~`expiry.cancelledByUs.*`~~ **se retira de los dos catálogos**; el contenido se mueve **carácter por
+  carácter** a `offerCancelled.*`. **Este renombre es el punto importante del pase, más que el número.**
+
+  > **Por qué el prefijo importaba más que el número.** Un correo mal numerado **se nota**: alguien lee la
+  > tabla y lo corrige. **Un prefijo que miente se propaga**, porque no se lee — se autocompleta. Quien
+  > abra `expiry.cancelledByUs` dentro de seis meses leerá **«expiración»** antes de leer el texto, y la
+  > deriva natural de ese texto es hacia «se te venció», que es **exactamente la frase prohibida** en este
+  > correo (§25.4.4-bis): la que **culpa al vendedor de un acto nuestro**. El árbol de claves es
+  > documentación que el editor lee **primero y sin querer**; si el nodo padre afirma un hecho falso, cada
+  > edición futura empuja el texto hacia la mentira. **El nombre viejo deja de existir: cero coexistencia.**
+
+  > **Y por qué `expiry.noResponse` y `expiry.notShipped` SÍ se quedan** —para que el renombre no se
+  > sobre-aplique—: en las dos **venció un plazo de verdad** (`offerAcceptDeadlineAt`, `shipDeadlineAt`) y
+  > las dos lo dicen en su titular («Tu oferta venció»). El prefijo **describe su hecho**. Que `noResponse`
+  > deje `rechazada` en vez de `expirada` es un detalle de la máquina de estados, no del hecho que el
+  > vendedor lee. **`cancelledByUs` era el único donde no expiró nada.**
+
+  > **`offerCancelled` no es un nombre inventado: es el vocabulario del propio contrato** —`offerCancelledAt`,
+  > `POST …/offer/cancel`, `offerCancelReason`—. Una clave de correo que nombra **el mismo evento que el
+  > schema** no se puede desincronizar por descuido, que es justo lo que le pasó a la anterior.
+
+**Portal del vendedor (`buylist.offer.*`) — ⚠ NUEVAS en el documento (v3.0.7, §25.5g).**
+Existían en el catálogo desde el pase del portal pero **§25.12 no las inventariaba**; se ratifican aquí.
+**El espacio de claves y el EN quedan aprobados**, con **tres correcciones** y **un ajuste menor**:
+
+- **Oferta viva:** `offer.{eyebrow,headline,conditionIntro,buyGroup,skipGroup,skipLabel,consequenceTitle,grossLabel,shippingLabel,netLabel,ruleParagraph,deadline,cardsTitle}`
+- **Acciones y confirmaciones:** `offer.{accept,reject,confirmAcceptTitle,confirmAcceptBody,confirmAcceptCta,confirmRejectTitle,confirmRejectBody,confirmRejectCta}`
+- **Resultados y cierres:** `offer.{acceptedNow,rejectedNow,acceptedOn,noLongerActive,quoteAgainCta,closedNotShipped,closedNoOffer,closedAbandoned,closedPaid,cancelledBanner}`
+- **Antes de la oferta:** `offer.{preOfferTitle,preOfferBody}`
+- **Estados de excepción:** `offer.{incompleteTitle,incompleteBody,notFoundTitle,notFoundBody,loginTitle,loginBody}`
+- **Navegación:** `offer.{viewRequestCta,backToBuylist}`
+
+| ⚠ | Clave | Qué cambia |
+|---|---|---|
+| **C1** | `offer.deadline` | ~~«la oferta **se cancela** sola»~~ ⇒ **«la oferta vence»**. Tras v3.0.3 «cancelar» es **el verbo del correo 5** (lo que hacemos nosotros); una oferta que muere por silencio **vence** (§25.5g-b) |
+| **C2** | `offer.confirmRejectBody` | Gana **`{netAmount}`, `{count}` y `{condition}`**. R2 no admite excepción: si el diálogo nombra el neto, la condición va con él — y el neto **tiene que estar** (§25.5g-c) |
+
+| **C3** | `offer.confirmAcceptBody` | Se **reenmarca** para poder **citar** el singular del servidor: *«…por {netAmount}. La condición es la misma para cada carta: {condition}.»* (§25.5c) |
+| **m** | `offer.preOfferBody` | Deja de repetir el título: **cuerpo = «Te escribimos con nuestra oferta.»** (§25.5g-g) |
+
+> **⚠ `offer.ruleParagraph` es una COPIA DECLARADA de `buylist.mail.offer.ruleParagraph`, no una clave
+> nueva.** Mismo texto, mismos dos placeholders, en ES y EN. **La plantilla del correo es la fuente; el
+> i18n es el espejo**, y cuando el servidor mande la prosa **esta clave se borra, no se deja de reserva**.
+> Decisión completa, con sus tres condiciones y el motivo por el que **no es bloqueante**, en **§25.5h**.
+
+**Mesa de decisión — ⚠ el namespace correcto es `admin.m5.desk.*` (v3.0.10).**
+
+> **Manda el catálogo, no este documento.** §25.12 escribió `admin.buylist.desk.*`, pero **M5 vive en
+> `admin.m5.*`** y todo el admin está indexado por módulo (`admin.m1.*`, `admin.m2.*`, `admin.m8.*`…).
+> Mi ruta habría creado **el único namespace de admin que no sigue la convención**, a cambio de nada.
+> **No se renombra: se corrige el documento.**
+> **La regla que se deja escrita:** *§25.12 especifica **qué claves deben existir y qué dicen**, no dónde
+> vive el árbol del catálogo — ese archivo es de frontend. Cuando una ruta inventada aquí choca con una
+> convención ya establecida allí, **gana la convención**.* Es lo mismo que con `M5OpTab`: yo normo el
+> significado, el implementador norma su estructura.
+
+**Mesa de decisión (`admin.m5.desk.*`) — copy RATIFICADO con UNA corrección (v3.0.10).**
+§25.6 daba anatomía, versalitas y cuatro frases de ejemplo, **no las ~64 cadenas**, así que las redactó el
+implementador. Revisadas contra R1–R7 y D6: **pasan**, con un fallo.
+
+| ⚠ | Clave | Qué pasa |
+|---|---|---|
+| **R4** | `desk.confirm.deadlineNote` | **«El vendedor tendrá 2 días hábiles para responder»** — el **2 está escrito a mano**, y ese plazo es un **dial de M10** (D3/D8). Es exactamente lo que R4 prohíbe: *«una constante en el front se desincroniza **en silencio** la primera vez que alguien mueve el dial»* (criterio 154). **Y aquí duele el doble**: la cifra se le promete al operador **en el diálogo donde emite dinero**, y el correo saldría con el plazo real |
+
+**Las dos salidas, y la segunda no necesita contrato:**
+1. **Interpolar el dial** — `«El vendedor tendrá {days} días hábiles para responder…»` — **si** el DTO de
+   la mesa ya lo trae. **Preferida.**
+2. **Quitar el número** — `«El plazo para responder empieza a correr al emitir y se congela ahí.»` /
+   *"The response window starts when you issue the offer and is frozen then."* — **cero cambios de
+   contrato, cero riesgo de desincronización, y no pierde nada**: lo que el operador necesita saber es
+   **que el plazo se congela al emitir**, no cuántos días son. **Si (1) no está disponible hoy, se toma
+   (2); no se deja el número a mano.**
+
+**Ratificado sin cambios todo lo demás**, incluidas las claves que el implementador **añadió** y que §25.12
+no preveía —y que hacían falta—: `suggestion.{reasonCapOk,reasonBountyOk}` (la sugerencia de **comprar**
+también necesita su porqué, criterio 144), `noPriceReason.{no_market,premium_at_floor,identity_drift}`,
+`totals.{previewNote,noLines}`, `override.{derived,noDerived}` y `desk.{sent,pendingAuthorization,readOnly}`.
+Tres aciertos que merecen nombrarse:
+
+- **`totals.previewNote`** — *«Estas cifras se calculan con la curva y los diales de ahora. Lo vinculante se
+  congela al emitir.»* **Es R4 dicha en pantalla**, y no se la pedí.
+- **`totals.net` = «Se deposita» / "Deposited"**, en tercera persona, frente al `SE TE DEPOSITAN` /
+  `DEPOSITED TO YOU` del vendedor. **Correcto:** el admin no es quien cobra. Localización de registro, no
+  traducción literal.
+- **`confirm.body`** nombra **bruto, envío y neto juntos** ⇒ **R1 intacta** también en el admin.
+- **`desk.noPrice` = «Sin precio» / "No price"** *(sin «yet»)* **se queda así**: es **superficie de admin**,
+  el mismo registro que `admin.*.colPending`, y **`noPriceReason.*` explica la causa al lado**. El «yet» de
+  §25.3h es para **el vendedor**, donde «no price» puede leerse como «no vale nada». **Un `grep` que
+  unifique las dos está mal calibrado** (§25.14.5).
+- `position.{title,ofTotal,groupInHouse,groupNotYet,stock,verifying,inTransit,committed,rule.bounty,rule.cap,aria}`
+- `position.unavailable.{tag,text,noSuggestion,banner,retry}` — `SIN CONTEO`.
+- `suggestion.{buy,doNotBuy,none,reasonCap,reasonBounty,legacyBountyNote}`
+- `totals.{lines,gross,shipping,net,preview,emit,emitForApproval,authNote}`
+- `totals.belowMinimum` — con `{netAmount}`, `{minimumAmount}`, `{shortfallAmount}` interpolados.
+- `pickupAddressMissing.{text,remedy}` · `decline.{action,title,body,reasonLabel,reasonHint,confirm}`
+- `queues.{pendingAuth,pendingShipment,pendingGuide,liveSellers}.*` + `queues.diesOn`, `queues.alert`.
+
+**Pestañas de etapa de M5 (`admin.m5.tabs.*`) — ⚠ NUEVAS en el documento (v3.0.5, §25.8a).**
+Existían en el catálogo pero **§25 nunca las especificó**; se normalizan aquí. **Dos cambian de rótulo Y de
+clave; tres no se tocan.**
+
+| Clave | Antes | Ahora | Nota |
+|---|---|---|---|
+| ~~`por_recibir`~~ ⇒ **`por_ofertar`** | «Por recibir» / "To receive" | **«Por ofertar» / "To offer"** | El rótulo describía lo que `cotizada` **ya no significa** (§25.1a). **Se renombra la clave**, no solo el texto |
+| ~~`ciclo`~~ ⇒ **`con_vendedor`** | «Ciclo de oferta» / "Offer cycle" | **«Con el vendedor» / "With the seller"** | Rótulo puesto por frontend ante el hueco de §25.8. **La estructura se ratifica**; cambia el nombre |
+| `verificando` | «Verificando» / "Verifying" | **sin cambio** | — |
+| `por_pagar` | «Por pagar» / "To pay" | **sin cambio** | — |
+| `cerradas` | «Cerradas» / "Closed" | **sin cambio** | — |
+| ~~`rechazadas`~~ ⇒ **`piezas_rechazadas`** | «Rechazadas» / "Rejected" | **«Piezas rechazadas» / "Rejected items"** | Colisionaba con el **estado** `rechazada` de solicitud, que vive en «Cerradas» (§25.8ac) |
+
+- **Las dos claves viejas se retiran de los dos catálogos** (paridad estricta: `por_recibir`, `ciclo` y
+  `rechazadas` **no existen en ES ni en EN**). Misma doctrina que `offerCancelled.*`: **cero coexistencia**.
+- **Longitudes (§9.4):** la más larga es **«Piezas rechazadas» (17)** vs "Rejected items" (14) ⇒ **la barra
+  se dimensiona por ES**. En `con_vendedor`, ES y EN empatan a 15.
+
+**Notas de longitud (§9.4)**
+- `EN NUESTRAS MANOS` (17) vs `IN OUR HANDS` (12) y `COMPROMETIDO` (12) vs `COMMITTED` (9): **ES es el más
+  largo en toda la tira** ⇒ los tracks de la retícula se dimensionan por ES y **no** se re-miden por idioma,
+  para que la alineación de columnas de §25.6c sea la misma en los dos.
+- `SE TE DEPOSITAN` (15) vs `DEPOSITED TO YOU` (16): **aquí EN es más largo**. La celda de la etiqueta del
+  neto se dimensiona por el **máximo de ambos**.
+- Las versalitas de estado **envuelven a dos líneas antes que truncarse** en columnas estrechas.
+- **Prohibido concatenar** para armar montos o plazos: interpolación con `{amount}` / `{date}`.
+- **`buylist.quote.shippingNote` (v3.0.1):** ~163 caracteres en ES y ~155 en EN ⇒ **4 líneas** en el drawer
+  de 400px y **3–4** en el paso de crear. El bloque de dinero **no lleva alto fijo** y la nota **no se
+  trunca, no lleva `line-clamp`, no lleva «ver más»**: es corta a propósito **para caber entera**. Si en
+  algún ancho no cupiera, se corrige el contenedor, **nunca el texto**.
+
+---
+
+### 25.13 Notas a otros roles (solicitudes derivadas del diseño)
+
+1. **✅ CERRADA — «el cotizador es PÚBLICO y necesita dos números de M10».** *(Se conserva el texto original
+   abajo, tachado, porque el modo en que se cerró importa.)* **Se resolvió al revés de como este documento
+   lo planteó: el humano quitó el requisito (D43) en vez de construir la superficie.** El cotizador **ya no
+   muestra ninguna cifra de envío** (§25.3 reescrita). El diagnóstico era correcto —hardcodear estaba
+   prohibido— pero **la conclusión de que había que exponer la tarifa era mía, no de `PROJECT.md`**: D31
+   pedía *decir la regla con todas sus letras*, no *hacer la resta*. **Sin deuda pendiente por este punto.**
+   > ~~**⚠ Arquitecto — el cotizador es PÚBLICO y necesita dos números que hoy solo viven en M10 (la más
+   > importante).** §25.3 exige mostrar **la tarifa de envío** y **el mínimo de compra** *antes* de crear la
+   > solicitud… **Petición:** que la respuesta del quote (o del batch) eche los dos montos, o que exista un
+   > endpoint público de configuración del buylist.~~
+   **1-bis. ⚠ Arquitecto — consecuencia directa: `shippingFeeCents` se quedó sin consumidor público.**
+   `GET /buylist/quote-policy` (v1.51.4, D41) se creó **para** este requisito y expone
+   `{ minimumRequestCents, shippingFeeCents }`. Con D43, **`minimumRequestCents` sigue siendo necesario**
+   (el faltante del mínimo se queda, criterio 132) pero **`shippingFeeCents` ya no lo consume ninguna
+   pantalla pública**. **Petición: retirarlo del DTO público.** El argumento es del propio contrato — *«se
+   publica un dial **solo si** la pantalla pública lo necesita para no mentir sobre el dinero»*: hoy ninguna
+   lo necesita. Y hay un beneficio de diseño que vale más que la limpieza: **si el número no llega al
+   navegador, D43 deja de depender de la disciplina del frontend y pasa a ser imposible de violar por
+   accidente.** Un dial publicado y sin uso es una cifra esperando a que alguien la pinte. **Decisión del
+   arquitecto; no bloquea nada** (el frontend simplemente no lo lee).
+2. **✅ CERRADA (v3.0.3) — «el correo 3 tiene TRES productores y uno de ellos NO es terminal».**
+   **El arquitecto resolvió el fondo, no la forma: la cancelación es un CORREO PROPIO, el 5**
+   (`ARCHITECTURE §4.39(n)`, v1.51.4), con **un solo productor**. §25 se alinea en v3.0.3: ~~3c~~ deja de
+   existir, el texto **no cambia una letra** y nace **§25.4.4-bis**. **La petición original —«confirmar que
+   la plantilla se selecciona por productor»— queda sin objeto**: si cada hecho tiene su plantilla, no hay
+   nada que discriminar en tiempo de render.
+   **⚠ Y la parte que sí quedó como trabajo mío, porque era el riesgo real:** la clave se llamaba
+   `expiry.cancelledByUs.*`. **El número mal puesto se nota; el prefijo que miente se propaga** — quien lo
+   edite dentro de seis meses leerá «expiración» antes que el texto, y la deriva natural es hacia «se te
+   venció», la frase **prohibida** en este correo. Pasa a **`offerCancelled.*`** (§25.12), que es el
+   vocabulario del propio contrato. **Lección de proceso, y me toca a mí:** agrupé dos hechos opuestos
+   **porque compartían `status`** — exactamente lo que **R3** prohíbe, aplicado al revés de como lo escribí.
+   > ~~**Petición:** confirmar que la plantilla del correo 3 se selecciona por **productor**, o formalizar
+   > las tres variantes en el contrato.~~
+3. **⚠ Arquitecto — tras una cancelación, el portal del vendedor se queda mudo.** Al cancelar se **limpian**
+   los campos de la oferta y `offer` vuelve a `null`: el vendedor que acaba de recibir el **correo 5** entra a
+   su cuenta y **no ve rastro** de la oferta que sí recibió, ni del hecho de que la cancelamos. La pantalla
+   contradice el correo. **Petición:** un dato mínimo en la proyección de cliente (p. ej.
+   `lastOfferCancelledAt`) que permita pintar *«Te mandamos una oferta y la cancelamos el {fecha}; estamos
+   revisando tu solicitud otra vez»*. **No** se pide el monto de la oferta cancelada — eso sí conviene que
+   desaparezca.
+4. **Arquitecto — corregir la dirección después de la guía no tiene remedio self-service.** `PATCH
+   …/pickup-address` exige `guideSentAt IS NULL`. §25.5e pinta *«Ya imprimimos la guía con esta
+   dirección»* **sin botón**, que es honesto pero deja al vendedor sin salida en la app. Si se quiere una,
+   sería un canal de contacto (no una edición). **No bloquea el diseño**; se registra.
+9. **⚠ Arquitecto — TRES peticiones del portal (v3.0.7), y la segunda puede cobrarle un plazo al vendedor.**
+   **(a) Que el servidor mande la prosa del descuento.** Hoy `offer.ruleParagraph` **solo existe en la
+   plantilla del correo**, y §25.5b **obliga** al portal a mostrarla (bajo D43 es el único sitio donde la
+   resta se puede releer). El frontend tuvo que **duplicarla** en i18n. **Permitido como puente** con tres
+   condiciones (§25.5h), pero **la solución correcta es que viaje resuelta en el DTO**, como ya viajan la
+   condición y la consecuencia — que el portal **sí** pinta verbatim. Con eso, la copia **se borra**.
+   **(b) ⚠ Un discriminador para `rechazada`.** El DTO no dice si cerró **el vendedor** (pulsó rechazar) o
+   **el barrido** (silencio). Son **hechos distintos** —exactamente la distinción que obligó a separar el
+   correo 5 del 3— y sin el dato la pantalla **solo puede decir una frase neutra** (§25.5g-e). No es un
+   fallo del frontend: es **información que no llega**. Con un `closedBy` (o equivalente), cada causa
+   recupera su frase y **dejamos de decirle «venció» a quien decidió**.
+   **(c) ⚠ La oferta INCOMPLETA puede quemarle el plazo al vendedor — y esto sí es de dinero.** Si la
+   oferta llega sin términos o con líneas sin decisión, el portal **se niega a pintarla** y el vendedor
+   **no puede aceptar** (§25.5g-d, R2 hasta el final). **Pero el reloj de aceptación sigue corriendo.**
+   Resultado posible: la oferta **vence por un fallo NUESTRO de proyección**, y al vendedor le llega el
+   correo 3a diciéndole que **no respondió**. Es literalmente lo que §P.13 prohíbe —*un plazo del vendedor
+   solo puede vencer por algo que dependa del vendedor*— y es la misma injusticia que motivó D38.
+   **El copy no puede taparlo**: una pantalla que prometiera «no te preocupes por el plazo» estaría
+   mintiendo si el barrido no lo respeta. **Petición:** que una oferta inmostrable **no consuma plazo**, o
+   que se detecte y se re-emita. **Lo señalo, no lo asumo.**
+5. **Arquitecto — el bucle cancelar/re-emitir necesita ser visible aunque no se tape.** `PROJECT.md` §P.3.1
+   deja el candado en manos del arquitecto. Desde UX: **cada cancelación manda un correo**, así que el
+   vendedor no queda en silencio, pero **sí puede quedar en un limbo indefinido**. **Petición mínima:** que
+   la cola de M5 y la ficha expongan **cuántas veces se ha reiniciado el reloj** (o la fecha del primer
+   `createdAt` junto a `caducityAt`), para que el operador vea el bucle. Sin dato, el diseño no puede
+   mostrarlo.
+6. **PO — ratificar textos.** `offer.perLineCondition`, el bloque `consequence`, los **dos** titulares del
+   correo 3, el del **correo 5** y los tres párrafos del correo 4. Son el **documento vinculante** del
+   ciclo; ux-ui propone la redacción, PO (y quien haga la revisión legal de los términos) la ratifica.
+   *(v3.0.3: el titular del correo 5 **ya estaba ratificado como «3c»** — cambió de número y de clave, no de
+   texto. **No hay que volver a ratificarlo**; se lista para que el inventario cuadre.)*
+   **⚠ Se añaden tres textos de v3.0.1 (D43), y los tres son sensibles:** **(a)**
+   `buylist.quote.shippingNote` en ES y EN —**la única cosa que el vendedor lee sobre el envío antes de
+   comprometer sus cartas**, §25.3d—; **(b)** el `offer.ruleParagraph` ampliado, en particular la
+   afirmación **«es una tarifa fija»** (sale de `PROJECT.md` §P/D31 — *«una tarifa fija de MX$180»*— y
+   **conviene que PO confirme que se puede afirmar así frente al cliente**); **(c)** el preheader corregido
+   del correo 1.
+   **6-bis. ⚠ PO — dos encargos que solo se pueden cerrar del lado de producto.**
+   **(a) Formalizar D43 en `PROJECT.md`.** La decisión llegó a este pase por la vía del orquestador y
+   `PROJECT.md` todavía no la registra: el bullet de D31 *«el descuento del envío se dice EN TODOS LADOS»*
+   sigue en pie —**y esta sección lo cumple**—, pero conviene que diga explícitamente que **en el cotizador
+   se dice sin cifras** y que **la resta con los tres montos vive solo en la oferta**. Sin ese renglón, el
+   próximo que lea D31 y el criterio 132 va a reconstruir la resta del carrito **creyendo que corrige un
+   olvido**. *(Recordatorio de la regla de conflicto: manda `PROJECT.md`; este documento se alinea, no al
+   revés.)*
+   **(b) Medir lo que D43 traslada al correo** — es la mitigación que propuse en §25.3l, y es de producto:
+   **tasa de rechazo y de silencio por tamaño de oferta**, mirando en especial las ofertas cerca del mínimo,
+   donde la tarifa fija pesa **~36%**. Si esas ofertas se caen sistemáticamente **después** del correo, el
+   problema **no es la divulgación** (enseñar en el cotizador un neto optimista sería peor, §25.3a.2): es
+   **la proporción**, y se corrige **con el dial del mínimo de compra**, que ya existe en M10. Es un
+   experimento barato: el dato ya se registra por solicitud.
+7. **Frontend — qué hay que tocar y qué no.** **No** se pide ningún componente nuevo. Se **extienden** dos:
+   (a) `PipelineStepper` — ocho pasos, tres orientaciones (§25.2b) y **cierre terminal** en vez de noveno
+   nodo; (b) el mapa de badges — recibe `{status, expiredReason}` y resuelve `expirada` **por el motivo**,
+   con fallback neutro. Todo lo demás se compone: `Badge` §7.2, `Banner` §7.5, `DataTable` §7.7,
+   `AmountBreakdown` §7.12, `Select`/`Input`/`Textarea` §6.2–6.3, barra sticky §21.6, skeletons §18.6.
+   **La plantilla de correo es medio nuevo**, con su propia hoja de reglas (§25.4.0) y **su parte de texto
+   plano obligatoria**.
+   **⚠ v3.0.1 (D43) — lo que cambia para frontend, y es sobre todo trabajo que se BORRA:** en el cotizador
+   se retiran **la línea de envío, la regla de la resta y el neto estimado** (y sus tres claves i18n,
+   §25.12); el bloque de dinero queda con **un monto, el faltante cuando aplique y una frase estática**; el
+   cotizador **deja de leer `shippingFeeCents`** (solo necesita `minimumRequestCents`, y sabe vivir sin él,
+   §25.3k); el portal **antes de la oferta** pinta la frase, **no** el bloque de la resta (§25.5d). En el
+   correo 1, la prosa pasa a interpolar **dos** montos. **Cero componentes nuevos y cero tokens nuevos**,
+   igual que el resto de §25.
+
+8. **QA visual sugerido.**
+   (a) **Correo 1 con imágenes bloqueadas y sin webfonts**: los tres montos, la condición por línea y el
+   plazo siguen legibles; el neto es la cifra más grande. **⚠ v3.0.1: la cifra del envío aparece DOS veces
+   —tabla y prosa— y el neto también**; el correo **no contiene** «como ya sabías», «recuerda que» ni
+   ninguna fórmula que presuponga que el vendedor ya conocía la tarifa.
+   (b) **Ningún asunto ni preheader del sistema contiene el bruto** (R1) — buscar el bruto en **los cinco**.
+   (c) **Ningún correo que mencione un monto ofertado omite la condición NM** (R2) — incluido el
+   recordatorio.
+   (d) **El correo 4 no contiene**: ninguna fecha límite, ningún monto, ninguna palabra de causa, ninguna
+   referencia al tiempo transcurrido.
+   (d-bis) **⚠ v3.0.3 — el correo 5, y es la prueba más barata del renumerado.** `grep` de `venció` /
+   `expired` / `deadline` sobre la plantilla del **5** en ES y EN ⇒ **cero coincidencias**; **cero montos**;
+   su CTA dice **«Ver mi solicitud»** y **no** «Cotizar de nuevo». Y la prueba de la clave: **el prefijo
+   `expiry.cancelledByUs` no existe en ninguno de los dos catálogos** (el test de paridad debe quedar en
+   verde con la clave **ausente en ES y EN**); el contenido vive en **`offerCancelled.*`**.
+   (d-ter) **Cancelar una oferta `sent` manda el 5; el barrido al caducar manda el 4.** Forzar los dos
+   caminos y comprobar que **no se cruzan**: un 5 disparado por el barrido le diría al vendedor que su
+   solicitud sigue viva **el día que la cerramos**.
+   (e) `expirada` con los **dos** motivos: correos distintos, versalitas distintas, **colores distintos**, y
+   el `no_offer` **sin ningún rojo**; con `expiredReason` forzado a `null`, cae al fallback neutro y **no**
+   al acusatorio.
+   (f) **Correo vs portal**: los tres montos, el plazo y la condición coinciden **carácter por carácter**.
+   (g) **Mesa**: forzar `positionUnavailable` en una línea ⇒ desaparece la tira **y el titular**, aparece
+   `SIN CONTEO` + frase en tinta, la sugerencia dice «sin conteo», y **el botón de emitir sigue vivo**;
+   compararla con una línea de `stock: 0`, que sí muestra retícula y `POSICIÓN 0/10`.
+   (h) **Buscar en todo el DOM de la mesa** un subtotal, un `+` o un paréntesis que agrupe `en camino` con
+   `comprometido` (R6): si aparece, es el bug.
+   (i) **Sugerencia `do_not_buy`**: la casilla se puede marcar, el botón emite y **no** aparece ninguna
+   confirmación extra; la fila **no cambia de alto** entre los tres veredictos.
+   (j) `netBelowMinimum` y `pickupAddressMissing` apagan el botón **con texto asociado**; ninguno apagado y
+   mudo.
+   (k) `requiresAuthorization` ⇒ el botón dice **«Enviar a autorización»**, no «Emitir».
+   (l) **⚠ REESCRITA (v3.0.1, D43) — el cotizador no dice ninguna cifra de envío, en NINGÚN estado.**
+   Es la prueba más barata de todo §25 y se corre con un `grep` sobre el DOM y sobre `messages/{es,en}.json`:
+   　(l.1) En el **carrito, el panel de requisitos de venta y el paso de crear**, en **ES y EN**, por debajo
+   y por encima del mínimo, con líneas `SIN PRECIO` y con el carrito vacío: **el único `MX$` que aparece es
+   el valor de las cartas y, cuando aplique, el faltante y el mínimo**. Cero coincidencias de `180`, de
+   `RECIBIRÍAS` / `YOU'D GET`, de `%`, y de «envío/shipping» seguido de dígitos.
+   　(l.2) La **frase de servicio es idéntica carácter por carácter** en las dos superficies del cotizador,
+   **y no cambia** al cruzar el mínimo (ni de texto, ni de posición, ni de tamaño).
+   　(l.3) **El faltante sigue vivo** («te faltan MX$120 para el mínimo de MX$500») y **no menciona envío**.
+   　(l.4) **Con `GET /buylist/quote-policy` caído**: no hay faltante, **no hay mínimo inventado**, la frase
+   sigue ahí y el CTA sigue habilitado (la puerta es el `422` del servidor).
+   　(l.5) **Las tres claves retiradas no existen en ninguno de los dos idiomas** y el test de paridad pasa.
+   　(l.6) **Rastro de la primera divulgación:** recorrer todo lo que el vendedor ve **antes** del correo 1
+   —cotizador, paso de crear, correo de alta si lo hubiera, portal en `cotizada`— y verificar que **ninguna
+   superficie contiene la tarifa**. La primera aparición del monto del envío en todo el ciclo debe ser el
+   **correo 1**.
+   (m) **EN completo** en las **cinco** plantillas, en la tira de posición y en las colas; la alineación de
+   las cuatro columnas de la tira es idéntica en ES y EN.
+   (n) 390px: la tira colapsa a dos renglones de dos **conservando el separador de grupos**; ningún monto
+   truncado con `MX$ 999,999.00`.
+
+---
+
+### 25.14 Barrido de copy vivo — las superficies que seguían contando el trato viejo (v3.0.2)
+
+> **Por qué existe esta sección.** §25 diseñó **el ciclo nuevo**. Lo que **no** hizo —y es un fallo de este
+> documento, no del frontend— fue **auditar el copy que ya estaba en pantalla**. D16/D31 cambió **quién
+> pone el envío**; todo texto escrito antes de esa decisión quedó sospechoso por defecto, y tres de ellos
+> sobrevivieron al pase de D43 **porque §25 no los nombraba**. El frontend los encontró al implementar y
+> **no los tocó** (el copy es de ux-ui); aquí se resuelven, y el barrido completo encontró **cuatro más**.
+>
+> **La lección, escrita para que se pueda aplicar la próxima vez:** *cuando una decisión cambia **quién
+> paga algo**, el entregable no es la pantalla nueva — es **la lista de todo lo que afirmaba lo
+> contrario**.* §25.3g ahora es esa lista y por eso gana filas en vez de notas al pie.
+
+**Índice de lo que cambia.** «Contradicción viva» = un vendedor podía leerlo **hoy** y actuar mal.
+
+| # | Clave | Superficie donde se pinta | Clase | Choca con |
+|---|---|---|---|---|
+| 1 | `safeShipping.step4Title` · `step4Body` | modal del hero de `/buylist` · sección inline al pie · (§P: correo de aceptación y correo de la etiqueta) | **Contradicción viva — la más cara** | **D16/D31** |
+| 2 | `safeShipping.intro` | idem | **Contradicción de dominio** + hueco de **AC 34** | §H / AC 34 |
+| 3 | `safeShipping.title` · `buylist.shippingGuideLink` | enlace del hero · título del modal · `h2` de la sección inline | **Ambigüedad creada por D16** | D16/D31 |
+| 4 | `safeShipping.step3Body` | idem | Mejora (rescata contenido del paso 4 viejo) | — |
+| 5 | `home.quoter.wePay` | teaser del cotizador del home (**dos instancias**: columna del hero y sección móvil) | **Contradicción viva — promete depósito** | §25.3c / D31 |
+| 6 | `buylist.trustShipping` | bloque de confianza al pie de `/buylist` | **Recorte + duplicado** ⇒ **retirada** | D16/D31 y `nmOnlyBody` |
+| 7 | `buylist.estimateNote` | bloque de dinero del carrito (`SellCartContents`) | **Contradicción viva de dinero** | **D2/D9** |
+| 8 | `buylist.trustValidity` | pie de `/buylist` **y** resumen del paso de crear | **Contradicción viva de dinero** | **D2/D9** |
+| 9 | `buylist.created` | aviso `role="status"` tras crear la solicitud | **Contradicción viva — invita a enviar sin guía** | **D16** / §P.4 |
+| 10 | `buylist.subtitle` · `home.sellBody` | `h1` de `/buylist` · banda CTA «Vender mis cartas» del home | Mejora **opcional** (no contradice) | — |
+| 11 | ~~`buylist.totalPendingNote`~~ **RETIRADA** *(hallazgo del frontend, v3.0.9)* | bloque de dinero del carrito | **Contradicción viva** | **D2/D9 + §P.4** |
+
+> **⚠ La 11 la encontró el frontend, no este barrido, y es la CUARTA vez que aparece el mismo patrón.**
+> `buylist.totalPendingNote` decía que las cartas sin precio se cotizan **«cuando las recibimos»**. Bajo el
+> ciclo de oferta eso es **falso y del revés**: se cotizan **al ofertar** —a mano, antes de que el vendedor
+> mande nada— y por eso **entran en la oferta que él acepta**. El texto era de la era en que el vendedor
+> enviaba primero y se cotizaba después; **sobrevivió al cambio de significado** igual que `expiry.*`,
+> «Guía de envío seguro» y «Por recibir». **Retiro ratificado**: su trabajo lo hace ahora
+> `buylist.quote.pendingLine.note` (§25.3h), que dice **la verdad nueva** — *«las cotizamos a mano y te las
+> incluimos en la oferta»*.
+> **Nota de alcance:** `buylist.requestPendingNote` («El total mostrado no incluye las cartas con precio
+> pendiente») **se queda**: vive en «Mis solicitudes», es cierto y **no afirma cuándo** se cotizan. *Mejora
+> opcional, no bloqueante:* podría cerrar con la misma frase de tranquilidad que `pendingLine.note`, porque
+> ahí el vendedor **ya envió** y la pregunta «¿y estas se van a cotizar?» pesa más. **Lo dejo propuesto, no
+> mandado.**
+
+**Y lo que el barrido confirmó que NO se toca** (§25.14.5): `home.bounties.wePay`, `buylist.bounties.wePay`,
+`nmOnlyBody`, `payAfterReceipt`, `trustPayment`, `cartFooterNote` y **todo** el envío del **comprador**
+(`withdrawals.*`, `checkout.*`) — que es **otro eje de dinero** y no lo toca D16.
+
+---
+
+#### 25.14.1 La guía de empaque — el daño era mayor que el paso 4
+
+**Diagnóstico paso por paso.** Se revisaron los siete strings del componente. **Tres estaban mal, y solo
+uno se había reportado.**
+
+| String | Veredicto | Razón |
+|---|---|---|
+| `title` / `shippingGuideLink` | **Cambia** | «Guía de envío seguro» convive en la misma página con «Nosotros ponemos **la guía** de envío». Dos referentes para la misma palabra, y uno de ellos es **una etiqueta que cuesta dinero** |
+| `intro` | **Cambia** | Habla de **«disputas»**, que es el remedio del **comprador** (§legal, 7 días desde la entrega) y **no existe** del lado del vendedor: su riesgo es que **la carta no se compre** y **la devolución le cueste**. Además, **AC 34 exige la política NM-only en la guía** y el **modal no la tenía** (vive suelta en la página, que el modal tapa) |
+| `step1Title/Body` (funda) | **Intacto** | Es empaque puro. AC 34 exige la palabra **sleeve/funda**: se conserva |
+| `step2Title/Body` (top loader) | **Intacto** | Igual. AC 34 exige **top loader**: se conserva |
+| `step3Title` | **Intacto** | — |
+| `step3Body` | **Cambia (mejora)** | Hereda el **«anota tu número de solicitud»** que se pierde al reescribir el paso 4. Es información útil de recepción y no tenía por qué morir con el trato viejo |
+| `step4Title/Body` | **Se reescribe entero** | *«Asegura por el valor cotizado»* ⇒ bajo D16 **el vendedor paga dos veces por lo mismo**. Es la única línea del producto que le **cuesta dinero real** a quien la obedece |
+| `understood` | **Intacto** | — |
+
+**Copy normativo (ES y EN — paridad estricta; PO ratifica, §25.14.7).**
+
+| Clave | ES | EN |
+|---|---|---|
+| `safeShipping.title` | Cómo empacar tus cartas | How to pack your cards |
+| `buylist.shippingGuideLink` | Cómo empacar tus cartas | How to pack your cards |
+| `safeShipping.intro` | Solo compramos cartas en Near Mint. Empácalas bien: la que no llegue en NM no se compra, y la devolución corre por tu cuenta. | We only buy Near Mint cards. Pack them well: a card that doesn't arrive NM isn't bought, and the return is at your cost. |
+| `safeShipping.step1Title` | *(sin cambio)* Funda blanda | *(unchanged)* Soft sleeve |
+| `safeShipping.step1Body` | *(sin cambio)* Cada carta en su funda, nunca suelta ni pegada a otra. | *(unchanged)* Every card in its own sleeve, never loose or stuck to another. |
+| `safeShipping.step2Title` | *(sin cambio)* Top loader rígido | *(unchanged)* Rigid top loader |
+| `safeShipping.step2Body` | *(sin cambio)* La funda entra en un top loader; así la carta no se dobla. | *(unchanged)* The sleeve goes into a top loader so the card can't bend. |
+| `safeShipping.step3Title` | *(sin cambio)* Sobre o caja rígida | *(unchanged)* Rigid mailer or box |
+| `safeShipping.step3Body` | Sobre burbuja para pocas cartas, caja con relleno para lotes; adentro, una hoja con tu número de solicitud. | Bubble mailer for a few cards, padded box for larger lots; inside, a sheet with your request number. |
+| **`safeShipping.step4Title`** | **La guía la ponemos nosotros** | **We provide the label** |
+| **`safeShipping.step4Body`** | **Al aceptar la oferta te mandamos la guía y su costo se descuenta de tu pago. Tú no compras ni aseguras nada, y no mandas el paquete hasta tenerla.** | **When you accept the offer we send you the label and its cost is deducted from your payment. You buy and insure nothing, and you don't ship until you have it.** |
+| `safeShipping.understood` | *(sin cambio)* Ya lo entendí | *(unchanged)* Got it |
+
+**Las cuatro decisiones del paso 4, y por qué cada una está donde está:**
+
+1. **El título nombra al responsable, no a la acción.** «La guía la ponemos nosotros» / "We provide the
+   label" corrige el error en el **encabezado**, que es lo único que se lee en una retícula de cuatro
+   columnas si el vendedor va rápido. Un título como «Envío» habría dejado el arreglo escondido en el
+   cuerpo.
+2. **La resta va en la misma frase que el ofrecimiento** (§25.14.3). No se puede partir en «te mandamos la
+   guía» aquí y «se descuenta» en otro lado: **este componente viaja solo** —el modal no tiene un bloque
+   de dinero al lado, y `PROJECT.md` §P lo repite dentro de dos correos—.
+3. **Las tres prohibiciones son la parte operativa**, y están en orden de coste: **comprar** (paga dos
+   veces), **asegurar** (paga dos veces, y es lo que decía el texto viejo **con todas sus letras**),
+   **mandar antes de tener la etiqueta** (`PROJECT.md`: *«si aun así manda algo por su cuenta, esa pieza
+   **no está comprada**»* — el peor desenlace posible del ciclo).
+4. **Sin cifras.** D43 alcanza aquí: ni monto, ni rango, ni «tarifa baja», ni `$0`. Y **sin «gratis»**: el
+   envío **no es gratis**, es **nuestro y descontado** (§25.3e).
+
+> **Nota de tiempo verbal, porque el componente se pinta en dos momentos.** «Al aceptar la oferta…» /
+> "When you accept the offer…" funciona **antes** de que exista oferta (lo que va a pasar) y **después** de
+> aceptarla (lo que está pasando). Un texto en pasado («ya te mandamos la guía») rompería el uso de AC 34,
+> que es **antes de crear la solicitud**.
+
+---
+
+#### 25.14.2 Las dos superficies de dinero: el teaser del home y el recorte de `/buylist`
+
+**(a) `home.quoter.wePay` — RETIRADA. La decisión es que el rótulo deje de prometer, Y que la superficie
+entre a §25.3g.** El encargo daba las dos salidas como alternativas; **se toman las dos**, porque
+resuelven cosas distintas:
+
+| Qué | Decisión |
+|---|---|
+| **El rótulo** | `home.quoter.wePay` **se retira de los dos catálogos** y el total pasa a rotularse con **`buylist.quote.money.cardsValue`** — la **misma clave** que ya usan el carrito y el resumen del paso de crear. **No se crea `home.quoter.cardsValue`**: un segundo string con el mismo significado es el mecanismo exacto por el que este rótulo se desincronizó |
+| **La superficie** | El teaser **entra a §25.3g como fila 0** y pinta la **nota de servicio** (`buylist.quote.shippingNote`, componente `BuylistShippingNote` ya existente), **sin cifras** (D43 intacta) |
+
+- **Por qué el rótulo solo no bastaba.** Con «Valor de tus cartas» el teaser deja de **mentir**, pero sigue
+  siendo **la primera pantalla de dinero del embudo** y **no dice el trato**. D31 pide la regla **en el
+  cotizador**, y este panel **se llama «Cotizador»** en su propio `eyebrow`.
+- **Por qué la nota sola no bastaba.** Un total rotulado «Te pagamos» **con** una nota que dice que se
+  descuenta el envío es **peor** que cualquiera de los dos solos: el rótulo afirma un depósito y la nota lo
+  desmiente en el mismo bloque. El vendedor se queda con el número grande.
+- **Dónde va la nota, exactamente:** en el **cuerpo del panel**, después del bloque de dinero (o del estado
+  vacío) y **antes** del enlace «Continuar mi cotización». **⚠ Fuera del bloque `withTrust`**, que **no se
+  renderiza en móvil** (`withTrust={false}` en la sección de 390px). Una regla de dinero que solo existe en
+  escritorio **no es una regla**.
+- **Se renderiza siempre**, con cero líneas y con líneas, igual que en el carrito: la nota **no depende de
+  ningún dato** (§25.3k) y por tanto **no se esqueletiza, no aparece, no desaparece y no se mueve**.
+- El rótulo se pinta con `.eyebrow` (mono, versalitas) en el teaser y en el carrito, y en sentence-case en
+  el resumen del paso de crear. **Es el mismo string**; la caja alta la pone el CSS, **nunca el catálogo**.
+
+**(b) `buylist.trustShipping` — RETIRADA. El remanente no es el texto final, y tampoco necesita redacción
+propia: necesita desaparecer.**
+
+El frontend hizo lo correcto al borrar la cláusula falsa y **no inventar copy**. Lo que sobrevivió —*«Si una
+carta se rechaza por no estar en NM, la devolución corre por tu cuenta (7 días).»*— no se queda, por **dos**
+razones independientes, y cualquiera de las dos bastaría:
+
+1. **Ya está dicho, dos párrafos arriba, en la misma página y con más detalle.** `buylist.nmOnlyBody`:
+   *«Si al recibir y verificar la carta no está en NM, **no se compra**: se devuelve si deseas (**a tu
+   costo, 7 días**) o se considera abandonada a los 30 días.»* El remanente es un **eco degradado** de su
+   propio vecino: dice menos y ocupa un párrafo. Nadie lo habría escrito así a propósito — que es
+   exactamente lo que el encargo sospechaba.
+2. **Y su hueco original —quién pone el envío— NO puede llenarse ahí.** Ese bloque es
+   `text-[13px] text-muted`. §25.3c es explícita: la regla de D16 va **en tinta, `text-sm`, nunca `muted`**,
+   porque D31 la quiere *«al mismo nivel visual que los montos»* y **no en letra chica**. Reescribir
+   `trustShipping` para que contara el trato nuevo habría **cumplido la letra y roto la norma**: la regla
+   más importante del ciclo, degradada a gris de 13px, debajo de todo.
+
+**Qué queda en su lugar** (dos movimientos, **cero strings nuevos**):
+
+- **La nota de servicio sube a la cabecera de `/buylist`** (§25.3g, fila **1-bis**): `BuylistShippingNote`
+  justo debajo de `payAfterReceipt`, en **tinta `text-sm`**, sin `rule-note`, sin caja. **Motivo decisivo:
+  en móvil el carrito es un drawer cerrado**, así que hoy un vendedor puede recorrer `/buylist` entera —
+  hero, bounties, binder, políticas, guía de empaque— **sin leer nunca la regla del envío**. La cabecera es
+  el sitio donde ya viven los hechos del trato y es lo primero que se ve.
+- **El bloque de confianza del pie baja a dos párrafos**: `trustPayment` y `trustValidity` (este último
+  reescrito, §25.14.4). El bloque **no pierde información**: la del envío subió y la del NM ya estaba
+  arriba.
+
+> **⚠ CORREGIDO (v3.0.8) — aquí dije que la repetición era aceptable. Vista en pantalla, no lo es.**
+> A 1280px `/buylist` muestra **dos párrafos idénticos de cuatro líneas** a la vez (cabecera + panel fijo
+> del carrito). Autoricé cada instancia **por separado** y **nunca miré las dos juntas**, que es el error
+> clásico de especificar por reglas y no por pantallas. La regla nueva está en **§25.3g-bis: EXACTAMENTE
+> UNA nota visible por pantalla**, y la resuelve por construcción.
+> *Lo que sí sigue en pie de lo que escribí: **dos redacciones distintas de la misma regla** sería un
+> defecto mucho peor que dos copias idénticas. La corrección va de **cuántas se ven**, no de cuál es el
+> texto — que sigue siendo uno solo.*
+
+---
+
+#### 25.14.3 La regla de «la cadena que viaja sola», con su frontera dibujada
+
+§25.12 la enunció para los correos. Se **eleva a regla de sistema** y se le pone el límite que faltaba,
+porque sin límite habría obligado a meter la resta en cadenas donde no cabe ni hace falta:
+
+> **Toda cadena que afirme que el envío corre por nuestra cuenta debe decir, en la misma cadena, que su
+> costo se descuenta de lo que se le paga al vendedor — en ES y en EN.**
+> Aplica a: asuntos, preheaders, notificaciones, la nota del cotizador, **el paso 4 de la guía de empaque**
+> y cualquier `title`/`aria-label` que resuma el trato.
+
+| Caso | ¿Tiene que llevar la resta? | Por qué |
+|---|---|---|
+| «Nosotros ponemos la guía de envío» (nota del cotizador, teaser, cabecera) | **Sí** | Es una **afirmación sobre quién paga**. Sola, promete un beneficio y esconde su costo |
+| **Paso 4 de la guía de empaque** | **Sí** | Viaja en un **modal sin dinero al lado** y dentro de **dos correos** (§P). Por eso su cuerpo lleva «y su costo se descuenta de tu pago» aunque sea una celda de 13px |
+| `offer.guideParagraph` («al aceptar te mandamos la guía…») | **No** | La **tabla de los tres montos está en la misma pantalla**. La aritmética ya está a la vista (§25.12) |
+| **«Primero aceptas la oferta y después te llega la guía»** (`buylist.created`, §25.14.4) | **No** | Es una **secuencia**, no una afirmación de coste: no dice quién paga, no promete nada y no se puede leer como beneficio. **La regla muerde sobre las afirmaciones de coste, no sobre la logística** |
+
+**Y su recíproca, que es la que falló aquí:** *ninguna cadena puede afirmar que **el vendedor** pone,
+compra, asegura o cubre el envío hacia nosotros.* **Cero excepciones** — la única cosa que sigue siendo
+suya es **la devolución de una carta rechazada por no ser NM (7 días)**, que **no cambió** y que se dice
+en **`nmOnlyBody`** y en la **`intro`** de la guía de empaque, en ningún otro sitio.
+
+---
+
+#### 25.14.4 Lo que el barrido encontró de más (fuera de los tres reportados)
+
+> **Estas cuatro no salen de D16/D31 sino de D2/D9 y de §P.4.** Se resuelven aquí porque **dos de ellas
+> son párrafos hermanos de los textos que sí me tocaba tocar** (`trustValidity` comparte `<div>` con
+> `trustShipping`) y dejarlas habría producido un bloque donde **el párrafo nuevo dice una cosa y el de
+> abajo la contraria** — exactamente el defecto que este pase viene a cerrar.
+
+**(a) `buylist.estimateNote` — contradicción viva de dinero (bloque de dinero del carrito).**
+
+- **Dice hoy:** *«El total es un ESTIMADO. **El monto final lo confirma la plataforma cuando recibimos y
+  verificamos tus cartas.**»* / "…The final amount is confirmed by the platform when we receive and verify
+  your cards."
+- **Por qué está mal, y es grave:** señala **el momento equivocado** e implica **repreciado**. Bajo
+  **D2** el precio ofertado es **vinculante desde que sale el correo** y bajo **D9** *«verificar tiene solo
+  dos desenlaces: llega en NM y se paga lo ofertado, o no llega en NM y se rechaza»*. Este texto le dice al
+  vendedor que **el número puede moverse después de que él ya mandó las cartas** — que es la ansiedad exacta
+  que §25 existe para matar, y además **regala** la mejor promesa del producto.
+- **Lo que sí es cierto y no estaba dicho:** el total es indicativo **porque los precios se mueven** *y*
+  **porque puede que no compremos todas las líneas** (§25.3a.2 identificó justamente ese cherry-pick como
+  la razón por la que un neto en el cotizador sería optimista). Decirlo es lo honesto.
+
+| | ES | EN |
+|---|---|---|
+| **Nuevo** | El total es un ESTIMADO: los precios se mueven y puede que no compremos todas las líneas. Lo firme te lo mandamos en la oferta. | The total is an ESTIMATE: prices move and we may not buy every line. The firm amount comes to you in the offer. |
+
+*No cierra con «antes de que aceptes» a propósito: `shippingNote` está en el mismo bloque y ya termina así.
+Dos frases con la misma cola se leen como una plantilla, no como dos hechos.*
+
+**(b) `buylist.trustValidity` — la misma contradicción, en dos sitios.** Se pinta en el pie de `/buylist`
+**y** en el resumen del paso de crear. Dice *«el monto final se confirma con los precios vigentes al
+verificar tus cartas»*: mismo error que (a).
+
+| | ES | EN |
+|---|---|---|
+| **Nuevo** | La cotización es un estimado con los precios de hoy. El precio vinculante es el de la oferta que te mandamos por correo, y ese precio ya no se mueve cuando recibimos tus cartas. | The quote is an estimate at today's prices. The binding price is the one in the offer we email you, and that price does not move when we receive your cards. |
+
+> **⚠ Precisión deliberada: se dice «el PRECIO no se mueve», no «el total no cambia».** El total **sí**
+> puede bajar, porque **una carta que no llegue en NM no se compra ni se paga** (D1/D9). Escribir «el monto
+> no cambia» sería una promesa falsa del otro lado. Lo que nunca se mueve es **el precio unitario
+> ofertado**, y eso es lo que dice la frase. La condición NM está a la vista en `nmOnlyBody`, arriba.
+
+**(c) `buylist.created` — contradicción viva con D16: invita a mandar el paquete.**
+
+- **Dice hoy:** *«¡Solicitud creada! **Te avisaremos cuando recibamos tu carta.**»* / "…We'll let you know
+  when we receive your card."
+- **Por qué está mal:** se pinta **justo después de crear la solicitud**, que es el momento exacto en que
+  el vendedor decide qué hacer con sus cartas. «Cuando recibamos tu carta» **se lee como una instrucción de
+  enviarla** y **se salta el ciclo entero** (oferta → aceptación → etiqueta). Un vendedor que la obedezca
+  manda un paquete **sin nuestra guía**, y `PROJECT.md` es tajante: *«si aun así manda algo por su cuenta,
+  esa pieza **no está comprada**»*. Es la única de las siete que puede terminar en **cartas de valor
+  viajando fuera del trato**.
+
+| | ES | EN |
+|---|---|---|
+| **Nuevo** | ¡Solicitud creada! Te mandaremos una oferta por correo. No mandes tus cartas todavía: primero aceptas la oferta y después te llega la guía. | Request created! We'll email you an offer. Don't ship your cards yet: first you accept the offer, then the label reaches you. |
+
+- **Sin plazos.** No dice «en 7 días hábiles»: ese reloj es **nuestro**, y §25.4.3 ya razona que anunciarle
+  al vendedor un plazo que depende de nuestra carga de trabajo no le sirve de nada.
+- **Sin cifras** y **sin la resta** — es una secuencia, no una afirmación de coste (§25.14.3).
+
+**(d) `buylist.subtitle` y `home.sellBody` — mejora OPCIONAL, no contradicción. Decide PO.**
+
+Ambas dicen **«Tú envías, nosotros autenticamos y pagamos»**. Estrictamente **sigue siendo cierto** (el
+vendedor lleva el paquete al mostrador), así que **no se marca como contradicción**. Pero en el `h1` de
+`/buylist` la frase queda **a dos líneas** de «Nosotros ponemos la guía de envío», y en una estructura de
+tres tiempos *«tú X, nosotros Y y Z»* el primer tiempo se lee como **su parte del gasto** — o sea que
+**nos quita el mejor argumento del producto** y siembra la duda que la nota tiene que deshacer.
+
+| Clave | ES propuesto | EN propuesto |
+|---|---|---|
+| `buylist.subtitle` | Cotizamos tu lista con el valor de mercado del día. Nosotros autenticamos y te pagamos por SPEI. | We quote your list at the day's market value. We authenticate and pay you by bank transfer. |
+| `home.sellBody` | Cotizamos tu lista con el valor de mercado del día. Nosotros autenticamos y pagamos. | We quote your list at the day's market value. We authenticate and pay. |
+
+> **Por qué NO se propone «Te mandamos la guía, autenticamos y pagamos»**, que sería la versión lucida: es
+> una cadena que **viaja sola** y diría «ponemos la guía» **sin** «y se descuenta» ⇒ §25.14.3 lo prohíbe, y
+> la resta **no cabe** en un subtítulo sin arruinarlo. **La regla tiene dientes también contra el copy que
+> nos favorece**, y se registra aquí como ejemplo. La salida correcta es **quitar el reparto**, no
+> reclamar el mérito a medias.
+
+---
+
+#### 25.14.5 Lo que NO se toca (lista cerrada, para que nadie lo «arregle» de más)
+
+| Clave / familia | Por qué se queda | ⚠ |
+|---|---|---|
+| `home.bounties.wePay` · `buylist.bounties.wePay` («Pagamos» / "We pay") | Es un **precio por carta**, no una suma: nombra una **tarifa**, y el envío se descuenta **por solicitud** (§25.3c-bis) | Si alguien las «corrige» a `cardsValue`, la teja de bounty deja de decir qué hace y el barrido habrá causado un daño nuevo |
+| `buylist.nmOnlyTitle` / `nmOnlyBody` | La devolución de una carta rechazada por no ser NM **sigue corriendo por cuenta del vendedor (7 días)**. **D16 no la tocó** | Es el **único** «a tu costo» legítimo del flujo del vendedor. Ver §25.14.3 |
+| `buylist.payAfterReceipt` · `buylist.cartFooterNote` · `buylist.trustPayment` | *«El pago se realiza después de recibir y verificar tus cartas»* **sigue siendo cierto**: el pago ocurre tras la verificación; lo que **no** ocurre es **repreciar** | No confundir *cuándo se paga* (cierto) con *cuándo se fija el monto* (la oferta) — la distinción que arregla (a) y (b) |
+| `home.bounties.subtitle` · `buylist.bounties.subtitle` | Misma frase, mismo motivo | — |
+| `withdrawals.*`, `checkout.*`, `shipmentStage.*` (envío del **comprador**) | Es **el otro eje de dinero**: ahí el comprador **sí** paga su envío y su seguro. D16 gobierna **el envío del vendedor hacia nosotros**, nada más | `withdrawals.shippingFee` («Tarifa de envío (con seguro)») es **legítima**; un `grep` de «envío» que la marque está mal calibrado |
+| `grading.*` («el gradeo y su costo corren por tu cuenta») | Es el **gancho de grading** (§22), otro dominio y otra decisión | — |
+| `safeShipping.step1*` / `step2*` / `understood` | Empaque puro; además **AC 34 exige** las palabras *sleeve/funda* y *top loader* | Si se reescriben «por consistencia», se puede romper AC 34 |
+
+---
+
+#### 25.14.6 Verificación (QA visual · barato y `grep`-able)
+
+> **Convención de las reglas de esta sección (v3.0.4, tras un falso positivo real).** Una regla `grep`
+> **nunca se escribe como «cero coincidencias» sobre un catálogo entero**. Se escribe de una de estas dos
+> formas, y las dos son a prueba de falsos positivos:
+> **(i) aserción positiva** —*«este rótulo resuelve a esta clave y a ninguna otra»*— que además atrapa
+> variantes que nadie previó; o **(ii) patrón acotado por el ROL de la clave** (rótulo de monto, asunto de
+> correo…) **+ la lista de supervivientes esperados**, como hace la regla 1 con `grading.*`.
+> **Motivo:** *una regla que da falsos positivos se deja de correr*, y una regla que no se corre no protege
+> nada. Si un `grep` marca una cadena que este documento declara normativa, **el defecto es del `grep`**.
+
+1. **`grep` de la afirmación prohibida** en `messages/{es,en}.json`: `cubres`, `tú cubres`, `por tu cuenta`,
+   `a tu costo`, `you cover`, `at your cost`, `on you`. **Toda coincidencia superviviente debe estar en**
+   `nmOnlyBody`, `safeShipping.intro`, `grading.*` o el eje del comprador. **Cualquier otra es el bug.**
+2. **La promesa de depósito sobre una suma — ⚠ REGLA RECALIBRADA (v3.0.4).**
+   > **La versión anterior de esta regla estaba mal y hay que decir por qué.** Pedía *«`grep` de `Te
+   > pagamos` / `We pay you` ⇒ **cero coincidencias** en `buylist.quote.*`»*, y eso marca
+   > **`buylist.quote.shippingNote`**, que dice «se descuenta siempre de **lo que te pagamos**» / "deducted
+   > from **what we pay you**" **en los dos idiomas**. Es decir: **marcaba la cadena normativa que §25.3d
+   > acababa de bendecir**, y que este documento **cita literal en su propio mock-up** de §25.3c. También
+   > marcaba `buylist.subtitle` ES («te pagamos por SPEI»), que es prosa.
+   > **El defecto no es el patrón sino la FORMA de la regla:** usaba un **absoluto** («cero coincidencias»)
+   > donde el criterio real es **fino** —*rótulo que promete depósito **sobre una suma***—, y
+   > `shippingNote` **no es un rótulo y no cuelga de una suma**: es prosa explicativa, y «lo que te
+   > pagamos» es justo **el referente del descuento** (movimiento 2 de §25.3d). *La regla de QA se acota al
+   > copy; **el copy nunca se retuerce para satisfacer un `grep`**.*
+   > **Y la forma correcta ya estaba escrita una regla más arriba:** la 1 **nombra a sus supervivientes
+   > esperados** (`nmOnlyBody`, `grading.*`…) en vez de exigir cero — por eso la 1 **sí** aguanta que
+   > `grading.*` diga «on you». Esta se reescribe con ese mismo patrón, más una aserción positiva.
+
+   **2a — Aserción POSITIVA (whitelist; es la que no puede dar falsos positivos, y la que de verdad
+   protege la regla).** En las **tres** superficies de cotizador —teaser del home, carrito/panel fijo y
+   resumen del paso de crear—, el **rótulo hermano de la cifra total** resuelve a
+   **`buylist.quote.money.cardsValue` y a ninguna otra clave**. Es una lista blanca de **una** entrada: si
+   mañana aparece un rótulo nuevo sobre una suma, **falla por construcción**, sin depender de que alguien
+   haya previsto el verbo que use.
+   **2b — El `grep` negativo, ACOTADO A CLAVES DE RÓTULO** (nunca sobre el catálogo entero): buscar
+   `pagamos`, `recibes`, `ganas`, `depositamos`, `we pay`, `you get`, `you'd receive`, `payout`
+   **solo en las claves que se pintan como rótulo de un monto** — es decir, `buylist.quote.money.*` y la
+   clave del rótulo del total del teaser. **Ahí sí: cero coincidencias.**
+   **2c — Supervivientes ESPERADOS fuera de ese ámbito** (si el `grep` se corre ancho, estas tres salen y
+   **son correctas**; marcarlas es señal de que el `grep` está mal acotado, igual que con
+   `withdrawals.shippingFee` en §25.14.5):
+
+   | Coincidencia legítima | Por qué se queda |
+   |---|---|
+   | **`buylist.quote.shippingNote`** (ES «lo que te pagamos» · EN "what we pay you") | **Normativa e intocable** (§25.3d). Es **prosa**, no rótulo, y la frase **necesita** ese referente: sin él, «su costo se descuenta» no dice **de dónde** se descuenta |
+   | `home.bounties.wePay` · `buylist.bounties.wePay` | **Precio por carta**, no una suma (§25.3c-bis) |
+   | `buylist.subtitle` ES («te pagamos por SPEI») | **Prosa del `h1`**, no rótulo de monto. *(Si PO acepta la mejora opcional de §25.14.4d, desaparece sola; si no, **se queda y es correcta**.)* |
+
+   > **Por qué se gasta tinta en esto:** *una regla de QA que da falsos positivos se deja de correr*, y en
+   > cuanto se deja de correr **muere la distinción que protege** — que aquí es exactamente la que costó
+   > dos rondas fijar: **rótulo vs. prosa, suma vs. tarifa unitaria**. Una regla que grita al ver la cadena
+   > que el sistema acaba de bendecir **entrena a ignorarla**.
+3. **Paridad estricta:** `home.quoter.wePay` y `buylist.trustShipping` **no existen en NINGUNO de los dos
+   catálogos**. Una clave viva en un solo idioma es el modo típico en que un texto retirado revive.
+   **v3.0.5:** lo mismo para `admin.m5.tabs.{por_recibir,ciclo,rechazadas}` ⇒ sustituidas por
+   `{por_ofertar,con_vendedor,piezas_rechazadas}` (§25.8a).
+3-bis. **Pestañas de M5 — aserción positiva (patrón (i) de la convención de arriba).** El mapa
+   `estado → pestaña` es **total**: los **ONCE** valores de `SellRequestStatus` tienen pestaña —
+   `cotizada` en **«Por ofertar»**, los **tres** del tramo (`ofertada`/`aceptada`/`en_transito`) en **«Con
+   el vendedor»**, los **dos** de casa (`recibida`/`verificacion`) en «Verificando», `aprobada` en «Por
+   pagar» y los **cuatro** terminales en «Cerradas» ⇒ **1+3+2+1+4 = 11**. *Un estado sin pestaña **no
+   falla, no avisa y desaparece del back-office**: por eso la comprobación es una partición total, no un
+   `grep`.*
+   > **⚠ ERRATA CORREGIDA (v3.0.6) — aquí decía «los DIEZ valores», y el número importaba.** Son **once**
+   > (`ARCHITECTURE`/contrato §Enums manda, y `SellRequestStatus` los lista). **El texto y la tabla de
+   > §25.8a siempre repartieron once**; el que mentía era **el número suelto**. Y el origen es exactamente
+   > la distinción de la nota de abajo: **§25.12 lista DIEZ claves bajo `status.sellRequest.*` y ahí el diez
+   > es correcto**, porque `expirada` **se rotula por su motivo** (§25.1d) y no tiene clave en ese espacio.
+   > **El diez viajó del sitio donde era cierto al sitio donde no lo es.**
+   > **Por qué no era una errata cosmética:** el número vivía **dentro de una regla de verificación**, así
+   > que un test escrito contra «diez» habría dejado **un estado sin comprobar** — y la regla existe
+   > precisamente porque un estado sin pestaña **no falla ni avisa**. *Una regla de QA con el número mal
+   > deja pasar justo el caso que vino a cazar.* Es la cuarta vez en este ciclo que el defecto es **un
+   > nombre o un número que sobrevive a su significado**; la diferencia es que esta vez estaba **en el
+   > detector**, no en el copy.
+   Y una comprobación de lectura, barata: **la palabra «recibir/receive» no aparece en ninguna pestaña**, y
+   **«Rechazadas» a secas tampoco** — si aparece, volvió la colisión con el estado `rechazada`.
+4. **Guía de empaque, los dos montajes** (modal `columns=2` y sección inline `columns=4`), en ES y EN:
+   el paso 4 dice **quién pone la etiqueta**, **que se descuenta** y **las tres prohibiciones**; **no**
+   aparece ninguna forma de `asegura`/`insure` como instrucción al vendedor; el `intro` menciona **Near
+   Mint**; los pasos 1 y 2 siguen diciendo **funda/sleeve** y **top loader** (AC 34).
+5. **La palabra «guía» en `/buylist`:** el enlace, el título del modal y el `h2` inline dicen **«Cómo
+   empacar tus cartas»**. La palabra «guía» **solo** aparece donde significa **la etiqueta**.
+6. **Teaser del home, las DOS instancias** — ⚠ **REGLA AFINADA (v3.0.7): «presente» NO es el requisito;
+   el requisito es VISIBLE.** En `lg` (columna del hero) **y** en 390px (sección propia,
+   `withTrust={false}`), con **cero cartas** y con cartas, en ES y EN, el total se rotula **«Valor de tus
+   cartas»** y la nota **se lee en pantalla**.
+   > **⚠ RECTIFICACIÓN (v3.0.8) — el defecto que motivó esta afinación NO EXISTÍA.** En v3.0.7 escribí
+   > aquí que *«a 390px la nota está en el DOM pero `hidden`»*. **Es falso y se corrige en el sitio**:
+   > medido con navegador real, **hay una nota visible en los dos anchos** y **§25.14.2a estaba cumplida
+   > desde el primer día**. Lo que fallaba era **la medición**: el home monta el panel del cotizador **dos
+   > veces** —columna del hero y sección móvil, §25.3g fila 0— **con el mismo identificador**, y la
+   > comprobación cogía **la copia de escritorio**, que a 390px está oculta *por diseño*.
+   > **La regla afinada se queda igual y sigue valiendo** (visibilidad efectiva, no presencia en el DOM),
+   > pero **no hay nada que arreglar en la pantalla**. Y la afinación gana una segunda mitad, que es la que
+   > de verdad faltaba: **el diseño MANDA dos montajes**, así que **una comprobación que no desambigüe cuál
+   > mira no está midiendo la pantalla, está midiendo un nodo cualquiera**. Se verifica **la instancia
+   > visible en ese viewport**, nunca «la primera que aparezca».
+   > *Lección, y me toca a mí por partida doble: acepté un hallazgo sin pedir cómo se había medido, y lo
+   > escribí en el documento como hecho. **Un diagnóstico falso en la fuente de verdad se propaga igual que
+   > un nombre falso** — que es justo lo que esta sección persigue. La corrección se deja **visible**, no
+   > se borra.*
+   **Si a algún ancho no se ve ninguna nota, es el bug** (§25.14.2a).
+7. **`/buylist` — la nota se ve EXACTAMENTE UNA VEZ, a todos los anchos (§25.3g-bis, v3.0.8).**
+   Contar los nodos **visibles** de `BuylistShippingNote` ⇒ **1**, ni 0 ni 2:
+   　(7.1) **390px, drawer cerrado** ⇒ la de **la cabecera**. Recorrer la página entera y confirmar que la
+   regla del envío **se lee sin abrir el carrito**.
+   　(7.2) **390px, drawer abierto** ⇒ la del **bloque de dinero**.
+   　(7.3) **1280px** (panel fijo lateral) ⇒ la del **bloque de dinero**, y **la cabecera NO la monta**.
+   *Antes de v3.0.8 este caso daba **2** y nadie lo había mirado, porque cada instancia estaba autorizada
+   en una sección distinta.*
+8. **Líneas sin precio — el carrito explica su propia aritmética (§25.3h / §25.3f-bis, v3.0.8).**
+   Con un carrito de **muchas** líneas en `precio_pendiente`, en ES y EN:
+   　(8.1) La explicación aparece **UNA sola vez**, en el bloque de dinero, con el **conteo** interpolado —
+   **no** una vez por ítem. Cada línea lleva su versalita **`SIN PRECIO`** y **ningún `MX$ 0.00`**.
+   　(8.2) La nota dice **qué pasa con esas cartas** («las cotizamos a mano y te las incluimos en la
+   oferta»). *Sin esa frase el vendedor las borra, que es el peor desenlace posible de esta pantalla.*
+   　(8.3) **Con faltante + pendientes**, el consejo es **«Agrega una carta que ya tenga precio»**, nunca
+   «Agrega otra carta». **Sin** pendientes, sigue siendo «Agrega otra carta».
+   　(8.4) **Con TODAS las líneas sin precio**: el total **no es `MX$ 0.00`** —es la versalita— y la
+   pantalla **explica por qué**. *Este es el caso exacto que hizo que un test E2E concluyera que el
+   cotizador no sumaba.*
+   　(8.5) El bloque sigue teniendo **exactamente un monto** (más faltante y mínimo si aplican): el conteo
+   de cartas **no es un monto** y no introduce uno.
+8. **D43 sigue intacta tras este pase:** repetir la prueba **(l.1)** y **(l.6)** de §25.13.8 sobre las
+   cadenas **nuevas** — ninguna contiene un monto, un rango ni un porcentaje de envío; la **primera**
+   aparición de la tarifa en todo el ciclo sigue siendo **el correo 1**.
+9. **El aviso de solicitud creada** no contiene «recibamos tu carta» ni ningún plazo, y **sí** contiene la
+   instrucción de **no enviar todavía**.
+10. **Bloque de dinero del carrito:** `estimateNote` y `shippingNote` conviven **sin decir lo mismo** y
+    **sin terminar igual**; ninguna de las dos afirma que el monto se confirma al verificar.
+
+---
+
+#### 25.14.7 Notas a otros roles (derivadas de este barrido)
+
+1. **PO — ratificar siete textos, y tres son sensibles.** Todo §25.14.1 y §25.14.4 es **copy del trato**.
+   Los tres que conviene mirar con calma: **(a)** `safeShipping.step4Body`, porque **sustituye una
+   instrucción que le costaba dinero al vendedor** y ahora afirma la resta en una celda pequeña; **(b)**
+   `estimateNote`, porque **admite en voz alta que puede que no compremos todas las líneas** —es honesto y
+   está respaldado por §25.3a.2, pero es una frase que un negocio puede querer matizar—; **(c)**
+   `buylist.created`, porque **le dice explícitamente al vendedor que no mande nada todavía**.
+   El punto **(d)** de §25.14.4 (`subtitle`/`sellBody`) es **opcional** y no bloquea nada.
+2. **✅ RESUELTA (v3.0.3) — `buylist.adjust.*` NO se retira: sobrevive a una COHORTE.**
+   Yo lo planteé como *«¿vive o muere?»* y **la pregunta estaba mal formulada**. El arquitecto la corrigió:
+   para el **ciclo nuevo** ese flujo es **inalcanzable por construcción** (D9/D30), pero **las solicitudes
+   heredadas que estén en vuelo el día del cut-over lo necesitan** — retirar ese copy ese día dejaría a un
+   vendedor **sin poder cobrar algo que ya le prometimos**.
+   **Lo que aprendo y dejo escrito como regla de este documento:** *el copy de un flujo que se apaga no se
+   retira cuando el flujo deja de crearse, sino cuando **la última instancia viva termina**.* Un catálogo
+   de i18n **sirve a los datos que existen**, no al diseño vigente; borrar una clave es una **migración de
+   datos disfrazada de limpieza de texto**. Esa es la diferencia con las claves de §25.14: `wePay` y
+   `trustShipping` se retiran **hoy** porque **nada las necesita** —no hay cohorte detrás de un rótulo—,
+   mientras que `adjust.*` tiene registros esperándola.
+   **Estado:** se queda **tal cual, sin reescribir**, y **frontend ya tiene instrucción de no tocarla**. Su
+   retiro va **con gate, no con fecha** (depende de cuándo se haga el cut-over), y el gate lo expresa el
+   arquitecto. **Este documento no le pone plazo.**
+3. **✅ CERRADA (v3.0.3) — el conteo de correos: son CINCO y «3c» no existe.**
+   Manda `ARCHITECTURE §4.39(n)`, y **el argumento es de hechos, no de jerarquía documental**: la
+   cancelación deja la solicitud **`cotizada` y viva**, mientras 3a y 3b dejan **terminales**. **No es una
+   variante del 3 — es otro desenlace.** §25 queda alineada: §25.4 dice **CINCO**, la cancelación es
+   **§25.4.4-bis / correo 5**, y **el texto no cambió una letra** (estaba bien; era renumerar).
+   **Lo que sí era un defecto real y no el número: el prefijo de la clave.** ~~`expiry.cancelledByUs.*`~~ ⇒
+   **`offerCancelled.*`** (§25.12). *Un número mal puesto se nota; **un prefijo que miente se propaga**,
+   porque no se lee — se autocompleta.* **Frontend/backend: el nombre viejo deja de existir, sin
+   coexistencia**, y el test de paridad debe pasar con la clave **ausente en los dos idiomas**.
+   **Y la lección que me llevo, porque es de método:** agrupé dos hechos opuestos **porque compartían
+   `status`**. Es literalmente lo que **R3** prohíbe (*un correo por HECHO, no por camino*), aplicado al
+   revés de como yo mismo lo escribí — la misma trampa que §25.4.6 documenta para `expirada`, en la que caí
+   **una subsección más arriba**.
+4. **Frontend — qué hay que tocar, y es poco.** **Cero componentes nuevos.** (i) `SafeShippingGuide`: solo
+   copy (§7.13 reescrita para que el componente no vuelva a contar el trato viejo). (ii) `HomeQuoterPanel`:
+   cambiar el rótulo a la clave compartida y montar `BuylistShippingNote` **en el cuerpo del panel, fuera
+   de `withTrust`**. (iii) `BuylistView`: montar `BuylistShippingNote` bajo `payAfterReceipt` y **borrar el
+   `<p>` de `trustShipping`** (el bloque queda con dos párrafos). (iv) `SellCartContents`: solo copy.
+   **Ninguna clave nueva se crea**; se **retiran dos** (`home.quoter.wePay`, `buylist.trustShipping`) y se
+   **reutilizan dos que ya existen** (`buylist.quote.money.cardsValue`, `buylist.quote.shippingNote`).
+5. **Backend — recordatorio, no petición.** `PROJECT.md` §H manda repetir la guía de empaque **en el correo
+   de aceptación y en el de la etiqueta**. Cuando esas plantillas se escriban, **el paso 4 va con su
+   resta** (§25.14.3): ahí la cadena viaja **sin** ninguna tabla de montos al lado.
+7. **✅ Frontend — ALCANCE CONFIRMADO para el siguiente pase (v3.0.8).** Sí, adelante, y es **pequeño**:
+   **(a)** implementar por fin `buylist.quote.pendingLine.{label,note}` — pendiente desde v3.0 — con la
+   `note` **reescrita**: **una sola vez en el bloque de dinero**, con `{count}`, en **tinta `text-sm`**, y
+   **sin** la línea repetida por ítem (§25.3h); **(b)** la clave nueva
+   `buylist.quote.minimum.addPricedCard`, que **sustituye a `addAnother` solo cuando hay líneas sin
+   precio** (§25.3f-bis); **(c)** montar la nota del envío **condicionada al layout** para que se vea
+   **exactamente una vez** (§25.3g-bis) — la cabecera **no se monta** cuando el carrito es panel fijo.
+   **Cero componentes nuevos.** `BuylistShippingNote` ya existe; lo que cambia es **dónde se monta**.
+   **Y una petición de testabilidad, que es tuya y sale del falso positivo de v3.0.7:** el home monta el
+   panel del cotizador **dos veces por diseño**; **dales identificadores distinguibles**. No es cosmético —
+   con el mismo id, cualquier comprobación futura vuelve a medir el nodo equivocado, y esa fue la causa de
+   que yo escribiera un defecto inexistente en este documento.
+6. **Frontend — pestañas de M5 (v3.0.5, §25.8a).** Tres rótulos y tres claves:
+   `por_recibir`⇒`por_ofertar`, `ciclo`⇒`con_vendedor`, `rechazadas`⇒`piezas_rechazadas`, con las viejas
+   **borradas de los dos catálogos**. **Tu estructura se ratifica sin cambios** —una pestaña para el tramo
+   y `aceptada` fuera de todo rótulo de «en camino»—: lo que cambia es el texto, no el mapa. El
+   discriminante `M5OpTab` y `M5_STATUS_TAB` son **tuyos**; la recomendación es que **acompañen el
+   renombre**, porque ese mapa es exactamente lo que alguien lee para decidir dónde vive el próximo estado
+   nuevo — y un `por_recibir` ahí dentro seguirá diciendo «esto es la cola de paquetes» mucho después de
+   que la pestaña diga otra cosa. **Y gracias por dejar el hueco declarado en vez de taparlo en silencio:**
+   así se pudo arreglar el rótulo *y* la sección que faltaba, en vez de solo uno de los dos.
+
+---
+
+## 26. Mensajería de error del back-office del buylist — **el destinatario manda** (v3.1)
+
+> **Qué es esta sección.** El **texto normativo** de once cadenas de error (más dos opcionales) en **ES y
+> EN**, con la **clave exacta** y la **regla de selección**, para que frontend las cablee **sin
+> interpretar**. **Cero tokens, cero componentes, cero pares de contraste nuevos.** Se apoya en §8.1
+> (estados de error), §8.3 (feedback de dinero), §9.2 (convención `error.<CODE>`), §9.3 (formato de dinero)
+> y §9.4 (longitud ES/EN). Los códigos, sus `details` y sus remedios salen de `docs/API_CONTRACT.md`
+> (§6, §M5, §M5-A, §M5-R, la familia `PICKUP_ADDRESS_*` y la precedencia de
+> `PATCH /admin/buylist/items/:itemId/decision`); **este documento no inventa reglas, las redacta**.
+
+### 26.0 El diagnóstico y las tres reglas duras
+
+Los tres defectos que encontraron QA y techlead son **el mismo defecto** con tres caras: **el texto no sabe
+a quién le habla ni a qué palanca lo manda.**
+
+| # | Defecto medido | Qué lee hoy el operador | Por qué es caro |
+|---|---|---|---|
+| **1** | `INE_REQUIRED` y `BUYLIST_LIMIT_EXCEEDED` los ve también el **operador** (v1.58, `POST /admin/buylist/:id/offer`) con **una sola cadena** | *«Necesitas subir **tu** INE para continuar.»* · *«Superas el tope permitido de buylist.»* | El operador **no es el sujeto** de la regla: la incumple **el vendedor**. El mensaje le pide un documento **suyo** que nadie le pide, y **no le dice qué hacer** con la solicitud que tiene abierta |
+| **2** | `APPROVED_PRICE_CAP_EXCEEDED` explica **«cotizado × 2 o tope AML»** | *«El precio aprobado excede el tope permitido para este ítem (cotizado × 2 o tope AML).»* | **Dentro del ciclo de oferta el `× 2` ya no aplica** (BL-40): ahí solo queda el tope de compra. El texto manda a **repreciar** una cifra **congelada y vinculante**, y ese reintento choca con `OFFER_PRICE_IMMUTABLE`. **Dos errores para una causa, y el primero apunta a la palanca equivocada** |
+| **3** | `REQUEST_NOT_RECEIVED`, `PICKUP_ADDRESS_LOCKED`, `PICKUP_ADDRESS_MISSING` y `OFFER_PRICE_IMMUTABLE` **no existen en `es` ni en `en`** | el **inglés crudo del servidor** (`useErrorMessage` cae a `apiError.message`), p. ej. *«This sell request has no record of receipt…»* | Es **el fallback funcionando como está diseñado**, y aun así es un defecto: la superficie es un **back-office mexicano** y el mensaje del servidor está escrito para un desarrollador, no para quien decide una compra |
+
+**Las tres reglas duras de esta sección** (valen para todo error futuro del back-office de dinero):
+
+1. **R-A · Un mensaje se escribe para QUIEN LO LEE, no para el código que lo lanza.** Si un mismo código
+   puede llegarle a dos destinatarios distintos, son **dos cadenas**, no una redacción de compromiso. *El
+   sujeto de la regla y el lector del mensaje no siempre son la misma persona; cuando no lo son, el texto
+   tiene que decir **de quién** habla.*
+2. **R-B · El error nombra LA PALANCA que el lector tiene en la mano.** Misma disciplina que
+   `grossShortfallCents` en el contrato: se nombra **el acto** (*«Marcar recibida»*, *«declina la
+   solicitud»*, *«llama al vendedor»*), no la condición interna. **Y si la palanca no existe, se dice** —
+   *«no la apruebes: escala»* es un remedio; *«ese campo no se toca»* insinúa *«quítalo y procede»*, **y no
+   procede**.
+3. **R-C · Lo que NO pasó se dice.** En dinero, *«no se guardó nada»* / *«el vendedor no recibió aviso»* no
+   es relleno: es lo que evita que el operador reintente a ciegas, o que llame a un vendedor a disculparse
+   por una oferta que nunca salió. **Toda cadena de un rechazo sin escritura termina con «No se guardó
+   nada.» / “Nothing was saved.”**
+
+### 26.1 Convención de claves — cómo se desdobla un código por destinatario
+
+Se conserva `error.<CODE>` de §9.2 (**el test de paridad y `useErrorMessage` dependen de ello**) y se le
+añade **un sufijo de destinatario**, con el mismo espíritu del `_WITH_DETAILS` que ya existe
+(`CONFLICT_WITH_DETAILS`, `GRADED_ESTIMATE_SLAB_PUBLISHED_WITH_DETAILS`):
+
+| Forma | Quién la lee | Cuándo existe |
+|---|---|---|
+| `error.<CODE>` | **el sujeto de la regla** — el vendedor/cliente — **si el código tiene una ruta de cliente**; si el código **solo** existe en admin, la base **es** la del operador | siempre (es la que satisface el test de paridad y el fallback) |
+| `error.<CODE>_OPERATOR` | **el operador del back-office**, que no es el sujeto | solo cuando el mismo código llega a los dos |
+| `error.<CODE>_<CASO>` | mismo destinatario, **cota o regla distinta** (hoy: `_OFFER_CYCLE`) | cuando el remedio cambia, no el lector |
+| `error.<CODE>[_…]_WITH_DETAILS` | igual que su base, **con cifras interpoladas** | **opcional** (§26.5) |
+
+- **`_OPERATOR` y no `_ADMIN`:** el lector es un **rol de mesa** (`vault_operator` y `super_admin` leen lo
+  mismo); `admin` en este repo nombra **el módulo/superficie**, no a la persona.
+- **La base nunca se queda sin texto.** Si el discriminador no se puede evaluar (details ausente, forma
+  inesperada), se pinta la **base** — jamás `apiError.message` en inglés, que es el defecto 3.
+- **Cero coexistencia con lo viejo:** las tres cadenas que se reescriben (`INE_REQUIRED`,
+  `BUYLIST_LIMIT_EXCEEDED`, `APPROVED_PRICE_CAP_EXCEEDED`) **se sustituyen carácter por carácter en los dos
+  catálogos**; no se deja la versión anterior «por si acaso».
+
+### 26.2 Tabla A — un código, dos destinatarios (`INE_REQUIRED`, `BUYLIST_LIMIT_EXCEEDED`)
+
+**Selector (normativo).** Lo decide **`details`**, no la pantalla:
+
+| Código | Condición sobre `details` | Clave a pintar | Quién lo produce |
+|---|---|---|---|
+| `INE_REQUIRED` | trae **`thresholdCents`** (y no `sellRequestId`) | `error.INE_REQUIRED` | `POST /buylist/requests` — **intake, lo lee el vendedor** |
+| `INE_REQUIRED` | trae **`sellRequestId` + `grossCents`** (⛔ **sin `thresholdCents`, a propósito**) | `error.INE_REQUIRED_OPERATOR` | `POST /admin/buylist/:id/offer` — **emisión, lo lee el operador** |
+| `BUYLIST_LIMIT_EXCEEDED` | `details.scope === "per_month"` | `error.BUYLIST_LIMIT_EXCEEDED` | intake — **vendedor** |
+| `BUYLIST_LIMIT_EXCEEDED` | `details.scope === "per_month_offer"` | `error.BUYLIST_LIMIT_EXCEEDED_OPERATOR` | emisión — **operador** |
+| cualquiera de los dos | discriminador **ausente o desconocido** | **la base** (variante de cliente) | fallback; ver aviso ⚠ |
+
+> ⚠ **`scope: "per_request"` y `"per_request_offer"` están RETIRADOS** (contrato v1.59 / D47: el tope por
+> solicitud ya no rechaza, solo identifica). **No se les escribe copy.** Si el front los recibe, pinta la
+> base y **es un hallazgo para QA**, no un caso a soportar en el catálogo.
+>
+> ⛔ **El umbral de INE (`thresholdCents`) NO se reintroduce en la variante de operador — ni en el texto ni
+> interpolado.** El backend lo omite deliberadamente (§M5-A.7) y el diseño lo respeta: **el operador no es
+> el sujeto de la regla**, el número no acota su acción (sus palancas son *conseguir el documento* o *no
+> ofertar*) y una cifra de cumplimiento ajena, en una pantalla ajena, es superficie que se acaba filtrando
+> a un log o a una captura de pantalla. *En la variante de cliente **sí** viaja el porqué, porque él es
+> quien tiene que entender por qué le pedimos su identificación.*
+
+**Las cuatro cadenas.**
+
+| Clave | ES | EN |
+|---|---|---|
+| `error.INE_REQUIRED` | Por el monto de esta venta necesitamos identificarte: sube tu INE para continuar. | Because of the amount of this sale we need to identify you: upload your INE (ID) to continue. |
+| `error.INE_REQUIRED_OPERATOR` | La oferta no salió: el vendedor no tiene su INE en el expediente y por este monto se lo tenemos que pedir. No se guardó nada y él no recibió aviso. Llámalo para que lo suba desde su perfil y vuelve a emitir, o declina la solicitud. Ningún rol puede saltarse este requisito. | The offer was not sent: the seller has no INE (ID) on file, and at this amount we have to ask for it. Nothing was saved and the seller was not notified. Call them so they upload it from their profile and issue the offer again, or decline the request. No role can skip this requirement. |
+| `error.BUYLIST_LIMIT_EXCEEDED` | Esta cotización pasa el máximo que te podemos comprar en un mes. Quita algunas cartas y vuelve a intentar; el tope se renueva cada mes. | This quote goes over the most we can buy from you in one month. Remove a few cards and try again; the limit resets every month. |
+| `error.BUYLIST_LIMIT_EXCEEDED_OPERATOR` | Esta oferta dejaría al vendedor por encima del máximo que le podemos comprar este mes, así que no salió y no se guardó nada. Compra menos cartas de esta solicitud o declínala; ningún rol puede levantar este tope. | This offer would put the seller over the most we can buy from them this month, so it was not sent and nothing was saved. Buy fewer cards from this request, or decline it; no role can lift this limit. |
+
+**Por qué dicen lo que dicen (y no otra cosa):**
+
+- **La variante de operador empieza por el hecho que le importa —«no salió»—**, sigue con **de quién es el
+  problema** («el vendedor»), y termina con **sus dos palancas reales**: la llamada (el vendedor sube el
+  INE desde su perfil y se reintenta) o **declinar**. Es la ruta operativa que el contrato ya escribió para
+  `PICKUP_ADDRESS_MISSING`, y no una inventada aquí.
+- **«él no recibió aviso» es obligatorio.** La oferta nunca salió, así que **el portal del vendedor no
+  tiene nada que contarle**: el único aviso es la llamada. Sin esa frase, el operador supone que el sistema
+  ya avisó y **la solicitud se queda esperando a nadie**.
+- **«Ningún rol puede saltarse este requisito» / «ningún rol puede levantar este tope»** existe para
+  **cortar la escalada inútil**: el tope del operador es *delegación* (eso sí se escala), pero el INE y el
+  tope de compra son *cumplimiento sobre el vendedor* y **no hay autorización que los levante**. Sin esta
+  frase, el operador pierde media hora buscando a un súper-admin.
+- **Al operador NO se le dice «espera al mes que entra».** Diferir una compra para que quepa bajo un tope
+  mensual es exactamente lo que un control de este tipo existe para impedir; **un mensaje de error de una
+  plataforma de dinero no sugiere la vuelta al control que acaba de aplicar**. Al **vendedor** sí se le
+  dice que el tope se renueva cada mes, porque para él es **un hecho de su límite**, no una instrucción
+  para partir una operación.
+
+### 26.3 Tabla B — `APPROVED_PRICE_CAP_EXCEEDED`: dos cotas, dos remedios
+
+**El problema del texto viejo:** decía *«cotizado × 2 o tope AML»* **siempre**, y **dentro del ciclo de
+oferta el término relativo está retirado** (BL-40): ahí el monto **no es entrada del operador**, es la
+cifra **congelada y vinculante** que ya pasó su puerta al emitir. Mandarlo a bajar el precio es mandarlo a
+una palanca que **no existe** (`OFFER_PRICE_IMMUTABLE` lo espera al otro lado), y de paso le enseña a
+pensar que un precio ofertado se negocia después.
+
+**Selector (normativo).**
+
+| Caso | Cómo se reconoce | Clave |
+|---|---|---|
+| **Fuera del ciclo de oferta** (verificación clásica: el operador teclea `approvedPriceCents`) | la solicitud **no** está en el ciclo — `offerSentAt == null` en el detalle que la pantalla ya tiene | `error.APPROVED_PRICE_CAP_EXCEEDED` |
+| **Dentro del ciclo de oferta** (el monto es el ofertado, congelado) | `offerSentAt != null` | `error.APPROVED_PRICE_CAP_EXCEEDED_OFFER_CYCLE` |
+
+> ⚠ **Hoy el discriminador es estado de pantalla, no `details`** — el error trae
+> `{ approvedPriceCents, quotedPriceCents, cap }` y **ninguno dice qué cota chocó**. Es la **petición 2 al
+> arquitecto** (§26.9); **no bloquea**, porque la pantalla de verificación ya sabe si la solicitud va por el
+> ciclo (es lo que decide que **no se pinte campo de monto**, criterio 124). **Regla mientras tanto:** si
+> ese estado no está disponible, se pinta la **base** — nombra las dos cotas y no manda a ninguna palanca
+> imposible.
+
+| Clave | ES | EN |
+|---|---|---|
+| `error.APPROVED_PRICE_CAP_EXCEEDED` | El monto que estás aprobando no cabe en el tope de esta carta: no puede pasar del doble de lo cotizado ni del máximo que le podemos comprar al vendedor en el mes. Baja el monto aprobado, o rechaza la carta con su motivo. No se guardó nada. | The amount you are approving does not fit this card's cap: it cannot go over twice the quoted price, nor over the most we can buy from this seller in a month. Lower the approved amount, or reject the card with a reason. Nothing was saved. |
+| `error.APPROVED_PRICE_CAP_EXCEEDED_OFFER_CYCLE` | El precio de esta carta se congeló al emitir la oferta y ya es vinculante: no se puede cambiar. Lo que choca es el máximo que le podemos comprar al vendedor en el mes, así que esta carta no se puede aprobar ni pagar. No intentes repreciarla: escala la solicitud a un súper-admin. No se guardó nada. | This card's price was frozen when the offer went out and is now binding: it cannot be changed. What it hits is the most we can buy from this seller in a month, so this card cannot be approved or paid. Do not try to re-price it: escalate the request to a super-admin. Nothing was saved. |
+
+- **La cadena del ciclo nombra la cota QUE CHOCÓ y calla la que no aplica.** No se menciona el `× 2` ni
+  para negarlo: *un mensaje de error no es el sitio donde se explica una regla retirada* — nombrarla la
+  mantiene viva en la cabeza del operador.
+- **Y nombra el único remedio verdadero: escalar.** Dentro del ciclo, ni bajar el precio (imposible) ni
+  aprobar (bloqueado) ni rechazar por su cuenta (hay una oferta **aceptada** de por medio) son decisiones
+  del operador. **Si esta cadena aparece, algo se desalineó** —el dial de compra se movió después de emitir,
+  o la solicitud cruzó de mes— y eso lo resuelve quien mueve el dial, no quien pulsa el botón.
+  > **Por qué aquí se manda a escalar y en la emisión (§26.2) se dice «ningún rol lo levanta», sin
+  > contradicción:** al **emitir**, el operador **tiene una palanca propia** —comprar menos cartas— y el
+  > escalado solo le haría perder tiempo, porque nadie por encima puede autorizar por encima del tope.
+  > **Dentro del ciclo no le queda ninguna**, y la solicitud está **atascada con una oferta aceptada
+  > enfrente**: dejarla ahí en silencio es peor que subirla. **Se escala el CASO, no una autorización del
+  > monto** — y el texto no promete que arriba se vaya a aprobar.
+- **«en el mes»** es deliberado: tras BL-43 la cota se ancla al **tope mensual**, no al de la solicitud.
+  Decir solo «el tope» dejaría al operador buscando un límite por solicitud que ya no rechaza nada.
+
+### 26.4 Tabla C — los cuatro códigos sin traducción
+
+Los cuatro son **superficie de admin**, salvo `PICKUP_ADDRESS_LOCKED`, que **el contrato declara también en
+la ruta de cliente** (`PATCH /buylist/requests/:id/pickup-address`) ⇒ **se desdobla** por R-A. Significado y
+remedio de cada uno, tal como los define el contrato:
+
+| Código | Qué pasó exactamente (contrato) | Palanca que nombra el texto |
+|---|---|---|
+| `REQUEST_NOT_RECEIVED` (422) | `decision:"approve"` sobre una línea cuya **solicitud padre no tiene constancia de recepción** (`receivedAt IS NULL`). **Es sobre la SOLICITUD, no sobre la carta** | **`POST …/receive`** = el botón **«Marcar recibida»** del detalle de M5, **cuando el paquete de verdad llegó** |
+| `PICKUP_ADDRESS_MISSING` (422) | `POST /admin/buylist/:id/offer` sobre una solicitud **sin snapshot de dirección** — solo puede ser una fila **vieja** (anterior a M-46) | **llamar al vendedor** (su teléfono viaja en la cola) para que la capture **desde su perfil**, o **declinar**. ⛔ **el operador NO la captura por él** |
+| `PICKUP_ADDRESS_LOCKED` (409) | `PATCH …/pickup-address` cuando **ya hay guía** (`guideSentAt != null`) **o la solicitud está cerrada** | **el remedio es humano**: cancelar la guía y emitir una nueva. **No es un reintento** |
+| `OFFER_PRICE_IMMUTABLE` (422) | dentro del ciclo, el cuerpo trae **`approvedPriceCents`** — **con cualquier `decision`, `reject` incluido**. El monto lo fija el servidor (`approvedPriceCents = offeredPriceCents`) | **aprobar sin monto**; si la carta no llegó como se ofertó, **rechazarla con su motivo** |
+
+| Clave | ES | EN |
+|---|---|---|
+| `error.REQUEST_NOT_RECEIVED` | Esta solicitud no tiene registrada la llegada del paquete, así que ninguna de sus cartas se puede aprobar. Cuando el paquete esté en tus manos, usa «Marcar recibida» en la solicitud y vuelve a aprobar. No se guardó nada. | This request has no record that the parcel arrived, so none of its cards can be approved. Once the parcel is in your hands, use “Mark received” on the request and approve again. Nothing was saved. |
+| `error.PICKUP_ADDRESS_MISSING` | Esta solicitud no trae la dirección de recolección (es una solicitud vieja), así que no se puede ofertar. Llama al vendedor para que la capture desde su perfil y vuelve a emitir, o declina la solicitud. No la captures tú por él. | This request has no pickup address (it is an old request), so no offer can be issued. Call the seller so they add it from their profile and issue the offer again, or decline the request. Do not fill it in for them. |
+| `error.PICKUP_ADDRESS_LOCKED` | Esta dirección ya no se puede cambiar: tu guía de envío ya está impresa con ella, o la solicitud ya cerró. Si algo está mal, contáctanos antes de mandar el paquete. | This address can no longer be changed: your shipping label is already printed with it, or the request is closed. If something is wrong, contact us before you send the parcel. |
+| `error.PICKUP_ADDRESS_LOCKED_OPERATOR` | Esta dirección ya no se edita: la guía salió impresa con ella, o la solicitud ya cerró. Si la dirección está mal, hay que cancelar esa guía y emitir una nueva; desde aquí no se puede. No se guardó nada. | This address can no longer be edited: the label went out printed with it, or the request is closed. If the address is wrong, that label has to be cancelled and a new one issued; it cannot be done from here. Nothing was saved. |
+| `error.OFFER_PRICE_IMMUTABLE` | El precio de esta carta se congeló al emitir la oferta y ya es vinculante: desde esta pantalla no viaja ningún monto. Apruébala tal cual; si no llegó como se ofertó, recházala con su motivo. No se guardó nada. | This card's price was frozen when the offer went out and is now binding: no amount travels from this screen. Approve it as it is; if it did not arrive as offered, reject it with a reason. Nothing was saved. |
+
+- **`REQUEST_NOT_RECEIVED` nombra la solicitud y cita el rótulo real del botón** (`admin.m5.receive` =
+  «Marcar recibida» / “Mark received”). **Si ese rótulo cambia, esta cadena cambia con él** — es la única
+  dependencia de texto-a-texto de §26, y se acepta porque *el error que no nombra el botón obliga a
+  buscarlo*. **Y la condición va antes que el acto** («cuando el paquete esté en tus manos»): marcar
+  recepción es el ancla de la mercancía ajena, **no un trámite para desbloquear la pantalla**.
+- **`PICKUP_ADDRESS_MISSING` termina prohibiendo.** *«No la captures tú por él»* parece redundante y no lo
+  es: es **la primera reacción natural** del operador que tiene la libreta a mano, y el contrato lo prohíbe
+  expresamente — la dirección congelada es **lo que va impreso en la etiqueta** y capturarla por él la
+  desalinea de lo que el vendedor declaró.
+- **`OFFER_PRICE_IMMUTABLE` debería ser inalcanzable desde nuestra UI** (criterio 124: dentro del ciclo la
+  pantalla de verificación **no tiene campo de monto**). Se traduce igual porque **un error inalcanzable
+  que aparece es exactamente cuando más falta hace entenderlo**, y porque el mismo código lo puede producir
+  un `reject` con el campo colgado del formulario. **Si un operador lo ve, es un defecto de frontend** y
+  así hay que reportarlo.
+
+### 26.5 Opcionales — las variantes con cifras (`_WITH_DETAILS`)
+
+**No son obligatorias.** Se implementan **solo** si frontend ya tiene el `DETAILED_ERRORS` de
+`useErrorMessage` cableado para ese código; si falta cualquiera de los dos montos, **se pinta la base**
+(nunca `MX$ undefined`). Los montos se formatean con §9.3 (centavos → `MX$ 1,250.00`), **nunca
+concatenados**.
+
+> **⚠ El sufijo va DESPUÉS del destinatario, y eso el resolver de hoy no lo compone solo.**
+> `useErrorMessage` arma `error.<CODE>_WITH_DETAILS` a partir del **código**; estas claves son
+> `error.<CODE>_<DESTINATARIO>_WITH_DETAILS`. **El orden es normativo** —primero se resuelve **a quién le
+> hablas**, luego **con cuánto detalle**— porque al revés habría que escribir el copy del destinatario dos
+> veces. Componer las dos piezas es trabajo del mecanismo, y el mecanismo es de frontend (§26.9.4).
+
+| Clave | ES | EN |
+|---|---|---|
+| `error.BUYLIST_LIMIT_EXCEEDED_OPERATOR_WITH_DETAILS` | Esta oferta dejaría al vendedor en {wouldBeAmount} este mes, y el máximo que le podemos comprar es {capAmount}: no salió y no se guardó nada. Compra menos cartas de esta solicitud o declínala; ningún rol puede levantar este tope. | This offer would put the seller at {wouldBeAmount} this month, and the most we can buy from them is {capAmount}: it was not sent and nothing was saved. Buy fewer cards from this request, or decline it; no role can lift this limit. |
+| `error.APPROVED_PRICE_CAP_EXCEEDED_OFFER_CYCLE_WITH_DETAILS` | El precio de esta carta se congeló al emitir la oferta y ya es vinculante: no se puede cambiar. El máximo que le podemos comprar al vendedor es {capAmount}, así que esta carta no se puede aprobar ni pagar. No intentes repreciarla: escala la solicitud a un súper-admin. No se guardó nada. | This card's price was frozen when the offer went out and is now binding: it cannot be changed. The most we can buy from this seller is {capAmount}, so this card cannot be approved or paid. Do not try to re-price it: escalate the request to a super-admin. Nothing was saved. |
+
+- **Las cifras se le dan al OPERADOR sobre los topes de COMPRA, nunca sobre el UMBRAL DE INE.** La
+  diferencia no es de estilo: `capCents`/`wouldBeCents` **son la cota de la decisión que él está tomando**
+  (le dicen cuánto sobra), mientras que `thresholdCents` es **un dato de cumplimiento sobre un tercero** que
+  no cambia ninguna de sus dos palancas. *Un cajón donde ya viajan cifras es exactamente donde alguien
+  acaba echando la que no debía.*
+- **No hay variante con cifras para el cliente.** Su mensaje ya es accionable sin números («quita algunas
+  cartas»), y meter el tope mensual en el cotizador abriría una superficie pública de diales que §25.13
+  cerró a propósito.
+
+### 26.6 Prohibiciones (lista cerrada — esto es lo que se revisa en el PR)
+
+1. ⛔ **Hablarle al operador como si fuera el sujeto de la regla:** «necesitas subir **tu** INE», «**superas**
+   el tope». Si el texto lleva un *tú* que apunta al vendedor, está en la clave equivocada.
+2. ⛔ **`thresholdCents` (el umbral de INE) en cualquier cadena de operador**, en texto o interpolado.
+3. ⛔ **Nombrar «cotizado × 2» dentro del ciclo de oferta** — ni afirmándolo ni negándolo.
+4. ⛔ **Sugerir repreciar, «ajustar el monto y reintentar» o «quitar ese campo y seguir»** en cualquier
+   cadena del ciclo de oferta.
+5. ⛔ **Sugerirle al operador diferir la compra al mes siguiente** para caber bajo el tope.
+6. ⛔ **Sugerirle al operador capturar, corregir o «completar» un dato del vendedor** (dirección, INE, CLABE).
+7. ⛔ **Dejar caer el mensaje crudo del servidor** (`apiError.message`, inglés) en superficie de admin para
+   cualquiera de los siete códigos de §26. La base existe justamente para eso.
+8. ⛔ **Jerga técnica o de cumplimiento en el texto visible:** *AML*, *KYC*, *cap*, *threshold*, *scope*,
+   *snapshot*, *422*, `offerSentAt`, nombres de endpoint o de código. El operador necesita **qué pasó y qué
+   hacer**, no el nombre de la guarda.
+9. ⛔ **Metáfora de marca (§1) en errores.** Aquí manda la claridad literal; ni «cacería» ni ingenio.
+10. ⛔ **Emojis, signos de admiración y culpa.** Ni *«¡Ups!»* ni *«no debiste…»*: el operador no causó
+    ninguno de estos siete errores.
+
+### 26.7 Dónde se pintan, longitud y accesibilidad
+
+- **Superficie.** Todas van en **`Banner` `variant="danger"`** (§7.5) del contenedor de la acción —el
+  diálogo de emisión de la mesa (§25.6), el detalle de la solicitud o la fila de verificación—, **nunca en
+  un toast efímero** (§8.3: los errores de dinero se muestran inline/banner). Las dos de cliente
+  (`INE_REQUIRED`, `BUYLIST_LIMIT_EXCEEDED`) se pintan **inline en el bloque del cotizador/creación**, como
+  ya se hace con `PICKUP_ADDRESS_REQUIRED` (§25.3(j)).
+- **Longitud (§9.4).** La más larga es `INE_REQUIRED_OPERATOR` (**≈ 275 car. ES / ≈ 300 EN** ⇒ **el
+  contenedor se dimensiona por EN**). **El banner envuelve a las líneas que haga falta: sin alto fijo, sin
+  `line-clamp`, sin «ver más».** Un error de dinero truncado es un error a medias, y la mitad que se corta
+  es siempre la del remedio, que va al final.
+- **Accesibilidad (§8.2).** `role="alert"` con `aria-live="assertive"` (son errores de dinero); el foco
+  **no** se roba, pero el botón que disparó la acción queda enfocable y el banner se referencia con
+  `aria-describedby` desde él. Las cadenas **no dependen de color**: dicen el hecho en palabras.
+- **Contraste (§10).** **Cero pares nuevos:** texto tinta sobre el `Banner danger` ya verificado. §26 no
+  añade ningún token.
+
+### 26.8 Paridad ES/EN y verificación (barata y `grep`-able)
+
+1. **Paridad estricta:** las **once claves obligatorias** existen en `es.json` **y** en `en.json`, con el
+   mismo árbol. El test de paridad ya cubre `error.<CODE>`; **las variantes con sufijo hay que añadirlas a
+   mano a los dos catálogos** (no se derivan de ningún código del contrato).
+2. **Las tres cadenas viejas desaparecen:** `grep -R "cotizado × 2\|quoted × 2" frontend/messages` ⇒ **cero
+   resultados**; `grep -R "tu INE" frontend/messages/es.json` ⇒ **solo** en `error.INE_REQUIRED` y en el
+   flujo de KYC del vendedor (§7.10), **nunca** en una cadena de admin.
+3. **Los cuatro códigos nuevos ya no caen al inglés crudo:** provocar cada uno en staging y comprobar que
+   el banner está en el idioma de la sesión. *(Este es el defecto 3 y su única verificación honesta es
+   verlo en pantalla.)*
+4. **Selector:** dos casos por código desdoblado — con `details.scope = "per_month"` sale la de cliente, con
+   `"per_month_offer"` la de operador; con `details` vacío sale **la base y no un `MISSING_MESSAGE`**.
+5. **Prohibición 7 por lo negativo:** ningún test debe poder afirmar `expect(banner).toHaveText(/This sell
+   request/)` — si un E2E de admin encuentra inglés de servidor, es regresión.
+
+### 26.9 Notas a otros roles (derivadas del diseño; **ninguna bloquea**)
+
+1. **⚠ Arquitecto — petición 1: `INE_REQUIRED` de la emisión no trae discriminador explícito.** Hoy el
+   destinatario se **infiere por la forma de `details`** (`thresholdCents` ⇒ vendedor; `sellRequestId` ⇒
+   operador). Funciona, pero es un contrato **implícito**: el día que alguien añada `sellRequestId` a la
+   puerta del intake «porque ya había campo», **el vendedor empieza a leer el mensaje del operador**.
+   **Petición:** que la emisión emita también **`details.scope: "offer"`** (y, si se quiere simetría,
+   `"intake"` en la otra puerta), con el mismo papel que ya cumple en `BUYLIST_LIMIT_EXCEEDED`.
+   ⛔ **Sin reintroducir `thresholdCents`** — la petición es un discriminador, no el número.
+2. **⚠ Arquitecto — petición 2: `APPROVED_PRICE_CAP_EXCEEDED` no dice qué cota chocó.** `details` trae
+   `{ approvedPriceCents, quotedPriceCents, cap }`, y **con eso no se puede saber** si topó el doble de lo
+   cotizado o el tope de compra, ni si la fila va por el ciclo de oferta. Hoy el copy se elige con **estado
+   de cliente** (`offerSentAt`), que es exactamente lo que R4 desaconseja. **Petición:** un campo
+   discriminante en `details` — p. ej. `bound: "quoted_x2" | "purchase_cap"` **o** `inOfferCycle: boolean`.
+   **Con él, §26.3 deja de depender de la pantalla y las dos cadenas se eligen solas.**
+3. **Arquitecto / PO — confirmar el desdoble de `PICKUP_ADDRESS_LOCKED`.** El contrato lo declara en
+   `PATCH …/pickup-address` y la familia `PICKUP_ADDRESS_*` marca «cliente y admin» en la ruta hermana. Si
+   la ruta de cliente **no** puede devolverlo (porque la UI ya apaga el control cuando la guía está
+   impresa), la variante `_OPERATOR` **se queda como única** y la base se retira de los dos catálogos. **Se
+   entregan las dos porque una carrera sí puede producirlo en cliente**, y una cadena de más es más barata
+   que un vendedor leyendo *«cancela la guía y emite una nueva»*, que es una instrucción **nuestra**.
+4. **Frontend — el mecanismo es tuyo; el orden de resolución no.** La variante se resuelve **antes** de
+   `error.<CODE>`, y **`apiError.message` deja de ser alcanzable** para estos siete códigos. Si tu
+   `DETAILED_ERRORS` ya sabe formatear montos, §26.5 se implementa gratis; si no, **se omite sin deuda**.
+5. **PO — dos frases para ratificar.** *«Ningún rol puede levantar este tope»* y *«escala la solicitud a un
+   súper-admin»*: la primera **le cierra la puerta a la escalada** (y es lo que dice el contrato), la
+   segunda **la abre para un caso concreto**. Son correctas tal como están escritas, pero **definen cómo se
+   comporta la mesa ante un tope**, y eso es decisión de negocio, no de diseño.
+6. **QA — el caso que más valor tiene y no es un test de i18n:** con un vendedor **sin INE** y una oferta
+   **sobre el umbral**, comprobar que el operador ve la cadena **de operador**, que el vendedor **no recibe
+   ningún correo** y que la solicitud sigue **`cotizada`**. Si alguna de las tres falla, el copy es lo de
+   menos.
+
+---
+
+## 27. Copy de errores del **ciclo de oferta** del buylist — el que bloquea el release y los doce que no (v3.2)
+
+> **Qué es esta sección.** La continuación directa de §26, con **la misma convención de claves (§26.1), las
+> mismas tres reglas duras (§26.0) y las mismas prohibiciones (§26.6)**, aplicadas a **trece códigos más**
+> del ciclo de oferta. **Cero tokens, cero componentes, cero pares de contraste nuevos.** Significados,
+> `details` y remedios salen de `docs/API_CONTRACT.md` (**§M5-V**, §M5-A.6, §M5-ciclo, `POST
+> /admin/buylist/:id/offer`, `PATCH /admin/buylist/items/:itemId/decision`, `POST …/decline`,
+> `POST /buylist/requests/:id/respond`); **este documento no inventa reglas, las redacta.**
+
+### 27.0 Alcance, prioridad y orden de entrega — **léelo antes de cablear**
+
+| Lote | Claves | ¿Bloquea el release? | Por qué |
+|---|---|---|---|
+| **LOTE 1** | **`ITEMS_NOT_DECIDED`** (+1 opcional con conteo, +1 preventiva) | ⛔ **SÍ. Es lo único de §27 que bloquea** | Código **nuevo del contrato v1.61**. Se pinta **en la pantalla donde el súper-admin autoriza dinero**, y hoy sale **en inglés crudo del servidor** dentro de una UI en español |
+| **LOTE 2** | los **doce** restantes (14 claves, dos desdobles) | **No** | Llevan tiempo sin copy; el mecanismo de frontend ya los espera. **Dejarlos fuera garantiza que el operador siga leyendo inglés en su pantalla**, así que entran si no retrasan al lote 1 |
+
+**Frontend puede cablear el LOTE 1 sin leer el resto de §27.** Está entero en §27.1 y no depende de ninguna
+decisión del lote 2.
+
+**Destinatario, código por código** (aplica §26.1: *si el código **solo** existe en admin, la base **es** la
+del operador*):
+
+| Superficie | Códigos | Forma de la clave |
+|---|---|---|
+| **Solo admin** (11) | `ITEMS_NOT_DECIDED`, `OFFER_NOT_ALLOWED`, `OFFER_ALREADY_SENT`, `OFFER_LINES_MISMATCH`, `OFFER_LINE_NOT_PRICEABLE`, `OVERRIDE_REASON_REQUIRED`, `OFFER_NET_BELOW_MINIMUM`, `OFFER_PROJECTION_INCOMPLETE`, `ITEM_NOT_OFFERED`, `OFFERED_PRICE_MISSING`, `DECLINE_NOT_ALLOWED` | **la base es la del operador**; no hay `_OPERATOR` |
+| **Admin y cliente** (2) | `NO_LIVE_ADJUSTMENT`, `ADJUST_NOT_ALLOWED_IN_OFFER_CYCLE` | **base = cliente** + **`_OPERATOR`** |
+
+> **Selector de los dos desdobles — y NO es el problema de §26.3.** Aquí las dos variantes **salen de dos
+> endpoints distintos que llaman dos aplicaciones distintas**: el vendedor solo puede recibirlos desde
+> `POST /buylist/requests/:id/respond` (su portal) y el operador solo desde
+> `PATCH /admin/buylist/items/:itemId/decision` (verificación). **Regla normativa: en superficie admin se
+> resuelve SIEMPRE `_OPERATOR`; el bundle de cliente ni siquiera carga esa clave.** Esto **no** es inferir
+> por estado de pantalla (§26.3, petición 2 al arquitecto): es saber **qué aplicación hizo la llamada**, que
+> es un hecho del código, no una heurística. **No se pide discriminador en `details` para estos dos.**
+
+---
+
+### 27.1 ⛔ LOTE 1 — `ITEMS_NOT_DECIDED` (bloqueante; entrega independiente)
+
+**Qué es, según el contrato (§M5-V, `BL-45`) — y no se deduce del nombre.** `POST /admin/buylist/:id/pay-spei`
+rechaza el pago cuando, **dentro del ciclo de oferta**, queda al menos **una línea COMPRADA sin veredicto de
+verificación**. Existe porque **se podía pagar la oferta completa por cero cartas** —reproducido en vivo,
+**MX$320 por nada**— y porque una solicitud pagada sin veredictos deja la **mercancía imposible de convertir
+a inventario por ninguna ruta de la API**. Es, literalmente, **el paso del proceso que falta**: decidir cada
+carta comprada. `details: { sellRequestId, pendingDecisionItemIds: string[] }`; **no escribe nada y no paga**.
+
+⚠️ **Las líneas que NO compramos (`skip`) no llevan veredicto y no cuentan** — el servidor las excluye a
+propósito. Por eso el copy lo dice: sin esa media frase el operador sale a buscar cartas que **nunca** va a
+poder aprobar (`ITEM_NOT_OFFERED`, §27.2).
+
+#### 27.1.1 Las cadenas
+
+| Clave | ES | EN |
+|---|---|---|
+| `error.ITEMS_NOT_DECIDED` **(obligatoria)** | Antes de pagar hay que decidir cada carta que compramos, y en esta solicitud todavía quedan cartas sin decidir. Ve a la verificación y deja cada carta pendiente aprobada, o rechazada con su motivo; las que no compramos no llevan decisión. Cuando no quede ninguna, vuelve a pagar. No se guardó nada y no salió dinero. | Before paying, every card we bought has to be decided, and this request still has cards with no decision. Go to verification and leave each pending card approved, or rejected with a reason; the ones we did not buy need no decision. Once none are left, pay again. Nothing was saved and no money went out. |
+| `error.ITEMS_NOT_DECIDED_WITH_DETAILS` *(opcional, §27.1.2)* | Antes de pagar hay que decidir cada carta que compramos, y en esta solicitud {count, plural, one {queda # carta sin decidir} other {quedan # cartas sin decidir}}. Ve a la verificación y deja cada carta pendiente aprobada, o rechazada con su motivo; las que no compramos no llevan decisión. Cuando no quede ninguna, vuelve a pagar. No se guardó nada y no salió dinero. | Before paying, every card we bought has to be decided, and this request still has {count, plural, one {# card with no decision} other {# cards with no decision}}. Go to verification and leave each pending card approved, or rejected with a reason; the ones we did not buy need no decision. Once none are left, pay again. Nothing was saved and no money went out. |
+
+#### 27.1.2 De dónde sale `{count}` (normativo, y es el punto delicado)
+
+```
+count = details.pendingDecisionItemIds.length          ← la lista QUE MANDÓ EL SERVIDOR, en ESTE error
+```
+- **Se pinta `_WITH_DETAILS`** ⇔ `details.pendingDecisionItemIds` es un **array no vacío**. En cualquier otro
+  caso (ausente, no-array, vacío) ⇒ **se pinta la base**, jamás `{count}` crudo, `MISSING_MESSAGE` ni el
+  inglés del servidor. *La base dice lo mismo sin número y es una cadena completa por sí sola.*
+- ⛔ **NO se cuentan filas de la tabla para obtener el número.** §M5-V.5 lo prohíbe explícitamente: derivarlo
+  en el cliente metería **dos** reglas del servidor en el front (el set de estados «sin veredicto» **y** el
+  filtro de líneas compradas), y *la segunda es justo la que un lector se salta*. **Contar la longitud de una
+  lista que mandó el servidor no es derivar la regla: es leer su respuesta.** La distinción es la sección
+  entera.
+- ⛔ **En el banner de error NO se usa `pendingDecisionItemCount` del DTO.** Ese número es de **otra
+  pantalla y otro instante** (§27.1.4) y puede estar rancio respecto del `422` que se acaba de recibir. **El
+  error trae su propia cuenta; el DTO alimenta el estado preventivo.**
+
+#### 27.1.3 Por qué dice lo que dice (y no otra cosa)
+
+- **Abre por el paso que falta, no por el fallo.** *«Antes de pagar hay que decidir cada carta que
+  compramos»* enuncia **la regla del negocio** (`PROJECT.md` §P.5: *«dos desenlaces, no tres»*), no un
+  diagnóstico de avería. **No es un error del operador** —el botón estaba ahí— **ni un fallo del sistema**:
+  es trabajo pendiente. Por eso **no** se abre con *«El pago no salió»* (suena a caída) ni con *«No puedes
+  pagar»* (suena a permiso denegado). *La frase con la que empieza un mensaje decide si el lector busca a
+  quién llamar o dónde hacer clic.*
+- **Nombra la palanca y el sitio** (R-B): **la verificación**, y **los dos desenlaces exactos** —aprobada, o
+  rechazada **con su motivo**—. No dice «revisa las cartas»: revisar no es un acto que el sistema registre.
+- **Dice qué NO pasó, con las dos mitades** (R-C): *«No se guardó nada y **no salió dinero**»*. En la
+  pantalla del pago la segunda mitad es la que importa: sin ella, el súper-admin que ve un error tras pulsar
+  **Pagar** se queda sin saber si el SPEI salió, y **la reacción natural es no reintentar** (o peor: llamar
+  al banco).
+- **Excluye las `skip` en media frase.** *«Las que no compramos no llevan decisión»* evita el segundo error
+  encadenado (`ITEM_NOT_OFFERED`) y explica por qué el conteo puede ser **menor** que el número de líneas
+  que el operador ve sin decidir en la lista. *Un conteo que no cuadra con lo que se ve en pantalla es un
+  conteo que nadie vuelve a creer.*
+- **«Cuando no quede ninguna, vuelve a pagar»** cierra el bucle: el pago **no** se dispara solo al decidir la
+  última carta, y no prometemos que lo haga.
+- **Cero jerga** (prohibición 8 de §26.6): no aparecen *veredicto de verificación* como término técnico,
+  `offerDecision`, `itemStatus`, `pay-spei`, `422`, ni «invariante». **«Decidir» es el verbo que el operador
+  ya usa en esa pantalla.**
+
+#### 27.1.4 Dónde se pinta, y la cadena preventiva del botón apagado
+
+- **Superficie:** `Banner` `variant="danger"` (§7.5) **en el panel de pago del detalle de la solicitud en M5**
+  (`/admin/buylist/*`, visible solo a `super_admin`), **nunca un toast** (§8.3, dinero). `role="alert"`,
+  `aria-live="assertive"`, sin robar el foco, `aria-describedby` desde el botón que disparó el pago (§26.7).
+- ⚠️ **Este banner debería ser CASI inalcanzable, y aun así es obligatorio.** §M5-V.5 exige que
+  **`isPayable` refleje el término**, así que el botón de pagar tiene que estar **apagado** cuando falten
+  veredictos (*«un control activo que desinforma al que autoriza el dinero es peor que no tener control»*).
+  Se traduce igual **por la misma razón que `OFFER_PRICE_IMMUTABLE` en §26.4**: un error que solo aparece por
+  una carrera o por un defecto es **exactamente cuando más falta hace entenderlo**.
+- **Cadena preventiva (recomendada, no bloqueante) — la que explica el botón apagado.** Se alimenta de
+  **`AdminSellRequestDTO.pendingDecisionItemCount`** (server-side, admin-only). El nombre de la clave es de
+  frontend (`admin.m5.*`, §25.12); **el copy es de aquí**:
+
+| Clave (propuesta) | ES | EN |
+|---|---|---|
+| `admin.m5.pay.pendingDecisions` | {count, plural, one {Falta # carta por decidir} other {Faltan # cartas por decidir}} antes de poder pagar. | {count, plural, one {# card still needs a decision} other {# cards still need a decision}} before this can be paid. |
+
+  Va **debajo del botón de pagar deshabilitado**, en texto secundario (§3), y se referencia con
+  `aria-describedby` desde el botón — **un botón apagado sin motivo visible es un callejón**. Se muestra
+  ⇔ `pendingDecisionItemCount > 0`. ⛔ **No se calcula en el cliente** (§M5-V.5).
+
+---
+
+### 27.2 LOTE 2 — los doce códigos restantes del ciclo
+
+**A. Emisión de la oferta** — `POST /admin/buylist/:id/offer`. Todas se pintan en el **`Banner danger` del
+diálogo de emisión de la mesa (§25.6)**. Ninguna escribe nada.
+
+| Código | Qué pasó exactamente (contrato) | Palanca que nombra el texto |
+|---|---|---|
+| `OFFER_NOT_ALLOWED` (409) | la solicitud no está `cotizada` **y abierta** (`details: status, offerState`) | recargar y mirar el punto real; **cancelar la oferta viva** antes de emitir otra |
+| `OFFER_ALREADY_SENT` (409) | ya hay una oferta **enviada**. *Una oferta enviada **no se edita**: se cancela y se emite otra* (criterio 145) | **cancelar** (que es lo que manda el correo al vendedor) y **emitir de nuevo** |
+| `OFFER_LINES_MISMATCH` (422) | `lines` no cubre **exactamente** los ítems (`missingItemIds` / `unknownItemIds`) | **recargar** y marcar **cada** carta como comprada o no comprada |
+| `OFFER_LINE_NOT_PRICEABLE` (422) | línea `buy` **sin monto resoluble y sin override** (`details.itemIds`). **La oferta no sale a medias** — ⛔ nunca MX$0 | **precio a mano con su motivo**, o **marcarla como no comprada** |
+| `OVERRIDE_REASON_REQUIRED` (422) | hay precio a mano **distinto** del calculado y falta el motivo (3–500 car., `details.itemIds`). También cae aquí quien copió el calculado **y la curva se movió en medio** | **escribir el motivo**; y **revisar la cifra** si creía estar copiando el número calculado |
+| `OFFER_NET_BELOW_MINIMUM` (422) | el **neto** tras descontar la guía queda por debajo del mínimo (dial M10). `details` trae `grossShortfallCents` | **comprar más cartas** de la solicitud, o **declinarla**. ⛔ nunca «tocar la guía» |
+| `OFFER_PROJECTION_INCOMPLETE` (500) | **backstop**: no se pudo construir la oferta que vería el vendedor. **El operador no lo causó y no puede resolverlo**; no se emite, no se persiste, no sale correo, **ningún plazo empieza** | **reportar al equipo técnico** — ⛔ **no reintentar en bucle** |
+
+| Clave | ES | EN |
+|---|---|---|
+| `error.OFFER_NOT_ALLOWED` | Esta solicitud no está en punto de ofertar: solo se oferta una solicitud cotizada y abierta. Vuelve a cargarla para ver en qué punto está; si ya tiene una oferta viva, cancélala antes de emitir otra, y si ya cerró, no hay nada que ofertar. No se guardó nada. | This request is not at a point where an offer can be issued: only a quoted, open request can be offered. Reload it to see where it stands; if it already has a live offer, cancel that one before issuing another, and if it is already closed, there is nothing to offer. Nothing was saved. |
+| `error.OFFER_ALREADY_SENT` | Esta solicitud ya tiene una oferta enviada y el vendedor la tiene en sus manos. Una oferta enviada no se edita: si hay que cambiarla, cancélala —eso es lo que le avisa a él— y emite una nueva. No se guardó nada. | This request already has an offer out, and the seller has it in hand. An offer that has gone out is not edited: if it has to change, cancel it —that is what notifies the seller— and issue a new one. Nothing was saved. |
+| `error.OFFER_LINES_MISMATCH` | La oferta tiene que cubrir todas las cartas de la solicitud, ni una de más ni una de menos, y ésta no cuadra. Vuelve a cargar la solicitud, marca cada carta como comprada o no comprada, y emite otra vez. No se guardó nada. | An offer has to cover every card in the request, no more and no fewer, and this one does not match. Reload the request, mark every card as bought or not bought, and issue it again. Nothing was saved. |
+| `error.OFFER_LINE_NOT_PRICEABLE` | Hay cartas marcadas como compradas que se quedaron sin precio: no tenemos valor de mercado para ellas. Ponles un precio a mano con su motivo, o márcalas como no compradas; la oferta no sale a medias ni con precio cero. No se guardó nada y el vendedor no recibió aviso. | Some cards marked as bought were left with no price: we have no market value for them. Set a price by hand with its reason, or mark them as not bought; an offer does not go out half-priced or at zero. Nothing was saved and the seller was not notified. |
+| `error.OVERRIDE_REASON_REQUIRED` | Cambiaste el precio de una o más cartas respecto al calculado, y ese cambio lleva un motivo escrito (de 3 a 500 caracteres). Escríbelo en cada carta marcada y emite de nuevo. Si copiaste el precio calculado tal cual, revisa la cifra: pudo moverse mientras preparabas la oferta. No se guardó nada. | You changed the price of one or more cards from the calculated one, and that change needs a written reason (3 to 500 characters). Write it on each flagged card and issue the offer again. If you copied the calculated price as it was, check the figure: it may have moved while you were preparing the offer. Nothing was saved. |
+| `error.OFFER_NET_BELOW_MINIMUM` | Después de descontar la guía, al vendedor le quedaría menos del mínimo que manejamos, así que la oferta no salió. Compra más cartas de esta solicitud para subir el total, o declínala. No se guardó nada y el vendedor no recibió aviso. | After the shipping label is deducted, the seller would be left with less than our minimum, so the offer was not sent. Buy more cards from this request to raise the total, or decline it. Nothing was saved and the seller was not notified. |
+| `error.OFFER_PROJECTION_INCOMPLETE` | No pudimos armar la oferta que vería el vendedor, así que no se emitió nada. Esto no se corrige desde aquí: no se guardó nada, el vendedor no recibió aviso y ningún plazo empezó a correr. Repórtalo al equipo técnico con el número de solicitud, en vez de reintentar. | We could not build the offer the seller would see, so nothing was issued. This cannot be fixed from here: nothing was saved, the seller was not notified and no deadline started running. Report it to the tech team with the request number instead of retrying. |
+
+**B. Verificación carta por carta** — `PATCH /admin/buylist/items/:itemId/decision`. Se pintan en el
+**`Banner danger` de la fila/detalle de la carta**. Ninguna escribe nada.
+
+| Código | Qué pasó exactamente (contrato) | Palanca que nombra el texto |
+|---|---|---|
+| `ITEM_NOT_OFFERED` (422) | `approve` sobre una línea que **no compramos** (`skip` o sin decisión) dentro del ciclo | **ninguna sobre esa carta**: se deja como está. ⛔ **ni aprobarla con otro monto ni rechazarla** |
+| `OFFERED_PRICE_MISSING` (500) | **backstop**: línea `buy` **sin `offeredPriceCents`**. Viola un invariante que la emisión garantiza sin excepción ⇒ **el operador no lo causó** | **reportar al equipo técnico**. ⛔ **no «rescatar» con otro monto ni rechazar para salir del paso** |
+| `ADJUST_NOT_ALLOWED_IN_OFFER_CYCLE` (409) | `decision:"adjust"` dentro del ciclo — **ese verbo no existe aquí** (criterio 150) | los **dos** desenlaces: **aprobar tal como se ofertó** o **rechazar con su motivo** |
+| `NO_LIVE_ADJUSTMENT` (409) | la solicitud está en estado **terminal** (`pagada`, `rechazada`, `expirada`, `abandonada`) ⇒ no se toca ninguna de sus cartas | **escalar a un súper-admin**; desde la pantalla **no hay corrección** |
+
+⛔ **Los dos `409` ganan a todo lo demás de este endpoint** (precedencia del contrato: terminal ⇒
+`NO_LIVE_ADJUSTMENT` **gana** sobre `OFFER_PRICE_IMMUTABLE` y sobre `ADJUST_NOT_ALLOWED_IN_OFFER_CYCLE`).
+**El copy no repite la precedencia: cada cadena dice solo lo suyo.**
+
+| Clave | ES | EN |
+|---|---|---|
+| `error.ITEM_NOT_OFFERED` | Esta carta no entró en la compra: al emitir la oferta se marcó como no comprada, así que no se puede aprobar. Déjala como está —no la apruebes con otro monto ni la rechaces— y sigue con las cartas que sí compramos. No se guardó nada. | This card was not part of the purchase: it was marked as not bought when the offer went out, so it cannot be approved. Leave it as it is —do not approve it at some other amount and do not reject it— and move on to the cards we did buy. Nothing was saved. |
+| `error.OFFERED_PRICE_MISSING` | Esta carta se compró, pero no tiene registrado el precio que se ofertó, así que no se puede aprobar ni pagar. Es un fallo nuestro y no se corrige desde aquí: no la apruebes con otro monto ni la rechaces para salir del paso, porque eso le mandaría al vendedor un aviso falso. Repórtala al equipo técnico con el número de solicitud. No se guardó nada. | This card was bought, but the price we offered for it is not on record, so it cannot be approved or paid. This is on us and cannot be fixed from here: do not approve it at some other amount and do not reject it to move on, because that would send the seller a false notice. Report it to the tech team with the request number. Nothing was saved. |
+| `error.ADJUST_NOT_ALLOWED_IN_OFFER_CYCLE_OPERATOR` | En una solicitud con oferta enviada no existe ajustar el precio: los desenlaces son dos, aprobar la carta tal como se ofertó o rechazarla con su motivo. No se guardó nada. | In a request whose offer has already gone out, adjusting the price does not exist: there are two outcomes, approve the card exactly as offered or reject it with a reason. Nothing was saved. |
+| `error.NO_LIVE_ADJUSTMENT_OPERATOR` | Esta solicitud ya está cerrada —pagada, rechazada o vencida—, así que sus cartas ya no se tocan: ni la decisión ni el monto. Si algo quedó mal, escala la solicitud a un súper-admin; desde aquí no se corrige. No se guardó nada. | This request is already closed —paid, rejected or expired—, so its cards are not touched any more: neither the decision nor the amount. If something went wrong, escalate the request to a super-admin; it cannot be fixed from here. Nothing was saved. |
+
+**C. Las dos variantes de CLIENTE de los códigos desdoblados** — `POST /buylist/requests/:id/respond`
+(portal del vendedor). Se pintan **inline en el bloque de la solicitud**, como `PICKUP_ADDRESS_REQUIRED`
+(§25.3(j)). **Tono de cliente: sin «no se guardó nada»** —él no estaba guardando nada— **y sin escalados
+internos.**
+
+| Clave | ES | EN |
+|---|---|---|
+| `error.NO_LIVE_ADJUSTMENT` | Esta solicitud ya no tiene nada pendiente de tu respuesta: o ya respondiste, o ya cerró. Revisa su estado en tus ventas; si algo no te cuadra, escríbenos. | There is nothing left for you to respond to on this request: either you already answered, or it is closed. Check its status in your sales; if something does not look right, contact us. |
+| `error.ADJUST_NOT_ALLOWED_IN_OFFER_CYCLE` | Lo que te enviamos es una oferta de compra, no un ajuste de precio: respóndela desde el correo de la oferta o desde tus ventas, aceptándola o rechazándola completa. | What we sent you is a purchase offer, not a price adjustment: respond to it from the offer email or from your sales, accepting or declining it as a whole. |
+
+**D. Cierre de la solicitud** — `POST /admin/buylist/:id/decline`. `Banner danger` en el detalle de M5.
+
+| Clave | ES | EN |
+|---|---|---|
+| `error.DECLINE_NOT_ALLOWED` | Esta solicitud no se puede declinar en el punto en que está. Si ya tiene una oferta enviada, la vía es cancelar la oferta, que es el aviso que le corresponde al vendedor; si ya cerró, no hay nada que declinar. Vuelve a cargarla para ver su estado. No se guardó nada. | This request cannot be declined at the point it is in. If an offer has already gone out, the way is to cancel that offer, which is the notice the seller should get; if it is already closed, there is nothing to decline. Reload it to see its status. Nothing was saved. |
+
+### 27.3 Opcionales con cifras (`_WITH_DETAILS`) — misma regla que §26.5
+
+**No son obligatorias.** Se implementan **solo** si el `DETAILED_ERRORS` de `useErrorMessage` ya sabe
+formatear ese `details`; si falta cualquier dato, **se pinta la base** (nunca `MX$ undefined` ni `{count}`
+crudo). Montos con §9.3 (centavos → `MX$ 1,250.00`), **nunca concatenados**.
+
+| Clave | ES | EN |
+|---|---|---|
+| `error.ITEMS_NOT_DECIDED_WITH_DETAILS` | *(ver §27.1.1 — es la única opcional del lote bloqueante)* | *(ídem)* |
+| `error.OFFER_NET_BELOW_MINIMUM_WITH_DETAILS` | Después de descontar la guía, al vendedor le quedaría menos del mínimo que manejamos: faltan {shortfallAmount} de compra para poder emitir, así que la oferta no salió. Compra más cartas de esta solicitud, o declínala. No se guardó nada y el vendedor no recibió aviso. | After the shipping label is deducted, the seller would be left with less than our minimum: the purchase is {shortfallAmount} short of what it takes to issue, so the offer was not sent. Buy more cards from this request, or decline it. Nothing was saved and the seller was not notified. |
+
+- **`{shortfallAmount}` = `details.grossShortfallCents` formateado.** Es **exactamente** el número que el
+  contrato calculó *«para el copy»* y **es la palanca en cifras**: dice cuánto más hay que comprar. ⛔ **No se
+  interpolan `grossCents`, `netCents` ni `minimumNetCents`**: tres números en un banner de dinero se leen
+  peor que uno, y solo uno responde *«¿cuánto me falta?»*.
+- **⛔ Nada de cifras en las cadenas de emisión restantes.** `OFFER_LINES_MISMATCH` y
+  `OFFER_LINE_NOT_PRICEABLE` traen **listas de ids**: los ids **no se pintan nunca** (§26.6, prohibición 8) y
+  un conteo ahí no cambia la acción —el operador ve las cartas marcadas en el mismo diálogo—. *En
+  `ITEMS_NOT_DECIDED` el conteo sí sirve porque el trabajo está **en otra pantalla**.*
+
+### 27.4 Reglas heredadas, longitud y prohibiciones nuevas
+
+- **§27 hereda íntegras** las tres reglas duras (§26.0), la convención de claves (§26.1), la lista de
+  prohibiciones (§26.6) y las reglas de superficie/accesibilidad (§26.7). **No se repiten aquí.**
+- **Cierre obligatorio de rechazo sin escritura** (R-C): todas las de operador terminan en **«No se guardó
+  nada.»** / “Nothing was saved.”; **`ITEMS_NOT_DECIDED` añade «y no salió dinero»** (es la única que se
+  dispara con el dedo sobre el botón de pagar), y **las tres de emisión que el operador puede confundir con
+  una oferta ya enviada** (`OFFER_LINE_NOT_PRICEABLE`, `OFFER_NET_BELOW_MINIMUM`,
+  `OFFER_PROJECTION_INCOMPLETE`) añaden **«y el vendedor no recibió aviso»**, igual que
+  `INE_REQUIRED_OPERATOR` en §26.2.
+- **Longitud (§9.4).** La más larga de §27 es **`error.OFFERED_PRICE_MISSING` (≈ 340 car. ES / ≈ 350 EN)**,
+  seguida de `ITEMS_NOT_DECIDED_WITH_DETAILS` (≈ 330 / ≈ 330). **Superan a `INE_REQUIRED_OPERATOR`, que §26.7
+  daba como tope: el contenedor del banner se dimensiona ahora por éstas, y por EN.** **Sin alto fijo, sin
+  `line-clamp`, sin «ver más»** — *la mitad que se corta es siempre la del remedio, que va al final*.
+- **Prohibiciones NUEVAS** (se suman a las diez de §26.6; misma lista cerrada revisable en PR):
+
+  11. ⛔ **Sugerir «paga ahora y decide después»**, o cualquier orden que insinúe que los veredictos se pueden
+      dar tras el pago. **No existe:** los ítems se sellan al cerrar la solicitud y después **solo queda
+      escribir en la base a mano**.
+  12. ⛔ **Mandar a rechazar una carta para desbloquear algo** (un pago, un conteo, una pantalla). `rechazada`
+      **ancla los plazos de devolución y manda un correo por carta al vendedor**: usarlo para cuadrar un
+      predicado le manda al vendedor **un aviso falso**.
+  13. ⛔ **Decir «reintenta» en los dos `500`** (`OFFER_PROJECTION_INCOMPLETE`, `OFFERED_PRICE_MISSING`). El
+      operador no los causó y no los puede resolver: el acto correcto es **reportar**. *Un backstop que
+      invita a reintentar se vuelve parte del flujo.*
+  14. ⛔ **Culpar al operador en los dos `500`** — y, en el mismo movimiento, ⛔ **culparlo en
+      `ITEMS_NOT_DECIDED`**, que **no es un fallo ni un descuido**: con M-46 el ciclo feliz **termina en
+      verificación**, así que las líneas sin decidir son **el estado por defecto de no haber terminado
+      todavía**, no un error de nadie.
+  15. ⛔ **Derivar el conteo en el cliente** (§27.1.2), y ⛔ **pintar ids** (`pendingDecisionItemIds`,
+      `missingItemIds`, `unknownItemIds`, `itemIds`) en superficie visible.
+
+### 27.5 Paridad ES/EN y verificación
+
+1. **Paridad estricta: 15 claves obligatorias** en `es.json` **y** `en.json` con el mismo árbol — 11 bases de
+   admin, 2 bases de cliente y 2 `_OPERATOR`. Las de sufijo **se añaden a mano a los dos catálogos** (no se
+   derivan de ningún código del contrato). Opcionales: 2. Preventiva: 1.
+2. **El defecto que cierra el lote 1, por lo negativo:** `grep -R "Payment requires a verification verdict"
+   frontend/` ⇒ **cero resultados**, y **ningún E2E de admin puede afirmar inglés de servidor** en el panel de
+   pago (misma regla que §26.8.5).
+3. **Plural del conteo:** provocar `ITEMS_NOT_DECIDED` con **1** línea pendiente y con **3**, en ES y en EN, y
+   comprobar las cuatro formas. Con `details` **sin** `pendingDecisionItemIds` ⇒ **sale la base**, no
+   `MISSING_MESSAGE`.
+4. **Coherencia conteo ↔ realidad:** en una oferta **con cherry-pick** (líneas `skip`) y **una sola** línea
+   comprada sin decidir, el banner dice **1** aunque en la lista se vean varias filas sin veredicto. *Si dice
+   otra cosa, el número se está derivando en el cliente.*
+5. **El preventivo gana al banner:** con `pendingDecisionItemCount > 0`, el botón de pagar está **apagado** y
+   se ve la cadena de §27.1.4. **En el camino normal el operador nunca debería llegar al banner** (assert 8
+   de §M5-V.8). Si lo ve en un E2E sin carrera, **es un defecto de frontend**, no de copy.
+6. **Los doce del lote 2:** provocar cada uno en staging y comprobar que el banner sale **en el idioma de la
+   sesión**. *(Misma verificación honesta de §26.8.3: verlo en pantalla.)*
+
+### 27.6 Notas a otros roles (**ninguna bloquea el lote 1**)
+
+1. **Frontend — el lote 1 es autocontenido.** Una clave obligatoria, una opcional y una preventiva; el
+   `{count}` sale de `details.pendingDecisionItemIds.length` y **de nada más** (§27.1.2). Si tu
+   `DETAILED_ERRORS` aún no compone `_WITH_DETAILS` sobre este código, **se omite sin deuda**: la base es una
+   cadena completa.
+2. **Frontend — orden de resolución de los dos desdobles.** En superficie admin, `_OPERATOR` se resuelve
+   **antes** que la base, y **la clave `_OPERATOR` no viaja al bundle de cliente**. No hace falta mirar
+   `details` para elegir (§27.0).
+3. **⚠ Arquitecto — confirmación (no petición): ¿`pendingDecisionItemCount` viaja en el DTO que ya pide la
+   pantalla de pago?** §M5-V.5 lo declara en `AdminSellRequestDTO` (admin-only). Si el panel de pago se
+   alimenta de un DTO de **lista** que no lo trae, la cadena preventiva de §27.1.4 no se puede pintar y el
+   operador vuelve a un botón apagado sin motivo. **No bloquea el copy; sí bloquea el preventivo.**
+4. **⚠ Arquitecto / PO — `ITEM_NOT_OFFERED` no puede decirle al operador qué pasa con esas cartas.** El copy
+   dice *«déjala como está»* y **se para ahí a propósito**: no consta en el contrato qué recorrido físico
+   siguen las líneas `skip` (§H ancla los relojes de devolución sobre las **rechazadas**). Si esas cartas se
+   devuelven con el mismo envío, **media frase más cierra el mensaje** —y también la pregunta que el operador
+   le va a hacer al vendedor por teléfono—. **No bloquea.**
+5. **PO — dos frases que definen comportamiento de mesa, no diseño.** *«escala la solicitud a un
+   súper-admin»* (`NO_LIVE_ADJUSTMENT_OPERATOR`, misma frase ratificada en §26.3) y *«Repórtalo al equipo
+   técnico con el número de solicitud»* (los dos `500`): la segunda **supone que existe un canal de reporte
+   con nombre**. Si se llama de otra forma en la operación real, **es un cambio de dos palabras** en cuatro
+   cadenas.
+6. **QA — el assert de copy que vale, y no es de i18n:** montar el ciclo, **no decidir ninguna línea**, pulsar
+   pagar y comprobar **las tres cosas a la vez**: que el banner está **en español**, que el número coincide
+   con las líneas **compradas** sin veredicto (⛔ **no** con todas las líneas sin veredicto: las `skip` no
+   cuentan) y que **no salió dinero** (`paidAt`, `speiReference`, `payoutNetCents` intactos). *Si el número
+   cuenta las `skip`, el copy es correcto y el cableado no.*

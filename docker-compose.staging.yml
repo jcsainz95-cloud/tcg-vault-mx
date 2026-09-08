@@ -177,7 +177,7 @@ services:
       # default de código (P-21: `soporte@tcghunt.mx`, backend/src/modules/disputes).
       DISPUTE_EVIDENCE_CONTACT: ${DISPUTE_EVIDENCE_CONTACT:-}
       POKEMONTCG_IO_API_KEY: ${POKEMONTCG_IO_API_KEY:-}
-      # ⚠️ v1.51 (M-46): staging es donde corre la suite E2E, y el arnés ENCIENDE el
+      # ⚠️ v1.51 (M-48): staging es donde corre la suite E2E, y el arnés ENCIENDE el
       # dial único en cada corrida. Con llave viva aquí, cada corrida del gate pagaría
       # créditos y escribiría precios automáticos (§4.38r.6.1). El default vacío es
       # DELIBERADO y es la incapacitación preferida (cero peticiones al proveedor).
@@ -201,6 +201,15 @@ services:
       # emailVerified:true, asi que un dummy no bloquea comprar/vender/retirar. En el
       # staging real la inyecta el secret manager (nunca una clave real de prod).
       RESEND_API_KEY: ${RESEND_API_KEY:-re_staging_dummy_key_for_local_testing}
+      # Remitente y buzón de soporte de los correos (incluidos los del buylist). Vacíos = el
+      # backend cae a sus defaults de código / a la cadena SUPPORT_EMAIL >
+      # DISPUTE_EVIDENCE_CONTACT > default. Pass-through: `environment:` es allow-list.
+      MAIL_FROM: ${MAIL_FROM:-}
+      SUPPORT_EMAIL: ${SUPPORT_EMAIL:-}
+      # CTA de los correos del buylist. MISMA URL que APP_BASE_URL de staging (arriba).
+      # ACTIVA desde 2026-09-01 (la ruta del portal ya existe, §35.4-bis). Vaciar la variable
+      # es el rollback: el botón vuelve a degradar a instrucción de texto.
+      APP_PUBLIC_URL: ${STAGING_APP_PUBLIC_URL:-http://localhost:3010}
       DEFAULT_LOCALE: ${DEFAULT_LOCALE:-es}
     ports:
       - "${STAGING_BACKEND_PORT:-3011}:3001"

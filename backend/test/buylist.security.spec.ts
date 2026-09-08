@@ -4,6 +4,9 @@ import { BuylistService } from '../src/modules/buylist/buylist.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { PricingService } from '../src/modules/pricing/pricing.service';
 import { SettingsService } from '../src/modules/settings/settings.service';
+// v1.51.20 · BL-26: la puerta de `createRequest` (celular + dirección + mínimo) en un solo sitio.
+import { GATE_ADDRESS_ID, buylistGateMocks } from './helpers/buylist-create-gate';
+import { matchesWhere } from './helpers/prisma-where';
 import { UsersService } from '../src/modules/users/users.service';
 import { PiiCryptoService } from '../src/common/crypto/pii-crypto.service';
 import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
@@ -28,6 +31,7 @@ function buildPricing(referenceMxnCents: number | null): PricingService {
     // puede divergir de producción ni reimplementar la matemática.
     decideSalePrice: jest.fn(PricingService.prototype.decideSalePrice),
     gradeKeyFor: jest.fn().mockReturnValue('raw:NM'),
+    tryGradeKeyFor: jest.fn().mockReturnValue('raw:NM'),
     getReference: jest.fn().mockResolvedValue(
       referenceMxnCents == null
         ? { status: 'pending' }
@@ -77,9 +81,11 @@ describe('BuylistService.createRequest — SEC-A1 regla derivada del servidor', 
           return rows.filter(Boolean);
         }),
       },
+      // v1.51.20 · BL-26: vendedor con celular y dirección propia (la puerta se prueba por HTTP).
+      ...buylistGateMocks('user-1'),
       kycProfile: { findUnique: jest.fn().mockResolvedValue(null), upsert: jest.fn() },
       sellRequest: {
-        aggregate: jest.fn().mockResolvedValue({ _sum: { quotedTotalCents: 0 } }),
+        findMany: jest.fn(async () => []), // M-46 §4.39c: acumulado mensual = findMany+reduce (COALESCE de 2 columnas)
         create: jest.fn(async ({ data }: any) => ({
           id: 'sr-1',
           status: data.status,
@@ -114,6 +120,8 @@ describe('BuylistService.createRequest — SEC-A1 regla derivada del servidor', 
       // El cliente ya NO envía category; aunque colara un campo extra, el backend lo ignora.
       [{ cardId: 'card-common', productType: 'raw' as any, rawCondition: 'NM' as any }],
       VALID_CLABE,
+      undefined,
+      GATE_ADDRESS_ID,
     );
 
     // v2.0 (P-48): el monto se deriva del MERCADO REAL de la variante (SEC-A1), no de nada del DTO.
@@ -138,9 +146,11 @@ describe('BuylistService.createRequest — SEC-A2 tope mensual atómico (TOCTOU)
           return rows.filter(Boolean);
         }),
       },
+      // v1.51.20 · BL-26: vendedor con celular y dirección propia (la puerta se prueba por HTTP).
+      ...buylistGateMocks('u'),
       kycProfile: { findUnique: jest.fn().mockResolvedValue(null), upsert: jest.fn() },
       sellRequest: {
-        aggregate: jest.fn().mockResolvedValue({ _sum: { quotedTotalCents: 0 } }),
+        findMany: jest.fn(async () => []), // M-46 §4.39c: acumulado mensual = findMany+reduce (COALESCE de 2 columnas)
         create: jest.fn(async ({ data }: any) => ({ id: 'sr', status: data.status, quotedTotalCents: data.quotedTotalCents, items: [] })),
       },
       $transaction: jest.fn(async (cb: any, opts: any) => {
@@ -151,11 +161,11 @@ describe('BuylistService.createRequest — SEC-A2 tope mensual atómico (TOCTOU)
     // v2.0 (P-48): sin mercado la línea queda `precio_pendiente` y dispara el gate de INE (Fase 0.3),
     // ruido ajeno a lo que este caso verifica (aislamiento serializable). Se le da mercado.
     const svc = new BuylistService(prisma as PrismaService, buildPricing(1000), buildSettings(100_000_000), {} as UsersService, pii);
-    await svc.createRequest('u', [{ cardId: 'c', productType: 'raw' as any }], VALID_CLABE);
+    await svc.createRequest('u', [{ cardId: 'c', productType: 'raw' as any }], VALID_CLABE, undefined, GATE_ADDRESS_ID);
 
     expect(txOpts?.isolationLevel).toBe(Prisma.TransactionIsolationLevel.Serializable);
     // El aggregate del acumulado se ejecuta con el cliente transaccional (dentro de $transaction).
-    expect(prisma.sellRequest.aggregate).toHaveBeenCalled();
+    expect(prisma.sellRequest.findMany).toHaveBeenCalled();
   });
 
   it('dos solicitudes concurrentes cerca del tope: solo una se crea (no excede el tope)', async () => {
@@ -173,9 +183,15 @@ describe('BuylistService.createRequest — SEC-A2 tope mensual atómico (TOCTOU)
             return rows.filter(Boolean);
           }),
         },
+        // v1.51.20 · BL-26: vendedor con celular y dirección propia.
+        ...buylistGateMocks('u'),
         kycProfile: { findUnique: jest.fn().mockResolvedValue(null), upsert: jest.fn() },
         sellRequest: {
-          aggregate: jest.fn(async () => ({ _sum: { quotedTotalCents: shared.createdTotalCents } })),
+          // M-46 §4.39c: el acumulado se reduce en memoria; una fila con el total acumulado equivale
+          // al `_sum` previo. `offerGrossCents: null` = sin oferta emitida ⇒ manda `quotedTotalCents`.
+          findMany: jest.fn(async () => [
+            { offerGrossCents: null, quotedTotalCents: shared.createdTotalCents },
+          ]),
           create: jest.fn(async ({ data }: any) => {
             shared.createdTotalCents += data.quotedTotalCents;
             return { id: 'sr', status: data.status, quotedTotalCents: data.quotedTotalCents, items: [] };
@@ -190,8 +206,10 @@ describe('BuylistService.createRequest — SEC-A2 tope mensual atómico (TOCTOU)
 
     const item = [{ cardId: 'c', productType: 'raw' as any }];
     // Serializable ⇒ efectivamente secuencial: la primera pasa, la segunda ve el acumulado.
-    await build().createRequest('u', item, VALID_CLABE);
-    await expect(build().createRequest('u', item, VALID_CLABE)).rejects.toMatchObject({
+    await build().createRequest('u', item, VALID_CLABE, undefined, GATE_ADDRESS_ID);
+    await expect(
+      build().createRequest('u', item, VALID_CLABE, undefined, GATE_ADDRESS_ID),
+    ).rejects.toMatchObject({
       code: 'BUYLIST_LIMIT_EXCEEDED',
     });
     expect(shared.createdTotalCents).toBe(300); // solo UNA solicitud creada
@@ -242,8 +260,17 @@ describe('BuylistService.convertToInventory — SEC-A3 doble conversión', () =>
     const res1 = await svc.convertToInventory('sri-1', 'actor');
     const res2 = await svc.convertToInventory('sri-1', 'actor');
 
-    expect(res1).toEqual({ inventoryItemId: 'inv-1', folio: 'INV-000001' });
-    expect(res2).toEqual({ inventoryItemId: 'inv-1', alreadyConverted: true });
+    expect(res1).toEqual({
+      inventoryItemId: 'inv-1',
+      folio: 'INV-000001',
+      alreadyConverted: false,
+      pendingPublish: { missing: ['location', 'price'] },
+    });
+    expect(res2).toEqual({
+      inventoryItemId: 'inv-1',
+      alreadyConverted: true,
+      pendingPublish: { missing: ['location', 'price'] },
+    });
     expect(prisma.inventoryItem.create).toHaveBeenCalledTimes(2);
     // Solo se materializó UN InventoryItem.
     expect(shared.createdId).toBe('inv-1');
@@ -257,7 +284,7 @@ describe('BuylistService.paySpei — SEC-M5 idempotencia + guardia de estado', (
       // Sin KYC override y sin pagos previos del mes, el control es no-op y el pago procede.
       kycProfile: { findUnique: jest.fn().mockResolvedValue(null) },
       sellRequest: {
-        findUnique: jest.fn().mockResolvedValue({ id: 'sr', status: 'pagada', verifiedAt: new Date() }),
+        findUnique: jest.fn().mockResolvedValue({ id: 'sr', status: 'pagada', receivedAt: new Date(), verifiedAt: new Date(), approvedTotalCents: 50_000 }),
         updateMany: jest.fn(),
         update: jest.fn(),
         findMany: jest.fn().mockResolvedValue([]), // AML-1: pagos previos del mes (ninguno).
@@ -270,6 +297,20 @@ describe('BuylistService.paySpei — SEC-M5 idempotencia + guardia de estado', (
   });
 
   it('transición aprobada→pagada por updateMany atómico (count===1) con guardia de estado', async () => {
+    // ⚠️ v1.61.1 · B1 — la fila del fake lleva **todas** las columnas que el `where` afirma. Sin
+    // ellas, evaluarlo daría `false` por la razón equivocada (una columna ausente no casa con nada).
+    const fila = {
+      id: 'sr',
+      status: 'aprobada',
+      receivedAt: new Date(),
+      verifiedAt: new Date(),
+      approvedTotalCents: 50_000,
+      offerGrossCents: null,
+      quotedTotalCents: 50_000,
+      offerShippingFeeCents: null,
+      paidAt: null,
+      closedAt: null,
+    };
     const prisma: any = {
       // v2.1.6 (AML-1, §4.36.6a): `paySpei` re-verifica el tope MENSUAL contra el dinero que SALE.
       // Sin KYC override y sin pagos previos del mes, el control es no-op y el pago procede.
@@ -277,8 +318,8 @@ describe('BuylistService.paySpei — SEC-M5 idempotencia + guardia de estado', (
       sellRequest: {
         findUnique: jest
           .fn()
-          .mockResolvedValueOnce({ id: 'sr', status: 'aprobada', verifiedAt: new Date() })
-          .mockResolvedValue({ id: 'sr', status: 'pagada', verifiedAt: new Date() }),
+          .mockResolvedValueOnce({ ...fila })
+          .mockResolvedValue({ ...fila, status: 'pagada' }),
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
         findMany: jest.fn().mockResolvedValue([]), // AML-1: pagos previos del mes (ninguno).
       },
@@ -290,8 +331,16 @@ describe('BuylistService.paySpei — SEC-M5 idempotencia + guardia de estado', (
     const svc = new BuylistService(prisma as PrismaService, {} as PricingService, { getNumber: jest.fn(async () => 100_000_000) } as unknown as SettingsService, {} as UsersService, pii);
     const res = await svc.paySpei('sr', 'SPEI-REF', 'admin');
     expect(res).toMatchObject({ status: 'pagada' });
-    const call = prisma.sellRequest.updateMany.mock.calls[0][0];
-    expect(call.where.status.in).toEqual(expect.arrayContaining(['aprobada', 'verificacion']));
-    expect(call.where.verifiedAt).toEqual({ not: null });
+    // ⚠️⚠️ v1.61.1 · **B1** — el `where` se afirma EVALUÁNDOLO, no leyendo sus claves planas: se
+    // compone de fragmentos y un `toMatchObject` no ve el que se pierde (así vivió V-a ausente una
+    // versión entera). `matchesWhere` entiende `AND`, que es como viajan los fragmentos.
+    const w = prisma.sellRequest.updateMany.mock.calls[0][0].where;
+    expect(matchesWhere(fila, w)).toBe(true);
+    expect(matchesWhere({ ...fila, status: 'cotizada' }, w)).toBe(false);
+    expect(matchesWhere({ ...fila, status: 'verificacion' }, w)).toBe(true);
+    // ⚠️ v1.57 · §M5-P — `receivedAt` es el término que cierra BL-35 eje 2 (se pagó MX$320 reales
+    // por una carta nunca recibida). ⚠️ v1.61 · §M5-V — `approvedTotalCents` es V-a.
+    expect(matchesWhere({ ...fila, receivedAt: null }, w)).toBe(false);
+    expect(matchesWhere({ ...fila, verifiedAt: null }, w)).toBe(false);
   });
 });

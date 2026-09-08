@@ -30,7 +30,9 @@ const CAP = 300_000; // MX$3,000 al mes
 
 function harness(opts: {
   request: Record<string, unknown>;
-  paidThisMonth?: Array<{ approvedTotalCents: number | null; quotedTotalCents: number | null }>;
+  // v1.51.22 (B-5): las filas del acumulado llevan LOS TRES términos de `brutoConsumado`. El tipo
+  // viejo solo declaraba dos y por eso `offerGrossCents` —el que M-46 añadió— no se podía ejercitar.
+  paidThisMonth?: Array<Record<string, unknown>>;
   capOverride?: number | null;
 }) {
   const seen: Array<Record<string, unknown>> = [];
@@ -69,8 +71,14 @@ const APROBADA = (over: Record<string, unknown> = {}) => ({
   id: 'sr-1',
   userId: 'u1',
   status: 'aprobada',
+  // ⚠️ v1.57 · §M5-P — «pagable» son TRES términos: sin `receivedAt` esta fila ya no lo es.
+  receivedAt: new Date(),
   verifiedAt: new Date(),
   quotedTotalCents: 0,
+  // v1.51.22 (B-5): el término CENTRAL de la cascada, explícito. Sin él en la fila base, ninguna
+  // prueba de esta suite podía tocarlo.
+  offerGrossCents: null,
+  offerShippingFeeCents: null,
   approvedTotalCents: null,
   ...over,
 });
@@ -111,13 +119,18 @@ describe('AML-1 — el pago SPEI re-verifica el tope MENSUAL contra lo aprobado'
     expect((h.prisma.sellRequest as { updateMany: jest.Mock }).updateMany).toHaveBeenCalled();
   });
 
-  it('sin cherry-pick (`approvedTotalCents = null`) manda lo COTIZADO', async () => {
+  it('⚠️ v1.61 · §M5-V — con `approvedTotalCents = null` NI SIQUIERA se llega al tope: no se paga', async () => {
+    // **La premisa se invirtió.** Decía *«sin cherry-pick manda lo COTIZADO»*: el término 3 de la
+    // cascada gobernando un pago con cero decisiones por-carta. **V-a lo vuelve inalcanzable en el
+    // instante del pago** — la escalera de §M5-V.6 responde antes de que el tope mensual se evalúe.
+    // ⚠️ Se afirma **el orden**, no solo el rechazo: el AML no puede ser lo que salve una fila sin
+    // aprobar (con un tope más alto, pagaría).
     const h = harness({
       request: APROBADA({ quotedTotalCents: 400_000, approvedTotalCents: null }),
     });
     const err = await h.svc.paySpei('sr-1', 'SPEI-1', 'admin').catch((e) => e);
-    expect(err.code).toBe('BUYLIST_LIMIT_EXCEEDED');
-    expect(err.getResponse()).toMatchObject({ details: { wouldBeCents: 400_000 } });
+    expect(err.code).toBe('VALIDATION_ERROR');
+    expect((h.prisma.sellRequest as { updateMany: jest.Mock }).updateMany).not.toHaveBeenCalled();
   });
 
   it('lo APROBADO manda sobre lo cotizado (es lo que realmente sale)', async () => {
@@ -133,9 +146,28 @@ describe('AML-1 — el pago SPEI re-verifica el tope MENSUAL contra lo aprobado'
     const h = harness({ request: APROBADA({ approvedTotalCents: 1000 }) });
     await h.svc.paySpei('sr-1', 'SPEI-1', 'admin');
     // Una solicitud de diciembre pagada en enero consume tope de ENERO, que es cuando sale el dinero.
-    expect(h.seen[0]).toMatchObject({ userId: 'u1', status: 'pagada' });
+    expect(h.seen[0]).toMatchObject({ userId: 'u1' });
     expect(h.seen[0]).toHaveProperty('paidAt');
     expect(h.seen[0]).not.toHaveProperty('createdAt');
+  });
+
+  /**
+   * ⚠️⚠️ v1.56 · **§M5-T / BL-35 — EL SEGUNDO IMPACTO DE LA CRÍTICA P1, EN UN ASSERT.**
+   *
+   * El acumulado exigía **`status='pagada'`**, así que durante la reactivación del PoC la fila
+   * **salía del acumulado**: cada re-pago se evaluaba contra una cifra **que no incluía el dinero ya
+   * entregado**, y el tope mensual se podía rebasar sin que ningún control lo notara.
+   *
+   * Se afirma la **AUSENCIA** del término, que es lo que la regresión traería de vuelta: un
+   * `toMatchObject` con `paidAt` pasaría igual con el `status` puesto. `paidAt >= inicio de mes` ya
+   * excluye los `null`, así que quitarlo es un **superconjunto estricto** — cero regresión sobre fila
+   * sana, y sobre la fila defectuosa **cuenta el dinero que de verdad salió** (falla cerrado).
+   */
+  it('⚠️ P1: el acumulado NO exige `status:"pagada"` — una fila revivida NO puede salirse del tope', async () => {
+    const h = harness({ request: APROBADA({ approvedTotalCents: 1000 }) });
+    await h.svc.paySpei('sr-1', 'SPEI-1', 'admin');
+    expect(h.seen[0]).not.toHaveProperty('status');
+    expect(Object.keys(h.seen[0]).sort()).toEqual(['paidAt', 'userId']);
   });
 
   it('el override de KYC del VENDEDOR manda sobre el dial global (mismo criterio que el intake)', async () => {
@@ -162,5 +194,109 @@ describe('AML-1 — el pago SPEI re-verifica el tope MENSUAL contra lo aprobado'
     expect(res).toMatchObject({ status: 'pagada' });
     expect((h.prisma.sellRequest as { updateMany: jest.Mock }).updateMany).not.toHaveBeenCalled();
     expect(h.prisma.$transaction).not.toHaveBeenCalled();
+  });
+});
+
+// =============================================================================================
+/**
+ * v1.51.22 · **B-5 — EL BORDE DEL TOPE ANTILAVADO, POR LOS DOS LADOS.**
+ *
+ * ### El hueco de cobertura, medido
+ * Esta suite probaba **MX$4,000** (muy por encima) y **MX$2,000** (muy por debajo) contra un tope de
+ * **MX$3,000**, más el borde exacto `== cap` **por el lado que PASA**. Le faltaba **el filo por el
+ * lado que RECHAZA**: mutar `> capPerMonth` a `> capPerMonth + 1` dejaba **58/58 verde** en payout y
+ * **605/605** en intake. *Un off-by-one en un control antilavado se habría publicado en verde.*
+ *
+ * ### Por qué entra en este pase aunque el spec sea heredado
+ * Esta rama **cambió la cascada que lo alimenta**: `brutoConsumado` pasó de dos términos a **tres**
+ * (`approvedTotalCents ?? offerGrossCents ?? quotedTotalCents`, §4.39i.4-bis). El universo de montos
+ * que el control mide se movió, así que su borde hay que volver a medirlo — y hay que medirlo **con
+ * el término nuevo**, no solo con los dos viejos.
+ *
+ * ### La regla, escrita como la mata una mutación
+ * ```
+ * acumulado + enCurso  <  cap   ⇒ PASA
+ * acumulado + enCurso  == cap   ⇒ PASA   («no más de X», no «menos de X»)
+ * acumulado + enCurso  == cap+1 ⇒ FRENA  ⚠️ el filo que faltaba
+ * ```
+ * Los tres juntos **fijan la comparación exacta**: `>=` muere en el segundo, `> cap + 1` muere en el
+ * tercero, y `<` en el primero.
+ */
+describe('B-5 — el FILO del tope mensual (un centavo a cada lado)', () => {
+  /** `[yaPagado, enCurso, pasa, rótulo]` — el tope es `CAP` = MX$3,000. */
+  const FILO: [number, number, boolean, string][] = [
+    [200_000, 99_999, true, 'un centavo POR DEBAJO del tope'],
+    [200_000, 100_000, true, 'EXACTAMENTE el tope: el borde es INCLUSIVO'],
+    [200_000, 100_001, false, '⚠️ UN CENTAVO POR ENCIMA: el filo que faltaba'],
+    [0, CAP + 1, false, 'el filo también con el acumulado en cero'],
+    [CAP, 1, false, 'y con el acumulado ya EN el tope: un centavo más no cabe'],
+  ];
+
+  it.each(FILO)(
+    'yaPagado=%i + enCurso=%i ⇒ pasa=%s — %s',
+    async (yaPagado, enCurso, pasa) => {
+      const h = harness({
+        request: APROBADA({ approvedTotalCents: enCurso }),
+        paidThisMonth: yaPagado > 0 ? [{ approvedTotalCents: yaPagado, quotedTotalCents: 0 }] : [],
+      });
+      const updateMany = (h.prisma.sellRequest as { updateMany: jest.Mock }).updateMany;
+      if (pasa) {
+        await h.svc.paySpei('sr-1', 'SPEI-1', 'admin');
+        expect(updateMany).toHaveBeenCalled();
+      } else {
+        const err = await h.svc.paySpei('sr-1', 'SPEI-1', 'admin').catch((e) => e);
+        expect(err).toBeInstanceOf(BusinessException);
+        expect(err.code).toBe('BUYLIST_LIMIT_EXCEEDED');
+        expect(err.getResponse()).toMatchObject({
+          details: { scope: 'per_month_payout', capCents: CAP, wouldBeCents: yaPagado + enCurso },
+        });
+        // Y lo que de verdad importa: NO salió un peso.
+        expect(updateMany).not.toHaveBeenCalled();
+      }
+    },
+  );
+
+  it('⚠️ el filo se mide con el término CENTRAL de la cascada (`offerGrossCents`), en los DOS lados', async () => {
+    // Es el término que M-46 añadió y el que el override al alza (D26) hace **mayor** que el cotizado:
+    // medir por el cotizado dejaba el acumulado corto y el vendedor rebasaba el tope sin que nada lo
+    // notara.
+    // ⚠️ v1.61 · §M5-V.2 — la fila **PAGADA** conserva `approvedTotalCents = null` (cohorte histórica:
+    // ahí el término central sigue siendo la medida correcta y la cascada NO se retira); la fila
+    // **EN CURSO** lleva el aprobado igual al ofertado, porque V-a exige bruto aprobado para pagar y
+    // en el ciclo `approvedTotalCents = Σ offeredPriceCents` de las `buy` aprobadas. El filo que se
+    // mide —300_001 vs 300_000— no se mueve ni un centavo.
+    const h = harness({
+      request: APROBADA({ approvedTotalCents: 100_001, offerGrossCents: 100_001, quotedTotalCents: 1 }),
+      paidThisMonth: [{ approvedTotalCents: null, offerGrossCents: 200_000, quotedTotalCents: 1 }],
+    });
+    const err = await h.svc.paySpei('sr-1', 'SPEI-1', 'admin').catch((e) => e);
+    expect(err.code).toBe('BUYLIST_LIMIT_EXCEEDED');
+    // ⚠️ 300_001 y no 2: si alguna de las dos puntas midiera por `quotedTotalCents` el número saldría
+    // ridículamente bajo y el pago pasaría.
+    expect(err.getResponse()).toMatchObject({ details: { wouldBeCents: 300_001 } });
+  });
+
+  it('y el mismo caso UN CENTAVO más abajo SÍ pasa (el filo no es un rechazo genérico)', async () => {
+    const h = harness({
+      request: APROBADA({ approvedTotalCents: 100_000, offerGrossCents: 100_000, quotedTotalCents: 1 }),
+      paidThisMonth: [{ approvedTotalCents: null, offerGrossCents: 200_000, quotedTotalCents: 1 }],
+    });
+    await h.svc.paySpei('sr-1', 'SPEI-1', 'admin');
+    expect((h.prisma.sellRequest as { updateMany: jest.Mock }).updateMany).toHaveBeenCalled();
+  });
+
+  it('el filo se mueve con el override de KYC: es el CAP EFECTIVO el que manda, no el dial', async () => {
+    // Un override que ampliara el tope pero dejara el filo en el dial global sería un tope que no es
+    // el que se le prometió al vendedor.
+    const h = harness({
+      request: APROBADA({ approvedTotalCents: 1 }),
+      paidThisMonth: [{ approvedTotalCents: 1_000_000, quotedTotalCents: 0 }],
+      capOverride: 1_000_000,
+    });
+    const err = await h.svc.paySpei('sr-1', 'SPEI-1', 'admin').catch((e) => e);
+    expect(err.code).toBe('BUYLIST_LIMIT_EXCEEDED');
+    expect(err.getResponse()).toMatchObject({
+      details: { capCents: 1_000_000, wouldBeCents: 1_000_001 },
+    });
   });
 });

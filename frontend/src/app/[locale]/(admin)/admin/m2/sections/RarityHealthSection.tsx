@@ -27,7 +27,7 @@ export function RarityHealthSection() {
   const tt = useTranslations('admin.m2.rarityHealth');
   const tc = useTranslations('common');
   const qc = useQueryClient();
-  const getError = useErrorMessage();
+  const getError = useErrorMessage('operator');
 
   const health = useQuery({ queryKey: ['rarity-health'], queryFn: getRarityHealth });
 

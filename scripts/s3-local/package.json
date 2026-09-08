@@ -1,0 +1,14 @@
+{
+  "name": "tcg-s3-local",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Endpoint S3 local para la ruta NATIVA (sin Docker). Propiedad: devops. Ver docs/DEVOPS_NOTES.md §39.",
+  "license": "UNLICENSED",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "s3rver": "3.7.1"
+  }
+}

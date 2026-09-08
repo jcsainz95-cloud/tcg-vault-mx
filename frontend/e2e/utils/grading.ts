@@ -39,7 +39,7 @@ import {
  * fila ya puesta probaría menos.
  *
  * HUELLA QUE DEJA EN EL ENTORNO (declarada, no escondida):
- *  - ⚠️ **El dial `gradingHookEnabled` (v1.51, M-46) se enciende, y desde el colapso a UN SOLO dial
+ *  - ⚠️ **El dial `gradingHookEnabled` (v1.51, M-48) se enciende, y desde el colapso a UN SOLO dial
  *    ese mismo `PUT` autoriza también la OBTENCIÓN**: el barrido pide cifras a un proveedor **de
  *    paga** y escribe precios. Por eso el arnés **exige, antes de encenderlo, que el entorno esté
  *    incapacitado para escribir automático** (§4.38r.6.1) — sin `POKEMONPRICETRACKER_API_KEY`
@@ -324,7 +324,7 @@ async function seedRealScenario(): Promise<GradingScenario> {
   const curated = rawGroups[0];
   const informed = rawGroups[1];
 
-  // 2. DIAL ÚNICO de M10 (v1.51, M-46). Se anota el valor previo ANTES de tocarlo —solo la primera
+  // 2. DIAL ÚNICO de M10 (v1.51, M-48 —era `M-46`, v1.54(1)). Se anota el valor previo ANTES de tocarlo —solo la primera
   //    vez, para que una segunda corrida no registre «on» como si fuese el estado pristino— y se
   //    enciende **a través del guardarraíl**: encender es ahora autorizar gasto, así que el arnés
   //    comprueba primero que el entorno no pueda escribir automático (§4.38r.6.1). Si puede, esto

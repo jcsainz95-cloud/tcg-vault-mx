@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { CardSet, Finish } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -13,6 +13,12 @@ import {
 import { PokemonTcgIoBulkProvider } from './providers/pokemontcg-io-bulk.provider';
 import { TcgcsvSinglesBulkPriceProvider } from './providers/tcgcsv-singles-bulk.provider';
 import { orderFinishes } from '../../common/card-order';
+// v1.51.19 (BL-25, §4.39m.8): disparador (c). El puerto es @Global; NO se importa `InventoryModule`.
+import {
+  INVENTORY_PUBLISH_PORT,
+  InventoryPublishPort,
+  VariantPublishRef,
+} from '../inventory/inventory-publish.port';
 // H-1 (§4.36.6): «presente ⇔ > 0» en UN solo predicado compartido.
 import { hasManualPrice } from '../../common/money';
 // v1.50.3 (§4.38m.2): la fecha de negocio del gate de EVIDENCIA — la MISMA que usa la lectura.
@@ -309,6 +315,21 @@ export class PriceIngestService {
     // posicionales de los tests que no tocan este camino. `AuditModule` es @Global ⇒ en DI real
     // SIEMPRE se inyecta.
     private readonly audit?: AuditService,
+    // ⚠️ v1.51.19 (BL-25 · §4.39m.8) — **DISPARADOR (c), productor «barrido»**: cuando la ingesta
+    // escribe la referencia de mercado de una variante, una pieza `in_stock` que no se podía publicar
+    // por falta de precio puede haberse vuelto publicable.
+    //
+    // ⚠️⚠️ **Se inyecta AQUÍ y NO en `PricingService`**, y no es estilo: `InventoryService` ya depende
+    // de `PricingService`, así que el puerto allí cerraría `Pricing → PORT → Inventory → Pricing`.
+    // ⛔ **`forwardRef` PROHIBIDO** (§4.39m.8) — *un ciclo que se «arregla» así sigue siendo un ciclo*,
+    // y uniría **los dos módulos de dinero** por la frontera que el puerto existe para mantener
+    // abierta. Este servicio es **hoja**: nada de lo que `inventory` depende depende de él.
+    //
+    // `@Optional` por el motivo de siempre en este constructor (mocks posicionales) **y** porque el
+    // disparo es best-effort: la ingesta **no puede fallar** porque no podamos publicar.
+    @Optional()
+    @Inject(INVENTORY_PUBLISH_PORT)
+    private readonly inventoryPublish?: InventoryPublishPort,
   ) {}
 
   /** Elige el `BulkPriceProvider` según el dial `PRICE_PROVIDER` (default legacy pokemontcg_io). */
@@ -542,6 +563,9 @@ export class PriceIngestService {
 
     let priced = 0;
     const driftPairs: string[] = [];
+    // v1.51.19 (§4.39m.8): mismo disparo que en el camino PRIMARIO. Si viviera solo allí, el barrido
+    // legacy repreciaría sin publicar nada — *dos caminos de ingesta y una sola mitad de la regla*.
+    const writtenVariants = new Map<string, VariantPublishRef>();
     for (const [cardId, finishes] of byCard) {
       const known = catalogFinishes.get(cardId) ?? ['normal'];
       for (const [finish, row] of finishes) {
@@ -559,6 +583,7 @@ export class PriceIngestService {
         // dueño. El remedio es un `sync-all {force:true}` o el override manual — jamás escribir
         // la lista blanca desde un feed de precios.
         if (!known.includes(finish)) driftPairs.push(`${cardId}:${finish}`);
+        PriceIngestService.rawVariantWritten(writtenVariants, cardId, finish);
         priced += 1;
       }
       // ⛔ v1.22-variantes-orden (§4.22a-1/2): NUNCA se escribe `card.update({ availableFinishes })`
@@ -607,6 +632,15 @@ export class PriceIngestService {
     // filas no se concluye nada).
     if (result.requestOk && result.rows.length > 0) {
       await this.reconcilePublishedPrices(set);
+      // ⚠️ v1.51.19 (BL-25 · §4.39m.8) — **DISPARADOR (c): el OTRO sentido, y los alcances difieren.**
+      //
+      // `reconcilePublishedPrices` mira lo **`listed` que pudo DEGRADARSE**, y por eso barre **el SET
+      // COMPLETO**: ahí *la ausencia es la señal* (el acabado que el proveedor dejó de reportar).
+      // Esto mira lo **`in_stock` que pudo volverse PUBLICABLE**, y por eso pasa **solo las variantes
+      // que este barrido ESCRIBIÓ**: *repreciar algo que no se movió no vuelve publicable a nadie*, y
+      // el candidato tiene que quedar acotado por la entrada, **no por el catálogo**.
+      // **Dos sentidos, dos alcances, y la diferencia queda escrita para que nadie los iguale.**
+      await this.triggerPublishForVariants(writtenVariants);
     }
 
     if (driftPairs.length > 0) {
@@ -659,6 +693,8 @@ export class PriceIngestService {
   ): Promise<IngestSetResult> {
     const result = await provider.fetchPricesForSet({ set });
     const touchedCards = new Set<string>();
+    // v1.51.19 (§4.39m.8): SOLO las variantes que este barrido ESCRIBIÓ (ver `rawVariantWritten`).
+    const writtenVariants = new Map<string, VariantPublishRef>();
     let priced = 0;
     let skipped = result.skipped;
     for (const row of result.rows) {
@@ -680,6 +716,7 @@ export class PriceIngestService {
         row.cardProductId,
       );
       touchedCards.add(row.cardId);
+      PriceIngestService.rawVariantWritten(writtenVariants, row.cardId, row.finish);
       priced += 1;
     }
     this.logger.log(
@@ -697,6 +734,15 @@ export class PriceIngestService {
     // solo tras una corrida EXITOSA con filas. Falla-seguro (los precios YA se persistieron).
     if (result.requestOk && result.rows.length > 0) {
       await this.reconcilePublishedPrices(set);
+      // ⚠️ v1.51.19 (BL-25 · §4.39m.8) — **DISPARADOR (c): el OTRO sentido, y los alcances difieren.**
+      //
+      // `reconcilePublishedPrices` mira lo **`listed` que pudo DEGRADARSE**, y por eso barre **el SET
+      // COMPLETO**: ahí *la ausencia es la señal* (el acabado que el proveedor dejó de reportar).
+      // Esto mira lo **`in_stock` que pudo volverse PUBLICABLE**, y por eso pasa **solo las variantes
+      // que este barrido ESCRIBIÓ**: *repreciar algo que no se movió no vuelve publicable a nadie*, y
+      // el candidato tiene que quedar acotado por la entrada, **no por el catálogo**.
+      // **Dos sentidos, dos alcances, y la diferencia queda escrita para que nadie los iguale.**
+      await this.triggerPublishForVariants(writtenVariants);
     }
     return {
       setId: set.id,
@@ -710,6 +756,61 @@ export class PriceIngestService {
       scope: 'full',
       dailyRemaining: null,
     };
+  }
+
+  /**
+   * v1.51.19 (BL-25 · §4.39m.8) — **el disparo del barrido, en UNA llamada y best-effort.**
+   *
+   * **No ordena publicar: pide reevaluar.** Las guardas y la decisión viven dentro de `inventory`;
+   * aquí no se puede expresar ni un estado ni un precio. Un fallo **no tumba la ingesta** (los precios
+   * ya están persistidos) y **no deja nada invisible**: lo que no se publique **sigue en
+   * `GET /admin/inventory/pending-publish`**, que es la red de este puerto.
+   *
+   * ⚠️ **UNA llamada con el conjunto entero.** El puerto nació en lote, así que el fan-out de N
+   * llamadas **no es una opción del diseño** (§4.16b). El troceado, si un día hace falta, es del JOB.
+   */
+  private async triggerPublishForVariants(variants: Map<string, VariantPublishRef>): Promise<void> {
+    const list = [...variants.values()];
+    if (!this.inventoryPublish || list.length === 0) return;
+    try {
+      const res = await this.inventoryPublish.reevaluateVariantsForPublication(list);
+      const published = res.filter((r) => r.outcome === 'published').length;
+      if (published > 0) {
+        this.logger.log(
+          `price-ingest → auto-publicadas ${published} pieza(s) tras repreciar ${list.length} variante(s)`,
+        );
+      }
+    } catch (e) {
+      this.logger.warn(
+        `price-ingest: disparo de publicación falló (${list.length} variantes): ` +
+          `${e instanceof Error ? e.message : String(e)}`,
+      );
+    }
+  }
+
+  /**
+   * v1.51.19 (§4.39m.8) — la variante `raw` que ACABA de escribirse. Dedupe por carta+acabado: dos
+   * filas de la misma carta y acabado (dos productos TCGplayer) son **una** variante para este
+   * disparo.
+   *
+   * ⚠️ `cardProductId` se OMITE a propósito. `BulkPriceRow.cardProductId` es el **uuid de
+   * `CardProduct`**, mientras que `InventoryItem.cardProductId` es el **`tcgplayerProductId` (Int)**:
+   * son **dos identificadores distintos del mismo eje** (ver `VariantPublishRef`). Pasar el uuid **no
+   * casaría con nada** y el disparo sería un **no-op silencioso que parece funcionar**. Omitirlo =
+   * *sin restricción*, la dirección segura: un disparo de más es un no-op —cada pieza se juzga por su
+   * propio precio—, uno de menos es **una carta que se queda en la caja**.
+   */
+  private static rawVariantWritten(
+    into: Map<string, VariantPublishRef>,
+    cardId: string,
+    finish: Finish,
+  ): void {
+    into.set(`${cardId}|${finish}`, {
+      cardId,
+      productType: 'raw',
+      gradeKey: 'raw:NM',
+      finish,
+    });
   }
 
   /**
@@ -746,12 +847,14 @@ export class PriceIngestService {
       if (items.length === 0) return;
       // Pago mínimo BE-25: curva izada UNA vez; referencias y overrides EN LOTE (sin N+1 por pieza).
       const curve = await this.pricing.loadPricingCurve();
-      const keys = items.map((it) => ({
-        cardId: it.cardId,
-        productType: it.productType,
-        gradeKey: this.pricing.gradeKeyFor(it),
-        finish: it.finish,
-      }));
+      // v1.53 (§4.40.4b, MONEY) — `price-ingest` es camino de LECTURA/valuación ⇒ clave TOLERANTE.
+      // Hoy el `where` de arriba ya acota a `productType:'raw'` (nunca hay `null`), pero se pide con
+      // la tolerante a propósito: si mañana el barrido se ensancha a graduadas, una pieza sin
+      // identidad de slab se OMITE en vez de barrerse contra `graded:PSA:10`.
+      const keys = items.flatMap((it) => {
+        const gk = this.pricing.tryGradeKeyFor(it);
+        return gk ? [{ cardId: it.cardId, productType: it.productType, gradeKey: gk, finish: it.finish }] : [];
+      });
       const refs = await this.pricing.getReferencesBatch(keys);
       const overrides = await this.pricing.getVariantOverridesBatch(keys);
       let opened = 0;
@@ -762,7 +865,10 @@ export class PriceIngestService {
         // entrar al barrido. Con el `!= null` de antes se saltaba y NUNCA se reconciliaba — el mismo
         // hueco de D5, recién abierto por este bucle.
         if (hasManualPrice(item)) continue;
-        const gradeKey = this.pricing.gradeKeyFor(item);
+        // v1.53 (§4.40.4b): sin clave no hay variante que reconciliar — se omite (no se abre ni se
+        // cierra cola con una clave inventada).
+        const gradeKey = this.pricing.tryGradeKeyFor(item);
+        if (gradeKey == null) continue;
         const key = `${item.cardId}|${item.productType}|${gradeKey}|${item.finish}`;
         const ref = refs.get(key);
         const refCents = ref && ref.status === 'priced' ? (ref.referenceMxnCents ?? null) : null;

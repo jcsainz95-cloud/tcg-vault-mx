@@ -364,11 +364,11 @@ EOF
 #   NO BLOQUEA el post-deploy: informa y sigue. Lo que bloquea el anuncio del
 #   release es que el operador lo resuelva (ver el resumen final).
 # -----------------------------------------------------------------------------
-# v1.51 (M-46, §4.38r): el mismo comparador reporta además el **DIAL ÚNICO** del gancho
+# v1.51 (M-48, §4.38r): el mismo comparador reporta además el **DIAL ÚNICO** del gancho
 #   (`gradingHookEnabled`) y traduce `ingestMaxCardsPerRun` a créditos/día. El dial `on`
 #   NO cambia su código de salida: encenderlo es una decisión del DUEÑO (es un acto de
 #   gasto, §4.38r.3), no un fallo de deploy. Lo que sí para en seco (rc=2) es detectar un
-#   binario PRE-M-46, porque ahí el gasto lo gobierna otro dial. Ver DEVOPS_NOTES §32.12.
+#   binario PRE-M-48, porque ahí el gasto lo gobierna otro dial. Ver DEVOPS_NOTES §32.12.
 log "PASO 8 — diales del gancho (§4.38p + dial único §4.38r) — SOLO-LECTURA, no escribe nada"
 DIALS_RC=0
 if [ "$HAS_ADMIN_HTTP" = 1 ]; then

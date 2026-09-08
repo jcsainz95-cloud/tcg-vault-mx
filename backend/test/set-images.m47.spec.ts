@@ -429,6 +429,7 @@ function masterSetPricing(): PricingService {
     getSeparateProductsByCard: jest.fn(async () => new Map()),
     getPricedRawFinishesBatch: jest.fn(async () => new Map()),
     gradeKeyFor: jest.fn().mockReturnValue('raw_NM'),
+    tryGradeKeyFor: jest.fn().mockReturnValue('raw_NM'),
     getVariantOverridesBatch: jest.fn(async () => new Map()),
     getVariantOverride: jest.fn(async () => null),
   } as unknown as PricingService;
@@ -639,6 +640,7 @@ describe('M-47 (C) — logoUrl NO entra en las superficies que §4.39.5 PROHÍBE
   function storefrontPricing(): PricingService {
     return {
       gradeKeyFor: jest.fn().mockReturnValue('raw:NM'),
+      tryGradeKeyFor: jest.fn().mockReturnValue('raw:NM'),
       getReference: jest.fn(async () => ({ status: 'priced', referenceMxnCents: 10000 })),
       getPricedRawFinishesBatch: jest.fn(async () => new Map()),
       loadPricingCurve: jest.fn(async () => DEFAULT_PRICING_CURVE),

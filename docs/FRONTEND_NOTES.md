@@ -4,6 +4,184 @@
 > Fecha: 2026-08-13. Branch: `claude/tcg-cards-marketplace-oijthj`.
 > El contrato (`docs/API_CONTRACT.md`) y el sistema de diseño (`docs/DESIGN_SYSTEM.md`) mandan.
 
+## §46 · El ciclo de compra entra al gate real: 23 pruebas que nadie corría, el `total` que se tiraba y un rótulo que prometía la regla del servidor (2026-09-02)
+
+> **Renumerada DOS veces, y el motivo es el mismo las dos: §27 → §44 (2026-09-05) → §46 (2026-09-06).**
+> La rama la abrió como «§27» cuando ése era el último número del fichero; al absorber `main` llegaron
+> **§28…§43** y «§27» pasó a resolver a dos secciones, así que se movió a §44. En la fusión siguiente
+> `main` traía ya **§44** (la placa de papel) y **§45** (el cotizador raw-only) **publicadas**, de modo
+> que §44 volvía a estar ocupado — y **el que cede es el de la rama, nunca lo publicado**. Se conserva
+> arriba (el orden físico del fichero es el que había) y solo cambia el número. El §27 original
+> (cierre del stream de grading, 2026-08-29) es el de más abajo y no se toca.
+
+> Rama `claude/buylist-inventory-workflow-hdnls3`, sobre `235b7f9`. Tres encargos del cierre del
+> stream: **(1)** taguear `@real` las pruebas de UI del ciclo ahora que la semilla tiene dato,
+> **(2)** pintar el `total` de la cola de publicar (deuda **D5** del techlead) y **(3)** dejar de
+> prometer la regla de días hábiles del servidor en `caducityTone`.
+
+### 1. Los 23 casos del ciclo no los corría **nadie** — y por dos razones encadenadas
+
+`buylist-offer.spec.ts` (6) y `admin.spec.ts` (17) no entraban al gate real por **dos** motivos que
+se tapaban mutuamente:
+
+1. **Ninguno llevaba `@real`.** En modo real `playwright.config.ts` filtra con `grep: /@real/`, así
+   que el «verde» de esos dos archivos se medía **solo contra los fixtures del propio front**.
+2. **Y aunque lo hubieran llevado, se habrían saltado:** todos abrían con `needsSeed(...)`, que es
+   `test.skip(IS_REAL, …)`. La semilla no creaba **ninguna** `SellRequest`.
+
+Con el seed de v1.51.20 (una `cotizada` y una `ofertada` con la oferta emitida, `netCents=32000`) el
+dato existe. **Se tagearon 12 de los 23** — los que el seed satisface **y** que no dejan huella:
+
+| Archivo | `@real` nuevos | Qué cubren |
+|---|---|---|
+| `buylist-offer.spec.ts` | **5** de 6 | los tres montos + condición NM + plazo con fecha; que no hay cherry-pick ni contraoferta; el estado **previo** a la oferta; el `404` neutro de una solicitud ajena; el CTA del correo sin sesión |
+| `admin.spec.ts` | **7** de 17 | dashboard (la puerta); **mesa de decisión** ×2 (los cuatro sumandos separados · la sugerencia no bloquea); cola «vendedores vivos»; cola «listas para publicar»; «Piezas rechazadas» sin convertir; spreads de sellado (T-1) |
+
+#### 1.a Lo que **no** se tagueó, y por qué (para que nadie lo lea como olvido)
+
+- **`aceptar la oferta` — el único que se deja fuera a sabiendas.** **Consume** la oferta
+  (`ofertada` → `aceptada`). El seed siembra **una sola**, compartida con los otros dos casos del
+  archivo: tagueárlo los dejaría verdes-por-`skip` según **qué worker gane la carrera**
+  (`fullyParallel: true`) y sin dato en **todas las corridas siguientes**. *Un caso destructivo
+  sobre un dato singleton no es cobertura: es una bomba de relojería en el gate.* Sigue vivo contra
+  los fixtures, que sí son reponibles. **Petición al backend abajo.**
+- **Tres colas vacías** (`offers/pending-authorization`, `pending-shipment-confirmation`,
+  `guides/pending-cancellation`): los endpoints **ya existen** (BL-28 los sacó del `404`), pero el
+  seed no siembra filas — verificado contra el stack, `total: 0` en las tres. Se **reclasificaron de
+  `mockOnly` a `needsSeed`**, que es la clasificación honesta: *«el test está bien, falta el dato»* es
+  una petición accionable; *«esto solo corre con mocks»* esconde el hueco. (Además, «guías por
+  cancelar» **confirma** la cancelación: contra el stack consumiría la fila.)
+- **Dos casos de cherry-pick** (`admin.m5` aprobar/ajustar/rechazar por ítem): necesitan una
+  solicitud en `recibida`/`verificacion`, y llegar ahí exige recorrer aceptar → guía → «ya lo mandé»
+  → confirmar → recibir. Verificado: `GET /admin/buylist?status=verificacion` → `total: 0`.
+- **M8 disputas:** `GET /admin/disputes` → `total: 0`.
+- **Dos genuinamente mock-only:** el switcher «Ver como» (afordancia de demo; en real el rol lo dicta
+  el JWT) y la fila `positionUnavailable` (estado fabricado).
+
+#### 1.b Dos cambios de arnés que hacen falta para que el tag signifique algo
+
+**(i) Se busca por ESTADO, nunca por POSICIÓN.** `openRequestWhere(page, …)` recorre «Mis
+solicitudes» hasta encontrar la que el caso necesita. Antes, «sin oferta todavía» abría **la primera
+fila** y se saltaba si traía oferta — lo que obligaba a que el orden de creación del seed fuera
+normativo.
+
+> ⚠️ **Y ese orden ya no se sostiene, con o sin mi cambio.** El propio subset `@real` **crea una
+> `SellRequest` en cada corrida**: `buylist.spec.ts:680` (`@real vender`) hace `POST
+> /buylist/requests` de verdad. Verificado en la BD tras una corrida: la fila más nueva es la del
+> smoke, no la del seed. Es decir, **la primera corrida real rompe la invariante que el seed
+> documenta como normativa** (`BACKEND_NOTES §v1.51.20`: *«el orden de creación es normativo […] la
+> suite del portal exige que la primera fila no tenga oferta»*). Buscar por estado no es una
+> preferencia de estilo: es lo que hace la suite **repetible**. *Una suite que depende del orden del
+> seed mide el seed, no el producto.*
+
+**(ii) No encontrar el dato es ROJO, no `skip`.** `openOfferedRequest`, `openPreOfferRequest` y
+`openDesk` **lanzan** con un mensaje que dice qué falta y quién lo siembra. Un `skip` ahí solo podría
+significar que el dato se perdió — exactamente lo que el gate tiene que gritar. `openDesk` dejó de
+devolver `boolean` por el mismo motivo.
+
+**(iii) Dos asserts se reescribieron contra el INVARIANTE, no contra el fixture** (era la condición
+para poder taguearlos):
+
+- **«vendedores con solicitudes vivas»:** afirmaba el literal `5555123456` y exigía que coexistieran
+  una fila con teléfono y otra sin él — cierto solo en mocks. Ahora afirma lo que D12 protege y vale
+  en los dos entornos: **cada fila resuelve la columna del teléfono** —el número **o** «Sin
+  teléfono»— y **nunca la deja en blanco**. Un hueco es el fallo real: el operador no sabe si el
+  vendedor no dio teléfono o si la pantalla se lo comió.
+- **«listas para publicar»:** exigía que coexistieran una pieza sin ubicación y otra sin precio
+  (contra el stack **todas** tienen precio resoluble). Ahora afirma los tres invariantes del caso:
+  **cada fila dice qué le falta**, **nunca `MX$0.00`**, **ningún botón de publicar**.
+
+### 2. D5 — el `total` de la cola de publicar (`PendingPublishQueue.tsx`)
+
+El componente **descartaba** el `total` del servidor. La razón por la que eso importa es económica:
+ese conteo **se paga con un barrido completo del inventario** —la precedencia de precio se evalúa
+fila por fila en memoria (`BLC-D1`)— y **el único consumidor lo tiraba**. Se cobraba el barrido y no
+se pintaba el resultado.
+
+Se pinta junto al título. Dos decisiones:
+
+- **Es `total`, no `data.length`.** La respuesta viene paginada (`pageSize: 20`); `data.length`
+  contesta *«cuántas caben en esta página»*, que no es una pregunta que nadie tenga. Verificado
+  contra el stack: `total: 13`.
+- **`total` ausente NO se degrada a `data.length`.** Misma doctrina que `MissingCell` y que el conteo
+  ausente de la mesa (§23.7): un número del tamaño de la página *se ve igual de confiable* que el
+  bueno y **miente hacia abajo justo cuando la cola es grande**, que es cuando el número importa.
+  Sin `total` no se pinta contador; las filas se listan igual.
+- **El cero se dice con palabras** («Ninguna pendiente»), no como `0 pendientes`.
+
+*(La paginación sigue sin construirse: el encargo era pintar el número, no construir la navegación.)*
+
+### 3. `caducityTone` — un rótulo que prometía una regla que el front no tiene
+
+`BuylistCycleQueues.tsx` rotulaba la función *«Un día hábil o menos»* y medía una **ventana rodante
+de 24/48 horas**. Dos imprecisiones en direcciones distintas:
+
+1. **Prometía la regla del servidor.** `caducityAt` lo deriva el backend con
+   `addBusinessDays(offerIssueClockStartedAt ?? createdAt, buylistOfferIssueDeadlineBusinessDays)`:
+   sabe de fines de semana y festivos, y **lanza** fuera de la cobertura de su calendario en vez de
+   degradar. El front no tiene ese calendario y **no lo va a reimplementar** — es la prohibición que
+   `formatDateTimeMx` ya declara (*el front no recalcula el plazo, solo lo formatea*). *Una segunda
+   aritmética de días hábiles sería una segunda fecha límite.*
+2. **Ni siquiera acertaba el copy visible.** A las 23:00, una fila que muere **mañana** a las 22:00
+   cae dentro de las 24 h y se rotulaba **«Caduca hoy»**.
+
+**Arreglo:** el tono se calcula sobre el **día del calendario en `America/Mexico_City`** —que es
+exactamente lo que «hoy» y «mañana» significan para quien lee la cola— y el docblock dice qué mide,
+qué **no** mide y que **la fecha completa con hora va siempre impresa al lado**. No se colgó de un
+campo del servidor porque **no existe**: `PendingOfferAuthorizationRowDTO` trae `caducityAt` y nada
+más (contrato §M5). No es un bug —es énfasis, no una puerta— pero el rótulo sí lo era.
+
+> El fixture del unitario pasó de `Date.now() + 20 h` a `caducityOnMxDay(n)`: veinte horas caen hoy
+> o mañana **según la hora a la que corra la suite**.
+
+### 4. El código que revivió (BL-29): comprobado, no supuesto
+
+La proyección admin pasó de 2 a 43 claves y la de cliente ganó `expiredReason`, `pickupAddress` y
+`lastOfferCancelledAt`. Se verificó **contra el stack** que los nombres que el front lee existen tal
+cual en la respuesta —`shipmentTrackingNumber`, `shipmentCarrier`, `expiredReason`,
+`lastOfferCancelledAt`— porque el riesgo real no es que el campo no llegue: es que **llegue con otro
+nombre y la rama siga muerta sin que nada falle**.
+
+Los cuatro caminos que revivieron **estaban bien cableados** y tienen unitario que los fija:
+`BuylistShipmentActions` (prefill de guía), `M5View`/`BuylistCycleQueues` (`StatusBadge` por
+**motivo**, no por estado), y en el portal del vendedor `hideMoney` (`expirada ∧ no_offer` ⇒ ni una
+cifra), el banner de cancelación (D42) y las tres frases de cierre. **No se pudieron observar vivos**:
+el seed no llega a ningún estado terminal, cancelado ni enviado — ver la petición 2 de abajo.
+
+### 5. Peticiones (no bloqueantes)
+
+1. **Backend / seed — una solicitud `ofertada` DESECHABLE por corrida.** Es lo único que separa a
+   `aceptar la oferta` del gate real. Alternativa equivalente: un endpoint de reset del escenario.
+2. **Backend / seed — estados terminales y del tramo de envío.** Hoy no hay forma de ver vivos
+   `expirada/no_offer`, `expirada/not_shipped`, `lastOfferCancelledAt` ni una guía capturada. Son
+   exactamente las ramas que BL-29/BL-30 revivieron, y siguen cubiertas **solo** por unitarios.
+3. **Backend / seed — filas para las tres colas vacías** (`pending-authorization`,
+   `pending-shipment-confirmation`, `guides/pending-cancellation`) y una solicitud en
+   `verificacion` (desbloquea los dos casos de cherry-pick). Los endpoints ya existen.
+4. **Arquitecto — nada.** No hizo falta ningún campo ni endpoint fuera del contrato.
+
+### 6. Verificación
+
+```
+npx tsc --noEmit            →  sin salida (limpio)
+npm run lint                →  ✔ No ESLint warnings or errors
+npm test                    →  Test Files 100 passed (100) · Tests 949 passed (949)
+E2E mock (E2E_MOCK_PORT=3020, suite COMPLETA)
+                            →  124 passed · 3 skipped · 0 failed
+E2E real (E2E_BASE_URL=http://localhost:3000 E2E_REAL=1)
+                            →  34 passed · 3 failed
+```
+
+Los **3 rojos de real son los smokes de dinero** (`checkout.spec.ts:57`, `guest-checkout.spec.ts:131`,
+`shipments.spec.ts:30`): este entorno no tiene salida a Stripe (`CONNECT 403`) y están escritos para
+ser rojos a propósito, no para saltarse. **Los 12 tests recién tagueados pasan los 12.**
+
+> ⚠️ **El subset `@real` no se puede correr en otro puerto.** La allow-list de CORS del backend es
+> `APP_BASE_URL=http://localhost:3000` y nada más, así que un frontend servido en :3010 recibe la
+> página pero **ninguna** respuesta de la API: 34 de 37 rojos por el arnés, no por el producto.
+> Corolario operativo: **para correr el gate sobre código recién tocado hay que reconstruir el
+> artefacto de :3000**, no levantar uno al lado. `.gitignore` documenta la receta.
+
 ## §26 · El *breaking* de `intent`, la captura manual y la lista de revisión (contrato v1.50.2 / v1.50.3) — 2026-08-28
 
 > Rama `claude/psa-graded-card-value-gmhv5u`, sobre `397db13`. Cierra el **bloqueante** del rechazo
@@ -5440,10 +5618,18 @@ respuesta `{ data, page, pageSize, total }`. Omitir params = comportamiento de H
   romper los tests que dependen de él.
 - **Hallazgo MENOR QA de P-4 (tipo de `rejectBuylistRequest`):** verificado — el retorno ya es
   `AdminBuylistDTO`, que **es** el tipo del DETALLE de `GET /admin/buylist/:id` en este front (mismo
-  shape con `id`/`userId`/`seller`/`items`, idéntico a lo que devuelven `receive`/`verify`/`paySpei` y
-  cada fila de `getAdminBuylist`). El DTO de **cliente** `SellRequestDTO` (`sellRequestId`/`ineRequired`,
-  sin `seller`) sería **incorrecto** para un endpoint de back-office. Se dejó el tipo como está y se
-  documentó la alineación en el docstring de la función (no había regresión que corregir).
+  shape con `id`/`userId`/`seller`/`items`). El DTO de **cliente** `SellRequestDTO`
+  (`sellRequestId`/`ineRequired`, sin `seller`) sería **incorrecto** para un endpoint de back-office.
+  Se dejó el tipo como está y se documentó la alineación en el docstring de la función (no había
+  regresión que corregir).
+  > ⚠️ **CORRECCIÓN (2026-09-06, ver §49).** Este bullet añadía *«idéntico a lo que devuelven
+  > `receive`/`verify`/`paySpei` y cada fila de `getAdminBuylist`»* **y presentaba eso como
+  > verificado. No se midió, y de las dos mitades una es falsa:** `receive`/`verify`/`pay-spei`
+  > responden desde un `findUnique` **sin `include`** ⇒ **sin `items`, sin `seller` y sin
+  > `pickupAddress`**. El único hermano que sí cumple es `reject`, que devuelve `adminGet(id)`.
+  > El tipado `AdminBuylistDTO` de esas tres llamadas **no cambia y sigue siendo el correcto**, pero
+  > se apoya en el **contrato** (§M5: *«la solicitud actualizada, mismo shape que
+  > `GET /admin/buylist/:id` (`AdminBuylistDTO` con `items`)»*), **no** en la respuesta observada.
 
 **M5 «Cerradas» (`M5View.tsx`):** migrada a server-side siguiendo el patrón de «Rechazadas». Query
 dedicada `['admin-buylist-closed', page, q, from, to, min, max]` → `getAdminBuylist({ status:
@@ -10246,7 +10432,7 @@ no es asegurar un *inventario en custodia*:
 
 ---
 
-## §42 · P-54: el índice de sets pinta el LOGO de la expansión — la placa de tinta (`DESIGN_SYSTEM.md` §24, contrato v1.52 / M-47, `ARCHITECTURE.md` §4.39) — 2026-09-02, rama `claude/tcg-hunt-orchestrator-28p7z1`
+## §42 · P-54: el índice de sets pinta el LOGO de la expansión — la placa de tinta (`DESIGN_SYSTEM.md` §24, contrato v1.52 / M-47, `ARCHITECTURE.md` §4.41) — 2026-09-02, rama `claude/tcg-hunt-orchestrator-28p7z1`
 
 > El diseño estaba **escrito** (ux-ui, §24 completa con cinco reglas duras R1–R5). Esto es su ejecución,
 > no una interpretación. Riesgo de dinero: **ninguno** — es presentación pura.
@@ -10264,7 +10450,7 @@ papel**:
 | Pieza | Implementación |
 |---|---|
 | Placa (`SetPlate`) | `aspect-[3/2] w-full bg-ink`, radio 0, **sin borde**, aire 16/20/24px. ⚠️ **La primera versión de esta fila era FALSA**: decía «cero CLS» y la placa sí saltaba de alto al cargar, porque la `<img>` iba en flujo y anulaba la relación de aspecto. Corregido y **medido** en §43 (bloqueante B-1 de QA) |
-| Logo | `<img>` crudo (**nivel B**, §4.39.7): sin `next/image`, sin `srcset`, `loading="lazy"` en TODAS, `decoding="async"`, `object-contain` (R1) |
+| Logo | `<img>` crudo (**nivel B**, §4.41.7): sin `next/image`, sin `srcset`, `loading="lazy"` en TODAS, `decoding="async"`, `object-contain` (R1) |
 | Contorno de seguridad | `filter: drop-shadow(0 0 1px var(--color-on-ink)) ×2` en línea. **Obligatorio** (§24.2): salva al logo oscuro sin filete *sin* tener que inspeccionar logo a logo |
 | Sin logo | **Monograma** serif sobre la tinta (§24.5), `aria-hidden`. ⚠️ La primera versión lo dejaba pintado **también con logo** (se transparentaba a través del PNG): corregido en §43 (bloqueante B-2) |
 | Leyenda | Nombre serif 16/18/20px con **2 líneas reservadas** (40/45/50px) y sin truncado; meta mono 11px versalitas `tracking-label` |
@@ -10280,7 +10466,7 @@ papel**:
 Se pinta **desde el primer frame** y **se retira cuando la imagen carga**, sin transición. Consecuencia
 deliberada: **la placa no pulsa nunca**. Es el precedente literal de `CardImage`, que deja el pozo QUIETO
 cuando no hay `src` porque un `animate-pulse` eterno hace que un dato ausente **legítimo** parezca una app
-colgada. Y aquí `logoUrl: null` es legítimo, **normal y permanente** (§4.39.6): promos, colecciones y sets
+colgada. Y aquí `logoUrl: null` es legítimo, **normal y permanente** (§4.41.6): promos, colecciones y sets
 viejos no van a tener logo nunca, y un set aún no re-sincronizado se ve **idéntico** a propósito.
 
 `onError` retira el `<img>` y deja el monograma: un 404 del CDN **no deja a nadie esperando** y jamás se ve
@@ -10310,7 +10496,7 @@ también al badge `Combinado`, que es español).
   buscado.
 - **`CardSetDTO.logoUrl?: string | null`** — opcional, y no por descuido: el mismo tipo sirve a **dos**
   endpoints y solo uno lo emite. `GET /buylist/sets` lo manda siempre; `GET /catalog/sets` **no**
-  (§4.39.5: alimenta dropdown y filtro de texto, no tejas). En esa respuesta la clave está **ausente de
+  (§4.41.5: alimenta dropdown y filtro de texto, no tejas). En esa respuesta la clave está **ausente de
   verdad**, y el tipo lo dice.
 
 ### 5. El mock dice la verdad — los dos casos, en la misma retícula
@@ -10389,10 +10575,10 @@ la imagen toma su **proporción intrínseca**, y su alto pasa a ser el `min-cont
 | **1:1** | **180×180** | 180×120 |
 | **1:2** | **180×312** | 180×120 |
 
-Umbral ≈1.83:1 en `lg`: **cualquier logo menos apaisado que eso descuadraba la retícula**, y §4.39.2 dice
+Umbral ≈1.83:1 en `lg`: **cualquier logo menos apaisado que eso descuadraba la retícula**, y §4.41.2 dice
 que el logo es de «proporción MUY variable entre sets». Viola **R1**, §24.3 («uno cuadrado o vertical se
 contiene igual») y §24.12 nº3. Y además la placa **saltaba de alto al cargar la imagen** — CLS, lo que
-§4.39.8 encargo (c) prohíbe explícitamente y lo que §42 afirmaba, en falso, no tener.
+§4.41.8 encargo (c) prohíbe explícitamente y lo que §42 afirmaba, en falso, no tener.
 
 **El arreglo.** Los **dos** hijos de la placa pasan a **absolutos**: un hijo absoluto no contribuye a la
 altura del padre, así que la caja mide `width × 2/3` **siempre**, haya logo apaisado, cuadrado, vertical o
@@ -10505,7 +10691,7 @@ defectos del propio spec— está en §43.8.
 ### 6. Alcance del nuevo spec, dicho sin adornos
 
 Corre en **modo mock** y está marcado `needsSeed` contra el stack real, con su razón impresa: `logoUrl` es
-`null` en **todo** el catálogo real hasta que un operador re-sincronice (§4.39.4 — **no hay backfill**), así
+`null` en **todo** el catálogo real hasta que un operador re-sincronice (§4.41.4 — **no hay backfill**), así
 que en real no habría ninguna placa **con** logo que medir. No es «no supe escribirlo agnóstico»: el spec ya
 lo es, y el día que el seed E2E traiga un set con logo basta **borrar el guardarraíl**. Interceptar las
 imágenes no es la parte mock — la geometría es una propiedad del CSS y hay que forzar proporciones que un
@@ -10587,6 +10773,7 @@ Suites completas tras la corrección: **967 vitest verdes** · **20 E2E verdes**
 > correctas — mis pruebas detectaron una mutación que yo no sabía que estaba puesta.
 
 ---
+
 ## §44 · La placa de los logos deja la tinta y pasa al papel: el pozo, la repisa y el contorno girado (`DESIGN_SYSTEM.md` §24 v2.10, petición del dueño) — 2026-09-05, rama `claude/tcg-hunt-orchestrator-28p7z1`
 
 **Qué pidió el dueño y qué se ejecutó.** §24 v2.10 gira el acabado del hueco del logo del índice de sets:
@@ -10725,3 +10912,2789 @@ aquí no hay CDN de terceros ni dispositivo lento.
 - **DT-Gd (separar `CardSetDTO`): NO ejecutada**, sigue diferida por instrucción.
 - **Nada nuevo que registrar.** El único apunte de este pase es el del logo del subset en el encabezado
   (44.3), y no es deuda de código: es un dato que el contrato no da y que hoy no molesta a nadie.
+
+---
+
+## §45 · v1.53 — El cotizador vuelve a comprar RAW y solo raw (contrato v1.53 §6, `ARCHITECTURE.md` §4.40) — 2026-09-06, rama `claude/buylist-graded-identity`
+
+> **Defecto de dinero SALIENTE vivo en producción.** No es un ajuste de UI: la pantalla ofrecía
+> comprar cartas graduadas sin preguntar nunca **qué grado** son, y el backend rellenaba el hueco con
+> `graded:PSA:10` —el grado **más caro** que existe—. O sea: el cotizador prometía el precio de un
+> PSA 10 por un PSA 6. Encargo del arquitecto en §4.40.9, fila **frontend**.
+
+### 45.1 Qué se retiró, y por qué NO fue una decisión de diseño mía
+
+`BuylistView.tsx:57` declaraba `const PRODUCT_TYPES: ProductType[] = ['raw', 'graded', 'sealed']` y
+el `<Select>` de `:512` los servía los tres. **La fuente que manda dice que esa superficie nunca
+debió existir**, y lo dice tres veces:
+
+- `PROJECT.md` §E — el título del capítulo es «Buylist — compra de **raw** a usuarios»; el cuerpo
+  fija la condición en Near Mint, *«único grado que compramos»*.
+- `PROJECT.md` §K (**LOCKED**) — *«el cotizador y el pipeline de buylist siguen siendo **solo para
+  raw**»*.
+- Criterio de aceptación **61** — el sellado *«no existe»* como flujo de buylist, «ni cotizador ni
+  pipeline».
+
+Por la regla de conflicto de `CLAUDE.md` (`PROJECT.md` manda sobre el contrato y el contrato sobre el
+código), aquí no había nada que sopesar: `PRODUCT_TYPES → ['raw']`.
+
+**El selector se retira, no se deja con una opción.** Con un solo valor el control no ofrece
+elección: es ruido que además **sigue insinuando** que compramos slabs y sellado, que es justo el
+mensaje falso que este pase borra. La pantalla no pierde ninguna capacidad: los dos controles de
+búsqueda que el cotizador usa de verdad —«Buscar set» y «Buscar carta»— ya los trae el binder de
+Master Set (`mode="quoter"`), que era el grid de `raw` desde v1.21.
+
+⛔ **Lo que este pase NO hace, y es deliberado:** *no* añade un selector de grado. El humano puede
+querer comprar graduadas —§4.40.6 lo deja como pregunta abierta— pero eso es una **funcionalidad
+nueva** que arranca con `product-owner` cambiando `PROJECT.md`, con su migración (`M-49`, reservada
+y no programada). Aquí se cierra la puerta; abrirla bien viene después.
+
+### 45.2 Las ramas muertas que cayeron con el selector (y las que NO se tocaron)
+
+Con `productType` fijo en `'raw'`, todo lo que colgaba de `productType !== 'raw'` quedó inalcanzable.
+Se retiró **entero**, no comentado:
+
+| Qué | Dónde vivía | Por qué era solo de graded/sealed |
+|---|---|---|
+| El `<Select>` «Tipo de producto» | `BuylistView.tsx:509-520` | servía los tres valores |
+| Barra de filtros plana (set + texto + «Buscar») | `:470-508`, envuelta en `{productType !== 'raw' && …}` | literalmente no se pintaba en raw |
+| **Grid plano** (`cardsResult`, tejas, filas por acabado) | rama `else` del ternario `productType === 'raw' ? <MasterSetPanel/> : …` | en raw siempre ganaba el binder |
+| `gridBatchItems` + `gridQuotes` + `quoteFor` + `FinishEstimate` | `:205-259`, `:90-110` | el batch del grid plano; el binder tiene el suyo |
+| **Bulk** (multi-selección, `addSelectedToCart`, 4 estados y 6 cadenas) | `:385-428`, `:563-599` | el binder agrega de un clic por casilla, sin paso de selección |
+| `tileFinishes` / `rowLabel` / `addFromGrid` / `firstAvailableFinish` / `quoteMapKey` | helpers del grid plano | — |
+| `CardDetailModal` de la vista | `:875-882` | el del binder lo pinta cada teja (`QuoterTile`) |
+| `useSellCart.addLines` | hook | su único consumidor era el bulk |
+
+**Lo que NO se tocó, y es la mitad importante del encargo:** graduadas y sellado **existen y se
+venden**. Catálogo (`CatalogView`, `ShopFilters`, `StoreTabs`, `ListingSpec`, `RarityLabel`), ficha,
+bóveda (`vault/*`), admin M1/M2 y el `ProductType` de `contract.ts` siguen **exactamente igual**. Lo
+que se cerró es **la superficie de COMPRA**, no la de venta ni la de custodia.
+
+Efecto secundario que sí es una mejora: la identidad de línea del carrito (`useSellCart`) pierde
+`productType` de la llave de dedup —era una constante en los dos lados de la igualdad— y `isInCart`
+queda con la **misma firma** que el binder ya declaraba (`(cardId, finish, productId?)`), así que
+desapareció el adaptador `isInCartRaw`.
+
+### 45.3 Tipos: el compilador cierra la puerta, pero la autoridad es el servidor
+
+`frontend/src/types/contract.ts` (y sus dos espejos en `lib/api.ts` y `BuylistKycForm.tsx`):
+
+```ts
+// antes                              // v1.53
+productType: ProductType;      →      productType: 'raw';
+```
+
+Cubre `BuylistQuoteItemDTO` (batch), `BuylistQuoteInput` (quote por-carta),
+`CreateSellRequestInput['items'][n]` y `BuylistRequestItem` (el DTO del carrito). Con eso, **volver a
+mandar `graded` no compila**.
+
+Dicho sin adornarlo: **esto no es la guarda.** El endpoint es público y anónimo; un `curl` se salta
+cualquier tipo de TypeScript. La guarda que decide dinero es la server-side (`422 BUYLIST_RAW_ONLY`,
+SEC-A1). Lo del front es (a) que la UI deje de ofrecerlo y (b) que un descuido no lo reintroduzca.
+
+### 45.4 `BUYLIST_RAW_ONLY` es un error **POR ÍTEM**, y eso decidió dónde ponerlo
+
+El contrato §6 lo pone en la lista de errores por-ítem del batch **a propósito** (§4.40.3.3): un lote
+de 50 con **una** línea no-raw debe devolver `200` con esa línea `ok:false` y **las otras 49
+cotizadas**. Si se pintara como fallo global, un solo ítem malo dejaría el grid entero sin una sola
+teja agregable — que es exactamente el daño que ese diseño evita.
+
+Implementación:
+- El código entra a la **unión de `error.code`** de `BuylistBatchQuoteResultDTO`, no a un manejo
+  aparte. El binder ya degrada por-ítem para *cualquier* código (`variant.quote = null` ⇒ teja
+  «Precio pendiente» con su «Agregar» inhábil; `SeparateProductTile` ⇒ error de línea legible), así
+  que el código nuevo hereda el camino correcto por construcción.
+- Nueva cadena `masterSet.separateProductErrorCode.BUYLIST_RAW_ONLY` (es/en). Sin ella, next-intl
+  tira `MISSING_MESSAGE` en la teja de producto separado — se detectó por el `stderr` de vitest, no
+  por una roja.
+- `error.BUYLIST_RAW_ONLY` (es/en) para el **nivel request**: `POST /buylist/requests` es
+  todo-o-nada y su 422 llega por `useErrorMessage` → `error.<CODE>`.
+
+**Por qué se codifica un error que el front ya no puede provocar:** un bundle viejo en caché, o una
+pestaña abierta desde antes del deploy, sí puede recibirlo. La alternativa —no mapearlo— es enseñar
+un texto en inglés crudo del servidor justo en la pantalla del dinero.
+
+### 45.5 Los mocks espejan la guarda del servidor, no el tipo del cliente
+
+`lib/api.ts` es el servidor del modo mock (y del build que corre la suite E2E). `mockResolveQuoteItem`
+recibe `productType?: string` **a propósito** —no `'raw'`— para poder rechazar un payload fuera de
+tipo, igual que el backend rechaza un `curl`:
+
+- `/quote/batch` → `ok:false` **por ítem**, HTTP 200, el resto cotiza.
+- `/quote` por-carta → `422`.
+- `/buylist/requests` → `422` con `details: { index, productType }` y **la solicitud no se crea**
+  (todo-o-nada; el mock corta antes de mapear un solo ítem).
+
+Si el mock heredara el tipo estrecho, el modo mock afirmaría que la guarda existe **sin tener
+ninguna**, que es la clase de falso verde que ya nos costó una ronda en §43.
+
+### 45.6 i18n: 22 entradas de `buylist.` borradas (24 hojas), 2 añadidas
+
+Se fueron con su código: `selectType`, `productType.{raw,graded,sealed}`, `filterBySet`, `allSets`,
+`searchCards`, `searchPlaceholder`, `searchAction`, `searchResults`, `noResults`, `searchHint`,
+`gridEstimateLegend`, `gridQuotesFailed`, `gridQuoteError`, `addFinishAria`, `bulkSelect`,
+`bulkAddCta`, `bulkClear`, `bulkAdded`, `bulkAddedPartial`, `bulkAddError`, `viewDetailAria`,
+`tileInCart` (todas bajo `buylist.`). Añadidas: `error.BUYLIST_RAW_ONLY` y
+`masterSet.separateProductErrorCode.BUYLIST_RAW_ONLY`. ES y EN en paridad
+(`src/lib/i18n-parity.test.ts` lo exige).
+
+> ⚠️ **Esta afirmación fue FALSA hasta §45.10, y conviene que quede escrito.** En el pase original
+> solo entró **una** de las dos claves: la de nivel-request se pegó dentro de
+> `masterSet.separateProductErrorCode`, de modo que ese objeto tenía **dos claves con el mismo
+> nombre** y `error.BUYLIST_RAW_ONLY` **no existía en ningún idioma**. El documento aseguraba un
+> hecho que el código no tenía. Corregido en §45.10; la frase de arriba ya es cierta.
+
+Cuidado a la vista: `admin.m1.filterBySet` / `admin.m1.searchCards` / `catalog.searchPlaceholder` son
+claves **distintas** con el mismo nombre de hoja en otro namespace — no se tocaron.
+
+### 45.7 Pruebas: el candado, no el registro del cambio
+
+Los 6 casos del bloque `graded/sealed (grid plano…)` de `BuylistView.test.tsx` describían una
+superficie que ya no existe. **No se «arreglaron»: se sustituyeron** por 4 que fallan si alguien la
+reabre.
+
+| Prueba | Qué se rompe si vuelve el defecto |
+|---|---|
+| `NO existe selector de tipo de producto` | remontar el `<Select>` (aunque sea con una opción) |
+| `NO existe la barra de filtros del grid plano` | reintroducir el grid plano |
+| `todo item de la solicitud creada viaja con productType "raw"` | que una línea salga con otro tipo hacia `POST /buylist/requests` |
+| `BUYLIST_RAW_ONLY es error POR ÍTEM…` | tratarlo como fallo global (el carrito se quedaría en 0 líneas) |
+
+Más `MasterSet.test.tsx` › *«v1.53 (§4.40): BUYLIST_RAW_ONLY es error POR ÍTEM»*: el lote trae una
+línea rechazada y **la otra sigue cotizando y agregándose** — con el `onAdd` contado antes y después
+de clicar la inhábil, para que la prueba no pase por omisión.
+
+En E2E (`e2e/buylist.spec.ts`): se borró el `describe` del grid plano graded (2 casos) y se añadió
+*«v1.53: la página de venta NO ofrece gradeada ni sellado»*, que mide el candado **en navegador** y
+no en jsdom.
+
+**El smoke `@real` de VENDER se tuvo que migrar, y conviene saber por qué:** `addFirstSellableCard`
+descubría la carta por el **grid plano GRADED** — justo la superficie que este pase cierra. Ahora es
+`addCheapestSellableCard`, que recorre el binder quoter: filtra las tejas cuyo `aria-label` trae
+`MX$` (las de «Precio pendiente» quedan fuera sin nombrarlas) y clica **la más barata**. Se conserva
+íntegro el motivo money del helper original: contra el stack real una carta cara empuja la solicitud
+por encima del **tope AML** y la UI exige INE antes de confirmar — el smoke quiere recorrer VENDER,
+no pelearse con un control de lavado de dinero. Si el set no tuviera ninguna cotizada, cae a la
+primera teja habilitada (pendiente es money-safe: lo fija la plataforma al recibir).
+
+### 45.8 Verificación
+
+| Comando | Resultado |
+|---|---|
+| `npm test` (vitest) | **103 archivos · 965 pruebas · verdes** |
+| `npx tsc --noEmit` | **limpio (EXIT=0)** con `.next/types` de otra rama fuera de en medio — ver la nota de abajo |
+| `npm run lint` | **`✔ No ESLint warnings or errors`** |
+| `E2E_MOCK_PORT=3100 npx playwright test` | **115 pasadas · 3 saltadas · EXIT=0** (las 3 saltadas son `@real` de `grading-estimate`, `realOnly` en modo mock) |
+
+> ⚠️ **Nota de operación — dos trampas del entorno, ambas reales, ambas costaron tiempo.**
+>
+> 1. **El puerto 3000 estaba ocupado por el stack de otra rama.** La suite de mocks levanta su propio
+>    servidor ahí y aborta con `http://localhost:3000/es is already used`. Se corre con
+>    `E2E_MOCK_PORT=3100` (el dial existe justo para esto).
+> 2. **`frontend/.next` era el build de la OTRA rama y envenenaba el typecheck Y el build de la
+>    suite.** `tsconfig.json` incluye `.next/types/**/*.ts`, y ese árbol traía los tipos generados de
+>    una ruta que en esta rama **no existe** (`(storefront)/buylist/requests/[id]/page`) ⇒ errores
+>    `TS2307` en `npx tsc --noEmit` **y** `Failed to compile` en el `next build` de Playwright, sin
+>    una sola línea de código nuestro implicada. Se resolvió apartando `.next/types` (artefacto
+>    generado; `next start` no lo lee, el stack siguió sirviendo en 3000) y se **restauró tal cual al
+>    terminar** — o sea que el árbol queda como lo encontré, con la mina puesta:
+>
+>    ```
+>    .next/types/app/[locale]/(storefront)/buylist/requests/[id]/page.ts(2,24): error TS2307: …
+>    .next/types/app/[locale]/(storefront)/buylist/requests/[id]/page.ts(5,29): error TS2307: …
+>    .next/types/validator.ts(204,39): error TS2307: …
+>    ```
+>
+>    Los tres apuntan a `.next/`, **ninguno a código versionado**. (`.next-e2e-mock` tenía las mismas
+>    tres y se limpiaron solas al reconstruirlo la suite E2E con este código, que es la prueba de que
+>    son artefacto y no fuente.) Quien corra los gates sobre este árbol tiene que **rebuildear
+>    `.next` con ESTE código** o medirá lo de la otra rama — es la misma lección de §43, ahora en
+>    `.next` en vez de `.next-e2e-mock`.
+
+### 45.10 La clave duplicada: por qué 965 pruebas verdes no la vieron (condición del techlead)
+
+**El defecto.** `messages/{es,en}.json` tenían esto, idéntico en los dos idiomas:
+
+```json
+      "BUYLIST_RAW_ONLY": "Solo compramos cartas sueltas (raw).",
+    "BUYLIST_RAW_ONLY": "Solo compramos cartas sueltas (raw) en Near Mint; …",
+```
+
+Dos claves con el mismo nombre **en el mismo objeto**. La segunda —la que §45.4 destinaba a
+`error.BUYLIST_RAW_ONLY`, nivel request— se quedó dentro de `masterSet.separateProductErrorCode`.
+Resultado: `error.BUYLIST_RAW_ONLY` **no existía en ningún idioma**.
+
+**Los dos daños, y el primero es en la pantalla del dinero:**
+
+1. El `422` de `POST /buylist/requests` caía al fallback de `useErrorMessage`
+   (`components/ui/QueryState.tsx`: si no hay `error.<CODE>`, devuelve `apiError.message`) y pintaba
+   el **texto EN crudo del servidor**. En modo mock es peor: `lib/api.ts:1372` manda
+   `message: res.code`, así que se renderizaba **el literal `BUYLIST_RAW_ONLY`**. Es exactamente lo
+   que §45.4 dice que la clave se añadió para evitar.
+2. En un duplicado **gana la última**, así que la teja de producto separado pintaba la frase larga
+   en el caption de `text-[10px]` de `MasterSetBinder.tsx:1013`, en vez de la corta escrita para ese
+   hueco.
+
+**Arreglo:** la corta se queda en `masterSet.separateProductErrorCode`; la larga pasa a `error.`,
+junto a `BUYLIST_LIMIT_EXCEEDED` (el otro código de buylist del namespace).
+
+#### Lo que importa: la CLASE que falló, no el caso
+
+`i18n-parity.test.ts` era **estructuralmente ciego** a esto, por dos razones que se acumulan:
+
+1. `keyPaths` recorre el objeto **ya parseado**, y `JSON.parse` **colapsa el duplicado antes de que
+   el test mire**. Ninguna prueba que importe el catálogo como módulo puede ver una clave repetida.
+2. El error estaba **igual en los dos idiomas**, así que la paridad es↔en pasaba en verde.
+
+**El guardarraíl medía SIMETRÍA es↔en; no medía EXISTENCIA de las claves que el código busca.** Un
+candado de simetría aprueba cualquier defecto que se cometa dos veces con disciplina.
+
+Se añaden dos candados que atacan esa clase, no ese caso:
+
+| Candado | Contra qué mide | Qué lo pone rojo |
+|---|---|---|
+| `%s traduce TODO código de error que el cliente declara recibir` | el **contrato** (no el otro idioma) | quitar `error.<CODE>` de un código declarado — **aunque se quite de los dos idiomas** |
+| `%s no define dos veces la misma clave en el mismo objeto` | el **texto** del JSON | reintroducir cualquier clave duplicada, en cualquier namespace |
+
+El primero extrae del **fuente de producción** las uniones de literales que el cliente declara como
+códigos de error de contrato (`code: 'A' | 'B'…` y `type …Error… = 'A' | 'B'…`) y exige
+`error.<CODE>` en los dos locales. Es deliberadamente **estrecho**: no basta con nombrar un código
+en cualquier parte. `FILE_TOO_LARGE`, `VAULT_REQUIRES_ACCOUNT`, `INSUFFICIENT_STOCK`,
+`CANNOT_DELETE_SELF`, `CLABE_REQUIRED` y `FEATURE_DISABLED` se manejan con UI propia en su `catch` y
+**nunca** pasan por `error.<CODE>`; exigirles traducción sería ruido, y un candado ruidoso se
+desactiva. Hoy la extracción da 7 códigos y los 7 tienen traducción.
+
+El segundo **tokeniza el texto** del JSON (consume los literales de cadena enteros, con sus escapes,
+para que una llave o una coma dentro de un texto traducido no lo descuadre). Es la única forma de
+ver un duplicado: cualquier ruta que pase por `JSON.parse` llega tarde.
+
+Dos detalles que evitan que los candados se vuelvan decorativos:
+
+- **Anti-vacuidad.** Si alguien reformatea `contract.ts` y la extracción deja de reconocer las
+  uniones, el candado aprobaría **mirando al vacío** — el mismo modo de fallo que se está
+  corrigiendo. Una prueba aparte exige que la extracción siga encontrando los cinco códigos
+  por-ítem de `BuylistBatchQuoteResultDTO`. Verificado: al reformatear la unión, se pone roja.
+- **El escáner se prueba a sí mismo.** Un bug en el tokenizador convertiría el candado de duplicados
+  en un verde permanente, así que hay casos que exigen que **detecte** un duplicado real y que **no**
+  confunda con estructura las llaves y comas dentro de un valor traducido.
+
+Se añade además un tercer candado en la misma tanda: los cinco códigos por-ítem del batch tienen que
+tener `masterSet.separateProductErrorCode.<CODE>`. Ahí no hay fallback que valga —
+`MasterSetBinder` interpola el código **directo** en `t(...)` y next-intl tira `MISSING_MESSAGE`.
+
+#### Prueba de que los candados sirven (mutación, no fe)
+
+No basta con que pasen; tienen que **ponerse rojos** al reintroducir el defecto. Verificado una por
+una, restaurando el árbol después de cada mutación:
+
+| Mutación | Resultado |
+|---|---|
+| Borrar `error.BUYLIST_RAW_ONLY` de **los dos** idiomas (el defecto original, simétrico) | 🔴 2 rojas. **La paridad es↔en siguió verde** — la demostración de que era ciega |
+| Reintroducir la clave duplicada tal cual estaba | 🔴 2 rojas, señalando la ruta `masterSet.separateProductErrorCode.BUYLIST_RAW_ONLY` |
+| Reformatear la unión para que la extracción no la vea | 🔴 1 roja (anti-vacuidad) |
+
+### 45.9 Alcance de este pase
+
+**Tocado:** `frontend/src/app/[locale]/(storefront)/buylist/{BuylistView.tsx, BuylistView.test.tsx,
+useSellCart.ts}`, `frontend/src/components/domain/BuylistKycForm.tsx`,
+`frontend/src/components/master-set/MasterSet.test.tsx` (una prueba nueva),
+`frontend/src/types/contract.ts`, `frontend/src/lib/api.ts`, `frontend/messages/{es,en}.json`,
+`frontend/e2e/buylist.spec.ts`, y este documento. **§45.10 añade** `frontend/src/lib/i18n-parity.test.ts`
+(tres candados nuevos + las pruebas del propio escáner).
+
+**No tocado:** `backend/` (la guarda server-side y el retiro del default `?? 'PSA' / ?? '10'` son de
+backend, §4.40.9), `docs/API_CONTRACT.md`, `docs/ARCHITECTURE.md`, `docs/DESIGN_SYSTEM.md`, y **toda
+la superficie de VENTA de graduadas/sellado** (catálogo, ficha, bóveda, admin M1/M2).
+
+---
+
+## v1.51.5 · D43 + D36/D37 — el cotizador dice el envío EN PALABRAS, conserva el faltante del mínimo y exige dirección de origen (2026-09-01, rama `claude/buylist-inventory-workflow-hdnls3`)
+
+**Por qué este pase salió ANTES que el de backend (precedencia BL-11).** `POST /buylist/requests`
+está vivo en producción y gana un campo **obligatorio** (`addressId`). El `ValidationPipe` con
+whitelist **descarta** lo que no conoce ⇒ **front nuevo contra backend viejo funciona** (el
+`addressId` se ignora y la solicitud nace sin snapshot, recuperable con
+`PATCH …/pickup-address`); **backend nuevo contra front viejo rompe TODAS las altas**. El orden no
+es una preferencia: es la única secuencia sin ventana rota.
+
+### 1. Lo que se BORRÓ (y el hallazgo: casi todo ya no existía)
+
+| Lo que D43 manda retirar | Estado real en el código |
+|---|---|
+| La línea «Envío que ponemos nosotros − MX$…» | **Nunca existió.** El cotizador jamás implementó la aritmética de v2.3 |
+| La resta y el neto `RECIBIRÍAS ≈` | **Nunca existió** |
+| `buylist.quote.money.shippingOnUs`, `…youWouldGet`, `…money.rule` | **Ausentes en los dos catálogos** (verificado con `grep`). El test de paridad queda en verde **con las tres ausentes en ES y EN**, que es lo que §23.12 exige |
+| `shippingFeeCents` leído por una pantalla pública | **Ningún consumidor.** Los usos que quedan son de *checkout* y *retiros* (tarifa que el COMPRADOR paga), otro eje de dinero |
+
+Lo que sí se borró de verdad:
+
+1. **`buylist.totalEstimated` («Total estimado»)** — retirada de los dos catálogos y sustituida por
+   **`buylist.quote.money.cardsValue`** («Valor de tus cartas» / "Value of your cards"), el único
+   rótulo de monto del bloque (§23.12). Se aplica en las **dos** superficies de cotizador: el
+   carrito (drawer móvil y panel fijo de escritorio comparten `SellCartContents`) y el resumen del
+   paso de crear.
+2. **La primera cláusula de `buylist.trustShipping`** — decía *«Tú cubres el envío de tus cartas
+   hacia nosotros»* / "You cover the shipping of your cards to us". Eso **contradice PROJECT.md**
+   (D16/D31: *«SIEMPRE ponemos la guía y SIEMPRE se descuenta»*), y con la nota de §23.3d en la
+   misma página el vendedor leía dos afirmaciones opuestas. Se eliminó **solo esa cláusula** (no se
+   redactó copy nuevo); sobrevive intacta la parte de la devolución NM a su costo, que sigue siendo
+   cierta. **Queda señalado a PO/ux-ui abajo.**
+
+### 2. La nota de servicio — `BuylistShippingNote` (`src/components/domain/BuylistShippingNote.tsx`)
+
+Un párrafo, **una sola clave** (`buylist.quote.shippingNote`), **sin placeholders** y sin ninguna
+cifra. Propiedades que el componente hace verificables:
+
+- **No recibe props de datos**: es imposible que espere a una llamada, que se esqueletice o que
+  aparezca/desaparezca con el estado del carrito. Se pinta desde el primer render, **incluso con el
+  carrito vacío**, y con el mismo texto por encima y por debajo del mínimo (§23.9).
+- **Tinta (`text-text`), `text-sm`, sin icono, sin caja, sin regla**: solo aire (`mt-3`) la separa
+  del monto. Un escalón de superficie la convertiría en «aviso» y §23.3c ya explicó por qué no.
+- **No es región `aria-live`** y no se trunca (sin `line-clamp`, sin «ver más»).
+- Se monta en las dos superficies de §23.3g: dentro del bloque de dinero del carrito
+  (`data-testid="sell-cart-money"`) y en el paso de crear, **antes del botón**, junto a la condición
+  NM (`BuylistKycForm`).
+
+### 3. El faltante del mínimo — se queda, y con el número del servidor
+
+- **`useQuotePolicy`** (`src/app/[locale]/(storefront)/buylist/useQuotePolicy.ts`) pide
+  `GET /buylist/quote-policy` **al montar el cotizador**: `staleTime: 0` + `refetchOnMount: 'always'`
+  + **`gcTime: 0`**, es decir *no hay store de vida larga entre navegaciones* — el contrato lo norma
+  por la caché pública de 5 minutos.
+- **`minimumShortfallCents(min, total)`** es la ÚNICA resta autorizada, aislada y probada aparte
+  (borde **inclusivo**: exactamente el mínimo procede, criterio 158a). La otra resta
+  (`neto ≈ total − tarifa`) no está prohibida solo por disciplina: **la tarifa no viaja**.
+- **`BuylistMinimumShortfall`** pinta *«Te faltan {amount} para el mínimo de {amount}. Agrega otra
+  carta.»* en tinta, y el CTA queda **apagado pero no mudo** (`aria-describedby` → el texto que
+  explica y da el remedio, §15.9).
+- **El cruce se anuncia una sola vez** (`aria-live="polite"`, *«Ya alcanzaste el mínimo de …»*), solo
+  en la transición debajo→arriba, y **sin mencionar envío ni neto**. La nota nunca entra en la live
+  region.
+- **Fail-OPEN, y es la decisión que más importa:** si la llamada falla (red/5xx/429),
+  `minimumRequestCents` queda `undefined` ⇒ **no se pinta faltante, no se inventa ningún número y el
+  CTA sigue HABILITADO**. Apagarlo sería fail-closed: bloquearía a un vendedor legítimo por un error
+  de red cuando la puerta real —el `422 BUYLIST_MINIMUM_NOT_MET`— ya protege el invariante y responde
+  con el número exacto. En el paso de crear, ese `422` **repinta con `details.minimumCents` /
+  `details.shortfallCents`**: *la pantalla informa; la puerta decide.*
+
+### 4. `addressId` obligatorio y EXPLÍCITO
+
+- `CreateSellRequestInput.addressId` pasa a ser **requerido en el tipo**: un cliente que lo olvide no
+  compila.
+- **`BuylistPickupAddressField`** reusa la libreta que ya existe (`GET`/`POST /users/me/addresses`):
+  con direcciones guardadas, **`Select` con la predeterminada preseleccionada** (el recurrente no
+  teclea nada); sin ninguna, **alta INLINE** (nunca un modal encima del modal) que **queda en su
+  libreta**. La preselección es **comodidad de pantalla**: el id viaja siempre explícito en el body.
+  **No hay fallback silencioso a `isDefault`** — la libreta tiene N filas y elegir por el vendedor es
+  elegir de dónde salen sus cartas.
+- Para no duplicar la validación de CP/teléfono se extrajeron de `AddressManager` **`useAddressForm`
+  + `AddressFormFields`** (refactor mecánico; el modal de la libreta los consume igual). `buylist`
+  **no** abre un segundo camino de alta de domicilios.
+- **Errores nuevos, inline en el campo (nunca toast):** `422 PICKUP_ADDRESS_REQUIRED` y
+  `422 PICKUP_ADDRESS_NOT_FOUND`. El segundo **limpia la selección e invalida la libreta** (refrescar
+  y volver a elegir); los dos casos del contrato comparten respuesta a propósito (anti-IDOR) y la UI
+  no intenta distinguirlos.
+- Sin dirección, el botón de crear está **apagado con `aria-describedby`** al «por qué»
+  (*«La necesitamos para imprimir la guía que te vamos a mandar.»*), que además está **siempre**
+  visible, no solo cuando bloquea.
+
+### 5. Espejo mock (`src/lib/api.ts` + `src/lib/mock/fixtures.ts`)
+
+- `getBuylistQuotePolicy()` — rama real `GET /buylist/quote-policy`; rama mock devuelve
+  `fx.mockBuylistQuotePolicy` (**un** entero). El valor sembrado vive en *fixtures*, es decir del
+  lado del **servidor falso**: la ruta real nunca tiene un default «por si acaso».
+- `createSellRequest()` mock replica las **tres puertas**: `PICKUP_ADDRESS_REQUIRED` (sin id),
+  `PICKUP_ADDRESS_NOT_FOUND` (id que no está en la libreta) y `BUYLIST_MINIMUM_NOT_MET` sobre el
+  **total bruto** con `details: { minimumCents, totalCents, shortfallCents }` (una línea en
+  `precio_pendiente` aporta 0).
+
+### 6. i18n (paridad ES/EN verificada por test)
+
+**Altas:** `buylist.quote.money.cardsValue` · `buylist.quote.shippingNote` ·
+`buylist.quote.minimum.{shortfall,minimumIs,addAnother,reachedAnnounce}` ·
+`buylist.request.address.{label,why,printed,missing}` · `error.PICKUP_ADDRESS_REQUIRED` ·
+`error.PICKUP_ADDRESS_NOT_FOUND` · `error.BUYLIST_MINIMUM_NOT_MET`.
+**Bajas:** `buylist.totalEstimated`.
+**No implementadas (declarado, no silenciado):** `buylist.request.address.change` de §23.12 —
+el patrón elegido por la propia §23.3j (un `Select`) hace innecesario un enlace «usar otra
+dirección»; se omite para no dejar una clave muerta. Y `buylist.quote.pendingLine.{label,note}`
+(§23.3h, versalita `SIN PRECIO`) **no entra en este pase**: cambia el rótulo de las líneas sin precio
+en el grid y en el carrito, que es otro alcance; hoy sigue viva `buylist.linePending`.
+
+### 7. Verificación (resultado literal)
+
+| Comprobación | Resultado |
+|---|---|
+| `npm test` | `Test Files 91 passed (91)` · `Tests 789 passed (789)` |
+| Flakes observados (**no** de este pase) | En corridas completas intermedias fallaron **una vez cada uno** `PhotoUploader.test.tsx` y `M2View.test.tsx` (uploader de INE y sync de catálogo en M2 — dos áreas que este pase no toca). **Los dos pasan aislados y en la corrida siguiente**: son inestabilidad de tiempos bajo carga, y queda escrito para que QA no lo descubra como novedad |
+| `npm run typecheck` | limpio (sin salida) |
+| `npm run lint` | `✔ No ESLint warnings or errors` |
+| `npx next build` (en `NEXT_DIST_DIR=.next-verify`, borrado después) | verde |
+
+Cobertura nueva: 6 casos del cotizador en `BuylistView.test.tsx` (nota con carrito vacío, nota con la
+política caída, **un solo monto** en el bloque de dinero, faltante + CTA apagado, cruce del mínimo
+anunciado, **fail-open**), 6 en `BuylistKycForm.test.tsx` (id explícito, libreta vacía → alta inline
+con botón apagado y motivo, `PICKUP_ADDRESS_NOT_FOUND` inline, repintado autoritativo del `422`,
+faltante preventivo, la nota antes del botón), 5 del espejo mock en `api.test.ts` y 4 de la resta
+autorizada en `useQuotePolicy.test.ts`. E2E (`e2e/buylist.spec.ts`) actualizado: rótulo nuevo, nota
+con carrito vacío, `ensureMinimumReached` (sube cantidad hasta cruzar el mínimo **sin hardcodearlo**)
+y `choosePickupAddress` (preselección, o alta inline contra un stack sin libreta).
+
+### 8. Señalado a otros roles (no resuelto aquí)
+
+1. **PO / ux-ui — `buylist.trustShipping` decía lo contrario de D16/D31** (ver §1.2). Quité la
+   cláusula falsa; **el texto de reemplazo, si lo quieren, es suyo**.
+2. **PO / ux-ui — `safeShipping.step4Body`** («Guía con seguro: asegura por el valor cotizado…»)
+   sigue instruyendo al vendedor a **comprar y asegurar la guía**, que bajo D16 ponemos nosotros. No
+   lo toqué: la guía de empaque es copy de producto y su reescritura pertenece al pase del ciclo de
+   adquisición (§23.4/§23.5), no a éste.
+3. **ux-ui — el cotizador del HOME rotula su total `home.quoter.wePay` («Te pagamos»)**. §23.3c
+   prohíbe en el bloque de dinero cualquier rótulo que **prometa depósito** —y bajo D43 lo que se
+   deposita es el neto—, pero §23.3g no lista esa superficie. **No lo cambié**: decidir si el teaser
+   del home es «cotizador» a efectos de §23.3 es de ux-ui.
+4. **Arquitecto — sin petición de contrato.** `GET /buylist/quote-policy` y el `addressId` de
+   `POST /buylist/requests` alcanzaron para todo lo de este pase; no hizo falta ningún campo nuevo ni
+   ningún dato mock sin contrato.
+
+---
+
+## v2.3.2 · §23.14 — el pase de copy: retirar la línea que le costaba dinero al vendedor (2026-09-01, rama `claude/buylist-inventory-workflow-hdnls3`)
+
+> Ejecuta **DESIGN_SYSTEM §23.14** (commit `195261e`), incluida su nota 4 a frontend (§23.14.7-4).
+> **Cero componentes nuevos. Cero claves nuevas.** Se **retiran dos** y se **reutilizan dos** que ya
+> existían. El pase anterior (§ v1.51.5, arriba) reportó tres de estas contradicciones y **no las
+> tocó** porque el copy es de ux-ui; §23.14 las resolvió y encontró cuatro más.
+
+### 1. Lo que estaba en juego, en una línea
+
+`safeShipping.step4Body` decía *«Asegura por el valor cotizado…»* mientras que bajo **D16/D31 la
+guía la ponemos nosotros y su costo se descuenta del pago**. Un vendedor que **obedecía ese paso
+compraba y aseguraba una etiqueta que ya venía incluida: pagaba dos veces.** Era la única línea del
+producto que le costaba **dinero real** a quien la seguía. Todo lo demás de este pase es del mismo
+tipo —texto escrito antes de una decisión que cambió **quién paga**— pero solo esa cobraba.
+
+### 2. Las siete cadenas, y qué se hizo con cada una
+
+| Clave | Antes (resumen) | Ahora | Superficie |
+|---|---|---|---|
+| `safeShipping.step4Title` | «Guía con seguro» | «La guía la ponemos nosotros» | modal + sección inline |
+| `safeShipping.step4Body` | «Asegura por el valor cotizado y anota tu número de solicitud.» | quién pone la etiqueta + **que se descuenta** + las tres prohibiciones | idem |
+| `safeShipping.intro` | hablaba de **disputas** (remedio del *comprador*) | la política **NM-only**, que además cierra el hueco de **AC 34 en el modal** | idem |
+| `safeShipping.title` · `buylist.shippingGuideLink` | «Guía de envío seguro» | «Cómo empacar tus cartas» | enlace del hero, título del modal, `h2` inline |
+| `safeShipping.step3Body` | — | hereda «una hoja con tu número de solicitud» del paso 4 viejo | idem |
+| `buylist.estimateNote` | «el monto final lo confirma la plataforma **cuando recibimos y verificamos**» | «los precios se mueven y puede que no compremos todas las líneas; lo firme va en la oferta» | bloque de dinero del carrito |
+| `buylist.trustValidity` | «el monto final se confirma con los **precios vigentes al verificar**» | «el **precio** vinculante es el de la oferta, y **ese precio ya no se mueve**» | pie de `/buylist` + resumen de crear |
+| `buylist.created` | «te avisaremos **cuando recibamos tu carta**» | «**no mandes tus cartas todavía**: primero aceptas la oferta y después te llega la guía» | aviso `role="status"` |
+
+**Las dos retiradas** (de **los dos** catálogos — una clave viva en un solo idioma es el modo típico
+en que un texto retirado revive, y `i18n-parity.test.ts` lo caza):
+
+- **`home.quoter.wePay`** («Te pagamos»): rotulaba con una **promesa de depósito** un bruto del que
+  se descuenta el envío. El total del teaser pasa a **`buylist.quote.money.cardsValue`**, la **misma
+  clave** del carrito y del resumen de crear. *No se creó `home.quoter.cardsValue`*: un segundo
+  string con el mismo significado es el mecanismo exacto por el que este rótulo se desincronizó.
+- **`buylist.trustShipping`**: el remanente que dejé en el pase anterior era un **recorte**, no texto
+  escrito a propósito — un eco degradado de `nmOnlyBody`, que está dos párrafos arriba y lo dice con
+  más detalle. El bloque de confianza del pie baja a **dos párrafos** (`trustPayment`, `trustValidity`)
+  y no pierde información.
+
+### 3. Dónde quedó la nota del envío (las dos superficies nuevas de §23.3g)
+
+`BuylistShippingNote` ya existía; lo nuevo es **dónde se monta**.
+
+| Fila | Sitio exacto | Detalle que no es cosmético |
+|---|---|---|
+| **0 · teaser del home** (`HomeQuoterPanel`) | cuerpo del panel, **después** del bloque de dinero (o del estado vacío) y **antes** de «Continuar mi cotización» | Va **fuera de los dos brazos del ternario** ⇒ se pinta con cero líneas y con líneas. Y **fuera de `withTrust`**: esa banda es `false` en la sección de 390px, y **una regla de dinero que solo existe en escritorio no es una regla** |
+| **1-bis · cabecera de `/buylist`** (`BuylistView`) | justo debajo de `payAfterReceipt`, antes del enlace de la guía | **Tinta `text-sm`**, sin `muted`, sin `rule-note`, sin caja (§23.3c: al mismo nivel visual que los montos). Motivo decisivo: **en móvil el carrito es un drawer cerrado**, así que sin esta instancia se recorre `/buylist` entera sin leer la regla |
+
+**Repetición aceptada:** en escritorio `/buylist` muestra la nota **dos veces** (cabecera + panel
+fijo del carrito). Es **el mismo string, carácter por carácter** — el test lo afirma con un `Set` de
+`textContent` de tamaño 1. Una regla de dinero repetida es redundancia; **dos redacciones distintas
+de la misma regla** sería el defecto.
+
+### 4. Lo que NO se tocó, y por qué (para que nadie lo «arregle» después)
+
+- **`safeShipping.step1*` / `step2*` / `understood`** — **AC 34 exige** las palabras *funda/sleeve* y
+  *top loader*. Reescribirlos «por consistencia» rompe un criterio de aceptación. Hay test.
+- **`payAfterReceipt` · `cartFooterNote` · `trustPayment`** — **siguen siendo ciertas**. El pago sí
+  ocurre tras verificar; lo que no ocurre es **repreciar**. *Cuándo se paga* ≠ *cuándo se fija el
+  monto*: esa distinción es justo lo que arreglan `estimateNote` y `trustValidity`.
+- **`home.bounties.wePay` / `buylist.bounties.wePay`** — es un **precio POR CARTA**, no una suma. La
+  regla nueva es que pierden el verbo de pago **los rótulos de sumas**, no las tarifas.
+- **`withdrawals.*` · `checkout.*` · `shipmentStage.*`** — **el envío del COMPRADOR**, que sí paga el
+  suyo. Otro eje de dinero; D16 no lo toca. `withdrawals.shippingFee` es legítima.
+- **`grading.*`** — otro dominio (§22) y otra decisión.
+- **`buylist.adjust.*`** — ux-ui lo señaló como **posible pantalla muerta** (D30 disuelve la
+  re-confirmación; D9 mata el repreciado) y **está pendiente de dictamen del arquitecto**. Sin ese
+  dictamen no se retira: borrar UI viva por inferencia es peor que dejar copy dudoso un ciclo más.
+- **`buylist.subtitle` · `home.sellBody`** — §23.14.4d los marca **mejora opcional, no
+  contradicción**, y la decisión es del **PO**.
+
+### 5. Archivos tocados
+
+| Archivo | Qué |
+|---|---|
+| `frontend/messages/{es,en}.json` | 10 cadenas reescritas · 2 claves retiradas (paridad estricta) |
+| `frontend/src/components/domain/SafeShippingGuide.tsx` | **solo documentación**: el copy vive en el catálogo. Se escriben los invariantes (AC 34, la resta del paso 4, sin cifras, sin `line-clamp`) |
+| `frontend/src/app/[locale]/(storefront)/_home/HomeQuoter.tsx` | rótulo → clave compartida; `BuylistShippingNote` en el cuerpo, fuera de `withTrust` |
+| `frontend/src/app/[locale]/(storefront)/buylist/BuylistView.tsx` | `BuylistShippingNote` bajo `payAfterReceipt`; `<p>{t('trustShipping')}</p>` borrado |
+| `frontend/src/app/[locale]/(storefront)/buylist/SellCartContents.tsx` | solo comentario (el de `estimateNote` documentaba la promesa retirada) |
+| `frontend/src/components/domain/SafeShippingGuide.test.tsx` | **nuevo** · 11 casos, ES y EN |
+| `.../page.test.tsx` · `.../BuylistView.test.tsx` · `e2e/buylist.spec.ts` | cobertura de las superficies nuevas |
+
+**Ningún componente nuevo. Ninguna clave nueva. `backend/` intacto.**
+
+### 6. Cobertura añadida
+
+- **`SafeShippingGuide.test.tsx` (nuevo, 11 casos ES+EN):** el paso 4 dice quién pone la etiqueta y
+  **que se descuenta**; **nunca** aparece «asegura/insure» como instrucción al vendedor; D43 (sin
+  monto, sin rango, sin «gratis»); **AC 34** (funda/sleeve, top loader, `intro` con Near Mint); el
+  número de solicitud sobrevive en el paso 3; sin `line-clamp` ni altura fija.
+- **`BuylistView.test.tsx`:** la regla se lee en la **cabecera con el carrito cerrado** (1 instancia);
+  con el drawer abierto son **2 instancias con el mismo texto**; el bloque de confianza queda en dos
+  párrafos **sin** el eco retirado, con `trustValidity` afirmando que **el precio** no se mueve.
+- **`page.test.tsx`:** la nota en **las dos** instancias del teaser (incluida la de móvil sin banda de
+  confianza), con cero cartas y con cartas; el total rotulado «Valor de tus cartas» y «Te pagamos»
+  **ausente del documento**.
+- **`e2e/buylist.spec.ts`:** el modal de empaque afirma el paso 4 y la resta y **no** dice «asegura
+  por»; `/buylist` a **390px con el carrito cerrado** lee la regla en la cabecera; el **teaser del
+  home** en 1280 y en 390 (dos viewports, un test cada uno).
+
+### 7. Verificación (resultado literal)
+
+| Comprobación | Resultado |
+|---|---|
+| `npm test` | `Test Files 92 passed (92)` · `Tests 803 passed (803)` |
+| `npm run typecheck` | limpio (sin salida) |
+| `npm run lint` | `✔ No ESLint warnings or errors` |
+| Flakes conocidos (`M2View`, `PhotoUploader`) | **no se dispararon** en esta corrida completa |
+
+Los tres fallos intermedios que sí hubo eran **consecuencia correcta del cambio**, no roturas:
+`page.test.tsx` afirmaba el rótulo «Te pagamos» retirado, y dos casos de `BuylistView.test.tsx`
+usaban `getByTestId('buylist-shipping-note')` cuando ahora hay **dos** instancias en `/buylist`.
+Ambos se actualizaron a la realidad normativa nueva (no se relajaron: se ampliaron).
+
+### 8. §23.14.6 — el resultado de los `grep` normativos
+
+1. **Afirmación prohibida** (`por tu cuenta` / `a tu costo` / `at your cost` / `on you`): cuatro
+   supervivientes, **todas legítimas** — `grading.microNotice`, `grading.p5`, `buylist.nmOnlyBody` y
+   `safeShipping.intro`. Ninguna otra.
+2. **Paridad de las retiradas:** `home.quoter.wePay` y `buylist.trustShipping` **no existen en
+   ninguno de los dos catálogos**, y ningún componente las referencia (las tres apariciones que
+   quedan del identificador son **comentarios** que explican la retirada).
+3. **Promesa de depósito sobre una suma** en `home.quoter.*` / `buylist.quote.*`: cero rótulos. Ver
+   la nota 2 de §9 sobre la calibración de este `grep`.
+
+### 9. Señalado a otros roles (no resuelto aquí)
+
+1. **Arquitecto — `buylist.adjust.*` sigue esperando dictamen.** §23.14.7-2 pide confirmar si el
+   estado `ajustada` sigue vivo. El catálogo mantiene un modal completo
+   (`adjust.{title,body,newTotal,accept,decline,error}`) cuyo cuerpo dice *«Tras la verificación
+   ajustamos el precio de una o más cartas»* — **la misma contradicción con D9 que este pase acaba de
+   cerrar en `estimateNote` y `trustValidity`, pero con UI detrás**. Retirar la pantalla es mío; **decidir
+   si el flujo existe es del arquitecto**. Lo dejo intacto y visible, no lo borro por inferencia.
+2. **ux-ui — el `grep` 2 de §23.14.6 está mal calibrado** (nota menor, sin efecto en lo entregado).
+   Tal como está escrito, `Te pagamos` / `We pay you` sobre `buylist.quote.*` marca
+   **`buylist.quote.shippingNote`**, que contiene *«se descuenta siempre de lo que **te pagamos**»* —
+   y esa cadena es **normativa e intocada** (§23.3d, citada carácter por carácter en el mock-up de
+   §23.3g). El criterio real es *«rótulo que promete depósito **sobre una suma**»*, no la frase suelta.
+   Es el mismo tipo de falso positivo que §23.14.5 ya anticipa para `withdrawals.shippingFee`.
+3. **PO — tres textos de este pase son los «sensibles» que §23.14.7-1 pide ratificar**
+   (`safeShipping.step4Body`, `estimateNote`, `buylist.created`). Están implementados **tal cual**
+   §23.14; si el PO los matiza, es un cambio de catálogo de una línea por clave.
+4. **Arquitecto — sin petición de contrato.** Este pase es 100 % copy y montaje: **ningún endpoint,
+   ningún campo, ningún mock**. No quedó ningún `// MOCK: pendiente de contrato` abierto.
+
+---
+
+## v1.51 · §4.39c sitio 9 — la quinta copia del set terminal: se borra consumiendo `isTerminal` (2026-09-01, rama `claude/buylist-inventory-workflow-hdnls3`)
+
+> Ejecuta **ARCHITECTURE §4.39(c) sitio 9** («`M5View.tsx` borra su literal. **No lo sustituye por
+> otra constante de frontend: el backend le dice**») y **API_CONTRACT §M5/§11 v1.51**. Toca además
+> lo que el mismo crecimiento del enum dejó **invisible**: DESIGN_SYSTEM §23.1a/§23.1d y §23.2a.
+
+### 1. El hallazgo, y por qué tenía DOS daños y no uno
+
+`M5View.tsx:110` mantenía `REQUEST_TERMINAL = new Set<SellRequestStatus>(['pagada','rechazada',
+'abandonada'])` — la **quinta de cinco copias** del set terminal y la única fuera del backend. El
+enum creció a **cuatro** terminales (criterio 113) y la copia se quedó en tres. Los dos daños son
+distintos y ninguno falla en compilación:
+
+| # | Daño | Cómo se manifestaba |
+|---|---|---|
+| 1 | **La acción imposible** | `canRejectRequest` (`:780`) daba `true` sobre una `expirada` ⇒ la pantalla ofrecía «Rechazar solicitud» y el servidor contestaba **409** |
+| 2 | **La desaparición silenciosa** | `visible = filtered.filter(r => activeStatuses.includes(r.status))`. `ofertada`, `aceptada` y `en_transito` **no estaban en ninguna pestaña**, y `expirada` tampoco: **no salían en ninguna vista de M5** — sin error, sin aviso, sin test rojo |
+
+El daño 2 es el peor de los dos porque es **latente**: hoy nada escribe esos estados, así que la
+pantalla se ve bien. Deja de verse bien el día que el ciclo se encienda, que es exactamente cuando
+nadie estará mirando esto.
+
+### 2. `isTerminal`: sí se consiguió consumir, y en las DOS proyecciones
+
+El backend ya lo emite server-derived en las tres proyecciones (verificado en
+`buylist.service.ts:123`, `:1280`, `:1526`). El frontend **no tenía ni una sola lectura del campo**.
+
+- **`M5View.tsx`** — `REQUEST_TERMINAL` **borrado**. `canRejectRequest = req.isTerminal === false &&
+  allItemsRejected`.
+  **`=== false` y no `!req.isTerminal`, a propósito:** si el campo faltara (backend anterior a
+  v1.51), fallar hacia «no ofrecer la acción» le quita al operador un botón; fallar al revés le
+  ofrece un cierre que el servidor rechaza. **Fail-closed**, como todo lo que toca el cierre de una
+  solicitud. Hay test dedicado para esa dirección.
+- **`MyRequestsSection.tsx:105`** — era `errored={r.status === 'rechazada' || r.status ===
+  'abandonada'}`: **otra derivación local**, esta vez del set «terminal NO feliz». Pasa a
+  `r.isTerminal && r.status !== 'pagada'`. Lo único que queda escrito es el **único terminal
+  feliz**, que es un literal suelto y no un subconjunto que haya que mantener.
+- **`SellRequestDTO.isTerminal` y `AdminBuylistDTO.isTerminal` son OBLIGATORIOS**, no opcionales.
+  Si fueran opcionales, cada consumidor escribiría un `?? <adivinanza local>` y **la copia volvería
+  disfrazada de default**. Hay candado de tipo que lo fija.
+
+### 3. Dónde quedaron los cuatro estados nuevos en M5 — y el candado que impide la próxima desaparición
+
+El arreglo **no** fue añadir cuatro literales más a tres listas. El filtro por pestañas se derivó de
+una **asignación TOTAL** `Record<SellRequestStatus, M5TabAll>`:
+
+| Estado nuevo | Pestaña | Por qué |
+|---|---|---|
+| `ofertada` | **`ciclo`** (NUEVA — «Ciclo de oferta» / «Offer cycle») | oferta vinculante afuera, el reloj es del vendedor |
+| `aceptada` | **`ciclo`** | dijo que sí; **nada viaja todavía** (§23.1b, criterio 156) |
+| `en_transito` | **`ciclo`** | un paquete viaja de verdad |
+| `expirada` | **`cerradas`** | es el **cuarto terminal** (criterio 113); entra al CSV `status=pagada,rechazada,abandonada,expirada` |
+
+`Record<SellRequestStatus, …>` convierte la desaparición silenciosa en **error de compilación**:
+añadir un valor al enum del contrato deja de compilar M5 hasta que alguien decida dónde vive.
+`M5_OP_TABS` y `M5_CLOSED_STATUSES` se **derivan** de ese mapa; no se escriben dos veces.
+
+**Por qué UNA pestaña y no tres.** Los tres son estados de **monitoreo** desde esta cola. Las colas
+con acción propia del ciclo (por autorizar, por confirmar envío, guías por cancelar, vendedores
+vivos) son **vistas aparte** con endpoints propios (§23.8) y todavía no están montadas. Y `aceptada`
+**no** se agrupó bajo ningún rótulo que diga «en camino»: aceptar no mueve nada, y llamarlo así
+repetiría el error conceptual que el criterio 156 existe para evitar.
+
+### 4. Las otras derivaciones locales del mismo tipo, y qué se hizo con cada una
+
+| Sitio | Qué codificaba | Resolución |
+|---|---|---|
+| `M5View.tsx:110` `REQUEST_TERMINAL` | set terminal (3 de 4) | **BORRADO** — se consume `isTerminal` |
+| `MyRequestsSection.tsx:105` `errored` | terminal-no-feliz (2 literales) | **DERIVADO** de `isTerminal` |
+| `pipelines.ts` `useBuylistSteps` | pipeline de **CINCO** pasos | **OCHO** (§23.2a). Con cinco, una solicitud `ofertada`/`aceptada`/`en_transito` caía en `currentIdx === -1` y **el stepper no marcaba ningún paso**: el estado desaparecía también de ahí |
+| `status-map.ts` `sellRequest` | **siete** de once estados | los cuatro nuevos, con los tonos de §2.4/§23.1a |
+| `contract.ts` `SellRequestStatus` | **siete** valores | los **once** del contrato §Enums |
+| `M5_CLOSED_STATUSES` | CSV terminal escrito a mano | derivado del mapa total |
+
+**`expirada` se pinta por su MOTIVO, no por su estado (§23.1d).** Es la única excepción de mapeo del
+sistema y es obligatoria: `not_shipped` acusa al vendedor y `no_offer` **nos acusa a nosotros**.
+`getBadgeSpec(domain, value, reason)` busca primero la fila refinada y cae al **fallback neutro**
+—nunca al acusatorio— cuando el motivo falta. Rótulos bajo `status.sellRequestExpiry.{not_shipped,
+no_offer,unknown}` (las **tres** claves de §23.12, no bajo `status.sellRequest.*`).
+
+### 5. El mock es el SERVIDOR falso, y ahí vive la única derivación que queda
+
+`isTerminal` es server-derived, así que **no puede vivir en una fixture**: las ramas mock **mutan**
+el `status` en memoria (`respondSellRequest`, `paySpeiBuylist`, `rejectBuylistRequest`…) y un
+booleano guardado se quedaría mintiendo en cuanto la solicitud cambiara de estado. Las fixtures
+guardan **filas** (`MockSellRequestRow`, `MockAdminBuylistRow`) y las proyecciones
+`mockSellRequestDTO` / `mockAdminBuylistDTO` ponen el campo al responder, igual que el backend real.
+
+Eso deja **una** derivación del set terminal en el frontend, en `src/lib/mock/fixtures.ts`, espejo
+de `backend/src/common/sell-request-states.ts`. **No es la copia que §4.39c mandó borrar:** aquélla
+la consultaba una VISTA para decidir botones **teniendo el dato del servidor a mano**; ésta existe
+porque en modo mock **no hay servidor que lo derive**. Ninguna pantalla la importa, y el candado de
+§6 falla si alguna lo hace.
+
+### 6. El candado (`src/types/sell-request-status.test.ts`)
+
+Mismo patrón que `sealed-subtype.test.ts` (T-1, §22). Cuatro propiedades:
+
+1. **Tipo:** la unión del front cubre **exactamente** los once valores del contrato §Enums, en las
+   dos direcciones (falla en `tsc`, no solo en runtime).
+2. **Tipo:** `isTerminal` es **obligatorio** en los dos DTOs — si se volviera opcional, su tipo
+   pasaría a `boolean | undefined` y las asignaciones no compilarían bajo `strict`.
+3. Los once resuelven a badge propio con rótulo en **ambos** catálogos; diez bajo
+   `status.sellRequest.*` y `expirada` bajo `status.sellRequestExpiry.*`.
+4. **Nadie declara una lista LITERAL de estados fuera de `contract.ts`** (patrón
+   `new Set<SellRequestStatus>([…])` / `: SellRequestStatus[] = […]`). Las listas **derivadas** no
+   matchean: derivar es legítimo, transcribir a mano es la deuda. Única excepción, **nombrada en el
+   test en vez de escondida**: `src/lib/mock/` (el servidor falso).
+   **Verificado que falla:** reintroduciendo el `REQUEST_TERMINAL` original, el test rojo nombra el
+   archivo culpable.
+
+### 7. i18n (paridad ES/EN verificada por test)
+
+Claves **nuevas**, las mismas de DESIGN_SYSTEM §23.12:
+`status.sellRequest.{ofertada,aceptada,en_transito}` ·
+`status.sellRequestExpiry.{not_shipped,no_offer,unknown}` · `admin.m5.tabs.ciclo`.
+`status.sellRequest` queda con los **diez** que lista §23.12 (sin `expirada`, que rotula por motivo).
+
+### 8. Verificación (resultado literal)
+
+| Comprobación | Resultado |
+|---|---|
+| `npm test` | `Test Files 93 passed (93)` · `Tests 822 passed (822)` (base: 92/803) |
+| `npm run typecheck` | limpio (sin salida) |
+| `npm run lint` | `✔ No ESLint warnings or errors` |
+| Flakes conocidos (`M2View`, `PhotoUploader`) | **no se dispararon** en las dos corridas completas |
+
+### 9. Lo que NO se tocó, y por qué (para que nadie lo dé por hecho)
+
+1. **§23.2b-e — el rediseño de `PipelineStepper`.** Se implementó **solo el mapa** (§23.2a: cinco
+   pasos → ocho). El **truncado en terminal** con la versalita del motivo colgando, los tres
+   breakpoints, la vertical con timestamps del portal y las claves
+   `buylist.stepper.{1..8}.label` / `buylist.stepper.closed.*` son rediseño del componente y
+   pertenecen al pase del ciclo. Hoy una solicitud terminal simplemente no marca paso actual, que
+   es el **comportamiento previo** (no una regresión nueva).
+2. **§23.8 — las cuatro colas nuevas de M5** (`offers/pending-authorization`,
+   `pending-shipment-confirmation`, `guides/pending-cancellation`, `live-sellers`) y la **mesa de
+   decisión** (§23.6). Son endpoints que el backend aún no expone.
+3. **El rótulo `admin.m5.tabs.por_recibir` («Por recibir»).** §23.1a ratifica que `cotizada`
+   **cambió de sentido** en v2.3: ya no es «llegó y algún día se verá», es **«te debemos una
+   respuesta»**. El rótulo quedó describiendo lo que ya no significa. **No lo renombré**: es copy,
+   y el pase que lo cambie debería cambiarlo con el resto del vocabulario del ciclo. Ver §10-2.
+4. **`ITEM_TERMINAL` (`M5View.tsx`) y `RESOLVED` (`M8View.tsx`).** Son subconjuntos de
+   `SellItemStatus` y `DisputeStatus`, **dos enums que v1.51 NO toca** (el contrato lo dice con
+   todas sus letras para `SellItemStatus`). Misma clase de deuda, **cero radio de este cambio**.
+   Se dejan y se señalan.
+
+### 10. Señalado a otros roles (no resuelto aquí)
+
+1. **Arquitecto — `live?` está en el contrato pero el backend no lo implementa.** §M5 v1.51 define
+   `live=true|false`, que filtra los terminales **por exclusión server-side** y volvería innecesario
+   incluso el CSV que M5 manda hoy (`grep live` en `backend/src/modules/buylist/` no devuelve nada).
+   Mientras tanto la pestaña «Cerradas» sigue mandando `status=` CSV, que **enumera** los cuatro
+   terminales. **Es correcto pero no es la forma final**, y está anotado en el código. En cuanto el
+   parámetro exista, esa enumeración se retira.
+2. **Arquitecto — `canPay` es una sexta copia, y ésta NO tiene contraparte server-derived.**
+   `M5View.tsx` deriva `canPay = isSuperAdmin && (status === 'aprobada' || status ===
+   'verificacion')`. Ese par es exactamente `SELL_REQUEST_PAYABLE_STATES` (ARCHITECTURE §4.39c
+   **sitio 8**), y el frontend lo transcribe a mano igual que transcribía el terminal. **A
+   diferencia de `isTerminal`, el contrato no expone ningún booleano equivalente**, así que no
+   había forma de curarlo sin inventarme un campo. Toca dinero saliente. **No lo cambié**: si
+   quiere el mismo remedio, es un campo derivado en `AdminBuylistDTO` (p. ej. `isPayable`), y esa
+   decisión es del arquitecto.
+3. **Arquitecto — ambigüedad menor de alcance en §6.** El bloque de notas de `isTerminal` dice *«la
+   proyección de CLIENTE»* y cuelga de **dos** encabezados (`GET /buylist/requests` **lista** y
+   `…/:id` **detalle**), mientras que las adiciones vecinas sí distinguen (`pickupAddress` y
+   `lastOfferCancelledAt` dicen explícitamente «el DETALLE»). Lo leí como **las dos**, que es como
+   lo implementó el backend (`listMine` lo emite). **Lo señalo en vez de resolverlo en silencio**:
+   si la intención era solo el detalle, `MyRequestsSection` —que consume la **lista**— se quedaría
+   sin el campo.
+4. **ux-ui — falta rótulo de pestaña para el tramo del ciclo en M5.** §23.8 especifica las cuatro
+   **colas** nuevas, pero no las **pestañas de etapa** de la cola existente. Puse
+   `admin.m5.tabs.ciclo` = «Ciclo de oferta» / «Offer cycle» (el nombre que el propio contrato le
+   da al tramo) porque **algún rótulo hacía falta para que los tres estados no desaparecieran**.
+   Es una clave de una línea por catálogo si ux-ui prefiere otro. Junto con ella, el rótulo
+   «Por recibir» de §9-3.
+5. **Arquitecto — sin petición de contrato.** Todo lo consumido en este pase existe:
+   `isTerminal` y `expiredReason` en las dos proyecciones. **Cero mocks pendientes de contrato**;
+   no quedó ningún `// MOCK: pendiente de contrato` abierto.
+
+---
+
+## v2.3.5 · §23.8a — en M5 el rótulo dice DE QUIÉN ES EL PENDIENTE (2026-09-01, rama `claude/buylist-inventory-workflow-hdnls3`)
+
+> Ejecuta **DESIGN_SYSTEM §23.8a** (nueva, commit `daee187`) + §23.12 v2.3.5 + la verificación
+> §23.14.6-3bis. **Cero cambios de conducta**: tres rótulos, tres claves y el **eje** que los
+> genera. La estructura del pase anterior (`2f796b5`) **queda ratificada y normada**.
+
+### 1. El eje, que es lo que había que implementar (no las tres cadenas)
+
+§23.8a le da a M5 el criterio que le faltaba: es una **cola de trabajo**, así que sus pestañas
+contestan **«¿qué me toca?»**, no «¿en qué estado está el registro?». Dos formas, y no hay tercera:
+
+| Pendiente | Forma del rótulo | Pestañas |
+|---|---|---|
+| **NUESTRO** (y casi siempre con un reloj en contra) | **«Por + verbo»** — nombra la acción | `por_ofertar`, `por_pagar` |
+| **NO nuestro** | nombra **de quién depende**, nunca la acción | `con_vendedor` |
+
+El eje vive **en el código**, no solo en el catálogo: está escrito en el TSDoc de `M5OpTab`, que es
+lo primero que lee quien tenga que colocar el próximo estado del enum. Con el eje, los seis rótulos
+se derivan solos.
+
+### 2. Los tres rótulos y las tres claves
+
+| Clave | Antes | Ahora |
+|---|---|---|
+| ~~`por_recibir`~~ ⇒ **`por_ofertar`** | «Por recibir» / "To receive" | **«Por ofertar» / "To offer"** |
+| ~~`ciclo`~~ ⇒ **`con_vendedor`** | «Ciclo de oferta» / "Offer cycle" | **«Con el vendedor» / "With the seller"** |
+| ~~`rechazadas`~~ ⇒ **`piezas_rechazadas`** | «Rechazadas» / "Rejected" | **«Piezas rechazadas» / "Rejected items"** |
+
+**Las tres viejas se borraron de los DOS catálogos** (paridad estricta, cero coexistencia:
+verificado por test). «Verificando», «Por pagar» y «Cerradas» **no se tocaron** — está dicho
+explícitamente en §23.8ad y un barrido que cambia de más hace daño nuevo.
+
+**El renombre de `piezas_rechazadas` tenía una consecuencia fuera de `src/`:** `e2e/admin.spec.ts`
+resuelve el rótulo **por la clave** (`t('es','admin.m5.tabs.rechazadas')`). Sin actualizarlo, el
+spec habría fallado al hacer clic en una pestaña inexistente — es decir, el renombre habría roto
+la suite E2E que corre QA, no la de unitarios. Actualizado.
+
+### 3. Acepté la recomendación: los identificadores acompañan al renombre
+
+`M5OpTab` y `M5_STATUS_TAB` son código y la decisión era mía; **los renombré**. La razón es la
+misma que justifica renombrar la clave y no solo el texto: ese mapa es exactamente lo que alguien
+lee para decidir dónde vive el próximo estado, y un `por_recibir` ahí dentro seguiría diciendo
+*«esto es la cola de paquetes»* mucho después de que la pestaña dijera otra cosa. **Dejarlo habría
+reintroducido en el código el desfase que se acababa de quitar del texto** — con el agravante de
+que el código no lo revisa ux-ui.
+
+Los identificadores **son** las claves i18n, y hay test que lo fija: si alguien renombra el rótulo
+sin renombrar el discriminante, se pone rojo.
+
+### 4. La comprobación de §23.14.6-3bis, como aserción positiva
+
+En `M5View.test.tsx`, seis casos. La forma importa: *un estado sin pestaña **no falla, no avisa y
+desaparece del back-office***, así que no hay cadena que buscar — se afirma la **partición**.
+
+1. **Partición TOTAL**: el reparto se compara contra la tabla de §23.8a **transcrita a mano**. No
+   se recorre `M5_STATUS_TAB` para comprobarlo (se afirmaría a sí mismo). **Verificado que falla:**
+   moviendo `en_transito` a otra pestaña, el diff sale en el test.
+2. **`aceptada` no comparte pestaña con nada que se lea «en camino»** — la restricción de criterio
+   156 que §23.8ab deja viva con el rótulo nuevo, ahora asertada sobre el rótulo real en ES y EN.
+3. **Ninguna pestaña dice «recibir»/«receive»**. **Verificado que falla** restaurando «Por recibir».
+4. **Ninguna se llama «Rechazadas»/"Rejected" a secas** (la colisión con el estado `rechazada`).
+5. **Las tres claves viejas no existen en ninguno de los dos catálogos.**
+6. **Los identificadores del mapa son claves i18n existentes** en ambos idiomas.
+
+### 5. Verificación (resultado literal)
+
+| Comprobación | Resultado |
+|---|---|
+| `npm test` | `Test Files 93 passed (93)` · `Tests 828 passed (828)` (base: 93/822) |
+| `npm run typecheck` | limpio (sin salida) |
+| `npm run lint` | `✔ No ESLint warnings or errors` |
+| Flakes conocidos (`M2View`, `PhotoUploader`) | **no se dispararon** |
+
+### 6. Señalado a otros roles (no resuelto aquí)
+
+1. **ux-ui — §23.14.6-3bis dice «los DIEZ valores de `SellRequestStatus`»; son ONCE.** Lo implementé
+   sobre **once**, porque el contrato manda (`API_CONTRACT.md` §Enums:
+   `cotizada | ofertada | aceptada | en_transito | recibida | verificacion | aprobada | pagada |
+   rechazada | abandonada | expirada`) y porque **la propia frase de §23.8a suma once**: 1
+   (`cotizada`) + 3 (el tramo) + 2 (`recibida`/`verificacion`) + 1 (`aprobada`) + 4 (terminales).
+   El mapa normativo de §23.8a también reparte los once. **Es una errata de conteo, no una
+   discrepancia de fondo**, y la señalo en vez de resolverla en silencio porque el número aparece
+   en una regla de verificación: un test escrito contra «diez» dejaría un estado sin comprobar.
+   **Sospecha del origen:** §23.12 lista **diez** claves bajo `status.sellRequest.*` — correcto
+   ahí, porque `expirada` rotula por su MOTIVO (`status.sellRequestExpiry.*`, §23.1d) y no tiene
+   clave en ese espacio. Diez **rótulos de estado**, once **estados**.
+2. **Arquitecto — sin petición de contrato.** Este pase es rótulos, claves e identificadores:
+   **ningún endpoint, ningún campo, ningún mock**. Siguen abiertas las dos peticiones del pase
+   anterior (`live?` sin implementar en backend, y `canPay` como sexta copia sin contraparte
+   server-derived).
+
+---
+
+## v1.51.8 · `isPayable` y `live?` — se borra la SEXTA copia (la que ya estaba rota) y la última enumeración de terminales (2026-09-01, rama `claude/buylist-inventory-workflow-hdnls3`)
+
+> Consume los dos campos que backend entregó en `1ac4304` a raíz de las dos peticiones que dejé
+> abiertas en el pase de §4.39c. Contrato: **API_CONTRACT §M5 v1.51.8** (`isPayable`) y **BL-18**
+> (`live?`). ARCHITECTURE §4.39(c) **sitio 10**.
+
+### 1. `canPay` — no era una copia que pudiera romperse: ya estaba rota
+
+Cuando levanté esta sexta copia dije que no la curaba porque el contrato no exponía nada
+equivalente. Al implementarla el backend apareció **lo que desde el cliente no se veía**: la
+precondición del servidor son **DOS** términos y el literal replicaba **el primero**.
+
+```
+servidor:  status ∈ SELL_REQUEST_PAYABLE_STATES  ∧  verifiedAt IS NOT NULL
+cliente:   status === 'aprobada' || status === 'verificacion'      ← solo el primero
+```
+
+⇒ **la pantalla habilitaba el botón de pagar en filas donde el servidor responde `422`.** No es una
+copia que pudiera desincronizarse algún día. Ya lo estaba, en dinero saliente.
+
+```ts
+const canPay = isSuperAdmin && req.isPayable === true;
+```
+
+- **El literal de estados se borró.** El remedio **no** era replicar bien las dos condiciones: eso
+  duplicaría **dos** reglas en vez de una y metería `verifiedAt` en la lógica de una pantalla.
+- **`=== true`, y aquí importa más que en `isTerminal`:** si el campo faltara, el botón que sobra
+  es un **botón de pago**. Fail-closed, con test.
+- **El ROL se queda en el cliente y NO se fundió en el campo.** *«¿esta solicitud está en condición
+  de pagarse?»* es propiedad de **la fila**; *«¿puedo pagarla yo?»* es propiedad **del actor**. Un
+  check de permiso en el cliente es *affordance*; un check de máquina de estados es una regla
+  duplicada — **solo la segunda se cura**. El servidor impone el rol igual con `MoneyOutGuard`:
+  `isPayable: true` **no autoriza** un pago.
+
+### 2. `live=false` — la última enumeración de terminales que quedaba viva en el cliente
+
+La pestaña «Cerradas» mandaba `status=pagada,rechazada,abandonada,expirada`: **la forma exacta que
+este ciclo retiró de los otros cinco sitios**, sobreviviendo en el único lugar donde el contrato
+todavía no ofrecía alternativa. Ahora manda **`live: false`** y el servidor filtra **por exclusión**
+sobre su propio set ⇒ **un terminal nuevo entra a esta pestaña solo**, sin tocar este archivo.
+
+- `M5_CLOSED_STATUSES` y `M5_CLOSED_STATUS_CSV` **desaparecen**. `M5_STATUS_TAB` conserva la
+  asignación de los cuatro terminales a `cerradas` porque eso es la **partición** (lo que impide
+  que un estado desaparezca del back-office), no una consulta.
+- El booleano se serializa **en el call-site** (`String(filters.live)`), siguiendo el precedente ya
+  establecido por `guest`/`needsManual` en M3 — `api-client` no acepta `boolean` y no hacía falta
+  ampliarlo.
+- **No dependo del borde no especificado** que backend señaló (un valor mal escrito no filtra y no
+  falla): solo se manda `false`, literal.
+- Hay aserción **negativa** además de la positiva: si alguien repone el CSV, el test se pone rojo.
+
+### 3. El mock tenía que dejar de reproducir el bug
+
+En modo mock **no hay servidor que derive**, así que la regla vive en el servidor falso — y si se
+hubiera quedado con un término, **el mock mantendría vivo el bug en la pantalla que existe para
+demostrarlo**. Tres cambios:
+
+1. `MockAdminBuylistRow` gana **`verifiedAt`** — una **columna de la «tabla»**, no un campo del
+   DTO: `mockAdminBuylistDTO` la destructura fuera a propósito para que no se filtre al cliente por
+   un `...row` distraído. Es exactamente el reparto del backend real.
+2. La guarda de `paySpei` del mock pregunta por **`isPayable`**, no por una tercera lista de
+   estados. Antes replicaba solo el primer término, igual que la UI.
+3. `verifyBuylistRequest` sella `verifiedAt`, como hace el backend en el mismo `verify()`.
+
+**Y una fixture que modelaba un estado imposible:** `sr-3001` estaba en `verificacion` **sin**
+`verifiedAt`. El backend sella las dos cosas en la misma transacción, así que esa fila no existe en
+producción — y con la regla completa se volvía no-pagable, rompiendo dos tests. No era un dato de
+más: era **un estado que el servidor no puede producir**. Corregida (y `sr-3003`/`aprobada` igual).
+
+### 4. Verificación (resultado literal)
+
+| Comprobación | Resultado |
+|---|---|
+| `npm test` | `Test Files 93 passed (93)` · `Tests 832 passed (832)` (base: 93/828) |
+| `npm run typecheck` | limpio (sin salida) |
+| `npm run lint` | `✔ No ESLint warnings or errors` |
+| Flakes conocidos (`M2View`, `PhotoUploader`) | **no se dispararon** |
+
+Los cuatro casos nuevos de `isPayable` **se verificaron en rojo**: reponiendo el literal viejo caen
+dos —el `aprobada`-sin-verificar (el caso del `422`) y el fail-closed—, que son justamente los que
+el literal no podía ver.
+
+### 5. ⚠️ Encontré DOS derivaciones más del mismo tipo, y una es del MISMO set
+
+El barrido posterior al borrado dio dos transcripciones más en `M5View`, **dos líneas por debajo**
+de la que acabo de curar:
+
+| Línea | Literal | Constante del backend que transcribe |
+|---|---|---|
+| `:873` `canDecide` | `status === 'recibida' \|\| status === 'verificacion'` | **`SELL_REQUEST_VERIFYING_STATES`** |
+| `:874` `showMoneyOut` | `status === 'verificacion' \|\| status === 'aprobada'` | **`SELL_REQUEST_PAYABLE_STATES`** — *el MISMO set que la sexta copia*, transcrito **una segunda vez** |
+
+**`showMoneyOut` es la séptima copia y es gemela de la sexta.** Gatea la sección de dinero (revelar
+CLABE + el bloque de pago). **No la toqué, y no por descuido:**
+
+- **No puedo reusar `isPayable`**: no son el mismo predicado. `isPayable` lleva el término
+  `verifiedAt`; `showMoneyOut` no. Sustituirlo **ocultaría la sección de dinero** —incluido el
+  reveal de CLABE, que es una acción auditada con su propia guarda server-side— en filas donde el
+  contrato no dice que se oculte. Sería resolver en silencio un cambio de conducta en superficie
+  money-out.
+- **No me invento un campo.** Es la misma disciplina que apliqué con `canPay` antes de que
+  existiera `isPayable`.
+
+**Consecuencia visible hoy, y es correcta:** una `aprobada` **sin** `verifiedAt` pinta la sección de
+dinero con el botón de pagar **deshabilitado** (`showMoneyOut` true, `canPay` false). Se ve la
+sección, no se puede pagar. Es estrictamente mejor que antes —cuando el botón salía habilitado y
+contestaba `422`— y está cubierto por test para que nadie lo lea como un olvido.
+
+### 6. Señalado a otros roles (no resuelto aquí)
+
+1. **Arquitecto — la SÉPTIMA copia (`showMoneyOut`) es del mismo set que la sexta.** Si merece el
+   mismo remedio, es un derivado más en `AdminBuylistDTO` (¿`isMoneyOutVisible`? ¿o `isPayable` con
+   el término `verifiedAt` movido al consumidor?). **La decisión es suya**, con un matiz que pesa:
+   una sección de dinero que aparece y desaparece por un campo derivado es más delicada que un
+   botón, porque **el reveal de CLABE cuelga de ahí**. La octava (`canDecide` =
+   `SELL_REQUEST_VERIFYING_STATES`) es del mismo tipo pero no toca dinero.
+2. **Arquitecto / backend — `isPayable` NO viaja en las respuestas de `receive`/`verify`/
+   `reject`/`pay-spei`.** El §11 lo declara en el composite `AdminBuylistDTO` (sin `?`), pero
+   `toAdminSellRequestDTO` —la proyección que devuelven esos cuatro endpoints— **solo emite
+   `isTerminal`**; `isPayable` sale **únicamente** de la lista. **Hoy no rompe nada** (M5 lo lee de
+   la lista y descarta el cuerpo de las mutaciones), y lo tipé **obligatorio** porque el contrato
+   manda. Pero el tipo afirma algo que esas cuatro respuestas no entregan: quien mañana escriba
+   `if (res.isPayable)` sobre el resultado de `verifyBuylistRequest` obtendrá un `false` silencioso
+   **en una superficie de dinero**. O lo emiten las cuatro, o el contrato acota dónde viaja.
+3. **`ITEM_TERMINAL` (`M5View`) y `RESOLVED` (`M8View`)** siguen como estaban: subconjuntos de
+   `SellItemStatus` y `DisputeStatus`, **dos enums que v1.51 no toca**. Misma clase, cero radio.
+
+---
+
+## v1.51 · §23.5 — el portal del vendedor: la pantalla a la que el correo de la oferta no llevaba (2026-09-01, rama `claude/buylist-inventory-workflow-hdnls3`)
+
+> **El hueco, dicho como lo encontró devops:** el correo 1 está escrito, es **vinculante**, y su
+> botón apuntaba a un 404. `POST /buylist/requests/:id/offer-response` existe y el bloque `offer`
+> de `GET /buylist/requests/:id` existe, pero **no había pantalla**: el portal vivía en
+> `/[locale]/buylist` (`MyRequestsSection`), que no lee ningún parámetro de URL, y
+> `/buylist/requests/:id` era ruta de la **API**, no de vista. La variable del enlace se quedó
+> vacía a propósito (con ella vacía la plantilla degrada a instrucción de texto, que es mejor que
+> un botón muerto). Este pase construye la pantalla y **enciende el enlace**.
+
+### 1. La ruta — y el path exacto que el correo debe apuntar
+
+```
+frontend/src/app/[locale]/(storefront)/buylist/requests/[id]/page.tsx
+  URL:  /{locale}/buylist/requests/{sellRequestId}     ej. /es/buylist/requests/BL-000123
+```
+
+- **El `{locale}` no es decorativo:** `routing` corre con `localePrefix: 'always'`, así que
+  `/buylist/requests/:id` **sin prefijo no resuelve** — es exactamente el 404 que devops encontró.
+- El path elegido es **el mínimo delta** sobre lo que backend ya genera
+  (`${APP_PUBLIC_URL}/buylist/requests/:id`, `buylist.service.ts:2190`): **añadirle el prefijo de
+  idioma**, que es lo que hace el resto de los correos del proyecto (`buildFrontendLink` en
+  `auth.service.ts:63` → `${origin}/${locale}/${path}`, con `APP_BASE_URL`).
+- **Queda una decisión para el arquitecto** (no la tomo yo, ver §8): hoy conviven **dos variables
+  de base** —`APP_PUBLIC_URL` (solo la usa el correo de buylist) y `APP_BASE_URL` (todo lo demás)—
+  y el `locale` del enlace debería ser el `User.locale`, que es el mismo con el que el backend
+  renderiza el correo **y** `offer.terms`. Si el arquitecto fija otro path, mover la carpeta es el
+  cambio completo.
+- **No hay choque con la ruta de la API:** el front habla con el backend por
+  `NEXT_PUBLIC_API_BASE_URL` (otro origen y otro prefijo). La coincidencia de nombre es
+  deliberada: el vendedor y el operador hablan del mismo objeto.
+- **El portal no depende del correo.** `MyRequestsSection` gana un enlace «Ver esta solicitud» por
+  fila (`buylist.offer.viewRequestCta`): quien borró el correo tiene que poder llegar a su oferta
+  —y a los tres montos— sin depender de una bandeja de entrada.
+
+### 2. Cómo se ve la oferta (§23.5b, espejo de §23.4.2)
+
+En este orden, que **es la decisión**: condición → desglose → montos → plazo → acciones.
+
+| Bloque | Qué pinta | Norma |
+|---|---|---|
+| Cabecera | eyebrow «Oferta de compra» + folio + `StatusBadge` (con `expiredReason`) | §23.1d |
+| Recorrido | `PipelineStepper` **vertical con fecha y hora** | §23.2b |
+| Intro | «Esta oferta es condicional y así funciona…» | R2 |
+| **COMPRAMOS (n)** | nombre · set/número/acabado · **condición y monto EN EL MISMO RENGLÓN** | §23.4.2-1 |
+| **NO COMPRAMOS (n)** | nombre, **sin monto** y sin explicar por qué | criterio 118 |
+| Consecuencia | bloque **sobre pozo** (`bg-surface-2`), único de la pantalla, texto **verbatim** de `offer.terms.consequence` | §23.4.2-2 |
+| **Los tres montos** | bruto · `−` envío · **regla de TINTA** · **neto a 22px** + la prosa que repite envío y neto | §23.4.2-4/5, D43 |
+| Plazo | fecha, hora, día de la semana, «hora del centro de México» | criterio 154 |
+| Acciones | **Aceptar** `primary` · **Rechazar** `secondary`, **nunca** `destructive` | §23.5c |
+
+- **La UI no calcula NADA.** No hay `gross − shipping` en ningún archivo de este pase: los tres
+  montos llegan congelados y se pintan como llegan. Si un día no cuadran a la vista, el bug es del
+  servidor y **hay que poder verlo**, no taparlo con una resta local que siempre cuadra.
+- **La condición NM y el bloque de consecuencia NO existen en `messages/*.json`.** Son `offer.terms`,
+  que **renderiza el backend con las plantillas del correo**. Una copia en el catálogo del front
+  sería la segunda plantilla que se separa en el primer cambio de copy — y aquí «separarse»
+  significa que el correo y la pantalla le dicen al vendedor **dos tratos distintos**.
+- **La condición por línea usa `line.condition` y cae a `terms.perLineConditionLabel`** si no viene.
+  Nunca hay copy propio de por medio.
+- **Todo-o-nada, demostrado por lo que NO está:** lista de solo lectura, cero `checkbox`, cero
+  «quitar esta carta», cero contraoferta; y el body del endpoint es `{ decision }` **y nada más**
+  (probado: `api.test.ts` afirma el JSON exacto — SEC-A1 es la FORMA del DTO, no una validación).
+- **Confirmación al aceptar** (§7.6, es dinero): repite **el neto y la condición** en una frase y el
+  botón dice el verbo con el monto («Aceptar y recibir mi guía»). **La resta no se repite ahí**: el
+  diálogo se abre a un palmo del bloque de los tres montos.
+- **`aria-live="polite"` envuelve a las acciones desde el primer render** (§23.10). Una región que
+  aparece *junto con* su contenido no se anuncia en varios lectores: la región existe siempre y lo
+  que cambia es lo de dentro (botones → desenlace). `assertive` queda para el error de dinero
+  (`Banner role="alert"`).
+- **`409 OFFER_EXPIRED` / `OFFER_NOT_PENDING` → banner PERSISTENTE**, no toast (§23.5c).
+- **Nada de la mesa de decisión llega a esta pantalla**, y no por disciplina: `SellItemDTO` en
+  `types/contract.ts` **no declara** `offerDerivedPriceCents`, `offerOverrideReason`,
+  `offerPriceBasis`, `offerMarketMxnCents` ni `offerMarketBracket`. El contrato los marca
+  ADMIN-ONLY y ese tipo lo consume el portal del vendedor: **un campo que no está en el tipo no se
+  pinta por accidente**. Cuando M5 los necesite, entran en un DTO admin. Hay un test que barre el
+  DOM buscando «en camino», «comprometido», «sugerencia», «no comprar» y «tope».
+
+### 3. Las decisiones defensivas — y hacia dónde falla cada una
+
+Cinco, todas en la misma dirección: **si no se puede enseñar el trato entero, no se ofrece firmarlo;
+y si no se puede saber quién hizo qué, no se acusa a nadie.**
+
+1. **El reloj del navegador NO apaga los botones.** El único gate de las acciones es
+   `status === 'ofertada'` + oferta completa. Comparar `acceptDeadlineAt > now` en el cliente parece
+   prudente y es **el peor de los dos errores**: con el reloj adelantado o una zona mal configurada
+   le impediríamos aceptar **una oferta viva y vinculante** —se pierde la venta, sin remedio
+   self-service—. Si el plazo sí venció, el servidor responde `409`, **nada se mueve** y la pantalla
+   lo dice con la fecha real. *La pantalla informa; la puerta decide.*
+2. **Oferta incompleta ⇒ ni montos, ni plazo, ni acciones** (`offer-readiness.ts`). Se bloquea si
+   falta `terms.perLineConditionLabel`/`consequence` (**R2 no tiene excepción**: un monto ofertado
+   sin su condición al lado promete un trato **mejor** del que le estamos haciendo) o si alguna
+   línea no trae `offerDecision`, o trae `buy` sin precio (criterio 118: el paquete tendría
+   contenido desconocido). Una línea `buy` sin precio **no se rescata con `MX$ 0.00`** — cero es un
+   precio. Enseñar «al menos el neto» era la tentación y es justo lo que R2 prohíbe.
+   ⚠️ **Lo que ese módulo NO hace, a propósito:** no valida que la suma de las líneas cuadre con
+   `grossCents`. R4 dice que ninguna cifra del ciclo se calcula en el cliente, y una aritmética
+   escondida bloquearía una oferta **real** por cualquier diferencia legítima que el servidor
+   conozca y el front no.
+3. **`offer` ausente se lee igual que `null`.** El contrato lo declara siempre presente en el
+   detalle, pero el tipo lo marca opcional: durante el despliegue incremental un backend anterior
+   responde sin él, y ausente ⇒ **estado previo a la oferta** (§23.5d), que no promete dinero, no
+   enseña guía y no ofrece aceptar. Lo contrario —asumir oferta— sería pintar un contrato
+   vinculante a partir de datos que no llegaron.
+4. **`rechazada` en frío se dice con una frase NEUTRA.** §23.5f la rotula «La oferta venció el
+   {fecha}», pero **el DTO no dice quién la cerró**: el vendedor a mano, o el barrido por no
+   responder. Decir «venció» a quien la rechazó es falso; decir «la rechazaste» a quien no contestó,
+   también. Mientras lo sabemos de primera mano (acaba de pulsar en esta sesión) se dice con
+   precisión; en frío se usa *«Esta oferta ya no está vigente»*, cierta en los dos casos. Misma
+   doctrina que el fallback de §23.1d. **Ver la petición 3 de §8.**
+5. **`expirada + no_offer`: segundo cinturón sobre el dinero.** El servidor ya proyecta los montos a
+   `null` (v1.51.4), y la pantalla **además** no los pinta. Si un backend anterior los sigue
+   mandando, «MX$ 1,200» junto a «no procedimos» no aparece igual. Las cartas **sí** se siguen
+   listando: no se le borra su solicitud, se le quita una cifra que ya no significa nada.
+
+**Estados obligatorios (§23.9/§8.1):** carga (skeleton **sin hueco de dinero** — mientras la
+petición está en vuelo *no sabemos si hay oferta*, y reservar el hueco prometería una cifra que en
+la mitad de los casos nunca llega), error (banner + reintentar), **404 neutro** (el contrato usa
+`404` y no `403` para no confirmar que la solicitud ajena existe: el copy tampoco lo confirma) y
+**sin sesión** → invitación a entrar con `?next=`, sin consultar el endpoint (un `401` pintaría un
+banner de error donde toca una invitación) y repitiendo la frase del correo: *«esta oferta no se
+acepta desde un enlace del correo»*.
+
+### 4. Qué se tocó fuera de la ruta nueva
+
+| Archivo | Cambio | Por qué |
+|---|---|---|
+| `src/types/contract.ts` | `SellOfferPublicDTO`, `SellRequestDetailDTO`, `SellOfferResponseDTO`, `PickupAddressSnapshotDTO`, `BuyDecision`; `SellItemDTO +=` los **tres** campos de cliente | El detalle y la lista son *shapes distintos* (v1.51.8): tipos separados ⇒ ningún listado puede leer un `offer` que el servidor no manda, y lo dice el compilador |
+| `src/lib/api.ts` | `getSellRequest(id)` y `respondToSellOffer(id, decision)` (+ ramas mock) | — |
+| `src/lib/format.ts` | **`formatDateTimeMx`** | Zona **fija** `America/Mexico_City` y `dateStyle:'full' + timeStyle:'short'`, **idénticos** a `formatDateTime` del correo: un vendedor de vacaciones en Madrid tiene que leer la misma hora que su correo sobre la misma fecha límite |
+| `src/components/ui/PipelineStepper.tsx` | `orientation="vertical"` + `timestamps` (**aditivos**, default = conducta previa) | §23.2b: en el portal el recorrido es siempre vertical — *el vendedor lee el historial de su venta, no un pipeline* |
+| `src/lib/mock/fixtures.ts` | fila `sr-3003` **con la oferta emitida**, `mockSellOffer`, `mockSellRequestDetailDTO`, `mockOfferTerms` | El servidor falso proyecta **como el real**: `offer` solo con `offerState='sent'`, `terms` en el `locale` del dueño, y **la lista NO reparte `offer`** |
+| `MyRequestsSection.tsx` | enlace al portal por fila | El portal no puede ser accesible solo desde el correo |
+
+**Un paso sin sello de tiempo no pinta nada** en el stepper vertical: hoy la proyección de cliente
+solo sella `createdAt`, `offer.sentAt` y `offer.acceptedAt`. Rellenar los demás con la fecha más
+cercana sería **inventar el historial de una venta**.
+
+### 5. i18n — claves nuevas y de quién es el copy
+
+Namespace **`buylist.offer.*` (41 claves)** + `error.OFFER_EXPIRED` / `error.OFFER_NOT_PENDING`.
+**Paridad ES/EN completa** (test de paridad en verde) y **cero claves retiradas**.
+
+- **§23.12 no inventaría las claves del PORTAL** — lista las de los correos (`buylist.mail.*`), las
+  del stepper, `status.*` y `buylist.request.address.*`, pero **no las de esta pantalla**. El
+  **texto ES sí es normativo** (está en §23.5 y §23.4.2) y se usa palabra por palabra; **el EN lo
+  traduje yo** y **los nombres de clave son míos**. Ambas cosas quedan **a ratificación de ux-ui**
+  (§8, petición 1).
+- **Copy que redacté por no existir en §23:** `confirmRejectTitle/Body/Cta` (§23.5c especifica la
+  confirmación de **aceptar**, no la de **rechazar** — y rechazar también es irreversible: terminal
+  es terminal, criterio 145), `incompleteTitle/Body`, `notFoundTitle/Body`, `noLongerActive`,
+  `closedPaid` y `viewRequestCta`.
+- **`ruleParagraph` es un duplicado inevitable HOY**, y conviene que se sepa: §23.5b obliga a que el
+  portal lleve *«la misma frase en prosa del correo»* con el envío y el neto nombrados, pero esa
+  frase la renderiza el backend dentro del correo y **no viaja en `offer.terms`**. Así que hay **dos
+  copias del mismo párrafo** (`buylist.mail.offer.ruleParagraph` en backend, `buylist.offer.ruleParagraph`
+  aquí) que pueden desincronizarse — exactamente el defecto que `terms` existe para impedir.
+  **Petición 4 de §8.**
+- **La frase de confirmación cita la condición VERBATIM**, con su singular: *«Aceptas que te
+  compremos 2 cartas por MX$ 840.00, siempre que **llegue** en Near Mint»*. §23.5c la escribe en
+  plural (*«lleguen»*), pero el servidor manda la variante por línea y **preferí la cita textual a
+  una redacción propia**: un plural nuestro es una segunda plantilla de la condición. **Petición 2
+  de §8.**
+
+### 6. Lo que este pase NO implementa (declarado, no silenciado)
+
+1. **«Cambiar» la dirección de origen (§23.5e).** La dirección **sí se muestra** (es su dato y es lo
+   que vamos a imprimir), pero el enlace a `PATCH …/pickup-address` no entra: arrastra el selector
+   de libreta completo y es otro alcance. Tampoco se pinta *«Ya imprimimos la guía con esta
+   dirección»* porque **`guideSentAt` no viaja en la proyección de cliente** — ver petición 5.
+2. **`POST …/declare-shipped` («ya lo mandé») y la guía/tránsito.** Es el tramo **posterior** a la
+   aceptación (§23.5f, criterio 156). Se respeta la mitad prohibitiva del criterio 114: antes de la
+   oferta no hay guía, ni nuestra dirección, ni vía para declarar envío.
+3. **El CIERRE truncado del stepper (§23.2d)** —colgar la versalita del motivo del último paso
+   alcanzado— sigue pendiente (ya estaba declarado en `lib/pipelines.ts`). Lo que sí está garantizado
+   es la prohibición que importa: **ningún paso se pinta como fallido ni se tacha** — en `no_offer`
+   el vendedor no falló nada.
+4. **`pagada`: la fecha del SPEI** (§23.5f pide los tres montos + la fecha del SPEI + el desglose de
+   aprobadas/rechazadas). Los tres montos y las líneas están; **la fecha del SPEI no viaja** en la
+   proyección de cliente y **no se inventa**. Petición 6.
+
+### 7. Verificación (resultado literal)
+
+| Comprobación | Resultado |
+|---|---|
+| `npm test` | **`Test Files 95 passed (95)` · `Tests 871 passed (871)`** |
+| `npm run typecheck` | **limpio (sin salida)** |
+| `npm run lint` | **`✔ No ESLint warnings or errors`** |
+| `npx next build` (en `NEXT_DIST_DIR=.next-verify`, borrado después) | verde; la ruta aparece como **`ƒ /[locale]/buylist/requests/[id]`** |
+| E2E nuevo `e2e/buylist-offer.spec.ts` (mock, `E2E_DEV_SERVER=1`) | **`6 passed`** |
+
+- **Flake observado (NO de este pase, y no es el par conocido):** en **una** de las tres corridas
+  completas de `npm test` salió `1 failed | 870 passed`. Las corridas **anterior y posterior**
+  dieron 871/871, y los dos ficheros con flake conocido —`PhotoUploader.test.tsx` (5/5) y
+  `M2View.test.tsx` (65/65)— **pasan aislados**, igual que el bloque tocado por este pase
+  (`buylist/`, `api`, `format`, paridad i18n, `components/ui`: **178/178**).
+- **⚠️ DOS E2E de `e2e/buylist.spec.ts` fallan, y son PREEXISTENTES — verificado con `git stash`**
+  (fallan igual con el árbol limpio, sin una línea de este pase):
+  1. `@real vender: crea la solicitud…` → *«el carrito no alcanzó el mínimo ni con la cantidad
+     máxima»*: la primera carta cotizable del grid GRADED no llega a MX$500 ni con `qty=999`.
+  2. `en móvil 390px el teaser dice la regla del envío…` → `buylist-shipping-note` **existe en el
+     DOM pero está `hidden`** a 390px en el teaser del **home**. Bajo D43 esa nota es *lo único*
+     que el vendedor lee sobre el envío antes de la oferta, y §23.14.2a la puso ahí **precisamente
+     para que también se viera en móvil**. **Es un defecto vivo de superficie de dinero** y lo
+     tomo como pendiente propio del siguiente pase (no de éste: no toqué `HomeQuoter`).
+
+Cobertura nueva: **8** casos de `offer-readiness.test.ts` (las tres puertas + que **no** valida
+aritmética), **21** de `SellRequestDetailView.test.tsx` (tres montos, condición por línea, `skip` sin
+monto, plazo con hora, sin casillas, aceptar, rechazar, `409` persistente, **plazo aparentemente
+vencido sigue ofreciendo responder**, cero fugas de la mesa, sin oferta, `offer` ausente, ya
+aceptada, rechazada en frío, términos incompletos, líneas sin clasificar, 404, sin sesión,
+`no_offer` sin cifras, `expirada` sin motivo, oferta cancelada, **paridad EN en pantalla**), **6** de
+`api.test.ts` (body exacto `{ decision }`, URL del detalle, oferta mock con `skip` sin monto, la
+lista **sin** `offer`, 404, `accept → aceptada` + `409` en la segunda llamada) y **3** de
+`format.test.ts` (zona fija, día de la semana, entrada inválida ⇒ `''`).
+
+### 8. Peticiones a otros roles (no resueltas aquí)
+
+**Al arquitecto:**
+
+1. **El path del CTA del correo — decisión suya, la pantalla ya existe.** Propuesto y construido:
+   **`/{locale}/buylist/requests/{sellRequestId}`** con `locale = User.locale`. Falta que el
+   contrato/ARCHITECTURE fije (a) el prefijo de idioma —hoy `portalRequestUrl` no lo pone y es la
+   causa del 404— y (b) si `APP_PUBLIC_URL` se unifica con `APP_BASE_URL`, que es la base que usan
+   todos los demás correos. **No toqué backend.** Si se fija otro path, mover la carpeta es todo.
+2. **`offer.terms` necesita una tercera cadena: la regla del descuento en prosa.** §23.5b obliga al
+   portal a repetir *«Su costo, {shipping}, es una tarifa fija… La cifra que se te deposita es
+   {net}»*, pero esa frase solo existe dentro de la plantilla del correo. Hoy la duplico en
+   `buylist.offer.ruleParagraph`. **Petición concreta:** `terms.rule` (renderizada por el backend,
+   con los dos montos ya interpolados), igual que `perLineConditionLabel` y `consequence`. Es
+   **aditivo** y borra la única copia de copy que este pase se vio obligado a crear.
+3. **`rechazada` no tiene discriminador de PRODUCTOR.** La cierran dos hechos opuestos —el vendedor
+   rechaza, o el barrido la cierra por silencio— y el DTO de cliente no los distingue, así que en
+   frío el portal solo puede decir una frase neutra. §23.5f asume el segundo caso y **le diría
+   «venció» a quien pulsó “rechazar”**. Bastaría algo como `rejectedBy: 'seller' | 'timeout'` (o
+   reusar el par `acceptedAt`/`closedAt` con una regla escrita). Mismo espíritu que `expiredReason`
+   en D33, y por la misma razón: *no acusar a nadie de un desenlace que no eligió*.
+4. **`SellItemDTO` mezcla dos audiencias.** El contrato añade a un solo DTO campos de cliente
+   (`offerDecision`, `offeredPriceCents`, `condition`) y campos **ADMIN-ONLY**
+   (`offerDerivedPriceCents`, `offerOverrideReason`, `offerPriceBasis`, `offerMarketMxnCents`,
+   `offerMarketBracket`). En el front **no declaré los cinco admin-only** para que el portal no
+   pueda pintarlos ni por autocompletado, pero eso deja el tipo del front **más estrecho que el
+   contrato**, a sabiendas. Vale la pena que el contrato **nombre las dos proyecciones** como ya
+   hizo con la lista y el detalle en v1.51.8.
+5. **`guideSentAt` no viaja al cliente** y §23.5e depende de él: es lo que decide si el vendedor
+   todavía puede corregir su dirección («Cambiar») o si ya solo cabe *«Ya imprimimos la guía con
+   esta dirección»*. La línea es `guideSentAt`, **no `status`** (lo dice la precondición de
+   `PATCH …/pickup-address`), así que el front no puede derivarlo sin recodificar una regla del
+   servidor. Petición: exponerlo (o un booleano equivalente) en el detalle de cliente.
+6. **`pagada` sin fecha de SPEI.** §23.5f la pide en pantalla; la proyección de cliente no la trae.
+   Hoy no se pinta —no se inventa una fecha de un pago—, y queda el hueco declarado.
+
+**A ux-ui:**
+
+1. **Ratificar el copy del portal.** El ES sale de §23.5/§23.4.2 palabra por palabra, pero **§23.12
+   no inventaría las claves de esta pantalla**: los nombres bajo `buylist.offer.*` y **todo el EN**
+   son míos. Y hay copy que §23 no cubre y tuve que redactar: la **confirmación de rechazar**, el
+   aviso de **oferta incompleta**, el **404 neutro**, la frase neutra de **`rechazada` en frío** y
+   el enlace **«Ver esta solicitud»**.
+2. **El plural de la condición en la confirmación.** §23.5c escribe *«siempre que **lleguen** en
+   Near Mint»*, pero el servidor manda la variante **por línea** (singular) y la cito verbatim para
+   no fabricar una segunda plantilla de la condición. O el backend manda también la variante plural
+   (junto con la petición 2 al arquitecto), o §23.5c se ajusta al singular. **No lo decido yo.**
+3. **§23.2d sigue sin implementarse** (el cierre truncado del stepper con la versalita del motivo).
+   Está declarado desde el pase anterior; lo repito porque **esta pantalla es donde más se nota**:
+   es la que el vendedor abre cuando su solicitud ya cerró.
+
+**A backend** (no es cambio de contrato — el contrato ya los especifica; es que la proyección **aún
+no los emite**):
+
+- **`itemDTO` no emite `offerDecision`, `offeredPriceCents` ni `condition`**
+  (`buylist.service.ts:1283`), que el contrato §11 declara para la proyección de cliente. **Sin
+  ellos el portal no puede ofrecer aceptar** —y no lo hace: pinta el aviso de «oferta incompleta»,
+  que es el lado seguro—. Los tres son lo único que falta para que la pantalla encienda entera; los
+  *mocks* ya los emiten según contrato, así que en modo fixtures el flujo está completo y
+  demostrable hoy.
+- **Detalle menor del espejo (§23.5a):** el correo formatea con `Intl` sin normalizar el símbolo, así
+  que en ES imprime **`$1,020.00`** mientras toda la app imprime **`MX$1,020.00`** (§9.3). El
+  **número es idéntico**; es solo el símbolo. Lo señalo porque en una pantalla de dinero la
+  identidad literal con el correo es la propiedad que se está comprando.
+
+---
+
+## v1.51 · Pase correctivo del arnés: «el test comprueba PRESENCIA, el usuario necesita VISIBILIDAD» (2026-09-01, rama `claude/buylist-inventory-workflow-hdnls3`)
+
+> Cierra los dos E2E preexistentes que dejé señalados en el pase anterior. **Ninguno de los dos era
+> un defecto de producto** — y el primero lo reporté mal, así que lo primero es corregir mi propio
+> parte.
+
+### 1. ⚠️ CORRECCIÓN DE MI REPORTE ANTERIOR — la nota del envío SÍ se ve a 390px
+
+Escribí que la nota de servicio del envío *«existe en el DOM pero está `hidden` a 390px»* y lo
+califiqué de **defecto vivo en superficie de dinero**. **Era una lectura incompleta: conté el
+elemento que el test elegía, no los que hay.** Medido con el navegador de verdad:
+
+| Ancho | `buylist-shipping-note` en `/es` | Veredicto |
+|---|---|---|
+| **390 px** | **2 en el DOM · 1 VISIBLE** | ✅ el vendedor la lee |
+| **1280 px** | **2 en el DOM · 1 VISIBLE** | ✅ el vendedor la lee |
+
+**La causa:** el home monta el panel del cotizador **dos veces** —`<div className="hidden lg:flex">`
+para escritorio y `<div className="lg:hidden">` para móvil— y `BuylistShippingNote` va dentro de
+los dos, con el **mismo `data-testid`**. El test hacía `.first()`, que resuelve **siempre** a la
+copia de escritorio; a 390px esa copia está en `display:none`. **El test medía el arnés, no el
+teaser**, y §23.14.2a **está cumplida**: la regla del envío existe en móvil, que es justo lo que
+esa decisión vino a garantizar.
+
+**El arreglo no es `.last()`** —sería igual de frágil, solo que al revés—. La aserción honesta para
+una regla de dinero no es «existe en el DOM», es **«hay exactamente UNA visible en este ancho»**:
+
+```ts
+const note = page.getByTestId('buylist-shipping-note').filter({ visible: true });
+await expect(note).toHaveCount(1);
+```
+
+Eso caza los **dos** fallos que importan: **0 visibles** (la regla desapareció de un ancho, el
+defecto que §23.14.2a previene) y **2 visibles** (el duplicado que confundiría al vendedor).
+`toBeInTheDocument()` y `.first()` no distinguen ninguno de los dos.
+
+### 2. El barrido que pidió el orquestador: ¿hay más «presente pero oculto»?
+
+Se instrumentó una sonda con navegador real que, en `/es`, `/es/buylist`, `/es/catalog`,
+`/es/sellado`, `/es/compra` y `/es/login`, cuenta para **cada `data-testid`** cuántos hay y
+cuántos están **visibles**, a 390 y 1280:
+
+| Superficie | testid | 390 (total/visibles) | 1280 (total/visibles) | Lectura |
+|---|---|---|---|---|
+| `/es` | `buylist-shipping-note` | 2 / **1** | 2 / **1** | correcto (gemelos responsive) |
+| `/es` | `finish-band` | 2 / 2 | 2 / 2 | correcto |
+| `/es/buylist` | `buylist-shipping-note` | 1 / 1 | **2 / 2** | ver abajo |
+| `/es/buylist` | `sell-cart-fab` | 1 / 1 | 0 / 0 | correcto (FAB solo en móvil) |
+| `/es/catalog`, `/es/sellado`, `/es/compra`, `/es/login` | — | sin testids | sin testids | — |
+
+**No hay ningún otro caso de «presente pero oculto».** El único elemento con gemelo responsive es
+la nota, y en cada ancho se ve exactamente una.
+
+**Hallazgo lateral (no lo arreglo, es de copy):** en `/es/buylist` a **1280px hay DOS notas
+visibles a la vez** —la de la cabecera (§23.14.2b) y la del bloque de dinero del carrito fijo
+(§23.3g)—. Las dos superficies están autorizadas por separado y el texto es cierto, pero verlo
+duplicado en la misma pantalla es una decisión de **ux-ui**, no mía. Queda señalado.
+
+**Límite estructural que conviene dejar escrito:** la visibilidad responsive **no se puede
+verificar en unitarios**. En jsdom no hay hoja de estilos de Tailwind ni media queries, así que
+`toBeVisible()` allí no sabe nada de `hidden lg:flex`. **`toBeInTheDocument()` en un unitario no
+está mal usado: es que no es la herramienta.** La única red que puede cazar esta clase de defecto
+es el E2E, y ahora la caza.
+
+### 3. El otro E2E: no era el mínimo, ni el cotizador — era qué carta agregaba el helper
+
+`@real vender` moría en *«el carrito no alcanzó el mínimo ni con la cantidad máxima»*. Medido set
+por set con el navegador:
+
+| Set (orden del dropdown) | filas graded | **con precio** | más barata |
+|---|---|---|---|
+| Surging Sparks (2024) | 8 | **0** | — |
+| Twilight Masquerade (2024) | 2 | **0** | — |
+| Scarlet & Violet (2023) | 0 | 0 | — |
+| Celebrations (2021) | 40 | **0** | — |
+| Sword & Shield (2020) | 0 | 0 | — |
+| **Base Set (1999)** | 12 | **10** | **MX$ 37.36** |
+
+**Dos defectos del helper encadenados:**
+
+1. `addFirstSellableCard` cogía **`option[1]`**, «el primer set real». El dropdown viene ordenado
+   por **año descendente**, así que `option[1]` es **el set más nuevo** — y los sets nuevos son
+   precisamente los que **no tienen referencia de precio en graded**.
+2. Su bucle de «la más barata» asignaba `MAX_SAFE_INTEGER` a una fila sin precio pero **la aceptaba
+   igual** en la primera vuelta (`!best || cents < best.cents`). Con cero filas con precio,
+   agregaba una carta en **`precio_pendiente`**.
+
+A partir de ahí el rojo era inevitable **y engañoso**: una línea `precio_pendiente` **no suma al
+total por diseño** (§23.3h — el front no inventa un precio y no pinta `MX$ 0.00`), así que
+`ensureMinimumReached` subía la cantidad hasta 999 y el total seguía en cero. **999 × 0 = 0.**
+
+**El cotizador suma bien:** `totalEstimatedCents = Σ quotedPriceCents × quantity`
+(`useSellCart.ts:146`), y con la carta de MX$37.36 el mínimo de MX$500 se cruza en `qty = 14`.
+**No hay hallazgo money-safe que enrutar al dueño**: lo que el test tomó por «no suma» era
+`132(a)` funcionando —CTA apagado, faltante exacto en pantalla— sobre un carrito cuyo total
+legítimamente vale cero.
+
+**Arreglos (todos en el arnés, que es mío):**
+- `addFirstSellableCard` **recorre los sets** hasta encontrar uno con filas que **muestren un
+  monto**, y elige la más barata **de entre las que tienen precio**. Devuelve `false` si ningún set
+  tiene ninguna ⇒ el test **se salta con motivo** («falta el dato») en vez de morir once pasos más
+  adelante. Para no pagar una espera fija por set, distingue *«este set no tiene precios»* de *«el
+  batch todavía no llegó»* esperando a una fila **resuelta** (con monto **o** con el rótulo de
+  precio pendiente).
+- `ensureMinimumReached` **nombra la causa** en su mensaje de fallo, incluyendo el contenido del
+  bloque de dinero: *«si el total dice precio pendiente, la línea NO suma por diseño (§23.3h) y
+  subir la cantidad no puede cruzar el mínimo: revisa qué carta agregó el helper, no el
+  cotizador»*. La próxima vez el rojo se diagnostica solo.
+- El smoke se marca `test.slow()`: descubrir recorriendo N sets cuesta más que coger el primero a
+  ciegas, y **ese es el precio de no hardcodear nada**. Se paga con presupuesto, no con un helper
+  frágil. (Tras optimizar la detección de «set resuelto»: **46 s → 30 s**.)
+
+### 4. Dos defectos MÁS de la misma familia, que solo salieron al desbloquear el camino
+
+El primero apareció en cuanto el test pasó del bloque del mínimo; el segundo, solo bajo la suite
+completa en paralelo. **Los tres comparten patrón: leer el DOM del instante en vez de esperar al
+estado asentado.**
+
+| Helper | Qué hacía | Por qué fallaba |
+|---|---|---|
+| `choosePickupAddress` | `select.count()` y, si daba 0, tecleaba el alta inline | La libreta llega por red (`GET /users/me/addresses`) y **`count()` no auto-espera**: con la petición en vuelo devolvía 0, se iba por la rama de «no hay libreta» y tecleaba en un formulario **que nunca existió**. El rojo salía como *«no encuentro Calle y número»* |
+| `openCart` | `fab.count()` y luego `fab.click()` | Qué superficie monta el carrito la decide una **medición del viewport en cliente**: durante la hidratación el primer render puede pintar el FAB y sustituirlo por el panel fijo. Playwright encontraba el botón **ya desprendido** (*«element was detached from the DOM, retrying»*) y agotaba el tiempo esperando a un elemento que había dejado de existir |
+
+- `choosePickupAddress` ahora **espera a que el campo se decida** (`select.or(line1)`) antes de
+  ramificar. Las dos ramas son excluyentes por construcción.
+- `openCart` ahora persigue **el estado final** —el carrito visible— en vez de una secuencia de
+  clics: espera a que la superficie se decida, pulsa el FAB **solo si sigue ahí**, y **el fallo de
+  ese clic no es un fallo del test** (si el FAB desapareció es porque el panel fijo tomó su lugar).
+
+**Y un tercero que la aserción nueva de `openCart` destapó:** `cartPanel` seleccionaba
+`[aria-label^="Carrito de venta"]`, prefijo que **también casa con el FAB**
+(`buylist.cartFab.ariaWithCount` = «Carrito de venta, 1 carta(s)»). Con el drawer abierto resolvía
+a **dos elementos** — strict-mode violation, o peor: una aserción sobre «el carrito» mirando **el
+botón que lo abre**. Ahora es `…:not(button)`: el carrito es un `dialog`/`aside`, el FAB es el
+mando. *Llevaba ahí desde que existe el FAB, tapado porque nadie aseveraba el estado final.*
+
+### 5. A ux-ui (no lo arreglo yo)
+
+1. **Dos notas de envío visibles a la vez en `/es/buylist` a 1280px** (cabecera + bloque de dinero
+   del carrito fijo). Ambas superficies están autorizadas por separado (§23.14.2b y §23.3g); que
+   convivan en la misma pantalla no lo decide frontend.
+2. **El faltante del mínimo no explica por qué una carta no cuenta.** Con el carrito lleno de
+   líneas en `precio_pendiente` la pantalla dice *«TE FALTAN MX$500.00 para el mínimo de MX$500.00.
+   **Agrega otra carta**»* mientras el vendedor mira 999 cartas en el carrito. Es
+   **aritméticamente correcto** —esas líneas no suman— pero el bloque **nunca conecta las dos
+   ideas**. §23.3h ya tiene el puente escrito: `buylist.quote.pendingLine.{label,note}`
+   (`SIN PRECIO` + «no suma a tu total»), **que sigue sin implementarse** (hoy vive
+   `buylist.linePending`, «Precio pendiente», solo en la fila). Si ux-ui confirma el alcance, lo
+   implemento en el siguiente pase.
+
+### 6. Verificación (resultado literal)
+
+| Comprobación | Resultado |
+|---|---|
+| `npm test` | **`Test Files 95 passed (95)` · `Tests 871 passed (871)`** |
+| `npm run typecheck` | **limpio (sin salida)** |
+| `npm run lint` | **`✔ No ESLint warnings or errors`** |
+| **Suite E2E COMPLETA** (mock, `E2E_DEV_SERVER=1 E2E_MOCK_PORT=3111`) | **`110 passed · 3 skipped · 0 failed`** (7.9 min) |
+| `e2e/buylist.spec.ts` + `e2e/buylist-offer.spec.ts` aislados | **`22 passed`** |
+
+- **Los 3 saltados** son los `@real` de `grading-estimate.spec.ts` (captura manual del estimado,
+  resumen de la lista de revisión y retiro de la cifra): **piden el stack real**, no fixtures.
+- **Los dos E2E que dejé en rojo en el pase anterior están en verde**, y con ellos el flujo
+  `@real vender` de punta a punta. **La suite E2E completa no tiene ningún fallo.**
+- **Cero cambios de producto en este pase**: solo `e2e/buylist.spec.ts`. Ni un componente, ni una
+  clave i18n, ni un archivo de `src/`.
+
+---
+
+## v2.3.8 · §23.14.7-7 — una nota, un total que se explica, y dos montajes con nombre (2026-09-01, rama `claude/buylist-inventory-workflow-hdnls3`)
+
+> Ejecuta las tres partes del alcance que ux-ui confirmó (`181cdf3`): **(a)** `pendingLine.{label,note}`
+> con la `note` reescrita, **(b)** `minimum.addPricedCard`, **(c)** la nota del envío **condicionada al
+> layout**. Más la **petición de testabilidad**, que es la causa raíz de todo el episodio.
+> **Cero componentes visuales nuevos**: `BuylistShippingNote` no cambia un píxel; cambia **dónde** se monta.
+
+### 1. (c) EXACTAMENTE UNA nota de envío por pantalla (§23.3g-bis)
+
+**La decisión vive en UN solo sitio** —`BuylistView`, la única capa que ve la pantalla entera— y se
+llama `shippingNoteHost`:
+
+```
+requestOpen                      ⇒ 'createStep'   // el paso de crear pinta la suya
+isDesktopCart || drawerOpen      ⇒ 'cart'         // el bloque de dinero está a la vista
+resto                            ⇒ 'header'       // móvil, drawer cerrado
+```
+
+- **El desempate no es arbitrario: gana la más cercana a la decisión.** La cabecera existe
+  **únicamente** para cubrir el caso en que el carrito no se ve; donde el carrito sí se ve, su razón
+  de ser desaparece y **no se monta**.
+- **Repartir la decisión entre los componentes es exactamente cómo se llegó a las dos copias**, así
+  que `SellCartContents` recibe `showShippingNote` y **obedece**: no decide. El comentario del prop lo
+  dice, para que nadie «arregle» el acoplamiento devolviéndole la decisión.
+- **No contradice §23.3c** («no aparece, no desaparece, no se mueve»): esa prohibición es sobre el
+  **estado del carrito** —vacío/lleno, bajo/sobre el mínimo—, no sobre el **layout**. La invariante
+  nueva es **más fuerte y más barata de comprobar**: *siempre exactamente una*, en vez de *al menos
+  una*.
+- **Por qué dos copias idénticas sí eran un defecto**, aunque el texto fuera correcto: dos párrafos
+  iguales a 600px con el mismo peso visual son **la firma de un error de render**. El vendedor no
+  concluye «esto es importante», concluye «esta página está rota».
+
+### 2. (a) El total que explica su propia aritmética (§23.3h)
+
+**`BuylistPendingLinesNote`** (nuevo archivo, **no** un componente visual nuevo: es un `<p>` con una
+clave) se pinta **UNA vez, dentro del bloque de dinero**, con el conteo interpolado, en **tinta
+`text-sm`**. **`BuylistPendingLineLabel`** sustituye el rótulo largo por la versalita **`SIN PRECIO`**
+(`accent`) en las superficies del **cotizador**.
+
+| Antes | Ahora |
+|---|---|
+| `linePending` («Precio pendiente») en la casilla del grid, en la línea del carrito y en el total | **`quote.pendingLine.label`** (`SIN PRECIO`), versalita mono `accent` |
+| `totalPendingNote` **fuera** del bloque de dinero, en **mono 11px muted** | **`quote.pendingLine.note`** **dentro** del bloque, en **tinta `text-sm`**, con `{count}` |
+
+- **`buylist.totalPendingNote` se RETIRA de los dos catálogos.** Decía *«esas las cotizamos a mano
+  **cuando las recibimos**»*, y bajo el ciclo de oferta eso es **falso**: se cotizan a mano **al
+  ofertar**, antes de que el vendedor mande nada. Dejarla viva junto a la nota nueva habría sido
+  **dos redacciones del mismo hecho** — el defecto exacto que §23.14 lleva todo el ciclo cazando.
+  *(La decisión de retirar esa clave concreta es mía: §23.3h manda el texto y el sitio, no nombra la
+  clave que queda huérfana.)*
+- **`buylist.linePending` SIGUE VIVA**, y no es un olvido: la usa **«Mis solicitudes»**, que **no es
+  el cotizador**. Ahí la línea ya no es una cotización viva, es el registro de una solicitud enviada.
+- **La segunda frase de la nota no es relleno.** Sin *«Las cotizamos a mano y te las incluimos en la
+  oferta»*, «no suman» se lee como «no las queremos» y **la reacción racional del vendedor es
+  borrarlas** — perdiendo justo las cartas que más trabajo nos costó catalogar.
+- **Con TODAS las líneas sin precio el total no es `MX$ 0.00`**: es la versalita. *Un total de cero
+  que significa «todavía no lo he calculado» no es un cero* — R7 aplicada al agregado.
+- **El bloque sigue teniendo exactamente un monto**: un conteo de cartas **no es un monto**, y la nota
+  no lleva ninguno.
+
+### 3. (b) El consejo del faltante (§23.3f-bis)
+
+`BuylistMinimumShortfall` gana **`hasPendingLines`** y **solo cambia el consejo**:
+`minimum.addAnother` ⇒ **`minimum.addPricedCard`**. La **cifra no se toca**: sigue siendo la del
+servidor.
+
+⛔ **No se funde el faltante con la explicación** («te faltan MX$500 **porque** tus cartas no tienen
+precio»): mezclar dos hechos en una cifra hace que **la cifra deje de ser verificable**. Dos frases,
+dos trabajos — el **por qué** vive arriba (§23.3h) y **no se repite** aquí. Hay un test que lo
+comprueba por lo negativo (el faltante no contiene «porque» ni «no tiene precio»).
+
+### 4. La petición de testabilidad — el arreglo de LA CAUSA
+
+El arreglo del test (`filter({ visible: true })`) fue correcto **para el test**. Esto es el arreglo
+del defecto que lo hizo posible:
+
+- **`HomeQuoterPanel` gana `surface: 'hero' | 'mobile'`, y es OBLIGATORIO.** Un tercer montaje
+  **tiene que declararse**; no se puede añadir en silencio. Emite
+  `data-testid="home-quoter-{surface}"` + `data-quoter-surface`.
+- **`BuylistShippingNote` gana `surface?`** → `data-note-surface`. Instancias hoy: `home-hero`,
+  `home-mobile`, `buylist-header`, `cart-money`, `create-step`.
+- **Qué compra esto, dicho con precisión:** `data-testid` responde *«¿es esto una nota de envío?»*;
+  `data-note-surface` responde *«¿CUÁL de las notas es?»*. **§23.3g-bis decide cuántas se ven;
+  `surface` decide cuál se está mirando.** Sin lo segundo, cualquier comprobación futura vuelve a
+  adivinar — y adivinar fue lo que puso un defecto inexistente en la fuente de verdad del diseño.
+
+### 5. i18n (paridad ES/EN verificada por test)
+
+**Altas:** `buylist.quote.pendingLine.{label,note}` · `buylist.quote.minimum.addPricedCard`.
+**Bajas:** `buylist.totalPendingNote` (ausente en los dos catálogos).
+
+- **`pendingLine.note` y `minimum.addPricedCard` van carácter por carácter como los fija §23.3h /
+  §23.3f-bis**, incluida la forma ICU con `{count, plural, …}`.
+- **⚠ El EN de `pendingLine.label` es MÍO y queda a ratificación de ux-ui.** §23.3h y §23.11 fijan la
+  versalita **`SIN PRECIO`** pero **no dan su par en inglés** (a diferencia de `SIN ENVÍO`/`NOT
+  SHIPPED`, que §23.12 sí empareja). Elegí **«No price»** por longitud: la versalita convive en la
+  misma celda que un monto y **EN no puede ser más largo que ES** ahí (`Sin precio` = 10,
+  `No price` = 8). Si ux-ui prefiere «No price yet», cabe igual.
+
+### 6. Verificación (resultado literal)
+
+| Comprobación | Resultado |
+|---|---|
+| `npm test` | **`Test Files 95 passed (95)` · `Tests 875 passed (875)`** |
+| `npm run typecheck` | **limpio (sin salida)** |
+| `npm run lint` | **`✔ No ESLint warnings or errors`** |
+| **Suite E2E COMPLETA** (mock, `E2E_DEV_SERVER=1 E2E_MOCK_PORT=3111`) | **`116 passed · 3 skipped · 0 failed`** (8.1 min) |
+
+- **Flake conocido, caracterizado:** en **2 de 5** corridas completas de `npm test` salió
+  `1 failed | 874 passed`, y en la corrida que lo identificó el fichero era **`M2View.test.tsx`** —
+  uno de los dos flakes ya declarados. **Pasa aislado (65/65)**, igual que `PhotoUploader` (5/5), y
+  las otras **3 corridas** dieron **875/875**. **Ninguna de las dos áreas la toca este pase.**
+- **Los 3 saltados de E2E** son los `@real` de `grading-estimate.spec.ts`: piden stack real.
+
+**Cobertura nueva.** Unitaria (+4 en `BuylistView.test.tsx`, 67 en total): escritorio ⇒ la nota es la
+del carrito y **la cabecera no se monta**; carrito de puros pendientes ⇒ versalita en vez de
+`MX$ 0.00` + explicación **una vez** + «qué pasa con esas cartas» + **ningún monto extra**; la
+explicación **no se repite** con `qty = 999`; y el consejo `addPricedCard` **sin fundirse** con el
+faltante. Los tres tests que codificaban la conducta vieja (*«son DOS instancias, repetición
+aceptada»*) **se reescribieron a la invariante nueva** y ahora afirman **la instancia** por
+`data-note-surface`, no «la primera».
+E2E (+7 en `e2e/buylist.spec.ts`, 22 en el fichero): §23.3g-bis a **390px con drawer cerrado**,
+**390px con drawer abierto** y **1280px**; §23.14.6-6 en el **home** a los dos anchos, afirmando el
+**montaje** por su identificador nuevo; y el describe nuevo de §23.3h/§23.3f-bis con el **caso exacto
+que confundió al test** (8.1–8.5).
+
+⚠️ **Un detalle del arnés que costó un rojo y queda escrito:** el test de escritorio simula el
+viewport con **`vi.spyOn(window, 'matchMedia')`**, no con una asignación directa. `window` es
+**compartido por todos los tests del fichero**: reescribirlo a mano dejaba al resto de la suite en
+modo escritorio (sin FAB) y los rojos aparecían en tests que no tocan nada de esto. El
+`vi.restoreAllMocks()` del `beforeEach` deshace el espía; una asignación no se deshace.
+
+### 7. A ux-ui (una sola cosa, y es pequeña)
+
+**Ratificar el EN de la versalita `SIN PRECIO`** (hoy «No price»). Es la única cadena de este pase que
+no venía fijada por §23: todas las demás se implementaron carácter por carácter.
+
+---
+
+## v1.51.19 · §23.6/§23.7 — LA MESA DE DECISIÓN, y las dos correcciones de §23.5g (2026-09-01, rama `claude/buylist-inventory-workflow-hdnls3`)
+
+> **Pase acotado a propósito.** El backend del ciclo está completo y **nada tenía interfaz**. De los
+> cuatro frentes de admin, este pase entrega **la mesa de decisión y la emisión de la oferta** —que
+> es *la petición original del humano*— y **declara los otros dos** (guía/confirmación y las cuatro
+> colas) para un segundo pase. Prefiero dos pases verdes a uno grande y dudoso.
+
+### 0. Primero: las dos correcciones de §23.5g que ya estaban ratificadas
+
+Se aplicaron **carácter por carácter**; son copy normativo sobre pantalla que yo mismo escribí:
+
+| Clave | Qué cambia y por qué |
+|---|---|
+| `offer.deadline` | ~~«la oferta **se cancela sola**»~~ ⇒ **«la oferta vence y ya no podremos comprarte a este precio»**. Tras v2.3.3 **«cancelar» es el verbo del correo 5 — lo que hacemos NOSOTROS**; una oferta que muere por silencio **vence**. La misma palabra para *«la retiramos»* y *«se te acabó el plazo»* reintroducía en la pantalla la fusión que los correos acababan de deshacer |
+| `confirmAcceptBody` | El marco se reencuadra a **«La condición es la misma para cada carta: {condition}»**. Yo había citado la condición del servidor **en singular** dentro de un marco plural; §23.5g cambia **el marco**, no el texto — *cuando un texto del servidor no encaja en el marco de la UI, se cambia el marco, no se duplica el texto* |
+| `confirmRejectBody` | Ahora **lleva el neto y la condición**. Mi versión los omitía «para no presionar»; **choca con R2 por el lado contrario**: es el último instante en que el vendedor puede saber **qué está soltando**. *La línea entre informar y presionar no está en decir el número: está en el tono* — y hay un test que verifica por lo negativo que el diálogo **no argumenta** (sin «¿estás seguro?», sin reencuadre del beneficio, sin un segundo CTA de aceptar) |
+| `preOfferTitle`/`preOfferBody` | Dejan de repetir la misma frase: leídos juntos dan la de §23.5d **exacta, sin eco** |
+
+*(Nota menor de higiene: `messages/en.json` tenía **11 `’` escapados** —artefacto de mi propia
+inserción anterior— frente a **195 líneas** con UTF-8 literal. Quedan normalizados a literal, que es
+la convención real del fichero. **Cero cambios de valor.**)*
+
+### 1. La mesa de decisión (§23.6) — cinco cifras leídas en dos tiempos
+
+`GET /admin/buylist/:id/decision-table` · `src/app/[locale]/(admin)/admin/m5/BuylistDecisionDesk.tsx`.
+Se abre **desde la fila `cotizada` de M5**, una a la vez.
+
+**La posición, en dos tiempos.** Primero **una** fracción —`POSICIÓN 9/10`— con la versalita de qué
+regla manda; después **los cuatro sumandos**, siempre los cuatro y siempre en el mismo orden. Se
+llama **POSICIÓN y no «inventario»** porque contesta *«¿de cuántas copias ya soy responsable?»*, e
+incluye dinero comprometido: llamarla «tengo» sería mentir.
+
+**Los cuatro mecanismos que impiden que el ojo sume «en camino» + «comprometido» (R6)** —que es el
+valor de la pantalla, no un detalle—:
+
+1. **Regla vertical de 1px** entre `VERIFICANDO` y `EN CAMINO`: la frontera *está en la casa /
+   todavía no está*.
+2. **Encabezados de grupo reales** (`<th colSpan={2} scope="colgroup">`): el lector de pantalla
+   anuncia **el grupo antes de la cifra**.
+3. **Gradiente de confianza por PESO, no por contraste**: 500 / 400, y **las cuatro cifras en
+   `--color-text`**. Un número que decide una compra es información esencial y §10 prohíbe el muted
+   para eso.
+4. **Por ausencia**: ni subtotal, ni `+`, ni «(3 por llegar)», ni barra apilada. Hay un test que lo
+   mide **por lo que no está**, incluido que la suma `1+2` no aparezca como cifra en ninguna celda.
+
+**«En camino» que se pinta es `position.inTransit` y nada más.** No suman una `aceptada`, ni una con
+guía emitida sin confirmar, ni un «ya lo mandé» del vendedor. *Contar promesas como inventario es
+exactamente el error que esta pantalla existe para evitar.*
+
+### 2. El conteo que no se pudo hacer (§23.7) — `null` NO es cero
+
+Con `positionUnavailable`, **desaparece la tira entera, incluido el titular** —ni siquiera el
+denominador: un `—/10` invita a leerlo como `0/10`— y en su lugar va **una frase**, en **tinta**.
+
+**La distinción con un cero real no es un matiz de glifo: es presencia de estructura numérica frente
+a ausencia total de ella.** `EN INVENTARIO 0` con su retícula y su `POSICIÓN 0/10` es **un dato**;
+esto es **una oración**. Los dos casos están sembrados en el servidor falso —Pikachu es el cero real,
+Eevee el sin-conteo— y los dos tienen test: *se reconoce a un metro y sobrevive a una captura en
+gris*.
+
+El test de prohibiciones se mide **sobre los NODOS, no sobre la cadena**: el em dash de *«Sin
+sugerencia — falta el conteo»* es **puntuación de prosa**; lo prohibido es un `—` **ocupando el sitio
+de un valor** (ahí ya significa «precio pendiente», §16.3a, y además se lee como cero). La regla
+comprobable es: **ningún nodo cuyo texto completo sea un marcador de hueco**, y ningún `0`.
+
+Y el aviso de pantalla (§23.7d) **no bloquea nada**: se puede ofertar sin conteo — *lo que falta es
+el consejo, no el permiso*.
+
+### 3. La sugerencia informa; el sistema no decide (D6)
+
+- **Frase en prosa, no semáforo.** Una pastilla verde/roja se lee como **permiso**; una frase, como
+  **opinión**. Esa diferencia **es** D6.
+- **Asimétrica:** `do_not_buy` pinta «no comprar» en `accent` peso 500; `buy` va **todo muted**. Un
+  consejo que dice «adelante» no necesita interrumpir; uno que dice «para», sí.
+- **Mismo alto en los tres veredictos**: si la fila saltara al cambiar el veredicto, el operador
+  aprendería a temerle.
+- **Explica con cifras** qué regla se disparó y contra qué número —incluido el caso legacy del bounty
+  vivo **sin objetivo**, que se mide con el tope y **lo dice**.
+
+**Y las dos pruebas que protegen D6 de una «mejora» futura**, porque es lo que un revisor prudente
+endurecería sin querer:
+- **`do_not_buy` NO apaga «Emitir»** — ni con confirmación extra. El servidor no la valida;
+  endurecerlo **contradice PROJECT.md**.
+- **El default de la casilla IGNORA la sugerencia.** Toda línea con precio nace **marcada**, también
+  las desaconsejadas. Si el default la siguiera, «no comprar» sería un **bloqueo blando**: la inercia
+  haría el trabajo que D6 le prohíbe al sistema. `defaultSelection` **no mira `suggestion` ni una
+  vez**, y hay un test que lo fija.
+
+### 4. Emitir — dos desenlaces, y el botón no puede mentir sobre cuál
+
+- **`lines` cubre EXACTAMENTE los ítems**: lo no marcado viaja como **`skip`**, nunca se omite. Una
+  línea olvidada saldría del correo **sin que nadie hubiera decidido nada sobre ella**.
+- **Override con motivo obligatorio ⇔ el monto DIFIERE del derivado.** Mandar **exactamente** el
+  derivado **no es un override**: no pide motivo y el campo ni aparece (v1.51.12). **Igualdad entera
+  exacta sobre centavos, sin banda de tolerancia** — un centavo ya es override. Hay test para los dos
+  lados. Y **la cifra que se pisó se sigue viendo** bajo el input.
+- **El verbo del botón lo decide `requiresAuthorization` DEL SERVIDOR.** *Un botón que dice «Emitir»
+  y en realidad encola miente sobre lo que va a pasar.*
+- ⚠️ **`requiresAuthorization` NO se recalcula, ni siquiera contra `operatorCapCents`**, y esa
+  decisión merece leerse: depende del **rol del actor**, que esta pantalla no conoce —un súper-admin
+  oferta sin tope—. Derivarlo aquí le diría a un súper-admin *«enviar a autorización»* sobre una
+  oferta que **sí va a salir con su correo**: el botón mintiendo **en la dirección peligrosa**. Se
+  usa el booleano del servidor, y **el desenlace real lo dice `offerState`** en la respuesta, que es
+  lo que se lee (**nunca el código HTTP**, que es dinámico `200`/`202`).
+- **Tras responder, el resultado se dice sin ambigüedad**: `sent` ⇒ *«el correo salió y el vendedor
+  ya tiene X sobre la mesa»*; `pending_authorization` ⇒ *«el correo **NO** se ha mandado y la
+  solicitud sigue igual para el vendedor»*. **Una oferta pendiente no existe para él.**
+- **Emitida ⇒ la mesa es de solo lectura**: el override vive **solo antes** del correo (D2).
+
+**Qué apaga «Emitir» y qué no** (`emitBlocker`, con test para cada rama): apagan
+`pickupAddressMissing`, cero líneas, línea marcada sin monto, override sin motivo y `netBelowMinimum`
+—los cinco los rechazaría el servidor, y dejar el botón vivo sería **prometer una acción que va a
+fallar**—. **No apagan** `do_not_buy` ni `positionUnavailable`. Y **nunca apagado y mudo**: el motivo
+va por `aria-describedby`, con el mínimo, el faltante **en BRUTO** (la única palanca que el operador
+puede mover) y el remedio.
+
+**La frontera de qué se calcula aquí**, que es la regla que el orquestador subrayó: la UI **recalcula
+la suma al desmarcar** —el servidor mandó la del default y no puede saber qué quitó el operador— pero
+**el umbral, la tarifa y los veredictos los manda el servidor**. `minimumOfferNetCents`,
+`shippingFeeCents` y `requiredGrossCents` son **diales editables sin redeploy**: una constante aquí
+quedaría desincronizada **en silencio**, y en una pantalla de dinero eso es un aviso que aparece
+cuando no toca — o que **no aparece cuando sí**. El piso se compara con **`<`**, nunca `≤`: el borde
+es **inclusivo** y hay un test parametrizado en `37999 / 38000 / 38001`.
+
+### 5. Archivos y i18n
+
+- **Nuevos:** `m5/decision-desk.ts` (lógica pura, 23 tests), `m5/BuylistDecisionDesk.tsx` (17 tests).
+- **Tocados:** `types/contract.ts` (5 DTOs), `lib/api.ts` (`getBuylistDecisionTable`,
+  `emitBuylistOffer`), `lib/mock/fixtures.ts` (servidor falso + **una solicitud `cotizada`**),
+  `m5/M5View.tsx` (el botón que abre la mesa), `messages/*` (**64 claves** bajo `admin.m5.desk.*`).
+- **⚠️ Divergencia de namespace declarada:** §23.12 nombra las claves `admin.buylist.desk.*`, pero
+  **ese namespace no existe en este catálogo** — M5 vive bajo `admin.m5.*`. Se usó
+  **`admin.m5.desk.*`**. Es un cambio de prefijo, no de contenido; si ux-ui prefiere el del
+  documento, es un renombre mecánico.
+- **El servidor falso siembra los TRES casos de posición a propósito** (posición completa, cero real,
+  sin conteo): sin una solicitud `cotizada` el ciclo era **indemostrable en modo mock** y quedaba sin
+  cobertura E2E.
+
+### 6. Un efecto colateral del arnés que vale la pena contar
+
+Sembrar esa solicitud `cotizada` **tumbó 16 tests de `M5View` de golpe, sin que el producto
+cambiara**: la pestaña activa por defecto es *la primera con solicitudes*, y esos tests estaban
+leyendo «Verificando» **por accidente** —era la primera no vacía porque no existía ninguna
+`cotizada`—. Se añadió `openStage(label)` y **cada test declara ahora su etapa**.
+
+*La lección es la misma que lleva tres pases apareciendo: **un test que no dice en qué pestaña está,
+está midiendo el orden de los datos**.* Sembrar una fila nueva ya no puede volver a tumbarlos.
+
+### 7. Verificación (resultado literal)
+
+| Comprobación | Resultado |
+|---|---|
+| `npm test` | **`Test Files 97 passed (97)` · `Tests 916 passed (916)`** |
+| `npm run typecheck` | **limpio (sin salida)** |
+| `npm run lint` | **`✔ No ESLint warnings or errors`** |
+| **Suite E2E COMPLETA** (mock, `E2E_DEV_SERVER=1 E2E_MOCK_PORT=3111`) | **`119 passed · 3 skipped · 0 failed`** (6.5 min) |
+
+Cobertura nueva: **23** unitarios de `decision-desk.ts` (default que ignora la sugerencia, borde de
+la igualdad al centavo, motivo 3–500, el piso inclusivo parametrizado, `max(0,…)` que **no** enmascara
+el aviso, y `emitBlocker` rama por rama **incluidas las dos que NO bloquean**), **17** de
+`BuylistDecisionDesk` (los dos tiempos, los grupos como `<th>` reales, R6 por ausencia, sin-conteo vs
+cero real, sugerencia asimétrica, bounty legacy, default marcado, totales al desmarcar con el motivo
+del bloqueo, override en sus dos bordes, payload con `skip`, los dos desenlaces de la emisión,
+dirección ausente, 422 como alerta, solo-lectura y **paridad EN**), **+1** en el portal (el diálogo de
+rechazar dice el neto y la condición **y no argumenta**) y **3** E2E de la mesa en `admin.spec.ts`.
+
+### 8. Lo que este pase NO entrega (declarado, no silenciado)
+
+1. **Guía y confirmación de envío** (`POST …/guide`, `POST …/shipment-confirm`). ⚠️ Y el matiz que
+   importa cuando se implemente: **capturar la guía NO mueve el estado**; **solo confirmar** mueve a
+   `en_transito`. Y el **«ya lo mandé» del vendedor no mueve nada**: detiene **su** reloj.
+2. **Las cuatro colas** (pendientes de autorización, por confirmar envío, guías por cancelar) y **la
+   cola de listas para publicar** en M1. §23.8 las especifica; no se ha escrito una línea de ellas.
+3. **`POST …/decline`** («declinar ahora») y `POST …/offer/cancel`, con su confirmación de
+   consecuencia.
+4. **Las densidades de §23.6d** (compacta ≥lg y el colapso a card en <md): la mesa se implementó en
+   **densidad cómoda**, que §23.6d declara *«la única en `< lg`»* y el default en todos los anchos.
+   Es un refinamiento de retícula, no una regla de dinero.
+
+### 9. A ux-ui
+
+1. **Namespace de las claves de la mesa**: §23.12 dice `admin.buylist.desk.*`; el catálogo real usa
+   `admin.m5.*`, así que quedaron en **`admin.m5.desk.*`**. Renombre mecánico si prefieren el otro.
+2. **§23.6 no da el copy literal de la mesa** —da la anatomía, los rótulos en versalita y las cuatro
+   frases de ejemplo de la sugerencia—, así que **la redacción exacta de las 64 claves es mía**
+   (ES y EN), incluidas las de override, las de la barra de totales y las dos frases de desenlace de
+   la emisión. Queda a ratificación.
+3. **§23.6d (dos densidades) no se implementó**; ver §8.4.
+
+---
+
+## v1.51.19 · Cierre de la interfaz del ciclo: guía, confirmación, las cuatro colas y la que lo cierra (2026-09-01, rama `claude/buylist-inventory-workflow-hdnls3`)
+
+> Con este pase **el ciclo de adquisición tiene interfaz completa**: se puede ofertar, autorizar,
+> mandar la guía, confirmar el envío, trabajar las cuatro colas y ver qué falta para publicar.
+
+### 0. Primero: el fallo de R4 que ux-ui encontró en una cadena mía
+
+**`confirm.deadlineNote` decía «El vendedor tendrá 2 días hábiles para responder», con el 2 escrito a
+mano** — y ese plazo es **un dial de M10**. Es literalmente la constante que R4 describe, y dolía el
+doble por dónde estaba: **se le prometía al operador en el diálogo donde emite dinero, mientras el
+correo saldría con el plazo real**.
+
+**El DTO de la mesa no trae el dial**, así que se tomó la salida (2): **se quita el número.**
+
+> **ES:** «El plazo para responder empieza a correr al emitir y se congela ahí.»
+> **EN:** "The response deadline starts when you issue the offer and is frozen at that moment."
+
+No se pierde nada: lo que el operador necesita saber es **que se congela al emitir**, no cuántos días
+son — y eso es cierto siempre. Queda un comentario en el código diciendo que **si el DTO gana el
+dial, se interpola**, para que nadie vuelva a escribirlo a mano.
+
+### 1. Guía y confirmación — por qué son DOS actos (§M5 · D19/D20/D21)
+
+`BuylistShipmentActions.tsx`, montado **solo en `aceptada`**, que es el único estado donde las dos
+acciones existen.
+
+> **El requisito que obliga a separarlos:** el plazo mide **una acción del vendedor** —que deposite
+> el paquete— pero **nos enteramos por una acción nuestra** —que alguien lo confirme—. Sin
+> separarlos, quien deposita el día 3 pierde su venta si el operador confirma el día 4, **y encima
+> ya gastamos la guía**.
+
+Las tres reglas se hacen **evidentes en pantalla**, no solo se respetan:
+
+| Acto | Qué hace | Qué NO hace |
+|---|---|---|
+| **Capturar la guía** | **congela el plazo del vendedor**, que arranca **con la entrega de la guía, no con la aceptación** | **no mueve el estado**. Re-capturar corrige un typo y **no re-congela** una fecha ya comunicada |
+| **Confirmar el envío** | **lo ÚNICO** que mueve a `en_transito` — y lo único que hace que estas cartas cuenten como «en camino» en la mesa **de otras solicitudes** | — |
+| **El «ya lo mandé» del vendedor** | **detiene SU reloj** | **no mueve nada**: se pinta como **renglón informativo, nunca como badge**. Un segundo badge invitaría a leerlo como estado y a contarlo como inventario en camino |
+
+- **Sin guía, la pantalla lo DICE**: *«Sin guía todavía: el plazo del vendedor no ha arrancado»*, en
+  vez de dejar un hueco que se lea como «sin plazo» o, peor, como «ya venció». (Y es correcto que no
+  corra: *un plazo del vendedor solo puede vencer por algo que dependa del vendedor*, y la etiqueta
+  depende de nosotros.)
+- **`guideSentAt` NO es precondición para confirmar.** Si el paquete llegó sin guía capturada, el
+  diálogo **avisa** y deja confirmar igual: *negarlo no devuelve el paquete*. Fail-visible.
+- **La frontera money-safe se dice donde alguien podría creer lo contrario:** el costo real de la
+  etiqueta es **insumo de reporte**, y bajo el campo se lee *«No cambia lo que se le deposita al
+  vendedor: eso es la tarifa que él aceptó»*.
+
+### 2. Las cuatro colas (§23.8) — `BuylistCycleQueues.tsx`
+
+Van **fuera** de las pestañas de etapa, y la distinción importa: las pestañas **particionan
+`SellRequestStatus`**; las colas contestan **un pendiente nuestro con acción propia**.
+
+| Cola | Lo que la hace distinta |
+|---|---|
+| **Ofertas por autorizar** | Columna **«Muere el»** con la fecha, y a ≤1 día hábil la versalita `CADUCA HOY/MAÑANA` en accent. *Una cola cuyas filas se mueren sin avisar se trabaja a ciegas.* Autorizar **autoriza lo guardado**: el diálogo lo dice y **no ofrece editar nada** |
+| **Por confirmar envío** | La **alerta la manda el servidor y no se deriva de los días** (ver §3) |
+| **Guías por cancelar** | **Tiene salida, y es obligatoria** (ver §4) |
+| **Vendedores con solicitudes vivas** | **El teléfono viaja en la fila** (D12), para poder llamar sin ir a buscar al usuario. Sin teléfono se **dice** («Sin teléfono»), no se deja un hueco |
+
+- **Un `vault_operator` no ve el botón de autorizar** y, en su lugar, **se le dice de quién es la
+  acción** — nunca un botón apagado y mudo (§15.9).
+- **El «por qué se cerró» de las guías se pinta por su MOTIVO** (§23.1d): una `expirada` +
+  `not_shipped` sale como **SIN ENVÍO**, no como el rótulo genérico. Hay test que verifica que
+  «Expirada» **no** aparece.
+
+### 3. Lo que NO se recalcula, mismo criterio que la autorización de la mesa
+
+**`businessDaysWaiting: null` NO es cero: es «no se pudo calcular»** (el cálculo de días hábiles
+**lanza** fuera de la cobertura del calendario, por doctrina — degradar a «no hay festivos»
+adelantaría vencimientos). La fila **se degrada y la cola se pinta**; *prohibido que una fila
+devuelva 500 en un listado*.
+
+Y **el `alert` se usa tal cual, jamás derivado del número**: **falla hacia «sí, avisa»** porque
+*«llevo demasiado esperando»* y *«no sé cuánto llevo»* piden **la misma acción humana** — y un
+`false` sacaría la fila del filtro de alertas, con lo que **la más rara sería la más escondida**.
+Hay test unitario **y** E2E de que con `null` se pinta *«No se pudo calcular»*, **no aparece
+`0 días hábiles`**, y **la alerta sigue encendida**.
+
+**Y la alerta no promete nada más:** no expira, no cancela, no mueve el estado y no suma a «en
+camino». *El vendedor ya cumplió; el pendiente es nuestro, así que el remedio es hacerlo visible, no
+castigarlo.*
+
+### 4. La cola de guías tiene salida, y las dos mitades de D22 van juntas
+
+`POST …/guide/cancellation-done` es **la única forma** de que una fila salga de esa cola: **no
+desaparece sola**. Sin implementar la salida, la cola **no se vacía nunca** — y el propósito de D22
+(*una etiqueta comprada y olvidada es dinero tirado que nadie ve*) se convertiría en una lista que
+crece.
+
+El diálogo captura el **costo real** (`0` si la paquetería reembolsó) porque **es el único momento en
+que se conoce el costo final de una etiqueta cancelada**, con la misma frontera money-safe escrita al
+lado: *«no toca lo que se le deposita a nadie»*. Y el **vacío es positivo**: *«Ninguna guía pendiente
+de cancelar»*, porque aquí «no hay nada» es una buena noticia.
+
+### 5. La cola que cierra el ciclo — `PendingPublishQueue.tsx` en M1
+
+> *Comprar bien y dejar la carta en una caja sin precio es comprar mal.*
+
+Cada fila dice **qué le falta** (ubicación, precio o ambos) y **de dónde viene** la pieza. Sin precio
+resoluble **no se pinta `MX$ 0.00`** —cero es un precio— sino la versalita + **deep-link a la cola de
+precio pendiente de M2**. **No hay botón de publicar**: la pieza **sale sola** en cuanto no le falta
+nada, *sin depender de que alguien se acuerde de apretarlo*.
+
+**⚠️ Y la regla defensiva que el orquestador subrayó, implementada y probada por los dos lados:**
+una fila con **`missing` vacío o ausente** se pinta **«POR REVISAR»**, **nunca como «ya está
+lista»** — si la pintáramos así, **la pieza saldría de la única pantalla donde alguien la
+encontraría**. Es la misma doctrina del conteo ausente de la mesa: *un «no sé» que se ve como un
+valor bueno es peor que no mostrar nada*. Hay test para `missing: []` **y** para el campo ausente del
+DTO.
+
+Se monta **arriba del inventario general**, antes de las pestañas: es un pendiente nuestro **con
+dinero ya gastado**, y además **es la RED del disparo de auto-publicación** —best-effort— cuya
+aceptabilidad depende de que un disparo perdido **deje la pieza en esta cola** en vez de invisible.
+
+### 6. Archivos, i18n y un efecto colateral
+
+- **Nuevos:** `m5/BuylistShipmentActions.tsx` (8 tests), `m5/BuylistCycleQueues.tsx` (12 tests),
+  `m1/PendingPublishQueue.tsx` (7 tests).
+- **Tocados:** `types/contract.ts` (7 DTOs + el pipeline del ciclo en `AdminBuylistDTO`),
+  `lib/api.ts` (9 funciones), `lib/mock/fixtures.ts` (servidor falso de las cuatro colas + guía +
+  confirmación + autorizar + `cancellation-done`), `m5/M5View.tsx`, `m1/M1View.tsx`, `messages/*`
+  (**89 claves** en `admin.m5.shipment.*`, `admin.m5.queues.*` y `admin.m1.publishQueue.*`).
+- **La cola de guías del mock es MUTABLE a propósito**: se vacía **solo** por
+  `cancellation-done`, igual que la real. Un fixture inmutable habría hecho pasar un test que en
+  producción fallaría.
+- **Efecto colateral del arnés, y van dos pases seguidos:** la cola de publicación lista Charizard,
+  y un test de M1 esperaba por `findAllByText('Charizard')` **como ancla de la pestaña Gradeadas**.
+  El `await` pasó a resolver **antes** de que cargaran las gradeadas y las aserciones siguientes
+  medían un DOM a medias. Se cambió el ancla a **«PSA 9»**, que es lo único que solo existe ahí.
+  *Un `await` sobre un texto que otra sección también pinta no es una espera: es una coincidencia.*
+
+### 7. Verificación (resultado literal)
+
+| Comprobación | Resultado |
+|---|---|
+| `npm test` | **`Test Files 100 passed (100)` · `Tests 943 passed (943)`** |
+| `npm run typecheck` | **limpio (sin salida)** |
+| `npm run lint` | **`✔ No ESLint warnings or errors`** |
+| **Suite E2E COMPLETA** (mock, `E2E_DEV_SERVER=1 E2E_MOCK_PORT=3111`) | **`124 passed · 3 skipped · 0 failed`** (7.1 min) |
+
+Cobertura nueva: **27 unitarios** (guía que no confirma, plazo que se dice cuando no ha arrancado,
+«corregir» con guía existente, el «ya lo mandé» sin badge, confirmar como único movimiento, el costo
+real como reporte, confirmar sin guía; la caducidad destacada, autorizar-lo-guardado sin edición, el
+operador sin botón pero con explicación, días no calculables con alerta encendida, la salida única de
+la cola de guías, el vacío positivo, el motivo del cierre, el teléfono y su ausencia; qué le falta a
+cada pieza, sin `MX$ 0.00`, el deep-link, **`missing` vacío y ausente ⇒ POR REVISAR**, sin botón de
+publicar, y **paridad EN en las tres superficies**) y **5 E2E** en `admin.spec.ts`.
+
+### 8. Lo que sigue sin entregarse (declarado)
+
+1. **`POST …/decline`** («declinar ahora», D39) y **`POST …/offer/cancel`**, con su confirmación de
+   consecuencia (§23.8 da el copy exacto del diálogo de declinar).
+2. **`PATCH /admin/buylist/:id/pickup-address`** — corregir la dirección **después** de la guía
+   (BL-13), que es el tercer productor de la cola de guías por cancelar.
+3. **Paginación de las cuatro colas y de la de publicar**: hoy se pinta la primera página que
+   devuelve el servidor. Con volumen real hará falta el paginador (el patrón ya existe en M5
+   «Cerradas»).
+4. **`?onlyAlerts=true`** en la cola de confirmación: el contrato lo ofrece y aún no hay filtro en
+   la UI.
+
+### 9. A ux-ui
+
+**§23.8 da las columnas clave y el tratamiento propio de cada cola, pero no el copy literal**, así
+que **las 89 claves de este pase son mías** (ES y EN), incluidos los tres textos que hacen el trabajo
+pedagógico y que conviene revisar con calma: el de la guía (*«capturar la guía NO mueve el
+estado…»*), el del «ya lo mandé» (*«eso detuvo su reloj y nada más»*) y el de la alerta (*«…o no
+pudimos calcular cuánto. Las dos piden lo mismo»*). Los tres explican **por qué** la pantalla se
+comporta así, que es lo que evita que alguien la «arregle».
+---
+
+## §47 · La fusión de `main` en el stream del buylist, y **DT-Gd pagada**: dos DTOs de set, dos fixtures y un candado que ahora sí muerde (2026-09-05, rama `claude/buylist-inventory-workflow-hdnls3`)
+
+> Pase de absorción de `origin/main` (83 commits, con **P-54** entero — logos de expansión) hacia la
+> rama del ciclo de buylist. Tres ficheros míos en conflicto y, en el mismo pase, la ficha **DT-Gd**
+> de `docs/TECH_DEBT.md`, cuyo disparador era literalmente *«el primer pase de frontend después de
+> que `claude/buylist-inventory-workflow-hdnls3` fusione y `lib/api.ts` quede libre»*. `lib/api.ts`
+> auto-fusionó: el fichero que la bloqueaba estaba libre, así que se pagó aquí.
+
+### 1. Los tres conflictos: qué se conservó de cada lado
+
+| Fichero | Lado `main` | Lado rama | Resolución |
+|---|---|---|---|
+| `SellCartContents.tsx` | §34: la **miniatura** de la carta en la línea del carrito de venta (`CardImage` + columna `w-12` fija + `min-w-0 flex-1`) | §23.3h: la **versalita** `BuylistPendingLineLabel` en vez del rótulo largo `linePending`, por línea y por unidad | **Las dos.** Se toma la estructura de `main` (la que reindenta la fila) y dentro van las dos sustituciones de la rama. Ninguna toca a la otra: una es la caja, la otra es lo que se pinta cuando **no hay precio** |
+| `fixtures.ts` | `mockOrderDetailLegacy` (v1.51-c, el acta histórica con `cardSnapshot` incompleto — la consume `getOrderDetail`) | `MockSellRequestRow` + las proyecciones del servidor falso (`mockSellRequestDTO`, `mockSellOffer`, `mockAdminBuylistDTO`, …) | **Las dos.** El choque era de posición, no de sentido: los dos lados abrían un bloque justo detrás de `mockOrderDetail`. `mockSellRequests` conserva el tipo de la rama (`MockSellRequestRow[]`) |
+| `FRONTEND_NOTES.md` | §28…§43 | las secciones tituladas por versión del ciclo del buylist | **Las dos, íntegras.** Primero el bloque de `main` (continúa la numeración que el fichero dejaba en §27), después el de la rama. **Y una renumeración:** la rama había abierto un segundo «§27» cuando ése era el último número libre; con §28…§43 dentro, «§27» resolvía a dos secciones. Pasa a **§44** — y de ahí a **§46** en la fusión siguiente, cuando `main` publicó su propio §44 (ver la nota en su cabecera y §48) |
+
+### 2. DT-Gd — el problema no era el campo opcional, era que **el opcional apagaba el candado**
+
+La ficha lo dice en sus términos y no lo repito: `GET /catalog/sets` y `GET /buylist/sets`
+compartían `CardSetDTO`, pero el contrato **los define distintos** — `logoUrl` entra en el del
+cotizador (clave **siempre presente**, ARCHITECTURE §4.41.6) y **no** en el de catálogo (§4.41.5
+«NO entra»). Colapsarlos obligó a `logoUrl?: string | null`, y **ese `?` era el daño**: no por
+feo, sino porque una respuesta del cotizador **sin** el campo seguía siendo un `CardSetDTO`
+perfectamente válido, y `fetchQuoterIndex` la absorbía con `s.logoUrl ?? null` **compilando en
+verde y pintando las tejas sin logo, todas, en silencio**.
+
+**Lo implementado, que es la dirección de la ficha sin desviarse:**
+
+```ts
+// src/types/contract.ts
+export interface CardSetDTO { id; name; series?; releaseDate?; year?; partSetIds? }  // ⛔ SIN logoUrl
+export interface BuylistSetDTO extends CardSetDTO { logoUrl: string | null }         // requerido
+```
+
+```ts
+// src/lib/api.ts
+getSets():         Promise<CardSetDTO[]>     // /catalog/sets   → fx.mockCatalogSets
+listBuylistSets(): Promise<BuylistSetDTO[]>  // /buylist/sets   → fx.mockBuylistSets
+```
+
+Y en `fetchQuoterIndex` (`MasterSetIndex.tsx`) el mapeo pasa de `logoUrl: s.logoUrl ?? null` a
+**`logoUrl: s.logoUrl`**. El `??` no era una defensa: era el sitio exacto por donde el invariante
+se escapaba. Sin él, si el campo desaparece del tipo del cotizador, **esa línea deja de compilar**.
+
+**`foldSetsForDropdown` pasa a genérico** (`<T extends CardSetDTO>(sets: T[]): T[]`) — el plegado
+del master combinado de P-27 lo usan **los dos** endpoints, y con la firma vieja el resultado de
+`/buylist/sets` se degradaba a `CardSetDTO[]` justo antes de servirse, tirando el tipo recién
+partido. La semántica no cambia: la entrada combinada sigue siendo la del **principal**, así que la
+teja de Celebrations usa el logo de `cel25` y no el `null` de `cel25c` (hay test).
+
+### 3. La segunda mitad de la ficha: **el mock prometía más que el backend**
+
+`getSets()` y `listBuylistSets()` servían del **mismo** `fx.mockSets`, así que en modo mock
+`/catalog/sets` **también** rendía `logoUrl` — que el backend real no manda nunca. Nadie lo
+consumía, pero es la clase de divergencia de §34, la que ya costó un defecto en producción.
+
+Se cierra con la doctrina que este mismo fichero ya tenía escrita para las solicitudes de venta
+(*«⚠️ Fila mock, NO el DTO»*): **`mockSets` es la TABLA `CardSet` del servidor falso**, con
+`logoUrl` como **columna** `string | null` **requerida** (`MockCardSetRow`), y cada endpoint recibe
+una **proyección**:
+
+- `mockCatalogSets` = `mockSets.map(mockCatalogSetDTO)` — **borra la clave** por destructuring, como
+  el `select` del backend real. Tiparlo `CardSetDTO[]` **no bastaba**: TypeScript acepta la
+  propiedad de más en un valor que no es literal, así que el `Omit` tiene que ocurrir **en runtime**.
+- `mockBuylistSets` = las filas con la columna, tipadas `BuylistSetDTO[]`.
+
+Tres pruebas nuevas en `src/lib/api.test.ts` lo defienden, y **comprueban con `in`, no con
+`toBeUndefined()`**: lo que el contrato distingue es **clave ausente** (catálogo) de **clave
+presente con valor nulo** (cotizador), y `undefined` confunde justo esos dos.
+
+### 4. La prueba de que la deuda está pagada de verdad (no «está más bonito»)
+
+Un cambio de tipos solo paga esta ficha si **quitar el campo rompe la compilación**. Comprobado
+en las dos direcciones, sobre el árbol resuelto:
+
+| Experimento | Antes (tipo compartido) | Ahora |
+|---|---|---|
+| **A.** El contrato del cotizador deja de declarar `logoUrl` | compilaba | **`MasterSetIndex.tsx(202,16): error TS2339: Property 'logoUrl' does not exist on type 'BuylistSetDTO'`** (+ 4 sitios más) |
+| **B.** Una respuesta de `/buylist/sets` **omite** `logoUrl` | compilaba, y `?? null` la volvía una teja sin logo | **`error TS2741: Property 'logoUrl' is missing … but required in type 'BuylistSetDTO'`** |
+
+El «antes» de la columna izquierda no es una afirmación de memoria: se reprodujo el tipo viejo
+(`logoUrl?: string | null`) con la respuesta sin el campo y `tsc --strict` salió en **0**, con el
+`.map` produciendo `logoUrl: null` para **todas** las tejas sin una sola queja. Eso es exactamente
+lo que la ficha describía.
+
+### 5. Verificación del pase completo
+
+`npm test` **1152/1152** en 113 ficheros · `npx tsc --noEmit` **limpio** · `npm run lint` **sin
+warnings ni errores**. La referencia previa a la fusión eran **949**: la subida es `main`
+entrando con sus propias suites (P-54 y demás) **más las 3 de DT-Gd**; no bajó ninguna.
+
+### 6. El contrato **v1.53** aterrizó mientras esto se escribía, y coincide nombre por nombre
+
+> ⚠️ **Esa etiqueta es hoy `v1.54`** (`ARCHITECTURE.md` / `API_CONTRACT.md`, punto 0 de la cabecera).
+> `main` publicó **su propio v1.53** —`v1.53-buylist-graded-identity`, el cotizador raw-only— antes de que
+> el acta de fusión de la rama entrara, así que el arquitecto renumeró **la que aún no había entrado**:
+> mismo precedente que aplico yo en las secciones de este fichero. En los tres párrafos siguientes
+> «v1.53» significa **el acta de fusión de la rama, hoy v1.54**; el «v1.53» del resto del documento
+> (y de `frontend/`) significa **raw-only** y no se toca.
+
+Empecé el pase asumiendo lo que dice la ficha: *«cero cambios de contrato; si el arquitecto prefiere
+nombrarlos, mejor»*. Al terminar, `API_CONTRACT.md` ya traía la **rev v1.53 (acta de la fusión)** con
+el punto **D**: *«DT-Gd — SÍ los nombro. Nacen `CardSetDTO` y `BuylistSetDTO`, y es DECLARACIÓN, no
+cambio»*, con la forma `BuylistSetDTO = CardSetDTO & { logoUrl: string | null }`. **Es exactamente lo
+implementado**, mismo nombre y misma forma, así que no hubo nada que reconciliar. Lo apunto porque el
+diagnóstico del arquitecto es mejor que el mío y conviene que quede escrito: la causa raíz no fue que
+el cliente eligiera mal, fue que **las dos respuestas se escribían como shapes anónimos inline** —
+*un shape sin nombre no tiene con qué estar en desacuerdo*, y colapsarlos salía gratis.
+
+**Y la limpieza que v1.53 punto C enruta a los dueños, hecha en mis rutas.** La fusión encontró que
+`§4.39` nombraba **dos** secciones de `ARCHITECTURE.md`: el ciclo de adquisición (`§4.39(a)`…`§4.39(t)`,
+de la rama) y las imágenes de set (`§4.41.1`…`§4.41.9`, de `main`). Manda el ciclo por radio de
+citación, y **las imágenes de set pasan a `§4.40.1`–`§4.40.9`**. Reescritas las **30** citas de la
+forma `§4.39.N` que vivían en `frontend/` y en este fichero, **más las 4 con `§4.39` a secas que
+hablaban de M-47** (`contract.ts`, `fixtures.ts`, `MasterSetIndexPlate.test.tsx` y la cabecera de
+§42). ⚠️ **Las `§4.39c` / `§4.39(x)` NO se tocaron**: ésas son del ciclo de adquisición y siguen
+apuntando donde deben. Después de la reescritura no queda ninguna cita `§4.39.N` en mis rutas.
+
+> ⛔ **SUPERADO en la fusión siguiente — ver §48.4.** Este párrafo dio por bueno mover las imágenes
+> de set a `§4.40.x` «por radio de citación», y la premisa se cayó al día siguiente: `main` publicó
+> **`§4.40` = identidad de graduación / cotizador raw-only**. Con las dos numeraciones en el mismo
+> árbol `§4.40` nombraba dos cosas —incluso dentro del MISMO fichero (`lib/api.ts`)—, y la que
+> perdía era **la guarda del dinero**. Lo resolvió **el arquitecto**, que es de quien es: `§4.39`
+> queda para el **ciclo de adquisición**, `§4.40` para **graduación/raw-only** (308 citas vivas en
+> `main`) y **las imágenes de set se mudan a `§4.41.1`–`§4.41.9`**. Mis 31 citas `§4.39.N`/`§4.40.N`
+> de logos —y las 4 con `§4.39` a secas— quedan reescritas a `§4.41.N`. **Las `§4.39c` / `§4.39(x)`
+> siguen sin tocarse: ésas son del ciclo y ahora apuntan donde deben sin mover nada.**
+
+**Para el arquitecto — nada pendiente de DT-Gd.** El único punto que quedaba abierto (nombrar los dos
+DTOs) lo cerró v1.53 y el cliente ya está alineado.
+
+---
+
+## §48 · Segunda fusión de `main` en el stream del buylist: el cotizador **sigue siendo raw-only** y el ciclo entero entra encima (2026-09-06, rama `claude/buylist-inventory-workflow-hdnls3`)
+
+> Absorción de `origin/main` (70 commits del ciclo de adquisición contra la rama hermana **v1.53
+> raw-only** + la **placa de papel** de §24 v2.10). **Siete conflictos míos**, y uno de ellos era el
+> duro de verdad: `main` **podó `BuylistView.tsx` de 964 a 484 líneas** y la rama había reescrito ese
+> mismo fichero a fondo. Los dos lados tenían razón; ninguno se elige, se integran.
+
+### 1. `BuylistView.tsx` — la poda de `main` MANDA, y el ciclo entra dentro
+
+Lo que `main` retiró **se queda retirado**, y no es una preferencia de diseño: el selector «Tipo de
+producto» ofrecía `raw | graded | sealed` sobre unos DTOs de buylist que **nunca tuvieron dónde
+capturar QUÉ grado es un slab**, así que el backend resolvía la referencia con un default silencioso a
+`graded:PSA:10` —**el grado más caro**— y el cotizador firmaba ese precio por cualquier graduada.
+Estaba **vivo en producción**. Con el selector se fueron el grid plano, su barra de filtros, el bulk,
+`FinishEstimate`, `addFromGrid`, `quoteFor`, `isInCartRaw` y el `CardDetailModal` del grid plano.
+
+⚠️ **Nada de lo que reapareciera ahí sería “restaurar una función”: sería reabrir un agujero de
+dinero.** Los candados que lo impiden son de `main` y **corrieron en verde en este árbol**: el unitario
+`BuylistView.test.tsx › «v1.53 el cotizador compra RAW y solo raw (§4.40)»` (tres casos en negativo) y
+el E2E `buylist.spec.ts › «v1.53: la página de venta NO ofrece gradeada ni sellado»`, que lo mide **en
+navegador**. **Viajaron y muerden**; no hizo falta reponer ninguno.
+
+Y lo que la rama trae entra **encima** de esa estructura, entero: `shippingNoteHost` (§23.3g-bis, la
+decisión de *exactamente una* nota de envío por pantalla), `useQuotePolicy` + `minimumRequestCents`,
+`showShippingNote` en los dos montajes del carrito, `BuylistPendingLineLabel` /
+`BuylistPendingLinesNote` en el paso de crear, `quote.money.cardsValue`, la dirección de recogida y el
+aviso de solicitud creada que ya no se lee como permiso para enviar.
+
+| Fichero | Lado `main` | Lado rama | Resolución |
+|---|---|---|---|
+| `BuylistView.tsx` | poda raw-only (§4.40): fuera selector, grid plano, filtros, bulk | ciclo: nota de envío, mínimo, líneas sin precio, dirección | **Estructura de `main` + añadidos de la rama.** Del conflicto 1 (`FinishEstimate`) gana `main`: esa función **solo** pintaba filas del grid plano. Del conflicto 2 se conserva **solo** `shippingNoteHost` |
+| `BuylistView.test.tsx` | los tres casos del candado raw-only | `pickAddress()` antes de cada «Confirmar y enviar» | **Las dos.** Y el caso de `main` que **sí** crea solicitud (`productType "raw"`) **necesita `pickAddress()`**: con D36/D37 el `addressId` es obligatorio, y sin esperar a que la libreta preseleccione el submit no llega a `createSellRequest` |
+| `lib/api.ts` | guarda `422 BUYLIST_RAW_ONLY` en el mock de `createSellRequest` (todo-o-nada) | guardas `PICKUP_ADDRESS_REQUIRED` / `PICKUP_ADDRESS_NOT_FOUND` | **Las tres.** Raw-only **primero**: el contrato §6 la lista antes que las demás 422 y no hay que mirar la dirección de una compra que no hacemos |
+| `MasterSetIndex.tsx` | §24 v2.10: `SetPlate` sale a su propio módulo (pozo de papel) | DT-Gd: `logoUrl: s.logoUrl` **sin `?? null`** | **Las dos.** Se toma la extracción de `main` (el `SetPlate` inline muere con ella) y se conserva el mapeo sin `??`, que es el candado de compilación de DT-Gd |
+| `messages/{es,en}.json` | `error.BUYLIST_RAW_ONLY` + retirada de las claves del grid plano | `created` reescrito (§23.14.4c) + claves del ciclo | **Las dos.** Se conserva el `created` de la rama (el de `main` es el texto viejo) y se van las 24 claves del grid plano/bulk/`productType` |
+| `e2e/buylist.spec.ts` | `addCheapestSellableCard` (binder raw) sustituye al helper del grid GRADED; candado en navegador | `ensureMinimumReached`, `choosePickupAddress`, `cartPanel` con `:not(button)`, `openCart` que persigue el estado final | **Las dos** (ver §48.2) |
+| `FRONTEND_NOTES.md` | §44 (placa de papel) y §45 (raw-only) | el bloque del ciclo + su §45 | **Las dos**, y **renumeración de lo de la rama** (§48.3) |
+
+### 2. El smoke `@real` de VENDER: el helper de `main` tenía que aprender el mínimo de la rama
+
+`main` migró el descubrimiento de carta al binder raw (`addCheapestSellableCard`) porque el grid
+GRADED que usaba antes **es justo la superficie que se cerró**. Perfecto — salvo por un detalle que
+solo existe cuando las dos líneas conviven: su rama de respaldo clica **la primera teja habilitada**
+cuando ninguna tiene precio, y con el mínimo de compra (D43) una línea en `precio_pendiente` **no suma
+al total por diseño** (§23.3h). `cantidad × 0 = 0` por muchas veces que `ensureMinimumReached` suba la
+cantidad ⇒ CTA apagado ⇒ rojo nueve pasos más tarde, disfrazado de *«el cotizador no suma»*. Es
+**literalmente** el diagnóstico falso que la rama ya había pagado una vez y dejado escrito.
+
+Integración: `addCheapestSellableCard` **devuelve si la carta agregada tiene precio**, y el smoke hace
+`test.skip(!priced, …)`. **Falta de dato ≠ defecto de producto**, y se dice donde se detecta.
+
+### 3. Numeración de secciones de este fichero — tercera colisión, mismo criterio
+
+`main` publicó **§44** (placa de papel) y **§45** (raw-only). La rama traía **§44** (el gate real del
+ciclo, ya renumerado una vez desde §27) y **§45** (la fusión anterior). **Cede lo de la rama, nunca lo
+publicado:** §44→**§46** y §45→**§47**; esta sección es la **§48**. Corregidas las referencias cruzadas
+de las dos, incluida la tabla de §47 que apuntaba al §44 viejo.
+
+⚠️ **La cita de `i18n-parity.test.ts` a «FRONTEND_NOTES §45.4/§45.6» NO se toca**: es de `main` y
+apunta a **su** §45 (raw-only), que conserva el número.
+
+### 4. Las citas a `ARCHITECTURE.md` — el arquitecto deshizo mi primera corrección, y tenía razón
+
+`§4.40` acabó nombrando **dos** secciones en el mismo árbol: las imágenes de set (renumeradas por la
+rama en la fusión anterior, §47) y **la identidad de graduación / raw-only** de `main`. Que un fichero
+—`lib/api.ts`— tuviera las dos acepciones a la vez no es cosmético: **no es que la cita no apunte a
+nada, es que apunta a una sección que existe y habla de otra cosa**, y la otra cosa es la guarda del
+dinero. Un lector que la siga cree haber verificado algo que no miró.
+
+Resolución **del arquitecto** (v1.54, no mía): `§4.39` = ciclo de adquisición · `§4.40` =
+graduación/raw-only (308 citas vivas en `main`) · **imágenes de set → `§4.41.1`–`§4.41.9`**. En mis
+rutas quedan reescritas **31 citas `§4.39.N`/`§4.40.N` de logos + 4 con `§4.39` a secas**
+(`types/contract.ts`, `lib/api.ts`, `lib/api.test.ts`, `lib/mock/fixtures.ts`,
+`master-set/SetPlate.tsx`, `MasterSetIndexPlate.test.tsx`, `MasterSet.test.tsx`,
+`e2e/master-set-plate.spec.ts` y este fichero). **Las `§4.39c` / `§4.39(x)` no se tocan**: son del
+ciclo y ya apuntan donde deben.
+
+**Y la hermana de esa colisión, que estaba en mis rutas y nadie había mirado:** `M-46` también nombraba
+**dos** migraciones. El arquitecto resolvió *ciclo = `M-46`, dial del gancho de grading = `M-48`*
+(v1.54 punto 1). Reetiquetadas **las 9 citas del DIAL** —`contract.ts`, `M10View.tsx`,
+`M10View.test.tsx`, `e2e-paid-provider-guard.test.ts`, `fixtures.ts`, `e2e/utils/paid-provider-guard.ts`,
+`e2e/utils/grading.ts`, `e2e/global-teardown.ts`— dejando intactas las del ciclo. Importa por lo mismo:
+el dial gobierna **la obtención desde un proveedor de PAGA**, así que confundir su migración con la del
+ciclo manda a un revisor a leer la ficha equivocada.
+
+### 5. Un rojo del E2E que la fusión destapó, y **no** lo trajo la fusión
+
+`admin.spec.ts › «la cola de autorización avisa de que la fila SE MUERE SOLA»` salió en rojo
+esperando «Caduca hoy». No es del merge: `caducityTone` pasó a comparar el **día del calendario** de
+CDMX y el fixture se quedó en `Date.now() + 20 h`, **una ventana rodante**. Veinte horas caen hoy o
+mañana según la hora: el caso solo pasaba si la suite arrancaba antes de las **04:00** de CDMX. El
+unitario ya lo había resuelto con un helper (`caducityOnMxDay`); **el servidor falso se había quedado
+atrás**, y un mock que contradice al componente al que alimenta produce rojos que no son del producto.
+`mockPendingOfferAuthorizations` usa ahora el mismo helper (mediodía de CDMX del día `0`).
+
+### 6. Verificación
+
+`1162 vitest` verdes en 113 ficheros (la rama traía 1152; `main`, 977) · **145 E2E: 142 pasan, 3
+`skip`** (`needsSeed`/`mockOnly` de datos que el modo mock no tiene) · `tsc --noEmit` limpio · `lint`
+limpio. E2E en `E2E_MOCK_PORT=3100`: el `:3000` lo ocupa el `next start` del stack real de devops —
+y por lo mismo **no se borró `.next`**, que es suyo y estaba en uso.
+
+---
+
+## §49 · Cierre de seguridad del stream: una nota mía que afirmaba sin medir, y el `409` nuevo que el operador leía como «la app falló» (2026-09-06, rama `claude/buylist-inventory-workflow-hdnls3`)
+
+**Contexto.** Se cerró la CRÍTICA **P1** (doble pago SPEI): `receive`/`verify` ganaron guarda de
+estado (**§M5-T**, contrato v1.56), con ella un **`409 CONFLICT` nuevo**, y su respuesta pasó de
+`201` a **`200`**. **El frontend no fue causa de nada y no necesitó ningún arreglo funcional por
+eso**, y eso lo midió QA fichero a fichero; re-medido aquí antes de escribirlo: `api-client.ts`
+ramifica por `res.ok` (`:196`, `:266`), `401` (`:246`) y `204` (`:263`) y **nunca por el código
+exacto**; **ninguna comparación contra `201`** en `frontend/src`, `frontend/e2e` ni `security/` (las
+apariciones de la cadena «201» son números ajenos —CLABEs de prueba, folios `INV-000201`, ms— y un
+comentario en `types/contract.ts`); y el `409` cae en el `onError` de las mutaciones de `M5View`. Este pase son **dos cosas
+pequeñas**, ninguna de ellas un arreglo de regresión.
+
+### 1. La afirmación que estaba en estas notas **como hallazgo verificado** y no se había medido
+
+El bloque de **P-5** decía que `receive`/`verify`/`paySpei` devuelven *«mismo shape con
+`id`/`userId`/`seller`/`items`»*. **Es falso hoy**, y la corrección queda escrita **en el propio
+bullet** (arriba, sección P-5) además de aquí, porque ésa es la línea que otros roles leen como
+medida.
+
+**Qué se midió, cuándo y sobre qué** (2026-09-06, HEAD `3b2fc87`, lectura directa de
+`backend/src/modules/buylist/buylist.service.ts` — el backend es de otro rol y sólo se leyó):
+
+| Verbo | Cómo construye la respuesta | Lleva `items` / `seller` / `pickupAddress` |
+|---|---|---|
+| `receive` (`:5168`) | `tx.sellRequest.findUnique({ where: { id } })` → `adminSellRequestDTO(row, …)` | **NO** |
+| `verify` (`:5196`) | idéntico a `receive` | **NO** |
+| `pay-spei` (`:6365`, `:6567`, `:6575`) | `findUnique({ where: { id } })` en las **tres** ramas (idempotente, éxito y relectura) → `adminSellRequestDTO(…)` | **NO** |
+| `reject` | devuelve `adminGet(id)` | **SÍ** |
+
+La diferencia es de una línea: `adminGet` (`:2393`) hace el `findUnique` **con `include`** y encima
+del proyectado añade `seller`, `pickupAddress`, `items` y `clabeMasked`; los otros tres devuelven
+`adminSellRequestDTO` **a secas**, que es sólo la cabecera de la fila. **La proyección compartida no
+es el problema** — `isPayable` y los campos del ciclo sí viajan en las cuatro (BL-20); lo que falta
+es el **`include` de la lectura**.
+
+**Consecuencias, y por qué NO se cambia el tipado:**
+- **Hoy no rompe nada, y se sabe por qué:** `M5View` **refetchea después de mutar** — `onSuccess` →
+  `ok()` → `refresh()` → `invalidateQueries(['admin-buylist'])`, y la pantalla se repinta con la
+  fila completa del listado. **El valor devuelto por la mutación no se lee en ningún sitio**: las
+  tres son las únicas consumidoras de esas funciones en producción (`M5View.tsx:233`, `:238`,
+  `:382`) y las tres descartan el dato — `onSuccess: (_d, id) => ok(id, …)` en `receive`/`verify` y
+  `onSuccess: (_d, vars) => { …; ok(vars.requestId, …) }` en `pay-spei`.
+- **El tipado `AdminBuylistDTO` de esas tres llamadas se mantiene y es el correcto**, pero **la
+  justificación cambia**: se apoya en el **contrato** (§M5: *«la solicitud actualizada, mismo shape
+  que `GET /admin/buylist/:id` (`AdminBuylistDTO` con `items`)»*), **no** en la respuesta observada.
+  Quien está desviado del contrato es el backend, no este tipo; si el backend corrige, el tipado ya
+  es el bueno. Dueño de la desviación: **backend (D5)**.
+- La **misma frase falsa** vivía en el docstring de `rejectBuylistRequest` (`src/lib/api.ts`).
+  Corregida ahí también, **sólo el comentario**: ninguna firma, ningún tipo, ningún runtime.
+
+**La lección, que es la de BL-20 otra vez:** *«idéntico a lo que devuelven X e Y»* es una afirmación
+sobre **código que no abrí**. Si no se midió, se escribe lo que el contrato declara y se dice que es
+el contrato quien lo declara. Una nota que suena a medición vale menos que ninguna nota.
+
+### 2. MENOR-2 (QA): el `409` nuevo se le mostraba al operador como texto genérico
+
+El backend responde `409 CONFLICT` con **`details: { status, closedAt }`** — los dos campos a
+propósito: el caso que motivó el segundo término es una fila con `status` **no terminal** y
+`closedAt` **sellado** (el PoC de P1). Pero `error.CONFLICT` decía sólo *«Hubo un conflicto con el
+estado actual.»*: `details` **no se usaba** y el operador **no se enteraba de que la solicitud ya
+cerró**. En una cola de back-office eso se lee como *«la app falló»* y se reintenta — y reintentar
+sobre una fila cerrada no puede funcionar nunca.
+
+**Qué se hizo — el mecanismo que ya existía, no uno nuevo.** `useErrorMessage`
+(`src/components/ui/QueryState.tsx`) ya tenía la tabla `DETAILED_ERRORS` + la variante
+`error.<CODE>_WITH_DETAILS` (la estrenó `GRADED_ESTIMATE_SLAB_PUBLISHED`). Se le añade la entrada
+`CONFLICT`:
+
+- **El rótulo del estado sale de `status-map` (`getBadgeSpec('sellRequest', status).i18nKey`)**, el
+  MISMO mapa que pinta el badge. Ni una tabla nueva ni un literal: DESIGN_SYSTEM §9.2 prohíbe pintar
+  el enum crudo, y una segunda tabla sería otra copia del vocabulario de estado que §M5-T y el
+  criterio 129 vinieron a borrar. De regalo cubre `expirada`, cuyo rótulo **no** vive en
+  `status.sellRequest.*` sino en `status.sellRequestExpiry.*` (§23.1d) — el mapa ya lo sabe.
+- **Si no hay rótulo, no hay mensaje enriquecido:** enum desconocido, o un `409` de otra superficie
+  cuyo `details.status` no es un estado de solicitud ⇒ la entrada devuelve `null` y se usa el copy
+  base. **No se inventa nada.** Inventario de los `409 CONFLICT` vivos del front, abierto uno por
+  uno: transición ilegal de envío (`api.ts:1193`), disputa ya resuelta (`:3612`) y grupo ya enlazado
+  (`fixtures.ts:4213`) **no mandan `details`** ⇒ quedan **byte a byte como estaban**. El **cuarto sí
+  cambia, y para bien**: el `409` de `rejectBuylistRequest` (`:3283`) ya mandaba
+  `details: { status }` por contrato (§4.18f) y pasa a leerse *«esta acción no aplica al estado
+  actual de la solicitud («Pagada»)»* dentro de su modal, en vez del genérico. Sin `closedAt` toma
+  la rama no-cerrada, que es exactamente lo que ese `409` significa.
+- **`closedAt` decide la FRASE, no se pinta.** El copy es un `select` ICU de dos ramas: cerrada
+  («esta solicitud ya está cerrada, quedó en «X»») vs. no cerrada («esta acción no aplica al estado
+  actual: «X»»), y las dos cierran con *«no es un fallo de la aplicación y reintentar no lo cambia»*.
+  ⚠️ **Ni marca de tiempo, ni montos, ni identidades**: el mensaje explica **qué pasó**, no vuelca la
+  fila (regla de PII/cifras internas de `PROJECT.md`, que aplica a toda superficie — también a
+  back-office). Hay test que lo fija.
+- **Los dos idiomas**, `error.CONFLICT_WITH_DETAILS` en `messages/{es,en}.json`. El candado de
+  paridad ES/EN sigue verde.
+
+**Lo que deliberadamente NO se tocó:** `fail()` **no invalida la query** (sólo `ok()` lo hace) y se
+deja igual — cambiar eso es comportamiento, no copy, y el stream está a punto de fusionarse. Por eso
+el mensaje termina en *«actualiza la vista para ver el estado real»* en vez de prometer un refresco
+automático que la vista no hace. Si el PO lo quiere automático, es un cambio de una línea en
+`M5View.fail()` y se puede pedir aparte.
+
+**Tests (+4 en `M5View.test.tsx`, sobre el `409` de `verify`):** (a) terminal + `closedAt` ⇒ dice que
+**ya cerró**, nombra **«Pagada»** con su rótulo, el genérico desaparece y **no aparece la marca de
+tiempo**; (b) **`status: 'verificacion'` con `closedAt` sellado** ⇒ también dice que ya cerró (el
+caso exacto que P1 fabricó y que un guard de un solo término deja pasar); (c) **EN**, misma frase
+enriquecida; (d) `409` **sin `details`** ⇒ copy base, sin frase de cierre y sin placeholder crudo.
+
+### 3. Ficheros tocados
+
+`src/components/ui/QueryState.tsx` (entrada `CONFLICT` en `DETAILED_ERRORS`; la tabla pasa a recibir
+`t` como segundo argumento para poder traducir el rótulo del estado — el consumidor existente lo
+ignora) · `messages/es.json` y `messages/en.json` (`error.CONFLICT_WITH_DETAILS`) ·
+`src/app/[locale]/(admin)/admin/m5/M5View.test.tsx` (+4) · `src/lib/api.ts` (**sólo un docstring**) ·
+este fichero. **Nada en `backend/`, nada en el contrato, ningún tipo compartido.**
+
+### 4. Verificación
+
+`npx vitest run` → **113 ficheros / 1166 tests verdes** (la rama traía 1162; el delta son los 4
+nuevos) · `npx tsc --noEmit` → limpio · `npx next lint` de los ficheros tocados → sin warnings ·
+`i18n-parity` (27 tests, incluido el candado de paridad ES/EN y el de claves duplicadas) → verde.
+
+### 5. El contrato pasó a **v1.57** a mitad de este pase: qué revisé antes de cerrar
+
+`af31349` publicó v1.57 (§M5-P, §M5-C) mientras corrían mis suites. Re-leído lo que toca a este
+delta, **nada de lo anterior se cae**:
+
+- **§M5-T sigue diciendo lo mismo donde importa:** el rechazo canónico sigue siendo `409 CONFLICT`
+  con **`details: { status, closedAt }`**, y `receive`/`verify` siguen en el **GRUPO A**. Lo que
+  v1.57 cambió ahí es la **tabla de verbos** (se parte en A/B porque la de v1.56 listaba verbos que
+  no escriben `status`) — corrección de documento, no de forma del error. El copy nuevo es correcto
+  tal cual.
+- **§M5-C (`BL-37`, códigos de éxito): cero impacto de frontend, por la misma razón de siempre.**
+  Nueve endpoints del ciclo responden `201` donde el contrato declara `200`; `apiRequest` ramifica
+  por `res.ok`, así que ni el desvío ni su corrección se ven desde aquí. Dueño: backend.
+- **§M5-P (`isPayable` gana un TERCER término, `receivedAt IS NOT NULL`): tampoco toca código de
+  frontend** — el booleano es **derivado server-side** y aquí sólo se consume
+  (`isSuperAdmin && req.isPayable === true`), que es exactamente el punto de que exista. **Pero deja
+  un documento mío desactualizado:** el docstring de `isPayable` en `src/types/contract.ts:2371-2378`
+  transcribe la fórmula de **DOS** términos. **No lo toco en este pase** (`types/contract.ts` es zona
+  compartida, el brief pedía cambio mínimo y hay un pase v1.57 en vuelo); queda **pedido explícito**
+  para quien tome v1.57 en el frontend. Sin impacto funcional: no hay ninguna copia de la fórmula en
+  código, sólo en el comentario.
+
+### 6. Solicitudes al arquitecto
+
+**Ninguna.** Todo lo consumido está en el contrato (§M5-T declara `409 CONFLICT` con
+`details: { status, closedAt }`; §M5 declara el shape de la respuesta de `receive`/`verify`). La
+única desviación medida es del **backend** (respuesta de `receive`/`verify`/`pay-spei` sin `items`/
+`seller`/`pickupAddress` frente a lo que §M5 declara) y su dueño ya la tiene registrada como D5.
+
+---
+
+## §50 · v1.57/v1.58 en el cliente: **el servidor cambió la regla del dinero y el cliente seguía con la vieja** (2026-09-07, rama `main`)
+
+> **De qué va este pase.** Cuatro huecos de QA/techlead, y los tres primeros son **la misma clase**:
+> *el cliente codifica una regla de dinero que el servidor ya cambió.* No se arreglan copiando el
+> término que falta —eso reintroduce la copia que se desincronizó— sino **quitándole al cliente la
+> posibilidad de escribirla mal**. Cuatro versiones de contrato sin nota mía: ésta las cierra.
+
+### 1. El bloqueante: el servidor falso encendía el botón de pagar SPEI donde el real responde `422`
+
+**Medido.** `mockIsPayable` tenía **dos** términos (`status ∈ PAYABLE ∧ verifiedAt != null`) y la
+fórmula tiene **tres** desde v1.57 (§M5-P: `∧ receivedAt IS NOT NULL`, *«no se paga lo que no ha
+llegado»*). Peor de lo reportado: **`receivedAt` no existía en el tipo de la fila**, así que **las
+dos filas en estado pagable del fixture** (`sr-3001` verificando, `sr-3003` aprobada) salían
+`isPayable: true` **sin constancia de recepción alguna** — con `NEXT_PUBLIC_USE_MOCKS=true`, M5
+encendía «Pagar por SPEI» sobre la fila del PoC del eje 2 en la pantalla que existe para demostrar
+lo contrario.
+
+**Lo que NO se hizo:** copiar el tercer término al cliente. Encima del defecto ya estaba escrito el
+argumento (*«si el servidor falso se quedara también con un solo término, el modo mock mantendría
+vivo el bug»*) y aun así el mock se quedó corto: **el argumento no impide nada; el tipo sí**.
+
+**Lo que se hizo — que una fila pagable no pueda existir sin `receivedAt`** (`src/lib/mock/fixtures.ts`):
+
+- **`MockPayabilityAnchors = { receivedAt: string | null; verifiedAt: string | null }`**, y
+  `MockAdminBuylistRow` los lleva **OBLIGATORIOS**. Con `verifiedAt?` opcional, **omitir un ancla era
+  gratis**; ahora cada fila **declara** si la carta llegó — incluido decir `null`, que es una
+  afirmación y no un olvido.
+- **`MOCK_PAYABILITY_ANCHOR_TERMS`: un `Record` EXHAUSTIVO sobre `keyof MockPayabilityAnchors`**,
+  un término por ancla. **Añadir un ancla sin su término es error de compilación, y quitar un término
+  también.** No queda ningún sitio donde enumerar los términos a mano ⇒ **la recaída de v1.57 ya no
+  se puede escribir**.
+- La proyección `mockAdminBuylistDTO` **borra las anclas por la lista**, no a mano: un ancla nueva no
+  se puede filtrar al cliente por un `...row` distraído.
+- `receive` (rama mock de `api.ts`) **sella `receivedAt`** —era el único escritor que faltaba— y lo
+  hace **una sola vez** (`??=`), como el `where` idempotente del backend. ⚠️ **`verify` NO lo sella**,
+  ni «porque ya viene de recibir»: eso es exactamente el eje 2 de `BL-35`.
+- `paySpeiBuylist` (mock) **no se tocó** y heredó el tercer término, porque ya preguntaba por
+  `isPayable`. *Ésa es la prueba de que la forma es la correcta.*
+
+**Coste medido y aceptado:** las anclas obligatorias rompieron **12 llamadas a `mockAdminBuylistDTO`
+en `M5View.test.tsx`** (el arnés que hace de servidor). Se arreglaron una por una **declarando el
+hecho**, no callándolo: la respuesta de `verify` sobre una fila recibida lleva las dos marcas; la
+`expirada` sin paquete lleva las dos en `null`.
+
+### 2. La fórmula del dinero, escrita con un término de menos en dos documentos del cliente
+
+- `src/types/contract.ts` — el docstring de `AdminBuylistDTO.isPayable` transcribía la forma de DOS
+  términos que el contrato marca **⛔ SUPERSEDED**. Reescrito con los **tres**, con el porqué del
+  tercero (`verify` no exige predecesor ⇒ *un término implícito no es un término*) y con la nota de
+  que **ni `receivedAt` ni `verifiedAt` viajan en el DTO**: el cliente no recompone la fórmula.
+- `src/lib/api.ts` — *«el SEGUNDO término de `isPayable`»* pasa a *«uno de los TRES»*, y el `pay-spei`
+  mock dice **TRES**.
+- `M5View.tsx` — el comentario de `canPay` ya no dice «los dos términos»; y se añade lo que este pase
+  demuestra: **la fórmula creció y esta línea no se tocó**. *Una copia local habría tenido que
+  enterarse; ésta no tiene de qué enterarse.*
+
+### 3. El copy le hablaba al interlocutor equivocado (DESIGN_SYSTEM **§26**)
+
+v1.58 hizo alcanzables desde `POST /admin/buylist/:id/offer` dos códigos que solo veía el vendedor.
+`useErrorMessage` llaveaba **por código a secas** ⇒ al **operador** se le decía que subiera **su**
+INE. El backend ya había hecho su mitad (§M5-A.7); faltaba la del cliente.
+
+**Mecanismo nuevo — `src/lib/error-audience.ts`** (un módulo, no una rama en cada pantalla):
+
+| Pieza | Qué hace |
+|---|---|
+| `ERROR_SCOPE_AUDIENCE` | `details.scope` → destinatario. **`per_request`/`per_request_offer` NO están**: v1.59/D47 los retiró y §26.2 manda pintar la base y que sea **hallazgo de QA**, no un caso soportado |
+| `AUDIENCE_FROM_DETAILS` | el selector normativo de §26.2, **uno por código**. `INE_REQUIRED` se distingue por la **forma** de `details` (`thresholdCents` ⇒ vendedor; `sellRequestId + grossCents` ⇒ operador) porque **no lleva `scope`** |
+| `resolveErrorAudience` | **(1) lo que dice el servidor en `details`; (2) la audiencia que declara la superficie** |
+| `errorMessageKeys` | orden normativo de §26.5: `error.<CODE>_OPERATOR[_WITH_DETAILS]` **antes** que `error.<CODE>[_WITH_DETAILS]` |
+
+**⚠️ Desviación declarada de §26.2** (su última fila: *«discriminador ausente ⇒ la base»*): aquí,
+con el discriminador ausente, **decide la superficie antes de caer a la base**. La regla de ux-ui
+supone que no queda ninguna señal; en back-office **sí queda**, y pintar la base ahí es el defecto
+que §26 vino a cerrar. Además **§26 la necesita**: `PICKUP_ADDRESS_LOCKED` se desdobla por **ruta**
+(no tiene discriminador en `details`) e `INE_REQUIRED` de la emisión no lleva `scope`. La base sigue
+siendo el último recurso — cuando no hay ni `details` ni superficie.
+
+**Cableado:** `useErrorMessage(surfaceAudience?)`, y **las 26 llamadas de `(admin)` declaran
+`'operator'`**. Es mecánico y por eso lleva candado: hoy **nada fallaba si se omitía**, que es por lo
+que se omitió.
+
+**Copy:** las **11 claves obligatorias de §26 en ES y EN**, copiadas de `DESIGN_SYSTEM.md` §26.2/26.3/26.4
+**carácter por carácter**, más la opcional `BUYLIST_LIMIT_EXCEEDED_OPERATOR_WITH_DETAILS` (§26.5),
+que se cablea con una entrada nueva en `DETAILED_ERRORS`: interpola **solo `capCents`/`wouldBeCents`**
+—los topes de COMPRA, la cota de la decisión del operador— y **jamás el umbral de INE**; si falta
+cualquiera de los dos montos devuelve `null` y se pinta la base, nunca un `MX$ undefined`.
+Las tres cadenas viejas se **sustituyeron**, no se dejaron «por si acaso».
+
+### 4. Los códigos sin traducción, y el que explicaba una cota retirada
+
+Los cuatro (`REQUEST_NOT_RECEIVED`, `PICKUP_ADDRESS_LOCKED` +`_OPERATOR`, `PICKUP_ADDRESS_MISSING`,
+`OFFER_PRICE_IMMUTABLE`) ya están en los dos catálogos, así que **la prohibición 7 de §26 (nunca el
+inglés crudo del servidor) es ahora inalcanzable por construcción** para los siete códigos de §26 —y
+hay candado que lo verifica, no una promesa.
+
+**`APPROVED_PRICE_CAP_EXCEEDED` — hueco DECLARADO, y aquí está exactamente sobre qué me apoyé:**
+
+- La base ya **no** explica la cota retirada dentro del ciclo; el texto de §26.3 nombra las dos cotas
+  y **fuera del ciclo el `× 2` sí aplica** (`relativeCapApplies: !inOfferCycle`), así que la base es
+  correcta tal cual.
+- La variante `_OFFER_CYCLE` **está en el catálogo pero NO se selecciona**, y no es pereza:
+  **`inOfferCycle` lo decide el backend con `item.sellRequest.offerSentAt != null`**
+  (`buylist.service.ts:6202`, medido) y **`AdminBuylistDTO` no lleva `offerSentAt`** — la pantalla no
+  tiene el dato. El sustituto que se podría teclear, `offerState === 'sent'`, **no es equivalente**:
+  una oferta **cancelada** tiene `offerSentAt` sellado y `offerState: 'cancelled'`. Y del `details`
+  tampoco se deduce: con `{ approvedPriceCents, quotedPriceCents, cap }`, `cap === quoted × 2` prueba
+  que chocó la cota **relativa**, pero `cap !== quoted × 2` **no** prueba que estemos en el ciclo (el
+  tope de compra puede ser el menor también fuera). **Es una inferencia de un solo lado y no alcanza.**
+  ⇒ Se pinta la base, que es lo que §26.3 manda mientras tanto, **y queda un trip-wire de tipo**
+  (`@ts-expect-error` sobre `AdminBuylistDTO['offerSentAt']`): **el día que el campo aparezca, deja de
+  compilar** y obliga a cablear la variante. *Un hueco declarado sin trip-wire es un hueco que se
+  olvida.*
+
+### 5. Los candados, y **el rojo que enseñó cada uno** (verificación por mutación)
+
+Ninguno se dio por bueno por leerlo: **se rompió a propósito**.
+
+| # | Mutación | Qué se puso rojo |
+|---|---|---|
+| M1 | quitar el término `receivedAt` del `Record` de anclas (la recaída de v1.57) | **`tsc`**: `TS2741 Property 'receivedAt' is missing … but required` |
+| M2 | dejar el término pero aflojarlo (`() => true`) | `payability.test.ts` **3 de 5** rojos |
+| M3 | una fila de fixture omite `receivedAt` (el olvido original) | **`tsc`**: `TS2322 … Property 'receivedAt' is missing` |
+| M4 | anti-vacuidad: predicado siempre `false` | **4 de 5** rojos (incluido el camino feliz: sin él, un endpoint que no paga nunca pasaría los otros tres) |
+| N1 | `useErrorMessage` vuelve a llavear solo por código | `QueryState.test.tsx` **4 de 9** rojos |
+| N2 | una pantalla de admin pierde su `'operator'` | candado de cableado: *«pantallas de admin sin audiencia declarada: BuylistDecisionDesk.tsx»* |
+| N3 | la variante de operador se rellena **copiando** la del vendedor | **2 rojos**: el de «no es copia» **y** el de significado (`tu INE`) |
+| N4 | se borra `error.REQUEST_NOT_RECEIVED` de **un** idioma | **3 rojos**: existencia, paridad ES/EN y el de conducta (§26 prohibición 7) |
+| N5 | `AdminBuylistDTO` gana `offerSentAt` | **`tsc`**: `TS2578 Unused '@ts-expect-error' directive` — el trip-wire del hueco |
+
+**Un candado probable, no dos que se tapan.** Los tres del error miden **cosas distintas**
+—EXISTENCIA (claves), SIGNIFICADO (que la variante no repita el «tú» del vendedor) y CABLEADO (que la
+pantalla declare su audiencia)—, y cada uno lleva su **anti-vacuidad**: el de significado comprueba
+que el patrón **sí** reconoce el defecto en la cadena del vendedor, y el de cableado exige **≥20**
+llamadas encontradas antes de aprobar. *La lección que traía esta sesión es que un candado de
+traducciones puede medir simetría y no existencia; éstos miden las tres, y se enseñó el rojo de cada
+uno.*
+
+### 6. Ficheros tocados
+
+`src/lib/mock/fixtures.ts` (anclas + `Record` exhaustivo + 4 filas) · `src/lib/api.ts`
+(`receive` sella, `verify` no; dos docstrings) · `src/types/contract.ts` (docstring de `isPayable`) ·
+`src/lib/error-audience.ts` **(nuevo)** · `src/components/ui/QueryState.tsx` (audiencia + entrada
+`BUYLIST_LIMIT_EXCEEDED` en `DETAILED_ERRORS`) · **26 llamadas** en 25 ficheros de `(admin)` ·
+`messages/{es,en}.json` (11 obligatorias + 1 opcional; 3 sustituidas) ·
+`src/lib/mock/payability.test.ts` **(nuevo)** · `src/lib/error-audience.test.ts` **(nuevo)** ·
+`src/components/ui/QueryState.test.tsx` **(nuevo)** · `M5View.test.tsx` (12 fixtures + 1 aserto de
+copy, que ahora **lee el catálogo** en vez de fijar un fragmento) · este fichero.
+**Nada en `backend/`, nada en el contrato, nada en `DESIGN_SYSTEM.md`.**
+
+### 7. Verificación (números reales)
+
+`npx vitest run` → **116 ficheros / 1201 tests verdes** (la rama traía 113/1166; el delta son
+**+35**: 5 de pagabilidad, 21 de audiencia, 9 de `QueryState`) · `npx tsc --noEmit` con **`.next`
+borrado antes** → limpio · `npx next lint` → *«No ESLint warnings or errors»* · `next build` →
+compila.
+
+**Lo que NO verifiqué, y hay que decirlo:** **no corrí Playwright** (la suite E2E necesita el stack
+levantado; ninguna spec toca el botón de SPEI de M5 ni estos siete códigos — comprobado por `grep`,
+no por ejecución) y **no probé nada contra el backend real ni contra staging**: todo lo de arriba es
+modo mock + unitarios. Las tres verificaciones que §26.8 deja en manos de QA —provocar cada código en
+staging y ver el banner en el idioma de la sesión— **siguen pendientes y son suyas**.
+
+### 8. Solicitudes al arquitecto (ninguna bloquea; hoy se trabaja con lo que hay)
+
+1. **`INE_REQUIRED` de la emisión no trae discriminador explícito.** Hoy el destinatario se **infiere
+   por la forma de `details`** (`thresholdCents` ⇒ vendedor; `sellRequestId + grossCents` ⇒ operador).
+   Funciona y está medido, pero es un contrato **implícito**: el día que alguien añada `sellRequestId`
+   a la puerta del intake «porque ya había campo», **el vendedor empieza a leer el mensaje del
+   operador**. **Petición (es la 1 de ux-ui en §26.9, y la suscribo):** que la emisión emita
+   `details.scope` propio. ⛔ **Sin reintroducir `thresholdCents`.**
+2. **`APPROVED_PRICE_CAP_EXCEEDED` no dice qué cota chocó** y **el cliente no puede deducirlo**
+   (§4 de esta nota: `offerSentAt` no viaja en `AdminBuylistDTO` y `offerState` no es equivalente).
+   **Petición:** `details.bound: "quoted_x2" | "purchase_cap"` **o** `details.inOfferCycle: boolean`.
+   Con cualquiera de los dos, la variante `_OFFER_CYCLE` **ya escrita** se enciende sin tocar copy.
+3. **Divergencia backend↔contrato que encontré midiendo (no es petición, es reporte):** el backend
+   **sigue emitiendo `scope: 'per_request'` (`:1557`) y `'per_request_offer'` (`:3540`)**, que v1.59/D47
+   **retiró del vocabulario**. El cliente **no los traduce a propósito** (§26.2 los quiere como hallazgo
+   de QA), así que hoy caen a la audiencia de la superficie. **Dueño: backend.**
+
+### 9. Para ux-ui (no bloquea este pase)
+
+§26 cubre **siete** códigos. Medido sobre el catálogo, **el resto de la familia del ciclo de oferta
+sigue sin copy en ningún idioma** y cae al inglés del servidor —o, en modo mock, al literal del
+código—: `OFFER_NOT_ALLOWED`, `OFFER_ALREADY_SENT`, `OFFER_LINES_MISMATCH`, `OFFER_LINE_NOT_PRICEABLE`,
+`OVERRIDE_REASON_REQUIRED`, `OFFER_NET_BELOW_MINIMUM`, `OFFER_PROJECTION_INCOMPLETE`,
+`ADJUST_NOT_ALLOWED_IN_OFFER_CYCLE`, `ITEM_NOT_OFFERED`, `NO_LIVE_ADJUSTMENT`, `OFFERED_PRICE_MISSING`,
+`DECLINE_NOT_ALLOWED`. **No inventé copy para ninguno** — el mecanismo ya está montado y solo esperan
+su cadena. Los tres primeros salen del **mismo diálogo de emisión** que §26 acaba de arreglar.
+
+---
+
+## §51 · v1.61 en el cliente: **la reincidencia**, y el candado que no cubría la clase entera (2026-09-07, rama `main`)
+
+> **Lo que duele y hay que decir primero.** El pase anterior (`543ac17`) cerró *«el servidor falso
+> enciende el botón de pagar donde el real responde 422»* con un mecanismo del que escribí que el
+> defecto *«ya no se puede escribir»*. **Una versión de contrato después volvió a pasar, en la misma
+> fila (`sr-3001`) y en el mismo botón.** El mecanismo no era falso —hizo lo que prometía— pero
+> **prometía menos de lo que hacía falta**: un `Record` exhaustivo sobre las columnas declaradas
+> protege contra *olvidar el término de una columna que ya está en el tipo*, y el defecto de v1.61
+> fue otro — **un término NUEVO** (`approvedTotalCents`, que ya vivía en el DTO como campo suelto,
+> fuera del mecanismo). *Un candado que cubre media clase deja la otra media exactamente igual de
+> abierta, y encima te convence de que ya no hay que mirar.*
+
+### 1. Qué estaba mal (hallazgo IMPORTANTE de QA)
+
+`docs/API_CONTRACT.md` **§M5-V** (v1.61) llevó la fórmula del pago de **tres** términos a **cinco**:
+
+```
+isPayable ⇔ status ∈ PAYABLE ∧ receivedAt IS NOT NULL ∧ verifiedAt IS NOT NULL
+                             ∧ approvedTotalCents IS NOT NULL            ← V-a, TODA fila
+pay-spei  ⇔ isPayable ∧ (offerSentAt IS NULL ∨ ninguna línea `buy` sin veredicto)  ← V-b, solo ciclo
+```
+
+El servidor falso se quedó en tres ⇒ `sr-3001` (`verificacion`, recibida y verificada, **sin nada
+aprobado**) salía `isPayable: true`, y `M5View.test.tsx` **afirmaba en verde que «Pagar por SPEI»
+estaba habilitado sobre ella**. Sin impacto en producción (la vista lee el `isPayable` del servidor),
+pero **el arnés pintaba verde la pantalla del dinero**: Playwright en modo mock habría certificado
+un estado que el servidor real contesta con `422`.
+
+### 2. La cura, en dos mitades — porque la clase del defecto tiene dos
+
+**(a) COMPILACIÓN — lo que ya había, extendido a todo lo que la fórmula mira.**
+`MockPayabilityAnchors` (dos columnas ocultas) pasa a ser **`MockPayabilityColumns`**: `receivedAt`,
+`verifiedAt`, **`approvedTotalCents`** y **`offerSentAt`**, las **cuatro obligatorias** en cada fila
+del servidor falso. `approvedTotalCents` deja de heredarse como `number | undefined` del DTO y se
+modela como la columna nullable que es (**`null` = «nadie decidió nada»; `0` = «se decidió y salió
+cero»** — §M5-V.0 existe porque esos dos no son el mismo número). La tabla de términos es un `Record`
+exhaustivo sobre `columnas + status`, y **la lista de columnas que se borran del DTO ya no se escribe
+a mano: se deriva** (`Exclude<keyof MockPayabilityColumns, keyof AdminBuylistDTO>`), así que el día
+que el arquitecto publique `offerSentAt` en el DTO admin, **deja de compilar y obliga a decidir**.
+
+**(b) DOCUMENTO — la mitad que faltaba, y es la que cierra la clase.**
+`src/lib/mock/payability-contract.test.ts` **lee la fórmula normativa de `docs/API_CONTRACT.md`
+§M5-V.0** y la compara con la tabla del servidor falso. Dos medidas que **no se tapan entre sí**:
+
+| Candado | Qué mide | Qué mata que el otro NO ve |
+|---|---|---|
+| **NOMBRES** | los identificadores a la izquierda de un operador (`x IS [NOT] NULL`, `x ∈ …`) son **exactamente** las claves de la tabla | un término **renombrado** o **sustituido** (la cuenta no cambia) |
+| **CUENTA** | `conjunciones + 1 === número de términos implementados` | un término nuevo **en prosa** o como predicado derivado — *no tiene identificador que extraer* |
+
+⚠️ **Fallan cerrado a propósito.** Un reformateo del bloque los pone rojos sin que la norma cambie;
+el coste es leer el diff del contrato y re-bendecir la cuenta. **El coste del modo de fallo contrario
+ya se pagó dos veces, las dos en el botón que saca dinero.**
+
+⛔ **Lo que NO puedo prometer, dicho explícitamente:** esto cubre **la fórmula de §M5-V.0**. Un
+término que el backend añada **sin escribirlo en ese bloque** —o en otra sección— sigue sin tener
+quien lo grite desde aquí. La cota de lo que se puede automatizar es *«el documento es la fuente»*;
+si el documento no lo dice, ningún candado del cliente lo sabe. Por eso la petición 1 de abajo.
+
+### 3. `pendingDecisionItemCount`: el botón apagado ahora dice POR QUÉ
+
+Añadido a `AdminBuylistDTO` (**opcional**, consumo defensivo `?? 0`: es aditivo y va backend primero)
+y consumido en `M5View` como la **cadena preventiva** de DESIGN_SYSTEM **§27.1.4**, debajo del botón
+deshabilitado y **referenciada por él** con `aria-describedby` (*«un botón apagado sin motivo visible
+es un callejón»*).
+
+⛔ **El número no se cuenta en el cliente** (§M5-V.5): hacerlo metería **dos** reglas del servidor en
+la pantalla —el set de estados «sin veredicto» **y** el filtro `offerDecision='buy'`—, *y la segunda
+es justo la que un lector se salta*. En el servidor falso la derivación existe (no hay backend que la
+haga) y sale del **mismo cuerpo** que el término V-b: un helper, tres lectores.
+
+### 4. El copy del `422`, y una cuenta que le debía a ux-ui
+
+`ITEMS_NOT_DECIDED` llegó a este pase **sin copy**: el súper-admin leía *«Payment requires a
+verification verdict on every purchased line»* dentro de una UI en español, **en el verbo que saca
+dinero** (MEN-2 reabierta). ux-ui lo entregó en **§27.1** mientras trabajaba este pase y aquí solo se
+**cablea**: la base **y** su variante con cifra, cuyo `{count}` sale de
+**`details.pendingDecisionItemIds.length`** (§27.1.2) — ⛔ **no** de `pendingDecisionItemCount`, que es
+de otro instante y puede estar rancio respecto del `422` recién recibido.
+
+Y la deuda que había dejado: las once cadenas de §26 se verificaron *«carácter por carácter»* **a
+mano**, y una verificación manual no vuelve a correr nunca. Ahora `error-audience.test.ts` **parsea
+§26 y §27** y exige que lo cableado esté en los dos catálogos **literal**; lo no cableado, **entero o
+nada**. El **LOTE 2** de §27 (doce códigos, no bloqueante según ux-ui) queda en
+`DESIGN_SYSTEM_27_LOT2_PENDING_ERROR_CODES` como **inventario con trip-wire por los dos lados**: rojo
+si §27 deja de declararlos, y rojo si alguien les mete copy sin moverlos a la lista de cableados.
+**No inventé copy para ninguno.**
+
+### 5. Los candados, y **el rojo que enseñó cada uno** (verificación por mutación)
+
+| # | Mutación | Rojo |
+|---|---|---|
+| 1 | §M5-V.0 gana `∧ kycVerifiedAt IS NOT NULL` | NOMBRES **y** CUENTA |
+| 2 | §M5-V.0 gana un término **en prosa** (`∧ ninguna disputa abierta`) | **solo CUENTA** — la prueba de que no es redundante |
+| 3 | §M5-V.0 **renombra** `verifiedAt → verifiedBy` | **solo NOMBRES** — ídem, por el otro lado |
+| 4 | se rompe el ancla `<a id="M5-V">` | los **tres** tests, con mensaje («no se encontró §M5-V»), no un verde silencioso |
+| 5 | V-a escrito como `> 0` | «el DEPÓSITO DE CERO de D40 se sigue pagando» |
+| 6 | V-b sin el filtro `offerDecision='buy'` | 7 tests, incl. **el camino normal del ciclo deja de pagarse** |
+| 7 | V-b fuera de `isPayable` | «una línea COMPRADA sin veredicto apaga el botón» |
+| 8 | una palabra del catálogo se desvía de §27 | LITERALIDAD |
+| 9 | falta la cadena en **un** idioma | LITERALIDAD |
+| 10 | copy **improvisado** para un código del LOTE 2 | «entero o nada» **y** el inventario del LOTE 2 |
+| 11 | `{count}` deja de salir de `pendingDecisionItemIds` | los dos tests de §27.1.2 |
+| 12 | el botón deja de referenciar su motivo (`aria-describedby`) | M5View |
+| 13 | **omitir `approvedTotalCents` en una fila** (la forma exacta del defecto) | ⛔ **no compila** |
+| 14 | el contrato publica `offerSentAt` en el DTO | ⛔ **no compila** (la lista derivada **y** el trip-wire de §50) |
+| 15 | §27 se renombra/mueve | el inventario del LOTE 2, con mensaje |
+| 16 | el servidor falso deja de contar las líneas pendientes | payability **y** M5View |
+
+**Anti-vacuidad** en los tres parsers nuevos: se afirma que el bloque se localizó, que trae la
+fórmula, que se extrajeron ≥ 4 términos, que hay ≥ 11 filas de copy y que ninguna celda viene vacía.
+
+### 6. Fixtures nuevas del servidor falso (y por qué cada una)
+
+- **`sr-3001`** ya no es pagable: recibida y verificada **sin nada aprobado** (V-a). Es la fila del
+  hallazgo, y ahora demuestra la regla en vez de negarla.
+- **`sr-3005`** — **el final por defecto del ciclo M-46** (§M5-V.3): oferta emitida, dos líneas `buy`
+  sin juzgar y una `skip`. `pendingDecisionItemCount: 2`, botón apagado **con motivo**, y `pay-spei`
+  ⇒ `422 ITEMS_NOT_DECIDED` con los **dos** ids.
+- **`sr-3006`** — ⭐ **el contra-caso obligatorio** (§M5-V.8, assert 2-bis): cherry-pick con las `buy`
+  aprobadas y la `skip` en `verificacion` ⇒ **se paga**. Sin él, «V-b» se implementa como *«ninguna
+  línea sin veredicto»* y **toda oferta con cherry-pick queda impagable**.
+
+### 7. Ficheros tocados
+
+`src/types/contract.ts` (fórmula de `isPayable` a CINCO términos + `pendingDecisionItemCount`),
+`src/lib/mock/fixtures.ts` (columnas, tabla de términos, `mockPendingDecisionItemIds`, proyección,
+tres fixtures), `src/lib/api.ts` (`pay-spei`: `ITEMS_NOT_DECIDED` **arriba** de la genérica, la
+escalera de §M5-V.6), `src/components/ui/QueryState.tsx` (`{count}` de §27.1.2),
+`src/app/[locale]/(admin)/admin/m5/M5View.tsx` (cadena preventiva + `aria-describedby`),
+`messages/{es,en}.json` (3 claves, verbatim de §27), `src/lib/error-audience.ts` (inventario de §27),
+**nuevo** `src/lib/mock/payability-contract.test.ts`, y los tests de `payability`, `error-audience`,
+`QueryState` y `M5View`.
+
+### 8. Verificación (números reales)
+
+- **117 ficheros / 1231 tests** en verde (`vitest run`); antes de este pase, 1213.
+- `tsc --noEmit` **EXIT 0** con `.next` **borrado y reconstruido**; `next build` **EXIT 0**;
+  `next lint` **sin warnings ni errores**.
+- **16 mutaciones, 16 rojos** (tabla de §5), restauradas todas; árbol limpio de residuos.
+
+### 9. Solicitudes al arquitecto
+
+1. **Que §M5-V.0 siga siendo el único sitio donde vive la fórmula, y que crezca ahí.** Mi candado
+   nuevo la lee de ese bloque: un término añadido **solo** en prosa de otra subsección (o en el
+   backend) **no lo ve nadie desde el cliente**. No pido cambio de contrato; pido que la regla siga
+   escribiéndose **entera** en V.0 cuando cambie. *Es lo que convierte «que no se vuelva a
+   desincronizar» en una propiedad verificable y no en una intención.*
+2. **`offerSentAt` en `AdminBuylistDTO`** (sigue viva de §50, y ahora con un segundo consumidor):
+   además de encender la variante `_OFFER_CYCLE` de `APPROVED_PRICE_CAP_EXCEEDED`, le diría a la
+   pantalla si la solicitud va por el ciclo. **No bloquea**: hoy el cliente no lo necesita para
+   decidir nada (el servidor manda `isPayable` y el conteo), y el trip-wire de tipo ya está puesto.
+3. **Reporte, no petición:** `AdminBuylistDTO.approvedTotalCents` sigue declarado `number` opcional
+   (no nullable). En el servidor falso lo modelo `number | null` **porque el término V-a distingue
+   `null` de `0`**, y traduzco en la proyección. Si el backend real llegara a mandar `null`
+   explícito, el tipo del cliente **no lo declara** — no rompe nada hoy (`?? 0` / lectura directa),
+   pero conviene saberlo.
+
+### 10. Para ux-ui (no bloquea)
+
+**LOTE 1 de §27 cableado y verificado carácter por carácter** (base + `_WITH_DETAILS` + la cadena
+preventiva de §27.1.4, con `aria-describedby` como pide la sección). **LOTE 2: no cableado**, por
+alcance de este pase; queda inventariado y con trip-wire, y **su copy ya no se puede improvisar** —
+el candado exige que salga de §27, literal, en los dos idiomas. Si el orquestador lo quiere en este
+release, es un pase mecánico de ~14 claves.
+
+
+---
+
+## §52 · La cuenta que caducó en un comentario, y el candado que ahora la lee (2026-09-07, rama `main`)
+
+> **Encargo del techlead, impacto bajo, clase alta.** Se me escapó en el pase de §51 una afirmación
+> de cardinalidad sobre el predicado del pago en un comentario del servidor falso. No es una regla
+> ejecutable —es glosa— pero es la **tercera** vez que esta misma cuenta caduca en silencio, y las
+> tres en el camino del botón que saca dinero. *Lo que se arregla aquí no es el comentario: es que
+> nadie lo estuviera leyendo.*
+
+### 1. Las cuentas caducadas (todas las que había, no solo la reportada)
+
+| Sitio | Decía | Estado |
+|---|---|---|
+| `src/lib/api.ts:3241` (`verifyBuylistRequest`) | *«es **uno de los TRES** términos de `isPayable`»* | **la reportada** |
+| `src/lib/api.ts:3223` (`receiveBuylistRequest`) | *«`receivedAt` —el **PRIMER** término de `isPayable`»* | ordinal: en §M5-V.0 es el segundo conjunto |
+| `src/app/[locale]/(admin)/admin/m5/M5View.tsx:879` | *«la fórmula ganó un **TERCER** término … y esta línea no se tocó»* | cierto en v1.57, pero el argumento se quedó en v1.57 |
+| `M5View.test.tsx:1195` | *«el **primer** término se cumple y el **segundo** no»* | ordinales sobre una fórmula que ya cambió dos veces |
+| `M5View.test.tsx:1157` | *«la precondición del servidor son **DOS** términos»* | ⚠️ **no la encontré yo: la encontró el candado nuevo** |
+
+La última fila es el dato del pase. Mi barrido a mano —el mismo `grep` con el que cerré §51— **no la
+vio** porque el numeral llevaba negritas en medio (`**DOS** términos`) y mi patrón exigía adyacencia
+literal. El candado la cazó en su primera ejecución, antes de que yo escribiera una línea de notas.
+*Es la demostración empírica de por qué el barrido manual no es el remedio: ya había fallado dos
+veces contra esta misma familia, y falló otra vez en este mismo pase.*
+
+**Cómo quedan.** Ninguna cuenta ni ningún ordinal vivo: los comentarios dicen *«uno de los términos
+escalares»* y **enlazan §M5-V.0**. Coincide, sin habernos hablado, con lo que el arquitecto acaba de
+normar en el contrato en este mismo momento (**§0-B.3 regla 8**: *«la lista de términos no se
+transcribe; vive en §M5-V.0 y solo allí»*). La prosa histórica se conserva —es la lección— pero
+marcada `SUPERSEDED` y en pasado.
+
+### 2. La pregunta de fondo: ¿puede el candado leer la prosa? — **Sí, y muerde**
+
+`payability-contract.test.ts` ya parseaba la fórmula normativa del contrato y contaba términos. Le
+añadí un **tercer candado hermano** que usa esa misma cuenta como verdad y la contrasta contra los
+**comentarios de `frontend/src/`**:
+
+- **Alcance descubierto, no enumerado:** recorre `src/` y se queda con los ficheros que hablan del
+  predicado (`isPayable` / `M5-V`) — hoy 11. Un fichero nuevo entra solo.
+- **Qué mide:** un numeral en **MAYÚSCULAS pegado a la palabra «términos»** (con negritas de
+  markdown en medio, que es justo lo que engañó a mi `grep`). Esa cuenta debe ser la del contrato.
+- **Puerta de escape explícita:** una línea marcada `SUPERSEDED`/`histórico` se salta. Decir *«la
+  forma vieja tenía N»* es prosa buena y prohibirla sería el candado gritando por nada.
+- **Anti-vacuidad que no se pelea con la doctrina:** el extractor está **separado de la lectura de
+  disco** y se verifica sobre texto **fabricado** (muerde 5/4/2, y no muerde sobre la histórica, la
+  minúscula ni la marcada). ⚠️ **Descarté a propósito la forma fácil** —*«tiene que haber al menos N
+  cuentas en `src/`»*—: ataría el candado a que la prosa siga escribiendo la cuenta, que es
+  exactamente lo que §0-B.3 regla 8 quiere que dejemos de hacer. *Un candado no puede depender de lo
+  que quiere borrar.* El barrido tiene su propia anti-vacuidad: exige descubrir el DTO, el cliente
+  de la API y el servidor falso por nombre.
+
+**Lo que este candado NO cubre, y por qué no lo forcé** (la parte del encargo que pedía argumento):
+- **Los ORDINALES** («el PRIMER término»). Un ordinal puede ser **verdadero sobre una fórmula
+  histórica**, y por regex es indistinguible de uno caducado ⇒ rojos sobre prosa correcta ⇒ el
+  candado se acabaría desactivando, que es peor que no tenerlo. La defensa contra esa mitad es de
+  **convención y ya está aplicada**: los comentarios vivos del predicado no usan ordinales.
+- **La minúscula** («los dos términos»): en este código significa *subconjunto* —los dos que añadió
+  v1.61— y medirla daría rojo sobre una frase correcta.
+- **La prosa de `docs/`**: no es mía y no la toco (el arquitecto está cerrando ahí las suyas).
+
+### 3. Verificación (números reales)
+
+- **117 ficheros / 1233 tests** en verde (`vitest run`); antes del pase, 1231 (+2: los dos del
+  candado nuevo).
+- `tsc --noEmit` **EXIT 0**; `next lint` **sin warnings ni errores**.
+- **7 mutaciones, 6 rojas + 1 verde esperada**, todas restauradas:
+
+| # | Mutación | Resultado |
+|---|---|---|
+| M1 | reintroducir **la frase caducada real** de `api.ts:3241` (`uno de los TRES términos`) | 🔴 |
+| M2 | cuenta viva de la guarda del mock `CINCO` → `SEIS` | 🔴 |
+| M3 | cuenta viva del DTO (`contract.ts`) `CINCO` → `CUATRO` | 🔴 |
+| M4 | barrido apuntando a un subárbol sin el DTO ni el cliente de la API | 🔴 |
+| M5 | patrón que no casa nada | 🔴 |
+| M6 | extractor mudo (devuelve vacío siempre) | 🔴 |
+| M7 | marcar `SUPERSEDED` una cuenta **falsa** | 🟢 **esperado**: es la puerta documentada, y exige un acto deliberado |
+
+**M1 es la que importa:** el candado, si hubiera existido, habría parado este defecto en el pase de
+§51. Árbol limpio de residuos; `git status` solo muestra mis 4 ficheros de `frontend/` (los cambios
+en `docs/API_CONTRACT.md`, `docs/ARCHITECTURE.md` y `backend/` son de los otros roles trabajando en
+paralelo).
+
+### 4. Solicitudes al arquitecto
+
+**Ninguna nueva.** Este pase no necesita contrato ni endpoints. Solo refuerzo la petición 1 de §51,
+que además el arquitecto acaba de convertir en norma él mismo: **§M5-V.0 como único sitio donde vive
+la fórmula y su cuenta** (§0-B.3 regla 8). Mi candado nuevo es la mitad de esa regla ejecutada en el
+cliente: en `frontend/` ya **no se puede escribir una cuenta que no sea la del contrato** sin
+ponerse rojo.

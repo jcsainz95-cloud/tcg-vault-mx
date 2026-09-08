@@ -7,7 +7,7 @@ import path from 'node:path';
  * (ARCHITECTURE §4.38(r.6.1), NORMATIVO — dueños: **frontend** el arnés, **devops** el env)
  *
  * **El problema, en una frase.** Hasta v1.50 el arnés encendía un dial que solo publicaba. Desde
- * v1.51 (M-46) hay **un solo dial** (`gradingHookEnabled`) y ese mismo `PUT` autoriza también la
+ * v1.51 (M-48 —era `M-46`, v1.54(1)) hay **un solo dial** (`gradingHookEnabled`) y ese mismo `PUT` autoriza también la
  * **obtención**: el barrido pide cifras a un proveedor **de paga** y escribe precios. Una suite E2E
  * que enciende el dial en cada corrida pasaría a ser, sin que nadie lo pidiera, un consumidor de la
  * cuota de un proveedor de paga.

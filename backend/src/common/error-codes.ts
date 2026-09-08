@@ -60,6 +60,16 @@ export const ErrorCode = {
   // (efectivo tras el merge con la fila existente). El bounty es SIEMPRE precio explícito,
   // jamás calculado. 422.
   BOUNTY_PRICE_REQUIRED: 'BOUNTY_PRICE_REQUIRED',
+  // v1.51.1/v1.51.2 (D32/D35, §M2 variant-controls) — **HERMANO EXACTO del anterior**, y la razón es
+  // la misma: *un bounty sin precio no es un bounty; uno sin meta, tampoco*. Dispara cuando la
+  // petición dejaría un **bounty VIVO sin objetivo válido**: `targetQty` `null` explícito (que en
+  // este endpoint LIMPIA), `0`, negativo o no entero, con `enabled:true`.
+  // ⚠️ **La OMISIÓN no es una de sus entradas** (D35): omitido sobre una fila sin objetivo ⇒ **2** por
+  // defecto; sobre una fila con objetivo ⇒ se conserva. *Un default es para «no lo dije», no para
+  // «dije que ninguno».* Sin este código, un `targetQty: null` dejaba el bounty vivo SIN techo: la
+  // mesa de decisión nunca pintaba «no comprar» por muchas copias que se acumularan.
+  // `details: { field: 'bounty.targetQty' }`. 422.
+  BOUNTY_TARGET_REQUIRED: 'BOUNTY_TARGET_REQUIRED',
   // v1.28 (P-18/P-22): `bounty.priceCents` por DEBAJO del sugerido de compra por regla del
   // momento (cuando el sugerido resuelve; con sugerido pending se ACEPTA — el bounty es el caso
   // donde más se necesita un precio explícito). Si no es más que la regla, no es bounty. 422.
@@ -189,6 +199,43 @@ export const ErrorCode = {
   ITEM_IN_ANOTHER_SHIPMENT: 'ITEM_IN_ANOTHER_SHIPMENT',
 
   // Buylist
+  // v1.53 (§4.40.3.3 · API_CONTRACT §Errores, **MONEY**): se envió `productType` distinto de `"raw"` a
+  // una ruta de buylist. **El cotizador y el pipeline de compra son SOLO raw** (`PROJECT.md` §E, §K
+  // LOCKED, criterio 61). Afecta `POST /buylist/quote`, `POST /buylist/quote/batch` y
+  // `POST /buylist/requests`. `details: { index?, productType }` (`index` sólo en las rutas con
+  // `items[]`, para que el front señale la línea).
+  //
+  // **Por qué es un 422 de NEGOCIO y no el 400 de un `@IsIn` en el ValidationPipe** — la razón es
+  // concreta y medible: en `/quote/batch` los errores son POR-ÍTEM (`ok:false`, HTTP 200). Un `@IsIn`
+  // que falle en el pipe **tumba el request entero con 400** y se lleva por delante **las otras 49
+  // líneas raw legítimas** del grid. Un rechazo de regla de negocio degrada por-ítem; uno de forma,
+  // no. Por eso este código entra al allowlist de degradación por-ítem del batch junto a `NOT_FOUND`,
+  // `FINISH_NOT_AVAILABLE`, `PRODUCT_NOT_FOUND` y `PRODUCT_CARD_MISMATCH`. En `/quote` y `/requests`
+  // es un 422 de request completo (y en `requests`, la solicitud NO se crea).
+  //
+  // **Guardarraíl de dinero, no cosmética:** sin él una línea graduada se cotizaba contra
+  // `graded:PSA:10` —el grado MÁS CARO— porque el grado real nunca se captura. El bloqueo lo aplica
+  // SIEMPRE el backend; el selector del cotizador es sólo UI (SEC-A1).
+  BUYLIST_RAW_ONLY: 'BUYLIST_RAW_ONLY',
+  // ⚠️ v1.54 · **B-3 — BACKSTOP, y HOY ES INALCANZABLE.** No es un caso de negocio ni un error del
+  // actor: dispara solo si `BUYLIST_ACCEPTED_PRODUCT_TYPES` autoriza un `productType` para el que
+  // `BuylistService.gradeKeyInputFor` **no sabe derivar la identidad de la variante** (p. ej. añadir
+  // `'graded'` a la lista **sin** hacer `M-49`, que es quien captura la identidad del slab). Con la
+  // lista vigente (`['raw']`) **no puede dispararse**.
+  //
+  // ⚠️ **v1.55 — ATRIBUCIÓN CORREGIDA.** Este comentario decía que *«la contradicción se grita además
+  // al arrancar»* y se leía como si el arranque la **detuviera**. **`BuylistService.onModuleInit`
+  // hace `logger.error` y la app arranca igual**: un despliegue con la lista ensanchada y la rama sin
+  // escribir **sube en verde**. El que de verdad frena el desajuste es
+  // **`test/buylist.grade-key-derivation.spec.ts`**, que ensancha la lista viva (helper
+  // `withAcceptedProductTypes`) y **rompe el build**; el aviso de arranque es la segunda línea, y
+  // ESTE código es la tercera —la única que actúa por petición—.
+  //
+  // **500 y no 422** (misma doctrina que `OFFER_PROJECTION_INCOMPLETE` / `OFFERED_PRICE_MISSING`): el
+  // cliente no lo causó y **no hay nada que pueda corregir**. Y **lanza en vez de degradar** porque
+  // vive en el camino del DINERO: una lectura puede decir «no sé contar»; una cotización no puede
+  // poner un número sobre una identidad que no sabe expresar. `details: { productType }`.
+  BUYLIST_LINE_NOT_KEYABLE: 'BUYLIST_LINE_NOT_KEYABLE',
   BUYLIST_LIMIT_EXCEEDED: 'BUYLIST_LIMIT_EXCEEDED',
   INE_REQUIRED: 'INE_REQUIRED',
   CLABE_NOT_OWN_NAME: 'CLABE_NOT_OWN_NAME',
@@ -196,6 +243,115 @@ export const ErrorCode = {
   // v1.15: POST /buylist/requests sin `clabe` en el body Y sin CLABE en archivo
   // (KycProfile.clabeEnc vacío). Distinto de CLABE_INVALID (formato) y CLABE_NOT_OWN_NAME.
   CLABE_REQUIRED: 'CLABE_REQUIRED',
+  // ===== v1.51.20 · LA PUERTA DEL CICLO — `POST /buylist/requests` (§6, D11/D18/D36/D37) =====
+  // v1.51.3 (D36/D37, criterio 128) — **sin `addressId` en el body**. HERMANO EXACTO de
+  // `CLABE_REQUIRED` en forma y en remedio: sin dirección de ORIGEN no se puede imprimir la etiqueta
+  // que D16 promete poner nosotros ⇒ *sin dirección no se crea la solicitud*.
+  // ⚠️ NO HAY FALLBACK a la dirección `isDefault`: la libreta tiene N filas y elegir por el vendedor
+  // es elegir DE DÓNDE SALEN SUS CARTAS. La comodidad va en la pantalla (preselección), la
+  // afirmación va en el contrato. `details: { field: "addressId" }`. 422.
+  PICKUP_ADDRESS_REQUIRED: 'PICKUP_ADDRESS_REQUIRED',
+  // v1.51 (D18, criterio 132(b)) — el TOTAL COTIZADO BRUTO queda por debajo de
+  // `buylistMinimumRequestCents` (default MX$500). Borde **INCLUSIVO**: exactamente el mínimo SÍ se
+  // crea (criterio 158(a)). El descuento de envío NO se resta antes de comparar.
+  // ⚠️ Son DOS frentes y éste es el (b): el (a) —que el botón del cotizador no proceda— vive en el
+  // front con `GET /buylist/quote-policy`. El (b) existe porque *el cotizador es superficie de
+  // cliente y se puede saltar*: mandar la solicitud directo al backend tampoco la crea.
+  // `details: { minimumCents, totalCents, shortfallCents }` — el faltante lo calcula el SERVIDOR
+  // (criterio 132(a): *un «no» seco manda al vendedor a otro lado; un «te faltan $120» lo manda a
+  // agregar otra carta*). Una línea `precio_pendiente` aporta 0 al total (§4.39o.8). 422.
+  BUYLIST_MINIMUM_NOT_MET: 'BUYLIST_MINIMUM_NOT_MET',
+  // v1.51 (D11, criterio 128(c)) — el usuario **no tiene celular** en su cuenta. `User.phone` es
+  // nullable en el schema aunque el registro local ya lo exija, así que las cuentas de **Google** y
+  // las **viejas** lo tienen vacío. Sin celular, no hay solicitud: el remedio es `PATCH /users/me` y
+  // reintentar. `details: { field: "phone" }`. 422.
+  PHONE_REQUIRED: 'PHONE_REQUIRED',
+  // v1.51 (D9/D30, criterios 119/124/150) — `PATCH /admin/buylist/items/:itemId/decision` con
+  // `approvedPriceCents` en el body sobre una solicitud del CICLO DE OFERTA
+  // (`offerSentAt IS NOT NULL`). **El monto no se toma del cliente ni del admin**: `approve` lo fija
+  // server-side desde `SellRequestItem.offeredPriceCents`, que es la cifra que el vendedor aceptó
+  // línea por línea. ⚠️ Precedencia: `NO_LIVE_ADJUSTMENT` (terminal) GANA sobre ésta.
+  // `details: { itemId, offeredPriceCents }`. 422.
+  OFFER_PRICE_IMMUTABLE: 'OFFER_PRICE_IMMUTABLE',
+  // ⚠️ v1.51.20 (§0, §M5, ARCHITECTURE §4.39(i) 6-bis) — `decision:"approve"` DENTRO del ciclo
+  // (`offerSentAt IS NOT NULL`) sobre una línea con `offerDecision != 'buy'`: **una carta que NO
+  // compramos** (`skip`, o una línea sin decisión). `details: { itemId, offerDecision }`. **No escribe
+  // nada.** 422.
+  //
+  // **El guardarraíl que es, y no era cosmético.** `offeredPriceCents` es `null` en TODA línea `skip`,
+  // así que un `?? 0` dejaba la línea **`aprobada` con monto cero** — y `aprobada` es exactamente:
+  //   (1) el **único** estado que `convert-to-inventory` admite (su guarda única es
+  //       `422 ITEM_NOT_APPROVED`) ⇒ **una carta que nunca compramos entraba al inventario VENDIBLE**
+  //       con `acquisitionCostCents = 0` ⇒ M7 reportando **100 % de margen sobre mercancía ajena**; y
+  //   (2) el estado que **saca la línea de §H** —los plazos 7d/30d se anclan en `rejectedAt`, que solo
+  //       escribe `reject`— ⇒ **el reloj de devolución del vendedor no arrancaba nunca** y su carta
+  //       desaparecía en silencio, sin correo y sin fila en ninguna cola.
+  // **El remedio NO es aprobarla más barata: es `decision:"reject"` con motivo**, que ancla §H y manda
+  // el correo por carta. ⚠️ **Fuera del ciclo NO EXISTE**: `offerDecision` es `null` en toda línea
+  // pre-ciclo, y aplicarlo allí rompería la cohorte legacy entera.
+  // **Hermano de `ITEM_NOT_APPROVED`, y no el mismo:** aquél dice «esta línea aún no está aprobada»;
+  // éste dice **«esta línea no se puede aprobar: no la compramos»**.
+  ITEM_NOT_OFFERED: 'ITEM_NOT_OFFERED',
+  // ⚠️⚠️ v1.58 · **§M5-R / BL-39 — «NO SE APRUEBA LO QUE NO HA LLEGADO». MERCANCÍA AJENA.**
+  // `PATCH /admin/buylist/items/:itemId/decision` con **`decision:"approve"`** sobre una línea cuya
+  // SOLICITUD PADRE no tiene constancia de recepción (**`sellRequest.receivedAt IS NULL`**).
+  // `details: { sellRequestId, status }`. **No escribe nada.** 422.
+  //
+  // **Qué cierra:** `aprobada` es el **único** estado que `convert-to-inventory` admite ⇒ sin este
+  // término **una carta que nunca recibimos podía quedar aprobada y entrar al inventario vendible**,
+  // con su costo capitalizado en el P&L de M7. Es **el espejo de §M5-P** por el lado de la mercancía:
+  // allá el dinero que sale, aquí la mercancía que entra, **y el mismo ancla** (`receivedAt`: un
+  // escritor, una vez, nadie lo limpia, columna desde la migración inicial).
+  //
+  // **Nombra la SOLICITUD, no la línea, porque el remedio es sobre la solicitud:** `POST …/receive`,
+  // el acto nombrado, idempotente y auditado. *El error nombra la palanca* (misma disciplina que
+  // `grossShortfallCents`).
+  //
+  // **`422` y no `409`:** no es un choque de concurrencia ni una fila cerrada; es una **precondición
+  // que falta con remedio a un clic**. Misma familia que `ITEM_NOT_OFFERED`/`OFFER_PRICE_IMMUTABLE`.
+  //
+  // ⛔ **`convert-to-inventory` NO gana una segunda guarda:** con esto `aprobada` se vuelve
+  // **inalcanzable** sin recepción y `422 ITEM_NOT_APPROVED` **vuelve a bastar** — literalmente lo que
+  // v1.51.20 decidió para el caso gemelo de la línea `skip`. *Una invariante se cierra en el verbo que
+  // PRODUCE el estado, no en cada verbo que lo consume; duplicar la guarda duplica la regla, y la
+  // copia se desfasa.*
+  // ⛔ **Solo `approve`:** `reject` es la dirección segura (quita el monto, cierra solicitudes,
+  // desatasca filas) y gatearlo dejaría filas sin salida; `adjust` no existe en el ciclo.
+  REQUEST_NOT_RECEIVED: 'REQUEST_NOT_RECEIVED',
+  // ⚠️⚠️ v1.61 · **§M5-V / BL-45 — «NO SE PAGA LO QUE NO SE HA JUZGADO». DINERO SALIENTE + MERCANCÍA.**
+  // `POST /admin/buylist/:id/pay-spei`, **dentro del ciclo** (`offerSentAt IS NOT NULL`), con al menos
+  // una **línea COMPRADA** (`offerDecision='buy'`) **sin veredicto de verificación**
+  // (`itemStatus ∉ {aprobada, rechazada, convertida_inventario}`).
+  // `details: { sellRequestId, pendingDecisionItemIds: string[] }`. **No escribe nada y no paga.** 422.
+  //
+  // **Qué cierra, y son DOS cosas con UNA causa:** pagar sin veredictos deja las líneas fuera de
+  // `aprobada` —el **único** estado que `convert-to-inventory` admite— **y** la solicitud queda
+  // `pagada` (terminal) ⇒ `itemDecision` responde `409 NO_LIVE_ADJUSTMENT` ⇒ **la mercancía pagada no
+  // se puede convertir NUNCA, por ninguna ruta de la API** (verificado por barrido exhaustivo de las
+  // once rutas del ciclo sobre una fila pagada; `BACKEND_NOTES` §0.45.2). Además `approvedTotalCents`
+  // se queda `null` y la tarjeta «buylist del periodo» reporta **MX$0** sobre dinero que salió.
+  //
+  // **Nombra la LÍNEA porque el remedio es por línea:** `PATCH /admin/buylist/items/:itemId/decision`
+  // con `approve` o `reject` — los **dos** desenlaces de `PROJECT.md` §P.5. *El error nombra la palanca.*
+  //
+  // ⚠️ **El término `offerDecision='buy'` es OBLIGATORIO:** las líneas **`skip`** se quedan en
+  // `verificacion` a propósito y **jamás pueden aprobarse** (`ITEM_NOT_OFFERED`) ⇒ sin él **toda
+  // oferta con cherry-pick sería impagable**, que es el camino normal del ciclo.
+  //
+  // ⛔ **Solo dentro del ciclo:** fuera, `respond(accept)` aprueba en bloque las `ajustada` y deja
+  // legítimamente sin veredicto individual a las demás. **No es una excepción legacy en una guarda de
+  // dinero** (§M5-P norma 1): `offerSentAt` es un hecho sellado una vez que el pagador no elige.
+  ITEMS_NOT_DECIDED: 'ITEMS_NOT_DECIDED',
+  // ⚠️ v1.51.20 — **BACKSTOP, no error de cliente.** `approve` sobre una línea `offerDecision='buy'`
+  // cuyo `offeredPriceCents` es `null`: viola el invariante que la emisión garantiza **sin excepción**
+  // (`buy ⇒ offeredPriceCents IS NOT NULL`). `details: { itemId }`. **No escribe nada y no paga.** 500.
+  //
+  // **Es `500` y no `422` a propósito** (misma doctrina que `OFFER_PROJECTION_INCOMPLETE`): el operador
+  // **no lo causó y no puede resolverlo**; un `422` culparía a quien pulsó el botón. **Si dispara, se
+  // arregla el bug** — no se paga un `0` ni se «rescata» con la cascada del costo de adquisición.
+  // **Discriminador con `ITEM_NOT_OFFERED`, una sola pregunta: ¿le debemos dinero a esta línea?**
+  // **No** ⇒ `422` accionable. **Sí, y no sabemos cuánto** ⇒ `500`.
+  OFFERED_PRICE_MISSING: 'OFFERED_PRICE_MISSING',
   // Una carta rechazada en verificación (resultado NO-NM, PROJECT §H) NUNCA puede
   // convertirse en InventoryItem vendible: convert-to-inventory exige itemStatus='aprobada'.
   ITEM_NOT_APPROVED: 'ITEM_NOT_APPROVED',
@@ -208,6 +364,115 @@ export const ErrorCode = {
   // cascada (eso es cherry-pick por-ítem); sólo sella una solicitud ya sin ítems vivos. 422.
   // `details.nonRejectedItemStatuses: SellItemStatus[]` (los status vivos). API_CONTRACT §0/§M5.
   REQUEST_HAS_NON_REJECTED_ITEMS: 'REQUEST_HAS_NON_REJECTED_ITEMS',
+  // v1.51 · BL-2 (API_CONTRACT §6, ARCHITECTURE §4.39(b.2)) — POST /buylist/requests/:id/respond
+  // (accept|decline) sobre una solicitud SIN ajuste vivo que responder. Precondición:
+  // `closedAt IS NULL ∧ adjustmentSentAt IS NOT NULL ∧ status ∈ {verificacion, aprobada}`.
+  // Cubre `pagada` (EL DINERO YA SALIÓ), `rechazada`, `abandonada` y el re-`accept` sobre un ajuste
+  // ya consumido. NO es idempotente en 200: este verbo mueve dinero y un 200 silencioso en la
+  // segunda llamada esconde justo lo que hay que ver. `details.status`. 409.
+  NO_LIVE_ADJUSTMENT: 'NO_LIVE_ADJUSTMENT',
+  // v1.51 · criterio 150 por lo negativo — el flujo `ajustada` NO existe en el ciclo de OFERTA:
+  // `respond` y `itemDecision(adjust)` quedan prohibidos si `offerSentAt IS NOT NULL`.
+  // `details.status`. 409.
+  // ✅ v1.51.5 (§4.39b.3): **YA SE EMITE en `respond`** — la columna `offerSentAt` existe desde M-46,
+  // así que el bloqueo del `TODO` desapareció y se cableó.
+  // ✅ v1.51.20 · **BL-27**: **YA SE EMITE también en `itemDecision(adjust)`**, con el pre-check y con
+  // la guarda del MOTOR (`offerSentAt` en el `where`). Hasta ese pase estaba cableada **solo** en
+  // `respond`, y por la puerta del ítem se podía reescribir el precio de una oferta ya ACEPTADA.
+  ADJUST_NOT_ALLOWED_IN_OFFER_CYCLE: 'ADJUST_NOT_ALLOWED_IN_OFFER_CYCLE',
+
+  // ===================== v1.51 · CICLO DE ADQUISICIÓN — LA OFERTA (§M5 / §4.39h) =====================
+  // `POST /admin/buylist/:id/offer` sobre una solicitud que no está `cotizada`, o con una oferta ya
+  // preparada/enviada. `details: { status, offerState }`. 409.
+  OFFER_NOT_ALLOWED: 'OFFER_NOT_ALLOWED',
+  // Sobre una oferta YA ENVIADA. Una oferta enviada NO SE EDITA: se cancela y se emite otra
+  // (criterio 145) — el precio ofertado es vinculante desde el correo (D2/D9). `details.status`. 409.
+  OFFER_ALREADY_SENT: 'OFFER_ALREADY_SENT',
+  // v1.51.3 (D36) — SIN DIRECCIÓN DE ORIGEN NO SE OFERTA. Ofertar es comprometer dinero Y prometer
+  // una etiqueta: si el hueco se descubriera al capturar la guía, ya le habríamos escrito al vendedor
+  // que le compramos y estaríamos incumpliendo un contrato por un dato que nunca pedimos.
+  // ⚠️ PROHIBIDO rellenarla leyendo la libreta viva. `details: { sellRequestId }`. 422.
+  PICKUP_ADDRESS_MISSING: 'PICKUP_ADDRESS_MISSING',
+  // Las líneas del body no cubren EXACTAMENTE los ítems de la solicitud. Sin esto, una línea olvidada
+  // saldría del correo sin que nadie decidiera nada sobre ella.
+  // `details: { missingItemIds, unknownItemIds }`. 422.
+  OFFER_LINES_MISMATCH: 'OFFER_LINES_MISMATCH',
+  // Línea `buy` sin monto resoluble y sin override. **La oferta NO sale a medias**: o se le pone
+  // precio a mano (con motivo) o esa línea se marca `skip`. `details.itemIds`. 422.
+  OFFER_LINE_NOT_PRICEABLE: 'OFFER_LINE_NOT_PRICEABLE',
+  // Override sin motivo (criterio 148a). *Sin motivo no hay override*: es lo que convierte un número
+  // a mano en una decisión revisable en vez de una cifra huérfana. `details.itemIds`. 422.
+  OVERRIDE_REASON_REQUIRED: 'OVERRIDE_REASON_REQUIRED',
+  // v1.51.2 (D34) — PISO DE NETO PARA EMITIR: `offerNetCents < buylistMinimumOfferNetCents`. El
+  // umbral es INCLUSIVO (D40): exactamente el piso SÍ se emite. ⚠️ Gobierna la EMISIÓN, JAMÁS el
+  // pago (`payoutNetCents` no tiene más piso que el cero).
+  // `details: { grossCents, shippingFeeCents, netCents, minimumNetCents, requiredGrossCents,
+  // grossShortfallCents }` — el faltante va en BRUTO porque es la palanca del operador. 422.
+  // ⚠️ `OFFER_NET_NOT_POSITIVE` (v1.51.1) **NO EXISTE**: su nombre describía la regla vieja.
+  OFFER_NET_BELOW_MINIMUM: 'OFFER_NET_BELOW_MINIMUM',
+  // ⚠️ v1.51.16 · **BL-24** (§4.39h paso 7-bis / §M5) — **GUARDA DE PROYECCIÓN: no se emite una
+  // oferta que el portal no podría mostrar.** Es un **500, NO un 422**, y la diferencia es el punto:
+  // el operador **no hizo nada mal y no puede corregir nada** en esa pantalla — es **nuestro**
+  // defecto. Va **AL FINAL** de la secuencia, después de todo lo que él sí puede arreglar.
+  //
+  // El defecto que cierra: el portal no pinta una oferta incompleta (R2, y es correcto), así que el
+  // vendedor **no puede aceptar**… **pero el barrido sigue contando sus 2 días hábiles** y acaba
+  // mandándole un correo que dice que **no respondió**. *Falló nuestra proyección y la factura le
+  // llegaba a él.* Al fallar la guarda **no se sella `offerSentAt`** ⇒ la solicitud se queda
+  // `cotizada` ⇒ la mira la **regla 7 del barrido (NUESTRO plazo)**, no la 1 (el del vendedor).
+  //
+  // `details: { missing: string[], sellRequestId }` — `missing` **nombra lo que falta**
+  // (`terms.rule`, `lines[<itemId>].offerDecision`, …). 500.
+  // ⚠️ **Es un BACKSTOP: si alguna vez dispara, se arregla el bug — no se vuelve parte del flujo.**
+  OFFER_PROJECTION_INCOMPLETE: 'OFFER_PROJECTION_INCOMPLETE',
+  // `POST …/offer/authorize` sobre algo que no está esperando autorización. DOS candados a propósito
+  // (§4.39h): `offerState='pending_authorization' ∧ status='cotizada' ∧ closedAt IS NULL` — el
+  // segundo existe para que perder el primero no resucite una solicitud TERMINAL con un correo
+  // vinculante. `details: { offerState, status }`. 409.
+  OFFER_NOT_PENDING_AUTHORIZATION: 'OFFER_NOT_PENDING_AUTHORIZATION',
+  // `POST …/offer/cancel` sin oferta viva, o sobre una solicitud que ya avanzó más allá de
+  // `ofertada` (una `aceptada` NO se cancela por esta vía). `details: { status, offerState }`. 409.
+  OFFER_NOT_CANCELLABLE: 'OFFER_NOT_CANCELLABLE',
+  // `POST /buylist/requests/:id/offer-response` sobre una solicitud que no está `ofertada`.
+  // `details.status`. 409.
+  OFFER_NOT_PENDING: 'OFFER_NOT_PENDING',
+  // El plazo de aceptación (2 días hábiles, congelado al comunicar la oferta) ya venció. Aceptar
+  // después NO funciona y NO tiene efecto. `details.offerAcceptDeadlineAt`. 409.
+  OFFER_EXPIRED: 'OFFER_EXPIRED',
+
+  // ===================== v1.51 · CICLO — GUÍA Y TRÁNSITO (§M5 / §4.39) =====================
+  // `POST /admin/buylist/:id/guide` sobre algo que no está `aceptada`. **La guía se compra AL
+  // ACEPTAR, no al ofertar** (D21, criterio 137): ofertar a diez personas y comprar diez etiquetas
+  // por adelantado sería tirar el dinero de las que digan que no. `details.status`. 409.
+  // v1.51.4 (BL-13) — `PATCH /admin/buylist/:id/pickup-address`: el `addressId` no existe **o no es
+  // del vendedor de esta solicitud** — MISMA respuesta para los dos casos (distinguirlas sería un
+  // oráculo de existencia de direcciones ajenas). `details.addressId`. 422.
+  PICKUP_ADDRESS_NOT_FOUND: 'PICKUP_ADDRESS_NOT_FOUND',
+  // v1.51.4 (BL-13) — ya no se puede corregir: terminal, envío confirmado, o el vendedor **ya
+  // declaró que lo depositó** (⇒ la etiqueta está USADA y cambiar la fila no mueve la caja; ahí el
+  // remedio es humano). ⚠️ `guideSentAt` NO es precondición: es la ventana que esta ruta cubre.
+  // `details: { status, guideSentAt, sellerShippedDeclaredAt }`. 409.
+  PICKUP_ADDRESS_LOCKED: 'PICKUP_ADDRESS_LOCKED',
+  GUIDE_NOT_ALLOWED: 'GUIDE_NOT_ALLOWED',
+  // v1.51.4 (BL-13) — hay una cancelación de guía PENDIENTE: capturar la etiqueta nueva pisaría el
+  // número de la vieja y la cola pediría cancelar *la que ya es la buena*. Serializa lo que la
+  // operación ya exige: **una etiqueta viva por solicitud**. *Dos etiquetas vivas para un paquete es
+  // cómo se paga dos veces y se pierde una caja.*
+  // `details: { carrier, trackingNumber, guideCancellationPendingAt }`. 409.
+  GUIDE_CANCELLATION_PENDING: 'GUIDE_CANCELLATION_PENDING',
+  // `confirm-shipment` (admin) y `declare-shipped` (cliente) exigen `status='aceptada'`.
+  // Regla dura (criterio 114): **no existe** ninguna secuencia que lleve una solicitud a
+  // `en_transito` sin haber pasado por `ofertada` y `aceptada`. `details.status`. 409.
+  NOT_ACCEPTED: 'NOT_ACCEPTED',
+  // `guide/cancellation-done` sin tarea abierta. La cola **NO desaparece sola** (criterio 139): sale
+  // únicamente por este endpoint, porque *una etiqueta comprada y olvidada es dinero tirado que nadie
+  // ve*. `details: { guideCancellationPendingAt, guideCancellationDoneAt }`. 409.
+  NO_PENDING_GUIDE_CANCELLATION: 'NO_PENDING_GUIDE_CANCELLATION',
+  // v1.51.3 (D39) — `POST /admin/buylist/:id/decline` sobre algo que no es una `cotizada` abierta.
+  // ⚠️ NO se puede declinar una `ofertada`: hay una oferta VINCULANTE en la bandeja del vendedor, y
+  // el correo 4 afirma que NUNCA ofertamos. La vía correcta es `offer/cancel` y declinar después.
+  // Sin `200` idempotente: este verbo manda un correo a una persona. `details: { status, offerState }`. 409.
+  DECLINE_NOT_ALLOWED: 'DECLINE_NOT_ALLOWED',
 
   // Guest checkout (v1.21) — API_CONTRACT §0 / §4-G. Todos ADITIVOS: ningún código previo cambia.
   // El invitado eligió destino bóveda. NO es un error de UI: es la señal del UPSELL (criterio 48),

@@ -1,0 +1,305 @@
+import { BuyDecision, SellItemStatus, SellRequestStatus } from '@prisma/client';
+
+/**
+ * sell-request-states.ts (M-46, ARCHITECTURE §4.39c — **ZONA COMPARTIDA**) — **la ÚNICA fuente de los
+ * subconjuntos de `SellRequestStatus`**.
+ *
+ * ### El problema que cierra, dicho sin adornos
+ * M-46 añade **cuatro** valores al enum (`ofertada`, `aceptada`, `en_transito`, `expirada`) y había
+ * **NUEVE** listas de literales por el código que codificaban a mano un subconjunto de ese enum.
+ * **Ninguna falla en compilación**: todas viven dentro de un `in` / `notIn` / `includes`, así que el
+ * compilador las da por buenas y el error sale **en runtime, en silencio y como conducta**.
+ *
+ * El más grave era de **cumplimiento, no de negocio**: `jobs/ine-retention.service.ts` definía su
+ * propio `CLOSED = ['pagada','rechazada','abandonada']`. Con `expirada` en el enum, una solicitud
+ * expirada cuenta como **abierta para siempre** ⇒ *el INE de esa persona NO SE PURGA NUNCA* (PII,
+ * LFPDPPP). El segundo y el tercero son de **dinero**: una oferta expirada seguiría **quemándole la
+ * cuota mensual AML** al vendedor.
+ *
+ * ### Las dos clases de lista, y por qué no se derivan todas
+ * (§4.37) **Clase E** = espeja el schema ⇒ se **deriva** (`Object.values`). **Clase R** = expresa una
+ * regla de negocio ⇒ se declara **literal**, con la cláusula de `PROJECT.md` citada al lado.
+ *
+ * - `SELL_REQUEST_TERMINAL_STATES` es **clase R**: lo declara `PROJECT.md` §P.1 («los terminales son
+ *   **CUATRO**», criterio 113), **no** el schema. Si mañana el schema gana un estado, **no** debe
+ *   volverse terminal solo.
+ * - `SELL_REQUEST_LIVE_STATES` es **clase E por COMPLEMENTO**, y eso es **a propósito** (criterio
+ *   129): *«viva» = todo lo que NO es terminal*. Así un estado nuevo entra **solo** a la cola del
+ *   back-office, sin que nadie tenga que acordarse de actualizar una lista. **Es la única de las dos
+ *   direcciones en la que olvidarse falla hacia el lado seguro** (aparece de más en una cola de
+ *   trabajo, en vez de desaparecer de ella).
+ *
+ * ### Regla de uso
+ * **Prohibido volver a escribir un literal de estados en un `in`/`notIn`/`includes`.** Si hace falta
+ * un subconjunto que no está aquí, se añade **aquí**, con su cláusula de `PROJECT.md`.
+ */
+
+/**
+ * **Los CUATRO terminales** (criterio 113 / §P.1). Una vez en uno de ellos la solicitud **no se
+ * revive, no se re-oferta y no se re-sella**; toda transición terminal fija `closedAt = now()`
+ * (patrón SEC-D2), **incluida `expirada`**, de la que depende la purga del INE.
+ *
+ * ⚠️ **CLASE R — no se deriva del schema.** Eran **tres** hasta M-46; `expirada` es el cuarto.
+ */
+export const SELL_REQUEST_TERMINAL_STATES = [
+  'pagada',
+  'rechazada',
+  'abandonada',
+  'expirada',
+] as const satisfies readonly SellRequestStatus[];
+
+export type SellRequestTerminalStatus = (typeof SELL_REQUEST_TERMINAL_STATES)[number];
+
+/**
+ * **«Viva» = todo lo que NO es terminal**, DERIVADO POR COMPLEMENTO (criterio 129, **a propósito**).
+ *
+ * Se calcula sobre `Object.values(SellRequestStatus)` —el espejo runtime del schema que genera
+ * Prisma— así que **no puede desincronizarse** del enum. Un estado nuevo entra aquí **solo**.
+ */
+export const SELL_REQUEST_LIVE_STATES: readonly SellRequestStatus[] = Object.values(
+  SellRequestStatus,
+).filter((s) => !(SELL_REQUEST_TERMINAL_STATES as readonly SellRequestStatus[]).includes(s));
+
+/**
+ * **Terminales que ya NO comprometen nada** = TERMINAL **menos** `pagada` (que sí comprometió… y
+ * pagó). Es el predicado del **acumulado mensual AML** (§4.39c sitios 2+3): una solicitud
+ * `rechazada`, `abandonada` o **`expirada`** no le puede seguir quemando cuota a nadie.
+ *
+ * Se usa por **complemento** (`status notIn …`), que es como estaba escrito el predicado original y
+ * es lo correcto: mide *lo que sigue comprometido*, y eso incluye cualquier estado futuro.
+ */
+export const SELL_REQUEST_NON_COMMITTING_STATES: readonly SellRequestStatus[] =
+  SELL_REQUEST_TERMINAL_STATES.filter((s) => s !== 'pagada');
+
+/**
+ * **Comprometido** (§P.2): hay una oferta **vinculante** viva y el vendedor ya dijo o va a decir. El
+ * dinero todavía no salió, pero la palabra ya está dada.
+ */
+export const SELL_REQUEST_COMMITTED_STATES = [
+  'ofertada',
+  'aceptada',
+] as const satisfies readonly SellRequestStatus[];
+
+/**
+ * **«En camino»** (§P.2c / criterio 116). ⚠️ **UN SOLO estado**, y es deliberado: lo que suma a este
+ * conteo es **la confirmación del operador** (D20), **no** el «ya lo mandé» del vendedor
+ * (`sellerShippedDeclaredAt`, que detiene el reloj y **no mueve el estado**, criterios 138/156).
+ */
+export const SELL_REQUEST_IN_TRANSIT_STATES = [
+  'en_transito',
+] as const satisfies readonly SellRequestStatus[];
+
+/** La carta ya está en nuestras manos y se está revisando. */
+export const SELL_REQUEST_VERIFYING_STATES = [
+  'recibida',
+  'verificacion',
+] as const satisfies readonly SellRequestStatus[];
+
+/**
+ * **Estados PAGABLES** (`POST /admin/buylist/:id/pay-spei`, dinero SALIENTE). Estaba escrito
+ * **inline dos veces en el mismo método** —el pre-check y la guarda transaccional del `updateMany`—,
+ * que es la forma más barata de que una edición mueva una y no la otra: el pre-check diría «no» y la
+ * guarda «sí», o al revés. **Una sola constante, los dos sitios.**
+ */
+export const SELL_REQUEST_PAYABLE_STATES = [
+  'aprobada',
+  'verificacion',
+] as const satisfies readonly SellRequestStatus[];
+
+/**
+ * v1.51.8 (**§4.39c SITIO 10**, API_CONTRACT §M5) — **¿esta solicitud está en condición de pagarse?**
+ * `isPayable` **derivado server-side**, y **es el MISMO cuerpo** que usan el pre-check y la guarda
+ * atómica de `paySpei`. **Tres lectores, una regla.**
+ *
+ * ```
+ * isPayable = status ∈ SELL_REQUEST_PAYABLE_STATES  ∧  receivedAt IS NOT NULL  ∧  verifiedAt IS NOT NULL
+ *                                                      └──────── v1.57 ────────┘
+ *           ∧ approvedTotalCents IS NOT NULL                       ← v1.61 §M5-V (V-a), TODA fila
+ *           ∧ (offerSentAt IS NULL ∨ ninguna línea `buy` sin veredicto)  ← v1.61 §M5-V (V-b), solo ciclo
+ * ```
+ *
+ * ⚠️ **Los DOS términos de v1.61 no viven en el mismo sitio y es normativo (§M5-V.4):** **V-a** es
+ * escalar y entra **aquí** (⇒ lo heredan los tres lectores y `payableWhere()`); **V-b** mira las
+ * LÍNEAS, así que no cabe en un predicado de la fila — vive en `pendingBuyDecisionItemIds` y se
+ * compone en `isPayableSellRequestWithItems`, que es lo que la proyección admin publica como
+ * `isPayable`. **La propiedad normativa es una sola: `isPayable === true` ⇒ `pay-spei` no falla por
+ * precondición.**
+ *
+ * ### ⚠️⚠️ v1.57 · **§M5-P / BL-35 eje 2 — «NO SE PAGA LO QUE NO HA LLEGADO».**
+ *
+ * **El tercer término, y por qué faltaba.** La fórmula tenía **dos** términos, y `verify` es **el
+ * único verbo que escribe `verifiedAt`** — así que alcanzarlo **desde cualquier estado vivo** volvía
+ * pagable la solicitud. Medido en vivo por **dos roles independientes**: seguridad liquidó **SPEI
+ * real por MX$320** sobre una `ofertada` (`acceptedAt = null`, `receivedAt = null`) tras un `verify`
+ * de `vault_operator`; QA lo reprodujo desde una `cotizada` recién creada (`QA-BL35-EJE2`).
+ * **La mercancía nunca llegó y el dinero salió.**
+ *
+ * ### No es una regla nueva: es el término que hacía cierta a una que ya estaba escrita en TRES sitios
+ * - `PROJECT.md:1107`, **en negrita**, como **una de las CUATRO promesas al vendedor**: *«**(b) el pago
+ *   se realiza DESPUÉS de que recibimos y verificamos la carta** (nunca por adelantado)»*.
+ * - `API_CONTRACT` §M5 `pay-spei`, en prosa: *«Precondición: `aprobada` + verificada (pago **tras**
+ *   recepción/verificación)»*, y elevada a norma en **§M5-P** (contrato v1.57 §B).
+ * - **El mensaje de error de este mismo código**: `'Payment allowed only after receipt/verification
+ *   and approval'`. *El servidor ya afirmaba la regla en su respuesta; lo que no hacía era cumplirla.*
+ *
+ * ### ⚠ `receivedAt`, MEDIDO antes de ponerlo (no supuesto) — y por eso NO hay cohorte legacy
+ * - **UN solo escritor en todo el backend**: `receive()` vía `sealOnceTx(tx, id, 'receivedAt')`
+ *   (`buylist.service.ts`). **Ninguna ruta lo limpia** — misma propiedad que hace de `paidAt` y de
+ *   `offerSentAt` anclas fiables (BL-28, §M5-T). *El invariante se ancla en el hecho menos reescrito.*
+ * - **La columna existe desde la migración inicial** ⇒ no hay filas anteriores a su existencia.
+ * - **BD local, medida**: las **únicas** filas con `verifiedAt IS NOT NULL ∧ receivedAt IS NULL` son
+ *   **exactamente los dos PoC** (`SPEI-EJE2-NEVER-ARRIVED-001`, `QA-BL35-EJE2`); **cero** filas vivas
+ *   en estado pagable sin recepción. **Este término no puede volver impagable a nadie legítimo.**
+ * - ⛔ **NO se añade `acceptedAt` como cuarto término**, aunque los dos PoC también lo tengan nulo:
+ *   la cohorte **pre-M-46** (`offerSentAt IS NULL`) llega a `recibida`/`verificacion` **sin aceptación
+ *   registrada** —es la misma cohorte que `brutoConsumado` contempla con su rama `quotedTotalCents`—
+ *   y ese término **sí** la dejaría impagable. *El contrato lo dice explícito: no se inventa la matriz
+ *   de predecesores* (v1.57 §C). Lo que se cierra aquí es **la salida de dinero**, no el eje entero.
+ *
+ * ### ⚠ Qué NO cierra
+ * `verify` **sigue siendo llamable desde cualquier estado vivo** y sigue sellando `verifiedAt`: lo
+ * que deja de poder hacer es **pagar**. El residual sin dinero (adelanto de estado) queda nombrado
+ * con dueño en `docs/TECH_DEBT.md` (**BL-35 eje 2-b**), **no bloqueante**.
+ *
+ * ### Por qué existe, y por qué NO bastaba con que el cliente copiara bien
+ * `M5View.tsx` tenía `canPay = isSuperAdmin && (status === 'aprobada' || status === 'verificacion')`:
+ * `SELL_REQUEST_PAYABLE_STATES` **transcrito a mano en el cliente**, gobernando **el botón de pagar
+ * por SPEI**. Es la **tercera** copia de la regla que el **sitio 8** acaba de consolidar server-side
+ * *precisamente por ser dinero* — y ésta vive en **otro lenguaje, otro paquete y otro ciclo de
+ * release**, así que ni el compilador ni un test de backend la ven.
+ *
+ * ⚠️ **Y estaba INCOMPLETA:** la precondición del servidor son **CUATRO** términos escalares
+ * (**DOS** cuando se escribió esto; v1.57 añadió `receivedAt`, v1.61 añadió V-a) **más V-b**, y el
+ * cliente replicaba **solo el primero**, así que **la UI
+ * habilitaba el pago en solicitudes donde el servidor responde `422`**. *No era una copia fiel que
+ * pudiera desincronizarse algún día: ya lo estaba.* **Y ésa es justamente la razón de que el término
+ * nuevo se añada AQUÍ y en ningún otro sitio**: el cliente hereda la corrección sin tocar una línea.
+ *
+ * El remedio **no** es que el cliente replique las dos condiciones —eso sería duplicar **dos** reglas
+ * en vez de una y meter `verifiedAt` en la lógica de una pantalla—. *La copia se cura eliminando la
+ * necesidad de la copia.*
+ *
+ * ### ⚠️ ACTOR-INDEPENDIENTE, y no es un permiso
+ * *«¿esta solicitud está en condición de pagarse?»* es propiedad **de la fila**; *«¿puedo pagarla
+ * yo?»* es propiedad **del actor**. Fundirlas haría que **la misma solicitud respondiera distinto
+ * según quién pregunte**: *dos preguntas en un campo son un campo que nadie sabe leer.* El rol se
+ * queda en el cliente (ya gatea toda la sección de dinero) y **el servidor lo impone igual con
+ * `MoneyOutGuard`**. Un `isPayable: true` **NO autoriza** un pago: `pay-spei` conserva su rol y sus
+ * dos guardas intactas.
+ *
+ * **ADMIN-ONLY** (a diferencia de `isTerminal`, que viaja en las dos proyecciones de cliente): al
+ * vendedor no le toca saber si su solicitud entró a la cola de pago — le anticiparía un depósito que
+ * aún puede no ocurrir.
+ */
+export function isPayableSellRequest(sr: {
+  status: SellRequestStatus;
+  receivedAt: Date | null;
+  verifiedAt: Date | null;
+  approvedTotalCents: number | null;
+}): boolean {
+  return (
+    (SELL_REQUEST_PAYABLE_STATES as readonly SellRequestStatus[]).includes(sr.status) &&
+    // ⚠️ v1.57 · §M5-P — **el término que faltaba**: la carta está EN NUESTRAS MANOS.
+    sr.receivedAt != null &&
+    sr.verifiedAt != null &&
+    // ⚠️⚠️ v1.61 · §M5-V **V-a** — «y aprobamos ALGO».
+    // ⛔ **`!= null`, JAMÁS `> 0`.** `0` es el **depósito de cero** de D40 / criterio 140 (el envío se
+    // comió el bruto **con líneas aprobadas**) y **se paga**; `null` es *«nadie decidió nada»* y no
+    // se paga. *Toda esta invariante existe porque esos dos no son el mismo número.*
+    sr.approvedTotalCents != null
+  );
+}
+
+/**
+ * ⚠️⚠️ v1.61 · **§M5-V.0 — LOS DOS DESENLACES.** `itemStatus` que cuentan como **veredicto de
+ * verificación** de una línea comprada.
+ *
+ * `aprobada` y `rechazada` son **los dos desenlaces exactos** de `PROJECT.md` §P.5 (*«Llega en NM ⇒
+ * aprobada… No llega en NM ⇒ rechazada»*, *«los desenlaces son exactamente dos»*);
+ * `convertida_inventario` es el **sucesor** de la aprobación (`convert-to-inventory` solo admite
+ * `aprobada`), y sin él una línea ya convertida volvería a contar como pendiente.
+ *
+ * ⚠️ **CLASE R** (§4.37): lo declara `PROJECT.md`, **no** el schema — `ajustada`, `pagada`,
+ * `recibida`, `verificacion`, `cotizada` y `precio_pendiente` **no** son veredictos, y si mañana el
+ * enum gana un valor **no debe volverse veredicto solo**.
+ */
+export const SELL_ITEM_VERDICT_STATES = [
+  'aprobada',
+  'rechazada',
+  'convertida_inventario',
+] as const satisfies readonly SellItemStatus[];
+
+/**
+ * ⚠️⚠️ v1.61 · **§M5-V, TÉRMINO V-b — «y juzgamos TODO LO QUE COMPRAMOS».**
+ *
+ * Devuelve **los ids** de las líneas **COMPRADAS** (`offerDecision = 'buy'`) que siguen **sin
+ * veredicto**. Vacío ⇒ la solicitud pasa V-b. **Devuelve ids y no un booleano** porque el `422
+ * ITEMS_NOT_DECIDED` los publica en `details.pendingDecisionItemIds` y el DTO admin publica su
+ * longitud como `pendingDecisionItemCount`: *un cuerpo, tres respuestas.*
+ *
+ * ### ⛔ `offerSentAt IS NULL` ⇒ SIEMPRE VACÍO, y no es una excepción legacy
+ * Fuera del ciclo, `respond(accept)` aprueba **en bloque** las líneas `ajustada` y deja
+ * legítimamente sin veredicto individual a las demás: aplicar V-b allí volvería impagable **la
+ * cohorte entera**. `offerSentAt` es un **hecho sellado una vez** que el pagador no elige (§M5-V.4).
+ *
+ * ### ⚠️⚠️ EL FILTRO `offerDecision === 'buy'` NO ES UN REFINAMIENTO: SIN ÉL SE ROMPE EL CAMINO FELIZ
+ * **Medido en vivo** (no deducido): al emitir la oferta, las líneas **`skip`** conservan su
+ * `itemStatus` (`cotizada`/`recibida`/**`verificacion`**) y solo ganan `offerDecision='skip'`
+ * (`buylist.service.ts`, `OFFER_LINE_NULL`). **Nunca pueden alcanzar `aprobada`** —`422
+ * ITEM_NOT_OFFERED` lo prohíbe a propósito— y **nada las rechaza solas**. ⇒ un predicado *«ninguna
+ * línea sin veredicto»* **a secas dejaría impagable TODA oferta con cherry-pick**, que es el caso
+ * normal del ciclo. *La línea que no compramos no tiene veredicto de compra porque no hay nada que
+ * juzgar.* ⛔ **Y no se «arregla» rechazando las `skip`**: `rechazada` ancla los relojes 7d/30d de §H
+ * y dispara **el correo de rechazo por carta** — usarlo para cuadrar un predicado le mandaría al
+ * vendedor un correo que dice algo falso.
+ */
+export function pendingBuyDecisionItemIds(
+  sr: { offerSentAt?: Date | null },
+  items: readonly { id: string; offerDecision?: BuyDecision | null; itemStatus: SellItemStatus }[],
+): string[] {
+  // Fuera del ciclo V-b no aplica (§M5-V.4). Sin este corto-circuito, la cohorte pre-M-46 —cuyas
+  // líneas tienen `offerDecision = null`— seguiría dando vacío, pero la INTENCIÓN quedaría implícita
+  // en un `null` del dato en vez de escrita en la regla.
+  if (sr.offerSentAt == null) return [];
+  const verdicts = SELL_ITEM_VERDICT_STATES as readonly SellItemStatus[];
+  return items
+    .filter((i) => i.offerDecision === 'buy' && !verdicts.includes(i.itemStatus))
+    .map((i) => i.id);
+}
+
+/**
+ * ⚠️⚠️ v1.61 · **§M5-V.5 — EL `isPayable` QUE PUBLICA EL DTO: LOS DOS TÉRMINOS, UN SOLO CUERPO.**
+ *
+ * `isPayableSellRequest` (escalar) **∧** V-b. Es el **hermano** que anuncia §M5-V.5: la forma la
+ * elige backend, **la propiedad es normativa** — *`isPayable === true` ⇒ `pay-spei` no falla por
+ * precondición*.
+ *
+ * ⚠️ **Por qué NO se resolvió con un argumento opcional en `isPayableSellRequest`:** un
+ * `items?: […]` deja que un llamador que se olvide de pasarlas obtenga **el predicado débil en
+ * silencio**, que es exactamente cómo el botón de pagar acabó mintiéndole al súper-admin en v1.57
+ * (§M5-P, defecto ALTA). Con **dos funciones** el que quiere la respuesta completa **tiene que
+ * traer las líneas**, y el compilador se lo cobra.
+ */
+export function isPayableSellRequestWithItems(
+  sr: {
+    status: SellRequestStatus;
+    receivedAt: Date | null;
+    verifiedAt: Date | null;
+    approvedTotalCents: number | null;
+    offerSentAt?: Date | null;
+  },
+  items: readonly { id: string; offerDecision?: BuyDecision | null; itemStatus: SellItemStatus }[],
+): boolean {
+  return isPayableSellRequest(sr) && pendingBuyDecisionItemIds(sr, items).length === 0;
+}
+
+/**
+ * `isTerminal` **derivado server-side** (§4.39c **sitio 9**, API_CONTRACT §M5/§11).
+ *
+ * ⚠️ Existe para **BORRAR la quinta copia del set terminal**, que vivía en el **frontend**
+ * (`M5View.tsx`, `REQUEST_TERMINAL`). El frontend **no** la sustituye por otra constante propia: el
+ * servidor le dice. *La copia se cura eliminando la necesidad de la copia, no moviéndola de archivo.*
+ */
+export function isTerminalSellRequestStatus(status: SellRequestStatus): boolean {
+  return (SELL_REQUEST_TERMINAL_STATES as readonly SellRequestStatus[]).includes(status);
+}

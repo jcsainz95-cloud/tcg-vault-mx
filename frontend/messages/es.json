@@ -94,7 +94,6 @@
       "pending": "Pendiente",
       "pendingNote": "{count, plural, one {# carta se cotiza al recibirla} other {# cartas se cotizan al recibirlas}}",
       "quoteError": "No se pudo cotizar",
-      "wePay": "Te pagamos",
       "remove": "Quitar {name}",
       "continue": "Vender estas cartas",
       "viewMore": "Ver más en el cotizador"
@@ -554,6 +553,7 @@
     "separateProductErrorCode": {
       "PRODUCT_NOT_FOUND": "Este producto ya no existe en el catálogo.",
       "PRODUCT_CARD_MISMATCH": "Este producto no corresponde a esta carta.",
+      "BUYLIST_RAW_ONLY": "Solo compramos cartas sueltas (raw).",
       "FINISH_NOT_AVAILABLE": "Ese acabado no está disponible para este producto.",
       "NOT_FOUND": "No encontramos esta carta."
     },
@@ -664,10 +664,9 @@
     "verticalLabel": "Buylist",
     "title": "Vender mis cartas",
     "subtitle": "Cotizamos tu lista con el valor de mercado del día. Tú envías, nosotros autenticamos y te pagamos por SPEI.",
-    "selectType": "Tipo de producto",
     "referencePrice": "Valor de referencia",
     "payAfterReceipt": "El pago se realiza después de recibir y verificar tus cartas.",
-    "shippingGuideLink": "Guía de envío seguro",
+    "shippingGuideLink": "Cómo empacar tus cartas",
     "pricePendingNotice": "Esta carta no tiene precio de referencia; entrará a la cola de precio pendiente y la cotizaremos a mano.",
     "myRequests": "Mis solicitudes",
     "noRequests": "Aún no tienes solicitudes de venta.",
@@ -688,6 +687,14 @@
     "limitPerMonth": "Tope mensual",
     "nmOnlyTitle": "Solo compramos en Near Mint (NM)",
     "nmOnlyBody": "Si al recibir y verificar la carta no está en NM, no se compra: se devuelve si deseas (a tu costo, 7 días) o se considera abandonada a los 30 días.",
+    "request": {
+      "address": {
+        "label": "Dirección de origen",
+        "why": "La necesitamos para imprimir la guía que te vamos a mandar.",
+        "printed": "Esta dirección va impresa en la guía.",
+        "missing": "Elige la dirección de donde salen tus cartas para continuar."
+      }
+    },
     "requestTitle": "Crear solicitud de venta",
     "clabeLabel": "CLABE (18 dígitos, a tu nombre)",
     "clabeHint": "El pago SPEI se realiza a esta CLABE, que debe estar a tu nombre.",
@@ -704,32 +711,26 @@
     "submit": "Confirmar y enviar",
     "submitting": "Enviando…",
     "requestError": "No se pudo crear la solicitud. Revisa los datos e inténtalo de nuevo.",
-    "created": "¡Solicitud creada! Te avisaremos cuando recibamos tu carta.",
-    "filterBySet": "Filtrar por set",
-    "allSets": "Todos los sets",
-    "searchCards": "Buscar carta",
-    "searchPlaceholder": "Nombre o número",
-    "searchAction": "Buscar",
-    "searchResults": "Resultados",
-    "noResults": "No encontramos cartas con ese filtro. Prueba otro set o término.",
-    "searchHint": "Filtra por set o busca por nombre para ver el catálogo con su precio de compra estimado.",
-    "gridEstimateLegend": "Estimado de compra por acabado (NM en sueltas); un clic agrega al carrito.",
-    "gridQuotesFailed": "No pudimos cargar los estimados de compra.",
-    "addFinishAria": "Agregar {name} ({finish}) al carrito",
+    "created": "¡Solicitud creada! Te mandaremos una oferta por correo. No mandes tus cartas todavía: primero aceptas la oferta y después te llega la guía.",
     "addedLine": "{name} ({finish}) agregada al carrito.",
-    "bulkSelect": "Seleccionar {name}",
-    "bulkAddCta": "Agregar seleccionadas ({count})",
-    "bulkClear": "Limpiar selección",
-    "bulkAdded": "{count} carta(s) agregada(s) al carrito.",
-    "bulkAddedPartial": "{added} carta(s) agregada(s); {failed} no disponible(s).",
-    "bulkAddError": "No pudimos cotizar las cartas seleccionadas. Inténtalo de nuevo.",
-    "gridQuoteError": "No disponible",
-    "productType": {
-      "raw": "Suelta (raw)",
-      "graded": "Gradeada",
-      "sealed": "Sellado"
-    },
     "rarityLabel": "Rareza",
+    "quote": {
+      "money": {
+        "cardsValue": "Valor de tus cartas"
+      },
+      "shippingNote": "Nosotros ponemos la guía de envío y su costo se descuenta siempre de lo que te pagamos: tú no pagas nada de tu bolsillo. El monto exacto va en la oferta, antes de que aceptes.",
+      "pendingLine": {
+        "label": "Sin precio",
+        "note": "{count, plural, one {# carta todavía no tiene precio, así que no suma al total} other {# cartas todavía no tienen precio, así que no suman al total}}. Las cotizamos a mano y te las incluimos en la oferta."
+      },
+      "minimum": {
+        "shortfall": "Te faltan {amount}",
+        "minimumIs": "para el mínimo de {amount}.",
+        "addAnother": "Agrega otra carta.",
+        "addPricedCard": "Agrega una carta que ya tenga precio.",
+        "reachedAnnounce": "Ya alcanzaste el mínimo de {amount}."
+      }
+    },
     "cartTitle": "Tu lista",
     "cartCount": "{count} carta(s)",
     "cartFab": {
@@ -748,22 +749,62 @@
     "increaseQty": "Aumentar cantidad",
     "decreaseQty": "Disminuir cantidad",
     "removeLine": "Quitar",
-    "totalEstimated": "Total estimado",
     "clearCart": "Vaciar la lista",
     "cartFooterNote": "El pago se realiza después de recibir y verificar tus cartas.",
     "linePending": "Precio pendiente",
-    "totalPendingNote": "El total no incluye {count} carta(s) con precio pendiente: esas las cotizamos a mano cuando las recibimos.",
     "requestPendingNote": "El total mostrado no incluye las cartas con precio pendiente.",
-    "estimateNote": "El total es un ESTIMADO. El monto final lo confirma la plataforma cuando recibimos y verificamos tus cartas.",
+    "estimateNote": "El total es un ESTIMADO: los precios se mueven y puede que no compremos todas las líneas. Lo firme te lo mandamos en la oferta.",
     "sendRequestCta": "Enviar solicitud ({count})",
     "summaryTitle": "Resumen de tu venta",
-    "trustShipping": "Tú cubres el envío de tus cartas hacia nosotros (mira la guía de envío seguro). Si una carta se rechaza por no estar en NM, la devolución también corre por tu cuenta (7 días).",
     "trustPayment": "El pago se realiza después de recibir y verificar tus cartas.",
-    "trustValidity": "La cotización es un estimado con los precios de hoy; el monto final se confirma con los precios vigentes al verificar tus cartas.",
+    "trustValidity": "La cotización es un estimado con los precios de hoy. El precio vinculante es el de la oferta que te mandamos por correo, y ese precio ya no se mueve cuando recibimos tus cartas.",
     "clabeSectionTitle": "Cuenta de pago (SPEI)",
     "clabeStoredSelected": "El pago irá a tu CLABE registrada ({masked}).",
     "clabeUseStored": "Usar mi CLABE {masked}",
     "clabeUseAnother": "Usar otra CLABE",
+    "offer": {
+      "eyebrow": "Oferta de compra",
+      "headline": "Te compramos {bought} de tus {total, plural, one {# carta} other {# cartas}}",
+      "conditionIntro": "Esta oferta es condicional y así funciona: compramos cada carta al precio de abajo siempre que llegue en Near Mint.",
+      "buyGroup": "Compramos ({count})",
+      "skipGroup": "No compramos ({count})",
+      "skipLabel": "No entra en esta oferta",
+      "consequenceTitle": "Qué pasa si una carta no llega en Near Mint",
+      "grossLabel": "Valor de {count, plural, one {tu carta} other {tus # cartas}}",
+      "shippingLabel": "Envío que ponemos nosotros",
+      "netLabel": "Se te depositan",
+      "ruleParagraph": "Nosotros ponemos la guía de envío. Su costo, {shippingAmount}, es una tarifa fija y siempre se descuenta de lo que te pagamos: tú no pagas nada de tu bolsillo. La cifra que se te deposita es {netAmount}.",
+      "deadline": "Tienes hasta el {deadline} (hora del centro de México). Si no respondes antes de esa hora, la oferta vence y ya no podremos comprarte a este precio.",
+      "accept": "Aceptar la oferta",
+      "reject": "Rechazar la oferta",
+      "confirmAcceptTitle": "Confirma que aceptas",
+      "confirmAcceptBody": "Aceptas que te compremos {count, plural, one {# carta} other {# cartas}} por {netAmount}. La condición es la misma para cada carta: {condition}.",
+      "confirmAcceptCta": "Aceptar y recibir mi guía",
+      "confirmRejectTitle": "Confirma que rechazas",
+      "confirmRejectBody": "Vas a rechazar la oferta de {netAmount} por {count, plural, one {# carta} other {# cartas}}. La condición era la misma para cada carta: {condition}. Es definitivo: no podemos reactivarla y, si cambias de opinión, tendrías que cotizar de nuevo.",
+      "confirmRejectCta": "Rechazar la oferta",
+      "acceptedNow": "Aceptaste la oferta. Te mandamos la guía por correo.",
+      "rejectedNow": "Rechazaste la oferta.",
+      "acceptedOn": "Aceptaste esta oferta el {date}.",
+      "noLongerActive": "Esta oferta ya no está vigente.",
+      "quoteAgainCta": "Cotizar de nuevo",
+      "preOfferTitle": "Todavía no mandes nada",
+      "preOfferBody": "Te escribimos con nuestra oferta.",
+      "cancelledBanner": "Te mandamos una oferta y la cancelamos el {date}; estamos revisando tu solicitud otra vez.",
+      "cardsTitle": "Tus cartas",
+      "closedNotShipped": "Se venció el plazo para enviar tus cartas.",
+      "closedNoOffer": "No procedimos con la oferta.",
+      "closedAbandoned": "Esta solicitud se considera abandonada. Escríbenos a {email} si necesitas ayuda.",
+      "closedPaid": "Te pagamos esta solicitud.",
+      "incompleteTitle": "No podemos mostrarte la oferta completa",
+      "incompleteBody": "Nos falta parte del desglose de esta oferta, así que no la mostramos a medias ni te dejamos aceptarla. Revisa el correo que te mandamos o escríbenos a {email}.",
+      "notFoundTitle": "No encontramos esta solicitud",
+      "notFoundBody": "Revisa el enlace del correo, o entra con la cuenta con la que creaste la solicitud.",
+      "loginTitle": "Entra con tu cuenta para ver tu oferta",
+      "loginBody": "Entrarás con tu cuenta: esta oferta no se acepta desde un enlace del correo.",
+      "viewRequestCta": "Ver esta solicitud",
+      "backToBuylist": "Ver mis solicitudes"
+    },
     "adjust": {
       "title": "Ajuste de precio propuesto",
       "body": "Tras la verificación ajustamos el precio de una o más cartas. Revisa el nuevo total y acepta o rechaza el ajuste.",
@@ -779,9 +820,7 @@
       "wePay": "Pagamos",
       "cta": "Cotizar esta carta",
       "badge": "Bounty"
-    },
-    "viewDetailAria": "Ver detalle de {name}",
-    "tileInCart": "En el carrito"
+    }
   },
   "finish": {
     "label": "Acabado",
@@ -807,16 +846,16 @@
     "errUpload": "No se pudo subir la imagen. Reintenta."
   },
   "safeShipping": {
-    "title": "Guía de envío seguro",
-    "intro": "Protege tu carta para minimizar daños en tránsito y disputas.",
+    "title": "Cómo empacar tus cartas",
+    "intro": "Solo compramos cartas en Near Mint. Empácalas bien: la que no llegue en NM no se compra, y la devolución corre por tu cuenta.",
     "step1Title": "Funda blanda",
     "step1Body": "Cada carta en su funda, nunca suelta ni pegada a otra.",
     "step2Title": "Top loader rígido",
     "step2Body": "La funda entra en un top loader; así la carta no se dobla.",
     "step3Title": "Sobre o caja rígida",
-    "step3Body": "Sobre burbuja para pocas cartas, caja con relleno para lotes.",
-    "step4Title": "Guía con seguro",
-    "step4Body": "Asegura por el valor cotizado y anota tu número de solicitud.",
+    "step3Body": "Sobre burbuja para pocas cartas, caja con relleno para lotes; adentro, una hoja con tu número de solicitud.",
+    "step4Title": "La guía la ponemos nosotros",
+    "step4Body": "Al aceptar la oferta te mandamos la guía y su costo se descuenta de tu pago. Tú no compras ni aseguras nada, y no mandas el paquete hasta tenerla.",
     "understood": "Ya lo entendí"
   },
   "orders": {
@@ -1157,7 +1196,25 @@
       "sealedCondition": "Condición del sellado",
       "sealedConditionHint": "Visible al comprador. No afecta el precio.",
       "listPriceOptional": "Precio de venta (opcional)",
-      "listPriceOptionalHint": "Si lo dejas vacío, se calcula por mercado × spread. Un precio manual lo sobreescribe."
+      "listPriceOptionalHint": "Si lo dejas vacío, se calcula por mercado × spread. Un precio manual lo sobreescribe.",
+      "publishQueue": {
+        "title": "Listas para publicar",
+        "subtitle": "Piezas compradas que todavía no están a la venta. Salen solas de aquí en cuanto no les falta nada.",
+        "count": "{count, plural, =0 {Ninguna pendiente} one {# pendiente} other {# pendientes}}",
+        "empty": "Ninguna pieza pendiente de publicar.",
+        "folio": "Folio",
+        "piece": "Pieza",
+        "missing": "Le falta",
+        "missingLocation": "Ubicación",
+        "missingPrice": "Precio",
+        "missingUnknown": "Por revisar",
+        "origin": "Origen",
+        "originBuylist": "Compra a vendedor",
+        "salePrice": "Precio de venta",
+        "noSalePrice": "Sin precio resoluble",
+        "pendingPriceLink": "Ver en la cola de precio pendiente",
+        "note": "Esta cola solo mira: no se capturan precios de venta aquí ni se heredan del costo de compra."
+      }
     },
     "m3": {
       "title": "M3 · Ventas / órdenes",
@@ -1232,13 +1289,17 @@
       "reject": "Rechazar",
       "convert": "Convertir a inventario",
       "paySpei": "Pagar por SPEI",
+      "pay": {
+        "pendingDecisions": "{count, plural, one {Falta # carta por decidir} other {Faltan # cartas por decidir}} antes de poder pagar."
+      },
       "cherryPick": "Decisión carta por carta",
       "tabs": {
-        "por_recibir": "Por recibir",
+        "por_ofertar": "Por ofertar",
+        "con_vendedor": "Con el vendedor",
         "verificando": "Verificando",
         "por_pagar": "Por pagar",
         "cerradas": "Cerradas",
-        "rechazadas": "Rechazadas"
+        "piezas_rechazadas": "Piezas rechazadas"
       },
       "searchLabel": "Buscar solicitud",
       "emptyTab": "No hay solicitudes en esta etapa.",
@@ -1319,6 +1380,176 @@
         "alreadyConverted": "Este ítem ya estaba convertido a inventario.",
         "paid": "Pago SPEI registrado; la solicitud quedó pagada.",
         "requestRejected": "Solicitud rechazada; quedó cerrada."
+      },
+      "desk": {
+        "title": "Mesa de decisión",
+        "open": "Abrir la mesa de decisión",
+        "close": "Cerrar la mesa",
+        "quoted": "Cotizado",
+        "weOffer": "Ofertamos",
+        "noPrice": "Sin precio",
+        "noPriceReason": {
+          "no_market": "El mercado no dio precio para esta variante.",
+          "premium_at_floor": "La variante premium quedó en el piso: no hay precio derivable.",
+          "identity_drift": "Esta variante ya no existe en el catálogo, así que no se consultó el mercado."
+        },
+        "buyLine": "Comprar {name}",
+        "selectAll": "Marcar todas",
+        "clearAll": "Quitar todas",
+        "position": {
+          "title": "Posición {total}/{threshold}",
+          "aria": "Posición {total} de {threshold}: {stock} en inventario, {verifying} en verificación, {inTransit} en camino, {committed} comprometidas. Regla: {rule}.",
+          "groupInHouse": "En nuestras manos",
+          "groupNotYet": "Todavía no",
+          "stock": "En inventario",
+          "verifying": "Verificando",
+          "inTransit": "En camino",
+          "committed": "Comprometido",
+          "rule": {
+            "bounty": "Bounty",
+            "cap": "Tope"
+          },
+          "unavailable": {
+            "tag": "Sin conteo",
+            "text": "No pudimos contar el inventario de esta carta.",
+            "noSuggestion": "Sin sugerencia — falta el conteo.",
+            "banner": "No pudimos contar el inventario de {count} de {total} cartas. Puedes ofertar igual, pero lo harás sin ver cuántas copias tenemos.",
+            "retry": "Reintentar el conteo"
+          }
+        },
+        "suggestion": {
+          "label": "Sugerencia",
+          "buy": "comprar",
+          "doNotBuy": "no comprar",
+          "reasonCap": "la posición llegó al tope de {threshold} piezas por variante.",
+          "reasonCapOk": "{total} de {threshold}.",
+          "reasonBounty": "ya tienes {total} y el bounty buscaba {threshold}.",
+          "reasonBountyOk": "{total} de {threshold} del bounty.",
+          "legacyBountyNote": "Este bounty no tiene objetivo; se está midiendo con el tope.",
+          "none": "Sin sugerencia."
+        },
+        "override": {
+          "action": "Ajustar el precio",
+          "cancel": "Usar el precio de la curva",
+          "amountLabel": "Precio ofertado para {name}",
+          "reasonLabel": "Motivo del ajuste",
+          "reasonHint": "Obligatorio cuando el monto difiere del de la curva (3 a 500 caracteres).",
+          "derived": "Derivado por la curva: {amount}",
+          "noDerived": "La curva no dio precio: esta línea solo entra con un precio a mano."
+        },
+        "totals": {
+          "lines": "{selected} de {total} líneas",
+          "gross": "Bruto",
+          "shipping": "Envío",
+          "net": "Se deposita",
+          "preview": "Previsualización · se congela al emitir",
+          "previewNote": "Estas cifras se calculan con la curva y los diales de ahora. Lo vinculante se congela al emitir.",
+          "emit": "Emitir oferta",
+          "emitForApproval": "Enviar a autorización",
+          "authNote": "El correo no sale hasta que el súper-admin la autorice.",
+          "belowMinimum": "No se puede emitir: el depósito quedaría en {netAmount} y el mínimo es {minimumAmount}. Agrega {shortfallAmount} de bruto, o no ofertes.",
+          "noLines": "No se puede emitir: no hay ninguna línea marcada para comprar."
+        },
+        "pickupAddressMissing": {
+          "text": "Falta la dirección de origen del vendedor.",
+          "remedy": "Llámalo (tienes su teléfono en la cola) para que la capture desde su cuenta."
+        },
+        "confirm": {
+          "title": "Confirma la oferta",
+          "body": "Vas a ofertar {count, plural, one {# carta} other {# cartas}} por un bruto de {grossAmount}. Se descuenta el envío de {shippingAmount} y se depositan {netAmount}.",
+          "deadlineNote": "El plazo para responder empieza a correr al emitir y se congela ahí.",
+          "cta": "Emitir la oferta y mandar el correo",
+          "ctaForApproval": "Mandar a autorización"
+        },
+        "sent": "Oferta emitida: el correo salió y el vendedor ya tiene {netAmount} sobre la mesa.",
+        "pendingAuthorization": "Preparada y esperando autorización del súper-admin. El correo NO se ha mandado y la solicitud sigue igual para el vendedor.",
+        "readOnly": "La oferta ya salió: la mesa es de solo lectura."
+      },
+      "shipment": {
+        "title": "Guía y envío",
+        "guideTitle": "Capturar la guía",
+        "guideNote": "Capturar la guía NO mueve el estado: solo arranca el plazo del vendedor, que se congela en este momento. Mientras no haya guía, su plazo no corre — y no debe.",
+        "carrier": "Paquetería",
+        "trackingNumber": "Número de guía",
+        "captureCta": "Guardar la guía",
+        "recaptureCta": "Corregir la guía",
+        "captured": "Guía capturada: {carrier} · {tracking}",
+        "shipDeadline": "Plazo de envío: {date}",
+        "noShipDeadline": "Sin guía todavía: el plazo del vendedor no ha arrancado.",
+        "declaredTitle": "Paquete reportado",
+        "declaredAt": "El vendedor dijo que lo mandó el {date}.",
+        "declaredNote": "Eso detuvo su reloj y nada más: la solicitud sigue igual y no suma a «en camino».",
+        "confirmTitle": "Confirmar el envío",
+        "confirmNote": "Confirmar es lo único que mueve la solicitud a «en tránsito» y lo único que la hace contar como «en camino» para las demás.",
+        "actualCostLabel": "Costo real de la etiqueta (opcional)",
+        "actualCostHint": "Solo para reporte. No cambia lo que se le deposita al vendedor: eso es la tarifa que él aceptó.",
+        "confirmCta": "Confirmar que llegó",
+        "confirmDialogTitle": "Confirma que el paquete salió",
+        "confirmDialogBody": "La solicitud pasa a «en tránsito» y, desde ese momento, sus cartas cuentan como «en camino» en la mesa de decisión de otras solicitudes.",
+        "confirmDialogNoGuide": "No hay guía capturada para esta solicitud. Se confirma igual —negarlo no devuelve el paquete— y queda anotado en la bitácora.",
+        "confirmed": "Envío confirmado: la solicitud va en tránsito."
+      },
+      "queues": {
+        "title": "Colas del ciclo",
+        "empty": "Nada pendiente aquí.",
+        "seller": "Vendedor",
+        "request": "Solicitud",
+        "pendingAuth": {
+          "tab": "Ofertas por autorizar",
+          "preparedBy": "Preparó",
+          "gross": "Bruto",
+          "cap": "Tope",
+          "excess": "Exceso",
+          "lines": "Líneas",
+          "diesOn": "Muere el",
+          "diesToday": "Caduca hoy",
+          "diesTomorrow": "Caduca mañana",
+          "warning": "Si nadie autoriza antes de esa fecha, la solicitud caduca sola y la oferta se anula.",
+          "authorize": "Autorizar y mandar",
+          "authorizeTitle": "Autoriza esta oferta",
+          "authorizeBody": "Sale tal como se preparó: {gross} de bruto, {lines} líneas. No se puede editar aquí — autorizar es autorizar lo guardado.",
+          "authorizeConfirm": "Autorizar y mandar el correo",
+          "authorized": "Oferta autorizada: el correo salió y el plazo del vendedor arranca ahora.",
+          "superAdminOnly": "Solo el súper-admin puede autorizar una oferta por encima del tope."
+        },
+        "pendingShipment": {
+          "tab": "Por confirmar envío",
+          "declaredAt": "Dijo que lo mandó",
+          "guide": "Guía",
+          "waiting": "Días esperando",
+          "waitingUnknown": "No se pudo calcular",
+          "waitingValue": "{count, plural, one {# día hábil} other {# días hábiles}}",
+          "deadline": "Plazo de envío",
+          "alert": "Alerta",
+          "alertNote": "Lleva demasiado esperando confirmación, o no pudimos calcular cuánto. Las dos piden lo mismo: confírmalo. No expira nada ni mueve el estado.",
+          "noGuide": "Sin guía"
+        },
+        "pendingGuide": {
+          "tab": "Guías por cancelar",
+          "carrier": "Paquetería",
+          "tracking": "Número de guía",
+          "openedAt": "Abierta el",
+          "why": "Por qué se cerró",
+          "empty": "Ninguna guía pendiente de cancelar.",
+          "note": "Esta cola no se vacía sola: una etiqueta comprada y olvidada es dinero tirado que nadie ve.",
+          "done": "Guía cancelada",
+          "doneTitle": "Marca la guía como cancelada",
+          "doneBody": "Confirma que cancelaste la guía {tracking} con {carrier}. Es la única forma de que esta fila salga de la cola.",
+          "costLabel": "Costo real de la etiqueta (opcional)",
+          "costHint": "Cero si la paquetería la reembolsó. Solo entra al reporte; no toca lo que se le deposita a nadie.",
+          "noteLabel": "Nota (opcional)",
+          "doneConfirm": "Marcar como cancelada",
+          "doneOk": "Guía marcada como cancelada."
+        },
+        "liveSellers": {
+          "tab": "Vendedores con solicitudes vivas",
+          "phone": "Teléfono",
+          "noPhone": "Sin teléfono",
+          "liveCount": "Vivas",
+          "oldest": "La más antigua",
+          "latestStatus": "Último estado",
+          "note": "Es la lista de gente a la que le debemos una respuesta. La más antigua va primero."
+        }
       }
     },
     "m8": {
@@ -2450,12 +2681,20 @@
     },
     "sellRequest": {
       "cotizada": "Cotizada",
+      "ofertada": "Ofertada",
+      "aceptada": "Aceptada",
+      "en_transito": "En tránsito",
       "recibida": "Recibida",
       "verificacion": "En verificación",
       "aprobada": "Aprobada",
       "pagada": "Pagada",
       "rechazada": "Rechazada",
       "abandonada": "Abandonada"
+    },
+    "sellRequestExpiry": {
+      "not_shipped": "Sin envío",
+      "no_offer": "No procedió",
+      "unknown": "Expirada"
     },
     "sellItem": {
       "cotizada": "Cotizada",
@@ -2548,6 +2787,7 @@
     "FORBIDDEN": "No tienes permiso para esta acción.",
     "NOT_FOUND": "No encontramos lo que buscabas.",
     "CONFLICT": "Hubo un conflicto con el estado actual.",
+    "CONFLICT_WITH_DETAILS": "{closed, select, yes {Esta solicitud ya está cerrada (quedó en «{status}»), así que esta acción ya no aplica.} other {Esta acción no aplica al estado actual de la solicitud («{status}»).}} No es un fallo de la aplicación y reintentar no lo cambia: actualiza la vista para ver el estado real.",
     "RATE_LIMITED": "Demasiadas solicitudes, intenta más tarde.",
     "INTERNAL": "Error del servidor. Intenta de nuevo.",
     "PRICE_PENDING": "Esta carta tiene precio pendiente y aún no se puede comprar.",
@@ -2555,8 +2795,9 @@
     "ITEM_NOT_SETTLED": "Solo puedes retirar cartas liquidadas (settled).",
     "ADDRESS_NOT_MX": "Solo enviamos a direcciones dentro de México.",
     "ITEM_IN_ANOTHER_SHIPMENT": "Esta carta ya está en otro envío.",
-    "BUYLIST_LIMIT_EXCEEDED": "Superas el tope permitido de buylist.",
-    "INE_REQUIRED": "Necesitas subir tu INE para continuar.",
+    "BUYLIST_LIMIT_EXCEEDED": "Esta cotización pasa el máximo que te podemos comprar en un mes. Quita algunas cartas y vuelve a intentar; el tope se renueva cada mes.",
+    "BUYLIST_RAW_ONLY": "Solo compramos cartas sueltas (raw) en Near Mint; las gradeadas y el sellado no entran al cotizador.",
+    "INE_REQUIRED": "Por el monto de esta venta necesitamos identificarte: sube tu INE para continuar.",
     "CLABE_NOT_OWN_NAME": "La CLABE debe estar a tu nombre.",
     "CLABE_INVALID": "La CLABE no es válida.",
     "FINISH_NOT_AVAILABLE": "Ese acabado no está disponible para esta carta.",
@@ -2576,7 +2817,18 @@
     "EMAIL_NOT_VERIFIED": "Verifica tu correo para completar esta acción.",
     "EMAIL_VERIFY_TOKEN_INVALID": "El enlace de verificación es inválido o expiró.",
     "RESET_TOKEN_INVALID": "El enlace de restablecimiento es inválido o expiró.",
-    "APPROVED_PRICE_CAP_EXCEEDED": "El precio aprobado excede el tope permitido para este ítem (cotizado × 2 o tope AML).",
+    "APPROVED_PRICE_CAP_EXCEEDED": "El monto que estás aprobando no cabe en el tope de esta carta: no puede pasar del doble de lo cotizado ni del máximo que le podemos comprar al vendedor en el mes. Baja el monto aprobado, o rechaza la carta con su motivo. No se guardó nada.",
+    "INE_REQUIRED_OPERATOR": "La oferta no salió: el vendedor no tiene su INE en el expediente y por este monto se lo tenemos que pedir. No se guardó nada y él no recibió aviso. Llámalo para que lo suba desde su perfil y vuelve a emitir, o declina la solicitud. Ningún rol puede saltarse este requisito.",
+    "BUYLIST_LIMIT_EXCEEDED_OPERATOR": "Esta oferta dejaría al vendedor por encima del máximo que le podemos comprar este mes, así que no salió y no se guardó nada. Compra menos cartas de esta solicitud o declínala; ningún rol puede levantar este tope.",
+    "BUYLIST_LIMIT_EXCEEDED_OPERATOR_WITH_DETAILS": "Esta oferta dejaría al vendedor en {wouldBeAmount} este mes, y el máximo que le podemos comprar es {capAmount}: no salió y no se guardó nada. Compra menos cartas de esta solicitud o declínala; ningún rol puede levantar este tope.",
+    "APPROVED_PRICE_CAP_EXCEEDED_OFFER_CYCLE": "El precio de esta carta se congeló al emitir la oferta y ya es vinculante: no se puede cambiar. Lo que choca es el máximo que le podemos comprar al vendedor en el mes, así que esta carta no se puede aprobar ni pagar. No intentes repreciarla: escala la solicitud a un súper-admin. No se guardó nada.",
+    "REQUEST_NOT_RECEIVED": "Esta solicitud no tiene registrada la llegada del paquete, así que ninguna de sus cartas se puede aprobar. Cuando el paquete esté en tus manos, usa «Marcar recibida» en la solicitud y vuelve a aprobar. No se guardó nada.",
+    "PICKUP_ADDRESS_MISSING": "Esta solicitud no trae la dirección de recolección (es una solicitud vieja), así que no se puede ofertar. Llama al vendedor para que la capture desde su perfil y vuelve a emitir, o declina la solicitud. No la captures tú por él.",
+    "PICKUP_ADDRESS_LOCKED": "Esta dirección ya no se puede cambiar: tu guía de envío ya está impresa con ella, o la solicitud ya cerró. Si algo está mal, contáctanos antes de mandar el paquete.",
+    "PICKUP_ADDRESS_LOCKED_OPERATOR": "Esta dirección ya no se edita: la guía salió impresa con ella, o la solicitud ya cerró. Si la dirección está mal, hay que cancelar esa guía y emitir una nueva; desde aquí no se puede. No se guardó nada.",
+    "OFFER_PRICE_IMMUTABLE": "El precio de esta carta se congeló al emitir la oferta y ya es vinculante: desde esta pantalla no viaja ningún monto. Apruébala tal cual; si no llegó como se ofertó, recházala con su motivo. No se guardó nada.",
+    "ITEMS_NOT_DECIDED": "Antes de pagar hay que decidir cada carta que compramos, y en esta solicitud todavía quedan cartas sin decidir. Ve a la verificación y deja cada carta pendiente aprobada, o rechazada con su motivo; las que no compramos no llevan decisión. Cuando no quede ninguna, vuelve a pagar. No se guardó nada y no salió dinero.",
+    "ITEMS_NOT_DECIDED_WITH_DETAILS": "Antes de pagar hay que decidir cada carta que compramos, y en esta solicitud {count, plural, one {queda # carta sin decidir} other {quedan # cartas sin decidir}}. Ve a la verificación y deja cada carta pendiente aprobada, o rechazada con su motivo; las que no compramos no llevan decisión. Cuando no quede ninguna, vuelve a pagar. No se guardó nada y no salió dinero.",
     "ITEM_NOT_APPROVED": "Solo un ítem aprobado puede convertirse a inventario.",
     "CLABE_UNAVAILABLE": "No hay CLABE disponible para esta solicitud (ni snapshot ni KYC).",
     "ITEM_NOT_ADJUSTABLE": "Esta pieza no se puede ajustar en su estado actual.",
@@ -2605,7 +2857,12 @@
     "GRADED_ESTIMATE_SLAB_PUBLISHED": "Esta carta ya tiene una pieza publicada de ese grado. Ese precio es dinero real, no un estimado; para cambiarlo, edita el precio de la pieza en Inventario › Gradeadas.",
     "GRADED_ESTIMATE_SLAB_PUBLISHED_WITH_DETAILS": "Esta carta ya tiene {count, plural, one {una pieza {grade} publicada} other {# piezas {grade} publicadas}}. Ese precio es dinero real, no un estimado; para cambiarlo, edita el precio de la pieza en Inventario › Gradeadas.",
     "GRADING_SORT_REQUIRES_FILTER": "Ese orden solo existe para la vitrina de cartas destacadas para gradear; sin ese filtro no se puede aplicar.",
-    "GRADED_CONFIG_INVALID": "Un umbral de la configuración del gancho está corrupto, así que no se evalúa nada: una lista de revisión calculada contra un umbral basura es peor que no tenerla. Corrige la configuración de arriba y reintenta."
+    "GRADED_CONFIG_INVALID": "Un umbral de la configuración del gancho está corrupto, así que no se evalúa nada: una lista de revisión calculada contra un umbral basura es peor que no tenerla. Corrige la configuración de arriba y reintenta.",
+    "PICKUP_ADDRESS_REQUIRED": "Necesitamos la dirección de donde salen tus cartas para imprimir la guía.",
+    "PICKUP_ADDRESS_NOT_FOUND": "Esa dirección ya no está en tu libreta. Elige otra o agrega una nueva.",
+    "BUYLIST_MINIMUM_NOT_MET": "Tu solicitud todavía no alcanza el mínimo de compra.",
+    "OFFER_EXPIRED": "El plazo para responder esta oferta ya venció, así que no pudimos registrar tu respuesta.",
+    "OFFER_NOT_PENDING": "Esta oferta ya no está esperando respuesta."
   },
   "payment": {
     "title": "Pago",
