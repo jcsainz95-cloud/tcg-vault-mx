@@ -4,6 +4,50 @@
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
 >
 > ---
+> **Rev v1.63 — EL TIPO DE CAMBIO TIENE MODO, Y EL MODO NO ES EL VALOR** (2026-09-08, arquitecto. Base: **v1.62.2,
+> vigente entera** salvo lo que se marca. **CERO DDL, CERO migración de esquema, CERO cambios en `FxRate`, CERO
+> diales de M10, CERO jobs.** **UN ajuste** (`fx_rate_mode`), **UN endpoint** (`PUT /admin/fx/mode`), **UN valor
+> nuevo** en el enum `FxSource` (`fallback`), **dos códigos de error**. Contrato en `API_CONTRACT.md` **v1.63**.
+> Detalle en **§4.43**. ⛔ **NO toca `§M2-B` ni la cara `market`** de v1.62.2, en construcción al escribirse esto.)
+>
+> **A. LA PETICIÓN, LITERAL.** *«Quiero conservar el override manual, que sea un toggle para decidir entre automático
+> o manual.»* Hoy **apagar el manual significa BORRAR el número**: el dueño tiene **19.0000** vivo en producción,
+> pulsó *«Refrescar Banxico»* y **la fuente no cambió**, porque el override gana siempre. **Desde el panel no hay
+> vuelta a automático sin destruir su tasa.**
+>
+> **B. MEDIDO ANTES DE DECIDIR (§4.43a, siete hechos con línea).** El más importante y el que gobierna el diseño:
+> ⭐ **la conversión USD→MXN es VIVA** —`liveMxnCents` recalcula con la FX vigente, y el propio código lo dice:
+> *«cambiar `fx_manual_override_rate`/Banxico mueve el precio **AL INSTANTE**, sin re-sync»* (`pricing.service.ts:709-711`)—
+> ⇒ **mover el interruptor reprecia el catálogo ENTERO en la siguiente lectura**, lo que se vende y lo que se compra.
+> Y dos mentiras vivas: el **fallback duro de 18 se reporta como `source:"manual"`** (`fx.service.ts:58`) y
+> **`fx.refresh` audita como refresco un fetch que falló** (`:117-121`).
+>
+> **C. LA DECISIÓN.** Ajuste **nuevo** `fx_rate_mode` (`auto|manual`) **separado del valor**; `fx_manual_override_rate`
+> conserva nombre, rango y validador. **Descartadas con su razón**: columna en `FxRate` (DDL en la tabla del dinero +
+> confundir hecho con política), sentinel dentro del valor (la inferencia disfrazada), segunda clave que «guarda el
+> apagado» (dos copias del mismo dinero, alternar se vuelve destructivo), variable de entorno (redeploy) y exponerlo
+> en M10 (sería la **tercera** puerta, y la única sin la precondición de las dos tasas). **Cuatro invariantes**
+> I-FX1..I-FX4: el modo no se deriva del valor, **toda escritura del valor materializa el modo con su valor RESUELTO
+> ACTUAL** (pin del statu quo), cambiar modo nunca escribe valor, y no existe «manual sin número» (dos `422`).
+>
+> **D. LAS TRES EXIGENCIAS DE DINERO, EN EL CONTRATO.** **(1)** `GET /admin/fx` devuelve **SIEMPRE las dos tasas**
+> —la manual guardada y la de Banxico vigente—, en las **mismas unidades** (crudas, sin colchón), y ⛔ **la pantalla
+> no ofrece el interruptor sin tenerlas**: es **norma**, y su razón es B. **(2)** Bitácora **`fx.mode.change`** con
+> `actorUserId`, en la **misma transacción** que el ajuste (precedente `auditWithin`), y ⭐ con **los dos NÚMEROS, no
+> los dos rótulos**. **(3)** ⭐ **La migración se cumple por CONSTRUCCIÓN: `fx_rate_mode` NO tiene default de
+> código** —un ausente cae a `SETTING_DEFAULTS` **en la primera lectura, antes de cualquier seed**
+> (`settings.service.ts:194-199`), y ése es justo el mecanismo por el que producción se pasaría sola a Banxico—. El
+> seed **deriva y sólo crea**; el runtime resuelve la ausencia con la **regla legacy** (= la conducta de hoy). Los
+> dos caminos coinciden ⇒ producción sigue en **manual 19.0000**, instalación limpia nace en **auto**.
+>
+> **E. LA CUARTA (frescura del automático), acotada.** `FxSource` gana **`fallback`** (el 18 duro deja de llamarse
+> manual), la tasa automática viaja con **fecha, edad y veredicto** (`fresh|stale|missing`, umbral **constante**
+> `FX_AUTO_STALE_AFTER_DAYS = 5` — el FIX se publica en días hábiles, un lunes normal ya tiene 3 días), y
+> `POST /admin/fx/refresh` **declara su resultado** (`updated|unchanged|failed`). ⛔ **Fuera**: alertas proactivas,
+> bloquear pricing por tasa vieja, reintentos y frescura por fila. ⚠️ **Nada de esto arregla `D-OPS-1`**: falta
+> `BANXICO_SIE_TOKEN` en producción y eso es de **devops + el humano**.
+>
+> ---
 > **Rev v1.62.2 — EL VALOR DE MERCADO DE LA VARIANTE VIAJA** (2026-09-08, arquitecto. Base: **v1.62.1, vigente
 > entera** salvo lo que se marca. **CERO DDL, CERO migración, CERO endpoints, CERO diales, CERO códigos de error,
 > CERO filtros, CERO acciones.** **UNA cara nueva** (`market`) en un DTO que **ya existía**. Contrato en
@@ -19100,6 +19144,214 @@ cara en un DTO que ya existía**, emitida desde una variable que el servidor **y
 
 ---
 
+### 4.43 EL TIPO DE CAMBIO TIENE **MODO**, Y EL MODO **NO ES EL VALOR** (v1.63-fx-mode, NORMATIVO, **DINERO**)
+
+> **Contrato: `API_CONTRACT §M2-F`** (rev **v1.63**). **CERO DDL, CERO migración de esquema, CERO cambios en
+> `FxRate`, CERO diales de M10, CERO jobs nuevos.** **UN ajuste nuevo** (`fx_rate_mode`), **UN endpoint nuevo**
+> (`PUT /admin/fx/mode`), **UN valor nuevo** en el enum `FxSource` (`fallback`), **dos códigos de error**.
+> ⛔ **No toca `§M2-B` ni el bloque `market`** (en construcción cuando se escribió esto).
+
+<a id="fx-43-0"></a>
+#### (0) La petición, literal — y por qué no es un capricho de UI
+
+*«Quiero conservar el override manual, que sea un toggle para decidir entre automático o manual.»*
+
+Hoy **apagar el manual significa borrar el número**. El dueño tiene un override de **19.0000** vivo en producción,
+pulsó *«Refrescar Banxico»*, la petición corrió, y **la fuente no cambió** — porque el override gana siempre. Desde el
+panel **no hay forma de volver a automático sin destruir su tasa**. Lo que pide es que **el modo y el valor sean dos
+cosas distintas**, que es exactamente lo que hoy no son.
+
+<a id="fx-43-a"></a>
+#### (a) Lo que se MIDIÓ (§0-B.3 regla 2), no lo que se dedujo
+
+| # | Hecho medido | Dónde |
+|---|---|---|
+| **F1** | La tasa manual **no vive en una columna**: es el ajuste `fx_manual_override_rate`, `null` por defecto, validado como «`null` (borra el override) o número en `(0, MAX_FX_MANUAL_OVERRIDE_RATE]`» | `settings.constants.ts:53`, `:251`, `:542-546` |
+| **F2** | `getCurrent()` decide así: **si el override existe y es `> 0`, gana el manual**; si no, la última fila `FxRate`; si no, un **fallback duro de 18** | `fx.service.ts:37-58` |
+| **F3** ⭐ | **La conversión USD→MXN es VIVA, no congelada:** `liveMxnCents` recalcula cada referencia de mercado en USD con la FX **vigente**. El comentario del código lo dice con todas las letras: *«cambiar `fx_manual_override_rate`/Banxico mueve el precio **AL INSTANTE**, sin re-sync»* | `pricing.service.ts:706-726`, esp. **709-711** |
+| **F4** ⚠️ | Un ajuste **ausente** cae a `SETTING_DEFAULTS` **en la primera lectura**, antes de que corra ningún seed | `settings.service.ts:194-199` |
+| **F5** | El valor tiene **DOS puertas** que lo escriben: `PUT /admin/fx` y `PUT /admin/settings` (`fxManualOverrideRate` **sí** está en `SETTING_DTO_MAP`) | `pricing.controller.ts:818-838`, `settings.constants.ts:822` |
+| **F6** ⚠️ | **El fallback duro de 18 se reporta como `source: "manual"`.** El contrato publica hoy la etiqueta **MANUAL** sobre un número que **nadie tecleó** | `fx.service.ts:58` |
+| **F7** ⚠️ | `refreshFromBanxico()` **traga el fallo** (sin token, o HTTP no-OK) y devuelve `getCurrent()`; el controller audita eso como `fx.refresh` **con el valor del override** — la bitácora afirma un fetch que **no ocurrió** | `fx.service.ts:92-96`, `:117-121`; `pricing.controller.ts:840-845` |
+
+> **F3 es el hecho que gobierna todo este diseño.** Sin él, mover el interruptor sería una decisión que surte efecto
+> *«en el próximo barrido»* y se podría revisar con calma. **Con él, mover el interruptor reprecia el catálogo entero
+> en la siguiente lectura** — lo que se vende **y** lo que se compra. Por eso la precondición de **(d)** es norma y no
+> sugerencia: *el humano tiene que ver el salto ANTES, porque después ya se movió el dinero.*
+
+<a id="fx-43-b"></a>
+#### (b) La decisión, y las cinco alternativas descartadas con su razón
+
+**Un ajuste NUEVO, `fx_rate_mode` (`"auto" | "manual"`), separado del valor. `FxRate` NO se toca. Migración de
+esquema: NINGUNA.**
+
+| Alternativa | Veredicto | Por qué |
+|---|---|---|
+| **Columna en `FxRate`** (o tabla nueva de política) | ⛔ **descartada** | Es **DDL en la tabla del tipo de cambio**: riesgo de dinero por un booleano. Y es un error de categoría: `FxRate` es el **histórico de tasas OBSERVADAS** (un hecho), no el sitio de una **política**. Mezclar hecho y política en la misma fila ya costó el bug del colchón congelado por fila (#13, §4.15f) |
+| **Sentinel en el propio valor** (`0`, negativo o `-19` = «guardado pero inactivo») | ⛔ **descartada** | Es **la inferencia con otro disfraz**, y además el validador ya prohíbe `<= 0`. *Un número que significa «no soy un número» es la clase de dato que produce el bug que venimos a arreglar* |
+| **Segunda clave que guarda «el valor apagado»** (`fx_manual_override_rate_saved`) y mover el número al alternar | ⛔ **descartada** | **DOS copias del mismo dinero** (§0-B.1) y el alternar se vuelve una **escritura destructiva**: un fallo a mitad deja la tasa en ningún sitio o en los dos. El gesto del dueño («volver») pasaría a depender de que una copia sobreviva |
+| **Variable de entorno / redeploy** | ⛔ **descartada** | Exige un despliegue para una decisión que el dueño quiere tomar **mirando dos números**, y saca del alcance de la bitácora quién la tomó |
+| **`fx_rate_mode` dentro del DTO de M10** (editable por `PUT /admin/settings`) | ⛔ **descartada** | Sería la **tercera puerta** sobre la FX y la única **sin la precondición de las dos tasas** ni la bitácora dedicada. Precedente ya establecido: `sealed_spread_*`, `pricing_curve` y `buylist_no_offer_expiry_enabled` **tampoco** están en el mapa, por la misma razón |
+
+**Lo que se conserva tal cual:** el valor sigue siendo `fx_manual_override_rate` con **su nombre, su rango y su
+validador de hoy** (F1). No se renombra: renombrar una clave que está viva en producción con dinero dentro es un
+riesgo gratuito, y aquí no compra nada.
+
+<a id="fx-43-c"></a>
+#### (c) La regla de resolución: **UNA** función, y la inferencia ocurre **exactamente una vez por entorno**
+
+`resolveFxMode()` es la **única** implementación del modo (mismo criterio que `isBountyEffective`, §4.36.6: un
+predicado de dinero no se duplica).
+
+| Estado de la fila `fx_rate_mode` | Modo resuelto |
+|---|---|
+| Existe y vale **exactamente** `"auto"` | **auto** — Banxico rige. **El valor manual se conserva intacto y no se mira** |
+| Existe y vale **exactamente** `"manual"` | **manual** — rige `fx_manual_override_rate` |
+| **Ausente**, `null`, o **cualquier otra cosa** (`true`, `"AUTO"`, basura) | **RESOLUCIÓN LEGACY**: `manual` si `fx_manual_override_rate` es un número válido `> 0`; si no, `auto` |
+
+**La resolución legacy es la conducta de hoy, literal (F2), y existe para UNA sola cosa: que el despliegue no cambie
+de comportamiento por su cuenta.** No es la semántica del modo; es la **condición inicial**.
+
+> ⚠️ **Por qué el «basura ⇒ legacy» y no «basura ⇒ auto»** (y aquí me aparto del patrón `on|off` de
+> `grading_hook_enabled`): en aquel dial la dirección segura es **apagado**, porque apagado **no gasta**. Aquí no
+> existe una dirección «apagada»: las dos posiciones convierten dinero. **La dirección segura es NO CAMBIAR LO QUE
+> ESTÁ PASANDO**, y eso es exactamente la resolución legacy. Un valor inválido, además, **se grita** en el inventario
+> de arranque (§11.0, `logConfigInventory`): fallar callado sobre la tasa es el defecto que este pase persigue.
+
+**Los cuatro invariantes (NORMATIVOS):**
+
+- **I-FX1 — El modo nunca se deriva del valor**, salvo en la resolución legacy de la tabla de arriba. *Esa
+  inferencia es la ÚNICA del sistema y ocurre, como mucho, una vez por entorno.*
+- **I-FX2 ⭐ — Toda escritura del valor MATERIALIZA la fila del modo con su modo RESUELTO ACTUAL** («pin del statu
+  quo»). Aplica a **las dos puertas** de F5. Guardar 25 estando en `auto` escribe `fx_rate_mode = "auto"` y **el 25
+  no rige**. *Este invariante es el que cierra la puerta para siempre: después de la primera escritura de cualquiera
+  de las dos puertas, la resolución legacy ya no puede volver a correr en ese entorno.*
+- **I-FX3 — Cambiar el modo NUNCA escribe el valor; escribir el valor NUNCA cambia el modo.** Las dos mitades del
+  defecto actual, prohibidas por separado.
+- **I-FX4 — No se puede quedar en `manual` sin número, ni pasar a `manual` sin número guardado.** Borrar el valor
+  (`null`) estando en `manual` ⇒ **`422 FX_MANUAL_RATE_REQUIRED`** (en **ambas** puertas, vía la validación cruzada
+  de `SettingsService.update`, mismo mecanismo que `validateBuylistCrossDials`). Pedir `manual` sin valor guardado
+  ⇒ **`422 FX_MANUAL_RATE_MISSING`**, y **el modo no cambia**. *El «modo sin número» es el único estado que
+  reintroduciría el fallback duro de 18 por la puerta de atrás.*
+
+<a id="fx-43-d"></a>
+#### (d) ⚠️ La precondición de las **DOS TASAS**: NORMA, no sugerencia
+
+**`GET /admin/fx` devuelve SIEMPRE las dos tasas —la manual guardada y la de Banxico vigente— rija la que rija.**
+⛔ Está **prohibido** devolver solo la que rige, y ⛔ está **prohibido** que la pantalla ofrezca el interruptor sin
+tener las dos en la mano. La razón es **F3**: el efecto es instantáneo sobre todo el catálogo, así que *la decisión
+se toma viendo el salto, no descubriéndolo después.*
+
+Tres precisiones que evitan comparar peras con manzanas:
+
+1. **Las dos viajan en las MISMAS unidades:** tasa **cruda**, sin colchón. El colchón (`fx_buffer_pct`) se aplica
+   aguas abajo, **idéntico en las dos ramas** (fix #13, §4.15f). Pintar una con colchón y otra sin él sería inventar
+   un salto que no existe.
+2. **El salto en % lo deriva la UI de esos dos números, y NO es un campo.** Un tercer número emitido por el servidor
+   podría discrepar de la resta que el humano ve en pantalla — y sería la clase de copia que §0-B.1 persigue.
+3. **`automatic.rate` puede ser `null`** (nunca ha llegado nada de Banxico). Entonces el interruptor hacia `auto`
+   **es legal pero se toma a ciegas**, y el contrato obliga a decirlo con `automatic.status: "missing"`. ⛔ No se
+   inventa un número, ⛔ no se muestra el fallback de 18 como si fuera «la de Banxico».
+
+<a id="fx-43-e"></a>
+#### (e) La cuarta exigencia: **qué se enseña cuando la tasa automática está vieja o no llegó** — el mínimo honesto
+
+El defecto es el mismo que `capturedDate` resolvió en `market`: **un número sin decir de cuándo es**. Con F6 y F7 es
+peor que eso — hoy el sistema **etiqueta como MANUAL** un fallback que nadie tecleó, y **audita como refresco** un
+fetch que falló. El mínimo honesto son **tres declaraciones y ningún mecanismo nuevo**:
+
+1. **`FxSource` gana `"fallback"`.** El 18 duro deja de llamarse `manual`. ⚠️ Es un **valor nuevo en un enum
+   existente** ⇒ el frontend debe tener rama para él (hoy pintaría *«FUENTE: MANUAL (OVERRIDE)»* sobre un número
+   inventado). Es el único cambio con filo de este pase, y **se hace porque la etiqueta actual es falsa**.
+2. **La tasa automática viaja con su fecha, su edad y su veredicto:** `automatic.effectiveDate`, `automatic.ageDays`
+   y `automatic.status ∈ {fresh, stale, missing}`. **El veredicto lo deriva el servidor**, no la pantalla (misma
+   doctrina que `state` en §M2-B.1 y que `priceBasis` en §N.7: derivarlo en cliente sería la enésima
+   implementación, y la única que nadie puede probar).
+   - **Umbral: constante de código `FX_AUTO_STALE_AFTER_DAYS = 5`. NO es un dial, y es deliberado.** El FIX de
+     Banxico se publica cada **día hábil**: un lunes leyendo el dato del viernes tiene **3 días** de edad **con toda
+     normalidad**, y un puente lo lleva a 4. Con 5 la alerta señala **una caída real** y no el calendario. *Un dial
+     aquí sería un número de política que nadie va a mover, y una alerta que grita cada lunes es una alerta que se
+     aprende a ignorar.* **Si el dueño pide moverlo, promoverlo a dial es media hora** (Q-F2).
+3. **`POST /admin/fx/refresh` deja de mentir:** devuelve un **discriminante de resultado**
+   (`updated | unchanged | failed` + `reason`) y **la bitácora registra el resultado real**, no el valor de vuelta.
+   *La queja del dueño («pulsé refrescar y no pasó nada») tenía DOS causas —el override ganaba **y** el fetch podía
+   estar fallando en silencio—; el interruptor arregla la primera, esto arregla la segunda.*
+
+**⛔ Lo que este pase NO hace con la frescura, y se acota a propósito** *(sería trabajo grande, y ninguna de estas
+cuatro cosas hace falta para lo que el dueño pidió)*: no manda **correo/alerta proactiva**; no **bloquea** el pricing
+ni despublica la vitrina cuando la tasa está vieja (*ocultar dinero que sí tenemos no es money-safe; declararlo sí* —
+misma doctrina que §4.42j); no añade **reintentos/backoff** al job; y no añade **frescura de FX por fila** en ningún
+DTO (la FX es **una por respuesta**, no por variante — §4.42j(d)(3) y **Q-B5**). ⚠️ **Y sobre todo: esto no arregla
+`D-OPS-1`.** Enseñar que la tasa está vieja **no la refresca**; falta `BANXICO_SIE_TOKEN` en producción y eso es de
+**devops + el humano**. *Lo que este pase garantiza es que, cuando vuelva a pasar, se vea.*
+
+<a id="fx-43-f"></a>
+#### (f) La bitácora: **alternar el modo mueve dinero, así que queda a nombre de quien lo hizo**
+
+- **Acción nueva: `fx.mode.change`**, `entityType: "ConfigSetting"`, `entityId: "fx_rate_mode"`, con
+  `actorUserId` **y** `actorRole` (`super_admin`).
+- ⭐ **`before`/`after` llevan los DOS NÚMEROS, no los dos rótulos.** *«Cambié a automático» no es dinero
+  auditable; «pasé de 19.0000 (manual) a 18.2431 (banxico, del 2026-09-05)» sí lo es.* Forma exacta en `§M2-F.4`.
+- **Se escribe en la MISMA transacción que el ajuste** — precedente vivo y explícito: `auditWithin` en
+  `settings.controller.ts:36-49` (*«efecto y bitácora commitean o revierten juntos»*). Es imposible que exista un
+  cambio de modo sin su entrada, en cualquier orden de fallo.
+- **`fx.override` (existente) se normaliza:** hoy registra solo `after` y sin `entityType`/`entityId`
+  (`pricing.controller.ts:832-836`). Pasa a llevar `before` y las claves de entidad, **y a declarar si el número
+  guardado RIGE o no** (`applied`) — porque desde este pase guardar un número en modo `auto` es un gesto legítimo
+  cuyo efecto es *ninguno todavía*, y la bitácora tiene que distinguirlo de uno que sí movió el catálogo.
+- ⛔ **No se crea un modelo nuevo ni una tabla de historial de FX.** `AuditLog` ya es la bitácora de los actos de
+  configuración con dinero (`settings.update`, `fx.override`), y es donde un auditor ya sabe mirar.
+
+<a id="fx-43-g"></a>
+#### (g) ⚠️ La migración del estado actual: **por construcción, no por runbook**
+
+**La exigencia:** hoy hay un override de **19.0000** vivo. **Al desplegar esto, el sistema NO puede cambiar de
+comportamiento solo**: tiene que seguir en manual con 19.0000 hasta que **una persona** mueva el interruptor.
+
+**Cómo se cumple, y por qué es por construcción:**
+
+1. ⭐ **`fx_rate_mode` NO tiene entrada en `SETTING_DEFAULTS`.** Ésta es **la** decisión de seguridad del pase, y
+   sale directa de **F4**: un default de código `'auto'` **se aplicaría en la primera lectura después del deploy,
+   antes de que corriera ningún seed** — y ése es exactamente el mecanismo por el que producción se pasaría sola a
+   Banxico. **No hay default de código porque no puede haberlo.** Precedente idéntico: los diales fail-closed sin
+   default de código (§4.35d, `grading_cost_tiers`), leídos con el lector que **distingue fila ausente** de fila
+   sembrada.
+2. **El seed DERIVA y sólo CREA** (`create`, jamás `update`): el valor sembrado es el que devuelve la **resolución
+   legacy** en ese instante. ⇒ **Producción: `manual`, con 19.0000 intacto.** ⇒ **Instalación limpia (sin
+   override): `auto`**, que es lo natural. *La inferencia ocurre aquí, una vez, en el nacimiento de la fila, y nunca
+   más* (I-FX1).
+3. **Aunque el seed no corriera** (rollback, orden de despliegue raro, entorno olvidado), la **resolución legacy**
+   del runtime da el **mismo** resultado. **Los dos caminos coinciden**, y por eso no hay ventana de riesgo.
+4. **Rollback limpio:** el código anterior **ignora** `fx_rate_mode` y vuelve a F2 — que es lo mismo que la fila
+   dice. Ninguna conducta cambia al revertir. Por eso la fila **no se borra** en un rollback (§11.0 punto 4).
+
+**⛔ Para devops — lo que NO se hace, y son tres cosas que parecen inofensivas:** ⛔ **no** se pone `'auto'` como
+valor por defecto en ningún sitio (ni en `SETTING_DEFAULTS`, ni en un `.env`, ni como `?? 'auto'` en el lector);
+⛔ **no** se corre un `UPDATE` masivo sobre `fx_rate_mode` «para dejarlo consistente»; ⛔ **no** se borra ni se toca
+`fx_manual_override_rate` — **el 19.0000 es del dueño y no se toca en un despliegue**. *Este pase no necesita ni un
+paso de runbook: si alguien está escribiendo uno, es señal de que algo se diseñó mal.*
+
+<a id="fx-43-h"></a>
+#### (h) Alcance — lo que este pase NO hace *(escrito para que no crezca solo)*
+
+⛔ No diseña la pantalla (el interruptor y la comparación lado a lado son **de ux-ui**: el contrato norma **qué
+viaja y qué significa**, no dónde se pinta) · ⛔ no toca `FxRate`, ni el esquema Prisma, ni ninguna migración ·
+⛔ no toca el colchón (`fx_buffer_pct`) ni la fórmula de conversión ni la curva · ⛔ no reprecia **hacia atrás**: los
+montos ya **snapshoteados** (órdenes, ofertas de buylist cotizadas/emitidas, `priceMxnCents` de referencias en MXN
+nativo) **no se mueven** — sólo cambia lo que se **deriva vivo** de una referencia en USD (F3) · ⛔ no añade cron, ni
+cola, ni correo · ⛔ no añade dial a M10 · ⛔ **no toca `§M2-B` ni la cara `market`** · ⛔ no convierte
+`GET /admin/fx` en un endpoint público (sigue `super_admin`).
+
+<a id="fx-43-i"></a>
+#### (i) Coste del pase
+
+**Cero DDL. Cero migración de esquema. Cero jobs. Cero diales de M10.** Un ajuste `ConfigSetting`, un endpoint de
+escritura con dos precondiciones, un enum con un valor más, dos códigos de error, tres campos nuevos en una respuesta
+que ya existía, y una acción de bitácora. **La parte cara no es el código: es que los invariantes I-FX1..I-FX4 tengan
+candados que midan la CONDUCTA** (`§M2-F.6`).
+
+---
+
 ## 5. Decisiones transversales
 
 - **Dinero sin balance:** no hay wallet ni saldo; cada movimiento de dinero es una transacción Stripe (ventas/reembolsos) o un pago SPEI manual (buylist). Ninguna vista de usuario muestra saldo.
@@ -19743,6 +19995,16 @@ Riesgos técnicos:
     por respuesta, no por variante) ni se **oculta** el valor de mercado por sospecha de tasa vieja — ocultar dinero
     que sí tenemos no es money-safe, **declararlo sí**. Si el dueño quiere ver el estado de la FX en la consola, es
     **Q-B5** (§10) y se sirve del `GET /admin/fx` que ya existe.
+  - **⚠️ ACTUALIZACIÓN v1.63 — sigue ABIERTA, y ahora es MÁS visible, no menos urgente.** §4.43(e) hace que
+    `GET /admin/fx` **declare** la edad de la tasa automática (`ageDays`, `status: fresh|stale|missing`), que el
+    fallback duro de 18 **deje de llamarse `manual`** (`source: "fallback"`) y que `POST /admin/fx/refresh` **diga si
+    el fetch falló** (`outcome: "failed"`) en vez de devolver el override como si hubiera refrescado. **Eso NO
+    arregla nada de esto**: enseñar que la tasa está vieja no la refresca. Al contrario — **hasta v1.62.2 el panel
+    del dueño mostraba `FUENTE: MANUAL (OVERRIDE)` y eso tapaba el síntoma**; desde v1.63, en cuanto pase a
+    `auto`, el panel dirá **`stale`** o **`missing`** con todas las letras. **Lo que hace falta sigue siendo lo
+    mismo y sigue siendo de devops + el humano: `BANXICO_SIE_TOKEN` en producción.** *El humano ya dijo que puso el
+    token: lo verificable es que `fx-refresh` vuelva a escribir `FxRate` con `source=banxico` y que el `GET`
+    responda `automatic.status: "fresh"`.*
 
 - **⛔⛔ NUEVA (v1.62) — `D-PROC-7`: `PROJECT.md` PROHÍBE LA PANTALLA QUE EL DUEÑO ACABA DE PEDIR.**
   **Dueño del arreglo: product-owner** (yo no escribo `PROJECT.md`). **Estado: ⛔ ABIERTA — bloquea la
@@ -20509,6 +20771,35 @@ este documento y con `API_CONTRACT.md`.
   §0-B.1 persigue). **Si el dueño la quiere:** es diseño de ux-ui sobre §28.2 + una lectura del frontend; **el
   contrato no cambia** y **este DTO no cambia**.
   ⚠️ **Lo que sí es urgente no es esta pregunta, es `D-OPS-1`:** enseñar la tasa no arregla que esté vieja.
+
+### Preguntas abiertas (v1.63-fx-mode — el modo del tipo de cambio, §4.43)
+
+> Igual que las de arriba: **ninguna bloquea**, todas tienen **default money-safe ya normado** en
+> `API_CONTRACT §M2-F`, y las abro porque son **de negocio**, no técnicas.
+
+- **Q-F1 — Cuando el dueño esté en `auto` y la tasa de Banxico esté VIEJA (`stale`) o no haya llegado nunca
+  (`missing`), ¿quiere que además de VERLO pase algo?**
+  **Default normado: NO pasa nada más** — se **declara** en `GET /admin/fx` (`status`, `ageDays`, `source:"fallback"`)
+  y punto: ⛔ ni correo, ni tarjeta de dashboard, ni bloqueo del pricing, ni despublicación de la vitrina. Es la misma
+  doctrina de §4.42j: *ocultar dinero que sí tenemos no es money-safe; declararlo sí.* **Si el dueño quiere un aviso
+  proactivo, es otro pase** (toca `mail`/dashboard y decide a **quién** se le avisa y **cada cuánto**), y **si quiere
+  que el sistema se niegue a precisar con una tasa vieja, eso es una decisión de negocio grande** —vaciaría la
+  vitrina— que exige que él diga a partir de cuántos días. *Lo urgente ahí sigue siendo `D-OPS-1`, no la alerta.*
+
+- **Q-F2 — ¿Los 5 días de `FX_AUTO_STALE_AFTER_DAYS` son el número correcto, y quiere poder moverlo sin redeploy?**
+  Lo elegí yo por el calendario, no por preferencia del dueño: el FIX se publica en **días hábiles**, así que un
+  lunes leyendo el viernes tiene **3 días** de edad con toda normalidad y un puente lo lleva a **4**. Con 5 la
+  alerta señala una **caída real**. **Default normado: constante de código, no dial** (*una alerta que grita cada
+  lunes es una alerta que se aprende a ignorar; y un dial que nadie mueve es una superficie de configuración
+  gratuita*). **Si el dueño lo quiere ajustable, promoverlo a dial de M10 es un cambio pequeño** —clave, validador
+  entero `>= 1`, seed 5, una línea en `SETTING_DTO_MAP`— **y no cambia ninguna otra pieza** de §4.43.
+
+- **Q-F3 — Guardar una tasa manual estando en `auto` NO la aplica (I-FX2). ¿Es lo que el dueño espera?**
+  Es la consecuencia directa de lo que pidió (*modo y valor separados*) y es la mitad que impide que «teclear un
+  número» vuelva a encender el manual solo. Pero **es contraintuitivo la primera vez**: guardas 19.5, la pantalla
+  sigue mostrando Banxico, y parece que no se guardó. **Default normado: se guarda, no se aplica, y la respuesta lo
+  DICE** (`applied: false` + el `manual.rate` de vuelta con su valor). **Lo que falta es que la pantalla lo diga con
+  palabras** —*«guardada; regirá cuando pases a manual»*— y **eso es de ux-ui**, no del contrato.
 
 ### ✅ Q-D1 — CERRADA por el dueño (2026-08-24): el techo del piso/bin es **MX$2,000**
 
