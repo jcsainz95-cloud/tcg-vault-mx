@@ -4,7 +4,17 @@
 > El frontend (Next.js 14 + Tailwind) implementa este documento; no lo contradice.
 > Manda `PROJECT.md` sobre el contrato y sobre este documento; este documento define solo lo visual/UX,
 > nunca datos, contrato ni arquitectura.
-> Estado: **v3.5** — **§28.5 precisada**: el **cero tranquilizador** tampoco se enuncia con un **filtro de
+> Estado: **v3.6** — dos cosas, y la primera **corre prisa**:
+> **(1) §29 — la línea de comisión del checkout se renombra y su explicación se BORRA y se reescribe.**
+> `Costo de procesamiento` ⇒ **`Comisión de plataforma`** / **`Platform fee`**, y la frase que decía
+> *«cubre la comisión del procesador de pago (Stripe), **trasladada a ti**»* **desaparece**: en superficie de
+> cliente un cobro se nombra **por lo que es para el cliente**, y **nunca** se explica trasladándole el costo
+> de un tercero (§29, §7.12, §7.12a). ⚠ **El back-office NO se toca**: ahí Stripe **sí** es un costo nuestro y
+> nombrarlo es correcto (§29.4).
+> **(2) §28.5b — resuelta la intersección §28.5 × §28.8** (deuda **BNT-D14**): con `VISTA FILTRADA` en el
+> bloque ① **se suprime el vacío por filtro entero**; la palanca `Limpiar filtros` es **una sola** y vive
+> **arriba, con la versalita** (§28.5b, §28.8, §28.13.21, §28.14 caso 20).
+> Antes: **v3.5** — **§28.5 precisada**: el **cero tranquilizador** tampoco se enuncia con un **filtro de
 > identidad** puesto (`q`), porque `counts` respeta esa identidad y entonces *«todos los encendidos»* es un
 > conjunto acotado por el propio humano; en su sitio va `VISTA FILTRADA` + `zero.filtered` (§28.5, §28.12,
 > §28.14 caso 19). Se alinea además `filters.searchLabel` con el rótulo real (`Buscar carta`, **BNT-D10**).
@@ -716,7 +726,8 @@ sostiene esa dualidad con cinco principios:
    disfraza una carga. **No hay fotos propias del producto** (v1.2): la confianza se apoya en la imagen de
    catálogo de pokemontcg.io + el estándar NM + el `certNumber` verificable en la graduadora.
 2. **Claridad sobre decoración.** Jerarquía tipográfica fuerte, mucho aire, datos legibles. El dinero
-   siempre desglosado (subtotal + procesamiento + IVA). Ninguna cifra financiera aparece sin etiqueta.
+   siempre desglosado (subtotal + **comisión de plataforma** + IVA). Ninguna cifra financiera aparece sin
+   etiqueta. **Y cada línea se nombra por lo que es para quien paga** (§29).
 3. **Coleccionismo serio, no infantil.** Se evoca el mundo TCG/Pokémon con la **carta como héroe visual**
    (imagen grande de catálogo) sobre una base **editorial de papel**: la personalidad la dan la textura de
    papel, la tinta y un único acento bermellón usado con avaricia. **Tipografía profesional, nada de
@@ -732,8 +743,15 @@ sostiene esa dualidad con cinco principios:
    texto (ES suele ser ~15-30% más largo que EN). Ver §9.
 
 Tono de voz del copy: **claro, directo, tranquilizador**. Explica el "por qué" cuando toca dinero
-("Este cargo cubre el procesamiento del pago"). Sin jerga innecesaria; los términos fiscales (IVA, CFDI)
+(«Es nuestra comisión por operar la compra»). Sin jerga innecesaria; los términos fiscales (IVA, CFDI)
 se nombran correctamente.
+
+> ⚠ **Y "explicar el porqué" tiene un límite duro, aprendido en v3.6:** explicar **de dónde sale nuestro
+> costo** no es explicar el cobro — es **contarle al cliente nuestra contabilidad**, y en la pantalla de pago
+> eso se lee como una **declaración**. El ejemplo de esta línea era, hasta v3.5, *«Este cargo cubre el
+> procesamiento del pago»*, y el copy real en producción llegó a decir *«cubre la comisión del procesador de
+> pago (Stripe), **trasladada a ti**»*. **Se borró** (§29). *Un cobro se explica por lo que el cliente
+> recibe, nunca por lo que a nosotros nos cuesta.*
 
 **Léxico de marca — la metáfora de caza (TCG HUNT).** La marca es **TCG HUNT** (§17) y su metáfora de
 caza es **voz legítima del copy**: *cazar, cacería, bounty, presa*. Copy vivo hoy: «Caza la carta.
@@ -1475,12 +1493,44 @@ un módulo— todo el card es clickable (foco visible).
 ### 7.12 Desglose de importe (`AmountBreakdown`) — checkout y órdenes
 Lista de líneas alineadas (label izquierda, monto derecha `tabular-nums`):
 - Subtotal (sin IVA)
-- Costo de procesamiento (Stripe trasladado) — con tooltip explicativo
+- **Comisión de plataforma** — el importe es `processingFeeCents` del `BreakdownDTO` (**el campo del
+  contrato NO cambia**; lo que cambia es **cómo se rotula**). Con hint explicativo. ⛔ **Nunca se rotula
+  «costo de procesamiento» ni se explica nombrando a Stripe ni un traslado de costo** (§29).
 - IVA 16% — etiqueta muestra el `ivaRatePct` real del `BreakdownDTO`
 - (Envío, cuando aplica: retiros)
 - **Total** en negrita, con línea divisoria arriba y tamaño mayor.
 Cada línea que el usuario pueda cuestionar tiene un `?`/tooltip. El total nunca aparece sin su desglose.
 Los importes vienen en centavos del contrato; el formato es §9.3.
+
+> **Un solo componente, cinco superficies.** `AmountBreakdown` es el único sitio donde se rotulan estas
+> líneas, y lo consumen **checkout con cuenta, guest checkout, detalle de orden, seguimiento público del
+> pedido y detalle de envío**. Consecuencia práctica: **cambiar las dos cadenas arregla las cinco a la vez**,
+> y **cualquier superficie nueva que rotule dinero por su cuenta está incumpliendo §7.12a**.
+
+### 7.12a ⚠ Cómo se nombra un cobro en superficie de cliente — **norma, no cadena** (v3.6)
+
+**La regla, en una línea: en superficie de cliente, un cobro se nombra por lo que es *para el cliente*, y no
+se explica trasladándole el costo de un tercero.**
+
+Se desdobla en cuatro obligaciones, y aplican a **toda** etiqueta, hint, tooltip, nota al margen, correo y
+página legal que vea un comprador:
+
+| # | Obligación | Por qué |
+|---|---|---|
+| 1 | **El rótulo nombra al cobrador, no al proveedor.** Si el dinero lo cobra la plataforma, la línea dice **«Comisión de plataforma»**. | Quien emite el cargo es TCG HUNT. Rotularlo con el nombre de un costo interno describe **nuestra contabilidad**, no el cobro que el cliente acepta. |
+| 2 | ⛔ **Prohibido el vocabulario del traslado.** Ni «trasladada a ti», «se te traslada», «passed on to you», «te cobramos lo que nos cobra X», ni ninguna variante. | Una frase en la pantalla de pago **es una declaración por escrito** de lo que hacemos. El riesgo no es que suene mal: es **lo que afirma**. |
+| 3 | ⛔ **Prohibido nombrar a un proveedor de pago como justificación del importe.** El nombre del procesador **no aparece** en una línea de dinero de cliente. *(Distinto de nombrarlo en un error operativo — ver el matiz de abajo.)* | Qué costos cubrimos con nuestra comisión **es asunto nuestro** y no aporta nada a quien paga. Nombrarlo solo sirve para señalar a un tercero como causa. |
+| 4 | ⛔ **Prohibida cualquier afirmación jurídica**, en los dos sentidos: ni «conforme a la ley», ni «permitido por», ni «esto no es un recargo», ni citar norma alguna. | **Hoy no hay abogado en el proyecto.** Sustituir una afirmación arriesgada por otra no es una mejora. **Cuanto menos afirme la pantalla, mejor**; cuando haya asesoría se revisa. |
+
+- **El matiz que evita el barrido ciego.** Nombrar al proveedor en un **mensaje operativo** («No pudimos
+  contactar al procesador de pago. Inténtalo de nuevo en unos minutos.», `errors.PAYMENT_PROVIDER_UNAVAILABLE`)
+  **no incumple nada**: ahí el proveedor **es la causa del fallo**, es información útil y **no justifica ningún
+  importe**. Lo prohibido es nombrarlo **para explicar cuánto se cobra**.
+- **⛔ Esta norma NO aplica al back-office.** Ver §29.4: ahí Stripe es un **costo nuestro** y llamarlo por su
+  nombre es lo correcto y lo único honesto.
+- **Prueba de una sola pregunta, para el que dude ante una cadena nueva:** *si un tercero leyera esta frase en
+  voz alta como declaración del negocio, ¿la firmaríamos?* Si la respuesta es «depende de lo que diga un
+  abogado», la frase **no se escribe**.
 
 ### 7.13 Guía de EMPAQUE (`SafeShippingGuide`) — buylist · **reescrita v3.0.2 (D16/D31)**
 
@@ -2034,10 +2084,12 @@ No bloquean el diseño; se registran para coherencia:
 1. **Fecha de refresco de precio en la UI.** El diseño muestra `capturedDate` junto al precio ("actualizado
    a diario"). Confirmar que `PriceInfo.capturedDate` está disponible en **todos** los `ListingDTO`
    mostrados (catálogo y bóveda) y no solo en el detalle. (Aparece en `PriceInfo`, se asume presente.)
-2. **Copy del tooltip del fee de procesamiento.** El diseño incluye un tooltip explicativo en la línea
-   "costo de procesamiento". Depende de la fórmula del fee (Pregunta 1 de ARCHITECTURE, aún abierta). El
-   texto exacto se ajustará cuando se fije la fórmula; mientras, copy genérico "cubre el procesamiento del
-   pago".
+2. **~~Copy del tooltip del fee de procesamiento.~~ — ⛔ CERRADA Y SUPERADA en v3.6 (§29).** Decía que el
+   texto del tooltip *«se ajustará cuando se fije la fórmula»*, y **esa premisa era el error**: ataba el copy
+   de cliente a **cómo se calcula nuestro costo**. Ya no. **El copy de la línea NO depende de la fórmula del
+   fee y no volverá a depender de ella**: la línea se llama **«Comisión de plataforma»** y su hint no nombra
+   ni fórmula, ni proveedor, ni traslado (§7.12a, §29). El campo del contrato sigue siendo
+   `processingFeeCents` y **no se pide cambiarlo** — el rótulo es asunto de diseño, no de contrato.
 3. **IVA sobre envío en el desglose de retiro.** `AmountBreakdown` de retiros muestra línea de IVA sobre
    el envío (coincide con `shipments/quote` que devuelve `ivaCents`). Confirmar que el IVA aplica al envío
    (Pregunta 2 de ARCHITECTURE) para no mostrar una línea que luego cambie.
@@ -2284,7 +2336,7 @@ base nuevo**. Dos grupos separados por regla, con `eyebrow` mono cada uno.
 bloque. Esto sustituye a hacer scroll a ciegas.
 
 **Desglose y avisos (idénticos al checkout con cuenta, criterio 48b):** `AmountBreakdown` (§7.12) con
-**subtotal sin IVA · costo de procesamiento · IVA 16% · envío (MX$175, del dial, nunca hardcodeado) ·
+**subtotal sin IVA · comisión de plataforma (§29) · IVA 16% · envío (MX$175, del dial, nunca hardcodeado) ·
 total**, más las tres notas al margen ya existentes (ventas finales con enlace a términos, factura CFDI por
 correo, "qué pasa después del pago"). No se añade ni se quita ninguna.
 
@@ -2432,7 +2484,7 @@ en el `Referer` hacia terceros (requisito de diseño con implicación técnica; 
 | 2 | **Estado** | `PipelineStepper` (§7.9): `pagado → preparando → guía → enviado → entregado`. Horizontal en `lg+`, vertical en móvil. Paso completado = verde + label en versalitas; actual = tinta + anillo + `aria-current="step"`; pendiente = muted. Fecha localizada bajo cada paso cumplido (§9.3). |
 | 3 | **Guía** | Solo cuando existe: paquetería + número en mono + "Copiar". Si la URL de rastreo del carrier no está confirmada, **se muestra como texto copiable, no como enlace inventado** (misma regla que §7.2c). Sin guía todavía → el paso "guía" dice `PENDIENTE` en muted, no una caja vacía. |
 | 4 | **Artículos** | Lista con imagen de catálogo (`CardImage`), nombre EN (`lang="en"`), set · número, `ListingSpec` y precio unitario. **Sin folio de inventario** (`INV-…`, dato interno). |
-| 5 | **Total pagado** | `AmountBreakdown` en modo **solo lectura**: subtotal, procesamiento, IVA, envío, total. Es la misma información que ya recibió por correo. |
+| 5 | **Total pagado** | `AmountBreakdown` en modo **solo lectura**: subtotal, **comisión de plataforma** (§29), IVA, envío, total. Es la misma información que ya recibió por correo. **Esta pantalla es de cliente y es pública**: §7.12a aplica aquí con la misma dureza que en el checkout. |
 | 6 | **Pago** | **Una sola línea mono**: `TARJETA ···· 4242` / `CARD ···· 4242`. Nada más: sin titular, sin banco, sin fecha de expiración, sin `paymentIntent`. |
 | 7 | **Envío (mínimo)** | **Ciudad y estado únicamente**: "Envío a Guadalajara, Jalisco". **Sin calle, sin número, sin colonia, sin CP, sin nombre del destinatario.** |
 | 8 | **Frescura** | `text-xs muted` "Actualizado {hora}" + botón `ghost` "Actualizar" (refetch, acción de solo lectura). |
@@ -4631,7 +4683,7 @@ Sin flujo nuevo; tres matices visuales que el frontend debe respetar al re-piela
   («Comprar» tinta / «En el carrito» outline / «No disponible» muted deshabilitado; el ejemplar sin
   precio muestra el aviso mono rojo de §16.4, nunca $0).
 - **Carrito (2d):** líneas con miniatura 92×129 (5:7) o 92×92 (sellado), nombre serif 19px, spec mono
-  muted, «Quitar» mono muted; resumen con desglose (subtotal / IVA 16% / procesamiento) en filas con
+  muted, «Quitar» mono muted; resumen con desglose (subtotal / IVA 16% / **comisión de plataforma**, §29) en filas con
   reglas y **Total mono 26px**; CTA de pago **rojo** con monto (§20.9). El bloque «Guardar en mi
   bóveda» es lista de beneficios con reglas + nota al margen roja «Todas las ventas son finales.»
 - **Bóveda (2e):** KPI del portafolio **44px sans 500 `tabular-nums`** + delta verde/rojo (§7.17);
