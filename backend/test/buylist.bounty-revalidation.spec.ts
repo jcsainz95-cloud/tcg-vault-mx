@@ -1,7 +1,7 @@
 import { ConfigService } from '@nestjs/config';
 import { BuylistService } from '../src/modules/buylist/buylist.service';
 import { PrismaService } from '../src/prisma/prisma.service';
-import { PricingService } from '../src/modules/pricing/pricing.service';
+import { PricingService, PriceInfo } from '../src/modules/pricing/pricing.service';
 import { SettingsService } from '../src/modules/settings/settings.service';
 import { UsersService } from '../src/modules/users/users.service';
 import { PiiCryptoService } from '../src/common/crypto/pii-crypto.service';
@@ -245,6 +245,13 @@ describe('E5 — seam CREAR: 422 BOUNTY_BELOW_RULE contra la CURVA, con el empat
 });
 
 describe('E5 — ALERTA EN EL BINDER (y solo ahí: sin correo, push ni dashboard)', () => {
+  // v1.62.2: el composer recibe la `PriceInfo` ENTERA (no un número ya estrechado) — §4.42j(c).
+  const mkt = (referenceMxnCents: number): PriceInfo => ({
+    status: 'priced',
+    referenceMxnCents,
+    source: 'manual',
+    capturedDate: '2026-09-07',
+  });
   const row = {
     bountyEnabled: true,
     bountyPriceCents: BOUNTY_CENTS,
@@ -256,13 +263,13 @@ describe('E5 — ALERTA EN EL BINDER (y solo ahí: sin correo, push ni dashboard
   } as never;
 
   it('bounty vigente ⇒ effective:true y la compra resuelve por bounty', () => {
-    const dto = composeVariantPricing(MARKET_LOW, DEFAULT_PRICING_CURVE, row, 'Double Rare');
+    const dto = composeVariantPricing(mkt(MARKET_LOW), DEFAULT_PRICING_CURVE, row, 'Double Rare');
     expect(dto.bounty).toMatchObject({ effective: true, curveQuoteCents: 300 });
     expect(dto.buy).toMatchObject({ effectiveCents: BOUNTY_CENTS, source: 'bounty' });
   });
 
   it('bounty REBASADO ⇒ effective:false + `curveQuoteCents` = la tarifa que lo rebasó', () => {
-    const dto = composeVariantPricing(MARKET_HIGH, DEFAULT_PRICING_CURVE, row, 'Double Rare');
+    const dto = composeVariantPricing(mkt(MARKET_HIGH), DEFAULT_PRICING_CURVE, row, 'Double Rare');
     expect(dto.bounty).toMatchObject({ effective: false, curveQuoteCents: 25000, priceCents: BOUNTY_CENTS });
     // La compra ya NO resuelve por bounty: paga la curva.
     expect(dto.buy).toMatchObject({ effectiveCents: 25000, source: 'market' });
@@ -275,7 +282,7 @@ describe('E5 — ALERTA EN EL BINDER (y solo ahí: sin correo, push ni dashboard
   });
 
   it('bounty APAGADO ⇒ effective:false aunque su monto supere la curva', () => {
-    const dto = composeVariantPricing(MARKET_LOW, DEFAULT_PRICING_CURVE, { ...(row as object), bountyEnabled: false } as never, 'Double Rare');
+    const dto = composeVariantPricing(mkt(MARKET_LOW), DEFAULT_PRICING_CURVE, { ...(row as object), bountyEnabled: false } as never, 'Double Rare');
     expect(dto.bounty).toMatchObject({ effective: false });
     expect(dto.buy.source).toBe('market');
   });

@@ -17235,3 +17235,122 @@ tocar) `frontend/src/app/[locale]/(admin)/admin/m1/PendingPublishQueue.tsx` y `m
 la 3ª columna es «Le falta» y con `missing:['location']` pinta **«Ubicación»** (no vacía), la columna
 de dinero pinta el importe resuelto, el contador `publish-queue-total` se pinta porque `total` es
 número, y el componente **no tiene ningún botón de publicar**.
+
+---
+
+## v1.62.2 · `pricing.market` — «solo agrégame el precio del mercado» (2026-09-08)
+
+**Contrato:** `API_CONTRACT §DTOs base`, bloque `<!-- CANON: mercado-de-la-variante -->` (fuente única
+de la forma y de la semántica; **aquí se cita y no se transcribe**, §0-B.3 regla 8) + `§M2-B.1` y los
+candados **B-14**/**B-15** de `§M2-B.6`. **Diseño:** `ARCHITECTURE §4.42j`.
+
+### Qué se implementó, y dónde
+
+| Pieza | Archivo | Qué cambia |
+|---|---|---|
+| `MarketReferenceDTO` | `backend/src/modules/pricing/variant-pricing.ts` | La cara nueva del `VariantPricingDTO`: `status` · `referenceMxnCents` · `capturedDate` · `source`. **Requerida**, no opcional. |
+| `resolveMarketReference(PriceInfo \| null)` | mismo archivo, **exportada** | ⭐ **El único estrechamiento** de `PriceInfo` → mercado emitible. |
+| `composeVariantPricing(...)` | mismo archivo | **Cambia de firma**: el 1.º parámetro pasa de `number \| null` a `PriceInfo \| null \| undefined`, y emite `market`. |
+| Consola de bounties | `backend/src/modules/pricing/admin-bounties.service.ts` | Pasa la `PriceInfo` entera; se retira su estrechamiento a mano. |
+| `PUT …/variant-controls/:cardId/:finish` | `backend/src/modules/pricing/variant-controls.service.ts` | Ídem en la respuesta resuelta **y** en el gate `BOUNTY_BELOW_RULE` (mismo mercado en el alta y en la lectura). |
+| Binder / cajón de variante | `backend/src/modules/inventory/master-set.service.ts` | Ídem; y los campos **planos** de v1.27 (`marketReferenceMxnCents`/`capturedDate`, que viajan en los **tres** scopes) salen ahora del **mismo** `resolveMarketReference`. |
+
+**Cero DDL, cero migración, cero endpoints, cero diales, cero códigos de error.** Ninguna consulta
+nueva: el número ya se resolvía (`getReference`/`getReferencesBatch`) y **se descartaba al proyectar**.
+
+### La decisión de implementación que importa: el parámetro es la `PriceInfo`, no un número
+
+Las tres llamadas al composer **estrechaban a mano** `PriceInfo → number | null` justo antes de llamar
+(`ref.status === 'priced' ? ref.referenceMxnCents ?? null : null`), cada una con su propia copia del
+predicado. Eso son tres cuerpos que deben coincidir y que nadie obligaba a coincidir — la misma lección
+de `GradedEstimateRef` (§4.38c). Ahora el estrechamiento vive **una sola vez, dentro del composer**, y
+**el compilador impide rehacerlo fuera**: un caller que pase un número no compila. Es la dirección que
+sugería `ARCHITECTURE §4.42j(c)` (explícitamente **no** normativa; el contrato exige el DTO, no la firma).
+
+De esa **misma variable** salen (i) el `market` que se emite y (ii) el número que entra a la curva ⇒
+**un mercado que la curva no vio es imposible por construcción**, que es la mitad (c) de B-14.
+
+### Las tres reglas duras, y dónde se cumplen
+
+1. **⛔ `0` no es emitible, y la regla es DEL EMISOR.** `resolveMarketReference` exige `> 0`; un
+   `priceMxnCents = 0` (fila degenerada, restore, corrupción) sale **`pending` + `null`**, jamás
+   `priced: 0`. **No es teórico:** el cuerpo real de `getReferencesBatch` **sí** entrega
+   `{status:'priced', referenceMxnCents: 0}` ante esa fila (medido, y fijado como test), así que el `0`
+   llega de verdad hasta el composer y es el composer quien tiene que negarse a emitirlo. Es la misma
+   H-1 de los overrides, y es lo que mantiene viva la equivalencia con la curva (que ya trata `<= 0`
+   como `pending` en `explainBuy/SaleFromCurve`).
+2. **⛔ Jamás el precio de otro acabado.** No hay a dónde caer: el composer recibe la `PriceInfo` de
+   **esa** clave `(cardId, productType, gradeKey, finish)` y sin ella el resultado es `pending`. No se
+   añadió ningún fallback al acabado base ni «al precio de la carta».
+3. **⛔ No se resuelve el mercado por cuenta propia.** Cero consultas nuevas y cero precedencias nuevas:
+   la elección de fila sigue siendo la de `getReference`/`getReferencesBatch` (tier manual absoluto →
+   `capturedDate` desc → fuente).
+
+**🕐 `capturedDate` se COPIA, nunca se sella con `today()`** (B-15). **No se cableó `evidenceDate`**
+(deuda **GU-9**): poner una antigüedad falsa junto a una decisión de dinero es peor que no ponerla.
+
+### Convivencia con los campos planos del binder (v1.27) — redundancia, no divergencia
+
+En scope `platform` el mismo número viaja dos veces (`marketReferenceMxnCents` plano y
+`pricing.market.referenceMxnCents`). **No se deprecó nada**: los planos viajan en los **tres** scopes y
+`pricing` solo en `platform` — retirarlos dejaría la bóveda del cliente sin valuación. Ambos salen
+ahora de **`resolveMarketReference` sobre la misma `PriceInfo`**, así que el invariante
+`pricing.market.referenceMxnCents === marketReferenceMxnCents` se cumple **por construcción** y hay un
+test que lo mira. *El frontend lee uno solo y no los compara para decidir.*
+
+### ⚠️ Para el frontend (y para ux-ui): se ramifica por `status`, no por el número
+
+`status: "pending"` ⇔ los otros tres campos en `null`, los cuatro a la vez. **Prohibido** inferir «sin
+mercado» de la falsedad del número (`!referenceMxnCents` es verdadero para `0` y para `null`): la UI
+**obedece el discriminante**, misma doctrina que `state` y `priceBasis`. El tratamiento visual del caso
+`pending` y de la fecha es de `DESIGN_SYSTEM §28.4`.
+
+### ⚠️ El importe depende de un FX que hoy puede estar congelado (P-63)
+
+Las referencias llegan en **USD** y se convierten con la FX vigente + colchón. En producción falta
+`BANXICO_SIE_TOKEN`, así que la conversión cae al **override manual / último `FxRate` válido** (hoy,
+`19.0000`). Consecuencia honesta que hay que saber al leer el número: `referenceMxnCents` puede ser un
+precio USD reciente convertido con una tasa vieja, y **`capturedDate` no informa de eso** (es la fecha
+del precio, no la de la tasa). **No es de backend**: es devops + el humano (`D-OPS-1`). **No se añadió
+frescura de FX por fila** (la FX es una por respuesta; `GET /admin/fx` ya la expone).
+
+### Tests — `backend/test/pricing.variant-market.spec.ts` (candado **B-14**, 7 casos)
+
+**Un** fixture, **una** carta, tres acabados con bounty en alcance: `normal` con referencia de
+**MX$1,000**, `reverse_holo` **sin ninguna fila**, `holofoil` con fila **degenerada** `priceMxnCents = 0`.
+Se lee con las **tres** seams (consola / binder / respuesta del `PUT`) y se compara sobre el **JSON
+real** (una clave `undefined` desaparece en el cable, y «omitir el bloque» es uno de los rojos de (b)).
+
+| Letra de B-14 | Caso |
+|---|---|
+| (a) | `normal` ⇒ `priced` + `1000_00` + su fecha + su fuente |
+| (b) | `reverse_holo` ⇒ `pending` y los cuatro nulos; **ni el `1000_00` del otro acabado, ni `0`, ni bloque omitido** |
+| (c) ⭐ | los tres `null` en la fila sin mercado y los tres **no nulos** en la fila con mercado + la **equivalencia** enunciada sobre todas las filas |
+| (d) | consola == binder == respuesta del `PUT`, acabado por acabado (+ (d-bis): plano == `pricing.market`) |
+| (e) | la fila `0` ⇒ `pending` + `null`; y la **premisa** medida contra el cuerpo real de `getReferencesBatch`, que sí entrega `priced: 0` |
+
+**Verificación por MUTACIÓN — una por letra, roja confirmada y restaurada:**
+
+| Mutación introducida | Rojo observado |
+|---|---|
+| (a) `capturedDate` sellado con `new Date()` en el emisor | **(a)** y (d) |
+| (b) `ref ?? [...refs.values()][0]` en la consola (*el precio de otro acabado*) | **(b)**, (c) y (d) |
+| (b-bis) el bloque `market` se omite cuando es `pending` | **(b)**, (c), (d), (d-bis) y (e) |
+| (c) `suggestedCents: buy.curveQuoteCents ?? 0` (*cotiza donde no hay mercado*) | **(c)** y (e) |
+| (d) el `PUT` vuelve a estrechar a mano y pierde fecha/procedencia | **(d)**, y **solo** (d) |
+| (e) `cents <= 0` → `cents < 0` (*el `0` «fiel al dato»*) | **(e)** y (c) — *la regla del emisor es lo que sostiene (c)* |
+
+| medición | resultado |
+|---|---|
+| spec nuevo | **7/7 verdes** |
+| **suite unitaria completa** (`npx jest`) | **253 suites / 3.702 tests — 3.702 verdes** |
+| `eslint` + `tsc --noEmit` | limpio |
+
+### ⚠️ Lo que NO se midió, dicho explícitamente
+
+**No se corrió la suite de integración** (`npm run test:integration`): en esta sesión **no hay Postgres
+ni Docker** (`pg_isready` sin respuesta, sin daemon). Por eso **no se añadió** un bloque B-14 a
+`backend/test/integration/admin-bounties.e2e-spec.ts`: entregar un spec de infra que nadie ha visto en
+verde es entregar un rojo sorpresa. El candado B-14 queda cerrado en la suite **unitaria**, que sí corre
+en CI. Si QA quiere además la versión contra Postgres real (fila `PriceReference` de verdad con
+`priceMxnCents = 0` y un acabado sin fila), es un encargo de una tanda y vuelve a backend.

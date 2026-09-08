@@ -1,6 +1,6 @@
 import { VariantControlsService } from '../src/modules/pricing/variant-controls.service';
 import { composeVariantPricing } from '../src/modules/pricing/variant-pricing';
-import { PricingService } from '../src/modules/pricing/pricing.service';
+import { PricingService, PriceInfo } from '../src/modules/pricing/pricing.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { AuditService } from '../src/modules/audit/audit.service';
 import { PrismaClient } from '@prisma/client';
@@ -437,9 +437,24 @@ describe('bounty (P-22: persistencia + invariantes; vitrina/conteo son de fase p
 });
 
 describe('composeVariantPricing — proyección del DTO (§DTOs v1.28, actualizado v2.0)', () => {
+  // v1.62.2 (§4.42j(c)): el composer recibe la `PriceInfo` de la variante, no un número estrechado.
+  const MKT: PriceInfo = {
+    status: 'priced',
+    referenceMxnCents: 10000,
+    source: 'tcgcsv_singles',
+    capturedDate: '2026-09-07',
+  };
+
   it('sin fila: sugerido=efectivo por la CURVA, overrides null, SIN bloque bounty', () => {
-    const dto = composeVariantPricing(10000, DEFAULT_PRICING_CURVE, null);
+    const dto = composeVariantPricing(MKT, DEFAULT_PRICING_CURVE, null);
     expect(dto).toEqual({
+      // v1.62.2: el mercado que ENTRÓ al cálculo viaja de vuelta (§DTOs `MarketReferenceDTO`).
+      market: {
+        status: 'priced',
+        referenceMxnCents: 10000,
+        source: 'tcgcsv_singles',
+        capturedDate: '2026-09-07',
+      },
       buy: { suggestedCents: 4000, overrideCents: null, effectiveCents: 4000, source: 'market', premiumAtFloor: false },
       sell: { suggestedCents: 11500, overrideCents: null, effectiveCents: 11500, source: 'market', premiumAtFloor: false },
     });
@@ -472,7 +487,7 @@ describe('composeVariantPricing — proyección del DTO (§DTOs v1.28, actualiza
       bountyTargetQty: 3,
       bountyAcquiredQty: 1,
     }) as never;
-    const dto = composeVariantPricing(10000, DEFAULT_PRICING_CURVE, row);
+    const dto = composeVariantPricing(MKT, DEFAULT_PRICING_CURVE, row);
     // Bounty $75 > curva $40 ⇒ EFECTIVO, gana la precedencia #1.
     expect(dto.buy).toEqual({ suggestedCents: 4000, overrideCents: 300, effectiveCents: 7500, source: 'bounty', premiumAtFloor: false });
     expect(dto.sell).toEqual({ suggestedCents: 11500, overrideCents: 9900, effectiveCents: 9900, source: 'override', premiumAtFloor: false });

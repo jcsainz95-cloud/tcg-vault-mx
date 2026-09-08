@@ -6,7 +6,7 @@ import { PricingService } from '../pricing/pricing.service';
 // H-1 (§4.36.6): «presente ⇔ > 0» en UN solo predicado compartido — prohibido repetirlo a mano.
 import { hasManualPrice } from '../../common/money';
 // v1.28 (P-18, §4.26b): composer ÚNICO del `pricing?` de la variante (consola de tres precios).
-import { VariantPricingDTO, composeVariantPricing } from '../pricing/variant-pricing';
+import { VariantPricingDTO, composeVariantPricing, resolveMarketReference } from '../pricing/variant-pricing';
 import { CARD_ORDER_BY_IN_SET, FINISH_ORDER, computeDisplayFinishes } from '../../common/card-order';
 // v1.33 (P-27, §4.31): mapa curado padre→subset del MASTER SET COMBINADO. SOLO lectura de
 // presentación (money-safe): resuelve `externalId`→`CardSet.id` local por join; nunca fuente de verdad.
@@ -820,22 +820,25 @@ export class MasterSetService implements OnModuleInit {
         const variants: MasterSetVariantDTO[] = universe.map((finish) => {
           const count = byFinish.find((x) => x.finish === finish)?.count ?? 0;
           const mref = marketRefs.get(`${c.id}|raw|raw:NM|${finish}`);
-          const marketReferenceMxnCents =
-            mref && mref.status === 'priced' ? (mref.referenceMxnCents ?? null) : null;
+          // v1.62.2 (§DTOs, `<!-- CANON: mercado-de-la-variante -->`): los campos PLANOS (que viajan
+          // en los TRES scopes) y el `pricing.market` del scope `platform` salen del MISMO cuerpo de
+          // estrechamiento sobre la MISMA `PriceInfo` ⇒ es REDUNDANCIA, no divergencia, y el
+          // invariante `pricing.market.referenceMxnCents === marketReferenceMxnCents` se cumple por
+          // construcción (no hay dos lecturas que puedan discrepar).
+          const market = resolveMarketReference(mref);
+          const marketReferenceMxnCents = market.referenceMxnCents;
           return {
             finish,
             count,
             covered: count > 0,
             displayed: displaySet.has(finish),
             marketReferenceMxnCents,
-            ...(marketReferenceMxnCents != null && mref?.capturedDate != null
-              ? { capturedDate: mref.capturedDate }
-              : {}),
+            ...(market.capturedDate != null ? { capturedDate: market.capturedDate } : {}),
             // v1.28 (P-18): consola de tres precios — SOLO scope platform (regla dura §4.26b).
             ...(pricingCurve
               ? {
                   pricing: composeVariantPricing(
-                    marketReferenceMxnCents,
+                    mref ?? null,
                     pricingCurve,
                     variantOverrides.get(`${c.id}|raw|raw:NM|${finish}`) ?? null,
                     // v2.0 (§4.36.5): la rareza SOLO para el veredicto del guardarraíl (`premiumAtFloor`).
