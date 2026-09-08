@@ -3730,6 +3730,63 @@ export const mockVariantControlsStore = new Map<string, MockVariantControlsRow>(
       bountyCompletedAt: null,
     },
   ],
+  // v1.62 — filas de DEMO para la consola de bounties (§28): sin ellas el modo mock solo enseña
+  // el caso feliz, y la pantalla existe justo para los otros cuatro. Una por estado del enum.
+  [
+    // `rebasada`: encendido, con precio, pero POR DEBAJO de la tarifa que da la curva ⇒ no paga y
+    // no se publica. Es la fila por la que existe la consola.
+    variantControlsKey('c-charizard', 'raw', 'raw:NM', 'holofoil'),
+    {
+      sellOverrideCents: null,
+      buyOverrideCents: null,
+      bountyEnabled: true,
+      bountyPriceCents: 1_000,
+      bountyTargetQty: 2,
+      bountyAcquiredQty: 0,
+      bountyCompletedAt: null,
+    },
+  ],
+  [
+    // `invalida`: encendido y SIN precio utilizable (fail-safe; la guarda del `PUT` lo impide, pero
+    // es representable en la BD y tiene que verse en vez de colarse dentro de `activa`).
+    variantControlsKey('c-milotic-fa', 'raw', 'raw:NM', 'reverse_holo'),
+    {
+      sellOverrideCents: null,
+      buyOverrideCents: null,
+      bountyEnabled: true,
+      bountyPriceCents: null,
+      bountyTargetQty: 2,
+      bountyAcquiredQty: 0,
+      bountyCompletedAt: null,
+    },
+  ],
+  [
+    // `completada`: se apagó SOLO al llegar al objetivo (no lo apagó nadie).
+    variantControlsKey('c-blastoise', 'raw', 'raw:NM', 'holofoil'),
+    {
+      sellOverrideCents: null,
+      buyOverrideCents: null,
+      bountyEnabled: false,
+      bountyPriceCents: 120_000,
+      bountyTargetQty: 2,
+      bountyAcquiredQty: 2,
+      bountyCompletedAt: '2026-08-30T18:00:00.000Z',
+    },
+  ],
+  [
+    // `apagada`: lo apagó una PERSONA. No se colapsa con `completada` — el porqué dejó de pagarse
+    // es el dato que esta pantalla existe para no perder.
+    variantControlsKey('c-zapdos', 'raw', 'raw:NM', 'normal'),
+    {
+      sellOverrideCents: null,
+      buyOverrideCents: null,
+      bountyEnabled: false,
+      bountyPriceCents: 60_000,
+      bountyTargetQty: 2,
+      bountyAcquiredQty: 0,
+      bountyCompletedAt: null,
+    },
+  ],
 ]);
 
 /** Sugerido de COMPRA por la CURVA (v2.0) sobre la referencia del acabado. Demo: ver mockDemoQuote. */
@@ -3896,6 +3953,10 @@ export function mockPublicBounties(): import('@/types/contract').PublicBountiesR
     if (productType !== 'raw') continue;
     const card = mockCards.find((c) => c.id === cardId);
     if (!card) continue;
+    // v1.62 — la vitrina pública FILTRA a los rebasados por diseño (criterio 91 · §M2-B.4: «todo
+    // lo publicado es mejor que la tarifa»). Sin esto el mock publicaba un bounty que el sistema
+    // real ni paga ni publica, y la consola de bounties y la vitrina se contradecían en demo.
+    if (!mockVariantPricing(cardId, finish as Finish).bounty?.effective) continue;
     const remaining =
       row.bountyTargetQty != null ? Math.max(0, row.bountyTargetQty - row.bountyAcquiredQty) : null;
     data.push({
@@ -3913,6 +3974,136 @@ export function mockPublicBounties(): import('@/types/contract').PublicBountiesR
   }
   data.sort((a, b) => b.bountyPriceCents - a.bountyPriceCents);
   return { data: data.slice(0, 50) };
+}
+
+// ---- v1.62/v1.62.1 · CONSOLA DE BOUNTIES (GET /admin/pricing/bounties, §M2-B.0/.1) ----
+
+/**
+ * **Esto es el SERVIDOR simulado, no la pantalla.** El `state`, los `counts` y `truncated` los
+ * deriva aquí el stand-in del backend porque el contrato dice que los deriva el backend; la vista
+ * de §28 se limita a pintarlos y **jamás** los recalcula. Si alguien copia esta función a un
+ * componente, ha roto la regla «el estado lo dice el servidor».
+ *
+ * Se sigue el ORDEN DE OPERACIONES NORMATIVO de §M2-B.1 al pie:
+ * seleccionar (alcance + identidad; techo ⇒ `truncated`) → clasificar TODO → CONTAR → filtrar por
+ * `state` → ordenar → paginar. ⛔ Cortar antes de clasificar es exactamente cómo un `rebasada`
+ * volvería a desaparecer en la pantalla construida para verlo.
+ */
+const MOCK_ADMIN_BOUNTY_CAP = 1000;
+
+/** Predicado de ALCANCE (§M2-B.0): una fila es *un bounty* si tiene historia de bounty. */
+function mockBountyInScope(row: MockVariantControlsRow): boolean {
+  return (
+    row.bountyEnabled ||
+    row.bountyPriceCents != null ||
+    row.bountyCompletedAt != null ||
+    row.bountyAcquiredQty > 0
+  );
+}
+
+/** Tabla de §M2-B.0, en el mismo orden en que la escribe el contrato. */
+function mockDeriveBountyState(
+  bounty: NonNullable<import('@/types/contract').VariantPricingDTO['bounty']>,
+): import('@/types/contract').BountyState {
+  if (!bounty.enabled) return bounty.completedAt != null ? 'completada' : 'apagada';
+  if (!(bounty.priceCents != null && bounty.priceCents > 0)) return 'invalida';
+  return bounty.effective ? 'activa' : 'rebasada';
+}
+
+/** `attention_first`: lo que está costando dinero en silencio, primero. */
+const MOCK_ATTENTION_RANK: Record<import('@/types/contract').BountyState, number> = {
+  rebasada: 0,
+  invalida: 0,
+  activa: 1,
+  completada: 2,
+  apagada: 3,
+};
+
+export function mockAdminBounties(
+  filters: import('@/lib/api').AdminBountyFilters = {},
+): import('@/types/contract').AdminBountyListResponse {
+  const page = Math.max(1, filters.page ?? 1);
+  const pageSize = Math.min(100, Math.max(1, filters.pageSize ?? 20));
+  const q = (filters.q ?? '').trim().toLowerCase();
+
+  // (1) SELECCIONAR — alcance + filtros de IDENTIDAD. El techo se aplica AQUÍ y solo aquí.
+  const selected: { cardId: string; finish: Finish; row: MockVariantControlsRow }[] = [];
+  for (const [key, row] of mockVariantControlsStore) {
+    const [cardId, productType, gradeKey, finish] = key.split('|');
+    if (productType !== 'raw' || gradeKey !== 'raw:NM') continue;
+    if (!mockBountyInScope(row)) continue;
+    const card = mockCards.find((c) => c.id === cardId);
+    if (!card) continue;
+    if (filters.setId && card.setId !== filters.setId) continue;
+    if (filters.finish && finish !== filters.finish) continue;
+    if (q && !`${card.name} ${card.number} ${card.setName}`.toLowerCase().includes(q)) continue;
+    selected.push({ cardId, finish: finish as Finish, row });
+  }
+  const truncated = selected.length > MOCK_ADMIN_BOUNTY_CAP;
+  const capped = selected.slice(0, MOCK_ADMIN_BOUNTY_CAP);
+
+  // (2) CLASIFICAR todo lo seleccionado con el MISMO composer que usa el binder.
+  const classified = capped.flatMap(({ cardId, finish, row }) => {
+    const card = mockCards.find((c) => c.id === cardId)!;
+    const pricing = mockVariantPricing(cardId, finish);
+    if (!pricing.bounty) return [];
+    return [{ card, finish, row, pricing, state: mockDeriveBountyState(pricing.bounty) }];
+  });
+
+  // (3) CONTAR — sobre el conjunto clasificado ENTERO: ignora el filtro `state`, respeta identidad.
+  const counts: import('@/types/contract').AdminBountyCountsDTO = {
+    activa: 0,
+    rebasada: 0,
+    invalida: 0,
+    completada: 0,
+    apagada: 0,
+  };
+  for (const c of classified) counts[c.state] += 1;
+
+  // (4) FILTRAR por `state` → (5) ORDENAR → (6) PAGINAR.
+  const states = filters.states && filters.states.length > 0 ? filters.states : null;
+  const filtered = states ? classified.filter((c) => states.includes(c.state)) : classified;
+  const price = (c: (typeof classified)[number]) => c.pricing.bounty?.priceCents ?? -1;
+  const sorted = [...filtered].sort((a, b) => {
+    if ((filters.sort ?? 'attention_first') === 'attention_first') {
+      const rank = MOCK_ATTENTION_RANK[a.state] - MOCK_ATTENTION_RANK[b.state];
+      if (rank !== 0) return rank;
+    }
+    return price(b) - price(a) || a.card.id.localeCompare(b.card.id);
+  });
+  const total = sorted.length;
+  const slice = sorted.slice((page - 1) * pageSize, page * pageSize);
+
+  return {
+    data: slice.map((c) => ({
+      cardId: c.card.id,
+      setId: c.card.setId,
+      setName: c.card.setName,
+      name: c.card.name,
+      number: c.card.number,
+      ...(c.card.imageSmallUrl ? { imageSmallUrl: c.card.imageSmallUrl } : {}),
+      ...(c.card.rarity ? { rarity: c.card.rarity } : {}),
+      productType: 'raw' as const,
+      gradeKey: 'raw:NM' as const,
+      finish: c.finish,
+      state: c.state,
+      progress: {
+        targetQty: c.row.bountyTargetQty,
+        acquiredQty: c.row.bountyAcquiredQty,
+        remainingQty:
+          c.row.bountyTargetQty != null
+            ? Math.max(0, c.row.bountyTargetQty - c.row.bountyAcquiredQty)
+            : null,
+      },
+      updatedAt: '2026-09-01T12:00:00.000Z',
+      pricing: c.pricing,
+    })),
+    page,
+    pageSize,
+    total,
+    counts,
+    truncated,
+  };
 }
 
 // ---- P-19: publicar todo (POST /admin/inventory/publish-all) ----
