@@ -331,14 +331,38 @@ Encontrado por el humano probando en producción. Las tres se sirven juntas o ni
 #### P-58 · 🔴 «Marcar recibida» se ofrece desde CUALQUIER estado — se salta el pacto
 - **Encontrado por el humano** mirando la pantalla; **seguridad lo había visto por el código** en su
   pase y lo dejó anotado. Dos caminos independientes, mismo hallazgo.
-- **Medido:** la guarda de `receive` es `liveRequestWhere()` — solo exige que la solicitud no esté
-  cerrada, **no que esté en el paso correcto**. Y la interfaz ofrece el botón desde el paso 1.
+- **Medido:** la guarda de `receive` (`buylist.service.ts:5488`) es `liveRequestWhere()` — solo exige
+  que la solicitud no esté cerrada, **no que esté en el paso correcto**. Y la interfaz ofrece el
+  botón desde el paso 1.
 - **Por qué importa, y no es cosmético:** desde **«Cotizada»** marcar recibida salta al paso 5 **sin
   que exista precio pactado ni aceptación del vendedor** — acabas con las cartas de alguien sin
   acuerdo. Desde **«Ofertada»** es peor: **le cierra la ventana al vendedor**, que ya no puede
   aceptar ni declinar.
-- **Rol dueño:** arquitecto (¿desde qué estados es legal?) → backend (la guarda) + frontend (que el
-  botón no se ofrezca donde no toca).
+
+- **⚠️⚠️ ANTES DE TOCAR LA GUARDA — LEER ESTO (medido 2026-09-08, y contradice la cura obvia).**
+  La guarda **NO está floja por descuido: está por EXCLUSIÓN a propósito**, y el porqué está escrito
+  en el bloque de documentación de `receive`. Los hechos que dejó quien la escribió:
+  - **La mesa dispara los verbos EN CADENA.** En el incidente que originó la guarda, `receive` y
+    `verify` se ejecutaron seguidos tras `confirm-shipment`, y **la bitácora real muestra
+    `receive`→`verify` con 20 ms de diferencia**. No es un caso teórico: es cómo se trabaja.
+  - Su regla, textual: *«Una guarda que rompe el trabajo legítimo del día siguiente no es más segura:
+    es la que alguien acaba desactivando.»* Misma dirección que el **criterio 129** (estados vivos
+    por complemento): olvidarse falla hacia el lado seguro.
+  - El segundo término, `closedAt: null`, **no es redundante** aunque lo parezca: ya hubo en la base
+    filas con `closedAt` sellado y estado no-terminal, y sobre ésas el término de estado por sí solo
+    dejaba pasar la transición. *Una guarda no puede apoyarse en el invariante que el bug rompió.*
+  ⇒ **Apretar a «solo desde el estado X» sin más inventaría una máquina de estados que la mesa no
+  usa, y rompería la operación real.** Quien lo intente sin leer ese bloque va a romper algo que hoy
+  funciona y a creer que lo arregló.
+
+- **Cómo se cierra bien, en dos mitades separables:**
+  1. **La barata y sin riesgo (hacer ya):** que **la interfaz no ofrezca el botón donde no toca**.
+     Eso quita el 100% del camino accidental —que es como lo encontró el humano— **sin tocar la
+     guarda del servidor**. Rol: **frontend**.
+  2. **La de fondo (decisión, no parche):** ¿desde qué estados es legítimo `receive`? Lo decide el
+     **arquitecto**, y con las dos evidencias delante: el agujero del pacto **y** el encadenamiento
+     de 20 ms de la mesa. Si de ahí sale una guarda más apretada, la escribe **backend**.
+- **Rol dueño:** frontend (mitad 1, ya) · arquitecto → backend (mitad 2, con la evidencia de arriba).
 
 #### P-59 · 🛑 La reserva propia bloquea el reintento del mismo cliente
 - **Encontrado por el humano:** se le congeló el pago, reintentó, y **la carta ya no estaba** —
