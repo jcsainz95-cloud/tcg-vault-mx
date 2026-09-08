@@ -49,6 +49,30 @@ async function overflow(page: Page) {
   }));
 }
 
+/**
+ * Cuenta los roles de tabla **en el ÁRBOL DE ACCESIBILIDAD DEL NAVEGADOR**, no en el DOM.
+ *
+ * ⚠️ **Y no vale `getByRole` para esto.** El `getByRole` de Playwright deriva el rol del **DOM**
+ * (`tagName` + atributos) y **no mira el `display`**: sobre un `<table>` desplomado a bloque
+ * contestaría «table» aunque el navegador hubiera dejado de exponerlo. Sería un candado que mide
+ * el marcado y afirma sobre la semántica. Esto lee el AX tree de Chromium por CDP, que es lo que
+ * recibe un lector de pantalla.
+ */
+async function axTableRoles(page: Page): Promise<Record<string, number>> {
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send('Accessibility.enable');
+  const { nodes } = (await cdp.send('Accessibility.getFullAXTree')) as {
+    nodes: { role?: { value?: string } }[];
+  };
+  await cdp.detach();
+  const count: Record<string, number> = { table: 0, rowgroup: 0, row: 0, rowheader: 0, cell: 0 };
+  for (const n of nodes) {
+    const role = n.role?.value;
+    if (role && role in count) count[role] += 1;
+  }
+  return count;
+}
+
 test.describe('admin · M2 › Bounties', () => {
   test('§28.9 · a 390px la MISMA tabla se desploma en tarjetas y NO desborda', async ({ page }) => {
     mockOnly('las filas de bounty de la semilla son del servidor falso (§28 demo)');
@@ -92,6 +116,29 @@ test.describe('admin · M2 › Bounties', () => {
     // (5) Y las dos acciones de la fila siguen alcanzables dentro de la tarjeta.
     await expect(card.getByRole('button', { name: B('row.editAria', { card: OUTBID_CARD }) })).toBeVisible();
     await expect(card.getByRole('button', { name: B('row.turnOffAria', { card: OUTBID_CARD }) })).toBeVisible();
+
+    // ── (6) ⭐ **DESPLOMADA, SIGUE SIENDO UNA TABLA PARA QUIEN NO LA VE** (§28.10) ─────────────
+    // El colapso de §28.9 no puede pagarse con la semántica: *«el eje sobrevive al colapso»* vale
+    // también —sobre todo— para el lector de pantalla. Se mide **después** del `setViewportSize`,
+    // que es donde el `display` ya no es `table` y donde, por tanto, se puede perder.
+    const ax = await axTableRoles(page);
+    expect(ax.table, 'desplomada, la tabla dejó de exponerse como tabla').toBeGreaterThanOrEqual(1);
+    expect(ax.row, 'desplomada, las filas dejaron de ser filas').toBeGreaterThanOrEqual(1);
+    expect(ax.cell, 'desplomada, las celdas dejaron de ser celdas').toBeGreaterThanOrEqual(1);
+    expect(ax.rowheader, 'el encabezado de grupo dejó de ser cabecera de grupo').toBeGreaterThanOrEqual(1);
+
+    // ⚠️⚠️ **EL QUE DE VERDAD MUERDE, y está medido:** de los cinco roles explícitos, el único que
+    // Chromium **no** deriva solo es `rowgroup` — Blink **ignora el `<tbody>`** si no lleva rol, así
+    // que sin `role="rowgroup"` esta cuenta cae de N a **CERO** a 390px (la cabecera, que sí aporta
+    // un rowgroup implícito, está en `display:none` aquí). Y con ella se va **el agrupamiento**, que
+    // es lo único innegociable de §28.9. Se compara contra los `<tbody>` que hay: un grupo, un
+    // rowgroup. ⛔ Si alguien «limpia atributos redundantes», esto es lo que se pone rojo.
+    const tbodies = await page.locator('table > tbody').count();
+    expect(tbodies).toBeGreaterThan(0);
+    expect(
+      ax.rowgroup,
+      'los `<tbody>` dejaron de exponerse como grupos de filas al colapsar',
+    ).toBe(tbodies);
   });
 
   test('§28.14 caso 15 · con `vault_operator` la pantalla NO se renderiza', async ({ page }) => {

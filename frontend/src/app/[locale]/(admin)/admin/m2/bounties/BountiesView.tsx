@@ -425,11 +425,19 @@ export function BountiesView() {
         // además de duplicar cada nombre accesible y cada botón (dos `Editar` por fila, dos destinos
         // para el foco de §28.10). Aquí la tabla es **una**: bajo `md` el `display` pasa a bloque y
         // cada fila se convierte en una rejilla de dos columnas.
-        // ⚠️ **Y por eso los roles van explícitos:** al dejar de ser `display:table`, el navegador
-        // **deja de exponer la semántica implícita** de tabla/fila/celda (Safari+VoiceOver de forma
-        // notoria). Sin `role="table"|"rowgroup"|"row"|"cell"` el colapso de §28.9 se llevaría por
-        // delante la `<table>` real que exige §28.10. Los roles coinciden con los implícitos, así
-        // que en escritorio no cambian nada.
+        // ⚠️ **Y por eso los roles van explícitos** — con la cuenta MEDIDA, no supuesta (árbol de
+        // accesibilidad de Chromium por CDP, a 390px, con y sin ellos):
+        //   · `rowgroup` **NO es redundante en ningún motor**: Blink **ignora el `<tbody>`** si no
+        //     lleva rol, así que al colapsar la cuenta cae de **6 a 0** y con ella **el agrupamiento
+        //     entero** —lo único innegociable de §28.9— porque aquí la cabecera está en `display:none`.
+        //   · `table`/`row`/`cell`/`rowheader` **sí** los deriva Chromium aunque el `display` deje de
+        //     ser `table` (medido: idénticos con y sin). Se quedan como defensa para los motores
+        //     donde **no** se derivan —WebKit/VoiceOver es el caso documentado—, que este proyecto
+        //     **no puede correr** (Playwright solo tiene Chromium). ⛔ *Que sean redundantes en un
+        //     motor no los hace redundantes.*
+        // Candados: `e2e/admin-bounties.spec.ts` §28.9 (el `rowgroup`, donde de verdad se pierde) y
+        // `BountiesView.test.tsx` §28.10 (los cinco atributos, para que un borrado de UNA línea no
+        // pase en verde).
         <table role="table" className="w-full border-collapse text-sm max-md:block">
           <caption className="sr-only">{t('table.caption')}</caption>
           {/* La cabecera desaparece en móvil: su trabajo lo hace el rótulo dentro de cada celda. */}

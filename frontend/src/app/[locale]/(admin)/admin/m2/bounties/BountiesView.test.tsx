@@ -897,6 +897,44 @@ describe('§28.10 — accesibilidad y el barrido del homoglifo', () => {
     expect(groupHeaders).toHaveLength(2);
   });
 
+  it('⭐ todos los elementos de la tabla llevan su `role` EXPLÍCITO (el mecanismo de §28.9)', async () => {
+    /*
+     * ⚠️⚠️ Este candado es sobre el **MECANISMO**, y por eso mira atributos y no conducta: los
+     * `role=` son lo que sostiene la `<table>` real de §28.10 **cuando §28.9 le quita el
+     * `display:table`**. Hoy cualquiera puede borrarlos en una limpieza de «atributos redundantes».
+     *
+     * ⚠️ Y hay que decir con precisión **cuánto** cubre, porque medí las dos mitades:
+     *  · En **Chromium**, `table`/`row`/`cell`/`rowheader` son redundantes de verdad —Blink los
+     *    deriva igual con `display:block|grid|flex`— y **`rowgroup` NO lo es** (el `<tbody>` sin rol
+     *    ni se expone). Esa mitad se mide donde se pierde: en el navegador
+     *    (`e2e/admin-bounties.spec.ts`, §28.9, el conteo de `rowgroup` contra los `<tbody>`).
+     *  · La otra mitad —los cuatro redundantes en Chromium— es defensa para los motores donde **sí**
+     *    se pierden (WebKit/VoiceOver es el caso documentado), que **no se pueden correr aquí**: el
+     *    proyecto de Playwright es solo Chromium. Sin este candado, esos cuatro se pueden borrar sin
+     *    que nada se ponga rojo **en ningún sitio**.
+     * *Un candado que solo caza el borrado masivo no sirve: el borrado que llega es el de una línea.*
+     */
+    serve(
+      response({
+        data: [makeRow({ id: 'c1', name: 'Charizard ex', state: 'rebasada' })],
+        counts: { activa: 0, rebasada: 1, invalida: 0, completada: 0, apagada: 0 },
+      }),
+    );
+    renderWithProviders(<BountiesView />, 'es');
+    // Con el bloque de edición ABIERTO: su `<td colspan>` vive en otro fichero y también se colapsa.
+    fireEvent.click(await screen.findByRole('button', { name: T.row.editAria.replace('{card}', 'Charizard ex') }));
+    await screen.findByLabelText(T.edit.price);
+
+    const table = screen.getByRole('table', { name: T.table.caption });
+    expect(table).toHaveAttribute('role', 'table');
+    const sinRol = (selector: string) =>
+      Array.from(table.querySelectorAll(selector)).map((el) => el.outerHTML.slice(0, 80));
+    expect(sinRol('thead:not([role="rowgroup"]), tbody:not([role="rowgroup"])')).toEqual([]);
+    expect(sinRol('tr:not([role="row"])')).toEqual([]);
+    expect(sinRol('td:not([role="cell"])')).toEqual([]);
+    expect(sinRol('th[scope="rowgroup"]:not([role="rowheader"])')).toEqual([]);
+  });
+
   it('⛔ ni `role="alert"` ni `aria-live="assertive"`: el rebasado es un estado, no un incidente', async () => {
     serve(
       response({

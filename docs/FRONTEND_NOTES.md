@@ -112,6 +112,47 @@ inyectada) y en el gate real de QA.
   dentro de `transitionTo`: se cierra **solo lo que se guardó**. *El borrador de otra fila no es
   nuestro para tirarlo.*
 
+### 5-bis · MUT-O4 (del coordinador): el candado que faltaba bajo el colapso, y **la medición que corrige mi propio comentario**
+
+El coordinador quitó **los 15 `role=` explícitos de una pasada y la suite entera siguió verde** — ni
+los 82 unitarios ni la spec de navegador los tocaban. Tenía razón, y el diagnóstico era exacto: esos
+roles son **el mecanismo** que sostiene la `<table>` real de §28.10 cuando §28.9 le quita el
+`display:table`, y cualquiera podía borrarlos en una limpieza de «atributos redundantes».
+
+**Antes de escribir el candado lo medí**, porque un candado sobre una semántica hay que ponerlo donde
+la semántica se pierde. Árbol de accesibilidad de **Chromium** (CDP `Accessibility.getFullAXTree`,
+la pantalla real, con y sin los roles):
+
+| Viewport | Con roles | Sin los 15 (MUT-O4) |
+|---|---|---|
+| Escritorio 1280 | `table 1 · rowgroup 7 · row 11 · columnheader 7 · rowheader 4 · cell 42` | `table 1 · rowgroup 1 · row 11 · columnheader 7 · rowheader 4 · cell 42` |
+| **Móvil 390** | `table 1 · rowgroup 6 · row 10 · rowheader 4 · cell 42` | `table 1 · row 10 · rowheader 4 · cell 42` — **rowgroup 0** |
+
+**⚠️ Y esto obliga a corregir lo que yo mismo escribí en §55.1 y en el código.** Mi justificación
+decía que *«al dejar de ser `display:table` el navegador deja de exponer la semántica implícita»*. En
+**Chromium eso es FALSO**: Blink sigue derivando `table`, `row`, `cell` y `rowheader` con
+`display:block|grid|flex` — idénticos con y sin los roles. Lo que **sí** es cierto, y es el hallazgo:
+
+- **`rowgroup` no es redundante en ningún motor.** Blink **ignora el `<tbody>`** si no lleva rol, así
+  que al colapsar la cuenta cae de **6 a 0** —a 390px la cabecera está en `display:none` y era el
+  único rowgroup implícito que quedaba— y **con ella se va el agrupamiento**, que es *«lo único
+  innegociable»* de §28.9.
+- Los otros cuatro se quedan como defensa para los motores donde **no** se derivan (WebKit/VoiceOver
+  es el caso documentado), **que este proyecto no puede correr**: el `playwright.config.ts` es
+  solo-Chromium. *Que sean redundantes en un motor no los hace redundantes* — pero tampoco se puede
+  fingir que se está midiendo algo que aquí no se puede medir.
+
+**Por eso el candado va en dos sitios, y cada uno mide lo suyo:**
+1. **Navegador** (`e2e/admin-bounties.spec.ts`, §28.9, **después** del `setViewportSize`): lee el AX
+   tree por CDP y exige `table`/`row`/`cell`/`rowheader` ≥ 1 **y `rowgroup === nº de `<tbody>`**. ⛔ No
+   se usó `getByRole` para esto: el `getByRole` de Playwright deriva el rol del **DOM** y **no mira el
+   `display`** — contestaría «table» aunque el navegador hubiera dejado de exponerlo. Sería un candado
+   que mide el marcado y afirma sobre la semántica.
+2. **jsdom** (`BountiesView.test.tsx` §28.10): que **cada** `<thead>/<tbody>/<tr>/<td>/<th
+   scope=rowgroup>` lleve su `role`. Es un candado de **atributo**, y se dice en el propio test que lo
+   es: cubre los cuatro que Chromium no puede delatar, para que **un borrado de UNA línea** no pase en
+   verde en ningún sitio.
+
 ### 6. Verificación por mutación (romper ⇒ exigir rojo; todas restauradas)
 
 | # | Mutación | Resultado |
@@ -122,12 +163,15 @@ inyectada) y en el gate real de QA.
 | 4 | devolver `Apagar` a la fila de `state` desconocido | **1 rojo** — MEN-4 |
 | 5 | volver a cerrar el editor ajeno tras un `Apagar` | **1 rojo** — el quinto camino |
 | 6 | devolver la regla vieja del menú (`startsWith` sin barra) | **4 rojos** — dos de la función y dos del DOM, incluido `['/admin/m1','/admin/m10']` donde debía haber uno |
+| **O4** | **quitar los 15 `role=` de golpe** (la mutación del coordinador) | **2 rojos** — jsdom (el candado de atributo) **y navegador** (`rowgroup: expected 6, received 0`) |
+| **O4b** | quitar **solo** `role="table"` (una línea) | **1 rojo: jsdom.** El navegador sigue **verde**, y es correcto: Chromium deriva `table` igual con `display:block` (medido arriba). *No hay nada que observar ahí; por eso el espejo de jsdom no es un extra, es la mitad que falta.* |
+| **O4c** | quitar **solo** `role="rowgroup"` del `<tbody>` (una línea) | **2 rojos** — jsdom **y navegador** (`expected 6, received 0`). Es la prueba de que el candado de navegador **también caza un borrado de una sola línea**, el de la línea que allí importa |
 
 ### 7. Números
 
-`npm test` **1343/1343** (121 archivos, **+13**) · `npx playwright test e2e/admin-bounties.spec.ts`
-**4/4 en Chromium** contra el build de producción con fixtures · `tsc --noEmit` limpio · `next lint`
-sin avisos · catálogos ES/EN simétricos.
+`npm test` **1344/1344** (121 archivos, **+14** contando el candado de roles de la ronda O4) ·
+`npx playwright test e2e/admin-bounties.spec.ts` **4/4 en Chromium** contra el build de producción con
+fixtures · `tsc --noEmit` limpio · `next lint` sin avisos · catálogos ES/EN simétricos.
 
 ⚠️ **No corrí la suite E2E completa** (es el gate de QA y aquí no hay stack): solo el archivo nuevo.
 El cambio de `AdminSidebar` es transversal al back-office, así que lo verifiqué por otra vía —ningún
