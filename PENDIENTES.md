@@ -283,6 +283,112 @@ Doble veredicto por-stream aprobado; mergeado a `main` (`6c5763b`). Se despliega
 
 ### Encontrado por el humano en producción (2026-09-08, tras publicar el ciclo de compra)
 
+#### P-56 · ⭐ WISHLIST del cliente — «dime qué buscas y te la consigo» — pedido por el humano
+- **La idea:** el cliente arma una **lista de deseos** con las cartas que anda buscando. La plataforma
+  le hace saber que **podría conseguírsela a cierto porcentaje por encima del mercado**.
+- **Por qué es más que una lista:** hoy solo sabes qué te compran de lo que YA tienes. La wishlist te
+  dice **qué te comprarían si lo tuvieras** — es tu demanda insatisfecha, medida, y hoy es invisible.
+- **⚠️ Conecta con los bounties, y ése es el valor real.** El bounty es *«pago X por esta carta»*
+  (oferta); la wishlist es *«alguien la quiere»* (demanda). **Una alimenta a la otra**: N clientes
+  buscando la misma variante es exactamente la señal para levantar un bounty. Diseñar las dos sin
+  mirarse sería construir dos mitades de lo mismo.
+- **🔴 Money-critical, y no es obvio:** *«te la consigo a X% sobre mercado»* es **un compromiso de
+  precio con el cliente**. Hay que decidir si es vinculante, cuánto dura, qué pasa si el mercado se
+  mueve entre la promesa y la entrega, y cómo se cruza con la escalera de redondeo y el tope de
+  compra. Pasa por **arquitecto** (regla 9) y exige **triple veredicto**.
+- **Preguntas para el humano, sin asumir:** ¿el porcentaje es un dial global, por rareza, o por
+  carta? ¿la promesa caduca? ¿se avisa al cliente cuando la conseguimos, y con qué plazo para que
+  responda? ¿la wishlist es privada o alimenta un ranking público («las más buscadas»)?
+- **Rol dueño:** arquitecto (diseño) → backend + frontend. **Sin empezar hasta que el humano cierre
+  el alcance.**
+
+#### P-57 · 👤 LA CUENTA DEL CLIENTE — el hueco más grande, y son tres cosas del mismo frente
+Encontrado por el humano probando en producción. Las tres se sirven juntas o ninguna funciona bien.
+
+- **(a) No existe pantalla de perfil.** Verificado: no hay ninguna ruta de perfil ni de cuenta. El
+  cliente **no puede ver ni cambiar** su correo, sus direcciones, sus datos de facturación ni el
+  estado de su verificación. **El servidor YA lo expone todo** (`GET`/`PATCH /users/me`, direcciones,
+  facturación, KYC): falta solo la pantalla. ⚠️ Consecuencia medida: `PHONE_REQUIRED` bloquea vender
+  y el contrato manda «pedir el dato y reintentar» — **sin perfil no había dónde**, así que una
+  cuenta de Google quedaba bloqueada sin salida (paliado con captura inline en el diálogo de venta).
+- **(b) Los pedidos de invitado no se pueden reclamar desde la cuenta.** El mecanismo existe entero y
+  está bien hecho (prueba de titularidad = correo verificado; el enlace de seguimiento sirve para
+  LEER, nunca para APROPIARSE; `GET /orders/claimable` no es un oráculo). Pero **solo se ofrece en la
+  confirmación de compra y en el seguimiento público**: si el cliente cierra esa pestaña, **no hay
+  pantalla que se lo vuelva a ofrecer**. `GET /orders/claimable` **no lo consume nadie**.
+  ⇒ Cada compra de invitado no reclamada en el momento **se queda fuera de la bóveda para siempre**,
+  y la bóveda es la propuesta de valor. **Dónde ponerlo (decidido con el humano):** aviso en **la
+  bóveda** (es donde se nota la ausencia) **y** en pedidos (los enviados a domicilio nunca pasan por
+  la bóveda). Que desaparezca al reclamar y que no aparezca vacío.
+- **(c) La navegación está partida en siete.** Hoy el menú tiene catálogo, compra, sellado, vender,
+  órdenes, envíos y bóveda — y **las solicitudes de venta no están**: solo se llega por dentro de
+  Vender o por el correo. Propuesta del humano, que suscribo: **consolidar** compras + ventas +
+  estado de solicitudes en un solo sitio, y **mover los retiros a la bóveda** (un retiro es una
+  acción sobre la bóveda). ⚠️ Matiz de nombre: «orden» se lee como *compra*; si ahí van las ventas,
+  hacen falta **pestañas explícitas** o un nombre neutro, o el vendedor no las busca ahí.
+- **Rol dueño:** ux-ui (rediseño de navegación) → frontend. **Cero backend**: los endpoints existen.
+
+#### P-58 · 🔴 «Marcar recibida» se ofrece desde CUALQUIER estado — se salta el pacto
+- **Encontrado por el humano** mirando la pantalla; **seguridad lo había visto por el código** en su
+  pase y lo dejó anotado. Dos caminos independientes, mismo hallazgo.
+- **Medido:** la guarda de `receive` es `liveRequestWhere()` — solo exige que la solicitud no esté
+  cerrada, **no que esté en el paso correcto**. Y la interfaz ofrece el botón desde el paso 1.
+- **Por qué importa, y no es cosmético:** desde **«Cotizada»** marcar recibida salta al paso 5 **sin
+  que exista precio pactado ni aceptación del vendedor** — acabas con las cartas de alguien sin
+  acuerdo. Desde **«Ofertada»** es peor: **le cierra la ventana al vendedor**, que ya no puede
+  aceptar ni declinar.
+- **Rol dueño:** arquitecto (¿desde qué estados es legal?) → backend (la guarda) + frontend (que el
+  botón no se ofrezca donde no toca).
+
+#### P-59 · 🛑 La reserva propia bloquea el reintento del mismo cliente
+- **Encontrado por el humano:** se le congeló el pago, reintentó, y **la carta ya no estaba** —
+  la había reservado su propio intento fallido.
+- **Medido:** el inventario se reserva **60 minutos** (`GUEST_ORDER_RESERVATION_TTL_MIN`) y un
+  barrido cada 15 minutos libera lo no pagado. **No se pierde nada** — pero el cliente espera hasta
+  una hora por un pago que se le cayó, y ve «no disponible» sin explicación.
+- **Lo correcto:** que el mismo cliente/sesión **recupere su propia reserva** al reintentar, en vez
+  de chocar contra ella. **Rol dueño:** arquitecto → backend.
+
+#### P-60 · ✉️ Entregabilidad del correo: falta DMARC y el dominio es nuevo
+- **Medido:** el correo de la oferta **se mandó y se entregó** (Resend: `Delivered`) — y **cayó en
+  spam** en Hotmail. No es defecto de código: es reputación. `tcghunt.mx` tiene 17 días y **dos
+  correos en 15 días**; SPF y DKIM verificados, **DMARC ausente**.
+- **⚠️ Por qué urge más de lo que parece:** el correo de **verificación de cuenta** es la puerta de
+  entrada — sin verificar, el sistema **bloquea comprar y vender**. Si ese correo cae en spam, el
+  usuario nuevo se va y **nadie se entera**.
+- **Acción (humano/devops):** registro TXT `_dmarc` con `v=DMARC1; p=none; rua=mailto:…` (modo
+  observación, sin riesgo); marcar los correos como «no es spam»; el volumen hace el resto.
+
+#### P-61 · 🖼️ El catálogo de Vender se ve chico — carrito a pop-up
+- **Propuesta del humano:** mover el carrito a un pop-up y usar ese espacio para mostrar las cartas
+  más grandes, como en el inventario de admin.
+- **⚠️ Restricción que el diseño debe respetar:** ese panel carga hoy **dos cosas que no pueden
+  esconderse**: la llamada a **iniciar sesión** (es donde el vendedor descubre que necesita cuenta) y
+  el mensaje de que **la guía la ponemos nosotros y no paga nada de su bolsillo** (responde la duda
+  que frena al vendedor primerizo). Hay que **reubicarlas**, no solo mover el carrito.
+- **Rol dueño:** ux-ui → frontend.
+
+#### P-62 · 🏷️ Renombrar «Costo de procesamiento» — decisión de negocio pendiente
+- **Pedido por el humano.** ⚠️ **No es solo el nombre:** la explicación de al lado dice *«cubre la
+  comisión del procesador de pago (Stripe), trasladada a ti»* — **no es comisión nuestra, es un
+  costo que se traslada**. Llamarlo «comisión de plataforma» diría que nos la quedamos nosotros.
+- **Dos opciones, las dos legítimas:** (a) «Comisión de plataforma» + **cambiar también la
+  explicación**, o (b) «Comisión por procesamiento de pago», que quita lo feo sin cambiar lo que
+  dice. Recomendada la (b). **Decide el humano.** Claves `processingFee`/`processingFeeHint`, ES/EN.
+- **Rol dueño:** ux-ui (texto) → frontend (cableado).
+
+#### P-63 · 💱 Falta `BANXICO_SIE_TOKEN` — el tipo de cambio no se actualiza
+- **Medido en los logs de producción**, repetido: *«Sin `BANXICO_SIE_TOKEN`: fx-refresh no puede
+  consultar; usa override/último valor»*. Los precios de mercado vienen en USD y se convierten a
+  MXN: **sin token el tipo de cambio se congela** en el último valor o en el manual.
+- No rompe nada hoy, pero **si el peso se mueve, cotizas compra y venta con un tipo viejo**.
+- **Rol dueño:** devops (variable de entorno) — el token lo obtiene el humano de Banxico.
+
+#### P-64 · 📄 `HANDOFF.md` desactualizado — dice un dominio de correo que ya no es
+- Afirma que el dominio verificado en Resend es `tcgvaultmx.com`; **el que se usa y está verificado
+  es `tcghunt.mx`** (medido en los logs y en Resend). Misma clase que los ocho tachones de D52: un
+  documento afirmando un estado que la realidad dejó atrás. **Rol dueño:** devops.
+
 #### P-55 · 🛒 El carrito de venta NO sobrevive al inicio de sesión — reportado por el humano
 - **Síntoma:** el cliente arma su carrito en el cotizador **sin haber iniciado sesión**; al entrar a su
   cuenta para mandar la solicitud, **el carrito se pierde** y tiene que rehacerlo.
