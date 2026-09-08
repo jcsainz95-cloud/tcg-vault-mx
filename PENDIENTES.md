@@ -397,14 +397,24 @@ Encontrado por el humano probando en producción. Las tres se sirven juntas o ni
   que frena al vendedor primerizo). Hay que **reubicarlas**, no solo mover el carrito.
 - **Rol dueño:** ux-ui → frontend.
 
-#### P-62 · 🏷️ Renombrar «Costo de procesamiento» — decisión de negocio pendiente
-- **Pedido por el humano.** ⚠️ **No es solo el nombre:** la explicación de al lado dice *«cubre la
-  comisión del procesador de pago (Stripe), trasladada a ti»* — **no es comisión nuestra, es un
-  costo que se traslada**. Llamarlo «comisión de plataforma» diría que nos la quedamos nosotros.
-- **Dos opciones, las dos legítimas:** (a) «Comisión de plataforma» + **cambiar también la
-  explicación**, o (b) «Comisión por procesamiento de pago», que quita lo feo sin cambiar lo que
-  dice. Recomendada la (b). **Decide el humano.** Claves `processingFee`/`processingFeeHint`, ES/EN.
-- **Rol dueño:** ux-ui (texto) → frontend (cableado).
+#### ~~P-62 · 🏷️ Renombrar «Costo de procesamiento»~~ — ✅ HECHO (2026-09-08), y **la recomendación que traía era la EQUIVOCADA**
+- **Cerrado.** El checkout dice **«Comisión de plataforma»** · *«Nuestra comisión por operar tu compra en
+  TCG HUNT. Ya está incluida en el total que ves aquí.»* La clave se renombró a `checkout.platformFee`.
+- ⚠️⚠️ **Lo que esta ficha recomendaba era la opción (b), «Comisión por procesamiento de pago», con el
+  argumento de que “quita lo feo sin cambiar lo que dice”. Esa opción está DESCARTADA, y no por
+  preferencia:** el humano informó (2026-09-08) que **trasladar al cliente la comisión del procesador es
+  ilegal en México**, así que «no cambiar lo que dice» era exactamente lo que NO se podía hacer. Queda
+  escrito para que nadie la reabra leyendo la recomendación vieja.
+- **Y el problema nunca fue el nombre: era la frase.** El texto viejo declaraba por escrito, en la
+  pantalla de pago, que trasladamos ese costo. Se borró entera; la nueva **no afirma nada jurídico y
+  tampoco lo niega** — una negación defensiva introduce el tema y sigue siendo una afirmación que habría
+  que sostener.
+- ⛔ **Lo que NO se tocó, y no se toca:** los rótulos de Stripe del back-office (diales de M10, línea del
+  P&L de M7). Ahí Stripe **sí** es un costo nuestro y nombrarlo es lo honesto. **Un barrido con `grep`
+  de «Stripe» rompe la contabilidad del panel** — hay un candado que lo caza.
+- 🕐 **Pendiente del humano, con disparador DURO:** **no tiene abogado todavía**. Ese texto de cliente
+  **debe revisarse con abogado antes de crecer en volumen**. Ni el equipo ni el orquestador escriben
+  afirmaciones jurídicas mientras tanto.
 
 #### P-63 · 💱 Falta `BANXICO_SIE_TOKEN` — el tipo de cambio no se actualiza
 - **Medido en los logs de producción**, repetido: *«Sin `BANXICO_SIE_TOKEN`: fx-refresh no puede
@@ -632,10 +642,17 @@ roles) y **¿cómo le llama a M5?**.
 - **Follow-up (frontend, no bloqueante):** UX del modal cuando la sync da 0 por «sin grupo resoluble» —
   guiar explícitamente al linker en vez de solo mostrar «0 presentaciones».
 
+#### ~~P-45 · Badge «N EN TOTAL» del binder~~ — ✅ HECHO (arreglado en `5cdac57`; el candado se añadió el 2026-09-08)
+- **Quinto pendiente desactualizado del día.** Decía «EN CURSO · fix frontend en curso»: **el arreglo ya vivía en el árbol**. Lo que faltaba era el candado, y hacía falta — una fuga que use el total de la carta **solo en el renglón de conteo** dejaba los tres tests viejos en verde.
+
+<details><summary>original</summary>
+
 #### P-45 · Badge «N EN TOTAL» del binder muestra el total de la carta en cada acabado — EN CURSO
 - Dar de alta 2 piezas de un acabado (ej. Spinarak NORMAL) pinta «2 EN TOTAL» también en la teja de otro
   acabado con 0 piezas (Reverse Holo). Solo display (el dato es correcto, el otro acabado está en 0). Fix
   frontend en curso: cada teja muestra el conteo de SU acabado. Money-safe.
+
+</details>
 
 ### Pendiente del humano · Razón social para el footer — ⚠️ LA NOTA ANTERIOR ERA FALSA (corregida 2026-09-08)
 - **Lo que decía esta nota:** «el footer de producción aún dice [RAZÓN SOCIAL PENDIENTE]». **Medido: es
