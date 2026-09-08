@@ -529,6 +529,50 @@ reporte; las cuatro que más cambian el trabajo: **¿entra desde el teléfono?**
 **¿fijó las metas N/X/Y/Z?** (decide si M9 es zombie), **¿entra alguien más al panel?** (decide el trato de
 roles) y **¿cómo le llama a M5?**.
 
+
+##### ✅ Respuestas del humano (2026-09-08) — reordenan el trabajo
+| Pregunta | Respuesta | Qué cambia |
+|---|---|---|
+| ¿Entra desde el teléfono? | **No, solo computadora** | ⬇️ **B2 (las tres pantallas que desbordan en 390 px) BAJA a deuda registrada.** No se gasta tiempo ahí ahora. Se anota con su medición para el día que use el móvil o entre un operador que sí |
+| ¿Las metas `N/X/Y/Z`? | **No existen — y quiere una pestaña de analytics de verdad, pero primero saber qué datos hay** | ➡️ **M9 NO se retira: es la semilla.** Nace **P-67** (inventario de datos). Sí se corrige ya el «beta cerrada» |
+| ¿Alguien más en el panel? | **Todavía no, pero pronto** | Se optimiza para él primero, **sin cerrarle la puerta al operador**. La etiqueta «SÚPER» en 7 de 12 filas **no se quita**: pronto informará |
+| ¿Qué usó la última semana? | **M3 · Ventas** y **M10 · Config** (⛔ **no** M8, **no** M9) | ⬆️ **B3 sube**: M3 es de uso real y le enseña `u-777` en vez del comprador. ⬆️ M10 (el ensayo de ingeniería dentro del formulario). ⬇️ **M8 baja** — no lo usó, y lo más probable es que sea porque **no ha habido disputas**, no porque sobre: es una pantalla que espera, no un zombie |
+
+##### 🎯 Orden de trabajo resultante
+1. **B1 · M5 en computadora** — la pantalla que más usa, diez pestañas y catorce botones por solicitud.
+2. **B3 · M3 y M10** — identificadores en vez de personas, en pantallas de uso diario.
+3. **P-67** — el inventario de datos, que desbloquea la pestaña de analytics.
+4. **I2 · los rótulos del menú** — barato y se nota todos los días.
+5. **I1 (dashboard)** — la tarjeta de progreso inerte: se quita o se conecta.
+6. ⬇️ **B2 (móvil)**, **I4 (M8)** — deuda registrada, con su medición, para cuando toque.
+
+#### P-67 · 📊 Inventario de datos para analytics — «¿qué podemos medir hoy?» — pedido por el humano
+- **Lo que dijo, literal (2026-09-08):** *«SÍ me interesa generar una tab de analytics y reportes, sin
+  embargo creo falta saber bien qué datos están disponibles para ver si hay que crear track de algo y
+  elegir de lo que hay.»*
+- **La pregunta es la correcta y va PRIMERO.** Diseñar un tablero antes de saber qué se puede medir es
+  cómo nacieron las metas `N/X/Y/Z`: un marco de reporte sin datos detrás que lleva meses enseñando
+  «Meta sin fijar». **No se diseña ninguna pantalla hasta que este inventario exista.**
+- **Qué hay que producir** — un documento que el humano pueda leer y elegir, no una lista de tablas:
+  1. **Lo que YA se guarda y se puede reportar hoy**, en lenguaje de negocio (qué se vendió, a quién, a
+     qué precio, con qué margen, cuánto se pagó en compras, qué inventario hay y cuánto vale, KYC,
+     disputas, retiros). Con **la granularidad real** (¿por día? ¿por pieza? ¿por set?) y **desde cuándo
+     hay historia** — un dato que empieza el mes pasado no sirve para una tendencia anual.
+  2. **Lo que se guarda pero NO es reportable todavía** y qué faltaría para que lo fuera.
+  3. **Lo que NO se guarda y habría que empezar a registrar** (el «crear track de algo» que él nombra),
+     con el costo de empezar a hacerlo y **desde cuándo tendría historia** — porque lo que se empieza a
+     registrar hoy no tiene pasado.
+  4. ⚠️ **Las trampas conocidas**, que ya nos mordieron: el P&L del tablero suma un campo a secas
+     mientras el control antilavado usa una cascada con respaldo; y `PriceReference` escribe ~28.559
+     filas/día (P-53) — cualquier reporte histórico de precios se apoya en esa tabla.
+- **Cómo se hace, y en qué orden:** un pase de **lectura** (arquitecto o backend, sin escribir código)
+  que produzca el inventario → el **humano elige** qué quiere ver → **product-owner** aterriza el
+  alcance → recién entonces arquitecto/ux-ui/frontend.
+- **Cruce con P-66:** de las tres secciones de **M9 Reportes**, dos son **idénticas a M7**; lo único
+  propio son las tarjetas de `N/X/Y/Z`. ⇒ **M9 no se retira todavía: es la semilla de este trabajo.**
+  Lo que sí se corrige ya es que hable de «beta cerrada» estando en producción.
+- **Rol dueño:** arquitecto/backend (inventario, solo lectura) → product-owner → ux-ui → frontend.
+
 #### P-55 · 🛒 El carrito de venta NO sobrevive al inicio de sesión — reportado por el humano
 - **Síntoma:** el cliente arma su carrito en el cotizador **sin haber iniciado sesión**; al entrar a su
   cuenta para mandar la solicitud, **el carrito se pierde** y tiene que rehacerlo.
