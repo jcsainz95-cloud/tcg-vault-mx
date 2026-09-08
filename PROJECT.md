@@ -22,8 +22,70 @@
 > documentación. Cualquier cadena «TCG Vault MX» que siga viva en `docs/` o en código es un **residuo a
 > corregir**, no una fuente válida.
 >
-> **ESTADO AL 2026-09-07 (13ª ronda del bloque v2.1 — DECISIÓN DE PRODUCTO DEL HUMANO — LEER PRIMERO;
-> ESTA ES LA MÁS RECIENTE Y MANDA SOBRE LA 12ª Y LA 11ª):**
+> **ESTADO AL 2026-09-08 (14ª ronda del bloque v2.1 — DECISIÓN DE PRODUCTO DEL HUMANO — LEER PRIMERO;
+> ESTA ES LA MÁS RECIENTE. NO toca nada de la 13ª ni de las anteriores: es OTRO FRENTE —bounties, no KYC—,
+> y lo único que hace es REABRIR UNA DECISIÓN DE ALCANCE QUE EL PROPIO HUMANO HABÍA TOMADO):**
+> **D52 — LA CONSOLA DE BOUNTIES ENTRA AL ALCANCE: VER LA LISTA COMPLETA Y EDITAR FILA A FILA. EL TABLERO Y
+> LOS REPORTES DE AVANCE SIGUEN FUERA.**
+> **Qué decía este documento hasta hoy, y no se borra**: **D32** (5ª ronda) y **D35** (6ª) dejaron escrito
+> **cinco veces** que **«NO se construye panel de bounties — el humano lo pidió y decidió dejarlo como
+> proyecto aparte»** (§N.6 ×2, §P.2, y **dos** entradas de «Fuera de alcance»), y el **criterio 164** lo
+> volvió **verificable POR AUSENCIA** (*«verificable también lo que NO se construye»*). **Eso era correcto y
+> era una decisión suya**: cuando la tomó, lo que estaba sobre la mesa era **exigir el objetivo del bounty**,
+> y meter una pantalla nueva en ese pase habría sido alcance que nadie pidió. **Esas frases quedan TACHADAS,
+> no borradas** —con su cuerpo intacto y la razón del cambio al lado—, para que la próxima ronda lea **una
+> decisión medida, no un olvido**.
+> **⚠ Lo que la reabre — y es lo único que la reabre: DOS COSAS QUE AQUELLA DECISIÓN NO PODÍA CONOCER.**
+> **(1) CEGUERA SOBRE DINERO — la razón que manda.** Por **§N.6**, un bounty **por debajo o igual de la
+> tarifa vigente deja de ser bounty** (*«rebasado»*): no aplica al cotizar y **la vitrina pública lo filtra**
+> —por diseño, criterio 91—. Súmele que **las dos superficies de vitrina son condicionales** (sin bounties
+> efectivos, la sección **desaparece** en vez de mostrarse vacía) y el resultado es que **un bounty encendido
+> puede ser invisible en todas partes menos en un badge del binder**: **el dueño cree que paga premium por una
+> carta y no lo paga**, y **no hay ninguna pantalla desde la que pueda notarlo sin sospecharlo antes**.
+> **§N.6 decidió que ese aviso viviera SOLO en el binder cuando esta pantalla no existía.** La regla de §N.6
+> **no se toca** —sigue siendo la correcta—; lo que se añade es **el sitio donde mirar**.
+> **(2) EL RESIDUO DE D35.** El **backfill** que llenó con **2** los bounties viejos dejó **filas que hay que
+> revisar a mano «desde M2»** —vivas y ya por encima de su objetivo—, y **M2 no tenía dónde hacerlo**. Esta
+> pantalla lo resuelve **de paso, sin añadir nada**.
+> **QUÉ ENTRA, dicho con precisión para que no se cuele nada más — DOS COSAS Y NINGUNA TERCERA:**
+> **(a) VER**: **una lista con TODOS los bounties en un solo lugar** —**activos**, **rebasados**, **apagados**
+> y **completados**—, es decir **exactamente lo que las demás superficies filtran a propósito**. **El estado
+> «rebasado» es la información más importante de la lista**: es la ceguera que se cura, y por eso **la lista
+> se ordena y se cuenta alrededor de él**, no como una columna más.
+> **(b) EDITAR FILA A FILA**: cambiar **precio**, **objetivo** y **encendido/apagado** de **un** bounty, desde
+> su propia fila. **Reusa la escritura que ya existe** y **no relaja ninguna guarda**: un bounty que quede por
+> debajo (o igual) de la tarifa **se sigue RECHAZANDO al guardar**, igual que hoy.
+> **⛔ QUÉ SIGUE FUERA, y se dice explícitamente porque eran las otras dos piezas del «proyecto aparte» y el
+> humano NO las pidió**: **(i)** el **TABLERO de bounties** —métricas, tarjetas de resumen, KPIs, cualquier
+> superficie de dashboard—; **(ii)** los **REPORTES de avance contra objetivo** —serie histórica, ritmo de
+> captura, informes en M9—. **Ver la lista no es un tablero, y una columna de avance en una fila no es un
+> reporte.** Si el humano quiere alguna de las dos, es **otro pase** y vuelve al arquitecto (regla 9).
+> **⛔ TAMPOCO entra, y son los bordes por donde esto se desborda solo**: **acciones MASIVAS** de ningún tipo
+> —ni multi-selección, ni «+10 % a los rebasados», ni apagar los rebasados de un clic— *(**SUPUESTO**, ver
+> **pregunta 47**: el humano pidió **editar fila a fila** y eso es lo que se escribe; el lado seguro además
+> coincide con la objeción del arquitecto, «un botón masivo puede fabricar de un clic la ceguera que esta
+> pantalla vino a curar»)*; el **ALTA** de bounties nuevos desde aquí *(**SUPUESTO**, **pregunta 45**: el alta
+> sigue naciendo donde el operador tiene la carta delante)*; y el **aviso proactivo** por correo/push/
+> dashboard cuando un bounty queda rebasado *(**§N.6 lo decidió y esta ronda NO lo reabre**; **pregunta 48**
+> lo pone a reconfirmar, porque **también se decidió cuando la pantalla no existía**)*.
+> **Lo que esta ronda NO cambia, y conviene decirlo porque es donde alguien «mejoraría» de más**: la **regla
+> de §N.6** (el rebasado deja de ser bounty), el **badge del binder** —**se queda**: la consola **no lo
+> sustituye**, responde otra pregunta—, la **vitrina pública** (no cambia ni un campo), el **objetivo
+> obligatorio** (D32) y su **default 2** (D35), y la **precedencia de compra** (§P.2).
+> **Efecto sobre el criterio 164**: sus verificaciones **(a)**, **(b)** y **(c)** —las del **objetivo
+> obligatorio**— **siguen vigentes tal cual y NO se tocan**. **Lo único que cae es su verificación por
+> AUSENCIA** (*«no hay panel de bounties… sin pantalla nueva»*), que **hoy haría que QA rechazara justo lo que
+> el humano pidió**. Se reescribe para que verifique **lo que ahora es cierto**. Lo mismo con el **168(e)**.
+> Ver **§N.6**, **§P.2**, **«Fuera de alcance»** (las dos entradas, enmendadas), **M2**, criterios **164** y
+> **168(e)** (enmendados), criterio **184** (nuevo — la consola) y decisión **114**.
+> **Preguntas: se abren la 45, 46, 47, 48, 49 y 50** —las **cinco de ux-ui** y las **tres del arquitecto**,
+> consolidadas—. **Ninguna bloquea**: todas tienen supuesto tomado y lado seguro.
+> **Nota de precedencia para los otros roles**: el diseño ya estaba escrito y **esperando esta enmienda**
+> (`ARCHITECTURE §4.42`, `API_CONTRACT §M2-B`, `DESIGN_SYSTEM §28`). Con D52 **queda desbloqueado**. Sigue
+> mandando este documento sobre ellos: **si algo allá contradice lo de arriba, se corrige allá**.
+>
+> **ESTADO AL 2026-09-07 (13ª ronda del bloque v2.1 — DECISIÓN DE PRODUCTO DEL HUMANO — ⚠ SIGUE VIGENTE;
+> la 14ª no la toca. ESTA MANDA SOBRE LA 12ª Y LA 11ª):**
 > **D51 — EL COTEJO INE ↔ TITULAR DE LA CLABE SE RETIRA, Y CON ÉL LA PROMESA. NO SE PUEDE EJECUTAR.**
 > **Qué pasó**: la 12ª ronda (D48) puso a existir el cotejo como **veredicto humano registrado**, y dejó
 > abierta **la pregunta 40 — ¿de dónde sale el nombre del titular de la cuenta?**, marcada como **condición de
@@ -868,9 +930,19 @@
 > **bounty vivo y sin objetivo** **nunca** pinta «no comprar», por más copias que acumule (D29 le da
 > precedencia al bounty y el tope general de 10 no aplica). **El humano lo cierra**: dar de alta un bounty
 > **exige capturar su objetivo** (*«hasta tener N en inventario»*). Con eso **el caso «bounty sin meta» deja
-> de existir** y **el tope general siempre tiene con qué compararse**. **NO se construye panel de bounties**
+> de existir** y **el tope general siempre tiene con qué compararse**. ~~**NO se construye panel de bounties**
 > —el humano lo pidió y decidió dejarlo como **proyecto aparte**—: aquí **solo se exige el objetivo donde hoy
-> se configuran**.
+> se configuran**.~~
+> **⚠⚠ 14ª RONDA (D52) — ESA ÚLTIMA FRASE QUEDA REABIERTA POR EL PROPIO HUMANO, Y LO DEMÁS DE D32 SIGUE
+> INTACTO.** Lo tachado **era correcto para SU pase**: lo que se decidía entonces era **exigir el objetivo**, y
+> una pantalla nueva ahí habría sido alcance que nadie pidió. **Lo que lo reabre no es un cambio de opinión: es
+> algo que aquella decisión no podía conocer** — por §N.6 **un bounty rebasado desaparece de todas las
+> superficies**, así que **puede estar encendido y ser invisible**, y el dueño **cree que paga premium por una
+> carta y no lo paga**. **Entra SOLO la pantalla de gestión: ver la lista completa (activos, rebasados,
+> apagados, completados) y editar fila a fila.** **Siguen FUERA el tablero y los reportes de avance contra
+> objetivo.** **El objetivo obligatorio no cambia en nada** — se sigue exigiendo donde hoy se configuran los
+> bounties, y ahora **también** desde la consola, que reusa esa misma escritura. Ver **D52**, §N.6, criterios
+> **164** y **184**.
 > **(D33) La solicitud que nadie oferta CADUCA a los 7 días hábiles.** Al re-anclar el barrido de 30 días
 > —correcto: **`cotizada` ahora significa «esperando que NOSOTROS ofertemos»**, y cerrarla por **inacción
 > nuestra** sería culpar al cliente— **quedó un hueco: nada cerraba ya una `cotizada`**, y un cliente podía
@@ -1568,6 +1640,15 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
       precios es **intercambiable (`PricingProvider`)** para poder subir a un plan de pago sin tocar el resto
       del sistema. Distingue **valor de referencia/mercado** (para mostrar y valuar portafolio) del **precio
       de venta** (= referencia + **markup configurable**, ver M10).
+      **+ CONSOLA DE BOUNTIES** *(NUEVO 14ª ronda v2.1, **D52**; ver §N.6 y criterio **184**)*: **una pantalla
+      que lista TODOS los bounties en un solo lugar** —**activos, rebasados, apagados y completados**— y
+      permite **editarlos fila a fila** (precio, objetivo, encendido/apagado), **reusando la misma escritura y
+      las mismas guardas que ya existen** (un bounty por debajo o igual de la tarifa **se sigue rechazando al
+      guardar**). **El estado «rebasado» es la información más importante de la lista**: esta es la **única**
+      superficie donde un bounty que la tarifa ya rebasó **se puede ver**, porque todas las demás lo filtran a
+      propósito. **⛔ NO es un tablero y NO trae reportes de avance contra objetivo** —siguen **fuera de
+      alcance**—; **no** da de alta bounties, **no** tiene acciones masivas y **no** sustituye el **badge del
+      binder**, que **se queda**.
 - [ ] **M3 — Ventas / órdenes**: estados `pending / settled / fallida / reembolsada / contracargo`,
       **desglose con línea de Stripe**, **reembolso**.
 - [ ] **M4 — Retiros / envíos**: cola `solicitado → picking → guía → enviado → entregado`,
@@ -2707,6 +2788,13 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
       - **no se publica en la vitrina** (ni Home ni Vender),
       - **genera alerta en el binder** para que el dueño lo actualice.
       Se valida **al CREAR, al COTIZAR y al PUBLICAR** (las tres, no solo la primera).
+      *(**⚠ 14ª ronda, D52 — se AÑADE una segunda superficie donde verlo; la regla NO cambia**: la **consola
+      de bounties** de M2 lista a los **rebasados** —lo que todas las demás superficies filtran a propósito— y
+      permite arreglarlos ahí mismo. **El badge del binder SE QUEDA**: la consola **no lo sustituye**,
+      contesta otra pregunta (*«¿cuáles están rebasados?»* frente a *«¿esta carta lo está?»*). **Sigue sin
+      haber aviso proactivo** por correo/push/dashboard — esa decisión es del humano y **D52 no la reabre**,
+      solo la pone a **reconfirmar** en la **pregunta 48**, porque también se tomó cuando la pantalla no
+      existía.)*
 - [ ] **Efecto buscado**: **el número publicado es exactamente lo que se paga**, y **todo lo que aparece en la
       vitrina es por definición mejor que la tarifa estándar**.
 - [ ] **El OBJETIVO del bounty es OBLIGATORIO** *(NUEVO 5ª ronda v2.1, **D32**; ver §P.2 y criterio 164)*:
@@ -2717,8 +2805,20 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
       **por muchas copias que acumule** — un techo de compra que **no existe**. Con el objetivo obligatorio,
       **el caso «bounty sin meta» deja de existir** y **siempre hay contra qué comparar la posición**.
       **Alcance mínimo, a propósito**: **solo se exige el objetivo donde hoy se configuran los bounties**.
-      **NO se construye panel de bounties** — el humano lo pidió y decidió dejarlo como **proyecto aparte**
-      (ver «Fuera de alcance»).
+      ~~**NO se construye panel de bounties** — el humano lo pidió y decidió dejarlo como **proyecto aparte**
+      (ver «Fuera de alcance»).~~
+      **⚠⚠ REABIERTO POR EL HUMANO EN LA 14ª RONDA (D52) — la frase se tacha, no se borra, y su razón se
+      conserva.** Aquel *«alcance mínimo, a propósito»* **era la decisión correcta para ese pase** (se decidía
+      **el objetivo obligatorio**; una pantalla ahí era alcance que nadie pidió). **Lo que la reabre son dos
+      cosas que no se podían saber entonces**: **(1)** la regla de arriba —*un bounty rebasado no se publica*—
+      significa que **un bounty encendido puede ser invisible en todas partes menos en el badge del binder**,
+      y **el aviso se decidió que viviera SOLO ahí cuando no existía ninguna pantalla desde donde mirarlos
+      todos**; **(2)** el **backfill de D35** dejó filas *«para triage manual desde M2»* y **M2 no tenía dónde
+      hacerlo**. **Entra SOLO la pantalla de gestión** —**ver** la lista completa (activos, **rebasados**,
+      apagados, completados) y **editar fila a fila**—; **el tablero y los reportes de avance contra objetivo
+      siguen FUERA**. **Sigue siendo cierto que el objetivo se exige donde hoy se configuran**: la consola
+      **reusa esa misma escritura**, no crea una segunda puerta. Ver **D52**, **M2**, criterios **164** y
+      **184**.
       ~~*(**SUPUESTO** — bounties **ya creados** sin objetivo: se les **exige el dato al editarlos** y,
       mientras no lo tengan, la mesa los trata como **«sin bounty» para efectos de la sugerencia** y aplica el
       **tope general de 10** —el lado seguro del error: preferimos frenar de más a comprar sin techo—. **No
@@ -3550,7 +3650,10 @@ gananciaNeta  =  estimadoPSA9 − (precioVentaRaw + gradingCost)      ← SOLO p
 > **dial «umbral de guía» se retira** y la **validación cruzada del criterio 127 se re-ancla** en
 > **`tarifa de envío` < `mínimo de compra`** (**$180 < $500**). **(D32)** el **objetivo del bounty pasa a ser
 > obligatorio** —con eso el «bounty sin meta» deja de existir y el tope de 10 siempre tiene con qué
-> compararse—, **sin construir panel de bounties** (proyecto aparte). **(D33)** una solicitud que **nadie
+> compararse—, ~~**sin construir panel de bounties** (proyecto aparte)~~ *(**⚠ 14ª ronda, D52: el humano
+> REABRIÓ su propia decisión** — entra la **consola de bounties** de M2: **ver la lista completa y editar fila
+> a fila**. **El tablero y los reportes de avance siguen fuera.** D32 **no cambia en nada más**: el objetivo
+> sigue siendo obligatorio y se sigue exigiendo en la misma escritura)*. **(D33)** una solicitud que **nadie
 > ofertó en 7 días hábiles CADUCA**, con un **correo que dice explícitamente que NO PROCEDEREMOS** — es el
 > **CUARTO correo obligatorio** *(**⚠ 8ª ronda: el ciclo tiene CINCO** — criterio 173)* y **un dial más**,
 > así que la tabla de §P.10 **vuelve a ocho diales** y los
@@ -3590,7 +3693,10 @@ gananciaNeta  =  estimadoPSA9 − (precioVentaRaw + gradingCost)      ← SOLO p
 > ejecutable** — la **dirección de origen del vendedor**, pedida **al crear la solicitud** y **reusando la
 > libreta de direcciones que ya existe**; **no** es un modelo nuevo ni una pantalla nueva, D36/D37.)*
 > **Fuera**: la **integración con paquetería** —la etiqueta se compra a mano,
-> D19—, el **panel de bounties** (D32, confirmado en la 6ª) y **cualquier «libreta de remitentes» separada de
+> D19—, ~~el **panel de bounties** (D32, confirmado en la 6ª)~~ *(**⚠ 14ª ronda, D52 — REABIERTO por el
+> humano**: la **pantalla de gestión** —ver + editar fila a fila— **entra**; lo que **sigue fuera** de aquel
+> «proyecto aparte» es el **tablero** y los **reportes de avance contra objetivo**. Nada de esto pertenece al
+> ciclo de §P: la consola vive en **M2**)* y **cualquier «libreta de remitentes» separada de
 > la del comprador** (D37). El schema, el contrato, las plantillas de correo
 > y el tratamiento visual los definen arquitecto y ux-ui; aquí solo se fija el **requisito de producto**.
 
@@ -3687,9 +3793,13 @@ gananciaNeta  =  estimadoPSA9 − (precioVentaRaw + gradingCost)      ← SOLO p
       OBLIGATORIO el objetivo del bounty** al darlo de alta (§N.6): **sin objetivo no hay bounty**. Con eso
       **la rama (a) siempre tiene un número contra el cual medir la posición**, y **el tope general de 10
       siempre tiene con qué compararse** en la rama (b).
-      **Alcance mínimo, dicho explícitamente**: **no se construye panel de bounties** —el humano lo pidió y
-      lo dejó como **proyecto aparte**—; aquí **solo se exige el objetivo donde hoy se configuran** (§N.6,
-      «Fuera de alcance»).
+      **Alcance mínimo, dicho explícitamente**: ~~**no se construye panel de bounties** —el humano lo pidió y
+      lo dejó como **proyecto aparte**—~~ *(**⚠ 14ª ronda, D52 — el humano REABRIÓ esa decisión suya**: entra
+      la **consola de bounties** en **M2**, **ver + editar fila a fila**; **el tablero y los reportes de avance
+      contra objetivo siguen fuera**. **Esto no cambia nada de la mesa de decisión ni de la precedencia de
+      arriba**: la consola **no muestra posición de inventario** ni decide nada de compra, y **el objetivo se
+      sigue exigiendo en la misma escritura de siempre**)*; aquí **solo se exige el objetivo donde hoy se
+      configuran** (§N.6, «Fuera de alcance», criterio **184**).
       *(**6ª ronda, D35 — el número y el caso histórico**: el objetivo **por defecto es 2** («hasta tener 2
       en inventario»), y **los bounties viejos sin meta se llenan con 2** — **no se desactivan**. Con eso la
       rama (a) tiene número **también hacia atrás**, sin depender de que alguien edite los viejos. **Se cae
@@ -5322,10 +5432,26 @@ ronda por D31**)**
   lo que la 2ª ronda había metido al alcance)*: **no existe**. **No hay** banda intermedia, **no hay** correo
   de oferta con un solo monto y **no hay** dial de «umbral de guía». **En toda compra ponemos la guía y su
   costo se deduce del importe a pagar**, y eso se dice en el cotizador, el correo de oferta y los términos.
-- **Panel de bounties** *(NUEVO 5ª ronda v2.1, **D32**)*: **fuera de alcance por decisión explícita del
+- ~~**Panel de bounties** *(NUEVO 5ª ronda v2.1, **D32**)*: **fuera de alcance por decisión explícita del
   humano** — lo pidió y decidió dejarlo como **proyecto aparte**. Lo único que entra aquí es **exigir el
   objetivo del bounty donde hoy se configuran** (§N.6). **No** hay pantalla nueva de gestión, ni tablero de
-  bounties, ni reportes de avance contra objetivo.
+  bounties, ni reportes de avance contra objetivo.~~
+  **⚠⚠ ENMENDADO EN LA 14ª RONDA (D52) — SE PARTE EN DOS: LA PANTALLA DE GESTIÓN ENTRA; EL TABLERO Y LOS
+  REPORTES SIGUEN FUERA.** El texto tachado **queda como registro de la decisión original y de su razón** (era
+  correcta: aquel pase decidía **el objetivo obligatorio**, no una pantalla). **Lo que la reabre**: por §N.6 un
+  **bounty rebasado desaparece de todas las superficies**, así que **puede estar encendido y ser invisible**, y
+  **el dueño cree que paga premium por una carta que no paga**. **Redacción vigente**:
+  - **ENTRA (alcance, M2 — criterio 184)**: **ver** todos los bounties en un solo lugar —**activos,
+    rebasados, apagados y completados**— y **editarlos fila a fila** (precio, objetivo, encendido/apagado),
+    con las guardas de escritura que ya existen. **El «rebasado» es el eje de esa lista.**
+  - **SIGUE FUERA (esta lista, sin cambios)**: el **TABLERO de bounties** —métricas, tarjetas de resumen,
+    KPIs, cualquier superficie de dashboard— y los **REPORTES de avance contra objetivo** —serie histórica,
+    ritmo de captura, informes en M9—. **Ver la lista no es un tablero; una columna de avance en una fila no
+    es un reporte.** Si alguien los quiere, es **alcance nuevo** y vuelve al arquitecto (regla 9).
+  - **SIGUE FUERA por omisión deliberada** *(SUPUESTOS de esta ronda, preguntas **45** y **47**)*: **dar de
+    alta** bounties desde la consola y **cualquier acción masiva** (multi-selección, «+10 % a los rebasados»,
+    apagar los rebasados de un clic). El humano pidió **ver** y **editar fila a fila**; eso es lo que se
+    escribe.
 - **Integración con paquetería en el buylist** *(2ª ronda v2.1, D19)*: la guía se **compra a mano y fuera del
   sistema**, y el operador **captura el número**. **No** hay compra automática de etiquetas, **ni** cotización
   de tarifas, **ni** rastreo en vivo, **ni** validación del número contra el transportista, **ni** cancelación
@@ -5374,10 +5500,18 @@ ronda por D31**)**
 - **Emitir una oferta que no vale la pena** *(NUEVO 6ª ronda v2.1, **D34**)*: **no existe** ninguna vía para
   mandarle a alguien una oferta cuyo **neto quede por debajo de MX$200**. No es que el vendedor la reciba y
   la rechace: **no se emite**. El operador **compra más líneas o no oferta** (§P.2, criterio 167).
-- **Panel de gestión de bounties** *(5ª ronda v2.1, D32; **confirmado en la 6ª**)*: sigue **fuera** — el
+- ~~**Panel de gestión de bounties** *(5ª ronda v2.1, D32; **confirmado en la 6ª**)*: sigue **fuera** — el
   humano lo dejó como **proyecto aparte**. **D35 no lo reabre**: fijar el **default en 2** y **llenar los
   bounties viejos con 2** se hace **donde hoy se configuran los bounties**, **sin pantalla nueva** ni
-  tablero.
+  tablero.~~
+  **⚠⚠ RETIRADO EN LA 14ª RONDA (D52): la pantalla de gestión ENTRA al alcance.** Se conserva tachado porque
+  **decía la verdad de su momento** —y hay que poder ver que **D35 efectivamente no la reabrió**: la reabre
+  **D52**, y la reabre **el humano**, con dos hechos nuevos delante (la **ceguera sobre el rebasado** y el
+  **residuo del backfill de D35**, que quedó *«para triage manual desde M2»* **sin que M2 tuviera dónde**).
+  **Lo que sigue fuera de aquella frase es el «ni tablero»**: eso **no se reabre**, ni tampoco los reportes de
+  avance contra objetivo (ver la entrada enmendada de arriba). **Y sigue siendo cierto lo de D35**: el default
+  **2** y el llenado de los viejos **no** dependen de la pantalla — ocurren en la escritura de siempre, que es
+  **la misma** que la consola reusa. Ver **D52**, **M2** y criterios **164**, **168** y **184**.
 - **Editar una oferta ya enviada** *(2ª ronda v2.1, respuesta a la pregunta 3)*: no hay ventana de
   corrección. Si el admin se equivocó, **cancela y emite otra** (correo nuevo, plazo desde cero, auditado).
   ~~*(**Precisión de la 6ª ronda, para que «plazo desde cero» no se lea de más**: lo que arranca de cero es el
@@ -7037,9 +7171,20 @@ solicitud que caduca (v2.1, D31–D33; §E/§H/§N.6/§P.1/§P.2/§P.3/§P.3.1/�
     objetivo** (`bountyTargetQty`, §N.6). Verificable: **(a)** intentar crear un bounty **sin objetivo** ⇒
     **no se guarda** y el error dice por qué; **(b)** con el objetivo capturado, la mesa de decisión pinta
     **«no comprar»** al **alcanzar ese objetivo** (criterio 153c); **(c)** **no existe** ninguna variante con
-    **bounty vivo y sin objetivo**, así que **ninguna carta queda sin techo de sugerencia**. Verificable
-    también **lo que NO se construye**: **no hay panel de bounties** —el humano lo dejó como **proyecto
-    aparte**—; el objetivo se exige **donde hoy se configuran los bounties**, sin pantalla nueva.
+    **bounty vivo y sin objetivo**, así que **ninguna carta queda sin techo de sugerencia**.
+    ~~Verificable también **lo que NO se construye**: **no hay panel de bounties** —el humano lo dejó como
+    **proyecto aparte**—; el objetivo se exige **donde hoy se configuran los bounties**, sin pantalla nueva.~~
+    **⚠⚠ 14ª RONDA (D52) — ESTA VERIFICACIÓN POR AUSENCIA QUEDA RETIRADA, Y SOLO ELLA.** **(a), (b) y (c)
+    —las tres del objetivo obligatorio— SIGUEN VIGENTES TAL CUAL y no se tocan.** **Por qué cae**: el humano
+    **reabrió su propia decisión de alcance** y pidió la pantalla, así que **verificar que no exista haría que
+    QA rechazara justo lo que él pidió** — un criterio de aceptación **no puede exigir la ausencia de algo que
+    ya está en el alcance**. **Qué se verifica en su lugar** *(la parte que sigue siendo cierta y sí hay que
+    comprobar)*: **(d)** el objetivo se **exige en UNA sola escritura**, la de siempre — **la consola de
+    bounties (criterio 184) NO abre una segunda puerta**: guardar desde ella con el objetivo borrado
+    **tampoco guarda**, y **con el mismo error**; y **(e)** **la consola NO relaja nada de este criterio**: no
+    tiene `force`, no admite `targetQty` vacío y **no crea bounties** (el alta sigue donde estaba).
+    **Lo que sigue verificándose por ausencia, porque eso NO se reabrió**: **no hay tablero de bounties** y
+    **no hay reportes de avance contra objetivo** (ver «Fuera de alcance»).
     ~~*(**SUPUESTO** — bounties **preexistentes** sin objetivo: se les exige el dato **al editarlos** y,
     mientras no lo tengan, la mesa los trata como **«sin bounty» para la sugerencia** (aplica el tope de 10);
     **el precio no cambia**. Ver **pregunta abierta 26**.)*~~ **⚠ SUPUESTO SUPERADO por D35 (6ª ronda)** —
@@ -7166,9 +7311,18 @@ solicitud que caduca (v2.1, D31–D33; §E/§H/§N.6/§P.1/§P.2/§P.3/§P.3.1/�
     **(d)** verificable **por lo que NO existe**: **ningún** bounty vivo sin objetivo, y **ningún** bounty
     tratado como «sin bounty» por la mesa de decisión — la rama (a) de la precedencia de §P.2 **siempre
     tiene número contra el cual medir la posición**, también para los viejos;
-    **(e)** **no se construye panel de bounties** (criterio 164): el default y el llenado ocurren **donde hoy
-    se configuran los bounties**, **sin pantalla nueva**. *(El **2 no es un dial de M10**: es el valor
+    ~~**(e)** **no se construye panel de bounties** (criterio 164): el default y el llenado ocurren **donde
+    hoy se configuran los bounties**, **sin pantalla nueva**.~~ *(El **2 no es un dial de M10**: es el valor
     inicial de un campo editable por bounty.)*
+    **⚠⚠ 14ª RONDA (D52) — EL INCISO (e) SE REESCRIBE; (a)–(d) NO SE TOCAN.** El humano **reabrió su decisión
+    de alcance** y la pantalla **entra** (criterio **184**), así que verificar su ausencia dejó de ser cierto.
+    **Lo que (e) verifica ahora, que es lo que D35 de verdad decía**: el **default 2** y el **llenado de los
+    viejos** **no dependen de ninguna pantalla** — ocurren en la **escritura de siempre**, y **la consola
+    reusa esa misma escritura**: dar de alta desde donde hoy se configuran **sigue prellenando 2**, y **la
+    consola muestra el 2 que el backfill puso, sin volver a calcularlo ni re-llenar nada**. **⚠ Y el residuo
+    que D35 dejó abierto ahora es verificable**: las filas que el backfill dejó **vivas y ya por encima de su
+    objetivo** —las que se documentaron *«para triage manual desde M2»*— **aparecen en la consola** y **se
+    pueden arreglar desde su fila** (subir la meta o apagar). **Hasta D52 no había dónde hacer ese triage.**
 169. **La caducidad es un MOTIVO de `expirada`, no un quinto estado — y los dos desenlaces se distinguen
     igual (resolución de la pregunta 27 por el arquitecto)**: los **estados terminales son CUATRO**
     (`pagada`, `rechazada`, `expirada`, `abandonada`) y **`expirada` lleva un motivo persistido en columna
@@ -7600,6 +7754,49 @@ de este documento (v2.1, D41 + D42; §E/§H/§P.3/§P.11)**
     **(f)** **el riesgo residual está escrito, no implícito**: la **bandera AML** dice, con las palabras del
     humano, que ***«pueden capturar una CLABE que digan que es de ellos y no sabríamos»***, y **la lista de
     contenciones ya no incluye el cotejo**. *(Un riesgo aceptado que no está escrito es un riesgo olvidado.)*
+
+> **CRITERIO NUEVO DE LA 14ª RONDA (D52) — la consola de bounties. Nace de una decisión de ALCANCE del humano,
+> no de una corrección: la pantalla que D32/D35 habían dejado como «proyecto aparte» entra, acotada a
+> VER + EDITAR FILA A FILA.**
+184. **D52 — TODOS LOS BOUNTIES EN UN SOLO LUGAR, Y EL «REBASADO» ES LO PRIMERO QUE SE VE (14ª ronda;
+    enmienda los criterios 164 y 168(e))**: existe **una pantalla en M2** que **lista TODOS los bounties**
+    —**activos, rebasados, apagados y completados**— y permite **editarlos fila a fila**. Verificable en
+    **ocho** puntos:
+    **(a)** **⭐ EL PUNTO QUE JUSTIFICA LA PANTALLA — el rebasado se ve, y se ve PRIMERO**: se crea un bounty
+    válido, **se sube el mercado** hasta que la regla lo rebase (criterio 90) ⇒ **desaparece de la vitrina y
+    de la cotización, como manda §N.6**, **y aparece en esta lista, marcado como rebasado y por delante de los
+    demás**. **Es la única superficie del producto donde ese bounty se puede ver**, y por eso **el estado
+    «rebasado» es la información más importante de la lista**: es la ceguera que esta pantalla cura;
+    **(b)** **el conteo de rebasados es sobre el TOTAL, no sobre lo que se está mostrando**: con filtro,
+    orden o paginación puestos, **la cifra no cambia**. *(Un conteo que cuenta la página convierte «hay 7
+    rebasados» en «hay 2» sin avisar — y eso es exactamente la ceguera otra vez, con otra ropa.)*;
+    **(c)** **la lista incluye lo que las demás superficies filtran**: los **cuatro** grupos están
+    representados —se comprueba con un bounty de cada suerte— y **ninguno se cae por estar «no efectivo»**;
+    **(d)** **cero rebasados se DICE, no se calla**: cuando no hay ninguno, la pantalla **lo enuncia**. *(Al
+    revés que la vitrina, que por diseño desaparece cuando no hay nada; aquí **una sección ausente y una
+    vacía se leerían igual**, y esta pantalla existe para que no se confundan.)*;
+    **(e)** **se edita FILA A FILA, y la guarda no se relaja**: cambiar **precio**, **objetivo** o
+    **encendido/apagado** de **un** bounty desde su fila **funciona**; y **guardar un precio por debajo —o
+    igual— de la tarifa vigente SE RECHAZA aquí igual que se rechaza hoy** (§N.6), **sin `force` y sin
+    «guardar de todas formas»**. **El objetivo sigue siendo obligatorio** (criterio 164): **borrarlo y
+    guardar ⇒ no se guarda**;
+    **(f)** **verificable POR AUSENCIA — lo que esta pantalla NO es**: **no** hay **tablero** (ni tarjetas de
+    métricas, ni KPIs, ni gráficas), **no** hay **reportes de avance contra objetivo** (ni serie histórica, ni
+    ritmo de captura, ni informe en M9), **no** se **da de alta** un bounty desde aquí y **no** existe
+    **ninguna acción masiva** —ni multi-selección, ni «+10 % a los rebasados», ni «apagar todos los
+    rebasados»—. *(Las cuatro ausencias son deliberadas; las dos primeras por decisión del humano, las dos
+    últimas por supuesto de esta ronda — preguntas **45** y **47**.)*;
+    **(g)** **lo que ya existía sigue existiendo, igual**: el **badge del binder no se retira ni se
+    sustituye**, la **vitrina pública no cambia** y **sigue sin haber aviso proactivo** por correo/push/
+    dashboard (§N.6, pregunta **48**). **Añadir un sitio donde mirar no es mandar un empujón**;
+    **(h)** **el residuo del backfill de D35 queda accionable** (ver criterio 168(e)): las filas que quedaron
+    **vivas y ya por encima de su objetivo** —documentadas *«para triage manual desde M2»*— **se ven en esta
+    lista** y **se resuelven desde su propia fila** (subir la meta o apagar), **sin ninguna herramienta
+    aparte**.
+    *(**Nota de alcance para quien implemente**: **no hace falta ningún dato nuevo ni ningún cambio de base de
+    datos** para cumplir esto — todo lo que la pantalla enseña **ya se guarda o ya se deriva**. Si alguien
+    concluye que hace falta un campo o una columna, **eso es una pregunta para el arquitecto**, no una licencia
+    de este criterio.)*
 
 ## Riesgos y banderas para el humano
 > No bloquean el desarrollo técnico del MVP, pero deben resolverse antes de operar con público real.
@@ -8446,8 +8643,11 @@ objeto; ver §E/§H/§P.3/§P.5.1/§P.6/§P.10/§P.11):**
    **Qué se decide**: **dar de alta un bounty exige capturar su objetivo** (*«hasta tener N en inventario»*).
    **Sin objetivo, no hay bounty.** Con eso **el caso «bounty sin meta» deja de existir** y el tope general
    **siempre tiene con qué compararse**.
-   **Qué NO se construye**: **panel de bounties**. El humano lo pidió y **decidió dejarlo como proyecto
-   aparte**; aquí **solo se exige el objetivo donde hoy se configuran** (§N.6, «Fuera de alcance»).
+   ~~**Qué NO se construye**: **panel de bounties**. El humano lo pidió y **decidió dejarlo como proyecto
+   aparte**; aquí **solo se exige el objetivo donde hoy se configuran** (§N.6, «Fuera de alcance»).~~
+   **⚠⚠ REABIERTO POR EL HUMANO EN LA 14ª RONDA (decisión 114, D52)** — se conserva tachado porque **era la
+   decisión correcta para este pase**. **Entra SOLO la pantalla de gestión** (ver + editar fila a fila);
+   **el tablero y los reportes de avance siguen fuera**. **El resto de D32 no cambia en nada.**
    ~~*(**SUPUESTO** — bounties preexistentes sin objetivo: se les exige el dato **al editarlos**; mientras no
    lo tengan, la mesa los trata como **«sin bounty» para la sugerencia** y aplica el tope de 10 —el lado
    seguro del error—, **sin tocar el precio**. **Pregunta abierta 26**.)*~~
@@ -8536,9 +8736,13 @@ la pregunta 27 por el arquitecto; ver §N.6/§P.1/§P.2/§P.3/§P.3.1/§P.5.1/§
    alternativa que **explícitamente no recomendaba**. **El humano eligió esa alternativa y le puso número.**
    Con eso el caso «bounty sin meta» deja de existir **también hacia atrás**, sin depender de que nadie
    recuerde editar nada.)*
-   **Qué NO se construye**: sigue **sin panel de bounties** (proyecto aparte). El default y el llenado
-   ocurren **donde hoy se configuran**. **El 2 no es un dial de M10**: es el valor inicial de un campo.
-   **Pregunta 26 CERRADA.** Ver §N.6, §P.2 y criterio **168**.
+   ~~**Qué NO se construye**: sigue **sin panel de bounties** (proyecto aparte).~~ *(**⚠ 14ª ronda, D52
+   —decisión 114—: el humano REABRIÓ esa decisión suya y la pantalla de gestión ENTRA**. **D35 seguía siendo
+   verdad cuando se escribió: no fue D35 quien la reabrió, fue D52.** Lo que sigue fuera es el **tablero** y
+   los **reportes de avance**.)* El default y el llenado
+   ocurren **donde hoy se configuran** —**y eso no cambia**: la consola **reusa esa misma escritura**—. **El 2
+   no es un dial de M10**: es el valor inicial de un campo.
+   **Pregunta 26 CERRADA.** Ver §N.6, §P.2 y criterios **168** y **184**.
 96. **Resolución de la pregunta 27 por el ARQUITECTO — la caducidad es un MOTIVO, no un quinto estado.**
    **Qué decidió**: **reusar el terminal `expirada`** y **persistir el motivo en columna propia**
    (**`no_offer`** / **`not_shipped`**), en vez de crear un quinto terminal.
@@ -9030,6 +9234,45 @@ promesa:**
    **no** como prevención; **sin verificar por nadie**).
    Ver §E, §P.2.1, §P.2.2, **§P.2.3**, §P.3.1, M6, criterios **178(g)**, ~~**180**/**181**~~, **182** y
    **183**, y la bandera **AML/KYC**.
+114. **D52 — LA CONSOLA DE BOUNTIES ENTRA AL ALCANCE: VER LA LISTA COMPLETA Y EDITAR FILA A FILA. ⚠ ENMIENDA
+   —sin borrar— LAS CINCO FRASES DE D32/D35 QUE LA PROHIBÍAN Y LA VERIFICACIÓN POR AUSENCIA DEL CRITERIO 164.**
+   **De dónde sale**: el humano **pidió la pantalla**. Al diseñarla, **el arquitecto y ux-ui se toparon, por
+   separado, con lo mismo**: **este documento la prohibía en cinco sitios** (§N.6 ×2, §P.2 y **dos** entradas de
+   «Fuera de alcance») y **el criterio 164 la volvía verificable POR AUSENCIA** — es decir, **QA, leyendo
+   `PROJECT.md`, tenía que rechazarla**. Ninguno de los dos podía levantar el veto (**manda `PROJECT.md`**), y
+   **hicieron bien en no hacerlo**.
+   **Qué se le puso delante al humano antes de decidir**: que **era una decisión suya de alcance** —no una
+   salvaguarda de riesgo ni un límite técnico— y que **la estaba reabriendo**. **Decidió con eso encima.**
+   **Qué decidió**: **SOLO la pantalla de gestión** — **ver** la lista completa (**activos, rebasados,
+   apagados, completados**) y **editar fila a fila**.
+   **⛔ Qué NO decidió, y se escribe porque eran las otras dos piezas del mismo «proyecto aparte»**: el
+   **TABLERO de bounties** y los **REPORTES de avance contra objetivo**. **No los pidió y siguen fuera.**
+   **Las dos razones que reabren la decisión — y son hechos que en su momento NO se podían conocer**:
+   **(1) ⭐ CEGUERA SOBRE DINERO.** Por §N.6 un bounty **por debajo o igual de la tarifa vigente deja de ser
+   bounty** y **la vitrina lo filtra** —correcto, criterio 91—, y **las dos superficies de vitrina son
+   condicionales**: sin bounties efectivos **la sección desaparece**. Resultado: **un bounty encendido puede ser
+   invisible en todas partes menos en un badge del binder**, y **el dueño cree que paga premium por una carta
+   que no paga**. **§N.6 decidió que ese aviso viviera SOLO en el binder cuando esta pantalla no existía** —la
+   decisión era razonable con la información de entonces, y **la consola la vuelve más defendible, no menos**:
+   ahora **hay dónde mirar**.
+   **(2) EL RESIDUO DE D35.** El backfill dejó filas **vivas y ya por encima de su objetivo**, documentadas
+   *«para triage manual desde M2»* — **y M2 no tenía dónde hacerlo**. **Cae resuelto, sin añadir nada.**
+   **Doctrina de redacción aplicada (la misma de D51)**: **lo caído queda TACHADO con su cuerpo intacto y la
+   razón del cambio al lado**. **Nada se borra.** Quien lea la próxima ronda tiene que poder ver **qué se
+   decidió antes, por qué era correcto entonces, y qué lo reabre** — si se borrara, la ronda 15 leería un
+   **olvido** donde hubo **una decisión medida**.
+   **Lo que esta decisión NO toca**: la **regla de §N.6**, el **badge del binder** (**se queda**; la consola
+   **no lo sustituye**), la **vitrina pública**, el **objetivo obligatorio** (D32), el **default 2** (D35), la
+   **precedencia de compra** (§P.2) y **el «sin aviso proactivo»** (se pone a **reconfirmar**, pregunta 48, no
+   se reabre).
+   **Supuestos tomados, marcados y preguntados**: **sin alta desde la consola** (pregunta 45) y **sin ninguna
+   acción masiva** (pregunta 47). En los dos casos **el lado seguro es no construirlo**: el humano pidió *ver*
+   y *editar fila a fila*, y **una acción masiva sobre precios de compra puede fabricar de un clic la misma
+   ceguera que esta pantalla vino a curar**.
+   **Preguntas: se abren la 45, 46, 47, 48, 49 y 50** (las **cinco de ux-ui** y las **tres del arquitecto**,
+   consolidadas; **ninguna bloquea**).
+   Ver **M2**, **§N.6**, **§P.2**, **«Fuera de alcance»** (dos entradas enmendadas), criterios **164** y
+   **168(e)** (enmendados) y criterio **184** (nuevo).
 
 ---
 
@@ -9709,6 +9952,10 @@ backend/arquitecto al implementar, sin decisión de producto adicional).
 5. **¿La alerta del bounty por debajo de la regla necesita aviso activo?** El supuesto es que basta la
    **alerta en el binder** (visible cuando el dueño entra). ¿Quieres además un aviso proactivo (correo/
    dashboard) cuando un bounty publicado queda rebasado por la regla?
+   *(**⚠ 14ª ronda, D52 — esta pregunta se RE-ANOTA, no se cierra**: el humano ya la contestó en su momento
+   —*«basta el binder»*— **pero la contestó cuando no existía la consola**. Con la consola hay **una segunda
+   superficie donde mirar**, así que **el supuesto sigue siendo «sin aviso proactivo» y solo se pide
+   reconfirmarlo**. Continúa como **pregunta 48**.)*
 
 ## Preguntas abiertas — ciclo de adquisición del buylist (v2.1, §P)
 > **Historial completo, con estado de cierre.** Las **doce decisiones originales (D1–D12)**, las **once de la
@@ -9991,8 +10238,10 @@ backend/arquitecto al implementar, sin decisión de producto adicional).
    desactivan**, siguen en la vitrina y **no cambian de precio**—; **(c)** **editable por bounty**: 2 es el
    default, **no un tope rígido**.
    **Qué gana**: el caso «bounty sin meta» deja de existir **también hacia atrás**, sin depender de que
-   alguien recuerde editar los viejos, y **ningún bounty se comporta como «sin bounty»**. **Sigue sin haber
-   panel de bounties.** Ver §N.6, §P.2, decisión **95** y criterio **168**.
+   alguien recuerde editar los viejos, y **ningún bounty se comporta como «sin bounty»**. ~~**Sigue sin haber
+   panel de bounties.**~~ *(**⚠ 14ª ronda, D52 — decisión 114**: la **pantalla de gestión** entra; el
+   **tablero** y los **reportes de avance** siguen fuera. **Lo tachado era cierto en la 6ª ronda**; lo reabre
+   **D52**, no D35.)* Ver §N.6, §P.2, decisión **95** y criterios **168** y **184**.
 27. ~~**[ABIERTA] Los bordes del plazo de caducidad (D33): modelado y reinicio del reloj.**~~ → **CERRADA en
    la 6ª ronda POR EL ARQUITECTO. De mis tres supuestos: uno DESCARTADO, uno CONFIRMADO, uno CORREGIDO.**
    **(a) ¿Estado propio o motivo?** **Mi supuesto (`caducada` como terminal propio) quedó DESCARTADO.**
@@ -10386,3 +10635,97 @@ ese frente:**
    **Por qué no bloquea**: **no cambia nada de lo construido** y **el pago sigue igual**. Pero **es lo único
    que podría devolverle algo de sustancia a la bandera AML**, y por eso se deja nombrado en vez de dejar el
    frente cerrado con un simple *«riesgo aceptado»*.
+
+## Preguntas abiertas — consola de bounties (v2.1, 14ª ronda, D52)
+
+> **De dónde salen**: **cinco** las levantó **ux-ui** al diseñar la pantalla y **tres** el **arquitecto**;
+> aquí van **consolidadas y sin duplicar** (dos de ellas eran la misma pregunta hecha por los dos). **Las
+> recojo, no las decido**: son **decisiones de producto**, y por la regla de conflicto de `CLAUDE.md` **si
+> `PROJECT.md` no lo dice, no se asume**.
+> **Numeración**: siguen la serie del bloque v2.1 (la 44 fue la última) **para no abrir una segunda serie**.
+> **NINGUNA BLOQUEA.** Todas tienen **supuesto tomado** y el supuesto es siempre **el lado seguro**: la
+> pantalla se puede construir hoy con lo que dice D52, y cada respuesta que llegue es **aditiva** o **un
+> parámetro más**, no un rediseño.
+> **Nota aparte, para que no se cuele como pregunta de producto**: ux-ui dejó también **peticiones técnicas al
+> arquitecto** —entre ellas una importante de dinero: **qué hace el guardado con un campo omitido (¿no se
+> toca, o se limpia?)**, porque la escritura que la consola reusa **también lleva los overrides manuales de
+> esa variante**—. **Esas van al arquitecto, no al humano**, y **no** se resuelven en este documento.
+
+45. **[ABIERTA — no bloqueante, con SUPUESTO TOMADO] ¿Se puede dar de ALTA un bounty desde la consola, o el
+   alta se queda donde está hoy?** *(la levantan **ux-ui** y el **arquitecto**, por separado y con la misma
+   recomendación)*
+   **Lo que preguntan**: el humano pidió *«verlos y editarlos»* —eso es **gestionar lo que existe**—. Hoy un
+   bounty **nace donde el operador tiene la carta delante** (sabe cuál es, de qué set y **de qué acabado**).
+   **Supuesto tomado**: **NO se da de alta desde la consola** (así está escrito en D52 y en «Fuera de
+   alcance»).
+   **Por qué ese es el lado seguro**: dar de alta desde una lista exige **buscar la carta y elegir el acabado
+   a ciegas**, y **un bounty es dinero de compra**: crearlo sobre **la variante equivocada** se paga.
+   **Qué confirmar**: **(a)** el alta se queda fuera —**supuesto**—; **o (b)** la quieres también aquí, en
+   cuyo caso **es alcance nuevo y aditivo** (pasa por el arquitecto, regla 9) y hay que decidir **cómo se
+   elige la variante** sin equivocarse de acabado.
+
+46. **[ABIERTA — no bloqueante, con SUPUESTO TOMADO] ¿Los bounties COMPLETADOS y APAGADOS se quedan listados
+   para siempre, o se archivan pasado un tiempo?** *(la levantan **ux-ui** y el **arquitecto**)*
+   **La tensión, en una frase**: **no pagan nada y no se publican** —son historia—, pero **una lista que solo
+   crece termina escondiendo lo que importa**, que es justo lo contrario de para lo que existe la pantalla.
+   **Supuesto tomado**: **se muestran todos y no se borra ninguno**; el filtro por estado permite esconderlos
+   y el orden los manda al final.
+   **Por qué ese es el lado seguro**: **no esconder dinero pasado**. *«Esto ya lo cacé»* y *«esto lo apagué
+   yo»* son las dos preguntas que un archivado silencioso borra.
+   **Qué confirmar**: **(a)** se quedan todos —**supuesto**—; **o (b)** una **ventana temporal** (¿cuántos
+   días?), que sería **un parámetro más**, no un rediseño.
+
+47. **[ABIERTA — no bloqueante, con SUPUESTO TOMADO. ⚠ Aquí ux-ui y el arquitecto NO coinciden, y lo digo en
+   vez de esconderlo] ¿Existe alguna acción en LOTE —en concreto, «apagar todos los rebasados» de un clic?**
+   **La discrepancia**: **ux-ui** la recomienda como **la única** acción masiva aceptable (con confirmación y
+   conteo), y **desaconseja por escrito** la edición masiva de precios. **El arquitecto prohíbe cualquier
+   acción cuyo alcance sea un conjunto**, con este argumento: *una acción masiva que **suba** precios falla
+   ruidosamente y no hace daño; una que los deje **bajo la curva** no falla en absoluto — cada fila afectada
+   deja de pagarse y deja de verse*, o sea **un botón masivo puede fabricar de un clic la ceguera que esta
+   pantalla vino a curar**.
+   **Supuesto tomado (y es lo que dice D52)**: **NO hay ninguna acción masiva en la v1** — el humano pidió
+   **editar fila a fila**, y eso es exactamente lo que se escribió.
+   **⚠ Lo que hay que ver antes de decidir que «apagar en lote» es inofensivo**: **apagar un bounty es una
+   decisión de negocio, no una limpieza** — deja de salir a buscar esa carta. Y un lote **puede fallar
+   parcialmente**, así que haría falta saber **fila por fila** qué se apagó y qué no; **sin eso, la acción no
+   se puede ofrecer**.
+   **Qué confirmar**: **(a)** nada en lote —**supuesto**—; **o (b)** quieres **solo** el apagado en lote de
+   rebasados (⇒ alcance nuevo, vuelve al arquitecto con el requisito de resultado por fila). **La edición
+   masiva de precios no está sobre la mesa**: los dos roles la desaconsejan y este documento tampoco la
+   propone.
+
+48. **[ABIERTA — no bloqueante, con SUPUESTO TOMADO. RE-ANOTADA: ya la contestaste una vez, pero SIN esta
+   pantalla delante] ¿Quieres un aviso PROACTIVO cuando un bounty queda rebasado?** *(la levanta el
+   **arquitecto**; es la **pregunta 5** del bloque de precio puro, re-anotada)*
+   **Qué contestaste entonces**: **basta la alerta en el binder** — **sin** correo, push ni tarjeta de
+   dashboard. **D52 NO reabre esa decisión.**
+   **Por qué se re-anota igual**: la contestaste **cuando no había ningún sitio donde ver todos los
+   rebasados**. Ahora lo hay, así que **la respuesta puede seguir siendo la misma con más razón** —ya hay
+   dónde mirar— **o puede que quieras que el sistema te avise**, porque **un rebasado sigue necesitando que
+   alguien abra la pantalla**.
+   **Supuesto tomado**: **sin aviso proactivo** (se mantiene tu respuesta original).
+   **Qué confirmar**: **(a)** sigue bastando mirar —**supuesto**—; **o (b)** quieres aviso, y entonces hay que
+   decir **por qué canal** y **cada cuánto** (⇒ alcance nuevo; ojo: el ciclo del buylist ya tiene **cinco
+   correos contados con cuidado**, y este sería de otro frente pero con la misma disciplina).
+
+49. **[ABIERTA — no bloqueante, con SUPUESTO TOMADO] ¿Quieres ver una cifra de «EXPOSICIÓN MÁXIMA» —lo que
+   pagarías si todos los bounties vivos se completaran— en la cabecera de la pantalla?** *(la levanta
+   **ux-ui**; el arquitecto la recoge como cálculo de servidor)*
+   **Qué sería y qué no**: es una **proyección** —*«hasta esto podría gastar si todo se cumple»*—, **no una
+   deuda** ni un compromiso. Nadie nos está cobrando ese número.
+   **Supuesto tomado**: **no se pinta** en la v1.
+   **Por qué ese es el lado seguro**: **un número de dinero grande en una cabecera se lee como «lo que
+   debo»**, y este no lo es. Y si se calculara **sobre lo que hay en pantalla** en vez de sobre el total,
+   **sería una cifra de dinero falsa** — el peor tipo de error en este producto.
+   **Qué confirmar**: **(a)** no se pinta —**supuesto**—; **o (b)** sí, y entonces se pinta **sobre el total**
+   y **rotulada como proyección**, nunca como saldo.
+
+50. **[ABIERTA — no bloqueante, con SUPUESTO TOMADO] ¿El badge «bounty rebasado» de la casilla del binder debe
+   LLEVAR a la consola?** *(la levanta **ux-ui**)*
+   **Lo que hay decidido**: el **aviso del cajón de la variante** sí ofrece un enlace **«ver todos los
+   bounties»**. Lo que está en duda es **el badge de la casilla**, que hoy solo informa.
+   **Supuesto tomado**: **basta el enlace del aviso del cajón**; el badge **sigue siendo informativo**.
+   **Por qué no es trivial y por eso se pregunta**: hacer navegable el badge es cómodo, pero **cambia lo que
+   esa marca significa** en una superficie que se recorre mirando muchas cartas a la vez.
+   **Qué confirmar**: **(a)** el badge no navega —**supuesto**—; **o (b)** sí navega (cambio pequeño y
+   aditivo, sin efecto sobre nada de dinero).
