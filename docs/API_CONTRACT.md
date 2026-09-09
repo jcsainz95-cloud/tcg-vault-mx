@@ -37,6 +37,14 @@
 > con puerta hacia `manual`** (+ la fila `banxico` sembrada, sin la cual la aserción de dinero mide el seed).
 > ⛔ **El código NO cambia: backend siguió la medición, no mi texto.** `ARCHITECTURE §9 · D-FX-6`.
 >
+> **4. ✅ `POST /admin/fx/refresh` — `200` RATIFICADO** ([`§M2-F.5`](#M2-F5), [`§M5-C`](#M5-C)). La ruta respondía
+> **`201`** (`@Post` de Nest sin `@HttpCode`) contra un `§M2-F.5` que ya normaba `200`; backend lo alineó y **yo
+> lo ratifico**: el código de estado es **fijo por ruta** y esta ruta tiene **tres desenlaces** —con `failed` **no
+> se escribe ni una fila**— así que **`201` sería falso**. Y un `201` sobre `outcome:"failed"` es **la misma
+> mentira que toda §M2-F.5 vino a cerrar, una capa más abajo**. ⇒ **La norma de `§M5-C` se GENERALIZA a todo el
+> contrato** (tres módulos, un solo mecanismo de framework) y **`FX-25(a)` gana la aserción del código de estado**,
+> que es lo que faltaba: en los **diez** casos conocidos, **ningún test miraba el status**.
+>
 > ➕ **Y una corrección de este propio encabezado:** la rev **v1.63.3** (la puerta del FX `I-FX6` + la cuarta fila de
 > precedencia) **entró en `§M2-F` y nunca subió aquí**: la línea de versión seguía diciendo `v1.63.2`. Corregido.
 > **v1.63.3 sigue vigente entera** y su changelog está en [`§M2-F`](#M2-F).
@@ -10435,6 +10443,28 @@ citas vivas a «regla 2» y «regla 5» en este documento, en `ARCHITECTURE §4.
 - **Sigue siendo `200`, no `502`, y es deliberado:** la llamada **completó** y el `FxStateDTO` de vuelta **es
   válido y verdadero**; lo que falló es la fuente externa. **La UI está OBLIGADA a distinguir `failed`
   visualmente** — un `200` silencioso es justo el defecto que se está cerrando.
+  > ### ⭐ **v1.63.4 — `200` RATIFICADO, y no es «`200` en vez de `502`»: es `200` en vez de `201`.**
+  > **Lo reportó backend** al cablear `FX-25` por HTTP: la ruta respondía **`201`** (`@Post` de Nest sin
+  > `@HttpCode`), contradiciendo esta sección. Lo arregló con `@HttpCode(200)` aplicando la regla de conflicto.
+  > **RATIFICO el `200`; el contrato NO cambia.** *(Verificado por mí en el código: `pricing.controller.ts:929`.
+  > ⚠️ **Lo que NO medí yo es el `201` previo** — lo tomo del reporte de backend y lo digo, §0-B.3.)*
+  >
+  > **La razón decisiva es de esta ruta en particular, y es más fuerte que «un refresco no crea un recurso»:**
+  > **el código de estado es FIJO por ruta y esta ruta tiene TRES desenlaces.** Con **`failed` no se escribe ni
+  > una fila**; con **`unchanged`** se reescribe la misma; y **`updated`** es un **upsert**, que igual actualiza
+  > que crea. ⇒ **`201 Created` sería FALSO en al menos un desenlace y discutible en los otros dos. `200` es el
+  > único código verdadero en los tres.** Añádase que **no hay `Location`** y que el cuerpo devuelve **el estado**
+  > (`FxStateDTO`), no el recurso creado.
+  >
+  > ⚠️⚠️ **Y hay una razón de DOCTRINA que lo vuelve obligatorio, no estético:** toda `§M2-F.5` existe porque el
+  > refresco **afirmaba un fetch que no ocurrió**. **Un `201` sobre `outcome: "failed"` es esa misma mentira, una
+  > capa más abajo**: la línea de estado anunciando una creación que no pasó, envolviendo un cuerpo que dice que
+  > falló. *Arreglar el cuerpo y dejar mintiendo la cabecera habría sido media cura.*
+  >
+  > **Precedente, y está MEDIDO en este documento y en el código:** `POST /admin/pricing/override` declaraba `200`,
+  > respondía `201`, y **backend alineó el código** (`pricing.controller.ts:288`, con su razón escrita al lado).
+  > Es el **mismo mecanismo, el mismo arreglo y el mismo motivo** — ver la norma generalizada en
+  > [`§M5-C`](#M5-C). *Una precedencia que cambia de criterio a mitad de lista no es una precedencia: son dos.*
 - **La bitácora `fx.refresh` registra el `outcome` real** (`after: { outcome, reason, fetchedRate }`), **no el valor
   de vuelta**.
 - ⭐ **El refresco corre IGUAL en modo `manual`, y ahora eso es ÚTIL, no inútil:** escribe la fila `FxRate` que
@@ -10446,6 +10476,14 @@ citas vivas a «regla 2» y «regla 5» en este documento, en `ARCHITECTURE §4.
 
 *Un candado que no se puede poner rojo no vale, y **un candado que mide el NOMBRE de un campo no vale nada**: éstos
 miden **qué dinero sale**.*
+
+> ⚠️ **v1.63.4 — LOS IDENTIFICADORES `FX-*` DE ESTA TABLA SON DEL CONTRATO.** Los asigno yo aquí y **nadie más los
+> acuña**: en v1.63.4 asigné `FX-24` a la banda **mientras backend ya usaba `FX-24` localmente** para otra cosa (el
+> colchón de R2). **Backend lo detectó y renombró el suyo a `FX-R2`**, con la razón exacta: *«dos bloques con el
+> mismo id es cómo un hallazgo se enruta al candado equivocado»* — **acertó, y lo ratifico.** ⇒ **Norma:** un id
+> `FX-<n>` **sin fila en esta tabla no existe**; para marcas internas que no son candados de contrato, se usa un
+> prefijo propio (`FX-R*`, como hizo backend). *Un identificador compartido entre dos espacios de nombres no es un
+> nombre: es una colisión esperando a un incidente.*
 
 | # | Mutación (romper esto…) | …pone en rojo |
 |---|---|---|
@@ -10466,8 +10504,8 @@ miden **qué dinero sale**.*
 | **FX-8** | que el refresco siga afirmando un fetch que no ocurrió | Sin `BANXICO_SIE_TOKEN` (o con el fetch forzado a fallar) ⇒ `POST /admin/fx/refresh` ⇒ `refresh.outcome == "failed"`, `refresh.reason == "no_token"`, `refresh.fetchedRate == null`, **y la entrada `fx.refresh` de `AuditLog` dice `failed`**. **Rojo si `outcome == "updated"`, si el bloque `refresh` no viaja, o si la bitácora guarda el valor del override como si lo hubiera traído** |
 | **FX-9** ⭐ | **devolver sólo la tasa que rige** (la mutación «para qué mando la que no aplica») | **El candado de la precondición de dinero.** Modo `manual` con `19.0` **y** una `FxRate` banxico de `18.2` ⇒ `GET /admin/fx` trae **`manual.rate == 19.0` Y `automatic.rate == 18.2`**, con `automatic.effectiveDate` y `ageDays`. **Rojo si `automatic` viene `null`, ausente, o igual a `rate`.** Simétrico en `auto`: `manual.rate` **sigue viajando** con el número guardado |
 | **FX-10** | que la frescura se selle con `today()` | La única `FxRate` banxico tiene `effectiveDate` de **hace 40 días** ⇒ `automatic.effectiveDate` **es esa fecha**, `ageDays == 40`, `status == "stale"`. **Rojo si `ageDays == 0` o si `status == "fresh"`** |
-| **FX-24** ⭐⭐ *(v1.63.4 — **PENDIENTE de implementar**, `ARCHITECTURE §9 · D-FX-4`)* | **quitar el PISO de la banda** de cualquiera de las dos puertas —volver a `n <= 0` en `parseBanxicoRate` o a `v > 0` en `validateFxManualOverrideRate`—, **o poner el piso en una sola** | **El candado de [`§M2-F.8`](#M2-F8), y son TRES cosas: la banda, la PARIDAD y el dinero.** **(a) La banda, vector a vector, en las DOS puertas y con el MISMO veredicto:** rechazan `1e-7`, `0.0001`, `0.05` *(la inversa del par)*, `0.999999`, `0`, `1000.0001`, `9999`; **aceptan** `1` *(extremo inferior, CERRADO)*, `18.5`, `999.9999`, `1000` *(extremo superior, CERRADO)*. La puerta tecleada acepta además **`null`** (borra el override) y rechaza `-1`, `NaN`, `Infinity`. **(b)** ⭐⭐ **LA PARIDAD, y se asierta como IDENTIDAD, no como dos copias:** para cada vector numérico expresable en formato SIE, **`parseBanxicoRate(String(v)).ok === (validateFxManualOverrideRate(v) === null)`**. *Rojo en cuanto una puerta quede más permisiva que la otra en cualquiera de los dos extremos — que es la mutación realista, porque el arreglo se hace en dos ficheros.* ⚠️ **El MOTIVO puede diferir** (`format` vs `out_of_band`) y eso **no es rojo**: lo normativo es **el veredicto**. **(c)** ⭐⭐ **Y LA CONDUCTA, que es lo que mide el dinero** (mismo patrón que `FX-20(e)`): fixture `mode:"auto"`, fila `banxico` `18.2431`, **una carta con `PriceReference` en USD** (`priceUsdCents = 100_00`) ⇒ Banxico devuelve **`"0.0001"`** ⇒ **`refresh.outcome == "failed"`, `reason == "invalid_payload"`, NINGUNA fila `FxRate` escrita**, y el **`referenceMxnCents` de la carta NO SE MUEVE** *(sigue en ≈MX$ 1,957, ⛔ jamás ≈MX$ 0.01)*. **Rojo si el refresco sale `updated`, si se escribe fila, o si el precio se desploma.** **(d)** el `message` del `422` de la puerta tecleada **nombra los DOS extremos** de la banda. **(e)** ⭐ `1 ≤ FX_FALLBACK_RATE ≤ 1000` *(la banda no puede excluir la constante que el propio sistema aplica)* |
-| **FX-25** ⭐ *(v1.63.4 — **PENDIENTE de implementar**, `ARCHITECTURE §9 · D-FX-5`)* | que `fallbackRate` **no viaje**, viaje **sólo a veces** (p. ej. sólo con `status:"missing"`), o **discrepe** del que va en el `422` | **El candado de la regla 6 de [`§M2-F.3`](#M2-F3), y la mitad que se olvida es la segunda.** **(a)** las **CUATRO** rutas de FX (`GET /admin/fx`, `PUT /admin/fx`, `PUT /admin/fx/mode`, `POST /admin/fx/refresh`) traen **`fallbackRate === 18`**, y lo traen **en los tres estados legales** (`manual` con número, `auto` con fila `banxico` **fresh**, y `auto` **sin** fila) — *rojo si aparece sólo cuando hace falta*. **(b)** ⭐ **la identidad con el error:** provocar el `422 FX_NO_AUTOMATIC_RATE` (fixture de `FX-12`) ⇒ **`details.fallbackRate === (GET /admin/fx).fallbackRate`**. **Rojo si el `422` deja de traer `details`** *(«ya viaja en el DTO» **no** es razón para adelgazarlo)*. **(c)** con `FxRate` vacío y sin tasa manual ⇒ `source == "fallback"` **y `rate === fallbackRate`**. **(d)** ⛔ **no es un dial:** `fallbackRate` **no** aparece en el DTO de `§M10` y mandarlo a `PUT /admin/settings` da `422 VALIDATION_ERROR` (clave desconocida) |
+| **FX-24** ⭐⭐ *(v1.63.4 — ✅ **IMPLEMENTADO y verificado**; `D-FX-4` cerrada. ⚠️ **`FX-24` es id de CONTRATO**: backend renombró a `FX-R2` un bloque local homónimo — ver la nota de arriba)* | **quitar el PISO de la banda** de cualquiera de las dos puertas —volver a `n <= 0` en `parseBanxicoRate` o a `v > 0` en `validateFxManualOverrideRate`—, **o poner el piso en una sola** | **El candado de [`§M2-F.8`](#M2-F8), y son TRES cosas: la banda, la PARIDAD y el dinero.** **(a) La banda, vector a vector, en las DOS puertas y con el MISMO veredicto:** rechazan `1e-7`, `0.0001`, `0.05` *(la inversa del par)*, `0.999999`, `0`, `1000.0001`, `9999`; **aceptan** `1` *(extremo inferior, CERRADO)*, `18.5`, `999.9999`, `1000` *(extremo superior, CERRADO)*. La puerta tecleada acepta además **`null`** (borra el override) y rechaza `-1`, `NaN`, `Infinity`. **(b)** ⭐⭐ **LA PARIDAD, y se asierta como IDENTIDAD, no como dos copias:** para cada vector numérico expresable en formato SIE, **`parseBanxicoRate(String(v)).ok === (validateFxManualOverrideRate(v) === null)`**. *Rojo en cuanto una puerta quede más permisiva que la otra en cualquiera de los dos extremos — que es la mutación realista, porque el arreglo se hace en dos ficheros.* ⚠️ **El MOTIVO puede diferir** (`format` vs `out_of_band`) y eso **no es rojo**: lo normativo es **el veredicto**. **(c)** ⭐⭐ **Y LA CONDUCTA, que es lo que mide el dinero** (mismo patrón que `FX-20(e)`): fixture `mode:"auto"`, fila `banxico` `18.2431`, **una carta con `PriceReference` en USD** (`priceUsdCents = 100_00`) ⇒ Banxico devuelve **`"0.0001"`** ⇒ **`refresh.outcome == "failed"`, `reason == "invalid_payload"`, NINGUNA fila `FxRate` escrita**, y el **`referenceMxnCents` de la carta NO SE MUEVE** *(sigue en ≈MX$ 1,957, ⛔ jamás ≈MX$ 0.01)*. **Rojo si el refresco sale `updated`, si se escribe fila, o si el precio se desploma.** **(d)** el `message` del `422` de la puerta tecleada **nombra los DOS extremos** de la banda. **(e)** ⭐ `1 ≤ FX_FALLBACK_RATE ≤ 1000` *(la banda no puede excluir la constante que el propio sistema aplica)* |
+| **FX-25** ⭐ *(v1.63.4 — ✅ **IMPLEMENTADO y verificado**; `D-FX-5` cerrada. ⭐ **Su cableado por HTTP destapó el `201` de `refresh`**)* | que `fallbackRate` **no viaje**, viaje **sólo a veces** (p. ej. sólo con `status:"missing"`), o **discrepe** del que va en el `422` | **El candado de la regla 6 de [`§M2-F.3`](#M2-F3), y la mitad que se olvida es la segunda.** **(a)** las **CUATRO** rutas de FX (`GET /admin/fx`, `PUT /admin/fx`, `PUT /admin/fx/mode`, `POST /admin/fx/refresh`) traen **`fallbackRate === 18`**, y lo traen **en los tres estados legales** (`manual` con número, `auto` con fila `banxico` **fresh**, y `auto` **sin** fila) — *rojo si aparece sólo cuando hace falta*. ⭐ **v1.63.4 — y de paso, EL CÓDIGO DE ESTADO de las cuatro es `200`**, incluido `POST …/refresh` **en sus tres desenlaces** (`updated`, `unchanged` y **`failed`**): coste cero (ya se hacen las cuatro llamadas) y cierra el hueco que dejó vivir **diez** `201` indebidos — *un contrato que declara `Res 200` y una suite que nunca lo asierta es una norma sin candado* ([`§M5-C`](#M5-C)). **Rojo con `201`.** **(b)** ⭐ **la identidad con el error:** provocar el `422 FX_NO_AUTOMATIC_RATE` (fixture de `FX-12`) ⇒ **`details.fallbackRate === (GET /admin/fx).fallbackRate`**. **Rojo si el `422` deja de traer `details`** *(«ya viaja en el DTO» **no** es razón para adelgazarlo)*. **(c)** con `FxRate` vacío y sin tasa manual ⇒ `source == "fallback"` **y `rate === fallbackRate`**. **(d)** ⛔ **no es un dial:** `fallbackRate` **no** aparece en el DTO de `§M10` y mandarlo a `PUT /admin/settings` da `422 VALIDATION_ERROR` (clave desconocida) |
 
 > ### 🔴 **v1.63.4 — `FX-20` DESCRIBÍA EL EXPERIMENTO AL REVÉS, Y ASÍ NO MEDÍA NADA** *(hallazgo `I-QA-7` de QA, elevado como **análisis**; **CONFIRMADO** contra las tres fuentes. El defecto es MÍO, de v1.63.3.)*
 >
@@ -10592,9 +10630,10 @@ existe no cubre un hueco que sí.
 banda. *Una banda que excluyera la constante que el propio sistema aplica sería un sistema que rechaza lo que él
 mismo hace regir.*
 
-**Candado: `FX-24`** ([`§M2-F.6`](#M2-F6) — vectores, paridad y conducta). **Estado: pendiente de implementar** —
-dueño **backend**, divergencia declarada en `ARCHITECTURE §9 · D-FX-4`. ⛔ **Las dos puertas se mueven en el mismo
-cambio o no se mueve ninguna**: media banda es una divergencia nueva.
+**Candado: `FX-24`** ([`§M2-F.6`](#M2-F6) — vectores, paridad y conducta). **Estado: ✅ IMPLEMENTADO y verificado**
+(unitaria + integración contra Postgres real; `ARCHITECTURE §9 · D-FX-4` **cerrada**), **con una sola definición de
+la banda y las dos puertas llamando al mismo predicado** — que era la exigencia, no un detalle. ⛔ **Las dos puertas
+se mueven en el mismo cambio o no se mueve ninguna**: media banda es una divergencia nueva.
 
 ---
 
@@ -13560,6 +13599,31 @@ atenuante describe cuánto tarda el daño, no si ocurre.*
 **LA NORMA, en una línea:** en el ciclo de buylist, **`201` es exclusivamente para el endpoint que CREA una
 `SellRequest`** (`POST /buylist/requests`, §6 — declara `Res 201` y el código responde `201`: **alineado, medido**).
 **Todo verbo que opera sobre una solicitud existente responde `200`**, tenga o no rama idempotente.
+
+> ### ⭐⭐ **v1.63.4 — LA NORMA SE GENERALIZA A TODO EL CONTRATO, porque el defecto NO era del buylist.**
+> `§M5-C` se escribió acotada a *«el ciclo de buylist»*, y en v1.63.4 **el mismo defecto apareció en otro módulo**:
+> `POST /admin/fx/refresh` respondía `201` contra un `§M2-F.5` que norma `200` (reportado por backend al cablear
+> `FX-25`; arreglado con `@HttpCode(200)` y **ratificado por mí**). Con el precedente de `POST
+> /admin/pricing/override` (v1.50, **pricing**) son **tres módulos distintos y un solo mecanismo**.
+>
+> ⇒ **NORMA CONTRACTUAL, ya no local:** **`201` se reserva a los endpoints que CREAN un recurso, y esos DECLARAN
+> `Res 201` en este documento. Todo lo demás responde `200`** — incluidos los verbos que **operan sobre algo que ya
+> existe**, los **idempotentes** y los que **pueden no escribir nada**. ⚠️ **La causa es de framework, no de
+> criterio:** `@Post` de Nest responde `201` **por omisión**, así que **el defecto se produce solo, sin que nadie
+> lo decida**, cada vez que se añade un `@Post` que no crea. **El arreglo es una línea (`@HttpCode(200)`) y el
+> código se alinea al contrato, nunca al revés.**
+>
+> 🔴 **POR QUÉ SOBREVIVE TANTO, y esto es lo accionable para QA:** en los **diez** casos conocidos **ningún test
+> miraba el código de estado**. Los tres candados del refresco de FX miran el bloque `refresh`; los del ciclo,
+> el cuerpo. *Un contrato que declara `Res 200` y una suite que nunca lo asierta es una norma sin candado* — por eso
+> hicieron falta QA en vivo (v1.57) y un cableado incidental (v1.63.4) para encontrar dos tandas del mismo fallo.
+> ⇒ **`FX-25(a)` gana esa aserción** (ya hace HTTP sobre las cuatro rutas: es su sitio natural, coste cero).
+>
+> ⚠️ **ALCANCE DE LO QUE SÉ, dicho para no repetir el error de v1.57** *(§0-B.3: lo no medido se marca)*: he
+> **medido** el `@HttpCode(200)` de `refresh` y de `override`, y la familia FX **no tiene más `@Post`**. ⛔ **NO he
+> barrido el resto del contrato**: pueden quedar `@Post` sin `@HttpCode` en otros módulos. **Un censo completo
+> —`@Post` sin `@HttpCode` que no declare `Res 201`— es de backend, es mecánico (grep) y NO bloquea**; queda
+> enrutado, no afirmado como hecho.
 
 - **Por qué `200` y no dejar el `201` del framework:** los verbos del ciclo **no crean un recurso**, y **siete de
   ellos tienen rama idempotente normada en este documento** — *una repetición que devuelve un hecho ya registrado no

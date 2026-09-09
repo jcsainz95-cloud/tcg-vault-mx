@@ -19767,6 +19767,12 @@ conocida y avisar/rechazar por **desviación relativa**, que es lo que seguridad
 (`SECURITY_NOTES:7820`). **Eso es otro pase y queda abierto como `Q-F5` (§10) — ⛔ no se diseña aquí**, y sobre todo
 ⛔ **no se usa como excusa para no poner el piso**: un control que no existe no cubre un hueco que sí.
 
+> ✅ **v1.63.4 — CONFIRMADO POR MEDICIÓN, ya no sólo declarado.** Backend lo verificó **con la banda ya
+> implementada**: **`1.95` y `195` siguen los dos DENTRO de `[1, 1000]`**. *Yo lo había afirmado por razonamiento
+> al fijar el piso; ahora está medido, y por §0-B.3 sube de «declarado» a «medido».* **No reabre nada** —el límite
+> era conocido y deliberado—, pero **deja constancia de que el piso NO cerró `Q-F5`**, que es exactamente lo que
+> hay que saber antes de que alguien dé la deriva por cubierta *porque «ya hay banda»*.
+
 ---
 
 **DECISIÓN 2 — LA SIMETRÍA SE RATIFICA. `FX-B1`/`FX-B2` NO SE DEROGA: SE EXTIENDE AL PISO.**
@@ -20942,8 +20948,11 @@ Riesgos técnicos:
     implementador futuro fiel al contrato habría escrito un candado inútil **creyendo que `S-FX-1` está cerrado**.
     *Que el código estuviera bien fue suerte del proceso —backend siguió la medición, no mi texto—, no del texto.*
 
-- **🆕 NUEVA (v1.63.4) — `D-FX-4`: LA BANDA DE CORDURA DE LA TASA YA TIENE PISO EN EL CONTRATO, Y EL CÓDIGO SÓLO
-  TIENE TECHO.** **Dueño del arreglo: backend** (`validateFxManualOverrideRate` en
+- **✅ CERRADA (v1.63.4) — `D-FX-4`: LA BANDA DE CORDURA DE LA TASA YA TIENE PISO EN EL CONTRATO, Y EL CÓDIGO SÓLO
+  TIENE TECHO.** **Estado: ✅ CERRADA — implementada y verificada** (unitaria + integración contra Postgres real):
+  **una sola definición de la banda y las dos puertas llamando al mismo predicado**, que es exactamente lo que
+  pedía la decisión 2 de §4.43c-quinquies. *Se conserva el texto de abajo porque describe la divergencia que
+  existió.* **Dueño del arreglo: backend** (`validateFxManualOverrideRate` en
   `backend/src/modules/settings/settings.constants.ts` **y** `parseBanxicoRate` en
   `backend/src/modules/pricing/fx.service.ts` — **las dos puertas, en el mismo cambio**).
   **Estado: ⚠️ ABIERTA — la abro yo al decidir** (§4.43c-quinquies), y la dejo escrita por la misma razón que
@@ -20963,9 +20972,13 @@ Riesgos técnicos:
     del hueco** — bendecirlo por escrito habría sido peor que dejarlo abierto.
   - **Candado exigido: `FX-24`** (`§M2-F.6`), con sus vectores y su caso de conducta. ⛔ **No lo arreglo yo.**
 
-- **🆕 NUEVA (v1.63.4) — `D-FX-5`: EL `FxStateDTO` NO PUBLICA EL VALOR DE RESPALDO QUE EL CONTRATO YA MANDA
+- **✅ CERRADA (v1.63.4) — `D-FX-5`: EL `FxStateDTO` NO PUBLICA EL VALOR DE RESPALDO QUE EL CONTRATO YA MANDA
   PUBLICAR.** **Dueño del arreglo: backend** (`projectFxState`, `backend/src/common/fx-mode.ts`).
-  **Estado: ⚠️ ABIERTA — NO bloqueante** (el camino de hoy del frontend es legal y correcto).
+  **Estado: ✅ CERRADA — `fallbackRate` implementado al NIVEL SUPERIOR del DTO y verificado.** ⭐ **Y al cablear
+  `FX-25` por HTTP salió, de rebote, el `201` de `POST /admin/fx/refresh`** — ratificado a `200` (`§M2-F.5`,
+  `§M5-C`). *El candado encontró algo que no venía a buscar, que es la mejor señal de que estaba bien puesto.*
+  ⚠️ **Queda por cerrar la MITAD DE FRONTEND**: su deuda del `PUT` de sondeo (mandar un `PUT` sin acuse para leer
+  `details.fallbackRate` del `422`) **ya no hace falta** y **la cierra él**, no backend.
   - **Qué manda el contrato desde v1.63.4:** `fallbackRate: number` **al nivel superior** del `FxStateDTO`, en las
     **cuatro** rutas de FX y en **todas** las respuestas, con **el mismo valor** que `details.fallbackRate` del
     `422 FX_NO_AUTOMATIC_RATE` (§4.43d-bis, `§M2-F.3`).
