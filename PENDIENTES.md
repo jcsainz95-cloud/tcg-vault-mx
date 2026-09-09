@@ -669,6 +669,34 @@ roles) y **¿cómo le llama a M5?**.
   `API_CONTRACT.md`, `prisma/schema`, jobs programados y correo transaccional. Por la regla de oro, **solo
   un stream a la vez** puede tocarlas.
 
+#### P-71 · 🔤 Mostrar el código corto del set junto a las imágenes — pedido por el humano
+- **Lo que dijo, literal (2026-09-09):** *«quiero que en los sets cuando estamos viendo las imagenes
+  pongamos el codigo chico que viene en las cartas perfect order POR, pitch plack PF etc»*.
+- **Qué es:** la sigla corta impresa en la propia carta (**POR**, **PF**, …), que es como los jugadores
+  y las listas de deck identifican el set. No es el nombre largo del set: es el código que aparece en el
+  cartón y el que se teclea al buscar.
+- ⭐ **NOTICIA BUENA, verificada en el código: el dato YA EXISTE y YA SE ESTÁ GUARDANDO.**
+  - Columna `CardSet.ptcgoCode String?` — `backend/prisma/schema.prisma:497`.
+  - La **puebla sola** el barrido de catálogo desde pokemontcg.io:
+    `backend/src/modules/catalog/catalog-sync.service.ts:918` y `:928`, leyendo
+    `pokemontcg-io.client.ts:20`.
+  - ⇒ **No hay que capturar nada a mano, ni migrar, ni pedirle el dato a un proveedor nuevo.**
+- 🔴 **Lo que falta, y es todo lo que falta: NADIE LO LEE.** Grep sobre `backend/src/`: las únicas tres
+  ocurrencias son las de la escritura. **No viaja en ningún DTO** y no aparece en
+  `frontend/src/types/contract.ts`. El dato está en la base y muere ahí.
+- **Trabajo real:** publicarlo en el DTO del set/carta (**arquitecto**, porque es cambio de contrato —
+  regla 9), emitirlo (**backend**) y pintarlo (**frontend** + **ux-ui** para dónde y con qué jerarquía).
+  Es de los pendientes más baratos de la lista **si el contrato lo permite**.
+- ⚠️ **Lo que hay que medir antes de prometerlo:** cuántos sets tienen `ptcgoCode` **no nulo** en
+  producción. La columna es opcional y el proveedor no siempre lo trae — sobre todo en sets viejos o en
+  promocionales. **Si falta, se omite; NUNCA se inventa una sigla ni se pone un guion que parezca un
+  código.** Es la misma regla que ya aplicamos al precio: sin dato, no se finge.
+- **Cruce con P-70 (`decks-meta-v1`):** ese stream resuelve las cartas de una lista **por set code +
+  número**, y su propio spec lo dice. ⇒ este pendiente y aquél **usan el mismo dato**, así que conviene
+  que el mismo pase decida cómo se publica, en vez de exponerlo dos veces con dos formas distintas.
+- **Estado:** anotado, sin diagnosticar más allá de lo verificado arriba. Sin rol dueño asignado hasta
+  que el arquitecto diga cómo entra al contrato.
+
 #### P-69 · 📦 El precio de mercado se pierde entre el paso 1 y el paso 2 al subir sellado — reportado por el humano
 - **Lo que dijo, literal (2026-09-09):** *«subiendo producto sellado me aparece el precio de mercado, en la
   siguiente pagina dice que no tiene el precio y no puedo ponerle como aportacion»*. Con captura.
