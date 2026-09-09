@@ -643,8 +643,51 @@ roles) y **¿cómo le llama a M5?**.
 - **Segunda pregunta abierta:** ¿el bloqueo de «aportación» sin precio es **regla de negocio deliberada**
   (no se aporta lo que no está valuado) o efecto colateral? Si es deliberada, la regla está bien y el bug
   es solo que el precio se pierde.
-- **Estado:** 🔎 **diagnóstico de solo lectura lanzado** (2026-09-09). Sin rol dueño asignado hasta saber
-  si el hueco está en `backend/` o en `frontend/`.
+- **Estado:** ✅ **DIAGNOSTICADO (2026-09-09). El que miente es el PASO 1.**
+- **La causa, medida en código:** son **dos campos distintos que viajan en la MISMA respuesta del MISMO
+  endpoint** — no se pierde ningún id, no se re-pide nada, no hay acabado de por medio.
+  - **Paso 1** pinta `SealedProductDTO.marketRef` (`SealedProductPicker.tsx:216-217`): lectura **viva/caché
+    de TCGCSV**, **sin gatear** por el dial y **sin respaldo en una fila `PriceReference`**.
+  - **Paso 2** pinta `SealedProductDTO.effectiveMarketCents` (`SealedAddFlow.tsx:172`): el mercado
+    **autoritativo**, ya pasado por `gateSealedMarketCents` (`pricing.service.ts:1763-1780`) con el dial
+    `sealedPriceSource`.
+  - ⇒ **El paso 2 dice la verdad: es lo que el backend aceptaría. El paso 1 enseña un número que el
+    backend rechazaría** — inerte a efectos de dinero: no valúa la aportación, no publica, no fija venta.
+- ⚠️ **Y es una regresión conocida a medio aplicar:** este es el mismo «dead-end de IMP-1» que se corrigió
+  en v1.41 (`BACKEND_NOTES.md:14867-14884`, `FRONTEND_NOTES.md:8121-8145`, con test de regresión en
+  `SealedAddFlow.test.tsx:221-257`). **Ese arreglo se aplicó al paso 2 y NO al paso 1.** La teja del picker
+  se quedó en la semántica vieja — y `DESIGN_SYSTEM.md:3212-3213` todavía la respalda así, o sea que la
+  especificación también quedó desalineada con la doctrina.
+- **El bloqueo de «aportación» NO es el bug — es regla deliberada y correcta.** «Aportación» es
+  `acquisitionType:'aportacion_en_especie'` con `pct:100`: el dueño no paga la pieza y el sistema le
+  acredita un costo **valuado contra la referencia de mercado**. Sin referencia no hay número con el que
+  acreditarla, y `inventory.service.ts:729-761` responde `422 PRICE_PENDING` en vez de valuar en $0. Eso es
+  la doctrina money-safe funcionando. **El bug es que el paso 1 promete un valor que el backend no
+  reconoce, y el operador llega al paso 2 sin entender por qué se le cerró la puerta.**
+- **Agravante medido:** `SealedProductListResponse.sealedPriceSource` **ya llega al frontend**
+  (`sealed-product.service.ts:63`, `:246`) y **el flujo no lo usa en ninguna parte**. El dato para
+  explicarle al operador «la fuente automática está apagada, estos números son informativos» ya está en la
+  respuesta, sin consumir.
+- **El arreglo — rol dueño principal: `frontend`.**
+  1. `SealedProductPicker.tsx:216-217`: la teja se keyea en `product.effectiveMarketCents`, igual que el
+     paso 2. Con eso los dos pasos coinciden **por construcción** y desaparece el número que engaña.
+  2. Si se quiere conservar el informativo, que sea **explícitamente secundario** (otra etiqueta, no
+     «MERCADO»), nunca el número principal de la teja. ⛔ Y jamás $0: sin valor va «—» o «pendiente».
+  3. `SealedProductPicker.tsx:219-226`: el `aria-label` arrastra el mismo error para lectores de pantalla.
+  4. Consumir `sealedPriceSource === 'off'` para un aviso honesto **en el paso 1**.
+- **Secundario, `backend` (no es la causa de esta captura, pero cierra la misma familia):** unificar el
+  ancla del ingest con la del listado/alta (`sealed-price-ingest.service.ts:134-147` vs
+  `sealed-product.service.ts:260` e `inventory.service.ts:822`). Es la deuda **D-2** de
+  `TECH_DEBT.md:4519`, y es el **único** camino por el que el paso 2 diría «sin precio» con el dial
+  encendido y precio ya ingerido. Y `pricedCount` (`sealed-product.service.ts:417-418`) cuenta hoy la
+  fuente **sin gatear**: o cuenta gateado, o se renombra.
+- **Lo que NO se pudo medir desde el código y hay que mirar en la instalación:** el valor real del dial
+  `sealedPriceSource` (`GET /admin/settings`), si el job `sealed-price-ingest` ha corrido, y si esa ETB
+  tiene fila `PriceReference` bajo el ancla del set. La hipótesis que explica la captura entera sin
+  residuos es **dial en `off`** (el seed es `'off'`, `settings.constants.ts:294`), pero **es inferencia,
+  no medición**.
+- ⚠️ **Encender el dial NO cierra este pendiente:** aunque se prenda, el paso 1 seguiría mintiendo en
+  cualquier producto sin fila. El arreglo de frontend hace falta igual.
 - **Work stream:** inventario y vault — **distinto** del stream de FX que está en curso, así que no compite
   por las mismas rutas.
 
