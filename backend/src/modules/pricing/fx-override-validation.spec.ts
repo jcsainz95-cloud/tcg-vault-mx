@@ -94,6 +94,8 @@ describe('FX-B2 — PUT /admin/fx (FxController.setManual) aplica el MISMO rango
 
   it('acepta solo bufferPct sin pinnear la tasa (rate omitido)', async () => {
     await controller.setManual({ bufferPct: 5 } as never, 'admin-1');
-    expect(setManualSpy).toHaveBeenCalledWith(undefined, 5);
+    // v1.63 (§M2-F.4): el 3er argumento es el contexto de actor+bitácora TRANSACCIONAL. Lo que este
+    // candado mide sigue siendo lo mismo: `rate` viaja `undefined` ⇒ no se pinnea la tasa.
+    expect(setManualSpy).toHaveBeenCalledWith(undefined, 5, expect.objectContaining({ actorUserId: 'admin-1' }));
   });
 });

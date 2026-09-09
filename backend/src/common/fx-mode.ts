@@ -265,6 +265,9 @@ export interface FxRateReader {
  * ⇒ **Una fila `FxRate` con `source='manual'` NO RIGE NUNCA, en ningún modo.**
  */
 export function latestBanxicoFxRate(db: FxRateReader): Promise<FxRateRowLike | null> {
+  // PROJECTION-EXEMPT (S49-R4): helper INTERNO de lectura. La fila NO se devuelve por ninguna ruta:
+  // sus dos campos (`rate`, `effectiveDate`) los consume `projectFxState()`, que emite el
+  // `FxStateDTO` declarado en §M2-F.3. Ningún endpoint entrega esta entidad.
   return db.fxRate.findFirst({ where: { source: 'banxico' }, orderBy: { effectiveDate: 'desc' } });
 }
 
