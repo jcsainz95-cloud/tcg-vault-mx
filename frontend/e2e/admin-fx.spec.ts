@@ -170,8 +170,17 @@ async function restoreMode(page: Page, mode: Mode) {
   await expect(target).toHaveAttribute('aria-checked', 'true');
 }
 
-// El interruptor es UNO y el estado es del ENTORNO: dos casos moviéndolo a la vez medirían el arnés.
-test.describe.configure({ mode: 'serial' });
+/**
+ * ⚠️ **Secuencial, ⛔ pero NO `serial`.** El interruptor es UNO y su estado es del ENTORNO: con
+ * `fullyParallel: true`, dos casos moviéndolo a la vez desde workers distintos medirían la carrera
+ * del arnés, no el producto. `mode: 'default'` los pone en el MISMO worker y en orden.
+ *
+ * ⛔ **`mode: 'serial'` se descartó, y se midió por qué**: además de secuenciar, **salta todo lo que
+ * venga detrás del primer rojo**. Con la mutación «el segmento cambia el modo sin diálogo» eso
+ * daba **1 rojo + 1 caso perdido**; en `default` salen **los 2 rojos**. Un modo que esconde
+ * hallazgos para ahorrar tiempo de corrida no es lo que hace falta en una superficie de dinero.
+ */
+test.describe.configure({ mode: 'default' });
 
 test.describe('admin · M2 tipo de cambio (§30)', () => {
   /**
