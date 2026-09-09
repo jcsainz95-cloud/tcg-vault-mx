@@ -583,6 +583,13 @@ export class OrdersService {
           ivaCents: breakdown.ivaCents,
           totalCents: breakdown.totalCents,
           ivaRatePct: breakdown.ivaRatePct,
+          // v1.64-iva-inclusive (M-50, §4.44.k · DEPLOY 1) — TODA orden nueva nace `IVA_EXCLUSIVE`,
+          // que es la convención con la que ESTE código la acaba de cobrar. La conducta NO cambia:
+          // el deploy 1 es puramente aditivo. ⛔ Se escribe EXPLÍCITAMENTE y no por default de BD:
+          // la columna no tiene default justamente para que un camino que olvide esta línea REVIENTE
+          // en vez de heredar un significado equivocado en silencio (§4.44.e, candado `IVA-3(e)`).
+          // ⛔ `ivaTransferPct` se queda en `NULL`: bajo `IVA_EXCLUSIVE` el dial no participó.
+          priceConvention: 'IVA_EXCLUSIVE',
           cfdiStatus: 'registrado',
           billingSnapshot: billingSnapshot ?? undefined,
           items: { create: orderItemsData },
@@ -714,6 +721,9 @@ export class OrdersService {
             ivaCents: 0,
             processingFeeCents: 0,
             totalCents: 0,
+            // v1.64 (M-50, DEPLOY 1): la convención se escribe SIEMPRE, también en el envío de
+            // montos-en-cero. Un cero también tiene convención, y una fila sin ella no se puede leer.
+            priceConvention: 'IVA_EXCLUSIVE',
             items: { create: frozen.map((i) => ({ inventoryItemId: i.id })) },
           },
         });

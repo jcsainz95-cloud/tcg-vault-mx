@@ -195,6 +195,10 @@ export class ShipmentsService {
             ivaCents: breakdown.ivaCents,
             processingFeeCents: breakdown.processingFeeCents,
             totalCents: breakdown.totalCents,
+            // v1.64-iva-inclusive (M-50, §4.44.f/§4.44.k · DEPLOY 1) — el envío entra en la
+            // convención igual que una carta. Hoy `computeShipmentBreakdown` apila
+            // `round(envío × r)` DESPUÉS de la tarifa ⇒ es `IVA_EXCLUSIVE`, y así se archiva.
+            priceConvention: 'IVA_EXCLUSIVE',
             items: { create: inventoryItemIds.map((id) => ({ inventoryItemId: id })) },
           },
         });
