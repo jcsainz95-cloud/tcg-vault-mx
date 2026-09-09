@@ -147,6 +147,26 @@ async function expectRulingMarkAgreesWithSource(page: Page) {
 }
 
 /**
+ * ⭐⭐ **CUÁL de los dos diálogos toca no lo elige el test: lo dicta §30.8.** El **acuse** sale ⟺ se
+ * va a AUTOMÁTICA **y** no hay ninguna tasa de Banxico; en cualquier otro caso, el diálogo normal
+ * (§30.9a). Se afirma la equivalencia **en los dos sentidos y en las dos direcciones del viaje**:
+ * *pedir el acuse de más* —con una tasa de Banxico delante, donde el humano tiene un número real
+ * que juzgar— es tan rojo como no pedirlo.
+ *
+ * ⚠️ Se comprueba también **en la vuelta**, y no por simetría estética: una mutación que pida el
+ * acuse siempre **sobrevive** si sólo se mira la ida (medido — la vuelta era el único tramo que
+ * entraba en `auto` en un entorno con Banxico).
+ */
+async function expectDialogFor(page: Page, goingTo: Mode, noBanxico: boolean): Promise<boolean> {
+  const dialog = page.getByRole('dialog');
+  await expect(dialog).toBeVisible();
+  const isAck = (await textOf(dialog)).includes(FX('ack.title'));
+  const shouldAck = goingTo === 'auto' && noBanxico;
+  expect(isAck, isAck ? 'salió el ACUSE donde tocaba el diálogo normal' : 'faltó el ACUSE de §30.8').toBe(shouldAck);
+  return isAck;
+}
+
+/**
  * Guarda una tasa manual **con un acto legal de la pantalla** (§30.9c). Se usa sólo para dejar el
  * entorno en condiciones de ofrecer el segmento MANUAL, y con **la tasa que ya rige**: guardar en
  * `auto` ⛔ no cambia lo que rige (I-FX2), y el número es el mismo ⇒ no mueve un peso.
@@ -380,14 +400,8 @@ test.describe('admin · M2 tipo de cambio (§30)', () => {
     await expect(segment(page, start)).toHaveAttribute('aria-checked', 'true');
     await expect(page.getByTestId('fx-current')).toHaveText(startRate);
 
-    // ⭐ CUÁL de los dos diálogos toca **no lo elige el test**: §30.8 exige el ACUSE ⟺ se va a
-    // AUTOMÁTICA y no hay ninguna tasa de Banxico. Se afirma la equivalencia **en los dos
-    // sentidos**: pedir el acuse de más (con `stale`, p. ej.) es tan rojo como no pedirlo.
     const noBanxico = startAutomatic === null;
-    const isAck = (await textOf(dialog)).includes(FX('ack.title'));
-    expect(isAck, isAck ? 'salió el ACUSE donde tocaba el diálogo normal' : 'faltó el ACUSE de §30.8').toBe(
-      target === 'auto' && noBanxico,
-    );
+    const isAck = await expectDialogFor(page, target, noBanxico);
 
     if (isAck) {
       // El párrafo por el que existe el diálogo, COMPLETO y sin «ver más».
@@ -432,6 +446,9 @@ test.describe('admin · M2 tipo de cambio (§30)', () => {
 
       // ── 5 · Y volver NO exige reteclear nada: la tarjeta vuelve EXACTAMENTE a donde estaba ──
       await segment(page, start).click();
+      // ⭐ Y en la vuelta el diálogo que toca sigue siendo el que dicta §30.8 (⛔ no «cualquiera»):
+      // el cambio de modo no creó ni borró la fila de Banxico, así que la condición no ha cambiado.
+      await expectDialogFor(page, start, noBanxico);
       await page.getByRole('dialog').getByRole('button', { name: ANY_CTA }).click();
 
       await expect(segment(page, start)).toHaveAttribute('aria-checked', 'true');
