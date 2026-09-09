@@ -17592,3 +17592,148 @@ reescribirla. *Si ux-ui quiere el punto fuera, es una cadena y es suya.*
 correo es peor que migrar uno entero**) · ⛔ `mail/mail.templates.ts` y **BE-43** (otro stream, pase 2)
 · ⛔ ningún asunto (§31.9) · ⛔ ninguna otra cadena (§31.0) · ⛔ nada del contrato: **ni un campo, ni un
 endpoint, ni un DTO** · ⛔ el PNG de la mira (es el `cp` de frontend).
+
+---
+
+## v1.63.2 · **LA PUERTA ÚNICA DEL TIPO DE CAMBIO** (S-FX-1 crítica + S-FX-2 alta · 2026-09-09)
+
+> **Qué entra:** el arreglo de los dos hallazgos de FX del pentester, la condición bloqueante del
+> techlead (`dataHealth.lastFxAt`) y los siete candados que QA rompió sin que nadie se enterara.
+> ⚠️ **Toco `fx.service.ts`, `settings.service.ts`, `common/fx-mode.ts` y `admin.service.ts`** — hay
+> un agente de frontend en `FxSection.tsx` y el pentester en `PENTEST_NOTES.md`; no chocan, pero queda
+> dicho.
+
+### 1. S-FX-1 (CRÍTICA) — la carrera entre las dos puertas
+
+**El estado del dinero no vive en una fila: vive en dos** (`fx_rate_mode` y
+`fx_manual_override_rate`), y el invariante que las ata (**I-FX4**) lo comprobaban **dos rutas
+distintas, cada una sobre su propia lectura previa**. Filas distintas ⇒ Postgres no las hacía
+colisionar ⇒ **las dos commiteaban**. Resultado medido en vivo: `mode:"manual"` con tasa `null` ⇒
+**fallback duro de 18** ⇒ **−5.26 % sobre todo lo que compramos y vendemos**, con **200 en las dos
+respuestas**, **sin acuse**, con **la bitácora afirmando 19/manual** y **pegado hasta que un humano
+teclea una tasa**.
+
+**El arreglo, y son tres piezas — el candado solo es una:**
+
+| # | Pieza | Dónde |
+|---|---|---|
+| 1 | **`lockFxGate(tx)`** — `pg_advisory_xact_lock` **por transacción** (se suelta con el commit o el rollback; no hay forma de olvidarlo) | `common/fx-mode.ts` |
+| 2 | ⭐ **Releer DENTRO**: estado, precondiciones y proyección auditada se calculan **después** del candado y **por el mismo `tx`** | `fx.service.ts` (`setMode`), `settings.service.ts` (`prepareFxModePin`) |
+| 3 | La bitácora sale de esa lectura (`fxPin.previousState`), no de la de fuera | `fx.service.ts` (`setManual`) |
+
+**⭐ La pieza 2 es la que arregla, no la 1.** Una transacción que espera su turno y luego escribe con
+la lectura de antes de esperar **commitea el mismo estado imposible, veinte milisegundos más tarde**.
+
+**Y el candado se toma SOLO cuando el `PUT` toca el valor del FX**: los otros veinte diales no
+comparten invariante con nadie y serializarlos entre sí sería pagar contención por costumbre.
+
+### 2. S-FX-2 (ALTA) — la tasa de Banxico no se validaba como la tecleada
+
+La tasa **tecleada** estaba acotada a `(0, 1000]` desde FX-B1; la que llega de Banxico —**la que en
+modo `auto` rige sin que ningún humano la mire**— solo se comprobaba `isFinite && > 0`. Y el parser
+(`parseFloat(raw.replace(',', ''))`) quitaba **solo la primera coma**: `"19,5"` → **195**.
+
+⇒ **`parseBanxicoRate()`** (exportada y probada aparte): **formato SIE estricto** (punto decimal, coma
+solo como millares en grupos de tres) **+ la misma banda `(0, 1000]`**. Lo que no se entiende **no se
+aproxima**: se rechaza, sale `failed/invalid_payload` y **la tasa anterior sigue rigiendo**.
+
+⚠️ **`out_of_band` NO es un `reason` nuevo**: se mapea a `invalid_payload` porque **§M2-F.5 fija ese
+enum y el contrato no se cambia desde backend**. Se distingue en el log. *Si el arquitecto quiere un
+`reason` propio, es de él.*
+
+### 3. 🔴 DOS COSAS QUE NO ARREGLO Y SON DE OTROS — van al arquitecto (regla 9)
+
+1. **⚠️ El contrato dice que el estado imposible es inalcanzable, y ya no lo es.** §M2-F/§4.43 razonan
+   que *«manual sin número» solo se alcanza editando la BD a mano* — por eso la lectura cae al
+   fallback y lo etiqueta `fallback` en vez de defenderse. **La carrera lo alcanzaba por HTTP con dos
+   200.** Mi pase **cierra esa vía**, pero la suposición sigue apoyada en «nadie más puede crearlo», y
+   una migración o un `psql` lo crean. **Si la LECTURA debe defenderse (p. ej. `manual` sin número ⇒
+   seguir con la de Banxico en vez de caer a 18) eso es cambio de contrato y lo decide el arquitecto.**
+   ⛔ No lo toco.
+2. **Los dos 422 enmascaran la causa.** Quien intenta deshacerlo recibe «no hay tasa manual guardada»
+   y «no hay tasa automática», y **ninguno le dice que está cotizando 5 % abajo**. Es del lado del
+   mensaje: **coordinación con frontend + ux-ui**, no motor. ⛔ No cambio los mensajes.
+
+### 4. ⭐ La consulta que el dueño puede correr UNA VEZ (detección de entornos ya afectados)
+
+**Serializar previene el estado nuevo; no rescata a quien ya cayó.** Un entorno afectado se detecta
+con una consulta de una fila:
+
+```sql
+SELECT m."valueJson" AS mode, r."valueJson" AS manual_rate
+  FROM "ConfigSetting" m
+  LEFT JOIN "ConfigSetting" r ON r.key = 'fx_manual_override_rate'
+ WHERE m.key = 'fx_rate_mode'
+   AND m."valueJson" #>> '{}' = 'manual'
+   AND (r."valueJson" IS NULL OR r."valueJson" = 'null'::jsonb);
+```
+
+**Una fila ⇒ ese entorno está cotizando con el fallback duro de 18 ahora mismo.** Se sana con un
+`PUT /admin/fx { rate: <la tasa buena> }` (rellena el `null`); ⛔ **no** con `{mode:"auto"}` sin acuse
+(da 422) ni con `{bufferPct}` (200 y sigue en 18). La consulta va también en el spec de integración
+(`fx-mode.e2e-spec.ts`), donde **se comprueba que detecta y que deja de detectar**.
+
+### 5. La condición bloqueante del techlead — `dataHealth.lastFxAt`
+
+`admin.service.ts` leía `fxRate.findFirst({ orderBy: { createdAt } })` **sin filtro de fuente**: desde
+I-FX5 esa fila puede ser la `manual-<hoy>` que **no rige nunca**, así que el tablero afirmaba frescura
+**apoyándose en una fila declarada inerte** — y con **D-OPS-1** abierta podía decir «FX de hoy»
+durante semanas mientras el panel decía `missing`.
+
+⇒ **Mismo predicado y mismo orden que el lector canónico**, extraídos a `BANXICO_FX_WHERE` /
+`BANXICO_FX_ORDER` (el patrón de `MONEY_REF_WHERE`, que es de donde vino la comparación del techlead).
+
+**Y la etiqueta queda NOMBRADA, que era la otra mitad del encargo:** **`lastFxAt` = cuándo se escribió
+la fila de Banxico QUE HOY RIGE.** No es «el último HTTP 200 a Banxico»: si el refresco corre dos veces
+el mismo día el `upsert` actualiza la fila y `createdAt` no se mueve (`FxRate` **no tiene**
+`updatedAt`, y este pase sigue siendo CERO DDL). Es lo que la tabla sabe, y hace **imposible** que las
+dos pantallas se contradigan: sin fila de Banxico ⇒ `null` aquí y `missing` allá, siempre.
+
+### 6. Los candados que QA rompió y siguieron verdes
+
+| Candado | Qué cierra |
+|---|---|
+| **FX-14** | Los dos números del contrato (**18** y **5 días**) se afirman **con literales**. `FX-7`/`FX-12` importaban `FX_FALLBACK_RATE` y `FX-10` derivaba sus fixtures del umbral: **se comparaban consigo mismos** |
+| **FX-15** ⭐ | El pin del modo va **dentro** de la transacción del valor. Se mide con el **handle**: el arnés entrega un `tx` distinto y marca toda escritura que venga por fuera |
+| **FX-16** ⭐ | La bitácora de `PUT /admin/fx/mode` es **transaccional** (FX-5 solo cubría la puerta de `settings`) |
+| **FX-17** ⭐ | Basura en `fx_rate_mode` (`"AUTO"`, `true`, `1`, `{}`) cae a **legacy**, jamás a `auto` — con la conducta de dinero comprobada, no solo el rótulo |
+| **FX-18** ⭐ | Un refresco `unchanged` **escribe la fila de hoy igual**: si no, `automatic.ageDays` sigue creciendo y el panel declara vieja **una tasa que acabamos de confirmar** |
+| **FX-19** ⭐ | `before.bufferPct` y `after.bufferPct` son **números distintos** cuando el colchón cambia (antes se comprobaba que la clave estaba, no que valiera) |
+| **FX-20** ⭐⭐ | **S-FX-1**: la carrera, con exclusión mutua de verdad en el arnés |
+| **FX-21** ⭐ | **S-FX-2**: banda de cordura + parser estricto, con la conducta (`19,5` ya no entra como 195) |
+
+**El arnés cambió para poder ponerse rojo**, y esa es la parte que importa: `$transaction` entrega
+**un cliente por transacción** con su propio estado de candado, `$executeRaw` implementa **exclusión
+mutua por transacción** (la semántica de `pg_advisory_xact_lock`), el snapshot de rollback se toma en
+la **primera escritura** (si se tomara al abrir, revertir desharía lo que la otra puerta commiteó
+mientras esperábamos: un artefacto que taparía justo lo que se mide) y un gancho `onWrite` congela a
+una puerta **dentro** de su transacción. *Sin eso, «las dos puertas se serializan» y «las dos
+commitean» se ven igual desde el test.*
+
+### 7. Verificación
+
+| Qué | Resultado |
+|---|---|
+| Suite unitaria completa | **256 suites / 3 933 tests verdes** |
+| `fx.mode-switch.spec.ts` | **83 verdes** (los 13 originales + FX-14…FX-21) |
+| `admin.dashboard-fx-health.spec.ts` | **4 verdes** |
+| `tsc --noEmit` · `eslint` | limpios (los 2 `warning` preexistentes siguen) |
+| **⭐ Mutación de S-FX-1** (quitar `lockFxGate` + releer fuera, en las DOS puertas) | 🔴 **FX-20 en rojo**, y falla **exactamente donde el pentester midió**: `mode:"manual"` + `rate:null`. Restaurado 🟢 |
+| **Mutación de `lastFxAt`** (volver a `findFirst({orderBy:{createdAt}})`) | 🔴 **3 de 4** en rojo. Restaurada 🟢 |
+| `npm audit --omit=dev --audit-level=high` | **exit 0** (0 high/critical; quedan 5 moderate: `qs`/`body-parser`/`@nestjs`, fuera de este release por decisión de devops) |
+| **Integración (`test/integration/fx-mode.e2e-spec.ts`)** | ⚠️ **ESCRITO, NO CORRIDO**: en esta sesión no hay Postgres (`pg_isready` sin respuesta). **Lo corre QA** con el stack levantado |
+
+### 8. `npm update multer js-yaml --package-lock-only`
+
+Hecho. **`backend/package.json` queda byte-idéntico** (verificado con `diff` contra la copia previa);
+solo cambia el lockfile: `multer` 2.2.0 → **2.3.0**, `js-yaml` 3.15.1 → 3.15.2 y 4.3.1 → 4.3.2.
+`npm audit --omit=dev --audit-level=high` ⇒ **exit 0**. ⛔ No se tocó `qs`/`body-parser`. ⚠️ **No
+commiteé nada** (el encargo de esta sesión lo prohíbe): el lockfile queda modificado en el árbol.
+
+### 9. La suite de integración de FX (M-7)
+
+`test/integration/fx-mode.e2e-spec.ts` — **nueve casos** que la unitaria **no puede** afirmar: la
+carrera contra el **advisory lock real** (repetida con cinco escalonados), `FxRate.rate` como
+`Decimal(12,6)` emitido como número, el centinela `"legacy"` por `jsonb`, I-FX5 con el driver real, el
+rollback de verdad, la consulta de detección de entornos afectados y que el tablero y el panel nombren
+la misma fila. ⛔ **No corrido aquí** (sin Postgres).

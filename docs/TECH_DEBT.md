@@ -5809,3 +5809,75 @@
   mira lo que haría daño— **no es media protección: es cero protección con acuse de recibo**.
 - **Disparador:** el próximo pase de backend sobre `variant-controls`. Ref: `docs/SECURITY_NOTES.md`
   (hallazgo de esta ronda), `FRONTEND_NOTES.md` §58.
+
+---
+
+### Ronda del techlead sobre el interruptor del tipo de cambio (§M2-F) — rama `claude/tcg-hunt-orchestration-ai2vma`, 2026-09-09 (dueño: **backend**, no bloqueante)
+
+> **Contexto.** El techlead aprobó el pase de `fx_rate_mode` con una condición bloqueante (el filtro
+> de fuente de `dataHealth.lastFxAt`, **ya corregida en v1.63.2**) y pidió registrar seis deudas sin
+> arreglarlas. Se registran cinco: **FX-D4 dejó de ser deuda** porque el arreglo de **S-FX-1** la
+> cerró por necesidad (ver abajo). ⛔ Ninguna bloquea.
+
+#### FX-D2 · `fx_rate_mode` tiene DOS escritores y el upsert está duplicado
+- **Dónde:** `settings.service.ts:358` (el pin de I-FX2, dentro de `update()`) y `fx.service.ts:254`
+  (el interruptor). El segundo **no pasa por `SettingsService`**: escribe la fila a mano.
+- **Por qué no se arregla ahora:** las dos escrituras tienen contextos distintos —una materializa un
+  modo *resuelto*, la otra aplica uno *pedido*— y unificarlas exige decidir dónde vive la validación
+  y quién emite la bitácora. **Es refactor, y este pase movió dinero**: mezclarlo habría hecho la
+  revisión de S-FX-1 imposible de leer.
+- **Riesgo real hoy:** bajo pero no nulo — **las dos ya comparten la puerta única del FX**
+  (`lockFxGate`), así que no pueden cruzarse; lo que duplican es la *forma* del upsert, no la regla.
+- **Disparador:** el próximo pase que toque `SettingsService.update()` por motivos de FX.
+
+#### FX-D3 · ⚠️ `SETTING_VALIDATORS[FX_RATE_MODE]` es INALCANZABLE ⇒ `setMode` escribe sin validar por esa vía
+- **Dónde:** `settings.constants.ts:749` declara el validador, pero **la clave no está en
+  `SETTING_DTO_MAP`**, así que `update()` nunca la valida: el modo solo entra por
+  `PUT /admin/fx/mode`, cuyo DTO **sí** valida (`FX-12` lo cubre: `'AUTO'`, `1`, `null` ⇒ 422).
+- **Por qué no es un agujero hoy:** la única puerta que escribe el modo con valor del cliente es la
+  del controller, y ahí el enum se comprueba. El validador muerto es **una promesa que no se cumple**,
+  no una defensa que falta.
+- **Dirección del techlead (compartida):** exportar `parseApiFxMode()` desde `common/fx-mode.ts` y que
+  el controller la use ⇒ *una* expresión de «modo válido» en vez de dos.
+- **Disparador:** el próximo pase que toque el DTO del interruptor.
+
+#### FX-D5 · `fx.refresh` es la única entrada de FX NO transaccional
+- **Dónde:** `fx.service.ts` (`refreshFromBanxico`) hace `fxRate.upsert` suelto y el controller audita
+  después. Las otras tres entradas (`setMode`, `setManual`, `PUT /admin/settings`) ya commitean efecto
+  y bitácora juntos.
+- **Por qué no bloquea:** el refresco **no toca el invariante de las dos filas** (no escribe
+  `fx_rate_mode` ni `fx_manual_override_rate`), así que no participa de S-FX-1. Lo peor que produce es
+  una fila escrita cuya entrada de bitácora se pierde si el proceso muere en medio.
+- **Disparador:** el próximo pase sobre el refresco (o el día que el job diario deje de ser el único
+  llamador). Ref: `PENTEST_NOTES.md` S-FX-1 («`mode + refresh` → NO MEDIDO / no toca esas filas»).
+
+#### FX-D6 · 🟡 El seed miente desde I-FX5: siembra un `FxRate{source:'manual'}` «hasta que corra Banxico»
+- **Dónde:** `prisma/seed.ts:89-102`, con el comentario *«Override manual hasta que corra Banxico»*.
+- **Qué cambió:** desde **I-FX5** una fila `FxRate` con `source='manual'` **no rige nunca**. Un entorno
+  limpio ya no arranca en 18.5: arranca en **`fallback` 18**, y el comentario **afirma lo contrario**.
+- **Por qué no se toca en este pase:** el seed es la puerta de entrada de todos los entornos y de la
+  suite de integración; cambiar lo que siembra es un cambio de datos con efecto en cascada, y este
+  pase ya cambió el motor del FX. *Un comentario que miente se arregla con calma; una tasa que se
+  mueve, no.*
+- **Disparador:** el próximo pase de datos de arranque. **Mínimo aceptable:** corregir el comentario;
+  **mejor:** sembrar la fila como `source:'banxico'` (que es lo que el comentario **quería** decir) o
+  no sembrarla y dejar el `fallback` explícito.
+
+#### FX-D7 · `SettingsService.update()` acumula su segundo bloque a medida y su primer `extra` de FX
+- **Dónde:** `settings.service.ts` — la validación cruzada de buylist (§4.39l) y ahora el pin del FX
+  (+ `SettingsUpdateExtra.fxPin`, + la puerta única). Son dos casos especiales dentro de un método que
+  se anunciaba genérico.
+- **Por qué se aguanta:** los dos son **invariantes entre diales**, que es justo lo que solo este
+  método puede ver. Con dos, el patrón todavía se lee.
+- **⭐ Disparador DURO, y es del techlead: el TERCER caso.** En cuanto entre otro, `update()` se parte
+  en «validar el payload» + «reglas cruzadas registradas», o se convierte en el sitio donde nadie
+  quiere mirar.
+
+#### ~~FX-D4~~ · **CERRADA en v1.63.2 por el arreglo de S-FX-1** *(se anota porque el techlead la pidió registrar)*
+- **Lo señalado:** `setManual` leía el «antes» **dos veces** (su propio `loadInputs()` y el que hacía
+  `prepareFxModePin`), así que `fx.override.before` y `fx.mode.change.before` salían de **dos cuentas
+  distintas del mismo instante**.
+- **Por qué ya no es deuda:** con S-FX-1, *«el mismo instante»* dejó de ser una figura retórica — la
+  lectura de fuera es **de antes del candado** y puede describir un estado que la otra puerta ya
+  deshizo. Se pasó a auditar con `fxPin.previousState`, leído **dentro** de la transacción.
+  **La dirección que dio el techlead era la correcta; lo que cambió es que dejó de ser opcional.**
