@@ -151,8 +151,24 @@ export function parseManualRate(raw: unknown): number | null {
  *
  * ⚠️ **Basura ⇒ legacy, y NO ⇒ auto** (ARCHITECTURE §4.43c): aquí no existe una dirección «apagada»
  * —las dos posiciones convierten dinero—, así que la dirección segura es **no cambiar lo que está
- * pasando**. La resolución legacy no es la semántica del modo: es **la condición inicial**, y ocurre
- * como mucho **una vez por entorno** (deja de correr en cuanto un humano toca el interruptor).
+ * pasando**.
+ *
+ * ### ⚠️⚠️ **D-FX-2 (v1.63.3) — lo que esta nota decía era FALSO, y estaba en el peor sitio posible**
+ * Decía: *«la resolución legacy … ocurre como mucho **una vez por entorno** (deja de correr en cuanto
+ * un humano toca el interruptor)»*. **§4.43(c) I-FX1 lo declaró falso en v1.63.2** y el código
+ * siempre se comportó bien; **el que mentía era el comentario** — justo donde el siguiente va a venir
+ * a razonar sobre esto.
+ *
+ * **Lo correcto, y la distinción es la que se confundía:**
+ * - **La INFERENCIA corre en CADA LECTURA** mientras la fila valga `"legacy"` (o falte, o sea basura).
+ *   Es **pura y no escribe nada**, así que un entorno que nunca toca la FX resuelve `legacy`
+ *   **para siempre, y legítimamente**.
+ * - **Lo que ocurre una vez es la MATERIALIZACIÓN**, y por **DOS** vías: el interruptor
+ *   (`PUT /admin/fx/mode`) **o** el pin de **I-FX2** (toda escritura del valor).
+ *
+ * *«La inferencia corre una vez» y «la transición pasa una vez» no son la misma frase*, y la primera
+ * invita a razonar que este camino está muerto en producción — que es exactamente el razonamiento por
+ * el que alguien dejaría de mirar la rama que hoy decide el modo en cada `GET /admin/fx`.
  */
 export function resolveFxMode(
   rawMode: unknown,
@@ -177,9 +193,35 @@ export function resolveFxMode(
  *
  * ⇒ **En modo `auto`, `rate === automatic.rate` SIEMPRE** (identidad normativa; candado FX-11).
  *
- * ⚠️ **El caso «manual sin número» cae al fallback y se ETIQUETA `fallback`.** I-FX4 lo prohíbe por
- * las dos puertas, así que solo se alcanza editando la BD a mano; cuando pase, el sistema dirá que
- * está cotizando con un número que nadie tecleó en vez de firmarlo como del dueño (F6).
+ * ### ⭐⭐ **La CUARTA fila (v1.63.3 · `D-FX-1`, candado `FX-23`): «manual SIN número»**
+ *
+ * | Modo | Qué rige | `source` |
+ * |---|---|---|
+ * | ⚠️ `manual` **sin número** — ILEGAL por I-FX4 | **la última fila `banxico`**; si tampoco la hay, el fallback | `banxico` / `fallback` |
+ *
+ * Hasta v1.63.2 el contrato **razonaba** que ese estado era inalcanzable, así que la lectura no se
+ * defendía: caía al **fallback duro de 18**. **La carrera `S-FX-1` lo alcanzaba por HTTP con dos
+ * `200`**; I-FX6 cerró esa vía, pero **una migración o un `psql` lo siguen creando**. Decisión del
+ * **arquitecto** (contrato v1.63.3, `§M2-F.1`; `ARCHITECTURE §4.43c-quater`), no de backend:
+ *
+ * 1. **El 18 no es una tasa: es un literal escondido** — misma doctrina que I-FX5.
+ * 2. **No es fail-closed:** ocultar dinero que sí tenemos **no es money-safe**. Entre *«un número real
+ *    que Banxico publicó»* y *«un literal del código que nadie tecleó»*, **rige el primero**.
+ * 3. **Hoy el DTO miente ahí:** emitía `source:"fallback"` **junto con** `manual.applied: true` —
+ *    *«el número del dueño está aplicado»* **sobre un número que no existe**.
+ *
+ * ⛔ **La lectura ELIGE MEJOR, NO REPARA:** el `mode` **no se corrige ni se reescribe**. Y ⛔ esto **no
+ * relaja I-FX4** —las dos puertas siguen devolviendo `422`—: **hace la corrupción más visible**, porque
+ * la combinación resultante `mode:"manual"` + `manual.rate:null` + `manual.applied:false` +
+ * `source:"banxico"` **no la produce ninguna secuencia legal por API**.
+ *
+ * ### ⭐ `applied` se deriva de `source` (v1.63.3 · `D-FX-3`)
+ * `applied` significa **«esta rama RIGE AHORA MISMO»**. Las dos definiciones anteriores
+ * —`manual.applied ⟺ mode === "manual"` y `automatic.applied ⟺ mode === "auto" ∧ status !== "missing"`—
+ * son **equivalentes a ésta en todo estado alcanzable por la API**, así que ⛔ ningún cliente ve un
+ * cambio; se reescriben porque **dejaban de ser ciertas justo en el estado ilegal**.
+ * ⇒ **Regla mecánica: exactamente una de las dos `applied` es `true` ⟺ `source` la nombra; con
+ * `source:"fallback"` las DOS son `false`.**
  */
 export function projectFxState(inputs: FxInputs, now: Date = new Date()): FxStateDTO {
   const { rawMode, rawManualRate, bufferPct, latestBanxico } = inputs;
@@ -201,16 +243,12 @@ export function projectFxState(inputs: FxInputs, now: Date = new Date()): FxStat
         ? 'stale'
         : 'fresh';
 
-  const automatic: FxAutomaticBlock = {
-    rate: autoRate,
-    effectiveDate: autoDate == null ? null : fxIsoDate(autoDate),
-    // `ageDays: null` ⟺ `rate: null` (§M2-F.3): sin número no hay edad que declarar.
-    ageDays: autoRate == null ? null : ageDays,
-    status,
-    applied: resolved.mode === 'auto' && status !== 'missing',
-  };
+  const autoEffectiveDate = autoDate == null ? null : fxIsoDate(autoDate);
 
   // ── Qué RIGE ──
+  // ⚠️ v1.63.3 · D-FX-1 — **el orden cambió**: primero se decide `source`, y `applied` se deriva de
+  // él (D-FX-3). Antes `automatic.applied` se calculaba arriba a partir del `mode`, que es
+  // precisamente lo que mentía en el estado ilegal.
   let rate: number;
   let source: FxSource;
   let effectiveDate: string;
@@ -218,15 +256,30 @@ export function projectFxState(inputs: FxInputs, now: Date = new Date()): FxStat
     rate = manualRate;
     source = 'manual';
     effectiveDate = todayIso;
-  } else if (resolved.mode === 'auto' && autoRate != null && automatic.effectiveDate != null) {
+  } else if (autoRate != null && autoEffectiveDate != null) {
+    // ⭐ v1.63.3 · D-FX-1 — aquí ya **NO** se exige `mode === 'auto'`, y esa condición retirada **es**
+    // la cuarta fila de §M2-F.1: en el estado ilegal «manual sin número», rige la última fila
+    // `banxico` en vez del literal 18. ⛔ El `mode` sigue diciendo `manual`: no se repara nada.
     rate = autoRate;
     source = 'banxico';
-    effectiveDate = automatic.effectiveDate;
+    effectiveDate = autoEffectiveDate;
   } else {
+    // Ni tasa manual aplicable ni fila `banxico`: el fallback duro, **etiquetado como lo que es**.
     rate = FX_FALLBACK_RATE;
     source = 'fallback';
     effectiveDate = todayIso;
   }
+
+  const automatic: FxAutomaticBlock = {
+    rate: autoRate,
+    effectiveDate: autoEffectiveDate,
+    // `ageDays: null` ⟺ `rate: null` (§M2-F.3): sin número no hay edad que declarar.
+    ageDays: autoRate == null ? null : ageDays,
+    status,
+    // ⭐ D-FX-3 — `applied` ⟺ «esta rama rige AHORA MISMO». Equivalente a la definición vieja en todo
+    // estado alcanzable por API; deja de mentir en el ilegal.
+    applied: source === 'banxico',
+  };
 
   return {
     rate,
@@ -235,7 +288,7 @@ export function projectFxState(inputs: FxInputs, now: Date = new Date()): FxStat
     effectiveDate,
     mode: resolved.mode,
     modeResolvedFrom: resolved.from,
-    manual: { rate: manualRate, applied: resolved.mode === 'manual' },
+    manual: { rate: manualRate, applied: source === 'manual' },
     automatic,
   };
 }

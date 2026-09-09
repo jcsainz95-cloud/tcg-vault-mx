@@ -36,6 +36,8 @@ describe('E2E — FX: el interruptor, la carrera y la banda de cordura (§M2-F, 
 
   /** Estado de las dos filas del FX, para dejarlo como estaba. */
   let backup: { mode: unknown; rate: unknown };
+  /** ¿La BD ya traía filas `banxico` antes de que este fichero sembrara la suya? */
+  let habiaFilaBanxico = false;
 
   const leerFila = async (key: string) =>
     (await h.prisma.configSetting.findUnique({ where: { key } }))?.valueJson ?? undefined;
@@ -54,6 +56,45 @@ describe('E2E — FX: el interruptor, la carrera y la banda de cordura (§M2-F, 
 
   const getFx = async () => (await h.api('GET', '/admin/fx', { token: admin })).body;
 
+  /** Medianoche UTC de hoy: la misma normalización que usa `projectFxState`. */
+  const hoyUtc = () => {
+    const d = new Date();
+    d.setUTCHours(0, 0, 0, 0);
+    return d;
+  };
+  const ID_BANXICO = `banxico-${hoyUtc().toISOString().slice(0, 10)}`;
+  const TASA_BANXICO = 18.2431;
+
+  /**
+   * ⭐⭐ **B-QA-1 — LA FILA QUE ESTE FICHERO DABA POR SEMBRADA Y NADIE SEMBRABA.**
+   *
+   * `prisma/seed-e2e.ts` **no escribe ni una fila `FxRate`** (cero ocurrencias). Con `mode: "auto"` y
+   * sin fila `banxico`, el sistema cotiza `18/fallback` **legítimamente** ⇒ el
+   * `expect(fx.source).not.toBe('fallback')` de la carrera reventaba **en la PRIMERA vuelta del
+   * bucle**, la del escalonado de **0 ms**, que es justo el único valor con el que la carrera **no**
+   * se reproduce. El bucle abortaba ahí.
+   *
+   * ⇒ **Los escalonados de 20 ms —los únicos que reproducen `S-FX-1`— no se habían ejecutado nunca.**
+   * *La prueba que existe para afirmar que la carrera está cerrada no había afirmado nada sobre la
+   * carrera.* El defecto no era el candado: era que este fichero nunca llegó a mirarlo.
+   *
+   * ⛔ Y se limpia en `afterAll`: el resto de la suite valúa en MXN y esta fila cambiaría lo que
+   * cotiza en modo `auto`. *«Deja la BD como la encontró»* incluye lo que uno mismo siembra.
+   */
+  async function sembrarBanxico() {
+    await h.prisma.fxRate.upsert({
+      where: { id: ID_BANXICO },
+      create: {
+        id: ID_BANXICO,
+        rate: TASA_BANXICO as never,
+        bufferPct: 3 as never,
+        effectiveDate: hoyUtc(),
+        source: 'banxico',
+      },
+      update: { rate: TASA_BANXICO as never, source: 'banxico' },
+    });
+  }
+
   beforeAll(async () => {
     h = await E2EHarness.create();
     admin = await h.login(E2E_USERS.admin.email, E2E_USERS.admin.password);
@@ -61,11 +102,16 @@ describe('E2E — FX: el interruptor, la carrera y la banda de cordura (§M2-F, 
       mode: await leerFila(SettingKey.FX_RATE_MODE),
       rate: await leerFila(SettingKey.FX_MANUAL_OVERRIDE_RATE),
     };
+    // B-QA-1: sin esta fila, `auto` cae al fallback duro **con toda la razón**.
+    habiaFilaBanxico = (await h.prisma.fxRate.count({ where: { source: 'banxico' } })) > 0;
+    await sembrarBanxico();
   });
 
   afterAll(async () => {
     await escribirFila(SettingKey.FX_RATE_MODE, backup.mode);
     await escribirFila(SettingKey.FX_MANUAL_OVERRIDE_RATE, backup.rate);
+    if (!habiaFilaBanxico) await h.prisma.fxRate.deleteMany({ where: { source: 'banxico' } });
+    await h.prisma.fxRate.deleteMany({ where: { source: 'manual' } });
     await h.close();
   });
 
@@ -98,7 +144,10 @@ describe('E2E — FX: el interruptor, la carrera y la banda de cordura (§M2-F, 
         const tasa = await leerFila(SettingKey.FX_MANUAL_OVERRIDE_RATE);
         expect(modo === 'manual' && (tasa === null || tasa === undefined)).toBe(false);
 
-        // ⭐ Y el dinero: nunca el fallback duro por accidente.
+        // ⭐ Y el dinero: nunca el fallback duro por accidente. Con la fila `banxico` sembrada
+        // (`sembrarBanxico`), los DOS desenlaces legales de la carrera tienen número propio —`auto`
+        // ⇒ banxico, `manual` ⇒ 19— así que **cualquier `fallback` aquí es el hallazgo**, no la
+        // ausencia de datos. Sin la fila, esta aserción medía el seed en vez de la carrera.
         const fx: any = await getFx();
         expect(fx.source).not.toBe('fallback');
         expect(fx.rate).not.toBe(FX_FALLBACK_RATE);
@@ -136,7 +185,10 @@ describe('E2E — FX: el interruptor, la carrera y la banda de cordura (§M2-F, 
       expect(a.status).toBe(200);
       const b = await h.api('PUT', '/admin/fx/mode', { token: admin, json: { mode: 'manual' } });
       expect(b.status).toBe(422);
-      expect((b.body as any).code).toBe('FX_MANUAL_RATE_MISSING');
+      // ⚠️ B-QA-1(b) — el sobre de error del sistema es `{ error: { code, message, details } }`
+      // (`common/filters/all-exceptions.filter.ts`, y el contrato lo fija). **El endpoint cumplía; el
+      // que leía la clave equivocada era este spec**, así que recibía `undefined` y reventaba.
+      expect((b.body as any).error.code).toBe('FX_MANUAL_RATE_MISSING');
     });
   });
 
@@ -147,6 +199,9 @@ describe('E2E — FX: el interruptor, la carrera y la banda de cordura (§M2-F, 
       // arreglo. **Serializar previene el estado nuevo; no rescata a quien ya cayó.**
       await escribirFila(SettingKey.FX_RATE_MODE, 'manual');
       await escribirFila(SettingKey.FX_MANUAL_OVERRIDE_RATE, null);
+      // ⚠️ Este caso mide **el fallback duro**, así que necesita que NO haya fila `banxico`: es el
+      // segundo caso de FX-23 (`§M2-F.6`). Se retira la que sembró `beforeAll` y se repone al final.
+      await h.prisma.fxRate.deleteMany({ where: { source: 'banxico' } });
 
       const filas = await h.prisma.$queryRawUnsafe<{ mode: unknown; rate: unknown }[]>(
         `SELECT m."valueJson" AS mode, r."valueJson" AS rate
@@ -158,11 +213,14 @@ describe('E2E — FX: el interruptor, la carrera y la banda de cordura (§M2-F, 
       );
       expect(filas.length).toBe(1); // ⇒ entorno AFECTADO
 
-      // Y lo que el sistema hace mientras tanto, dicho sin rodeos: cotiza con el fallback duro.
+      // Y lo que el sistema hace mientras tanto, dicho sin rodeos: **sin fila `banxico` no hay nada
+      // mejor que el literal**, así que cotiza con el fallback duro. (La otra mitad —con fila
+      // `banxico`— es `FX-23`, abajo: ahí el 18 deja de regir.)
       const fx: any = await getFx();
       expect(fx.source).toBe('fallback');
       expect(fx.rate).toBe(FX_FALLBACK_RATE);
 
+      await sembrarBanxico();
       await estadoDelPoC();
       expect((await h.prisma.$queryRawUnsafe<unknown[]>(
         `SELECT 1 FROM "ConfigSetting" m
@@ -170,6 +228,106 @@ describe('E2E — FX: el interruptor, la carrera y la banda de cordura (§M2-F, 
             AND NOT EXISTS (SELECT 1 FROM "ConfigSetting" r
                              WHERE r.key = 'fx_manual_override_rate' AND r."valueJson" <> 'null'::jsonb)`,
       )).length).toBe(0); // ⇒ entorno SANO
+    });
+  });
+
+  // ===============================================================================================
+  /**
+   * ⭐⭐ **FX-23 (`§M2-F.6`, `ARCHITECTURE §9 · D-FX-1`) — LA CUARTA FILA DE `§M2-F.1`.**
+   *
+   * **El fixture se siembra por SQL porque es el único modo de crearlo**: las dos puertas devuelven
+   * `422` (I-FX4) y, desde I-FX6, la carrera tampoco lo alcanza. Lo que sigue creándolo es una
+   * migración o un `psql` — y la lectura tiene que **defenderse**, no razonar que no puede pasar.
+   *
+   * Entre *«un número real que Banxico publicó»* y *«un literal del código que nadie tecleó»*, **rige
+   * el primero** (misma doctrina que I-FX5). ⛔ **El `mode` no se corrige ni se reescribe: la lectura
+   * elige mejor, NO repara.**
+   *
+   * ⭐ **Y la mitad que hace la corrupción MÁS visible, no menos:** la combinación resultante
+   * —`mode:"manual"` + `manual.rate:null` + **`manual.applied:false`** + `source:"banxico"`— **no la
+   * puede producir ninguna secuencia de llamadas legales.** Antes, el DTO emitía `source:"fallback"`
+   * **junto con** `manual.applied:true`: *«el número del dueño está aplicado»* sobre un número que no
+   * existe. *Un campo que miente sólo en el estado corrupto miente exactamente cuando alguien lo está
+   * leyendo para entender qué pasó.*
+   */
+  describe('⭐⭐ FX-23 — «manual sin número» rige por Banxico, y `applied` lo dice (D-FX-1/D-FX-3)', () => {
+    beforeEach(async () => {
+      // El estado ILEGAL, sembrado a mano: es lo que deja una migración o un `psql`.
+      await escribirFila(SettingKey.FX_RATE_MODE, 'manual');
+      await escribirFila(SettingKey.FX_MANUAL_OVERRIDE_RATE, null);
+    });
+
+    it('CON fila `banxico`: rige la tasa REAL, y ⛔ jamás el 18 que nadie tecleó', async () => {
+      await sembrarBanxico();
+      const fx: any = await getFx();
+
+      // ⭐ Lo que rige. **Rojo si `rate == 18` o si `source == "fallback"`**: sería el literal del
+      // código cotizando el catálogo entero, −5.26 % sobre la tasa que sí teníamos publicada.
+      expect(fx.rate).toBeCloseTo(TASA_BANXICO, 4);
+      expect(fx.source).toBe('banxico');
+      expect(fx.rate).not.toBe(FX_FALLBACK_RATE);
+
+      // ⛔ Y el modo NO se repara: la lectura elige mejor, no arregla la fila.
+      expect(fx.mode).toBe('manual');
+      expect(fx.manual.rate).toBeNull();
+
+      // ⭐ `applied` derivado de `source` (D-FX-3). **Rojo si `manual.applied == true` con
+      // `manual.rate == null`**, que es la mentira que este candado existe para matar.
+      expect(fx.manual.applied).toBe(false);
+      expect(fx.automatic.applied).toBe(true);
+    });
+
+    it('SIN fila `banxico`: el fallback duro, y las DOS `applied` en `false`', async () => {
+      // ⚠️ La mitad que se olvida. Sin nada mejor que el literal, el 18 vuelve a regir — y entonces
+      // **ninguna** de las dos ramas está aplicada, porque `source` no nombra a ninguna.
+      await h.prisma.fxRate.deleteMany({ where: { source: 'banxico' } });
+      const fx: any = await getFx();
+
+      expect(fx.rate).toBe(FX_FALLBACK_RATE);
+      expect(fx.source).toBe('fallback');
+      expect(fx.mode).toBe('manual');
+      expect(fx.manual.rate).toBeNull();
+      expect(fx.manual.applied).toBe(false);
+      expect(fx.automatic.applied).toBe(false);
+
+      await sembrarBanxico();
+    });
+
+    it('⭐ la regla mecánica de `applied`, en los TRES estados legales (D-FX-3)', async () => {
+      // Exactamente una de las dos `applied` es `true` ⟺ `source` la nombra; con `fallback`, ninguna.
+      await sembrarBanxico();
+
+      await escribirFila(SettingKey.FX_RATE_MODE, 'manual');
+      await escribirFila(SettingKey.FX_MANUAL_OVERRIDE_RATE, 19);
+      let fx: any = await getFx();
+      expect([fx.source, fx.manual.applied, fx.automatic.applied]).toEqual(['manual', true, false]);
+
+      await escribirFila(SettingKey.FX_RATE_MODE, 'auto');
+      fx = await getFx();
+      expect([fx.source, fx.manual.applied, fx.automatic.applied]).toEqual(['banxico', false, true]);
+
+      await h.prisma.fxRate.deleteMany({ where: { source: 'banxico' } });
+      fx = await getFx();
+      expect([fx.source, fx.manual.applied, fx.automatic.applied]).toEqual(['fallback', false, false]);
+      await sembrarBanxico();
+    });
+
+    it('⛔ CONTROL — I-FX4 no se relaja: las dos puertas siguen devolviendo 422', async () => {
+      // «Elegir mejor» no es «permitirlo». Si esto se pusiera verde por el otro lado, el arreglo de
+      // lectura se habría convertido en una autorización para crear el estado ilegal por HTTP.
+      await escribirFila(SettingKey.FX_RATE_MODE, 'manual');
+      await escribirFila(SettingKey.FX_MANUAL_OVERRIDE_RATE, 19);
+      const a = await h.api('PUT', '/admin/settings', {
+        token: admin,
+        json: { fxManualOverrideRate: null },
+      });
+      expect(a.status).toBe(422);
+
+      await escribirFila(SettingKey.FX_MANUAL_OVERRIDE_RATE, null);
+      await escribirFila(SettingKey.FX_RATE_MODE, 'auto');
+      const b = await h.api('PUT', '/admin/fx/mode', { token: admin, json: { mode: 'manual' } });
+      expect(b.status).toBe(422);
+      expect((b.body as any).error.code).toBe('FX_MANUAL_RATE_MISSING');
     });
   });
 

@@ -1,6 +1,7 @@
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import * as buylistTemplates from '../src/modules/buylist/buylist-mail.templates';
+import { ctaRows, isSafeMailUrl } from '../src/modules/buylist/mail-shell';
 import { offerTermsCopy, sellOfferTemplate } from '../src/modules/buylist/buylist-mail.templates';
 import * as accountTemplates from '../src/modules/mail/mail.templates';
 import { MailMessage } from '../src/modules/mail/mail.port';
@@ -969,4 +970,55 @@ describe('⭐ N8 — la caja de términos del correo 4: los DOS plazos y el cana
       expect(html).not.toMatch(/bgcolor="#B31217"[^>]*border:1px solid #B31217/); // ⛔ no es un CTA
     });
   }
+});
+
+// =================================================================================================
+// N9 ⭐ — EL ESQUEMA DEL `href` LO DECIDE EL ESQUELETO (defensa en profundidad, techlead/QA)
+// =================================================================================================
+/**
+ * `escapeHtml` impide que una URL **rompa el atributo**; ⛔ **no impide que la URL SEA
+ * `javascript:`**, que sobrevive al escape intacta y sigue siendo ejecutable al clic. Hoy todas las
+ * URL de correo las construye el servidor, así que **no es explotable** — es defensa en profundidad
+ * sobre **la base en la que van los ocho**, y es el mismo argumento por el que el escape vive en el
+ * esqueleto: *que ocho plantillas no tengan que acordarse.*
+ *
+ * ⭐ **Y la mitad que impide arreglarlo rompiendo otra cosa:** con una URL insegura el botón **sigue
+ * pintándose** (la maqueta no se descuadra) y **la URL en texto de debajo se sigue emitiendo** — la
+ * ruta a la acción de §31.6g/ML-5 no depende de esta guarda.
+ */
+describe('⭐ N9 — `ctaRows` acota el esquema del href: allowlist http(s), no denylist', () => {
+  it('CONTROL POSITIVO: una URL https sí produce un `<a href>`', () => {
+    const html = ctaRows('https://tcghunt.mx/es/buylist/requests/sr-1', 'VER', 'ink');
+    expect(html).toContain('<a href="https://tcghunt.mx/es/buylist/requests/sr-1"');
+    expect(html).toContain('>VER</a>');
+  });
+
+  it('⛔ `javascript:` y `data:` NO producen href — y el botón y la URL de respaldo siguen ahí', () => {
+    for (const hostil of ['javascript:alert(1)', 'data:text/html,<script>alert(1)</script>', 'vbscript:x']) {
+      const html = ctaRows(hostil, 'VER', 'ink');
+      expect(html).not.toContain('<a href');
+      expect(html).not.toContain('href=');
+      expect(html).toContain('>VER</span>'); // el rótulo se pinta igual: la maqueta no se descuadra
+      // §31.6g / ML-5 — el respaldo en texto se emite SIEMPRE, pase lo que pase con el botón.
+      expect(html.replace(/<[^>]*>/g, ' ')).toContain(hostil.split(':')[0]);
+    }
+  });
+
+  it('⛔ una URL relativa, vacía o basura tampoco: no se emite un href a medias (BL-21)', () => {
+    for (const mala of ['/es/buylist', '', 'tcghunt.mx', 'undefined']) {
+      expect(isSafeMailUrl(mala)).toBe(false);
+      expect(ctaRows(mala, 'VER', 'ink')).not.toContain('href=');
+    }
+  });
+
+  it('la allowlist deja pasar `http:` — es lo que vale `APP_PUBLIC_URL` en local', () => {
+    expect(isSafeMailUrl('http://localhost:3000/es/buylist/requests/sr-1')).toBe(true);
+    expect(isSafeMailUrl('https://tcghunt.mx/es')).toBe(true);
+  });
+
+  it('CONTROL: los seis correos migrados siguen emitiendo su href (no se rompió nada)', () => {
+    for (const correo of CON_CTA) {
+      expect(MIGRADOS[correo]('es').html).toContain(`<a href="${PORTAL}"`);
+    }
+  });
 });

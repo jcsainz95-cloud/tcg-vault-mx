@@ -366,16 +366,20 @@ export function deadlineRow(before: string, token: string, after: string): strin
  * (§31.8 regla 4c). El par `#B31217` sobre tinta es el **prohibido** de §17.2 (2.5:1) y la inversión
  * forzada lo compone por nosotros; **la URL en texto es la única ruta a la acción que sobrevive**.
  * Lo mide ML-5, y por eso este builder **no tiene forma de emitir el botón sin la URL**.
+ *
+ * ⭐ **Y el esquema se acota aquí** ({@link isSafeMailUrl}): con una URL que no sea `http(s)`, el botón
+ * **se pinta igual pero sin `<a>`** — se conserva la maqueta y ⛔ **no se emite un `href` peligroso**.
+ * La ruta a la acción no se pierde: la URL en texto de debajo se emite **siempre** (§31.6g).
  */
 export function ctaRows(url: string, label: string, tone: 'accent' | 'ink' = 'ink'): string {
   const bg = tone === 'accent' ? ACCENT : INK;
+  const rotulo = `font-family:${SANS};font-size:15px;line-height:16px;${LH};font-weight:bold;letter-spacing:.06em;color:${PAPER};text-decoration:none;display:inline-block`;
+  // ⭐ El esquema se decide AQUÍ, por el mismo argumento por el que el escape se decide aquí.
+  const contenido = isSafeMailUrl(url)
+    ? `<a href="${escapeHtml(url)}" style="${rotulo}">${escapeHtml(label)}</a>`
+    : `<span style="${rotulo}">${escapeHtml(label)}</span>`;
   const boton = table(
-    `<tr>${td(
-      bg,
-      `border:1px solid ${bg};padding:14px 28px`,
-      `<a href="${escapeHtml(url)}" style="font-family:${SANS};font-size:15px;line-height:16px;${LH};font-weight:bold;letter-spacing:.06em;color:${PAPER};text-decoration:none;display:inline-block">${escapeHtml(label)}</a>`,
-      'align="center"',
-    )}</tr>`,
+    `<tr>${td(bg, `border:1px solid ${bg};padding:14px 28px`, contenido, 'align="center"')}</tr>`,
     'align="center" width="auto"',
   );
   return (
@@ -407,6 +411,30 @@ export function monoRow(text: string): string {
       `<tr>${td(PAPER, `font-family:${MONO};font-size:12px;line-height:1.5;${LH};color:${INK};word-break:break-all`, escapeHtml(text))}</tr>`,
     ),
   );
+}
+
+/**
+ * ⭐ **El esquema del `href`, decidido en el esqueleto — la misma doctrina que {@link escapeHtml}.**
+ *
+ * `escapeHtml` impide que una URL **rompa el atributo**; no impide que la URL **sea** `javascript:` o
+ * `data:`, que sobreviven al escape intactas y siguen siendo ejecutables al clic. Hoy **todas** las
+ * URL de correo las construye el servidor (`buylistPortalUrl` y sus dos hermanas), así que esto no es
+ * explotable — **es defensa en profundidad sobre la base en la que van los ocho**, y el módulo se hizo
+ * dueño del escape precisamente para que ocho plantillas no tuvieran que acordarse: por el mismo
+ * argumento tiene que ser dueño del esquema.
+ *
+ * **Allowlist, no denylist:** `https:` y `http:` (que es lo que `APP_PUBLIC_URL` vale en local).
+ * ⛔ `javascript:`, `data:`, `vbscript:`, `file:`, un esquema nuevo que aún no existe — todos caen por
+ * no estar en la lista, que es la única forma de que la regla no envejezca.
+ */
+export function isSafeMailUrl(url: string): boolean {
+  try {
+    const esquema = new URL(url).protocol;
+    return esquema === 'https:' || esquema === 'http:';
+  } catch {
+    // Relativa, vacía o basura: ⛔ no se emite un `href` a medias (misma doctrina que BL-21).
+    return false;
+  }
 }
 
 /** Letra chica: sans **13px** (§31.4: «letra chica» es una jerarquía, no un tamaño ilegible). */

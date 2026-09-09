@@ -5881,3 +5881,109 @@
   lectura de fuera es **de antes del candado** y puede describir un estado que la otra puerta ya
   deshizo. Se pasó a auditar con `fxPin.previousState`, leído **dentro** de la transacción.
   **La dirección que dio el techlead era la correcta; lo que cambió es que dejó de ser opcional.**
+
+---
+
+#### FX-D8 · La puerta del FX **no tiene espera acotada** (techlead · condición del veredicto, v1.63.3)
+- **Dueño:** **backend** (`settings.service.ts` y `fx.service.ts`, las dos `$transaction` del FX).
+  **Severidad:** Baja. **No bloqueante.**
+- **La deuda:** `pg_advisory_xact_lock` **espera indefinidamente**. No hay `lock_timeout`, no hay
+  `timeout`/`maxWait` explícitos en esas dos `$transaction`, y `P2028` no está mapeado a nada. ⇒ un
+  titular colgado bloquea a **todo escritor de FX posterior** y los retiene ocupando conexiones del
+  pool mientras esperan.
+- **Por qué no bloquea:** las dos puertas son `super_admin`, la sección crítica es **corta** (tres
+  lecturas y dos `upsert`) y no hay E/S externa dentro. QA lo midió contra Postgres real: **30
+  escrituras concurrentes por cada puerta ⇒ 30×200 en las dos, cero 5xx y cero `P2028`.** No es un
+  riesgo observado: es la ausencia de un tope.
+- **Cura, de una línea:** `SET LOCAL lock_timeout` dentro de la transacción, **o**
+  `pg_try_advisory_xact_lock` devolviendo `409 «otra operación de FX en curso»` — que además le dice
+  al dueño lo que pasa en vez de dejarle la rueda girando.
+- **Disparador:** que el FX gane un **tercer escritor**, que la sección crítica gane cualquier E/S
+  (una llamada a Banxico dentro de la transacción), o el primer `P2028` en logs.
+
+#### FX-D9 · Dos lecturas de entorno con **dos ciclos de vida** en `mail-shell.ts`, y ninguna por `ConfigService` (techlead, v1.63.3)
+- **Dueño:** **backend** (`src/modules/buylist/mail-shell.ts`). **Severidad:** Baja. **No bloqueante.**
+- **La deuda:** `MAIL_MIRA_URL` se congela **al importar el módulo**; `supportEmail()` lee **en cada
+  llamada**. Las dos esquivan `ConfigService`, que es lo que usa el resto del backend. Si el `.env` se
+  carga **después** del import, la primera captura el valor equivocado y **no hay forma de notarlo
+  desde dentro**: el correo sale con la mira apuntando a otro origen. Es el mismo pisotón que
+  `DEVOPS_NOTES.md:6662` ya documenta.
+- **Por qué no bloquea hoy:** `MAIL_ASSET_ORIGIN` es **opcional** y su default (`https://tcghunt.mx`)
+  es el valor de producción, así que el caso malo exige que alguien la defina *y* que el `.env` llegue
+  tarde. Y lo que se pierde es **una imagen decorativa** (`alt=""`): por ML-1, el correo se lee entero
+  sin ella.
+- **Cura:** las dos por `ConfigService`, leídas en el mismo momento del ciclo de vida. ⚠️ Exige que el
+  esqueleto deje de ser un módulo de funciones puras y pase a inyectarse, que es **exactamente** lo que
+  el pase 2 hace al absorberlo en `MailService`.
+- **Disparador:** **el pase 2 de §31.15** (los correos 7 y 8 + BE-43), que ya toca ese fichero para
+  moverlo. ⛔ No antes: convertir el esqueleto en servicio ahora obligaría a inyectarlo en seis
+  plantillas que son funciones puras.
+
+#### FX-D10 · El **día inhábil** de la SIE no se distingue de una rotura de formato (techlead, v1.63.3)
+- **Dueño:** **backend** (`fx.service.ts`, `parseBanxicoRate`). **Severidad:** Baja. **No bloqueante.**
+  ⚠️ **Necesita un dato que backend no tiene todavía** (ver «Qué falta»).
+- **La deuda:** `parseBanxicoRate` manda **todo lo no-numérico** a `invalid_payload` + `logger.warn`.
+  Si la serie SIE puede devolver `"N/E"` en un día inhábil, **cada puente dispara una alerta por un
+  no-evento** — y es la doctrina que `FX_AUTO_STALE_AFTER_DAYS` invoca cinco líneas más arriba: *una
+  alerta que suena cada lunes se aprende a ignorar*, y ese es el día en que la caída real pasa
+  desapercibida.
+- **Qué falta para cerrarla, y por eso se anota en vez de arreglarse:** **nadie ha confirmado que
+  `/datos/oportuno` devuelva `"N/E"`.** Techlead lo dice así de explícito. Adivinar el centinela y
+  degradarlo a `log` sería **silenciar una clase de fallo real por una hipótesis**: si el centinela
+  fuera otro, quedaría una rama muerta y la alerta ruidosa intacta.
+- **Cura, cuando se confirme:** un caso propio (`sin_dato`) que salga por `logger.log`, distinto de
+  `invalid_payload`, con su vector en el spec del parser.
+- **Disparador:** la **primera corrida real contra la SIE con token** (hoy `BANXICO_SIE_TOKEN` no está
+  puesta en ningún entorno) — o el primer `invalid_payload` en logs que caiga en día inhábil.
+
+#### R1 · La puerta del FX se pone **por convención, no por construcción** — y depende de correr en READ COMMITTED (techlead · refactorización con disparador, v1.63.3)
+- **Dueño:** **backend**. **Severidad:** Media (por el modo de fallo, no por la probabilidad).
+  **No bloqueante. ⛔ NO se hace ahora: tiene disparador escrito.**
+- **Lo señalado:** `lockFxGate(tx)` es **una sentencia que el llamador tiene que acordarse de poner
+  primero**, dentro de una transacción que él abre con las opciones que quiera. Nada en el tipo lo
+  obliga.
+- **⚠️ Y el modo de fallo es SILENCIOSO, que es lo que le da la severidad:** el arreglo **depende de
+  READ COMMITTED**. Bajo `RepeatableRead`/`Serializable` la instantánea se fija en la **primera
+  sentencia** —que es el propio `pg_advisory_xact_lock`—, así que la relectura devuelve **el estado de
+  antes de esperar** y **S-FX-1 vuelve entero, con `200` en las dos respuestas**. Y en este repo
+  `isolationLevel: Serializable` **ya es idiom vivo** (seis usos entre `buylist.service.ts` y
+  `shipments.service.ts`): la línea que rompe esto es una que alguien escribiría **creyendo que
+  mejora**.
+- **Qué lo tapa hoy:** el candado **FX-22** (unitario: toda lectura bajo el candado va por el `tx`) y
+  la doctrina escrita en `ARCHITECTURE §4.43c-ter.5` / **§5.5**. Es documentación + test, no tipo.
+- **Dirección (del techlead, compartida):** `withFxGate(prisma, cb)` que **abra** la transacción con
+  `ReadCommitted` **explícito** y tome el candado antes de ceder el control. La ceremonia deja de
+  poderse escribir mal.
+- **Disparador:** **el tercer escritor de FX**, o **cualquier `isolationLevel` que aparezca en esas dos
+  `$transaction`**.
+
+#### R3 · ~~`mailShell()` emitía el pie pero no la marca~~ — **CERRADA en este pase** (techlead, v1.63.3)
+- **Dueño:** **backend**. **Estado: CERRADA.** Se anota porque techlead la registró con disparador
+  («el correo 2») y el disparador llegó en el mismo pase.
+- **Lo señalado:** `mailShell()` emitía el **pie** solo, pero dejaba que **cada plantilla se acordara**
+  de poner `brandRows()` de primer bloque. La asimetría se paga ocho veces y **falla en silencio**: el
+  correo que la olvida se manda **sin marca** y nada lo impide — ML-1 lo cazaría *después* de mandarlo.
+- **Qué se hizo:** el shell emite ahora **las tres partes fijas de §31.3** (preheader, bloque de marca
+  y pie en tinta) y `blocks` pasa a ser **solo el cuerpo**. Coste real: **una línea menos** en cada una
+  de las seis plantillas. ⛔ No obligó a rehacer el correo 1.
+- **Candado nuevo (N1), con su mutación:** ninguna plantilla nombra `brandRows` **y** cada correo lleva
+  **exactamente un** wordmark de cabecera. La segunda mitad es la que mata la mutación disfrazada:
+  «arreglar» la primera dejando la llamada produce **dos marcas**, que en un correo se lee como un
+  error de envío. Mutación (devolver `brandRows()` al correo 3): **4 aserciones en rojo**.
+
+#### ~~FX-D11~~ · `ctaRows()` no acotaba el esquema de la URL — **CERRADA en este pase** (techlead/QA, v1.63.3)
+- **Dueño:** **backend** (`mail-shell.ts`). **Estado: CERRADA**; se anota porque techlead la registró
+  como deuda y la decisión fue **cerrarla en vez de aceptarla**.
+- **Lo señalado:** el `href` pasaba por `escapeHtml()` pero **nadie miraba el esquema**:
+  `javascript:` y `data:` **sobreviven al escape intactos** y siguen siendo ejecutables al clic. No era
+  explotable —todas las URL de correo las construye el servidor— pero es **la base sobre la que van los
+  ocho**.
+- **Por qué se cerró en vez de aceptarse:** es literalmente el argumento con el que el módulo se hizo
+  dueño del escape (*«que ocho plantillas no tengan que acordarse»*), y el coste fue **una función de
+  cuatro líneas**. Aceptar como deuda algo cuya cura cuesta menos que su ficha es contabilidad, no
+  ingeniería.
+- **Qué se hizo:** `isSafeMailUrl()` — **allowlist** (`https:`, `http:`), no denylist, para que la regla
+  no envejezca con un esquema que aún no existe. Con una URL fuera de la lista el botón **se pinta
+  igual, sin `<a>`**: la maqueta no se descuadra y **la URL en texto de debajo se sigue emitiendo**, así
+  que ML-5 (la ruta a la acción) no depende de esta guarda. Candado **N9** + mutación: quitar la
+  allowlist deja **2 aserciones en rojo**.
