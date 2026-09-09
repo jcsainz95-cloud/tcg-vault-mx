@@ -108,7 +108,9 @@
 >
 > **Changelog v1.63 — EL TIPO DE CAMBIO TIENE MODO, Y EL MODO NO ES EL VALOR (2026-09-08, arquitecto).** Base:
 > **v1.62.2, vigente entera** salvo lo que se marca aquí. **UN endpoint nuevo** (`PUT /admin/fx/mode`), **UN ajuste
-> nuevo** (`fx_rate_mode`), **UN valor nuevo** en el enum `FxSource` (`fallback`), **DOS códigos de error**, **tres
+> nuevo** (`fx_rate_mode`), **UN valor nuevo** en el enum `FxSource` (`fallback`), **DOS códigos de error** *(⚠️
+> **histórico y conservado a propósito**: es lo que hizo **v1.63**. **Hoy son TRES** — `FX_NO_AUTOMATIC_RATE` entró
+> en v1.63.1; la cuenta viva está en la cabecera de [`§M2-F`](#M2-F))*, **tres
 > bloques** nuevos en una respuesta que ya existía. **CERO DDL, CERO cambios en `FxRate`, CERO diales de §M10, CERO
 > jobs, CERO superficies públicas.** ⛔ **NO toca [`§M2-B`](#M2-B) ni la cara `market`** de v1.62.2 (en construcción
 > al escribirse esto). Diseño en ARCHITECTURE **§4.43**. Sección nueva: [`§M2-F`](#M2-F).
@@ -126,10 +128,12 @@
 >
 > **C. LA DECISIÓN.** Ajuste **nuevo** `fx_rate_mode` (`auto|manual`), **separado del valor**;
 > `fx_manual_override_rate` conserva **nombre, ~~rango~~ y validador** *(⚠️ **v1.63.4: el RANGO sí cambió** — la
-> banda gana **piso** y pasa a `[1, 1000]`, la misma para las dos puertas; [`§M2-F.8`](#M2-F8))*. Cuatro invariantes ([`§M2-F.1`](#M2-F1)): el modo
-> **no** se deriva del valor · **toda escritura del valor materializa el modo con su valor RESUELTO ACTUAL** (pin del
-> statu quo, y es lo que impide que teclear un número encienda el manual solo) · cambiar el modo **nunca** escribe el
-> valor · **no existe «manual sin número»** (`422 FX_MANUAL_RATE_MISSING` / `422 FX_MANUAL_RATE_REQUIRED`).
+> banda gana **piso** y pasa a `[1, 1000]`, la misma para las dos puertas; [`§M2-F.8`](#M2-F8))*.
+> **Los invariantes —NORMATIVOS y numerados— viven en [`§M2-F.1`](#M2-F1), y ⛔ ni se cuentan ni se transcriben
+> aquí** *(v1.63.4, §0-B.3 regla 8: este resumen decía «cuatro» y **enlazaba** a la lista que ya declaraba seis —
+> peor que un número viejo, porque el lector le cree al primero. **La cuenta es la numeración de la lista**; ningún
+> resumen la repite)*. En una frase, para saber de qué van sin ir: **el modo y el valor son dos cosas, y ninguna
+> escritura de una decide la otra por su cuenta** — más la puerta que serializa las dos rutas que los escriben.
 > ⛔ **`fx_rate_mode` NO entra en el DTO de §M10**: sería la **tercera** puerta sobre la FX y la única sin la
 > precondición de las dos tasas (precedente `pricing_curve` / `sealed_spread_*`).
 >
@@ -3582,8 +3586,10 @@
 >   re-expide solo.** Invariante nuevo: *pieza con `ShipmentItem` en envío no terminal ⇒ jamás en `{listed, in_stock}`*.
 >   **Sin enums ni columnas nuevas** (reusa `ShipmentStatus.cancelado`).
 > - **D6 — el `CHECK` que faltaba pasa a normativo (M-25b):** `InventoryItem CHECK (ownerType <> 'customer' OR
->   ownerUserId IS NOT NULL)`. Único de los cinco invariantes de §4-G.10 sin implementar, y precisamente el que
->   sostiene la nulabilidad de `Order.userId`. Tabla de otro stream ⇒ serializar.
+>   ownerUserId IS NOT NULL)`. **El único invariante de §4-G.10 sin implementar** *(⚠️ **v1.63.4: decía «de los
+>   cinco»** y la lista de §4-G.10 declara **seis** desde v1.21.2, que añadió el 6.º — §0-B.3 regla 8: **la cuenta
+>   es la numeración de la lista** y ⛔ no se repite fuera de ella)*, y precisamente el que sostiene la nulabilidad
+>   de `Order.userId`. Tabla de otro stream ⇒ serializar.
 > - **D4 — un solo discriminador canónico:** `ShipmentRequest.orderId` dice **de dónde viene** el envío; **el
 >   comportamiento** (terminal del item, `kind` de §M4) se resuelve **siempre** por **`Order.fulfillmentMode`**, con
 >   `switch` exhaustivo que **lanza** ante un modo no soportado en vez de asumir `direct_ship` en silencio.
@@ -7216,7 +7222,9 @@ model OrderAccessToken {
 4. `claimedAt IS NOT NULL ⇒ userId IS NOT NULL AND guestEmail IS NOT NULL`.
 5. **`InventoryItem`: `CHECK (ownerType <> 'customer' OR ownerUserId IS NOT NULL)`** — **v1.21.2 (D6): pasa de
    "invariante de aplicación" a `CHECK` NORMATIVO (migración M-25b)**, y sí es expresable en SQL simple (la v1.21
-   decía lo contrario, por error). Era el **único** de los cinco sin implementar, y es justo el que §4-G.0-1 llama
+   decía lo contrario, por error). Era el **único sin implementar** *(⚠️ **v1.63.4: aquí decía «de los cinco»** —
+   la cuenta vieja repetida **dentro de la propia lista canónica**, que ya numeraba seis. **La numeración de abajo
+   ES la cuenta**; ⛔ no se restata en prosa)*, y es justo el que §4-G.0-1 llama
    «lo que hace segura la nulabilidad de `Order.userId`». Sin él, un bug que escriba `customer` + `ownerUserId=null`
    crea una pieza en el limbo: invisible en la bóveda de todos (las consultas filtran por `ownerUserId`), no
    vendible (`ownerType≠platform`) y no ajustable en M1 — una carta desaparecida en silencio. **`InventoryItem` es
@@ -9925,7 +9933,9 @@ vuelve a pedir dentro de dos semanas.*
 #### ⚠️⚠️ §M2-F — EL TIPO DE CAMBIO TIENE **MODO**, Y EL MODO **NO ES EL VALOR** (v1.63 — NORMATIVA, `super_admin`, **DINERO**)
 
 > **Diseño: ARCHITECTURE §4.43.** **UN ajuste nuevo** (`fx_rate_mode`), **UN endpoint nuevo**
-> (`PUT /admin/fx/mode`), **UN valor nuevo** en el enum `FxSource`, **dos códigos de error**, **tres bloques nuevos**
+> (`PUT /admin/fx/mode`), **UN valor nuevo** en el enum `FxSource`, **TRES códigos de error —
+> `FX_MANUAL_RATE_MISSING`, `FX_MANUAL_RATE_REQUIRED` y `FX_NO_AUTOMATIC_RATE`—** *(⚠️ **v1.63.4: decía «dos»**; el
+> tercero entró en v1.63.1. **Nombrados a propósito**, §0-B.3 regla 8)*, **tres bloques nuevos**
 > en una respuesta que ya existía. **CERO DDL, CERO cambios en `FxRate`, CERO diales de M10, CERO jobs, CERO
 > superficies públicas.** ⛔ **No toca [`§M2-B`](#M2-B) ni la cara `market` de v1.62.2.**
 >
@@ -9982,6 +9992,10 @@ cambió** — y desde el panel **no hay vuelta a automático sin destruir su tas
 <a id="M2-F1"></a>
 ##### M2-F.1 — El ajuste `fx_rate_mode` y la regla de resolución (NORMATIVA)
 
+<!-- CANON: invariantes-del-modo-fx -->
+<!-- CANON: precedencia-de-la-tasa -->
+
+
 **`fx_rate_mode`** — `ConfigSetting`. **API: `FxRateMode = "auto" | "manual"`.** ⚠️ **Almacenamiento: TRES valores**
 —`auto | manual | legacy`—, donde **`"legacy"` es el valor SEMBRADO** y significa *«ningún humano ha tocado el
 interruptor todavía en este entorno»*. ⛔ **`"legacy"` NUNCA sale por la API**: `resolveFxMode()` lo traduce, y su
@@ -10010,9 +10024,15 @@ proyección observable es **`modeResolvedFrom: "legacy"`**.
 cae en `422 VALIDATION_ERROR` (clave desconocida), igual que `pricing_curve` o `sealed_spread_*`. **Su única puerta
 es [`§M2-F.2`](#M2-F2)**, que es la que impone las precondiciones y la bitácora.
 
-**Los SEIS invariantes — NORMATIVOS, y son la feature.** *(⚠️ **v1.63.3 — este encabezado decía «los cuatro» y
-listaba CINCO** desde v1.63.1, cuando entró I-FX5: la cuenta se quedó atrás. Con **I-FX6** son **seis**, y la cuenta
-canónica es ésta y `ARCHITECTURE §4.43c` —§0-B.3 regla 8—.)*
+**Los invariantes — NORMATIVOS, y son la feature. La lista es ÉSTA, y su NUMERACIÓN es la cuenta.**
+*(⚠️ **Historial de una cuenta que caducó dos veces**: v1.63 decía «los cuatro»; con `I-FX5` (v1.63.1) pasaron a ser
+cinco **sin que nadie tocara el encabezado**, y v1.63.3 lo corrigió al entrar `I-FX6`. **v1.63.4 le quita el número
+al encabezado**: mientras el predicado pueda crecer, un ordinal en prosa es una promesa que el siguiente pase
+incumple sin enterarse. ⭐ **Y se cierra la causa raíz, que era mía**: esta nota declaraba **DOS** sitios canónicos
+—«ésta y `ARCHITECTURE §4.43c`»—, que es exactamente lo que §0-B.3 regla 8 prohíbe. **Canon: esta sección**
+(`<!-- CANON: invariantes-del-modo-fx -->`). **`ARCHITECTURE §4.43c` es ESPEJO NORMATIVO declarado** —lleva la razón
+de cada invariante, que el contrato no lleva— y **se mantiene en paridad a mano**; ante discrepancia entre los dos,
+**manda éste**, por la regla de conflicto de `CLAUDE.md`.)*
 
 - **I-FX1 — El modo NUNCA se deriva del valor**, salvo en la resolución legacy de la tabla. Esa inferencia es **la
   única del sistema** ~~y ocurre, como mucho, **una vez por entorno**~~.

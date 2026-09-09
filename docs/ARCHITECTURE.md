@@ -101,7 +101,9 @@
 > vigente entera** salvo lo que se marca. **CERO DDL, CERO migración de esquema, CERO cambios en `FxRate`, CERO
 > diales de M10, CERO jobs.** **UN ajuste** (`fx_rate_mode`), **UN endpoint** (`PUT /admin/fx/mode`), **UN valor
 > nuevo** en el enum `FxSource` (`fallback`), **dos códigos de error**. Contrato en `API_CONTRACT.md` **v1.63**.
-> Detalle en **§4.43**. ⛔ **NO toca `§M2-B` ni la cara `market`** de v1.62.2, en construcción al escribirse esto.)
+> Detalle en **§4.43**. *(⚠️ **Este «dos» es HISTÓRICO y se conserva a propósito**: es lo que hizo **v1.63**, y un
+> changelog es el registro de un momento — renumerarlo sería falsificarlo. **Hoy son TRES**; el tercero
+> (`FX_NO_AUTOMATIC_RATE`) entró en v1.63.1. La cuenta viva está en la cabecera de **§4.43**.)* ⛔ **NO toca `§M2-B` ni la cara `market`** de v1.62.2, en construcción al escribirse esto.)
 >
 > **A. LA PETICIÓN, LITERAL.** *«Quiero conservar el override manual, que sea un toggle para decidir entre automático
 > o manual.»* Hoy **apagar el manual significa BORRAR el número**: el dueño tiene **19.0000** vivo en producción,
@@ -119,9 +121,13 @@
 > conserva nombre, rango y validador. **Descartadas con su razón**: columna en `FxRate` (DDL en la tabla del dinero +
 > confundir hecho con política), sentinel dentro del valor (la inferencia disfrazada), segunda clave que «guarda el
 > apagado» (dos copias del mismo dinero, alternar se vuelve destructivo), variable de entorno (redeploy) y exponerlo
-> en M10 (sería la **tercera** puerta, y la única sin la precondición de las dos tasas). **Cuatro invariantes**
-> I-FX1..I-FX4: el modo no se deriva del valor, **toda escritura del valor materializa el modo con su valor RESUELTO
-> ACTUAL** (pin del statu quo), cambiar modo nunca escribe valor, y no existe «manual sin número» (dos `422`).
+> en M10 (sería la **tercera** puerta, y la única sin la precondición de las dos tasas).
+> **Los invariantes —NORMATIVOS y numerados— viven en [§4.43(c)](#fx-43-c), y ⛔ ni se cuentan ni se transcriben
+> aquí** *(v1.63.4, §0-B.3 regla 8: este resumen decía «**Cuatro invariantes I-FX1..I-FX4**» — no sólo un conteo
+> viejo, sino un **rango CERRADO** que excluía activamente a `I-FX5` e `I-FX6`, que existen desde v1.63.1 y v1.63.3.
+> **La cuenta es la numeración de la lista**; ningún resumen la repite)*. En una frase: **el modo y el valor son dos
+> cosas, y ninguna escritura de una decide la otra por su cuenta** — más la puerta que serializa las dos rutas que
+> los escriben.
 >
 > **D. LAS TRES EXIGENCIAS DE DINERO, EN EL CONTRATO.** **(1)** `GET /admin/fx` devuelve **SIEMPRE las dos tasas**
 > —la manual guardada y la de Banxico vigente—, en las **mismas unidades** (crudas, sin colchón), y ⛔ **la pantalla
@@ -2082,8 +2088,10 @@
 >   **una pieza con `ShipmentItem` en un envío no terminal jamás puede estar en `{listed, in_stock}`**. Ganar la
 >   disputa **no** re-expide solo. **Sin enums ni columnas nuevas** (reusa `ShipmentStatus.cancelado`).
 > - **D6 — el `CHECK` que faltaba pasa a NORMATIVO (M-25b):**
->   `InventoryItem CHECK (ownerType <> 'customer' OR ownerUserId IS NOT NULL)`. Era el único de los cinco
->   invariantes sin implementar, y es justo el que §4-G.0-1 llama «lo que hace segura la nulabilidad de
+>   `InventoryItem CHECK (ownerType <> 'customer' OR ownerUserId IS NOT NULL)`. Era **el único invariante sin
+>   implementar** *(⚠️ **v1.63.4: decía «de los cinco»**, y aquí no vale ni como cuenta histórica — **D5, la viñeta
+>   de arriba de esta MISMA entrada, es la que eleva el sexto**: la entrada que creó el término lo contó de menos en
+>   el mismo aliento. Censo en `API_CONTRACT §4-G.10`, §0-B.3 regla 8)*, y es justo el que §4-G.0-1 llama «lo que hace segura la nulabilidad de
 >   `Order.userId`». Tabla de otro stream ⇒ el orquestador serializa.
 > - **D4 — un solo discriminador canónico:** `ShipmentRequest.orderId` responde **solo** "¿de dónde viene el
 >   envío?"; **todo comportamiento** (terminal del item, `kind` del DTO) se decide por **`Order.fulfillmentMode`**,
@@ -2778,6 +2786,28 @@ es clase (B), y transcribir el literal es exactamente lo que hizo sobrevivir un 
      | **Estado de un bounty** (`state` de la consola / predicado de alcance de la lista) *(v1.62)* | **`API_CONTRACT.md` §M2-B.0** | `<!-- CANON: estado-de-bounty -->` |
      | **Semántica de escritura parcial** (omitido / `null` / valor) en los `PUT` de dinero *(v1.62.1)* | **`API_CONTRACT.md` §M2**, bloque de `PUT …/variant-controls/:cardId/:finish` | `<!-- CANON: semantica-de-omision -->` |
      | **Qué es «el valor de mercado» de una variante** (qué fila, qué acabado, qué moneda, qué fecha, y qué se emite cuando **no hay**) *(v1.62.2)* | **`API_CONTRACT.md` §DTOs base**, declaración de `MarketReferenceDTO` | `<!-- CANON: mercado-de-la-variante -->` |
+     | **Los INVARIANTES del modo del tipo de cambio** (`I-FX*`) *(v1.63.4)* | **`API_CONTRACT.md` §M2-F.1** *(espejo normativo, que se mantiene en paridad a mano: `ARCHITECTURE §4.43c`)* | `<!-- CANON: invariantes-del-modo-fx -->` |
+     | **La PRECEDENCIA de la tasa** (qué rige en cada estado, incluida la 4.ª fila ilegal) *(v1.63.4)* | **`API_CONTRACT.md` §M2-F.1**, tabla de precedencia | `<!-- CANON: precedencia-de-la-tasa -->` |
+     | **El ESTADO del tipo de cambio** (forma del `FxStateDTO`, `applied`, `fallbackRate`) *(v1.63.4)* | **`API_CONTRACT.md` §M2-F.3** | `<!-- CANON: estado-del-tipo-de-cambio -->` |
+     | **La BANDA de una tasa USD→MXN** (`[1, 1000]`, sus dos extremos y las dos puertas) *(v1.63.4)* | **`API_CONTRACT.md` §M2-F.8** | `<!-- CANON: banda-de-la-tasa-usd-mxn -->` |
+   - **⭐⭐ AMPLIACIÓN v1.63.4 — «ELIMINA O NOMBRA»: un número PELADO junto a un ENLACE es lo PEOR de las dos
+     opciones, y es como esta regla se rompió TRES veces seguidas en una sola feature.** Medido en `§M2-F`: el
+     resumen de cabecera decía *«**Cuatro** invariantes»* **y enlazaba a la lista que ya declaraba seis**; otro decía
+     *«**Cuatro invariantes I-FX1..I-FX4**»* —un **rango CERRADO**, que no sólo cuenta mal sino que **excluye por
+     nombre** a los dos que faltaban—; y *«**dos** códigos de error»* sobrevivió en cuatro sitios a la llegada del
+     tercero. **El daño del enlace es que da autoridad al número equivocado:** el lector le cree al que tiene delante
+     y no abre el destino. ⇒ **Cuando un conteo remoto parezca útil, hay exactamente dos salidas legítimas:**
+     **(a) ELIMINARLO** y dejar que **mande el enlace** (*«los invariantes viven en §M2-F.1»*) — preferida cuando el
+     predicado **crece**; **(b) NOMBRAR los términos** (*«TRES códigos: `FX_MANUAL_RATE_MISSING`,
+     `FX_MANUAL_RATE_REQUIRED`, `FX_NO_AUTOMATIC_RATE`»*) — aceptable cuando el conjunto es **corto y cerrado**,
+     porque **un conteo nombrado es verificable EN EL SITIO**: al lector le falta un nombre, no le falta un número.
+     ⛔ **Lo prohibido es la tercera vía**, que es la que se usó: **el número solo, con enlace**.
+   - **⚠️ Y una distinción que esta ampliación NO deroga: un CHANGELOG es el registro de un momento, no un conteo
+     vivo.** *«v1.63 añadió **dos** códigos de error»* **era y sigue siendo cierto** — el tercero entró en v1.63.1.
+     **Renumerar una entrada de changelog es falsificar el registro** y ⛔ no se hace. Lo que sí se hace es **marcar
+     esa cuenta como histórica y apuntar a la viva**, que es lo aplicado en v1.63.4 a las dos entradas de v1.63.
+     *La regla del censo gobierna las afirmaciones sobre el AHORA; el historial versionado ya estaba exceptuado en
+     «Qué NO prohíbe» y se confirma aquí con un caso concreto.*
    - **Qué NO prohíbe, dicho para que no se lea de más:** (1) **el historial versionado sí se conserva** —*«v1.57
      añadió `receivedAt`»*, *«v1.61 añadió V-a y V-b»*— porque cuenta **qué rev añadió qué**, no cuántos hay hoy;
      (2) **§M5-P, §M5-V y §4.39(w) siguen enteras**: lo que se retira es la pretensión de que la lista estaba en
@@ -19296,7 +19326,11 @@ cara en un DTO que ya existía**, emitida desde una variable que el servidor **y
 > **Contrato: `API_CONTRACT §M2-F`** (rev **v1.63.4**). **CERO DDL, CERO migración de esquema, CERO cambios en el
 > **esquema** y el **escritor** de `FxRate` —⚠️ **el LECTOR sí cambia**, I-FX5—, CERO diales de M10, CERO jobs
 > nuevos.** **UN ajuste nuevo** (`fx_rate_mode`), **UN endpoint nuevo** (`PUT /admin/fx/mode`), **UN valor nuevo** en
-> el enum **de API** `FxSource` (`fallback`; ⛔ **no** en la columna persistida — §3.2), **dos códigos de error**.
+> el enum **de API** `FxSource` (`fallback`; ⛔ **no** en la columna persistida — §3.2), **TRES códigos de error —
+> `FX_MANUAL_RATE_MISSING`, `FX_MANUAL_RATE_REQUIRED` y `FX_NO_AUTOMATIC_RATE`—** *(⚠️ **v1.63.4: aquí decía «dos»**;
+> el tercero entró en v1.63.1 y esta cabecera **viva** se quedó atrás. **Van NOMBRADOS a propósito**: un conteo
+> remoto o se elimina y manda el enlace, o se acompaña de los nombres y entonces es verificable donde está — §0-B.3
+> regla 8. Un número pelado junto a un enlace es lo peor de las dos)*.
 > ⛔ **No toca `§M2-B` ni el bloque `market`** (en construcción cuando se escribió esto).
 >
 > ### ⚠️ **ESTADO v1.63.2 — IMPLEMENTADO Y APROBADO POR TECHLEAD. Lo que falta es de DEVOPS, no de diseño.**
@@ -19414,7 +19448,11 @@ de comportamiento por su cuenta.** No es la semántica del modo; es la **condici
 > `manual` para siempre **sin que nadie lo dijera en voz alta** — que es exactamente el modo de fallo que este pase
 > persigue. *La versión v1.63 de esta sección invocaba una vigilancia que su propia decisión desactivaba.*
 
-**Los SEIS invariantes (NORMATIVOS)** — *eran cinco hasta v1.63.2; **I-FX6** entra en v1.63.3 con la puerta del FX:*
+**Los invariantes (NORMATIVOS)** — ⚠️ **esta lista es ESPEJO declarado de `API_CONTRACT §M2-F.1`, que es el CANON**
+(`<!-- CANON: invariantes-del-modo-fx -->`, §0-B.3 regla 8). Vive aquí porque **lleva la RAZÓN de cada uno**, que el
+contrato no lleva; **la paridad se mantiene a mano** y, ante discrepancia, **manda el contrato**. *(v1.63.4: el
+encabezado decía «Los SEIS» — se le quita el ordinal, que es lo que caducó dos veces. **La cuenta es la numeración
+de la lista.**)*
 
 - **I-FX1 — El modo nunca se deriva del valor**, salvo en la resolución legacy de la tabla de arriba. *Esa
   inferencia es la ÚNICA del sistema.* ~~Y deja de correr en cuanto un humano toca el interruptor.~~
@@ -20152,9 +20190,13 @@ cola, ni correo · ⛔ no añade dial a M10 · ⛔ **no toca `§M2-B` ni la cara
 #### (i) Coste del pase
 
 **Cero DDL. Cero migración de esquema. Cero jobs. Cero diales de M10.** Un ajuste `ConfigSetting`, un endpoint de
-escritura con dos precondiciones, un enum con un valor más, dos códigos de error, tres campos nuevos en una respuesta
-que ya existía, y una acción de bitácora. **La parte cara no es el código: es que los invariantes **I-FX1..I-FX6**
-tengan candados que midan la CONDUCTA** (`§M2-F.6`) — *y **I-FX6** es el que lo demuestra: su candado (`FX-20`)
+escritura con dos precondiciones, un enum con un valor más, los códigos de error de `§M2-F.2`
+—`FX_MANUAL_RATE_MISSING`, `FX_MANUAL_RATE_REQUIRED`, `FX_NO_AUTOMATIC_RATE`— *(v1.63.4: decía «dos», y el tercero
+entró en v1.63.1; **nombrados** para que la próxima omisión se vea aquí mismo — §0-B.3 regla 8)*, tres campos nuevos
+en una respuesta que ya existía, y una acción de bitácora. **La parte cara no es el código: es que los invariantes de [§4.43(c)](#fx-43-c)
+—TODOS, sin rango cerrado que los recorte— tengan candados que midan la CONDUCTA** (`§M2-F.6`) *(v1.63.4: aquí decía
+`I-FX1..I-FX6`; hoy la cuenta es correcta, pero **un rango cerrado es la forma exacta en que esta misma frase
+caducó dos veces** — §0-B.3 regla 8, ampliación «elimina o nombra»)* — *y **I-FX6** es el que lo demuestra: su candado (`FX-20`)
 **necesita Postgres real y dos peticiones a la vez**, porque la regla vive en el motor* (§5.4, §5.5).
 
 > ⚠️ **Y el coste que v1.63.3 añade al MANTENIMIENTO, que es el que se paga después:** desde `S-FX-1`, el estado del
