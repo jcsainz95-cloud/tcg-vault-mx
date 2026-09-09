@@ -19,7 +19,10 @@ import {
   FxAuditState,
   FxRateMode,
   FxStateDTO,
+  FxReadHandle,
+  SettingRowReader,
   latestBanxicoFxRate,
+  lockFxGate,
   projectFxState,
   resolveFxMode,
   toFxAuditState,
@@ -204,14 +207,20 @@ export class SettingsService implements OnModuleInit {
   }
 
   /** Lee un dial; si no existe fila, devuelve el default. */
-  async get<T = unknown>(key: SettingKeyType): Promise<T> {
-    const row = await this.prisma.configSetting.findUnique({ where: { key } });
+  /**
+   * ⚠️ **v1.63.2 (S-FX-1) — el segundo parámetro es el HANDLE de lectura.** Por defecto, el cliente
+   * normal. Cuando quien llama está **dentro de la transacción que tomó `lockFxGate`**, pasa el `tx`:
+   * validar el estado del dinero contra una lectura hecha por otra conexión **es validar el estado de
+   * antes del candado**, que es el defecto entero de S-FX-1.
+   */
+  async get<T = unknown>(key: SettingKeyType, db: SettingRowReader = this.prisma): Promise<T> {
+    const row = await db.configSetting.findUnique({ where: { key } });
     if (row) return row.valueJson as T;
     return SETTING_DEFAULTS[key] as T;
   }
 
-  async getNumber(key: SettingKeyType): Promise<number> {
-    return Number(await this.get<number>(key));
+  async getNumber(key: SettingKeyType, db: SettingRowReader = this.prisma): Promise<number> {
+    return Number(await this.get<number>(key, db));
   }
 
   async getString(key: SettingKeyType): Promise<string> {
@@ -343,14 +352,26 @@ export class SettingsService implements OnModuleInit {
     // v1.51 (M-46, §4.39l / criterio 127) — VALIDACIÓN CRUZADA BLOQUEANTE ENTRE TRES DIALES.
     await this.assertBuylistCrossDials(validated);
 
-    // ⭐⭐ v1.63 (I-FX2 / I-FX4, §M2-F.1) — el MODO de la FX se resuelve **ANTES** de aplicar la
-    // escritura del valor. Esta llamada puede lanzar `422 FX_MANUAL_RATE_REQUIRED` (I-FX4), y en ese
-    // caso NO se escribe nada: está fuera de la transacción a propósito, igual que la cruzada de
-    // arriba. Ver `prepareFxModePin` para por qué el ORDEN es la regla y no un detalle.
-    const fxPin = await this.prepareFxModePin(validated);
+    // ⚠️ **v1.63.2 · S-FX-1 — el pin y su precondición se movieron DENTRO de la transacción.**
+    // Estaban fuera «a propósito» (para no escribir nada si la precondición falla), y esa razón
+    // **sigue siendo cierta pero ya se cumple sola**: lanzar dentro revierte. Lo que la versión
+    // anterior no podía cumplir es lo otro: la comprobación de I-FX4 se evaluaba sobre una lectura
+    // hecha **antes** de la transacción, y la otra puerta (`PUT /admin/fx/mode`) escribe **otra
+    // fila**, así que las dos commiteaban y quedaba «manual sin número» ⇒ **fallback duro de 18**.
+    const tocaElFx = validated.some((v) => v.settingKey === SettingKey.FX_MANUAL_OVERRIDE_RATE);
 
     // TODO O NADA DE VERDAD: los upserts y la bitácora, en una sola transacción.
     return this.prisma.$transaction(async (tx) => {
+      // ⭐⭐ La puerta única del FX. Se toma **solo** cuando este `PUT` toca el valor del tipo de
+      // cambio: los otros veinte diales no comparten invariante con nadie y no tienen por qué
+      // serializarse entre sí.
+      if (tocaElFx) await lockFxGate(tx);
+
+      // ⭐⭐ Y **se lee DESPUÉS del candado, por el mismo `tx`**: es la mitad que hace que el candado
+      // sirva. Con la lectura fuera, la transacción que espera su turno entra y escribe el estado
+      // que vio antes de esperar — el mismo estado imposible, veinte milisegundos más tarde.
+      const fxPin = await this.prepareFxModePin(validated, tx);
+
       // ⭐ El pin va DENTRO de la misma transacción que el valor: es imposible que quede el número
       // nuevo sin su modo materializado (que es, exactamente, el estado en el que la resolución
       // legacy volvería a inferir `manual` del valor).
@@ -398,10 +419,11 @@ export class SettingsService implements OnModuleInit {
    *
    * ### I-FX4, mitad «borrar el número»
    * `fxManualOverrideRate: null` con el modo RESUELTO en `manual` ⇒ `422 FX_MANUAL_RATE_REQUIRED`,
-   * **sin escritura parcial**. Se evalúa aquí —fuera de la transacción, sobre el estado RESULTANTE—
-   * por el mismo motivo que `validateBuylistCrossDials`: es el único punto que conoce el estado
-   * completo. *«Manual sin número» es el único estado que reintroduciría el fallback duro de 18 por
-   * la puerta de atrás.*
+   * **sin escritura parcial**. *«Manual sin número» es el único estado que reintroduciría el fallback
+   * duro de 18 por la puerta de atrás.*
+   * ⚠️ **v1.63.2 (S-FX-1): esto se evalúa DENTRO de la transacción y DESPUÉS de `lockFxGate`.** Antes
+   * corría fuera, sobre una lectura previa, y la otra puerta podía invalidarla entre la comprobación
+   * y el commit — con las dos peticiones devolviendo `200` y el dinero cayendo al fallback.
    *
    * ### Cuándo NO pinnea
    * Si el `PUT` no trae `fxManualOverrideRate` (p. ej. solo el colchón, fix #13), no se toca el modo:
@@ -409,13 +431,15 @@ export class SettingsService implements OnModuleInit {
    */
   private async prepareFxModePin(
     validated: { dtoKey: string; settingKey: SettingKeyType; value: unknown }[],
+    /** ⭐ v1.63.2 (S-FX-1): el handle de la transacción que YA tomó `lockFxGate`. */
+    tx: FxReadHandle,
   ): Promise<FxModePin | null> {
     const entry = validated.find((v) => v.settingKey === SettingKey.FX_MANUAL_OVERRIDE_RATE);
     if (!entry) return null;
 
-    // ⚠️ ESTADO PREVIO. Se lee ANTES de cualquier upsert de esta llamada.
-    const rawModeBefore = await this.get<unknown>(SettingKey.FX_RATE_MODE);
-    const rawManualBefore = await this.get<unknown>(SettingKey.FX_MANUAL_OVERRIDE_RATE);
+    // ⚠️ ESTADO PREVIO. Se lee ANTES de cualquier upsert de esta llamada **y DESPUÉS del candado**.
+    const rawModeBefore = await this.get<unknown>(SettingKey.FX_RATE_MODE, tx);
+    const rawManualBefore = await this.get<unknown>(SettingKey.FX_MANUAL_OVERRIDE_RATE, tx);
     const resolved = resolveFxMode(rawModeBefore, rawManualBefore);
 
     if (entry.value === null && resolved.mode === 'manual') {
@@ -462,8 +486,8 @@ export class SettingsService implements OnModuleInit {
     };
   }
 
-  async getRaw(key: SettingKeyType): Promise<unknown> {
-    return this.get(key);
+  async getRaw(key: SettingKeyType, db: SettingRowReader = this.prisma): Promise<unknown> {
+    return this.get(key, db);
   }
 
   /**

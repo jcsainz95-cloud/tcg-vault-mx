@@ -240,6 +240,19 @@ export function projectFxState(inputs: FxInputs, now: Date = new Date()): FxStat
   };
 }
 
+/**
+ * Cliente mínimo para leer una fila `ConfigSetting`. Existe para que **la lectura del estado del FX
+ * pueda ir por el `tx` que tiene el candado** (S-FX-1) sin que `SettingsService` dependa de Prisma.
+ */
+export interface SettingRowReader {
+  configSetting: {
+    findUnique(args: { where: { key: string } }): Promise<{ valueJson: unknown } | null>;
+  };
+}
+
+/** Todo lo que hace falta para proyectar el estado del FX desde un solo handle (cliente o `tx`). */
+export type FxReadHandle = FxRateReader & SettingRowReader;
+
 /** Cliente mínimo que necesita el lector de `FxRate` (vale `PrismaService` y `TransactionClient`). */
 export interface FxRateReader {
   fxRate: {
@@ -290,6 +303,63 @@ export const BANXICO_FX_WHERE = { source: 'banxico' } as const;
  * defecto — dos superficies que filtran igual y ordenan distinto **pueden nombrar filas distintas**.
  */
 export const BANXICO_FX_ORDER = { effectiveDate: 'desc' } as const;
+
+// =================================================================================================
+// ⭐⭐ S-FX-1 — LA PUERTA ÚNICA DEL FX (v1.63.2, hallazgo CRÍTICO del pentester)
+// =================================================================================================
+
+/**
+ * ⭐⭐ **La clave del `pg_advisory_xact_lock` que SERIALIZA las dos puertas del tipo de cambio.**
+ *
+ * ### El defecto que esto cierra, medido en vivo (S-FX-1, `PENTEST_NOTES`)
+ * El estado del dinero **no vive en una fila: vive en DOS** —`fx_rate_mode` y
+ * `fx_manual_override_rate`— y el invariante que las ata (**I-FX4: «manual sin número» no existe**)
+ * lo comprobaban **dos rutas distintas, cada una sobre su propia lectura previa**:
+ *
+ * | | Puerta A · `PUT /admin/settings` | Puerta B · `PUT /admin/fx/mode` |
+ * |---|---|---|
+ * | Comprueba | «no borres el número si el modo es manual» | «no pases a manual si no hay número» |
+ * | Escribía | `fx_manual_override_rate` | `fx_rate_mode` |
+ *
+ * **Filas distintas ⇒ Postgres nunca las hace colisionar: las dos commitean siempre.** Con ~20 ms de
+ * ventaja —jitter de red normal, un doble-submit del panel, un reintento— quedaba
+ * `mode:"manual"` con la tasa en `null`, que cae al **fallback duro de 18**: **−5.26 % instantáneo
+ * sobre todo lo que compramos y vendemos**, sin acuse y con las dos peticiones devolviendo `200`.
+ * Y la bitácora de `fx.mode.change` afirmaba `19 / manual` mientras el sistema cotizaba
+ * `18 / fallback` — **el registro oficial mentía**, así que ni reconstruir qué rigió era posible.
+ *
+ * ### Por qué un advisory lock y no un `SELECT … FOR UPDATE`
+ * Porque **lo que hay que serializar no es una fila: es la REGLA**. Bloquear las dos filas exigiría
+ * que las dos puertas supieran de antemano cuáles tocan (y la puerta A ni siquiera escribe
+ * `fx_rate_mode` salvo que el pin materialice). El advisory lock es **por transacción**
+ * (`_xact_`: se suelta solo al commit o al rollback, no hay forma de olvidarse) y no depende de qué
+ * filas acabe tocando cada rama.
+ *
+ * ### ⚠️ La mitad que NO es el lock, y sin ella el lock no sirve de nada
+ * **Serializar no basta: el perdedor tiene que VOLVER A LEER.** Una transacción que se bloquea, entra
+ * y escribe basándose en la lectura que hizo **antes** de bloquearse commitea el mismo estado
+ * imposible, solo que más tarde. ⇒ **Dentro del lock: leer, validar y proyectar lo que se audita.**
+ * *Es la regla entera: `lockFxGate` → releer → precondiciones → escribir → auditar con la
+ * proyección de dentro.*
+ */
+export const FX_GATE_LOCK_KEY = 63_120_863;
+
+/** Lo mínimo que necesita {@link lockFxGate}: el handle de una transacción de Prisma. */
+export interface FxGateLocker {
+  $executeRaw: (query: TemplateStringsArray, ...values: unknown[]) => Promise<unknown>;
+}
+
+/**
+ * ⭐⭐ Toma la puerta única del FX **dentro de la transacción `tx`**. Se libera sola al commit o al
+ * rollback (`pg_advisory_xact_lock`).
+ *
+ * ⛔ **Toda ruta que escriba `fx_rate_mode` o `fx_manual_override_rate` empieza por aquí**, y lo hace
+ * **antes** de leer el estado que va a validar. Una ruta nueva que se salte esta llamada reabre
+ * S-FX-1 exacto, no una variante.
+ */
+export async function lockFxGate(tx: FxGateLocker): Promise<void> {
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(${FX_GATE_LOCK_KEY})`;
+}
 
 /**
  * Instantánea AUDITABLE del estado de la FX: **los dos números, no los dos rótulos** (§M2-F.4).

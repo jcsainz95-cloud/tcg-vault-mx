@@ -937,3 +937,225 @@ describe('FX-10 — la edad sale de la fila, no del reloj de la respuesta', () =
     }
   });
 });
+
+// ══════════════════════════════════════════════════════════════════════════════════════════════════
+// v1.63.2 · **LOS CANDADOS QUE QA ROMPIÓ Y SIGUIERON VERDES**
+//
+// QA mutó siete cosas y el arnés no se enteró. Cinco eran huecos de cobertura (la conducta de hoy es
+// correcta, pero nadie la sostenía) y **dos eran de la clase que este proyecto lleva ocho veces
+// cazando: un test que IMPORTA la constante que dice verificar se compara consigo mismo**.
+// ══════════════════════════════════════════════════════════════════════════════════════════════════
+
+// ── FX-14 — los rótulos del contrato, escritos con LITERALES ──────────────────────────────────────
+
+/**
+ * **El defecto:** `FX-7` y `FX-12` decían `expect(state.rate).toBe(FX_FALLBACK_RATE)` **importando la
+ * constante**, y `FX-10` derivaba sus fixtures de `FX_AUTO_STALE_AFTER_DAYS`. Cambiar `18 → 19` o
+ * `5 → 10` **dejaba los 43 tests en verde**: el candado medía el rótulo contra sí mismo.
+ *
+ * ⇒ **Los dos números del contrato se afirman AQUÍ, con literales, una sola vez**, y el resto del
+ * fichero usa literales también. *Si el contrato cambia el número, el rojo aparece en el sitio donde
+ * está escrito por qué ese número es ése — que es donde tiene que aparecer.*
+ */
+describe('FX-14 — los dos números del contrato, contra un LITERAL (no contra sí mismos)', () => {
+  it('el fallback duro es 18 (§M2-F: «una constante escondida, ni siquiera una tasa real»)', () => {
+    expect(FX_FALLBACK_RATE).toBe(18);
+  });
+
+  it('el umbral de `stale` es 5 días (el FIX de Banxico es en días hábiles)', () => {
+    expect(FX_AUTO_STALE_AFTER_DAYS).toBe(5);
+  });
+
+  it('y la CONDUCTA con el literal: sin fila de Banxico, en auto, rige 18', async () => {
+    const h = harness({ settings: { [MODE_KEY]: 'auto', [SettingKey.FX_BUFFER_PCT]: 3 }, fxRates: [] });
+    const state = await h.fx.getCurrent();
+    expect(state.rate).toBe(18); // ⛔ literal a propósito
+    expect(state.source).toBe('fallback');
+  });
+
+  it('y la del umbral: 5 días es `fresh`, 6 es `stale` — con literales', async () => {
+    for (const [dias, status] of [
+      [5, 'fresh'],
+      [6, 'stale'],
+    ] as [number, string][]) {
+      const h = harness({
+        settings: { [MODE_KEY]: 'auto', [SettingKey.FX_BUFFER_PCT]: 3 },
+        fxRates: [banxicoRow(18.2, daysAgo(dias))],
+      });
+      expect((await h.fx.getCurrent()).automatic.status).toBe(status);
+    }
+  });
+});
+
+// ── FX-15 ⭐ — el pin y el valor, en la MISMA transacción ─────────────────────────────────────────
+
+/**
+ * **La mutación que sobrevivía:** sacar el pin de la transacción (`settings.service.ts:353`,
+ * `tx.` → `this.prisma.`). El comentario del código promete *«es imposible que quede el número nuevo
+ * sin su modo materializado»* — y **nadie lo medía**.
+ *
+ * Se mide con el handle: el arnés entrega en `$transaction` un cliente **distinto**, así que una
+ * escritura por `this.prisma` queda marcada `inTx: false`. **Rojo con una sola escritura fuera.**
+ */
+describe('FX-15 ⭐ — el pin del modo se materializa DENTRO de la transacción del valor', () => {
+  it('PUT /admin/fx { rate } desde `legacy`: las DOS escrituras van por `tx`', async () => {
+    const h = harness({
+      settings: { [MODE_KEY]: 'legacy', [SettingKey.FX_BUFFER_PCT]: 3 },
+      fxRates: [banxicoRow(18.2)],
+    });
+    await h.fxCtrl.setManual({ rate: 25 }, 'admin-1', 'super_admin' as never);
+
+    const modo = h.writes.filter((w) => w.key === MODE_KEY);
+    const valor = h.writes.filter((w) => w.key === RATE_KEY);
+    expect(modo.length).toBeGreaterThan(0); // el pin se materializó (si no, no hay nada que medir)
+    expect(valor.length).toBeGreaterThan(0);
+    expect(h.writes.filter((w) => !w.inTx)).toEqual([]); // ⛔ ninguna fuera
+  });
+
+  it('y la bitácora de esa escritura también (efecto y entrada commitean o revierten juntos)', async () => {
+    const h = harness({
+      settings: { [MODE_KEY]: 'legacy', [SettingKey.FX_BUFFER_PCT]: 3 },
+      fxRates: [banxicoRow(18.2)],
+    });
+    await h.fxCtrl.setManual({ rate: 25 }, 'admin-1', 'super_admin' as never);
+    expect(h.auditWrites.length).toBeGreaterThan(0);
+    expect(h.auditWrites.filter((a) => !a.inTx)).toEqual([]);
+  });
+});
+
+// ── FX-16 ⭐ — la bitácora del INTERRUPTOR es transaccional ───────────────────────────────────────
+
+/**
+ * **La mutación que sobrevivía:** sacar `opts.audit(...)` de la `$transaction` de
+ * `fx.service.ts:264`. `FX-5` cubría la puerta de `settings` (donde el fallo es del upsert), **no la
+ * de `fx.service`**, que tiene su propia transacción. §M2-F.2 regla 5 dice *«obligatoria y
+ * **transaccional**»*: las dos mitades de esa frase necesitan un candado cada una.
+ */
+describe('FX-16 ⭐ — `PUT /admin/fx/mode` escribe efecto y bitácora por el MISMO `tx`', () => {
+  it('el flip deja la entrada dentro de la transacción, no al lado', async () => {
+    const h = harness({
+      settings: { [MODE_KEY]: 'manual', [RATE_KEY]: 19.0, [SettingKey.FX_BUFFER_PCT]: 3 },
+      fxRates: [banxicoRow(18.2)],
+    });
+    await h.fxCtrl.setMode({ mode: 'auto' }, 'usr_admin', 'super_admin' as never);
+
+    const modo = h.auditWrites.filter((a) => a.action === 'fx.mode.change');
+    expect(modo).toHaveLength(1);
+    expect(modo[0]?.inTx).toBe(true);
+    expect(h.writes.filter((w) => w.key === MODE_KEY && !w.inTx)).toEqual([]);
+  });
+});
+
+// ── FX-17 ⭐ — la basura NO resuelve `auto` por su cuenta ─────────────────────────────────────────
+
+/**
+ * **La mutación que sobrevivía:** que un valor basura en la fila (`"AUTO"`, `true`, `1`) resolviera
+ * `auto` en vez de caer a la **resolución legacy**. `FX-6` solo fixturea `"legacy"` y la fila
+ * ausente, así que la rama de basura no la miraba nadie — y §M2-F.1 **nombra esa fila**.
+ *
+ * ⭐ La distinción es de dinero: con basura y una tasa manual guardada, **legacy dice `manual`** (la
+ * conducta de v1.62.2, literal) y `auto` diría Banxico ⇒ **el catálogo entero se movería en un
+ * deploy**, que es exactamente lo que I-FX2/FX-6 existen para impedir.
+ */
+describe('FX-17 ⭐ — un valor no reconocido en `fx_rate_mode` cae a LEGACY, jamás a `auto`', () => {
+  const basura: unknown[] = ['AUTO', 'Manual', 'legacy', true, 1, null, {}, ''];
+
+  it.each(basura.map((v) => [JSON.stringify(v) ?? String(v), v] as [string, unknown]))(
+    'con tasa manual guardada y la fila valiendo %s ⇒ mode `manual` (from `legacy`)',
+    async (_n, valor) => {
+      const h = harness({
+        settings: { [MODE_KEY]: valor, [RATE_KEY]: 19.0, [SettingKey.FX_BUFFER_PCT]: 3 },
+        fxRates: [banxicoRow(18.2)],
+        priceRefs: [usdCardRef()],
+      });
+      const state = await h.fx.getCurrent();
+      expect(state.mode).toBe('manual');
+      expect(state.modeResolvedFrom).toBe('legacy');
+      expect(state.rate).toBe(19.0);
+      // ⭐ LA CONDUCTA: el peso que sale es el del manual, no el de Banxico.
+      expect(await h.referenceMxnCents()).toBe(expectedMxnCents(1000, 19.0, 3));
+    },
+  );
+
+  it('y SIN tasa manual, la misma basura resuelve `auto` — también por legacy, no por la fila', async () => {
+    for (const valor of basura) {
+      const h = harness({
+        settings: { [MODE_KEY]: valor, [SettingKey.FX_BUFFER_PCT]: 3 },
+        fxRates: [banxicoRow(18.2)],
+      });
+      const state = await h.fx.getCurrent();
+      expect(state.mode).toBe('auto');
+      // ⭐ La mitad que mata la mutación: `from` distingue «lo dijo la fila» de «lo dedujo el legacy».
+      expect(state.modeResolvedFrom).toBe('legacy');
+    }
+  });
+});
+
+// ── FX-18 ⭐ — `unchanged` SÍ escribe la fila del día ─────────────────────────────────────────────
+
+/**
+ * **La mutación que sobrevivía (M-1):** no escribir la fila cuando el `outcome` es `unchanged`.
+ * *El párrafo que escribí para defender esa conducta era justo el que nadie podía poner rojo* — y es
+ * el que alguien «arreglará» leyendo la tabla del contrato, que solo dice «(se escribió fila)» junto
+ * a `updated`.
+ *
+ * ⭐ **Y es dinero:** el escritor sella `effectiveDate: today()`, así que **no escribir produce un
+ * `stale` FALSO garantizado**: Banxico confirma hoy el mismo número, no se escribe fila, y
+ * `automatic.ageDays` sigue creciendo hasta que el panel declara vieja **una tasa que acabamos de
+ * confirmar**. `outcome` habla del VALOR; la fila habla de CUÁNDO se confirmó.
+ */
+describe('FX-18 ⭐ — un refresco `unchanged` escribe la fila de hoy igual (o inventa un `stale`)', () => {
+  it('misma tasa que ayer ⇒ outcome `unchanged` Y fila de hoy ⇒ ageDays 0, status fresh', async () => {
+    const h = harness({
+      settings: { [MODE_KEY]: 'auto', [SettingKey.FX_BUFFER_PCT]: 3 },
+      fxRates: [banxicoRow(18.5, daysAgo(6))], // ⇒ hoy estaría `stale` si no se escribe
+      env: { BANXICO_SIE_TOKEN: 'tok' },
+    });
+    // Punto de partida: la única fila de Banxico tiene 6 días ⇒ vieja.
+    expect((await h.fx.getCurrent()).automatic.status).toBe('stale');
+
+    const spy = jest.spyOn(global, 'fetch').mockImplementation(
+      async () =>
+        ({ ok: true, json: async () => ({ bmx: { series: [{ datos: [{ dato: '18.5000' }] }] } }) }) as never,
+    );
+    const res = await h.fx.refreshFromBanxico();
+    spy.mockRestore();
+
+    expect(res.outcome).toBe('unchanged'); // el VALOR no cambió…
+    const hoy = TODAY.toISOString().slice(0, 10);
+    expect(h.fxRates.some((r) => r.source === 'banxico' && r.id === `banxico-${hoy}`)).toBe(true);
+
+    // ⭐ …pero la CONFIRMACIÓN sí, y por eso el panel deja de mentir.
+    const state = await h.fx.getCurrent();
+    expect(state.automatic.ageDays).toBe(0);
+    expect(state.automatic.status).toBe('fresh');
+    expect(state.automatic.effectiveDate).toBe(hoy);
+  });
+});
+
+// ── FX-19 ⭐ — el colchón de la bitácora es el de DESPUÉS ─────────────────────────────────────────
+
+/**
+ * **La mutación que sobrevivía (M-2):** `bufferPct: bufferAfter → bufferBefore`. Los fixtures usaban
+ * el mismo colchón antes y después, así que la aserción comprobaba **que la clave estaba, no que
+ * valiera**. El contrato dice que sin el colchón *«la entrada no permite reconstruir el precio de
+ * aquel día»* — una entrada con el colchón EQUIVOCADO reconstruye **otro precio**, que es peor que
+ * no tenerlo, porque parece correcta.
+ */
+describe('FX-19 ⭐ — `before.bufferPct` y `after.bufferPct` son NÚMEROS DISTINTOS cuando el colchón cambia', () => {
+  it('PUT /admin/fx { rate, bufferPct: 7 } sobre un colchón de 3 ⇒ before 3, after 7', async () => {
+    const h = harness({
+      settings: { [MODE_KEY]: 'manual', [RATE_KEY]: 19.0, [SettingKey.FX_BUFFER_PCT]: 3 },
+      fxRates: [banxicoRow(18.2)],
+    });
+    await h.fxCtrl.setManual({ rate: 19.0, bufferPct: 7 }, 'usr_admin', 'super_admin' as never);
+
+    const entry = h.auditEntries.find((e) => e.action === 'fx.override') as never as {
+      before: { bufferPct: number; effectiveRate: number };
+      after: { bufferPct: number; effectiveRate: number };
+    };
+    expect(entry.before.bufferPct).toBe(3);
+    expect(entry.after.bufferPct).toBe(7); // ⛔ rojo si la entrada guarda el colchón VIEJO
+    expect(entry.after.bufferPct).not.toBe(entry.before.bufferPct);
+  });
+});

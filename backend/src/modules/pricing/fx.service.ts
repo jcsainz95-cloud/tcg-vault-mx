@@ -10,10 +10,12 @@ import {
   FX_FALLBACK_RATE,
   FxInputs,
   FxRateMode,
+  FxReadHandle,
   FxStateDTO,
   fxIsoDate,
   fxToday,
   latestBanxicoFxRate,
+  lockFxGate,
   projectFxState,
   toFxAuditState,
 } from '../../common/fx-mode';
@@ -82,14 +84,20 @@ export class FxService {
    * Lee TODO lo que decide qué tasa rige, en un solo sitio. La decisión la toma
    * `projectFxState()` (función PURA de `common/fx-mode`), compartida con `SettingsService`.
    */
-  private async loadInputs(): Promise<FxInputs> {
+  /**
+   * ⚠️ **v1.63.2 (S-FX-1): `db` no es un parámetro de comodidad.** Cuando esto corre **dentro** de la
+   * transacción que tomó `lockFxGate`, tiene que leer **por el mismo handle**: una lectura por otra
+   * conexión es una lectura **de antes del candado**, y validar sobre ella es exactamente el defecto
+   * que el candado vino a cerrar. Sin argumento (lecturas puras, `GET`) usa el cliente normal.
+   */
+  private async loadInputs(db: FxReadHandle = this.prisma): Promise<FxInputs> {
     const [bufferPct, rawMode, rawManualRate, latestBanxico] = await Promise.all([
-      this.settings.getNumber(SettingKey.FX_BUFFER_PCT),
-      this.settings.getRaw(SettingKey.FX_RATE_MODE),
-      this.settings.getRaw(SettingKey.FX_MANUAL_OVERRIDE_RATE),
+      this.settings.getNumber(SettingKey.FX_BUFFER_PCT, db),
+      this.settings.getRaw(SettingKey.FX_RATE_MODE, db),
+      this.settings.getRaw(SettingKey.FX_MANUAL_OVERRIDE_RATE, db),
       // ⭐ I-FX5: la última fila de origen **banxico**, NUNCA «la última fila» a secas. Una fila
       // `FxRate` con `source='manual'` (la que escribe `PUT /admin/fx`) NO RIGE NUNCA.
-      latestBanxicoFxRate(this.prisma),
+      latestBanxicoFxRate(db),
     ]);
     return { bufferPct, rawMode, rawManualRate, latestBanxico };
   }
@@ -224,33 +232,53 @@ export class FxService {
     mode: FxRateMode,
     opts: FxWriteContext & { acknowledgeNoAutomaticRate?: boolean } = {},
   ): Promise<FxStateDTO> {
-    const inputs = await this.loadInputs();
-    const before = projectFxState(inputs);
-
-    // I-FX4, mitad «pedir manual sin número guardado». El modo NO cambia.
-    if (mode === 'manual' && before.manual.rate == null) {
-      throw BusinessException.validation(
-        'FX_MANUAL_RATE_MISSING',
-        'There is no saved manual FX rate to switch back to: save one first (PUT /admin/fx { rate }).',
-        { savedManualRate: null },
-      );
-    }
-
-    // El ACUSE. Sólo con `missing` — con `stale` hay un número real que el humano puede juzgar.
-    const needsAck = mode === 'auto' && before.automatic.status === 'missing';
-    if (needsAck && opts.acknowledgeNoAutomaticRate !== true) {
-      throw BusinessException.validation(
-        'FX_NO_AUTOMATIC_RATE',
-        'No automatic (Banxico) rate has ever been stored: switching to automatic would apply the ' +
-          `hard fallback rate of ${FX_FALLBACK_RATE}. Confirm with acknowledgeNoAutomaticRate: true.`,
-        { currentRate: before.rate, fallbackRate: FX_FALLBACK_RATE },
-      );
-    }
-
-    // Estado RESULTANTE, con la MISMA función pura: lo único que cambia es la fila del modo.
-    const after = projectFxState({ ...inputs, rawMode: mode });
-
+    // ⭐⭐ **v1.63.2 · S-FX-1 — LEER, VALIDAR, ESCRIBIR Y AUDITAR, TODO BAJO EL MISMO CANDADO.**
+    //
+    // Antes, la lectura del estado y las dos precondiciones vivían **fuera** de esta transacción.
+    // Como la otra puerta (`PUT /admin/settings`) escribe **otra fila**, Postgres no las hacía
+    // colisionar y las dos commiteaban: bastaban ~20 ms de ventaja para dejar `mode:"manual"` con la
+    // tasa borrada ⇒ **fallback duro de 18, −5.26 % sobre todo el catálogo, sin acuse y con 200 en
+    // las dos respuestas**. Y la bitácora, proyectada de la lectura vieja, **afirmaba 19/manual
+    // mientras el sistema cotizaba 18/fallback**.
+    //
+    // ⚠️ El candado por sí solo no arregla nada: **lo que arregla es releer dentro**. Una transacción
+    // que espera su turno y luego escribe con la lectura de antes commitea el mismo estado
+    // imposible, solo que más tarde. Por eso `loadInputs(tx)` va **después** de `lockFxGate(tx)` y
+    // **por el mismo handle**.
+    //
+    // ⛔ Las precondiciones lanzan DENTRO de la transacción: eso revierte y suelta el candado. No hay
+    // escritura parcial (es la misma garantía de antes, por otra vía).
     await this.prisma.$transaction(async (tx) => {
+      await lockFxGate(tx);
+
+      const inputs = await this.loadInputs(tx);
+      const before = projectFxState(inputs);
+
+      // I-FX4, mitad «pedir manual sin número guardado». El modo NO cambia.
+      if (mode === 'manual' && before.manual.rate == null) {
+        throw BusinessException.validation(
+          'FX_MANUAL_RATE_MISSING',
+          'There is no saved manual FX rate to switch back to: save one first (PUT /admin/fx { rate }).',
+          { savedManualRate: null },
+        );
+      }
+
+      // El ACUSE. Sólo con `missing` — con `stale` hay un número real que el humano puede juzgar.
+      const needsAck = mode === 'auto' && before.automatic.status === 'missing';
+      if (needsAck && opts.acknowledgeNoAutomaticRate !== true) {
+        throw BusinessException.validation(
+          'FX_NO_AUTOMATIC_RATE',
+          'No automatic (Banxico) rate has ever been stored: switching to automatic would apply the ' +
+            `hard fallback rate of ${FX_FALLBACK_RATE}. Confirm with acknowledgeNoAutomaticRate: true.`,
+          { currentRate: before.rate, fallbackRate: FX_FALLBACK_RATE },
+        );
+      }
+
+      // Estado RESULTANTE, con la MISMA función pura y sobre las MISMAS entradas que se acaban de
+      // validar: lo único que cambia es la fila del modo. **Esto es lo que se audita**, y por eso ya
+      // no puede afirmar un estado que la otra puerta deshizo hace 20 ms.
+      const after = projectFxState({ ...inputs, rawMode: mode });
+
       await tx.configSetting.upsert({
         where: { key: SettingKey.FX_RATE_MODE },
         create: {
