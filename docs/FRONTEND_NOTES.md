@@ -4,6 +4,142 @@
 > Fecha: 2026-08-13. Branch: `claude/tcg-cards-marketplace-oijthj`.
 > El contrato (`docs/API_CONTRACT.md`) y el sistema de diseño (`docs/DESIGN_SYSTEM.md`) mandan.
 
+## §62 · **El respaldo se publica y el smoke deja de medir fixtures** — `fallbackRate` (v1.63.4) + `I-QA-6` (2026-09-09, rama `claude/tcg-hunt-orchestration-ai2vma`)
+
+> Dos cosas, y las dos vienen de fuera: el arquitecto **concedió** el campo que §61.6 pidió, y QA
+> midió que los **3/3 verdes** del E2E de FX eran **contra fixtures** y que el spec, tal y como
+> estaba escrito, **no podía correrse contra el stack real**. Aquí se cierran las dos.
+
+### 1. ⭐⭐ `fallbackRate` — la deuda `FX-F1`, cerrada de verdad
+
+**El contrato lo publica** (`§M2-F.3` **regla 6**, v1.63.4): `number`, **obligatorio**, **al nivel
+superior**, en las **CUATRO** rutas y en **TODAS** las respuestas. Reflejado en:
+
+| Dónde | Qué |
+|---|---|
+| `src/types/contract.ts` | `FxDTO.fallbackRate: number` — **requerido**, no opcional: un espejo más permisivo que el contrato es el hueco de B-1 otra vez |
+| `src/lib/mock/fixtures.ts` | `buildMockFxState` lo emite **siempre y con el mismo valor**, en los tres estados legales; la constante sigue viviendo en **un solo sitio** (`MOCK_FX_HARD_FALLBACK_RATE`), que es lo que hace verificable el invariante (ii) |
+| `FxRateCard.tsx` (`chooseMode`) | ⭐ **el acuse se compone SIN NINGUNA PETICIÓN**: `setAck({ fallbackRate: dto.fallbackRate })`. Desaparece el `PUT` de sondeo |
+| `FxRateCard.tsx` (`stripRefresh`) | la clave viaja también al normalizar el `FxRefreshDTO` |
+
+⚠️ **Dos cosas que NO se hicieron, a propósito.** (a) ⛔ **No se pinta como tercera columna** ni
+como tasa vigente salvo con `source === "fallback"` (donde ya lo es, por el invariante (i)): la
+tarjeta lo usa **sólo** para componer el acuse. (b) ⛔ **No se adelgaza el `422`**: `details` sigue
+siendo la vía por la que se compone el acuse **en la carrera real** de §30.10 (la fila de Banxico
+desaparece entre el `GET` y el `PUT`), que es lo que la regla 6 (ii) exige que siga funcionando.
+
+**Residuo declarado (y con candado):** contra un servidor que **no emita** el campo —hoy, uno
+anterior a `FX-25`— la tarjeta **degrada** al `422` en vez de callar el interruptor. Es
+**degradación frente a un servidor no conforme**, ⛔ no la vía normal; `FX-UI-4(a-ter)` la cubre y
+`FX-UI-4(a)` se pone rojo si la vía normal vuelve a pasar por ahí.
+
+### 2. ⭐ El copy: **ratificado, no tocado** (y una petición denegada, con su razón)
+
+El arquitecto **denegó** la petición 2 de §61.6: ⛔ **no se crea una variante de
+`error.FX_NO_AUTOMATIC_RATE` sin `{fallbackRate}`** — *«la frase sin la cifra no es la misma frase
+menos un paréntesis, es otro mensaje»*, y el contrato lo escribe en la ficha del `422`. **⛔ No se
+cambió ni una cadena.** Lo que se hizo es **anclar la decisión** (mirror): el contrato tiene que
+seguir prohibiendo la variante, y el copy canónico de §30.15 tiene que seguir **nombrando la
+cifra** en los dos idiomas. Si alguien reabre cualquiera de las dos, se pone rojo.
+
+> ⚠️ **Hallazgo colateral, NO resuelto aquí y enrutado.** `error.FX_NO_AUTOMATIC_RATE_WITH_DETAILS`
+> —la cadena canónica de §30.15, la que lleva la cifra— **hoy es inalcanzable**: `QueryState.tsx`
+> selecciona la variante `_WITH_DETAILS` sólo si el código tiene entrada en `DETAILED_ERRORS`, y
+> **este código no la tiene** ⇒ en el único camino que aún pinta ese error (acuse enviado **y** el
+> servidor lo rechaza igual) se lee **la base, sin la cifra** — justo la frase que el arquitecto
+> acaba de no bendecir. Cablearlo es una entrada de tabla, pero **decide dónde vive el formateador
+> de tasas** (`formatRate` es de `m2/sections/fx/`, y `QueryState` es de `components/ui/`), así que
+> **no se hace por cuenta propia en un pase que tenía instrucción explícita de no tocar el copy**.
+
+### 3. ⭐⭐ `I-QA-6` — el smoke de FX ya **puede** correr contra el stack real
+
+**El defecto, tal y como QA lo midió:** `playwright.config.ts:121` levanta su `webServer` con
+`NEXT_PUBLIC_USE_MOCKS=true`, y los tres casos llevaban `mockOnly` y afirmaban **valores del
+fixture** (*«19.0000 MANUAL, sin tasa de Banxico y MODO HEREDADO»*) ⇒ el **par cliente↔servidor del
+interruptor** —el hueco que `I-QA-2` vino a cerrar— **no lo medía nadie y nadie podía medirlo**.
+
+**Lo que se hizo:** partir el archivo en **lo que es conducta** y **lo que es fixture**.
+
+| Caso | Corre en | Qué afirma |
+|---|---|---|
+| `@real` la tarjeta se lee entera y no se contradice | **los dos** | formato de la cifra, que **las dos columnas existen siempre**, la **regla mecánica de `applied`** (v1.63.3), que el salto se dice o se dice por qué no, y que el colchón es de solo lectura |
+| «pulsé Refrescar»: **un** desenlace, y un `200` no es un éxito | **los dos** | las dos ramas de §30.7 sin saber qué contestará Banxico; con `failed`, que ⛔ **no toca la tasa que rige** |
+| ⭐⭐ `@real` **el interruptor** | **los dos** | permiso **antes** de mover el dinero · **cuál** diálogo toca lo dicta §30.8 (afirmado **en los dos sentidos y en las dos direcciones del viaje**) · cancelar no mueve nada · cambiar de modo ⛔ **no escribe ninguno de los dos números** (I-FX3) · volver deja la tarjeta **exactamente** como estaba |
+| los 3 `mockOnly` (`19.0000`+`MODO HEREDADO`, `no_token`+persistencia, `SIN RESPALDO REAL`) | **mock** | lo mismo que cubrían antes — ⛔ pero ya no disfrazado de verificación de producto |
+
+**Cuatro decisiones que conviene dejar por escrito:**
+
+1. **El caso del interruptor LEE su estado de partida** (modo, cifra, fuente, las dos columnas) y
+   compara contra **eso**. Si el entorno no ofrece el segmento MANUAL (sin tasa guardada, §30.4
+   caso 4), **guarda una con un acto legal de la pantalla: la que YA rige** — guardar en `auto`
+   ⛔ no cambia lo que rige (I-FX2/I-FX5) y el número es el mismo ⇒ **el viaje no mueve un peso**.
+   ⛔ Sin `?scenario=`, sin fixture mágico, sin puerta trasera.
+2. ⚠️ **Contra el stack real, este spec MUEVE dinero.** Blanco autorizado **local o staging**,
+   ⛔ nunca producción. Hace **ida y vuelta** y **restaura el modo de partida en un `finally`**
+   aunque falle a medias; si ni eso puede, lo deja **anotado en el reporte** (⛔ no tapa el error
+   original con el de la restauración).
+3. **Secuencial, ⛔ pero `mode: 'default'`, NO `'serial'`.** El interruptor es uno y su estado es
+   del entorno ⇒ con `fullyParallel: true` dos casos moviéndolo a la vez medirían el arnés. Se
+   descartó `'serial'` **por medición**: además de secuenciar, **salta todo lo que venga tras el
+   primer rojo** — con la mutación M5 daba **1 rojo + 1 caso perdido**; en `'default'` salen **los
+   dos**.
+4. **Todo locator de la tarjeta se busca DENTRO de la región de FX.** `Guardar` a nivel de página
+   resuelve a **cuatro** botones en M2. ⚠️ **Lo cazó el control positivo, no una revisión**: un
+   ancla ambigua se ve verde mientras el estado de la página no cambie.
+
+### 4. Los candados, y el rojo de cada uno
+
+`FxRateCard.test.tsx` (29 → **31**) · `fx-contract-mirror.test.ts` (18 → **24**) ·
+`fx-mock.test.ts` (17 → **18**) · `e2e/admin-fx.spec.ts` (3 → **6**).
+
+> **Cómo se midieron:** todas las mutaciones sobre una **COPIA del árbol** (`tar` a un directorio
+> de scratch, `node_modules` enlazado, `docs/` incluido porque el mirror lee el contrato **en
+> tiempo de ejecución**), **nunca sobre el vivo**. Base verde de la copia: **73** (los tres
+> archivos de vitest) · **6** (E2E).
+
+| # | Mutación (romper esto…) | …pone en rojo | Conteo |
+|---|---|---|---|
+| **M1** ⭐⭐ | el acuse **hornea el `18`** en vez de leer `dto.fallbackRate` (§30.16.8) | `FX-UI-4` (a-bis) y (a-ter) | **2 / 31** |
+| **M2** ⭐ | el simulador emite `fallbackRate` **sólo con `source: "fallback"`** (el campo condicional que la regla 6 prohíbe) | mirror › «viaja IGUAL donde NO rige» + `fx-mock` › la identidad con el `422` | **2 / 42** |
+| **M3** ⭐⭐ | el `422` **adelgaza su `details`** («ya viaja en el DTO») | `fx-mock` ×2 | **2 / 49** |
+| **M4** ⭐ | **el CONTRATO** anida `fallbackRate` dentro de `automatic` *(mutación sobre la copia de `docs/`)* | mirror › claves de primer nivel + «NIVEL SUPERIOR, ⛔ no dentro de `automatic`» | **2 / 24** |
+| **M5** ⭐⭐ (E2E) | **el segmento cambia el modo sin diálogo** (la implementación ingenua exacta) | `admin-fx` › el interruptor **y** el del acuse | **2 / 6** |
+| **M6** ⭐⭐ (E2E, **CONTROL POSITIVO de `I-QA-6`**) | **otro mundo de partida** en el simulador (`auto` + Banxico 20.1234 **al día** + **sin** tasa manual + colchón 5 %), ⛔ sin tocar una línea de producto | **nada**: los dos `@real` siguen **verdes** — la prueba de que ya no están acoplados al fixture. *(Y en la primera pasada **sí** cazó un acoplamiento real: el `Guardar` ambiguo)* | **0 / 2** ✅ |
+| **M7** ⭐ (E2E) | pedir el acuse **siempre**, también con tasa de Banxico delante — sobre el mundo de M6 | `admin-fx` › el interruptor (*«salió el ACUSE donde tocaba el diálogo normal»*) | **1 / 2** |
+
+> ⚠️ **M7 no cazaba nada en la primera versión del spec**, y es el hallazgo del propio pase: la
+> equivalencia de §30.8 sólo se comprobaba **en la ida**, y el único tramo que entra en `auto` con
+> Banxico delante es **la vuelta**. Ahora se comprueba **en las dos**.
+
+### 5. Lo que NO se hizo, y por qué (⚠️ decisiones que no son mías)
+
+1. 🔴 **Nadie ha corrido este spec contra un stack real todavía** — y no es por el spec: en esta
+   máquina **no hay backend levantado** (`:3001`/`:4000` mudos) y **levantarlo es de devops**. Lo
+   que este pase entrega es que **ya se puede**: los dos casos agnósticos van tagueados `@real`
+   (`E2E_REAL=1` los selecciona; verificado con `--list`) y la prueba de que no dependen del
+   fixture es **M6**, no una promesa. **El gate real es de QA/devops.**
+2. **`FX_NO_AUTOMATIC_RATE` sin cablear en `DETAILED_ERRORS`** — hallazgo de §2 de arriba,
+   enrutado, no resuelto por cuenta propia.
+3. **`FX-F2` (móvil a 390px) y `FX-F3` (copy de «guardada» sin Banxico que nombrar) siguen
+   abiertas**: la primera necesita un `describe` de layout, la segunda **una cadena de ux-ui**.
+4. **El desenlace `updated` del refresco** sigue sin E2E: en mock exigiría la puerta trasera que no
+   se pone; en real **lo decide Banxico**. Vive en jsdom (`FX-UI-3`).
+
+### 6. Ficheros tocados
+
+`frontend/src/types/contract.ts` · `frontend/src/lib/mock/fixtures.ts` ·
+`frontend/src/lib/mock/{fx-mock,fx-contract-mirror}.test.ts` ·
+`frontend/src/app/[locale]/(admin)/admin/m2/sections/fx/FxRateCard.{tsx,test.tsx}` ·
+`frontend/e2e/admin-fx.spec.ts` · `docs/TECH_DEBT.md` (**cierre de `FX-F1`**) · este documento.
+⛔ **`messages/{es,en}.json` NO se tocó** (§2).
+
+### 7. Verificación (números reales)
+
+`npx vitest run` ✓ **125 archivos / 1.457 tests** (antes: 1.446 verdes **+ 2 rojos** — el mirror
+fallando cerrado contra v1.63.4, que es lo que este pase venía a cerrar) · `npx tsc --noEmit`
+limpio · `npx eslint` limpio · `npx playwright test` en modo mock ✓ **159 pasados / 3 saltados**
+(antes 156/3; +3 son los casos nuevos de FX), y el archivo de FX **repetido 3 veces**: 6/6 las tres.
+
 ## §61 · **El interruptor del tipo de cambio no tenía botón** — se construye la tarjeta de `DESIGN_SYSTEM §30` entera (2026-09-09, rama `claude/tcg-hunt-orchestration-ai2vma`)
 
 > El backend del interruptor (`§M2-F`) llevaba construido desde v1.63, endurecido contra una carrera
@@ -33,6 +169,9 @@
 ### 2. Las cinco decisiones que conviene dejar por escrito
 
 1. ⭐⭐ **El acuse de §30.8 necesita un número que el DTO no trae, así que se PIDE al servidor.**
+   ⚠️ **SUPERADO por el contrato v1.63.4 — ver [§62.1](#62).** Lo que sigue describe la conducta de
+   v1.63.3 y se conserva porque explica **por qué** se pidió el campo; hoy el acuse se compone
+   **sin ninguna petición** y `FX-UI-4(a)` cuenta **0**.
    `ack.would` / `ack.cta` nombran **el valor de respaldo**, y `FxStateDTO` no lo publica. Las tres
    salidas posibles eran: hornear el `18` en el cliente (⛔ prohibido, §30.16.8), inventar una
    variante de copy sin número (⛔ no se inventa copy) o **leerlo de `details.fallbackRate`**, que
@@ -121,6 +260,15 @@ manual **sin reteclear el número**. Es el camino exacto que reportó el dueño.
    trabajo pendiente y se dice, no se da por hecho.
 
 ### 6. Peticiones al arquitecto (ninguna bloquea; hoy se trabaja con lo que hay)
+
+> **✅ CONTESTADAS LAS DOS (2026-09-09, contrato v1.63.4). Se dejan escritas —⛔ no se borran— para
+> que la petición y su respuesta queden juntas; el trabajo está en [§62](#62).**
+> **(1) CONCEDIDA:** `fallbackRate` entra en el `FxStateDTO`, **al nivel superior** (⛔ no dentro de
+> `automatic`) y **siempre**. ⇒ el punto 2.1 de arriba **queda superado**: el acuse ya no manda
+> ningún `PUT` de sondeo, y `FX-F1` está **cerrada** en `TECH_DEBT.md`.
+> **(2) DENEGADA, con razón:** ⛔ **no se crea la variante base sin `{fallbackRate}`** — *«la frase
+> sin la cifra no es la misma frase menos un paréntesis, es otro mensaje»*, que es justo lo que
+> §30.8 existe para impedir. **No se implementó y ⛔ no se tocó ni una cadena** (§62.2).
 
 1. ⭐ **Publicar el valor de respaldo en `FxStateDTO`** (p. ej. `fallbackRate`, o
    `automatic.fallbackRate`). Es lo único que obliga a la consulta descrita en §2.1: hoy el número

@@ -2992,13 +2992,33 @@
 > (F-2: re-quote tras `ITEM_UNAVAILABLE`/`NOT_FOUND` en session) **ya se corrigió en la misma rama**
 > y no figura aquí. Todos los ítems son no bloqueantes; dueño **frontend**.
 
-### FX-F1 · El acuse de §30.8 **consulta al servidor antes de que el humano confirme**, porque el número que tiene que nombrar no viaja en el DTO (frontend, §30/§M2-F, 2026-09-09)
+### FX-F1 · ~~El acuse de §30.8 **consulta al servidor antes de que el humano confirme**, porque el número que tiene que nombrar no viaja en el DTO~~ — **✅ CERRADA (2026-09-09, contrato v1.63.4)** (frontend, §30/§M2-F)
 - **Dueño:** **frontend** (`m2/sections/fx/FxRateCard.tsx`, `chooseMode`). **Severidad:** Baja. **No bloqueante.** **Residual declarado**, no un descubrimiento suelto: se anota porque **diverge de la letra de un candado de diseño**.
 - **La deuda:** al mover el interruptor a AUTOMÁTICA con `automatic.status: "missing"`, la tarjeta manda **un `PUT /admin/fx/mode { mode: "auto" }` sin acuse**, recoge el `422 FX_NO_AUTOMATIC_RATE` y **lo convierte en el diálogo** de §30.8 con `details.fallbackRate`. Sólo al confirmar sale el segundo `PUT`, ya con `acknowledgeNoAutomaticRate: true`.
 - **Por qué se hace así, y las dos alternativas que se descartaron:** `ack.would` y `ack.cta` **nombran el valor de respaldo**, y `FxStateDTO` **no lo publica**. Las salidas eran tres: (a) **hornear el `18`** en el cliente — ⛔ prohibido por §30.16.8 (*«una constante horneada en el copy es una cifra de dinero que deja de ser cierta sin que nadie se entere»*); (b) **inventar una variante de copy sin número** — ⛔ el copy de §30.15 no se interpreta; (c) **leerlo de `details.fallbackRate`**, que es **de donde §30.8 dice que sale**. Se hace (c).
 - **Impacto: ninguno sobre el dinero.** El `422` **no cambia el modo** por contrato (candado `FX-12`, verificado también en el simulador): es la precondición contestando, no un cambio a medias. Lo que diverge es **la cuenta**: `FX-UI-4(a)` dice *«0 peticiones hasta confirmar»* y hoy son **0 peticiones que cambien algo + 1 consulta de precondición**. El test lo mide así y **inspecciona el cuerpo de las dos llamadas**, de modo que si alguien colara el acuse en la primera, se pone rojo.
 - **Cura:** **que el contrato publique el respaldo en `FxStateDTO`** (p. ej. `fallbackRate`). Entonces el diálogo se compone **sin ninguna petición previa** y `FX-UI-4(a)` se cumple al pie de la letra; el cambio en cliente es de ~10 líneas y **borra** esta entrada.
 - **⚠️ Disparador:** **el día que el arquitecto conteste la petición 1 de `FRONTEND_NOTES §61.6`** — o, antes, **cualquier cambio que haga que el `422` deje de ser inocuo** (que empiece a escribir bitácora de intento, a contar contra un rate-limit, o a tener efecto). En ese momento deja de ser Baja. Ref: `DESIGN_SYSTEM.md` §30.8/§30.17 (`FX-UI-4`), `API_CONTRACT.md` §M2-F.2, `FRONTEND_NOTES.md` §61.2.1.
+
+> **✅ CERRADA — el disparador se cumplió, y se cerró en el mismo día (2026-09-09).** El arquitecto
+> concedió la petición 1: **`fallbackRate` entra en el `FxStateDTO`** al **nivel superior**, en las
+> **cuatro** rutas y en **todas** las respuestas (contrato **v1.63.4**, [`§M2-F.3`](API_CONTRACT.md)
+> regla 6). Con el número publicado, **la vía de sondeo sobra**: `chooseMode` compone el diálogo de
+> §30.8 con `dto.fallbackRate` y ⇒ **`FX-UI-4(a)` se cumple AL PIE DE LA LETRA — 0 peticiones hasta
+> que el humano confirma**, no «0 que cambien algo + 1 consulta».
+>
+> **Lo que sujeta el cierre** (`FxRateCard.test.tsx`): `FX-UI-4(a)` pasa a contar **0** llamadas a
+> `setFxMode` antes del CTA; **(a-bis)** sirve un DTO con `fallbackRate: 17.5` y exige que el
+> diálogo diga **17.5000** y recalcule el salto contra ese número —el candado que hace inútil la
+> salida barata de hornear el `18` (§30.16.8), verificado por mutación: hornearlo da **2 rojos**—;
+> y **(a-ter)** cubre el residuo honesto de abajo.
+>
+> ⚠️ **Residuo declarado, y NO es esta deuda otra vez.** Un servidor que **no emita** el campo
+> (hoy: uno anterior a `FX-25`, que el backend está implementando en paralelo) haría que la tarjeta
+> **callara el interruptor**. Antes que eso, degrada: pide el número por el `422` **con su `details`
+> completo**, que la regla 6 (ii) garantiza que sigue viajando y ⛔ prohíbe adelgazar. Es una
+> **degradación documentada frente a un servidor no conforme**, ⛔ no la vía normal — y tiene su
+> propio candado, que sería rojo si la vía normal volviera a pasar por ahí.
 
 ### FX-F2 · La tarjeta de FX **no se ha visto a 390px ni con la hoja de estilo apagada** (frontend, §30.12/§30.13, 2026-09-09)
 - **Dueño:** **frontend** (`m2/sections/fx/`). **Severidad:** Baja (el dueño **no usa este panel desde el teléfono**, contestado en §30.12). **No bloqueante.**
