@@ -2335,8 +2335,12 @@
 > - **A.4 — FX + colchón #13 (backend + frontend, §4.15f).** El ingest carga `FxService.getCurrent()` **una vez por
 >   corrida** y convierte USD→MXN con `usdToMxnCents(market, rate, bufferPct)` → el **colchón (#13) aplica en cada
 >   ingest**. Precios en **MXN** se guardan sin conversión (sin colchón). Fix de UI (#13): M2 debe poder **guardar solo
->   el colchón** sin fijar `rate` (hoy `PUT /admin/fx` exige ambos y pinnea un override manual de tasa) → nota para
+>   el colchón** sin fijar `rate` (~~hoy `PUT /admin/fx` exige ambos y **pinnea** un override manual de tasa~~) → nota para
 >   frontend + ajuste menor de contrato (`rate?` opcional).
+>   > ⚠️ **v1.63.2 — dos correcciones a esta línea, y ambas son de vocabulario o de vigencia, no de fondo:**
+>   > **(1)** el verbo correcto es **FIJA** (una tasa), no *«pinnea»* — desde v1.63.1 **«pinnear» está reservado al
+>   > MODO** (§4.15f, tabla de verbos); **(2)** *«hoy exige ambos»* **caducó**: `rate?` **ya es opcional** y está
+>   > implementado (`API_CONTRACT §M2-F.5`), y omitirlo **tampoco pinnea el modo**.
 > - **A.5 — Aligerar `catalog-sync` (backend, §4.15g).** `catalog-sync` vuelve a ser **solo metadata del catálogo**
 >   (nombres/imágenes/sets/números/rareza + import de sets nuevos): se **quita** `persistMarketReferences` de
 >   `upsertCards` (y las deps `PricingService`/`FxService` que v1.12 le añadió). El pricing lo hace **solo** `price-ingest`.
@@ -19289,10 +19293,20 @@ cara en un DTO que ya existía**, emitida desde una variable que el servidor **y
 
 ### 4.43 EL TIPO DE CAMBIO TIENE **MODO**, Y EL MODO **NO ES EL VALOR** (v1.63-fx-mode, NORMATIVO, **DINERO**)
 
-> **Contrato: `API_CONTRACT §M2-F`** (rev **v1.63**). **CERO DDL, CERO migración de esquema, CERO cambios en
-> `FxRate`, CERO diales de M10, CERO jobs nuevos.** **UN ajuste nuevo** (`fx_rate_mode`), **UN endpoint nuevo**
-> (`PUT /admin/fx/mode`), **UN valor nuevo** en el enum `FxSource` (`fallback`), **dos códigos de error**.
+> **Contrato: `API_CONTRACT §M2-F`** (rev **v1.63.2**). **CERO DDL, CERO migración de esquema, CERO cambios en el
+> **esquema** y el **escritor** de `FxRate` —⚠️ **el LECTOR sí cambia**, I-FX5—, CERO diales de M10, CERO jobs
+> nuevos.** **UN ajuste nuevo** (`fx_rate_mode`), **UN endpoint nuevo** (`PUT /admin/fx/mode`), **UN valor nuevo** en
+> el enum **de API** `FxSource` (`fallback`; ⛔ **no** en la columna persistida — §3.2), **dos códigos de error**.
 > ⛔ **No toca `§M2-B` ni el bloque `market`** (en construcción cuando se escribió esto).
+>
+> ### ⚠️ **ESTADO v1.63.2 — IMPLEMENTADO Y APROBADO POR TECHLEAD. Lo que falta es de DEVOPS, no de diseño.**
+> Esta sección **ya no es un plan**: describe algo que corre. **⛔ NO se rediseña.** Lo que v1.63.2 añadió es
+> **documental**: **(g-bis)** el **rollback** (🔴 disparador duro — norma + runbook, **antes del primer deploy con el
+> interruptor vivo**), la corrección de **I-FX1** (la inferencia corre en **cada lectura**; lo que pasa una vez es la
+> **materialización**), el alcance real de la mitigación de **(f)**, y **dos decisiones normativas**:
+> `after.acknowledgedNoAutomaticRate` y la caída de la promesa *«legible por `GET /admin/audit-log`»* (⇒ **`Q-F4`**).
+> **Además se TACHARON tres afirmaciones caducadas fuera de §4.43** —§3.2 (la ficha de `FxRate`), §5 (`fx-refresh`) y
+> §4.15f (el verbo «pinnear»)— **que seguían publicando como norma el bug que `I-FX5` mató.**
 
 <a id="fx-43-0"></a>
 #### (0) La petición, literal — y por qué no es un capricho de UI
@@ -21938,7 +21952,8 @@ Las 6 ambigüedades quedaron resueltas por el humano (2026-08-13) y se integran 
 2. **Fee de procesamiento Stripe = GROSS-UP.** El fee trasladado se calcula para que, tras la comisión de Stripe (tarifa MX **más el IVA que Stripe cobra sobre su comisión**), la plataforma reciba **íntegro** `subtotal + IVA`. Fórmula vigente (ver §5.1, refinada por el hallazgo C1): `total = (base + (1+stripeFeeIvaPct)·fija) / (1 − (1+stripeFeeIvaPct)·pct)`, `fee = total − base`, donde `base = subtotal + IVA`. Se persiste en `Order.processingFeeCents` y es una línea visible del `BreakdownDTO`. El fee **no** lleva IVA de **producto** adicional.
 3. **IVA 16% sobre `subtotal + envío`.** El IVA grava el subtotal de cartas **y** la tarifa de envío (servicio gravado). El **fee de procesamiento va tal cual (sin IVA)**. Default a validar con contador. En compras de carrito el `ivaCents = round((subtotal) × ivaPct/100)`; en retiros `ivaCents = round(shippingFee × ivaPct/100)`.
 4. **CFDI sin PAC en el MVP.** No se integra PAC ni se timbra en el MVP. El flujo de factura es **manual por correo**: la UI muestra la instrucción de que, para pedir factura, el cliente envíe un correo con sus datos fiscales. El sistema guarda el **IVA cobrado por orden** (M7) y un flag `invoiceRequested` (opcional) por orden. **Timbrado real = fase 2.** `CfdiStatus` se reduce a `registrado | no_aplica` en MVP (`emitido` queda reservado para fase 2).
-5. **FX USD→MXN automático (Banxico) + colchón + override manual.** Job diario `fx-refresh` obtiene el tipo de cambio de una fuente tipo **Banxico** (SIE), aplica el **colchón** (`fx_buffer_pct`, dial M10) y escribe `FxRate` (`source=banxico`). Si el fetch falla o el admin fija un override, se usa `FxRate` con `source=manual` (dial M10) como fallback; el override tiene prioridad sobre el valor automático del mismo día.
+5. **FX USD→MXN automático (Banxico) + colchón + override manual.** Job diario `fx-refresh` obtiene el tipo de cambio de una fuente tipo **Banxico** (SIE), aplica el **colchón** (`fx_buffer_pct`, dial M10) y escribe `FxRate` (`source=banxico`). ~~Si el fetch falla o el admin fija un override, se usa `FxRate` con `source=manual` (dial M10) como fallback; el override tiene prioridad sobre el valor automático del mismo día.~~
+   > ⛔ **v1.63.2 — LA ÚLTIMA FRASE ESTÁ TACHADA, LA DECISIÓN DEL HUMANO NO.** Lo que él decidió —*FX automático de Banxico, con colchón, y un override manual*— **sigue vigente entero**; lo que caducó es **la regla de precedencia** que esta línea describía, y que era el bug (**F8**). Norma vigente: **§3.2 (ficha de `FxRate`) y §4.43c-bis (I-FX5)** — **quien decide es `fx_rate_mode`, nunca el valor**; una fila `FxRate` de fuente `manual` **no rige nunca**; y si no hay fila `banxico`, rige el **fallback duro (18)** etiquetado **`fallback`**, no `manual`. *Se conserva como registro de la decisión, con su redacción caducada marcada — no como norma consultable.*
 6. **Cobro del envío por Stripe ANTES de generar la solicitud de retiro.** El retiro cobra la tarifa fija (+ IVA) vía `PaymentIntent` de Stripe; la `ShipmentRequest` se crea en `solicitado` con el `PaymentIntent` asociado y solo se procesa (picking) una vez liquidado (webhook `payment_intent.succeeded`). No hay wallet.
 
 ---

@@ -2,7 +2,40 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-08 (rev **v1.63.1**).
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-09-09 (rev **v1.63.2**).
+>
+> **Changelog v1.63.2 — PASE DOCUMENTAL SOBRE `§M2-F` YA IMPLEMENTADO Y APROBADO (2026-09-09, arquitecto).** Base:
+> **v1.63.1, vigente entera**. ⛔ **NO cambia ni un endpoint, ni un request, ni un response, ni un código de error, ni
+> un invariante, ni un candado.** **Nada que reimplementar; nada que retestear.** El techlead aprobó `§M2-F` —*«el
+> contrato §M2-F sí está impecable y anticipó su propia obsolescencia»*— y condicionó lo desplegable a corregir tres
+> afirmaciones de este documento y de `ARCHITECTURE.md`. **Tres cosas, y sólo tres:**
+>
+> **1. `I-FX1` — *«la inferencia ocurre como mucho una vez por entorno»* era FALSO.** La resolución legacy corre en
+> **cada lectura** mientras la fila valga `"legacy"`; es **pura y no escribe nada**, así que un entorno que nunca toca
+> la FX resuelve `legacy` **para siempre y legítimamente**. Lo que ocurre una vez es la **MATERIALIZACIÓN**, y por
+> **dos** vías (el interruptor **o** I-FX2). ⚠️ **Para QA y el panel: `modeResolvedFrom == "legacy"` NO es una
+> anomalía por sí sola.** Se precisa con ello el **alcance** de la mitigación del riesgo residual de
+> [`§M2-F.4`](#M2-F4): cubre sólo los entornos **ya materializados** — *que son exactamente aquellos en los que hay
+> una decisión que perder*.
+>
+> **2. ⭐ `acknowledgedNoAutomaticRate` vive DENTRO de `after`, y ahora es NORMATIVO** ([`§M2-F.4`](#M2-F4)). El
+> ejemplo lo dibujaba al nivel de `before`/`after`; **`AuditLog` no tiene esa columna** y el pase es **cero DDL** ⇒ el
+> dibujo mandaba algo que sólo una migración podía cumplir. **Se mueve el ejemplo y ⛔ `FX-12` NO SE TOCA**: un
+> candado que asierta lo correcto contra un contrato que dibuja otra cosa **está blindando un incumplimiento**, y eso
+> se arregla **en el contrato**. ⇒ la desviación nº 1 de `BACKEND_NOTES §6` queda **cerrada**.
+>
+> **3. ⚠️ *«Todo esto es legible por `GET /admin/audit-log`»* era FALSO** ([`§M2-F.4`](#M2-F4)). `AuditLogDTO` no
+> lleva `before`/`after` y el endpoint **no los selecciona** (`settings.controller.ts:104-112`); el hermano por
+> usuario los **prohíbe** por PII. **Sigue siendo cierto —y completo— QUIÉN y CUÁNDO** (eso es `FX-13`); **los dos
+> números y el `bufferPct` no salen por la API: hoy son forense de SQL.** ⛔ **No se quita ni un campo de la
+> bitácora** — *escribir es la mitad irreversible; un lector se agrega mañana, el dato que no escribiste no se
+> recupera*. **El lector queda abierto como `Q-F4` (contrato nuevo, otro pase): no se diseña aquí.**
+>
+> ➕ **Y un aviso que no cabía en el contrato pero que lo bloquea:** el **rollback** de `§M2-F` **no es neutral** en
+> cuanto alguien usa el interruptor. Norma y runbook en **`ARCHITECTURE §4.43(g-bis)`**; pointer en
+> [`§M2-F.7`](#M2-F7). **Lectura obligatoria de devops antes del primer deploy con el interruptor vivo.**
+>
+> ---
 >
 > **Changelog v1.63.1 — v1.63 CORREGIDA ANTES DE IMPLEMENTARSE (2026-09-08, arquitecto).** Base: **v1.63**, de la
 > que **no se ha escrito una sola línea de código** ⇒ **no hay nada que migrar: lo que se implementa es v1.63.1
@@ -3888,7 +3921,9 @@
 >   rollback money-safe). ~~Seed recomendado `pokemontcg_io` … flip a `pokemonpricetracker`~~ *(superado por P-47/v1.44:
 >   provider primario vigente = `tcgcsv_singles`)*. Editable por `PUT /admin/settings` parcial; auditado (`settings.update`).
 > - **FX / colchón (#13):** `PUT /api/v1/admin/fx` gana **`rate?` opcional** — si se omite `rate`, actualiza **solo** el
->   colchón (`bufferPct`) y **NO** pinnea el override manual de tasa (hoy exige ambos y congela la tasa auto de Banxico).
+>   colchón (`bufferPct`) y **NO** ~~pinnea~~ **FIJA** el override manual de tasa (~~hoy exige ambos y congela la tasa auto de Banxico~~).
+>   *(⚠️ **v1.63.2:** el verbo se corrige —desde v1.63.1 **«pinnear» está reservado al MODO**, I-FX2— y *«hoy exige
+>   ambos»* **caducó**: esto **ya está implementado**, ver [`§M2-F.5`](#M2-F5). Omitir `rate` **tampoco pinnea el modo**.)*
 >   **Alternativa recomendada sin cambio de contrato de FX:** guardar el colchón por `PUT /admin/settings { fxBufferPct }`
 >   (parcial, ya soportado). Nota de UI para M2 (frontend). El colchón **aplica en cada ingest** (USD→MXN con FX+buffer).
 > - ~~**`CardDTO.availableFinishes` (mismo shape, nueva FUENTE):** pasa a **derivarse del proveedor** de paga en el
