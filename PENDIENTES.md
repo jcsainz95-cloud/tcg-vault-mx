@@ -619,6 +619,35 @@ roles) y **¿cómo le llama a M5?**.
   estado) · arquitecto (declarar el riesgo residual si se decide publicar sin la consulta).
 - **Estado:** ⛔ **BLOQUEA el merge del interruptor de FX** hasta que el humano decida.
 
+
+#### P-69 · 📦 El precio de mercado se pierde entre el paso 1 y el paso 2 al subir sellado — reportado por el humano
+- **Lo que dijo, literal (2026-09-09):** *«subiendo producto sellado me aparece el precio de mercado, en la
+  siguiente pagina dice que no tiene el precio y no puedo ponerle como aportacion»*. Con captura.
+- **El síntoma, con el dato de la captura:** en el diálogo «Agregar producto sellado», **paso 1 de 2 ·
+  ELIGE PRODUCTO**, con el set *Phantasmal Flames (2025)*, la tarjeta seleccionada
+  («Phantasmal Flames Elite Trainer Box») muestra **`MX$2,981.67 MERCADO`**. En el **paso 2**, ese
+  **mismo** producto aparece **sin precio**, y por eso **no se puede registrar como «aportación»**.
+- ⚠️ **Lo que hace esto distinto de «falta un precio»:** el paso 1 **sí sabe** distinguir los dos casos, y
+  lo hace bien — la cabecera dice *«25 presentaciones · 23 con precio · 2 pendientes de precio»* y otra
+  tarjeta muestra **`SIN PRECIO DE MERCADO`** en rojo. Así que no es que el catálogo no tenga el dato:
+  **es que los dos pasos no coinciden sobre el mismo producto.** Uno de los dos miente.
+- **Por qué importa y no es cosmético:** bloquea **meter inventario**, que es la operación diaria del
+  negocio. Y si el que miente resultara ser el **paso 1**, sería peor que el síntoma reportado — el dueño
+  estaría viendo un número en el que confía para decidir cuánto paga.
+- **Hipótesis a descartar CON CÓDIGO, ninguna confirmada todavía:** (a) dos fuentes distintas — el paso 1
+  pinta un campo del listado y el paso 2 lo vuelve a pedir por otra ruta; (b) el acabado/variante — el
+  precio del paso 1 cuelga de una variante y el paso 2 pregunta por otra (⚠️ regla dura del proyecto:
+  **nunca se copia el precio de un acabado a otro**); (c) se pierde el identificador entre pasos;
+  (d) semántica de omisión — el paso 2 lee «ausente» como «sin precio» cuando significa «no pedido»;
+  (e) una condición extra del paso 2 (frescura, moneda, fila de referencia de hoy).
+- **Segunda pregunta abierta:** ¿el bloqueo de «aportación» sin precio es **regla de negocio deliberada**
+  (no se aporta lo que no está valuado) o efecto colateral? Si es deliberada, la regla está bien y el bug
+  es solo que el precio se pierde.
+- **Estado:** 🔎 **diagnóstico de solo lectura lanzado** (2026-09-09). Sin rol dueño asignado hasta saber
+  si el hueco está en `backend/` o en `frontend/`.
+- **Work stream:** inventario y vault — **distinto** del stream de FX que está en curso, así que no compite
+  por las mismas rutas.
+
 #### P-55 · 🛒 El carrito de venta NO sobrevive al inicio de sesión — reportado por el humano
 - **Síntoma:** el cliente arma su carrito en el cotizador **sin haber iniciado sesión**; al entrar a su
   cuenta para mandar la solicitud, **el carrito se pierde** y tiene que rehacerlo.
