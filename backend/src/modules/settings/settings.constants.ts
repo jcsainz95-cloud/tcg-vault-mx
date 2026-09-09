@@ -620,6 +620,46 @@ export function validateGradingMinUpsidePct(v: unknown): string | null {
     : `must be a number in [0, ${GRADING_MIN_UPSIDE_PCT_MAX}]`;
 }
 
+/**
+ * ⭐⭐ **`iva_pct` — ENTERO en [0, 100], y el «entero» NO es gusto: es la COLUMNA.**
+ *
+ * **El defecto que cierra (medido, no supuesto).** El validador anterior era `isNum(v) && 0 <= v <= 100`
+ * — `typeof v === 'number'`, o sea **decimales incluidos**. Pero la tasa que este dial fija se **congela
+ * por orden** en `Order.ivaRatePct`, que es **`Int`** (`prisma/schema.prisma`). Medido contra Postgres 16
+ * real con `prisma.order.create`: **`8.5` no revienta — se TRUNCA en silencio a `8`** (y `8.9`→`8`,
+ * `15.999`→`15`, `0.5`→`0`: truncamiento hacia cero, no redondeo). No hay excepción, no hay aviso, no hay
+ * fila de bitácora que lo diga.
+ *
+ * **Por qué eso es dinero y no cosmética.** El truncamiento ocurre **solo en la fila**, no en la
+ * aritmética: `computeCartBreakdown` (`common/money.ts`) calcula `ivaCents` con el **float vivo**. Con el
+ * dial en `8.5` y un subtotal de MX$100.00 se cobran **850 centavos** de IVA y se archiva `ivaRatePct = 8`
+ * — una fila que dice *«cobré 8 %»* junto a un importe que es **8.5 %**. Esa fila es la que viaja al DTO
+ * de la orden y la que sostiene el desglose fiscal: la orden **miente sobre la tasa con la que se cobró**,
+ * y miente **hacia abajo**, que es el lado que le interesa a quien audite.
+ *
+ * **Por qué NO es un caso de laboratorio.** El **8 %** es una tasa de IVA **real** en México (zona
+ * fronteriza norte). Un `8.5` no es un fat-finger exótico: es lo que teclea alguien que está en medio de
+ * ese cambio y se equivoca por medio punto. Y el dial lo edita un `super_admin` **sin redeploy**.
+ *
+ * **Por qué se cierra AQUÍ y no en el esquema.** La cura barata sería volver la columna decimal; **no se
+ * hace**: `Order.ivaRatePct` es zona compartida y su tipo (`Int` vs escalado en enteros) es una decisión
+ * de arquitectura ligada a D54 (§Q de `PROJECT.md`, **borrador NO vigente**). Cambiarlo ahora la
+ * prejuzgaría. El validador, en cambio, solo tiene que **dejar de aceptar lo que la columna no puede
+ * representar**: un `422` explícito es estrictamente mejor que un truncamiento mudo en una tasa de
+ * impuestos. **Nada legítimo se pierde**: las tres tasas mexicanas vigentes —`0`, `8` y `16`— son enteras.
+ *
+ * ⚠️ **Si algún día el negocio necesita una tasa fraccionaria, este validador NO es el sitio donde
+ * relajarlo**: primero cambia la columna (decisión del arquitecto), después este rango. Relajarlo solo
+ * aquí devuelve el truncamiento silencioso tal cual.
+ */
+export function validateIvaPct(v: unknown): string | null {
+  return isInt(v) && v >= 0 && v <= 100
+    ? null
+    : 'must be an integer in [0, 100] (percent). Decimals are rejected because the rate is frozen ' +
+        'per order in the integer column `Order.ivaRatePct`, where a value like 8.5 would be ' +
+        'silently truncated to 8 while the charged IVA still used 8.5';
+}
+
 /** v1.44 (I6): `graded_estimate_freshness_days` = entero en [1, 365]. */
 export function validateGradedEstimateFreshnessDays(v: unknown): string | null {
   return isInt(v) && v >= GRADED_ESTIMATE_FRESHNESS_DAYS_MIN && v <= GRADED_ESTIMATE_FRESHNESS_DAYS_MAX
@@ -752,7 +792,9 @@ export function validateBuylistCrossDials(
 export const SETTING_VALIDATORS: Record<SettingKeyType, (v: unknown) => string | null> = {
   [SettingKey.SHIPPING_FEE_CENTS]: (v) => (isInt(v) && v >= 0 ? null : 'must be an integer >= 0 (cents)'),
   [SettingKey.APORTACION_PCT]: (v) => (isNum(v) && v >= 0 && v <= 100 ? null : 'must be a number in [0, 100]'),
-  [SettingKey.IVA_PCT]: (v) => (isNum(v) && v >= 0 && v <= 100 ? null : 'must be a number in [0, 100]'),
+  // ⭐ ENTERO, no «número»: la tasa se congela en la columna `Int` `Order.ivaRatePct` y un `8.5` se
+  // truncaba a `8` EN SILENCIO mientras el cobro usaba 8.5. Ver el docblock de `validateIvaPct`.
+  [SettingKey.IVA_PCT]: validateIvaPct,
   [SettingKey.SALES_MARKUP_PCT]: (v) => (isNum(v) && v >= 0 ? null : 'must be a number >= 0'),
   // stripe_fee_pct es una FRACCIÓN en [0,1); si fuera >= 1 el gross-up dividiría por <= 0.
   [SettingKey.STRIPE_FEE_PCT]: (v) => (isNum(v) && v >= 0 && v < 1 ? null : 'must be a fraction in [0, 1)'),

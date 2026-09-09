@@ -18237,3 +18237,103 @@ así porque una sustitución no aplicó y **ningún test lo notaba**. Corregido:
 ⚠️ **Sigue en pie lo dicho en §7:** `test/integration/fx-mode.e2e-spec.ts` está **escrito y no
 corrido** (aquí no hay Postgres). El candado real de `pg_advisory_xact_lock` **solo lo puede afirmar
 QA con el stack levantado**; lo que la unitaria afirma es la semántica, no el motor.
+
+---
+
+## v1.63.4 · **EL DIAL DE IVA ACEPTABA `8.5` Y LA COLUMNA LO GUARDABA COMO `8`** (2026-09-09)
+
+**Dueño:** backend. **Rama:** `claude/tcg-hunt-orchestration-ai2vma`. **Alcance:** un validador y su
+candado. ⛔ **Nada de esto es D54** (§Q de `PROJECT.md`, «IVA dentro del precio exhibido», **borrador
+NO vigente**): este defecto está vivo **hoy**, con el IVA fuera del precio, y su cura no anticipa
+ninguna de las decisiones que ese bloque tiene abiertas.
+
+### El defecto, y por qué había que MEDIRLO antes de arreglarlo
+
+Dos piezas que no se hablaban:
+
+- `settings.constants.ts` — `iva_pct` se validaba con `isNum(v) && 0 <= v <= 100`, e `isNum` es
+  `typeof v === 'number'`: **decimales incluidos**.
+- `prisma/schema.prisma` — la tasa se **congela por orden** en `Order.ivaRatePct`, que es **`Int`**.
+
+Un `super_admin` podía guardar **`8.5`** sin un solo error. De ahí el valor viaja
+`money.ts` (`computeCartBreakdown` → `ivaRatePct: ivaPct`) → `orders.service.ts` /
+`guest-checkout.service.ts` → la columna entera. **Había dos desenlaces posibles y cambiaban la
+gravedad**: reventar al escribir (ruidoso, molesto, inofensivo) o truncar en silencio (la orden miente
+sobre la tasa con la que se cobró). **No se dedujo del tipo: se midió.**
+
+### Lo medido (Postgres 16 real, `prisma.order.create`)
+
+**Trunca en silencio. Hacia cero. Sin excepción ni aviso.**
+
+| dial guardado | validador de HOY | fila `Order.ivaRatePct` |
+|---|---|---|
+| `8.5` | ✅ aceptado | **`8`** |
+| `8.9` | ✅ aceptado | **`8`** |
+| `15.999` | ✅ aceptado | **`15`** |
+| `0.5` | ✅ aceptado | **`0`** |
+
+⭐ **Y el truncamiento es SOLO de la fila, no del cobro.** `computeCartBreakdown` calcula `ivaCents`
+con el **float vivo**. Con el dial en `8.5` y un subtotal de MX$100.00 se cobran **850 centavos** de
+IVA y se archiva `ivaRatePct = 8`, cuyo 8 % de ese mismo subtotal son **800**. La fila que sostiene el
+desglose fiscal de la orden **declara una tasa que no es la que se cobró**, y **hacia abajo**, que es
+justo el lado que le interesa a quien audite. Esa fila es la que sale en el DTO de la orden
+(`orders.service.ts`) y en el de invitado (`guest-checkout.service.ts`).
+
+⚠️ **No es un valor de laboratorio.** El **8 %** es la tasa de IVA de la **zona fronteriza norte** de
+México. `8.5` es el error de medio punto de un negocio que está justo en ese cambio — no un fuzz.
+
+### La cura: por el validador, NO por el esquema
+
+`iva_pct` pasa de `isNum` a **`isInt` en `[0, 100]`**, en un validador nombrado
+(`validateIvaPct`) para que el porqué viva pegado a la regla y la tabla apunte a él (nada de un lambda
+paralelo que pueda divergir). El `422` **nombra el motivo** («integer… frozen in the integer column
+`Order.ivaRatePct`»): un admin que recibe un genérico reintenta `8.5` hasta rendirse.
+
+⛔ **Deliberadamente NO se tocó `Order.ivaRatePct`.** Volverla decimal es la cura obvia y es la que
+**no me toca**: es zona compartida (`prisma/schema`) y su tipo (`Int` vs escalado en enteros) está
+atado a D54, que el arquitecto se reservó explícitamente. Un `422` claro hoy es estrictamente mejor
+que un truncamiento mudo en una tasa de impuestos, y no prejuzga ese diseño.
+
+⭐ **Nada legítimo se pierde**: las tres tasas mexicanas vigentes —**0, 8 y 16**— son **enteras**. Si
+algún día hiciera falta una fraccionaria, el orden correcto es **primero la columna** (arquitecto) y
+**después** este rango; relajar solo el validador reabre el truncamiento tal cual, y así queda escrito
+en el docblock.
+
+### Candado y su mutación
+
+`test/settings.iva-pct-integer.spec.ts` (**13 tests**). Mutación sobre una **copia** del árbol
+(`validateIvaPct` relajado al `isNum` de hoy, mismo rango) ⇒ **5 rojos de 13**: los tres del validador
+puro y los dos de la puerta `PUT /admin/settings` (el `422` y el «no se escribe la fila»). Los otros
+ocho **pasan en los dos mundos a propósito** y están **etiquetados como tales** —contra-candados
+(0/8/16/100 siguen aceptándose: el arreglo no cierra de más), un **tripwire** que cae si
+`Order.ivaRatePct` deja de ser `Int`, y el test que **documenta el daño en centavos** (850 ≠ 800)— para
+que nadie los cuente como cobertura del bug.
+
+| Verificación | Resultado |
+|---|---|
+| Candado nuevo, con el arreglo | 🟢 **13/13** |
+| Mutación (validador relajado a `isNum`) | 🔴 **5/13 rojos**. Restaurado 🟢 |
+| `typecheck` + `eslint` de los ficheros tocados | 🟢 limpio |
+| Suite unitaria completa | 🟢 **257 suites / 4 133 tests** (antes 256 / 4 120) |
+| Integración contra **Postgres 16 real** | 🟢 **22 suites / 324 tests** |
+
+### ⚠️ Hallazgo colateral que NO se arregló aquí: `aportacion_pct` tiene la MISMA asimetría
+
+Barrido de todos los diales buscando «validador más laxo que la columna que los persiste». Solo hay
+**un segundo caso**, y es el mismo patrón exacto:
+
+- `aportacion_pct` se valida con `isNum(v) && 0 <= v <= 100` (decimales dentro).
+- `inventory.service.ts` lo usa como **fallback** cuando el alta no manda `acquisitionPct`
+  (`dto.acquisitionPct ?? getNumber(APORTACION_PCT)`) y lo persiste en
+  **`InventoryItem.acquisitionPct`, que es `Int?`**.
+- El camino del **DTO** sí está blindado (`@IsInt()`); **el del dial no**. Con el dial en `70.5`,
+  `computeAportacionCostCents` calcula el costo con `70.5` y la pieza archiva `70`.
+
+⛔ **No se tocó**: cae fuera del encargo y toca el módulo de inventario (otro work stream). Queda
+registrado en `docs/TECH_DEBT.md` y escalado en el resumen para que **el orquestador/arquitecto**
+decida si se cierra igual. **Tercer caso, menor y distinto:** `fx_buffer_pct` (validador `isNum`) cae
+en columnas `Decimal(6, 3)` — no trunca a entero, **redondea a la milésima**; la pérdida es por debajo
+de `0.001 %` de colchón y no cambia dinero al centavo. Se anota por completitud, no como defecto.
+
+Los demás diales que aterrizan en columnas enteras (todos los `*_cents`, los de días hábiles y los
+topes) **ya usan `isInt`**: no hay más casos.

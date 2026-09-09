@@ -6030,3 +6030,44 @@
   igual, sin `<a>`**: la maqueta no se descuadra y **la URL en texto de debajo se sigue emitiendo**, así
   que ML-5 (la ruta a la acción) no depende de esta guarda. Candado **N9** + mutación: quitar la
   allowlist deja **2 aserciones en rojo**.
+
+---
+
+### Asimetría validador↔columna en los diales de porcentaje — rama `claude/tcg-hunt-orchestration-ai2vma`, 2026-09-09 (dueño: **backend**, no bloqueante)
+
+Barrido hecho al cerrar el defecto de `iva_pct` (ver `docs/BACKEND_NOTES.md` §v1.63.4): se revisaron
+**todos** los `SETTING_VALIDATORS` contra el tipo de la columna donde su valor acaba persistido,
+buscando el patrón «el dial acepta lo que la columna no sabe representar».
+
+#### TD-IVA-1 · `iva_pct` aceptaba decimales y `Order.ivaRatePct` (`Int`) los truncaba — **CERRADA en este pase**
+- **Dueño:** backend. **Estado: CERRADA** (validador `isNum` → `isInt`, `validateIvaPct` +
+  `test/settings.iva-pct-integer.spec.ts`, mutación 5/13 rojos). Se anota solo como cabecera del
+  barrido; el detalle está en `BACKEND_NOTES.md`.
+
+#### ⚠️ TD-IVA-2 · `aportacion_pct` tiene la MISMA asimetría, y **NO se tocó** (Media, backend — módulo `inventory`)
+- **Lo que hay:** `SETTING_VALIDATORS[APORTACION_PCT]` es `isNum(v) && 0 <= v <= 100` — **decimales
+  dentro**. `inventory.service.ts` lo lee como **fallback** del alta
+  (`dto.acquisitionPct ?? getNumber(APORTACION_PCT)`) y lo persiste en **`InventoryItem.acquisitionPct`,
+  que es `Int?`**.
+- **Por qué es el mismo bug y no un parecido:** el camino del **DTO** sí exige entero (`@IsInt()` en
+  `inventory.dto.ts`); **el camino del dial no lo exige nadie**. Con `aportacion_pct = 70.5`,
+  `computeAportacionCostCents(referenceCents, 70.5)` calcula el costo **con el decimal** y la pieza
+  archiva **`70`**: el `acquisitionPct` guardado **no reproduce** el `acquisitionCostCents` guardado.
+  Es la misma clase de mentira que `iva_pct`, sobre el costo de adquisición en vez de sobre el IVA.
+- **Diferencia de gravedad:** afecta al **P&L y al costo histórico de la pieza**, no a un importe
+  cobrado a un cliente ni a un desglose fiscal. Por eso es Media y no Alta.
+- **⛔ Por qué NO se arregló en este pase:** el encargo era `iva_pct`, y esto toca el módulo
+  **`inventory`** — otro work stream. Corregirlo de paso sería exactamente el «un rol arregla el
+  código de otro frente» que `CLAUDE.md` prohíbe. **Queda escalado al orquestador/arquitecto**: la
+  cura es simétrica (mismo cambio `isNum` → `isInt` con su candado y su mutación) y es barata.
+
+#### TD-IVA-3 · `fx_buffer_pct` (`isNum`) cae en columnas `Decimal(6, 3)` (Baja/informativa, backend)
+- **No es el mismo defecto.** `Decimal(6, 3)` **redondea a la milésima**, no trunca a entero, y el
+  colchón admite fracciones **legítimamente** (es un porcentaje de ajuste, no una tasa que se declare
+  en una factura). La pérdida vive por debajo de `0.001` puntos de colchón y **no mueve dinero al
+  centavo**.
+- **Se registra por completitud del barrido**, para que la próxima revisión no vuelva a gastar el
+  tiempo en descartarlo. **No requiere acción.**
+
+**Resto de diales: limpios.** Todos los que aterrizan en columnas enteras (`*_cents`, días hábiles,
+topes de posición) ya validan con `isInt`.
