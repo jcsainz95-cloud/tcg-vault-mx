@@ -20921,6 +20921,27 @@ Riesgos técnicos:
 > backend en su mayoría implementado; **M7 ya tiene UI consumidora real** —`admin/m7/M7View.tsx`—, el resto de
 > módulos sigue con UI en `ModuleTodo` pendiente de consumir).
 
+- **✅ ABIERTA Y CERRADA EN EL MISMO PASE (v1.63.4) — `D-FX-6`: MI CANDADO NORMATIVO `FX-20` DESCRIBÍA LA CARRERA
+  `S-FX-1` AL REVÉS.** **Dueño del arreglo: yo** (es `API_CONTRACT §M2-F.6`, documento mío) ⇒ **corregido en el
+  acto**; ⛔ **backend NO tiene nada que hacer aquí: su implementación ya era la correcta.**
+  **Origen: `I-QA-7`, elevado por QA explícitamente como *análisis, no medición*** — y al verificarlo resultó
+  cierto contra **tres** fuentes independientes.
+  - **Qué decía mi contrato:** fixture `fx_rate_mode = "manual"`, puerta A hacia `{mode:"auto"}`, y la exigencia
+    de que **una de las dos** respuestas fuera `422`.
+  - **Por qué era falso, en las dos direcciones:** partiendo de `manual`, **(a)** el estado imposible es
+    **inalcanzable** (A escribe `auto`) y la puerta B **da `422` con candado y sin él** ⇒ **el candado sería
+    VACUO**; **(b)** si A commitea primero, el `null` es **legal** ⇒ **`[200, 200]` es correcto**, y mi norma lo
+    habría marcado en rojo. *Un candado que no puede ponerse rojo por el defecto, y sí por la conducta correcta,
+    está exactamente al revés.*
+  - **Las tres fuentes que lo confirman:** **(1)** `PENTEST_NOTES §S-FX-1`, la **medición** LIVE-DB: precondición
+    `auto` + `19`, y por escrito *«desde `manual` la carrera no aplica»* + *«`mode{manual}` + `settings{null}` es
+    la ÚNICA pareja que produce el estado imposible»*; **(2)** el razonamiento sobre I-FX4 y el pin de I-FX2;
+    **(3)** `backend/test/integration/fx-mode.e2e-spec.ts` (`estadoDelPoC()`), que implementa la dirección buena.
+  - ⚠️ **La lección, y es sobre mí:** tenía la medición del pentester delante y **escribí el experimento por
+    razonamiento**. Es **§0-B.3 regla 2 al revés**. Y el daño no era teórico: `§M2-F.6` es normativa, así que un
+    implementador futuro fiel al contrato habría escrito un candado inútil **creyendo que `S-FX-1` está cerrado**.
+    *Que el código estuviera bien fue suerte del proceso —backend siguió la medición, no mi texto—, no del texto.*
+
 - **🆕 NUEVA (v1.63.4) — `D-FX-4`: LA BANDA DE CORDURA DE LA TASA YA TIENE PISO EN EL CONTRATO, Y EL CÓDIGO SÓLO
   TIENE TECHO.** **Dueño del arreglo: backend** (`validateFxManualOverrideRate` en
   `backend/src/modules/settings/settings.constants.ts` **y** `parseBanxicoRate` en
