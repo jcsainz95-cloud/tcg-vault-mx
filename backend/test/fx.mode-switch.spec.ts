@@ -123,6 +123,14 @@ function harness(seed: SeedOpts = {}) {
    */
   const writes: { key: string; inTx: boolean }[] = [];
   const auditWrites: { action: unknown; inTx: boolean }[] = [];
+  /**
+   * ⭐⭐ v1.63.2b — **las LECTURAS también se anotan, con su handle.** Sin esto, el arnés medía por
+   * dónde se ESCRIBE y no por dónde se LEE: cambiar `prepareFxModePin(validated, tx)` por
+   * `this.prisma` —o sea, deshacer *la mitad que arregla*— dejaba los 83 verdes.
+   */
+  const reads: { fuente: 'configSetting' | 'fxRate'; key?: string; inTx: boolean }[] = [];
+  /** Ventana `[desde, hasta)` de lecturas de la ÚLTIMA transacción que tomó el candado del FX. */
+  const ventanaCandado: { desde: number | null; hasta: number | null } = { desde: null, hasta: null };
 
   /**
    * ⭐⭐ **El `pg_advisory_xact_lock`, emulado con la MISMA semántica que importa:** exclusión mutua
@@ -159,11 +167,18 @@ function harness(seed: SeedOpts = {}) {
       if (!tx.locked) {
         await acquireGate();
         tx.locked = true;
+        // Desde AQUÍ hasta el final de la transacción, toda lectura del estado del FX es una lectura
+        // «bajo el candado»: la ventana en la que la decisión de dinero se toma.
+        ventanaCandado.desde = reads.length;
+        ventanaCandado.hasta = null;
       }
       return 1;
     },
     configSetting: {
-      findUnique: async ({ where }: { where: { key: string } }) => settingRows.get(where.key) ?? null,
+      findUnique: async ({ where }: { where: { key: string } }) => {
+        reads.push({ fuente: 'configSetting', key: where.key, inTx });
+        return settingRows.get(where.key) ?? null;
+      },
       findMany: async () => [...settingRows.values()],
       upsert: async ({
         where,
@@ -201,6 +216,7 @@ function harness(seed: SeedOpts = {}) {
       // empatado, Postgres no promete orden: un candado que se apoyara en que «gana la primera»
       // estaría midiendo la suerte del motor, no la regla (I-FX5).
       findFirst: async (args?: { where?: { source?: string } }) => {
+        reads.push({ fuente: 'fxRate', inTx });
         const src = args?.where?.source;
         const rows = fxRates
           .map((r, i) => ({ r, i }))
@@ -273,7 +289,10 @@ function harness(seed: SeedOpts = {}) {
         }
         throw e;
       } finally {
-        if (tx.locked) releaseGate();
+        if (tx.locked) {
+          ventanaCandado.hasta = reads.length;
+          releaseGate();
+        }
       }
     },
   } as unknown as PrismaService;
@@ -299,6 +318,13 @@ function harness(seed: SeedOpts = {}) {
     writes,
     /** ⭐ Las entradas de bitácora, con la misma marca. */
     auditWrites,
+    /** ⭐⭐ Las lecturas, con su handle. */
+    reads,
+    /** ⭐⭐ Las lecturas hechas BAJO el candado del FX, en la última transacción que lo tomó. */
+    lecturasBajoCandado: () =>
+      ventanaCandado.desde == null
+        ? null
+        : reads.slice(ventanaCandado.desde, ventanaCandado.hasta ?? reads.length),
     /** ⭐ Lee la fila `ConfigSetting` A PELO (no por el DTO): la mutación con disfraz vive aquí. */
     rawSetting: (key: string) => (settingRows.has(key) ? settingRows.get(key)!.valueJson : undefined),
     settingExists: (key: string) => settingRows.has(key),
@@ -1435,5 +1461,78 @@ describe('FX-21 ⭐ — la tasa de Banxico se valida como la tecleada, y el pars
     spy.mockRestore();
     expect(res.outcome).toBe('failed');
     expect((await h.fx.getCurrent()).automatic.rate).toBe(18.2); // ⛔ jamás 195
+  });
+});
+
+// ── FX-22 ⭐⭐ — bajo el candado se lee POR EL MISMO HANDLE que escribe ───────────────────────────
+
+/**
+ * ⭐⭐ **El hueco que encontró el coordinador, y la explicación honesta de por qué existía.**
+ *
+ * FX-20 mide **el ORDEN** (leer *después* de tomar el candado) y lo mide bien: mover la lectura otra
+ * vez fuera de la transacción —dejando el candado puesto— **la pone roja**. Lo que no medía nadie es
+ * el **HANDLE**: cambiar `prepareFxModePin(validated, tx)` por `this.prisma` dejaba los 83 en verde.
+ *
+ * ### ⚠️ Y hay que decir por qué, porque no es un descuido del arnés
+ * En **Postgres READ COMMITTED** —el nivel por defecto, y el que usa `$transaction` si no se pide
+ * otro— una lectura por **otra conexión**, hecha **después** de adquirir el candado, ve **lo mismo**
+ * que una lectura por el `tx`: el estado commiteado en ese instante. **El arnés estaba en lo cierto al
+ * quedarse verde**: cambiar solo el handle, conservando el orden, *no* reabre S-FX-1 con este nivel de
+ * aislamiento. Lo que arregla es **cuándo** se lee; el handle es la otra mitad de la disciplina.
+ *
+ * ### Entonces, ¿por qué esto es un candado y no una manía?
+ * Porque el handle **sí** decide en dos casos que este código puede alcanzar sin avisar:
+ * 1. **Lecturas propias:** en cuanto una ruta lea el estado *después* de haber escrito algo en su
+ *    transacción, `this.prisma` **no verá su propia escritura** y validará contra un estado que ya no
+ *    existe ni fuera ni dentro. Hoy no pasa **por orden de las líneas**, que es una garantía frágil.
+ * 2. **Aislamiento:** si alguien pone `isolationLevel: 'Serializable'` en esa `$transaction` —una
+ *    línea, y suena a mejora—, con el handle de fuera la lectura y la escritura pasan a vivir en
+ *    **snapshots distintos**, y ahí sí se pierde la relación que el candado protege.
+ *
+ * ⇒ **Se mide lo que se puede medir sin mentir:** *bajo el candado, el estado del FX se lee por el
+ * mismo handle que lo escribe.* ⛔ **No** se ha falseado el arnés para que una lectura de fuera
+ * devuelva datos rancios: eso modelaría un Postgres que no existe (sería REPEATABLE READ) y mandaría
+ * al siguiente a perseguir un fallo que el motor no comete. *Un arnés que miente en la otra dirección
+ * cuesta lo mismo que uno que no mide.*
+ */
+describe('FX-22 ⭐⭐ — la lectura que decide va por el `tx` del candado, no por el cliente de fuera', () => {
+  it('`PUT /admin/settings { fxManualOverrideRate }`: TODA lectura bajo el candado es del `tx`', async () => {
+    const h = harness({
+      settings: { [MODE_KEY]: 'legacy', [SettingKey.FX_BUFFER_PCT]: 3 },
+      fxRates: [banxicoRow(18.2)],
+    });
+    await h.settingsCtrl.updateSettings({ fxManualOverrideRate: 21 }, 'admin-1', 'super_admin' as never);
+
+    const bajoCandado = h.lecturasBajoCandado();
+    expect(bajoCandado).not.toBeNull();
+    // Si no hay ninguna lectura en la ventana, el candado no está protegiendo ninguna decisión: sería
+    // un candado decorativo, y este test tiene que caer también en ese caso.
+    expect(bajoCandado?.length).toBeGreaterThanOrEqual(3); // modo + tasa + colchón (+ FxRate)
+    expect(bajoCandado?.filter((r) => !r.inTx)).toEqual([]);
+  });
+
+  it('`PUT /admin/fx/mode`: lo mismo por la otra puerta', async () => {
+    const h = harness({
+      settings: { [MODE_KEY]: 'manual', [RATE_KEY]: 19.0, [SettingKey.FX_BUFFER_PCT]: 3 },
+      fxRates: [banxicoRow(18.2)],
+    });
+    await h.fxCtrl.setMode({ mode: 'auto' }, 'admin-1', 'super_admin' as never);
+
+    const bajoCandado = h.lecturasBajoCandado();
+    expect(bajoCandado?.length).toBeGreaterThanOrEqual(3);
+    expect(bajoCandado?.filter((r) => !r.inTx)).toEqual([]);
+  });
+
+  it('CONTROL: una lectura pura (`GET /admin/fx`) NO toma el candado ni pretende ir por un `tx`', () => {
+    // La disciplina es de las ESCRITURAS. Serializar los `GET` sería pagar contención por costumbre.
+    const h = harness({
+      settings: { [MODE_KEY]: 'auto', [SettingKey.FX_BUFFER_PCT]: 3 },
+      fxRates: [banxicoRow(18.2)],
+    });
+    return h.fx.getCurrent().then(() => {
+      expect(h.lecturasBajoCandado()).toBeNull(); // nunca se abrió una ventana
+      expect(h.reads.length).toBeGreaterThan(0);
+      expect(h.reads.every((r) => !r.inTx)).toBe(true);
+    });
   });
 });

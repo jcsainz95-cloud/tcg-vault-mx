@@ -454,9 +454,13 @@ export class SettingsService implements OnModuleInit {
     // El colchón RESULTANTE (puede venir en el mismo `PUT`): sin él, la entrada de bitácora no
     // permite reconstruir el precio de aquel día (§M2-F.4).
     const bufferEntry = validated.find((v) => v.settingKey === SettingKey.FX_BUFFER_PCT);
-    const bufferBefore = Number(await this.get<number>(SettingKey.FX_BUFFER_PCT));
+    // ⚠️ v1.63.2b — **por el `tx`, como las otras dos.** Estas dos lecturas se me quedaron en
+    // `this.prisma` en el primer pase de S-FX-1, y **alimentan la proyección que se AUDITA** (el
+    // colchón es la mitad de «reconstruir el precio de aquel día»). Lo cazó FX-22, que es el candado
+    // que el coordinador pidió: *el arnés medía el orden, no el handle*.
+    const bufferBefore = Number(await this.get<number>(SettingKey.FX_BUFFER_PCT, tx));
     const bufferAfter = bufferEntry ? Number(bufferEntry.value) : bufferBefore;
-    const latestBanxico = await latestBanxicoFxRate(this.prisma);
+    const latestBanxico = await latestBanxicoFxRate(tx);
 
     const before = projectFxState({
       rawMode: rawModeBefore,

@@ -17737,3 +17737,49 @@ carrera contra el **advisory lock real** (repetida con cinco escalonados), `FxRa
 `Decimal(12,6)` emitido como número, el centinela `"legacy"` por `jsonb`, I-FX5 con el driver real, el
 rollback de verdad, la consulta de detección de entornos afectados y que el tablero y el panel nombren
 la misma fila. ⛔ **No corrido aquí** (sin Postgres).
+
+### 10. ⚠️ v1.63.2b — **el arnés medía el ORDEN y no el HANDLE, y por ahí se me coló un defecto**
+
+El coordinador verificó el pase y encontró que la mutación *«`prepareFxModePin(validated, tx)` ⇒
+`this.prisma`»* **dejaba los 83 candados en verde**. Tenía razón en el hueco. Lo que midió después
+mueve una parte del diagnóstico, y va con el dato:
+
+**(a) Lo que SÍ estaba medido, y se comprobó:** la mutación del **orden** —devolver la lectura y las
+precondiciones a **antes** de la transacción, dejando el candado puesto— **pone FX-20 en rojo** (2
+fallos, el invariante `manual`+`null` y la bitácora mintiendo). *La mitad que arregla —leer **después**
+del candado— sí tenía candado.*
+
+**(b) Lo que NO estaba medido:** el **handle** de esa lectura. Y aquí hay que ser preciso, porque la
+explicación de por qué el arnés se quedaba verde **no es que el arnés esté mal**: en **Postgres READ
+COMMITTED** —el nivel por defecto, y el que usa `$transaction` si no se pide otro— una lectura por otra
+conexión hecha **después** de adquirir el candado ve **el mismo estado commiteado** que una por el
+`tx`. Cambiar solo el handle, **conservando el orden**, no reabre S-FX-1 con ese nivel de aislamiento.
+
+**(c) ⛔ Por eso NO falseé el arnés como se me sugirió** (servir las lecturas de fuera desde una
+instantánea tomada al abrir la transacción): eso modela **REPEATABLE READ**, que no es lo que este
+sistema corre, y dejaría un candado que se pone rojo por un fallo **que el motor no comete**. *Un arnés
+que miente en la otra dirección cuesta lo mismo que uno que no mide.* En su lugar se mide lo que sí es
+cierto y sí importa: **bajo el candado, el estado del FX se lee por el mismo handle que lo escribe**
+(`FX-22`), instrumentando las **lecturas** con su handle igual que ya se instrumentaban las escrituras.
+Se justifica solo, y por dos caminos que este código alcanza sin avisar: **(1) lecturas propias** — en
+cuanto una ruta lea el estado *después* de escribir en su transacción, `this.prisma` **no ve su propia
+escritura**; hoy no pasa **por el orden de las líneas**, que es una garantía frágil; y **(2)
+aislamiento** — un `isolationLevel: 'Serializable'` (una línea, y suena a mejora) parte lectura y
+escritura en snapshots distintos.
+
+**(d) ⭐ Y el candado nuevo cazó un defecto REAL, mío, en el primer intento.** `prepareFxModePin`
+leía `fx_rate_mode` y `fx_manual_override_rate` por el `tx`… **pero `fx_buffer_pct` y la fila de
+Banxico seguían saliendo por `this.prisma`**: dos de las cuatro lecturas que alimentan **la proyección
+que se audita** (y el colchón es la mitad de «reconstruir el precio de aquel día», §M2-F.4). Estaban
+así porque una sustitución no aplicó y **ningún test lo notaba**. Corregido: las cuatro van por el
+`tx`.
+
+| Verificación | Resultado |
+|---|---|
+| Mutación **B** (handle: `tx` ⇒ `this.prisma`) contra **FX-22** | 🔴 **roja** (21 lecturas bajo el candado por el handle de fuera). Restaurada 🟢 |
+| Mutación **C** (orden: leer antes de la transacción, candado puesto) contra **FX-20** | 🔴 **roja**, 2 fallos. Restaurada 🟢 |
+| Suite completa tras el arreglo de (d) | **256 suites / 3 936 tests verdes** |
+
+⚠️ **Sigue en pie lo dicho en §7:** `test/integration/fx-mode.e2e-spec.ts` está **escrito y no
+corrido** (aquí no hay Postgres). El candado real de `pg_advisory_xact_lock` **solo lo puede afirmar
+QA con el stack levantado**; lo que la unitaria afirma es la semántica, no el motor.
