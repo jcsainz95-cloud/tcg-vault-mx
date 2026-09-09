@@ -4,6 +4,34 @@
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
 >
 > ---
+> **Rev v1.64(2) — DOS CORRECCIONES A v1.64, LAS DOS SOBRE DEFECTOS MÍOS** (2026-09-09, arquitecto. **⛔ No
+> rediseña nada: ni un endpoint, ni un DTO, ni la fórmula, ni un deploy. CERO DDL.** Base: **v1.64, vigente entera**.
+> Contrato en `API_CONTRACT.md` **v1.64(2)**.)
+>
+> **1. 🔴 MI COTA VIVÍA EN DOS DOCUMENTOS CON DOS CIFRAS DISTINTAS, Y LA DEL CONTRATO ERA LA MÁS FLOJA.**
+> `ARCHITECTURE` decía **«≤ 0.53 ¢/pieza»** (3 sitios) y `API_CONTRACT` **«≤ 1 ¢/pieza»** (2 sitios, **uno dentro
+> del candado `IVA-4`**). Es **§0-B.3 regla 8** en el peor sitio: **la cifra del contrato es la que backend
+> implementa como umbral**, y con 7 piezas admitía `≤ 7` donde la norma dice `≤ 4` ⇒ **el candado habría pasado en
+> verde una implementación que este documento declara rota.** ⛔ **No las promedié.** **Canon único, entero, sobre
+> la BASE** (§4.44.c.1-bis): **`n = 1` ⇒ CERO —IDENTIDAD demostrada, no cota— y `n ≥ 2` ⇒ `≤ ⌊(n+1)/2⌋`**.
+> ⭐ **Y con la demostración del product-owner incorporada** (§4.44.c.1-ter): `round(L×(1+t·r)) = L + round(L×t·r)`
+> porque sumar un entero conmuta con el redondeo, **y con `r = 16` NO EXISTE empate en `.5`** para ningún `t` ni
+> ningún `L` (`16·t·L ≡ 5000 (mod 10000)` exige **par = impar**) ⇒ **la convención de redondeo es indiferente**, y
+> **la desviación es EXCLUSIVAMENTE del agregado**. *Eso pasa la cota de «cero contraejemplos medidos» a
+> «imposible», y refuerza mi recomendación sobre `D-IVA-7`: el criterio 185 se enuncia sobre una pieza, y sobre una
+> pieza no se desvía nada.* ⚠️ **Es propiedad de `r = 16`, no de la fórmula: si cambia la tasa, se reverifica.**
+>
+> **2. 🔴 HABÍA UN TERCER SITIO CON EL DEFECTO DE `D-IVA-7` Y NO LO VI — el criterio 191 (pregunta 67).** El
+> `taxBase` agregado puede reportar **un centavo menos de ingreso neto** que `Σ L_i` (dos piezas de `L=103` ⇒ **205
+> vs 206**). **Lo feo no era el centavo: era que MI EJEMPLO ESCRITO ERA DE UNA PIEZA**, donde esto es **exacto por
+> demostración** ⇒ **QA nunca lo habría visto fallar con el caso que el propio documento trae.** *Un defecto
+> invisible por construcción del ejemplo que lo ilustra es peor que el defecto.* **⇒ DECIDO que `R2` NO CAMBIA**
+> (§4.44.c.2): `netRevenueCents + ivaCents ≡ subtotalCents` **es una identidad y vale más que el centavo** —un
+> informe cuyo ingreso más su impuesto no da lo que se cobró **no cuadra consigo mismo**, que es el defecto que
+> `TD-IVA-2` describió con esas palabras—, y **`ivaCents` es fiscal y no se toca para que cuadre un informe de
+> gestión**. **Lo que se arregla es EL EJEMPLO:** `IVA-5` gana un **caso multi-línea obligatorio**.
+>
+> ---
 > **Rev v1.64 — EL PRECIO EXHIBIDO LLEVA EL IVA DENTRO, CON UN DIAL DE TRASLACIÓN QUE NACE NEUTRO**
 > (2026-09-09, arquitecto. Base: **v1.63.4, vigente entera** — este pase **no toca el FX**: es otro frente.
 > Origen: **`PROJECT.md §Q` / D54, APROBADA por el dueño el 2026-09-09**, con las preguntas **52–55** contestadas.
@@ -57,8 +85,10 @@
 > **6. ⭐ LO QUE ENCONTRÉ Y NO ACOMODO — `§9 · D-IVA-7`.** El criterio **185** (*«idéntico al centavo»*) y el
 > criterio **194** (*«Σ líneas == subtotal»*) **no pueden ser los dos exactos en carritos multi-línea**, porque
 > `Σ round ≠ round Σ`. Contraejemplo mínimo calculado con los diales reales: **dos piezas de `L=103` ⇒ hoy 613
-> centavos, con §4.44 612**. **Un centavo.** Cota: **≤ 0.53 centavos por pieza**. No se desvían el caso de una sola
-> pieza —que es el que 185 enuncia—, el margen por unidad, ni el envío. **Enmendar un criterio de `PROJECT.md` no es
+> centavos, con §4.44 612**. **Un centavo.** **Canon único de la cota (v1.64(2)): `n = 1` ⇒ CERO, y es una
+> IDENTIDAD demostrada, no una cota; `n ≥ 2` ⇒ `≤ ⌊(n+1)/2⌋` centavos sobre la BASE** (§4.44.c.1-bis/ter).
+> **La desviación es exclusivamente del AGREGADO**: no se desvían el caso de una sola pieza —que es el que 185
+> enuncia—, el precio ni el margen por unidad, ni el envío. **Enmendar un criterio de `PROJECT.md` no es
 > mío**: va al product-owner con mi recomendación escrita, y **⛔ no bloquea a nadie** (la fórmula es la misma se
 > responda lo que se responda; solo cambia **cómo verifica QA el 185**). Las otras cuatro divergencias: el comentario
 > de `settings.constants.ts` que aún llama a D54 *«borrador NO vigente»* (`D-IVA-4`), el ingreso de envío de
@@ -20391,17 +20421,114 @@ cliente vea un precio por pieza y (b) la suma de lo que ve sea el subtotal (crit
 *«un redondeo por línea que se acumule y descuadre el total es un fallo»*). Cualquier variante que redondee sobre
 el agregado descuadraría el recibo.
 
-- **Cota, medida y no supuesta:** la desviación de la base es `≤ 0.5` centavos **por pieza**, y la del total
-  `≤ 0.53` centavos por pieza (`1/(1−0.04176)`). Un carrito de 7 piezas se desvía **como mucho 4 centavos**, en
-  cualquiera de las dos direcciones.
-- **Qué NO se desvía ni un centavo:** el caso de una sola pieza (que es el que el criterio 185 enuncia: base
-  MX$100.00 ⇒ ficha MX$116.00 ⇒ cobro MX$124.69), **el margen por unidad**, `Order.ivaCents` respecto de
-  `Order.subtotalCents`, y el envío.
+##### 4.44.c.1-bis ⭐ LA COTA — **UN SOLO CANON**, entero, y con el caso `n = 1` DEMOSTRADO en cero
+
+> ⛔⛔ **v1.64(2) — LAS DOS CIFRAS QUE PUBLIQUÉ EN v1.64 QUEDAN DEROGADAS. ERAN MÍAS Y ERAN DOS PARA UNA SOLA COSA.**
+> `ARCHITECTURE` decía **«≤ 0.53 ¢/pieza»** (3 sitios) y `API_CONTRACT` decía **«≤ 1 centavo por pieza»** (2 sitios,
+> **uno de ellos dentro del candado `IVA-4`**). Es **§0-B.3 regla 8** en el peor sitio posible: **la cifra del
+> contrato es la que backend implementa como umbral y la de arquitectura la que se cita al razonar**, y encima
+> **la del contrato era la MÁS FLOJA** (para 7 piezas: `≤ 7` contra `≤ 4`) ⇒ **el candado habría pasado en verde
+> una implementación que este documento declara rota**. *Un umbral que difiere del que promete su propia norma no
+> es un umbral: es un permiso.* **⛔ No las promedio: las sustituyo por un canon único.** Lo levantó el
+> product-owner al enmendar los criterios y el coordinador lo verificó; **el defecto es mío**.
+
+**CANON ÚNICO — se enuncia sobre la BASE (`subtotalCents`), en centavos ENTEROS, y `n` = número de piezas:**
+
+```
+n = 1   ⇒  la desviación es CERO. Y no es una cota: es una IDENTIDAD (demostrada abajo).
+n ≥ 2   ⇒  |S_nuevo − S_viejo|  ≤  ⌊(n+1)/2⌋      centavos
+```
+
+*(n=2 ⇒ `≤ 1` — que es exactamente el contraejemplo de arriba. n=7 ⇒ `≤ 4`.)*
+
+- **Por qué el canon se enuncia sobre la BASE y no sobre el total cobrado.** Es donde la aritmética es limpia y
+  entera. Enunciarlo sobre el total arrastra el `ceil` del gross-up —que **no tiene nada que ver con la doctrina de
+  redondeo**— y obliga a un umbral con decimales (de ahí salió el `0.53`). ⇒ **el candado `IVA-4(c)` mide en la
+  base**, y para el total asierta algo **más fuerte que una cota**: la **implicación**
+  `totalCents == grossUpTotal(subtotalCents + shippingFeeCents)` en los dos lados ⇒ **toda la desviación del total
+  viene de la base y de nada más**.
+
+##### 4.44.c.1-ter ⭐⭐ POR QUÉ `n = 1` ES CERO EXACTO — y no *«cero contraejemplos medidos»*
+
+*Esto lo demostró el **product-owner** sin ejecutar código y el coordinador lo confirmó por fuerza bruta
+(`L = 1..99 999`, **0 contraejemplos**). Lo incorporo porque **convierte una medición en una imposibilidad**, y
+porque es justo el caso que el criterio **185** enuncia.*
+
+1. **Sumar un entero conmuta con el redondeo:** `round(L + x) = L + round(x)` para `L` entero. Con `x = t·r·L`:
+   **`round(L × (1+t·r)) = L + round(L × t·r)`** ⇒ la expresión nueva y la vieja **son la misma función** cuando
+   hay un solo sumando. **No hay nada que acotar.**
+2. **⭐ Y con `r = 16` NUNCA hay empate en `.5`, para NINGUNA posición del dial y NINGÚN `L`.** Un empate exigiría
+   `16·t·L ≡ 5000 (mod 10000)`, o sea `2·t·L = 625·(1 + 2m)`: **el lado izquierdo es par y el derecho impar** ⇒
+   **no tiene solución entera**. ⇒ **la convención de redondeo (half-up de `Math.round`, half-even, half-away) es
+   INDIFERENTE** en toda esta fórmula. *Eso elimina de raíz la clase de defecto más silenciosa que hay en dinero:
+   la que solo aparece en el empate y cambia con el lenguaje.*
+3. ⚠️ **Es propiedad de `r = 16`, NO de la fórmula.** Si algún día cambia la tasa del IVA, **el punto 2 se
+   reverifica** — y si con la tasa nueva hubiera empates, habría que fijar la convención de redondeo por escrito.
+   Anotado también en `§4.44.m`.
+
+⇒ **Consecuencia que reordena `D-IVA-7`: la desviación es un fenómeno EXCLUSIVAMENTE del AGREGADO.** El precio por
+unidad, el margen por unidad y el caso de una pieza son **exactos por demostración**. Eso **refuerza** mi
+recomendación al product-owner: el criterio **185** se enuncia sobre una pieza, y **sobre una pieza no se desvía
+nada**.
+
+- **Qué NO se desvía ni un centavo, ahora con su razón al lado:** el caso de **una sola pieza** (identidad, punto 1),
+  **el precio y el margen por unidad** (idem), **`taxBase + iva ≡ subtotal`** (por construcción, R2/R3), y **el
+  envío** (`round(17500×1.16) = 20300 = 17500 + 2800`, exacto).
 - **⚠️ Esto es del product-owner, no mío.** El criterio **185** dice *«idéntico al centavo»* y **enmendar un
   criterio de `PROJECT.md` no es competencia del arquitecto**. Lo enruto como divergencia **`§9 · D-IVA-7`**, con
   mi recomendación escrita ahí. **⛔ No bloquea a backend**: la fórmula es la misma se responda lo que se responda;
   lo único que depende de la respuesta es **cómo verifica QA el criterio 185** (pieza única y margen, o carrito
   completo). El candado `IVA-4` mide y **declara** la desviación en vez de taparla.
+
+##### 4.44.c.2 ⭐⭐ EL TERCER SITIO — el criterio 191, y **decido que R2 NO CAMBIA** *(pregunta 67)*
+
+> **Lo encontró el product-owner, el coordinador lo verificó, y yo no lo había visto. La parte fea no es el
+> centavo: es que MI EJEMPLO ESCRITO ERA DE UNA PIEZA, y sobre una pieza esto es exacto por demostración
+> (§4.44.c.1-ter) ⇒ QA nunca lo habría visto fallar con el caso que el propio documento trae.** *Un defecto
+> invisible por construcción del ejemplo que lo ilustra es peor que el defecto.* **Se arregla el ejemplo.**
+
+**El hecho, con el mismo carrito de siempre — dos piezas de `L = 103`:**
+
+```
+G = 238   ⇒   taxBase = round(238 / 1.16) = round(205.17) = 205
+Σ L_i     = 206
+⇒ el P&L reporta UN CENTAVO MENOS de ingreso neto del que el negocio puso de precio de lista
+```
+
+**No es dinero cobrado de más ni de menos: es la cifra de un informe interno.** Y aun así hay que decidirla.
+
+**⇒ DECISIÓN: `R2` se queda EXACTAMENTE como está — `taxBase = round(G/(1+r))` sobre el agregado.** Y la razón no
+es comodidad:
+
+1. **Hay DOS cantidades defendibles y no son la misma**, y confundirlas era el error de fondo: **`T1 = Σ L_i`**
+   (*«el margen que el negocio fijó»*) y **`T2 = round(S/(1+r))`** (*«la base gravable de lo que de verdad se
+   cobró»*). `T1 ≠ T2` en agregado, y **ninguna técnica de redondeo las reconcilia**: no es un problema de cómo se
+   redondea, es que **son dos preguntas distintas**.
+2. **⭐ El invariante que manda, y vale más que el centavo:**
+   ```
+   netRevenueCents + ivaCents  ≡  subtotalCents        (EXACTO, por definición)
+   ```
+   Con `T2` esto es **una identidad**. Con `T1` **se rompe**: el P&L diría que ingresó `206` mientras el desglose
+   fiscal de la **misma orden** dice `238 − 32`. **Un informe financiero cuyo ingreso más su impuesto no da lo que
+   se cobró es un informe que no cuadra consigo mismo** — que es, literalmente, el defecto que `TD-IVA-2` describió
+   con esas palabras (*«la fila se contradice consigo misma»*). **Prefiero un centavo de desviación contra el
+   precio de lista antes que un reporte que no reconcilia.**
+3. **`ivaCents` no puede seguir a `T1` de todos modos.** Es **fiscal** y es **la única fuente** del desglose de la
+   factura manual (criterio **192**, hecho 10): tiene que ser el IVA de **lo que se cobró**, y el CSV tiene que
+   cuadrar contra `subtotalCents`. Fijar `T1` obligaría a `ivaCents = S − Σ L_i`, que **no es la base gravable de
+   `S`**. ⛔ **No se toca un número fiscal para que cuadre un informe de gestión.**
+4. **La cota es la MISMA que la de `§4.44.c.1-bis`** —`n=1` ⇒ **cero exacto** (por eso los dos ejemplos del
+   criterio 191, `11600→10000` y `10000→8621`, **son exactos**); `n≥2` ⇒ `≤ ⌊(n+1)/2⌋`—, así que **no hay una
+   segunda cota que mantener**. *Un solo canon para las dos desviaciones: eso era medio problema del punto 1.*
+
+**Lo que SÍ cambia, y es lo que pedía el hallazgo: EL EJEMPLO.** El criterio 191 y el candado **`IVA-5`** pasan a
+llevar **un caso multi-línea obligatorio**, para que la desviación **sea visible y esté asertada** en vez de
+esconderse detrás de un carrito de una pieza. Ver `API_CONTRACT §M10-IVA.5`, `IVA-5(c)`.
+
+**⇒ Respuesta a la pregunta 67, para el product-owner:** la desviación **se acepta y queda declarada** —con su
+cota, con su razón y con un candado que la mide—, **igual que `D-IVA-7`**, y **`R2` no se toca**. Si el
+product-owner prefiere `T1`, **es una enmienda al criterio 191 y rompe el invariante de reconciliación del punto 2**:
+eso sí habría que decidirlo arriba, y lo diría con estas palabras.
 
 #### 4.44.d ⚠️⚠️ LA LÍNEA DE MAYOR RIESGO DE TODO EL CAMBIO: `G = S + E`, **no** `S + E + iva`
 
@@ -20667,6 +20794,8 @@ reverificar, sin releer el pase entero.*
 | **62** valuaciones (portafolio, valor de mercado, PSA) | **No cambian**: son valuaciones, no precios que alguien pague | §4.44.i (últimas dos viñetas) |
 | **63/64** *(superficies de menor alcance)* | Siguen la regla general de §4.44.i | Solo §4.44.i |
 | **65** IVA sobre comisión embebida | **No aplica** (la comisión está fuera) | Nada de este pase. Reviviría con el escenario B de `§Q.4` |
+| **67** *(NUEVA)* el `taxBase` agregado reporta `≤ ⌊(n+1)/2⌋` ¢ menos que `Σ L_i` en el P&L | **Se acepta y queda DECLARADA**, porque `netRevenue + iva ≡ subtotal` vale más y `ivaCents` es fiscal. **`R2` no cambia** | **`§4.44.c.2`** y el candado `IVA-5(c)`. Si el product-owner prefiere `T1 = Σ L_i`, **es una enmienda al criterio 191** y rompe el invariante de reconciliación |
+| ⚠️ **NO es pregunta — es una PROPIEDAD DE `r = 16` que caduca si cambia la tasa** | Con `r = 16` **no existe empate en `.5`** para ningún `t` ni ningún `L` ⇒ **la convención de redondeo es indiferente** | **`§4.44.c.1-ter` punto 2.** Con otra tasa habría que **reverificarlo y, si hay empates, fijar la convención de redondeo por escrito** |
 
 #### 4.44.n Candados
 
@@ -21464,10 +21593,25 @@ Riesgos técnicos:
     `Σ round(L×1.16)` **≠** `round(Σ L ×1.16)`, y no hay fórmula que evite las dos a la vez.
   - **Por qué no se puede «elegir la otra»:** redondear sobre el agregado descuadra el recibo del cliente, y el
     criterio **194** es absoluto (*«un redondeo por línea que se acumule y descuadre el total es un fallo»*).
-  - **Cota medida:** `≤ 0.53` centavos **por pieza** en el total; **≤ 4 centavos** en el carrito de 7 piezas del
-    propio criterio 194. **En las dos direcciones.**
+  - **Cota — CANON ÚNICO (v1.64(2), §4.44.c.1-bis), sobre la BASE y en centavos enteros:** **`n = 1` ⇒ CERO**
+    (identidad **demostrada**, §4.44.c.1-ter, no una cota); **`n ≥ 2` ⇒ `≤ ⌊(n+1)/2⌋`** ⇒ **≤ 4 centavos** en el
+    carrito de 7 piezas del propio criterio 194. **En las dos direcciones.**
+    ⛔ **Las cifras `0.53 ¢/pieza` (este documento) y `1 ¢/pieza` (el contrato) quedan DEROGADAS: eran mías y eran
+    dos para una sola cosa, y la del contrato —la que backend implementa como umbral— era la MÁS FLOJA.**
+  - **⭐ La desviación es EXCLUSIVAMENTE del AGREGADO.** El precio por unidad, el margen por unidad y el caso de una
+    pieza son **exactos por demostración**: `round(L×(1+t·r)) = L + round(L×t·r)` (sumar un entero conmuta con el
+    redondeo) y **con `r = 16` no existe empate en `.5` para ningún `t` ni ningún `L`** (`16·t·L ≡ 5000 (mod 10000)`
+    exige par = impar). *Esto refuerza la recomendación: el criterio 185 se enuncia sobre una pieza, y sobre una
+    pieza no se desvía nada.*
   - **Qué NO se desvía:** el caso de **una sola pieza** —que es el que el criterio 185 **enuncia** (MX$100.00 →
-    MX$116.00 → MX$124.69)—, **el margen por unidad**, **el envío**, y la identidad `taxBase + iva ≡ subtotal`.
+    MX$116.00 → MX$124.69)—, **el precio y el margen por unidad**, **el envío**, y la identidad
+    `taxBase + iva ≡ subtotal`.
+  - ⭐ **TERCER SITIO, hallado por el product-owner tras mi pase (pregunta 67): el criterio 191.** El `taxBase`
+    agregado puede reportar **un centavo menos de ingreso neto** que `Σ L_i` (dos piezas de `L=103` ⇒ `205` vs
+    `206`). **Decidido en `§4.44.c.2`: `R2` NO cambia** —porque `netRevenue + iva ≡ subtotal` vale más que el
+    centavo, y `ivaCents` es fiscal—, **y lo que se arregla es el EJEMPLO**: `IVA-5` gana un caso multi-línea
+    obligatorio. *Mi ejemplo era de una pieza, donde esto es exacto por demostración: QA nunca lo habría visto
+    fallar.*
   - **Mi recomendación, para que el product-owner decida sobre algo concreto:** que el criterio **185** se verifique
     **por pieza y por margen** (que es lo que el dueño realmente decidió: *«el margen sigue en MX$100.00»*), y que
     la desviación de agregado quede **declarada y acotada** por el candado **`IVA-4`** en vez de negada. **⛔ No la
