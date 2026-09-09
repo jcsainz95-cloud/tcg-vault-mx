@@ -7809,3 +7809,199 @@ protege producción.
    es la prueba que falta, y por eso §40.8 termina con dos comprobaciones obligatorias.
 3. **Cuánto almacenamiento libera borrar los deployments viejos.** No tengo acceso al panel; el
    ~75% de 10 GB es el dato que dio el dueño.
+
+---
+
+## 41. `npm audit` por calendario y el gate rojo de `backend/` — S-PROC-1 y S-DEP-1 (2026-09-09, cierre de release)
+
+Seguridad aprobó el release **con condiciones**. Dos son de devops y están tratadas aquí:
+
+- **S-DEP-1** — el gate propio del repo estaba en **rojo** sobre el candidato (`backend/`: 4 moderadas + 2 **altas**).
+- **S-PROC-1** — la lección de proceso del hallazgo anterior (*«`npm audit` se verifica por delta de
+  código, hay que verificarlo por calendario»*) **no había quedado enrutada**: el cron semanal era
+  solo DAST.
+
+### 41.1 La medición de S-DEP-1 (antes de decidir nada)
+
+`npm audit --omit=dev` en `backend/` — **6 vulnerabilidades: 4 moderadas, 2 altas**, idéntico a lo
+que reportó seguridad:
+
+| Paquete | Sev | Rango vulnerable | Directo | Fix que ofrece npm |
+|---|---|---|---|---|
+| `@nestjs/platform-express` | **high** | `*` | sí | `12.0.1` — **semver MAJOR** |
+| `multer` | **high** | `<=2.2.0` | no | vía `@nestjs/platform-express@12.0.1` — **MAJOR** |
+| `@nestjs/core` | moderate | `<=11.1.17` | sí | `12.0.1` — **MAJOR** |
+| `qs` | moderate | `2.2.5 - 6.15.3` | no | vía platform-express — **MAJOR** |
+| `express` | moderate | `4.22.2` | no | vía platform-express — **MAJOR** |
+| `body-parser` | moderate | `1.20.5 - 1.20.6` | no | no-major |
+
+Y el gate del repo, en rojo (`exit=1`):
+
+```
+✗ backend/: vulnerabilidades >= high detectadas.
+✓ frontend/: sin vulnerabilidades >= high.
+✗ npm audit encontró vulnerabilidades que bloquean el gate.
+```
+
+`frontend/` en **0**: el bump del pase anterior aguantó.
+
+### 41.2 ¿Es alcanzable el vector de `multer`? **No.** (verificado, no asumido)
+
+Las 4 advisories de `multer` son DoS/bypass **en el parseo de multipart**. Para que se ejecute una
+sola línea de multer, Nest tiene que registrar un `FileInterceptor`. Comprobado en `backend/`:
+
+- `FileInterceptor` / `FilesInterceptor` / `FileFieldsInterceptor` / `AnyFilesInterceptor` /
+  `@UploadedFile` / `@UploadedFiles` / `MulterModule` / `import 'multer'` → **cero coincidencias** en `src/`.
+- Sin interceptores globales (`APP_INTERCEPTOR` / `useGlobalInterceptors`): **ninguno**.
+- `main.ts` solo registra `helmet()` y `json()` (más el `json({verify})` del webhook de Stripe para el
+  `rawBody`). **Ningún parser multipart.**
+- Las subidas van por **URL prefirmada**: `POST /uploads/presign` devuelve la firma y el cliente hace
+  `PUT` directo a R2. El binario **nunca** pasa por el backend.
+
+⚠️ **Trampa documentada:** `grep -r multipart backend/` **sí** devuelve resultados
+(`master-set-multipart`, `catalog.multipart.spec.ts`, `master-set.multipart.spec.ts`). Es el concepto
+de dominio *"master set repartido en varias partes"*, **no** HTTP multipart. Quien repita esta
+verificación en el futuro no debe contarlos como uso de multer.
+
+**Conclusión:** vector **no alcanzable**. Se confirma la hipótesis de seguridad.
+
+### 41.3 La decisión: **(a) actualizar**, y no hizo falta ni tocar `package.json`
+
+El dato que cambió la decisión: `multer` **no es dependencia directa** — ya está en `overrides` de
+`backend/package.json`, pinneado a `^2.2.0`. Y el registro publica **`multer@2.3.0`**, que **ya cae
+dentro de ese `^2.2.0`**. Lo mismo con `qs@6.16.0` (override `^6.15.3`) y `body-parser@1.20.8`
+(override `^1.20.6`). **El `package.json` ya permitía las versiones sanas; lo que estaba viejo era el
+lockfile.**
+
+Verificado sobre una copia en scratchpad (sin tocar `backend/`), con `--package-lock-only`:
+
+| Variante | `package.json` | Resultado `--omit=dev` | Gate |
+|---|---|---|---|
+| Hoy | — | 4 mod + **2 high** | `exit=1` ❌ |
+| `npm update multer` | **sin cambios** | 5 mod + **0 high** | `exit=0` ✅ |
+| `npm update multer qs body-parser` | **sin cambios** | 2 mod + **0 high** | `exit=0` ✅ |
+
+**Recomendado a backend: la variante mínima (`npm update multer`).** Deja el gate en verde tocando
+únicamente un paquete que **no se ejecuta en ninguna ruta** (§41.2) — riesgo funcional literalmente
+nulo, que es lo que se quiere en congelación de release. `qs`/`body-parser` sí están en el camino
+caliente de cada request (query string y cuerpo JSON): son moderadas, **no bloquean el gate**, y
+subirlas exige corrida de tests. Van fuera del release.
+
+**Por qué se descarta (b), registrar la excepción en `TECH_DEBT.md`:** la excepción se justifica
+cuando el arreglo no existe o cuesta más que el riesgo. Aquí el arreglo es un `npm update` de un
+paquete muerto, dentro de rangos que `package.json` **ya autoriza**, sin cambio de API y sin major.
+Registrar deuda por algo que se cierra con un comando es convertir el registro de deuda en un
+basurero: la próxima vez que alguien lea esa ficha no sabrá si es "imposible" o "nadie lo intentó".
+La excepción se reserva para las **2 moderadas de `@nestjs/core`/`platform-express`** (GHSA-36xv-jgw5-4q75),
+cuyo único fix **sí** es Nest 12 (major) — esas no bloquean el gate y no se tocan en este release.
+
+**Y lo que no se hizo: silenciar el gate.** No se bajó `AUDIT_LEVEL`, no se añadió `continue-on-error`
+al job de `npm audit` del PR, no se metió nada en `.trivyignore`. El umbral del gate por PR sigue
+siendo `high` y sigue siendo required check.
+
+### 41.4 Lo que le toca a **backend** (devops no edita `backend/package.json`)
+
+```bash
+cd backend
+npm update multer          # -> multer 2.3.0; NO modifica package.json, solo package-lock.json
+npm audit --omit=dev       # esperado: 5 moderate, 0 high
+npm test                   # sanidad; multer no está en ninguna ruta, no debería moverse nada
+```
+
+Commitear **solo** `backend/package-lock.json`. Si `package.json` cambia, algo salió mal: parar.
+
+### 41.5 S-PROC-1 — `npm audit` semanal en `security-scheduled.yml`
+
+**El diagnóstico:** `npm audit` corría **únicamente** en `security-sast.yml`, que dispara por
+`push`/`pull_request`. Es un chequeo **por delta de código**. Pero una dependencia no se vuelve
+vulnerable cuando editamos código, sino cuando **se publica el advisory** — evento externo, en el
+calendario de otros. Con solo el gate por PR, un repo en congelación de release (el momento de
+máximo riesgo) **no dispara nada**. S-DEP-1 fue exactamente ese caso, y lo detectó una persona a
+mano, no el pipeline.
+
+**Lo hecho:** nuevo job `deps-audit` en `.github/workflows/security-scheduled.yml`, mismo cron
+semanal (lunes 06:00 UTC) + `workflow_dispatch`. El workflow pasa a llamarse
+**"Security Scheduled (deps audit + DAST)"**.
+
+A diferencia del job DAST (plantilla hasta que exista `STAGING_BASE_URL`), **`deps-audit` está ACTIVO
+ya**: no necesita secrets ni staging. Y **no corre `npm ci` ni ningún build** — `npm audit` resuelve
+desde el lockfile, así que no instala nada ni ensucia el árbol (importante: un `next build` con
+`E2E_MOCK_DIST_DIR` no-default reescribe `frontend/tsconfig.json`).
+
+El umbral **no se redefine en el workflow**: reutiliza `security/scripts/audit-npm.sh`, el mismo
+script del gate por PR. Una sola verdad para los dos; si se cambia el umbral, se mueven juntos.
+
+### 41.6 ¿Bloquea o solo avisa? **Se pone en ROJO** — y por qué
+
+- **Un cron no puede bloquear nada.** No hay PR esperando ni deploy colgando de él, y al ser
+  `schedule`/`workflow_dispatch` **no puede** ser required status check. El coste de un rojo aquí es
+  **cero**: no frena a nadie. La objeción *"un cron que rompe el build es ruido"* no aplica — no hay
+  build que romper.
+- **Un `::warning::` en un run verde es invisible.** Nadie abre un run que salió bien. Eso sería
+  repetir S-PROC-1 con otra cara: un gate que técnicamente corre y que nadie lee.
+- **El rojo es lo único que GitHub notifica solo:** los fallos de workflows programados generan aviso.
+
+### 41.7 **Quién mira el resultado** (la pregunta que faltó la vez pasada)
+
+Un rojo no tiene dueño ni historial. Tres capas, de menos a más accionable:
+
+1. **Portada del run** — tabla markdown en `$GITHUB_STEP_SUMMARY` con el conteo por app. Se lee
+   **sin abrir el log**.
+2. **Artefacto** `npm-audit-scheduled` (90 días) — `audit-summary.md` + el `--json` crudo por app,
+   descargable para **seguridad**.
+3. **Issue de GitHub** — **esta es la que asigna dueño.** Ante high/critical el job abre un issue con
+   label `security`, título fijo `[deps] npm audit semanal: vulnerabilidades high/critical en runtime`.
+   Es **idempotente**: si ya hay uno abierto con ese título, **comenta** en vez de crear otro (no
+   inunda el repo cada lunes). El cuerpo lleva la tabla, el link al run, el commit auditado, el rol
+   dueño y las dos salidas válidas.
+
+**Ruta de escalación:** el issue lo tría **seguridad**; la corrección la ejecuta el rol dueño del
+`package.json` afectado (**backend** o **frontend**) — devops **no** edita esos archivos, solo
+mantiene el gate. El issue se cierra **solo** cuando `./security/scripts/audit-npm.sh` pasa en verde.
+Si el paso del issue falla (p. ej. Issues deshabilitado en el repo) es `continue-on-error`: **no tapa
+el rojo**, que sigue siendo la señal de último recurso.
+
+### 41.8 Evidencia — las dos corridas
+
+**Sucio** (estado real del repo hoy, `exit=1`):
+
+```
+| App         | Crit | High | Mod | Low | Estado                    |
+| `backend/`  |    0 |    2 |   4 |   0 | ❌ **bloquea el gate**    |
+| `frontend/` |    0 |    0 |   0 |   0 | ✅ sin hallazgos >= high  |
+```
+
+**Limpio** (mismo script, lockfile refrescado, `exit=0`):
+
+```
+| App         | Crit | High | Mod | Low | Estado                    |
+| `backend/`  |    0 |    0 |   2 |   0 | ✅ sin hallazgos >= high  |
+| `frontend/` |    0 |    0 |   0 |   0 | ✅ sin hallazgos >= high  |
+```
+
+Probadas además las dos ramas del paso de issue (crear la primera semana / comentar la segunda) y la
+sintaxis de los cuatro bloques `run:` (`bash -n`). Sin cambios en `backend/` ni en `frontend/`.
+
+### 41.9 Cómo se revierte
+
+- **Quitar el `npm audit` semanal** (deja S-PROC-1 abierto otra vez): borrar el job `deps-audit` de
+  `.github/workflows/security-scheduled.yml`. El job `scheduled-dast` es independiente y no se entera.
+- **Dejar el cron en modo aviso** (sin rojo, sin issue): borrar los pasos *"Abrir o actualizar issue"*
+  y *"Marcar el run en rojo si el gate falló"*. El resumen y el artefacto siguen. **No recomendado**:
+  es exactamente el modo invisible de §41.6.
+- **Revertir los cambios de `audit-npm.sh`:** `git checkout <sha-anterior> -- security/scripts/audit-npm.sh`.
+  Con `AUDIT_SUMMARY_FILE`/`AUDIT_REPORT_DIR` sin definir el script se comporta **igual que antes**
+  (mismo exit code, sin ficheros sueltos) — verificado; el gate por PR no depende de lo nuevo.
+- **Revertir el `npm update multer`** (lo hace backend): `git checkout HEAD~1 -- backend/package-lock.json && npm ci`.
+
+### 41.10 Lo que NO verifiqué
+
+1. **La corrida real en GitHub Actions.** No hay egress a la API de Actions desde esta sesión. Lo
+   demostrado es el **script y la lógica de los pasos**, ejecutados en local (§41.8); el `gh` de la
+   creación del issue se ejercitó con un stub, porque `gh` no está instalado aquí (sí en los runners).
+   La primera corrida del lunes es la prueba que falta.
+2. **Que `multer@2.3.0` no rompa nada en runtime.** No corrí `npm install` ni la suite de `backend/`
+   — no es mi carpeta. El argumento de riesgo nulo se apoya en §41.2 (multer no se ejecuta), no en
+   una corrida verde de tests. **Esa corrida le toca a backend** (§41.4).
+3. **Que el label `security` exista.** El workflow lo crea con `gh label create ... || true`; no pude
+   listar los labels del repo.
