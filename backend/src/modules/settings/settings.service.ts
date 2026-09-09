@@ -358,7 +358,24 @@ export class SettingsService implements OnModuleInit {
     // anterior no podía cumplir es lo otro: la comprobación de I-FX4 se evaluaba sobre una lectura
     // hecha **antes** de la transacción, y la otra puerta (`PUT /admin/fx/mode`) escribe **otra
     // fila**, así que las dos commiteaban y quedaba «manual sin número» ⇒ **fallback duro de 18**.
-    const tocaElFx = validated.some((v) => v.settingKey === SettingKey.FX_MANUAL_OVERRIDE_RATE);
+    // ⭐⭐ **v1.63.3 · R2 (techlead) — EL COLCHÓN ES LA CUARTA PUERTA DEL FX, y hasta aquí no lo era.**
+    //
+    // `tocaElFx` solo miraba `FX_MANUAL_OVERRIDE_RATE`, así que un `PUT` que **solo** mueve el colchón
+    // **no tomaba el candado**. Y el colchón no es un dial cualquiera: el precio convertido es
+    // **`tasa × (1 + colchón)`** — `FxAuditState` lleva `bufferPct` justamente porque *sin el colchón
+    // la entrada no permite reconstruir el precio de aquel día*, que es la única pregunta que se le va
+    // a hacer a ese registro.
+    //
+    // ⇒ Con la puerta abierta, un `PUT /admin/fx/mode` concurrente commitea en esa ventana y la
+    // entrada `fx.override` queda afirmando un `mode`/`effectiveRate`/`source` **que nunca
+    // coexistieron con ese colchón**. Es `S-FX-1` en miniatura, por la cuarta puerta, y **en la única
+    // ruta donde el código prometía por escrito que no podía pasar**.
+    // *Un comentario que afirma «aquí no puede pasar nada» es peor que el hueco: detiene al siguiente
+    // que mire.* Por eso se cierra la ruta en vez de corregir la frase.
+    const tocaElFx = validated.some(
+      (v) =>
+        v.settingKey === SettingKey.FX_MANUAL_OVERRIDE_RATE || v.settingKey === SettingKey.FX_BUFFER_PCT,
+    );
 
     // TODO O NADA DE VERDAD: los upserts y la bitácora, en una sola transacción.
     return this.prisma.$transaction(async (tx) => {
@@ -435,14 +452,20 @@ export class SettingsService implements OnModuleInit {
     tx: FxReadHandle,
   ): Promise<FxModePin | null> {
     const entry = validated.find((v) => v.settingKey === SettingKey.FX_MANUAL_OVERRIDE_RATE);
-    if (!entry) return null;
+    const bufferEntry = validated.find((v) => v.settingKey === SettingKey.FX_BUFFER_PCT);
+    // ⭐ v1.63.3 · R2 — se proyecta también cuando el `PUT` **solo** mueve el colchón. Tomar el
+    // candado no basta: el `PUT /admin/fx` audita con la lectura que hizo **antes** de entrar, así que
+    // sin esta proyección de dentro el `before`/`after` de `fx.override` siguen describiendo un
+    // instante que la otra puerta ya movió. *Serializar sin releer commitea el mismo estado imposible,
+    // solo que más tarde* — es la mitad de I-FX6 que no es el lock.
+    if (!entry && !bufferEntry) return null;
 
     // ⚠️ ESTADO PREVIO. Se lee ANTES de cualquier upsert de esta llamada **y DESPUÉS del candado**.
     const rawModeBefore = await this.get<unknown>(SettingKey.FX_RATE_MODE, tx);
     const rawManualBefore = await this.get<unknown>(SettingKey.FX_MANUAL_OVERRIDE_RATE, tx);
     const resolved = resolveFxMode(rawModeBefore, rawManualBefore);
 
-    if (entry.value === null && resolved.mode === 'manual') {
+    if (entry?.value === null && resolved.mode === 'manual') {
       throw BusinessException.validation(
         'FX_MANUAL_RATE_REQUIRED',
         'Cannot clear the manual FX rate while the FX mode is manual: switch to automatic first ' +
@@ -453,7 +476,6 @@ export class SettingsService implements OnModuleInit {
 
     // El colchón RESULTANTE (puede venir en el mismo `PUT`): sin él, la entrada de bitácora no
     // permite reconstruir el precio de aquel día (§M2-F.4).
-    const bufferEntry = validated.find((v) => v.settingKey === SettingKey.FX_BUFFER_PCT);
     // ⚠️ v1.63.2b — **por el `tx`, como las otras dos.** Estas dos lecturas se me quedaron en
     // `this.prisma` en el primer pase de S-FX-1, y **alimentan la proyección que se AUDITA** (el
     // colchón es la mitad de «reconstruir el precio de aquel día»). Lo cazó FX-22, que es el candado
@@ -470,9 +492,12 @@ export class SettingsService implements OnModuleInit {
     });
     // Estado RESULTANTE, proyectado con la MISMA función pura (no hay segunda cuenta): el modo ya
     // pinneado + el valor nuevo. Se usa para la bitácora y para `applied` de `fx.override`.
+    // ⚠️ v1.63.3 · R2 — **sin `entry` el valor manual NO cambia**: `rawManualBefore`. Escribir aquí
+    // `entry.value` con `entry` ausente proyectaría `undefined` y el «después» del colchón afirmaría
+    // que alguien borró la tasa.
     const after = projectFxState({
       rawMode: resolved.mode,
-      rawManualRate: entry.value,
+      rawManualRate: entry ? entry.value : rawManualBefore,
       bufferPct: bufferAfter,
       latestBanxico,
     });
@@ -483,7 +508,10 @@ export class SettingsService implements OnModuleInit {
       // una resolución legacy (o basura, o la ausencia de fila) en un modo escrito. Reescribir el
       // mismo valor explícito no materializa ni cambia nada, y emitiría una entrada de bitácora que
       // afirmaría un cambio de modo que no ocurrió.
-      materialized: rawModeBefore !== resolved.mode,
+      // ⚠️ v1.63.3 · R2 — **solo la escritura DEL VALOR pinnea** (I-FX2). Un `PUT` que únicamente
+      // mueve el colchón entra aquí a proyectar bajo el candado, pero ⛔ **no materializa el modo**:
+      // la regla es *«toda escritura del valor pinnea»*, no *«toda llamada que tome la puerta»*.
+      materialized: entry != null && rawModeBefore !== resolved.mode,
       before: toFxAuditState(before),
       after: toFxAuditState(after),
       previousState: before,

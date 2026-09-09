@@ -181,26 +181,48 @@ export class FxService {
     if (bufferPct != null) patch.fxBufferPct = bufferPct;
     if (rate != null) patch.fxManualOverrideRate = rate;
 
+    // ⭐⭐ **v1.63.3 · R2 — el colchón resultante, LEÍDO BAJO LA PUERTA.** Lo publica la proyección
+    // que `SettingsService` hace dentro del candado; sirve para la fila forense `FxRate` de abajo y
+    // ahorra **la cuarta lectura del mismo dial en una sola petición** (la que hacía `this.prisma`
+    // fuera de la transacción, que techlead registró junto a R2).
+    let bufferBajoLaPuerta: number | undefined;
+
     if (Object.keys(patch).length > 0) {
-      const inputs = await this.loadInputs();
-      const beforeState = projectFxState(inputs);
+      // ⚠️⚠️ **v1.63.3 · R2 — AQUÍ YA NO SE LEE NADA FUERA DE LA PUERTA.**
+      // Hasta aquí, esta rama hacía `loadInputs()` **fuera de toda transacción y sin el candado** y
+      // auditaba con esa foto. El comentario de abajo decía que en la rama de solo-colchón *«no hay
+      // invariante compartido, no se toma el candado y no hay nada que pueda haber cambiado debajo»*:
+      // **la última frase era falsa** — un `PUT /admin/fx/mode` concurrente commitea en esa ventana y
+      // la entrada queda afirmando un `mode`/`source`/`effectiveRate` que nunca coexistieron con ese
+      // colchón. Ahora **las dos mitades del estado se leen y se proyectan bajo `lockFxGate`**, que es
+      // la ceremonia entera de I-FX6: *lock → releer → validar → escribir → auditar con la proyección
+      // de dentro*.
       await this.settings.update(patch, ctx?.actorUserId, async (tx, _applied, extra) => {
+        bufferBajoLaPuerta = extra?.fxPin?.resultingState.bufferPct;
         if (!ctx?.audit) return;
-        // Estado RESULTANTE: si hubo pin, es el que calculó `SettingsService` con la MISMA función
-        // pura; si sólo cambió el colchón, se proyecta con el colchón nuevo (el modo no se toca).
-        const afterState =
-          extra?.fxPin?.resultingState ??
-          projectFxState({ ...inputs, bufferPct: bufferPct ?? inputs.bufferPct });
+        // `patch` no está vacío ⇒ trae la tasa manual, el colchón, o las dos ⇒ **las tres
+        // combinaciones toman la puerta y proyectan bajo ella** (§4.43c-ter). Que falte la proyección
+        // significaría que se abrió una ruta de escritura del FX **por fuera del candado**: se
+        // revienta la transacción, que revierte el dial. *En dinero, un cambio sin bitácora
+        // reconstruible es peor que un 500.*
+        if (!extra?.fxPin) {
+          throw new Error(
+            'FX write reached the audit hook without a gated projection (I-FX6): a route is writing ' +
+              'the FX state outside lockFxGate',
+          );
+        }
+        // Estado RESULTANTE, calculado por `SettingsService` con la MISMA función pura, dentro del
+        // candado y por el mismo `tx`. ⛔ No hay segunda cuenta y ⛔ no hay lectura de fuera.
+        const afterState = extra.fxPin.resultingState;
         // ⭐⭐ **v1.63.2 (S-FX-1 · cierra FX-D4): el «antes» que se audita es EL DE DENTRO DEL
         // CANDADO.** `beforeState` se leyó **antes** de entrar a la transacción; si la otra puerta
         // commiteó en ese hueco, esta entrada describiría un estado que ya no existía — la misma
         // mentira de bitácora que S-FX-1, por la otra puerta. `fxPin.before` lo calculó
         // `prepareFxModePin` **después** de `lockFxGate` y sobre el mismo `tx`. *Y de paso desaparece
         // la doble cuenta del mismo instante que el techlead registró como FX-D4.*
-        // El `beforeState` solo sobrevive como respaldo del caso en que **no hay pin** (un `PUT` que
-        // solo mueve el colchón): ahí no hay invariante compartido, no se toma el candado y no hay
-        // nada que pueda haber cambiado debajo.
-        const antes = extra?.fxPin?.previousState ?? beforeState;
+        // ⭐ v1.63.3 · R2 — y ya **no hay respaldo**: el «antes» es siempre el de dentro del candado.
+        // El respaldo era el caso «solo el colchón», que es justo el que resultó no estar cerrado.
+        const antes = extra.fxPin.previousState;
         const entries: AuditEntry[] = [
           {
             actorUserId: ctx.actorUserId,
@@ -222,7 +244,7 @@ export class FxService {
         ];
         // FX-13 / §M2-F.4: si esta escritura materializó el modo, la entrada `fx.mode.change` va
         // ADEMÁS, en la misma transacción — auditar por `fx.mode.change` tiene que ser COMPLETO.
-        if (extra?.fxPin?.materialized) {
+        if (extra.fxPin.materialized) {
           entries.push({
             actorUserId: ctx.actorUserId,
             actorRole: ctx.actorRole,
@@ -239,7 +261,12 @@ export class FxService {
 
     // #13: sólo con `rate` explícito se escribe la fila `FxRate` manual del día (traza forense).
     if (rate != null) {
-      const effBuffer = bufferPct ?? (await this.settings.getNumber(SettingKey.FX_BUFFER_PCT));
+      // ⭐ v1.63.3 · R2 — el colchón que se congela es **el que rigió bajo la puerta**, no una cuarta
+      // lectura del mismo dial por `this.prisma` ya fuera de la transacción. La cascada final solo
+      // sobrevive para el caso en que no hubo escritura de diales (imposible con `rate != null`, pero
+      // ⛔ una fila forense **jamás** se escribe con un colchón inventado).
+      const effBuffer =
+        bufferPct ?? bufferBajoLaPuerta ?? (await this.settings.getNumber(SettingKey.FX_BUFFER_PCT));
       const id = `manual-${fxIsoDate(today())}`;
       await this.prisma.fxRate.upsert({
         where: { id },

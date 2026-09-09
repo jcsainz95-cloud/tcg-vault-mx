@@ -1536,3 +1536,99 @@ describe('FX-22 ⭐⭐ — la lectura que decide va por el `tx` del candado, no 
     });
   });
 });
+
+// ── FX-24 ⭐⭐ — EL COLCHÓN ES LA CUARTA PUERTA (R2 del techlead, v1.63.3) ────────────────────────
+
+/**
+ * ⭐⭐ **La cuarta puerta, y estaba abierta en la única ruta donde el código prometía que no.**
+ *
+ * `tocaElFx` solo miraba `fx_manual_override_rate`, así que un `PUT` que **solo** movía el colchón
+ * **no tomaba `lockFxGate`** y auditaba con una foto leída **fuera de toda transacción**. Y el colchón
+ * no es un dial cualquiera: **el precio convertido es `tasa × (1 + colchón)`**, y por eso
+ * `FxAuditState` lo lleva — *sin el colchón la entrada no permite reconstruir el precio de aquel día*.
+ *
+ * ⇒ Un `PUT /admin/fx/mode` concurrente commitea en esa ventana y la entrada `fx.override` queda
+ * afirmando un `mode`/`effectiveRate`/`source` **que nunca coexistieron con ese colchón**. Es `S-FX-1`
+ * en miniatura, por la cuarta puerta.
+ *
+ * **Las tres mitades que hacen falta, y ninguna basta sola:**
+ * 1. **la puerta se toma** aunque el `PUT` traiga solo el colchón;
+ * 2. **se lee bajo ella y por el `tx`** (si no, serializar solo mueve el estado imposible más tarde);
+ * 3. **la bitácora se proyecta desde esa lectura**, no desde la de antes de entrar.
+ *
+ * ⛔ Y la mitad que impide «arreglarlo» de más: tomar la puerta **no** convierte el `PUT` del colchón
+ * en una escritura del modo. I-FX2 dice *«toda escritura DEL VALOR pinnea»*, no *«toda llamada que
+ * tome la puerta»*: si el colchón materializara el modo, mover un colchón en un entorno `legacy`
+ * escribiría `fx_rate_mode` sin que nadie tocara el interruptor.
+ */
+describe('FX-24 ⭐⭐ — el colchón toma la puerta del FX, lee bajo ella y audita con esa lectura', () => {
+  it('`PUT /admin/fx { bufferPct }` (SOLO el colchón) toma el candado y lee TODO por el `tx`', async () => {
+    const h = harness({
+      settings: { [MODE_KEY]: 'manual', [RATE_KEY]: 19.0, [SettingKey.FX_BUFFER_PCT]: 3 },
+      fxRates: [banxicoRow(18.2)],
+    });
+    await h.fxCtrl.setManual({ bufferPct: 7 }, 'admin-1', 'super_admin' as never);
+
+    const bajoCandado = h.lecturasBajoCandado();
+    // Rojo si la puerta no se abrió: sin candado, `lecturasBajoCandado()` devuelve `null`.
+    expect(bajoCandado).not.toBeNull();
+    // Y rojo si se abrió pero no protege ninguna decisión (un candado decorativo).
+    expect(bajoCandado?.length).toBeGreaterThanOrEqual(3); // modo + tasa + colchón (+ FxRate)
+    expect(bajoCandado?.filter((r) => !r.inTx)).toEqual([]);
+  });
+
+  it('⭐ la entrada `fx.override` describe el estado que coexistió con ese colchón', async () => {
+    const h = harness({
+      settings: { [MODE_KEY]: 'manual', [RATE_KEY]: 19.0, [SettingKey.FX_BUFFER_PCT]: 3 },
+      fxRates: [banxicoRow(18.2)],
+    });
+    await h.fxCtrl.setManual({ bufferPct: 7 }, 'admin-1', 'super_admin' as never);
+
+    const entry = h.auditEntries.filter((e) => e.action === 'fx.override').pop() as never as {
+      before: { bufferPct: number; effectiveRate: number; mode: string; source: string };
+      after: { bufferPct: number; effectiveRate: number; mode: string; source: string; applied: boolean };
+    };
+    expect(entry).toBeDefined();
+    // El colchón, que es la mitad del precio: 3 → 7, con los dos lados escritos.
+    expect(entry.before.bufferPct).toBe(3);
+    expect(entry.after.bufferPct).toBe(7);
+    // Y el resto del estado, coherente con el que rige de verdad: no se movió el modo ni la tasa.
+    expect(entry.after.mode).toBe('manual');
+    expect(entry.after.source).toBe('manual');
+    expect(entry.after.effectiveRate).toBe(19.0);
+    expect(entry.after.applied).toBe(true);
+  });
+
+  it('⛔ CONTROL — mover el colchón NO pinnea el modo: la puerta no es una escritura del valor', async () => {
+    // El entorno arranca en `legacy` (nadie ha tocado el interruptor). Si tomar la puerta bastara
+    // para materializar, un `PUT` de colchón escribiría `fx_rate_mode` a espaldas del dueño.
+    const h = harness({
+      settings: { [MODE_KEY]: 'legacy', [RATE_KEY]: 19.0, [SettingKey.FX_BUFFER_PCT]: 3 },
+      fxRates: [banxicoRow(18.2)],
+    });
+    await h.fxCtrl.setManual({ bufferPct: 7 }, 'admin-1', 'super_admin' as never);
+
+    expect(h.rawSetting(MODE_KEY)).toBe('legacy'); // ⛔ intacto
+    expect(h.auditEntries.filter((e) => e.action === 'fx.mode.change')).toHaveLength(0);
+    expect(h.rawSetting(SettingKey.FX_BUFFER_PCT)).toBe(7); // y el dial sí se escribió
+  });
+
+  it('⭐ y la fila forense `FxRate` congela el colchón LEÍDO BAJO LA PUERTA, no una cuarta lectura', async () => {
+    // `setManual` leía el colchón una CUARTA vez, por `this.prisma` y ya fuera de la transacción, solo
+    // para congelarlo en la fila forense. No regía nada, pero eran cuatro valores del mismo dial en
+    // una sola petición — y el que se guardaba para la posteridad era el de fuera.
+    const h = harness({
+      settings: { [MODE_KEY]: 'manual', [RATE_KEY]: 19.0, [SettingKey.FX_BUFFER_PCT]: 3 },
+      fxRates: [banxicoRow(18.2)],
+    });
+    await h.fxCtrl.setManual({ rate: 21 }, 'admin-1', 'super_admin' as never);
+
+    const forense = h.fxRates.filter((r) => r.source === 'manual').pop();
+    expect(forense).toBeDefined();
+    expect(Number(forense?.bufferPct)).toBe(3);
+    // Y ninguna lectura de `ConfigSetting` fuera de transacción después de abrirse la ventana: la
+    // cuarta lectura era exactamente eso.
+    const bajoCandado = h.lecturasBajoCandado();
+    expect(bajoCandado?.filter((r) => !r.inTx)).toEqual([]);
+  });
+});
