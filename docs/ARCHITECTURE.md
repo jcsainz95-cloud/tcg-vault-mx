@@ -19293,7 +19293,7 @@ cara en un DTO que ya existía**, emitida desde una variable que el servidor **y
 
 ### 4.43 EL TIPO DE CAMBIO TIENE **MODO**, Y EL MODO **NO ES EL VALOR** (v1.63-fx-mode, NORMATIVO, **DINERO**)
 
-> **Contrato: `API_CONTRACT §M2-F`** (rev **v1.63.3**). **CERO DDL, CERO migración de esquema, CERO cambios en el
+> **Contrato: `API_CONTRACT §M2-F`** (rev **v1.63.4**). **CERO DDL, CERO migración de esquema, CERO cambios en el
 > **esquema** y el **escritor** de `FxRate` —⚠️ **el LECTOR sí cambia**, I-FX5—, CERO diales de M10, CERO jobs
 > nuevos.** **UN ajuste nuevo** (`fx_rate_mode`), **UN endpoint nuevo** (`PUT /admin/fx/mode`), **UN valor nuevo** en
 > el enum **de API** `FxSource` (`fallback`; ⛔ **no** en la columna persistida — §3.2), **dos códigos de error**.
@@ -19322,6 +19322,18 @@ cara en un DTO que ya existía**, emitida desde una variable que el servidor **y
 > decide el asunto que backend elevó sin resolver (**¿debe defenderse la LECTURA?** — sí, y es cambio de contrato);
 > y **(4)** la doctrina transversal **§5.5**, porque la trampa del aislamiento **no es del FX**: es de cualquiera que
 > «mejore» una transacción añadiendo una línea que suena a más seguridad.
+>
+> ### 🔴 **ESTADO v1.63.4 — LA BANDA TENÍA TECHO Y NO TENÍA PISO. DOS APARTADOS NUEVOS.**
+> QA lo encontró y backend lo **midió con el parser real** y **paró sin arreglarlo, que era lo correcto**
+> (`BACKEND_NOTES §v1.63.3(4)`, `I-QA-1`): la banda de cordura que `S-FX-2` puso a la tasa USD→MXN **sólo acota por
+> arriba**. `"0.0001"` y `"0.0000001"` entran **por las dos puertas**, y con `0.0001` una carta de USD 100 pasa de
+> **MX$ 1,957.00 a MX$ 0.0103**. *Es el espejo exacto del `"9999"` que motivó el hallazgo: la banda se puso para
+> atrapar esta clase de valor y sólo la atrapaba en un sentido.* ⭐ **Y backend hizo algo más que hay que decir en voz
+> alta: NO escribió un test de caracterización del hueco** — bendecirlo por escrito habría sido peor que dejarlo.
+> Lo que se añade aquí es **normativo**: **(1)** el apartado **(c-quinquies)**, que fija **el piso, su razón, y
+> ratifica la simetría de FX-B1/FX-B2 en vez de derogarla**; y **(2)** el apartado **(d-bis)**, que **publica el valor
+> de respaldo en el `FxStateDTO`** —el número que §30.8 obliga a **nombrar antes de que el humano toque nada** y que
+> hoy sólo existe dentro de un `422`— y ratifica el copy de `error.FX_NO_AUTOMATIC_RATE`.
 
 <a id="fx-43-0"></a>
 #### (0) La petición, literal — y por qué no es un capricho de UI
@@ -19338,7 +19350,7 @@ cosas distintas**, que es exactamente lo que hoy no son.
 
 | # | Hecho medido | Dónde |
 |---|---|---|
-| **F1** | La tasa manual **no vive en una columna**: es el ajuste `fx_manual_override_rate`, `null` por defecto, validado como «`null` (borra el override) o número en `(0, MAX_FX_MANUAL_OVERRIDE_RATE]`» | `settings.constants.ts:53`, `:251`, `:542-546` |
+| **F1** | La tasa manual **no vive en una columna**: es el ajuste `fx_manual_override_rate`, `null` por defecto, validado como «`null` (borra el override) o número en `(0, MAX_FX_MANUAL_OVERRIDE_RATE]`» ⚠️ **la banda de este hecho medido es la de v1.63.3; desde v1.63.4 es `[1, 1000]` — (c-quinquies)** | `settings.constants.ts:53`, `:251`, ~~`:542-546`~~ **`:547-565`** *(las líneas se movieron; la cita se corrige, el hecho no cambia)* |
 | **F2** | `getCurrent()` decide así: **si el override existe y es `> 0`, gana el manual**; si no, la última fila `FxRate`; si no, un **fallback duro de 18** | `fx.service.ts:37-58` |
 | **F3** ⭐ | **La conversión USD→MXN es VIVA, no congelada:** `liveMxnCents` recalcula cada referencia de mercado en USD con la FX **vigente**. El comentario del código lo dice con todas las letras: *«cambiar `fx_manual_override_rate`/Banxico mueve el precio **AL INSTANTE**, sin re-sync»* | `pricing.service.ts:706-726`, esp. **709-711** |
 | **F4** ⚠️ | Un ajuste **ausente** cae a `SETTING_DEFAULTS` **en la primera lectura**, antes de que corra ningún seed | `settings.service.ts:194-199` |
@@ -19658,6 +19670,134 @@ no tocó la lectura y lo elevó (regla 9).
 de v1.63.2**: el vector de HTTP ya está cerrado por (c-ter) y el residual exige acceso directo a la base. Queda
 declarada como divergencia contrato↔código en **§9 (`D-FX-1`)** hasta que se implemente, para que nadie la lea
 como *«ya está»*. **Candado exigido: `FX-23`** (§M2-F.6).
+> ✅ **v1.63.4 — IMPLEMENTADO y verificado contra Postgres real** (`FX-23` con sus dos mitades; la mutación que
+> quita el candado lo pone en rojo). **`D-FX-1` y `D-FX-3` quedan CERRADAS en §9.**
+
+<a id="fx-43-c-quinquies"></a>
+#### (c-quinquies) ⭐⭐ **EL PISO DE LA BANDA — `[1, 1000]`, UNA SOLA BANDA PARA LAS DOS PUERTAS** *(v1.63.4, NORMATIVO, **DINERO**; cierra `I-QA-1`)*
+
+**El asunto, tal como llegó** (`BACKEND_NOTES §v1.63.3(4)`, medido con el parser real, no razonado):
+
+| Vector | `parseBanxicoRate` (puerta de Banxico) | `validateFxManualOverrideRate` (puerta tecleada) |
+|---|---|---|
+| `"9999"`, `"1000.0001"` | rechaza `out_of_band` | rechaza |
+| `"999.9999"`, `"18.5000"` | acepta | acepta |
+| **`"0.0001"`** | ⚠️ **ACEPTA** | ⚠️ **ACEPTA** |
+| **`"0.0000001"`** (1e-7) | ⚠️ **ACEPTA** | ⚠️ **ACEPTA** |
+
+Con `0.0001`, una carta de **USD 100** pasa de **MX$ 1,957.00** a **MX$ 0.0103** en la **siguiente lectura de
+precio** (F3), **sin desbordar ningún clamp y sin error**: *no da error, da precios*. Y es el **espejo exacto** del
+`"9999"` que motivó `S-FX-2` — con una diferencia de dirección que importa: el `9999` nos hace **pagar de más** por
+lo que compramos, el `0.0001` nos hace **vender por nada** lo que tenemos. **§N.0 los prohíbe a los dos.**
+
+---
+
+**DECISIÓN 1 — EL NÚMERO: `MIN_FX_RATE = 1`. La banda pasa a ser `[1, 1000]`, CERRADA en los dos extremos.**
+
+> **Ninguna tasa USD→MXN por debajo de `1` es una tasa. Es la inversa del par, un error de escala o un cambio de
+> formato — exactamente la clase de valor que la banda existe para atrapar.**
+
+**La razón, y es de negocio, no de gusto** *(mismo criterio con el que el dueño ancló `Q-D1`: el número sale de qué
+es plausible, no de una holgura elegida a ojo)*:
+
+1. ⭐ **El peso nunca ha valido más que el dólar.** El par se cotiza en **pesos por dólar** y en toda la historia del
+   peso moderno ha vivido entre ~3 y ~25. Un valor `< 1` no es «un tipo de cambio raro»: es **otro número**. Los
+   tres candidatos reales de qué sería, y los tres son fallos que queremos ver: **(a)** la **inversa** (dólares por
+   peso, ≈ `0.0526`) — el vector más plausible de todos, y el que se produce si alguien cambia de serie SIE o si
+   Banxico publica el par al revés; **(b)** un **error de escala** de ÷100 o ÷1000; **(c)** **basura truncada**.
+   *El `1` no es un umbral de mercado: es la frontera entre «pesos por dólar» y «no es eso».*
+2. **El coste de equivocarse es asimétrico y está a nuestro favor.** Un **falso rechazo** cuesta: por la puerta
+   tecleada, **un `422` y volver a teclear**; por la de Banxico, **`failed/invalid_payload` y la tasa anterior se
+   queda en su sitio** — que es el resultado honesto y **seguro**. Un **falso ACEPTE** cuesta **el catálogo entero**.
+   *Con ese reparto, la banda se cierra sin remordimiento.*
+3. **Un piso «de rango de mercado» (5, 10, 15…) sería MI gusto, y además envejece mal.** Lo que empuja al peso fuera
+   del rango es una **crisis**, y una crisis lo hace **más débil** (número **más alto**) ⇒ un piso apretado **nunca
+   sirve para lo que se le pediría**. Lo único que llevaría la cotización por debajo de `1` es una
+   **redenominación** («nuevo peso»), que es un evento discreto que **exige intervención humana de todos modos** —
+   y que este piso **atrapa**, que es justo lo que debe hacer: parar y que alguien mire, no repreciar solo.
+4. **Cerrada en los dos extremos, por simetría de forma.** `1` y `1000` son **valores aceptados que ninguna
+   cotización real va a rozar**; la banda existe para rechazar **lo que hay al otro lado**. Una banda con un extremo
+   abierto y otro cerrado es un detalle que se testea mal y se cita peor. ⚠️ El `0` deja de necesitar mención
+   aparte: queda fuera por construcción. **`null` sigue siendo válido en la puerta tecleada** y significa lo de
+   siempre (*no hay override*), que **no es un valor de la banda**.
+
+⛔ **Lo que este piso NO es, y hay que decirlo para que nadie le pida lo que no da: NO es un detector de deriva.**
+La banda atrapa errores de **tres órdenes de magnitud** (la inversa, ÷1000, `9999`). **NO atrapa un ×10 ni un ÷10**
+(`1.95` y `195` están los dos dentro), y **eso es cierto del techo desde `S-FX-2`** — el piso no empeora nada, sólo
+deja de ser un hueco de un solo lado. El instrumento para el ×10 es **otro**: comparar contra la última fila
+conocida y avisar/rechazar por **desviación relativa**, que es lo que seguridad ya propuso
+(`SECURITY_NOTES:7820`). **Eso es otro pase y queda abierto como `Q-F5` (§10) — ⛔ no se diseña aquí**, y sobre todo
+⛔ **no se usa como excusa para no poner el piso**: un control que no existe no cubre un hueco que sí.
+
+---
+
+**DECISIÓN 2 — LA SIMETRÍA SE RATIFICA. `FX-B1`/`FX-B2` NO SE DEROGA: SE EXTIENDE AL PISO.**
+
+> **UNA constante, UNA banda, DOS puertas.** La tasa que teclea un humano y la que llega de Banxico se validan con
+> **exactamente el mismo `[1, 1000]`**. Ninguna queda más permisiva que la otra, **en ningún extremo**.
+
+Me pidieron considerar que **las dos puertas no son iguales**: la manual la teclea un humano que puede juzgar el
+número; la de Banxico entra **sin que nadie la mire** en modo `auto`. **Lo consideré, y refuerza la simetría en vez
+de romperla.** Las tres razones:
+
+1. ⭐⭐ **La banda es una afirmación sobre el VALOR, no sobre la puerta.** `liveMxnCents` **no sabe** por dónde entró
+   el número: convierte el catálogo con la tasa vigente y punto. Dos bandas distintas significarían que existe un
+   rango de números que **son una tasa cuando los teclea un humano y no lo son cuando los publica Banxico** — eso
+   no es una política, es una **contradicción**. *El mismo dial no se valida distinto según la puerta* (FX-B2)
+   sigue siendo verdad, y el piso no es una excepción: es la mitad que faltaba de la misma frase.
+2. **La única asimetría defendible iría en la dirección que nadie quiere.** ¿Endurecer *sólo* Banxico porque nadie
+   lo mira? Entonces habría números que **rechazamos del banco central y aceptamos del teclado** — preferir la
+   corazonada de un humano sobre el **FIX publicado** es exactamente al revés. ¿Relajar *sólo* la manual porque hay
+   un humano delante? El humano es **quien comete el typo**: la banda existe para atraparlo (`FX-B1` nació de `1e9`
+   tecleado). *No hay una tercera dirección.*
+3. **La diferencia REAL entre las puertas ya está cobrada, y no está en la banda: está en la CONSECUENCIA del
+   rechazo.** Tecleada ⇒ **`422` a la cara del humano**, que corrige en el acto. Banxico ⇒ **`failed` +
+   `invalid_payload`, sin escribir fila, con la tasa anterior intacta y el motivo en el log**. *Ahí es donde la
+   fuente no vigilada recibe su trato distinto — y donde, si algún día hace falta más, va el control de deriva de
+   `Q-F5`, que sí es específico de Banxico porque no hay nadie a quien devolverle un `422`.*
+
+⚠️ **Consecuencia de nombres, para backend:** desde `S-FX-2` la constante `MAX_FX_MANUAL_OVERRIDE_RATE` **ya no
+nombra lo que hace** (no es «el techo del override manual»: es **el techo de lo que puede ser una tasa USD→MXN**, y
+la comparte el parser de Banxico). **El contrato deja de citar identificadores de código y cita LA BANDA**
+(`[1, 1000]`, §M2-F.8). Renombrar las constantes es **decisión de backend y no la pido**; lo que sí es normativo es
+que **haya una sola definición de la banda y que las dos puertas la usen** — dos literales `1` en dos ficheros son
+dos bandas esperando a divergir.
+
+---
+
+**DECISIÓN 3 — LA BANDA ES UNA PUERTA DE ESCRITURA, ⛔ NO UNA PUERTA DE LECTURA. Y el predicado legacy NO se toca.**
+
+Esto es la pregunta que el piso abre y que no se puede dejar sin contestar: **¿qué pasa con un `0.0001` que YA esté
+guardado** en un entorno (sólo pudo entrar antes de este arreglo)?
+
+- **La resolución legacy de (c) sigue diciendo `> 0`, LITERAL.** ⛔ **No se sube a `>= 1`.** Ese predicado existe
+  para **una** cosa —*que el despliegue no cambie de comportamiento por su cuenta*— y cambiarlo haría exactamente
+  eso: en un entorno con un valor sub-piso guardado, el modo resuelto saltaría de `manual` a `auto` **en el primer
+  `GET` después del deploy**, repreciando el catálogo **sin autor y sin evento**. *Es el modo de fallo que `FX-6`
+  existe para poner en rojo.*
+- **Y la LECTURA tampoco se defiende aquí, a diferencia de (c-quater).** Los dos casos se parecen y **no son el
+  mismo**: allí **no había número** que obedecer, así que elegir mejor no le quitaba nada a nadie y el estado era
+  **inalcanzable por API**. Aquí **hay un número, y lo puso un humano**. Que la lectura lo ignorara sería un
+  **repreciado sin autor** — la misma clase de acto que todo `§4.43` persigue. **La lectura obedece; la banda
+  guarda la escritura.**
+- **El residual se hace VISIBLE, no se repara en silencio.** Un `manual.rate` sub-piso rigiendo es **ruidoso por
+  construcción**: la tarjeta lo pinta en la columna MANUAL, con `RIGE`, y la cifra grande es absurda a simple
+  vista *(nada que ver con el `18` de aspecto plausible que motivó (c-quater))*. **Censo:** una consulta de una
+  fila sobre `ConfigSetting fx_manual_override_rate`, del mismo género que la que backend dejó escrita para
+  `D-FX-1`. **La corrección es un ACTO HUMANO por la puerta normal** (`PUT /admin/fx { rate }` con un número real)
+  — ⛔ **no una migración que reescriba dinero**.
+
+---
+
+**Un invariante que se cae de suyo y conviene atornillar:** ⭐ **`MIN ≤ FX_FALLBACK_RATE ≤ MAX`**. El respaldo duro
+(`18`) tiene que vivir **dentro** de la banda, porque es un valor que el propio sistema hace regir; una banda que
+excluyera su propia constante de respaldo sería un sistema que rechaza lo que él mismo aplica. Es una línea, es
+verificable, y **apretar la banda en el futuro sin mirar el respaldo es justo el error que evita**.
+
+**Estado e implementación.** **NORMATIVA desde v1.63.4, PENDIENTE de implementar. Dueño: backend** (una constante,
+los **dos** validadores y el candado). **Cambia el límite de rechazo de dos endpoints y la cadena del `422`** — por
+eso era mío y por eso backend hizo bien en pararse (regla 9). Contrato: **`§M2-F.8`** (la banda) + `§M2-F.6`
+(**`FX-24`**, con sus vectores). Divergencia contrato↔código declarada en **§9 (`D-FX-4`)** hasta que se implemente.
 
 <a id="fx-43-d"></a>
 #### (d) ⚠️ La precondición de las **DOS TASAS**: NORMA, no sugerencia
@@ -19688,6 +19828,78 @@ Tres precisiones que evitan comparar peras con manzanas:
    > **No vuelve a atar modo y valor** —el campo es un acuse, **no una tasa**—, así que I-FX3 sigue intacto; y **no
    > se pide con `stale`**, porque ahí sí hay un número real que el humano puede ver y juzgar. El acuse **queda en
    > la bitácora** (§4.43f). *Es más barato en el contrato que en el código, y por eso entra aquí.*
+
+<a id="fx-43-d-bis"></a>
+#### (d-bis) ⭐ **EL VALOR DE RESPALDO SE PUBLICA EN EL `FxStateDTO`** *(v1.63.4, NORMATIVO; cierra la petición 1 de `FRONTEND_NOTES §6`)*
+
+**El asunto, tal como llegó** (frontend, construyendo la tarjeta del interruptor): el acuse de `DESIGN_SYSTEM §30.8`
+tiene que **nombrar el número al que se saltaría** —*«si pasas a automática, regirían **{fallback}** pesos por
+dólar»*— **ANTES de que el humano toque nada**. **Y el `FxStateDTO` no trae ese número.** Las tres salidas eran:
+hornear el `18` en una cadena del cliente (⛔ literal escondido, misma doctrina que `I-FX5` y §30.16.8), inventar
+copy sin cifra (⛔), o **pedírselo al servidor mandando un `PUT` sin acuse y leer `details.fallbackRate` del `422`**
+—que por contrato **no cambia el modo**—. Frontend hizo lo tercero, **lo documentó como deuda** y lo elevó
+(`TECH_DEBT`, `FRONTEND_NOTES §6.1`). *Funciona y es honesto. Pero usar un error como consulta es usar el camino de
+fallo para leer un dato que el estado debería traer, y el sitio de ese número es el DTO.*
+
+**DECISIÓN: SÍ. `fallbackRate` entra en el `FxStateDTO`, al NIVEL SUPERIOR, y viaja SIEMPRE.**
+
+> **`fallbackRate: number` — el valor de respaldo duro del servidor (hoy `18`). Presente en las CUATRO rutas de FX,
+> en todas las respuestas, con el mismo valor siempre. ⛔ NO es estado: es una CONSTANTE del servidor publicada.**
+
+**Las cuatro razones:**
+
+1. ⭐ **Es un número que el cliente NO PUEDE calcular y que el contrato ya le obliga a decir.** `§M2-F.3 regla 2`
+   prohíbe que el interruptor sea pulsable sin los números en la mano, y `§30.8` obliga a nombrar éste **antes** del
+   primer acto. Un dato que la norma exige enseñar **antes de actuar** no puede vivir **sólo dentro de la respuesta
+   a un acto**. *Con el DTO, `FX-UI-4(a)` («0 peticiones hasta confirmar») vuelve a cumplirse **al pie de la
+   letra**, no «0 peticiones que cambien algo».*
+2. **No choca con la `regla 4` (⛔ *el salto en % no es un campo*), y la distinción es exacta.** Aquella regla
+   prohíbe **derivar en el servidor** algo que el humano puede restar en pantalla —dos implementaciones del mismo
+   número que pueden discrepar—. `fallbackRate` **no se deriva de nada**: es un **literal del servidor**, y el
+   cliente **no tiene forma legítima de conocerlo**. Es la misma familia que `automatic.status` (derivado
+   server-side porque duplicarlo en cliente sería la enésima implementación) y la contraria a la del salto.
+3. **Al nivel superior, y NO dentro de `automatic`.** Meterlo en `automatic` diría *«el respaldo de la rama
+   automática»*, y **es falso**: desde (c-quater), `source: "fallback"` es alcanzable **también con `mode:
+   "manual"`**. El respaldo es lo que rige **cuando no rige ninguna de las dos ramas** ⇒ su sitio es junto a `rate`
+   y `source`, que son los hechos del **estado entero**. *Y anidarlo bajo `automatic` invitaría al error que la
+   `regla 5` prohíbe con todas las letras: presentar el 18 como si fuera «la de Banxico».*
+4. **SIEMPRE presente, no «sólo cuando `status: missing`».** Tres motivos: **(a)** el diálogo se compone **antes**
+   de saber si hará falta, y un campo que aparece y desaparece obliga a ramificar por presencia; **(b)** habilita
+   un invariante verificable de una línea — **`source === "fallback"` ⟹ `rate === fallbackRate`**—, que sólo se
+   puede comprobar si el campo está siempre; **(c)** *una constante que aparece y desaparece **parece estado**, y
+   no lo es*.
+
+**Las tres prohibiciones que vienen con el campo** (sin ellas, publicarlo empeora la pantalla en vez de mejorarla):
+
+- ⛔ **`fallbackRate` NO se pinta como una tasa vigente** salvo cuando `source === "fallback"`. No es una tercera
+  columna, no va al lado de las dos tasas y **no es «la de Banxico»** (`regla 5`, intacta).
+- ⛔ **No sustituye a `details.fallbackRate` del `422`.** El `422 FX_NO_AUTOMATIC_RATE` **sigue llevando su
+  `details` completo** y eso **no es redundancia**: ese error es **la carrera real** (la fila de Banxico desaparece
+  entre el `GET` y el `PUT`), y *un error de dinero tiene que poder explicarse solo, sin depender de una lectura
+  anterior que puede estar rancia*. **Invariante nuevo: los dos números son el MISMO** ⇒ `details.fallbackRate ===
+  FxStateDTO.fallbackRate`, siempre.
+- ⛔ **No se convierte en dial.** Es constante de código (`FX_FALLBACK_RATE`), del mismo género que
+  `FX_AUTO_STALE_AFTER_DAYS`: publicarla **no** la vuelve configurable. *Publicar un número y permitir editarlo son
+  dos decisiones distintas, y sólo estoy tomando la primera.*
+
+**Y la ratificación de copy que frontend pidió** (`FRONTEND_NOTES §6.2`) — **la contesto en lo que es mío, que es
+qué garantiza el contrato; la redacción final es de ux-ui**:
+
+> **NO se crea una variante base de `error.FX_NO_AUTOMATIC_RATE` sin `{fallbackRate}`.** El contrato **garantiza**
+> `details: { currentRate, fallbackRate }` en **todo** `422 FX_NO_AUTOMATIC_RATE` (ya normativo, §M2-F.2) **y**,
+> desde v1.63.4, el mismo número viaja en **cada** `FxStateDTO` ⇒ el cliente tiene **dos fuentes independientes y
+> ambas garantizadas** para interpolarlo. Las razones de no bifurcar: **(1)** la frase sin la cifra **no es la misma
+> frase menos un paréntesis, es OTRO mensaje** — *«pasar a automática dejaría rigiendo un valor fijo de respaldo»*
+> **sin decir cuál** es precisamente lo que §30.8 existe para impedir; **(2)** sería una **rama inalcanzable en copy
+> de dinero**, que es copy que se pudre sin que nadie lo note; **(3)** si algún día llegara un `422` **sin**
+> `details`, eso es un **incumplimiento de contrato**, y la conducta honesta del cliente es interpolar desde el
+> `fallbackRate` del DTO que **ya tiene** (o, sin DTO, no ofrecer el interruptor — `regla 2`). ⚠️ **Dueño del copy:
+> ux-ui** (`DESIGN_SYSTEM §30.10`); yo sólo ratifico **qué número está garantizado y desde dónde**.
+
+**Estado e implementación.** **NORMATIVA desde v1.63.4, PENDIENTE de implementar. Dueño: backend** (es un campo
+**aditivo** proyectado por `projectFxState`; **cero DDL, cero endpoint, cero valor de enum**). **Candado exigido:
+`FX-25`** (§M2-F.6). Frontend puede **cerrar** su deuda del `PUT` de sondeo en cuanto el campo exista —**es suya y
+la cierra él**—; hasta entonces el camino de hoy **sigue siendo legal y correcto**.
 
 <a id="fx-43-e"></a>
 #### (e) La cuarta exigencia: **qué se enseña cuando la tasa automática está vieja o no llegó** — el mínimo honesto
@@ -20667,10 +20879,47 @@ Riesgos técnicos:
 > backend en su mayoría implementado; **M7 ya tiene UI consumidora real** —`admin/m7/M7View.tsx`—, el resto de
 > módulos sigue con UI en `ModuleTodo` pendiente de consumir).
 
-- **⚠️ NUEVA (v1.63.3) — `D-FX-1`: EL CONTRATO YA MANDA DEFENDER LA LECTURA DE «MANUAL SIN NÚMERO», Y EL CÓDIGO
+- **🆕 NUEVA (v1.63.4) — `D-FX-4`: LA BANDA DE CORDURA DE LA TASA YA TIENE PISO EN EL CONTRATO, Y EL CÓDIGO SÓLO
+  TIENE TECHO.** **Dueño del arreglo: backend** (`validateFxManualOverrideRate` en
+  `backend/src/modules/settings/settings.constants.ts` **y** `parseBanxicoRate` en
+  `backend/src/modules/pricing/fx.service.ts` — **las dos puertas, en el mismo cambio**).
+  **Estado: ⚠️ ABIERTA — la abro yo al decidir** (§4.43c-quinquies), y la dejo escrita por la misma razón que
+  `D-FX-1`: **para que nadie lea la decisión como si ya estuviera implementada**.
+  - **Qué manda el contrato desde v1.63.4:** la banda de una tasa USD→MXN es **`[1, 1000]`, cerrada en los dos
+    extremos**, **idéntica en las dos puertas** (`§M2-F.8`). El `422 VALIDATION_ERROR` del dial tecleado **nombra
+    los dos extremos**; el rechazo por la puerta de Banxico sigue saliendo como `failed/invalid_payload` **sin
+    escribir fila** y con `out_of_band` en el log.
+  - **Qué hace el código hoy (medido por backend con el parser real, `BACKEND_NOTES §v1.63.3(4)`):** la banda es
+    `(0, 1000]` en las dos puertas ⇒ **`0.0001` y `1e-7` ENTRAN por las dos**. Con `0.0001`, una carta de USD 100
+    pasa de **MX$ 1,957.00 a MX$ 0.0103** — *no da error, da precios*.
+  - **Por qué NO es «media divergencia»:** arreglar sólo el lado de Banxico rompería la simetría normativa
+    `FX-B1`/`FX-B2`, que **se ratifica** en §4.43c-quinquies (decisión 2). **Las dos puertas se mueven a la vez o
+    no se mueve ninguna.**
+  - ⭐ **Lo que backend hizo bien y quiero que quede escrito:** paró en vez de arreglarlo (el rango está en mi
+    contrato y viaja en el `message`: es cambio de contrato, regla 9) **y NO escribió un test de caracterización
+    del hueco** — bendecirlo por escrito habría sido peor que dejarlo abierto.
+  - **Candado exigido: `FX-24`** (`§M2-F.6`), con sus vectores y su caso de conducta. ⛔ **No lo arreglo yo.**
+
+- **🆕 NUEVA (v1.63.4) — `D-FX-5`: EL `FxStateDTO` NO PUBLICA EL VALOR DE RESPALDO QUE EL CONTRATO YA MANDA
+  PUBLICAR.** **Dueño del arreglo: backend** (`projectFxState`, `backend/src/common/fx-mode.ts`).
+  **Estado: ⚠️ ABIERTA — NO bloqueante** (el camino de hoy del frontend es legal y correcto).
+  - **Qué manda el contrato desde v1.63.4:** `fallbackRate: number` **al nivel superior** del `FxStateDTO`, en las
+    **cuatro** rutas de FX y en **todas** las respuestas, con **el mismo valor** que `details.fallbackRate` del
+    `422 FX_NO_AUTOMATIC_RATE` (§4.43d-bis, `§M2-F.3`).
+  - **Qué hay hoy:** el número **sólo existe dentro del `422`**, así que la tarjeta lo consigue mandando un `PUT`
+    **sin acuse** para leer el error (deuda registrada por frontend, `TECH_DEBT`/`FRONTEND_NOTES §6.1`). *Usar el
+    camino de fallo como consulta funciona, pero el sitio de ese número es el estado.*
+  - **Quién cierra qué:** backend publica el campo; **la deuda del `PUT` de sondeo la cierra FRONTEND**, que es
+    suya. **Candado exigido: `FX-25`** (`§M2-F.6`).
+
+- **✅ CERRADA (v1.63.4) — `D-FX-1`: EL CONTRATO YA MANDA DEFENDER LA LECTURA DE «MANUAL SIN NÚMERO», Y EL CÓDIGO
   TODAVÍA NO LO HACE.** **Dueño del arreglo: backend** (`projectFxState`, `backend/src/common/fx-mode.ts`).
-  **Estado: ⚠️ ABIERTA — NO bloqueante.** Es una divergencia **que abro yo al decidir** (§4.43c-quater), y la dejo
-  escrita **para que nadie lea la decisión como si ya estuviera implementada**.
+  **Estado: ✅ CERRADA — implementada y verificada contra Postgres real** (`BACKEND_NOTES §v1.63.3(3)`): `FX-23`
+  con sus **dos** mitades, más la regla mecánica de `applied` en los tres estados legales y el control de que
+  I-FX4 **no se relaja**; las dos mutaciones (volver a exigir `mode === 'auto'`; derivar `applied` del `mode`)
+  ponen el candado en rojo. *Se conserva el texto de abajo porque describe una divergencia real que existió y
+  cómo se cerró.* Era una divergencia **que abrí yo al decidir** (§4.43c-quater), escrita
+  **para que nadie leyera la decisión como si ya estuviera implementada**.
   - **Qué manda el contrato desde v1.63.3:** en `mode:"manual"` **sin** número guardado —estado ilegal por I-FX4,
     hoy alcanzable sólo por SQL/migración— rige **la última fila `banxico`** y sólo si no la hay, el fallback de 18;
     y `manual.applied`/`automatic.applied` se definen **`⟺ source` nombra la rama** (`§M2-F.1`, `§M2-F.3`).
@@ -20682,8 +20931,11 @@ Riesgos técnicos:
   - ⛔ **No lo arreglo yo** (regla de propiedad de `CLAUDE.md`): es código de backend, y la petición va con el
     contrato ya escrito, que es lo único que me toca.
 
-- **⚠️ NUEVA (v1.63.3) — `D-FX-2`: UN JSDOC DEL CÓDIGO SIGUE PUBLICANDO LA AFIRMACIÓN QUE §4.43(c) DECLARÓ FALSA.**
-  **Dueño del arreglo: backend.** **Estado: ⚠️ ABIERTA — cosmética en el dinero, NO cosmética en el criterio.**
+- **✅ CERRADA (v1.63.4) — `D-FX-2`: UN JSDOC DEL CÓDIGO SIGUE PUBLICANDO LA AFIRMACIÓN QUE §4.43(c) DECLARÓ FALSA.**
+  **Dueño del arreglo: backend.** **Estado: ✅ CERRADA — corregida** (`BACKEND_NOTES §v1.63.3(5)`), con la distinción
+  que se confundía dicha en el jsdoc: **la inferencia corre en CADA lectura; lo que ocurre una vez es la
+  MATERIALIZACIÓN**. ⛔ **Sin candado, y a propósito: es un comentario** — *un test que asierta prosa envejece peor
+  que la prosa*. Texto original abajo: era **cosmética en el dinero, NO cosmética en el criterio.**
   - **Dónde:** el jsdoc de `resolveFxMode` (`backend/src/common/fx-mode.ts`) afirma que la resolución legacy
     *«ocurre como mucho **una vez por entorno** (deja de correr en cuanto un humano toca el interruptor)»*.
   - **Qué la contradice:** **§4.43(c) I-FX1, corregido en v1.63.2** (y `API_CONTRACT §M2-F.1`): la resolución legacy
@@ -20724,8 +20976,8 @@ Riesgos técnicos:
     token: lo verificable es que `fx-refresh` vuelva a escribir `FxRate` con `source=banxico` y que el `GET`
     responda `automatic.status: "fresh"`.*
 
-- **⚠️ NUEVA (v1.63.1) — `D-UX-2`: DOS SUPERFICIES QUE MI CONTRATO YA CITA COMO NORMADAS Y QUE `DESIGN_SYSTEM.md`
-  NO TIENE.** **Dueño del arreglo: ux-ui** (yo no escribo ese documento — regla 5). **Estado: ⚠️ ABIERTA — no
+- **⚠️ NUEVA (v1.63.1; ampliada en v1.63.4) — `D-UX-2`: ~~DOS~~ **CUATRO** SUPERFICIES QUE MI CONTRATO YA CITA COMO
+  NORMADAS Y QUE `DESIGN_SYSTEM.md` NO TIENE.** **Dueño del arreglo: ux-ui** (yo no escribo ese documento — regla 5). **Estado: ⚠️ ABIERTA — no
   bloquea el backend; SÍ bloquea al frontend.** Aplicación de §0-B.3 regla 7 (regla de la cita) a mis dos últimos
   pases:
   1. **La columna de VALOR DE MERCADO en la consola de bounties (v1.62.2).** `API_CONTRACT:9494` y `:5262` apuntan a
@@ -20741,6 +20993,18 @@ Riesgos técnicos:
      **sin segunda tasa** (`acknowledgeNoAutomaticRate`, §M2-F.3 regla 5) — que es **un diálogo de dinero**, no un
      `confirm()`. Añádase la copia de **Q-F3** (*«guardada; regirá cuando pases a manual»*), sin la cual guardar una
      tasa en modo `auto` parece que no guardó nada.
+  3. **⚠️ AÑADIDO EN v1.63.4 — el `422 VALIDATION_ERROR` de la tasa manual fuera de banda NO tiene copy, y ahora
+     rechaza MÁS cosas.** `DESIGN_SYSTEM §30.10` traduce **tres** códigos (`FX_MANUAL_RATE_MISSING`,
+     `FX_MANUAL_RATE_REQUIRED`, `FX_NO_AUTOMATIC_RATE`) y **ninguno es `VALIDATION_ERROR`**. Con el piso nuevo
+     (`§M2-F.8`), teclear `0.5` en el editor inline de §30.9c pasa a dar `422` — y **el `message` del servidor va en
+     inglés y nombra la banda**, que es exactamente lo que §8.1/§26 prohíben enseñar crudo. Hace falta **una fila de
+     copy** que **nombre la palanca y los dos extremos** y **diga que no se guardó nada**. ⛔ **Y NO se hornea el
+     `1000` ni el `1` a mano en la cadena** — misma doctrina que el `18` de §30.8. **Dueño: ux-ui.**
+  4. **⚠️ AÑADIDO EN v1.63.4 — ratificación pedida por frontend, contestada en lo que es mío.** `FRONTEND_NOTES §6.2`
+     propone partir `error.FX_NO_AUTOMATIC_RATE` en `_WITH_DETAILS` + una base **sin** `{fallbackRate}`.
+     **Contrato: NO hace falta y NO se crea** — el número está garantizado por **dos** vías (`details.fallbackRate`
+     del `422`, siempre presente, **y** `FxStateDTO.fallbackRate` desde v1.63.4). La razón entera está en
+     **§4.43(d-bis)**; **la redacción final sigue siendo de ux-ui**, que puede ratificarla o reescribirla.
 
 - **⛔⛔ NUEVA (v1.62) — `D-PROC-7`: `PROJECT.md` PROHÍBE LA PANTALLA QUE EL DUEÑO ACABA DE PEDIR.**
   **Dueño del arreglo: product-owner** (yo no escribo `PROJECT.md`). **Estado: ⛔ ABIERTA — bloquea la
@@ -21548,6 +21812,21 @@ este documento y con `API_CONTRACT.md`.
   **detalle** (`GET /admin/audit-log/:id`) o una **cara nueva** del listado?; **(c)** ¿`super_admin` únicamente, como
   el `ip` de `UserAuditEntryDTO`? **Mientras tanto, la consulta por acción es el ÍNDICE y la BD es el cuerpo**, y eso
   se dice en el contrato en vez de prometer un lector que no existe (§M2-F.4).
+
+- **Q-F5 *(v1.63.4)* — ¿Se añade un control de DERIVA de la tasa (rechazar/avisar si la nueva se aparta más de X %
+  de la última conocida), además de la banda?**
+  ⚠️ **Nace de un límite que declaro yo al fijar el piso** (§4.43c-quinquies): **la banda `[1, 1000]` atrapa errores
+  de tres órdenes de magnitud —la inversa del par, ÷1000, `9999`— y ⛔ NO atrapa un ×10 ni un ÷10** (`1.95` y `195`
+  están los dos dentro). *Eso era cierto del techo desde `S-FX-2`; el piso no lo empeora, sólo deja de ser un hueco
+  de un solo lado.* **Default normado: NO se construye ahora** — la banda es lo que cierra el hueco medido, y un
+  control de deriva es **otro instrumento con sus propias decisiones**: **(a)** ¿qué X %, y contra qué referencia (la
+  última fila `banxico`, o una media)? el FIX se mueve **días hábiles**, así que un umbral apretado dispararía en un
+  puente; **(b)** ¿**rechaza** (⇒ una tasa real puede quedar fuera y la tasa vieja se **congela sola**, que es
+  `D-OPS-1` otra vez) o **avisa**? *La dirección segura no es obvia aquí, y eso ya es razón para no decidirla de
+  paso.*; **(c)** aplicaría **sólo a la puerta de Banxico** —ahí no hay nadie a quien devolverle un `422`—, y sería
+  **la primera asimetría legítima** entre las dos puertas, que hoy comparten banda por decisión ratificada
+  (`FX-B1`/`FX-B2`). **Precedente y origen:** lo propuso seguridad (`SECURITY_NOTES:7820`). ⛔ **No se usa como
+  excusa para no poner el piso:** un control que no existe no cubre un hueco que sí.
 
 ### ✅ Q-D1 — CERRADA por el dueño (2026-08-24): el techo del piso/bin es **MX$2,000**
 
