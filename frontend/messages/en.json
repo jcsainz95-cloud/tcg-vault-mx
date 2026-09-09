@@ -1640,30 +1640,80 @@
         "countUnknown": "{count} without reason"
       },
       "fx": {
-        "title": "USD→MXN exchange rate",
-        "rate": "Rate",
-        "buffer": "Buffer",
-        "source": "Source",
-        "sourceLabel": {
-          "banxico": "BANXICO",
+        "eyebrow": "USD → MXN",
+        "title": "Exchange rate",
+        "lead": "Everything priced in dollars is converted to pesos with this rate. You can use Banxico's or your own; both are kept, and switching between them deletes neither.",
+        "current": {
+          "label": "IN FORCE NOW",
+          "unit": "MXN per USD",
+          "aria": "In force now: {rate} pesos per dollar, source {source}."
+        },
+        "source": {
+          "label": "SOURCE",
           "manual": "MANUAL",
+          "manualBody": "You saved it. It stays in force until you switch to automatic.",
+          "banxico": "BANXICO",
+          "banxicoBody": "Published by Banxico, from {date}.",
           "fallback": "NO REAL SOURCE",
-          "unknown": "UNRECOGNISED SOURCE"
+          "fallbackBody": "Nobody typed this number and it doesn't come from Banxico: it's a fixed value the system carries so it's never left without an exchange rate. Every price derived from a dollar price is being worked out with it right now.",
+          "unknown": "UNRECOGNISED SOURCE",
+          "unknownBody": "This screen doesn't recognise this source. We can't say where the rate in force comes from."
         },
-        "sourceBody": {
-          "fallback": "Nobody typed this number and it doesn't come from Banxico: it's a fixed value the system carries so it's never left without an exchange rate. Every price derived from a dollar price is being worked out with it right now.",
-          "unknown": "This screen doesn't recognise this source. We can't say where the rate in force comes from."
+        "manual": {
+          "label": "MANUAL",
+          "none": "NONE SAVED",
+          "noneBody": "You haven't saved a rate of your own yet.",
+          "edit": "Change manual rate",
+          "create": "Save a manual rate",
+          "field": "Manual rate (pesos per dollar)",
+          "fieldHint": "It's always saved. It only takes effect if the switch is on manual.",
+          "savedNotRuling": "Saved. Not in force yet: we're still on automatic ({rate} from Banxico). It'll take effect as soon as you switch to manual.",
+          "savedRuling": "Saved, and now in force: {rate} pesos per dollar."
         },
-        "effectiveDate": "Effective",
-        "newRate": "New rate",
-        "newBuffer": "New buffer %",
-        "saveOverride": "Set override",
-        "refreshBanxico": "Refresh Banxico",
-        "hint": "MXN price = USD price × rate × (1 + buffer/100). Which of the two rates is in force is decided by the system's mode (automatic or manual), not by the last value saved: the manual rate is always kept, and it is only in force when the mode is manual.",
-        "bufferOnlyHint": "You can save just the buffer: leave the rate empty to keep the current rate.",
-        "saved": "Exchange rate updated.",
-        "savedBufferOnly": "Buffer updated; kept the current rate.",
+        "auto": {
+          "label": "AUTOMATIC · BANXICO",
+          "dated": "From {date} · {n, plural, one {# day ago} other {# days ago}}",
+          "fresh": "UP TO DATE",
+          "stale": "STALE",
+          "staleBody": "Banxico publishes on business days; this one has gone longer than usual without updating.",
+          "missing": "NONE",
+          "missingBody": "No Banxico rate has ever reached this system."
+        },
+        "ruling": {
+          "mark": "IN FORCE",
+          "markAria": "This is the rate in force right now."
+        },
+        "jump": {
+          "toAuto": "IF YOU SWITCH TO AUTOMATIC",
+          "toManual": "IF YOU SWITCH TO MANUAL",
+          "value": "{delta} · {pct} %",
+          "body": "It would change everything worked out from a dollar price: what we sell for and what we pay to buy.",
+          "none": "Nothing would move: both rates are the same.",
+          "unavailable": "The jump can't be worked out: there's no second rate to compare with."
+        },
+        "buffer": {
+          "label": "BUFFER",
+          "hint": "It applies the same with either rate, so it doesn't change the jump below. Edit it in Settings."
+        },
+        "toggle": {
+          "label": "Which rate is in force",
+          "manual": "MANUAL",
+          "auto": "AUTOMATIC",
+          "consequence": "It applies at the next price read, not at the next sweep.",
+          "loadingReason": "Loading both rates. The switch turns on when both are on screen.",
+          "blockedReason": "This screen can't offer the switch: one of the two rates is missing, and we don't move the exchange rate blind.",
+          "noManualReason": "There's no rate of your own saved. Save one and the switch turns on."
+        },
+        "mode": {
+          "legacyLabel": "INHERITED MODE",
+          "legacyBody": "Nobody has touched this switch in this environment yet, so the mode is being inferred from the saved value, as before. Once you move it, it stops being inferred.",
+          "manualWord": "manual",
+          "autoWord": "automatic"
+        },
         "refresh": {
+          "cta": "Refresh from Banxico",
+          "ctaHint": "Fetches Banxico's rate. It doesn't change which one is in force; with the switch on manual, it only updates the one next to it.",
+          "loading": "Asking Banxico…",
           "updated": "Banxico returned {rate}. It differs from the one we had, so it was saved.",
           "updatedWhileManual": "Your manual rate ({rate}) is still in force; this only updates the one you compare against.",
           "unchanged": "Banxico returned {rate}, the same one we already had. Nothing changed, and it isn't a failure.",
@@ -1676,7 +1726,29 @@
             "network_error": "Banxico couldn't be reached. Check the server's connection and retry.",
             "unknown": "The rate couldn't be fetched and the system didn't say why."
           }
-        }
+        },
+        "confirm": {
+          "title": "You're changing the exchange rate in force",
+          "rates": "Before {before} ({sourceBefore}) · now {after} ({sourceAfter}).",
+          "effect": "Everything worked out from a dollar price changes by {pct}: what we sell for and what we pay to buy.",
+          "when": "It applies at the next price read, not at the next sweep.",
+          "untouched": "What's already closed isn't touched: orders, buy offers already sent, and the prices you set by hand in pesos.",
+          "staleNote": "Banxico's rate is from {date} and hasn't updated in {n, plural, one {# day} other {# days}}.",
+          "cta": "Yes, switch to {rate}"
+        },
+        "ack": {
+          "title": "There is no Banxico rate",
+          "current": "Right now your manual rate is in force: {current} pesos per dollar.",
+          "would": "If you switch to automatic, {fallback} pesos per dollar would be in force.",
+          "whereFrom": "And nobody typed that one, and it doesn't come from Banxico: it's a fixed value the system carries so it's never left without an exchange rate. No Banxico rate has ever reached this system.",
+          "prices": "Everything worked out from a dollar price changes by {pct} as soon as you save: what we sell for and what we pay to buy. And it isn't at the next sweep: it's the next time anyone looks at a price.",
+          "cta": "Yes, switch to {fallback}"
+        },
+        "switched": "{rate} ({source}) is now in force. You can go back to {previousMode} whenever you like: the other number is still saved.",
+        "error": {
+          "load": "We couldn't load the exchange rate."
+        },
+        "footer": "Super-admin only · recorded in the audit log"
       },
       "priceIngest": {
         "trigger": "Refresh prices now",
@@ -2359,6 +2431,7 @@
           "pricingProviderGraded": "Per-card reference provider (graded)",
           "pricingProviderSealed": "Per-card reference provider (sealed)",
           "catalogSyncFromDate": "Catalog sync boundary",
+          "fxBufferPct": "Exchange rate buffer (USD→MXN)",
           "gradingHookEnabled": "Grading hook — publishes and fetches data"
         },
         "units": {
@@ -2960,6 +3033,10 @@
     "CONFLICT": "There was a conflict with the current state.",
     "CONFLICT_WITH_DETAILS": "{closed, select, yes {This request is already closed (it ended in “{status}”), so this action no longer applies.} other {This action doesn’t apply to the request’s current status (“{status}”).}} This isn’t an app failure and retrying won’t change it: refresh the view to see the real status.",
     "RATE_LIMITED": "Too many requests, try again later.",
+    "FX_MANUAL_RATE_MISSING": "There's no saved manual rate to go back to. Save one first, then flip the switch to manual. Nothing was changed.",
+    "FX_MANUAL_RATE_REQUIRED": "To remove the manual rate, switch to automatic first: it's the one in force right now, and deleting it would leave the system with no rate of its own. Nothing was saved.",
+    "FX_NO_AUTOMATIC_RATE": "There's no Banxico rate, so switching to automatic would leave a fixed fallback value in force that nobody typed. Confirm it from the notice, or refresh first. Nothing was changed.",
+    "FX_NO_AUTOMATIC_RATE_WITH_DETAILS": "There's no Banxico rate, so switching to automatic would leave a fixed fallback value ({fallbackRate}) in force that nobody typed. Confirm it from the notice, or refresh first. Nothing was changed.",
     "INTERNAL": "Server error. Please try again.",
     "PRICE_PENDING": "This card has a pending price and can't be purchased yet.",
     "ITEM_UNAVAILABLE": "This card is no longer available.",

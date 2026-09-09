@@ -2658,7 +2658,19 @@ export type FxModeResolvedFrom = 'setting' | 'legacy';
 /** Frescura de la tasa de Banxico (§M2-F.3). ⛔ La DERIVA EL SERVIDOR; el cliente la obedece. */
 export type FxAutomaticStatus = 'fresh' | 'stale' | 'missing';
 
-/** El número manual GUARDADO, rija o no (§M2-F.3 regla 1). `applied` ⟺ `mode === 'manual'`. */
+/**
+ * El número manual GUARDADO, rija o no (§M2-F.3 regla 1).
+ *
+ * ⭐ **v1.63.3 — `applied` se deriva de `source`, NO del `mode`.** La definición vieja
+ * (`applied ⟺ mode === 'manual'`) era equivalente en todo estado alcanzable por la API y dejaba
+ * de serlo justo en el estado ILEGAL de la cuarta fila de §M2-F.1 («manual sin número», sólo
+ * alcanzable por SQL/migración), donde el DTO llegaba a afirmar *«el número del dueño está
+ * aplicado»* **sobre un número que no existe**. Regla mecánica del contrato: **exactamente una de
+ * las dos `applied` es `true` ⟺ `source` la nombra; con `source: "fallback"` las DOS son `false`.**
+ *
+ * ⚠️ **Consecuencia observable, y la única que hay para el cliente:** `mode: "manual"` con
+ * `manual.applied: false` **es alcanzable**. ⛔ La pantalla OBEDECE `applied`; no lo deriva.
+ */
 export interface FxManualBlock {
   /** `null` si nunca se ha guardado ninguna. ⛔ No es «no hay tasa»: es «no hay tasa TUYA». */
   rate: number | null;
@@ -2674,7 +2686,11 @@ export interface FxAutomaticBlock {
   /** Lo calcula el servidor. `null` si `rate` es `null`. ⛔ No se resta en el navegador. */
   ageDays: number | null;
   status: FxAutomaticStatus;
-  /** ⟺ `mode === 'auto'` ∧ `status !== 'missing'`. */
+  /**
+   * ⟺ `source === 'banxico'` (v1.63.3; antes se definía como `mode === 'auto'` ∧
+   * `status !== 'missing'` — equivalente salvo en el estado corrupto de §M2-F.1, ver
+   * `FxManualBlock`).
+   */
   applied: boolean;
 }
 

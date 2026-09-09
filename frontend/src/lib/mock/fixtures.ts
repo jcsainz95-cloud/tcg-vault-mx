@@ -2975,6 +2975,11 @@ export interface MockFxWorld {
  *
  *  - `manual` + hay número  ⇒ rige el manual (`source: "manual"`)
  *  - `auto`   + hay Banxico ⇒ rige el de Banxico (`source: "banxico"`)
+ *  - ⚠️ **`manual` SIN número** (estado ILEGAL por I-FX4, alcanzable sólo por SQL/migración) ⇒
+ *    rige **la última fila de Banxico**; y sólo si tampoco la hay, el respaldo duro. *Entre «un
+ *    número real que Banxico publicó» y «un literal del código que nadie tecleó», rige el
+ *    primero* — 4ª fila de §M2-F.1 (v1.63.3), candado `FX-23`, ya implementada en el servidor.
+ *    La lectura **elige mejor, no repara**: el `mode` sigue diciendo `manual`.
  *  - en cualquier otro caso ⇒ rige el fallback duro de 18 (`source: "fallback"`, FX-7)
  *
  * ⛔ Un mock que nunca puede devolver `"fallback"` no puede probar la rama que el servidor YA
@@ -2982,11 +2987,13 @@ export interface MockFxWorld {
  * el servidor), y es la razón por la que B-1 llegó vivo a una pantalla de dinero.
  */
 export function buildMockFxState(world: MockFxWorld): FxDTO {
-  const manualApplied = world.mode === 'manual' && world.manualRate != null;
-  const automaticApplied = world.mode === 'auto' && world.automaticStatus !== 'missing' && world.automaticRate != null;
-  const ruling: Pick<FxDTO, 'rate' | 'source' | 'effectiveDate'> = manualApplied
+  const manualRules = world.mode === 'manual' && world.manualRate != null;
+  const hasBanxico = world.automaticStatus !== 'missing' && world.automaticRate != null;
+  // 4ª fila de §M2-F.1: en `manual` sin número, la lectura se defiende con la fila de Banxico.
+  const automaticRules = !manualRules && hasBanxico && (world.mode === 'auto' || world.manualRate == null);
+  const ruling: Pick<FxDTO, 'rate' | 'source' | 'effectiveDate'> = manualRules
     ? { rate: world.manualRate as number, source: 'manual', effectiveDate: MOCK_TODAY }
-    : automaticApplied
+    : automaticRules
       ? {
           rate: world.automaticRate as number,
           source: 'banxico',
@@ -2999,30 +3006,46 @@ export function buildMockFxState(world: MockFxWorld): FxDTO {
     mode: world.mode,
     modeResolvedFrom: world.modeResolvedFrom,
     // ⭐ Las DOS tasas viajan SIEMPRE, rija la que rija (§M2-F.3 regla 1).
-    manual: { rate: world.manualRate, applied: manualApplied },
+    //
+    // ⚠️ v1.63.3: los dos `applied` se derivan de **`source`**, no del `mode` — la regla mecánica
+    // del contrato es *«exactamente una de las dos `applied` es `true` ⟺ `source` la nombra; con
+    // `source: "fallback"` las DOS son `false`»*. Escrito así (y no con las dos condiciones de
+    // arriba, que hoy dan lo mismo) el simulador **no puede** emitir la combinación que el
+    // contrato declara imposible, ni siquiera si mañana cambia la regla de precedencia.
+    manual: { rate: world.manualRate, applied: ruling.source === 'manual' },
     automatic: {
       rate: world.automaticRate,
       effectiveDate: world.automaticEffectiveDate,
       ageDays: world.automaticAgeDays,
       status: world.automaticStatus,
-      applied: automaticApplied,
+      applied: ruling.source === 'banxico',
     },
   };
 }
 
 /**
- * Estado por defecto: modo `auto` con una tasa de Banxico vieja y **sin** tasa manual guardada —
- * que es el estado real más común hoy (falta `BANXICO_SIE_TOKEN` en producción, `D-OPS-1`).
+ * ⭐ Estado por defecto: **el de PRODUCCIÓN, tal cual lo describe `DESIGN_SYSTEM §30`** — el dueño
+ * con **19.0000 fijado a mano**, **ninguna** fila de Banxico (a este entorno nunca llegó una:
+ * falta `BANXICO_SIE_TOKEN`, `D-OPS-1` / P-63) y el modo **deducido del valor** porque nadie ha
+ * tocado nunca el interruptor (`modeResolvedFrom: "legacy"`, §M2-F.1).
+ *
+ * ⚠️ **Cambió en este pase, y no es cosmético.** El defecto anterior (`auto` + Banxico `stale` de
+ * 18.42 + sin tasa manual) describía un entorno que **no existe**: si el token nunca se configuró,
+ * **no hay ninguna fila `FxRate`** que pudiera estar vieja. Con el mundo real de arriba, el
+ * simulador alcanza —**por actos legales de la propia pantalla, sin puerta trasera**— los tres
+ * estados que esta tarjeta existe para cubrir: `MODO HEREDADO`, el **acuse** de §30.8 (pasar a
+ * automática sin tasa de Banxico) y, tras confirmarlo, `SIN RESPALDO REAL`. *Un simulador cuyo
+ * defecto es el estado feliz no puede poner en rojo el candado del estado grave.*
  */
 export let mockFxWorld: MockFxWorld = {
-  mode: 'auto',
-  modeResolvedFrom: 'setting',
+  mode: 'manual',
+  modeResolvedFrom: 'legacy',
   bufferPct: 3,
-  manualRate: null,
-  automaticRate: 18.42,
-  automaticEffectiveDate: '2026-08-14',
-  automaticAgeDays: 26,
-  automaticStatus: 'stale',
+  manualRate: 19,
+  automaticRate: null,
+  automaticEffectiveDate: null,
+  automaticAgeDays: null,
+  automaticStatus: 'missing',
 };
 
 /** Tipo de cambio USD→MXN con colchón (contrato `GET /admin/fx`, `FxStateDTO` §M2-F.3). */
@@ -3070,6 +3093,40 @@ export function mockFxRefreshBlock(): FxRefreshBlock {
     fetchedRate: plan.outcome === 'failed' ? null : (plan.fetchedRate ?? mockFxWorld.automaticRate),
     at: `${MOCK_TODAY}T17:04:11Z`,
   };
+}
+
+/**
+ * `PUT /admin/fx/mode` — **el interruptor** (§M2-F.2). El simulador aplica las MISMAS
+ * precondiciones que el servidor, porque son las que la pantalla tiene que saber respetar:
+ *
+ *  - **I-FX4** — pedir `manual` sin número guardado ⇒ `422 FX_MANUAL_RATE_MISSING`, **y el modo
+ *    no cambia**. (La tarjeta evita el viaje deshabilitando ese segmento, §30.4 caso 4; el `422`
+ *    existe igual para la carrera real.)
+ *  - **El acuse** — pasar a `auto` con `automatic.status === "missing"` **sin**
+ *    `acknowledgeNoAutomaticRate: true` ⇒ `422 FX_NO_AUTOMATIC_RATE` con
+ *    `details: { currentRate, fallbackRate }`, **y el modo no cambia**. ⛔ **No se pide con
+ *    `stale`**: ahí hay un número real que el humano puede ver y juzgar.
+ *  - **I-FX3** — ⛔ **nunca escribe `fx_manual_override_rate`**: ni para «limpiarlo», ni para
+ *    «archivarlo». El número del dueño sobrevive al cambio de modo, que es la feature entera.
+ *  - **Materializa el modo**: `modeResolvedFrom` pasa a `"setting"` en cuanto alguien mueve el
+ *    interruptor, así que `MODO HEREDADO` desaparece solo (§30.5).
+ */
+export function applyMockFxMode(input: { mode: FxRateMode; acknowledgeNoAutomaticRate?: true }): FxDTO {
+  const world = mockFxWorld;
+  if (input.mode === 'manual' && world.manualRate == null) {
+    throw new ApiFixtureError(422, 'FX_MANUAL_RATE_MISSING', 'No saved manual rate to switch to', {
+      savedManualRate: null,
+    });
+  }
+  if (input.mode === 'auto' && world.automaticStatus === 'missing' && input.acknowledgeNoAutomaticRate !== true) {
+    throw new ApiFixtureError(422, 'FX_NO_AUTOMATIC_RATE', 'No Banxico rate; acknowledgement required', {
+      currentRate: mockFx.rate,
+      fallbackRate: MOCK_FX_HARD_FALLBACK_RATE,
+    });
+  }
+  // ⛔ Sólo el MODO. El valor no se toca (I-FX3), ni siquiera cuando deja de regir.
+  setMockFxWorld({ ...world, mode: input.mode, modeResolvedFrom: 'setting' });
+  return mockFx;
 }
 
 /** Cola de precio pendiente (contrato GET /admin/pricing/pending). v1.8: POR ACABADO. */
@@ -3557,7 +3614,10 @@ export let mockSettings: SettingsDTO = {
   ineThresholdCents: 300000,
   repoCapPerCardCents: 5000000,
   fxBufferPct: 3,
-  fxManualOverrideRate: undefined,
+  // Coherente con `mockFxWorld` a propósito: es **el mismo ajuste** (`fx_manual_override_rate`)
+  // visto por la otra puerta (§M2-F.5). Dos superficies del simulador que discrepan sobre el mismo
+  // número de dinero son la clase de mentira que ya costó un bloqueante en este panel.
+  fxManualOverrideRate: 19,
   pricingProviderRaw: 'pokemontcg_io',
   pricingProviderGraded: 'pokemonpricetracker',
   pricingProviderSealed: 'manual',

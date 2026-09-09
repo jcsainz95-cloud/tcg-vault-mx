@@ -8,7 +8,7 @@ import {
   MOCK_FX_HARD_FALLBACK_RATE,
   type MockFxWorld,
 } from './fixtures';
-import { getFx, updateFx, refreshFx } from '@/lib/api';
+import { getFx, updateFx, refreshFx, setFxMode } from '@/lib/api';
 
 /*
  * ─────────────────────────────────────────────────────────────────────────────
@@ -146,5 +146,131 @@ describe('mock de FX · puede devolver los TRES desenlaces del refresco (B-2, ca
     expect(dto.rate).toBe(19);
     expect(dto.mode).toBe('manual');
     expect(dto.source).toBe('manual');
+  });
+});
+
+/*
+ * ─────────────────────────────────────────────────────────────────────────────
+ * v1.63.3 — LA REGLA MECÁNICA DE `applied`, Y EL INTERRUPTOR
+ *
+ * El contrato **redefinió `applied`**: se deriva de **`source`**, no del `mode`. La regla, en una
+ * línea: *«exactamente una de las dos `applied` es `true` ⟺ `source` la nombra; con
+ * `source: "fallback"` las DOS son `false`»*. Un simulador que la viole enseña a la pantalla a
+ * derivar `applied` del modo — que es justo lo que §30.3a prohíbe.
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+describe('mock de FX · `applied` se deriva de `source` (v1.63.3)', () => {
+  const WORLDS: MockFxWorld[] = [
+    AUTO_WITH_BANXICO,
+    AUTO_WITHOUT_ANY_RATE,
+    { ...AUTO_WITH_BANXICO, manualRate: 19 },
+    { ...AUTO_WITH_BANXICO, mode: 'manual', manualRate: 19 },
+    { ...AUTO_WITHOUT_ANY_RATE, mode: 'manual', manualRate: 19 },
+    // ⚠️ El estado ILEGAL de la 4ª fila de §M2-F.1 («manual sin número»), alcanzable sólo por SQL.
+    { ...AUTO_WITH_BANXICO, mode: 'manual', manualRate: null },
+    { ...AUTO_WITHOUT_ANY_RATE, mode: 'manual', manualRate: null },
+  ];
+
+  it('⭐ en TODOS los mundos: `source` nombra a la rama aplicada, y `fallback` no nombra a ninguna', () => {
+    for (const world of WORLDS) {
+      const dto = buildMockFxState(world);
+      expect(dto.manual.applied, JSON.stringify(world)).toBe(dto.source === 'manual');
+      expect(dto.automatic.applied, JSON.stringify(world)).toBe(dto.source === 'banxico');
+      if (dto.source === 'fallback') {
+        expect(dto.manual.applied).toBe(false);
+        expect(dto.automatic.applied).toBe(false);
+      }
+      // Nunca las dos a la vez: sólo una tasa rige.
+      expect(dto.manual.applied && dto.automatic.applied).toBe(false);
+    }
+  });
+
+  it('⭐ `mode: "manual"` con `manual.applied: false` ES alcanzable, y es lo que el front debe obedecer', () => {
+    const dto = buildMockFxState({ ...AUTO_WITH_BANXICO, mode: 'manual', manualRate: null });
+    expect(dto.mode).toBe('manual');
+    expect(dto.manual.applied).toBe(false);
+  });
+});
+
+describe('mock de FX · el interruptor `PUT /admin/fx/mode` (§M2-F.2)', () => {
+  it('⭐ alterna N veces SIN volver a teclear el número, y ⛔ nunca lo borra (I-FX1 · I-FX3)', async () => {
+    setMockFxWorld({ ...AUTO_WITH_BANXICO, mode: 'manual', manualRate: 19 });
+
+    for (let i = 0; i < 3; i++) {
+      const toAuto = await setFxMode({ mode: 'auto' });
+      expect(toAuto.rate).toBe(18.2);
+      expect(toAuto.source).toBe('banxico');
+      expect(toAuto.manual.rate).toBe(19);
+
+      const toManual = await setFxMode({ mode: 'manual' });
+      expect(toManual.rate).toBe(19);
+      expect(toManual.source).toBe('manual');
+    }
+  });
+
+  it('materializa el modo: `modeResolvedFrom` pasa de `legacy` a `setting`', async () => {
+    setMockFxWorld({ ...AUTO_WITH_BANXICO, modeResolvedFrom: 'legacy', mode: 'manual', manualRate: 19 });
+    const dto = await setFxMode({ mode: 'auto' });
+    expect(dto.modeResolvedFrom).toBe('setting');
+  });
+
+  it('pedir `manual` sin número guardado ⇒ `422 FX_MANUAL_RATE_MISSING`, y el modo NO cambia (I-FX4)', async () => {
+    setMockFxWorld(AUTO_WITH_BANXICO);
+    await expect(setFxMode({ mode: 'manual' })).rejects.toMatchObject({
+      status: 422,
+      code: 'FX_MANUAL_RATE_MISSING',
+    });
+    expect(mockFx.mode).toBe('auto');
+  });
+
+  it('⭐ pasar a `auto` SIN tasa de Banxico exige el acuse, y trae el número al que se saltaría', async () => {
+    setMockFxWorld({ ...AUTO_WITHOUT_ANY_RATE, mode: 'manual', manualRate: 19 });
+
+    await expect(setFxMode({ mode: 'auto' })).rejects.toMatchObject({
+      status: 422,
+      code: 'FX_NO_AUTOMATIC_RATE',
+      details: { currentRate: 19, fallbackRate: MOCK_FX_HARD_FALLBACK_RATE },
+    });
+    // ⛔ El modo NO cambió: la precondición contesta, no aplica a medias.
+    expect(mockFx.mode).toBe('manual');
+    expect(mockFx.rate).toBe(19);
+
+    const acked = await setFxMode({ mode: 'auto', acknowledgeNoAutomaticRate: true });
+    expect(acked.source).toBe('fallback');
+    expect(acked.rate).toBe(MOCK_FX_HARD_FALLBACK_RATE);
+    // El número del dueño sigue guardado, aunque ya no rija.
+    expect(acked.manual.rate).toBe(19);
+    expect(acked.manual.applied).toBe(false);
+  });
+
+  it('⛔ con `stale` NO se pide acuse: hay número real que el humano puede juzgar', async () => {
+    setMockFxWorld({ ...AUTO_WITH_BANXICO, mode: 'manual', manualRate: 19, automaticStatus: 'stale', automaticAgeDays: 40 });
+    const dto = await setFxMode({ mode: 'auto' });
+    expect(dto.source).toBe('banxico');
+    expect(dto.rate).toBe(18.2);
+  });
+});
+
+describe('mock de FX · la 4ª fila de §M2-F.1 (`FX-23`): «manual sin número» NO cae al 18', () => {
+  it('⭐ con una fila de Banxico, rige ÉSA — y el `mode` sigue diciendo `manual` (no se repara)', () => {
+    const dto = buildMockFxState({ ...AUTO_WITH_BANXICO, mode: 'manual', manualRate: null });
+
+    expect(dto.rate).toBe(18.2);
+    expect(dto.source).toBe('banxico');
+    expect(dto.mode).toBe('manual');
+    expect(dto.manual.rate).toBeNull();
+    // ⛔ Rojo si `manual.applied` fuera `true` sobre un número que no existe (la mentira que
+    // v1.63.3 borró), o si rigiera el literal que nadie tecleó.
+    expect(dto.manual.applied).toBe(false);
+    expect(dto.automatic.applied).toBe(true);
+  });
+
+  it('sin fila de Banxico, ahí SÍ manda el respaldo, y las DOS `applied` quedan en `false`', () => {
+    const dto = buildMockFxState({ ...AUTO_WITHOUT_ANY_RATE, mode: 'manual', manualRate: null });
+
+    expect(dto.rate).toBe(MOCK_FX_HARD_FALLBACK_RATE);
+    expect(dto.source).toBe('fallback');
+    expect(dto.manual.applied).toBe(false);
+    expect(dto.automatic.applied).toBe(false);
   });
 });

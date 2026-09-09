@@ -114,6 +114,7 @@ import type {
   IneUploadKeys,
   KycInfoDTO,
   FxDTO,
+  FxRateMode,
   FxRefreshDTO,
   PriceIngestResponse,
   PendingPriceEntryDTO,
@@ -3888,6 +3889,31 @@ export async function updateFx(input: { rate?: number; bufferPct?: number }): Pr
     bufferPct: input.bufferPct ?? fx.mockFxWorld.bufferPct,
   });
   return delay(fx.mockFx);
+}
+
+/**
+ * ⭐ **EL INTERRUPTOR** — `PUT /admin/fx/mode` (contrato §M2-F.2, `super_admin`, DINERO).
+ *
+ * Cambia **el MODO**, y sólo el modo: ⛔ no acepta `rate` y ⛔ no escribe la tasa manual (I-FX3).
+ * Poner una tasa **y** activarla son **dos llamadas**, en este orden: `updateFx({ rate })` (guarda,
+ * no aplica) → `setFxMode({ mode: 'manual' })` (aplica). *Ese orden es money-safe por
+ * construcción: el paso intermedio no mueve un peso.*
+ *
+ * `acknowledgeNoAutomaticRate` **NO es una tasa: es un ACUSE** (§M2-F.3 regla 5). Sólo se manda
+ * cuando el humano confirmó el diálogo de §30.8 —pasar a automática **sin ninguna fila de
+ * Banxico**, que lleva a regir el valor de respaldo—; sin él, el servidor contesta
+ * `422 FX_NO_AUTOMATIC_RATE` y **el modo no cambia**.
+ */
+export async function setFxMode(input: {
+  mode: FxRateMode;
+  acknowledgeNoAutomaticRate?: true;
+}): Promise<FxDTO> {
+  if (!config.useMocks) return apiRequest<FxDTO>('/admin/fx/mode', { method: 'PUT', body: input });
+  try {
+    return await delay(fx.applyMockFxMode(input));
+  } catch (e) {
+    throw translateFixtureError(e);
+  }
 }
 
 /**

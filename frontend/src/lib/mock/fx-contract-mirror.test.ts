@@ -86,19 +86,22 @@ describe('espejo de `FxSource` contra §M2-F.3', () => {
     expect(firstColumnValues(enumTable)).toContain('fallback');
   });
 
+  // ⚠️ v1.63.3: el catálogo se reorganizó al construir la tarjeta de §30 (`sourceLabel.*` +
+  // `sourceBody.*` → `source.*` + `source.*Body`, las claves que §30.15 nombra). El candado sigue
+  // midiendo lo mismo: **cada valor del enum tiene rótulo propio y `fallback` no comparte ninguno**.
   it.each(CATALOGS)('[%s] cada valor del enum tiene rótulo propio, + el neutro para el desconocido', (_l, fx) => {
     for (const source of FX_SOURCES) {
-      expect(copyAt(fx, `sourceLabel.${source}`), `falta el rótulo de \`${source}\``).toBeTruthy();
+      expect(copyAt(fx, `source.${source}`), `falta el rótulo de \`${source}\``).toBeTruthy();
     }
-    expect(copyAt(fx, 'sourceLabel.unknown'), 'falta el rótulo neutro (§30.5)').toBeTruthy();
+    expect(copyAt(fx, 'source.unknown'), 'falta el rótulo neutro (§30.5)').toBeTruthy();
   });
 
   it.each(CATALOGS)('[%s] ⛔ `fallback` NUNCA comparte rótulo con `manual` ni con `banxico`', (_l, fx) => {
-    const fallback = copyAt(fx, 'sourceLabel.fallback');
-    expect(fallback).not.toBe(copyAt(fx, 'sourceLabel.manual'));
-    expect(fallback).not.toBe(copyAt(fx, 'sourceLabel.banxico'));
+    const fallback = copyAt(fx, 'source.fallback');
+    expect(fallback).not.toBe(copyAt(fx, 'source.manual'));
+    expect(fallback).not.toBe(copyAt(fx, 'source.banxico'));
     // Y lleva su párrafo: el estado se explica, no se etiqueta y ya (§30.5).
-    expect(copyAt(fx, 'sourceBody.fallback')?.length ?? 0).toBeGreaterThan(80);
+    expect(copyAt(fx, 'source.fallbackBody')?.length ?? 0).toBeGreaterThan(80);
   });
 });
 
@@ -110,6 +113,49 @@ describe('espejo del `FxStateDTO` contra §M2-F.3', () => {
     expect(keys.length, 'no se pudieron leer las claves del `FxStateDTO`').toBeGreaterThan(4);
     // El mock materializa el tipo: si al tipo le falta una clave, al DTO también.
     expect(Object.keys(buildMockFxState(mockFxWorld)).sort()).toEqual([...new Set(keys)].sort());
+  });
+});
+
+/*
+ * ─────────────────────────────────────────────────────────────────────────────
+ * v1.63.3 — LAS DOS COSAS QUE EL CONTRATO CAMBIÓ Y QUE EL CLIENTE TIENE QUE SEGUIR
+ *
+ * (1) `applied` **se deriva de `source`**, no del `mode` ⇒ `mode: "manual"` con `applied: false`
+ *     es **alcanzable**. (2) Los invariantes son **SEIS** (`I-FX6`, la serialización de las dos
+ *     puertas). Se anclan **en el contrato**: el día que alguien vuelva a la definición vieja,
+ *     esto se pone rojo por el sitio correcto.
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+describe('espejo de la regla de `applied` (v1.63.3) contra §M2-F', () => {
+  /** El contrato envuelve a ~110 columnas y cita dentro de blockquotes: se aplana antes de leer. */
+  const flat = (markdown: string) => markdown.replace(/\n\s*>?\s*/g, ' ');
+
+  it('⭐ el contrato define `applied` POR `source`, y declara alcanzable `manual` sin aplicar', () => {
+    const body = flat(section('M2-F3', 'M2-F4'));
+    expect(body).toMatch(/exactamente una de las dos `applied` es `true` ⟺ `source` la nombra/);
+    expect(body).toMatch(/con `source: "fallback"` las DOS son `false`/);
+    expect(body).toMatch(/`mode: "manual"` con `manual\.applied: false` pasa a ser \*\*alcanzable\*\*/);
+    // Y la consecuencia, dicha para el cliente: se OBEDECE `applied`, ⛔ no se deriva del `mode`.
+    expect(body).toMatch(/la pantalla OBEDECE `applied`, ⛔ no lo deriva de `mode`/);
+  });
+
+  it('el simulador obedece esa regla en el mundo por defecto (no sólo en los fixtures del test)', () => {
+    const dto = buildMockFxState(mockFxWorld);
+    expect(dto.manual.applied).toBe(dto.source === 'manual');
+    expect(dto.automatic.applied).toBe(dto.source === 'banxico');
+  });
+
+  it('los invariantes de §M2-F.1 son SEIS, y el sexto es la puerta serializada', () => {
+    const body = flat(section('M2-F1', 'M2-F2'));
+    expect(body).toMatch(/Los SEIS invariantes/);
+    expect(body).toMatch(/I-FX6/);
+  });
+
+  it('el interruptor sigue siendo `PUT /admin/fx/mode`, con su acuse y sin aceptar `rate`', () => {
+    const body = flat(section('M2-F2', 'M2-F3'));
+    expect(body).toMatch(/PUT \/api\/v1\/admin\/fx\/mode/);
+    expect(body).toMatch(/acknowledgeNoAutomaticRate/);
+    expect(body).toMatch(/⛔ \*\*No acepta `rate`\*\*/);
   });
 });
 
@@ -145,8 +191,14 @@ describe('espejo del bloque `refresh` contra §M2-F.5', () => {
     expect(copyAt(fx, 'refresh.unchanged')).toBeTruthy();
     expect(copyAt(fx, 'refresh.failedTitle')).toBeTruthy();
     expect(copyAt(fx, 'refresh.failedBody')).toBeTruthy();
-    // El título del fallo no puede parecerse al acuse de guardado que leyó el dueño.
-    expect(copyAt(fx, 'refresh.failedTitle')).not.toBe(copyAt(fx, 'saved'));
+    // El título del fallo no puede parecerse a ningún acuse de guardado (§30.7: «un `200` no es un
+    // éxito»). ⚠️ La clave `saved` —«Tipo de cambio actualizado.», la frase que el dueño leyó
+    // mientras el fetch fallaba— **ya no existe**: la sustituyen `manual.savedRuling` y
+    // `manual.savedNotRuling`, que dicen si el número RIGE. Se comprueban las dos, y que la vieja
+    // no haya vuelto.
+    expect(copyAt(fx, 'saved')).toBeUndefined();
+    expect(copyAt(fx, 'refresh.failedTitle')).not.toBe(copyAt(fx, 'manual.savedRuling'));
+    expect(copyAt(fx, 'refresh.failedTitle')).not.toBe(copyAt(fx, 'manual.savedNotRuling'));
   });
 
   it('§M2-F.5 sigue obligando a la UI a distinguir `failed` — la razón de ser de todo esto', () => {
