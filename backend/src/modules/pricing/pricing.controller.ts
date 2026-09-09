@@ -110,9 +110,12 @@ class OverrideDto {
  * opcionales pero el controller exige al menos uno (422 si el body no trae ninguno).
  */
 class FxDto {
-  // FX-B2: fraccional permitido (FxRate es Decimal(12,6)); el rango [min, MAX] lo aplica el
+  // FX-B2: fraccional permitido (FxRate es Decimal(12,6)); la BANDA `[1, 1000]` la aplica el
   // validador compartido `validateFxManualOverrideRate` en setManual(), MISMA regla que
   // PUT /admin/settings. Aquí solo se exige que sea número finito (rechaza strings/NaN).
+  // ⚠️ v1.63.4 (`FX-24`): estas dos líneas decían «el rango `[min, MAX]`» nombrando un `min` que **no
+  // existía en el código** — la banda era `(0, MAX]`, sin piso. Ya no es una promesa: el piso es `1`
+  // y lo aplica `isFxRateInBand` (§M2-F.8), el mismo predicado que la puerta de Banxico.
   @IsOptional() @IsNumber() rate?: number;
   @IsOptional() @IsInt() @Min(0) bufferPct?: number;
 }
@@ -854,9 +857,10 @@ export class FxController {
     if (dto.rate == null && dto.bufferPct == null) {
       throw BusinessException.validation('VALIDATION_ERROR', 'Provide rate and/or bufferPct');
     }
-    // FX-B1/FX-B2: mismo validador compartido que PUT /admin/settings → rango [min, MAX] idéntico
-    // en ambas puertas (esta NO queda más permisiva). Rechaza overrides absurdos que desbordarían
-    // `Int priceMxnCents` en price-ingest. `null`/omitido = no pinnea la tasa (solo colchón).
+    // FX-B1/FX-B2: mismo validador compartido que PUT /admin/settings → banda `[1, 1000]` IDÉNTICA
+    // en ambas puertas (esta NO queda más permisiva). Rechaza por arriba overrides absurdos que
+    // desbordarían `Int priceMxnCents` en price-ingest, y desde v1.63.4 (`FX-24`) también **por
+    // abajo**: `0.05` es la INVERSA del par, no el par. `null`/omitido = no pinnea (solo colchón).
     if (dto.rate != null) {
       const err = validateFxManualOverrideRate(dto.rate);
       if (err) throw BusinessException.validation('VALIDATION_ERROR', err, { field: 'rate' });

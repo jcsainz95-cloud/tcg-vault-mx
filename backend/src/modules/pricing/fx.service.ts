@@ -3,17 +3,19 @@ import { ConfigService } from '@nestjs/config';
 import { Prisma, Role } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SettingsService } from '../settings/settings.service';
-import { MAX_FX_MANUAL_OVERRIDE_RATE, SettingKey } from '../settings/settings.constants';
+import { SettingKey } from '../settings/settings.constants';
 import { BusinessException } from '../../common/business.exception';
 import type { AuditEntry } from '../audit/audit.service';
 import {
   FX_FALLBACK_RATE,
+  FX_RATE_BAND_TEXT,
   FxInputs,
   FxRateMode,
   FxReadHandle,
   FxStateDTO,
   fxIsoDate,
   fxToday,
+  isFxRateInBand,
   latestBanxicoFxRate,
   lockFxGate,
   projectFxState,
@@ -35,7 +37,7 @@ export type FxRefreshFailureReason = 'no_token' | 'http_error' | 'invalid_payloa
  *
  * ### Las dos cosas que estaban mal, y son dos
  * **(1) Asimetría de validación, y al revés de como debe ser.** La tasa **tecleada** por un humano
- * está acotada a `(0, MAX_FX_MANUAL_OVERRIDE_RATE]` desde FX-B1. La que **llega de Banxico** —la que
+ * está acotada a la banda `[1, 1000]` desde FX-B1. La que **llega de Banxico** —la que
  * en modo `auto` rige **sin que ningún humano la mire**— solo comprobaba `isFinite && > 0`. *La
  * fuente menos vigilada era la única que nadie ve pasar.* Medido: `"9999"` entraba y multiplicaba el
  * catálogo por ~549 sin desbordar ningún clamp, así que **no daba error: daba precios.**
@@ -55,10 +57,20 @@ export type FxRefreshFailureReason = 'no_token' | 'http_error' | 'invalid_payloa
  * ⚠️ **`out_of_band` NO es un `reason` nuevo del contrato**: se mapea a `invalid_payload` a propósito
  * (§M2-F.5 fija ese enum y **el contrato no se cambia desde backend**). Se distingue en el log, que
  * es donde hace falta para operar. *Si el arquitecto quiere un `reason` propio, es suyo.*
+ *
+ * ### ⭐⭐ v1.63.4 (`FX-24`, §M2-F.8) — LA BANDA GANA PISO, Y AQUÍ NO SE ESCRIBE
+ * El veredicto de rango lo da **{@link isFxRateInBand}**, el MISMO cuerpo que aplica
+ * {@link validateFxManualOverrideRate}. ⛔ **Ya no hay parámetro `maxRate`**: un tope por llamada era
+ * una segunda banda con otro nombre, y lo único que sostenía era un test que quería separar «formato»
+ * de «rango» — separación que se afirma mejor mirando el `why` (`format` vs `out_of_band`), que es lo
+ * que el parser ya devuelve.
+ *
+ * ⚠️ **El `why` puede diferir del motivo de la puerta tecleada y eso NO es una divergencia**: `"0.05"`
+ * sale `out_of_band` aquí y `1e-7` (que en formato SIE ni siquiera es expresable) saldría `format`.
+ * **Lo normativo es el VEREDICTO**, y de eso se ocupa `FX-24(b)` asertándolo como identidad.
  */
 export function parseBanxicoRate(
   raw: unknown,
-  maxRate: number = MAX_FX_MANUAL_OVERRIDE_RATE,
 ): { ok: true; rate: number } | { ok: false; why: 'format' | 'out_of_band' } {
   if (typeof raw !== 'string') return { ok: false, why: 'format' };
   const texto = raw.trim();
@@ -66,9 +78,12 @@ export function parseBanxicoRate(
   if (!/^\d+(\.\d+)?$|^\d{1,3}(,\d{3})+(\.\d+)?$/.test(texto)) return { ok: false, why: 'format' };
   const n = Number(texto.replace(/,/g, ''));
   if (!Number.isFinite(n)) return { ok: false, why: 'format' };
-  // La MISMA banda que la tasa tecleada (FX-B1/FX-B2: el mismo dial no se valida distinto según la
-  // puerta). Un FIX USD/MXN fuera de `(0, 1000]` no es una tasa: es un cambio de formato o un fallo.
-  if (n <= 0 || n > maxRate) return { ok: false, why: 'out_of_band' };
+  // ⭐⭐ La MISMA banda que la tasa tecleada, y por el MISMO predicado (FX-B1/FX-B2 RATIFICADOS en
+  // §M2-F.8): la banda afirma algo del VALOR, y `liveMxnCents` no sabe por qué puerta entró. Un FIX
+  // USD/MXN fuera de `[1, 1000]` no es una tasa: por arriba es un `9999` (×549 al catálogo), por
+  // abajo es la INVERSA del par (≈0.0526 — el vector que produce que la SIE publique el par al
+  // revés) y hunde una carta de USD 100 de MX$ 1,957 a MX$ 0.01.
+  if (!isFxRateInBand(n)) return { ok: false, why: 'out_of_band' };
   return { ok: true, rate: n };
 }
 
@@ -448,7 +463,7 @@ export class FxService {
       if (!parsed.ok) {
         this.logger.warn(
           parsed.why === 'out_of_band'
-            ? `Banxico devolvió una tasa FUERA DE BANDA (${String(raw)}; banda (0, ${MAX_FX_MANUAL_OVERRIDE_RATE}]): ` +
+            ? `Banxico devolvió una tasa FUERA DE BANDA (${String(raw)}; banda ${FX_RATE_BAND_TEXT}): ` +
               'no se escribe fila (outcome=failed/invalid_payload).'
             : `Banxico devolvió un payload sin tasa usable en formato SIE (${String(raw)}) ` +
               '(outcome=failed/invalid_payload).',

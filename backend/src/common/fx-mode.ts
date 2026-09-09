@@ -64,6 +64,78 @@ export const FX_FALLBACK_RATE = 18;
  */
 export const FX_AUTO_STALE_AFTER_DAYS = 5;
 
+// =================================================================================================
+// ⭐⭐ LA BANDA DE CORDURA DE LA TASA — `[1, 1000]`, UNA SOLA, PARA LAS DOS PUERTAS
+// (v1.63.4 · API_CONTRACT §M2-F.8 · ARCHITECTURE §4.43c-quinquies · candado `FX-24` · **DINERO**)
+// =================================================================================================
+
+/**
+ * ⭐ **Extremo INFERIOR de la banda, CERRADO.** *(v1.63.4 — decisión del ARQUITECTO, §M2-F.8.)*
+ *
+ * Hasta v1.63.3 la banda era `(0, 1000]`: **tenía techo y no tenía piso.** Medido con el parser real,
+ * `"0.0001"` y `"0.0000001"` **entraban por las dos puertas**, y con `0.0001` una carta de USD 100
+ * pasa de **MX$ 1,957.00 a MX$ 0.0103** en la siguiente lectura de precio. *Es el espejo exacto del
+ * `"9999"` que motivó `S-FX-2`: la banda se puso para atrapar esta clase de valor y sólo la atrapaba
+ * por arriba.*
+ *
+ * **Por qué `1`, y por qué de negocio:** **el peso nunca ha valido más que el dólar.** El par se
+ * cotiza en **pesos por dólar** y ha vivido siempre entre ~3 y ~25. Por debajo de `1` el número **no
+ * es el par**: es su **inversa** (dólares por peso, ≈`0.0526` — el vector más plausible, y el que se
+ * produce si cambia la serie SIE o si la fuente publica el par al revés), un **error de escala**
+ * (÷100, ÷1000) o **basura truncada**. *El `1` no es un umbral de mercado: es la frontera entre
+ * «pesos por dólar» y «no es eso».*
+ *
+ * ⚠️ **Y no se aprieta más** (a 5, a 10): lo que empuja al peso fuera de rango es una crisis, que lo
+ * hace **más débil** —número **más alto**—, así que un piso apretado nunca serviría para lo que se le
+ * pediría. Lo único que llevaría la cotización por debajo de `1` es una **redenominación**, que
+ * **debe** parar el sistema y que alguien mire, no repreciar sola.
+ */
+export const FX_RATE_MIN = 1;
+
+/**
+ * **Extremo SUPERIOR de la banda, CERRADO** (`FX-B1`, S-FX-2). El tipo de cambio real MXN/USD ronda
+ * 15-25; 1000 deja ~40-65× de holgura y a la vez **ACOTA la valuación**: sin techo, un override
+ * absurdo (p. ej. `1e9`) desborda la columna `Int priceMxnCents` (~2.1e9) en el job `price-ingest`
+ * (excepción de Prisma = DoS). Medido: `"9999"` multiplicaba el catálogo por ~549 **sin desbordar
+ * ningún clamp**, así que no daba error: **daba precios**.
+ */
+export const FX_RATE_MAX = 1000;
+
+/**
+ * ⭐⭐ **EL PREDICADO ÚNICO DE LA BANDA. Las dos puertas de ESCRITURA llaman AQUÍ.**
+ *
+ * `validateFxManualOverrideRate` (la tecleada: `PUT /admin/fx` y `PUT /admin/settings`) y
+ * `parseBanxicoRate` (la de la SIE) comparten **este** cuerpo, y no dos copias del mismo `>= 1`.
+ *
+ * ### Por qué UNA banda y no dos *(la simetría de `FX-B1`/`FX-B2` se **RATIFICA**, ⛔ no se deroga)*
+ * 1. **La banda afirma algo del VALOR, no de la puerta.** El conversor (`liveMxnCents`) **no sabe**
+ *    por dónde entró el número. Dos bandas significarían que hay valores que **son una tasa cuando
+ *    los teclea un humano y no lo son cuando los publica Banxico**: eso no es una política, es una
+ *    contradicción.
+ * 2. **La única asimetría defendible iría al revés de lo que nadie quiere.** Endurecer *sólo*
+ *    Banxico ⇒ rechazaríamos del **banco central** números que aceptamos del teclado; relajar *sólo*
+ *    la manual ⇒ el typo es precisamente lo que la banda vino a atrapar (`FX-B1` nació de un `1e9`
+ *    **tecleado**).
+ * 3. **La diferencia real entre las puertas ya está cobrada en la CONSECUENCIA** (§M2-F.8): la
+ *    tecleada devuelve `422` sin escritura parcial; la de Banxico no escribe fila, deja la tasa
+ *    anterior en su sitio y sale `failed/invalid_payload`.
+ *
+ * ⛔ **Dos literales `1` en dos ficheros son dos bandas esperando a divergir**, y esa es justo la
+ * mutación realista que `FX-24(b)` pone en rojo — porque el arreglo se hace en dos ficheros.
+ *
+ * ⚠️ **Esto es una puerta de ESCRITURA, ⛔ NO de LECTURA** — ver {@link parseManualRate}.
+ */
+export function isFxRateInBand(n: number): boolean {
+  return Number.isFinite(n) && n >= FX_RATE_MIN && n <= FX_RATE_MAX;
+}
+
+/**
+ * La banda, en texto, **para el `message` del `422` y para el log**. `FX-24(d)` exige que el error de
+ * la puerta tecleada **NOMBRE LOS DOS EXTREMOS** (hasta v1.63.3 sólo nombraba el techo, y quien
+ * tecleaba `0.05` recibía un mensaje que no explicaba nada de lo que acababa de pasar).
+ */
+export const FX_RATE_BAND_TEXT = `[${FX_RATE_MIN}, ${FX_RATE_MAX}]`;
+
 /** El bloque `automatic` de `FxStateDTO` (§M2-F.3). Viaja SIEMPRE, rija o no. */
 export interface FxAutomaticBlock {
   rate: number | null;
@@ -90,6 +162,32 @@ export interface FxStateDTO {
   bufferPct: number;
   source: FxSource;
   effectiveDate: string;
+  /**
+   * ⭐⭐ **v1.63.4 · `D-FX-5` (§M2-F.3 regla 6) — EL RESPALDO SE PUBLICA, Y VIAJA SIEMPRE.**
+   *
+   * `FX_FALLBACK_RATE`: lo que regiría **si ninguna de las dos ramas puede regir**. Obligatorio, al
+   * **nivel superior**, en las CUATRO rutas y en TODAS las respuestas, con el MISMO valor siempre.
+   *
+   * - ⛔ **NO va dentro de `automatic`**: desde v1.63.3 `source:"fallback"` es alcanzable **también
+   *   con `mode:"manual"`** (4.ª fila de §M2-F.1), así que el respaldo no es de la rama automática:
+   *   es del **estado entero**. Anidarlo ahí invitaría justo al error que la **regla 5** prohíbe —
+   *   presentar el 18 *«como si fuera la de Banxico»*.
+   * - **Por qué SIEMPRE y no sólo con `status:"missing"`:** el diálogo del acuse
+   *   (`DESIGN_SYSTEM §30.8`) tiene que **nombrar este número ANTES de que el humano toque nada**;
+   *   hasta v1.63.3 sólo existía dentro del `422`, así que la pantalla mandaba un `PUT` sin acuse
+   *   **sólo para leer el error**. *Un dato que la norma exige enseñar antes de actuar no puede
+   *   vivir sólo en la respuesta a un acto.*
+   * - **No choca con la regla 4** (⛔ *el salto en % no es un campo*): aquélla prohíbe **derivar** en
+   *   el servidor lo que el humano resta en pantalla. Esto **no se deriva de nada**: es un literal
+   *   del servidor que el cliente no puede conocer. Misma familia que `automatic.status`.
+   * - ⭐ **Invariante (i):** `source === "fallback"` ⟹ `rate === fallbackRate`.
+   * - ⭐ **Invariante (ii):** `details.fallbackRate` del `422 FX_NO_AUTOMATIC_RATE` **es este mismo
+   *   número**. ⛔ El campo **NO sustituye al `details`**: ese error es la carrera real y *un error
+   *   de dinero tiene que poder explicarse solo*.
+   * - ⛔ **No es un dial:** publicar un número y permitir editarlo son dos decisiones distintas
+   *   (candado `FX-25(d)`; mismo género que `FX_AUTO_STALE_AFTER_DAYS`).
+   */
+  fallbackRate: number;
   mode: FxRateMode;
   modeResolvedFrom: FxModeResolvedFrom;
   manual: FxManualBlock;
@@ -131,8 +229,22 @@ export function fxIsoDate(d: Date): string {
  *
  * ⚠️ **Paridad LITERAL con la conducta de v1.62.2** (`fx.service.ts:37`, hecho F2): *«existe y
  * `Number(v) > 0`»*. No se endurece aquí: este predicado alimenta la **resolución legacy**, cuyo
- * único trabajo es reproducir el pasado sin desviarse ni un caso. El **rango** (`(0, MAX]`) lo
- * imponen las dos puertas de escritura con `validateFxManualOverrideRate`, que es donde toca.
+ * único trabajo es reproducir el pasado sin desviarse ni un caso. La **banda** (`[1, 1000]`,
+ * {@link isFxRateInBand}) la imponen las dos puertas de ESCRITURA, que es donde toca.
+ *
+ * ### ⛔⛔ **v1.63.4 — ESTE `> 0` NO SE SUBE AL PISO DE LA BANDA. Es normativo (§M2-F.8).**
+ * Dos razones, y las dos son de conducta, no de estilo:
+ * 1. **El modo saltaría solo.** En un entorno con un valor **sub-piso ya guardado**, un `>= 1` aquí
+ *    haría que la resolución legacy dejara de ver número ⇒ **el modo pasaría de `manual` a `auto` en
+ *    el primer `GET` después del deploy** — *el sistema cambiando de conducta por su cuenta*, que es
+ *    exactamente lo que **`FX-6`** existe para poner en rojo.
+ * 2. **La lectura tampoco se defiende, a diferencia de la 4.ª fila de §M2-F.1.** Allí **no había
+ *    número** que obedecer y el estado era inalcanzable por API; **aquí hay un número y lo puso un
+ *    humano**. Ignorarlo sería un **repreciado sin autor**. *La lectura OBEDECE; la banda guarda la
+ *    ESCRITURA.* Un valor sub-piso ya guardado se corrige por **un acto humano por la puerta normal**
+ *    (`PUT /admin/fx { rate }`), ⛔ **no por una migración que reescriba dinero** — y es ruidoso por
+ *    construcción: la tarjeta lo pinta en la columna MANUAL, con `RIGE`, y la cifra es absurda a
+ *    simple vista.
  */
 export function parseManualRate(raw: unknown): number | null {
   if (raw == null) return null;
@@ -286,6 +398,11 @@ export function projectFxState(inputs: FxInputs, now: Date = new Date()): FxStat
     bufferPct,
     source,
     effectiveDate,
+    // ⭐ D-FX-5 — la CONSTANTE de respaldo, no estado. Se emite en las cuatro rutas porque las
+    // cuatro salen de aquí: **no hay una segunda forma de construir este DTO** (candado FX-25(a)).
+    // El invariante (i) —`source === 'fallback' ⇒ rate === fallbackRate`— se cumple por
+    // construcción: la rama `else` de arriba asigna `rate = FX_FALLBACK_RATE`, la MISMA constante.
+    fallbackRate: FX_FALLBACK_RATE,
     mode: resolved.mode,
     modeResolvedFrom: resolved.from,
     manual: { rate: manualRate, applied: source === 'manual' },

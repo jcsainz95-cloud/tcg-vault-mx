@@ -37,7 +37,17 @@ import { DEFAULT_PRICING_CURVE, validatePricingCurve } from '../../common/pricin
 // v1.63 (§M2-F.1, §4.43c): la regla de resolución del MODO de la FX vive en `common/` (mismo motivo
 // que la curva: la comparten `FxService` y este módulo, y `FxService` ya depende de éste). Aquí solo
 // se declaran su KEY, su DEFAULT (el sentinel) y su validador de puerta.
-import { FX_RATE_MODE_LEGACY, FX_RATE_MODE_STORED_VALUES } from '../../common/fx-mode';
+// v1.63.4 (§M2-F.8, `FX-24`): y la BANDA de la tasa viene del mismo sitio, por la misma razón
+// elevada al cuadrado — la comparten las DOS puertas de escritura (esta y el parser de la SIE), así
+// que aquí ⛔ NO se escribe ningún literal `1` ni `1000`.
+import {
+  FX_RATE_BAND_TEXT,
+  FX_RATE_MAX,
+  FX_RATE_MIN,
+  FX_RATE_MODE_LEGACY,
+  FX_RATE_MODE_STORED_VALUES,
+  isFxRateInBand,
+} from '../../common/fx-mode';
 import { SEALED_SUBTYPE_VALUES } from '../../common/enum-values';
 export const SettingKey = {
   SHIPPING_FEE_CENTS: 'shipping_fee_cents',
@@ -544,24 +554,38 @@ export function validateSealedSpreadFallback(v: unknown): string | null {
 }
 
 /**
- * FX-B1: cota SUPERIOR del override manual `fx_manual_override_rate`. El tipo de cambio real
- * MXN/USD ronda 15-25; 1000 deja ~40-65x de holgura (escenarios extremos) pero ACOTA la valuación:
- * sin techo, un override absurdo (p.ej. 1e9) desborda la columna `Int priceMxnCents` (~2.1e9) en el
- * job `price-ingest` (excepción Prisma = DoS). Mismo patrón que SALES_PCT_MAX / SEALED_SPREAD_PCT_MAX.
+ * FX-B1: cota SUPERIOR del override manual `fx_manual_override_rate`.
+ *
+ * ⚠️ **v1.63.4 (`FX-24`, §M2-F.8): ES UN ALIAS, no una segunda definición.** La banda de la tasa
+ * —piso **y** techo— vive en **un solo sitio**, `common/fx-mode.ts` ({@link FX_RATE_MIN},
+ * {@link FX_RATE_MAX}, {@link isFxRateInBand}), porque la comparten las **dos** puertas de escritura
+ * y *dos literales en dos ficheros son dos bandas esperando a divergir*. Este nombre se conserva
+ * porque hay citas vivas (specs, `pricing.controller`) y renombrarlo no aporta nada.
  */
-export const MAX_FX_MANUAL_OVERRIDE_RATE = 1000;
+export const MAX_FX_MANUAL_OVERRIDE_RATE = FX_RATE_MAX;
 
 /**
  * FX-B2: validador ÚNICO del dial `fx_manual_override_rate`, compartido por las DOS puertas que lo
- * escriben (`PUT /admin/settings` vía SETTING_VALIDATORS y `PUT /admin/fx` vía FxController). Regla
- * unificada: `null` (borra el override) o un tipo de cambio FINITO en `(0, MAX_FX_MANUAL_OVERRIDE_RATE]`.
- * Fraccional es válido porque la columna `FxRate.rate` es `Decimal(12,6)`. Ambas puertas aplican
- * EXACTAMENTE este rango; ninguna queda más permisiva que la otra.
+ * escriben (`PUT /admin/settings` vía SETTING_VALIDATORS y `PUT /admin/fx` vía FxController).
+ *
+ * ### ⭐⭐ v1.63.4 (`FX-24`, §M2-F.8) — LA BANDA GANA PISO: `(0, 1000]` → **`[1, 1000]`**
+ * Regla: `null` (borra el override) **o** un número FINITO en la banda `[1, 1000]`, **extremos
+ * incluidos**. Fraccional es válido porque `FxRate.rate` es `Decimal(12,6)`.
+ *
+ * **El veredicto lo da {@link isFxRateInBand}, que es el MISMO cuerpo que aplica el parser de la
+ * SIE** ({@link parseBanxicoRate}): ninguna puerta queda más permisiva que la otra **en ninguno de
+ * los dos extremos**, y la paridad se asierta como **identidad** (`FX-24(b)`), no como dos copias de
+ * la misma lista. *El peso nunca ha valido más que el dólar: por debajo de `1` el número no es el
+ * par, es su inversa, un error de escala o basura truncada.*
+ *
+ * ⚠️ El `message` **nombra los DOS extremos** (`FX-24(d)`): hasta v1.63.3 sólo nombraba el techo, así
+ * que quien tecleaba `0.05` recibía un error que no explicaba nada de lo que acababa de pasar.
  */
 export function validateFxManualOverrideRate(v: unknown): string | null {
-  return v === null || (isNum(v) && v > 0 && v <= MAX_FX_MANUAL_OVERRIDE_RATE)
+  return v === null || (isNum(v) && isFxRateInBand(v))
     ? null
-    : `must be null or a number in (0, ${MAX_FX_MANUAL_OVERRIDE_RATE}]`;
+    : `must be null or a number in ${FX_RATE_BAND_TEXT} (USD→MXN is quoted in pesos per dollar: ` +
+        `below ${FX_RATE_MIN} the number is not the pair — it is its inverse, a scale error or truncated garbage)`;
 }
 
 /** v1.23-sealed-sales (§4.23h): valores válidos de los feature flags del sellado (on|off). */
