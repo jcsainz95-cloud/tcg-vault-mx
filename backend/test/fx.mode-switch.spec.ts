@@ -3,7 +3,7 @@ import { PrismaService } from '../src/prisma/prisma.service';
 import { SettingsService } from '../src/modules/settings/settings.service';
 import { SettingsController } from '../src/modules/settings/settings.controller';
 import { SETTING_DEFAULTS, SettingKey } from '../src/modules/settings/settings.constants';
-import { FxService } from '../src/modules/pricing/fx.service';
+import { FxService, parseBanxicoRate } from '../src/modules/pricing/fx.service';
 import { FxController } from '../src/modules/pricing/pricing.controller';
 import { PricingService } from '../src/modules/pricing/pricing.service';
 import { AuditService } from '../src/modules/audit/audit.service';
@@ -58,6 +58,12 @@ interface SeedOpts {
   /** Fuerza el fallo del upsert de esa clave (para probar transaccionalidad). */
   failOnSettingKey?: string;
   env?: Record<string, string>;
+  /**
+   * ⭐⭐ S-FX-1 — el gancho que permite ESCALONAR dos peticiones de verdad. Se llama **antes** de cada
+   * escritura de `ConfigSetting`; si devuelve una promesa, la transacción se queda ahí **con lo que
+   * haya tomado** (incluido el candado). Es la ventana de ~20 ms del PoC, hecha determinista.
+   */
+  onWrite?: (key: string) => Promise<void> | void;
 }
 
 function daysAgo(n: number): Date {
@@ -118,7 +124,44 @@ function harness(seed: SeedOpts = {}) {
   const writes: { key: string; inTx: boolean }[] = [];
   const auditWrites: { action: unknown; inTx: boolean }[] = [];
 
-  const makeClient = (inTx: boolean) => ({
+  /**
+   * ⭐⭐ **El `pg_advisory_xact_lock`, emulado con la MISMA semántica que importa:** exclusión mutua
+   * **por transacción**, que se suelta al commit o al rollback. Sin esto, el arnés no puede distinguir
+   * «las dos puertas se serializan» de «las dos commitean», que es exactamente S-FX-1.
+   */
+  const gateQueue: (() => void)[] = [];
+  let gateBusy = false;
+  const acquireGate = () =>
+    new Promise<void>((resolve) => {
+      const run = () => {
+        gateBusy = true;
+        resolve();
+      };
+      if (!gateBusy) run();
+      else gateQueue.push(run);
+    });
+  const releaseGate = () => {
+    gateBusy = false;
+    gateQueue.shift()?.();
+  };
+
+  /** Estado de UNA transacción del arnés (cada `$transaction` recibe su propio cliente). */
+  type TxState = { locked: boolean; snapshot?: () => void };
+
+  const makeClient = (inTx: boolean, tx?: TxState) => ({
+    /**
+     * Solo entiende el `SELECT pg_advisory_xact_lock(...)` de `lockFxGate`. ⛔ Llamarlo fuera de una
+     * transacción es un error de producción, no del arnés: el candado tiene que soltarse con el
+     * commit, y fuera de una transacción **no hay commit que lo suelte**.
+     */
+    $executeRaw: async (..._args: unknown[]) => {
+      if (!inTx || !tx) throw new Error('lockFxGate() llamado FUERA de una transacción');
+      if (!tx.locked) {
+        await acquireGate();
+        tx.locked = true;
+      }
+      return 1;
+    },
     configSetting: {
       findUnique: async ({ where }: { where: { key: string } }) => settingRows.get(where.key) ?? null,
       findMany: async () => [...settingRows.values()],
@@ -131,6 +174,11 @@ function harness(seed: SeedOpts = {}) {
         create: SettingRow;
         update: { valueJson: unknown; updatedBy?: string | null };
       }) => {
+        // El «antes» se congela en la PRIMERA escritura de la transacción, no al abrirla: si se
+        // congelara antes de esperar el candado, revertir desharía lo que la otra puerta commiteó
+        // mientras esperábamos — un artefacto del arnés que taparía justo lo que se mide.
+        tx?.snapshot?.();
+        if (seed.onWrite) await seed.onWrite(where.key);
         if (seed.failOnSettingKey === where.key) throw new Error('boom: fallo al escribir el ajuste');
         writes.push({ key: where.key, inTx });
         const existing = settingRows.get(where.key);
@@ -192,25 +240,40 @@ function harness(seed: SeedOpts = {}) {
 
   /** El cliente de FUERA de la transacción: `this.prisma`. */
   const client = makeClient(false);
-  /** El que entrega `$transaction`: `tx`. **Es otro objeto a propósito.** */
-  const txClient = makeClient(true);
 
   const prisma = {
     ...client,
     // Revierte DE VERDAD: sin esto, «efecto y bitácora commitean o revierten juntos» sería una
     // frase, no una propiedad medible (FX-5, segundo caso).
+    // ⭐⭐ v1.63.2: **cada transacción recibe SU PROPIO cliente**, con su estado de candado. Dos
+    // transacciones concurrentes tienen que poder existir a la vez en el arnés, o S-FX-1 no se puede
+    // ni escribir.
     $transaction: async (cb: (tx: unknown) => unknown) => {
-      const snapSettings = new Map(settingRows);
-      const snapAudit = auditEntries.length;
-      const snapFx = fxRates.length;
+      const tx: TxState = { locked: false };
+      const snap: { settings: Map<string, SettingRow> | null; audit: number; fx: number } = {
+        settings: null,
+        audit: 0,
+        fx: 0,
+      };
+      tx.snapshot = () => {
+        if (snap.settings) return;
+        snap.settings = new Map(settingRows);
+        snap.audit = auditEntries.length;
+        snap.fx = fxRates.length;
+      };
       try {
-        return await cb(txClient);
+        return await cb(makeClient(true, tx));
       } catch (e) {
-        settingRows.clear();
-        for (const [k, v] of snapSettings) settingRows.set(k, v);
-        auditEntries.length = snapAudit;
-        fxRates.length = snapFx;
+        const previas = snap.settings;
+        if (previas) {
+          settingRows.clear();
+          for (const [k, v] of previas) settingRows.set(k, v);
+          auditEntries.length = snap.audit;
+          fxRates.length = snap.fx;
+        }
         throw e;
+      } finally {
+        if (tx.locked) releaseGate();
       }
     },
   } as unknown as PrismaService;
@@ -1157,5 +1220,220 @@ describe('FX-19 ⭐ — `before.bufferPct` y `after.bufferPct` son NÚMEROS DIST
     expect(entry.before.bufferPct).toBe(3);
     expect(entry.after.bufferPct).toBe(7); // ⛔ rojo si la entrada guarda el colchón VIEJO
     expect(entry.after.bufferPct).not.toBe(entry.before.bufferPct);
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════════════════════════════════════
+// v1.63.2 · **S-FX-1 / S-FX-2 — LOS DOS HALLAZGOS DEL PENTESTER** (`docs/PENTEST_NOTES.md`)
+// ══════════════════════════════════════════════════════════════════════════════════════════════════
+
+// ── FX-20 ⭐⭐ — la carrera entre las dos puertas ─────────────────────────────────────────────────
+
+/**
+ * ⭐⭐ **S-FX-1 (CRÍTICA, verificada LIVE-DB): dos peticiones normales que se solapan dejaban el
+ * interruptor del dinero en un ESTADO IMPOSIBLE.**
+ *
+ * `mode:"manual"` con `fx_manual_override_rate = null` cae al **fallback duro de 18**: **−5.26 %
+ * instantáneo sobre todo lo que la plataforma compra y vende**, con **las dos peticiones devolviendo
+ * 200**, **sin disparar el acuse** y con la bitácora afirmando `19 / manual` mientras el sistema
+ * cotiza `18 / fallback`. Y **queda pegado**: el pentester midió que no se auto-corrige y que los dos
+ * gestos intuitivos de deshacer dan 422.
+ *
+ * ### Cómo se mide aquí, y por qué esto SÍ puede ponerse rojo
+ * El arnés emula lo único del motor que decide el resultado: **`pg_advisory_xact_lock` es exclusión
+ * mutua por transacción**, y el gancho `onWrite` congela a la puerta A **dentro** de su transacción,
+ * con lo que haya tomado. Es la ventana de ~20 ms del PoC, hecha determinista.
+ *
+ * **Verificado por mutación** (quitando `lockFxGate`/la relectura de `settings.service.ts` y
+ * `fx.service.ts`): sin el arreglo, las dos commitean, queda `manual` + `null`, `source:"fallback"`,
+ * el peso cae a 18 y la entrada de bitácora afirma 19. Con el arreglo, la segunda puerta **espera,
+ * vuelve a leer y se niega**.
+ */
+describe('FX-20 ⭐⭐ — S-FX-1: las dos puertas del FX no pueden cruzarse', () => {
+  /** El estado EXACTO del PoC: `auto` con un 19 guardado (lo que deja `PUT /admin/fx {rate:19}`). */
+  function conCarrera() {
+    let soltar!: () => void;
+    const puertaAEnEspera = new Promise<void>((r) => (soltar = r));
+    let pausado = false;
+    const h = harness({
+      settings: { [MODE_KEY]: 'auto', [RATE_KEY]: 19.0, [SettingKey.FX_BUFFER_PCT]: 3 },
+      fxRates: [banxicoRow(18.2)],
+      priceRefs: [usdCardRef()],
+      // La puerta A (borrar el número) se queda congelada justo antes de escribirlo.
+      onWrite: async (key) => {
+        if (key === RATE_KEY && !pausado) {
+          pausado = true;
+          await puertaAEnEspera;
+        }
+      },
+    });
+    return { h, soltar };
+  }
+
+  /** Cede el bucle de eventos unas cuantas veces: suficiente para que la otra puerta arranque. */
+  const dejarCorrer = async () => {
+    for (let i = 0; i < 20; i++) await new Promise((r) => setImmediate(r));
+  };
+
+  it('⭐⭐ solapadas, NUNCA queda «manual sin número» — y una de las dos se niega con 422', async () => {
+    const { h, soltar } = conCarrera();
+
+    // Puerta A: `PUT /admin/settings { fxManualOverrideRate: null }` — legítima en modo `auto`.
+    const puertaA = h.settingsCtrl
+      .updateSettings({ fxManualOverrideRate: null }, 'admin-1', 'super_admin' as never)
+      .then(
+        () => 'ok' as const,
+        (e) => e as { code?: string },
+      );
+    await dejarCorrer(); // A ya entró en su transacción y está congelada dentro
+
+    // Puerta B: `PUT /admin/fx/mode { mode: "manual" }` — legítima mientras el 19 exista.
+    const puertaB = h.fxCtrl.setMode({ mode: 'manual' }, 'admin-2', 'super_admin' as never).then(
+      () => 'ok' as const,
+      (e) => e as { code?: string },
+    );
+    await dejarCorrer(); // con el arreglo, B está BLOQUEADA en el candado; sin él, ya commiteó
+
+    soltar();
+    const [resA, resB] = await Promise.all([puertaA, puertaB]);
+
+    // ⭐⭐ EL INVARIANTE, y es el único que importa: el estado imposible no existe.
+    const modo = h.rawSetting(MODE_KEY);
+    const tasa = h.rawSetting(RATE_KEY);
+    expect(modo === 'manual' && (tasa === null || tasa === undefined)).toBe(false);
+
+    // ⭐ LA CONDUCTA (el dinero): jamás el fallback duro. Rige Banxico (18.2) o el manual (19).
+    const estado = await h.fx.getCurrent();
+    expect(estado.source).not.toBe('fallback');
+    expect(estado.rate).not.toBe(18);
+    expect([18.2, 19.0]).toContain(estado.rate);
+    expect(await h.referenceMxnCents()).toBe(expectedMxnCents(1000, estado.rate, 3));
+
+    // Exactamente una de las dos puertas se niega, y con el 422 correcto (no un 500).
+    const fallos = [resA, resB].filter((r) => r !== 'ok') as { code?: string }[];
+    expect(fallos).toHaveLength(1);
+    expect(['FX_MANUAL_RATE_MISSING', 'FX_MANUAL_RATE_REQUIRED']).toContain(fallos[0]?.code);
+  });
+
+  it('⭐ la bitácora NO puede afirmar un número que no rigió (el no-repudio de S-FX-1)', async () => {
+    const { h, soltar } = conCarrera();
+    const puertaA = h.settingsCtrl
+      .updateSettings({ fxManualOverrideRate: null }, 'admin-1', 'super_admin' as never)
+      .catch(() => undefined);
+    await dejarCorrer();
+    const puertaB = h.fxCtrl
+      .setMode({ mode: 'manual' }, 'admin-2', 'super_admin' as never)
+      .catch(() => undefined);
+    await dejarCorrer();
+    soltar();
+    await Promise.all([puertaA, puertaB]);
+
+    const vivo = await h.fx.getCurrent();
+    const ultima = h.auditEntries
+      .filter((e) => e.action === 'fx.mode.change' || e.action === 'fx.override')
+      .pop() as never as { after: { effectiveRate: number; source: string } } | undefined;
+    // Si quedó entrada, tiene que describir EL ESTADO QUE RIGE. Es la mitad del hallazgo que no es
+    // dinero pero sí es peor: un registro que miente no permite reconstruir nada.
+    if (ultima) {
+      expect(ultima.after.effectiveRate).toBe(vivo.rate);
+      expect(ultima.after.source).toBe(vivo.source);
+    }
+  });
+
+  it('⭐ el candado se toma DENTRO de la transacción, y sólo cuando el FX está en juego', async () => {
+    // Estructural, y es la mitad que impide el arreglo de mentira («lo serializo con un mutex del
+    // proceso»): un candado de proceso no protege a la segunda instancia del contenedor.
+    const h = harness({
+      settings: { [MODE_KEY]: 'auto', [RATE_KEY]: 19.0, [SettingKey.FX_BUFFER_PCT]: 3 },
+      fxRates: [banxicoRow(18.2)],
+    });
+    // `$executeRaw` del arnés lanza si lo llaman fuera de una transacción: si alguien saca el
+    // `lockFxGate` de su `$transaction`, esto revienta en vez de pasar en verde.
+    await h.fxCtrl.setMode({ mode: 'manual' }, 'admin-1', 'super_admin' as never);
+    await h.settingsCtrl.updateSettings({ fxManualOverrideRate: 21 }, 'admin-1', 'super_admin' as never);
+
+    // Y un `PUT` que NO toca el FX no se serializa con nadie (no se toma el candado por costumbre).
+    await expect(
+      h.settingsCtrl.updateSettings({ fxBufferPct: 5 }, 'admin-1', 'super_admin' as never),
+    ).resolves.toBeDefined();
+  });
+});
+
+// ── FX-21 ⭐ — la banda de cordura de la tasa de Banxico ──────────────────────────────────────────
+
+/**
+ * ⭐ **S-FX-2 (ALTA):** la tasa **tecleada** estaba acotada a `(0, 1000]` y la que **llega de
+ * Banxico** —la que en modo `auto` rige sin que nadie la mire— solo se comprobaba `isFinite && > 0`.
+ * Y el parser leía `"19,5"` como **195**: un ×10 en todo el catálogo por un separador decimal.
+ */
+describe('FX-21 ⭐ — la tasa de Banxico se valida como la tecleada, y el parser no adivina', () => {
+  it.each([
+    ['18.5000', 18.5],
+    ['1,234.5678', 1234.5678], // formato SIE legítimo… pero fuera de banda, ver abajo
+    ['0.0001', 0.0001],
+  ] as [string, number][])('formato SIE válido `%s` se lee como %s', (raw, esperado) => {
+    const r = parseBanxicoRate(raw, 100_000);
+    expect(r.ok && r.rate).toBe(esperado);
+  });
+
+  it('el espacio sobrante SÍ se tolera (`" 18.5 "` es 18.5): es ruido de transporte, no formato', () => {
+    expect(parseBanxicoRate(' 18.5 ')).toEqual({ ok: true, rate: 18.5 });
+  });
+
+  it.each(['19,5', '2,000,000', '1,2,3', '1e9', 'abc', 'Infinity', '-5', '', '  ', '1 8.5', null, 18.5])(
+    '⛔ `%s` NO se interpreta: se rechaza en vez de adivinar',
+    (raw) => {
+      // ⭐ `"19,5"` es EL caso del hallazgo: con `replace(',', '')` daba 195. Adivinar que quería
+      // decir 19.5 es cómo se cuela un ×10; si Banxico cambia de formato hay que enterarse por un
+      // `failed`, no por el precio.
+      expect(parseBanxicoRate(raw as never).ok).toBe(false);
+    },
+  );
+
+  it('⛔ fuera de banda `(0, 1000]`: `9999` se rechaza (×549 en el catálogo, sin desbordar nada)', () => {
+    const r = parseBanxicoRate('9999');
+    expect(r.ok).toBe(false);
+    expect(r.ok === false && r.why).toBe('out_of_band');
+    expect(parseBanxicoRate('1000').ok).toBe(true); // el borde SÍ entra (misma banda que la manual)
+    expect(parseBanxicoRate('1000.0001').ok).toBe(false);
+  });
+
+  it('⭐ LA CONDUCTA: un payload fuera de banda deja `failed/invalid_payload` y NO escribe fila', async () => {
+    const h = harness({
+      settings: { [MODE_KEY]: 'auto', [SettingKey.FX_BUFFER_PCT]: 3 },
+      fxRates: [banxicoRow(18.2)],
+      priceRefs: [usdCardRef()],
+      env: { BANXICO_SIE_TOKEN: 'tok' },
+    });
+    const antes = await h.referenceMxnCents();
+    const spy = jest.spyOn(global, 'fetch').mockImplementation(
+      async () =>
+        ({ ok: true, json: async () => ({ bmx: { series: [{ datos: [{ dato: '9999' }] }] } }) }) as never,
+    );
+    const res = await h.fx.refreshFromBanxico();
+    spy.mockRestore();
+
+    expect([res.outcome, res.reason]).toEqual(['failed', 'invalid_payload']);
+    expect(res.fetchedRate).toBeNull();
+    // ⭐ Ni una fila nueva, ni un peso movido: la tasa anterior sigue rigiendo.
+    expect(h.fxRates.filter((r) => r.source === 'banxico')).toHaveLength(1);
+    expect(await h.referenceMxnCents()).toBe(antes);
+  });
+
+  it('⭐ y el ×10 del separador: `19,5` tampoco entra (antes se guardaba como 195)', async () => {
+    const h = harness({
+      settings: { [MODE_KEY]: 'auto', [SettingKey.FX_BUFFER_PCT]: 3 },
+      fxRates: [banxicoRow(18.2)],
+      priceRefs: [usdCardRef()],
+      env: { BANXICO_SIE_TOKEN: 'tok' },
+    });
+    const spy = jest.spyOn(global, 'fetch').mockImplementation(
+      async () =>
+        ({ ok: true, json: async () => ({ bmx: { series: [{ datos: [{ dato: '19,5' }] }] } }) }) as never,
+    );
+    const res = await h.fx.refreshFromBanxico();
+    spy.mockRestore();
+    expect(res.outcome).toBe('failed');
+    expect((await h.fx.getCurrent()).automatic.rate).toBe(18.2); // ⛔ jamás 195
   });
 });

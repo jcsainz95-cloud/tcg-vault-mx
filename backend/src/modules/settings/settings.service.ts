@@ -482,6 +482,7 @@ export class SettingsService implements OnModuleInit {
       materialized: rawModeBefore !== resolved.mode,
       before: toFxAuditState(before),
       after: toFxAuditState(after),
+      previousState: before,
       resultingState: after,
     };
   }
@@ -577,6 +578,12 @@ export interface FxModePin {
   materialized: boolean;
   before: FxAuditState;
   after: FxAuditState;
+  /**
+   * ⭐ v1.63.2 (S-FX-1 · FX-D4) — estado PREVIO completo, **leído bajo el candado**. `PUT /admin/fx`
+   * audita con éste en vez de con su propia lectura de antes de entrar: dos cuentas del «mismo»
+   * instante son dos instantes distintos en cuanto hay otra puerta escribiendo.
+   */
+  previousState: FxStateDTO;
   /** Estado RESULTANTE completo (lo usa `PUT /admin/fx` para `applied` y para su respuesta). */
   resultingState: FxStateDTO;
 }

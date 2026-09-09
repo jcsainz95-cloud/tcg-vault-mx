@@ -3,7 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { Prisma, Role } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SettingsService } from '../settings/settings.service';
-import { SettingKey } from '../settings/settings.constants';
+import { MAX_FX_MANUAL_OVERRIDE_RATE, SettingKey } from '../settings/settings.constants';
 import { BusinessException } from '../../common/business.exception';
 import type { AuditEntry } from '../audit/audit.service';
 import {
@@ -29,6 +29,48 @@ export type FxRefreshOutcome = 'updated' | 'unchanged' | 'failed';
 
 /** Por qué falló el fetch. Solo viaja con `outcome: "failed"`. */
 export type FxRefreshFailureReason = 'no_token' | 'http_error' | 'invalid_payload' | 'network_error';
+
+/**
+ * ⭐⭐ **S-FX-2 — el parser de la SIE, con BANDA DE CORDURA** (hallazgo ALTO del pentester).
+ *
+ * ### Las dos cosas que estaban mal, y son dos
+ * **(1) Asimetría de validación, y al revés de como debe ser.** La tasa **tecleada** por un humano
+ * está acotada a `(0, MAX_FX_MANUAL_OVERRIDE_RATE]` desde FX-B1. La que **llega de Banxico** —la que
+ * en modo `auto` rige **sin que ningún humano la mire**— solo comprobaba `isFinite && > 0`. *La
+ * fuente menos vigilada era la única que nadie ve pasar.* Medido: `"9999"` entraba y multiplicaba el
+ * catálogo por ~549 sin desbordar ningún clamp, así que **no daba error: daba precios.**
+ *
+ * **(2) El parser leía mal un formato plausible.** `parseFloat(raw.replace(',', ''))` quita **solo la
+ * primera** coma: `"19,5"` → **`195`** (×10), `"2,000,000"` → `2000`, `"1,2,3"` → `12`. El disparo
+ * realista no es un atacante —el host es un literal HTTPS fijo, no hay SSRF—: es que **Banxico cambie
+ * de formato** y nos devuelva coma decimal. Un ×10 en todo el catálogo por un separador.
+ *
+ * ### La decisión: RECHAZAR, no adivinar
+ * La SIE emite **punto decimal y coma de millares** (`18.5000`, `1,234.5678`). Cualquier otra cosa
+ * **no se interpreta**: se rechaza y el refresco sale `failed/invalid_payload`, que es el resultado
+ * honesto —*no sabemos qué número nos dieron*— y deja la tasa anterior en su sitio. ⛔ **Adivinar que
+ * `"19,5"` quería decir 19.5 es exactamente cómo se cuela un ×10**: si el formato cambia, lo correcto
+ * es enterarse por un `failed`, no por el precio.
+ *
+ * ⚠️ **`out_of_band` NO es un `reason` nuevo del contrato**: se mapea a `invalid_payload` a propósito
+ * (§M2-F.5 fija ese enum y **el contrato no se cambia desde backend**). Se distingue en el log, que
+ * es donde hace falta para operar. *Si el arquitecto quiere un `reason` propio, es suyo.*
+ */
+export function parseBanxicoRate(
+  raw: unknown,
+  maxRate: number = MAX_FX_MANUAL_OVERRIDE_RATE,
+): { ok: true; rate: number } | { ok: false; why: 'format' | 'out_of_band' } {
+  if (typeof raw !== 'string') return { ok: false, why: 'format' };
+  const texto = raw.trim();
+  // Punto decimal, coma SOLO como separador de millares y en grupos de tres. Nada más.
+  if (!/^\d+(\.\d+)?$|^\d{1,3}(,\d{3})+(\.\d+)?$/.test(texto)) return { ok: false, why: 'format' };
+  const n = Number(texto.replace(/,/g, ''));
+  if (!Number.isFinite(n)) return { ok: false, why: 'format' };
+  // La MISMA banda que la tasa tecleada (FX-B1/FX-B2: el mismo dial no se valida distinto según la
+  // puerta). Un FIX USD/MXN fuera de `(0, 1000]` no es una tasa: es un cambio de formato o un fallo.
+  if (n <= 0 || n > maxRate) return { ok: false, why: 'out_of_band' };
+  return { ok: true, rate: n };
+}
 
 /** Bloque `refresh` que `POST /admin/fx/refresh` añade al `FxStateDTO` (§M2-F.5). */
 export interface FxRefreshResult {
@@ -149,6 +191,16 @@ export class FxService {
         const afterState =
           extra?.fxPin?.resultingState ??
           projectFxState({ ...inputs, bufferPct: bufferPct ?? inputs.bufferPct });
+        // ⭐⭐ **v1.63.2 (S-FX-1 · cierra FX-D4): el «antes» que se audita es EL DE DENTRO DEL
+        // CANDADO.** `beforeState` se leyó **antes** de entrar a la transacción; si la otra puerta
+        // commiteó en ese hueco, esta entrada describiría un estado que ya no existía — la misma
+        // mentira de bitácora que S-FX-1, por la otra puerta. `fxPin.before` lo calculó
+        // `prepareFxModePin` **después** de `lockFxGate` y sobre el mismo `tx`. *Y de paso desaparece
+        // la doble cuenta del mismo instante que el techlead registró como FX-D4.*
+        // El `beforeState` solo sobrevive como respaldo del caso en que **no hay pin** (un `PUT` que
+        // solo mueve el colchón): ahí no hay invariante compartido, no se toma el candado y no hay
+        // nada que pueda haber cambiado debajo.
+        const antes = extra?.fxPin?.previousState ?? beforeState;
         const entries: AuditEntry[] = [
           {
             actorUserId: ctx.actorUserId,
@@ -157,7 +209,7 @@ export class FxService {
             // §M2-F.4: hoy esta entrada registra SÓLO `after` y sin claves de entidad. Se normaliza.
             entityType: 'ConfigSetting',
             entityId: SettingKey.FX_MANUAL_OVERRIDE_RATE,
-            before: { ...toFxAuditState(beforeState), manualRate: beforeState.manual.rate },
+            before: { ...toFxAuditState(antes), manualRate: antes.manual.rate },
             after: {
               ...toFxAuditState(afterState),
               manualRate: afterState.manual.rate,
@@ -363,12 +415,20 @@ export class FxService {
         bmx?: { series?: { datos?: { dato: string }[] }[] };
       };
       const raw = body.bmx?.series?.[0]?.datos?.[0]?.dato;
-      const parsed = raw ? parseFloat(raw.replace(',', '')) : NaN;
-      if (!isFinite(parsed) || parsed <= 0) {
-        this.logger.warn('Banxico devolvió un payload sin tasa usable (outcome=failed/invalid_payload).');
+      // ⭐⭐ S-FX-2: formato ESTRICTO + banda de cordura simétrica con la tasa tecleada. Un valor que
+      // no se entiende **no se aproxima**: se rechaza y la tasa anterior sigue en su sitio.
+      const parsed = parseBanxicoRate(raw);
+      if (!parsed.ok) {
+        this.logger.warn(
+          parsed.why === 'out_of_band'
+            ? `Banxico devolvió una tasa FUERA DE BANDA (${String(raw)}; banda (0, ${MAX_FX_MANUAL_OVERRIDE_RATE}]): ` +
+              'no se escribe fila (outcome=failed/invalid_payload).'
+            : `Banxico devolvió un payload sin tasa usable en formato SIE (${String(raw)}) ` +
+              '(outcome=failed/invalid_payload).',
+        );
         return fail('invalid_payload');
       }
-      rate = parsed;
+      rate = parsed.rate;
     } catch (e) {
       this.logger.warn(`Banxico fetch failed: ${(e as Error).message} (outcome=failed/network_error).`);
       return fail('network_error');
