@@ -19293,7 +19293,7 @@ cara en un DTO que ya existía**, emitida desde una variable que el servidor **y
 
 ### 4.43 EL TIPO DE CAMBIO TIENE **MODO**, Y EL MODO **NO ES EL VALOR** (v1.63-fx-mode, NORMATIVO, **DINERO**)
 
-> **Contrato: `API_CONTRACT §M2-F`** (rev **v1.63.2**). **CERO DDL, CERO migración de esquema, CERO cambios en el
+> **Contrato: `API_CONTRACT §M2-F`** (rev **v1.63.3**). **CERO DDL, CERO migración de esquema, CERO cambios en el
 > **esquema** y el **escritor** de `FxRate` —⚠️ **el LECTOR sí cambia**, I-FX5—, CERO diales de M10, CERO jobs
 > nuevos.** **UN ajuste nuevo** (`fx_rate_mode`), **UN endpoint nuevo** (`PUT /admin/fx/mode`), **UN valor nuevo** en
 > el enum **de API** `FxSource` (`fallback`; ⛔ **no** en la columna persistida — §3.2), **dos códigos de error**.
@@ -19307,6 +19307,21 @@ cara en un DTO que ya existía**, emitida desde una variable que el servidor **y
 > `after.acknowledgedNoAutomaticRate` y la caída de la promesa *«legible por `GET /admin/audit-log`»* (⇒ **`Q-F4`**).
 > **Además se TACHARON tres afirmaciones caducadas fuera de §4.43** —§3.2 (la ficha de `FxRate`), §5 (`fx-refresh`) y
 > §4.15f (el verbo «pinnear»)— **que seguían publicando como norma el bug que `I-FX5` mató.**
+>
+> ### 🔴 **ESTADO v1.63.3 — LA PUERTA DEL FX (`S-FX-1`). ESTA SECCIÓN GANA UN INVARIANTE Y DOS APARTADOS.**
+> El pentester midió **contra Postgres real** una carrera **CRÍTICA** entre las dos puertas del valor y del modo
+> (`PENTEST_NOTES §M2-F v1.63.1 · S-FX-1`): dos peticiones normales solapadas dejaban `mode:"manual"` con la tasa
+> `null` ⇒ **fallback duro de 18 ⇒ −5.26 % sobre todo lo que la plataforma compra y vende**, con **`200` en las dos
+> respuestas**, **sin acuse**, **con la bitácora afirmando un número que jamás rigió** y **pegado** hasta que un humano
+> tecleara una tasa. **El arreglo ya corre** (backend, v1.63.2/v1.63.2b) y **este documento no lo conocía**: cero
+> menciones de `advisory`, `lockFxGate` o de nivel de aislamiento, **pese a que es una primitiva de zona compartida
+> que TODO escritor futuro de FX está obligado a usar**. Lo que se añade aquí es **documental y normativo**:
+> **(1)** el invariante **I-FX6** en la lista de (c) —para que se lea donde se leen los otros cinco—; **(2)** el
+> apartado **(c-ter)**, con la ceremonia completa, las rutas obligadas y **la doctrina de nivel de aislamiento de la
+> que el arreglo depende y que hoy sólo vivía en un jsdoc de un test**; **(3)** el apartado **(c-quater)**, que
+> decide el asunto que backend elevó sin resolver (**¿debe defenderse la LECTURA?** — sí, y es cambio de contrato);
+> y **(4)** la doctrina transversal **§5.5**, porque la trampa del aislamiento **no es del FX**: es de cualquiera que
+> «mejore» una transacción añadiendo una línea que suena a más seguridad.
 
 <a id="fx-43-0"></a>
 #### (0) La petición, literal — y por qué no es un capricho de UI
@@ -19387,7 +19402,7 @@ de comportamiento por su cuenta.** No es la semántica del modo; es la **condici
 > `manual` para siempre **sin que nadie lo dijera en voz alta** — que es exactamente el modo de fallo que este pase
 > persigue. *La versión v1.63 de esta sección invocaba una vigilancia que su propia decisión desactivaba.*
 
-**Los cinco invariantes (NORMATIVOS):**
+**Los SEIS invariantes (NORMATIVOS)** — *eran cinco hasta v1.63.2; **I-FX6** entra en v1.63.3 con la puerta del FX:*
 
 - **I-FX1 — El modo nunca se deriva del valor**, salvo en la resolución legacy de la tabla de arriba. *Esa
   inferencia es la ÚNICA del sistema.* ~~Y deja de correr en cuanto un humano toca el interruptor.~~
@@ -19422,6 +19437,14 @@ de comportamiento por su cuenta.** No es la semántica del modo; es la **condici
   reintroduciría el fallback duro de 18 por la puerta de atrás.*
 - **I-FX5 ⭐ *(v1.63.1, cierra F8)* — PRECEDENCIA ÚNICA: una fila `FxRate` de fuente `manual` NUNCA rige.** Tabla
   completa y razón en **(c-bis)**, justo abajo.
+- **I-FX6 ⭐⭐ *(v1.63.3, cierra `S-FX-1`)* — TODA escritura del estado del FX pasa por LA PUERTA, y LEE DENTRO.**
+  El estado del dinero **no vive en una fila: vive en dos** (`fx_rate_mode` y `fx_manual_override_rate`), así que
+  **Postgres no hace colisionar a las dos puertas por sí solo**: sin serialización explícita, I-FX2 e I-FX4 se
+  comprueban cada una sobre su propia lectura previa y **las dos commitean**. ⇒ **Toda ruta que escriba cualquiera
+  de esas dos filas: abre transacción → toma `lockFxGate(tx)` → RELEE por el mismo `tx` → valida → escribe →
+  audita con lo leído dentro.** ⛔ **Y esa transacción corre en `READ COMMITTED`: subirle el nivel de aislamiento
+  ROMPE el arreglo, y bajo `REPEATABLE READ` lo rompe EN SILENCIO.** Ceremonia entera, rutas obligadas, rutas
+  exentas y la doctrina de aislamiento en **(c-ter)**; la regla transversal, en **§5.5**.
 
 <a id="fx-43-c-bis"></a>
 #### (c-bis) ⚠️⚠️ **I-FX5 — La PRECEDENCIA, escrita entera** *(v1.63.1 — cierra F8)*
@@ -19437,9 +19460,10 @@ manual rigiendo en modo `auto` no tendría etiqueta legal que emitir.**
 
 | Modo resuelto | Qué rige | `source` emitido |
 |---|---|---|
-| `manual` | **`fx_manual_override_rate`** (el ajuste). ⛔ **No** la fila `FxRate` | `manual` |
+| `manual` **con número guardado** | **`fx_manual_override_rate`** (el ajuste). ⛔ **No** la fila `FxRate` | `manual` |
 | `auto` | **la última fila `FxRate` con `source = 'banxico'`** | `banxico` |
 | `auto` **y no hay ninguna fila `banxico`** | el **fallback duro (18)** | `fallback` |
+| ⚠️ **`manual` SIN número** — estado **ILEGAL** (I-FX4), alcanzable sólo por SQL/migración *(v1.63.3, **(c-quater)**)* | **la última fila `banxico`**; si no hay ninguna, el **fallback duro (18)**. ⛔ El modo **no** se corrige ni se reescribe | `banxico` / `fallback` |
 
 ⇒ **Identidad verificable: en modo `auto`, `rate === automatic.rate` SIEMPRE** (y `effectiveDate ===
 automatic.effectiveDate`). Es una sola aserción y cierra la familia entera. Candado: **FX-11**.
@@ -19452,6 +19476,188 @@ un humano fijó 25»), que es para lo que sirve.
 > retirarlo para arreglar una lectura es el riesgo mayor; (3) la fila es una traza útil. ⚠️ **Y corrijo mi propia
 > frase**: §4.43(h) decía *«no toca `FxRate`»* sin cualificar, lo que **prohibía (b) y (a) a la vez**. Lo que este
 > pase no toca es el **esquema** de `FxRate` y su **escritor**; **el lector SÍ cambia, y tiene que cambiar.**
+
+<a id="fx-43-c-ter"></a>
+#### (c-ter) ⭐⭐ **LA PUERTA DEL FX — `lockFxGate`, la ceremonia, y el NIVEL DE AISLAMIENTO del que depende** *(v1.63.3, NORMATIVO, **DINERO**; cierra `S-FX-1`)*
+
+> **Por qué esta sección existe, dicho sin adornos.** El arreglo de `S-FX-1` introdujo **una primitiva de
+> serialización en zona compartida** (`backend/src/common/fx-mode.ts`) **que todo escritor futuro de FX está obligado
+> a usar**, y el documento que `CLAUDE.md` declara vara de medir **no la mencionaba ni una vez**. Un stream que
+> mañana añada una ruta de FX leería §4.43 entera y **no se enteraría de que hay una puerta**. Eso no es un detalle
+> de implementación: **es una restricción que un implementador puede violar de buena fe**, y las restricciones de esa
+> clase viven aquí.
+
+**(c-ter.1) El defecto, medido en vivo — y por qué las dos mitades del invariante no se veían.**
+
+| | Puerta A · `PUT /admin/settings` | Puerta B · `PUT /admin/fx/mode` |
+|---|---|---|
+| Qué comprueba | *«no borres el número si el modo es `manual`»* (I-FX4, mitad valor) | *«no pases a `manual` si no hay número»* (I-FX4, mitad modo) |
+| Qué fila escribe | `fx_manual_override_rate` | `fx_rate_mode` |
+
+**Filas distintas ⇒ el motor no las hace colisionar: las dos commitean siempre.** Cada una validaba sobre **su
+propia lectura previa**, hecha **antes** de su transacción. Con ~20 ms de solapamiento —jitter de red, un
+doble-submit del panel, un reintento— el sistema quedaba en `mode:"manual"` con `rate: null`: **el estado que I-FX4
+declara inexistente**, que cae al **fallback duro de 18 ⇒ −5.26 % instantáneo sobre todo lo que se compra y se
+vende**, **sin acuse**, con **`200` en las dos respuestas**, con la bitácora afirmando `19 / manual` mientras el
+sistema cotizaba `18 / fallback` —**el registro oficial mentía**— y **pegado** hasta que un humano tecleara una tasa.
+*Evidencia: `PENTEST_NOTES §M2-F v1.63.1 · S-FX-1` (LIVE-DB); arreglo y mutaciones en `BACKEND_NOTES §v1.63.1(1)`
+y `§10`.*
+
+**(c-ter.2) Qué serializa la puerta: UNA REGLA, no una fila.**
+`lockFxGate(tx)` toma `pg_advisory_xact_lock(FX_GATE_LOCK_KEY)` — **un candado por transacción sobre «el estado
+FX»**, no sobre un registro.
+
+| Alternativa | Veredicto | Por qué |
+|---|---|---|
+| `SELECT … FOR UPDATE` sobre las filas | ⛔ **descartada** | **Lo que hay que serializar no es una fila: es el invariante que ata a DOS.** Exigiría que cada puerta supiera de antemano qué filas toca la otra —y la puerta A **ni siquiera escribe `fx_rate_mode`** salvo que el pin materialice (I-FX2)—. Un candado que depende de qué rama se tome no protege la rama que no se tomó |
+| Índice único / `updateMany` condicional (el patrón de §4.39) | ⛔ **no aplica** | El motor sabe imponer unicidad **dentro de una fila**; aquí el estado ilegal es una **combinación de dos filas legales**. No hay constraint que lo exprese sin DDL, y este pase es **cero DDL** |
+| `isolationLevel: Serializable` en las dos transacciones | ⛔ **descartada, y ADEMÁS rompe el arreglo** | Ver **(c-ter.5)**. El SSI de Postgres arbitra **conflictos de lectura/escritura sobre los mismos datos**; aquí el arbitraje llegaría *después* de que las dos hayan leído, y el precio es **40001 a la cara del dueño** en un endpoint que no reintenta |
+| Un candado por **cada** dial de `PUT /admin/settings` | ⛔ **descartada** | Los otros veinte diales **no comparten invariante con nadie**. Serializarlos entre sí es **pagar contención por costumbre** |
+
+⇒ **El candado se toma SÓLO cuando la escritura toca el estado FX** (`fx_manual_override_rate` o `fx_rate_mode`).
+Un `PUT /admin/settings` que sólo mueve el IVA **no lo toma**; uno que además mueve la tasa manual, **sí**.
+*(`fx_buffer_pct` a solas **no** lo toma: el colchón no participa de I-FX4 y no hay nada que otra puerta pueda
+invalidar debajo — ver la excepción escrita en (c-ter.4).)*
+
+**(c-ter.3) ⭐⭐ LA CEREMONIA — los cinco pasos, y el ORDEN es la regla.**
+
+| # | Paso | ⛔ Si se hace fuera de orden |
+|---|---|---|
+| **1** | **Abrir la transacción** (`$transaction`, sin `isolationLevel` — ver (c-ter.5)) | — |
+| **2** | **`await lockFxGate(tx)`** — primera sentencia de la transacción | Un candado tomado *después* de leer no protege la lectura que ya se hizo |
+| **3** | ⭐ **RELEER el estado por el MISMO `tx`** (`loadInputs(tx)` / `prepareFxModePin(…, tx)`) | **Ésta es la mitad que de verdad arregla.** Una transacción que espera su turno y luego escribe con la lectura de **antes de esperar** commitea **el mismo estado imposible, sólo que más tarde**. El candado sin la relectura es decorativo |
+| **4** | **Evaluar las precondiciones y escribir**, todo dentro | Lanzar dentro **revierte y suelta el candado**: no hay escritura parcial. Validar fuera es el defecto entero de `S-FX-1` |
+| **5** | **Auditar la proyección de DENTRO** (`before` leído bajo el candado, `after` derivado de esas mismas entradas) | Auditar el `before` de fuera reproduce **la bitácora que miente**: describe un estado que la otra puerta deshizo hace 20 ms |
+
+**Y el HANDLE es parte del paso 3, no una manía.** Toda lectura bajo el candado va **por el `tx` que escribe**.
+Hoy, en `READ COMMITTED`, una lectura por otra conexión hecha *después* del candado devolvería lo mismo —y por eso
+el arnés unitario **no se pone rojo** al cambiar sólo el handle, cosa que se dice aquí en voz alta en vez de
+falsearlo—. **Se exige igual, por dos caminos que este código alcanza sin avisar:** (1) en cuanto una ruta lea
+*después* de haber escrito en su transacción, el cliente de fuera **no ve su propia escritura**; hoy eso no pasa
+**por el orden de las líneas**, que es una garantía frágil; y (2) el aislamiento de (c-ter.5). *Candado: `FX-22`.*
+
+**(c-ter.4) Qué rutas están OBLIGADAS, y cuáles NO.**
+
+| Ruta / escritor | ¿Puerta? | Nota |
+|---|---|---|
+| `PUT /admin/fx/mode` (`FxService.setMode`) | ✅ **obligatoria** | Escribe `fx_rate_mode` |
+| `PUT /admin/settings` con `fxManualOverrideRate` (`SettingsService.update`) | ✅ **obligatoria** | Escribe el valor **y** puede materializar el modo (I-FX2) |
+| `PUT /admin/fx { rate }` (`FxService.setManual`) | ✅ **obligatoria, por herencia** | No abre transacción propia: **pasa por `SettingsService.update`**, que es la puerta común. ⛔ **Que hoy herede la puerta no autoriza a un futuro atajo que escriba el ajuste sin pasar por ahí** |
+| `PUT /admin/fx { bufferPct }` **a solas** | ⛔ **no** | El colchón no participa de I-FX4; no hay invariante compartido que otra puerta pueda invalidar debajo |
+| `POST /admin/fx/refresh` y el job `fx-refresh` | ⛔ **no** | Escriben **`FxRate`**, no el estado FX. ⛔ **No cambian el modo ni tocan `fx_manual_override_rate`** (regla 3 de §M2-F.2). *Si algún día un refresco escribiera el modo, entra en la puerta ese mismo día* |
+| **Toda lectura** (`GET /admin/fx`, `getCurrent()`, el pricing vivo, el `dataHealth` del tablero) | ⛔ **no** | **La disciplina es de las ESCRITURAS.** Serializar los `GET` sería pagar contención por costumbre, y la lectura no puede dejar un estado ilegal escrito |
+| **Cualquier ruta futura que escriba `fx_rate_mode` o `fx_manual_override_rate`** | ✅ **obligatoria** | **Es I-FX6.** Una ruta nueva que se salte `lockFxGate` **no abre una variante de `S-FX-1`: abre `S-FX-1` exacto** |
+
+**(c-ter.5) ⭐⭐ DOCTRINA DE NIVEL DE AISLAMIENTO — el arreglo depende de correr en `READ COMMITTED`, y subirlo lo
+rompe EN SILENCIO.**
+
+> **Esto es lo más fácil de romper de todo §4.43 y hasta v1.63.2 vivía sólo en el jsdoc de un test.** No hay tipo,
+> ni lint, ni test unitario que lo impida: **es una línea que suena a mejora.**
+
+`$transaction` sin opciones corre en el nivel por defecto de Postgres, **`READ COMMITTED`**, y ahí cada sentencia
+toma su propia instantánea ⇒ **el paso 3 de la ceremonia ve el estado commiteado en el instante en que se concedió
+el candado**, que es exactamente lo que la ceremonia necesita.
+
+| Nivel | Qué pasa con la ceremonia | Veredicto |
+|---|---|---|
+| **`READ COMMITTED`** *(el de hoy, y el único correcto aquí)* | La relectura del paso 3 ocurre **después** de la concesión del candado **y la ve** | ✅ **Es el mecanismo** |
+| ⛔⛔ **`REPEATABLE READ`** | **La instantánea de la transacción se fija en su PRIMERA sentencia — y esa primera sentencia es el propio `SELECT pg_advisory_xact_lock(...)`.** ⇒ el snapshot queda **anterior a la concesión del candado**, la relectura **devuelve el estado de antes de esperar**, y `S-FX-1` **vuelve entero, con `200` en las dos respuestas** | 🔴 **ROMPE, Y FALLA CALLADO.** La suite sigue verde, la contención sigue existiendo, el candado sigue tomándose — **y el dinero vuelve a caer a 18** |
+| ⚠️ **`SERIALIZABLE`** | Mismo problema de instantánea, con el añadido de que el SSI **probablemente** aborte con `40001` | ⚠️ **ROMPE, pero RUIDOSO** — y `40001` en un endpoint que no reintenta es un `500` a la cara del dueño |
+
+⛔ **NORMA: las transacciones de las dos puertas del FX NO llevan `isolationLevel`, y añadírselo es una regresión
+de dinero aunque la suite quede verde.** El nivel **no es un ajuste de calidad: es una pieza del mecanismo.**
+
+**⚠️ Y esto NO desautoriza el `Serializable` que ya vive en el repo — lo distingue.** `buylist.service.ts` y
+`shipments.service.ts` usan `isolationLevel: Serializable` (seis usos) y **ahí es correcto**: son **agregaciones
+sobre muchas filas** —topes AML mensuales, invariantes de retiro— donde *«la lectura y la escritura van en la misma
+transacción o el tope es decorativo»* (§4.39x.4, §4.39w) y **no hay candado explícito cuya concesión el snapshot
+pueda adelantar**. La diferencia es **estructural, no de gusto**, y está escrita entera en **§5.5**:
+*el SSI arbitra un conflicto que descubre al final; un advisory lock lo evita al principio — **y sólo el segundo
+depende de que la lectura ocurra DESPUÉS de esperar**.* ⇒ **Mezclarlos no suma: el nivel alto le quita al candado
+justo la propiedad por la que se eligió.**
+
+**El escenario concreto que esta norma existe para impedir:** alguien endurece `buylist`/`shipments`, ve que el
+idiom es bueno, y **lo lleva por simetría** a las dos `$transaction` del FX. **Nada se pone rojo.** Por eso el
+disparador de la deuda de (c-ter.6) es literal: *cualquier `isolationLevel` que aparezca en esas dos
+transacciones.*
+
+**(c-ter.6) Lo que hoy es CONVENCIÓN y propongo convertir en ESTRUCTURA — propuesta, no norma todavía.**
+La ceremonia de (c-ter.3) es **disciplina en cinco pasos repetida en dos sitios**, y **la única cosa que la
+garantiza es que alguien la recuerde**. La dirección que ya anotó techlead —**`withFxGate(prisma, cb)`: un
+envoltorio que abre la transacción con `ReadCommitted` EXPLÍCITO, toma el candado y entrega el `tx`**— convierte
+tres reglas en **una firma**: no se puede escribir el estado FX sin candado, no se puede leer por otro handle
+(sólo se recibe el `tx`), y **el nivel deja de ser un vacío que alguien pueda rellenar con una mejora**.
+- **Dueño: backend.** ⛔ Yo no lo escribo; aquí sólo declaro que **la arquitectura lo prefiere**.
+- **Estado: deuda NO BLOQUEANTE**, registrada en `docs/TECH_DEBT.md`. **Disparador (literal): el TERCER escritor
+  de FX, o cualquier `isolationLevel` que aparezca en esas dos `$transaction`.** *Con dos escritores, un envoltorio
+  es ceremonia; con tres, es la única forma de que el tercero no lo aprenda por accidente.*
+- ⚠️ **Mientras no exista, I-FX6 y (c-ter.5) SON la norma**, y se verifican leyendo el código —no confiando en él—
+  en toda revisión que toque FX.
+
+**(c-ter.7) Qué está medido y qué no, para que nadie lo dé por más cerrado de lo que está.**
+El arnés unitario (`backend/test/fx.mode-switch.spec.ts`, candados **FX-20** y **FX-22**) **emula la semántica** de
+`pg_advisory_xact_lock` —exclusión mutua por transacción— y se pone rojo ante las mutaciones que importan (quitar el
+candado, o devolver la lectura a *antes* de la transacción). ⛔ **Lo que un unitario NO puede afirmar es el motor:**
+que el candado real exista, que el nivel por defecto sea el que creemos y que la carrera no pase con Postgres
+delante **sólo lo afirma la integración** (`backend/test/integration/fx-mode.e2e-spec.ts`, **que corre QA con el
+stack levantado**). Es aplicación literal de **§5.4** disparadores **1** (dinero) y **2** (*la regla vive en el
+motor*): **un mock evalúa el `where` que escribiste, no el que la base aplica** — y aquí, además, **no evalúa el
+nivel de aislamiento en absoluto**, que es precisamente donde vive la trampa de (c-ter.5).
+
+<a id="fx-43-c-quater"></a>
+#### (c-quater) ⭐ **«MANUAL SIN NÚMERO»: LA LECTURA SE DEFIENDE** *(v1.63.3 — decisión del arquitecto sobre el asunto que backend elevó; **CAMBIO DE CONTRATO**, `API_CONTRACT §M2-F.1`/`§M2-F.3`)*
+
+**El asunto, tal como llegó** (`BACKEND_NOTES §v1.63.1(3.1)`): §M2-F y §4.43 **razonan** que el estado
+`mode:"manual"` + `manual.rate: null` es **inalcanzable** —lo prohíben las dos mitades de I-FX4—, y **sobre esa
+suposición** la lectura no se defiende: cae al fallback duro y lo etiqueta `fallback`. **La carrera lo alcanzaba por
+HTTP, con dos `200`.** El arreglo de (c-ter) **cierra esa vía**, pero la suposición sigue apoyada en *«nadie más
+puede crearlo»* — **y una migración, un seed mal escrito o un `psql` lo siguen creando.** Backend hizo lo correcto:
+no tocó la lectura y lo elevó (regla 9).
+
+**DECISIÓN: SÍ. La lectura se defiende, y la regla es una sola línea.**
+
+> **En modo `manual` SIN número guardado —estado que I-FX4 declara inexistente— rige la última fila `banxico`
+> (`source: "banxico"`), y sólo si tampoco la hay, el fallback duro de 18 (`source: "fallback"`).**
+> ⛔ **El `mode` NO cambia y la fila NO se toca:** la lectura **no repara** nada, sólo **elige mejor**.
+
+**Las tres razones, y la tercera es la que decide:**
+1. **El 18 no es una tasa: es una constante escondida.** Entre *«un número real que Banxico publicó»* y *«un
+   literal del código que nadie tecleó»*, el segundo es **el peor dato disponible**, y hoy la corrupción de una
+   fila lo asciende a rector del catálogo entero. **Preferir la tasa observada sobre la constante es la misma
+   doctrina de `I-FX5`** (una fila que no debe regir, no rige) y de (d) (*⛔ no se inventa un número*).
+2. **La defensa no es fail-closed, y eso es deliberado.** ⛔ **No se bloquea el pricing ni se despublica la
+   vitrina**: *ocultar dinero que sí tenemos no es money-safe; declararlo sí* (§4.43e, §4.42j). Un estado corrupto
+   de configuración **no puede apagar la tienda**.
+3. ⭐ **Hoy el DTO MIENTE en ese estado, y arreglar la precedencia lo arregla de paso.** Medido
+   (`common/fx-mode.ts`, `projectFxState`): con `mode:"manual"` y `rate:null`, el DTO emite **`source:"fallback"` y
+   a la vez `manual.applied: true`** — *«el número del dueño está aplicado»* sobre un número **que no existe**. La
+   causa es que §M2-F.3 define `manual.applied ⟺ mode === "manual"`, que **deja de ser cierto justo en el estado
+   que nos ocupa**. **La definición honesta es `applied ⟺ la rama RIGE`**, es decir **`⟺ source` la nombra** —
+   idéntica en todo estado alcanzable por API, y verdadera también en éste.
+
+**Qué cambia en el contrato (lo escribo yo, es mío):** la tabla de precedencia de `§M2-F.1`/**(c-bis)** gana una
+**cuarta fila** —el estado imposible y qué rige en él—, y `§M2-F.3` **redefine los dos `applied` como
+`⟺ source`**. ⛔ **Cero DDL, cero endpoint, cero campo nuevo, cero valor nuevo de enum.**
+
+**Qué NO cambia, y hay que decirlo para que la defensa no se lea como una amnistía:**
+- ⛔ **El estado sigue siendo ILEGAL.** I-FX4 no se relaja: las dos puertas siguen devolviendo `422`.
+- ⛔ **La defensa NO lo oculta — lo hace MÁS visible.** La combinación observable pasa a ser
+  `mode:"manual"` + `manual.rate: null` + **`manual.applied: false`** + `source:"banxico"`, que **ninguna
+  secuencia de llamadas legales puede producir**. *Sigue siendo, además, la consulta SQL de una fila que backend
+  dejó escrita (`BACKEND_NOTES §v1.63.1(4)`) para censar entornos ya afectados.* Convertirlo en **alerta** es
+  **Q-F1**, no esto.
+- ⛔ **No es «inferir el modo del valor» (I-FX1 intacto).** El modo sigue saliendo de la fila y sigue viajando como
+  `manual`; lo que se decide es **qué tasa rige cuando la que el modo nombra no existe** — que es precedencia
+  (I-FX5), no resolución de modo.
+- ⚠️ **Para el frontend:** `mode:"manual"` con `manual.applied:false` pasa a ser **alcanzable**. Es exactamente por
+  esto que §M2-F.3 manda **obedecer** el DTO y no derivar: ⛔ **la pantalla no calcula `applied` a partir de
+  `mode`.**
+
+**Estado e implementación.** **NORMATIVA desde v1.63.3, PENDIENTE de implementar. Dueño: backend** (es
+`projectFxState`, función pura de `backend/src/common/fx-mode.ts`, más su candado). **No bloqueante para el cierre
+de v1.63.2**: el vector de HTTP ya está cerrado por (c-ter) y el residual exige acceso directo a la base. Queda
+declarada como divergencia contrato↔código en **§9 (`D-FX-1`)** hasta que se implemente, para que nadie la lea
+como *«ya está»*. **Candado exigido: `FX-23`** (§M2-F.6).
 
 <a id="fx-43-d"></a>
 #### (d) ⚠️ La precondición de las **DOS TASAS**: NORMA, no sugerencia
@@ -19735,8 +19941,14 @@ cola, ni correo · ⛔ no añade dial a M10 · ⛔ **no toca `§M2-B` ni la cara
 
 **Cero DDL. Cero migración de esquema. Cero jobs. Cero diales de M10.** Un ajuste `ConfigSetting`, un endpoint de
 escritura con dos precondiciones, un enum con un valor más, dos códigos de error, tres campos nuevos en una respuesta
-que ya existía, y una acción de bitácora. **La parte cara no es el código: es que los invariantes I-FX1..I-FX4 tengan
-candados que midan la CONDUCTA** (`§M2-F.6`).
+que ya existía, y una acción de bitácora. **La parte cara no es el código: es que los invariantes **I-FX1..I-FX6**
+tengan candados que midan la CONDUCTA** (`§M2-F.6`) — *y **I-FX6** es el que lo demuestra: su candado (`FX-20`)
+**necesita Postgres real y dos peticiones a la vez**, porque la regla vive en el motor* (§5.4, §5.5).
+
+> ⚠️ **Y el coste que v1.63.3 añade al MANTENIMIENTO, que es el que se paga después:** desde `S-FX-1`, el estado del
+> FX tiene **una puerta única en zona compartida** (`common/fx-mode.ts`) **y un nivel de aislamiento que es parte del
+> mecanismo**. Toda revisión que toque FX —de cualquier stream— **lee (c-ter) antes de escribir**, y **cualquier
+> cambio de contrato o de la puerta pasa por el arquitecto** (regla 9 de `CLAUDE.md`).
 
 ---
 
@@ -20272,6 +20484,78 @@ dice «desconfía de los unitarios»; dice dónde NO son evidencia.**
 
 ---
 
+### 5.5 Doctrina de SERIALIZACIÓN de invariantes multi-fila — y el NIVEL DE AISLAMIENTO como PIEZA DEL MECANISMO (v1.63.3, NORMATIVA, transversal, **DINERO**)
+
+> **De dónde sale, porque no es una preferencia de estilo.** `S-FX-1` (crítica, medida contra Postgres real) fue
+> **dos rutas que comprobaban las dos mitades del mismo invariante, cada una sobre su propia lectura previa, sobre
+> filas distintas**: el motor no las hizo colisionar, las dos devolvieron `200` y el catálogo entero quedó cotizando
+> **−5.26 %**. El arreglo introdujo un **advisory lock**. Y al escribirlo apareció **la trampa que motiva esta
+> sección**: ese arreglo **depende del nivel de aislamiento**, y **subirlo lo rompe en silencio**. Un
+> `isolationLevel: Serializable` es **una línea, suena a mejora, y no pone nada rojo.** Esa clase de error —*el que
+> un implementador comete de buena fe y ningún gate detecta*— es exactamente lo que una doctrina de arquitectura
+> tiene que impedir; una nota dentro de §4.43 sólo la lee quien ya está mirando el FX.
+
+**(1) Primero, la pregunta que decide la herramienta: ¿el estado ilegal cabe en UNA fila?**
+
+| El invariante… | Herramienta | Ejemplos vivos |
+|---|---|---|
+| cabe en **una fila** (unicidad, transición de estado, «no dos veces») | **El MOTOR**: `@@unique`, o **guarda en el `where` de un `updateMany` con patrón `count === 1`** — ⛔ nunca un `if` previo | Invariante T (§4.39v), la guarda de `paySpei` (§4.39w) |
+| es una **agregación sobre MUCHAS filas** que hay que leer y luego escribir (topes, acumulados) | **`isolationLevel: Serializable`** — el SSI arbitra; **la lectura va DENTRO de la transacción o el tope es decorativo** | Topes AML mensuales de `buylist`, invariante de retiro de `shipments` (§4.39x.4) |
+| ata **DOS O MÁS filas** que **rutas distintas** escriben por separado *(el estado ilegal es una **combinación** de filas cada una legal)* | ⭐ **Advisory lock por transacción** (`pg_advisory_xact_lock`) **+ RELEER dentro**, sobre una clave que nombra **la REGLA**, no una fila | **La puerta del FX** (`lockFxGate`, §4.43c-ter) — hoy el **único** caso del repo |
+
+**(2) ⭐⭐ La regla que esta sección existe para escribir: LOS DOS MECANISMOS NO SE MEZCLAN, y el nivel de
+aislamiento NO es un ajuste de calidad.**
+
+- **`Serializable` arbitra un conflicto que descubre AL FINAL** (aborta con `40001` a quien pierde). Para que
+  funcione, cada transacción necesita **una instantánea estable**: es *el mecanismo*.
+- **Un advisory lock EVITA el conflicto AL PRINCIPIO**: quien pierde **espera**, entra, y **tiene que ver lo que el
+  ganador dejó**. Para eso necesita **exactamente lo contrario**: que su lectura ocurra **después** de esperar.
+- ⇒ **`REPEATABLE READ` y `SERIALIZABLE` fijan la instantánea de la transacción en su PRIMERA SENTENCIA — y en la
+  ceremonia del candado esa primera sentencia es el propio `SELECT pg_advisory_xact_lock(...)`.** El snapshot queda
+  **anterior a la concesión del candado**, la relectura devuelve **el estado de antes de esperar**, y el defecto
+  vuelve entero. **Bajo `REPEATABLE READ` falla CALLADO** (nada aborta, nada se pone rojo, el candado sigue ahí y
+  parece que protege). Bajo `SERIALIZABLE` probablemente falle **ruidoso** (`40001`), que en un endpoint sin
+  reintento es un `500` a la cara del dueño.
+
+**NORMA, en tres puntos:**
+1. ⛔ **A una transacción que toma un advisory lock NO se le añade `isolationLevel`.** Corre en `READ COMMITTED`
+   —el nivel por defecto— **y eso es parte del mecanismo, no una omisión.** Quien crea que hay que subirlo, **no
+   lo sube: abre la pregunta al arquitecto** (regla 9 de `CLAUDE.md`), porque cambiarlo **cambia la corrección del
+   arreglo, no su rendimiento**.
+2. ✅ **El `Serializable` de `buylist`/`shipments` NO queda desautorizado por esta norma.** Ahí no hay candado
+   explícito cuya concesión el snapshot pueda adelantar: son **agregaciones** que necesitan justamente la
+   instantánea estable. **La distinción es estructural, no de gusto** — y por eso se escribe, en vez de dejar dos
+   idioms parecidos conviviendo sin criterio.
+3. ⚠️ **Todo sitio donde el nivel de aislamiento sea LOAD-BEARING lo dice en el código y lo dice aquí.** *Una
+   restricción que sólo vive en la memoria del que la implementó es una restricción que ya se perdió.* La forma
+   preferida es **estructural, no documental**: un envoltorio que **fije el nivel explícitamente** y no deje el
+   hueco (para el FX: la propuesta `withFxGate`, §4.43c-ter.6; **dueño backend**, deuda **no bloqueante** con
+   disparador escrito).
+
+**(3) Y la mitad que se olvida siempre: SERIALIZAR NO BASTA. Hay que RELEER DENTRO.**
+Un candado sin relectura es **decorativo**: la transacción que espera su turno y luego escribe con la lectura que
+hizo **antes de esperar** commitea **el mismo estado imposible, sólo que más tarde**. ⇒ **Bajo el candado se lee,
+se valida, se escribe y se proyecta lo que se audita** — y **por el mismo handle transaccional**, nunca por el
+cliente de fuera. *La bitácora también entra: auditar la lectura de fuera produce un registro que afirma un estado
+que ya no existía, que es el mismo defecto contado por el lado forense.*
+
+**(4) Alcance — dónde aplica esta doctrina.** A **toda zona compartida** de `backend/src/common/`,
+`backend/src/config/` y a **cualquier invariante de dinero que abarque más de una fila**, lo escriba el módulo que
+lo escriba. **Un stream que necesite serializar un invariante nuevo elige herramienta con la tabla de (1) y, si
+elige la tercera fila, pasa por el arquitecto** — porque una clave de advisory lock **es superficie compartida**:
+dos reglas distintas que compartan clave se bloquean sin motivo, y dos rutas de la misma regla con claves distintas
+**no se serializan aunque las dos crean que sí**.
+
+**(5) Cómo se verifica** — remite a **§5.4**, disparadores **1** y **2**: esto **exige integración contra Postgres
+real**. Un mock **evalúa el `where` que escribiste, no el que la base aplica**, y **no evalúa el nivel de
+aislamiento en absoluto**: un arnés unitario puede emular la exclusión mutua (y debe hacerlo — es lo que mide la
+mutación *«quitar el candado»*), pero **es estructuralmente incapaz de ver la regresión de (2)**. ⛔ **Y no se
+falsea el arnés para que la vea**: servir las lecturas de fuera desde una instantánea de apertura modelaría un
+motor que no corremos, y dejaría un candado que se pone rojo por un fallo **que Postgres no comete**. *Un arnés que
+miente en la otra dirección cuesta lo mismo que uno que no mide.*
+
+---
+
 ## 6. i18n (convención)
 
 - **UI 100% bilingüe ES/EN, default ES**, toggle a EN. Los copys viven en `frontend/src/i18n/messages/{es,en}.json` (propiedad de frontend/ux-ui).
@@ -20382,6 +20666,34 @@ Riesgos técnicos:
 > (backend). Estado del código revisado el **2026-08-16** (plataforma ya en producción; back-office M1–M10 con
 > backend en su mayoría implementado; **M7 ya tiene UI consumidora real** —`admin/m7/M7View.tsx`—, el resto de
 > módulos sigue con UI en `ModuleTodo` pendiente de consumir).
+
+- **⚠️ NUEVA (v1.63.3) — `D-FX-1`: EL CONTRATO YA MANDA DEFENDER LA LECTURA DE «MANUAL SIN NÚMERO», Y EL CÓDIGO
+  TODAVÍA NO LO HACE.** **Dueño del arreglo: backend** (`projectFxState`, `backend/src/common/fx-mode.ts`).
+  **Estado: ⚠️ ABIERTA — NO bloqueante.** Es una divergencia **que abro yo al decidir** (§4.43c-quater), y la dejo
+  escrita **para que nadie lea la decisión como si ya estuviera implementada**.
+  - **Qué manda el contrato desde v1.63.3:** en `mode:"manual"` **sin** número guardado —estado ilegal por I-FX4,
+    hoy alcanzable sólo por SQL/migración— rige **la última fila `banxico`** y sólo si no la hay, el fallback de 18;
+    y `manual.applied`/`automatic.applied` se definen **`⟺ source` nombra la rama** (`§M2-F.1`, `§M2-F.3`).
+  - **Qué hace el código hoy:** cae al **fallback duro de 18** y emite `source:"fallback"` **junto con
+    `manual.applied: true`** — *«el número del dueño está aplicado»* sobre un número que **no existe**.
+  - **Por qué no bloquea:** el vector por HTTP lo cerró la puerta del FX (§4.43c-ter); lo que queda exige acceso
+    directo a la base. **Por qué tampoco se aplaza sin fecha:** mientras dure, la corrupción de **una** fila
+    reprecia el catálogo **−5.26 %** y el DTO lo describe mal. **Candado exigido: `FX-23`** (`§M2-F.6`).
+  - ⛔ **No lo arreglo yo** (regla de propiedad de `CLAUDE.md`): es código de backend, y la petición va con el
+    contrato ya escrito, que es lo único que me toca.
+
+- **⚠️ NUEVA (v1.63.3) — `D-FX-2`: UN JSDOC DEL CÓDIGO SIGUE PUBLICANDO LA AFIRMACIÓN QUE §4.43(c) DECLARÓ FALSA.**
+  **Dueño del arreglo: backend.** **Estado: ⚠️ ABIERTA — cosmética en el dinero, NO cosmética en el criterio.**
+  - **Dónde:** el jsdoc de `resolveFxMode` (`backend/src/common/fx-mode.ts`) afirma que la resolución legacy
+    *«ocurre como mucho **una vez por entorno** (deja de correr en cuanto un humano toca el interruptor)»*.
+  - **Qué la contradice:** **§4.43(c) I-FX1, corregido en v1.63.2** (y `API_CONTRACT §M2-F.1`): la resolución legacy
+    **corre en CADA LECTURA** mientras la fila valga `"legacy"`; lo que ocurre a lo sumo una vez es **la
+    materialización**. El código **se comporta bien** —la función es pura y no escribe—; lo que está mal es **lo que
+    el comentario le enseña al siguiente**, y es el comentario que está **en el sitio exacto** donde alguien va a
+    razonar sobre esto.
+  - **Cómo llegó:** la corrección de v1.63.2 se aplicó a los dos documentos normativos y **no al jsdoc que decía lo
+    mismo**. Es §0-B.3 regla 7 (regla de la cita) aplicada **en la dirección contraria a la habitual**: el documento
+    se corrigió y **la copia dentro del código quedó viva**.
 
 - **⚠️ NUEVA (v1.62.2) — `D-OPS-1`: EL TIPO DE CAMBIO ESTÁ CONGELADO EN PRODUCCIÓN, Y AHORA ESO SE VA A PINTAR.**
   **Dueño del arreglo: devops** (poner la variable) **+ el humano** (conseguir el token SIE). **Estado: ⚠️ ABIERTA —

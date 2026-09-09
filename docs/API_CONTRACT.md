@@ -9898,6 +9898,19 @@ vuelve a pedir dentro de dos semanas.*
 > (`PUT /admin/fx/mode`), **UN valor nuevo** en el enum `FxSource`, **dos códigos de error**, **tres bloques nuevos**
 > en una respuesta que ya existía. **CERO DDL, CERO cambios en `FxRate`, CERO diales de M10, CERO jobs, CERO
 > superficies públicas.** ⛔ **No toca [`§M2-B`](#M2-B) ni la cara `market` de v1.62.2.**
+>
+> ### ⚠️⚠️ **REV v1.63.3 — DOS CAMBIOS, Y LOS DOS SALEN DE LA CARRERA CRÍTICA `S-FX-1`**
+> **(1) `I-FX6` — la puerta del FX** ([`§M2-F.1`](#M2-F1)): las dos puertas del estado del FX **están serializadas
+> entre sí**, y la garantía es **observable por HTTP**. *Dos peticiones normales solapadas dejaban `mode:"manual"`
+> con la tasa `null` ⇒ **fallback duro de 18 ⇒ −5.26 % sobre todo lo que la plataforma compra y vende**, con `200`
+> en las dos respuestas, sin acuse y con la bitácora afirmando un número que jamás rigió* (`PENTEST_NOTES §M2-F
+> v1.63.1 · S-FX-1`, LIVE-DB). **Ya está implementado**; lo que faltaba era que el contrato y `ARCHITECTURE` lo
+> dijeran. ⚠️ **Toda ruta futura que escriba `fx_rate_mode` o `fx_manual_override_rate` está obligada a la misma
+> puerta — y a NO subirle el nivel de aislamiento a esa transacción** (`ARCHITECTURE §4.43c-ter`, **§5.5**).
+> **(2) La cuarta fila de la tabla de precedencia + la definición de `applied`** ([`§M2-F.1`](#M2-F1),
+> [`§M2-F.3`](#M2-F3)): **«manual sin número» deja de caer al 18** y pasa a regirse por la tasa de Banxico.
+> **Cero DDL, cero endpoint, cero campo nuevo, cero valor nuevo de enum**; ⚠️ **pendiente de implementar** (dueño
+> **backend**, `ARCHITECTURE §9 · D-FX-1`). Razón entera: `ARCHITECTURE §4.43c-quater`.
 
 <a id="M2-F0"></a>
 ##### M2-F.0 — El problema, y por qué es de dinero y no de UI
@@ -9944,7 +9957,9 @@ proyección observable es **`modeResolvedFrom: "legacy"`**.
 cae en `422 VALIDATION_ERROR` (clave desconocida), igual que `pricing_curve` o `sealed_spread_*`. **Su única puerta
 es [`§M2-F.2`](#M2-F2)**, que es la que impone las precondiciones y la bitácora.
 
-**Los cuatro invariantes — NORMATIVOS, y son la feature:**
+**Los SEIS invariantes — NORMATIVOS, y son la feature.** *(⚠️ **v1.63.3 — este encabezado decía «los cuatro» y
+listaba CINCO** desde v1.63.1, cuando entró I-FX5: la cuenta se quedó atrás. Con **I-FX6** son **seis**, y la cuenta
+canónica es ésta y `ARCHITECTURE §4.43c` —§0-B.3 regla 8—.)*
 
 - **I-FX1 — El modo NUNCA se deriva del valor**, salvo en la resolución legacy de la tabla. Esa inferencia es **la
   única del sistema** ~~y ocurre, como mucho, **una vez por entorno**~~.
@@ -9975,12 +9990,39 @@ es [`§M2-F.2`](#M2-F2)**, que es la que impone las precondiciones y la bitácor
   (en **ambas** puertas). Pedir `manual` sin valor guardado ⇒ **`422 FX_MANUAL_RATE_MISSING`**, y **el modo no
   cambia**.
 - **I-FX5 ⭐ *(v1.63.1)* — PRECEDENCIA ÚNICA. Una fila `FxRate` con `source='manual'` NO RIGE NUNCA.**
+- **I-FX6 ⭐⭐ *(v1.63.3 — cierra la carrera CRÍTICA `S-FX-1`)* — LAS DOS PUERTAS ESTÁN SERIALIZADAS ENTRE SÍ.**
+  El estado del FX vive en **dos filas** (`fx_rate_mode` y `fx_manual_override_rate`) que **rutas distintas**
+  escriben ⇒ sin serialización explícita, las dos mitades de **I-FX4** se comprueban cada una sobre su propia
+  lectura previa **y las dos commitean**. **Garantía OBSERVABLE, y es la que QA puede medir por HTTP:** *dos
+  peticiones concurrentes —una a `PUT /admin/fx/mode`, otra a `PUT /admin/settings { fxManualOverrideRate: null }`—
+  **no pueden terminar las dos en `200` dejando el sistema en `mode:"manual"` con `manual.rate: null`**. Una de las
+  dos recibe su `422` (`FX_MANUAL_RATE_MISSING` o `FX_MANUAL_RATE_REQUIRED`), y la bitácora describe el estado que
+  de verdad quedó.* **Mecanismo, ceremonia y —⚠️ importante— el nivel de aislamiento del que depende:
+  `ARCHITECTURE §4.43c-ter` y la doctrina transversal `§5.5`.* ⛔ **Cualquier ruta futura que escriba una de esas
+  dos filas está obligada a la misma puerta**; una que se la salte **no abre una variante de `S-FX-1`: abre
+  `S-FX-1` exacto.**
 
 | Modo resuelto | Qué rige | `source` emitido |
 |---|---|---|
-| `manual` | **`fx_manual_override_rate`** (el ajuste). ⛔ **No** la fila `FxRate` | `manual` |
+| `manual` **con número guardado** | **`fx_manual_override_rate`** (el ajuste). ⛔ **No** la fila `FxRate` | `manual` |
 | `auto` | **la última fila `FxRate` con `source = 'banxico'`** | `banxico` |
 | `auto` y **no hay ninguna fila `banxico`** | el **fallback duro (18)** | `fallback` |
+| ⚠️ **`manual` SIN número** — estado **ILEGAL** por I-FX4, alcanzable **sólo** por SQL/migración *(fila NUEVA en v1.63.3)* | **la última fila `banxico`**; si tampoco la hay, el **fallback duro (18)**. ⛔ El `mode` **no** se corrige ni se reescribe: la lectura elige mejor, **no repara** | `banxico` / `fallback` |
+
+> ⭐ **La cuarta fila es un CAMBIO DE CONTRATO de v1.63.3, y su razón está escrita entera en
+> `ARCHITECTURE §4.43c-quater`.** En corto: hasta v1.63.2 el contrato **razonaba** que ese estado era inalcanzable y
+> por eso la lectura no se defendía —caía al **fallback duro de 18**—; **la carrera `S-FX-1` lo alcanzaba por HTTP
+> con dos `200`**, y aunque I-FX6 cierra esa vía, **una migración o un `psql` lo siguen creando**. Entre *«un número
+> real que Banxico publicó»* y *«un literal del código que nadie tecleó»*, **rige el primero**: es la misma doctrina
+> que I-FX5 y que la regla 5 de [`§M2-F.3`](#M2-F3) (*⛔ no se inventa un número*).
+>
+> ⛔ **Esto NO relaja I-FX4** —las dos puertas siguen devolviendo `422`— y ⛔ **no oculta la corrupción: la hace más
+> visible.** La combinación resultante `mode:"manual"` + `manual.rate: null` + **`manual.applied: false`** +
+> `source:"banxico"` **no la puede producir ninguna secuencia de llamadas legales**.
+>
+> ⚠️ **PENDIENTE DE IMPLEMENTACIÓN cuando se escribe esto (dueño: backend; `ARCHITECTURE §9 · D-FX-1`).** Hoy el
+> código cae al 18 y emite `source:"fallback"` **con `manual.applied: true`**. **Candado exigido: `FX-23`**
+> ([`§M2-F.6`](#M2-F6)).
 
 > **⇒ Identidad NORMATIVA y verificable: en modo `auto`, `rate === automatic.rate` SIEMPRE**, y
 > `effectiveDate === automatic.effectiveDate`. Una sola aserción cierra la familia entera (candado **FX-11**).
@@ -10051,17 +10093,31 @@ motivo que `VariantPricingDTO` es uno solo: que ninguna superficie pueda discrep
   "modeResolvedFrom": "setting",      // "setting" | "legacy" — de dónde salió el modo
   "manual": {
     "rate": 19.0,                     // ⭐ el número GUARDADO, RIJA O NO. null si no hay ninguno
-    "applied": true                   // ⟺ mode === "manual"
+    "applied": true                   // ⟺ source === "manual"   (v1.63.3 — ver la nota de abajo)
   },
   "automatic": {
     "rate": 18.2431,                  // ⭐ la de Banxico VIGENTE, RIJA O NO. null si nunca llegó ninguna
     "effectiveDate": "2026-09-05",    // la de la fila FxRate, NO today()
     "ageDays": 3,                     // días desde `effectiveDate` (null si `rate` es null)
     "status": "fresh",                // "fresh" | "stale" | "missing"
-    "applied": false                  // ⟺ mode === "auto" ∧ status !== "missing"
+    "applied": false                  // ⟺ source === "banxico"  (v1.63.3 — ver la nota de abajo)
   }
 }
 ```
+
+> ⭐ **`applied` significa «esta rama RIGE AHORA MISMO», y desde v1.63.3 se define así y no por el `mode`.**
+> Las dos definiciones anteriores —`manual.applied ⟺ mode === "manual"` y
+> `automatic.applied ⟺ mode === "auto" ∧ status !== "missing"`— son **equivalentes a ésta en todo estado alcanzable
+> por la API**, así que ⛔ **ningún cliente ve un cambio**. Se reescriben porque **dejaban de ser ciertas justo en el
+> estado ilegal** de la cuarta fila de [`§M2-F.1`](#M2-F1): ahí el DTO emitía `source:"fallback"` **y a la vez**
+> `manual.applied: true` — *«el número del dueño está aplicado»* **sobre un número que no existe**. *Un campo que
+> miente sólo en el estado corrupto miente exactamente cuando alguien lo está leyendo para entender qué pasó.*
+> ⇒ **Regla mecánica y verificable de una línea: exactamente una de las dos `applied` es `true` ⟺ `source` la
+> nombra; con `source: "fallback"` las DOS son `false`.**
+>
+> ⚠️ **Para el frontend, y es la única consecuencia observable:** `mode: "manual"` con `manual.applied: false` pasa
+> a ser **alcanzable** (sólo en ese estado corrupto). Es justo lo que manda la regla del DTO: **la pantalla OBEDECE
+> `applied`, ⛔ no lo deriva de `mode`.**
 
 **La norma, en cinco puntos:**
 
@@ -10286,6 +10342,9 @@ miden **qué dinero sale**.*
 | **FX-11** ⭐ *(v1.63.1)* | **que una fila `FxRate` de fuente `manual` pueda regir** (leer la última fila **sin filtrar por fuente**) | **El candado de I-FX5, y es UNA identidad.** Fixture: `fx_rate_mode = "auto"`, `FxRate` banxico `18.2` **de hoy**, y **además** una fila `FxRate { source:'manual', rate: 25 }` **de hoy** (la que `PUT /admin/fx` escribe). ⇒ `GET /admin/fx`: **`rate == 18.2`**, `source == "banxico"`, **y `rate === automatic.rate`**. **Rojo si vale 25 o si `source == "manual"`.** ⭐ **Y por la vía real, que es como se produce:** partiendo de `auto` sin tasa manual, `PUT /admin/fx { "rate": 25 }` (que **escribe esa fila**) y **después** `GET` ⇒ sigue rigiendo 18.2. *Sin esta segunda mitad, un implementador que arregle el pin pero no el lector pasa FX-2 y sigue repreciando el catálogo* |
 | **FX-12** *(v1.63.1)* | quitar el acuse del caso «sin segunda tasa» | `FxRate` **vacío** (⇒ `automatic.status == "missing"`), modo `manual` con `19.0` ⇒ `PUT /admin/fx/mode {mode:"auto"}` **sin** `acknowledgeNoAutomaticRate` ⇒ **`422 FX_NO_AUTOMATIC_RATE`** **y el modo SIGUE en `"manual"`** (`rate == 19.0`). Con `acknowledgeNoAutomaticRate: true` ⇒ `200`, `source == "fallback"`, `rate == 18`, **y la entrada de bitácora trae `after.acknowledgedNoAutomaticRate === true`** *(ubicación **normativa** desde v1.63.2 — §M2-F.4; ⚠️ **el candado NO cambia**, sólo se explicita dónde mira, que es donde ya miraba)*. **Rojo si el `422` no existe, o si se exige también con `status: "stale"`** (ahí hay número real y **no** se pide) |
 | **FX-13** *(v1.63.1)* | que un cambio de modo entrado por `PUT /admin/settings` **no** deje entrada `fx.mode.change` | `PUT /admin/settings { "fxManualOverrideRate": 30 }` estando en `"legacy"` sin tasa ⇒ además del `settings.update`, **existe una entrada `action == "fx.mode.change"`** con `actorUserId` y con `before`/`after` **incluyendo `bufferPct`**. *Rojo si sólo hay `settings.update`: auditar por `fx.mode.change` dejaría de ser completo* |
+| **FX-20** ⭐⭐ *(v1.63.3 — `S-FX-1`, CRÍTICA, medida LIVE-DB por el pentester)* | **quitar la puerta del FX**: borrar `lockFxGate(tx)`, **o** devolver la lectura/las precondiciones a **antes** de la transacción dejando el candado puesto | **EL candado de I-FX6, y es una CARRERA, no una aserción.** Fixture: `fx_rate_mode = "manual"`, `fx_manual_override_rate = 19.0`. **Se lanzan SOLAPADAS** `PUT /admin/fx/mode { mode:"auto" }` y `PUT /admin/settings { "fxManualOverrideRate": null }` *(escalonando el arranque de la segunda unos ms; se repite N veces)*. ⇒ **Es IMPOSIBLE que las dos devuelvan `200` dejando `mode:"manual"` + `manual.rate: null`**: una de las dos sale con su `422`. ⭐ **Y la conducta, que es lo que mide el dinero:** el `referenceMxnCents` de una carta en USD **jamás** queda convertido a **18** tras ese par de llamadas *(18 = −5.26 % sobre 19.0, en todo lo que se compra y se vende)*. ⭐ **Y la bitácora:** la última entrada `fx.mode.change` describe **el estado que quedó**, no uno que se deshizo. ⚠️ **Exige Postgres real** (`ARCHITECTURE §5.4`, disparadores 1 y 2): el candado es del motor |
+| **FX-22** ⭐⭐ *(v1.63.3)* | **subir el nivel de aislamiento** de cualquiera de las dos `$transaction` del FX (`isolationLevel: 'RepeatableRead'` / `'Serializable'`), **o** leer bajo el candado por el cliente de fuera en vez de por el `tx` | **La regresión que NO se ve.** Bajo `REPEATABLE READ` la instantánea se fija en la **primera sentencia** —que es el propio `pg_advisory_xact_lock`— ⇒ la relectura devuelve **el estado de antes de esperar** y **`S-FX-1` vuelve entero, con `200` en las dos respuestas**. **Rojo por dos vías: (a)** el mismo par concurrente de **FX-20** vuelve a producir `manual` + `null`; **(b)** unitariamente, **toda lectura del estado FX bajo el candado va por el `tx` que escribe** (≥3 lecturas: modo + tasa + colchón + la fila `banxico`), y **ninguna por el cliente de fuera**. ⛔ **No se falsea el arnés** para simular datos rancios en (b): eso modelaría un motor que no corremos. Doctrina completa: `ARCHITECTURE §4.43c-ter.5` y **§5.5** |
+| **FX-23** ⭐ *(v1.63.3 — **PENDIENTE de implementar**, `ARCHITECTURE §9 · D-FX-1`)* | que **«manual sin número» siga cayendo al fallback duro de 18** en vez de a la tasa de Banxico, o que `applied` se siga derivando del `mode` | **El candado de la cuarta fila de [`§M2-F.1`](#M2-F1).** Fixture **sembrado por SQL** (es el único modo de crearlo): `fx_rate_mode = "manual"` y `fx_manual_override_rate = null`, **con** una fila `FxRate` banxico `18.2431`. ⇒ `GET /admin/fx`: **`rate == 18.2431`**, `source == "banxico"`, `mode == "manual"`, `manual.rate == null`, **`manual.applied == false`**, `automatic.applied == true`. **Rojo si `rate == 18` o si `source == "fallback"`** (el número que nadie tecleó rigiendo el catálogo entero), **y rojo si `manual.applied == true`** con `manual.rate == null`. **Segundo caso, sin fila banxico:** `rate == 18`, `source == "fallback"`, **y las DOS `applied` en `false`** |
 | **FX-7** | que el fallback duro siga llamándose `manual` | `FxRate` **vacío**, **sin** tasa manual, modo `auto` ⇒ `source == "fallback"`, `rate == 18`, `automatic.status == "missing"`, `automatic.rate == null`. **Rojo si `source == "manual"`** (la conducta de v1.62.2) |
 | **FX-8** | que el refresco siga afirmando un fetch que no ocurrió | Sin `BANXICO_SIE_TOKEN` (o con el fetch forzado a fallar) ⇒ `POST /admin/fx/refresh` ⇒ `refresh.outcome == "failed"`, `refresh.reason == "no_token"`, `refresh.fetchedRate == null`, **y la entrada `fx.refresh` de `AuditLog` dice `failed`**. **Rojo si `outcome == "updated"`, si el bloque `refresh` no viaja, o si la bitácora guarda el valor del override como si lo hubiera traído** |
 | **FX-9** ⭐ | **devolver sólo la tasa que rige** (la mutación «para qué mando la que no aplica») | **El candado de la precondición de dinero.** Modo `manual` con `19.0` **y** una `FxRate` banxico de `18.2` ⇒ `GET /admin/fx` trae **`manual.rate == 19.0` Y `automatic.rate == 18.2`**, con `automatic.effectiveDate` y `ageDays`. **Rojo si `automatic` viene `null`, ausente, o igual a `rate`.** Simétrico en `auto`: `manual.rate` **sigue viajando** con el número guardado |
