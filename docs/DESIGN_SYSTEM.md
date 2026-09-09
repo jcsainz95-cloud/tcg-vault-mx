@@ -937,6 +937,15 @@ a `{token de color, clave i18n}`. Nunca se traduce el enum a color en el backend
 | Bounty (M2, §28) | **`completada` → `COMPLETADO`** *(del servidor, v3.4)* | **primary (tinta)** | **Se apagó solo al llegar al objetivo** |
 | Bounty (M2, §28) | **`apagada` → `APAGADO`** *(del servidor, v3.4)* | **neutral (muted)** | **Lo apagó una persona: no publica ni paga premium; el contador se conserva** |
 | Precio | `pending` (precio pendiente) | warning (outline) | Sin precio; escalado al dueño |
+| Mercado (§28.4) | **`market.status: "priced"`** *(v3.7)* | **primary (tinta)** | **Hay referencia para ESA variante; se pinta el importe y su `capturedDate`** |
+| Mercado (§28.4) | **`market.status: "pending"`** *(v3.7)* | **primary (tinta) — `—`, ⛔ NO acento y ⛔ NO muted** | **No hay referencia para esa variante. Ni avería (no lleva acento) ni dato secundario (no se atenúa): es un hueco de dinero, y el hueco es la señal** |
+| FX (M2, §30) | **`source: "manual"`** *(v3.7)* | **primary (tinta)** | **Rige un número que un humano tecleó** |
+| FX (M2, §30) | **`source: "banxico"`** *(v3.7)* | **primary (tinta)** | **Rige la última tasa publicada por Banxico** |
+| FX (M2, §30) | **`source: "fallback"` → `SIN RESPALDO REAL`** *(v3.7)* | **accent** | **⚠ Rige un valor fijo de respaldo (18) que NADIE tecleó y que NO viene de Banxico. ⛔ JAMÁS se pinta como `MANUAL`** |
+| FX (M2, §30) | **`automatic.status: "fresh"` → `AL DÍA`** *(v3.7)* | **primary (tinta)** | **La tasa de Banxico está al día** — ⛔ **no verde** (§30.6, §30.14) |
+| FX (M2, §30) | **`automatic.status: "stale"` → `VIEJA`** *(v3.7)* | **accent** | **Lleva más tiempo del normal sin actualizarse. ⛔ No bloquea nada** |
+| FX (M2, §30) | **`automatic.status: "missing"` → `NO HAY`** *(v3.7)* | **accent** | **Nunca llegó una tasa de Banxico. Es el estado que exige el acuse (§30.8)** |
+| FX (M2, §30) | **`refresh.outcome: "failed"`** *(v3.7)* | **danger** | **El fetch no ocurrió o falló, aunque la respuesta sea `200`. ⛔ Nunca se anuncia como éxito** |
 | Dispute | `abierta` | warning | Abierta |
 | Dispute | `en_revision` | accent | En revisión |
 | Dispute | `resuelta_recompra` | success | Resuelta (recompra) |
@@ -12600,6 +12609,15 @@ ninguna señal dependa de un solo canal, ni siquiera del texto:
 tiene precio para esta variante»*, que es un hecho del mercado, no una avería nuestra. Su remedio es el mismo
 que el de la cola de precio pendiente (§21.7c, `SIN MERCADO`): **el siguiente barrido, solo**.
 
+> **⚠ Reconciliación con §21.8, que dice lo contrario — y no es una contradicción, son dos preguntas.**
+> §21.8 manda que el bloque **«Valor de mercado» DESAPAREZCA** de la ficha cuando `priceBasis !== "market"`:
+> ahí la pregunta es *«¿de dónde sale el precio que te estoy cobrando?»*, y enseñar un valor de mercado que
+> **no** es la base de ese precio **desorienta al comprador**. **Aquí la pregunta es otra**: *«¿tiene sentido
+> lo que estoy pagando por esta carta?»*, y el valor de mercado **es el insumo del juicio, no la base del
+> precio**. ⇒ **En §28 la columna se pinta SIEMPRE**, con `—` cuando falta, y **`priceBasis` no la gobierna**.
+> *Misma disciplina que §28.3 («un juego de rótulos por pregunta, no por dato»): superficie de cliente y
+> back-office contestan cosas distintas con el mismo campo.*
+
 #### 28.4b 🕐 `capturedDate` — se dice SIEMPRE, y no se clasifica NUNCA *(v3.7)*
 
 **Decisión: la fecha se pinta, en crudo y sin juicio, como segunda línea de la celda, siempre que haya
@@ -13117,6 +13135,9 @@ ATENCIÓN · REBASADOS 3 · SIN PRECIO 1
   de su gemelo. **⚠ v3.4 — se añade `≥` (U+2265), y por la misma razón**: lo usan los chips cuando la lista
   viene cortada (§28.2b), es un carácter de **dinero incompleto** y **tiene que estar declarado** para que
   el barrido no lo trate como intruso ni alguien lo sustituya por un `>=` que rompe la alineación.
+  **⚠ v3.7 — el juego permitido gana `→` (U+2192)**, que usa el eyebrow `USD → MXN` de §30. **La lista
+  vigente y completa vive en §30.13** y es una sola para todo el documento:
+  `áéíóúÁÉÍÓÚñÑüÜ ¡ ¿ · — … × ‹›«» − ≥ ● →`.
 
 ### 28.11 Contraste — **cero pares nuevos**
 
@@ -13706,6 +13727,9 @@ incoherencia interna, no una exposición**: el nombre de la clave **no lo ve nin
 - **⏸️ Revisión legal pendiente.** Este copy está escrito **para afirmar lo mínimo** precisamente porque no hay
   abogado. **Cuando lo haya, esta sección se revisa** — puede que permita decir más, o que exija decir otra
   cosa. Hasta entonces, **§29.3 es la redacción vigente y no se «mejora» por criterio propio**.
+- **📌 Para product-owner / arquitecto (observación, no petición de contrato):** las cadenas de **modo demo**
+  que nombran a Stripe (§29.4(c)) son andamiaje y **conviene que no sobrevivan al primer release real**. No
+  pido ningún campo nuevo ni ningún cambio de contrato: **este pase no necesita nada de nadie.**
 
 ---
 
@@ -13819,10 +13843,12 @@ direcciones** (§30.9). *No es rigidez: es que no existe la mitad barata de este
 Dice las tres cosas que hay que saber antes de leer una cifra: **para qué sirve la tasa**, **que hay dos** y
 —la que resuelve la queja original— **que elegir una no destruye la otra**.
 
-**(c) El acento se usa con avaricia, y aquí solo en cinco sitios.** `FUENTE SIN RESPALDO REAL` (§30.5),
-`VIEJA` y `NO HAY` (§30.6), el desenlace `NO SE PUDO` del refresco (§30.7) y el **anillo de foco**. **Todo lo
-demás va en tinta o en muted**, incluidos `RIGE` y `AL DÍA`. *Es la regla de §28.3 —«el caso normal no
-grita»— aplicada aquí: si el rojo solo aparece cuando algo no cuadra, el dueño lo ve desde la puerta.*
+**(c) El acento se usa con avaricia, y aquí solo en SEIS sitios — la lista es cerrada.** `SIN RESPALDO REAL`
+(§30.5), `VIEJA` y `NO HAY` (§30.6), el banner de refresco fallido (§30.7), el **motivo bloqueante del
+interruptor** cuando falta una de las dos tasas (§30.4 caso 3) y el **anillo de foco**. **Todo lo demás va en
+tinta o en muted**, incluidos `RIGE`, `AL DÍA`, `MANUAL`, `BANXICO` y `MODO HEREDADO`. *Es la regla de §28.3
+—«el caso normal no grita»— aplicada aquí: si el rojo solo aparece cuando algo no cuadra, el dueño lo ve
+desde la puerta.*
 
 ### 30.3 ⭐ Las dos tasas lado a lado — la pieza que el contrato exige y la que más se puede estropear
 
@@ -14373,7 +14399,7 @@ pantalla** y **qué sale por la red**.*
 | **FX-UI-10** | **silenciar `modeResolvedFrom: "legacy"`** | Fixture con `modeResolvedFrom: "legacy"` ⇒ se lee `mode.legacyLabel` + `mode.legacyBody`, **en muted y sin `role="alert"`**. Con `"setting"` ⇒ **no aparecen**. **Rojo si nunca se pinta** (se perdería la única traza visible del riesgo residual) **o si se pinta en acento/alerta** (un entorno nuevo no tiene ninguna avería). |
 | **FX-UI-11** | **pintar un número mientras carga o tras fallar la carga** | `GET` pendiente ⇒ la cifra grande lee `—` y ⛔ **no aparece `0.0000` ni `18`**. `GET` → `500` ⇒ `Banner danger` + `common.retry` y ⛔ **ninguna cifra de tasa en toda la tarjeta**. **Rojo si se pinta un valor cacheado de una carga anterior.** |
 | **FX-UI-12** | **que el copy prometa un `Deshacer`** | Tras un cambio de modo con `200`: se lee `switched`, y ⛔ **no existe ningún control cuyo nombre accesible sea `common.undo`** en la tarjeta. **Rojo si aparece «Deshacer»/«Undo»** — *volver es un segundo repreciado, no una anulación.* |
-| **FX-UI-13** | **el idioma** | Los **cinco** rótulos de fuente, los **tres** de frescura, los **tres** desenlaces del refresco y **los cinco párrafos del diálogo de acuse**, en **ES y EN**, **vistos en pantalla** (§26.8: mirarlo, no `grep`earlo). El párrafo `ack.whereFrom` **completo, sin recortar y sin «ver más»**, también en móvil. |
+| **FX-UI-13** | **el idioma** | Los **cuatro** rótulos de fuente (incluido el neutro `source.unknown`), los **tres** de frescura, los **tres** desenlaces del refresco con sus **cinco** motivos, y **los cinco párrafos del diálogo de acuse**, en **ES y EN**, **vistos en pantalla** (§26.8: mirarlo, no `grep`earlo). El párrafo `ack.whereFrom` **completo, sin recortar y sin «ver más»**, también en móvil. |
 
 ### 30.18 Notas a otros roles (derivadas del diseño; **ninguna bloquea**)
 
@@ -14386,6 +14412,3 @@ pantalla** y **qué sale por la red**.*
 | **frontend** | Las cadenas de §30.15 se **copian sin interpretar**. Y la que más importa: **`ack.whereFrom` no se acorta**. Si alguien la ve larga, eso es que está haciendo su trabajo. |
 | **QA** | Los trece candados de §30.17 están escritos **para poder ponerse rojos**. Los dos ⭐⭐ (`FX-UI-1`, `FX-UI-2`) son los del encargo, y **los dos miden conducta**: uno cuenta **peticiones a la red**, el otro comprueba **qué palancas ofrece la pantalla**. Ninguno se puede satisfacer renombrando una clave. |
 | **product-owner** | **Pregunta abierta al humano, no bloqueante:** ¿quiere que el sistema **refresque solo** desde Banxico (un cron diario)? Hoy **no existe** y el contrato lo deja fuera a propósito. Si lo quiere, **cambia el diseño de `stale`** (pasaría de «alguien tiene que pulsar» a «algo se rompió») y **es un pase nuevo**. |
-- **📌 Para product-owner / arquitecto (observación, no petición de contrato):** las cadenas de **modo demo**
-  que nombran a Stripe (§29.4(c)) son andamiaje y **conviene que no sobrevivan al primer release real**. No
-  pido ningún campo nuevo ni ningún cambio de contrato: **este pase no necesita nada de nadie.**
