@@ -36,9 +36,11 @@ import { computeAportacionCostCents } from '../src/common/money';
  * el dial era el ÚNICO hueco por el que entraba un decimal.
  *
  * ⛔ **La cura NO es volver decimal la columna.** `InventoryItem.acquisitionPct` vive en
- * `prisma/schema.prisma` (zona compartida, con un cambio de contrato en vuelo): su tipo es decisión
- * del arquitecto. Aquí se cierra por el lado del **validador** — un `422` explícito en vez de un
- * truncamiento mudo.
+ * `prisma/schema.prisma` (zona compartida): su tipo es decisión del arquitecto. ✅ **v1.64
+ * (`D-IVA-4`): el «cambio de contrato en vuelo» que decía esta línea era D54, y ATERRIZÓ** —
+ * aprobada 2026-09-09, `PROJECT §Q` vigente, `ARCHITECTURE §4.44.g` ratifica columna `Int` ⇒ rango
+ * entero. No queda nada en vuelo que justifique esperar. Aquí se cierra por el lado del
+ * **validador** — un `422` explícito en vez de un truncamiento mudo.
  *
  * ### Cómo se comprobó que este candado es un candado
  * Mutación sobre una **copia** del árbol: `validateAportacionPct` relajado a la versión de antes

@@ -28,6 +28,242 @@
 > §0.22 de este documento son de `main` y NO se movieron**: son M47-H2, v1.53 (buylist raw-only) y
 > v1.53-b. Un informe de QA/techlead anterior al 2026-09-06 puede usar la numeración vieja.
 
+## 0.50 — **v1.64-iva-inclusive · DEPLOY 1 (M-50): el esqueleto de D54, sin mover un centavo** (2026-09-09)
+
+> Propiedad: **backend**. Encargo: el **primer** deploy del cambio de IVA (`ARCHITECTURE §4.44` rev
+> v1.64, `API_CONTRACT §M10-IVA`, migración **M-50**). **Cero cambios de contrato observable.**
+> ⛔ **NO se implementa D-2** (la fórmula nueva, el dial abierto, `displayPriceCents`): eso es otro
+> deploy y otro pase. Ficheros tocados: `prisma/schema.prisma`, la migración M-50,
+> `src/common/money.ts`, `src/modules/admin/admin.service.ts`,
+> `src/modules/settings/settings.constants.ts` y los **cinco** sitios de escritura de
+> `Order`/`ShipmentRequest`.
+
+### 0.50.1 Qué es el deploy 1 y por qué existe separado (léase antes de tocar nada de esto)
+
+**D-1 es puramente ADITIVO: nadie paga distinto, nadie ve distinto, ningún DTO cambia.** Existe
+separado por dos razones, y las dos importan:
+
+1. **Para que no haya un hueco sin convención.** Si el DDL y la fórmula viajan juntos, una orden
+   creada entre ambos pasos queda **sin forma de saber con qué regla se calculó**.
+2. ⭐ **Porque es la ÚNICA ventana para probar contra producción que el P&L sigue dando lo mismo**,
+   antes de que la fórmula cambie. Esa ventana se ha usado (§0.50.5).
+
+### 0.50.2 Las columnas, y cómo se garantiza que NO hay default
+
+`Order` y `ShipmentRequest` ganan **las mismas dos columnas** (§4.44.e y §11 M-50 punto 3; el envío
+entra en la convención porque el criterio 189 lo obliga):
+
+| Columna | Tipo | Nulabilidad | Default de BD | Backfill |
+|---|---|---|---|---|
+| `priceConvention` | `PriceConvention` (enum nuevo) | **NOT NULL** | ⛔ **NINGUNO** | **`IVA_EXCLUSIVE`** en toda fila existente |
+| `ivaTransferPct` | `Int` | **NULL** | ninguno | ⛔ **NINGUNO — se quedan en `NULL`** |
+
+**Cómo se garantiza el «sin default», que es LA decisión y no el `NOT NULL`.** La migración usa el
+orden obligatorio —**añadir NULLABLE → `UPDATE` explícito → `SET NOT NULL`**— y **jamás**
+`ADD COLUMN … NOT NULL DEFAULT`, ni siquiera transitoriamente. Se verifica **en las dos puntas, y
+las dos hacen falta**:
+
+- **El ESTADO**, contra Postgres real: `information_schema.columns.column_default IS NULL` **y**
+  `pg_attrdef` vacío para esas columnas, en las dos tablas.
+- **La FORMA**, sobre el texto de la migración: ni `NOT NULL DEFAULT` ni `DROP DEFAULT`.
+  ⚠️ **Y esta segunda mitad no es celo: la medí.** La variante
+  `ADD … NOT NULL DEFAULT` **+ `DROP DEFAULT`** deja un esquema **idéntico** al correcto ⇒ el
+  candado de DDL **no puede verla** (27/27 verde con el mutante). `IVA-3(c)` pide explícitamente que
+  sea roja, y con razón: basta que el `DROP` se caiga en un rebase para reintroducir el defecto
+  entero. **El único instrumento que ve la forma es el texto**, y por eso existe
+  `test/migration.m50-no-default.spec.ts`.
+
+⭐ **El backfill dice la verdad y no inventa nada.** `ivaTransferPct` se queda en `NULL` en todas las
+filas viejas: marcarlas `t=100` sería **inventar un hecho** (se cobraron cuando el dial no existía).
+Verificado en producción-dev: las 3 órdenes existentes quedaron `IVA_EXCLUSIVE` / `NULL` y **ningún
+importe se tocó**.
+
+### 0.50.3 ⭐⭐ Que OLVIDAR la convención falle: tres capas, y la primera ya cobró una pieza
+
+**Ésta es la conducta que D-1 existe para dar.** Un camino de escritura que olvide la convención
+**revienta**; no hereda un significado en silencio.
+
+| Capa | Qué la sostiene | ¿Ya sirvió? |
+|---|---|---|
+| **Compilador** | `priceConvention` es obligatorio en `OrderCreateInput`/`ShipmentRequestCreateInput` porque la columna es NOT NULL sin default | ⭐ **Sí, en este mismo pase**: rompió un fixture de `guest-chargeback.e2e-spec.ts` que no lo escribía. *El compilador para la próxima mutación que se olvide.* |
+| **Motor** | violación de `NOT NULL` (**SQLSTATE `23502`**) en cualquier `INSERT` que no pase por el compilador: SQL a mano, migraciones de datos, scripts de operación | Sí (candado con su control positivo) |
+| **Lector** | `netRevenueCents` **LANZA** ante una convención desconocida. ⛔ Sin `?? subtotalCents` de cortesía: eso interpretaría la fila huérfana bajo la convención que hoy es mayoría, y **el día del deploy 2 esa mayoría cambia de bando** | Sí (y puso rojo el spec viejo del P&L, que se actualizó **sin mover una cifra**) |
+
+⚠️ **Para QA / techlead:** el `23502` se asierta **por el código, no por el texto** — Prisma **recorta
+el `DETAIL`** de Postgres y el nombre de la columna no llega al cliente. El código además **distingue**
+el fallo del `23514` (violación de CHECK), que es el error «parecido» con el que un test flojo se
+pondría verde sin haber probado nada; se asierta que **no** es ése.
+
+### 0.50.4 `netRevenueCents` — un helper, y los CUATRO sitios de §4.44.j
+
+```ts
+// src/common/money.ts — ÚNICO lugar donde vive esta decisión
+netRevenueCents({ subtotalCents, ivaCents, priceConvention }): number
+//   IVA_EXCLUSIVE → subtotalCents               (bit a bit lo de hoy)
+//   IVA_INCLUSIVE → subtotalCents − ivaCents     (el IVA no es ingreso propio)
+//   cualquier otra cosa → THROW
+```
+
+| # (§4.44.j) | Sitio | Estado |
+|---|---|---|
+| **1** | `pnl()` — `incomeCents` | ✅ cableado |
+| **2** | `pnl()` — `shippingRevenueCents` de cada `ShipmentRequest`, por la convención de **esa** fila | ✅ cableado |
+| **3** | `pnl()` — **el sumando que faltaba** (`D-IVA-5`), neteado | ✅ añadido **con el helper desde el primer commit** |
+| **4** | `ivaReport()` + su CSV | ⛔ **NO SE TOCÓ**, y hay candado que lo afirma: sigue siendo `Σ ivaCents` |
+
+⚠️ **Discrepancia menor con el encargo, resuelta a favor del documento.** El encargo hablaba de
+*«el CSV y las dos del dashboard»*; **§4.44.j dice otra cosa y es la norma**: el CSV del P&L
+**no es un quinto sitio** (reserializa `p.incomeCents`, así que queda cubierto por el 1 — y el
+documento avisa *«se dice para que nadie lo arregle por su cuenta y lo netee dos veces»*), y el
+dashboard **no tiene sitios propios**: `dashboard()` **llama a `pnl()`**. Los dos quedan cubiertos
+sin tocarlos, y hay candados que lo comprueban. *(La única cifra de dinero propia del dashboard es
+`salesPeriod.amountCents` = `Σ totalCents`, que es **lo que el cliente pagó**, no ingreso neto;
+§4.44.j no la lista. Queda como pregunta al arquitecto para D-2 — §0.50.7.)*
+
+### 0.50.5 ⭐⭐ Que el P&L dé EXACTAMENTE lo mismo: cómo está demostrado
+
+**No con constantes copiadas.** Con **dos identidades**:
+
+1. **Unitaria — contra el algoritmo VIEJO.** `admin.pnl-iva-neutral.spec.ts` **reconstruye literal**
+   el `pnl()` anterior a este pase y compara las **seis** cifras. Sobre 7 escenarios a mano **y 200
+   generados al azar** (solo bóveda, donde `D-IVA-5` no aporta por definición): **idénticas**.
+   *Una constante copiada probaría que sé teclear; una identidad contra el algoritmo viejo prueba
+   que nada se movió.*
+2. **Integración — contra la propia base.** `incomeCents == Σ "Order"."subtotalCents"` de las
+   liquidadas, leído por SQL. Sigue midiendo aunque otra suite añada órdenes.
+
+Y el amarre contra el dial vivo en su forma más fuerte que hay: **`AdminService` ni siquiera recibe
+`SettingsService`** — no es que no lo lea, es que no lo tiene. Se asierta.
+
+### 0.50.6 ⭐ `D-IVA-5` — la cifra que SÍ cambia, y por qué debe cambiar
+
+**Sí: el reporte cambia, y es el arreglo.** `shippingRevenueCents` gana el sumando
+`Σ Order.shippingFeeCents` de las órdenes `direct_ship` liquidadas del periodo, que el contrato manda
+desde **v1.21** y **no estaba en el código**.
+
+**El dinero se perdía ENTERO, no a medias:** el `ShipmentRequest` de fulfillment de un pedido de
+invitado lleva `shippingFeeCents = 0` **a propósito** (para no contar dos veces) y
+`Order.subtotalCents` **excluye** el envío (columna aparte) ⇒ **el ingreso de envío de TODO pedido
+`direct_ship` no lo contaba nadie**, mientras su **costo** (`shippingCostCents`) sí se capturaba.
+⇒ **el P&L SUBESTIMABA la ganancia.**
+
+- **Medido:** con un pedido `direct_ship` de tarifa `20300`, `shippingRevenueCents` pasa de **0** a
+  **20300** y `profitCents` sube **exactamente** eso. Ni `incomeCents` ni el costo se mueven.
+- **El predicado es el MODO (`fulfillmentMode === 'direct_ship'`), ⛔ no el importe.** Hay
+  contra-candado: una orden `vault` con tarifa distinta de cero (corrupción) **no** se cuela — si el
+  predicado se relajara a `shippingFeeCents > 0` volvería el doble conteo que §4.21b evita.
+- **Se acota por `settledAt`** (el mismo predicado del `findMany` de las órdenes), que es lo que dice
+  el contrato: *«órdenes settled del periodo»*.
+
+⚠️ **Para QA:** cualquier cifra de P&L anotada en un informe anterior a este pase **está desfasada
+por abajo** en el ingreso de envío de los pedidos de invitado. **No es una regresión.**
+
+### 0.50.7 ⚠️ LO QUE ENVÍO AL ARQUITECTO Y NO DECIDO YO
+
+- ⭐ **`IVA-R1` (marca interna, no candado de contrato) — el reparto del IVA del ENVÍO en el sitio 3,
+  bajo `IVA_INCLUSIVE`.** Bajo esa convención `Order.ivaCents` es el **residual del AGREGADO**
+  `G = S + E` (regla R2 de §4.44.c): **el IVA que corresponde a la línea de envío no está persistido
+  por separado**, así que netear ese sumando exige una **decisión de asignación** que es del
+  arquitecto. Lo que hay hoy aplica al envío la misma regla de base gravable que §4.44.c aplica al
+  agregado (`round(E / (1+r))`, con `r` de la columna congelada `ivaRatePct`); **la suma de las dos
+  partes puede diferir del residual agregado en ±1 centavo**. ⛔ **En el DEPLOY 1 esta rama es
+  INALCANZABLE** (ninguna fila es `IVA_INCLUSIVE`, y hay censo que lo comprueba **después** de
+  escribir) y el neteo es **la identidad**. **Debe decidirse antes del deploy 2.**
+- **`salesPeriod.amountCents` del dashboard** (`Σ Order.totalCents`) no aparece en la tabla de
+  §4.44.j. Es *«lo que el cliente pagó»*, no ingreso neto, así que **no lo he tocado**. Si bajo
+  `IVA_INCLUSIVE` esa tarjeta debe netearse, es decisión suya y entra en D-2.
+
+### 0.50.8 El dial `iva_transfer_pct` en el deploy 1: sembrado, validado y **mudo**
+
+M-50 siembra la fila en **100** (el NEUTRO) con `ON CONFLICT DO NOTHING` —misma semántica que el
+`update: {}` del seed (§11.0), así que **nunca pisa un valor elegido**— y existen `SettingKey`,
+`SETTING_DEFAULTS` y `SETTING_VALIDATORS`.
+
+⛔ **Y NO está en `SETTING_DTO_MAP`, a propósito y de forma permanente.** Con eso, en el deploy 1
+**ni sale por `GET /admin/settings` ni entra por `PUT /admin/settings`** (`update()` valida contra ese
+mapa con `hasOwnProperty` ⇒ `422 unknown setting key`): **el contrato observable no cambia**
+(§4.44.k) y **la segunda puerta no existe** (`IVA-8(b)`). Precedente exacto: `stripeFeeIvaPct`
+(v1.40) y `fxRateMode` (v1.63). *No hace falta código de rechazo: hace falta NO estar ahí.*
+Su única puerta —`PUT /admin/settings/iva-transfer` **con acuse del costo en pesos**— es del
+**deploy 2**.
+
+**El validador es ENTERO** (`[0,100]`), por la misma razón exacta que `iva_pct` y `aportacion_pct`:
+**es la COLUMNA**. Un `37.5` se truncaría en silencio a `37` mientras el precio se calculó con
+`37.5` — el defecto que `TD-IVA-1`/`TD-IVA-2` cerraron. El `message` **nombra los dos extremos**.
+
+### 0.50.9 `D-IVA-4` — cerrada, y en **cuatro** sitios, no dos
+
+El arquitecto la enrutó como *«dos comentarios»* en `settings.constants.ts`. Al buscarlos encontré
+**dos más con la misma falsedad** en los specs gemelos (`settings.iva-pct-integer.spec.ts` y
+`settings.aportacion-pct-integer.spec.ts`). Los cuatro decían, en variantes, que D54 es *«borrador NO
+vigente»* o que hay *«un cambio de contrato en vuelo»*. **D54 está APROBADA desde el 2026-09-09 y
+`PROJECT §Q` es alcance vigente**; además **la decisión de columna que esos comentarios esperaban ya
+está tomada** (`§4.44.g`: sigue siendo `Int`). ⛔ **Ni una línea de lógica cambió**: el razonamiento de
+los dos validadores era correcto y lo sigue siendo. Lo que cambia es que **ya no esperan a nadie**.
+
+### 0.50.10 Verificación
+
+| Qué | Antes | Después |
+|---|---|---|
+| `npm test` (unitaria completa) | 258 suites / 4147 | **262 suites / 4243 verdes** |
+| `npm run test:integration` (Postgres 16 real + Redis) | 22 / 324 | **23 suites / 354 verdes** |
+| Idempotencia de la suite de integración | — | **dos corridas seguidas, 354/354 las dos** |
+| `npm run typecheck` | limpio | **limpio** |
+| `npm run lint` | 2 warnings preexistentes | **0 errores, los mismos 2 warnings ajenos** |
+| `fx-mode.e2e-spec.ts` (flake conocido de autocalibración) | — | **verde en las dos corridas; no hizo falta re-correrlo** |
+
+**Ficheros de prueba nuevos:** `test/money.net-revenue.spec.ts`,
+`test/admin.pnl-iva-neutral.spec.ts`, `test/settings.iva-transfer-pct.spec.ts`,
+`test/migration.m50-no-default.spec.ts` y `test/integration/iva-price-convention.e2e-spec.ts`.
+
+**Las mutaciones, cada una sobre una COPIA del árbol y ninguna sobre el vivo.** *(La copia arrastra
+2 rojos propios del arnés —`sell-request-states` e `inventory.card-product-id` leen ficheros fuera de
+`backend/`— que se descuentan de todos los conteos.)*
+
+| # | Mutación | Rojos |
+|---|---|---|
+| **M1** ⭐⭐ | `ADD COLUMN … NOT NULL DEFAULT 'IVA_EXCLUSIVE'` (la forma prohibida) | **4 de integración**, entre ellos **el `INSERT` que omite la convención deja de reventar** |
+| **M1b** ⭐ | lo mismo **+ `DROP DEFAULT`** (esquema final idéntico) | **0 en el candado de DDL** ⇒ por eso existe el de texto: **5 rojos** ahí |
+| **M2** ⭐⭐ | el `default` «amable»: `netRevenueCents` devuelve `subtotalCents` en vez de lanzar | **16 unitarios** |
+| **M3** | `IVA_INCLUSIVE` cuenta el IVA como ingreso propio | **7 unitarios** |
+| **M4** | se netea **también** la histórica (el pasado cambia de cifra) | **26 unitarios** |
+| **M5** | se quita el sumando de `D-IVA-5` (vuelve el defecto) | **6 unitarios** |
+| **M6** ⭐ | el predicado pasa de MODO a IMPORTE (`shippingFeeCents > 0`) | **3 unitarios** |
+| **M7** ⭐⭐ | un camino de escritura **olvida** `priceConvention` | **NO COMPILA** (y la suite de integración cae entera, ruidosa) |
+| **M7b** ⭐ | un camino escribe la convención **equivocada** (compila) | **4 de integración** |
+| **M8** | el envío directo entra en `incomeCents` en vez de en el ingreso de envío | **6 unitarios** |
+| **M9** | `ivaTransferPct` se cuela en `SETTING_DTO_MAP` (segunda puerta + contrato observable) | **4 unitarios** |
+| **M10** | backfillear `ivaTransferPct = 100` (inventar un hecho) | **2 unitarios**; y **1 de integración** en cuanto la base tiene historia |
+| **M11** | el dial acepta decimales (`isInt` → `isNum`) | **8 unitarios** |
+| **M12** | el seed del dial deja de ser 100 (arranque NO neutral) | **4 unitarios** |
+
+⭐⭐ **Dos hallazgos que la batería produjo y que sin ella no habrían existido:**
+
+1. **M11 SOBREVIVÍA (0 rojos).** El dial se había cableado **sin una sola prueba propia**: había
+   validador y no había candado. De ahí sale `test/settings.iva-transfer-pct.spec.ts` (32 tests).
+   *Por eso se corre la batería antes de decir que algo está probado.*
+2. **M7b sobrevivía al censo `IVA-3(d)`**, porque ese censo corría **antes** de que la suite
+   escribiera nada: un candado que solo mira el pasado no ve lo que el pase acaba de introducir. Se
+   añadió un censo **al final** (con su control de que no está vacío). Con eso, M7b pasa de 3 a 4.
+
+⚠️ **Y un error mío que la propia suite cazó, dicho porque enseña dónde está la línea.** Escribí el
+candado del texto como *«ninguna migración usa `NOT NULL DEFAULT` sobre `Order`/`ShipmentRequest`»* y
+salió rojo con **cuatro sentencias legítimas** (`shippingCostCents 0`, `fulfillmentMode 'vault'`…).
+**§4.44.e no prohíbe los defaults: prohíbe ÉSTE**, y la diferencia es de **significado**: en
+`shippingCostCents` la ausencia **de verdad significa cero**, así que el default dice la verdad; en
+`priceConvention` la ausencia significa *«nadie dijo con qué regla se cobró»*, y ahí el default
+**convierte un hueco en una afirmación falsa**. El candado quedó acotado a las dos columnas de M-50.
+*Un test que prohibiera los dos por igual no defendería la norma: la caricaturizaría, y el primero
+que necesitara un default honesto lo borraría — llevándose por delante el que sí importa.*
+
+### 0.50.11 ⚠️ Aviso a QA sobre la BD compartida de integración (me lo salté una vez)
+
+La suite nueva compra y retira como **`customer2`**, no como `customer`. **No es cosmético:**
+`vault-shipments.e2e-spec.ts` asierta el portafolio de `customer` como una **suma exacta**, y mi
+primera versión —que usaba `customer`— la infló (**medido: 1 005 000 en vez de 5 000, 3 rojos
+ajenos**). Además la suite **limpia su propio residuo** en el `afterAll` (envíos, órdenes y piezas).
+**Comprobado con dos corridas consecutivas de la suite completa: 354/354 las dos.**
+
 ## 0.49 — **v1.63.4: el respaldo se publica, la banda gana piso, y el candado de la carrera deja de ser una moneda al aire** (2026-09-09, gate de QA rechazado)
 
 > Propiedad: **backend**. Encargo: los tres hallazgos de la re-verificación de QA. **Cero cambios de

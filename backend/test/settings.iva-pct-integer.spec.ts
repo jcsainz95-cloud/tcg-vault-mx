@@ -28,9 +28,13 @@ import { computeCartBreakdown } from '../src/common/money';
  * **No es un valor de laboratorio**: el **8 %** es la tasa de IVA de la **zona fronteriza norte** de
  * México. `8.5` es el error de medio punto de alguien que está justo en ese cambio.
  *
- * ⛔ **La cura NO es volver decimal la columna.** `Order.ivaRatePct` es zona compartida y su tipo
- * está atado a D54 (§Q de `PROJECT.md`, borrador **no vigente**): es decisión del arquitecto. Aquí
- * se cierra por el lado del **validador** — un `422` explícito en vez de un truncamiento mudo.
+ * ⛔ **La cura NO es volver decimal la columna.** `Order.ivaRatePct` es zona compartida y su tipo es
+ * decisión del arquitecto. ✅ **v1.64 (`D-IVA-4`): esa decisión ya está tomada y este comentario decía
+ * lo contrario.** D54 fue **APROBADA el 2026-09-09** y `PROJECT §Q` es **alcance vigente**;
+ * `ARCHITECTURE §4.44.g` ratifica el criterio: **la columna sigue siendo `Int` y el rango sigue siendo
+ * entero**, también para el dial nuevo `iva_transfer_pct` (ver `settings.iva-transfer-pct.spec.ts`).
+ * El candado de abajo **no cambia**: se cierra por el lado del **validador** — un `422` explícito en
+ * vez de un truncamiento mudo.
  *
  * ### Cómo se comprobó que este candado es un candado
  * Mutación sobre una **copia** del árbol: `validateIvaPct` relajado a la versión de hoy (`isNum` en
