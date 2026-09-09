@@ -1,19 +1,32 @@
 # =============================================================================
-# security-scheduled.yml — DAST programado (cron) contra staging  ·  devops
+# security-scheduled.yml — barrido de seguridad por CALENDARIO  ·  devops
 # Marketplace TCG con Bóveda (Pokémon, México)
 # =============================================================================
-# Corre el DAST COMPLETO (ZAP full scan + nuclei) contra STAGING de forma
-# periódica (semanal) y a demanda. Reporta a seguridad; NO bloquea deploys
-# (eso lo hace deploy.yml). Sube los reportes como artefactos.
+# Dos jobs, los dos semanales:
 #
-# ESTADO: PLANTILLA — se activa cuando exista STAGING_BASE_URL (staging en vivo).
-#   Sin el secret, el job hace un no-op con aviso claro.
+#   1) deps-audit     — `npm audit` de backend + frontend. ACTIVO SIEMPRE
+#                       (no necesita secrets ni staging).
+#   2) scheduled-dast — ZAP full scan + nuclei contra STAGING. PLANTILLA hasta
+#                       que exista STAGING_BASE_URL.
 #
-#   NUNCA apunta a producción. El DAST contra prod es una prueba puntual
-#   AUTORIZADA (runbook en docs/DEVOPS_NOTES.md), no un cron.
+# POR QUÉ EXISTE deps-audit (hallazgo S-PROC-1)
+# ---------------------------------------------------------------------------
+# `npm audit` vivía SOLO en security-sast.yml, que dispara por push/pull_request.
+# Eso lo hace un chequeo POR DELTA DE CÓDIGO: si nadie toca el repo, no corre.
+# Pero una dependencia no se vuelve vulnerable cuando nosotros editamos código,
+# sino cuando se PUBLICA el advisory — un evento externo, en el calendario de
+# otros. Con solo el gate por PR, un repo en congelación de release (justo el
+# momento de máximo riesgo) no dispara absolutamente nada.
+#
+# No es hipotético: S-DEP-1 fue exactamente ese caso. Advisories de multer/qs
+# publicados sin que tocáramos `package.json`, detectados a mano por seguridad
+# durante el cierre, no por el pipeline. Este job es el que lo habría detectado.
+#
+# El umbral NO se define aquí: se hereda de security/scripts/audit-npm.sh, el
+# mismo script que usa el gate por PR. Una sola verdad para los dos.
 # =============================================================================
 
-name: Security Scheduled DAST
+name: Security Scheduled (deps audit + DAST)
 
 on:
   schedule:
@@ -24,6 +37,132 @@ permissions:
   contents: read
 
 jobs:
+  # ---------------------------------------------------------------------------
+  # npm audit semanal — backend + frontend. ACTIVO (no requiere secrets).
+  #
+  # ¿BLOQUEA O SOLO AVISA? El job se pone en ROJO ante high/critical. Razonamiento:
+  #
+  #   · Un cron NO puede bloquear nada. No hay PR esperando ni deploy colgando de
+  #     él, y al ser `schedule`/`workflow_dispatch` no puede ser required check.
+  #     Así que el coste de un rojo aquí es CERO: no frena a nadie. La objeción
+  #     "un cron que rompe el build es ruido" no aplica, porque no hay build que
+  #     romper.
+  #   · Un `::warning::` dentro de un run VERDE es invisible: nadie abre un run
+  #     que salió bien. Eso sería repetir S-PROC-1 con otra cara — un gate que
+  #     técnicamente corre pero que nadie lee.
+  #   · El rojo es además lo único que GitHub notifica por sí solo: los fallos de
+  #     workflows programados generan aviso al dueño del repo.
+  #
+  # QUIÉN MIRA EL RESULTADO (la parte que faltó la vez pasada): el rojo por sí
+  # solo no tiene dueño ni historial. Por eso, además del rojo, el job ABRE O
+  # ACTUALIZA UN ISSUE con label `security`. El issue es el artefacto que tiene
+  # responsable asignable, se comenta en cada corrida y se cierra explícitamente
+  # cuando la vulnerabilidad se resuelve. Rutas de escalación en
+  # docs/DEVOPS_NOTES.md §"npm audit por calendario".
+  # ---------------------------------------------------------------------------
+  deps-audit:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write        # solo para abrir/actualizar el issue de dependencias
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # OJO: NO se corre `npm ci` ni ningún build a propósito. `npm audit`
+      # resuelve desde el lockfile, así que este job no instala dependencias ni
+      # genera artefactos de build que ensucien el árbol.
+      - name: npm audit (backend + frontend, runtime)
+        id: audit
+        continue-on-error: true      # el rojo se decide al final, tras publicar
+        env:
+          AUDIT_LEVEL: high
+          AUDIT_SUMMARY_FILE: ${{ github.workspace }}/audit-summary.md
+          AUDIT_REPORT_DIR: ${{ github.workspace }}/security/reports
+        run: ./security/scripts/audit-npm.sh
+
+      # VISIBILIDAD 1: la tabla sale en la portada del run, sin abrir el log.
+      - name: Publicar resumen en el run
+        if: always()
+        run: |
+          if [ -f audit-summary.md ]; then
+            cat audit-summary.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::warning::audit-npm.sh no generó resumen; revisa el log del paso anterior."
+          fi
+          {
+            echo ""
+            echo "_Barrido por calendario (S-PROC-1). Corre aunque nadie toque el repo._"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # VISIBILIDAD 2: el JSON crudo queda descargable para seguridad.
+      - name: Subir reportes npm audit
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-audit-scheduled
+          path: |
+            audit-summary.md
+            security/reports/npm-audit-*.json
+          if-no-files-found: warn
+          retention-days: 90
+
+      # VISIBILIDAD 3 (la que da DUEÑO): issue abierto/actualizado.
+      # Idempotente: si ya hay uno abierto con el mismo título, comenta en vez
+      # de crear otro, para no inundar el repo cada lunes con el mismo hallazgo.
+      - name: Abrir o actualizar issue de dependencias
+        if: steps.audit.outcome == 'failure'
+        continue-on-error: true      # si Issues está deshabilitado, no tapa el rojo
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TITLE: "[deps] npm audit semanal: vulnerabilidades high/critical en runtime"
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          gh label create security --color B60205 \
+            --description "Hallazgos de seguridad" 2>/dev/null || true
+
+          {
+            echo "El barrido semanal de dependencias encontró vulnerabilidades **high/critical**"
+            echo "en dependencias de **runtime** (\`--omit=dev\`)."
+            echo ""
+            cat audit-summary.md 2>/dev/null || echo "_(sin resumen; ver log del run)_"
+            echo ""
+            echo "---"
+            echo "- Run: ${RUN_URL}"
+            echo "- Commit auditado: \`${GITHUB_SHA}\`"
+            echo ""
+            echo "**Dueño:** el rol propietario del \`package.json\` afectado (**backend** o **frontend**)."
+            echo "devops no edita esos archivos; solo mantiene el gate."
+            echo ""
+            echo "**Salidas válidas:** (a) actualizar la dependencia, o (b) registrar la excepción"
+            echo "en \`docs/TECH_DEBT.md\` con motivo, alcance y disparador de revisión."
+            echo "Silenciar el gate no es una salida."
+            echo ""
+            echo "Cierra este issue solo cuando \`./security/scripts/audit-npm.sh\` pase en verde."
+          } > issue-body.md
+
+          EXISTING="$(gh issue list --state open --limit 50 \
+            --json number,title \
+            --jq "map(select(.title == \"${TITLE}\")) | .[0].number // empty")"
+
+          if [ -n "${EXISTING}" ]; then
+            echo "Issue #${EXISTING} ya abierto: se añade comentario."
+            gh issue comment "${EXISTING}" --body-file issue-body.md
+          else
+            gh issue create --title "${TITLE}" --body-file issue-body.md --label security
+          fi
+
+      # El rojo, al final, para que los pasos de visibilidad ya hayan corrido.
+      - name: Marcar el run en rojo si el gate falló
+        if: steps.audit.outcome == 'failure'
+        run: |
+          echo "::error::npm audit semanal encontró vulnerabilidades high/critical en runtime. Ver el resumen del run y el issue con label 'security'."
+          exit 1
+
+
   scheduled-dast:
     runs-on: ubuntu-latest
     env:
