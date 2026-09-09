@@ -611,10 +611,34 @@ roles) y **¿cómo le llama a M5?**.
   nunca** (I-FX5, es solo traza forense): si ese 19.0000 llegó por un script o una migración vieja y
   el ajuste quedó vacío, la protección **no existe**. No es una cosa que se pueda razonar desde el
   código: **depende de un valor que solo está en la base de producción.**
-- **La cura, que cuesta un minuto:** antes de promover, correr en **cada entorno** (staging y prod) una
-  consulta de solo lectura sobre `ConfigSetting` — ¿existe `fx_rate_mode`? ¿qué vale
-  `fx_manual_override_rate`? Con el ajuste lleno, se publica sin riesgo. Vacío ⇒ **no se publica**
-  hasta fijarlo a mano.
+- **La cura, y ya está escrita: UNA consulta de solo lectura que emite su propio veredicto.**
+  Se corre en **cada entorno** (staging y producción) antes de promover. No modifica nada.
+
+  ```sql
+  SELECT
+    COALESCE((SELECT "valueJson" #>> '{}' FROM "ConfigSetting" WHERE key = 'fx_rate_mode'), '(no existe)') AS modo_guardado,
+    COALESCE((SELECT "valueJson" #>> '{}' FROM "ConfigSetting" WHERE key = 'fx_manual_override_rate'), '(vacio)') AS tasa_manual,
+    (SELECT count(*) FROM "FxRate" WHERE source = 'banxico') AS filas_banxico,
+    CASE
+      WHEN (SELECT "valueJson" #>> '{}' FROM "ConfigSetting" WHERE key = 'fx_rate_mode') IN ('auto','manual')
+        THEN 'SEGURO — el modo esta puesto explicitamente, publicar no lo cambia'
+      WHEN (SELECT "valueJson" FROM "ConfigSetting" WHERE key = 'fx_manual_override_rate') IS NOT NULL
+       AND (SELECT "valueJson" FROM "ConfigSetting" WHERE key = 'fx_manual_override_rate') <> 'null'::jsonb
+        THEN 'SEGURO — hay tasa manual guardada: al publicar resuelve a MANUAL y rige ese numero'
+      ELSE 'PELIGRO — sin modo y sin tasa manual: al publicar resuelve a AUTOMATICO'
+    END AS veredicto;
+  ```
+
+- ⭐ **La consulta SE PUEDE PONER EN ROJO — verificado por el orquestador (2026-09-09), no supuesto.**
+  Se probó contra una base desechable en los tres estados, porque una consulta que solo sabe decir
+  «seguro» no sirve de nada, igual que un candado que no puede ponerse rojo:
+  | Estado sembrado | Veredicto que emitió |
+  |---|---|
+  | `fx_rate_mode = 'auto'` | ✅ SEGURO — el modo está puesto explícitamente |
+  | sin fila de modo, **con** `19.0` guardado | ✅ SEGURO — resuelve a MANUAL y rige ese número |
+  | sin fila de modo y **sin** tasa manual | 🔴 **PELIGRO** — resuelve a AUTOMÁTICO |
+- **Qué hacer con cada resultado:** `SEGURO` ⇒ se publica sin riesgo. `PELIGRO` ⇒ **no se publica**
+  hasta fijar el modo a mano (o guardar la tasa manual), y entonces se vuelve a correr.
 - **Rol dueño:** devops (la consulta previa al deploy) · backend (la tercera fixture FX-6 que cubre el
   estado) · arquitecto (declarar el riesgo residual si se decide publicar sin la consulta).
 - **Estado:** ⛔ **BLOQUEA el merge del interruptor de FX** hasta que el humano decida.
