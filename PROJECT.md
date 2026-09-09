@@ -22,6 +22,53 @@
 > documentación. Cualquier cadena «TCG Vault MX» que siga viva en `docs/` o en código es un **residuo a
 > corregir**, no una fuente válida.
 >
+> **ESTADO AL 2026-09-09 (16ª ronda del bloque v2.1 — ⚠️⚠️ BORRADOR DEL PRODUCT-OWNER, **NO ES DECISIÓN
+> TOMADA**, ESPERANDO RESPUESTA DEL DUEÑO — LEER PRIMERO; ESTA ES LA MÁS RECIENTE. NO toca la 15ª (D53,
+> nombrado de la comisión) ni ninguna anterior: es OTRO FRENTE —**qué cifra se exhibe: la base o lo que se
+> paga**—):**
+> **D54 (BORRADOR) — EL PRECIO EXHIBIDO PASARÍA A LLEVAR EL IVA DENTRO, EN TODA SUPERFICIE DE CLIENTE, CON UN
+> DIAL DE TRASLACIÓN PARCIAL (CONTINUO, NO UN INTERRUPTOR) EDITABLE DESDE ADMIN.**
+> **⛔ NADA DE ESTE BLOQUE ES EJECUTABLE. No hay decisión: hay borrador.** Ni arquitecto, ni backend, ni
+> frontend, ni QA actúan sobre §Q ni sobre los criterios **185–197** hasta que **el dueño apruebe**. Los
+> criterios nuevos nacen marcados **⛔ NO VIGENTES** justamente para que **no ocurra lo de D53 al revés**: allá
+> el daño fue una instrucción viva que nadie marcó; aquí sería una instrucción **no aprobada** que alguien
+> ejecuta por estar escrita en el documento de mayor autoridad.
+> **De dónde sale**: el **2026-09-09 el dueño pidió** *«lo del IVA hay que meterlo al precio […] déjamelo
+> dinámico en admin»*, precisó que **«aplica para todo»**, y cerró el requisito con *«presiento que nos deja
+> muy fuera de mercado y no podré trasladar todo, déjalo dinámico por si no logro trasladarlo completo, que
+> sea parcial»*. **Se registra el HECHO de que lo pidió, con su fecha.** La razón legal que él invoca es **la
+> misma que originó D53**, y **este documento no sostiene ninguna postura jurídica propia** (la disciplina de
+> D53 sigue vigente palabra por palabra: **hoy no hay abogado en el proyecto**).
+> **⭐⭐ LO QUE CAMBIA LA DECISIÓN, Y EL DUEÑO NO LO SABE: LA BRECHA NO ES 16 %, ES 24.69 %.** El inventario
+> técnico lo siguió de punta a punta y está comprobado: sobre una ficha de **MX$100.00**, el checkout cobra
+> **MX$124.69** —IVA **16.00** y **comisión 8.69**, porque la comisión se calcula **sobre subtotal + IVA**
+> (`money.ts:486`), no sobre el subtotal—. **El cliente ya paga 24.69 % por encima de lo publicado, hoy.**
+> ⇒ *«trasladar todo»* **no significa subir 16 %**, y —esto es lo duro— **ninguna posición del dial deja la
+> vitrina en MX$100.00 siendo verdad**: absorbiendo **el IVA completo**, la cifra honesta seguiría siendo
+> **MX$107.99**. Toda la aritmética, con tabla, en **§Q.3**.
+> **⚠ Y son UN SOLO MANDO**: `settings.service.ts:259` deriva el **IVA de la comisión de Stripe** del **mismo
+> dial `iva_pct`** ⇒ **mover el IVA mueve también la comisión**. El dueño tampoco sabía esto (**pregunta 61**).
+> **⚠ QUÉ SE ROMPERÍA EN SILENCIO, y por eso son criterios y no notas**: **(a)** el **P&L de M7** hace
+> `incomeCents += o.subtotalCents` (`admin.service.ts:816`); si el subtotal pasa a llevar IVA dentro, el
+> reporte **contaría el IVA como ingreso propio sin que nadie toque ese fichero** — **no reventaría: mentiría**
+> (criterio **191**); **(b)** las **órdenes históricas** guardan importes pero **no la convención**
+> (`Order.ivaRatePct` congela **la tasa**, no **el significado**): la misma fila `subtotal=10000, iva=1600`
+> significa hoy *«100 + 16»* y bajo la regla nueva significaría *«100 de los cuales 13.79 son IVA»* ⇒ **un
+> pedido viejo se reinterpretaría solo** (criterio **190**); **(c)** hoy conviven **dos convenciones dentro de
+> la misma ficha** (el precio grande lleva la nota «sin IVA», las filas de variante no) — **eso ya es un
+> defecto hoy**, antes de este cambio (criterio **186**).
+> **Lo que este documento NO decide, a propósito**: **el valor por defecto del dial** (es del dueño), **si el
+> dial es uno global o por tipo de producto**, **si la comisión de plataforma también entra al precio
+> exhibido**, y **el modelo de datos y la fórmula** (del **arquitecto**, después de la aprobación).
+> **Bloqueo declarado**: mientras esto no cierre, **`decks-meta-v1` no se publica** — su propio spec lo dice
+> (`docs/specs/DECKS_META_V1.md` §12) y aquí queda ratificado (criterio **197**).
+> **Preguntas: se abren la 52 a la 64.** Tres son **bloqueantes** (**52**, **53**, **55**) y una es **de
+> contador/abogado, no nuestra** (**58**).
+> Ver **§Q** (cuerpo del requisito), los criterios **185–197** (⛔ no vigentes), las banderas **«Negocio — el
+> dial de IVA es un dial de MARGEN»** y **«Fiscal/Legal — desglose de IVA en factura»**, y los cinco sitios
+> marcados **⚠ EN CONFLICTO CON §Q**: **§B** (dos puntos), **Restricciones técnicas** (Impuestos) y el
+> **criterio 2**. **⛔ Esos cinco NO quedan derogados**: siguen **vigentes y son lo que QA verifica hoy**.
+>
 > **ESTADO AL 2026-09-08 (15ª ronda del bloque v2.1 — CORRECCIÓN DE PRODUCTO A PETICIÓN DEL DUEÑO — LEER
 > PRIMERO; ESTA ES LA MÁS RECIENTE. NO toca la 14ª (D52, bounties) ni la 13ª (D51, KYC): es OTRO FRENTE
 > —**cómo se NOMBRA la línea de comisión del checkout**— y lo único que hace es poner este documento a decir
