@@ -1,10 +1,17 @@
 /**
  * # §31 — EL ESQUELETO COMPARTIDO DE LOS OCHO CORREOS (v3.8 del DESIGN_SYSTEM)
  *
- * Este fichero es **la retícula, la escala y los siete patrones nombrados** de `DESIGN_SYSTEM §31`,
+ * Este fichero es **la retícula, la escala y los patrones nombrados** de `DESIGN_SYSTEM §31`,
  * y nada más: **no conoce ni una cadena de negocio**. Quien lo usa le pasa texto PLANO y recibe
  * `<tr>`s; el escape de HTML lo hace este módulo (S15-B1), no el llamador — es la única forma de que
  * ML-10 no dependa de la disciplina de ocho plantillas.
+ *
+ * ⭐ **Y la regla de crecimiento, que es la razón de ser del fichero:** cuando un correo necesita algo
+ * que aquí no está, **se añade AQUÍ**, no dentro de la plantilla. El pase de los correos 2–6 añadió
+ * exactamente dos cosas y las dos son de esa forma: **{@link monoRow}** (el dato que se copia — la
+ * guía del recordatorio de envío, §25.4.3) y **{@link termsBoxRows} con varios párrafos** (los dos
+ * plazos del correo 4, §31.9). *Un patrón improvisado dentro de una plantilla es exactamente cómo
+ * dejan de hablarse los ocho.*
  *
  * ## ⭐ La regla que gobierna todo el fichero (§31.2)
  * **El correo tiene que ser CORRECTO si el cliente borra el `<style>` entero.** ⇒ tablas anidadas
@@ -262,11 +269,23 @@ export function cardLineRows(line: {
  * de fondo del correo.
  * ⚠️ §31.8 regla 4b: la regla bermellón es **decorativa** — **el rótulo en versalitas es el portador**,
  * porque bajo inversión forzada el bermellón puede caer en el par prohibido de §17.2.
+ *
+ * ⭐ `body` acepta **varios párrafos**, y esa es la extensión que pidió el correo 4: §31.9 le da caja
+ * de términos *«(los dos plazos)»*, y **los dos plazos son dos frases, no una**. Se resuelve **en el
+ * patrón** —una fila por párrafo, con el mismo ritmo de 8px— y no dentro de la plantilla: el punto
+ * entero del esqueleto es que los ocho compongan la misma caja. ⛔ Se sigue emitiendo **un solo
+ * rótulo**: el portador es uno (§31.8 regla 4b).
  */
-export function termsBoxRows(label: string, body: string): string {
+export function termsBoxRows(label: string, body: string | string[]): string {
+  const parrafos = (Array.isArray(body) ? body : [body]).filter((p) => p.length > 0);
   const interior =
     `<tr>${td(WELL, `font-family:${MONO};font-size:10px;line-height:1.2;${LH};font-weight:bold;letter-spacing:.18em;color:${MUTED}`, escapeHtml(label))}</tr>` +
-    `<tr>${td(WELL, `font-family:${SANS};font-size:14px;line-height:1.55;${LH};color:${INK};padding:8px 0 0`, escapeHtml(body))}</tr>`;
+    parrafos
+      .map(
+        (p) =>
+          `<tr>${td(WELL, `font-family:${SANS};font-size:14px;line-height:1.55;${LH};color:${INK};padding:8px 0 0`, escapeHtml(p))}</tr>`,
+      )
+      .join('');
   return padded(
     table(
       `<tr>${td(ACCENT, 'width:3px;line-height:1px;font-size:0', '&nbsp;', 'width="3"')}${td(WELL, 'padding:20px', table(interior))}</tr>`,
@@ -371,6 +390,22 @@ export function ctaRows(url: string, label: string, tone: 'accent' | 'ink' = 'in
         )}</tr>`,
       ),
     )
+  );
+}
+
+/**
+ * **Dato para copiar o teclear** — mono 12px en **tinta** (no en muted: esto SÍ se lee y se copia).
+ * §25.4.3 lo pide con todas las letras para el recordatorio de envío: *«2b lleva el número de guía en
+ * mono seleccionable»*. Es el mismo rol que el folio del eyebrow —un identificador que alguien va a
+ * teclear (§31.4)— pero **dentro del cuerpo**, así que va a la escala de metadatos y no a la de
+ * versalitas. ⛔ No es letra chica y ⛔ no es prosa: si esto se pinta en la sans, deja de distinguirse
+ * un `0` de una `O` justo en el dato que el vendedor va a copiar a la web de la paquetería.
+ */
+export function monoRow(text: string): string {
+  return padded(
+    table(
+      `<tr>${td(PAPER, `font-family:${MONO};font-size:12px;line-height:1.5;${LH};color:${INK};word-break:break-all`, escapeHtml(text))}</tr>`,
+    ),
   );
 }
 

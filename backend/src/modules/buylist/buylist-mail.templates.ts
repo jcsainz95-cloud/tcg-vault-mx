@@ -108,13 +108,39 @@ export interface SellItemRejectedParams {
   reason: string;
   returnDeadlineAt: Date | null;
   abandonDeadlineAt: Date | null;
+  /**
+   * §31.6b — **el folio del eyebrow**, y aquí gana más que en ningún otro: este es exactamente el
+   * correo que le pide al vendedor **escribir a soporte**, y el folio es *«la llave con la que el
+   * vendedor escribirá a soporte»*. Lo pasa `BuylistService` desde `item.sellRequestId`.
+   * ⚠️ **Opcional a propósito**: la firma la fija `ARCHITECTURE §4.18c` y hay lectores que no lo
+   * tienen (los specs de cascada de entorno). Sin folio el eyebrow va **solo** — ⛔ ni se inventa un
+   * identificador ni se deja un `·` huérfano (§31.6b, la misma regla de los correos 7 y 8).
+   */
+  folio?: string | null;
 }
 
 /**
- * Correo al vendedor cuando el admin RECHAZA una de sus cartas (típicamente no-NM). Contenido:
- * qué carta, acabado, motivo y opciones con plazos — devolución antes de `returnDeadlineAt`
- * (A COSTO DEL USUARIO, coordinada con soporte) o abandono en `abandonDeadlineAt`.
- * Firma sugerida por ARCHITECTURE §4.18c. `to` lo fija el llamador (BuylistService).
+ * **CORREO 4 — CARTA NO ACEPTADA** (§31.9; `ARCHITECTURE §4.18c`). Correo al vendedor cuando el admin
+ * RECHAZA una de sus cartas (típicamente no-NM): qué carta, acabado, motivo y **las dos opciones con
+ * sus plazos** — devolución antes de `returnDeadlineAt` (A COSTO DEL USUARIO, coordinada con soporte)
+ * o abandono en `abandonDeadlineAt`. `to` lo fija el llamador (BuylistService).
+ *
+ * ### §31 — qué cambia y qué NO
+ * Cambia **cómo se ve**: el esqueleto de `mail-shell.ts` en lugar del `layout()` de nueve líneas.
+ * ⛔ **No cambia ni una cadena** (§31.0): las dos opciones, el motivo, el aviso final y el asunto son
+ * los de siempre, **carácter por carácter**, y las dos que se pintan en versalitas (`TUS OPCIONES`)
+ * van **en mayúsculas en la cadena**, no por CSS (§31.2).
+ *
+ * - **Caja de términos, y es el único correo del ciclo además del 1 que la lleva** (§31.9): dentro van
+ *   **los dos plazos**. Por eso `termsBoxRows` acepta ahora varios párrafos — la extensión está en el
+ *   patrón, no aquí.
+ * - **⛔ Sin CTA, y es deliberado.** §31.7 le asigna *«el de coordinación»*, pero **§31 no dice qué
+ *   dice ese botón ni a dónde apunta**, y este módulo no tiene URL de coordinación: el canal es el
+ *   buzón de soporte, que **ya viaja dentro de la opción de devolución**, en las dos mitades del
+ *   correo. Inventarle un rótulo sería escribir copy de negocio, que no es mío (§31.0). *Queda
+ *   escalado a ux-ui/arquitecto en `BACKEND_NOTES`.*
+ *
+ * **MINIMIZACIÓN (norma §4.18c):** solo la carta, el acabado, el motivo y los dos plazos con el canal.
  */
 export function sellItemRejectedTemplate(
   params: SellItemRejectedParams,
@@ -122,68 +148,92 @@ export function sellItemRejectedTemplate(
   locale?: string | null,
 ): MailMessage {
   const l = normalizeLocale(locale);
+  const en = l === 'en';
   const finishLabel = FINISH_LABELS[params.finish] ?? params.finish;
   const cardLine = `${params.cardName} · ${params.setName} · #${params.cardNumber}`;
-  const safeName = escapeHtml(name);
-  const safeCardLine = escapeHtml(cardLine);
-  const safeFinish = escapeHtml(finishLabel);
-  const safeReason = escapeHtml(params.reason);
   const returnDate = formatDate(params.returnDeadlineAt, l);
   const abandonDate = formatDate(params.abandonDeadlineAt, l);
 
-  if (l === 'en') {
-    return {
-      to: '', // lo fija el llamador
-      subject: 'A card in your sell request was rejected',
-      html: layout(
-        'A card was rejected',
-        `<p>Hi ${safeName},</p>` +
-          `<p>During verification we rejected the following card from your sell request:</p>` +
-          `<p style="margin:16px 0"><strong>${safeCardLine}</strong><br/>Finish: ${safeFinish}</p>` +
-          `<p><strong>Reason:</strong> ${safeReason}</p>` +
-          `<p>Your options:</p>` +
-          `<ul>` +
-          `<li><strong>Return:</strong> request the return of your card before <strong>${escapeHtml(returnDate)}</strong>. Shipping is at your cost; write to ${SUPPORT_EMAIL} to coordinate it.</li>` +
-          `<li><strong>Abandonment:</strong> if we don't hear from you by <strong>${escapeHtml(abandonDate)}</strong>, the card will be considered abandoned.</li>` +
-          `</ul>` +
-          `<p style="font-size:13px;color:#555">This decision only affects the card above; the rest of your request is not modified by this email.</p>`,
-      ),
-      text:
-        `Hi ${name},\n\n` +
-        `During verification we rejected the following card from your sell request:\n` +
-        `${cardLine} (Finish: ${finishLabel})\n\n` +
-        `Reason: ${params.reason}\n\n` +
-        `Your options:\n` +
-        `- Return: request the return of your card before ${returnDate}. Shipping is at your cost; write to ${SUPPORT_EMAIL} to coordinate it.\n` +
-        `- Abandonment: if we don't hear from you by ${abandonDate}, the card will be considered abandoned.\n\n` +
-        `${BRAND}`,
-    };
-  }
+  const title = en ? 'A card was rejected' : 'Una carta fue rechazada';
+  const intro = en
+    ? 'During verification we rejected the following card from your sell request:'
+    : 'Durante la verificación rechazamos la siguiente carta de tu solicitud de venta:';
+  const reasonProse = en ? `Reason: ${params.reason}` : `Motivo: ${params.reason}`;
+  // §31.2 — versalita **en la cadena**: `text-transform` no existe en Outlook.
+  const optionsLabel = en ? 'YOUR OPTIONS' : 'TUS OPCIONES';
+  const returnOption = en
+    ? `Return: request the return of your card before ${returnDate}. Shipping is at your cost; write to ${SUPPORT_EMAIL} to coordinate it.`
+    : `Devolución: solicita la devolución de tu carta antes del ${returnDate}. El envío corre por tu cuenta; escribe a ${SUPPORT_EMAIL} para coordinarla.`;
+  const abandonOption = en
+    ? `Abandonment: if we don't hear from you by ${abandonDate}, the card will be considered abandoned.`
+    : `Abandono: si no recibimos respuesta antes del ${abandonDate}, la carta se considerará abandonada.`;
+  const closing = en
+    ? 'This decision only affects the card above; the rest of your request is not modified by this email.'
+    : 'Esta decisión solo afecta a la carta indicada; el resto de tu solicitud no se modifica con este correo.';
+  const eyebrow = en ? 'CARD NOT ACCEPTED' : 'CARTA NO ACEPTADA';
+  const eyebrowText = params.folio ? `${eyebrow} · ${params.folio}` : eyebrow;
+
+  const blocks = [
+    brandRows(),
+    eyebrowRow(eyebrow, params.folio ?? null),
+    // §31.9 — titular serif **22px**: los 26px son de los correos 1 y 2, que piden una decisión.
+    headingRow(title, 22),
+    spacerRow(24),
+    proseRow(`${en ? 'Hi' : 'Hola'} ${name}${en ? ',' : ':'}`),
+    spacerRow(16),
+    proseRow(intro),
+    spacerRow(24),
+    ruleRow(),
+    spacerRow(16),
+    // §31.6c — la misma línea de carta de los ocho, con la celda de importe **vacía**: aquí no hay
+    // dinero que decir y ⛔ jamás `MX$ 0.00` (§31.0 regla 3).
+    cardLineRows({
+      title: params.cardName,
+      meta: `${params.setName} · #${params.cardNumber} · ${finishLabel}`,
+    }),
+    spacerRow(16),
+    ruleRow(),
+    spacerRow(24),
+    proseRow(reasonProse),
+    spacerRow(32),
+    // §31.6d — el rótulo en versalitas es **el portador**; la regla bermellón es decorativa (§31.8.4b).
+    termsBoxRows(optionsLabel, [returnOption, abandonOption]),
+    spacerRow(32),
+    smallPrintRow(closing),
+  ];
+
+  // §31.12 — la parte de texto plano dice **lo mismo**, no un resumen. Gana el eyebrow con el folio y
+  // el aviso de cierre, que hasta ahora vivían solo en el HTML: un cliente que solo pinta texto leía
+  // menos que los demás, y este correo es el que le pide escribir a soporte con su folio.
+  const text =
+    `${en ? `Hi ${name},` : `Hola ${name}:`}\n\n` +
+    `${eyebrowText}\n\n` +
+    `${title}\n\n` +
+    `${intro}\n` +
+    `${cardLine} (${en ? 'Finish' : 'Acabado'}: ${finishLabel})\n\n` +
+    `${reasonProse}\n\n` +
+    `${optionsLabel}\n` +
+    `- ${returnOption}\n` +
+    `- ${abandonOption}\n\n` +
+    `${closing}\n\n` +
+    `${BRAND}`;
+
   return {
-    to: '',
-    subject: 'Una carta de tu solicitud de venta fue rechazada',
-    html: layout(
-      'Una carta fue rechazada',
-      `<p>Hola ${safeName}:</p>` +
-        `<p>Durante la verificación rechazamos la siguiente carta de tu solicitud de venta:</p>` +
-        `<p style="margin:16px 0"><strong>${safeCardLine}</strong><br/>Acabado: ${safeFinish}</p>` +
-        `<p><strong>Motivo:</strong> ${safeReason}</p>` +
-        `<p>Tus opciones:</p>` +
-        `<ul>` +
-        `<li><strong>Devolución:</strong> solicita la devolución de tu carta antes del <strong>${escapeHtml(returnDate)}</strong>. El envío corre por tu cuenta; escribe a ${SUPPORT_EMAIL} para coordinarla.</li>` +
-        `<li><strong>Abandono:</strong> si no recibimos respuesta antes del <strong>${escapeHtml(abandonDate)}</strong>, la carta se considerará abandonada.</li>` +
-        `</ul>` +
-        `<p style="font-size:13px;color:#555">Esta decisión solo afecta a la carta indicada; el resto de tu solicitud no se modifica con este correo.</p>`,
-    ),
-    text:
-      `Hola ${name}:\n\n` +
-      `Durante la verificación rechazamos la siguiente carta de tu solicitud de venta:\n` +
-      `${cardLine} (Acabado: ${finishLabel})\n\n` +
-      `Motivo: ${params.reason}\n\n` +
-      `Tus opciones:\n` +
-      `- Devolución: solicita la devolución de tu carta antes del ${returnDate}. El envío corre por tu cuenta; escribe a ${SUPPORT_EMAIL} para coordinarla.\n` +
-      `- Abandono: si no recibimos respuesta antes del ${abandonDate}, la carta se considerará abandonada.\n\n` +
-      `${BRAND}`,
+    to: '', // lo fija el llamador
+    // ⚠️ §31.9 — los asuntos NO se tocan en este pase.
+    subject: en
+      ? 'A card in your sell request was rejected'
+      : 'Una carta de tu solicitud de venta fue rechazada',
+    html: mailShell({
+      locale: l,
+      title,
+      // §31.6a — 40–90 caracteres, y es **la frase que ya abre el cuerpo**: la del hecho. ⛔ No se
+      // redacta un preheader nuevo para este correo (§31.0: no se escribe copy que no exista).
+      preheader: intro,
+      blocks,
+      footerWhy: sellRequestFooterWhy(en),
+    }),
+    text,
   };
 }
 
